@@ -1,3 +1,7 @@
+# ===================================
+# Build and Compilation Artifacts
+# ===================================
+
 # Prerequisites
 *.d
 
@@ -12,7 +16,7 @@
 *.map
 *.exp
 
-# Precompiled Headers
+# Precompiled headers
 *.gch
 *.pch
 
@@ -22,7 +26,7 @@
 *.la
 *.lo
 
-# Shared objects (inc. Windows DLLs)
+# Shared objects (including Windows DLLs)
 *.dll
 *.so
 *.so.*
@@ -42,7 +46,7 @@
 *.idb
 *.pdb
 
-# Kernel Module Compile Results
+# Kernel module compile results
 *.mod*
 *.cmd
 .tmp_versions/
@@ -51,80 +55,60 @@ Module.symvers
 Mkfile.old
 dkms.conf
 
-# credentials
-.pio
-Credentials.h
-<<<<<<< HEAD
-Firmware/motherBoard/.vscode/launch.json
-Firmware/motherBoard/.vscode/c_cpp_properties.json
-=======
+# ===================================
+# Development Tools and IDEs
+# ===================================
 
-#vscode 
-
+# VSCode
 .vscode/
 
->>>>>>> 801c88c1bb7803d20439ede9c30c64ede3420dd5
-build/
+# PlatformIO / Arduino
+.pio/
 **/.pio/
-*.bin
-*.elf
-*.hex
-Hardware/**/.svn/
-build/
-**/.pio/
-*.bin
-*.elf
-*.hex
-Hardware/**/.svn/
-build/
-**/.pio/
-**/.vscode/
-*.log
-*.bin
-*.elf
-*.hex
-*.map
-*.o
-*.obj
-*.d
 **/preproc/
 **/includes.cache
-Hardware/**/.svn/
-build/
-**/.pio/
-**/.vscode/
-*.log
-*.bin
-*.elf
-*.hex
-*.map
-*.o
-*.obj
-*.d
-**/preproc/
-**/includes.cache
-Hardware/**/.svn/
-# PlatformIO / Arduino / builds
-**/.pio/
-**/.vscode/
+
+# Build directories
 build/
 **/build/
-**/preproc/
-**/includes.cache
+
+# ===================================
+# Logs and Temporary Files
+# ===================================
+
 *.log
 *.map
-*.o
-*.obj
-*.d
-# binarios que no quieras versionar
+
+# ===================================
+# Binaries and Firmware
+# ===================================
+
 *.bin
 *.elf
 *.hex
-# restos antiguos
+
+# Old or temporary firmware folders
 Firmware/old/humidifier/build/
 Firmware/old/humidifier/preproc/
+
+# ===================================
+# Credentials and Sensitive Files
+# ===================================
+
+Credentials.h
+
+# ===================================
+# Version Control
+# ===================================
+
+# SVN folders inside hardware
 Hardware/**/.svn/
-/NUL
 
 # Ignore heavy hardware history folders
 Hardware/**/[Hh]istory/
+
+# ===================================
+# Miscellaneous
+# ===================================
+
+/NUL
