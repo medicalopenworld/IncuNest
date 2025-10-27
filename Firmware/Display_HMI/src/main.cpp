@@ -13,7 +13,7 @@
 // Variables de temp y humedad:
 double tempValueair, tempValueskin;
 double humValue;
-bool marked = false;
+int marked = 0;
 bool switch1 = false;
 bool switch2 = false;
 bool switchedTemp = false;
@@ -184,34 +184,38 @@ void Switch_cb(lv_event_t * e) {
 
     bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
 
-    if (obj == ui_Switch1) {
+    if (obj == ui_Switch1) {  // SWITCH TEMPERATURA
         switch1 = checked;
         switchedTemp = checked;
         panel = ui_Panel1;
 
-        // Activar Air automáticamente si se enciende temperatura y no hay panel marcado
-         if (checked && !marked) {
-            marked = true;
+        // Si se enciende temperatura y no hay panel seleccionado, activar Air por defecto
+        if (checked && marked == 0) {
+            marked = 1; // Air
             set_active_panel(ui_PanelAir, ui_PanelSkin);
         }
+
         // Activar o desactivar flechas de temperatura
-        if (checked) {
+        if (checked && marked != 0) {
             // Habilitar flechas
+            flechas = true;
             lv_obj_add_flag(ui_ImgFlechaAbajoTemp, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_add_flag(ui_ImgFlechaArribaTemp, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_set_style_bg_color(ui_FlechaAbajoTemp, lv_color_make(220,240,255), LV_PART_MAIN);
             lv_obj_set_style_bg_color(ui_FlechaArribaTemp, lv_color_make(220,240,255), LV_PART_MAIN);
         } else {
             // Deshabilitar flechas
+            flechas = false;
             lv_obj_clear_flag(ui_ImgFlechaAbajoTemp, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_clear_flag(ui_ImgFlechaArribaTemp, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_set_style_bg_color(ui_FlechaAbajoTemp, lv_color_make(100,100,100), LV_PART_MAIN);
             lv_obj_set_style_bg_color(ui_FlechaArribaTemp, lv_color_make(100,100,100), LV_PART_MAIN);
         }
+
         lv_obj_set_style_opa(ui_FlechaAbajoTemp, LV_OPA_COVER, LV_PART_MAIN);
         lv_obj_set_style_opa(ui_FlechaArribaTemp, LV_OPA_COVER, LV_PART_MAIN);
     } 
-    else if (obj == ui_Switch2) {
+    else if (obj == ui_Switch2) {  // SWITCH HUMEDAD
         switch2 = checked;
         switchedHum = checked;
         panel = ui_Panel3;
@@ -227,13 +231,14 @@ void Switch_cb(lv_event_t * e) {
             lv_obj_set_style_bg_color(ui_FlechaAbajoHum, lv_color_make(100,100,100), LV_PART_MAIN);
             lv_obj_set_style_bg_color(ui_FlechaArribaHum, lv_color_make(100,100,100), LV_PART_MAIN);
         }
-    lv_obj_set_style_opa(ui_FlechaAbajoHum, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_opa(ui_FlechaArribaHum, LV_OPA_COVER, LV_PART_MAIN);
+
+        lv_obj_set_style_opa(ui_FlechaAbajoHum, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_opa(ui_FlechaArribaHum, LV_OPA_COVER, LV_PART_MAIN);
     }
 
-    // Si switchTemp está apagado, desactivamos los paneles y flechas
+    // Si temperatura está apagada, desactivamos los paneles y flechas
     if (!switchedTemp) {
-        marked = false;
+        marked = 0;   // ningún panel activo
         flechas = false;
 
         lv_obj_set_style_bg_color(ui_PanelAir, lv_color_make(100,100,100), LV_PART_MAIN);
@@ -243,9 +248,10 @@ void Switch_cb(lv_event_t * e) {
 
         lv_obj_clear_flag(ui_ImgFlechaAbajoTemp, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_clear_flag(ui_ImgFlechaArribaTemp, LV_OBJ_FLAG_CLICKABLE);
-    } else {
+    } 
+    else {
         // Si hay un panel activo, habilitamos las flechas
-        if (marked) {
+        if (marked != 0) {
             flechas = true;
             lv_obj_add_flag(ui_ImgFlechaAbajoTemp, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_add_flag(ui_ImgFlechaArribaTemp, LV_OBJ_FLAG_CLICKABLE);
@@ -256,7 +262,7 @@ void Switch_cb(lv_event_t * e) {
         }
     }
 
-    // Cambia el color del panel asociado
+    // Cambiar color del panel asociado
     if (panel != NULL) {
         if (checked) {
             lv_obj_set_style_bg_color(panel, lv_color_make(220,240,255), LV_PART_MAIN);
@@ -272,7 +278,7 @@ void Switch_cb(lv_event_t * e) {
 // Se llama cuando se toca PanelAir
 void PanelAir_cb(lv_event_t * e) {
     if (!switchedTemp) return;  // solo actúa si el switch temp está ON
-    marked = true;  // cambia tu variable para saber que se seleccionó Air
+    marked = 1;  // cambia tu variable para saber que se seleccionó Air
     flechas = true;
     set_active_panel(ui_PanelAir, ui_PanelSkin);
 }
@@ -280,7 +286,7 @@ void PanelAir_cb(lv_event_t * e) {
 // Se llama cuando se toca PanelSkin
 void PanelSkin_cb(lv_event_t * e) {
     if (!switchedTemp) return;  // solo actúa si el switch temp está ON
-    marked = false; // cambia tu variable para saber que se seleccionó Skin
+    marked = 2; // cambia tu variable para saber que se seleccionó Skin
     flechas = true;
     set_active_panel(ui_PanelSkin, ui_PanelAir);
 }
@@ -336,9 +342,9 @@ void setup_arrow_callbacks() {
     
     lv_obj_add_event_cb(ui_ImgFlechaArribaTemp, [](lv_event_t * e){
         if (!switchedTemp || !flechas) return; // Si está apagado, no hacer nada
-        if (marked) { 
+        if (marked == 1) { 
             tempValueair += 0.1; 
-        } else { 
+        } else if (marked == 2) { 
             tempValueskin += 0.1; 
         }
         update_labels();
@@ -347,10 +353,10 @@ void setup_arrow_callbacks() {
     // Flecha abajo (temperatura)
     lv_obj_add_event_cb(ui_ImgFlechaAbajoTemp, [](lv_event_t * e){
         if (!switchedTemp || !flechas) return;
-        if (marked) { 
-            tempValueair -= 0.1; 
-        } else { 
+        if (marked == 2) { 
             tempValueskin -= 0.1; 
+        } else if (marked == 1) { 
+            tempValueair -= 0.1; 
         }
         update_labels();
     }, LV_EVENT_CLICKED, NULL);
@@ -602,7 +608,7 @@ void loop() {
     delay(10);
 
     bool tempAlarm = tempValueskin > 37.0;
-    bool humAlarm  = humValue < 60.0;
+    bool humAlarm  = humValue < 50.0;
 
     if(tempAlarm != prevTempAlarm) {
         lista_alarmas[0].estado = tempAlarm;
