@@ -65,17 +65,8 @@ extern lv_obj_t * ui_TempSkinDetected;
 extern lv_obj_t * ui_Label30;
 extern lv_obj_t * ui_Label31;
 extern lv_obj_t * ui_HumDesired;
-extern lv_obj_t * ui_TempButton;
+extern lv_obj_t * ui_Tempbutton;
 extern lv_obj_t * ui_HumidButton;
-extern lv_obj_t * ui_Alarm1Panel;
-extern lv_obj_t * ui_Alarm2Panel;
-extern lv_obj_t * ui_Alarm3Panel;
-extern lv_obj_t * ui_Alarm4Panel;
-extern lv_obj_t * ui_Mutealarm;
-extern lv_obj_t * ui_Alarm1Label;
-extern lv_obj_t * ui_Alarm2Label;
-extern lv_obj_t * ui_Alarm3Label;
-extern lv_obj_t * ui_Alarm4Label;
 // CUSTOM VARIABLES
 extern lv_obj_t * uic_Tempbutton;
 extern lv_obj_t * uic_HumidButton;
