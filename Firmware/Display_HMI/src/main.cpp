@@ -10,29 +10,26 @@
 #include "ui.h"
 #include <buzzer.h>
 
-// Variables de temp y humedad:
-double tempValueair, tempValueskin;
-double humValue;
-int marked = 0;
-bool switch1 = false;
-bool switch2 = false;
-bool switchedTemp = false;
-bool switchedHum = false;
-bool flechas = false;
-//bool alarma_activa = false;
+// Temperature and humidity variables
+double airTempValue, skinTempValue;
+int humValue;
+int selectedPanel = 0;
+bool switchTemp = false;
+bool switchHum = false;
+bool tempSwitched = false;
+bool humSwitched = false;
+bool arrowsActive = false;
+//bool alarmActive = false;
 bool prevTempAlarm = false;
 bool prevHumAlarm = false;
 
-
-struct alarmas
+struct Alarm
 {
     int id;
-    char tipo[30];
-    char descripcion[100];
-    bool estado;
-}; alarmas lista_alarmas[10]; // Array para almacenar hasta 10 alarmas
-
-
+    char type[30];
+    char description[100];
+    bool state;
+}; Alarm alarmList[10]; // Array to store up to 10 alarms
 
 
 class LGFX : public lgfx::LGFX_Device
@@ -90,7 +87,7 @@ public:
 
       _bus_instance.config(cfg);
     }
-            {
+    {
       auto cfg = _panel_instance.config();
       cfg.memory_width  = 800;
       cfg.memory_height = 480;
@@ -105,53 +102,48 @@ public:
 
   }
 };
-LGFX lcd;//
+LGFX lcd;
 
-//Pantalla táctil
+// Touchscreen
 #define TOUCH_SDA 19
 #define TOUCH_SCL 20
 #define TOUCH_INT 38
-#define TOUCH_RST -1   // usa -1 si no tienes pin de reset
+#define TOUCH_RST -1   // use -1 if you don't have reset pin
 
 #define TOUCH_WIDTH  800
 #define TOUCH_HEIGHT 480
 
 TAMC_GT911 ts = TAMC_GT911(TOUCH_SDA, TOUCH_SCL, TOUCH_INT, TOUCH_RST, TOUCH_WIDTH, TOUCH_HEIGHT);
 
-//UI
+// UI
 #define TFT_BL 2
 int led;
 //DHT20 dht20;
 SPIClass& spi = SPI;
 
-
-/* Change to your screen resolution */
+/* Screen resolution */
 static uint32_t screenWidth;
 static uint32_t screenHeight;
 static lv_disp_draw_buf_t draw_buf;
-//static lv_color_t *disp_draw_buf;
 static lv_color_t disp_draw_buf[800 * 480 / 15];
 static lv_disp_drv_t disp_drv;
 
 /* Display flushing */
 void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p)
 {
-
   uint32_t w = (area->x2 - area->x1 + 1);
   uint32_t h = (area->y2 - area->y1 + 1);
 
-
-//lcd.fillScreen(TFT_WHITE);
 #if (LV_COLOR_16_SWAP != 0)
  lcd.pushImageDMA(area->x1, area->y1, w, h,(lgfx::rgb565_t*)&color_p->full);
 #else
-  lcd.pushImageDMA(area->x1, area->y1, w, h,(lgfx::rgb565_t*)&color_p->full);//
+  lcd.pushImageDMA(area->x1, area->y1, w, h,(lgfx::rgb565_t*)&color_p->full);
 #endif
 
   lv_disp_flush_ready(disp);
-
 }
 
+/* Touch input read */
 void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data)
 {
     ts.read();
@@ -167,102 +159,101 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data)
     }
 }
 
-// Temp y humedad:
+/* Temperature and humidity panel styling */
 void set_active_panel(lv_obj_t* active, lv_obj_t* inactive) {
-    // Panel activo → azul y opacidad completa
+    // Active panel → blue with full opacity
     lv_obj_set_style_bg_color(active, lv_color_make(220,240,255), LV_PART_MAIN);
     lv_obj_set_style_opa(active, LV_OPA_COVER, LV_PART_MAIN);
 
-    // Panel inactivo → gris oscuro
+    // Inactive panel → dark gray
     lv_obj_set_style_bg_color(inactive, lv_color_make(100,100,100), LV_PART_MAIN);
     lv_obj_set_style_opa(inactive, LV_OPA_COVER, LV_PART_MAIN);
 }
 
+/* Switch callback for temperature and humidity */
 void Switch_cb(lv_event_t * e) {
-    lv_obj_t * obj = lv_event_get_target(e);  // switch que generó el evento
+    lv_obj_t * obj = lv_event_get_target(e);
     lv_obj_t * panel = NULL;
 
     bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
 
-    if (obj == ui_Switch1) {  // SWITCH TEMPERATURA
-        switch1 = checked;
-        switchedTemp = checked;
+    if (obj == ui_Switch1) {  // TEMPERATURE SWITCH
+        switchTemp = checked;
+        tempSwitched = checked;
         panel = ui_Panel1;
 
-        // Si se enciende temperatura y no hay panel seleccionado, activar Air por defecto
-        if (checked && marked == 0) {
-            marked = 1; // Air
-            set_active_panel(ui_PanelAir, ui_PanelSkin);
+        // If temperature is ON and no panel selected, activate Air panel by default
+        if (checked && selectedPanel == 0) {
+            selectedPanel = 1; // Air
+            set_active_panel(ui_AirPanel, ui_SkinPanel);
         }
 
-        // Activar o desactivar flechas de temperatura
-        if (checked && marked != 0) {
-            // Habilitar flechas
-            flechas = true;
-            lv_obj_add_flag(ui_ImgFlechaAbajoTemp, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_add_flag(ui_ImgFlechaArribaTemp, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_set_style_bg_color(ui_FlechaAbajoTemp, lv_color_make(220,240,255), LV_PART_MAIN);
-            lv_obj_set_style_bg_color(ui_FlechaArribaTemp, lv_color_make(220,240,255), LV_PART_MAIN);
+        // Enable or disable temperature arrows
+        if (checked && selectedPanel != 0) {
+            arrowsActive = true;
+            lv_obj_add_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_flag(ui_ImgArrowUpTemp, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_set_style_bg_color(ui_ArrowDownTemp, lv_color_make(220,240,255), LV_PART_MAIN);
+            lv_obj_set_style_bg_color(ui_ArrowUpTemp, lv_color_make(220,240,255), LV_PART_MAIN);
         } else {
-            // Deshabilitar flechas
-            flechas = false;
-            lv_obj_clear_flag(ui_ImgFlechaAbajoTemp, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_clear_flag(ui_ImgFlechaArribaTemp, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_set_style_bg_color(ui_FlechaAbajoTemp, lv_color_make(100,100,100), LV_PART_MAIN);
-            lv_obj_set_style_bg_color(ui_FlechaArribaTemp, lv_color_make(100,100,100), LV_PART_MAIN);
+            arrowsActive = false;
+            lv_obj_clear_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_clear_flag(ui_ImgArrowUpTemp, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_set_style_bg_color(ui_ArrowDownTemp, lv_color_make(100,100,100), LV_PART_MAIN);
+            lv_obj_set_style_bg_color(ui_ArrowUpTemp, lv_color_make(100,100,100), LV_PART_MAIN);
         }
 
-        lv_obj_set_style_opa(ui_FlechaAbajoTemp, LV_OPA_COVER, LV_PART_MAIN);
-        lv_obj_set_style_opa(ui_FlechaArribaTemp, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_opa(ui_ArrowDownTemp, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_opa(ui_ArrowUpTemp, LV_OPA_COVER, LV_PART_MAIN);
     } 
-    else if (obj == ui_Switch2) {  // SWITCH HUMEDAD
-        switch2 = checked;
-        switchedHum = checked;
+    else if (obj == ui_Switch2) {  // HUMIDITY SWITCH
+        switchHum = checked;
+        humSwitched = checked;
         panel = ui_Panel3;
 
         if (checked) {
-            lv_obj_add_flag(ui_ImgFlechaAbajoHum, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_add_flag(ui_ImgFlechaArribaHum, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_set_style_bg_color(ui_FlechaAbajoHum, lv_color_make(220,240,255), LV_PART_MAIN);
-            lv_obj_set_style_bg_color(ui_FlechaArribaHum, lv_color_make(220,240,255), LV_PART_MAIN);
+            lv_obj_add_flag(ui_ImgArrowDownHum, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_flag(ui_ImgArrowUpHum, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_set_style_bg_color(ui_ArrowDownHum, lv_color_make(220,240,255), LV_PART_MAIN);
+            lv_obj_set_style_bg_color(ui_ArrowUpHum, lv_color_make(220,240,255), LV_PART_MAIN);
         } else {
-            lv_obj_clear_flag(ui_ImgFlechaAbajoHum, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_clear_flag(ui_ImgFlechaArribaHum, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_set_style_bg_color(ui_FlechaAbajoHum, lv_color_make(100,100,100), LV_PART_MAIN);
-            lv_obj_set_style_bg_color(ui_FlechaArribaHum, lv_color_make(100,100,100), LV_PART_MAIN);
+            lv_obj_clear_flag(ui_ImgArrowDownHum, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_clear_flag(ui_ImgArrowUpHum, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_set_style_bg_color(ui_ArrowDownHum, lv_color_make(100,100,100), LV_PART_MAIN);
+            lv_obj_set_style_bg_color(ui_ArrowUpHum, lv_color_make(100,100,100), LV_PART_MAIN);
         }
 
-        lv_obj_set_style_opa(ui_FlechaAbajoHum, LV_OPA_COVER, LV_PART_MAIN);
-        lv_obj_set_style_opa(ui_FlechaArribaHum, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_opa(ui_ArrowDownHum, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_opa(ui_ArrowUpHum, LV_OPA_COVER, LV_PART_MAIN);
     }
 
-    // Si temperatura está apagada, desactivamos los paneles y flechas
-    if (!switchedTemp) {
-        marked = 0;   // ningún panel activo
-        flechas = false;
+    // If temperature is OFF, disable panels and arrows
+    if (!tempSwitched) {
+        selectedPanel = 0;   // no panel active
+        arrowsActive = false;
 
-        lv_obj_set_style_bg_color(ui_PanelAir, lv_color_make(100,100,100), LV_PART_MAIN);
-        lv_obj_set_style_bg_color(ui_PanelSkin, lv_color_make(100,100,100), LV_PART_MAIN);
-        lv_obj_set_style_opa(ui_PanelAir, LV_OPA_COVER, LV_PART_MAIN);
-        lv_obj_set_style_opa(ui_PanelSkin, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(ui_AirPanel, lv_color_make(100,100,100), LV_PART_MAIN);
+        lv_obj_set_style_bg_color(ui_SkinPanel, lv_color_make(100,100,100), LV_PART_MAIN);
+        lv_obj_set_style_opa(ui_AirPanel, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_opa(ui_SkinPanel, LV_OPA_COVER, LV_PART_MAIN);
 
-        lv_obj_clear_flag(ui_ImgFlechaAbajoTemp, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_clear_flag(ui_ImgFlechaArribaTemp, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_clear_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_clear_flag(ui_ImgArrowUpTemp, LV_OBJ_FLAG_CLICKABLE);
     } 
     else {
-        // Si hay un panel activo, habilitamos las flechas
-        if (marked != 0) {
-            flechas = true;
-            lv_obj_add_flag(ui_ImgFlechaAbajoTemp, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_add_flag(ui_ImgFlechaArribaTemp, LV_OBJ_FLAG_CLICKABLE);
+        // If a panel is active, enable arrows
+        if (selectedPanel != 0) {
+            arrowsActive = true;
+            lv_obj_add_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_flag(ui_ImgArrowUpTemp, LV_OBJ_FLAG_CLICKABLE);
         } else {
-            flechas = false;
-            lv_obj_clear_flag(ui_ImgFlechaAbajoTemp, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_clear_flag(ui_ImgFlechaArribaTemp, LV_OBJ_FLAG_CLICKABLE);
+            arrowsActive = false;
+            lv_obj_clear_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_clear_flag(ui_ImgArrowUpTemp, LV_OBJ_FLAG_CLICKABLE);
         }
     }
 
-    // Cambiar color del panel asociado
+    // Change background color of associated panel
     if (panel != NULL) {
         if (checked) {
             lv_obj_set_style_bg_color(panel, lv_color_make(220,240,255), LV_PART_MAIN);
@@ -274,113 +265,106 @@ void Switch_cb(lv_event_t * e) {
     }
 }
 
-
-// Se llama cuando se toca PanelAir
-void PanelAir_cb(lv_event_t * e) {
-    if (!switchedTemp) return;  // solo actúa si el switch temp está ON
-    marked = 1;  // cambia tu variable para saber que se seleccionó Air
-    flechas = true;
-    set_active_panel(ui_PanelAir, ui_PanelSkin);
+/* Callback when Air panel is clicked */
+void AirPanel_cb(lv_event_t * e) {
+    if (!tempSwitched) return;
+    selectedPanel = 1;  // Air panel selected
+    arrowsActive = true;
+    set_active_panel(ui_AirPanel, ui_SkinPanel);
 }
 
-// Se llama cuando se toca PanelSkin
-void PanelSkin_cb(lv_event_t * e) {
-    if (!switchedTemp) return;  // solo actúa si el switch temp está ON
-    marked = 2; // cambia tu variable para saber que se seleccionó Skin
-    flechas = true;
-    set_active_panel(ui_PanelSkin, ui_PanelAir);
+/* Callback when Skin panel is clicked */
+void SkinPanel_cb(lv_event_t * e) {
+    if (!tempSwitched) return;
+    selectedPanel = 2;  // Skin panel selected
+    arrowsActive = true;
+    set_active_panel(ui_SkinPanel, ui_AirPanel);
 }
-// Configuración de los labels como objetos clicables
+
+/* Setup panel click callbacks */
 void setup_panel_callbacks() {
-    // Panel Air
-    lv_obj_add_event_cb(ui_PanelAir, PanelAir_cb, LV_EVENT_CLICKED, NULL);
-    //lv_obj_clear_flag(ui_PanelAir, LV_OBJ_FLAG_CLICKABLE); // opcional: si no quieres que capture otros eventos
-
-    // Panel Skin
-    lv_obj_add_event_cb(ui_PanelSkin, PanelSkin_cb, LV_EVENT_CLICKED, NULL);
-    //lv_obj_clear_flag(ui_PanelSkin, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(ui_AirPanel, AirPanel_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(ui_SkinPanel, SkinPanel_cb, LV_EVENT_CLICKED, NULL);
 }
 
-
+/* Initialize random values for temperature and humidity */
 void init_values() {
-    // valores iniciales aleatorios
-    tempValueair = (double)random(200, 370) / 10.0;  // genera 20.0 a 36.9
-    tempValueskin = (double)random(350, 376) / 10.0;  // genera 35.0 a 37.5
-    humValue  = (double)random(400, 700) / 10.0;  // genera 40.0 a 69.9
+    airTempValue = (double)random(200, 370) / 10.0;  // 20.0 to 36.9
+    skinTempValue = (double)random(350, 376) / 10.0; // 35.0 to 37.5
+    humValue = random(8, 20) * 5;  // Generates values from 40 to 95 in steps of 5
 
     char buffer[10];
-    snprintf(buffer, sizeof(buffer), "%.1f°C", tempValueair);  // temperatura aire
+    snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValue);
     lv_label_set_text(ui_TempAirDesired, buffer);
 
-    snprintf(buffer, sizeof(buffer), "%.1f°C", tempValueskin);  // temperatura piel
+    snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValue);
     lv_label_set_text(ui_TempSkinDesired, buffer);
 
-    snprintf(buffer, sizeof(buffer), "%.1f%%", humValue);   // humedad
+    snprintf(buffer, sizeof(buffer), "%d%%", humValue);
     lv_label_set_text(ui_HumDesired, buffer);
 }
 
+/* Update labels for temperature and humidity */
 void update_labels() {
     char buffer[10];
   
-    // Actualiza temperatura Aire
-    snprintf(buffer, sizeof(buffer), "%.1f°C", tempValueair);
+    snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValue);
     lv_label_set_text(ui_TempAirDesired, buffer);
 
-    // Actualiza temperatura Piel
-    snprintf(buffer, sizeof(buffer), "%.1f°C", tempValueskin);
+    snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValue);
     lv_label_set_text(ui_TempSkinDesired, buffer);
 
-    // Actualiza humedad
-    snprintf(buffer, sizeof(buffer), "%.1f%%", humValue);
+    snprintf(buffer, sizeof(buffer), "%.d%%", humValue);
     lv_label_set_text(ui_HumDesired, buffer);
 }
 
-// Callbacks de las flechas
-
+/* Setup arrow button callbacks for temperature */
 void setup_arrow_callbacks() {
-    // Flecha arriba (temperatura)
-    
-    lv_obj_add_event_cb(ui_ImgFlechaArribaTemp, [](lv_event_t * e){
-        if (!switchedTemp || !flechas) return; // Si está apagado, no hacer nada
-        if (marked == 1) { 
-            tempValueair += 0.1; 
-        } else if (marked == 2) { 
-            tempValueskin += 0.1; 
+    // Up arrow (temperature)
+    lv_obj_add_event_cb(ui_ImgArrowUpTemp, [](lv_event_t * e){
+        if (!tempSwitched || !arrowsActive) return;
+        if (selectedPanel == 1) { 
+            airTempValue += 0.1; 
+        } else if (selectedPanel == 2) { 
+            skinTempValue += 0.1; 
         }
         update_labels();
     }, LV_EVENT_CLICKED, NULL);
 
-    // Flecha abajo (temperatura)
-    lv_obj_add_event_cb(ui_ImgFlechaAbajoTemp, [](lv_event_t * e){
-        if (!switchedTemp || !flechas) return;
-        if (marked == 2) { 
-            tempValueskin -= 0.1; 
-        } else if (marked == 1) { 
-            tempValueair -= 0.1; 
+    // Down arrow (temperature)
+    lv_obj_add_event_cb(ui_ImgArrowDownTemp, [](lv_event_t * e){
+        if (!tempSwitched || !arrowsActive) return;
+        if (selectedPanel == 2) { 
+            skinTempValue -= 0.1; 
+        } else if (selectedPanel == 1) { 
+            airTempValue -= 0.1; 
         }
         update_labels();
     }, LV_EVENT_CLICKED, NULL);
 }
 
+/* Setup arrow button callbacks for humidity */
 void setup_arrow_hum_callbacks() {
-    lv_obj_add_event_cb(ui_ImgFlechaArribaHum, [](lv_event_t * e){
-        if (!switchedHum) return;
-        humValue += 0.1; 
+    lv_obj_add_event_cb(ui_ImgArrowUpHum, [](lv_event_t * e){
+        if (!humSwitched) return;
+        humValue = min(95, humValue + 5);
         update_labels();
     }, LV_EVENT_CLICKED, NULL);
 
-    lv_obj_add_event_cb(ui_ImgFlechaAbajoHum, [](lv_event_t * e){
-        if (!switchedHum) return;
-        humValue -= 0.1; 
+    lv_obj_add_event_cb(ui_ImgArrowDownHum, [](lv_event_t * e){
+        if (!humSwitched) return;
+        humValue = max(40, humValue - 5); 
         update_labels();
     }, LV_EVENT_CLICKED, NULL);
 }
 
+/* Animation callback for blinking alarms */
 static void blink_cb(void * obj, int32_t v) {
     lv_obj_t * target = (lv_obj_t *)obj;
     lv_obj_set_style_opa(target, v, 0);
 }
 
+/* Start blinking animation on alarm panels */
 void start_alarm_blink(lv_obj_t * obj) {
     lv_anim_t a;
     lv_anim_init(&a);
@@ -393,49 +377,48 @@ void start_alarm_blink(lv_obj_t * obj) {
     lv_anim_start(&a);
 }
 
-
+/* Update alarm panels according to alarmList */
 void update_alarm_panels() {
     int pos = 0;
 
-    for (int i = 0; i < sizeof(lista_alarmas)/sizeof(lista_alarmas[0]); i++) {
-        if (lista_alarmas[i].estado) {
-            // mostrar alarma en el panel correspondiente
+    for (int i = 0; i < sizeof(alarmList)/sizeof(alarmList[0]); i++) {
+        if (alarmList[i].state) {
             switch (pos) {
                 case 0:
                     lv_obj_clear_flag(ui_Alarm1Panel, LV_OBJ_FLAG_HIDDEN);
                     lv_obj_clear_flag(ui_Alarm1Label, LV_OBJ_FLAG_HIDDEN);
-                    lv_label_set_text(ui_Alarm1Label, lista_alarmas[i].tipo);
+                    lv_label_set_text(ui_Alarm1Label, alarmList[i].type);
                     start_alarm_blink(ui_Alarm1Panel);
                     start_alarm_blink(ui_Alarm1Label);
                     break;
                 case 1:
                     lv_obj_clear_flag(ui_Alarm2Panel, LV_OBJ_FLAG_HIDDEN);
                     lv_obj_clear_flag(ui_Alarm2Label, LV_OBJ_FLAG_HIDDEN);
-                    lv_label_set_text(ui_Alarm2Label, lista_alarmas[i].tipo);
+                    lv_label_set_text(ui_Alarm2Label, alarmList[i].type);
                     start_alarm_blink(ui_Alarm2Panel);
                     start_alarm_blink(ui_Alarm2Label);
                     break;
                 case 2:
                     lv_obj_clear_flag(ui_Alarm3Panel, LV_OBJ_FLAG_HIDDEN);
                     lv_obj_clear_flag(ui_Alarm3Label, LV_OBJ_FLAG_HIDDEN);
-                    lv_label_set_text(ui_Alarm3Label, lista_alarmas[i].tipo);
+                    lv_label_set_text(ui_Alarm3Label, alarmList[i].type);
                     start_alarm_blink(ui_Alarm3Panel);
                     start_alarm_blink(ui_Alarm3Label);
                     break;
                 case 3:
                     lv_obj_clear_flag(ui_Alarm4Panel, LV_OBJ_FLAG_HIDDEN);
                     lv_obj_clear_flag(ui_Alarm4Label, LV_OBJ_FLAG_HIDDEN);
-                    lv_label_set_text(ui_Alarm4Label, lista_alarmas[i].tipo);
+                    lv_label_set_text(ui_Alarm4Label, alarmList[i].type);
                     start_alarm_blink(ui_Alarm4Panel);
                     start_alarm_blink(ui_Alarm4Label);
                     break;
             }
             pos++;
-            if (pos >= 4) break; // solo mostrar máximo 4 alarmas
+            if (pos >= 4) break;
         }
     }
 
-    // ocultar paneles sobrantes si hay menos de 4 alarmas activas
+    // Hide remaining panels if fewer than 4 alarms active
     if (pos < 4) {
         if (pos <= 0) { lv_obj_add_flag(ui_Alarm1Panel, LV_OBJ_FLAG_HIDDEN); lv_obj_add_flag(ui_Alarm1Label, LV_OBJ_FLAG_HIDDEN);}
         if (pos <= 1) { lv_obj_add_flag(ui_Alarm2Panel, LV_OBJ_FLAG_HIDDEN); lv_obj_add_flag(ui_Alarm2Label, LV_OBJ_FLAG_HIDDEN);}
@@ -445,67 +428,69 @@ void update_alarm_panels() {
 }
 
 
+
 void setup()
 {
     // ===========================
-    // Inicialización de comunicación serial y pines
+    // Serial communication and pins initialization
     // ===========================
-    Serial.begin(115200);          // Inicia el puerto serial para depuración
-    pinMode(38, OUTPUT);         // Configura el pin 38 como salida (LED)
-    digitalWrite(38, LOW);       // Inicializa LED apagado
+    Serial.begin(115200);          // Start serial port for debugging
+    pinMode(38, OUTPUT);           // Set pin 38 as output (LED)
+    digitalWrite(38, LOW);         // Initialize LED OFF
 
-    Wire.begin(19, 20);          // Inicializa I2C en los pines 19 (SDA) y 20 (SCL)
-    /*Wire1.begin(15, 16);          // Inicializa I2C en los pines 15 (SDA) y 16 (SCL)
+    Wire.begin(19, 20);            // Initialize I2C on pins 19 (SDA) and 20 (SCL)
+    /*Wire1.begin(15, 16);          // Initialize I2C on pins 15 (SDA) and 16 (SCL)
 
     buzzerOn();
     delay(3000);
     buzzerOff();*/
-   // ===========================
-    // Inicialización de la pantalla
+   
     // ===========================
-    lcd.begin();                 // Inicializa la pantalla
-    lcd.fillScreen(TFT_BLACK);   // Limpia la pantalla con color negro
-    lcd.setTextSize(2);          // Tamaño de texto predeterminado
-    delay(200);                  // Pequeña pausa para estabilizar
+    // Display initialization
+    // ===========================
+    lcd.begin();                   // Initialize the display
+    lcd.fillScreen(TFT_BLACK);     // Clear the screen with black color
+    lcd.setTextSize(2);            // Default text size
+    delay(200);                     // Short pause to stabilize
 
-    lv_init();                   // Inicializa la librería LVGL
-    ts.begin();                  // Inicializa la pantalla táctil
-    ts.setRotation(3);           // Configura la orientación táctil
-    lcd.setRotation(2);          // Configura la orientación de la pantalla
+    lv_init();                     // Initialize LVGL library
+    ts.begin();                     // Initialize touchscreen
+    ts.setRotation(3);             // Set touchscreen orientation
+    lcd.setRotation(2);             // Set display rotation
 
     // ===========================
-    // Configuración del buffer de dibujo de LVGL
+    // LVGL draw buffer configuration
     // ===========================
     screenWidth = lcd.width();   
     screenHeight = lcd.height();
     lv_disp_draw_buf_init(&draw_buf, disp_draw_buf, NULL, screenWidth * screenHeight / 15);
 
     // ===========================
-    // Configuración del driver de pantalla para LVGL
+    // LVGL display driver configuration
     // ===========================
     lv_disp_drv_init(&disp_drv);
-    disp_drv.hor_res = screenWidth;        // Resolución horizontal
-    disp_drv.ver_res = screenHeight;       // Resolución vertical
-    disp_drv.flush_cb = my_disp_flush;     // Función para enviar los píxeles a la pantalla
-    disp_drv.draw_buf = &draw_buf;         // Buffer de dibujo
-    lv_disp_drv_register(&disp_drv);       // Registra el driver en LVGL
+    disp_drv.hor_res = screenWidth;        // Horizontal resolution
+    disp_drv.ver_res = screenHeight;       // Vertical resolution
+    disp_drv.flush_cb = my_disp_flush;     // Function to send pixels to the display
+    disp_drv.draw_buf = &draw_buf;         // Draw buffer
+    lv_disp_drv_register(&disp_drv);       // Register the display driver in LVGL
 
     // ===========================
-    // Inicialización del driver de entrada (touch)
+    // Input device (touch) initialization
     // ===========================
     static lv_indev_drv_t indev_drv;
     lv_indev_drv_init(&indev_drv);
-    indev_drv.type = LV_INDEV_TYPE_POINTER;    // Tipo puntero (touch)
-    indev_drv.read_cb = my_touchpad_read;      // Callback para leer el touch
-    lv_indev_drv_register(&indev_drv);        // Registra el driver en LVGL
+    indev_drv.type = LV_INDEV_TYPE_POINTER;    // Pointer type (touch)
+    indev_drv.read_cb = my_touchpad_read;      // Callback to read touch input
+    lv_indev_drv_register(&indev_drv);        // Register input device in LVGL
 
     // ===========================
-    // Configuración del brillo de la pantalla
+    // Display backlight configuration
     // ===========================
 #ifdef TFT_BL
-    ledcSetup(1, 300, 8);          // Configura PWM canal 1, 300 Hz, 8 bits
-    ledcAttachPin(TFT_BL, 1);      // Asocia pin de backlight al canal PWM
-    ledcWrite(1, 255);             // Brillo máximo
+    ledcSetup(1, 300, 8);          // Setup PWM channel 1, 300 Hz, 8 bits
+    ledcAttachPin(TFT_BL, 1);      // Attach backlight pin to PWM channel
+    ledcWrite(1, 255);             // Maximum brightness
     pinMode(TFT_BL, OUTPUT);
     digitalWrite(TFT_BL, LOW);     
     delay(500);
@@ -513,88 +498,77 @@ void setup()
 #endif
 
     // ===========================
-    // Inicialización de la interfaz gráfica
+    // UI initialization
     // ===========================
-    ui_init();               // Inicializa los objetos de la UI
-
-
+    ui_init();                      // Initialize UI objects
 
     // ===========================
-    // Inicializar colores de paneles
+    // Initialize panel colors
     // ===========================
-    
-    lv_obj_set_style_bg_color(ui_Panel2, lv_color_make(220,240,255), LV_PART_MAIN); // azul
+    lv_obj_set_style_bg_color(ui_Panel2, lv_color_make(220,240,255), LV_PART_MAIN); // blue
     lv_obj_set_style_opa(ui_Panel2, LV_OPA_COVER, LV_PART_MAIN);
 
-    lv_obj_set_style_bg_color(ui_Panel5, lv_color_make(220,240,255), LV_PART_MAIN); // azul
+    lv_obj_set_style_bg_color(ui_Panel5, lv_color_make(220,240,255), LV_PART_MAIN); // blue
     lv_obj_set_style_opa(ui_Panel5, LV_OPA_COVER, LV_PART_MAIN);
 
-    lv_obj_set_style_bg_color(ui_Panel6, lv_color_make(220,240,255), LV_PART_MAIN); // azul
+    lv_obj_set_style_bg_color(ui_Panel6, lv_color_make(220,240,255), LV_PART_MAIN); // blue
     lv_obj_set_style_opa(ui_Panel6, LV_OPA_COVER, LV_PART_MAIN);
 
-    lv_obj_set_style_bg_color(ui_Panel4, lv_color_make(220,240,255), LV_PART_MAIN); // azul
+    lv_obj_set_style_bg_color(ui_Panel4, lv_color_make(220,240,255), LV_PART_MAIN); // blue
     lv_obj_set_style_opa(ui_Panel4, LV_OPA_COVER, LV_PART_MAIN);
 
-    lv_obj_set_style_bg_color(ui_Panel1, lv_color_make(100,100,100), LV_PART_MAIN); // gris
+    lv_obj_set_style_bg_color(ui_Panel1, lv_color_make(100,100,100), LV_PART_MAIN); // grey
     lv_obj_set_style_opa(ui_Panel1, LV_OPA_COVER, LV_PART_MAIN);
 
-    lv_obj_set_style_bg_color(ui_Panel3, lv_color_make(100,100,100), LV_PART_MAIN); // gris
+    lv_obj_set_style_bg_color(ui_Panel3, lv_color_make(100,100,100), LV_PART_MAIN); // grey
     lv_obj_set_style_opa(ui_Panel3, LV_OPA_COVER, LV_PART_MAIN);
 
-    lv_obj_set_style_bg_color(ui_FlechaAbajoTemp, lv_color_make(100,100,100), LV_PART_MAIN); // panel flecha temp gris
-    lv_obj_set_style_opa(ui_FlechaAbajoTemp, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_FlechaArribaTemp, lv_color_make(100,100,100), LV_PART_MAIN); // panel flecha temp gris
-    lv_obj_set_style_opa(ui_FlechaArribaTemp, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_FlechaAbajoHum, lv_color_make(100,100,100), LV_PART_MAIN); // panel flecha hum gris
-    lv_obj_set_style_opa(ui_FlechaAbajoHum, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_FlechaArribaHum, lv_color_make(100,100,100), LV_PART_MAIN); // panel flecha hum gris
-    lv_obj_set_style_opa(ui_FlechaArribaHum, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_ArrowDownTemp, lv_color_make(100,100,100), LV_PART_MAIN); // temperature arrow panel grey
+    lv_obj_set_style_opa(ui_ArrowDownTemp, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_ArrowUpTemp, lv_color_make(100,100,100), LV_PART_MAIN); // temperature arrow panel grey
+    lv_obj_set_style_opa(ui_ArrowUpTemp, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_ArrowDownHum, lv_color_make(100,100,100), LV_PART_MAIN); // humidity arrow panel grey
+    lv_obj_set_style_opa(ui_ArrowDownHum, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_ArrowUpHum, lv_color_make(100,100,100), LV_PART_MAIN); // humidity arrow panel grey
+    lv_obj_set_style_opa(ui_ArrowUpHum, LV_OPA_COVER, LV_PART_MAIN);
 
-    lv_obj_set_style_bg_color(ui_PanelAir, lv_color_make(100,100,100), LV_PART_MAIN); // panel Air gris
-    lv_obj_set_style_opa(ui_PanelAir, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_PanelSkin, lv_color_make(100,100,100), LV_PART_MAIN); // panel Skin gris
-    lv_obj_set_style_opa(ui_PanelSkin, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_AirPanel, lv_color_make(100,100,100), LV_PART_MAIN); // Air panel grey
+    lv_obj_set_style_opa(ui_AirPanel, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_SkinPanel, lv_color_make(100,100,100), LV_PART_MAIN); // Skin panel grey
+    lv_obj_set_style_opa(ui_SkinPanel, LV_OPA_COVER, LV_PART_MAIN);
 
-    lv_timer_handler();      // Procesa cualquier tarea inicial de LVGL
+    lv_timer_handler();      // Process any initial LVGL tasks
 
     // ===========================
-    // Temperatura y humedad
+    // Temperature and humidity
     // ===========================
-    init_values();           // Asigna valores aleatorios iniciales y actualiza labels
+    init_values();           // Assign initial random values and update labels
 
-    
+    // Add event callbacks to switches
     lv_obj_add_event_cb(ui_Switch1, Switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(ui_Switch2, Switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
-    // Conectar callbacks de selección de paneles
+    // Connect panel selection callbacks
     setup_panel_callbacks();
-    // Conectar callbacks de flechas
+    // Connect arrow callbacks
     setup_arrow_callbacks();
-
     setup_arrow_hum_callbacks();
 
     // ===========================
-    // Configuración de alarmas
+    // Alarm configuration
     // ===========================
+    alarmList[0].id = 1;
+    strcpy(alarmList[0].type, "High Temperature");
+    strcpy(alarmList[0].description, "Desc");
+    alarmList[0].state = false;
 
-
-
-    lista_alarmas[0].id = 1;
-    strcpy(lista_alarmas[0].tipo, "Temperatura alta");
-    strcpy(lista_alarmas[0].descripcion, "Desc");
-    lista_alarmas[0].estado = false;
-
-    lista_alarmas[1].id = 2;
-    strcpy(lista_alarmas[1].tipo, "Humedad baja");
-    strcpy(lista_alarmas[1].descripcion, "Desc");
-    lista_alarmas[1].estado = false;
-
-    
-  
+    alarmList[1].id = 2;
+    strcpy(alarmList[1].type, "Low Humidity");
+    strcpy(alarmList[1].description, "Desc");
+    alarmList[1].state = false;
 }
 
 void loop() {
-
     /*char DHT_buffer[6];
     int a = (int)dht20.getTemperature();
     int b = (int)dht20.getHumidity();
@@ -603,25 +577,24 @@ void loop() {
     snprintf(DHT_buffer, sizeof(DHT_buffer), "%d", b);
     lv_label_set_text(ui_Label2, DHT_buffer);*/
 
-
     lv_timer_handler();
     delay(10);
 
-    bool tempAlarm = tempValueskin > 37.0;
-    bool humAlarm  = humValue < 50.0;
+    bool tempAlarm = skinTempValue > 37.0;
+    bool humAlarm  = humValue < 60.0;
 
     if(tempAlarm != prevTempAlarm) {
-        lista_alarmas[0].estado = tempAlarm;
+        alarmList[0].state = tempAlarm;
         update_alarm_panels();
         prevTempAlarm = tempAlarm;
     }
     if(humAlarm != prevHumAlarm) {
-        lista_alarmas[1].estado = humAlarm;
+        alarmList[1].state = humAlarm;
         update_alarm_panels();
         prevHumAlarm = humAlarm;
     }
 
-    /*if (alarma_activa) {
+    /*if (alarmActive) {
         buzzerOn();
     } else {
         buzzerOff();
