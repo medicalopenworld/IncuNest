@@ -8,6 +8,7 @@
 #include <SPI.h>
 #include <Adafruit_GFX.h>
 #include "ui.h"
+#include <buzzer.h>
 
 // Variables de temp y humedad:
 double tempValueair, tempValueskin;
@@ -18,6 +19,21 @@ bool switch2 = false;
 bool switchedTemp = false;
 bool switchedHum = false;
 bool flechas = false;
+//bool alarma_activa = false;
+bool prevTempAlarm = false;
+bool prevHumAlarm = false;
+
+
+struct alarmas
+{
+    int id;
+    char tipo[30];
+    char descripcion[100];
+    bool estado;
+}; alarmas lista_alarmas[10]; // Array para almacenar hasta 10 alarmas
+
+
+
 
 class LGFX : public lgfx::LGFX_Device
 {
@@ -354,19 +370,91 @@ void setup_arrow_hum_callbacks() {
     }, LV_EVENT_CLICKED, NULL);
 }
 
+static void blink_cb(void * obj, int32_t v) {
+    lv_obj_t * target = (lv_obj_t *)obj;
+    lv_obj_set_style_opa(target, v, 0);
+}
+
+void start_alarm_blink(lv_obj_t * obj) {
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, obj);
+    lv_anim_set_values(&a, LV_OPA_TRANSP, LV_OPA_COVER);
+    lv_anim_set_time(&a, 500);
+    lv_anim_set_playback_time(&a, 500);
+    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_set_exec_cb(&a, blink_cb);
+    lv_anim_start(&a);
+}
+
+
+void update_alarm_panels() {
+    int pos = 0;
+
+    for (int i = 0; i < sizeof(lista_alarmas)/sizeof(lista_alarmas[0]); i++) {
+        if (lista_alarmas[i].estado) {
+            // mostrar alarma en el panel correspondiente
+            switch (pos) {
+                case 0:
+                    lv_obj_clear_flag(ui_Alarm1Panel, LV_OBJ_FLAG_HIDDEN);
+                    lv_obj_clear_flag(ui_Alarm1Label, LV_OBJ_FLAG_HIDDEN);
+                    lv_label_set_text(ui_Alarm1Label, lista_alarmas[i].tipo);
+                    start_alarm_blink(ui_Alarm1Panel);
+                    start_alarm_blink(ui_Alarm1Label);
+                    break;
+                case 1:
+                    lv_obj_clear_flag(ui_Alarm2Panel, LV_OBJ_FLAG_HIDDEN);
+                    lv_obj_clear_flag(ui_Alarm2Label, LV_OBJ_FLAG_HIDDEN);
+                    lv_label_set_text(ui_Alarm2Label, lista_alarmas[i].tipo);
+                    start_alarm_blink(ui_Alarm2Panel);
+                    start_alarm_blink(ui_Alarm2Label);
+                    break;
+                case 2:
+                    lv_obj_clear_flag(ui_Alarm3Panel, LV_OBJ_FLAG_HIDDEN);
+                    lv_obj_clear_flag(ui_Alarm3Label, LV_OBJ_FLAG_HIDDEN);
+                    lv_label_set_text(ui_Alarm3Label, lista_alarmas[i].tipo);
+                    start_alarm_blink(ui_Alarm3Panel);
+                    start_alarm_blink(ui_Alarm3Label);
+                    break;
+                case 3:
+                    lv_obj_clear_flag(ui_Alarm4Panel, LV_OBJ_FLAG_HIDDEN);
+                    lv_obj_clear_flag(ui_Alarm4Label, LV_OBJ_FLAG_HIDDEN);
+                    lv_label_set_text(ui_Alarm4Label, lista_alarmas[i].tipo);
+                    start_alarm_blink(ui_Alarm4Panel);
+                    start_alarm_blink(ui_Alarm4Label);
+                    break;
+            }
+            pos++;
+            if (pos >= 4) break; // solo mostrar máximo 4 alarmas
+        }
+    }
+
+    // ocultar paneles sobrantes si hay menos de 4 alarmas activas
+    if (pos < 4) {
+        if (pos <= 0) { lv_obj_add_flag(ui_Alarm1Panel, LV_OBJ_FLAG_HIDDEN); lv_obj_add_flag(ui_Alarm1Label, LV_OBJ_FLAG_HIDDEN);}
+        if (pos <= 1) { lv_obj_add_flag(ui_Alarm2Panel, LV_OBJ_FLAG_HIDDEN); lv_obj_add_flag(ui_Alarm2Label, LV_OBJ_FLAG_HIDDEN);}
+        if (pos <= 2) { lv_obj_add_flag(ui_Alarm3Panel, LV_OBJ_FLAG_HIDDEN); lv_obj_add_flag(ui_Alarm3Label, LV_OBJ_FLAG_HIDDEN);}
+        if (pos <= 3) { lv_obj_add_flag(ui_Alarm4Panel, LV_OBJ_FLAG_HIDDEN); lv_obj_add_flag(ui_Alarm4Label, LV_OBJ_FLAG_HIDDEN);}
+    }
+}
+
 
 void setup()
 {
     // ===========================
     // Inicialización de comunicación serial y pines
     // ===========================
-    Serial.begin(9600);          // Inicia el puerto serial para depuración
+    Serial.begin(115200);          // Inicia el puerto serial para depuración
     pinMode(38, OUTPUT);         // Configura el pin 38 como salida (LED)
     digitalWrite(38, LOW);       // Inicializa LED apagado
 
     Wire.begin(19, 20);          // Inicializa I2C en los pines 19 (SDA) y 20 (SCL)
+    /*Wire1.begin(15, 16);          // Inicializa I2C en los pines 15 (SDA) y 16 (SCL)
 
-    // ===========================
+    buzzerOn();
+    delay(3000);
+    buzzerOff();*/
+   // ===========================
     // Inicialización de la pantalla
     // ===========================
     lcd.begin();                 // Inicializa la pantalla
@@ -376,7 +464,8 @@ void setup()
 
     lv_init();                   // Inicializa la librería LVGL
     ts.begin();                  // Inicializa la pantalla táctil
-    ts.setRotation(1);           // Configura la orientación táctil
+    ts.setRotation(3);           // Configura la orientación táctil
+    lcd.setRotation(2);          // Configura la orientación de la pantalla
 
     // ===========================
     // Configuración del buffer de dibujo de LVGL
@@ -421,6 +510,7 @@ void setup()
     // Inicialización de la interfaz gráfica
     // ===========================
     ui_init();               // Inicializa los objetos de la UI
+
 
 
     // ===========================
@@ -476,26 +566,58 @@ void setup()
     setup_arrow_callbacks();
 
     setup_arrow_hum_callbacks();
+
+    // ===========================
+    // Configuración de alarmas
+    // ===========================
+
+
+
+    lista_alarmas[0].id = 1;
+    strcpy(lista_alarmas[0].tipo, "Temperatura alta");
+    strcpy(lista_alarmas[0].descripcion, "Desc");
+    lista_alarmas[0].estado = false;
+
+    lista_alarmas[1].id = 2;
+    strcpy(lista_alarmas[1].tipo, "Humedad baja");
+    strcpy(lista_alarmas[1].descripcion, "Desc");
+    lista_alarmas[1].estado = false;
+
+    
   
 }
 
+void loop() {
 
-void loop()
-{
+    /*char DHT_buffer[6];
+    int a = (int)dht20.getTemperature();
+    int b = (int)dht20.getHumidity();
+    snprintf(DHT_buffer, sizeof(DHT_buffer), "%d", a);
+    lv_label_set_text(ui_Label1, DHT_buffer);
+    snprintf(DHT_buffer, sizeof(DHT_buffer), "%d", b);
+    lv_label_set_text(ui_Label2, DHT_buffer);*/
 
-  /*char DHT_buffer[6];
-  int a = (int)dht20.getTemperature();
-  int b = (int)dht20.getHumidity();
-  snprintf(DHT_buffer, sizeof(DHT_buffer), "%d", a);
-  lv_label_set_text(ui_Label1, DHT_buffer);
-  snprintf(DHT_buffer, sizeof(DHT_buffer), "%d", b);
-  lv_label_set_text(ui_Label2, DHT_buffer);*/
 
-  if(led == 1)
-  digitalWrite(38, HIGH);
-  if(led == 0)
-  digitalWrite(38, LOW);
-  lv_timer_handler(); /* let the GUI do its work */
-  delay( 10 );
-   
+    lv_timer_handler();
+    delay(10);
+
+    bool tempAlarm = tempValueskin > 37.0;
+    bool humAlarm  = humValue < 60.0;
+
+    if(tempAlarm != prevTempAlarm) {
+        lista_alarmas[0].estado = tempAlarm;
+        update_alarm_panels();
+        prevTempAlarm = tempAlarm;
+    }
+    if(humAlarm != prevHumAlarm) {
+        lista_alarmas[1].estado = humAlarm;
+        update_alarm_panels();
+        prevHumAlarm = humAlarm;
+    }
+
+    /*if (alarma_activa) {
+        buzzerOn();
+    } else {
+        buzzerOff();
+    }*/
 }

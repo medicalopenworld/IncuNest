@@ -39,6 +39,7 @@ LV_IMG_DECLARE(ui_img_bebe_icon_png);    // assets/bebe icon.png
 LV_IMG_DECLARE(ui_img_296721678);    // assets/settings icon (2).png
 LV_IMG_DECLARE(ui_img_1497256624);    // assets/flecha abajo (2).png
 LV_IMG_DECLARE(ui_img_145782787);    // assets/flecha arriba (3).png
+LV_IMG_DECLARE(ui_img_mute_icon_png);    // assets/mute_icon.png
 LV_IMG_DECLARE(ui_img_1508956403);    // assets/back icon (1).png
 
 // UI INIT
