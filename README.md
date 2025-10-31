@@ -20,27 +20,19 @@ To date, more than **200 incubators have been installed across 30 countries**, s
 
 ## 🧩 Repository Structure
 
+```
 IncuNest/
-
-├── Firmware/ # Firmware source code (ESP32, Arduino framework)
-
-│ ├── Display_HMI/
-
-│ ├── motherboard/
-
-│ ├── old # Legacy
-
-├── Hardware/ # CAD, schematics, and PCB design files
-
-│ ├── Electronics/
-
-│ ├── Mechanical/
-
-├── LICENSE # Open license (non-commercial use allowed)
-
-├── README.md # This document
-
-└── .gitignore # Excludes heavy folders (e.g., Hardware/**/History)
+├── Firmware/          # Firmware source code (ESP32, Arduino framework)
+│   ├── Display_HMI/
+│   ├── motherboard/
+│   └── old            # Legacy
+├── Hardware/          # CAD, schematics, and PCB design files
+│   ├── Electronics/
+│   └── Mechanical/
+├── LICENSE            # Open license (non-commercial use allowed)
+├── README.md          # This document
+└── .gitignore         # Excludes heavy folders (e.g., Hardware/**/History)
+```
 
 ### 🔐 WiFi and ThingsBoard Configuration
 
