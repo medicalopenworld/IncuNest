@@ -2,6 +2,7 @@
 
 #include <PCA9557.h>
 #include <lvgl.h>
+#include "communication.h"
 //#include <DHT20.h>
 #include <TAMC_GT911.h>
 #include <LovyanGFX.hpp>
@@ -45,7 +46,6 @@ public:
 
   LGFX(void)
   {
-
     {
       auto cfg = _bus_instance.config();
       cfg.panel = &_panel_instance;
