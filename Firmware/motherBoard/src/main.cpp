@@ -317,7 +317,7 @@ void setup() {
   if (WIFI_EN) {
     wifiInit();
   }
-  // EEPROM.writeString(EEPROM_THINGSBOARD_TOKEN, "QMr7jvKQdIi6zVwpHqJW");
+  // EEPROM.writeString(EEPROM_THINGSBOARD_TOKEN, "uDuuXVQcUqHyK6hKrPZB");
   // EEPROM.write(EEPROM_THINGSBOARD_PROVISIONED, true);
   // EEPROM.commit();
 

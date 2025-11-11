@@ -400,7 +400,7 @@ void addTelemetriesToWIFIJSON() {
       Wifi_TB.firstConfigPost = true;
       addVariableToTelemetryWIFIJSON[CONTROL_ACTIVE_KEY] = true;
       if (in3.temperatureControl) {
-        if (in3.controlMode == AIR_CONTROL) {
+        if (in3.controlMode == CONTROL_AIR) {
           addVariableToTelemetryWIFIJSON[CONTROL_MODE_KEY] = "AIR";
         } else {
           addVariableToTelemetryWIFIJSON[CONTROL_MODE_KEY] = "SKIN";
