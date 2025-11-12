@@ -9,6 +9,21 @@
 #include <stdint.h>
 
 // -----------------------------
+// Communication actuation modes
+// -----------------------------
+
+#define ACTUATION_NONE 0
+#define ACTUATION_TEMPERATURE 1
+#define ACTUATION_HUMIDITY 2
+#define ACTUATION_TEMP_AND_HUMIDITY 3
+
+#define CONTROL_SKIN false
+#define CONTROL_AIR true
+#define CONTROL_DEFAULT CONTROL_AIR
+
+#define PHOTOTHERAPY_OFF false
+#define PHOTOTHERAPY_ON true
+// -----------------------------
 // Display
 // -----------------------------
 constexpr int DISPLAY_WIDTH = 800;

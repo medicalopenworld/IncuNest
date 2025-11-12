@@ -1,7 +1,8 @@
 /*
   MIT License
 
-  Copyright (c) 2022 Medical Open World, Pablo Sánchez Bergasa
+  Copyright (c) 2022 
+  Medical Open World, Pablo Sánchez Bergasa
 
   Permission is hereby granted, free of charge, to any person obtaining a copy
   of this software and associated documentation files (the "Software"), to deal
@@ -20,20 +21,24 @@
   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
   SOFTWARE.
-
 */
 
-// Firmware version and head title of UI screen
+// ===========================================================
+//  IN3ATOR MOTHERBOARD FIRMWARE
+//  ESP32-S3  |  UART Communication with Display ESP32
+// ===========================================================
 
 #include "main.h"
-
+#include "communication.h"
 #include <Arduino.h>
 
+// ================================
+// HARDWARE DECLARATIONS
+// ================================
 TwoWire *wire;
 MAM_in3ator_Humidifier in3_hum(DEFAULT_ADDRESS);
-// Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC);
-TFT_eSPI tft = TFT_eSPI(); // Invoke custom library
-SHTC3 mySHTC3;             // Declare an instance of the SHTC3 class
+TFT_eSPI tft = TFT_eSPI();
+SHTC3 mySHTC3;
 SensirionI2cSts3x mySTS35[STS3X_NUM];
 Adafruit_SHT4x sht4 = Adafruit_SHT4x();
 RotaryEncoder encoder(ENC_A, ENC_B, RotaryEncoder::LatchMode::TWO03);
@@ -41,136 +46,60 @@ Beastdevices_INA3221 mainDigitalCurrentSensor(INA3221_ADDR41_VCC);
 Beastdevices_INA3221 secundaryDigitalCurrentSensor(INA3221_ADDR40_GND);
 BQ25792 charger(0, 0);
 
+// ================================
+// GLOBAL VARIABLES
+// ================================
 bool WIFI_EN = true;
 long lastDebugUpdate;
 long loopCounts;
 int page;
 
-double errorTemperature[SENSOR_TEMP_QTY], temperatureCalibrationPoint;
-double ReferenceTemperatureRange, ReferenceTemperatureLow;
-double provisionalReferenceTemperatureLow;
-double fineTuneSkinTemperature, fineTuneAirTemperature;
-float diffSkinTemperature,
-    diffAirTemperature; // difference between measured temperature and user
-                        // input real temperature
-double RawTemperatureLow[SENSOR_TEMP_QTY], RawTemperatureRange[SENSOR_TEMP_QTY];
-double provisionalRawTemperatureLow[SENSOR_TEMP_QTY];
-double temperatureMax[SENSOR_TEMP_QTY], temperatureMin[SENSOR_TEMP_QTY];
-int temperature_array_pos; // temperature sensor number turn to measure
-bool humidifierState, humidifierStateChange;
-int previousHumidity; // previous sampled humidity
-float diffHumidity; // difference between measured humidity and user input real
-                    // humidity
-
-byte autoCalibrationProcess;
-
-// Sensor check rate (in ms). Both sensors are checked in same interrupt and
-// they have different check rates
-byte encoderRate = true;
-byte encoderCount = false;
-
-volatile long lastEncPulse;
-volatile bool statusEncSwitch;
-
-bool roomSensorPresent[ROOM_SENSOR_POSIBILITIES];
+bool goToSettings = false;
+bool autoLock;
+bool selected;
+bool enableSet;
 bool ambientSensorPresent = false;
+bool roomSensorPresent[ROOM_SENSOR_POSIBILITIES];
 bool digitalCurrentSensorPresent[2];
 
-// room variables
-float minDesiredTemp[2] = {35, 20};   // minimum allowed temperature to be set
-float maxDesiredTemp[2] = {37.5, 37}; // maximum allowed temperature to be set
-int presetTemp[2] = {36, 32};         // preset baby skin temperature
-
-boolean A_set;
-boolean B_set;
-int encoderpinA = ENC_A;         // pin  encoder A
-int encoderpinB = ENC_B;         // pin  encoder B
-bool encPulsed, encPulsedBefore; // encoder switch status
-bool updateUIData;
-volatile int EncMove;                 // moved encoder
-volatile int lastEncMove;             // moved last encoder
-volatile int EncMoveOrientation = -1; // set to -1 to increase values clockwise
-volatile int last_encoder_move;       // moved encoder
-long encoder_debounce_time =
-    true; // in milliseconds, debounce time in encoder to filter signal bounces
-long last_encPulsed; // last time encoder was pulsed
-
-// Text Graphic position variables
-int humidityX;
-int humidityY;
-int temperatureX;
-int temperatureY;
-int separatorTopYPos, separatorMidYPos, separatorBotYPos;
-int ypos;
-bool print_text;
-int initialSensorPosition = separatorPosition - letter_width;
-bool pos_text[8];
-
-bool enableSet;
-float temperaturePercentage, temperatureAtStart;
-float humidityPercentage, humidityAtStart;
-int barWidth, barHeight, tempBarPosX, tempBarPosY, humBarPosX, humBarPosY;
-int screenTextColor, screenTextBackgroundColour;
-
-// User Interface display variables
-bool goToSettings = false;
-bool autoLock; // setting that enables backlight switch OFF after a given time
-               // of no user actions
-long lastbacklightHandler; // last time there was a encoder movement or pulse
-
-bool selected;
-char cstring[128];
-char *textToWrite;
-char *words[12];
-char *helpMessage;
-byte bar_pos = true;
-byte menu_rows;
-byte length;
-long lastGraphicSensorsUpdate;
-long lastSensorsUpdate;
-bool enableSetProcess;
-long blinking;
-bool state_blink;
-bool blinkSetMessageState;
-long lastBlinkSetMessage;
-
-long lastSuccesfullSensorUpdate[SENSOR_TEMP_QTY];
-
-int ScreenBacklightMode;
-long lastSkinAttachedSensorUpdate;
-long lastRoomSensorUpdate, lastCurrentSensorUpdate;
-
 in3ator_parameters in3;
-
-TaskHandle_t taskHandle =
-    NULL; // Handle for the task we want to delete if it hangs
-long GPRS_lastMillisTaskClear;
-bool TB_connected;
-
+TaskHandle_t taskHandle = NULL;
 QueueHandle_t sharedSensorQueue;
-// Mutex for protecting the shared variable
 SemaphoreHandle_t GPRS_monitor_mutex;
 
+
+// Tiempos de actualización (por errores de compilacion, si no borrar)
+unsigned long GPRS_lastMillisTaskClear = 0;
+unsigned long lastSkinAttachedSensorUpdate = 0;
+unsigned long lastRoomSensorUpdate = 0;
+unsigned long lastCurrentSensorUpdate = 0;
+
+// ================================
+// TASKS DECLARATIONS
+// ================================
+void GPRSMonitorTask(void *pvParameters);
+void GPRS_Task(void *pvParameters);
+void Backlight_Task(void *pvParameters);
+void sensors_Task(void *pvParameters);
+void OTA_WIFI_Task(void *pvParameters);
+void buzzer_Task(void *pvParameters);
+void security_Task(void *pvParameters);
+void UI_Task(void *pvParameters);
+void TimeTrack_Task(void *pvParameters);
+
+// ================================
+// TASK DEFINITIONS
+// ================================
 void GPRSMonitorTask(void *pvParameters) {
   for (;;) {
-    if (xSemaphoreTake(GPRS_monitor_mutex, portMAX_DELAY)) // Lock the mutex
-    {
+    if (xSemaphoreTake(GPRS_monitor_mutex, portMAX_DELAY)) {
       if (millis() - GPRS_lastMillisTaskClear > GPRS_MONITOR_TASK_DELETE) {
-        vTaskDelete(taskHandle); // Delete the hung task
-        // Serial.println("Task deleted. Restarting task...");
-
-        // // Optionally restart the task
-        // while (xTaskCreatePinnedToCore(GPRS_Task, (const char *)"GPRS", 8192,
-        //                                NULL, GPRS_TAST_PRIORITY, &taskHandle,
-        //                                CORE_ID_FREERTOS) != pdPASS)
-        //   ;
-        // logI("GPRS task successfully created!\n");
-        vTaskDelete(NULL); // Delete the monitor task
+        vTaskDelete(taskHandle);
+        vTaskDelete(NULL);
       }
       if (GPRSIsConnectedToServer() || WIFIIsConnectedToServer()) {
-        vTaskDelete(NULL); // Delete the monitor task
+        vTaskDelete(NULL);
       }
-      // Unlock the mutex
       xSemaphoreGive(GPRS_monitor_mutex);
     }
     vTaskDelay(pdMS_TO_TICKS(GPRS_MONITOR_TASK_PERIOD));
@@ -178,7 +107,7 @@ void GPRSMonitorTask(void *pvParameters) {
 }
 
 void GPRS_Task(void *pvParameters) {
-  xTaskCreatePinnedToCore(GPRSMonitorTask, (const char *)"GPRS_MONITOR", 4096,
+  xTaskCreatePinnedToCore(GPRSMonitorTask, "GPRS_MONITOR", 4096,
                           NULL, GPRS_MONITOR_TASK_PRIORITY, NULL,
                           CORE_MONITOR_FREERTOS);
   initGPRS();
@@ -187,9 +116,7 @@ void GPRS_Task(void *pvParameters) {
     if (!WIFIIsConnected()) {
       GPRS_Handler();
     }
-    // Modify the shared variable
     GPRS_lastMillisTaskClear = millis();
-    // Unlock the mutex
     xSemaphoreGive(GPRS_monitor_mutex);
     vTaskDelay(pdMS_TO_TICKS(GPRS_TASK_PERIOD_MS));
   }
@@ -207,8 +134,8 @@ void sensors_Task(void *pvParameters) {
   for (;;) {
     fanSpeedHandler();
     measureNTCTemperature();
-    if (millis() - lastSkinAttachedSensorUpdate >
-        SKIN_CAPACITANCE_UPDATE_PERIOD_MS) {
+
+    if (millis() - lastSkinAttachedSensorUpdate > SKIN_CAPACITANCE_UPDATE_PERIOD_MS) {
       lastSkinAttachedSensorUpdate = millis();
       GPIOWrite(TOUCH_SENSOR_SEL, HIGH);
       initPin(TOUCH_SENSOR, INPUT);
@@ -218,25 +145,24 @@ void sensors_Task(void *pvParameters) {
         vTaskDelay(pdMS_TO_TICKS(TOUCH_DELAY_BETWEEN_MEASURES_MS));
         touchValue = touchRead(TOUCH_SENSOR);
         touchValueMean += touchValue;
-        if (touchValue) {
-          touchValueOK++;
-        }
+        if (touchValue) touchValueOK++;
       }
-      if (touchValueOK) {
-        in3.skinSensorCapacitance = touchValueMean / touchValueOK;
-      }
+      if (touchValueOK) in3.skinSensorCapacitance = touchValueMean / touchValueOK;
       initPin(TOUCH_SENSOR, OUTPUT);
       GPIOWrite(TOUCH_SENSOR_SEL, LOW);
     }
+
     if (millis() - lastRoomSensorUpdate > ROOM_SENSOR_UPDATE_PERIOD_MS) {
       updateRoomSensor();
       updateAmbientSensor();
       lastRoomSensorUpdate = millis();
     }
+
     if (millis() - lastCurrentSensorUpdate > DIGITAL_CURRENT_SENSOR_PERIOD_MS) {
       powerMonitor();
       lastCurrentSensorUpdate = millis();
     }
+
     vTaskDelay(pdMS_TO_TICKS(SENSORS_TASK_PERIOD_MS));
   }
 }
@@ -269,11 +195,8 @@ void UI_Task(void *pvParameters) {
   if (in3.restoreState) {
     UI_actuatorsProgress();
   } else {
-    if (goToSettings) {
-      UI_settings();
-    } else {
-      UI_mainMenu();
-    }
+    if (goToSettings) UI_settings();
+    else UI_mainMenu();
   }
   for (;;) {
     userInterfaceHandler(page);
@@ -288,111 +211,80 @@ void TimeTrack_Task(void *pvParameters) {
   }
 }
 
+// ================================
+// SETUP
+// ================================
 void setup() {
-  // // NVS antes de cualquier cosa BT
-  // esp_err_t ret = nvs_flash_init();
-  // if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
-  //     ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-  //   nvs_flash_erase();
-  //   nvs_flash_init();
-  // }
-
-  // Si SOLO usas Bluetooth clásico (RFCOMM/BluetoothSerial), libera memoria BLE
   esp_bt_controller_mem_release(ESP_BT_MODE_BLE);
   debugSerial.begin(115200);
-  logI("in3ator debug uart, version v" + String(FWversion) + "/" +
-       String(HWversion) + ", SN: " + String(in3.serialNumber));
+  logI("in3ator motherboard booting...");
 
-  // sharedSensorQueue = xQueueCreate(SENSOR_TEMP_QTY, sizeof(long));
   GPRS_monitor_mutex = xSemaphoreCreateBinary();
   security_check_reboot_cause();
   initGPIO();
   initEEPROM();
   initRoomSensor();
-  if (!GPIORead(ENC_SWITCH)) {
-    goToSettings = true;
-  }
+
+  if (!GPIORead(ENC_SWITCH)) goToSettings = true;
 
   initHardware(false);
-  if (WIFI_EN) {
-    wifiInit();
-  }
-  // EEPROM.writeString(EEPROM_THINGSBOARD_TOKEN, "QMr7jvKQdIi6zVwpHqJW");
-  // EEPROM.write(EEPROM_THINGSBOARD_PROVISIONED, true);
-  // EEPROM.commit();
+  if (WIFI_EN) wifiInit();
 
-  logI("Creating buzzer task ...\n");
-  while (xTaskCreatePinnedToCore(buzzer_Task, (const char *)"BUZZER", 4096,
-                                 NULL, BUZZER_TASK_PRIORITY, NULL,
-                                 CORE_ID_FREERTOS) != pdPASS)
-    ;
-  ;
-  logI("Buzzer task successfully created!\n");
-  logI("Creating sensors task ...\n");
-  while (xTaskCreatePinnedToCore(sensors_Task, (const char *)"SENSORS", 4096,
-                                 NULL, SENSORS_TASK_PRIORITY, NULL,
-                                 CORE_ID_FREERTOS) != pdPASS)
-    ;
-  ;
-  logI("sensors task successfully created!\n");
-  // Task generation
-  logI("Creating security task ...\n");
-  while (xTaskCreatePinnedToCore(security_Task, (const char *)"SECURITY", 4096,
-                                 NULL, SECURITY_TASK_PRIORITY, NULL,
-                                 CORE_ID_FREERTOS) != pdPASS)
-    ;
-  ;
-  logI("sensors task successfully created!\n");
-  logI("Creating GPRS task ...\n");
-  while (xTaskCreatePinnedToCore(GPRS_Task, (const char *)"GPRS", 8192, NULL,
-                                 GPRS_TAST_PRIORITY, &taskHandle,
-                                 CORE_ID_FREERTOS) != pdPASS)
-    ;
-  logI("GPRS task successfully created!\n");
+  // 🔹 Inicializar comunicación UART con display
+  logI("Initializing UART communication with Display ESP32...");
+  initCommunication();
+  logI("UART Communication initialized successfully.");
 
-  logI("Creating OTA task ...\n");
-  while (xTaskCreatePinnedToCore(OTA_WIFI_Task, (const char *)"OTA", 8192, NULL,
-                                 OTA_TASK_PRIORITY, NULL,
-                                 CORE_ID_FREERTOS) != pdPASS)
-    ;
-  logI("OTA task successfully created!\n");
-
-  logI("Creating Backlight task ...\n");
-  while (xTaskCreatePinnedToCore(Backlight_Task, (const char *)"BACKLIGHT",
-                                 4096, NULL, BACKLIGHT_TASK_PRIORITY, NULL,
-                                 CORE_ID_FREERTOS) != pdPASS)
-    ;
-  ;
-  logI("Backlight task successfully created!\n");
-  logI("Creating time track task ...\n");
-  while (xTaskCreatePinnedToCore(TimeTrack_Task, (const char *)"TimeTrack",
-                                 4096, NULL, TIME_TRACK_TASK_PRIORITY, NULL,
-                                 CORE_ID_FREERTOS) != pdPASS)
-    ;
-  ;
-  logI("Time track task successfully created!\n");
-
+  // 🔹 Crear tareas FreeRTOS principales
+  xTaskCreatePinnedToCore(buzzer_Task, "BUZZER", 4096, NULL,
+                          BUZZER_TASK_PRIORITY, NULL, CORE_ID_FREERTOS);
+  xTaskCreatePinnedToCore(sensors_Task, "SENSORS", 4096, NULL,
+                          SENSORS_TASK_PRIORITY, NULL, CORE_ID_FREERTOS);
+  xTaskCreatePinnedToCore(security_Task, "SECURITY", 4096, NULL,
+                          SECURITY_TASK_PRIORITY, NULL, CORE_ID_FREERTOS);
+  xTaskCreatePinnedToCore(GPRS_Task, "GPRS", 8192, NULL,
+                          GPRS_TAST_PRIORITY, &taskHandle, CORE_ID_FREERTOS);
+  xTaskCreatePinnedToCore(OTA_WIFI_Task, "OTA", 8192, NULL,
+                          OTA_TASK_PRIORITY, NULL, CORE_ID_FREERTOS);
+  xTaskCreatePinnedToCore(Backlight_Task, "BACKLIGHT", 4096, NULL,
+                          BACKLIGHT_TASK_PRIORITY, NULL, CORE_ID_FREERTOS);
+  xTaskCreatePinnedToCore(TimeTrack_Task, "TimeTrack", 4096, NULL,
+                          TIME_TRACK_TASK_PRIORITY, NULL, CORE_ID_FREERTOS);
 #if HW_NUM < 15
-  logI("Creating UI task ...\n");
-  while (xTaskCreatePinnedToCore(UI_Task, (const char *)"UI", 4096, NULL,
-                                 UI_TASK_PRIORITY, NULL,
-                                 CORE_ID_FREERTOS) != pdPASS)
-    ;
-  ;
-  logI("UI task successfully created!\n");
+  xTaskCreatePinnedToCore(UI_Task, "UI", 4096, NULL,
+                          UI_TASK_PRIORITY, NULL, CORE_ID_FREERTOS);
 #endif
-  // charger.reset();
-  // delay(500); // give the charger time to reboot
-  // charger.setChargeVoltageLimit(14.4);
-  // charger.setInputCurrentLimit(3);
-  // charger.writeByte(REG18_NTC_Control_1, 0x55);
-  // charger.writeByte(REG0E_Timer_Control, 0);
-  // charger.setChargeCurrentLimit(2.0);
-  // pinMode(TOUCH_SENSOR_SEL, OUTPUT);
+  logI("All tasks created successfully!");
 }
 
+// ================================
+// LOOP
+// ================================
 void loop() {
-  watchdogReload();
-  updateData();
-  vTaskDelay(pdMS_TO_TICKS(LOOP_TASK_PERIOD_MS));
+    watchdogReload();
+    updateData();
+
+    // 🔹 Comunicación con display
+    DisplayCommand cmd;
+    DisplayMessage msg;
+
+    if (readDisplayCommand(&cmd)) {
+        logI("Display command received:");
+        logI("Start: " + String(cmd.startButtonPressed));
+        logI("Stop: " + String(cmd.stopButtonPressed));
+        logI("Target Temp Air: " + String(cmd.targetTemperatureAir));
+        logI("Target Temp Skin: " + String(cmd.targetTemperatureSkin));
+        logI("Target Humidity: " + String(cmd.targetHumidity));
+    }
+
+    // 🔹 Enviar valores actuales al display
+    msg.temperatureAir = 37.1;   // ejemplo real, reemplazar con tu sensor
+    msg.temperatureSkin = 36.5;  // ejemplo real, reemplazar con tu sensor
+    msg.humidity = 55.2;         // ejemplo real, reemplazar con tu sensor
+    msg.alarmActive = false;
+    msg.controlMode = true;
+    msg.phototherapyOn = false;
+    sendDisplayMessage(&msg);
+
+    vTaskDelay(pdMS_TO_TICKS(LOOP_TASK_PERIOD_MS));
 }

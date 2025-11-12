@@ -1,4 +1,4 @@
-#include "variables.h"
+#include "main.h"
 
 #include <PCA9557.h>
 #include <lvgl.h>
@@ -19,6 +19,7 @@
 double airTempValue, skinTempValue;
 int humValue;
 int selectedPanel = NO_PANEL_SELECTED;
+int lastSelectedPanel = NO_PANEL_SELECTED;
 bool switchTemp = false;
 bool switchHum = false;
 bool tempSwitched = false;
@@ -190,29 +191,46 @@ void Switch_cb(lv_event_t * e) {
         tempSwitched = checked;
         panel = ui_Panel1;
 
-        // If temperature is ON and no panel selected, activate Air panel by default
-        if (checked && selectedPanel == NO_PANEL_SELECTED) {
-            selectedPanel = AIR_PANEL_SELECTED; // Air
-            set_active_panel(ui_AirPanel, ui_SkinPanel);
-        }
+        if (checked) {  // Temperature switch turned ON
+            // Restore the previous panel if any
+            if (lastSelectedPanel == AIR_PANEL_SELECTED) {
+                selectedPanel = AIR_PANEL_SELECTED;
+                set_active_panel(ui_AirPanel, ui_SkinPanel);
+                hmi_msg.controlMode = CONTROL_AIR;
+            } 
+            else if (lastSelectedPanel == SKIN_PANEL_SELECTED) {
+                selectedPanel = SKIN_PANEL_SELECTED;
+                set_active_panel(ui_SkinPanel, ui_AirPanel);
+                hmi_msg.controlMode = CONTROL_SKIN;
+            } 
+            else {  // No previous panel, default to Air
+                selectedPanel = AIR_PANEL_SELECTED;
+                set_active_panel(ui_AirPanel, ui_SkinPanel);
+                hmi_msg.controlMode = CONTROL_AIR;
+            }
 
-        // Enable or disable temperature arrows
-        if (checked && selectedPanel != NO_PANEL_SELECTED) {
+            // Enable temperature arrows
             arrowsActive = true;
             lv_obj_add_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_add_flag(ui_ImgArrowUpTemp, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_set_style_bg_color(ui_ArrowDownTemp, COLOR_PANEL_BLUE, LV_PART_MAIN);
             lv_obj_set_style_bg_color(ui_ArrowUpTemp, COLOR_PANEL_BLUE, LV_PART_MAIN);
-        } else {
+        } 
+        else {  // Temperature switch turned OFF
             arrowsActive = false;
+
+            // Disable temperature arrows
             lv_obj_clear_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_clear_flag(ui_ImgArrowUpTemp, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_set_style_bg_color(ui_ArrowDownTemp, COLOR_PANEL_GRAY, LV_PART_MAIN);
             lv_obj_set_style_bg_color(ui_ArrowUpTemp, COLOR_PANEL_GRAY, LV_PART_MAIN);
-        }
 
-        lv_obj_set_style_opa(ui_ArrowDownTemp, LV_OPA_COVER, LV_PART_MAIN);
-        lv_obj_set_style_opa(ui_ArrowUpTemp, LV_OPA_COVER, LV_PART_MAIN);
+            // Gray out both panels
+            lv_obj_set_style_bg_color(ui_AirPanel, COLOR_PANEL_GRAY, LV_PART_MAIN);
+            lv_obj_set_style_bg_color(ui_SkinPanel, COLOR_PANEL_GRAY, LV_PART_MAIN);
+            lv_obj_set_style_opa(ui_AirPanel, LV_OPA_COVER, LV_PART_MAIN);
+            lv_obj_set_style_opa(ui_SkinPanel, LV_OPA_COVER, LV_PART_MAIN);
+        }
     } 
     else if (obj == ui_Switch2) {  // HUMIDITY SWITCH
         switchHum = checked;
@@ -234,10 +252,14 @@ void Switch_cb(lv_event_t * e) {
         lv_obj_set_style_opa(ui_ArrowDownHum, LV_OPA_COVER, LV_PART_MAIN);
         lv_obj_set_style_opa(ui_ArrowUpHum, LV_OPA_COVER, LV_PART_MAIN);
     }
+    else if (obj == ui_Switch3) {
+    bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
+    hmi_msg.phototherapyMode = checked ? PHOTOTHERAPY_ON : PHOTOTHERAPY_OFF;
+    hmi_msg.shouldSendData = true;
+}
 
     // If temperature is OFF, disable panels and arrows
     if (!tempSwitched) {
-        selectedPanel = NO_PANEL_SELECTED;   // no panel active
         arrowsActive = false;
 
         lv_obj_set_style_bg_color(ui_AirPanel, COLOR_PANEL_GRAY, LV_PART_MAIN);
@@ -271,22 +293,53 @@ void Switch_cb(lv_event_t * e) {
             lv_obj_set_style_opa(panel, LV_OPA_COVER, LV_PART_MAIN);
         }
     }
+
+    // --- Actuation mode selection logic for COMMUNICATION (.cpp) ---
+    if (switchTemp && switchHum) {
+        hmi_msg.actuation = ACTUATION_TEMP_AND_HUMIDITY;
+    } else if (switchTemp) {
+        hmi_msg.actuation = ACTUATION_TEMPERATURE;
+    } else if (switchHum) {
+        hmi_msg.actuation = ACTUATION_HUMIDITY;
+    } else {
+        hmi_msg.actuation = ACTUATION_NONE;
+    }
+
+    hmi_msg.desiredAirTemperature = airTempValue;
+    hmi_msg.desiredSkinTemperature = skinTempValue;
+    hmi_msg.desiredHumidity = humValue;
+    hmi_msg.shouldSendData = true;
 }
 
 /* Callback when Air panel is clicked */
 void AirPanel_cb(lv_event_t * e) {
     if (!tempSwitched) return;
     selectedPanel = AIR_PANEL_SELECTED;  // Air panel selected
+    lastSelectedPanel = selectedPanel;
+
     arrowsActive = true;
     set_active_panel(ui_AirPanel, ui_SkinPanel);
+    
+    hmi_msg.controlMode = CONTROL_AIR;
+    hmi_msg.desiredAirTemperature = airTempValue;
+    hmi_msg.desiredSkinTemperature = skinTempValue;
+    hmi_msg.desiredHumidity = humValue;
+    hmi_msg.shouldSendData = true;
 }
 
 /* Callback when Skin panel is clicked */
 void SkinPanel_cb(lv_event_t * e) {
     if (!tempSwitched) return;
     selectedPanel = SKIN_PANEL_SELECTED;  // Skin panel selected
+    lastSelectedPanel = selectedPanel;
     arrowsActive = true;
     set_active_panel(ui_SkinPanel, ui_AirPanel);
+
+    hmi_msg.controlMode = CONTROL_SKIN;
+    hmi_msg.desiredAirTemperature = airTempValue;
+    hmi_msg.desiredSkinTemperature = skinTempValue;
+    hmi_msg.desiredHumidity = humValue;
+    hmi_msg.shouldSendData = true;
 }
 
 /* Setup panel click callbacks */
@@ -337,6 +390,11 @@ void setup_arrow_callbacks() {
             skinTempValue += TEMP_INCREMENT; 
         }
         update_labels();
+
+        hmi_msg.desiredAirTemperature = airTempValue;
+        hmi_msg.desiredSkinTemperature = skinTempValue;
+        hmi_msg.desiredHumidity = humValue;
+        hmi_msg.shouldSendData = true;
     }, LV_EVENT_CLICKED, NULL);
 
     // Down arrow (temperature)
@@ -348,6 +406,11 @@ void setup_arrow_callbacks() {
             airTempValue -= TEMP_INCREMENT; 
         }
         update_labels();
+
+        hmi_msg.desiredAirTemperature = airTempValue;
+        hmi_msg.desiredSkinTemperature = skinTempValue;
+        hmi_msg.desiredHumidity = humValue;
+        hmi_msg.shouldSendData = true;
     }, LV_EVENT_CLICKED, NULL);
 }
 
@@ -357,12 +420,22 @@ void setup_arrow_hum_callbacks() {
         if (!humSwitched) return;
         humValue = min(HUM_MAX, humValue + HUM_STEP);
         update_labels();
+
+        hmi_msg.desiredAirTemperature = airTempValue;
+        hmi_msg.desiredSkinTemperature = skinTempValue;
+        hmi_msg.desiredHumidity = humValue;
+        hmi_msg.shouldSendData = true;
     }, LV_EVENT_CLICKED, NULL);
 
     lv_obj_add_event_cb(ui_ImgArrowDownHum, [](lv_event_t * e){
         if (!humSwitched) return;
         humValue = max(HUM_MIN, humValue - HUM_STEP); 
         update_labels();
+
+        hmi_msg.desiredAirTemperature = airTempValue;
+        hmi_msg.desiredSkinTemperature = skinTempValue;
+        hmi_msg.desiredHumidity = humValue;
+        hmi_msg.shouldSendData = true;
     }, LV_EVENT_CLICKED, NULL);
 }
 
@@ -435,6 +508,71 @@ void update_alarm_panels() {
     }
 }
 
+void applyHMIData() {
+    // -----------------------------
+    // Actualizar valores numéricos
+    // -----------------------------
+    airTempValue  = hmi_msg.desiredAirTemperature;
+    skinTempValue = hmi_msg.desiredSkinTemperature;
+    humValue      = (int)hmi_msg.desiredHumidity;  
+    update_labels();
+
+    // -----------------------------
+    // Simular switches según 'actuation'
+    // -----------------------------
+    switch (hmi_msg.actuation) {
+        case ACTUATION_NONE:
+            lv_obj_clear_state(ui_Switch1, LV_STATE_CHECKED);
+            lv_obj_clear_state(ui_Switch2, LV_STATE_CHECKED);
+            break;
+        case ACTUATION_TEMPERATURE:
+            lv_obj_add_state(ui_Switch1, LV_STATE_CHECKED);
+            lv_obj_clear_state(ui_Switch2, LV_STATE_CHECKED);
+            break;
+        case ACTUATION_HUMIDITY:
+            lv_obj_clear_state(ui_Switch1, LV_STATE_CHECKED);
+            lv_obj_add_state(ui_Switch2, LV_STATE_CHECKED);
+            break;
+        case ACTUATION_TEMP_AND_HUMIDITY:
+            lv_obj_add_state(ui_Switch1, LV_STATE_CHECKED);
+            lv_obj_add_state(ui_Switch2, LV_STATE_CHECKED);
+            break;
+    }
+
+    // -----------------------------
+    // Disparar eventos para que se aplique toda la lógica
+    // -----------------------------
+    lv_event_send(ui_Switch1, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_event_send(ui_Switch2, LV_EVENT_VALUE_CHANGED, NULL);
+
+    // -----------------------------
+    // Paneles según controlMode (también puede usarse Switch_cb)
+    // -----------------------------
+    if (hmi_msg.controlMode == CONTROL_AIR) {
+        selectedPanel = AIR_PANEL_SELECTED;
+        lastSelectedPanel = selectedPanel;
+        set_active_panel(ui_AirPanel, ui_SkinPanel);
+    } else if (hmi_msg.controlMode == CONTROL_SKIN) {
+        selectedPanel = SKIN_PANEL_SELECTED;
+        lastSelectedPanel = selectedPanel;
+        set_active_panel(ui_SkinPanel, ui_AirPanel);
+    } else {
+        selectedPanel = NO_PANEL_SELECTED;
+        set_active_panel(ui_AirPanel, ui_SkinPanel);
+    }
+
+    // -----------------------------
+    // Phototherapy switch
+    // -----------------------------
+    if (hmi_msg.phototherapyMode == PHOTOTHERAPY_ON) {
+        lv_obj_add_state(ui_Switch3, LV_STATE_CHECKED);
+    } else {
+        lv_obj_clear_state(ui_Switch3, LV_STATE_CHECKED);
+    }
+    lv_event_send(ui_Switch3, LV_EVENT_VALUE_CHANGED, NULL);
+
+}
+
 
 
 void setup()
@@ -465,6 +603,9 @@ void setup()
     ts.begin();                     // Initialize touchscreen
     ts.setRotation(TOUCH_ROTATION);             // Set touchscreen orientation
     lcd.setRotation(LCD_ROTATION);             // Set display rotation
+
+    Communication_Init();
+
 
     // ===========================
     // LVGL draw buffer configuration
@@ -509,6 +650,7 @@ void setup()
     // UI initialization
     // ===========================
     ui_init();                      // Initialize UI objects
+    
 
     // ===========================
     // Initialize panel colors
@@ -554,6 +696,8 @@ void setup()
 
     lv_obj_add_event_cb(ui_Switch1, Switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(ui_Switch2, Switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(ui_Switch3, Switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
 
     // Connect panel selection callbacks
     setup_panel_callbacks();
@@ -565,12 +709,12 @@ void setup()
     // Alarm configuration
     // ===========================
     alarmList[0].id = 1;
-    strncpy(alarmList[0].type, "High Temperature", ALARM_TYPE_LEN);
+    strncpy(alarmList[0].type, "High temperature", ALARM_TYPE_LEN);
     strncpy(alarmList[0].description, "Desc", ALARM_DESC_LEN);
     alarmList[0].state = false;
-
+// caben 14 caracteres (AA) y 17 (aa) a la letra establecida 
     alarmList[1].id = 2;
-    strncpy(alarmList[1].type, "Low Humidity", ALARM_TYPE_LEN);
+    strncpy(alarmList[1].type, "Low humidity", ALARM_TYPE_LEN);
     strncpy(alarmList[1].description, "Desc", ALARM_DESC_LEN);
     alarmList[1].state = false;
 }
@@ -589,6 +733,10 @@ void loop() {
     lv_timer_handler();
     delay(LOOP_DELAY_MS);
 
+     if (ReceiveMessageFromOtherESP()) {
+        applyHMIData();
+    }
+
     bool tempAlarm = skinTempValue > TEMP_ALARM_THRESHOLD;
     bool humAlarm  = humValue < HUM_ALARM_THRESHOLD;
 
@@ -596,6 +744,7 @@ void loop() {
         alarmList[0].state = tempAlarm;
         update_alarm_panels();
         prevTempAlarm = tempAlarm;
+        
     }
     if(humAlarm != prevHumAlarm) {
         alarmList[1].state = humAlarm;
