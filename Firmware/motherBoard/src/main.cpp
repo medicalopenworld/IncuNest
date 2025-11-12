@@ -77,9 +77,14 @@ bool ambientSensorPresent = false;
 bool digitalCurrentSensorPresent[2];
 
 // room variables
-float minDesiredTemp[2] = {35, 20};   // minimum allowed temperature to be set
-float maxDesiredTemp[2] = {37.5, 37}; // maximum allowed temperature to be set
-int presetTemp[2] = {36, 32};         // preset baby skin temperature
+
+float minDesiredTemp[2] = {
+    SKIN_TEMPERATURE_SET_MIN,
+    AIR_TEMPERATURE_SET_MIN}; // minimum allowed temperature to be set
+float maxDesiredTemp[2] = {
+    SKIN_TEMPERATURE_SET_MAX,
+    AIR_TEMPERATURE_SET_MAX}; // maximum allowed temperature to be set
+int presetTemp[2] = {36, 32}; // preset baby skin temperature
 
 boolean A_set;
 boolean B_set;
