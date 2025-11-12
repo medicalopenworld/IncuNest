@@ -439,6 +439,11 @@ typedef enum
 #define maxHum 90                    // maximum allowed humidity to be set
 #define minHum 20                    // minimum allowed humidity to be set
 
+#define SKIN_TEMPERATURE_SET_MIN 35
+#define AIR_TEMPERATURE_SET_MIN 20
+#define SKIN_TEMPERATURE_SET_MAX 37.5
+#define AIR_TEMPERATURE_SET_MAX 38.5
+
 // Encoder variables
 #define NUMENCODERS 1 // number of encoders in circuit
 #if (HW_NUM == 6)
