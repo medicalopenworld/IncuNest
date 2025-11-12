@@ -154,8 +154,8 @@ extern PID humidityControlPID;
 
 #define ALARM_TIME_DELAY 30 // in mins, time to check alarm
 // security config
-#define AIR_THERMAL_CUTOUT 36.8
-#define SKIN_THERMAL_CUTOUT 38.8
+#define AIR_THERMAL_CUTOUT AIR_TEMPERATURE_SET_MAX
+#define SKIN_THERMAL_CUTOUT SKIN_TEMPERATURE_SET_MAX
 #define AIR_THERMAL_CUTOUT_HYSTERESIS 0.2
 #define SKIN_THERMAL_CUTOUT_HYSTERESIS 0.2
 #define enableAlarms true
