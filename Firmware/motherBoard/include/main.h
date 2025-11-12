@@ -131,10 +131,9 @@
 // pages number in UI. Configuration and information will be displayed depending
 // on the page number
 
-#define CONTROL_TEMPERATURE 1
-#define CONTROL_HUMIDITY 2
-#define CONTROL_TEMP_AND_HUMIDITY 3
-#define CONTROL_PHOTOTHERAPY 4
+#define ACTUATION_TEMPERATURE 1
+#define ACTUATION_HUMIDITY 2
+#define ACTUATION_TEMP_AND_HUMIDITY 3
 
 typedef enum
 {
@@ -298,8 +297,8 @@ typedef enum
 #define OFF false
 #define BASIC_CONTROL false
 #define PID_CONTROL true
-#define SKIN_CONTROL false
-#define AIR_CONTROL true
+#define CONTROL_SKIN false
+#define CONTROL_AIR true
 
 // Tasks priorities
 #define TIME_TRACK_TASK_PRIORITY 2
@@ -386,7 +385,7 @@ typedef enum
   3000                        // in millis, time to press to go to settings window in UI
 #define DEBUG_LOOP_PRINT 1000 // in millis,
 
-#define DEFAULT_CONTROL_MODE AIR_CONTROL
+#define DEFAULT_CONTROL_MODE CONTROL_AIR
 
 #define setupAutoCalibrationPoint 0
 #define firstAutoCalibrationPoint 1

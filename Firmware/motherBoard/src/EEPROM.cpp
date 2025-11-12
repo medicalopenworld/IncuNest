@@ -77,7 +77,7 @@ void loaddefaultValues() {
   autoLock = DEFAULT_AUTOLOCK;
   WIFI_EN = DEFAULT_WIFI_EN;
   in3.language = defaultLanguage;
-  in3.controlMode = AIR_CONTROL;
+  in3.controlMode = CONTROL_AIR;
   in3.desiredControlTemperature = presetTemp[in3.controlMode];
   in3.desiredControlHumidity = presetHumidity;
   EEPROM.write(EEPROM_AUTO_LOCK, autoLock);
@@ -145,15 +145,15 @@ void recapVariables() {
     in3.actuation = EEPROM.read(EEPROM_CONTROL_ACTIVE);
     in3.phototherapy = EEPROM.read(EEPROM_PHOTOTHERAPY_ACTIVE);
     switch (in3.actuation) {
-    case CONTROL_TEMPERATURE:
+    case ACTUATION_TEMPERATURE:
       in3.temperatureControl = true;
       in3.humidityControl = false;
       break;
-    case CONTROL_HUMIDITY:
+    case ACTUATION_HUMIDITY:
       in3.temperatureControl = false;
       in3.humidityControl = true;
       break;
-    case CONTROL_TEMP_AND_HUMIDITY:
+    case ACTUATION_TEMP_AND_HUMIDITY:
       in3.temperatureControl = true;
       in3.humidityControl = true;
       break;

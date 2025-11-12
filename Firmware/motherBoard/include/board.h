@@ -26,7 +26,7 @@
 #define HW_NUM 15
 #define HW_REVISION 'A'
 #define HWversion String(HW_NUM) + "." + String(HW_REVISION)
-#define FWversion "14.12"
+#define FWversion "15.1"
 #define WIFI_NAME "In3ator"
 #define CURRENT_FIRMWARE_TITLE "in3ator"
 
@@ -250,11 +250,15 @@
 
 #endif
 
+// Selección del puerto de depuración según modo USB
 #if ARDUINO_USB_MODE == 1
-#define debugSerial Serial0
+  // Cuando el USB CDC está activo, Serial ya se enruta por USB
+  #define debugSerial Serial
 #else
-#define debugSerial Serial
+  // Si no se usa USB CDC, utiliza UART0 físico
+  #define debugSerial Serial
 #endif
+
 
 // number assignment of each environmental sensor for later call in variable
 #define SKIN_SENSOR 0

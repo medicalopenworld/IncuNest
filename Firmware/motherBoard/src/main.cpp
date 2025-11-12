@@ -228,7 +228,16 @@ void setup() {
   if (!GPIORead(ENC_SWITCH)) goToSettings = true;
 
   initHardware(false);
+<<<<<<< HEAD
   if (WIFI_EN) wifiInit();
+=======
+  if (WIFI_EN) {
+    wifiInit();
+  }
+  // EEPROM.writeString(EEPROM_THINGSBOARD_TOKEN, "uDuuXVQcUqHyK6hKrPZB");
+  // EEPROM.write(EEPROM_THINGSBOARD_PROVISIONED, true);
+  // EEPROM.commit();
+>>>>>>> 6025291646dc034efbbd4bdb83a536ac28a911a9
 
   // 🔹 Inicializar comunicación UART con display
   logI("Initializing UART communication with Display ESP32...");

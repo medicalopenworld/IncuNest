@@ -115,12 +115,9 @@ int checkSerial(const char *success, const char *error) {
 
 void initGPRS() {
   esp_reset_reason_t reason = esp_reset_reason();
-  if (reason == ESP_RST_SW    ||
-      reason == ESP_RST_WDT   ||
-      reason == ESP_RST_TASK_WDT ||
-      reason == ESP_RST_INT_WDT  ||
-      reason == ESP_RST_PANIC) 
-  {
+  if (reason == ESP_RST_SW || reason == ESP_RST_WDT ||
+      reason == ESP_RST_TASK_WDT || reason == ESP_RST_INT_WDT ||
+      reason == ESP_RST_PANIC) {
     logCon("[GPRS] -> Abnormal reset detected (" + String(reason) +
            "), deleting GPRS task this session");
     // Delete the *current* task (i.e. GPRS_Task)
@@ -576,7 +573,7 @@ void addTelemetriesToGPRSJSON() {
       GPRS.firstConfigPost = true;
       addVariableToTelemetryGPRSJSON[CONTROL_ACTIVE_KEY] = true;
       if (in3.temperatureControl) {
-        if (in3.controlMode == AIR_CONTROL) {
+        if (in3.controlMode == CONTROL_AIR) {
           addVariableToTelemetryGPRSJSON[CONTROL_MODE_KEY] = "AIR";
         } else {
           addVariableToTelemetryGPRSJSON[CONTROL_MODE_KEY] = "SKIN";

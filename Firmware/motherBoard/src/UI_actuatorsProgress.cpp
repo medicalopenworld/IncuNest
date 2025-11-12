@@ -345,17 +345,17 @@ void UI_actuatorsProgress()
   in3.actuation = false;
   if (in3.temperatureControl && in3.humidityControl)
   {
-    in3.actuation = CONTROL_TEMP_AND_HUMIDITY;
+    in3.actuation = ACTUATION_TEMP_AND_HUMIDITY;
   }
   else
   {
     if (in3.temperatureControl)
     {
-      in3.actuation = CONTROL_TEMPERATURE;
+      in3.actuation = ACTUATION_TEMPERATURE;
     }
     if (in3.humidityControl)
     {
-      in3.actuation = CONTROL_HUMIDITY;
+      in3.actuation = ACTUATION_HUMIDITY;
     }
   }
   EEPROM.write(EEPROM_CONTROL_ACTIVE, in3.actuation);
