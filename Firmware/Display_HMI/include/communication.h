@@ -12,17 +12,20 @@
 //  ESTRUCTURAS DE DATOS
 // ======================
 typedef struct {
-  double desiredControlTemperature;
-  double desiredControlHumidity;
+  double desiredAirTemperature;
+  double desiredSkinTemperature;
+  double desiredHumidity;
   int actuation;
   bool controlMode;
-  bool shouldSendData;   // <--- NUEVO
+  bool phototherapyMode;
+  bool shouldSendData;  
+  bool muteAlarm = false; 
 } HMI_Message;
 
 typedef struct {
   double temperature[3];
   double humidity[2];
-  bool shouldSendData;   // <--- NUEVO
+  bool shouldSendData;   
 } ControlBoard_Message;
 
 // ======================

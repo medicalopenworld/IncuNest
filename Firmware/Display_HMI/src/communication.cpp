@@ -4,6 +4,8 @@ HMI_Message hmi_msg;
 ControlBoard_Message ctrl_msg;
 static String rxBuffer = "";
 
+
+
 // ======================
 //  INICIALIZACIÓN
 // ======================
@@ -64,11 +66,14 @@ void Communication_Task(void *pvParameters) {
 // ======================
 void SendMessageToOtherESP() {
 #if IS_HMI
-  COMM_SERIAL.printf("HMI,%0.2f,%0.2f,%d,%d\n",
-                     hmi_msg.desiredControlTemperature,
-                     hmi_msg.desiredControlHumidity,
-                     hmi_msg.actuation,
-                     hmi_msg.controlMode);
+  COMM_SERIAL.printf("HMI,%d,%d,%0.2f,%0.2f,%0.0f,%d,%d\n",
+                      hmi_msg.actuation,
+                      hmi_msg.controlMode,
+                      hmi_msg.desiredAirTemperature,
+                      hmi_msg.desiredSkinTemperature,
+                      hmi_msg.desiredHumidity,
+                      hmi_msg.phototherapyMode,
+                      hmi_msg.muteAlarm);
 #else
   COMM_SERIAL.printf("CTRL,%0.2f,%0.2f,%0.2f,%0.2f,%0.2f\n",
                      ctrl_msg.temperature[0],
@@ -87,12 +92,32 @@ bool ReceiveMessageFromOtherESP() {
     char c = COMM_SERIAL.read();
     if (c == '\n') {
       if (rxBuffer.startsWith("HMI")) {
-        sscanf(rxBuffer.c_str(), "HMI,%lf,%lf,%d,%d",
-               &hmi_msg.desiredControlTemperature,
-               &hmi_msg.desiredControlHumidity,
-               &hmi_msg.actuation,
-               (int *)&hmi_msg.controlMode);
-        log_i("Received HMI data");
+        // Debug: Mostrar el buffer recibido
+        //Serial.print("Raw buffer: ");
+        //Serial.println(rxBuffer);
+        
+        int result = sscanf(rxBuffer.c_str(), "HMI,%d,%d,%lf,%lf,%lf,%d,%d",
+              &hmi_msg.actuation,
+              &hmi_msg.controlMode,
+              &hmi_msg.desiredAirTemperature,
+              &hmi_msg.desiredSkinTemperature,
+              &hmi_msg.desiredHumidity,
+              &hmi_msg.phototherapyMode,
+              &hmi_msg.muteAlarm);
+        
+        // Debug: Mostrar si el parsing fue exitoso
+        //Serial.print("Parse result: ");
+        //Serial.println(result);
+        
+        if (result == 7) {  // 7 expected fields
+          Serial.println("✓ HMI data parsed successfully");
+          log_i("Received HMI data");
+        } else {
+          Serial.println("✗ HMI parsing FAILED");
+          rxBuffer = "";
+          return false;
+        }
+        
       } else if (rxBuffer.startsWith("CTRL")) {
         sscanf(rxBuffer.c_str(), "CTRL,%lf,%lf,%lf,%lf,%lf",
                &ctrl_msg.temperature[0],
