@@ -573,6 +573,42 @@ void applyHMIData() {
 
 }
 
+void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
+    // Buscar alarma existente por ID
+    int index = -1;
+    for (int i = 0; i < MAX_ALARMS; i++) {
+        if (alarmList[i].id == alarm.id) {
+            index = i;
+            break;
+        }
+    }
+
+    // Si no existe, buscar un hueco libre
+    if (index == -1) {
+        for (int i = 0; i < MAX_ALARMS; i++) {
+            if (alarmList[i].state == false) { // consideramos estado false como libre
+                index = i;
+                break;
+            }
+        }
+    }
+
+    if (index != -1) {
+        // Guardar/actualizar alarma
+        alarmList[index].id = alarm.id;
+        strncpy(alarmList[index].type, alarm.type, ALARM_TYPE_LEN);
+        alarmList[index].type[ALARM_TYPE_LEN-1] = '\0';
+        strncpy(alarmList[index].description, alarm.description, ALARM_DESC_LEN);
+        alarmList[index].description[ALARM_DESC_LEN-1] = '\0';
+        alarmList[index].state = alarm.state;
+
+        // Actualizar visualización
+        update_alarm_panels();
+    } else {
+        log_w("No space to store new alarm ID=%d", alarm.id);
+    }
+}
+
 
 
 void setup()
@@ -705,18 +741,6 @@ void setup()
     setup_arrow_callbacks();
     setup_arrow_hum_callbacks();
 
-    // ===========================
-    // Alarm configuration
-    // ===========================
-    alarmList[0].id = 1;
-    strncpy(alarmList[0].type, "High temperature", ALARM_TYPE_LEN);
-    strncpy(alarmList[0].description, "Desc", ALARM_DESC_LEN);
-    alarmList[0].state = false;
-// caben 14 caracteres (AA) y 17 (aa) a la letra establecida 
-    alarmList[1].id = 2;
-    strncpy(alarmList[1].type, "Low humidity", ALARM_TYPE_LEN);
-    strncpy(alarmList[1].description, "Desc", ALARM_DESC_LEN);
-    alarmList[1].state = false;
 }
 
 void loop() {
@@ -733,24 +757,19 @@ void loop() {
     lv_timer_handler();
     delay(LOOP_DELAY_MS);
 
-     if (ReceiveMessageFromOtherESP()) {
-        applyHMIData();
+    if (ReceiveMessageFromOtherESP()) {
+    applyHMIData();
+
+    // Si hay alarma nueva recibida
+    if(ctrl_msg_alarm.id != 0) {
+        processReceivedAlarm(ctrl_msg_alarm);
+
+        // Limpiar estructura para la próxima alarma
+        ctrl_msg_alarm.id = 0;
+        ctrl_msg_alarm.state = false;
+    }
     }
 
-    bool tempAlarm = skinTempValue > TEMP_ALARM_THRESHOLD;
-    bool humAlarm  = humValue < HUM_ALARM_THRESHOLD;
-
-    if(tempAlarm != prevTempAlarm) {
-        alarmList[0].state = tempAlarm;
-        update_alarm_panels();
-        prevTempAlarm = tempAlarm;
-        
-    }
-    if(humAlarm != prevHumAlarm) {
-        alarmList[1].state = humAlarm;
-        update_alarm_panels();
-        prevHumAlarm = humAlarm;
-    }
 
     /*if (alarmActive) {
         buzzerOn();

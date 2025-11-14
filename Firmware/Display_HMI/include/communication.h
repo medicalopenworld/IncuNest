@@ -2,6 +2,7 @@
 #define COMMUNICATION_H
 
 #include <Arduino.h>
+#include "main.h"
 
 // Cambia esto según el firmware
 #define IS_HMI true   // Cambia a false para la placa de control
@@ -28,12 +29,20 @@ typedef struct {
   bool shouldSendData;   
 } ControlBoard_Message;
 
+typedef struct {
+  int id;
+  char type[ALARM_TYPE_LEN];
+  char description[ALARM_DESC_LEN];
+  bool state;  
+} ControlBoard_Message_Alarm;
+
 // ======================
 //  VARIABLES GLOBALES
 // ======================
 extern HMI_Message hmi_msg;
 extern ControlBoard_Message ctrl_msg;
-
+extern ControlBoard_Message ctrl_msg;
+extern ControlBoard_Message_Alarm ctrl_msg_alarm;
 // ======================
 //  FUNCIONES PÚBLICAS
 // ======================
