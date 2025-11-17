@@ -26,8 +26,15 @@ typedef struct {
 typedef struct {
   double temperature[3];
   double humidity[2];
-  bool shouldSendData;   
+  bool shouldSendData;
 } ControlBoard_Message;
+
+typedef struct {
+  double detectedAirTemperature;
+  double detectedSkinTemperature;
+  double detectedHumidity;
+  bool shouldSendData;   
+} ControlBoard_Message_Telemetry;
 
 typedef struct {
   int id;
@@ -41,7 +48,7 @@ typedef struct {
 // ======================
 extern HMI_Message hmi_msg;
 extern ControlBoard_Message ctrl_msg;
-extern ControlBoard_Message ctrl_msg;
+extern ControlBoard_Message_Telemetry ctrl_tel_msg;
 extern ControlBoard_Message_Alarm ctrl_msg_alarm;
 // ======================
 //  FUNCIONES PÚBLICAS
@@ -50,5 +57,8 @@ void Communication_Init();
 void Communication_Task(void *pvParameters);
 void SendMessageToOtherESP();
 bool ReceiveMessageFromOtherESP();
+
+
+extern bool error;
 
 #endif

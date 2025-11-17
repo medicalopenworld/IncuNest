@@ -17,7 +17,9 @@
 
 // Temperature and humidity variables
 double airTempValue, skinTempValue;
+double airTempValueDetected = 0.00, skinTempValueDetected = 0.00;
 int humValue;
+int humValueDetected = 0;
 int selectedPanel = NO_PANEL_SELECTED;
 int lastSelectedPanel = NO_PANEL_SELECTED;
 bool switchTemp = false;
@@ -377,6 +379,17 @@ void update_labels() {
 
     snprintf(buffer, sizeof(buffer), "%d%%", humValue);
     lv_label_set_text(ui_HumDesired, buffer);
+
+    if (airTempValueDetected != 0 || skinTempValueDetected != 0 || humValueDetected != 0) {
+        snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValueDetected);
+        lv_label_set_text(ui_TempAirDetected, buffer);
+
+        snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValueDetected);
+        lv_label_set_text(ui_TempSkinDetected, buffer);
+
+        snprintf(buffer, sizeof(buffer), "%d%%", humValueDetected);
+        lv_label_set_text(ui_HumDetected, buffer);
+    }
 }
 
 /* Setup arrow button callbacks for temperature */
@@ -512,15 +525,16 @@ void applyHMIData() {
     // -----------------------------
     // Actualizar valores numéricos
     // -----------------------------
-    airTempValue  = hmi_msg.desiredAirTemperature;
-    skinTempValue = hmi_msg.desiredSkinTemperature;
-    humValue      = (int)hmi_msg.desiredHumidity;  
+    
+    airTempValueDetected  = ctrl_tel_msg.detectedAirTemperature;
+    skinTempValueDetected = ctrl_tel_msg.detectedSkinTemperature;
+    humValueDetected      = (int)ctrl_tel_msg.detectedHumidity;
     update_labels();
 
     // -----------------------------
     // Simular switches según 'actuation'
     // -----------------------------
-    switch (hmi_msg.actuation) {
+    /*switch (hmi_msg.actuation) {
         case ACTUATION_NONE:
             lv_obj_clear_state(ui_Switch1, LV_STATE_CHECKED);
             lv_obj_clear_state(ui_Switch2, LV_STATE_CHECKED);
@@ -569,7 +583,7 @@ void applyHMIData() {
     } else {
         lv_obj_clear_state(ui_Switch3, LV_STATE_CHECKED);
     }
-    lv_event_send(ui_Switch3, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_event_send(ui_Switch3, LV_EVENT_VALUE_CHANGED, NULL);*/
 
 }
 
@@ -758,7 +772,6 @@ void loop() {
     delay(LOOP_DELAY_MS);
 
     if (ReceiveMessageFromOtherESP()) {
-    applyHMIData();
 
     // Si hay alarma nueva recibida
     if(ctrl_msg_alarm.id != 0) {
@@ -767,7 +780,9 @@ void loop() {
         // Limpiar estructura para la próxima alarma
         ctrl_msg_alarm.id = 0;
         ctrl_msg_alarm.state = false;
-    }
+    } else if (error == false) {
+        applyHMIData();
+      }
     }
 
 
@@ -776,4 +791,6 @@ void loop() {
     } else {
         buzzerOff();
     }*/
+
 }
+    
