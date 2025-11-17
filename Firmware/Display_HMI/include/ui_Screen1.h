@@ -75,7 +75,7 @@ extern lv_obj_t * ui_Alarm3Panel;
 extern lv_obj_t * ui_Alarm3Label;
 extern lv_obj_t * ui_Alarm4Panel;
 extern lv_obj_t * ui_Alarm4Label;
-extern lv_obj_t * ui_Mutealarm;
+extern lv_obj_t * ui_MuteAlarm;
 // CUSTOM VARIABLES
 extern lv_obj_t * uic_Tempbutton;
 extern lv_obj_t * uic_HumidButton;

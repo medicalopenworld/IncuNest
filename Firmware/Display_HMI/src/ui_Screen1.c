@@ -65,7 +65,7 @@ lv_obj_t * ui_Alarm3Panel = NULL;
 lv_obj_t * ui_Alarm3Label = NULL;
 lv_obj_t * ui_Alarm4Panel = NULL;
 lv_obj_t * ui_Alarm4Label = NULL;
-lv_obj_t * ui_Mutealarm = NULL;
+lv_obj_t * ui_MuteAlarm = NULL;
 // event funtions
 void ui_event_Switch3(lv_event_t * e)
 {
@@ -608,14 +608,14 @@ void ui_Screen1_screen_init(void)
     lv_obj_set_style_text_opa(ui_Alarm4Label, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(ui_Alarm4Label, &lv_font_montserrat_30, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    ui_Mutealarm = lv_imgbtn_create(ui_Screen1);
-    lv_imgbtn_set_src(ui_Mutealarm, LV_IMGBTN_STATE_RELEASED, NULL, &ui_img_mute_icon_png, NULL);
-    lv_obj_set_width(ui_Mutealarm, 44);
-    lv_obj_set_height(ui_Mutealarm, 45);
-    lv_obj_set_x(ui_Mutealarm, 198);
-    lv_obj_set_y(ui_Mutealarm, 183);
-    lv_obj_set_align(ui_Mutealarm, LV_ALIGN_CENTER);
-    lv_obj_add_flag(ui_Mutealarm, LV_OBJ_FLAG_HIDDEN);     /// Flags
+    ui_MuteAlarm = lv_imgbtn_create(ui_Screen1);
+    lv_imgbtn_set_src(ui_MuteAlarm, LV_IMGBTN_STATE_RELEASED, NULL, &ui_img_mute_icon_png, NULL);
+    lv_obj_set_width(ui_MuteAlarm, 44);
+    lv_obj_set_height(ui_MuteAlarm, 45);
+    lv_obj_set_x(ui_MuteAlarm, 198);
+    lv_obj_set_y(ui_MuteAlarm, 183);
+    lv_obj_set_align(ui_MuteAlarm, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN);     /// Flags
 
     lv_obj_add_event_cb(ui_Switch3, ui_event_Switch3, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_Switch1, ui_event_Switch1, LV_EVENT_ALL, NULL);
@@ -691,6 +691,6 @@ void ui_Screen1_screen_destroy(void)
     ui_Alarm3Label = NULL;
     ui_Alarm4Panel = NULL;
     ui_Alarm4Label = NULL;
-    ui_Mutealarm = NULL;
+    ui_MuteAlarm = NULL;
 
 }

@@ -27,7 +27,7 @@ bool switchHum = false;
 bool tempSwitched = false;
 bool humSwitched = false;
 bool arrowsActive = false;
-//bool alarmActive = false;
+bool alarmActive = false;
 bool prevTempAlarm = false;
 bool prevHumAlarm = false;
 
@@ -510,6 +510,26 @@ void update_alarm_panels() {
             pos++;
             if (pos >= MAX_ALARM_DISPLAY) break;
         }
+
+            // check if any alarm is still active
+            bool anyAlarmActive = false;
+            for (int i = 0; i < MAX_ALARMS; i++) {
+                if (alarmList[i].state) {
+                    anyAlarmActive = true;
+                    break;
+                }
+            }
+
+            // Update general alarm state
+            alarmActive = anyAlarmActive;
+
+            // Show or hide mute button depending on whether there are alarms active
+            if (alarmActive) {
+                lv_obj_clear_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN); // show
+            } else {
+                lv_obj_add_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN);   // hide
+            }
+
     }
 
     // Hide remaining panels if fewer than MAX_ALARM_DISPLAY alarms active
@@ -523,7 +543,7 @@ void update_alarm_panels() {
 
 void applyHMIData() {
     // -----------------------------
-    // Actualizar valores numéricos
+    // Update numeric values
     // -----------------------------
     
     airTempValueDetected  = ctrl_tel_msg.detectedAirTemperature;
@@ -532,7 +552,7 @@ void applyHMIData() {
     update_labels();
 
     // -----------------------------
-    // Simular switches según 'actuation'
+    // Simulate switches according to 'actuation'
     // -----------------------------
     /*switch (hmi_msg.actuation) {
         case ACTUATION_NONE:
@@ -554,13 +574,13 @@ void applyHMIData() {
     }
 
     // -----------------------------
-    // Disparar eventos para que se aplique toda la lógica
+    // Trigger events to apply all logic
     // -----------------------------
     lv_event_send(ui_Switch1, LV_EVENT_VALUE_CHANGED, NULL);
     lv_event_send(ui_Switch2, LV_EVENT_VALUE_CHANGED, NULL);
 
     // -----------------------------
-    // Paneles según controlMode (también puede usarse Switch_cb)
+    // Panels according to controlMode (can also use Switch_cb)
     // -----------------------------
     if (hmi_msg.controlMode == CONTROL_AIR) {
         selectedPanel = AIR_PANEL_SELECTED;
@@ -588,7 +608,11 @@ void applyHMIData() {
 }
 
 void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
-    // Buscar alarma existente por ID
+    alarmActive = true;
+    
+    lv_obj_clear_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN); // Show mute button
+
+    // Search for existing alarm by ID
     int index = -1;
     for (int i = 0; i < MAX_ALARMS; i++) {
         if (alarmList[i].id == alarm.id) {
@@ -597,10 +621,10 @@ void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
         }
     }
 
-    // Si no existe, buscar un hueco libre
+    // If not found, search for a free slot
     if (index == -1) {
         for (int i = 0; i < MAX_ALARMS; i++) {
-            if (alarmList[i].state == false) { // consideramos estado false como libre
+            if (alarmList[i].state == false) { // false = free
                 index = i;
                 break;
             }
@@ -608,7 +632,7 @@ void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
     }
 
     if (index != -1) {
-        // Guardar/actualizar alarma
+        // Save/update alarm info
         alarmList[index].id = alarm.id;
         strncpy(alarmList[index].type, alarm.type, ALARM_TYPE_LEN);
         alarmList[index].type[ALARM_TYPE_LEN-1] = '\0';
@@ -616,7 +640,7 @@ void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
         alarmList[index].description[ALARM_DESC_LEN-1] = '\0';
         alarmList[index].state = alarm.state;
 
-        // Actualizar visualización
+        // Update display
         update_alarm_panels();
     } else {
         log_w("No space to store new alarm ID=%d", alarm.id);
@@ -701,6 +725,18 @@ void setup()
     // ===========================
     ui_init();                      // Initialize UI objects
     
+    
+
+    // Mute alarm button callback:
+    lv_obj_add_event_cb(ui_MuteAlarm, [](lv_event_t * e){
+    // Activate alarm mute
+        alarmActive = false;
+
+        // Make button non-visible
+        lv_obj_add_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN);
+
+    
+    }, LV_EVENT_CLICKED, NULL);
 
     // ===========================
     // Initialize panel colors
@@ -773,11 +809,11 @@ void loop() {
 
     if (ReceiveMessageFromOtherESP()) {
 
-    // Si hay alarma nueva recibida
+    // if new alarm received
     if(ctrl_msg_alarm.id != 0) {
         processReceivedAlarm(ctrl_msg_alarm);
 
-        // Limpiar estructura para la próxima alarma
+        // Clear structure for next alarm
         ctrl_msg_alarm.id = 0;
         ctrl_msg_alarm.state = false;
     } else if (error == false) {
