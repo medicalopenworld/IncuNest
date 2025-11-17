@@ -17,7 +17,9 @@
 
 // Temperature and humidity variables
 double airTempValue, skinTempValue;
+double airTempValueDetected = 0.00, skinTempValueDetected = 0.00;
 int humValue;
+int humValueDetected = 0;
 int selectedPanel = NO_PANEL_SELECTED;
 int lastSelectedPanel = NO_PANEL_SELECTED;
 bool switchTemp = false;
@@ -25,7 +27,7 @@ bool switchHum = false;
 bool tempSwitched = false;
 bool humSwitched = false;
 bool arrowsActive = false;
-//bool alarmActive = false;
+bool alarmActive = false;
 bool prevTempAlarm = false;
 bool prevHumAlarm = false;
 
@@ -377,6 +379,17 @@ void update_labels() {
 
     snprintf(buffer, sizeof(buffer), "%d%%", humValue);
     lv_label_set_text(ui_HumDesired, buffer);
+
+    if (airTempValueDetected != 0 || skinTempValueDetected != 0 || humValueDetected != 0) {
+        snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValueDetected);
+        lv_label_set_text(ui_TempAirDetected, buffer);
+
+        snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValueDetected);
+        lv_label_set_text(ui_TempSkinDetected, buffer);
+
+        snprintf(buffer, sizeof(buffer), "%d%%", humValueDetected);
+        lv_label_set_text(ui_HumDetected, buffer);
+    }
 }
 
 /* Setup arrow button callbacks for temperature */
@@ -497,6 +510,26 @@ void update_alarm_panels() {
             pos++;
             if (pos >= MAX_ALARM_DISPLAY) break;
         }
+
+            // check if any alarm is still active
+            bool anyAlarmActive = false;
+            for (int i = 0; i < MAX_ALARMS; i++) {
+                if (alarmList[i].state) {
+                    anyAlarmActive = true;
+                    break;
+                }
+            }
+
+            // Update general alarm state
+            alarmActive = anyAlarmActive;
+
+            // Show or hide mute button depending on whether there are alarms active
+            if (alarmActive) {
+                lv_obj_clear_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN); // show
+            } else {
+                lv_obj_add_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN);   // hide
+            }
+
     }
 
     // Hide remaining panels if fewer than MAX_ALARM_DISPLAY alarms active
@@ -510,17 +543,18 @@ void update_alarm_panels() {
 
 void applyHMIData() {
     // -----------------------------
-    // Actualizar valores numéricos
+    // Update numeric values
     // -----------------------------
-    airTempValue  = hmi_msg.desiredAirTemperature;
-    skinTempValue = hmi_msg.desiredSkinTemperature;
-    humValue      = (int)hmi_msg.desiredHumidity;  
+    
+    airTempValueDetected  = ctrl_tel_msg.detectedAirTemperature;
+    skinTempValueDetected = ctrl_tel_msg.detectedSkinTemperature;
+    humValueDetected      = (int)ctrl_tel_msg.detectedHumidity;
     update_labels();
 
     // -----------------------------
-    // Simular switches según 'actuation'
+    // Simulate switches according to 'actuation'
     // -----------------------------
-    switch (hmi_msg.actuation) {
+    /*switch (hmi_msg.actuation) {
         case ACTUATION_NONE:
             lv_obj_clear_state(ui_Switch1, LV_STATE_CHECKED);
             lv_obj_clear_state(ui_Switch2, LV_STATE_CHECKED);
@@ -540,13 +574,13 @@ void applyHMIData() {
     }
 
     // -----------------------------
-    // Disparar eventos para que se aplique toda la lógica
+    // Trigger events to apply all logic
     // -----------------------------
     lv_event_send(ui_Switch1, LV_EVENT_VALUE_CHANGED, NULL);
     lv_event_send(ui_Switch2, LV_EVENT_VALUE_CHANGED, NULL);
 
     // -----------------------------
-    // Paneles según controlMode (también puede usarse Switch_cb)
+    // Panels according to controlMode (can also use Switch_cb)
     // -----------------------------
     if (hmi_msg.controlMode == CONTROL_AIR) {
         selectedPanel = AIR_PANEL_SELECTED;
@@ -569,8 +603,48 @@ void applyHMIData() {
     } else {
         lv_obj_clear_state(ui_Switch3, LV_STATE_CHECKED);
     }
-    lv_event_send(ui_Switch3, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_event_send(ui_Switch3, LV_EVENT_VALUE_CHANGED, NULL);*/
 
+}
+
+void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
+    alarmActive = true;
+    
+    lv_obj_clear_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN); // Show mute button
+
+    // Search for existing alarm by ID
+    int index = -1;
+    for (int i = 0; i < MAX_ALARMS; i++) {
+        if (alarmList[i].id == alarm.id) {
+            index = i;
+            break;
+        }
+    }
+
+    // If not found, search for a free slot
+    if (index == -1) {
+        for (int i = 0; i < MAX_ALARMS; i++) {
+            if (alarmList[i].state == false) { // false = free
+                index = i;
+                break;
+            }
+        }
+    }
+
+    if (index != -1) {
+        // Save/update alarm info
+        alarmList[index].id = alarm.id;
+        strncpy(alarmList[index].type, alarm.type, ALARM_TYPE_LEN);
+        alarmList[index].type[ALARM_TYPE_LEN-1] = '\0';
+        strncpy(alarmList[index].description, alarm.description, ALARM_DESC_LEN);
+        alarmList[index].description[ALARM_DESC_LEN-1] = '\0';
+        alarmList[index].state = alarm.state;
+
+        // Update display
+        update_alarm_panels();
+    } else {
+        log_w("No space to store new alarm ID=%d", alarm.id);
+    }
 }
 
 
@@ -651,6 +725,18 @@ void setup()
     // ===========================
     ui_init();                      // Initialize UI objects
     
+    
+
+    // Mute alarm button callback:
+    lv_obj_add_event_cb(ui_MuteAlarm, [](lv_event_t * e){
+    // Activate alarm mute
+        alarmActive = false;
+
+        // Make button non-visible
+        lv_obj_add_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN);
+
+    
+    }, LV_EVENT_CLICKED, NULL);
 
     // ===========================
     // Initialize panel colors
@@ -705,18 +791,6 @@ void setup()
     setup_arrow_callbacks();
     setup_arrow_hum_callbacks();
 
-    // ===========================
-    // Alarm configuration
-    // ===========================
-    alarmList[0].id = 1;
-    strncpy(alarmList[0].type, "High temperature", ALARM_TYPE_LEN);
-    strncpy(alarmList[0].description, "Desc", ALARM_DESC_LEN);
-    alarmList[0].state = false;
-// caben 14 caracteres (AA) y 17 (aa) a la letra establecida 
-    alarmList[1].id = 2;
-    strncpy(alarmList[1].type, "Low humidity", ALARM_TYPE_LEN);
-    strncpy(alarmList[1].description, "Desc", ALARM_DESC_LEN);
-    alarmList[1].state = false;
 }
 
 void loop() {
@@ -733,28 +807,26 @@ void loop() {
     lv_timer_handler();
     delay(LOOP_DELAY_MS);
 
-     if (ReceiveMessageFromOtherESP()) {
+    if (ReceiveMessageFromOtherESP()) {
+
+    // if new alarm received
+    if(ctrl_msg_alarm.id != 0) {
+        processReceivedAlarm(ctrl_msg_alarm);
+
+        // Clear structure for next alarm
+        ctrl_msg_alarm.id = 0;
+        ctrl_msg_alarm.state = false;
+    } else if (error == false) {
         applyHMIData();
+      }
     }
 
-    bool tempAlarm = skinTempValue > TEMP_ALARM_THRESHOLD;
-    bool humAlarm  = humValue < HUM_ALARM_THRESHOLD;
-
-    if(tempAlarm != prevTempAlarm) {
-        alarmList[0].state = tempAlarm;
-        update_alarm_panels();
-        prevTempAlarm = tempAlarm;
-        
-    }
-    if(humAlarm != prevHumAlarm) {
-        alarmList[1].state = humAlarm;
-        update_alarm_panels();
-        prevHumAlarm = humAlarm;
-    }
 
     /*if (alarmActive) {
         buzzerOn();
     } else {
         buzzerOff();
     }*/
+
 }
+    

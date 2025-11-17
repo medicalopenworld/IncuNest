@@ -2,6 +2,11 @@
 
 HMI_Message hmi_msg;
 ControlBoard_Message ctrl_msg;
+ControlBoard_Message_Telemetry ctrl_tel_msg;
+ControlBoard_Message_Alarm ctrl_msg_alarm;
+
+bool error = false;
+  
 static String rxBuffer = "";
 
 
@@ -89,49 +94,79 @@ void SendMessageToOtherESP() {
 // ======================
 bool ReceiveMessageFromOtherESP() {
   while (COMM_SERIAL.available()) {
+
     char c = COMM_SERIAL.read();
+
     if (c == '\n') {
-      if (rxBuffer.startsWith("HMI")) {
-        // Debug: Mostrar el buffer recibido
-        //Serial.print("Raw buffer: ");
-        //Serial.println(rxBuffer);
-        
-        int result = sscanf(rxBuffer.c_str(), "HMI,%d,%d,%lf,%lf,%lf,%d,%d",
-              &hmi_msg.actuation,
-              &hmi_msg.controlMode,
-              &hmi_msg.desiredAirTemperature,
-              &hmi_msg.desiredSkinTemperature,
-              &hmi_msg.desiredHumidity,
-              &hmi_msg.phototherapyMode,
-              &hmi_msg.muteAlarm);
-        
-        // Debug: Mostrar si el parsing fue exitoso
-        //Serial.print("Parse result: ");
-        //Serial.println(result);
-        
-        if (result == 7) {  // 7 expected fields
-          Serial.println("✓ HMI data parsed successfully");
-          log_i("Received HMI data");
+
+      // ===========================
+      //  MENSAJE: CTRL,ALM
+      // ===========================
+      if (rxBuffer.startsWith("CTRL,ALM")) {
+
+        int id;
+        char type[ALARM_TYPE_LEN];
+        char description[ALARM_DESC_LEN];
+        int stateInt;
+
+        int result = sscanf(rxBuffer.c_str(), "CTRL,ALM,%d,%[^,],%[^,],%d",
+                            &id, type, description, &stateInt);
+
+        if (result == 4) {
+          ctrl_msg_alarm.id = id;
+          strncpy(ctrl_msg_alarm.type, type, ALARM_TYPE_LEN);
+          ctrl_msg_alarm.type[ALARM_TYPE_LEN - 1] = '\0';
+
+          strncpy(ctrl_msg_alarm.description, description, ALARM_DESC_LEN);
+          ctrl_msg_alarm.description[ALARM_DESC_LEN - 1] = '\0';
+
+          ctrl_msg_alarm.state = (stateInt != 0);
+
+          log_i("Received ALARM id=%d type=%s state=%d",
+                ctrl_msg_alarm.id, ctrl_msg_alarm.type, ctrl_msg_alarm.state);
+
         } else {
-          Serial.println("✗ HMI parsing FAILED");
+          log_e("Failed to parse CTRL,ALM message");
           rxBuffer = "";
           return false;
         }
-        
-      } else if (rxBuffer.startsWith("CTRL")) {
-        sscanf(rxBuffer.c_str(), "CTRL,%lf,%lf,%lf,%lf,%lf",
-               &ctrl_msg.temperature[0],
-               &ctrl_msg.temperature[1],
-               &ctrl_msg.temperature[2],
-               &ctrl_msg.humidity[0],
-               &ctrl_msg.humidity[1]);
-        log_i("Received Control Board data");
+
       }
+
+      // ===========================
+      //  MENSAJE: CTRL,TEL
+      // ===========================
+      else if (rxBuffer.startsWith("CTRL,TEL")) {
+
+        int result = sscanf(rxBuffer.c_str(), "CTRL,TEL,%lf,%lf,%lf",
+                            &ctrl_tel_msg.detectedAirTemperature,
+                            &ctrl_tel_msg.detectedSkinTemperature,
+                            &ctrl_tel_msg.detectedHumidity);
+
+        if (result == 3) {
+          log_i("Received CTRL TEL data");
+          error = false;
+        } else {
+          log_e("CTRL TEL parsing FAILED");
+          rxBuffer = "";
+          return false;
+        }
+
+      } else {
+        log_w("ERROR 404, Unknown message: %s", rxBuffer.c_str());
+        error = true;
+      }
+
+      // limpiar SIEMPRE tras procesar la línea
       rxBuffer = "";
       return true;
-    } else {
+    }
+
+    // Si no es \n, acumular caracteres
+    else {
       rxBuffer += c;
     }
   }
+
   return false;
 }
