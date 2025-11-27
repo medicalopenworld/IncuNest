@@ -14,6 +14,7 @@ SET(SOURCES ui_Screen1.c
     ui_img_1497256624.c
     ui_img_145782787.c
     ui_img_mute_icon_png.c
+    ui_img_1007688293.c
     ui_img_1508956403.c)
 
 add_library(ui ${SOURCES})

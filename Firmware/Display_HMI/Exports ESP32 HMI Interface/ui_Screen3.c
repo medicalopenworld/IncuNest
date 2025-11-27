@@ -9,6 +9,10 @@ lv_obj_t * ui_Screen3 = NULL;
 lv_obj_t * ui_Label34 = NULL;
 lv_obj_t * ui_ImgButton7 = NULL;
 lv_obj_t * ui_Chart3 = NULL;
+lv_obj_t * ui_Panel5 = NULL;
+lv_obj_t * ui_TabView1 = NULL;
+lv_obj_t * ui_TabPage1 = NULL;
+lv_obj_t * ui_TabPage2 = NULL;
 // event funtions
 void ui_event_ImgButton7(lv_event_t * e)
 {
@@ -59,6 +63,28 @@ void ui_Screen3_screen_init(void)
     static lv_coord_t ui_Chart3_series_1_array[] = { 0, 10, 20, 40, 80, 80, 40, 20, 10, 0 };
     lv_chart_set_ext_y_array(ui_Chart3, ui_Chart3_series_1, ui_Chart3_series_1_array);
 
+    ui_Panel5 = lv_obj_create(ui_Screen3);
+    lv_obj_set_width(ui_Panel5, 376);
+    lv_obj_set_height(ui_Panel5, 350);
+    lv_obj_set_x(ui_Panel5, 194);
+    lv_obj_set_y(ui_Panel5, 54);
+    lv_obj_set_align(ui_Panel5, LV_ALIGN_CENTER);
+    lv_obj_clear_flag(ui_Panel5, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+
+    ui_TabView1 = lv_tabview_create(ui_Screen3, LV_DIR_TOP, 30);
+    lv_obj_set_width(ui_TabView1, 334);
+    lv_obj_set_height(ui_TabView1, 326);
+    lv_obj_set_x(ui_TabView1, 194);
+    lv_obj_set_y(ui_TabView1, 53);
+    lv_obj_set_align(ui_TabView1, LV_ALIGN_CENTER);
+    lv_obj_clear_flag(ui_TabView1, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+    lv_obj_set_style_border_width(ui_TabView1, 1, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_side(ui_TabView1, LV_BORDER_SIDE_FULL, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_TabPage1 = lv_tabview_add_tab(ui_TabView1, "Alarms");
+
+    ui_TabPage2 = lv_tabview_add_tab(ui_TabView1, "View details");
+
     lv_obj_add_event_cb(ui_ImgButton7, ui_event_ImgButton7, LV_EVENT_ALL, NULL);
 
 }
@@ -72,5 +98,9 @@ void ui_Screen3_screen_destroy(void)
     ui_Label34 = NULL;
     ui_ImgButton7 = NULL;
     ui_Chart3 = NULL;
+    ui_Panel5 = NULL;
+    ui_TabView1 = NULL;
+    ui_TabPage1 = NULL;
+    ui_TabPage2 = NULL;
 
 }

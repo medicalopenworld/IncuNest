@@ -18,6 +18,10 @@ extern lv_obj_t * ui_Label34;
 extern void ui_event_ImgButton7(lv_event_t * e);
 extern lv_obj_t * ui_ImgButton7;
 extern lv_obj_t * ui_Chart3;
+extern lv_obj_t * ui_Panel5;
+extern lv_obj_t * ui_TabView1;
+extern lv_obj_t * ui_TabPage1;
+extern lv_obj_t * ui_TabPage2;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus
