@@ -14,14 +14,21 @@ extern "C" {
 extern void ui_Screen3_screen_init(void);
 extern void ui_Screen3_screen_destroy(void);
 extern lv_obj_t * ui_Screen3;
-extern lv_obj_t * ui_Label34;
 extern void ui_event_ImgButton7(lv_event_t * e);
 extern lv_obj_t * ui_ImgButton7;
-extern lv_obj_t * ui_Chart3;
 extern lv_obj_t * ui_Panel5;
 extern lv_obj_t * ui_TabView1;
 extern lv_obj_t * ui_TabPage1;
 extern lv_obj_t * ui_TabPage2;
+extern lv_obj_t * ui_Alarm1Panel;
+extern lv_obj_t * ui_Alarm1Label;
+extern lv_obj_t * ui_Alarm2Panel;
+extern lv_obj_t * ui_Alarm2Label;
+extern lv_obj_t * ui_Alarm3Panel;
+extern lv_obj_t * ui_Alarm3Label;
+extern lv_obj_t * ui_Alarm4Panel;
+extern lv_obj_t * ui_Alarm4Label;
+extern lv_obj_t * ui_MuteAlarm;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus

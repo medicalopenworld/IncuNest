@@ -7,10 +7,10 @@
 
 lv_obj_t * ui_Screen7 = NULL;
 lv_obj_t * ui_Panel15 = NULL;
-lv_obj_t * ui_Label39 = NULL;
 lv_obj_t * ui_OxiButton2 = NULL;
 lv_obj_t * ui_DetectOxi = NULL;
 lv_obj_t * ui_Label5 = NULL;
+lv_obj_t * ui_Label39 = NULL;
 // event funtions
 void ui_event_OxiButton2(lv_event_t * e)
 {
@@ -35,14 +35,6 @@ void ui_Screen7_screen_init(void)
     lv_obj_set_y(ui_Panel15, -140);
     lv_obj_set_align(ui_Panel15, LV_ALIGN_CENTER);
     lv_obj_clear_flag(ui_Panel15, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
-
-    ui_Label39 = lv_label_create(ui_Screen7);
-    lv_obj_set_width(ui_Label39, LV_SIZE_CONTENT);   /// 1
-    lv_obj_set_height(ui_Label39, LV_SIZE_CONTENT);    /// 1
-    lv_obj_set_x(ui_Label39, -296);
-    lv_obj_set_y(ui_Label39, -183);
-    lv_obj_set_align(ui_Label39, LV_ALIGN_CENTER);
-    lv_label_set_text(ui_Label39, "Pulse Oximetry");
 
     ui_OxiButton2 = lv_btn_create(ui_Screen7);
     lv_obj_set_width(ui_OxiButton2, 310);
@@ -73,6 +65,14 @@ void ui_Screen7_screen_init(void)
     lv_label_set_text(ui_Label5, "25.1");
     lv_obj_set_style_text_font(ui_Label5, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
 
+    ui_Label39 = lv_label_create(ui_Screen7);
+    lv_obj_set_width(ui_Label39, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_Label39, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_x(ui_Label39, -296);
+    lv_obj_set_y(ui_Label39, -183);
+    lv_obj_set_align(ui_Label39, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_Label39, "Pulse Oximetry");
+
     lv_obj_add_event_cb(ui_OxiButton2, ui_event_OxiButton2, LV_EVENT_ALL, NULL);
 
 }
@@ -84,9 +84,9 @@ void ui_Screen7_screen_destroy(void)
     // NULL screen variables
     ui_Screen7 = NULL;
     ui_Panel15 = NULL;
-    ui_Label39 = NULL;
     ui_OxiButton2 = NULL;
     ui_DetectOxi = NULL;
     ui_Label5 = NULL;
+    ui_Label39 = NULL;
 
 }

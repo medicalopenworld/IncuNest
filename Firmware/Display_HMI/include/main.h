@@ -77,6 +77,11 @@ constexpr int NUM_ALARMA_1 = 1;
 constexpr int NUM_ALARMA_2 = 2;
 constexpr int NUM_ALARMA_3 = 3;
 
+#define TEMP_BAR_MIN   0
+#define TEMP_BAR_MAX   40   // ºC
+#define HUM_BAR_MIN    0
+#define HUM_BAR_MAX    100  // %
+
 // -----------------------------
 // Panel selection
 // -----------------------------

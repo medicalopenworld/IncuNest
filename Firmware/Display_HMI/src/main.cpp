@@ -352,6 +352,7 @@ void setup_panel_callbacks() {
 
 /* Initialize random values for temperature and humidity */
 void init_values() {
+    //DESIRED VALUES
     airTempValue = (double)random(RAND_AIR_MIN, RAND_AIR_MAX) / (double)TEMP_DIVISOR;  // 20.0 to 36.9 equivalent
     skinTempValue = (double)random(RAND_SKIN_MIN, RAND_SKIN_MAX) / (double)TEMP_DIVISOR; // 35.0 to 37.5 equivalent
     humValue = random(RAND_HUM_MIN, RAND_HUM_MAX) * HUM_STEP;  // Generates values from HUM_MIN to HUM_MAX in steps of HUM_STEP
@@ -365,6 +366,23 @@ void init_values() {
 
     snprintf(buffer, sizeof(buffer), "%d%%", humValue);
     lv_label_set_text(ui_HumDesired, buffer);
+
+    //DETECTED VALUES
+    airTempValueDetected  = (double)random(RAND_AIR_MIN, RAND_AIR_MAX) / (double)TEMP_DIVISOR;  // 20.0 to 36.9 equivalent
+    skinTempValueDetected = (double)random(RAND_SKIN_MIN, RAND_SKIN_MAX) / (double)TEMP_DIVISOR; // 35.0 to 37.5 equivalent
+    humValueDetected = random(RAND_HUM_MIN, RAND_HUM_MAX) * HUM_STEP;  // Generates values from HUM_MIN to HUM_MAX in steps of HUM_STEP
+
+    snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValueDetected);
+    lv_label_set_text(ui_TempAirDetected, buffer);
+    lv_label_set_text(ui_TempAirDetectedRight, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValueDetected);
+    lv_label_set_text(ui_TempSkinDetected, buffer);
+    lv_label_set_text(ui_TempSkinDetectedRight, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%d%%", humValueDetected);
+    lv_label_set_text(ui_HumDetected, buffer);
+    lv_label_set_text(ui_HumDetectedRight, buffer);
 }
 
 /* Update labels for temperature and humidity */
@@ -383,12 +401,31 @@ void update_labels() {
     if (airTempValueDetected != 0 || skinTempValueDetected != 0 || humValueDetected != 0) {
         snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValueDetected);
         lv_label_set_text(ui_TempAirDetected, buffer);
+        lv_label_set_text(ui_TempAirDetectedRight, buffer);
 
         snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValueDetected);
         lv_label_set_text(ui_TempSkinDetected, buffer);
+        lv_label_set_text(ui_TempSkinDetectedRight, buffer);
 
         snprintf(buffer, sizeof(buffer), "%d%%", humValueDetected);
         lv_label_set_text(ui_HumDetected, buffer);
+        lv_label_set_text(ui_HumDetectedRight, buffer);
+
+
+        // Air temperature bar
+        int airBar = (int)round(airTempValueDetected);
+        airBar = constrain(airBar, TEMP_BAR_MIN, TEMP_BAR_MAX);
+        lv_bar_set_value(ui_AirTempBar, airBar, LV_ANIM_OFF);
+
+        // Skin temperature bar
+        int skinBar = (int)round(skinTempValueDetected);
+        skinBar = constrain(skinBar, TEMP_BAR_MIN, TEMP_BAR_MAX);
+        lv_bar_set_value(ui_SkinTempBar, skinBar, LV_ANIM_OFF);
+
+        // Humidity bar
+        int humBar = humValueDetected;
+        humBar = constrain(humBar, HUM_BAR_MIN, HUM_BAR_MAX);
+        lv_bar_set_value(ui_HumBar, humBar, LV_ANIM_OFF);
     }
 }
 
@@ -725,7 +762,24 @@ void setup()
     // ===========================
     ui_init();                      // Initialize UI objects
     
-    
+     // Configure BARS range
+    lv_bar_set_range(ui_AirTempBar,  TEMP_BAR_MIN, TEMP_BAR_MAX);
+    lv_bar_set_range(ui_SkinTempBar, TEMP_BAR_MIN, TEMP_BAR_MAX);
+    lv_bar_set_range(ui_HumBar,      HUM_BAR_MIN,  HUM_BAR_MAX);
+
+    // Make BARS visible
+    lv_obj_clear_flag(ui_AirTempBar,  LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_SkinTempBar, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_HumBar,      LV_OBJ_FLAG_HIDDEN);
+
+    // And set a test value to see them right after startup
+    lv_bar_set_value(ui_AirTempBar,  20, LV_ANIM_ON);
+    lv_bar_set_value(ui_SkinTempBar, 36, LV_ANIM_ON);
+    lv_bar_set_value(ui_HumBar,      50, LV_ANIM_ON);
+
+    Serial.printf("ui_AirTempBar  = %p\n", (void*)ui_AirTempBar);
+    Serial.printf("ui_SkinTempBar = %p\n", (void*)ui_SkinTempBar);
+    Serial.printf("ui_HumBar      = %p\n", (void*)ui_HumBar);
 
     // Mute alarm button callback:
     lv_obj_add_event_cb(ui_MuteAlarm, [](lv_event_t * e){
