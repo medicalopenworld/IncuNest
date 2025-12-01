@@ -40,6 +40,8 @@ LV_IMG_DECLARE(ui_img_296721678);    // assets/settings icon (2).png
 LV_IMG_DECLARE(ui_img_triangulo_abajo_png);    // assets/triangulo_abajo.png
 LV_IMG_DECLARE(ui_img_triangulo_arriba_png);    // assets/triangulo_arriba.png
 LV_IMG_DECLARE(ui_img_1007688293);    // assets/alarms1 (2).png
+LV_IMG_DECLARE(ui_img_gota_png);    // assets/gota.png
+LV_IMG_DECLARE(ui_img_1370137984);    // assets/termometro (2).png
 LV_IMG_DECLARE(ui_img_1508956403);    // assets/back icon (1).png
 LV_IMG_DECLARE(ui_img_mute_icon_png);    // assets/mute_icon.png
 

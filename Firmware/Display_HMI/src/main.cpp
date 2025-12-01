@@ -173,7 +173,7 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data)
 /* Temperature and humidity panel styling */
 void set_active_panel(lv_obj_t* active, lv_obj_t* inactive) {
     // Active panel → blue with full opacity
-    lv_obj_set_style_bg_color(active, COLOR_PANEL_BLUE, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(active, COLOR_PANEL_WHITE, LV_PART_MAIN);
     lv_obj_set_style_opa(active, LV_OPA_COVER, LV_PART_MAIN);
 
     // Inactive panel → dark gray
@@ -215,8 +215,8 @@ void Switch_cb(lv_event_t * e) {
             arrowsActive = true;
             lv_obj_add_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_add_flag(ui_ImgArrowUpTemp, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_set_style_bg_color(ui_ArrowDownTemp, COLOR_PANEL_BLUE, LV_PART_MAIN);
-            lv_obj_set_style_bg_color(ui_ArrowUpTemp, COLOR_PANEL_BLUE, LV_PART_MAIN);
+            lv_obj_set_style_bg_color(ui_ArrowDownTemp, COLOR_PANEL_WHITE, LV_PART_MAIN);
+            lv_obj_set_style_bg_color(ui_ArrowUpTemp, COLOR_PANEL_WHITE, LV_PART_MAIN);
         } 
         else {  // Temperature switch turned OFF
             arrowsActive = false;
@@ -242,8 +242,8 @@ void Switch_cb(lv_event_t * e) {
         if (checked) {
             lv_obj_add_flag(ui_ImgArrowDownHum, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_add_flag(ui_ImgArrowUpHum, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_set_style_bg_color(ui_ArrowDownHum, COLOR_PANEL_BLUE, LV_PART_MAIN);
-            lv_obj_set_style_bg_color(ui_ArrowUpHum, COLOR_PANEL_BLUE, LV_PART_MAIN);
+            lv_obj_set_style_bg_color(ui_ArrowDownHum, COLOR_PANEL_WHITE, LV_PART_MAIN);
+            lv_obj_set_style_bg_color(ui_ArrowUpHum, COLOR_PANEL_WHITE, LV_PART_MAIN);
         } else {
             lv_obj_clear_flag(ui_ImgArrowDownHum, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_clear_flag(ui_ImgArrowUpHum, LV_OBJ_FLAG_CLICKABLE);
@@ -288,7 +288,7 @@ void Switch_cb(lv_event_t * e) {
     // Change background color of associated panel
     if (panel != NULL) {
         if (checked) {
-            lv_obj_set_style_bg_color(panel, COLOR_PANEL_BLUE, LV_PART_MAIN);
+            lv_obj_set_style_bg_color(panel, COLOR_PANEL_WHITE, LV_PART_MAIN);
             lv_obj_set_style_opa(panel, LV_OPA_COVER, LV_PART_MAIN);
         } else {
             lv_obj_set_style_bg_color(panel, COLOR_PANEL_GRAY, LV_PART_MAIN);
@@ -383,6 +383,17 @@ void init_values() {
     snprintf(buffer, sizeof(buffer), "%d%%", humValueDetected);
     lv_label_set_text(ui_HumDetected, buffer);
     lv_label_set_text(ui_HumDetectedRight, buffer);
+
+    // Initialize bars
+    int airBar  = (int)(airTempValueDetected); 
+    int skinBar = (int)(skinTempValueDetected);  
+    airBar  = constrain(airBar,  0, 40);
+    skinBar = constrain(skinBar, 0, 40);
+    int humBar = constrain(humValueDetected, 0, 100);
+    lv_bar_set_value(ui_AirTempBar,  airBar,  LV_ANIM_OFF);
+    lv_bar_set_value(ui_SkinTempBar, skinBar, LV_ANIM_OFF);
+    lv_bar_set_value(ui_HumBar,      humBar,  LV_ANIM_OFF);
+
 }
 
 /* Update labels for temperature and humidity */
@@ -412,20 +423,19 @@ void update_labels() {
         lv_label_set_text(ui_HumDetectedRight, buffer);
 
 
-        // Air temperature bar
-        int airBar = (int)round(airTempValueDetected);
-        airBar = constrain(airBar, TEMP_BAR_MIN, TEMP_BAR_MAX);
-        lv_bar_set_value(ui_AirTempBar, airBar, LV_ANIM_OFF);
+        // Barras: suponemos rangos 0–40 para temperatura, 0–100 para humedad
+        int airBar  = (int)(airTempValueDetected);   // 25.5 -> 25
+        int skinBar = (int)(skinTempValueDetected);  // 28.1 -> 28
 
-        // Skin temperature bar
-        int skinBar = (int)round(skinTempValueDetected);
-        skinBar = constrain(skinBar, TEMP_BAR_MIN, TEMP_BAR_MAX);
+        airBar  = constrain(airBar,  0, 40);
+        skinBar = constrain(skinBar, 0, 40);
+        int humBar = constrain(humValueDetected, 0, 100);
+
+        lv_bar_set_value(ui_AirTempBar,  airBar,  LV_ANIM_OFF);
         lv_bar_set_value(ui_SkinTempBar, skinBar, LV_ANIM_OFF);
+        lv_bar_set_value(ui_HumBar,      humBar,  LV_ANIM_OFF);
 
-        // Humidity bar
-        int humBar = humValueDetected;
-        humBar = constrain(humBar, HUM_BAR_MIN, HUM_BAR_MAX);
-        lv_bar_set_value(ui_HumBar, humBar, LV_ANIM_OFF);
+    
     }
 }
 
@@ -762,24 +772,8 @@ void setup()
     // ===========================
     ui_init();                      // Initialize UI objects
     
-     // Configure BARS range
-    lv_bar_set_range(ui_AirTempBar,  TEMP_BAR_MIN, TEMP_BAR_MAX);
-    lv_bar_set_range(ui_SkinTempBar, TEMP_BAR_MIN, TEMP_BAR_MAX);
-    lv_bar_set_range(ui_HumBar,      HUM_BAR_MIN,  HUM_BAR_MAX);
+    
 
-    // Make BARS visible
-    lv_obj_clear_flag(ui_AirTempBar,  LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(ui_SkinTempBar, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(ui_HumBar,      LV_OBJ_FLAG_HIDDEN);
-
-    // And set a test value to see them right after startup
-    lv_bar_set_value(ui_AirTempBar,  20, LV_ANIM_ON);
-    lv_bar_set_value(ui_SkinTempBar, 36, LV_ANIM_ON);
-    lv_bar_set_value(ui_HumBar,      50, LV_ANIM_ON);
-
-    Serial.printf("ui_AirTempBar  = %p\n", (void*)ui_AirTempBar);
-    Serial.printf("ui_SkinTempBar = %p\n", (void*)ui_SkinTempBar);
-    Serial.printf("ui_HumBar      = %p\n", (void*)ui_HumBar);
 
     // Mute alarm button callback:
     lv_obj_add_event_cb(ui_MuteAlarm, [](lv_event_t * e){
@@ -795,16 +789,16 @@ void setup()
     // ===========================
     // Initialize panel colors
     // ===========================
-    lv_obj_set_style_bg_color(ui_Panel2, COLOR_PANEL_BLUE, LV_PART_MAIN); // blue
+    lv_obj_set_style_bg_color(ui_Panel2, COLOR_PANEL_WHITE, LV_PART_MAIN); // white
     lv_obj_set_style_opa(ui_Panel2, LV_OPA_COVER, LV_PART_MAIN);
 
-    lv_obj_set_style_bg_color(ui_Panel5, COLOR_PANEL_BLUE, LV_PART_MAIN); // blue
+    lv_obj_set_style_bg_color(ui_Panel5, COLOR_PANEL_WHITE, LV_PART_MAIN); // white
     lv_obj_set_style_opa(ui_Panel5, LV_OPA_COVER, LV_PART_MAIN);
 
-    lv_obj_set_style_bg_color(ui_Panel6, COLOR_PANEL_BLUE, LV_PART_MAIN); // blue
+    lv_obj_set_style_bg_color(ui_Panel6, COLOR_PANEL_WHITE, LV_PART_MAIN); // white
     lv_obj_set_style_opa(ui_Panel6, LV_OPA_COVER, LV_PART_MAIN);
 
-    lv_obj_set_style_bg_color(ui_Panel4, COLOR_PANEL_BLUE, LV_PART_MAIN); // blue
+    lv_obj_set_style_bg_color(ui_Panel4, COLOR_PANEL_WHITE, LV_PART_MAIN); // white
     lv_obj_set_style_opa(ui_Panel4, LV_OPA_COVER, LV_PART_MAIN);
 
     lv_obj_set_style_bg_color(ui_Panel1, COLOR_PANEL_GRAY, LV_PART_MAIN); // grey

@@ -63,9 +63,12 @@ extern lv_obj_t * ui_HumDetectedRight;
 extern lv_obj_t * ui_AirTempBar;
 extern lv_obj_t * ui_SkinTempBar;
 extern lv_obj_t * ui_HumBar;
+extern lv_obj_t * ui_Image7;
 extern lv_obj_t * ui_Label15;
 extern lv_obj_t * ui_Label16;
 extern lv_obj_t * ui_Label17;
+extern lv_obj_t * ui_Image6;
+extern lv_obj_t * ui_Image1;
 // CUSTOM VARIABLES
 extern lv_obj_t * uic_Tempbutton;
 extern lv_obj_t * uic_HumidButton;

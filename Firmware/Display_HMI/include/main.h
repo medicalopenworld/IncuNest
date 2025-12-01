@@ -160,16 +160,16 @@ constexpr int LCD_ROTATION = 2;
 // -----------------------------
 // Colors (RGB components) - used with lv_color_make()
 // -----------------------------
-constexpr int COLOR_PANEL_BLUE_R = 220;
-constexpr int COLOR_PANEL_BLUE_G = 240;
-constexpr int COLOR_PANEL_BLUE_B = 255;
+constexpr int COLOR_PANEL_WHITE_R = 255;
+constexpr int COLOR_PANEL_WHITE_G = 255;
+constexpr int COLOR_PANEL_WHITE_B = 255;
 
 constexpr int COLOR_PANEL_GRAY_R = 100;
 constexpr int COLOR_PANEL_GRAY_G = 100;
 constexpr int COLOR_PANEL_GRAY_B = 100;
 
 // convenience lv_color_t constants (not constexpr function calls but const)
-static const lv_color_t COLOR_PANEL_BLUE = lv_color_make(COLOR_PANEL_BLUE_R, COLOR_PANEL_BLUE_G, COLOR_PANEL_BLUE_B);
+static const lv_color_t COLOR_PANEL_WHITE = lv_color_make(COLOR_PANEL_WHITE_R, COLOR_PANEL_WHITE_G, COLOR_PANEL_WHITE_B);
 static const lv_color_t COLOR_PANEL_GRAY = lv_color_make(COLOR_PANEL_GRAY_R, COLOR_PANEL_GRAY_G, COLOR_PANEL_GRAY_B);
 
 // -----------------------------

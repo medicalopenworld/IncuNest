@@ -14,6 +14,8 @@ SET(SOURCES ui_Screen1.c
     ui_img_triangulo_abajo_png.c
     ui_img_triangulo_arriba_png.c
     ui_img_1007688293.c
+    ui_img_gota_png.c
+    ui_img_1370137984.c
     ui_img_1508956403.c
     ui_img_mute_icon_png.c)
 
