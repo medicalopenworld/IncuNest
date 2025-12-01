@@ -9,6 +9,8 @@ lv_obj_t * ui_Screen2 = NULL;
 lv_obj_t * ui_Label8 = NULL;
 lv_obj_t * ui_ImgButton2 = NULL;
 lv_obj_t * ui_Container3 = NULL;
+lv_obj_t * ui_Switch4 = NULL;
+lv_obj_t * ui_SkinOption = NULL;
 // event funtions
 void ui_event_ImgButton2(lv_event_t * e)
 {
@@ -46,10 +48,27 @@ void ui_Screen2_screen_init(void)
 
     ui_Container3 = lv_obj_create(ui_Screen2);
     lv_obj_remove_style_all(ui_Container3);
-    lv_obj_set_width(ui_Container3, 100);
+    lv_obj_set_width(ui_Container3, 301);
     lv_obj_set_height(ui_Container3, 50);
+    lv_obj_set_x(ui_Container3, -233);
+    lv_obj_set_y(ui_Container3, -106);
     lv_obj_set_align(ui_Container3, LV_ALIGN_CENTER);
     lv_obj_clear_flag(ui_Container3, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+
+    ui_Switch4 = lv_switch_create(ui_Container3);
+    lv_obj_set_width(ui_Switch4, 100);
+    lv_obj_set_height(ui_Switch4, 39);
+    lv_obj_set_x(ui_Switch4, 54);
+    lv_obj_set_y(ui_Switch4, -1);
+    lv_obj_set_align(ui_Switch4, LV_ALIGN_CENTER);
+
+    ui_SkinOption = lv_label_create(ui_Container3);
+    lv_obj_set_width(ui_SkinOption, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_SkinOption, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_x(ui_SkinOption, -75);
+    lv_obj_set_y(ui_SkinOption, -1);
+    lv_obj_set_align(ui_SkinOption, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_SkinOption, "Skin Mode");
 
     lv_obj_add_event_cb(ui_ImgButton2, ui_event_ImgButton2, LV_EVENT_ALL, NULL);
 
@@ -64,5 +83,7 @@ void ui_Screen2_screen_destroy(void)
     ui_Label8 = NULL;
     ui_ImgButton2 = NULL;
     ui_Container3 = NULL;
+    ui_Switch4 = NULL;
+    ui_SkinOption = NULL;
 
 }
