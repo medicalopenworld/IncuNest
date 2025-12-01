@@ -8,6 +8,7 @@
 lv_obj_t * ui_Screen2 = NULL;
 lv_obj_t * ui_Label8 = NULL;
 lv_obj_t * ui_ImgButton2 = NULL;
+lv_obj_t * ui_Container3 = NULL;
 // event funtions
 void ui_event_ImgButton2(lv_event_t * e)
 {
@@ -43,6 +44,13 @@ void ui_Screen2_screen_init(void)
     lv_obj_set_y(ui_ImgButton2, -190);
     lv_obj_set_align(ui_ImgButton2, LV_ALIGN_CENTER);
 
+    ui_Container3 = lv_obj_create(ui_Screen2);
+    lv_obj_remove_style_all(ui_Container3);
+    lv_obj_set_width(ui_Container3, 100);
+    lv_obj_set_height(ui_Container3, 50);
+    lv_obj_set_align(ui_Container3, LV_ALIGN_CENTER);
+    lv_obj_clear_flag(ui_Container3, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+
     lv_obj_add_event_cb(ui_ImgButton2, ui_event_ImgButton2, LV_EVENT_ALL, NULL);
 
 }
@@ -55,5 +63,6 @@ void ui_Screen2_screen_destroy(void)
     ui_Screen2 = NULL;
     ui_Label8 = NULL;
     ui_ImgButton2 = NULL;
+    ui_Container3 = NULL;
 
 }
