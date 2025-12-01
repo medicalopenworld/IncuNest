@@ -350,6 +350,60 @@ void setup_panel_callbacks() {
     lv_obj_add_event_cb(ui_SkinPanel, SkinPanel_cb, LV_EVENT_CLICKED, NULL);
 }
 
+
+/* Update labels for temperature and humidity */
+void update_labels() {
+    char buffer[BUFFER_SIZE];
+  
+    snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValue);
+    lv_label_set_text(ui_TempAirDesired, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValue);
+    lv_label_set_text(ui_TempSkinDesired, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%d%%", humValue);
+    lv_label_set_text(ui_HumDesired, buffer);
+
+    if (airTempValueDetected != 0 || skinTempValueDetected != 0 || humValueDetected != 0) {
+        snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValueDetected);
+        lv_label_set_text(ui_TempAirDetected, buffer);
+        lv_label_set_text(ui_TempAirDetectedRight, buffer);
+
+        snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValueDetected);
+        lv_label_set_text(ui_TempSkinDetected, buffer);
+        lv_label_set_text(ui_TempSkinDetectedRight, buffer);
+
+        snprintf(buffer, sizeof(buffer), "%d%%", humValueDetected);
+        lv_label_set_text(ui_HumDetected, buffer);
+        lv_label_set_text(ui_HumDetectedRight, buffer);
+
+
+        double tAir  = airTempValueDetected;
+        double tSkin = skinTempValueDetected;
+
+        // Air
+        int airBar;
+        if (tAir <= 20.0)      airBar = 0;
+        else if (tAir >= 40.0) airBar = 20;
+        else                   airBar = (int)round(tAir - 20.0);
+
+        // Skin
+        int skinBar;
+        if (tSkin <= 20.0)      skinBar = 0;
+        else if (tSkin >= 40.0) skinBar = 20;
+        else                    skinBar = (int)round(tSkin - 20.0);
+
+        // Humidity
+        int humBar = constrain(humValueDetected, 0, 100);
+
+        lv_bar_set_value(ui_AirTempBar,  airBar,  LV_ANIM_OFF);
+        lv_bar_set_value(ui_SkinTempBar, skinBar, LV_ANIM_OFF);
+        lv_bar_set_value(ui_HumBar,      humBar,  LV_ANIM_OFF);
+
+    
+    }
+}
+
 /* Initialize random values for temperature and humidity */
 void init_values() {
     //DESIRED VALUES
@@ -384,59 +438,8 @@ void init_values() {
     lv_label_set_text(ui_HumDetected, buffer);
     lv_label_set_text(ui_HumDetectedRight, buffer);
 
-    // Initialize bars
-    int airBar  = (int)(airTempValueDetected); 
-    int skinBar = (int)(skinTempValueDetected);  
-    airBar  = constrain(airBar,  0, 40);
-    skinBar = constrain(skinBar, 0, 40);
-    int humBar = constrain(humValueDetected, 0, 100);
-    lv_bar_set_value(ui_AirTempBar,  airBar,  LV_ANIM_OFF);
-    lv_bar_set_value(ui_SkinTempBar, skinBar, LV_ANIM_OFF);
-    lv_bar_set_value(ui_HumBar,      humBar,  LV_ANIM_OFF);
+    update_labels();
 
-}
-
-/* Update labels for temperature and humidity */
-void update_labels() {
-    char buffer[BUFFER_SIZE];
-  
-    snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValue);
-    lv_label_set_text(ui_TempAirDesired, buffer);
-
-    snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValue);
-    lv_label_set_text(ui_TempSkinDesired, buffer);
-
-    snprintf(buffer, sizeof(buffer), "%d%%", humValue);
-    lv_label_set_text(ui_HumDesired, buffer);
-
-    if (airTempValueDetected != 0 || skinTempValueDetected != 0 || humValueDetected != 0) {
-        snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValueDetected);
-        lv_label_set_text(ui_TempAirDetected, buffer);
-        lv_label_set_text(ui_TempAirDetectedRight, buffer);
-
-        snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValueDetected);
-        lv_label_set_text(ui_TempSkinDetected, buffer);
-        lv_label_set_text(ui_TempSkinDetectedRight, buffer);
-
-        snprintf(buffer, sizeof(buffer), "%d%%", humValueDetected);
-        lv_label_set_text(ui_HumDetected, buffer);
-        lv_label_set_text(ui_HumDetectedRight, buffer);
-
-
-        // Barras: suponemos rangos 0–40 para temperatura, 0–100 para humedad
-        int airBar  = (int)(airTempValueDetected);   // 25.5 -> 25
-        int skinBar = (int)(skinTempValueDetected);  // 28.1 -> 28
-
-        airBar  = constrain(airBar,  0, 40);
-        skinBar = constrain(skinBar, 0, 40);
-        int humBar = constrain(humValueDetected, 0, 100);
-
-        lv_bar_set_value(ui_AirTempBar,  airBar,  LV_ANIM_OFF);
-        lv_bar_set_value(ui_SkinTempBar, skinBar, LV_ANIM_OFF);
-        lv_bar_set_value(ui_HumBar,      humBar,  LV_ANIM_OFF);
-
-    
-    }
 }
 
 /* Setup arrow button callbacks for temperature */
@@ -772,7 +775,13 @@ void setup()
     // ===========================
     ui_init();                      // Initialize UI objects
     
-    
+    // Visual elements initial configuration
+    // Bars ranges
+    lv_bar_set_range(ui_AirTempBar,  0, 20);
+    lv_bar_set_range(ui_SkinTempBar, 0, 20);
+
+    // Humidity remains in 0..100
+    lv_bar_set_range(ui_HumBar, 0, 100);
 
 
     // Mute alarm button callback:
