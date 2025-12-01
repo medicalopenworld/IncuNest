@@ -22,6 +22,7 @@ int humValue;
 int humValueDetected = 0;
 int selectedPanel = NO_PANEL_SELECTED;
 int lastSelectedPanel = NO_PANEL_SELECTED;
+bool skinPanelEnabled = false;
 bool switchTemp = false;
 bool switchHum = false;
 bool tempSwitched = false;
@@ -258,7 +259,40 @@ void Switch_cb(lv_event_t * e) {
     bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
     hmi_msg.phototherapyMode = checked ? PHOTOTHERAPY_ON : PHOTOTHERAPY_OFF;
     hmi_msg.shouldSendData = true;
-}
+    }
+    else if (obj == ui_Switch4) {    // SKIN BLOCK SWITCH
+        bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
+        skinPanelEnabled = checked;
+
+        if (checked) {
+            // show container of skin
+            lv_obj_clear_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
+
+            lv_obj_set_style_bg_color(ui_SkinPanelCont, COLOR_PANEL_WHITE, LV_PART_MAIN);
+            lv_obj_set_style_opa(ui_SkinPanelCont, LV_OPA_COVER, LV_PART_MAIN);
+        } else {
+            // Hide container of skin
+            lv_obj_add_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
+            
+            if (selectedPanel == SKIN_PANEL_SELECTED) {
+                selectedPanel     = AIR_PANEL_SELECTED;
+                lastSelectedPanel = selectedPanel;
+
+                // Visualmente: Air activo, Skin inactivo
+                set_active_panel(ui_AirPanel, ui_SkinPanel);
+
+                // Lógica de control: pasamos a controlar aire
+                if (tempSwitched) {                 // solo tiene sentido si la temp está ON
+                    hmi_msg.controlMode = CONTROL_AIR;
+                }
+            }
+        }
+        
+
+        // If we want to send something via communication...:
+        // hmi_msg.skinBlockEnabled = checked;
+        // hmi_msg.shouldSendData = true;
+    }
 
     // If temperature is OFF, disable panels and arrows
     if (!tempSwitched) {
@@ -840,6 +874,8 @@ void setup()
     lv_obj_add_event_cb(ui_Switch1, Switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(ui_Switch2, Switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(ui_Switch3, Switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(ui_Switch4, Switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
 
 
     // Connect panel selection callbacks
