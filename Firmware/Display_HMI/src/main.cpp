@@ -32,6 +32,10 @@ bool alarmActive = false;
 bool prevTempAlarm = false;
 bool prevHumAlarm = false;
 
+bool wifiVisible = false;
+bool LanguagesVisible = false;
+
+
 struct Alarm
 {
     int id;
@@ -189,7 +193,7 @@ void Switch_cb(lv_event_t * e) {
 
     bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
 
-    if (obj == ui_Switch1) {  // TEMPERATURE SWITCH
+    if (obj == ui_Switch1 || obj == ui_Label9 || obj == ui_Label15) {  // TEMPERATURE SWITCH
         switchTemp = checked;
         tempSwitched = checked;
         panel = ui_Panel1;
@@ -235,7 +239,7 @@ void Switch_cb(lv_event_t * e) {
             lv_obj_set_style_opa(ui_SkinPanel, LV_OPA_COVER, LV_PART_MAIN);
         }
     } 
-    else if (obj == ui_Switch2) {  // HUMIDITY SWITCH
+    else if (obj == ui_Switch2 || obj == ui_Label13 || obj == ui_Label16) {  // HUMIDITY SWITCH
         switchHum = checked;
         humSwitched = checked;
         panel = ui_Panel3;
@@ -255,7 +259,7 @@ void Switch_cb(lv_event_t * e) {
         lv_obj_set_style_opa(ui_ArrowDownHum, LV_OPA_COVER, LV_PART_MAIN);
         lv_obj_set_style_opa(ui_ArrowUpHum, LV_OPA_COVER, LV_PART_MAIN);
     }
-    else if (obj == ui_Switch3) {
+    else if (obj == ui_Switch3 || obj == ui_Label17 || obj == ui_Label10) {  // PHOTOTHERAPY SWITCH
     bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
     hmi_msg.phototherapyMode = checked ? PHOTOTHERAPY_ON : PHOTOTHERAPY_OFF;
     hmi_msg.shouldSendData = true;
@@ -347,6 +351,72 @@ void Switch_cb(lv_event_t * e) {
     hmi_msg.shouldSendData = true;
 }
 
+/* Callback when Wifi button is clicked */
+void WifiButton_cb(lv_event_t * e) {
+
+    bool wifiHidden = lv_obj_has_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
+
+    if (wifiHidden) {
+        // Show Wifi
+        lv_obj_clear_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
+        wifiVisible = true;
+
+        // Hide Languages
+        lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
+        LanguagesVisible = false;
+    }
+    else {
+        // Hide Wifi (none visible)
+        lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
+        wifiVisible = false;
+    }
+}
+
+/* Callback when Language button is clicked */
+void LanguageButton_cb(lv_event_t * e) {
+
+    bool langHidden = lv_obj_has_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
+
+    if (langHidden) {
+        // Show Languages
+        lv_obj_clear_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
+        LanguagesVisible = true;
+
+        // Hide Wifi
+        lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
+        wifiVisible = false;
+    }
+    else {
+        // Hide Languages (none visible)
+        lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
+        LanguagesVisible = false;
+    }
+}
+
+
+    /* Callback al pulsar una TextArea (SSID / Password) */
+void TextArea_focus_cb(lv_event_t * e) {
+    lv_obj_t * ta = lv_event_get_target(e);  // TextArea that triggered the event
+
+    // Show keyboard
+    lv_obj_clear_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
+
+    // Associate keyboard with this TextArea
+    lv_keyboard_set_textarea(ui_Keyboard1, ta);
+}
+
+/* Callback of the keyboard: hide when OK or Cancel is pressed */
+void Keyboard_cb(lv_event_t * e) {
+    lv_event_code_t code = lv_event_get_code(e);
+
+    if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
+        // Disassociate textarea
+        lv_keyboard_set_textarea(ui_Keyboard1, NULL);
+        // Hide keyboard
+        lv_obj_add_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
 /* Callback when Air panel is clicked */
 void AirPanel_cb(lv_event_t * e) {
     if (!tempSwitched) return;
@@ -355,6 +425,10 @@ void AirPanel_cb(lv_event_t * e) {
 
     arrowsActive = true;
     set_active_panel(ui_AirPanel, ui_SkinPanel);
+
+    // --- Show only the Air container ---
+    lv_obj_clear_flag(ui_AirTempBarCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
     
     hmi_msg.controlMode = CONTROL_AIR;
     hmi_msg.desiredAirTemperature = airTempValue;
@@ -368,8 +442,14 @@ void SkinPanel_cb(lv_event_t * e) {
     if (!tempSwitched) return;
     selectedPanel = SKIN_PANEL_SELECTED;  // Skin panel selected
     lastSelectedPanel = selectedPanel;
+
     arrowsActive = true;
     set_active_panel(ui_SkinPanel, ui_AirPanel);
+
+    // --- Show only the Skin container ---
+    lv_obj_clear_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_AirTempBarCont, LV_OBJ_FLAG_HIDDEN);
+
 
     hmi_msg.controlMode = CONTROL_SKIN;
     hmi_msg.desiredAirTemperature = airTempValue;
@@ -563,32 +643,24 @@ void update_alarm_panels() {
         if (alarmList[i].state) {
             switch (pos) {
                 case NUM_ALARMA_0:
-                    lv_obj_clear_flag(ui_Alarm1Panel, LV_OBJ_FLAG_HIDDEN);
-                    lv_obj_clear_flag(ui_Alarm1Label, LV_OBJ_FLAG_HIDDEN);
+                    lv_obj_clear_flag(ui_Alarm1Cont, LV_OBJ_FLAG_HIDDEN);
                     lv_label_set_text(ui_Alarm1Label, alarmList[i].type);
-                    start_alarm_blink(ui_Alarm1Panel);
-                    start_alarm_blink(ui_Alarm1Label);
+                    start_alarm_blink(ui_Alarm1Cont);
                     break;
                 case NUM_ALARMA_1:
-                    lv_obj_clear_flag(ui_Alarm2Panel, LV_OBJ_FLAG_HIDDEN);
-                    lv_obj_clear_flag(ui_Alarm2Label, LV_OBJ_FLAG_HIDDEN);
+                    lv_obj_clear_flag(ui_Alarm2Cont, LV_OBJ_FLAG_HIDDEN);
                     lv_label_set_text(ui_Alarm2Label, alarmList[i].type);
-                    start_alarm_blink(ui_Alarm2Panel);
-                    start_alarm_blink(ui_Alarm2Label);
+                    start_alarm_blink(ui_Alarm2Cont);
                     break;
                 case NUM_ALARMA_2:
-                    lv_obj_clear_flag(ui_Alarm3Panel, LV_OBJ_FLAG_HIDDEN);
-                    lv_obj_clear_flag(ui_Alarm3Label, LV_OBJ_FLAG_HIDDEN);
+                    lv_obj_clear_flag(ui_Alarm3Cont, LV_OBJ_FLAG_HIDDEN);
                     lv_label_set_text(ui_Alarm3Label, alarmList[i].type);
-                    start_alarm_blink(ui_Alarm3Panel);
-                    start_alarm_blink(ui_Alarm3Label);
+                    start_alarm_blink(ui_Alarm3Cont);
                     break;
                 case NUM_ALARMA_3:
-                    lv_obj_clear_flag(ui_Alarm4Panel, LV_OBJ_FLAG_HIDDEN);
-                    lv_obj_clear_flag(ui_Alarm4Label, LV_OBJ_FLAG_HIDDEN);
+                    lv_obj_clear_flag(ui_Alarm4Cont, LV_OBJ_FLAG_HIDDEN);
                     lv_label_set_text(ui_Alarm4Label, alarmList[i].type);
-                    start_alarm_blink(ui_Alarm4Panel);
-                    start_alarm_blink(ui_Alarm4Label);
+                    start_alarm_blink(ui_Alarm4Cont);
                     break;
             }
             pos++;
@@ -618,10 +690,10 @@ void update_alarm_panels() {
 
     // Hide remaining panels if fewer than MAX_ALARM_DISPLAY alarms active
     if (pos < MAX_ALARM_DISPLAY) {
-        if (pos <= NUM_ALARMA_0) { lv_obj_add_flag(ui_Alarm1Panel, LV_OBJ_FLAG_HIDDEN); lv_obj_add_flag(ui_Alarm1Label, LV_OBJ_FLAG_HIDDEN);}
-        if (pos <= NUM_ALARMA_1) { lv_obj_add_flag(ui_Alarm2Panel, LV_OBJ_FLAG_HIDDEN); lv_obj_add_flag(ui_Alarm2Label, LV_OBJ_FLAG_HIDDEN);}
-        if (pos <= NUM_ALARMA_2) { lv_obj_add_flag(ui_Alarm3Panel, LV_OBJ_FLAG_HIDDEN); lv_obj_add_flag(ui_Alarm3Label, LV_OBJ_FLAG_HIDDEN);}
-        if (pos <= NUM_ALARMA_3) { lv_obj_add_flag(ui_Alarm4Panel, LV_OBJ_FLAG_HIDDEN); lv_obj_add_flag(ui_Alarm4Label, LV_OBJ_FLAG_HIDDEN);}
+        if (pos <= NUM_ALARMA_0) { lv_obj_add_flag(ui_Alarm1Cont, LV_OBJ_FLAG_HIDDEN);}
+        if (pos <= NUM_ALARMA_1) { lv_obj_add_flag(ui_Alarm2Cont, LV_OBJ_FLAG_HIDDEN);}
+        if (pos <= NUM_ALARMA_2) { lv_obj_add_flag(ui_Alarm3Cont, LV_OBJ_FLAG_HIDDEN);}
+        if (pos <= NUM_ALARMA_3) { lv_obj_add_flag(ui_Alarm4Cont, LV_OBJ_FLAG_HIDDEN);}
     }
 }
 
@@ -829,6 +901,33 @@ void setup()
     
     }, LV_EVENT_CLICKED, NULL);
 
+    // --- SKIN PANEL: hide at startup ---
+    lv_obj_add_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
+
+    
+    lv_obj_add_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN);
+
+
+
+    // --- WIFI: hide at startup ---
+    lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
+    // --- KEYBOARD: hide at startup ---
+    lv_obj_add_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
+    lv_keyboard_set_textarea(ui_Keyboard1, NULL);
+
+
+    // --- TextArea events for Wifi ---
+    lv_obj_add_event_cb(ui_TextArea1, TextArea_focus_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(ui_TextArea2, TextArea_focus_cb, LV_EVENT_CLICKED, NULL);
+    // --- KEYBOARD ---
+    lv_obj_add_event_cb(ui_Keyboard1, Keyboard_cb, LV_EVENT_ALL, NULL);
+    // Register Wifi button callback
+    lv_obj_add_event_cb(ui_WifiButton, WifiButton_cb, LV_EVENT_CLICKED, NULL);
+
+    // Register Language button callback
+    lv_obj_add_event_cb(ui_LanguagesButton, LanguageButton_cb, LV_EVENT_CLICKED, NULL);
+
     // ===========================
     // Initialize panel colors
     // ===========================
@@ -863,6 +962,13 @@ void setup()
     lv_obj_set_style_opa(ui_AirPanel, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_bg_color(ui_SkinPanel, COLOR_PANEL_GRAY, LV_PART_MAIN); // Skin panel grey
     lv_obj_set_style_opa(ui_SkinPanel, LV_OPA_COVER, LV_PART_MAIN);
+
+
+    // hide alarm panels at startup
+    lv_obj_add_flag(ui_Alarm1Cont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_Alarm2Cont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_Alarm3Cont, LV_OBJ_FLAG_HIDDEN); 
+    lv_obj_add_flag(ui_Alarm4Cont, LV_OBJ_FLAG_HIDDEN);
 
     lv_timer_handler();      // Process any initial LVGL tasks
 

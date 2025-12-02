@@ -23,7 +23,7 @@ lv_obj_t * ui_SkinModeCont = NULL;
 lv_obj_t * ui_Panel9 = NULL;
 lv_obj_t * ui_SkinOptionLabel = NULL;
 lv_obj_t * ui_Switch4 = NULL;
-lv_obj_t * ui_Wifi = NULL;
+lv_obj_t * ui_WifiConfigCont = NULL;
 lv_obj_t * ui_Keyboard1 = NULL;
 lv_obj_t * ui_SSIDPanel = NULL;
 lv_obj_t * ui_SSIDLabel = NULL;
@@ -198,25 +198,24 @@ void ui_Screen2_screen_init(void)
     lv_obj_set_y(ui_Switch4, 0);
     lv_obj_set_align(ui_Switch4, LV_ALIGN_CENTER);
 
-    ui_Wifi = lv_obj_create(ui_Screen2);
-    lv_obj_remove_style_all(ui_Wifi);
-    lv_obj_set_width(ui_Wifi, 428);
-    lv_obj_set_height(ui_Wifi, 361);
-    lv_obj_set_x(ui_Wifi, 172);
-    lv_obj_set_y(ui_Wifi, 39);
-    lv_obj_set_align(ui_Wifi, LV_ALIGN_CENTER);
-    lv_obj_add_flag(ui_Wifi, LV_OBJ_FLAG_HIDDEN);     /// Flags
-    lv_obj_clear_flag(ui_Wifi, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+    ui_WifiConfigCont = lv_obj_create(ui_Screen2);
+    lv_obj_remove_style_all(ui_WifiConfigCont);
+    lv_obj_set_width(ui_WifiConfigCont, 428);
+    lv_obj_set_height(ui_WifiConfigCont, 361);
+    lv_obj_set_x(ui_WifiConfigCont, 172);
+    lv_obj_set_y(ui_WifiConfigCont, 39);
+    lv_obj_set_align(ui_WifiConfigCont, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);     /// Flags
+    lv_obj_clear_flag(ui_WifiConfigCont, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
-    ui_Keyboard1 = lv_keyboard_create(ui_Wifi);
+    ui_Keyboard1 = lv_keyboard_create(ui_WifiConfigCont);
     lv_obj_set_width(ui_Keyboard1, 420);
     lv_obj_set_height(ui_Keyboard1, 198);
     lv_obj_set_x(ui_Keyboard1, 2);
     lv_obj_set_y(ui_Keyboard1, 87);
     lv_obj_set_align(ui_Keyboard1, LV_ALIGN_CENTER);
-    lv_obj_add_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);     /// Flags
 
-    ui_SSIDPanel = lv_obj_create(ui_Wifi);
+    ui_SSIDPanel = lv_obj_create(ui_WifiConfigCont);
     lv_obj_set_width(ui_SSIDPanel, 420);
     lv_obj_set_height(ui_SSIDPanel, 50);
     lv_obj_set_x(ui_SSIDPanel, 2);
@@ -224,7 +223,7 @@ void ui_Screen2_screen_init(void)
     lv_obj_set_align(ui_SSIDPanel, LV_ALIGN_CENTER);
     lv_obj_clear_flag(ui_SSIDPanel, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
-    ui_SSIDLabel = lv_label_create(ui_Wifi);
+    ui_SSIDLabel = lv_label_create(ui_WifiConfigCont);
     lv_obj_set_width(ui_SSIDLabel, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_SSIDLabel, LV_SIZE_CONTENT);    /// 1
     lv_obj_set_x(ui_SSIDLabel, -170);
@@ -232,7 +231,7 @@ void ui_Screen2_screen_init(void)
     lv_obj_set_align(ui_SSIDLabel, LV_ALIGN_CENTER);
     lv_label_set_text(ui_SSIDLabel, "SSID");
 
-    ui_PassPanel = lv_obj_create(ui_Wifi);
+    ui_PassPanel = lv_obj_create(ui_WifiConfigCont);
     lv_obj_set_width(ui_PassPanel, 420);
     lv_obj_set_height(ui_PassPanel, 50);
     lv_obj_set_x(ui_PassPanel, 2);
@@ -240,7 +239,7 @@ void ui_Screen2_screen_init(void)
     lv_obj_set_align(ui_PassPanel, LV_ALIGN_CENTER);
     lv_obj_clear_flag(ui_PassPanel, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
-    ui_PassLabel = lv_label_create(ui_Wifi);
+    ui_PassLabel = lv_label_create(ui_WifiConfigCont);
     lv_obj_set_width(ui_PassLabel, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_PassLabel, LV_SIZE_CONTENT);    /// 1
     lv_obj_set_x(ui_PassLabel, -154);
@@ -248,7 +247,7 @@ void ui_Screen2_screen_init(void)
     lv_obj_set_align(ui_PassLabel, LV_ALIGN_CENTER);
     lv_label_set_text(ui_PassLabel, "Password");
 
-    ui_TextArea1 = lv_textarea_create(ui_Wifi);
+    ui_TextArea1 = lv_textarea_create(ui_WifiConfigCont);
     lv_obj_set_width(ui_TextArea1, 304);
     lv_obj_set_height(ui_TextArea1, 38);
     lv_obj_set_x(ui_TextArea1, 50);
@@ -256,7 +255,7 @@ void ui_Screen2_screen_init(void)
     lv_obj_set_align(ui_TextArea1, LV_ALIGN_CENTER);
     lv_textarea_set_placeholder_text(ui_TextArea1, "Placeholder...");
 
-    ui_TextArea2 = lv_textarea_create(ui_Wifi);
+    ui_TextArea2 = lv_textarea_create(ui_WifiConfigCont);
     lv_obj_set_width(ui_TextArea2, 304);
     lv_obj_set_height(ui_TextArea2, 38);
     lv_obj_set_x(ui_TextArea2, 50);
@@ -300,7 +299,7 @@ void ui_Screen2_screen_destroy(void)
     ui_Panel9 = NULL;
     ui_SkinOptionLabel = NULL;
     ui_Switch4 = NULL;
-    ui_Wifi = NULL;
+    ui_WifiConfigCont = NULL;
     ui_Keyboard1 = NULL;
     ui_SSIDPanel = NULL;
     ui_SSIDLabel = NULL;

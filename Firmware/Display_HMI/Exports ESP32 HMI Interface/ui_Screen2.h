@@ -32,7 +32,7 @@ extern lv_obj_t * ui_SkinModeCont;
 extern lv_obj_t * ui_Panel9;
 extern lv_obj_t * ui_SkinOptionLabel;
 extern lv_obj_t * ui_Switch4;
-extern lv_obj_t * ui_Wifi;
+extern lv_obj_t * ui_WifiConfigCont;
 extern lv_obj_t * ui_Keyboard1;
 extern lv_obj_t * ui_SSIDPanel;
 extern lv_obj_t * ui_SSIDLabel;
