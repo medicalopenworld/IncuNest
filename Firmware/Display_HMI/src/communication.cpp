@@ -6,92 +6,101 @@ ControlBoard_Message_Telemetry ctrl_tel_msg;
 ControlBoard_Message_Alarm ctrl_msg_alarm;
 
 bool error = false;
-  
+
 static String rxBuffer = "";
 
-
-
 // ======================
-//  INICIALIZACIÓN
+//  INITIALIZATION
 // ======================
 void Communication_Init() {
   COMM_SERIAL.begin(115200);
   delay(200);
-  log_i("Communication initialized");
+  COMM_LOG("[COMM] Initialized\n");
 
-  while (xTaskCreatePinnedToCore(
-             Communication_Task,
-             "COMM_TASK",
-             4096,
-             NULL,
-             1,
-             NULL,
-             1) != pdPASS) {
-    log_i("Retrying COMM task creation...");
+  ctrl_msg_alarm.id = -1;
+
+  // Create the FreeRTOS communication task
+  while (xTaskCreatePinnedToCore(Communication_Task, "COMM_TASK", 4096, NULL, 1,
+                                 NULL, 1) != pdPASS) {
+    COMM_LOG("[COMM] Retrying COMM task creation...\n");
     delay(100);
   }
-  log_i("Communication task successfully created!");
+
+  COMM_LOG("[COMM] Task successfully created!\n");
 }
 
 // ======================
-//  TAREA PRINCIPAL
+//  MAIN COMM TASK
 // ======================
 void Communication_Task(void *pvParameters) {
-  const TickType_t period = pdMS_TO_TICKS(200);  // 200 ms
-  TickType_t lastWakeTime = xTaskGetTickCount();
+  const TickType_t period = pdMS_TO_TICKS(1); // run every 1 ms
 
   for (;;) {
+
+    // Handle incoming messages
     if (COMM_SERIAL.available()) {
       ReceiveMessageFromOtherESP();
     }
 
-#if IS_HMI
-    // Solo enviar si hay evento del HMI
-    if (hmi_msg.shouldSendData) {
-      SendMessageToOtherESP();
-      hmi_msg.shouldSendData = false;
-    }
-#else
-    // Enviar datos de sensores cada 200 ms
-    if (ctrl_msg.shouldSendData) {
-      SendMessageToOtherESP();
-      ctrl_msg.shouldSendData = false;
-    } else {
-      // Por defecto, enviar cada ciclo
-      SendMessageToOtherESP();
-    }
-#endif
+    // Send telemetry (internally rate-limited)
+    SendTelemetry();
 
-    vTaskDelayUntil(&lastWakeTime, period);
+    // Send alarm only once
+    if (ctrl_msg_alarm.id >= 0) {
+      SendAlarm();
+      ctrl_msg_alarm.id = -1; // clear after sending
+    }
+
+    vTaskDelay(period);
   }
 }
 
 // ======================
-//  ENVÍO
+//  SEND TELEMETRY
 // ======================
-void SendMessageToOtherESP() {
-#if IS_HMI
-  COMM_SERIAL.printf("HMI,%d,%d,%0.2f,%0.2f,%0.0f,%d,%d\n",
-                      hmi_msg.actuation,
-                      hmi_msg.controlMode,
-                      hmi_msg.desiredAirTemperature,
-                      hmi_msg.desiredSkinTemperature,
-                      hmi_msg.desiredHumidity,
-                      hmi_msg.phototherapyMode,
-                      hmi_msg.muteAlarm);
+void SendTelemetry() {
+#if !IS_HMI
+  // Static variable to keep track of last telemetry send
+  static uint32_t lastSendMs = 0;
+  uint32_t now = millis();
+
+  // Send only every 1000 ms
+  if (now - lastSendMs >= 1000) {
+    lastSendMs = now;
+
+    COMM_SERIAL.printf("CTRL,TEL,%.1f,%.1f,%d\n",
+                       ctrl_tel_msg.detectedAirTemperature,
+                       ctrl_tel_msg.detectedSkinTemperature,
+                       (int)ctrl_tel_msg.detectedHumidity);
+  }
+
 #else
-  COMM_SERIAL.printf("CTRL,%0.2f,%0.2f,%0.2f,%0.2f,%0.2f\n",
-                     ctrl_msg.temperature[0],
-                     ctrl_msg.temperature[1],
-                     ctrl_msg.temperature[2],
-                     ctrl_msg.humidity[0],
-                     ctrl_msg.humidity[1]);
+  // HMI sends only when requested
+  if (hmi_msg.shouldSendData) {
+    COMM_SERIAL.printf("HMI,%d,%d,%.1f,%.1f,%.0f,%d,%d\n", hmi_msg.actuation,
+                       hmi_msg.controlMode, hmi_msg.desiredAirTemperature,
+                       hmi_msg.desiredSkinTemperature, hmi_msg.desiredHumidity,
+                       hmi_msg.phototherapyMode, hmi_msg.muteAlarm);
+    hmi_msg.shouldSendData = false;
+  }
 #endif
 }
 
 // ======================
-//  RECEPCIÓN
+//  SEND ALARM
 // ======================
+void SendAlarm() {
+#if !IS_HMI
+  COMM_SERIAL.printf("CTRL,ALM,%d,%s,%s,%d\n", ctrl_msg_alarm.id,
+                     ctrl_msg_alarm.type, ctrl_msg_alarm.description,
+                     ctrl_msg_alarm.state ? 1 : 0);
+#endif
+}
+
+// ======================
+//  RECEIVE + FILTER
+// ======================
+
 bool ReceiveMessageFromOtherESP() {
   while (COMM_SERIAL.available()) {
 
@@ -109,8 +118,8 @@ bool ReceiveMessageFromOtherESP() {
         char description[ALARM_DESC_LEN];
         int stateInt;
 
-        int result = sscanf(rxBuffer.c_str(), "CTRL,ALM,%d,%[^,],%[^,],%d",
-                            &id, type, description, &stateInt);
+        int result = sscanf(rxBuffer.c_str(), "CTRL,ALM,%d,%[^,],%[^,],%d", &id,
+                            type, description, &stateInt);
 
         if (result == 4) {
           ctrl_msg_alarm.id = id;
@@ -122,8 +131,8 @@ bool ReceiveMessageFromOtherESP() {
 
           ctrl_msg_alarm.state = (stateInt != 0);
 
-          log_i("Received ALARM id=%d type=%s state=%d",
-                ctrl_msg_alarm.id, ctrl_msg_alarm.type, ctrl_msg_alarm.state);
+          log_i("Received ALARM id=%d type=%s state=%d", ctrl_msg_alarm.id,
+                ctrl_msg_alarm.type, ctrl_msg_alarm.state);
 
         } else {
           log_e("Failed to parse CTRL,ALM message");
@@ -145,6 +154,7 @@ bool ReceiveMessageFromOtherESP() {
 
         if (result == 3) {
           log_i("Received CTRL TEL data");
+          Serial.println(ctrl_tel_msg.detectedAirTemperature);
           error = false;
         } else {
           log_e("CTRL TEL parsing FAILED");
