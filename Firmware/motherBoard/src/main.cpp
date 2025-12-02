@@ -242,6 +242,9 @@ void sensors_Task(void *pvParameters) {
       powerMonitor();
       lastCurrentSensorUpdate = millis();
     }
+    ctrl_tel_msg.detectedAirTemperature = in3.temperature[ROOM_DIGITAL_TEMP_SENSOR];
+    ctrl_tel_msg.detectedSkinTemperature = in3.temperature[SKIN_SENSOR];
+    ctrl_tel_msg.detectedHumidity = in3.humidity[ROOM_DIGITAL_HUM_SENSOR];
     vTaskDelay(pdMS_TO_TICKS(SENSORS_TASK_PERIOD_MS));
   }
 }
@@ -294,21 +297,16 @@ void TimeTrack_Task(void *pvParameters) {
 }
 
 void setup() {
-  // // NVS antes de cualquier cosa BT
-  // esp_err_t ret = nvs_flash_init();
-  // if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
-  //     ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-  //   nvs_flash_erase();
-  //   nvs_flash_init();
-  // }
-
-  // Si SOLO usas Bluetooth clásico (RFCOMM/BluetoothSerial), libera memoria BLE
   esp_bt_controller_mem_release(ESP_BT_MODE_BLE);
   debugSerial.begin(115200);
   logI("in3ator debug uart, version v" + String(FWversion) + "/" +
        String(HWversion) + ", SN: " + String(in3.serialNumber));
 
-  // sharedSensorQueue = xQueueCreate(SENSOR_TEMP_QTY, sizeof(long));
+  // --- Initialize UART communication between ESP32 boards ---
+  logI("Initializing communication task ...");
+  Communication_Init();
+  logI("Communication task successfully created!\n");
+
   GPRS_monitor_mutex = xSemaphoreCreateBinary();
   security_check_reboot_cause();
   initGPIO();
@@ -322,78 +320,63 @@ void setup() {
   if (WIFI_EN) {
     wifiInit();
   }
-  // EEPROM.writeString(EEPROM_THINGSBOARD_TOKEN, "uDuuXVQcUqHyK6hKrPZB");
-  // EEPROM.write(EEPROM_THINGSBOARD_PROVISIONED, true);
-  // EEPROM.commit();
 
   logI("Creating buzzer task ...\n");
-  while (xTaskCreatePinnedToCore(buzzer_Task, (const char *)"BUZZER", 4096,
-                                 NULL, BUZZER_TASK_PRIORITY, NULL,
+  while (xTaskCreatePinnedToCore(buzzer_Task, "BUZZER", 4096, NULL,
+                                 BUZZER_TASK_PRIORITY, NULL,
                                  CORE_ID_FREERTOS) != pdPASS)
     ;
-  ;
   logI("Buzzer task successfully created!\n");
+
   logI("Creating sensors task ...\n");
-  while (xTaskCreatePinnedToCore(sensors_Task, (const char *)"SENSORS", 4096,
-                                 NULL, SENSORS_TASK_PRIORITY, NULL,
+  while (xTaskCreatePinnedToCore(sensors_Task, "SENSORS", 4096, NULL,
+                                 SENSORS_TASK_PRIORITY, NULL,
                                  CORE_ID_FREERTOS) != pdPASS)
     ;
-  ;
-  logI("sensors task successfully created!\n");
-  // Task generation
+  logI("Sensors task successfully created!\n");
+
   logI("Creating security task ...\n");
-  while (xTaskCreatePinnedToCore(security_Task, (const char *)"SECURITY", 4096,
-                                 NULL, SECURITY_TASK_PRIORITY, NULL,
+  while (xTaskCreatePinnedToCore(security_Task, "SECURITY", 4096, NULL,
+                                 SECURITY_TASK_PRIORITY, NULL,
                                  CORE_ID_FREERTOS) != pdPASS)
     ;
-  ;
-  logI("sensors task successfully created!\n");
+  logI("Security task successfully created!\n");
+
   logI("Creating GPRS task ...\n");
-  while (xTaskCreatePinnedToCore(GPRS_Task, (const char *)"GPRS", 8192, NULL,
+  while (xTaskCreatePinnedToCore(GPRS_Task, "GPRS", 8192, NULL,
                                  GPRS_TAST_PRIORITY, &taskHandle,
                                  CORE_ID_FREERTOS) != pdPASS)
     ;
   logI("GPRS task successfully created!\n");
 
   logI("Creating OTA task ...\n");
-  while (xTaskCreatePinnedToCore(OTA_WIFI_Task, (const char *)"OTA", 8192, NULL,
+  while (xTaskCreatePinnedToCore(OTA_WIFI_Task, "OTA", 8192, NULL,
                                  OTA_TASK_PRIORITY, NULL,
                                  CORE_ID_FREERTOS) != pdPASS)
     ;
   logI("OTA task successfully created!\n");
 
   logI("Creating Backlight task ...\n");
-  while (xTaskCreatePinnedToCore(Backlight_Task, (const char *)"BACKLIGHT",
-                                 4096, NULL, BACKLIGHT_TASK_PRIORITY, NULL,
+  while (xTaskCreatePinnedToCore(Backlight_Task, "BACKLIGHT", 4096, NULL,
+                                 BACKLIGHT_TASK_PRIORITY, NULL,
                                  CORE_ID_FREERTOS) != pdPASS)
     ;
-  ;
   logI("Backlight task successfully created!\n");
+
   logI("Creating time track task ...\n");
-  while (xTaskCreatePinnedToCore(TimeTrack_Task, (const char *)"TimeTrack",
-                                 4096, NULL, TIME_TRACK_TASK_PRIORITY, NULL,
+  while (xTaskCreatePinnedToCore(TimeTrack_Task, "TimeTrack", 4096, NULL,
+                                 TIME_TRACK_TASK_PRIORITY, NULL,
                                  CORE_ID_FREERTOS) != pdPASS)
     ;
-  ;
   logI("Time track task successfully created!\n");
 
 #if HW_NUM < 15
   logI("Creating UI task ...\n");
-  while (xTaskCreatePinnedToCore(UI_Task, (const char *)"UI", 4096, NULL,
-                                 UI_TASK_PRIORITY, NULL,
-                                 CORE_ID_FREERTOS) != pdPASS)
+  while (xTaskCreatePinnedToCore(UI_Task, "UI", 4096, NULL, UI_TASK_PRIORITY,
+                                 NULL, CORE_ID_FREERTOS) != pdPASS)
     ;
-  ;
   logI("UI task successfully created!\n");
 #endif
-  // charger.reset();
-  // delay(500); // give the charger time to reboot
-  // charger.setChargeVoltageLimit(14.4);
-  // charger.setInputCurrentLimit(3);
-  // charger.writeByte(REG18_NTC_Control_1, 0x55);
-  // charger.writeByte(REG0E_Timer_Control, 0);
-  // charger.setChargeCurrentLimit(2.0);
-  // pinMode(TOUCH_SENSOR_SEL, OUTPUT);
 }
 
 void loop() {

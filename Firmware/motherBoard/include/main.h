@@ -26,6 +26,7 @@
 #include <AH/Timing/MillisMicrosTimer.hpp>
 #include <Filters/Butterworth.hpp>
 
+#include "communication.h"
 #include "Adafruit_GFX.h"
 #include <TFT_eSPI.h> // Hardware-specific library
 #include "Adafruit_SHT4x.h"
@@ -54,11 +55,11 @@
 #include <Espressif_MQTT_Client.h>
 #include <Arduino_MQTT_Client.h>
 
-#define LOG_GPRS true
-#define LOG_MODEM_DATA true
-#define LOG_INFORMATION true
-#define LOG_ERRORS true
-#define LOG_ALARMS true
+#define LOG_GPRS false
+#define LOG_MODEM_DATA false
+#define LOG_INFORMATION false
+#define LOG_ERRORS false
+#define LOG_ALARMS false
 
 #define USE_SYSTEM_WITHOUT_ACTUATORS_TEST true //only if previous test was OK and that fail cause is not being able to read current measurements
 #define WDT_TIMEOUT 75

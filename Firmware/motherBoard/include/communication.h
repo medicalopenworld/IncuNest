@@ -1,35 +1,82 @@
-#pragma once
+#ifndef COMMUNICATION_H
+#define COMMUNICATION_H
+
 #include <Arduino.h>
 #include "main.h"
 
-// UART pins y velocidad
-#define UART_BAUDRATE 115200
-#define UART_DISPLAY Serial2
+// Set to true only on the HMI board
+#define IS_HMI false   
 
-// Comandos recibidos desde el display
-struct DisplayCommand {
-    bool startButtonPressed;
-    bool stopButtonPressed;
-    float targetTemperatureAir;
-    float targetTemperatureSkin;
-    float targetHumidity;
-};
+#define COMM_SERIAL Serial
 
-// Datos enviados al display
-struct DisplayMessage {
-    float temperatureAir;
-    float temperatureSkin;
-    float humidity;
-    bool alarmActive;
-    bool controlMode;
-    bool phototherapyOn;
-};
+#define ALARM_TYPE_LEN 30
+#define ALARM_DESC_LEN 100
 
-// Inicialización UART
-void initCommunication();
+// ======================
+//   DATA STRUCTURES
+// ======================
 
-// Leer comando del display
-bool readDisplayCommand(DisplayCommand *cmd);
+// Message received from the HMI board
+typedef struct {
+  double desiredAirTemperature;
+  double desiredSkinTemperature;
+  double desiredHumidity;
+  int actuation;
+  bool controlMode;
+  bool phototherapyMode;
+  bool shouldSendData;
+  bool muteAlarm = false;
+} HMI_Message;
 
-// Enviar datos al display
-void sendDisplayMessage(const DisplayMessage *msg);
+// Message with sensor data for control logic
+typedef struct {
+  double temperature[3];
+  double humidity[2];
+  bool shouldSendData;
+} ControlBoard_Message;
+
+// Telemetry message that is sent every second
+typedef struct {
+  double detectedAirTemperature;
+  double detectedSkinTemperature;
+  double detectedHumidity;
+  bool shouldSendData;
+} ControlBoard_Message_Telemetry;
+
+// Alarm message
+typedef struct {
+  int id;
+  char type[ALARM_TYPE_LEN];
+  char description[ALARM_DESC_LEN];
+  bool state;
+} ControlBoard_Message_Alarm;
+
+// Expected prefix of incoming messages
+#if IS_HMI
+#define EXPECTED_PREFIX "CTRL"
+#else
+#define EXPECTED_PREFIX "HMI"
+#endif
+
+// ======================
+//   GLOBAL VARIABLES
+// ======================
+extern HMI_Message hmi_msg;
+extern ControlBoard_Message ctrl_msg;
+extern ControlBoard_Message_Telemetry ctrl_tel_msg;
+extern ControlBoard_Message_Alarm ctrl_msg_alarm;
+
+extern bool error;
+
+// ======================
+//   PUBLIC FUNCTIONS
+// ======================
+void Communication_Init();
+void Communication_Task(void *pvParameters);
+
+void SendTelemetry();
+void SendAlarm();
+
+bool ReceiveMessageFromOtherESP();
+
+#endif
