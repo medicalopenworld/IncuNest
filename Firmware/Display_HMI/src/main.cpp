@@ -193,7 +193,7 @@ void Switch_cb(lv_event_t * e) {
 
     bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
 
-    if (obj == ui_Switch1 || obj == ui_Label9 || obj == ui_Label15) {  // TEMPERATURE SWITCH
+    if (obj == ui_Switch1) {  // TEMPERATURE SWITCH
         switchTemp = checked;
         tempSwitched = checked;
         panel = ui_Panel1;
@@ -239,7 +239,7 @@ void Switch_cb(lv_event_t * e) {
             lv_obj_set_style_opa(ui_SkinPanel, LV_OPA_COVER, LV_PART_MAIN);
         }
     } 
-    else if (obj == ui_Switch2 || obj == ui_Label13 || obj == ui_Label16) {  // HUMIDITY SWITCH
+    else if (obj == ui_Switch2) {  // HUMIDITY SWITCH
         switchHum = checked;
         humSwitched = checked;
         panel = ui_Panel3;
@@ -259,7 +259,7 @@ void Switch_cb(lv_event_t * e) {
         lv_obj_set_style_opa(ui_ArrowDownHum, LV_OPA_COVER, LV_PART_MAIN);
         lv_obj_set_style_opa(ui_ArrowUpHum, LV_OPA_COVER, LV_PART_MAIN);
     }
-    else if (obj == ui_Switch3 || obj == ui_Label17 || obj == ui_Label10) {  // PHOTOTHERAPY SWITCH
+    else if (obj == ui_Switch3) {  // PHOTOTHERAPY SWITCH
     bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
     hmi_msg.phototherapyMode = checked ? PHOTOTHERAPY_ON : PHOTOTHERAPY_OFF;
     hmi_msg.shouldSendData = true;
@@ -982,6 +982,54 @@ void setup()
     lv_obj_add_event_cb(ui_Switch3, Switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(ui_Switch4, Switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
+    // ===========================
+    // Simulate switch ON/OFF via labels
+    // ===========================
+
+    // ----- SWITCH 1 (Temperature) -----
+    // Label9 = ON  (activates Switch1)
+    lv_obj_add_flag(ui_Label9, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(ui_Label9, [](lv_event_t * e){
+        lv_obj_add_state(ui_Switch1, LV_STATE_CHECKED);              // we turn it ON
+        lv_event_send(ui_Switch1, LV_EVENT_VALUE_CHANGED, NULL);     // triggers Switch_cb()
+    }, LV_EVENT_CLICKED, NULL);
+
+    // Label15 = OFF (deactivates Switch1)
+    lv_obj_add_flag(ui_Label15, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(ui_Label15, [](lv_event_t * e){
+        lv_obj_clear_state(ui_Switch1, LV_STATE_CHECKED);            // we turn it OFF
+        lv_event_send(ui_Switch1, LV_EVENT_VALUE_CHANGED, NULL);     // triggers Switch_cb()
+    }, LV_EVENT_CLICKED, NULL);
+
+    // ----- SWITCH 2 (Humidity) -----
+    // Label13 = ON
+    lv_obj_add_flag(ui_Label13, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(ui_Label13, [](lv_event_t * e){
+        lv_obj_add_state(ui_Switch2, LV_STATE_CHECKED);
+        lv_event_send(ui_Switch2, LV_EVENT_VALUE_CHANGED, NULL);
+    }, LV_EVENT_CLICKED, NULL);
+
+    // Label16 = OFF
+    lv_obj_add_flag(ui_Label16, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(ui_Label16, [](lv_event_t * e){
+        lv_obj_clear_state(ui_Switch2, LV_STATE_CHECKED);
+        lv_event_send(ui_Switch2, LV_EVENT_VALUE_CHANGED, NULL);
+    }, LV_EVENT_CLICKED, NULL);
+
+    // ----- SWITCH 3 (Phototherapy) -----
+    // Label10 = ON
+    lv_obj_add_flag(ui_Label10, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(ui_Label10, [](lv_event_t * e){
+        lv_obj_add_state(ui_Switch3, LV_STATE_CHECKED);
+        lv_event_send(ui_Switch3, LV_EVENT_VALUE_CHANGED, NULL);
+    }, LV_EVENT_CLICKED, NULL);
+
+    // Label17 = OFF
+    lv_obj_add_flag(ui_Label17, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(ui_Label17, [](lv_event_t * e){
+        lv_obj_clear_state(ui_Switch3, LV_STATE_CHECKED);
+        lv_event_send(ui_Switch3, LV_EVENT_VALUE_CHANGED, NULL);
+    }, LV_EVENT_CLICKED, NULL);
 
 
     // Connect panel selection callbacks

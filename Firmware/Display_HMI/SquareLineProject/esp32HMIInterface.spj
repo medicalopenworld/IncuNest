@@ -9776,8 +9776,7 @@
                 "InheritedType": 11
               }
             ],
-            "saved_objtypeKey": "CONTAINER",
-            "tree_closed": true
+            "saved_objtypeKey": "CONTAINER"
           }
         ],
         "isPage": true,
@@ -14576,7 +14575,7 @@
                           {
                             "nid": 1030,
                             "strtype": "LABEL/Text",
-                            "strval": "TEMP MUY ALTA",
+                            "strval": "TEMP VERY HIGH",
                             "InheritedType": 10
                           },
                           {
@@ -14670,7 +14669,7 @@
                         "flags": 17,
                         "strtype": "OBJECT/Size",
                         "intarray": [
-                          318,
+                          712,
                           50
                         ],
                         "InheritedType": 7
@@ -15027,7 +15026,7 @@
                           {
                             "nid": 1030,
                             "strtype": "LABEL/Text",
-                            "strval": "TEMP MUY ALTA",
+                            "strval": "TEMP VERY HIGH",
                             "InheritedType": 10
                           },
                           {
@@ -15111,7 +15110,7 @@
                         "flags": 17,
                         "strtype": "OBJECT/Position",
                         "intarray": [
-                          2,
+                          0,
                           -59
                         ],
                         "InheritedType": 7
@@ -15121,7 +15120,7 @@
                         "flags": 17,
                         "strtype": "OBJECT/Size",
                         "intarray": [
-                          316,
+                          712,
                           50
                         ],
                         "InheritedType": 7
@@ -15478,7 +15477,7 @@
                           {
                             "nid": 1030,
                             "strtype": "LABEL/Text",
-                            "strval": "TEMP MUY ALTA",
+                            "strval": "TEMP VERY HIGH",
                             "InheritedType": 10
                           },
                           {
@@ -15572,7 +15571,7 @@
                         "flags": 17,
                         "strtype": "OBJECT/Size",
                         "intarray": [
-                          319,
+                          712,
                           50
                         ],
                         "InheritedType": 7
@@ -15929,7 +15928,7 @@
                           {
                             "nid": 1030,
                             "strtype": "LABEL/Text",
-                            "strval": "TEMP MUY ALTA",
+                            "strval": "TEMP VERY HIGH",
                             "InheritedType": 10
                           },
                           {
@@ -16014,7 +16013,7 @@
                         "flags": 17,
                         "strtype": "OBJECT/Position",
                         "intarray": [
-                          1,
+                          0,
                           59
                         ],
                         "InheritedType": 7
@@ -16024,7 +16023,7 @@
                         "flags": 17,
                         "strtype": "OBJECT/Size",
                         "intarray": [
-                          310,
+                          712,
                           50
                         ],
                         "InheritedType": 7
@@ -16835,7 +16834,7 @@
                 "strtype": "OBJECT/Position",
                 "intarray": [
                   9,
-                  184
+                  171
                 ],
                 "InheritedType": 7
               },
@@ -16916,31 +16915,31 @@
               {
                 "nid": 1040,
                 "strtype": "IMGBUTTON/Image_pressed",
-                "strval": "-",
+                "strval": "",
                 "InheritedType": 5
               },
               {
                 "nid": 1050,
                 "strtype": "IMGBUTTON/Image_disabled",
-                "strval": "-",
+                "strval": "",
                 "InheritedType": 5
               },
               {
                 "nid": 1060,
                 "strtype": "IMGBUTTON/Image_checked_released",
-                "strval": "-",
+                "strval": "",
                 "InheritedType": 5
               },
               {
                 "nid": 1070,
                 "strtype": "IMGBUTTON/Image_checked_pressed",
-                "strval": "-",
+                "strval": "",
                 "InheritedType": 5
               },
               {
                 "nid": 1080,
                 "strtype": "IMGBUTTON/Image_checked_disabled",
-                "strval": "-",
+                "strval": "",
                 "InheritedType": 5
               },
               {
@@ -20627,7 +20626,7 @@
     "uiExportFolderPath": "C:\\Users\\jlaco\\OneDrive\\Escritorio\\In3ator\\IncuNest\\Firmware\\Display_HMI\\Exports ESP32 HMI Interface",
     "projectExportFolderPath": "C:\\Users\\jlaco\\OneDrive\\Escritorio\\In3ator\\IncuNest\\Firmware\\Display_HMI\\SquareLineProject",
     "custom_variable_prefix": "uic",
-    "backup_cnt": 215,
+    "backup_cnt": 219,
     "autosave_cnt": 0,
     "group_color_cnt": 0,
     "lvgl_version": "8.3.11",
