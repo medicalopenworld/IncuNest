@@ -69,6 +69,8 @@ lv_obj_t * ui_Switch3 = NULL;
 lv_obj_t * ui_PhototherapyLabel = NULL;
 lv_obj_t * ui_Label17 = NULL;
 lv_obj_t * ui_Label10 = NULL;
+lv_obj_t * ui_Panel10 = NULL;
+lv_obj_t * ui_NumAlarm = NULL;
 // event funtions
 void ui_event_Settings(lv_event_t * e)
 {
@@ -117,10 +119,10 @@ void ui_Screen1_screen_init(void)
 
     ui_AlarmButton = lv_imgbtn_create(ui_Screen1);
     lv_imgbtn_set_src(ui_AlarmButton, LV_IMGBTN_STATE_RELEASED, NULL, &ui_img_1007688293, NULL);
-    lv_obj_set_width(ui_AlarmButton, 49);
-    lv_obj_set_height(ui_AlarmButton, 48);
+    lv_obj_set_width(ui_AlarmButton, 48);
+    lv_obj_set_height(ui_AlarmButton, 47);
     lv_obj_set_x(ui_AlarmButton, 258);
-    lv_obj_set_y(ui_AlarmButton, -215);
+    lv_obj_set_y(ui_AlarmButton, -212);
     lv_obj_set_align(ui_AlarmButton, LV_ALIGN_CENTER);
 
     ui_TempCont = lv_obj_create(ui_Screen1);
@@ -639,6 +641,27 @@ void ui_Screen1_screen_init(void)
     lv_obj_set_align(ui_Label10, LV_ALIGN_CENTER);
     lv_label_set_text(ui_Label10, "ON");
 
+    ui_Panel10 = lv_obj_create(ui_Screen1);
+    lv_obj_set_width(ui_Panel10, 24);
+    lv_obj_set_height(ui_Panel10, 27);
+    lv_obj_set_x(ui_Panel10, 275);
+    lv_obj_set_y(ui_Panel10, -228);
+    lv_obj_set_align(ui_Panel10, LV_ALIGN_CENTER);
+    lv_obj_clear_flag(ui_Panel10, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+    lv_obj_set_style_bg_color(ui_Panel10, lv_color_hex(0xFF0000), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(ui_Panel10, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_NumAlarm = lv_label_create(ui_Screen1);
+    lv_obj_set_width(ui_NumAlarm, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_NumAlarm, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_x(ui_NumAlarm, 275);
+    lv_obj_set_y(ui_NumAlarm, -228);
+    lv_obj_set_align(ui_NumAlarm, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_NumAlarm, "1");
+    lv_obj_set_style_text_color(ui_NumAlarm, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_opa(ui_NumAlarm, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_NumAlarm, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
+
     lv_obj_add_event_cb(ui_Settings, ui_event_Settings, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_AlarmButton, ui_event_AlarmButton, LV_EVENT_ALL, NULL);
     uic_Tempbutton = ui_TempButton;
@@ -715,5 +738,7 @@ void ui_Screen1_screen_destroy(void)
     ui_PhototherapyLabel = NULL;
     ui_Label17 = NULL;
     ui_Label10 = NULL;
+    ui_Panel10 = NULL;
+    ui_NumAlarm = NULL;
 
 }

@@ -77,6 +77,8 @@ extern lv_obj_t * ui_Switch3;
 extern lv_obj_t * ui_PhototherapyLabel;
 extern lv_obj_t * ui_Label17;
 extern lv_obj_t * ui_Label10;
+extern lv_obj_t * ui_Panel10;
+extern lv_obj_t * ui_NumAlarm;
 // CUSTOM VARIABLES
 extern lv_obj_t * uic_Tempbutton;
 extern lv_obj_t * uic_HumidButton;

@@ -8,7 +8,7 @@
 lv_obj_t * ui_Screen3 = NULL;
 lv_obj_t * ui_ImgButton7 = NULL;
 lv_obj_t * ui_Panel5 = NULL;
-lv_obj_t * ui_TabView1 = NULL;
+lv_obj_t * ui_AlarmsTabview = NULL;
 lv_obj_t * ui_TabPage1 = NULL;
 lv_obj_t * ui_Alarm1Cont = NULL;
 lv_obj_t * ui_Alarm1Panel = NULL;
@@ -23,6 +23,7 @@ lv_obj_t * ui_Alarm4Cont = NULL;
 lv_obj_t * ui_Alarm4Panel = NULL;
 lv_obj_t * ui_Alarm4Label = NULL;
 lv_obj_t * ui_TabPage2 = NULL;
+lv_obj_t * ui_AlarmDetailLabel = NULL;
 lv_obj_t * ui_MuteAlarm = NULL;
 // event funtions
 void ui_event_ImgButton7(lv_event_t * e)
@@ -57,17 +58,17 @@ void ui_Screen3_screen_init(void)
     lv_obj_set_y(ui_Panel5, 71);
     lv_obj_clear_flag(ui_Panel5, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
-    ui_TabView1 = lv_tabview_create(ui_Screen3, LV_DIR_TOP, 30);
-    lv_obj_set_width(ui_TabView1, 743);
-    lv_obj_set_height(ui_TabView1, 364);
-    lv_obj_set_x(ui_TabView1, 0);
-    lv_obj_set_y(ui_TabView1, 32);
-    lv_obj_set_align(ui_TabView1, LV_ALIGN_CENTER);
-    lv_obj_clear_flag(ui_TabView1, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
-    lv_obj_set_style_border_width(ui_TabView1, 1, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_border_side(ui_TabView1, LV_BORDER_SIDE_FULL, LV_PART_MAIN | LV_STATE_DEFAULT);
+    ui_AlarmsTabview = lv_tabview_create(ui_Screen3, LV_DIR_TOP, 30);
+    lv_obj_set_width(ui_AlarmsTabview, 743);
+    lv_obj_set_height(ui_AlarmsTabview, 364);
+    lv_obj_set_x(ui_AlarmsTabview, 0);
+    lv_obj_set_y(ui_AlarmsTabview, 32);
+    lv_obj_set_align(ui_AlarmsTabview, LV_ALIGN_CENTER);
+    lv_obj_clear_flag(ui_AlarmsTabview, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+    lv_obj_set_style_border_width(ui_AlarmsTabview, 1, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_side(ui_AlarmsTabview, LV_BORDER_SIDE_FULL, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    ui_TabPage1 = lv_tabview_add_tab(ui_TabView1, "Alarms");
+    ui_TabPage1 = lv_tabview_add_tab(ui_AlarmsTabview, "Alarms");
 
     ui_Alarm1Cont = lv_obj_create(ui_TabPage1);
     lv_obj_remove_style_all(ui_Alarm1Cont);
@@ -173,7 +174,15 @@ void ui_Screen3_screen_init(void)
     lv_obj_set_style_text_opa(ui_Alarm4Label, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(ui_Alarm4Label, &lv_font_montserrat_30, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    ui_TabPage2 = lv_tabview_add_tab(ui_TabView1, "View details");
+    ui_TabPage2 = lv_tabview_add_tab(ui_AlarmsTabview, "View details");
+
+    ui_AlarmDetailLabel = lv_label_create(ui_TabPage2);
+    lv_obj_set_width(ui_AlarmDetailLabel, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_AlarmDetailLabel, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_x(ui_AlarmDetailLabel, -277);
+    lv_obj_set_y(ui_AlarmDetailLabel, -139);
+    lv_obj_set_align(ui_AlarmDetailLabel, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_AlarmDetailLabel, "Alarms description");
 
     ui_MuteAlarm = lv_imgbtn_create(ui_Screen3);
     lv_imgbtn_set_src(ui_MuteAlarm, LV_IMGBTN_STATE_RELEASED, NULL, &ui_img_mute_icon_png, NULL);
@@ -195,7 +204,7 @@ void ui_Screen3_screen_destroy(void)
     ui_Screen3 = NULL;
     ui_ImgButton7 = NULL;
     ui_Panel5 = NULL;
-    ui_TabView1 = NULL;
+    ui_AlarmsTabview = NULL;
     ui_TabPage1 = NULL;
     ui_Alarm1Cont = NULL;
     ui_Alarm1Panel = NULL;
@@ -210,6 +219,7 @@ void ui_Screen3_screen_destroy(void)
     ui_Alarm4Panel = NULL;
     ui_Alarm4Label = NULL;
     ui_TabPage2 = NULL;
+    ui_AlarmDetailLabel = NULL;
     ui_MuteAlarm = NULL;
 
 }

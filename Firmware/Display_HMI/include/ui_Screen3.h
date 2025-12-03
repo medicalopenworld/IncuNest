@@ -17,7 +17,7 @@ extern lv_obj_t * ui_Screen3;
 extern void ui_event_ImgButton7(lv_event_t * e);
 extern lv_obj_t * ui_ImgButton7;
 extern lv_obj_t * ui_Panel5;
-extern lv_obj_t * ui_TabView1;
+extern lv_obj_t * ui_AlarmsTabview;
 extern lv_obj_t * ui_TabPage1;
 extern lv_obj_t * ui_Alarm1Cont;
 extern lv_obj_t * ui_Alarm1Panel;
@@ -32,6 +32,7 @@ extern lv_obj_t * ui_Alarm4Cont;
 extern lv_obj_t * ui_Alarm4Panel;
 extern lv_obj_t * ui_Alarm4Label;
 extern lv_obj_t * ui_TabPage2;
+extern lv_obj_t * ui_AlarmDetailLabel;
 extern lv_obj_t * ui_MuteAlarm;
 // CUSTOM VARIABLES
 

@@ -31,9 +31,13 @@ bool arrowsActive = false;
 bool alarmActive = false;
 bool prevTempAlarm = false;
 bool prevHumAlarm = false;
+int alarmSlotToIndex[MAX_ALARM_DISPLAY] = { -1, -1, -1, -1 };
+
 
 bool wifiVisible = false;
 bool LanguagesVisible = false;
+
+
 
 
 struct Alarm
@@ -624,6 +628,10 @@ static void blink_cb(void * obj, int32_t v) {
 
 /* Start blinking animation on alarm panels */
 void start_alarm_blink(lv_obj_t * obj) {
+
+    lv_anim_del(obj, blink_cb);
+
+
     lv_anim_t a;
     lv_anim_init(&a);
     lv_anim_set_var(&a, obj);
@@ -639,25 +647,37 @@ void start_alarm_blink(lv_obj_t * obj) {
 void update_alarm_panels() {
     int pos = NUM_ALARMA_0; // Position index for active alarms
 
+    // Resetear mapa contenedor → índice de alarma
+    for (int s = 0; s < MAX_ALARM_DISPLAY; s++) {
+        alarmSlotToIndex[s] = -1;
+    }
+
+    int activeCount = 0;
+
     for (int i = 0; i < MAX_ALARMS; i++) {
         if (alarmList[i].state) {
+            activeCount++;
             switch (pos) {
                 case NUM_ALARMA_0:
+                    alarmSlotToIndex[0] = i;
                     lv_obj_clear_flag(ui_Alarm1Cont, LV_OBJ_FLAG_HIDDEN);
                     lv_label_set_text(ui_Alarm1Label, alarmList[i].type);
                     start_alarm_blink(ui_Alarm1Cont);
                     break;
                 case NUM_ALARMA_1:
+                    alarmSlotToIndex[1] = i;
                     lv_obj_clear_flag(ui_Alarm2Cont, LV_OBJ_FLAG_HIDDEN);
                     lv_label_set_text(ui_Alarm2Label, alarmList[i].type);
                     start_alarm_blink(ui_Alarm2Cont);
                     break;
                 case NUM_ALARMA_2:
+                    alarmSlotToIndex[2] = i;
                     lv_obj_clear_flag(ui_Alarm3Cont, LV_OBJ_FLAG_HIDDEN);
                     lv_label_set_text(ui_Alarm3Label, alarmList[i].type);
                     start_alarm_blink(ui_Alarm3Cont);
                     break;
                 case NUM_ALARMA_3:
+                    alarmSlotToIndex[3] = i;
                     lv_obj_clear_flag(ui_Alarm4Cont, LV_OBJ_FLAG_HIDDEN);
                     lv_label_set_text(ui_Alarm4Label, alarmList[i].type);
                     start_alarm_blink(ui_Alarm4Cont);
@@ -667,33 +687,85 @@ void update_alarm_panels() {
             if (pos >= MAX_ALARM_DISPLAY) break;
         }
 
-            // check if any alarm is still active
-            bool anyAlarmActive = false;
-            for (int i = 0; i < MAX_ALARMS; i++) {
-                if (alarmList[i].state) {
-                    anyAlarmActive = true;
-                    break;
-                }
-            }
-
-            // Update general alarm state
-            alarmActive = anyAlarmActive;
-
-            // Show or hide mute button depending on whether there are alarms active
-            if (alarmActive) {
-                lv_obj_clear_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN); // show
-            } else {
-                lv_obj_add_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN);   // hide
-            }
-
+        
     }
+
+    // ----- Global alarm state -----
+        alarmActive = (activeCount > 0);
+
+        if (alarmActive) {
+            lv_obj_clear_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN); // show
+        } else {
+            lv_obj_add_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN);   // hide
+        }
+
+         // ----- Indicator on main screen: Panel10 + NumAlarm -----
+        if (alarmActive) {
+            // Text with the number of alarms
+            char buf[8];
+            snprintf(buf, sizeof(buf), "%d", activeCount);
+            lv_label_set_text(ui_NumAlarm, buf);
+
+            // Show them and start animations
+            lv_obj_clear_flag(ui_Panel10, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(ui_NumAlarm, LV_OBJ_FLAG_HIDDEN);
+
+            // Make them blink in unison
+            start_alarm_blink(ui_Panel10);
+            start_alarm_blink(ui_NumAlarm);
+        } else {
+            // No alarms: hide and remove animations
+            lv_obj_add_flag(ui_Panel10, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(ui_NumAlarm, LV_OBJ_FLAG_HIDDEN);
+
+            lv_anim_del(ui_Panel10, blink_cb);
+            lv_anim_del(ui_NumAlarm, blink_cb);
+            lv_obj_set_style_opa(ui_Panel10, LV_OPA_COVER, LV_PART_MAIN);
+            lv_obj_set_style_opa(ui_NumAlarm, LV_OPA_COVER, LV_PART_MAIN);
+        }
 
     // Hide remaining panels if fewer than MAX_ALARM_DISPLAY alarms active
     if (pos < MAX_ALARM_DISPLAY) {
-        if (pos <= NUM_ALARMA_0) { lv_obj_add_flag(ui_Alarm1Cont, LV_OBJ_FLAG_HIDDEN);}
-        if (pos <= NUM_ALARMA_1) { lv_obj_add_flag(ui_Alarm2Cont, LV_OBJ_FLAG_HIDDEN);}
-        if (pos <= NUM_ALARMA_2) { lv_obj_add_flag(ui_Alarm3Cont, LV_OBJ_FLAG_HIDDEN);}
-        if (pos <= NUM_ALARMA_3) { lv_obj_add_flag(ui_Alarm4Cont, LV_OBJ_FLAG_HIDDEN);}
+        if (pos <= NUM_ALARMA_0) { lv_obj_add_flag(ui_Alarm1Cont, LV_OBJ_FLAG_HIDDEN); }
+        if (pos <= NUM_ALARMA_1) { lv_obj_add_flag(ui_Alarm2Cont, LV_OBJ_FLAG_HIDDEN); }
+        if (pos <= NUM_ALARMA_2) { lv_obj_add_flag(ui_Alarm3Cont, LV_OBJ_FLAG_HIDDEN); }
+        if (pos <= NUM_ALARMA_3) { lv_obj_add_flag(ui_Alarm4Cont, LV_OBJ_FLAG_HIDDEN); }
+    }
+}
+
+void show_alarm_detail_from_slot(int slot)
+{
+    if (slot < 0 || slot >= MAX_ALARM_DISPLAY) return;
+
+    int idx = alarmSlotToIndex[slot];
+    if (idx < 0) return;   // no hay alarma asignada a ese contenedor
+
+    // Cambiar a la pestaña "View details" (segunda pestaña => índice 1)
+    lv_tabview_set_act(ui_AlarmsTabview, 1, LV_ANIM_ON);
+
+    // Poner la descripción de la alarma seleccionada
+    lv_label_set_text(ui_AlarmDetailLabel, alarmList[idx].description);
+}
+
+void Alarm1Cont_cb(lv_event_t * e) { show_alarm_detail_from_slot(0); }
+void Alarm2Cont_cb(lv_event_t * e) { show_alarm_detail_from_slot(1); }
+void Alarm3Cont_cb(lv_event_t * e) { show_alarm_detail_from_slot(2); }
+void Alarm4Cont_cb(lv_event_t * e) { show_alarm_detail_from_slot(3); }
+
+void AlarmButton_cb(lv_event_t * e)
+{
+    // Change to the "Alarms" tab (first tab => index 0)
+    lv_tabview_set_act(ui_AlarmsTabview, 0, LV_ANIM_ON);
+}
+
+void AlarmsTabview_cb(lv_event_t * e)
+{
+    lv_obj_t * tv = lv_event_get_target(e);
+    uint16_t act = lv_tabview_get_tab_act(tv);
+
+    // If we are on tab 0 ("Alarms"), clear the text area
+    if (act == 0) {
+        lv_label_set_text(ui_AlarmDetailLabel, "");
     }
 }
 
@@ -969,6 +1041,64 @@ void setup()
     lv_obj_add_flag(ui_Alarm2Cont, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_Alarm3Cont, LV_OBJ_FLAG_HIDDEN); 
     lv_obj_add_flag(ui_Alarm4Cont, LV_OBJ_FLAG_HIDDEN);
+
+    // Add clickability and callbacks to alarm containers
+    lv_obj_add_flag(ui_Alarm1Cont, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(ui_Alarm2Cont, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(ui_Alarm3Cont, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(ui_Alarm4Cont, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_add_event_cb(ui_Alarm1Cont, Alarm1Cont_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(ui_Alarm2Cont, Alarm2Cont_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(ui_Alarm3Cont, Alarm3Cont_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(ui_Alarm4Cont, Alarm4Cont_cb, LV_EVENT_CLICKED, NULL);
+
+    // Make alarm labels clickable too
+    lv_obj_add_flag(ui_Alarm1Label, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(ui_Alarm1Panel, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(ui_Alarm1Label, Alarm1Cont_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(ui_Alarm1Panel, Alarm1Cont_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_add_flag(ui_Alarm2Label, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(ui_Alarm2Panel, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(ui_Alarm2Label, Alarm2Cont_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(ui_Alarm2Panel, Alarm2Cont_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_add_flag(ui_Alarm3Label, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(ui_Alarm3Panel, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(ui_Alarm3Label, Alarm3Cont_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(ui_Alarm3Panel, Alarm3Cont_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_add_flag(ui_Alarm4Panel, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(ui_Alarm4Label, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(ui_Alarm4Label, Alarm4Cont_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(ui_Alarm4Panel, Alarm4Cont_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_add_event_cb(ui_ImgButton7, AlarmsTabview_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(ui_AlarmButton, AlarmButton_cb, LV_EVENT_CLICKED, NULL);
+
+
+    // --- Adjust Alarm description Label ---
+    lv_obj_set_width(ui_AlarmDetailLabel, lv_pct(100));                 // width 100% of parent
+    lv_label_set_long_mode(ui_AlarmDetailLabel, LV_LABEL_LONG_WRAP);    // allow line breaks
+    lv_obj_set_style_text_align(ui_AlarmDetailLabel,
+                                LV_TEXT_ALIGN_CENTER,
+                                0);                                     // text centered within the label
+    // Optional: position the label in the tab (top center with a small Y margin)
+    lv_obj_align(ui_AlarmDetailLabel, LV_ALIGN_TOP_MID, 0, 20);
+
+
+    lv_obj_add_event_cb(ui_AlarmsTabview, AlarmsTabview_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    // Initially, empty description
+    lv_label_set_text(ui_AlarmDetailLabel, "");
+
+    lv_obj_add_flag(ui_NumAlarm, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_Panel10, LV_OBJ_FLAG_HIDDEN);
+
+
+
+
+    //=================================================================================================
 
     lv_timer_handler();      // Process any initial LVGL tasks
 
