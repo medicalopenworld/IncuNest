@@ -37,6 +37,11 @@ int alarmSlotToIndex[MAX_ALARM_DISPLAY] = { -1, -1, -1, -1 };
 bool wifiVisible = false;
 bool LanguagesVisible = false;
 
+lv_chart_series_t * tempSeries = NULL;
+lv_chart_series_t * humSeries  = NULL;
+
+
+
 
 
 
@@ -771,6 +776,26 @@ void AlarmsTabview_cb(lv_event_t * e)
     }
 }
 
+void chart_add_temp_value(float temp)
+{
+    if (tempSeries == NULL) return;
+
+    // Convert to lv_coord_t (int16)
+    lv_chart_set_next_value(ui_TempChart, tempSeries, (lv_coord_t)temp);
+}
+
+void chart_add_hum_value(float hum)
+{
+    if (humSeries == NULL) return;
+
+    // Ensure limits 0–100 %
+    if (hum < 0)   hum = 0;
+    if (hum > 100) hum = 100;
+
+    lv_chart_set_next_value(ui_HumChart, humSeries, (lv_coord_t)hum);
+}
+
+
 void applyHMIData() {
     // -----------------------------
     // Update numeric values
@@ -781,6 +806,11 @@ void applyHMIData() {
     humValueDetected      = (int)ctrl_tel_msg.detectedHumidity;
     update_labels();
 
+    // Add to charts
+    //chart_add_hum_value((float)humValueDetected);
+    //chart_add_skin_temp_value((float)skinTempValueDetected);
+    chart_add_temp_value((float)airTempValueDetected);
+    chart_add_hum_value((float)humValueDetected);
     // -----------------------------
     // Simulate switches according to 'actuation'
     // -----------------------------
@@ -1098,6 +1128,97 @@ void setup()
     lv_obj_add_flag(ui_Panel10, LV_OBJ_FLAG_HIDDEN);
 
 
+    // ============================================================================
+    // TempChart configuration
+    // ============================================================================
+
+     // ===== Limpiar series creadas por SquareLine =====
+    lv_chart_series_t * s = lv_chart_get_series_next(ui_TempChart, NULL);
+    while (s != NULL) {
+        lv_chart_series_t * next = lv_chart_get_series_next(ui_TempChart, s);
+        lv_chart_remove_series(ui_TempChart, s);
+        s = next;
+    }
+
+    // ===== Configuration of TempChart =====
+    lv_chart_set_type(ui_TempChart, LV_CHART_TYPE_LINE);
+
+    // How many points to store (display) 
+    lv_chart_set_point_count(ui_TempChart, 50);
+
+    // Y-axis range (for example from 20ºC to 45ºC)
+    lv_chart_set_range(ui_TempChart,
+                       LV_CHART_AXIS_PRIMARY_Y,
+                       20, 45);
+
+    // Create the series (any color you want)
+    tempSeries = lv_chart_add_series(ui_TempChart,
+                                     lv_palette_main(LV_PALETTE_BLUE),
+                                     LV_CHART_AXIS_PRIMARY_Y);
+
+    // Hide secondary Y axis (right)
+    lv_chart_set_axis_tick(ui_TempChart,
+                        LV_CHART_AXIS_SECONDARY_Y,
+                        0,    // major_len
+                        0,    // minor_len
+                        0,    // major_cnt
+                        0,    // minor_cnt
+                        false,// label_en -> no text
+                        0);   // draw_size
+
+    // Hide X axis ticks and labels
+    lv_chart_set_axis_tick(ui_TempChart,
+                        LV_CHART_AXIS_PRIMARY_X,
+                        0, 0, 0, 0, false, 0);
+            
+    // Optional: initialize all points to 0 or a neutral value
+    for (int i = 0; i < lv_chart_get_point_count(ui_TempChart); i++) {
+        tempSeries->y_points[i] = LV_CHART_POINT_NONE;   // or a specific value
+    }
+    lv_chart_refresh(ui_TempChart);
+
+     // ============================================================================
+    // HumChart configuration
+    // ============================================================================
+
+    // Remove series created by SquareLine
+    s = lv_chart_get_series_next(ui_HumChart, NULL);
+    while (s != NULL) {
+        lv_chart_series_t * next = lv_chart_get_series_next(ui_HumChart, s);
+        lv_chart_remove_series(ui_HumChart, s);
+        s = next;
+    }
+
+    lv_chart_set_type(ui_HumChart, LV_CHART_TYPE_LINE);
+
+    // NNumber of points "compact" (you can put 30, 40, etc.)
+    lv_chart_set_point_count(ui_HumChart, 50);
+
+    // Range 0–100 %
+    lv_chart_set_range(ui_HumChart,
+                       LV_CHART_AXIS_PRIMARY_Y,
+                       0, 100);
+
+    // Series for humidity
+    humSeries = lv_chart_add_series(ui_HumChart,
+                                    lv_palette_main(LV_PALETTE_GREEN),
+                                    LV_CHART_AXIS_PRIMARY_Y);
+
+    // Hide secondary Y axis
+    lv_chart_set_axis_tick(ui_HumChart,
+                           LV_CHART_AXIS_SECONDARY_Y,
+                           0, 0, 0, 0, false, 0);
+
+    // Hide X axis (no ticks or labels)
+    lv_chart_set_axis_tick(ui_HumChart,
+                           LV_CHART_AXIS_PRIMARY_X,
+                           0, 0, 0, 0, false, 0);
+
+    // Initialize all points as empty
+    for (int i = 0; i < lv_chart_get_point_count(ui_HumChart); i++) {
+        humSeries->y_points[i] = LV_CHART_POINT_NONE;
+    }
+    lv_chart_refresh(ui_HumChart);
 
 
     //=================================================================================================
