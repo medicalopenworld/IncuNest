@@ -208,6 +208,8 @@ void Switch_cb(lv_event_t * e) {
         panel = ui_Panel1;
 
         if (checked) {  // Temperature switch turned ON
+            lv_obj_clear_flag(ui_TempChartCont, LV_OBJ_FLAG_HIDDEN);  // show temp
+            lv_obj_add_flag(ui_HumChartCont,  LV_OBJ_FLAG_HIDDEN);    // hide hum
             // ==== FORCE HUM OFF ====
             lv_obj_clear_state(ui_Switch2, LV_STATE_CHECKED);
             switchHum   = false;
@@ -248,6 +250,7 @@ void Switch_cb(lv_event_t * e) {
             lv_obj_set_style_bg_color(ui_ArrowUpTemp,   COLOR_PANEL_WHITE, LV_PART_MAIN);
         } 
         else {  // Temperature switch turned OFF
+            lv_obj_add_flag(ui_TempChartCont, LV_OBJ_FLAG_HIDDEN);  // hide temp chart
             arrowsActive = false;
 
             // Disable temperature arrows
@@ -269,6 +272,8 @@ void Switch_cb(lv_event_t * e) {
         panel = ui_Panel3;
 
         if (checked) {
+            lv_obj_clear_flag(ui_HumChartCont, LV_OBJ_FLAG_HIDDEN);    // show hum
+            lv_obj_add_flag(ui_TempChartCont, LV_OBJ_FLAG_HIDDEN);  // hide temp
             // ==== FORCE TEMP OFF ====
             lv_obj_clear_state(ui_Switch1, LV_STATE_CHECKED);
             switchTemp   = false;
@@ -298,6 +303,7 @@ void Switch_cb(lv_event_t * e) {
             lv_obj_set_style_bg_color(ui_ArrowDownHum, COLOR_PANEL_WHITE, LV_PART_MAIN);
             lv_obj_set_style_bg_color(ui_ArrowUpHum,   COLOR_PANEL_WHITE, LV_PART_MAIN);
         } else {
+            lv_obj_add_flag(ui_HumChartCont, LV_OBJ_FLAG_HIDDEN);    // hide hum chart
             // Humidity OFF
             lv_obj_clear_flag(ui_ImgArrowDownHum, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_clear_flag(ui_ImgArrowUpHum,   LV_OBJ_FLAG_CLICKABLE);
@@ -1164,6 +1170,10 @@ void setup()
     lv_obj_add_flag(ui_NumAlarm, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_Panel10, LV_OBJ_FLAG_HIDDEN);
 
+
+    // === Hidden Charts at Startup ===
+    lv_obj_add_flag(ui_TempChartCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_HumChartCont,  LV_OBJ_FLAG_HIDDEN);
 
     // ============================================================================
     // TempChart configuration
