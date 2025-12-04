@@ -71,6 +71,9 @@ lv_obj_t * ui_Label17 = NULL;
 lv_obj_t * ui_Label10 = NULL;
 lv_obj_t * ui_Panel10 = NULL;
 lv_obj_t * ui_NumAlarm = NULL;
+lv_obj_t * ui_LockButton = NULL;
+lv_obj_t * ui_SPO2Button = NULL;
+lv_obj_t * ui_ChartButton = NULL;
 // event funtions
 void ui_event_Settings(lv_event_t * e)
 {
@@ -662,6 +665,30 @@ void ui_Screen1_screen_init(void)
     lv_obj_set_style_text_opa(ui_NumAlarm, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(ui_NumAlarm, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
 
+    ui_LockButton = lv_imgbtn_create(ui_Screen1);
+    lv_imgbtn_set_src(ui_LockButton, LV_IMGBTN_STATE_RELEASED, NULL, &ui_img_candado_png, NULL);
+    lv_obj_set_width(ui_LockButton, 37);
+    lv_obj_set_height(ui_LockButton, 44);
+    lv_obj_set_x(ui_LockButton, -3);
+    lv_obj_set_y(ui_LockButton, -213);
+    lv_obj_set_align(ui_LockButton, LV_ALIGN_CENTER);
+
+    ui_SPO2Button = lv_imgbtn_create(ui_Screen1);
+    lv_imgbtn_set_src(ui_SPO2Button, LV_IMGBTN_STATE_RELEASED, NULL, &ui_img_pulse_png, NULL);
+    lv_obj_set_width(ui_SPO2Button, 51);
+    lv_obj_set_height(ui_SPO2Button, 47);
+    lv_obj_set_x(ui_SPO2Button, 194);
+    lv_obj_set_y(ui_SPO2Button, -213);
+    lv_obj_set_align(ui_SPO2Button, LV_ALIGN_CENTER);
+
+    ui_ChartButton = lv_imgbtn_create(ui_Screen1);
+    lv_imgbtn_set_src(ui_ChartButton, LV_IMGBTN_STATE_RELEASED, NULL, &ui_img_chart_png, NULL);
+    lv_obj_set_width(ui_ChartButton, 52);
+    lv_obj_set_height(ui_ChartButton, 51);
+    lv_obj_set_x(ui_ChartButton, 138);
+    lv_obj_set_y(ui_ChartButton, -214);
+    lv_obj_set_align(ui_ChartButton, LV_ALIGN_CENTER);
+
     lv_obj_add_event_cb(ui_Settings, ui_event_Settings, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_AlarmButton, ui_event_AlarmButton, LV_EVENT_ALL, NULL);
     uic_Tempbutton = ui_TempButton;
@@ -740,5 +767,8 @@ void ui_Screen1_screen_destroy(void)
     ui_Label10 = NULL;
     ui_Panel10 = NULL;
     ui_NumAlarm = NULL;
+    ui_LockButton = NULL;
+    ui_SPO2Button = NULL;
+    ui_ChartButton = NULL;
 
 }

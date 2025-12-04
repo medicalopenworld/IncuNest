@@ -79,6 +79,9 @@ extern lv_obj_t * ui_Label17;
 extern lv_obj_t * ui_Label10;
 extern lv_obj_t * ui_Panel10;
 extern lv_obj_t * ui_NumAlarm;
+extern lv_obj_t * ui_LockButton;
+extern lv_obj_t * ui_SPO2Button;
+extern lv_obj_t * ui_ChartButton;
 // CUSTOM VARIABLES
 extern lv_obj_t * uic_Tempbutton;
 extern lv_obj_t * uic_HumidButton;

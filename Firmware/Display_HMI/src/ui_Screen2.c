@@ -205,7 +205,6 @@ void ui_Screen2_screen_init(void)
     lv_obj_set_x(ui_WifiConfigCont, 172);
     lv_obj_set_y(ui_WifiConfigCont, 39);
     lv_obj_set_align(ui_WifiConfigCont, LV_ALIGN_CENTER);
-    lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);     /// Flags
     lv_obj_clear_flag(ui_WifiConfigCont, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
     ui_Keyboard1 = lv_keyboard_create(ui_WifiConfigCont);
@@ -270,7 +269,7 @@ void ui_Screen2_screen_init(void)
     lv_obj_set_x(ui_LanguagesDropDown, 172);
     lv_obj_set_y(ui_LanguagesDropDown, -44);
     lv_obj_set_align(ui_LanguagesDropDown, LV_ALIGN_CENTER);
-    lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN | LV_OBJ_FLAG_SCROLL_ON_FOCUS);     /// Flags
+    lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_SCROLL_ON_FOCUS);     /// Flags
 
     lv_obj_add_event_cb(ui_ImgButton2, ui_event_ImgButton2, LV_EVENT_ALL, NULL);
 
