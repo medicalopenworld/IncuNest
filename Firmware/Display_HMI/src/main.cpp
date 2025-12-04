@@ -713,6 +713,7 @@ void update_alarm_panels() {
             // Make them blink in unison
             start_alarm_blink(ui_Panel10);
             start_alarm_blink(ui_NumAlarm);
+            start_alarm_blink(ui_AlarmButton);
         } else {
             // No alarms: hide and remove animations
             lv_obj_add_flag(ui_Panel10, LV_OBJ_FLAG_HIDDEN);
@@ -720,6 +721,7 @@ void update_alarm_panels() {
 
             lv_anim_del(ui_Panel10, blink_cb);
             lv_anim_del(ui_NumAlarm, blink_cb);
+            lv_anim_del(ui_AlarmButton, blink_cb);
             lv_obj_set_style_opa(ui_Panel10, LV_OPA_COVER, LV_PART_MAIN);
             lv_obj_set_style_opa(ui_NumAlarm, LV_OPA_COVER, LV_PART_MAIN);
         }
