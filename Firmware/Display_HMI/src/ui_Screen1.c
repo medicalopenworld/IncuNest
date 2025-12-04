@@ -95,6 +95,36 @@ void ui_event_AlarmButton(lv_event_t * e)
     }
 }
 
+void ui_event_LockButton(lv_event_t * e)
+{
+    lv_event_code_t event_code = lv_event_get_code(e);
+
+    if(event_code == LV_EVENT_CLICKED) {
+        _ui_screen_delete(&ui_Screen1);
+        _ui_screen_change(&ui_Screen10, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_Screen10_screen_init);
+    }
+}
+
+void ui_event_SPO2Button(lv_event_t * e)
+{
+    lv_event_code_t event_code = lv_event_get_code(e);
+
+    if(event_code == LV_EVENT_CLICKED) {
+        _ui_screen_delete(&ui_Screen1);
+        _ui_screen_change(&ui_Screen5, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_Screen5_screen_init);
+    }
+}
+
+void ui_event_ChartButton(lv_event_t * e)
+{
+    lv_event_code_t event_code = lv_event_get_code(e);
+
+    if(event_code == LV_EVENT_CLICKED) {
+        _ui_screen_delete(&ui_Screen1);
+        _ui_screen_change(&ui_Screen4, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_Screen4_screen_init);
+    }
+}
+
 // build funtions
 
 void ui_Screen1_screen_init(void)
@@ -691,6 +721,9 @@ void ui_Screen1_screen_init(void)
 
     lv_obj_add_event_cb(ui_Settings, ui_event_Settings, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_AlarmButton, ui_event_AlarmButton, LV_EVENT_ALL, NULL);
+    lv_obj_add_event_cb(ui_LockButton, ui_event_LockButton, LV_EVENT_ALL, NULL);
+    lv_obj_add_event_cb(ui_SPO2Button, ui_event_SPO2Button, LV_EVENT_ALL, NULL);
+    lv_obj_add_event_cb(ui_ChartButton, ui_event_ChartButton, LV_EVENT_ALL, NULL);
     uic_Tempbutton = ui_TempButton;
     uic_HumidButton = ui_HumidButton;
 

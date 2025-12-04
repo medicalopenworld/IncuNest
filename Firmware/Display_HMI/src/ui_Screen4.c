@@ -6,9 +6,16 @@
 #include "ui.h"
 
 lv_obj_t * ui_Screen4 = NULL;
-lv_obj_t * ui_Label35 = NULL;
 lv_obj_t * ui_ImgButton8 = NULL;
+lv_obj_t * ui_HumChartCont = NULL;
+lv_obj_t * ui_Chart2 = NULL;
+lv_obj_t * ui_Label36 = NULL;
+lv_obj_t * ui_OxChartCont = NULL;
 lv_obj_t * ui_Chart1 = NULL;
+lv_obj_t * ui_Label35 = NULL;
+lv_obj_t * ui_TempChartCont = NULL;
+lv_obj_t * ui_Chart4 = NULL;
+lv_obj_t * ui_Label37 = NULL;
 // event funtions
 void ui_event_ImgButton8(lv_event_t * e)
 {
@@ -27,15 +34,6 @@ void ui_Screen4_screen_init(void)
     ui_Screen4 = lv_obj_create(NULL);
     lv_obj_clear_flag(ui_Screen4, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
-    ui_Label35 = lv_label_create(ui_Screen4);
-    lv_obj_set_width(ui_Label35, LV_SIZE_CONTENT);   /// 1
-    lv_obj_set_height(ui_Label35, LV_SIZE_CONTENT);    /// 1
-    lv_obj_set_x(ui_Label35, -2);
-    lv_obj_set_y(ui_Label35, -202);
-    lv_obj_set_align(ui_Label35, LV_ALIGN_CENTER);
-    lv_label_set_text(ui_Label35, "OXIMETRY CHART");
-    lv_obj_set_style_text_font(ui_Label35, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
-
     ui_ImgButton8 = lv_imgbtn_create(ui_Screen4);
     lv_imgbtn_set_src(ui_ImgButton8, LV_IMGBTN_STATE_RELEASED, NULL, &ui_img_1508956403, NULL);
     lv_obj_set_width(ui_ImgButton8, 50);
@@ -44,7 +42,48 @@ void ui_Screen4_screen_init(void)
     lv_obj_set_y(ui_ImgButton8, -204);
     lv_obj_set_align(ui_ImgButton8, LV_ALIGN_CENTER);
 
-    ui_Chart1 = lv_chart_create(ui_Screen4);
+    ui_HumChartCont = lv_obj_create(ui_Screen4);
+    lv_obj_remove_style_all(ui_HumChartCont);
+    lv_obj_set_width(ui_HumChartCont, 776);
+    lv_obj_set_height(ui_HumChartCont, 477);
+    lv_obj_set_x(ui_HumChartCont, 1);
+    lv_obj_set_y(ui_HumChartCont, 0);
+    lv_obj_set_align(ui_HumChartCont, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_HumChartCont, LV_OBJ_FLAG_HIDDEN);     /// Flags
+    lv_obj_clear_flag(ui_HumChartCont, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+
+    ui_Chart2 = lv_chart_create(ui_HumChartCont);
+    lv_obj_set_width(ui_Chart2, 637);
+    lv_obj_set_height(ui_Chart2, 336);
+    lv_obj_set_x(ui_Chart2, 0);
+    lv_obj_set_y(ui_Chart2, 10);
+    lv_obj_set_align(ui_Chart2, LV_ALIGN_CENTER);
+    lv_chart_set_type(ui_Chart2, LV_CHART_TYPE_LINE);
+    lv_chart_set_axis_tick(ui_Chart2, LV_CHART_AXIS_PRIMARY_X, 10, 5, 5, 2, true, 50);
+    lv_chart_set_axis_tick(ui_Chart2, LV_CHART_AXIS_PRIMARY_Y, 10, 5, 5, 2, true, 50);
+    lv_chart_set_axis_tick(ui_Chart2, LV_CHART_AXIS_SECONDARY_Y, 10, 5, 5, 2, true, 25);
+    lv_chart_series_t * ui_Chart2_series_1 = lv_chart_add_series(ui_Chart2, lv_color_hex(0x808080),
+                                                                 LV_CHART_AXIS_PRIMARY_Y);
+    static lv_coord_t ui_Chart2_series_1_array[] = { 0, 10, 20, 40, 80, 80, 40, 20, 10, 0 };
+    lv_chart_set_ext_y_array(ui_Chart2, ui_Chart2_series_1, ui_Chart2_series_1_array);
+
+    ui_Label36 = lv_label_create(ui_HumChartCont);
+    lv_obj_set_width(ui_Label36, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_Label36, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_x(ui_Label36, -2);
+    lv_obj_set_y(ui_Label36, -202);
+    lv_obj_set_align(ui_Label36, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_Label36, "HUMIDITY CHART");
+    lv_obj_set_style_text_font(ui_Label36, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_OxChartCont = lv_obj_create(ui_Screen4);
+    lv_obj_remove_style_all(ui_OxChartCont);
+    lv_obj_set_width(ui_OxChartCont, 775);
+    lv_obj_set_height(ui_OxChartCont, 468);
+    lv_obj_set_align(ui_OxChartCont, LV_ALIGN_CENTER);
+    lv_obj_clear_flag(ui_OxChartCont, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+
+    ui_Chart1 = lv_chart_create(ui_OxChartCont);
     lv_obj_set_width(ui_Chart1, 637);
     lv_obj_set_height(ui_Chart1, 336);
     lv_obj_set_x(ui_Chart1, 0);
@@ -59,6 +98,47 @@ void ui_Screen4_screen_init(void)
     static lv_coord_t ui_Chart1_series_1_array[] = { 0, 10, 20, 40, 80, 80, 40, 20, 10, 0 };
     lv_chart_set_ext_y_array(ui_Chart1, ui_Chart1_series_1, ui_Chart1_series_1_array);
 
+    ui_Label35 = lv_label_create(ui_OxChartCont);
+    lv_obj_set_width(ui_Label35, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_Label35, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_x(ui_Label35, -2);
+    lv_obj_set_y(ui_Label35, -202);
+    lv_obj_set_align(ui_Label35, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_Label35, "OXIMETRY CHART");
+    lv_obj_set_style_text_font(ui_Label35, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_TempChartCont = lv_obj_create(ui_Screen4);
+    lv_obj_remove_style_all(ui_TempChartCont);
+    lv_obj_set_width(ui_TempChartCont, 771);
+    lv_obj_set_height(ui_TempChartCont, 466);
+    lv_obj_set_align(ui_TempChartCont, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_TempChartCont, LV_OBJ_FLAG_HIDDEN);     /// Flags
+    lv_obj_clear_flag(ui_TempChartCont, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+
+    ui_Chart4 = lv_chart_create(ui_TempChartCont);
+    lv_obj_set_width(ui_Chart4, 637);
+    lv_obj_set_height(ui_Chart4, 336);
+    lv_obj_set_x(ui_Chart4, 0);
+    lv_obj_set_y(ui_Chart4, 10);
+    lv_obj_set_align(ui_Chart4, LV_ALIGN_CENTER);
+    lv_chart_set_type(ui_Chart4, LV_CHART_TYPE_LINE);
+    lv_chart_set_axis_tick(ui_Chart4, LV_CHART_AXIS_PRIMARY_X, 10, 5, 5, 2, true, 50);
+    lv_chart_set_axis_tick(ui_Chart4, LV_CHART_AXIS_PRIMARY_Y, 10, 5, 5, 2, true, 50);
+    lv_chart_set_axis_tick(ui_Chart4, LV_CHART_AXIS_SECONDARY_Y, 10, 5, 5, 2, true, 25);
+    lv_chart_series_t * ui_Chart4_series_1 = lv_chart_add_series(ui_Chart4, lv_color_hex(0x808080),
+                                                                 LV_CHART_AXIS_PRIMARY_Y);
+    static lv_coord_t ui_Chart4_series_1_array[] = { 0, 10, 20, 40, 80, 80, 40, 20, 10, 0 };
+    lv_chart_set_ext_y_array(ui_Chart4, ui_Chart4_series_1, ui_Chart4_series_1_array);
+
+    ui_Label37 = lv_label_create(ui_TempChartCont);
+    lv_obj_set_width(ui_Label37, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_Label37, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_x(ui_Label37, -2);
+    lv_obj_set_y(ui_Label37, -202);
+    lv_obj_set_align(ui_Label37, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_Label37, "TEMPERATURE CHART");
+    lv_obj_set_style_text_font(ui_Label37, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
+
     lv_obj_add_event_cb(ui_ImgButton8, ui_event_ImgButton8, LV_EVENT_ALL, NULL);
 
 }
@@ -69,8 +149,15 @@ void ui_Screen4_screen_destroy(void)
 
     // NULL screen variables
     ui_Screen4 = NULL;
-    ui_Label35 = NULL;
     ui_ImgButton8 = NULL;
+    ui_HumChartCont = NULL;
+    ui_Chart2 = NULL;
+    ui_Label36 = NULL;
+    ui_OxChartCont = NULL;
     ui_Chart1 = NULL;
+    ui_Label35 = NULL;
+    ui_TempChartCont = NULL;
+    ui_Chart4 = NULL;
+    ui_Label37 = NULL;
 
 }

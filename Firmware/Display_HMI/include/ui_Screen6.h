@@ -14,10 +14,8 @@ extern "C" {
 extern void ui_Screen6_screen_init(void);
 extern void ui_Screen6_screen_destroy(void);
 extern lv_obj_t * ui_Screen6;
-extern lv_obj_t * ui_Label37;
 extern void ui_event_ImgButton10(lv_event_t * e);
 extern lv_obj_t * ui_ImgButton10;
-extern lv_obj_t * ui_Chart4;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus
