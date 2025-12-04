@@ -208,7 +208,22 @@ void Switch_cb(lv_event_t * e) {
         panel = ui_Panel1;
 
         if (checked) {  // Temperature switch turned ON
-            // Restore the previous panel if any
+            // ==== FORCE HUM OFF ====
+            lv_obj_clear_state(ui_Switch2, LV_STATE_CHECKED);
+            switchHum   = false;
+            humSwitched = false;
+
+            // Deactivate humidity arrows
+            lv_obj_clear_flag(ui_ImgArrowDownHum, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_clear_flag(ui_ImgArrowUpHum,   LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_set_style_bg_color(ui_ArrowDownHum, COLOR_PANEL_GRAY, LV_PART_MAIN);
+            lv_obj_set_style_bg_color(ui_ArrowUpHum,   COLOR_PANEL_GRAY, LV_PART_MAIN);
+            lv_obj_set_style_opa(ui_ArrowDownHum, LV_OPA_COVER, LV_PART_MAIN);
+            lv_obj_set_style_opa(ui_ArrowUpHum,   LV_OPA_COVER, LV_PART_MAIN);
+            lv_obj_set_style_bg_color(ui_Panel3,   COLOR_PANEL_GRAY, LV_PART_MAIN);
+            lv_obj_set_style_opa(ui_Panel3,   LV_OPA_COVER, LV_PART_MAIN);
+
+            // Gray out both panels initially
             if (lastSelectedPanel == AIR_PANEL_SELECTED) {
                 selectedPanel = AIR_PANEL_SELECTED;
                 set_active_panel(ui_AirPanel, ui_SkinPanel);
@@ -228,23 +243,23 @@ void Switch_cb(lv_event_t * e) {
             // Enable temperature arrows
             arrowsActive = true;
             lv_obj_add_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_add_flag(ui_ImgArrowUpTemp, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_flag(ui_ImgArrowUpTemp,   LV_OBJ_FLAG_CLICKABLE);
             lv_obj_set_style_bg_color(ui_ArrowDownTemp, COLOR_PANEL_WHITE, LV_PART_MAIN);
-            lv_obj_set_style_bg_color(ui_ArrowUpTemp, COLOR_PANEL_WHITE, LV_PART_MAIN);
+            lv_obj_set_style_bg_color(ui_ArrowUpTemp,   COLOR_PANEL_WHITE, LV_PART_MAIN);
         } 
         else {  // Temperature switch turned OFF
             arrowsActive = false;
 
             // Disable temperature arrows
             lv_obj_clear_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_clear_flag(ui_ImgArrowUpTemp, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_clear_flag(ui_ImgArrowUpTemp,   LV_OBJ_FLAG_CLICKABLE);
             lv_obj_set_style_bg_color(ui_ArrowDownTemp, COLOR_PANEL_GRAY, LV_PART_MAIN);
-            lv_obj_set_style_bg_color(ui_ArrowUpTemp, COLOR_PANEL_GRAY, LV_PART_MAIN);
+            lv_obj_set_style_bg_color(ui_ArrowUpTemp,   COLOR_PANEL_GRAY, LV_PART_MAIN);
 
             // Gray out both panels
-            lv_obj_set_style_bg_color(ui_AirPanel, COLOR_PANEL_GRAY, LV_PART_MAIN);
+            lv_obj_set_style_bg_color(ui_AirPanel,  COLOR_PANEL_GRAY, LV_PART_MAIN);
             lv_obj_set_style_bg_color(ui_SkinPanel, COLOR_PANEL_GRAY, LV_PART_MAIN);
-            lv_obj_set_style_opa(ui_AirPanel, LV_OPA_COVER, LV_PART_MAIN);
+            lv_obj_set_style_opa(ui_AirPanel,  LV_OPA_COVER, LV_PART_MAIN);
             lv_obj_set_style_opa(ui_SkinPanel, LV_OPA_COVER, LV_PART_MAIN);
         }
     } 
@@ -254,24 +269,49 @@ void Switch_cb(lv_event_t * e) {
         panel = ui_Panel3;
 
         if (checked) {
-            lv_obj_add_flag(ui_ImgArrowDownHum, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_add_flag(ui_ImgArrowUpHum, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_set_style_bg_color(ui_ArrowDownHum, COLOR_PANEL_WHITE, LV_PART_MAIN);
-            lv_obj_set_style_bg_color(ui_ArrowUpHum, COLOR_PANEL_WHITE, LV_PART_MAIN);
-        } else {
-            lv_obj_clear_flag(ui_ImgArrowDownHum, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_clear_flag(ui_ImgArrowUpHum, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_set_style_bg_color(ui_ArrowDownHum, COLOR_PANEL_GRAY, LV_PART_MAIN);
-            lv_obj_set_style_bg_color(ui_ArrowUpHum, COLOR_PANEL_GRAY, LV_PART_MAIN);
-        }
+            // ==== FORCE TEMP OFF ====
+            lv_obj_clear_state(ui_Switch1, LV_STATE_CHECKED);
+            switchTemp   = false;
+            tempSwitched = false;
+            arrowsActive = false;
 
-        lv_obj_set_style_opa(ui_ArrowDownHum, LV_OPA_COVER, LV_PART_MAIN);
-        lv_obj_set_style_opa(ui_ArrowUpHum, LV_OPA_COVER, LV_PART_MAIN);
+            // Deactivate temperature arrows
+            lv_obj_clear_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_clear_flag(ui_ImgArrowUpTemp,   LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_set_style_bg_color(ui_ArrowDownTemp, COLOR_PANEL_GRAY, LV_PART_MAIN);
+            lv_obj_set_style_bg_color(ui_ArrowUpTemp,   COLOR_PANEL_GRAY, LV_PART_MAIN);
+            lv_obj_set_style_opa(ui_ArrowDownTemp, LV_OPA_COVER, LV_PART_MAIN);
+            lv_obj_set_style_opa(ui_ArrowUpTemp,   LV_OPA_COVER, LV_PART_MAIN);
+            lv_obj_set_style_bg_color(ui_Panel1,  COLOR_PANEL_GRAY, LV_PART_MAIN);
+            lv_obj_set_style_opa(ui_Panel1,   LV_OPA_COVER, LV_PART_MAIN);
+
+            // Gray out air/skin panels
+            lv_obj_set_style_bg_color(ui_AirPanel,  COLOR_PANEL_GRAY, LV_PART_MAIN);
+            lv_obj_set_style_bg_color(ui_SkinPanel, COLOR_PANEL_GRAY, LV_PART_MAIN);
+            lv_obj_set_style_opa(ui_AirPanel,  LV_OPA_COVER, LV_PART_MAIN);
+            lv_obj_set_style_opa(ui_SkinPanel, LV_OPA_COVER, LV_PART_MAIN);
+
+
+            // Enable humidity arrows
+            lv_obj_add_flag(ui_ImgArrowDownHum, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_flag(ui_ImgArrowUpHum,   LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_set_style_bg_color(ui_ArrowDownHum, COLOR_PANEL_WHITE, LV_PART_MAIN);
+            lv_obj_set_style_bg_color(ui_ArrowUpHum,   COLOR_PANEL_WHITE, LV_PART_MAIN);
+        } else {
+            // Humidity OFF
+            lv_obj_clear_flag(ui_ImgArrowDownHum, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_clear_flag(ui_ImgArrowUpHum,   LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_set_style_bg_color(ui_ArrowDownHum, COLOR_PANEL_GRAY, LV_PART_MAIN);
+            lv_obj_set_style_bg_color(ui_ArrowUpHum,   COLOR_PANEL_GRAY, LV_PART_MAIN);
+
+            lv_obj_set_style_opa(ui_ArrowDownHum, LV_OPA_COVER, LV_PART_MAIN);
+            lv_obj_set_style_opa(ui_ArrowUpHum,   LV_OPA_COVER, LV_PART_MAIN);
+        }
     }
     else if (obj == ui_Switch3) {  // PHOTOTHERAPY SWITCH
-    bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
-    hmi_msg.phototherapyMode = checked ? PHOTOTHERAPY_ON : PHOTOTHERAPY_OFF;
-    hmi_msg.shouldSendData = true;
+        bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
+        hmi_msg.phototherapyMode = checked ? PHOTOTHERAPY_ON : PHOTOTHERAPY_OFF;
+        hmi_msg.shouldSendData = true;
     }
     else if (obj == ui_Switch4) {    // SKIN BLOCK SWITCH
         bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
@@ -300,14 +340,10 @@ void Switch_cb(lv_event_t * e) {
                 }
             }
         }
-        
-
-        // If we want to send something via communication...:
-        // hmi_msg.skinBlockEnabled = checked;
-        // hmi_msg.shouldSendData = true;
+        // hmi_msg.skinBlockEnabled = checked; (si lo quieres mandar)
     }
 
-    // If temperature is OFF, disable panels and arrows
+    // If temperature is OFF, disable panels and arrows (por si acaso)
     if (!tempSwitched) {
         arrowsActive = false;
 
@@ -317,18 +353,18 @@ void Switch_cb(lv_event_t * e) {
         lv_obj_set_style_opa(ui_SkinPanel, LV_OPA_COVER, LV_PART_MAIN);
 
         lv_obj_clear_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_clear_flag(ui_ImgArrowUpTemp, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_clear_flag(ui_ImgArrowUpTemp,   LV_OBJ_FLAG_CLICKABLE);
     } 
     else {
         // If a panel is active, enable arrows
         if (selectedPanel != NO_PANEL_SELECTED) {
             arrowsActive = true;
             lv_obj_add_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_add_flag(ui_ImgArrowUpTemp, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_flag(ui_ImgArrowUpTemp,   LV_OBJ_FLAG_CLICKABLE);
         } else {
             arrowsActive = false;
             lv_obj_clear_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_clear_flag(ui_ImgArrowUpTemp, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_clear_flag(ui_ImgArrowUpTemp,   LV_OBJ_FLAG_CLICKABLE);
         }
     }
 
@@ -343,9 +379,10 @@ void Switch_cb(lv_event_t * e) {
         }
     }
 
-    // --- Actuation mode selection logic for COMMUNICATION (.cpp) ---
+    // --- Actuation mode selection logic (ya con exclusión asegurada) ---
     if (switchTemp && switchHum) {
-        hmi_msg.actuation = ACTUATION_TEMP_AND_HUMIDITY;
+        // En teoría no debería ocurrir, pero por seguridad:
+        hmi_msg.actuation = ACTUATION_TEMPERATURE; // o el que prefieras
     } else if (switchTemp) {
         hmi_msg.actuation = ACTUATION_TEMPERATURE;
     } else if (switchHum) {
@@ -354,9 +391,9 @@ void Switch_cb(lv_event_t * e) {
         hmi_msg.actuation = ACTUATION_NONE;
     }
 
-    hmi_msg.desiredAirTemperature = airTempValue;
+    hmi_msg.desiredAirTemperature  = airTempValue;
     hmi_msg.desiredSkinTemperature = skinTempValue;
-    hmi_msg.desiredHumidity = humValue;
+    hmi_msg.desiredHumidity        = humValue;
     hmi_msg.shouldSendData = true;
 }
 
