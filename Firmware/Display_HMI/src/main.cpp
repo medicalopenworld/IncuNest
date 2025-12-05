@@ -40,11 +40,6 @@ bool LanguagesVisible = false;
 lv_chart_series_t * tempSeries = NULL;
 lv_chart_series_t * humSeries  = NULL;
 
-
-
-
-
-
 struct Alarm
 {
     int id;
@@ -469,53 +464,6 @@ void Keyboard_cb(lv_event_t * e) {
     }
 }
 
-/* Callback when Air panel is clicked */
-void AirPanel_cb(lv_event_t * e) {
-    if (!tempSwitched) return;
-    selectedPanel = AIR_PANEL_SELECTED;  // Air panel selected
-    lastSelectedPanel = selectedPanel;
-
-    arrowsActive = true;
-    set_active_panel(ui_AirPanel, ui_SkinPanel);
-
-    // --- Show only the Air container ---
-    lv_obj_clear_flag(ui_AirTempBarCont, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
-    
-    hmi_msg.controlMode = CONTROL_AIR;
-    hmi_msg.desiredAirTemperature = airTempValue;
-    hmi_msg.desiredSkinTemperature = skinTempValue;
-    hmi_msg.desiredHumidity = humValue;
-    hmi_msg.shouldSendData = true;
-}
-
-/* Callback when Skin panel is clicked */
-void SkinPanel_cb(lv_event_t * e) {
-    if (!tempSwitched) return;
-    selectedPanel = SKIN_PANEL_SELECTED;  // Skin panel selected
-    lastSelectedPanel = selectedPanel;
-
-    arrowsActive = true;
-    set_active_panel(ui_SkinPanel, ui_AirPanel);
-
-    // --- Show only the Skin container ---
-    lv_obj_clear_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(ui_AirTempBarCont, LV_OBJ_FLAG_HIDDEN);
-
-
-    hmi_msg.controlMode = CONTROL_SKIN;
-    hmi_msg.desiredAirTemperature = airTempValue;
-    hmi_msg.desiredSkinTemperature = skinTempValue;
-    hmi_msg.desiredHumidity = humValue;
-    hmi_msg.shouldSendData = true;
-}
-
-/* Setup panel click callbacks */
-void setup_panel_callbacks() {
-    lv_obj_add_event_cb(ui_AirPanel, AirPanel_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_event_cb(ui_SkinPanel, SkinPanel_cb, LV_EVENT_CLICKED, NULL);
-}
-
 
 /* Update labels for temperature and humidity */
 void update_labels() {
@@ -530,18 +478,23 @@ void update_labels() {
     snprintf(buffer, sizeof(buffer), "%d%%", humValue);
     lv_label_set_text(ui_HumDesired, buffer);
 
+    lv_label_set_text(ui_Label24, buffer); // Label24 shows desired humidity too
+
     if (airTempValueDetected != 0 || skinTempValueDetected != 0 || humValueDetected != 0) {
         snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValueDetected);
         lv_label_set_text(ui_TempAirDetected, buffer);
         lv_label_set_text(ui_TempAirDetectedRight, buffer);
+        lv_label_set_text(ui_Label18, buffer);   // Label24 = TempAirDetected
 
         snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValueDetected);
         lv_label_set_text(ui_TempSkinDetected, buffer);
         lv_label_set_text(ui_TempSkinDetectedRight, buffer);
+        lv_label_set_text(ui_Label14, buffer);  // Label14 = TempSkinDetected
 
         snprintf(buffer, sizeof(buffer), "%d%%", humValueDetected);
         lv_label_set_text(ui_HumDetected, buffer);
         lv_label_set_text(ui_HumDetectedRight, buffer);
+        lv_label_set_text(ui_Label20, buffer);   // Label20 = HumDetected
 
 
         double tAir  = airTempValueDetected;
@@ -565,9 +518,70 @@ void update_labels() {
         lv_bar_set_value(ui_AirTempBar,  airBar,  LV_ANIM_OFF);
         lv_bar_set_value(ui_SkinTempBar, skinBar, LV_ANIM_OFF);
         lv_bar_set_value(ui_HumBar,      humBar,  LV_ANIM_OFF);
-
     
     }
+
+    // --- Label22: desired value according to mode (Air / Skin) ---
+    if (selectedPanel == AIR_PANEL_SELECTED) {
+        snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValue);   // air mode
+    } else if (selectedPanel == SKIN_PANEL_SELECTED) {
+        snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValue);  // skin mode
+    } else {
+        snprintf(buffer, sizeof(buffer), "--");                     // no mode (for safety)
+    }
+    lv_label_set_text(ui_Label22, buffer);
+}
+
+/* Callback when Air panel is clicked */
+void AirPanel_cb(lv_event_t * e) {
+    if (!tempSwitched) return;
+    selectedPanel = AIR_PANEL_SELECTED;  // Air panel selected
+    lastSelectedPanel = selectedPanel;
+
+    arrowsActive = true;
+    set_active_panel(ui_AirPanel, ui_SkinPanel);
+
+    // --- Show only the Air container ---
+    lv_obj_clear_flag(ui_AirTempBarCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
+    
+    hmi_msg.controlMode = CONTROL_AIR;
+    hmi_msg.desiredAirTemperature = airTempValue;
+    hmi_msg.desiredSkinTemperature = skinTempValue;
+    hmi_msg.desiredHumidity = humValue;
+    hmi_msg.shouldSendData = true;
+
+    update_labels();
+}
+
+/* Callback when Skin panel is clicked */
+void SkinPanel_cb(lv_event_t * e) {
+    if (!tempSwitched) return;
+    selectedPanel = SKIN_PANEL_SELECTED;  // Skin panel selected
+    lastSelectedPanel = selectedPanel;
+
+    arrowsActive = true;
+    set_active_panel(ui_SkinPanel, ui_AirPanel);
+
+    // --- Show only the Skin container ---
+    lv_obj_clear_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_AirTempBarCont, LV_OBJ_FLAG_HIDDEN);
+
+
+    hmi_msg.controlMode = CONTROL_SKIN;
+    hmi_msg.desiredAirTemperature = airTempValue;
+    hmi_msg.desiredSkinTemperature = skinTempValue;
+    hmi_msg.desiredHumidity = humValue;
+    hmi_msg.shouldSendData = true;
+    
+    update_labels();
+
+}
+
+/* Setup panel click callbacks */
+void setup_panel_callbacks() {
+    lv_obj_add_event_cb(ui_AirPanel, AirPanel_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(ui_SkinPanel, SkinPanel_cb, LV_EVENT_CLICKED, NULL);
 }
 
 /* Initialize random values for temperature and humidity */
@@ -950,6 +964,40 @@ void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
     }
 }
 
+void LockButton_cb(lv_event_t * e) {
+    // Show Container2 (e.g. PIN/unlock area)
+    lv_obj_clear_flag(ui_Container2, LV_OBJ_FLAG_HIDDEN);
+
+    // Hide Container4 (e.g. lock icon)
+    lv_obj_add_flag(ui_Container4, LV_OBJ_FLAG_HIDDEN);
+}
+
+void LockButton2_cb(lv_event_t * e) {
+    lv_event_code_t code = lv_event_get_code(e);
+
+    if (code == LV_EVENT_LONG_PRESSED) {
+        // We return to Screen1
+        lv_scr_load(ui_Screen1);
+
+        // Reset the inactivity counter so it doesn't immediately jump to Screen10 again
+        lv_disp_trig_activity(NULL);
+    }
+}
+
+void inactivity_timer_cb(lv_timer_t * timer) {
+    uint32_t inactive = lv_disp_get_inactive_time(NULL);
+
+    if (inactive > INACTIVITY_TIMEOUT_MS) {
+        if (lv_scr_act() != ui_Screen10) {
+            // Initial screen timeout actions
+            lv_obj_add_flag(ui_Container2, LV_OBJ_FLAG_HIDDEN);   // hidden
+            lv_obj_clear_flag(ui_Container4, LV_OBJ_FLAG_HIDDEN); // visible
+
+            lv_scr_load(ui_Screen10);
+        }
+    }
+}
+
 
 
 void setup()
@@ -1004,10 +1052,12 @@ void setup()
     // ===========================
     // Input device (touch) initialization
     // ===========================
+    
     static lv_indev_drv_t indev_drv;
     lv_indev_drv_init(&indev_drv);
     indev_drv.type = LV_INDEV_TYPE_POINTER;    // Pointer type (touch)
     indev_drv.read_cb = my_touchpad_read;      // Callback to read touch input
+    indev_drv.long_press_time = 3000;         // 3 segundos para LV_EVENT_LONG_PRESSED
     lv_indev_drv_register(&indev_drv);        // Register input device in LVGL
 
     // ===========================
@@ -1175,6 +1225,17 @@ void setup()
     lv_obj_add_flag(ui_TempChartCont, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_HumChartCont,  LV_OBJ_FLAG_HIDDEN);
 
+
+    // Initial state of the lock screen (in case it is shown manually at startup)
+    lv_obj_add_flag(ui_Container2, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_Container4, LV_OBJ_FLAG_HIDDEN);
+
+    // Callback for the LockButton (Screen10)
+    lv_obj_add_event_cb(ui_LockButton, LockButton_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_add_event_cb(ui_LockButton2, LockButton2_cb, LV_EVENT_ALL, NULL);
+
+
     // ============================================================================
     // TempChart configuration
     // ============================================================================
@@ -1337,6 +1398,12 @@ void setup()
     // Connect callbacks for arrows
     setup_arrow_callbacks();
     setup_arrow_hum_callbacks();
+
+    // ===========================
+    // Inactivity timer
+    // ===========================
+    lv_timer_create(inactivity_timer_cb, 1000, NULL);  
+
 
 }
 

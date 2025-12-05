@@ -14,9 +14,27 @@ extern "C" {
 extern void ui_Screen10_screen_init(void);
 extern void ui_Screen10_screen_destroy(void);
 extern lv_obj_t * ui_Screen10;
+extern lv_obj_t * ui_LockButton;
 extern lv_obj_t * ui_Container1;
-extern void ui_event_Panel11(lv_event_t * e);
+extern lv_obj_t * ui_AirTempLockCont;
+extern lv_obj_t * ui_Label11;
+extern lv_obj_t * ui_Label18;
+extern lv_obj_t * ui_SkinTempLockCont;
+extern lv_obj_t * ui_Label12;
+extern lv_obj_t * ui_Label14;
+extern lv_obj_t * ui_HumLockCont;
+extern lv_obj_t * ui_Label19;
+extern lv_obj_t * ui_Label20;
+extern lv_obj_t * ui_HumLockDesiredCont;
+extern lv_obj_t * ui_Label23;
+extern lv_obj_t * ui_Label24;
+extern lv_obj_t * ui_Container2;
 extern lv_obj_t * ui_Panel11;
+extern lv_obj_t * ui_Label4;
+extern lv_obj_t * ui_LockButton2;
+extern lv_obj_t * ui_Container4;
+extern lv_obj_t * ui_Label21;
+extern lv_obj_t * ui_Label22;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus

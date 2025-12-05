@@ -71,7 +71,6 @@ lv_obj_t * ui_Label17 = NULL;
 lv_obj_t * ui_Label10 = NULL;
 lv_obj_t * ui_Panel10 = NULL;
 lv_obj_t * ui_NumAlarm = NULL;
-lv_obj_t * ui_LockButton = NULL;
 lv_obj_t * ui_SPO2Button = NULL;
 lv_obj_t * ui_ChartButton = NULL;
 // event funtions
@@ -92,16 +91,6 @@ void ui_event_AlarmButton(lv_event_t * e)
     if(event_code == LV_EVENT_CLICKED) {
         _ui_screen_change(&ui_Screen3, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_Screen3_screen_init);
         _ui_screen_delete(&ui_Screen1);
-    }
-}
-
-void ui_event_LockButton(lv_event_t * e)
-{
-    lv_event_code_t event_code = lv_event_get_code(e);
-
-    if(event_code == LV_EVENT_CLICKED) {
-        _ui_screen_delete(&ui_Screen1);
-        _ui_screen_change(&ui_Screen10, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_Screen10_screen_init);
     }
 }
 
@@ -695,14 +684,6 @@ void ui_Screen1_screen_init(void)
     lv_obj_set_style_text_opa(ui_NumAlarm, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(ui_NumAlarm, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    ui_LockButton = lv_imgbtn_create(ui_Screen1);
-    lv_imgbtn_set_src(ui_LockButton, LV_IMGBTN_STATE_RELEASED, NULL, &ui_img_candado_png, NULL);
-    lv_obj_set_width(ui_LockButton, 37);
-    lv_obj_set_height(ui_LockButton, 44);
-    lv_obj_set_x(ui_LockButton, -3);
-    lv_obj_set_y(ui_LockButton, -213);
-    lv_obj_set_align(ui_LockButton, LV_ALIGN_CENTER);
-
     ui_SPO2Button = lv_imgbtn_create(ui_Screen1);
     lv_imgbtn_set_src(ui_SPO2Button, LV_IMGBTN_STATE_RELEASED, NULL, &ui_img_pulse_png, NULL);
     lv_obj_set_width(ui_SPO2Button, 51);
@@ -721,7 +702,6 @@ void ui_Screen1_screen_init(void)
 
     lv_obj_add_event_cb(ui_Settings, ui_event_Settings, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_AlarmButton, ui_event_AlarmButton, LV_EVENT_ALL, NULL);
-    lv_obj_add_event_cb(ui_LockButton, ui_event_LockButton, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_SPO2Button, ui_event_SPO2Button, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_ChartButton, ui_event_ChartButton, LV_EVENT_ALL, NULL);
     uic_Tempbutton = ui_TempButton;
@@ -800,7 +780,6 @@ void ui_Screen1_screen_destroy(void)
     ui_Label10 = NULL;
     ui_Panel10 = NULL;
     ui_NumAlarm = NULL;
-    ui_LockButton = NULL;
     ui_SPO2Button = NULL;
     ui_ChartButton = NULL;
 
