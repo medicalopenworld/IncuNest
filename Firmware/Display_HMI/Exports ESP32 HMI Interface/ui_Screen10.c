@@ -73,7 +73,7 @@ void ui_Screen10_screen_init(void)
     lv_label_set_text(ui_Label11, "AIR TEMPERATURE:");
     lv_obj_set_style_text_color(ui_Label11, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(ui_Label11, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_Label11, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_Label11, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_Label18 = lv_label_create(ui_AirTempLockCont);
     lv_obj_set_width(ui_Label18, LV_SIZE_CONTENT);   /// 1
@@ -104,7 +104,7 @@ void ui_Screen10_screen_init(void)
     lv_label_set_text(ui_Label12, "BABY TEMPERATURE:");
     lv_obj_set_style_text_color(ui_Label12, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(ui_Label12, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_Label12, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_Label12, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_Label14 = lv_label_create(ui_SkinTempLockCont);
     lv_obj_set_width(ui_Label14, LV_SIZE_CONTENT);   /// 1
@@ -135,7 +135,7 @@ void ui_Screen10_screen_init(void)
     lv_label_set_text(ui_Label19, "ROOM HUMIDITY:");
     lv_obj_set_style_text_color(ui_Label19, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(ui_Label19, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_Label19, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_Label19, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_Label20 = lv_label_create(ui_HumLockCont);
     lv_obj_set_width(ui_Label20, LV_SIZE_CONTENT);   /// 1
@@ -150,10 +150,10 @@ void ui_Screen10_screen_init(void)
 
     ui_HumLockDesiredCont = lv_obj_create(ui_Container1);
     lv_obj_remove_style_all(ui_HumLockDesiredCont);
-    lv_obj_set_width(ui_HumLockDesiredCont, 262);
+    lv_obj_set_width(ui_HumLockDesiredCont, 411);
     lv_obj_set_height(ui_HumLockDesiredCont, 134);
-    lv_obj_set_x(ui_HumLockDesiredCont, 247);
-    lv_obj_set_y(ui_HumLockDesiredCont, 170);
+    lv_obj_set_x(ui_HumLockDesiredCont, 210);
+    lv_obj_set_y(ui_HumLockDesiredCont, 169);
     lv_obj_set_align(ui_HumLockDesiredCont, LV_ALIGN_CENTER);
     lv_obj_clear_flag(ui_HumLockDesiredCont, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
@@ -166,7 +166,7 @@ void ui_Screen10_screen_init(void)
     lv_label_set_text(ui_Label23, "ESTABLISHED ROOM HUMIDITY:");
     lv_obj_set_style_text_color(ui_Label23, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(ui_Label23, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_Label23, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_Label23, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_Label24 = lv_label_create(ui_HumLockDesiredCont);
     lv_obj_set_width(ui_Label24, LV_SIZE_CONTENT);   /// 1
@@ -215,7 +215,7 @@ void ui_Screen10_screen_init(void)
 
     ui_Container4 = lv_obj_create(ui_Screen10);
     lv_obj_remove_style_all(ui_Container4);
-    lv_obj_set_width(ui_Container4, 262);
+    lv_obj_set_width(ui_Container4, 378);
     lv_obj_set_height(ui_Container4, 134);
     lv_obj_set_x(ui_Container4, 0);
     lv_obj_set_y(ui_Container4, 26);
@@ -233,6 +233,7 @@ void ui_Screen10_screen_init(void)
     lv_obj_set_style_text_opa(ui_Label21, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_letter_space(ui_Label21, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_line_space(ui_Label21, 5, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_Label21, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_Label22 = lv_label_create(ui_Container4);
     lv_obj_set_width(ui_Label22, LV_SIZE_CONTENT);   /// 1

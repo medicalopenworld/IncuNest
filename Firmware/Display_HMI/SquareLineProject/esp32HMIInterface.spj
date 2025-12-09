@@ -558,31 +558,31 @@
               {
                 "nid": 1040,
                 "strtype": "IMGBUTTON/Image_pressed",
-                "strval": "-",
+                "strval": "",
                 "InheritedType": 5
               },
               {
                 "nid": 1050,
                 "strtype": "IMGBUTTON/Image_disabled",
-                "strval": "-",
+                "strval": "",
                 "InheritedType": 5
               },
               {
                 "nid": 1060,
                 "strtype": "IMGBUTTON/Image_checked_released",
-                "strval": "-",
+                "strval": "",
                 "InheritedType": 5
               },
               {
                 "nid": 1070,
                 "strtype": "IMGBUTTON/Image_checked_pressed",
-                "strval": "-",
+                "strval": "",
                 "InheritedType": 5
               },
               {
                 "nid": 1080,
                 "strtype": "IMGBUTTON/Image_checked_disabled",
-                "strval": "-",
+                "strval": "",
                 "InheritedType": 5
               },
               {
@@ -22337,7 +22337,7 @@
                               {
                                 "nid": 10450,
                                 "strtype": "_style/Text_Font",
-                                "strval": "montserrat_14",
+                                "strval": "montserrat_18",
                                 "InheritedType": 3
                               }
                             ],
@@ -22811,7 +22811,7 @@
                               {
                                 "nid": 10450,
                                 "strtype": "_style/Text_Font",
-                                "strval": "montserrat_14",
+                                "strval": "montserrat_18",
                                 "InheritedType": 3
                               }
                             ],
@@ -23285,7 +23285,7 @@
                               {
                                 "nid": 10450,
                                 "strtype": "_style/Text_Font",
-                                "strval": "montserrat_14",
+                                "strval": "montserrat_18",
                                 "InheritedType": 3
                               }
                             ],
@@ -23759,7 +23759,7 @@
                               {
                                 "nid": 10450,
                                 "strtype": "_style/Text_Font",
-                                "strval": "montserrat_14",
+                                "strval": "montserrat_18",
                                 "InheritedType": 3
                               }
                             ],
@@ -23981,8 +23981,8 @@
                     "flags": 17,
                     "strtype": "OBJECT/Position",
                     "intarray": [
-                      247,
-                      170
+                      210,
+                      169
                     ],
                     "InheritedType": 7
                   },
@@ -23991,7 +23991,7 @@
                     "flags": 17,
                     "strtype": "OBJECT/Size",
                     "intarray": [
-                      262,
+                      411,
                       134
                     ],
                     "InheritedType": 7
@@ -24985,6 +24985,12 @@
                               5
                             ],
                             "InheritedType": 7
+                          },
+                          {
+                            "nid": 10450,
+                            "strtype": "_style/Text_Font",
+                            "strval": "montserrat_18",
+                            "InheritedType": 3
                           }
                         ],
                         "InheritedType": 1
@@ -25215,7 +25221,7 @@
                 "flags": 17,
                 "strtype": "OBJECT/Size",
                 "intarray": [
-                  262,
+                  378,
                   134
                 ],
                 "InheritedType": 7
@@ -25475,7 +25481,7 @@
     "uiExportFolderPath": "C:\\Users\\jlaco\\OneDrive\\Escritorio\\In3ator\\IncuNest\\Firmware\\Display_HMI\\Exports ESP32 HMI Interface",
     "projectExportFolderPath": "C:\\Users\\jlaco\\OneDrive\\Escritorio\\In3ator\\IncuNest\\Firmware\\Display_HMI\\SquareLineProject",
     "custom_variable_prefix": "uic",
-    "backup_cnt": 240,
+    "backup_cnt": 242,
     "autosave_cnt": 0,
     "group_color_cnt": 0,
     "lvgl_version": "8.3.11",
