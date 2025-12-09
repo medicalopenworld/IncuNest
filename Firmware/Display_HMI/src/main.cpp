@@ -35,6 +35,8 @@ int alarmSlotToIndex[MAX_ALARM_DISPLAY] = { -1, -1, -1, -1 };
 
 
 bool wifiVisible = false;
+char wifi_ssid[64] = "";
+char wifi_pass[64] = "";
 bool LanguagesVisible = false;
 bool locked = true;
 
@@ -240,11 +242,11 @@ void update_labels() {
     char text[64];
     if (selectedPanel == AIR_PANEL_SELECTED) {
         snprintf(text, sizeof(text),
-                 "TEMPERATURE ESTABLISHED ON:\nAIR TEMP MODE");
+                 "TEMPERATURE ESTABLISHED ON:\nAIR MODE");
         snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValue);   // air mode
     } else if (selectedPanel == SKIN_PANEL_SELECTED) {
         snprintf(text, sizeof(text),
-                 "TEMPERATURE ESTABLISHED ON:\nSKIN TEMP MODE");
+                 "TEMPERATURE ESTABLISHED ON:\nSKIN MODE");
         snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValue);  // skin mode
     } else {
         snprintf(text, sizeof(text),
@@ -533,7 +535,29 @@ void TextArea_focus_cb(lv_event_t * e) {
 /* Callback of the keyboard: hide when OK or Cancel is pressed */
 void Keyboard_cb(lv_event_t * e) {
     lv_event_code_t code = lv_event_get_code(e);
+    lv_obj_t * kb = lv_event_get_target(e);
 
+    if (code == LV_EVENT_READY) {
+        // OK pulsed
+        lv_obj_t * ta = lv_keyboard_get_textarea(kb);
+        if (ta != NULL) {
+            const char * txt = lv_textarea_get_text(ta);
+
+            if (ta == ui_TextArea1) {
+                // SSID
+                strncpy(wifi_ssid, txt, sizeof(wifi_ssid));
+                wifi_ssid[sizeof(wifi_ssid) - 1] = '\0';
+                Serial.print("SSID saved: ");
+                Serial.println(wifi_ssid);
+            } else if (ta == ui_TextArea2) {
+                // PASS
+                strncpy(wifi_pass, txt, sizeof(wifi_pass));
+                wifi_pass[sizeof(wifi_pass) - 1] = '\0';
+                Serial.print("PASS saved: ");
+                Serial.println(wifi_pass);
+            }
+        }
+    }
     if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
         // Disassociate textarea
         lv_keyboard_set_textarea(ui_Keyboard1, NULL);
@@ -1485,4 +1509,34 @@ void loop() {
     }*/
 
 }
+
+
+
+
+/*
+
+Para hacer la conexion del wifi:
+
+
+Cuando quieras conectarte (por ejemplo al pulsar un botón “Connect WiFi”), solo necesitas algo así:
+
+"#include <WiFi.h>
+
+// Callback de tu botón de conectar
+void WifiConnectButton_cb(lv_event_t * e) {
+    Serial.print("Conectando a WiFi SSID: ");
+    Serial.println(wifi_ssid);
+
+    WiFi.begin(wifi_ssid, wifi_pass);
+    // Aquí puedes poner un timer o bucle para esperar conexión y actualizar la UI
+}"
+
+
+Y en el setup() registras ese callback en el botón que tengas para conectar:
+
+lv_obj_add_event_cb(ui_WifiConnectButton, WifiConnectButton_cb, LV_EVENT_CLICKED, NULL);
+
+
+
+*/
     
