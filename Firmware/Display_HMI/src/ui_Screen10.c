@@ -163,7 +163,7 @@ void ui_Screen10_screen_init(void)
     lv_obj_set_x(ui_Label23, 1);
     lv_obj_set_y(ui_Label23, -48);
     lv_obj_set_align(ui_Label23, LV_ALIGN_CENTER);
-    lv_label_set_text(ui_Label23, "ROOM HUMIDITY:");
+    lv_label_set_text(ui_Label23, "ESTABLISHED ROOM HUMIDITY:");
     lv_obj_set_style_text_color(ui_Label23, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(ui_Label23, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(ui_Label23, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -184,6 +184,7 @@ void ui_Screen10_screen_init(void)
     lv_obj_set_width(ui_Container2, 215);
     lv_obj_set_height(ui_Container2, 100);
     lv_obj_set_align(ui_Container2, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_Container2, LV_OBJ_FLAG_HIDDEN);     /// Flags
     lv_obj_clear_flag(ui_Container2, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
     ui_Panel11 = lv_obj_create(ui_Container2);
@@ -219,7 +220,6 @@ void ui_Screen10_screen_init(void)
     lv_obj_set_x(ui_Container4, 0);
     lv_obj_set_y(ui_Container4, 26);
     lv_obj_set_align(ui_Container4, LV_ALIGN_CENTER);
-    lv_obj_add_flag(ui_Container4, LV_OBJ_FLAG_HIDDEN);     /// Flags
     lv_obj_clear_flag(ui_Container4, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
     ui_Label21 = lv_label_create(ui_Container4);

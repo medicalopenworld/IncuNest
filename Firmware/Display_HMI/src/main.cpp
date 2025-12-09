@@ -179,6 +179,81 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data)
     }
 }
 
+/* Update labels for temperature and humidity */
+void update_labels() {
+    char buffer[BUFFER_SIZE];
+  
+    snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValue);
+    lv_label_set_text(ui_TempAirDesired, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValue);
+    lv_label_set_text(ui_TempSkinDesired, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%d%%", humValue);
+    lv_label_set_text(ui_HumDesired, buffer);
+
+    lv_label_set_text(ui_Label24, buffer); // Label24 shows desired humidity too
+
+    if (airTempValueDetected != 0 || skinTempValueDetected != 0 || humValueDetected != 0) {
+        snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValueDetected);
+        lv_label_set_text(ui_TempAirDetected, buffer);
+        lv_label_set_text(ui_TempAirDetectedRight, buffer);
+        lv_label_set_text(ui_Label18, buffer);   // Label24 = TempAirDetected
+
+        snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValueDetected);
+        lv_label_set_text(ui_TempSkinDetected, buffer);
+        lv_label_set_text(ui_TempSkinDetectedRight, buffer);
+        lv_label_set_text(ui_Label14, buffer);  // Label14 = TempSkinDetected
+
+        snprintf(buffer, sizeof(buffer), "%d%%", humValueDetected);
+        lv_label_set_text(ui_HumDetected, buffer);
+        lv_label_set_text(ui_HumDetectedRight, buffer);
+        lv_label_set_text(ui_Label20, buffer);   // Label20 = HumDetected
+
+
+        double tAir  = airTempValueDetected;
+        double tSkin = skinTempValueDetected;
+
+        // Air
+        int airBar;
+        if (tAir <= 20.0)      airBar = 0;
+        else if (tAir >= 40.0) airBar = 20;
+        else                   airBar = (int)round(tAir - 20.0);
+
+        // Skin
+        int skinBar;
+        if (tSkin <= 20.0)      skinBar = 0;
+        else if (tSkin >= 40.0) skinBar = 20;
+        else                    skinBar = (int)round(tSkin - 20.0);
+
+        // Humidity
+        int humBar = constrain(humValueDetected, 0, 100);
+
+        lv_bar_set_value(ui_AirTempBar,  airBar,  LV_ANIM_OFF);
+        lv_bar_set_value(ui_SkinTempBar, skinBar, LV_ANIM_OFF);
+        lv_bar_set_value(ui_HumBar,      humBar,  LV_ANIM_OFF);
+    
+    }
+
+    // --- Label22: desired value according to mode (Air / Skin) ---
+    char text[64];
+    if (selectedPanel == AIR_PANEL_SELECTED) {
+        snprintf(text, sizeof(text),
+                 "TEMPERATURE ESTABLISHED ON:\nAIR TEMP MODE");
+        snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValue);   // air mode
+    } else if (selectedPanel == SKIN_PANEL_SELECTED) {
+        snprintf(text, sizeof(text),
+                 "TEMPERATURE ESTABLISHED ON:\nSKIN TEMP MODE");
+        snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValue);  // skin mode
+    } else {
+        snprintf(text, sizeof(text),
+                 "TEMPERATURE ESTABLISHED ON:\n--");
+        snprintf(buffer, sizeof(buffer), "--");                     // no mode (for safety)
+    }
+    lv_label_set_text(ui_Label22, buffer);
+    lv_label_set_text(ui_Label21, text);
+}
+
 /* Temperature and humidity panel styling */
 void set_active_panel(lv_obj_t* active, lv_obj_t* inactive) {
     // Active panel → blue with full opacity
@@ -396,6 +471,8 @@ void Switch_cb(lv_event_t * e) {
     hmi_msg.desiredSkinTemperature = skinTempValue;
     hmi_msg.desiredHumidity        = humValue;
     hmi_msg.shouldSendData = true;
+
+    update_labels();
 }
 
 /* Callback when Wifi button is clicked */
@@ -465,72 +542,7 @@ void Keyboard_cb(lv_event_t * e) {
 }
 
 
-/* Update labels for temperature and humidity */
-void update_labels() {
-    char buffer[BUFFER_SIZE];
-  
-    snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValue);
-    lv_label_set_text(ui_TempAirDesired, buffer);
 
-    snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValue);
-    lv_label_set_text(ui_TempSkinDesired, buffer);
-
-    snprintf(buffer, sizeof(buffer), "%d%%", humValue);
-    lv_label_set_text(ui_HumDesired, buffer);
-
-    lv_label_set_text(ui_Label24, buffer); // Label24 shows desired humidity too
-
-    if (airTempValueDetected != 0 || skinTempValueDetected != 0 || humValueDetected != 0) {
-        snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValueDetected);
-        lv_label_set_text(ui_TempAirDetected, buffer);
-        lv_label_set_text(ui_TempAirDetectedRight, buffer);
-        lv_label_set_text(ui_Label18, buffer);   // Label24 = TempAirDetected
-
-        snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValueDetected);
-        lv_label_set_text(ui_TempSkinDetected, buffer);
-        lv_label_set_text(ui_TempSkinDetectedRight, buffer);
-        lv_label_set_text(ui_Label14, buffer);  // Label14 = TempSkinDetected
-
-        snprintf(buffer, sizeof(buffer), "%d%%", humValueDetected);
-        lv_label_set_text(ui_HumDetected, buffer);
-        lv_label_set_text(ui_HumDetectedRight, buffer);
-        lv_label_set_text(ui_Label20, buffer);   // Label20 = HumDetected
-
-
-        double tAir  = airTempValueDetected;
-        double tSkin = skinTempValueDetected;
-
-        // Air
-        int airBar;
-        if (tAir <= 20.0)      airBar = 0;
-        else if (tAir >= 40.0) airBar = 20;
-        else                   airBar = (int)round(tAir - 20.0);
-
-        // Skin
-        int skinBar;
-        if (tSkin <= 20.0)      skinBar = 0;
-        else if (tSkin >= 40.0) skinBar = 20;
-        else                    skinBar = (int)round(tSkin - 20.0);
-
-        // Humidity
-        int humBar = constrain(humValueDetected, 0, 100);
-
-        lv_bar_set_value(ui_AirTempBar,  airBar,  LV_ANIM_OFF);
-        lv_bar_set_value(ui_SkinTempBar, skinBar, LV_ANIM_OFF);
-        lv_bar_set_value(ui_HumBar,      humBar,  LV_ANIM_OFF);
-    
-    }
-
-    // --- Label22: desired value according to mode (Air / Skin) ---
-    if (selectedPanel == AIR_PANEL_SELECTED) {
-        snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValue);   // air mode
-    } else if (selectedPanel == SKIN_PANEL_SELECTED) {
-        snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValue);  // skin mode
-    } else {
-        snprintf(buffer, sizeof(buffer), "--");                     // no mode (for safety)
-    }
-    lv_label_set_text(ui_Label22, buffer);
-}
 
 /* Callback when Air panel is clicked */
 void AirPanel_cb(lv_event_t * e) {
