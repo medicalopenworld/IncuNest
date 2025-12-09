@@ -26,7 +26,7 @@
 #include <AH/Timing/MillisMicrosTimer.hpp>
 #include <Filters/Butterworth.hpp>
 
-#include "communication.h"
+#include "communication_host.h"
 #include "Adafruit_GFX.h"
 #include <TFT_eSPI.h> // Hardware-specific library
 #include "Adafruit_SHT4x.h"
@@ -48,6 +48,12 @@
 #include "esp_bt.h"
 #include "esp_bt_main.h"
 #include "nvs_flash.h"
+#include "usb/cdc_acm_host.h"
+#include "usb/usb_host.h"
+#include "usb/vcp.hpp"
+#include "usb/vcp_ch34x.hpp"
+#include "usb/vcp_cp210x.hpp"
+#include "usb/vcp_ftdi.hpp"
 
 // #include <BQ25792_Driver.h>
 
@@ -55,11 +61,11 @@
 #include <Espressif_MQTT_Client.h>
 #include <Arduino_MQTT_Client.h>
 
-#define LOG_GPRS false
-#define LOG_MODEM_DATA false
-#define LOG_INFORMATION false
-#define LOG_ERRORS false
-#define LOG_ALARMS false
+#define LOG_GPRS true
+#define LOG_MODEM_DATA true
+#define LOG_INFORMATION true
+#define LOG_ERRORS true
+#define LOG_ALARMS true
 
 #define USE_SYSTEM_WITHOUT_ACTUATORS_TEST true //only if previous test was OK and that fail cause is not being able to read current measurements
 #define WDT_TIMEOUT 75
@@ -71,7 +77,7 @@
 #define FAN_RPM_CONVERSION 13333333
 #define FAN_UPDATE_TIME_MIN 1000
 
-#define ALARM_SYSTEM_ENABLED true
+#define ALARM_SYSTEM_ENABLED false
 #define FAN_MAX_CURRENT_OVERRIDE false
 #define SILENCED_ALARM false
 #define DEFAULT_SOUND_ALARM true
@@ -321,6 +327,7 @@ typedef enum
 #define BUZZER_TASK_PERIOD_MS 10
 #define UI_TASK_PERIOD_MS 10
 #define SECURITY_TASK_PERIOD_MS 1
+#define COMMUNICATION_TASK_PERIOD_MS 1
 #define TIME_TRACK_TASK_PERIOD_MS 100
 #define BACKLIGHT_TASK_PERIOD_MS 100
 #define FAN_TASK_PERIOD_MS 10
@@ -729,7 +736,6 @@ bool back_mode();
 void setSensorsGraphicPosition(int UI_page);
 void updateDisplayHeader();
 
-void basicHumidityControl();
 void initRoomSensor();
 void initAmbientSensor();
 void powerMonitor();
@@ -756,5 +762,7 @@ void loadlogo();
 void initPin(uint8_t GPIO, uint8_t Mode);
 bool GPIORead(uint8_t GPIO);
 void GPIOWrite(uint8_t GPIO, uint8_t Mode);
+
+void basictemperatureControl();
 
 #endif

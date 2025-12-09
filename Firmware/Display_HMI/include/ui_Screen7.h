@@ -15,11 +15,11 @@ extern void ui_Screen7_screen_init(void);
 extern void ui_Screen7_screen_destroy(void);
 extern lv_obj_t * ui_Screen7;
 extern lv_obj_t * ui_Panel15;
-extern lv_obj_t * ui_Label39;
 extern void ui_event_OxiButton2(lv_event_t * e);
 extern lv_obj_t * ui_OxiButton2;
 extern lv_obj_t * ui_DetectOxi;
 extern lv_obj_t * ui_Label5;
+extern lv_obj_t * ui_Label39;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus

@@ -242,7 +242,8 @@ void sensors_Task(void *pvParameters) {
       powerMonitor();
       lastCurrentSensorUpdate = millis();
     }
-    ctrl_tel_msg.detectedAirTemperature = in3.temperature[ROOM_DIGITAL_TEMP_SENSOR];
+    ctrl_tel_msg.detectedAirTemperature =
+        in3.temperature[ROOM_DIGITAL_TEMP_SENSOR];
     ctrl_tel_msg.detectedSkinTemperature = in3.temperature[SKIN_SENSOR];
     ctrl_tel_msg.detectedHumidity = in3.humidity[ROOM_DIGITAL_HUM_SENSOR];
     vTaskDelay(pdMS_TO_TICKS(SENSORS_TASK_PERIOD_MS));
@@ -296,16 +297,83 @@ void TimeTrack_Task(void *pvParameters) {
   }
 }
 
+void Communication_Receiver(void *pvParameters) {
+  for (;;) {
+    if (hmi_cmd_msg.newCommand) {
+      hmi_cmd_msg.newCommand = false;
+
+      String msg = "HMI CMD -> act=" + String(hmi_cmd_msg.actuation) +
+                   " mode=" + String(hmi_cmd_msg.controlMode) +
+                   " air=" + String(hmi_cmd_msg.desiredAirTemperature, 1) +
+                   " skin=" + String(hmi_cmd_msg.desiredSkinTemperature, 1) +
+                   " hum=" + String(hmi_cmd_msg.desiredHumidity, 0) +
+                   " photo=" + String(hmi_cmd_msg.phototherapyMode) +
+                   " mute=" + String(hmi_cmd_msg.muteAlarm);
+
+      logI(msg);
+      in3.actuation = hmi_cmd_msg.actuation;
+      in3.controlMode = hmi_cmd_msg.controlMode;
+
+      switch (in3.actuation) {
+      case ACTUATION_TEMPERATURE:
+        in3.temperatureControl = true;
+        in3.humidityControl = false;
+        break;
+      case ACTUATION_HUMIDITY:
+        in3.temperatureControl = false;
+        in3.humidityControl = true;
+        break;
+      case ACTUATION_TEMP_AND_HUMIDITY:
+        in3.temperatureControl = true;
+        in3.humidityControl = true;
+        break;
+      default:
+        in3.temperatureControl = false;
+        in3.humidityControl = false;
+        break;
+      }
+
+      if (in3.temperatureControl) {
+        if (in3.controlMode) {
+          in3.desiredControlTemperature = hmi_cmd_msg.desiredAirTemperature;
+          startPID(in3.controlMode);
+        } else {
+          in3.desiredControlTemperature = hmi_cmd_msg.desiredSkinTemperature;
+          startPID(!in3.controlMode);
+        }
+      } else {
+        stopPID(CONTROL_AIR);
+        stopPID(!CONTROL_AIR);
+        ledcWrite(HEATER_PWM_CHANNEL, false);
+      }
+      if (in3.humidityControl) {
+        in3.desiredControlHumidity = hmi_cmd_msg.desiredHumidity;
+        startPID(humidityPID);
+      } else {
+        stopPID(humidityPID);
+        in3_hum.turn(OFF);
+      }
+
+      in3.phototherapy = hmi_cmd_msg.phototherapyMode;
+      ledcWrite(PHOTOTHERAPY_PWM_CHANNEL,
+                in3.phototherapy * in3.phototherapy_intensity);
+      turnFans(bool(in3.phototherapy || in3.actuation));
+
+      buzzerTone(buzzerStandbyToneTimes, buzzerSwitchDuration,
+                 buzzerRotaryEncoderTone);
+    }
+    if (in3.actuation) {
+      PIDHandler();
+    }
+    vTaskDelay(pdMS_TO_TICKS(COMMUNICATION_TASK_PERIOD_MS));
+  }
+}
+
 void setup() {
   esp_bt_controller_mem_release(ESP_BT_MODE_BLE);
   debugSerial.begin(115200);
   logI("in3ator debug uart, version v" + String(FWversion) + "/" +
        String(HWversion) + ", SN: " + String(in3.serialNumber));
-
-  // --- Initialize UART communication between ESP32 boards ---
-  logI("Initializing communication task ...");
-  Communication_Init();
-  logI("Communication task successfully created!\n");
 
   GPRS_monitor_mutex = xSemaphoreCreateBinary();
   security_check_reboot_cause();
@@ -320,6 +388,10 @@ void setup() {
   if (WIFI_EN) {
     wifiInit();
   }
+
+  // EEPROM.writeString(EEPROM_THINGSBOARD_TOKEN, "3UlOzWQCWwspCQP768hZ");
+  // EEPROM.write(EEPROM_THINGSBOARD_PROVISIONED, true);
+  // EEPROM.commit();
 
   logI("Creating buzzer task ...\n");
   while (xTaskCreatePinnedToCore(buzzer_Task, "BUZZER", 4096, NULL,
@@ -370,6 +442,20 @@ void setup() {
     ;
   logI("Time track task successfully created!\n");
 
+  // --- Initialize UART communication between ESP32 boards ---
+  logI("Initializing communication task ...");
+  CommunicationHost_Init();
+
+  xTaskCreatePinnedToCore(Communication_Task, "COMM_TASK", 4096, NULL, 1, NULL,
+                          CORE_ID_FREERTOS // o 0/1 según tu placa
+  );
+
+  xTaskCreatePinnedToCore(Communication_Receiver, "COMM_TASK_RX", 4096, NULL, 1,
+                          NULL,
+                          CORE_ID_FREERTOS // o 0/1 según tu placa
+  );
+  logI("Communication task successfully created!\n");
+
 #if HW_NUM < 15
   logI("Creating UI task ...\n");
   while (xTaskCreatePinnedToCore(UI_Task, "UI", 4096, NULL, UI_TASK_PRIORITY,
@@ -380,6 +466,7 @@ void setup() {
 }
 
 void loop() {
+
   watchdogReload();
   updateData();
   vTaskDelay(pdMS_TO_TICKS(LOOP_TASK_PERIOD_MS));

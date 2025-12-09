@@ -4,9 +4,6 @@
 #include <Arduino.h>
 #include "main.h"
 
-// Set to true only on the HMI board
-#define IS_HMI true   
-
 #define COMMUNICATION_DEBUG true
 
 #if COMMUNICATION_DEBUG

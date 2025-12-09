@@ -17,6 +17,30 @@ extern lv_obj_t * ui_Screen2;
 extern lv_obj_t * ui_Label8;
 extern void ui_event_ImgButton2(lv_event_t * e);
 extern lv_obj_t * ui_ImgButton2;
+extern lv_obj_t * ui_Container3;
+extern lv_obj_t * ui_WifiCont;
+extern lv_obj_t * ui_Panel7;
+extern lv_obj_t * ui_WifiLabel;
+extern lv_obj_t * ui_WifiButton;
+extern lv_obj_t * ui_Label3;
+extern lv_obj_t * ui_LanguagesCont;
+extern lv_obj_t * ui_Panel8;
+extern lv_obj_t * ui_LanguagesLabel;
+extern lv_obj_t * ui_LanguagesButton;
+extern lv_obj_t * ui_Label1;
+extern lv_obj_t * ui_SkinModeCont;
+extern lv_obj_t * ui_Panel9;
+extern lv_obj_t * ui_SkinOptionLabel;
+extern lv_obj_t * ui_Switch4;
+extern lv_obj_t * ui_WifiConfigCont;
+extern lv_obj_t * ui_Keyboard1;
+extern lv_obj_t * ui_SSIDPanel;
+extern lv_obj_t * ui_SSIDLabel;
+extern lv_obj_t * ui_PassPanel;
+extern lv_obj_t * ui_PassLabel;
+extern lv_obj_t * ui_TextArea1;
+extern lv_obj_t * ui_TextArea2;
+extern lv_obj_t * ui_LanguagesDropDown;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus
