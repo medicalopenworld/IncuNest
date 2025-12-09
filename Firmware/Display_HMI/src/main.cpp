@@ -36,6 +36,7 @@ int alarmSlotToIndex[MAX_ALARM_DISPLAY] = { -1, -1, -1, -1 };
 
 bool wifiVisible = false;
 bool LanguagesVisible = false;
+bool locked = true;
 
 lv_chart_series_t * tempSeries = NULL;
 lv_chart_series_t * humSeries  = NULL;
@@ -798,6 +799,7 @@ void update_alarm_panels() {
             lv_anim_del(ui_AlarmButton, blink_cb);
             lv_obj_set_style_opa(ui_Panel10, LV_OPA_COVER, LV_PART_MAIN);
             lv_obj_set_style_opa(ui_NumAlarm, LV_OPA_COVER, LV_PART_MAIN);
+            lv_obj_set_style_opa(ui_AlarmButton, LV_OPA_COVER, LV_PART_MAIN);
         }
 
     // Hide remaining panels if fewer than MAX_ALARM_DISPLAY alarms active
@@ -974,14 +976,36 @@ void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
     } else {
         log_w("No space to store new alarm ID=%d", alarm.id);
     }
+
+    // ===== If an alarm comes, switch to Main Screen =====
+    if (alarmActive) {
+        if (lv_scr_act() == ui_Screen10) {
+            lv_scr_load(ui_Screen1);
+        }
+        lv_disp_trig_activity(NULL);
+    }
 }
 
 void LockButton_cb(lv_event_t * e) {
-    // Show Container2 (e.g. PIN/unlock area)
-    lv_obj_clear_flag(ui_Container2, LV_OBJ_FLAG_HIDDEN);
 
-    // Hide Container4 (e.g. lock icon)
-    lv_obj_add_flag(ui_Container4, LV_OBJ_FLAG_HIDDEN);
+    if (locked) {
+        // Show Container2 (e.g. PIN/unlock area)
+        lv_obj_clear_flag(ui_Container2, LV_OBJ_FLAG_HIDDEN);
+
+        // Hide Container4 (e.g. lock icon)
+        lv_obj_add_flag(ui_Container4, LV_OBJ_FLAG_HIDDEN);
+
+        locked = !locked;
+    }
+    else {
+        // Show Container4 
+        lv_obj_clear_flag(ui_Container4, LV_OBJ_FLAG_HIDDEN);
+
+        // Hide Container2
+        lv_obj_add_flag(ui_Container2, LV_OBJ_FLAG_HIDDEN);
+
+        locked = !locked;
+    }
 }
 
 void LockButton2_cb(lv_event_t * e) {
@@ -997,6 +1021,12 @@ void LockButton2_cb(lv_event_t * e) {
 }
 
 void inactivity_timer_cb(lv_timer_t * timer) {
+
+     if (alarmActive) {
+        // Maintains active the timer
+        lv_disp_trig_activity(NULL);
+        return;
+    }
     uint32_t inactive = lv_disp_get_inactive_time(NULL);
 
     if (inactive > INACTIVITY_TIMEOUT_MS) {
