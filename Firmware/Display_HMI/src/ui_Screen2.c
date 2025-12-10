@@ -31,6 +31,7 @@ lv_obj_t * ui_PassPanel = NULL;
 lv_obj_t * ui_PassLabel = NULL;
 lv_obj_t * ui_TextArea1 = NULL;
 lv_obj_t * ui_TextArea2 = NULL;
+lv_obj_t * ui_WifiConnectButton = NULL;
 lv_obj_t * ui_LanguagesDropDown = NULL;
 // event funtions
 void ui_event_ImgButton2(lv_event_t * e)
@@ -213,6 +214,7 @@ void ui_Screen2_screen_init(void)
     lv_obj_set_x(ui_Keyboard1, 2);
     lv_obj_set_y(ui_Keyboard1, 87);
     lv_obj_set_align(ui_Keyboard1, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);     /// Flags
 
     ui_SSIDPanel = lv_obj_create(ui_WifiConfigCont);
     lv_obj_set_width(ui_SSIDPanel, 420);
@@ -262,6 +264,15 @@ void ui_Screen2_screen_init(void)
     lv_obj_set_align(ui_TextArea2, LV_ALIGN_CENTER);
     lv_textarea_set_placeholder_text(ui_TextArea2, "Placeholder...");
 
+    ui_WifiConnectButton = lv_btn_create(ui_WifiConfigCont);
+    lv_obj_set_width(ui_WifiConnectButton, 100);
+    lv_obj_set_height(ui_WifiConnectButton, 40);
+    lv_obj_set_x(ui_WifiConnectButton, 147);
+    lv_obj_set_y(ui_WifiConnectButton, 48);
+    lv_obj_set_align(ui_WifiConnectButton, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_SCROLL_ON_FOCUS);     /// Flags
+    lv_obj_clear_flag(ui_WifiConnectButton, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+
     ui_LanguagesDropDown = lv_dropdown_create(ui_Screen2);
     lv_dropdown_set_options(ui_LanguagesDropDown, "Spanish\nEnglish\nFrench");
     lv_obj_set_width(ui_LanguagesDropDown, 428);
@@ -306,6 +317,7 @@ void ui_Screen2_screen_destroy(void)
     ui_PassLabel = NULL;
     ui_TextArea1 = NULL;
     ui_TextArea2 = NULL;
+    ui_WifiConnectButton = NULL;
     ui_LanguagesDropDown = NULL;
 
 }

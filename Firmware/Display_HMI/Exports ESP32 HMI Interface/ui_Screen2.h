@@ -40,6 +40,7 @@ extern lv_obj_t * ui_PassPanel;
 extern lv_obj_t * ui_PassLabel;
 extern lv_obj_t * ui_TextArea1;
 extern lv_obj_t * ui_TextArea2;
+extern lv_obj_t * ui_WifiConnectButton;
 extern lv_obj_t * ui_LanguagesDropDown;
 // CUSTOM VARIABLES
 

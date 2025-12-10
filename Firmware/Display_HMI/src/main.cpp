@@ -14,6 +14,8 @@
 #include <buzzer.h>
 #include <Arduino.h>
 
+#include <WiFi.h>
+
 
 // Temperature and humidity variables
 double airTempValue, skinTempValue;
@@ -528,6 +530,9 @@ void TextArea_focus_cb(lv_event_t * e) {
     // Show keyboard
     lv_obj_clear_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
 
+    // Hide Wifi connect button while keyboard is visible
+    lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
+
     // Associate keyboard with this TextArea
     lv_keyboard_set_textarea(ui_Keyboard1, ta);
 }
@@ -563,6 +568,8 @@ void Keyboard_cb(lv_event_t * e) {
         lv_keyboard_set_textarea(ui_Keyboard1, NULL);
         // Hide keyboard
         lv_obj_add_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
+         // Show Wifi connect button again
+        lv_obj_clear_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
@@ -1065,6 +1072,13 @@ void inactivity_timer_cb(lv_timer_t * timer) {
 }
 
 
+// Callback de tu botón de conectar
+void WifiConnectButton_cb(lv_event_t * e) {
+    Serial.print("Conectando a WiFi SSID: ");
+    Serial.println(wifi_ssid);
+
+    WiFi.begin(wifi_ssid, wifi_pass);
+}
 
 void setup()
 {
@@ -1302,6 +1316,9 @@ void setup()
     lv_obj_add_event_cb(ui_LockButton2, LockButton2_cb, LV_EVENT_ALL, NULL);
 
 
+    // WIFI connect button
+    lv_obj_add_event_cb(ui_WifiConnectButton, WifiConnectButton_cb, LV_EVENT_CLICKED, NULL);
+
     // ============================================================================
     // TempChart configuration
     // ============================================================================
@@ -1509,34 +1526,3 @@ void loop() {
     }*/
 
 }
-
-
-
-
-/*
-
-Para hacer la conexion del wifi:
-
-
-Cuando quieras conectarte (por ejemplo al pulsar un botón “Connect WiFi”), solo necesitas algo así:
-
-"#include <WiFi.h>
-
-// Callback de tu botón de conectar
-void WifiConnectButton_cb(lv_event_t * e) {
-    Serial.print("Conectando a WiFi SSID: ");
-    Serial.println(wifi_ssid);
-
-    WiFi.begin(wifi_ssid, wifi_pass);
-    // Aquí puedes poner un timer o bucle para esperar conexión y actualizar la UI
-}"
-
-
-Y en el setup() registras ese callback en el botón que tengas para conectar:
-
-lv_obj_add_event_cb(ui_WifiConnectButton, WifiConnectButton_cb, LV_EVENT_CLICKED, NULL);
-
-
-
-*/
-    
