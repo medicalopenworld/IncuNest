@@ -1010,7 +1010,7 @@ void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
 
     // ===== If an alarm comes, switch to Main Screen =====
     if (alarmActive) {
-        if (lv_scr_act() == ui_Screen10) {
+        if (lv_scr_act() == ui_Screen7) {
             lv_scr_load(ui_Screen1);
         }
         lv_disp_trig_activity(NULL);
@@ -1046,7 +1046,7 @@ void LockButton2_cb(lv_event_t * e) {
         // We return to Screen1
         lv_scr_load(ui_Screen1);
 
-        // Reset the inactivity counter so it doesn't immediately jump to Screen10 again
+        // Reset the inactivity counter so it doesn't immediately jump to Screen7 again
         lv_disp_trig_activity(NULL);
     }
 }
@@ -1061,12 +1061,12 @@ void inactivity_timer_cb(lv_timer_t * timer) {
     uint32_t inactive = lv_disp_get_inactive_time(NULL);
 
     if (inactive > INACTIVITY_TIMEOUT_MS) {
-        if (lv_scr_act() != ui_Screen10) {
+        if (lv_scr_act() != ui_Screen7) {
             // Initial screen timeout actions
             lv_obj_add_flag(ui_Container2, LV_OBJ_FLAG_HIDDEN);   // hidden
             lv_obj_clear_flag(ui_Container4, LV_OBJ_FLAG_HIDDEN); // visible
 
-            lv_scr_load(ui_Screen10);
+            lv_scr_load(ui_Screen7);
         }
     }
 }
@@ -1310,7 +1310,7 @@ void setup()
     lv_obj_add_flag(ui_Container2, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(ui_Container4, LV_OBJ_FLAG_HIDDEN);
 
-    // Callback for the LockButton (Screen10)
+    // Callback for the LockButton (Screen7)
     lv_obj_add_event_cb(ui_LockButton, LockButton_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_add_event_cb(ui_LockButton2, LockButton2_cb, LV_EVENT_ALL, NULL);

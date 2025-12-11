@@ -25439,7 +25439,7 @@
           }
         ],
         "isPage": true,
-        "editor_posx": 5000,
+        "editor_posx": 2000,
         "editor_posy": -1650,
         "dont_export": false,
         "locked": false,
@@ -25447,7 +25447,7 @@
           {
             "nid": 10,
             "strtype": "OBJECT/Name",
-            "strval": "Screen10",
+            "strval": "Screen7",
             "InheritedType": 10
           },
           {

@@ -5,7 +5,7 @@
 
 #include "ui.h"
 
-lv_obj_t * ui_Screen10 = NULL;
+lv_obj_t * ui_Screen7 = NULL;
 lv_obj_t * ui_LockButton = NULL;
 lv_obj_t * ui_Container1 = NULL;
 lv_obj_t * ui_AirTempLockCont = NULL;
@@ -31,14 +31,14 @@ lv_obj_t * ui_Label22 = NULL;
 
 // build funtions
 
-void ui_Screen10_screen_init(void)
+void ui_Screen7_screen_init(void)
 {
-    ui_Screen10 = lv_obj_create(NULL);
-    lv_obj_clear_flag(ui_Screen10, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
-    lv_obj_set_style_bg_color(ui_Screen10, lv_color_hex(0x242323), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_opa(ui_Screen10, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    ui_Screen7 = lv_obj_create(NULL);
+    lv_obj_clear_flag(ui_Screen7, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+    lv_obj_set_style_bg_color(ui_Screen7, lv_color_hex(0x242323), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(ui_Screen7, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    ui_LockButton = lv_imgbtn_create(ui_Screen10);
+    ui_LockButton = lv_imgbtn_create(ui_Screen7);
     lv_imgbtn_set_src(ui_LockButton, LV_IMGBTN_STATE_RELEASED, NULL, &ui_img_candado_png, NULL);
     lv_obj_set_width(ui_LockButton, 38);
     lv_obj_set_height(ui_LockButton, 44);
@@ -46,7 +46,7 @@ void ui_Screen10_screen_init(void)
     lv_obj_set_y(ui_LockButton, -213);
     lv_obj_set_align(ui_LockButton, LV_ALIGN_CENTER);
 
-    ui_Container1 = lv_obj_create(ui_Screen10);
+    ui_Container1 = lv_obj_create(ui_Screen7);
     lv_obj_remove_style_all(ui_Container1);
     lv_obj_set_width(ui_Container1, 775);
     lv_obj_set_height(ui_Container1, 417);
@@ -179,7 +179,7 @@ void ui_Screen10_screen_init(void)
     lv_obj_set_style_text_opa(ui_Label24, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(ui_Label24, &lv_font_montserrat_48, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    ui_Container2 = lv_obj_create(ui_Screen10);
+    ui_Container2 = lv_obj_create(ui_Screen7);
     lv_obj_remove_style_all(ui_Container2);
     lv_obj_set_width(ui_Container2, 215);
     lv_obj_set_height(ui_Container2, 100);
@@ -213,7 +213,7 @@ void ui_Screen10_screen_init(void)
     lv_obj_set_y(ui_LockButton2, -22);
     lv_obj_set_align(ui_LockButton2, LV_ALIGN_CENTER);
 
-    ui_Container4 = lv_obj_create(ui_Screen10);
+    ui_Container4 = lv_obj_create(ui_Screen7);
     lv_obj_remove_style_all(ui_Container4);
     lv_obj_set_width(ui_Container4, 378);
     lv_obj_set_height(ui_Container4, 134);
@@ -248,12 +248,12 @@ void ui_Screen10_screen_init(void)
 
 }
 
-void ui_Screen10_screen_destroy(void)
+void ui_Screen7_screen_destroy(void)
 {
-    if(ui_Screen10) lv_obj_del(ui_Screen10);
+    if(ui_Screen7) lv_obj_del(ui_Screen7);
 
     // NULL screen variables
-    ui_Screen10 = NULL;
+    ui_Screen7 = NULL;
     ui_LockButton = NULL;
     ui_Container1 = NULL;
     ui_AirTempLockCont = NULL;
