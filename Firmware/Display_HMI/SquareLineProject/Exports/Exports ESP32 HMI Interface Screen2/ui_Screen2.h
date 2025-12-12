@@ -41,7 +41,13 @@ extern lv_obj_t * ui_PassLabel;
 extern lv_obj_t * ui_TextArea1;
 extern lv_obj_t * ui_TextArea2;
 extern lv_obj_t * ui_WifiConnectButton;
+extern lv_obj_t * ui_ConnectLabel;
 extern lv_obj_t * ui_LanguagesDropDown;
+extern lv_obj_t * ui_WifiConnectedCont;
+extern lv_obj_t * ui_WifiConnectedPanel;
+extern lv_obj_t * ui_ArrowWifiConnected;
+extern lv_obj_t * ui_WifiSSIDLabel;
+extern lv_obj_t * ui_WifiConnectedToLabel;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus

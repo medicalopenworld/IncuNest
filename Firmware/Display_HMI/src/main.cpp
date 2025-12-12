@@ -42,6 +42,9 @@ char wifi_pass[64] = "";
 bool LanguagesVisible = false;
 bool locked = true;
 
+
+
+
 lv_chart_series_t * tempSeries = NULL;
 lv_chart_series_t * humSeries  = NULL;
 
@@ -481,45 +484,34 @@ void Switch_cb(lv_event_t * e) {
 }
 
 /* Callback when Wifi button is clicked */
-void WifiButton_cb(lv_event_t * e) {
+void WifiButton_cb(lv_event_t * e)
+{
+    // Hides languages dropdown
+    lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
+    LanguagesVisible = false;
 
-    bool wifiHidden = lv_obj_has_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_WifiConfigCont,    LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
 
-    if (wifiHidden) {
-        // Show Wifi
+    // Shows wifi containers (depending on connection status)
+    if (WiFi.status() == WL_CONNECTED) {
+        lv_obj_clear_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
+    } else {
         lv_obj_clear_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
-        wifiVisible = true;
-
-        // Hide Languages
-        lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
-        LanguagesVisible = false;
     }
-    else {
-        // Hide Wifi (none visible)
-        lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
-        wifiVisible = false;
-    }
+    wifiVisible = true;
 }
 
-/* Callback when Language button is clicked */
-void LanguageButton_cb(lv_event_t * e) {
+void LanguageButton_cb(lv_event_t * e)
+{
+    // Hides wifi containers
+    lv_obj_add_flag(ui_WifiConfigCont,    LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
+    wifiVisible = false;
 
-    bool langHidden = lv_obj_has_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
-
-    if (langHidden) {
-        // Show Languages
-        lv_obj_clear_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
-        LanguagesVisible = true;
-
-        // Hide Wifi
-        lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
-        wifiVisible = false;
-    }
-    else {
-        // Hide Languages (none visible)
-        lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
-        LanguagesVisible = false;
-    }
+    // Shows languages
+    lv_obj_clear_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
+    LanguagesVisible = true;
 }
 
 
@@ -532,6 +524,7 @@ void TextArea_focus_cb(lv_event_t * e) {
 
     // Hide Wifi connect button while keyboard is visible
     lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
 
     // Associate keyboard with this TextArea
     lv_keyboard_set_textarea(ui_Keyboard1, ta);
@@ -570,6 +563,7 @@ void Keyboard_cb(lv_event_t * e) {
         lv_obj_add_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
          // Show Wifi connect button again
         lv_obj_clear_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
@@ -1010,7 +1004,7 @@ void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
 
     // ===== If an alarm comes, switch to Main Screen =====
     if (alarmActive) {
-        if (lv_scr_act() == ui_Screen7) {
+        if (lv_scr_act() == ui_Screen6) {
             lv_scr_load(ui_Screen1);
         }
         lv_disp_trig_activity(NULL);
@@ -1039,17 +1033,88 @@ void LockButton_cb(lv_event_t * e) {
     }
 }
 
-void LockButton2_cb(lv_event_t * e) {
+// Timer callback: update arc value according to elapsed time
+static void lock_progress_timer_cb(lv_timer_t * t) {
+    (void)t;
+    if (!lockProgressArc) return;
+    uint32_t now = lv_tick_get();
+    uint32_t elapsed = now - lockProgressStart;
+    if (elapsed > LOCK_PROGRESS_DURATION_MS) elapsed = LOCK_PROGRESS_DURATION_MS;
+    int perc = (int)((elapsed * 100) / LOCK_PROGRESS_DURATION_MS);
+    lv_arc_set_value(lockProgressArc, perc);
+
+    if (elapsed >= LOCK_PROGRESS_DURATION_MS) {
+        // Completed: stop timer and trigger screen change
+        if (lockProgressTimer) {
+            lv_timer_del(lockProgressTimer);
+            lockProgressTimer = NULL;
+        }
+        // Change to screen 1 and hide arc
+        lv_scr_load(ui_Screen1);
+        lv_obj_add_flag(lockProgressArc, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+void start_lock_spinner()
+{
+    // Create arc if not present
+    if (!lockProgressArc) {
+        lockProgressArc = lv_arc_create(lv_scr_act());
+        lv_obj_set_size(lockProgressArc, 80, 80);
+        // Moved right so user's finger doesn't cover it
+        lv_obj_align(lockProgressArc, LV_ALIGN_CENTER, 160, 0);
+        lv_arc_set_range(lockProgressArc, 0, 100);
+        lv_arc_set_value(lockProgressArc, 0);
+        lv_obj_set_style_arc_color(lockProgressArc, lv_color_hex(0xB0B0B0), LV_PART_INDICATOR);
+        lv_obj_set_style_arc_opa(lockProgressArc, LV_OPA_COVER, LV_PART_INDICATOR);
+        lv_obj_add_flag(lockProgressArc, LV_OBJ_FLAG_FLOATING);
+    } else {
+        lv_arc_set_value(lockProgressArc, 0);
+        lv_obj_clear_flag(lockProgressArc, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_move_foreground(lockProgressArc);
+    }
+
+    // Start timer
+    lockProgressStart = lv_tick_get();
+    if (!lockProgressTimer) {
+        lockProgressTimer = lv_timer_create(lock_progress_timer_cb, 50, NULL);
+    }
+}
+
+void stop_lock_spinner()
+{
+    // Stop timer
+    if (lockProgressTimer) {
+        lv_timer_del(lockProgressTimer);
+        lockProgressTimer = NULL;
+    }
+
+    // Hide arc
+    if (lockProgressArc) {
+        lv_arc_set_value(lockProgressArc, 0);
+        lv_obj_add_flag(lockProgressArc, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+void LockButton2_cb(lv_event_t * e)
+{
     lv_event_code_t code = lv_event_get_code(e);
 
-    if (code == LV_EVENT_LONG_PRESSED) {
-        // We return to Screen1
+    if (code == LV_EVENT_PRESSED) {
+        start_lock_spinner();
+    }
+    else if (code == LV_EVENT_RELEASED) {
+        stop_lock_spinner();
+    }
+    else if (code == LV_EVENT_LONG_PRESSED) {
+        // Completion: ensure spinner/timer stopped and change to Screen1
+        stop_lock_spinner();
         lv_scr_load(ui_Screen1);
-
-        // Reset the inactivity counter so it doesn't immediately jump to Screen7 again
         lv_disp_trig_activity(NULL);
     }
 }
+
+
 
 void inactivity_timer_cb(lv_timer_t * timer) {
 
@@ -1061,12 +1126,12 @@ void inactivity_timer_cb(lv_timer_t * timer) {
     uint32_t inactive = lv_disp_get_inactive_time(NULL);
 
     if (inactive > INACTIVITY_TIMEOUT_MS) {
-        if (lv_scr_act() != ui_Screen7) {
+        if (lv_scr_act() != ui_Screen6) {
             // Initial screen timeout actions
             lv_obj_add_flag(ui_Container2, LV_OBJ_FLAG_HIDDEN);   // hidden
             lv_obj_clear_flag(ui_Container4, LV_OBJ_FLAG_HIDDEN); // visible
 
-            lv_scr_load(ui_Screen7);
+            lv_scr_load(ui_Screen6);
         }
     }
 }
@@ -1187,8 +1252,10 @@ void setup()
 
 
 
-    // --- WIFI: hide at startup ---
+    // --- Settings containers: hide at startup ---
     lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
     // --- KEYBOARD: hide at startup ---
     lv_obj_add_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
     lv_keyboard_set_textarea(ui_Keyboard1, NULL);
@@ -1310,9 +1377,12 @@ void setup()
     lv_obj_add_flag(ui_Container2, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(ui_Container4, LV_OBJ_FLAG_HIDDEN);
 
-    // Callback for the LockButton (Screen7)
-    lv_obj_add_event_cb(ui_LockButton, LockButton_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_flag(ui_Spinner1, LV_OBJ_FLAG_HIDDEN);
 
+
+    // Callback for the LockButton (Screen6)
+    lv_obj_add_event_cb(ui_LockButton, LockButton_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_flag(ui_LockButton2, LV_OBJ_FLAG_PRESS_LOCK);
     lv_obj_add_event_cb(ui_LockButton2, LockButton2_cb, LV_EVENT_ALL, NULL);
 
 
@@ -1518,6 +1588,19 @@ void loop() {
       }
     }
 
+    if (wifiVisible) {
+    // If WiFi is connected, show connected container
+    if (WiFi.status() == WL_CONNECTED) {
+        lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
+
+        lv_label_set_text(ui_WifiSSIDLabel, WiFi.SSID().c_str());
+
+    } else {
+        lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
+    }
+}
 
     /*if (alarmActive) {
         buzzerOn();

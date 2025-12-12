@@ -27,6 +27,7 @@ lv_obj_t * ui_LockButton2 = NULL;
 lv_obj_t * ui_Container4 = NULL;
 lv_obj_t * ui_Label21 = NULL;
 lv_obj_t * ui_Label22 = NULL;
+lv_obj_t * ui_Spinner1 = NULL;
 // event funtions
 
 // build funtions
@@ -246,6 +247,15 @@ void ui_Screen6_screen_init(void)
     lv_obj_set_style_text_opa(ui_Label22, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(ui_Label22, &lv_font_montserrat_48, LV_PART_MAIN | LV_STATE_DEFAULT);
 
+    ui_Spinner1 = lv_spinner_create(ui_Screen6, 1000, 90);
+    lv_obj_set_width(ui_Spinner1, 80);
+    lv_obj_set_height(ui_Spinner1, 80);
+    lv_obj_set_x(ui_Spinner1, 183);
+    lv_obj_set_y(ui_Spinner1, -4);
+    lv_obj_set_align(ui_Spinner1, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_Spinner1, LV_OBJ_FLAG_HIDDEN);     /// Flags
+    lv_obj_clear_flag(ui_Spinner1, LV_OBJ_FLAG_CLICKABLE);      /// Flags
+
 }
 
 void ui_Screen6_screen_destroy(void)
@@ -275,5 +285,6 @@ void ui_Screen6_screen_destroy(void)
     ui_Container4 = NULL;
     ui_Label21 = NULL;
     ui_Label22 = NULL;
+    ui_Spinner1 = NULL;
 
 }

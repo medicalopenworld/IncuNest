@@ -32,13 +32,20 @@ lv_obj_t * ui_PassLabel = NULL;
 lv_obj_t * ui_TextArea1 = NULL;
 lv_obj_t * ui_TextArea2 = NULL;
 lv_obj_t * ui_WifiConnectButton = NULL;
+lv_obj_t * ui_ConnectLabel = NULL;
 lv_obj_t * ui_LanguagesDropDown = NULL;
+lv_obj_t * ui_WifiConnectedCont = NULL;
+lv_obj_t * ui_WifiConnectedPanel = NULL;
+lv_obj_t * ui_ArrowWifiConnected = NULL;
+lv_obj_t * ui_WifiSSIDLabel = NULL;
+lv_obj_t * ui_WifiConnectedToLabel = NULL;
 // event funtions
 void ui_event_ImgButton2(lv_event_t * e)
 {
     lv_event_code_t event_code = lv_event_get_code(e);
 
     if(event_code == LV_EVENT_CLICKED) {
+        _ui_screen_change(&ui_Screen1, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_Screen1_screen_init);
         _ui_screen_delete(&ui_Screen2);
     }
 }
@@ -272,6 +279,16 @@ void ui_Screen2_screen_init(void)
     lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_SCROLL_ON_FOCUS);     /// Flags
     lv_obj_clear_flag(ui_WifiConnectButton, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
+    ui_ConnectLabel = lv_label_create(ui_WifiConfigCont);
+    lv_obj_set_width(ui_ConnectLabel, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_ConnectLabel, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_x(ui_ConnectLabel, 145);
+    lv_obj_set_y(ui_ConnectLabel, 49);
+    lv_obj_set_align(ui_ConnectLabel, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_ConnectLabel, "Connect");
+    lv_obj_set_style_text_color(ui_ConnectLabel, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_opa(ui_ConnectLabel, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+
     ui_LanguagesDropDown = lv_dropdown_create(ui_Screen2);
     lv_dropdown_set_options(ui_LanguagesDropDown, "Spanish\nEnglish\nFrench");
     lv_obj_set_width(ui_LanguagesDropDown, 428);
@@ -280,6 +297,50 @@ void ui_Screen2_screen_init(void)
     lv_obj_set_y(ui_LanguagesDropDown, -44);
     lv_obj_set_align(ui_LanguagesDropDown, LV_ALIGN_CENTER);
     lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_SCROLL_ON_FOCUS);     /// Flags
+
+    ui_WifiConnectedCont = lv_obj_create(ui_Screen2);
+    lv_obj_remove_style_all(ui_WifiConnectedCont);
+    lv_obj_set_width(ui_WifiConnectedCont, 425);
+    lv_obj_set_height(ui_WifiConnectedCont, 139);
+    lv_obj_set_x(ui_WifiConnectedCont, 174);
+    lv_obj_set_y(ui_WifiConnectedCont, -72);
+    lv_obj_set_align(ui_WifiConnectedCont, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);     /// Flags
+    lv_obj_clear_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+
+    ui_WifiConnectedPanel = lv_obj_create(ui_WifiConnectedCont);
+    lv_obj_set_width(ui_WifiConnectedPanel, 423);
+    lv_obj_set_height(ui_WifiConnectedPanel, 50);
+    lv_obj_set_x(ui_WifiConnectedPanel, 1);
+    lv_obj_set_y(ui_WifiConnectedPanel, -34);
+    lv_obj_set_align(ui_WifiConnectedPanel, LV_ALIGN_CENTER);
+    lv_obj_clear_flag(ui_WifiConnectedPanel, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+    lv_obj_set_style_bg_color(ui_WifiConnectedPanel, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(ui_WifiConnectedPanel, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_ArrowWifiConnected = lv_label_create(ui_WifiConnectedCont);
+    lv_obj_set_width(ui_ArrowWifiConnected, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_ArrowWifiConnected, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_x(ui_ArrowWifiConnected, -1);
+    lv_obj_set_y(ui_ArrowWifiConnected, -32);
+    lv_obj_set_align(ui_ArrowWifiConnected, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_ArrowWifiConnected, ">");
+
+    ui_WifiSSIDLabel = lv_label_create(ui_WifiConnectedCont);
+    lv_obj_set_width(ui_WifiSSIDLabel, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_WifiSSIDLabel, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_x(ui_WifiSSIDLabel, 96);
+    lv_obj_set_y(ui_WifiSSIDLabel, -33);
+    lv_obj_set_align(ui_WifiSSIDLabel, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_WifiSSIDLabel, "WifiSSID");
+
+    ui_WifiConnectedToLabel = lv_label_create(ui_WifiConnectedCont);
+    lv_obj_set_width(ui_WifiConnectedToLabel, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_WifiConnectedToLabel, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_x(ui_WifiConnectedToLabel, -120);
+    lv_obj_set_y(ui_WifiConnectedToLabel, -34);
+    lv_obj_set_align(ui_WifiConnectedToLabel, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_WifiConnectedToLabel, "Wifi Connected to");
 
     lv_obj_add_event_cb(ui_ImgButton2, ui_event_ImgButton2, LV_EVENT_ALL, NULL);
 
@@ -317,6 +378,12 @@ void ui_Screen2_screen_destroy(void)
     ui_TextArea1 = NULL;
     ui_TextArea2 = NULL;
     ui_WifiConnectButton = NULL;
+    ui_ConnectLabel = NULL;
     ui_LanguagesDropDown = NULL;
+    ui_WifiConnectedCont = NULL;
+    ui_WifiConnectedPanel = NULL;
+    ui_ArrowWifiConnected = NULL;
+    ui_WifiSSIDLabel = NULL;
+    ui_WifiConnectedToLabel = NULL;
 
 }

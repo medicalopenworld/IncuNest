@@ -110,6 +110,15 @@ constexpr int RAND_HUM_MIN = 8;
 constexpr int RAND_HUM_MAX = 20;
 
 // -----------------------------
+// Progress arc for lock long-press
+// -----------------------------
+
+static lv_obj_t * lockProgressArc = NULL;
+static lv_timer_t * lockProgressTimer = NULL;
+static uint32_t lockProgressStart = 0;
+static const uint32_t LOCK_PROGRESS_DURATION_MS = 3000; // 3 seconds
+
+// -----------------------------
 // Serial
 // -----------------------------
 constexpr int SERIAL_BAUD = 115200;

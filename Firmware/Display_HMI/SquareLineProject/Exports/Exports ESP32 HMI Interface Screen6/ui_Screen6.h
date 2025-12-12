@@ -3,16 +3,16 @@
 // LVGL version: 8.3.11
 // Project name: esp32HMIInterface_Screen6
 
-#ifndef UI_Screen7_H
-#define UI_Screen7_H
+#ifndef UI_SCREEN6_H
+#define UI_SCREEN6_H
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-// SCREEN: ui_Screen7
-extern void ui_Screen7_screen_init(void);
-extern void ui_Screen7_screen_destroy(void);
+// SCREEN: ui_Screen6
+extern void ui_Screen6_screen_init(void);
+extern void ui_Screen6_screen_destroy(void);
 extern lv_obj_t * ui_Screen6;
 extern lv_obj_t * ui_LockButton;
 extern lv_obj_t * ui_Container1;
@@ -35,6 +35,7 @@ extern lv_obj_t * ui_LockButton2;
 extern lv_obj_t * ui_Container4;
 extern lv_obj_t * ui_Label21;
 extern lv_obj_t * ui_Label22;
+extern lv_obj_t * ui_Spinner1;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus
