@@ -229,7 +229,6 @@ void ui_Screen1_screen_init(void)
     lv_obj_set_align(ui_Image4, LV_ALIGN_CENTER);
     lv_obj_add_flag(ui_Image4, LV_OBJ_FLAG_ADV_HITTEST);     /// Flags
     lv_obj_clear_flag(ui_Image4, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
-    lv_img_set_zoom(ui_Image4, 40);
 
     ui_AirTempBarCont = lv_obj_create(ui_AirPanelCont);
     lv_obj_remove_style_all(ui_AirTempBarCont);
@@ -328,7 +327,6 @@ void ui_Screen1_screen_init(void)
     lv_obj_set_align(ui_Image2, LV_ALIGN_CENTER);
     lv_obj_add_flag(ui_Image2, LV_OBJ_FLAG_ADV_HITTEST);     /// Flags
     lv_obj_clear_flag(ui_Image2, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
-    lv_img_set_zoom(ui_Image2, 50);
 
     ui_SkinTempBarCont = lv_obj_create(ui_SkinPanelCont);
     lv_obj_remove_style_all(ui_SkinTempBarCont);

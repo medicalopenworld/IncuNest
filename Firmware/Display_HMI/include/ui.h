@@ -46,6 +46,8 @@ LV_IMG_DECLARE(ui_img_chart_png);    // assets/chart.png
 LV_IMG_DECLARE(ui_img_1508956403);    // assets/back icon (1).png
 LV_IMG_DECLARE(ui_img_mute_icon_png);    // assets/mute_icon.png
 LV_IMG_DECLARE(ui_img_candado_png);    // assets/candado.png
+LV_IMG_DECLARE(ui_img_302897630);    // assets/water-drop-icon-transparent-free-png.png
+LV_IMG_DECLARE(ui_img_windvector_png);    // assets/windVector.png
 
 // UI INIT
 void ui_init(void);

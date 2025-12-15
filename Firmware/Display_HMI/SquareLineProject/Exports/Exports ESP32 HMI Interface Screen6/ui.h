@@ -30,6 +30,9 @@ extern lv_obj_t * ui____initial_actions0;
 
 // IMAGES AND IMAGE SETS
 LV_IMG_DECLARE(ui_img_candado_png);    // assets/candado.png
+LV_IMG_DECLARE(ui_img_bebe_icon_png);    // assets/bebe icon.png
+LV_IMG_DECLARE(ui_img_302897630);    // assets/water-drop-icon-transparent-free-png.png
+LV_IMG_DECLARE(ui_img_windvector_png);    // assets/windVector.png
 
 // UI INIT
 void ui_init(void);

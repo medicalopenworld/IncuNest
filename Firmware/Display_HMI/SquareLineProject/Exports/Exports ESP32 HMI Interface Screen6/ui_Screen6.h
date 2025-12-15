@@ -36,6 +36,9 @@ extern lv_obj_t * ui_Container4;
 extern lv_obj_t * ui_Label21;
 extern lv_obj_t * ui_Label22;
 extern lv_obj_t * ui_Spinner1;
+extern lv_obj_t * ui_ImageBabyLS;
+extern lv_obj_t * ui_ImagenWaterLS;
+extern lv_obj_t * ui_ImageWindLS;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus
