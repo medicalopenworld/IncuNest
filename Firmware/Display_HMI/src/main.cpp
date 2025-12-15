@@ -35,6 +35,9 @@ bool prevTempAlarm = false;
 bool prevHumAlarm = false;
 int alarmSlotToIndex[MAX_ALARM_DISPLAY] = { -1, -1, -1, -1 };
 
+// Chart last pressed: 0=temp, 1=hum, -1=none
+int chartLastPressed = -1;
+
 
 bool wifiVisible = false;
 char wifi_ssid[64] = "";
@@ -286,22 +289,10 @@ void Switch_cb(lv_event_t * e) {
         panel = ui_Panel1;
 
         if (checked) {  // Temperature switch turned ON
+            // mark last pressed chart and show temp page
+            chartLastPressed = 0;
+            lv_tabview_set_act(ui_TabView1, 0, LV_ANIM_ON);
             lv_obj_clear_flag(ui_TempChartCont, LV_OBJ_FLAG_HIDDEN);  // show temp
-            lv_obj_add_flag(ui_HumChartCont,  LV_OBJ_FLAG_HIDDEN);    // hide hum
-            // ==== FORCE HUM OFF ====
-            lv_obj_clear_state(ui_Switch2, LV_STATE_CHECKED);
-            switchHum   = false;
-            humSwitched = false;
-
-            // Deactivate humidity arrows
-            lv_obj_clear_flag(ui_ImgArrowDownHum, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_clear_flag(ui_ImgArrowUpHum,   LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_set_style_bg_color(ui_ArrowDownHum, COLOR_PANEL_GRAY, LV_PART_MAIN);
-            lv_obj_set_style_bg_color(ui_ArrowUpHum,   COLOR_PANEL_GRAY, LV_PART_MAIN);
-            lv_obj_set_style_opa(ui_ArrowDownHum, LV_OPA_COVER, LV_PART_MAIN);
-            lv_obj_set_style_opa(ui_ArrowUpHum,   LV_OPA_COVER, LV_PART_MAIN);
-            lv_obj_set_style_bg_color(ui_Panel3,   COLOR_PANEL_GRAY, LV_PART_MAIN);
-            lv_obj_set_style_opa(ui_Panel3,   LV_OPA_COVER, LV_PART_MAIN);
 
             // Gray out both panels initially
             if (lastSelectedPanel == AIR_PANEL_SELECTED) {
@@ -331,6 +322,17 @@ void Switch_cb(lv_event_t * e) {
             lv_obj_add_flag(ui_TempChartCont, LV_OBJ_FLAG_HIDDEN);  // hide temp chart
             arrowsActive = false;
 
+            // If humidity is ON, switch to humidity chart
+            if (switchHum) {
+                chartLastPressed = 1;
+                lv_tabview_set_act(ui_TabView1, 1, LV_ANIM_ON);
+                lv_obj_clear_flag(ui_HumChartCont, LV_OBJ_FLAG_HIDDEN);
+            } else {
+                // no charts active
+                lv_obj_add_flag(ui_HumChartCont, LV_OBJ_FLAG_HIDDEN);
+                chartLastPressed = -1;
+            }
+
             // Disable temperature arrows
             lv_obj_clear_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_clear_flag(ui_ImgArrowUpTemp,   LV_OBJ_FLAG_CLICKABLE);
@@ -350,30 +352,10 @@ void Switch_cb(lv_event_t * e) {
         panel = ui_Panel3;
 
         if (checked) {
+            // mark last pressed chart and show hum page
+            chartLastPressed = 1;
+            lv_tabview_set_act(ui_TabView1, 1, LV_ANIM_ON);
             lv_obj_clear_flag(ui_HumChartCont, LV_OBJ_FLAG_HIDDEN);    // show hum
-            lv_obj_add_flag(ui_TempChartCont, LV_OBJ_FLAG_HIDDEN);  // hide temp
-            // ==== FORCE TEMP OFF ====
-            lv_obj_clear_state(ui_Switch1, LV_STATE_CHECKED);
-            switchTemp   = false;
-            tempSwitched = false;
-            arrowsActive = false;
-
-            // Deactivate temperature arrows
-            lv_obj_clear_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_clear_flag(ui_ImgArrowUpTemp,   LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_set_style_bg_color(ui_ArrowDownTemp, COLOR_PANEL_GRAY, LV_PART_MAIN);
-            lv_obj_set_style_bg_color(ui_ArrowUpTemp,   COLOR_PANEL_GRAY, LV_PART_MAIN);
-            lv_obj_set_style_opa(ui_ArrowDownTemp, LV_OPA_COVER, LV_PART_MAIN);
-            lv_obj_set_style_opa(ui_ArrowUpTemp,   LV_OPA_COVER, LV_PART_MAIN);
-            lv_obj_set_style_bg_color(ui_Panel1,  COLOR_PANEL_GRAY, LV_PART_MAIN);
-            lv_obj_set_style_opa(ui_Panel1,   LV_OPA_COVER, LV_PART_MAIN);
-
-            // Gray out air/skin panels
-            lv_obj_set_style_bg_color(ui_AirPanel,  COLOR_PANEL_GRAY, LV_PART_MAIN);
-            lv_obj_set_style_bg_color(ui_SkinPanel, COLOR_PANEL_GRAY, LV_PART_MAIN);
-            lv_obj_set_style_opa(ui_AirPanel,  LV_OPA_COVER, LV_PART_MAIN);
-            lv_obj_set_style_opa(ui_SkinPanel, LV_OPA_COVER, LV_PART_MAIN);
-
 
             // Enable humidity arrows
             lv_obj_add_flag(ui_ImgArrowDownHum, LV_OBJ_FLAG_CLICKABLE);
@@ -390,6 +372,16 @@ void Switch_cb(lv_event_t * e) {
 
             lv_obj_set_style_opa(ui_ArrowDownHum, LV_OPA_COVER, LV_PART_MAIN);
             lv_obj_set_style_opa(ui_ArrowUpHum,   LV_OPA_COVER, LV_PART_MAIN);
+
+            // If temperature is ON, switch to temperature chart
+            if (switchTemp) {
+                chartLastPressed = 0;
+                lv_tabview_set_act(ui_TabView1, 0, LV_ANIM_ON);
+                lv_obj_clear_flag(ui_TempChartCont, LV_OBJ_FLAG_HIDDEN);
+            } else {
+                lv_obj_add_flag(ui_TempChartCont, LV_OBJ_FLAG_HIDDEN);
+                chartLastPressed = -1;
+            }
         }
     }
     else if (obj == ui_Switch3) {  // PHOTOTHERAPY SWITCH
@@ -463,10 +455,54 @@ void Switch_cb(lv_event_t * e) {
         }
     }
 
+    // Manage tabview and tab buttons so that when only one switch is ON
+    // the UI behaves as if only a single tab exists (no header/button to switch).
+    lv_obj_t * tab_btns_cont = lv_obj_get_child(ui_TabView1, 0); // header container (may be NULL)
+    lv_obj_t * temp_tab_btn = NULL;
+    lv_obj_t * hum_tab_btn  = NULL;
+    if (tab_btns_cont) {
+        temp_tab_btn = lv_obj_get_child(tab_btns_cont, 0);
+        hum_tab_btn  = lv_obj_get_child(tab_btns_cont, 1);
+    }
+
+    if (!switchTemp && !switchHum) {
+        // No charts: hide entire tabview
+        lv_obj_add_flag(ui_TabView1, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        // Ensure tabview visible
+        lv_obj_clear_flag(ui_TabView1, LV_OBJ_FLAG_HIDDEN);
+
+        // Show/hide individual tab buttons (labels)
+        if (temp_tab_btn) {
+            if (switchTemp) lv_obj_clear_flag(temp_tab_btn, LV_OBJ_FLAG_HIDDEN);
+            else lv_obj_add_flag(temp_tab_btn, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (hum_tab_btn) {
+            if (switchHum) lv_obj_clear_flag(hum_tab_btn, LV_OBJ_FLAG_HIDDEN);
+            else lv_obj_add_flag(hum_tab_btn, LV_OBJ_FLAG_HIDDEN);
+        }
+
+        // If exactly one chart is visible, hide the header container
+        if ((switchTemp && !switchHum) || (!switchTemp && switchHum)) {
+            if (tab_btns_cont) lv_obj_add_flag(tab_btns_cont, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            if (tab_btns_cont) lv_obj_clear_flag(tab_btns_cont, LV_OBJ_FLAG_HIDDEN);
+        }
+
+        // Select active tab: single visible -> that tab; both visible -> respect chartLastPressed
+        if (switchTemp && !switchHum) {
+            lv_tabview_set_act(ui_TabView1, 0, LV_ANIM_ON);
+        } else if (!switchTemp && switchHum) {
+            lv_tabview_set_act(ui_TabView1, 1, LV_ANIM_ON);
+        } else if (switchTemp && switchHum) {
+            if (chartLastPressed == 1) lv_tabview_set_act(ui_TabView1, 1, LV_ANIM_ON);
+            else lv_tabview_set_act(ui_TabView1, 0, LV_ANIM_ON);
+        }
+    }
+
     // --- Actuation mode selection logic (ya con exclusión asegurada) ---
     if (switchTemp && switchHum) {
-        // En teoría no debería ocurrir, pero por seguridad:
-        hmi_msg.actuation = ACTUATION_TEMPERATURE; // o el que prefieras
+        hmi_msg.actuation = ACTUATION_TEMPERATURE; // choose one deterministically
     } else if (switchTemp) {
         hmi_msg.actuation = ACTUATION_TEMPERATURE;
     } else if (switchHum) {
@@ -1371,6 +1407,8 @@ void setup()
     // === Hidden Charts at Startup ===
     lv_obj_add_flag(ui_TempChartCont, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_HumChartCont,  LV_OBJ_FLAG_HIDDEN);
+    // Hide entire tabview by default so no tabs appear at startup
+    lv_obj_add_flag(ui_TabView1, LV_OBJ_FLAG_HIDDEN);
 
 
     // Initial state of the lock screen (in case it is shown manually at startup)
