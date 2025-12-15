@@ -1069,6 +1069,25 @@ void LockButton_cb(lv_event_t * e) {
     }
 }
 
+// Any touch on the lock screen should open the unlock container
+void LockScreenAnyTouch_cb(lv_event_t * e) {
+    (void)e;
+    if (lv_scr_act() != ui_Screen6) return; // only on lock screen
+
+    // Toggle locked/unlocked state on any touch
+    if (locked) {
+        // Unlock: show PIN/unlock container, hide lock icon
+        lv_obj_clear_flag(ui_Container2, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ui_Container4, LV_OBJ_FLAG_HIDDEN);
+        locked = false;
+    } else {
+        // Lock back: hide PIN/unlock container, show lock icon
+        lv_obj_add_flag(ui_Container2, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(ui_Container4, LV_OBJ_FLAG_HIDDEN);
+        locked = true;
+    }
+}
+
 // Timer callback: update arc value according to elapsed time
 static void lock_progress_timer_cb(lv_timer_t * t) {
     (void)t;
@@ -1422,6 +1441,8 @@ void setup()
     lv_obj_add_event_cb(ui_LockButton, LockButton_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_add_flag(ui_LockButton2, LV_OBJ_FLAG_PRESS_LOCK);
     lv_obj_add_event_cb(ui_LockButton2, LockButton2_cb, LV_EVENT_ALL, NULL);
+    // Any touch on the lock screen should show the unlock container
+    lv_obj_add_event_cb(ui_Screen6, LockScreenAnyTouch_cb, LV_EVENT_PRESSED, NULL);
 
 
     // WIFI connect button
