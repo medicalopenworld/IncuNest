@@ -69,8 +69,13 @@
 
 #define USE_SYSTEM_WITHOUT_ACTUATORS_TEST true //only if previous test was OK and that fail cause is not being able to read current measurements
 #define WDT_TIMEOUT 75
+#if (HW_NUM >= 14)
+#define HEATER_MAX_POWER_AMPS 10.5
+#define HEATER_SAFE_POWER_AMPS 9.5
+#else
 #define HEATER_MAX_POWER_AMPS 12.5
 #define HEATER_SAFE_POWER_AMPS 11.5
+#endif
 #define HEATER_POWER_FACTOR_INCREASE 5
 #define HEATER_POWER_FACTOR_DECREASE 5
 
