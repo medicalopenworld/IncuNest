@@ -196,9 +196,11 @@ void update_labels() {
   
     snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValue);
     lv_label_set_text(ui_TempAirDesired, buffer);
+    lv_label_set_text(ui_TargetAirTempNumLabel, buffer);   // TargetAir numeric label
 
     snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValue);
     lv_label_set_text(ui_TempSkinDesired, buffer);
+    lv_label_set_text(ui_TargetSkinTempNumLabel, buffer); // TargetSkin numeric label
 
     snprintf(buffer, sizeof(buffer), "%d%%", humValue);
     lv_label_set_text(ui_HumDesired, buffer);
@@ -243,26 +245,7 @@ void update_labels() {
         lv_bar_set_value(ui_AirTempBar,  airBar,  LV_ANIM_OFF);
         lv_bar_set_value(ui_SkinTempBar, skinBar, LV_ANIM_OFF);
         lv_bar_set_value(ui_HumBar,      humBar,  LV_ANIM_OFF);
-    
     }
-
-    // --- Label22: desired value according to mode (Air / Skin) ---
-    char text[64];
-    if (selectedPanel == AIR_PANEL_SELECTED) {
-        snprintf(text, sizeof(text),
-                 "TEMPERATURE ESTABLISHED ON:\nAIR MODE");
-        snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValue);   // air mode
-    } else if (selectedPanel == SKIN_PANEL_SELECTED) {
-        snprintf(text, sizeof(text),
-                 "TEMPERATURE ESTABLISHED ON:\nSKIN MODE");
-        snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValue);  // skin mode
-    } else {
-        snprintf(text, sizeof(text),
-                 "TEMPERATURE ESTABLISHED ON:\n--");
-        snprintf(buffer, sizeof(buffer), "--");                     // no mode (for safety)
-    }
-    lv_label_set_text(ui_Label22, buffer);
-    lv_label_set_text(ui_Label21, text);
 }
 
 /* Temperature and humidity panel styling */
@@ -357,6 +340,9 @@ void Switch_cb(lv_event_t * e) {
             lv_tabview_set_act(ui_TabView1, 1, LV_ANIM_ON);
             lv_obj_clear_flag(ui_HumChartCont, LV_OBJ_FLAG_HIDDEN);    // show hum
 
+            // Show humidity target in lock screen
+            lv_obj_clear_flag(ui_HumLockDesiredCont, LV_OBJ_FLAG_HIDDEN);
+
             // Enable humidity arrows
             lv_obj_add_flag(ui_ImgArrowDownHum, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_add_flag(ui_ImgArrowUpHum,   LV_OBJ_FLAG_CLICKABLE);
@@ -382,6 +368,8 @@ void Switch_cb(lv_event_t * e) {
                 lv_obj_add_flag(ui_TempChartCont, LV_OBJ_FLAG_HIDDEN);
                 chartLastPressed = -1;
             }
+            // Hide humidity target when humidity turned off
+            lv_obj_add_flag(ui_HumLockDesiredCont, LV_OBJ_FLAG_HIDDEN);
         }
     }
     else if (obj == ui_Switch3) {  // PHOTOTHERAPY SWITCH
@@ -1047,45 +1035,34 @@ void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
     }
 }
 
-void LockButton_cb(lv_event_t * e) {
+static void show_targets_for_mode(void)
+{
+    // Al entrar en lockScreen: mostrar SOLO el target correcto (o ninguno)
+    lv_obj_add_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
 
-    if (locked) {
-        // Show Container2 (e.g. PIN/unlock area)
-        lv_obj_clear_flag(ui_Container2, LV_OBJ_FLAG_HIDDEN);
+    // Por seguridad, ocultamos ambos y luego mostramos el correcto
+    lv_obj_add_flag(ui_TargetAirTempCont,  LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_HumLockDesiredCont, LV_OBJ_FLAG_HIDDEN);
 
-        // Hide Container4 (e.g. lock icon)
-        lv_obj_add_flag(ui_Container4, LV_OBJ_FLAG_HIDDEN);
-
-        locked = !locked;
+    if (selectedPanel == AIR_PANEL_SELECTED) {
+        lv_obj_clear_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);
+    } else if (selectedPanel == SKIN_PANEL_SELECTED) {
+        lv_obj_clear_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
     }
-    else {
-        // Show Container4 
-        lv_obj_clear_flag(ui_Container4, LV_OBJ_FLAG_HIDDEN);
-
-        // Hide Container2
-        lv_obj_add_flag(ui_Container2, LV_OBJ_FLAG_HIDDEN);
-
-        locked = !locked;
+    // Show humidity target only if humidity switch is active
+    if (switchHum) {
+        lv_obj_clear_flag(ui_HumLockDesiredCont, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
-// Any touch on the lock screen should open the unlock container
-void LockScreenAnyTouch_cb(lv_event_t * e) {
-    (void)e;
-    if (lv_scr_act() != ui_Screen6) return; // only on lock screen
-
-    // Toggle locked/unlocked state on any touch
-    if (locked) {
-        // Unlock: show PIN/unlock container, hide lock icon
-        lv_obj_clear_flag(ui_Container2, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(ui_Container4, LV_OBJ_FLAG_HIDDEN);
-        locked = false;
-    } else {
-        // Lock back: hide PIN/unlock container, show lock icon
-        lv_obj_add_flag(ui_Container2, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_clear_flag(ui_Container4, LV_OBJ_FLAG_HIDDEN);
-        locked = true;
-    }
+static void show_unlock_only(void)
+{
+    // Touch anywhere: mostrar UnlockCont y ocultar targets
+    lv_obj_clear_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_TargetAirTempCont,  LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_HumLockDesiredCont, LV_OBJ_FLAG_HIDDEN);
 }
 
 // Timer callback: update arc value according to elapsed time
@@ -1104,68 +1081,100 @@ static void lock_progress_timer_cb(lv_timer_t * t) {
             lv_timer_del(lockProgressTimer);
             lockProgressTimer = NULL;
         }
-        // Change to screen 1 and hide arc
+        // Change to screen 1, mark unlocked and hide arc/unlock container
         lv_scr_load(ui_Screen1);
-        lv_obj_add_flag(lockProgressArc, LV_OBJ_FLAG_HIDDEN);
+        locked = false;
+        if (lockProgressArc) lv_obj_add_flag(lockProgressArc, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
-void start_lock_spinner()
-{
-    // Create arc if not present
-    if (!lockProgressArc) {
-        lockProgressArc = lv_arc_create(lv_scr_act());
-        lv_obj_set_size(lockProgressArc, 80, 80);
-        // Moved right so user's finger doesn't cover it
-        lv_obj_align(lockProgressArc, LV_ALIGN_CENTER, 160, 0);
-        lv_arc_set_range(lockProgressArc, 0, 100);
-        lv_arc_set_value(lockProgressArc, 0);
-        lv_obj_set_style_arc_color(lockProgressArc, lv_color_hex(0xB0B0B0), LV_PART_INDICATOR);
-        lv_obj_set_style_arc_opa(lockProgressArc, LV_OPA_COVER, LV_PART_INDICATOR);
-        lv_obj_add_flag(lockProgressArc, LV_OBJ_FLAG_FLOATING);
-    } else {
-        lv_arc_set_value(lockProgressArc, 0);
-        lv_obj_clear_flag(lockProgressArc, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_move_foreground(lockProgressArc);
-    }
-
-    // Start timer
+// Start the lock progress spinner and timer
+static void start_lock_progress(void) {
+    lockProgressArc = ui_Spinner1; // use the arc created by SquareLine
+    if (!lockProgressArc) return;
+    lv_obj_clear_flag(lockProgressArc, LV_OBJ_FLAG_HIDDEN);
+    lv_arc_set_value(lockProgressArc, 0);
     lockProgressStart = lv_tick_get();
-    if (!lockProgressTimer) {
-        lockProgressTimer = lv_timer_create(lock_progress_timer_cb, 50, NULL);
-    }
-}
-
-void stop_lock_spinner()
-{
-    // Stop timer
     if (lockProgressTimer) {
         lv_timer_del(lockProgressTimer);
         lockProgressTimer = NULL;
     }
+    lockProgressTimer = lv_timer_create(lock_progress_timer_cb, 50, NULL);
+}
 
-    // Hide arc
+// Stop and reset the lock progress spinner and timer
+static void stop_lock_progress(void) {
+    if (lockProgressTimer) {
+        lv_timer_del(lockProgressTimer);
+        lockProgressTimer = NULL;
+    }
     if (lockProgressArc) {
         lv_arc_set_value(lockProgressArc, 0);
         lv_obj_add_flag(lockProgressArc, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
-void LockButton2_cb(lv_event_t * e)
+void LockButton_cb(lv_event_t * e)
 {
-    lv_event_code_t code = lv_event_get_code(e);
+    (void)e;
+    if (lv_scr_act() != ui_Screen6) return;
 
+    // Volver a estado LOCKED (targets) y ocultar UnlockCont
+    stop_lock_progress();
+    show_targets_for_mode();
+    locked = true;
+}
+
+// Any touch on the lock screen should open the unlock container
+void LockScreenAnyTouch_cb(lv_event_t * e)
+{
+    if (lv_scr_act() != ui_Screen6) return;
+
+    // Si el toque viene de UnlockCont (o de algún hijo), NO hagas toggle aquí
+    lv_obj_t * origin = lv_event_get_target(e);  // objeto original que recibió el evento
+    if (origin != ui_Screen6) return;
+
+    // Toggle: si Unlock está oculto => mostrar Unlock; si está visible => volver a targets
+    bool unlockVisible = !lv_obj_has_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
+
+    if (!unlockVisible) {
+        // targets -> unlock
+        show_unlock_only();
+        locked = false;  // (si quieres: locked=false significa "estoy en modo unlock visible")
+    } else {
+        // unlock -> targets
+        stop_lock_progress();       // por si estaba pulsado o a medias
+        show_targets_for_mode();
+        locked = true;
+    }
+}
+
+// Event callback for pressing the Unlock container
+static void UnlockCont_event_cb(lv_event_t * e) {
+    lv_event_code_t code = lv_event_get_code(e);
     if (code == LV_EVENT_PRESSED) {
-        start_lock_spinner();
+        // start progress and show spinner
+        start_lock_progress();
+    } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+        // stop/reset progress and hide spinner
+        stop_lock_progress();
     }
-    else if (code == LV_EVENT_RELEASED) {
-        stop_lock_spinner();
-    }
-    else if (code == LV_EVENT_LONG_PRESSED) {
-        // Completion: ensure spinner/timer stopped and change to Screen1
-        stop_lock_spinner();
-        lv_scr_load(ui_Screen1);
-        lv_disp_trig_activity(NULL);
+}
+
+static void add_unlock_press_cb_recursive(lv_obj_t * obj)
+{
+    if (!obj) return;
+
+    // Para que el objeto pueda generar PRESSED/RELEASED
+    lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(obj, UnlockCont_event_cb, LV_EVENT_ALL, NULL);
+
+    // Recursivo: hijos
+    uint32_t n = lv_obj_get_child_cnt(obj);
+    for (uint32_t i = 0; i < n; i++) {
+        lv_obj_t * child = lv_obj_get_child(obj, i);
+        add_unlock_press_cb_recursive(child);
     }
 }
 
@@ -1182,11 +1191,13 @@ void inactivity_timer_cb(lv_timer_t * timer) {
 
     if (inactive > INACTIVITY_TIMEOUT_MS) {
         if (lv_scr_act() != ui_Screen6) {
-            // Initial screen timeout actions
-            lv_obj_add_flag(ui_Container2, LV_OBJ_FLAG_HIDDEN);   // hidden
-            lv_obj_clear_flag(ui_Container4, LV_OBJ_FLAG_HIDDEN); // visible
+
+            // Entras en lock screen “en reposo”: targets según modo, NO unlock
+            stop_lock_progress();
+            locked = true;
 
             lv_scr_load(ui_Screen6);
+            show_targets_for_mode();   // <-- esto enseña Air/Skin/none y oculta Unlock
         }
     }
 }
@@ -1430,19 +1441,21 @@ void setup()
     lv_obj_add_flag(ui_TabView1, LV_OBJ_FLAG_HIDDEN);
 
 
-    // Initial state of the lock screen (in case it is shown manually at startup)
-    lv_obj_add_flag(ui_Container2, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(ui_Container4, LV_OBJ_FLAG_HIDDEN);
+    // Initial state of the lock screen: hide target containers and show Unlock
+    lv_obj_add_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_HumLockDesiredCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_UnlockCont,        LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_Spinner1,          LV_OBJ_FLAG_HIDDEN);
 
-    lv_obj_add_flag(ui_Spinner1, LV_OBJ_FLAG_HIDDEN);
 
 
-    // Callback for the LockButton (Screen6)
-    lv_obj_add_event_cb(ui_LockButton, LockButton_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_flag(ui_LockButton2, LV_OBJ_FLAG_PRESS_LOCK);
-    lv_obj_add_event_cb(ui_LockButton2, LockButton2_cb, LV_EVENT_ALL, NULL);
     // Any touch on the lock screen should show the unlock container
     lv_obj_add_event_cb(ui_Screen6, LockScreenAnyTouch_cb, LV_EVENT_PRESSED, NULL);
+
+    // Make Unlock container clickable and handle press/release for long-press unlock
+    add_unlock_press_cb_recursive(ui_UnlockCont);
+
 
 
     // WIFI connect button

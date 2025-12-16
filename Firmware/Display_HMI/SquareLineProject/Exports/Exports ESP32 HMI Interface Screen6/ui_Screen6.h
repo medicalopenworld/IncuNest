@@ -19,26 +19,29 @@ extern lv_obj_t * ui_Container1;
 extern lv_obj_t * ui_AirTempLockCont;
 extern lv_obj_t * ui_Label11;
 extern lv_obj_t * ui_Label18;
+extern lv_obj_t * ui_ImageWindLS;
 extern lv_obj_t * ui_SkinTempLockCont;
 extern lv_obj_t * ui_Label12;
 extern lv_obj_t * ui_Label14;
+extern lv_obj_t * ui_ImageBabyLS;
 extern lv_obj_t * ui_HumLockCont;
 extern lv_obj_t * ui_Label19;
 extern lv_obj_t * ui_Label20;
+extern lv_obj_t * ui_ImagenWaterLS;
 extern lv_obj_t * ui_HumLockDesiredCont;
 extern lv_obj_t * ui_Label23;
 extern lv_obj_t * ui_Label24;
-extern lv_obj_t * ui_Container2;
+extern lv_obj_t * ui_UnlockCont;
 extern lv_obj_t * ui_Panel11;
 extern lv_obj_t * ui_Label4;
 extern lv_obj_t * ui_LockButton2;
-extern lv_obj_t * ui_Container4;
-extern lv_obj_t * ui_Label21;
-extern lv_obj_t * ui_Label22;
+extern lv_obj_t * ui_TargetSkinTempCont;
+extern lv_obj_t * ui_TargetSkinTempLabel;
+extern lv_obj_t * ui_TargetSkinTempNumLabel;
 extern lv_obj_t * ui_Spinner1;
-extern lv_obj_t * ui_ImageBabyLS;
-extern lv_obj_t * ui_ImagenWaterLS;
-extern lv_obj_t * ui_ImageWindLS;
+extern lv_obj_t * ui_TargetAirTempCont;
+extern lv_obj_t * ui_TargetAirTempLabel;
+extern lv_obj_t * ui_TargetAirTempNumLabel;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus
