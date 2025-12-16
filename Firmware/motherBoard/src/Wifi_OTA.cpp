@@ -77,8 +77,8 @@ const char *loginIndex =
     "<br>"
     "<br>"
     "<tr>"
-    "<td>Password:</td>"
-    "<td><input type='Password' size=25 name='pwd'><br></td>"
+    "<td>WIFI_PASSWORD:</td>"
+    "<td><input type='WIFI_PASSWORD' size=25 name='pwd'><br></td>"
     "<br>"
     "<br>"
     "</tr>"
@@ -96,7 +96,7 @@ const char *loginIndex =
     "}"
     "else"
     "{"
-    " alert('Error Password or Username')/*displays error message*/"
+    " alert('Error WIFI_PASSWORD or Username')/*displays error message*/"
     "}"
     "}"
     "</script>";
@@ -155,14 +155,14 @@ void wifiInit(void) {
   WiFi.mode(WIFI_STA);
   WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
 
-  WiFi.begin(ssid, wifiPassword);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 }
 
 void wifiDisable() { WiFi.mode(WIFI_OFF); }
 
 void configWifiServer() {
   // Wait for connection
-  logI("Connected to " + String(ssid) + "IP address" + WiFi.localIP());
+  logI("Connected to " + String(WIFI_SSID) + "IP address" + WiFi.localIP());
 
   /*use mdns for wifiHost name resolution*/
   if (!MDNS.begin(wifiHost)) { // http://esp32.local

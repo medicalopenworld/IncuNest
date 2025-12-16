@@ -29,7 +29,8 @@
 #define FWversion "15.1"
 #define WIFI_NAME "In3ator"
 #define CURRENT_FIRMWARE_TITLE "in3ator"
-
+// Set to true only on the HMI board
+#define IS_HMI false   
 #define DEFAULT_WIFI_EN ON
 
 #if (HW_NUM <= 8)
@@ -300,10 +301,11 @@
 #define FAN_PWM_CHANNEL 3
 #define PHOTOTHERAPY_PWM_CHANNEL 4
 
-#define HUMIDIFIER_PWM_CHANNEL 4
+#define HUMIDIFIER_PWM_CHANNEL 5
 #define DEFAULT_PWM_RESOLUTION 8
 #define LOW_PWM_FREQUENCY 32
 #define DEFAULT_PWM_FREQUENCY 2000
+#define HEATER_PWM_FREQUENCY 400
 #define HUMIDIFIER_PWM_FREQUENCY 109000
 
 #define maxADCvalue 4095

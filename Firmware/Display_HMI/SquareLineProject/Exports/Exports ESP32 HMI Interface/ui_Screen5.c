@@ -65,6 +65,7 @@ void ui_Screen5_screen_init(void)
     lv_obj_set_align(ui_Panel15, LV_ALIGN_CENTER);
     lv_obj_clear_flag(ui_Panel15, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
+<<<<<<< HEAD:Firmware/Display_HMI/SquareLineProject/Exports/Exports ESP32 HMI Interface/ui_Screen5.c
     ui_Label39 = lv_label_create(ui_OxCont);
     lv_obj_set_width(ui_Label39, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_Label39, LV_SIZE_CONTENT);    /// 1
@@ -92,6 +93,9 @@ void ui_Screen5_screen_init(void)
     lv_obj_set_style_text_font(ui_DetectOxi, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_OxiButton2 = lv_btn_create(ui_OxCont);
+=======
+    ui_OxiButton2 = lv_btn_create(ui_Screen7);
+>>>>>>> basic_communication:Firmware/Display_HMI/src/ui_Screen7.c
     lv_obj_set_width(ui_OxiButton2, 310);
     lv_obj_set_height(ui_OxiButton2, 30);
     lv_obj_set_x(ui_OxiButton2, -206);
@@ -102,7 +106,36 @@ void ui_Screen5_screen_init(void)
     lv_obj_set_style_bg_img_opa(ui_OxiButton2, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_opa(ui_OxiButton2, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
 
+<<<<<<< HEAD:Firmware/Display_HMI/SquareLineProject/Exports/Exports ESP32 HMI Interface/ui_Screen5.c
     lv_obj_add_event_cb(ui_ImgButton9, ui_event_ImgButton9, LV_EVENT_ALL, NULL);
+=======
+    ui_DetectOxi = lv_label_create(ui_Screen7);
+    lv_obj_set_width(ui_DetectOxi, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_DetectOxi, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_x(ui_DetectOxi, -202);
+    lv_obj_set_y(ui_DetectOxi, -129);
+    lv_obj_set_align(ui_DetectOxi, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_DetectOxi, "25.1");
+    lv_obj_set_style_text_font(ui_DetectOxi, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_Label5 = lv_label_create(ui_Screen7);
+    lv_obj_set_width(ui_Label5, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_Label5, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_x(ui_Label5, -316);
+    lv_obj_set_y(ui_Label5, -128);
+    lv_obj_set_align(ui_Label5, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_Label5, "25.1");
+    lv_obj_set_style_text_font(ui_Label5, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_Label39 = lv_label_create(ui_Screen7);
+    lv_obj_set_width(ui_Label39, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_Label39, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_x(ui_Label39, -296);
+    lv_obj_set_y(ui_Label39, -183);
+    lv_obj_set_align(ui_Label39, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_Label39, "Pulse Oximetry");
+
+>>>>>>> basic_communication:Firmware/Display_HMI/src/ui_Screen7.c
     lv_obj_add_event_cb(ui_OxiButton2, ui_event_OxiButton2, LV_EVENT_ALL, NULL);
 
 }
@@ -116,9 +149,16 @@ void ui_Screen5_screen_destroy(void)
     ui_ImgButton9 = NULL;
     ui_OxCont = NULL;
     ui_Panel15 = NULL;
+<<<<<<< HEAD:Firmware/Display_HMI/SquareLineProject/Exports/Exports ESP32 HMI Interface/ui_Screen5.c
     ui_Label39 = NULL;
     ui_Label5 = NULL;
     ui_DetectOxi = NULL;
     ui_OxiButton2 = NULL;
+=======
+    ui_OxiButton2 = NULL;
+    ui_DetectOxi = NULL;
+    ui_Label5 = NULL;
+    ui_Label39 = NULL;
+>>>>>>> basic_communication:Firmware/Display_HMI/src/ui_Screen7.c
 
 }

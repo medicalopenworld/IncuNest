@@ -134,73 +134,26 @@ extern PID humidityControlPID;
 
 extern in3ator_parameters in3;
 
-void heatUp()
-{
-  ledcWrite(HEATER_PWM_CHANNEL, HEATER_MAX_PWM * !ongoingCriticalAlarm());
-}
 
-void basictemperatureControl()
-{
-  float temperatureToControl;
-  temperatureToControl = in3.temperature[in3.controlMode];
-  if (temperatureToControl < in3.desiredControlTemperature)
-  {
-    heatUp();
-  }
-  else
-  {
-    ledcWrite(HEATER_PWM_CHANNEL, LOW);
-  }
-}
-
-void basicHumidityControl()
-{
-  /*
-  if (in3.humidity [ROOM_DIGITAL_HUM_SENSOR]< in3.desiredControlHumidity)
-  {
-    if (!humidifierState || humidifierStateChange)
-    {
-      in3_hum.turn(ON);
-      humidifierStateChange = false;
-    }
-    humidifierState = true;
-  }
-  else
-  {
-    if (humidifierState || humidifierStateChange)
-    {
-      in3_hum.turn(OFF);
-      humidifierStateChange = false;
-    }
-    humidifierState = false;
-  }
-  */
-}
-
-void turnActuators(bool mode)
-{
-  ledcWrite(HEATER_PWM_CHANNEL, mode * HEATER_MAX_PWM * !ongoingCriticalAlarm());
-  if (mode && !ongoingCriticalWiringAlarm())
-  {
+void turnActuators(bool mode) {
+  ledcWrite(HEATER_PWM_CHANNEL,
+            mode * HEATER_MAX_PWM * !ongoingCriticalAlarm());
+  if (mode && !ongoingCriticalWiringAlarm()) {
     in3_hum.turn(ON);
-  }
-  else
-  {
+  } else {
     in3_hum.turn(OFF);
   }
   turnFans(mode || in3.phototherapy);
 }
 
-void stopActuation()
-{
+void stopActuation() {
   stopPID(airPID);
   stopPID(skinPID);
   stopPID(humidityPID);
   turnActuators(OFF);
 }
 
-void turnFans(bool mode)
-{
+void turnFans(bool mode) {
   GPIOWrite(ACTUATORS_EN, mode || in3.phototherapy);
 #if (HW_NUM >= 8)
   // ledcWrite(HEATER_PWM_CHANNEL, mode * HEATER_MAX_PWM);
@@ -210,18 +163,15 @@ void turnFans(bool mode)
 #endif
 }
 
-void UIDrawProgressPage()
-{
+void UIDrawProgressPage() {
   tft.setTextSize(1);
   graphics(page, in3.language, false, false, false, false);
   drawHeading(page, in3.serialNumber);
   setTextColor(COLOUR_MENU_TEXT);
   setSensorsGraphicPosition(page);
   drawActuatorsSeparators();
-  if (in3.controlMode)
-  {
-    switch (in3.language)
-    {
+  if (in3.controlMode) {
+    switch (in3.language) {
     case SPANISH:
       textToWrite = (char *)("Temperatura aire");
       break;
@@ -235,11 +185,8 @@ void UIDrawProgressPage()
       textToWrite = (char *)("Temperature de l'air");
       break;
     }
-  }
-  else
-  {
-    switch (in3.language)
-    {
+  } else {
+    switch (in3.language) {
     case SPANISH:
       textToWrite = (char *)("Temperatura piel");
       break;
@@ -256,10 +203,8 @@ void UIDrawProgressPage()
   }
   drawCentreString(textToWrite, tft_width / 2,
                    tempBarPosY - 4 * letter_height / 3, textFontSize);
-  if (!in3.controlMode)
-  {
-    switch (in3.language)
-    {
+  if (!in3.controlMode) {
+    switch (in3.language) {
     case SPANISH:
       textToWrite = (char *)("Temperatura aire");
       break;
@@ -273,11 +218,8 @@ void UIDrawProgressPage()
       textToWrite = (char *)("Temperature de l'air");
       break;
     }
-  }
-  else
-  {
-    switch (in3.language)
-    {
+  } else {
+    switch (in3.language) {
     case SPANISH:
       textToWrite = (char *)("Temperatura piel");
       break;
@@ -292,11 +234,10 @@ void UIDrawProgressPage()
       break;
     }
   }
-  drawCentreString(textToWrite, tft_width / 2,
-                   tft_height / 2 - letter_height, textFontSize);
+  drawCentreString(textToWrite, tft_width / 2, tft_height / 2 - letter_height,
+                   textFontSize);
 
-  switch (in3.language)
-  {
+  switch (in3.language) {
   case SPANISH:
     textToWrite = (char *)("Humedad");
     break;
@@ -316,45 +257,34 @@ void UIDrawProgressPage()
   drawStop();
   setTextColor(COLOUR_MENU_TEXT);
   state_blink = true;
-  while (!GPIORead(ENC_SWITCH))
-  {
+  while (!GPIORead(ENC_SWITCH)) {
     vTaskDelay(pdMS_TO_TICKS(WHILE_LOOP_DELAY));
   }
-  if (in3.temperatureControl)
-  {
+  if (in3.temperatureControl) {
     startPID(in3.controlMode);
   }
-  if (in3.humidityControl)
-  {
+  if (in3.humidityControl) {
     startPID(humidityPID);
   }
-  if (in3.temperatureControl)
-  {
+  if (in3.temperatureControl) {
     printLoadingTemperatureBar(in3.desiredControlTemperature);
     temperatureAtStart = in3.temperature[in3.controlMode];
   }
-  if (in3.humidityControl)
-  {
+  if (in3.humidityControl) {
     printLoadingHumidityBar(in3.desiredControlHumidity);
   }
 }
 
-void UI_actuatorsProgress()
-{
+void UI_actuatorsProgress() {
   bool exitActuation = false;
   in3.actuation = false;
-  if (in3.temperatureControl && in3.humidityControl)
-  {
+  if (in3.temperatureControl && in3.humidityControl) {
     in3.actuation = ACTUATION_TEMP_AND_HUMIDITY;
-  }
-  else
-  {
-    if (in3.temperatureControl)
-    {
+  } else {
+    if (in3.temperatureControl) {
       in3.actuation = ACTUATION_TEMPERATURE;
     }
-    if (in3.humidityControl)
-    {
+    if (in3.humidityControl) {
       in3.actuation = ACTUATION_HUMIDITY;
     }
   }
@@ -366,19 +296,15 @@ void UI_actuatorsProgress()
   UIDrawProgressPage();
   humidityAtStart = in3.humidity[ROOM_DIGITAL_HUM_SENSOR];
   turnFans(ON);
-  while (!exitActuation)
-  {
+  while (!exitActuation) {
     vTaskDelay(pdMS_TO_TICKS(WHILE_LOOP_DELAY));
-    if (in3.temperatureControl)
-    {
+    if (in3.temperatureControl) {
       PIDHandler();
     }
-    if (in3.humidityControl)
-    {
+    if (in3.humidityControl) {
       PIDHandler();
     }
-    while (!GPIORead(ENC_SWITCH))
-    {
+    while (!GPIORead(ENC_SWITCH)) {
       vTaskDelay(pdMS_TO_TICKS(WHILE_LOOP_DELAY));
       exitActuation = back_mode();
     }

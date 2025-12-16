@@ -7,7 +7,21 @@
 // -----------------------------
 #include <lvgl.h>
 #include <stdint.h>
+#include "Credentials.h"
+#include "Wifi_OTA.h"
+#include <ESPmDNS.h>
+#include <Update.h>
+#include <WebServer.h>
+#include <WiFi.h>
 
+#define OTA_TASK_PRIORITY 4
+#define CORE_MONITOR_FREERTOS 0
+#define CORE_ID_FREERTOS 1
+
+#define WIFI_NAME "IncuNest_Display"
+
+// Set to true only on the HMI board
+#define IS_HMI true  
 // -----------------------------
 // Communication actuation modes
 // -----------------------------
