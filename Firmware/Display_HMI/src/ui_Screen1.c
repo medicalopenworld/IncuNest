@@ -73,6 +73,7 @@ lv_obj_t * ui_Panel10 = NULL;
 lv_obj_t * ui_NumAlarm = NULL;
 lv_obj_t * ui_SPO2Button = NULL;
 lv_obj_t * ui_ChartButton = NULL;
+lv_obj_t * ui_ImgButton1 = NULL;
 // event funtions
 void ui_event_Settings(lv_event_t * e)
 {
@@ -111,6 +112,16 @@ void ui_event_ChartButton(lv_event_t * e)
     if(event_code == LV_EVENT_CLICKED) {
         _ui_screen_delete(&ui_Screen1);
         _ui_screen_change(&ui_Screen4, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_Screen4_screen_init);
+    }
+}
+
+void ui_event_ImgButton1(lv_event_t * e)
+{
+    lv_event_code_t event_code = lv_event_get_code(e);
+
+    if(event_code == LV_EVENT_CLICKED) {
+        _ui_screen_delete(&ui_Screen1);
+        _ui_screen_change(&ui_Screen6, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_Screen6_screen_init);
     }
 }
 
@@ -698,10 +709,19 @@ void ui_Screen1_screen_init(void)
     lv_obj_set_y(ui_ChartButton, -214);
     lv_obj_set_align(ui_ChartButton, LV_ALIGN_CENTER);
 
+    ui_ImgButton1 = lv_imgbtn_create(ui_Screen1);
+    lv_imgbtn_set_src(ui_ImgButton1, LV_IMGBTN_STATE_RELEASED, NULL, &ui_img_candado_png, NULL);
+    lv_obj_set_width(ui_ImgButton1, 38);
+    lv_obj_set_height(ui_ImgButton1, 46);
+    lv_obj_set_x(ui_ImgButton1, -4);
+    lv_obj_set_y(ui_ImgButton1, -214);
+    lv_obj_set_align(ui_ImgButton1, LV_ALIGN_CENTER);
+
     lv_obj_add_event_cb(ui_Settings, ui_event_Settings, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_AlarmButton, ui_event_AlarmButton, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_SPO2Button, ui_event_SPO2Button, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_ChartButton, ui_event_ChartButton, LV_EVENT_ALL, NULL);
+    lv_obj_add_event_cb(ui_ImgButton1, ui_event_ImgButton1, LV_EVENT_ALL, NULL);
     uic_Tempbutton = ui_TempButton;
     uic_HumidButton = ui_HumidButton;
 
@@ -780,5 +800,6 @@ void ui_Screen1_screen_destroy(void)
     ui_NumAlarm = NULL;
     ui_SPO2Button = NULL;
     ui_ChartButton = NULL;
+    ui_ImgButton1 = NULL;
 
 }

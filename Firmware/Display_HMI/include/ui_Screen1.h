@@ -83,6 +83,8 @@ extern void ui_event_SPO2Button(lv_event_t * e);
 extern lv_obj_t * ui_SPO2Button;
 extern void ui_event_ChartButton(lv_event_t * e);
 extern lv_obj_t * ui_ChartButton;
+extern void ui_event_ImgButton1(lv_event_t * e);
+extern lv_obj_t * ui_ImgButton1;
 // CUSTOM VARIABLES
 extern lv_obj_t * uic_Tempbutton;
 extern lv_obj_t * uic_HumidButton;

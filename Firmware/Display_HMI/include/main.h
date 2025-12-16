@@ -116,12 +116,12 @@ constexpr int HUM_ALARM_THRESHOLD = 60;
 // Random ranges (used with random())
 // these ranges are the original integers used in your code
 // -----------------------------
-constexpr int RAND_AIR_MIN = 200;
-constexpr int RAND_AIR_MAX = 370;
-constexpr int RAND_SKIN_MIN = 350;
-constexpr int RAND_SKIN_MAX = 376;
-constexpr int RAND_HUM_MIN = 8;
-constexpr int RAND_HUM_MAX = 20;
+constexpr int RAND_AIR_MIN = 300;
+constexpr int RAND_AIR_MAX = 300;
+constexpr int RAND_SKIN_MIN = 360;
+constexpr int RAND_SKIN_MAX = 360;
+constexpr int RAND_HUM_MIN = 14;
+constexpr int RAND_HUM_MAX = 14;
 
 // -----------------------------
 // Progress arc for lock long-press

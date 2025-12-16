@@ -38,6 +38,7 @@ void ui_init(void)
     ui_Screen3_screen_init();
     ui_Screen4_screen_init();
     ui_Screen5_screen_init();
+    ui_Screen6_screen_init();
     ui____initial_actions0 = lv_obj_create(NULL);
     lv_disp_load_scr(ui_Screen1);
 }
@@ -49,4 +50,5 @@ void ui_destroy(void)
     ui_Screen3_screen_destroy();
     ui_Screen4_screen_destroy();
     ui_Screen5_screen_destroy();
+    ui_Screen6_screen_destroy();
 }
