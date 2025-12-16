@@ -77,6 +77,11 @@ constexpr int NUM_ALARMA_1 = 1;
 constexpr int NUM_ALARMA_2 = 2;
 constexpr int NUM_ALARMA_3 = 3;
 
+#define TEMP_BAR_MIN   0
+#define TEMP_BAR_MAX   40   // ºC
+#define HUM_BAR_MIN    0
+#define HUM_BAR_MAX    100  // %
+
 // -----------------------------
 // Panel selection
 // -----------------------------
@@ -103,6 +108,15 @@ constexpr int RAND_SKIN_MIN = 350;
 constexpr int RAND_SKIN_MAX = 376;
 constexpr int RAND_HUM_MIN = 8;
 constexpr int RAND_HUM_MAX = 20;
+
+// -----------------------------
+// Progress arc for lock long-press
+// -----------------------------
+
+static lv_obj_t * lockProgressArc = NULL;
+static lv_timer_t * lockProgressTimer = NULL;
+static uint32_t lockProgressStart = 0;
+static const uint32_t LOCK_PROGRESS_DURATION_MS = 3000; // 3 seconds
 
 // -----------------------------
 // Serial
@@ -155,16 +169,16 @@ constexpr int LCD_ROTATION = 2;
 // -----------------------------
 // Colors (RGB components) - used with lv_color_make()
 // -----------------------------
-constexpr int COLOR_PANEL_BLUE_R = 220;
-constexpr int COLOR_PANEL_BLUE_G = 240;
-constexpr int COLOR_PANEL_BLUE_B = 255;
+constexpr int COLOR_PANEL_WHITE_R = 255;
+constexpr int COLOR_PANEL_WHITE_G = 255;
+constexpr int COLOR_PANEL_WHITE_B = 255;
 
 constexpr int COLOR_PANEL_GRAY_R = 100;
 constexpr int COLOR_PANEL_GRAY_G = 100;
 constexpr int COLOR_PANEL_GRAY_B = 100;
 
 // convenience lv_color_t constants (not constexpr function calls but const)
-static const lv_color_t COLOR_PANEL_BLUE = lv_color_make(COLOR_PANEL_BLUE_R, COLOR_PANEL_BLUE_G, COLOR_PANEL_BLUE_B);
+static const lv_color_t COLOR_PANEL_WHITE = lv_color_make(COLOR_PANEL_WHITE_R, COLOR_PANEL_WHITE_G, COLOR_PANEL_WHITE_B);
 static const lv_color_t COLOR_PANEL_GRAY = lv_color_make(COLOR_PANEL_GRAY_R, COLOR_PANEL_GRAY_G, COLOR_PANEL_GRAY_B);
 
 // -----------------------------
@@ -177,5 +191,11 @@ constexpr int ANIM_PLAYBACK_MS = 500;
 // Other small numeric defaults used by LVGL calls etc.
 // -----------------------------
 constexpr int STYLE_SELECTOR_DEFAULT = 0;
+
+// -----------------------------
+// Inactivity timeout (ms)
+// -----------------------------
+#define INACTIVITY_TIMEOUT_MS 20000   // 20s
+
 
 #endif
