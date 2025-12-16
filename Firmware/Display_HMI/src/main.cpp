@@ -1268,7 +1268,7 @@ void setup()
     lv_indev_drv_init(&indev_drv);
     indev_drv.type = LV_INDEV_TYPE_POINTER;    // Pointer type (touch)
     indev_drv.read_cb = my_touchpad_read;      // Callback to read touch input
-    indev_drv.long_press_time = 3000;         // 3 segundos para LV_EVENT_LONG_PRESSED
+    indev_drv.long_press_time = LOCK_PROGRESS_DURATION_MS;         // ms for LV_EVENT_LONG_PRESSED
     lv_indev_drv_register(&indev_drv);        // Register input device in LVGL
 
     // ===========================

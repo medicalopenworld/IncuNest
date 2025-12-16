@@ -116,7 +116,7 @@ constexpr int RAND_HUM_MAX = 20;
 static lv_obj_t * lockProgressArc = NULL;
 static lv_timer_t * lockProgressTimer = NULL;
 static uint32_t lockProgressStart = 0;
-static const uint32_t LOCK_PROGRESS_DURATION_MS = 3000; // 3 seconds
+static const uint32_t LOCK_PROGRESS_DURATION_MS = 1500; // 1.5 seconds
 
 // -----------------------------
 // Serial
