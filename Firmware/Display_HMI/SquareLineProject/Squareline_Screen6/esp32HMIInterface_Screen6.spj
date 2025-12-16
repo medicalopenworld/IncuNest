@@ -130,31 +130,31 @@
               {
                 "nid": 1040,
                 "strtype": "IMGBUTTON/Image_pressed",
-                "strval": "",
+                "strval": "-",
                 "InheritedType": 5
               },
               {
                 "nid": 1050,
                 "strtype": "IMGBUTTON/Image_disabled",
-                "strval": "",
+                "strval": "-",
                 "InheritedType": 5
               },
               {
                 "nid": 1060,
                 "strtype": "IMGBUTTON/Image_checked_released",
-                "strval": "",
+                "strval": "-",
                 "InheritedType": 5
               },
               {
                 "nid": 1070,
                 "strtype": "IMGBUTTON/Image_checked_pressed",
-                "strval": "",
+                "strval": "-",
                 "InheritedType": 5
               },
               {
                 "nid": 1080,
                 "strtype": "IMGBUTTON/Image_checked_disabled",
-                "strval": "",
+                "strval": "-",
                 "InheritedType": 5
               },
               {
@@ -554,7 +554,7 @@
                         "flags": 17,
                         "strtype": "OBJECT/Position",
                         "intarray": [
-                          -76,
+                          -93,
                           3
                         ],
                         "InheritedType": 7
@@ -1191,7 +1191,7 @@
                         "flags": 17,
                         "strtype": "OBJECT/Position",
                         "intarray": [
-                          -76,
+                          -98,
                           2
                         ],
                         "InheritedType": 7
@@ -1659,7 +1659,7 @@
                         "flags": 17,
                         "strtype": "OBJECT/Position",
                         "intarray": [
-                          24,
+                          -8,
                           6
                         ],
                         "InheritedType": 7
@@ -1828,7 +1828,7 @@
                         "flags": 17,
                         "strtype": "OBJECT/Position",
                         "intarray": [
-                          -76,
+                          -83,
                           6
                         ],
                         "InheritedType": 7

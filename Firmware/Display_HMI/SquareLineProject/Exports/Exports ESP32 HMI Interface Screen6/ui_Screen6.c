@@ -97,7 +97,7 @@ void ui_Screen6_screen_init(void)
     lv_img_set_src(ui_ImageWindLS, &ui_img_windvector_png);
     lv_obj_set_width(ui_ImageWindLS, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_ImageWindLS, LV_SIZE_CONTENT);    /// 1
-    lv_obj_set_x(ui_ImageWindLS, -76);
+    lv_obj_set_x(ui_ImageWindLS, -93);
     lv_obj_set_y(ui_ImageWindLS, 3);
     lv_obj_set_align(ui_ImageWindLS, LV_ALIGN_CENTER);
     lv_obj_add_flag(ui_ImageWindLS, LV_OBJ_FLAG_ADV_HITTEST);     /// Flags
@@ -138,7 +138,7 @@ void ui_Screen6_screen_init(void)
     lv_img_set_src(ui_ImageBabyLS, &ui_img_bebe_icon_png);
     lv_obj_set_width(ui_ImageBabyLS, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_ImageBabyLS, LV_SIZE_CONTENT);    /// 1
-    lv_obj_set_x(ui_ImageBabyLS, -76);
+    lv_obj_set_x(ui_ImageBabyLS, -98);
     lv_obj_set_y(ui_ImageBabyLS, 2);
     lv_obj_set_align(ui_ImageBabyLS, LV_ALIGN_CENTER);
     lv_obj_add_flag(ui_ImageBabyLS, LV_OBJ_FLAG_ADV_HITTEST);     /// Flags
@@ -167,7 +167,7 @@ void ui_Screen6_screen_init(void)
     ui_Label20 = lv_label_create(ui_HumLockCont);
     lv_obj_set_width(ui_Label20, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_Label20, LV_SIZE_CONTENT);    /// 1
-    lv_obj_set_x(ui_Label20, 24);
+    lv_obj_set_x(ui_Label20, -8);
     lv_obj_set_y(ui_Label20, 6);
     lv_obj_set_align(ui_Label20, LV_ALIGN_CENTER);
     lv_label_set_text(ui_Label20, "37");
@@ -179,7 +179,7 @@ void ui_Screen6_screen_init(void)
     lv_img_set_src(ui_ImagenWaterLS, &ui_img_302897630);
     lv_obj_set_width(ui_ImagenWaterLS, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_ImagenWaterLS, LV_SIZE_CONTENT);    /// 1
-    lv_obj_set_x(ui_ImagenWaterLS, -76);
+    lv_obj_set_x(ui_ImagenWaterLS, -83);
     lv_obj_set_y(ui_ImagenWaterLS, 6);
     lv_obj_set_align(ui_ImagenWaterLS, LV_ALIGN_CENTER);
     lv_obj_add_flag(ui_ImagenWaterLS, LV_OBJ_FLAG_ADV_HITTEST);     /// Flags
