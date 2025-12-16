@@ -6,9 +6,16 @@ ControlBoard_Message_Telemetry ctrl_tel_msg;
 ControlBoard_Message_Alarm ctrl_msg_alarm;
 
 bool error = false;
-  
+
 static String rxBuffer = "";
 
+// ======================
+//  WATCHDOG TELEMETRÍA (HMI)
+// ======================
+#if IS_HMI
+static uint32_t lastTelemetryMs = 0;
+static const uint32_t TELEMETRY_TIMEOUT_MS = 10000; // 10 s
+#endif
 
 
 // ======================
@@ -18,6 +25,10 @@ void Communication_Init() {
   COMM_SERIAL.begin(115200);
   delay(200);
   log_i("Communication initialized");
+
+#if IS_HMI
+  lastTelemetryMs = millis();
+#endif
 
   while (xTaskCreatePinnedToCore(
              Communication_Task,
@@ -64,6 +75,17 @@ void Communication_Task(void *pvParameters) {
   TickType_t lastWakeTime = xTaskGetTickCount();
 
   for (;;) {
+
+#if IS_HMI
+    // Watchdog: si no llega telemetría válida en 10s -> reboot
+    if (lastTelemetryMs != 0 && (millis() - lastTelemetryMs) > TELEMETRY_TIMEOUT_MS) {
+      COMM_LOG("[COMM] Telemetry timeout (%lu ms). Rebooting...\n",
+               (unsigned long)(millis() - lastTelemetryMs));
+      delay(50);
+      ESP.restart();
+    }
+#endif
+
     if (COMM_SERIAL.available()) {
       ReceiveMessageFromOtherESP();
     }
@@ -152,7 +174,10 @@ bool ReceiveMessageFromOtherESP() {
                             &ctrl_tel_msg.detectedSkinTemperature,
                             &ctrl_tel_msg.detectedHumidity);
 
-        if (result != 3) {
+        if (result == 3) {
+          // Telemetría válida -> refresca watchdog
+          lastTelemetryMs = millis();
+        } else {
           COMM_LOG("[COMM] HMI failed to parse CTRL,TEL: %s\n", rxBuffer.c_str());
         }
 

@@ -1035,6 +1035,9 @@ void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
     }
 }
 
+
+
+
 static void show_targets_for_mode(void)
 {
     // Al entrar en lockScreen: mostrar SOLO el target correcto (o ninguno)
@@ -1112,6 +1115,38 @@ static void stop_lock_progress(void) {
     if (lockProgressArc) {
         lv_arc_set_value(lockProgressArc, 0);
         lv_obj_add_flag(lockProgressArc, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+static void enter_lock_screen(void)
+{
+    // Si ya estás en lock, no repitas
+    if (lv_scr_act() == ui_Screen6) {
+        stop_lock_progress();
+        locked = true;
+        show_targets_for_mode();
+        return;
+    }
+
+    // Entras en lock screen “modo reposo”: targets según modo, NO unlock
+    stop_lock_progress();
+    locked = true;
+
+    lv_scr_load(ui_Screen6);
+
+    // Importante: aplicar la lógica de visibilidad YA en Screen6
+    show_targets_for_mode();
+
+    // Reset inactivity timer de LVGL (opcional pero recomendable)
+    lv_disp_trig_activity(NULL);
+}
+
+void ImgButton1_Lock_cb(lv_event_t * e)
+{
+    (void)e;
+    // Solo tiene sentido si vienes de la pantalla principal
+    if (lv_scr_act() == ui_Screen1) {
+        enter_lock_screen();
     }
 }
 
@@ -1448,7 +1483,7 @@ void setup()
     lv_obj_add_flag(ui_UnlockCont,        LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_Spinner1,          LV_OBJ_FLAG_HIDDEN);
 
-
+    lv_obj_add_event_cb(ui_ImgButton1, ImgButton1_Lock_cb, LV_EVENT_CLICKED, NULL);
 
     // Any touch on the lock screen should show the unlock container
     lv_obj_add_event_cb(ui_Screen6, LockScreenAnyTouch_cb, LV_EVENT_PRESSED, NULL);
