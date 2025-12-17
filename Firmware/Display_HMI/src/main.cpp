@@ -490,7 +490,7 @@ void Switch_cb(lv_event_t * e) {
 
     // --- Actuation mode selection logic (ya con exclusión asegurada) ---
     if (switchTemp && switchHum) {
-        hmi_msg.actuation = ACTUATION_TEMPERATURE; // choose one deterministically
+        hmi_msg.actuation = ACTUATION_TEMP_AND_HUMIDITY;
     } else if (switchTemp) {
         hmi_msg.actuation = ACTUATION_TEMPERATURE;
     } else if (switchHum) {
@@ -829,15 +829,27 @@ void update_alarm_panels() {
             char buf[8];
             snprintf(buf, sizeof(buf), "%d", activeCount);
             lv_label_set_text(ui_NumAlarm, buf);
+            lv_label_set_text(ui_AlarmLockNumLabel, buf);
 
             // Show them and start animations
             lv_obj_clear_flag(ui_Panel10, LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(ui_NumAlarm, LV_OBJ_FLAG_HIDDEN);
 
+            lv_obj_clear_flag(ui_AlarmLockCont, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(ui_PanelLockAlarm, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(ui_AlarmLockNumLabel, LV_OBJ_FLAG_HIDDEN);
+
             // Make them blink in unison
             start_alarm_blink(ui_Panel10);
             start_alarm_blink(ui_NumAlarm);
             start_alarm_blink(ui_AlarmButton);
+
+            start_alarm_blink(ui_PanelLockAlarm);
+            start_alarm_blink(ui_AlarmLockNumLabel);
+            start_alarm_blink(ui_AlarmLockImg);
+
+            lv_obj_add_flag(ui_CheckImg, LV_OBJ_FLAG_HIDDEN); // hide check mark when alarm active
+
         } else {
             // No alarms: hide and remove animations
             lv_obj_add_flag(ui_Panel10, LV_OBJ_FLAG_HIDDEN);
@@ -849,6 +861,18 @@ void update_alarm_panels() {
             lv_obj_set_style_opa(ui_Panel10, LV_OPA_COVER, LV_PART_MAIN);
             lv_obj_set_style_opa(ui_NumAlarm, LV_OPA_COVER, LV_PART_MAIN);
             lv_obj_set_style_opa(ui_AlarmButton, LV_OPA_COVER, LV_PART_MAIN);
+
+            lv_obj_add_flag(ui_AlarmLockCont, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(ui_PanelLockAlarm, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(ui_AlarmLockNumLabel, LV_OBJ_FLAG_HIDDEN);
+            lv_anim_del(ui_PanelLockAlarm, blink_cb);
+            lv_anim_del(ui_AlarmLockNumLabel, blink_cb);
+            lv_anim_del(ui_AlarmLockImg, blink_cb);
+            lv_obj_set_style_opa(ui_PanelLockAlarm, LV_OPA_COVER, LV_PART_MAIN);
+            lv_obj_set_style_opa(ui_AlarmLockNumLabel, LV_OPA_COVER, LV_PART_MAIN);
+            lv_obj_set_style_opa(ui_AlarmLockImg, LV_OPA_COVER, LV_PART_MAIN);
+            lv_obj_clear_flag(ui_CheckImg, LV_OBJ_FLAG_HIDDEN); // show check mark when no alarms
+
         }
 
     // Hide remaining panels if fewer than MAX_ALARM_DISPLAY alarms active
@@ -1026,24 +1050,16 @@ void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
         log_w("No space to store new alarm ID=%d", alarm.id);
     }
 
-    // ===== If an alarm comes, switch to Main Screen =====
-    if (alarmActive) {
-        if (lv_scr_act() == ui_Screen6) {
-            lv_scr_load(ui_Screen1);
-        }
-        lv_disp_trig_activity(NULL);
-    }
+    
 }
-
-
 
 
 static void show_targets_for_mode(void)
 {
-    // Al entrar en lockScreen: mostrar SOLO el target correcto (o ninguno)
+    // In lockScreen: show only the relevant target containers
     lv_obj_add_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
 
-    // Por seguridad, ocultamos ambos y luego mostramos el correcto
+    // For security, hide both and then show the correct one
     lv_obj_add_flag(ui_TargetAirTempCont,  LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_HumLockDesiredCont, LV_OBJ_FLAG_HIDDEN);
@@ -1061,7 +1077,7 @@ static void show_targets_for_mode(void)
 
 static void show_unlock_only(void)
 {
-    // Touch anywhere: mostrar UnlockCont y ocultar targets
+    // Touch anywhere: show only unlock container
     lv_obj_clear_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_TargetAirTempCont,  LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
@@ -1120,7 +1136,7 @@ static void stop_lock_progress(void) {
 
 static void enter_lock_screen(void)
 {
-    // Si ya estás en lock, no repitas
+    // If locked already, do nothing (stay in lock screen)
     if (lv_scr_act() == ui_Screen6) {
         stop_lock_progress();
         locked = true;
@@ -1128,37 +1144,26 @@ static void enter_lock_screen(void)
         return;
     }
 
-    // Entras en lock screen “modo reposo”: targets según modo, NO unlock
+    // In lock screen: show only the relevant target containers
     stop_lock_progress();
     locked = true;
 
     lv_scr_load(ui_Screen6);
 
-    // Importante: aplicar la lógica de visibilidad YA en Screen6
+    // Important: apply visibility logic NOW in Screen6
     show_targets_for_mode();
 
-    // Reset inactivity timer de LVGL (opcional pero recomendable)
+    // Reset inactivity timer of LVGL (optional but recommended)
     lv_disp_trig_activity(NULL);
 }
 
 void ImgButton1_Lock_cb(lv_event_t * e)
 {
     (void)e;
-    // Solo tiene sentido si vienes de la pantalla principal
+    // Only if we are in main screen, go to lock screen
     if (lv_scr_act() == ui_Screen1) {
         enter_lock_screen();
     }
-}
-
-void LockButton_cb(lv_event_t * e)
-{
-    (void)e;
-    if (lv_scr_act() != ui_Screen6) return;
-
-    // Volver a estado LOCKED (targets) y ocultar UnlockCont
-    stop_lock_progress();
-    show_targets_for_mode();
-    locked = true;
 }
 
 // Any touch on the lock screen should open the unlock container
@@ -1166,20 +1171,20 @@ void LockScreenAnyTouch_cb(lv_event_t * e)
 {
     if (lv_scr_act() != ui_Screen6) return;
 
-    // Si el toque viene de UnlockCont (o de algún hijo), NO hagas toggle aquí
-    lv_obj_t * origin = lv_event_get_target(e);  // objeto original que recibió el evento
+    // If the touch comes from UnlockCont (or any child), DO NOT toggle here
+    lv_obj_t * origin = lv_event_get_target(e);  // original object that received the event
     if (origin != ui_Screen6) return;
 
-    // Toggle: si Unlock está oculto => mostrar Unlock; si está visible => volver a targets
+    // Toggle: if Unlock is hidden => show Unlock; if visible => go back to targets
     bool unlockVisible = !lv_obj_has_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
 
     if (!unlockVisible) {
         // targets -> unlock
         show_unlock_only();
-        locked = false;  // (si quieres: locked=false significa "estoy en modo unlock visible")
+        locked = false;  // (It means we are in unlock state)
     } else {
         // unlock -> targets
-        stop_lock_progress();       // por si estaba pulsado o a medias
+        stop_lock_progress();       // in case it was pressed or halfway
         show_targets_for_mode();
         locked = true;
     }
@@ -1201,11 +1206,11 @@ static void add_unlock_press_cb_recursive(lv_obj_t * obj)
 {
     if (!obj) return;
 
-    // Para que el objeto pueda generar PRESSED/RELEASED
+    // So that the object can generate PRESSED/RELEASED
     lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(obj, UnlockCont_event_cb, LV_EVENT_ALL, NULL);
 
-    // Recursivo: hijos
+    // Recursively add to children
     uint32_t n = lv_obj_get_child_cnt(obj);
     for (uint32_t i = 0; i < n; i++) {
         lv_obj_t * child = lv_obj_get_child(obj, i);
@@ -1227,20 +1232,20 @@ void inactivity_timer_cb(lv_timer_t * timer) {
     if (inactive > INACTIVITY_TIMEOUT_MS) {
         if (lv_scr_act() != ui_Screen6) {
 
-            // Entras en lock screen “en reposo”: targets según modo, NO unlock
+            // In lock screen: show only the relevant target containers
             stop_lock_progress();
             locked = true;
 
             lv_scr_load(ui_Screen6);
-            show_targets_for_mode();   // <-- esto enseña Air/Skin/none y oculta Unlock
+            show_targets_for_mode();   // <-- This shows the correct targets according to mode
         }
     }
 }
 
 
-// Callback de tu botón de conectar
+// Callback of button to connect to WiFi
 void WifiConnectButton_cb(lv_event_t * e) {
-    Serial.print("Conectando a WiFi SSID: ");
+    Serial.print("Connecting to SSID: ");
     Serial.println(wifi_ssid);
 
     WiFi.begin(wifi_ssid, wifi_pass);
@@ -1476,6 +1481,11 @@ void setup()
     lv_obj_add_flag(ui_TabView1, LV_OBJ_FLAG_HIDDEN);
 
 
+
+    // ===========================
+    // Lock screen configuration
+    // ===========================
+
     // Initial state of the lock screen: hide target containers and show Unlock
     lv_obj_add_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
@@ -1491,7 +1501,16 @@ void setup()
     // Make Unlock container clickable and handle press/release for long-press unlock
     add_unlock_press_cb_recursive(ui_UnlockCont);
 
+    // Hide alarm lock container and show check image at startup
+    lv_obj_add_flag(ui_AlarmLockCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_CheckImg, LV_OBJ_FLAG_HIDDEN);
 
+    lv_obj_add_event_cb(ui_AlarmLockCont, AlarmButton_cb, LV_EVENT_CLICKED, NULL);
+
+
+    // ===========================
+    // WIFI configuration
+    // ===========================
 
     // WIFI connect button
     lv_obj_add_event_cb(ui_WifiConnectButton, WifiConnectButton_cb, LV_EVENT_CLICKED, NULL);

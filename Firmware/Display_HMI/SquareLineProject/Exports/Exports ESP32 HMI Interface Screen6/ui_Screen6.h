@@ -38,10 +38,20 @@ extern lv_obj_t * ui_LockButton2;
 extern lv_obj_t * ui_TargetSkinTempCont;
 extern lv_obj_t * ui_TargetSkinTempLabel;
 extern lv_obj_t * ui_TargetSkinTempNumLabel;
+extern lv_obj_t * ui_ArrowSkinLock;
 extern lv_obj_t * ui_Spinner1;
 extern lv_obj_t * ui_TargetAirTempCont;
 extern lv_obj_t * ui_TargetAirTempLabel;
 extern lv_obj_t * ui_TargetAirTempNumLabel;
+extern lv_obj_t * ui_ArrowAirLock;
+extern lv_obj_t * ui_StatusCont;
+extern lv_obj_t * ui_StatusLabel;
+extern lv_obj_t * ui_AlarmLockCont;
+extern void ui_event_AlarmLockImg(lv_event_t * e);
+extern lv_obj_t * ui_AlarmLockImg;
+extern lv_obj_t * ui_PanelLockAlarm;
+extern lv_obj_t * ui_AlarmLockNumLabel;
+extern lv_obj_t * ui_CheckImg;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus

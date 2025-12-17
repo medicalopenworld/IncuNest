@@ -20,6 +20,7 @@ extern "C" {
 
 #include "ui_Screen6.h"
 #include "ui_Screen1.h"
+#include "ui_Screen3.h"
 
 ///////////////////// VARIABLES ////////////////////
 
@@ -33,6 +34,9 @@ LV_IMG_DECLARE(ui_img_candado_png);    // assets/candado.png
 LV_IMG_DECLARE(ui_img_windvector_png);    // assets/windVector.png
 LV_IMG_DECLARE(ui_img_bebe_icon_png);    // assets/bebe icon.png
 LV_IMG_DECLARE(ui_img_302897630);    // assets/water-drop-icon-transparent-free-png.png
+LV_IMG_DECLARE(ui_img_flecha_png);    // assets/Flecha.png
+LV_IMG_DECLARE(ui_img_1007688293);    // assets/alarms1 (2).png
+LV_IMG_DECLARE(ui_img_check_png);    // assets/check.png
 
 // UI INIT
 void ui_init(void);

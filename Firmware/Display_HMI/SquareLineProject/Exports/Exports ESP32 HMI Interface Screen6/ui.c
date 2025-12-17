@@ -35,6 +35,7 @@ void ui_init(void)
     lv_disp_set_theme(dispp, theme);
     ui_Screen6_screen_init();
     ui_Screen1_screen_init();
+    ui_Screen3_screen_init();
     ui____initial_actions0 = lv_obj_create(NULL);
     lv_disp_load_scr(ui_Screen6);
 }
@@ -43,4 +44,5 @@ void ui_destroy(void)
 {
     ui_Screen6_screen_destroy();
     ui_Screen1_screen_destroy();
+    ui_Screen3_screen_destroy();
 }

@@ -10,25 +10,12 @@ bool error = false;
 static String rxBuffer = "";
 
 // ======================
-//  WATCHDOG TELEMETRÍA (HMI)
-// ======================
-#if IS_HMI
-static uint32_t lastTelemetryMs = 0;
-static const uint32_t TELEMETRY_TIMEOUT_MS = 10000; // 10 s
-#endif
-
-
-// ======================
-//  INICIALIZACIÓN
+//  INITIALIZATION
 // ======================
 void Communication_Init() {
   COMM_SERIAL.begin(115200);
   delay(200);
   log_i("Communication initialized");
-
-#if IS_HMI
-  lastTelemetryMs = millis();
-#endif
 
   while (xTaskCreatePinnedToCore(
              Communication_Task,
@@ -45,7 +32,7 @@ void Communication_Init() {
 }
 
 // ======================
-//  ENVÍO
+//  TRANSMISSION
 // ======================
 void SendMessageToOtherESP() {
 #if IS_HMI
@@ -68,41 +55,30 @@ void SendMessageToOtherESP() {
 }
 
 // ======================
-//  TAREA PRINCIPAL
+//  MAIN TASK
 // ======================
 void Communication_Task(void *pvParameters) {
   const TickType_t period = pdMS_TO_TICKS(200);  // 200 ms
   TickType_t lastWakeTime = xTaskGetTickCount();
 
   for (;;) {
-
-#if IS_HMI
-    // Watchdog: si no llega telemetría válida en 10s -> reboot
-    if (lastTelemetryMs != 0 && (millis() - lastTelemetryMs) > TELEMETRY_TIMEOUT_MS) {
-      COMM_LOG("[COMM] Telemetry timeout (%lu ms). Rebooting...\n",
-               (unsigned long)(millis() - lastTelemetryMs));
-      delay(50);
-      ESP.restart();
-    }
-#endif
-
     if (COMM_SERIAL.available()) {
       ReceiveMessageFromOtherESP();
     }
 
 #if IS_HMI
-    // Solo enviar si hay evento del HMI
+    // Only send if there's new data to send
     if (hmi_msg.shouldSendData) {
       SendMessageToOtherESP();
       hmi_msg.shouldSendData = false;
     }
 #else
-    // Enviar datos de sensores cada 200 ms
+    // Send data every 200ms or if there's new data to send
     if (ctrl_msg.shouldSendData) {
       SendMessageToOtherESP();
       ctrl_msg.shouldSendData = false;
     } else {
-      // Por defecto, enviar cada ciclo
+      // Send in every cycle
       SendMessageToOtherESP();
     }
 #endif
@@ -112,7 +88,7 @@ void Communication_Task(void *pvParameters) {
 }
 
 // ======================
-//  RECEPCIÓN
+//  RECEIPTION
 // ======================
 bool ReceiveMessageFromOtherESP() {
 
@@ -174,10 +150,7 @@ bool ReceiveMessageFromOtherESP() {
                             &ctrl_tel_msg.detectedSkinTemperature,
                             &ctrl_tel_msg.detectedHumidity);
 
-        if (result == 3) {
-          // Telemetría válida -> refresca watchdog
-          lastTelemetryMs = millis();
-        } else {
+        if (result != 3) {
           COMM_LOG("[COMM] HMI failed to parse CTRL,TEL: %s\n", rxBuffer.c_str());
         }
 
@@ -240,9 +213,9 @@ bool ReceiveMessageFromOtherESP() {
       return true;
     }
 
-    //
+    // =================================
     // Build the message
-    //
+    // =================================
     rxBuffer += c;
   }
 
