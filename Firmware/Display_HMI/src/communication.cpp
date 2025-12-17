@@ -5,6 +5,9 @@ ControlBoard_Message ctrl_msg;
 ControlBoard_Message_Telemetry ctrl_tel_msg;
 ControlBoard_Message_Alarm ctrl_msg_alarm;
 
+ControlBoard_Message_State ctrl_state_msg = {0,0,0,0,0,0,0,false};
+
+
 bool error = false;
   
 static String rxBuffer = "";
@@ -31,6 +34,13 @@ void Communication_Init() {
     delay(100);
   }
   log_i("Communication task successfully created!");
+}
+
+// ---- New: request state to motherboard ----
+void Communication_RequestState(void) {
+#if IS_HMI
+  COMM_SERIAL.print("HMI,REQ,STATE\n");
+#endif
 }
 
 // ======================
@@ -154,6 +164,28 @@ bool ReceiveMessageFromOtherESP() {
 
         if (result != 3) {
           COMM_LOG("[COMM] HMI failed to parse CTRL,TEL: %s\n", rxBuffer.c_str());
+        }
+
+      } else if (rxBuffer.startsWith("CTRL,STATE")) {
+
+        int act, mode, photo, mute;
+        double airSet, skinSet, humSet;
+
+        int result = sscanf(rxBuffer.c_str(),
+                            "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d",
+                            &act, &mode, &airSet, &skinSet, &humSet, &photo, &mute);
+
+        if (result == 7) {
+          ctrl_state_msg.actuation            = act;
+          ctrl_state_msg.controlMode          = mode;
+          ctrl_state_msg.desiredAirTemperature  = airSet;
+          ctrl_state_msg.desiredSkinTemperature = skinSet;
+          ctrl_state_msg.desiredHumidity        = humSet;
+          ctrl_state_msg.phototherapyMode     = photo;
+          ctrl_state_msg.muteAlarm            = mute;
+          ctrl_state_msg.newState             = true;
+        } else {
+          COMM_LOG("[COMM] HMI failed to parse CTRL,STATE: %s\n", rxBuffer.c_str());
         }
 
       } else if (rxBuffer.startsWith("CTRL,ALM")) {
