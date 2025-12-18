@@ -23,6 +23,8 @@
 
 */
 
+// pio run -e in3ator_V15 -t upload ; pio device monitor
+
 // Firmware version and head title of UI screen
 
 #include "main.h"

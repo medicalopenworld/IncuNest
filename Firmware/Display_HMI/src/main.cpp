@@ -51,6 +51,9 @@ bool locked = true;
 lv_chart_series_t * tempSeries = NULL;
 lv_chart_series_t * humSeries  = NULL;
 
+static bool g_stateSynced = false;
+static uint32_t g_lastStateReqMs = 0;
+
 struct Alarm
 {
     int id;
@@ -1251,6 +1254,150 @@ void WifiConnectButton_cb(lv_event_t * e) {
     WiFi.begin(wifi_ssid, wifi_pass);
 }
 
+// ====================================================================
+// STATE COMMUNICATION SETUP
+// ====================================================================
+
+// ---- NUEVO: helper para marcar UI switches sin disparar lógica ----
+static void ui_set_switch_state_silent(lv_obj_t* sw, bool on)
+{
+  if (!sw) return;
+  if (on) lv_obj_add_state(sw, LV_STATE_CHECKED);
+  else    lv_obj_clear_state(sw, LV_STATE_CHECKED);
+}
+
+// ---- NUEVO: aplicar CTRL,STATE al display (UI + variables) ----
+static void Display_ApplyCtrlState(const ControlBoard_Message_State& st)
+{
+  // 1) Setpoints/variables base
+  airTempValue  = st.desiredAirTemperature;
+  skinTempValue = st.desiredSkinTemperature;
+  humValue      = (int)lround(st.desiredHumidity);
+
+  // 2) Actuation flags
+  switchTemp = (st.actuation == ACTUATION_TEMPERATURE || st.actuation == ACTUATION_TEMP_AND_HUMIDITY);
+  switchHum  = (st.actuation == ACTUATION_HUMIDITY    || st.actuation == ACTUATION_TEMP_AND_HUMIDITY);
+  tempSwitched = switchTemp;
+  humSwitched  = switchHum;
+
+  // 2.5) Paneles contenedor (ui_Panel1 / ui_Panel3)
+  if (switchTemp) {
+    lv_obj_set_style_bg_color(ui_Panel1, COLOR_PANEL_WHITE, LV_PART_MAIN);
+    lv_obj_set_style_opa(ui_Panel1, LV_OPA_COVER, LV_PART_MAIN);
+  } else {
+    lv_obj_set_style_bg_color(ui_Panel1, COLOR_PANEL_GRAY, LV_PART_MAIN);
+    lv_obj_set_style_opa(ui_Panel1, LV_OPA_COVER, LV_PART_MAIN);
+  }
+
+  if (switchHum) {
+    lv_obj_set_style_bg_color(ui_Panel3, COLOR_PANEL_WHITE, LV_PART_MAIN);
+    lv_obj_set_style_opa(ui_Panel3, LV_OPA_COVER, LV_PART_MAIN);
+  } else {
+    lv_obj_set_style_bg_color(ui_Panel3, COLOR_PANEL_GRAY, LV_PART_MAIN);
+    lv_obj_set_style_opa(ui_Panel3, LV_OPA_COVER, LV_PART_MAIN);
+  }
+
+  // 3) Control mode/panel
+  if (switchTemp) {
+
+    // --- Si viene SKIN, asegúrate de que el bloque skin esté visible ---
+    if (st.controlMode == CONTROL_SKIN) {
+      skinPanelEnabled = true;
+      ui_set_switch_state_silent(ui_Switch4, true);
+      lv_obj_clear_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_set_style_bg_color(ui_SkinPanelCont, COLOR_PANEL_WHITE, LV_PART_MAIN);
+      lv_obj_set_style_opa(ui_SkinPanelCont, LV_OPA_COVER, LV_PART_MAIN);
+    }
+
+    if (st.controlMode == CONTROL_AIR) {
+      selectedPanel = AIR_PANEL_SELECTED;
+      lastSelectedPanel = selectedPanel;
+      set_active_panel(ui_AirPanel, ui_SkinPanel);
+      lv_obj_clear_flag(ui_AirTempBarCont, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_add_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      selectedPanel = SKIN_PANEL_SELECTED;
+      lastSelectedPanel = selectedPanel;
+      set_active_panel(ui_SkinPanel, ui_AirPanel);
+      lv_obj_clear_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_add_flag(ui_AirTempBarCont, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    arrowsActive = true;
+    // habilitar click = ADD flag clickable
+    lv_obj_add_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(ui_ImgArrowUpTemp,   LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_bg_color(ui_ArrowDownTemp, COLOR_PANEL_WHITE, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_ArrowUpTemp,   COLOR_PANEL_WHITE, LV_PART_MAIN);
+
+  } else {
+    selectedPanel = NO_PANEL_SELECTED;
+    arrowsActive = false;
+    // deshabilitar click = CLEAR flag clickable
+    lv_obj_clear_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(ui_ImgArrowUpTemp,   LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_bg_color(ui_AirPanel,  COLOR_PANEL_GRAY, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_SkinPanel, COLOR_PANEL_GRAY, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_ArrowDownTemp, COLOR_PANEL_GRAY, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_ArrowUpTemp,   COLOR_PANEL_GRAY, LV_PART_MAIN);
+  }
+
+  // 4) Hum arrows
+  if (switchHum) {
+    // habilitar click
+    lv_obj_add_flag(ui_ImgArrowDownHum, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(ui_ImgArrowUpHum,   LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_bg_color(ui_ArrowDownHum, COLOR_PANEL_WHITE, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_ArrowUpHum,   COLOR_PANEL_WHITE, LV_PART_MAIN);
+  } else {
+    // deshabilitar click
+    lv_obj_clear_flag(ui_ImgArrowDownHum, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(ui_ImgArrowUpHum,   LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_bg_color(ui_ArrowDownHum, COLOR_PANEL_GRAY, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_ArrowUpHum,   COLOR_PANEL_GRAY, LV_PART_MAIN);
+  }
+
+  // 5) Fototerapia
+  hmi_msg.phototherapyMode = st.phototherapyMode;
+  ui_set_switch_state_silent(ui_Switch3, (st.phototherapyMode == PHOTOTHERAPY_ON));
+
+  // 6) switches 1/2 visual
+  ui_set_switch_state_silent(ui_Switch1, switchTemp);
+  ui_set_switch_state_silent(ui_Switch2, switchHum);
+
+  // 7) coherencia interna sin enviar
+  hmi_msg.actuation = st.actuation;
+  hmi_msg.controlMode = st.controlMode;
+  hmi_msg.desiredAirTemperature  = airTempValue;
+  hmi_msg.desiredSkinTemperature = skinTempValue;
+  hmi_msg.desiredHumidity        = humValue;
+  hmi_msg.muteAlarm              = st.muteAlarm;
+  hmi_msg.shouldSendData         = false;
+
+  update_labels();
+}
+
+
+static void Display_StateSync_Service(void)
+{
+  if (g_stateSynced) return;
+
+  // reintento cada 500 ms hasta recibir CTRL,STATE
+  uint32_t now = millis();
+  if (now - g_lastStateReqMs >= 500) {
+    Communication_RequestState();
+    g_lastStateReqMs = now;
+  }
+
+  if (ctrl_state_msg.newState) {
+    ctrl_state_msg.newState = false;
+    Display_ApplyCtrlState(ctrl_state_msg);
+    g_stateSynced = true;
+  }
+}
+
+// ====================================================================
+
 void setup()
 {
     // ===========================
@@ -1328,6 +1475,10 @@ void setup()
     // UI initialization
     // ===========================
     ui_init();                      // Initialize UI objects
+
+    // State communication: initial request
+    Communication_RequestState();
+    g_lastStateReqMs = millis();
     
     // Visual elements initial configuration
     // Bars ranges
@@ -1700,6 +1851,8 @@ void loop() {
     lv_timer_handler();
     delay(LOOP_DELAY_MS);
 
+    Display_StateSync_Service();
+    
     if (ReceiveMessageFromOtherESP()) {
 
     // if new alarm received

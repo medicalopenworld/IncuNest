@@ -56,6 +56,17 @@ typedef struct {
   bool state;
 } ControlBoard_Message_Alarm;
 
+typedef struct {
+  int actuation;
+  int controlMode;
+  double desiredAirTemperature;
+  double desiredSkinTemperature;
+  double desiredHumidity;
+  int phototherapyMode;
+  int muteAlarm;
+  bool newState;
+} ControlBoard_Message_State;
+
 // Expected prefix of incoming messages
 #if IS_HMI
 #define EXPECTED_PREFIX "CTRL"
@@ -70,6 +81,8 @@ extern HMI_Message hmi_msg;
 extern ControlBoard_Message ctrl_msg;
 extern ControlBoard_Message_Telemetry ctrl_tel_msg;
 extern ControlBoard_Message_Alarm ctrl_msg_alarm;
+extern ControlBoard_Message_State ctrl_state_msg;
+
 
 extern bool error;
 
@@ -78,6 +91,8 @@ extern bool error;
 // ======================
 void Communication_Init();
 void Communication_Task(void *pvParameters);
+void Communication_RequestState(void);
+
 
 void SendTelemetry();
 void SendAlarm();

@@ -22,6 +22,8 @@ static const char *TAG = "COMM_HOST";
 // ======================================================
 TelemetryMessage ctrl_tel_msg = {0,0,0};
 HMI_CommandMessage hmi_cmd_msg = {0,0,0,0,0,0,0,false};
+// ---- NUEVO: cache de estado “último comando/setpoints” ----
+static HMI_CommandMessage g_last_cmd = {0,0,0,0,0,0,0,false};
 
 static std::unique_ptr<CdcAcmDevice> vcp;
 static char rxBuffer[256];
@@ -30,12 +32,42 @@ static int rxIndex = 0;
 static SemaphoreHandle_t device_disconnected_sem;
 
 
+// ---- NUEVO: enviar CTRL,STATE ----
+static void send_state_to_hmi()
+{
+    // Si aún no hubo comando nunca, puedes rellenar con defaults
+    // (aquí usamos cache, que se actualizará cuando llegue HMI real).
+    char msg[128];
+    snprintf(msg, sizeof(msg),
+             "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d\n",
+             (int)g_last_cmd.actuation,
+             (int)g_last_cmd.controlMode,
+             (double)g_last_cmd.desiredAirTemperature,
+             (double)g_last_cmd.desiredSkinTemperature,
+             (double)g_last_cmd.desiredHumidity,
+             (int)g_last_cmd.phototherapyMode,
+             (int)g_last_cmd.muteAlarm);
+
+    CommunicationHost_Send(msg);
+}
+
+
 // ======================================================
 //  PARSER
 // ======================================================
 void parse_line(const char *line)
 {
     ESP_LOGI(TAG, "RX: %s", line);
+
+
+    // ---- NUEVO: handshake request ----
+    if (strcmp(line, "HMI,REQ,STATE") == 0)
+    {
+        ESP_LOGI(TAG, "HMI requested STATE");
+        send_state_to_hmi();
+        return;
+    }
+
 
     // -----------------------------
     // CTRL,TEL
@@ -85,6 +117,10 @@ void parse_line(const char *line)
             hmi_cmd_msg.phototherapyMode = photo;
             hmi_cmd_msg.muteAlarm = mute;
             hmi_cmd_msg.newCommand = true;
+
+            // ---- NUEVO: actualiza cache (para futuras respuestas CTRL,STATE) ----
+            g_last_cmd = hmi_cmd_msg;
+            g_last_cmd.newCommand = false;
 
             ESP_LOGI(TAG, "HMI CMD stored successfully");
         }
