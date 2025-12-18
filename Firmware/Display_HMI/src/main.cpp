@@ -352,19 +352,16 @@ void Switch_cb(lv_event_t * e) {
             if (lastSelectedPanel == AIR_PANEL_SELECTED) {
                 selectedPanel = AIR_PANEL_SELECTED;
                 set_active_panel(ui_AirPanel, ui_SkinPanel);
-                lv_obj_clear_flag(ui_AirTempChartCont, LV_OBJ_FLAG_HIDDEN);  // show Air temp chart
                 hmi_msg.controlMode = CONTROL_AIR;
             } 
             else if (lastSelectedPanel == SKIN_PANEL_SELECTED) {
                 selectedPanel = SKIN_PANEL_SELECTED;
                 set_active_panel(ui_SkinPanel, ui_AirPanel);
-                lv_obj_clear_flag(ui_SkinTempChartCont, LV_OBJ_FLAG_HIDDEN);  // show Skin temp chart
                 hmi_msg.controlMode = CONTROL_SKIN;
             } 
             else {  // No previous panel, default to Air
                 selectedPanel = AIR_PANEL_SELECTED;
                 set_active_panel(ui_AirPanel, ui_SkinPanel);
-                lv_obj_clear_flag(ui_AirTempChartCont, LV_OBJ_FLAG_HIDDEN);  // show Air temp chart
                 hmi_msg.controlMode = CONTROL_AIR;
             }
 
@@ -1342,6 +1339,14 @@ static void ui_set_switch_state_silent(lv_obj_t* sw, bool on)
 // ---- NUEVO: aplicar CTRL,STATE al display (UI + variables) ----
 static void Display_ApplyCtrlState(const ControlBoard_Message_State& st)
 {
+
+  // Si la motherboard aún no está lista y manda 0, NO machaques los defaults
+  if (st.desiredAirTemperature == 0.0f &&
+      st.desiredSkinTemperature == 0.0f &&
+      st.desiredHumidity == 0.0f) {
+    return;
+  }
+
   // 1) Setpoints/variables base
   airTempValue  = st.desiredAirTemperature;
   skinTempValue = st.desiredSkinTemperature;
