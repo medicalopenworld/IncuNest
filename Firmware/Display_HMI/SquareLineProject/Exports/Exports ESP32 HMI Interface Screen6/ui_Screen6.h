@@ -31,6 +31,7 @@ extern lv_obj_t * ui_ImagenWaterLS;
 extern lv_obj_t * ui_HumLockDesiredCont;
 extern lv_obj_t * ui_Label23;
 extern lv_obj_t * ui_Label24;
+extern lv_obj_t * ui_ArrowHumLock;
 extern lv_obj_t * ui_UnlockCont;
 extern lv_obj_t * ui_Panel11;
 extern lv_obj_t * ui_Label4;

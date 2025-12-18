@@ -8,9 +8,12 @@
 lv_obj_t * ui_Screen4 = NULL;
 lv_obj_t * ui_TabView1 = NULL;
 lv_obj_t * ui_TempChartPage1 = NULL;
-lv_obj_t * ui_TempChartCont = NULL;
-lv_obj_t * ui_TempChart = NULL;
+lv_obj_t * ui_AirTempChartCont = NULL;
+lv_obj_t * ui_AirTempChart = NULL;
 lv_obj_t * ui_Label37 = NULL;
+lv_obj_t * ui_SkinTempChartCont = NULL;
+lv_obj_t * ui_SkinTempChart = NULL;
+lv_obj_t * ui_Label38 = NULL;
 lv_obj_t * ui_HumChartPage2 = NULL;
 lv_obj_t * ui_HumChartCont = NULL;
 lv_obj_t * ui_HumChart = NULL;
@@ -47,36 +50,68 @@ void ui_Screen4_screen_init(void)
 
     ui_TempChartPage1 = lv_tabview_add_tab(ui_TabView1, "Temperature");
 
-    ui_TempChartCont = lv_obj_create(ui_TempChartPage1);
-    lv_obj_remove_style_all(ui_TempChartCont);
-    lv_obj_set_width(ui_TempChartCont, 771);
-    lv_obj_set_height(ui_TempChartCont, 389);
-    lv_obj_set_align(ui_TempChartCont, LV_ALIGN_CENTER);
-    lv_obj_clear_flag(ui_TempChartCont, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+    ui_AirTempChartCont = lv_obj_create(ui_TempChartPage1);
+    lv_obj_remove_style_all(ui_AirTempChartCont);
+    lv_obj_set_width(ui_AirTempChartCont, 771);
+    lv_obj_set_height(ui_AirTempChartCont, 389);
+    lv_obj_set_align(ui_AirTempChartCont, LV_ALIGN_CENTER);
+    lv_obj_clear_flag(ui_AirTempChartCont, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
-    ui_TempChart = lv_chart_create(ui_TempChartCont);
-    lv_obj_set_width(ui_TempChart, 637);
-    lv_obj_set_height(ui_TempChart, 287);
-    lv_obj_set_x(ui_TempChart, -1);
-    lv_obj_set_y(ui_TempChart, -1);
-    lv_obj_set_align(ui_TempChart, LV_ALIGN_CENTER);
-    lv_chart_set_type(ui_TempChart, LV_CHART_TYPE_LINE);
-    lv_chart_set_axis_tick(ui_TempChart, LV_CHART_AXIS_PRIMARY_X, 10, 5, 5, 2, true, 50);
-    lv_chart_set_axis_tick(ui_TempChart, LV_CHART_AXIS_PRIMARY_Y, 10, 5, 5, 2, true, 50);
-    lv_chart_set_axis_tick(ui_TempChart, LV_CHART_AXIS_SECONDARY_Y, 10, 5, 5, 2, true, 25);
-    lv_chart_series_t * ui_TempChart_series_1 = lv_chart_add_series(ui_TempChart, lv_color_hex(0x808080),
-                                                                    LV_CHART_AXIS_PRIMARY_Y);
-    static lv_coord_t ui_TempChart_series_1_array[] = { 0, 10, 20, 40, 80, 80, 40, 20, 10, 0 };
-    lv_chart_set_ext_y_array(ui_TempChart, ui_TempChart_series_1, ui_TempChart_series_1_array);
+    ui_AirTempChart = lv_chart_create(ui_AirTempChartCont);
+    lv_obj_set_width(ui_AirTempChart, 637);
+    lv_obj_set_height(ui_AirTempChart, 287);
+    lv_obj_set_x(ui_AirTempChart, -1);
+    lv_obj_set_y(ui_AirTempChart, -1);
+    lv_obj_set_align(ui_AirTempChart, LV_ALIGN_CENTER);
+    lv_chart_set_type(ui_AirTempChart, LV_CHART_TYPE_LINE);
+    lv_chart_set_axis_tick(ui_AirTempChart, LV_CHART_AXIS_PRIMARY_X, 10, 5, 5, 2, true, 50);
+    lv_chart_set_axis_tick(ui_AirTempChart, LV_CHART_AXIS_PRIMARY_Y, 10, 5, 5, 2, true, 50);
+    lv_chart_set_axis_tick(ui_AirTempChart, LV_CHART_AXIS_SECONDARY_Y, 10, 5, 5, 2, true, 25);
+    lv_chart_series_t * ui_AirTempChart_series_1 = lv_chart_add_series(ui_AirTempChart, lv_color_hex(0x808080),
+                                                                       LV_CHART_AXIS_PRIMARY_Y);
+    static lv_coord_t ui_AirTempChart_series_1_array[] = { 0, 10, 20, 40, 80, 80, 40, 20, 10, 0 };
+    lv_chart_set_ext_y_array(ui_AirTempChart, ui_AirTempChart_series_1, ui_AirTempChart_series_1_array);
 
-    ui_Label37 = lv_label_create(ui_TempChartCont);
+    ui_Label37 = lv_label_create(ui_AirTempChartCont);
     lv_obj_set_width(ui_Label37, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_Label37, LV_SIZE_CONTENT);    /// 1
     lv_obj_set_x(ui_Label37, -2);
     lv_obj_set_y(ui_Label37, -165);
     lv_obj_set_align(ui_Label37, LV_ALIGN_CENTER);
-    lv_label_set_text(ui_Label37, "TEMPERATURE CHART");
+    lv_label_set_text(ui_Label37, "AIR TEMPERATURE CHART");
     lv_obj_set_style_text_font(ui_Label37, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_SkinTempChartCont = lv_obj_create(ui_TempChartPage1);
+    lv_obj_remove_style_all(ui_SkinTempChartCont);
+    lv_obj_set_width(ui_SkinTempChartCont, 771);
+    lv_obj_set_height(ui_SkinTempChartCont, 389);
+    lv_obj_set_align(ui_SkinTempChartCont, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_SkinTempChartCont, LV_OBJ_FLAG_HIDDEN);     /// Flags
+    lv_obj_clear_flag(ui_SkinTempChartCont, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+
+    ui_SkinTempChart = lv_chart_create(ui_SkinTempChartCont);
+    lv_obj_set_width(ui_SkinTempChart, 637);
+    lv_obj_set_height(ui_SkinTempChart, 287);
+    lv_obj_set_x(ui_SkinTempChart, -1);
+    lv_obj_set_y(ui_SkinTempChart, -1);
+    lv_obj_set_align(ui_SkinTempChart, LV_ALIGN_CENTER);
+    lv_chart_set_type(ui_SkinTempChart, LV_CHART_TYPE_LINE);
+    lv_chart_set_axis_tick(ui_SkinTempChart, LV_CHART_AXIS_PRIMARY_X, 10, 5, 5, 2, true, 50);
+    lv_chart_set_axis_tick(ui_SkinTempChart, LV_CHART_AXIS_PRIMARY_Y, 10, 5, 5, 2, true, 50);
+    lv_chart_set_axis_tick(ui_SkinTempChart, LV_CHART_AXIS_SECONDARY_Y, 10, 5, 5, 2, true, 25);
+    lv_chart_series_t * ui_SkinTempChart_series_1 = lv_chart_add_series(ui_SkinTempChart, lv_color_hex(0x808080),
+                                                                        LV_CHART_AXIS_PRIMARY_Y);
+    static lv_coord_t ui_SkinTempChart_series_1_array[] = { 0, 10, 20, 40, 80, 80, 40, 20, 10, 0 };
+    lv_chart_set_ext_y_array(ui_SkinTempChart, ui_SkinTempChart_series_1, ui_SkinTempChart_series_1_array);
+
+    ui_Label38 = lv_label_create(ui_SkinTempChartCont);
+    lv_obj_set_width(ui_Label38, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_Label38, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_x(ui_Label38, -2);
+    lv_obj_set_y(ui_Label38, -165);
+    lv_obj_set_align(ui_Label38, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_Label38, "SKIN TEMPERATURE CHART");
+    lv_obj_set_style_text_font(ui_Label38, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_HumChartPage2 = lv_tabview_add_tab(ui_TabView1, "Humidity");
 
@@ -165,9 +200,12 @@ void ui_Screen4_screen_destroy(void)
     ui_Screen4 = NULL;
     ui_TabView1 = NULL;
     ui_TempChartPage1 = NULL;
-    ui_TempChartCont = NULL;
-    ui_TempChart = NULL;
+    ui_AirTempChartCont = NULL;
+    ui_AirTempChart = NULL;
     ui_Label37 = NULL;
+    ui_SkinTempChartCont = NULL;
+    ui_SkinTempChart = NULL;
+    ui_Label38 = NULL;
     ui_HumChartPage2 = NULL;
     ui_HumChartCont = NULL;
     ui_HumChart = NULL;

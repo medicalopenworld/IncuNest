@@ -46,9 +46,8 @@ bool LanguagesVisible = false;
 bool locked = true;
 
 
-
-
-lv_chart_series_t * tempSeries = NULL;
+lv_chart_series_t * airTempSeries = NULL;
+lv_chart_series_t * skinTempSeries = NULL;
 lv_chart_series_t * humSeries  = NULL;
 
 static bool g_stateSynced = false;
@@ -251,6 +250,75 @@ void update_labels() {
     }
 }
 
+static lv_chart_series_t* configure_temp_chart(lv_obj_t* chart, lv_palette_t pal)
+{
+    // Remove series created by SquareLine
+    lv_chart_series_t * s = lv_chart_get_series_next(chart, NULL);
+    while (s != NULL) {
+        lv_chart_series_t * next = lv_chart_get_series_next(chart, s);
+        lv_chart_remove_series(chart, s);
+        s = next;
+    }
+
+    lv_chart_set_type(chart, LV_CHART_TYPE_LINE);
+    lv_chart_set_point_count(chart, 50);
+    lv_chart_set_range(chart, LV_CHART_AXIS_PRIMARY_Y, 20, 45);
+
+    lv_chart_series_t* series = lv_chart_add_series(chart,
+                                                    lv_palette_main(pal),
+                                                    LV_CHART_AXIS_PRIMARY_Y);
+
+    lv_chart_set_axis_tick(chart, LV_CHART_AXIS_SECONDARY_Y, 0, 0, 0, 0, false, 0);
+    lv_chart_set_axis_tick(chart, LV_CHART_AXIS_PRIMARY_X,   0, 0, 0, 0, false, 0);
+
+    for (int i = 0; i < lv_chart_get_point_count(chart); i++) {
+        series->y_points[i] = LV_CHART_POINT_NONE;
+    }
+    lv_chart_refresh(chart);
+
+    return series;
+}
+
+static void temp_chart_show_for_selected_panel(void)
+{
+    // Si temp OFF: oculta ambos
+    if (!tempSwitched) {
+        lv_obj_add_flag(ui_AirTempChartCont,  LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ui_SkinTempChartCont, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+
+    // Temp ON: por defecto AIR si no hay panel válido
+    if (selectedPanel != AIR_PANEL_SELECTED && selectedPanel != SKIN_PANEL_SELECTED) {
+        selectedPanel = AIR_PANEL_SELECTED;
+        lastSelectedPanel = selectedPanel;
+        hmi_msg.controlMode = CONTROL_AIR;
+    }
+
+    // Hide both primero (evita que se queden los 2 visibles)
+    lv_obj_add_flag(ui_AirTempChartCont,  LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_SkinTempChartCont, LV_OBJ_FLAG_HIDDEN);
+
+    // Show el correcto
+    if (selectedPanel == AIR_PANEL_SELECTED) {
+        lv_obj_clear_flag(ui_AirTempChartCont, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_clear_flag(ui_SkinTempChartCont, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+static void chart_add_air_temp(float v)
+{
+    if (!airTempSeries) return;
+    lv_chart_set_next_value(ui_AirTempChart, airTempSeries, (lv_coord_t)v);
+}
+
+static void chart_add_skin_temp(float v)
+{
+    if (!skinTempSeries) return;
+    lv_chart_set_next_value(ui_SkinTempChart, skinTempSeries, (lv_coord_t)v);
+}
+
 /* Temperature and humidity panel styling */
 void set_active_panel(lv_obj_t* active, lv_obj_t* inactive) {
     // Active panel → blue with full opacity
@@ -278,24 +346,29 @@ void Switch_cb(lv_event_t * e) {
             // mark last pressed chart and show temp page
             chartLastPressed = 0;
             lv_tabview_set_act(ui_TabView1, 0, LV_ANIM_ON);
-            lv_obj_clear_flag(ui_TempChartCont, LV_OBJ_FLAG_HIDDEN);  // show temp
+            
 
             // Gray out both panels initially
             if (lastSelectedPanel == AIR_PANEL_SELECTED) {
                 selectedPanel = AIR_PANEL_SELECTED;
                 set_active_panel(ui_AirPanel, ui_SkinPanel);
+                lv_obj_clear_flag(ui_AirTempChartCont, LV_OBJ_FLAG_HIDDEN);  // show Air temp chart
                 hmi_msg.controlMode = CONTROL_AIR;
             } 
             else if (lastSelectedPanel == SKIN_PANEL_SELECTED) {
                 selectedPanel = SKIN_PANEL_SELECTED;
                 set_active_panel(ui_SkinPanel, ui_AirPanel);
+                lv_obj_clear_flag(ui_SkinTempChartCont, LV_OBJ_FLAG_HIDDEN);  // show Skin temp chart
                 hmi_msg.controlMode = CONTROL_SKIN;
             } 
             else {  // No previous panel, default to Air
                 selectedPanel = AIR_PANEL_SELECTED;
                 set_active_panel(ui_AirPanel, ui_SkinPanel);
+                lv_obj_clear_flag(ui_AirTempChartCont, LV_OBJ_FLAG_HIDDEN);  // show Air temp chart
                 hmi_msg.controlMode = CONTROL_AIR;
             }
+
+            temp_chart_show_for_selected_panel();
 
             // Enable temperature arrows
             arrowsActive = true;
@@ -305,7 +378,9 @@ void Switch_cb(lv_event_t * e) {
             lv_obj_set_style_bg_color(ui_ArrowUpTemp,   COLOR_PANEL_WHITE, LV_PART_MAIN);
         } 
         else {  // Temperature switch turned OFF
-            lv_obj_add_flag(ui_TempChartCont, LV_OBJ_FLAG_HIDDEN);  // hide temp chart
+            selectedPanel = NO_PANEL_SELECTED;
+            lv_obj_add_flag(ui_AirTempChartCont, LV_OBJ_FLAG_HIDDEN);  // hide temp chart
+            lv_obj_add_flag(ui_SkinTempChartCont, LV_OBJ_FLAG_HIDDEN);  // hide skin temp chart
             arrowsActive = false;
 
             // If humidity is ON, switch to humidity chart
@@ -366,9 +441,9 @@ void Switch_cb(lv_event_t * e) {
             if (switchTemp) {
                 chartLastPressed = 0;
                 lv_tabview_set_act(ui_TabView1, 0, LV_ANIM_ON);
-                lv_obj_clear_flag(ui_TempChartCont, LV_OBJ_FLAG_HIDDEN);
+                lv_obj_clear_flag(ui_AirTempChartCont, LV_OBJ_FLAG_HIDDEN);
             } else {
-                lv_obj_add_flag(ui_TempChartCont, LV_OBJ_FLAG_HIDDEN);
+                lv_obj_add_flag(ui_AirTempChartCont, LV_OBJ_FLAG_HIDDEN);
                 chartLastPressed = -1;
             }
             // Hide humidity target when humidity turned off
@@ -617,6 +692,7 @@ void AirPanel_cb(lv_event_t * e) {
     hmi_msg.shouldSendData = true;
 
     update_labels();
+    temp_chart_show_for_selected_panel();
 }
 
 /* Callback when Skin panel is clicked */
@@ -640,7 +716,7 @@ void SkinPanel_cb(lv_event_t * e) {
     hmi_msg.shouldSendData = true;
     
     update_labels();
-
+    temp_chart_show_for_selected_panel();
 }
 
 /* Setup panel click callbacks */
@@ -923,14 +999,6 @@ void AlarmsTabview_cb(lv_event_t * e)
     }
 }
 
-void chart_add_temp_value(float temp)
-{
-    if (tempSeries == NULL) return;
-
-    // Convert to lv_coord_t (int16)
-    lv_chart_set_next_value(ui_TempChart, tempSeries, (lv_coord_t)temp);
-}
-
 void chart_add_hum_value(float hum)
 {
     if (humSeries == NULL) return;
@@ -956,7 +1024,10 @@ void applyHMIData() {
     // Add to charts
     //chart_add_hum_value((float)humValueDetected);
     //chart_add_skin_temp_value((float)skinTempValueDetected);
-    chart_add_temp_value((float)airTempValueDetected);
+    if (tempSwitched) {
+      chart_add_air_temp((float)airTempValueDetected);
+      chart_add_skin_temp((float)skinTempValueDetected);
+    }
     chart_add_hum_value((float)humValueDetected);
     // -----------------------------
     // Simulate switches according to 'actuation'
@@ -1067,10 +1138,12 @@ static void show_targets_for_mode(void)
     lv_obj_add_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_HumLockDesiredCont, LV_OBJ_FLAG_HIDDEN);
 
-    if (selectedPanel == AIR_PANEL_SELECTED) {
-        lv_obj_clear_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);
-    } else if (selectedPanel == SKIN_PANEL_SELECTED) {
-        lv_obj_clear_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
+    if (tempSwitched) {
+      if (selectedPanel == AIR_PANEL_SELECTED) {
+          lv_obj_clear_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);
+      } else if (selectedPanel == SKIN_PANEL_SELECTED) {
+          lv_obj_clear_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
+      }
     }
     // Show humidity target only if humidity switch is active
     if (switchHum) {
@@ -1396,6 +1469,8 @@ static void Display_StateSync_Service(void)
   }
 }
 
+
+
 // ====================================================================
 
 void setup()
@@ -1625,14 +1700,6 @@ void setup()
     lv_obj_add_flag(ui_Panel10, LV_OBJ_FLAG_HIDDEN);
 
 
-    // === Hidden Charts at Startup ===
-    lv_obj_add_flag(ui_TempChartCont, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(ui_HumChartCont,  LV_OBJ_FLAG_HIDDEN);
-    // Hide entire tabview by default so no tabs appear at startup
-    lv_obj_add_flag(ui_TabView1, LV_OBJ_FLAG_HIDDEN);
-
-
-
     // ===========================
     // Lock screen configuration
     // ===========================
@@ -1666,61 +1733,29 @@ void setup()
     // WIFI connect button
     lv_obj_add_event_cb(ui_WifiConnectButton, WifiConnectButton_cb, LV_EVENT_CLICKED, NULL);
 
+
+    
     // ============================================================================
-    // TempChart configuration
+    // TempChart configuration (AIR + SKIN)
     // ============================================================================
 
-     // ===== Limpiar series creadas por SquareLine =====
-    lv_chart_series_t * s = lv_chart_get_series_next(ui_TempChart, NULL);
-    while (s != NULL) {
-        lv_chart_series_t * next = lv_chart_get_series_next(ui_TempChart, s);
-        lv_chart_remove_series(ui_TempChart, s);
-        s = next;
-    }
+    airTempSeries  = configure_temp_chart(ui_AirTempChart,  LV_PALETTE_BLUE);
+    skinTempSeries = configure_temp_chart(ui_SkinTempChart, LV_PALETTE_BLUE);
+    
+    // === Hidden Charts at Startup ===
+    lv_obj_add_flag(ui_AirTempChartCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_SkinTempChartCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_HumChartCont,  LV_OBJ_FLAG_HIDDEN);
+    // Hide entire tabview by default so no tabs appear at startup
+    lv_obj_add_flag(ui_TabView1, LV_OBJ_FLAG_HIDDEN);
+  
 
-    // ===== Configuration of TempChart =====
-    lv_chart_set_type(ui_TempChart, LV_CHART_TYPE_LINE);
-
-    // How many points to store (display) 
-    lv_chart_set_point_count(ui_TempChart, 50);
-
-    // Y-axis range (for example from 20ºC to 45ºC)
-    lv_chart_set_range(ui_TempChart,
-                       LV_CHART_AXIS_PRIMARY_Y,
-                       20, 45);
-
-    // Create the series (any color you want)
-    tempSeries = lv_chart_add_series(ui_TempChart,
-                                     lv_palette_main(LV_PALETTE_BLUE),
-                                     LV_CHART_AXIS_PRIMARY_Y);
-
-    // Hide secondary Y axis (right)
-    lv_chart_set_axis_tick(ui_TempChart,
-                        LV_CHART_AXIS_SECONDARY_Y,
-                        0,    // major_len
-                        0,    // minor_len
-                        0,    // major_cnt
-                        0,    // minor_cnt
-                        false,// label_en -> no text
-                        0);   // draw_size
-
-    // Hide X axis ticks and labels
-    lv_chart_set_axis_tick(ui_TempChart,
-                        LV_CHART_AXIS_PRIMARY_X,
-                        0, 0, 0, 0, false, 0);
-            
-    // Optional: initialize all points to 0 or a neutral value
-    for (int i = 0; i < lv_chart_get_point_count(ui_TempChart); i++) {
-        tempSeries->y_points[i] = LV_CHART_POINT_NONE;   // or a specific value
-    }
-    lv_chart_refresh(ui_TempChart);
-
-     // ============================================================================
+    // ============================================================================
     // HumChart configuration
     // ============================================================================
 
     // Remove series created by SquareLine
-    s = lv_chart_get_series_next(ui_HumChart, NULL);
+    lv_chart_series_t * s = lv_chart_get_series_next(ui_HumChart, NULL);
     while (s != NULL) {
         lv_chart_series_t * next = lv_chart_get_series_next(ui_HumChart, s);
         lv_chart_remove_series(ui_HumChart, s);
@@ -1852,7 +1887,7 @@ void loop() {
     delay(LOOP_DELAY_MS);
 
     Display_StateSync_Service();
-    
+
     if (ReceiveMessageFromOtherESP()) {
 
     // if new alarm received

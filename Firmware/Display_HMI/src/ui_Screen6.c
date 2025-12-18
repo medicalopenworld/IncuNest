@@ -23,6 +23,7 @@ lv_obj_t * ui_ImagenWaterLS = NULL;
 lv_obj_t * ui_HumLockDesiredCont = NULL;
 lv_obj_t * ui_Label23 = NULL;
 lv_obj_t * ui_Label24 = NULL;
+lv_obj_t * ui_ArrowHumLock = NULL;
 lv_obj_t * ui_UnlockCont = NULL;
 lv_obj_t * ui_Panel11 = NULL;
 lv_obj_t * ui_Label4 = NULL;
@@ -235,6 +236,17 @@ void ui_Screen6_screen_init(void)
     lv_obj_set_style_text_opa(ui_Label24, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(ui_Label24, &lv_font_montserrat_48, LV_PART_MAIN | LV_STATE_DEFAULT);
 
+    ui_ArrowHumLock = lv_img_create(ui_HumLockDesiredCont);
+    lv_img_set_src(ui_ArrowHumLock, &ui_img_flecha_png);
+    lv_obj_set_width(ui_ArrowHumLock, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_ArrowHumLock, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_x(ui_ArrowHumLock, -155);
+    lv_obj_set_y(ui_ArrowHumLock, 3);
+    lv_obj_set_align(ui_ArrowHumLock, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_ArrowHumLock, LV_OBJ_FLAG_ADV_HITTEST);     /// Flags
+    lv_obj_clear_flag(ui_ArrowHumLock, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+    lv_img_set_zoom(ui_ArrowHumLock, 100);
+
     ui_UnlockCont = lv_obj_create(ui_Screen6);
     lv_obj_remove_style_all(ui_UnlockCont);
     lv_obj_set_width(ui_UnlockCont, 217);
@@ -306,7 +318,7 @@ void ui_Screen6_screen_init(void)
     lv_img_set_src(ui_ArrowSkinLock, &ui_img_flecha_png);
     lv_obj_set_width(ui_ArrowSkinLock, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_ArrowSkinLock, LV_SIZE_CONTENT);    /// 1
-    lv_obj_set_x(ui_ArrowSkinLock, -120);
+    lv_obj_set_x(ui_ArrowSkinLock, -130);
     lv_obj_set_y(ui_ArrowSkinLock, 3);
     lv_obj_set_align(ui_ArrowSkinLock, LV_ALIGN_CENTER);
     lv_obj_add_flag(ui_ArrowSkinLock, LV_OBJ_FLAG_ADV_HITTEST);     /// Flags
@@ -359,7 +371,7 @@ void ui_Screen6_screen_init(void)
     lv_img_set_src(ui_ArrowAirLock, &ui_img_flecha_png);
     lv_obj_set_width(ui_ArrowAirLock, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_ArrowAirLock, LV_SIZE_CONTENT);    /// 1
-    lv_obj_set_x(ui_ArrowAirLock, -120);
+    lv_obj_set_x(ui_ArrowAirLock, -130);
     lv_obj_set_y(ui_ArrowAirLock, 3);
     lv_obj_set_align(ui_ArrowAirLock, LV_ALIGN_CENTER);
     lv_obj_add_flag(ui_ArrowAirLock, LV_OBJ_FLAG_ADV_HITTEST);     /// Flags
@@ -461,6 +473,7 @@ void ui_Screen6_screen_destroy(void)
     ui_HumLockDesiredCont = NULL;
     ui_Label23 = NULL;
     ui_Label24 = NULL;
+    ui_ArrowHumLock = NULL;
     ui_UnlockCont = NULL;
     ui_Panel11 = NULL;
     ui_Label4 = NULL;
