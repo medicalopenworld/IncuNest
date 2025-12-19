@@ -41,7 +41,7 @@ void ui_init(void)
     ui_ScreenLock_screen_init();
     ui_ScreenIntro_screen_init();
     ui____initial_actions0 = lv_obj_create(NULL);
-    lv_disp_load_scr(ui_ScreenMain);
+    lv_disp_load_scr(ui_ScreenIntro);
 }
 
 void ui_destroy(void)
