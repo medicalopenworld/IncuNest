@@ -7,7 +7,7 @@
 
 lv_obj_t * uic_HumidButton;
 lv_obj_t * uic_Tempbutton;
-lv_obj_t * ui_Screen1 = NULL;
+lv_obj_t * ui_ScreenMain = NULL;
 lv_obj_t * ui_Incunest = NULL;
 lv_obj_t * ui_Settings = NULL;
 lv_obj_t * ui_AlarmButton = NULL;
@@ -79,8 +79,8 @@ void ui_event_Settings(lv_event_t * e)
     lv_event_code_t event_code = lv_event_get_code(e);
 
     if(event_code == LV_EVENT_CLICKED) {
-        _ui_screen_change(&ui_Screen2, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_Screen2_screen_init);
-        _ui_screen_delete(&ui_Screen1);
+        _ui_screen_change(&ui_ScreenSettings, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_ScreenSettings_screen_init);
+        _ui_screen_delete(&ui_ScreenMain);
     }
 }
 
@@ -89,8 +89,8 @@ void ui_event_AlarmButton(lv_event_t * e)
     lv_event_code_t event_code = lv_event_get_code(e);
 
     if(event_code == LV_EVENT_CLICKED) {
-        _ui_screen_change(&ui_Screen3, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_Screen3_screen_init);
-        _ui_screen_delete(&ui_Screen1);
+        _ui_screen_change(&ui_ScreenAlarms, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_ScreenAlarms_screen_init);
+        _ui_screen_delete(&ui_ScreenMain);
     }
 }
 
@@ -99,8 +99,8 @@ void ui_event_SPO2Button(lv_event_t * e)
     lv_event_code_t event_code = lv_event_get_code(e);
 
     if(event_code == LV_EVENT_CLICKED) {
-        _ui_screen_delete(&ui_Screen1);
-        _ui_screen_change(&ui_Screen5, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_Screen5_screen_init);
+        _ui_screen_delete(&ui_ScreenMain);
+        _ui_screen_change(&ui_ScreenPulseOxi, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_ScreenPulseOxi_screen_init);
     }
 }
 
@@ -109,19 +109,19 @@ void ui_event_ChartButton(lv_event_t * e)
     lv_event_code_t event_code = lv_event_get_code(e);
 
     if(event_code == LV_EVENT_CLICKED) {
-        _ui_screen_delete(&ui_Screen1);
-        _ui_screen_change(&ui_Screen4, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_Screen4_screen_init);
+        _ui_screen_delete(&ui_ScreenMain);
+        _ui_screen_change(&ui_ScreenCharts, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_ScreenCharts_screen_init);
     }
 }
 
 // build funtions
 
-void ui_Screen1_screen_init(void)
+void ui_ScreenMain_screen_init(void)
 {
-    ui_Screen1 = lv_obj_create(NULL);
-    lv_obj_clear_flag(ui_Screen1, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+    ui_ScreenMain = lv_obj_create(NULL);
+    lv_obj_clear_flag(ui_ScreenMain, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
-    ui_Incunest = lv_label_create(ui_Screen1);
+    ui_Incunest = lv_label_create(ui_ScreenMain);
     lv_obj_set_width(ui_Incunest, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_Incunest, LV_SIZE_CONTENT);    /// 1
     lv_obj_set_x(ui_Incunest, -325);
@@ -130,7 +130,7 @@ void ui_Screen1_screen_init(void)
     lv_label_set_text(ui_Incunest, "IncuNest");
     lv_obj_set_style_text_font(ui_Incunest, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    ui_Settings = lv_imgbtn_create(ui_Screen1);
+    ui_Settings = lv_imgbtn_create(ui_ScreenMain);
     lv_imgbtn_set_src(ui_Settings, LV_IMGBTN_STATE_RELEASED, NULL, &ui_img_296721678, NULL);
     lv_imgbtn_set_src(ui_Settings, LV_IMGBTN_STATE_PRESSED, NULL, &ui_img_296721678, NULL);
     lv_obj_set_width(ui_Settings, 50);
@@ -139,7 +139,7 @@ void ui_Screen1_screen_init(void)
     lv_obj_set_y(ui_Settings, -215);
     lv_obj_set_align(ui_Settings, LV_ALIGN_CENTER);
 
-    ui_AlarmButton = lv_imgbtn_create(ui_Screen1);
+    ui_AlarmButton = lv_imgbtn_create(ui_ScreenMain);
     lv_imgbtn_set_src(ui_AlarmButton, LV_IMGBTN_STATE_RELEASED, NULL, &ui_img_1007688293, NULL);
     lv_obj_set_width(ui_AlarmButton, 48);
     lv_obj_set_height(ui_AlarmButton, 47);
@@ -147,7 +147,7 @@ void ui_Screen1_screen_init(void)
     lv_obj_set_y(ui_AlarmButton, -212);
     lv_obj_set_align(ui_AlarmButton, LV_ALIGN_CENTER);
 
-    ui_TempCont = lv_obj_create(ui_Screen1);
+    ui_TempCont = lv_obj_create(ui_ScreenMain);
     lv_obj_remove_style_all(ui_TempCont);
     lv_obj_set_width(ui_TempCont, 381);
     lv_obj_set_height(ui_TempCont, 421);
@@ -449,7 +449,7 @@ void ui_Screen1_screen_init(void)
     lv_obj_set_style_bg_img_opa(ui_TempButton, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_opa(ui_TempButton, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    ui_HumCont = lv_obj_create(ui_Screen1);
+    ui_HumCont = lv_obj_create(ui_ScreenMain);
     lv_obj_remove_style_all(ui_HumCont);
     lv_obj_set_width(ui_HumCont, 378);
     lv_obj_set_height(ui_HumCont, 248);
@@ -615,7 +615,7 @@ void ui_Screen1_screen_init(void)
     lv_obj_set_align(ui_HumidityLabel, LV_ALIGN_CENTER);
     lv_label_set_text(ui_HumidityLabel, "Humidity control");
 
-    ui_PhotoCont = lv_obj_create(ui_Screen1);
+    ui_PhotoCont = lv_obj_create(ui_ScreenMain);
     lv_obj_remove_style_all(ui_PhotoCont);
     lv_obj_set_width(ui_PhotoCont, 384);
     lv_obj_set_height(ui_PhotoCont, 54);
@@ -663,7 +663,7 @@ void ui_Screen1_screen_init(void)
     lv_obj_set_align(ui_Label10, LV_ALIGN_CENTER);
     lv_label_set_text(ui_Label10, "ON");
 
-    ui_Panel10 = lv_obj_create(ui_Screen1);
+    ui_Panel10 = lv_obj_create(ui_ScreenMain);
     lv_obj_set_width(ui_Panel10, 24);
     lv_obj_set_height(ui_Panel10, 27);
     lv_obj_set_x(ui_Panel10, 275);
@@ -673,7 +673,7 @@ void ui_Screen1_screen_init(void)
     lv_obj_set_style_bg_color(ui_Panel10, lv_color_hex(0xFF0000), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(ui_Panel10, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    ui_NumAlarm = lv_label_create(ui_Screen1);
+    ui_NumAlarm = lv_label_create(ui_ScreenMain);
     lv_obj_set_width(ui_NumAlarm, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_NumAlarm, LV_SIZE_CONTENT);    /// 1
     lv_obj_set_x(ui_NumAlarm, 275);
@@ -684,7 +684,7 @@ void ui_Screen1_screen_init(void)
     lv_obj_set_style_text_opa(ui_NumAlarm, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(ui_NumAlarm, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    ui_SPO2Button = lv_imgbtn_create(ui_Screen1);
+    ui_SPO2Button = lv_imgbtn_create(ui_ScreenMain);
     lv_imgbtn_set_src(ui_SPO2Button, LV_IMGBTN_STATE_RELEASED, NULL, &ui_img_pulse_png, NULL);
     lv_obj_set_width(ui_SPO2Button, 51);
     lv_obj_set_height(ui_SPO2Button, 47);
@@ -692,7 +692,7 @@ void ui_Screen1_screen_init(void)
     lv_obj_set_y(ui_SPO2Button, -213);
     lv_obj_set_align(ui_SPO2Button, LV_ALIGN_CENTER);
 
-    ui_ChartButton = lv_imgbtn_create(ui_Screen1);
+    ui_ChartButton = lv_imgbtn_create(ui_ScreenMain);
     lv_imgbtn_set_src(ui_ChartButton, LV_IMGBTN_STATE_RELEASED, NULL, &ui_img_chart_png, NULL);
     lv_obj_set_width(ui_ChartButton, 52);
     lv_obj_set_height(ui_ChartButton, 51);
@@ -709,12 +709,12 @@ void ui_Screen1_screen_init(void)
 
 }
 
-void ui_Screen1_screen_destroy(void)
+void ui_ScreenMain_screen_destroy(void)
 {
-    if(ui_Screen1) lv_obj_del(ui_Screen1);
+    if(ui_ScreenMain) lv_obj_del(ui_ScreenMain);
 
     // NULL screen variables
-    ui_Screen1 = NULL;
+    ui_ScreenMain = NULL;
     ui_Incunest = NULL;
     ui_Settings = NULL;
     ui_AlarmButton = NULL;

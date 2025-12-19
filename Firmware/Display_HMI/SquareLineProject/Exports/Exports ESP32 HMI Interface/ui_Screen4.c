@@ -5,7 +5,7 @@
 
 #include "ui.h"
 
-lv_obj_t * ui_Screen4 = NULL;
+lv_obj_t * ui_ScreenCharts = NULL;
 lv_obj_t * ui_ImgButton8 = NULL;
 lv_obj_t * ui_HumChartCont = NULL;
 lv_obj_t * ui_HumChart = NULL;
@@ -22,19 +22,19 @@ void ui_event_ImgButton8(lv_event_t * e)
     lv_event_code_t event_code = lv_event_get_code(e);
 
     if(event_code == LV_EVENT_CLICKED) {
-        _ui_screen_change(&ui_Screen1, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_Screen1_screen_init);
-        _ui_screen_delete(&ui_Screen4);
+        _ui_screen_change(&ui_ScreenMain, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_ScreenMain_screen_init);
+        _ui_screen_delete(&ui_ScreenCharts);
     }
 }
 
 // build funtions
 
-void ui_Screen4_screen_init(void)
+void ui_ScreenCharts_screen_init(void)
 {
-    ui_Screen4 = lv_obj_create(NULL);
-    lv_obj_clear_flag(ui_Screen4, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+    ui_ScreenCharts = lv_obj_create(NULL);
+    lv_obj_clear_flag(ui_ScreenCharts, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
-    ui_ImgButton8 = lv_imgbtn_create(ui_Screen4);
+    ui_ImgButton8 = lv_imgbtn_create(ui_ScreenCharts);
     lv_imgbtn_set_src(ui_ImgButton8, LV_IMGBTN_STATE_RELEASED, NULL, &ui_img_1508956403, NULL);
     lv_obj_set_width(ui_ImgButton8, 50);
     lv_obj_set_height(ui_ImgButton8, 52);
@@ -42,7 +42,7 @@ void ui_Screen4_screen_init(void)
     lv_obj_set_y(ui_ImgButton8, -204);
     lv_obj_set_align(ui_ImgButton8, LV_ALIGN_CENTER);
 
-    ui_HumChartCont = lv_obj_create(ui_Screen4);
+    ui_HumChartCont = lv_obj_create(ui_ScreenCharts);
     lv_obj_remove_style_all(ui_HumChartCont);
     lv_obj_set_width(ui_HumChartCont, 776);
     lv_obj_set_height(ui_HumChartCont, 477);
@@ -76,7 +76,7 @@ void ui_Screen4_screen_init(void)
     lv_label_set_text(ui_Label36, "HUMIDITY CHART");
     lv_obj_set_style_text_font(ui_Label36, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    ui_OxChartCont = lv_obj_create(ui_Screen4);
+    ui_OxChartCont = lv_obj_create(ui_ScreenCharts);
     lv_obj_remove_style_all(ui_OxChartCont);
     lv_obj_set_width(ui_OxChartCont, 775);
     lv_obj_set_height(ui_OxChartCont, 468);
@@ -108,7 +108,7 @@ void ui_Screen4_screen_init(void)
     lv_label_set_text(ui_Label35, "OXIMETRY CHART");
     lv_obj_set_style_text_font(ui_Label35, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    ui_TempChartCont = lv_obj_create(ui_Screen4);
+    ui_TempChartCont = lv_obj_create(ui_ScreenCharts);
     lv_obj_remove_style_all(ui_TempChartCont);
     lv_obj_set_width(ui_TempChartCont, 771);
     lv_obj_set_height(ui_TempChartCont, 466);
@@ -143,12 +143,12 @@ void ui_Screen4_screen_init(void)
 
 }
 
-void ui_Screen4_screen_destroy(void)
+void ui_ScreenCharts_screen_destroy(void)
 {
-    if(ui_Screen4) lv_obj_del(ui_Screen4);
+    if(ui_ScreenCharts) lv_obj_del(ui_ScreenCharts);
 
     // NULL screen variables
-    ui_Screen4 = NULL;
+    ui_ScreenCharts = NULL;
     ui_ImgButton8 = NULL;
     ui_HumChartCont = NULL;
     ui_HumChart = NULL;

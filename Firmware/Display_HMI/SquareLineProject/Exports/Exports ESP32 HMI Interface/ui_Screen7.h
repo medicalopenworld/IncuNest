@@ -3,17 +3,17 @@
 // LVGL version: 8.3.11
 // Project name: esp32HMIInterface
 
-#ifndef UI_Screen7_H
-#define UI_Screen7_H
+#ifndef UI_ScreenIntro_H
+#define UI_ScreenIntro_H
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-// SCREEN: ui_Screen7
-extern void ui_Screen7_screen_init(void);
-extern void ui_Screen7_screen_destroy(void);
-extern lv_obj_t * ui_Screen7;
+// SCREEN: ui_ScreenIntro
+extern void ui_ScreenIntro_screen_init(void);
+extern void ui_ScreenIntro_screen_destroy(void);
+extern lv_obj_t * ui_ScreenIntro;
 extern lv_obj_t * ui_LockButton;
 extern lv_obj_t * ui_Container1;
 extern lv_obj_t * ui_AirTempLockCont;

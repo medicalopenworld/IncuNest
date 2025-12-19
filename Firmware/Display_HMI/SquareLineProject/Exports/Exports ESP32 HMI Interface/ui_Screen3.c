@@ -5,7 +5,7 @@
 
 #include "ui.h"
 
-lv_obj_t * ui_Screen3 = NULL;
+lv_obj_t * ui_ScreenAlarms = NULL;
 lv_obj_t * ui_ImgButton7 = NULL;
 lv_obj_t * ui_Panel5 = NULL;
 lv_obj_t * ui_AlarmsTabview = NULL;
@@ -31,19 +31,19 @@ void ui_event_ImgButton7(lv_event_t * e)
     lv_event_code_t event_code = lv_event_get_code(e);
 
     if(event_code == LV_EVENT_CLICKED) {
-        _ui_screen_change(&ui_Screen1, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_Screen1_screen_init);
-        _ui_screen_delete(&ui_Screen3);
+        _ui_screen_change(&ui_ScreenMain, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_ScreenMain_screen_init);
+        _ui_screen_delete(&ui_ScreenAlarms);
     }
 }
 
 // build funtions
 
-void ui_Screen3_screen_init(void)
+void ui_ScreenAlarms_screen_init(void)
 {
-    ui_Screen3 = lv_obj_create(NULL);
-    lv_obj_clear_flag(ui_Screen3, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+    ui_ScreenAlarms = lv_obj_create(NULL);
+    lv_obj_clear_flag(ui_ScreenAlarms, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
-    ui_ImgButton7 = lv_imgbtn_create(ui_Screen3);
+    ui_ImgButton7 = lv_imgbtn_create(ui_ScreenAlarms);
     lv_imgbtn_set_src(ui_ImgButton7, LV_IMGBTN_STATE_RELEASED, NULL, &ui_img_1508956403, NULL);
     lv_obj_set_width(ui_ImgButton7, 50);
     lv_obj_set_height(ui_ImgButton7, 52);
@@ -51,14 +51,14 @@ void ui_Screen3_screen_init(void)
     lv_obj_set_y(ui_ImgButton7, -204);
     lv_obj_set_align(ui_ImgButton7, LV_ALIGN_CENTER);
 
-    ui_Panel5 = lv_obj_create(ui_Screen3);
+    ui_Panel5 = lv_obj_create(ui_ScreenAlarms);
     lv_obj_set_width(ui_Panel5, 768);
     lv_obj_set_height(ui_Panel5, 396);
     lv_obj_set_x(ui_Panel5, 17);
     lv_obj_set_y(ui_Panel5, 71);
     lv_obj_clear_flag(ui_Panel5, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
-    ui_AlarmsTabview = lv_tabview_create(ui_Screen3, LV_DIR_TOP, 30);
+    ui_AlarmsTabview = lv_tabview_create(ui_ScreenAlarms, LV_DIR_TOP, 30);
     lv_obj_set_width(ui_AlarmsTabview, 743);
     lv_obj_set_height(ui_AlarmsTabview, 364);
     lv_obj_set_x(ui_AlarmsTabview, 0);
@@ -184,7 +184,7 @@ void ui_Screen3_screen_init(void)
     lv_obj_set_align(ui_AlarmDetailLabel, LV_ALIGN_CENTER);
     lv_label_set_text(ui_AlarmDetailLabel, "Alarms description");
 
-    ui_MuteAlarm = lv_imgbtn_create(ui_Screen3);
+    ui_MuteAlarm = lv_imgbtn_create(ui_ScreenAlarms);
     lv_imgbtn_set_src(ui_MuteAlarm, LV_IMGBTN_STATE_RELEASED, NULL, &ui_img_mute_icon_png, NULL);
     lv_obj_set_width(ui_MuteAlarm, 44);
     lv_obj_set_height(ui_MuteAlarm, 45);
@@ -196,12 +196,12 @@ void ui_Screen3_screen_init(void)
 
 }
 
-void ui_Screen3_screen_destroy(void)
+void ui_ScreenAlarms_screen_destroy(void)
 {
-    if(ui_Screen3) lv_obj_del(ui_Screen3);
+    if(ui_ScreenAlarms) lv_obj_del(ui_ScreenAlarms);
 
     // NULL screen variables
-    ui_Screen3 = NULL;
+    ui_ScreenAlarms = NULL;
     ui_ImgButton7 = NULL;
     ui_Panel5 = NULL;
     ui_AlarmsTabview = NULL;

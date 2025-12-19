@@ -5,7 +5,7 @@
 
 #include "ui.h"
 
-lv_obj_t * ui_Screen2 = NULL;
+lv_obj_t * ui_ScreenSettings = NULL;
 lv_obj_t * ui_Label8 = NULL;
 lv_obj_t * ui_ImgButton2 = NULL;
 lv_obj_t * ui_Container3 = NULL;
@@ -39,19 +39,19 @@ void ui_event_ImgButton2(lv_event_t * e)
     lv_event_code_t event_code = lv_event_get_code(e);
 
     if(event_code == LV_EVENT_CLICKED) {
-        _ui_screen_change(&ui_Screen1, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_Screen1_screen_init);
-        _ui_screen_delete(&ui_Screen2);
+        _ui_screen_change(&ui_ScreenMain, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_ScreenMain_screen_init);
+        _ui_screen_delete(&ui_ScreenSettings);
     }
 }
 
 // build funtions
 
-void ui_Screen2_screen_init(void)
+void ui_ScreenSettings_screen_init(void)
 {
-    ui_Screen2 = lv_obj_create(NULL);
-    lv_obj_clear_flag(ui_Screen2, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+    ui_ScreenSettings = lv_obj_create(NULL);
+    lv_obj_clear_flag(ui_ScreenSettings, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
-    ui_Label8 = lv_label_create(ui_Screen2);
+    ui_Label8 = lv_label_create(ui_ScreenSettings);
     lv_obj_set_width(ui_Label8, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_Label8, LV_SIZE_CONTENT);    /// 1
     lv_obj_set_x(ui_Label8, -112);
@@ -60,7 +60,7 @@ void ui_Screen2_screen_init(void)
     lv_label_set_text(ui_Label8, "Settings");
     lv_obj_set_style_text_font(ui_Label8, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    ui_ImgButton2 = lv_imgbtn_create(ui_Screen2);
+    ui_ImgButton2 = lv_imgbtn_create(ui_ScreenSettings);
     lv_imgbtn_set_src(ui_ImgButton2, LV_IMGBTN_STATE_RELEASED, NULL, &ui_img_1508956403, NULL);
     lv_obj_set_width(ui_ImgButton2, 50);
     lv_obj_set_height(ui_ImgButton2, 52);
@@ -68,7 +68,7 @@ void ui_Screen2_screen_init(void)
     lv_obj_set_y(ui_ImgButton2, -190);
     lv_obj_set_align(ui_ImgButton2, LV_ALIGN_CENTER);
 
-    ui_Container3 = lv_obj_create(ui_Screen2);
+    ui_Container3 = lv_obj_create(ui_ScreenSettings);
     lv_obj_remove_style_all(ui_Container3);
     lv_obj_set_width(ui_Container3, 301);
     lv_obj_set_height(ui_Container3, 358);
@@ -199,7 +199,7 @@ void ui_Screen2_screen_init(void)
     lv_obj_set_y(ui_Switch4, 0);
     lv_obj_set_align(ui_Switch4, LV_ALIGN_CENTER);
 
-    ui_WifiConfigCont = lv_obj_create(ui_Screen2);
+    ui_WifiConfigCont = lv_obj_create(ui_ScreenSettings);
     lv_obj_remove_style_all(ui_WifiConfigCont);
     lv_obj_set_width(ui_WifiConfigCont, 428);
     lv_obj_set_height(ui_WifiConfigCont, 361);
@@ -273,7 +273,7 @@ void ui_Screen2_screen_init(void)
     lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_SCROLL_ON_FOCUS);     /// Flags
     lv_obj_clear_flag(ui_WifiConnectButton, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
-    ui_LanguagesDropDown = lv_dropdown_create(ui_Screen2);
+    ui_LanguagesDropDown = lv_dropdown_create(ui_ScreenSettings);
     lv_dropdown_set_options(ui_LanguagesDropDown, "Spanish\nEnglish\nFrench");
     lv_obj_set_width(ui_LanguagesDropDown, 428);
     lv_obj_set_height(ui_LanguagesDropDown, LV_SIZE_CONTENT);    /// 1
@@ -286,12 +286,12 @@ void ui_Screen2_screen_init(void)
 
 }
 
-void ui_Screen2_screen_destroy(void)
+void ui_ScreenSettings_screen_destroy(void)
 {
-    if(ui_Screen2) lv_obj_del(ui_Screen2);
+    if(ui_ScreenSettings) lv_obj_del(ui_ScreenSettings);
 
     // NULL screen variables
-    ui_Screen2 = NULL;
+    ui_ScreenSettings = NULL;
     ui_Label8 = NULL;
     ui_ImgButton2 = NULL;
     ui_Container3 = NULL;

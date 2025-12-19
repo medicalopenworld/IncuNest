@@ -5,7 +5,7 @@
 
 #include "ui.h"
 
-lv_obj_t * ui_Screen6 = NULL;
+lv_obj_t * ui_ScreenLock = NULL;
 lv_obj_t * ui_ImgButton10 = NULL;
 // event funtions
 void ui_event_ImgButton10(lv_event_t * e)
@@ -13,19 +13,19 @@ void ui_event_ImgButton10(lv_event_t * e)
     lv_event_code_t event_code = lv_event_get_code(e);
 
     if(event_code == LV_EVENT_CLICKED) {
-        _ui_screen_change(&ui_Screen1, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_Screen1_screen_init);
-        _ui_screen_delete(&ui_Screen6);
+        _ui_screen_change(&ui_ScreenMain, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_ScreenMain_screen_init);
+        _ui_screen_delete(&ui_ScreenLock);
     }
 }
 
 // build funtions
 
-void ui_Screen6_screen_init(void)
+void ui_ScreenLock_screen_init(void)
 {
-    ui_Screen6 = lv_obj_create(NULL);
-    lv_obj_clear_flag(ui_Screen6, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+    ui_ScreenLock = lv_obj_create(NULL);
+    lv_obj_clear_flag(ui_ScreenLock, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
-    ui_ImgButton10 = lv_imgbtn_create(ui_Screen6);
+    ui_ImgButton10 = lv_imgbtn_create(ui_ScreenLock);
     lv_imgbtn_set_src(ui_ImgButton10, LV_IMGBTN_STATE_RELEASED, NULL, &ui_img_1508956403, NULL);
     lv_obj_set_width(ui_ImgButton10, 50);
     lv_obj_set_height(ui_ImgButton10, 52);
@@ -37,12 +37,12 @@ void ui_Screen6_screen_init(void)
 
 }
 
-void ui_Screen6_screen_destroy(void)
+void ui_ScreenLock_screen_destroy(void)
 {
-    if(ui_Screen6) lv_obj_del(ui_Screen6);
+    if(ui_ScreenLock) lv_obj_del(ui_ScreenLock);
 
     // NULL screen variables
-    ui_Screen6 = NULL;
+    ui_ScreenLock = NULL;
     ui_ImgButton10 = NULL;
 
 }

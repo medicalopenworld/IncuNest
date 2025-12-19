@@ -18,12 +18,12 @@ extern "C" {
 
 ///////////////////// SCREENS ////////////////////
 
-#include "ui_Screen1.h"
-#include "ui_Screen2.h"
-#include "ui_Screen3.h"
-#include "ui_Screen4.h"
-#include "ui_Screen5.h"
-#include "ui_Screen6.h"
+#include "ui_ScreenMain.h"
+#include "ui_ScreenSettings.h"
+#include "ui_ScreenAlarms.h"
+#include "ui_ScreenCharts.h"
+#include "ui_ScreenPulseOxi.h"
+#include "ui_ScreenLock.h"
 
 ///////////////////// VARIABLES ////////////////////
 

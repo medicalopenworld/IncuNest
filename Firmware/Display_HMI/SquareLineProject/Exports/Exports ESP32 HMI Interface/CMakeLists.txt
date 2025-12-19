@@ -1,10 +1,10 @@
-SET(SOURCES ui_Screen1.c
-    ui_Screen2.c
-    ui_Screen3.c
-    ui_Screen4.c
-    ui_Screen5.c
-    ui_Screen6.c
-    ui_Screen7.c
+SET(SOURCES ui_ScreenMain.c
+    ui_ScreenSettings.c
+    ui_ScreenAlarms.c
+    ui_ScreenCharts.c
+    ui_ScreenPulseOxi.c
+    ui_ScreenLock.c
+    ui_ScreenIntro.c
     ui.c
     ui_comp_hook.c
     ui_helpers.c
