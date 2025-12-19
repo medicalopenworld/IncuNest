@@ -30,7 +30,7 @@
 #define WIFI_NAME "In3ator"
 #define CURRENT_FIRMWARE_TITLE "in3ator"
 // Set to true only on the HMI board
-#define IS_HMI false   
+#define IS_HMI false
 #define DEFAULT_WIFI_EN ON
 
 #if (HW_NUM <= 8)
@@ -253,13 +253,12 @@
 
 // Selección del puerto de depuración según modo USB
 #if ARDUINO_USB_MODE == 1
-  // Cuando el USB CDC está activo, Serial ya se enruta por USB
-  #define debugSerial Serial
+// Cuando el USB CDC está activo, Serial ya se enruta por USB
+#define debugSerial Serial
 #else
-  // Si no se usa USB CDC, utiliza UART0 físico
-  #define debugSerial Serial
+// Si no se usa USB CDC, utiliza UART0 físico
+#define debugSerial Serial
 #endif
-
 
 // number assignment of each environmental sensor for later call in variable
 #define SKIN_SENSOR 0

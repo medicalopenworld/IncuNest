@@ -26,6 +26,8 @@
 
 #include "main.h"
 
+static const char *TAG = "SECURITY";
+
 extern TwoWire *wire;
 extern MAM_in3ator_Humidifier in3_hum;
 extern TFT_eSPI tft;
@@ -360,12 +362,63 @@ int alarmPendingToClear() {
   return false;
 }
 
+void sendAlarmUSB(byte alarmID, bool isActive) {
+  char msg[128];
+  const char *en_desc = "ALARM";
+  const char *es_desc = "alarma";
+
+  switch (alarmID) {
+  case HUMIDITY_ALARM:
+    en_desc = "HUMIDITY ERROR";
+    es_desc = "error de humedad";
+    break;
+  case TEMPERATURE_ALARM:
+    en_desc = "TEMP VERY HIGH";
+    es_desc = "temperatura muy alta";
+    break;
+  case AIR_THERMAL_CUTOUT_ALARM:
+    en_desc = "AIR THERMAL CUTOUT";
+    es_desc = "corte termico aire";
+    break;
+  case SKIN_THERMAL_CUTOUT_ALARM:
+    en_desc = "SKIN THERMAL CUTOUT";
+    es_desc = "corte termico piel";
+    break;
+  case AIR_SENSOR_ISSUE_ALARM:
+    en_desc = "AIR SENSOR ERROR";
+    es_desc = "error sensor aire";
+    break;
+  case SKIN_SENSOR_ISSUE_ALARM:
+    en_desc = "SKIN SENSOR ERROR";
+    es_desc = "error sensor piel";
+    break;
+  case FAN_ISSUE_ALARM:
+    en_desc = "FAN ERROR";
+    es_desc = "error ventilador";
+    break;
+  case HEATER_ISSUE_ALARM:
+    en_desc = "HEATER ERROR";
+    es_desc = "error calentador";
+    break;
+  case POWER_SUPPLY_ALARM:
+    en_desc = "POWER SUPPLY ERROR";
+    es_desc = "error fuente de alimentacion";
+    break;
+  }
+
+  snprintf(msg, sizeof(msg), "CTRL,ALM,%d,%s,%s,%d\n", alarmID, en_desc,
+           es_desc, isActive ? 1 : 0);
+  ESP_LOGI(TAG, "%s", msg);
+  CommunicationHost_Send(msg);
+}
+
 void setAlarm(byte alarmID) {
   logAlarm("[ALARM] ->" + String(alarmIDtoString(alarmID)) +
            " has been triggered");
   alarmOnGoing[alarmID] = true;
   displayAlarm[alarmID] = true;
   buzzerConstantTone(buzzerAlarmTone);
+  sendAlarmUSB(alarmID, true);
 }
 
 void setAlarm(byte alarmID, bool alarmSound) {
@@ -376,6 +429,7 @@ void setAlarm(byte alarmID, bool alarmSound) {
   if (alarmSound) {
     buzzerConstantTone(buzzerAlarmTone);
   }
+  sendAlarmUSB(alarmID, true);
 }
 
 void resetAlarm(byte alarmID) {
@@ -386,6 +440,7 @@ void resetAlarm(byte alarmID) {
   if (!ongoingAlarms()) {
     shutBuzzer();
   }
+  sendAlarmUSB(alarmID, false);
 }
 
 void reestartOngoingAlarms() {

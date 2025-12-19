@@ -6,31 +6,30 @@
 #define THINGSBOARD_ENABLE_PSRAM 0
 #define THINGSBOARD_ENABLE_DYNAMIC 1
 // #define THINGSBOARD_ENABLE_STREAM_UTILS 1
+#include "ThingsBoard.h"
 #include <Arduino.h>
 #include <TinyGsmClient.h>
-#include "ThingsBoard.h"
 
 #include <ESPmDNS.h>
 #include <Update.h>
 #include <WebServer.h>
 #include <WiFi.h>
 // include libraries
+#include "esp_log.h"
+#include "esp_system.h"
+#include "freertos/semphr.h"
 #include <Beastdevices_INA3221.h>
 #include <EEPROM.h>
 #include <Filters.h>
 #include <RotaryEncoder.h>
 #include <Wire.h>
-#include "esp_system.h"
-#include "freertos/semphr.h"
 
 #include <AH/Timing/MillisMicrosTimer.hpp>
 #include <Filters/Butterworth.hpp>
 
-#include "communication_host.h"
 #include "Adafruit_GFX.h"
-#include <TFT_eSPI.h> // Hardware-specific library
 #include "Adafruit_SHT4x.h"
-#include <SensirionI2cSts3x.h>
+#include "BluetoothSerial.h"
 #include "Credentials.h"
 #include "ESP32_config.h"
 #include "GPRS.h"
@@ -39,14 +38,13 @@
 #include "SparkFun_SHTC3.h"
 #include "TCA9555.h"
 #include "Wifi_OTA.h"
+#include "board.h"
+#include "communication_host.h"
 #include "driver/rtc_io.h"
 #include "esp32/ulp.h"
-#include "in3ator_humidifier.h"
-#include "board.h"
-#include <BQ25792_Driver.h>
-#include "BluetoothSerial.h"
 #include "esp_bt.h"
 #include "esp_bt_main.h"
+#include "in3ator_humidifier.h"
 #include "nvs_flash.h"
 #include "usb/cdc_acm_host.h"
 #include "usb/usb_host.h"
@@ -54,20 +52,25 @@
 #include "usb/vcp_ch34x.hpp"
 #include "usb/vcp_cp210x.hpp"
 #include "usb/vcp_ftdi.hpp"
+#include <BQ25792_Driver.h>
+#include <SensirionI2cSts3x.h>
+#include <TFT_eSPI.h> // Hardware-specific library
 
 // #include <BQ25792_Driver.h>
 
-#include <Espressif_Updater.h>
-#include <Espressif_MQTT_Client.h>
 #include <Arduino_MQTT_Client.h>
+#include <Espressif_MQTT_Client.h>
+#include <Espressif_Updater.h>
 
-#define LOG_GPRS true
-#define LOG_MODEM_DATA true
-#define LOG_INFORMATION true
-#define LOG_ERRORS true
+#define LOG_GPRS false
+#define LOG_MODEM_DATA false
+#define LOG_INFORMATION false
+#define LOG_ERRORS false
 #define LOG_ALARMS true
 
-#define USE_SYSTEM_WITHOUT_ACTUATORS_TEST true //only if previous test was OK and that fail cause is not being able to read current measurements
+#define USE_SYSTEM_WITHOUT_ACTUATORS_TEST                                      \
+  true // only if previous test was OK and that fail cause is not being able to
+       // read current measurements
 #define WDT_TIMEOUT 75
 #if (HW_NUM >= 14)
 #define HEATER_MAX_POWER_AMPS 10.5
@@ -82,7 +85,7 @@
 #define FAN_RPM_CONVERSION 13333333
 #define FAN_UPDATE_TIME_MIN 1000
 
-#define ALARM_SYSTEM_ENABLED false
+#define ALARM_SYSTEM_ENABLED true
 #define FAN_MAX_CURRENT_OVERRIDE false
 #define SILENCED_ALARM false
 #define DEFAULT_SOUND_ALARM true
@@ -147,8 +150,7 @@
 #define ACTUATION_HUMIDITY 2
 #define ACTUATION_TEMP_AND_HUMIDITY 3
 
-typedef enum
-{
+typedef enum {
   MAIN_MENU_PAGE = 1,
   ACTUATORS_PROGRESS_PAGE,
   SETTINGS_PAGE,
@@ -160,8 +162,7 @@ typedef enum
 } UI_PAGES;
 
 // languages numbers that will be called in language variable
-typedef enum
-{
+typedef enum {
   SPANISH = 0,
   ENGLISH,
   FRENCH,
@@ -169,10 +170,10 @@ typedef enum
   NUM_LANGUAGES,
 
 } UI_LANGUAGES;
-#define defaultLanguage ENGLISH // Preset number configuration when booting for first time
+#define defaultLanguage                                                        \
+  ENGLISH // Preset number configuration when booting for first time
 
-typedef enum
-{
+typedef enum {
   NTC_BABY_MIN_ERROR = 0,
   NTC_BABY_MAX_ERROR,
   DIG_TEMP_ROOM_MIN_ERROR,
@@ -195,8 +196,7 @@ typedef enum
   UNCALIBRATED_SENSOR,
 } HW_ERROR_ID;
 
-typedef enum
-{
+typedef enum {
   NO_ALARMS = 0,
   HUMIDITY_ALARM,
   TEMPERATURE_ALARM,
@@ -211,16 +211,14 @@ typedef enum
   MAX_ALARM_STRING_SIZE = 255,
 } ALARMS_ID;
 
-typedef enum
-{
+typedef enum {
   EVENT_2G = 0,
   EVENT_WIFI,
   EVENT_SERVER_CONNECTION,
   EVENT_OTA_ONGOING,
 } UI_EVENTS_ID;
 
-typedef enum
-{
+typedef enum {
   EVENT_2G_UI_POS = 5,
   EVENT_SERVER_CONNECTION_UI_POS = EVENT_2G_UI_POS + 2 * letter_width,
   EVENT_WIFI_UI_POS = EVENT_SERVER_CONNECTION_UI_POS + letter_width,
@@ -350,15 +348,15 @@ typedef enum
 #define POWER_SUPPLY_CHECK_PERIOD 2000 // 2 secs
 
 // buzzer variables
-#define buzzerStandbyPeriod \
-  10000                              // in millis, there will be a periodic tone when regulating baby's
-                                     // constants
-#define buzzerStandbyTone 500        // in micros, tone freq
-#define buzzerAlarmTone 500          // in micros, tone freq
+#define buzzerStandbyPeriod                                                    \
+  10000 // in millis, there will be a periodic tone when regulating baby's
+        // constants
+#define buzzerStandbyTone 500 // in micros, tone freq
+#define buzzerAlarmTone 500 // in micros, tone freq
 #define buzzerRotaryEncoderTone 2200 // in micros, tone freq
 #define buzzerStandbyToneDuration 50 // in micros, tone freq
-#define buzzerSwitchDuration 10      // in micros, tone freq
-#define buzzerStandbyToneTimes 1     // in micros, tone freq
+#define buzzerSwitchDuration 10 // in micros, tone freq
+#define buzzerStandbyToneTimes 1 // in micros, tone freq
 
 // EEPROM variables
 #define EEPROM_SIZE 256
@@ -394,8 +392,8 @@ typedef enum
 
 // configuration variables
 #define SWITCH_DEBOUNCE_TIME_MS 30 // encoder debouncing time
-#define timePressToSettings \
-  3000                        // in millis, time to press to go to settings window in UI
+#define timePressToSettings                                                    \
+  3000 // in millis, time to press to go to settings window in UI
 #define DEBUG_LOOP_PRINT 1000 // in millis,
 
 #define DEFAULT_CONTROL_MODE CONTROL_AIR
@@ -405,8 +403,8 @@ typedef enum
 #define secondAutoCalibrationPoint 2
 
 // GPRS variables to transmit
-#define turnedOn 0     // transmit first turned ON with hardware verification
-#define room 1         // transmit room variables
+#define turnedOn 0 // transmit first turned ON with hardware verification
+#define room 1 // transmit room variables
 #define aliveRefresh 2 // message to let know that incubator is still ON
 
 // sensor variables
@@ -422,8 +420,7 @@ typedef enum
 #define AMBIENT_SENSOR_I2C_ADDRESS 0x44
 
 // calibration menu
-typedef enum
-{
+typedef enum {
   ROOM_SENSOR_STS3X_MAIN = 0,
   ROOM_SENSOR_STS3X_REDUNDANT,
   ROOM_SENSOR_SHTC3,
@@ -431,26 +428,27 @@ typedef enum
 } ROOM_SENSORS;
 
 // calibration menu
-typedef enum
-{
-  STS3X_MAIN=0,
+typedef enum {
+  STS3X_MAIN = 0,
   STS3X_REDUNDANT,
   STS3X_NUM,
 } STS3X_SENSORS;
 
 #define ROOM_SENSOR_SHTC3_I2C_ADDRESS 0x70
-#define ROOM_SENSOR_STS35_I2C_ADDRESS_MAIN       0x4A
-#define ROOM_SENSOR_STS35_I2C_ADDRESS_REDUNDANT  0x4B
+#define ROOM_SENSOR_STS35_I2C_ADDRESS_MAIN 0x4A
+#define ROOM_SENSOR_STS35_I2C_ADDRESS_REDUNDANT 0x4B
 
 // #define system constants
-#define HUMIDIFIER_DUTY_CYCLE_MAX 95 // maximum humidity cycle in heater to be set
-#define HUMIDIFIER_DUTY_CYCLE_MIN 0  // minimum humidity cycle in heater to be set
+#define HUMIDIFIER_DUTY_CYCLE_MAX                                              \
+  95 // maximum humidity cycle in heater to be set
+#define HUMIDIFIER_DUTY_CYCLE_MIN                                              \
+  0 // minimum humidity cycle in heater to be set
 
 #define stepTemperatureIncrement 0.1 // maximum allowed temperature to be set
-#define stepHumidityIncrement 5      // maximum allowed temperature to be set
-#define presetHumidity 60            // preset humidity
-#define maxHum 90                    // maximum allowed humidity to be set
-#define minHum 20                    // minimum allowed humidity to be set
+#define stepHumidityIncrement 5 // maximum allowed temperature to be set
+#define presetHumidity 60 // preset humidity
+#define maxHum 90 // maximum allowed humidity to be set
+#define minHum 20 // minimum allowed humidity to be set
 
 #define SKIN_TEMPERATURE_SET_MIN 35
 #define AIR_TEMPERATURE_SET_MIN 20
@@ -479,8 +477,7 @@ typedef enum
 
 // below are all the different variables positions that will be displayed in
 // user interface mainMenu
-typedef enum
-{
+typedef enum {
   CONTROL_MODE_UI_ROW = 0,
   TEMPERATURE_UI_ROW,
   HUMIDITY_UI_ROW,
@@ -490,8 +487,7 @@ typedef enum
 } MAIN_MENU_UI;
 
 // settings
-typedef enum
-{
+typedef enum {
   SERIAL_NUMBER_UI_ROW = 0,
   LANGUAGE_UI_ROW,
   WIFI_EN_UI_ROW,
@@ -502,8 +498,7 @@ typedef enum
 } SETTINGS_MENU_UI;
 
 // calibration menu
-typedef enum
-{
+typedef enum {
   AUTO_CALIB_UI_ROW = 0,
   FINE_TUNE_UI_ROW,
   TWO_POINT_CALIB_UI_ROW,
@@ -556,7 +551,7 @@ typedef enum
 #define introTextColor BLACK
 #define transitionEffect BLACK
 
-#define BACKLIGHT_NO_INTERACTION_TIME \
+#define BACKLIGHT_NO_INTERACTION_TIME                                          \
   12000 // time to decrease backlight display if no user actions
 
 #define INIT_I2C_DELAY 50
@@ -568,8 +563,7 @@ typedef enum
 
 #define TIME_TRACK_UPDATE_PERIOD 900000 // 15 minutes
 
-typedef struct
-{
+typedef struct {
   int skinSensorCapacitance;
   double temperature[SENSOR_TEMP_QTY];
   double humidity[SENSOR_HUM_QTY];

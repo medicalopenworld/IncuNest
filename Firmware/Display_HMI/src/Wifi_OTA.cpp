@@ -131,8 +131,7 @@ const char *serverIndex =
 */
 void wifiInit(void) {
   // Connect to WiFi network
-  WiFi.setHostname(
-      String(String(WIFI_NAME) + "-" + String(0)).c_str());
+  WiFi.setHostname(String(String(WIFI_NAME) + "-" + String(0)).c_str());
   WiFi.mode(WIFI_STA);
   WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
 

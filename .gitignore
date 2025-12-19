@@ -128,3 +128,5 @@ Hardware/**/.svn/
 
 # Ignore heavy hardware history folders
 Hardware/**/[Hh]istory/
+
+!Firmware/motherBoard/.vscode/c_cpp_properties.json
