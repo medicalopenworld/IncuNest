@@ -3,17 +3,18 @@
 // LVGL version: 8.3.11
 // Project name: esp32HMIInterface_Screen_Intro
 
-#ifndef UI_ScreenMain_H
-#define UI_ScreenMain_H
+#ifndef UI_SCREENINTRO_H
+#define UI_SCREENINTRO_H
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-// SCREEN: ui_ScreenMain
-extern void ui_ScreenMain_screen_init(void);
-extern void ui_ScreenMain_screen_destroy(void);
+// SCREEN: ui_ScreenIntro
+extern void ui_ScreenIntro_screen_init(void);
+extern void ui_ScreenIntro_screen_destroy(void);
 extern lv_obj_t * ui_ScreenIntro;
+extern lv_obj_t * ui_ImageLogoIncunest;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus

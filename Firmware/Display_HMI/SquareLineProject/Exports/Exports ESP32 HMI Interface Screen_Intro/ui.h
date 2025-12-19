@@ -18,7 +18,7 @@ extern "C" {
 
 ///////////////////// SCREENS ////////////////////
 
-#include "ui_ScreenMain.h"
+#include "ui_ScreenIntro.h"
 
 ///////////////////// VARIABLES ////////////////////
 
@@ -26,6 +26,9 @@ extern "C" {
 // EVENTS
 
 extern lv_obj_t * ui____initial_actions0;
+
+// IMAGES AND IMAGE SETS
+LV_IMG_DECLARE(ui_img_incunest2_png);    // assets/INCUNEST2.png
 
 // UI INIT
 void ui_init(void);

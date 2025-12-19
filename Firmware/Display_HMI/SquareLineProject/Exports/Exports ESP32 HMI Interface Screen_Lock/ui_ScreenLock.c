@@ -252,6 +252,7 @@ void ui_ScreenLock_screen_init(void)
     lv_obj_set_width(ui_UnlockCont, 217);
     lv_obj_set_height(ui_UnlockCont, 112);
     lv_obj_set_align(ui_UnlockCont, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);     /// Flags
     lv_obj_clear_flag(ui_UnlockCont, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
     ui_Panel11 = lv_obj_create(ui_UnlockCont);

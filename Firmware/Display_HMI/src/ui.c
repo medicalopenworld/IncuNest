@@ -39,6 +39,7 @@ void ui_init(void)
     ui_ScreenCharts_screen_init();
     ui_ScreenPulseOxi_screen_init();
     ui_ScreenLock_screen_init();
+    ui_ScreenIntro_screen_init();
     ui____initial_actions0 = lv_obj_create(NULL);
     lv_disp_load_scr(ui_ScreenMain);
 }
@@ -51,4 +52,5 @@ void ui_destroy(void)
     ui_ScreenCharts_screen_destroy();
     ui_ScreenPulseOxi_screen_destroy();
     ui_ScreenLock_screen_destroy();
+    ui_ScreenIntro_screen_destroy();
 }

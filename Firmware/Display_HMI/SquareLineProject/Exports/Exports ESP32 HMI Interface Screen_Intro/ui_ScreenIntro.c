@@ -6,6 +6,7 @@
 #include "ui.h"
 
 lv_obj_t * ui_ScreenIntro = NULL;
+lv_obj_t * ui_ImageLogoIncunest = NULL;
 // event funtions
 
 // build funtions
@@ -14,6 +15,16 @@ void ui_ScreenIntro_screen_init(void)
 {
     ui_ScreenIntro = lv_obj_create(NULL);
     lv_obj_clear_flag(ui_ScreenIntro, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+    lv_obj_set_style_bg_color(ui_ScreenIntro, lv_color_hex(0xBFBFBF), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(ui_ScreenIntro, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_ImageLogoIncunest = lv_img_create(ui_ScreenIntro);
+    lv_img_set_src(ui_ImageLogoIncunest, &ui_img_incunest2_png);
+    lv_obj_set_width(ui_ImageLogoIncunest, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_ImageLogoIncunest, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_align(ui_ImageLogoIncunest, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_ImageLogoIncunest, LV_OBJ_FLAG_ADV_HITTEST);     /// Flags
+    lv_obj_clear_flag(ui_ImageLogoIncunest, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
 }
 
@@ -23,5 +34,6 @@ void ui_ScreenIntro_screen_destroy(void)
 
     // NULL screen variables
     ui_ScreenIntro = NULL;
+    ui_ImageLogoIncunest = NULL;
 
 }
