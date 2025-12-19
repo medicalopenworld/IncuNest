@@ -10643,7 +10643,7 @@
           {
             "nid": 10,
             "strtype": "OBJECT/Name",
-            "strval": "Screen1",
+            "strval": "ScreenMain",
             "InheritedType": 10
           },
           {
@@ -14764,7 +14764,7 @@
           {
             "nid": 10,
             "strtype": "OBJECT/Name",
-            "strval": "Screen2",
+            "strval": "ScreenSettings",
             "InheritedType": 10
           },
           {
@@ -18083,7 +18083,7 @@
           {
             "nid": 10,
             "strtype": "OBJECT/Name",
-            "strval": "Screen3",
+            "strval": "ScreenAlarms",
             "InheritedType": 10
           },
           {
@@ -20318,7 +20318,7 @@
           {
             "nid": 10,
             "strtype": "OBJECT/Name",
-            "strval": "Screen4",
+            "strval": "ScreenCharts",
             "InheritedType": 10
           },
           {
@@ -21651,7 +21651,7 @@
           {
             "nid": 10,
             "strtype": "OBJECT/Name",
-            "strval": "Screen5",
+            "strval": "ScreenPulseOxi",
             "InheritedType": 10
           },
           {
@@ -22038,7 +22038,7 @@
           {
             "nid": 10,
             "strtype": "OBJECT/Name",
-            "strval": "Screen6",
+            "strval": "ScreenLock",
             "InheritedType": 10
           },
           {
@@ -25447,7 +25447,7 @@
           {
             "nid": 10,
             "strtype": "OBJECT/Name",
-            "strval": "Screen7",
+            "strval": "ScreenIntro",
             "InheritedType": 10
           },
           {

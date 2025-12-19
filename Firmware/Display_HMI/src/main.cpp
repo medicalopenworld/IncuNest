@@ -1174,7 +1174,7 @@ static void lock_progress_timer_cb(lv_timer_t * t) {
             lockProgressTimer = NULL;
         }
         // Change to screen 1, mark unlocked and hide arc/unlock container
-        lv_scr_load(ui_Screen1);
+        lv_scr_load(ui_ScreenMain);
         locked = false;
         if (lockProgressArc) lv_obj_add_flag(lockProgressArc, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
@@ -1210,7 +1210,7 @@ static void stop_lock_progress(void) {
 static void enter_lock_screen(void)
 {
     // If locked already, do nothing (stay in lock screen)
-    if (lv_scr_act() == ui_Screen6) {
+    if (lv_scr_act() == ui_ScreenLock) {
         stop_lock_progress();
         locked = true;
         show_targets_for_mode();
@@ -1221,9 +1221,9 @@ static void enter_lock_screen(void)
     stop_lock_progress();
     locked = true;
 
-    lv_scr_load(ui_Screen6);
+    lv_scr_load(ui_ScreenLock);
 
-    // Important: apply visibility logic NOW in Screen6
+    // Important: apply visibility logic NOW in ScreenLock
     show_targets_for_mode();
 
     // Reset inactivity timer of LVGL (optional but recommended)
@@ -1234,7 +1234,7 @@ void ImgButton1_Lock_cb(lv_event_t * e)
 {
     (void)e;
     // Only if we are in main screen, go to lock screen
-    if (lv_scr_act() == ui_Screen1) {
+    if (lv_scr_act() == ui_ScreenMain) {
         enter_lock_screen();
     }
 }
@@ -1242,11 +1242,11 @@ void ImgButton1_Lock_cb(lv_event_t * e)
 // Any touch on the lock screen should open the unlock container
 void LockScreenAnyTouch_cb(lv_event_t * e)
 {
-    if (lv_scr_act() != ui_Screen6) return;
+    if (lv_scr_act() != ui_ScreenLock) return;
 
     // If the touch comes from UnlockCont (or any child), DO NOT toggle here
     lv_obj_t * origin = lv_event_get_target(e);  // original object that received the event
-    if (origin != ui_Screen6) return;
+    if (origin != ui_ScreenLock) return;
 
     // Toggle: if Unlock is hidden => show Unlock; if visible => go back to targets
     bool unlockVisible = !lv_obj_has_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
@@ -1303,13 +1303,13 @@ void inactivity_timer_cb(lv_timer_t * timer) {
     uint32_t inactive = lv_disp_get_inactive_time(NULL);
 
     if (inactive > INACTIVITY_TIMEOUT_MS) {
-        if (lv_scr_act() != ui_Screen6) {
+        if (lv_scr_act() != ui_ScreenLock) {
 
             // In lock screen: show only the relevant target containers
             stop_lock_progress();
             locked = true;
 
-            lv_scr_load(ui_Screen6);
+            lv_scr_load(ui_ScreenLock);
             show_targets_for_mode();   // <-- This shows the correct targets according to mode
         }
     }
@@ -1719,7 +1719,7 @@ void setup()
     lv_obj_add_event_cb(ui_ImgButton1, ImgButton1_Lock_cb, LV_EVENT_CLICKED, NULL);
 
     // Any touch on the lock screen should show the unlock container
-    lv_obj_add_event_cb(ui_Screen6, LockScreenAnyTouch_cb, LV_EVENT_PRESSED, NULL);
+    lv_obj_add_event_cb(ui_ScreenLock, LockScreenAnyTouch_cb, LV_EVENT_PRESSED, NULL);
 
     // Make Unlock container clickable and handle press/release for long-press unlock
     add_unlock_press_cb_recursive(ui_UnlockCont);

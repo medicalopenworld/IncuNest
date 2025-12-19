@@ -3,17 +3,17 @@
 // LVGL version: 8.3.11
 // Project name: esp32HMIInterface
 
-#ifndef UI_SCREEN5_H
-#define UI_SCREEN5_H
+#ifndef UI_ScreenPulseOxi_H
+#define UI_ScreenPulseOxi_H
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-// SCREEN: ui_Screen5
-extern void ui_Screen5_screen_init(void);
-extern void ui_Screen5_screen_destroy(void);
-extern lv_obj_t * ui_Screen5;
+// SCREEN: ui_ScreenPulseOxi
+extern void ui_ScreenPulseOxi_screen_init(void);
+extern void ui_ScreenPulseOxi_screen_destroy(void);
+extern lv_obj_t * ui_ScreenPulseOxi;
 extern void ui_event_ImgButton9(lv_event_t * e);
 extern lv_obj_t * ui_ImgButton9;
 extern lv_obj_t * ui_OxCont;

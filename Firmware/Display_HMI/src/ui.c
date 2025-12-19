@@ -33,22 +33,24 @@ void ui_init(void)
     lv_theme_t * theme = lv_theme_default_init(dispp, lv_palette_main(LV_PALETTE_BLUE), lv_palette_main(LV_PALETTE_RED),
                                                false, LV_FONT_DEFAULT);
     lv_disp_set_theme(dispp, theme);
-    ui_Screen1_screen_init();
-    ui_Screen2_screen_init();
-    ui_Screen3_screen_init();
-    ui_Screen4_screen_init();
-    ui_Screen5_screen_init();
-    ui_Screen6_screen_init();
+    ui_ScreenMain_screen_init();
+    ui_ScreenSettings_screen_init();
+    ui_ScreenAlarms_screen_init();
+    ui_ScreenCharts_screen_init();
+    ui_ScreenPulseOxi_screen_init();
+    ui_ScreenLock_screen_init();
+    ui_ScreenIntro_screen_init();
     ui____initial_actions0 = lv_obj_create(NULL);
-    lv_disp_load_scr(ui_Screen1);
+    lv_disp_load_scr(ui_ScreenIntro);
 }
 
 void ui_destroy(void)
 {
-    ui_Screen1_screen_destroy();
-    ui_Screen2_screen_destroy();
-    ui_Screen3_screen_destroy();
-    ui_Screen4_screen_destroy();
-    ui_Screen5_screen_destroy();
-    ui_Screen6_screen_destroy();
+    ui_ScreenMain_screen_destroy();
+    ui_ScreenSettings_screen_destroy();
+    ui_ScreenAlarms_screen_destroy();
+    ui_ScreenCharts_screen_destroy();
+    ui_ScreenPulseOxi_screen_destroy();
+    ui_ScreenLock_screen_destroy();
+    ui_ScreenIntro_screen_destroy();
 }
