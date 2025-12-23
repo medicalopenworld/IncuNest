@@ -94,8 +94,6 @@ void ui_ScreenAlarms_screen_init(void)
     lv_obj_set_y(ui_Alarm1Label, 0);
     lv_obj_set_align(ui_Alarm1Label, LV_ALIGN_CENTER);
     lv_label_set_text(ui_Alarm1Label, "TEMP VERY HIGH");
-    lv_obj_set_style_text_color(ui_Alarm1Label, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_Alarm1Label, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(ui_Alarm1Label, &lv_font_montserrat_30, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_Alarm2Cont = lv_obj_create(ui_TabPage1);
@@ -120,8 +118,6 @@ void ui_ScreenAlarms_screen_init(void)
     lv_obj_set_height(ui_Alarm2Label, LV_SIZE_CONTENT);    /// 1
     lv_obj_set_align(ui_Alarm2Label, LV_ALIGN_CENTER);
     lv_label_set_text(ui_Alarm2Label, "TEMP VERY HIGH");
-    lv_obj_set_style_text_color(ui_Alarm2Label, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_Alarm2Label, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(ui_Alarm2Label, &lv_font_montserrat_30, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_Alarm3Cont = lv_obj_create(ui_TabPage1);
@@ -144,8 +140,6 @@ void ui_ScreenAlarms_screen_init(void)
     lv_obj_set_height(ui_Alarm3Label, LV_SIZE_CONTENT);    /// 1
     lv_obj_set_align(ui_Alarm3Label, LV_ALIGN_CENTER);
     lv_label_set_text(ui_Alarm3Label, "TEMP VERY HIGH");
-    lv_obj_set_style_text_color(ui_Alarm3Label, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_Alarm3Label, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(ui_Alarm3Label, &lv_font_montserrat_30, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_Alarm4Cont = lv_obj_create(ui_TabPage1);
@@ -170,8 +164,6 @@ void ui_ScreenAlarms_screen_init(void)
     lv_obj_set_height(ui_Alarm4Label, LV_SIZE_CONTENT);    /// 1
     lv_obj_set_align(ui_Alarm4Label, LV_ALIGN_CENTER);
     lv_label_set_text(ui_Alarm4Label, "TEMP VERY HIGH");
-    lv_obj_set_style_text_color(ui_Alarm4Label, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_Alarm4Label, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(ui_Alarm4Label, &lv_font_montserrat_30, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_TabPage2 = lv_tabview_add_tab(ui_AlarmsTabview, "View details");

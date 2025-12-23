@@ -626,6 +626,7 @@
                           },
                           {
                             "nid": 90,
+                            "flags": 1048576,
                             "strtype": "OBJECT/Flags",
                             "InheritedType": 1
                           },
@@ -702,17 +703,6 @@
                                 "strtype": "_style/StyleState",
                                 "strval": "DEFAULT",
                                 "childs": [
-                                  {
-                                    "nid": 10410,
-                                    "strtype": "_style/Text_Color",
-                                    "intarray": [
-                                      255,
-                                      255,
-                                      255,
-                                      255
-                                    ],
-                                    "InheritedType": 7
-                                  },
                                   {
                                     "nid": 10450,
                                     "strtype": "_style/Text_Font",
@@ -1154,17 +1144,6 @@
                                 "strval": "DEFAULT",
                                 "childs": [
                                   {
-                                    "nid": 10410,
-                                    "strtype": "_style/Text_Color",
-                                    "intarray": [
-                                      255,
-                                      255,
-                                      255,
-                                      255
-                                    ],
-                                    "InheritedType": 7
-                                  },
-                                  {
                                     "nid": 10450,
                                     "strtype": "_style/Text_Font",
                                     "strval": "montserrat_30",
@@ -1605,17 +1584,6 @@
                                 "strval": "DEFAULT",
                                 "childs": [
                                   {
-                                    "nid": 10410,
-                                    "strtype": "_style/Text_Color",
-                                    "intarray": [
-                                      255,
-                                      255,
-                                      255,
-                                      255
-                                    ],
-                                    "InheritedType": 7
-                                  },
-                                  {
                                     "nid": 10450,
                                     "strtype": "_style/Text_Font",
                                     "strval": "montserrat_30",
@@ -2055,17 +2023,6 @@
                                 "strtype": "_style/StyleState",
                                 "strval": "DEFAULT",
                                 "childs": [
-                                  {
-                                    "nid": 10410,
-                                    "strtype": "_style/Text_Color",
-                                    "intarray": [
-                                      255,
-                                      255,
-                                      255,
-                                      255
-                                    ],
-                                    "InheritedType": 7
-                                  },
                                   {
                                     "nid": 10450,
                                     "strtype": "_style/Text_Font",

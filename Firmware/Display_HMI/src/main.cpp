@@ -157,6 +157,8 @@ static uint32_t screenHeight;
 static lv_disp_draw_buf_t draw_buf;
 static lv_color_t disp_draw_buf[DISPLAY_WIDTH * DISPLAY_HEIGHT / COLOR_DIVISOR];
 static lv_disp_drv_t disp_drv;
+static lv_timer_t* intro_timer = NULL;
+
 
 /* Display flushing */
 void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p)
@@ -175,6 +177,19 @@ void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color
 
   lv_disp_flush_ready(disp);
 
+}
+
+
+static void intro_timer_cb(lv_timer_t* t)
+{
+    (void)t;
+    // Cambia a Main y destruye el timer (one-shot)
+    lv_scr_load(ui_ScreenMain);
+
+    if (intro_timer) {
+        lv_timer_del(intro_timer);
+        intro_timer = NULL;
+    }
 }
 
 void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data)
@@ -862,25 +877,25 @@ void update_alarm_panels() {
                     alarmSlotToIndex[0] = i;
                     lv_obj_clear_flag(ui_Alarm1Cont, LV_OBJ_FLAG_HIDDEN);
                     lv_label_set_text(ui_Alarm1Label, alarmList[i].type);
-                    start_alarm_blink(ui_Alarm1Cont);
+                    start_alarm_blink(ui_Alarm1Panel);
                     break;
                 case NUM_ALARMA_1:
                     alarmSlotToIndex[1] = i;
                     lv_obj_clear_flag(ui_Alarm2Cont, LV_OBJ_FLAG_HIDDEN);
                     lv_label_set_text(ui_Alarm2Label, alarmList[i].type);
-                    start_alarm_blink(ui_Alarm2Cont);
+                    start_alarm_blink(ui_Alarm2Panel);
                     break;
                 case NUM_ALARMA_2:
                     alarmSlotToIndex[2] = i;
                     lv_obj_clear_flag(ui_Alarm3Cont, LV_OBJ_FLAG_HIDDEN);
                     lv_label_set_text(ui_Alarm3Label, alarmList[i].type);
-                    start_alarm_blink(ui_Alarm3Cont);
+                    start_alarm_blink(ui_Alarm3Panel);
                     break;
                 case NUM_ALARMA_3:
                     alarmSlotToIndex[3] = i;
                     lv_obj_clear_flag(ui_Alarm4Cont, LV_OBJ_FLAG_HIDDEN);
                     lv_label_set_text(ui_Alarm4Label, alarmList[i].type);
-                    start_alarm_blink(ui_Alarm4Cont);
+                    start_alarm_blink(ui_Alarm4Panel);
                     break;
             }
             pos++;
@@ -1555,6 +1570,10 @@ void setup()
     // UI initialization
     // ===========================
     ui_init();                      // Initialize UI objects
+
+    // Timer one-shot: 5000 ms -> ScreenMain
+    intro_timer = lv_timer_create(intro_timer_cb, 5000, NULL);
+    lv_timer_set_repeat_count(intro_timer, 1);
 
     // State communication: initial request
     Communication_RequestState();
