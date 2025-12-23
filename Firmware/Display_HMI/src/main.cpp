@@ -30,7 +30,10 @@ bool switchHum = false;
 bool tempSwitched = false;
 bool humSwitched = false;
 bool arrowsActive = false;
+
 bool alarmActive = false;
+static bool alarmsMuted = false;
+
 bool prevTempAlarm = false;
 bool prevHumAlarm = false;
 int alarmSlotToIndex[MAX_ALARM_DISPLAY] = { -1, -1, -1, -1 };
@@ -908,10 +911,10 @@ void update_alarm_panels() {
     // ----- Global alarm state -----
         alarmActive = (activeCount > 0);
 
-        if (alarmActive) {
-            lv_obj_clear_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN); // show
+        if (alarmActive && !alarmsMuted) {
+            lv_obj_clear_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN); //show
         } else {
-            lv_obj_add_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN);   // hide
+            lv_obj_add_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN); //hide
         }
 
          // ----- Indicator on main screen: Panel10 + NumAlarm -----
@@ -973,6 +976,8 @@ void update_alarm_panels() {
         if (pos <= NUM_ALARMA_2) { lv_obj_add_flag(ui_Alarm3Cont, LV_OBJ_FLAG_HIDDEN); }
         if (pos <= NUM_ALARMA_3) { lv_obj_add_flag(ui_Alarm4Cont, LV_OBJ_FLAG_HIDDEN); }
     }
+
+    if (activeCount == 0) {alarmsMuted = false;}
 }
 
 void show_alarm_detail_from_slot(int slot)
@@ -1098,47 +1103,47 @@ void applyHMIData() {
 }
 
 void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
-    alarmActive = true;
-    hmi_msg.muteAlarm = 0;
 
-    lv_obj_clear_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN); // Show mute button
-
-    // Search for existing alarm by ID
+    // localizar index como ya haces (por id o slot libre)
     int index = -1;
     for (int i = 0; i < MAX_ALARMS; i++) {
-        if (alarmList[i].id == alarm.id) {
-            index = i;
-            break;
-        }
+        if (alarmList[i].id == alarm.id) { index = i; break; }
     }
-
-    // If not found, search for a free slot
     if (index == -1) {
         for (int i = 0; i < MAX_ALARMS; i++) {
-            if (alarmList[i].state == false) { // false = free
-                index = i;
-                break;
-            }
+            if (alarmList[i].state == false) { index = i; break; }
         }
     }
+    if (index == -1) { log_w("No space to store new alarm ID=%d", alarm.id); return; }
 
-    if (index != -1) {
-        // Save/update alarm info
-        alarmList[index].id = alarm.id;
-        strncpy(alarmList[index].type, alarm.type, ALARM_TYPE_LEN);
-        alarmList[index].type[ALARM_TYPE_LEN-1] = '\0';
-        strncpy(alarmList[index].description, alarm.description, ALARM_DESC_LEN);
-        alarmList[index].description[ALARM_DESC_LEN-1] = '\0';
-        alarmList[index].state = alarm.state;
+    bool wasKnown = (alarmList[index].id == alarm.id);
+    bool prevState = wasKnown ? alarmList[index].state : false;
 
-        // Update display
-        update_alarm_panels();
-    } else {
-        log_w("No space to store new alarm ID=%d", alarm.id);
+    // ¿Es una "alarma nueva"?
+    // - si es ID nuevo (no conocido), o
+    // - si era conocida pero estaba en false y pasa a true
+    bool isNewAlarm = (!wasKnown) || (!prevState && alarm.state);
+
+    // Guardar/update datos
+    alarmList[index].id = alarm.id;
+    strncpy(alarmList[index].type, alarm.type, ALARM_TYPE_LEN);
+    alarmList[index].type[ALARM_TYPE_LEN-1] = '\0';
+    strncpy(alarmList[index].description, alarm.description, ALARM_DESC_LEN);
+    alarmList[index].description[ALARM_DESC_LEN-1] = '\0';
+    alarmList[index].state = alarm.state;
+
+    // Si entra alarma nueva (o re-activada), entonces: desmutea para que vuelva a sonar y reaparezca botón
+    if (isNewAlarm && alarm.state) {
+        alarmsMuted = false;
+        hmi_msg.muteAlarm = 0;      // para que el otro ESP sepa que debe sonar
+        // NO hace falta shouldSendData aquí si el muteAlarm real lo decide el controlador,
+        // pero si tú quieres que HMI fuerce: ponlo.
+        // hmi_msg.shouldSendData = true;
     }
 
-    
+    update_alarm_panels();
 }
+
 
 
 static void show_targets_for_mode(void)
@@ -1593,12 +1598,12 @@ void setup()
     lv_obj_add_event_cb(ui_MuteAlarm, [](lv_event_t * e){
     (void)e;
 
-        // 1) Actualiza estado HMI para mandar al otro ESP
+        alarmsMuted = true;
+
+        // 1) Updates to send to motherboard
         hmi_msg.muteAlarm = 1;
         hmi_msg.shouldSendData = true;
 
-        // 2) Tu lógica local (visual/sonido) como ya la tenías
-        alarmActive = false;
         lv_obj_add_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN);
 
 }, LV_EVENT_CLICKED, NULL);
