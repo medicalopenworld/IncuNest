@@ -1099,7 +1099,8 @@ void applyHMIData() {
 
 void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
     alarmActive = true;
-    
+    hmi_msg.muteAlarm = 0;
+
     lv_obj_clear_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN); // Show mute button
 
     // Search for existing alarm by ID
@@ -1590,14 +1591,17 @@ void setup()
 
     // Mute alarm button callback:
     lv_obj_add_event_cb(ui_MuteAlarm, [](lv_event_t * e){
-    // Activate alarm mute
-        alarmActive = false;
+    (void)e;
 
-        // Make button non-visible
+        // 1) Actualiza estado HMI para mandar al otro ESP
+        hmi_msg.muteAlarm = 1;
+        hmi_msg.shouldSendData = true;
+
+        // 2) Tu lógica local (visual/sonido) como ya la tenías
+        alarmActive = false;
         lv_obj_add_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN);
 
-    
-    }, LV_EVENT_CLICKED, NULL);
+}, LV_EVENT_CLICKED, NULL);
 
     // --- SKIN PANEL: hide at startup ---
     lv_obj_add_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
