@@ -86,10 +86,10 @@ constexpr double TEMP_INCREMENT = 0.1;
 constexpr double TEMP_ALARM_THRESHOLD = 37.0;
 constexpr double TEMP_DIVISOR = 10.0;
 
-constexpr int NUM_ALARMA_0 = 0;
-constexpr int NUM_ALARMA_1 = 1;
-constexpr int NUM_ALARMA_2 = 2;
-constexpr int NUM_ALARMA_3 = 3;
+constexpr int NUM_ALARM_0 = 0;
+constexpr int NUM_ALARM_1 = 1;
+constexpr int NUM_ALARM_2 = 2;
+constexpr int NUM_ALARM_3 = 3;
 
 #define TEMP_BAR_MIN   0
 #define TEMP_BAR_MAX   40   // ºC

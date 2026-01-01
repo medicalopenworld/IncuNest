@@ -59,7 +59,7 @@
 // PINOUT
 #define TOUCH_SENSOR 1
 #define TOUCH_SENSOR_SEL 2
-#define BUZZER 5
+#define BUZZER 5 // Set FAKE_PIN to mute buzzer
 #define LED 7
 #define I2C_SDA 8
 #define I2C_SCL 9
