@@ -53,6 +53,10 @@ lv_chart_series_t *humSeries = NULL;
 static bool g_stateSynced = false;
 static uint32_t g_lastStateReqMs = 0;
 
+
+static ui_lang_t g_lang = LANG_ES;
+
+
 struct Alarm
 {
     int id;
@@ -265,6 +269,149 @@ void update_labels()
         lv_bar_set_value(ui_HumBar, humBar, LV_ANIM_OFF);
     }
 }
+
+// Configure LANGUAGES
+
+static void set_tab_name(lv_obj_t* tabview, uint32_t tab_index, const char* name)
+{
+    if(!tabview || !name) return;
+
+    // Contenedor de botones (header) del tabview
+    lv_obj_t* btns = lv_tabview_get_tab_btns(tabview);
+    if(!btns) return;
+
+    // Botón de la pestaña (0,1,2...)
+    lv_obj_t* btn = lv_obj_get_child(btns, tab_index);
+    if(!btn) return;
+
+    // Normalmente el label es el primer hijo del botón
+    lv_obj_t* lbl = lv_obj_get_child(btn, 0);
+    if(!lbl) return;
+
+    // Seguridad: solo si realmente es label
+    if(lv_obj_check_type(lbl, &lv_label_class)) {
+        lv_label_set_text(lbl, name);
+    }
+}
+
+static void UI_ApplyLanguage(ui_lang_t lang)
+{
+    g_lang = lang;
+
+    // MAIN SCREEN
+    const char* TXT_CONTROLTEMP[]        = {"Control Temperatura", "Temperature Control", "Controle Temperature"};
+    const char* TXT_CONTROLHUM[]         = {"Control Humedad", "Humidity Control", "Controle Humidite"};
+    const char* TXT_PHOTO[]              = {"Fototerapia", "Phototherapy", "Phototherapie"};
+    const char* TXT_AIR[]                = {"Aire", "Air", "Air"};
+    const char* TXT_SKIN[]               = {"Piel", "Skin", "Peau"};
+    const char* TXT_ON[]                 = {"ON", "ON", "ON"};
+    const char* TXT_OFF[]                = {"OFF", "OFF", "OFF"};
+
+    // SETTINGS SCREEN
+    const char* TXT_SETTINGS[]   = {"Ajustes", "Settings", "Parametres"};  
+    const char* TXT_LANG[]       = {"Idioma", "Language", "Langue"};
+    const char* TXT_WIFI[]       = {"WiFi", "WiFi", "WiFi"};
+    const char* TXT_CONNECT[]    = {"Conectar", "Connect", "Connexion"};
+    const char* TXT_SSID[]       = {"SSID", "SSID", "SSID"};
+    const char* TXT_PASSWORD[]   = {"Contraseña", "Password", "Mot de passe"};
+    const char* TXT_SKINMODE[]   = {"Modo Piel", "Skin Mode", "Mode Peau"};
+
+    // ALARMS SCREEN
+
+    const char* TXT_ALARMS[]     = {"Alarmas", "Alarms", "Alarmes"};
+    const char* TXT_VIEWDETAIL[] = {"Ver detalles", "View details", "Voir details"};
+    const char* TXT_MUTE[]       = {"Silenciar", "Mute", "Muet"};
+
+    // CHART SCREEN
+    const char* TXT_HUMCHART[]       = {"Grafico Humedad", "Humidity Chart", "Graphique Humidite"};
+    const char* TXT_AIRTEMPCHART[]   = {"Grafico Temperatura Aire", "Air Temperature Chart", "Graphique Temperature Air"};
+    const char* TXT_SKINTEMPCHART[]  = {"Grafico Temperatura Piel", "Skin Temperature Chart", "Graphique Temperature Peau"};
+    const char* TXT_TABTEMP[]        = {"Temperatura", "Temperature", "Temperature"};  
+    const char* TXT_TABHUM[]         = {"Humedad", "Humidity", "Humidite"};
+
+    // LOCK SCREEN
+    const char* TXT_AIRTEMP[]    = {"Temperatura Aire", "Air Temperature", "Air Temperature"};
+    const char* TXT_BABYTEMP[]   = {"Temperatura Bebe", "Baby Temperature", "Temperature Bebe"};
+    const char* TXT_HUM[]        = {"Humedad", "Humidity", "Humidite"};
+
+    const char* TXT_TARGETTEMP[]    = {"Temperatura Objetivo", "Target Temperature", "Temperature objectif"};
+    const char* TXT_TARGETHUM[]     = {"Humedad Objetivo", "Target Humidity", "Humidite objectif"};
+    const char* TXT_STATUS[]        = {"Estado", "Status", "Etat"};
+
+    const char* TXT_UNLOCK[]        = {"PRESIONA 2 SEG PARA DESBLOQUEAR", "PRESS 2 SEC TO UNLOCK", "APPUYEZ 2 SEC POUR DEVERROUILLER"};
+
+
+    // --- Aplica a los labels estáticos ---
+    // (Pon aquí SOLO los que son texto fijo)
+    // Ejemplo:
+    // lv_label_set_text(ui_SettingsTitleLabel, TXT_SETTINGS[lang]);
+    // lv_label_set_text(ui_LangTitleLabel,     TXT_LANG[lang]);
+    // lv_label_set_text(ui_WifiTitleLabel,     TXT_WIFI[lang]);
+    // lv_label_set_text(ui_ConnectLabel,       TXT_CONNECT[lang]);
+    // lv_label_set_text(ui_SSIDLabel,          TXT_SSID[lang]);
+    // lv_label_set_text(ui_PasswordLabel,      TXT_PASSWORD[lang]);
+
+    // MAIN SCREEN
+        lv_label_set_text(ui_Label2, TXT_CONTROLTEMP[lang]);
+        lv_label_set_text(ui_HumidityLabel, TXT_CONTROLHUM[lang]);
+        lv_label_set_text(ui_PhototherapyLabel, TXT_PHOTO[lang]);
+        lv_label_set_text(ui_Label30, TXT_AIR[lang]);
+        lv_label_set_text(ui_Label31, TXT_SKIN[lang]);
+        
+        // ON/OFF SWITCHES LABELS
+        lv_label_set_text(ui_Label9,  TXT_ON[lang]);
+        lv_label_set_text(ui_Label15, TXT_OFF[lang]);
+        lv_label_set_text(ui_Label13, TXT_ON[lang]);
+        lv_label_set_text(ui_Label16, TXT_OFF[lang]);
+        lv_label_set_text(ui_Label10, TXT_ON[lang]);
+        lv_label_set_text(ui_Label17, TXT_OFF[lang]);
+
+    // SETTINGS SCREEN
+    lv_label_set_text(ui_Label8, TXT_SETTINGS[lang]);
+    lv_label_set_text(ui_LanguagesLabel,     TXT_LANG[lang]);
+    lv_label_set_text(ui_WifiLabel,     TXT_WIFI[lang]);
+    lv_label_set_text(ui_ConnectLabel,       TXT_CONNECT[lang]);
+    lv_label_set_text(ui_SSIDLabel,          TXT_SSID[lang]);
+    lv_label_set_text(ui_PassLabel,      TXT_PASSWORD[lang]);
+    lv_label_set_text(ui_SkinOptionLabel,      TXT_SKINMODE[lang]);
+
+    // ALARMS SCREEN
+    set_tab_name(ui_AlarmsTabview, 0, TXT_ALARMS[lang]);
+    set_tab_name(ui_AlarmsTabview, 1, TXT_VIEWDETAIL[lang]);
+    //lv_label_set_text(ui_MuteLabel, TXT_MUTE[lang]);
+
+    // CHART SCREEN
+    lv_label_set_text(ui_Label36, TXT_HUMCHART[lang]);
+    lv_label_set_text(ui_Label37, TXT_AIRTEMPCHART[lang]);
+    lv_label_set_text(ui_Label38, TXT_SKINTEMPCHART[lang]);
+    set_tab_name(ui_TabView1, 0, TXT_TABTEMP[lang]);
+    set_tab_name(ui_TabView1, 1, TXT_TABHUM[lang]);
+
+
+    // LOCK SCREEN
+    lv_label_set_text(ui_Label11, TXT_AIRTEMP[lang]);
+    lv_label_set_text(ui_Label12, TXT_BABYTEMP[lang]);
+    lv_label_set_text(ui_Label19, TXT_HUM[lang]);
+    lv_label_set_text(ui_TargetAirTempLabel, TXT_TARGETTEMP[lang]);
+    lv_label_set_text(ui_TargetSkinTempLabel, TXT_TARGETTEMP[lang]);
+    lv_label_set_text(ui_Label23, TXT_TARGETHUM[lang]);
+    lv_label_set_text(ui_StatusLabel, TXT_STATUS[lang]);
+    lv_label_set_text(ui_Label4, TXT_UNLOCK[lang]);
+
+
+    update_labels();
+}
+
+static void LanguagesDropDown_cb(lv_event_t *e)
+{
+    lv_obj_t *dd = lv_event_get_target(e);
+    uint16_t sel = lv_dropdown_get_selected(dd); // 0=Spanish, 1=English, 2=French
+
+    if (sel == 0) UI_ApplyLanguage(LANG_ES);
+    else if (sel == 1) UI_ApplyLanguage(LANG_EN);
+    else if (sel == 2) UI_ApplyLanguage(LANG_FR);
+}
+
 
 static lv_chart_series_t *configure_temp_chart(lv_obj_t *chart, lv_palette_t pal)
 {
@@ -1725,6 +1872,9 @@ void setup()
     // ===========================
     ui_init(); // Initialize UI objects
 
+    UI_ApplyLanguage(LANG_EN); // Default language: English
+    lv_dropdown_set_selected(ui_LanguagesDropDown, 0);
+
     // Timer one-shot: 5000 ms -> ScreenMain
     intro_timer = lv_timer_create(intro_timer_cb, 5000, NULL);
     lv_timer_set_repeat_count(intro_timer, 1);
@@ -1885,6 +2035,15 @@ void setup()
     lv_obj_clear_flag(ui_CheckImg, LV_OBJ_FLAG_HIDDEN);
 
     lv_obj_add_event_cb(ui_AlarmLockCont, AlarmButton_cb, LV_EVENT_CLICKED, NULL);
+
+
+    // ==========================================
+    // LANGUAGE SELECTION CALLBACK
+    // ==========================================
+    lv_obj_add_event_cb(ui_LanguagesDropDown, LanguagesDropDown_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+
+
 
     // ===========================
     // WIFI configuration

@@ -22,6 +22,19 @@
 
 // Set to true only on the HMI board
 #define IS_HMI true  
+
+// -----------------------------
+// LANGUAGES
+// -----------------------------
+
+typedef enum {
+    LANG_ES = 0,
+    LANG_EN = 1,
+    LANG_FR = 2
+} ui_lang_t;
+
+
+
 // -----------------------------
 // Communication actuation modes
 // -----------------------------
