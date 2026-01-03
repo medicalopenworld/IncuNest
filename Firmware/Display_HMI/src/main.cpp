@@ -14,6 +14,7 @@
 #include <buzzer.h>
 #include <Arduino.h>
 
+
 #include <WiFi.h>
 
 // Temperature and humidity variables
@@ -272,28 +273,6 @@ void update_labels()
 
 // Configure LANGUAGES
 
-static void set_tab_name(lv_obj_t* tabview, uint32_t tab_index, const char* name)
-{
-    if(!tabview || !name) return;
-
-    // Contenedor de botones (header) del tabview
-    lv_obj_t* btns = lv_tabview_get_tab_btns(tabview);
-    if(!btns) return;
-
-    // Botón de la pestaña (0,1,2...)
-    lv_obj_t* btn = lv_obj_get_child(btns, tab_index);
-    if(!btn) return;
-
-    // Normalmente el label es el primer hijo del botón
-    lv_obj_t* lbl = lv_obj_get_child(btn, 0);
-    if(!lbl) return;
-
-    // Seguridad: solo si realmente es label
-    if(lv_obj_check_type(lbl, &lv_label_class)) {
-        lv_label_set_text(lbl, name);
-    }
-}
-
 static void UI_ApplyLanguage(ui_lang_t lang)
 {
     g_lang = lang;
@@ -338,8 +317,11 @@ static void UI_ApplyLanguage(ui_lang_t lang)
     const char* TXT_TARGETHUM[]     = {"Humedad Objetivo", "Target Humidity", "Humidite objectif"};
     const char* TXT_STATUS[]        = {"Estado", "Status", "Etat"};
 
-    const char* TXT_UNLOCK[]        = {"PRESIONA 2 SEG PARA DESBLOQUEAR", "PRESS 2 SEC TO UNLOCK", "APPUYEZ 2 SEC POUR DEVERROUILLER"};
-
+    const char* TXT_UNLOCK[] = {
+        "PRESIONA 2 SEG\nPARA DESBLOQUEAR",
+        "PRESS 2 SEC TO UNLOCK",
+        "APPUYEZ 2 S\nPOUR DEVERROUILLER"
+    };
 
     // --- Aplica a los labels estáticos ---
     // (Pon aquí SOLO los que son texto fijo)
@@ -376,16 +358,33 @@ static void UI_ApplyLanguage(ui_lang_t lang)
     lv_label_set_text(ui_SkinOptionLabel,      TXT_SKINMODE[lang]);
 
     // ALARMS SCREEN
-    set_tab_name(ui_AlarmsTabview, 0, TXT_ALARMS[lang]);
-    set_tab_name(ui_AlarmsTabview, 1, TXT_VIEWDETAIL[lang]);
+    {
+    lv_obj_t * btnm = lv_tabview_get_tab_btns(ui_AlarmsTabview);
+    if(btnm && lv_obj_check_type(btnm, &lv_btnmatrix_class)) {
+        static const char * map_alarm[3];   // 2 tabs + terminador ""
+        map_alarm[0] = TXT_ALARMS[lang];
+        map_alarm[1] = TXT_VIEWDETAIL[lang];
+        map_alarm[2] = "";
+        lv_btnmatrix_set_map(btnm, map_alarm);
+    }
+    }
+
     //lv_label_set_text(ui_MuteLabel, TXT_MUTE[lang]);
 
     // CHART SCREEN
     lv_label_set_text(ui_Label36, TXT_HUMCHART[lang]);
     lv_label_set_text(ui_Label37, TXT_AIRTEMPCHART[lang]);
     lv_label_set_text(ui_Label38, TXT_SKINTEMPCHART[lang]);
-    set_tab_name(ui_TabView1, 0, TXT_TABTEMP[lang]);
-    set_tab_name(ui_TabView1, 1, TXT_TABHUM[lang]);
+    {
+    lv_obj_t * btnm = lv_tabview_get_tab_btns(ui_TabView1);
+    if(btnm && lv_obj_check_type(btnm, &lv_btnmatrix_class)) {
+        static const char * map_chart[3];   // 2 tabs + terminador ""
+        map_chart[0] = TXT_TABTEMP[lang];
+        map_chart[1] = TXT_TABHUM[lang];
+        map_chart[2] = "";
+        lv_btnmatrix_set_map(btnm, map_chart);
+    }
+    }
 
 
     // LOCK SCREEN
@@ -1873,7 +1872,7 @@ void setup()
     ui_init(); // Initialize UI objects
 
     UI_ApplyLanguage(LANG_EN); // Default language: English
-    lv_dropdown_set_selected(ui_LanguagesDropDown, 0);
+    lv_dropdown_set_selected(ui_LanguagesDropDown, 1); // English
 
     // Timer one-shot: 5000 ms -> ScreenMain
     intro_timer = lv_timer_create(intro_timer_cb, 5000, NULL);
