@@ -1,9 +1,12 @@
 #include "main.h"
 
 #include "communication.h"
+#include "esp_log.h"
 #include <PCA9557.h>
 #include <lvgl.h>
 // #include <DHT20.h>
+
+static const char *TAG = "Main";
 #include "ui.h"
 #include <Adafruit_GFX.h>
 #include <Arduino.h>
@@ -1658,6 +1661,15 @@ static void Display_StateSync_Service(void) {
 
 // ====================================================================
 
+void OTA_WIFI_Task(void *pvParameters) {
+  wifiInit();
+  WIFI_TB_Init();
+  for (;;) {
+    WifiOTAHandler();
+    vTaskDelay(pdMS_TO_TICKS(OTA_TASK_PERIOD_MS));
+  }
+}
+
 void setup() {
   // ===========================
   // Serial communication and pins initialization
@@ -1673,6 +1685,13 @@ void setup() {
   buzzerOn();
   delay(DELAY_BUZZ_MS);
   buzzerOff();*/
+
+  ESP_LOGI(TAG, "Creating OTA task ...");
+  while (xTaskCreatePinnedToCore(OTA_WIFI_Task, "OTA", 8192, NULL,
+                                 OTA_TASK_PRIORITY, NULL,
+                                 CORE_ID_FREERTOS) != pdPASS)
+    ;
+  ESP_LOGI(TAG, "OTA task successfully created!");
 
   // ===========================
   // Display initialization

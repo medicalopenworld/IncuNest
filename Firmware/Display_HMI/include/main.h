@@ -5,35 +5,33 @@
 // -----------------------------
 // Includes
 // -----------------------------
-#include <lvgl.h>
-#include <stdint.h>
 #include "Credentials.h"
 #include "Wifi_OTA.h"
 #include <ESPmDNS.h>
 #include <Update.h>
 #include <WebServer.h>
 #include <WiFi.h>
+#include <lvgl.h>
+#include <stdint.h>
+
+#define FWversion "1.0.0"
+#define ENABLE_WIFI_OTA true // enable wifi OTA
 
 #define OTA_TASK_PRIORITY 4
+#define OTA_TASK_PERIOD_MS 1
 #define CORE_MONITOR_FREERTOS 0
 #define CORE_ID_FREERTOS 1
 
 #define WIFI_NAME "IncuNest_Display"
 
 // Set to true only on the HMI board
-#define IS_HMI true  
+#define IS_HMI true
 
 // -----------------------------
 // LANGUAGES
 // -----------------------------
 
-typedef enum {
-    LANG_ES = 0,
-    LANG_EN = 1,
-    LANG_FR = 2
-} ui_lang_t;
-
-
+typedef enum { LANG_ES = 0, LANG_EN = 1, LANG_FR = 2 } ui_lang_t;
 
 // -----------------------------
 // Communication actuation modes
@@ -56,7 +54,8 @@ typedef enum {
 constexpr int DISPLAY_WIDTH = 800;
 constexpr int DISPLAY_HEIGHT = 480;
 constexpr int COLOR_DIVISOR = 15; // used for draw buffer size
-constexpr int AREA_PIXEL_OFFSET = 1; // used when computing width/height from area.x2 - area.x1 + 1
+constexpr int AREA_PIXEL_OFFSET =
+    1; // used when computing width/height from area.x2 - area.x1 + 1
 
 // -----------------------------
 constexpr int PIN_HENABLE = 41;
@@ -104,10 +103,10 @@ constexpr int NUM_ALARM_1 = 1;
 constexpr int NUM_ALARM_2 = 2;
 constexpr int NUM_ALARM_3 = 3;
 
-#define TEMP_BAR_MIN   0
-#define TEMP_BAR_MAX   40   // ºC
-#define HUM_BAR_MIN    0
-#define HUM_BAR_MAX    100  // %
+#define TEMP_BAR_MIN 0
+#define TEMP_BAR_MAX 40 // ºC
+#define HUM_BAR_MIN 0
+#define HUM_BAR_MAX 100 // %
 
 // -----------------------------
 // Panel selection
@@ -124,7 +123,6 @@ constexpr int HUM_MAX = 95;
 constexpr int HUM_STEP = 5;
 constexpr int HUM_ALARM_THRESHOLD = 60;
 
-
 // -----------------------------
 // Random ranges (used with random())
 // these ranges are the original integers used in your code
@@ -140,8 +138,8 @@ constexpr int RAND_HUM_MAX = 14;
 // Progress arc for lock long-press
 // -----------------------------
 
-static lv_obj_t * lockProgressArc = NULL;
-static lv_timer_t * lockProgressTimer = NULL;
+static lv_obj_t *lockProgressArc = NULL;
+static lv_timer_t *lockProgressTimer = NULL;
 static uint32_t lockProgressStart = 0;
 static const uint32_t LOCK_PROGRESS_DURATION_MS = 1500; // 1.5 seconds
 
@@ -153,8 +151,8 @@ constexpr int SERIAL_BAUD = 115200;
 // -----------------------------
 // Misc sizes / lengths
 // -----------------------------
-constexpr int BUFFER_SIZE = 10;       // used for label char buffers
-constexpr int DHT_BUFFER_SIZE = 6;    // used in commented DHT code
+constexpr int BUFFER_SIZE = 10;    // used for label char buffers
+constexpr int DHT_BUFFER_SIZE = 6; // used in commented DHT code
 constexpr int ALARM_TYPE_LEN = 30;
 constexpr int ALARM_DESC_LEN = 100;
 constexpr int MAX_ALARMS = 10;
@@ -205,8 +203,10 @@ constexpr int COLOR_PANEL_GRAY_G = 100;
 constexpr int COLOR_PANEL_GRAY_B = 100;
 
 // convenience lv_color_t constants (not constexpr function calls but const)
-static const lv_color_t COLOR_PANEL_WHITE = lv_color_make(COLOR_PANEL_WHITE_R, COLOR_PANEL_WHITE_G, COLOR_PANEL_WHITE_B);
-static const lv_color_t COLOR_PANEL_GRAY = lv_color_make(COLOR_PANEL_GRAY_R, COLOR_PANEL_GRAY_G, COLOR_PANEL_GRAY_B);
+static const lv_color_t COLOR_PANEL_WHITE = lv_color_make(
+    COLOR_PANEL_WHITE_R, COLOR_PANEL_WHITE_G, COLOR_PANEL_WHITE_B);
+static const lv_color_t COLOR_PANEL_GRAY =
+    lv_color_make(COLOR_PANEL_GRAY_R, COLOR_PANEL_GRAY_G, COLOR_PANEL_GRAY_B);
 
 // -----------------------------
 // Animation timing
@@ -222,7 +222,6 @@ constexpr int STYLE_SELECTOR_DEFAULT = 0;
 // -----------------------------
 // Inactivity timeout (ms)
 // -----------------------------
-#define INACTIVITY_TIMEOUT_MS 20000   // 20s
-
+#define INACTIVITY_TIMEOUT_MS 20000 // 20s
 
 #endif
