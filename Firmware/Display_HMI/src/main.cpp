@@ -1671,10 +1671,12 @@ void OTA_WIFI_Task(void *pvParameters) {
 }
 
 void setup() {
+
   // ===========================
   // Serial communication and pins initialization
   // ===========================
-  Serial.begin(SERIAL_BAUD);  // Start serial port for debugging
+  Serial.begin(SERIAL_BAUD); // Start serial port for debugging
+  initEEPROM();
   pinMode(LED_PIN, OUTPUT);   // Set LED pin as output
   digitalWrite(LED_PIN, LOW); // Initialize LED OFF
 

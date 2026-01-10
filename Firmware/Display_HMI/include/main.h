@@ -7,6 +7,8 @@
 // -----------------------------
 #include "Credentials.h"
 #include "Wifi_OTA.h"
+#include <EEPROM.h>
+#include <EEPROM_defines.h>
 #include <ESPmDNS.h>
 #include <Update.h>
 #include <WebServer.h>

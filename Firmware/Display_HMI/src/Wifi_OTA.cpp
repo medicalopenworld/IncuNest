@@ -271,11 +271,10 @@ void WIFICheckOTA() {
 }
 
 void WIFI_TB_Init() {
-  // Wifi_TB.provisioned = EEPROM.read(EEPROM_THINGSBOARD_PROVISIONED);
-  Wifi_TB.provisioned = false;
+  Wifi_TB.provisioned = EEPROM.read(EEPROM_THINGSBOARD_PROVISIONED);
   ESP_LOGI(TAG, "WIFI_TB_Init check provisioning: %d", Wifi_TB.provisioned);
   if (Wifi_TB.provisioned) {
-    // Wifi_TB.device_token = EEPROM.readString(EEPROM_THINGSBOARD_TOKEN);
+    Wifi_TB.device_token = EEPROM.readString(EEPROM_THINGSBOARD_TOKEN);
     ESP_LOGI(TAG, "Provisioned with token: %s", Wifi_TB.device_token.c_str());
   }
 }
@@ -313,9 +312,9 @@ void WIFIProvisionResponse(const JsonObjectConst &data) {
     credentials.password = "";
     Wifi_TB.provisioned = true;
     Wifi_TB.device_token = credentials.username.c_str();
-    // EEPROM.writeString(EEPROM_THINGSBOARD_TOKEN, Wifi_TB.device_token);
-    // EEPROM.write(EEPROM_THINGSBOARD_PROVISIONED, Wifi_TB.provisioned);
-    // EEPROM.commit();
+    EEPROM.writeString(EEPROM_THINGSBOARD_TOKEN, Wifi_TB.device_token);
+    EEPROM.write(EEPROM_THINGSBOARD_PROVISIONED, Wifi_TB.provisioned);
+    EEPROM.commit();
     ESP_LOGI(TAG, "Device provisioned successfully");
   } else if (strncmp(data[CREDENTIALS_TYPE], MQTT_BASIC_CRED_TYPE,
                      strlen(MQTT_BASIC_CRED_TYPE)) == 0) {
@@ -325,9 +324,9 @@ void WIFIProvisionResponse(const JsonObjectConst &data) {
     credentials.password = credentials_value[CLIENT_PASSWORD].as<std::string>();
     Wifi_TB.provisioned = true;
     Wifi_TB.device_token = credentials.username.c_str();
-    // EEPROM.writeString(EEPROM_THINGSBOARD_TOKEN, Wifi_TB.device_token);
-    // EEPROM.write(EEPROM_THINGSBOARD_PROVISIONED, Wifi_TB.provisioned);
-    // EEPROM.commit();
+    EEPROM.writeString(EEPROM_THINGSBOARD_TOKEN, Wifi_TB.device_token);
+    EEPROM.write(EEPROM_THINGSBOARD_PROVISIONED, Wifi_TB.provisioned);
+    EEPROM.commit();
     ESP_LOGI(TAG, "Device provisioned successfully");
   } else {
     ESP_LOGI(TAG, "Unexpected provision credentialsType");
