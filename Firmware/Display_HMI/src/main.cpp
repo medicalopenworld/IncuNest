@@ -56,6 +56,8 @@ lv_chart_series_t *humSeries = NULL;
 static bool g_stateSynced = false;
 static uint32_t g_lastStateReqMs = 0;
 
+bool OTA_inprogress = false;
+
 static ui_lang_t g_lang = LANG_ES;
 
 struct Alarm {
@@ -1701,7 +1703,7 @@ void setup() {
   lcd.begin();               // Initialize the display
   lcd.fillScreen(TFT_BLACK); // Clear the screen with black color
   lcd.setTextSize(2);        // Default text size
-  delay(DELAY_SHORT_MS);     // Short pause to stabilize
+  vTaskDelay(pdMS_TO_TICKS(2DELAY_SHORT_MS00)); // Short pause to stabilize
 
   lv_init();                      // Initialize LVGL library
   ts.begin();                     // Initialize touchscreen
@@ -1749,7 +1751,7 @@ void setup() {
   ledcWrite(PWM_CHANNEL, BRIGHTNESS_MAX); // Brightness max
   pinMode(TFT_BL, OUTPUT);
   digitalWrite(TFT_BL, LOW);
-  delay(DELAY_BACKLIGHT_MS);
+  vTaskDelay(pdMS_TO_TICKS(DELAY_BACKLIGHT_MS));
   digitalWrite(TFT_BL, HIGH);
 #endif
 
@@ -2111,37 +2113,36 @@ void loop() {
   snprintf(DHT_buffer, sizeof(DHT_buffer), "%d", b);
   lv_label_set_text(ui_Label2, DHT_buffer);*/
 
-  lv_timer_handler();
-  delay(LOOP_DELAY_MS);
+  // lv_timer_handler();
+  vTaskDelay(pdMS_TO_TICKS(LOOP_DELAY_MS));
+  // Display_StateSync_Service();
 
-  Display_StateSync_Service();
+  // if (ReceiveMessageFromOtherESP()) {
 
-  if (ReceiveMessageFromOtherESP()) {
+  //   // if new alarm received
+  //   if (ctrl_msg_alarm.id != 0) {
+  //     processReceivedAlarm(ctrl_msg_alarm);
 
-    // if new alarm received
-    if (ctrl_msg_alarm.id != 0) {
-      processReceivedAlarm(ctrl_msg_alarm);
+  //     // Clear structure for next alarm
+  //     ctrl_msg_alarm.id = 0;
+  //     ctrl_msg_alarm.state = false;
+  //   } else if (error == false) {
+  //     applyHMIData();
+  //   }
+  // }
 
-      // Clear structure for next alarm
-      ctrl_msg_alarm.id = 0;
-      ctrl_msg_alarm.state = false;
-    } else if (error == false) {
-      applyHMIData();
-    }
-  }
+  // if (wifiVisible) {
+  //   // If WiFi is connected, show connected container
+  //   if (WiFi.status() == WL_CONNECTED) {
+  //     lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
+  //     lv_obj_clear_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
 
-  if (wifiVisible) {
-    // If WiFi is connected, show connected container
-    if (WiFi.status() == WL_CONNECTED) {
-      lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_clear_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
-
-      lv_label_set_text(ui_WifiSSIDLabel, WiFi.SSID().c_str());
-    } else {
-      lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_clear_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
-    }
-  }
+  //     lv_label_set_text(ui_WifiSSIDLabel, WiFi.SSID().c_str());
+  //   } else {
+  //     lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
+  //     lv_obj_clear_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
+  //   }
+  // }
 
   /*if (alarmActive) {
       buzzerOn();

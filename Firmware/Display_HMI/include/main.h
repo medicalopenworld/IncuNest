@@ -18,6 +18,7 @@
 
 #define FWversion "1.0.0"
 #define ENABLE_WIFI_OTA true // enable wifi OTA
+extern bool OTA_inprogress;
 
 #define OTA_TASK_PRIORITY 4
 #define OTA_TASK_PERIOD_MS 1

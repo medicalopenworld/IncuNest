@@ -195,6 +195,7 @@ void configWifiServer() {
         HTTPUpload &upload = wifiServer.upload();
         if (upload.status == UPLOAD_FILE_START) {
           // debugSerial.printf("Update: %s\n", upload.filename.c_str());
+          OTA_inprogress = true;
           if (!Update.begin(
                   UPDATE_SIZE_UNKNOWN)) { // start with max available size
             Update.printError(Serial);
@@ -266,6 +267,7 @@ void progressCallback(const uint32_t &currentChunk,
 
 void WIFICheckOTA() {
   ESP_LOGI(TAG, "Checking WIFI firwmare Update...");
+  OTA_inprogress = true;
   tb_wifi.Firmware_Send_Info(CURRENT_FIRMWARE_TITLE, FWversion);
   tb_wifi.Start_Firmware_Update(OTAcallback);
 }
@@ -565,32 +567,33 @@ void WIFI_TB_OTA() {
             WIFICheckOTA();
             Wifi_TB.OTA_requested = true;
           }
-          WIFICheckOTA();
         }
       }
       if (tb_wifi.connected() &&
           millis() - Wifi_TB.lastMQTTPublish > WIFI_PUBLISH_INTERVAL) {
         if (!Wifi_TB.firstPublish) {
           Wifi_TB.firstPublish = true;
-          addConfigTelemetriesToWIFIJSON();
-          if (tb_wifi.sendTelemetryJson(addVariableToTelemetryWIFIJSON,
-                                        JSON_STRING_SIZE(measureJson(
-                                            addVariableToTelemetryWIFIJSON)))) {
-            ESP_LOGI(TAG, "WIFI MQTT PUBLISH CONFIG SUCCESS");
-          } else {
-            ESP_LOGI(TAG, "WIFI MQTT PUBLISH CONFIG FAIL");
-          }
-          WIFI_JSON.clear();
+          // addConfigTelemetriesToWIFIJSON();
+          // if (tb_wifi.sendTelemetryJson(addVariableToTelemetryWIFIJSON,
+          //                               JSON_STRING_SIZE(measureJson(
+          //                                   addVariableToTelemetryWIFIJSON))))
+          //                                   {
+          //   ESP_LOGI(TAG, "WIFI MQTT PUBLISH CONFIG SUCCESS");
+          // } else {
+          //   ESP_LOGI(TAG, "WIFI MQTT PUBLISH CONFIG FAIL");
+          // }
+          // WIFI_JSON.clear();
         }
         addTelemetriesToWIFIJSON();
-        if (tb_wifi.sendTelemetryJson(addVariableToTelemetryWIFIJSON,
-                                      JSON_STRING_SIZE(measureJson(
-                                          addVariableToTelemetryWIFIJSON)))) {
-          ESP_LOGI(TAG, "WIFI MQTT PUBLISH TELEMETRIES SUCCESS");
-        } else {
-          ESP_LOGI(TAG, "WIFI MQTT PUBLISH TELEMETRIES FAIL");
-        }
-        WIFI_JSON.clear();
+        // if (tb_wifi.sendTelemetryJson(addVariableToTelemetryWIFIJSON,
+        //                               JSON_STRING_SIZE(measureJson(
+        //                                   addVariableToTelemetryWIFIJSON))))
+        //                                   {
+        //   ESP_LOGI(TAG, "WIFI MQTT PUBLISH TELEMETRIES SUCCESS");
+        // } else {
+        //   ESP_LOGI(TAG, "WIFI MQTT PUBLISH TELEMETRIES FAIL");
+        // }
+        // WIFI_JSON.clear();
         Wifi_TB.lastMQTTPublish = millis();
       }
     }
