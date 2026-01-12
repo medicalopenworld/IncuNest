@@ -5,7 +5,7 @@
 // -----------------------------
 // Includes
 // -----------------------------
-#include "Credentials.h"
+#include "Credentials_public.h"
 #include "Wifi_OTA.h"
 #include <EEPROM.h>
 #include <EEPROM_defines.h>

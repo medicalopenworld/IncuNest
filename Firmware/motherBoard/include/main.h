@@ -30,7 +30,7 @@
 #include "Adafruit_GFX.h"
 #include "Adafruit_SHT4x.h"
 #include "BluetoothSerial.h"
-#include "Credentials.h"
+#include "Credentials_public.h"
 #include "ESP32_config.h"
 #include "GPRS.h"
 #include "PID.h"
