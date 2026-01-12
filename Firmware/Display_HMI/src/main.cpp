@@ -1894,6 +1894,10 @@ void setup() {
   lv_obj_add_event_cb(ui_ImgButton7, AlarmsTabview_cb, LV_EVENT_CLICKED, NULL);
   lv_obj_add_event_cb(ui_AlarmButton, AlarmButton_cb, LV_EVENT_CLICKED, NULL);
 
+  // hide chart and SPO2 button
+  lv_obj_add_flag(ui_ChartButton, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_SPO2Button, LV_OBJ_FLAG_HIDDEN);
+
   // --- Adjust Alarm description Label ---
   lv_obj_set_width(ui_AlarmDetailLabel, lv_pct(100)); // width 100% of parent
   lv_label_set_long_mode(ui_AlarmDetailLabel,

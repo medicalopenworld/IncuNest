@@ -97,7 +97,7 @@ constexpr double AIR_TEMP_MIN = 20.0;
 constexpr double AIR_TEMP_MAX = 36.9;
 constexpr double SKIN_TEMP_MIN = 35.0;
 constexpr double SKIN_TEMP_MAX = 37.5;
-constexpr double TEMP_INCREMENT = 0.1;
+constexpr double TEMP_INCREMENT = 0.2;
 constexpr double TEMP_ALARM_THRESHOLD = 37.0;
 constexpr double TEMP_DIVISOR = 10.0;
 
