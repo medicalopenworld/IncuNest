@@ -1,112 +1,9 @@
-# Prerequisites
-*.d
-
-# Object files
-*.o
-*.ko
-*.obj
-*.elf
-
-# Linker output
-*.ilk
-*.map
-*.exp
-
-# Precompiled Headers
-*.gch
-*.pch
-
-# Libraries
-*.lib
-*.a
-*.la
-*.lo
-
-# Shared objects (inc. Windows DLLs)
-*.dll
-*.so
-*.so.*
-*.dylib
-
-# Executables
-*.exe
-*.out
-*.app
-*.i*86
-*.x86_64
-*.hex
-
-# Debug files
-*.dSYM/
-*.su
-*.idb
-*.pdb
-
-# Kernel Module Compile Results
-*.mod*
-*.cmd
-.tmp_versions/
-modules.order
-Module.symvers
-Mkfile.old
-dkms.conf
-
-# credentials
-.pio
-Credentials.h
-<<<<<<< HEAD
-Firmware/motherBoard/.vscode/launch.json
-Firmware/motherBoard/.vscode/c_cpp_properties.json
-=======
-
-#vscode 
-
+# VSCode
 .vscode/
+!Firmware/motherBoard/.vscode/c_cpp_properties.json
 
->>>>>>> 801c88c1bb7803d20439ede9c30c64ede3420dd5
-build/
+# PlatformIO / builds
 **/.pio/
-*.bin
-*.elf
-*.hex
-Hardware/**/.svn/
-build/
-**/.pio/
-*.bin
-*.elf
-*.hex
-Hardware/**/.svn/
-build/
-**/.pio/
-**/.vscode/
-*.log
-*.bin
-*.elf
-*.hex
-*.map
-*.o
-*.obj
-*.d
-**/preproc/
-**/includes.cache
-Hardware/**/.svn/
-build/
-**/.pio/
-**/.vscode/
-*.log
-*.bin
-*.elf
-*.hex
-*.map
-*.o
-*.obj
-*.d
-**/preproc/
-**/includes.cache
-Hardware/**/.svn/
-# PlatformIO / Arduino / builds
-**/.pio/
-**/.vscode/
 build/
 **/build/
 **/preproc/
@@ -116,17 +13,18 @@ build/
 *.o
 *.obj
 *.d
-# binarios que no quieras versionar
 *.bin
 *.elf
 *.hex
-# restos antiguos
-Firmware/old/humidifier/build/
-Firmware/old/humidifier/preproc/
-Hardware/**/.svn/
-/NUL
 
-# Ignore heavy hardware history folders
-Hardware/**/[Hh]istory/
+# clangd cache (esto es lo tuyo)
+Firmware/motherBoard/.cache/
+# (opcional más fino, si solo quieres clangd)
+# Firmware/motherBoard/.cache/clangd/
+# Credentials (nunca versionar)
+**/Credentials.h
 
-!Firmware/motherBoard/.vscode/c_cpp_properties.json
+# Hardware history folders
+Hardware/Electronics/Motherboard/History/
+# (o más genérico, si quieres ignorar cualquier carpeta History)
+# Hardware/**/[Hh]istory/

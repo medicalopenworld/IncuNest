@@ -46,6 +46,7 @@ JsonObject addVariableToTelemetryWIFIJSON = WIFI_JSON.to<JsonObject>();
 bool WIFI_connection_status = false;
 
 extern in3ator_parameters in3;
+extern double fineTuneSkinTemperature;
 WIFIstruct Wifi_TB;
 Espressif_Updater updater_WIFI;
 
@@ -145,6 +146,29 @@ const char *serverIndex =
     "});"
     "</script>";
 
+const char *configIndex =
+    "<script "
+    "src='https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js'></"
+    "script>"
+    "<form method='POST' action='/config' id='config_form'>"
+    "<h3>Configuration</h3>"
+    "<label>Serial Number:</label><br>"
+    "<input type='number' name='serial' id='serial'><br><br>"
+    "<label>Reference Skin Temp (Current Actual):</label><br>"
+    "<input type='number' step='0.01' name='reference_temp' "
+    "id='reference_temp'><br><br>"
+    "<input type='submit' value='Save'>"
+    "</form>"
+    "<div id='msg'></div>"
+    "<script>"
+    "$(document).ready(function() {"
+    "  $.get('/get_config', function(data) {"
+    "    $('#serial').val(data.serial);"
+    "    $('#reference_temp').val(data.skin_temp_val);"
+    "  });"
+    "});"
+    "</script>";
+
 /*
    setup function
 */
@@ -177,6 +201,42 @@ void configWifiServer() {
   wifiServer.on("/serverIndex", HTTP_GET, []() {
     wifiServer.sendHeader("Connection", "close");
     wifiServer.send(200, "text/html", serverIndex);
+  });
+  /* config page */
+  wifiServer.on("/config", HTTP_GET, []() {
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "text/html", configIndex);
+  });
+  wifiServer.on("/get_config", HTTP_GET, []() {
+    String json = "{";
+    json += "\"serial\":" + String(in3.serialNumber) + ",";
+    // Return current displayed temperature so user can see what it is or use it
+    // as base
+    json += "\"skin_temp_val\":" + String(in3.temperature[SKIN_SENSOR]);
+    json += "}";
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "application/json", json);
+  });
+  wifiServer.on("/config", HTTP_POST, []() {
+    if (wifiServer.hasArg("serial")) {
+      in3.serialNumber = wifiServer.arg("serial").toInt();
+      EEPROM.writeInt(EEPROM_SERIAL_NUMBER, in3.serialNumber);
+    }
+    if (wifiServer.hasArg("reference_temp")) {
+      double referenceTemp = wifiServer.arg("reference_temp").toDouble();
+      // Calculate new offset: NewOffset = OldOffset + (Reference - Displayed)
+      // because Displayed = Raw + OldOffset
+      // We want Reference = Raw + NewOffset
+      // So NewOffset = Reference - Raw = Reference - (Displayed - OldOffset)
+      //              = Reference - Displayed + OldOffset
+      fineTuneSkinTemperature = fineTuneSkinTemperature +
+                                (referenceTemp - in3.temperature[SKIN_SENSOR]);
+      EEPROM.writeFloat(EEPROM_FINE_TUNE_TEMP_SKIN, fineTuneSkinTemperature);
+    }
+    EEPROM.commit();
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "text/plain", "Saved. Please reboot.");
+    // Optional: ESP.restart();
   });
   /*handling uploading firmware file */
   wifiServer.on(
