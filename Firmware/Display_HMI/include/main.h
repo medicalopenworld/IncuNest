@@ -35,6 +35,9 @@ extern bool OTA_inprogress;
 // -----------------------------
 
 typedef enum { LANG_ES = 0, LANG_EN = 1, LANG_FR = 2 } ui_lang_t;
+extern ui_lang_t g_lang;
+extern double airTempValue, skinTempValue;
+extern int humValue;
 
 // -----------------------------
 // Communication actuation modes
@@ -130,12 +133,12 @@ constexpr int HUM_ALARM_THRESHOLD = 60;
 // Random ranges (used with random())
 // these ranges are the original integers used in your code
 // -----------------------------
-constexpr int RAND_AIR_MIN = 300;
-constexpr int RAND_AIR_MAX = 300;
-constexpr int RAND_SKIN_MIN = 360;
-constexpr int RAND_SKIN_MAX = 360;
-constexpr int RAND_HUM_MIN = 14;
-constexpr int RAND_HUM_MAX = 14;
+constexpr int RAND_AIR_MIN = 0;
+constexpr int RAND_AIR_MAX = 0;
+constexpr int RAND_SKIN_MIN = 0;
+constexpr int RAND_SKIN_MAX = 0;
+constexpr int RAND_HUM_MIN = 0;
+constexpr int RAND_HUM_MAX = 0;
 
 // -----------------------------
 // Progress arc for lock long-press

@@ -58,7 +58,11 @@ static uint32_t g_lastStateReqMs = 0;
 
 bool OTA_inprogress = false;
 
-static ui_lang_t g_lang = LANG_ES;
+// Delayed EEPROM commit variables
+static bool eepromDirty = false;
+static unsigned long lastVarChangeTime = 0;
+
+ui_lang_t g_lang = LANG_ES;
 
 struct Alarm {
   int id;
@@ -271,6 +275,9 @@ void update_labels() {
 
 static void UI_ApplyLanguage(ui_lang_t lang) {
   g_lang = lang;
+  EEPROM.write(EEPROM_LANGUAGE, g_lang);
+  eepromDirty = true;
+  lastVarChangeTime = millis();
 
   // MAIN SCREEN
   const char *TXT_CONTROLTEMP[] = {"Control Temperatura", "Temperature Control",
@@ -898,15 +905,6 @@ void setup_panel_callbacks() {
 
 /* Initialize random values for temperature and humidity */
 void init_values() {
-  // DESIRED VALUES
-  airTempValue = (double)random(RAND_AIR_MIN, RAND_AIR_MAX) /
-                 (double)TEMP_DIVISOR; // 20.0 to 36.9 equivalent
-  skinTempValue = (double)random(RAND_SKIN_MIN, RAND_SKIN_MAX) /
-                  (double)TEMP_DIVISOR; // 35.0 to 37.5 equivalent
-  humValue =
-      random(RAND_HUM_MIN, RAND_HUM_MAX) *
-      HUM_STEP; // Generates values from HUM_MIN to HUM_MAX in steps of HUM_STEP
-
   char buffer[BUFFER_SIZE];
   snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValue);
   lv_label_set_text(ui_TempAirDesired, buffer);
@@ -960,6 +958,16 @@ void setup_arrow_callbacks() {
         hmi_msg.desiredSkinTemperature = skinTempValue;
         hmi_msg.desiredHumidity = humValue;
         hmi_msg.shouldSendData = true;
+
+        if (selectedPanel == AIR_PANEL_SELECTED) {
+          EEPROM.writeFloat(EEPROM_DESIRED_AIR_TEMP, airTempValue);
+          eepromDirty = true;
+          lastVarChangeTime = millis();
+        } else if (selectedPanel == SKIN_PANEL_SELECTED) {
+          EEPROM.writeFloat(EEPROM_DESIRED_SKIN_TEMP, skinTempValue);
+          eepromDirty = true;
+          lastVarChangeTime = millis();
+        }
       },
       LV_EVENT_CLICKED, NULL);
 
@@ -980,6 +988,16 @@ void setup_arrow_callbacks() {
         hmi_msg.desiredSkinTemperature = skinTempValue;
         hmi_msg.desiredHumidity = humValue;
         hmi_msg.shouldSendData = true;
+
+        if (selectedPanel == AIR_PANEL_SELECTED) {
+          EEPROM.writeFloat(EEPROM_DESIRED_AIR_TEMP, airTempValue);
+          eepromDirty = true;
+          lastVarChangeTime = millis();
+        } else if (selectedPanel == SKIN_PANEL_SELECTED) {
+          EEPROM.writeFloat(EEPROM_DESIRED_SKIN_TEMP, skinTempValue);
+          eepromDirty = true;
+          lastVarChangeTime = millis();
+        }
       },
       LV_EVENT_CLICKED, NULL);
 }
@@ -998,6 +1016,10 @@ void setup_arrow_hum_callbacks() {
         hmi_msg.desiredSkinTemperature = skinTempValue;
         hmi_msg.desiredHumidity = humValue;
         hmi_msg.shouldSendData = true;
+
+        EEPROM.write(EEPROM_DESIRED_HUMIDITY, humValue);
+        eepromDirty = true;
+        lastVarChangeTime = millis();
       },
       LV_EVENT_CLICKED, NULL);
 
@@ -1013,6 +1035,10 @@ void setup_arrow_hum_callbacks() {
         hmi_msg.desiredSkinTemperature = skinTempValue;
         hmi_msg.desiredHumidity = humValue;
         hmi_msg.shouldSendData = true;
+
+        EEPROM.write(EEPROM_DESIRED_HUMIDITY, humValue);
+        eepromDirty = true;
+        lastVarChangeTime = millis();
       },
       LV_EVENT_CLICKED, NULL);
 }
@@ -1760,8 +1786,8 @@ void setup() {
   // ===========================
   ui_init(); // Initialize UI objects
 
-  UI_ApplyLanguage(LANG_EN); // Default language: English
-  lv_dropdown_set_selected(ui_LanguagesDropDown, 1); // English
+  UI_ApplyLanguage(g_lang);
+  lv_dropdown_set_selected(ui_LanguagesDropDown, g_lang);
 
   // Timer one-shot: 5000 ms -> ScreenMain
   intro_timer = lv_timer_create(intro_timer_cb, 5000, NULL);
@@ -2146,6 +2172,13 @@ void loop() {
       lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
       lv_obj_clear_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
     }
+  }
+
+  // Delayed EEPROM commit
+  if (eepromDirty && (millis() - lastVarChangeTime > EEPROM_COMMIT_DELAY)) {
+    EEPROM.commit();
+    eepromDirty = false;
+    Serial.println("EEPROM committed after delay");
   }
 
   /*if (alarmActive) {

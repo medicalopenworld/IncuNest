@@ -72,24 +72,34 @@ void initEEPROM() {
 }
 
 void loaddefaultValues() {
-  // autoLock = DEFAULT_AUTOLOCK;
-  // WIFI_EN = DEFAULT_WIFI_EN;
-  // in3.language = defaultLanguage;
-  // in3.controlMode = CONTROL_AIR;
-  // in3.desiredControlTemperature = presetTemp[in3.controlMode];
-  // in3.desiredControlHumidity = presetHumidity;
-  // EEPROM.write(EEPROM_AUTO_LOCK, autoLock);
-  // EEPROM.write(EEPROM_WIFI_EN, WIFI_EN);
-  // EEPROM.write(EEPROM_LANGUAGE, in3.language);
-  // EEPROM.write(EEPROM_CONTROL_MODE, in3.controlMode);
-  // EEPROM.writeFloat(EEPROM_DESIRED_CONTROL_TEMPERATURE,
-  //                   in3.desiredControlTemperature);
-  // EEPROM.commit();
+  EEPROM.write(EEPROM_LANGUAGE, LANG_EN);
+  EEPROM.writeFloat(EEPROM_DESIRED_AIR_TEMP, 30.0);
+  EEPROM.writeFloat(EEPROM_DESIRED_SKIN_TEMP, 36.5);
+  EEPROM.write(EEPROM_DESIRED_HUMIDITY, 50);
+  EEPROM.commit();
 }
 
 void recapVariables() {
-  // autoLock = EEPROM.read(EEPROM_AUTO_LOCK);
-  // in3.language = EEPROM.read(EEPROM_LANGUAGE);
-  // in3.serialNumber = EEPROM.readInt(EEPROM_SERIAL_NUMBER);
-  // WIFI_EN = EEPROM.read(EEPROM_WIFI_EN);
+  g_lang = (ui_lang_t)EEPROM.read(EEPROM_LANGUAGE);
+  // Validation
+  if (g_lang > 2 || g_lang < 0) {
+    g_lang = LANG_EN;
+  }
+
+  airTempValue = EEPROM.readFloat(EEPROM_DESIRED_AIR_TEMP);
+  skinTempValue = EEPROM.readFloat(EEPROM_DESIRED_SKIN_TEMP);
+  humValue = EEPROM.read(EEPROM_DESIRED_HUMIDITY);
+
+  // Validation
+  if (isnan(airTempValue) || airTempValue < 20.0 || airTempValue > 40.0)
+    airTempValue = 30.0;
+  if (isnan(skinTempValue) || skinTempValue < 30.0 || skinTempValue > 40.0)
+    skinTempValue = 36.5;
+  if (humValue < 0 || humValue > 100)
+    humValue = 50;
+
+  ESP_LOGI(TAG, "Language loaded: %d", g_lang);
+  ESP_LOGI(TAG, "Air Temp loaded: %.2f", airTempValue);
+  ESP_LOGI(TAG, "Skin Temp loaded: %.2f", skinTempValue);
+  ESP_LOGI(TAG, "Humidity loaded: %d", humValue);
 }
