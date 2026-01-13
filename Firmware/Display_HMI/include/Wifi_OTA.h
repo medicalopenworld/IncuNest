@@ -55,6 +55,7 @@ void WIFI_TB_Init();
 void WifiOTAHandler(void);
 void WIFI_TB_OTA();
 void wifiInit(void);
+void CreateOTATask();
 
 void progressCallback(const uint32_t &currentChunk,
                       const uint32_t &totalChuncks);

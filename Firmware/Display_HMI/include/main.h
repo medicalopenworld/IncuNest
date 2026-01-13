@@ -37,7 +37,9 @@ extern bool OTA_inprogress;
 typedef enum { LANG_ES = 0, LANG_EN = 1, LANG_FR = 2 } ui_lang_t;
 extern ui_lang_t g_lang;
 extern double airTempValue, skinTempValue;
+extern double airTempValueDetected, skinTempValueDetected;
 extern int humValue;
+extern int humValueDetected;
 
 // -----------------------------
 // Communication actuation modes
@@ -80,6 +82,7 @@ constexpr int TFT_BL_PIN = 2;
 // -----------------------------
 // Timings / delays (ms)
 // -----------------------------
+constexpr int DELAY_INTRO_MS = 6000;
 constexpr int DELAY_SHORT_MS = 200;
 constexpr int DELAY_BACKLIGHT_MS = 500;
 constexpr int DELAY_BUZZ_MS = 3000; // used only if buzzer flow is uncommented
@@ -163,6 +166,14 @@ constexpr int ALARM_TYPE_LEN = 30;
 constexpr int ALARM_DESC_LEN = 100;
 constexpr int MAX_ALARMS = 10;
 constexpr int MAX_ALARM_DISPLAY = 4;
+
+struct Alarm {
+  int id;
+  char type[ALARM_TYPE_LEN];
+  char description[ALARM_DESC_LEN];
+  bool state;
+};
+extern Alarm alarmList[MAX_ALARMS];
 
 // -----------------------------
 // LGFX config values (timings, polarity etc.)

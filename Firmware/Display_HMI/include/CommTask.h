@@ -1,15 +1,17 @@
-#ifndef COMMUNICATION_H
-#define COMMUNICATION_H
+#ifndef COMM_TASK_H
+#define COMM_TASK_H
 
-#include <Arduino.h>
 #include "main.h"
+#include <Arduino.h>
+#include <lvgl.h>
+
 
 #define COMMUNICATION_DEBUG true
 
 #if COMMUNICATION_DEBUG
-    #define COMM_LOG(...)  Serial.printf(__VA_ARGS__)
+#define COMM_LOG(...) Serial.printf(__VA_ARGS__)
 #else
-    #define COMM_LOG(...)
+#define COMM_LOG(...)
 #endif
 
 #define COMM_SERIAL Serial
@@ -83,20 +85,12 @@ extern ControlBoard_Message_Telemetry ctrl_tel_msg;
 extern ControlBoard_Message_Alarm ctrl_msg_alarm;
 extern ControlBoard_Message_State ctrl_state_msg;
 
-
 extern bool error;
 
 // ======================
 //   PUBLIC FUNCTIONS
 // ======================
-void Communication_Init();
-void Communication_Task(void *pvParameters);
+void CreateCommTask();
 void Communication_RequestState(void);
-
-
-void SendTelemetry();
-void SendAlarm();
-
-bool ReceiveMessageFromOtherESP();
 
 #endif

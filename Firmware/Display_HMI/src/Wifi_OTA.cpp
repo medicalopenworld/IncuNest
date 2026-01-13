@@ -614,3 +614,17 @@ void WifiOTAHandler(void) {
     ESP_LOGI(TAG, "WIFI DISABLED");
   }
 }
+
+static void OTA_WIFI_Task(void *pvParameters) {
+  wifiInit();
+  WIFI_TB_Init();
+  for (;;) {
+    WifiOTAHandler();
+    vTaskDelay(pdMS_TO_TICKS(OTA_TASK_PERIOD_MS));
+  }
+}
+
+void CreateOTATask() {
+  xTaskCreatePinnedToCore(OTA_WIFI_Task, "OTA", 8192, NULL, OTA_TASK_PRIORITY,
+                          NULL, CORE_ID_FREERTOS);
+}

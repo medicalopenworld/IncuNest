@@ -1,6 +1,6 @@
 #include "UITask.h"
+#include "CommTask.h"
 #include "buzzer.h"
-#include "communication.h"
 #include "esp_log.h"
 #include "main.h"
 #include "ui.h"
@@ -48,20 +48,14 @@ lv_chart_series_t *airTempSeries = NULL;
 lv_chart_series_t *skinTempSeries = NULL;
 lv_chart_series_t *humSeries = NULL;
 
-static bool g_stateSynced = false;
-static uint32_t g_lastStateReqMs = 0;
+bool g_stateSynced = false;
+uint32_t g_lastStateReqMs = 0;
 
 static bool eepromDirty = false;
 static unsigned long lastVarChangeTime = 0;
 
 ui_lang_t g_lang = LANG_ES;
 
-struct Alarm {
-  int id;
-  char type[ALARM_TYPE_LEN];
-  char description[ALARM_DESC_LEN];
-  bool state;
-};
 Alarm alarmList[MAX_ALARMS];
 
 // ==========================================
@@ -928,19 +922,7 @@ void chart_add_hum_value(float hum) {
   lv_chart_set_next_value(ui_HumChart, humSeries, (lv_coord_t)hum);
 }
 
-void applyHMIData() {
-  airTempValueDetected = ctrl_tel_msg.detectedAirTemperature;
-  skinTempValueDetected = ctrl_tel_msg.detectedSkinTemperature;
-  humValueDetected = (int)ctrl_tel_msg.detectedHumidity;
-  update_labels();
-  if (tempSwitched) {
-    chart_add_air_temp((float)airTempValueDetected);
-    chart_add_skin_temp((float)skinTempValueDetected);
-  }
-  chart_add_hum_value((float)humValueDetected);
-}
-
-static void AlarmSound_Update() {
+void AlarmSound_Update() {
   if (alarmActive && !alarmsMuted)
     buzzerOn();
   else
@@ -953,49 +935,6 @@ static void MuteAlarm_cb(lv_event_t *e) {
   hmi_msg.muteAlarm = 1;
   hmi_msg.shouldSendData = true;
   lv_obj_add_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN);
-  AlarmSound_Update();
-}
-
-void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
-  int idxById = -1;
-  for (int i = 0; i < MAX_ALARMS; i++) {
-    if (alarmList[i].id == alarm.id) {
-      idxById = i;
-      break;
-    }
-  }
-
-  bool wasKnown = (idxById != -1);
-  int index = idxById;
-
-  if (index == -1) {
-    for (int i = 0; i < MAX_ALARMS; i++) {
-      if (alarmList[i].state == false) {
-        index = i;
-        break;
-      }
-    }
-  }
-  if (index == -1) {
-    return;
-  }
-
-  bool prevState = wasKnown ? alarmList[index].state : false;
-  bool isNewAlarm = (!wasKnown) || (!prevState && alarm.state);
-
-  alarmList[index].id = alarm.id;
-  strncpy(alarmList[index].type, alarm.type, ALARM_TYPE_LEN);
-  alarmList[index].type[ALARM_TYPE_LEN - 1] = '\0';
-  strncpy(alarmList[index].description, alarm.description, ALARM_DESC_LEN);
-  alarmList[index].description[ALARM_DESC_LEN - 1] = '\0';
-  alarmList[index].state = alarm.state;
-
-  if (isNewAlarm && alarm.state) {
-    alarmsMuted = false;
-    hmi_msg.muteAlarm = 0;
-  }
-
-  update_alarm_panels();
   AlarmSound_Update();
 }
 
@@ -1152,131 +1091,13 @@ void inactivity_timer_cb(lv_timer_t *timer) {
 
 void WifiConnectButton_cb(lv_event_t *e) { WiFi.begin(wifi_ssid, wifi_pass); }
 
-static void ui_set_switch_state_silent(lv_obj_t *sw, bool on) {
+void ui_set_switch_state_silent(lv_obj_t *sw, bool on) {
   if (!sw)
     return;
   if (on)
     lv_obj_add_state(sw, LV_STATE_CHECKED);
   else
     lv_obj_clear_state(sw, LV_STATE_CHECKED);
-}
-
-static void Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
-  if (st.desiredAirTemperature == 0.0f && st.desiredSkinTemperature == 0.0f &&
-      st.desiredHumidity == 0.0f) {
-    return;
-  }
-  airTempValue = st.desiredAirTemperature;
-  skinTempValue = st.desiredSkinTemperature;
-  humValue = (int)lround(st.desiredHumidity);
-
-  switchTemp = (st.actuation == ACTUATION_TEMPERATURE ||
-                st.actuation == ACTUATION_TEMP_AND_HUMIDITY);
-  switchHum = (st.actuation == ACTUATION_HUMIDITY ||
-               st.actuation == ACTUATION_TEMP_AND_HUMIDITY);
-  tempSwitched = switchTemp;
-  humSwitched = switchHum;
-
-  if (switchTemp) {
-    lv_obj_set_style_bg_color(ui_Panel1, COLOR_PANEL_WHITE, LV_PART_MAIN);
-    lv_obj_set_style_opa(ui_Panel1, LV_OPA_COVER, LV_PART_MAIN);
-  } else {
-    lv_obj_set_style_bg_color(ui_Panel1, COLOR_PANEL_GRAY, LV_PART_MAIN);
-    lv_obj_set_style_opa(ui_Panel1, LV_OPA_COVER, LV_PART_MAIN);
-  }
-
-  if (switchHum) {
-    lv_obj_set_style_bg_color(ui_Panel3, COLOR_PANEL_WHITE, LV_PART_MAIN);
-    lv_obj_set_style_opa(ui_Panel3, LV_OPA_COVER, LV_PART_MAIN);
-  } else {
-    lv_obj_set_style_bg_color(ui_Panel3, COLOR_PANEL_GRAY, LV_PART_MAIN);
-    lv_obj_set_style_opa(ui_Panel3, LV_OPA_COVER, LV_PART_MAIN);
-  }
-
-  if (switchTemp) {
-    if (st.controlMode == CONTROL_SKIN) {
-      skinPanelEnabled = true;
-      ui_set_switch_state_silent(ui_Switch4, true);
-      lv_obj_clear_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_set_style_bg_color(ui_SkinPanelCont, COLOR_PANEL_WHITE,
-                                LV_PART_MAIN);
-      lv_obj_set_style_opa(ui_SkinPanelCont, LV_OPA_COVER, LV_PART_MAIN);
-    }
-
-    if (st.controlMode == CONTROL_AIR) {
-      selectedPanel = AIR_PANEL_SELECTED;
-      lastSelectedPanel = selectedPanel;
-      set_active_panel(ui_AirPanel, ui_SkinPanel);
-      lv_obj_clear_flag(ui_AirTempBarCont, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_add_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
-    } else {
-      selectedPanel = SKIN_PANEL_SELECTED;
-      lastSelectedPanel = selectedPanel;
-      set_active_panel(ui_SkinPanel, ui_AirPanel);
-      lv_obj_clear_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_add_flag(ui_AirTempBarCont, LV_OBJ_FLAG_HIDDEN);
-    }
-
-    arrowsActive = true;
-    lv_obj_add_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(ui_ImgArrowUpTemp, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_bg_color(ui_ArrowDownTemp, COLOR_PANEL_WHITE,
-                              LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_ArrowUpTemp, COLOR_PANEL_WHITE, LV_PART_MAIN);
-  } else {
-    selectedPanel = NO_PANEL_SELECTED;
-    arrowsActive = false;
-    lv_obj_clear_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(ui_ImgArrowUpTemp, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_bg_color(ui_AirPanel, COLOR_PANEL_GRAY, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_SkinPanel, COLOR_PANEL_GRAY, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_ArrowDownTemp, COLOR_PANEL_GRAY, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_ArrowUpTemp, COLOR_PANEL_GRAY, LV_PART_MAIN);
-  }
-
-  if (switchHum) {
-    lv_obj_add_flag(ui_ImgArrowDownHum, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(ui_ImgArrowUpHum, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_bg_color(ui_ArrowDownHum, COLOR_PANEL_WHITE, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_ArrowUpHum, COLOR_PANEL_WHITE, LV_PART_MAIN);
-  } else {
-    lv_obj_clear_flag(ui_ImgArrowDownHum, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(ui_ImgArrowUpHum, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_bg_color(ui_ArrowDownHum, COLOR_PANEL_GRAY, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_ArrowUpHum, COLOR_PANEL_GRAY, LV_PART_MAIN);
-  }
-
-  hmi_msg.phototherapyMode = st.phototherapyMode;
-  ui_set_switch_state_silent(ui_Switch3,
-                             (st.phototherapyMode == PHOTOTHERAPY_ON));
-
-  ui_set_switch_state_silent(ui_Switch1, switchTemp);
-  ui_set_switch_state_silent(ui_Switch2, switchHum);
-
-  hmi_msg.actuation = st.actuation;
-  hmi_msg.controlMode = st.controlMode;
-  hmi_msg.desiredAirTemperature = airTempValue;
-  hmi_msg.desiredSkinTemperature = skinTempValue;
-  hmi_msg.desiredHumidity = humValue;
-  hmi_msg.muteAlarm = st.muteAlarm;
-  hmi_msg.shouldSendData = false;
-
-  update_labels();
-}
-
-static void Display_StateSync_Service(void) {
-  if (g_stateSynced)
-    return;
-  uint32_t now = millis();
-  if (now - g_lastStateReqMs >= 500) {
-    Communication_RequestState();
-    g_lastStateReqMs = now;
-  }
-  if (ctrl_state_msg.newState) {
-    ctrl_state_msg.newState = false;
-    Display_ApplyCtrlState(ctrl_state_msg);
-    g_stateSynced = true;
-  }
 }
 
 // ==========================================
@@ -1315,6 +1136,8 @@ void UI_Task(void *pvParameters) {
   indev_drv.long_press_time = LOCK_PROGRESS_DURATION_MS;
   lv_indev_drv_register(&indev_drv);
 
+  ui_init();
+
   ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RESOLUTION);
   ledcAttachPin(TFT_BL_PIN, PWM_CHANNEL);
   ledcWrite(PWM_CHANNEL, BRIGHTNESS_MAX);
@@ -1323,17 +1146,11 @@ void UI_Task(void *pvParameters) {
   vTaskDelay(pdMS_TO_TICKS(DELAY_BACKLIGHT_MS));
   digitalWrite(TFT_BL_PIN, HIGH);
 
-  ui_init();
-
   UI_ApplyLanguage(g_lang);
   lv_dropdown_set_selected(ui_LanguagesDropDown, g_lang);
 
   intro_timer = lv_timer_create(intro_timer_cb, 5000, NULL);
   lv_timer_set_repeat_count(intro_timer, 1);
-
-  // Initial request
-  Communication_RequestState();
-  g_lastStateReqMs = millis();
 
   // Visuals
   lv_bar_set_range(ui_AirTempBar, 0, 20);
@@ -1562,17 +1379,6 @@ void UI_Task(void *pvParameters) {
   for (;;) {
     lv_timer_handler();
     vTaskDelay(pdMS_TO_TICKS(LOOP_DELAY_MS));
-    Display_StateSync_Service();
-
-    if (ReceiveMessageFromOtherESP()) {
-      if (ctrl_msg_alarm.id != 0) {
-        processReceivedAlarm(ctrl_msg_alarm);
-        ctrl_msg_alarm.id = 0;
-        ctrl_msg_alarm.state = false;
-      } else if (error == false) {
-        applyHMIData();
-      }
-    }
 
     if (wifiVisible) {
       if (WiFi.status() == WL_CONNECTED) {
