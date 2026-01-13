@@ -606,7 +606,8 @@ void WIFI_TB_OTA() {
 void WifiOTAHandler(void) {
   WIFI_TB_OTA();
   WEB_OTA();
-  if (WiFi.status() != 0xff && WiFi.status() != WL_CONNECTED &&
+  if (WiFi.getMode() != WIFI_OFF && WiFi.status() != 0xff &&
+      WiFi.status() != WL_CONNECTED &&
       millis() > 60000) // If no connection in 1 minute, disable WIFI
   {
     wifiDisable();

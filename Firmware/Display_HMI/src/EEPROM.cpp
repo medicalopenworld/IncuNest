@@ -43,7 +43,7 @@ void resetFlash() {
 
 void initEEPROM() {
   if (!EEPROM.begin(EEPROM_SIZE)) {
-    ESP_LOGE(TAG, "failed to initialise EEPROM");
+    ESP_LOGE(TAG, "Failed to initialise EEPROM");
   }
   // if (!EEPROM.read(EEPROM_PANIC_OTA_CHANGE)) {
   //   EEPROM.write(EEPROM_PANIC_OTA_CHANGE, true);
@@ -74,7 +74,7 @@ void initEEPROM() {
 void loaddefaultValues() {
   EEPROM.write(EEPROM_LANGUAGE, LANG_EN);
   EEPROM.writeFloat(EEPROM_DESIRED_AIR_TEMP, 30.0);
-  EEPROM.writeFloat(EEPROM_DESIRED_SKIN_TEMP, 36.5);
+  EEPROM.writeFloat(EEPROM_DESIRED_SKIN_TEMP, 37);
   EEPROM.write(EEPROM_DESIRED_HUMIDITY, 50);
   EEPROM.commit();
 }
@@ -94,7 +94,7 @@ void recapVariables() {
   if (isnan(airTempValue) || airTempValue < 20.0 || airTempValue > 40.0)
     airTempValue = 30.0;
   if (isnan(skinTempValue) || skinTempValue < 30.0 || skinTempValue > 40.0)
-    skinTempValue = 36.5;
+    skinTempValue = 37;
   if (humValue < 0 || humValue > 100)
     humValue = 50;
 
