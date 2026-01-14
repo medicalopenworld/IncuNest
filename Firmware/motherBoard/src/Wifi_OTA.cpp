@@ -172,6 +172,9 @@ const char *configIndex =
 /*
    setup function
 */
+extern char pendingSSID[64];
+extern char pendingPass[64];
+
 void wifiInit(void) {
   // Connect to WiFi network
   WiFi.setHostname(
@@ -179,14 +182,33 @@ void wifiInit(void) {
   WiFi.mode(WIFI_STA);
   WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
 
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  String ssid;
+  String pass;
+
+  if (strlen(pendingSSID) > 0) {
+    ssid = pendingSSID;
+    pass = pendingPass;
+    logI("Connecting to pending WiFi: " + ssid);
+  } else {
+    ssid = EEPROM.readString(EEPROM_WIFI_SSID);
+    pass = EEPROM.readString(EEPROM_WIFI_PASSWORD);
+    if (ssid.length() > 0) {
+      logI("Connecting to WiFi from EEPROM: " + ssid);
+    } else {
+      logI("Connecting to default WiFi: " + String(WIFI_SSID));
+      ssid = WIFI_SSID;
+      pass = WIFI_PASSWORD;
+    }
+  }
+  WiFi.begin(ssid.c_str(), pass.c_str());
 }
 
 void wifiDisable() { WiFi.mode(WIFI_OFF); }
 
 void configWifiServer() {
   // Wait for connection
-  logI("Connected to " + String(WIFI_SSID) + "IP address" + WiFi.localIP());
+  logI("Connected to " + WiFi.SSID() + " IP address " +
+       WiFi.localIP().toString());
 
   /*use mdns for wifiHost name resolution*/
   if (!MDNS.begin(wifiHost)) { // http://esp32.local
@@ -493,6 +515,14 @@ void addTelemetriesToWIFIJSON() {
 
 void WEB_OTA() {
   if (WiFi.status() == WL_CONNECTED) {
+    if (strlen(pendingSSID) > 0 && WiFi.SSID() == String(pendingSSID)) {
+      logI("[WIFI] -> Connection successful, persisting credentials to EEPROM");
+      EEPROM.writeString(EEPROM_WIFI_SSID, pendingSSID);
+      EEPROM.writeString(EEPROM_WIFI_PASSWORD, pendingPass);
+      EEPROM.commit();
+      pendingSSID[0] = '\0';
+      pendingPass[0] = '\0';
+    }
     if (!WIFI_connection_status) {
       configWifiServer();
       WIFI_connection_status = true;

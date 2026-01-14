@@ -409,7 +409,9 @@ void sendAlarmUSB(byte alarmID, bool isActive) {
   snprintf(msg, sizeof(msg), "CTRL,ALM,%d,%s,%s,%d\n", alarmID, en_desc,
            es_desc, isActive ? 1 : 0);
   ESP_LOGI(TAG, "%s", msg);
+#if CONFIG_IDF_TARGET_ESP32S3
   CommunicationHost_Send(msg);
+#endif
 }
 
 void setAlarm(byte alarmID) {

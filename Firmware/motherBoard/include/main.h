@@ -46,12 +46,14 @@
 #include "esp_bt_main.h"
 #include "in3ator_humidifier.h"
 #include "nvs_flash.h"
+#if CONFIG_IDF_TARGET_ESP32S3
 #include "usb/cdc_acm_host.h"
 #include "usb/usb_host.h"
 #include "usb/vcp.hpp"
 #include "usb/vcp_ch34x.hpp"
 #include "usb/vcp_cp210x.hpp"
 #include "usb/vcp_ftdi.hpp"
+#endif
 #include <BQ25792_Driver.h>
 #include <SensirionI2cSts3x.h>
 #include <TFT_eSPI.h> // Hardware-specific library
@@ -374,6 +376,8 @@ typedef enum {
 #define EEPROM_DESIRED_CONTROL_HUMIDITY 90
 #define EEPROM_RAW_SKIN_TEMP_LOW_CORRECTION 100
 #define EEPROM_RAW_SKIN_TEMP_RANGE_CORRECTION 110
+#define EEPROM_WIFI_SSID 115
+#define EEPROM_WIFI_PASSWORD 145
 #define EEPROM_REFERENCE_TEMP_RANGE 170
 #define EEPROM_REFERENCE_TEMP_LOW 180
 #define EEPROM_FINE_TUNE_TEMP_SKIN 190

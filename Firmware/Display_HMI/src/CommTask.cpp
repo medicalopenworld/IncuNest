@@ -33,6 +33,12 @@ void Communication_RequestState(void) {
 #endif
 }
 
+void Communication_SendWiFiCredentials(const char *ssid, const char *password) {
+#if IS_HMI
+  COMM_SERIAL.printf("HMI,WIFI,%s,%s\n", ssid, password);
+#endif
+}
+
 static void SendMessageToOtherESP() {
 #if IS_HMI
   COMM_SERIAL.printf("HMI,%d,%d,%0.2f,%0.2f,%0.0f,%d,%d\n", hmi_msg.actuation,

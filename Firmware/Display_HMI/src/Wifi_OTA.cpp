@@ -148,6 +148,10 @@ const char *serverIndex =
     "</script>";
 
 int serialNumber = 0;
+char pendingSSID[64] = "";
+char pendingPass[64] = "";
+static uint32_t lastconnectiontrywifi = 0;
+
 /*
    setup function
 */
@@ -158,8 +162,28 @@ void wifiInit(void) {
       String(String(WIFI_NAME) + "-" + String(serialNumber)).c_str());
   WiFi.mode(WIFI_STA);
   WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
-  ESP_LOGI(TAG, "Connecting to SSID: %s", WIFI_SSID);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+  String ssid;
+  String pass;
+
+  if (strlen(pendingSSID) > 0) {
+    ssid = pendingSSID;
+    pass = pendingPass;
+    ESP_LOGI(TAG, "Connecting to pending SSID: %s", ssid.c_str());
+  } else {
+    ssid = EEPROM.readString(EEPROM_WIFI_SSID);
+    pass = EEPROM.readString(EEPROM_WIFI_PASSWORD);
+    if (ssid.length() > 0) {
+      ESP_LOGI(TAG, "Connecting to SSID from EEPROM: %s", ssid.c_str());
+    } else {
+      ESP_LOGI(TAG, "Connecting to default SSID: %s", WIFI_SSID);
+      ssid = WIFI_SSID;
+      pass = WIFI_PASSWORD;
+    }
+  }
+
+  WiFi.begin(ssid.c_str(), pass.c_str());
+  lastconnectiontrywifi = millis();
 }
 
 void wifiDisable() { WiFi.mode(WIFI_OFF); }
@@ -283,6 +307,14 @@ void WIFI_TB_Init() {
 
 void WEB_OTA() {
   if (WiFi.status() == WL_CONNECTED) {
+    if (strlen(pendingSSID) > 0 && WiFi.SSID() == String(pendingSSID)) {
+      ESP_LOGI(TAG, "Connection successful, persisting credentials to EEPROM");
+      EEPROM.writeString(EEPROM_WIFI_SSID, pendingSSID);
+      EEPROM.writeString(EEPROM_WIFI_PASSWORD, pendingPass);
+      EEPROM.commit();
+      pendingSSID[0] = '\0';
+      pendingPass[0] = '\0';
+    }
     if (!WIFI_connection_status) {
       configWifiServer();
       WIFI_connection_status = true;
@@ -608,7 +640,8 @@ void WifiOTAHandler(void) {
   WEB_OTA();
   if (WiFi.getMode() != WIFI_OFF && WiFi.status() != 0xff &&
       WiFi.status() != WL_CONNECTED &&
-      millis() > 60000) // If no connection in 1 minute, disable WIFI
+      millis() - lastconnectiontrywifi >
+          60000) // If no connection in 1 minute, disable WIFI
   {
     wifiDisable();
     ESP_LOGI(TAG, "WIFI DISABLED");

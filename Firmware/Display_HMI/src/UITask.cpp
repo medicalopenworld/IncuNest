@@ -1089,7 +1089,17 @@ void inactivity_timer_cb(lv_timer_t *timer) {
   }
 }
 
-void WifiConnectButton_cb(lv_event_t *e) { WiFi.begin(wifi_ssid, wifi_pass); }
+void WifiConnectButton_cb(lv_event_t *e) {
+  extern char pendingSSID[64];
+  extern char pendingPass[64];
+  strncpy(pendingSSID, wifi_ssid, sizeof(pendingSSID));
+  strncpy(pendingPass, wifi_pass, sizeof(pendingPass));
+
+  Communication_SendWiFiCredentials(pendingSSID, pendingPass);
+  vTaskDelay(
+      pdMS_TO_TICKS(100)); // Ensure serial is clear before WiFi logs start
+  wifiInit();              // Trigger new connection attempt
+}
 
 void ui_set_switch_state_silent(lv_obj_t *sw, bool on) {
   if (!sw)
@@ -1172,6 +1182,9 @@ void UI_Task(void *pvParameters) {
   lv_obj_add_event_cb(ui_TextArea2, TextArea_focus_cb, LV_EVENT_CLICKED, NULL);
   lv_obj_add_event_cb(ui_Keyboard1, Keyboard_cb, LV_EVENT_ALL, NULL);
   lv_obj_add_event_cb(ui_WifiButton, WifiButton_cb, LV_EVENT_CLICKED, NULL);
+  lv_textarea_set_text(ui_TextArea1, wifi_ssid);
+  lv_textarea_set_text(ui_TextArea2, wifi_pass);
+
   lv_obj_add_event_cb(ui_LanguagesButton, LanguageButton_cb, LV_EVENT_CLICKED,
                       NULL);
 
@@ -1381,13 +1394,12 @@ void UI_Task(void *pvParameters) {
     vTaskDelay(pdMS_TO_TICKS(LOOP_DELAY_MS));
 
     if (wifiVisible) {
+      lv_obj_clear_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
       if (WiFi.status() == WL_CONNECTED) {
-        lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
         lv_label_set_text(ui_WifiSSIDLabel, WiFi.SSID().c_str());
       } else {
         lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_clear_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
       }
     }
     if (eepromDirty && (millis() - lastVarChangeTime > EEPROM_COMMIT_DELAY)) {

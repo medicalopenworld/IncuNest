@@ -23,6 +23,7 @@
 
 */
 #include <Arduino.h>
+#include <cmath>
 
 #include "EEPROM.h"
 #include "esp_log.h"
@@ -79,6 +80,9 @@ void loaddefaultValues() {
   EEPROM.commit();
 }
 
+extern char wifi_ssid[64];
+extern char wifi_pass[64];
+
 void recapVariables() {
   g_lang = (ui_lang_t)EEPROM.read(EEPROM_LANGUAGE);
   // Validation
@@ -89,6 +93,11 @@ void recapVariables() {
   airTempValue = EEPROM.readFloat(EEPROM_DESIRED_AIR_TEMP);
   skinTempValue = EEPROM.readFloat(EEPROM_DESIRED_SKIN_TEMP);
   humValue = EEPROM.read(EEPROM_DESIRED_HUMIDITY);
+
+  String ssid = EEPROM.readString(EEPROM_WIFI_SSID);
+  String pass = EEPROM.readString(EEPROM_WIFI_PASSWORD);
+  strncpy(wifi_ssid, ssid.c_str(), sizeof(wifi_ssid));
+  strncpy(wifi_pass, pass.c_str(), sizeof(wifi_pass));
 
   // Validation
   if (isnan(airTempValue) || airTempValue < 20.0 || airTempValue > 40.0)
@@ -102,4 +111,5 @@ void recapVariables() {
   ESP_LOGI(TAG, "Air Temp loaded: %.2f", airTempValue);
   ESP_LOGI(TAG, "Skin Temp loaded: %.2f", skinTempValue);
   ESP_LOGI(TAG, "Humidity loaded: %d", humValue);
+  ESP_LOGI(TAG, "WiFi SSID loaded: %s", wifi_ssid);
 }

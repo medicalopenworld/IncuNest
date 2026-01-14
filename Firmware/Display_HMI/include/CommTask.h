@@ -5,7 +5,6 @@
 #include <Arduino.h>
 #include <lvgl.h>
 
-
 #define COMMUNICATION_DEBUG true
 
 #if COMMUNICATION_DEBUG
@@ -92,5 +91,6 @@ extern bool error;
 // ======================
 void CreateCommTask();
 void Communication_RequestState(void);
+void Communication_SendWiFiCredentials(const char *ssid, const char *password);
 
 #endif

@@ -29,6 +29,13 @@
 
 #include "main.h"
 
+#if !CONFIG_IDF_TARGET_ESP32S3
+TelemetryMessage ctrl_tel_msg = {0, 0, 0};
+HMI_CommandMessage hmi_cmd_msg = {0, 0, 0, 0, 0, 0, 0, false};
+char pendingSSID[64] = "";
+char pendingPass[64] = "";
+#endif
+
 #include <Arduino.h>
 
 TwoWire *wire;
@@ -444,6 +451,7 @@ void setup() {
     ;
   logI("Time track task successfully created!\n");
 
+#if CONFIG_IDF_TARGET_ESP32S3
   // --- Initialize UART communication between ESP32 boards ---
   logI("Initializing communication task ...");
   CommunicationHost_Init();
@@ -451,6 +459,7 @@ void setup() {
   xTaskCreatePinnedToCore(Communication_Task, "COMM_TASK", 4096, NULL, 1, NULL,
                           CORE_ID_FREERTOS // o 0/1 según tu placa
   );
+#endif
 
   xTaskCreatePinnedToCore(Communication_Receiver, "COMM_TASK_RX", 4096, NULL, 1,
                           NULL,
