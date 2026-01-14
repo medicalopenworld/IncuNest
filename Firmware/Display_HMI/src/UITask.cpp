@@ -1405,7 +1405,7 @@ void UI_Task(void *pvParameters) {
     if (eepromDirty && (millis() - lastVarChangeTime > EEPROM_COMMIT_DELAY)) {
       EEPROM.commit();
       eepromDirty = false;
-      Serial.println("EEPROM committed after delay");
+      ESP_LOGI(TAG, "EEPROM committed after delay");
     }
   }
 }

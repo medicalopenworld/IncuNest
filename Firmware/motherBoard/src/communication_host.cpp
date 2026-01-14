@@ -66,7 +66,7 @@ char pendingSSID[64] = "";
 char pendingPass[64] = "";
 
 void parse_line(const char *line) {
-  ESP_LOGD(TAG, "RX: %s", line);
+  // ESP_LOGD(TAG, "RX: %s", line); // Removed to avoid UART flooding
 
   // ---- NUEVO: handshake request ----
   if (strcmp(line, "HMI,REQ,STATE") == 0) {

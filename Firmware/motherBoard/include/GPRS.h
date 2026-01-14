@@ -13,12 +13,14 @@
 #define SERIAL_DEBUG_BAUD 115200
 #define MODEM_BAUD 115200
 #define RX_BUFFER_LENGTH 1024
-#define GPRS_TIMEOUT 30000  // in millisecs
+#define GPRS_TIMEOUT 30000 // in millisecs
 
 #define standByGPRSPostPeriod 3600
 #define actuatingGPRSPostPeriod 60
 #define phototherapyGPRSPostPeriod 180
 #define GPRS_SHUT OFF
+#define GPRS_OTA_CHECK_INTERVAL 600000    // 10 minutes in milliseconds
+#define THINGSBOARD_RECONNECT_DELAY 30000 // 30 seconds
 
 #define SIMCOM800_AT "AT\n"
 #define SIMCOM800_ASK_CPIN "AT+CPIN?\n"
@@ -50,6 +52,8 @@ struct GPRSstruct {
   bool OTAInProgress = false;
   bool thingsboardConnection = true;
   bool lastOTAInProgress = false;
+  long lastOTACheck = false;
+  long lastReconnectAttempt = false;
   bool enable = false;
   long sendPeriod = false;
   long lastSent = false;
@@ -95,7 +99,7 @@ void GPRS_Handler();
 void GPRS_TB_Init();
 void initGPRS();
 void GPRSSetPostPeriod();
-void progressCallback(const uint32_t& currentChunk,
-                      const uint32_t& totalChuncks);
-void updatedCallback(const bool& success);
-#endif  // _GPRS_123H_
+void progressCallback(const uint32_t &currentChunk,
+                      const uint32_t &totalChuncks);
+void updatedCallback(const bool &success);
+#endif // _GPRS_123H_

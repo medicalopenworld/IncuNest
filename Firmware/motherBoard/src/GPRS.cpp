@@ -620,10 +620,14 @@ void GPRSPost() {
     tb.loop();
   } else {
     if (!tb.connected()) {
+      if (millis() - GPRS.lastReconnectAttempt < THINGSBOARD_RECONNECT_DELAY) {
+        return;
+      }
       logCon(
           "[GPRS] -> Connecting over GPRS to: " + String(THINGSBOARD_SERVER) +
           " with token " + String(GPRS.device_token));
 
+      GPRS.lastReconnectAttempt = millis();
       if (!tb.connect(THINGSBOARD_SERVER, GPRS.device_token.c_str())) {
         logCon("[GPRS] -> Failed to connect");
         return;
@@ -634,43 +638,49 @@ void GPRSPost() {
           logCon("[GPRS] -> Requesting OTA");
           GPRSCheckOTA();
           GPRS.OTA_requested = true;
+          GPRS.lastOTACheck = millis();
         }
       }
     }
-    if (tb.connected() &&
-        millis() - GPRS.lastSent > secsToMillis(GPRS.sendPeriod)) {
-      // Send our firmware title and version
-      // StaticJsonDocument<JSON_OBJECT_SIZE(2)> TB_telemetries;
-      // JsonObject telemetriesObject = TB_telemetries.to<JsonObject>();
+    if (tb.connected()) {
+      if (millis() - GPRS.lastSent > secsToMillis(GPRS.sendPeriod)) {
+        // Send our firmware title and version
+        // StaticJsonDocument<JSON_OBJECT_SIZE(2)> TB_telemetries;
+        // JsonObject telemetriesObject = TB_telemetries.to<JsonObject>();
 
-      logCon("[GPRS] -> sendPeriod is " + String(GPRS.sendPeriod) + " secs");
-      logCon("[GPRS] -> Posting GPRS data...");
+        logCon("[GPRS] -> sendPeriod is " + String(GPRS.sendPeriod) + " secs");
+        logCon("[GPRS] -> Posting GPRS data...");
 
-      if (!GPRS.firstPublish) {
-        GPRS.firstPublish = true;
-        addConfigTelemetriesToGPRSJSON();
+        if (!GPRS.firstPublish) {
+          GPRS.firstPublish = true;
+          addConfigTelemetriesToGPRSJSON();
+          if (tb.sendTelemetryJson(addVariableToTelemetryGPRSJSON,
+                                   JSON_STRING_SIZE(measureJson(
+                                       addVariableToTelemetryGPRSJSON)))) {
+            logCon("[GPRS] -> GPRS MQTT PUBLISH CONFIG SUCCESS");
+          } else {
+            logCon("[GPRS] -> GPRS MQTT PUBLISH CONFIG FAIL");
+          }
+          GPRS_JSON.clear();
+        }
+        GPRS_get_triangulation_location();
+        GPRSUpdateCSQ();
+        addTelemetriesToGPRSJSON();
         if (tb.sendTelemetryJson(addVariableToTelemetryGPRSJSON,
                                  JSON_STRING_SIZE(measureJson(
                                      addVariableToTelemetryGPRSJSON)))) {
-          logCon("[GPRS] -> GPRS MQTT PUBLISH CONFIG SUCCESS");
+          logCon("[GPRS] -> GPRS MQTT PUBLISH TELEMETRIES SUCCESS");
         } else {
-          logCon("[GPRS] -> GPRS MQTT PUBLISH CONFIG FAIL");
+          logCon("[GPRS] -> GPRS MQTT PUBLISH TELEMETRIES FAIL");
         }
         GPRS_JSON.clear();
+        GPRS.process = false;
+        GPRS.lastSent = millis();
       }
-      GPRS_get_triangulation_location();
-      GPRSUpdateCSQ();
-      addTelemetriesToGPRSJSON();
-      if (tb.sendTelemetryJson(
-              addVariableToTelemetryGPRSJSON,
-              JSON_STRING_SIZE(measureJson(addVariableToTelemetryGPRSJSON)))) {
-        logCon("[GPRS] -> GPRS MQTT PUBLISH TELEMETRIES SUCCESS");
-      } else {
-        logCon("[GPRS] -> GPRS MQTT PUBLISH TELEMETRIES FAIL");
+      if (millis() - GPRS.lastOTACheck > GPRS_OTA_CHECK_INTERVAL) {
+        GPRSCheckOTA();
+        GPRS.lastOTACheck = millis();
       }
-      GPRS_JSON.clear();
-      GPRS.process = false;
-      GPRS.lastSent = millis();
     }
   }
 }

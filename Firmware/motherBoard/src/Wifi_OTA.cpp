@@ -537,9 +537,14 @@ void WEB_OTA() {
 void WIFI_TB_OTA() {
   if (WiFi.status() == WL_CONNECTED) {
     if (!tb_wifi.connected()) {
+      if (millis() - Wifi_TB.lastReconnectAttempt <
+          THINGSBOARD_RECONNECT_DELAY) {
+        return;
+      }
       // Connect to the ThingsBoard
       logI("[WIFI] -> Connecting over WIFI to: " + String(THINGSBOARD_SERVER) +
            " with token " + String(Wifi_TB.device_token));
+      Wifi_TB.lastReconnectAttempt = millis();
       if (!tb_wifi.connect(THINGSBOARD_SERVER, Wifi_TB.device_token.c_str())) {
         logI("[WIFI] ->Failed to connect");
         return;
@@ -560,6 +565,7 @@ void WIFI_TB_OTA() {
           Wifi_TB.OTA_requested = true;
         }
         WIFICheckOTA();
+        Wifi_TB.lastOTACheck = millis();
       }
     } else {
       if (millis() - Wifi_TB.lastMQTTPublish > WIFI_PUBLISH_INTERVAL) {
@@ -573,6 +579,10 @@ void WIFI_TB_OTA() {
         }
         WIFI_JSON.clear();
         Wifi_TB.lastMQTTPublish = millis();
+      }
+      if (millis() - Wifi_TB.lastOTACheck > WIFI_OTA_CHECK_INTERVAL) {
+        WIFICheckOTA();
+        Wifi_TB.lastOTACheck = millis();
       }
     }
   } else {
