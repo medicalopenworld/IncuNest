@@ -13,8 +13,6 @@ bool OTA_inprogress = false;
 void setup() {
   Serial.begin(SERIAL_BAUD);
   initEEPROM();
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW);
 
   Wire.begin(TOUCH_SDA_PIN, TOUCH_SCL_PIN);
 

@@ -824,6 +824,7 @@ void start_alarm_blink(lv_obj_t *obj) {
 }
 
 void update_alarm_panels() {
+  int totalActiveAlarms = 0;
   int activeCount = 0;
   alarmSlotToIndex[0] = -1;
   alarmSlotToIndex[1] = -1;
@@ -832,6 +833,7 @@ void update_alarm_panels() {
 
   for (int i = 0; i < MAX_ALARMS; i++) {
     if (alarmList[i].state) {
+      totalActiveAlarms++;
       if (activeCount < MAX_ALARM_DISPLAY) {
         alarmSlotToIndex[activeCount] = i;
         activeCount++;
@@ -839,9 +841,9 @@ void update_alarm_panels() {
     }
   }
 
-  alarmActive = (activeCount > 0);
+  alarmActive = (totalActiveAlarms > 0);
   hmi_msg.muteAlarm = alarmActive ? (alarmsMuted ? 1 : 0) : 0;
-  hmi_msg.shouldSendData = true;
+  // hmi_msg.shouldSendData = true; Dont send reply when receive an alarm msg
 
   if (activeCount > NUM_ALARM_0) {
     lv_obj_clear_flag(ui_Alarm1Cont, LV_OBJ_FLAG_HIDDEN);
@@ -880,7 +882,27 @@ void update_alarm_panels() {
       lv_obj_add_flag(ui_Alarm4Cont, LV_OBJ_FLAG_HIDDEN);
   }
 
-  if (activeCount == 0) {
+  if (totalActiveAlarms > 0) {
+    char buf[10];
+    itoa(totalActiveAlarms, buf, 10);
+    // Main screen
+    lv_obj_clear_flag(ui_Panel10, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_NumAlarm, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(ui_NumAlarm, buf);
+    // Lock screen
+    lv_obj_clear_flag(ui_AlarmLockCont, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(ui_AlarmLockNumLabel, buf);
+    lv_obj_add_flag(ui_CheckImg, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    // Main screen
+    lv_obj_add_flag(ui_Panel10, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_NumAlarm, LV_OBJ_FLAG_HIDDEN);
+    // Lock screen
+    lv_obj_add_flag(ui_AlarmLockCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_CheckImg, LV_OBJ_FLAG_HIDDEN);
+  }
+
+  if (totalActiveAlarms == 0) {
     alarmsMuted = false;
   }
 }
@@ -1124,6 +1146,7 @@ void UI_Task(void *pvParameters) {
 
   lv_init();
   ts.begin();
+  // ts.reset();
   ts.setRotation(TOUCH_ROTATION);
   lcd.setRotation(LCD_ROTATION);
 
@@ -1148,9 +1171,9 @@ void UI_Task(void *pvParameters) {
 
   ui_init();
 
-  ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RESOLUTION);
-  ledcAttachPin(TFT_BL_PIN, PWM_CHANNEL);
-  ledcWrite(PWM_CHANNEL, BRIGHTNESS_MAX);
+  // ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RESOLUTION);
+  // ledcAttachPin(TFT_BL_PIN, PWM_CHANNEL);
+  // ledcWrite(PWM_CHANNEL, BRIGHTNESS_MAX);
   pinMode(TFT_BL_PIN, OUTPUT);
   digitalWrite(TFT_BL_PIN, LOW);
   vTaskDelay(pdMS_TO_TICKS(DELAY_BACKLIGHT_MS));
