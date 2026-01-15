@@ -24,7 +24,10 @@
 */
 #include <Arduino.h>
 
+#include "GPRS.h"
 #include "main.h"
+
+extern GPRSstruct GPRS;
 
 const char *wifiHost = "in3ator";
 
@@ -48,6 +51,7 @@ bool WIFI_connection_status = false;
 extern in3ator_parameters in3;
 extern double fineTuneSkinTemperature;
 WIFIstruct Wifi_TB;
+Credentials wifi_credentials;
 Espressif_Updater updater_WIFI;
 
 const OTA_Update_Callback OTAcallback(&progressCallback, &updatedCallback,
@@ -332,9 +336,78 @@ void WIFICheckOTA() {
 
 void WIFI_TB_Init() {
   Wifi_TB.provisioned = EEPROM.read(EEPROM_THINGSBOARD_PROVISIONED);
+  logI("[WIFI] -> WIFI_TB_Init check provisioning: " +
+       String(Wifi_TB.provisioned));
   if (Wifi_TB.provisioned) {
     Wifi_TB.device_token = EEPROM.readString(EEPROM_THINGSBOARD_TOKEN);
+    logI("[WIFI] -> Provisioned with token: " + String(Wifi_TB.device_token));
   }
+}
+
+void WIFIProvisionResponse(const JsonObjectConst &data) {
+  logI("[WIFI] -> Received device provision response");
+  const size_t jsonSize = JSON_OBJECT_SIZE(data.size()) + 200;
+  char buffer[jsonSize];
+  serializeJson(data, buffer, jsonSize);
+
+  if (strncmp(data["status"], "SUCCESS", strlen("SUCCESS")) != 0) {
+    logI("[WIFI] -> Provision response contains the error: " +
+         data["errorMsg"].as<String>());
+    return;
+  }
+
+  if (strncmp(data[CREDENTIALS_TYPE], ACCESS_TOKEN_CRED_TYPE,
+              strlen(ACCESS_TOKEN_CRED_TYPE)) == 0) {
+
+    wifi_credentials.client_id = "";
+    wifi_credentials.username = data[CREDENTIALS_VALUE].as<std::string>();
+    wifi_credentials.password = "";
+    Wifi_TB.provisioned = true;
+    Wifi_TB.device_token = wifi_credentials.username.c_str();
+    EEPROM.writeString(EEPROM_THINGSBOARD_TOKEN, Wifi_TB.device_token);
+    EEPROM.write(EEPROM_THINGSBOARD_PROVISIONED, Wifi_TB.provisioned);
+    EEPROM.commit();
+    logI("[WIFI] -> Device provisioned successfully");
+  } else if (strncmp(data[CREDENTIALS_TYPE], MQTT_BASIC_CRED_TYPE,
+                     strlen(MQTT_BASIC_CRED_TYPE)) == 0) {
+    auto credentials_value = data[CREDENTIALS_VALUE].as<JsonObjectConst>();
+    wifi_credentials.client_id = credentials_value[CLIENT_ID].as<std::string>();
+    wifi_credentials.username =
+        credentials_value[CLIENT_USERNAME].as<std::string>();
+    wifi_credentials.password =
+        credentials_value[CLIENT_PASSWORD].as<std::string>();
+    Wifi_TB.provisioned = true;
+    Wifi_TB.device_token = wifi_credentials.username.c_str();
+    EEPROM.writeString(EEPROM_THINGSBOARD_TOKEN, Wifi_TB.device_token);
+    EEPROM.write(EEPROM_THINGSBOARD_PROVISIONED, Wifi_TB.provisioned);
+    EEPROM.commit();
+    logI("[WIFI] -> Device provisioned successfully");
+  } else {
+    logI("[WIFI] -> Unexpected provision credentialsType");
+    return;
+  }
+  if (tb_wifi.connected()) {
+    tb_wifi.disconnect();
+  }
+  Wifi_TB.provision_request_processed = true;
+}
+
+void WIFITBProvision() {
+  if (!tb_wifi.connected()) {
+    logI("[WIFI] -> Connecting for provision to: " +
+         String(THINGSBOARD_SERVER));
+    if (!tb_wifi.connect(THINGSBOARD_SERVER, "provision", THINGSBOARD_PORT)) {
+      logI("[WIFI] -> Failed to connect");
+      return;
+    }
+  }
+  // Connect to the ThingsBoard
+  logI("[WIFI] -> Sending provision request to: " + String(THINGSBOARD_SERVER));
+
+  const Provision_Callback provisionCallback(
+      Access_Token(), &WIFIProvisionResponse, PROVISION_DEVICE_KEY,
+      PROVISION_DEVICE_SECRET, GPRS.CCID.c_str());
+  Wifi_TB.provision_request_sent = tb_wifi.Provision_Request(provisionCallback);
 }
 
 void switchAlarmTelemetryWIFI(int alarm, bool value) {
@@ -536,53 +609,64 @@ void WEB_OTA() {
 
 void WIFI_TB_OTA() {
   if (WiFi.status() == WL_CONNECTED) {
-    if (!tb_wifi.connected()) {
-      if (millis() - Wifi_TB.lastReconnectAttempt <
-          THINGSBOARD_RECONNECT_DELAY) {
-        return;
+    if (!Wifi_TB.provisioned) {
+      if (GPRS.CCID.length() > 0) {
+        if (!Wifi_TB.provision_request_sent) {
+          WIFITBProvision();
+        }
       }
-      // Connect to the ThingsBoard
-      logI("[WIFI] -> Connecting over WIFI to: " + String(THINGSBOARD_SERVER) +
-           " with token " + String(Wifi_TB.device_token));
-      Wifi_TB.lastReconnectAttempt = millis();
-      if (!tb_wifi.connect(THINGSBOARD_SERVER, Wifi_TB.device_token.c_str())) {
-        logI("[WIFI] ->Failed to connect");
-        return;
+    } else {
+      if (!tb_wifi.connected()) {
+        if (millis() - Wifi_TB.lastReconnectAttempt <
+            THINGSBOARD_RECONNECT_DELAY) {
+          return;
+        }
+        // Connect to the ThingsBoard
+        logI(
+            "[WIFI] -> Connecting over WIFI to: " + String(THINGSBOARD_SERVER) +
+            " with token " + String(Wifi_TB.device_token));
+        Wifi_TB.lastReconnectAttempt = millis();
+        if (!tb_wifi.connect(THINGSBOARD_SERVER,
+                             Wifi_TB.device_token.c_str())) {
+          logI("[WIFI] ->Failed to connect");
+          return;
+        } else {
+          if (!Wifi_TB.firstPublish) {
+            addConfigTelemetriesToWIFIJSON();
+            if (tb_wifi.sendTelemetryJson(
+                    addVariableToTelemetryWIFIJSON,
+                    JSON_STRING_SIZE(
+                        measureJson(addVariableToTelemetryWIFIJSON)))) {
+              logI("[WIFI] -> WIFI MQTT PUBLISH CONFIG SUCCESS");
+            } else {
+              logI("[WIFI] -> WIFI MQTT PUBLISH CONFIG FAIL");
+            }
+            WIFI_JSON.clear();
+          }
+          Wifi_TB.serverConnectionStatus = true;
+          if (ENABLE_WIFI_OTA && !Wifi_TB.OTA_requested) {
+            Wifi_TB.OTA_requested = true;
+          }
+          WIFICheckOTA();
+          Wifi_TB.lastOTACheck = millis();
+        }
       } else {
-        if (!Wifi_TB.firstPublish) {
-          addConfigTelemetriesToWIFIJSON();
+        if (millis() - Wifi_TB.lastMQTTPublish > WIFI_PUBLISH_INTERVAL) {
+          addTelemetriesToWIFIJSON();
           if (tb_wifi.sendTelemetryJson(addVariableToTelemetryWIFIJSON,
                                         JSON_STRING_SIZE(measureJson(
                                             addVariableToTelemetryWIFIJSON)))) {
-            logI("[WIFI] -> WIFI MQTT PUBLISH CONFIG SUCCESS");
+            logI("[WIFI] -> WIFI MQTT PUBLISH TELEMETRIES SUCCESS");
           } else {
-            logI("[WIFI] -> WIFI MQTT PUBLISH CONFIG FAIL");
+            logI("[WIFI] -> WIFI MQTT PUBLISH TELEMETRIES FAIL");
           }
           WIFI_JSON.clear();
+          Wifi_TB.lastMQTTPublish = millis();
         }
-        Wifi_TB.serverConnectionStatus = true;
-        if (ENABLE_WIFI_OTA && !Wifi_TB.OTA_requested) {
-          Wifi_TB.OTA_requested = true;
+        if (millis() - Wifi_TB.lastOTACheck > WIFI_OTA_CHECK_INTERVAL) {
+          WIFICheckOTA();
+          Wifi_TB.lastOTACheck = millis();
         }
-        WIFICheckOTA();
-        Wifi_TB.lastOTACheck = millis();
-      }
-    } else {
-      if (millis() - Wifi_TB.lastMQTTPublish > WIFI_PUBLISH_INTERVAL) {
-        addTelemetriesToWIFIJSON();
-        if (tb_wifi.sendTelemetryJson(addVariableToTelemetryWIFIJSON,
-                                      JSON_STRING_SIZE(measureJson(
-                                          addVariableToTelemetryWIFIJSON)))) {
-          logI("[WIFI] -> WIFI MQTT PUBLISH TELEMETRIES SUCCESS");
-        } else {
-          logI("[WIFI] -> WIFI MQTT PUBLISH TELEMETRIES FAIL");
-        }
-        WIFI_JSON.clear();
-        Wifi_TB.lastMQTTPublish = millis();
-      }
-      if (millis() - Wifi_TB.lastOTACheck > WIFI_OTA_CHECK_INTERVAL) {
-        WIFICheckOTA();
-        Wifi_TB.lastOTACheck = millis();
       }
     }
   } else {

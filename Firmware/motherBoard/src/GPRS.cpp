@@ -251,10 +251,16 @@ void GPRSPowerUp() {
     checkSerial(AT_CPIN_READY, AT_ERROR);
     break;
   case 3:
+    logCon("[GPRS] -> Power up success");
+    GPRS.CCID = modem.getSimCCID();
+    GPRS.CCID.remove(GPRS.CCID.length() - 1);
+    GPRS.IMEI = modem.getIMEI();
+    logModemData("[GPRS] -> CCID is: " + GPRS.CCID);
+    logModemData("[GPRS] -> IMEI is: " + GPRS.IMEI);
     GPRS.powerUp = false;
     GPRS.connect = true;
-    logCon("[GPRS] -> Power up success");
     GPRS.process = false;
+    GPRS.APN = APN_TM;
     break;
   }
 }
@@ -262,16 +268,10 @@ void GPRSPowerUp() {
 void GPRSStablishConnection() {
   switch (GPRS.process) {
   case 0:
-    GPRS.CCID = modem.getSimCCID();
-    GPRS.CCID.remove(GPRS.CCID.length() - 1);
-    GPRS.IMEI = modem.getIMEI();
-    logModemData("[GPRS] -> CCID is: " + GPRS.CCID);
-    logModemData("[GPRS] -> IMEI is: " + GPRS.IMEI);
     logCon("[GPRS] -> Stablishing connection...");
     GPRS.processTime = millis();
     GPRS.packetSentenceTime = millis();
     GPRS.process++;
-    GPRS.APN = APN_TM;
     break;
   case 1:
     logCon("[GPRS] -> Connecting...");
@@ -697,12 +697,14 @@ void GPRS_Handler() {
   if (GPRS.powerUp) {
     GPRSPowerUp();
   }
-  if (GPRS.connect) {
-    GPRSStablishConnection();
-  }
-  if (GPRS.post) {
-    GPRSSetPostPeriod();
-    GPRSPost();
-    tb.loop();
+  if (!WIFIIsConnected()) {
+    if (GPRS.connect) {
+      GPRSStablishConnection();
+    }
+    if (GPRS.post) {
+      GPRSSetPostPeriod();
+      GPRSPost();
+      tb.loop();
+    }
   }
 }

@@ -68,7 +68,7 @@
 #define LOG_MODEM_DATA false
 #define LOG_INFORMATION false
 #define LOG_ERRORS false
-#define LOG_ALARMS true
+#define LOG_ALARMS false
 
 #define USE_SYSTEM_WITHOUT_ACTUATORS_TEST                                      \
   true // only if previous test was OK and that fail cause is not being able to
@@ -162,6 +162,10 @@ typedef enum {
   AUTO_CALIBRATION_PAGE,
   FINE_TUNE_CALIBRATION_PAGE,
 } UI_PAGES;
+
+// Mutex for protecting the shared variable
+extern SemaphoreHandle_t GPRS_monitor_mutex;
+extern SemaphoreHandle_t log_mutex;
 
 // languages numbers that will be called in language variable
 typedef enum {

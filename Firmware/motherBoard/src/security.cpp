@@ -27,6 +27,7 @@
 #include "main.h"
 
 static const char *TAG = "SECURITY";
+extern SemaphoreHandle_t log_mutex;
 
 extern TwoWire *wire;
 extern MAM_in3ator_Humidifier in3_hum;
@@ -408,7 +409,10 @@ void sendAlarmUSB(byte alarmID, bool isActive) {
 
   snprintf(msg, sizeof(msg), "CTRL,ALM,%d,%s,%s,%d\n", alarmID, en_desc,
            es_desc, isActive ? 1 : 0);
-  ESP_LOGI(TAG, "%s", msg);
+  if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    ESP_LOGI(TAG, "%s", msg);
+    xSemaphoreGive(log_mutex);
+  }
 #if CONFIG_IDF_TARGET_ESP32S3
   CommunicationHost_Send(msg);
 #endif

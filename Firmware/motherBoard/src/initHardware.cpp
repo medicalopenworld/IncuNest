@@ -222,7 +222,7 @@ bool initI2C() {
 
 void initPWMGPIO() {
   logI("[HW] -> Initialiting PWM GPIOs");
-  ledcSetup(HEATER_PWM_CHANNEL, HEATER_PWM_FREQUENCY, DEFAULT_PWM_RESOLUTION); 
+  ledcSetup(HEATER_PWM_CHANNEL, HEATER_PWM_FREQUENCY, DEFAULT_PWM_RESOLUTION);
   ledcAttachPin(HEATER, HEATER_PWM_CHANNEL);
   ledcSetup(BUZZER_PWM_CHANNEL, DEFAULT_PWM_FREQUENCY, DEFAULT_PWM_RESOLUTION);
   ledcSetup(SCREENBACKLIGHT_PWM_CHANNEL, DEFAULT_PWM_FREQUENCY,
@@ -322,50 +322,57 @@ void initRoomSensor() {
 
     uint8_t addr = 0;
     switch (i) {
-      case ROOM_SENSOR_SHTC3:           addr = ROOM_SENSOR_SHTC3_I2C_ADDRESS; break;
-      case ROOM_SENSOR_STS3X_MAIN:      addr = ROOM_SENSOR_STS35_I2C_ADDRESS_MAIN; break;
-      case ROOM_SENSOR_STS3X_REDUNDANT: addr = ROOM_SENSOR_STS35_I2C_ADDRESS_REDUNDANT; break;
-      default: continue;
+    case ROOM_SENSOR_SHTC3:
+      addr = ROOM_SENSOR_SHTC3_I2C_ADDRESS;
+      break;
+    case ROOM_SENSOR_STS3X_MAIN:
+      addr = ROOM_SENSOR_STS35_I2C_ADDRESS_MAIN;
+      break;
+    case ROOM_SENSOR_STS3X_REDUNDANT:
+      addr = ROOM_SENSOR_STS35_I2C_ADDRESS_REDUNDANT;
+      break;
+    default:
+      continue;
     }
 
     wire->beginTransmission(addr);
     roomSensorPresent[i] = (wire->endTransmission() == 0);
-    if (!roomSensorPresent[i]) continue;
+    if (!roomSensorPresent[i])
+      continue;
 
-    logI(String("[HW] -> Room sensor found at 0x") + String(addr, HEX) + ", initializing...");
+    logI(String("[HW] -> Room sensor found at 0x") + String(addr, HEX) +
+         ", initializing...");
 
     switch (i) {
-      case ROOM_SENSOR_STS3X_MAIN:
-      case ROOM_SENSOR_STS3X_REDUNDANT: {
-        mySTS35[i].begin(Wire, addr);
-        mySTS35[i].stopMeasurement();                        // <-- salir de periódico por si acaso
-        vTaskDelay(pdMS_TO_TICKS(INIT_ROOM_SENSOR_STS3X_DELAY));
-        mySTS35[i].softReset();
-        vTaskDelay(pdMS_TO_TICKS(INIT_ROOM_SENSOR_STS3X_DELAY));
+    case ROOM_SENSOR_STS3X_MAIN:
+    case ROOM_SENSOR_STS3X_REDUNDANT: {
+      mySTS35[i].begin(Wire, addr);
+      mySTS35[i].stopMeasurement(); // <-- salir de periódico por si acaso
+      vTaskDelay(pdMS_TO_TICKS(INIT_ROOM_SENSOR_STS3X_DELAY));
+      mySTS35[i].softReset();
+      vTaskDelay(pdMS_TO_TICKS(INIT_ROOM_SENSOR_STS3X_DELAY));
 
-        uint16_t aStatusRegister = 0u;
-        room_sensor_error = mySTS35[i].readStatusRegister(aStatusRegister);
-        if (room_sensor_error != NO_ERROR) {
-          errorToString(room_sensor_error, errorMessage, sizeof(errorMessage));
-          logI(String("Error in readStatusRegister(): ") + String(errorMessage));
-          return;
-        }
-        logI(String("aStatusRegister: ") + String(aStatusRegister));
-
-        // NO startPeriodicMeasurement aquí (usaremos single-shot en update)
-        break;
+      uint16_t aStatusRegister = 0u;
+      room_sensor_error = mySTS35[i].readStatusRegister(aStatusRegister);
+      if (room_sensor_error != NO_ERROR) {
+        errorToString(room_sensor_error, errorMessage, sizeof(errorMessage));
+        logI(String("Error in readStatusRegister(): ") + String(errorMessage));
+        return;
       }
+      logI(String("aStatusRegister: ") + String(aStatusRegister));
 
-      case ROOM_SENSOR_SHTC3: {
-        mySHTC3.begin(Wire);
-        logI("SHTC3 initialized");
-        break;
-      }
+      // NO startPeriodicMeasurement aquí (usaremos single-shot en update)
+      break;
+    }
+
+    case ROOM_SENSOR_SHTC3: {
+      mySHTC3.begin(Wire);
+      logI("SHTC3 initialized");
+      break;
+    }
     }
   }
 }
-
-
 
 void initAmbientSensor() {
   ambientSensorPresent = false;

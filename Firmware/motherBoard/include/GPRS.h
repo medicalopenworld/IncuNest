@@ -92,6 +92,8 @@ struct Credentials {
   std::string password;
 };
 
+extern GPRSstruct GPRS;
+
 bool GPRSCheckNewEvent();
 bool GPRSIsAttached();
 bool GPRSIsConnectedToServer();

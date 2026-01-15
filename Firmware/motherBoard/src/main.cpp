@@ -164,6 +164,7 @@ bool TB_connected;
 QueueHandle_t sharedSensorQueue;
 // Mutex for protecting the shared variable
 SemaphoreHandle_t GPRS_monitor_mutex;
+SemaphoreHandle_t log_mutex = NULL;
 
 void GPRSMonitorTask(void *pvParameters) {
   for (;;) {
@@ -198,9 +199,7 @@ void GPRS_Task(void *pvParameters) {
   initGPRS();
   GPRS_TB_Init();
   for (;;) {
-    if (!WIFIIsConnected()) {
-      GPRS_Handler();
-    }
+    GPRS_Handler();
     // Modify the shared variable
     GPRS_lastMillisTaskClear = millis();
     // Unlock the mutex
@@ -385,6 +384,7 @@ void setup() {
        String(HWversion) + ", SN: " + String(in3.serialNumber));
 
   GPRS_monitor_mutex = xSemaphoreCreateBinary();
+  log_mutex = xSemaphoreCreateMutex();
   security_check_reboot_cause();
   initGPIO();
   initEEPROM();

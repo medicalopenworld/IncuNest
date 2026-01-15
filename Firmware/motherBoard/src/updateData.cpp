@@ -204,41 +204,58 @@ void updateDisplaySensors() {
 
 void logI(String dataString) {
   if (LOG_INFORMATION) {
-    static const char *TAG_USER = "APP";
-
-    // Formato: "123: mensaje"
-    ESP_LOGI(TAG_USER, "%lu: %s", millis() / 1000, dataString.c_str());
+    if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      static const char *TAG_USER = "APP";
+      // Formato: "123: mensaje"
+      ESP_LOGI(TAG_USER, "%lu: %s", millis() / 1000, dataString.c_str());
+      xSemaphoreGive(log_mutex);
+    }
   }
 }
 
 void logCon(String dataString) {
-  if (!LOG_GPRS) return;
+  if (!LOG_GPRS)
+    return;
 
-  static const char *TAG_USER = "APP";
-  ESP_LOGI(TAG_USER, "%lu: %s", millis() / 1000, dataString.c_str());
+  if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    static const char *TAG_USER = "APP";
+    ESP_LOGI(TAG_USER, "%lu: %s", millis() / 1000, dataString.c_str());
+    xSemaphoreGive(log_mutex);
+  }
 }
 
 void logModemData(String dataString) {
-  if (!LOG_MODEM_DATA) return;
+  if (!LOG_MODEM_DATA)
+    return;
 
-  static const char *TAG_USER = "APP";
-  ESP_LOGI(TAG_USER, "%lu: %s", millis() / 1000, dataString.c_str());
+  if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    static const char *TAG_USER = "APP";
+    ESP_LOGI(TAG_USER, "%lu: %s", millis() / 1000, dataString.c_str());
+    xSemaphoreGive(log_mutex);
+  }
 }
 
 void logE(String dataString) {
-  if (!LOG_ERRORS) return;
+  if (!LOG_ERRORS)
+    return;
 
-  static const char *TAG_USER = "APP";
-  ESP_LOGI(TAG_USER, "%lu: %s", millis() / 1000, dataString.c_str());
+  if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    static const char *TAG_USER = "APP";
+    ESP_LOGI(TAG_USER, "%lu: %s", millis() / 1000, dataString.c_str());
+    xSemaphoreGive(log_mutex);
+  }
 }
 
 void logAlarm(String dataString) {
-  if (!LOG_ALARMS) return;
+  if (!LOG_ALARMS)
+    return;
 
-  static const char *TAG_USER = "APP";
-  ESP_LOGI(TAG_USER, "%lu: %s", millis() / 1000, dataString.c_str());
+  if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    static const char *TAG_USER = "APP";
+    ESP_LOGI(TAG_USER, "%lu: %s", millis() / 1000, dataString.c_str());
+    xSemaphoreGive(log_mutex);
+  }
 }
-
 
 void backlightHandler() {
   if (autoLock) {
