@@ -107,7 +107,10 @@ void recapVariables() {
   if (humValue < 0 || humValue > 100)
     humValue = 50;
 
+  in3.serialNumber = EEPROM.readInt(EEPROM_SERIAL_NUMBER);
+
   ESP_LOGI(TAG, "Language loaded: %d", g_lang);
+  ESP_LOGI(TAG, "Serial Number loaded: %d", in3.serialNumber);
   ESP_LOGI(TAG, "Air Temp loaded: %.2f", airTempValue);
   ESP_LOGI(TAG, "Skin Temp loaded: %.2f", skinTempValue);
   ESP_LOGI(TAG, "Humidity loaded: %d", humValue);

@@ -65,6 +65,7 @@ typedef struct {
   double desiredHumidity;
   int phototherapyMode;
   int muteAlarm;
+  int serialNumber;
   bool newState;
 } ControlBoard_Message_State;
 

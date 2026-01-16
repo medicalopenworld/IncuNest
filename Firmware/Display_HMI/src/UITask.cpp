@@ -227,7 +227,7 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   const char *TXT_WIFI[] = {"WiFi", "WiFi", "WiFi"};
   const char *TXT_CONNECT[] = {"Conectar", "Connect", "Connexion"};
   const char *TXT_SSID[] = {"SSID", "SSID", "SSID"};
-  const char *TXT_PASSWORD[] = {"Contraseña", "Password", "Mot de passe"};
+  const char *TXT_PASSWORD[] = {"Contrasena", "Password", "Mot de passe"};
   const char *TXT_SKINMODE[] = {"Modo Piel", "Skin Mode", "Mode Peau"};
   const char *TXT_ALARMS[] = {"Alarmas", "Alarms", "Alarmes"};
   const char *TXT_VIEWDETAIL[] = {"Ver detalles", "View details",

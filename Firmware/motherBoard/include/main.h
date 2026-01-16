@@ -66,7 +66,7 @@
 
 #define LOG_GPRS false
 #define LOG_MODEM_DATA false
-#define LOG_INFORMATION false
+#define LOG_INFORMATION true
 #define LOG_ERRORS false
 #define LOG_ALARMS false
 

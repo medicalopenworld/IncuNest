@@ -27,8 +27,8 @@
 #define HW_REVISION 'A'
 #define HWversion String(HW_NUM) + "." + String(HW_REVISION)
 #define FWversion "15.1"
-#define WIFI_NAME "In3ator"
-#define CURRENT_FIRMWARE_TITLE "in3ator"
+#define WIFI_NAME "IncuNest"
+#define CURRENT_FIRMWARE_TITLE "IncuNest"
 // Set to true only on the HMI board
 #define IS_HMI false
 #define DEFAULT_WIFI_EN ON

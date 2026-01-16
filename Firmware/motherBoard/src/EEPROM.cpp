@@ -75,13 +75,11 @@ void initEEPROM() {
 
 void loaddefaultValues() {
   autoLock = DEFAULT_AUTOLOCK;
-  WIFI_EN = DEFAULT_WIFI_EN;
   in3.language = defaultLanguage;
   in3.controlMode = CONTROL_AIR;
   in3.desiredControlTemperature = presetTemp[in3.controlMode];
   in3.desiredControlHumidity = presetHumidity;
   EEPROM.write(EEPROM_AUTO_LOCK, autoLock);
-  EEPROM.write(EEPROM_WIFI_EN, WIFI_EN);
   EEPROM.write(EEPROM_LANGUAGE, in3.language);
   EEPROM.write(EEPROM_CONTROL_MODE, in3.controlMode);
   EEPROM.writeFloat(EEPROM_DESIRED_CONTROL_TEMPERATURE,
@@ -135,11 +133,27 @@ void recapVariables() {
     }
   }
   in3.serialNumber = EEPROM.readInt(EEPROM_SERIAL_NUMBER);
-  WIFI_EN = EEPROM.read(EEPROM_WIFI_EN);
+  ESP_LOGI("APP", "Serial Number from EEPROM: %d", in3.serialNumber);
   in3.controlMode = EEPROM.read(EEPROM_CONTROL_MODE);
+  ESP_LOGI("APP", "Control Mode from EEPROM: %d", in3.controlMode);
   in3.desiredControlTemperature =
       EEPROM.readFloat(EEPROM_DESIRED_CONTROL_TEMPERATURE);
+  ESP_LOGI("APP", "Control Temperature from EEPROM: %f",
+           in3.desiredControlTemperature);
   in3.desiredControlHumidity = EEPROM.read(EEPROM_DESIRED_CONTROL_HUMIDITY);
+  ESP_LOGI("APP", "Control Humidity from EEPROM: %d",
+           in3.desiredControlHumidity);
+
+  extern char wifi_ssid[64];
+  extern char wifi_pass[64];
+
+  String ssid = EEPROM.readString(EEPROM_WIFI_SSID);
+  String pass = EEPROM.readString(EEPROM_WIFI_PASSWORD);
+  strncpy(wifi_ssid, ssid.c_str(), sizeof(wifi_ssid));
+  strncpy(wifi_pass, pass.c_str(), sizeof(wifi_pass));
+  // logI("[WIFI] -> Read SSID: " + String(wifi_ssid));
+  ESP_LOGI("APP", "WiFi SSID from EEPROM: %s", wifi_ssid);
+  ESP_LOGI("APP", "WiFi Pass from EEPROM: %s", wifi_pass);
 
   if (in3.restoreState) {
     in3.actuation = EEPROM.read(EEPROM_CONTROL_ACTIVE);

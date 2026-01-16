@@ -204,11 +204,13 @@ void updateDisplaySensors() {
 
 void logI(String dataString) {
   if (LOG_INFORMATION) {
-    if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-      static const char *TAG_USER = "APP";
+    static const char *TAG_USER = "APP";
+    if (log_mutex == NULL ||
+        xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
       // Formato: "123: mensaje"
       ESP_LOGI(TAG_USER, "%lu: %s", millis() / 1000, dataString.c_str());
-      xSemaphoreGive(log_mutex);
+      if (log_mutex)
+        xSemaphoreGiveRecursive(log_mutex);
     }
   }
 }
@@ -217,10 +219,12 @@ void logCon(String dataString) {
   if (!LOG_GPRS)
     return;
 
-  if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-    static const char *TAG_USER = "APP";
+  static const char *TAG_USER = "APP";
+  if (log_mutex == NULL ||
+      xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
     ESP_LOGI(TAG_USER, "%lu: %s", millis() / 1000, dataString.c_str());
-    xSemaphoreGive(log_mutex);
+    if (log_mutex)
+      xSemaphoreGiveRecursive(log_mutex);
   }
 }
 
@@ -228,10 +232,12 @@ void logModemData(String dataString) {
   if (!LOG_MODEM_DATA)
     return;
 
-  if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-    static const char *TAG_USER = "APP";
+  static const char *TAG_USER = "APP";
+  if (log_mutex == NULL ||
+      xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
     ESP_LOGI(TAG_USER, "%lu: %s", millis() / 1000, dataString.c_str());
-    xSemaphoreGive(log_mutex);
+    if (log_mutex)
+      xSemaphoreGiveRecursive(log_mutex);
   }
 }
 
@@ -239,10 +245,12 @@ void logE(String dataString) {
   if (!LOG_ERRORS)
     return;
 
-  if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-    static const char *TAG_USER = "APP";
+  static const char *TAG_USER = "APP";
+  if (log_mutex == NULL ||
+      xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
     ESP_LOGI(TAG_USER, "%lu: %s", millis() / 1000, dataString.c_str());
-    xSemaphoreGive(log_mutex);
+    if (log_mutex)
+      xSemaphoreGiveRecursive(log_mutex);
   }
 }
 
@@ -250,10 +258,12 @@ void logAlarm(String dataString) {
   if (!LOG_ALARMS)
     return;
 
-  if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-    static const char *TAG_USER = "APP";
+  static const char *TAG_USER = "APP";
+  if (log_mutex == NULL ||
+      xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
     ESP_LOGI(TAG_USER, "%lu: %s", millis() / 1000, dataString.c_str());
-    xSemaphoreGive(log_mutex);
+    if (log_mutex)
+      xSemaphoreGiveRecursive(log_mutex);
   }
 }
 

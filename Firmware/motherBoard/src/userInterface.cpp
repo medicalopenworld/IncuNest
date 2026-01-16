@@ -424,8 +424,6 @@ void userInterfaceHandler(int UI_page) {
           } else {
             wifiDisable();
           }
-          EEPROM.write(EEPROM_WIFI_EN, WIFI_EN);
-          EEPROM.commit();
           setTextColor(COLOUR_MENU);
           if (WIFI_EN) {
             drawRightString((char *)("OFF"), unitPosition, ypos, textFontSize);

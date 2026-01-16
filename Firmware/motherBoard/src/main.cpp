@@ -30,13 +30,17 @@
 #include "main.h"
 
 #if !CONFIG_IDF_TARGET_ESP32S3
-TelemetryMessage ctrl_tel_msg = {0, 0, 0};
+TelemetryMessage ctrl_tel_msg = {0, 0, 0, 0};
 HMI_CommandMessage hmi_cmd_msg = {0, 0, 0, 0, 0, 0, 0, false};
+#endif
 char pendingSSID[64] = "";
 char pendingPass[64] = "";
-#endif
+char wifi_ssid[64] = "";
+char wifi_pass[64] = "";
 
 #include <Arduino.h>
+#include <stdarg.h>
+#include <stdio.h>
 
 TwoWire *wire;
 MAM_in3ator_Humidifier in3_hum(DEFAULT_ADDRESS);
@@ -377,17 +381,33 @@ void Communication_Receiver(void *pvParameters) {
   }
 }
 
+extern "C" int sync_vprintf(const char *fmt, va_list args) {
+  if (log_mutex == NULL) {
+    return vprintf(fmt, args);
+  }
+  if (xSemaphoreTakeRecursive(log_mutex, portMAX_DELAY) == pdTRUE) {
+    int res = vprintf(fmt, args);
+    xSemaphoreGiveRecursive(log_mutex);
+    return res;
+  }
+  return vprintf(fmt, args);
+}
+
 void setup() {
   esp_bt_controller_mem_release(ESP_BT_MODE_BLE);
   debugSerial.begin(115200);
-  logI("in3ator debug uart, version v" + String(FWversion) + "/" +
-       String(HWversion) + ", SN: " + String(in3.serialNumber));
+  log_mutex = xSemaphoreCreateRecursiveMutex();
+  esp_log_set_vprintf(sync_vprintf);
 
   GPRS_monitor_mutex = xSemaphoreCreateBinary();
-  log_mutex = xSemaphoreCreateMutex();
   security_check_reboot_cause();
   initGPIO();
   initEEPROM();
+
+  // Now that EEPROM is loaded, set the serial number and log it
+  ctrl_tel_msg.serialNumber = in3.serialNumber;
+  logI("in3ator debug uart, version v" + String(FWversion) + "/" +
+       String(HWversion) + ", SN: " + String(in3.serialNumber));
   initRoomSensor();
   if (!GPIORead(ENC_SWITCH)) {
     goToSettings = true;

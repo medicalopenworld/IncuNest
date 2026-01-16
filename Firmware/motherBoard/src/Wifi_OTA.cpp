@@ -28,8 +28,10 @@
 #include "main.h"
 
 extern GPRSstruct GPRS;
+static const char *TAG = "WiFi";
 
-const char *wifiHost = "in3ator";
+char wifiHost[32];
+static unsigned long lastWifiInitTime = 0;
 
 WebServer wifiServer(80);
 
@@ -180,7 +182,8 @@ extern char pendingSSID[64];
 extern char pendingPass[64];
 
 void wifiInit(void) {
-  // Connect to WiFi network
+  ESP_LOGI(TAG, "Initializing WiFi");
+  lastWifiInitTime = millis();
   WiFi.setHostname(
       String(String(WIFI_NAME) + "-" + String(in3.serialNumber)).c_str());
   WiFi.mode(WIFI_STA);
@@ -336,6 +339,9 @@ void WIFICheckOTA() {
 
 void WIFI_TB_Init() {
   Wifi_TB.provisioned = EEPROM.read(EEPROM_THINGSBOARD_PROVISIONED);
+  if (Wifi_TB.provisioned == 0xff) { // default EEPROM value
+    Wifi_TB.provisioned = false;
+  }
   logI("[WIFI] -> WIFI_TB_Init check provisioning: " +
        String(Wifi_TB.provisioned));
   if (Wifi_TB.provisioned) {
@@ -678,10 +684,11 @@ void WIFI_TB_OTA() {
 void WifiOTAHandler(void) {
   WIFI_TB_OTA();
   WEB_OTA();
+  // Only disable WiFi if it's been more than 60 seconds since last init attempt
   if (WiFi.status() != 0xff && WiFi.status() != WL_CONNECTED &&
-      millis() > 60000) // If no connection in 1 minute, disable WIFI
-  {
+      lastWifiInitTime > 0 && (millis() - lastWifiInitTime) > 60000) {
     wifiDisable();
     logI("[WIFI] -> WIFI DISABLED");
+    lastWifiInitTime = 0; // Reset so we don't keep logging
   }
 }

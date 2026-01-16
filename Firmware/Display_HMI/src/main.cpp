@@ -9,6 +9,7 @@
 static const char *TAG = "Main";
 
 bool OTA_inprogress = false;
+in3ator_parameters in3;
 
 void setup() {
   Serial.begin(SERIAL_BAUD);

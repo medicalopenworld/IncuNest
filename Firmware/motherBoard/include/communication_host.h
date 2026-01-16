@@ -5,9 +5,10 @@
 //  TELEMETRY (CTRL → HMI)
 // ======================================================
 typedef struct {
-    double detectedAirTemperature;
-    double detectedSkinTemperature;
-    double detectedHumidity;
+  double detectedAirTemperature;
+  double detectedSkinTemperature;
+  double detectedHumidity;
+  int serialNumber;
 } TelemetryMessage;
 
 extern TelemetryMessage ctrl_tel_msg;
@@ -16,14 +17,14 @@ extern TelemetryMessage ctrl_tel_msg;
 //  HMI COMMAND MESSAGE (HMI → CTRL)
 // ======================================================
 typedef struct {
-    int actuation;
-    int controlMode;
-    double desiredAirTemperature;
-    double desiredSkinTemperature;
-    double desiredHumidity;
-    int phototherapyMode;
-    int muteAlarm;
-    bool newCommand;
+  int actuation;
+  int controlMode;
+  double desiredAirTemperature;
+  double desiredSkinTemperature;
+  double desiredHumidity;
+  int phototherapyMode;
+  int muteAlarm;
+  bool newCommand;
 } HMI_CommandMessage;
 
 extern HMI_CommandMessage hmi_cmd_msg;
@@ -31,6 +32,6 @@ extern HMI_CommandMessage hmi_cmd_msg;
 // ======================================================
 //  PUBLIC API
 // ======================================================
-void CommunicationHost_Init();              // Install USB HOST
-void Communication_Task(void *pv);          // FreeRTOS task
-void CommunicationHost_Send(const char *);  // Manual send
+void CommunicationHost_Init();             // Install USB HOST
+void Communication_Task(void *pv);         // FreeRTOS task
+void CommunicationHost_Send(const char *); // Manual send

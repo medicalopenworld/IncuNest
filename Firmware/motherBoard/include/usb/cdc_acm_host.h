@@ -385,9 +385,8 @@ public:
 
   inline esp_err_t close() {
     const esp_err_t err = cdc_acm_host_close(this->cdc_hdl);
-    if (err == ESP_OK) {
-      this->cdc_hdl = NULL;
-    }
+    this->cdc_hdl = NULL; // Always clear handle to prevent double-free attempt
+                          // in destructor
     return err;
   }
 

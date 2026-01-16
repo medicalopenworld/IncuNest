@@ -100,9 +100,10 @@ static bool ReceiveMessageFromOtherESP() {
         int act, mode, photo, mute;
         double airSet, skinSet, humSet;
         int result =
-            sscanf(rxBuffer.c_str(), "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d", &act,
-                   &mode, &airSet, &skinSet, &humSet, &photo, &mute);
-        if (result == 7) {
+            sscanf(rxBuffer.c_str(), "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d",
+                   &act, &mode, &airSet, &skinSet, &humSet, &photo, &mute,
+                   &ctrl_state_msg.serialNumber);
+        if (result == 8) {
           ctrl_state_msg.actuation = act;
           ctrl_state_msg.controlMode = mode;
           ctrl_state_msg.desiredAirTemperature = airSet;
@@ -155,6 +156,14 @@ static void Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
   // airTempValue = st.desiredAirTemperature;
   // skinTempValue = st.desiredSkinTemperature;
   // humValue = (int)st.desiredHumidity;
+
+  if (st.serialNumber != 0 && st.serialNumber != in3.serialNumber) {
+    in3.serialNumber = st.serialNumber;
+    EEPROM.writeInt(EEPROM_SERIAL_NUMBER, in3.serialNumber);
+    EEPROM.commit();
+    ESP_LOGI(TAG, "Serial Number updated from motherboard: %d",
+             in3.serialNumber);
+  }
 
   update_labels();
 }

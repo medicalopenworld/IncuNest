@@ -27,7 +27,7 @@
 #include "esp_log.h"
 #include "main.h"
 
-static const char *TAG = "Wifi_OTA";
+static const char *TAG = "WiFi";
 
 const char *wifiHost = "in3ator";
 
@@ -147,7 +147,6 @@ const char *serverIndex =
     "});"
     "</script>";
 
-int serialNumber = 0;
 char pendingSSID[64] = "";
 char pendingPass[64] = "";
 static uint32_t lastconnectiontrywifi = 0;
@@ -159,7 +158,7 @@ void wifiInit(void) {
   // Connect to WiFi network
   ESP_LOGI(TAG, "Initializing WiFi");
   WiFi.setHostname(
-      String(String(WIFI_NAME) + "-" + String(serialNumber)).c_str());
+      String(String(WIFI_NAME) + "-" + String(in3.serialNumber)).c_str());
   WiFi.mode(WIFI_STA);
   WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
 
@@ -373,6 +372,10 @@ void WIFIProvisionResponse(const JsonObjectConst &data) {
 }
 
 void WIFITBProvision() {
+  if (in3.serialNumber == 0) {
+    ESP_LOGI(TAG, "Serial number is 0, skipping provisioning");
+    return;
+  }
   if (!tb_wifi.connected()) {
     ESP_LOGI(TAG, "Connecting for provision to: %s", THINGSBOARD_SERVER);
     if (!tb_wifi.connect(THINGSBOARD_SERVER, "provision", THINGSBOARD_PORT)) {
@@ -383,7 +386,7 @@ void WIFITBProvision() {
   // Connect to the ThingsBoard
   ESP_LOGI(TAG, "Sending provision request to: %s", THINGSBOARD_SERVER);
 
-  String deviceName = String(WIFI_NAME) + "-" + String(serialNumber);
+  String deviceName = String(WIFI_NAME) + "-" + String(in3.serialNumber);
 
   const Provision_Callback provisionCallback(
       Access_Token(), &WIFIProvisionResponse, PROVISION_DEVICE_KEY,

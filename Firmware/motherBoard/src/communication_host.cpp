@@ -19,11 +19,13 @@ using namespace esp_usb;
 
 static const char *TAG = "COMM_HOST";
 extern SemaphoreHandle_t log_mutex;
-
+extern char pendingSSID[64];
+extern char pendingPass[64];
+extern in3ator_parameters in3;
 // ======================================================
 //  GLOBAL DATA
 // ======================================================
-TelemetryMessage ctrl_tel_msg = {0, 0, 0};
+TelemetryMessage ctrl_tel_msg = {0, 0, 0, 0};
 HMI_CommandMessage hmi_cmd_msg = {0, 0, 0, 0, 0, 0, 0, false};
 // ---- NUEVO: cache de estado “último comando/setpoints” ----
 static HMI_CommandMessage g_last_cmd = {0, 0, 0, 0, 0, 0, 0, false};
@@ -42,38 +44,35 @@ static void reset_vcp() {
       vcp.reset();
     }
     xSemaphoreGive(vcp_mux);
+  } else {
+    // If we can't take the mux, we still need to try to clean up
+    if (vcp) {
+      vcp.reset();
+    }
   }
 }
 
 // ---- NUEVO: enviar CTRL,STATE ----
 static void send_state_to_hmi() {
-  // Si aún no hubo comando nunca, puedes rellenar con defaults
-  // (aquí usamos cache, que se actualizará cuando llegue HMI real).
   char msg[128];
-  snprintf(msg, sizeof(msg), "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d\n",
+  snprintf(msg, sizeof(msg), "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d\n",
            (int)g_last_cmd.actuation, (int)g_last_cmd.controlMode,
            (double)g_last_cmd.desiredAirTemperature,
            (double)g_last_cmd.desiredSkinTemperature,
            (double)g_last_cmd.desiredHumidity, (int)g_last_cmd.phototherapyMode,
-           (int)g_last_cmd.muteAlarm);
-
+           (int)g_last_cmd.muteAlarm, ctrl_tel_msg.serialNumber);
+  ESP_LOGI(TAG, "Sending state to HMI: %s", msg);
   CommunicationHost_Send(msg);
 }
-
-// ======================================================
-//  PARSER
-// ======================================================
-char pendingSSID[64] = "";
-char pendingPass[64] = "";
 
 void parse_line(const char *line) {
   // ESP_LOGD(TAG, "RX: %s", line); // Removed to avoid UART flooding
 
   // ---- NUEVO: handshake request ----
   if (strcmp(line, "HMI,REQ,STATE") == 0) {
-    if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
       ESP_LOGI(TAG, "HMI requested STATE");
-      xSemaphoreGive(log_mutex);
+      xSemaphoreGiveRecursive(log_mutex);
     }
     send_state_to_hmi();
     return;
@@ -91,14 +90,14 @@ void parse_line(const char *line) {
       ctrl_tel_msg.detectedSkinTemperature = skin;
       ctrl_tel_msg.detectedHumidity = hum;
 
-      if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         ESP_LOGI(TAG, "TEL OK air=%.1f skin=%.1f hum=%d", air, skin, hum);
-        xSemaphoreGive(log_mutex);
+        xSemaphoreGiveRecursive(log_mutex);
       }
     } else {
-      if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         ESP_LOGE(TAG, "TEL parse error");
-        xSemaphoreGive(log_mutex);
+        xSemaphoreGiveRecursive(log_mutex);
       }
     }
     return;
@@ -108,9 +107,9 @@ void parse_line(const char *line) {
   // CTRL,ALM
   // -----------------------------
   if (strncmp(line, "CTRL,ALM", 8) == 0) {
-    if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
       ESP_LOGW(TAG, "ALARM: %s", line);
-      xSemaphoreGive(log_mutex);
+      xSemaphoreGiveRecursive(log_mutex);
     }
     return;
   }
@@ -120,20 +119,21 @@ void parse_line(const char *line) {
   // -----------------------------
   const char *wifiPtr = strstr(line, "HMI,WIFI");
   if (wifiPtr != NULL) {
-    if (sscanf(wifiPtr, "HMI,WIFI,%[^,],%s", pendingSSID, pendingPass) == 2) {
-      if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    if (sscanf(wifiPtr, "HMI,WIFI,%63[^,],%63s", pendingSSID, pendingPass) ==
+        2) {
+      if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         ESP_LOGI(TAG,
-                 "Received WiFi credentials: SSID=%s, PASS=***. Attempting "
+                 "Received WiFi credentials: SSID=%s, PASS=%s. Attempting "
                  "connection...",
-                 pendingSSID);
-        xSemaphoreGive(log_mutex);
+                 pendingSSID, pendingPass);
+        xSemaphoreGiveRecursive(log_mutex);
       }
       extern void wifiInit(void);
       wifiInit();
     } else {
-      if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         ESP_LOGE(TAG, "WIFI parse error");
-        xSemaphoreGive(log_mutex);
+        xSemaphoreGiveRecursive(log_mutex);
       }
     }
     return;
@@ -161,14 +161,14 @@ void parse_line(const char *line) {
       g_last_cmd = hmi_cmd_msg;
       g_last_cmd.newCommand = false;
 
-      if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         ESP_LOGI(TAG, "HMI CMD stored successfully");
-        xSemaphoreGive(log_mutex);
+        xSemaphoreGiveRecursive(log_mutex);
       }
     } else {
-      if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         ESP_LOGE(TAG, "HMI parse error");
-        xSemaphoreGive(log_mutex);
+        xSemaphoreGiveRecursive(log_mutex);
       }
     }
 
@@ -198,9 +198,9 @@ void parse_line(const char *line) {
     return;
   }
 
-  if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+  if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
     ESP_LOGD(TAG, "Unknown line: %s", line);
-    xSemaphoreGive(log_mutex);
+    xSemaphoreGiveRecursive(log_mutex);
   }
 }
 
@@ -232,9 +232,9 @@ static bool handle_rx(const uint8_t *data, size_t len, void *arg) {
 static void handle_event(const cdc_acm_host_dev_event_data_t *event,
                          void *user_ctx) {
   if (event->type == CDC_ACM_HOST_DEVICE_DISCONNECTED) {
-    if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
       ESP_LOGW(TAG, "HMI disconnected event");
-      xSemaphoreGive(log_mutex);
+      xSemaphoreGiveRecursive(log_mutex);
     }
     xSemaphoreGive(device_disconnected_sem);
   }
@@ -267,9 +267,9 @@ void CommunicationHost_Send(const char *msg) {
   static uint8_t buf[256];
 
   if (len >= sizeof(buf)) {
-    if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
       ESP_LOGE(TAG, "TX too long");
-      xSemaphoreGive(log_mutex);
+      xSemaphoreGiveRecursive(log_mutex);
     }
     xSemaphoreGive(vcp_mux);
     return;
@@ -280,9 +280,9 @@ void CommunicationHost_Send(const char *msg) {
   xSemaphoreGive(vcp_mux);
 
   if (err != ESP_OK) {
-    if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
       ESP_LOGE(TAG, "TX failed: %s", esp_err_to_name(err));
-      xSemaphoreGive(log_mutex);
+      xSemaphoreGiveRecursive(log_mutex);
     }
     xSemaphoreGive(device_disconnected_sem); // Trigger reconnection
   }
@@ -324,26 +324,26 @@ void Communication_Task(void *pvParameters) {
         .user_arg = NULL,
     };
 
-    if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
       ESP_LOGI(TAG, "Waiting for HMI...");
-      xSemaphoreGive(log_mutex);
+      xSemaphoreGiveRecursive(log_mutex);
     }
     std::unique_ptr<CdcAcmDevice> new_vcp;
     try {
       new_vcp = std::unique_ptr<CdcAcmDevice>(VCP::open(&dev));
     } catch (const std::exception &e) {
-      if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         ESP_LOGE(TAG, "VCP::open threw exception: %s", e.what());
-        xSemaphoreGive(log_mutex);
+        xSemaphoreGiveRecursive(log_mutex);
       }
       vTaskDelay(pdMS_TO_TICKS(2000));
       continue;
     }
 
     if (!new_vcp) {
-      if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         ESP_LOGW(TAG, "HMI not found");
-        xSemaphoreGive(log_mutex);
+        xSemaphoreGiveRecursive(log_mutex);
       }
       vTaskDelay(pdMS_TO_TICKS(2000));
       continue;
@@ -351,10 +351,14 @@ void Communication_Task(void *pvParameters) {
 
     if (xSemaphoreTake(vcp_mux, pdMS_TO_TICKS(500)) == pdTRUE) {
       vcp = std::move(new_vcp);
-      if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         ESP_LOGI(TAG, "HMI connected!");
-        xSemaphoreGive(log_mutex);
+        xSemaphoreGiveRecursive(log_mutex);
       }
+
+      // --- HMI BOOT FIX: Ensure stable state before enabling DTR/RTS ---
+      vcp->set_control_line_state(false, false);
+      vTaskDelay(pdMS_TO_TICKS(1000)); // Delay to allow HMI to boot safely
 
       // Enable DTR/RTS (CH340C requirement) - INSIDE MUTEX
       vcp->set_control_line_state(true, true);
@@ -368,9 +372,9 @@ void Communication_Task(void *pvParameters) {
       vcp->line_coding_set(&line);
       xSemaphoreGive(vcp_mux);
     } else {
-      if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         ESP_LOGE(TAG, "Failed to take vcp_mux for VCP assignment/init");
-        xSemaphoreGive(log_mutex);
+        xSemaphoreGiveRecursive(log_mutex);
       }
       continue;
     }
@@ -393,9 +397,10 @@ void Communication_Task(void *pvParameters) {
         esp_err_t err = vcp->tx_blocking((uint8_t *)msg, strlen(msg));
         xSemaphoreGive(vcp_mux);
         if (err != ESP_OK) {
-          if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+          if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) ==
+              pdTRUE) {
             ESP_LOGE(TAG, "Periodic TX failed: %s", esp_err_to_name(err));
-            xSemaphoreGive(log_mutex);
+            xSemaphoreGiveRecursive(log_mutex);
           }
           break;
         }
@@ -403,18 +408,19 @@ void Communication_Task(void *pvParameters) {
 
       if (xSemaphoreTake(device_disconnected_sem, pdMS_TO_TICKS(1000)) ==
           pdTRUE) {
-        if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
           ESP_LOGW(TAG, "Disconnect requested or event received");
-          xSemaphoreGive(log_mutex);
+          xSemaphoreGiveRecursive(log_mutex);
         }
         break;
       }
     }
 
-    if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
       ESP_LOGW(TAG, "Closing VCP and retrying...");
-      xSemaphoreGive(log_mutex);
+      xSemaphoreGiveRecursive(log_mutex);
     }
     reset_vcp();
+    vTaskDelay(pdMS_TO_TICKS(1000));
   }
 }
