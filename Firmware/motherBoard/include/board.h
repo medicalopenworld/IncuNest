@@ -26,7 +26,7 @@
 #define HW_NUM 15
 #define HW_REVISION 'A'
 #define HWversion String(HW_NUM) + "." + String(HW_REVISION)
-#define FWversion "15.1"
+#define FWversion "15.3"
 #define WIFI_NAME "IncuNest"
 #define CURRENT_FIRMWARE_TITLE "IncuNest"
 // Set to true only on the HMI board
@@ -53,6 +53,10 @@
 // Hardware
 #define HUMIDIFIER_INTERFACE HUMIDIFIER_I2C
 #endif
+#if (HW_NUM == 15)
+#define DEFAULT_TUNE_SKIN_TEMP 2
+#endif
+
 
 #define GPIO_EXP_BASE 100 // To differentiate with ESP32 GPIO
 #if (HW_NUM > 14)

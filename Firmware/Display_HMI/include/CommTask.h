@@ -66,6 +66,9 @@ typedef struct {
   int phototherapyMode;
   int muteAlarm;
   int serialNumber;
+  int hwNum;
+  char hwRev[2];
+  char fwVer[20];
   bool newState;
 } ControlBoard_Message_State;
 

@@ -32,7 +32,7 @@ extern int presetTemp[2]; // preset baby skin temperature
 extern double RawTemperatureLow[SENSOR_TEMP_QTY],
     RawTemperatureRange[SENSOR_TEMP_QTY];
 extern double ReferenceTemperatureRange, ReferenceTemperatureLow;
-extern double fineTuneSkinTemperature, fineTuneAirTemperature;
+
 
 extern in3ator_parameters in3;
 
@@ -43,34 +43,31 @@ void resetFlash() {
   }
 }
 
+// Magic byte to indicate EEPROM is initialized
+#define EEPROM_MAGIC_BYTE 0xAB
+
 void initEEPROM() {
   if (!EEPROM.begin(EEPROM_SIZE)) {
     logE("failed to initialise EEPROM");
+    return;
   }
-  // if (!EEPROM.read(EEPROM_PANIC_OTA_CHANGE)) {
-  //   EEPROM.write(EEPROM_PANIC_OTA_CHANGE, true);
-  //   EEPROM.writeFloat(EEPROM_RAW_SKIN_TEMP_RANGE_CORRECTION, 20.23);
-  //   EEPROM.commit();
-  // }
-  //   EEPROM.write(EEPROM_CHECK_STATUS, 0);
-  //   EEPROM.commit();
-  //   vTaskDelay(30);
-  // }
-  // else
-  // {
-  //   EEPROM.write(EEPROM_CHECK_STATUS, 1);
-  //   EEPROM.commit();
-  //   vTaskDelay(30);
-  // }
-  if (EEPROM.read(EEPROM_FIRST_TURN_ON)) { // firstTimePowerOn
+
+  // Check if EEPROM has been initialized with our magic byte
+  if (EEPROM.read(EEPROM_FIRST_TURN_ON) != EEPROM_MAGIC_BYTE) {
+    logI("[FLASH] -> First turn on or uninitialized, resetting flash...");
     resetFlash();
     loaddefaultValues();
-    logI("[FLASH] -> First turn on, loading default values");
+    
+    // Mark as initialized
+    EEPROM.write(EEPROM_FIRST_TURN_ON, EEPROM_MAGIC_BYTE);
+    EEPROM.commit();
+    
+    logI("[FLASH] -> Default values loaded and flash marked as initialized");
   } else {
     logI("[FLASH] -> Loading variables stored in flash");
     recapVariables();
+    logI("[FLASH] -> Variables loaded");
   }
-  logI("[FLASH] -> Variables loaded");
 }
 
 void loaddefaultValues() {
@@ -79,11 +76,29 @@ void loaddefaultValues() {
   in3.controlMode = CONTROL_AIR;
   in3.desiredControlTemperature = presetTemp[in3.controlMode];
   in3.desiredControlHumidity = presetHumidity;
+  in3.fineTuneSkinTemperature = DEFAULT_TUNE_SKIN_TEMP;
+  
+  // Initialize calibration variables to safe defaults
+  ReferenceTemperatureRange = 0.0; 
+  ReferenceTemperatureLow = 0.0;
+  for (int i = 0; i < SENSOR_TEMP_QTY; i++) {
+    RawTemperatureLow[i] = 0.0;
+    RawTemperatureRange[i] = 0.0;
+  }
+
   EEPROM.write(EEPROM_AUTO_LOCK, autoLock);
   EEPROM.write(EEPROM_LANGUAGE, in3.language);
   EEPROM.write(EEPROM_CONTROL_MODE, in3.controlMode);
   EEPROM.writeFloat(EEPROM_DESIRED_CONTROL_TEMPERATURE,
                     in3.desiredControlTemperature);
+  EEPROM.writeFloat(EEPROM_FINE_TUNE_TEMP_SKIN, in3.fineTuneSkinTemperature);
+  
+  // Save calibration defaults
+  EEPROM.writeFloat(EEPROM_REFERENCE_TEMP_RANGE, ReferenceTemperatureRange);
+  EEPROM.writeFloat(EEPROM_REFERENCE_TEMP_LOW, ReferenceTemperatureLow);
+  EEPROM.writeFloat(EEPROM_RAW_SKIN_TEMP_LOW_CORRECTION, RawTemperatureLow[SKIN_SENSOR]);
+  EEPROM.writeFloat(EEPROM_RAW_SKIN_TEMP_RANGE_CORRECTION, RawTemperatureRange[SKIN_SENSOR]);
+  
   EEPROM.commit();
 }
 
@@ -92,8 +107,8 @@ void resetCalibration() {
   RawTemperatureRange[SKIN_SENSOR] = false;
   ReferenceTemperatureRange = false;
   ReferenceTemperatureLow = false;
-  fineTuneSkinTemperature = false;
-  fineTuneAirTemperature = false;
+  in3.fineTuneSkinTemperature = false;
+  in3.fineTuneAirTemperature = false;
 }
 
 void recapVariables() {
@@ -105,8 +120,14 @@ void recapVariables() {
       EEPROM.readFloat(EEPROM_RAW_SKIN_TEMP_RANGE_CORRECTION);
   ReferenceTemperatureRange = EEPROM.readFloat(EEPROM_REFERENCE_TEMP_RANGE);
   ReferenceTemperatureLow = EEPROM.readFloat(EEPROM_REFERENCE_TEMP_LOW);
-  fineTuneSkinTemperature = EEPROM.readFloat(EEPROM_FINE_TUNE_TEMP_SKIN);
-  fineTuneAirTemperature = EEPROM.readFloat(EEPROM_FINE_TUNE_TEMP_AIR);
+  in3.fineTuneSkinTemperature = EEPROM.readFloat(EEPROM_FINE_TUNE_TEMP_SKIN);
+  if (isnan(in3.fineTuneSkinTemperature)) {
+    in3.fineTuneSkinTemperature = 0.0;
+  }
+  in3.fineTuneAirTemperature = EEPROM.readFloat(EEPROM_FINE_TUNE_TEMP_AIR);
+  if (isnan(in3.fineTuneAirTemperature)) {
+    in3.fineTuneAirTemperature = 0.0;
+  }
   in3.standby_time = EEPROM.readFloat(EEPROM_STANDBY_TIME);
   in3.control_active_time = EEPROM.readFloat(EEPROM_CONTROL_ACTIVE_TIME);
   in3.heater_active_time = EEPROM.readFloat(EEPROM_HEATER_ACTIVE_TIME);
@@ -190,7 +211,7 @@ void saveCalibrationToEEPROM() {
                     RawTemperatureRange[SKIN_SENSOR]);
   EEPROM.writeFloat(EEPROM_REFERENCE_TEMP_RANGE, ReferenceTemperatureRange);
   EEPROM.writeFloat(EEPROM_REFERENCE_TEMP_LOW, ReferenceTemperatureLow);
-  EEPROM.writeFloat(EEPROM_FINE_TUNE_TEMP_SKIN, fineTuneSkinTemperature);
-  EEPROM.writeFloat(EEPROM_FINE_TUNE_TEMP_AIR, fineTuneAirTemperature);
+  EEPROM.writeFloat(EEPROM_FINE_TUNE_TEMP_SKIN, in3.fineTuneSkinTemperature);
+  EEPROM.writeFloat(EEPROM_FINE_TUNE_TEMP_AIR, in3.fineTuneAirTemperature);
   EEPROM.commit();
 }

@@ -134,7 +134,7 @@ void ui_ScreenMain_screen_init(void) {
   ui_Incunest = lv_label_create(ui_ScreenMain);
   lv_obj_set_width(ui_Incunest, LV_SIZE_CONTENT);  /// 1
   lv_obj_set_height(ui_Incunest, LV_SIZE_CONTENT); /// 1
-  lv_obj_set_x(ui_Incunest, -325);
+  lv_obj_set_x(ui_Incunest, -250);
   lv_obj_set_y(ui_Incunest, -213);
   lv_obj_set_align(ui_Incunest, LV_ALIGN_CENTER);
   lv_label_set_text(ui_Incunest, "IncuNest");

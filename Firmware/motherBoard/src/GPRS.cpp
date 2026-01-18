@@ -62,7 +62,7 @@ bool currentFWSent = false;
 bool updateRequestSent = false;
 
 extern double ReferenceTemperatureRange, ReferenceTemperatureLow;
-extern double fineTuneSkinTemperature, fineTuneAirTemperature;
+
 extern double RawTemperatureLow[SENSOR_TEMP_QTY],
     RawTemperatureRange[SENSOR_TEMP_QTY];
 
@@ -500,9 +500,9 @@ void addConfigTelemetriesToGPRSJSON() {
   addVariableToTelemetryGPRSJSON[CALIBRATION_REFERENCE_TEMPERATURE_LOW_KEY] =
       roundSignificantDigits(ReferenceTemperatureLow, TELEMETRIES_DECIMALS);
   addVariableToTelemetryGPRSJSON[CALIBRATION_SKIN_FINETUNE_KEY] =
-      roundSignificantDigits(fineTuneSkinTemperature, TELEMETRIES_DECIMALS);
+      roundSignificantDigits(in3.fineTuneSkinTemperature, TELEMETRIES_DECIMALS);
   addVariableToTelemetryGPRSJSON[CALIBRATION_AIR_FINETUNE_KEY] =
-      roundSignificantDigits(fineTuneAirTemperature, TELEMETRIES_DECIMALS);
+      roundSignificantDigits(in3.fineTuneAirTemperature, TELEMETRIES_DECIMALS);
   addVariableToTelemetryGPRSJSON[CALIBRATION_RAW_TEMPERATURE_RANGE_SKIN_KEY] =
       roundSignificantDigits(RawTemperatureRange[SKIN_SENSOR],
                              TELEMETRIES_DECIMALS);

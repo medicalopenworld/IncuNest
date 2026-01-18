@@ -40,7 +40,12 @@ static SemaphoreHandle_t vcp_mux;
 static void reset_vcp() {
   if (xSemaphoreTake(vcp_mux, pdMS_TO_TICKS(100)) == pdTRUE) {
     if (vcp) {
-      vcp->close();
+      // Try to close, but don't fail if device already in bad state
+      try {
+        vcp->close();
+      } catch (...) {
+        // Ignore close errors - device may already be disconnected
+      }
       vcp.reset();
     }
     xSemaphoreGive(vcp_mux);
@@ -55,12 +60,14 @@ static void reset_vcp() {
 // ---- NUEVO: enviar CTRL,STATE ----
 static void send_state_to_hmi() {
   char msg[128];
-  snprintf(msg, sizeof(msg), "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d\n",
+  snprintf(msg, sizeof(msg),
+           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s\n",
            (int)g_last_cmd.actuation, (int)g_last_cmd.controlMode,
            (double)g_last_cmd.desiredAirTemperature,
            (double)g_last_cmd.desiredSkinTemperature,
            (double)g_last_cmd.desiredHumidity, (int)g_last_cmd.phototherapyMode,
-           (int)g_last_cmd.muteAlarm, ctrl_tel_msg.serialNumber);
+           (int)g_last_cmd.muteAlarm, ctrl_tel_msg.serialNumber, HW_NUM,
+           HW_REVISION, FWversion);
   ESP_LOGI(TAG, "Sending state to HMI: %s", msg);
   CommunicationHost_Send(msg);
 }
@@ -74,6 +81,7 @@ void parse_line(const char *line) {
       ESP_LOGI(TAG, "HMI requested STATE");
       xSemaphoreGiveRecursive(log_mutex);
     }
+    setHMIConnected(true); // Flush pending alarms
     send_state_to_hmi();
     return;
   }
@@ -357,19 +365,71 @@ void Communication_Task(void *pvParameters) {
       }
 
       // --- HMI BOOT FIX: Ensure stable state before enabling DTR/RTS ---
-      vcp->set_control_line_state(false, false);
-      vTaskDelay(pdMS_TO_TICKS(1000)); // Delay to allow HMI to boot safely
+      // We ignore errors here as the device might be just waking up
+      esp_err_t err_dtr = vcp->set_control_line_state(false, false);
+      if (err_dtr != ESP_OK) {
+        if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+          ESP_LOGW(TAG, "set_control_line_state(false) failed (ignoring): %s",
+                   esp_err_to_name(err_dtr));
+          xSemaphoreGiveRecursive(log_mutex);
+        }
+      }
+      // Restore original delay to ensure HMI boots safely (Critical for CH340)
+      vTaskDelay(pdMS_TO_TICKS(1500));
 
-      // Enable DTR/RTS (CH340C requirement) - INSIDE MUTEX
-      vcp->set_control_line_state(true, true);
-      vTaskDelay(pdMS_TO_TICKS(20));
+      // Try enabling DTR/RTS with retries
+      bool init_success = false;
+      for (int i = 0; i < 3; i++) {
+        // Enable DTR/RTS (CH340C requirement) - INSIDE MUTEX
+        err_dtr = vcp->set_control_line_state(true, true);
+        if (err_dtr == ESP_OK) {
+          init_success = true;
+          break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(100)); // Wait before retry
+      }
+
+      if (!init_success) {
+        if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+          ESP_LOGE(TAG, "set_control_line_state(true) failed after retries: %s",
+                   esp_err_to_name(err_dtr));
+          xSemaphoreGiveRecursive(log_mutex);
+        }
+        xSemaphoreGive(vcp_mux);
+        reset_vcp();
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        continue;
+      }
+      
+      vTaskDelay(pdMS_TO_TICKS(50));
 
       // Line coding - INSIDE MUTEX
       cdc_acm_line_coding_t line = {.dwDTERate = 115200,
                                     .bCharFormat = 0,
                                     .bParityType = 0,
                                     .bDataBits = 8};
-      vcp->line_coding_set(&line);
+      
+      init_success = false;
+      esp_err_t err_coding = ESP_FAIL;
+      for (int i = 0; i < 3; i++) {
+        err_coding = vcp->line_coding_set(&line);
+        if (err_coding == ESP_OK) {
+          init_success = true;
+          break;
+        }
+         vTaskDelay(pdMS_TO_TICKS(100)); // Wait before retry
+      }
+
+      if (!init_success) {
+        if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+          ESP_LOGE(TAG, "line_coding_set failed after retries: %s", esp_err_to_name(err_coding));
+          xSemaphoreGiveRecursive(log_mutex);
+        }
+        xSemaphoreGive(vcp_mux);
+        reset_vcp();
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        continue;
+      }
       xSemaphoreGive(vcp_mux);
     } else {
       if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {

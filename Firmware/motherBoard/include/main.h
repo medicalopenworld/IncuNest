@@ -577,7 +577,8 @@ typedef struct {
   double humidity[SENSOR_HUM_QTY];
   double desiredControlTemperature = false;
   double desiredControlHumidity = false;
-
+  double fineTuneSkinTemperature = false;
+  double fineTuneAirTemperature = false;
   double system_current_standby_test = false;
   double heater_current_test = false;
   double fan_current_test = false;

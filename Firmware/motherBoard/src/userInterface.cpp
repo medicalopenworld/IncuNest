@@ -39,7 +39,6 @@ extern int page;
 extern double errorTemperature[SENSOR_TEMP_QTY], temperatureCalibrationPoint;
 extern double ReferenceTemperatureRange, ReferenceTemperatureLow;
 extern double provisionalReferenceTemperatureLow;
-extern double fineTuneSkinTemperature, fineTuneAirTemperature;
 extern double RawTemperatureLow[SENSOR_TEMP_QTY],
     RawTemperatureRange[SENSOR_TEMP_QTY];
 extern double provisionalRawTemperatureLow[SENSOR_TEMP_QTY];
@@ -494,17 +493,17 @@ void userInterfaceHandler(int UI_page) {
           }
           break;
         case SET_CALIB_UI_ROW:
-          fineTuneSkinTemperature =
+          in3.fineTuneSkinTemperature =
               diffSkinTemperature - in3.temperature[SKIN_SENSOR];
-          fineTuneAirTemperature =
+          in3.fineTuneAirTemperature =
               diffAirTemperature - in3.temperature[ROOM_DIGITAL_TEMP_SENSOR];
           logI("[CALIBRATION] -> Fine tune Skin value is " +
-               String(fineTuneSkinTemperature));
+               String(in3.fineTuneSkinTemperature));
           logI("[CALIBRATION] -> Fine tune Air value is " +
-               String(fineTuneAirTemperature));
+               String(in3.fineTuneAirTemperature));
           EEPROM.writeFloat(EEPROM_FINE_TUNE_TEMP_SKIN,
-                            fineTuneSkinTemperature);
-          EEPROM.writeFloat(EEPROM_FINE_TUNE_TEMP_AIR, fineTuneAirTemperature);
+                            in3.fineTuneSkinTemperature);
+          EEPROM.writeFloat(EEPROM_FINE_TUNE_TEMP_AIR, in3.fineTuneAirTemperature);
           EEPROM.commit();
           UI_mainMenu();
           break;

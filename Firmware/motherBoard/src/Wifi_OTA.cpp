@@ -51,7 +51,7 @@ JsonObject addVariableToTelemetryWIFIJSON = WIFI_JSON.to<JsonObject>();
 bool WIFI_connection_status = false;
 
 extern in3ator_parameters in3;
-extern double fineTuneSkinTemperature;
+
 WIFIstruct Wifi_TB;
 Credentials wifi_credentials;
 Espressif_Updater updater_WIFI;
@@ -116,12 +116,21 @@ const char *serverIndex =
     "<script "
     "src='https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js'></"
     "script>"
+    "<h3>Firmware Update</h3>"
+    "<p>Current Version: <span id='fw_version'></span></p>"
     "<form method='POST' action='#' enctype='multipart/form-data' "
     "id='upload_form'>"
     "<input type='file' name='update'>"
     "<input type='submit' value='Update'>"
     "</form>"
     "<div id='prg'>progress: 0%</div>"
+    "<script>"
+    "$(document).ready(function() {"
+    "  $.get('/get_fw_version', function(data) {"
+    "    $('#fw_version').text(data.version);"
+    "  });"
+    "});"
+    "</script>"
     "<script>"
     "$('form').submit(function(e){"
     "e.preventDefault();"
@@ -163,6 +172,9 @@ const char *configIndex =
     "<label>Reference Skin Temp (Current Actual):</label><br>"
     "<input type='number' step='0.01' name='reference_temp' "
     "id='reference_temp'><br><br>"
+    "<label>Fine Tune Skin Temperature Offset:</label><br>"
+    "<input type='number' step='0.01' name='fine_tune' id='fine_tune' "
+    "readonly><br><br>"
     "<input type='submit' value='Save'>"
     "</form>"
     "<div id='msg'></div>"
@@ -171,6 +183,7 @@ const char *configIndex =
     "  $.get('/get_config', function(data) {"
     "    $('#serial').val(data.serial);"
     "    $('#reference_temp').val(data.skin_temp_val);"
+    "    $('#fine_tune').val(data.fine_tune);"
     "  });"
     "});"
     "</script>";
@@ -231,6 +244,13 @@ void configWifiServer() {
     wifiServer.sendHeader("Connection", "close");
     wifiServer.send(200, "text/html", serverIndex);
   });
+  wifiServer.on("/get_fw_version", HTTP_GET, []() {
+    String json = "{";
+    json += "\"version\":\"" + String(FWversion) + "\"";
+    json += "}";
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "application/json", json);
+  });
   /* config page */
   wifiServer.on("/config", HTTP_GET, []() {
     wifiServer.sendHeader("Connection", "close");
@@ -241,7 +261,8 @@ void configWifiServer() {
     json += "\"serial\":" + String(in3.serialNumber) + ",";
     // Return current displayed temperature so user can see what it is or use it
     // as base
-    json += "\"skin_temp_val\":" + String(in3.temperature[SKIN_SENSOR]);
+    json += "\"skin_temp_val\":" + String(in3.temperature[SKIN_SENSOR]) + ",";
+    json += "\"fine_tune\":" + String(in3.fineTuneSkinTemperature);
     json += "}";
     wifiServer.sendHeader("Connection", "close");
     wifiServer.send(200, "application/json", json);
@@ -258,9 +279,9 @@ void configWifiServer() {
       // We want Reference = Raw + NewOffset
       // So NewOffset = Reference - Raw = Reference - (Displayed - OldOffset)
       //              = Reference - Displayed + OldOffset
-      fineTuneSkinTemperature = fineTuneSkinTemperature +
+      in3.fineTuneSkinTemperature = in3.fineTuneSkinTemperature +
                                 (referenceTemp - in3.temperature[SKIN_SENSOR]);
-      EEPROM.writeFloat(EEPROM_FINE_TUNE_TEMP_SKIN, fineTuneSkinTemperature);
+      EEPROM.writeFloat(EEPROM_FINE_TUNE_TEMP_SKIN, in3.fineTuneSkinTemperature);
     }
     EEPROM.commit();
     wifiServer.sendHeader("Connection", "close");
@@ -687,8 +708,8 @@ void WifiOTAHandler(void) {
   // Only disable WiFi if it's been more than 60 seconds since last init attempt
   if (WiFi.status() != 0xff && WiFi.status() != WL_CONNECTED &&
       lastWifiInitTime > 0 && (millis() - lastWifiInitTime) > 60000) {
-    wifiDisable();
-    logI("[WIFI] -> WIFI DISABLED");
+    // wifiDisable();
+    // logI("[WIFI] -> WIFI DISABLED");
     lastWifiInitTime = 0; // Reset so we don't keep logging
   }
 }

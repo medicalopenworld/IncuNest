@@ -62,7 +62,6 @@ int page;
 double errorTemperature[SENSOR_TEMP_QTY], temperatureCalibrationPoint;
 double ReferenceTemperatureRange, ReferenceTemperatureLow;
 double provisionalReferenceTemperatureLow;
-double fineTuneSkinTemperature, fineTuneAirTemperature;
 float diffSkinTemperature,
     diffAirTemperature; // difference between measured temperature and user
                         // input real temperature

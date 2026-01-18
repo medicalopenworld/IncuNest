@@ -29,6 +29,16 @@
 static const char *TAG = "SECURITY";
 extern SemaphoreHandle_t log_mutex;
 
+// Pending alarm queue for HMI connection
+struct PendingAlarm {
+  char message[128];
+  bool valid;
+};
+
+static PendingAlarm pending_alarms[10];
+static int pending_alarm_count = 0;
+static bool hmi_connected = false;
+
 extern TwoWire *wire;
 extern MAM_in3ator_Humidifier in3_hum;
 extern TFT_eSPI tft;
@@ -42,7 +52,7 @@ extern int page;
 extern double errorTemperature[SENSOR_TEMP_QTY], temperatureCalibrationPoint;
 extern double ReferenceTemperatureRange, ReferenceTemperatureLow;
 extern double provisionalReferenceTemperatureLow;
-extern double fineTuneSkinTemperature;
+
 extern double RawTemperatureLow[SENSOR_TEMP_QTY],
     RawTemperatureRange[SENSOR_TEMP_QTY];
 extern double provisionalRawTemperatureLow[SENSOR_TEMP_QTY];
@@ -363,6 +373,38 @@ int alarmPendingToClear() {
   return false;
 }
 
+void sendPendingAlarms() {
+  for (int i = 0; i < pending_alarm_count && i < 10; i++) {
+    if (pending_alarms[i].valid) {
+#if CONFIG_IDF_TARGET_ESP32S3
+      CommunicationHost_Send(pending_alarms[i].message);
+#endif
+      if (log_mutex == NULL ||
+          xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        ESP_LOGI(TAG, "Sent pending alarm: %s", pending_alarms[i].message);
+        if (log_mutex)
+          xSemaphoreGiveRecursive(log_mutex);
+      }
+      pending_alarms[i].valid = false;
+    }
+  }
+  pending_alarm_count = 0;
+}
+
+void setHMIConnected(bool connected) {
+  hmi_connected = connected;
+  if (connected) {
+    if (log_mutex == NULL ||
+        xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      ESP_LOGI(TAG, "HMI connected, flushing %d pending alarms",
+               pending_alarm_count);
+      if (log_mutex)
+        xSemaphoreGiveRecursive(log_mutex);
+    }
+    sendPendingAlarms();
+  }
+}
+
 void sendAlarmUSB(byte alarmID, bool isActive) {
   char msg[128];
   const char *en_desc = "ALARM";
@@ -409,12 +451,33 @@ void sendAlarmUSB(byte alarmID, bool isActive) {
 
   snprintf(msg, sizeof(msg), "CTRL,ALM,%d,%s,%s,%d\n", alarmID, en_desc,
            es_desc, isActive ? 1 : 0);
-  if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+  if (log_mutex == NULL ||
+      xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
     ESP_LOGI(TAG, "%s", msg);
-    xSemaphoreGiveRecursive(log_mutex);
+    if (log_mutex)
+      xSemaphoreGiveRecursive(log_mutex);
   }
+
 #if CONFIG_IDF_TARGET_ESP32S3
-  CommunicationHost_Send(msg);
+  if (!hmi_connected) {
+    // Queue the alarm if HMI not connected
+    if (pending_alarm_count < 10) {
+      strncpy(pending_alarms[pending_alarm_count].message, msg,
+              sizeof(pending_alarms[pending_alarm_count].message) - 1);
+      pending_alarms[pending_alarm_count].message[127] = '\0';
+      pending_alarms[pending_alarm_count].valid = true;
+      pending_alarm_count++;
+      if (log_mutex == NULL ||
+          xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        ESP_LOGI(TAG, "Queued alarm (HMI not connected): %s", msg);
+        if (log_mutex)
+          xSemaphoreGiveRecursive(log_mutex);
+      }
+    }
+  } else {
+    // Send immediately if HMI is connected
+    CommunicationHost_Send(msg);
+  }
 #endif
 }
 

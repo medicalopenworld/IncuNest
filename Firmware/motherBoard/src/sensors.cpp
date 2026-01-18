@@ -43,7 +43,7 @@ extern int page;
 extern double errorTemperature[SENSOR_TEMP_QTY], temperatureCalibrationPoint;
 extern double ReferenceTemperatureRange, ReferenceTemperatureLow;
 extern double provisionalReferenceTemperatureLow;
-extern double fineTuneSkinTemperature, fineTuneAirTemperature;
+
 extern double RawTemperatureLow[SENSOR_TEMP_QTY],
     RawTemperatureRange[SENSOR_TEMP_QTY];
 extern double provisionalRawTemperatureLow[SENSOR_TEMP_QTY];
@@ -291,9 +291,9 @@ bool measureNTCTemperature() {
            RawTemperatureRange[SKIN_SENSOR]) +
           ReferenceTemperatureLow;
     }
-    in3.temperature[SKIN_SENSOR] += fineTuneSkinTemperature;
+    in3.temperature[SKIN_SENSOR] += in3.fineTuneSkinTemperature;
     errorTemperature[SKIN_SENSOR] -= in3.temperature[SKIN_SENSOR];
-    if (in3.temperature < 0) {
+    if (in3.temperature[SKIN_SENSOR] < 0) {
       in3.temperature[SKIN_SENSOR] = 0;
     }
     return true;
