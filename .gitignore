@@ -54,16 +54,8 @@ dkms.conf
 # credentials
 .pio
 Credentials.h
-<<<<<<< HEAD
 Firmware/motherBoard/.vscode/launch.json
 Firmware/motherBoard/.vscode/c_cpp_properties.json
-=======
-
-#vscode 
-
-.vscode/
-
->>>>>>> 801c88c1bb7803d20439ede9c30c64ede3420dd5
 build/
 **/.pio/
 *.bin
@@ -128,3 +120,7 @@ Hardware/**/.svn/
 
 # Ignore heavy hardware history folders
 Hardware/**/[Hh]istory/
+
+# Agents and Workspaces
+.agent
+*.code-workspace
