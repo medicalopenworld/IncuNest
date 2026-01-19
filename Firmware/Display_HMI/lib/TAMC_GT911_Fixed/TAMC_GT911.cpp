@@ -7,10 +7,41 @@ TAMC_GT911::TAMC_GT911(uint8_t _sda, uint8_t _scl, uint8_t _int, uint8_t _rst, u
 
 }
 
-void TAMC_GT911::begin(uint8_t _addr) {
+bool TAMC_GT911::begin(uint8_t _addr) {
   addr = _addr;
-  Wire.begin(pinSda, pinScl);
+  // Wire.begin(pinSda, pinScl); // Removed to avoid re-init if already done via main.cpp or just check
+  // Better to rely on external Wire.begin() or check if initialized. 
+  // For safety in this library context, we can keep it OR assume user did it.
+  // Given user code does Wire.begin(sda,scl) in setup(), we can skip re-call or keep it.
+  // Keeping it is safer for "library standalone" usage but might reset bus speed. 
+  // Let's call it to be sure pins are set for this driver instance.
+  Wire.begin(pinSda, pinScl); 
+  
   reset();
+
+  // Validate connection by reading Product ID
+  uint8_t temp[4];
+  readBlockData(temp, GT911_PRODUCT_ID, 4);
+  
+  // Serial.print("Product ID: ");
+  // Serial.print((char)temp[0]); Serial.print((char)temp[1]); Serial.print((char)temp[2]); Serial.println((char)temp[3]);
+  
+  // Check if ID is somewhat valid (printable ASCII or known "911")
+  // GT911 usually returns "911\0"
+  if (temp[0] != '9') {
+      // Try secondary address if primary failed
+      if(addr == GT911_ADDR1) addr = GT911_ADDR2;
+      else addr = GT911_ADDR1;
+      
+      reset(); // Reset again with new address intent logic? 
+      // Actually reset() uses 'addr' to decide INT pin state. So changing addr and calling reset() effectively tries the other strap.
+      
+      readBlockData(temp, GT911_PRODUCT_ID, 4);
+      if (temp[0] != '9') {
+          return false; // Failed both addresses
+      }
+  }
+  return true;
 }
 void TAMC_GT911::reset() {
   pinMode(pinInt, OUTPUT);

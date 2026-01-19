@@ -1145,7 +1145,25 @@ void UI_Task(void *pvParameters) {
   vTaskDelay(pdMS_TO_TICKS(DELAY_SHORT_MS));
 
   lv_init();
-  ts.begin();
+  
+  // Try to initialize Touch with robust handshake
+  bool touch_ok = false;
+  for(int i=0; i<3; i++) {
+     if(ts.begin()) {
+         touch_ok = true;
+         ESP_LOGI(TAG, "Touch controller initialized OK");
+         break;
+     }
+     ESP_LOGW(TAG, "Touch init failed, retrying...");
+     vTaskDelay(pdMS_TO_TICKS(500));
+  }
+  
+  if(!touch_ok) {
+     ESP_LOGE(TAG, "Touch controller FAILED to init after retries. Touch may trigger ghost clicks or not work.");
+     // We continue anyway, but maybe show an error on screen? 
+     // For now just log it. The buffer overflow fix will prevent crashes.
+  }
+
   // ts.reset();
   ts.setRotation(TOUCH_ROTATION);
   lcd.setRotation(LCD_ROTATION);

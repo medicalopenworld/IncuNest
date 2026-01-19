@@ -151,7 +151,7 @@ class TP_Point {
 class TAMC_GT911 {
   public:
     TAMC_GT911(uint8_t _sda, uint8_t _scl, uint8_t _int, uint8_t _rst, uint16_t _width, uint16_t _height);
-    void begin(uint8_t _addr=GT911_ADDR1);
+    bool begin(uint8_t _addr=GT911_ADDR1);
     void reset();
     void setRotation(uint8_t rot);
     void setResolution(uint16_t _width, uint16_t _height);
