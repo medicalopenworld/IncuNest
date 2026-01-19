@@ -3,7 +3,12 @@
 !Firmware/motherBoard/.vscode/c_cpp_properties.json
 
 # PlatformIO / builds
+.pio/
 **/.pio/
+build/
+**/build/
+.pio/build/
+**/.pio/build/
 build/
 **/build/
 **/preproc/
@@ -28,3 +33,9 @@ Firmware/motherBoard/.cache/
 Hardware/Electronics/Motherboard/History/
 # (o más genérico, si quieres ignorar cualquier carpeta History)
 # Hardware/**/[Hh]istory/
+
+# Workspace
+*.code-workspace
+
+# Agents
+.agent

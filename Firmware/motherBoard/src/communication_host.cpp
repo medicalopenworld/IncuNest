@@ -12,8 +12,6 @@
 #include "usb/usb_host.h"
 #include "usb/vcp.hpp"
 #include "usb/vcp_ch34x.hpp"
-#include "usb/vcp_cp210x.hpp"
-#include "usb/vcp_ftdi.hpp"
 
 using namespace esp_usb;
 
@@ -314,8 +312,9 @@ void CommunicationHost_Init() {
   ESP_ERROR_CHECK(cdc_acm_host_install(NULL));
 
   VCP::register_driver<CH34x>();
-  VCP::register_driver<CP210x>();
-  VCP::register_driver<FT23x>();
+  // Drivers CP210x y FTDI eliminados para optimizar para CH340C
+  // VCP::register_driver<CP210x>(); 
+  // VCP::register_driver<FT23x>();
 }
 
 // ======================================================
@@ -365,40 +364,28 @@ void Communication_Task(void *pvParameters) {
       }
 
       // --- HMI BOOT FIX: Ensure stable state before enabling DTR/RTS ---
-      // We ignore errors here as the device might be just waking up
-      esp_err_t err_dtr = vcp->set_control_line_state(false, false);
-      if (err_dtr != ESP_OK) {
-        if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-          ESP_LOGW(TAG, "set_control_line_state(false) failed (ignoring): %s",
-                   esp_err_to_name(err_dtr));
-          xSemaphoreGiveRecursive(log_mutex);
-        }
+      // CH340C needs a defined transition. We try a robust handshake sequence.
+      
+      bool handshake_success = false;
+      for(int retry=0; retry<3; retry++) {
+         if(xSemaphoreTake(vcp_mux, pdMS_TO_TICKS(100)) == pdTRUE) {
+             if(vcp) {
+                 vcp->set_control_line_state(false, false);
+                 vTaskDelay(pdMS_TO_TICKS(500)); // Wait for electrical settle
+                 vcp->set_control_line_state(true, true); // Enable DTR/RTS
+                 handshake_success = true;
+             }
+             xSemaphoreGive(vcp_mux);
+         }
+         if(handshake_success) break;
+         vTaskDelay(pdMS_TO_TICKS(200));
       }
-      // Restore original delay to ensure HMI boots safely (Critical for CH340)
-      vTaskDelay(pdMS_TO_TICKS(1500));
-
-      // Try enabling DTR/RTS with retries
-      bool init_success = false;
-      for (int i = 0; i < 3; i++) {
-        // Enable DTR/RTS (CH340C requirement) - INSIDE MUTEX
-        err_dtr = vcp->set_control_line_state(true, true);
-        if (err_dtr == ESP_OK) {
-          init_success = true;
-          break;
-        }
-        vTaskDelay(pdMS_TO_TICKS(100)); // Wait before retry
-      }
-
-      if (!init_success) {
-        if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-          ESP_LOGE(TAG, "set_control_line_state(true) failed after retries: %s",
-                   esp_err_to_name(err_dtr));
-          xSemaphoreGiveRecursive(log_mutex);
-        }
-        xSemaphoreGive(vcp_mux);
-        reset_vcp();
-        vTaskDelay(pdMS_TO_TICKS(1000));
-        continue;
+      
+      if(!handshake_success) {
+          if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+             ESP_LOGW(TAG, "Handshake sequence incomplete (mux busy or vcp null)");
+             xSemaphoreGiveRecursive(log_mutex);
+          }
       }
       
       vTaskDelay(pdMS_TO_TICKS(50));
@@ -409,7 +396,7 @@ void Communication_Task(void *pvParameters) {
                                     .bParityType = 0,
                                     .bDataBits = 8};
       
-      init_success = false;
+      bool init_success = false;
       esp_err_t err_coding = ESP_FAIL;
       for (int i = 0; i < 3; i++) {
         err_coding = vcp->line_coding_set(&line);

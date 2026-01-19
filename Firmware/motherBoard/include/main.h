@@ -51,8 +51,6 @@
 #include "usb/usb_host.h"
 #include "usb/vcp.hpp"
 #include "usb/vcp_ch34x.hpp"
-#include "usb/vcp_cp210x.hpp"
-#include "usb/vcp_ftdi.hpp"
 #endif
 #include <BQ25792_Driver.h>
 #include <SensirionI2cSts3x.h>
