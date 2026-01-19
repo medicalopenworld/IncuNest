@@ -51,8 +51,7 @@
 #include "usb/usb_host.h"
 #include "usb/vcp.hpp"
 #include "usb/vcp_ch34x.hpp"
-#include "usb/vcp_cp210x.hpp"
-#include "usb/vcp_ftdi.hpp"
+
 #endif
 #include <BQ25792_Driver.h>
 #include <SensirionI2cSts3x.h>
@@ -357,12 +356,12 @@ typedef enum {
 #define buzzerStandbyPeriod                                                    \
   10000 // in millis, there will be a periodic tone when regulating baby's
         // constants
-#define buzzerStandbyTone 500 // in micros, tone freq
-#define buzzerAlarmTone 500 // in micros, tone freq
+#define buzzerStandbyTone 500        // in micros, tone freq
+#define buzzerAlarmTone 500          // in micros, tone freq
 #define buzzerRotaryEncoderTone 2200 // in micros, tone freq
 #define buzzerStandbyToneDuration 50 // in micros, tone freq
-#define buzzerSwitchDuration 10 // in micros, tone freq
-#define buzzerStandbyToneTimes 1 // in micros, tone freq
+#define buzzerSwitchDuration 10      // in micros, tone freq
+#define buzzerStandbyToneTimes 1     // in micros, tone freq
 
 // EEPROM variables
 #define EEPROM_SIZE 256
@@ -411,8 +410,8 @@ typedef enum {
 #define secondAutoCalibrationPoint 2
 
 // GPRS variables to transmit
-#define turnedOn 0 // transmit first turned ON with hardware verification
-#define room 1 // transmit room variables
+#define turnedOn 0     // transmit first turned ON with hardware verification
+#define room 1         // transmit room variables
 #define aliveRefresh 2 // message to let know that incubator is still ON
 
 // sensor variables
@@ -453,10 +452,10 @@ typedef enum {
   0 // minimum humidity cycle in heater to be set
 
 #define stepTemperatureIncrement 0.1 // maximum allowed temperature to be set
-#define stepHumidityIncrement 5 // maximum allowed temperature to be set
-#define presetHumidity 60 // preset humidity
-#define maxHum 90 // maximum allowed humidity to be set
-#define minHum 20 // minimum allowed humidity to be set
+#define stepHumidityIncrement 5      // maximum allowed temperature to be set
+#define presetHumidity 60            // preset humidity
+#define maxHum 90                    // maximum allowed humidity to be set
+#define minHum 20                    // minimum allowed humidity to be set
 
 #define SKIN_TEMPERATURE_SET_MIN 35
 #define AIR_TEMPERATURE_SET_MIN 20

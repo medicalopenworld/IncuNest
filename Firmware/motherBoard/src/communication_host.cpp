@@ -12,8 +12,6 @@
 #include "usb/usb_host.h"
 #include "usb/vcp.hpp"
 #include "usb/vcp_ch34x.hpp"
-#include "usb/vcp_cp210x.hpp"
-#include "usb/vcp_ftdi.hpp"
 
 using namespace esp_usb;
 
@@ -314,8 +312,6 @@ void CommunicationHost_Init() {
   ESP_ERROR_CHECK(cdc_acm_host_install(NULL));
 
   VCP::register_driver<CH34x>();
-  VCP::register_driver<CP210x>();
-  VCP::register_driver<FT23x>();
 }
 
 // ======================================================
@@ -375,18 +371,18 @@ void Communication_Task(void *pvParameters) {
         }
       }
       // Restore original delay to ensure HMI boots safely (Critical for CH340)
-      vTaskDelay(pdMS_TO_TICKS(1500));
+      vTaskDelay(pdMS_TO_TICKS(500)); // Reduced from 1500ms to 500ms
 
       // Try enabling DTR/RTS with retries
       bool init_success = false;
-      for (int i = 0; i < 3; i++) {
+      for (int i = 0; i < 5; i++) { // Increased retries to 5
         // Enable DTR/RTS (CH340C requirement) - INSIDE MUTEX
         err_dtr = vcp->set_control_line_state(true, true);
         if (err_dtr == ESP_OK) {
           init_success = true;
           break;
         }
-        vTaskDelay(pdMS_TO_TICKS(100)); // Wait before retry
+        vTaskDelay(pdMS_TO_TICKS(200)); // Increased wait before retry
       }
 
       if (!init_success) {
@@ -400,29 +396,30 @@ void Communication_Task(void *pvParameters) {
         vTaskDelay(pdMS_TO_TICKS(1000));
         continue;
       }
-      
-      vTaskDelay(pdMS_TO_TICKS(50));
+
+      vTaskDelay(pdMS_TO_TICKS(100)); // Increased from 50ms
 
       // Line coding - INSIDE MUTEX
       cdc_acm_line_coding_t line = {.dwDTERate = 115200,
                                     .bCharFormat = 0,
                                     .bParityType = 0,
                                     .bDataBits = 8};
-      
+
       init_success = false;
       esp_err_t err_coding = ESP_FAIL;
-      for (int i = 0; i < 3; i++) {
+      for (int i = 0; i < 5; i++) { // Increased retries to 5
         err_coding = vcp->line_coding_set(&line);
         if (err_coding == ESP_OK) {
           init_success = true;
           break;
         }
-         vTaskDelay(pdMS_TO_TICKS(100)); // Wait before retry
+        vTaskDelay(pdMS_TO_TICKS(200)); // Increased wait before retry
       }
 
       if (!init_success) {
         if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-          ESP_LOGE(TAG, "line_coding_set failed after retries: %s", esp_err_to_name(err_coding));
+          ESP_LOGE(TAG, "line_coding_set failed after retries: %s",
+                   esp_err_to_name(err_coding));
           xSemaphoreGiveRecursive(log_mutex);
         }
         xSemaphoreGive(vcp_mux);
