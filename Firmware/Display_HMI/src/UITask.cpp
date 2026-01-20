@@ -887,9 +887,11 @@ void update_alarm_panels() {
     char buf[10];
     itoa(totalActiveAlarms, buf, 10);
     // Main screen
+    lv_obj_clear_flag(ui_AlarmButton, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(ui_Panel10, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(ui_NumAlarm, LV_OBJ_FLAG_HIDDEN);
     lv_label_set_text(ui_NumAlarm, buf);
+    lv_obj_add_flag(ui_CheckImgMain, LV_OBJ_FLAG_HIDDEN);
     // Lock screen
     lv_obj_clear_flag(ui_AlarmLockCont, LV_OBJ_FLAG_HIDDEN);
     lv_label_set_text(ui_AlarmLockNumLabel, buf);
@@ -898,6 +900,8 @@ void update_alarm_panels() {
     // Main screen
     lv_obj_add_flag(ui_Panel10, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_NumAlarm, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_AlarmButton, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_CheckImgMain, LV_OBJ_FLAG_HIDDEN);
     // Lock screen
     lv_obj_add_flag(ui_AlarmLockCont, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(ui_CheckImg, LV_OBJ_FLAG_HIDDEN);
@@ -1319,6 +1323,7 @@ void UI_Task(void *pvParameters) {
 
   lv_obj_add_flag(ui_NumAlarm, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_Panel10, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_AlarmButton, LV_OBJ_FLAG_HIDDEN);
 
   lv_obj_add_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);

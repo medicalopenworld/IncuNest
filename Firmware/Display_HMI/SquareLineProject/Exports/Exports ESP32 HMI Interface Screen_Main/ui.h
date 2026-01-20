@@ -44,6 +44,7 @@ LV_IMG_DECLARE(ui_img_gota_png);    // assets/gota.png
 LV_IMG_DECLARE(ui_img_pulse_png);    // assets/pulse.png
 LV_IMG_DECLARE(ui_img_chart_png);    // assets/chart.png
 LV_IMG_DECLARE(ui_img_candado_png);    // assets/candado.png
+LV_IMG_DECLARE(ui_img_check_png);    // assets/check.png
 
 // UI INIT
 void ui_init(void);
