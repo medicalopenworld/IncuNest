@@ -1,6 +1,13 @@
 #pragma once
 #include <Arduino.h>
 
+// Expected prefix of incoming messages
+#if IS_HMI
+#define EXPECTED_PREFIX "CTRL"
+#else
+#define EXPECTED_PREFIX "HMI"
+#endif
+
 // ======================================================
 //  TELEMETRY (CTRL → HMI)
 // ======================================================

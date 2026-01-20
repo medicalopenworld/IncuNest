@@ -73,6 +73,11 @@ static void send_state_to_hmi() {
 void parse_line(const char *line) {
   // ESP_LOGD(TAG, "RX: %s", line); // Removed to avoid UART flooding
 
+  // Strict filtering: discard if not starting with EXPECTED_PREFIX
+  if (strncmp(line, EXPECTED_PREFIX, strlen(EXPECTED_PREFIX)) != 0) {
+    return;
+  }
+
   // ---- NUEVO: handshake request ----
   if (strcmp(line, "HMI,REQ,STATE") == 0) {
     if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
@@ -214,6 +219,14 @@ void parse_line(const char *line) {
 //  USB RX CALLBACK
 // ======================================================
 static bool handle_rx(const uint8_t *data, size_t len, void *arg) {
+  static uint32_t lastRxTime = 0;
+
+  // Timeout check
+  if (rxIndex > 0 && (millis() - lastRxTime > 50)) {
+    rxIndex = 0;
+    // We can log here if needed, but be careful in callback
+  }
+
   for (size_t i = 0; i < len; i++) {
     char c = data[i];
     if (c == '\r')
@@ -229,6 +242,7 @@ static bool handle_rx(const uint8_t *data, size_t len, void *arg) {
     if (rxIndex < sizeof(rxBuffer) - 1)
       rxBuffer[rxIndex++] = c;
   }
+  lastRxTime = millis();
   return true;
 }
 
@@ -313,7 +327,7 @@ void CommunicationHost_Init() {
 
   VCP::register_driver<CH34x>();
   // Drivers CP210x y FTDI eliminados para optimizar para CH340C
-  // VCP::register_driver<CP210x>(); 
+  // VCP::register_driver<CP210x>();
   // VCP::register_driver<FT23x>();
 }
 
@@ -365,29 +379,30 @@ void Communication_Task(void *pvParameters) {
 
       // --- HMI BOOT FIX: Ensure stable state before enabling DTR/RTS ---
       // CH340C needs a defined transition. We try a robust handshake sequence.
-      
+
       bool handshake_success = false;
-      for(int retry=0; retry<3; retry++) {
-         if(xSemaphoreTake(vcp_mux, pdMS_TO_TICKS(100)) == pdTRUE) {
-             if(vcp) {
-                 vcp->set_control_line_state(false, false);
-                 vTaskDelay(pdMS_TO_TICKS(500)); // Wait for electrical settle
-                 vcp->set_control_line_state(true, true); // Enable DTR/RTS
-                 handshake_success = true;
-             }
-             xSemaphoreGive(vcp_mux);
-         }
-         if(handshake_success) break;
-         vTaskDelay(pdMS_TO_TICKS(200));
-      }
-      
-      if(!handshake_success) {
-          if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-             ESP_LOGW(TAG, "Handshake sequence incomplete (mux busy or vcp null)");
-             xSemaphoreGiveRecursive(log_mutex);
+      for (int retry = 0; retry < 3; retry++) {
+        if (xSemaphoreTake(vcp_mux, pdMS_TO_TICKS(100)) == pdTRUE) {
+          if (vcp) {
+            vcp->set_control_line_state(false, false);
+            vTaskDelay(pdMS_TO_TICKS(500)); // Wait for electrical settle
+            vcp->set_control_line_state(true, true); // Enable DTR/RTS
+            handshake_success = true;
           }
+          xSemaphoreGive(vcp_mux);
+        }
+        if (handshake_success)
+          break;
+        vTaskDelay(pdMS_TO_TICKS(200));
       }
-      
+
+      if (!handshake_success) {
+        if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+          ESP_LOGW(TAG, "Handshake sequence incomplete (mux busy or vcp null)");
+          xSemaphoreGiveRecursive(log_mutex);
+        }
+      }
+
       vTaskDelay(pdMS_TO_TICKS(50));
 
       // Line coding - INSIDE MUTEX
@@ -395,7 +410,7 @@ void Communication_Task(void *pvParameters) {
                                     .bCharFormat = 0,
                                     .bParityType = 0,
                                     .bDataBits = 8};
-      
+
       bool init_success = false;
       esp_err_t err_coding = ESP_FAIL;
       for (int i = 0; i < 3; i++) {
@@ -404,12 +419,13 @@ void Communication_Task(void *pvParameters) {
           init_success = true;
           break;
         }
-         vTaskDelay(pdMS_TO_TICKS(100)); // Wait before retry
+        vTaskDelay(pdMS_TO_TICKS(100)); // Wait before retry
       }
 
       if (!init_success) {
         if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-          ESP_LOGE(TAG, "line_coding_set failed after retries: %s", esp_err_to_name(err_coding));
+          ESP_LOGE(TAG, "line_coding_set failed after retries: %s",
+                   esp_err_to_name(err_coding));
           xSemaphoreGiveRecursive(log_mutex);
         }
         xSemaphoreGive(vcp_mux);
