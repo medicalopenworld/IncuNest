@@ -409,16 +409,32 @@ void LanguageButton_cb(lv_event_t *e) {
   LanguagesVisible = true;
 }
 
+void TextArea_Change_cb(lv_event_t *e) {
+  lv_obj_t *ta = lv_event_get_target(e);
+  const char *txt = lv_textarea_get_text(ta);
+  if (ta == ui_TextArea1) {
+    strncpy(wifi_ssid, txt, sizeof(wifi_ssid) - 1);
+    wifi_ssid[sizeof(wifi_ssid) - 1] = '\0';
+  } else if (ta == ui_TextArea2) {
+    strncpy(wifi_pass, txt, sizeof(wifi_pass) - 1);
+    wifi_pass[sizeof(wifi_pass) - 1] = '\0';
+  }
+}
+
 void TextArea_focus_cb(lv_event_t *e) {
   lv_obj_t *ta = lv_event_get_target(e);
   lv_keyboard_set_textarea(ui_Keyboard1, ta);
   lv_obj_clear_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
 }
 
 void Keyboard_cb(lv_event_t *e) {
   lv_event_code_t code = lv_event_get_code(e);
   if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
     lv_obj_add_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
     const char *txt1 = lv_textarea_get_text(ui_TextArea1);
     const char *txt2 = lv_textarea_get_text(ui_TextArea2);
     strncpy(wifi_ssid, txt1, sizeof(wifi_ssid));
@@ -1235,6 +1251,10 @@ void UI_Task(void *pvParameters) {
 
   lv_obj_add_event_cb(ui_TextArea1, TextArea_focus_cb, LV_EVENT_CLICKED, NULL);
   lv_obj_add_event_cb(ui_TextArea2, TextArea_focus_cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_add_event_cb(ui_TextArea1, TextArea_Change_cb, LV_EVENT_VALUE_CHANGED,
+                      NULL);
+  lv_obj_add_event_cb(ui_TextArea2, TextArea_Change_cb, LV_EVENT_VALUE_CHANGED,
+                      NULL);
   lv_obj_add_event_cb(ui_Keyboard1, Keyboard_cb, LV_EVENT_ALL, NULL);
   lv_obj_add_event_cb(ui_WifiButton, WifiButton_cb, LV_EVENT_CLICKED, NULL);
   lv_textarea_set_text(ui_TextArea1, wifi_ssid);
