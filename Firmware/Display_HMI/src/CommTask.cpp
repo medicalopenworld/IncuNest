@@ -116,8 +116,17 @@ static void parse_message(const char *line) {
 
 static bool ReceiveMessageFromOtherESP() {
   bool msgReceived = false;
+  static uint32_t lastRxTime = 0;
+
   while (COMM_SERIAL.available()) {
+    // Timeout check: if buffer has data but no new char for >50ms, clear it
+    if (rxIndex > 0 && (millis() - lastRxTime > 50)) {
+      rxIndex = 0;
+      COMM_LOG("[COMM] RX Timeout, buffer cleared\n");
+    }
+
     char c = COMM_SERIAL.read();
+    lastRxTime = millis(); // Update time after receiving char
 
     if (c == '\r')
       continue;
