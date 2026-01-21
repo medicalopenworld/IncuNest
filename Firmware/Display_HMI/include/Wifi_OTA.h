@@ -20,7 +20,8 @@
 #define CURRENT_FIRMWARE_TITLE "IncuNest_HMI"
 #define CURRENT_FIRMWARE_VERSION "1.0.0"
 
-#define WIFI_PUBLISH_INTERVAL 5000 // milliseconds
+#define WIFI_PUBLISH_INTERVAL 5000    // milliseconds
+#define WIFI_RECONNECT_INTERVAL 10000 // 10 seconds
 
 #define ENABLE_WIFI_OTA true // enable wifi OTA
 #define ENABLE_GPRS_OTA true // enable GPRS OTA
@@ -46,6 +47,7 @@ struct WIFIstruct {
   bool firstPublish = false;
   bool firstConfigPost = false;
   String device_token;
+  long lastWifiReconnectAttempt = 0;
 };
 
 bool WIFIIsConnectedToServer();

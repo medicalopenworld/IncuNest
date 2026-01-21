@@ -23,15 +23,14 @@
 
 */
 #include <Arduino.h>
+#include <string.h>
 
 #include "GPRS.h"
 #include "main.h"
 
 extern GPRSstruct GPRS;
 static const char *TAG = "WiFi";
-
 char wifiHost[32];
-static unsigned long lastWifiInitTime = 0;
 
 WebServer wifiServer(80);
 
@@ -51,6 +50,7 @@ JsonObject addVariableToTelemetryWIFIJSON = WIFI_JSON.to<JsonObject>();
 bool WIFI_connection_status = false;
 
 extern in3ator_parameters in3;
+extern bool WIFI_EN;
 
 WIFIstruct Wifi_TB;
 Credentials wifi_credentials;
@@ -194,11 +194,20 @@ const char *configIndex =
 extern char pendingSSID[64];
 extern char pendingPass[64];
 
+static uint32_t lastconnectiontrywifi = 0;
+
 void wifiInit(void) {
+  // Connect to WiFi network
   ESP_LOGI(TAG, "Initializing WiFi");
-  lastWifiInitTime = millis();
+  Wifi_TB.lastWifiReconnectAttempt = millis();
   WiFi.setHostname(
       String(String(WIFI_NAME) + "-" + String(in3.serialNumber)).c_str());
+
+  // Copy hostname to wifiHost for MDNS
+  String hostname = String(WIFI_NAME) + "-" + String(in3.serialNumber);
+  strncpy(wifiHost, hostname.c_str(), sizeof(wifiHost) - 1);
+  wifiHost[sizeof(wifiHost) - 1] = '\0';
+
   WiFi.mode(WIFI_STA);
   WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
 
@@ -208,19 +217,21 @@ void wifiInit(void) {
   if (strlen(pendingSSID) > 0) {
     ssid = pendingSSID;
     pass = pendingPass;
-    logI("Connecting to pending WiFi: " + ssid);
+    ESP_LOGI(TAG, "Connecting to pending SSID: %s", ssid.c_str());
   } else {
     ssid = EEPROM.readString(EEPROM_WIFI_SSID);
     pass = EEPROM.readString(EEPROM_WIFI_PASSWORD);
     if (ssid.length() > 0) {
-      logI("Connecting to WiFi from EEPROM: " + ssid);
+      ESP_LOGI(TAG, "Connecting to SSID from EEPROM: %s", ssid.c_str());
     } else {
-      logI("Connecting to default WiFi: " + String(WIFI_SSID));
+      ESP_LOGI(TAG, "Connecting to default SSID: %s", WIFI_SSID);
       ssid = WIFI_SSID;
       pass = WIFI_PASSWORD;
     }
   }
+
   WiFi.begin(ssid.c_str(), pass.c_str());
+  lastconnectiontrywifi = millis();
 }
 
 void wifiDisable() { WiFi.mode(WIFI_OFF); }
@@ -279,9 +290,11 @@ void configWifiServer() {
       // We want Reference = Raw + NewOffset
       // So NewOffset = Reference - Raw = Reference - (Displayed - OldOffset)
       //              = Reference - Displayed + OldOffset
-      in3.fineTuneSkinTemperature = in3.fineTuneSkinTemperature +
-                                (referenceTemp - in3.temperature[SKIN_SENSOR]);
-      EEPROM.writeFloat(EEPROM_FINE_TUNE_TEMP_SKIN, in3.fineTuneSkinTemperature);
+      in3.fineTuneSkinTemperature =
+          in3.fineTuneSkinTemperature +
+          (referenceTemp - in3.temperature[SKIN_SENSOR]);
+      EEPROM.writeFloat(EEPROM_FINE_TUNE_TEMP_SKIN,
+                        in3.fineTuneSkinTemperature);
     }
     EEPROM.commit();
     wifiServer.sendHeader("Connection", "close");
@@ -703,13 +716,22 @@ void WIFI_TB_OTA() {
 }
 
 void WifiOTAHandler(void) {
+  static long lastLog = 0;
+  if (millis() - lastLog > 5000) {
+    ESP_LOGI(TAG, "WifiOTAHandler alive. WiFi status: %d. IP: %s",
+             WiFi.status(), WiFi.localIP().toString().c_str());
+    lastLog = millis();
+  }
+
+  if (WIFI_EN && WiFi.status() != WL_CONNECTED) {
+    if (millis() - Wifi_TB.lastWifiReconnectAttempt > WIFI_RECONNECT_INTERVAL) {
+      Wifi_TB.lastWifiReconnectAttempt = millis();
+      logI("[WIFI] -> Connection lost, attempting to reconnect...");
+      MDNS.end();
+      wifiInit();
+    }
+  }
+
   WIFI_TB_OTA();
   WEB_OTA();
-  // Only disable WiFi if it's been more than 60 seconds since last init attempt
-  if (WiFi.status() != 0xff && WiFi.status() != WL_CONNECTED &&
-      lastWifiInitTime > 0 && (millis() - lastWifiInitTime) > 60000) {
-    // wifiDisable();
-    // logI("[WIFI] -> WIFI DISABLED");
-    lastWifiInitTime = 0; // Reset so we don't keep logging
-  }
 }

@@ -9,6 +9,7 @@
 #define WIFI_PUBLISH_INTERVAL 5000        // milliseconds
 #define WIFI_OTA_CHECK_INTERVAL 60000     // 1 minute in milliseconds
 #define THINGSBOARD_RECONNECT_DELAY 30000 // 30 seconds
+#define WIFI_RECONNECT_INTERVAL 10000     // 10 seconds
 
 struct WIFIstruct {
   int provisioned = false;
@@ -25,6 +26,7 @@ struct WIFIstruct {
   bool firstPublish = false;
   bool firstConfigPost = false;
   String device_token;
+  long lastWifiReconnectAttempt = 0;
 };
 
 bool WIFIIsConnectedToServer();

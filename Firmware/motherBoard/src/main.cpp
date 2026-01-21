@@ -413,6 +413,23 @@ void setup() {
   logI("in3ator debug uart, version v" + String(FWversion) + "/" +
        String(HWversion) + ", SN: " + String(in3.serialNumber));
   initRoomSensor();
+
+#if CONFIG_IDF_TARGET_ESP32S3
+  // --- Initialize UART communication between ESP32 boards ---
+  logI("Initializing communication task ...");
+  CommunicationHost_Init();
+
+  xTaskCreatePinnedToCore(Communication_Task, "COMM_TASK", 4096, NULL, 1, NULL,
+                          CORE_ID_FREERTOS // o 0/1 según tu placa
+  );
+
+  xTaskCreatePinnedToCore(Communication_Receiver, "COMM_TASK_RX", 4096, NULL, 1,
+                          NULL,
+                          CORE_ID_FREERTOS // o 0/1 según tu placa
+  );
+  logI("Communication task successfully created!\n");
+#endif
+
   if (!GPIORead(ENC_SWITCH)) {
     goToSettings = true;
   }
@@ -474,22 +491,6 @@ void setup() {
                                  CORE_ID_FREERTOS) != pdPASS)
     ;
   logI("Time track task successfully created!\n");
-
-#if CONFIG_IDF_TARGET_ESP32S3
-  // --- Initialize UART communication between ESP32 boards ---
-  logI("Initializing communication task ...");
-  CommunicationHost_Init();
-
-  xTaskCreatePinnedToCore(Communication_Task, "COMM_TASK", 4096, NULL, 1, NULL,
-                          CORE_ID_FREERTOS // o 0/1 según tu placa
-  );
-#endif
-
-  xTaskCreatePinnedToCore(Communication_Receiver, "COMM_TASK_RX", 4096, NULL, 1,
-                          NULL,
-                          CORE_ID_FREERTOS // o 0/1 según tu placa
-  );
-  logI("Communication task successfully created!\n");
 
 #if HW_NUM < 15
   logI("Creating UI task ...\n");

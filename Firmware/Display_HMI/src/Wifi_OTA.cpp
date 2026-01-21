@@ -23,6 +23,7 @@
 
 */
 #include <Arduino.h>
+#include <string.h>
 
 #include "esp_log.h"
 #include "main.h"
@@ -127,6 +128,7 @@ static uint32_t lastconnectiontrywifi = 0;
 void wifiInit(void) {
   // Connect to WiFi network
   ESP_LOGI(TAG, "Initializing WiFi");
+  Wifi_TB.lastWifiReconnectAttempt = millis();
   WiFi.setHostname(
       String(String(WIFI_NAME) + "-" + String(in3.serialNumber)).c_str());
   WiFi.mode(WIFI_STA);
@@ -630,13 +632,13 @@ void WIFI_TB_OTA() {
 void WifiOTAHandler(void) {
   WIFI_TB_OTA();
   WEB_OTA();
-  if (WiFi.getMode() != WIFI_OFF && WiFi.status() != 0xff &&
-      WiFi.status() != WL_CONNECTED &&
-      millis() - lastconnectiontrywifi >
-          60000) // If no connection in 1 minute, disable WIFI
-  {
-    wifiDisable();
-    ESP_LOGI(TAG, "WIFI DISABLED");
+  if (WiFi.status() != WL_CONNECTED) {
+    if (millis() - Wifi_TB.lastWifiReconnectAttempt > WIFI_RECONNECT_INTERVAL) {
+      // Wifi_TB.lastWifiReconnectAttempt = millis(); // wifiInit does this
+      ESP_LOGI(TAG, "Connection lost, attempting to reconnect...");
+      MDNS.end();
+      wifiInit();
+    }
   }
 }
 

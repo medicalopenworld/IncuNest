@@ -31,6 +31,7 @@
 #include "Adafruit_GFX.h"
 #include "Adafruit_SHT4x.h"
 #include "BluetoothSerial.h"
+#include "CommTask.h"
 #include "Credentials_public.h"
 #include "ESP32_config.h"
 #include "GPRS.h"
@@ -40,7 +41,6 @@
 #include "TCA9555.h"
 #include "Wifi_OTA.h"
 #include "board.h"
-#include "communication_host.h"
 #include "driver/rtc_io.h"
 #include "esp32/ulp.h"
 #include "esp_bt.h"
@@ -68,7 +68,7 @@
 
 #define LOG_GPRS false
 #define LOG_MODEM_DATA false
-#define LOG_INFORMATION true
+#define LOG_INFORMATION false
 #define LOG_ERRORS false
 #define LOG_ALARMS false
 

@@ -1,4 +1,4 @@
-#include "communication_host.h"
+#include "CommTask.h"
 #include "main.h"
 
 #include "esp_log.h"
@@ -34,6 +34,7 @@ static int rxIndex = 0;
 
 static SemaphoreHandle_t device_disconnected_sem;
 static SemaphoreHandle_t vcp_mux;
+static SemaphoreHandle_t hmi_state_req_sem;
 
 static void reset_vcp() {
   if (xSemaphoreTake(vcp_mux, pdMS_TO_TICKS(100)) == pdTRUE) {
@@ -81,11 +82,11 @@ void parse_line(const char *line) {
   // ---- NUEVO: handshake request ----
   if (strcmp(line, "HMI,REQ,STATE") == 0) {
     if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-      ESP_LOGI(TAG, "HMI requested STATE");
+      ESP_LOGI(TAG, "HMI requested STATE (Queued)");
       xSemaphoreGiveRecursive(log_mutex);
     }
-    setHMIConnected(true); // Flush pending alarms
-    send_state_to_hmi();
+    setHMIConnected(true);             // Flush pending alarms
+    xSemaphoreGive(hmi_state_req_sem); // Signal task to send response
     return;
   }
 
@@ -315,6 +316,7 @@ void CommunicationHost_Send(const char *msg) {
 // ======================================================
 void CommunicationHost_Init() {
   device_disconnected_sem = xSemaphoreCreateBinary();
+  hmi_state_req_sem = xSemaphoreCreateBinary();
   vcp_mux = xSemaphoreCreateMutex();
 
   const usb_host_config_t cfg = {
@@ -384,15 +386,13 @@ void Communication_Task(void *pvParameters) {
 
       bool handshake_success = false;
       for (int retry = 0; retry < 3; retry++) {
-        if (xSemaphoreTake(vcp_mux, pdMS_TO_TICKS(100)) == pdTRUE) {
-          if (vcp) {
-            vcp->set_control_line_state(false, false);
-            vTaskDelay(pdMS_TO_TICKS(500)); // Wait for electrical settle
-            vcp->set_control_line_state(true, true); // Enable DTR/RTS
-            handshake_success = true;
-          }
-          xSemaphoreGive(vcp_mux);
+        if (vcp) {
+          vcp->set_control_line_state(false, false);
+          vTaskDelay(pdMS_TO_TICKS(500));          // Wait for electrical settle
+          vcp->set_control_line_state(true, true); // Enable DTR/RTS
+          handshake_success = true;
         }
+
         if (handshake_success)
           break;
         vTaskDelay(pdMS_TO_TICKS(200));
@@ -445,33 +445,47 @@ void Communication_Task(void *pvParameters) {
     }
 
     xSemaphoreTake(device_disconnected_sem, 0); // Clear any pending disconnect
+    uint32_t last_tel_time = 0;
 
     // COMM LOOP
     while (true) {
-      char msg[64];
-      snprintf(msg, sizeof(msg), "CTRL,TEL,%.1f,%.1f,%d\n",
-               ctrl_tel_msg.detectedAirTemperature,
-               ctrl_tel_msg.detectedSkinTemperature,
-               (int)ctrl_tel_msg.detectedHumidity);
-
-      if (xSemaphoreTake(vcp_mux, pdMS_TO_TICKS(100)) == pdTRUE) {
-        if (!vcp) {
-          xSemaphoreGive(vcp_mux);
-          break;
-        }
-        esp_err_t err = vcp->tx_blocking((uint8_t *)msg, strlen(msg));
-        xSemaphoreGive(vcp_mux);
-        if (err != ESP_OK) {
-          if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) ==
-              pdTRUE) {
-            ESP_LOGE(TAG, "Periodic TX failed: %s", esp_err_to_name(err));
-            xSemaphoreGiveRecursive(log_mutex);
-          }
-          break;
-        }
+      // 1. Check for STATE Request
+      if (xSemaphoreTake(hmi_state_req_sem, 0) == pdTRUE) {
+        send_state_to_hmi();
       }
 
-      if (xSemaphoreTake(device_disconnected_sem, pdMS_TO_TICKS(1000)) ==
+      // 2. Periodic Telemetry (every ~1000ms)
+      if (millis() - last_tel_time > 1000) {
+        char msg[64];
+        snprintf(msg, sizeof(msg), "CTRL,TEL,%.1f,%.1f,%d\n",
+                 ctrl_tel_msg.detectedAirTemperature,
+                 ctrl_tel_msg.detectedSkinTemperature,
+                 (int)ctrl_tel_msg.detectedHumidity);
+
+        if (xSemaphoreTake(vcp_mux, pdMS_TO_TICKS(100)) == pdTRUE) {
+          if (!vcp) {
+            xSemaphoreGive(vcp_mux);
+            break; // Should affect next loop iteration check
+          }
+          esp_err_t err = vcp->tx_blocking((uint8_t *)msg, strlen(msg));
+          xSemaphoreGive(vcp_mux);
+          if (err != ESP_OK) {
+            if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) ==
+                pdTRUE) {
+              ESP_LOGE(TAG, "Periodic TX failed: %s", esp_err_to_name(err));
+              xSemaphoreGiveRecursive(log_mutex);
+            }
+            // If TX fails, it might be disconnected.
+            // The disconnect event usually comes separately, but we can break
+            // or continue. Let's continue and let the event handler or next
+            // init handle it.
+          }
+        }
+        last_tel_time = millis();
+      }
+
+      // 3. Check for Disconnect Event
+      if (xSemaphoreTake(device_disconnected_sem, pdMS_TO_TICKS(50)) ==
           pdTRUE) {
         if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
           ESP_LOGW(TAG, "Disconnect requested or event received");
