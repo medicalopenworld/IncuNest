@@ -1,5 +1,6 @@
 #include "ElementsCreation.h"
 #include "ui_helpers.h"
+#include "CommTask.h"
 #include <Arduino.h>
 
 // ============================================================================
@@ -255,6 +256,7 @@ void ui_event_Settings(lv_event_t * e) {
         _ui_screen_change(&ui_ScreenSettings, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_ScreenSettings_screen_init);
         _ui_screen_delete(&ui_ScreenMain);
         Settings_cb(e);
+        hmi_msg.shouldSendData = true;
     }
 }
 
@@ -301,7 +303,9 @@ void ui_event_ImgButton7(lv_event_t * e) {
         _ui_screen_delete(&ui_ScreenAlarms);
         // In UITask.cpp this button also triggers AlarmsTabview_cb but that function checks for TabView act 0
         // which might be redundant or wrong for a button. We'll omit it if it doesn't make sense.
+        hmi_msg.shouldSendData = true;
     }
+    
 }
 
 void ui_event_ImgButton8(lv_event_t * e) {
@@ -325,6 +329,7 @@ void ui_event_ImgButton2(lv_event_t * e) {
     if(event_code == LV_EVENT_CLICKED) {
         _ui_screen_change(&ui_ScreenMain, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_ScreenMain_screen_init);
         _ui_screen_delete(&ui_ScreenSettings);
+        hmi_msg.shouldSendData = true;
     }
 }
 
