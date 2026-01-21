@@ -13,7 +13,7 @@ HMI_Message hmi_msg;
 ControlBoard_Message ctrl_msg;
 ControlBoard_Message_Telemetry ctrl_tel_msg;
 ControlBoard_Message_Alarm ctrl_msg_alarm;
-ControlBoard_Message_State ctrl_state_msg = {0, 0, 0, 0, 0, 0, 0, false};
+ControlBoard_Message_State ctrl_state_msg = {0};
 
 bool error = false;
 static char rxBuffer[512];
@@ -43,10 +43,11 @@ void Communication_SendWiFiCredentials(const char *ssid, const char *password) {
 
 static void SendMessageToOtherESP() {
 #if IS_HMI
-  COMM_SERIAL.printf("HMI,%d,%d,%0.2f,%0.2f,%0.0f,%d,%d\n", hmi_msg.actuation,
+  COMM_SERIAL.printf("HMI,%d,%d,%0.2f,%0.2f,%0.0f,%d,%d,%d\n", hmi_msg.actuation,
                      hmi_msg.controlMode, hmi_msg.desiredAirTemperature,
                      hmi_msg.desiredSkinTemperature, hmi_msg.desiredHumidity,
-                     hmi_msg.phototherapyMode, hmi_msg.muteAlarm);
+                     hmi_msg.phototherapyMode, hmi_msg.muteAlarm,
+                     hmi_msg.language);
 #else
   COMM_SERIAL.printf("CTRL,%0.2f,%0.2f,%0.2f,%0.2f,%0.2f\n",
                      ctrl_msg.temperature[0], ctrl_msg.temperature[1],
@@ -65,14 +66,15 @@ static void parse_message(const char *line) {
       // COMM_LOG("[COMM] HMI failed to parse CTRL,TEL: %s\n", line);
     }
   } else if (strncmp(line, "CTRL,STATE", 10) == 0) {
-    int act, mode, photo, mute, sn, hwNum;
+    int act, mode, photo, mute, sn, hwNum, lang;
     char hwRev;
     char fwVer[20];
     double airSet, skinSet, humSet;
     int result = sscanf(
-        line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19s", &act, &mode,
-        &airSet, &skinSet, &humSet, &photo, &mute, &sn, &hwNum, &hwRev, fwVer);
-    if (result == 11) {
+        line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%d,%c,%19s", &act, &mode,
+        &airSet, &skinSet, &humSet, &photo, &mute, &lang, &sn, &hwNum, &hwRev,
+        fwVer);
+    if (result == 12) {
       ctrl_state_msg.actuation = act;
       ctrl_state_msg.controlMode = mode;
       ctrl_state_msg.desiredAirTemperature = airSet;
@@ -80,6 +82,7 @@ static void parse_message(const char *line) {
       ctrl_state_msg.desiredHumidity = humSet;
       ctrl_state_msg.phototherapyMode = photo;
       ctrl_state_msg.muteAlarm = mute;
+      ctrl_state_msg.language = lang;
       ctrl_state_msg.serialNumber = sn;
       ctrl_state_msg.hwNum = hwNum;
       ctrl_state_msg.hwRev[0] = hwRev;
@@ -162,6 +165,14 @@ static void Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
   ui_set_switch_state_silent(ui_Switch2, (st.actuation >> 1) & 0x01);
   ui_set_switch_state_silent(ui_Switch3, st.controlMode);
   ui_set_switch_state_silent(ui_Switch4, st.phototherapyMode);
+
+  if (st.language != g_lang) {
+    // Only update if different to avoid loop, but Applying Language is safe here
+    UI_ApplyLanguage((ui_lang_t)st.language);
+    if (ui_LanguagesDropDown) {
+      lv_dropdown_set_selected(ui_LanguagesDropDown, st.language);
+    }
+  }
 
   // airTempValue = st.desiredAirTemperature;
   // skinTempValue = st.desiredSkinTemperature;

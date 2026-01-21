@@ -31,6 +31,7 @@ typedef struct {
   double desiredHumidity;
   int phototherapyMode;
   int muteAlarm;
+  int language;
   bool newCommand;
 } HMI_CommandMessage;
 

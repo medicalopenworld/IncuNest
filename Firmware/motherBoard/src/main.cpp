@@ -319,7 +319,8 @@ void Communication_Receiver(void *pvParameters) {
                    " skin=" + String(hmi_cmd_msg.desiredSkinTemperature, 1) +
                    " hum=" + String(hmi_cmd_msg.desiredHumidity, 0) +
                    " photo=" + String(hmi_cmd_msg.phototherapyMode) +
-                   " mute=" + String(hmi_cmd_msg.muteAlarm);
+                   " mute=" + String(hmi_cmd_msg.muteAlarm) +
+                   " lang=" + String(hmi_cmd_msg.language);
 
       logI(msg);
       in3.actuation = hmi_cmd_msg.actuation;

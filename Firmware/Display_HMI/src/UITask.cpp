@@ -322,6 +322,9 @@ void LanguagesDropDown_cb(lv_event_t *e) {
     UI_ApplyLanguage(LANG_EN);
   else if (sel == 2)
     UI_ApplyLanguage(LANG_FR);
+
+  hmi_msg.language = sel;
+  hmi_msg.shouldSendData = true;
 }
 
 lv_chart_series_t *configure_temp_chart(lv_obj_t *chart, lv_palette_t pal) {
