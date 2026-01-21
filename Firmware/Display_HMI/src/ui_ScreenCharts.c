@@ -48,7 +48,7 @@ void ui_ScreenCharts_screen_init(void)
     lv_obj_set_align(ui_TabView1, LV_ALIGN_CENTER);
     lv_obj_clear_flag(ui_TabView1, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
-    ui_TempChartPage1 = lv_tabview_add_tab(ui_TabView1, "Temperature");
+    ui_TempChartPage1 = lv_tabview_add_tab(ui_TabView1, "TEMPERATURE");
 
     ui_AirTempChartCont = lv_obj_create(ui_TempChartPage1);
     lv_obj_remove_style_all(ui_AirTempChartCont);
@@ -113,7 +113,7 @@ void ui_ScreenCharts_screen_init(void)
     lv_label_set_text(ui_Label38, "SKIN TEMPERATURE CHART");
     lv_obj_set_style_text_font(ui_Label38, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    ui_HumChartPage2 = lv_tabview_add_tab(ui_TabView1, "Humidity");
+    ui_HumChartPage2 = lv_tabview_add_tab(ui_TabView1, "HUMIDITY");
 
     ui_HumChartCont = lv_obj_create(ui_HumChartPage2);
     lv_obj_remove_style_all(ui_HumChartCont);

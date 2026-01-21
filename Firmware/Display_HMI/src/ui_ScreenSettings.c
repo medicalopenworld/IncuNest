@@ -62,7 +62,7 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_x(ui_Label8, -112);
   lv_obj_set_y(ui_Label8, -198);
   lv_obj_set_align(ui_Label8, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_Label8, "Settings");
+  lv_label_set_text(ui_Label8, "SETTINGS");
   lv_obj_set_style_text_font(ui_Label8, &lv_font_montserrat_26,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
 
@@ -109,7 +109,7 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_x(ui_WifiLabel, -106);
   lv_obj_set_y(ui_WifiLabel, 0);
   lv_obj_set_align(ui_WifiLabel, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_WifiLabel, "Wifi");
+  lv_label_set_text(ui_WifiLabel, "WIFI");
 
   ui_WifiButton = lv_btn_create(ui_WifiCont);
   lv_obj_set_width(ui_WifiButton, 50);
@@ -157,7 +157,7 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_x(ui_LanguagesLabel, -80);
   lv_obj_set_y(ui_LanguagesLabel, 0);
   lv_obj_set_align(ui_LanguagesLabel, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_LanguagesLabel, "Languages");
+  lv_label_set_text(ui_LanguagesLabel, "LANGUAGES");
 
   ui_LanguagesButton = lv_btn_create(ui_LanguagesCont);
   lv_obj_set_width(ui_LanguagesButton, 50);
@@ -205,7 +205,7 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_x(ui_SkinOptionLabel, -80);
   lv_obj_set_y(ui_SkinOptionLabel, 0);
   lv_obj_set_align(ui_SkinOptionLabel, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_SkinOptionLabel, "Skin Mode");
+  lv_label_set_text(ui_SkinOptionLabel, "SKIN MODE");
 
   ui_Switch4 = lv_switch_create(ui_SkinModeCont);
   lv_obj_set_width(ui_Switch4, 100);
@@ -262,7 +262,7 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_x(ui_PassLabel, -154);
   lv_obj_set_y(ui_PassLabel, -80);
   lv_obj_set_align(ui_PassLabel, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_PassLabel, "Password");
+  lv_label_set_text(ui_PassLabel, "PASSWORD");
 
   ui_TextArea1 = lv_textarea_create(ui_WifiConfigCont);
   lv_obj_set_width(ui_TextArea1, 304);
@@ -295,14 +295,14 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_x(ui_ConnectLabel, 145);
   lv_obj_set_y(ui_ConnectLabel, -12);
   lv_obj_set_align(ui_ConnectLabel, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_ConnectLabel, "Connect");
+  lv_label_set_text(ui_ConnectLabel, "CONNECT");
   lv_obj_set_style_text_color(ui_ConnectLabel, lv_color_hex(0xFFFFFF),
                               LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_text_opa(ui_ConnectLabel, 255,
                             LV_PART_MAIN | LV_STATE_DEFAULT);
 
   ui_LanguagesDropDown = lv_dropdown_create(ui_ScreenSettings);
-  lv_dropdown_set_options(ui_LanguagesDropDown, "Spanish\nEnglish\nFrench");
+  lv_dropdown_set_options(ui_LanguagesDropDown, "SPANISH\nENGLISH\nFRENCH");
   lv_obj_set_width(ui_LanguagesDropDown, 428);
   lv_obj_set_height(ui_LanguagesDropDown, LV_SIZE_CONTENT); /// 1
   lv_obj_set_x(ui_LanguagesDropDown, 172);
@@ -347,7 +347,7 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_x(ui_WifiSSIDLabel, 96);
   lv_obj_set_y(ui_WifiSSIDLabel, 0);
   lv_obj_set_align(ui_WifiSSIDLabel, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_WifiSSIDLabel, "WifiSSID");
+  lv_label_set_text(ui_WifiSSIDLabel, "WIFISSID");
 
   ui_WifiConnectedToLabel = lv_label_create(ui_WifiConnectedCont);
   lv_obj_set_width(ui_WifiConnectedToLabel, LV_SIZE_CONTENT);  /// 1
@@ -355,7 +355,7 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_x(ui_WifiConnectedToLabel, -120);
   lv_obj_set_y(ui_WifiConnectedToLabel, 0);
   lv_obj_set_align(ui_WifiConnectedToLabel, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_WifiConnectedToLabel, "Wifi Connected to");
+  lv_label_set_text(ui_WifiConnectedToLabel, "WIFI CONNECTED TO");
 
   lv_obj_add_event_cb(ui_ImgButton2, ui_event_ImgButton2, LV_EVENT_ALL, NULL);
 }

@@ -431,49 +431,49 @@ void sendAlarmUSB(byte alarmID, bool isActive) {
 
   switch (alarmID) {
   case HUMIDITY_ALARM:
-    if (lang == SPANISH) { title = "ERROR HUMEDAD"; desc = "error de humedad"; }
-    else if (lang == FRENCH) { title = "ERREUR HUMIDITE"; desc = "erreur d humidite"; }
-    else { title = "HUMIDITY ERROR"; desc = "humidity error"; }
+    if (lang == SPANISH) { title = "ERROR HUMEDAD"; desc = "ERROR DE HUMEDAD"; }
+    else if (lang == FRENCH) { title = "ERREUR HUMIDITE"; desc = "ERREUR D HUMIDITE"; }
+    else { title = "HUMIDITY ERROR"; desc = "HUMIDITY ERROR"; }
     break;
   case TEMPERATURE_ALARM:
-    if (lang == SPANISH) { title = "TEMP MUY ALTA"; desc = "temperatura muy alta"; }
-    else if (lang == FRENCH) { title = "TEMP TRES ELEVEE"; desc = "temperature tres elevee"; }
-    else { title = "TEMP VERY HIGH"; desc = "temperature very high"; }
+    if (lang == SPANISH) { title = "TEMP MUY ALTA"; desc = "TEMPERATURA MUY ALTA"; }
+    else if (lang == FRENCH) { title = "TEMP TRES ELEVEE"; desc = "TEMPERATURE TRES ELEVEE"; }
+    else { title = "TEMP VERY HIGH"; desc = "TEMPERATURE VERY HIGH"; }
     break;
   case AIR_THERMAL_CUTOUT_ALARM:
-    if (lang == SPANISH) { title = "CORTE TERMICO AIRE"; desc = "fallo termico aire"; }
-    else if (lang == FRENCH) { title = "COUPURE THERMIQUE AIR"; desc = "panne thermique air"; }
-    else { title = "AIR THERMAL CUTOUT"; desc = "air thermal failure"; }
+    if (lang == SPANISH) { title = "CORTE TERMICO AIRE"; desc = "FALLO TERMICO AIRE"; }
+    else if (lang == FRENCH) { title = "COUPURE THERMIQUE AIR"; desc = "PANNE THERMIQUE AIR"; }
+    else { title = "AIR THERMAL CUTOUT"; desc = "AIR THERMAL FAILURE"; }
     break;
   case SKIN_THERMAL_CUTOUT_ALARM:
-    if (lang == SPANISH) { title = "CORTE TERMICO PIEL"; desc = "fallo termico piel"; }
-    else if (lang == FRENCH) { title = "COUPURE THERMIQUE PEAU"; desc = "panne thermique peau"; }
-    else { title = "SKIN THERMAL CUTOUT"; desc = "skin thermal failure"; }
+    if (lang == SPANISH) { title = "CORTE TERMICO PIEL"; desc = "FALLO TERMICO PIEL"; }
+    else if (lang == FRENCH) { title = "COUPURE THERMIQUE PEAU"; desc = "PANNE THERMIQUE PEAU"; }
+    else { title = "SKIN THERMAL CUTOUT"; desc = "SKIN THERMAL FAILURE"; }
     break;
   case AIR_SENSOR_ISSUE_ALARM:
-    if (lang == SPANISH) { title = "ERROR SENSOR AIRE"; desc = "fallo sensor aire"; }
-    else if (lang == FRENCH) { title = "ERREUR CAPTEUR AIR"; desc = "panne capteur air"; }
-    else { title = "AIR SENSOR ERROR"; desc = "air sensor failure"; }
+    if (lang == SPANISH) { title = "ERROR SENSOR AIRE"; desc = "FALLO SENSOR AIRE"; }
+    else if (lang == FRENCH) { title = "ERREUR CAPTEUR AIR"; desc = "PANNE CAPTEUR AIR"; }
+    else { title = "AIR SENSOR ERROR"; desc = "AIR SENSOR FAILURE"; }
     break;
   case SKIN_SENSOR_ISSUE_ALARM:
-    if (lang == SPANISH) { title = "ERROR SENSOR PIEL"; desc = "fallo sensor piel"; }
-    else if (lang == FRENCH) { title = "ERREUR CAPTEUR PEAU"; desc = "panne capteur peau"; }
-    else { title = "SKIN SENSOR ERROR"; desc = "skin sensor failure"; }
+    if (lang == SPANISH) { title = "ERROR SENSOR PIEL"; desc = "FALLO SENSOR PIEL"; }
+    else if (lang == FRENCH) { title = "ERREUR CAPTEUR PEAU"; desc = "PANNE CAPTEUR PEAU"; }
+    else { title = "SKIN SENSOR ERROR"; desc = "SKIN SENSOR FAILURE"; }
     break;
   case FAN_ISSUE_ALARM:
-    if (lang == SPANISH) { title = "ERROR VENTILADOR"; desc = "fallo ventilador"; }
-    else if (lang == FRENCH) { title = "ERREUR VENTILATEUR"; desc = "panne ventilateur"; }
-    else { title = "FAN ERROR"; desc = "fan failure"; }
+    if (lang == SPANISH) { title = "ERROR VENTILADOR"; desc = "FALLO VENTILADOR"; }
+    else if (lang == FRENCH) { title = "ERREUR VENTILATEUR"; desc = "PANNE VENTILATEUR"; }
+    else { title = "FAN ERROR"; desc = "FAN FAILURE"; }
     break;
   case HEATER_ISSUE_ALARM:
-    if (lang == SPANISH) { title = "ERROR CALENTADOR"; desc = "fallo calentador"; }
-    else if (lang == FRENCH) { title = "ERREUR CHAUFFAGE"; desc = "panne chauffage"; }
-    else { title = "HEATER ERROR"; desc = "heater failure"; }
+    if (lang == SPANISH) { title = "ERROR CALENTADOR"; desc = "FALLO CALENTADOR"; }
+    else if (lang == FRENCH) { title = "ERREUR CHAUFFAGE"; desc = "PANNE CHAUFFAGE"; }
+    else { title = "HEATER ERROR"; desc = "HEATER FAILURE"; }
     break;
   case POWER_SUPPLY_ALARM:
-    if (lang == SPANISH) { title = "ERROR ALIMENTACION"; desc = "fallo fuente"; }
-    else if (lang == FRENCH) { title = "ERREUR ALIMENTATION"; desc = "panne alimentation"; }
-    else { title = "POWER SUPPLY ERROR"; desc = "power supply failure"; }
+    if (lang == SPANISH) { title = "ERROR ALIMENTACION"; desc = "FALLO FUENTE"; }
+    else if (lang == FRENCH) { title = "ERREUR ALIMENTATION"; desc = "PANNE ALIMENTATION"; }
+    else { title = "POWER SUPPLY ERROR"; desc = "POWER SUPPLY FAILURE"; }
     break;
   }
 

@@ -68,7 +68,7 @@ void ui_ScreenAlarms_screen_init(void)
     lv_obj_set_style_border_width(ui_AlarmsTabview, 1, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_border_side(ui_AlarmsTabview, LV_BORDER_SIDE_FULL, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    ui_TabPage1 = lv_tabview_add_tab(ui_AlarmsTabview, "Alarms");
+    ui_TabPage1 = lv_tabview_add_tab(ui_AlarmsTabview, "ALARMS");
 
     ui_Alarm1Cont = lv_obj_create(ui_TabPage1);
     lv_obj_remove_style_all(ui_Alarm1Cont);
@@ -174,7 +174,7 @@ void ui_ScreenAlarms_screen_init(void)
     lv_obj_set_x(ui_AlarmDetailLabel, -277);
     lv_obj_set_y(ui_AlarmDetailLabel, -139);
     lv_obj_set_align(ui_AlarmDetailLabel, LV_ALIGN_CENTER);
-    lv_label_set_text(ui_AlarmDetailLabel, "Alarms description");
+    lv_label_set_text(ui_AlarmDetailLabel, "ALARMS DESCRIPTION");
 
     ui_MuteAlarm = lv_imgbtn_create(ui_ScreenAlarms);
     lv_imgbtn_set_src(ui_MuteAlarm, LV_IMGBTN_STATE_RELEASED, NULL, &ui_img_mute_icon_png, NULL);
