@@ -718,7 +718,7 @@ int alarmPendingToClear();
 void clearDisplayedAlarm(byte alarm);
 void clearAlarmPendingToClear(byte alarm);
 char *alarmIDtoString(byte alarmID);
-
+void resendActiveAlarms();
 void checkSetMessage(int UI_page, int UI_menu_rows);
 
 bool updateRoomSensor();

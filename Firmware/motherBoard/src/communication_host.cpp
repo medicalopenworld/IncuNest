@@ -174,9 +174,10 @@ void parse_line(const char *line) {
       g_last_cmd.newCommand = false;
 
       if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        ESP_LOGI(TAG, "HMI CMD stored successfully");
+        ESP_LOGI(TAG, "HMI CMD stored successfully (lang=%d)", lang);
         xSemaphoreGiveRecursive(log_mutex);
       }
+      setHMIConnected(true);
     } else {
       if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         ESP_LOGE(TAG, "HMI parse error");

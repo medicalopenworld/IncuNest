@@ -367,6 +367,10 @@ void Communication_Receiver(void *pvParameters) {
       }
 
       in3.phototherapy = hmi_cmd_msg.phototherapyMode;
+      if (in3.language != hmi_cmd_msg.language) {
+        in3.language = hmi_cmd_msg.language;
+        resendActiveAlarms();
+      }
       ledcWrite(PHOTOTHERAPY_PWM_CHANNEL,
                 in3.phototherapy * in3.phototherapy_intensity);
       turnFans(bool(in3.phototherapy || in3.actuation));
