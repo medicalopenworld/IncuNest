@@ -253,8 +253,8 @@ void UI_ApplyLanguage(ui_lang_t lang) {
                                  "HUMIDITE OBJECTIF"};
   const char *TXT_STATUS[] = {"ESTADO", "STATUS", "ETAT"};
   const char *TXT_UNLOCK[] = {"PRESIONA 2 SEG\nPARA DESBLOQUEAR",
-                              "PRESS 2 SEC TO UNLOCK",
-                              "APPUYEZ 2 S\nPOUR DEVERROUILLER"};
+                              "PRESS 2 SEC \nTO UNLOCK",
+                              "APPUYEZ 2 SEG\nPOUR DEVERROUILLER"};
   const char *TXT_INCUNEST[] = {"INCUNEST", "INCUNEST", "INCUNEST"};
   const char *TXT_SET[] = {"AJUSTAR", "SET", "REGLER"};
   const char *TXT_WIFISSID[] = {"WIFISSID", "WIFISSID", "WIFISSID"};
@@ -1007,6 +1007,10 @@ static void MuteAlarm_cb(lv_event_t *e) {
 }
 
 static void show_targets_for_mode(void) {
+  if (unlockTimeoutTimer) {
+    lv_timer_del(unlockTimeoutTimer);
+    unlockTimeoutTimer = NULL;
+  }
   lv_obj_add_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
@@ -1024,11 +1028,28 @@ static void show_targets_for_mode(void) {
   }
 }
 
+static void unlock_timeout_cb(lv_timer_t *t) {
+  (void)t;
+  show_targets_for_mode();
+  if (unlockTimeoutTimer) {
+    lv_timer_del(unlockTimeoutTimer);
+    unlockTimeoutTimer = NULL;
+  }
+}
+
 static void show_unlock_only(void) {
   lv_obj_clear_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_HumLockDesiredCont, LV_OBJ_FLAG_HIDDEN);
+
+  // Start or reset inactivity timer to hide UnlockCont
+  if (unlockTimeoutTimer) {
+    lv_timer_reset(unlockTimeoutTimer);
+  } else {
+    unlockTimeoutTimer = lv_timer_create(unlock_timeout_cb, UNLOCK_TIMEOUT_MS, NULL);
+    lv_timer_set_repeat_count(unlockTimeoutTimer, 1);
+  }
 }
 
 static void lock_progress_timer_cb(lv_timer_t *t) {
@@ -1124,8 +1145,17 @@ static void UnlockCont_event_cb(lv_event_t *e) {
   lv_event_code_t code = lv_event_get_code(e);
   if (code == LV_EVENT_PRESSED) {
     start_lock_progress();
+    // Pause timeout timer while pressing
+    if (unlockTimeoutTimer) {
+      lv_timer_pause(unlockTimeoutTimer);
+    }
   } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
     stop_lock_progress();
+    // Resume/Reset timeout timer when released
+    if (unlockTimeoutTimer) {
+      lv_timer_resume(unlockTimeoutTimer);
+      lv_timer_reset(unlockTimeoutTimer);
+    }
   }
 }
 

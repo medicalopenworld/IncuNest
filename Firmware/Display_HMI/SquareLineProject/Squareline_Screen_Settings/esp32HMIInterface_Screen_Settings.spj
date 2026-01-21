@@ -2572,7 +2572,7 @@
                     "strtype": "OBJECT/Position",
                     "intarray": [
                       2,
-                      87
+                      105
                     ],
                     "InheritedType": 7
                   },
@@ -2582,7 +2582,7 @@
                     "strtype": "OBJECT/Size",
                     "intarray": [
                       420,
-                      198
+                      170
                     ],
                     "InheritedType": 7
                   },
@@ -2712,7 +2712,7 @@
                     "strtype": "OBJECT/Position",
                     "intarray": [
                       2,
-                      -147
+                      -80
                     ],
                     "InheritedType": 7
                   },
@@ -2840,7 +2840,7 @@
                     "strtype": "OBJECT/Position",
                     "intarray": [
                       -170,
-                      -148
+                      -80
                     ],
                     "InheritedType": 7
                   },
@@ -2983,7 +2983,7 @@
                     "strtype": "OBJECT/Position",
                     "intarray": [
                       2,
-                      -80
+                      -15
                     ],
                     "InheritedType": 7
                   },
@@ -3111,7 +3111,7 @@
                     "strtype": "OBJECT/Position",
                     "intarray": [
                       -154,
-                      -80
+                      -15
                     ],
                     "InheritedType": 7
                   },
@@ -3254,7 +3254,7 @@
                     "strtype": "OBJECT/Position",
                     "intarray": [
                       50,
-                      -146
+                      -80
                     ],
                     "InheritedType": 7
                   },
@@ -3433,7 +3433,7 @@
                     "strtype": "OBJECT/Position",
                     "intarray": [
                       50,
-                      -80
+                      -15
                     ],
                     "InheritedType": 7
                   },
@@ -5164,7 +5164,7 @@
     "uiExportFolderPath": "C:\\Users\\jlaco\\OneDrive\\Escritorio\\In3ator\\IncuNest\\Firmware\\Display_HMI\\SquareLineProject\\Exports\\Exports ESP32 HMI Interface Screen_Settings",
     "projectExportFolderPath": "C:\\Users\\jlaco\\OneDrive\\Escritorio\\In3ator\\IncuNest\\Firmware\\Display_HMI\\SquareLineProject\\Squareline_Screen_Settings",
     "custom_variable_prefix": "uic",
-    "backup_cnt": 262,
+    "backup_cnt": 263,
     "autosave_cnt": 0,
     "group_color_cnt": 0,
     "lvgl_version": "8.3.11",

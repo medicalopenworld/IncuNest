@@ -216,9 +216,9 @@ void ui_ScreenSettings_screen_init(void)
 
     ui_Keyboard1 = lv_keyboard_create(ui_WifiConfigCont);
     lv_obj_set_width(ui_Keyboard1, 420);
-    lv_obj_set_height(ui_Keyboard1, 198);
+    lv_obj_set_height(ui_Keyboard1, 170);
     lv_obj_set_x(ui_Keyboard1, 2);
-    lv_obj_set_y(ui_Keyboard1, 87);
+    lv_obj_set_y(ui_Keyboard1, 105);
     lv_obj_set_align(ui_Keyboard1, LV_ALIGN_CENTER);
     lv_obj_add_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);     /// Flags
 
@@ -226,7 +226,7 @@ void ui_ScreenSettings_screen_init(void)
     lv_obj_set_width(ui_SSIDPanel, 420);
     lv_obj_set_height(ui_SSIDPanel, 50);
     lv_obj_set_x(ui_SSIDPanel, 2);
-    lv_obj_set_y(ui_SSIDPanel, -147);
+    lv_obj_set_y(ui_SSIDPanel, -80);
     lv_obj_set_align(ui_SSIDPanel, LV_ALIGN_CENTER);
     lv_obj_clear_flag(ui_SSIDPanel, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
@@ -234,7 +234,7 @@ void ui_ScreenSettings_screen_init(void)
     lv_obj_set_width(ui_SSIDLabel, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_SSIDLabel, LV_SIZE_CONTENT);    /// 1
     lv_obj_set_x(ui_SSIDLabel, -170);
-    lv_obj_set_y(ui_SSIDLabel, -148);
+    lv_obj_set_y(ui_SSIDLabel, -80);
     lv_obj_set_align(ui_SSIDLabel, LV_ALIGN_CENTER);
     lv_label_set_text(ui_SSIDLabel, "SSID");
 
@@ -242,7 +242,7 @@ void ui_ScreenSettings_screen_init(void)
     lv_obj_set_width(ui_PassPanel, 420);
     lv_obj_set_height(ui_PassPanel, 50);
     lv_obj_set_x(ui_PassPanel, 2);
-    lv_obj_set_y(ui_PassPanel, -80);
+    lv_obj_set_y(ui_PassPanel, -15);
     lv_obj_set_align(ui_PassPanel, LV_ALIGN_CENTER);
     lv_obj_clear_flag(ui_PassPanel, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
@@ -250,7 +250,7 @@ void ui_ScreenSettings_screen_init(void)
     lv_obj_set_width(ui_PassLabel, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_PassLabel, LV_SIZE_CONTENT);    /// 1
     lv_obj_set_x(ui_PassLabel, -154);
-    lv_obj_set_y(ui_PassLabel, -80);
+    lv_obj_set_y(ui_PassLabel, -15);
     lv_obj_set_align(ui_PassLabel, LV_ALIGN_CENTER);
     lv_label_set_text(ui_PassLabel, "Password");
 
@@ -258,7 +258,7 @@ void ui_ScreenSettings_screen_init(void)
     lv_obj_set_width(ui_TextArea1, 304);
     lv_obj_set_height(ui_TextArea1, 38);
     lv_obj_set_x(ui_TextArea1, 50);
-    lv_obj_set_y(ui_TextArea1, -146);
+    lv_obj_set_y(ui_TextArea1, -80);
     lv_obj_set_align(ui_TextArea1, LV_ALIGN_CENTER);
     lv_textarea_set_placeholder_text(ui_TextArea1, "Placeholder...");
 
@@ -266,7 +266,7 @@ void ui_ScreenSettings_screen_init(void)
     lv_obj_set_width(ui_TextArea2, 304);
     lv_obj_set_height(ui_TextArea2, 38);
     lv_obj_set_x(ui_TextArea2, 50);
-    lv_obj_set_y(ui_TextArea2, -80);
+    lv_obj_set_y(ui_TextArea2, -15);
     lv_obj_set_align(ui_TextArea2, LV_ALIGN_CENTER);
     lv_textarea_set_placeholder_text(ui_TextArea2, "Placeholder...");
 
