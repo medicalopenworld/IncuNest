@@ -255,6 +255,20 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   const char *TXT_UNLOCK[] = {"PRESIONA 2 SEG\nPARA DESBLOQUEAR",
                               "PRESS 2 SEC TO UNLOCK",
                               "APPUYEZ 2 S\nPOUR DEVERROUILLER"};
+  const char *TXT_INCUNEST[] = {"INCUNEST", "INCUNEST", "INCUNEST"};
+  const char *TXT_SET[] = {"AJUSTAR", "SET", "REGLER"};
+  const char *TXT_WIFISSID[] = {"WIFISSID", "WIFISSID", "WIFISSID"};
+  const char *TXT_WIFICONNECTEDTO[] = {"WIFI CONECTADO A", "WIFI CONNECTED TO",
+                                       "WIFI CONNECTE A"};
+  const char *TXT_ALARMSDESC[] = {"DESCRIPCION DE ALARMAS", "ALARMS DESCRIPTION",
+                                  "DESCRIPTION DES ALARMES"};
+  const char *TXT_OXICHART[] = {"GRAFICO OXIMETRIA", "OXIMETRY CHART",
+                                "GRAPHIQUE OXIMETRIE"};
+  const char *TXT_PULSEOXIMETRY[] = {"PULSIOXIMETRIA", "PULSE OXIMETRY",
+                                     "PULSIOXYMETRIE"};
+  const char *TXT_LANG_OPTIONS[] = {"ESPANOL\nINGLES\nFRANCES",
+                                    "SPANISH\nENGLISH\nFRENCH",
+                                    "ESPAGNOL\nANGLAIS\nFRANCAIS"};
 
   lv_label_set_text(ui_Label2, TXT_CONTROLTEMP[lang]);
   lv_label_set_text(ui_HumidityLabel, TXT_CONTROLHUM[lang]);
@@ -274,6 +288,15 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   lv_label_set_text(ui_SSIDLabel, TXT_SSID[lang]);
   lv_label_set_text(ui_PassLabel, TXT_PASSWORD[lang]);
   lv_label_set_text(ui_SkinOptionLabel, TXT_SKINMODE[lang]);
+  lv_label_set_text(ui_Label6, TXT_SET[lang]);
+  lv_label_set_text(ui_Label7, TXT_SET[lang]);
+  lv_label_set_text(ui_WifiSSIDLabel, TXT_WIFISSID[lang]);
+  lv_label_set_text(ui_WifiConnectedToLabel, TXT_WIFICONNECTEDTO[lang]);
+  lv_label_set_text(ui_AlarmDetailLabel, TXT_ALARMSDESC[lang]);
+  lv_label_set_text(ui_Label35, TXT_OXICHART[lang]);
+  lv_label_set_text(ui_Label39, TXT_PULSEOXIMETRY[lang]);
+  lv_dropdown_set_options(ui_LanguagesDropDown, TXT_LANG_OPTIONS[lang]);
+  lv_dropdown_set_selected(ui_LanguagesDropDown, lang);
 
   {
     lv_obj_t *btnm = lv_tabview_get_tab_btns(ui_AlarmsTabview);

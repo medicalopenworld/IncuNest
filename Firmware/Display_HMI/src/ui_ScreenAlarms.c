@@ -68,7 +68,7 @@ void ui_ScreenAlarms_screen_init(void)
     lv_obj_set_style_border_width(ui_AlarmsTabview, 1, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_border_side(ui_AlarmsTabview, LV_BORDER_SIDE_FULL, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    ui_TabPage1 = lv_tabview_add_tab(ui_AlarmsTabview, "ALARMS");
+    ui_TabPage1 = lv_tabview_add_tab(ui_AlarmsTabview, "");
 
     ui_Alarm1Cont = lv_obj_create(ui_TabPage1);
     lv_obj_remove_style_all(ui_Alarm1Cont);
@@ -93,7 +93,6 @@ void ui_ScreenAlarms_screen_init(void)
     lv_obj_set_x(ui_Alarm1Label, 1);
     lv_obj_set_y(ui_Alarm1Label, 0);
     lv_obj_set_align(ui_Alarm1Label, LV_ALIGN_CENTER);
-    lv_label_set_text(ui_Alarm1Label, "TEMP VERY HIGH");
     lv_obj_set_style_text_font(ui_Alarm1Label, &lv_font_montserrat_30, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_Alarm2Cont = lv_obj_create(ui_TabPage1);
@@ -117,7 +116,6 @@ void ui_ScreenAlarms_screen_init(void)
     lv_obj_set_width(ui_Alarm2Label, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_Alarm2Label, LV_SIZE_CONTENT);    /// 1
     lv_obj_set_align(ui_Alarm2Label, LV_ALIGN_CENTER);
-    lv_label_set_text(ui_Alarm2Label, "TEMP VERY HIGH");
     lv_obj_set_style_text_font(ui_Alarm2Label, &lv_font_montserrat_30, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_Alarm3Cont = lv_obj_create(ui_TabPage1);
@@ -139,7 +137,6 @@ void ui_ScreenAlarms_screen_init(void)
     lv_obj_set_width(ui_Alarm3Label, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_Alarm3Label, LV_SIZE_CONTENT);    /// 1
     lv_obj_set_align(ui_Alarm3Label, LV_ALIGN_CENTER);
-    lv_label_set_text(ui_Alarm3Label, "TEMP VERY HIGH");
     lv_obj_set_style_text_font(ui_Alarm3Label, &lv_font_montserrat_30, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_Alarm4Cont = lv_obj_create(ui_TabPage1);
@@ -163,10 +160,9 @@ void ui_ScreenAlarms_screen_init(void)
     lv_obj_set_width(ui_Alarm4Label, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_Alarm4Label, LV_SIZE_CONTENT);    /// 1
     lv_obj_set_align(ui_Alarm4Label, LV_ALIGN_CENTER);
-    lv_label_set_text(ui_Alarm4Label, "TEMP VERY HIGH");
     lv_obj_set_style_text_font(ui_Alarm4Label, &lv_font_montserrat_30, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    ui_TabPage2 = lv_tabview_add_tab(ui_AlarmsTabview, "View details");
+    ui_TabPage2 = lv_tabview_add_tab(ui_AlarmsTabview, "");
 
     ui_AlarmDetailLabel = lv_label_create(ui_TabPage2);
     lv_obj_set_width(ui_AlarmDetailLabel, LV_SIZE_CONTENT);   /// 1
@@ -174,7 +170,6 @@ void ui_ScreenAlarms_screen_init(void)
     lv_obj_set_x(ui_AlarmDetailLabel, -277);
     lv_obj_set_y(ui_AlarmDetailLabel, -139);
     lv_obj_set_align(ui_AlarmDetailLabel, LV_ALIGN_CENTER);
-    lv_label_set_text(ui_AlarmDetailLabel, "ALARMS DESCRIPTION");
 
     ui_MuteAlarm = lv_imgbtn_create(ui_ScreenAlarms);
     lv_imgbtn_set_src(ui_MuteAlarm, LV_IMGBTN_STATE_RELEASED, NULL, &ui_img_mute_icon_png, NULL);
