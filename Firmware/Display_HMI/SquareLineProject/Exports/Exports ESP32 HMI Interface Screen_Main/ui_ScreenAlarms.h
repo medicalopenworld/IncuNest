@@ -3,8 +3,8 @@
 // LVGL version: 8.3.11
 // Project name: esp32HMIInterface_Screen_Main
 
-#ifndef UI_ScreenAlarms_H
-#define UI_ScreenAlarms_H
+#ifndef UI_SCREENALARMS_H
+#define UI_SCREENALARMS_H
 
 #ifdef __cplusplus
 extern "C" {

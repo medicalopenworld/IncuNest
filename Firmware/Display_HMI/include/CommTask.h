@@ -32,6 +32,7 @@ typedef struct {
   bool phototherapyMode;
   bool shouldSendData;
   bool muteAlarm = false;
+  int language;
 } HMI_Message;
 
 // Message with sensor data for control logic
@@ -66,6 +67,10 @@ typedef struct {
   int phototherapyMode;
   int muteAlarm;
   int serialNumber;
+  int hwNum;
+  char hwRev[2];
+  char fwVer[20];
+  int language;
   bool newState;
 } ControlBoard_Message_State;
 

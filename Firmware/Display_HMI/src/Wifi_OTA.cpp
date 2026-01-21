@@ -23,6 +23,7 @@
 
 */
 #include <Arduino.h>
+#include <string.h>
 
 #include "esp_log.h"
 #include "main.h"
@@ -61,47 +62,8 @@ const OTA_Update_Callback OTAcallback(&progressCallback, &updatedCallback,
    Login page
 */
 
-const char *loginIndex =
-    "<form name='loginForm'>"
-    "<table width='20%' bgcolor='A09F9F' align='center'>"
-    "<tr>"
-    "<td colspan=2>"
-    "<center><font size=4><b>ESP32 Login Page</b></font></center>"
-    "<br>"
-    "</td>"
-    "<br>"
-    "<br>"
-    "</tr>"
-    "<tr>"
-    "<td>Username:</td>"
-    "<td><input type='text' size=25 name='userid'><br></td>"
-    "</tr>"
-    "<br>"
-    "<br>"
-    "<tr>"
-    "<td>WIFI_PASSWORD:</td>"
-    "<td><input type='WIFI_PASSWORD' size=25 name='pwd'><br></td>"
-    "<br>"
-    "<br>"
-    "</tr>"
-    "<tr>"
-    "<td><input type='submit' onclick='check(this.form)' value='Login'></td>"
-    "</tr>"
-    "</table>"
-    "</form>"
-    "<script>"
-    "function check(form)"
-    "{"
-    "if(form.userid.value=='in3admin' && form.pwd.value=='savinglives')"
-    "{"
-    "window.open('/serverIndex')"
-    "}"
-    "else"
-    "{"
-    " alert('Error WIFI_PASSWORD or Username')/*displays error message*/"
-    "}"
-    "}"
-    "</script>";
+const char *www_username = "in3admin";
+const char *www_password = "savinglives";
 
 /*
    wifiServer Index Page
@@ -111,12 +73,21 @@ const char *serverIndex =
     "<script "
     "src='https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js'></"
     "script>"
+    "<h3>Firmware Update</h3>"
+    "<p>Current Version: <span id='fw_version'></span></p>"
     "<form method='POST' action='#' enctype='multipart/form-data' "
     "id='upload_form'>"
     "<input type='file' name='update'>"
     "<input type='submit' value='Update'>"
     "</form>"
     "<div id='prg'>progress: 0%</div>"
+    "<script>"
+    "$(document).ready(function() {"
+    "  $.get('/get_fw_version', function(data) {"
+    "    $('#fw_version').text(data.version);"
+    "  });"
+    "});"
+    "</script>"
     "<script>"
     "$('form').submit(function(e){"
     "e.preventDefault();"
@@ -157,6 +128,7 @@ static uint32_t lastconnectiontrywifi = 0;
 void wifiInit(void) {
   // Connect to WiFi network
   ESP_LOGI(TAG, "Initializing WiFi");
+  Wifi_TB.lastWifiReconnectAttempt = millis();
   WiFi.setHostname(
       String(String(WIFI_NAME) + "-" + String(in3.serialNumber)).c_str());
   WiFi.mode(WIFI_STA);
@@ -199,22 +171,41 @@ void configWifiServer() {
   ESP_LOGI(TAG, "mDNS responder started");
   /*return index page which is stored in ServerIndex */
   wifiServer.on("/", HTTP_GET, []() {
-    wifiServer.sendHeader("Connection", "close");
-    wifiServer.send(200, "text/html", loginIndex);
-  });
-  wifiServer.on("/serverIndex", HTTP_GET, []() {
+    if (!wifiServer.authenticate(www_username, www_password)) {
+      return wifiServer.requestAuthentication();
+    }
     wifiServer.sendHeader("Connection", "close");
     wifiServer.send(200, "text/html", serverIndex);
+  });
+  wifiServer.on("/serverIndex", HTTP_GET, []() {
+    if (!wifiServer.authenticate(www_username, www_password)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "text/html", serverIndex);
+  });
+  wifiServer.on("/get_fw_version", HTTP_GET, []() {
+    String json = "{";
+    json += "\"version\":\"" + String(FWversion) + "\"";
+    json += "}";
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "application/json", json);
   });
   /*handling uploading firmware file */
   wifiServer.on(
       "/update", HTTP_POST,
       []() {
+        if (!wifiServer.authenticate(www_username, www_password)) {
+          return wifiServer.requestAuthentication();
+        }
         wifiServer.sendHeader("Connection", "close");
         wifiServer.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
         ESP.restart();
       },
       []() {
+        if (!wifiServer.authenticate(www_username, www_password)) {
+          return; // Allow nothing if not authenticated
+        }
         HTTPUpload &upload = wifiServer.upload();
         if (upload.status == UPLOAD_FILE_START) {
           // debugSerial.printf("Update: %s\n", upload.filename.c_str());
@@ -641,13 +632,13 @@ void WIFI_TB_OTA() {
 void WifiOTAHandler(void) {
   WIFI_TB_OTA();
   WEB_OTA();
-  if (WiFi.getMode() != WIFI_OFF && WiFi.status() != 0xff &&
-      WiFi.status() != WL_CONNECTED &&
-      millis() - lastconnectiontrywifi >
-          60000) // If no connection in 1 minute, disable WIFI
-  {
-    wifiDisable();
-    ESP_LOGI(TAG, "WIFI DISABLED");
+  if (WiFi.status() != WL_CONNECTED) {
+    if (millis() - Wifi_TB.lastWifiReconnectAttempt > WIFI_RECONNECT_INTERVAL) {
+      // Wifi_TB.lastWifiReconnectAttempt = millis(); // wifiInit does this
+      ESP_LOGI(TAG, "Connection lost, attempting to reconnect...");
+      MDNS.end();
+      wifiInit();
+    }
   }
 }
 

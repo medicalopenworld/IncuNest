@@ -16,7 +16,7 @@
 #include <lvgl.h>
 #include <stdint.h>
 
-#define FWversion "1.0.0"
+#define FWversion "1.0.2"
 #define ENABLE_WIFI_OTA true // enable wifi OTA
 extern bool OTA_inprogress;
 
@@ -79,7 +79,7 @@ constexpr int PIN_PCLK = 0;
 
 constexpr int TOUCH_SDA_PIN = 19;
 constexpr int TOUCH_SCL_PIN = 20;
-constexpr int TOUCH_INT_PIN = 38;
+constexpr int TOUCH_INT_PIN = -1;
 constexpr int TOUCH_RST_PIN = -1;
 
 constexpr int TFT_BL_PIN = 2;

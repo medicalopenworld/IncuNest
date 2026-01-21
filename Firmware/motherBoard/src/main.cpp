@@ -62,7 +62,6 @@ int page;
 double errorTemperature[SENSOR_TEMP_QTY], temperatureCalibrationPoint;
 double ReferenceTemperatureRange, ReferenceTemperatureLow;
 double provisionalReferenceTemperatureLow;
-double fineTuneSkinTemperature, fineTuneAirTemperature;
 float diffSkinTemperature,
     diffAirTemperature; // difference between measured temperature and user
                         // input real temperature
@@ -320,7 +319,8 @@ void Communication_Receiver(void *pvParameters) {
                    " skin=" + String(hmi_cmd_msg.desiredSkinTemperature, 1) +
                    " hum=" + String(hmi_cmd_msg.desiredHumidity, 0) +
                    " photo=" + String(hmi_cmd_msg.phototherapyMode) +
-                   " mute=" + String(hmi_cmd_msg.muteAlarm);
+                   " mute=" + String(hmi_cmd_msg.muteAlarm) +
+                   " lang=" + String(hmi_cmd_msg.language);
 
       logI(msg);
       in3.actuation = hmi_cmd_msg.actuation;
@@ -367,6 +367,10 @@ void Communication_Receiver(void *pvParameters) {
       }
 
       in3.phototherapy = hmi_cmd_msg.phototherapyMode;
+      if (in3.language != hmi_cmd_msg.language) {
+        in3.language = hmi_cmd_msg.language;
+        resendActiveAlarms();
+      }
       ledcWrite(PHOTOTHERAPY_PWM_CHANNEL,
                 in3.phototherapy * in3.phototherapy_intensity);
       turnFans(bool(in3.phototherapy || in3.actuation));
@@ -409,6 +413,23 @@ void setup() {
   logI("in3ator debug uart, version v" + String(FWversion) + "/" +
        String(HWversion) + ", SN: " + String(in3.serialNumber));
   initRoomSensor();
+
+#if CONFIG_IDF_TARGET_ESP32S3
+  // --- Initialize UART communication between ESP32 boards ---
+  logI("Initializing communication task ...");
+  CommunicationHost_Init();
+
+  xTaskCreatePinnedToCore(Communication_Task, "COMM_TASK", 4096, NULL, 1, NULL,
+                          CORE_ID_FREERTOS // o 0/1 según tu placa
+  );
+
+  xTaskCreatePinnedToCore(Communication_Receiver, "COMM_TASK_RX", 4096, NULL, 1,
+                          NULL,
+                          CORE_ID_FREERTOS // o 0/1 según tu placa
+  );
+  logI("Communication task successfully created!\n");
+#endif
+
   if (!GPIORead(ENC_SWITCH)) {
     goToSettings = true;
   }
@@ -470,22 +491,6 @@ void setup() {
                                  CORE_ID_FREERTOS) != pdPASS)
     ;
   logI("Time track task successfully created!\n");
-
-#if CONFIG_IDF_TARGET_ESP32S3
-  // --- Initialize UART communication between ESP32 boards ---
-  logI("Initializing communication task ...");
-  CommunicationHost_Init();
-
-  xTaskCreatePinnedToCore(Communication_Task, "COMM_TASK", 4096, NULL, 1, NULL,
-                          CORE_ID_FREERTOS // o 0/1 según tu placa
-  );
-#endif
-
-  xTaskCreatePinnedToCore(Communication_Receiver, "COMM_TASK_RX", 4096, NULL, 1,
-                          NULL,
-                          CORE_ID_FREERTOS // o 0/1 según tu placa
-  );
-  logI("Communication task successfully created!\n");
 
 #if HW_NUM < 15
   logI("Creating UI task ...\n");

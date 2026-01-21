@@ -39,7 +39,6 @@ extern int page;
 extern double errorTemperature[SENSOR_TEMP_QTY], temperatureCalibrationPoint;
 extern double ReferenceTemperatureRange, ReferenceTemperatureLow;
 extern double provisionalReferenceTemperatureLow;
-extern double fineTuneSkinTemperature, fineTuneAirTemperature;
 extern double RawTemperatureLow[SENSOR_TEMP_QTY],
     RawTemperatureRange[SENSOR_TEMP_QTY];
 extern double provisionalRawTemperatureLow[SENSOR_TEMP_QTY];
@@ -321,8 +320,8 @@ void autoCalibration()
 void fineTuneCalibration()
 {
   byte numWords = 2;
-  fineTuneSkinTemperature = false;
-  fineTuneAirTemperature = false;
+  in3.fineTuneSkinTemperature = false;
+  in3.fineTuneAirTemperature = false;
   page = FINE_TUNE_CALIBRATION_PAGE;
   print_text = true;
   tft.setTextSize(1);

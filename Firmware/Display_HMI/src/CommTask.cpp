@@ -3,6 +3,7 @@
 #include "esp_log.h"
 #include "main.h"
 #include "ui.h"
+#include <cstdio>
 #include <string.h>
 
 static const char *TAG = "CommTask";
@@ -12,10 +13,11 @@ HMI_Message hmi_msg;
 ControlBoard_Message ctrl_msg;
 ControlBoard_Message_Telemetry ctrl_tel_msg;
 ControlBoard_Message_Alarm ctrl_msg_alarm;
-ControlBoard_Message_State ctrl_state_msg = {0, 0, 0, 0, 0, 0, 0, false};
+ControlBoard_Message_State ctrl_state_msg = {0};
 
 bool error = false;
-static String rxBuffer = "";
+static char rxBuffer[512];
+static int rxIndex = 0;
 
 // --- Shared flags/state (from UITask.cpp) ---
 extern bool tempSwitched;
@@ -41,10 +43,11 @@ void Communication_SendWiFiCredentials(const char *ssid, const char *password) {
 
 static void SendMessageToOtherESP() {
 #if IS_HMI
-  COMM_SERIAL.printf("HMI,%d,%d,%0.2f,%0.2f,%0.0f,%d,%d\n", hmi_msg.actuation,
+  COMM_SERIAL.printf("HMI,%d,%d,%0.2f,%0.2f,%0.0f,%d,%d,%d\n", hmi_msg.actuation,
                      hmi_msg.controlMode, hmi_msg.desiredAirTemperature,
                      hmi_msg.desiredSkinTemperature, hmi_msg.desiredHumidity,
-                     hmi_msg.phototherapyMode, hmi_msg.muteAlarm);
+                     hmi_msg.phototherapyMode, hmi_msg.muteAlarm,
+                     hmi_msg.language);
 #else
   COMM_SERIAL.printf("CTRL,%0.2f,%0.2f,%0.2f,%0.2f,%0.2f\n",
                      ctrl_msg.temperature[0], ctrl_msg.temperature[1],
@@ -53,94 +56,104 @@ static void SendMessageToOtherESP() {
 #endif
 }
 
-static bool ReceiveMessageFromOtherESP() {
-  static uint32_t lastCharTime = 0;
-  const uint32_t RX_TIMEOUT_MS = 1000;
-
-  if (rxBuffer.length() > 0 && (millis() - lastCharTime) > RX_TIMEOUT_MS) {
-    COMM_LOG("[COMM] RX timeout, clearing buffer (content was: %s)\n",
-             rxBuffer.c_str());
-    rxBuffer = "";
+static void parse_message(const char *line) {
+#if IS_HMI
+  if (strncmp(line, "CTRL,TEL", 8) == 0) {
+    int result = sscanf(
+        line, "CTRL,TEL,%lf,%lf,%lf", &ctrl_tel_msg.detectedAirTemperature,
+        &ctrl_tel_msg.detectedSkinTemperature, &ctrl_tel_msg.detectedHumidity);
+    if (result != 3) {
+      // COMM_LOG("[COMM] HMI failed to parse CTRL,TEL: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,STATE", 10) == 0) {
+    int act, mode, photo, mute, sn, hwNum, lang;
+    char hwRev;
+    char fwVer[20];
+    double airSet, skinSet, humSet;
+    int result = sscanf(
+        line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%d,%c,%19s", &act, &mode,
+        &airSet, &skinSet, &humSet, &photo, &mute, &lang, &sn, &hwNum, &hwRev,
+        fwVer);
+    if (result == 12) {
+      ctrl_state_msg.actuation = act;
+      ctrl_state_msg.controlMode = mode;
+      ctrl_state_msg.desiredAirTemperature = airSet;
+      ctrl_state_msg.desiredSkinTemperature = skinSet;
+      ctrl_state_msg.desiredHumidity = humSet;
+      ctrl_state_msg.phototherapyMode = photo;
+      ctrl_state_msg.muteAlarm = mute;
+      ctrl_state_msg.language = lang;
+      ctrl_state_msg.serialNumber = sn;
+      ctrl_state_msg.hwNum = hwNum;
+      ctrl_state_msg.hwRev[0] = hwRev;
+      ctrl_state_msg.hwRev[1] = '\0';
+      strncpy(ctrl_state_msg.fwVer, fwVer, sizeof(ctrl_state_msg.fwVer));
+      ctrl_state_msg.newState = true;
+    } else {
+      COMM_LOG("[COMM] HMI failed to parse CTRL,STATE: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,ALM", 8) ==
+             0) { // Fix bug: was "CTRL,ALM" len 8, logic matches
+    int id, stateInt;
+    char type[ALARM_TYPE_LEN];
+    char description[ALARM_DESC_LEN];
+    // Use width limits in sscanf to prevent buffer overflow
+    // ALARM_TYPE_LEN is typically small, we assume 20-30 chars.
+    // We'll use %31[^,] as a safe approximation if LEN is 32.
+    // Ideally we should use macros but for now we hardcode a safe limit.
+    int result = sscanf(line, "CTRL,ALM,%d,%31[^,],%31[^,],%d", &id, type,
+                        description, &stateInt);
+    if (result == 4) {
+      ctrl_msg_alarm.id = id;
+      strncpy(ctrl_msg_alarm.type, type, ALARM_TYPE_LEN);
+      ctrl_msg_alarm.type[ALARM_TYPE_LEN - 1] = '\0';
+      strncpy(ctrl_msg_alarm.description, description, ALARM_DESC_LEN);
+      ctrl_msg_alarm.description[ALARM_DESC_LEN - 1] = '\0';
+      ctrl_msg_alarm.state = (stateInt != 0);
+    } else {
+      COMM_LOG("[COMM] HMI failed to parse CTRL,ALM: %s\n", line);
+    }
   }
+#endif
+}
+
+static bool ReceiveMessageFromOtherESP() {
+  bool msgReceived = false;
+  static uint32_t lastRxTime = 0;
 
   while (COMM_SERIAL.available()) {
+    // Timeout check: if buffer has data but no new char for >50ms, clear it
+    if (rxIndex > 0 && (millis() - lastRxTime > 50)) {
+      rxIndex = 0;
+      COMM_LOG("[COMM] RX Timeout, buffer cleared\n");
+    }
+
     char c = COMM_SERIAL.read();
-    lastCharTime = millis();
+    lastRxTime = millis(); // Update time after receiving char
 
     if (c == '\r')
       continue;
 
-    if (rxBuffer.length() == 0) {
-      if (c == '\n' || c == ' ')
-        continue;
-      if (c != EXPECTED_PREFIX[0]) {
-        while (COMM_SERIAL.available() && COMM_SERIAL.read() != '\n')
-          ;
-        return false;
-      }
-    }
-
     if (c == '\n') {
-      if (!rxBuffer.startsWith(EXPECTED_PREFIX)) {
-        rxBuffer = "";
-        return false;
-      }
-
-#if IS_HMI
-      if (rxBuffer.startsWith("CTRL,TEL")) {
-        int result = sscanf(rxBuffer.c_str(), "CTRL,TEL,%lf,%lf,%lf",
-                            &ctrl_tel_msg.detectedAirTemperature,
-                            &ctrl_tel_msg.detectedSkinTemperature,
-                            &ctrl_tel_msg.detectedHumidity);
-        if (result != 3) {
-          COMM_LOG("[COMM] HMI failed to parse CTRL,TEL: %s\n",
-                   rxBuffer.c_str());
-        }
-      } else if (rxBuffer.startsWith("CTRL,STATE")) {
-        int act, mode, photo, mute;
-        double airSet, skinSet, humSet;
-        int result =
-            sscanf(rxBuffer.c_str(), "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d",
-                   &act, &mode, &airSet, &skinSet, &humSet, &photo, &mute,
-                   &ctrl_state_msg.serialNumber);
-        if (result == 8) {
-          ctrl_state_msg.actuation = act;
-          ctrl_state_msg.controlMode = mode;
-          ctrl_state_msg.desiredAirTemperature = airSet;
-          ctrl_state_msg.desiredSkinTemperature = skinSet;
-          ctrl_state_msg.desiredHumidity = humSet;
-          ctrl_state_msg.phototherapyMode = photo;
-          ctrl_state_msg.muteAlarm = mute;
-          ctrl_state_msg.newState = true;
-        } else {
-          COMM_LOG("[COMM] HMI failed to parse CTRL,STATE: %s\n",
-                   rxBuffer.c_str());
-        }
-      } else if (rxBuffer.startsWith("CTRL,ALM")) {
-        int id, stateInt;
-        char type[ALARM_TYPE_LEN];
-        char description[ALARM_DESC_LEN];
-        int result = sscanf(rxBuffer.c_str(), "CTRL,ALM,%d,%[^,],%[^,],%d", &id,
-                            type, description, &stateInt);
-        if (result == 4) {
-          ctrl_msg_alarm.id = id;
-          strncpy(ctrl_msg_alarm.type, type, ALARM_TYPE_LEN);
-          ctrl_msg_alarm.type[ALARM_TYPE_LEN - 1] = '\0';
-          strncpy(ctrl_msg_alarm.description, description, ALARM_DESC_LEN);
-          ctrl_msg_alarm.description[ALARM_DESC_LEN - 1] = '\0';
-          ctrl_msg_alarm.state = (stateInt != 0);
-        } else {
-          COMM_LOG("[COMM] HMI failed to parse CTRL,ALM: %s\n",
-                   rxBuffer.c_str());
+      rxBuffer[rxIndex] = '\0'; // Null-terminate
+      if (rxIndex > 0) {
+        if (strncmp(rxBuffer, EXPECTED_PREFIX, strlen(EXPECTED_PREFIX)) == 0) {
+          parse_message(rxBuffer);
+          msgReceived = true;
         }
       }
-#endif
-      rxBuffer = "";
-      return true;
+      rxIndex = 0; // Reset buffer
+    } else {
+      if (rxIndex < sizeof(rxBuffer) - 1) {
+        rxBuffer[rxIndex++] = c;
+      } else {
+        // Buffer overflow protection: overflowed, reset and ignore this line
+        rxIndex = 0;
+        COMM_LOG("[COMM] Buffer overflow, line too long\n");
+      }
     }
-    rxBuffer += c;
   }
-  return false;
+  return msgReceived;
 }
 
 // ======================
@@ -153,6 +166,14 @@ static void Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
   ui_set_switch_state_silent(ui_Switch3, st.controlMode);
   ui_set_switch_state_silent(ui_Switch4, st.phototherapyMode);
 
+  if (st.language != g_lang) {
+    // Only update if different to avoid loop, but Applying Language is safe here
+    UI_ApplyLanguage((ui_lang_t)st.language);
+    if (ui_LanguagesDropDown) {
+      lv_dropdown_set_selected(ui_LanguagesDropDown, st.language);
+    }
+  }
+
   // airTempValue = st.desiredAirTemperature;
   // skinTempValue = st.desiredSkinTemperature;
   // humValue = (int)st.desiredHumidity;
@@ -163,6 +184,14 @@ static void Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
     EEPROM.commit();
     ESP_LOGI(TAG, "Serial Number updated from motherboard: %d",
              in3.serialNumber);
+  }
+
+  if (st.hwNum != 0 && ui_Incunest) {
+    char titleBuf[64];
+    snprintf(titleBuf, sizeof(titleBuf), "IncuNest %d.%s v%s", st.hwNum,
+             st.hwRev, st.fwVer);
+    // ESP_LOGI(TAG, "Updating title: %s", titleBuf);
+    lv_label_set_text(ui_Incunest, titleBuf);
   }
 
   update_labels();

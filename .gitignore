@@ -3,7 +3,12 @@
 !Firmware/motherBoard/.vscode/c_cpp_properties.json
 
 # PlatformIO / builds
+.pio/
 **/.pio/
+build/
+**/build/
+.pio/build/
+**/.pio/build/
 build/
 **/build/
 **/preproc/

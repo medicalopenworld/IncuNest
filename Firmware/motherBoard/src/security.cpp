@@ -29,6 +29,16 @@
 static const char *TAG = "SECURITY";
 extern SemaphoreHandle_t log_mutex;
 
+// Pending alarm queue for HMI connection
+struct PendingAlarm {
+  char message[128];
+  bool valid;
+};
+
+static PendingAlarm pending_alarms[10];
+static int pending_alarm_count = 0;
+static bool hmi_connected = false;
+
 extern TwoWire *wire;
 extern MAM_in3ator_Humidifier in3_hum;
 extern TFT_eSPI tft;
@@ -42,7 +52,7 @@ extern int page;
 extern double errorTemperature[SENSOR_TEMP_QTY], temperatureCalibrationPoint;
 extern double ReferenceTemperatureRange, ReferenceTemperatureLow;
 extern double provisionalReferenceTemperatureLow;
-extern double fineTuneSkinTemperature;
+
 extern double RawTemperatureLow[SENSOR_TEMP_QTY],
     RawTemperatureRange[SENSOR_TEMP_QTY];
 extern double provisionalRawTemperatureLow[SENSOR_TEMP_QTY];
@@ -311,30 +321,47 @@ bool ongoingCriticalWiringAlarm() {
 }
 
 char *alarmIDtoString(byte alarmID) {
+  byte lang = in3.language; // or hmi_cmd_msg.language
   switch (alarmID) {
   case AIR_THERMAL_CUTOUT_ALARM:
   case SKIN_THERMAL_CUTOUT_ALARM:
-    return (char *)("THERMAL CUTOUT ALARM");
+    if (lang == SPANISH) return (char *)("CORTE TERMICO");
+    if (lang == FRENCH) return (char *)("COUPURE THERMIQUE");
+    return (char *)("THERMAL CUTOUT");
     break;
   case TEMPERATURE_ALARM:
+    if (lang == SPANISH) return (char *)("ERROR TEMPERATURA");
+    if (lang == FRENCH) return (char *)("ERREUR TEMPERATURE");
     return (char *)("TEMPERATURE ALARM");
     break;
   case HUMIDITY_ALARM:
+    if (lang == SPANISH) return (char *)("ERROR HUMEDAD");
+    if (lang == FRENCH) return (char *)("ERREUR HUMIDITE");
     return (char *)("HUMIDITY ALARM");
     break;
   case AIR_SENSOR_ISSUE_ALARM:
+    if (lang == SPANISH) return (char *)("ALERTA SENSOR AIRE");
+    if (lang == FRENCH) return (char *)("ALERTE CAPTEUR AIR");
     return (char *)("AIR SENSOR ALARM");
     break;
   case SKIN_SENSOR_ISSUE_ALARM:
+    if (lang == SPANISH) return (char *)("ALERTA SENSOR PIEL");
+    if (lang == FRENCH) return (char *)("ALERTE CAPTEUR PEAU");
     return (char *)("SKIN SENSOR ALARM");
     break;
   case FAN_ISSUE_ALARM:
+    if (lang == SPANISH) return (char *)("ERROR VENTILADOR");
+    if (lang == FRENCH) return (char *)("ERREUR VENTILATEUR");
     return (char *)("FAN ALARM");
     break;
   case HEATER_ISSUE_ALARM:
+    if (lang == SPANISH) return (char *)("ERROR CALENTADOR");
+    if (lang == FRENCH) return (char *)("ERREUR CHAUFFAGE");
     return (char *)("HEATER ALARM");
     break;
   case POWER_SUPPLY_ALARM:
+    if (lang == SPANISH) return (char *)("ERROR ALIMENTACION");
+    if (lang == FRENCH) return (char *)("ERREUR ALIMENTATION");
     return (char *)("POWER SUPPLY ALARM");
     break;
   default:
@@ -363,59 +390,137 @@ int alarmPendingToClear() {
   return false;
 }
 
+void sendPendingAlarms() {
+  for (int i = 0; i < pending_alarm_count && i < 10; i++) {
+    if (pending_alarms[i].valid) {
+#if CONFIG_IDF_TARGET_ESP32S3
+      CommunicationHost_Send(pending_alarms[i].message);
+#endif
+      if (log_mutex == NULL ||
+          xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        ESP_LOGI(TAG, "Sent pending alarm: %s", pending_alarms[i].message);
+        if (log_mutex)
+          xSemaphoreGiveRecursive(log_mutex);
+      }
+      pending_alarms[i].valid = false;
+    }
+  }
+  pending_alarm_count = 0;
+}
+
+void setHMIConnected(bool connected) {
+  hmi_connected = connected;
+  if (connected) {
+    if (log_mutex == NULL ||
+        xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      ESP_LOGI(TAG, "HMI connected, flushing %d pending alarms",
+               pending_alarm_count);
+      if (log_mutex)
+        xSemaphoreGiveRecursive(log_mutex);
+    }
+    sendPendingAlarms();
+  }
+}
+
 void sendAlarmUSB(byte alarmID, bool isActive) {
   char msg[128];
-  const char *en_desc = "ALARM";
-  const char *es_desc = "alarma";
+  const char *title = "ALARM";
+  const char *desc = "alarm";
+
+  byte lang = in3.language;
 
   switch (alarmID) {
   case HUMIDITY_ALARM:
-    en_desc = "HUMIDITY ERROR";
-    es_desc = "error de humedad";
+    if (lang == SPANISH) { title = "ERROR HUMEDAD"; desc = "ERROR DE HUMEDAD"; }
+    else if (lang == FRENCH) { title = "ERREUR HUMIDITE"; desc = "ERREUR D HUMIDITE"; }
+    else { title = "HUMIDITY ERROR"; desc = "HUMIDITY ERROR"; }
     break;
   case TEMPERATURE_ALARM:
-    en_desc = "TEMP VERY HIGH";
-    es_desc = "temperatura muy alta";
+    if (lang == SPANISH) { title = "TEMP MUY ALTA"; desc = "TEMPERATURA MUY ALTA"; }
+    else if (lang == FRENCH) { title = "TEMP TRES ELEVEE"; desc = "TEMPERATURE TRES ELEVEE"; }
+    else { title = "TEMP VERY HIGH"; desc = "TEMPERATURE VERY HIGH"; }
     break;
   case AIR_THERMAL_CUTOUT_ALARM:
-    en_desc = "AIR THERMAL CUTOUT";
-    es_desc = "corte termico aire";
+    if (lang == SPANISH) { title = "CORTE TERMICO AIRE"; desc = "FALLO TERMICO AIRE"; }
+    else if (lang == FRENCH) { title = "COUPURE THERMIQUE AIR"; desc = "PANNE THERMIQUE AIR"; }
+    else { title = "AIR THERMAL CUTOUT"; desc = "AIR THERMAL FAILURE"; }
     break;
   case SKIN_THERMAL_CUTOUT_ALARM:
-    en_desc = "SKIN THERMAL CUTOUT";
-    es_desc = "corte termico piel";
+    if (lang == SPANISH) { title = "CORTE TERMICO PIEL"; desc = "FALLO TERMICO PIEL"; }
+    else if (lang == FRENCH) { title = "COUPURE THERMIQUE PEAU"; desc = "PANNE THERMIQUE PEAU"; }
+    else { title = "SKIN THERMAL CUTOUT"; desc = "SKIN THERMAL FAILURE"; }
     break;
   case AIR_SENSOR_ISSUE_ALARM:
-    en_desc = "AIR SENSOR ERROR";
-    es_desc = "error sensor aire";
+    if (lang == SPANISH) { title = "ERROR SENSOR AIRE"; desc = "FALLO SENSOR AIRE"; }
+    else if (lang == FRENCH) { title = "ERREUR CAPTEUR AIR"; desc = "PANNE CAPTEUR AIR"; }
+    else { title = "AIR SENSOR ERROR"; desc = "AIR SENSOR FAILURE"; }
     break;
   case SKIN_SENSOR_ISSUE_ALARM:
-    en_desc = "SKIN SENSOR ERROR";
-    es_desc = "error sensor piel";
+    if (lang == SPANISH) { title = "ERROR SENSOR PIEL"; desc = "FALLO SENSOR PIEL"; }
+    else if (lang == FRENCH) { title = "ERREUR CAPTEUR PEAU"; desc = "PANNE CAPTEUR PEAU"; }
+    else { title = "SKIN SENSOR ERROR"; desc = "SKIN SENSOR FAILURE"; }
     break;
   case FAN_ISSUE_ALARM:
-    en_desc = "FAN ERROR";
-    es_desc = "error ventilador";
+    if (lang == SPANISH) { title = "ERROR VENTILADOR"; desc = "FALLO VENTILADOR"; }
+    else if (lang == FRENCH) { title = "ERREUR VENTILATEUR"; desc = "PANNE VENTILATEUR"; }
+    else { title = "FAN ERROR"; desc = "FAN FAILURE"; }
     break;
   case HEATER_ISSUE_ALARM:
-    en_desc = "HEATER ERROR";
-    es_desc = "error calentador";
+    if (lang == SPANISH) { title = "ERROR CALENTADOR"; desc = "FALLO CALENTADOR"; }
+    else if (lang == FRENCH) { title = "ERREUR CHAUFFAGE"; desc = "PANNE CHAUFFAGE"; }
+    else { title = "HEATER ERROR"; desc = "HEATER FAILURE"; }
     break;
   case POWER_SUPPLY_ALARM:
-    en_desc = "POWER SUPPLY ERROR";
-    es_desc = "error fuente de alimentacion";
+    if (lang == SPANISH) { title = "ERROR ALIMENTACION"; desc = "FALLO FUENTE"; }
+    else if (lang == FRENCH) { title = "ERREUR ALIMENTATION"; desc = "PANNE ALIMENTATION"; }
+    else { title = "POWER SUPPLY ERROR"; desc = "POWER SUPPLY FAILURE"; }
     break;
   }
 
-  snprintf(msg, sizeof(msg), "CTRL,ALM,%d,%s,%s,%d\n", alarmID, en_desc,
-           es_desc, isActive ? 1 : 0);
-  if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+  snprintf(msg, sizeof(msg), "CTRL,ALM,%d,%s,%s,%d\n", alarmID, title,
+           desc, isActive ? 1 : 0);
+  if (log_mutex == NULL ||
+      xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
     ESP_LOGI(TAG, "%s", msg);
-    xSemaphoreGiveRecursive(log_mutex);
+    if (log_mutex)
+      xSemaphoreGiveRecursive(log_mutex);
   }
+
 #if CONFIG_IDF_TARGET_ESP32S3
-  CommunicationHost_Send(msg);
+  if (!hmi_connected) {
+    // Queue the alarm if HMI not connected
+    if (pending_alarm_count < 10) {
+      strncpy(pending_alarms[pending_alarm_count].message, msg,
+              sizeof(pending_alarms[pending_alarm_count].message) - 1);
+      pending_alarms[pending_alarm_count].message[127] = '\0';
+      pending_alarms[pending_alarm_count].valid = true;
+      pending_alarm_count++;
+      if (log_mutex == NULL ||
+          xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        ESP_LOGI(TAG, "Queued alarm (HMI not connected): %s", msg);
+        if (log_mutex)
+          xSemaphoreGiveRecursive(log_mutex);
+      }
+    }
+  } else {
+    // Send immediately if HMI is connected
+    if (log_mutex == NULL ||
+        xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      ESP_LOGI(TAG, "Sending alarm to HMI: %s", msg);
+      if (log_mutex)
+        xSemaphoreGiveRecursive(log_mutex);
+    }
+    CommunicationHost_Send(msg);
+  }
 #endif
+}
+
+void resendActiveAlarms() {
+  for (int i = 0; i < NUM_ALARMS; i++) {
+    if (alarmOnGoing[i]) {
+      sendAlarmUSB(i, true);
+    }
+  }
 }
 
 void setAlarm(byte alarmID) {

@@ -74,6 +74,7 @@ lv_obj_t * ui_NumAlarm = NULL;
 lv_obj_t * ui_SPO2Button = NULL;
 lv_obj_t * ui_ChartButton = NULL;
 lv_obj_t * ui_ImgButton1 = NULL;
+lv_obj_t * ui_CheckImgMain = NULL;
 // event funtions
 void ui_event_Settings(lv_event_t * e)
 {
@@ -135,7 +136,7 @@ void ui_ScreenMain_screen_init(void)
     ui_Incunest = lv_label_create(ui_ScreenMain);
     lv_obj_set_width(ui_Incunest, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_Incunest, LV_SIZE_CONTENT);    /// 1
-    lv_obj_set_x(ui_Incunest, -325);
+    lv_obj_set_x(ui_Incunest, -250);
     lv_obj_set_y(ui_Incunest, -213);
     lv_obj_set_align(ui_Incunest, LV_ALIGN_CENTER);
     lv_label_set_text(ui_Incunest, "IncuNest");
@@ -717,6 +718,17 @@ void ui_ScreenMain_screen_init(void)
     lv_obj_set_y(ui_ImgButton1, -214);
     lv_obj_set_align(ui_ImgButton1, LV_ALIGN_CENTER);
 
+    ui_CheckImgMain = lv_img_create(ui_ScreenMain);
+    lv_img_set_src(ui_CheckImgMain, &ui_img_check_png);
+    lv_obj_set_width(ui_CheckImgMain, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_CheckImgMain, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_x(ui_CheckImgMain, 259);
+    lv_obj_set_y(ui_CheckImgMain, -212);
+    lv_obj_set_align(ui_CheckImgMain, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_CheckImgMain, LV_OBJ_FLAG_ADV_HITTEST);     /// Flags
+    lv_obj_clear_flag(ui_CheckImgMain, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+    lv_img_set_zoom(ui_CheckImgMain, 200);
+
     lv_obj_add_event_cb(ui_Settings, ui_event_Settings, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_AlarmButton, ui_event_AlarmButton, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_SPO2Button, ui_event_SPO2Button, LV_EVENT_ALL, NULL);
@@ -801,5 +813,6 @@ void ui_ScreenMain_screen_destroy(void)
     ui_SPO2Button = NULL;
     ui_ChartButton = NULL;
     ui_ImgButton1 = NULL;
+    ui_CheckImgMain = NULL;
 
 }

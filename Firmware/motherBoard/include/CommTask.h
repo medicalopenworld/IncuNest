@@ -1,6 +1,13 @@
 #pragma once
 #include <Arduino.h>
 
+// Expected prefix of incoming messages
+#if IS_HMI
+#define EXPECTED_PREFIX "CTRL"
+#else
+#define EXPECTED_PREFIX "HMI"
+#endif
+
 // ======================================================
 //  TELEMETRY (CTRL → HMI)
 // ======================================================
@@ -24,6 +31,7 @@ typedef struct {
   double desiredHumidity;
   int phototherapyMode;
   int muteAlarm;
+  int language;
   bool newCommand;
 } HMI_CommandMessage;
 
@@ -35,3 +43,4 @@ extern HMI_CommandMessage hmi_cmd_msg;
 void CommunicationHost_Init();             // Install USB HOST
 void Communication_Task(void *pv);         // FreeRTOS task
 void CommunicationHost_Send(const char *); // Manual send
+void setHMIConnected(bool connected);      // Notify HMI connection status

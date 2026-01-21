@@ -5,6 +5,7 @@
 #include "main.h"
 #include "ui.h"
 #include <LovyanGFX.hpp>
+#include <PCA9557.h>
 #include <SPI.h>
 #include <TAMC_GT911.h>
 #include <lgfx/v1/platforms/esp32s3/Bus_RGB.hpp>
@@ -213,48 +214,61 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   eepromDirty = true;
   lastVarChangeTime = millis();
 
-  const char *TXT_CONTROLTEMP[] = {"Control Temperatura", "Temperature Control",
-                                   "Controle Temperature"};
-  const char *TXT_CONTROLHUM[] = {"Control Humedad", "Humidity Control",
-                                  "Controle Humidite"};
-  const char *TXT_PHOTO[] = {"Fototerapia", "Phototherapy", "Phototherapie"};
-  const char *TXT_AIR[] = {"Aire", "Air", "Air"};
-  const char *TXT_SKIN[] = {"Piel", "Skin", "Peau"};
+  const char *TXT_CONTROLTEMP[] = {"TEMPERATURA", "TEMPERATURE",
+                                   "TEMPERATURE"};
+  const char *TXT_CONTROLHUM[] = {"HUMEDAD", "HUMIDITY", "HUMIDITY"};
+  const char *TXT_PHOTO[] = {"FOTOTERAPIA", "PHOTOTHERAPY", "PHOTOTHERAPIE"};
+  const char *TXT_AIR[] = {"AIRE", "AIR", "AIR"};
+  const char *TXT_SKIN[] = {"PIEL", "SKIN", "PEAU"};
   const char *TXT_ON[] = {"ON", "ON", "ON"};
   const char *TXT_OFF[] = {"OFF", "OFF", "OFF"};
-  const char *TXT_SETTINGS[] = {"Ajustes", "Settings", "Parametres"};
-  const char *TXT_LANG[] = {"Idioma", "Language", "Langue"};
-  const char *TXT_WIFI[] = {"WiFi", "WiFi", "WiFi"};
-  const char *TXT_CONNECT[] = {"Conectar", "Connect", "Connexion"};
+  const char *TXT_SETTINGS[] = {"AJUSTES", "SETTINGS", "PARAMETRES"};
+  const char *TXT_LANG[] = {"IDIOMA", "LANGUAGE", "LANGUE"};
+  const char *TXT_WIFI[] = {"WIFI", "WIFI", "WIFI"};
+  const char *TXT_CONNECT[] = {"CONECTAR", "CONNECT", "CONNEXION"};
   const char *TXT_SSID[] = {"SSID", "SSID", "SSID"};
-  const char *TXT_PASSWORD[] = {"Contrasena", "Password", "Mot de passe"};
-  const char *TXT_SKINMODE[] = {"Modo Piel", "Skin Mode", "Mode Peau"};
-  const char *TXT_ALARMS[] = {"Alarmas", "Alarms", "Alarmes"};
-  const char *TXT_VIEWDETAIL[] = {"Ver detalles", "View details",
-                                  "Voir details"};
-  const char *TXT_HUMCHART[] = {"Grafico Humedad", "Humidity Chart",
-                                "Graphique Humidite"};
-  const char *TXT_AIRTEMPCHART[] = {"Grafico Temperatura Aire",
-                                    "Air Temperature Chart",
-                                    "Graphique Temperature Air"};
-  const char *TXT_SKINTEMPCHART[] = {"Grafico Temperatura Piel",
-                                     "Skin Temperature Chart",
-                                     "Graphique Temperature Peau"};
-  const char *TXT_TABTEMP[] = {"Temperatura", "Temperature", "Temperature"};
-  const char *TXT_TABHUM[] = {"Humedad", "Humidity", "Humidite"};
-  const char *TXT_AIRTEMP[] = {"Temperatura Aire", "Air Temperature",
-                               "Air Temperature"};
-  const char *TXT_BABYTEMP[] = {"Temperatura Bebe", "Baby Temperature",
-                                "Temperature Bebe"};
-  const char *TXT_HUM[] = {"Humedad", "Humidity", "Humidite"};
-  const char *TXT_TARGETTEMP[] = {"Temperatura Objetivo", "Target Temperature",
-                                  "Temperature objectif"};
-  const char *TXT_TARGETHUM[] = {"Humedad Objetivo", "Target Humidity",
-                                 "Humidite objectif"};
-  const char *TXT_STATUS[] = {"Estado", "Status", "Etat"};
+  const char *TXT_PASSWORD[] = {"CONTRASENA", "PASSWORD", "MOT DE PASSE"};
+  const char *TXT_SKINMODE[] = {"MODO PIEL", "SKIN MODE", "MODE PEAU"};
+  const char *TXT_ALARMS[] = {"ALARMAS", "ALARMS", "ALARMES"};
+  const char *TXT_VIEWDETAIL[] = {"VER DETALLES", "VIEW DETAILS",
+                                  "VOIR DETAILS"};
+  const char *TXT_HUMCHART[] = {"GRAFICO HUMEDAD", "HUMIDITY CHART",
+                                "GRAPHIQUE HUMIDITE"};
+  const char *TXT_AIRTEMPCHART[] = {"GRAFICO TEMPERATURA AIRE",
+                                    "AIR TEMPERATURE CHART",
+                                    "GRAPHIQUE TEMPERATURE AIR"};
+  const char *TXT_SKINTEMPCHART[] = {"GRAFICO TEMPERATURA PIEL",
+                                     "SKIN TEMPERATURE CHART",
+                                     "GRAPHIQUE TEMPERATURE PEAU"};
+  const char *TXT_TABTEMP[] = {"TEMPERATURA", "TEMPERATURE", "TEMPERATURE"};
+  const char *TXT_TABHUM[] = {"HUMEDAD", "HUMIDITY", "HUMIDITE"};
+  const char *TXT_AIRTEMP[] = {"TEMPERATURA AIRE", "AIR TEMPERATURE",
+                               "AIR TEMPERATURE"};
+  const char *TXT_BABYTEMP[] = {"TEMPERATURA BEBE", "BABY TEMPERATURE",
+                                "TEMPERATURE BEBE"};
+  const char *TXT_HUM[] = {"HUMEDAD", "HUMIDITY", "HUMIDITE"};
+  const char *TXT_TARGETTEMP[] = {"TEMPERATURA OBJETIVO", "TARGET TEMPERATURE",
+                                  "TEMPERATURE OBJECTIF"};
+  const char *TXT_TARGETHUM[] = {"HUMEDAD OBJETIVO", "TARGET HUMIDITY",
+                                 "HUMIDITE OBJECTIF"};
+  const char *TXT_STATUS[] = {"ESTADO", "STATUS", "ETAT"};
   const char *TXT_UNLOCK[] = {"PRESIONA 2 SEG\nPARA DESBLOQUEAR",
                               "PRESS 2 SEC TO UNLOCK",
                               "APPUYEZ 2 S\nPOUR DEVERROUILLER"};
+  const char *TXT_INCUNEST[] = {"INCUNEST", "INCUNEST", "INCUNEST"};
+  const char *TXT_SET[] = {"AJUSTAR", "SET", "REGLER"};
+  const char *TXT_WIFISSID[] = {"WIFISSID", "WIFISSID", "WIFISSID"};
+  const char *TXT_WIFICONNECTEDTO[] = {"WIFI CONECTADO A", "WIFI CONNECTED TO",
+                                       "WIFI CONNECTE A"};
+  const char *TXT_ALARMSDESC[] = {"DESCRIPCION DE ALARMAS", "ALARMS DESCRIPTION",
+                                  "DESCRIPTION DES ALARMES"};
+  const char *TXT_OXICHART[] = {"GRAFICO OXIMETRIA", "OXIMETRY CHART",
+                                "GRAPHIQUE OXIMETRIE"};
+  const char *TXT_PULSEOXIMETRY[] = {"PULSIOXIMETRIA", "PULSE OXIMETRY",
+                                     "PULSIOXYMETRIE"};
+  const char *TXT_LANG_OPTIONS[] = {"ESPANOL\nINGLES\nFRANCES",
+                                    "SPANISH\nENGLISH\nFRENCH",
+                                    "ESPAGNOL\nANGLAIS\nFRANCAIS"};
 
   lv_label_set_text(ui_Label2, TXT_CONTROLTEMP[lang]);
   lv_label_set_text(ui_HumidityLabel, TXT_CONTROLHUM[lang]);
@@ -274,6 +288,15 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   lv_label_set_text(ui_SSIDLabel, TXT_SSID[lang]);
   lv_label_set_text(ui_PassLabel, TXT_PASSWORD[lang]);
   lv_label_set_text(ui_SkinOptionLabel, TXT_SKINMODE[lang]);
+  lv_label_set_text(ui_Label6, TXT_SET[lang]);
+  lv_label_set_text(ui_Label7, TXT_SET[lang]);
+  lv_label_set_text(ui_WifiSSIDLabel, TXT_WIFISSID[lang]);
+  lv_label_set_text(ui_WifiConnectedToLabel, TXT_WIFICONNECTEDTO[lang]);
+  lv_label_set_text(ui_AlarmDetailLabel, TXT_ALARMSDESC[lang]);
+  lv_label_set_text(ui_Label35, TXT_OXICHART[lang]);
+  lv_label_set_text(ui_Label39, TXT_PULSEOXIMETRY[lang]);
+  lv_dropdown_set_options(ui_LanguagesDropDown, TXT_LANG_OPTIONS[lang]);
+  lv_dropdown_set_selected(ui_LanguagesDropDown, lang);
 
   {
     lv_obj_t *btnm = lv_tabview_get_tab_btns(ui_AlarmsTabview);
@@ -321,6 +344,9 @@ void LanguagesDropDown_cb(lv_event_t *e) {
     UI_ApplyLanguage(LANG_EN);
   else if (sel == 2)
     UI_ApplyLanguage(LANG_FR);
+
+  hmi_msg.language = sel;
+  hmi_msg.shouldSendData = true;
 }
 
 lv_chart_series_t *configure_temp_chart(lv_obj_t *chart, lv_palette_t pal) {
@@ -408,16 +434,32 @@ void LanguageButton_cb(lv_event_t *e) {
   LanguagesVisible = true;
 }
 
+void TextArea_Change_cb(lv_event_t *e) {
+  lv_obj_t *ta = lv_event_get_target(e);
+  const char *txt = lv_textarea_get_text(ta);
+  if (ta == ui_TextArea1) {
+    strncpy(wifi_ssid, txt, sizeof(wifi_ssid) - 1);
+    wifi_ssid[sizeof(wifi_ssid) - 1] = '\0';
+  } else if (ta == ui_TextArea2) {
+    strncpy(wifi_pass, txt, sizeof(wifi_pass) - 1);
+    wifi_pass[sizeof(wifi_pass) - 1] = '\0';
+  }
+}
+
 void TextArea_focus_cb(lv_event_t *e) {
   lv_obj_t *ta = lv_event_get_target(e);
   lv_keyboard_set_textarea(ui_Keyboard1, ta);
   lv_obj_clear_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
 }
 
 void Keyboard_cb(lv_event_t *e) {
   lv_event_code_t code = lv_event_get_code(e);
   if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
     lv_obj_add_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
     const char *txt1 = lv_textarea_get_text(ui_TextArea1);
     const char *txt2 = lv_textarea_get_text(ui_TextArea2);
     strncpy(wifi_ssid, txt1, sizeof(wifi_ssid));
@@ -886,9 +928,11 @@ void update_alarm_panels() {
     char buf[10];
     itoa(totalActiveAlarms, buf, 10);
     // Main screen
+    lv_obj_clear_flag(ui_AlarmButton, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(ui_Panel10, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(ui_NumAlarm, LV_OBJ_FLAG_HIDDEN);
     lv_label_set_text(ui_NumAlarm, buf);
+    lv_obj_add_flag(ui_CheckImgMain, LV_OBJ_FLAG_HIDDEN);
     // Lock screen
     lv_obj_clear_flag(ui_AlarmLockCont, LV_OBJ_FLAG_HIDDEN);
     lv_label_set_text(ui_AlarmLockNumLabel, buf);
@@ -897,6 +941,8 @@ void update_alarm_panels() {
     // Main screen
     lv_obj_add_flag(ui_Panel10, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_NumAlarm, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_AlarmButton, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_CheckImgMain, LV_OBJ_FLAG_HIDDEN);
     // Lock screen
     lv_obj_add_flag(ui_AlarmLockCont, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(ui_CheckImg, LV_OBJ_FLAG_HIDDEN);
@@ -1145,7 +1191,34 @@ void UI_Task(void *pvParameters) {
   vTaskDelay(pdMS_TO_TICKS(DELAY_SHORT_MS));
 
   lv_init();
-  ts.begin();
+
+  // Try to initialize Touch with robust handshake
+  bool touch_ok = false;
+  for (int i = 0; i < 3; i++) {
+    // Reset touch via PCA9557 IO0
+    PCA9557 io(0x18, &Wire);
+    io.pinMode(0, OUTPUT);
+    io.digitalWrite(0, LOW);
+    vTaskDelay(pdMS_TO_TICKS(10));
+    io.digitalWrite(0, HIGH);
+    vTaskDelay(pdMS_TO_TICKS(55));
+
+    if (ts.begin()) {
+      touch_ok = true;
+      ESP_LOGI(TAG, "Touch controller initialized OK");
+      break;
+    }
+    ESP_LOGW(TAG, "Touch init failed, retrying...");
+    vTaskDelay(pdMS_TO_TICKS(500));
+  }
+
+  if (!touch_ok) {
+    ESP_LOGE(TAG, "Touch controller FAILED to init after retries. Touch may "
+                  "trigger ghost clicks or not work.");
+    // We continue anyway, but maybe show an error on screen?
+    // For now just log it. The buffer overflow fix will prevent crashes.
+  }
+
   // ts.reset();
   ts.setRotation(TOUCH_ROTATION);
   lcd.setRotation(LCD_ROTATION);
@@ -1203,6 +1276,10 @@ void UI_Task(void *pvParameters) {
 
   lv_obj_add_event_cb(ui_TextArea1, TextArea_focus_cb, LV_EVENT_CLICKED, NULL);
   lv_obj_add_event_cb(ui_TextArea2, TextArea_focus_cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_add_event_cb(ui_TextArea1, TextArea_Change_cb, LV_EVENT_VALUE_CHANGED,
+                      NULL);
+  lv_obj_add_event_cb(ui_TextArea2, TextArea_Change_cb, LV_EVENT_VALUE_CHANGED,
+                      NULL);
   lv_obj_add_event_cb(ui_Keyboard1, Keyboard_cb, LV_EVENT_ALL, NULL);
   lv_obj_add_event_cb(ui_WifiButton, WifiButton_cb, LV_EVENT_CLICKED, NULL);
   lv_textarea_set_text(ui_TextArea1, wifi_ssid);
@@ -1291,6 +1368,7 @@ void UI_Task(void *pvParameters) {
 
   lv_obj_add_flag(ui_NumAlarm, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_Panel10, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_AlarmButton, LV_OBJ_FLAG_HIDDEN);
 
   lv_obj_add_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);

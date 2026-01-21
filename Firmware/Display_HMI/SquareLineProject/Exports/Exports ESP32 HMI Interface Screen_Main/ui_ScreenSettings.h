@@ -3,8 +3,8 @@
 // LVGL version: 8.3.11
 // Project name: esp32HMIInterface_Screen_Main
 
-#ifndef UI_ScreenSettings_H
-#define UI_ScreenSettings_H
+#ifndef UI_SCREENSETTINGS_H
+#define UI_SCREENSETTINGS_H
 
 #ifdef __cplusplus
 extern "C" {

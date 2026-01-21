@@ -48,7 +48,7 @@ void ui_ScreenCharts_screen_init(void)
     lv_obj_set_align(ui_TabView1, LV_ALIGN_CENTER);
     lv_obj_clear_flag(ui_TabView1, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
-    ui_TempChartPage1 = lv_tabview_add_tab(ui_TabView1, "Temperature");
+    ui_TempChartPage1 = lv_tabview_add_tab(ui_TabView1, "");
 
     ui_AirTempChartCont = lv_obj_create(ui_TempChartPage1);
     lv_obj_remove_style_all(ui_AirTempChartCont);
@@ -78,7 +78,6 @@ void ui_ScreenCharts_screen_init(void)
     lv_obj_set_x(ui_Label37, -2);
     lv_obj_set_y(ui_Label37, -165);
     lv_obj_set_align(ui_Label37, LV_ALIGN_CENTER);
-    lv_label_set_text(ui_Label37, "AIR TEMPERATURE CHART");
     lv_obj_set_style_text_font(ui_Label37, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_SkinTempChartCont = lv_obj_create(ui_TempChartPage1);
@@ -110,10 +109,9 @@ void ui_ScreenCharts_screen_init(void)
     lv_obj_set_x(ui_Label38, -2);
     lv_obj_set_y(ui_Label38, -165);
     lv_obj_set_align(ui_Label38, LV_ALIGN_CENTER);
-    lv_label_set_text(ui_Label38, "SKIN TEMPERATURE CHART");
     lv_obj_set_style_text_font(ui_Label38, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    ui_HumChartPage2 = lv_tabview_add_tab(ui_TabView1, "Humidity");
+    ui_HumChartPage2 = lv_tabview_add_tab(ui_TabView1, "");
 
     ui_HumChartCont = lv_obj_create(ui_HumChartPage2);
     lv_obj_remove_style_all(ui_HumChartCont);
@@ -145,7 +143,6 @@ void ui_ScreenCharts_screen_init(void)
     lv_obj_set_x(ui_Label36, -2);
     lv_obj_set_y(ui_Label36, -165);
     lv_obj_set_align(ui_Label36, LV_ALIGN_CENTER);
-    lv_label_set_text(ui_Label36, "HUMIDITY CHART");
     lv_obj_set_style_text_font(ui_Label36, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_OxChartCont = lv_obj_create(ui_ScreenCharts);
@@ -177,7 +174,6 @@ void ui_ScreenCharts_screen_init(void)
     lv_obj_set_x(ui_Label35, -2);
     lv_obj_set_y(ui_Label35, -202);
     lv_obj_set_align(ui_Label35, LV_ALIGN_CENTER);
-    lv_label_set_text(ui_Label35, "OXIMETRY CHART");
     lv_obj_set_style_text_font(ui_Label35, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_ImgButton8 = lv_imgbtn_create(ui_ScreenCharts);

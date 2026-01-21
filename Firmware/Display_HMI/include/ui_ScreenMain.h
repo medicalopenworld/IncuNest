@@ -3,8 +3,8 @@
 // LVGL version: 8.3.11
 // Project name: esp32HMIInterface_Screen_Main
 
-#ifndef UI_ScreenMain_H
-#define UI_ScreenMain_H
+#ifndef UI_SCREENMAIN_H
+#define UI_SCREENMAIN_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -85,6 +85,7 @@ extern void ui_event_ChartButton(lv_event_t * e);
 extern lv_obj_t * ui_ChartButton;
 extern void ui_event_ImgButton1(lv_event_t * e);
 extern lv_obj_t * ui_ImgButton1;
+extern lv_obj_t * ui_CheckImgMain;
 // CUSTOM VARIABLES
 extern lv_obj_t * uic_Tempbutton;
 extern lv_obj_t * uic_HumidButton;

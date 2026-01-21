@@ -3,8 +3,8 @@
 // LVGL version: 8.3.11
 // Project name: esp32HMIInterface_Screen_Main
 
-#ifndef UI_ScreenPulseOxi_H
-#define UI_ScreenPulseOxi_H
+#ifndef UI_SCREENPULSEOXI_H
+#define UI_SCREENPULSEOXI_H
 
 #ifdef __cplusplus
 extern "C" {

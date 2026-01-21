@@ -23,15 +23,14 @@
 
 */
 #include <Arduino.h>
+#include <string.h>
 
 #include "GPRS.h"
 #include "main.h"
 
 extern GPRSstruct GPRS;
 static const char *TAG = "WiFi";
-
 char wifiHost[32];
-static unsigned long lastWifiInitTime = 0;
 
 WebServer wifiServer(80);
 
@@ -51,7 +50,8 @@ JsonObject addVariableToTelemetryWIFIJSON = WIFI_JSON.to<JsonObject>();
 bool WIFI_connection_status = false;
 
 extern in3ator_parameters in3;
-extern double fineTuneSkinTemperature;
+extern bool WIFI_EN;
+
 WIFIstruct Wifi_TB;
 Credentials wifi_credentials;
 Espressif_Updater updater_WIFI;
@@ -116,12 +116,21 @@ const char *serverIndex =
     "<script "
     "src='https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js'></"
     "script>"
+    "<h3>Firmware Update</h3>"
+    "<p>Current Version: <span id='fw_version'></span></p>"
     "<form method='POST' action='#' enctype='multipart/form-data' "
     "id='upload_form'>"
     "<input type='file' name='update'>"
     "<input type='submit' value='Update'>"
     "</form>"
     "<div id='prg'>progress: 0%</div>"
+    "<script>"
+    "$(document).ready(function() {"
+    "  $.get('/get_fw_version', function(data) {"
+    "    $('#fw_version').text(data.version);"
+    "  });"
+    "});"
+    "</script>"
     "<script>"
     "$('form').submit(function(e){"
     "e.preventDefault();"
@@ -163,6 +172,9 @@ const char *configIndex =
     "<label>Reference Skin Temp (Current Actual):</label><br>"
     "<input type='number' step='0.01' name='reference_temp' "
     "id='reference_temp'><br><br>"
+    "<label>Fine Tune Skin Temperature Offset:</label><br>"
+    "<input type='number' step='0.01' name='fine_tune' id='fine_tune' "
+    "readonly><br><br>"
     "<input type='submit' value='Save'>"
     "</form>"
     "<div id='msg'></div>"
@@ -171,6 +183,7 @@ const char *configIndex =
     "  $.get('/get_config', function(data) {"
     "    $('#serial').val(data.serial);"
     "    $('#reference_temp').val(data.skin_temp_val);"
+    "    $('#fine_tune').val(data.fine_tune);"
     "  });"
     "});"
     "</script>";
@@ -181,11 +194,20 @@ const char *configIndex =
 extern char pendingSSID[64];
 extern char pendingPass[64];
 
+static uint32_t lastconnectiontrywifi = 0;
+
 void wifiInit(void) {
+  // Connect to WiFi network
   ESP_LOGI(TAG, "Initializing WiFi");
-  lastWifiInitTime = millis();
+  Wifi_TB.lastWifiReconnectAttempt = millis();
   WiFi.setHostname(
       String(String(WIFI_NAME) + "-" + String(in3.serialNumber)).c_str());
+
+  // Copy hostname to wifiHost for MDNS
+  String hostname = String(WIFI_NAME) + "-" + String(in3.serialNumber);
+  strncpy(wifiHost, hostname.c_str(), sizeof(wifiHost) - 1);
+  wifiHost[sizeof(wifiHost) - 1] = '\0';
+
   WiFi.mode(WIFI_STA);
   WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
 
@@ -195,19 +217,21 @@ void wifiInit(void) {
   if (strlen(pendingSSID) > 0) {
     ssid = pendingSSID;
     pass = pendingPass;
-    logI("Connecting to pending WiFi: " + ssid);
+    ESP_LOGI(TAG, "Connecting to pending SSID: %s", ssid.c_str());
   } else {
     ssid = EEPROM.readString(EEPROM_WIFI_SSID);
     pass = EEPROM.readString(EEPROM_WIFI_PASSWORD);
     if (ssid.length() > 0) {
-      logI("Connecting to WiFi from EEPROM: " + ssid);
+      ESP_LOGI(TAG, "Connecting to SSID from EEPROM: %s", ssid.c_str());
     } else {
-      logI("Connecting to default WiFi: " + String(WIFI_SSID));
+      ESP_LOGI(TAG, "Connecting to default SSID: %s", WIFI_SSID);
       ssid = WIFI_SSID;
       pass = WIFI_PASSWORD;
     }
   }
+
   WiFi.begin(ssid.c_str(), pass.c_str());
+  lastconnectiontrywifi = millis();
 }
 
 void wifiDisable() { WiFi.mode(WIFI_OFF); }
@@ -231,6 +255,13 @@ void configWifiServer() {
     wifiServer.sendHeader("Connection", "close");
     wifiServer.send(200, "text/html", serverIndex);
   });
+  wifiServer.on("/get_fw_version", HTTP_GET, []() {
+    String json = "{";
+    json += "\"version\":\"" + String(FWversion) + "\"";
+    json += "}";
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "application/json", json);
+  });
   /* config page */
   wifiServer.on("/config", HTTP_GET, []() {
     wifiServer.sendHeader("Connection", "close");
@@ -241,7 +272,8 @@ void configWifiServer() {
     json += "\"serial\":" + String(in3.serialNumber) + ",";
     // Return current displayed temperature so user can see what it is or use it
     // as base
-    json += "\"skin_temp_val\":" + String(in3.temperature[SKIN_SENSOR]);
+    json += "\"skin_temp_val\":" + String(in3.temperature[SKIN_SENSOR]) + ",";
+    json += "\"fine_tune\":" + String(in3.fineTuneSkinTemperature);
     json += "}";
     wifiServer.sendHeader("Connection", "close");
     wifiServer.send(200, "application/json", json);
@@ -258,9 +290,11 @@ void configWifiServer() {
       // We want Reference = Raw + NewOffset
       // So NewOffset = Reference - Raw = Reference - (Displayed - OldOffset)
       //              = Reference - Displayed + OldOffset
-      fineTuneSkinTemperature = fineTuneSkinTemperature +
-                                (referenceTemp - in3.temperature[SKIN_SENSOR]);
-      EEPROM.writeFloat(EEPROM_FINE_TUNE_TEMP_SKIN, fineTuneSkinTemperature);
+      in3.fineTuneSkinTemperature =
+          in3.fineTuneSkinTemperature +
+          (referenceTemp - in3.temperature[SKIN_SENSOR]);
+      EEPROM.writeFloat(EEPROM_FINE_TUNE_TEMP_SKIN,
+                        in3.fineTuneSkinTemperature);
     }
     EEPROM.commit();
     wifiServer.sendHeader("Connection", "close");
@@ -682,13 +716,22 @@ void WIFI_TB_OTA() {
 }
 
 void WifiOTAHandler(void) {
+  static long lastLog = 0;
+  if (millis() - lastLog > 5000) {
+    ESP_LOGI(TAG, "WifiOTAHandler alive. WiFi status: %d. IP: %s",
+             WiFi.status(), WiFi.localIP().toString().c_str());
+    lastLog = millis();
+  }
+
+  if (WIFI_EN && WiFi.status() != WL_CONNECTED) {
+    if (millis() - Wifi_TB.lastWifiReconnectAttempt > WIFI_RECONNECT_INTERVAL) {
+      Wifi_TB.lastWifiReconnectAttempt = millis();
+      logI("[WIFI] -> Connection lost, attempting to reconnect...");
+      MDNS.end();
+      wifiInit();
+    }
+  }
+
   WIFI_TB_OTA();
   WEB_OTA();
-  // Only disable WiFi if it's been more than 60 seconds since last init attempt
-  if (WiFi.status() != 0xff && WiFi.status() != WL_CONNECTED &&
-      lastWifiInitTime > 0 && (millis() - lastWifiInitTime) > 60000) {
-    wifiDisable();
-    logI("[WIFI] -> WIFI DISABLED");
-    lastWifiInitTime = 0; // Reset so we don't keep logging
-  }
 }
