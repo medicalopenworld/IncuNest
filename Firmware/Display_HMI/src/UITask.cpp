@@ -424,6 +424,8 @@ void WifiButton_cb(lv_event_t *e) {
     lv_obj_clear_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
   }
   wifiVisible = true;
+  hmi_msg.shouldSendData = true;
+
 }
 
 void LanguageButton_cb(lv_event_t *e) {
@@ -432,6 +434,8 @@ void LanguageButton_cb(lv_event_t *e) {
   wifiVisible = false;
   lv_obj_clear_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
   LanguagesVisible = true;
+  hmi_msg.shouldSendData = true;
+
 }
 
 void TextArea_Change_cb(lv_event_t *e) {
@@ -963,13 +967,19 @@ void show_alarm_detail_from_slot(int slot) {
   lv_label_set_text(ui_AlarmDetailLabel, alarmList[idx].description);
 }
 
-void Alarm1Cont_cb(lv_event_t *e) { show_alarm_detail_from_slot(0); }
-void Alarm2Cont_cb(lv_event_t *e) { show_alarm_detail_from_slot(1); }
-void Alarm3Cont_cb(lv_event_t *e) { show_alarm_detail_from_slot(2); }
-void Alarm4Cont_cb(lv_event_t *e) { show_alarm_detail_from_slot(3); }
+void Alarm1Cont_cb(lv_event_t *e) { show_alarm_detail_from_slot(0); hmi_msg.shouldSendData = true;
+}
+void Alarm2Cont_cb(lv_event_t *e) { show_alarm_detail_from_slot(1); hmi_msg.shouldSendData = true;
+}
+void Alarm3Cont_cb(lv_event_t *e) { show_alarm_detail_from_slot(2); hmi_msg.shouldSendData = true;
+}
+void Alarm4Cont_cb(lv_event_t *e) { show_alarm_detail_from_slot(3); hmi_msg.shouldSendData = true;
+}
 
 void AlarmButton_cb(lv_event_t *e) {
   lv_tabview_set_act(ui_AlarmsTabview, 0, LV_ANIM_ON);
+  hmi_msg.shouldSendData = true;
+
 }
 
 void AlarmsTabview_cb(lv_event_t *e) {
@@ -978,6 +988,7 @@ void AlarmsTabview_cb(lv_event_t *e) {
   if (act == 0) {
     lv_label_set_text(ui_AlarmDetailLabel, "");
   }
+  hmi_msg.shouldSendData = true;
 }
 
 void chart_add_hum_value(float hum) {
@@ -1120,6 +1131,7 @@ void ImgButton1_Lock_cb(lv_event_t *e) {
   if (lv_scr_act() == ui_ScreenMain) {
     enter_lock_screen();
   }
+  hmi_msg.shouldSendData = true;
 }
 
 void LockScreenAnyTouch_cb(lv_event_t *e) {
@@ -1188,6 +1200,7 @@ void inactivity_timer_cb(lv_timer_t *timer) {
 }
 
 void WifiConnectButton_cb(lv_event_t *e) {
+  hmi_msg.shouldSendData = true;
   extern char pendingSSID[64];
   extern char pendingPass[64];
   strncpy(pendingSSID, wifi_ssid, sizeof(pendingSSID));

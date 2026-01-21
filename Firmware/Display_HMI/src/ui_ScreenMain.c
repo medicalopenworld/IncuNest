@@ -139,6 +139,7 @@ void ui_ScreenMain_screen_init(void)
     lv_obj_set_x(ui_Incunest, -250);
     lv_obj_set_y(ui_Incunest, -213);
     lv_obj_set_align(ui_Incunest, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_Incunest, "IncuNest");
     lv_obj_set_style_text_font(ui_Incunest, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_Settings = lv_imgbtn_create(ui_ScreenMain);
@@ -196,6 +197,7 @@ void ui_ScreenMain_screen_init(void)
     lv_obj_set_x(ui_Label2, -95);
     lv_obj_set_y(ui_Label2, -186);
     lv_obj_set_align(ui_Label2, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_Label2, "Temperature control");
 
     ui_AirPanelCont = lv_obj_create(ui_TempCont);
     lv_obj_remove_style_all(ui_AirPanelCont);
@@ -227,6 +229,7 @@ void ui_ScreenMain_screen_init(void)
     lv_obj_set_x(ui_Label30, -6);
     lv_obj_set_y(ui_Label30, -43);
     lv_obj_set_align(ui_Label30, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_Label30, "Air");
     lv_obj_set_style_text_font(ui_Label30, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_Image4 = lv_img_create(ui_AirPanelCont);
@@ -315,6 +318,7 @@ void ui_ScreenMain_screen_init(void)
     lv_obj_set_x(ui_Label31, -6);
     lv_obj_set_y(ui_Label31, -37);
     lv_obj_set_align(ui_Label31, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_Label31, "Skin");
     lv_obj_set_style_text_font(ui_Label31, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_TempSkinDetected = lv_label_create(ui_SkinPanelCont);
@@ -394,6 +398,7 @@ void ui_ScreenMain_screen_init(void)
     lv_obj_set_x(ui_Label6, -5);
     lv_obj_set_y(ui_Label6, 25);
     lv_obj_set_align(ui_Label6, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_Label6, "Set");
 
     ui_Label9 = lv_label_create(ui_TempCont);
     lv_obj_set_width(ui_Label9, LV_SIZE_CONTENT);   /// 1
@@ -401,6 +406,7 @@ void ui_ScreenMain_screen_init(void)
     lv_obj_set_x(ui_Label9, 165);
     lv_obj_set_y(ui_Label9, -187);
     lv_obj_set_align(ui_Label9, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_Label9, "ON");
 
     ui_Label15 = lv_label_create(ui_TempCont);
     lv_obj_set_width(ui_Label15, LV_SIZE_CONTENT);   /// 1
@@ -408,11 +414,12 @@ void ui_ScreenMain_screen_init(void)
     lv_obj_set_x(ui_Label15, 17);
     lv_obj_set_y(ui_Label15, -187);
     lv_obj_set_align(ui_Label15, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_Label15, "OFF");
 
     ui_ArrowDownTemp = lv_obj_create(ui_TempCont);
     lv_obj_set_width(ui_ArrowDownTemp, 60);
     lv_obj_set_height(ui_ArrowDownTemp, 60);
-    lv_obj_set_x(ui_ArrowDownTemp, -52);
+    lv_obj_set_x(ui_ArrowDownTemp, -73);
     lv_obj_set_y(ui_ArrowDownTemp, 26);
     lv_obj_set_align(ui_ArrowDownTemp, LV_ALIGN_CENTER);
     lv_obj_clear_flag(ui_ArrowDownTemp, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
@@ -420,7 +427,7 @@ void ui_ScreenMain_screen_init(void)
     ui_ArrowUpTemp = lv_obj_create(ui_TempCont);
     lv_obj_set_width(ui_ArrowUpTemp, 60);
     lv_obj_set_height(ui_ArrowUpTemp, 60);
-    lv_obj_set_x(ui_ArrowUpTemp, 40);
+    lv_obj_set_x(ui_ArrowUpTemp, 63);
     lv_obj_set_y(ui_ArrowUpTemp, 27);
     lv_obj_set_align(ui_ArrowUpTemp, LV_ALIGN_CENTER);
     lv_obj_clear_flag(ui_ArrowUpTemp, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
@@ -429,7 +436,7 @@ void ui_ScreenMain_screen_init(void)
     lv_imgbtn_set_src(ui_ImgArrowDownTemp, LV_IMGBTN_STATE_RELEASED, NULL, &ui_img_triangulo_abajo_png, NULL);
     lv_obj_set_width(ui_ImgArrowDownTemp, 39);
     lv_obj_set_height(ui_ImgArrowDownTemp, 42);
-    lv_obj_set_x(ui_ImgArrowDownTemp, -52);
+    lv_obj_set_x(ui_ImgArrowDownTemp, -73);
     lv_obj_set_y(ui_ImgArrowDownTemp, 29);
     lv_obj_set_align(ui_ImgArrowDownTemp, LV_ALIGN_CENTER);
 
@@ -437,7 +444,7 @@ void ui_ScreenMain_screen_init(void)
     lv_imgbtn_set_src(ui_ImgArrowUpTemp, LV_IMGBTN_STATE_RELEASED, NULL, &ui_img_triangulo_arriba_png, NULL);
     lv_obj_set_width(ui_ImgArrowUpTemp, 39);
     lv_obj_set_height(ui_ImgArrowUpTemp, 41);
-    lv_obj_set_x(ui_ImgArrowUpTemp, 40);
+    lv_obj_set_x(ui_ImgArrowUpTemp, 62);
     lv_obj_set_y(ui_ImgArrowUpTemp, 25);
     lv_obj_set_align(ui_ImgArrowUpTemp, LV_ALIGN_CENTER);
 
@@ -572,8 +579,9 @@ void ui_ScreenMain_screen_init(void)
     lv_obj_set_width(ui_Label7, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_Label7, LV_SIZE_CONTENT);    /// 1
     lv_obj_set_x(ui_Label7, 128);
-    lv_obj_set_y(ui_Label7, 2);
+    lv_obj_set_y(ui_Label7, 4);
     lv_obj_set_align(ui_Label7, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_Label7, "Set");
 
     ui_Label16 = lv_label_create(ui_HumCont);
     lv_obj_set_width(ui_Label16, LV_SIZE_CONTENT);   /// 1
@@ -581,6 +589,7 @@ void ui_ScreenMain_screen_init(void)
     lv_obj_set_x(ui_Label16, 11);
     lv_obj_set_y(ui_Label16, -98);
     lv_obj_set_align(ui_Label16, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_Label16, "OFF");
 
     ui_Label13 = lv_label_create(ui_HumCont);
     lv_obj_set_width(ui_Label13, LV_SIZE_CONTENT);   /// 1
@@ -588,6 +597,7 @@ void ui_ScreenMain_screen_init(void)
     lv_obj_set_x(ui_Label13, 160);
     lv_obj_set_y(ui_Label13, -98);
     lv_obj_set_align(ui_Label13, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_Label13, "ON");
 
     ui_Switch2 = lv_switch_create(ui_HumCont);
     lv_obj_set_width(ui_Switch2, 100);
@@ -613,6 +623,7 @@ void ui_ScreenMain_screen_init(void)
     lv_obj_set_x(ui_HumidityLabel, -104);
     lv_obj_set_y(ui_HumidityLabel, -98);
     lv_obj_set_align(ui_HumidityLabel, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_HumidityLabel, "Humidity control");
 
     ui_PhotoCont = lv_obj_create(ui_ScreenMain);
     lv_obj_remove_style_all(ui_PhotoCont);
@@ -644,6 +655,7 @@ void ui_ScreenMain_screen_init(void)
     lv_obj_set_x(ui_PhototherapyLabel, -119);
     lv_obj_set_y(ui_PhototherapyLabel, 1);
     lv_obj_set_align(ui_PhototherapyLabel, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_PhototherapyLabel, "Phototherapy");
 
     ui_Label17 = lv_label_create(ui_PhotoCont);
     lv_obj_set_width(ui_Label17, LV_SIZE_CONTENT);   /// 1
@@ -651,6 +663,7 @@ void ui_ScreenMain_screen_init(void)
     lv_obj_set_x(ui_Label17, 9);
     lv_obj_set_y(ui_Label17, 1);
     lv_obj_set_align(ui_Label17, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_Label17, "OFF");
 
     ui_Label10 = lv_label_create(ui_PhotoCont);
     lv_obj_set_width(ui_Label10, LV_SIZE_CONTENT);   /// 1
@@ -658,6 +671,7 @@ void ui_ScreenMain_screen_init(void)
     lv_obj_set_x(ui_Label10, 156);
     lv_obj_set_y(ui_Label10, 1);
     lv_obj_set_align(ui_Label10, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_Label10, "ON");
 
     ui_Panel10 = lv_obj_create(ui_ScreenMain);
     lv_obj_set_width(ui_Panel10, 24);

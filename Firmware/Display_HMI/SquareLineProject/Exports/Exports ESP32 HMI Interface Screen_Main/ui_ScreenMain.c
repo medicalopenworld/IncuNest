@@ -419,7 +419,7 @@ void ui_ScreenMain_screen_init(void)
     ui_ArrowDownTemp = lv_obj_create(ui_TempCont);
     lv_obj_set_width(ui_ArrowDownTemp, 60);
     lv_obj_set_height(ui_ArrowDownTemp, 60);
-    lv_obj_set_x(ui_ArrowDownTemp, -52);
+    lv_obj_set_x(ui_ArrowDownTemp, -73);
     lv_obj_set_y(ui_ArrowDownTemp, 26);
     lv_obj_set_align(ui_ArrowDownTemp, LV_ALIGN_CENTER);
     lv_obj_clear_flag(ui_ArrowDownTemp, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
@@ -427,7 +427,7 @@ void ui_ScreenMain_screen_init(void)
     ui_ArrowUpTemp = lv_obj_create(ui_TempCont);
     lv_obj_set_width(ui_ArrowUpTemp, 60);
     lv_obj_set_height(ui_ArrowUpTemp, 60);
-    lv_obj_set_x(ui_ArrowUpTemp, 40);
+    lv_obj_set_x(ui_ArrowUpTemp, 63);
     lv_obj_set_y(ui_ArrowUpTemp, 27);
     lv_obj_set_align(ui_ArrowUpTemp, LV_ALIGN_CENTER);
     lv_obj_clear_flag(ui_ArrowUpTemp, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
@@ -436,7 +436,7 @@ void ui_ScreenMain_screen_init(void)
     lv_imgbtn_set_src(ui_ImgArrowDownTemp, LV_IMGBTN_STATE_RELEASED, NULL, &ui_img_triangulo_abajo_png, NULL);
     lv_obj_set_width(ui_ImgArrowDownTemp, 39);
     lv_obj_set_height(ui_ImgArrowDownTemp, 42);
-    lv_obj_set_x(ui_ImgArrowDownTemp, -52);
+    lv_obj_set_x(ui_ImgArrowDownTemp, -73);
     lv_obj_set_y(ui_ImgArrowDownTemp, 29);
     lv_obj_set_align(ui_ImgArrowDownTemp, LV_ALIGN_CENTER);
 
@@ -444,7 +444,7 @@ void ui_ScreenMain_screen_init(void)
     lv_imgbtn_set_src(ui_ImgArrowUpTemp, LV_IMGBTN_STATE_RELEASED, NULL, &ui_img_triangulo_arriba_png, NULL);
     lv_obj_set_width(ui_ImgArrowUpTemp, 39);
     lv_obj_set_height(ui_ImgArrowUpTemp, 41);
-    lv_obj_set_x(ui_ImgArrowUpTemp, 40);
+    lv_obj_set_x(ui_ImgArrowUpTemp, 62);
     lv_obj_set_y(ui_ImgArrowUpTemp, 25);
     lv_obj_set_align(ui_ImgArrowUpTemp, LV_ALIGN_CENTER);
 
@@ -579,7 +579,7 @@ void ui_ScreenMain_screen_init(void)
     lv_obj_set_width(ui_Label7, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_Label7, LV_SIZE_CONTENT);    /// 1
     lv_obj_set_x(ui_Label7, 128);
-    lv_obj_set_y(ui_Label7, 2);
+    lv_obj_set_y(ui_Label7, 4);
     lv_obj_set_align(ui_Label7, LV_ALIGN_CENTER);
     lv_label_set_text(ui_Label7, "Set");
 

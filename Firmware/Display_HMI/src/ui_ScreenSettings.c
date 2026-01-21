@@ -109,9 +109,9 @@ void ui_ScreenSettings_screen_init(void)
     lv_label_set_text(ui_WifiLabel, "Wifi");
 
     ui_WifiButton = lv_btn_create(ui_WifiCont);
-    lv_obj_set_width(ui_WifiButton, 50);
+    lv_obj_set_width(ui_WifiButton, 282);
     lv_obj_set_height(ui_WifiButton, 40);
-    lv_obj_set_x(ui_WifiButton, 115);
+    lv_obj_set_x(ui_WifiButton, 2);
     lv_obj_set_y(ui_WifiButton, -2);
     lv_obj_set_align(ui_WifiButton, LV_ALIGN_CENTER);
     lv_obj_add_flag(ui_WifiButton, LV_OBJ_FLAG_SCROLL_ON_FOCUS);     /// Flags
@@ -154,10 +154,10 @@ void ui_ScreenSettings_screen_init(void)
     lv_label_set_text(ui_LanguagesLabel, "Languages");
 
     ui_LanguagesButton = lv_btn_create(ui_LanguagesCont);
-    lv_obj_set_width(ui_LanguagesButton, 50);
+    lv_obj_set_width(ui_LanguagesButton, 285);
     lv_obj_set_height(ui_LanguagesButton, 40);
-    lv_obj_set_x(ui_LanguagesButton, 115);
-    lv_obj_set_y(ui_LanguagesButton, 0);
+    lv_obj_set_x(ui_LanguagesButton, -2);
+    lv_obj_set_y(ui_LanguagesButton, -1);
     lv_obj_set_align(ui_LanguagesButton, LV_ALIGN_CENTER);
     lv_obj_add_flag(ui_LanguagesButton, LV_OBJ_FLAG_SCROLL_ON_FOCUS);     /// Flags
     lv_obj_clear_flag(ui_LanguagesButton, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
