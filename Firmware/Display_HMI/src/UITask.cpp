@@ -242,16 +242,16 @@ void UI_ApplyLanguage(ui_lang_t lang) {
                                      "GRAPHIQUE TEMPERATURE PEAU"};
   const char *TXT_TABTEMP[] = {"TEMPERATURA", "TEMPERATURE", "TEMPERATURE"};
   const char *TXT_TABHUM[] = {"HUMEDAD", "HUMIDITY", "HUMIDITE"};
-  const char *TXT_AIRTEMP[] = {"TEMPERATURA AIRE", "AIR TEMPERATURE",
-                               "AIR TEMPERATURE"};
-  const char *TXT_BABYTEMP[] = {"TEMPERATURA BEBE", "BABY TEMPERATURE",
-                                "TEMPERATURE BEBE"};
-  const char *TXT_HUM[] = {"HUMEDAD", "HUMIDITY", "HUMIDITE"};
-  const char *TXT_TARGETTEMP[] = {"TEMPERATURA OBJETIVO", "TARGET TEMPERATURE",
-                                  "TEMPERATURE OBJECTIF"};
-  const char *TXT_TARGETHUM[] = {"HUMEDAD OBJETIVO", "TARGET HUMIDITY",
-                                 "HUMIDITE OBJECTIF"};
-  const char *TXT_STATUS[] = {"ESTADO", "STATUS", "ETAT"};
+  const char *TXT_AIRTEMP[] = {"TEMPERATURA AIRE:", "AIR TEMPERATURE:",
+                               "AIR TEMPERATURE:"};
+  const char *TXT_BABYTEMP[] = {"TEMPERATURA BEBE:", "BABY TEMPERATURE:",
+                                "TEMPERATURE BEBE:"};
+  const char *TXT_HUM[] = {"HUMEDAD:", "HUMIDITY:", "HUMIDITE:"};
+  const char *TXT_TARGETTEMP[] = {"TEMP. OBJETIVO:", "TARGET TEMP.:",
+                                  "TEMP. OBJECTIF:"};
+  const char *TXT_TARGETHUM[] = {"HUMEDAD OBJETIVO:", "TARGET HUMIDITY:",
+                                 "HUMIDITE OBJECTIF:"};
+  const char *TXT_STATUS[] = {"ESTADO:", "STATUS:", "ETAT:"};
   const char *TXT_UNLOCK[] = {"PRESIONA 2 SEG\nPARA DESBLOQUEAR",
                               "PRESS 2 SEC \nTO UNLOCK",
                               "APPUYEZ 2 SEG\nPOUR DEVERROUILLER"};
@@ -1008,7 +1008,7 @@ void AlarmSound_Update() {
     buzzerOff();
 }
 
-static void MuteAlarm_cb(lv_event_t *e) {
+void MuteAlarm_cb(lv_event_t *e) {
   (void)e;
   alarmsMuted = true;
   hmi_msg.muteAlarm = 1;
@@ -1212,6 +1212,36 @@ void WifiConnectButton_cb(lv_event_t *e) {
   wifiInit();              // Trigger new connection attempt
 }
 
+void Label9_cb(lv_event_t *e) {
+  lv_obj_add_state(ui_Switch1, LV_STATE_CHECKED);
+  lv_event_send(ui_Switch1, LV_EVENT_VALUE_CHANGED, NULL);
+}
+
+void Label15_cb(lv_event_t *e) {
+  lv_obj_clear_state(ui_Switch1, LV_STATE_CHECKED);
+  lv_event_send(ui_Switch1, LV_EVENT_VALUE_CHANGED, NULL);
+}
+
+void Label13_cb(lv_event_t *e) {
+  lv_obj_add_state(ui_Switch2, LV_STATE_CHECKED);
+  lv_event_send(ui_Switch2, LV_EVENT_VALUE_CHANGED, NULL);
+}
+
+void Label16_cb(lv_event_t *e) {
+  lv_obj_clear_state(ui_Switch2, LV_STATE_CHECKED);
+  lv_event_send(ui_Switch2, LV_EVENT_VALUE_CHANGED, NULL);
+}
+
+void Label10_cb(lv_event_t *e) {
+  lv_obj_add_state(ui_Switch3, LV_STATE_CHECKED);
+  lv_event_send(ui_Switch3, LV_EVENT_VALUE_CHANGED, NULL);
+}
+
+void Label17_cb(lv_event_t *e) {
+  lv_obj_clear_state(ui_Switch3, LV_STATE_CHECKED);
+  lv_event_send(ui_Switch3, LV_EVENT_VALUE_CHANGED, NULL);
+}
+
 void ui_set_switch_state_silent(lv_obj_t *sw, bool on) {
   if (!sw)
     return;
@@ -1219,6 +1249,55 @@ void ui_set_switch_state_silent(lv_obj_t *sw, bool on) {
     lv_obj_add_state(sw, LV_STATE_CHECKED);
   else
     lv_obj_clear_state(sw, LV_STATE_CHECKED);
+}
+
+void Settings_cb(lv_event_t *e) {
+  _ui_screen_change(&ui_ScreenSettings, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
+                    &ui_ScreenSettings_screen_init);
+}
+
+void SPO2Button_cb(lv_event_t *e) {
+  _ui_screen_change(&ui_ScreenPulseOxi, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
+                    &ui_ScreenPulseOxi_screen_init);
+}
+
+void ChartButton_cb(lv_event_t *e) {
+  _ui_screen_change(&ui_ScreenCharts, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
+                    &ui_ScreenCharts_screen_init);
+}
+
+
+void AlarmLockImg_cb(lv_event_t *e) {
+  _ui_screen_delete(&ui_ScreenLock);
+  _ui_screen_change(&ui_ScreenAlarms, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
+                    &ui_ScreenAlarms_screen_init);
+}
+
+void AlarmLockCont_cb(lv_event_t *e) {
+  if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+    AlarmLockImg_cb(e);
+  }
+}
+
+void ImgButton2_cb(lv_event_t *e) {
+  _ui_screen_change(&ui_ScreenMain, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
+                    &ui_ScreenMain_screen_init);
+  _ui_screen_delete(&ui_ScreenSettings);
+}
+
+void ImgButton7_cb(lv_event_t *e) {
+  _ui_screen_change(&ui_ScreenMain, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
+                    &ui_ScreenMain_screen_init);
+}
+
+void ImgButton8_cb(lv_event_t *e) {
+  _ui_screen_change(&ui_ScreenMain, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
+                    &ui_ScreenMain_screen_init);
+}
+
+void ImgButton9_cb(lv_event_t *e) {
+  _ui_screen_change(&ui_ScreenMain, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
+                    &ui_ScreenMain_screen_init);
 }
 
 // ==========================================
@@ -1258,8 +1337,6 @@ void UI_Task(void *pvParameters) {
   if (!touch_ok) {
     ESP_LOGE(TAG, "Touch controller FAILED to init after retries. Touch may "
                   "trigger ghost clicks or not work.");
-    // We continue anyway, but maybe show an error on screen?
-    // For now just log it. The buffer overflow fix will prevent crashes.
   }
 
   // ts.reset();
@@ -1286,17 +1363,12 @@ void UI_Task(void *pvParameters) {
   lv_indev_drv_register(&indev_drv);
 
   ui_init();
-
-  // ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RESOLUTION);
-  // ledcAttachPin(TFT_BL_PIN, PWM_CHANNEL);
-  // ledcWrite(PWM_CHANNEL, BRIGHTNESS_MAX);
-  pinMode(TFT_BL_PIN, OUTPUT);
-  digitalWrite(TFT_BL_PIN, LOW);
-  vTaskDelay(pdMS_TO_TICKS(DELAY_BACKLIGHT_MS));
-  digitalWrite(TFT_BL_PIN, HIGH);
+  
+  ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RESOLUTION);
+  ledcAttachPin(TFT_BL_PIN, PWM_CHANNEL);
+  ledcWrite(PWM_CHANNEL, BRIGHTNESS_MAX);
 
   UI_ApplyLanguage(g_lang);
-  lv_dropdown_set_selected(ui_LanguagesDropDown, g_lang);
 
   intro_timer = lv_timer_create(intro_timer_cb, 5000, NULL);
   lv_timer_set_repeat_count(intro_timer, 1);
@@ -1305,8 +1377,6 @@ void UI_Task(void *pvParameters) {
   lv_bar_set_range(ui_AirTempBar, 0, 20);
   lv_bar_set_range(ui_SkinTempBar, 0, 20);
   lv_bar_set_range(ui_HumBar, 0, 100);
-
-  lv_obj_add_event_cb(ui_MuteAlarm, MuteAlarm_cb, LV_EVENT_CLICKED, NULL);
 
   lv_obj_add_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
@@ -1317,19 +1387,8 @@ void UI_Task(void *pvParameters) {
   lv_obj_add_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
   lv_keyboard_set_textarea(ui_Keyboard1, NULL);
 
-  lv_obj_add_event_cb(ui_TextArea1, TextArea_focus_cb, LV_EVENT_CLICKED, NULL);
-  lv_obj_add_event_cb(ui_TextArea2, TextArea_focus_cb, LV_EVENT_CLICKED, NULL);
-  lv_obj_add_event_cb(ui_TextArea1, TextArea_Change_cb, LV_EVENT_VALUE_CHANGED,
-                      NULL);
-  lv_obj_add_event_cb(ui_TextArea2, TextArea_Change_cb, LV_EVENT_VALUE_CHANGED,
-                      NULL);
-  lv_obj_add_event_cb(ui_Keyboard1, Keyboard_cb, LV_EVENT_ALL, NULL);
-  lv_obj_add_event_cb(ui_WifiButton, WifiButton_cb, LV_EVENT_CLICKED, NULL);
   lv_textarea_set_text(ui_TextArea1, wifi_ssid);
   lv_textarea_set_text(ui_TextArea2, wifi_pass);
-
-  lv_obj_add_event_cb(ui_LanguagesButton, LanguageButton_cb, LV_EVENT_CLICKED,
-                      NULL);
 
   lv_obj_set_style_bg_color(ui_Panel2, COLOR_PANEL_WHITE, LV_PART_MAIN);
   lv_obj_set_style_opa(ui_Panel2, LV_OPA_COVER, LV_PART_MAIN);
@@ -1369,33 +1428,17 @@ void UI_Task(void *pvParameters) {
   lv_obj_add_flag(ui_Alarm3Cont, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_flag(ui_Alarm4Cont, LV_OBJ_FLAG_CLICKABLE);
 
-  lv_obj_add_event_cb(ui_Alarm1Cont, Alarm1Cont_cb, LV_EVENT_CLICKED, NULL);
-  lv_obj_add_event_cb(ui_Alarm2Cont, Alarm2Cont_cb, LV_EVENT_CLICKED, NULL);
-  lv_obj_add_event_cb(ui_Alarm3Cont, Alarm3Cont_cb, LV_EVENT_CLICKED, NULL);
-  lv_obj_add_event_cb(ui_Alarm4Cont, Alarm4Cont_cb, LV_EVENT_CLICKED, NULL);
-
   lv_obj_add_flag(ui_Alarm1Label, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_flag(ui_Alarm1Panel, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_event_cb(ui_Alarm1Label, Alarm1Cont_cb, LV_EVENT_CLICKED, NULL);
-  lv_obj_add_event_cb(ui_Alarm1Panel, Alarm1Cont_cb, LV_EVENT_CLICKED, NULL);
 
   lv_obj_add_flag(ui_Alarm2Label, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_flag(ui_Alarm2Panel, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_event_cb(ui_Alarm2Label, Alarm2Cont_cb, LV_EVENT_CLICKED, NULL);
-  lv_obj_add_event_cb(ui_Alarm2Panel, Alarm2Cont_cb, LV_EVENT_CLICKED, NULL);
 
   lv_obj_add_flag(ui_Alarm3Label, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_flag(ui_Alarm3Panel, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_event_cb(ui_Alarm3Label, Alarm3Cont_cb, LV_EVENT_CLICKED, NULL);
-  lv_obj_add_event_cb(ui_Alarm3Panel, Alarm3Cont_cb, LV_EVENT_CLICKED, NULL);
 
   lv_obj_add_flag(ui_Alarm4Panel, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_flag(ui_Alarm4Label, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_event_cb(ui_Alarm4Label, Alarm4Cont_cb, LV_EVENT_CLICKED, NULL);
-  lv_obj_add_event_cb(ui_Alarm4Panel, Alarm4Cont_cb, LV_EVENT_CLICKED, NULL);
-
-  lv_obj_add_event_cb(ui_ImgButton7, AlarmsTabview_cb, LV_EVENT_CLICKED, NULL);
-  lv_obj_add_event_cb(ui_AlarmButton, AlarmButton_cb, LV_EVENT_CLICKED, NULL);
 
   lv_obj_add_flag(ui_ChartButton, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_SPO2Button, LV_OBJ_FLAG_HIDDEN);
@@ -1405,8 +1448,6 @@ void UI_Task(void *pvParameters) {
   lv_obj_set_style_text_align(ui_AlarmDetailLabel, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_align(ui_AlarmDetailLabel, LV_ALIGN_TOP_MID, 0, 20);
 
-  lv_obj_add_event_cb(ui_AlarmsTabview, AlarmsTabview_cb,
-                      LV_EVENT_VALUE_CHANGED, NULL);
   lv_label_set_text(ui_AlarmDetailLabel, "");
 
   lv_obj_add_flag(ui_NumAlarm, LV_OBJ_FLAG_HIDDEN);
@@ -1419,22 +1460,10 @@ void UI_Task(void *pvParameters) {
   lv_obj_add_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_Spinner1, LV_OBJ_FLAG_HIDDEN);
 
-  lv_obj_add_event_cb(ui_ImgButton1, ImgButton1_Lock_cb, LV_EVENT_CLICKED,
-                      NULL);
-  lv_obj_add_event_cb(ui_ScreenLock, LockScreenAnyTouch_cb, LV_EVENT_PRESSED,
-                      NULL);
-
   add_unlock_press_cb_recursive(ui_UnlockCont);
 
   lv_obj_add_flag(ui_AlarmLockCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_clear_flag(ui_CheckImg, LV_OBJ_FLAG_HIDDEN);
-
-  lv_obj_add_event_cb(ui_AlarmLockCont, AlarmButton_cb, LV_EVENT_CLICKED, NULL);
-
-  lv_obj_add_event_cb(ui_LanguagesDropDown, LanguagesDropDown_cb,
-                      LV_EVENT_VALUE_CHANGED, NULL);
-  lv_obj_add_event_cb(ui_WifiConnectButton, WifiConnectButton_cb,
-                      LV_EVENT_CLICKED, NULL);
 
   airTempSeries = configure_temp_chart(ui_AirTempChart, LV_PALETTE_BLUE);
   skinTempSeries = configure_temp_chart(ui_SkinTempChart, LV_PALETTE_BLUE);
@@ -1471,61 +1500,14 @@ void UI_Task(void *pvParameters) {
 
   update_labels();
 
-  lv_obj_add_event_cb(ui_Switch1, Switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
-  lv_obj_add_event_cb(ui_Switch2, Switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
-  lv_obj_add_event_cb(ui_Switch3, Switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
-  lv_obj_add_event_cb(ui_Switch4, Switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
-
   lv_obj_add_flag(ui_Label9, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_event_cb(
-      ui_Label9,
-      [](lv_event_t *e) {
-        lv_obj_add_state(ui_Switch1, LV_STATE_CHECKED);
-        lv_event_send(ui_Switch1, LV_EVENT_VALUE_CHANGED, NULL);
-      },
-      LV_EVENT_CLICKED, NULL);
   lv_obj_add_flag(ui_Label15, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_event_cb(
-      ui_Label15,
-      [](lv_event_t *e) {
-        lv_obj_clear_state(ui_Switch1, LV_STATE_CHECKED);
-        lv_event_send(ui_Switch1, LV_EVENT_VALUE_CHANGED, NULL);
-      },
-      LV_EVENT_CLICKED, NULL);
 
   lv_obj_add_flag(ui_Label13, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_event_cb(
-      ui_Label13,
-      [](lv_event_t *e) {
-        lv_obj_add_state(ui_Switch2, LV_STATE_CHECKED);
-        lv_event_send(ui_Switch2, LV_EVENT_VALUE_CHANGED, NULL);
-      },
-      LV_EVENT_CLICKED, NULL);
   lv_obj_add_flag(ui_Label16, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_event_cb(
-      ui_Label16,
-      [](lv_event_t *e) {
-        lv_obj_clear_state(ui_Switch2, LV_STATE_CHECKED);
-        lv_event_send(ui_Switch2, LV_EVENT_VALUE_CHANGED, NULL);
-      },
-      LV_EVENT_CLICKED, NULL);
 
   lv_obj_add_flag(ui_Label10, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_event_cb(
-      ui_Label10,
-      [](lv_event_t *e) {
-        lv_obj_add_state(ui_Switch3, LV_STATE_CHECKED);
-        lv_event_send(ui_Switch3, LV_EVENT_VALUE_CHANGED, NULL);
-      },
-      LV_EVENT_CLICKED, NULL);
   lv_obj_add_flag(ui_Label17, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_event_cb(
-      ui_Label17,
-      [](lv_event_t *e) {
-        lv_obj_clear_state(ui_Switch3, LV_STATE_CHECKED);
-        lv_event_send(ui_Switch3, LV_EVENT_VALUE_CHANGED, NULL);
-      },
-      LV_EVENT_CLICKED, NULL);
 
   setup_panel_callbacks();
   setup_arrow_callbacks();
