@@ -249,15 +249,15 @@ void ui_ScreenLock_screen_init(void)
 
     ui_UnlockCont = lv_obj_create(ui_ScreenLock);
     lv_obj_remove_style_all(ui_UnlockCont);
-    lv_obj_set_width(ui_UnlockCont, 217);
-    lv_obj_set_height(ui_UnlockCont, 112);
+    lv_obj_set_width(ui_UnlockCont, 310);
+    lv_obj_set_height(ui_UnlockCont, 200);
     lv_obj_set_align(ui_UnlockCont, LV_ALIGN_CENTER);
     lv_obj_add_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);     /// Flags
     lv_obj_clear_flag(ui_UnlockCont, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
     ui_Panel11 = lv_obj_create(ui_UnlockCont);
-    lv_obj_set_width(ui_Panel11, 210);
-    lv_obj_set_height(ui_Panel11, 100);
+    lv_obj_set_width(ui_Panel11, 300);
+    lv_obj_set_height(ui_Panel11, 190);
     lv_obj_set_align(ui_Panel11, LV_ALIGN_CENTER);
     lv_obj_clear_flag(ui_Panel11, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
     lv_obj_set_style_bg_color(ui_Panel11, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -272,13 +272,14 @@ void ui_ScreenLock_screen_init(void)
     lv_label_set_text(ui_Label4, "PRESS 2 SECS TO UNLOCK");
     lv_obj_set_style_text_color(ui_Label4, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(ui_Label4, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_Label4, &lv_font_montserrat_24, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_LockButton2 = lv_imgbtn_create(ui_UnlockCont);
     lv_imgbtn_set_src(ui_LockButton2, LV_IMGBTN_STATE_RELEASED, NULL, &ui_img_candado_png, NULL);
     lv_obj_set_width(ui_LockButton2, 42);
     lv_obj_set_height(ui_LockButton2, 45);
     lv_obj_set_x(ui_LockButton2, 0);
-    lv_obj_set_y(ui_LockButton2, -22);
+    lv_obj_set_y(ui_LockButton2, -57);
     lv_obj_set_align(ui_LockButton2, LV_ALIGN_CENTER);
 
     ui_TargetSkinTempCont = lv_obj_create(ui_ScreenLock);
