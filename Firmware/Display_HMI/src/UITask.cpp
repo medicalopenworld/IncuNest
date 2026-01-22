@@ -229,6 +229,7 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   const char *TXT_SSID[] = {"SSID", "SSID", "SSID"};
   const char *TXT_PASSWORD[] = {"CONTRASENA", "PASSWORD", "MOT DE PASSE"};
   const char *TXT_SKINMODE[] = {"MODO PIEL", "SKIN MODE", "MODE PEAU"};
+  const char *TXT_HEATER_ERROR_RESTART[] = {"Error calentador\nToque para mas informacion", "Heater error\nTouch for more information", "Erreur chauffage\nToucher pour plus d'infos"};
   const char *TXT_ALARMS[] = {"ALARMAS", "ALARMS", "ALARMES"};
   const char *TXT_VIEWDETAIL[] = {"VER DETALLES", "VIEW DETAILS",
                                   "VOIR DETAILS"};
@@ -288,6 +289,10 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   lv_label_set_text(ui_SSIDLabel, TXT_SSID[lang]);
   lv_label_set_text(ui_PassLabel, TXT_PASSWORD[lang]);
   lv_label_set_text(ui_SkinOptionLabel, TXT_SKINMODE[lang]);
+  
+  if (ui_HeaterErrorTempLabel) lv_label_set_text(ui_HeaterErrorTempLabel, TXT_HEATER_ERROR_RESTART[lang]);
+  if (ui_HeaterErrorHumLabel) lv_label_set_text(ui_HeaterErrorHumLabel, TXT_HEATER_ERROR_RESTART[lang]);
+
   lv_label_set_text(ui_Label6, TXT_SET[lang]);
   lv_label_set_text(ui_Label7, TXT_SET[lang]);
   lv_label_set_text(ui_WifiSSIDLabel, TXT_WIFISSID[lang]);
@@ -955,6 +960,60 @@ void update_alarm_panels() {
   if (totalActiveAlarms == 0) {
     alarmsMuted = false;
   }
+
+  // Handle Heater Error logic
+  static bool heaterCriticalError = false; // Latching variable
+  
+  if(!heaterCriticalError) {
+      for(int i=0; i<MAX_ALARMS; i++) {
+        if(alarmList[i].id == HEATER_ISSUE_ALARM && alarmList[i].state) {
+            heaterCriticalError = true;
+            break;
+        }
+      }
+  }
+
+  if(heaterCriticalError) {
+    // Show Warning UI
+    if(ui_HeaterErrorTempCont) lv_obj_clear_flag(ui_HeaterErrorTempCont, LV_OBJ_FLAG_HIDDEN);
+    if(ui_HeaterErrorHumCont) lv_obj_clear_flag(ui_HeaterErrorHumCont, LV_OBJ_FLAG_HIDDEN);
+    
+    // Disable Switches
+    if(ui_Switch1) {
+        lv_obj_clear_state(ui_Switch1, LV_STATE_CHECKED);
+        lv_obj_add_state(ui_Switch1, LV_STATE_DISABLED);
+    }
+    if(ui_Switch2) {
+        lv_obj_clear_state(ui_Switch2, LV_STATE_CHECKED);
+        lv_obj_add_state(ui_Switch2, LV_STATE_DISABLED);
+    }
+
+    // Blink - Blink the CONTAINER for visibility
+    if(ui_HeaterErrorTempCont) start_alarm_blink(ui_HeaterErrorTempCont);
+    if(ui_HeaterErrorHumCont) start_alarm_blink(ui_HeaterErrorHumCont);
+
+  } else {
+    // Hide Warning UI
+    if(ui_HeaterErrorTempCont) lv_obj_add_flag(ui_HeaterErrorTempCont, LV_OBJ_FLAG_HIDDEN);
+    if(ui_HeaterErrorHumCont) lv_obj_add_flag(ui_HeaterErrorHumCont, LV_OBJ_FLAG_HIDDEN);
+
+    // Enable Switches
+    if(ui_Switch1) lv_obj_clear_state(ui_Switch1, LV_STATE_DISABLED);
+    if(ui_Switch2) lv_obj_clear_state(ui_Switch2, LV_STATE_DISABLED);
+  }
+}
+
+// Event handler for Heater Error Click
+static void HeaterError_event_handler(lv_event_t * e) {
+    // Go to Alarms Screen
+    _ui_screen_change(&ui_ScreenAlarms, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_ScreenAlarms_screen_init);
+    lv_tabview_set_act(ui_AlarmsTabview, 1, LV_ANIM_OFF); // Go to Description Tab (Page 1)
+    
+    // Set specific description
+    const char *TXT_HEATER_ERROR_DESC[] = {"Hay un problema con el ventilador / calefactor: \n\n 1. Pruebe a desconectar y conectar el calefactor y posteriormente reinicie incubadora\n\n 2. Si no funciona el paso 1, arregle el calefactor.", "There is a problem with the fan / heater:\n\n 1. Try unplugging and plugging in the heater and then restart the incubator\n\n 2. If step 1 doesn't work, fix the heater.", "Il y a un probleme avec le ventilateur / chauffage :\n\n 1. Essayez de debrancher et de brancher le chauffage et redemarrez l'incubateur\n\n 2. Si le pas 1 ne fonctionne pas, reparez le chauffage."};
+    if(ui_AlarmDetailLabel) {
+        lv_label_set_text(ui_AlarmDetailLabel, TXT_HEATER_ERROR_DESC[g_lang]);
+    }
 }
 
 void show_alarm_detail_from_slot(int slot) {
@@ -1026,16 +1085,25 @@ static void show_targets_for_mode(void) {
   lv_obj_add_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_HumLockDesiredCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_ArrowAirLock, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_ArrowSkinLock, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_ArrowHumLock, LV_OBJ_FLAG_HIDDEN);
+
+
+
 
   if (tempSwitched) {
     if (selectedPanel == AIR_PANEL_SELECTED) {
       lv_obj_clear_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_clear_flag(ui_ArrowAirLock, LV_OBJ_FLAG_HIDDEN);
     } else if (selectedPanel == SKIN_PANEL_SELECTED) {
       lv_obj_clear_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_clear_flag(ui_ArrowSkinLock, LV_OBJ_FLAG_HIDDEN);
     }
   }
   if (switchHum) {
     lv_obj_clear_flag(ui_HumLockDesiredCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_ArrowHumLock, LV_OBJ_FLAG_HIDDEN);
   }
 }
 
@@ -1457,6 +1525,10 @@ void UI_Task(void *pvParameters) {
   lv_obj_add_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_HumLockDesiredCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_ArrowAirLock, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_ArrowSkinLock, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_ArrowHumLock, LV_OBJ_FLAG_HIDDEN);
+
   lv_obj_add_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_Spinner1, LV_OBJ_FLAG_HIDDEN);
 
@@ -1512,6 +1584,12 @@ void UI_Task(void *pvParameters) {
   setup_panel_callbacks();
   setup_arrow_callbacks();
   setup_arrow_hum_callbacks();
+
+  // Assign callbacks for Heater Error interaction
+  if(ui_HeaterErrorTempCont) lv_obj_add_event_cb(ui_HeaterErrorTempCont, HeaterError_event_handler, LV_EVENT_CLICKED, NULL);
+  if(ui_HeaterErrorHumCont) lv_obj_add_event_cb(ui_HeaterErrorHumCont, HeaterError_event_handler, LV_EVENT_CLICKED, NULL);
+  if(ui_HeaterErrorTempLabel) lv_obj_add_event_cb(ui_HeaterErrorTempLabel, HeaterError_event_handler, LV_EVENT_CLICKED, NULL);
+  if(ui_HeaterErrorHumLabel) lv_obj_add_event_cb(ui_HeaterErrorHumLabel, HeaterError_event_handler, LV_EVENT_CLICKED, NULL);
 
   lv_timer_create(inactivity_timer_cb, 1000, NULL);
 

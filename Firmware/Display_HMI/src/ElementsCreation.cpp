@@ -41,7 +41,14 @@ lv_obj_t * ui_Image6 = NULL;
 lv_obj_t * ui_SkinPanelCont = NULL;
 lv_obj_t * ui_SkinPanel = NULL;
 lv_obj_t * ui_Label31 = NULL;
+
 lv_obj_t * ui_TempSkinDetected = NULL;
+
+// Heater Error Warning - Temp
+lv_obj_t * ui_HeaterErrorTempCont = NULL;
+lv_obj_t * ui_HeaterErrorTempImg = NULL;
+lv_obj_t * ui_HeaterErrorTempLabel = NULL;
+
 lv_obj_t * ui_Image2 = NULL;
 lv_obj_t * ui_SkinTempBarCont = NULL;
 lv_obj_t * ui_SkinTempBar = NULL;
@@ -75,6 +82,12 @@ lv_obj_t * ui_Label13 = NULL;
 lv_obj_t * ui_Switch2 = NULL;
 lv_obj_t * ui_HumidButton = NULL;
 lv_obj_t * ui_HumidityLabel = NULL;
+
+// Heater Error Warning - Hum
+lv_obj_t * ui_HeaterErrorHumCont = NULL;
+lv_obj_t * ui_HeaterErrorHumImg = NULL;
+lv_obj_t * ui_HeaterErrorHumLabel = NULL;
+
 lv_obj_t * ui_PhotoCont = NULL;
 lv_obj_t * ui_Panel2 = NULL;
 lv_obj_t * ui_Switch3 = NULL;
@@ -790,7 +803,46 @@ void ui_ScreenMain_screen_init(void) {
     lv_label_set_text(ui_TempSkinDetectedRight, "28.1");
     lv_obj_set_style_text_font(ui_TempSkinDetectedRight, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
 
+    lv_obj_set_style_text_font(ui_TempSkinDetectedRight, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // Reparented to ScreenMain for Z-Index priority
+    ui_HeaterErrorTempCont = lv_obj_create(ui_ScreenMain);
+    lv_obj_remove_style_all(ui_HeaterErrorTempCont);
+    lv_obj_set_width(ui_HeaterErrorTempCont, 381);
+    lv_obj_set_height(ui_HeaterErrorTempCont, 421);
+    lv_obj_set_x(ui_HeaterErrorTempCont, -200);
+    lv_obj_set_y(ui_HeaterErrorTempCont, 24);
+    lv_obj_set_align(ui_HeaterErrorTempCont, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_HeaterErrorTempCont, LV_OBJ_FLAG_HIDDEN); // Initially hidden
+    lv_obj_add_flag(ui_HeaterErrorTempCont, LV_OBJ_FLAG_CLICKABLE); // Enable clicking
+    lv_obj_clear_flag(ui_HeaterErrorTempCont, LV_OBJ_FLAG_SCROLLABLE);
+
+    ui_HeaterErrorTempImg = lv_img_create(ui_HeaterErrorTempCont);
+    lv_img_set_src(ui_HeaterErrorTempImg, &ui_img_1007688293);
+    lv_obj_set_width(ui_HeaterErrorTempImg, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_HeaterErrorTempImg, LV_SIZE_CONTENT);
+    lv_obj_set_align(ui_HeaterErrorTempImg, LV_ALIGN_CENTER);
+    lv_obj_set_style_img_recolor(ui_HeaterErrorTempImg, lv_color_hex(0xFF0000), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_img_recolor_opa(ui_HeaterErrorTempImg, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_img_set_zoom(ui_HeaterErrorTempImg, 1024); // Much larger (4x)
+
+    ui_HeaterErrorTempLabel = lv_label_create(ui_HeaterErrorTempCont);
+    lv_obj_set_width(ui_HeaterErrorTempLabel, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_HeaterErrorTempLabel, LV_SIZE_CONTENT);
+    lv_obj_set_x(ui_HeaterErrorTempLabel, 0);
+    lv_obj_set_y(ui_HeaterErrorTempLabel, 120); // Adjusted for larger image
+    lv_obj_set_align(ui_HeaterErrorTempLabel, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_HeaterErrorTempLabel, "Heater error \nTouch for more information");
+    lv_obj_set_style_text_color(ui_HeaterErrorTempLabel, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT); // White text
+    lv_obj_set_style_bg_color(ui_HeaterErrorTempLabel, lv_color_hex(0xFF0000), LV_PART_MAIN | LV_STATE_DEFAULT); // Red background
+    lv_obj_set_style_bg_opa(ui_HeaterErrorTempLabel, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_HeaterErrorTempLabel, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_all(ui_HeaterErrorTempLabel, 10, LV_PART_MAIN | LV_STATE_DEFAULT); // Padding
+    lv_obj_set_style_text_align(ui_HeaterErrorTempLabel, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_add_flag(ui_HeaterErrorTempLabel, LV_OBJ_FLAG_CLICKABLE);
+
     ui_TempSkinDesired = lv_label_create(ui_SkinTempBarCont);
+
     lv_obj_set_width(ui_TempSkinDesired, LV_SIZE_CONTENT);
     lv_obj_set_height(ui_TempSkinDesired, LV_SIZE_CONTENT);
     lv_obj_set_x(ui_TempSkinDesired, 24);
@@ -947,6 +999,41 @@ void ui_ScreenMain_screen_init(void) {
     lv_obj_set_y(ui_ArrowDownHum, 53);
     lv_obj_set_align(ui_ArrowDownHum, LV_ALIGN_CENTER);
     lv_obj_clear_flag(ui_ArrowDownHum, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Reparented to ScreenMain for Z-Index priority
+    ui_HeaterErrorHumCont = lv_obj_create(ui_ScreenMain);
+    lv_obj_remove_style_all(ui_HeaterErrorHumCont);
+    lv_obj_set_width(ui_HeaterErrorHumCont, 378);
+    lv_obj_set_height(ui_HeaterErrorHumCont, 248);
+    lv_obj_set_x(ui_HeaterErrorHumCont, 193);
+    lv_obj_set_y(ui_HeaterErrorHumCont, -64);
+    lv_obj_set_align(ui_HeaterErrorHumCont, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_HeaterErrorHumCont, LV_OBJ_FLAG_HIDDEN); // Initially hidden
+    lv_obj_add_flag(ui_HeaterErrorHumCont, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(ui_HeaterErrorHumCont, LV_OBJ_FLAG_SCROLLABLE);
+
+    ui_HeaterErrorHumImg = lv_img_create(ui_HeaterErrorHumCont);
+    lv_img_set_src(ui_HeaterErrorHumImg, &ui_img_1007688293);
+    lv_obj_set_width(ui_HeaterErrorHumImg, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_HeaterErrorHumImg, LV_SIZE_CONTENT);
+    lv_obj_set_align(ui_HeaterErrorHumImg, LV_ALIGN_CENTER);
+    lv_img_set_zoom(ui_HeaterErrorHumImg, 1024); // Much larger
+
+    ui_HeaterErrorHumLabel = lv_label_create(ui_HeaterErrorHumCont);
+    lv_obj_set_width(ui_HeaterErrorHumLabel, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_HeaterErrorHumLabel, LV_SIZE_CONTENT);
+    lv_obj_set_x(ui_HeaterErrorHumLabel, 0);
+    lv_obj_set_y(ui_HeaterErrorHumLabel, 120); // Below image
+    lv_obj_set_align(ui_HeaterErrorHumLabel, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_HeaterErrorHumLabel, "Heater error \nTouch for more information");
+    lv_obj_set_style_text_color(ui_HeaterErrorHumLabel, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT); // White text
+    lv_obj_set_style_bg_color(ui_HeaterErrorHumLabel, lv_color_hex(0xFF0000), LV_PART_MAIN | LV_STATE_DEFAULT); // Red background
+    lv_obj_set_style_bg_opa(ui_HeaterErrorHumLabel, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_HeaterErrorHumLabel, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_all(ui_HeaterErrorHumLabel, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_align(ui_HeaterErrorHumLabel, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_add_flag(ui_HeaterErrorHumLabel, LV_OBJ_FLAG_CLICKABLE);
+
 
     ui_HumDetectedRight = lv_label_create(ui_HumPanelCont);
     lv_obj_set_width(ui_HumDetectedRight, LV_SIZE_CONTENT);

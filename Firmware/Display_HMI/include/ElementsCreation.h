@@ -122,6 +122,11 @@ extern lv_obj_t * ui_SkinPanelCont;
 extern lv_obj_t * ui_SkinPanel;
 extern lv_obj_t * ui_Label31;
 extern lv_obj_t * ui_TempSkinDetected;
+
+// Heater Error Warning - Temp
+extern lv_obj_t * ui_HeaterErrorTempCont;
+extern lv_obj_t * ui_HeaterErrorTempImg;
+extern lv_obj_t * ui_HeaterErrorTempLabel;
 extern lv_obj_t * ui_Image2;
 extern lv_obj_t * ui_SkinTempBarCont;
 extern lv_obj_t * ui_SkinTempBar;
@@ -155,6 +160,11 @@ extern lv_obj_t * ui_Label13;
 extern lv_obj_t * ui_Switch2;
 extern lv_obj_t * ui_HumidButton;
 extern lv_obj_t * ui_HumidityLabel;
+
+// Heater Error Warning - Hum
+extern lv_obj_t * ui_HeaterErrorHumCont;
+extern lv_obj_t * ui_HeaterErrorHumImg;
+extern lv_obj_t * ui_HeaterErrorHumLabel;
 extern lv_obj_t * ui_PhotoCont;
 extern lv_obj_t * ui_Panel2;
 extern lv_obj_t * ui_Switch3;

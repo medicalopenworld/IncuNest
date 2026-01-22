@@ -16,7 +16,7 @@
 #include <lvgl.h>
 #include <stdint.h>
 
-#define FWversion "1.0.3"
+#define FWversion "1.0.5"
 #define ENABLE_WIFI_OTA true // enable wifi OTA
 extern bool OTA_inprogress;
 
@@ -179,6 +179,21 @@ constexpr int BUFFER_SIZE = 10;    // used for label char buffers
 constexpr int DHT_BUFFER_SIZE = 6; // used in commented DHT code
 constexpr int ALARM_TYPE_LEN = 30;
 constexpr int ALARM_DESC_LEN = 100;
+
+typedef enum {
+  NO_ALARMS = 0,
+  HUMIDITY_ALARM,
+  TEMPERATURE_ALARM,
+  AIR_THERMAL_CUTOUT_ALARM,
+  SKIN_THERMAL_CUTOUT_ALARM,
+  AIR_SENSOR_ISSUE_ALARM,
+  SKIN_SENSOR_ISSUE_ALARM,
+  FAN_ISSUE_ALARM,
+  HEATER_ISSUE_ALARM,
+  POWER_SUPPLY_ALARM,
+  NUM_ALARMS_ID, // Renamed to avoid partial conflict with constexpr NUM_ALARMS legacy if any, though likely safe. Keeps consistent with MB
+} ALARMS_ID;
+
 constexpr int MAX_ALARMS = 10;
 constexpr int MAX_ALARM_DISPLAY = 4;
 
