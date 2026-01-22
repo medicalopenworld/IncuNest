@@ -19,6 +19,7 @@
 #define actuatingGPRSPostPeriod 60
 #define phototherapyGPRSPostPeriod 180
 #define GPRS_SHUT OFF
+#define GPRS_RECONNECT_INTERVAL 10000     // 10 seconds
 #define GPRS_OTA_CHECK_INTERVAL 600000    // 10 minutes in milliseconds
 #define THINGSBOARD_RECONNECT_DELAY 30000 // 30 seconds
 

@@ -456,11 +456,29 @@ void Communication_Task(void *pvParameters) {
 
       // 2. Periodic Telemetry (every ~1000ms)
       if (millis() - last_tel_time > 1000) {
+        // Determine communication status
+        int status = COMM_STATUS_NONE;
+        if (WIFIIsConnected()) {
+          if (WIFIIsConnectedToServer()) {
+            status = COMM_STATUS_WIFI_SERVER;
+          } else {
+            status = COMM_STATUS_WIFI_ONLY;
+          }
+        } else if (GPRS.connectionStatus) {
+          if (GPRSIsConnectedToServer()) {
+            status = COMM_STATUS_GPRS_SERVER;
+          } else {
+            status = COMM_STATUS_GPRS_ONLY;
+          }
+        }
+        ctrl_tel_msg.serverCommStatus = status;
+
         char msg[64];
-        snprintf(msg, sizeof(msg), "CTRL,TEL,%.1f,%.1f,%d\n",
+        snprintf(msg, sizeof(msg), "CTRL,TEL,%.1f,%.1f,%d,%d\n",
                  ctrl_tel_msg.detectedAirTemperature,
                  ctrl_tel_msg.detectedSkinTemperature,
-                 (int)ctrl_tel_msg.detectedHumidity);
+                 (int)ctrl_tel_msg.detectedHumidity,
+                 ctrl_tel_msg.serverCommStatus);
 
         if (xSemaphoreTake(vcp_mux, pdMS_TO_TICKS(100)) == pdTRUE) {
           if (!vcp) {

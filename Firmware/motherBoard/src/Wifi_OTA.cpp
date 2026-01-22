@@ -716,12 +716,12 @@ void WIFI_TB_OTA() {
 }
 
 void WifiOTAHandler(void) {
-  static long lastLog = 0;
-  if (millis() - lastLog > 5000) {
-    ESP_LOGI(TAG, "WifiOTAHandler alive. WiFi status: %d. IP: %s",
-             WiFi.status(), WiFi.localIP().toString().c_str());
-    lastLog = millis();
-  }
+  // static long lastLog = 0;
+  // if (millis() - lastLog > 5000) {
+  //   ESP_LOGI(TAG, "WifiOTAHandler alive. WiFi status: %d. IP: %s",
+  //            WiFi.status(), WiFi.localIP().toString().c_str());
+  //   lastLog = millis();
+  // }
 
   if (WIFI_EN && WiFi.status() != WL_CONNECTED) {
     if (millis() - Wifi_TB.lastWifiReconnectAttempt > WIFI_RECONNECT_INTERVAL) {

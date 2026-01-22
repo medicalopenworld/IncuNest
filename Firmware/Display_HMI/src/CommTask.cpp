@@ -43,11 +43,11 @@ void Communication_SendWiFiCredentials(const char *ssid, const char *password) {
 
 static void SendMessageToOtherESP() {
 #if IS_HMI
-  COMM_SERIAL.printf("HMI,%d,%d,%0.2f,%0.2f,%0.0f,%d,%d,%d\n", hmi_msg.actuation,
-                     hmi_msg.controlMode, hmi_msg.desiredAirTemperature,
-                     hmi_msg.desiredSkinTemperature, hmi_msg.desiredHumidity,
-                     hmi_msg.phototherapyMode, hmi_msg.muteAlarm,
-                     hmi_msg.language);
+  COMM_SERIAL.printf(
+      "HMI,%d,%d,%0.2f,%0.2f,%0.0f,%d,%d,%d\n", hmi_msg.actuation,
+      hmi_msg.controlMode, hmi_msg.desiredAirTemperature,
+      hmi_msg.desiredSkinTemperature, hmi_msg.desiredHumidity,
+      hmi_msg.phototherapyMode, hmi_msg.muteAlarm, hmi_msg.language);
 #else
   COMM_SERIAL.printf("CTRL,%0.2f,%0.2f,%0.2f,%0.2f,%0.2f\n",
                      ctrl_msg.temperature[0], ctrl_msg.temperature[1],
@@ -60,20 +60,25 @@ static void parse_message(const char *line) {
 #if IS_HMI
   if (strncmp(line, "CTRL,TEL", 8) == 0) {
     int result = sscanf(
-        line, "CTRL,TEL,%lf,%lf,%lf", &ctrl_tel_msg.detectedAirTemperature,
-        &ctrl_tel_msg.detectedSkinTemperature, &ctrl_tel_msg.detectedHumidity);
-    if (result != 3) {
+        line, "CTRL,TEL,%lf,%lf,%lf,%d", &ctrl_tel_msg.detectedAirTemperature,
+        &ctrl_tel_msg.detectedSkinTemperature, &ctrl_tel_msg.detectedHumidity,
+        &ctrl_tel_msg.serverCommStatus);
+    if (result < 3) {
       // COMM_LOG("[COMM] HMI failed to parse CTRL,TEL: %s\n", line);
+    }
+    if (result == 3) {
+      // Backward compatibility or partial parse
+      ctrl_tel_msg.serverCommStatus = COMM_STATUS_NONE;
     }
   } else if (strncmp(line, "CTRL,STATE", 10) == 0) {
     int act, mode, photo, mute, sn, hwNum, lang;
     char hwRev;
     char fwVer[20];
     double airSet, skinSet, humSet;
-    int result = sscanf(
-        line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%d,%c,%19s", &act, &mode,
-        &airSet, &skinSet, &humSet, &photo, &mute, &lang, &sn, &hwNum, &hwRev,
-        fwVer);
+    int result =
+        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%d,%c,%19s",
+               &act, &mode, &airSet, &skinSet, &humSet, &photo, &mute, &lang,
+               &sn, &hwNum, &hwRev, fwVer);
     if (result == 12) {
       ctrl_state_msg.actuation = act;
       ctrl_state_msg.controlMode = mode;
@@ -167,7 +172,8 @@ static void Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
   ui_set_switch_state_silent(ui_Switch4, st.phototherapyMode);
 
   if (st.language != g_lang) {
-    // Only update if different to avoid loop, but Applying Language is safe here
+    // Only update if different to avoid loop, but Applying Language is safe
+    // here
     UI_ApplyLanguage((ui_lang_t)st.language);
     if (ui_LanguagesDropDown) {
       lv_dropdown_set_selected(ui_LanguagesDropDown, st.language);

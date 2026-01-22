@@ -15,6 +15,7 @@ typedef struct {
   double detectedAirTemperature;
   double detectedSkinTemperature;
   double detectedHumidity;
+  int serverCommStatus;
   int serialNumber;
 } TelemetryMessage;
 

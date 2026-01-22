@@ -285,6 +285,8 @@ void GPRSStablishConnection() {
       } else {
         GPRS.APN = APN_TM;
       }
+      logCon("[GPRS] -> New APN: " + GPRS.APN);
+      vTaskDelay(GPRS_RECONNECT_INTERVAL / portTICK_PERIOD_MS);
     }
     break;
   case 2:

@@ -16,7 +16,7 @@
 #include <lvgl.h>
 #include <stdint.h>
 
-#define FWversion "1.0.2"
+#define FWversion "1.0.3"
 #define ENABLE_WIFI_OTA true // enable wifi OTA
 extern bool OTA_inprogress;
 
@@ -55,6 +55,14 @@ extern in3ator_parameters in3;
 #define ACTUATION_TEMPERATURE 1
 #define ACTUATION_HUMIDITY 2
 #define ACTUATION_TEMP_AND_HUMIDITY 3
+
+typedef enum {
+  COMM_STATUS_NONE = 0,
+  COMM_STATUS_GPRS_ONLY = 1,
+  COMM_STATUS_GPRS_SERVER = 2,
+  COMM_STATUS_WIFI_ONLY = 3,
+  COMM_STATUS_WIFI_SERVER = 4
+} COMM_STATUS;
 
 #define CONTROL_SKIN false
 #define CONTROL_AIR true

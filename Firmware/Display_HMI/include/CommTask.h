@@ -47,6 +47,7 @@ typedef struct {
   double detectedAirTemperature;
   double detectedSkinTemperature;
   double detectedHumidity;
+  int serverCommStatus;
   bool shouldSendData;
 } ControlBoard_Message_Telemetry;
 

@@ -66,9 +66,9 @@
 // Set to true only on the HMI board
 #define IS_HMI false
 
-#define LOG_GPRS false
-#define LOG_MODEM_DATA false
-#define LOG_INFORMATION false
+#define LOG_GPRS true
+#define LOG_MODEM_DATA true
+#define LOG_INFORMATION true
 #define LOG_ERRORS false
 #define LOG_ALARMS false
 
@@ -218,6 +218,14 @@ typedef enum {
   NUM_ALARMS,
   MAX_ALARM_STRING_SIZE = 255,
 } ALARMS_ID;
+
+typedef enum {
+  COMM_STATUS_NONE = 0,
+  COMM_STATUS_GPRS_ONLY = 1,
+  COMM_STATUS_GPRS_SERVER = 2,
+  COMM_STATUS_WIFI_ONLY = 3,
+  COMM_STATUS_WIFI_SERVER = 4
+} COMM_STATUS;
 
 typedef enum {
   EVENT_2G = 0,
