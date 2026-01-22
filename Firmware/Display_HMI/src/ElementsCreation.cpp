@@ -1004,7 +1004,7 @@ void ui_ScreenMain_screen_init(void) {
     ui_HeaterErrorHumCont = lv_obj_create(ui_ScreenMain);
     lv_obj_remove_style_all(ui_HeaterErrorHumCont);
     lv_obj_set_width(ui_HeaterErrorHumCont, 378);
-    lv_obj_set_height(ui_HeaterErrorHumCont, 248);
+    lv_obj_set_height(ui_HeaterErrorHumCont, 320);
     lv_obj_set_x(ui_HeaterErrorHumCont, 193);
     lv_obj_set_y(ui_HeaterErrorHumCont, -64);
     lv_obj_set_align(ui_HeaterErrorHumCont, LV_ALIGN_CENTER);
