@@ -24,6 +24,8 @@ extern bool tempSwitched;
 extern bool alarmsMuted;
 extern bool g_stateSynced;
 extern uint32_t g_lastStateReqMs;
+extern int selectedPanel;
+extern int lastSelectedPanel;
 
 // ======================
 //  LOW-LEVEL COMMS
@@ -173,8 +175,8 @@ static bool ReceiveMessageFromOtherESP() {
 static void Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
   ui_set_switch_state_silent(ui_Switch1, st.actuation & 0x01);
   ui_set_switch_state_silent(ui_Switch2, (st.actuation >> 1) & 0x01);
-  ui_set_switch_state_silent(ui_Switch3, st.controlMode);
-  ui_set_switch_state_silent(ui_Switch4, st.phototherapyMode);
+  ui_set_switch_state_silent(ui_Switch3, st.phototherapyMode);
+  ui_set_switch_state_silent(ui_Switch4, st.controlMode == CONTROL_SKIN);
 
   if (st.language != g_lang) {
     // Only update if different to avoid loop, but Applying Language is safe
@@ -185,9 +187,20 @@ static void Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
     }
   }
 
-  // airTempValue = st.desiredAirTemperature;
-  // skinTempValue = st.desiredSkinTemperature;
-  // humValue = (int)st.desiredHumidity;
+  if (st.desiredAirTemperature > 0.1)
+    airTempValue = st.desiredAirTemperature;
+  if (st.desiredSkinTemperature > 0.1)
+    skinTempValue = st.desiredSkinTemperature;
+  if (st.desiredHumidity > 0)
+    humValue = (int)st.desiredHumidity;
+
+  if (st.controlMode == CONTROL_SKIN) {
+    selectedPanel = SKIN_PANEL_SELECTED;
+    lastSelectedPanel = SKIN_PANEL_SELECTED;
+  } else {
+    selectedPanel = AIR_PANEL_SELECTED;
+    lastSelectedPanel = AIR_PANEL_SELECTED;
+  }
 
   if (st.serialNumber != 0 && st.serialNumber != in3.serialNumber) {
     in3.serialNumber = st.serialNumber;
@@ -205,7 +218,7 @@ static void Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
     lv_label_set_text(ui_Incunest, titleBuf);
   }
 
-  update_labels();
+  UI_SyncAll();
 }
 
 static void Display_StateSync_Service(void) {

@@ -1618,3 +1618,119 @@ void CreateUITask() {
   xTaskCreatePinnedToCore(UI_Task, "UI", 8192 * 2, NULL, 2, NULL,
                           CORE_ID_FREERTOS);
 }
+
+void UI_SyncAll() {
+  // 1. Update internal state flags from current switch visual state
+  switchTemp = lv_obj_has_state(ui_Switch1, LV_STATE_CHECKED);
+  tempSwitched = switchTemp;
+  switchHum = lv_obj_has_state(ui_Switch2, LV_STATE_CHECKED);
+  humSwitched = switchHum;
+  skinPanelEnabled = lv_obj_has_state(ui_Switch4, LV_STATE_CHECKED);
+
+  // 2. Temperature Logic
+  if (tempSwitched) {
+    if (selectedPanel == NO_PANEL_SELECTED) {
+      selectedPanel = (lastSelectedPanel != NO_PANEL_SELECTED) ? lastSelectedPanel : AIR_PANEL_SELECTED;
+    }
+    
+    if (selectedPanel == AIR_PANEL_SELECTED) {
+      set_active_panel(ui_AirPanel, ui_SkinPanel);
+      lv_obj_clear_flag(ui_AirTempBarCont, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_add_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
+      hmi_msg.controlMode = CONTROL_AIR;
+    } else {
+      set_active_panel(ui_SkinPanel, ui_AirPanel);
+      lv_obj_clear_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_add_flag(ui_AirTempBarCont, LV_OBJ_FLAG_HIDDEN);
+      hmi_msg.controlMode = CONTROL_SKIN;
+    }
+    
+    // Enable arrows
+    arrowsActive = true;
+    lv_obj_add_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(ui_ImgArrowUpTemp, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_bg_color(ui_ArrowDownTemp, COLOR_PANEL_WHITE, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_ArrowUpTemp, COLOR_PANEL_WHITE, LV_PART_MAIN);
+    
+    // Temperature Panel background
+    lv_obj_set_style_bg_color(ui_Panel1, COLOR_PANEL_WHITE, LV_PART_MAIN);
+    
+    temp_chart_show_for_selected_panel();
+  } else {
+    selectedPanel = NO_PANEL_SELECTED;
+    arrowsActive = false;
+    lv_obj_add_flag(ui_AirTempChartCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(ui_ImgArrowUpTemp, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_bg_color(ui_ArrowDownTemp, COLOR_PANEL_GRAY, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_ArrowUpTemp, COLOR_PANEL_GRAY, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_AirPanel, COLOR_PANEL_GRAY, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_SkinPanel, COLOR_PANEL_GRAY, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_Panel1, COLOR_PANEL_GRAY, LV_PART_MAIN);
+  }
+
+  // 3. Humidity Logic
+  if (switchHum) {
+    lv_obj_clear_flag(ui_HumChartCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_HumLockDesiredCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_ImgArrowDownHum, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(ui_ImgArrowUpHum, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_bg_color(ui_ArrowDownHum, COLOR_PANEL_WHITE, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_ArrowUpHum, COLOR_PANEL_WHITE, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_Panel3, COLOR_PANEL_WHITE, LV_PART_MAIN);
+  } else {
+    lv_obj_add_flag(ui_HumChartCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_HumLockDesiredCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_ImgArrowDownHum, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(ui_ImgArrowUpHum, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_bg_color(ui_ArrowDownHum, COLOR_PANEL_GRAY, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_ArrowUpHum, COLOR_PANEL_GRAY, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_Panel3, COLOR_PANEL_GRAY, LV_PART_MAIN);
+  }
+
+  // 4. Phototherapy Logic (Switch 3)
+  // Panel is ALWAYS white as requested
+  lv_obj_set_style_bg_color(ui_Panel2, COLOR_PANEL_WHITE, LV_PART_MAIN);
+  lv_obj_set_style_opa(ui_Panel2, LV_OPA_COVER, LV_PART_MAIN);
+
+  // 5. Skin Block (Switch 4)
+  if (skinPanelEnabled) {
+    lv_obj_clear_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_style_bg_color(ui_SkinPanelCont, COLOR_PANEL_WHITE, LV_PART_MAIN);
+  } else {
+    lv_obj_add_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
+  }
+
+  // 6. TabView Management
+  lv_obj_t *tab_btns_cont = lv_obj_get_child(ui_TabView1, 0);
+  lv_obj_t *temp_tab_btn = NULL;
+  lv_obj_t *hum_tab_btn = NULL;
+  if (tab_btns_cont) {
+    temp_tab_btn = lv_obj_get_child(tab_btns_cont, 0);
+    hum_tab_btn = lv_obj_get_child(tab_btns_cont, 1);
+  }
+
+  if (!switchTemp && !switchHum) {
+    lv_obj_add_flag(ui_TabView1, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_clear_flag(ui_TabView1, LV_OBJ_FLAG_HIDDEN);
+    if (temp_tab_btn) {
+      if (switchTemp) lv_obj_clear_flag(temp_tab_btn, LV_OBJ_FLAG_HIDDEN);
+      else lv_obj_add_flag(temp_tab_btn, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (hum_tab_btn) {
+      if (switchHum) lv_obj_clear_flag(hum_tab_btn, LV_OBJ_FLAG_HIDDEN);
+      else lv_obj_add_flag(hum_tab_btn, LV_OBJ_FLAG_HIDDEN);
+    }
+    if ((switchTemp && !switchHum) || (!switchTemp && switchHum)) {
+      if (tab_btns_cont) lv_obj_add_flag(tab_btns_cont, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      if (tab_btns_cont) lv_obj_clear_flag(tab_btns_cont, LV_OBJ_FLAG_HIDDEN);
+    }
+    
+    if (switchTemp && !switchHum) lv_tabview_set_act(ui_TabView1, 0, LV_ANIM_OFF);
+    else if (!switchTemp && switchHum) lv_tabview_set_act(ui_TabView1, 1, LV_ANIM_OFF);
+  }
+
+  update_labels();
+}

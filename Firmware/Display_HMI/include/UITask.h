@@ -14,3 +14,4 @@ void chart_add_skin_temp(float v);
 void chart_add_hum_value(float hum);
 void ui_set_switch_state_silent(lv_obj_t *sw, bool on);
 void UI_ApplyLanguage(ui_lang_t lang);
+void UI_SyncAll();
