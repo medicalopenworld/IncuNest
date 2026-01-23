@@ -191,15 +191,31 @@ static void Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
     airTempValue = st.desiredAirTemperature;
   if (st.desiredSkinTemperature > 0.1)
     skinTempValue = st.desiredSkinTemperature;
-  if (st.desiredHumidity > 0)
-    humValue = (int)st.desiredHumidity;
+  if (st.language != (int)g_lang) {
+    // Only update if it's a valid change to avoid loops
+  }
+
+  // Sync internal hmi_msg to avoid sending "all OFF" on next user action
+  hmi_msg.actuation = st.actuation;
+  hmi_msg.controlMode = st.controlMode;
+  hmi_msg.desiredAirTemperature = airTempValue;
+  hmi_msg.desiredSkinTemperature = skinTempValue;
+  hmi_msg.desiredHumidity = humValue;
+  hmi_msg.phototherapyMode = st.phototherapyMode;
+  hmi_msg.muteAlarm = st.muteAlarm;
+  hmi_msg.language = st.language;
 
   if (st.controlMode == CONTROL_SKIN) {
     selectedPanel = SKIN_PANEL_SELECTED;
     lastSelectedPanel = SKIN_PANEL_SELECTED;
+    // If we are in Skin mode, the enabler switch MUST be ON
+    if (ui_Switch4) lv_obj_add_state(ui_Switch4, LV_STATE_CHECKED);
   } else {
     selectedPanel = AIR_PANEL_SELECTED;
     lastSelectedPanel = AIR_PANEL_SELECTED;
+    // We don't force ui_Switch4 to OFF here, as it might be enabled but in AIR mode.
+    // However, the user said "by default it should be OFF". 
+    // This will be handled by the initial state and MB default controlMode (AIR).
   }
 
   if (st.serialNumber != 0 && st.serialNumber != in3.serialNumber) {

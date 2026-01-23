@@ -55,7 +55,7 @@ uint32_t g_lastStateReqMs = 0;
 static bool eepromDirty = false;
 static unsigned long lastVarChangeTime = 0;
 
-ui_lang_t g_lang = LANG_ES;
+ui_lang_t g_lang = LANG_EN;
 
 Alarm alarmList[MAX_ALARMS];
 
@@ -482,8 +482,17 @@ void AirPanel_cb(lv_event_t *e) {
   selectedPanel = AIR_PANEL_SELECTED;
   lastSelectedPanel = selectedPanel;
   set_active_panel(ui_AirPanel, ui_SkinPanel);
+  
+  // Visibility
   lv_obj_clear_flag(ui_AirTempBarCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
+  
+  // Lock Screen Sync (if objects exist)
+  if (ui_AirTempLockCont) lv_obj_clear_flag(ui_AirTempLockCont, LV_OBJ_FLAG_HIDDEN);
+  if (ui_TargetAirTempCont) lv_obj_clear_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);
+  if (ui_SkinTempLockCont) lv_obj_add_flag(ui_SkinTempLockCont, LV_OBJ_FLAG_HIDDEN);
+  if (ui_TargetSkinTempCont) lv_obj_add_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
+
   hmi_msg.controlMode = CONTROL_AIR;
   hmi_msg.shouldSendData = true;
   temp_chart_show_for_selected_panel();
@@ -497,8 +506,17 @@ void SkinPanel_cb(lv_event_t *e) {
   selectedPanel = SKIN_PANEL_SELECTED;
   lastSelectedPanel = selectedPanel;
   set_active_panel(ui_SkinPanel, ui_AirPanel);
+
+  // Visibility
   lv_obj_clear_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_AirTempBarCont, LV_OBJ_FLAG_HIDDEN);
+
+  // Lock Screen Sync
+  if (ui_SkinTempLockCont) lv_obj_clear_flag(ui_SkinTempLockCont, LV_OBJ_FLAG_HIDDEN);
+  if (ui_TargetSkinTempCont) lv_obj_clear_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
+  if (ui_AirTempLockCont) lv_obj_add_flag(ui_AirTempLockCont, LV_OBJ_FLAG_HIDDEN);
+  if (ui_TargetAirTempCont) lv_obj_add_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);
+
   hmi_msg.controlMode = CONTROL_SKIN;
   hmi_msg.shouldSendData = true;
   temp_chart_show_for_selected_panel();
@@ -647,10 +665,20 @@ void Switch_cb(lv_event_t *e) {
 
         // Switch active panel to Air
         set_active_panel(ui_AirPanel, ui_SkinPanel);
+        
+        // Visibility restore
+        lv_obj_clear_flag(ui_AirTempBarCont, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
+        
+        if (ui_AirTempLockCont) lv_obj_clear_flag(ui_AirTempLockCont, LV_OBJ_FLAG_HIDDEN);
+        if (ui_TargetAirTempCont) lv_obj_clear_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);
+        if (ui_SkinTempLockCont) lv_obj_add_flag(ui_SkinTempLockCont, LV_OBJ_FLAG_HIDDEN);
+        if (ui_TargetSkinTempCont) lv_obj_add_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
 
         // Update control mode if temperature is switched on
         if (tempSwitched) { // only if temp is ON
           hmi_msg.controlMode = CONTROL_AIR;
+          temp_chart_show_for_selected_panel();
         }
       }
     }
@@ -1101,10 +1129,16 @@ static void show_targets_for_mode(void) {
       lv_obj_clear_flag(ui_ArrowSkinLock, LV_OBJ_FLAG_HIDDEN);
     }
   }
+
   if (switchHum) {
     lv_obj_clear_flag(ui_HumLockDesiredCont, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(ui_ArrowHumLock, LV_OBJ_FLAG_HIDDEN);
   }
+
+  // FIRST COLUMN (Detected Values) ALWAYS VISIBLE
+  if (ui_AirTempLockCont) lv_obj_clear_flag(ui_AirTempLockCont, LV_OBJ_FLAG_HIDDEN);
+  if (ui_SkinTempLockCont) lv_obj_clear_flag(ui_SkinTempLockCont, LV_OBJ_FLAG_HIDDEN);
+  if (ui_HumLockCont) lv_obj_clear_flag(ui_HumLockCont, LV_OBJ_FLAG_HIDDEN);
 }
 
 static void unlock_timeout_cb(lv_timer_t *t) {
@@ -1637,14 +1671,33 @@ void UI_SyncAll() {
       set_active_panel(ui_AirPanel, ui_SkinPanel);
       lv_obj_clear_flag(ui_AirTempBarCont, LV_OBJ_FLAG_HIDDEN);
       lv_obj_add_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
+      
+      // Target Screen Visibility
+      if (ui_TargetAirTempCont) lv_obj_clear_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);
+      if (ui_ArrowAirLock) lv_obj_clear_flag(ui_ArrowAirLock, LV_OBJ_FLAG_HIDDEN);
+      if (ui_TargetSkinTempCont) lv_obj_add_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
+      if (ui_ArrowSkinLock) lv_obj_add_flag(ui_ArrowSkinLock, LV_OBJ_FLAG_HIDDEN);
+
       hmi_msg.controlMode = CONTROL_AIR;
     } else {
       set_active_panel(ui_SkinPanel, ui_AirPanel);
       lv_obj_clear_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
       lv_obj_add_flag(ui_AirTempBarCont, LV_OBJ_FLAG_HIDDEN);
+      
+      // Target Screen Visibility
+      if (ui_TargetSkinTempCont) lv_obj_clear_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
+      if (ui_ArrowSkinLock) lv_obj_clear_flag(ui_ArrowSkinLock, LV_OBJ_FLAG_HIDDEN);
+      if (ui_TargetAirTempCont) lv_obj_add_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);
+      if (ui_ArrowAirLock) lv_obj_add_flag(ui_ArrowAirLock, LV_OBJ_FLAG_HIDDEN);
+
       hmi_msg.controlMode = CONTROL_SKIN;
     }
-    
+
+    // First Column (Detected Values) ALWAYS VISIBLE
+    if (ui_AirTempLockCont) lv_obj_clear_flag(ui_AirTempLockCont, LV_OBJ_FLAG_HIDDEN);
+    if (ui_SkinTempLockCont) lv_obj_clear_flag(ui_SkinTempLockCont, LV_OBJ_FLAG_HIDDEN);
+    if (ui_HumLockCont) lv_obj_clear_flag(ui_HumLockCont, LV_OBJ_FLAG_HIDDEN);
+
     // Enable arrows
     arrowsActive = true;
     lv_obj_add_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
@@ -1667,6 +1720,16 @@ void UI_SyncAll() {
     lv_obj_set_style_bg_color(ui_AirPanel, COLOR_PANEL_GRAY, LV_PART_MAIN);
     lv_obj_set_style_bg_color(ui_SkinPanel, COLOR_PANEL_GRAY, LV_PART_MAIN);
     lv_obj_set_style_bg_color(ui_Panel1, COLOR_PANEL_GRAY, LV_PART_MAIN);
+
+    // Lock Screen hide targets but keep detected values visible
+    if (ui_TargetAirTempCont) lv_obj_add_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);
+    if (ui_TargetSkinTempCont) lv_obj_add_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
+    if (ui_ArrowAirLock) lv_obj_add_flag(ui_ArrowAirLock, LV_OBJ_FLAG_HIDDEN);
+    if (ui_ArrowSkinLock) lv_obj_add_flag(ui_ArrowSkinLock, LV_OBJ_FLAG_HIDDEN);
+
+    if (ui_AirTempLockCont) lv_obj_clear_flag(ui_AirTempLockCont, LV_OBJ_FLAG_HIDDEN);
+    if (ui_SkinTempLockCont) lv_obj_clear_flag(ui_SkinTempLockCont, LV_OBJ_FLAG_HIDDEN);
+    if (ui_HumLockCont) lv_obj_clear_flag(ui_HumLockCont, LV_OBJ_FLAG_HIDDEN);
   }
 
   // 3. Humidity Logic
@@ -1696,7 +1759,6 @@ void UI_SyncAll() {
   // 5. Skin Block (Switch 4)
   if (skinPanelEnabled) {
     lv_obj_clear_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_set_style_bg_color(ui_SkinPanelCont, COLOR_PANEL_WHITE, LV_PART_MAIN);
   } else {
     lv_obj_add_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
   }

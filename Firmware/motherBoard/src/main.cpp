@@ -324,7 +324,11 @@ void Communication_Receiver(void *pvParameters) {
 
       logI(msg);
       in3.actuation = hmi_cmd_msg.actuation;
-      in3.controlMode = hmi_cmd_msg.controlMode;
+      if (in3.controlMode != hmi_cmd_msg.controlMode) {
+        in3.controlMode = hmi_cmd_msg.controlMode;
+        EEPROM.write(EEPROM_CONTROL_MODE, in3.controlMode);
+        EEPROM.commit();
+      }
 
       switch (in3.actuation) {
       case ACTUATION_TEMPERATURE:
