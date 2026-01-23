@@ -56,7 +56,7 @@ static void reset_vcp() {
   }
 }
 
-// ---- NUEVO: enviar CTRL,STATE ----
+// ---- NUEVO: enviar CTRL,STATE ---- CTRL,STATE,1,0,36.50,36.80,55,1,0,1,123456,2,1,v1.3.0
 static void send_state_to_hmi() {
   char msg[128];
   snprintf(msg, sizeof(msg),
