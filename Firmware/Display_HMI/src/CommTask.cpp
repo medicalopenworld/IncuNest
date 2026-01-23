@@ -71,15 +71,17 @@ static void parse_message(const char *line) {
       ctrl_tel_msg.serverCommStatus = COMM_STATUS_NONE;
     }
   } else if (strncmp(line, "CTRL,STATE", 10) == 0) {
-    int act, mode, photo, mute, sn, hwNum, lang;
+    int act, mode, photo, mute, sn, hwNum, lang, numAlarms;
     char hwRev;
     char fwVer[20];
     double airSet, skinSet, humSet;
     int result =
-        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%d,%c,%19s",
+        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%d,%c,%19[^,],%d",
                &act, &mode, &airSet, &skinSet, &humSet, &photo, &mute, &lang,
-               &sn, &hwNum, &hwRev, fwVer);
-    if (result == 12) {
+               &sn, &hwNum, &hwRev, fwVer, &numAlarms);
+    
+    // Accept 12 (old format) or 13 (new format with alarms)
+    if (result >= 12) {
       ctrl_state_msg.actuation = act;
       ctrl_state_msg.controlMode = mode;
       ctrl_state_msg.desiredAirTemperature = airSet;
@@ -94,6 +96,9 @@ static void parse_message(const char *line) {
       ctrl_state_msg.hwRev[1] = '\0';
       strncpy(ctrl_state_msg.fwVer, fwVer, sizeof(ctrl_state_msg.fwVer));
       ctrl_state_msg.newState = true;
+      
+      // If we have alarms count (result == 13), we could use it for verification
+      // but individual alarm messages will follow anyway.
     } else {
       COMM_LOG("[COMM] HMI failed to parse CTRL,STATE: %s\n", line);
     }

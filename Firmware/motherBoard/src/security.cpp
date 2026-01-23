@@ -306,6 +306,16 @@ bool ongoingAlarms() {
           alarmOnGoing[POWER_SUPPLY_ALARM]);
 }
 
+int getActiveAlarmCount() {
+  int count = 0;
+  for (int i = 0; i < NUM_ALARMS; i++) {
+    if (alarmOnGoing[i]) {
+      count++;
+    }
+  }
+  return count;
+}
+
 bool ongoingCriticalAlarm() {
   return (alarmOnGoing[AIR_THERMAL_CUTOUT_ALARM] ||
           alarmOnGoing[SKIN_THERMAL_CUTOUT_ALARM] ||

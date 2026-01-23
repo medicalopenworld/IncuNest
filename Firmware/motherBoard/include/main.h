@@ -692,6 +692,7 @@ bool ongoingCriticalWiringAlarm();
 void setAlarm(byte alarmID);
 void setAlarm(byte alarmID, bool alarmSound);
 void resetAlarm(byte alarmID);
+int getActiveAlarmCount();
 
 void PIDInit();
 void PIDHandler();

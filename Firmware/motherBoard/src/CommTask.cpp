@@ -59,16 +59,22 @@ static void reset_vcp() {
 // ---- NUEVO: enviar CTRL,STATE ---- CTRL,STATE,1,0,36.50,36.80,55,1,0,1,123456,2,1,v1.3.0
 static void send_state_to_hmi() {
   char msg[128];
+  int alarmCount = getActiveAlarmCount();
   snprintf(msg, sizeof(msg),
-           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%d,%c,%s\n",
+           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%d,%c,%s,%d\n",
            (int)g_last_cmd.actuation, (int)g_last_cmd.controlMode,
            (double)g_last_cmd.desiredAirTemperature,
            (double)g_last_cmd.desiredSkinTemperature,
            (double)g_last_cmd.desiredHumidity, (int)g_last_cmd.phototherapyMode,
            (int)g_last_cmd.muteAlarm, (int)g_last_cmd.language,
-           ctrl_tel_msg.serialNumber, HW_NUM, HW_REVISION, FWversion);
+           ctrl_tel_msg.serialNumber, HW_NUM, HW_REVISION, FWversion, alarmCount);
   ESP_LOGI(TAG, "Sending state to HMI: %s", msg);
   CommunicationHost_Send(msg);
+  
+  // Trigger alarm resend if any
+  if (alarmCount > 0) {
+      resendActiveAlarms();
+  }
 }
 
 void parse_line(const char *line) {
