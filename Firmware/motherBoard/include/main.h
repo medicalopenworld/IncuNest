@@ -63,12 +63,19 @@
 #include <Espressif_MQTT_Client.h>
 #include <Espressif_Updater.h>
 
+#define HW_NUM 15
+#define HW_REVISION 'A'
+#define HWversion String(HW_NUM) + "." + String(HW_REVISION)
+#define FWversion "15.5"
+#define WIFI_NAME "IncuNest"
+#define CURRENT_FIRMWARE_TITLE "IncuNest"
 // Set to true only on the HMI board
 #define IS_HMI false
+#define DEFAULT_WIFI_EN ON
 
-#define LOG_GPRS true
-#define LOG_MODEM_DATA true
-#define LOG_INFORMATION true
+#define LOG_GPRS false
+#define LOG_MODEM_DATA false
+#define LOG_INFORMATION false
 #define LOG_ERRORS false
 #define LOG_ALARMS false
 
