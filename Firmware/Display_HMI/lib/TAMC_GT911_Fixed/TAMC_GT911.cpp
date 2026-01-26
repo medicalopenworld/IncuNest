@@ -2,44 +2,49 @@
 #include <TAMC_GT911.h>
 #include <Wire.h>
 
-TAMC_GT911::TAMC_GT911(uint8_t _sda, uint8_t _scl, uint8_t _int, uint8_t _rst, uint16_t _width, uint16_t _height) :
-  pinSda(_sda), pinScl(_scl), pinInt(_int), pinRst(_rst), width(_width), height(_height) {
-
-}
+TAMC_GT911::TAMC_GT911(uint8_t _sda, uint8_t _scl, uint8_t _int, uint8_t _rst,
+                       uint16_t _width, uint16_t _height)
+    : pinSda(_sda), pinScl(_scl), pinInt(_int), pinRst(_rst), width(_width),
+      height(_height) {}
 
 bool TAMC_GT911::begin(uint8_t _addr) {
   addr = _addr;
-  // Wire.begin(pinSda, pinScl); // Removed to avoid re-init if already done via main.cpp or just check
-  // Better to rely on external Wire.begin() or check if initialized. 
-  // For safety in this library context, we can keep it OR assume user did it.
-  // Given user code does Wire.begin(sda,scl) in setup(), we can skip re-call or keep it.
-  // Keeping it is safer for "library standalone" usage but might reset bus speed. 
-  // Let's call it to be sure pins are set for this driver instance.
-  Wire.begin(pinSda, pinScl); 
-  
+  // Wire.begin(pinSda, pinScl); // Removed to avoid re-init if already done via
+  // main.cpp or just check Better to rely on external Wire.begin() or check if
+  // initialized. For safety in this library context, we can keep it OR assume
+  // user did it. Given user code does Wire.begin(sda,scl) in setup(), we can
+  // skip re-call or keep it. Keeping it is safer for "library standalone" usage
+  // but might reset bus speed. Let's call it to be sure pins are set for this
+  // driver instance.
+  Wire.begin(pinSda, pinScl);
+
   reset();
 
   // Validate connection by reading Product ID
   uint8_t temp[4];
   readBlockData(temp, GT911_PRODUCT_ID, 4);
-  
+
   // Serial.print("Product ID: ");
-  // Serial.print((char)temp[0]); Serial.print((char)temp[1]); Serial.print((char)temp[2]); Serial.println((char)temp[3]);
-  
+  // Serial.print((char)temp[0]); Serial.print((char)temp[1]);
+  // Serial.print((char)temp[2]); Serial.println((char)temp[3]);
+
   // Check if ID is somewhat valid (printable ASCII or known "911")
   // GT911 usually returns "911\0"
   if (temp[0] != '9') {
-      // Try secondary address if primary failed
-      if(addr == GT911_ADDR1) addr = GT911_ADDR2;
-      else addr = GT911_ADDR1;
-      
-      reset(); // Reset again with new address intent logic? 
-      // Actually reset() uses 'addr' to decide INT pin state. So changing addr and calling reset() effectively tries the other strap.
-      
-      readBlockData(temp, GT911_PRODUCT_ID, 4);
-      if (temp[0] != '9') {
-          return false; // Failed both addresses
-      }
+    // Try secondary address if primary failed
+    if (addr == GT911_ADDR1)
+      addr = GT911_ADDR2;
+    else
+      addr = GT911_ADDR1;
+
+    reset(); // Reset again with new address intent logic?
+    // Actually reset() uses 'addr' to decide INT pin state. So changing addr
+    // and calling reset() effectively tries the other strap.
+
+    readBlockData(temp, GT911_PRODUCT_ID, 4);
+    if (temp[0] != '9') {
+      return false; // Failed both addresses
+    }
   }
   return true;
 }
@@ -49,7 +54,7 @@ void TAMC_GT911::reset() {
   digitalWrite(pinInt, 0);
   digitalWrite(pinRst, 0);
   delay(10);
-  digitalWrite(pinInt, addr==GT911_ADDR2);
+  digitalWrite(pinInt, addr == GT911_ADDR2);
   delay(1);
   digitalWrite(pinRst, 1);
   delay(5);
@@ -63,7 +68,7 @@ void TAMC_GT911::reset() {
 }
 void TAMC_GT911::calculateChecksum() {
   uint8_t checksum;
-  for (uint8_t i=0; i<GT911_CONFIG_SIZE; i++) {
+  for (uint8_t i = 0; i < GT911_CONFIG_SIZE; i++) {
     checksum += configBuf[i];
   }
   checksum = (~checksum) + 1;
@@ -75,12 +80,11 @@ void TAMC_GT911::calculateChecksum() {
 // }
 void TAMC_GT911::reflashConfig() {
   calculateChecksum();
-  writeByteData(GT911_CONFIG_CHKSUM, configBuf[GT911_CONFIG_CHKSUM-GT911_CONFIG_START]);
+  writeByteData(GT911_CONFIG_CHKSUM,
+                configBuf[GT911_CONFIG_CHKSUM - GT911_CONFIG_START]);
   writeByteData(GT911_CONFIG_FRESH, 1);
 }
-void TAMC_GT911::setRotation(uint8_t rot) {
-  rotation = rot;
-}
+void TAMC_GT911::setRotation(uint8_t rot) { rotation = rot; }
 void TAMC_GT911::setResolution(uint16_t _width, uint16_t _height) {
   configBuf[GT911_X_OUTPUT_MAX_LOW - GT911_CONFIG_START] = lowByte(_width);
   configBuf[GT911_X_OUTPUT_MAX_HIGH - GT911_CONFIG_START] = highByte(_width);
@@ -114,7 +118,7 @@ void TAMC_GT911::read(void) {
       touches = 5;
     }
     if (bufferStatus == 1) {
-      for (uint8_t i=0; i<touches; i++) {
+      for (uint8_t i = 0; i < touches; i++) {
         readBlockData(data, GT911_POINT_1 + i * 8, 7);
         points[i] = readPoint(data);
       }
@@ -128,27 +132,27 @@ TP_Point TAMC_GT911::readPoint(uint8_t *data) {
   uint16_t x = data[1] + (data[2] << 8);
   uint16_t y = data[3] + (data[4] << 8);
   uint16_t size = data[5] + (data[6] << 8);
-  switch (rotation){
-    case ROTATION_NORMAL:
-      x = width - x;
-      y = height - y;
-      break;
-    case ROTATION_LEFT:
-      temp = x;
-      x = width - y;
-      y = temp;
-      break;
-    case ROTATION_INVERTED:
-      x = x;
-      y = y;
-      break;
-    case ROTATION_RIGHT:
-      temp = x;
-      x = y;
-      y = height - temp;
-      break;
-    default:
-      break;
+  switch (rotation) {
+  case ROTATION_NORMAL:
+    x = width - x;
+    y = height - y;
+    break;
+  case ROTATION_LEFT:
+    temp = x;
+    x = width - y;
+    y = temp;
+    break;
+  case ROTATION_INVERTED:
+    x = x;
+    y = y;
+    break;
+  case ROTATION_RIGHT:
+    temp = x;
+    x = y;
+    y = height - temp;
+    break;
+  default:
+    break;
   }
   return TP_Point(id, x, y, size);
 }
@@ -174,7 +178,7 @@ void TAMC_GT911::writeBlockData(uint16_t reg, uint8_t *val, uint8_t size) {
   Wire.write(highByte(reg));
   Wire.write(lowByte(reg));
   // Wire.write(val, size);
-  for (uint8_t i=0; i<size; i++) {
+  for (uint8_t i = 0; i < size; i++) {
     Wire.write(val[i]);
   }
   Wire.endTransmission();
@@ -185,13 +189,11 @@ void TAMC_GT911::readBlockData(uint8_t *buf, uint16_t reg, uint8_t size) {
   Wire.write(lowByte(reg));
   Wire.endTransmission();
   Wire.requestFrom(addr, size);
-  for (uint8_t i=0; i<size; i++) {
+  for (uint8_t i = 0; i < size; i++) {
     buf[i] = Wire.read();
   }
 }
-TP_Point::TP_Point(void) {
-  id = x = y = size = 0;
-}
+TP_Point::TP_Point(void) { id = x = y = size = 0; }
 TP_Point::TP_Point(uint8_t _id, uint16_t _x, uint16_t _y, uint16_t _size) {
   id = _id;
   x = _x;

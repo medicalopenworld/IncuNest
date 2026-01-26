@@ -191,7 +191,8 @@ typedef enum {
   FAN_ISSUE_ALARM,
   HEATER_ISSUE_ALARM,
   POWER_SUPPLY_ALARM,
-  NUM_ALARMS_ID, // Renamed to avoid partial conflict with constexpr NUM_ALARMS legacy if any, though likely safe. Keeps consistent with MB
+  NUM_ALARMS_ID, // Renamed to avoid partial conflict with constexpr NUM_ALARMS
+                 // legacy if any, though likely safe. Keeps consistent with MB
 } ALARMS_ID;
 
 constexpr int MAX_ALARMS = 10;

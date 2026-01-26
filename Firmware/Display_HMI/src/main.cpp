@@ -13,6 +13,10 @@ in3ator_parameters in3;
 
 void setup() {
   Serial.begin(SERIAL_BAUD);
+
+  // Suppress ESP-IDF gpio error logs (caused by GT911 using pin -1)
+  esp_log_level_set("gpio", ESP_LOG_NONE);
+
   initEEPROM();
 
   Wire.begin(TOUCH_SDA_PIN, TOUCH_SCL_PIN);
