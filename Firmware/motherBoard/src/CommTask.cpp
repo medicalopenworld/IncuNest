@@ -26,7 +26,7 @@ extern in3ator_parameters in3;
 TelemetryMessage ctrl_tel_msg = {0, 0, 0, 0};
 HMI_CommandMessage hmi_cmd_msg = {0, 0, 0, 0, 0, 0, 0, 0, false};
 // ---- NUEVO: cache de estado “último comando/setpoints” ----
-static HMI_CommandMessage g_last_cmd = {0, 0, 0, 0, 0, 0, 0, 0, false};
+static HMI_CommandMessage g_last_cmd = {0, 1, 0, 0, 0, 0, 0, 1, false};
 
 static std::unique_ptr<CdcAcmDevice> vcp;
 static char rxBuffer[256];
@@ -61,13 +61,13 @@ static void send_state_to_hmi() {
   char msg[128];
   int alarmCount = getActiveAlarmCount();
   snprintf(msg, sizeof(msg),
-           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%d,%c,%s,%d\n",
+           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%d,%c,%s,%d,%d\n",
            (int)g_last_cmd.actuation, (int)g_last_cmd.controlMode,
            (double)g_last_cmd.desiredAirTemperature,
            (double)g_last_cmd.desiredSkinTemperature,
            (double)g_last_cmd.desiredHumidity, (int)g_last_cmd.phototherapyMode,
            (int)g_last_cmd.muteAlarm, (int)g_last_cmd.language,
-           ctrl_tel_msg.serialNumber, HW_NUM, HW_REVISION, FWversion, alarmCount);
+           ctrl_tel_msg.serialNumber, HW_NUM, HW_REVISION, FWversion, alarmCount, (int)g_last_cmd.skinModeEnabled);
   ESP_LOGI(TAG, "Sending state to HMI: %s", msg);
   CommunicationHost_Send(msg);
   
@@ -161,11 +161,13 @@ void parse_line(const char *line) {
   // HMI COMMAND
   // -----------------------------
   if (strncmp(line, "HMI,", 4) == 0) {
-    int act, mode, photo, mute, lang;
+    int act, mode, photo, mute, lang, skinE;
     double air, skin, hum;
 
-    if (sscanf(line, "HMI,%d,%d,%lf,%lf,%lf,%d,%d,%d", &act, &mode, &air, &skin,
-               &hum, &photo, &mute, &lang) == 8) {
+    if (sscanf(line, "HMI,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d", &act, &mode, &air, &skin,
+               &hum, &photo, &mute, &lang, &skinE) >= 8) {
+      int count = sscanf(line, "HMI,%*d,%*d,%*f,%*f,%*f,%*d,%*d,%*d,%d", &skinE);
+      
       hmi_cmd_msg.actuation = act;
       hmi_cmd_msg.controlMode = mode;
       hmi_cmd_msg.desiredAirTemperature = air;
@@ -174,6 +176,7 @@ void parse_line(const char *line) {
       hmi_cmd_msg.phototherapyMode = photo;
       hmi_cmd_msg.muteAlarm = mute;
       hmi_cmd_msg.language = lang;
+      hmi_cmd_msg.skinModeEnabled = (count == 1) ? skinE : (mode == 0); // fallback if param missing
       hmi_cmd_msg.newCommand = true;
 
       // ---- NUEVO: actualiza cache (para futuras respuestas CTRL,STATE) ----

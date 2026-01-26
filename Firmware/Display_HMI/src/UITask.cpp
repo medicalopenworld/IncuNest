@@ -647,6 +647,8 @@ void Switch_cb(lv_event_t *e) {
   } else if (obj == ui_Switch4) { // SKIN BLOCK SWITCH
     bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
     skinPanelEnabled = checked;
+    hmi_msg.skinModeEnabled = checked;
+    hmi_msg.shouldSendData = true;
 
     if (checked) {
       // show container of skin
@@ -658,6 +660,9 @@ void Switch_cb(lv_event_t *e) {
     } else {
       // Hide container of skin
       lv_obj_add_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
+      lastSelectedPanel = AIR_PANEL_SELECTED;
+      lv_obj_clear_flag(ui_AirTempBarCont, LV_OBJ_FLAG_HIDDEN);
+
 
       if (selectedPanel == SKIN_PANEL_SELECTED) {
         selectedPanel = AIR_PANEL_SELECTED;
@@ -1713,6 +1718,7 @@ void UI_SyncAll() {
     selectedPanel = NO_PANEL_SELECTED;
     arrowsActive = false;
     lv_obj_add_flag(ui_AirTempChartCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_SkinTempChartCont, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(ui_ImgArrowUpTemp, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_style_bg_color(ui_ArrowDownTemp, COLOR_PANEL_GRAY, LV_PART_MAIN);
@@ -1720,6 +1726,15 @@ void UI_SyncAll() {
     lv_obj_set_style_bg_color(ui_AirPanel, COLOR_PANEL_GRAY, LV_PART_MAIN);
     lv_obj_set_style_bg_color(ui_SkinPanel, COLOR_PANEL_GRAY, LV_PART_MAIN);
     lv_obj_set_style_bg_color(ui_Panel1, COLOR_PANEL_GRAY, LV_PART_MAIN);
+
+    // Visually show labels and thermometer of the last selected panel even if OFF
+    if (lastSelectedPanel == SKIN_PANEL_SELECTED) {
+      lv_obj_clear_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_add_flag(ui_AirTempBarCont, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_clear_flag(ui_AirTempBarCont, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_add_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
+    }
 
     // Lock Screen hide targets but keep detected values visible
     if (ui_TargetAirTempCont) lv_obj_add_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);

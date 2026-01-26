@@ -26,6 +26,7 @@ extern bool g_stateSynced;
 extern uint32_t g_lastStateReqMs;
 extern int selectedPanel;
 extern int lastSelectedPanel;
+extern bool skinPanelEnabled;
 
 // ======================
 //  LOW-LEVEL COMMS
@@ -46,10 +47,10 @@ void Communication_SendWiFiCredentials(const char *ssid, const char *password) {
 static void SendMessageToOtherESP() {
 #if IS_HMI
   COMM_SERIAL.printf(
-      "HMI,%d,%d,%0.2f,%0.2f,%0.0f,%d,%d,%d\n", hmi_msg.actuation,
+      "HMI,%d,%d,%0.2f,%0.2f,%0.0f,%d,%d,%d,%d\n", hmi_msg.actuation,
       hmi_msg.controlMode, hmi_msg.desiredAirTemperature,
       hmi_msg.desiredSkinTemperature, hmi_msg.desiredHumidity,
-      hmi_msg.phototherapyMode, hmi_msg.muteAlarm, hmi_msg.language);
+      hmi_msg.phototherapyMode, hmi_msg.muteAlarm, hmi_msg.language, (int)hmi_msg.skinModeEnabled);
 #else
   COMM_SERIAL.printf("CTRL,%0.2f,%0.2f,%0.2f,%0.2f,%0.2f\n",
                      ctrl_msg.temperature[0], ctrl_msg.temperature[1],
@@ -73,16 +74,16 @@ static void parse_message(const char *line) {
       ctrl_tel_msg.serverCommStatus = COMM_STATUS_NONE;
     }
   } else if (strncmp(line, "CTRL,STATE", 10) == 0) {
-    int act, mode, photo, mute, sn, hwNum, lang, numAlarms;
+    int act, mode, photo, mute, sn, hwNum, lang, numAlarms, skinE;
     char hwRev;
     char fwVer[20];
     double airSet, skinSet, humSet;
     int result =
-        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%d,%c,%19[^,],%d",
+        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%d,%c,%19[^,],%d,%d",
                &act, &mode, &airSet, &skinSet, &humSet, &photo, &mute, &lang,
-               &sn, &hwNum, &hwRev, fwVer, &numAlarms);
+               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE);
     
-    // Accept 12 (old format) or 13 (new format with alarms)
+    // Accept 12 (old), 13 (with alarms), or 14 (with alarms + skinModeEnabled)
     if (result >= 12) {
       ctrl_state_msg.actuation = act;
       ctrl_state_msg.controlMode = mode;
@@ -97,6 +98,7 @@ static void parse_message(const char *line) {
       ctrl_state_msg.hwRev[0] = hwRev;
       ctrl_state_msg.hwRev[1] = '\0';
       strncpy(ctrl_state_msg.fwVer, fwVer, sizeof(ctrl_state_msg.fwVer));
+      ctrl_state_msg.skinModeEnabled = (result >= 14) ? skinE : (mode == CONTROL_SKIN);
       ctrl_state_msg.newState = true;
       
       // If we have alarms count (result == 13), we could use it for verification
@@ -176,7 +178,15 @@ static void Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
   ui_set_switch_state_silent(ui_Switch1, st.actuation & 0x01);
   ui_set_switch_state_silent(ui_Switch2, (st.actuation >> 1) & 0x01);
   ui_set_switch_state_silent(ui_Switch3, st.phototherapyMode);
-  ui_set_switch_state_silent(ui_Switch4, st.controlMode == CONTROL_SKIN);
+  ui_set_switch_state_silent(ui_Switch4, st.skinModeEnabled);
+
+  skinPanelEnabled = st.skinModeEnabled; // Ensure sync with UITask global
+  if (skinPanelEnabled) {
+    if (ui_SkinPanelCont) lv_obj_clear_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    if (ui_SkinPanelCont) lv_obj_add_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
+    lastSelectedPanel = AIR_PANEL_SELECTED;
+  }
 
   if (st.language != g_lang) {
     // Only update if different to avoid loop, but Applying Language is safe
@@ -204,6 +214,7 @@ static void Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
   hmi_msg.phototherapyMode = st.phototherapyMode;
   hmi_msg.muteAlarm = st.muteAlarm;
   hmi_msg.language = st.language;
+  hmi_msg.skinModeEnabled = st.skinModeEnabled;
 
   if (st.controlMode == CONTROL_SKIN) {
     selectedPanel = SKIN_PANEL_SELECTED;

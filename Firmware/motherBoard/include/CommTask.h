@@ -33,6 +33,7 @@ typedef struct {
   int phototherapyMode;
   int muteAlarm;
   int language;
+  int skinModeEnabled;
   bool newCommand;
 } HMI_CommandMessage;
 
