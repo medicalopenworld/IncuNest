@@ -252,7 +252,7 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   const char *TXT_BABYTEMP[] = {"TEMPERATURA BEBE:", "BABY TEMPERATURE:",
                                 "TEMPERATURE BEBE:"};
   const char *TXT_HUM[] = {"HUMEDAD:", "HUMIDITY:", "HUMIDITE:"};
-  const char *TXT_TARGETTEMP[] = {"TEMP. OBJETIVO:", "TARGET TEMP.:",
+  const char *TXT_TARGETTEMP[] = {"TEMP. OBJETIVO:", "TARGET TEMP:",
                                   "TEMP. OBJECTIF:"};
   const char *TXT_TARGETHUM[] = {"HUMEDAD OBJETIVO:", "TARGET HUMIDITY:",
                                  "HUMIDITE OBJECTIF:"};
