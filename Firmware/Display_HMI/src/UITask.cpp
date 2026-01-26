@@ -229,6 +229,10 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   const char *TXT_SSID[] = {"SSID", "SSID", "SSID"};
   const char *TXT_PASSWORD[] = {"CONTRASENA", "PASSWORD", "MOT DE PASSE"};
   const char *TXT_SKINMODE[] = {"MODO PIEL", "SKIN MODE", "MODE PEAU"};
+  const char *TXT_INFO[] = {"INFO", "INFO", "INFO"};
+  const char *TXT_HMI_VERSION[] = {"VERSION PANTALLA:", "DISPLAY VERSION:", "VERSION ECRAN:"};
+  const char *TXT_MB_VERSION[] = {"VERSION PLACA:", "MOTHERBOARD VERSION:", "VERSION CARTE:"};
+  const char *TXT_SN[] = {"S/N:", "S/N:", "S/N:"};
   const char *TXT_HEATER_ERROR_RESTART[] = {"Error calentador\nToque para mas informacion", "Heater error\nTouch for more information", "Erreur chauffage\nToucher pour plus d'infos"};
   const char *TXT_ALARMS[] = {"ALARMAS", "ALARMS", "ALARMES"};
   const char *TXT_VIEWDETAIL[] = {"VER DETALLES", "VIEW DETAILS",
@@ -289,6 +293,10 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   lv_label_set_text(ui_SSIDLabel, TXT_SSID[lang]);
   lv_label_set_text(ui_PassLabel, TXT_PASSWORD[lang]);
   lv_label_set_text(ui_SkinOptionLabel, TXT_SKINMODE[lang]);
+  lv_label_set_text(ui_InfoLabel, TXT_INFO[lang]);
+  lv_label_set_text(ui_HMIVerTitle, TXT_HMI_VERSION[lang]);
+  lv_label_set_text(ui_MBVerTitle, TXT_MB_VERSION[lang]);
+  lv_label_set_text(ui_SNTitle, TXT_SN[lang]);
   
   if (ui_HeaterErrorTempLabel) lv_label_set_text(ui_HeaterErrorTempLabel, TXT_HEATER_ERROR_RESTART[lang]);
   if (ui_HeaterErrorHumLabel) lv_label_set_text(ui_HeaterErrorHumLabel, TXT_HEATER_ERROR_RESTART[lang]);
@@ -421,6 +429,7 @@ void set_active_panel(lv_obj_t *active, lv_obj_t *inactive) {
 void WifiButton_cb(lv_event_t *e) {
   lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
   LanguagesVisible = false;
+  lv_obj_add_flag(ui_InfoDetailsCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
   if (WiFi.status() == WL_CONNECTED) {
@@ -433,9 +442,29 @@ void WifiButton_cb(lv_event_t *e) {
 
 }
 
+void InfoButton_cb(lv_event_t *e) {
+  lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
+  LanguagesVisible = false;
+  lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
+  
+  lv_obj_clear_flag(ui_InfoDetailsCont, LV_OBJ_FLAG_HIDDEN);
+
+  // Update values
+  lv_label_set_text(ui_HMIVerValue, FWversion);
+  lv_label_set_text(ui_MBVerValue, ctrl_state_msg.fwVer);
+  char snBuf[16];
+  snprintf(snBuf, sizeof(snBuf), "%04d", in3.serialNumber);
+  lv_label_set_text(ui_SNValue, snBuf);
+
+  wifiVisible = false;
+  hmi_msg.shouldSendData = true;
+}
+
 void LanguageButton_cb(lv_event_t *e) {
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_InfoDetailsCont, LV_OBJ_FLAG_HIDDEN);
   wifiVisible = false;
   lv_obj_clear_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
   LanguagesVisible = true;

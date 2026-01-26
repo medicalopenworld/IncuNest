@@ -201,6 +201,19 @@ extern lv_obj_t * ui_SkinModeCont;
 extern lv_obj_t * ui_Panel9;
 extern lv_obj_t * ui_SkinOptionLabel;
 extern lv_obj_t * ui_Switch4;
+extern lv_obj_t * ui_InfoCont;
+extern lv_obj_t * ui_InfoPanel;
+extern lv_obj_t * ui_InfoLabel;
+extern lv_obj_t * ui_InfoButton;
+extern lv_obj_t * ui_InfoArrow;
+extern lv_obj_t * ui_InfoDetailsCont;
+extern lv_obj_t * ui_InfoDetailsPanel;
+extern lv_obj_t * ui_HMIVerTitle;
+extern lv_obj_t * ui_HMIVerValue;
+extern lv_obj_t * ui_MBVerTitle;
+extern lv_obj_t * ui_MBVerValue;
+extern lv_obj_t * ui_SNTitle;
+extern lv_obj_t * ui_SNValue;
 extern lv_obj_t * ui_WifiConfigCont;
 extern lv_obj_t * ui_Keyboard1;
 extern lv_obj_t * ui_SSIDPanel;
@@ -356,6 +369,7 @@ void ui_event_Label13(lv_event_t * e);
 void ui_event_Label16(lv_event_t * e);
 void ui_event_Label10(lv_event_t * e);
 void ui_event_Label17(lv_event_t * e);
+void ui_event_InfoButton(lv_event_t * e);
 
 // --- UI INIT ---
 void ui_init(void);

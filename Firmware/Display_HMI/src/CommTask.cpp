@@ -237,14 +237,6 @@ static void Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
              in3.serialNumber);
   }
 
-  if (st.hwNum != 0 && ui_Incunest) {
-    char titleBuf[64];
-    snprintf(titleBuf, sizeof(titleBuf), "IncuNest %d.%s v%s", st.hwNum,
-             st.hwRev, st.fwVer);
-    // ESP_LOGI(TAG, "Updating title: %s", titleBuf);
-    lv_label_set_text(ui_Incunest, titleBuf);
-  }
-
   UI_SyncAll();
 }
 
