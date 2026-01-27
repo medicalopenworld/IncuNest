@@ -74,14 +74,14 @@ static void parse_message(const char *line) {
       ctrl_tel_msg.serverCommStatus = COMM_STATUS_NONE;
     }
   } else if (strncmp(line, "CTRL,STATE", 10) == 0) {
-    int act, mode, photo, mute, sn, hwNum, numAlarms, skinE;
+    int act, mode, photo, mute, sn, hwNum, numAlarms, skinE, commStatus;
     char hwRev;
     char fwVer[20];
     double airSet, skinSet, humSet;
     int result =
-        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d",
+        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d",
                &act, &mode, &airSet, &skinSet, &humSet, &photo, &mute,
-               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE);
+               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus);
     
     // Accept 12 (old), 13 (with alarms), or 14 (with alarms + skinModeEnabled)
     if (result >= 12) {
@@ -99,6 +99,7 @@ static void parse_message(const char *line) {
       ctrl_state_msg.hwRev[1] = '\0';
       strncpy(ctrl_state_msg.fwVer, fwVer, sizeof(ctrl_state_msg.fwVer));
       ctrl_state_msg.skinModeEnabled = (result >= 14) ? skinE : (mode == CONTROL_SKIN);
+      ctrl_state_msg.serverCommStatus = (result >= 15) ? commStatus : 0;
       ctrl_state_msg.newState = true;
       
       // If we have alarms count (result == 13), we could use it for verification

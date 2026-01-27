@@ -214,6 +214,8 @@ extern lv_obj_t * ui_MBVerTitle;
 extern lv_obj_t * ui_MBVerValue;
 extern lv_obj_t * ui_SNTitle;
 extern lv_obj_t * ui_SNValue;
+extern lv_obj_t * ui_ConnTitle;
+extern lv_obj_t * ui_ConnValue;
 extern lv_obj_t * ui_WifiConfigCont;
 extern lv_obj_t * ui_Keyboard1;
 extern lv_obj_t * ui_SSIDPanel;

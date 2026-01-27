@@ -135,6 +135,8 @@ lv_obj_t * ui_MBVerTitle = NULL;
 lv_obj_t * ui_MBVerValue = NULL;
 lv_obj_t * ui_SNTitle = NULL;
 lv_obj_t * ui_SNValue = NULL;
+lv_obj_t * ui_ConnTitle = NULL;
+lv_obj_t * ui_ConnValue = NULL;
 
 lv_obj_t * ui_WifiConfigCont = NULL;
 lv_obj_t * ui_Keyboard1 = NULL;
@@ -1913,7 +1915,7 @@ void ui_ScreenSettings_screen_init(void) {
     ui_InfoDetailsCont = lv_obj_create(ui_ScreenSettings);
     lv_obj_remove_style_all(ui_InfoDetailsCont);
     lv_obj_set_width(ui_InfoDetailsCont, 411);
-    lv_obj_set_height(ui_InfoDetailsCont, 150);
+    lv_obj_set_height(ui_InfoDetailsCont, 190);
     lv_obj_set_x(ui_InfoDetailsCont, 185);
     lv_obj_set_y(ui_InfoDetailsCont, -50);
     lv_obj_set_align(ui_InfoDetailsCont, LV_ALIGN_CENTER);
@@ -1922,7 +1924,7 @@ void ui_ScreenSettings_screen_init(void) {
 
     ui_InfoDetailsPanel = lv_obj_create(ui_InfoDetailsCont);
     lv_obj_set_width(ui_InfoDetailsPanel, 411);
-    lv_obj_set_height(ui_InfoDetailsPanel, 150);
+    lv_obj_set_height(ui_InfoDetailsPanel, 190);
     lv_obj_set_align(ui_InfoDetailsPanel, LV_ALIGN_CENTER);
     lv_obj_clear_flag(ui_InfoDetailsPanel, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -1982,6 +1984,25 @@ void ui_ScreenSettings_screen_init(void) {
     lv_label_set_text(ui_SNValue, "0000");
     lv_obj_set_style_text_color(ui_SNValue, lv_color_hex(0x2196F3), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(ui_SNValue, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_ConnTitle = lv_label_create(ui_InfoDetailsCont);
+    lv_obj_set_width(ui_ConnTitle, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_ConnTitle, LV_SIZE_CONTENT);
+    lv_obj_set_x(ui_ConnTitle, -100);
+    lv_obj_set_y(ui_ConnTitle, 80);
+    lv_obj_set_align(ui_ConnTitle, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_ConnTitle, "CONNECTIVITY:");
+    lv_obj_set_style_text_font(ui_ConnTitle, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_ConnValue = lv_label_create(ui_InfoDetailsCont);
+    lv_obj_set_width(ui_ConnValue, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_ConnValue, LV_SIZE_CONTENT);
+    lv_obj_set_x(ui_ConnValue, 50);
+    lv_obj_set_y(ui_ConnValue, 80);
+    lv_obj_set_align(ui_ConnValue, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_ConnValue, "-");
+    lv_obj_set_style_text_color(ui_ConnValue, lv_color_hex(0x2196F3), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_ConnValue, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_LanguagesDropDown = lv_dropdown_create(ui_ScreenSettings);
     lv_dropdown_set_options(ui_LanguagesDropDown, "English\nEspañol\nPortuguês\nItaliano\nDeutsch\nРусский\nTürkçe\nاردو\nMelayu\n中文");

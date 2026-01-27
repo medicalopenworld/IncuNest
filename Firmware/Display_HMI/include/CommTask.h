@@ -75,6 +75,7 @@ typedef struct {
   int language;
   bool newState;
   int skinModeEnabled;
+  int serverCommStatus;
 } ControlBoard_Message_State;
 
 // Expected prefix of incoming messages

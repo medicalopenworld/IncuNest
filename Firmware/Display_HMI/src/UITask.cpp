@@ -208,6 +208,33 @@ void update_labels() {
   lv_bar_set_value(ui_HumBar, humBar, LV_ANIM_OFF);
 }
 
+const char* getConnectivityString(int status, ui_lang_t lang) {
+    switch (status) {
+        case COMM_STATUS_NONE:
+            if (lang == LANG_ES) return "DESCONECTADO";
+            if (lang == LANG_FR) return "DECONNECTE";
+            return "DISCONNECTED";
+        case COMM_STATUS_GPRS_ONLY:
+            if (lang == LANG_ES) return "2G (SIN SERVER)";
+            if (lang == LANG_FR) return "2G (SANS SERVEUR)";
+            return "2G (NO SERVER)";
+        case COMM_STATUS_GPRS_SERVER:
+            if (lang == LANG_ES) return "2G + SERVIDOR";
+            if (lang == LANG_FR) return "2G + SERVEUR";
+            return "2G + SERVER";
+        case COMM_STATUS_WIFI_ONLY:
+            if (lang == LANG_ES) return "WIFI (SIN SERVER)";
+            if (lang == LANG_FR) return "WIFI (SANS SERVEUR)";
+            return "WIFI (NO SERVER)";
+        case COMM_STATUS_WIFI_SERVER:
+            if (lang == LANG_ES) return "WIFI + SERVIDOR";
+            if (lang == LANG_FR) return "WIFI + SERVEUR";
+            return "WIFI + SERVER";
+        default:
+            return "-";
+    }
+}
+
 void UI_ApplyLanguage(ui_lang_t lang) {
   g_lang = lang;
   EEPROM.write(EEPROM_LANGUAGE, g_lang);
@@ -274,6 +301,7 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   const char *TXT_LANG_OPTIONS[] = {"ESPANOL\nINGLES\nFRANCES",
                                     "SPANISH\nENGLISH\nFRENCH",
                                     "ESPAGNOL\nANGLAIS\nFRANCAIS"};
+  const char *TXT_CONNECTIVITY[] = {"CONECTIVIDAD:", "CONNECTIVITY:", "CONNECTIVITE:"};
 
   lv_label_set_text(ui_Label2, TXT_CONTROLTEMP[lang]);
   lv_label_set_text(ui_HumidityLabel, TXT_CONTROLHUM[lang]);
@@ -297,6 +325,7 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   lv_label_set_text(ui_HMIVerTitle, TXT_HMI_VERSION[lang]);
   lv_label_set_text(ui_MBVerTitle, TXT_MB_VERSION[lang]);
   lv_label_set_text(ui_SNTitle, TXT_SN[lang]);
+  if (ui_ConnTitle) lv_label_set_text(ui_ConnTitle, TXT_CONNECTIVITY[lang]);
   
   if (ui_HeaterErrorTempLabel) lv_label_set_text(ui_HeaterErrorTempLabel, TXT_HEATER_ERROR_RESTART[lang]);
   if (ui_HeaterErrorHumLabel) lv_label_set_text(ui_HeaterErrorHumLabel, TXT_HEATER_ERROR_RESTART[lang]);
@@ -456,6 +485,10 @@ void InfoButton_cb(lv_event_t *e) {
   char snBuf[16];
   snprintf(snBuf, sizeof(snBuf), "%04d", in3.serialNumber);
   lv_label_set_text(ui_SNValue, snBuf);
+  
+  if (ui_ConnValue) {
+      lv_label_set_text(ui_ConnValue, getConnectivityString(ctrl_state_msg.serverCommStatus, g_lang));
+  }
 
   wifiVisible = false;
   hmi_msg.shouldSendData = true;
