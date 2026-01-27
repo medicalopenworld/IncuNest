@@ -57,6 +57,11 @@ static unsigned long lastVarChangeTime = 0;
 
 ui_lang_t g_lang = LANG_EN;
 
+// Phototherapy Timer
+static int photoTimerMinutes = 30; // Default
+static bool photoTimerActive = false;
+static unsigned long photoTimerStartMs = 0;
+
 Alarm alarmList[MAX_ALARMS];
 
 // ==========================================
@@ -302,6 +307,7 @@ void UI_ApplyLanguage(ui_lang_t lang) {
                                     "SPANISH\nENGLISH\nFRENCH",
                                     "ESPAGNOL\nANGLAIS\nFRANCAIS"};
   const char *TXT_CONNECTIVITY[] = {"CONECTIVIDAD:", "CONNECTIVITY:", "CONNECTIVITE:"};
+  const char *TXT_PHOTOSTART[] = {"EMPEZAR", "START", "DEMARRER"};
 
   lv_label_set_text(ui_Label2, TXT_CONTROLTEMP[lang]);
   lv_label_set_text(ui_HumidityLabel, TXT_CONTROLHUM[lang]);
@@ -373,6 +379,13 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   lv_label_set_text(ui_Label23, TXT_TARGETHUM[lang]);
   lv_label_set_text(ui_StatusLabel, TXT_STATUS[lang]);
   lv_label_set_text(ui_Label4, TXT_UNLOCK[lang]);
+  
+  // Phototherapy Timer
+  if (ui_PhotoStartLabel) lv_label_set_text(ui_PhotoStartLabel, TXT_PHOTOSTART[lang]);
+  if (ui_PhotoLockLabel) {
+      const char *TXT_PHOTO_LOCK[] = {"FOTOTERAPIA:", "PHOTOTHERAPY:", "PHOTOTHERAPIE:"};
+      lv_label_set_text(ui_PhotoLockLabel, TXT_PHOTO_LOCK[lang]);
+  }
 
   update_labels();
 }
@@ -584,6 +597,52 @@ void SkinPanel_cb(lv_event_t *e) {
   temp_chart_show_for_selected_panel();
 }
 
+/* Phototherapy Timer Callbacks */
+void PhotoTimeMinusBtn_cb(lv_event_t * e) {
+    hmi_msg.shouldSendData = true;
+    if (photoTimerActive) return; 
+    
+    if (photoTimerMinutes > 10) {
+        photoTimerMinutes -= 10;
+    } else if (photoTimerMinutes > 1) {
+        photoTimerMinutes -= 1;
+    }
+    
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%d min", photoTimerMinutes);
+    lv_label_set_text(ui_PhotoTimeValueLabel, buf);
+}
+
+void PhotoTimePlusBtn_cb(lv_event_t * e) {
+    hmi_msg.shouldSendData = true;
+    if (photoTimerActive) return;
+    
+    if (photoTimerMinutes < 10) {
+        photoTimerMinutes += 1;
+    } else {
+        photoTimerMinutes += 10; 
+    }
+    
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%d min", photoTimerMinutes);
+    lv_label_set_text(ui_PhotoTimeValueLabel, buf);
+}
+
+void PhotoStartBtn_cb(lv_event_t * e) {
+    if (photoTimerActive) return;
+    
+    photoTimerActive = true;
+    photoTimerStartMs = millis();
+    
+    // Send ON command
+    hmi_msg.phototherapyMode = PHOTOTHERAPY_ON;
+    hmi_msg.shouldSendData = true;
+    
+    // Update UI
+    lv_label_set_text(ui_PhotoStartLabel, "RUNNING");
+    lv_obj_set_style_bg_color(ui_PhotoStartBtn, lv_color_hex(0x888888), LV_PART_MAIN | LV_STATE_DEFAULT);
+}
+
 /* Switch callback for temperature and humidity */
 void Switch_cb(lv_event_t *e) {
   lv_obj_t *obj = lv_event_get_target(e); // switch that triggered the event
@@ -704,8 +763,31 @@ void Switch_cb(lv_event_t *e) {
     }
   } else if (obj == ui_Switch3) { // PHOTOTHERAPY SWITCH
     bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
-    hmi_msg.phototherapyMode = checked ? PHOTOTHERAPY_ON : PHOTOTHERAPY_OFF;
-    hmi_msg.shouldSendData = true;
+    
+    if (checked) {
+        // Show timer menu, DO NOT start yet
+        lv_obj_clear_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN);
+        
+        // Reset state if not active
+        if (!photoTimerActive) {
+            photoTimerMinutes = 30; // Reset to default
+            char buf[16];
+            snprintf(buf, sizeof(buf), "%d min", photoTimerMinutes);
+            lv_label_set_text(ui_PhotoTimeValueLabel, buf);
+            
+            // Use localized text
+            const char *TXT_PHOTOSTART[] = {"EMPEZAR", "START", "DEMARRER"};
+            lv_label_set_text(ui_PhotoStartLabel, TXT_PHOTOSTART[g_lang]);
+            lv_obj_set_style_bg_color(ui_PhotoStartBtn, lv_color_hex(0x00AA00), LV_PART_MAIN | LV_STATE_DEFAULT);
+        }
+    } else {
+        // OFF
+        hmi_msg.phototherapyMode = PHOTOTHERAPY_OFF;
+        hmi_msg.shouldSendData = true;
+        
+        lv_obj_add_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN);
+        photoTimerActive = false;
+    }
   } else if (obj == ui_Switch4) { // SKIN BLOCK SWITCH
     bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
     skinPanelEnabled = checked;
@@ -1706,6 +1788,48 @@ void UI_Task(void *pvParameters) {
       } else {
         lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
       }
+    }
+
+    if (photoTimerActive) {
+        unsigned long elapsed = millis() - photoTimerStartMs;
+        long totalSeconds = photoTimerMinutes * 60;
+        long remaining = totalSeconds - (elapsed / 1000);
+        
+        if (remaining <= 0) {
+            // Timer finished
+            photoTimerActive = false;
+            hmi_msg.phototherapyMode = PHOTOTHERAPY_OFF;
+            hmi_msg.shouldSendData = true;
+            
+            // Turn switch OFF visually
+            lv_obj_clear_state(ui_Switch3, LV_STATE_CHECKED);
+            
+            // Hide containers
+            lv_obj_add_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(ui_PhotoLockCont, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            // Update countdown display
+            int rMin = remaining / 60;
+            int rSec = remaining % 60;
+            char buf[16];
+            snprintf(buf, sizeof(buf), "%d:%02d", rMin, rSec);
+            
+            // Update main screen
+            lv_label_set_text(ui_PhotoTimeValueLabel, buf);
+            
+            // Update lock screen
+            if (ui_PhotoLockTimeLabel) {
+                lv_label_set_text(ui_PhotoLockTimeLabel, buf);
+            }
+            if (ui_PhotoLockCont) {
+                lv_obj_clear_flag(ui_PhotoLockCont, LV_OBJ_FLAG_HIDDEN);
+            }
+        }
+    } else {
+        // Timer not active, hide lock screen container
+        if (ui_PhotoLockCont) {
+            lv_obj_add_flag(ui_PhotoLockCont, LV_OBJ_FLAG_HIDDEN);
+        }
     }
     if (eepromDirty && (millis() - lastVarChangeTime > EEPROM_COMMIT_DELAY)) {
       EEPROM.commit();

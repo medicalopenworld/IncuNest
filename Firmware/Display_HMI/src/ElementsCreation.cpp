@@ -97,6 +97,18 @@ lv_obj_t * ui_Label10 = NULL;
 lv_obj_t * ui_Panel10 = NULL;
 lv_obj_t * ui_NumAlarm = NULL;
 lv_obj_t * ui_SPO2Button = NULL;
+
+// Phototherapy Timer
+lv_obj_t * ui_PhotoTimerCont = NULL;
+lv_obj_t * ui_PhotoTimerPanel = NULL;
+lv_obj_t * ui_PhotoTimeValueLabel = NULL;
+lv_obj_t * ui_PhotoTimeMinusBtn = NULL;
+lv_obj_t * ui_PhotoTimePlusBtn = NULL;
+lv_obj_t * ui_PhotoStartBtn = NULL;
+lv_obj_t * ui_PhotoStartLabel = NULL;
+lv_obj_t * ui_PhotoTimeMinusLabel = NULL;
+lv_obj_t * ui_PhotoTimePlusLabel = NULL;
+
 lv_obj_t * ui_ChartButton = NULL;
 lv_obj_t * ui_ImgButton1 = NULL;
 lv_obj_t * ui_CheckImgMain = NULL;
@@ -241,6 +253,9 @@ lv_obj_t * ui_TargetAirTempNumLabel = NULL;
 lv_obj_t * ui_ArrowAirLock = NULL;
 lv_obj_t * ui_StatusCont = NULL;
 lv_obj_t * ui_StatusLabel = NULL;
+lv_obj_t * ui_PhotoLockCont = NULL;
+lv_obj_t * ui_PhotoLockLabel = NULL;
+lv_obj_t * ui_PhotoLockTimeLabel = NULL;
 lv_obj_t * ui_AlarmLockCont = NULL;
 lv_obj_t * ui_AlarmLockImg = NULL;
 lv_obj_t * ui_PanelLockAlarm = NULL;
@@ -275,6 +290,9 @@ extern void Alarm2Cont_cb(lv_event_t * e);
 extern void Alarm3Cont_cb(lv_event_t * e);
 extern void Alarm4Cont_cb(lv_event_t * e);
 extern void LockScreenAnyTouch_cb(lv_event_t * e);
+extern void PhotoTimeMinusBtn_cb(lv_event_t * e);
+extern void PhotoTimePlusBtn_cb(lv_event_t * e);
+extern void PhotoStartBtn_cb(lv_event_t * e);
 
 // ============================================================================
 // EVENT HANDLERS
@@ -553,6 +571,27 @@ void ui_event_AlarmLockCont(lv_event_t * e) {
     lv_event_code_t event_code = lv_event_get_code(e);
     if(event_code == LV_EVENT_CLICKED) {
         AlarmButton_cb(e);
+    }
+}
+
+void ui_event_PhotoTimeMinusBtn(lv_event_t * e) {
+    lv_event_code_t event_code = lv_event_get_code(e);
+    if(event_code == LV_EVENT_CLICKED) {
+        PhotoTimeMinusBtn_cb(e);
+    }
+}
+
+void ui_event_PhotoTimePlusBtn(lv_event_t * e) {
+    lv_event_code_t event_code = lv_event_get_code(e);
+    if(event_code == LV_EVENT_CLICKED) {
+        PhotoTimePlusBtn_cb(e);
+    }
+}
+
+void ui_event_PhotoStartBtn(lv_event_t * e) {
+    lv_event_code_t event_code = lv_event_get_code(e);
+    if(event_code == LV_EVENT_CLICKED) {
+        PhotoStartBtn_cb(e);
     }
 }
 
@@ -1191,6 +1230,74 @@ void ui_ScreenMain_screen_init(void) {
     lv_obj_set_align(ui_Label10, LV_ALIGN_CENTER);
     lv_label_set_text(ui_Label10, "ON");
 
+    ui_PhotoTimerCont = lv_obj_create(ui_ScreenMain);
+    lv_obj_remove_style_all(ui_PhotoTimerCont);
+    lv_obj_set_width(ui_PhotoTimerCont, 384);
+    lv_obj_set_height(ui_PhotoTimerCont, 100);
+    lv_obj_set_x(ui_PhotoTimerCont, 198);
+    lv_obj_set_y(ui_PhotoTimerCont, 182);
+    lv_obj_set_align(ui_PhotoTimerCont, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN); // Initially hidden
+    lv_obj_clear_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+
+    ui_PhotoTimerPanel = lv_obj_create(ui_PhotoTimerCont);
+    lv_obj_set_width(ui_PhotoTimerPanel, 376);
+    lv_obj_set_height(ui_PhotoTimerPanel, 96);
+    lv_obj_set_align(ui_PhotoTimerPanel, LV_ALIGN_CENTER);
+    lv_obj_clear_flag(ui_PhotoTimerPanel, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Minus Button
+    ui_PhotoTimeMinusBtn = lv_btn_create(ui_PhotoTimerCont);
+    lv_obj_set_width(ui_PhotoTimeMinusBtn, 50);
+    lv_obj_set_height(ui_PhotoTimeMinusBtn, 40);
+    lv_obj_set_x(ui_PhotoTimeMinusBtn, -100);
+    lv_obj_set_y(ui_PhotoTimeMinusBtn, -15);
+    lv_obj_set_align(ui_PhotoTimeMinusBtn, LV_ALIGN_CENTER);
+    lv_obj_set_style_bg_color(ui_PhotoTimeMinusBtn, lv_color_hex(0x0075EE), LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_PhotoTimeMinusLabel = lv_label_create(ui_PhotoTimeMinusBtn);
+    lv_obj_set_align(ui_PhotoTimeMinusLabel, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_PhotoTimeMinusLabel, "-");
+    lv_obj_set_style_text_font(ui_PhotoTimeMinusLabel, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // Value Label
+    ui_PhotoTimeValueLabel = lv_label_create(ui_PhotoTimerCont);
+    lv_obj_set_width(ui_PhotoTimeValueLabel, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_PhotoTimeValueLabel, LV_SIZE_CONTENT);
+    lv_obj_set_x(ui_PhotoTimeValueLabel, 0);
+    lv_obj_set_y(ui_PhotoTimeValueLabel, -15);
+    lv_obj_set_align(ui_PhotoTimeValueLabel, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_PhotoTimeValueLabel, "30 min"); // Default
+    lv_obj_set_style_text_font(ui_PhotoTimeValueLabel, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // Plus Button
+    ui_PhotoTimePlusBtn = lv_btn_create(ui_PhotoTimerCont);
+    lv_obj_set_width(ui_PhotoTimePlusBtn, 50);
+    lv_obj_set_height(ui_PhotoTimePlusBtn, 40);
+    lv_obj_set_x(ui_PhotoTimePlusBtn, 100);
+    lv_obj_set_y(ui_PhotoTimePlusBtn, -15);
+    lv_obj_set_align(ui_PhotoTimePlusBtn, LV_ALIGN_CENTER);
+    lv_obj_set_style_bg_color(ui_PhotoTimePlusBtn, lv_color_hex(0x0075EE), LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_PhotoTimePlusLabel = lv_label_create(ui_PhotoTimePlusBtn);
+    lv_obj_set_align(ui_PhotoTimePlusLabel, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_PhotoTimePlusLabel, "+");
+    lv_obj_set_style_text_font(ui_PhotoTimePlusLabel, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // Start Button
+    ui_PhotoStartBtn = lv_btn_create(ui_PhotoTimerCont);
+    lv_obj_set_width(ui_PhotoStartBtn, 120);
+    lv_obj_set_height(ui_PhotoStartBtn, 30);
+    lv_obj_set_x(ui_PhotoStartBtn, 0);
+    lv_obj_set_y(ui_PhotoStartBtn, 25);
+    lv_obj_set_align(ui_PhotoStartBtn, LV_ALIGN_CENTER);
+    lv_obj_set_style_bg_color(ui_PhotoStartBtn, lv_color_hex(0x00AA00), LV_PART_MAIN | LV_STATE_DEFAULT); // Green for Start
+
+    ui_PhotoStartLabel = lv_label_create(ui_PhotoStartBtn);
+    lv_obj_set_align(ui_PhotoStartLabel, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_PhotoStartLabel, "EMPEZAR"); // Default Spanish
+    lv_obj_set_style_text_font(ui_PhotoStartLabel, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
+
     ui_Panel10 = lv_obj_create(ui_ScreenMain);
     lv_obj_set_width(ui_Panel10, 24);
     lv_obj_set_height(ui_Panel10, 27);
@@ -1261,6 +1368,9 @@ void ui_ScreenMain_screen_init(void) {
     lv_obj_add_event_cb(ui_Label16, ui_event_Label16, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_Label10, ui_event_Label10, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_Label17, ui_event_Label17, LV_EVENT_ALL, NULL);
+    lv_obj_add_event_cb(ui_PhotoTimeMinusBtn, ui_event_PhotoTimeMinusBtn, LV_EVENT_ALL, NULL);
+    lv_obj_add_event_cb(ui_PhotoTimePlusBtn, ui_event_PhotoTimePlusBtn, LV_EVENT_ALL, NULL);
+    lv_obj_add_event_cb(ui_PhotoStartBtn, ui_event_PhotoStartBtn, LV_EVENT_ALL, NULL);
     uic_Tempbutton = ui_TempButton;
     uic_HumidButton = ui_HumidButton;
 }
@@ -2248,43 +2358,7 @@ void ui_ScreenLock_screen_init(void) {
     lv_obj_add_flag(ui_ArrowHumLock, LV_OBJ_FLAG_ADV_HITTEST);
     lv_obj_clear_flag(ui_ArrowHumLock, LV_OBJ_FLAG_SCROLLABLE);
 
-    ui_UnlockCont = lv_obj_create(ui_ScreenLock);
-    lv_obj_remove_style_all(ui_UnlockCont);
-    lv_obj_set_width(ui_UnlockCont, 310);
-    lv_obj_set_height(ui_UnlockCont, 200);
-    lv_obj_set_align(ui_UnlockCont, LV_ALIGN_CENTER);
-    lv_obj_add_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(ui_UnlockCont, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
 
-    ui_Panel11 = lv_obj_create(ui_UnlockCont);
-    lv_obj_set_width(ui_Panel11, 310);
-    lv_obj_set_height(ui_Panel11, 200);
-    lv_obj_set_align(ui_Panel11, LV_ALIGN_CENTER);
-    lv_obj_clear_flag(ui_Panel11, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_color(ui_Panel11, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_opa(ui_Panel11, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-
-    ui_Label4 = lv_label_create(ui_UnlockCont);
-    lv_obj_set_width(ui_Label4, LV_SIZE_CONTENT);
-    lv_obj_set_height(ui_Label4, LV_SIZE_CONTENT);
-    lv_obj_set_x(ui_Label4, 0);
-    lv_obj_set_y(ui_Label4, -50);
-    lv_obj_set_align(ui_Label4, LV_ALIGN_CENTER);
-    lv_label_set_text(ui_Label4, "Keep pressed\nto unlock");
-    lv_obj_set_style_text_color(ui_Label4, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_Label4, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_Label4, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_align(ui_Label4, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-
-    ui_LockButton2 = lv_imgbtn_create(ui_UnlockCont);
-    lv_imgbtn_set_src(ui_LockButton2, LV_IMGBTN_STATE_RELEASED, NULL, &ui_img_candado_png, NULL);
-    lv_obj_set_width(ui_LockButton2, 38);
-    lv_obj_set_height(ui_LockButton2, 44);
-    lv_obj_set_x(ui_LockButton2, 0);
-    lv_obj_set_y(ui_LockButton2, 50);
-    lv_obj_set_align(ui_LockButton2, LV_ALIGN_CENTER);
-    lv_obj_set_style_img_recolor(ui_LockButton2, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_img_recolor_opa(ui_LockButton2, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_TargetSkinTempCont = lv_obj_create(ui_Container1);
     lv_obj_remove_style_all(ui_TargetSkinTempCont);
@@ -2326,19 +2400,6 @@ void ui_ScreenLock_screen_init(void) {
     lv_obj_add_flag(ui_ArrowSkinLock, LV_OBJ_FLAG_ADV_HITTEST);
     lv_obj_clear_flag(ui_ArrowSkinLock, LV_OBJ_FLAG_SCROLLABLE);
 
-    ui_Spinner1 = lv_arc_create(ui_UnlockCont);
-    lv_obj_set_size(ui_Spinner1, 80, 80); // 200 x 200 is too big but maybe better
-    lv_obj_set_align(ui_Spinner1, LV_ALIGN_CENTER);
-    lv_obj_set_x(ui_Spinner1, 0);
-    lv_obj_set_y(ui_Spinner1, 51);
-
-    lv_arc_set_range(ui_Spinner1, 0, 100);
-    lv_arc_set_value(ui_Spinner1, 0);
-    lv_obj_clear_flag(ui_Spinner1, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_remove_style(ui_Spinner1, NULL, LV_PART_KNOB); 
-
-    lv_arc_set_bg_angles(ui_Spinner1, 0, 360);
-    lv_arc_set_angles(ui_Spinner1, 0, 0); 
 
     ui_TargetAirTempCont = lv_obj_create(ui_Container1);
     lv_obj_remove_style_all(ui_TargetAirTempCont);
@@ -2382,7 +2443,7 @@ void ui_ScreenLock_screen_init(void) {
 
     ui_StatusCont = lv_obj_create(ui_ScreenLock);
     lv_obj_remove_style_all(ui_StatusCont);
-    lv_obj_set_width(ui_StatusCont, 190);
+    lv_obj_set_width(ui_StatusCont, 350); // Unificado con PhotoLockCont
     lv_obj_set_height(ui_StatusCont, 50);
     lv_obj_set_x(ui_StatusCont, 240);
     lv_obj_set_y(ui_StatusCont, -120);
@@ -2398,6 +2459,37 @@ void ui_ScreenLock_screen_init(void) {
     lv_label_set_text(ui_StatusLabel, "STATUS:");
     lv_obj_set_style_text_color(ui_StatusLabel, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(ui_StatusLabel, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // Phototherapy Lock Screen Container
+    ui_PhotoLockCont = lv_obj_create(ui_ScreenLock);
+    lv_obj_remove_style_all(ui_PhotoLockCont);
+    lv_obj_set_width(ui_PhotoLockCont, 350);
+    lv_obj_set_height(ui_PhotoLockCont, 60);
+    lv_obj_set_x(ui_PhotoLockCont, 240);
+    lv_obj_set_y(ui_PhotoLockCont, -60); // Debajo de Status
+    lv_obj_set_align(ui_PhotoLockCont, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_PhotoLockCont, LV_OBJ_FLAG_HIDDEN); // Initially hidden
+    lv_obj_clear_flag(ui_PhotoLockCont, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+
+    ui_PhotoLockLabel = lv_label_create(ui_PhotoLockCont);
+    lv_obj_set_width(ui_PhotoLockLabel, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_PhotoLockLabel, LV_SIZE_CONTENT);
+    lv_obj_set_x(ui_PhotoLockLabel, 60); // Alineación exacta con StatusLabel
+    lv_obj_set_y(ui_PhotoLockLabel, -10);
+    lv_obj_set_align(ui_PhotoLockLabel, LV_ALIGN_LEFT_MID);
+    lv_label_set_text(ui_PhotoLockLabel, "FOTOTERAPIA:");
+    lv_obj_set_style_text_color(ui_PhotoLockLabel, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_PhotoLockLabel, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_PhotoLockTimeLabel = lv_label_create(ui_PhotoLockCont);
+    lv_obj_set_width(ui_PhotoLockTimeLabel, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_PhotoLockTimeLabel, LV_SIZE_CONTENT);
+    lv_obj_set_x(ui_PhotoLockTimeLabel, 60);
+    lv_obj_set_y(ui_PhotoLockTimeLabel, 15);
+    lv_obj_set_align(ui_PhotoLockTimeLabel, LV_ALIGN_LEFT_MID);
+    lv_label_set_text(ui_PhotoLockTimeLabel, "0:00");
+    lv_obj_set_style_text_color(ui_PhotoLockTimeLabel, lv_color_hex(0x00FF00), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_PhotoLockTimeLabel, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_AlarmLockCont = lv_obj_create(ui_ScreenLock);
     lv_obj_remove_style_all(ui_AlarmLockCont);
@@ -2443,6 +2535,60 @@ void ui_ScreenLock_screen_init(void) {
     lv_obj_add_flag(ui_CheckImg, LV_OBJ_FLAG_ADV_HITTEST);
     lv_obj_clear_flag(ui_CheckImg, LV_OBJ_FLAG_SCROLLABLE);
     lv_img_set_zoom(ui_CheckImg, 200);
+
+    // --- RE-INSERTED UNLOCK CONT AT THE END TO BE ON TOP LAYER ---
+    ui_UnlockCont = lv_obj_create(ui_ScreenLock);
+    lv_obj_remove_style_all(ui_UnlockCont);
+    lv_obj_set_width(ui_UnlockCont, 310);
+    lv_obj_set_height(ui_UnlockCont, 200);
+    lv_obj_set_align(ui_UnlockCont, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_UnlockCont, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+
+    ui_Panel11 = lv_obj_create(ui_UnlockCont);
+    lv_obj_set_width(ui_Panel11, 310);
+    lv_obj_set_height(ui_Panel11, 200);
+    lv_obj_set_align(ui_Panel11, LV_ALIGN_CENTER);
+    lv_obj_clear_flag(ui_Panel11, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(ui_Panel11, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(ui_Panel11, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_Label4 = lv_label_create(ui_UnlockCont);
+    lv_obj_set_width(ui_Label4, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_Label4, LV_SIZE_CONTENT);
+    lv_obj_set_x(ui_Label4, 0);
+    lv_obj_set_y(ui_Label4, -50);
+    lv_obj_set_align(ui_Label4, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_Label4, "Keep pressed\nto unlock");
+    lv_obj_set_style_text_color(ui_Label4, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_opa(ui_Label4, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_Label4, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_align(ui_Label4, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_LockButton2 = lv_imgbtn_create(ui_UnlockCont);
+    lv_imgbtn_set_src(ui_LockButton2, LV_IMGBTN_STATE_RELEASED, NULL, &ui_img_candado_png, NULL);
+    lv_obj_set_width(ui_LockButton2, 38);
+    lv_obj_set_height(ui_LockButton2, 44);
+    lv_obj_set_x(ui_LockButton2, 0);
+    lv_obj_set_y(ui_LockButton2, 50);
+    lv_obj_set_align(ui_LockButton2, LV_ALIGN_CENTER);
+    lv_obj_set_style_img_recolor(ui_LockButton2, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_img_recolor_opa(ui_LockButton2, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_Spinner1 = lv_arc_create(ui_UnlockCont);
+    lv_obj_set_size(ui_Spinner1, 80, 80); 
+    lv_obj_set_align(ui_Spinner1, LV_ALIGN_CENTER);
+    lv_obj_set_x(ui_Spinner1, 0);
+    lv_obj_set_y(ui_Spinner1, 51);
+
+    lv_arc_set_range(ui_Spinner1, 0, 100);
+    lv_arc_set_value(ui_Spinner1, 0);
+    lv_obj_clear_flag(ui_Spinner1, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_style(ui_Spinner1, NULL, LV_PART_KNOB); 
+
+    lv_arc_set_bg_angles(ui_Spinner1, 0, 360);
+    lv_arc_set_angles(ui_Spinner1, 0, 0); 
+    // --------------------------------------------------------------------------
 
     lv_obj_add_event_cb(ui_AlarmLockImg, ui_event_AlarmLockImg, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_AlarmLockCont, ui_event_AlarmLockCont, LV_EVENT_ALL, NULL);

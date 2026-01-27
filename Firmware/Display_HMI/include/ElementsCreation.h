@@ -173,6 +173,18 @@ extern lv_obj_t * ui_Label17;
 extern lv_obj_t * ui_Label10;
 extern lv_obj_t * ui_Panel10;
 extern lv_obj_t * ui_NumAlarm;
+
+// Phototherapy Timer
+extern lv_obj_t * ui_PhotoTimerCont;
+extern lv_obj_t * ui_PhotoTimerPanel;
+extern lv_obj_t * ui_PhotoTimeValueLabel; 
+extern lv_obj_t * ui_PhotoTimeMinusBtn;
+extern lv_obj_t * ui_PhotoTimePlusBtn;
+extern lv_obj_t * ui_PhotoStartBtn;
+extern lv_obj_t * ui_PhotoStartLabel;
+extern lv_obj_t * ui_PhotoTimeMinusLabel;
+extern lv_obj_t * ui_PhotoTimePlusLabel;
+
 extern lv_obj_t * ui_SPO2Button;
 extern lv_obj_t * ui_ChartButton;
 extern lv_obj_t * ui_ImgButton1;
@@ -327,6 +339,9 @@ extern lv_obj_t * ui_TargetAirTempNumLabel;
 extern lv_obj_t * ui_ArrowAirLock;
 extern lv_obj_t * ui_StatusCont;
 extern lv_obj_t * ui_StatusLabel;
+extern lv_obj_t * ui_PhotoLockCont;
+extern lv_obj_t * ui_PhotoLockLabel;
+extern lv_obj_t * ui_PhotoLockTimeLabel;
 extern lv_obj_t * ui_AlarmLockCont;
 extern lv_obj_t * ui_AlarmLockImg;
 extern lv_obj_t * ui_PanelLockAlarm;
