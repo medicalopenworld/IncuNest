@@ -74,13 +74,13 @@ static void parse_message(const char *line) {
       ctrl_tel_msg.serverCommStatus = COMM_STATUS_NONE;
     }
   } else if (strncmp(line, "CTRL,STATE", 10) == 0) {
-    int act, mode, photo, mute, sn, hwNum, lang, numAlarms, skinE;
+    int act, mode, photo, mute, sn, hwNum, numAlarms, skinE;
     char hwRev;
     char fwVer[20];
     double airSet, skinSet, humSet;
     int result =
-        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%d,%c,%19[^,],%d,%d",
-               &act, &mode, &airSet, &skinSet, &humSet, &photo, &mute, &lang,
+        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d",
+               &act, &mode, &airSet, &skinSet, &humSet, &photo, &mute,
                &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE);
     
     // Accept 12 (old), 13 (with alarms), or 14 (with alarms + skinModeEnabled)
@@ -92,7 +92,7 @@ static void parse_message(const char *line) {
       ctrl_state_msg.desiredHumidity = humSet;
       ctrl_state_msg.phototherapyMode = photo;
       ctrl_state_msg.muteAlarm = mute;
-      ctrl_state_msg.language = lang;
+      // ctrl_state_msg.language = lang; // REMOVIDO: Idioma gestionado localmente por HMI
       ctrl_state_msg.serialNumber = sn;
       ctrl_state_msg.hwNum = hwNum;
       ctrl_state_msg.hwRev[0] = hwRev;
@@ -188,6 +188,7 @@ static void Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
     lastSelectedPanel = AIR_PANEL_SELECTED;
   }
 
+  /*
   if (st.language != g_lang) {
     // Only update if different to avoid loop, but Applying Language is safe
     // here
@@ -196,6 +197,7 @@ static void Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
       lv_dropdown_set_selected(ui_LanguagesDropDown, st.language);
     }
   }
+  */
 
   if (st.desiredAirTemperature > 0.1)
     airTempValue = st.desiredAirTemperature;
@@ -213,7 +215,7 @@ static void Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
   hmi_msg.desiredHumidity = humValue;
   hmi_msg.phototherapyMode = st.phototherapyMode;
   hmi_msg.muteAlarm = st.muteAlarm;
-  hmi_msg.language = st.language;
+  // hmi_msg.language = st.language; // REMOVIDO: No sobrescribir idioma local
   hmi_msg.skinModeEnabled = st.skinModeEnabled;
 
   if (st.controlMode == CONTROL_SKIN) {
