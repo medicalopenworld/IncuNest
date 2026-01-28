@@ -2453,7 +2453,7 @@ void ui_ScreenLock_screen_init(void) {
     ui_StatusLabel = lv_label_create(ui_StatusCont);
     lv_obj_set_width(ui_StatusLabel, LV_SIZE_CONTENT);
     lv_obj_set_height(ui_StatusLabel, LV_SIZE_CONTENT);
-    lv_obj_set_x(ui_StatusLabel, 60);
+    lv_obj_set_x(ui_StatusLabel, 100); // Movido a la derecha
     lv_obj_set_y(ui_StatusLabel, 0);
     lv_obj_set_align(ui_StatusLabel, LV_ALIGN_LEFT_MID);
     lv_label_set_text(ui_StatusLabel, "STATUS:");
@@ -2474,7 +2474,7 @@ void ui_ScreenLock_screen_init(void) {
     ui_PhotoLockLabel = lv_label_create(ui_PhotoLockCont);
     lv_obj_set_width(ui_PhotoLockLabel, LV_SIZE_CONTENT);
     lv_obj_set_height(ui_PhotoLockLabel, LV_SIZE_CONTENT);
-    lv_obj_set_x(ui_PhotoLockLabel, 60); // Alineación exacta con StatusLabel
+    lv_obj_set_x(ui_PhotoLockLabel, 100); // Alineación exacta con StatusLabel
     lv_obj_set_y(ui_PhotoLockLabel, -10);
     lv_obj_set_align(ui_PhotoLockLabel, LV_ALIGN_LEFT_MID);
     lv_label_set_text(ui_PhotoLockLabel, "FOTOTERAPIA:");
@@ -2484,7 +2484,7 @@ void ui_ScreenLock_screen_init(void) {
     ui_PhotoLockTimeLabel = lv_label_create(ui_PhotoLockCont);
     lv_obj_set_width(ui_PhotoLockTimeLabel, LV_SIZE_CONTENT);
     lv_obj_set_height(ui_PhotoLockTimeLabel, LV_SIZE_CONTENT);
-    lv_obj_set_x(ui_PhotoLockTimeLabel, 60);
+    lv_obj_set_x(ui_PhotoLockTimeLabel, 100); // Movido a la derecha
     lv_obj_set_y(ui_PhotoLockTimeLabel, 15);
     lv_obj_set_align(ui_PhotoLockTimeLabel, LV_ALIGN_LEFT_MID);
     lv_label_set_text(ui_PhotoLockTimeLabel, "0:00");
