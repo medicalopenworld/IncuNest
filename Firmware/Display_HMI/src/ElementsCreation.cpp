@@ -2330,7 +2330,7 @@ void ui_ScreenLock_screen_init(void) {
     ui_Label23 = lv_label_create(ui_HumLockDesiredCont);
     lv_obj_set_width(ui_Label23, LV_SIZE_CONTENT);
     lv_obj_set_height(ui_Label23, LV_SIZE_CONTENT);
-    lv_obj_set_x(ui_Label23, 20);
+    lv_obj_set_x(ui_Label23, 20); // Reajustado a la derecha (era 5)
     lv_obj_set_y(ui_Label23, -30);
     lv_obj_set_align(ui_Label23, LV_ALIGN_LEFT_MID);
     lv_label_set_text(ui_Label23, "TARGET HUMIDITY:");
@@ -2340,7 +2340,7 @@ void ui_ScreenLock_screen_init(void) {
     ui_Label24 = lv_label_create(ui_HumLockDesiredCont);
     lv_obj_set_width(ui_Label24, LV_SIZE_CONTENT);
     lv_obj_set_height(ui_Label24, LV_SIZE_CONTENT);
-    lv_obj_set_x(ui_Label24, 60);
+    lv_obj_set_x(ui_Label24, 20); // Reajustado a la derecha (era 5)
     lv_obj_set_y(ui_Label24, 25);
     lv_obj_set_align(ui_Label24, LV_ALIGN_LEFT_MID);
     lv_label_set_text(ui_Label24, "37");
@@ -2351,7 +2351,7 @@ void ui_ScreenLock_screen_init(void) {
     lv_img_set_src(ui_ArrowHumLock, &ui_img_flecha_png);
     lv_obj_set_width(ui_ArrowHumLock, LV_SIZE_CONTENT);
     lv_obj_set_height(ui_ArrowHumLock, LV_SIZE_CONTENT);
-    lv_obj_set_x(ui_ArrowHumLock, -70);
+    lv_obj_set_x(ui_ArrowHumLock, -90); // Movido a la izquierda (era -70)
     lv_obj_set_y(ui_ArrowHumLock, 145);
     lv_obj_set_align(ui_ArrowHumLock, LV_ALIGN_CENTER);
     lv_img_set_zoom(ui_ArrowHumLock, 100);
@@ -2372,7 +2372,7 @@ void ui_ScreenLock_screen_init(void) {
     ui_TargetSkinTempLabel = lv_label_create(ui_TargetSkinTempCont);
     lv_obj_set_width(ui_TargetSkinTempLabel, LV_SIZE_CONTENT);
     lv_obj_set_height(ui_TargetSkinTempLabel, LV_SIZE_CONTENT);
-    lv_obj_set_x(ui_TargetSkinTempLabel, 20);
+    lv_obj_set_x(ui_TargetSkinTempLabel, 20); // Reajustado a la derecha (era 5)
     lv_obj_set_y(ui_TargetSkinTempLabel, -30);
     lv_obj_set_align(ui_TargetSkinTempLabel, LV_ALIGN_LEFT_MID);
     lv_label_set_text(ui_TargetSkinTempLabel, "TARGET TEMPERATURE:");
@@ -2382,7 +2382,7 @@ void ui_ScreenLock_screen_init(void) {
     ui_TargetSkinTempNumLabel = lv_label_create(ui_TargetSkinTempCont);
     lv_obj_set_width(ui_TargetSkinTempNumLabel, LV_SIZE_CONTENT);
     lv_obj_set_height(ui_TargetSkinTempNumLabel, LV_SIZE_CONTENT);
-    lv_obj_set_x(ui_TargetSkinTempNumLabel, 60);
+    lv_obj_set_x(ui_TargetSkinTempNumLabel, 20); // Reajustado a la derecha (era 5)
     lv_obj_set_y(ui_TargetSkinTempNumLabel, 25);
     lv_obj_set_align(ui_TargetSkinTempNumLabel, LV_ALIGN_LEFT_MID);
     lv_label_set_text(ui_TargetSkinTempNumLabel, "37");
@@ -2393,7 +2393,7 @@ void ui_ScreenLock_screen_init(void) {
     lv_img_set_src(ui_ArrowSkinLock, &ui_img_flecha_png);
     lv_obj_set_width(ui_ArrowSkinLock, LV_SIZE_CONTENT);
     lv_obj_set_height(ui_ArrowSkinLock, LV_SIZE_CONTENT);
-    lv_obj_set_x(ui_ArrowSkinLock, -70);
+    lv_obj_set_x(ui_ArrowSkinLock, -90); // Movido a la izquierda (era -70)
     lv_obj_set_y(ui_ArrowSkinLock, 25);
     lv_obj_set_align(ui_ArrowSkinLock, LV_ALIGN_CENTER);
     lv_img_set_zoom(ui_ArrowSkinLock, 100);
@@ -2413,7 +2413,7 @@ void ui_ScreenLock_screen_init(void) {
     ui_TargetAirTempLabel = lv_label_create(ui_TargetAirTempCont);
     lv_obj_set_width(ui_TargetAirTempLabel, LV_SIZE_CONTENT);
     lv_obj_set_height(ui_TargetAirTempLabel, LV_SIZE_CONTENT);
-    lv_obj_set_x(ui_TargetAirTempLabel, 20);
+    lv_obj_set_x(ui_TargetAirTempLabel, 20); // Reajustado a la derecha (era 5)
     lv_obj_set_y(ui_TargetAirTempLabel, -30);
     lv_obj_set_align(ui_TargetAirTempLabel, LV_ALIGN_LEFT_MID);
     lv_label_set_text(ui_TargetAirTempLabel, "TARGET TEMPERATURE:");
@@ -2423,7 +2423,7 @@ void ui_ScreenLock_screen_init(void) {
     ui_TargetAirTempNumLabel = lv_label_create(ui_TargetAirTempCont);
     lv_obj_set_width(ui_TargetAirTempNumLabel, LV_SIZE_CONTENT);
     lv_obj_set_height(ui_TargetAirTempNumLabel, LV_SIZE_CONTENT);
-    lv_obj_set_x(ui_TargetAirTempNumLabel, 60);
+    lv_obj_set_x(ui_TargetAirTempNumLabel, 20); // Reajustado a la derecha (era 5)
     lv_obj_set_y(ui_TargetAirTempNumLabel, 25);
     lv_obj_set_align(ui_TargetAirTempNumLabel, LV_ALIGN_LEFT_MID);
     lv_label_set_text(ui_TargetAirTempNumLabel, "37");
@@ -2434,7 +2434,7 @@ void ui_ScreenLock_screen_init(void) {
     lv_img_set_src(ui_ArrowAirLock, &ui_img_flecha_png);
     lv_obj_set_width(ui_ArrowAirLock, LV_SIZE_CONTENT);
     lv_obj_set_height(ui_ArrowAirLock, LV_SIZE_CONTENT);
-    lv_obj_set_x(ui_ArrowAirLock, -70);
+    lv_obj_set_x(ui_ArrowAirLock, -90); // Movido a la izquierda (era -70)
     lv_obj_set_y(ui_ArrowAirLock, -95);
     lv_obj_set_align(ui_ArrowAirLock, LV_ALIGN_CENTER);
     lv_img_set_zoom(ui_ArrowAirLock, 100);

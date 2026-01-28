@@ -34,6 +34,7 @@ typedef struct {
   bool muteAlarm = false;
   int language;
   bool skinModeEnabled;
+  int photoMinutesRemaining;
 } HMI_Message;
 
 // Message with sensor data for control logic
@@ -76,6 +77,7 @@ typedef struct {
   bool newState;
   int skinModeEnabled;
   int serverCommStatus;
+  int photoMinutesRemaining;
 } ControlBoard_Message_State;
 
 // Expected prefix of incoming messages

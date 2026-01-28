@@ -19,6 +19,11 @@ bool error = false;
 static char rxBuffer[512];
 static int rxIndex = 0;
 
+// --- Phototherapy Timer (from UITask.cpp) ---
+extern int photoTimerMinutes;
+extern bool photoTimerActive;
+extern unsigned long photoTimerStartMs;
+
 // --- Shared flags/state (from UITask.cpp) ---
 extern bool tempSwitched;
 extern bool alarmsMuted;
@@ -47,10 +52,10 @@ void Communication_SendWiFiCredentials(const char *ssid, const char *password) {
 static void SendMessageToOtherESP() {
 #if IS_HMI
   COMM_SERIAL.printf(
-      "HMI,%d,%d,%0.2f,%0.2f,%0.0f,%d,%d,%d,%d\n", hmi_msg.actuation,
+      "HMI,%d,%d,%0.2f,%0.2f,%0.0f,%d,%d,%d,%d,%d\n", hmi_msg.actuation,
       hmi_msg.controlMode, hmi_msg.desiredAirTemperature,
       hmi_msg.desiredSkinTemperature, hmi_msg.desiredHumidity,
-      hmi_msg.phototherapyMode, hmi_msg.muteAlarm, hmi_msg.language, (int)hmi_msg.skinModeEnabled);
+      hmi_msg.phototherapyMode, hmi_msg.muteAlarm, hmi_msg.language, (int)hmi_msg.skinModeEnabled, hmi_msg.photoMinutesRemaining);
 #else
   COMM_SERIAL.printf("CTRL,%0.2f,%0.2f,%0.2f,%0.2f,%0.2f\n",
                      ctrl_msg.temperature[0], ctrl_msg.temperature[1],
@@ -74,14 +79,14 @@ static void parse_message(const char *line) {
       ctrl_tel_msg.serverCommStatus = COMM_STATUS_NONE;
     }
   } else if (strncmp(line, "CTRL,STATE", 10) == 0) {
-    int act, mode, photo, mute, sn, hwNum, numAlarms, skinE, commStatus;
+    int act, mode, photo, mute, sn, hwNum, numAlarms, skinE, commStatus, photoMin;
     char hwRev;
     char fwVer[20];
     double airSet, skinSet, humSet;
     int result =
-        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d",
+        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d,%d",
                &act, &mode, &airSet, &skinSet, &humSet, &photo, &mute,
-               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus);
+               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus, &photoMin);
     
     // Accept 12 (old), 13 (with alarms), or 14 (with alarms + skinModeEnabled)
     if (result >= 12) {
@@ -100,6 +105,7 @@ static void parse_message(const char *line) {
       strncpy(ctrl_state_msg.fwVer, fwVer, sizeof(ctrl_state_msg.fwVer));
       ctrl_state_msg.skinModeEnabled = (result >= 14) ? skinE : (mode == CONTROL_SKIN);
       ctrl_state_msg.serverCommStatus = (result >= 15) ? commStatus : 0;
+      ctrl_state_msg.photoMinutesRemaining = (result >= 15) ? photoMin : 0;
       ctrl_state_msg.newState = true;
       
       // If we have alarms count (result == 13), we could use it for verification
@@ -218,6 +224,17 @@ static void Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
   hmi_msg.muteAlarm = st.muteAlarm;
   // hmi_msg.language = st.language; // REMOVIDO: No sobrescribir idioma local
   hmi_msg.skinModeEnabled = st.skinModeEnabled;
+  hmi_msg.photoMinutesRemaining = st.photoMinutesRemaining;
+
+  // Restore Phototherapy Timer if active in received state
+  if (st.phototherapyMode && st.photoMinutesRemaining > 0) {
+      if (!photoTimerActive) {
+          photoTimerActive = true;
+          photoTimerMinutes = st.photoMinutesRemaining;
+          photoTimerStartMs = millis();
+          hmi_msg.photoMinutesRemaining = photoTimerMinutes; // Sync to avoid sending 0 back
+      }
+  }
 
   if (st.controlMode == CONTROL_SKIN) {
     selectedPanel = SKIN_PANEL_SELECTED;

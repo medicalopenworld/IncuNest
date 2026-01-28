@@ -58,9 +58,10 @@ static unsigned long lastVarChangeTime = 0;
 ui_lang_t g_lang = LANG_EN;
 
 // Phototherapy Timer
-static int photoTimerMinutes = 30; // Default
-static bool photoTimerActive = false;
-static unsigned long photoTimerStartMs = 0;
+int photoTimerMinutes = 30; // Default
+bool photoTimerActive = false;
+unsigned long photoTimerStartMs = 0;
+static int lastPhotoMinutesSent = -1;
 
 Alarm alarmList[MAX_ALARMS];
 
@@ -636,6 +637,7 @@ void PhotoStartBtn_cb(lv_event_t * e) {
     
     // Send ON command
     hmi_msg.phototherapyMode = PHOTOTHERAPY_ON;
+    hmi_msg.photoMinutesRemaining = photoTimerMinutes;
     hmi_msg.shouldSendData = true;
     
     // Update UI
@@ -1824,8 +1826,16 @@ void UI_Task(void *pvParameters) {
             if (ui_PhotoLockCont) {
                 lv_obj_clear_flag(ui_PhotoLockCont, LV_OBJ_FLAG_HIDDEN);
             }
+
+            // Sync minutes with motherBoard every round minute
+            if (rSec == 0 && rMin != lastPhotoMinutesSent) {
+                hmi_msg.photoMinutesRemaining = rMin;
+                hmi_msg.shouldSendData = true;
+                lastPhotoMinutesSent = rMin;
+            }
         }
     } else {
+        lastPhotoMinutesSent = -1;
         // Timer not active, hide lock screen container
         if (ui_PhotoLockCont) {
             lv_obj_add_flag(ui_PhotoLockCont, LV_OBJ_FLAG_HIDDEN);
@@ -1953,6 +1963,32 @@ void UI_SyncAll() {
   }
 
   // 4. Phototherapy Logic (Switch 3)
+  bool photoOn = lv_obj_has_state(ui_Switch3, LV_STATE_CHECKED);
+  
+  if (photoOn) {
+      if (ui_PhotoTimerCont) lv_obj_clear_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN);
+      
+      if (photoTimerActive) {
+          // Update visual running state
+          const char *TXT_RUNNING[] = {"EJECUTANDO", "RUNNING", "EN COURS"};
+          if (ui_PhotoStartLabel) lv_label_set_text(ui_PhotoStartLabel, TXT_RUNNING[g_lang]);
+          if (ui_PhotoStartBtn) lv_obj_set_style_bg_color(ui_PhotoStartBtn, lv_color_hex(0x888888), LV_PART_MAIN | LV_STATE_DEFAULT);
+          
+          // Ensure lock screen is visible if we are in lock screen
+          if (ui_PhotoLockCont) lv_obj_clear_flag(ui_PhotoLockCont, LV_OBJ_FLAG_HIDDEN);
+      } else {
+          // Setup state
+          const char *TXT_PHOTOSTART[] = {"EMPEZAR", "START", "DEMARRER"};
+          if (ui_PhotoStartLabel) lv_label_set_text(ui_PhotoStartLabel, TXT_PHOTOSTART[g_lang]);
+          if (ui_PhotoStartBtn) lv_obj_set_style_bg_color(ui_PhotoStartBtn, lv_color_hex(0x00AA00), LV_PART_MAIN | LV_STATE_DEFAULT);
+          if (ui_PhotoLockCont) lv_obj_add_flag(ui_PhotoLockCont, LV_OBJ_FLAG_HIDDEN);
+      }
+  } else {
+      if (ui_PhotoTimerCont) lv_obj_add_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN);
+      if (ui_PhotoLockCont) lv_obj_add_flag(ui_PhotoLockCont, LV_OBJ_FLAG_HIDDEN);
+      photoTimerActive = false; // Safety
+  }
+  
   // Panel is ALWAYS white as requested
   lv_obj_set_style_bg_color(ui_Panel2, COLOR_PANEL_WHITE, LV_PART_MAIN);
   lv_obj_set_style_opa(ui_Panel2, LV_OPA_COVER, LV_PART_MAIN);
