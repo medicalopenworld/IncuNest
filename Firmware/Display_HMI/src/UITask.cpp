@@ -953,88 +953,124 @@ void setup_arrow_callbacks() {
   lv_obj_add_event_cb(
       ui_ImgArrowUpTemp,
       [](lv_event_t *e) {
-        if (!tempSwitched)
-          return;
-        if (selectedPanel == AIR_PANEL_SELECTED) {
-          airTempValue += TEMP_INCREMENT;
-          if (airTempValue > AIR_TEMP_MAX)
-            airTempValue = AIR_TEMP_MAX;
-          hmi_msg.desiredAirTemperature = airTempValue;
-          EEPROM.writeFloat(EEPROM_DESIRED_AIR_TEMP, airTempValue);
-        } else if (selectedPanel == SKIN_PANEL_SELECTED) {
-          skinTempValue += TEMP_INCREMENT;
-          if (skinTempValue > SKIN_TEMP_MAX)
-            skinTempValue = SKIN_TEMP_MAX;
-          hmi_msg.desiredSkinTemperature = skinTempValue;
-          EEPROM.writeFloat(EEPROM_DESIRED_SKIN_TEMP, skinTempValue);
+        lv_event_code_t code = lv_event_get_code(e);
+        lv_obj_t *target = lv_event_get_target(e);
+        
+        if (code == LV_EVENT_PRESSED) {
+          lv_obj_set_style_transform_zoom(target, 280, LV_PART_MAIN | LV_STATE_DEFAULT);
+        } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+          lv_obj_set_style_transform_zoom(target, 256, LV_PART_MAIN | LV_STATE_DEFAULT);
+        } else if (code == LV_EVENT_CLICKED) {
+          if (!tempSwitched)
+            return;
+          if (selectedPanel == AIR_PANEL_SELECTED) {
+            airTempValue += TEMP_INCREMENT;
+            if (airTempValue > AIR_TEMP_MAX)
+              airTempValue = AIR_TEMP_MAX;
+            hmi_msg.desiredAirTemperature = airTempValue;
+            EEPROM.writeFloat(EEPROM_DESIRED_AIR_TEMP, airTempValue);
+          } else if (selectedPanel == SKIN_PANEL_SELECTED) {
+            skinTempValue += TEMP_INCREMENT;
+            if (skinTempValue > SKIN_TEMP_MAX)
+              skinTempValue = SKIN_TEMP_MAX;
+            hmi_msg.desiredSkinTemperature = skinTempValue;
+            EEPROM.writeFloat(EEPROM_DESIRED_SKIN_TEMP, skinTempValue);
+          }
+          hmi_msg.shouldSendData = true;
+          eepromDirty = true;
+          lastVarChangeTime = millis();
+          update_labels();
         }
-        hmi_msg.shouldSendData = true;
-        eepromDirty = true;
-        lastVarChangeTime = millis();
-        update_labels();
       },
-      LV_EVENT_CLICKED, NULL);
+      LV_EVENT_ALL, NULL);
 
   lv_obj_add_event_cb(
       ui_ImgArrowDownTemp,
       [](lv_event_t *e) {
-        if (!tempSwitched)
-          return;
-        if (selectedPanel == AIR_PANEL_SELECTED) {
-          airTempValue -= TEMP_INCREMENT;
-          if (airTempValue < AIR_TEMP_MIN)
-            airTempValue = AIR_TEMP_MIN;
-          hmi_msg.desiredAirTemperature = airTempValue;
-          EEPROM.writeFloat(EEPROM_DESIRED_AIR_TEMP, airTempValue);
-        } else if (selectedPanel == SKIN_PANEL_SELECTED) {
-          skinTempValue -= TEMP_INCREMENT;
-          if (skinTempValue < SKIN_TEMP_MIN)
-            skinTempValue = SKIN_TEMP_MIN;
-          hmi_msg.desiredSkinTemperature = skinTempValue;
-          EEPROM.writeFloat(EEPROM_DESIRED_SKIN_TEMP, skinTempValue);
+        lv_event_code_t code = lv_event_get_code(e);
+        lv_obj_t *target = lv_event_get_target(e);
+        
+        if (code == LV_EVENT_PRESSED) {
+          lv_obj_set_style_transform_zoom(target, 280, LV_PART_MAIN | LV_STATE_DEFAULT);
+        } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+          lv_obj_set_style_transform_zoom(target, 256, LV_PART_MAIN | LV_STATE_DEFAULT);
+        } else if (code == LV_EVENT_CLICKED) {
+          if (!tempSwitched)
+            return;
+          if (selectedPanel == AIR_PANEL_SELECTED) {
+            airTempValue -= TEMP_INCREMENT;
+            if (airTempValue < AIR_TEMP_MIN)
+              airTempValue = AIR_TEMP_MIN;
+            hmi_msg.desiredAirTemperature = airTempValue;
+            EEPROM.writeFloat(EEPROM_DESIRED_AIR_TEMP, airTempValue);
+          } else if (selectedPanel == SKIN_PANEL_SELECTED) {
+            skinTempValue -= TEMP_INCREMENT;
+            if (skinTempValue < SKIN_TEMP_MIN)
+              skinTempValue = SKIN_TEMP_MIN;
+            hmi_msg.desiredSkinTemperature = skinTempValue;
+            EEPROM.writeFloat(EEPROM_DESIRED_SKIN_TEMP, skinTempValue);
+          }
+          hmi_msg.shouldSendData = true;
+          eepromDirty = true;
+          lastVarChangeTime = millis();
+          update_labels();
         }
-        hmi_msg.shouldSendData = true;
-        eepromDirty = true;
-        lastVarChangeTime = millis();
-        update_labels();
       },
-      LV_EVENT_CLICKED, NULL);
+      LV_EVENT_ALL, NULL);
 }
 
 void setup_arrow_hum_callbacks() {
   lv_obj_add_event_cb(
       ui_ImgArrowUpHum,
       [](lv_event_t *e) {
-        if (!switchHum)
-          return;
-        humValue += HUM_STEP;
-        if (humValue > HUM_MAX)
-          humValue = HUM_MAX;
-        hmi_msg.desiredHumidity = humValue;
-        hmi_msg.shouldSendData = true;
-        EEPROM.write(EEPROM_DESIRED_HUMIDITY, humValue);
-        eepromDirty = true;
-        lastVarChangeTime = millis();
-        update_labels();
+        lv_event_code_t code = lv_event_get_code(e);
+        lv_obj_t *target = lv_event_get_target(e);
+        
+        if (code == LV_EVENT_PRESSED) {
+          lv_obj_set_style_transform_zoom(target, 280, LV_PART_MAIN | LV_STATE_DEFAULT);
+        } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+          lv_obj_set_style_transform_zoom(target, 256, LV_PART_MAIN | LV_STATE_DEFAULT);
+        } else if (code == LV_EVENT_CLICKED) {
+          if (!switchHum)
+            return;
+          humValue += HUM_STEP;
+          if (humValue > HUM_MAX)
+            humValue = HUM_MAX;
+          hmi_msg.desiredHumidity = humValue;
+          hmi_msg.shouldSendData = true;
+          EEPROM.write(EEPROM_DESIRED_HUMIDITY, humValue);
+          eepromDirty = true;
+          lastVarChangeTime = millis();
+          update_labels();
+        }
       },
-      LV_EVENT_CLICKED, NULL);
+      LV_EVENT_ALL, NULL);
 
   lv_obj_add_event_cb(
       ui_ImgArrowDownHum,
       [](lv_event_t *e) {
-        if (!switchHum)
-          return;
-        humValue -= HUM_STEP;
-        if (humValue < HUM_MIN)
-          humValue = HUM_MIN;
-        hmi_msg.desiredHumidity = humValue;
-        hmi_msg.shouldSendData = true;
-        EEPROM.write(EEPROM_DESIRED_HUMIDITY, humValue);
-        eepromDirty = true;
-        lastVarChangeTime = millis();
-        update_labels();
+        lv_event_code_t code = lv_event_get_code(e);
+        lv_obj_t *target = lv_event_get_target(e);
+        
+        if (code == LV_EVENT_PRESSED) {
+          lv_obj_set_style_transform_zoom(target, 280, LV_PART_MAIN | LV_STATE_DEFAULT);
+        } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+          lv_obj_set_style_transform_zoom(target, 256, LV_PART_MAIN | LV_STATE_DEFAULT);
+        } else if (code == LV_EVENT_CLICKED) {
+          if (!switchHum)
+            return;
+          humValue -= HUM_STEP;
+          if (humValue < HUM_MIN)
+            humValue = HUM_MIN;
+          hmi_msg.desiredHumidity = humValue;
+          hmi_msg.shouldSendData = true;
+          EEPROM.write(EEPROM_DESIRED_HUMIDITY, humValue);
+          eepromDirty = true;
+          lastVarChangeTime = millis();
+          update_labels();
+        }
       },
-      LV_EVENT_CLICKED, NULL);
+      LV_EVENT_ALL, NULL);
 }
 
 void blink_cb(void *obj, int32_t v) {
@@ -1825,13 +1861,6 @@ void UI_Task(void *pvParameters) {
             }
             if (ui_PhotoLockCont) {
                 lv_obj_clear_flag(ui_PhotoLockCont, LV_OBJ_FLAG_HIDDEN);
-            }
-
-            // Sync minutes with motherBoard every round minute
-            if (rSec == 0 && rMin != lastPhotoMinutesSent) {
-                hmi_msg.photoMinutesRemaining = rMin;
-                hmi_msg.shouldSendData = true;
-                lastPhotoMinutesSent = rMin;
             }
         }
     } else {

@@ -36,6 +36,11 @@ static SemaphoreHandle_t device_disconnected_sem;
 static SemaphoreHandle_t vcp_mux;
 static SemaphoreHandle_t hmi_state_req_sem;
 
+// ---- Phototherapy Timer (Motherboard is source of truth) ----
+static bool photoTimerActive = false;
+static unsigned long photoTimerStartMs = 0;
+static int photoTimerMinutes = 0;
+
 static void reset_vcp() {
   if (xSemaphoreTake(vcp_mux, pdMS_TO_TICKS(100)) == pdTRUE) {
     if (vcp) {
@@ -60,15 +65,37 @@ static void reset_vcp() {
 static void send_state_to_hmi() {
   char msg[128];
   int alarmCount = getActiveAlarmCount();
+  
+  // Calculate real remaining time if phototherapy is active (formato MM.SS)
+  double remainingTime = 0.0;
+  if (photoTimerActive) {
+      unsigned long elapsed = millis() - photoTimerStartMs;
+      long totalSeconds = photoTimerMinutes * 60;
+      long remaining = totalSeconds - (elapsed / 1000);
+      
+      if (remaining <= 0) {
+          // Timer expired, turn off phototherapy
+          photoTimerActive = false;
+          g_last_cmd.phototherapyMode = 0;
+          g_last_cmd.photoMinutesRemaining = 0;
+          remainingTime = 0.0;
+      } else {
+          // Calculate MM.SS format: 18 min 33 sec = 18.33
+          int mins = remaining / 60;
+          int secs = remaining % 60;
+          remainingTime = mins + (secs / 100.0);
+      }
+  }
+  
   snprintf(msg, sizeof(msg),
-           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%d\n",
+           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f\n",
            (int)g_last_cmd.actuation, (int)g_last_cmd.controlMode,
            (double)g_last_cmd.desiredAirTemperature,
            (double)g_last_cmd.desiredSkinTemperature,
            (double)g_last_cmd.desiredHumidity, (int)g_last_cmd.phototherapyMode,
            (int)g_last_cmd.muteAlarm,
            ctrl_tel_msg.serialNumber, HW_NUM, HW_REVISION, FWversion, alarmCount, (int)g_last_cmd.skinModeEnabled, (int)ctrl_tel_msg.serverCommStatus,
-           (int)g_last_cmd.photoMinutesRemaining);
+           remainingTime);
   ESP_LOGI(TAG, "Sending state to HMI: %s", msg);
   CommunicationHost_Send(msg);
   
@@ -162,14 +189,14 @@ void parse_line(const char *line) {
   // HMI COMMAND
   // -----------------------------
   if (strncmp(line, "HMI,", 4) == 0) {
-    int act, mode, photo, mute, lang, skinE, photoMin;
+    int act, skinE, mode, photo, mute, lang, photoMin;
     double air, skin, hum;
 
-    if (sscanf(line, "HMI,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%d", &act, &mode, &air, &skin,
-               &hum, &photo, &mute, &lang, &skinE, &photoMin) >= 9) {
-      int count = sscanf(line, "HMI,%*d,%*d,%*f,%*f,%*f,%*d,%*d,%*d,%d,%d", &skinE, &photoMin);
+    if (sscanf(line, "HMI,%d,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d", &act, &skinE, &mode, &air, &skin,
+               &hum, &photo, &mute, &lang, &photoMin) >= 9) {
       
       hmi_cmd_msg.actuation = act;
+      hmi_cmd_msg.skinModeEnabled = skinE;
       hmi_cmd_msg.controlMode = mode;
       hmi_cmd_msg.desiredAirTemperature = air;
       hmi_cmd_msg.desiredSkinTemperature = skin;
@@ -177,13 +204,36 @@ void parse_line(const char *line) {
       hmi_cmd_msg.phototherapyMode = photo;
       hmi_cmd_msg.muteAlarm = mute;
       hmi_cmd_msg.language = lang;
-      hmi_cmd_msg.skinModeEnabled = (count >= 1) ? skinE : (mode == 0); // fallback if param missing
-      hmi_cmd_msg.photoMinutesRemaining = (count >= 2) ? photoMin : 0;
+      hmi_cmd_msg.photoMinutesRemaining = photoMin;
       hmi_cmd_msg.newCommand = true;
 
       // ---- NUEVO: actualiza cache (para futuras respuestas CTRL,STATE) ----
       g_last_cmd = hmi_cmd_msg;
       g_last_cmd.newCommand = false;
+      
+      // ---- Phototherapy Timer Management ----
+      if (hmi_cmd_msg.phototherapyMode && hmi_cmd_msg.photoMinutesRemaining > 0) {
+          // Start or restart phototherapy timer
+          if (!photoTimerActive || photoTimerMinutes != hmi_cmd_msg.photoMinutesRemaining) {
+              photoTimerActive = true;
+              photoTimerMinutes = hmi_cmd_msg.photoMinutesRemaining;
+              photoTimerStartMs = millis();
+              if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+                  ESP_LOGI(TAG, "Phototherapy timer started: %d minutes", photoTimerMinutes);
+                  xSemaphoreGiveRecursive(log_mutex);
+              }
+          }
+      } else if (!hmi_cmd_msg.phototherapyMode) {
+          // Turn off phototherapy
+          if (photoTimerActive) {
+              photoTimerActive = false;
+              photoTimerMinutes = 0;
+              if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+                  ESP_LOGI(TAG, "Phototherapy timer stopped");
+                  xSemaphoreGiveRecursive(log_mutex);
+              }
+          }
+      }
 
       if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         ESP_LOGI(TAG, "HMI CMD stored successfully (lang=%d)", lang);

@@ -78,6 +78,7 @@ typedef struct {
   int skinModeEnabled;
   int serverCommStatus;
   int photoMinutesRemaining;
+  int photoSecondsRemaining;  // Segundos restantes de fototerapia (0-59)
 } ControlBoard_Message_State;
 
 // Expected prefix of incoming messages

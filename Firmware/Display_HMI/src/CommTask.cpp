@@ -52,10 +52,11 @@ void Communication_SendWiFiCredentials(const char *ssid, const char *password) {
 static void SendMessageToOtherESP() {
 #if IS_HMI
   COMM_SERIAL.printf(
-      "HMI,%d,%d,%0.2f,%0.2f,%0.0f,%d,%d,%d,%d,%d\n", hmi_msg.actuation,
-      hmi_msg.controlMode, hmi_msg.desiredAirTemperature,
-      hmi_msg.desiredSkinTemperature, hmi_msg.desiredHumidity,
-      hmi_msg.phototherapyMode, hmi_msg.muteAlarm, hmi_msg.language, (int)hmi_msg.skinModeEnabled, hmi_msg.photoMinutesRemaining);
+      "HMI,%d,%d,%d,%0.2f,%0.2f,%0.0f,%d,%d,%d,%d\n", hmi_msg.actuation,
+      (int)hmi_msg.skinModeEnabled, hmi_msg.controlMode,
+      hmi_msg.desiredAirTemperature, hmi_msg.desiredSkinTemperature,
+      hmi_msg.desiredHumidity, hmi_msg.phototherapyMode, hmi_msg.muteAlarm,
+      hmi_msg.language, hmi_msg.photoMinutesRemaining);
 #else
   COMM_SERIAL.printf("CTRL,%0.2f,%0.2f,%0.2f,%0.2f,%0.2f\n",
                      ctrl_msg.temperature[0], ctrl_msg.temperature[1],
@@ -79,16 +80,17 @@ static void parse_message(const char *line) {
       ctrl_tel_msg.serverCommStatus = COMM_STATUS_NONE;
     }
   } else if (strncmp(line, "CTRL,STATE", 10) == 0) {
-    int act, mode, photo, mute, sn, hwNum, numAlarms, skinE, commStatus, photoMin;
+    int act, mode, photo, mute, sn, hwNum, numAlarms, skinE, commStatus;
+    double photoTimeRemaining;  // Formato MM.SS (ej: 18.33 = 18 min 33 seg)
     char hwRev;
     char fwVer[20];
     double airSet, skinSet, humSet;
     int result =
-        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d,%d",
+        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d,%lf",
                &act, &mode, &airSet, &skinSet, &humSet, &photo, &mute,
-               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus, &photoMin);
+               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus, &photoTimeRemaining);
     
-    // Accept 12 (old), 13 (with alarms), or 14 (with alarms + skinModeEnabled)
+    // Accept 12 (old), 13 (with alarms), 14 (with alarms + skinModeEnabled), or 15 (with photoTimeRemaining)
     if (result >= 12) {
       ctrl_state_msg.actuation = act;
       ctrl_state_msg.controlMode = mode;
@@ -105,7 +107,18 @@ static void parse_message(const char *line) {
       strncpy(ctrl_state_msg.fwVer, fwVer, sizeof(ctrl_state_msg.fwVer));
       ctrl_state_msg.skinModeEnabled = (result >= 14) ? skinE : (mode == CONTROL_SKIN);
       ctrl_state_msg.serverCommStatus = (result >= 15) ? commStatus : 0;
-      ctrl_state_msg.photoMinutesRemaining = (result >= 15) ? photoMin : 0;
+      
+      // Extract minutes and seconds from MM.SS format
+      if (result >= 15) {
+        int mins = (int)photoTimeRemaining;
+        int secs = (int)((photoTimeRemaining - mins) * 100.0 + 0.5);  // Round to nearest second
+        ctrl_state_msg.photoMinutesRemaining = mins;
+        ctrl_state_msg.photoSecondsRemaining = secs;
+      } else {
+        ctrl_state_msg.photoMinutesRemaining = 0;
+        ctrl_state_msg.photoSecondsRemaining = 0;
+      }
+      
       ctrl_state_msg.newState = true;
       
       // If we have alarms count (result == 13), we could use it for verification
@@ -227,12 +240,23 @@ static void Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
   hmi_msg.photoMinutesRemaining = st.photoMinutesRemaining;
 
   // Restore Phototherapy Timer if active in received state
-  if (st.phototherapyMode && st.photoMinutesRemaining > 0) {
+  if (st.phototherapyMode && (st.photoMinutesRemaining > 0 || st.photoSecondsRemaining > 0)) {
       if (!photoTimerActive) {
           photoTimerActive = true;
-          photoTimerMinutes = st.photoMinutesRemaining;
-          photoTimerStartMs = millis();
-          hmi_msg.photoMinutesRemaining = photoTimerMinutes; // Sync to avoid sending 0 back
+          
+          // Calculate total seconds remaining and elapsed
+          long totalSecondsRemaining = st.photoMinutesRemaining * 60 + st.photoSecondsRemaining;
+          long totalSecondsOriginal = photoTimerMinutes * 60;
+          long elapsedSeconds = totalSecondsOriginal - totalSecondsRemaining;
+          
+          // Adjust start time to reflect elapsed time
+          photoTimerStartMs = millis() - (elapsedSeconds * 1000);
+          
+          // Sync to avoid sending 0 back
+          hmi_msg.photoMinutesRemaining = st.photoMinutesRemaining;
+          
+          ESP_LOGI(TAG, "Phototherapy timer restored: %d:%02d remaining", 
+                   st.photoMinutesRemaining, st.photoSecondsRemaining);
       }
   }
 

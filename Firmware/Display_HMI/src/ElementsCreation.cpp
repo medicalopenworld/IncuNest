@@ -576,14 +576,24 @@ void ui_event_AlarmLockCont(lv_event_t * e) {
 
 void ui_event_PhotoTimeMinusBtn(lv_event_t * e) {
     lv_event_code_t event_code = lv_event_get_code(e);
-    if(event_code == LV_EVENT_CLICKED) {
+    lv_obj_t * target = lv_event_get_target(e);
+    if(event_code == LV_EVENT_PRESSED) {
+        lv_obj_set_style_transform_zoom(target, 280, LV_PART_MAIN | LV_STATE_DEFAULT);
+    } else if(event_code == LV_EVENT_RELEASED || event_code == LV_EVENT_PRESS_LOST) {
+        lv_obj_set_style_transform_zoom(target, 256, LV_PART_MAIN | LV_STATE_DEFAULT);
+    } else if(event_code == LV_EVENT_CLICKED) {
         PhotoTimeMinusBtn_cb(e);
     }
 }
 
 void ui_event_PhotoTimePlusBtn(lv_event_t * e) {
     lv_event_code_t event_code = lv_event_get_code(e);
-    if(event_code == LV_EVENT_CLICKED) {
+    lv_obj_t * target = lv_event_get_target(e);
+    if(event_code == LV_EVENT_PRESSED) {
+        lv_obj_set_style_transform_zoom(target, 280, LV_PART_MAIN | LV_STATE_DEFAULT);
+    } else if(event_code == LV_EVENT_RELEASED || event_code == LV_EVENT_PRESS_LOST) {
+        lv_obj_set_style_transform_zoom(target, 256, LV_PART_MAIN | LV_STATE_DEFAULT);
+    } else if(event_code == LV_EVENT_CLICKED) {
         PhotoTimePlusBtn_cb(e);
     }
 }
