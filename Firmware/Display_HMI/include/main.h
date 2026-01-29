@@ -112,8 +112,8 @@ constexpr int BRIGHTNESS_MAX = 255;
 // -----------------------------
 // Temperature
 // -----------------------------
-constexpr double AIR_TEMP_MIN = 20.0;
-constexpr double AIR_TEMP_MAX = 36.9;
+constexpr double AIR_TEMP_MIN = 30.0;
+constexpr double AIR_TEMP_MAX = 37.0;
 constexpr double SKIN_TEMP_MIN = 35.0;
 constexpr double SKIN_TEMP_MAX = 37.5;
 constexpr double TEMP_INCREMENT = 0.2;
@@ -140,8 +140,8 @@ constexpr int SKIN_PANEL_SELECTED = 2;
 // -----------------------------
 // Humidity
 // -----------------------------
-constexpr int HUM_MIN = 40;
-constexpr int HUM_MAX = 95;
+constexpr int HUM_MIN = 20;
+constexpr int HUM_MAX = 90;
 constexpr int HUM_STEP = 5;
 constexpr int HUM_ALARM_THRESHOLD = 60;
 
