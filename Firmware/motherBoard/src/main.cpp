@@ -382,6 +382,11 @@ void Communication_Receiver(void *pvParameters) {
       buzzerTone(buzzerStandbyToneTimes, buzzerSwitchDuration,
                  buzzerRotaryEncoderTone);
     }
+
+    // Handle Phototherapy timer expiration/calculation constantly
+    // This runs even if no HMI is connected, ensuring hardware turns OFF.
+    getRemainingPhotoTime();
+
     if (in3.actuation) {
       PIDHandler();
     }

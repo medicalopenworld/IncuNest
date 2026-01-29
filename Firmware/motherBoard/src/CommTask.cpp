@@ -61,17 +61,13 @@ static void reset_vcp() {
   }
 }
 
-// ---- NUEVO: enviar CTRL,STATE ---- CTRL,STATE,1,0,36.50,36.80,55,1,0,1,123456,2,1,v1.3.0
-static void send_state_to_hmi() {
-  char msg[128];
-  int alarmCount = getActiveAlarmCount();
-  
-  // Calculate real remaining time if phototherapy is active (formato MM.SS)
+// ---- NUEVO: calcular tiempo restante y apagar hardware si expira ----
+double getRemainingPhotoTime() {
   double remainingTime = 0.0;
   if (photoTimerActive) {
       unsigned long elapsed = millis() - photoTimerStartMs;
-      long totalSeconds = photoTimerMinutes * 60;
-      long remaining = totalSeconds - (elapsed / 1000);
+      long totalSeconds = (long)photoTimerMinutes * 60;
+      long remaining = totalSeconds - (long)(elapsed / 1000);
       
       if (remaining <= 0) {
           // Timer expired, turn off phototherapy
@@ -79,6 +75,16 @@ static void send_state_to_hmi() {
           g_last_cmd.phototherapyMode = 0;
           g_last_cmd.photoMinutesRemaining = 0;
           remainingTime = 0.0;
+          
+          // Hardware OFF directly from here to ensure it happens without HMI
+          in3.phototherapy = false;
+          ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, 0);
+          turnFans(bool(in3.phototherapy || in3.actuation));
+          
+          if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+              ESP_LOGI(TAG, "Phototherapy timer expired. Hardware turned OFF.");
+              xSemaphoreGiveRecursive(log_mutex);
+          }
       } else {
           // Calculate MM.SS format: 18 min 33 sec = 18.33
           int mins = remaining / 60;
@@ -86,6 +92,16 @@ static void send_state_to_hmi() {
           remainingTime = mins + (secs / 100.0);
       }
   }
+  return remainingTime;
+}
+
+// ---- NUEVO: enviar CTRL,STATE ---- CTRL,STATE,1,0,36.50,36.80,55,1,0,1,123456,2,1,v1.3.0
+static void send_state_to_hmi() {
+  char msg[128];
+  int alarmCount = getActiveAlarmCount();
+  
+  // Calculate real remaining time using shared logic
+  double remainingTime = getRemainingPhotoTime();
   
   snprintf(msg, sizeof(msg),
            "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f\n",

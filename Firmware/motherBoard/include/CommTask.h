@@ -47,3 +47,4 @@ void CommunicationHost_Init();             // Install USB HOST
 void Communication_Task(void *pv);         // FreeRTOS task
 void CommunicationHost_Send(const char *); // Manual send
 void setHMIConnected(bool connected);      // Notify HMI connection status
+double getRemainingPhotoTime();           // Handle phototherapy timer and hardware shutdown
