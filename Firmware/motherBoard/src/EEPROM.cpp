@@ -159,9 +159,23 @@ void recapVariables() {
   ESP_LOGI("APP", "Control Mode from EEPROM: %d", in3.controlMode);
   in3.desiredControlTemperature =
       EEPROM.readFloat(EEPROM_DESIRED_CONTROL_TEMPERATURE);
+  
+  // Validation
+  if (in3.controlMode == CONTROL_AIR) {
+    if (isnan(in3.desiredControlTemperature) || in3.desiredControlTemperature < AIR_TEMPERATURE_SET_MIN || in3.desiredControlTemperature > AIR_TEMPERATURE_SET_MAX)
+      in3.desiredControlTemperature = presetTemp[CONTROL_AIR];
+  } else {
+    if (isnan(in3.desiredControlTemperature) || in3.desiredControlTemperature < SKIN_TEMPERATURE_SET_MIN || in3.desiredControlTemperature > SKIN_TEMPERATURE_SET_MAX)
+      in3.desiredControlTemperature = presetTemp[CONTROL_SKIN];
+  }
+
   ESP_LOGI("APP", "Control Temperature from EEPROM: %f",
            in3.desiredControlTemperature);
   in3.desiredControlHumidity = EEPROM.read(EEPROM_DESIRED_CONTROL_HUMIDITY);
+
+  if (in3.desiredControlHumidity < minHum || in3.desiredControlHumidity > maxHum)
+      in3.desiredControlHumidity = presetHumidity;
+
   ESP_LOGI("APP", "Control Humidity from EEPROM: %d",
            in3.desiredControlHumidity);
 

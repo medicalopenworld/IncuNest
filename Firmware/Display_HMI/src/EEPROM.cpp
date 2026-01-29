@@ -100,11 +100,11 @@ void recapVariables() {
   strncpy(wifi_pass, pass.c_str(), sizeof(wifi_pass));
 
   // Validation
-  if (isnan(airTempValue) || airTempValue < 20.0 || airTempValue > 40.0)
+  if (isnan(airTempValue) || airTempValue < AIR_TEMP_MIN || airTempValue > AIR_TEMP_MAX)
     airTempValue = 30.0;
-  if (isnan(skinTempValue) || skinTempValue < 30.0 || skinTempValue > 40.0)
-    skinTempValue = 37;
-  if (humValue < 0 || humValue > 100)
+  if (isnan(skinTempValue) || skinTempValue < SKIN_TEMP_MIN || skinTempValue > SKIN_TEMP_MAX)
+    skinTempValue = 37.0;
+  if (humValue < HUM_MIN || humValue > HUM_MAX)
     humValue = 50;
 
   in3.serialNumber = EEPROM.readInt(EEPROM_SERIAL_NUMBER);
