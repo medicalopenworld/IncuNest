@@ -2085,7 +2085,7 @@ void ui_ScreenSettings_screen_init(void) {
     lv_obj_set_width(ui_HMIVerTitle, LV_SIZE_CONTENT);
     lv_obj_set_height(ui_HMIVerTitle, LV_SIZE_CONTENT);
     lv_obj_set_x(ui_HMIVerTitle, -100);
-    lv_obj_set_y(ui_HMIVerTitle, -40);
+    lv_obj_set_y(ui_HMIVerTitle, -60);
     lv_obj_set_align(ui_HMIVerTitle, LV_ALIGN_CENTER);
     lv_label_set_text(ui_HMIVerTitle, "DISPLAY VER:");
     lv_obj_set_style_text_font(ui_HMIVerTitle, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -2094,7 +2094,7 @@ void ui_ScreenSettings_screen_init(void) {
     lv_obj_set_width(ui_HMIVerValue, LV_SIZE_CONTENT);
     lv_obj_set_height(ui_HMIVerValue, LV_SIZE_CONTENT);
     lv_obj_set_x(ui_HMIVerValue, 50);
-    lv_obj_set_y(ui_HMIVerValue, -40);
+    lv_obj_set_y(ui_HMIVerValue, -60);
     lv_obj_set_align(ui_HMIVerValue, LV_ALIGN_CENTER);
     lv_label_set_text(ui_HMIVerValue, "1.0.0");
     lv_obj_set_style_text_color(ui_HMIVerValue, lv_color_hex(0x2196F3), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -2104,7 +2104,7 @@ void ui_ScreenSettings_screen_init(void) {
     lv_obj_set_width(ui_MBVerTitle, LV_SIZE_CONTENT);
     lv_obj_set_height(ui_MBVerTitle, LV_SIZE_CONTENT);
     lv_obj_set_x(ui_MBVerTitle, -100);
-    lv_obj_set_y(ui_MBVerTitle, 0);
+    lv_obj_set_y(ui_MBVerTitle, -20);
     lv_obj_set_align(ui_MBVerTitle, LV_ALIGN_CENTER);
     lv_label_set_text(ui_MBVerTitle, "MOTHERBOARD VER:");
     lv_obj_set_style_text_font(ui_MBVerTitle, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -2113,7 +2113,7 @@ void ui_ScreenSettings_screen_init(void) {
     lv_obj_set_width(ui_MBVerValue, LV_SIZE_CONTENT);
     lv_obj_set_height(ui_MBVerValue, LV_SIZE_CONTENT);
     lv_obj_set_x(ui_MBVerValue, 50);
-    lv_obj_set_y(ui_MBVerValue, 0);
+    lv_obj_set_y(ui_MBVerValue, -20);
     lv_obj_set_align(ui_MBVerValue, LV_ALIGN_CENTER);
     lv_label_set_text(ui_MBVerValue, "0.0.0");
     lv_obj_set_style_text_color(ui_MBVerValue, lv_color_hex(0x2196F3), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -2123,7 +2123,7 @@ void ui_ScreenSettings_screen_init(void) {
     lv_obj_set_width(ui_SNTitle, LV_SIZE_CONTENT);
     lv_obj_set_height(ui_SNTitle, LV_SIZE_CONTENT);
     lv_obj_set_x(ui_SNTitle, -100);
-    lv_obj_set_y(ui_SNTitle, 40);
+    lv_obj_set_y(ui_SNTitle, 20);
     lv_obj_set_align(ui_SNTitle, LV_ALIGN_CENTER);
     lv_label_set_text(ui_SNTitle, "S/N:");
     lv_obj_set_style_text_font(ui_SNTitle, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -2132,7 +2132,7 @@ void ui_ScreenSettings_screen_init(void) {
     lv_obj_set_width(ui_SNValue, LV_SIZE_CONTENT);
     lv_obj_set_height(ui_SNValue, LV_SIZE_CONTENT);
     lv_obj_set_x(ui_SNValue, 50);
-    lv_obj_set_y(ui_SNValue, 40);
+    lv_obj_set_y(ui_SNValue, 20);
     lv_obj_set_align(ui_SNValue, LV_ALIGN_CENTER);
     lv_label_set_text(ui_SNValue, "0000");
     lv_obj_set_style_text_color(ui_SNValue, lv_color_hex(0x2196F3), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -2142,7 +2142,7 @@ void ui_ScreenSettings_screen_init(void) {
     lv_obj_set_width(ui_ConnTitle, LV_SIZE_CONTENT);
     lv_obj_set_height(ui_ConnTitle, LV_SIZE_CONTENT);
     lv_obj_set_x(ui_ConnTitle, -100);
-    lv_obj_set_y(ui_ConnTitle, 80);
+    lv_obj_set_y(ui_ConnTitle, 60);
     lv_obj_set_align(ui_ConnTitle, LV_ALIGN_CENTER);
     lv_label_set_text(ui_ConnTitle, "CONNECTIVITY:");
     lv_obj_set_style_text_font(ui_ConnTitle, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -2151,7 +2151,7 @@ void ui_ScreenSettings_screen_init(void) {
     lv_obj_set_width(ui_ConnValue, LV_SIZE_CONTENT);
     lv_obj_set_height(ui_ConnValue, LV_SIZE_CONTENT);
     lv_obj_set_x(ui_ConnValue, 50);
-    lv_obj_set_y(ui_ConnValue, 80);
+    lv_obj_set_y(ui_ConnValue, 60);
     lv_obj_set_align(ui_ConnValue, LV_ALIGN_CENTER);
     lv_label_set_text(ui_ConnValue, "-");
     lv_obj_set_style_text_color(ui_ConnValue, lv_color_hex(0x2196F3), LV_PART_MAIN | LV_STATE_DEFAULT);
