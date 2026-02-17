@@ -670,6 +670,7 @@ void ui_ScreenMain_screen_init(void) {
     lv_obj_set_y(ui_Panel1, 24);
     lv_obj_set_align(ui_Panel1, LV_ALIGN_CENTER);
     lv_obj_clear_flag(ui_Panel1, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(ui_Panel1, COLOR_PANEL_GRAY, LV_PART_MAIN); // Default Gray
 
     ui_Panel4 = lv_obj_create(ui_TempCont);
     lv_obj_set_width(ui_Panel4, 376);
@@ -1007,6 +1008,7 @@ void ui_ScreenMain_screen_init(void) {
     lv_obj_set_y(ui_Panel3, -4);
     lv_obj_set_align(ui_Panel3, LV_ALIGN_CENTER);
     lv_obj_clear_flag(ui_Panel3, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(ui_Panel3, COLOR_PANEL_GRAY, LV_PART_MAIN); // Default Gray
 
     ui_Panel6 = lv_obj_create(ui_HumCont);
     lv_obj_set_width(ui_Panel6, 376);
@@ -1192,6 +1194,79 @@ void ui_ScreenMain_screen_init(void) {
     lv_obj_set_align(ui_HumidityLabel, LV_ALIGN_LEFT_MID);
     lv_label_set_text(ui_HumidityLabel, "Humidity control");
 
+    ui_PhotoTimerCont = lv_obj_create(ui_ScreenMain);
+    lv_obj_remove_style_all(ui_PhotoTimerCont);
+    lv_obj_set_width(ui_PhotoTimerCont, 384);
+    lv_obj_set_height(ui_PhotoTimerCont, 120);
+    lv_obj_set_x(ui_PhotoTimerCont, 196);
+    lv_obj_set_y(ui_PhotoTimerCont, 165);
+    lv_obj_set_align(ui_PhotoTimerCont, LV_ALIGN_CENTER);
+    // lv_obj_add_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN); // Always visible as requested
+    lv_obj_clear_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+
+    ui_PhotoTimerPanel = lv_obj_create(ui_PhotoTimerCont);
+    lv_obj_set_width(ui_PhotoTimerPanel, 376);
+    lv_obj_set_height(ui_PhotoTimerPanel, 110);
+    lv_obj_set_align(ui_PhotoTimerPanel, LV_ALIGN_CENTER);
+    lv_obj_clear_flag(ui_PhotoTimerPanel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(ui_PhotoTimerPanel, COLOR_PANEL_GRAY, LV_PART_MAIN); // Default Gray
+
+    // Minus Button
+    ui_PhotoTimeMinusBtn = lv_btn_create(ui_PhotoTimerCont);
+    lv_obj_set_width(ui_PhotoTimeMinusBtn, 50);
+    lv_obj_set_height(ui_PhotoTimeMinusBtn, 40);
+    lv_obj_set_x(ui_PhotoTimeMinusBtn, -100);
+    lv_obj_set_y(ui_PhotoTimeMinusBtn, -15);
+    lv_obj_set_align(ui_PhotoTimeMinusBtn, LV_ALIGN_CENTER);
+    lv_obj_set_style_bg_color(ui_PhotoTimeMinusBtn, COLOR_PANEL_LIGHT_GRAY, LV_PART_MAIN | LV_STATE_DEFAULT); // Default Light Gray
+    lv_obj_clear_flag(ui_PhotoTimeMinusBtn, LV_OBJ_FLAG_CLICKABLE); // Default Locked
+
+    ui_PhotoTimeMinusLabel = lv_label_create(ui_PhotoTimeMinusBtn);
+    lv_obj_set_align(ui_PhotoTimeMinusLabel, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_PhotoTimeMinusLabel, "-");
+    lv_obj_set_style_text_font(ui_PhotoTimeMinusLabel, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // Value Label
+    ui_PhotoTimeValueLabel = lv_label_create(ui_PhotoTimerCont);
+    lv_obj_set_width(ui_PhotoTimeValueLabel, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_PhotoTimeValueLabel, LV_SIZE_CONTENT);
+    lv_obj_set_x(ui_PhotoTimeValueLabel, 0);
+    lv_obj_set_y(ui_PhotoTimeValueLabel, -15);
+    lv_obj_set_align(ui_PhotoTimeValueLabel, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_PhotoTimeValueLabel, "30 min"); // Default
+    lv_obj_set_style_text_font(ui_PhotoTimeValueLabel, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // Plus Button
+    ui_PhotoTimePlusBtn = lv_btn_create(ui_PhotoTimerCont);
+    lv_obj_set_width(ui_PhotoTimePlusBtn, 50);
+    lv_obj_set_height(ui_PhotoTimePlusBtn, 40);
+    lv_obj_set_x(ui_PhotoTimePlusBtn, 100);
+    lv_obj_set_y(ui_PhotoTimePlusBtn, -15);
+    lv_obj_set_align(ui_PhotoTimePlusBtn, LV_ALIGN_CENTER);
+    lv_obj_set_style_bg_color(ui_PhotoTimePlusBtn, COLOR_PANEL_LIGHT_GRAY, LV_PART_MAIN | LV_STATE_DEFAULT); // Default Light Gray
+    lv_obj_clear_flag(ui_PhotoTimePlusBtn, LV_OBJ_FLAG_CLICKABLE); // Default Locked
+
+    ui_PhotoTimePlusLabel = lv_label_create(ui_PhotoTimePlusBtn);
+    lv_obj_set_align(ui_PhotoTimePlusLabel, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_PhotoTimePlusLabel, "+");
+    lv_obj_set_style_text_font(ui_PhotoTimePlusLabel, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // Start Button
+    ui_PhotoStartBtn = lv_btn_create(ui_PhotoTimerCont);
+    lv_obj_set_width(ui_PhotoStartBtn, 120);
+    lv_obj_set_height(ui_PhotoStartBtn, 30);
+    lv_obj_set_x(ui_PhotoStartBtn, 0);
+    lv_obj_set_y(ui_PhotoStartBtn, 25);
+    lv_obj_set_align(ui_PhotoStartBtn, LV_ALIGN_CENTER);
+    lv_obj_set_style_bg_color(ui_PhotoStartBtn, COLOR_PANEL_LIGHT_GRAY, LV_PART_MAIN | LV_STATE_DEFAULT); // Default Light Gray
+    lv_obj_clear_flag(ui_PhotoStartBtn, LV_OBJ_FLAG_CLICKABLE); // Default Locked
+
+    ui_PhotoStartLabel = lv_label_create(ui_PhotoStartBtn);
+    lv_obj_set_align(ui_PhotoStartLabel, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_PhotoStartLabel, "EMPEZAR"); // Default Spanish
+    lv_obj_set_style_text_font(ui_PhotoStartLabel, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
+
     ui_PhotoCont = lv_obj_create(ui_ScreenMain);
     lv_obj_remove_style_all(ui_PhotoCont);
     lv_obj_set_width(ui_PhotoCont, 384);
@@ -1239,74 +1314,6 @@ void ui_ScreenMain_screen_init(void) {
     lv_obj_set_y(ui_Label10, 1);
     lv_obj_set_align(ui_Label10, LV_ALIGN_CENTER);
     lv_label_set_text(ui_Label10, "ON");
-
-    ui_PhotoTimerCont = lv_obj_create(ui_ScreenMain);
-    lv_obj_remove_style_all(ui_PhotoTimerCont);
-    lv_obj_set_width(ui_PhotoTimerCont, 384);
-    lv_obj_set_height(ui_PhotoTimerCont, 100);
-    lv_obj_set_x(ui_PhotoTimerCont, 198);
-    lv_obj_set_y(ui_PhotoTimerCont, 182);
-    lv_obj_set_align(ui_PhotoTimerCont, LV_ALIGN_CENTER);
-    lv_obj_add_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN); // Initially hidden
-    lv_obj_clear_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-
-    ui_PhotoTimerPanel = lv_obj_create(ui_PhotoTimerCont);
-    lv_obj_set_width(ui_PhotoTimerPanel, 376);
-    lv_obj_set_height(ui_PhotoTimerPanel, 96);
-    lv_obj_set_align(ui_PhotoTimerPanel, LV_ALIGN_CENTER);
-    lv_obj_clear_flag(ui_PhotoTimerPanel, LV_OBJ_FLAG_SCROLLABLE);
-
-    // Minus Button
-    ui_PhotoTimeMinusBtn = lv_btn_create(ui_PhotoTimerCont);
-    lv_obj_set_width(ui_PhotoTimeMinusBtn, 50);
-    lv_obj_set_height(ui_PhotoTimeMinusBtn, 40);
-    lv_obj_set_x(ui_PhotoTimeMinusBtn, -100);
-    lv_obj_set_y(ui_PhotoTimeMinusBtn, -15);
-    lv_obj_set_align(ui_PhotoTimeMinusBtn, LV_ALIGN_CENTER);
-    lv_obj_set_style_bg_color(ui_PhotoTimeMinusBtn, lv_color_hex(0x0075EE), LV_PART_MAIN | LV_STATE_DEFAULT);
-
-    ui_PhotoTimeMinusLabel = lv_label_create(ui_PhotoTimeMinusBtn);
-    lv_obj_set_align(ui_PhotoTimeMinusLabel, LV_ALIGN_CENTER);
-    lv_label_set_text(ui_PhotoTimeMinusLabel, "-");
-    lv_obj_set_style_text_font(ui_PhotoTimeMinusLabel, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
-
-    // Value Label
-    ui_PhotoTimeValueLabel = lv_label_create(ui_PhotoTimerCont);
-    lv_obj_set_width(ui_PhotoTimeValueLabel, LV_SIZE_CONTENT);
-    lv_obj_set_height(ui_PhotoTimeValueLabel, LV_SIZE_CONTENT);
-    lv_obj_set_x(ui_PhotoTimeValueLabel, 0);
-    lv_obj_set_y(ui_PhotoTimeValueLabel, -15);
-    lv_obj_set_align(ui_PhotoTimeValueLabel, LV_ALIGN_CENTER);
-    lv_label_set_text(ui_PhotoTimeValueLabel, "30 min"); // Default
-    lv_obj_set_style_text_font(ui_PhotoTimeValueLabel, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
-
-    // Plus Button
-    ui_PhotoTimePlusBtn = lv_btn_create(ui_PhotoTimerCont);
-    lv_obj_set_width(ui_PhotoTimePlusBtn, 50);
-    lv_obj_set_height(ui_PhotoTimePlusBtn, 40);
-    lv_obj_set_x(ui_PhotoTimePlusBtn, 100);
-    lv_obj_set_y(ui_PhotoTimePlusBtn, -15);
-    lv_obj_set_align(ui_PhotoTimePlusBtn, LV_ALIGN_CENTER);
-    lv_obj_set_style_bg_color(ui_PhotoTimePlusBtn, lv_color_hex(0x0075EE), LV_PART_MAIN | LV_STATE_DEFAULT);
-
-    ui_PhotoTimePlusLabel = lv_label_create(ui_PhotoTimePlusBtn);
-    lv_obj_set_align(ui_PhotoTimePlusLabel, LV_ALIGN_CENTER);
-    lv_label_set_text(ui_PhotoTimePlusLabel, "+");
-    lv_obj_set_style_text_font(ui_PhotoTimePlusLabel, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
-
-    // Start Button
-    ui_PhotoStartBtn = lv_btn_create(ui_PhotoTimerCont);
-    lv_obj_set_width(ui_PhotoStartBtn, 120);
-    lv_obj_set_height(ui_PhotoStartBtn, 30);
-    lv_obj_set_x(ui_PhotoStartBtn, 0);
-    lv_obj_set_y(ui_PhotoStartBtn, 25);
-    lv_obj_set_align(ui_PhotoStartBtn, LV_ALIGN_CENTER);
-    lv_obj_set_style_bg_color(ui_PhotoStartBtn, lv_color_hex(0x00AA00), LV_PART_MAIN | LV_STATE_DEFAULT); // Green for Start
-
-    ui_PhotoStartLabel = lv_label_create(ui_PhotoStartBtn);
-    lv_obj_set_align(ui_PhotoStartLabel, LV_ALIGN_CENTER);
-    lv_label_set_text(ui_PhotoStartLabel, "EMPEZAR"); // Default Spanish
-    lv_obj_set_style_text_font(ui_PhotoStartLabel, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_Panel10 = lv_obj_create(ui_ScreenMain);
     lv_obj_set_width(ui_Panel10, 24);

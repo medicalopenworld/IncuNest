@@ -767,8 +767,15 @@ void Switch_cb(lv_event_t *e) {
     bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
     
     if (checked) {
-        // Show timer menu, DO NOT start yet
-        lv_obj_clear_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN);
+        // Active state
+        lv_obj_set_style_bg_color(ui_PhotoTimerPanel, COLOR_PANEL_WHITE, LV_PART_MAIN);
+        lv_obj_add_flag(ui_PhotoTimeMinusBtn, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(ui_PhotoTimePlusBtn, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(ui_PhotoStartBtn, LV_OBJ_FLAG_CLICKABLE);
+        
+        // Restore button colors
+        lv_obj_set_style_bg_color(ui_PhotoTimeMinusBtn, lv_color_hex(0x0075EE), LV_PART_MAIN);
+        lv_obj_set_style_bg_color(ui_PhotoTimePlusBtn, lv_color_hex(0x0075EE), LV_PART_MAIN);
         
         // Reset state if not active
         if (!photoTimerActive) {
@@ -781,13 +788,25 @@ void Switch_cb(lv_event_t *e) {
             const char *TXT_PHOTOSTART[] = {"EMPEZAR", "START", "DEMARRER"};
             lv_label_set_text(ui_PhotoStartLabel, TXT_PHOTOSTART[g_lang]);
             lv_obj_set_style_bg_color(ui_PhotoStartBtn, lv_color_hex(0x00AA00), LV_PART_MAIN | LV_STATE_DEFAULT);
+        } else {
+            // If already running, keep gray color for start button as it indicates "running/disabled"
+             lv_obj_set_style_bg_color(ui_PhotoStartBtn, lv_color_hex(0x888888), LV_PART_MAIN | LV_STATE_DEFAULT);
         }
     } else {
-        // OFF
+        // OFF / Grayed out
         hmi_msg.phototherapyMode = PHOTOTHERAPY_OFF;
         hmi_msg.shouldSendData = true;
         
-        lv_obj_add_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_style_bg_color(ui_PhotoTimerPanel, COLOR_PANEL_GRAY, LV_PART_MAIN);
+        lv_obj_clear_flag(ui_PhotoTimeMinusBtn, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_clear_flag(ui_PhotoTimePlusBtn, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_clear_flag(ui_PhotoStartBtn, LV_OBJ_FLAG_CLICKABLE);
+        
+        // Buttons to light gray as requested
+        lv_obj_set_style_bg_color(ui_PhotoTimeMinusBtn, COLOR_PANEL_LIGHT_GRAY, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(ui_PhotoTimePlusBtn, COLOR_PANEL_LIGHT_GRAY, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(ui_PhotoStartBtn, COLOR_PANEL_LIGHT_GRAY, LV_PART_MAIN);
+        
         photoTimerActive = false;
     }
   } else if (obj == ui_Switch4) { // SKIN BLOCK SWITCH
@@ -1995,8 +2014,16 @@ void UI_SyncAll() {
   bool photoOn = lv_obj_has_state(ui_Switch3, LV_STATE_CHECKED);
   
   if (photoOn) {
-      if (ui_PhotoTimerCont) lv_obj_clear_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN);
+      // Normal state
+      lv_obj_set_style_bg_color(ui_PhotoTimerPanel, COLOR_PANEL_WHITE, LV_PART_MAIN);
+      lv_obj_add_flag(ui_PhotoTimeMinusBtn, LV_OBJ_FLAG_CLICKABLE);
+      lv_obj_add_flag(ui_PhotoTimePlusBtn, LV_OBJ_FLAG_CLICKABLE);
+      lv_obj_add_flag(ui_PhotoStartBtn, LV_OBJ_FLAG_CLICKABLE);
       
+      // Restore button colors
+      lv_obj_set_style_bg_color(ui_PhotoTimeMinusBtn, lv_color_hex(0x0075EE), LV_PART_MAIN);
+      lv_obj_set_style_bg_color(ui_PhotoTimePlusBtn, lv_color_hex(0x0075EE), LV_PART_MAIN);
+
       if (photoTimerActive) {
           // Update visual running state
           const char *TXT_RUNNING[] = {"EJECUTANDO", "RUNNING", "EN COURS"};
@@ -2013,7 +2040,17 @@ void UI_SyncAll() {
           if (ui_PhotoLockCont) lv_obj_add_flag(ui_PhotoLockCont, LV_OBJ_FLAG_HIDDEN);
       }
   } else {
-      if (ui_PhotoTimerCont) lv_obj_add_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN);
+      // Grayed out state
+      lv_obj_set_style_bg_color(ui_PhotoTimerPanel, COLOR_PANEL_GRAY, LV_PART_MAIN);
+      lv_obj_clear_flag(ui_PhotoTimeMinusBtn, LV_OBJ_FLAG_CLICKABLE);
+      lv_obj_clear_flag(ui_PhotoTimePlusBtn, LV_OBJ_FLAG_CLICKABLE);
+      lv_obj_clear_flag(ui_PhotoStartBtn, LV_OBJ_FLAG_CLICKABLE);
+      
+      // Buttons to light gray as requested
+      lv_obj_set_style_bg_color(ui_PhotoTimeMinusBtn, COLOR_PANEL_LIGHT_GRAY, LV_PART_MAIN);
+      lv_obj_set_style_bg_color(ui_PhotoTimePlusBtn, COLOR_PANEL_LIGHT_GRAY, LV_PART_MAIN);
+      lv_obj_set_style_bg_color(ui_PhotoStartBtn, COLOR_PANEL_LIGHT_GRAY, LV_PART_MAIN);
+
       if (ui_PhotoLockCont) lv_obj_add_flag(ui_PhotoLockCont, LV_OBJ_FLAG_HIDDEN);
       photoTimerActive = false; // Safety
   }
