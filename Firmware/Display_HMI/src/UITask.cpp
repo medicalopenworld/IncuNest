@@ -113,7 +113,7 @@ public:
       cfg.pin_hsync = GPIO_NUM_40;
       cfg.pin_pclk = GPIO_NUM_39;
       
-      cfg.freq_write = 16000000; // Keeping 16MHz safe, user code had 21MHz. 
+      cfg.freq_write = 15000000; // Reduced to 15MHz to fix flickering reported at 21MHz
       
       cfg.hsync_polarity = 0;
       cfg.hsync_front_porch = 8;
@@ -126,9 +126,10 @@ public:
       cfg.vsync_back_porch = 8;
       
       cfg.pclk_idle_high = 1;
+      cfg.pclk_active_neg = true; // Enabled to fix bluish tint/stability
 
-      // Color/Tint Adjustments - Uncomment if needed
-      // cfg.swizzle = true; // Swap Red<->Blue if colors are inverted
+      // Color/Tint Adjustments - Uncomment/Toggle if needed
+      // cfg.swizzle = true; // Swap Red<->Blue
       // cfg.invert = true;  // Invert colors if panel needs it
       // Note: LGFX might not support SPI init on RGB bus automatically unless configured.
       // We assume LovyanGFX handles "3-wire SPI" on these pins if we set them in Bus_RGB? NO.
