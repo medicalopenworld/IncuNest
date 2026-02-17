@@ -20,6 +20,13 @@ void setup() {
   initEEPROM();
 
   Wire.begin(TOUCH_SDA_PIN, TOUCH_SCL_PIN);
+  
+  // Power up backlight hardware (Pin 2 is often the enable/PWM pin)
+  pinMode(TFT_BL_PIN, OUTPUT);
+  digitalWrite(TFT_BL_PIN, HIGH);
+  
+  // Power stability delay
+  delay(1000);
 
   ESP_LOGI(TAG, "Creating OTA task ...");
   CreateOTATask();

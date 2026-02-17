@@ -80,15 +80,18 @@ constexpr int AREA_PIXEL_OFFSET =
     1; // used when computing width/height from area.x2 - area.x1 + 1
 
 // -----------------------------
-constexpr int PIN_HENABLE = 41;
-constexpr int PIN_VSYNC = 40;
+constexpr int PIN_HENABLE = 41; // DE (Was 40)
+constexpr int PIN_VSYNC = 40;   // VSYNC (Was 41)
 constexpr int PIN_HSYNC = 39;
-constexpr int PIN_PCLK = 0;
+constexpr int PIN_PCLK = 42;
 
-constexpr int TOUCH_SDA_PIN = 19;
-constexpr int TOUCH_SCL_PIN = 20;
+constexpr int TOUCH_SDA_PIN = 15;
+constexpr int TOUCH_SCL_PIN = 16;
 constexpr int TOUCH_INT_PIN = -1;
-constexpr int TOUCH_RST_PIN = -1;
+constexpr int TOUCH_RST_PIN = 38;
+
+// Backlight I2C Address (CrowPanel 7.0 uses STC8H1K28 at 0x30)
+constexpr int I2C_ADDR_BACKLIGHT = 0x30;
 
 constexpr int TFT_BL_PIN = 2;
 
@@ -210,20 +213,20 @@ extern Alarm alarmList[MAX_ALARMS];
 // LGFX config values (timings, polarity etc.)
 // Keep original numeric values from your cfg
 // -----------------------------
-constexpr int CFG_FREQ_WRITE = 15000000;
+constexpr int CFG_FREQ_WRITE = 12000000;
 
 constexpr int CFG_HSYNC_POLARITY = 0;
-constexpr int CFG_HSYNC_FRONT_PORCH = 40;
-constexpr int CFG_HSYNC_PULSE_WIDTH = 48;
-constexpr int CFG_HSYNC_BACK_PORCH = 40;
+constexpr int CFG_HSYNC_FRONT_PORCH = 8;
+constexpr int CFG_HSYNC_PULSE_WIDTH = 4;
+constexpr int CFG_HSYNC_BACK_PORCH = 8;
 
 constexpr int CFG_VSYNC_POLARITY = 0;
-constexpr int CFG_VSYNC_FRONT_PORCH = 1;
-constexpr int CFG_VSYNC_PULSE_WIDTH = 31;
-constexpr int CFG_VSYNC_BACK_PORCH = 13;
+constexpr int CFG_VSYNC_FRONT_PORCH = 8;
+constexpr int CFG_VSYNC_PULSE_WIDTH = 4;
+constexpr int CFG_VSYNC_BACK_PORCH = 8;
 
 constexpr int CFG_PCLK_ACTIVE_NEG = 1;
-constexpr int CFG_DE_IDLE_HIGH = 0;
+constexpr int CFG_DE_IDLE_HIGH = 1; // Try DE High Active for RGB typically? No, usually DE is High during data.
 constexpr int CFG_PCLK_IDLE_HIGH = 0;
 
 constexpr int CFG_OFFSET_X = 0;

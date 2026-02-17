@@ -77,58 +77,132 @@ public:
     {
       auto cfg = _bus_instance.config();
       cfg.panel = &_panel_instance;
-      cfg.pin_d0 = GPIO_NUM_15;
-      cfg.pin_d1 = GPIO_NUM_7;
-      cfg.pin_d2 = GPIO_NUM_6;
-      cfg.pin_d3 = GPIO_NUM_5;
-      cfg.pin_d4 = GPIO_NUM_4;
-      cfg.pin_d5 = GPIO_NUM_9;
-      cfg.pin_d6 = GPIO_NUM_46;
-      cfg.pin_d7 = GPIO_NUM_3;
-      cfg.pin_d8 = GPIO_NUM_8;
-      cfg.pin_d9 = GPIO_NUM_16;
-      cfg.pin_d10 = GPIO_NUM_1;
-      cfg.pin_d11 = GPIO_NUM_14;
-      cfg.pin_d12 = GPIO_NUM_21;
-      cfg.pin_d13 = GPIO_NUM_47;
-      cfg.pin_d14 = GPIO_NUM_48;
-      cfg.pin_d15 = GPIO_NUM_45;
-      cfg.pin_henable = GPIO_NUM_41;
-      cfg.pin_vsync = GPIO_NUM_40;
-      cfg.pin_hsync = GPIO_NUM_39;
-      cfg.pin_pclk = GPIO_NUM_0;
-      cfg.freq_write = CFG_FREQ_WRITE;
-      cfg.hsync_polarity = CFG_HSYNC_POLARITY;
-      cfg.hsync_front_porch = CFG_HSYNC_FRONT_PORCH;
-      cfg.hsync_pulse_width = CFG_HSYNC_PULSE_WIDTH;
-      cfg.hsync_back_porch = CFG_HSYNC_BACK_PORCH;
-      cfg.vsync_polarity = CFG_VSYNC_POLARITY;
-      cfg.vsync_front_porch = CFG_VSYNC_FRONT_PORCH;
-      cfg.vsync_pulse_width = CFG_VSYNC_PULSE_WIDTH;
-      cfg.vsync_back_porch = CFG_VSYNC_BACK_PORCH;
-      cfg.pclk_active_neg = CFG_PCLK_ACTIVE_NEG;
-      cfg.de_idle_high = CFG_DE_IDLE_HIGH;
-      cfg.pclk_idle_high = CFG_PCLK_IDLE_HIGH;
+      
+      // Pinout based on CrowPanel Advance 7.0 sources (Harald Kreuzer + Inference)
+      // Green (G0-G5): 10, 11, 12, 13, 14, 14? (Harald had 5 pins? G0-G4? G5 is usually MSB)
+      // Let's map G0..G5. Harald listed 10, 11, 12, 13, 14. That's 5 pins. RGB565 has 6 Green bits.
+      // Maybe G0 is LSB (GPIO 10)? G5 is MSB.
+      // We are missing one bit. Let's assume G0 is grounded or shared? Or Harald list incomplete.
+      // Let's map what we have:
+      // Official CrowPanel Advance 7.0 (S3) Pinout from User Source Code
+      
+      // Blue (B0-B4)
+      cfg.pin_d0 = GPIO_NUM_21;   // B0
+      cfg.pin_d1 = GPIO_NUM_47;   // B1
+      cfg.pin_d2 = GPIO_NUM_48;   // B2
+      cfg.pin_d3 = GPIO_NUM_45;   // B3
+      cfg.pin_d4 = GPIO_NUM_38;   // B4
+      
+      // Green (G0-G5)
+      cfg.pin_d5 = GPIO_NUM_9;    // G0
+      cfg.pin_d6 = GPIO_NUM_10;   // G1
+      cfg.pin_d7 = GPIO_NUM_11;   // G2
+      cfg.pin_d8 = GPIO_NUM_12;   // G3
+      cfg.pin_d9 = GPIO_NUM_13;   // G4
+      cfg.pin_d10 = GPIO_NUM_14;  // G5
+      
+      // Red (R0-R4)
+      cfg.pin_d11 = GPIO_NUM_7;   // R0
+      cfg.pin_d12 = GPIO_NUM_17;  // R1
+      cfg.pin_d13 = GPIO_NUM_18;  // R2
+      cfg.pin_d14 = GPIO_NUM_3;   // R3
+      cfg.pin_d15 = GPIO_NUM_46;  // R4
+
+      cfg.pin_henable = GPIO_NUM_42;
+      cfg.pin_vsync = GPIO_NUM_41;
+      cfg.pin_hsync = GPIO_NUM_40;
+      cfg.pin_pclk = GPIO_NUM_39;
+      
+      cfg.freq_write = 16000000; // Keeping 16MHz safe, user code had 21MHz. 
+      
+      cfg.hsync_polarity = 0;
+      cfg.hsync_front_porch = 8;
+      cfg.hsync_pulse_width = 4;
+      cfg.hsync_back_porch = 8;
+      
+      cfg.vsync_polarity = 0;
+      cfg.vsync_front_porch = 8;
+      cfg.vsync_pulse_width = 4;
+      cfg.vsync_back_porch = 8;
+      
+      cfg.pclk_idle_high = 1;
+
+      // Color/Tint Adjustments - Uncomment if needed
+      // cfg.swizzle = true; // Swap Red<->Blue if colors are inverted
+      // cfg.invert = true;  // Invert colors if panel needs it
+      // Note: LGFX might not support SPI init on RGB bus automatically unless configured.
+      // We assume LovyanGFX handles "3-wire SPI" on these pins if we set them in Bus_RGB? NO.
+      // Bus_RGB doesn't have SPI config.
+      // We must likely use a separate SPI bus to init, OR Bus_RGB supports it?
+      // LGFX v1 Bus_RGB struct has no SPI pins.
+      // However, we can manual init in constructor?
+      
       _bus_instance.config(cfg);
     }
     {
       auto cfg = _panel_instance.config();
-      cfg.memory_width = CFG_MEMORY_WIDTH;
-      cfg.memory_height = CFG_MEMORY_HEIGHT;
-      cfg.panel_width = CFG_PANEL_WIDTH;
-      cfg.panel_height = CFG_PANEL_HEIGHT;
-      cfg.offset_x = CFG_OFFSET_X;
-      cfg.offset_y = CFG_OFFSET_Y;
+      cfg.memory_width = 800;
+      cfg.memory_height = 480;
+      cfg.panel_width = 800;
+      cfg.panel_height = 480;
+      cfg.offset_x = 0;
+      cfg.offset_y = 0;
       _panel_instance.config(cfg);
     }
     _panel_instance.setBus(&_bus_instance);
     setPanel(&_panel_instance);
   }
+
+  // Manual SPI Bitbang for SC7277 (9-bit: 1 D/C bit + 8 data bits)
+  // Manual SPI Bitbang for SC7277 (9-bit: 1 D/C bit + 8 data bits)
+  void spi_write_9bit(uint16_t data) {
+      // We are not sure if CS is 19 (HSPI_SS) or 20 (Common).
+      // Strategy: Drive BOTH low to ensure the display picks it up if it's either.
+      int CS_A = 19; 
+      int CS_B = 20;
+      int CLKid = 39; // PCLK (Updated)
+      int MOSIid = 40; // HSYNC / SDA (Updated - typically HSYNC is used as MOSI in 3-wire SPI RGB)
+      
+      pinMode(CS_A, OUTPUT);
+      pinMode(CS_B, OUTPUT);
+      pinMode(CLKid, OUTPUT);
+      pinMode(MOSIid, OUTPUT);
+      
+      digitalWrite(CS_A, LOW);
+      digitalWrite(CS_B, LOW);
+      
+      for(int i=0; i<9; i++) {
+          digitalWrite(CLKid, LOW);
+          // Send MSB first. Data is 9 bits.
+          digitalWrite(MOSIid, (data & (1<<(8-i))) ? HIGH : LOW);
+          delayMicroseconds(1);
+          digitalWrite(CLKid, HIGH);
+          delayMicroseconds(1);
+      }
+      digitalWrite(CS_A, HIGH);
+      digitalWrite(CS_B, HIGH);
+  }
+
+  void sc7277_init() {
+      // SWRESET (0x01) - Command (0 bit) + 0x01
+      spi_write_9bit(0x001); 
+      delay(120);
+      
+      // SLPOUT (0x11)
+      spi_write_9bit(0x011); 
+      delay(120);
+      
+      // DISPON (0x29)
+      spi_write_9bit(0x029); 
+      delay(10);
+  }
 };
+
 LGFX lcd;
 
-TAMC_GT911 ts = TAMC_GT911(TOUCH_SDA_PIN, TOUCH_SCL_PIN, TOUCH_INT_PIN,
-                           TOUCH_RST_PIN, DISPLAY_WIDTH, DISPLAY_HEIGHT);
+// Update Touch Pins to 15, 16
+TAMC_GT911 ts = TAMC_GT911(15, 16, TOUCH_INT_PIN,
+                           TOUCH_RST_PIN, 800, 480);
 
 static uint32_t screenWidth;
 static uint32_t screenHeight;
@@ -1595,12 +1669,35 @@ void ImgButton9_cb(lv_event_t *e) {
 void UI_Task(void *pvParameters) {
   ESP_LOGI(TAG, "UI Task Started");
 
+  // CrowPanel Backlight Control (I2C 0x30)
+  // Must be done BEFORE RGB engine starts to avoid pin contention if shared
+  {
+      Wire.begin(TOUCH_SDA_PIN, TOUCH_SCL_PIN);
+      vTaskDelay(pdMS_TO_TICKS(100));
+      
+      Wire.beginTransmission(I2C_ADDR_BACKLIGHT);
+      Wire.write(120); // v1.3: 0 is Max, 255 is Off. 120 is Mid-High.
+      Wire.endTransmission();
+      
+      // Fallback for v1.2 boards (0x10 is Max)
+      Wire.beginTransmission(I2C_ADDR_BACKLIGHT);
+      Wire.write(0x10); 
+      Wire.endTransmission();
+      
+      vTaskDelay(pdMS_TO_TICKS(200));
+  }
+
   // Display initialization
+  lcd.sc7277_init();
   lcd.begin();
+  
+  // Clear screen to black initially
   lcd.fillScreen(TFT_BLACK);
   lcd.setTextSize(2);
-  vTaskDelay(pdMS_TO_TICKS(DELAY_SHORT_MS));
-
+  // vTaskDelay(pdMS_TO_TICKS(DELAY_SHORT_MS)); // Skip delay
+  
+  // DIAGNOSTIC REMOVED: Direct boot to UI
+  
   lv_init();
 
   // Try to initialize Touch with robust handshake
