@@ -1264,7 +1264,7 @@ void ui_ScreenMain_screen_init(void) {
 
     // Start Button
     ui_PhotoStartBtn = lv_btn_create(ui_PhotoTimerCont);
-    lv_obj_set_width(ui_PhotoStartBtn, 120);
+    lv_obj_set_width(ui_PhotoStartBtn, 150);
     lv_obj_set_height(ui_PhotoStartBtn, 30);
     lv_obj_set_x(ui_PhotoStartBtn, 0);
     lv_obj_set_y(ui_PhotoStartBtn, 25);

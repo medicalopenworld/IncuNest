@@ -382,13 +382,13 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   lv_label_set_text(ui_Label4, TXT_UNLOCK[lang]);
   
   // Phototherapy Timer
-  if (ui_PhotoStartLabel) lv_label_set_text(ui_PhotoStartLabel, TXT_PHOTOSTART[lang]);
   if (ui_PhotoLockLabel) {
       const char *TXT_PHOTO_LOCK[] = {"FOTOTERAPIA:", "PHOTOTHERAPY:", "PHOTOTHERAPIE:"};
       lv_label_set_text(ui_PhotoLockLabel, TXT_PHOTO_LOCK[lang]);
   }
 
   update_labels();
+  UI_SyncAll();
 }
 
 void LanguagesDropDown_cb(lv_event_t *e) {
@@ -636,34 +636,22 @@ void PhotoStartBtn_cb(lv_event_t *e) {
   photoTimerActive = true;
   photoTimerStartMs = millis();
 
-  // Update visual state (the power command is now handled by the switch)
-  lv_label_set_text(ui_PhotoStartLabel, "RUNNING");
-  lv_obj_set_style_bg_color(ui_PhotoStartBtn, lv_color_hex(0x888888),
-                            LV_PART_MAIN | LV_STATE_DEFAULT);
+  // Update visual state via SyncAll
+  UI_SyncAll();
 
   hmi_msg.photoMinutesRemaining = photoTimerMinutes;
   hmi_msg.shouldSendData = true;
-
-  if (ui_PhotoCancelBtn)
-    lv_obj_clear_flag(ui_PhotoCancelBtn, LV_OBJ_FLAG_HIDDEN);
 }
 
 void PhotoCancelBtn_cb(lv_event_t *e) {
   photoTimerActive = false;
 
-  // Update label with current value (do not reset to 30)
-  char buf[16];
-  snprintf(buf, sizeof(buf), "%d min", photoTimerMinutes);
-  lv_label_set_text(ui_PhotoTimeValueLabel, buf);
+  // Notify Motherboard to stop timer but keep light ON (Continuous mode)
+  hmi_msg.photoMinutesRemaining = 0;
+  hmi_msg.shouldSendData = true;
 
-  const char *TXT_PHOTOSTART[] = {"EMPEZAR", "START", "DEMARRER"};
-  lv_label_set_text(ui_PhotoStartLabel, TXT_PHOTOSTART[g_lang]);
-  lv_obj_set_style_bg_color(ui_PhotoStartBtn, lv_color_hex(0x00AA00),
-                            LV_PART_MAIN | LV_STATE_DEFAULT);
-
-  // Hide self
-  if (ui_PhotoCancelBtn)
-    lv_obj_add_flag(ui_PhotoCancelBtn, LV_OBJ_FLAG_HIDDEN);
+  // Update visual state via SyncAll (this handles colors, labels and "X" visibility)
+  UI_SyncAll();
 }
 
 /* Switch callback for temperature and humidity */
@@ -815,6 +803,10 @@ void Switch_cb(lv_event_t *e) {
         lv_label_set_text(ui_PhotoStartLabel, TXT_PHOTOSTART[g_lang]);
         lv_obj_set_style_bg_color(ui_PhotoStartBtn, lv_color_hex(0x00AA00),
                                   LV_PART_MAIN | LV_STATE_DEFAULT);
+
+        // Signal CONTINUOUS mode to Motherboard (Minutes = 0)
+        hmi_msg.photoMinutesRemaining = 0;
+        hmi_msg.shouldSendData = true;
       } else {
         // If already running (e.g. skin/air change while timer was active)
         lv_obj_set_style_bg_color(ui_PhotoStartBtn, lv_color_hex(0x888888),
@@ -2073,6 +2065,9 @@ void UI_SyncAll() {
           if (ui_PhotoStartLabel) lv_label_set_text(ui_PhotoStartLabel, TXT_RUNNING[g_lang]);
           if (ui_PhotoStartBtn) lv_obj_set_style_bg_color(ui_PhotoStartBtn, lv_color_hex(0x888888), LV_PART_MAIN | LV_STATE_DEFAULT);
           
+          // Ensure cancel button is visible
+          if (ui_PhotoCancelBtn) lv_obj_clear_flag(ui_PhotoCancelBtn, LV_OBJ_FLAG_HIDDEN);
+
           // Ensure lock screen is visible if we are in lock screen
           if (ui_PhotoLockCont) lv_obj_clear_flag(ui_PhotoLockCont, LV_OBJ_FLAG_HIDDEN);
       } else {
@@ -2080,7 +2075,16 @@ void UI_SyncAll() {
           const char *TXT_PHOTOSTART[] = {"EMPEZAR", "START", "DEMARRER"};
           if (ui_PhotoStartLabel) lv_label_set_text(ui_PhotoStartLabel, TXT_PHOTOSTART[g_lang]);
           if (ui_PhotoStartBtn) lv_obj_set_style_bg_color(ui_PhotoStartBtn, lv_color_hex(0x00AA00), LV_PART_MAIN | LV_STATE_DEFAULT);
+          
+          // Ensure cancel button is hidden
+          if (ui_PhotoCancelBtn) lv_obj_add_flag(ui_PhotoCancelBtn, LV_OBJ_FLAG_HIDDEN);
+
           if (ui_PhotoLockCont) lv_obj_add_flag(ui_PhotoLockCont, LV_OBJ_FLAG_HIDDEN);
+
+          // Restore normal minutes display if not active
+          char buf[16];
+          snprintf(buf, sizeof(buf), "%d min", photoTimerMinutes);
+          if (ui_PhotoTimeValueLabel) lv_label_set_text(ui_PhotoTimeValueLabel, buf);
       }
   } else {
       // Grayed out state
