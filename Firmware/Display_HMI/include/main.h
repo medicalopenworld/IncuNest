@@ -270,9 +270,6 @@ constexpr int ANIM_PLAYBACK_MS = 500;
 // -----------------------------
 constexpr int STYLE_SELECTOR_DEFAULT = 0;
 
-// -----------------------------
-// Inactivity timeout (ms)
-// -----------------------------
-#define INACTIVITY_TIMEOUT_MS 20000 // 20s
+// Inactivity timeout moved to EEPROM_defines.h
 
 #endif
