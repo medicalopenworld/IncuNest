@@ -212,6 +212,13 @@ void update_labels() {
   lv_bar_set_value(ui_AirTempBar, airBar, LV_ANIM_OFF);
   lv_bar_set_value(ui_SkinTempBar, skinBar, LV_ANIM_OFF);
   lv_bar_set_value(ui_HumBar, humBar, LV_ANIM_OFF);
+
+  // Update photo timer label if not active
+  if (!photoTimerActive) {
+      char buf[16];
+      snprintf(buf, sizeof(buf), "%d min", photoTimerMinutes);
+      lv_label_set_text(ui_PhotoTimeValueLabel, buf);
+  }
 }
 
 const char* getConnectivityString(int status, ui_lang_t lang) {
@@ -598,7 +605,6 @@ void SkinPanel_cb(lv_event_t *e) {
   temp_chart_show_for_selected_panel();
 }
 
-/* Phototherapy Timer Callbacks */
 void PhotoTimeMinusBtn_cb(lv_event_t * e) {
     hmi_msg.shouldSendData = true;
     if (photoTimerActive) return; 
@@ -612,6 +618,11 @@ void PhotoTimeMinusBtn_cb(lv_event_t * e) {
     char buf[16];
     snprintf(buf, sizeof(buf), "%d min", photoTimerMinutes);
     lv_label_set_text(ui_PhotoTimeValueLabel, buf);
+
+    // Persist last used timer
+    EEPROM.write(EEPROM_PHOTO_TIMER_MINUTES, photoTimerMinutes);
+    eepromDirty = true;
+    lastVarChangeTime = millis();
 }
 
 void PhotoTimePlusBtn_cb(lv_event_t * e) {
@@ -627,6 +638,11 @@ void PhotoTimePlusBtn_cb(lv_event_t * e) {
     char buf[16];
     snprintf(buf, sizeof(buf), "%d min", photoTimerMinutes);
     lv_label_set_text(ui_PhotoTimeValueLabel, buf);
+
+    // Persist last used timer
+    EEPROM.write(EEPROM_PHOTO_TIMER_MINUTES, photoTimerMinutes);
+    eepromDirty = true;
+    lastVarChangeTime = millis();
 }
 
 void PhotoStartBtn_cb(lv_event_t *e) {
