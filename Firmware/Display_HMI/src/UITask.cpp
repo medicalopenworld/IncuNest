@@ -216,7 +216,7 @@ void update_labels() {
   // Update photo timer label if not active
   if (!photoTimerActive) {
       char buf[16];
-      snprintf(buf, sizeof(buf), "%d min", photoTimerMinutes);
+      snprintf(buf, sizeof(buf), "%d:%02d", photoTimerMinutes / 60, photoTimerMinutes % 60);
       lv_label_set_text(ui_PhotoTimeValueLabel, buf);
   }
 }
@@ -609,14 +609,12 @@ void PhotoTimeMinusBtn_cb(lv_event_t * e) {
     hmi_msg.shouldSendData = true;
     if (photoTimerActive) return; 
     
-    if (photoTimerMinutes > 10) {
-        photoTimerMinutes -= 10;
-    } else if (photoTimerMinutes > 1) {
-        photoTimerMinutes -= 1;
+    if (photoTimerMinutes > 120) {
+        photoTimerMinutes -= 20;
     }
     
     char buf[16];
-    snprintf(buf, sizeof(buf), "%d min", photoTimerMinutes);
+    snprintf(buf, sizeof(buf), "%d:%02d", photoTimerMinutes / 60, photoTimerMinutes % 60);
     lv_label_set_text(ui_PhotoTimeValueLabel, buf);
 
     // Persist last used timer
@@ -629,14 +627,12 @@ void PhotoTimePlusBtn_cb(lv_event_t * e) {
     hmi_msg.shouldSendData = true;
     if (photoTimerActive) return;
     
-    if (photoTimerMinutes < 10) {
-        photoTimerMinutes += 1;
-    } else {
-        photoTimerMinutes += 10; 
+    if (photoTimerMinutes < 600) {
+        photoTimerMinutes += 20;
     }
     
     char buf[16];
-    snprintf(buf, sizeof(buf), "%d min", photoTimerMinutes);
+    snprintf(buf, sizeof(buf), "%d:%02d", photoTimerMinutes / 60, photoTimerMinutes % 60);
     lv_label_set_text(ui_PhotoTimeValueLabel, buf);
 
     // Persist last used timer
@@ -811,7 +807,7 @@ void Switch_cb(lv_event_t *e) {
       // Reset timer UI if no timer is running
       if (!photoTimerActive) {
         char buf[16];
-        snprintf(buf, sizeof(buf), "%d min", photoTimerMinutes);
+        snprintf(buf, sizeof(buf), "%d:%02d", photoTimerMinutes / 60, photoTimerMinutes % 60);
         lv_label_set_text(ui_PhotoTimeValueLabel, buf);
 
         // Use localized text
@@ -1917,10 +1913,11 @@ void UI_Task(void *pvParameters) {
               lv_obj_add_flag(ui_PhotoCancelBtn, LV_OBJ_FLAG_HIDDEN);
         } else {
             // Update countdown display
-            int rMin = remaining / 60;
-            int rSec = remaining % 60;
+            int totalMins = (remaining + 59) / 60; // Round up to show minutes correctly
+            int hours = totalMins / 60;
+            int mins = totalMins % 60;
             char buf[16];
-            snprintf(buf, sizeof(buf), "%d:%02d", rMin, rSec);
+            snprintf(buf, sizeof(buf), "%d:%02d", hours, mins);
             
             // Update main screen
             lv_label_set_text(ui_PhotoTimeValueLabel, buf);

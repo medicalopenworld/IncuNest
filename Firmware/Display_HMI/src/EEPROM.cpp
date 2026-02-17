@@ -79,7 +79,7 @@ void loaddefaultValues() {
   EEPROM.writeFloat(EEPROM_DESIRED_AIR_TEMP, 30.0);
   EEPROM.writeFloat(EEPROM_DESIRED_SKIN_TEMP, 37);
   EEPROM.write(EEPROM_DESIRED_HUMIDITY, 50);
-  EEPROM.write(EEPROM_PHOTO_TIMER_MINUTES, 30);
+  EEPROM.write(EEPROM_PHOTO_TIMER_MINUTES, 240);
   EEPROM.commit();
 }
 
@@ -111,8 +111,8 @@ void recapVariables() {
   if (humValue < HUM_MIN || humValue > HUM_MAX)
     humValue = 50;
 
-  if (photoTimerMinutes < 2 || photoTimerMinutes > 120)
-    photoTimerMinutes = 30;
+  if (photoTimerMinutes < 120 || photoTimerMinutes > 600)
+    photoTimerMinutes = 240;
 
   in3.serialNumber = EEPROM.readInt(EEPROM_SERIAL_NUMBER);
 
