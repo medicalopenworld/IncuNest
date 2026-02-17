@@ -106,6 +106,8 @@ lv_obj_t * ui_PhotoTimeMinusBtn = NULL;
 lv_obj_t * ui_PhotoTimePlusBtn = NULL;
 lv_obj_t * ui_PhotoStartBtn = NULL;
 lv_obj_t * ui_PhotoStartLabel = NULL;
+lv_obj_t * ui_PhotoCancelBtn = NULL;
+lv_obj_t * ui_PhotoCancelLabel = NULL;
 lv_obj_t * ui_PhotoTimeMinusLabel = NULL;
 lv_obj_t * ui_PhotoTimePlusLabel = NULL;
 
@@ -293,6 +295,7 @@ extern void LockScreenAnyTouch_cb(lv_event_t * e);
 extern void PhotoTimeMinusBtn_cb(lv_event_t * e);
 extern void PhotoTimePlusBtn_cb(lv_event_t * e);
 extern void PhotoStartBtn_cb(lv_event_t * e);
+extern void PhotoCancelBtn_cb(lv_event_t * e);
 
 // ============================================================================
 // EVENT HANDLERS
@@ -602,6 +605,13 @@ void ui_event_PhotoStartBtn(lv_event_t * e) {
     lv_event_code_t event_code = lv_event_get_code(e);
     if(event_code == LV_EVENT_CLICKED) {
         PhotoStartBtn_cb(e);
+    }
+}
+
+void ui_event_PhotoCancelBtn(lv_event_t * e) {
+    lv_event_code_t event_code = lv_event_get_code(e);
+    if(event_code == LV_EVENT_CLICKED) {
+        PhotoCancelBtn_cb(e);
     }
 }
 
@@ -1267,6 +1277,21 @@ void ui_ScreenMain_screen_init(void) {
     lv_label_set_text(ui_PhotoStartLabel, "EMPEZAR"); // Default Spanish
     lv_obj_set_style_text_font(ui_PhotoStartLabel, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
 
+    // Cancel Button (Red X)
+    ui_PhotoCancelBtn = lv_btn_create(ui_PhotoTimerCont);
+    lv_obj_set_width(ui_PhotoCancelBtn, 35);
+    lv_obj_set_height(ui_PhotoCancelBtn, 30);
+    lv_obj_set_x(ui_PhotoCancelBtn, 160); // Movido al borde derecho
+    lv_obj_set_y(ui_PhotoCancelBtn, 25);
+    lv_obj_set_align(ui_PhotoCancelBtn, LV_ALIGN_CENTER);
+    lv_obj_set_style_bg_color(ui_PhotoCancelBtn, lv_color_hex(0xFF0000), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_add_flag(ui_PhotoCancelBtn, LV_OBJ_FLAG_HIDDEN); // Initially hidden
+
+    ui_PhotoCancelLabel = lv_label_create(ui_PhotoCancelBtn);
+    lv_obj_set_align(ui_PhotoCancelLabel, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_PhotoCancelLabel, "X");
+    lv_obj_set_style_text_font(ui_PhotoCancelLabel, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
+
     ui_PhotoCont = lv_obj_create(ui_ScreenMain);
     lv_obj_remove_style_all(ui_PhotoCont);
     lv_obj_set_width(ui_PhotoCont, 384);
@@ -1388,6 +1413,7 @@ void ui_ScreenMain_screen_init(void) {
     lv_obj_add_event_cb(ui_PhotoTimeMinusBtn, ui_event_PhotoTimeMinusBtn, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_PhotoTimePlusBtn, ui_event_PhotoTimePlusBtn, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_PhotoStartBtn, ui_event_PhotoStartBtn, LV_EVENT_ALL, NULL);
+    lv_obj_add_event_cb(ui_PhotoCancelBtn, ui_event_PhotoCancelBtn, LV_EVENT_ALL, NULL);
     uic_Tempbutton = ui_TempButton;
     uic_HumidButton = ui_HumidButton;
 }

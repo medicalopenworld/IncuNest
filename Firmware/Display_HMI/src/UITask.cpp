@@ -643,6 +643,27 @@ void PhotoStartBtn_cb(lv_event_t *e) {
 
   hmi_msg.photoMinutesRemaining = photoTimerMinutes;
   hmi_msg.shouldSendData = true;
+
+  if (ui_PhotoCancelBtn)
+    lv_obj_clear_flag(ui_PhotoCancelBtn, LV_OBJ_FLAG_HIDDEN);
+}
+
+void PhotoCancelBtn_cb(lv_event_t *e) {
+  photoTimerActive = false;
+
+  // Update label with current value (do not reset to 30)
+  char buf[16];
+  snprintf(buf, sizeof(buf), "%d min", photoTimerMinutes);
+  lv_label_set_text(ui_PhotoTimeValueLabel, buf);
+
+  const char *TXT_PHOTOSTART[] = {"EMPEZAR", "START", "DEMARRER"};
+  lv_label_set_text(ui_PhotoStartLabel, TXT_PHOTOSTART[g_lang]);
+  lv_obj_set_style_bg_color(ui_PhotoStartBtn, lv_color_hex(0x00AA00),
+                            LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  // Hide self
+  if (ui_PhotoCancelBtn)
+    lv_obj_add_flag(ui_PhotoCancelBtn, LV_OBJ_FLAG_HIDDEN);
 }
 
 /* Switch callback for temperature and humidity */
@@ -785,7 +806,6 @@ void Switch_cb(lv_event_t *e) {
 
       // Reset timer UI if no timer is running
       if (!photoTimerActive) {
-        photoTimerMinutes = 30; // Reset to default
         char buf[16];
         snprintf(buf, sizeof(buf), "%d min", photoTimerMinutes);
         lv_label_set_text(ui_PhotoTimeValueLabel, buf);
@@ -819,14 +839,16 @@ void Switch_cb(lv_event_t *e) {
       lv_obj_set_style_bg_color(ui_PhotoStartBtn, COLOR_PANEL_LIGHT_GRAY,
                                 LV_PART_MAIN);
 
-      // Reset values to default when turned OFF
-      photoTimerMinutes = 30;
+      // Reset visual values when turned OFF (but keep the stored minutes)
       char buf[16];
       snprintf(buf, sizeof(buf), "%d min", photoTimerMinutes);
       lv_label_set_text(ui_PhotoTimeValueLabel, buf);
 
       const char *TXT_PHOTOSTART[] = {"EMPEZAR", "START", "DEMARRER"};
       lv_label_set_text(ui_PhotoStartLabel, TXT_PHOTOSTART[g_lang]);
+
+      if (ui_PhotoCancelBtn)
+        lv_obj_add_flag(ui_PhotoCancelBtn, LV_OBJ_FLAG_HIDDEN);
 
       photoTimerActive = false;
     }
@@ -1882,6 +1904,9 @@ void UI_Task(void *pvParameters) {
             // Turn switch OFF visually and trigger callback
             lv_obj_clear_state(ui_Switch3, LV_STATE_CHECKED);
             lv_event_send(ui_Switch3, LV_EVENT_VALUE_CHANGED, NULL);
+
+            if (ui_PhotoCancelBtn)
+              lv_obj_add_flag(ui_PhotoCancelBtn, LV_OBJ_FLAG_HIDDEN);
         } else {
             // Update countdown display
             int rMin = remaining / 60;
@@ -2071,7 +2096,6 @@ void UI_SyncAll() {
 
       // Reset visual values
       if (!photoTimerActive) {
-          photoTimerMinutes = 30; // Safety reset
           char buf[16];
           snprintf(buf, sizeof(buf), "%d min", photoTimerMinutes);
           if (ui_PhotoTimeValueLabel) lv_label_set_text(ui_PhotoTimeValueLabel, buf);
@@ -2080,6 +2104,7 @@ void UI_SyncAll() {
           if (ui_PhotoStartLabel) lv_label_set_text(ui_PhotoStartLabel, TXT_PHOTOSTART[g_lang]);
       }
 
+      if (ui_PhotoCancelBtn) lv_obj_add_flag(ui_PhotoCancelBtn, LV_OBJ_FLAG_HIDDEN);
       if (ui_PhotoLockCont) lv_obj_add_flag(ui_PhotoLockCont, LV_OBJ_FLAG_HIDDEN);
       photoTimerActive = false; // Safety
   }

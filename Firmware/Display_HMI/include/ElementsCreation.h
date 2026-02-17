@@ -182,6 +182,8 @@ extern lv_obj_t * ui_PhotoTimeMinusBtn;
 extern lv_obj_t * ui_PhotoTimePlusBtn;
 extern lv_obj_t * ui_PhotoStartBtn;
 extern lv_obj_t * ui_PhotoStartLabel;
+extern lv_obj_t * ui_PhotoCancelBtn;
+extern lv_obj_t * ui_PhotoCancelLabel;
 extern lv_obj_t * ui_PhotoTimeMinusLabel;
 extern lv_obj_t * ui_PhotoTimePlusLabel;
 
@@ -193,6 +195,7 @@ extern lv_obj_t * uic_Tempbutton;
 extern lv_obj_t * uic_HumidButton;
 void ui_ScreenMain_screen_init(void);
 void ui_ScreenMain_screen_destroy(void);
+void ui_event_PhotoCancelBtn(lv_event_t * e);
 
 // --- SCREEN: Settings ---
 extern lv_obj_t * ui_ScreenSettings;
