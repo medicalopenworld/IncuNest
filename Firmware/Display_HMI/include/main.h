@@ -242,9 +242,6 @@ constexpr int CFG_PANEL_HEIGHT = DISPLAY_HEIGHT;
 constexpr int TOUCH_ROTATION = 3;
 constexpr int LCD_ROTATION = 2;
 
-// -----------------------------
-// Colors (RGB components) - used with lv_color_make()
-// -----------------------------
 constexpr int COLOR_PANEL_WHITE_R = 255;
 constexpr int COLOR_PANEL_WHITE_G = 255;
 constexpr int COLOR_PANEL_WHITE_B = 255;
@@ -253,11 +250,17 @@ constexpr int COLOR_PANEL_GRAY_R = 100;
 constexpr int COLOR_PANEL_GRAY_G = 100;
 constexpr int COLOR_PANEL_GRAY_B = 100;
 
+constexpr int COLOR_PANEL_LIGHT_GRAY_R = 150;
+constexpr int COLOR_PANEL_LIGHT_GRAY_G = 150;
+constexpr int COLOR_PANEL_LIGHT_GRAY_B = 150;
+
 // convenience lv_color_t constants (not constexpr function calls but const)
 static const lv_color_t COLOR_PANEL_WHITE = lv_color_make(
     COLOR_PANEL_WHITE_R, COLOR_PANEL_WHITE_G, COLOR_PANEL_WHITE_B);
 static const lv_color_t COLOR_PANEL_GRAY =
     lv_color_make(COLOR_PANEL_GRAY_R, COLOR_PANEL_GRAY_G, COLOR_PANEL_GRAY_B);
+static const lv_color_t COLOR_PANEL_LIGHT_GRAY =
+    lv_color_make(COLOR_PANEL_LIGHT_GRAY_R, COLOR_PANEL_LIGHT_GRAY_G, COLOR_PANEL_LIGHT_GRAY_B);
 
 // -----------------------------
 // Animation timing
@@ -270,9 +273,6 @@ constexpr int ANIM_PLAYBACK_MS = 500;
 // -----------------------------
 constexpr int STYLE_SELECTOR_DEFAULT = 0;
 
-// -----------------------------
-// Inactivity timeout (ms)
-// -----------------------------
-#define INACTIVITY_TIMEOUT_MS 20000 // 20s
+// Inactivity timeout moved to EEPROM_defines.h
 
 #endif

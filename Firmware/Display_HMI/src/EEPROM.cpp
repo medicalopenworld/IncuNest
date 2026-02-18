@@ -35,6 +35,8 @@ void loaddefaultValues();
 void recapVariables();
 void resetCalibration();
 
+extern int photoTimerMinutes;
+
 void resetFlash() {
   for (int i = false; i < EEPROM_SIZE; i++) {
     EEPROM.write(i, 0);
@@ -77,6 +79,7 @@ void loaddefaultValues() {
   EEPROM.writeFloat(EEPROM_DESIRED_AIR_TEMP, 30.0);
   EEPROM.writeFloat(EEPROM_DESIRED_SKIN_TEMP, 37);
   EEPROM.write(EEPROM_DESIRED_HUMIDITY, 50);
+  EEPROM.write(EEPROM_PHOTO_TIMER_MINUTES, 240);
   EEPROM.commit();
 }
 
@@ -93,6 +96,7 @@ void recapVariables() {
   airTempValue = EEPROM.readFloat(EEPROM_DESIRED_AIR_TEMP);
   skinTempValue = EEPROM.readFloat(EEPROM_DESIRED_SKIN_TEMP);
   humValue = EEPROM.read(EEPROM_DESIRED_HUMIDITY);
+  photoTimerMinutes = EEPROM.read(EEPROM_PHOTO_TIMER_MINUTES);
 
   String ssid = EEPROM.readString(EEPROM_WIFI_SSID);
   String pass = EEPROM.readString(EEPROM_WIFI_PASSWORD);
@@ -106,6 +110,9 @@ void recapVariables() {
     skinTempValue = 37.0;
   if (humValue < HUM_MIN || humValue > HUM_MAX)
     humValue = 50;
+
+  if (photoTimerMinutes < 120 || photoTimerMinutes > 600)
+    photoTimerMinutes = 240;
 
   in3.serialNumber = EEPROM.readInt(EEPROM_SERIAL_NUMBER);
 

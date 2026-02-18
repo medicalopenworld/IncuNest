@@ -239,6 +239,16 @@ void parse_line(const char *line) {
                   xSemaphoreGiveRecursive(log_mutex);
               }
           }
+      } else if (hmi_cmd_msg.phototherapyMode && hmi_cmd_msg.photoMinutesRemaining == 0) {
+          // MODE: Continuous (Phototherapy ON without timer)
+          if (photoTimerActive) {
+              photoTimerActive = false;
+              photoTimerMinutes = 0;
+              if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+                  ESP_LOGI(TAG, "Phototherapy timer stopped (Continuous Mode)");
+                  xSemaphoreGiveRecursive(log_mutex);
+              }
+          }
       } else if (!hmi_cmd_msg.phototherapyMode) {
           // Turn off phototherapy
           if (photoTimerActive) {

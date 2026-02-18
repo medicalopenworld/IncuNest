@@ -287,6 +287,13 @@ void update_labels() {
   lv_bar_set_value(ui_AirTempBar, airBar, LV_ANIM_OFF);
   lv_bar_set_value(ui_SkinTempBar, skinBar, LV_ANIM_OFF);
   lv_bar_set_value(ui_HumBar, humBar, LV_ANIM_OFF);
+
+  // Update photo timer label if not active
+  if (!photoTimerActive) {
+      char buf[16];
+      snprintf(buf, sizeof(buf), "%d:%02d", photoTimerMinutes / 60, photoTimerMinutes % 60);
+      lv_label_set_text(ui_PhotoTimeValueLabel, buf);
+  }
 }
 
 const char* getConnectivityString(int status, ui_lang_t lang) {
@@ -457,13 +464,13 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   lv_label_set_text(ui_Label4, TXT_UNLOCK[lang]);
   
   // Phototherapy Timer
-  if (ui_PhotoStartLabel) lv_label_set_text(ui_PhotoStartLabel, TXT_PHOTOSTART[lang]);
   if (ui_PhotoLockLabel) {
       const char *TXT_PHOTO_LOCK[] = {"FOTOTERAPIA:", "PHOTOTHERAPY:", "PHOTOTHERAPIE:"};
       lv_label_set_text(ui_PhotoLockLabel, TXT_PHOTO_LOCK[lang]);
   }
 
   update_labels();
+  UI_SyncAll();
 }
 
 void LanguagesDropDown_cb(lv_event_t *e) {
@@ -673,51 +680,65 @@ void SkinPanel_cb(lv_event_t *e) {
   temp_chart_show_for_selected_panel();
 }
 
-/* Phototherapy Timer Callbacks */
 void PhotoTimeMinusBtn_cb(lv_event_t * e) {
     hmi_msg.shouldSendData = true;
     if (photoTimerActive) return; 
     
-    if (photoTimerMinutes > 10) {
-        photoTimerMinutes -= 10;
-    } else if (photoTimerMinutes > 1) {
-        photoTimerMinutes -= 1;
+    if (photoTimerMinutes > 120) {
+        photoTimerMinutes -= 20;
     }
     
     char buf[16];
-    snprintf(buf, sizeof(buf), "%d min", photoTimerMinutes);
+    snprintf(buf, sizeof(buf), "%d:%02d", photoTimerMinutes / 60, photoTimerMinutes % 60);
     lv_label_set_text(ui_PhotoTimeValueLabel, buf);
+
+    // Persist last used timer
+    EEPROM.write(EEPROM_PHOTO_TIMER_MINUTES, photoTimerMinutes);
+    eepromDirty = true;
+    lastVarChangeTime = millis();
 }
 
 void PhotoTimePlusBtn_cb(lv_event_t * e) {
     hmi_msg.shouldSendData = true;
     if (photoTimerActive) return;
     
-    if (photoTimerMinutes < 10) {
-        photoTimerMinutes += 1;
-    } else {
-        photoTimerMinutes += 10; 
+    if (photoTimerMinutes < 600) {
+        photoTimerMinutes += 20;
     }
     
     char buf[16];
-    snprintf(buf, sizeof(buf), "%d min", photoTimerMinutes);
+    snprintf(buf, sizeof(buf), "%d:%02d", photoTimerMinutes / 60, photoTimerMinutes % 60);
     lv_label_set_text(ui_PhotoTimeValueLabel, buf);
+
+    // Persist last used timer
+    EEPROM.write(EEPROM_PHOTO_TIMER_MINUTES, photoTimerMinutes);
+    eepromDirty = true;
+    lastVarChangeTime = millis();
 }
 
-void PhotoStartBtn_cb(lv_event_t * e) {
-    if (photoTimerActive) return;
-    
-    photoTimerActive = true;
-    photoTimerStartMs = millis();
-    
-    // Send ON command
-    hmi_msg.phototherapyMode = PHOTOTHERAPY_ON;
-    hmi_msg.photoMinutesRemaining = photoTimerMinutes;
-    hmi_msg.shouldSendData = true;
-    
-    // Update UI
-    lv_label_set_text(ui_PhotoStartLabel, "RUNNING");
-    lv_obj_set_style_bg_color(ui_PhotoStartBtn, lv_color_hex(0x888888), LV_PART_MAIN | LV_STATE_DEFAULT);
+void PhotoStartBtn_cb(lv_event_t *e) {
+  if (photoTimerActive)
+    return;
+
+  photoTimerActive = true;
+  photoTimerStartMs = millis();
+
+  // Update visual state via SyncAll
+  UI_SyncAll();
+
+  hmi_msg.photoMinutesRemaining = photoTimerMinutes;
+  hmi_msg.shouldSendData = true;
+}
+
+void PhotoCancelBtn_cb(lv_event_t *e) {
+  photoTimerActive = false;
+
+  // Notify Motherboard to stop timer but keep light ON (Continuous mode)
+  hmi_msg.photoMinutesRemaining = 0;
+  hmi_msg.shouldSendData = true;
+
+  // Update visual state via SyncAll (this handles colors, labels and "X" visibility)
+  UI_SyncAll();
 }
 
 /* Switch callback for temperature and humidity */
@@ -840,30 +861,75 @@ void Switch_cb(lv_event_t *e) {
     }
   } else if (obj == ui_Switch3) { // PHOTOTHERAPY SWITCH
     bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
-    
+
     if (checked) {
-        // Show timer menu, DO NOT start yet
-        lv_obj_clear_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN);
-        
-        // Reset state if not active
-        if (!photoTimerActive) {
-            photoTimerMinutes = 30; // Reset to default
-            char buf[16];
-            snprintf(buf, sizeof(buf), "%d min", photoTimerMinutes);
-            lv_label_set_text(ui_PhotoTimeValueLabel, buf);
-            
-            // Use localized text
-            const char *TXT_PHOTOSTART[] = {"EMPEZAR", "START", "DEMARRER"};
-            lv_label_set_text(ui_PhotoStartLabel, TXT_PHOTOSTART[g_lang]);
-            lv_obj_set_style_bg_color(ui_PhotoStartBtn, lv_color_hex(0x00AA00), LV_PART_MAIN | LV_STATE_DEFAULT);
-        }
-    } else {
-        // OFF
-        hmi_msg.phototherapyMode = PHOTOTHERAPY_OFF;
+      // Active state on Motherboard immediately
+      hmi_msg.phototherapyMode = PHOTOTHERAPY_ON;
+      hmi_msg.shouldSendData = true;
+
+      lv_obj_set_style_bg_color(ui_PhotoTimerPanel, COLOR_PANEL_WHITE,
+                                LV_PART_MAIN);
+      lv_obj_add_flag(ui_PhotoTimeMinusBtn, LV_OBJ_FLAG_CLICKABLE);
+      lv_obj_add_flag(ui_PhotoTimePlusBtn, LV_OBJ_FLAG_CLICKABLE);
+      lv_obj_add_flag(ui_PhotoStartBtn, LV_OBJ_FLAG_CLICKABLE);
+
+      // Restore button colors
+      lv_obj_set_style_bg_color(ui_PhotoTimeMinusBtn, lv_color_hex(0x0075EE),
+                                LV_PART_MAIN);
+      lv_obj_set_style_bg_color(ui_PhotoTimePlusBtn, lv_color_hex(0x0075EE),
+                                LV_PART_MAIN);
+
+      // Reset timer UI if no timer is running
+      if (!photoTimerActive) {
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%d:%02d", photoTimerMinutes / 60, photoTimerMinutes % 60);
+        lv_label_set_text(ui_PhotoTimeValueLabel, buf);
+
+        // Use localized text
+        const char *TXT_PHOTOSTART[] = {"EMPEZAR", "START", "DEMARRER"};
+        lv_label_set_text(ui_PhotoStartLabel, TXT_PHOTOSTART[g_lang]);
+        lv_obj_set_style_bg_color(ui_PhotoStartBtn, lv_color_hex(0x00AA00),
+                                  LV_PART_MAIN | LV_STATE_DEFAULT);
+
+        // Signal CONTINUOUS mode to Motherboard (Minutes = 0)
+        hmi_msg.photoMinutesRemaining = 0;
         hmi_msg.shouldSendData = true;
-        
-        lv_obj_add_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN);
-        photoTimerActive = false;
+      } else {
+        // If already running (e.g. skin/air change while timer was active)
+        lv_obj_set_style_bg_color(ui_PhotoStartBtn, lv_color_hex(0x888888),
+                                  LV_PART_MAIN | LV_STATE_DEFAULT);
+      }
+    } else {
+      // OFF / Grayed out
+      hmi_msg.phototherapyMode = PHOTOTHERAPY_OFF;
+      hmi_msg.shouldSendData = true;
+
+      lv_obj_set_style_bg_color(ui_PhotoTimerPanel, COLOR_PANEL_GRAY,
+                                LV_PART_MAIN);
+      lv_obj_clear_flag(ui_PhotoTimeMinusBtn, LV_OBJ_FLAG_CLICKABLE);
+      lv_obj_clear_flag(ui_PhotoTimePlusBtn, LV_OBJ_FLAG_CLICKABLE);
+      lv_obj_clear_flag(ui_PhotoStartBtn, LV_OBJ_FLAG_CLICKABLE);
+
+      // Buttons to light gray as requested
+      lv_obj_set_style_bg_color(ui_PhotoTimeMinusBtn, COLOR_PANEL_LIGHT_GRAY,
+                                LV_PART_MAIN);
+      lv_obj_set_style_bg_color(ui_PhotoTimePlusBtn, COLOR_PANEL_LIGHT_GRAY,
+                                LV_PART_MAIN);
+      lv_obj_set_style_bg_color(ui_PhotoStartBtn, COLOR_PANEL_LIGHT_GRAY,
+                                LV_PART_MAIN);
+
+      // Reset visual values when turned OFF (but keep the stored minutes)
+      char buf[16];
+      snprintf(buf, sizeof(buf), "%d min", photoTimerMinutes);
+      lv_label_set_text(ui_PhotoTimeValueLabel, buf);
+
+      const char *TXT_PHOTOSTART[] = {"EMPEZAR", "START", "DEMARRER"};
+      lv_label_set_text(ui_PhotoStartLabel, TXT_PHOTOSTART[g_lang]);
+
+      if (ui_PhotoCancelBtn)
+        lv_obj_add_flag(ui_PhotoCancelBtn, LV_OBJ_FLAG_HIDDEN);
+
+      photoTimerActive = false;
     }
   } else if (obj == ui_Switch4) { // SKIN BLOCK SWITCH
     bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
@@ -1937,18 +2003,19 @@ void UI_Task(void *pvParameters) {
             hmi_msg.phototherapyMode = PHOTOTHERAPY_OFF;
             hmi_msg.shouldSendData = true;
             
-            // Turn switch OFF visually
+            // Turn switch OFF visually and trigger callback
             lv_obj_clear_state(ui_Switch3, LV_STATE_CHECKED);
-            
-            // Hide containers
-            lv_obj_add_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag(ui_PhotoLockCont, LV_OBJ_FLAG_HIDDEN);
+            lv_event_send(ui_Switch3, LV_EVENT_VALUE_CHANGED, NULL);
+
+            if (ui_PhotoCancelBtn)
+              lv_obj_add_flag(ui_PhotoCancelBtn, LV_OBJ_FLAG_HIDDEN);
         } else {
             // Update countdown display
-            int rMin = remaining / 60;
-            int rSec = remaining % 60;
+            int totalMins = (remaining + 59) / 60; // Round up to show minutes correctly
+            int hours = totalMins / 60;
+            int mins = totalMins % 60;
             char buf[16];
-            snprintf(buf, sizeof(buf), "%d:%02d", rMin, rSec);
+            snprintf(buf, sizeof(buf), "%d:%02d", hours, mins);
             
             // Update main screen
             lv_label_set_text(ui_PhotoTimeValueLabel, buf);
@@ -2093,14 +2160,25 @@ void UI_SyncAll() {
   bool photoOn = lv_obj_has_state(ui_Switch3, LV_STATE_CHECKED);
   
   if (photoOn) {
-      if (ui_PhotoTimerCont) lv_obj_clear_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN);
+      // Normal state
+      lv_obj_set_style_bg_color(ui_PhotoTimerPanel, COLOR_PANEL_WHITE, LV_PART_MAIN);
+      lv_obj_add_flag(ui_PhotoTimeMinusBtn, LV_OBJ_FLAG_CLICKABLE);
+      lv_obj_add_flag(ui_PhotoTimePlusBtn, LV_OBJ_FLAG_CLICKABLE);
+      lv_obj_add_flag(ui_PhotoStartBtn, LV_OBJ_FLAG_CLICKABLE);
       
+      // Restore button colors
+      lv_obj_set_style_bg_color(ui_PhotoTimeMinusBtn, lv_color_hex(0x0075EE), LV_PART_MAIN);
+      lv_obj_set_style_bg_color(ui_PhotoTimePlusBtn, lv_color_hex(0x0075EE), LV_PART_MAIN);
+
       if (photoTimerActive) {
           // Update visual running state
           const char *TXT_RUNNING[] = {"EJECUTANDO", "RUNNING", "EN COURS"};
           if (ui_PhotoStartLabel) lv_label_set_text(ui_PhotoStartLabel, TXT_RUNNING[g_lang]);
           if (ui_PhotoStartBtn) lv_obj_set_style_bg_color(ui_PhotoStartBtn, lv_color_hex(0x888888), LV_PART_MAIN | LV_STATE_DEFAULT);
           
+          // Ensure cancel button is visible
+          if (ui_PhotoCancelBtn) lv_obj_clear_flag(ui_PhotoCancelBtn, LV_OBJ_FLAG_HIDDEN);
+
           // Ensure lock screen is visible if we are in lock screen
           if (ui_PhotoLockCont) lv_obj_clear_flag(ui_PhotoLockCont, LV_OBJ_FLAG_HIDDEN);
       } else {
@@ -2108,10 +2186,40 @@ void UI_SyncAll() {
           const char *TXT_PHOTOSTART[] = {"EMPEZAR", "START", "DEMARRER"};
           if (ui_PhotoStartLabel) lv_label_set_text(ui_PhotoStartLabel, TXT_PHOTOSTART[g_lang]);
           if (ui_PhotoStartBtn) lv_obj_set_style_bg_color(ui_PhotoStartBtn, lv_color_hex(0x00AA00), LV_PART_MAIN | LV_STATE_DEFAULT);
+          
+          // Ensure cancel button is hidden
+          if (ui_PhotoCancelBtn) lv_obj_add_flag(ui_PhotoCancelBtn, LV_OBJ_FLAG_HIDDEN);
+
           if (ui_PhotoLockCont) lv_obj_add_flag(ui_PhotoLockCont, LV_OBJ_FLAG_HIDDEN);
+
+          // Restore normal minutes display if not active
+          char buf[16];
+          snprintf(buf, sizeof(buf), "%d min", photoTimerMinutes);
+          if (ui_PhotoTimeValueLabel) lv_label_set_text(ui_PhotoTimeValueLabel, buf);
       }
   } else {
-      if (ui_PhotoTimerCont) lv_obj_add_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN);
+      // Grayed out state
+      lv_obj_set_style_bg_color(ui_PhotoTimerPanel, COLOR_PANEL_GRAY, LV_PART_MAIN);
+      lv_obj_clear_flag(ui_PhotoTimeMinusBtn, LV_OBJ_FLAG_CLICKABLE);
+      lv_obj_clear_flag(ui_PhotoTimePlusBtn, LV_OBJ_FLAG_CLICKABLE);
+      lv_obj_clear_flag(ui_PhotoStartBtn, LV_OBJ_FLAG_CLICKABLE);
+      
+      // Buttons to light gray as requested
+      lv_obj_set_style_bg_color(ui_PhotoTimeMinusBtn, COLOR_PANEL_LIGHT_GRAY, LV_PART_MAIN);
+      lv_obj_set_style_bg_color(ui_PhotoTimePlusBtn, COLOR_PANEL_LIGHT_GRAY, LV_PART_MAIN);
+      lv_obj_set_style_bg_color(ui_PhotoStartBtn, COLOR_PANEL_LIGHT_GRAY, LV_PART_MAIN);
+
+      // Reset visual values
+      if (!photoTimerActive) {
+          char buf[16];
+          snprintf(buf, sizeof(buf), "%d min", photoTimerMinutes);
+          if (ui_PhotoTimeValueLabel) lv_label_set_text(ui_PhotoTimeValueLabel, buf);
+
+          const char *TXT_PHOTOSTART[] = {"EMPEZAR", "START", "DEMARRER"};
+          if (ui_PhotoStartLabel) lv_label_set_text(ui_PhotoStartLabel, TXT_PHOTOSTART[g_lang]);
+      }
+
+      if (ui_PhotoCancelBtn) lv_obj_add_flag(ui_PhotoCancelBtn, LV_OBJ_FLAG_HIDDEN);
       if (ui_PhotoLockCont) lv_obj_add_flag(ui_PhotoLockCont, LV_OBJ_FLAG_HIDDEN);
       photoTimerActive = false; // Safety
   }
