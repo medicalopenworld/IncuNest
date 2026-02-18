@@ -32,6 +32,7 @@ extern uint32_t g_lastStateReqMs;
 extern int selectedPanel;
 extern int lastSelectedPanel;
 extern bool skinPanelEnabled;
+extern bool g_ui_initialized;
 
 // ======================
 //  LOW-LEVEL COMMS
@@ -194,7 +195,9 @@ static bool ReceiveMessageFromOtherESP() {
 //  HIGH-LEVEL LOGIC
 // ======================
 
-static void Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
+static bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
+  if (!g_ui_initialized)
+    return false;
   ui_set_switch_state_silent(ui_Switch1, st.actuation & 0x01);
   ui_set_switch_state_silent(ui_Switch2, (st.actuation >> 1) & 0x01);
   ui_set_switch_state_silent(ui_Switch3, st.phototherapyMode);
@@ -282,6 +285,7 @@ static void Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
   }
 
   UI_SyncAll();
+  return true;
 }
 
 static void Display_StateSync_Service(void) {
@@ -293,13 +297,16 @@ static void Display_StateSync_Service(void) {
     g_lastStateReqMs = now;
   }
   if (ctrl_state_msg.newState) {
-    ctrl_state_msg.newState = false;
-    Display_ApplyCtrlState(ctrl_state_msg);
-    g_stateSynced = true;
+    if (Display_ApplyCtrlState(ctrl_state_msg)) {
+      ctrl_state_msg.newState = false;
+      g_stateSynced = true;
+    }
   }
 }
 
 static void applyHMIData() {
+  if (!g_ui_initialized)
+    return;
   airTempValueDetected = ctrl_tel_msg.detectedAirTemperature;
   skinTempValueDetected = ctrl_tel_msg.detectedSkinTemperature;
   humValueDetected = (int)ctrl_tel_msg.detectedHumidity;
@@ -345,6 +352,8 @@ static void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
     alarmsMuted = false;
     hmi_msg.muteAlarm = 0;
   }
+  if (!g_ui_initialized)
+    return;
   update_alarm_panels();
   AlarmSound_Update();
 }

@@ -51,6 +51,7 @@ lv_chart_series_t *humSeries = NULL;
 
 bool g_stateSynced = false;
 uint32_t g_lastStateReqMs = 0;
+bool g_ui_initialized = false;
 
 static bool eepromDirty = false;
 static unsigned long lastVarChangeTime = 0;
@@ -86,12 +87,14 @@ public:
       // Let's map what we have:
       // Official CrowPanel Advance 7.0 (S3) Pinout from User Source Code
       
+      // Official CrowPanel Advance 7.0 (S3) Pinout from User Success Example
+      
       // Blue (B0-B4)
-      cfg.pin_d0 = GPIO_NUM_21;   // B0
-      cfg.pin_d1 = GPIO_NUM_47;   // B1
-      cfg.pin_d2 = GPIO_NUM_48;   // B2
-      cfg.pin_d3 = GPIO_NUM_45;   // B3
-      cfg.pin_d4 = GPIO_NUM_38;   // B4
+      cfg.pin_d0 = GPIO_NUM_21;    // B0
+      cfg.pin_d1 = GPIO_NUM_47;    // B1
+      cfg.pin_d2 = GPIO_NUM_48;    // B2
+      cfg.pin_d3 = GPIO_NUM_45;    // B3
+      cfg.pin_d4 = GPIO_NUM_38;    // B4
       
       // Green (G0-G5)
       cfg.pin_d5 = GPIO_NUM_9;    // G0
@@ -112,33 +115,29 @@ public:
       cfg.pin_vsync = GPIO_NUM_41;
       cfg.pin_hsync = GPIO_NUM_40;
       cfg.pin_pclk = GPIO_NUM_39;
+      cfg.freq_write = 15000000;
       
-      cfg.freq_write = 15000000; // Reduced to 15MHz to fix flickering reported at 21MHz
-      
-      cfg.hsync_polarity = 0;
-      cfg.hsync_front_porch = 8;
+      cfg.hsync_polarity = 1;
       cfg.hsync_pulse_width = 4;
       cfg.hsync_back_porch = 8;
+      cfg.hsync_front_porch = 8;
       
-      cfg.vsync_polarity = 0;
-      cfg.vsync_front_porch = 8;
+      cfg.vsync_polarity = 1;
       cfg.vsync_pulse_width = 4;
       cfg.vsync_back_porch = 8;
-      
-      cfg.pclk_idle_high = 1;
-      cfg.pclk_active_neg = true; // Enabled to fix bluish tint/stability
+      cfg.vsync_front_porch = 8;
 
-      // Color/Tint Adjustments - Uncomment/Toggle if needed
-      // cfg.swizzle = true; // Swap Red<->Blue
-      // cfg.invert = true;  // Invert colors if panel needs it
-      // Note: LGFX might not support SPI init on RGB bus automatically unless configured.
-      // We assume LovyanGFX handles "3-wire SPI" on these pins if we set them in Bus_RGB? NO.
-      // Bus_RGB doesn't have SPI config.
+      cfg.pclk_idle_high = 1;
       // We must likely use a separate SPI bus to init, OR Bus_RGB supports it?
       // LGFX v1 Bus_RGB struct has no SPI pins.
       // However, we can manual init in constructor?
       
       _bus_instance.config(cfg);
+    }
+    {
+      auto cfg = _panel_instance.config_detail();
+      cfg.use_psram = 1;
+      _panel_instance.config_detail(cfg);
     }
     {
       auto cfg = _panel_instance.config();
@@ -248,6 +247,8 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
 }
 
 void update_labels() {
+  if (!g_ui_initialized)
+    return;
   char buffer[BUFFER_SIZE];
   snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValue);
   lv_label_set_text(ui_TempAirDesired, buffer);
@@ -1816,6 +1817,7 @@ void UI_Task(void *pvParameters) {
   lv_indev_drv_register(&indev_drv);
 
   ui_init();
+  g_ui_initialized = true;
   
   ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RESOLUTION);
   ledcAttachPin(TFT_BL_PIN, PWM_CHANNEL);
@@ -2049,6 +2051,8 @@ void CreateUITask() {
 }
 
 void UI_SyncAll() {
+  if (!g_ui_initialized)
+    return;
   // 1. Update internal state flags from current switch visual state
   switchTemp = lv_obj_has_state(ui_Switch1, LV_STATE_CHECKED);
   tempSwitched = switchTemp;
