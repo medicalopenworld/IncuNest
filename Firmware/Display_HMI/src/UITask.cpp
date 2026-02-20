@@ -1418,10 +1418,11 @@ void chart_add_hum_value(float hum) {
 }
 
 void AlarmSound_Update() {
-  if (alarmActive && !alarmsMuted)
-    buzzerOn();
-  else
-    buzzerOff();
+  //if (alarmActive && !alarmsMuted)
+  //  buzzerOn();
+  //else
+  // El display ya no emite sonido por alarmas, solo la motherboard.
+  buzzerOff();
 }
 
 void MuteAlarm_cb(lv_event_t *e) {
