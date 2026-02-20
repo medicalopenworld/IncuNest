@@ -87,8 +87,9 @@ constexpr int PIN_PCLK = 42;
 
 constexpr int TOUCH_SDA_PIN = 15;
 constexpr int TOUCH_SCL_PIN = 16;
+// El reset se maneja vía expansor IO PCA9557
 constexpr int TOUCH_INT_PIN = -1;
-constexpr int TOUCH_RST_PIN = 38;
+constexpr int TOUCH_RST_PIN = -1;
 
 // Backlight I2C Address (CrowPanel 7.0 uses STC8H1K28 at 0x30)
 constexpr int I2C_ADDR_BACKLIGHT = 0x30;

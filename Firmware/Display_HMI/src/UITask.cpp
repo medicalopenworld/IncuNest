@@ -1738,9 +1738,7 @@ void UI_Task(void *pvParameters) {
   ESP_LOGI(TAG, "UI Task Started");
 
   // CrowPanel Backlight Control (I2C 0x30)
-  // Must be done BEFORE RGB engine starts to avoid pin contention if shared
   {
-      Wire.begin(TOUCH_SDA_PIN, TOUCH_SCL_PIN);
       vTaskDelay(pdMS_TO_TICKS(100));
       
       Wire.beginTransmission(I2C_ADDR_BACKLIGHT);
