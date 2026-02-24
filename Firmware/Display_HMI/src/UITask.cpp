@@ -1816,9 +1816,11 @@ void UI_Task(void *pvParameters) {
   ui_init();
   g_ui_initialized = true;
   
+  /* Comentado para v1.3 (Control vía I2C)
   ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RESOLUTION);
   ledcAttachPin(TFT_BL_PIN, PWM_CHANNEL);
   ledcWrite(PWM_CHANNEL, BRIGHTNESS_MAX);
+  */
 
   UI_ApplyLanguage(g_lang);
 
@@ -1988,8 +1990,7 @@ void UI_Task(void *pvParameters) {
 
   for (;;) {
     lv_timer_handler();
-    // Run Audio Loop
-    AudioManager::getInstance().loop();
+    // AudioManager::getInstance().loop(); // Ahora corre en su propia tarea (Core 0)
 
     // Debug Pulse
     static uint32_t lastLoopMs = 0;

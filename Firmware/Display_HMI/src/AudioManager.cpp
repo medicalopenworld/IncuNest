@@ -56,10 +56,35 @@ void AudioManager::begin() {
     audio.forceMono(true); 
     audio.setVolume(21); 
     Serial.println("AudioManager: Initialized pins BCLK:5, LRCK:6, DOUT:4 (Safe)");
+
+    // Crear tarea de audio en el Core 0 (Sistemas) con prioridad alta
+    xTaskCreatePinnedToCore(
+        audioTask,
+        "AudioTask",
+        8192,  // Aumentamos stack a 8K por seguridad con MP3
+        NULL,
+        5,     // Prioridad superior a la UI (2)
+        NULL,
+        0      // Core 0
+    );
+}
+
+// Tarea estática para manejar el bucle de audio
+void AudioManager::audioTask(void* pvParameters) {
+    Serial.println("AudioManager: Audio Task started on Core 0");
+    for(;;) {
+        // Llamamos al loop varias veces para saturar el buffer I2S antes de ceder CPU
+        for(int i = 0; i < 15; i++) {
+            AudioManager::getInstance().audio.loop();
+        }
+        
+        // vTaskDelay(1) previene el Watchdog (WDT) permitiendo que IDLE corra.
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
 }
 
 void AudioManager::loop() {
-    audio.loop();
+    // Ya no es necesario llamar a loop() externamente
 }
 
 void AudioManager::playTone() {

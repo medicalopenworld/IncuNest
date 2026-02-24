@@ -24,9 +24,10 @@ void setup() {
   
   AudioManager::getInstance().begin();
   
-  // Power up backlight hardware (Pin 2 is often the enable/PWM pin)
+  /* Comentado para v1.3 - Control vía I2C @ 0x30
   pinMode(TFT_BL_PIN, OUTPUT);
   digitalWrite(TFT_BL_PIN, HIGH);
+  */
   
   // Power stability delay
   delay(1000);
