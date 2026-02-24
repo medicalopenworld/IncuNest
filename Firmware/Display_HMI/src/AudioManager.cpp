@@ -74,14 +74,14 @@ void AudioManager::begin() {
 void AudioManager::audioTask(void* pvParameters) {
     Serial.println("AudioManager: Audio Task started on Core 0");
     for(;;) {
-        // FIX TEMBLOR: Una sola llamada a loop() por ciclo + 5ms de pausa.
-        // El patrón anterior (15 loops + 1ms) saturaba el bus DMA compartido
-        // con el LCD Bus_RGB, causando artefactos visuales (temblor de pantalla).
-        // 1 loop cada 5ms es suficiente para MP3 desde SPIFFS sin cortes de audio.
-        AudioManager::getInstance().audio.loop();
+        // BALANCE DMA: 3 loops + 3ms ≈ 1000 ciclos/s.
+        // Suficiente para rellenar el buffer I2S del MP3 (vs 15+1ms=15000/s que temblaba pantalla).
+        for(int i = 0; i < 3; i++) {
+            AudioManager::getInstance().audio.loop();
+        }
         
-        // 5ms permite que el DMA del LCD Bus_RGB opere sin interferencias.
-        vTaskDelay(pdMS_TO_TICKS(5));
+        // 3ms da al DMA del Bus_RGB tiempo para operar sin interferencias.
+        vTaskDelay(pdMS_TO_TICKS(3));
     }
 }
 
