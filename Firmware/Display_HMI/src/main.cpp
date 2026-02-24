@@ -5,6 +5,7 @@
 #include "esp_log.h"
 #include <PCA9557.h>
 #include <lvgl.h>
+#include "AudioManager.h"
 
 static const char *TAG = "Main";
 
@@ -20,6 +21,8 @@ void setup() {
   initEEPROM();
 
   Wire.begin(TOUCH_SDA_PIN, TOUCH_SCL_PIN);
+  
+  AudioManager::getInstance().begin();
   
   // Power up backlight hardware (Pin 2 is often the enable/PWM pin)
   pinMode(TFT_BL_PIN, OUTPUT);

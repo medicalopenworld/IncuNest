@@ -10,6 +10,7 @@
 #include <TAMC_GT911.h>
 #include <lgfx/v1/platforms/esp32s3/Bus_RGB.hpp>
 #include <lgfx/v1/platforms/esp32s3/Panel_RGB.hpp>
+#include "AudioManager.h"
 
 static const char *TAG = "UI";
 
@@ -1733,25 +1734,28 @@ void ImgButton9_cb(lv_event_t *e) {
 }
 
 // ==========================================
+// Callbacks
+// ==========================================
+void AudioTestBtn_cb(lv_event_t *e) {
+    AudioManager::getInstance().playTone();
+}
+
+// ==========================================
 // Main Task
 // ==========================================
 void UI_Task(void *pvParameters) {
   ESP_LOGI(TAG, "UI Task Started");
 
-  // CrowPanel Backlight Control (I2C 0x30)
+  // CrowPanel Backlight Control v1.3 (I2C 0x30)
   {
       vTaskDelay(pdMS_TO_TICKS(100));
       
+      // Según doc v1.3: 0 es Brillo Máximo, 245 es Apagado.
       Wire.beginTransmission(I2C_ADDR_BACKLIGHT);
-      Wire.write(120); // v1.3: 0 is Max, 255 is Off. 120 is Mid-High.
+      Wire.write(10); // Valor bajo para brillo alto en v1.3
       Wire.endTransmission();
       
-      // Fallback for v1.2 boards (0x10 is Max)
-      Wire.beginTransmission(I2C_ADDR_BACKLIGHT);
-      Wire.write(0x10); 
-      Wire.endTransmission();
-      
-      vTaskDelay(pdMS_TO_TICKS(200));
+      vTaskDelay(pdMS_TO_TICKS(100));
   }
 
   // Display initialization
@@ -1767,17 +1771,11 @@ void UI_Task(void *pvParameters) {
   
   lv_init();
 
-  // Try to initialize Touch with robust handshake
+  // Try to initialize Touch
   bool touch_ok = false;
   for (int i = 0; i < 3; i++) {
-    // Reset touch via PCA9557 IO0
-    PCA9557 io(0x18, &Wire);
-    io.pinMode(0, OUTPUT);
-    io.digitalWrite(0, LOW);
-    vTaskDelay(pdMS_TO_TICKS(10));
-    io.digitalWrite(0, HIGH);
-    vTaskDelay(pdMS_TO_TICKS(55));
-
+    // Note: PCA9557 at 0x18 was not found in scan. 
+    // Touch reset is likely handled by STC8 (0x30) or already high.
     if (ts.begin()) {
       touch_ok = true;
       ESP_LOGI(TAG, "Touch controller initialized OK");
@@ -1823,6 +1821,15 @@ void UI_Task(void *pvParameters) {
   ledcWrite(PWM_CHANNEL, BRIGHTNESS_MAX);
 
   UI_ApplyLanguage(g_lang);
+
+  // Botón de prueba de Audio en Settings
+  lv_obj_t *audioTestBtn = lv_btn_create(ui_ScreenSettings);
+  lv_obj_set_size(audioTestBtn, 120, 50);
+  lv_obj_align(audioTestBtn, LV_ALIGN_BOTTOM_RIGHT, -20, -20);
+  lv_obj_t *audioTestLabel = lv_label_create(audioTestBtn);
+  lv_label_set_text(audioTestLabel, "Audio Test");
+  lv_obj_center(audioTestLabel);
+  lv_obj_add_event_cb(audioTestBtn, AudioTestBtn_cb, LV_EVENT_CLICKED, NULL);
 
   intro_timer = lv_timer_create(intro_timer_cb, 5000, NULL);
   lv_timer_set_repeat_count(intro_timer, 1);
@@ -1981,6 +1988,15 @@ void UI_Task(void *pvParameters) {
 
   for (;;) {
     lv_timer_handler();
+    // Run Audio Loop
+    AudioManager::getInstance().loop();
+
+    // Debug Pulse
+    static uint32_t lastLoopMs = 0;
+    if (millis() - lastLoopMs > 5000) {
+        lastLoopMs = millis();
+        ESP_LOGD(TAG, "UI and Audio Loop active");
+    }
     vTaskDelay(pdMS_TO_TICKS(LOOP_DELAY_MS));
 
     if (wifiVisible) {
@@ -2271,3 +2287,4 @@ void UI_SyncAll() {
 
   update_labels();
 }
+
