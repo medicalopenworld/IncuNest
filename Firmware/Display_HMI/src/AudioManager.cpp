@@ -57,13 +57,14 @@ void AudioManager::begin() {
     audio.setVolume(21); 
     Serial.println("AudioManager: Initialized pins BCLK:5, LRCK:6, DOUT:4 (Safe)");
 
-    // Crear tarea de audio en el Core 0 (Sistemas) con prioridad alta
+    // Crear tarea de audio en el Core 0 (Sistemas)
+    // NOTA: Prioridad 2 (igual que UI) para evitar contención de DMA con el bus RGB del LCD
     xTaskCreatePinnedToCore(
         audioTask,
         "AudioTask",
-        8192,  // Aumentamos stack a 8K por seguridad con MP3
+        8192,  // Stack 8K para MP3
         NULL,
-        5,     // Prioridad superior a la UI (2)
+        2,     // Prioridad igual que UI (evita monopolizar DMA y causar temblor de pantalla)
         NULL,
         0      // Core 0
     );
@@ -73,13 +74,14 @@ void AudioManager::begin() {
 void AudioManager::audioTask(void* pvParameters) {
     Serial.println("AudioManager: Audio Task started on Core 0");
     for(;;) {
-        // Llamamos al loop varias veces para saturar el buffer I2S antes de ceder CPU
-        for(int i = 0; i < 15; i++) {
-            AudioManager::getInstance().audio.loop();
-        }
+        // FIX TEMBLOR: Una sola llamada a loop() por ciclo + 5ms de pausa.
+        // El patrón anterior (15 loops + 1ms) saturaba el bus DMA compartido
+        // con el LCD Bus_RGB, causando artefactos visuales (temblor de pantalla).
+        // 1 loop cada 5ms es suficiente para MP3 desde SPIFFS sin cortes de audio.
+        AudioManager::getInstance().audio.loop();
         
-        // vTaskDelay(1) previene el Watchdog (WDT) permitiendo que IDLE corra.
-        vTaskDelay(pdMS_TO_TICKS(1));
+        // 5ms permite que el DMA del LCD Bus_RGB opere sin interferencias.
+        vTaskDelay(pdMS_TO_TICKS(5));
     }
 }
 

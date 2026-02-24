@@ -119,7 +119,7 @@ public:
       cfg.pin_vsync = GPIO_NUM_41;
       cfg.pin_hsync = GPIO_NUM_40;
       cfg.pin_pclk = GPIO_NUM_39;
-      cfg.freq_write = 15000000;
+      cfg.freq_write = 12000000; // Reducido de 15MHz: menos demanda DMA → evita temblor durante audio I2S
       
       cfg.hsync_polarity = 1;
       cfg.hsync_pulse_width = 4;
