@@ -142,10 +142,9 @@ void AudioManager::setVolume(uint8_t volume) {
     if (volume > 21) volume = 21;
     _volume = volume;
     audio.setVolume(_volume);
-    // Persistir en EEPROM
-    EEPROM.write(EEPROM_AUDIO_VOLUME, _volume);
-    EEPROM.commit();
-    Serial.printf("AudioManager: Volume set to %d (saved to EEPROM)\n", _volume);
+    // NOTA: El guardado en EEPROM se hace desde la UI con commit diferido
+    // para evitar bloquear el bus flash y causar temblor de pantalla.
+    Serial.printf("AudioManager: Volume set to %d\n", _volume);
 }
 
 uint8_t AudioManager::getVolume() {

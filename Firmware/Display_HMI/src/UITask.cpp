@@ -1766,6 +1766,10 @@ void VolumeUp_cb(lv_event_t *e) {
     uint8_t vol = AudioManager::getInstance().getVolume();
     if (vol < 21) {
         AudioManager::getInstance().setVolume(vol + 1);
+        // Guardar en EEPROM de forma diferida (sin bloquear el bus flash)
+        EEPROM.write(EEPROM_AUDIO_VOLUME, AudioManager::getInstance().getVolume());
+        eepromDirty = true;
+        lastVarChangeTime = millis();
     }
     if (ui_VolumeLabel) {
         char buf[12];
@@ -1778,6 +1782,10 @@ void VolumeDown_cb(lv_event_t *e) {
     uint8_t vol = AudioManager::getInstance().getVolume();
     if (vol > 1) {
         AudioManager::getInstance().setVolume(vol - 1);
+        // Guardar en EEPROM de forma diferida (sin bloquear el bus flash)
+        EEPROM.write(EEPROM_AUDIO_VOLUME, AudioManager::getInstance().getVolume());
+        eepromDirty = true;
+        lastVarChangeTime = millis();
     }
     if (ui_VolumeLabel) {
         char buf[12];
