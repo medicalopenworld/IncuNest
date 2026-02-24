@@ -13,6 +13,9 @@
 #include "AudioManager.h"
 
 static const char *TAG = "UI";
+static lv_obj_t *ui_AudioPlayBtn;
+static lv_obj_t *ui_AudioStopBtn;
+static lv_obj_t *ui_AudioPlayLabel;
 
 // ==========================================
 // Globals
@@ -1738,6 +1741,16 @@ void ImgButton9_cb(lv_event_t *e) {
 // ==========================================
 void AudioTestBtn_cb(lv_event_t *e) {
     AudioManager::getInstance().playTone();
+    if(ui_AudioPlayBtn) {
+        lv_obj_add_state(ui_AudioPlayBtn, LV_STATE_DISABLED);
+    }
+}
+
+void AudioStopBtn_cb(lv_event_t *e) {
+    AudioManager::getInstance().stop();
+    if(ui_AudioPlayBtn) {
+        lv_obj_clear_state(ui_AudioPlayBtn, LV_STATE_DISABLED);
+    }
 }
 
 // ==========================================
@@ -1824,14 +1837,24 @@ void UI_Task(void *pvParameters) {
 
   UI_ApplyLanguage(g_lang);
 
-  // Botón de prueba de Audio en Settings
-  lv_obj_t *audioTestBtn = lv_btn_create(ui_ScreenSettings);
-  lv_obj_set_size(audioTestBtn, 120, 50);
-  lv_obj_align(audioTestBtn, LV_ALIGN_BOTTOM_RIGHT, -20, -20);
-  lv_obj_t *audioTestLabel = lv_label_create(audioTestBtn);
-  lv_label_set_text(audioTestLabel, "Audio Test");
-  lv_obj_center(audioTestLabel);
-  lv_obj_add_event_cb(audioTestBtn, AudioTestBtn_cb, LV_EVENT_CLICKED, NULL);
+  // Botón de PLAY de Audio
+  ui_AudioPlayBtn = lv_btn_create(ui_ScreenSettings);
+  lv_obj_set_size(ui_AudioPlayBtn, 120, 50);
+  lv_obj_align(ui_AudioPlayBtn, LV_ALIGN_BOTTOM_RIGHT, -160, -20); // Más a la izquierda
+  ui_AudioPlayLabel = lv_label_create(ui_AudioPlayBtn);
+  lv_label_set_text(ui_AudioPlayLabel, "Play Audio");
+  lv_obj_center(ui_AudioPlayLabel);
+  lv_obj_add_event_cb(ui_AudioPlayBtn, AudioTestBtn_cb, LV_EVENT_CLICKED, NULL);
+
+  // Botón de STOP de Audio
+  ui_AudioStopBtn = lv_btn_create(ui_ScreenSettings);
+  lv_obj_set_size(ui_AudioStopBtn, 120, 50);
+  lv_obj_align(ui_AudioStopBtn, LV_ALIGN_BOTTOM_RIGHT, -20, -20); // A la derecha
+  lv_obj_set_style_bg_color(ui_AudioStopBtn, lv_color_hex(0xFF0000), LV_PART_MAIN | LV_STATE_DEFAULT); // Rojo
+  lv_obj_t *audioStopLabel = lv_label_create(ui_AudioStopBtn);
+  lv_label_set_text(audioStopLabel, "Stop");
+  lv_obj_center(audioStopLabel);
+  lv_obj_add_event_cb(ui_AudioStopBtn, AudioStopBtn_cb, LV_EVENT_CLICKED, NULL);
 
   intro_timer = lv_timer_create(intro_timer_cb, 5000, NULL);
   lv_timer_set_repeat_count(intro_timer, 1);
@@ -1990,6 +2013,20 @@ void UI_Task(void *pvParameters) {
 
   for (;;) {
     lv_timer_handler();
+    
+    // Gestión de estado de botones de Audio
+    if(ui_AudioPlayBtn) {
+        if(AudioManager::getInstance().isPlaying()) {
+            if(!lv_obj_has_state(ui_AudioPlayBtn, LV_STATE_DISABLED)) {
+                lv_obj_add_state(ui_AudioPlayBtn, LV_STATE_DISABLED);
+            }
+        } else {
+            if(lv_obj_has_state(ui_AudioPlayBtn, LV_STATE_DISABLED)) {
+                lv_obj_clear_state(ui_AudioPlayBtn, LV_STATE_DISABLED);
+            }
+        }
+    }
+
     // AudioManager::getInstance().loop(); // Ahora corre en su propia tarea (Core 0)
 
     // Debug Pulse

@@ -13,6 +13,7 @@ public:
     void playUrl(const char* url);
     void stop();
     void setVolume(uint8_t volume);
+    bool isPlaying();
     static void audioTask(void* pvParameters);
 
 private:

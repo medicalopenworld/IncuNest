@@ -123,6 +123,10 @@ void AudioManager::setVolume(uint8_t volume) {
     Serial.printf("AudioManager: Volume set to %d\n", volume);
 }
 
+bool AudioManager::isPlaying() {
+    return audio.isRunning();
+}
+
 // Callbacks de la librería Audio
 void audio_info(const char *info){
     Serial.print("audio_info: "); Serial.println(info);
