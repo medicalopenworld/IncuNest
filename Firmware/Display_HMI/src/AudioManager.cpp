@@ -1,8 +1,9 @@
 #include "AudioManager.h"
-// #include "hmi_ding.h" // Eliminado para liberar espacio en el binario
 #include <SPIFFS.h>
 #include <Wire.h>
 #include "esp_log.h"
+#include <EEPROM.h>
+#include "EEPROM_defines.h"
 
 static const char* TAG = "Audio";
 
@@ -53,8 +54,14 @@ void AudioManager::begin() {
 
     // Configuración Inicial I2S (Pins 4, 5, 6 - Safe zone)
     audio.setPinout(I2S_BCLK, I2S_LRCK, I2S_DOUT);
-    audio.forceMono(true); 
-    audio.setVolume(21); 
+    audio.forceMono(true);
+    
+    // Leer volumen guardado en EEPROM (0-21). Si es 0 o >21, usar default 15.
+    uint8_t savedVol = EEPROM.read(EEPROM_AUDIO_VOLUME);
+    if (savedVol == 0 || savedVol > 21) savedVol = 15;
+    _volume = savedVol;
+    audio.setVolume(_volume);
+    Serial.printf("AudioManager: Volume loaded from EEPROM: %d\n", _volume);
     Serial.println("AudioManager: Initialized pins BCLK:5, LRCK:6, DOUT:4 (Safe)");
 
     // Crear tarea de audio en el Core 0 (Sistemas)
@@ -132,8 +139,17 @@ void AudioManager::stop() {
 }
 
 void AudioManager::setVolume(uint8_t volume) {
-    audio.setVolume(volume);
-    Serial.printf("AudioManager: Volume set to %d\n", volume);
+    if (volume > 21) volume = 21;
+    _volume = volume;
+    audio.setVolume(_volume);
+    // Persistir en EEPROM
+    EEPROM.write(EEPROM_AUDIO_VOLUME, _volume);
+    EEPROM.commit();
+    Serial.printf("AudioManager: Volume set to %d (saved to EEPROM)\n", _volume);
+}
+
+uint8_t AudioManager::getVolume() {
+    return _volume;
 }
 
 bool AudioManager::isPlaying() {

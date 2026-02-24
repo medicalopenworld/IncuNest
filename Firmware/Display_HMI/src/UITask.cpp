@@ -16,6 +16,9 @@ static const char *TAG = "UI";
 static lv_obj_t *ui_AudioPlayBtn;
 static lv_obj_t *ui_AudioStopBtn;
 static lv_obj_t *ui_AudioPlayLabel;
+static lv_obj_t *ui_VolumeLabel;   // Muestra "Vol: XX"
+static lv_obj_t *ui_VolumeUpBtn;
+static lv_obj_t *ui_VolumeDownBtn;
 
 // ==========================================
 // Globals
@@ -1759,6 +1762,30 @@ void AudioStopBtn_cb(lv_event_t *e) {
     }
 }
 
+void VolumeUp_cb(lv_event_t *e) {
+    uint8_t vol = AudioManager::getInstance().getVolume();
+    if (vol < 21) {
+        AudioManager::getInstance().setVolume(vol + 1);
+    }
+    if (ui_VolumeLabel) {
+        char buf[12];
+        snprintf(buf, sizeof(buf), "Vol: %d", AudioManager::getInstance().getVolume());
+        lv_label_set_text(ui_VolumeLabel, buf);
+    }
+}
+
+void VolumeDown_cb(lv_event_t *e) {
+    uint8_t vol = AudioManager::getInstance().getVolume();
+    if (vol > 1) {
+        AudioManager::getInstance().setVolume(vol - 1);
+    }
+    if (ui_VolumeLabel) {
+        char buf[12];
+        snprintf(buf, sizeof(buf), "Vol: %d", AudioManager::getInstance().getVolume());
+        lv_label_set_text(ui_VolumeLabel, buf);
+    }
+}
+
 // ==========================================
 // Main Task
 // ==========================================
@@ -1862,6 +1889,35 @@ void UI_Task(void *pvParameters) {
   lv_obj_center(audioStopLabel);
   lv_obj_add_event_cb(ui_AudioStopBtn, AudioStopBtn_cb, LV_EVENT_CLICKED, NULL);
   lv_obj_add_flag(ui_AudioStopBtn, LV_OBJ_FLAG_HIDDEN); // Oculto al inicio
+
+  // --- Fila de Volumen (encima del Play/Stop) ---
+  // Botón Vol-
+  ui_VolumeDownBtn = lv_btn_create(ui_ScreenSettings);
+  lv_obj_set_size(ui_VolumeDownBtn, 50, 40);
+  lv_obj_align(ui_VolumeDownBtn, LV_ALIGN_BOTTOM_RIGHT, -260, -80);
+  lv_obj_t *volDownLabel = lv_label_create(ui_VolumeDownBtn);
+  lv_label_set_text(volDownLabel, LV_SYMBOL_MINUS);
+  lv_obj_center(volDownLabel);
+  lv_obj_add_event_cb(ui_VolumeDownBtn, VolumeDown_cb, LV_EVENT_CLICKED, NULL);
+
+  // Label de volumen central
+  ui_VolumeLabel = lv_label_create(ui_ScreenSettings);
+  {
+    char buf[12];
+    snprintf(buf, sizeof(buf), "Vol: %d", AudioManager::getInstance().getVolume());
+    lv_label_set_text(ui_VolumeLabel, buf);
+  }
+  lv_obj_set_style_text_font(ui_VolumeLabel, &lv_font_montserrat_16, 0);
+  lv_obj_align(ui_VolumeLabel, LV_ALIGN_BOTTOM_RIGHT, -170, -90);
+
+  // Botón Vol+
+  ui_VolumeUpBtn = lv_btn_create(ui_ScreenSettings);
+  lv_obj_set_size(ui_VolumeUpBtn, 50, 40);
+  lv_obj_align(ui_VolumeUpBtn, LV_ALIGN_BOTTOM_RIGHT, -30, -80);
+  lv_obj_t *volUpLabel = lv_label_create(ui_VolumeUpBtn);
+  lv_label_set_text(volUpLabel, LV_SYMBOL_PLUS);
+  lv_obj_center(volUpLabel);
+  lv_obj_add_event_cb(ui_VolumeUpBtn, VolumeUp_cb, LV_EVENT_CLICKED, NULL);
 
   intro_timer = lv_timer_create(intro_timer_cb, 5000, NULL);
   lv_timer_set_repeat_count(intro_timer, 1);

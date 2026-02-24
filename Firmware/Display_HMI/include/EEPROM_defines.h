@@ -36,6 +36,7 @@
 #define EEPROM_PHOTOTHERAPY_ACTIVE_TIME 242
 #define EEPROM_HUMIDIFIER_ACTIVE_TIME 246
 #define EEPROM_PANIC_OTA_CHANGE 250
+#define EEPROM_AUDIO_VOLUME     251  // Volumen del speaker (0-21), por defecto 15
 
 void initEEPROM();
 void loaddefaultValues();
