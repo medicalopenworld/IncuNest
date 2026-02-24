@@ -1744,12 +1744,18 @@ void AudioTestBtn_cb(lv_event_t *e) {
     if(ui_AudioPlayBtn) {
         lv_obj_add_state(ui_AudioPlayBtn, LV_STATE_DISABLED);
     }
+    if(ui_AudioStopBtn) {
+        lv_obj_clear_flag(ui_AudioStopBtn, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 void AudioStopBtn_cb(lv_event_t *e) {
     AudioManager::getInstance().stop();
     if(ui_AudioPlayBtn) {
         lv_obj_clear_state(ui_AudioPlayBtn, LV_STATE_DISABLED);
+    }
+    if(ui_AudioStopBtn) {
+        lv_obj_add_flag(ui_AudioStopBtn, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
@@ -1855,6 +1861,7 @@ void UI_Task(void *pvParameters) {
   lv_label_set_text(audioStopLabel, "Stop");
   lv_obj_center(audioStopLabel);
   lv_obj_add_event_cb(ui_AudioStopBtn, AudioStopBtn_cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_add_flag(ui_AudioStopBtn, LV_OBJ_FLAG_HIDDEN); // Oculto al inicio
 
   intro_timer = lv_timer_create(intro_timer_cb, 5000, NULL);
   lv_timer_set_repeat_count(intro_timer, 1);
@@ -2020,9 +2027,15 @@ void UI_Task(void *pvParameters) {
             if(!lv_obj_has_state(ui_AudioPlayBtn, LV_STATE_DISABLED)) {
                 lv_obj_add_state(ui_AudioPlayBtn, LV_STATE_DISABLED);
             }
+            if(ui_AudioStopBtn && lv_obj_has_flag(ui_AudioStopBtn, LV_OBJ_FLAG_HIDDEN)) {
+                lv_obj_clear_flag(ui_AudioStopBtn, LV_OBJ_FLAG_HIDDEN);
+            }
         } else {
             if(lv_obj_has_state(ui_AudioPlayBtn, LV_STATE_DISABLED)) {
                 lv_obj_clear_state(ui_AudioPlayBtn, LV_STATE_DISABLED);
+            }
+            if(ui_AudioStopBtn && !lv_obj_has_flag(ui_AudioStopBtn, LV_OBJ_FLAG_HIDDEN)) {
+                lv_obj_add_flag(ui_AudioStopBtn, LV_OBJ_FLAG_HIDDEN);
             }
         }
     }
