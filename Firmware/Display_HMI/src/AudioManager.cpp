@@ -90,6 +90,12 @@ void AudioManager::loop() {
 void AudioManager::playTone() {
     Serial.println("AudioManager: Starting LOCAL playback...");
     
+    // RE-ACTIVACIÓN DE ENERGÍA v1.3 (Speaker ON: 248)
+    Wire.beginTransmission(0x30);
+    Wire.write(248);
+    Wire.endTransmission();
+    vTaskDelay(pdMS_TO_TICKS(10));
+
     // RE-CONFIGURAR I2S: Asegurar pins safe 5, 6, 4
     audio.setPinout(I2S_BCLK, I2S_LRCK, I2S_DOUT);
     audio.setVolume(21);
@@ -105,6 +111,11 @@ void AudioManager::playTone() {
 
 void AudioManager::playUrl(const char* url) {
     if (url) {
+        // RE-ACTIVACIÓN DE ENERGÍA v1.3 (Speaker ON: 248)
+        Wire.beginTransmission(0x30);
+        Wire.write(248);
+        Wire.endTransmission();
+        
         audio.connecttohost(url);
     }
 }
