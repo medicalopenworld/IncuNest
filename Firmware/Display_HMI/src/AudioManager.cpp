@@ -7,6 +7,11 @@
 
 static const char* TAG = "Audio";
 
+// ── Canción de alarma ─────────────────────────────────────────────────────────
+// Cambia aquí el nombre del archivo MP3 almacenado en SPIFFS.
+static const char* AUDIO_FILE = "/heartbeat.mp3";
+// ──────────────────────────────────────────────────────────────────────────────
+
 AudioManager& AudioManager::getInstance() {
     static AudioManager instance;
     return instance;
@@ -45,10 +50,10 @@ void AudioManager::begin() {
     } else {
         Serial.println("AudioManager: SPIFFS mounted");
         // Verificamos si existe el MP3
-        if (SPIFFS.exists("/sapphire.mp3")) {
-            Serial.println("AudioManager: sapphire.mp3 FOUND in SPIFFS");
+        if (SPIFFS.exists(AUDIO_FILE)) {
+            Serial.printf("AudioManager: %s FOUND in SPIFFS\n", AUDIO_FILE);
         } else {
-            Serial.println("AudioManager: WARNING, /sapphire.mp3 NOT FOUND. Run 'Upload File System Image'.");
+            Serial.printf("AudioManager: WARNING, %s NOT FOUND. Run 'Upload File System Image'.\n", AUDIO_FILE);
         }
     }
 
@@ -109,8 +114,8 @@ void AudioManager::playTone() {
     audio.setPinout(I2S_BCLK, I2S_LRCK, I2S_DOUT);
     audio.setVolume(_volume);
 
-    if(SPIFFS.exists("/sapphire.mp3")){
-        if(!audio.connecttoFS(SPIFFS, "/sapphire.mp3")) {
+    if(SPIFFS.exists(AUDIO_FILE)){
+        if(!audio.connecttoFS(SPIFFS, AUDIO_FILE)) {
             Serial.println("AudioManager: Failed to connect to audio");
         }
     } else {
