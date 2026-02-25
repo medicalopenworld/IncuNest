@@ -1,35 +1,134 @@
-# 🚨 Sistema de Alarmas y Seguridad
+# Sistema de Alarmas — IncuNest
 
-El sistema de alarmas es un componente crítico de IncuNest, diseñado para garantizar la seguridad del neonato mediante monitorización constante y redundancia en la comunicación.
+> **Versión documento:** 2026-02-25
 
-## 1. Catálogo de Alarmas
+---
 
-| ID | Nombre | Condición de Activación | Gravedad |
-| :--- | :--- | :--- | :--- |
-| **1** | Error Humedad | Desviación >12% HR del setpoint. | Media |
-| **2** | Temperatura Alta | Desviación >1°C por encima del setpoint. | Alta |
-| **3** | Corte Térmico Aire | Temperatura de aire > límite de seguridad (38°C-40°C). | Crítica |
-| **4** | Corte Térmico Piel | Temperatura de piel > límite de seguridad (38°C). | Crítica |
-| **5** | Fallo Sensor Aire | No se reciben datos válidos del sensor ambiental. | Alta |
-| **6** | Fallo Sensor Piel | No se reciben datos del sensor de piel (modo piel activo). | Alta |
-| **7** | Error Ventilador | Anomalía detectada en el consumo o flujo. | Alta |
-| **8** | Error Calentador | Fallo en el circuito de calentamiento. | Crítica |
-| **9** | Error Alimentación | Voltaje fuera de rango o fallo en fuente/batería. | Crítica |
+## 1. Tipos de Alarma
 
-## 2. Lógica de Seguridad
+IncuNest implementa **9 alarmas** definidas en el enum `ALARMS_ID` (compartido entre ambos firmwares):
 
-- **Silenciado Temporal:** Las alarmas pueden silenciarse desde el HMI por un periodo de 30 minutos, tras el cual volverá a sonar si la condición persiste.
-- **Prioridad de Visualización:** El HMI muestra las alarmas activas en orden de llegada, dando prioridad visual a las críticas (Corte Térmico, Fallo de Sensores).
-- **Control de Actuadores:** En caso de alarma Crítica (ej. Corte Térmico), la Motherboard corta inmediatamente la alimentación a los calefactores de forma independiente al control PID.
+| ID | Nombre | Clasificación | Descripción |
+|---|---|---|---|
+| 0 | `TEMPERATURE_ALARM` | Advertencia | Temperatura medida supera setpoint en ±1 ºC (con histéresis 0.05 ºC) |
+| 1 | `HUMIDITY_ALARM` | Advertencia | Humedad medida supera setpoint en ±12 %RH (histéresis 5 %RH) |
+| 2 | `AIR_THERMAL_CUTOUT_ALARM` | **CRÍTICA** | Temperatura aire supera el máximo absoluto configurado (`AIR_TEMPERATURE_SET_MAX`) |
+| 3 | `SKIN_THERMAL_CUTOUT_ALARM` | **CRÍTICA** | Temperatura piel supera el máximo absoluto (`SKIN_TEMPERATURE_SET_MAX`) |
+| 4 | `AIR_SENSOR_ISSUE_ALARM` | **CRÍTICA** | Sensor de aire no actualiza datos en >20 s (fallo I2C o sensor) |
+| 5 | `SKIN_SENSOR_ISSUE_ALARM` | **CRÍTICA** | Sensor de piel no actualiza datos en >20 s |
+| 6 | `FAN_ISSUE_ALARM` | Advertencia | Ventilador no funciona correctamente (corriente inadecuada) |
+| 7 | `HEATER_ISSUE_ALARM` | **CRÍTICA** | Calentador con corriente fuera de rango (cableado o cortocircuito) |
+| 8 | `POWER_SUPPLY_ALARM` | **CRÍTICA** | Voltaje del sistema fuera del rango esperado (monitoreado por INA3221) |
 
-## 3. Comunicación MB <-> HMI
+---
 
-Las alarmas se transmiten mediante el comando `CTRL,ALM`.
+## 2. Lógica de Evaluación
 
-1. **Cola de Alarmas Pendientes:** Si el HMI no está conectado (o se está reiniciando), la Motherboard almacena hasta 10 alarmas en una cola local.
-2. **Handshake de Sincronización:** Cuando el HMI se conecta y envía `HMI,REQ,STATE`, la Motherboard responde con el estado general y seguidamente vacía la cola de alarmas para que el HMI las muestre todas de golpe.
-3. **Multi-idioma:** Los textos descriptivos de las alarmas se generan en la Motherboard según el idioma configurado (Español, Inglés, Francés), asegurando que el mensaje de seguridad sea comprensible inmediatamente.
+### 2.1 Función evaluateAlarm()
 
-## 4. Monitorización de Sensores
+```cpp
+// Condición de disparo (con margen de error)
+measuredValue > (setPoint + errorMargin + hysteresis) → setAlarm()
 
-El sistema realiza un `securityCheck()` periódico que valida la "salud" de los sensores. Si un sensor no responde por más de 20 segundos, se dispara la alarma de fallo de sensor correspondiente.
+// Condición de reset
+measuredValue < (setPoint + errorMargin - hysteresis) → resetAlarm()
+```
+
+### 2.2 Alarmas con retardo temporal (30 min)
+
+Las alarmas de **corte térmico** tienen un mecanismo de retardo:  
+- Si la alarma ya se disparó hace menos de 30 min, suena **silenciada** (no emite buzzer).  
+- Esto evita alarmas acústicas repetitivas en fases de calentamiento inicial.
+
+### 2.3 Alarmas críticas y PID
+
+Cuando `ongoingCriticalAlarm()` devuelve `true`:
+```cpp
+ledcWrite(HEATER_PWM_CHANNEL, HeaterPIDOutput * !ongoingCriticalAlarm());
+// → El calentador se fuerza a 0 (apagado inmediato)
+```
+
+Las alarmas críticas son: `AIR_THERMAL_CUTOUT`, `SKIN_THERMAL_CUTOUT`, `AIR_SENSOR_ISSUE`, `SKIN_SENSOR_ISSUE`, `HEATER_ISSUE`, `POWER_SUPPLY`.
+
+---
+
+## 3. Flujo de una Alarma
+
+```
+Motherboard detecta condición de alarma
+    │
+    ▼
+setAlarm(alarmID, sound?)
+    ├─ alarmOnGoing[id] = true
+    ├─ buzzerConstantTone() (sólo motherboard)
+    └─ sendAlarmUSB(alarmID, true)
+         ├─ Si HMI conectado → envía inmediatamente
+         │    "CTRL,ALM,<id>,<tipo>,<descripción>,1\n"
+         └─ Si HMI NO conectado → encola en pending_alarms[]
+              (máx 10 alarmas pendientes)
+                   │
+                   ▼
+           Al reconectar → sendPendingAlarms()
+
+Display_HMI recibe "CTRL,ALM,..."
+    ├─ processReceivedAlarm()
+    ├─ alarmsMuted = false (nueva alarma activa desmutea)
+    ├─ update_alarm_panels() → muestra card roja en UI
+    └─ AlarmSound_Update() → reproduce audio de alerta
+```
+
+---
+
+## 4. Representación en el Display
+
+- Hasta **4 alarmas simultáneas** visibles en pantalla.
+- Cada alarma muestra: tipo (título corto) + descripción larga.
+- Alarmas activas = card con fondo rojo.
+- Alarmas resueltas = card con fondo gris/verde.
+- El usuario puede **mutear** alarmas desde la UI (switch de mute).
+- El mute se cancela automáticamente cuando llega una **nueva** alarma activa.
+
+---
+
+## 5. Soporte Multiidioma
+
+Las alarmas envían su texto en el idioma activo del motherboard:
+
+| Alarma | Español | English | Français |
+|---|---|---|---|
+| `TEMPERATURE_ALARM` | TEMP MUY ALTA | TEMP VERY HIGH | TEMP TRES ELEVEE |
+| `HUMIDITY_ALARM` | ERROR HUMEDAD | HUMIDITY ERROR | ERREUR HUMIDITE |
+| `AIR_THERMAL_CUTOUT_ALARM` | CORTE TERMICO AIRE | AIR THERMAL CUTOUT | COUPURE THERMIQUE AIR |
+| `SKIN_THERMAL_CUTOUT_ALARM` | CORTE TERMICO PIEL | SKIN THERMAL CUTOUT | COUPURE THERMIQUE PEAU |
+| `AIR_SENSOR_ISSUE_ALARM` | ERROR SENSOR AIRE | AIR SENSOR ERROR | ERREUR CAPTEUR AIR |
+| `SKIN_SENSOR_ISSUE_ALARM` | ERROR SENSOR PIEL | SKIN SENSOR ERROR | ERREUR CAPTEUR PEAU |
+| `FAN_ISSUE_ALARM` | ERROR VENTILADOR | FAN ERROR | ERREUR VENTILATEUR |
+| `HEATER_ISSUE_ALARM` | ERROR CALENTADOR | HEATER ERROR | ERREUR CHAUFFAGE |
+| `POWER_SUPPLY_ALARM` | ERROR ALIMENTACION | POWER SUPPLY ERROR | ERREUR ALIMENTATION |
+
+Cuando el idioma cambia (desde HMI), el motherboard re-envía todas las alarmas activas con `resendActiveAlarms()`.
+
+---
+
+## 6. Configuración de Umbrales
+
+| Parámetro | Valor | Definición |
+|---|---|---|
+| `TEMPERATURE_ERROR` | ±1.0 ºC | Margen para `TEMPERATURE_ALARM` |
+| `TEMPERATURE_ERROR_HYSTERESIS` | 0.05 ºC | Histéresis de reset |
+| `HUMIDITY_ERROR` | ±12 %RH | Margen para `HUMIDITY_ALARM` |
+| `HUMIDITY_ERROR_HYSTERESIS` | 5 %RH | Histéresis de reset |
+| `AIR_THERMAL_CUTOUT` | = `AIR_TEMPERATURE_SET_MAX` = 37 ºC | Corte absoluto aire |
+| `SKIN_THERMAL_CUTOUT` | = `SKIN_TEMPERATURE_SET_MAX` = 37.5 ºC | Corte absoluto piel |
+| `AIR/SKIN_THERMAL_CUTOUT_HYSTERESIS` | 0.2 ºC | Histéresis de reset |
+| `MINIMUM_SUCCESSFULL_SENSOR_UPDATE` | 20000 ms | Timeout para alarmas de sensor |
+| `ALARM_TIME_DELAY` | 30 min | Retardo silencioso post-corte térmico |
+
+---
+
+## 7. Alarmas de Fuente de Alimentación
+
+Monitoreadas por `INA3221` (sensor de corriente/voltaje dual):
+- Activadas solo si `HW_NUM >= 13`
+- Periodo de verificación: `POWER_SUPPLY_CHECK_PERIOD`
+- Condición: `system_voltage` fuera de `[MIN_SYSTEM_VOLTAGE_TRIGGER, MAX_SYSTEM_VOLTAGE_TRIGGER]`
