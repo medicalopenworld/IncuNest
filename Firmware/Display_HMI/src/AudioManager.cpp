@@ -102,7 +102,7 @@ void AudioManager::loop() {
 }
 
 void AudioManager::playTone() {
-    Serial.println("AudioManager: Starting LOCAL playback...");
+    Serial.println("AudioManager: Starting LOCAL playback (loop)...");
     
     // RE-ACTIVACIÓN DE ENERGÍA v1.3 (Speaker ON: 248)
     Wire.beginTransmission(0x30);
@@ -113,6 +113,8 @@ void AudioManager::playTone() {
     // RE-CONFIGURAR I2S: Asegurar pins safe 5, 6, 4
     audio.setPinout(I2S_BCLK, I2S_LRCK, I2S_DOUT);
     audio.setVolume(_volume);
+
+    _looping = true; // Activar bucle: se reiniciará al llegar al EOF
 
     if(SPIFFS.exists(AUDIO_FILE)){
         if(!audio.connecttoFS(SPIFFS, AUDIO_FILE)) {
@@ -135,6 +137,7 @@ void AudioManager::playUrl(const char* url) {
 }
 
 void AudioManager::stop() {
+    _looping = false; // Detener el bucle antes de parar la reproducción
     audio.stopSong();
     // Apagar speaker físicamente para ahorrar energía/evitar ruidos
     Wire.beginTransmission(0x30);
@@ -160,6 +163,10 @@ bool AudioManager::isPlaying() {
     return audio.isRunning();
 }
 
+bool AudioManager::isLooping() {
+    return _looping;
+}
+
 // Callbacks de la librería Audio
 void audio_info(const char *info){
     Serial.print("audio_info: "); Serial.println(info);
@@ -169,6 +176,12 @@ void audio_id3data(const char *info){  //id3 metadata
 }
 void audio_eof_mp3(const char *info){  //end of file
     Serial.print("eof_mp3:     ");Serial.println(info);
+    // Reiniciar si el bucle está activo
+    AudioManager& mgr = AudioManager::getInstance();
+    if (mgr.isLooping()) {
+        Serial.println("AudioManager: EOF reached, restarting (loop mode)...");
+        mgr.playTone();
+    }
 }
 void audio_showstation(const char *info){
     Serial.print("station :    ");Serial.println(info);

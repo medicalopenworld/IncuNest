@@ -14,13 +14,15 @@ public:
     void stop();
     void setVolume(uint8_t volume);
     bool isPlaying();
+    bool isLooping();
     uint8_t getVolume();
     static void audioTask(void* pvParameters);
 
 private:
     AudioManager();
     Audio audio;
-    uint8_t _volume = 15; // Volumen activo (0-21)
+    uint8_t _volume  = 15;   // Volumen activo (0-21)
+    bool    _looping = false; // true → reiniciar al llegar al EOF
     
     // Pines I2S definitivos para CrowPanel 7.0 Advance
     const int I2S_DOUT = 4;
