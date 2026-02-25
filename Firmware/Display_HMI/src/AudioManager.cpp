@@ -45,10 +45,10 @@ void AudioManager::begin() {
     } else {
         Serial.println("AudioManager: SPIFFS mounted");
         // Verificamos si existe el MP3
-        if (SPIFFS.exists("/sapphire.mp3")) {
+        if (SPIFFS.exists("audio")) {
             Serial.println("AudioManager: sapphire.mp3 FOUND in SPIFFS");
         } else {
-            Serial.println("AudioManager: WARNING, /sapphire.mp3 NOT FOUND. Run 'Upload File System Image'.");
+            Serial.println("AudioManager: WARNING, audio NOT FOUND. Run 'Upload File System Image'.");
         }
     }
 
@@ -107,14 +107,14 @@ void AudioManager::playTone() {
 
     // RE-CONFIGURAR I2S: Asegurar pins safe 5, 6, 4
     audio.setPinout(I2S_BCLK, I2S_LRCK, I2S_DOUT);
-    audio.setVolume(21);
+    audio.setVolume(_volume);
 
-    if(SPIFFS.exists("/sapphire.mp3")){
-        if(!audio.connecttoFS(SPIFFS, "/sapphire.mp3")) {
-            Serial.println("AudioManager: Failed to connect to /sapphire.mp3");
+    if(SPIFFS.exists("audio")){
+        if(!audio.connecttoFS(SPIFFS, "audio")) {
+            Serial.println("AudioManager: Failed to connect to audio");
         }
     } else {
-        Serial.println("AudioManager: Error, /sapphire.mp3 not found!");
+        Serial.println("AudioManager: Error, audio not found!");
     }
 }
 
