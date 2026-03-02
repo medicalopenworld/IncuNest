@@ -10,158 +10,30 @@
  * CrowPanel_50 means CrowPanel 5.0inch Board
  * CrowPanel_70 means CrowPanel 7.0inch Board
  ******************************************************************************/
-#define CrowPanel_70
+ #define CrowPanel_70
 // #define CrowPanel_50
 // #define CrowPanel_43
 
-// --- Configuración Común y específica por Panel ---
 
 #if defined (CrowPanel_70)
-    #define SCREEN_WIDTH   800
-    #define SCREEN_HEIGHT  480
-    #define FREQ_WRITE     12000000
-    
-    // Pines Bus RGB
-    #define PIN_D0  GPIO_NUM_15
-    #define PIN_D1  GPIO_NUM_7
-    #define PIN_D2  GPIO_NUM_6
-    #define PIN_D3  GPIO_NUM_5
-    #define PIN_D4  GPIO_NUM_4
-    #define PIN_D5  GPIO_NUM_9
-    #define PIN_D6  GPIO_NUM_46
-    #define PIN_D7  GPIO_NUM_3
-    #define PIN_D8  GPIO_NUM_8
-    #define PIN_D9  GPIO_NUM_16
-    #define PIN_D10 GPIO_NUM_1
-    #define PIN_D11 GPIO_NUM_14
-    #define PIN_D12 GPIO_NUM_21
-    #define PIN_D13 GPIO_NUM_47
-    #define PIN_D14 GPIO_NUM_48
-    #define PIN_D15 GPIO_NUM_45
 
-    #define PIN_HENABLE GPIO_NUM_41
-    #define PIN_VSYNC   GPIO_NUM_40
-    #define PIN_HSYNC   GPIO_NUM_39
-    #define PIN_PCLK    GPIO_NUM_0
-
-    // Tiempos
-    #define H_FRONT_PORCH 40
-    #define H_PULSE_WIDTH 48
-    #define H_BACK_PORCH  40
-    #define V_FRONT_PORCH 1
-    #define V_PULSE_WIDTH 31
-    #define V_BACK_PORCH  13
-    #define PCLK_ACTIVE_NEG 1
-
-    // Touch (GT911)
-    #define USE_TOUCH_GT911
-    #define TOUCH_SDA GPIO_NUM_19
-    #define TOUCH_SCL GPIO_NUM_20
-
-#elif defined (CrowPanel_50)
-    #define SCREEN_WIDTH   800
-    #define SCREEN_HEIGHT  480
-    #define FREQ_WRITE     12000000
-
-    #define PIN_D0  GPIO_NUM_8
-    #define PIN_D1  GPIO_NUM_3
-    #define PIN_D2  GPIO_NUM_46
-    #define PIN_D3  GPIO_NUM_9
-    #define PIN_D4  GPIO_NUM_1
-    #define PIN_D5  GPIO_NUM_5
-    #define PIN_D6  GPIO_NUM_6
-    #define PIN_D7  GPIO_NUM_7
-    #define PIN_D8  GPIO_NUM_15
-    #define PIN_D9  GPIO_NUM_16
-    #define PIN_D10 GPIO_NUM_4
-    #define PIN_D11 GPIO_NUM_45
-    #define PIN_D12 GPIO_NUM_48
-    #define PIN_D13 GPIO_NUM_47
-    #define PIN_D14 GPIO_NUM_21
-    #define PIN_D15 GPIO_NUM_14
-
-    #define PIN_HENABLE GPIO_NUM_40
-    #define PIN_VSYNC   GPIO_NUM_41
-    #define PIN_HSYNC   GPIO_NUM_39
-    #define PIN_PCLK    GPIO_NUM_0
-
-    #define H_FRONT_PORCH 8
-    #define H_PULSE_WIDTH 4
-    #define H_BACK_PORCH  43
-    #define V_FRONT_PORCH 8
-    #define V_PULSE_WIDTH 4
-    #define V_BACK_PORCH  12
-    #define PCLK_ACTIVE_NEG 1
-
-    #define USE_TOUCH_GT911
-    #define TOUCH_SDA GPIO_NUM_19
-    #define TOUCH_SCL GPIO_NUM_20
-
-#elif defined (CrowPanel_43)
-    #define SCREEN_WIDTH   480
-    #define SCREEN_HEIGHT  272
-    #define FREQ_WRITE     8000000
-
-    #define PIN_D0  GPIO_NUM_8
-    #define PIN_D1  GPIO_NUM_3
-    #define PIN_D2  GPIO_NUM_46
-    #define PIN_D3  GPIO_NUM_9
-    #define PIN_D4  GPIO_NUM_1
-    #define PIN_D5  GPIO_NUM_5
-    #define PIN_D6  GPIO_NUM_6
-    #define PIN_D7  GPIO_NUM_7
-    #define PIN_D8  GPIO_NUM_15
-    #define PIN_D9  GPIO_NUM_16
-    #define PIN_D10 GPIO_NUM_4
-    #define PIN_D11 GPIO_NUM_45
-    #define PIN_D12 GPIO_NUM_48
-    #define PIN_D13 GPIO_NUM_47
-    #define PIN_D14 GPIO_NUM_21
-    #define PIN_D15 GPIO_NUM_14
-
-    #define PIN_HENABLE GPIO_NUM_40
-    #define PIN_VSYNC   GPIO_NUM_41
-    #define PIN_HSYNC   GPIO_NUM_39
-    #define PIN_PCLK    GPIO_NUM_42
-
-    #define H_FRONT_PORCH 8
-    #define H_PULSE_WIDTH 4
-    #define H_BACK_PORCH  43
-    #define V_FRONT_PORCH 8
-    #define V_PULSE_WIDTH 4
-    #define V_BACK_PORCH  12
-    #define PCLK_ACTIVE_NEG 1
-
-    #define USE_TOUCH_XPT2046
-    #define TOUCH_SPI_SCLK GPIO_NUM_12
-    #define TOUCH_SPI_MOSI GPIO_NUM_11
-    #define TOUCH_SPI_MISO GPIO_NUM_13
-    #define TOUCH_SPI_CS   GPIO_NUM_0
-    #define TOUCH_INT      36
-
-#endif
-
+#define screenWidth   800
+#define screenHeight  480
 class LGFX : public lgfx::LGFX_Device
 {
 public:
     lgfx::Bus_RGB _bus_instance;
     lgfx::Panel_RGB _panel_instance;
     lgfx::Light_PWM _light_instance;
-    
-#if defined(USE_TOUCH_GT911)
     lgfx::Touch_GT911 _touch_instance;
-#elif defined(USE_TOUCH_XPT2046)
-    lgfx::Touch_XPT2046 _touch_instance;
-#endif
-
     LGFX(void)
     {
         {
             auto cfg = _panel_instance.config();
-            cfg.memory_width = SCREEN_WIDTH;
-            cfg.memory_height = SCREEN_HEIGHT;
-            cfg.panel_width = SCREEN_WIDTH;
-            cfg.panel_height = SCREEN_HEIGHT;
+            cfg.memory_width = screenWidth;
+            cfg.memory_height = screenHeight;
+            cfg.panel_width = screenWidth;
+            cfg.panel_height = screenHeight;
             cfg.offset_x = 0;
             cfg.offset_y = 0;
             _panel_instance.config(cfg);
@@ -171,40 +43,42 @@ public:
             auto cfg = _bus_instance.config();
             cfg.panel = &_panel_instance;
 
-            cfg.pin_d0 = PIN_D0;
-            cfg.pin_d1 = PIN_D1;
-            cfg.pin_d2 = PIN_D2;
-            cfg.pin_d3 = PIN_D3;
-            cfg.pin_d4 = PIN_D4;
-            cfg.pin_d5 = PIN_D5;
-            cfg.pin_d6 = PIN_D6;
-            cfg.pin_d7 = PIN_D7;
-            cfg.pin_d8 = PIN_D8;
-            cfg.pin_d9 = PIN_D9;
-            cfg.pin_d10 = PIN_D10;
-            cfg.pin_d11 = PIN_D11;
-            cfg.pin_d12 = PIN_D12;
-            cfg.pin_d13 = PIN_D13;
-            cfg.pin_d14 = PIN_D14;
-            cfg.pin_d15 = PIN_D15;
+            cfg.pin_d0 = GPIO_NUM_15;  // B0
+            cfg.pin_d1 = GPIO_NUM_7;  // B1
+            cfg.pin_d2 = GPIO_NUM_6; // B2
+            cfg.pin_d3 = GPIO_NUM_5;  // B3
+            cfg.pin_d4 = GPIO_NUM_4;  // B4
 
-            cfg.pin_henable = PIN_HENABLE;
-            cfg.pin_vsync = PIN_VSYNC;
-            cfg.pin_hsync = PIN_HSYNC;
-            cfg.pin_pclk = PIN_PCLK;
-            cfg.freq_write = FREQ_WRITE;
+            cfg.pin_d5 = GPIO_NUM_9;  // G0
+            cfg.pin_d6 = GPIO_NUM_46;  // G1
+            cfg.pin_d7 = GPIO_NUM_3;  // G2
+            cfg.pin_d8 = GPIO_NUM_8; // G3
+            cfg.pin_d9 = GPIO_NUM_16; // G4
+            cfg.pin_d10 = GPIO_NUM_1; // G5
+
+            cfg.pin_d11 = GPIO_NUM_14; // R0
+            cfg.pin_d12 = GPIO_NUM_21; // R1
+            cfg.pin_d13 = GPIO_NUM_47; // R2
+            cfg.pin_d14 = GPIO_NUM_48; // R3
+            cfg.pin_d15 = GPIO_NUM_45; // R4
+
+            cfg.pin_henable = GPIO_NUM_41;
+            cfg.pin_vsync = GPIO_NUM_40;
+            cfg.pin_hsync = GPIO_NUM_39;
+            cfg.pin_pclk = GPIO_NUM_0;
+            cfg.freq_write = 12000000;
 
             cfg.hsync_polarity    = 0;
-            cfg.hsync_front_porch = H_FRONT_PORCH;
-            cfg.hsync_pulse_width = H_PULSE_WIDTH;
-            cfg.hsync_back_porch  = H_BACK_PORCH;
+            cfg.hsync_front_porch = 40;
+            cfg.hsync_pulse_width = 48;
+            cfg.hsync_back_porch  = 40;
             
             cfg.vsync_polarity    = 0;
-            cfg.vsync_front_porch = V_FRONT_PORCH;
-            cfg.vsync_pulse_width = V_PULSE_WIDTH;
-            cfg.vsync_back_porch  = V_BACK_PORCH;
+            cfg.vsync_front_porch = 1;
+            cfg.vsync_pulse_width = 31;
+            cfg.vsync_back_porch  = 13;
 
-            cfg.pclk_active_neg = PCLK_ACTIVE_NEG;
+            cfg.pclk_active_neg = 1;
             cfg.de_idle_high = 0;
             cfg.pclk_idle_high = 0;
 
@@ -221,36 +95,19 @@ public:
 
         {
             auto cfg = _touch_instance.config();
-            
-#if defined(USE_TOUCH_GT911)
             cfg.x_min      = 0;
-            cfg.x_max      = SCREEN_WIDTH - 1;
+            cfg.x_max      = 799;
             cfg.y_min      = 0;
-            cfg.y_max      = SCREEN_HEIGHT - 1;
+            cfg.y_max      = 479;
             cfg.pin_int    = -1;
             cfg.pin_rst    = -1;
             cfg.bus_shared = true;
             cfg.offset_rotation = 0;
             cfg.i2c_port   = I2C_NUM_1;
-            cfg.pin_sda    = TOUCH_SDA;
-            cfg.pin_scl    = TOUCH_SCL;
+            cfg.pin_sda    = GPIO_NUM_19;
+            cfg.pin_scl    = GPIO_NUM_20;
             cfg.freq       = 400000;
             cfg.i2c_addr   = 0x14;
-#elif defined(USE_TOUCH_XPT2046)
-            cfg.x_min      = 100;
-            cfg.x_max      = 4000;
-            cfg.y_min      = 100;
-            cfg.y_max      = 4000;
-            cfg.pin_int    = TOUCH_INT;
-            cfg.bus_shared = true;
-            cfg.offset_rotation = 0;
-            cfg.spi_host   = SPI2_HOST;
-            cfg.freq       = 1000000;
-            cfg.pin_sclk   = TOUCH_SPI_SCLK;
-            cfg.pin_mosi   = TOUCH_SPI_MOSI;
-            cfg.pin_miso   = TOUCH_SPI_MISO;
-            cfg.pin_cs     = TOUCH_SPI_CS;
-#endif
             _touch_instance.config(cfg);
             _panel_instance.setTouch(&_touch_instance);
         }
@@ -258,6 +115,209 @@ public:
     }
 };
 
-LGFX tft;
+#elif defined (CrowPanel_50)
 
+#define screenWidth   800
+#define screenHeight  480
+class LGFX : public lgfx::LGFX_Device
+{
+public:
+    lgfx::Bus_RGB _bus_instance;
+    lgfx::Panel_RGB _panel_instance;
+    lgfx::Light_PWM _light_instance;
+    lgfx::Touch_GT911 _touch_instance;
+    LGFX(void)
+    {
+        {
+            auto cfg = _panel_instance.config();
+            cfg.memory_width = screenWidth;
+            cfg.memory_height = screenHeight;
+            cfg.panel_width = screenWidth;
+            cfg.panel_height = screenHeight;
+            cfg.offset_x = 0;
+            cfg.offset_y = 0;
+            _panel_instance.config(cfg);
+        }
+
+        {
+            auto cfg = _bus_instance.config();
+            cfg.panel = &_panel_instance;
+
+            cfg.pin_d0 = GPIO_NUM_8;  // B0
+            cfg.pin_d1 = GPIO_NUM_3;  // B1
+            cfg.pin_d2 = GPIO_NUM_46; // B2
+            cfg.pin_d3 = GPIO_NUM_9;  // B3
+            cfg.pin_d4 = GPIO_NUM_1;  // B4
+
+            cfg.pin_d5 = GPIO_NUM_5;  // G0
+            cfg.pin_d6 = GPIO_NUM_6;  // G1
+            cfg.pin_d7 = GPIO_NUM_7;  // G2
+            cfg.pin_d8 = GPIO_NUM_15; // G3
+            cfg.pin_d9 = GPIO_NUM_16; // G4
+            cfg.pin_d10 = GPIO_NUM_4; // G5
+
+            cfg.pin_d11 = GPIO_NUM_45; // R0
+            cfg.pin_d12 = GPIO_NUM_48; // R1
+            cfg.pin_d13 = GPIO_NUM_47; // R2
+            cfg.pin_d14 = GPIO_NUM_21; // R3
+            cfg.pin_d15 = GPIO_NUM_14; // R4
+
+            cfg.pin_henable = GPIO_NUM_40;
+            cfg.pin_vsync = GPIO_NUM_41;
+            cfg.pin_hsync = GPIO_NUM_39;
+            cfg.pin_pclk = GPIO_NUM_0;
+            cfg.freq_write = 12000000;
+
+            cfg.hsync_polarity    = 0;
+            cfg.hsync_front_porch = 8;
+            cfg.hsync_pulse_width = 4;
+            cfg.hsync_back_porch  = 43;
+            
+            cfg.vsync_polarity    = 0;
+            cfg.vsync_front_porch = 8;
+            cfg.vsync_pulse_width = 4;
+            cfg.vsync_back_porch  = 12;
+
+            cfg.pclk_active_neg = 1;
+            cfg.de_idle_high = 0;
+            cfg.pclk_idle_high = 0;
+
+            _bus_instance.config(cfg);
+            _panel_instance.setBus(&_bus_instance);
+        }
+
+        {
+            auto cfg = _light_instance.config();
+            cfg.pin_bl = GPIO_NUM_2;
+            _light_instance.config(cfg);
+            _panel_instance.light(&_light_instance);
+        }
+
+        {
+            auto cfg = _touch_instance.config();
+            cfg.x_min      = 0;
+            cfg.x_max      = 799;
+            cfg.y_min      = 0;
+            cfg.y_max      = 479;
+            cfg.pin_int    = -1;
+            cfg.pin_rst    = -1;
+            cfg.bus_shared = true;
+            cfg.offset_rotation = 0;
+            cfg.i2c_port   = I2C_NUM_1;
+            cfg.pin_sda    = GPIO_NUM_19;
+            cfg.pin_scl    = GPIO_NUM_20;
+            cfg.freq       = 400000;
+            cfg.i2c_addr   = 0x14;
+            _touch_instance.config(cfg);
+            _panel_instance.setTouch(&_touch_instance);
+        }
+        setPanel(&_panel_instance);
+    }
+};
+
+#elif defined (CrowPanel_43)
+
+#define screenWidth   480
+#define screenHeight  272
+class LGFX : public lgfx::LGFX_Device
+{
+public:
+    lgfx::Bus_RGB _bus_instance;
+    lgfx::Panel_RGB _panel_instance;
+    lgfx::Light_PWM _light_instance;
+    lgfx::Touch_XPT2046 _touch_instance;
+    LGFX(void)
+    {
+        {
+            auto cfg = _panel_instance.config();
+            cfg.memory_width = screenWidth;
+            cfg.memory_height = screenHeight;
+            cfg.panel_width = screenWidth;
+            cfg.panel_height = screenHeight;
+            cfg.offset_x = 0;
+            cfg.offset_y = 0;
+            _panel_instance.config(cfg);
+        }
+
+        {
+            auto cfg = _bus_instance.config();
+            cfg.panel = &_panel_instance;
+
+            cfg.pin_d0 = GPIO_NUM_8;  // B0
+            cfg.pin_d1 = GPIO_NUM_3;  // B1
+            cfg.pin_d2 = GPIO_NUM_46; // B2
+            cfg.pin_d3 = GPIO_NUM_9;  // B3
+            cfg.pin_d4 = GPIO_NUM_1;  // B4
+
+            cfg.pin_d5 = GPIO_NUM_5;  // G0
+            cfg.pin_d6 = GPIO_NUM_6;  // G1
+            cfg.pin_d7 = GPIO_NUM_7;  // G2
+            cfg.pin_d8 = GPIO_NUM_15; // G3
+            cfg.pin_d9 = GPIO_NUM_16; // G4
+            cfg.pin_d10 = GPIO_NUM_4; // G5
+
+            cfg.pin_d11 = GPIO_NUM_45; // R0
+            cfg.pin_d12 = GPIO_NUM_48; // R1
+            cfg.pin_d13 = GPIO_NUM_47; // R2
+            cfg.pin_d14 = GPIO_NUM_21; // R3
+            cfg.pin_d15 = GPIO_NUM_14; // R4
+
+            cfg.pin_henable = GPIO_NUM_40;
+            cfg.pin_vsync = GPIO_NUM_41;
+            cfg.pin_hsync = GPIO_NUM_39;
+            cfg.pin_pclk = GPIO_NUM_42;
+            cfg.freq_write = 8000000;
+
+            cfg.hsync_polarity    = 0;
+            cfg.hsync_front_porch = 8;
+            cfg.hsync_pulse_width = 4;
+            cfg.hsync_back_porch  = 43;
+            
+            cfg.vsync_polarity    = 0;
+            cfg.vsync_front_porch = 8;
+            cfg.vsync_pulse_width = 4;
+            cfg.vsync_back_porch  = 12;
+
+            cfg.pclk_active_neg = 1;
+            cfg.de_idle_high = 0;
+            cfg.pclk_idle_high = 0;
+
+            _bus_instance.config(cfg);
+            _panel_instance.setBus(&_bus_instance);
+        }
+
+        {
+            auto cfg = _light_instance.config();
+            cfg.pin_bl = GPIO_NUM_2;
+            _light_instance.config(cfg);
+            _panel_instance.light(&_light_instance);
+        }
+
+        {
+            auto touch_cfg = _touch_instance.config();
+            touch_cfg.x_min      = 100;    // タッチスクリーンから得られる最小のX値(生の値)
+            touch_cfg.x_max      = 4000;  // タッチスクリーンから得られる最大のX値(生の値)
+            touch_cfg.y_min      = 100;    // タッチスクリーンから得られる最小のY値(生の値)
+            touch_cfg.y_max      = 4000;  // タッチスクリーンから得られる最大のY値(生の値)
+            touch_cfg.pin_int    = 36;   // INTが接続されているピン番号
+            touch_cfg.bus_shared = true; // 画面と共通のバスを使用している場合 trueを設定
+            touch_cfg.offset_rotation = 0;// 表示とタッチの向きのが一致しない場合の調整 0~7の値で設定
+
+            // SPI接続の場合
+            touch_cfg.spi_host   = SPI2_HOST; //HSPI_HOST;// 使用するSPIを選択 (HSPI_HOST or VSPI_HOST)
+            touch_cfg.freq       = 1000000;     // SPIクロックを設定
+            touch_cfg.pin_sclk   = GPIO_NUM_12;     // SCLKが接続されているピン番号
+            touch_cfg.pin_mosi   = GPIO_NUM_11;     // MOSIが接続されているピン番号
+            touch_cfg.pin_miso   = GPIO_NUM_13;     // MISOが接続されているピン番号
+            touch_cfg.pin_cs     = GPIO_NUM_0;     //   CSが接続されているピン番号
+
+            _touch_instance.config(touch_cfg);
+            _panel_instance.setTouch(&_touch_instance);  // タッチスクリーンをパネルにセットします。
+        }
+        setPanel(&_panel_instance);
+    }
+};
+#endif
+
+LGFX tft;
 

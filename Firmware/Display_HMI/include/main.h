@@ -7,6 +7,7 @@
 // -----------------------------
 #include "Credentials_public.h"
 #include "Wifi_OTA.h"
+#include "display_config.h"
 #include <EEPROM.h>
 #include <EEPROM_defines.h>
 #include <ESPmDNS.h>
@@ -91,10 +92,12 @@ constexpr int TOUCH_SCL_PIN = 16;
 constexpr int TOUCH_INT_PIN = -1;
 constexpr int TOUCH_RST_PIN = -1;
 
-// Backlight I2C Address (CrowPanel 7.0 uses STC8H1K28 at 0x30)
-constexpr int I2C_ADDR_BACKLIGHT = 0x30;
+// -----------------------------
+// Backlight I2C Address — centralizado en display_config.h
+// (CrowPanel 7.0 usa STC8H1K28 @ DISPLAY_I2C_ADDR_BL = 0x30)
+constexpr int I2C_ADDR_BACKLIGHT = DISPLAY_I2C_ADDR_BL;
 
-constexpr int TFT_BL_PIN = 2;
+constexpr int TFT_BL_PIN = DISPLAY_PIN_BL;
 
 // -----------------------------
 // Timings / delays (ms)
@@ -210,32 +213,12 @@ struct Alarm {
 };
 extern Alarm alarmList[MAX_ALARMS];
 
-// -----------------------------
-// LGFX config values (timings, polarity etc.)
-// Keep original numeric values from your cfg
-// -----------------------------
-constexpr int CFG_FREQ_WRITE = 12000000;
-
-constexpr int CFG_HSYNC_POLARITY = 0;
-constexpr int CFG_HSYNC_FRONT_PORCH = 8;
-constexpr int CFG_HSYNC_PULSE_WIDTH = 4;
-constexpr int CFG_HSYNC_BACK_PORCH = 8;
-
-constexpr int CFG_VSYNC_POLARITY = 0;
-constexpr int CFG_VSYNC_FRONT_PORCH = 8;
-constexpr int CFG_VSYNC_PULSE_WIDTH = 4;
-constexpr int CFG_VSYNC_BACK_PORCH = 8;
-
-constexpr int CFG_PCLK_ACTIVE_NEG = 1;
-constexpr int CFG_DE_IDLE_HIGH = 1; // Try DE High Active for RGB typically? No, usually DE is High during data.
-constexpr int CFG_PCLK_IDLE_HIGH = 0;
+// Nota: Los timings y pines del display están centralizados en display_config.h
+// Las constantes CFG_* han sido eliminadas para evitar duplicidades y confusión.
+// Usar directamente las macros DISPLAY_* de display_config.h.
 
 constexpr int CFG_OFFSET_X = 0;
 constexpr int CFG_OFFSET_Y = 0;
-constexpr int CFG_MEMORY_WIDTH = DISPLAY_WIDTH;
-constexpr int CFG_MEMORY_HEIGHT = DISPLAY_HEIGHT;
-constexpr int CFG_PANEL_WIDTH = DISPLAY_WIDTH;
-constexpr int CFG_PANEL_HEIGHT = DISPLAY_HEIGHT;
 
 // -----------------------------
 // Touch / Display rotations
