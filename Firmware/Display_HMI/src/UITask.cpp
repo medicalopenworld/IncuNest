@@ -21,6 +21,29 @@ static lv_obj_t *ui_VolumeLabel;   // Muestra "Vol: XX"
 static lv_obj_t *ui_VolumeUpBtn;
 static lv_obj_t *ui_VolumeDownBtn;
 
+// Novedades para Gráficas Históricas (Declaradas en ElementsCreation.cpp)
+extern lv_obj_t *ui_TabViewMainCharts;
+extern lv_obj_t *ui_HistoryDropdown;
+extern lv_obj_t *ui_TabViewHistory;
+extern lv_obj_t *ui_TabHistoryTemp;
+extern lv_obj_t *ui_TabHistoryHum;
+extern lv_obj_t *ui_HistoryChartAire;
+extern lv_obj_t *ui_HistoryChartSkin;
+extern lv_obj_t *ui_HistoryChartHum;
+
+// Series de datos (Se definen aquí para ser usadas por UITask)
+lv_chart_series_t *historySeriesAire = NULL;
+lv_chart_series_t *historySeriesSkin = NULL;
+lv_chart_series_t *historySeriesHum = NULL;
+
+#define HISTORY_BUFFER_SIZE 720 // 2 horas a 10s/punto
+float historyBufferAir[HISTORY_BUFFER_SIZE];
+float historyBufferSkin[HISTORY_BUFFER_SIZE];
+float historyBufferHum[HISTORY_BUFFER_SIZE];
+int historyWriteIdx = 0;
+int historySampleCount = 0;
+static int decimationCounter = 0;
+
 // ==========================================
 // Globals
 // ==========================================
@@ -355,6 +378,13 @@ void UI_ApplyLanguage(ui_lang_t lang) {
                                     "ESPAGNOL\nANGLAIS\nFRANCAIS"};
   const char *TXT_CONNECTIVITY[] = {"CONECTIVIDAD:", "CONNECTIVITY:", "CONNECTIVITE:"};
   const char *TXT_PHOTOSTART[] = {"EMPEZAR", "START", "DEMARRER"};
+  const char *TXT_REALTIME[] = {"TIEMPO REAL", "REAL TIME", "TEMPS REEL"};
+  const char *TXT_HISTORY[] = {"HISTORIAL", "HISTORY", "HISTORIQUE"};
+  const char *TXT_HISTORY_OPTIONS[] = {"5 min\n30 min\n1 h\n2 h", "5 min\n30 min\n1 h\n2 h", "5 min\n30 min\n1 h\n2 h"};
+  const char *TXT_RANGE[] = {"RANGO:", "RANGE:", "PLAGE:"};
+  const char *TXT_HIST_AIR[] = {"HISTORIAL TEMP AIRE", "AIR TEMP HISTORY", "HIST. TEMP AIR"};
+  const char *TXT_HIST_SKIN[] = {"HISTORIAL TEMP PIEL", "SKIN TEMP HISTORY", "HIST. TEMP PEAU"};
+  const char *TXT_HIST_HUM[] = {"HISTORIAL TEMP HUM", "HUMIDITY HISTORY", "HIST. HUMIDITÉ"};
 
   lv_label_set_text(ui_Label2, TXT_CONTROLTEMP[lang]);
   lv_label_set_text(ui_HumidityLabel, TXT_CONTROLHUM[lang]);
@@ -418,6 +448,37 @@ void UI_ApplyLanguage(ui_lang_t lang) {
     }
   }
 
+  // Traducción del TabView Principal de Gráficas
+  if (ui_TabViewMainCharts) {
+    lv_obj_t *btnm = lv_tabview_get_tab_btns(ui_TabViewMainCharts);
+    if (btnm && lv_obj_check_type(btnm, &lv_btnmatrix_class)) {
+      static const char *map_main_chart[3];
+      map_main_chart[0] = TXT_REALTIME[lang];
+      map_main_chart[1] = TXT_HISTORY[lang];
+      map_main_chart[2] = "";
+      lv_btnmatrix_set_map(btnm, map_main_chart);
+    }
+  }
+  if (ui_HistoryDropdown) {
+    lv_dropdown_set_options(ui_HistoryDropdown, TXT_HISTORY_OPTIONS[lang]);
+  }
+  if (ui_HistoryTimeLabel) lv_label_set_text(ui_HistoryTimeLabel, TXT_RANGE[lang]);
+  if (ui_HistoryChartAireLabel) lv_label_set_text(ui_HistoryChartAireLabel, TXT_HIST_AIR[lang]);
+  if (ui_HistoryChartSkinLabel) lv_label_set_text(ui_HistoryChartSkinLabel, TXT_HIST_SKIN[lang]);
+  if (ui_HistoryChartHumLabel) lv_label_set_text(ui_HistoryChartHumLabel, TXT_HIST_HUM[lang]);
+
+  // Traducción del TabView del Historial
+  if (ui_TabViewHistory) {
+    lv_obj_t *btnm = lv_tabview_get_tab_btns(ui_TabViewHistory);
+    if (btnm && lv_obj_check_type(btnm, &lv_btnmatrix_class)) {
+      static const char *map_hist_tab[3];
+      map_hist_tab[0] = TXT_TABTEMP[lang];
+      map_hist_tab[1] = TXT_TABHUM[lang];
+      map_hist_tab[2] = "";
+      lv_btnmatrix_set_map(btnm, map_hist_tab);
+    }
+  }
+
   lv_label_set_text(ui_Label11, TXT_AIRTEMP[lang]);
   lv_label_set_text(ui_Label12, TXT_BABYTEMP[lang]);
   lv_label_set_text(ui_Label19, TXT_HUM[lang]);
@@ -451,7 +512,7 @@ void LanguagesDropDown_cb(lv_event_t *e) {
   hmi_msg.shouldSendData = true;
 }
 
-lv_chart_series_t *configure_temp_chart(lv_obj_t *chart, lv_palette_t pal) {
+lv_chart_series_t *configure_temp_chart(lv_obj_t *chart, lv_palette_t pal, lv_coord_t min, lv_coord_t max) {
   lv_chart_series_t *s = lv_chart_get_series_next(chart, NULL);
   while (s != NULL) {
     lv_chart_series_t *next = lv_chart_get_series_next(chart, s);
@@ -462,7 +523,7 @@ lv_chart_series_t *configure_temp_chart(lv_obj_t *chart, lv_palette_t pal) {
   }
   lv_chart_set_type(chart, LV_CHART_TYPE_LINE);
   lv_chart_set_point_count(chart, 50);
-  lv_chart_set_range(chart, LV_CHART_AXIS_PRIMARY_Y, 20, 45);
+  lv_chart_set_range(chart, LV_CHART_AXIS_PRIMARY_Y, min, max);
   lv_chart_series_t *series =
       lv_chart_add_series(chart, lv_palette_main(pal), LV_CHART_AXIS_PRIMARY_Y);
   lv_chart_set_axis_tick(chart, LV_CHART_AXIS_SECONDARY_Y, 0, 0, 0, 0, false,
@@ -1047,6 +1108,7 @@ void Switch_cb(lv_event_t *e) {
   hmi_msg.shouldSendData = true;
 
   update_labels();
+  UI_SyncAll();
 }
 
 void setup_panel_callbacks() {
@@ -1380,6 +1442,84 @@ void chart_add_hum_value(float hum) {
   lv_chart_set_next_value(ui_HumChart, humSeries, (lv_coord_t)hum);
 }
 
+void chart_save_history() {
+  decimationCounter++;
+  if (decimationCounter >= 10) { // 1 cada 10 muestras (~10 segundos)
+    decimationCounter = 0;
+    historyBufferAir[historyWriteIdx] = (float)airTempValueDetected;
+    historyBufferSkin[historyWriteIdx] = (float)skinTempValueDetected;
+    historyBufferHum[historyWriteIdx] = (float)humValueDetected;
+    
+    historyWriteIdx = (historyWriteIdx + 1) % HISTORY_BUFFER_SIZE;
+    if (historySampleCount < HISTORY_BUFFER_SIZE) historySampleCount++;
+
+    // Si la pantalla de gráficas está activa, refrescar el historial
+    if (lv_scr_act() == ui_ScreenCharts) {
+        update_history_charts();
+    }
+  }
+}
+
+void update_history_charts() {
+  if (!ui_HistoryChartAire || !historySeriesAire) return;
+  if (!ui_HistoryChartHum || !historySeriesHum) return;
+  
+  uint16_t interval_idx = lv_dropdown_get_selected(ui_HistoryDropdown);
+  int point_count = 0;
+  switch(interval_idx) {
+    case 0: point_count = 30; break;  // 5 min (~5 min @ 10s/sample)
+    case 1: point_count = 180; break; // 30 min
+    case 2: point_count = 360; break; // 1 h
+    case 3: point_count = 720; break; // 2 h
+    default: point_count = 30;
+  }
+  
+  // Si hay menos datos que los pedidos, mostrar solo los disponibles
+  if (point_count > historySampleCount) point_count = historySampleCount;
+  
+  // Si no hay datos aún, no dibujar nada
+  if (point_count == 0) return;
+  
+  // ---- Temperatura Aire ----
+  // Reset de la serie: poner todos los puntos como NONE
+  lv_chart_set_point_count(ui_HistoryChartAire, point_count);
+  for (int i = 0; i < point_count; i++) historySeriesAire->y_points[i] = LV_CHART_POINT_NONE;
+  historySeriesAire->start_point = 0;
+  
+  // ---- Temperatura Piel ----
+  lv_chart_set_point_count(ui_HistoryChartSkin, point_count);
+  for (int i = 0; i < point_count; i++) historySeriesSkin->y_points[i] = LV_CHART_POINT_NONE;
+  historySeriesSkin->start_point = 0;
+  
+  // ---- Humedad ----
+  lv_chart_set_point_count(ui_HistoryChartHum, point_count);
+  for (int i = 0; i < point_count; i++) historySeriesHum->y_points[i] = LV_CHART_POINT_NONE;
+  historySeriesHum->start_point = 0;
+  
+  // Calcular índice de inicio en el búfer circular
+  int start_idx = (historyWriteIdx - point_count + HISTORY_BUFFER_SIZE) % HISTORY_BUFFER_SIZE;
+  
+  // Cargar datos del búfer secuencialmente en las series
+  for (int i = 0; i < point_count; i++) {
+    int buf_idx = (start_idx + i) % HISTORY_BUFFER_SIZE;
+    lv_chart_set_next_value(ui_HistoryChartAire, historySeriesAire, (lv_coord_t)historyBufferAir[buf_idx]);
+    lv_chart_set_next_value(ui_HistoryChartSkin, historySeriesSkin, (lv_coord_t)historyBufferSkin[buf_idx]);
+    lv_chart_set_next_value(ui_HistoryChartHum, historySeriesHum, (lv_coord_t)historyBufferHum[buf_idx]);
+  }
+  
+  lv_chart_refresh(ui_HistoryChartAire);
+  lv_chart_refresh(ui_HistoryChartSkin);
+  lv_chart_refresh(ui_HistoryChartHum);
+}
+
+void ScreenCharts_load_cb(lv_event_t *e) {
+    update_history_charts();
+}
+
+void HistoryDropdown_cb(lv_event_t *e) {
+    update_history_charts();
+}
+
 void AlarmSound_Update() {
   //if (alarmActive && !alarmsMuted)
   //  buzzerOn();
@@ -1659,6 +1799,22 @@ void SPO2Button_cb(lv_event_t *e) {
 void ChartButton_cb(lv_event_t *e) {
   _ui_screen_change(&ui_ScreenCharts, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
                     &ui_ScreenCharts_screen_init);
+
+  if (g_ui_initialized) {
+    // Si la pantalla de charts se acaba de inicializar, podemos acceder a ui_TabView1
+    // Nota: ui_TabView1 se crea en ui_ScreenCharts_screen_init
+    lv_tabview_set_act(ui_TabViewMainCharts, 0, LV_ANIM_OFF); // Ir a Tiempo Real por defecto
+    
+    // Ocultar/Mostrar páginas del TabView según estado de sensores
+    if (tempSwitched && humSwitched) {
+        lv_tabview_set_act(ui_TabView1, 0, LV_ANIM_OFF); // Mostrar Temp por defecto
+    } else if (tempSwitched) {
+        lv_tabview_set_act(ui_TabView1, 0, LV_ANIM_OFF); // Forzar Temp
+    } else if (humSwitched) {
+        lv_tabview_set_act(ui_TabView1, 1, LV_ANIM_OFF); // Forzar Hum
+    }
+    update_history_charts();
+  }
 }
 
 
@@ -1952,7 +2108,7 @@ void UI_Task(void *pvParameters) {
   lv_obj_add_flag(ui_Alarm4Panel, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_flag(ui_Alarm4Label, LV_OBJ_FLAG_CLICKABLE);
 
-  lv_obj_add_flag(ui_ChartButton, LV_OBJ_FLAG_HIDDEN);
+  // lv_obj_add_flag(ui_ChartButton, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_SPO2Button, LV_OBJ_FLAG_HIDDEN);
 
   lv_obj_set_width(ui_AlarmDetailLabel, lv_pct(100));
@@ -1981,8 +2137,8 @@ void UI_Task(void *pvParameters) {
   lv_obj_add_flag(ui_AlarmLockCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_clear_flag(ui_CheckImg, LV_OBJ_FLAG_HIDDEN);
 
-  airTempSeries = configure_temp_chart(ui_AirTempChart, LV_PALETTE_BLUE);
-  skinTempSeries = configure_temp_chart(ui_SkinTempChart, LV_PALETTE_BLUE);
+  airTempSeries = configure_temp_chart(ui_AirTempChart, LV_PALETTE_BLUE, 20, 40);
+  skinTempSeries = configure_temp_chart(ui_SkinTempChart, LV_PALETTE_BLUE, 20, 40);
 
   lv_obj_add_flag(ui_AirTempChartCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_SkinTempChartCont, LV_OBJ_FLAG_HIDDEN);
@@ -2000,7 +2156,7 @@ void UI_Task(void *pvParameters) {
   }
   lv_chart_set_type(ui_HumChart, LV_CHART_TYPE_LINE);
   lv_chart_set_point_count(ui_HumChart, 50);
-  lv_chart_set_range(ui_HumChart, LV_CHART_AXIS_PRIMARY_Y, 0, 100);
+  lv_chart_set_range(ui_HumChart, LV_CHART_AXIS_PRIMARY_Y, 10, 100);
   humSeries = lv_chart_add_series(
       ui_HumChart, lv_palette_main(LV_PALETTE_GREEN), LV_CHART_AXIS_PRIMARY_Y);
   lv_chart_set_axis_tick(ui_HumChart, LV_CHART_AXIS_SECONDARY_Y, 0, 0, 0, 0,
@@ -2063,6 +2219,13 @@ void UI_Task(void *pvParameters) {
 
     // Debug Pulse
     static uint32_t lastLoopMs = 0;
+    static uint32_t lastSyncMs = 0;
+    
+    if (millis() - lastSyncMs > 1000) {
+        lastSyncMs = millis();
+        UI_SyncAll();
+    }
+
     if (millis() - lastLoopMs > 5000) {
         lastLoopMs = millis();
         ESP_LOGD(TAG, "UI and Audio Loop active");
@@ -2347,12 +2510,54 @@ void UI_SyncAll() {
     }
     if ((switchTemp && !switchHum) || (!switchTemp && switchHum)) {
       if (tab_btns_cont) lv_obj_add_flag(tab_btns_cont, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_clear_flag(lv_tabview_get_content(ui_TabView1), LV_OBJ_FLAG_SCROLLABLE); // Bloquear swipe si solo hay uno
     } else {
       if (tab_btns_cont) lv_obj_clear_flag(tab_btns_cont, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_add_flag(lv_tabview_get_content(ui_TabView1), LV_OBJ_FLAG_SCROLLABLE); // Permitir swipe si hay dos
     }
     
     if (switchTemp && !switchHum) lv_tabview_set_act(ui_TabView1, 0, LV_ANIM_OFF);
     else if (!switchTemp && switchHum) lv_tabview_set_act(ui_TabView1, 1, LV_ANIM_OFF);
+
+    // --- Sincronización del TabView de Historial ---
+    // Controlamos directamente la visibilidad de las páginas y botones del TabView
+    if (ui_TabViewHistory) {
+      lv_obj_t *hist_tab_btns = lv_tabview_get_tab_btns(ui_TabViewHistory);
+
+      if (switchTemp && switchHum) {
+          // AMBOS ACTIVOS: mostrar tab buttons, mostrar ambas páginas
+          if (hist_tab_btns) lv_obj_clear_flag(hist_tab_btns, LV_OBJ_FLAG_HIDDEN);
+          if (ui_TabHistoryTemp) lv_obj_clear_flag(ui_TabHistoryTemp, LV_OBJ_FLAG_HIDDEN);
+          if (ui_TabHistoryHum) lv_obj_clear_flag(ui_TabHistoryHum, LV_OBJ_FLAG_HIDDEN);
+      } else if (switchTemp && !switchHum) {
+          // SOLO TEMP: ocultar tab buttons, mostrar solo TEMP, ocultar HUM
+          if (hist_tab_btns) lv_obj_add_flag(hist_tab_btns, LV_OBJ_FLAG_HIDDEN);
+          if (ui_TabHistoryTemp) lv_obj_clear_flag(ui_TabHistoryTemp, LV_OBJ_FLAG_HIDDEN);
+          if (ui_TabHistoryHum) lv_obj_add_flag(ui_TabHistoryHum, LV_OBJ_FLAG_HIDDEN);
+          lv_tabview_set_act(ui_TabViewHistory, 0, LV_ANIM_OFF);
+      } else if (!switchTemp && switchHum) {
+          // SOLO HUM: ocultar tab buttons, mostrar solo HUM, ocultar TEMP
+          if (hist_tab_btns) lv_obj_add_flag(hist_tab_btns, LV_OBJ_FLAG_HIDDEN);
+          if (ui_TabHistoryTemp) lv_obj_add_flag(ui_TabHistoryTemp, LV_OBJ_FLAG_HIDDEN);
+          if (ui_TabHistoryHum) lv_obj_clear_flag(ui_TabHistoryHum, LV_OBJ_FLAG_HIDDEN);
+          lv_tabview_set_act(ui_TabViewHistory, 1, LV_ANIM_OFF);
+      }
+    }
+
+    // Visibilidad Air vs Skin en la pestaña de temperatura del historial
+    // Solo se muestra la gráfica correspondiente al modo activo
+    if (selectedPanel == SKIN_PANEL_SELECTED) {
+      if (ui_HistoryChartAire) lv_obj_add_flag(ui_HistoryChartAire, LV_OBJ_FLAG_HIDDEN);
+      if (ui_HistoryChartAireLabel) lv_obj_add_flag(ui_HistoryChartAireLabel, LV_OBJ_FLAG_HIDDEN);
+      if (ui_HistoryChartSkin) lv_obj_clear_flag(ui_HistoryChartSkin, LV_OBJ_FLAG_HIDDEN);
+      if (ui_HistoryChartSkinLabel) lv_obj_clear_flag(ui_HistoryChartSkinLabel, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      // AIR_PANEL_SELECTED o por defecto → mostrar Air
+      if (ui_HistoryChartAire) lv_obj_clear_flag(ui_HistoryChartAire, LV_OBJ_FLAG_HIDDEN);
+      if (ui_HistoryChartAireLabel) lv_obj_clear_flag(ui_HistoryChartAireLabel, LV_OBJ_FLAG_HIDDEN);
+      if (ui_HistoryChartSkin) lv_obj_add_flag(ui_HistoryChartSkin, LV_OBJ_FLAG_HIDDEN);
+      if (ui_HistoryChartSkinLabel) lv_obj_add_flag(ui_HistoryChartSkinLabel, LV_OBJ_FLAG_HIDDEN);
+    }
   }
 
   update_labels();

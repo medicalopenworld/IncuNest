@@ -276,6 +276,9 @@ void ui_ScreenAlarms_screen_destroy(void);
 
 // --- SCREEN: Charts ---
 extern lv_obj_t * ui_ScreenCharts;
+extern lv_obj_t * ui_TabViewMainCharts;
+extern lv_obj_t * ui_HistoryDropdown;
+extern lv_obj_t * ui_TabViewHistory;
 extern lv_obj_t * ui_TabView1;
 extern lv_obj_t * ui_TempChartPage1;
 extern lv_obj_t * ui_AirTempChartCont;
@@ -292,6 +295,16 @@ extern lv_obj_t * ui_OxChartCont;
 extern lv_obj_t * ui_OxChart;
 extern lv_obj_t * ui_Label35;
 extern lv_obj_t * ui_ImgButton8;
+
+extern lv_obj_t * ui_HistoryChartAire;
+extern lv_obj_t * ui_HistoryChartSkin;
+extern lv_obj_t * ui_HistoryChartHum;
+
+extern lv_obj_t * ui_HistoryTimeLabel;
+extern lv_obj_t * ui_HistoryChartAireLabel;
+extern lv_obj_t * ui_HistoryChartSkinLabel;
+extern lv_obj_t * ui_HistoryChartHumLabel;
+
 void ui_ScreenCharts_screen_init(void);
 void ui_ScreenCharts_screen_destroy(void);
 

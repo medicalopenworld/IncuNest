@@ -316,6 +316,7 @@ static void applyHMIData() {
     chart_add_skin_temp((float)skinTempValueDetected);
   }
   chart_add_hum_value((float)humValueDetected);
+  chart_save_history();
 }
 
 static void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
