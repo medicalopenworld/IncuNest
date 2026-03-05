@@ -2002,7 +2002,7 @@ void UI_Task(void *pvParameters) {
 
   UI_ApplyLanguage(g_lang);
   ui_set_switch_state_silent(ui_SwitchDarkMode, darkMode);
-  UI_ApplyTheme();
+  // UI_ApplyTheme() movida al final de la creación de elementos manuales para que les afecte
 
   // Botón de PLAY de Audio
   ui_AudioPlayBtn = lv_btn_create(ui_ScreenSettings);
@@ -2052,6 +2052,9 @@ void UI_Task(void *pvParameters) {
   lv_label_set_text(volUpLabel, LV_SYMBOL_PLUS);
   lv_obj_center(volUpLabel);
   lv_obj_add_event_cb(ui_VolumeUpBtn, VolumeUp_cb, LV_EVENT_CLICKED, NULL);
+
+  // Aplicar tema DESPUÉS de crear todos los elementos manuales (Play, Stop, Volumen, etc.)
+  UI_ApplyTheme();
 
   intro_timer = lv_timer_create(intro_timer_cb, 5000, NULL);
   lv_timer_set_repeat_count(intro_timer, 1);
@@ -2681,6 +2684,11 @@ void UI_ApplyTheme() {
         lv_obj_set_style_bg_color(ui_ScreenLock, lv_color_hex(0x1A1A1A), 0);
         UI_ApplyStyleToLabelsRecursive(ui_ScreenLock, lv_color_hex(0xFFFFFF));
     }
+
+    // Settings Details (Info/Wifi) ALWAYS keep black text because their panels are white
+    if (ui_InfoDetailsCont) UI_ApplyStyleToLabelsRecursive(ui_InfoDetailsCont, lv_color_hex(0x000000));
+    if (ui_WifiConfigCont) UI_ApplyStyleToLabelsRecursive(ui_WifiConfigCont, lv_color_hex(0x000000));
+    if (ui_WifiConnectedCont) UI_ApplyStyleToLabelsRecursive(ui_WifiConnectedCont, lv_color_hex(0x000000));
 
     // Images recoloring for Dark Mode (Originals are black, we want white)
     lv_color_t img_recolor = darkMode ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x000000);
