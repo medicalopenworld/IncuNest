@@ -2682,6 +2682,31 @@ void UI_ApplyTheme() {
         UI_ApplyStyleToLabelsRecursive(ui_ScreenLock, lv_color_hex(0xFFFFFF));
     }
 
+    // Images recoloring for Dark Mode (Originals are black, we want white)
+    lv_color_t img_recolor = darkMode ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x000000);
+    lv_opa_t img_recolor_opa = darkMode ? LV_OPA_COVER : LV_OPA_TRANSP;
+
+    if (ui_ChartButton) {
+        lv_obj_set_style_img_recolor(ui_ChartButton, img_recolor, 0);
+        lv_obj_set_style_img_recolor_opa(ui_ChartButton, img_recolor_opa, 0);
+    }
+    if (ui_ImgButton2) {
+        lv_obj_set_style_img_recolor(ui_ImgButton2, img_recolor, 0);
+        lv_obj_set_style_img_recolor_opa(ui_ImgButton2, img_recolor_opa, 0);
+    }
+    if (ui_ImgButton7) {
+        lv_obj_set_style_img_recolor(ui_ImgButton7, img_recolor, 0);
+        lv_obj_set_style_img_recolor_opa(ui_ImgButton7, img_recolor_opa, 0);
+    }
+    if (ui_ImgButton8) {
+        lv_obj_set_style_img_recolor(ui_ImgButton8, img_recolor, 0);
+        lv_obj_set_style_img_recolor_opa(ui_ImgButton8, img_recolor_opa, 0);
+    }
+    if (ui_ImgButton9) {
+        lv_obj_set_style_img_recolor(ui_ImgButton9, img_recolor, 0);
+        lv_obj_set_style_img_recolor_opa(ui_ImgButton9, img_recolor_opa, 0);
+    }
+
     UI_SyncAll(); 
 }
 
