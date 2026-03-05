@@ -19,3 +19,4 @@ void ScreenCharts_load_cb(lv_event_t *e);
 void ui_set_switch_state_silent(lv_obj_t *sw, bool on);
 void UI_ApplyLanguage(ui_lang_t lang);
 void UI_SyncAll();
+void UI_ApplyTheme();

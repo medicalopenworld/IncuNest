@@ -59,6 +59,7 @@ bool switchHum = false;
 bool tempSwitched = false;
 bool humSwitched = false;
 bool arrowsActive = false;
+bool darkMode = false;
 
 bool alarmActive = false;
 bool alarmsMuted = false;
@@ -378,6 +379,7 @@ void UI_ApplyLanguage(ui_lang_t lang) {
                                     "ESPAGNOL\nANGLAIS\nFRANCAIS"};
   const char *TXT_CONNECTIVITY[] = {"CONECTIVIDAD:", "CONNECTIVITY:", "CONNECTIVITE:"};
   const char *TXT_PHOTOSTART[] = {"EMPEZAR", "START", "DEMARRER"};
+  const char *TXT_DARKMODE[] = {"MODO OSCURO", "DARK MODE", "MODE SOMBRE"};
   const char *TXT_REALTIME[] = {"TIEMPO REAL", "REAL TIME", "TEMPS REEL"};
   const char *TXT_HISTORY[] = {"HISTORIAL", "HISTORY", "HISTORIQUE"};
   const char *TXT_HISTORY_OPTIONS[] = {"5 min\n30 min\n1 h\n2 h", "5 min\n30 min\n1 h\n2 h", "5 min\n30 min\n1 h\n2 h"};
@@ -405,6 +407,7 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   lv_label_set_text(ui_PassLabel, TXT_PASSWORD[lang]);
   lv_label_set_text(ui_SkinOptionLabel, TXT_SKINMODE[lang]);
   lv_label_set_text(ui_InfoLabel, TXT_INFO[lang]);
+  lv_label_set_text(ui_DarkModeLabel, TXT_DARKMODE[lang]);
   lv_label_set_text(ui_HMIVerTitle, TXT_HMI_VERSION[lang]);
   lv_label_set_text(ui_MBVerTitle, TXT_MB_VERSION[lang]);
   lv_label_set_text(ui_SNTitle, TXT_SN[lang]);
@@ -570,9 +573,12 @@ void chart_add_skin_temp(float v) {
 }
 
 void set_active_panel(lv_obj_t *active, lv_obj_t *inactive) {
-  lv_obj_set_style_bg_color(active, COLOR_PANEL_WHITE, LV_PART_MAIN);
+  lv_color_t active_col = darkMode ? COLOR_PANEL_GRAY : COLOR_PANEL_WHITE;
+  lv_color_t inactive_col = darkMode ? COLOR_BG_DARK : COLOR_PANEL_GRAY;
+
+  lv_obj_set_style_bg_color(active, active_col, LV_PART_MAIN);
   lv_obj_set_style_opa(active, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(inactive, COLOR_PANEL_GRAY, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(inactive, inactive_col, LV_PART_MAIN);
   lv_obj_set_style_opa(inactive, LV_OPA_COVER, LV_PART_MAIN);
 }
 
@@ -999,6 +1005,13 @@ void Switch_cb(lv_event_t *e) {
         }
       }
     }
+  } else if (obj == ui_SwitchDarkMode) { // DARK MODE SWITCH
+    bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
+    darkMode = checked;
+    EEPROM.write(EEPROM_DARK_MODE, darkMode ? 1 : 0);
+    eepromDirty = true;
+    lastVarChangeTime = millis();
+    UI_ApplyTheme();
   }
 
   // If temperature is OFF, disable panels and arrows (por si acaso)
@@ -1988,6 +2001,8 @@ void UI_Task(void *pvParameters) {
   */
 
   UI_ApplyLanguage(g_lang);
+  ui_set_switch_state_silent(ui_SwitchDarkMode, darkMode);
+  UI_ApplyTheme();
 
   // Botón de PLAY de Audio
   ui_AudioPlayBtn = lv_btn_create(ui_ScreenSettings);
@@ -2055,21 +2070,23 @@ void UI_Task(void *pvParameters) {
   lv_obj_add_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
   lv_keyboard_set_textarea(ui_Keyboard1, NULL);
 
-  lv_textarea_set_text(ui_TextArea1, wifi_ssid);
   lv_textarea_set_text(ui_TextArea2, wifi_pass);
 
-  lv_obj_set_style_bg_color(ui_Panel2, COLOR_PANEL_WHITE, LV_PART_MAIN);
+  lv_color_t init_panel_col = darkMode ? COLOR_PANEL_DARK : COLOR_PANEL_WHITE;
+  lv_color_t init_inactive_col = COLOR_PANEL_GRAY;
+
+  lv_obj_set_style_bg_color(ui_Panel2, init_panel_col, LV_PART_MAIN);
   lv_obj_set_style_opa(ui_Panel2, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(ui_Panel5, COLOR_PANEL_WHITE, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(ui_Panel5, init_panel_col, LV_PART_MAIN);
   lv_obj_set_style_opa(ui_Panel5, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(ui_Panel6, COLOR_PANEL_WHITE, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(ui_Panel6, init_panel_col, LV_PART_MAIN);
   lv_obj_set_style_opa(ui_Panel6, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(ui_Panel4, COLOR_PANEL_WHITE, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(ui_Panel4, init_panel_col, LV_PART_MAIN);
   lv_obj_set_style_opa(ui_Panel4, LV_OPA_COVER, LV_PART_MAIN);
 
-  lv_obj_set_style_bg_color(ui_Panel1, COLOR_PANEL_GRAY, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(ui_Panel1, init_inactive_col, LV_PART_MAIN);
   lv_obj_set_style_opa(ui_Panel1, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(ui_Panel3, COLOR_PANEL_GRAY, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(ui_Panel3, init_inactive_col, LV_PART_MAIN);
   lv_obj_set_style_opa(ui_Panel3, LV_OPA_COVER, LV_PART_MAIN);
 
   lv_obj_set_style_bg_color(ui_ArrowDownTemp, COLOR_PANEL_GRAY, LV_PART_MAIN);
@@ -2301,6 +2318,10 @@ void CreateUITask() {
 void UI_SyncAll() {
   if (!g_ui_initialized)
     return;
+
+  lv_color_t active_col = darkMode ? COLOR_PANEL_GRAY : COLOR_PANEL_WHITE;
+  lv_color_t inactive_col = darkMode ? COLOR_BG_DARK : COLOR_PANEL_GRAY;
+
   // 1. Update internal state flags from current switch visual state
   switchTemp = lv_obj_has_state(ui_Switch1, LV_STATE_CHECKED);
   tempSwitched = switchTemp;
@@ -2349,11 +2370,18 @@ void UI_SyncAll() {
     arrowsActive = true;
     lv_obj_add_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(ui_ImgArrowUpTemp, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_bg_color(ui_ArrowDownTemp, COLOR_PANEL_WHITE, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_ArrowUpTemp, COLOR_PANEL_WHITE, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_ArrowDownTemp, active_col, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ui_ArrowDownTemp, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_ArrowUpTemp, active_col, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ui_ArrowUpTemp, LV_OPA_COVER, LV_PART_MAIN);
     
     // Temperature Panel background
-    lv_obj_set_style_bg_color(ui_Panel1, COLOR_PANEL_WHITE, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_Panel1, active_col, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ui_Panel1, LV_OPA_COVER, LV_PART_MAIN);
+    if (ui_Panel4) {
+      lv_obj_set_style_bg_color(ui_Panel4, active_col, LV_PART_MAIN);
+      lv_obj_set_style_bg_opa(ui_Panel4, LV_OPA_COVER, LV_PART_MAIN);
+    }
     
     temp_chart_show_for_selected_panel();
   } else {
@@ -2363,11 +2391,20 @@ void UI_SyncAll() {
     lv_obj_add_flag(ui_SkinTempChartCont, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(ui_ImgArrowUpTemp, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_bg_color(ui_ArrowDownTemp, COLOR_PANEL_GRAY, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_ArrowUpTemp, COLOR_PANEL_GRAY, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_AirPanel, COLOR_PANEL_GRAY, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_SkinPanel, COLOR_PANEL_GRAY, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_Panel1, COLOR_PANEL_GRAY, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_ArrowDownTemp, inactive_col, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ui_ArrowDownTemp, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_ArrowUpTemp, inactive_col, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ui_ArrowUpTemp, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_AirPanel, inactive_col, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ui_AirPanel, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_SkinPanel, inactive_col, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ui_SkinPanel, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_Panel1, inactive_col, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ui_Panel1, LV_OPA_COVER, LV_PART_MAIN);
+    if (ui_Panel4) {
+      lv_obj_set_style_bg_color(ui_Panel4, inactive_col, LV_PART_MAIN);
+      lv_obj_set_style_bg_opa(ui_Panel4, LV_OPA_COVER, LV_PART_MAIN);
+    }
 
     // Visually show labels and thermometer of the last selected panel even if OFF
     if (lastSelectedPanel == SKIN_PANEL_SELECTED) {
@@ -2395,17 +2432,31 @@ void UI_SyncAll() {
     lv_obj_clear_flag(ui_HumLockDesiredCont, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_ImgArrowDownHum, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(ui_ImgArrowUpHum, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_bg_color(ui_ArrowDownHum, COLOR_PANEL_WHITE, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_ArrowUpHum, COLOR_PANEL_WHITE, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_Panel3, COLOR_PANEL_WHITE, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_ArrowDownHum, active_col, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ui_ArrowDownHum, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_ArrowUpHum, active_col, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ui_ArrowUpHum, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_Panel3, active_col, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ui_Panel3, LV_OPA_COVER, LV_PART_MAIN);
+    if (ui_Panel6) {
+      lv_obj_set_style_bg_color(ui_Panel6, active_col, LV_PART_MAIN);
+      lv_obj_set_style_bg_opa(ui_Panel6, LV_OPA_COVER, LV_PART_MAIN);
+    }
   } else {
     lv_obj_add_flag(ui_HumChartCont, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_HumLockDesiredCont, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(ui_ImgArrowDownHum, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(ui_ImgArrowUpHum, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_bg_color(ui_ArrowDownHum, COLOR_PANEL_GRAY, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_ArrowUpHum, COLOR_PANEL_GRAY, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_Panel3, COLOR_PANEL_GRAY, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_ArrowDownHum, inactive_col, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ui_ArrowDownHum, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_ArrowUpHum, inactive_col, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ui_ArrowUpHum, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_Panel3, inactive_col, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ui_Panel3, LV_OPA_COVER, LV_PART_MAIN);
+    if (ui_Panel6) {
+      lv_obj_set_style_bg_color(ui_Panel6, inactive_col, LV_PART_MAIN);
+      lv_obj_set_style_bg_opa(ui_Panel6, LV_OPA_COVER, LV_PART_MAIN);
+    }
   }
 
   // 4. Phototherapy Logic (Switch 3)
@@ -2413,7 +2464,12 @@ void UI_SyncAll() {
   
   if (photoOn) {
       // Normal state
-      lv_obj_set_style_bg_color(ui_PhotoTimerPanel, COLOR_PANEL_WHITE, LV_PART_MAIN);
+      lv_obj_set_style_bg_color(ui_PhotoTimerPanel, active_col, LV_PART_MAIN);
+      lv_obj_set_style_bg_opa(ui_PhotoTimerPanel, LV_OPA_COVER, LV_PART_MAIN);
+      if (ui_Panel2) {
+        lv_obj_set_style_bg_color(ui_Panel2, active_col, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(ui_Panel2, LV_OPA_COVER, LV_PART_MAIN);
+      }
       lv_obj_add_flag(ui_PhotoTimeMinusBtn, LV_OBJ_FLAG_CLICKABLE);
       lv_obj_add_flag(ui_PhotoTimePlusBtn, LV_OBJ_FLAG_CLICKABLE);
       lv_obj_add_flag(ui_PhotoStartBtn, LV_OBJ_FLAG_CLICKABLE);
@@ -2451,7 +2507,12 @@ void UI_SyncAll() {
       }
   } else {
       // Grayed out state
-      lv_obj_set_style_bg_color(ui_PhotoTimerPanel, COLOR_PANEL_GRAY, LV_PART_MAIN);
+      lv_obj_set_style_bg_color(ui_PhotoTimerPanel, inactive_col, LV_PART_MAIN);
+      lv_obj_set_style_bg_opa(ui_PhotoTimerPanel, LV_OPA_COVER, LV_PART_MAIN);
+      if (ui_Panel2) {
+        lv_obj_set_style_bg_color(ui_Panel2, inactive_col, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(ui_Panel2, LV_OPA_COVER, LV_PART_MAIN);
+      }
       lv_obj_clear_flag(ui_PhotoTimeMinusBtn, LV_OBJ_FLAG_CLICKABLE);
       lv_obj_clear_flag(ui_PhotoTimePlusBtn, LV_OBJ_FLAG_CLICKABLE);
       lv_obj_clear_flag(ui_PhotoStartBtn, LV_OBJ_FLAG_CLICKABLE);
@@ -2476,8 +2537,8 @@ void UI_SyncAll() {
       photoTimerActive = false; // Safety
   }
   
-  // Panel is ALWAYS white as requested
-  lv_obj_set_style_bg_color(ui_Panel2, COLOR_PANEL_WHITE, LV_PART_MAIN);
+  // Panel 2 is now handled above based on photoOn state
+  // lv_obj_set_style_bg_color(ui_Panel2, active_col, LV_PART_MAIN);
   lv_obj_set_style_opa(ui_Panel2, LV_OPA_COVER, LV_PART_MAIN);
 
   // 5. Skin Block (Switch 4)
@@ -2561,5 +2622,66 @@ void UI_SyncAll() {
   }
 
   update_labels();
+}
+
+static void UI_ApplyStyleToLabelsRecursive(lv_obj_t *obj, lv_color_t color) {
+    if (!obj) return;
+
+    // Check if the object is a label. 
+    // Note: In some LVGL versions we use lv_obj_get_class(obj) == &lv_label_class
+    // or lv_obj_check_type(obj, &lv_label_class).
+    if (lv_obj_check_type(obj, &lv_label_class)) {
+        lv_obj_set_style_text_color(obj, color, 0);
+    }
+
+    uint32_t i;
+    uint32_t n = lv_obj_get_child_cnt(obj);
+    for (i = 0; i < n; i++) {
+        UI_ApplyStyleToLabelsRecursive(lv_obj_get_child(obj, i), color);
+    }
+}
+
+void UI_ApplyTheme() {
+    if (!g_ui_initialized) return;
+
+    lv_color_t bg_col = darkMode ? COLOR_BG_DARK : lv_color_hex(0xF4F4F4); // Original light gray bg
+    lv_color_t panel_col = darkMode ? COLOR_PANEL_DARK : COLOR_PANEL_WHITE;
+    lv_color_t text_col = darkMode ? COLOR_TEXT_DARK : lv_color_hex(0x000000);
+
+    // Apply to all screens background
+    if (ui_ScreenMain) lv_obj_set_style_bg_color(ui_ScreenMain, bg_col, 0);
+    if (ui_ScreenSettings) lv_obj_set_style_bg_color(ui_ScreenSettings, bg_col, 0);
+    if (ui_ScreenAlarms) lv_obj_set_style_bg_color(ui_ScreenAlarms, bg_col, 0);
+    if (ui_ScreenCharts) lv_obj_set_style_bg_color(ui_ScreenCharts, bg_col, 0);
+    if (ui_ScreenPulseOxi) lv_obj_set_style_bg_color(ui_ScreenPulseOxi, bg_col, 0);
+
+    // Main Screen Panels
+    if (ui_Panel1) lv_obj_set_style_bg_color(ui_Panel1, panel_col, 0);
+    if (ui_Panel2) lv_obj_set_style_bg_color(ui_Panel2, panel_col, 0);
+    if (ui_Panel3) lv_obj_set_style_bg_color(ui_Panel3, panel_col, 0);
+    if (ui_Panel4) lv_obj_set_style_bg_color(ui_Panel4, panel_col, 0);
+    if (ui_Panel5) lv_obj_set_style_bg_color(ui_Panel5, panel_col, 0);
+    if (ui_Panel6) lv_obj_set_style_bg_color(ui_Panel6, panel_col, 0);
+    
+    // Settings Panels
+    if (ui_Panel7) lv_obj_set_style_bg_color(ui_Panel7, panel_col, 0);
+    if (ui_Panel8) lv_obj_set_style_bg_color(ui_Panel8, panel_col, 0);
+    if (ui_Panel9) lv_obj_set_style_bg_color(ui_Panel9, panel_col, 0);
+    if (ui_PanelDarkMode) lv_obj_set_style_bg_color(ui_PanelDarkMode, panel_col, 0);
+    if (ui_InfoPanel) lv_obj_set_style_bg_color(ui_InfoPanel, panel_col, 0);
+
+    // Apply text color to all labels in all screens
+    if (ui_ScreenMain) UI_ApplyStyleToLabelsRecursive(ui_ScreenMain, text_col);
+    if (ui_ScreenSettings) UI_ApplyStyleToLabelsRecursive(ui_ScreenSettings, text_col);
+    if (ui_ScreenAlarms) UI_ApplyStyleToLabelsRecursive(ui_ScreenAlarms, text_col);
+    if (ui_ScreenCharts) UI_ApplyStyleToLabelsRecursive(ui_ScreenCharts, text_col);
+    if (ui_ScreenPulseOxi) UI_ApplyStyleToLabelsRecursive(ui_ScreenPulseOxi, text_col);
+    // Lock Screen ALWAYS dark with white text
+    if (ui_ScreenLock) {
+        lv_obj_set_style_bg_color(ui_ScreenLock, lv_color_hex(0x1A1A1A), 0);
+        UI_ApplyStyleToLabelsRecursive(ui_ScreenLock, lv_color_hex(0xFFFFFF));
+    }
+
+    UI_SyncAll(); 
 }
 

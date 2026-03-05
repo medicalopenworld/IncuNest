@@ -37,6 +37,7 @@ extern bool OTA_inprogress;
 
 typedef enum { LANG_ES = 0, LANG_EN = 1, LANG_FR = 2 } ui_lang_t;
 extern ui_lang_t g_lang;
+extern bool darkMode; // Global Dark Mode state
 extern double airTempValue, skinTempValue;
 extern double airTempValueDetected, skinTempValueDetected;
 extern int humValue;
@@ -245,6 +246,11 @@ static const lv_color_t COLOR_PANEL_GRAY =
     lv_color_make(COLOR_PANEL_GRAY_R, COLOR_PANEL_GRAY_G, COLOR_PANEL_GRAY_B);
 static const lv_color_t COLOR_PANEL_LIGHT_GRAY =
     lv_color_make(COLOR_PANEL_LIGHT_GRAY_R, COLOR_PANEL_LIGHT_GRAY_G, COLOR_PANEL_LIGHT_GRAY_B);
+
+// Dark Mode Colors
+static const lv_color_t COLOR_BG_DARK = lv_color_make(30, 30, 30);
+static const lv_color_t COLOR_PANEL_DARK = lv_color_make(50, 50, 50);
+static const lv_color_t COLOR_TEXT_DARK = lv_color_make(220, 220, 220);
 
 // -----------------------------
 // Animation timing

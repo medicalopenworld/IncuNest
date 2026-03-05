@@ -137,6 +137,10 @@ lv_obj_t * ui_SkinModeCont = NULL;
 lv_obj_t * ui_Panel9 = NULL;
 lv_obj_t * ui_SkinOptionLabel = NULL;
 lv_obj_t * ui_Switch4 = NULL;
+lv_obj_t * ui_DarkModeCont = NULL;
+lv_obj_t * ui_PanelDarkMode = NULL;
+lv_obj_t * ui_DarkModeLabel = NULL;
+lv_obj_t * ui_SwitchDarkMode = NULL;
 lv_obj_t * ui_InfoCont = NULL;
 lv_obj_t * ui_InfoPanel = NULL;
 lv_obj_t * ui_InfoLabel = NULL;
@@ -500,6 +504,13 @@ void ui_event_InfoButton(lv_event_t * e)
 }
 
 void ui_event_Switch4(lv_event_t * e) {
+    lv_event_code_t event_code = lv_event_get_code(e);
+    if(event_code == LV_EVENT_VALUE_CHANGED) {
+        Switch_cb(e);
+    }
+}
+
+void ui_event_SwitchDarkMode(lv_event_t * e) {
     lv_event_code_t event_code = lv_event_get_code(e);
     if(event_code == LV_EVENT_VALUE_CHANGED) {
         Switch_cb(e);
@@ -2087,6 +2098,38 @@ void ui_ScreenSettings_screen_init(void) {
     lv_obj_set_y(ui_Switch4, 0);
     lv_obj_set_align(ui_Switch4, LV_ALIGN_CENTER);
 
+    // --- DARK MODE CONTAINER (Positioned below Skin Mode) ---
+    ui_DarkModeCont = lv_obj_create(ui_Container3);
+    lv_obj_remove_style_all(ui_DarkModeCont);
+    lv_obj_set_width(ui_DarkModeCont, 331);
+    lv_obj_set_height(ui_DarkModeCont, 45);
+    lv_obj_set_x(ui_DarkModeCont, 0);
+    lv_obj_set_y(ui_DarkModeCont, 120); // Offset 55px more than Skin Mode (65 + 55 = 120)
+    lv_obj_set_align(ui_DarkModeCont, LV_ALIGN_CENTER);
+    lv_obj_clear_flag(ui_DarkModeCont, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+
+    ui_PanelDarkMode = lv_obj_create(ui_DarkModeCont);
+    lv_obj_set_width(ui_PanelDarkMode, 331);
+    lv_obj_set_height(ui_PanelDarkMode, 45);
+    lv_obj_set_align(ui_PanelDarkMode, LV_ALIGN_CENTER);
+    lv_obj_clear_flag(ui_PanelDarkMode, LV_OBJ_FLAG_SCROLLABLE);
+
+    ui_DarkModeLabel = lv_label_create(ui_DarkModeCont);
+    lv_obj_set_width(ui_DarkModeLabel, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_DarkModeLabel, LV_SIZE_CONTENT);
+    lv_obj_set_x(ui_DarkModeLabel, 20);
+    lv_obj_set_y(ui_DarkModeLabel, 0);
+    lv_obj_set_align(ui_DarkModeLabel, LV_ALIGN_LEFT_MID);
+    lv_label_set_text(ui_DarkModeLabel, "DARK MODE");
+    lv_obj_set_style_text_font(ui_DarkModeLabel, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_SwitchDarkMode = lv_switch_create(ui_DarkModeCont);
+    lv_obj_set_width(ui_SwitchDarkMode, 90);
+    lv_obj_set_height(ui_SwitchDarkMode, 35);
+    lv_obj_set_x(ui_SwitchDarkMode, 91);
+    lv_obj_set_y(ui_SwitchDarkMode, 0);
+    lv_obj_set_align(ui_SwitchDarkMode, LV_ALIGN_CENTER);
+
     ui_WifiConfigCont = lv_obj_create(ui_ScreenSettings);
     lv_obj_remove_style_all(ui_WifiConfigCont);
     lv_obj_set_width(ui_WifiConfigCont, 770);
@@ -2332,6 +2375,7 @@ void ui_ScreenSettings_screen_init(void) {
     lv_obj_add_event_cb(ui_WifiButton, ui_event_WifiButton, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_LanguagesButton, ui_event_LanguagesButton, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_Switch4, ui_event_Switch4, LV_EVENT_ALL, NULL);
+    lv_obj_add_event_cb(ui_SwitchDarkMode, ui_event_SwitchDarkMode, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_TextArea1, ui_event_TextArea1, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_TextArea2, ui_event_TextArea2, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_Keyboard1, ui_event_Keyboard1, LV_EVENT_ALL, NULL);
