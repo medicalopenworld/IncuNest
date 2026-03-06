@@ -210,6 +210,7 @@ lv_obj_t * ui_HistoryTimeLabel = NULL;
 lv_obj_t * ui_HistoryChartAireLabel = NULL;
 lv_obj_t * ui_HistoryChartSkinLabel = NULL;
 lv_obj_t * ui_HistoryChartHumLabel = NULL;
+lv_obj_t * ui_HistoryCurrentValueLabel = NULL;
 lv_obj_t * ui_TabView1 = NULL;
 extern lv_chart_series_t *historySeriesAire;
 extern lv_chart_series_t *historySeriesSkin;
@@ -229,6 +230,7 @@ lv_obj_t * ui_OxChartCont = NULL;
 lv_obj_t * ui_OxChart = NULL;
 lv_obj_t * ui_Label35 = NULL;
 lv_obj_t * ui_ImgButton8 = NULL;
+void TabViewHistory_cb(lv_event_t * e);
 
 // Screen PulseOxi
 lv_obj_t * ui_ScreenPulseOxi = NULL;
@@ -1602,6 +1604,64 @@ void ui_ScreenAlarms_screen_init(void) {
     lv_obj_add_event_cb(ui_MuteAlarm, ui_event_MuteAlarm, LV_EVENT_ALL, NULL);
 }
 
+void ui_apply_sparkline_style(lv_obj_t * chart, lv_color_t color) {
+    // 1. Fondo y Borde: Totalmente transparentes y limpios
+    lv_obj_set_style_bg_opa(chart, 0, LV_PART_MAIN);
+    lv_obj_set_style_border_side(chart, LV_BORDER_SIDE_NONE, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(chart, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_left(chart, 35, LV_PART_MAIN); // Espacio para etiquetas del eje Y
+    
+    // 2. Línea Principal: Fina y con color brillante
+    lv_obj_set_style_line_width(chart, 2, LV_PART_ITEMS);
+    lv_obj_set_style_line_color(chart, color, LV_PART_ITEMS);
+    
+    // 3. Relleno inferior (Gradient sutil)
+    lv_obj_set_style_bg_opa(chart, 30, LV_PART_ITEMS); // Opacidad baja para el área
+    lv_obj_set_style_bg_color(chart, color, LV_PART_ITEMS);
+    lv_obj_set_style_bg_grad_color(chart, lv_color_hex(0x000000), LV_PART_ITEMS);
+    lv_obj_set_style_bg_grad_dir(chart, LV_GRAD_DIR_VER, LV_PART_ITEMS);
+    
+    // 4. Grid: Gris oscuro y muy discreto (casi invisible)
+    lv_obj_set_style_line_color(chart, lv_color_hex(0x202020), LV_PART_MAIN);
+    lv_obj_set_style_line_opa(chart, 30, LV_PART_MAIN);
+    lv_chart_set_div_line_count(chart, 5, 8);
+    
+    // 5. Configuración de Ejes (Minimalista e Informativo)
+    lv_obj_set_style_size(chart, 0, LV_PART_INDICATOR); // Puntos de tamaño 0
+    
+    // Eje Y (Izquierdo) - Números pequeños y discretos
+    lv_chart_set_axis_tick(chart, LV_CHART_AXIS_PRIMARY_Y, 5, 2, 4, 2, true, 30);
+    lv_obj_set_style_text_color(chart, lv_color_hex(0x606060), LV_PART_TICKS); // Gris suave
+    lv_obj_set_style_text_font(chart, &lv_font_montserrat_12, LV_PART_TICKS); // Fuente pequeña
+    
+    // Eje X - Oculto
+    lv_chart_set_axis_tick(chart, LV_CHART_AXIS_PRIMARY_X, 0, 0, 0, 0, false, 0);
+}
+
+void ui_add_chart_safe_zone(lv_obj_t * chart, float min_val, float max_val, float range_min, float range_max) {
+    lv_obj_t * parent = lv_obj_get_parent(chart);
+    lv_obj_t * safe_zone = lv_obj_create(parent);
+    
+    lv_obj_set_size(safe_zone, lv_obj_get_width(chart), 0);
+    lv_obj_align_to(safe_zone, chart, LV_ALIGN_TOP_MID, 0, 0);
+    
+    float chart_h = lv_obj_get_height(chart);
+    float total_range = range_max - range_min;
+    
+    if(total_range > 0) {
+        float h = (max_val - min_val) * (chart_h / total_range);
+        float y = (range_max - max_val) * (chart_h / total_range);
+        lv_obj_set_height(safe_zone, (int)h);
+        lv_obj_set_y(safe_zone, (int)y);
+    }
+    
+    lv_obj_set_style_bg_color(safe_zone, lv_color_hex(0x00FF00), 0);
+    lv_obj_set_style_bg_opa(safe_zone, 20, 0);
+    lv_obj_set_style_border_side(safe_zone, LV_BORDER_SIDE_NONE, 0);
+    lv_obj_set_style_radius(safe_zone, 0, 0);
+    lv_obj_move_background(safe_zone);
+}
+
 void ui_ScreenCharts_screen_init(void) {
     ui_ScreenCharts = lv_obj_create(NULL);
     lv_obj_clear_flag(ui_ScreenCharts, LV_OBJ_FLAG_SCROLLABLE);
@@ -1636,16 +1696,15 @@ void ui_ScreenCharts_screen_init(void) {
     lv_obj_clear_flag(ui_AirTempChartCont, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
 
     ui_AirTempChart = lv_chart_create(ui_AirTempChartCont);
-    lv_obj_set_width(ui_AirTempChart, 637);
-    lv_obj_set_height(ui_AirTempChart, 287);
-    lv_obj_set_x(ui_AirTempChart, -1);
-    lv_obj_set_y(ui_AirTempChart, -1);
+    lv_obj_set_width(ui_AirTempChart, 700);
+    lv_obj_set_height(ui_AirTempChart, 280);
     lv_obj_set_align(ui_AirTempChart, LV_ALIGN_CENTER);
     lv_chart_set_type(ui_AirTempChart, LV_CHART_TYPE_LINE);
-    lv_chart_set_div_line_count(ui_AirTempChart, 5, 10); // Cuadrícula
-    lv_chart_set_axis_tick(ui_AirTempChart, LV_CHART_AXIS_PRIMARY_Y, 10, 5, 5, 2, true, 40); // Etiquetas eje Y
-    lv_obj_set_style_pad_left(ui_AirTempChart, 40, LV_PART_MAIN); // Margen para números
-    lv_chart_series_t * ui_AirTempChart_series_1 = lv_chart_add_series(ui_AirTempChart, lv_color_hex(0x808080), LV_CHART_AXIS_PRIMARY_Y);
+    lv_chart_set_range(ui_AirTempChart, LV_CHART_AXIS_PRIMARY_Y, 20, 40);
+    ui_apply_sparkline_style(ui_AirTempChart, lv_color_hex(0x00FF00)); // Verde para incubadora
+    ui_add_chart_safe_zone(ui_AirTempChart, 34.0, 37.0, 20.0, 40.0); // Banda 34-37C
+    
+    lv_chart_series_t * ui_AirTempChart_series_1 = lv_chart_add_series(ui_AirTempChart, lv_color_hex(0x00FF00), LV_CHART_AXIS_PRIMARY_Y);
     static lv_coord_t ui_AirTempChart_series_1_array[] = { 0, 10, 20, 40, 80, 80, 40, 20, 10, 0 };
     lv_chart_set_ext_y_array(ui_AirTempChart, ui_AirTempChart_series_1, ui_AirTempChart_series_1_array);
 
@@ -1666,16 +1725,15 @@ void ui_ScreenCharts_screen_init(void) {
     lv_obj_clear_flag(ui_SkinTempChartCont, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
 
     ui_SkinTempChart = lv_chart_create(ui_SkinTempChartCont);
-    lv_obj_set_width(ui_SkinTempChart, 637);
-    lv_obj_set_height(ui_SkinTempChart, 287);
-    lv_obj_set_x(ui_SkinTempChart, -1);
-    lv_obj_set_y(ui_SkinTempChart, -1);
+    lv_obj_set_width(ui_SkinTempChart, 700);
+    lv_obj_set_height(ui_SkinTempChart, 280);
     lv_obj_set_align(ui_SkinTempChart, LV_ALIGN_CENTER);
     lv_chart_set_type(ui_SkinTempChart, LV_CHART_TYPE_LINE);
-    lv_chart_set_div_line_count(ui_SkinTempChart, 5, 10); // Cuadrícula
-    lv_chart_set_axis_tick(ui_SkinTempChart, LV_CHART_AXIS_PRIMARY_Y, 10, 5, 5, 2, true, 40); // Etiquetas eje Y
-    lv_obj_set_style_pad_left(ui_SkinTempChart, 40, LV_PART_MAIN); // Margen para números
-    lv_chart_series_t * ui_SkinTempChart_series_1 = lv_chart_add_series(ui_SkinTempChart, lv_color_hex(0x808080), LV_CHART_AXIS_PRIMARY_Y);
+    lv_chart_set_range(ui_SkinTempChart, LV_CHART_AXIS_PRIMARY_Y, 20, 40);
+    ui_apply_sparkline_style(ui_SkinTempChart, lv_color_hex(0x00E0E0)); // Cyan para bebé
+    ui_add_chart_safe_zone(ui_SkinTempChart, 36.0, 37.5, 20.0, 40.0); // Banda 36-37.5C
+    
+    lv_chart_series_t * ui_SkinTempChart_series_1 = lv_chart_add_series(ui_SkinTempChart, lv_color_hex(0x00E0E0), LV_CHART_AXIS_PRIMARY_Y);
     static lv_coord_t ui_SkinTempChart_series_1_array[] = { 0, 10, 20, 40, 80, 80, 40, 20, 10, 0 };
     lv_chart_set_ext_y_array(ui_SkinTempChart, ui_SkinTempChart_series_1, ui_SkinTempChart_series_1_array);
 
@@ -1699,16 +1757,15 @@ void ui_ScreenCharts_screen_init(void) {
     lv_obj_clear_flag(ui_HumChartCont, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
 
     ui_HumChart = lv_chart_create(ui_HumChartCont);
-    lv_obj_set_width(ui_HumChart, 637);
-    lv_obj_set_height(ui_HumChart, 287);
-    lv_obj_set_x(ui_HumChart, 0);
-    lv_obj_set_y(ui_HumChart, 3);
+    lv_obj_set_width(ui_HumChart, 700);
+    lv_obj_set_height(ui_HumChart, 280);
     lv_obj_set_align(ui_HumChart, LV_ALIGN_CENTER);
     lv_chart_set_type(ui_HumChart, LV_CHART_TYPE_LINE);
-    lv_chart_set_div_line_count(ui_HumChart, 10, 10); // Cuadrícula (más líneas para humedad de 10 a 100)
-    lv_chart_set_axis_tick(ui_HumChart, LV_CHART_AXIS_PRIMARY_Y, 10, 5, 10, 1, true, 40); // Etiquetas eje Y
-    lv_obj_set_style_pad_left(ui_HumChart, 50, LV_PART_MAIN); // Margen para números
-    lv_chart_series_t * ui_HumChart_series_1 = lv_chart_add_series(ui_HumChart, lv_color_hex(0x808080), LV_CHART_AXIS_PRIMARY_Y);
+    lv_chart_set_range(ui_HumChart, LV_CHART_AXIS_PRIMARY_Y, 0, 100);
+    ui_apply_sparkline_style(ui_HumChart, lv_color_hex(0x3B82F6)); // Azul para humedad
+    ui_add_chart_safe_zone(ui_HumChart, 40.0, 70.0, 0.0, 100.0); // Banda 40-70%
+    
+    lv_chart_series_t * ui_HumChart_series_1 = lv_chart_add_series(ui_HumChart, lv_color_hex(0x3B82F6), LV_CHART_AXIS_PRIMARY_Y);
     static lv_coord_t ui_HumChart_series_1_array[] = { 0, 10, 20, 40, 80, 80, 40, 20, 10, 0 };
     lv_chart_set_ext_y_array(ui_HumChart, ui_HumChart_series_1, ui_HumChart_series_1_array);
 
@@ -1735,6 +1792,13 @@ void ui_ScreenCharts_screen_init(void) {
     lv_obj_set_x(ui_HistoryTimeLabel, -140);
     lv_obj_set_y(ui_HistoryTimeLabel, 0);
 
+    ui_HistoryCurrentValueLabel = lv_label_create(ui_TabHistory);
+    lv_label_set_text(ui_HistoryCurrentValueLabel, "");
+    lv_obj_set_align(ui_HistoryCurrentValueLabel, LV_ALIGN_TOP_RIGHT);
+    lv_obj_set_x(ui_HistoryCurrentValueLabel, -230); // Posicionado a la izquierda del label de Range
+    lv_obj_set_y(ui_HistoryCurrentValueLabel, 0);
+    lv_obj_set_style_text_font(ui_HistoryCurrentValueLabel, &lv_font_montserrat_20, 0);
+
     ui_TabViewHistory = lv_tabview_create(ui_TabHistory, LV_DIR_TOP, 30);
     lv_obj_set_width(ui_TabViewHistory, 780);
     lv_obj_set_height(ui_TabViewHistory, 350); // Un poco más pequeño
@@ -1743,17 +1807,17 @@ void ui_ScreenCharts_screen_init(void) {
 
     ui_TabHistoryTemp = lv_tabview_add_tab(ui_TabViewHistory, "TEMP");
     ui_TabHistoryHum = lv_tabview_add_tab(ui_TabViewHistory, "HUM");
+    lv_obj_add_event_cb(ui_TabViewHistory, TabViewHistory_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     // Gráfica Historial Aire
     ui_HistoryChartAire = lv_chart_create(ui_TabHistoryTemp);
-    lv_obj_set_size(ui_HistoryChartAire, 600, 250);
+    lv_obj_set_size(ui_HistoryChartAire, 700, 250);
     lv_obj_set_align(ui_HistoryChartAire, LV_ALIGN_CENTER);
     lv_chart_set_type(ui_HistoryChartAire, LV_CHART_TYPE_LINE);
-    lv_chart_set_div_line_count(ui_HistoryChartAire, 5, 10); // Cuadrícula
-    lv_chart_set_axis_tick(ui_HistoryChartAire, LV_CHART_AXIS_PRIMARY_Y, 10, 5, 5, 2, true, 40); // Etiquetas eje Y
-    lv_obj_set_style_pad_left(ui_HistoryChartAire, 40, LV_PART_MAIN); // Margen para números
     lv_chart_set_range(ui_HistoryChartAire, LV_CHART_AXIS_PRIMARY_Y, 20, 40);
-    historySeriesAire = lv_chart_add_series(ui_HistoryChartAire, lv_palette_main(LV_PALETTE_BLUE), LV_CHART_AXIS_PRIMARY_Y);
+    ui_apply_sparkline_style(ui_HistoryChartAire, lv_color_hex(0x00FF00));
+    ui_add_chart_safe_zone(ui_HistoryChartAire, 34.0, 37.0, 20.0, 40.0);
+    historySeriesAire = lv_chart_add_series(ui_HistoryChartAire, lv_color_hex(0x00FF00), LV_CHART_AXIS_PRIMARY_Y);
 
     ui_HistoryChartAireLabel = lv_label_create(ui_TabHistoryTemp);
     lv_label_set_text(ui_HistoryChartAireLabel, "AIR TEMP HISTORY");
@@ -1763,14 +1827,13 @@ void ui_ScreenCharts_screen_init(void) {
 
     // Gráfica Historial Piel
     ui_HistoryChartSkin = lv_chart_create(ui_TabHistoryTemp);
-    lv_obj_set_size(ui_HistoryChartSkin, 600, 250);
+    lv_obj_set_size(ui_HistoryChartSkin, 700, 250);
     lv_obj_set_align(ui_HistoryChartSkin, LV_ALIGN_CENTER);
     lv_chart_set_type(ui_HistoryChartSkin, LV_CHART_TYPE_LINE);
-    lv_chart_set_div_line_count(ui_HistoryChartSkin, 5, 10); // Cuadrícula
-    lv_chart_set_axis_tick(ui_HistoryChartSkin, LV_CHART_AXIS_PRIMARY_Y, 10, 5, 5, 2, true, 40); // Etiquetas eje Y
-    lv_obj_set_style_pad_left(ui_HistoryChartSkin, 40, LV_PART_MAIN); // Margen para números
     lv_chart_set_range(ui_HistoryChartSkin, LV_CHART_AXIS_PRIMARY_Y, 20, 40);
-    historySeriesSkin = lv_chart_add_series(ui_HistoryChartSkin, lv_palette_main(LV_PALETTE_RED), LV_CHART_AXIS_PRIMARY_Y);
+    ui_apply_sparkline_style(ui_HistoryChartSkin, lv_color_hex(0x00E0E0));
+    ui_add_chart_safe_zone(ui_HistoryChartSkin, 36.0, 37.5, 20.0, 40.0);
+    historySeriesSkin = lv_chart_add_series(ui_HistoryChartSkin, lv_color_hex(0x00E0E0), LV_CHART_AXIS_PRIMARY_Y);
     lv_obj_add_flag(ui_HistoryChartSkin, LV_OBJ_FLAG_HIDDEN); // Will be managed by back-end
 
     ui_HistoryChartSkinLabel = lv_label_create(ui_TabHistoryTemp);
@@ -1782,14 +1845,13 @@ void ui_ScreenCharts_screen_init(void) {
 
     // Gráfica Historial Humedad
     ui_HistoryChartHum = lv_chart_create(ui_TabHistoryHum);
-    lv_obj_set_size(ui_HistoryChartHum, 600, 250);
+    lv_obj_set_size(ui_HistoryChartHum, 700, 250);
     lv_obj_set_align(ui_HistoryChartHum, LV_ALIGN_CENTER);
     lv_chart_set_type(ui_HistoryChartHum, LV_CHART_TYPE_LINE);
-    lv_chart_set_div_line_count(ui_HistoryChartHum, 10, 10); // Cuadrícula
-    lv_chart_set_axis_tick(ui_HistoryChartHum, LV_CHART_AXIS_PRIMARY_Y, 10, 5, 10, 1, true, 40); // Etiquetas eje Y
-    lv_obj_set_style_pad_left(ui_HistoryChartHum, 50, LV_PART_MAIN); // Margen para números
-    lv_chart_set_range(ui_HistoryChartHum, LV_CHART_AXIS_PRIMARY_Y, 10, 100);
-    historySeriesHum = lv_chart_add_series(ui_HistoryChartHum, lv_palette_main(LV_PALETTE_GREEN), LV_CHART_AXIS_PRIMARY_Y);
+    lv_chart_set_range(ui_HistoryChartHum, LV_CHART_AXIS_PRIMARY_Y, 0, 100);
+    ui_apply_sparkline_style(ui_HistoryChartHum, lv_color_hex(0x3B82F6));
+    ui_add_chart_safe_zone(ui_HistoryChartHum, 40.0, 70.0, 0.0, 100.0);
+    historySeriesHum = lv_chart_add_series(ui_HistoryChartHum, lv_color_hex(0x3B82F6), LV_CHART_AXIS_PRIMARY_Y);
 
     ui_HistoryChartHumLabel = lv_label_create(ui_TabHistoryHum);
     lv_label_set_text(ui_HistoryChartHumLabel, "HUMIDITY HISTORY");

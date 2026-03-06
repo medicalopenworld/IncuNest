@@ -30,6 +30,7 @@ extern lv_obj_t *ui_TabHistoryHum;
 extern lv_obj_t *ui_HistoryChartAire;
 extern lv_obj_t *ui_HistoryChartSkin;
 extern lv_obj_t *ui_HistoryChartHum;
+extern lv_obj_t *ui_HistoryCurrentValueLabel;
 
 // Series de datos (Se definen aquí para ser usadas por UITask)
 lv_chart_series_t *historySeriesAire = NULL;
@@ -1533,6 +1534,30 @@ void update_history_charts() {
   lv_chart_refresh(ui_HistoryChartAire);
   lv_chart_refresh(ui_HistoryChartSkin);
   lv_chart_refresh(ui_HistoryChartHum);
+
+  // Actualizar el Label de Valor Actual detectado
+  if (ui_HistoryCurrentValueLabel) {
+    char valBuf[32];
+    uint16_t tab_act = lv_tabview_get_tab_act(ui_TabViewHistory);
+    if (tab_act == 0) { // TEMP
+       // Mostramos el valor de Aire o Piel según cuál esté más activo o simplemente ambos? 
+       // El usuario pide "Temp: 36.8 °C", usaremos el modo de control actual o el aire por defecto.
+       float val = (selectedPanel == SKIN_PANEL_SELECTED) ? (float)skinTempValueDetected : (float)airTempValueDetected;
+       snprintf(valBuf, sizeof(valBuf), "Temp: %.1f %s", val, "°C");
+       lv_label_set_text(ui_HistoryCurrentValueLabel, valBuf);
+       lv_obj_set_style_text_color(ui_HistoryCurrentValueLabel, (selectedPanel == SKIN_PANEL_SELECTED) ? lv_color_hex(0x00E0E0) : lv_palette_main(LV_PALETTE_GREEN), 0);
+    } else { // HUM
+       snprintf(valBuf, sizeof(valBuf), "Hum: %d %%", humValueDetected);
+       lv_label_set_text(ui_HistoryCurrentValueLabel, valBuf);
+       lv_obj_set_style_text_color(ui_HistoryCurrentValueLabel, lv_color_hex(0x3B82F6), 0); // Azul
+    }
+  }
+}
+
+void update_history_charts();
+
+void TabViewHistory_cb(lv_event_t * e) {
+    update_history_charts();
 }
 
 void ScreenCharts_load_cb(lv_event_t *e) {
@@ -2717,7 +2742,7 @@ void UI_ApplyTheme() {
     // --- CHARTS DARK MODE APLICATION ---
     lv_color_t chart_bg_col = darkMode ? COLOR_PANEL_DARK : lv_color_hex(0xFFFFFF);
     lv_color_t chart_text_col = darkMode ? COLOR_TEXT_DARK : lv_color_hex(0x808080);
-    lv_color_t chart_grid_col = darkMode ? lv_color_hex(0x555555) : lv_color_hex(0xE8E8E8);
+    lv_color_t chart_grid_col = darkMode ? lv_color_hex(0x222222) : lv_color_hex(0xEEEEEE);
 
     lv_obj_t* charts[] = {
         ui_AirTempChart, ui_SkinTempChart, ui_HumChart,
