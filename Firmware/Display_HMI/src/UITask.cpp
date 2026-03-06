@@ -2714,6 +2714,101 @@ void UI_ApplyTheme() {
         lv_obj_set_style_img_recolor_opa(ui_ImgButton9, img_recolor_opa, 0);
     }
 
+    // --- CHARTS DARK MODE APLICATION ---
+    lv_color_t chart_bg_col = darkMode ? COLOR_PANEL_DARK : lv_color_hex(0xFFFFFF);
+    lv_color_t chart_text_col = darkMode ? COLOR_TEXT_DARK : lv_color_hex(0x808080);
+    lv_color_t chart_grid_col = darkMode ? lv_color_hex(0x555555) : lv_color_hex(0xE8E8E8);
+
+    lv_obj_t* charts[] = {
+        ui_AirTempChart, ui_SkinTempChart, ui_HumChart,
+        ui_HistoryChartAire, ui_HistoryChartSkin, ui_HistoryChartHum, ui_OxChart
+    };
+
+    for(int i=0; i < 7; i++) {
+        if(charts[i] != NULL) {
+            // Fondo del chart
+            lv_obj_set_style_bg_color(charts[i], chart_bg_col, LV_PART_MAIN);
+            
+            // Color de la malla / cuadrícula
+            lv_obj_set_style_line_color(charts[i], chart_grid_col, LV_PART_MAIN);
+
+            // Color del texto de los ejes
+            lv_obj_set_style_text_color(charts[i], chart_text_col, LV_PART_TICKS);
+        }
+    }
+
+    // --- TABVIEWS DARK MODE APLICATION ---
+    lv_color_t tab_bg_col = darkMode ? COLOR_BG_DARK : lv_color_hex(0xFFFFFF); 
+    lv_color_t tab_page_bg_col = darkMode ? COLOR_PANEL_DARK : lv_color_hex(0xFFFFFF);
+    lv_color_t tab_btn_bg_col = darkMode ? COLOR_PANEL_DARK : lv_color_hex(0xFFFFFF); 
+    lv_color_t tab_text_col = darkMode ? COLOR_TEXT_DARK : lv_color_hex(0x000000);
+
+    lv_obj_t* tabviews[] = {
+        ui_AlarmsTabview, ui_TabViewMainCharts, ui_TabView1, ui_TabViewHistory
+    };
+
+    for(int i=0; i < 4; i++) {
+        if(tabviews[i] != NULL) {
+            // 1. Fondo Principal de la vista del Tab
+            lv_obj_set_style_bg_color(tabviews[i], tab_bg_col, LV_PART_MAIN);
+
+            // 2. Fondo de los Botones (Header)
+            lv_obj_t * tab_btns = lv_tabview_get_tab_btns(tabviews[i]);
+            if(tab_btns != NULL) {
+                // El contenedor en sí
+                lv_obj_set_style_bg_color(tab_btns, tab_btn_bg_col, LV_PART_MAIN);
+                // Los items individuales (las paletas clickeables)
+                lv_obj_set_style_bg_color(tab_btns, tab_btn_bg_col, LV_PART_ITEMS);  
+                lv_obj_set_style_text_color(tab_btns, tab_text_col, LV_PART_ITEMS);  
+            }
+
+            // 3. Aplicar fondo a CADA página interna (LV_DIR_CONTENT sub-children)
+            // LVGL estructura habitualmente tabview -> [0] tab_btns, [1] tab_content_container -> tabs 
+            lv_obj_t* content_cont = lv_tabview_get_content(tabviews[i]);
+            if (content_cont) {
+                // El root donde están las páginas
+                lv_obj_set_style_bg_color(content_cont, tab_page_bg_col, LV_PART_MAIN);
+                
+                uint32_t tab_cnt = lv_obj_get_child_cnt(content_cont);
+                for(uint32_t t = 0; t < tab_cnt; t++) {
+                     lv_obj_t* real_page = lv_obj_get_child(content_cont, t);
+                     if(real_page) {
+                         lv_obj_set_style_bg_color(real_page, tab_page_bg_col, LV_PART_MAIN);
+                     }
+                }
+            }
+        }
+    }
+
+    // --- DROPDOWNS DARK MODE APLICATION ---
+    lv_color_t dd_bg_col = darkMode ? COLOR_PANEL_DARK : lv_color_hex(0xFFFFFF);
+    lv_color_t dd_text_col = darkMode ? COLOR_TEXT_DARK : lv_color_hex(0x000000);
+    lv_color_t dd_list_bg = darkMode ? COLOR_PANEL_DARK : lv_color_hex(0xFFFFFF);
+    lv_color_t dd_list_sel = darkMode ? lv_color_hex(0x555555) : lv_palette_main(LV_PALETTE_BLUE);
+
+    lv_obj_t* dropdowns[] = { ui_HistoryDropdown, ui_LanguagesDropDown };
+
+    for(int i=0; i < 2; i++) {
+        if(dropdowns[i] != NULL) {
+            // Estilo del botón principal del dropdown
+            lv_obj_set_style_bg_color(dropdowns[i], dd_bg_col, LV_PART_MAIN);
+            lv_obj_set_style_text_color(dropdowns[i], dd_text_col, LV_PART_MAIN);
+
+            // Estilo de la lista que se despliega
+            lv_obj_t * list = lv_dropdown_get_list(dropdowns[i]);
+            if(list != NULL) {
+                // Fondo de la lista al desplegar
+                lv_obj_set_style_bg_color(list, dd_list_bg, LV_PART_MAIN);
+                lv_obj_set_style_border_color(list, darkMode ? lv_color_hex(0x444444) : lv_color_hex(0xCCCCCC), LV_PART_MAIN);
+                // Texto de las opciones
+                lv_obj_set_style_text_color(list, dd_text_col, LV_PART_MAIN);
+                
+                // Color de la opción seleccionada
+                lv_obj_set_style_bg_color(list, dd_list_sel, LV_PART_SELECTED);
+            }
+        }
+    }
+
     UI_SyncAll(); 
 }
 
