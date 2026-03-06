@@ -574,7 +574,7 @@ void chart_add_skin_temp(float v) {
 
 void set_active_panel(lv_obj_t *active, lv_obj_t *inactive) {
   lv_color_t active_col = darkMode ? COLOR_PANEL_GRAY : COLOR_PANEL_WHITE;
-  lv_color_t inactive_col = darkMode ? COLOR_BG_DARK : COLOR_PANEL_GRAY;
+  lv_color_t inactive_col = darkMode ? COLOR_PANEL_DARK : COLOR_PANEL_GRAY;
 
   lv_obj_set_style_bg_color(active, active_col, LV_PART_MAIN);
   lv_obj_set_style_opa(active, LV_OPA_COVER, LV_PART_MAIN);
@@ -774,6 +774,8 @@ void PhotoCancelBtn_cb(lv_event_t *e) {
 
 /* Switch callback for temperature and humidity */
 void Switch_cb(lv_event_t *e) {
+  lv_color_t active_col = darkMode ? COLOR_PANEL_GRAY : COLOR_PANEL_WHITE;
+  lv_color_t inactive_col = darkMode ? COLOR_PANEL_DARK : COLOR_PANEL_GRAY;
   lv_obj_t *obj = lv_event_get_target(e); // switch that triggered the event
   lv_obj_t *panel = NULL;
 
@@ -810,10 +812,12 @@ void Switch_cb(lv_event_t *e) {
       arrowsActive = true;
       lv_obj_add_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
       lv_obj_add_flag(ui_ImgArrowUpTemp, LV_OBJ_FLAG_CLICKABLE);
-      lv_obj_set_style_bg_color(ui_ArrowDownTemp, COLOR_PANEL_WHITE,
+      lv_obj_set_style_bg_color(ui_ArrowDownTemp, active_col,
                                 LV_PART_MAIN);
-      lv_obj_set_style_bg_color(ui_ArrowUpTemp, COLOR_PANEL_WHITE,
+      lv_obj_set_style_bg_color(ui_ArrowUpTemp, active_col,
                                 LV_PART_MAIN);
+      lv_obj_set_style_bg_color(ui_Panel1, active_col, LV_PART_MAIN);
+      lv_obj_set_style_bg_opa(ui_Panel1, LV_OPA_COVER, LV_PART_MAIN);
     } else { // Temperature switch turned OFF
       selectedPanel = NO_PANEL_SELECTED;
       lv_obj_add_flag(ui_AirTempChartCont,
@@ -836,9 +840,11 @@ void Switch_cb(lv_event_t *e) {
       // Disable temperature arrows
       lv_obj_clear_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
       lv_obj_clear_flag(ui_ImgArrowUpTemp, LV_OBJ_FLAG_CLICKABLE);
-      lv_obj_set_style_bg_color(ui_ArrowDownTemp, COLOR_PANEL_GRAY,
+      lv_obj_set_style_bg_color(ui_ArrowDownTemp, inactive_col,
                                 LV_PART_MAIN);
-      lv_obj_set_style_bg_color(ui_ArrowUpTemp, COLOR_PANEL_GRAY, LV_PART_MAIN);
+      lv_obj_set_style_bg_color(ui_ArrowUpTemp, inactive_col, LV_PART_MAIN);
+      lv_obj_set_style_bg_color(ui_Panel1, inactive_col, LV_PART_MAIN);
+      lv_obj_set_style_bg_opa(ui_Panel1, LV_OPA_COVER, LV_PART_MAIN);
 
       // Gray out both panels
       lv_obj_set_style_bg_color(ui_AirPanel, COLOR_PANEL_GRAY, LV_PART_MAIN);
@@ -863,17 +869,21 @@ void Switch_cb(lv_event_t *e) {
       // Enable humidity arrows
       lv_obj_add_flag(ui_ImgArrowDownHum, LV_OBJ_FLAG_CLICKABLE);
       lv_obj_add_flag(ui_ImgArrowUpHum, LV_OBJ_FLAG_CLICKABLE);
-      lv_obj_set_style_bg_color(ui_ArrowDownHum, COLOR_PANEL_WHITE,
+      lv_obj_set_style_bg_color(ui_ArrowDownHum, active_col,
                                 LV_PART_MAIN);
-      lv_obj_set_style_bg_color(ui_ArrowUpHum, COLOR_PANEL_WHITE, LV_PART_MAIN);
+      lv_obj_set_style_bg_color(ui_ArrowUpHum, active_col, LV_PART_MAIN);
+      lv_obj_set_style_bg_color(ui_Panel3, active_col, LV_PART_MAIN);
+      lv_obj_set_style_bg_opa(ui_Panel3, LV_OPA_COVER, LV_PART_MAIN);
     } else {
       lv_obj_add_flag(ui_HumChartCont, LV_OBJ_FLAG_HIDDEN); // hide hum chart
       // Humidity OFF
       lv_obj_clear_flag(ui_ImgArrowDownHum, LV_OBJ_FLAG_CLICKABLE);
       lv_obj_clear_flag(ui_ImgArrowUpHum, LV_OBJ_FLAG_CLICKABLE);
-      lv_obj_set_style_bg_color(ui_ArrowDownHum, COLOR_PANEL_GRAY,
+      lv_obj_set_style_bg_color(ui_ArrowDownHum, inactive_col,
                                 LV_PART_MAIN);
-      lv_obj_set_style_bg_color(ui_ArrowUpHum, COLOR_PANEL_GRAY, LV_PART_MAIN);
+      lv_obj_set_style_bg_color(ui_ArrowUpHum, inactive_col, LV_PART_MAIN);
+      lv_obj_set_style_bg_color(ui_Panel3, inactive_col, LV_PART_MAIN);
+      lv_obj_set_style_bg_opa(ui_Panel3, LV_OPA_COVER, LV_PART_MAIN);
 
       lv_obj_set_style_opa(ui_ArrowDownHum, LV_OPA_COVER, LV_PART_MAIN);
       lv_obj_set_style_opa(ui_ArrowUpHum, LV_OPA_COVER, LV_PART_MAIN);
@@ -898,7 +908,7 @@ void Switch_cb(lv_event_t *e) {
       hmi_msg.phototherapyMode = PHOTOTHERAPY_ON;
       hmi_msg.shouldSendData = true;
 
-      lv_obj_set_style_bg_color(ui_PhotoTimerPanel, COLOR_PANEL_WHITE,
+      lv_obj_set_style_bg_color(ui_PhotoTimerPanel, active_col,
                                 LV_PART_MAIN);
       lv_obj_add_flag(ui_PhotoTimeMinusBtn, LV_OBJ_FLAG_CLICKABLE);
       lv_obj_add_flag(ui_PhotoTimePlusBtn, LV_OBJ_FLAG_CLICKABLE);
@@ -935,7 +945,7 @@ void Switch_cb(lv_event_t *e) {
       hmi_msg.phototherapyMode = PHOTOTHERAPY_OFF;
       hmi_msg.shouldSendData = true;
 
-      lv_obj_set_style_bg_color(ui_PhotoTimerPanel, COLOR_PANEL_GRAY,
+      lv_obj_set_style_bg_color(ui_PhotoTimerPanel, inactive_col,
                                 LV_PART_MAIN);
       lv_obj_clear_flag(ui_PhotoTimeMinusBtn, LV_OBJ_FLAG_CLICKABLE);
       lv_obj_clear_flag(ui_PhotoTimePlusBtn, LV_OBJ_FLAG_CLICKABLE);
@@ -2076,7 +2086,7 @@ void UI_Task(void *pvParameters) {
   lv_textarea_set_text(ui_TextArea2, wifi_pass);
 
   lv_color_t init_panel_col = darkMode ? COLOR_PANEL_DARK : COLOR_PANEL_WHITE;
-  lv_color_t init_inactive_col = COLOR_PANEL_GRAY;
+  lv_color_t init_inactive_col = darkMode ? COLOR_PANEL_DARK : COLOR_PANEL_GRAY;
 
   lv_obj_set_style_bg_color(ui_Panel2, init_panel_col, LV_PART_MAIN);
   lv_obj_set_style_opa(ui_Panel2, LV_OPA_COVER, LV_PART_MAIN);
@@ -2091,6 +2101,7 @@ void UI_Task(void *pvParameters) {
   lv_obj_set_style_opa(ui_Panel1, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_bg_color(ui_Panel3, init_inactive_col, LV_PART_MAIN);
   lv_obj_set_style_opa(ui_Panel3, LV_OPA_COVER, LV_PART_MAIN);
+
 
   lv_obj_set_style_bg_color(ui_ArrowDownTemp, COLOR_PANEL_GRAY, LV_PART_MAIN);
   lv_obj_set_style_opa(ui_ArrowDownTemp, LV_OPA_COVER, LV_PART_MAIN);
@@ -2323,7 +2334,7 @@ void UI_SyncAll() {
     return;
 
   lv_color_t active_col = darkMode ? COLOR_PANEL_GRAY : COLOR_PANEL_WHITE;
-  lv_color_t inactive_col = darkMode ? COLOR_BG_DARK : COLOR_PANEL_GRAY;
+  lv_color_t inactive_col = darkMode ? COLOR_PANEL_DARK : COLOR_PANEL_GRAY;
 
   // 1. Update internal state flags from current switch visual state
   switchTemp = lv_obj_has_state(ui_Switch1, LV_STATE_CHECKED);
@@ -2381,10 +2392,6 @@ void UI_SyncAll() {
     // Temperature Panel background
     lv_obj_set_style_bg_color(ui_Panel1, active_col, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(ui_Panel1, LV_OPA_COVER, LV_PART_MAIN);
-    if (ui_Panel4) {
-      lv_obj_set_style_bg_color(ui_Panel4, active_col, LV_PART_MAIN);
-      lv_obj_set_style_bg_opa(ui_Panel4, LV_OPA_COVER, LV_PART_MAIN);
-    }
     
     temp_chart_show_for_selected_panel();
   } else {
@@ -2398,17 +2405,13 @@ void UI_SyncAll() {
     lv_obj_set_style_bg_opa(ui_ArrowDownTemp, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_bg_color(ui_ArrowUpTemp, inactive_col, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(ui_ArrowUpTemp, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_Panel1, inactive_col, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ui_Panel1, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_bg_color(ui_AirPanel, inactive_col, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(ui_AirPanel, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_bg_color(ui_SkinPanel, inactive_col, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(ui_SkinPanel, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_Panel1, inactive_col, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(ui_Panel1, LV_OPA_COVER, LV_PART_MAIN);
-    if (ui_Panel4) {
-      lv_obj_set_style_bg_color(ui_Panel4, inactive_col, LV_PART_MAIN);
-      lv_obj_set_style_bg_opa(ui_Panel4, LV_OPA_COVER, LV_PART_MAIN);
-    }
-
+    
     // Visually show labels and thermometer of the last selected panel even if OFF
     if (lastSelectedPanel == SKIN_PANEL_SELECTED) {
       lv_obj_clear_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
@@ -2441,9 +2444,11 @@ void UI_SyncAll() {
     lv_obj_set_style_bg_opa(ui_ArrowUpHum, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_bg_color(ui_Panel3, active_col, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(ui_Panel3, LV_OPA_COVER, LV_PART_MAIN);
-    if (ui_Panel6) {
-      lv_obj_set_style_bg_color(ui_Panel6, active_col, LV_PART_MAIN);
-      lv_obj_set_style_bg_opa(ui_Panel6, LV_OPA_COVER, LV_PART_MAIN);
+    
+    // Apply active color to the inner humidity panel
+    if (ui_HumPanelCont) {
+      lv_obj_set_style_bg_color(ui_HumPanelCont, active_col, LV_PART_MAIN);
+      lv_obj_set_style_bg_opa(ui_HumPanelCont, LV_OPA_COVER, LV_PART_MAIN);
     }
   } else {
     lv_obj_add_flag(ui_HumChartCont, LV_OBJ_FLAG_HIDDEN);
@@ -2456,9 +2461,11 @@ void UI_SyncAll() {
     lv_obj_set_style_bg_opa(ui_ArrowUpHum, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_bg_color(ui_Panel3, inactive_col, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(ui_Panel3, LV_OPA_COVER, LV_PART_MAIN);
-    if (ui_Panel6) {
-      lv_obj_set_style_bg_color(ui_Panel6, inactive_col, LV_PART_MAIN);
-      lv_obj_set_style_bg_opa(ui_Panel6, LV_OPA_COVER, LV_PART_MAIN);
+    
+    // Apply inactive color to the inner humidity panel
+    if (ui_HumPanelCont) {
+      lv_obj_set_style_bg_color(ui_HumPanelCont, inactive_col, LV_PART_MAIN);
+      lv_obj_set_style_bg_opa(ui_HumPanelCont, LV_OPA_COVER, LV_PART_MAIN);
     }
   }
 
@@ -2469,10 +2476,6 @@ void UI_SyncAll() {
       // Normal state
       lv_obj_set_style_bg_color(ui_PhotoTimerPanel, active_col, LV_PART_MAIN);
       lv_obj_set_style_bg_opa(ui_PhotoTimerPanel, LV_OPA_COVER, LV_PART_MAIN);
-      if (ui_Panel2) {
-        lv_obj_set_style_bg_color(ui_Panel2, active_col, LV_PART_MAIN);
-        lv_obj_set_style_bg_opa(ui_Panel2, LV_OPA_COVER, LV_PART_MAIN);
-      }
       lv_obj_add_flag(ui_PhotoTimeMinusBtn, LV_OBJ_FLAG_CLICKABLE);
       lv_obj_add_flag(ui_PhotoTimePlusBtn, LV_OBJ_FLAG_CLICKABLE);
       lv_obj_add_flag(ui_PhotoStartBtn, LV_OBJ_FLAG_CLICKABLE);
@@ -2512,10 +2515,6 @@ void UI_SyncAll() {
       // Grayed out state
       lv_obj_set_style_bg_color(ui_PhotoTimerPanel, inactive_col, LV_PART_MAIN);
       lv_obj_set_style_bg_opa(ui_PhotoTimerPanel, LV_OPA_COVER, LV_PART_MAIN);
-      if (ui_Panel2) {
-        lv_obj_set_style_bg_color(ui_Panel2, inactive_col, LV_PART_MAIN);
-        lv_obj_set_style_bg_opa(ui_Panel2, LV_OPA_COVER, LV_PART_MAIN);
-      }
       lv_obj_clear_flag(ui_PhotoTimeMinusBtn, LV_OBJ_FLAG_CLICKABLE);
       lv_obj_clear_flag(ui_PhotoTimePlusBtn, LV_OBJ_FLAG_CLICKABLE);
       lv_obj_clear_flag(ui_PhotoStartBtn, LV_OBJ_FLAG_CLICKABLE);
