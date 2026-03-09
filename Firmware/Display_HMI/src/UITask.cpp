@@ -22,15 +22,12 @@ static lv_obj_t *ui_VolumeUpBtn;
 static lv_obj_t *ui_VolumeDownBtn;
 
 // Novedades para Gráficas Históricas (Declaradas en ElementsCreation.cpp)
-extern lv_obj_t *ui_TabViewMainCharts;
-extern lv_obj_t *ui_HistoryDropdown;
-extern lv_obj_t *ui_TabViewHistory;
-extern lv_obj_t *ui_TabHistoryTemp;
-extern lv_obj_t *ui_TabHistoryHum;
 extern lv_obj_t *ui_HistoryChartAire;
 extern lv_obj_t *ui_HistoryChartSkin;
 extern lv_obj_t *ui_HistoryChartHum;
-extern lv_obj_t *ui_HistoryCurrentValueLabel;
+extern lv_obj_t *ui_HistoryValueAire;
+extern lv_obj_t *ui_HistoryValueSkin;
+extern lv_obj_t *ui_HistoryValueHum;
 
 // Series de datos (Se definen aquí para ser usadas por UITask)
 lv_chart_series_t *historySeriesAire = NULL;
@@ -277,12 +274,26 @@ void update_labels() {
   lv_bar_set_value(ui_SkinTempBar, skinBar, LV_ANIM_OFF);
   lv_bar_set_value(ui_HumBar, humBar, LV_ANIM_OFF);
 
-  // Update photo timer label if not active
-  if (!photoTimerActive) {
-      char buf[16];
-      snprintf(buf, sizeof(buf), "%d:%02d", photoTimerMinutes / 60, photoTimerMinutes % 60);
-      lv_label_set_text(ui_PhotoTimeValueLabel, buf);
-  }
+    // Update photo timer label if not active
+    if (!photoTimerActive) {
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%d:%02d", photoTimerMinutes / 60, photoTimerMinutes % 60);
+        lv_label_set_text(ui_PhotoTimeValueLabel, buf);
+    }
+
+    // Update History Screen Values
+    if (ui_HistoryValueAire) {
+        snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValueDetected);
+        lv_label_set_text(ui_HistoryValueAire, buffer);
+    }
+    if (ui_HistoryValueSkin) {
+        snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValueDetected);
+        lv_label_set_text(ui_HistoryValueSkin, buffer);
+    }
+    if (ui_HistoryValueHum) {
+        snprintf(buffer, sizeof(buffer), "%d%%", humValueDetected);
+        lv_label_set_text(ui_HistoryValueHum, buffer);
+    }
 }
 
 const char* getConnectivityString(int status, ui_lang_t lang) {
@@ -467,21 +478,9 @@ void UI_ApplyLanguage(ui_lang_t lang) {
     lv_dropdown_set_options(ui_HistoryDropdown, TXT_HISTORY_OPTIONS[lang]);
   }
   if (ui_HistoryTimeLabel) lv_label_set_text(ui_HistoryTimeLabel, TXT_RANGE[lang]);
-  if (ui_HistoryChartAireLabel) lv_label_set_text(ui_HistoryChartAireLabel, TXT_HIST_AIR[lang]);
-  if (ui_HistoryChartSkinLabel) lv_label_set_text(ui_HistoryChartSkinLabel, TXT_HIST_SKIN[lang]);
-  if (ui_HistoryChartHumLabel) lv_label_set_text(ui_HistoryChartHumLabel, TXT_HIST_HUM[lang]);
-
-  // Traducción del TabView del Historial
-  if (ui_TabViewHistory) {
-    lv_obj_t *btnm = lv_tabview_get_tab_btns(ui_TabViewHistory);
-    if (btnm && lv_obj_check_type(btnm, &lv_btnmatrix_class)) {
-      static const char *map_hist_tab[3];
-      map_hist_tab[0] = TXT_TABTEMP[lang];
-      map_hist_tab[1] = TXT_TABHUM[lang];
-      map_hist_tab[2] = "";
-      lv_btnmatrix_set_map(btnm, map_hist_tab);
-    }
-  }
+  if (ui_HistoryChartAireLabel) lv_label_set_text(ui_HistoryChartAireLabel, TXT_AIR[lang]);
+  if (ui_HistoryChartSkinLabel) lv_label_set_text(ui_HistoryChartSkinLabel, TXT_SKIN[lang]);
+  if (ui_HistoryChartHumLabel) lv_label_set_text(ui_HistoryChartHumLabel, TXT_CONTROLHUM[lang]);
 
   lv_label_set_text(ui_Label11, TXT_AIRTEMP[lang]);
   lv_label_set_text(ui_Label12, TXT_BABYTEMP[lang]);
@@ -1535,23 +1534,7 @@ void update_history_charts() {
   lv_chart_refresh(ui_HistoryChartSkin);
   lv_chart_refresh(ui_HistoryChartHum);
 
-  // Actualizar el Label de Valor Actual detectado
-  if (ui_HistoryCurrentValueLabel) {
-    char valBuf[32];
-    uint16_t tab_act = lv_tabview_get_tab_act(ui_TabViewHistory);
-    if (tab_act == 0) { // TEMP
-       // Mostramos el valor de Aire o Piel según cuál esté más activo o simplemente ambos? 
-       // El usuario pide "Temp: 36.8 °C", usaremos el modo de control actual o el aire por defecto.
-       float val = (selectedPanel == SKIN_PANEL_SELECTED) ? (float)skinTempValueDetected : (float)airTempValueDetected;
-       snprintf(valBuf, sizeof(valBuf), "Temp: %.1f %s", val, "°C");
-       lv_label_set_text(ui_HistoryCurrentValueLabel, valBuf);
-       lv_obj_set_style_text_color(ui_HistoryCurrentValueLabel, (selectedPanel == SKIN_PANEL_SELECTED) ? lv_color_hex(0x00E0E0) : lv_palette_main(LV_PALETTE_GREEN), 0);
-    } else { // HUM
-       snprintf(valBuf, sizeof(valBuf), "Hum: %d %%", humValueDetected);
-       lv_label_set_text(ui_HistoryCurrentValueLabel, valBuf);
-       lv_obj_set_style_text_color(ui_HistoryCurrentValueLabel, lv_color_hex(0x3B82F6), 0); // Azul
-    }
-  }
+  // Los valores individuales (Aire/Piel/Hum) se actualizan en update_labels()
 }
 
 void update_history_charts();
@@ -2607,44 +2590,45 @@ void UI_SyncAll() {
     if (switchTemp && !switchHum) lv_tabview_set_act(ui_TabView1, 0, LV_ANIM_OFF);
     else if (!switchTemp && switchHum) lv_tabview_set_act(ui_TabView1, 1, LV_ANIM_OFF);
 
-    // --- Sincronización del TabView de Historial ---
-    // Controlamos directamente la visibilidad de las páginas y botones del TabView
-    if (ui_TabViewHistory) {
-      lv_obj_t *hist_tab_btns = lv_tabview_get_tab_btns(ui_TabViewHistory);
-
-      if (switchTemp && switchHum) {
-          // AMBOS ACTIVOS: mostrar tab buttons, mostrar ambas páginas
-          if (hist_tab_btns) lv_obj_clear_flag(hist_tab_btns, LV_OBJ_FLAG_HIDDEN);
-          if (ui_TabHistoryTemp) lv_obj_clear_flag(ui_TabHistoryTemp, LV_OBJ_FLAG_HIDDEN);
-          if (ui_TabHistoryHum) lv_obj_clear_flag(ui_TabHistoryHum, LV_OBJ_FLAG_HIDDEN);
-      } else if (switchTemp && !switchHum) {
-          // SOLO TEMP: ocultar tab buttons, mostrar solo TEMP, ocultar HUM
-          if (hist_tab_btns) lv_obj_add_flag(hist_tab_btns, LV_OBJ_FLAG_HIDDEN);
-          if (ui_TabHistoryTemp) lv_obj_clear_flag(ui_TabHistoryTemp, LV_OBJ_FLAG_HIDDEN);
-          if (ui_TabHistoryHum) lv_obj_add_flag(ui_TabHistoryHum, LV_OBJ_FLAG_HIDDEN);
-          lv_tabview_set_act(ui_TabViewHistory, 0, LV_ANIM_OFF);
-      } else if (!switchTemp && switchHum) {
-          // SOLO HUM: ocultar tab buttons, mostrar solo HUM, ocultar TEMP
-          if (hist_tab_btns) lv_obj_add_flag(hist_tab_btns, LV_OBJ_FLAG_HIDDEN);
-          if (ui_TabHistoryTemp) lv_obj_add_flag(ui_TabHistoryTemp, LV_OBJ_FLAG_HIDDEN);
-          if (ui_TabHistoryHum) lv_obj_clear_flag(ui_TabHistoryHum, LV_OBJ_FLAG_HIDDEN);
-          lv_tabview_set_act(ui_TabViewHistory, 1, LV_ANIM_OFF);
-      }
+    // --- Sincronización de la pantalla de Historial ---
+    // Gráfica de Temperatura: Aire o Piel según el modo activo
+    if (switchTemp) {
+        if (selectedPanel == SKIN_PANEL_SELECTED) {
+            lv_obj_add_flag(ui_HistoryChartAire, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(ui_HistoryChartAireLabel, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(ui_HistoryValueAire, LV_OBJ_FLAG_HIDDEN);
+            
+            lv_obj_clear_flag(ui_HistoryChartSkin, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(ui_HistoryChartSkinLabel, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(ui_HistoryValueSkin, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_clear_flag(ui_HistoryChartAire, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(ui_HistoryChartAireLabel, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(ui_HistoryValueAire, LV_OBJ_FLAG_HIDDEN);
+            
+            lv_obj_add_flag(ui_HistoryChartSkin, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(ui_HistoryChartSkinLabel, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(ui_HistoryValueSkin, LV_OBJ_FLAG_HIDDEN);
+        }
+    } else {
+        // Ambas ocultas si temperatura está OFF
+        lv_obj_add_flag(ui_HistoryChartAire, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ui_HistoryChartAireLabel, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ui_HistoryValueAire, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ui_HistoryChartSkin, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ui_HistoryChartSkinLabel, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ui_HistoryValueSkin, LV_OBJ_FLAG_HIDDEN);
     }
 
-    // Visibilidad Air vs Skin en la pestaña de temperatura del historial
-    // Solo se muestra la gráfica correspondiente al modo activo
-    if (selectedPanel == SKIN_PANEL_SELECTED) {
-      if (ui_HistoryChartAire) lv_obj_add_flag(ui_HistoryChartAire, LV_OBJ_FLAG_HIDDEN);
-      if (ui_HistoryChartAireLabel) lv_obj_add_flag(ui_HistoryChartAireLabel, LV_OBJ_FLAG_HIDDEN);
-      if (ui_HistoryChartSkin) lv_obj_clear_flag(ui_HistoryChartSkin, LV_OBJ_FLAG_HIDDEN);
-      if (ui_HistoryChartSkinLabel) lv_obj_clear_flag(ui_HistoryChartSkinLabel, LV_OBJ_FLAG_HIDDEN);
+    // Gráfica de Humedad
+    if (switchHum) {
+        lv_obj_clear_flag(ui_HistoryChartHum, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(ui_HistoryChartHumLabel, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(ui_HistoryValueHum, LV_OBJ_FLAG_HIDDEN);
     } else {
-      // AIR_PANEL_SELECTED o por defecto → mostrar Air
-      if (ui_HistoryChartAire) lv_obj_clear_flag(ui_HistoryChartAire, LV_OBJ_FLAG_HIDDEN);
-      if (ui_HistoryChartAireLabel) lv_obj_clear_flag(ui_HistoryChartAireLabel, LV_OBJ_FLAG_HIDDEN);
-      if (ui_HistoryChartSkin) lv_obj_add_flag(ui_HistoryChartSkin, LV_OBJ_FLAG_HIDDEN);
-      if (ui_HistoryChartSkinLabel) lv_obj_add_flag(ui_HistoryChartSkinLabel, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ui_HistoryChartHum, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ui_HistoryChartHumLabel, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ui_HistoryValueHum, LV_OBJ_FLAG_HIDDEN);
     }
   }
 
@@ -2769,10 +2753,10 @@ void UI_ApplyTheme() {
     lv_color_t tab_text_col = darkMode ? COLOR_TEXT_DARK : lv_color_hex(0x000000);
 
     lv_obj_t* tabviews[] = {
-        ui_AlarmsTabview, ui_TabViewMainCharts, ui_TabView1, ui_TabViewHistory
+        ui_AlarmsTabview, ui_TabViewMainCharts, ui_TabView1
     };
 
-    for(int i=0; i < 4; i++) {
+    for(int i=0; i < 3; i++) {
         if(tabviews[i] != NULL) {
             // 1. Fondo Principal de la vista del Tab
             lv_obj_set_style_bg_color(tabviews[i], tab_bg_col, LV_PART_MAIN);
