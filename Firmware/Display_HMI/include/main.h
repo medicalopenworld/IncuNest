@@ -121,7 +121,7 @@ constexpr int BRIGHTNESS_MAX = 255;
 // Temperature
 // -----------------------------
 constexpr double AIR_TEMP_MIN = 30.0;
-constexpr double AIR_TEMP_MAX = 37.0;
+constexpr double AIR_TEMP_MAX = 38.5;
 constexpr double SKIN_TEMP_MIN = 35.0;
 constexpr double SKIN_TEMP_MAX = 37.5;
 constexpr double TEMP_INCREMENT = 0.2;
