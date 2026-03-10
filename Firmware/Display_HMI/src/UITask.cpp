@@ -1442,7 +1442,6 @@ void Alarm4Cont_cb(lv_event_t *e) { show_alarm_detail_from_slot(3); hmi_msg.shou
 
 void AlarmButton_cb(lv_event_t *e) {
   lv_tabview_set_act(ui_AlarmsTabview, 0, LV_ANIM_ON);
-  hmi_msg.shouldSendData = true;
 
 }
 

@@ -335,6 +335,7 @@ void ui_event_Settings(lv_event_t * e) {
 void ui_event_AlarmButton(lv_event_t * e) {
     lv_event_code_t event_code = lv_event_get_code(e);
     if(event_code == LV_EVENT_CLICKED) {
+        hmi_msg.shouldSendData = true;  // Beep en motherboard al tocar icono de alarmas
         _ui_screen_change(&ui_ScreenAlarms, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_ScreenAlarms_screen_init);
         _ui_screen_delete(&ui_ScreenMain);
         AlarmButton_cb(e);
@@ -408,8 +409,10 @@ void ui_event_ImgButton2(lv_event_t * e) {
 void ui_event_AlarmLockImg(lv_event_t * e) {
     lv_event_code_t event_code = lv_event_get_code(e);
     if(event_code == LV_EVENT_CLICKED) {
-        _ui_screen_delete(&ui_ScreenLock);
+        hmi_msg.shouldSendData = true;  // Beep en motherboard al tocar icono de alarmas
         _ui_screen_change(&ui_ScreenAlarms, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_ScreenAlarms_screen_init);
+        _ui_screen_delete(&ui_ScreenLock);
+        AlarmButton_cb(e);
     }
 }
 
@@ -602,6 +605,8 @@ void ui_event_AlarmLockCont(lv_event_t * e) {
     lv_event_code_t event_code = lv_event_get_code(e);
     if(event_code == LV_EVENT_CLICKED) {
         hmi_msg.shouldSendData = true;  // Beep en motherboard al tocar icono de alarmas
+        _ui_screen_change(&ui_ScreenAlarms, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_ScreenAlarms_screen_init);
+        _ui_screen_delete(&ui_ScreenLock);
         AlarmButton_cb(e);
     }
 }
