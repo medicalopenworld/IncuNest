@@ -601,6 +601,7 @@ void ui_event_ScreenLock(lv_event_t * e) {
 void ui_event_AlarmLockCont(lv_event_t * e) {
     lv_event_code_t event_code = lv_event_get_code(e);
     if(event_code == LV_EVENT_CLICKED) {
+        hmi_msg.shouldSendData = true;  // Beep en motherboard al tocar icono de alarmas
         AlarmButton_cb(e);
     }
 }
