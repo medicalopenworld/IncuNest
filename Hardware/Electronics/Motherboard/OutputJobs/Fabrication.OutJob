@@ -216,7 +216,7 @@ Configuration10_Item1=Record=SchPrintView|ShowNoERC=True|ShowParamSet=True|ShowP
 [PublishSettings]
 OutputFilePath2=
 ReleaseManaged2=1
-OutputBasePath2=Project Outputs for in3ator
+OutputBasePath2=Project Outputs for IncuNest
 OutputPathMedia2=
 OutputPathMediaValue2=
 OutputPathOutputer2=[Output Type]
@@ -243,7 +243,7 @@ PDFACompliance2=Disabled
 PDFVersion2=Default
 OutputFilePath3=C:\Users\Administrator\Documents\in3ator_altium\Motherboard\Project Outputs for in3ator\
 ReleaseManaged3=1
-OutputBasePath3=Project Outputs for in3ator
+OutputBasePath3=Project Outputs for IncuNest
 OutputPathMedia3=
 OutputPathMediaValue3=
 OutputPathOutputer3=[Output Type]
@@ -256,7 +256,7 @@ OutputFileNameSpecial3=
 OpenOutput3=1
 OutputFilePath4=
 ReleaseManaged4=1
-OutputBasePath4=Project Outputs for in3ator
+OutputBasePath4=Project Outputs for IncuNest
 OutputPathMedia4=
 OutputPathMediaValue4=
 OutputPathOutputer4=[Output Type]
