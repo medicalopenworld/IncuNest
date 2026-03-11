@@ -2630,7 +2630,8 @@ void UI_SyncAll() {
         lv_obj_add_flag(ui_HistoryValueHum, LV_OBJ_FLAG_HIDDEN);
     }
   }
-
+  
+  hmi_msg.language = (int)g_lang;
   update_labels();
 }
 

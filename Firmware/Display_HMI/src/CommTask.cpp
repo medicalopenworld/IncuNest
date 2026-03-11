@@ -81,15 +81,15 @@ static void parse_message(const char *line) {
       ctrl_tel_msg.serverCommStatus = COMM_STATUS_NONE;
     }
   } else if (strncmp(line, "CTRL,STATE", 10) == 0) {
-    int act, mode, photo, mute, sn, hwNum, numAlarms, skinE, commStatus;
+    int act, mode, photo, mute, sn, hwNum, numAlarms, skinE, commStatus, lang;
     double photoTimeRemaining;  // Formato MM.SS (ej: 18.33 = 18 min 33 seg)
     char hwRev;
     char fwVer[20];
     double airSet, skinSet, humSet;
     int result =
-        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d,%lf",
+        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d,%lf,%d",
                &act, &mode, &airSet, &skinSet, &humSet, &photo, &mute,
-               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus, &photoTimeRemaining);
+               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus, &photoTimeRemaining, &lang);
     
     // Accept 12 (old), 13 (with alarms), 14 (with alarms + skinModeEnabled), or 15 (with photoTimeRemaining)
     if (result >= 12) {
@@ -100,7 +100,7 @@ static void parse_message(const char *line) {
       ctrl_state_msg.desiredHumidity = humSet;
       ctrl_state_msg.phototherapyMode = photo;
       ctrl_state_msg.muteAlarm = mute;
-      // ctrl_state_msg.language = lang; // REMOVIDO: Idioma gestionado localmente por HMI
+      if (result >= 16) ctrl_state_msg.language = lang;
       ctrl_state_msg.serialNumber = sn;
       ctrl_state_msg.hwNum = hwNum;
       ctrl_state_msg.hwRev[0] = hwRev;
@@ -300,6 +300,7 @@ static void Display_StateSync_Service(void) {
     if (Display_ApplyCtrlState(ctrl_state_msg)) {
       ctrl_state_msg.newState = false;
       g_stateSynced = true;
+      hmi_msg.shouldSendData = true; // Forzar envío inicial para sincronizar idioma y setpoints locales
     }
   }
 }

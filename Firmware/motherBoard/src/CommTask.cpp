@@ -104,14 +104,14 @@ static void send_state_to_hmi() {
   double remainingTime = getRemainingPhotoTime();
   
   snprintf(msg, sizeof(msg),
-           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f\n",
+           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d\n",
            (int)g_last_cmd.actuation, (int)g_last_cmd.controlMode,
            (double)g_last_cmd.desiredAirTemperature,
            (double)g_last_cmd.desiredSkinTemperature,
            (double)g_last_cmd.desiredHumidity, (int)g_last_cmd.phototherapyMode,
            (int)g_last_cmd.muteAlarm,
            ctrl_tel_msg.serialNumber, HW_NUM, HW_REVISION, FWversion, alarmCount, (int)g_last_cmd.skinModeEnabled, (int)ctrl_tel_msg.serverCommStatus,
-           remainingTime);
+           remainingTime, in3.language);
   ESP_LOGI(TAG, "Sending state to HMI: %s", msg);
   CommunicationHost_Send(msg);
   
@@ -222,6 +222,13 @@ void parse_line(const char *line) {
       hmi_cmd_msg.language = lang;
       hmi_cmd_msg.photoMinutesRemaining = photoMin;
       hmi_cmd_msg.newCommand = true;
+
+      // Sincronizar idioma de MB con el recibido por HMI para las alarmas
+      if (in3.language != lang) {
+        in3.language = lang;
+        extern void resendActiveAlarms();
+        resendActiveAlarms();
+      }
 
       // ---- NUEVO: actualiza cache (para futuras respuestas CTRL,STATE) ----
       g_last_cmd = hmi_cmd_msg;
