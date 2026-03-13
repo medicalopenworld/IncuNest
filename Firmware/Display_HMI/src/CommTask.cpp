@@ -287,16 +287,20 @@ static bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
              in3.serialNumber);
   }
 
-  // --- NUEVO: Sincronización de Alarmas via Bitmask ---
-  // Si el bitmask es válido (result >= 17), nos aseguramos de que el HMI coincida con la Board
+  // --- Sincronización de Alarmas via Bitmask (CORRECCIÓN: usa ID como bit, igual que la Board) ---
+  // La Board calcula: bitmask |= (1 << alarmID). El HMI debe descodificarlo igual.
+  // El slot en alarmList es: alarmList[alarmID] (mapeo directo ID->índice).
   if (st.alarmBitmask != (uint32_t)-1) {
       extern Alarm alarmList[];
       bool changed = false;
-      for (int i = 0; i < MAX_ALARMS; i++) {
-          bool boardActive = (st.alarmBitmask & (1 << i));
-          if (alarmList[i].state && !boardActive) {
-              // La alarma está en el HMI pero no en la placa -> Limpiarla
-              alarmList[i].state = false;
+      // Iterar por IDs válidos (1..MAX_ALARMS-1), igual que el enum ALARMS_ID
+      for (int id = 1; id < MAX_ALARMS; id++) {
+          // El bit del ID corresponde a la posición 'id' en el bitmask
+          bool boardActive = (st.alarmBitmask >> id) & 1;
+          if (alarmList[id].state && !boardActive) {
+              // La alarma está pintada en el HMI pero la Board dice que ya no está activa
+              COMM_LOG("[COMM] Bitmask sync: limpiando alarma ID %d (%s)\n", id, alarmList[id].type);
+              alarmList[id].state = false;
               changed = true;
           }
       }
@@ -343,39 +347,38 @@ static void applyHMIData() {
 }
 
 static void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
-  int idxById = -1;
-  for (int i = 0; i < MAX_ALARMS; i++) {
-    if (alarmList[i].id == alarm.id) {
-      idxById = i;
-      break;
-    }
-  }
-  int index = idxById;
-  if (index == -1) {
-    for (int i = 0; i < MAX_ALARMS; i++) {
-      if (alarmList[i].state == false) {
-        index = i;
-        break;
-      }
-    }
-  }
-  if (index == -1)
+  // --- MAPEO DIRECTO ID -> ÍNDICE ---
+  // El ID de la alarma (enum ALARMS_ID: 1..9) se usa directamente como índice en alarmList[].
+  // Esto elimina búsquedas, colisiones y duplicados garantizando que cada alarma
+  // ocupe siempre el mismo slot, independientemente del orden de llegada.
+  if (alarm.id <= 0 || alarm.id >= MAX_ALARMS) {
+    COMM_LOG("[COMM] Alarm ID %d fuera de rango, ignorando.\n", alarm.id);
     return;
+  }
 
-  bool prevState = (idxById != -1) ? alarmList[index].state : false;
-  bool isNewAlarm = (idxById == -1) || (!prevState && alarm.state);
+  int index = alarm.id; // Slot determinista: ID 5 -> alarmList[5], ID 6 -> alarmList[6]
 
+  bool wasActive = alarmList[index].state;
+
+  // Actualizar slot con los datos recibidos
   alarmList[index].id = alarm.id;
-  strncpy(alarmList[index].type, alarm.type, ALARM_TYPE_LEN);
+  strncpy(alarmList[index].type, alarm.type, ALARM_TYPE_LEN - 1);
   alarmList[index].type[ALARM_TYPE_LEN - 1] = '\0';
-  strncpy(alarmList[index].description, alarm.description, ALARM_DESC_LEN);
+  strncpy(alarmList[index].description, alarm.description, ALARM_DESC_LEN - 1);
   alarmList[index].description[ALARM_DESC_LEN - 1] = '\0';
   alarmList[index].state = alarm.state;
 
-  if (isNewAlarm && alarm.state) {
+  COMM_LOG("[COMM] Alarma ID %d (%s): %s -> %s\n",
+           alarm.id, alarm.type,
+           wasActive ? "ACTIVA" : "inactiva",
+           alarm.state ? "ACTIVA" : "inactiva");
+
+  // Si se activa una alarma nueva, desmutar
+  if (alarm.state && !wasActive) {
     alarmsMuted = false;
     hmi_msg.muteAlarm = 0;
   }
+
   if (!g_ui_initialized)
     return;
   update_alarm_panels();
