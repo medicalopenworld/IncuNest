@@ -103,15 +103,22 @@ static void send_state_to_hmi() {
   // Calculate real remaining time using shared logic
   double remainingTime = getRemainingPhotoTime();
   
+  // Calcular bitmask de alarmas activas para sincronización rápida
+  uint32_t alarmBitmask = 0;
+  extern bool alarmOnGoing[];
+  for (int i = 0; i < NUM_ALARMS; i++) {
+    if (alarmOnGoing[i]) alarmBitmask |= (1 << i);
+  }
+
   snprintf(msg, sizeof(msg),
-           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d\n",
+           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d,0x%X\n",
            (int)g_last_cmd.actuation, (int)g_last_cmd.controlMode,
            (double)g_last_cmd.desiredAirTemperature,
            (double)g_last_cmd.desiredSkinTemperature,
            (double)g_last_cmd.desiredHumidity, (int)g_last_cmd.phototherapyMode,
            (int)g_last_cmd.muteAlarm,
            ctrl_tel_msg.serialNumber, HW_NUM, HW_REVISION, FWversion, alarmCount, (int)g_last_cmd.skinModeEnabled, (int)ctrl_tel_msg.serverCommStatus,
-           remainingTime, in3.language);
+           remainingTime, in3.language, alarmBitmask);
   ESP_LOGI(TAG, "Sending state to HMI: %s", msg);
   CommunicationHost_Send(msg);
   
@@ -129,14 +136,21 @@ void parse_line(const char *line) {
     return;
   }
 
-  // ---- NUEVO: handshake request ----
-  if (strcmp(line, "HMI,REQ,STATE") == 0) {
+  // ---- NUEVO: handshake request robusto ----
+  if (strcmp(line, "HMI,UI_READY") == 0 || strcmp(line, "HMI,REQ,STATE") == 0) {
+    bool isUIReady = (strcmp(line, "HMI,UI_READY") == 0);
     if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-      ESP_LOGI(TAG, "HMI requested STATE (Queued)");
+      ESP_LOGI(TAG, "HMI %s (Queued)", isUIReady ? "UI_READY" : "REQ,STATE");
       xSemaphoreGiveRecursive(log_mutex);
     }
     setHMIConnected(true);             // Flush pending alarms
     xSemaphoreGive(hmi_state_req_sem); // Signal task to send response
+    
+    // Si la UI está lista, forzamos reenvío de todas las alarmas activas
+    if (isUIReady) {
+        extern void resendActiveAlarms();
+        resendActiveAlarms();
+    }
     return;
   }
 

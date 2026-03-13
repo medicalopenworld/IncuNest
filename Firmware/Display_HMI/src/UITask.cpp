@@ -234,29 +234,59 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
 void update_labels() {
   if (!g_ui_initialized)
     return;
-  char buffer[BUFFER_SIZE];
-  snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValue);
-  lv_label_set_text(ui_TempAirDesired, buffer);
-  lv_label_set_text(ui_TargetAirTempNumLabel, buffer);
-  snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValue);
-  lv_label_set_text(ui_TempSkinDesired, buffer);
-  lv_label_set_text(ui_TargetSkinTempNumLabel, buffer);
-  snprintf(buffer, sizeof(buffer), "%d%%", humValue);
-  lv_label_set_text(ui_HumDesired, buffer);
-  lv_label_set_text(ui_Label24, buffer);
+    
+  static double l_airDesired = -1.0, l_skinDesired = -1.0;
+  static int l_humDesired = -1;
+  static double l_airDet = -1.0, l_skinDet = -1.0;
+  static int l_humDet = -1;
+  static int l_photoMins = -1;
 
-  snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValueDetected);
-  lv_label_set_text(ui_TempAirDetected, buffer);
-  lv_label_set_text(ui_TempAirDetectedRight, buffer);
-  lv_label_set_text(ui_Label18, buffer);
-  snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValueDetected);
-  lv_label_set_text(ui_TempSkinDetected, buffer);
-  lv_label_set_text(ui_TempSkinDetectedRight, buffer);
-  lv_label_set_text(ui_Label14, buffer);
-  snprintf(buffer, sizeof(buffer), "%d%%", humValueDetected);
-  lv_label_set_text(ui_HumDetected, buffer);
-  lv_label_set_text(ui_HumDetectedRight, buffer);
-  lv_label_set_text(ui_Label20, buffer);
+  char buffer[BUFFER_SIZE];
+  
+  if (abs(airTempValue - l_airDesired) > 0.05) {
+      l_airDesired = airTempValue;
+      snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValue);
+      lv_label_set_text(ui_TempAirDesired, buffer);
+      lv_label_set_text(ui_TargetAirTempNumLabel, buffer);
+  }
+  
+  if (abs(skinTempValue - l_skinDesired) > 0.05) {
+      l_skinDesired = skinTempValue;
+      snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValue);
+      lv_label_set_text(ui_TempSkinDesired, buffer);
+      lv_label_set_text(ui_TargetSkinTempNumLabel, buffer);
+  }
+
+  if (humValue != l_humDesired) {
+      l_humDesired = humValue;
+      snprintf(buffer, sizeof(buffer), "%d%%", humValue);
+      lv_label_set_text(ui_HumDesired, buffer);
+      lv_label_set_text(ui_Label24, buffer);
+  }
+
+  if (abs(airTempValueDetected - l_airDet) > 0.05) {
+      l_airDet = airTempValueDetected;
+      snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValueDetected);
+      lv_label_set_text(ui_TempAirDetected, buffer);
+      lv_label_set_text(ui_TempAirDetectedRight, buffer);
+      lv_label_set_text(ui_Label18, buffer);
+  }
+
+  if (abs(skinTempValueDetected - l_skinDet) > 0.05) {
+      l_skinDet = skinTempValueDetected;
+      snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValueDetected);
+      lv_label_set_text(ui_TempSkinDetected, buffer);
+      lv_label_set_text(ui_TempSkinDetectedRight, buffer);
+      lv_label_set_text(ui_Label14, buffer);
+  }
+
+  if (humValueDetected != l_humDet) {
+      l_humDet = humValueDetected;
+      snprintf(buffer, sizeof(buffer), "%d%%", humValueDetected);
+      lv_label_set_text(ui_HumDetected, buffer);
+      lv_label_set_text(ui_HumDetectedRight, buffer);
+      lv_label_set_text(ui_Label20, buffer);
+  }
 
   int airBar = (airTempValueDetected <= 20.0)
                    ? 0
@@ -2010,6 +2040,7 @@ void UI_Task(void *pvParameters) {
 
   ui_init();
   g_ui_initialized = true;
+  Communication_UIReady(); // Sincronización robusta: avisar a la Board que ya podemos pintar alarmas
   
   /* Comentado para v1.3 (Control vía I2C)
   ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RESOLUTION);

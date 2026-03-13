@@ -44,6 +44,12 @@ void Communication_RequestState(void) {
 #endif
 }
 
+void Communication_UIReady(void) {
+#if IS_HMI
+  COMM_SERIAL.print("HMI,UI_READY\n");
+#endif
+}
+
 void Communication_SendWiFiCredentials(const char *ssid, const char *password) {
 #if IS_HMI
   COMM_SERIAL.printf("HMI,WIFI,%s,%s\n", ssid, password);
@@ -82,16 +88,17 @@ static void parse_message(const char *line) {
     }
   } else if (strncmp(line, "CTRL,STATE", 10) == 0) {
     int act, mode, photo, mute, sn, hwNum, numAlarms, skinE, commStatus, lang;
+    uint32_t alarmBitmask = 0;
     double photoTimeRemaining;  // Formato MM.SS (ej: 18.33 = 18 min 33 seg)
     char hwRev;
     char fwVer[20];
     double airSet, skinSet, humSet;
     int result =
-        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d,%lf,%d",
+        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d,%lf,%d,0x%X",
                &act, &mode, &airSet, &skinSet, &humSet, &photo, &mute,
-               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus, &photoTimeRemaining, &lang);
+               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus, &photoTimeRemaining, &lang, &alarmBitmask);
     
-    // Accept 12 (old), 13 (with alarms), 14 (with alarms + skinModeEnabled), or 15 (with photoTimeRemaining)
+    // Accept 12 (old), 13 (with alarms), 14 (with alarms + skinModeEnabled), 15 (with photoTimeRemaining, commStatus), 16 (lang), 17 (bitmask)
     if (result >= 12) {
       ctrl_state_msg.actuation = act;
       ctrl_state_msg.controlMode = mode;
@@ -101,13 +108,9 @@ static void parse_message(const char *line) {
       ctrl_state_msg.phototherapyMode = photo;
       ctrl_state_msg.muteAlarm = mute;
       if (result >= 16) ctrl_state_msg.language = lang;
+      if (result >= 17) ctrl_state_msg.alarmBitmask = alarmBitmask;
+      else ctrl_state_msg.alarmBitmask = (uint32_t)-1; // Valor nulo si no viene
       ctrl_state_msg.serialNumber = sn;
-      ctrl_state_msg.hwNum = hwNum;
-      ctrl_state_msg.hwRev[0] = hwRev;
-      ctrl_state_msg.hwRev[1] = '\0';
-      strncpy(ctrl_state_msg.fwVer, fwVer, sizeof(ctrl_state_msg.fwVer));
-      ctrl_state_msg.skinModeEnabled = (result >= 14) ? skinE : (mode == CONTROL_SKIN);
-      ctrl_state_msg.serverCommStatus = (result >= 15) ? commStatus : 0;
       
       // Extract minutes and seconds from MM.SS format
       if (result >= 15) {
@@ -282,6 +285,25 @@ static bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
     EEPROM.commit();
     ESP_LOGI(TAG, "Serial Number updated from motherboard: %d",
              in3.serialNumber);
+  }
+
+  // --- NUEVO: Sincronización de Alarmas via Bitmask ---
+  // Si el bitmask es válido (result >= 17), nos aseguramos de que el HMI coincida con la Board
+  if (st.alarmBitmask != (uint32_t)-1) {
+      extern Alarm alarmList[];
+      bool changed = false;
+      for (int i = 0; i < MAX_ALARMS; i++) {
+          bool boardActive = (st.alarmBitmask & (1 << i));
+          if (alarmList[i].state && !boardActive) {
+              // La alarma está en el HMI pero no en la placa -> Limpiarla
+              alarmList[i].state = false;
+              changed = true;
+          }
+      }
+      if (changed) {
+          update_alarm_panels();
+          AlarmSound_Update();
+      }
   }
 
   UI_SyncAll();
