@@ -292,6 +292,7 @@ static bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
   // El slot en alarmList es: alarmList[alarmID] (mapeo directo ID->índice).
   if (st.alarmBitmask != (uint32_t)-1) {
       extern Alarm alarmList[];
+      extern volatile bool g_pendingAlarmUpdate;
       bool changed = false;
       // Iterar por IDs válidos (1..MAX_ALARMS-1), igual que el enum ALARMS_ID
       for (int id = 1; id < MAX_ALARMS; id++) {
@@ -305,8 +306,8 @@ static bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
           }
       }
       if (changed) {
-          update_alarm_panels();
-          AlarmSound_Update();
+          g_pendingAlarmUpdate = true;
+          AlarmSound_Update(); // Audio is thread-safe or runs in Core 0 separately
       }
   }
 
@@ -347,6 +348,7 @@ static void applyHMIData() {
 }
 
 static void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
+  extern volatile bool g_pendingAlarmUpdate;
   // --- MAPEO DIRECTO ID -> ÍNDICE ---
   // El ID de la alarma (enum ALARMS_ID: 1..9) se usa directamente como índice en alarmList[].
   // Esto elimina búsquedas, colisiones y duplicados garantizando que cada alarma
@@ -381,7 +383,7 @@ static void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
 
   if (!g_ui_initialized)
     return;
-  update_alarm_panels();
+  g_pendingAlarmUpdate = true;
   AlarmSound_Update();
 }
 

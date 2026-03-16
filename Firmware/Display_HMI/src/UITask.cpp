@@ -59,6 +59,7 @@ bool humSwitched = false;
 bool arrowsActive = false;
 bool darkMode = false;
 int g_selectedAlarmId = -1; 
+volatile bool g_pendingAlarmUpdate = false; 
 
 bool alarmActive = false;
 bool alarmsMuted = false;
@@ -2369,6 +2370,12 @@ void UI_Task(void *pvParameters) {
             lv_obj_add_flag(ui_PhotoLockCont, LV_OBJ_FLAG_HIDDEN);
         }
     }
+
+    if (g_pendingAlarmUpdate) {
+        update_alarm_panels();
+        g_pendingAlarmUpdate = false;
+    }
+
     if (eepromDirty && (millis() - lastVarChangeTime > EEPROM_COMMIT_DELAY)) {
       EEPROM.commit();
       eepromDirty = false;
