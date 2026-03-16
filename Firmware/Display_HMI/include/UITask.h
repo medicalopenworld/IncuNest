@@ -20,3 +20,4 @@ void ui_set_switch_state_silent(lv_obj_t *sw, bool on);
 void UI_ApplyLanguage(ui_lang_t lang);
 void UI_SyncAll();
 void UI_ApplyTheme();
+const char* getConnectivityString(int status, ui_lang_t lang);

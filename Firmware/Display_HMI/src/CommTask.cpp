@@ -112,6 +112,9 @@ static void parse_message(const char *line) {
       else ctrl_state_msg.alarmBitmask = (uint32_t)-1; // Valor nulo si no viene
       ctrl_state_msg.serialNumber = sn;
       
+      strncpy(ctrl_state_msg.fwVer, fwVer, sizeof(ctrl_state_msg.fwVer));
+      ctrl_state_msg.fwVer[sizeof(ctrl_state_msg.fwVer) - 1] = '\0';
+      
       // Extract minutes and seconds from MM.SS format
       if (result >= 15) {
         int mins = (int)photoTimeRemaining;
@@ -285,6 +288,17 @@ static bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
     EEPROM.commit();
     ESP_LOGI(TAG, "Serial Number updated from motherboard: %d",
              in3.serialNumber);
+  }
+
+  // Actualizar labels de información si están disponibles
+  if (ui_MBVerValue) lv_label_set_text(ui_MBVerValue, st.fwVer);
+  if (ui_SNValue) {
+      char sn_buf[16];
+      snprintf(sn_buf, sizeof(sn_buf), "%d", st.serialNumber);
+      lv_label_set_text(ui_SNValue, sn_buf);
+  }
+  if (ui_ConnValue) {
+      lv_label_set_text(ui_ConnValue, getConnectivityString(st.serverCommStatus, g_lang));
   }
 
   // --- Sincronización de Alarmas via Bitmask (CORRECCIÓN: usa ID como bit, igual que la Board) ---
