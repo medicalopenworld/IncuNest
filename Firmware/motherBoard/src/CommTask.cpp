@@ -144,13 +144,7 @@ void parse_line(const char *line) {
       xSemaphoreGiveRecursive(log_mutex);
     }
     setHMIConnected(true);             // Flush pending alarms
-    xSemaphoreGive(hmi_state_req_sem); // Signal task to send response
-    
-    // Si la UI está lista, forzamos reenvío de todas las alarmas activas
-    if (isUIReady) {
-        extern void resendActiveAlarms();
-        resendActiveAlarms();
-    }
+    xSemaphoreGive(hmi_state_req_sem); // Signal task to send response (STATE + active alarms)
     return;
   }
 
@@ -409,6 +403,11 @@ void CommunicationHost_Send(const char *msg) {
   memcpy(buf, msg, len);
   esp_err_t err = vcp->tx_blocking(buf, len);
   xSemaphoreGive(vcp_mux);
+
+  // --- PACING: prevent HMI/CDC saturation ---
+  if (err == ESP_OK) {
+    vTaskDelay(pdMS_TO_TICKS(10)); 
+  }
 
   if (err != ESP_OK) {
     if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
