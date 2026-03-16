@@ -2372,9 +2372,18 @@ void UI_Task(void *pvParameters) {
                 lv_obj_clear_flag(ui_PhotoLockCont, LV_OBJ_FLAG_HIDDEN);
             }
         }
+    } else if (hmi_msg.phototherapyMode == PHOTOTHERAPY_ON) {
+        // Phototherapy is ON but no timer is active
+        if (ui_PhotoLockTimeLabel) {
+            // Use translation for "ON" if available, or just "ON"
+            lv_label_set_text(ui_PhotoLockTimeLabel, "ON");
+        }
+        if (ui_PhotoLockCont) {
+            lv_obj_clear_flag(ui_PhotoLockCont, LV_OBJ_FLAG_HIDDEN);
+        }
     } else {
         lastPhotoMinutesSent = -1;
-        // Timer not active, hide lock screen container
+        // Timer not active and light is OFF, hide lock screen container
         if (ui_PhotoLockCont) {
             lv_obj_add_flag(ui_PhotoLockCont, LV_OBJ_FLAG_HIDDEN);
         }
