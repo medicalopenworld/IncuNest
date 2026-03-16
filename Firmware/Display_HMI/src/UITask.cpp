@@ -2784,6 +2784,10 @@ void UI_ApplyTheme() {
         lv_obj_set_style_img_recolor(ui_ImgButton9, img_recolor, 0);
         lv_obj_set_style_img_recolor_opa(ui_ImgButton9, img_recolor_opa, 0);
     }
+    if (ui_Image4) {
+        lv_obj_set_style_img_recolor(ui_Image4, img_recolor, 0);
+        lv_obj_set_style_img_recolor_opa(ui_Image4, img_recolor_opa, 0);
+    }
 
     // --- CHARTS DARK MODE APLICATION ---
     lv_color_t chart_bg_col = darkMode ? COLOR_PANEL_DARK : lv_color_hex(0xFFFFFF);
