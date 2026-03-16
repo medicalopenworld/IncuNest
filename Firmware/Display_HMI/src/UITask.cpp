@@ -58,6 +58,7 @@ bool tempSwitched = false;
 bool humSwitched = false;
 bool arrowsActive = false;
 bool darkMode = false;
+int g_selectedAlarmId = -1; 
 
 bool alarmActive = false;
 bool alarmsMuted = false;
@@ -1317,6 +1318,8 @@ void update_alarm_panels() {
   alarmSlotToIndex[2] = -1;
   alarmSlotToIndex[3] = -1;
 
+  bool selectedStillActive = false;
+
   for (int i = 0; i < MAX_ALARMS; i++) {
     if (alarmList[i].state) {
       totalActiveAlarms++;
@@ -1324,7 +1327,16 @@ void update_alarm_panels() {
         alarmSlotToIndex[activeCount] = i;
         activeCount++;
       }
+      if (alarmList[i].id == g_selectedAlarmId) {
+        selectedStillActive = true;
+      }
     }
+  }
+
+  // Limpiar descripción de alarma si ya no está activa (Casos A y C)
+  if (g_selectedAlarmId != -1 && !selectedStillActive) {
+    if (ui_AlarmDetailLabel) lv_label_set_text(ui_AlarmDetailLabel, "");
+    g_selectedAlarmId = -1;
   }
 
   alarmActive = (totalActiveAlarms > 0);
@@ -1448,6 +1460,7 @@ static void HeaterError_event_handler(lv_event_t * e) {
     const char *TXT_HEATER_ERROR_DESC[] = {"Hay un problema con el ventilador / calefactor: \n\n 1. Pruebe a desconectar y conectar el calefactor y posteriormente reinicie incubadora\n\n 2. Si no funciona el paso 1, arregle el calefactor.", "There is a problem with the fan / heater:\n\n 1. Try unplugging and plugging in the heater and then restart the incubator\n\n 2. If step 1 doesn't work, fix the heater.", "Il y a un probleme avec le ventilateur / chauffage :\n\n 1. Essayez de debrancher et de brancher le chauffage et redemarrez l'incubateur\n\n 2. Si le pas 1 ne fonctionne pas, reparez le chauffage."};
     if(ui_AlarmDetailLabel) {
         lv_label_set_text(ui_AlarmDetailLabel, TXT_HEATER_ERROR_DESC[g_lang]);
+        g_selectedAlarmId = HEATER_ISSUE_ALARM;
     }
 }
 
@@ -1459,6 +1472,7 @@ void show_alarm_detail_from_slot(int slot) {
     return;
   lv_tabview_set_act(ui_AlarmsTabview, 1, LV_ANIM_ON);
   lv_label_set_text(ui_AlarmDetailLabel, alarmList[idx].description);
+  g_selectedAlarmId = alarmList[idx].id;
 }
 
 void Alarm1Cont_cb(lv_event_t *e) { show_alarm_detail_from_slot(0); hmi_msg.shouldSendData = true;
@@ -1480,6 +1494,7 @@ void AlarmsTabview_cb(lv_event_t *e) {
   uint16_t act = lv_tabview_get_tab_act(tv);
   if (act == 0) {
     lv_label_set_text(ui_AlarmDetailLabel, "");
+    g_selectedAlarmId = -1;
   }
   hmi_msg.shouldSendData = true;
 }
