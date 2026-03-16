@@ -1485,17 +1485,21 @@ void Alarm3Cont_cb(lv_event_t *e) { show_alarm_detail_from_slot(2); hmi_msg.shou
 void Alarm4Cont_cb(lv_event_t *e) { show_alarm_detail_from_slot(3); hmi_msg.shouldSendData = true;
 }
 
-void AlarmButton_cb(lv_event_t *e) {
-  lv_tabview_set_act(ui_AlarmsTabview, 0, LV_ANIM_ON);
+void reset_alarm_detail_state() {
+  if (ui_AlarmDetailLabel) lv_label_set_text(ui_AlarmDetailLabel, "");
+  g_selectedAlarmId = -1;
+}
 
+void AlarmButton_cb(lv_event_t *e) {
+  reset_alarm_detail_state();
+  lv_tabview_set_act(ui_AlarmsTabview, 0, LV_ANIM_ON);
 }
 
 void AlarmsTabview_cb(lv_event_t *e) {
-  lv_obj_t *tv = lv_event_get_target(e);
-  uint16_t act = lv_tabview_get_tab_act(tv);
-  if (act == 0) {
-    lv_label_set_text(ui_AlarmDetailLabel, "");
-    g_selectedAlarmId = -1;
+  if (!ui_AlarmsTabview) return;
+  uint16_t act = lv_tabview_get_tab_act(ui_AlarmsTabview);
+  if (act == 0) { // Si volvemos a la lista de alarmas
+    reset_alarm_detail_state();
   }
   hmi_msg.shouldSendData = true;
 }
@@ -1795,7 +1799,7 @@ static void add_unlock_press_cb_recursive(lv_obj_t *obj) {
 }
 
 void inactivity_timer_cb(lv_timer_t *timer) {
-  if (alarmActive) {
+  if (lv_scr_act() == ui_ScreenAlarms) {
     lv_disp_trig_activity(NULL);
     return;
   }
@@ -1863,16 +1867,19 @@ void ui_set_switch_state_silent(lv_obj_t *sw, bool on) {
 }
 
 void Settings_cb(lv_event_t *e) {
+  reset_alarm_detail_state();
   _ui_screen_change(&ui_ScreenSettings, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
                     &ui_ScreenSettings_screen_init);
 }
 
 void SPO2Button_cb(lv_event_t *e) {
+  reset_alarm_detail_state();
   _ui_screen_change(&ui_ScreenPulseOxi, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
                     &ui_ScreenPulseOxi_screen_init);
 }
 
 void ChartButton_cb(lv_event_t *e) {
+  reset_alarm_detail_state();
   _ui_screen_change(&ui_ScreenCharts, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
                     &ui_ScreenCharts_screen_init);
 
@@ -1895,6 +1902,7 @@ void ChartButton_cb(lv_event_t *e) {
 
 
 void AlarmLockImg_cb(lv_event_t *e) {
+  reset_alarm_detail_state();
   _ui_screen_delete(&ui_ScreenLock);
   _ui_screen_change(&ui_ScreenAlarms, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
                     &ui_ScreenAlarms_screen_init);
@@ -1913,6 +1921,7 @@ void ImgButton2_cb(lv_event_t *e) {
 }
 
 void ImgButton7_cb(lv_event_t *e) {
+  reset_alarm_detail_state();
   _ui_screen_change(&ui_ScreenMain, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
                     &ui_ScreenMain_screen_init);
 }
