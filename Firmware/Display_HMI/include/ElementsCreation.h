@@ -216,10 +216,6 @@ extern lv_obj_t * ui_SkinModeCont;
 extern lv_obj_t * ui_Panel9;
 extern lv_obj_t * ui_SkinOptionLabel;
 extern lv_obj_t * ui_Switch4;
-extern lv_obj_t * ui_DarkModeCont;
-extern lv_obj_t * ui_PanelDarkMode;
-extern lv_obj_t * ui_DarkModeLabel;
-extern lv_obj_t * ui_SwitchDarkMode;
 extern lv_obj_t * ui_InfoCont;
 extern lv_obj_t * ui_InfoPanel;
 extern lv_obj_t * ui_InfoLabel;
@@ -280,8 +276,6 @@ void ui_ScreenAlarms_screen_destroy(void);
 
 // --- SCREEN: Charts ---
 extern lv_obj_t * ui_ScreenCharts;
-extern lv_obj_t * ui_TabViewMainCharts;
-extern lv_obj_t * ui_HistoryDropdown;
 extern lv_obj_t * ui_TabView1;
 extern lv_obj_t * ui_TempChartPage1;
 extern lv_obj_t * ui_AirTempChartCont;
@@ -298,21 +292,6 @@ extern lv_obj_t * ui_OxChartCont;
 extern lv_obj_t * ui_OxChart;
 extern lv_obj_t * ui_Label35;
 extern lv_obj_t * ui_ImgButton8;
-
-extern lv_obj_t * ui_HistoryChartAire;
-extern lv_obj_t * ui_HistoryChartSkin;
-extern lv_obj_t * ui_HistoryChartHum;
-
-extern lv_obj_t * ui_HistoryTimeLabel;
-extern lv_obj_t * ui_HistoryChartAireLabel;
-extern lv_obj_t * ui_HistoryChartSkinLabel;
-extern lv_obj_t * ui_HistoryChartHumLabel;
-
-extern lv_obj_t * ui_HistoryValueAire;
-extern lv_obj_t * ui_HistoryValueSkin;
-extern lv_obj_t * ui_HistoryValueHum;
-
-
 void ui_ScreenCharts_screen_init(void);
 void ui_ScreenCharts_screen_destroy(void);
 
@@ -404,7 +383,6 @@ void ui_event_Switch1(lv_event_t * e);
 void ui_event_Switch2(lv_event_t * e);
 void ui_event_Switch3(lv_event_t * e);
 void ui_event_Switch4(lv_event_t * e);
-void ui_event_SwitchDarkMode(lv_event_t * e);
 void ui_event_Label9(lv_event_t * e);
 void ui_event_Label15(lv_event_t * e);
 void ui_event_Label13(lv_event_t * e);

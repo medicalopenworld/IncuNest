@@ -3,19 +3,16 @@
 
 #define HMI_MXOR_ADDR 0x30  // dirección I2C del Crowpanel
 
-// Activar buzzer (NEUTRALIZADO para silencio total)
+// Activar buzzer
 void buzzerOn() {
-    // Comentado por petición del usuario: queremos el buzzer OFF
-    /*
     Wire.beginTransmission(HMI_MXOR_ADDR);
-    Wire.write(246); 
+    Wire.write(246); // comando para encender buzzer
     Wire.endTransmission();
-    */
 }
 
-// Desactivar buzzer (Forzar OFF)
+// Desactivar buzzer
 void buzzerOff() {
     Wire.beginTransmission(HMI_MXOR_ADDR);
-    Wire.write(247); // comando para apagar buzzer v1.3
+    Wire.write(247); // comando para apagar buzzer
     Wire.endTransmission();
 }

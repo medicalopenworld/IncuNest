@@ -323,7 +323,7 @@ void WIFIProvisionResponse(const JsonObjectConst &data) {
   serializeJson(data, buffer, jsonSize);
 
   if (strncmp(data["status"], "SUCCESS", strlen("SUCCESS")) != 0) {
-    ESP_LOGE(TAG, "Provision response FAIL: %s",
+    ESP_LOGI(TAG, "Provision response contains the error: %s",
              data["errorMsg"].as<String>().c_str());
     return;
   }

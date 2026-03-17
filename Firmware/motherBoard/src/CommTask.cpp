@@ -103,22 +103,15 @@ static void send_state_to_hmi() {
   // Calculate real remaining time using shared logic
   double remainingTime = getRemainingPhotoTime();
   
-  // Calcular bitmask de alarmas activas para sincronización rápida
-  uint32_t alarmBitmask = 0;
-  extern bool alarmOnGoing[];
-  for (int i = 0; i < NUM_ALARMS; i++) {
-    if (alarmOnGoing[i]) alarmBitmask |= (1 << i);
-  }
-
   snprintf(msg, sizeof(msg),
-           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d,0x%X\n",
+           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f\n",
            (int)g_last_cmd.actuation, (int)g_last_cmd.controlMode,
            (double)g_last_cmd.desiredAirTemperature,
            (double)g_last_cmd.desiredSkinTemperature,
            (double)g_last_cmd.desiredHumidity, (int)g_last_cmd.phototherapyMode,
            (int)g_last_cmd.muteAlarm,
            ctrl_tel_msg.serialNumber, HW_NUM, HW_REVISION, FWversion, alarmCount, (int)g_last_cmd.skinModeEnabled, (int)ctrl_tel_msg.serverCommStatus,
-           remainingTime, in3.language, alarmBitmask);
+           remainingTime);
   ESP_LOGI(TAG, "Sending state to HMI: %s", msg);
   CommunicationHost_Send(msg);
   
@@ -136,15 +129,14 @@ void parse_line(const char *line) {
     return;
   }
 
-  // ---- NUEVO: handshake request robusto ----
-  if (strcmp(line, "HMI,UI_READY") == 0 || strcmp(line, "HMI,REQ,STATE") == 0) {
-    bool isUIReady = (strcmp(line, "HMI,UI_READY") == 0);
+  // ---- NUEVO: handshake request ----
+  if (strcmp(line, "HMI,REQ,STATE") == 0) {
     if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-      ESP_LOGI(TAG, "HMI %s (Queued)", isUIReady ? "UI_READY" : "REQ,STATE");
+      ESP_LOGI(TAG, "HMI requested STATE (Queued)");
       xSemaphoreGiveRecursive(log_mutex);
     }
     setHMIConnected(true);             // Flush pending alarms
-    xSemaphoreGive(hmi_state_req_sem); // Signal task to send response (STATE + active alarms)
+    xSemaphoreGive(hmi_state_req_sem); // Signal task to send response
     return;
   }
 
@@ -230,13 +222,6 @@ void parse_line(const char *line) {
       hmi_cmd_msg.language = lang;
       hmi_cmd_msg.photoMinutesRemaining = photoMin;
       hmi_cmd_msg.newCommand = true;
-
-      // Sincronizar idioma de MB con el recibido por HMI para las alarmas
-      if (in3.language != lang) {
-        in3.language = lang;
-        extern void resendActiveAlarms();
-        resendActiveAlarms();
-      }
 
       // ---- NUEVO: actualiza cache (para futuras respuestas CTRL,STATE) ----
       g_last_cmd = hmi_cmd_msg;
@@ -403,11 +388,6 @@ void CommunicationHost_Send(const char *msg) {
   memcpy(buf, msg, len);
   esp_err_t err = vcp->tx_blocking(buf, len);
   xSemaphoreGive(vcp_mux);
-
-  // --- PACING: prevent HMI/CDC saturation ---
-  if (err == ESP_OK) {
-    vTaskDelay(pdMS_TO_TICKS(10)); 
-  }
 
   if (err != ESP_OK) {
     if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {

@@ -80,7 +80,6 @@ void loaddefaultValues() {
   EEPROM.writeFloat(EEPROM_DESIRED_SKIN_TEMP, 37);
   EEPROM.write(EEPROM_DESIRED_HUMIDITY, 50);
   EEPROM.write(EEPROM_PHOTO_TIMER_MINUTES, 240);
-  EEPROM.write(EEPROM_DARK_MODE, 0); // Default off
   EEPROM.commit();
 }
 
@@ -98,7 +97,6 @@ void recapVariables() {
   skinTempValue = EEPROM.readFloat(EEPROM_DESIRED_SKIN_TEMP);
   humValue = EEPROM.read(EEPROM_DESIRED_HUMIDITY);
   photoTimerMinutes = EEPROM.read(EEPROM_PHOTO_TIMER_MINUTES);
-  darkMode = EEPROM.read(EEPROM_DARK_MODE) == 1;
 
   String ssid = EEPROM.readString(EEPROM_WIFI_SSID);
   String pass = EEPROM.readString(EEPROM_WIFI_PASSWORD);

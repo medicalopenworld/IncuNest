@@ -419,18 +419,16 @@ void sendPendingAlarms() {
 }
 
 void setHMIConnected(bool connected) {
-  if (connected && !hmi_connected) {
+  hmi_connected = connected;
+  if (connected) {
     if (log_mutex == NULL ||
         xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-      ESP_LOGI(TAG, "HMI newly connected, flushing %d pending alarms",
+      ESP_LOGI(TAG, "HMI connected, flushing %d pending alarms",
                pending_alarm_count);
       if (log_mutex)
         xSemaphoreGiveRecursive(log_mutex);
     }
-    hmi_connected = true;
     sendPendingAlarms();
-  } else {
-    hmi_connected = connected;
   }
 }
 
@@ -507,10 +505,21 @@ void sendAlarmUSB(byte alarmID, bool isActive) {
       pending_alarms[pending_alarm_count].message[127] = '\0';
       pending_alarms[pending_alarm_count].valid = true;
       pending_alarm_count++;
-      ESP_LOGI(TAG, "Queued alarm: %s", msg);
+      if (log_mutex == NULL ||
+          xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        ESP_LOGI(TAG, "Queued alarm (HMI not connected): %s", msg);
+        if (log_mutex)
+          xSemaphoreGiveRecursive(log_mutex);
+      }
     }
   } else {
     // Send immediately if HMI is connected
+    if (log_mutex == NULL ||
+        xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      ESP_LOGI(TAG, "Sending alarm to HMI: %s", msg);
+      if (log_mutex)
+        xSemaphoreGiveRecursive(log_mutex);
+    }
     CommunicationHost_Send(msg);
   }
 #endif

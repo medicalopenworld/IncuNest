@@ -1,175 +1,93 @@
-# IncuNest HMI — Firmware de Pantalla
+# Incunest_HMI
 
-> Firmware del módulo de interfaz humana (HMI) para la incubadora neonatal **IncuNest**.  
-> Plataforma: **Elecrow CrowPanel Advance 7.0** · ESP32-S3 · LVGL 8 · LovyanGFX
 
----
 
-## Hardware
+## Getting started
 
-| Componente | Descripción |
-|---|---|
-| **MCU** | ESP32-S3 (Xtensa LX7 dual-core, 240 MHz) |
-| **Pantalla** | RGB LCD 7.0″ 800×480 @ 16 bpp (RGB565) |
-| **Touch** | Goodix GT911 vía I2C |
-| **Backlight** | Controlador STC8H1K28 vía I2C @ 0x30 |
-| **Flash** | 16 MB (QIO, 80 MHz) |
-| **PSRAM** | 8 MB OPI |
-| **Audio** | DAC I2S externo |
+To make it easy for you to get started with GitLab, here's a list of recommended next steps.
 
----
+Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
 
-## Estructura del Proyecto
+## Add your files
+
+- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
+- [ ] [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
 
 ```
-Display_HMI/
-├── include/
-│   ├── display_config.h      ← ⭐ FUENTE DE VERDAD de pines y timings del display
-│   ├── main.h                ← Constantes globales del firmware
-│   ├── UITask.h / .cpp       ← Task principal: display + LVGL + touch
-│   ├── CommTask.h / .cpp     ← Task de comunicación UART con motherboard
-│   ├── AudioManager.h / .cpp ← Manager de audio I2S
-│   ├── EEPROM_defines.h      ← Layout de EEPROM persistente
-│   └── ...
-├── src/
-│   ├── main.cpp              ← Setup y creación de FreeRTOS tasks
-│   ├── UITask.cpp            ← Driver LGFX + LVGL + lógica de UI
-│   └── ...
-├── lib/
-│   └── TAMC_GT911_Fixed/     ← Driver GT911 local (version parcheada)
-├── data/                     ← Archivos SPIFFS (audio .mp3)
-└── platformio.ini
+cd existing_repo
+git remote add origin https://gitlab.com/pabsanber/incunest_hmi.git
+git branch -M main
+git push -uf origin main
 ```
 
----
+## Integrate with your tools
 
-## Configuración del Display
+- [ ] [Set up project integrations](https://gitlab.com/pabsanber/incunest_hmi/-/settings/integrations)
 
-### ⚠️ Información Crítica de Compatibilidad
+## Collaborate with your team
 
-El archivo `include/display_config.h` es la **única fuente de verdad** para la configuración del bus RGB. **No modifiques los pines ni timings en ningún otro lugar.**
+- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
+- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
+- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
+- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
+- [ ] [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
 
-> **Historial del problema resuelto (v2.0.0):**  
-> El proyecto tenía dos configuraciones de display incompatibles entre sí. La clase LGFX en `UITask.cpp` usaba pines intercambiados y polaridades de sincronización incorrectas (`hsync_polarity=1`, `vsync_polarity=1`). Esto causaba que algunas unidades mostrasen **pantalla en blanco** y otras **parpadeo RGB**, dependiendo de las tolerancias de fabricación del controlador del panel. La solución fue centralizar la configuración correcta en `display_config.h` basándose en la referencia oficial de Elecrow (`gfx_conf.h`).
+## Test and Deploy
 
-### Pines del Bus RGB (CrowPanel 7.0)
+Use the built-in continuous integration in GitLab.
 
-| Señal | GPIO | Señal | GPIO |
-|---|---|---|---|
-| B0 | 15 | R0 | 14 |
-| B1 | 7 | R1 | 21 |
-| B2 | 6 | R2 | 47 |
-| B3 | 5 | R3 | 48 |
-| B4 | 4 | R4 | 45 |
-| G0 | 9 | DE (HENABLE) | 41 |
-| G1 | 46 | VSYNC | 40 |
-| G2 | 3 | HSYNC | 39 |
-| G3 | 8 | PCLK | 0 |
-| G4 | 16 | TOUCH SDA | 19 |
-| G5 | 1 | TOUCH SCL | 20 |
+- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
+- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
+- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
+- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
+- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
 
-### Timings de Sincronización
+***
 
-| Parámetro | Valor | Notas |
-|---|---|---|
-| Frecuencia PCLK | 12 MHz | Reducido de 15 MHz para compatibilidad DMA/audio |
-| HSYNC polarity | **0** | ⚠️ No usar 1, causa parpadeo RGB |
-| HSYNC front porch | 40 | — |
-| HSYNC pulse width | 48 | — |
-| HSYNC back porch | 40 | — |
-| VSYNC polarity | **0** | ⚠️ No usar 1, causa parpadeo RGB |
-| VSYNC front porch | 1 | — |
-| VSYNC pulse width | 31 | — |
-| VSYNC back porch | 13 | — |
-| PCLK active neg | 1 | Datos válidos en flanco descendente |
+# Editing this README
 
----
+When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
 
-## Compilación y Flash
+## Suggestions for a good README
 
-### Prerequisitos
+Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
 
-- [PlatformIO Core](https://docs.platformio.org/en/latest/core/) o PlatformIO IDE
-- Driver USB (CH340 o CP210x según el cable)
+## Name
+Choose a self-explaining name for your project.
 
-### Compilar
+## Description
+Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
 
-```bash
-pio run -e main
-```
+## Badges
+On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
 
-### Flashear
+## Visuals
+Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
 
-```bash
-pio run -e main -t upload
-```
+## Installation
+Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
 
-> **Nota de rutas largas (Windows):** El proyecto usa `core_dir = C:\pio` y `build_dir = C:\pio\.bld` para evitar el límite de 260 caracteres de Windows. No cambies estas rutas.
+## Usage
+Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
 
-### Monitor Serie
+## Support
+Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
 
-```bash
-pio device monitor --baud 115200
-```
+## Roadmap
+If you have ideas for releases in the future, it is a good idea to list them in the README.
 
-Los logs están habilitados con `CORE_DEBUG_LEVEL=5`. Buscar prefijo `[UI]` para logs del display.
+## Contributing
+State if you are open to contributions and what your requirements are for accepting them.
 
----
+For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
 
-## Arquitectura FreeRTOS
+You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
 
-El firmware usa tres tasks de FreeRTOS:
+## Authors and acknowledgment
+Show your appreciation to those who have contributed to the project.
 
-| Task | Core | Función |
-|---|---|---|
-| `UI_Task` | Core 1 | Driver LGFX, LVGL tick/handler, lógica de UI |
-| `Comm_Task` | Core 0 | Protocolo UART con motherboard (TLV frames) |
-| `OTA_Task` | Core 0 | WiFi OTA updates |
+## License
+For open source projects, say how it is licensed.
 
----
-
-## Protocolo de Comunicación con Motherboard
-
-La comunicación con la motherboard usa el protocolo **Display Comms (DC)** definido en `include/display_comms.h`:
-
-- Framing: `0xAA 0x55 | Version | MsgType | Seq | PayloadLen | TLVs | CRC16`
-- Mensajes: Telemetría (MB→HMI), Comandos (HMI→MB), Heartbeat, ACK
-- UART @ 115200 baud
-
----
-
-## EEPROM Persistente
-
-El layout de EEPROM está definido en `include/EEPROM_defines.h`.  
-Variables persistidas: temperatura objetivo (aire/piel), humedad objetivo, idioma, volumen de audio, tiempo de fototerapia, timeout de inactividad.
-
----
-
-## Versiones
-
-| Versión | Cambios |
-|---|---|
-| **2.0.0** | Centralización de configuración del display en `display_config.h`. Corrección de pines RGB y timings hsync/vsync. Eliminación de `sc7277_init()` experimental. Documentación completa. |
-| 1.0.5 | Audio I2S, control de brillo por I2C, protocolo TLV con motherboard. |
-
----
-
-## Solución de Problemas
-
-### Pantalla en blanco al arrancar
-- Verificar que `display_config.h` está correctamente incluido
-- Comprobar que los pines DE/VSYNC/HSYNC/PCLK son los de la tabla de arriba
-- Ver logs de serie (buscar `[UI] UI Task Started`)
-
-### Parpadeo RGB en colores
-- Verificar `DISPLAY_HSYNC_POLARITY = 0` y `DISPLAY_VSYNC_POLARITY = 0` en `display_config.h`
-- **No usar polarity=1 en ningún caso** para este panel
-
-### Touch no responde
-- El GT911 hace 3 intentos de inicialización al arrancar
-- Ver logs `[UI] Touch controller initialized OK` o el mensaje de error
-- Los pines SDA=19, SCL=20 son los correctos para CrowPanel 7.0
-
-### Error de compilación "path too long" (Windows)
-- Verificar que `core_dir` y `build_dir` en `platformio.ini` apuntan a `C:\pio`
-- Activar Long Paths en Windows: `regedit` → `HKLM\SYSTEM\CurrentControlSet\Control\FileSystem` → `LongPathsEnabled = 1`
+## Project status
+If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.

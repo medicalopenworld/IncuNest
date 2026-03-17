@@ -79,7 +79,6 @@ typedef struct {
   int serverCommStatus;
   int photoMinutesRemaining;
   int photoSecondsRemaining;  // Segundos restantes de fototerapia (0-59)
-  uint32_t alarmBitmask;      // Mascara de bits de alarmas activas
 } ControlBoard_Message_State;
 
 // Expected prefix of incoming messages
@@ -105,7 +104,6 @@ extern bool error;
 // ======================
 void CreateCommTask();
 void Communication_RequestState(void);
-void Communication_UIReady(void);
 void Communication_SendWiFiCredentials(const char *ssid, const char *password);
 
 #endif

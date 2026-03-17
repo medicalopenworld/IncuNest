@@ -5,7 +5,6 @@
 #include "esp_log.h"
 #include <PCA9557.h>
 #include <lvgl.h>
-#include "AudioManager.h"
 
 static const char *TAG = "Main";
 
@@ -21,16 +20,6 @@ void setup() {
   initEEPROM();
 
   Wire.begin(TOUCH_SDA_PIN, TOUCH_SCL_PIN);
-  
-  AudioManager::getInstance().begin();
-  
-  /* Comentado para v1.3 - Control vía I2C @ 0x30
-  pinMode(TFT_BL_PIN, OUTPUT);
-  digitalWrite(TFT_BL_PIN, HIGH);
-  */
-  
-  // Power stability delay
-  delay(1000);
 
   ESP_LOGI(TAG, "Creating OTA task ...");
   CreateOTATask();
