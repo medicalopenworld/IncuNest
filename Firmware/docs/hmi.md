@@ -1,0 +1,48 @@
+# HMI Interface (Human-Machine Interface)
+
+The visual and interactive layer of IncuNest is embedded into the **LVGL** (Light and Versatile Graphics Library) ecosystem, one of the most prolific embedded graphics libraries. The HMI is designed to be direct, highly responsive for touch control with medical gloves, and consume minimal cognitive bandwidth.
+
+## 1. Visual Design and Layout
+
+The main screen is partitioned into informational quadrants and side plus ceiling/floor toolbars (HUD - Heads Up Display) providing situational awareness in tenths of a second.
+
+### Permanent HUD (Top Zone)
+It continuously witnesses key and constant states on whichever screen the doctor navigates to:
+*   Connectivity icons (Server, WiFi, or Null state).
+*   Realistic icon indicators about hardware resource usage in background ("Heater", "Wind/Cooling", etc).
+*   Section reserved for sliding priority alarms like marquees if they warrant overflow due to severity.
+
+### General Sensors HUD: Cabin and Skin
+*   Massive font display area for interior air vs target (AIR Temp and SET Temp).
+*   Enablable parallel second group for actual/target dermis meter (SKIN Temp).
+*   Relative Humidity module (Actual Hum. and Set).
+
+## 2. Main Navigation and Tabs
+
+Interactivity takes place in hidden windows (`LV_OBJ_FLAG_HIDDEN`) organized within the macro object of the "Base Panel", handling internal states in code or invoking pure native animations from Squareline Studio exported via C-Array:
+
+1.  **"Main/Dash" Tab / View**: Neural center where dials oscillate, vector graphical views (Line Charts) of tracking air and skin (filled thanks to static buffers throughout time passage).
+2.  **"Alarms" Tab / Alerts**: Overlaid display of active *Alarm List*. If the machine triggers, this is where long descriptions are read carrying raw variables. Features a universal top Mute button.
+3.  **Config / Menu Tab**: Opened by pressing the general block/lock icon, enabled after a prolonged one-second touch period (`TouchHold()`) displacing child/accidental touch locks and opening the depths of system calibrations, Wifi, and deep Settings.
+4.  **Pop-UP Numeric Settings Menus**: By pressing on a touch meter area on the main menu (Temperature, Humidity, Light), the central Arrows ('Up'/'Down') Panel pops up to manipulate the target in temporary variables and writes it back through serial to the main processor via a `Button_SAVE` (emits predefined UART Message).
+
+## 3. State Management and Refresh in UI
+
+In order to retain high Frame Rates (> 20fps guaranteed on SPI/HW Parallel) the LVGL implements a **Smart Refresh (Smart Diffs)** technique.
+
+*   Texts and numeric *Labels* are not rendered every 10ms (usual loop).
+*   The HMI firmware internally checks whether `valorRecibidoNuevo` is greater/less than its `valorEnLabelAnterior`. It only crops the perimeter box (*Invalidate area*) redrawing it with the base color if the value really changed ("Numeric Filter").
+*   This technique de-stresses DMA by about 40-50% compared to typical continuous refresh, making the display ultra-smooth using a regular 240Mhz microcontroller.
+
+## 4. Phototherapy Mode (UV Light)
+
+Unlike basic thermal parameters, Phototherapy adds a temporal dimension (Countdown Timer):
+
+*   The user sets via the panel a continuous target, or one limited by minutes ("18.00 mins").
+*   Upon validation by the HMI, it commands the Motherboard. The Motherboard takes "Host/Charge" of tracking hardware clocks (`millis()`/`FreeRTOS_ticks`) in `[Minutes:Seconds]` format.
+*   Motherboard sends the subtraction in packaged floating format e.g., `17.43`.
+*   LVGL merely acts as a projector, parsing floating to two numerics, and pushing the transfer to the `UI_Text_Timer_Photo` Label. The 00:00 closure is automatically executed in native central MCU extinguishing native LEDs.
+
+## 5. Language
+
+The HMI loads and manages logical bidimensional arrays pointing the LCD strings dependent on variables. The baseboard also needs to know which language the user is reading in order to re-send the batch of alarm strings. Both converge through the initial UART packet sent from the display.
