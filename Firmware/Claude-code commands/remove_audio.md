@@ -1,39 +1,72 @@
-Analiza todo el proyecto y la documentación existente en firmware/docs para entender la arquitectura, especialmente la parte de la interfaz HMI y la pantalla de settings.
+Analiza el proyecto y la documentación en firmware/docs para entender la arquitectura de la interfaz HMI, especialmente la pantalla de settings.
 
-Objetivo:
+Contexto:
 
-Eliminar completamente cualquier funcionalidad relacionada con audio en la interfaz.
+El sistema incluye funcionalidad de reproducción de audio (audio playback) integrada en la interfaz, principalmente en la pantalla de settings.
+
+Objetivo (MUY IMPORTANTE):
+
+NO eliminar funcionalidad.
+NO modificar lógica interna.
+NO comentar código.
+
+Únicamente quiero que los BOTONES y elementos de la interfaz relacionados con audio NO sean visibles para el usuario.
 
 Tareas:
 
-1. Localiza todo el código relacionado con audio, incluyendo:
+1. Localiza los elementos de audio en la UI:
    - Botones de "play audio"
-   - Controles o settings de audio
-   - Variables, flags o estados relacionados con audio
-   - Funciones que reproduzcan o gestionen audio
+   - Labels de audio
+   - Contenedores/paneles (containers) donde están estos elementos
 
-2. En la pantalla de settings:
-   - Haz invisibles o elimina los botones de "play audio"
-   - Elimina cualquier elemento visual relacionado con audio
+2. Modificación estricta (SOLO UI):
 
-3. A nivel de lógica:
-   - Desactiva las funciones de reproducción de audio
-   - Asegúrate de que no quedan referencias activas que puedan provocar errores
-   - Mantén la estabilidad del sistema (no romper dependencias)
+   IMPORTANTE:
+   - NO comentes código en main.cpp ni en ningún otro archivo
+   - NO elimines líneas de código
+   - NO refactorices
 
-4. Revisa el resto del proyecto:
-   - Elimina referencias innecesarias a audio si ya no se utilizan
-   - Si alguna parte depende del audio, sustitúyela por un comportamiento neutro
+   ÚNICAMENTE haz lo siguiente:
 
-5. Mantén el estilo del proyecto:
-   - Respeta la arquitectura existente
-   - No introduzcas cambios innecesarios fuera del scope
+   En UITask y en ElementCreation (o donde se creen los elementos UI):
+      - Mantén la creación de los elementos
+      - Justo después de crearlos, configúralos como ocultos (hidden / visible = false)
 
-6. Devuelve:
-   - Lista de archivos modificados
-   - Explicación breve de los cambios
-   - Confirmación de que la UI sigue funcionando correctamente
+   Aplicar a:
+   - Botones de audio
+   - Labels de audio
+   - Containers/paneles que los contienen
 
-Importante:
+   Resultado esperado:
+   - Los elementos siguen existiendo en el código
+   - NO se renderizan en pantalla
+   - NO son interactivos
 
-No solo ocultes visualmente los botones: asegúrate de que toda la funcionalidad de audio queda desactivada (no accesible por el usuario). Compila el programa y verificalo.
+3. Restricciones críticas:
+
+   - NO tocar lógica de audio
+   - NO eliminar funciones
+   - NO modificar inicialización
+   - NO comentar código existente
+   - NO tocar archivos fuera de la UI salvo lo estrictamente necesario
+
+4. Verificación:
+
+   - Compilar el proyecto
+   - Confirmar que no hay errores
+   - Verificar que:
+     - la pantalla de settings funciona correctamente
+     - los botones de audio, labels y containers NO son visibles
+     - no hay huecos visuales graves ni errores de layout
+
+5. Devuelve:
+
+   - Archivos modificados (especialmente UITask y ElementCreation)
+   - Qué elementos han sido ocultados
+   - Confirmación de que SOLO se ha cambiado la visibilidad
+
+Resumen clave:
+
+Este cambio es exclusivamente visual.
+NO eliminar, NO comentar, NO refactorizar.
+Solo hacer hidden los elementos de audio en el momento de su creación.

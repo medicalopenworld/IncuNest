@@ -2077,27 +2077,30 @@ void UI_Task(void *pvParameters) {
   ui_set_switch_state_silent(ui_SwitchDarkMode, darkMode);
   // UI_ApplyTheme() movida al final de la creación de elementos manuales para que les afecte
 
-  // Botón de PLAY de Audio
+  // Botón de PLAY de Audio (oculto — acceso de audio deshabilitado)
   ui_AudioPlayBtn = lv_btn_create(ui_ScreenSettings);
   lv_obj_set_size(ui_AudioPlayBtn, 120, 50);
-  lv_obj_align(ui_AudioPlayBtn, LV_ALIGN_BOTTOM_RIGHT, -160, -20); // Más a la izquierda
+  lv_obj_align(ui_AudioPlayBtn, LV_ALIGN_BOTTOM_RIGHT, -160, -20);
   ui_AudioPlayLabel = lv_label_create(ui_AudioPlayBtn);
   lv_label_set_text(ui_AudioPlayLabel, "Play Audio");
   lv_obj_center(ui_AudioPlayLabel);
   lv_obj_add_event_cb(ui_AudioPlayBtn, AudioTestBtn_cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_add_flag(ui_AudioPlayBtn, LV_OBJ_FLAG_HIDDEN);    // Oculto permanente
+  lv_obj_clear_flag(ui_AudioPlayBtn, LV_OBJ_FLAG_CLICKABLE); // No interactuable
 
-  // Botón de STOP de Audio
+  // Botón de STOP de Audio (oculto — acceso de audio deshabilitado)
   ui_AudioStopBtn = lv_btn_create(ui_ScreenSettings);
   lv_obj_set_size(ui_AudioStopBtn, 120, 50);
-  lv_obj_align(ui_AudioStopBtn, LV_ALIGN_BOTTOM_RIGHT, -20, -20); // A la derecha
-  lv_obj_set_style_bg_color(ui_AudioStopBtn, lv_color_hex(0xFF0000), LV_PART_MAIN | LV_STATE_DEFAULT); // Rojo
+  lv_obj_align(ui_AudioStopBtn, LV_ALIGN_BOTTOM_RIGHT, -20, -20);
+  lv_obj_set_style_bg_color(ui_AudioStopBtn, lv_color_hex(0xFF0000), LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_t *audioStopLabel = lv_label_create(ui_AudioStopBtn);
   lv_label_set_text(audioStopLabel, "Stop");
   lv_obj_center(audioStopLabel);
   lv_obj_add_event_cb(ui_AudioStopBtn, AudioStopBtn_cb, LV_EVENT_CLICKED, NULL);
-  lv_obj_add_flag(ui_AudioStopBtn, LV_OBJ_FLAG_HIDDEN); // Oculto al inicio
+  lv_obj_add_flag(ui_AudioStopBtn, LV_OBJ_FLAG_HIDDEN);     // Oculto permanente
+  lv_obj_clear_flag(ui_AudioStopBtn, LV_OBJ_FLAG_CLICKABLE); // No interactuable
 
-  // --- Fila de Volumen (encima del Play/Stop) ---
+  // --- Fila de Volumen (oculta — acceso de audio deshabilitado) ---
   // Botón Vol-
   ui_VolumeDownBtn = lv_btn_create(ui_ScreenSettings);
   lv_obj_set_size(ui_VolumeDownBtn, 50, 40);
@@ -2106,6 +2109,8 @@ void UI_Task(void *pvParameters) {
   lv_label_set_text(volDownLabel, LV_SYMBOL_MINUS);
   lv_obj_center(volDownLabel);
   lv_obj_add_event_cb(ui_VolumeDownBtn, VolumeDown_cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_add_flag(ui_VolumeDownBtn, LV_OBJ_FLAG_HIDDEN);    // Oculto permanente
+  lv_obj_clear_flag(ui_VolumeDownBtn, LV_OBJ_FLAG_CLICKABLE);
 
   // Label de volumen central
   ui_VolumeLabel = lv_label_create(ui_ScreenSettings);
@@ -2116,6 +2121,7 @@ void UI_Task(void *pvParameters) {
   }
   lv_obj_set_style_text_font(ui_VolumeLabel, &lv_font_montserrat_16, 0);
   lv_obj_align(ui_VolumeLabel, LV_ALIGN_BOTTOM_RIGHT, -170, -90);
+  lv_obj_add_flag(ui_VolumeLabel, LV_OBJ_FLAG_HIDDEN);      // Oculto permanente
 
   // Botón Vol+
   ui_VolumeUpBtn = lv_btn_create(ui_ScreenSettings);
@@ -2125,6 +2131,8 @@ void UI_Task(void *pvParameters) {
   lv_label_set_text(volUpLabel, LV_SYMBOL_PLUS);
   lv_obj_center(volUpLabel);
   lv_obj_add_event_cb(ui_VolumeUpBtn, VolumeUp_cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_add_flag(ui_VolumeUpBtn, LV_OBJ_FLAG_HIDDEN);      // Oculto permanente
+  lv_obj_clear_flag(ui_VolumeUpBtn, LV_OBJ_FLAG_CLICKABLE);
 
   // Aplicar tema DESPUÉS de crear todos los elementos manuales (Play, Stop, Volumen, etc.)
   UI_ApplyTheme();
@@ -2290,7 +2298,9 @@ void UI_Task(void *pvParameters) {
   for (;;) {
     lv_timer_handler();
     
-    // Gestión de estado de botones de Audio
+    // Gestión de estado de botones de Audio — deshabilitada (UI oculta permanentemente)
+    // Si se quiere reactivar, descomentar el bloque siguiente y quitar LV_OBJ_FLAG_HIDDEN de los widgets:
+    /*
     if(ui_AudioPlayBtn) {
         if(AudioManager::getInstance().isPlaying()) {
             if(!lv_obj_has_state(ui_AudioPlayBtn, LV_STATE_DISABLED)) {
@@ -2308,6 +2318,7 @@ void UI_Task(void *pvParameters) {
             }
         }
     }
+    */
 
     // AudioManager::getInstance().loop(); // Ahora corre en su propia tarea (Core 0)
 
