@@ -7,6 +7,7 @@
 // -----------------------------
 #include "Credentials_public.h"
 #include "Wifi_OTA.h"
+#include "display_config.h"
 #include <EEPROM.h>
 #include <EEPROM_defines.h>
 #include <ESPmDNS.h>
@@ -36,6 +37,7 @@ extern bool OTA_inprogress;
 
 typedef enum { LANG_ES = 0, LANG_EN = 1, LANG_FR = 2 } ui_lang_t;
 extern ui_lang_t g_lang;
+extern bool darkMode; // Global Dark Mode state
 extern double airTempValue, skinTempValue;
 extern double airTempValueDetected, skinTempValueDetected;
 extern int humValue;
@@ -75,22 +77,28 @@ typedef enum {
 // -----------------------------
 constexpr int DISPLAY_WIDTH = 800;
 constexpr int DISPLAY_HEIGHT = 480;
-constexpr int COLOR_DIVISOR = 15; // used for draw buffer size
+constexpr int COLOR_DIVISOR = 8; // Aumentado (divisor menor = buffer más grande) para mejor rendimiento DMA
 constexpr int AREA_PIXEL_OFFSET =
     1; // used when computing width/height from area.x2 - area.x1 + 1
 
 // -----------------------------
-constexpr int PIN_HENABLE = 41;
-constexpr int PIN_VSYNC = 40;
+constexpr int PIN_HENABLE = 41; // DE (Was 40)
+constexpr int PIN_VSYNC = 40;   // VSYNC (Was 41)
 constexpr int PIN_HSYNC = 39;
-constexpr int PIN_PCLK = 0;
+constexpr int PIN_PCLK = 42;
 
-constexpr int TOUCH_SDA_PIN = 19;
-constexpr int TOUCH_SCL_PIN = 20;
+constexpr int TOUCH_SDA_PIN = 15;
+constexpr int TOUCH_SCL_PIN = 16;
+// El reset se maneja vía expansor IO PCA9557
 constexpr int TOUCH_INT_PIN = -1;
 constexpr int TOUCH_RST_PIN = -1;
 
-constexpr int TFT_BL_PIN = 2;
+// -----------------------------
+// Backlight I2C Address — centralizado en display_config.h
+// (CrowPanel 7.0 usa STC8H1K28 @ DISPLAY_I2C_ADDR_BL = 0x30)
+constexpr int I2C_ADDR_BACKLIGHT = DISPLAY_I2C_ADDR_BL;
+
+constexpr int TFT_BL_PIN = DISPLAY_PIN_BL;
 
 // -----------------------------
 // Timings / delays (ms)
@@ -113,7 +121,7 @@ constexpr int BRIGHTNESS_MAX = 255;
 // Temperature
 // -----------------------------
 constexpr double AIR_TEMP_MIN = 30.0;
-constexpr double AIR_TEMP_MAX = 37.0;
+constexpr double AIR_TEMP_MAX = 38.5;
 constexpr double SKIN_TEMP_MIN = 35.0;
 constexpr double SKIN_TEMP_MAX = 37.5;
 constexpr double TEMP_INCREMENT = 0.2;
@@ -206,32 +214,12 @@ struct Alarm {
 };
 extern Alarm alarmList[MAX_ALARMS];
 
-// -----------------------------
-// LGFX config values (timings, polarity etc.)
-// Keep original numeric values from your cfg
-// -----------------------------
-constexpr int CFG_FREQ_WRITE = 15000000;
-
-constexpr int CFG_HSYNC_POLARITY = 0;
-constexpr int CFG_HSYNC_FRONT_PORCH = 40;
-constexpr int CFG_HSYNC_PULSE_WIDTH = 48;
-constexpr int CFG_HSYNC_BACK_PORCH = 40;
-
-constexpr int CFG_VSYNC_POLARITY = 0;
-constexpr int CFG_VSYNC_FRONT_PORCH = 1;
-constexpr int CFG_VSYNC_PULSE_WIDTH = 31;
-constexpr int CFG_VSYNC_BACK_PORCH = 13;
-
-constexpr int CFG_PCLK_ACTIVE_NEG = 1;
-constexpr int CFG_DE_IDLE_HIGH = 0;
-constexpr int CFG_PCLK_IDLE_HIGH = 0;
+// Nota: Los timings y pines del display están centralizados en display_config.h
+// Las constantes CFG_* han sido eliminadas para evitar duplicidades y confusión.
+// Usar directamente las macros DISPLAY_* de display_config.h.
 
 constexpr int CFG_OFFSET_X = 0;
 constexpr int CFG_OFFSET_Y = 0;
-constexpr int CFG_MEMORY_WIDTH = DISPLAY_WIDTH;
-constexpr int CFG_MEMORY_HEIGHT = DISPLAY_HEIGHT;
-constexpr int CFG_PANEL_WIDTH = DISPLAY_WIDTH;
-constexpr int CFG_PANEL_HEIGHT = DISPLAY_HEIGHT;
 
 // -----------------------------
 // Touch / Display rotations
@@ -258,6 +246,11 @@ static const lv_color_t COLOR_PANEL_GRAY =
     lv_color_make(COLOR_PANEL_GRAY_R, COLOR_PANEL_GRAY_G, COLOR_PANEL_GRAY_B);
 static const lv_color_t COLOR_PANEL_LIGHT_GRAY =
     lv_color_make(COLOR_PANEL_LIGHT_GRAY_R, COLOR_PANEL_LIGHT_GRAY_G, COLOR_PANEL_LIGHT_GRAY_B);
+
+// Dark Mode Colors
+static const lv_color_t COLOR_BG_DARK = lv_color_make(30, 30, 30);
+static const lv_color_t COLOR_PANEL_DARK = lv_color_make(50, 50, 50);
+static const lv_color_t COLOR_TEXT_DARK = lv_color_make(220, 220, 220);
 
 // -----------------------------
 // Animation timing

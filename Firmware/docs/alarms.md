@@ -1,0 +1,62 @@
+# IncuNest Alarm System
+
+The IncuNest alarm system is designed under guidelines for life-critical risk equipment. It features redundancy, prioritizations, and exact synchronization so that no anomaly locates lasting false positives or remains improperly reported by the sound piezoelectric transducer (Buzzer) or the HMI screen.
+
+## 1. Alarm Typologies and Hierarchies
+
+There are **9+1 Main Alarm Identifiers** in the system mapped through a vector in explicit enumerated numerical space `ALARMS_ID`:
+
+| ID | System Name | Origin/Main Trigger | Risk Type |
+|:---|:---|:---|:---|
+| 0 | *NO_ALARMS* | - | Neutral |
+| 1 | `HUMIDITY_ALARM` | ±12% setpoint exceeded by PID (`HUMIDITY_ERROR`) | Medical/Mild |
+| 2 | `TEMPERATURE_ALARM` | ±1.0°C setpoint exceeded by PID (`TEMPERATURE_ERROR`)| Medical/Critical |
+| 3 | `AIR_THERMAL_CUTOUT_ALARM`| Actual chamber measurement over 38.5°C | HW Fault/Emergency |
+| 4 | `SKIN_THERMAL_CUTOUT_ALARM`| Dermis measurement over 37.5°C | HW Fault/Emergency |
+| 5 | `AIR_SENSOR_ISSUE_ALARM`| Sudden loss of Sensirion I2C bus or Null | HW Fault/Emergency |
+| 6 | `SKIN_SENSOR_ISSUE_ALARM`| Dermis cable extracted or spurious ADC voltage | HW Fault/Emergency |
+| 7 | `FAN_ISSUE_ALARM` | Loss of motor pulse (Duty Ticks encoder) | HW Fault/Emergency |
+| 8 | `HEATER_ISSUE_ALARM`| Sudden drop in amperage consumed in Resistor | HW Fault/Emergency |
+| 9 | `POWER_SUPPLY_ALARM`| INA3221 detects drop or spike in PSU Vin 12V (Only on `HW_NUM >= 13`) | Elec Fault/Critical |
+
+*Note: IDs 3 to 9 (Hardware Faults + PSU and Cutouts) are managed unified under the software flag `ongoingCriticalAlarm()` which instantly nullifies logical outputs to actuators ("Trip-Off").*
+
+## 2. Life Cycle: Activation and Deactivation
+
+### 2.1 Thresholds and Hysteresis
+To prevent a minimum fluctuation or decimal drift from causing alarm "bounces" ("On-Off-On-Off" of sirens), they all possess a strict differential range or hysteresis evaluated natively local in the `securityCheck()`.
+
+**Configured Limits:**
+*   `TEMPERATURE_ERROR`: ±1.0 ºC (Reset Hysteresis: 0.05 ºC)
+*   `HUMIDITY_ERROR`: ±12 %RH (Reset Hysteresis: 5 %RH)
+*   `AIR_THERMAL_CUTOUT`: 37.0 ºC (Reset Hysteresis: 0.2 ºC)
+*   `SKIN_THERMAL_CUTOUT`: 37.5 ºC (Reset Hysteresis: 0.2 ºC)
+
+*   **Air Cutout Example**: Critical Thermal Cutout=37.0°C. Actual units trigger at > 37.0°C. A shutdown of the active alarm requires dropping from 37.0 - 0.2 = 36.8°C to be declared remotely resolved in local loop.
+
+### 2.2 Time Delays and Ignitions
+*   **Sensor Timeouts**: `MINIMUM_SUCCESSFULL_SENSOR_UPDATE` is set to 20000 ms (20 seconds). Under this time, an unplugged sensor triggers `SENSOR_ISSUE_ALARM`.
+*   **Ignition Delays**: On cold-starting the machine, alarms taking long laps of recovery towards fixed targets are temporarily silenced (e.g. `ALARM_TIME_DELAY` = 30 min) to avoid repetitive acoustic noise during initial heating.
+
+### 2.2 Reactions to Local Trigger (Motherboard)
+If limits are surpassed:
+1. Internal logic bit is set `true` on Motherboard (`alarmOnGoing[ID] = true`).
+2. The base PWM pulse is instantly altered through native calls (Disable resistors and coolers in Cutout).
+3. The audio layer is invoked for the local Piezo.
+4. The software *interrupt trigger* is dispatched (USB Serial) as `CTRL,ALM,<id>....` pushing the texts according to the active language.
+
+## 3. Advanced Synchronization with HMI Display
+
+It is extremely vital to maintain consistency between processors. Two or more alarms can occur simultaneously, or be purged by one board while the other board becomes visually obsolete if a cable is inappropriately touched for a nanosecond.
+
+### Direct Vector to Graphical Index
+With the re-architecture, LVGL uses a direct assignment. The actual `ID` returned by the board is exactly its parallel drawing place `alarmList[ID]`. Eliminates for-loops, omits repeated and inserting new alarms without array index offsets upon overflow.
+
+### Cumulative Alarm Bitmask Correction (`0xHex`)
+The HMI's `CommTask` monitors an attached special variable from the Motherboard, positionally generated with Binary Shift (`1 << alarm_id`), in every telemetry.
+*   **Problem Situation**: An alarm was silenced 15 seconds ago but due to USB interruption the nurse's HMI screen continues to see it vibrating flashing red ("Visual Glitch/Phantom").
+*   **Bitmasking Fix**: Every telemetry reception frame (1 time/second or 1/1Hz), the screen parses its visual cache `alarmList[id].state` and checks that the positional bit stays alive in the binary dictated by the Mother Base (e.g., reading 0x62 (1100010 base2) means alarms ID 1, 5, and 6).
+*   If the HMI is exposing ID 4 locally but the base sent 'zero' for that bit, HMI auto-extinguishes the visual component of local ID 4 right away by clearing the log without using extra cycles or messages from the Base to confirm erasure ("Self Healing UI").
+
+### Mutting and Silencing Cycles
+A `muteAlarm` flag sent from the HMI in its packets is incorporated, suppressing the Piezo on the Main MCU side temporarily, but it does not shut down the red state and visual insistence of LVGL on the interface side if the actual anomaly (T° excess in probe) physically persists. When new alarms arrive (Trigger: "An ID that was false turned True"), the Base forces LVGL to deactivate its "mute" software variable, restoring the roar until conscious repetition of the silencer button and pre-warning by the nurse manually.

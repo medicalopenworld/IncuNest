@@ -32,6 +32,7 @@ extern uint32_t g_lastStateReqMs;
 extern int selectedPanel;
 extern int lastSelectedPanel;
 extern bool skinPanelEnabled;
+extern bool g_ui_initialized;
 
 // ======================
 //  LOW-LEVEL COMMS
@@ -40,6 +41,12 @@ extern bool skinPanelEnabled;
 void Communication_RequestState(void) {
 #if IS_HMI
   COMM_SERIAL.print("HMI,REQ,STATE\n");
+#endif
+}
+
+void Communication_UIReady(void) {
+#if IS_HMI
+  COMM_SERIAL.print("HMI,UI_READY\n");
 #endif
 }
 
@@ -80,17 +87,18 @@ static void parse_message(const char *line) {
       ctrl_tel_msg.serverCommStatus = COMM_STATUS_NONE;
     }
   } else if (strncmp(line, "CTRL,STATE", 10) == 0) {
-    int act, mode, photo, mute, sn, hwNum, numAlarms, skinE, commStatus;
+    int act, mode, photo, mute, sn, hwNum, numAlarms, skinE, commStatus, lang;
+    uint32_t alarmBitmask = 0;
     double photoTimeRemaining;  // Formato MM.SS (ej: 18.33 = 18 min 33 seg)
     char hwRev;
     char fwVer[20];
     double airSet, skinSet, humSet;
     int result =
-        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d,%lf",
+        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d,%lf,%d,0x%X",
                &act, &mode, &airSet, &skinSet, &humSet, &photo, &mute,
-               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus, &photoTimeRemaining);
+               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus, &photoTimeRemaining, &lang, &alarmBitmask);
     
-    // Accept 12 (old), 13 (with alarms), 14 (with alarms + skinModeEnabled), or 15 (with photoTimeRemaining)
+    // Accept 12 (old), 13 (with alarms), 14 (with alarms + skinModeEnabled), 15 (with photoTimeRemaining, commStatus), 16 (lang), 17 (bitmask)
     if (result >= 12) {
       ctrl_state_msg.actuation = act;
       ctrl_state_msg.controlMode = mode;
@@ -99,14 +107,13 @@ static void parse_message(const char *line) {
       ctrl_state_msg.desiredHumidity = humSet;
       ctrl_state_msg.phototherapyMode = photo;
       ctrl_state_msg.muteAlarm = mute;
-      // ctrl_state_msg.language = lang; // REMOVIDO: Idioma gestionado localmente por HMI
+      if (result >= 16) ctrl_state_msg.language = lang;
+      if (result >= 17) ctrl_state_msg.alarmBitmask = alarmBitmask;
+      else ctrl_state_msg.alarmBitmask = (uint32_t)-1; // Valor nulo si no viene
       ctrl_state_msg.serialNumber = sn;
-      ctrl_state_msg.hwNum = hwNum;
-      ctrl_state_msg.hwRev[0] = hwRev;
-      ctrl_state_msg.hwRev[1] = '\0';
+      
       strncpy(ctrl_state_msg.fwVer, fwVer, sizeof(ctrl_state_msg.fwVer));
-      ctrl_state_msg.skinModeEnabled = (result >= 14) ? skinE : (mode == CONTROL_SKIN);
-      ctrl_state_msg.serverCommStatus = (result >= 15) ? commStatus : 0;
+      ctrl_state_msg.fwVer[sizeof(ctrl_state_msg.fwVer) - 1] = '\0';
       
       // Extract minutes and seconds from MM.SS format
       if (result >= 15) {
@@ -194,7 +201,9 @@ static bool ReceiveMessageFromOtherESP() {
 //  HIGH-LEVEL LOGIC
 // ======================
 
-static void Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
+static bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
+  if (!g_ui_initialized)
+    return false;
   ui_set_switch_state_silent(ui_Switch1, st.actuation & 0x01);
   ui_set_switch_state_silent(ui_Switch2, (st.actuation >> 1) & 0x01);
   ui_set_switch_state_silent(ui_Switch3, st.phototherapyMode);
@@ -281,7 +290,43 @@ static void Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
              in3.serialNumber);
   }
 
+  // Actualizar labels de información si están disponibles
+  if (ui_MBVerValue) lv_label_set_text(ui_MBVerValue, st.fwVer);
+  if (ui_SNValue) {
+      char sn_buf[16];
+      snprintf(sn_buf, sizeof(sn_buf), "%d", st.serialNumber);
+      lv_label_set_text(ui_SNValue, sn_buf);
+  }
+  if (ui_ConnValue) {
+      lv_label_set_text(ui_ConnValue, getConnectivityString(st.serverCommStatus, g_lang));
+  }
+
+  // --- Sincronización de Alarmas via Bitmask (CORRECCIÓN: usa ID como bit, igual que la Board) ---
+  // La Board calcula: bitmask |= (1 << alarmID). El HMI debe descodificarlo igual.
+  // El slot en alarmList es: alarmList[alarmID] (mapeo directo ID->índice).
+  if (st.alarmBitmask != (uint32_t)-1) {
+      extern Alarm alarmList[];
+      extern volatile bool g_pendingAlarmUpdate;
+      bool changed = false;
+      // Iterar por IDs válidos (1..MAX_ALARMS-1), igual que el enum ALARMS_ID
+      for (int id = 1; id < MAX_ALARMS; id++) {
+          // El bit del ID corresponde a la posición 'id' en el bitmask
+          bool boardActive = (st.alarmBitmask >> id) & 1;
+          if (alarmList[id].state && !boardActive) {
+              // La alarma está pintada en el HMI pero la Board dice que ya no está activa
+              COMM_LOG("[COMM] Bitmask sync: limpiando alarma ID %d (%s)\n", id, alarmList[id].type);
+              alarmList[id].state = false;
+              changed = true;
+          }
+      }
+      if (changed) {
+          g_pendingAlarmUpdate = true;
+          AlarmSound_Update(); // Audio is thread-safe or runs in Core 0 separately
+      }
+  }
+
   UI_SyncAll();
+  return true;
 }
 
 static void Display_StateSync_Service(void) {
@@ -293,13 +338,17 @@ static void Display_StateSync_Service(void) {
     g_lastStateReqMs = now;
   }
   if (ctrl_state_msg.newState) {
-    ctrl_state_msg.newState = false;
-    Display_ApplyCtrlState(ctrl_state_msg);
-    g_stateSynced = true;
+    if (Display_ApplyCtrlState(ctrl_state_msg)) {
+      ctrl_state_msg.newState = false;
+      g_stateSynced = true;
+      hmi_msg.shouldSendData = true; // Forzar envío inicial para sincronizar idioma y setpoints locales
+    }
   }
 }
 
 static void applyHMIData() {
+  if (!g_ui_initialized)
+    return;
   airTempValueDetected = ctrl_tel_msg.detectedAirTemperature;
   skinTempValueDetected = ctrl_tel_msg.detectedSkinTemperature;
   humValueDetected = (int)ctrl_tel_msg.detectedHumidity;
@@ -309,43 +358,46 @@ static void applyHMIData() {
     chart_add_skin_temp((float)skinTempValueDetected);
   }
   chart_add_hum_value((float)humValueDetected);
+  chart_save_history();
 }
 
 static void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
-  int idxById = -1;
-  for (int i = 0; i < MAX_ALARMS; i++) {
-    if (alarmList[i].id == alarm.id) {
-      idxById = i;
-      break;
-    }
-  }
-  int index = idxById;
-  if (index == -1) {
-    for (int i = 0; i < MAX_ALARMS; i++) {
-      if (alarmList[i].state == false) {
-        index = i;
-        break;
-      }
-    }
-  }
-  if (index == -1)
+  extern volatile bool g_pendingAlarmUpdate;
+  // --- MAPEO DIRECTO ID -> ÍNDICE ---
+  // El ID de la alarma (enum ALARMS_ID: 1..9) se usa directamente como índice en alarmList[].
+  // Esto elimina búsquedas, colisiones y duplicados garantizando que cada alarma
+  // ocupe siempre el mismo slot, independientemente del orden de llegada.
+  if (alarm.id <= 0 || alarm.id >= MAX_ALARMS) {
+    COMM_LOG("[COMM] Alarm ID %d fuera de rango, ignorando.\n", alarm.id);
     return;
+  }
 
-  bool prevState = (idxById != -1) ? alarmList[index].state : false;
-  bool isNewAlarm = (idxById == -1) || (!prevState && alarm.state);
+  int index = alarm.id; // Slot determinista: ID 5 -> alarmList[5], ID 6 -> alarmList[6]
 
+  bool wasActive = alarmList[index].state;
+
+  // Actualizar slot con los datos recibidos
   alarmList[index].id = alarm.id;
-  strncpy(alarmList[index].type, alarm.type, ALARM_TYPE_LEN);
+  strncpy(alarmList[index].type, alarm.type, ALARM_TYPE_LEN - 1);
   alarmList[index].type[ALARM_TYPE_LEN - 1] = '\0';
-  strncpy(alarmList[index].description, alarm.description, ALARM_DESC_LEN);
+  strncpy(alarmList[index].description, alarm.description, ALARM_DESC_LEN - 1);
   alarmList[index].description[ALARM_DESC_LEN - 1] = '\0';
   alarmList[index].state = alarm.state;
 
-  if (isNewAlarm && alarm.state) {
+  COMM_LOG("[COMM] Alarma ID %d (%s): %s -> %s\n",
+           alarm.id, alarm.type,
+           wasActive ? "ACTIVA" : "inactiva",
+           alarm.state ? "ACTIVA" : "inactiva");
+
+  // Si se activa una alarma nueva, desmutar
+  if (alarm.state && !wasActive) {
     alarmsMuted = false;
     hmi_msg.muteAlarm = 0;
   }
-  update_alarm_panels();
+
+  if (!g_ui_initialized)
+    return;
+  g_pendingAlarmUpdate = true;
   AlarmSound_Update();
 }
 
