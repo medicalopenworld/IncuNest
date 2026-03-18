@@ -59,6 +59,18 @@ void WIFI_TB_OTA();
 void wifiInit(void);
 void CreateOTATask();
 
+// WiFi Network Scan
+// UI task calls WifiScanRequest(); OTA task executes the actual scan.
+extern volatile bool g_wifiScanRequest;
+void WifiScanRequest(void);       // call from UI task to start a new scan
+void WifiScanHandler(void);       // called from OTA task loop
+bool WifiScanIsInProgress(void);
+bool WifiScanResultsReady(void);
+int  WifiScanGetCount(void);
+String WifiScanGetSSID(int index);
+int  WifiScanGetRSSI(int index);
+void WifiScanClear(void);
+
 void progressCallback(const uint32_t &currentChunk,
                       const uint32_t &totalChuncks);
 void updatedCallback(const bool &success);

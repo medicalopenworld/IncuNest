@@ -1,5 +1,6 @@
 #include "UITask.h"
 #include "CommTask.h"
+#include "Wifi_OTA.h"
 #include "buzzer.h"
 #include "esp_log.h"
 #include "main.h"
@@ -73,6 +74,13 @@ int chartLastPressed = -1;
 bool wifiVisible = false;
 char wifi_ssid[64] = "";
 char wifi_pass[64] = "";
+
+// WiFi Scan Dropdown
+static bool wifiScanListVisible = false;
+static bool wifiScanResultsPopulated = false;
+#define WIFI_SCAN_MAX_NETWORKS 10
+static char scanSSIDs[WIFI_SCAN_MAX_NETWORKS][33];
+static int  scanNetworkCount = 0;
 
 bool LanguagesVisible = false;
 bool locked = true;
@@ -614,6 +622,8 @@ void set_active_panel(lv_obj_t *active, lv_obj_t *inactive) {
   lv_obj_set_style_opa(inactive, LV_OPA_COVER, LV_PART_MAIN);
 }
 
+static void hideWifiScanDropdown(void); // forward declaration
+
 void WifiButton_cb(lv_event_t *e) {
   lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
   LanguagesVisible = false;
@@ -633,6 +643,7 @@ void WifiButton_cb(lv_event_t *e) {
 void InfoButton_cb(lv_event_t *e) {
   lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
   LanguagesVisible = false;
+  hideWifiScanDropdown();
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
   
@@ -654,6 +665,7 @@ void InfoButton_cb(lv_event_t *e) {
 }
 
 void LanguageButton_cb(lv_event_t *e) {
+  hideWifiScanDropdown();
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_InfoDetailsCont, LV_OBJ_FLAG_HIDDEN);
@@ -676,12 +688,73 @@ void TextArea_Change_cb(lv_event_t *e) {
   }
 }
 
+// ==========================================
+// WiFi Scan Dropdown helpers
+// ==========================================
+static void hideWifiScanDropdown(void) {
+  if (ui_WifiScanOverlay) lv_obj_add_flag(ui_WifiScanOverlay, LV_OBJ_FLAG_HIDDEN);
+  if (ui_WifiScanCont)    lv_obj_add_flag(ui_WifiScanCont, LV_OBJ_FLAG_HIDDEN);
+  wifiScanListVisible = false;
+}
+
+static void showWifiScanDropdown(void) {
+  if (!ui_WifiScanCont || !ui_WifiScanList || !ui_WifiScanStatus) return;
+  lv_obj_clean(ui_WifiScanList);
+  lv_label_set_text(ui_WifiScanStatus, "Buscando redes...");
+  lv_obj_clear_flag(ui_WifiScanOverlay, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_move_foreground(ui_WifiScanOverlay);
+  lv_obj_clear_flag(ui_WifiScanCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_move_foreground(ui_WifiScanCont);
+  wifiScanListVisible = true;
+  wifiScanResultsPopulated = false;
+  scanNetworkCount = 0;
+  // WifiScanRequest() resets stale state immediately, then signals the OTA task
+  WifiScanRequest();
+}
+
+// Called when user taps outside the scan dropdown
+void WifiScanOverlay_cb(lv_event_t *e) {
+  hideWifiScanDropdown();
+  lv_obj_clear_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_clear_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
+}
+
+// Called when user selects a network or "Introducir manualmente"
+void WifiScanList_cb(lv_event_t *e) {
+  int idx = (int)(intptr_t)lv_event_get_user_data(e);
+  if (idx < 0) {
+    // "Introducir manualmente" selected
+    hideWifiScanDropdown();
+    lv_keyboard_set_textarea(ui_Keyboard1, ui_TextArea1);
+    lv_obj_clear_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
+  } else if (idx < scanNetworkCount) {
+    // Network selected — fill SSID field
+    lv_textarea_set_text(ui_TextArea1, scanSSIDs[idx]);
+    strncpy(wifi_ssid, scanSSIDs[idx], sizeof(wifi_ssid) - 1);
+    wifi_ssid[sizeof(wifi_ssid) - 1] = '\0';
+    hideWifiScanDropdown();
+    lv_obj_clear_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
 void TextArea_focus_cb(lv_event_t *e) {
   lv_obj_t *ta = lv_event_get_target(e);
-  lv_keyboard_set_textarea(ui_Keyboard1, ta);
-  lv_obj_clear_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
+  if (ta == ui_TextArea1) {
+    // Show scan dropdown instead of keyboard for SSID field
+    lv_keyboard_set_textarea(ui_Keyboard1, NULL);
+    lv_obj_add_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
+    showWifiScanDropdown();
+  } else {
+    lv_keyboard_set_textarea(ui_Keyboard1, ta);
+    lv_obj_clear_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
+  }
 }
 
 void Keyboard_cb(lv_event_t *e) {
@@ -2152,6 +2225,8 @@ void UI_Task(void *pvParameters) {
   lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_WifiScanOverlay, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_WifiScanCont, LV_OBJ_FLAG_HIDDEN);
   lv_keyboard_set_textarea(ui_Keyboard1, NULL);
 
   lv_textarea_set_text(ui_TextArea2, wifi_pass);
@@ -2344,6 +2419,37 @@ void UI_Task(void *pvParameters) {
         lv_label_set_text(ui_WifiSSIDLabel, WiFi.SSID().c_str());
       } else {
         lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
+      }
+    }
+
+    // WiFi Scan: populate dropdown when results are ready (RF-WIFI-001 … RF-WIFI-008)
+    // !g_wifiScanRequest: wait until OTA task has picked up the request and reset
+    // s_scanResultsReady, so we never read stale results from a previous scan.
+    if (wifiScanListVisible && !wifiScanResultsPopulated) {
+      if (!g_wifiScanRequest && !WifiScanIsInProgress() && WifiScanResultsReady()) {
+        wifiScanResultsPopulated = true;
+        lv_obj_clean(ui_WifiScanList);
+        scanNetworkCount = WifiScanGetCount();
+        if (scanNetworkCount == 0) {
+          lv_label_set_text(ui_WifiScanStatus, "No se detectaron redes");
+        } else {
+          lv_label_set_text(ui_WifiScanStatus, "Redes disponibles:");
+          int count = (scanNetworkCount < WIFI_SCAN_MAX_NETWORKS) ? scanNetworkCount : WIFI_SCAN_MAX_NETWORKS;
+          for (int i = 0; i < count; i++) {
+            strncpy(scanSSIDs[i], WifiScanGetSSID(i).c_str(), 32);
+            scanSSIDs[i][32] = '\0';
+            char buf[52];
+            snprintf(buf, sizeof(buf), "%s  [%d dBm]", scanSSIDs[i], WifiScanGetRSSI(i));
+            lv_obj_t *btn = lv_list_add_btn(ui_WifiScanList, NULL, buf);
+            lv_obj_set_style_text_font(btn, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_add_event_cb(btn, WifiScanList_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+          }
+        }
+        // Always offer manual entry (RF-WIFI-006 / RF-WIFI-007)
+        lv_obj_t *manualBtn = lv_list_add_btn(ui_WifiScanList, NULL, "Introducir manualmente");
+        lv_obj_set_style_text_font(manualBtn, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_text_color(manualBtn, lv_color_hex(0x2196F3), LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_add_event_cb(manualBtn, WifiScanList_cb, LV_EVENT_CLICKED, (void *)(intptr_t)-1);
       }
     }
 
@@ -2779,6 +2885,7 @@ void UI_ApplyTheme() {
     if (ui_InfoDetailsCont) UI_ApplyStyleToLabelsRecursive(ui_InfoDetailsCont, lv_color_hex(0x000000));
     if (ui_WifiConfigCont) UI_ApplyStyleToLabelsRecursive(ui_WifiConfigCont, lv_color_hex(0x000000));
     if (ui_WifiConnectedCont) UI_ApplyStyleToLabelsRecursive(ui_WifiConnectedCont, lv_color_hex(0x000000));
+    if (ui_WifiScanCont) UI_ApplyStyleToLabelsRecursive(ui_WifiScanCont, lv_color_hex(0x000000));
 
     // Images recoloring for Dark Mode (Originals are black, we want white)
     lv_color_t img_recolor = darkMode ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x000000);

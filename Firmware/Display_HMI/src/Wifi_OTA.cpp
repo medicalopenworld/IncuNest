@@ -122,13 +122,170 @@ char pendingSSID[64] = "";
 char pendingPass[64] = "";
 static uint32_t lastconnectiontrywifi = 0;
 
+// ---------------------------------------------------------------------------
+// WiFi Network Scan — state machine
+//
+// CRITICAL: Never call WiFi.mode() or disconnect(true) during scan flow.
+// Those functions call esp_wifi_deinit() which destroys the WiFi stack.
+// Calling esp_wifi_init() again on a fragmented heap causes:
+//   esp_wifi_init 257 (ESP_ERR_NO_MEM), "Expected to init 4 rx buffer, actual is 0"
+//
+// Correct approach — keep the WiFi stack alive at all times:
+//   1. setAutoReconnect(false) FIRST — stops Arduino event handler from
+//      calling esp_wifi_connect() when the disconnect event fires
+//   2. disconnect(false) — stops current connection, stack stays alive
+//   3. Wait 300ms — IDF settles into IDLE state (no queued reconnects)
+//   4. scanNetworks(true, true) — async scan, no driver conflicts
+//   5. After scan: setAutoReconnect(true) + WiFi.begin() to reconnect
+//
+// WifiOTAHandler is fully blocked while s_scanState != SCAN_IDLE.
+// ---------------------------------------------------------------------------
+volatile bool g_wifiScanRequest = false;
+
+typedef enum {
+  SCAN_IDLE,         // no scan in progress
+  SCAN_DISCONNECTING,// setAutoReconnect(false)+disconnect(false) called, waiting
+  SCAN_RUNNING,      // scanNetworks() active, polling scanComplete()
+} ScanState_t;
+
+static ScanState_t   s_scanState        = SCAN_IDLE;
+static uint32_t      s_scanStateMs      = 0;
+static volatile bool s_scanInProgress   = false;
+static volatile bool s_scanResultsReady = false;
+static volatile int  s_scanCount        = 0;
+
+#define SCAN_DISCONNECT_WAIT_MS 300  // IDF settle time after disconnect(false)
+#define SCAN_TIMEOUT_MS         12000// abort if scan hangs this long
+
+// Called from OTA task at the end of every scan path to restore WiFi.
+// s_scanState must already be SCAN_IDLE before calling wifiInit().
+static void scanFinalize(int networkCount) {
+  s_scanInProgress   = false;
+  s_scanState        = SCAN_IDLE;
+  s_scanCount        = (networkCount >= 0) ? networkCount : 0;
+  s_scanResultsReady = true;
+  WiFi.setAutoReconnect(true);
+  ESP_LOGI(TAG, "WifiScanHandler: scan done (%d nets), reconnecting", s_scanCount);
+  wifiInit();  // safe: s_scanState is SCAN_IDLE, stack is alive, just calls WiFi.begin()
+}
+
+// Called from UI task only — no direct WiFi calls here.
+void WifiScanRequest(void) {
+  s_scanResultsReady = false;
+  s_scanCount        = 0;
+  g_wifiScanRequest  = true;
+  ESP_LOGI(TAG, "WifiScanRequest: requested");
+}
+
+// Called from OTA task every loop iteration.
+void WifiScanHandler(void) {
+  switch (s_scanState) {
+
+    // -----------------------------------------------------------------------
+    case SCAN_IDLE:
+      if (!g_wifiScanRequest) return;
+      g_wifiScanRequest  = false;
+      s_scanResultsReady = false;
+      s_scanCount        = 0;
+      s_scanInProgress   = true;
+      ESP_LOGI(TAG, "WifiScanHandler: wl_status=%d — disabling auto-reconnect, disconnecting",
+               (int)WiFi.status());
+      // Order matters: disable auto-reconnect BEFORE disconnect so the IDF
+      // event handler does NOT call esp_wifi_connect() when disconnect fires.
+      WiFi.setAutoReconnect(false);
+      WiFi.disconnect(false);  // keep WiFi stack alive, just stop connection
+      s_scanState   = SCAN_DISCONNECTING;
+      s_scanStateMs = millis();
+      break;
+
+    // -----------------------------------------------------------------------
+    case SCAN_DISCONNECTING:
+      if (millis() - s_scanStateMs < SCAN_DISCONNECT_WAIT_MS) return;
+      {
+        ESP_LOGI(TAG, "WifiScanHandler: driver settled (wl_status=%d), launching scan",
+                 (int)WiFi.status());
+        WiFi.scanDelete();
+        int16_t ret = WiFi.scanNetworks(true, true); // async, show_hidden
+        ESP_LOGI(TAG, "WifiScanHandler: scanNetworks returned %d (expect -1=RUNNING)", (int)ret);
+        if (ret == WIFI_SCAN_RUNNING) {
+          s_scanState   = SCAN_RUNNING;
+          s_scanStateMs = millis();
+        } else {
+          ESP_LOGE(TAG, "WifiScanHandler: scan failed to start (ret=%d)", (int)ret);
+          scanFinalize(-1);
+        }
+      }
+      break;
+
+    // -----------------------------------------------------------------------
+    case SCAN_RUNNING: {
+      int n = WiFi.scanComplete();
+      if (n == WIFI_SCAN_RUNNING) {
+        if (millis() - s_scanStateMs > SCAN_TIMEOUT_MS) {
+          ESP_LOGW(TAG, "WifiScanHandler: scan timed out after %ds", SCAN_TIMEOUT_MS / 1000);
+          WiFi.scanDelete();
+          scanFinalize(0);
+        }
+        return;
+      }
+      if (n < 0) {
+        ESP_LOGW(TAG, "WifiScanHandler: scan error (%d)", n);
+      } else {
+        ESP_LOGI(TAG, "WifiScanHandler: scan complete — %d networks", n);
+        for (int i = 0; i < n; i++) {
+          ESP_LOGI(TAG, "  [%d] '%s' RSSI=%d", i, WiFi.SSID(i).c_str(), WiFi.RSSI(i));
+        }
+      }
+      scanFinalize(n);
+      break;
+    }
+  }
+}
+
+bool WifiScanIsInProgress(void) { return s_scanState != SCAN_IDLE; }
+
+bool WifiScanResultsReady(void) { return s_scanResultsReady; }
+
+int WifiScanGetCount(void) { return s_scanCount; }
+
+String WifiScanGetSSID(int index) {
+  if (index < 0 || index >= s_scanCount) return "";
+  return WiFi.SSID(index);
+}
+
+int WifiScanGetRSSI(int index) {
+  if (index < 0 || index >= s_scanCount) return 0;
+  return WiFi.RSSI(index);
+}
+
+void WifiScanClear(void) {
+  WiFi.scanDelete();
+  s_scanInProgress = false;
+  s_scanResultsReady = false;
+  s_scanCount = 0;
+}
+
 /*
    setup function
 */
 void wifiInit(void) {
-  // Connect to WiFi network
-  ESP_LOGI(TAG, "Initializing WiFi");
   Wifi_TB.lastWifiReconnectAttempt = millis();
+
+  // Guard: wifiInit() must not run while a scan is active.
+  // scanFinalize() always sets s_scanState=SCAN_IDLE before calling here, so
+  // this only triggers if wifiInit() is called externally (e.g. WifiConnectButton
+  // in UI task) during an active scan — we abort the scan in that case.
+  if (s_scanState != SCAN_IDLE) {
+    ESP_LOGW(TAG, "wifiInit: called during scan (state=%d), aborting scan", (int)s_scanState);
+    WiFi.scanDelete();
+    s_scanInProgress   = false;
+    s_scanResultsReady = true;
+    s_scanCount        = 0;
+    s_scanState        = SCAN_IDLE;
+    WiFi.setAutoReconnect(true);
+  }
+
+  ESP_LOGI(TAG, "wifiInit: starting — current wl_status=%d", (int)WiFi.status());
   WiFi.setHostname(
       String(String(WIFI_NAME) + "-" + String(in3.serialNumber)).c_str());
   WiFi.mode(WIFI_STA);
@@ -140,7 +297,7 @@ void wifiInit(void) {
   if (strlen(pendingSSID) > 0) {
     ssid = pendingSSID;
     pass = pendingPass;
-    ESP_LOGI(TAG, "Connecting to pending SSID: %s", ssid.c_str());
+    ESP_LOGI(TAG, "wifiInit: connecting to pending SSID='%s'", ssid.c_str());
   } else {
     ssid = EEPROM.readString(EEPROM_WIFI_SSID);
     pass = EEPROM.readString(EEPROM_WIFI_PASSWORD);
@@ -153,6 +310,7 @@ void wifiInit(void) {
     }
   }
 
+  ESP_LOGI(TAG, "wifiInit: calling WiFi.begin('%s')", ssid.c_str());
   WiFi.begin(ssid.c_str(), pass.c_str());
   lastconnectiontrywifi = millis();
 }
@@ -630,12 +788,17 @@ void WIFI_TB_OTA() {
 }
 
 void WifiOTAHandler(void) {
+  WifiScanHandler();
+
+  // Don't run MQTT/OTA/reconnect while ANY scan state is active
+  // (disconnecting, starting, or running) to avoid driver conflicts.
+  if (s_scanState != SCAN_IDLE) return;
+
   WIFI_TB_OTA();
   WEB_OTA();
   if (WiFi.status() != WL_CONNECTED) {
     if (millis() - Wifi_TB.lastWifiReconnectAttempt > WIFI_RECONNECT_INTERVAL) {
-      // Wifi_TB.lastWifiReconnectAttempt = millis(); // wifiInit does this
-      ESP_LOGI(TAG, "Connection lost, attempting to reconnect...");
+      ESP_LOGI(TAG, "WifiOTAHandler: reconnecting (wl_status=%d)...", (int)WiFi.status());
       MDNS.end();
       wifiInit();
     }
@@ -645,7 +808,16 @@ void WifiOTAHandler(void) {
 static void OTA_WIFI_Task(void *pvParameters) {
   wifiInit();
   WIFI_TB_Init();
+  uint32_t lastStatusLogMs = 0;
   for (;;) {
+    // Periodic WiFi status log (every 3 seconds) for serial debugging
+    if (millis() - lastStatusLogMs >= 3000) {
+      lastStatusLogMs = millis();
+      ESP_LOGI(TAG, "[STATUS] wl=%d connected=%d scanInProg=%d scanReady=%d scanCount=%d scanReq=%d",
+               (int)WiFi.status(), (int)(WiFi.status() == WL_CONNECTED),
+               (int)s_scanInProgress, (int)s_scanResultsReady, (int)s_scanCount,
+               (int)g_wifiScanRequest);
+    }
     WifiOTAHandler();
     vTaskDelay(pdMS_TO_TICKS(OTA_TASK_PERIOD_MS));
   }

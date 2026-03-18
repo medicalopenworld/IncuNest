@@ -173,6 +173,11 @@ lv_obj_t * ui_WifiConnectedPanel = NULL;
 lv_obj_t * ui_ArrowWifiConnected = NULL;
 lv_obj_t * ui_WifiSSIDLabel = NULL;
 lv_obj_t * ui_WifiConnectedToLabel = NULL;
+// WiFi Scan Dropdown
+lv_obj_t * ui_WifiScanOverlay = NULL;
+lv_obj_t * ui_WifiScanCont = NULL;
+lv_obj_t * ui_WifiScanStatus = NULL;
+lv_obj_t * ui_WifiScanList = NULL;
 
 // Screen Alarms
 lv_obj_t * ui_ScreenAlarms = NULL;
@@ -306,6 +311,8 @@ extern void TextArea_focus_cb(lv_event_t * e);
 extern void TextArea_Change_cb(lv_event_t * e);
 extern void Keyboard_cb(lv_event_t * e);
 extern void WifiConnectButton_cb(lv_event_t * e);
+extern void WifiScanList_cb(lv_event_t * e);
+extern void WifiScanOverlay_cb(lv_event_t * e);
 extern void LanguagesDropDown_cb(lv_event_t * e);
 extern void AlarmsTabview_cb(lv_event_t * e);
 extern void Alarm1Cont_cb(lv_event_t * e);
@@ -2443,6 +2450,45 @@ void ui_ScreenSettings_screen_init(void) {
     lv_obj_set_y(ui_WifiConnectedToLabel, 0);
     lv_obj_set_align(ui_WifiConnectedToLabel, LV_ALIGN_CENTER);
     lv_label_set_text(ui_WifiConnectedToLabel, "Connected to: ");
+
+    // --- WiFi Scan Dropdown ---
+    // Transparent full-screen overlay: closes the dropdown when tapped outside
+    ui_WifiScanOverlay = lv_obj_create(ui_ScreenSettings);
+    lv_obj_remove_style_all(ui_WifiScanOverlay);
+    lv_obj_set_size(ui_WifiScanOverlay, 800, 480);
+    lv_obj_set_pos(ui_WifiScanOverlay, 0, 0);
+    lv_obj_set_style_bg_opa(ui_WifiScanOverlay, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_add_flag(ui_WifiScanOverlay, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_WifiScanOverlay, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(ui_WifiScanOverlay, WifiScanOverlay_cb, LV_EVENT_CLICKED, NULL);
+
+    // Dropdown container: positioned below the SSID field
+    // Screen coords: SSID panel bottom is at ~y=213 (screen), x=385
+    ui_WifiScanCont = lv_obj_create(ui_ScreenSettings);
+    lv_obj_set_size(ui_WifiScanCont, 400, 175);
+    lv_obj_set_pos(ui_WifiScanCont, 385, 210);
+    lv_obj_add_flag(ui_WifiScanCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_WifiScanCont, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(ui_WifiScanCont, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(ui_WifiScanCont, 8, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_color(ui_WifiScanCont, lv_color_hex(0xAAAAAA), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(ui_WifiScanCont, 1, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_all(ui_WifiScanCont, 5, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_WifiScanStatus = lv_label_create(ui_WifiScanCont);
+    lv_obj_set_width(ui_WifiScanStatus, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_WifiScanStatus, LV_SIZE_CONTENT);
+    lv_obj_set_align(ui_WifiScanStatus, LV_ALIGN_TOP_LEFT);
+    lv_obj_set_pos(ui_WifiScanStatus, 5, 5);
+    lv_label_set_text(ui_WifiScanStatus, "Buscando redes...");
+    lv_obj_set_style_text_color(ui_WifiScanStatus, lv_color_hex(0x666666), LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_WifiScanList = lv_list_create(ui_WifiScanCont);
+    lv_obj_set_size(ui_WifiScanList, 388, 145);
+    lv_obj_set_pos(ui_WifiScanList, 0, 22);
+    lv_obj_set_style_bg_color(ui_WifiScanList, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(ui_WifiScanList, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_all(ui_WifiScanList, 2, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     lv_obj_add_event_cb(ui_ImgButton2, ui_event_ImgButton2, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_InfoButton, ui_event_InfoButton, LV_EVENT_ALL, NULL);

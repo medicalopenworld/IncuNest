@@ -251,6 +251,11 @@ extern lv_obj_t * ui_WifiConnectedPanel;
 extern lv_obj_t * ui_ArrowWifiConnected;
 extern lv_obj_t * ui_WifiSSIDLabel;
 extern lv_obj_t * ui_WifiConnectedToLabel;
+// WiFi Scan Dropdown
+extern lv_obj_t * ui_WifiScanOverlay;
+extern lv_obj_t * ui_WifiScanCont;
+extern lv_obj_t * ui_WifiScanStatus;
+extern lv_obj_t * ui_WifiScanList;
 void ui_ScreenSettings_screen_init(void);
 void ui_ScreenSettings_screen_destroy(void);
 
