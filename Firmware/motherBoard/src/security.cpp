@@ -612,7 +612,7 @@ void setAlarm(byte alarmID) {
            " has been triggered");
   alarmOnGoing[alarmID] = true;
   displayAlarm[alarmID] = true;
-  buzzerConstantTone(buzzerAlarmTone);
+  buzzerTone(buzzerAlarmBeepCount, buzzerAlarmBeepTime, buzzerAlarmTone);
   sendAlarmUSB(alarmID, true);
 }
 
@@ -622,7 +622,7 @@ void setAlarm(byte alarmID, bool alarmSound) {
   alarmOnGoing[alarmID] = true;
   displayAlarm[alarmID] = true;
   if (alarmSound) {
-    buzzerConstantTone(buzzerAlarmTone);
+    buzzerTone(buzzerAlarmBeepCount, buzzerAlarmBeepTime, buzzerAlarmTone);
   }
   sendAlarmUSB(alarmID, true);
 }

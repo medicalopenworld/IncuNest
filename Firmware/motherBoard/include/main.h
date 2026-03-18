@@ -384,6 +384,8 @@ typedef enum {
         // constants
 #define buzzerStandbyTone 500        // in micros, tone freq
 #define buzzerAlarmTone 500          // in micros, tone freq
+#define buzzerAlarmBeepTime 500      // ms ON and OFF per alarm beep cycle
+#define buzzerAlarmBeepCount 500     // total beep toggles (~5 min of alarm)
 #define buzzerRotaryEncoderTone 2200 // in micros, tone freq
 #define buzzerStandbyToneDuration 50 // in micros, tone freq
 #define buzzerSwitchDuration 10      // in micros, tone freq
