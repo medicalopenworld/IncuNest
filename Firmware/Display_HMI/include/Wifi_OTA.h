@@ -70,6 +70,8 @@ int  WifiScanGetCount(void);
 String WifiScanGetSSID(int index);
 int  WifiScanGetRSSI(int index);
 void WifiScanClear(void);
+void WifiDisconnect(void);        // user-requested disconnect, suppresses auto-reconnect
+void WifiAbortConnection(void);   // hard abort: resets scan SM + timer, call before scan
 
 void progressCallback(const uint32_t &currentChunk,
                       const uint32_t &totalChuncks);

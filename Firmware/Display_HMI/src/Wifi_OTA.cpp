@@ -154,19 +154,25 @@ static volatile bool s_scanInProgress   = false;
 static volatile bool s_scanResultsReady = false;
 static volatile int  s_scanCount        = 0;
 
+// When true, WifiOTAHandler will NOT call wifiInit() in its reconnect loop.
+// Set after every scan so that the IDF stays idle until the user explicitly
+// hits the Connect button (which calls wifiInit() → clears this flag).
+static bool s_suppressReconnect = false;
+
 #define SCAN_DISCONNECT_WAIT_MS 300  // IDF settle time after disconnect(false)
 #define SCAN_TIMEOUT_MS         12000// abort if scan hangs this long
 
-// Called from OTA task at the end of every scan path to restore WiFi.
-// s_scanState must already be SCAN_IDLE before calling wifiInit().
+// Called from OTA task at the end of every scan path.
+// Does NOT call wifiInit()/WiFi.begin() — reconnect is suppressed until the
+// user explicitly requests a connection via WifiConnectButton_cb → wifiInit().
 static void scanFinalize(int networkCount) {
-  s_scanInProgress   = false;
-  s_scanState        = SCAN_IDLE;
-  s_scanCount        = (networkCount >= 0) ? networkCount : 0;
-  s_scanResultsReady = true;
-  WiFi.setAutoReconnect(true);
-  ESP_LOGI(TAG, "WifiScanHandler: scan done (%d nets), reconnecting", s_scanCount);
-  wifiInit();  // safe: s_scanState is SCAN_IDLE, stack is alive, just calls WiFi.begin()
+  s_scanInProgress    = false;
+  s_scanState         = SCAN_IDLE;
+  s_scanCount         = (networkCount >= 0) ? networkCount : 0;
+  s_scanResultsReady  = true;
+  s_suppressReconnect = true;  // block auto-reconnect until user connects
+  WiFi.setAutoReconnect(true); // restore flag (harmless while disconnected)
+  ESP_LOGI(TAG, "WifiScanHandler: scan done (%d nets). Waiting for user to connect.", s_scanCount);
 }
 
 // Called from UI task only — no direct WiFi calls here.
@@ -188,6 +194,9 @@ void WifiScanHandler(void) {
       s_scanResultsReady = false;
       s_scanCount        = 0;
       s_scanInProgress   = true;
+      // Reset reconnect timer so the WifiOTAHandler loop cannot fire a
+      // wifiInit()/WiFi.begin() call during our 300ms settle window.
+      Wifi_TB.lastWifiReconnectAttempt = millis();
       ESP_LOGI(TAG, "WifiScanHandler: wl_status=%d — disabling auto-reconnect, disconnecting",
                (int)WiFi.status());
       // Order matters: disable auto-reconnect BEFORE disconnect so the IDF
@@ -246,6 +255,30 @@ bool WifiScanIsInProgress(void) { return s_scanState != SCAN_IDLE; }
 
 bool WifiScanResultsReady(void) { return s_scanResultsReady; }
 
+// Called from UI task when user presses Disconnect.
+// Stops the current connection and suppresses auto-reconnect until wifiInit() is called.
+void WifiDisconnect(void) {
+  WiFi.setAutoReconnect(false);
+  WiFi.disconnect(false);
+  s_suppressReconnect = true;
+  ESP_LOGI(TAG, "WifiDisconnect: user-requested disconnect");
+}
+
+// Called from UI task when user edits the SSID field or wants to start a scan.
+// Harder abort than WifiDisconnect(): also resets the scan state machine and
+// the reconnect timer, ensuring the IDF is fully idle before we scan.
+// The 300 ms settle window is already handled by SCAN_DISCONNECTING in WifiScanHandler.
+void WifiAbortConnection(void) {
+  WiFi.setAutoReconnect(false);
+  WiFi.disconnect(false);
+  WiFi.scanDelete();
+  s_suppressReconnect = true;
+  s_scanState         = SCAN_IDLE;
+  s_scanInProgress    = false;
+  Wifi_TB.lastWifiReconnectAttempt = millis();
+  ESP_LOGI(TAG, "SSID edit → connection aborted (wl_status=%d)", (int)WiFi.status());
+}
+
 int WifiScanGetCount(void) { return s_scanCount; }
 
 String WifiScanGetSSID(int index) {
@@ -270,6 +303,7 @@ void WifiScanClear(void) {
 */
 void wifiInit(void) {
   Wifi_TB.lastWifiReconnectAttempt = millis();
+  s_suppressReconnect = false; // user is explicitly connecting — re-enable auto-reconnect loop
 
   // Guard: wifiInit() must not run while a scan is active.
   // scanFinalize() always sets s_scanState=SCAN_IDLE before calling here, so
@@ -797,7 +831,12 @@ void WifiOTAHandler(void) {
   WIFI_TB_OTA();
   WEB_OTA();
   if (WiFi.status() != WL_CONNECTED) {
-    if (millis() - Wifi_TB.lastWifiReconnectAttempt > WIFI_RECONNECT_INTERVAL) {
+    // s_suppressReconnect is set after every scan — cleared only by wifiInit()
+    // (which is called from WifiConnectButton_cb when the user explicitly connects).
+    // This prevents the reconnect loop from firing a WiFi.begin() between scans,
+    // which would put the IDF in CONNECTING state and cause subsequent scans to fail.
+    if (!s_suppressReconnect &&
+        millis() - Wifi_TB.lastWifiReconnectAttempt > WIFI_RECONNECT_INTERVAL) {
       ESP_LOGI(TAG, "WifiOTAHandler: reconnecting (wl_status=%d)...", (int)WiFi.status());
       MDNS.end();
       wifiInit();
@@ -813,10 +852,10 @@ static void OTA_WIFI_Task(void *pvParameters) {
     // Periodic WiFi status log (every 3 seconds) for serial debugging
     if (millis() - lastStatusLogMs >= 3000) {
       lastStatusLogMs = millis();
-      ESP_LOGI(TAG, "[STATUS] wl=%d connected=%d scanInProg=%d scanReady=%d scanCount=%d scanReq=%d",
+      ESP_LOGI(TAG, "[STATUS] wl=%d connected=%d scanState=%d scanReady=%d scanCount=%d suppressReconnect=%d",
                (int)WiFi.status(), (int)(WiFi.status() == WL_CONNECTED),
-               (int)s_scanInProgress, (int)s_scanResultsReady, (int)s_scanCount,
-               (int)g_wifiScanRequest);
+               (int)s_scanState, (int)s_scanResultsReady, (int)s_scanCount,
+               (int)s_suppressReconnect);
     }
     WifiOTAHandler();
     vTaskDelay(pdMS_TO_TICKS(OTA_TASK_PERIOD_MS));

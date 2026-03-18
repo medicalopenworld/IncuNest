@@ -75,6 +75,11 @@ bool wifiVisible = false;
 char wifi_ssid[64] = "";
 char wifi_pass[64] = "";
 
+// WiFi connection state tracking (UI task side)
+static bool     wifiConnecting       = false;
+static uint32_t wifiConnectStartMs   = 0;
+#define WIFI_CONNECT_TIMEOUT_MS 20000  // show error after 20 s without connection
+
 // WiFi Scan Dropdown
 static bool wifiScanListVisible = false;
 static bool wifiScanResultsPopulated = false;
@@ -624,20 +629,44 @@ void set_active_panel(lv_obj_t *active, lv_obj_t *inactive) {
 
 static void hideWifiScanDropdown(void); // forward declaration
 
+// Show Connect (blue) and hide Disconnect/status.
+static void wifiShowConnectBtn(void) {
+  if (ui_WifiConnectButton)    lv_obj_clear_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
+  if (ui_ConnectLabel)         lv_obj_clear_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
+  if (ui_WifiDisconnectButton) lv_obj_add_flag(ui_WifiDisconnectButton, LV_OBJ_FLAG_HIDDEN);
+}
+
+// Show Disconnect (red) and hide Connect.
+static void wifiShowDisconnectBtn(void) {
+  if (ui_WifiConnectButton)    lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
+  if (ui_ConnectLabel)         lv_obj_add_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
+  if (ui_WifiDisconnectButton) lv_obj_clear_flag(ui_WifiDisconnectButton, LV_OBJ_FLAG_HIDDEN);
+}
+
 void WifiButton_cb(lv_event_t *e) {
   lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
   LanguagesVisible = false;
   lv_obj_add_flag(ui_InfoDetailsCont, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN); // legacy bar always hidden
+  lv_obj_clear_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);  // always show config panel
+
   if (WiFi.status() == WL_CONNECTED) {
-    lv_obj_clear_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
+    // Pre-fill SSID with current network; show Disconnect
+    lv_textarea_set_text(ui_TextArea1, WiFi.SSID().c_str());
+    strncpy(wifi_ssid, WiFi.SSID().c_str(), sizeof(wifi_ssid) - 1);
+    wifi_ssid[sizeof(wifi_ssid) - 1] = '\0';
+    wifiShowDisconnectBtn();
+    if (ui_WifiStatusLabel) lv_label_set_text(ui_WifiStatusLabel, "");
   } else {
-    lv_obj_clear_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
+    // Clear SSID field; show Connect
+    lv_textarea_set_text(ui_TextArea1, "");
+    wifi_ssid[0] = '\0';
+    wifiShowConnectBtn();
+    if (ui_WifiStatusLabel) lv_label_set_text(ui_WifiStatusLabel, "");
   }
+  wifiConnecting = false;
   wifiVisible = true;
   hmi_msg.shouldSendData = true;
-
 }
 
 void InfoButton_cb(lv_event_t *e) {
@@ -682,6 +711,12 @@ void TextArea_Change_cb(lv_event_t *e) {
   if (ta == ui_TextArea1) {
     strncpy(wifi_ssid, txt, sizeof(wifi_ssid) - 1);
     wifi_ssid[sizeof(wifi_ssid) - 1] = '\0';
+    // Any keystroke in the SSID field aborts whatever WiFi is doing.
+    // WifiAbortConnection() resets IDF state + scan SM + reconnect timer.
+    wifiConnecting = false;
+    WifiAbortConnection();
+    wifiShowConnectBtn();
+    if (ui_WifiStatusLabel) lv_label_set_text(ui_WifiStatusLabel, "");
   } else if (ta == ui_TextArea2) {
     strncpy(wifi_pass, txt, sizeof(wifi_pass) - 1);
     wifi_pass[sizeof(wifi_pass) - 1] = '\0';
@@ -708,15 +743,20 @@ static void showWifiScanDropdown(void) {
   wifiScanListVisible = true;
   wifiScanResultsPopulated = false;
   scanNetworkCount = 0;
-  // WifiScanRequest() resets stale state immediately, then signals the OTA task
+  // Hard-abort any in-progress connection so IDF is fully IDLE before scan.
+  // The 300 ms settle window is handled by SCAN_DISCONNECTING inside WifiScanHandler.
+  WifiAbortConnection();
   WifiScanRequest();
 }
 
 // Called when user taps outside the scan dropdown
 void WifiScanOverlay_cb(lv_event_t *e) {
   hideWifiScanDropdown();
-  lv_obj_clear_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_clear_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
+  if (WiFi.status() == WL_CONNECTED) {
+    wifiShowDisconnectBtn();
+  } else {
+    wifiShowConnectBtn();
+  }
 }
 
 // Called when user selects a network or "Introducir manualmente"
@@ -727,8 +767,10 @@ void WifiScanList_cb(lv_event_t *e) {
     hideWifiScanDropdown();
     lv_keyboard_set_textarea(ui_Keyboard1, ui_TextArea1);
     lv_obj_clear_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
+    // Hide both action buttons while keyboard is open
+    if (ui_WifiConnectButton)    lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
+    if (ui_ConnectLabel)         lv_obj_add_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
+    if (ui_WifiDisconnectButton) lv_obj_add_flag(ui_WifiDisconnectButton, LV_OBJ_FLAG_HIDDEN);
   } else if (idx < scanNetworkCount) {
     // Network selected — fill SSID field
     lv_textarea_set_text(ui_TextArea1, scanSSIDs[idx]);
@@ -743,17 +785,32 @@ void WifiScanList_cb(lv_event_t *e) {
 void TextArea_focus_cb(lv_event_t *e) {
   lv_obj_t *ta = lv_event_get_target(e);
   if (ta == ui_TextArea1) {
-    // Show scan dropdown instead of keyboard for SSID field
-    lv_keyboard_set_textarea(ui_Keyboard1, NULL);
-    lv_obj_add_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
-    showWifiScanDropdown();
+    const char *ssid_txt = lv_textarea_get_text(ui_TextArea1);
+    bool ssid_empty = (ssid_txt == NULL || ssid_txt[0] == '\0');
+
+    if (ssid_empty) {
+      // Empty SSID → scan and show dropdown
+      lv_keyboard_set_textarea(ui_Keyboard1, NULL);
+      lv_obj_add_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
+      if (ui_WifiConnectButton)    lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
+      if (ui_ConnectLabel)         lv_obj_add_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
+      if (ui_WifiDisconnectButton) lv_obj_add_flag(ui_WifiDisconnectButton, LV_OBJ_FLAG_HIDDEN);
+      showWifiScanDropdown();
+    } else {
+      // SSID has text → show keyboard for manual edit (rule §6)
+      lv_keyboard_set_textarea(ui_Keyboard1, ta);
+      lv_obj_clear_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
+      if (ui_WifiConnectButton)    lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
+      if (ui_ConnectLabel)         lv_obj_add_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
+      if (ui_WifiDisconnectButton) lv_obj_add_flag(ui_WifiDisconnectButton, LV_OBJ_FLAG_HIDDEN);
+    }
   } else {
+    // Password field → always show keyboard
     lv_keyboard_set_textarea(ui_Keyboard1, ta);
     lv_obj_clear_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
+    if (ui_WifiConnectButton)    lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
+    if (ui_ConnectLabel)         lv_obj_add_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
+    if (ui_WifiDisconnectButton) lv_obj_add_flag(ui_WifiDisconnectButton, LV_OBJ_FLAG_HIDDEN);
   }
 }
 
@@ -761,12 +818,17 @@ void Keyboard_cb(lv_event_t *e) {
   lv_event_code_t code = lv_event_get_code(e);
   if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
     lv_obj_add_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
     const char *txt1 = lv_textarea_get_text(ui_TextArea1);
     const char *txt2 = lv_textarea_get_text(ui_TextArea2);
     strncpy(wifi_ssid, txt1, sizeof(wifi_ssid));
     strncpy(wifi_pass, txt2, sizeof(wifi_pass));
+    // Restore correct action button based on actual WiFi state
+    if (WiFi.status() == WL_CONNECTED) {
+      wifiShowDisconnectBtn();
+    } else {
+      wifiShowConnectBtn();
+    }
+    ESP_LOGI("UITask", "Keyboard closed — WIFI STATUS: %d", (int)WiFi.status());
   }
 }
 
@@ -1894,10 +1956,27 @@ void WifiConnectButton_cb(lv_event_t *e) {
   strncpy(pendingSSID, wifi_ssid, sizeof(pendingSSID));
   strncpy(pendingPass, wifi_pass, sizeof(pendingPass));
 
+  // Show "Conectando..." feedback
+  if (ui_WifiStatusLabel) {
+    lv_label_set_text(ui_WifiStatusLabel, "Conectando...");
+    lv_obj_set_style_text_color(ui_WifiStatusLabel, lv_color_hex(0x2196F3),
+                                LV_PART_MAIN | LV_STATE_DEFAULT);
+  }
+  wifiConnecting     = true;
+  wifiConnectStartMs = millis();
+
   Communication_SendWiFiCredentials(pendingSSID, pendingPass);
-  vTaskDelay(
-      pdMS_TO_TICKS(100)); // Ensure serial is clear before WiFi logs start
-  wifiInit();              // Trigger new connection attempt
+  vTaskDelay(pdMS_TO_TICKS(100));
+  wifiInit(); // clears s_suppressReconnect, calls WiFi.begin()
+}
+
+void WifiDisconnectButton_cb(lv_event_t *e) {
+  WifiDisconnect(); // stops connection, sets s_suppressReconnect
+  wifiConnecting = false;
+  lv_textarea_set_text(ui_TextArea1, "");
+  wifi_ssid[0] = '\0';
+  wifiShowConnectBtn();
+  if (ui_WifiStatusLabel) lv_label_set_text(ui_WifiStatusLabel, "");
 }
 
 void Label9_cb(lv_event_t *e) {
@@ -2414,11 +2493,32 @@ void UI_Task(void *pvParameters) {
 
     if (wifiVisible) {
       lv_obj_clear_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
-      if (WiFi.status() == WL_CONNECTED) {
-        lv_obj_clear_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
-        lv_label_set_text(ui_WifiSSIDLabel, WiFi.SSID().c_str());
-      } else {
-        lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN); // legacy bar never shown
+
+      // --- Connection state machine ---
+      if (wifiConnecting && !WifiScanIsInProgress()) {
+        wl_status_t status = WiFi.status();
+        if (status == WL_CONNECTED) {
+          // Success
+          wifiConnecting = false;
+          wifiShowDisconnectBtn();
+          if (ui_WifiStatusLabel) lv_label_set_text(ui_WifiStatusLabel, "");
+          // Show the actual connected SSID in the field
+          const char *connSSID = WiFi.SSID().c_str();
+          if (connSSID && connSSID[0]) {
+            lv_textarea_set_text(ui_TextArea1, connSSID);
+            strncpy(wifi_ssid, connSSID, sizeof(wifi_ssid) - 1);
+          }
+        } else if (millis() - wifiConnectStartMs > WIFI_CONNECT_TIMEOUT_MS) {
+          // Timeout → likely wrong password (AUTH_FAIL reason 202)
+          wifiConnecting = false;
+          wifiShowConnectBtn();
+          if (ui_WifiStatusLabel) {
+            lv_label_set_text(ui_WifiStatusLabel, "Error: verificar contraseña");
+            lv_obj_set_style_text_color(ui_WifiStatusLabel, lv_color_hex(0xE53935),
+                                        LV_PART_MAIN | LV_STATE_DEFAULT);
+          }
+        }
       }
     }
 
@@ -2886,6 +2986,9 @@ void UI_ApplyTheme() {
     if (ui_WifiConfigCont) UI_ApplyStyleToLabelsRecursive(ui_WifiConfigCont, lv_color_hex(0x000000));
     if (ui_WifiConnectedCont) UI_ApplyStyleToLabelsRecursive(ui_WifiConnectedCont, lv_color_hex(0x000000));
     if (ui_WifiScanCont) UI_ApplyStyleToLabelsRecursive(ui_WifiScanCont, lv_color_hex(0x000000));
+    // Buttons inside WifiConfigCont use white text on colored backgrounds — restore after recursive pass
+    if (ui_ConnectLabel)    lv_obj_set_style_text_color(ui_ConnectLabel,    lv_color_hex(0xFFFFFF), 0);
+    if (ui_WifiDisconnectButton) UI_ApplyStyleToLabelsRecursive(ui_WifiDisconnectButton, lv_color_hex(0xFFFFFF));
 
     // Images recoloring for Dark Mode (Originals are black, we want white)
     lv_color_t img_recolor = darkMode ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x000000);

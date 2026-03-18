@@ -167,6 +167,8 @@ lv_obj_t * ui_TextArea1 = NULL;
 lv_obj_t * ui_TextArea2 = NULL;
 lv_obj_t * ui_WifiConnectButton = NULL;
 lv_obj_t * ui_ConnectLabel = NULL;
+lv_obj_t * ui_WifiDisconnectButton = NULL;
+lv_obj_t * ui_WifiStatusLabel = NULL;
 lv_obj_t * ui_LanguagesDropDown = NULL;
 lv_obj_t * ui_WifiConnectedCont = NULL;
 lv_obj_t * ui_WifiConnectedPanel = NULL;
@@ -311,6 +313,7 @@ extern void TextArea_focus_cb(lv_event_t * e);
 extern void TextArea_Change_cb(lv_event_t * e);
 extern void Keyboard_cb(lv_event_t * e);
 extern void WifiConnectButton_cb(lv_event_t * e);
+extern void WifiDisconnectButton_cb(lv_event_t * e);
 extern void WifiScanList_cb(lv_event_t * e);
 extern void WifiScanOverlay_cb(lv_event_t * e);
 extern void LanguagesDropDown_cb(lv_event_t * e);
@@ -556,6 +559,13 @@ void ui_event_WifiConnectButton(lv_event_t * e) {
     lv_event_code_t event_code = lv_event_get_code(e);
     if(event_code == LV_EVENT_CLICKED) {
         WifiConnectButton_cb(e);
+    }
+}
+
+void ui_event_WifiDisconnectButton(lv_event_t * e) {
+    lv_event_code_t event_code = lv_event_get_code(e);
+    if(event_code == LV_EVENT_CLICKED) {
+        WifiDisconnectButton_cb(e);
     }
 }
 
@@ -2307,6 +2317,36 @@ void ui_ScreenSettings_screen_init(void) {
     lv_label_set_text(ui_ConnectLabel, "Connect");
     lv_obj_set_style_text_color(ui_ConnectLabel, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
 
+    // Disconnect button — same position as Connect, red, hidden by default
+    ui_WifiDisconnectButton = lv_btn_create(ui_WifiConfigCont);
+    lv_obj_set_width(ui_WifiDisconnectButton, 130);
+    lv_obj_set_height(ui_WifiDisconnectButton, 45);
+    lv_obj_set_x(ui_WifiDisconnectButton, 320);
+    lv_obj_set_y(ui_WifiDisconnectButton, 45);
+    lv_obj_set_align(ui_WifiDisconnectButton, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_WifiDisconnectButton, LV_OBJ_FLAG_HIDDEN | LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+    lv_obj_clear_flag(ui_WifiDisconnectButton, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(ui_WifiDisconnectButton, lv_color_hex(0xE53935), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(ui_WifiDisconnectButton, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
+    {
+      lv_obj_t *lbl = lv_label_create(ui_WifiDisconnectButton);
+      lv_obj_set_align(lbl, LV_ALIGN_CENTER);
+      lv_label_set_text(lbl, "Desconectar");
+      lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
+      lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
+    }
+
+    // Status label — shows "Conectando...", error messages, etc.
+    ui_WifiStatusLabel = lv_label_create(ui_WifiConfigCont);
+    lv_obj_set_width(ui_WifiStatusLabel, 270);
+    lv_obj_set_height(ui_WifiStatusLabel, LV_SIZE_CONTENT);
+    lv_obj_set_x(ui_WifiStatusLabel, -190);
+    lv_obj_set_y(ui_WifiStatusLabel, 45);
+    lv_obj_set_align(ui_WifiStatusLabel, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_WifiStatusLabel, "");
+    lv_label_set_long_mode(ui_WifiStatusLabel, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_font(ui_WifiStatusLabel, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
+
     ui_InfoDetailsCont = lv_obj_create(ui_ScreenSettings);
     lv_obj_remove_style_all(ui_InfoDetailsCont);
     lv_obj_set_width(ui_InfoDetailsCont, 411);
@@ -2500,6 +2540,7 @@ void ui_ScreenSettings_screen_init(void) {
     lv_obj_add_event_cb(ui_TextArea2, ui_event_TextArea2, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_Keyboard1, ui_event_Keyboard1, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_WifiConnectButton, ui_event_WifiConnectButton, LV_EVENT_ALL, NULL);
+    lv_obj_add_event_cb(ui_WifiDisconnectButton, ui_event_WifiDisconnectButton, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_LanguagesDropDown, ui_event_LanguagesDropDown, LV_EVENT_ALL, NULL);
 }
 
