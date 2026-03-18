@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(pio run:*)"
+      "Bash(pio run:*)",
+      "Bash(pio device:*)"
     ]
   }
 }
