@@ -320,9 +320,10 @@ void wifiInit(void) {
   }
 
   ESP_LOGI(TAG, "wifiInit: starting — current wl_status=%d", (int)WiFi.status());
+
+  WiFi.mode(WIFI_STA);
   WiFi.setHostname(
       String(String(WIFI_NAME) + "-" + String(in3.serialNumber)).c_str());
-  WiFi.mode(WIFI_STA);
   WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
 
   String ssid;
@@ -331,21 +332,29 @@ void wifiInit(void) {
   if (strlen(pendingSSID) > 0) {
     ssid = pendingSSID;
     pass = pendingPass;
-    ESP_LOGI(TAG, "wifiInit: connecting to pending SSID='%s'", ssid.c_str());
   } else {
     ssid = EEPROM.readString(EEPROM_WIFI_SSID);
     pass = EEPROM.readString(EEPROM_WIFI_PASSWORD);
-    if (ssid.length() > 0) {
-      ESP_LOGI(TAG, "Connecting to SSID from EEPROM: %s", ssid.c_str());
-    } else {
-      ESP_LOGI(TAG, "Connecting to default SSID: %s", WIFI_SSID);
+    if (ssid.length() == 0) {
       ssid = WIFI_SSID;
       pass = WIFI_PASSWORD;
     }
   }
 
-  ESP_LOGI(TAG, "wifiInit: calling WiFi.begin('%s')", ssid.c_str());
+  // Strip whitespace and control characters that may come from the LVGL keyboard
+  ssid.trim();
+  pass.trim();
+  ssid.replace("\n", "");
+  ssid.replace("\r", "");
+  pass.replace("\n", "");
+  pass.replace("\r", "");
+
+  Serial.printf("SSID: '%s' (len=%d)\n", ssid.c_str(), ssid.length());
+  Serial.printf("PASS: '%s' (len=%d)\n", pass.c_str(), pass.length());
+  ESP_LOGI(TAG, "Connecting to SSID: '%s' (len=%d)", ssid.c_str(), ssid.length());
+  ESP_LOGI(TAG, "WiFi status before begin: %d", (int)WiFi.status());
   WiFi.begin(ssid.c_str(), pass.c_str());
+  ESP_LOGI(TAG, "WiFi.begin() called");
   lastconnectiontrywifi = millis();
 }
 
