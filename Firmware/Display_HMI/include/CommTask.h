@@ -80,7 +80,17 @@ typedef struct {
   int photoMinutesRemaining;
   int photoSecondsRemaining;  // Segundos restantes de fototerapia (0-59)
   uint32_t alarmBitmask;      // Mascara de bits de alarmas activas
+  int skinProbeState;         // Estado validado de la sonda de piel (RF-SKIN-006)
 } ControlBoard_Message_State;
+
+// Skin probe state values (must match SkinProbeState_t in motherboard main.h)
+#define SKIN_PROBE_NOT_CONNECTED                  0
+#define SKIN_PROBE_PENDING_VALIDATION             1
+#define SKIN_PROBE_VALID                          2
+#define SKIN_PROBE_INVALID                        3
+#define SKIN_PROBE_OUT_OF_RANGE                   4
+#define SKIN_PROBE_DISCONNECTED_DURING_OPERATION  5
+#define SKIN_PROBE_UNSTABLE                       6
 
 // Expected prefix of incoming messages
 #if IS_HMI
@@ -97,6 +107,7 @@ extern ControlBoard_Message ctrl_msg;
 extern ControlBoard_Message_Telemetry ctrl_tel_msg;
 extern ControlBoard_Message_Alarm ctrl_msg_alarm;
 extern ControlBoard_Message_State ctrl_state_msg;
+extern int g_skinProbeState; // Last received skin probe state (SKIN_PROBE_*)
 
 extern bool error;
 

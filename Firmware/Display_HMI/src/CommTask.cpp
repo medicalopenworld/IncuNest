@@ -14,6 +14,7 @@ ControlBoard_Message ctrl_msg;
 ControlBoard_Message_Telemetry ctrl_tel_msg;
 ControlBoard_Message_Alarm ctrl_msg_alarm;
 ControlBoard_Message_State ctrl_state_msg = {0};
+int g_skinProbeState = SKIN_PROBE_NOT_CONNECTED; // Last received skin probe state
 
 bool error = false;
 static char rxBuffer[512];
@@ -75,10 +76,11 @@ static void SendMessageToOtherESP() {
 static void parse_message(const char *line) {
 #if IS_HMI
   if (strncmp(line, "CTRL,TEL", 8) == 0) {
+    int probeState = SKIN_PROBE_NOT_CONNECTED;
     int result = sscanf(
-        line, "CTRL,TEL,%lf,%lf,%lf,%d", &ctrl_tel_msg.detectedAirTemperature,
+        line, "CTRL,TEL,%lf,%lf,%lf,%d,%d", &ctrl_tel_msg.detectedAirTemperature,
         &ctrl_tel_msg.detectedSkinTemperature, &ctrl_tel_msg.detectedHumidity,
-        &ctrl_tel_msg.serverCommStatus);
+        &ctrl_tel_msg.serverCommStatus, &probeState);
     if (result < 3) {
       // COMM_LOG("[COMM] HMI failed to parse CTRL,TEL: %s\n", line);
     }
@@ -86,19 +88,23 @@ static void parse_message(const char *line) {
       // Backward compatibility or partial parse
       ctrl_tel_msg.serverCommStatus = COMM_STATUS_NONE;
     }
+    if (result >= 5) {
+      // Update skin probe state from periodic telemetry (RF-SKIN-008, ARQ-SKIN-003)
+      g_skinProbeState = probeState;
+    }
   } else if (strncmp(line, "CTRL,STATE", 10) == 0) {
-    int act, mode, photo, mute, sn, hwNum, numAlarms, skinE, commStatus, lang;
+    int act, mode, photo, mute, sn, hwNum, numAlarms, skinE, commStatus, lang, probeState = 0;
     uint32_t alarmBitmask = 0;
     double photoTimeRemaining;  // Formato MM.SS (ej: 18.33 = 18 min 33 seg)
     char hwRev;
     char fwVer[20];
     double airSet, skinSet, humSet;
     int result =
-        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d,%lf,%d,0x%X",
+        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d,%lf,%d,%d,0x%X",
                &act, &mode, &airSet, &skinSet, &humSet, &photo, &mute,
-               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus, &photoTimeRemaining, &lang, &alarmBitmask);
-    
-    // Accept 12 (old), 13 (with alarms), 14 (with alarms + skinModeEnabled), 15 (with photoTimeRemaining, commStatus), 16 (lang), 17 (bitmask)
+               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus, &photoTimeRemaining, &lang, &probeState, &alarmBitmask);
+
+    // Accept 12 (old), 13 (with alarms), 14+skinModeEnabled, 15+photoTime, 16+lang, 17+probeState, 18+bitmask
     if (result >= 12) {
       ctrl_state_msg.actuation = act;
       ctrl_state_msg.controlMode = mode;
@@ -108,13 +114,17 @@ static void parse_message(const char *line) {
       ctrl_state_msg.phototherapyMode = photo;
       ctrl_state_msg.muteAlarm = mute;
       if (result >= 16) ctrl_state_msg.language = lang;
-      if (result >= 17) ctrl_state_msg.alarmBitmask = alarmBitmask;
+      if (result >= 17) {
+        ctrl_state_msg.skinProbeState = probeState;
+        g_skinProbeState = probeState; // Expose globally for UITask (RF-SKIN-008, ARQ-SKIN-003)
+      }
+      if (result >= 18) ctrl_state_msg.alarmBitmask = alarmBitmask;
       else ctrl_state_msg.alarmBitmask = (uint32_t)-1; // Valor nulo si no viene
       ctrl_state_msg.serialNumber = sn;
-      
+
       strncpy(ctrl_state_msg.fwVer, fwVer, sizeof(ctrl_state_msg.fwVer));
       ctrl_state_msg.fwVer[sizeof(ctrl_state_msg.fwVer) - 1] = '\0';
-      
+
       // Extract minutes and seconds from MM.SS format
       if (result >= 15) {
         int mins = (int)photoTimeRemaining;
@@ -125,9 +135,9 @@ static void parse_message(const char *line) {
         ctrl_state_msg.photoMinutesRemaining = 0;
         ctrl_state_msg.photoSecondsRemaining = 0;
       }
-      
+
       ctrl_state_msg.newState = true;
-      
+
       // If we have alarms count (result == 13), we could use it for verification
       // but individual alarm messages will follow anyway.
     } else {

@@ -182,6 +182,88 @@ long lastAlarmTrigger[NUM_ALARMS];
 float alarmSensedValue;
 long lastPowerSupplyCheck;
 
+// --- Skin probe state machine (RF-SKIN-006, ARQ-SKIN-001) ---
+static SkinProbeState_t s_skinProbeState = SKIN_PROBE_NOT_CONNECTED;
+static long s_probeDebounceStart = 0;
+static long s_probeValidStart = 0;
+static int  s_probeInvalidCount = 0;
+static bool s_probePrevConnected = false;
+
+SkinProbeState_t getSkinProbeState() {
+  return s_skinProbeState;
+}
+
+void updateSkinProbeState() {
+  extern in3ator_parameters in3;
+  // A valid read is defined as lastSuccesfullSensorUpdate being recent
+  bool probeConnectedNow =
+      (millis() - lastSuccesfullSensorUpdate[SKIN_SENSOR]) < MINIMUM_SUCCESSFULL_SENSOR_UPDATE;
+
+  // --- Detect connection / disconnection with debounce (RF-SKIN-019) ---
+  if (probeConnectedNow != s_probePrevConnected) {
+    if (s_probeDebounceStart == 0) {
+      s_probeDebounceStart = millis();
+    } else if (millis() - s_probeDebounceStart >= SKIN_PROBE_DEBOUNCE_MS) {
+      // Debounce confirmed — transition
+      s_probePrevConnected = probeConnectedNow;
+      s_probeDebounceStart = 0;
+      s_probeInvalidCount = 0;
+
+      if (probeConnectedNow) {
+        // Probe just connected: move to PENDING (RT-SKIN-001)
+        if (s_skinProbeState != SKIN_PROBE_PENDING_VALIDATION) {
+          s_skinProbeState = SKIN_PROBE_PENDING_VALIDATION;
+          s_probeValidStart = millis();
+          ESP_LOGI(TAG, "[SKIN-PROBE] Probe connected (pending validation)");
+        }
+      } else {
+        // Probe disconnected (RT-SKIN-001)
+        bool wasDuringOperation = (in3.controlMode == CONTROL_SKIN && in3.actuation);
+        s_skinProbeState = wasDuringOperation
+                           ? SKIN_PROBE_DISCONNECTED_DURING_OPERATION
+                           : SKIN_PROBE_NOT_CONNECTED;
+        s_probeValidStart = 0;
+        ESP_LOGI(TAG, "[SKIN-PROBE] Probe disconnected%s",
+                 wasDuringOperation ? " DURING SKIN MODE OPERATION" : "");
+
+        // RF-SKIN-014/015/016: Auto-exit skin mode on probe failure
+        if (wasDuringOperation) {
+          ESP_LOGW(TAG, "[SKIN-PROBE] Forcing exit from skin mode -> air mode (safe state)");
+          in3.controlMode = CONTROL_AIR;
+        }
+      }
+    }
+  } else {
+    // No change in connection state — reset debounce
+    s_probeDebounceStart = 0;
+  }
+
+  // --- Validation logic for connected probe (RF-SKIN-021/022) ---
+  if (s_skinProbeState == SKIN_PROBE_PENDING_VALIDATION) {
+    if (millis() - s_probeValidStart >= SKIN_PROBE_VALID_WINDOW_MS) {
+      // Probe passed the validation window — mark as VALID (RT-SKIN-001)
+      s_skinProbeState = SKIN_PROBE_VALID;
+      s_probeInvalidCount = 0;
+      ESP_LOGI(TAG, "[SKIN-PROBE] Probe validated OK (temp=%.1f)", in3.temperature[SKIN_SENSOR]);
+    }
+  } else if (s_skinProbeState == SKIN_PROBE_VALID) {
+    // Check for unstable or out-of-range conditions
+    if (!probeConnectedNow) {
+      s_probeInvalidCount++;
+      if (s_probeInvalidCount >= SKIN_PROBE_UNSTABLE_THRESHOLD) {
+        s_skinProbeState = SKIN_PROBE_UNSTABLE;
+        ESP_LOGW(TAG, "[SKIN-PROBE] Probe UNSTABLE (intermittent)");
+        if (in3.controlMode == CONTROL_SKIN && in3.actuation) {
+          ESP_LOGW(TAG, "[SKIN-PROBE] Forcing exit from skin mode -> air mode");
+          in3.controlMode = CONTROL_AIR;
+        }
+      }
+    } else {
+      s_probeInvalidCount = 0; // Reset on each valid read
+    }
+  }
+} // end updateSkinProbeState
+
 extern in3ator_parameters in3;
 
 void initAlarms() {
@@ -270,6 +352,7 @@ void checkStatusOfSensor(byte sensor) {
 void sensorHealthMonitor() {
   checkStatusOfSensor(ROOM_DIGITAL_TEMP_SENSOR);
   checkStatusOfSensor(SKIN_SENSOR);
+  updateSkinProbeState(); // RF-SKIN-006: Update probe state machine
 }
 
 void powerMonitor() {

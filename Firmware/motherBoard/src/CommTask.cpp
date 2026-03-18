@@ -111,14 +111,14 @@ static void send_state_to_hmi() {
   }
 
   snprintf(msg, sizeof(msg),
-           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d,0x%X\n",
+           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d,%d,0x%X\n",
            (int)g_last_cmd.actuation, (int)g_last_cmd.controlMode,
            (double)g_last_cmd.desiredAirTemperature,
            (double)g_last_cmd.desiredSkinTemperature,
            (double)g_last_cmd.desiredHumidity, (int)g_last_cmd.phototherapyMode,
            (int)g_last_cmd.muteAlarm,
            ctrl_tel_msg.serialNumber, HW_NUM, HW_REVISION, FWversion, alarmCount, (int)g_last_cmd.skinModeEnabled, (int)ctrl_tel_msg.serverCommStatus,
-           remainingTime, in3.language, alarmBitmask);
+           remainingTime, in3.language, (int)getSkinProbeState(), alarmBitmask);
   ESP_LOGI(TAG, "Sending state to HMI: %s", msg);
   CommunicationHost_Send(msg);
   
@@ -580,12 +580,13 @@ void Communication_Task(void *pvParameters) {
         }
         ctrl_tel_msg.serverCommStatus = status;
 
-        char msg[64];
-        snprintf(msg, sizeof(msg), "CTRL,TEL,%.1f,%.1f,%d,%d\n",
+        char msg[80];
+        snprintf(msg, sizeof(msg), "CTRL,TEL,%.1f,%.1f,%d,%d,%d\n",
                  ctrl_tel_msg.detectedAirTemperature,
                  ctrl_tel_msg.detectedSkinTemperature,
                  (int)ctrl_tel_msg.detectedHumidity,
-                 ctrl_tel_msg.serverCommStatus);
+                 ctrl_tel_msg.serverCommStatus,
+                 (int)getSkinProbeState());
 
         if (xSemaphoreTake(vcp_mux, pdMS_TO_TICKS(100)) == pdTRUE) {
           if (!vcp) {

@@ -14,6 +14,11 @@
 #include "AudioManager.h"
 
 static const char *TAG = "UI";
+
+// --- Skin probe UI (RF-SKIN-008/009/010, UI-SKIN-002/003/004/005) ---
+static lv_obj_t *ui_SkinProbeToast       = nullptr; // Toast de bloqueo cuando sonda no válida
+static lv_obj_t *ui_SkinProbeStatusLabel = nullptr; // Estado informativo en modo aire
+
 static lv_obj_t *ui_AudioPlayBtn;
 static lv_obj_t *ui_AudioStopBtn;
 static lv_obj_t *ui_AudioPlayLabel;
@@ -1006,6 +1011,29 @@ void Switch_cb(lv_event_t *e) {
     }
   } else if (obj == ui_Switch4) { // SKIN BLOCK SWITCH
     bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
+
+    // RF-SKIN-007/009: Block skin mode if probe not valid (ARQ-SKIN-002/003)
+    if (checked && g_skinProbeState != SKIN_PROBE_VALID) {
+      // Revert the switch visually without triggering callback again
+      ui_set_switch_state_silent(ui_Switch4, false);
+      // RF-SKIN-010/UI-SKIN-004: Show clear message to user
+      if (ui_SkinProbeToast) {
+        const char *msg = (g_lang == LANG_ES)
+          ? "Modo piel no disponible:\nConecte la sonda de temperatura"
+          : (g_lang == LANG_FR)
+          ? "Mode peau indisponible:\nConnectez la sonde de temperature"
+          : "Skin mode unavailable:\nConnect the skin temperature probe";
+        lv_label_set_text(ui_SkinProbeToast, msg);
+        lv_obj_clear_flag(ui_SkinProbeToast, LV_OBJ_FLAG_HIDDEN);
+        lv_timer_create([](lv_timer_t *t) {
+          if (ui_SkinProbeToast) lv_obj_add_flag(ui_SkinProbeToast, LV_OBJ_FLAG_HIDDEN);
+          lv_timer_del(t);
+        }, 4000, nullptr);
+      }
+      ESP_LOGW(TAG, "[SKIN-PROBE] Blocked skin mode activation - probe state=%d", g_skinProbeState);
+      return;
+    }
+
     skinPanelEnabled = checked;
     hmi_msg.skinModeEnabled = checked;
     hmi_msg.shouldSendData = true;
@@ -2137,6 +2165,28 @@ void UI_Task(void *pvParameters) {
   // Aplicar tema DESPUÉS de crear todos los elementos manuales (Play, Stop, Volumen, etc.)
   UI_ApplyTheme();
 
+  // --- Skin probe toast (RF-SKIN-010, UI-SKIN-004): mensaje de bloqueo al activar modo piel sin sonda ---
+  ui_SkinProbeToast = lv_label_create(lv_scr_act());
+  lv_label_set_text(ui_SkinProbeToast, "");
+  lv_label_set_long_mode(ui_SkinProbeToast, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(ui_SkinProbeToast, 320);
+  lv_obj_align(ui_SkinProbeToast, LV_ALIGN_BOTTOM_MID, 0, -20);
+  lv_obj_set_style_text_align(ui_SkinProbeToast, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_set_style_bg_color(ui_SkinProbeToast, lv_color_hex(0xFF8C00), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(ui_SkinProbeToast, LV_OPA_90, LV_PART_MAIN);
+  lv_obj_set_style_text_color(ui_SkinProbeToast, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+  lv_obj_set_style_pad_all(ui_SkinProbeToast, 10, LV_PART_MAIN);
+  lv_obj_set_style_radius(ui_SkinProbeToast, 8, LV_PART_MAIN);
+  lv_obj_add_flag(ui_SkinProbeToast, LV_OBJ_FLAG_HIDDEN);
+
+  // --- Skin probe status label (RF-SKIN-004, UI-SKIN-005): informativo en modo aire ---
+  ui_SkinProbeStatusLabel = lv_label_create(lv_scr_act());
+  lv_label_set_text(ui_SkinProbeStatusLabel, "");
+  lv_obj_align(ui_SkinProbeStatusLabel, LV_ALIGN_BOTTOM_LEFT, 10, -5);
+  lv_obj_set_style_text_font(ui_SkinProbeStatusLabel, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(ui_SkinProbeStatusLabel, lv_color_hex(0x888888), LV_PART_MAIN);
+  lv_obj_add_flag(ui_SkinProbeStatusLabel, LV_OBJ_FLAG_HIDDEN);
+
   intro_timer = lv_timer_create(intro_timer_cb, 5000, NULL);
   lv_timer_set_repeat_count(intro_timer, 1);
 
@@ -2431,6 +2481,43 @@ void UI_SyncAll() {
   switchHum = lv_obj_has_state(ui_Switch2, LV_STATE_CHECKED);
   humSwitched = switchHum;
   skinPanelEnabled = lv_obj_has_state(ui_Switch4, LV_STATE_CHECKED);
+
+  // RF-SKIN-004/RF-SKIN-008: Update skin probe informative status label (UI-SKIN-002/005)
+  if (ui_SkinProbeStatusLabel) {
+    bool inSkinMode = skinPanelEnabled && (hmi_msg.controlMode == CONTROL_SKIN);
+    if (!inSkinMode && g_skinProbeState != SKIN_PROBE_VALID) {
+      // Show informative (non-critical) probe status in air mode
+      const char *statusTxt = nullptr;
+      switch (g_skinProbeState) {
+        case SKIN_PROBE_NOT_CONNECTED:
+          statusTxt = (g_lang == LANG_ES) ? "Sonda piel: no conectada"
+                    : (g_lang == LANG_FR)  ? "Sonde peau: non connectee"
+                    : "Skin probe: not connected";
+          break;
+        case SKIN_PROBE_PENDING_VALIDATION:
+          statusTxt = (g_lang == LANG_ES) ? "Sonda piel: validando..."
+                    : (g_lang == LANG_FR)  ? "Sonde peau: validation..."
+                    : "Skin probe: validating...";
+          break;
+        case SKIN_PROBE_UNSTABLE:
+          statusTxt = (g_lang == LANG_ES) ? "Sonda piel: señal inestable"
+                    : (g_lang == LANG_FR)  ? "Sonde peau: signal instable"
+                    : "Skin probe: unstable signal";
+          break;
+        default:
+          statusTxt = nullptr;
+          break;
+      }
+      if (statusTxt) {
+        lv_label_set_text(ui_SkinProbeStatusLabel, statusTxt);
+        lv_obj_clear_flag(ui_SkinProbeStatusLabel, LV_OBJ_FLAG_HIDDEN);
+      } else {
+        lv_obj_add_flag(ui_SkinProbeStatusLabel, LV_OBJ_FLAG_HIDDEN);
+      }
+    } else {
+      lv_obj_add_flag(ui_SkinProbeStatusLabel, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
 
   // 2. Temperature Logic
   if (tempSwitched) {
