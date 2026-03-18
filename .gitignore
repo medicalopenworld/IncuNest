@@ -37,3 +37,4 @@ Hardware/Electronics/Motherboard/History/
 # Agents and Workspaces
 .agent
 *.code-workspace
+.claude
