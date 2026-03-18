@@ -53,6 +53,8 @@ void buzzerConstantTone(int freq)
 void shutBuzzer()
 {
     // logI("[BUZZER] -> BUZZER was shutted");
+    buzzerBeeps = 0;
+    buzzerBuzzing = false;
     ledcWrite(BUZZER_PWM_CHANNEL, false);
 }
 
@@ -60,6 +62,8 @@ void buzzerTone(int beepTimes, int timevTaskDelay, int freq)
 {
   // logI("[BUZZER] -> BUZZER beep mode activated  " + String(beepTimes) + "
   // times");
+  if (timevTaskDelay > buzzerToneTime || buzzerBeeps == 0) {
+    buzzerToneTime = timevTaskDelay;
+  }
   buzzerBeeps += beepTimes;
-  buzzerToneTime = timevTaskDelay;
 }

@@ -379,6 +379,7 @@ void Communication_Receiver(void *pvParameters) {
                 in3.phototherapy * in3.phototherapy_intensity);
       turnFans(bool(in3.phototherapy || in3.actuation));
 
+      shutBuzzer();
       buzzerTone(buzzerStandbyToneTimes, buzzerSwitchDuration,
                  buzzerRotaryEncoderTone);
     }
