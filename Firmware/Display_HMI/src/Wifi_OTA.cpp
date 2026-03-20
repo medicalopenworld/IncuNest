@@ -122,20 +122,78 @@ char pendingSSID[64] = "";
 char pendingPass[64] = "";
 static uint32_t lastconnectiontrywifi = 0;
 
-// WiFi Scan Stubs (Phase 1: Disable logic, keep signatures)
+// WiFi Scan Logic (Phase 2: Isolated Async Scan)
 volatile bool g_wifiScanRequest = false;
-void WifiScanRequest(void) { g_wifiScanRequest = false; }
-void WifiScanHandler(void) { }
-bool WifiScanIsInProgress(void) { return false; }
-bool WifiScanResultsReady(void) { return false; }
-int  WifiScanGetCount(void) { return 0; }
-String WifiScanGetSSID(int index) { return ""; }
-int  WifiScanGetRSSI(int index) { return 0; }
-uint8_t* WifiScanGetBSSID(int index) { return NULL; }
-int8_t   WifiScanGetChannel(int index) { return 0; }
-void WifiScanClear(void) { }
-void WifiDisconnect(void) { WiFi.disconnect(false); }
-void WifiAbortConnection(void) { WiFi.disconnect(false); }
+static bool s_scanInProgress = false;
+static int s_scanCount = 0;
+static bool s_scanResultsReady = false;
+static bool s_suppressReconnect = false;
+
+void WifiScanRequest(void) { 
+  s_scanResultsReady = false;
+  s_scanCount = 0;
+  g_wifiScanRequest = true; 
+}
+
+void WifiScanHandler(void) {
+  if (g_wifiScanRequest) {
+    g_wifiScanRequest = false;
+    s_scanResultsReady = false;
+    s_suppressReconnect = true; // Stop auto-reconnect while scanning
+    ESP_LOGI(TAG, "Starting async WiFi scan...");
+    
+    // Ensure we are in STA mode but don't force it if not needed
+    if (WiFi.getMode() != WIFI_STA) {
+        WiFi.mode(WIFI_STA);
+    }
+    
+    WiFi.scanDelete();
+    WiFi.scanNetworks(true, true); // Async, Hidden
+    s_scanInProgress = true;
+  }
+
+  if (s_scanInProgress) {
+    int n = WiFi.scanComplete();
+    if (n >= 0) { // Scan finished (could be 0 or more)
+      s_scanCount = n;
+      s_scanInProgress = false;
+      s_scanResultsReady = true;
+      ESP_LOGI(TAG, "Scan finished: %d networks found", n);
+    } else if (n == WIFI_SCAN_FAILED) {
+      s_scanCount = 0;
+      s_scanInProgress = false;
+      s_scanResultsReady = true;
+      ESP_LOGE(TAG, "Scan failed!");
+    }
+  }
+}
+
+bool WifiScanIsInProgress(void) { return s_scanInProgress; }
+bool WifiScanResultsReady(void) { return s_scanResultsReady; }
+int  WifiScanGetCount(void) { return s_scanCount; }
+String WifiScanGetSSID(int index) { return WiFi.SSID(index); }
+int  WifiScanGetRSSI(int index) { return WiFi.RSSI(index); }
+uint8_t* WifiScanGetBSSID(int index) { return WiFi.BSSID(index); }
+int8_t   WifiScanGetChannel(int index) { return WiFi.channel(index); }
+
+void WifiScanClear(void) { 
+  WiFi.scanDelete(); 
+  s_scanInProgress = false;
+  s_scanResultsReady = false;
+  s_scanCount = 0;
+}
+
+void WifiDisconnect(void) { 
+  s_suppressReconnect = true;
+  WiFi.disconnect(false); 
+}
+
+void WifiAbortConnection(void) { 
+  s_suppressReconnect = true;
+  WiFi.disconnect(false); 
+  WifiScanClear();
+}
+
 int  WifiGetLastDisconnectReason(void) { return 0; }
 
 /*
@@ -143,8 +201,9 @@ int  WifiGetLastDisconnectReason(void) { return 0; }
 */
 void wifiInit(void) {
   // Connect to WiFi network
-  ESP_LOGI(TAG, "Initializing WiFi (Fase 1: Conexión Básica)");
+  ESP_LOGI(TAG, "Initializing WiFi (Fase 2: Escáner Integrado)");
   Wifi_TB.lastWifiReconnectAttempt = millis();
+  s_suppressReconnect = false; // Re-enable auto-reconnect when user connects
   WiFi.setHostname(
       String(String(WIFI_NAME) + "-" + String(in3.serialNumber)).c_str());
   WiFi.mode(WIFI_STA);
@@ -456,10 +515,15 @@ void WIFI_TB_OTA() {
 
 void WifiOTAHandler(void) {
   WifiScanHandler();
+  
+  // Don't run MQTT/OTA/reconnect while ANY scan is in progress
+  if (s_scanInProgress) return;
+
   WIFI_TB_OTA();
   WEB_OTA();
   if (WiFi.status() != WL_CONNECTED) {
-    if (millis() - Wifi_TB.lastWifiReconnectAttempt > WIFI_RECONNECT_INTERVAL) {
+    if (!s_suppressReconnect && 
+        (millis() - Wifi_TB.lastWifiReconnectAttempt > WIFI_RECONNECT_INTERVAL)) {
       ESP_LOGI(TAG, "Connection lost, attempting to reconnect...");
       MDNS.end();
       wifiInit();
