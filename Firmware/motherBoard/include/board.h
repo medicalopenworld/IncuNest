@@ -22,7 +22,7 @@
   SOFTWARE.
 
 */
-#define HW_NUM 15
+#define HW_NUM 14
 #define HW_REVISION 'A'
 #define HWversion String(HW_NUM) + "." + String(HW_REVISION)
 #define FWversion "15.5"
@@ -51,8 +51,10 @@
 // Hardware
 #define HUMIDIFIER_INTERFACE HUMIDIFIER_I2C
 #endif
-#if (HW_NUM == 15)
+#if (HW_NUM >= 15)
 #define DEFAULT_TUNE_SKIN_TEMP 2
+#else
+#define DEFAULT_TUNE_SKIN_TEMP 0
 #endif
 
 #define GPIO_EXP_BASE 100 // To differentiate with ESP32 GPIO
