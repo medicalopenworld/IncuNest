@@ -122,208 +122,32 @@ char pendingSSID[64] = "";
 char pendingPass[64] = "";
 static uint32_t lastconnectiontrywifi = 0;
 
-// ---------------------------------------------------------------------------
-// WiFi Network Scan — state machine
-//
-// CRITICAL: Never call WiFi.mode() or disconnect(true) during scan flow.
-// Those functions call esp_wifi_deinit() which destroys the WiFi stack.
-// Calling esp_wifi_init() again on a fragmented heap causes:
-//   esp_wifi_init 257 (ESP_ERR_NO_MEM), "Expected to init 4 rx buffer, actual is 0"
-//
-// Correct approach — keep the WiFi stack alive at all times:
-//   1. setAutoReconnect(false) FIRST — stops Arduino event handler from
-//      calling esp_wifi_connect() when the disconnect event fires
-//   2. disconnect(false) — stops current connection, stack stays alive
-//   3. Wait 300ms — IDF settles into IDLE state (no queued reconnects)
-//   4. scanNetworks(true, true) — async scan, no driver conflicts
-//   5. After scan: setAutoReconnect(true) + WiFi.begin() to reconnect
-//
-// WifiOTAHandler is fully blocked while s_scanState != SCAN_IDLE.
-// ---------------------------------------------------------------------------
+// WiFi Scan Stubs (Phase 1: Disable logic, keep signatures)
 volatile bool g_wifiScanRequest = false;
-
-typedef enum {
-  SCAN_IDLE,         // no scan in progress
-  SCAN_DISCONNECTING,// setAutoReconnect(false)+disconnect(false) called, waiting
-  SCAN_RUNNING,      // scanNetworks() active, polling scanComplete()
-} ScanState_t;
-
-static ScanState_t   s_scanState        = SCAN_IDLE;
-static uint32_t      s_scanStateMs      = 0;
-static volatile bool s_scanInProgress   = false;
-static volatile bool s_scanResultsReady = false;
-static volatile int  s_scanCount        = 0;
-
-// When true, WifiOTAHandler will NOT call wifiInit() in its reconnect loop.
-// Set after every scan so that the IDF stays idle until the user explicitly
-// hits the Connect button (which calls wifiInit() → clears this flag).
-static bool s_suppressReconnect = false;
-
-#define SCAN_DISCONNECT_WAIT_MS 300  // IDF settle time after disconnect(false)
-#define SCAN_TIMEOUT_MS         12000// abort if scan hangs this long
-
-// Called from OTA task at the end of every scan path.
-// Does NOT call wifiInit()/WiFi.begin() — reconnect is suppressed until the
-// user explicitly requests a connection via WifiConnectButton_cb → wifiInit().
-static void scanFinalize(int networkCount) {
-  s_scanInProgress    = false;
-  s_scanState         = SCAN_IDLE;
-  s_scanCount         = (networkCount >= 0) ? networkCount : 0;
-  s_scanResultsReady  = true;
-  s_suppressReconnect = true;  // block auto-reconnect until user connects
-  WiFi.setAutoReconnect(true); // restore flag (harmless while disconnected)
-  ESP_LOGI(TAG, "WifiScanHandler: scan done (%d nets). Waiting for user to connect.", s_scanCount);
-}
-
-// Called from UI task only — no direct WiFi calls here.
-void WifiScanRequest(void) {
-  s_scanResultsReady = false;
-  s_scanCount        = 0;
-  g_wifiScanRequest  = true;
-  ESP_LOGI(TAG, "WifiScanRequest: requested");
-}
-
-// Called from OTA task every loop iteration.
-void WifiScanHandler(void) {
-  switch (s_scanState) {
-
-    // -----------------------------------------------------------------------
-    case SCAN_IDLE:
-      if (!g_wifiScanRequest) return;
-      g_wifiScanRequest  = false;
-      s_scanResultsReady = false;
-      s_scanCount        = 0;
-      s_scanInProgress   = true;
-      // Reset reconnect timer so the WifiOTAHandler loop cannot fire a
-      // wifiInit()/WiFi.begin() call during our 300ms settle window.
-      Wifi_TB.lastWifiReconnectAttempt = millis();
-      ESP_LOGI(TAG, "WifiScanHandler: wl_status=%d — disabling auto-reconnect, disconnecting",
-               (int)WiFi.status());
-      // Order matters: disable auto-reconnect BEFORE disconnect so the IDF
-      // event handler does NOT call esp_wifi_connect() when disconnect fires.
-      WiFi.setAutoReconnect(false);
-      WiFi.disconnect(false);  // keep WiFi stack alive, just stop connection
-      s_scanState   = SCAN_DISCONNECTING;
-      s_scanStateMs = millis();
-      break;
-
-    // -----------------------------------------------------------------------
-    case SCAN_DISCONNECTING:
-      if (millis() - s_scanStateMs < SCAN_DISCONNECT_WAIT_MS) return;
-      {
-        ESP_LOGI(TAG, "WifiScanHandler: driver settled (wl_status=%d), launching scan",
-                 (int)WiFi.status());
-        WiFi.scanDelete();
-        int16_t ret = WiFi.scanNetworks(true, true); // async, show_hidden
-        ESP_LOGI(TAG, "WifiScanHandler: scanNetworks returned %d (expect -1=RUNNING)", (int)ret);
-        if (ret == WIFI_SCAN_RUNNING) {
-          s_scanState   = SCAN_RUNNING;
-          s_scanStateMs = millis();
-        } else {
-          ESP_LOGE(TAG, "WifiScanHandler: scan failed to start (ret=%d)", (int)ret);
-          scanFinalize(-1);
-        }
-      }
-      break;
-
-    // -----------------------------------------------------------------------
-    case SCAN_RUNNING: {
-      int n = WiFi.scanComplete();
-      if (n == WIFI_SCAN_RUNNING) {
-        if (millis() - s_scanStateMs > SCAN_TIMEOUT_MS) {
-          ESP_LOGW(TAG, "WifiScanHandler: scan timed out after %ds", SCAN_TIMEOUT_MS / 1000);
-          WiFi.scanDelete();
-          scanFinalize(0);
-        }
-        return;
-      }
-      if (n < 0) {
-        ESP_LOGW(TAG, "WifiScanHandler: scan error (%d)", n);
-      } else {
-        ESP_LOGI(TAG, "WifiScanHandler: scan complete — %d networks", n);
-        for (int i = 0; i < n; i++) {
-          ESP_LOGI(TAG, "  [%d] '%s' RSSI=%d", i, WiFi.SSID(i).c_str(), WiFi.RSSI(i));
-        }
-      }
-      scanFinalize(n);
-      break;
-    }
-  }
-}
-
-bool WifiScanIsInProgress(void) { return s_scanState != SCAN_IDLE; }
-
-bool WifiScanResultsReady(void) { return s_scanResultsReady; }
-
-// Called from UI task when user presses Disconnect.
-// Stops the current connection and suppresses auto-reconnect until wifiInit() is called.
-void WifiDisconnect(void) {
-  WiFi.setAutoReconnect(false);
-  WiFi.disconnect(false);
-  s_suppressReconnect = true;
-  ESP_LOGI(TAG, "WifiDisconnect: user-requested disconnect");
-}
-
-// Called from UI task when user edits the SSID field or wants to start a scan.
-// Harder abort than WifiDisconnect(): also resets the scan state machine and
-// the reconnect timer, ensuring the IDF is fully idle before we scan.
-// The 300 ms settle window is already handled by SCAN_DISCONNECTING in WifiScanHandler.
-void WifiAbortConnection(void) {
-  WiFi.setAutoReconnect(false);
-  WiFi.disconnect(false);
-  WiFi.scanDelete();
-  s_suppressReconnect = true;
-  s_scanState         = SCAN_IDLE;
-  s_scanInProgress    = false;
-  Wifi_TB.lastWifiReconnectAttempt = millis();
-  ESP_LOGI(TAG, "SSID edit → connection aborted (wl_status=%d)", (int)WiFi.status());
-}
-
-int WifiScanGetCount(void) { return s_scanCount; }
-
-String WifiScanGetSSID(int index) {
-  if (index < 0 || index >= s_scanCount) return "";
-  return WiFi.SSID(index);
-}
-
-int WifiScanGetRSSI(int index) {
-  if (index < 0 || index >= s_scanCount) return 0;
-  return WiFi.RSSI(index);
-}
-
-void WifiScanClear(void) {
-  WiFi.scanDelete();
-  s_scanInProgress = false;
-  s_scanResultsReady = false;
-  s_scanCount = 0;
-}
+void WifiScanRequest(void) { g_wifiScanRequest = false; }
+void WifiScanHandler(void) { }
+bool WifiScanIsInProgress(void) { return false; }
+bool WifiScanResultsReady(void) { return false; }
+int  WifiScanGetCount(void) { return 0; }
+String WifiScanGetSSID(int index) { return ""; }
+int  WifiScanGetRSSI(int index) { return 0; }
+uint8_t* WifiScanGetBSSID(int index) { return NULL; }
+int8_t   WifiScanGetChannel(int index) { return 0; }
+void WifiScanClear(void) { }
+void WifiDisconnect(void) { WiFi.disconnect(false); }
+void WifiAbortConnection(void) { WiFi.disconnect(false); }
+int  WifiGetLastDisconnectReason(void) { return 0; }
 
 /*
    setup function
 */
 void wifiInit(void) {
+  // Connect to WiFi network
+  ESP_LOGI(TAG, "Initializing WiFi (Fase 1: Conexión Básica)");
   Wifi_TB.lastWifiReconnectAttempt = millis();
-  s_suppressReconnect = false; // user is explicitly connecting — re-enable auto-reconnect loop
-
-  // Guard: wifiInit() must not run while a scan is active.
-  // scanFinalize() always sets s_scanState=SCAN_IDLE before calling here, so
-  // this only triggers if wifiInit() is called externally (e.g. WifiConnectButton
-  // in UI task) during an active scan — we abort the scan in that case.
-  if (s_scanState != SCAN_IDLE) {
-    ESP_LOGW(TAG, "wifiInit: called during scan (state=%d), aborting scan", (int)s_scanState);
-    WiFi.scanDelete();
-    s_scanInProgress   = false;
-    s_scanResultsReady = true;
-    s_scanCount        = 0;
-    s_scanState        = SCAN_IDLE;
-    WiFi.setAutoReconnect(true);
-  }
-
-  ESP_LOGI(TAG, "wifiInit: starting — current wl_status=%d", (int)WiFi.status());
-
-  WiFi.mode(WIFI_STA);
   WiFi.setHostname(
       String(String(WIFI_NAME) + "-" + String(in3.serialNumber)).c_str());
+  WiFi.mode(WIFI_STA);
   WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
 
   String ssid;
@@ -332,29 +156,20 @@ void wifiInit(void) {
   if (strlen(pendingSSID) > 0) {
     ssid = pendingSSID;
     pass = pendingPass;
+    ESP_LOGI(TAG, "Connecting to pending SSID: %s", ssid.c_str());
   } else {
     ssid = EEPROM.readString(EEPROM_WIFI_SSID);
     pass = EEPROM.readString(EEPROM_WIFI_PASSWORD);
-    if (ssid.length() == 0) {
+    if (ssid.length() > 0) {
+      ESP_LOGI(TAG, "Connecting to SSID from EEPROM: %s", ssid.c_str());
+    } else {
+      ESP_LOGI(TAG, "Connecting to default SSID: %s", WIFI_SSID);
       ssid = WIFI_SSID;
       pass = WIFI_PASSWORD;
     }
   }
 
-  // Strip whitespace and control characters that may come from the LVGL keyboard
-  ssid.trim();
-  pass.trim();
-  ssid.replace("\n", "");
-  ssid.replace("\r", "");
-  pass.replace("\n", "");
-  pass.replace("\r", "");
-
-  Serial.printf("SSID: '%s' (len=%d)\n", ssid.c_str(), ssid.length());
-  Serial.printf("PASS: '%s' (len=%d)\n", pass.c_str(), pass.length());
-  ESP_LOGI(TAG, "Connecting to SSID: '%s' (len=%d)", ssid.c_str(), ssid.length());
-  ESP_LOGI(TAG, "WiFi status before begin: %d", (int)WiFi.status());
   WiFi.begin(ssid.c_str(), pass.c_str());
-  ESP_LOGI(TAG, "WiFi.begin() called");
   lastconnectiontrywifi = millis();
 }
 
@@ -587,187 +402,15 @@ void WIFITBProvision() {
 }
 
 void switchAlarmTelemetryWIFI(int alarm, bool value) {
-  // String alarmKey;
-  // switch (alarm) {
-  // case HUMIDITY_ALARM:
-  //   alarmKey = HUMIDITY_ALARM_KEY;
-  //   break;
-  // case TEMPERATURE_ALARM:
-  //   alarmKey = TEMPERATURE_ALARM_KEY;
-  //   break;
-  // case AIR_THERMAL_CUTOUT_ALARM:
-  //   alarmKey = AIR_THERMAL_CUTOUT_ALARM_KEY;
-  //   break;
-  // case SKIN_THERMAL_CUTOUT_ALARM:
-  //   alarmKey = SKIN_THERMAL_CUTOUT_ALARM_KEY;
-  //   break;
-  // case AIR_SENSOR_ISSUE_ALARM:
-  //   alarmKey = AIR_SENSOR_ISSUE_ALARM_KEY;
-  //   break;
-  // case SKIN_SENSOR_ISSUE_ALARM:
-  //   alarmKey = SKIN_SENSOR_ISSUE_ALARM_KEY;
-  //   break;
-  // case FAN_ISSUE_ALARM:
-  //   alarmKey = FAN_ISSUE_ALARM_KEY;
-  //   break;
-  // case HEATER_ISSUE_ALARM:
-  //   alarmKey = HEATER_ISSUE_ALARM_KEY;
-  //   break;
-  // case POWER_SUPPLY_ALARM:
-  //   alarmKey = POWER_SUPPLY_ALARM_KEY;
-  //   break;
-  // default:
-  //   return;
-  // }
-  // addVariableToTelemetryWIFIJSON[alarmKey] = value;
 }
 
 void addAlarmTelemetriesToWIFIJSON() {
-  // int alarmReported = false;
-  // for (int i = NO_ALARMS + 1; i < NUM_ALARMS; i++) {
-  //   if (in3.alarmToReport[i]) {
-  //     switchAlarmTelemetryWIFI(i, true);
-  //     alarmReported = true;
-  //     in3.previousAlarmReport = true;
-  //   }
-  // }
-  // if (!alarmReported) {
-  //   if (in3.previousAlarmReport) {
-  //     in3.previousAlarmReport = false;
-  //     for (int i = NO_ALARMS + 1; i < NUM_ALARMS; i++) {
-  //       switchAlarmTelemetryWIFI(i, false);
-  //     }
-  //   }
-  // }
 }
 
 void addConfigTelemetriesToWIFIJSON() {
-  // addAlarmTelemetriesToWIFIJSON();
-  // addVariableToTelemetryWIFIJSON[SN_KEY] = in3.serialNumber;
-  // addVariableToTelemetryWIFIJSON[SYSTEM_RESET_REASON] = in3.resetReason;
-  // addVariableToTelemetryWIFIJSON[HW_NUM_KEY] = HW_NUM;
-  // addVariableToTelemetryWIFIJSON[HW_REV_KEY] = String(HW_REVISION);
-  // addVariableToTelemetryWIFIJSON[FW_VERSION_KEY] = FWversion;
-
-  // addVariableToTelemetryWIFIJSON[SYS_CURR_STANDBY_TEST_KEY] =
-  //     roundSignificantDigits(in3.system_current_standby_test,
-  //                            TELEMETRIES_DECIMALS);
-  // addVariableToTelemetryWIFIJSON[HEATER_CURR_TEST_KEY] =
-  //     roundSignificantDigits(in3.heater_current_test, TELEMETRIES_DECIMALS);
-  // addVariableToTelemetryWIFIJSON[FAN_CURR_TEST_KEY] =
-  //     roundSignificantDigits(in3.fan_current_test, TELEMETRIES_DECIMALS);
-  // addVariableToTelemetryWIFIJSON[PHOTOTHERAPY_CURR_KEY] =
-  //     roundSignificantDigits(in3.phototherapy_current_test,
-  //                            TELEMETRIES_DECIMALS);
-  // addVariableToTelemetryWIFIJSON[PHOTOTHERAPY_PWM_KEY] =
-  //     roundSignificantDigits(in3.phototherapy_intensity,
-  //     TELEMETRIES_DECIMALS);
-  // addVariableToTelemetryWIFIJSON[HUMIDIFIER_CURR_KEY] =
-  //     roundSignificantDigits(in3.humidifier_current_test,
-  //     TELEMETRIES_DECIMALS);
-  // addVariableToTelemetryWIFIJSON[DISPLAY_CURR_TEST_KEY] =
-  //     roundSignificantDigits(in3.display_current_test, TELEMETRIES_DECIMALS);
-  // addVariableToTelemetryWIFIJSON[BUZZER_CURR_TEST_KEY] =
-  //     roundSignificantDigits(in3.buzzer_current_test, TELEMETRIES_DECIMALS);
-  // addVariableToTelemetryWIFIJSON[HW_TEST_KEY] = in3.HW_test_error_code;
-
-  // addVariableToTelemetryWIFIJSON[UI_LANGUAGE_KEY] = in3.language;
-  // addVariableToTelemetryWIFIJSON[CALIBRATED_SENSOR_KEY] =
-  // !in3.calibrationError;
-  // addVariableToTelemetryWIFIJSON[GPRS_CONNECTIVITY_KEY] = false;
-  // addVariableToTelemetryWIFIJSON[WIFI_CONNECTIVITY_KEY] = true;
 }
 
 void addTelemetriesToWIFIJSON() {
-  // addAlarmTelemetriesToWIFIJSON();
-  // addVariableToTelemetryWIFIJSON[SKIN_CAPACITANCE_KEY] =
-  //     in3.skinSensorCapacitance;
-  // addVariableToTelemetryWIFIJSON[SKIN_TEMPERATURE_KEY] =
-  // roundSignificantDigits(
-  //     in3.temperature[SKIN_SENSOR], TELEMETRIES_DECIMALS);
-  // addVariableToTelemetryWIFIJSON[AIR_TEMPERATURE_KEY] =
-  // roundSignificantDigits(
-  //     in3.temperature[ROOM_DIGITAL_TEMP_SENSOR], TELEMETRIES_DECIMALS);
-  // if (in3.temperature[AMBIENT_DIGITAL_TEMP_SENSOR] &&
-  //     in3.humidity[AMBIENT_DIGITAL_HUM_SENSOR]) {
-  //   addVariableToTelemetryWIFIJSON[AMBIENT_TEMPERATURE_KEY] =
-  //       roundSignificantDigits(in3.temperature[AMBIENT_DIGITAL_TEMP_SENSOR],
-  //                              TELEMETRIES_DECIMALS);
-  //   addVariableToTelemetryWIFIJSON[HUMIDITY_AMBIENT_KEY] =
-  //       roundSignificantDigits(in3.humidity[AMBIENT_DIGITAL_HUM_SENSOR],
-  //                              TELEMETRIES_DECIMALS);
-  // }
-  // addVariableToTelemetryWIFIJSON[PHOTOTHERAPY_ACTIVE_KEY] = in3.phototherapy;
-  // addVariableToTelemetryWIFIJSON[HUMIDITY_ROOM_KEY] = roundSignificantDigits(
-  //     in3.humidity[ROOM_DIGITAL_HUM_SENSOR], TELEMETRIES_DECIMALS);
-  // addVariableToTelemetryWIFIJSON[SYSTEM_CURRENT_KEY] =
-  //     roundSignificantDigits(in3.system_current, TELEMETRIES_DECIMALS);
-  // addVariableToTelemetryWIFIJSON[SYSTEM_VOLTAGE_KEY] =
-  //     roundSignificantDigits(in3.system_voltage, TELEMETRIES_DECIMALS);
-  // addVariableToTelemetryWIFIJSON[V5_CURRENT_KEY] =
-  //     roundSignificantDigits(in3.USB_current, TELEMETRIES_DECIMALS);
-  // addVariableToTelemetryWIFIJSON[V5_VOLTAGE_KEY] =
-  //     roundSignificantDigits(in3.USB_voltage, TELEMETRIES_DECIMALS);
-  // addVariableToTelemetryWIFIJSON[BAT_CURRENT_KEY] =
-  //     roundSignificantDigits(in3.BATTERY_current, TELEMETRIES_DECIMALS);
-  // addVariableToTelemetryWIFIJSON[BAT_VOLTAGE_KEY] =
-  //     roundSignificantDigits(in3.BATTERY_voltage, TELEMETRIES_DECIMALS);
-
-  // if (in3.temperatureControl || in3.humidityControl) {
-  //   addVariableToTelemetryWIFIJSON[FAN_CURRENT_KEY] =
-  //       roundSignificantDigits(in3.fan_current, TELEMETRIES_DECIMALS);
-  //   addVariableToTelemetryWIFIJSON[CONTROL_ACTIVE_TIME_KEY] =
-  //       roundSignificantDigits(in3.control_active_time,
-  //       TELEMETRIES_DECIMALS);
-  //   addVariableToTelemetryWIFIJSON[FAN_ACTIVE_TIME_KEY] =
-  //       roundSignificantDigits(in3.fan_active_time, TELEMETRIES_DECIMALS);
-  //   if (in3.temperatureControl) {
-  //     addVariableToTelemetryWIFIJSON[HEATER_CURRENT_KEY] =
-  //         roundSignificantDigits(in3.heater_current, TELEMETRIES_DECIMALS);
-  //     addVariableToTelemetryWIFIJSON[DESIRED_TEMPERATURE_KEY] =
-  //         in3.desiredControlTemperature;
-  //     addVariableToTelemetryWIFIJSON[HEATER_ACTIVE_TIME_KEY] =
-  //         roundSignificantDigits(in3.heater_active_time,
-  //         TELEMETRIES_DECIMALS);
-  //   }
-  //   if (in3.humidityControl) {
-  //     addVariableToTelemetryWIFIJSON[DESIRED_HUMIDITY_ROOM_KEY] =
-  //         in3.desiredControlHumidity;
-  //   }
-  //   if (!Wifi_TB.firstConfigPost) {
-  //     Wifi_TB.firstConfigPost = true;
-  //     addVariableToTelemetryWIFIJSON[CONTROL_ACTIVE_KEY] = true;
-  //     if (in3.temperatureControl) {
-  //       if (in3.controlMode == CONTROL_AIR) {
-  //         addVariableToTelemetryWIFIJSON[CONTROL_MODE_KEY] = "AIR";
-  //       } else {
-  //         addVariableToTelemetryWIFIJSON[CONTROL_MODE_KEY] = "SKIN";
-  //       }
-  //     }
-  //   }
-  // } else {
-  //   Wifi_TB.firstConfigPost = false;
-  //   addVariableToTelemetryWIFIJSON[CONTROL_ACTIVE_KEY] = false;
-  //   addVariableToTelemetryWIFIJSON[STANBY_TIME_KEY] =
-  //       roundSignificantDigits(in3.standby_time, TELEMETRIES_DECIMALS);
-  // }
-  // if (in3.humidityControl) {
-  //   addVariableToTelemetryWIFIJSON[HUMIDIFIER_CURRENT_KEY] =
-  //       roundSignificantDigits(in3.humidifier_current, TELEMETRIES_DECIMALS);
-  //   addVariableToTelemetryWIFIJSON[HUMIDIFIER_VOLTAGE_KEY] =
-  //       roundSignificantDigits(in3.humidifier_voltage, TELEMETRIES_DECIMALS);
-  //   addVariableToTelemetryWIFIJSON[HUMIDIFIER_ACTIVE_TIME_KEY] =
-  //       roundSignificantDigits(in3.humidifier_active_time,
-  //                              TELEMETRIES_DECIMALS);
-  // }
-  // if (in3.phototherapy) {
-  //   addVariableToTelemetryWIFIJSON[PHOTOTHERAPY_CURRENT_KEY] =
-  //       roundSignificantDigits(in3.phototherapy_current,
-  //       TELEMETRIES_DECIMALS);
-  //   addVariableToTelemetryWIFIJSON[PHOTHERAPY_ACTIVE_TIME_KEY] =
-  //       roundSignificantDigits(in3.phototherapy_active_time,
-  //                              TELEMETRIES_DECIMALS);
-  // }
 }
 
 void WIFI_TB_OTA() {
@@ -800,27 +443,8 @@ void WIFI_TB_OTA() {
           millis() - Wifi_TB.lastMQTTPublish > WIFI_PUBLISH_INTERVAL) {
         if (!Wifi_TB.firstPublish) {
           Wifi_TB.firstPublish = true;
-          // addConfigTelemetriesToWIFIJSON();
-          // if (tb_wifi.sendTelemetryJson(addVariableToTelemetryWIFIJSON,
-          //                               JSON_STRING_SIZE(measureJson(
-          //                                   addVariableToTelemetryWIFIJSON))))
-          //                                   {
-          //   ESP_LOGI(TAG, "WIFI MQTT PUBLISH CONFIG SUCCESS");
-          // } else {
-          //   ESP_LOGI(TAG, "WIFI MQTT PUBLISH CONFIG FAIL");
-          // }
-          // WIFI_JSON.clear();
         }
         addTelemetriesToWIFIJSON();
-        // if (tb_wifi.sendTelemetryJson(addVariableToTelemetryWIFIJSON,
-        //                               JSON_STRING_SIZE(measureJson(
-        //                                   addVariableToTelemetryWIFIJSON))))
-        //                                   {
-        //   ESP_LOGI(TAG, "WIFI MQTT PUBLISH TELEMETRIES SUCCESS");
-        // } else {
-        //   ESP_LOGI(TAG, "WIFI MQTT PUBLISH TELEMETRIES FAIL");
-        // }
-        // WIFI_JSON.clear();
         Wifi_TB.lastMQTTPublish = millis();
       }
     }
@@ -832,21 +456,11 @@ void WIFI_TB_OTA() {
 
 void WifiOTAHandler(void) {
   WifiScanHandler();
-
-  // Don't run MQTT/OTA/reconnect while ANY scan state is active
-  // (disconnecting, starting, or running) to avoid driver conflicts.
-  if (s_scanState != SCAN_IDLE) return;
-
   WIFI_TB_OTA();
   WEB_OTA();
   if (WiFi.status() != WL_CONNECTED) {
-    // s_suppressReconnect is set after every scan — cleared only by wifiInit()
-    // (which is called from WifiConnectButton_cb when the user explicitly connects).
-    // This prevents the reconnect loop from firing a WiFi.begin() between scans,
-    // which would put the IDF in CONNECTING state and cause subsequent scans to fail.
-    if (!s_suppressReconnect &&
-        millis() - Wifi_TB.lastWifiReconnectAttempt > WIFI_RECONNECT_INTERVAL) {
-      ESP_LOGI(TAG, "WifiOTAHandler: reconnecting (wl_status=%d)...", (int)WiFi.status());
+    if (millis() - Wifi_TB.lastWifiReconnectAttempt > WIFI_RECONNECT_INTERVAL) {
+      ESP_LOGI(TAG, "Connection lost, attempting to reconnect...");
       MDNS.end();
       wifiInit();
     }
@@ -856,16 +470,7 @@ void WifiOTAHandler(void) {
 static void OTA_WIFI_Task(void *pvParameters) {
   wifiInit();
   WIFI_TB_Init();
-  uint32_t lastStatusLogMs = 0;
   for (;;) {
-    // Periodic WiFi status log (every 3 seconds) for serial debugging
-    if (millis() - lastStatusLogMs >= 3000) {
-      lastStatusLogMs = millis();
-      ESP_LOGI(TAG, "[STATUS] wl=%d connected=%d scanState=%d scanReady=%d scanCount=%d suppressReconnect=%d",
-               (int)WiFi.status(), (int)(WiFi.status() == WL_CONNECTED),
-               (int)s_scanState, (int)s_scanResultsReady, (int)s_scanCount,
-               (int)s_suppressReconnect);
-    }
     WifiOTAHandler();
     vTaskDelay(pdMS_TO_TICKS(OTA_TASK_PERIOD_MS));
   }
