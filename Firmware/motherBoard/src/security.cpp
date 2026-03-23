@@ -269,7 +269,11 @@ void checkStatusOfSensor(byte sensor) {
 
 void sensorHealthMonitor() {
   checkStatusOfSensor(ROOM_DIGITAL_TEMP_SENSOR);
-  checkStatusOfSensor(SKIN_SENSOR);
+  if (in3.temperatureControl && in3.controlMode == CONTROL_SKIN) {
+    checkStatusOfSensor(SKIN_SENSOR);
+  } else if (alarmOnGoing[SKIN_SENSOR_ISSUE_ALARM]) {
+    resetAlarm(SKIN_SENSOR_ISSUE_ALARM);
+  }
 }
 
 void powerMonitor() {
@@ -320,9 +324,10 @@ bool ongoingCriticalAlarm() {
   return (alarmOnGoing[AIR_THERMAL_CUTOUT_ALARM] ||
           alarmOnGoing[SKIN_THERMAL_CUTOUT_ALARM] ||
           alarmOnGoing[AIR_SENSOR_ISSUE_ALARM] ||
-          alarmOnGoing[SKIN_SENSOR_ISSUE_ALARM] ||
-          alarmOnGoing[HEATER_ISSUE_ALARM] || alarmOnGoing[POWER_SUPPLY_ALARM]);
-  // return (true);
+          (alarmOnGoing[SKIN_SENSOR_ISSUE_ALARM] &&
+           in3.controlMode == CONTROL_SKIN) ||
+          alarmOnGoing[HEATER_ISSUE_ALARM] ||
+          alarmOnGoing[POWER_SUPPLY_ALARM]);
 }
 
 bool ongoingCriticalWiringAlarm() {

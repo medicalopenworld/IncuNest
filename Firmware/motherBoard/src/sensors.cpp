@@ -299,6 +299,7 @@ bool measureNTCTemperature() {
     return true;
   } else {
     // logAlarm("[ALARM] -> NTC read is: " + String(NTCmeasurement));
+    in3.temperature[SKIN_SENSOR] = 0;
     return false;
   }
   return false;
