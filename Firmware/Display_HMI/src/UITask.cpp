@@ -331,6 +331,32 @@ void update_labels() {
         snprintf(buffer, sizeof(buffer), "%d%%", humValueDetected);
         lv_label_set_text(ui_HistoryValueHum, buffer);
     }
+
+  // Derive skin probe presence from detected temperature and update switch visibility
+  static bool lastProbePresent = true; // force update on first call
+  bool probePresent = (skinTempValueDetected > 0.1);
+  g_skinProbeState = probePresent ? SKIN_PROBE_VALID : SKIN_PROBE_NOT_CONNECTED;
+  if (probePresent != lastProbePresent) {
+    lastProbePresent = probePresent;
+    if (probePresent) {
+      if (ui_Switch4) lv_obj_clear_flag(ui_Switch4, LV_OBJ_FLAG_HIDDEN);
+      const char *text = (g_lang == LANG_ES) ? "MODO PIEL"
+                       : (g_lang == LANG_FR) ? "MODE PEAU" : "SKIN MODE";
+      if (ui_SkinOptionLabel) lv_label_set_text(ui_SkinOptionLabel, text);
+    } else {
+      if (ui_Switch4) lv_obj_add_flag(ui_Switch4, LV_OBJ_FLAG_HIDDEN);
+      const char *text = (g_lang == LANG_ES) ? "Sin sonda de piel"
+                       : (g_lang == LANG_FR) ? "Sonde peau absente"
+                       : "No skin probe detected";
+      if (ui_SkinOptionLabel) lv_label_set_text(ui_SkinOptionLabel, text);
+      if (skinPanelEnabled) {
+        skinPanelEnabled = false;
+        hmi_msg.skinModeEnabled = false;
+        hmi_msg.shouldSendData = true;
+        if (ui_SkinPanelCont) lv_obj_add_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
+      }
+    }
+  }
 }
 
 const char* getConnectivityString(int status, ui_lang_t lang) {
