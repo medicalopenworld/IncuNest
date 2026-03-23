@@ -330,15 +330,14 @@ void checkStatusOfSensor(byte sensor) {
     alarmID = AIR_SENSOR_ISSUE_ALARM;
     break;
   case SKIN_SENSOR:
-    // Only alarm on skin sensor failure when actively controlling in SKIN mode
-    if (in3.controlMode != CONTROL_SKIN || !in3.actuation) {
-      if (alarmOnGoing[SKIN_SENSOR_ISSUE_ALARM]) {
-        resetAlarm(SKIN_SENSOR_ISSUE_ALARM);
-      }
-      return;
+    // Skin probe failures are handled by the state machine failover (within ~2s).
+    // The 20s alarm timeout is never reached in SKIN mode, so no alarm is raised.
+    // TODO: re-enable if a skin alarm is needed in the future.
+    // alarmID = SKIN_SENSOR_ISSUE_ALARM;
+    if (alarmOnGoing[SKIN_SENSOR_ISSUE_ALARM]) {
+      resetAlarm(SKIN_SENSOR_ISSUE_ALARM);
     }
-    alarmID = SKIN_SENSOR_ISSUE_ALARM;
-    break;
+    return;
   }
   if (alarmID) {
     // if (xQueueReceive(sharedSensorQueue, &lastSuccesfullSensorUpdate[sensor],
