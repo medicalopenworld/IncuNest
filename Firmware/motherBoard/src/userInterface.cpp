@@ -218,6 +218,15 @@ void bar_highlight() {
 }
 
 void userInterfaceHandler(int UI_page) {
+  // Detect external control mode change (e.g. skin probe auto-switch to AIR)
+  static bool lastControlMode = DEFAULT_CONTROL_MODE;
+  if (UI_page == MAIN_MENU_PAGE && in3.controlMode != lastControlMode) {
+    lastControlMode = in3.controlMode;
+    UI_mainMenu();
+    return;
+  }
+  lastControlMode = in3.controlMode;
+
   updateDisplayHeader();
   checkSetMessage(UI_page, menu_rows);
   checkAlarmsToDisplay();
