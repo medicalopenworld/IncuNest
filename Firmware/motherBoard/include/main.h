@@ -226,17 +226,6 @@ typedef enum {
   COMM_STATUS_WIFI_SERVER = 4
 } COMM_STATUS;
 
-// Skin probe state machine (RF-SKIN-006, ARQ-SKIN-001)
-typedef enum {
-  SKIN_PROBE_NOT_CONNECTED = 0,
-  SKIN_PROBE_PENDING_VALIDATION,
-  SKIN_PROBE_VALID,
-  SKIN_PROBE_INVALID,
-  SKIN_PROBE_OUT_OF_RANGE,
-  SKIN_PROBE_DISCONNECTED_DURING_OPERATION,
-  SKIN_PROBE_UNSTABLE,
-} SkinProbeState_t;
-
 typedef enum {
   EVENT_2G = 0,
   EVENT_WIFI,
@@ -335,11 +324,6 @@ typedef enum {
 #define PID_CONTROL true
 #define CONTROL_SKIN false
 #define CONTROL_AIR true
-
-// Skin probe configurable parameters (RF-SKIN-019, RF-SKIN-020, ARQ-SKIN-004)
-#define SKIN_PROBE_DEBOUNCE_MS        2000  // ms debounce before confirming connection/disconnection
-#define SKIN_PROBE_VALID_WINDOW_MS    5000  // ms of consecutive valid reads to mark probe as VALID
-#define SKIN_PROBE_UNSTABLE_THRESHOLD 3     // consecutive invalid reads before marking as UNSTABLE
 
 // Tasks priorities
 #define TIME_TRACK_TASK_PRIORITY 2
@@ -661,9 +645,6 @@ typedef struct {
   byte language;
 
 } in3ator_parameters;
-
-SkinProbeState_t getSkinProbeState();
-void updateSkinProbeState();
 
 void logE(String dataString);
 void logAlarm(String dataString);
