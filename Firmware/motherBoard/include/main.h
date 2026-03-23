@@ -767,6 +767,7 @@ int getYpos(int UI_menu_rows, byte row);
 bool back_mode();
 void setSensorsGraphicPosition(int UI_page);
 void updateDisplayHeader();
+void checkAlarmsToDisplay();
 
 void initRoomSensor();
 void initAmbientSensor();

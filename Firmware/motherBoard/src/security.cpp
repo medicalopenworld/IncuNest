@@ -177,6 +177,13 @@ extern PID humidityControlPID;
 
 extern in3ator_parameters in3;
 
+bool alarmOnGoing[NUM_ALARMS];
+bool displayAlarm[NUM_ALARMS];
+bool clearedAlarm[NUM_ALARMS];
+long lastAlarmTrigger[NUM_ALARMS];
+float alarmSensedValue;
+long lastPowerSupplyCheck;
+
 // --- Skin probe state machine ---
 #define SKIN_PROBE_DEBOUNCE_MS          2000
 #define SKIN_PROBE_VALID_WINDOW_MS      5000 // runtime reconnection
@@ -205,8 +212,9 @@ void updateSkinProbeState() {
       break;
 
     case SKIN_PROBE_PENDING_VALIDATION: {
-      long validWindow = s_probeFirstValidation ? SKIN_PROBE_BOOT_VALID_WINDOW_MS
-                                                : SKIN_PROBE_VALID_WINDOW_MS;
+      long validWindow = s_probeFirstValidation          ? SKIN_PROBE_BOOT_VALID_WINDOW_MS
+                         : alarmOnGoing[SKIN_SENSOR_ISSUE_ALARM] ? SKIN_PROBE_BOOT_VALID_WINDOW_MS
+                                                                 : SKIN_PROBE_VALID_WINDOW_MS;
       if (!probePresent) {
         s_probeFirstValidation = false;
         s_skinProbeState = SKIN_PROBE_NOT_CONNECTED;
@@ -221,17 +229,20 @@ void updateSkinProbeState() {
     case SKIN_PROBE_VALID:
       if (!probePresent) {
         if (duringOperation) {
-          logI("[SKIN_PROBE] -> Disconnected during SKIN operation. Failover to AIR.");
-          ledcWrite(HEATER_PWM_CHANNEL, 0);
-          stopPID(skinPID);
-          in3.controlMode = CONTROL_AIR;
-          startPID(airPID);
-          s_skinProbeState = SKIN_PROBE_DISCONNECTED_DURING_OPERATION;
-          s_probeStateTime = millis();
+          // Heating active: trigger alarm but stay in skin mode
+          logI("[SKIN_PROBE] -> Disconnected during SKIN heating. Alarm triggered.");
+          if (!alarmOnGoing[SKIN_SENSOR_ISSUE_ALARM]) {
+            in3.alarmToReport[SKIN_SENSOR_ISSUE_ALARM] = true;
+            setAlarm(SKIN_SENSOR_ISSUE_ALARM);
+          }
         } else {
-          s_skinProbeState = SKIN_PROBE_NOT_CONNECTED;
-          logI("[SKIN_PROBE] -> Probe disconnected");
+          // Not heating: silent switch to AIR
+          logI("[SKIN_PROBE] -> Probe disconnected, switching to AIR.");
+          in3.controlMode = CONTROL_AIR;
+          EEPROM.write(EEPROM_CONTROL_MODE, in3.controlMode);
+          EEPROM.commit();
         }
+        s_skinProbeState = SKIN_PROBE_NOT_CONNECTED;
       }
       break;
 
@@ -251,20 +262,12 @@ void updateSkinProbeState() {
       break;
   }
 
-  // If probe is not valid and SKIN mode is still selected, switch to AIR
-  if (!skinProbeIsValid() && in3.controlMode == CONTROL_SKIN) {
-    in3.controlMode = CONTROL_AIR;
-    EEPROM.write(EEPROM_CONTROL_MODE, in3.controlMode);
-    EEPROM.commit();
+  // Reset alarm when probe is valid again
+  if (skinProbeIsValid() && alarmOnGoing[SKIN_SENSOR_ISSUE_ALARM]) {
+    in3.alarmToReport[SKIN_SENSOR_ISSUE_ALARM] = false;
+    resetAlarm(SKIN_SENSOR_ISSUE_ALARM);
   }
 }
-
-bool alarmOnGoing[NUM_ALARMS];
-bool displayAlarm[NUM_ALARMS];
-bool clearedAlarm[NUM_ALARMS];
-long lastAlarmTrigger[NUM_ALARMS];
-float alarmSensedValue;
-long lastPowerSupplyCheck;
 
 extern in3ator_parameters in3;
 
@@ -330,14 +333,7 @@ void checkStatusOfSensor(byte sensor) {
     alarmID = AIR_SENSOR_ISSUE_ALARM;
     break;
   case SKIN_SENSOR:
-    // Skin probe failures are handled by the state machine failover (within ~2s).
-    // The 20s alarm timeout is never reached in SKIN mode, so no alarm is raised.
-    // TODO: re-enable if a skin alarm is needed in the future.
-    // alarmID = SKIN_SENSOR_ISSUE_ALARM;
-    if (alarmOnGoing[SKIN_SENSOR_ISSUE_ALARM]) {
-      resetAlarm(SKIN_SENSOR_ISSUE_ALARM);
-    }
-    return;
+    return; // skin sensor alarm managed by updateSkinProbeState
   }
   if (alarmID) {
     // if (xQueueReceive(sharedSensorQueue, &lastSuccesfullSensorUpdate[sensor],
@@ -448,9 +444,9 @@ char *alarmIDtoString(byte alarmID) {
     return (char *)("AIR SENSOR ALARM");
     break;
   case SKIN_SENSOR_ISSUE_ALARM:
-    if (lang == SPANISH) return (char *)("ALERTA SENSOR PIEL");
-    if (lang == FRENCH) return (char *)("ALERTE CAPTEUR PEAU");
-    return (char *)("SKIN SENSOR ALARM");
+    if (lang == SPANISH) return (char *)("ERROR SONDA PIEL");
+    if (lang == FRENCH) return (char *)("ERREUR SONDE PEAU");
+    return (char *)("SKIN PROBE ERROR");
     break;
   case FAN_ISSUE_ALARM:
     if (lang == SPANISH) return (char *)("ERROR VENTILADOR");
@@ -561,9 +557,9 @@ void sendAlarmUSB(byte alarmID, bool isActive) {
     else { title = "AIR SENSOR ERROR"; desc = "AIR SENSOR FAILURE"; }
     break;
   case SKIN_SENSOR_ISSUE_ALARM:
-    if (lang == SPANISH) { title = "ERROR SENSOR PIEL"; desc = "FALLO SENSOR PIEL"; }
-    else if (lang == FRENCH) { title = "ERREUR CAPTEUR PEAU"; desc = "PANNE CAPTEUR PEAU"; }
-    else { title = "SKIN SENSOR ERROR"; desc = "SKIN SENSOR FAILURE"; }
+    if (lang == SPANISH) { title = "ERROR SONDA PIEL"; desc = "SONDA PIEL DESCONECTADA"; }
+    else if (lang == FRENCH) { title = "ERREUR SONDE PEAU"; desc = "SONDE PEAU DECONNECTEE"; }
+    else { title = "SKIN PROBE ERROR"; desc = "SKIN PROBE DISCONNECTED"; }
     break;
   case FAN_ISSUE_ALARM:
     if (lang == SPANISH) { title = "ERROR VENTILADOR"; desc = "FALLO VENTILADOR"; }

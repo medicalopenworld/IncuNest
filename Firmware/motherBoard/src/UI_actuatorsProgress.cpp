@@ -315,6 +315,7 @@ void UI_actuatorsProgress() {
     }
     blinkGoBackMessage();
     updateDisplayHeader();
+    checkAlarmsToDisplay();
   }
   stopActuation();
   in3.actuation = false;
