@@ -261,6 +261,11 @@ void UIDrawProgressPage() {
     vTaskDelay(pdMS_TO_TICKS(WHILE_LOOP_DELAY));
   }
   if (in3.temperatureControl) {
+    if (in3.controlMode == CONTROL_SKIN && !skinProbeIsValid()) {
+      in3.controlMode = CONTROL_AIR;
+      EEPROM.write(EEPROM_CONTROL_MODE, in3.controlMode);
+      EEPROM.commit();
+    }
     startPID(in3.controlMode);
   }
   if (in3.humidityControl) {

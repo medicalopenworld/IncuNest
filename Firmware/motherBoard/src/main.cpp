@@ -350,12 +350,21 @@ void Communication_Receiver(void *pvParameters) {
       }
 
       if (in3.temperatureControl) {
-        if (in3.controlMode) {
+        if (in3.controlMode == CONTROL_AIR) {
           in3.desiredControlTemperature = hmi_cmd_msg.desiredAirTemperature;
-          startPID(in3.controlMode);
+          startPID(airPID);
         } else {
-          in3.desiredControlTemperature = hmi_cmd_msg.desiredSkinTemperature;
-          startPID(!in3.controlMode);
+          if (!skinProbeIsValid()) {
+            // Probe not valid: silently fall back to AIR mode
+            in3.controlMode = CONTROL_AIR;
+            EEPROM.write(EEPROM_CONTROL_MODE, in3.controlMode);
+            EEPROM.commit();
+            in3.desiredControlTemperature = hmi_cmd_msg.desiredAirTemperature;
+            startPID(airPID);
+          } else {
+            in3.desiredControlTemperature = hmi_cmd_msg.desiredSkinTemperature;
+            startPID(skinPID);
+          }
         }
       } else {
         stopPID(CONTROL_AIR);

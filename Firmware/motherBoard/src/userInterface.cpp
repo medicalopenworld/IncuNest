@@ -231,6 +231,9 @@ void userInterfaceHandler(int UI_page) {
       case MAIN_MENU_PAGE:
         switch (bar_pos - graphicTextOffset) {
         case CONTROL_MODE_UI_ROW:
+          if (in3.controlMode == CONTROL_AIR && !skinProbeIsValid()) {
+            break; // Cannot switch to SKIN: probe not detected/validated
+          }
           in3.controlMode = !in3.controlMode;
           EEPROM.write(EEPROM_CONTROL_MODE, in3.controlMode);
           EEPROM.commit();
@@ -343,6 +346,13 @@ void userInterfaceHandler(int UI_page) {
           UI_settings();
           break;
         case START_UI_ROW:
+          if (in3.controlMode == CONTROL_SKIN && !skinProbeIsValid()) {
+            in3.controlMode = CONTROL_AIR;
+            EEPROM.write(EEPROM_CONTROL_MODE, in3.controlMode);
+            EEPROM.commit();
+            UI_mainMenu();
+            break;
+          }
           UI_actuatorsProgress();
           break;
         }

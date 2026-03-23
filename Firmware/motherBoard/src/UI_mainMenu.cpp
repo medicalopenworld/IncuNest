@@ -137,6 +137,11 @@ extern PID humidityControlPID;
 extern in3ator_parameters in3;
 
 void UI_mainMenu() {
+  if (in3.controlMode == CONTROL_SKIN && !skinProbeIsValid()) {
+    in3.controlMode = CONTROL_AIR;
+    EEPROM.write(EEPROM_CONTROL_MODE, in3.controlMode);
+    EEPROM.commit();
+  }
   page = MAIN_MENU_PAGE;
   byte numWords = 5;
   print_text = true;

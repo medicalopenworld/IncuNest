@@ -175,7 +175,7 @@ void startPID(byte var)
   case skinPID:
     skinControlPID.SetTunings(Kp[skinPID], false, Kd[skinPID]);
     skinControlPID.SetControllerDirection(DIRECT);
-    airControlPID.SetSampleTime(PID_TEMPERATURE_SAMPLE_TIME);
+    skinControlPID.SetSampleTime(PID_TEMPERATURE_SAMPLE_TIME);
     skinControlPID.SetMode(AUTOMATIC);
     skinControlPID.SetOutputLimits(0, in3.heaterSafeMAXPWM); // reset safe limits
 

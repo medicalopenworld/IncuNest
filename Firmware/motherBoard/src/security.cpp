@@ -175,6 +175,76 @@ extern PID humidityControlPID;
 
 #define MINIMUM_SUCCESSFULL_SENSOR_UPDATE 20000 // in millis
 
+extern in3ator_parameters in3;
+
+// --- Skin probe state machine ---
+#define SKIN_PROBE_DEBOUNCE_MS     2000
+#define SKIN_PROBE_VALID_WINDOW_MS 5000
+
+SkinProbeState_t s_skinProbeState = SKIN_PROBE_NOT_CONNECTED;
+static long s_probeStateTime = 0;
+
+bool skinProbeIsValid() {
+  return s_skinProbeState == SKIN_PROBE_VALID;
+}
+
+void updateSkinProbeState() {
+  bool probePresent = (millis() - lastSuccesfullSensorUpdate[SKIN_SENSOR] <
+                       SKIN_PROBE_DEBOUNCE_MS);
+  bool duringOperation = (in3.controlMode == CONTROL_SKIN && in3.actuation &&
+                          skinControlPID.GetMode() == AUTOMATIC);
+
+  switch (s_skinProbeState) {
+    case SKIN_PROBE_NOT_CONNECTED:
+      if (probePresent) {
+        s_skinProbeState = SKIN_PROBE_PENDING_VALIDATION;
+        s_probeStateTime = millis();
+      }
+      break;
+
+    case SKIN_PROBE_PENDING_VALIDATION:
+      if (!probePresent) {
+        s_skinProbeState = SKIN_PROBE_NOT_CONNECTED;
+      } else if (millis() - s_probeStateTime >= SKIN_PROBE_VALID_WINDOW_MS) {
+        s_skinProbeState = SKIN_PROBE_VALID;
+        logI("[SKIN_PROBE] -> Probe validated");
+      }
+      break;
+
+    case SKIN_PROBE_VALID:
+      if (!probePresent) {
+        if (duringOperation) {
+          logI("[SKIN_PROBE] -> Disconnected during SKIN operation. Failover to AIR.");
+          ledcWrite(HEATER_PWM_CHANNEL, 0);
+          stopPID(skinPID);
+          in3.controlMode = CONTROL_AIR;
+          startPID(airPID);
+          s_skinProbeState = SKIN_PROBE_DISCONNECTED_DURING_OPERATION;
+          s_probeStateTime = millis();
+        } else {
+          s_skinProbeState = SKIN_PROBE_NOT_CONNECTED;
+          logI("[SKIN_PROBE] -> Probe disconnected");
+        }
+      }
+      break;
+
+    case SKIN_PROBE_UNSTABLE:
+      if (probePresent) {
+        s_skinProbeState = SKIN_PROBE_PENDING_VALIDATION;
+        s_probeStateTime = millis();
+      } else {
+        s_skinProbeState = SKIN_PROBE_NOT_CONNECTED;
+      }
+      break;
+
+    case SKIN_PROBE_DISCONNECTED_DURING_OPERATION:
+      if (millis() - s_probeStateTime >= SKIN_PROBE_DEBOUNCE_MS) {
+        s_skinProbeState = SKIN_PROBE_NOT_CONNECTED;
+      }
+      break;
+  }
+}
+
 bool alarmOnGoing[NUM_ALARMS];
 bool displayAlarm[NUM_ALARMS];
 bool clearedAlarm[NUM_ALARMS];
@@ -189,6 +259,8 @@ void initAlarms() {
       -1 * minsToMillis(ALARM_TIME_DELAY);
   lastAlarmTrigger[SKIN_THERMAL_CUTOUT_ALARM] =
       -1 * minsToMillis(ALARM_TIME_DELAY);
+  // Ensure probe state machine starts in NOT_CONNECTED at boot
+  lastSuccesfullSensorUpdate[SKIN_SENSOR] = -(long)MINIMUM_SUCCESSFULL_SENSOR_UPDATE;
 }
 
 bool evaluateAlarm(byte alarmID, float setPoint, float measuredValue,
@@ -270,6 +342,7 @@ void checkStatusOfSensor(byte sensor) {
 void sensorHealthMonitor() {
   checkStatusOfSensor(ROOM_DIGITAL_TEMP_SENSOR);
   checkStatusOfSensor(SKIN_SENSOR);
+  updateSkinProbeState();
 }
 
 void powerMonitor() {

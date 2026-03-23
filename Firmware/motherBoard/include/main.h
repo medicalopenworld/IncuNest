@@ -164,6 +164,16 @@ typedef enum {
   FINE_TUNE_CALIBRATION_PAGE,
 } UI_PAGES;
 
+typedef enum {
+  SKIN_PROBE_NOT_CONNECTED = 0,
+  SKIN_PROBE_PENDING_VALIDATION,
+  SKIN_PROBE_VALID,
+  SKIN_PROBE_UNSTABLE,
+  SKIN_PROBE_DISCONNECTED_DURING_OPERATION,
+} SkinProbeState_t;
+
+extern SkinProbeState_t s_skinProbeState;
+
 // Mutex for protecting the shared variable
 extern SemaphoreHandle_t GPRS_monitor_mutex;
 extern SemaphoreHandle_t log_mutex;
@@ -667,6 +677,8 @@ float measureMeanVoltage(bool, int);
 void WIFI_TB_Init();
 void WifiOTAHandler(void);
 void securityCheck();
+bool skinProbeIsValid();
+void updateSkinProbeState();
 void buzzerConstantTone(int freq);
 void drawAlarmMessage(char *alertMessage);
 void drawHeading(int UI_page, int UI_serialNumber);
