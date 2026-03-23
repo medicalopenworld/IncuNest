@@ -715,7 +715,7 @@ void TextArea_Change_cb(lv_event_t *e) {
     // WifiAbortConnection() resets IDF state + scan SM + reconnect timer.
     wifiConnecting = false;
     WifiAbortConnection();
-    wifiShowConnectBtn();
+    // REMOVED: wifiShowConnectBtn(); // This was hiding the keyboard while deleting
     if (ui_WifiStatusLabel) lv_label_set_text(ui_WifiStatusLabel, "");
   } else if (ta == ui_TextArea2) {
     strncpy(wifi_pass, txt, sizeof(wifi_pass) - 1);
@@ -777,6 +777,7 @@ void WifiScanList_cb(lv_event_t *e) {
     strncpy(wifi_ssid, scanSSIDs[idx], sizeof(wifi_ssid) - 1);
     wifi_ssid[sizeof(wifi_ssid) - 1] = '\0';
     hideWifiScanDropdown();
+    WifiScanClear(); // stop scanning after selecting a network
     lv_obj_clear_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
   }
