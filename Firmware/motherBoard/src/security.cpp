@@ -178,11 +178,13 @@ extern PID humidityControlPID;
 extern in3ator_parameters in3;
 
 // --- Skin probe state machine ---
-#define SKIN_PROBE_DEBOUNCE_MS     2000
-#define SKIN_PROBE_VALID_WINDOW_MS 5000
+#define SKIN_PROBE_DEBOUNCE_MS          2000
+#define SKIN_PROBE_VALID_WINDOW_MS      5000 // runtime reconnection
+#define SKIN_PROBE_BOOT_VALID_WINDOW_MS  300 // first detection at boot
 
 SkinProbeState_t s_skinProbeState = SKIN_PROBE_NOT_CONNECTED;
 static long s_probeStateTime = 0;
+static bool s_probeFirstValidation = true; // true until first validation attempt completes
 
 bool skinProbeIsValid() {
   return s_skinProbeState == SKIN_PROBE_VALID;
@@ -202,14 +204,19 @@ void updateSkinProbeState() {
       }
       break;
 
-    case SKIN_PROBE_PENDING_VALIDATION:
+    case SKIN_PROBE_PENDING_VALIDATION: {
+      long validWindow = s_probeFirstValidation ? SKIN_PROBE_BOOT_VALID_WINDOW_MS
+                                                : SKIN_PROBE_VALID_WINDOW_MS;
       if (!probePresent) {
+        s_probeFirstValidation = false;
         s_skinProbeState = SKIN_PROBE_NOT_CONNECTED;
-      } else if (millis() - s_probeStateTime >= SKIN_PROBE_VALID_WINDOW_MS) {
+      } else if (millis() - s_probeStateTime >= validWindow) {
+        s_probeFirstValidation = false;
         s_skinProbeState = SKIN_PROBE_VALID;
         logI("[SKIN_PROBE] -> Probe validated");
       }
       break;
+    }
 
     case SKIN_PROBE_VALID:
       if (!probePresent) {
@@ -242,6 +249,13 @@ void updateSkinProbeState() {
         s_skinProbeState = SKIN_PROBE_NOT_CONNECTED;
       }
       break;
+  }
+
+  // If probe is not valid and SKIN mode is still selected, switch to AIR
+  if (!skinProbeIsValid() && in3.controlMode == CONTROL_SKIN) {
+    in3.controlMode = CONTROL_AIR;
+    EEPROM.write(EEPROM_CONTROL_MODE, in3.controlMode);
+    EEPROM.commit();
   }
 }
 
