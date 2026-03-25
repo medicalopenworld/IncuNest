@@ -168,6 +168,7 @@ lv_obj_t * ui_TextArea2 = NULL;
 lv_obj_t * ui_WifiConnectButton = NULL;
 lv_obj_t * ui_ConnectLabel = NULL;
 lv_obj_t * ui_WifiDisconnectButton = NULL;
+lv_obj_t * ui_WifiStatusPanel = NULL;
 lv_obj_t * ui_WifiStatusLabel = NULL;
 lv_obj_t * ui_LanguagesDropDown = NULL;
 lv_obj_t * ui_WifiConnectedCont = NULL;
@@ -2336,15 +2337,26 @@ void ui_ScreenSettings_screen_init(void) {
       lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
     }
 
-    // Status label — shows "Conectando...", error messages, etc.
-    ui_WifiStatusLabel = lv_label_create(ui_WifiConfigCont);
-    lv_obj_set_width(ui_WifiStatusLabel, 270);
+    // Status Panel — Beautiful container for "Conectando..." or "Conectado a..."
+    ui_WifiStatusPanel = lv_obj_create(ui_WifiConfigCont);
+    lv_obj_set_width(ui_WifiStatusPanel, 400);
+    lv_obj_set_height(ui_WifiStatusPanel, 40);
+    lv_obj_set_x(ui_WifiStatusPanel, 185);
+    lv_obj_set_y(ui_WifiStatusPanel, -128); // Above SSID panel
+    lv_obj_set_align(ui_WifiStatusPanel, LV_ALIGN_CENTER);
+    lv_obj_clear_flag(ui_WifiStatusPanel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(ui_WifiStatusPanel, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(ui_WifiStatusPanel, 200, LV_PART_MAIN | LV_STATE_DEFAULT); // Soft transparency
+    lv_obj_set_style_radius(ui_WifiStatusPanel, 8, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_color(ui_WifiStatusPanel, lv_color_hex(0xEEEEEE), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(ui_WifiStatusPanel, 1, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_add_flag(ui_WifiStatusPanel, LV_OBJ_FLAG_HIDDEN); // Hidden by default
+
+    ui_WifiStatusLabel = lv_label_create(ui_WifiStatusPanel);
+    lv_obj_set_width(ui_WifiStatusLabel, LV_SIZE_CONTENT);
     lv_obj_set_height(ui_WifiStatusLabel, LV_SIZE_CONTENT);
-    lv_obj_set_x(ui_WifiStatusLabel, -190);
-    lv_obj_set_y(ui_WifiStatusLabel, 45);
     lv_obj_set_align(ui_WifiStatusLabel, LV_ALIGN_CENTER);
     lv_label_set_text(ui_WifiStatusLabel, "");
-    lv_label_set_long_mode(ui_WifiStatusLabel, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_font(ui_WifiStatusLabel, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_InfoDetailsCont = lv_obj_create(ui_ScreenSettings);

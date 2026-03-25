@@ -246,6 +246,7 @@ extern lv_obj_t * ui_TextArea2;
 extern lv_obj_t * ui_WifiConnectButton;
 extern lv_obj_t * ui_ConnectLabel;
 extern lv_obj_t * ui_WifiDisconnectButton;
+extern lv_obj_t * ui_WifiStatusPanel;
 extern lv_obj_t * ui_WifiStatusLabel;
 extern lv_obj_t * ui_LanguagesDropDown;
 extern lv_obj_t * ui_WifiConnectedCont;

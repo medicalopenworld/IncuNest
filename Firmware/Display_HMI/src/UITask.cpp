@@ -658,16 +658,17 @@ void WifiButton_cb(lv_event_t *e) {
     strncpy(wifi_ssid, connSSIDStr.c_str(), sizeof(wifi_ssid) - 1);
     wifi_ssid[sizeof(wifi_ssid) - 1] = '\0';
     wifiShowDisconnectBtn();
-    if (ui_WifiStatusLabel) {
+    if (ui_WifiStatusLabel && ui_WifiStatusPanel) {
       char buf[80];
       snprintf(buf, sizeof(buf), "Conectado a: %s", connSSIDStr.c_str());
       lv_label_set_text(ui_WifiStatusLabel, buf);
-      lv_obj_set_style_text_color(ui_WifiStatusLabel, lv_color_hex(0x27AE60),
-                                  LV_PART_MAIN | LV_STATE_DEFAULT);
+      lv_obj_set_style_text_color(ui_WifiStatusLabel, lv_color_hex(0x27AE60), LV_PART_MAIN | LV_STATE_DEFAULT);
+      lv_obj_clear_flag(ui_WifiStatusPanel, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_set_style_border_color(ui_WifiStatusPanel, lv_color_hex(0x27AE60), LV_PART_MAIN | LV_STATE_DEFAULT);
     }
   } else {
     wifiShowConnectBtn();
-    if (ui_WifiStatusLabel) lv_label_set_text(ui_WifiStatusLabel, "");
+    if (ui_WifiStatusPanel) lv_obj_add_flag(ui_WifiStatusPanel, LV_OBJ_FLAG_HIDDEN);
   }
 
   wifiVisible = true;
@@ -1976,10 +1977,11 @@ void WifiConnectButton_cb(lv_event_t *e) {
   ESP_LOGI("UITask", "User clicked CONNECT for SSID: %s", pendingSSID);
 
   // Show "Conectando..." feedback
-  if (ui_WifiStatusLabel) {
+  if (ui_WifiStatusLabel && ui_WifiStatusPanel) {
     lv_label_set_text(ui_WifiStatusLabel, "Conectando...");
-    lv_obj_set_style_text_color(ui_WifiStatusLabel, lv_color_hex(0x2196F3),
-                                LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(ui_WifiStatusLabel, lv_color_hex(0x2196F3), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_clear_flag(ui_WifiStatusPanel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_style_border_color(ui_WifiStatusPanel, lv_color_hex(0x2196F3), LV_PART_MAIN | LV_STATE_DEFAULT);
   }
   wifiConnecting     = true;
   wifiConnectStartMs = millis();
@@ -1998,7 +2000,7 @@ void WifiDisconnectButton_cb(lv_event_t *e) {
   if (ui_TextArea1) lv_textarea_set_text(ui_TextArea1, "");
   if (ui_TextArea2) lv_textarea_set_text(ui_TextArea2, "");
   wifiShowConnectBtn();
-  if (ui_WifiStatusLabel) lv_label_set_text(ui_WifiStatusLabel, "");
+  if (ui_WifiStatusPanel) lv_obj_add_flag(ui_WifiStatusPanel, LV_OBJ_FLAG_HIDDEN);
 }
 
 void Label9_cb(lv_event_t *e) {
@@ -2530,21 +2532,22 @@ void UI_Task(void *pvParameters) {
             strncpy(wifi_ssid, connSSIDStr.c_str(), sizeof(wifi_ssid) - 1);
             wifi_ssid[sizeof(wifi_ssid) - 1] = '\0';
           }
-          if (ui_WifiStatusLabel) {
+          if (ui_WifiStatusLabel && ui_WifiStatusPanel) {
             char buf[80];
             snprintf(buf, sizeof(buf), "Conectado a: %s", connSSIDStr.c_str());
             lv_label_set_text(ui_WifiStatusLabel, buf);
-            lv_obj_set_style_text_color(ui_WifiStatusLabel, lv_color_hex(0x27AE60),
-                                        LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_color(ui_WifiStatusLabel, lv_color_hex(0x27AE60), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_border_color(ui_WifiStatusPanel, lv_color_hex(0x27AE60), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_clear_flag(ui_WifiStatusPanel, LV_OBJ_FLAG_HIDDEN);
           }
         } else if (millis() - wifiConnectStartMs > WIFI_CONNECT_TIMEOUT_MS) {
           // Timeout → likely wrong password (AUTH_FAIL reason 202)
           wifiConnecting = false;
           wifiShowConnectBtn();
-          if (ui_WifiStatusLabel) {
+          if (ui_WifiStatusLabel && ui_WifiStatusPanel) {
             lv_label_set_text(ui_WifiStatusLabel, "Error: verificar contraseña");
-            lv_obj_set_style_text_color(ui_WifiStatusLabel, lv_color_hex(0xE53935),
-                                        LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_color(ui_WifiStatusLabel, lv_color_hex(0xE53935), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_border_color(ui_WifiStatusPanel, lv_color_hex(0xE53935), LV_PART_MAIN | LV_STATE_DEFAULT);
           }
         }
       }
@@ -3038,6 +3041,18 @@ void UI_ApplyTheme() {
     // Buttons inside WifiConfigCont use white text on colored backgrounds — restore after recursive pass
     if (ui_ConnectLabel)    lv_obj_set_style_text_color(ui_ConnectLabel,    lv_color_hex(0xFFFFFF), 0);
     if (ui_WifiDisconnectButton) UI_ApplyStyleToLabelsRecursive(ui_WifiDisconnectButton, lv_color_hex(0xFFFFFF));
+    
+    // Status label should NOT be forced to black if it's showing connected/connecting state
+    if (ui_WifiStatusLabel && ui_WifiStatusPanel && !lv_obj_has_flag(ui_WifiStatusPanel, LV_OBJ_FLAG_HIDDEN)) {
+        const char *txt = lv_label_get_text(ui_WifiStatusLabel);
+        if (strstr(txt, "Conectado")) {
+            lv_obj_set_style_text_color(ui_WifiStatusLabel, lv_color_hex(0x27AE60), 0);
+            lv_obj_set_style_border_color(ui_WifiStatusPanel, lv_color_hex(0x27AE60), 0);
+        } else if (strstr(txt, "Conectando")) {
+            lv_obj_set_style_text_color(ui_WifiStatusLabel, lv_color_hex(0x2196F3), 0);
+            lv_obj_set_style_border_color(ui_WifiStatusPanel, lv_color_hex(0x2196F3), 0);
+        }
+    }
 
     // Images recoloring for Dark Mode (Originals are black, we want white)
     lv_color_t img_recolor = darkMode ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x000000);
