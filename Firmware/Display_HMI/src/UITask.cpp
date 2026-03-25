@@ -790,6 +790,7 @@ void WifiScanList_cb(lv_event_t *e) {
     hideWifiScanDropdown();
     lv_keyboard_set_textarea(ui_Keyboard1, ui_TextArea1);
     lv_obj_clear_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(ui_Keyboard1);
     // Hide both action buttons while keyboard is open
     if (ui_WifiConnectButton)    lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
     if (ui_ConnectLabel)         lv_obj_add_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
@@ -824,6 +825,7 @@ void TextArea_focus_cb(lv_event_t *e) {
       // SSID has text → show keyboard for manual edit (rule §6)
       lv_keyboard_set_textarea(ui_Keyboard1, ta);
       lv_obj_clear_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_move_foreground(ui_Keyboard1);
       if (ui_WifiConnectButton)    lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
       if (ui_ConnectLabel)         lv_obj_add_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
       if (ui_WifiDisconnectButton) lv_obj_add_flag(ui_WifiDisconnectButton, LV_OBJ_FLAG_HIDDEN);
@@ -832,6 +834,7 @@ void TextArea_focus_cb(lv_event_t *e) {
     // Password field → always show keyboard
     lv_keyboard_set_textarea(ui_Keyboard1, ta);
     lv_obj_clear_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(ui_Keyboard1);
     if (ui_WifiConnectButton)    lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
     if (ui_ConnectLabel)         lv_obj_add_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
     if (ui_WifiDisconnectButton) lv_obj_add_flag(ui_WifiDisconnectButton, LV_OBJ_FLAG_HIDDEN);
@@ -2579,7 +2582,8 @@ void UI_Task(void *pvParameters) {
       }
 
       // --- Periodic status synchronization (while screen is open) ---
-      if (!wifiConnecting && !wifiScanListVisible) {
+      // IMPORTANT: Only sync if keyboard is NOT visible, to avoid overlapping buttons (Rule §10)
+      if (!wifiConnecting && !wifiScanListVisible && lv_obj_has_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN)) {
         static uint32_t lastWifiSyncMs = 0;
         if (millis() - lastWifiSyncMs > 2000) {
           lastWifiSyncMs = millis();
