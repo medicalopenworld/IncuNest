@@ -1961,7 +1961,7 @@ static void add_unlock_press_cb_recursive(lv_obj_t *obj) {
 }
 
 void inactivity_timer_cb(lv_timer_t *timer) {
-  if (lv_scr_act() == ui_ScreenAlarms) {
+  if (lv_scr_act() == ui_ScreenAlarms || wifiVisible) {
     lv_disp_trig_activity(NULL);
     return;
   }
