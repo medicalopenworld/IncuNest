@@ -130,6 +130,7 @@ static bool s_scanResultsReady = false;
 static bool s_suppressReconnect = false;
 
 void WifiScanRequest(void) { 
+  ESP_LOGI(TAG, "User requested WiFi scan");
   s_scanResultsReady = false;
   s_scanCount = 0;
   g_wifiScanRequest = true; 
@@ -142,11 +143,11 @@ void WifiScanHandler(void) {
     s_suppressReconnect = true; // Stop auto-reconnect while scanning
     ESP_LOGI(TAG, "Starting async WiFi scan...");
     
-    // Ensure we are in STA mode but don't force it if not needed
-    if (WiFi.getMode() != WIFI_STA) {
-        WiFi.mode(WIFI_STA);
+    WiFi.mode(WIFI_STA);
+    if (WiFi.status() != WL_DISCONNECTED) {
+      WiFi.disconnect(false);
+      vTaskDelay(pdMS_TO_TICKS(300));
     }
-    
     WiFi.scanDelete();
     WiFi.scanNetworks(true, true); // Async, Hidden
     s_scanInProgress = true;
@@ -177,6 +178,7 @@ uint8_t* WifiScanGetBSSID(int index) { return WiFi.BSSID(index); }
 int8_t   WifiScanGetChannel(int index) { return WiFi.channel(index); }
 
 void WifiScanClear(void) { 
+  ESP_LOGI(TAG, "Stopping/Clearing WiFi scan results");
   WiFi.scanDelete(); 
   s_scanInProgress = false;
   s_scanResultsReady = false;
@@ -200,14 +202,8 @@ int  WifiGetLastDisconnectReason(void) { return 0; }
    setup function
 */
 void wifiInit(void) {
-  // Connect to WiFi network
-  ESP_LOGI(TAG, "Initializing WiFi (Fase 2: Escáner Integrado)");
   Wifi_TB.lastWifiReconnectAttempt = millis();
-  s_suppressReconnect = false; // Re-enable auto-reconnect when user connects
-  WiFi.setHostname(
-      String(String(WIFI_NAME) + "-" + String(in3.serialNumber)).c_str());
-  WiFi.mode(WIFI_STA);
-  WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
+  s_suppressReconnect = false;
 
   String ssid;
   String pass;
@@ -220,14 +216,21 @@ void wifiInit(void) {
     ssid = EEPROM.readString(EEPROM_WIFI_SSID);
     pass = EEPROM.readString(EEPROM_WIFI_PASSWORD);
     if (ssid.length() > 0) {
-      ESP_LOGI(TAG, "Connecting to SSID from EEPROM: %s", ssid.c_str());
+      ESP_LOGI(TAG, "Connecting to EEPROM SSID: %s", ssid.c_str());
     } else {
-      ESP_LOGI(TAG, "Connecting to default SSID: %s", WIFI_SSID);
-      ssid = WIFI_SSID;
-      pass = WIFI_PASSWORD;
+      ESP_LOGI(TAG, "No credentials available, skipping connect");
+      return;
     }
   }
 
+  WiFi.setHostname(
+      String(String(WIFI_NAME) + "-" + String(in3.serialNumber)).c_str());
+  WiFi.setAutoReconnect(false); // we handle reconnect manually
+  WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
+  WiFi.disconnect(false);
+  vTaskDelay(pdMS_TO_TICKS(150));
+  WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
   WiFi.begin(ssid.c_str(), pass.c_str());
   lastconnectiontrywifi = millis();
 }
@@ -532,7 +535,17 @@ void WifiOTAHandler(void) {
 }
 
 static void OTA_WIFI_Task(void *pvParameters) {
-  wifiInit();
+  // Only auto-connect at startup if there are saved credentials in EEPROM
+  {
+    String savedSSID = EEPROM.readString(EEPROM_WIFI_SSID);
+    if (savedSSID.length() > 0) {
+      wifiInit();
+    } else {
+      s_suppressReconnect = true;
+      Wifi_TB.lastWifiReconnectAttempt = millis();
+      ESP_LOGI(TAG, "No saved credentials — waiting for user to connect");
+    }
+  }
   WIFI_TB_Init();
   for (;;) {
     WifiOTAHandler();
