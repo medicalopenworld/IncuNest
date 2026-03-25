@@ -77,8 +77,9 @@ char wifi_pass[64] = "";
 
 // WiFi connection state tracking (UI task side)
 static bool     wifiConnecting       = false;
+static bool     wifiDisconnecting    = false;
 static uint32_t wifiConnectStartMs   = 0;
-#define WIFI_CONNECT_TIMEOUT_MS 20000  // show error after 20 s without connection
+#define WIFI_CONNECT_TIMEOUT_MS 20000 
 
 // WiFi Scan Dropdown
 static bool wifiScanListVisible = false;
@@ -97,6 +98,15 @@ lv_chart_series_t *humSeries = NULL;
 bool g_stateSynced = false;
 uint32_t g_lastStateReqMs = 0;
 bool g_ui_initialized = false;
+
+// Localized strings for WiFi
+const char *TXT_WIFI_CONNECTING[]    = {"CONECTANDO...", "CONNECTING...", "CONNEXION..."};
+const char *TXT_WIFI_CONNECTED[]     = {"CONECTADO A: ", "CONNECTED TO: ", "CONNECTE A: "};
+const char *TXT_WIFI_DISCONNECTING[] = {"DESCONECTANDO...", "DISCONNECTING...", "DECONNEXION..."};
+const char *TXT_WIFI_ERROR_PASS[]    = {"Error: verificar contraseña", "Error: check password", "Erreur: vérifier mot de passe"};
+const char *TXT_WIFI_NO_NETWORKS[]   = {"No se detectaron redes", "No networks detected", "Aucun réseau détecté"};
+const char *TXT_WIFI_AVAILABLE[]     = {"Redes disponibles:", "Available networks:", "Réseaux disponibles:"};
+const char *TXT_WIFI_MANUAL[]        = {"Introducir manualmente", "Manual entry", "Saisie manuelle"};
 
 static bool eepromDirty = false;
 static unsigned long lastVarChangeTime = 0;
@@ -660,7 +670,7 @@ void WifiButton_cb(lv_event_t *e) {
     wifiShowDisconnectBtn();
     if (ui_WifiStatusLabel && ui_WifiStatusPanel) {
       char buf[80];
-      snprintf(buf, sizeof(buf), "Conectado a: %s", connSSIDStr.c_str());
+      snprintf(buf, sizeof(buf), "%s%s", TXT_WIFI_CONNECTED[g_lang], connSSIDStr.c_str());
       lv_label_set_text(ui_WifiStatusLabel, buf);
       lv_obj_set_style_text_color(ui_WifiStatusLabel, lv_color_hex(0x27AE60), LV_PART_MAIN | LV_STATE_DEFAULT);
       lv_obj_clear_flag(ui_WifiStatusPanel, LV_OBJ_FLAG_HIDDEN);
@@ -1978,7 +1988,7 @@ void WifiConnectButton_cb(lv_event_t *e) {
 
   // Show "Conectando..." feedback
   if (ui_WifiStatusLabel && ui_WifiStatusPanel) {
-    lv_label_set_text(ui_WifiStatusLabel, "Conectando...");
+    lv_label_set_text(ui_WifiStatusLabel, TXT_WIFI_CONNECTING[g_lang]);
     lv_obj_set_style_text_color(ui_WifiStatusLabel, lv_color_hex(0x2196F3), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(ui_WifiStatusPanel, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_style_border_color(ui_WifiStatusPanel, lv_color_hex(0x2196F3), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -1993,14 +2003,17 @@ void WifiConnectButton_cb(lv_event_t *e) {
 }
 
 void WifiDisconnectButton_cb(lv_event_t *e) {
-  WifiDisconnect();
-  wifiConnecting = false;
-  wifi_ssid[0] = '\0';
-  wifi_pass[0] = '\0';
-  if (ui_TextArea1) lv_textarea_set_text(ui_TextArea1, "");
-  if (ui_TextArea2) lv_textarea_set_text(ui_TextArea2, "");
-  wifiShowConnectBtn();
-  if (ui_WifiStatusPanel) lv_obj_add_flag(ui_WifiStatusPanel, LV_OBJ_FLAG_HIDDEN);
+  WifiDisconnect(); // starts hardware disconnect
+  wifiDisconnecting = true;
+  wifiConnecting    = false;
+  
+  // Feedback "Desconectando..."
+  if (ui_WifiStatusLabel && ui_WifiStatusPanel) {
+    lv_label_set_text(ui_WifiStatusLabel, TXT_WIFI_DISCONNECTING[g_lang]);
+    lv_obj_set_style_text_color(ui_WifiStatusLabel, lv_color_hex(0xE53935), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_clear_flag(ui_WifiStatusPanel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_style_border_color(ui_WifiStatusPanel, lv_color_hex(0xE53935), LV_PART_MAIN | LV_STATE_DEFAULT);
+  }
 }
 
 void Label9_cb(lv_event_t *e) {
@@ -2519,6 +2532,19 @@ void UI_Task(void *pvParameters) {
       lv_obj_clear_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
       lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN); // legacy bar never shown
 
+      // --- Disconnection state machine ---
+      if (wifiDisconnecting) {
+        if (WiFi.status() != WL_CONNECTED) {
+          wifiDisconnecting = false;
+          wifi_ssid[0] = '\0';
+          wifi_pass[0] = '\0';
+          if (ui_TextArea1) lv_textarea_set_text(ui_TextArea1, "");
+          if (ui_TextArea2) lv_textarea_set_text(ui_TextArea2, "");
+          wifiShowConnectBtn();
+          if (ui_WifiStatusPanel) lv_obj_add_flag(ui_WifiStatusPanel, LV_OBJ_FLAG_HIDDEN);
+        }
+      }
+
       // --- Connection state machine (user-initiated) ---
       if (wifiConnecting && !WifiScanIsInProgress()) {
         wl_status_t status = WiFi.status();
@@ -2534,7 +2560,7 @@ void UI_Task(void *pvParameters) {
           }
           if (ui_WifiStatusLabel && ui_WifiStatusPanel) {
             char buf[80];
-            snprintf(buf, sizeof(buf), "Conectado a: %s", connSSIDStr.c_str());
+            snprintf(buf, sizeof(buf), "%s%s", TXT_WIFI_CONNECTED[g_lang], connSSIDStr.c_str());
             lv_label_set_text(ui_WifiStatusLabel, buf);
             lv_obj_set_style_text_color(ui_WifiStatusLabel, lv_color_hex(0x27AE60), LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_color(ui_WifiStatusPanel, lv_color_hex(0x27AE60), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -2545,7 +2571,7 @@ void UI_Task(void *pvParameters) {
           wifiConnecting = false;
           wifiShowConnectBtn();
           if (ui_WifiStatusLabel && ui_WifiStatusPanel) {
-            lv_label_set_text(ui_WifiStatusLabel, "Error: verificar contraseña");
+            lv_label_set_text(ui_WifiStatusLabel, TXT_WIFI_ERROR_PASS[g_lang]);
             lv_obj_set_style_text_color(ui_WifiStatusLabel, lv_color_hex(0xE53935), LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_color(ui_WifiStatusPanel, lv_color_hex(0xE53935), LV_PART_MAIN | LV_STATE_DEFAULT);
           }
@@ -2583,9 +2609,9 @@ void UI_Task(void *pvParameters) {
         lv_obj_clean(ui_WifiScanList);
         scanNetworkCount = WifiScanGetCount();
         if (scanNetworkCount == 0) {
-          lv_label_set_text(ui_WifiScanStatus, "No se detectaron redes");
+          lv_label_set_text(ui_WifiScanStatus, TXT_WIFI_NO_NETWORKS[g_lang]);
         } else {
-          lv_label_set_text(ui_WifiScanStatus, "Redes disponibles:");
+          lv_label_set_text(ui_WifiScanStatus, TXT_WIFI_AVAILABLE[g_lang]);
           int count = (scanNetworkCount < WIFI_SCAN_MAX_NETWORKS) ? scanNetworkCount : WIFI_SCAN_MAX_NETWORKS;
           for (int i = 0; i < count; i++) {
             strncpy(scanSSIDs[i], WifiScanGetSSID(i).c_str(), 32);
@@ -2598,7 +2624,7 @@ void UI_Task(void *pvParameters) {
           }
         }
         // Always offer manual entry (RF-WIFI-006 / RF-WIFI-007)
-        lv_obj_t *manualBtn = lv_list_add_btn(ui_WifiScanList, NULL, "Introducir manualmente");
+        lv_obj_t *manualBtn = lv_list_add_btn(ui_WifiScanList, NULL, TXT_WIFI_MANUAL[g_lang]);
         lv_obj_set_style_text_font(manualBtn, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_text_color(manualBtn, lv_color_hex(0x2196F3), LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_add_event_cb(manualBtn, WifiScanList_cb, LV_EVENT_CLICKED, (void *)(intptr_t)-1);
@@ -3045,12 +3071,15 @@ void UI_ApplyTheme() {
     // Status label should NOT be forced to black if it's showing connected/connecting state
     if (ui_WifiStatusLabel && ui_WifiStatusPanel && !lv_obj_has_flag(ui_WifiStatusPanel, LV_OBJ_FLAG_HIDDEN)) {
         const char *txt = lv_label_get_text(ui_WifiStatusLabel);
-        if (strstr(txt, "Conectado")) {
+        if (strstr(txt, "Conectado") && !strstr(txt, "Desconectado")) {
             lv_obj_set_style_text_color(ui_WifiStatusLabel, lv_color_hex(0x27AE60), 0);
             lv_obj_set_style_border_color(ui_WifiStatusPanel, lv_color_hex(0x27AE60), 0);
         } else if (strstr(txt, "Conectando")) {
             lv_obj_set_style_text_color(ui_WifiStatusLabel, lv_color_hex(0x2196F3), 0);
             lv_obj_set_style_border_color(ui_WifiStatusPanel, lv_color_hex(0x2196F3), 0);
+        } else if (strstr(txt, "Desconectando")) {
+            lv_obj_set_style_text_color(ui_WifiStatusLabel, lv_color_hex(0xE53935), 0);
+            lv_obj_set_style_border_color(ui_WifiStatusPanel, lv_color_hex(0xE53935), 0);
         }
     }
 
