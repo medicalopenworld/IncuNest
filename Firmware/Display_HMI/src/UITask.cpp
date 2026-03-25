@@ -103,9 +103,9 @@ bool g_ui_initialized = false;
 const char *TXT_WIFI_CONNECTING[]    = {"CONECTANDO...", "CONNECTING...", "CONNEXION..."};
 const char *TXT_WIFI_CONNECTED[]     = {"CONECTADO A: ", "CONNECTED TO: ", "CONNECTE A: "};
 const char *TXT_WIFI_DISCONNECTING[] = {"DESCONECTANDO...", "DISCONNECTING...", "DECONNEXION..."};
-const char *TXT_WIFI_ERROR_PASS[]    = {"Error: verificar contraseña", "Error: check password", "Erreur: vérifier mot de passe"};
-const char *TXT_WIFI_NO_NETWORKS[]   = {"No se detectaron redes", "No networks detected", "Aucun réseau détecté"};
-const char *TXT_WIFI_AVAILABLE[]     = {"Redes disponibles:", "Available networks:", "Réseaux disponibles:"};
+const char *TXT_WIFI_ERROR_PASS[]    = {"Error: verificar contraseña", "Error: check password", "Erreur: verifier mot de passe"};
+const char *TXT_WIFI_NO_NETWORKS[]   = {"No se detectaron redes", "No networks detected", "Aucun reseau detecte"};
+const char *TXT_WIFI_AVAILABLE[]     = {"Redes disponibles:", "Available networks:", "Reseaux disponibles:"};
 const char *TXT_WIFI_MANUAL[]        = {"Introducir manualmente", "Manual entry", "Saisie manuelle"};
 
 static bool eepromDirty = false;
@@ -453,7 +453,7 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   const char *TXT_RANGE[] = {"RANGO:", "RANGE:", "PLAGE:"};
   const char *TXT_HIST_AIR[] = {"HISTORIAL TEMP AIRE", "AIR TEMP HISTORY", "HIST. TEMP AIR"};
   const char *TXT_HIST_SKIN[] = {"HISTORIAL TEMP PIEL", "SKIN TEMP HISTORY", "HIST. TEMP PEAU"};
-  const char *TXT_HIST_HUM[] = {"HISTORIAL TEMP HUM", "HUMIDITY HISTORY", "HIST. HUMIDITÉ"};
+  const char *TXT_HIST_HUM[] = {"HISTORIAL TEMP HUM", "HUMIDITY HISTORY", "HIST. HUMIDITE"};
 
   lv_label_set_text(ui_Label2, TXT_CONTROLTEMP[lang]);
   lv_label_set_text(ui_HumidityLabel, TXT_CONTROLHUM[lang]);
