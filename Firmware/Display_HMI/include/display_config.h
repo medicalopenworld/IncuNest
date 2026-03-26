@@ -23,58 +23,58 @@
 // -----------------------------------------------------------------------------
 
 // Blue (B0-B4)
-#define DISPLAY_PIN_B0   21
-#define DISPLAY_PIN_B1   47
-#define DISPLAY_PIN_B2   48
-#define DISPLAY_PIN_B3   45
-#define DISPLAY_PIN_B4   38
+#define DISPLAY_PIN_B0 21
+#define DISPLAY_PIN_B1 47
+#define DISPLAY_PIN_B2 48
+#define DISPLAY_PIN_B3 45
+#define DISPLAY_PIN_B4 38
 
 // Green (G0-G5)
-#define DISPLAY_PIN_G0    9
-#define DISPLAY_PIN_G1   10
-#define DISPLAY_PIN_G2   11
-#define DISPLAY_PIN_G3   12
-#define DISPLAY_PIN_G4   13
-#define DISPLAY_PIN_G5   14
+#define DISPLAY_PIN_G0 9
+#define DISPLAY_PIN_G1 10
+#define DISPLAY_PIN_G2 11
+#define DISPLAY_PIN_G3 12
+#define DISPLAY_PIN_G4 13
+#define DISPLAY_PIN_G5 14
 
 // Red (R0-R4)
-#define DISPLAY_PIN_R0    7
-#define DISPLAY_PIN_R1   17
-#define DISPLAY_PIN_R2   18
-#define DISPLAY_PIN_R3    3
-#define DISPLAY_PIN_R4   46
+#define DISPLAY_PIN_R0 7
+#define DISPLAY_PIN_R1 17
+#define DISPLAY_PIN_R2 18
+#define DISPLAY_PIN_R3 3
+#define DISPLAY_PIN_R4 46
 
 // -----------------------------------------------------------------------------
 // Señales de control del bus RGB
 // -----------------------------------------------------------------------------
-#define DISPLAY_PIN_DE    42
+#define DISPLAY_PIN_DE 42
 #define DISPLAY_PIN_VSYNC 41
 #define DISPLAY_PIN_HSYNC 40
-#define DISPLAY_PIN_PCLK  39
+#define DISPLAY_PIN_PCLK 39
 
 // -----------------------------------------------------------------------------
 // Backlight (STC8H1K28 @ 0x30)
 // -----------------------------------------------------------------------------
-#define DISPLAY_PIN_BL          2
-#define DISPLAY_I2C_ADDR_BL     0x30
-#define DISPLAY_BL_ON_VALUE     10
-#define DISPLAY_BL_OFF_VALUE    245
+#define DISPLAY_PIN_BL 2
+#define DISPLAY_I2C_ADDR_BL 0x30
+#define DISPLAY_BL_ON_VALUE 10
+#define DISPLAY_BL_OFF_VALUE 245
 
 // -----------------------------------------------------------------------------
 // Touch GT911 — I2C 15/16
 // -----------------------------------------------------------------------------
-#define DISPLAY_TOUCH_SDA      15
-#define DISPLAY_TOUCH_SCL      16
-#define DISPLAY_TOUCH_INT      -1
-#define DISPLAY_TOUCH_RST      -1
+#define DISPLAY_TOUCH_SDA 15
+#define DISPLAY_TOUCH_SCL 16
+#define DISPLAY_TOUCH_INT -1
+#define DISPLAY_TOUCH_RST -1
 #define DISPLAY_I2C_ADDR_TOUCH 0x14
 #define DISPLAY_I2C_FREQ_TOUCH 400000
 
 // -----------------------------------------------------------------------------
 // Resolución del panel
 // -----------------------------------------------------------------------------
-#define DISPLAY_W  800
-#define DISPLAY_H  480
+#define DISPLAY_W 800
+#define DISPLAY_H 480
 
 // -----------------------------------------------------------------------------
 // Timings de sincronización RGB (ESTABILIDAD DMA)
@@ -82,20 +82,21 @@
 /**
  * @brief Frecuencia pixel clock (12 MHz).
  * IMPORTANTE: No subir a 16MHz si se usa Audio I2S, ya que produce jitter
- * (temblor) en la pantalla por competencia de ancho de banda DMA en el ESP32-S3.
+ * (temblor) en la pantalla por competencia de ancho de banda DMA en el
+ * ESP32-S3.
  */
-#define DISPLAY_FREQ_WRITE         13500000UL
+#define DISPLAY_FREQ_WRITE 15000000UL
 
-#define DISPLAY_HSYNC_POLARITY     1
-#define DISPLAY_HSYNC_FRONT_PORCH  8
-#define DISPLAY_HSYNC_PULSE_WIDTH  4
-#define DISPLAY_HSYNC_BACK_PORCH   8
+#define DISPLAY_HSYNC_POLARITY 1
+#define DISPLAY_HSYNC_FRONT_PORCH 8
+#define DISPLAY_HSYNC_PULSE_WIDTH 4
+#define DISPLAY_HSYNC_BACK_PORCH 8
 
-#define DISPLAY_VSYNC_POLARITY     1
-#define DISPLAY_VSYNC_FRONT_PORCH  8    
-#define DISPLAY_VSYNC_PULSE_WIDTH  4
-#define DISPLAY_VSYNC_BACK_PORCH   8
+#define DISPLAY_VSYNC_POLARITY 1
+#define DISPLAY_VSYNC_FRONT_PORCH 8
+#define DISPLAY_VSYNC_PULSE_WIDTH 4
+#define DISPLAY_VSYNC_BACK_PORCH 8
 
-#define DISPLAY_PCLK_ACTIVE_NEG    1
-#define DISPLAY_DE_IDLE_HIGH       1
-#define DISPLAY_PCLK_IDLE_HIGH     1
+#define DISPLAY_PCLK_ACTIVE_NEG 1
+#define DISPLAY_DE_IDLE_HIGH 1
+#define DISPLAY_PCLK_IDLE_HIGH 1
