@@ -6,27 +6,15 @@
 // Includes
 // -----------------------------
 #include "Credentials_public.h"
-#include "Wifi_OTA.h"
 #include "display_config.h"
 #include <EEPROM.h>
 #include <EEPROM_defines.h>
-#include <ESPmDNS.h>
-#include <Update.h>
-#include <WebServer.h>
-#include <WiFi.h>
 #include <lvgl.h>
 #include <stdint.h>
 
 #define FWversion "1.0.5"
-#define ENABLE_WIFI_OTA true // enable wifi OTA
-extern bool OTA_inprogress;
-
-#define OTA_TASK_PRIORITY 4
-#define OTA_TASK_PERIOD_MS 1
 #define CORE_MONITOR_FREERTOS 0
 #define CORE_ID_FREERTOS 1
-
-#define WIFI_NAME "IncuNest_Display"
 
 // Set to true only on the HMI board
 #define IS_HMI true

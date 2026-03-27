@@ -33,10 +33,9 @@
 TelemetryMessage ctrl_tel_msg = {0, 0, 0, 0};
 HMI_CommandMessage hmi_cmd_msg = {0, 0, 0, 0, 0, 0, 0, false};
 #endif
-char pendingSSID[64] = "";
-char pendingPass[64] = "";
 char wifi_ssid[64] = "";
 char wifi_pass[64] = "";
+bool WIFI_connection_status = false;
 
 #include <Arduino.h>
 #include <stdarg.h>
@@ -54,7 +53,7 @@ Beastdevices_INA3221 mainDigitalCurrentSensor(INA3221_ADDR41_VCC);
 Beastdevices_INA3221 secundaryDigitalCurrentSensor(INA3221_ADDR40_GND);
 BQ25792 charger(0, 0);
 
-bool WIFI_EN = true;
+bool WIFI_EN = false;
 long lastDebugUpdate;
 long loopCounts;
 int page;
@@ -261,13 +260,6 @@ void sensors_Task(void *pvParameters) {
   }
 }
 
-void OTA_WIFI_Task(void *pvParameters) {
-  WIFI_TB_Init();
-  for (;;) {
-    WifiOTAHandler();
-    vTaskDelay(pdMS_TO_TICKS(OTA_TASK_PERIOD_MS));
-  }
-}
 
 void buzzer_Task(void *pvParameters) {
   for (;;) {
@@ -445,9 +437,6 @@ void setup() {
   }
 
   initHardware(false);
-  if (WIFI_EN) {
-    wifiInit();
-  }
 
   // EEPROM.writeString(EEPROM_THINGSBOARD_TOKEN, "3UlOzWQCWwspCQP768hZ");
   // EEPROM.write(EEPROM_THINGSBOARD_PROVISIONED, true);
@@ -481,12 +470,6 @@ void setup() {
     ;
   logI("GPRS task successfully created!\n");
 
-  logI("Creating OTA task ...\n");
-  while (xTaskCreatePinnedToCore(OTA_WIFI_Task, "OTA", 8192, NULL,
-                                 OTA_TASK_PRIORITY, NULL,
-                                 CORE_ID_FREERTOS) != pdPASS)
-    ;
-  logI("OTA task successfully created!\n");
 
   logI("Creating Backlight task ...\n");
   while (xTaskCreatePinnedToCore(Backlight_Task, "BACKLIGHT", 4096, NULL,

@@ -84,9 +84,6 @@ void loaddefaultValues() {
   EEPROM.commit();
 }
 
-extern char wifi_ssid[64];
-extern char wifi_pass[64];
-
 void recapVariables() {
   g_lang = (ui_lang_t)EEPROM.read(EEPROM_LANGUAGE);
   // Validation
@@ -99,11 +96,6 @@ void recapVariables() {
   humValue = EEPROM.read(EEPROM_DESIRED_HUMIDITY);
   photoTimerMinutes = EEPROM.read(EEPROM_PHOTO_TIMER_MINUTES);
   darkMode = EEPROM.read(EEPROM_DARK_MODE) == 1;
-
-  String ssid = EEPROM.readString(EEPROM_WIFI_SSID);
-  String pass = EEPROM.readString(EEPROM_WIFI_PASSWORD);
-  strncpy(wifi_ssid, ssid.c_str(), sizeof(wifi_ssid));
-  strncpy(wifi_pass, pass.c_str(), sizeof(wifi_pass));
 
   // Validation
   if (isnan(airTempValue) || airTempValue < AIR_TEMP_MIN || airTempValue > AIR_TEMP_MAX)
@@ -123,5 +115,4 @@ void recapVariables() {
   ESP_LOGI(TAG, "Air Temp loaded: %.2f", airTempValue);
   ESP_LOGI(TAG, "Skin Temp loaded: %.2f", skinTempValue);
   ESP_LOGI(TAG, "Humidity loaded: %d", humValue);
-  ESP_LOGI(TAG, "WiFi SSID loaded: %s", wifi_ssid);
 }

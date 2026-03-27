@@ -63,8 +63,6 @@
 #include <Espressif_MQTT_Client.h>
 #include <Espressif_Updater.h>
 
-#define DEFAULT_WIFI_EN ON
-
 #define LOG_GPRS false
 #define LOG_MODEM_DATA false
 #define LOG_INFORMATION false
@@ -382,7 +380,6 @@ typedef enum {
 #define EEPROM_AUTO_LOCK 20
 #define EEPROM_LANGUAGE 30
 #define EEPROM_SERIAL_NUMBER 40
-#define EEPROM_WIFI_EN 50
 #define EEPROM_CONTROL_ACTIVE 60
 #define EEPROM_PHOTOTHERAPY_ACTIVE 65
 #define EEPROM_CONTROL_MODE 70
@@ -664,8 +661,6 @@ void buzzerTone(int beepTimes, int timevTaskDelay, int freq);
 void shutBuzzer();
 double measureMeanConsumption(bool, int);
 float measureMeanVoltage(bool, int);
-void WIFI_TB_Init();
-void WifiOTAHandler(void);
 void securityCheck();
 void buzzerConstantTone(int freq);
 void drawAlarmMessage(char *alertMessage);
@@ -737,9 +732,6 @@ void updateDisplaySensors();
 
 void UI_settings();
 void UI_actuatorsProgress();
-
-void wifiInit(void);
-void wifiDisable();
 
 void loaddefaultValues();
 void UI_calibration();

@@ -17,8 +17,6 @@ using namespace esp_usb;
 
 static const char *TAG = "COMM_HOST";
 extern SemaphoreHandle_t log_mutex;
-extern char pendingSSID[64];
-extern char pendingPass[64];
 extern in3ator_parameters in3;
 // ======================================================
 //  GLOBAL DATA
@@ -180,31 +178,6 @@ void parse_line(const char *line) {
     if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
       ESP_LOGW(TAG, "ALARM: %s", line);
       xSemaphoreGiveRecursive(log_mutex);
-    }
-    return;
-  }
-
-  // -----------------------------
-  // HMI WIFI
-  // -----------------------------
-  const char *wifiPtr = strstr(line, "HMI,WIFI");
-  if (wifiPtr != NULL) {
-    if (sscanf(wifiPtr, "HMI,WIFI,%63[^,],%63s", pendingSSID, pendingPass) ==
-        2) {
-      if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        ESP_LOGI(TAG,
-                 "Received WiFi credentials: SSID=%s, PASS=%s. Attempting "
-                 "connection...",
-                 pendingSSID, pendingPass);
-        xSemaphoreGiveRecursive(log_mutex);
-      }
-      extern void wifiInit(void);
-      wifiInit();
-    } else {
-      if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        ESP_LOGE(TAG, "WIFI parse error");
-        xSemaphoreGiveRecursive(log_mutex);
-      }
     }
     return;
   }
@@ -565,13 +538,7 @@ void Communication_Task(void *pvParameters) {
       if (millis() - last_tel_time > 1000) {
         // Determine communication status
         int status = COMM_STATUS_NONE;
-        if (WIFIIsConnected()) {
-          if (WIFIIsConnectedToServer()) {
-            status = COMM_STATUS_WIFI_SERVER;
-          } else {
-            status = COMM_STATUS_WIFI_ONLY;
-          }
-        } else if (GPRS.connectionStatus) {
+        if (GPRS.connectionStatus) {
           if (GPRSIsConnectedToServer()) {
             status = COMM_STATUS_GPRS_SERVER;
           } else {

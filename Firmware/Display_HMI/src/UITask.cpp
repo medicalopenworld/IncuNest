@@ -1,6 +1,5 @@
 #include "UITask.h"
 #include "CommTask.h"
-#include "Wifi_OTA.h"
 #include "buzzer.h"
 #include "esp_log.h"
 #include "main.h"
@@ -71,23 +70,6 @@ int alarmSlotToIndex[MAX_ALARM_DISPLAY] = {-1, -1, -1, -1};
 
 int chartLastPressed = -1;
 
-bool wifiVisible = false;
-char wifi_ssid[64] = "";
-char wifi_pass[64] = "";
-
-// WiFi connection state tracking (UI task side)
-static bool     wifiConnecting       = false;
-static bool     wifiDisconnecting    = false;
-static uint32_t wifiConnectStartMs   = 0;
-#define WIFI_CONNECT_TIMEOUT_MS 20000 
-
-// WiFi Scan Dropdown
-static bool wifiScanListVisible = false;
-static bool wifiScanResultsPopulated = false;
-#define WIFI_SCAN_MAX_NETWORKS 10
-static char scanSSIDs[WIFI_SCAN_MAX_NETWORKS][33];
-static int  scanNetworkCount = 0;
-
 bool LanguagesVisible = false;
 bool locked = true;
 
@@ -98,15 +80,6 @@ lv_chart_series_t *humSeries = NULL;
 bool g_stateSynced = false;
 uint32_t g_lastStateReqMs = 0;
 bool g_ui_initialized = false;
-
-// Localized strings for WiFi
-const char *TXT_WIFI_CONNECTING[]    = {"CONECTANDO...", "CONNECTING...", "CONNEXION..."};
-const char *TXT_WIFI_CONNECTED[]     = {"CONECTADO A: ", "CONNECTED TO: ", "CONNECTE A: "};
-const char *TXT_WIFI_DISCONNECTING[] = {"DESCONECTANDO...", "DISCONNECTING...", "DECONNEXION..."};
-const char *TXT_WIFI_ERROR_PASS[]    = {"Error: verificar contraseña", "Error: check password", "Erreur: verifier mot de passe"};
-const char *TXT_WIFI_NO_NETWORKS[]   = {"No se detectaron redes", "No networks detected", "Aucun reseau detecte"};
-const char *TXT_WIFI_AVAILABLE[]     = {"Redes disponibles:", "Available networks:", "Reseaux disponibles:"};
-const char *TXT_WIFI_MANUAL[]        = {"Introducir manualmente", "Manual entry", "Saisie manuelle"};
 
 static bool eepromDirty = false;
 static unsigned long lastVarChangeTime = 0;
@@ -394,10 +367,6 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   const char *TXT_OFF[] = {"OFF", "OFF", "OFF"};
   const char *TXT_SETTINGS[] = {"AJUSTES", "SETTINGS", "PARAMETRES"};
   const char *TXT_LANG[] = {"IDIOMA", "LANGUAGE", "LANGUE"};
-  const char *TXT_WIFI[] = {"WIFI", "WIFI", "WIFI"};
-  const char *TXT_CONNECT[] = {"CONECTAR", "CONNECT", "CONNEXION"};
-  const char *TXT_SSID[] = {"SSID", "SSID", "SSID"};
-  const char *TXT_PASSWORD[] = {"CONTRASENA", "PASSWORD", "MOT DE PASSE"};
   const char *TXT_SKINMODE[] = {"MODO PIEL", "SKIN MODE", "MODE PEAU"};
   const char *TXT_INFO[] = {"INFO", "INFO", "INFO"};
   const char *TXT_HMI_VERSION[] = {"VERSION PANTALLA:", "DISPLAY VERSION:", "VERSION ECRAN:"};
@@ -432,9 +401,6 @@ void UI_ApplyLanguage(ui_lang_t lang) {
                               "APPUYEZ 2 SEG\nPOUR DEVERROUILLER"};
   const char *TXT_INCUNEST[] = {"INCUNEST", "INCUNEST", "INCUNEST"};
   const char *TXT_SET[] = {"AJUSTAR", "SET", "REGLER"};
-  const char *TXT_WIFISSID[] = {"WIFISSID", "WIFISSID", "WIFISSID"};
-  const char *TXT_WIFICONNECTEDTO[] = {"WIFI CONECTADO A", "WIFI CONNECTED TO",
-                                       "WIFI CONNECTE A"};
   const char *TXT_ALARMSDESC[] = {"DESCRIPCION DE ALARMAS", "ALARMS DESCRIPTION",
                                   "DESCRIPTION DES ALARMES"};
   const char *TXT_OXICHART[] = {"GRAFICO OXIMETRIA", "OXIMETRY CHART",
@@ -468,10 +434,6 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   lv_label_set_text(ui_Label17, TXT_OFF[lang]);
   lv_label_set_text(ui_Label8, TXT_SETTINGS[lang]);
   lv_label_set_text(ui_LanguagesLabel, TXT_LANG[lang]);
-  lv_label_set_text(ui_WifiLabel, TXT_WIFI[lang]);
-  lv_label_set_text(ui_ConnectLabel, TXT_CONNECT[lang]);
-  lv_label_set_text(ui_SSIDLabel, TXT_SSID[lang]);
-  lv_label_set_text(ui_PassLabel, TXT_PASSWORD[lang]);
   lv_label_set_text(ui_SkinOptionLabel, TXT_SKINMODE[lang]);
   lv_label_set_text(ui_InfoLabel, TXT_INFO[lang]);
   lv_label_set_text(ui_DarkModeLabel, TXT_DARKMODE[lang]);
@@ -485,8 +447,6 @@ void UI_ApplyLanguage(ui_lang_t lang) {
 
   lv_label_set_text(ui_Label6, TXT_SET[lang]);
   lv_label_set_text(ui_Label7, TXT_SET[lang]);
-  lv_label_set_text(ui_WifiSSIDLabel, TXT_WIFISSID[lang]);
-  lv_label_set_text(ui_WifiConnectedToLabel, TXT_WIFICONNECTEDTO[lang]);
   lv_label_set_text(ui_AlarmDetailLabel, TXT_ALARMSDESC[lang]);
   lv_label_set_text(ui_Label35, TXT_OXICHART[lang]);
   lv_label_set_text(ui_Label39, TXT_PULSEOXIMETRY[lang]);
@@ -637,61 +597,9 @@ void set_active_panel(lv_obj_t *active, lv_obj_t *inactive) {
   lv_obj_set_style_opa(inactive, LV_OPA_COVER, LV_PART_MAIN);
 }
 
-static void hideWifiScanDropdown(void); // forward declaration
-
-// Show Connect (blue) and hide Disconnect/status.
-static void wifiShowConnectBtn(void) {
-  if (ui_WifiConnectButton)    lv_obj_clear_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
-  if (ui_ConnectLabel)         lv_obj_clear_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
-  if (ui_WifiDisconnectButton) lv_obj_add_flag(ui_WifiDisconnectButton, LV_OBJ_FLAG_HIDDEN);
-}
-
-// Show Disconnect (red) and hide Connect.
-static void wifiShowDisconnectBtn(void) {
-  if (ui_WifiConnectButton)    lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
-  if (ui_ConnectLabel)         lv_obj_add_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
-  if (ui_WifiDisconnectButton) lv_obj_clear_flag(ui_WifiDisconnectButton, LV_OBJ_FLAG_HIDDEN);
-}
-
-void WifiButton_cb(lv_event_t *e) {
-  lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
-  LanguagesVisible = false;
-  lv_obj_add_flag(ui_InfoDetailsCont, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN); // legacy bar always hidden
-  lv_obj_clear_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);  // always show config panel
-
-  // Show correct button based on current connection state — no side effects
-  if (WiFi.status() == WL_CONNECTED) {
-    wifiConnecting = false;
-    String connSSIDStr = WiFi.SSID(); // store in String to avoid dangling pointer
-    lv_textarea_set_text(ui_TextArea1, connSSIDStr.c_str());
-    strncpy(wifi_ssid, connSSIDStr.c_str(), sizeof(wifi_ssid) - 1);
-    wifi_ssid[sizeof(wifi_ssid) - 1] = '\0';
-    wifiShowDisconnectBtn();
-    if (ui_WifiStatusLabel && ui_WifiStatusPanel) {
-      char buf[80];
-      snprintf(buf, sizeof(buf), "%s%s", TXT_WIFI_CONNECTED[g_lang], connSSIDStr.c_str());
-      lv_label_set_text(ui_WifiStatusLabel, buf);
-      lv_obj_set_style_text_color(ui_WifiStatusLabel, lv_color_hex(0x27AE60), LV_PART_MAIN | LV_STATE_DEFAULT);
-      lv_obj_clear_flag(ui_WifiStatusPanel, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_set_style_border_color(ui_WifiStatusPanel, lv_color_hex(0x27AE60), LV_PART_MAIN | LV_STATE_DEFAULT);
-    }
-  } else {
-    wifiShowConnectBtn();
-    if (ui_WifiStatusPanel) lv_obj_add_flag(ui_WifiStatusPanel, LV_OBJ_FLAG_HIDDEN);
-  }
-
-  wifiVisible = true;
-  hmi_msg.shouldSendData = true;
-}
-
 void InfoButton_cb(lv_event_t *e) {
   lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
   LanguagesVisible = false;
-  hideWifiScanDropdown();
-  lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
-  
   lv_obj_clear_flag(ui_InfoDetailsCont, LV_OBJ_FLAG_HIDDEN);
 
   // Update values
@@ -705,158 +613,14 @@ void InfoButton_cb(lv_event_t *e) {
       lv_label_set_text(ui_ConnValue, getConnectivityString(ctrl_state_msg.serverCommStatus, g_lang));
   }
 
-  wifiVisible = false;
   hmi_msg.shouldSendData = true;
 }
 
 void LanguageButton_cb(lv_event_t *e) {
-  hideWifiScanDropdown();
-  lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_InfoDetailsCont, LV_OBJ_FLAG_HIDDEN);
-  wifiVisible = false;
   lv_obj_clear_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
   LanguagesVisible = true;
   hmi_msg.shouldSendData = true;
-
-}
-
-void TextArea_Change_cb(lv_event_t *e) {
-  lv_obj_t *ta = lv_event_get_target(e);
-  const char *txt = lv_textarea_get_text(ta);
-  if (ta == ui_TextArea1) {
-    strncpy(wifi_ssid, txt, sizeof(wifi_ssid) - 1);
-    wifi_ssid[sizeof(wifi_ssid) - 1] = '\0';
-    // Only abort an in-progress connection attempt — do NOT disconnect if
-    // already connected (e.g. the field was just pre-filled programmatically
-    // when the WiFi tab was opened while connected).
-    if (wifiConnecting && WiFi.status() != WL_CONNECTED) {
-      wifiConnecting = false;
-      WifiAbortConnection();
-    }
-    // REMOVED: wifiShowConnectBtn(); // This was hiding the keyboard while deleting
-    if (ui_WifiStatusLabel) lv_label_set_text(ui_WifiStatusLabel, "");
-  } else if (ta == ui_TextArea2) {
-    strncpy(wifi_pass, txt, sizeof(wifi_pass) - 1);
-    wifi_pass[sizeof(wifi_pass) - 1] = '\0';
-  }
-}
-
-// ==========================================
-// WiFi Scan Dropdown helpers
-// ==========================================
-static void hideWifiScanDropdown(void) {
-  if (ui_WifiScanOverlay) lv_obj_add_flag(ui_WifiScanOverlay, LV_OBJ_FLAG_HIDDEN);
-  if (ui_WifiScanCont)    lv_obj_add_flag(ui_WifiScanCont, LV_OBJ_FLAG_HIDDEN);
-  wifiScanListVisible = false;
-}
-
-static void showWifiScanDropdown(void) {
-  if (!ui_WifiScanCont || !ui_WifiScanList || !ui_WifiScanStatus) return;
-  lv_obj_clean(ui_WifiScanList);
-  lv_label_set_text(ui_WifiScanStatus, "Buscando redes...");
-  lv_obj_clear_flag(ui_WifiScanOverlay, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_move_foreground(ui_WifiScanOverlay);
-  lv_obj_clear_flag(ui_WifiScanCont, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_move_foreground(ui_WifiScanCont);
-  wifiScanListVisible = true;
-  wifiScanResultsPopulated = false;
-  scanNetworkCount = 0;
-  // Only abort if we are in the middle of a connection attempt, NOT if already connected.
-  // Calling disconnect() on an established connection sends ASSOC_LEAVE (Reason 8)
-  // and drops the link unnecessarily. (Rule §10)
-  if (wifiConnecting && WiFi.status() != WL_CONNECTED) {
-    wifiConnecting = false;
-    WifiAbortConnection();
-  }
-  WifiScanRequest();
-}
-
-// Called when user taps outside the scan dropdown
-void WifiScanOverlay_cb(lv_event_t *e) {
-  hideWifiScanDropdown();
-  if (WiFi.status() == WL_CONNECTED) {
-    wifiShowDisconnectBtn();
-  } else {
-    wifiShowConnectBtn();
-  }
-}
-
-// Called when user selects a network or "Introducir manualmente"
-void WifiScanList_cb(lv_event_t *e) {
-  int idx = (int)(intptr_t)lv_event_get_user_data(e);
-  if (idx < 0) {
-    // "Introducir manualmente" selected
-    hideWifiScanDropdown();
-    lv_keyboard_set_textarea(ui_Keyboard1, ui_TextArea1);
-    lv_obj_clear_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(ui_Keyboard1);
-    // Hide both action buttons while keyboard is open
-    if (ui_WifiConnectButton)    lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
-    if (ui_ConnectLabel)         lv_obj_add_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
-    if (ui_WifiDisconnectButton) lv_obj_add_flag(ui_WifiDisconnectButton, LV_OBJ_FLAG_HIDDEN);
-  } else if (idx < scanNetworkCount) {
-    // Network selected — fill SSID field
-    lv_textarea_set_text(ui_TextArea1, scanSSIDs[idx]);
-    strncpy(wifi_ssid, scanSSIDs[idx], sizeof(wifi_ssid) - 1);
-    wifi_ssid[sizeof(wifi_ssid) - 1] = '\0';
-    hideWifiScanDropdown();
-    WifiScanClear(); // stop scanning after selecting a network
-    lv_obj_clear_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
-  }
-}
-
-void TextArea_focus_cb(lv_event_t *e) {
-  lv_obj_t *ta = lv_event_get_target(e);
-  if (ta == ui_TextArea1) {
-    const char *ssid_txt = lv_textarea_get_text(ui_TextArea1);
-    bool ssid_empty = (ssid_txt == NULL || ssid_txt[0] == '\0');
-
-    if (ssid_empty) {
-      // Empty SSID → scan and show dropdown
-      lv_keyboard_set_textarea(ui_Keyboard1, NULL);
-      lv_obj_add_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
-      if (ui_WifiConnectButton)    lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
-      if (ui_ConnectLabel)         lv_obj_add_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
-      if (ui_WifiDisconnectButton) lv_obj_add_flag(ui_WifiDisconnectButton, LV_OBJ_FLAG_HIDDEN);
-      showWifiScanDropdown();
-    } else {
-      // SSID has text → show keyboard for manual edit (rule §6)
-      lv_keyboard_set_textarea(ui_Keyboard1, ta);
-      lv_obj_clear_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_move_foreground(ui_Keyboard1);
-      if (ui_WifiConnectButton)    lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
-      if (ui_ConnectLabel)         lv_obj_add_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
-      if (ui_WifiDisconnectButton) lv_obj_add_flag(ui_WifiDisconnectButton, LV_OBJ_FLAG_HIDDEN);
-    }
-  } else {
-    // Password field → always show keyboard
-    lv_keyboard_set_textarea(ui_Keyboard1, ta);
-    lv_obj_clear_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(ui_Keyboard1);
-    if (ui_WifiConnectButton)    lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
-    if (ui_ConnectLabel)         lv_obj_add_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
-    if (ui_WifiDisconnectButton) lv_obj_add_flag(ui_WifiDisconnectButton, LV_OBJ_FLAG_HIDDEN);
-  }
-}
-
-void Keyboard_cb(lv_event_t *e) {
-  lv_event_code_t code = lv_event_get_code(e);
-  if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
-    lv_obj_add_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
-    const char *txt1 = lv_textarea_get_text(ui_TextArea1);
-    const char *txt2 = lv_textarea_get_text(ui_TextArea2);
-    strncpy(wifi_ssid, txt1, sizeof(wifi_ssid));
-    strncpy(wifi_pass, txt2, sizeof(wifi_pass));
-    // Restore correct action button based on actual WiFi state
-    if (WiFi.status() == WL_CONNECTED) {
-      wifiShowDisconnectBtn();
-    } else {
-      wifiShowConnectBtn();
-    }
-    ESP_LOGI("UITask", "Keyboard closed — WIFI STATUS: %d", (int)WiFi.status());
-  }
 }
 
 void AirPanel_cb(lv_event_t *e) {
@@ -1961,7 +1725,7 @@ static void add_unlock_press_cb_recursive(lv_obj_t *obj) {
 }
 
 void inactivity_timer_cb(lv_timer_t *timer) {
-  if (lv_scr_act() == ui_ScreenAlarms || wifiVisible) {
+  if (lv_scr_act() == ui_ScreenAlarms) {
     lv_disp_trig_activity(NULL);
     return;
   }
@@ -1973,49 +1737,6 @@ void inactivity_timer_cb(lv_timer_t *timer) {
       lv_scr_load(ui_ScreenLock);
       show_targets_for_mode();
     }
-  }
-}
-
-void WifiConnectButton_cb(lv_event_t *e) {
-  hmi_msg.shouldSendData = true;
-  extern char pendingSSID[64];
-  extern char pendingPass[64];
-  
-  // Trim spaces just in case (optional but good practice)
-  strncpy(pendingSSID, wifi_ssid, sizeof(pendingSSID) - 1);
-  pendingSSID[sizeof(pendingSSID) - 1] = '\0';
-  strncpy(pendingPass, wifi_pass, sizeof(pendingPass) - 1);
-  pendingPass[sizeof(pendingPass) - 1] = '\0';
-
-  ESP_LOGI("UITask", "User clicked CONNECT for SSID: %s", pendingSSID);
-
-  // Show "Conectando..." feedback
-  if (ui_WifiStatusLabel && ui_WifiStatusPanel) {
-    lv_label_set_text(ui_WifiStatusLabel, TXT_WIFI_CONNECTING[g_lang]);
-    lv_obj_set_style_text_color(ui_WifiStatusLabel, lv_color_hex(0x2196F3), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_clear_flag(ui_WifiStatusPanel, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_set_style_border_color(ui_WifiStatusPanel, lv_color_hex(0x2196F3), LV_PART_MAIN | LV_STATE_DEFAULT);
-  }
-  wifiConnecting     = true;
-  wifiConnectStartMs = millis();
-
-  WifiScanClear(); // ensure scan is fully cleared before connecting
-  Communication_SendWiFiCredentials(pendingSSID, pendingPass);
-  vTaskDelay(pdMS_TO_TICKS(200));
-  wifiInit();
-}
-
-void WifiDisconnectButton_cb(lv_event_t *e) {
-  WifiDisconnect(); // starts hardware disconnect
-  wifiDisconnecting = true;
-  wifiConnecting    = false;
-  
-  // Feedback "Desconectando..."
-  if (ui_WifiStatusLabel && ui_WifiStatusPanel) {
-    lv_label_set_text(ui_WifiStatusLabel, TXT_WIFI_DISCONNECTING[g_lang]);
-    lv_obj_set_style_text_color(ui_WifiStatusLabel, lv_color_hex(0xE53935), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_clear_flag(ui_WifiStatusPanel, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_set_style_border_color(ui_WifiStatusPanel, lv_color_hex(0xE53935), LV_PART_MAIN | LV_STATE_DEFAULT);
   }
 }
 
@@ -2340,15 +2061,7 @@ void UI_Task(void *pvParameters) {
   lv_obj_add_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_WifiScanOverlay, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_WifiScanCont, LV_OBJ_FLAG_HIDDEN);
-  lv_keyboard_set_textarea(ui_Keyboard1, NULL);
-
-  lv_textarea_set_text(ui_TextArea2, wifi_pass);
 
   lv_color_t init_panel_col = darkMode ? COLOR_PANEL_DARK : COLOR_PANEL_WHITE;
   lv_color_t init_inactive_col = darkMode ? COLOR_PANEL_DARK : COLOR_PANEL_GRAY;
@@ -2530,110 +2243,6 @@ void UI_Task(void *pvParameters) {
         ESP_LOGD(TAG, "UI and Audio Loop active");
     }
     vTaskDelay(pdMS_TO_TICKS(LOOP_DELAY_MS));
-
-    if (wifiVisible) {
-      lv_obj_clear_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN); // legacy bar never shown
-
-      // --- Disconnection state machine ---
-      if (wifiDisconnecting) {
-        if (WiFi.status() != WL_CONNECTED) {
-          wifiDisconnecting = false;
-          wifi_ssid[0] = '\0';
-          wifi_pass[0] = '\0';
-          if (ui_TextArea1) lv_textarea_set_text(ui_TextArea1, "");
-          if (ui_TextArea2) lv_textarea_set_text(ui_TextArea2, "");
-          wifiShowConnectBtn();
-          if (ui_WifiStatusPanel) lv_obj_add_flag(ui_WifiStatusPanel, LV_OBJ_FLAG_HIDDEN);
-        }
-      }
-
-      // --- Connection state machine (user-initiated) ---
-      if (wifiConnecting && !WifiScanIsInProgress()) {
-        wl_status_t status = WiFi.status();
-        if (status == WL_CONNECTED) {
-          // Success
-          wifiConnecting = false;
-          wifiShowDisconnectBtn();
-          String connSSIDStr = WiFi.SSID();
-          if (connSSIDStr.length() > 0) {
-            lv_textarea_set_text(ui_TextArea1, connSSIDStr.c_str());
-            strncpy(wifi_ssid, connSSIDStr.c_str(), sizeof(wifi_ssid) - 1);
-            wifi_ssid[sizeof(wifi_ssid) - 1] = '\0';
-          }
-          if (ui_WifiStatusLabel && ui_WifiStatusPanel) {
-            char buf[80];
-            snprintf(buf, sizeof(buf), "%s%s", TXT_WIFI_CONNECTED[g_lang], connSSIDStr.c_str());
-            lv_label_set_text(ui_WifiStatusLabel, buf);
-            lv_obj_set_style_text_color(ui_WifiStatusLabel, lv_color_hex(0x27AE60), LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_border_color(ui_WifiStatusPanel, lv_color_hex(0x27AE60), LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_clear_flag(ui_WifiStatusPanel, LV_OBJ_FLAG_HIDDEN);
-          }
-        } else if (millis() - wifiConnectStartMs > WIFI_CONNECT_TIMEOUT_MS) {
-          // Timeout → likely wrong password (AUTH_FAIL reason 202)
-          wifiConnecting = false;
-          wifiShowConnectBtn();
-          if (ui_WifiStatusLabel && ui_WifiStatusPanel) {
-            lv_label_set_text(ui_WifiStatusLabel, TXT_WIFI_ERROR_PASS[g_lang]);
-            lv_obj_set_style_text_color(ui_WifiStatusLabel, lv_color_hex(0xE53935), LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_border_color(ui_WifiStatusPanel, lv_color_hex(0xE53935), LV_PART_MAIN | LV_STATE_DEFAULT);
-          }
-        }
-      }
-
-      // --- Periodic status synchronization (while screen is open) ---
-      // IMPORTANT: Only sync if keyboard is NOT visible, to avoid overlapping buttons (Rule §10)
-      if (!wifiConnecting && !wifiScanListVisible && lv_obj_has_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN)) {
-        static uint32_t lastWifiSyncMs = 0;
-        if (millis() - lastWifiSyncMs > 2000) {
-          lastWifiSyncMs = millis();
-          if (WiFi.status() == WL_CONNECTED) {
-            wifiShowDisconnectBtn();
-            // Update SSID field if empty while connected
-            String currSSIDStr = WiFi.SSID();
-            const char *taSSID = lv_textarea_get_text(ui_TextArea1);
-            if (currSSIDStr.length() > 0 && (taSSID == NULL || taSSID[0] == '\0')) {
-              lv_textarea_set_text(ui_TextArea1, currSSIDStr.c_str());
-              strncpy(wifi_ssid, currSSIDStr.c_str(), sizeof(wifi_ssid) - 1);
-              wifi_ssid[sizeof(wifi_ssid) - 1] = '\0';
-            }
-          } else {
-            wifiShowConnectBtn();
-          }
-        }
-      }
-    }
-
-    // WiFi Scan: populate dropdown when results are ready (RF-WIFI-001 … RF-WIFI-008)
-    // !g_wifiScanRequest: wait until OTA task has picked up the request and reset
-    // s_scanResultsReady, so we never read stale results from a previous scan.
-    if (wifiScanListVisible && !wifiScanResultsPopulated) {
-      if (!g_wifiScanRequest && !WifiScanIsInProgress() && WifiScanResultsReady()) {
-        wifiScanResultsPopulated = true;
-        lv_obj_clean(ui_WifiScanList);
-        scanNetworkCount = WifiScanGetCount();
-        if (scanNetworkCount == 0) {
-          lv_label_set_text(ui_WifiScanStatus, TXT_WIFI_NO_NETWORKS[g_lang]);
-        } else {
-          lv_label_set_text(ui_WifiScanStatus, TXT_WIFI_AVAILABLE[g_lang]);
-          int count = (scanNetworkCount < WIFI_SCAN_MAX_NETWORKS) ? scanNetworkCount : WIFI_SCAN_MAX_NETWORKS;
-          for (int i = 0; i < count; i++) {
-            strncpy(scanSSIDs[i], WifiScanGetSSID(i).c_str(), 32);
-            scanSSIDs[i][32] = '\0';
-            char buf[52];
-            snprintf(buf, sizeof(buf), "%s  [%d dBm]", scanSSIDs[i], WifiScanGetRSSI(i));
-            lv_obj_t *btn = lv_list_add_btn(ui_WifiScanList, NULL, buf);
-            lv_obj_set_style_text_font(btn, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_add_event_cb(btn, WifiScanList_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
-          }
-        }
-        // Always offer manual entry (RF-WIFI-006 / RF-WIFI-007)
-        lv_obj_t *manualBtn = lv_list_add_btn(ui_WifiScanList, NULL, TXT_WIFI_MANUAL[g_lang]);
-        lv_obj_set_style_text_font(manualBtn, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_style_text_color(manualBtn, lv_color_hex(0x2196F3), LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_add_event_cb(manualBtn, WifiScanList_cb, LV_EVENT_CLICKED, (void *)(intptr_t)-1);
-      }
-    }
 
     if (photoTimerActive) {
         unsigned long elapsed = millis() - photoTimerStartMs;
@@ -3045,7 +2654,6 @@ void UI_ApplyTheme() {
     if (ui_Panel6) lv_obj_set_style_bg_color(ui_Panel6, panel_col, 0);
     
     // Settings Panels
-    if (ui_Panel7) lv_obj_set_style_bg_color(ui_Panel7, panel_col, 0);
     if (ui_Panel8) lv_obj_set_style_bg_color(ui_Panel8, panel_col, 0);
     if (ui_Panel9) lv_obj_set_style_bg_color(ui_Panel9, panel_col, 0);
     if (ui_PanelDarkMode) lv_obj_set_style_bg_color(ui_PanelDarkMode, panel_col, 0);
@@ -3063,29 +2671,8 @@ void UI_ApplyTheme() {
         UI_ApplyStyleToLabelsRecursive(ui_ScreenLock, lv_color_hex(0xFFFFFF));
     }
 
-    // Settings Details (Info/Wifi) ALWAYS keep black text because their panels are white
+    // Settings Details (Info) ALWAYS keep black text because their panels are white
     if (ui_InfoDetailsCont) UI_ApplyStyleToLabelsRecursive(ui_InfoDetailsCont, lv_color_hex(0x000000));
-    if (ui_WifiConfigCont) UI_ApplyStyleToLabelsRecursive(ui_WifiConfigCont, lv_color_hex(0x000000));
-    if (ui_WifiConnectedCont) UI_ApplyStyleToLabelsRecursive(ui_WifiConnectedCont, lv_color_hex(0x000000));
-    if (ui_WifiScanCont) UI_ApplyStyleToLabelsRecursive(ui_WifiScanCont, lv_color_hex(0x000000));
-    // Buttons inside WifiConfigCont use white text on colored backgrounds — restore after recursive pass
-    if (ui_ConnectLabel)    lv_obj_set_style_text_color(ui_ConnectLabel,    lv_color_hex(0xFFFFFF), 0);
-    if (ui_WifiDisconnectButton) UI_ApplyStyleToLabelsRecursive(ui_WifiDisconnectButton, lv_color_hex(0xFFFFFF));
-    
-    // Status label should NOT be forced to black if it's showing connected/connecting state
-    if (ui_WifiStatusLabel && ui_WifiStatusPanel && !lv_obj_has_flag(ui_WifiStatusPanel, LV_OBJ_FLAG_HIDDEN)) {
-        const char *txt = lv_label_get_text(ui_WifiStatusLabel);
-        if (strstr(txt, "Conectado") && !strstr(txt, "Desconectado")) {
-            lv_obj_set_style_text_color(ui_WifiStatusLabel, lv_color_hex(0x27AE60), 0);
-            lv_obj_set_style_border_color(ui_WifiStatusPanel, lv_color_hex(0x27AE60), 0);
-        } else if (strstr(txt, "Conectando")) {
-            lv_obj_set_style_text_color(ui_WifiStatusLabel, lv_color_hex(0x2196F3), 0);
-            lv_obj_set_style_border_color(ui_WifiStatusPanel, lv_color_hex(0x2196F3), 0);
-        } else if (strstr(txt, "Desconectando")) {
-            lv_obj_set_style_text_color(ui_WifiStatusLabel, lv_color_hex(0xE53935), 0);
-            lv_obj_set_style_border_color(ui_WifiStatusPanel, lv_color_hex(0xE53935), 0);
-        }
-    }
 
     // Images recoloring for Dark Mode (Originals are black, we want white)
     lv_color_t img_recolor = darkMode ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x000000);

@@ -179,17 +179,6 @@ void recapVariables() {
   ESP_LOGI("APP", "Control Humidity from EEPROM: %d",
            in3.desiredControlHumidity);
 
-  extern char wifi_ssid[64];
-  extern char wifi_pass[64];
-
-  String ssid = EEPROM.readString(EEPROM_WIFI_SSID);
-  String pass = EEPROM.readString(EEPROM_WIFI_PASSWORD);
-  strncpy(wifi_ssid, ssid.c_str(), sizeof(wifi_ssid));
-  strncpy(wifi_pass, pass.c_str(), sizeof(wifi_pass));
-  // logI("[WIFI] -> Read SSID: " + String(wifi_ssid));
-  ESP_LOGI("APP", "WiFi SSID from EEPROM: %s", wifi_ssid);
-  ESP_LOGI("APP", "WiFi Pass from EEPROM: %s", wifi_pass);
-
   if (in3.restoreState) {
     in3.actuation = EEPROM.read(EEPROM_CONTROL_ACTIVE);
     in3.phototherapy = EEPROM.read(EEPROM_PHOTOTHERAPY_ACTIVE);

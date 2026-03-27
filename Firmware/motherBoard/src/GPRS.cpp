@@ -699,14 +699,12 @@ void GPRS_Handler() {
   if (GPRS.powerUp) {
     GPRSPowerUp();
   }
-  if (!WIFIIsConnected()) {
-    if (GPRS.connect) {
-      GPRSStablishConnection();
-    }
-    if (GPRS.post) {
-      GPRSSetPostPeriod();
-      GPRSPost();
-      tb.loop();
-    }
+  if (GPRS.connect) {
+    GPRSStablishConnection();
+  }
+  if (GPRS.post) {
+    GPRSSetPostPeriod();
+    GPRSPost();
+    tb.loop();
   }
 }
