@@ -71,6 +71,7 @@ struct GPRSstruct {
   bool post = false;
   bool firstPublish = false;
   bool firstConfigPost = false;
+  bool firstPowerUp = true;
 
   String CCID;
   String IMEI;

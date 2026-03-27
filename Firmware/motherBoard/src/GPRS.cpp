@@ -257,7 +257,10 @@ void GPRSPowerUp() {
     GPRS.IMEI = modem.getIMEI();
     logModemData("[GPRS] -> CCID is: " + GPRS.CCID);
     logModemData("[GPRS] -> IMEI is: " + GPRS.IMEI);
-    buzzerTone(3, buzzerStandbyToneDuration, buzzerStandbyTone);
+    if (GPRS.firstPowerUp) {
+      buzzerTone(3, buzzerStandbyToneDuration, buzzerStandbyTone);
+      GPRS.firstPowerUp = false;
+    }
     GPRS.powerUp = false;
     GPRS.connect = true;
     GPRS.process = false;
