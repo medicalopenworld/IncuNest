@@ -65,9 +65,9 @@
 
 #define DEFAULT_WIFI_EN ON
 
-#define LOG_GPRS false
-#define LOG_MODEM_DATA false
-#define LOG_INFORMATION false
+#define LOG_GPRS true
+#define LOG_MODEM_DATA true
+#define LOG_INFORMATION true
 #define LOG_ERRORS false
 #define LOG_ALARMS false
 
@@ -332,6 +332,8 @@ typedef enum {
 #define GPRS_TAST_PRIORITY 5
 #define BUZZER_TASK_PRIORITY 6
 #define UI_TASK_PRIORITY 7
+#define COMMUNICATION_TASK_PRIORITY 7
+#define COMMUNICATION_RECEIVER_PRIORITY 7
 #define SENSORS_TASK_PRIORITY 8
 #define SECURITY_TASK_PRIORITY 9
 #define GPRS_MONITOR_TASK_PRIORITY 10

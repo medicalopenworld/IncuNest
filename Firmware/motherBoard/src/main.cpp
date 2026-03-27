@@ -429,11 +429,11 @@ void setup() {
   logI("Initializing communication task ...");
   CommunicationHost_Init();
 
-  xTaskCreatePinnedToCore(Communication_Task, "COMM_TASK", 4096, NULL, 1, NULL,
+  xTaskCreatePinnedToCore(Communication_Task, "COMM_TASK", 4096, NULL, COMMUNICATION_TASK_PRIORITY, NULL,
                           CORE_ID_FREERTOS // o 0/1 según tu placa
   );
 
-  xTaskCreatePinnedToCore(Communication_Receiver, "COMM_TASK_RX", 4096, NULL, 1,
+  xTaskCreatePinnedToCore(Communication_Receiver, "COMM_TASK_RX", 4096, NULL, COMMUNICATION_RECEIVER_PRIORITY,
                           NULL,
                           CORE_ID_FREERTOS // o 0/1 según tu placa
   );
