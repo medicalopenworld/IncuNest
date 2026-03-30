@@ -77,7 +77,7 @@ typedef enum {
 // -----------------------------
 constexpr int DISPLAY_WIDTH = 800;
 constexpr int DISPLAY_HEIGHT = 480;
-constexpr int COLOR_DIVISOR = 8; // Aumentado (divisor menor = buffer más grande) para mejor rendimiento DMA
+constexpr int COLOR_DIVISOR = 16; // Reducido para liberar ~48KB de RAM interna al WiFi WPA2 (era 8 = 96KB, ahora 48KB)
 constexpr int AREA_PIXEL_OFFSET =
     1; // used when computing width/height from area.x2 - area.x1 + 1
 

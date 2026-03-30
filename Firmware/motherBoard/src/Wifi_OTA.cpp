@@ -231,9 +231,9 @@ void wifiInit(void) {
   wifiHost[sizeof(wifiHost) - 1] = '\0';
   ESP_LOGI(TAG, "Setting hostname to: %s", wifiHost);
 
+  WiFi.setHostname(hostname.c_str());
   WiFi.mode(WIFI_STA);
   WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
-  WiFi.setHostname(hostname.c_str());
 
   String ssid;
   String pass;

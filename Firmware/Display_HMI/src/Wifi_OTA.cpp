@@ -30,7 +30,7 @@
 
 static const char *TAG = "WiFi";
 
-const char *wifiHost = "in3ator";
+char wifiHost[32] = "in3ator";
 
 WebServer wifiServer(80);
 
@@ -129,8 +129,13 @@ void wifiInit(void) {
   // Connect to WiFi network
   ESP_LOGI(TAG, "Initializing WiFi");
   Wifi_TB.lastWifiReconnectAttempt = millis();
-  WiFi.setHostname(
-      String(String(WIFI_NAME) + "-" + String(in3.serialNumber)).c_str());
+  String hostname = String(WIFI_NAME) + "-" + String(in3.serialNumber);
+  // Copy hostname to wifiHost for MDNS
+  strncpy(wifiHost, hostname.c_str(), sizeof(wifiHost) - 1);
+  wifiHost[sizeof(wifiHost) - 1] = '\0';
+  ESP_LOGI(TAG, "Setting hostname to: %s", wifiHost);
+
+  WiFi.setHostname(hostname.c_str());
   WiFi.mode(WIFI_STA);
   WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
 
@@ -364,7 +369,11 @@ void WIFIProvisionResponse(const JsonObjectConst &data) {
 
 void WIFITBProvision() {
   if (in3.serialNumber == 0) {
-    ESP_LOGI(TAG, "Serial number is 0, skipping provisioning");
+    static bool logged = false;
+    if (!logged) {
+      ESP_LOGI(TAG, "Serial number is 0, skipping provisioning");
+      logged = true;
+    }
     return;
   }
   if (!tb_wifi.connected()) {
