@@ -157,7 +157,7 @@ void turnFans(bool mode) {
   GPIOWrite(ACTUATORS_EN, mode || in3.phototherapy);
 #if (HW_NUM >= 8)
   // ledcWrite(HEATER_PWM_CHANNEL, mode * HEATER_MAX_PWM);
-  ledcWrite(FAN_PWM_CHANNEL, (mode && !ongoingCriticalWiringAlarm()) * FAN_PWM);
+  ledcWrite(FAN_PWM_CHANNEL, (mode && !ongoingCriticalWiringAlarm()) * in3.fanPWM);
 #else
   GPIOWrite(FAN, in3.phototherapy || mode && !ongoingCriticalWiringAlarm());
 #endif

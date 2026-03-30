@@ -210,6 +210,64 @@ void parse_line(const char *line) {
   }
 
   // -----------------------------
+  // CONFIG COMMAND (/config,param,value)
+  // -----------------------------
+  if (strncmp(line, "/config", 7) == 0) {
+    char param[32];
+    float value;
+    bool success = false;
+    
+    // If we have parameters after comma
+    if (line[7] == ',' && sscanf(line, "/config,%31[^,],%f", param, &value) == 2) {
+      success = true;
+      extern float maxDesiredTemp[2];
+      if (strcmp(param, "FAN_PWM") == 0) {
+        in3.fanPWM = (int)value;
+      } else if (strcmp(param, "HEATER_AMPS") == 0) {
+        in3.heaterMaxPowerAmps = value;
+      } else if (strcmp(param, "SKIN_TMAX") == 0) {
+        in3.skinTemperatureSetMax = value;
+        maxDesiredTemp[CONTROL_SKIN] = value;
+      } else if (strcmp(param, "AIR_TMAX") == 0) {
+        in3.airTemperatureSetMax = value;
+        maxDesiredTemp[CONTROL_AIR] = value;
+      } else if (strcmp(param, "GPRS_ACT") == 0) {
+        in3.actuating_gprs_period = (int)value;
+      } else if (strcmp(param, "GPRS_PHOTO") == 0) {
+        in3.phototherapy_gprs_period = (int)value;
+      } else if (strcmp(param, "GPRS_STBY") == 0) {
+        in3.standby_gprs_period = (int)value;
+      } else {
+        success = false;
+      }
+
+      if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        if (success) {
+          ESP_LOGI(TAG, "Config updated: %s = %.2f", param, value);
+        } else {
+          ESP_LOGE(TAG, "Unknown config parameter: %s", param);
+        }
+        xSemaphoreGiveRecursive(log_mutex);
+      }
+    } else {
+      // General Config Summary / Help
+      if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        ESP_LOGI(TAG, "--- Current Configuration ---");
+        ESP_LOGI(TAG, "FAN_PWM: %d", in3.fanPWM);
+        ESP_LOGI(TAG, "HEATER_AMPS: %.2f A", in3.heaterMaxPowerAmps);
+        ESP_LOGI(TAG, "SKIN_TMAX: %.2f C", in3.skinTemperatureSetMax);
+        ESP_LOGI(TAG, "AIR_TMAX: %.2f C", in3.airTemperatureSetMax);
+        ESP_LOGI(TAG, "GPRS_ACT: %d s", in3.actuating_gprs_period);
+        ESP_LOGI(TAG, "GPRS_PHOTO: %d s", in3.phototherapy_gprs_period);
+        ESP_LOGI(TAG, "GPRS_STBY: %d s", in3.standby_gprs_period);
+        ESP_LOGI(TAG, "Usage: /config,PARAM,VALUE");
+        xSemaphoreGiveRecursive(log_mutex);
+      }
+    }
+    return;
+  }
+
+  // -----------------------------
   // HMI COMMAND
   // -----------------------------
   if (strncmp(line, "HMI,", 4) == 0) {

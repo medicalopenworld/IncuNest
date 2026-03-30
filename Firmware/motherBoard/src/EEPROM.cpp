@@ -162,10 +162,10 @@ void recapVariables() {
   
   // Validation
   if (in3.controlMode == CONTROL_AIR) {
-    if (isnan(in3.desiredControlTemperature) || in3.desiredControlTemperature < AIR_TEMPERATURE_SET_MIN || in3.desiredControlTemperature > AIR_TEMPERATURE_SET_MAX)
+    if (isnan(in3.desiredControlTemperature) || in3.desiredControlTemperature < AIR_TEMPERATURE_SET_MIN || in3.desiredControlTemperature > in3.airTemperatureSetMax)
       in3.desiredControlTemperature = presetTemp[CONTROL_AIR];
   } else {
-    if (isnan(in3.desiredControlTemperature) || in3.desiredControlTemperature < SKIN_TEMPERATURE_SET_MIN || in3.desiredControlTemperature > SKIN_TEMPERATURE_SET_MAX)
+    if (isnan(in3.desiredControlTemperature) || in3.desiredControlTemperature < SKIN_TEMPERATURE_SET_MIN || in3.desiredControlTemperature > in3.skinTemperatureSetMax)
       in3.desiredControlTemperature = presetTemp[CONTROL_SKIN];
   }
 

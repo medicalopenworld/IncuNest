@@ -227,11 +227,11 @@ bool evaluateAlarm(byte alarmID, float setPoint, float measuredValue,
 }
 
 void checkThermalCutOuts() {
-  evaluateAlarm(AIR_THERMAL_CUTOUT_ALARM, AIR_THERMAL_CUTOUT,
+  evaluateAlarm(AIR_THERMAL_CUTOUT_ALARM, in3.airTemperatureSetMax,
                 in3.temperature[ROOM_DIGITAL_TEMP_SENSOR], false,
                 AIR_THERMAL_CUTOUT_HYSTERESIS,
                 lastAlarmTrigger[AIR_THERMAL_CUTOUT_ALARM]);
-  evaluateAlarm(SKIN_THERMAL_CUTOUT_ALARM, SKIN_THERMAL_CUTOUT,
+  evaluateAlarm(SKIN_THERMAL_CUTOUT_ALARM, in3.skinTemperatureSetMax,
                 in3.temperature[SKIN_SENSOR], false,
                 SKIN_THERMAL_CUTOUT_HYSTERESIS,
                 lastAlarmTrigger[SKIN_THERMAL_CUTOUT_ALARM]);

@@ -304,14 +304,12 @@ void GPRSStablishConnection() {
 
 void GPRSSetPostPeriod() {
   if (GPRS.firstPublish) {
-    if (in3.temperatureControl || in3.humidityControl) {
-      GPRS.sendPeriod = actuatingGPRSPostPeriod;
+    if (in3.actuation == ACTUATION_TEMPERATURE || in3.actuation == ACTUATION_HUMIDITY || in3.actuation == ACTUATION_TEMP_AND_HUMIDITY) {
+      GPRS.sendPeriod = in3.actuating_gprs_period;
     } else if (in3.phototherapy) {
-      GPRS.sendPeriod = phototherapyGPRSPostPeriod;
-    } else if (in3.phototherapy) {
-      GPRS.sendPeriod = phototherapyGPRSPostPeriod;
+      GPRS.sendPeriod = in3.phototherapy_gprs_period;
     } else {
-      GPRS.sendPeriod = standByGPRSPostPeriod;
+      GPRS.sendPeriod = in3.standby_gprs_period;
     }
   } else {
     GPRS.sendPeriod = false;

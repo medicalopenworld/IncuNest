@@ -447,6 +447,7 @@ void setup() {
   initHardware(false);
   if (WIFI_EN) {
     wifiInit();
+    logI("WiFi Initialization started.");
   }
 
   // EEPROM.writeString(EEPROM_THINGSBOARD_TOKEN, "3UlOzWQCWwspCQP768hZ");

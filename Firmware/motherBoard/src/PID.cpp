@@ -69,7 +69,7 @@ void heaterPowerConsumptionCheck()
   if (millis() - lastHeaterPowerCheck > CURRENT_CHECK_PERIOD_MS)
   {
     lastHeaterPowerCheck = millis();
-    if (in3.heater_current > HEATER_MAX_POWER_AMPS || in3.system_current > HEATER_MAX_POWER_AMPS)
+    if (in3.heater_current > in3.heaterMaxPowerAmps || in3.system_current > in3.heaterMaxPowerAmps)
     {
       in3.heaterSafeMAXPWM -= HEATER_POWER_FACTOR_DECREASE;
       if (in3.heaterSafeMAXPWM < 0)

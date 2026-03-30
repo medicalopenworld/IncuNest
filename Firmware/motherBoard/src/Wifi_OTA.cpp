@@ -166,22 +166,45 @@ const char *configIndex =
     "src='https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js'></"
     "script>"
     "<form method='POST' action='/config' id='config_form'>"
-    "<h3>Configuration</h3>"
+    "<h3>System Configuration</h3>"
     "<label>Serial Number:</label><br>"
     "<input type='number' name='serial' id='serial'><br><br>"
+    "<label>Fan PWM (0-255):</label><br>"
+    "<input type='number' name='fan_pwm' id='fan_pwm'><br><br>"
+    "<label>Heater Max Power (Amps):</label><br>"
+    "<input type='number' step='0.1' name='heater_amps' id='heater_amps'><br><br>"
+    "<label>Air Temp Max (C):</label><br>"
+    "<input type='number' step='0.1' name='air_tmax' id='air_tmax'><br><br>"
+    "<label>Skin Temp Max (C):</label><br>"
+    "<input type='number' step='0.1' name='skin_tmax' id='skin_tmax'><br><br>"
+    "<h4>GPRS Reporting Periods (seconds)</h4>"
+    "<label>Actuating Period:</label><br>"
+    "<input type='number' name='gprs_act' id='gprs_act'><br><br>"
+    "<label>Phototherapy Period:</label><br>"
+    "<input type='number' name='gprs_photo' id='gprs_photo'><br><br>"
+    "<label>Standby Period:</label><br>"
+    "<input type='number' name='gprs_stby' id='gprs_stby'><br><br>"
+    "<h3>Calibration</h3>"
     "<label>Reference Skin Temp (Current Actual):</label><br>"
     "<input type='number' step='0.01' name='reference_temp' "
     "id='reference_temp'><br><br>"
     "<label>Fine Tune Skin Temperature Offset:</label><br>"
     "<input type='number' step='0.01' name='fine_tune' id='fine_tune' "
     "readonly><br><br>"
-    "<input type='submit' value='Save'>"
+    "<input type='submit' value='Save All Settings'>"
     "</form>"
     "<div id='msg'></div>"
     "<script>"
     "$(document).ready(function() {"
     "  $.get('/get_config', function(data) {"
     "    $('#serial').val(data.serial);"
+    "    $('#fan_pwm').val(data.fan_pwm);"
+    "    $('#heater_amps').val(data.heater_amps);"
+    "    $('#air_tmax').val(data.air_tmax);"
+    "    $('#skin_tmax').val(data.skin_tmax);"
+    "    $('#gprs_act').val(data.gprs_act);"
+    "    $('#gprs_photo').val(data.gprs_photo);"
+    "    $('#gprs_stby').val(data.gprs_stby);"
     "    $('#reference_temp').val(data.skin_temp_val);"
     "    $('#fine_tune').val(data.fine_tune);"
     "  });"
@@ -200,16 +223,17 @@ void wifiInit(void) {
   // Connect to WiFi network
   ESP_LOGI(TAG, "Initializing WiFi");
   Wifi_TB.lastWifiReconnectAttempt = millis();
-  WiFi.setHostname(
-      String(String(WIFI_NAME) + "-" + String(in3.serialNumber)).c_str());
+  
+  String hostname = String(WIFI_NAME) + "-" + String(in3.serialNumber);
 
   // Copy hostname to wifiHost for MDNS
-  String hostname = String(WIFI_NAME) + "-" + String(in3.serialNumber);
   strncpy(wifiHost, hostname.c_str(), sizeof(wifiHost) - 1);
   wifiHost[sizeof(wifiHost) - 1] = '\0';
+  ESP_LOGI(TAG, "Setting hostname to: %s", wifiHost);
 
   WiFi.mode(WIFI_STA);
   WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
+  WiFi.setHostname(hostname.c_str());
 
   String ssid;
   String pass;
@@ -270,6 +294,13 @@ void configWifiServer() {
   wifiServer.on("/get_config", HTTP_GET, []() {
     String json = "{";
     json += "\"serial\":" + String(in3.serialNumber) + ",";
+    json += "\"fan_pwm\":" + String(in3.fanPWM) + ",";
+    json += "\"heater_amps\":" + String(in3.heaterMaxPowerAmps) + ",";
+    json += "\"air_tmax\":" + String(in3.airTemperatureSetMax) + ",";
+    json += "\"skin_tmax\":" + String(in3.skinTemperatureSetMax) + ",";
+    json += "\"gprs_act\":" + String(in3.actuating_gprs_period) + ",";
+    json += "\"gprs_photo\":" + String(in3.phototherapy_gprs_period) + ",";
+    json += "\"gprs_stby\":" + String(in3.standby_gprs_period) + ",";
     // Return current displayed temperature so user can see what it is or use it
     // as base
     json += "\"skin_temp_val\":" + String(in3.temperature[SKIN_SENSOR]) + ",";
@@ -279,17 +310,36 @@ void configWifiServer() {
     wifiServer.send(200, "application/json", json);
   });
   wifiServer.on("/config", HTTP_POST, []() {
+    extern float maxDesiredTemp[2];
     if (wifiServer.hasArg("serial")) {
       in3.serialNumber = wifiServer.arg("serial").toInt();
       EEPROM.writeInt(EEPROM_SERIAL_NUMBER, in3.serialNumber);
     }
+    if (wifiServer.hasArg("fan_pwm")) {
+      in3.fanPWM = wifiServer.arg("fan_pwm").toInt();
+    }
+    if (wifiServer.hasArg("heater_amps")) {
+      in3.heaterMaxPowerAmps = wifiServer.arg("heater_amps").toFloat();
+    }
+    if (wifiServer.hasArg("air_tmax")) {
+      in3.airTemperatureSetMax = wifiServer.arg("air_tmax").toFloat();
+      maxDesiredTemp[CONTROL_AIR] = in3.airTemperatureSetMax;
+    }
+    if (wifiServer.hasArg("skin_tmax")) {
+      in3.skinTemperatureSetMax = wifiServer.arg("skin_tmax").toFloat();
+      maxDesiredTemp[CONTROL_SKIN] = in3.skinTemperatureSetMax;
+    }
+    if (wifiServer.hasArg("gprs_act")) {
+      in3.actuating_gprs_period = wifiServer.arg("gprs_act").toInt();
+    }
+    if (wifiServer.hasArg("gprs_photo")) {
+      in3.phototherapy_gprs_period = wifiServer.arg("gprs_photo").toInt();
+    }
+    if (wifiServer.hasArg("gprs_stby")) {
+      in3.standby_gprs_period = wifiServer.arg("gprs_stby").toInt();
+    }
     if (wifiServer.hasArg("reference_temp")) {
       double referenceTemp = wifiServer.arg("reference_temp").toDouble();
-      // Calculate new offset: NewOffset = OldOffset + (Reference - Displayed)
-      // because Displayed = Raw + OldOffset
-      // We want Reference = Raw + NewOffset
-      // So NewOffset = Reference - Raw = Reference - (Displayed - OldOffset)
-      //              = Reference - Displayed + OldOffset
       in3.fineTuneSkinTemperature =
           in3.fineTuneSkinTemperature +
           (referenceTemp - in3.temperature[SKIN_SENSOR]);
@@ -298,8 +348,7 @@ void configWifiServer() {
     }
     EEPROM.commit();
     wifiServer.sendHeader("Connection", "close");
-    wifiServer.send(200, "text/plain", "Saved. Please reboot.");
-    // Optional: ESP.restart();
+    wifiServer.send(200, "text/plain", "Saved. Settings applied immediately.");
   });
   /*handling uploading firmware file */
   wifiServer.on(

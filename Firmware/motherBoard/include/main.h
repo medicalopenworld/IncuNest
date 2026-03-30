@@ -68,8 +68,8 @@
 #define LOG_GPRS true
 #define LOG_MODEM_DATA true
 #define LOG_INFORMATION true
-#define LOG_ERRORS false
-#define LOG_ALARMS false
+#define LOG_ERRORS true
+#define LOG_ALARMS true
 
 #define USE_SYSTEM_WITHOUT_ACTUATORS_TEST                                      \
   true // only if previous test was OK and that fail cause is not being able to
@@ -624,6 +624,14 @@ typedef struct {
   bool humidityControl = false;
   bool phototherapy = false;
   byte phototherapy_intensity = PWM_MAX_VALUE;
+
+  int fanPWM = FAN_PWM;
+  float heaterMaxPowerAmps = HEATER_MAX_POWER_AMPS;
+  float skinTemperatureSetMax = SKIN_TEMPERATURE_SET_MAX;
+  float airTemperatureSetMax = AIR_TEMPERATURE_SET_MAX;
+  int actuating_gprs_period = 60;
+  int phototherapy_gprs_period = 180;
+  int standby_gprs_period = 3600;
 
   bool calibrationError = false;
 
