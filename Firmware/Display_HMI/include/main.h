@@ -17,7 +17,7 @@
 #include <lvgl.h>
 #include <stdint.h>
 
-#define FWversion "1.0.5"
+#define FWversion "1.0.6"
 #define ENABLE_WIFI_OTA true // enable wifi OTA
 extern bool OTA_inprogress;
 
@@ -77,7 +77,8 @@ typedef enum {
 // -----------------------------
 constexpr int DISPLAY_WIDTH = 800;
 constexpr int DISPLAY_HEIGHT = 480;
-constexpr int COLOR_DIVISOR = 16; // Reducido para liberar ~48KB de RAM interna al WiFi WPA2 (era 8 = 96KB, ahora 48KB)
+constexpr int COLOR_DIVISOR = 16; // Reducido para liberar ~48KB de RAM interna
+                                  // al WiFi WPA2 (era 8 = 96KB, ahora 48KB)
 constexpr int AREA_PIXEL_OFFSET =
     1; // used when computing width/height from area.x2 - area.x1 + 1
 
@@ -215,8 +216,8 @@ struct Alarm {
 extern Alarm alarmList[MAX_ALARMS];
 
 // Nota: Los timings y pines del display están centralizados en display_config.h
-// Las constantes CFG_* han sido eliminadas para evitar duplicidades y confusión.
-// Usar directamente las macros DISPLAY_* de display_config.h.
+// Las constantes CFG_* han sido eliminadas para evitar duplicidades y
+// confusión. Usar directamente las macros DISPLAY_* de display_config.h.
 
 constexpr int CFG_OFFSET_X = 0;
 constexpr int CFG_OFFSET_Y = 0;
@@ -245,7 +246,8 @@ static const lv_color_t COLOR_PANEL_WHITE = lv_color_make(
 static const lv_color_t COLOR_PANEL_GRAY =
     lv_color_make(COLOR_PANEL_GRAY_R, COLOR_PANEL_GRAY_G, COLOR_PANEL_GRAY_B);
 static const lv_color_t COLOR_PANEL_LIGHT_GRAY =
-    lv_color_make(COLOR_PANEL_LIGHT_GRAY_R, COLOR_PANEL_LIGHT_GRAY_G, COLOR_PANEL_LIGHT_GRAY_B);
+    lv_color_make(COLOR_PANEL_LIGHT_GRAY_R, COLOR_PANEL_LIGHT_GRAY_G,
+                  COLOR_PANEL_LIGHT_GRAY_B);
 
 // Dark Mode Colors
 static const lv_color_t COLOR_BG_DARK = lv_color_make(30, 30, 30);
