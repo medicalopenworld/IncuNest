@@ -155,6 +155,23 @@ void recapVariables() {
   }
   in3.serialNumber = EEPROM.readInt(EEPROM_SERIAL_NUMBER);
   ESP_LOGI("APP", "Serial Number from EEPROM: %d", in3.serialNumber);
+
+  // Read config settings from EEPROM (with validation against defaults)
+  int fanPWM_ee = EEPROM.readInt(EEPROM_FAN_PWM);
+  if (fanPWM_ee > 0 && fanPWM_ee <= 255) in3.fanPWM = fanPWM_ee;
+  float heaterAmps_ee = EEPROM.readFloat(EEPROM_HEATER_MAX_AMPS);
+  if (!isnan(heaterAmps_ee) && heaterAmps_ee > 0) in3.heaterMaxPowerAmps = heaterAmps_ee;
+  float skinTmax_ee = EEPROM.readFloat(EEPROM_SKIN_TEMP_MAX);
+  if (!isnan(skinTmax_ee) && skinTmax_ee > 0) in3.skinTemperatureSetMax = skinTmax_ee;
+  float airTmax_ee = EEPROM.readFloat(EEPROM_AIR_TEMP_MAX);
+  if (!isnan(airTmax_ee) && airTmax_ee > 0) in3.airTemperatureSetMax = airTmax_ee;
+  int gprsAct_ee = EEPROM.readInt(EEPROM_GPRS_ACT_PERIOD);
+  if (gprsAct_ee > 0) in3.actuating_gprs_period = gprsAct_ee;
+  int gprsPhoto_ee = EEPROM.readInt(EEPROM_GPRS_PHOTO_PERIOD);
+  if (gprsPhoto_ee > 0) in3.phototherapy_gprs_period = gprsPhoto_ee;
+  int gprsStby_ee = EEPROM.readInt(EEPROM_GPRS_STBY_PERIOD);
+  if (gprsStby_ee > 0) in3.standby_gprs_period = gprsStby_ee;
+
   in3.controlMode = EEPROM.read(EEPROM_CONTROL_MODE);
   ESP_LOGI("APP", "Control Mode from EEPROM: %d", in3.controlMode);
   in3.desiredControlTemperature =

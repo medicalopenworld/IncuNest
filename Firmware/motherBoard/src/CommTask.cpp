@@ -1,5 +1,6 @@
 #include "CommTask.h"
 #include "main.h"
+#include <EEPROM.h>
 
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -223,27 +224,37 @@ void parse_line(const char *line) {
       extern float maxDesiredTemp[2];
       if (strcmp(param, "FAN_PWM") == 0) {
         in3.fanPWM = (int)value;
+        EEPROM.writeInt(EEPROM_FAN_PWM, in3.fanPWM);
       } else if (strcmp(param, "HEATER_AMPS") == 0) {
         in3.heaterMaxPowerAmps = value;
+        EEPROM.writeFloat(EEPROM_HEATER_MAX_AMPS, in3.heaterMaxPowerAmps);
       } else if (strcmp(param, "SKIN_TMAX") == 0) {
         in3.skinTemperatureSetMax = value;
         maxDesiredTemp[CONTROL_SKIN] = value;
+        EEPROM.writeFloat(EEPROM_SKIN_TEMP_MAX, in3.skinTemperatureSetMax);
       } else if (strcmp(param, "AIR_TMAX") == 0) {
         in3.airTemperatureSetMax = value;
         maxDesiredTemp[CONTROL_AIR] = value;
+        EEPROM.writeFloat(EEPROM_AIR_TEMP_MAX, in3.airTemperatureSetMax);
       } else if (strcmp(param, "GPRS_ACT") == 0) {
         in3.actuating_gprs_period = (int)value;
+        EEPROM.writeInt(EEPROM_GPRS_ACT_PERIOD, in3.actuating_gprs_period);
       } else if (strcmp(param, "GPRS_PHOTO") == 0) {
         in3.phototherapy_gprs_period = (int)value;
+        EEPROM.writeInt(EEPROM_GPRS_PHOTO_PERIOD, in3.phototherapy_gprs_period);
       } else if (strcmp(param, "GPRS_STBY") == 0) {
         in3.standby_gprs_period = (int)value;
+        EEPROM.writeInt(EEPROM_GPRS_STBY_PERIOD, in3.standby_gprs_period);
       } else {
         success = false;
       }
 
+      if (success) {
+        EEPROM.commit();
+      }
       if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         if (success) {
-          ESP_LOGI(TAG, "Config updated: %s = %.2f", param, value);
+          ESP_LOGI(TAG, "Config updated: %s = %.2f (saved to EEPROM)", param, value);
         } else {
           ESP_LOGE(TAG, "Unknown config parameter: %s", param);
         }

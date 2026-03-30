@@ -317,26 +317,33 @@ void configWifiServer() {
     }
     if (wifiServer.hasArg("fan_pwm")) {
       in3.fanPWM = wifiServer.arg("fan_pwm").toInt();
+      EEPROM.writeInt(EEPROM_FAN_PWM, in3.fanPWM);
     }
     if (wifiServer.hasArg("heater_amps")) {
       in3.heaterMaxPowerAmps = wifiServer.arg("heater_amps").toFloat();
+      EEPROM.writeFloat(EEPROM_HEATER_MAX_AMPS, in3.heaterMaxPowerAmps);
     }
     if (wifiServer.hasArg("air_tmax")) {
       in3.airTemperatureSetMax = wifiServer.arg("air_tmax").toFloat();
       maxDesiredTemp[CONTROL_AIR] = in3.airTemperatureSetMax;
+      EEPROM.writeFloat(EEPROM_AIR_TEMP_MAX, in3.airTemperatureSetMax);
     }
     if (wifiServer.hasArg("skin_tmax")) {
       in3.skinTemperatureSetMax = wifiServer.arg("skin_tmax").toFloat();
       maxDesiredTemp[CONTROL_SKIN] = in3.skinTemperatureSetMax;
+      EEPROM.writeFloat(EEPROM_SKIN_TEMP_MAX, in3.skinTemperatureSetMax);
     }
     if (wifiServer.hasArg("gprs_act")) {
       in3.actuating_gprs_period = wifiServer.arg("gprs_act").toInt();
+      EEPROM.writeInt(EEPROM_GPRS_ACT_PERIOD, in3.actuating_gprs_period);
     }
     if (wifiServer.hasArg("gprs_photo")) {
       in3.phototherapy_gprs_period = wifiServer.arg("gprs_photo").toInt();
+      EEPROM.writeInt(EEPROM_GPRS_PHOTO_PERIOD, in3.phototherapy_gprs_period);
     }
     if (wifiServer.hasArg("gprs_stby")) {
       in3.standby_gprs_period = wifiServer.arg("gprs_stby").toInt();
+      EEPROM.writeInt(EEPROM_GPRS_STBY_PERIOD, in3.standby_gprs_period);
     }
     if (wifiServer.hasArg("reference_temp")) {
       double referenceTemp = wifiServer.arg("reference_temp").toDouble();
