@@ -78,6 +78,7 @@ int alarmSlotToIndex[MAX_ALARM_DISPLAY] = {-1, -1, -1, -1};
 int chartLastPressed = -1;
 
 bool wifiVisible = false;
+bool isConnected = false;
 char wifi_ssid[64] = "";
 char wifi_pass[64] = "";
 
@@ -680,17 +681,29 @@ void set_active_panel(lv_obj_t *active, lv_obj_t *inactive) {
   lv_obj_set_style_opa(inactive, LV_OPA_COVER, LV_PART_MAIN);
 }
 
+void updateButtonVisibility() {
+  if (isConnected) {
+    lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_WifiDisconnectButton, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_clear_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_WifiDisconnectButton, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
 void WifiButton_cb(lv_event_t *e) {
   lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
   LanguagesVisible = false;
   lv_obj_add_flag(ui_InfoDetailsCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
-  if (WiFi.status() == WL_CONNECTED) {
+  isConnected = (WiFi.status() == WL_CONNECTED);
+  if (isConnected) {
     lv_obj_clear_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
   } else {
     lv_obj_clear_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
   }
+  updateButtonVisibility();
   wifiVisible = true;
   hmi_msg.shouldSendData = true;
 }
@@ -1984,6 +1997,14 @@ void WifiConnectButton_cb(lv_event_t *e) {
   vTaskDelay(
       pdMS_TO_TICKS(100)); // Ensure serial is clear before WiFi logs start
   wifiInit();              // Trigger new connection attempt
+  isConnected = true;
+  updateButtonVisibility();
+}
+
+void WifiDisconnectButton_cb(lv_event_t *e) {
+  WiFi.disconnect();
+  isConnected = false;
+  updateButtonVisibility();
 }
 
 void Label9_cb(lv_event_t *e) {
@@ -2555,7 +2576,12 @@ void UI_Task(void *pvParameters) {
 
     if (wifiVisible) {
       lv_obj_clear_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
-      if (WiFi.status() == WL_CONNECTED) {
+      bool actuallyConnected = (WiFi.status() == WL_CONNECTED);
+      if (actuallyConnected != isConnected) {
+        isConnected = actuallyConnected;
+        updateButtonVisibility();
+      }
+      if (isConnected) {
         lv_obj_clear_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
         lv_label_set_text(ui_WifiSSIDLabel, WiFi.SSID().c_str());
       } else {
