@@ -606,10 +606,11 @@ bool actuatorsTest() {
 
   float testCurrent, offsetCurrent;
   offsetCurrent = measureMeanConsumption(MAIN, SYSTEM_SHUNT_CHANNEL);
+  logI("[HW] -> Heater offset current consumption: " + String(offsetCurrent) +
+       " Amps");
   ledcWrite(HEATER_PWM_CHANNEL, PWM_MAX_VALUE);
   vTaskDelay(pdMS_TO_TICKS(CURRENT_STABILIZE_TIME_HEATER));
-  testCurrent =
-      measureMeanConsumption(MAIN, SYSTEM_SHUNT_CHANNEL) - offsetCurrent;
+  testCurrent = measureMeanConsumption(SECUNDARY, HEATER_SHUNT_CHANNEL);
   logI("[HW] -> Heater current consumption: " + String(testCurrent) + " Amps");
   in3.heater_current_test = testCurrent;
   ledcWrite(HEATER_PWM_CHANNEL, 0);

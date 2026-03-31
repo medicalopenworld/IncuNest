@@ -24,10 +24,9 @@ void setup() {
 
   // AudioManager::getInstance().begin();
 
-  /* Comentado para v1.3 - Control vía I2C @ 0x30
+  // Backlight enable — pantalla antigua usa PWM directo
   pinMode(TFT_BL_PIN, OUTPUT);
   digitalWrite(TFT_BL_PIN, HIGH);
-  */
 
   // Power stability delay
   delay(1000);

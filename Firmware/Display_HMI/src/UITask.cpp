@@ -2183,26 +2183,8 @@ void VolumeDown_cb(lv_event_t *e) {
 void UI_Task(void *pvParameters) {
   ESP_LOGI(TAG, "UI Task Started");
 
-  // CrowPanel STC8H1K28 init + Backlight (I2C 0x30)
-  {
-    vTaskDelay(pdMS_TO_TICKS(100));
-
-    // STC8 requires these commands before it accepts the backlight command
-    uint8_t init_cmds[] = {247, 248}; // Buzzer OFF, Speaker ON
-    for (uint8_t cmd : init_cmds) {
-      Wire.beginTransmission(I2C_ADDR_BACKLIGHT);
-      Wire.write(cmd);
-      Wire.endTransmission();
-      vTaskDelay(pdMS_TO_TICKS(20));
-    }
-
-    // Según doc v1.3: 0 es Brillo Máximo, 245 es Apagado.
-    Wire.beginTransmission(I2C_ADDR_BACKLIGHT);
-    Wire.write(DISPLAY_BL_ON_VALUE);
-    Wire.endTransmission();
-
-    vTaskDelay(pdMS_TO_TICKS(100));
-  }
+  // Backlight — pantalla antigua usa PWM directo
+  // (No hay STC8H1K28 en esta versión del hardware)
 
   // Display initialization
   lcd.begin();
@@ -2216,11 +2198,17 @@ void UI_Task(void *pvParameters) {
 
   lv_init();
 
-  // Try to initialize Touch
+  // Try to initialize Touch (reset vía PCA9557 @ 0x18)
   bool touch_ok = false;
   for (int i = 0; i < 3; i++) {
-    // Note: PCA9557 at 0x18 was not found in scan.
-    // Touch reset is likely handled by STC8 (0x30) or already high.
+    // Reset touch via PCA9557 IO0
+    PCA9557 io(DISPLAY_TOUCH_PCA9557_ADDR, &Wire);
+    io.pinMode(0, OUTPUT);
+    io.digitalWrite(0, LOW);
+    vTaskDelay(pdMS_TO_TICKS(10));
+    io.digitalWrite(0, HIGH);
+    vTaskDelay(pdMS_TO_TICKS(55));
+
     if (ts.begin()) {
       touch_ok = true;
       ESP_LOGI(TAG, "Touch controller initialized OK");
@@ -2263,11 +2251,10 @@ void UI_Task(void *pvParameters) {
   Communication_UIReady(); // Sincronización robusta: avisar a la Board que ya
                            // podemos pintar alarmas
 
-  /* Comentado para v1.3 (Control vía I2C)
+  // Backlight PWM — pantalla antigua
   ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RESOLUTION);
   ledcAttachPin(TFT_BL_PIN, PWM_CHANNEL);
   ledcWrite(PWM_CHANNEL, BRIGHTNESS_MAX);
-  */
 
   UI_ApplyLanguage(g_lang);
   ui_set_switch_state_silent(ui_SwitchDarkMode, darkMode);

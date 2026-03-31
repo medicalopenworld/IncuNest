@@ -17,7 +17,7 @@
 #include <lvgl.h>
 #include <stdint.h>
 
-#define FWversion "1.0.6"
+#define FWversion "1.0.M"
 #define ENABLE_WIFI_OTA true // enable wifi OTA
 extern bool OTA_inprogress;
 
@@ -83,20 +83,20 @@ constexpr int AREA_PIXEL_OFFSET =
     1; // used when computing width/height from area.x2 - area.x1 + 1
 
 // -----------------------------
-constexpr int PIN_HENABLE = 41; // DE (Was 40)
-constexpr int PIN_VSYNC = 40;   // VSYNC (Was 41)
-constexpr int PIN_HSYNC = 39;
-constexpr int PIN_PCLK = 42;
+// Pines de control — pantalla antigua
+constexpr int PIN_HENABLE = DISPLAY_PIN_DE;
+constexpr int PIN_VSYNC = DISPLAY_PIN_VSYNC;
+constexpr int PIN_HSYNC = DISPLAY_PIN_HSYNC;
+constexpr int PIN_PCLK = DISPLAY_PIN_PCLK;
 
-constexpr int TOUCH_SDA_PIN = 15;
-constexpr int TOUCH_SCL_PIN = 16;
-// El reset se maneja vía expansor IO PCA9557
-constexpr int TOUCH_INT_PIN = -1;
-constexpr int TOUCH_RST_PIN = -1;
+constexpr int TOUCH_SDA_PIN = DISPLAY_TOUCH_SDA;
+constexpr int TOUCH_SCL_PIN = DISPLAY_TOUCH_SCL;
+// El reset se maneja vía expansor IO PCA9557 @ 0x18
+constexpr int TOUCH_INT_PIN = DISPLAY_TOUCH_INT;
+constexpr int TOUCH_RST_PIN = DISPLAY_TOUCH_RST;
 
 // -----------------------------
-// Backlight I2C Address — centralizado en display_config.h
-// (CrowPanel 7.0 usa STC8H1K28 @ DISPLAY_I2C_ADDR_BL = 0x30)
+// Backlight — pantalla antigua usa PWM, no I2C
 constexpr int I2C_ADDR_BACKLIGHT = DISPLAY_I2C_ADDR_BL;
 
 constexpr int TFT_BL_PIN = DISPLAY_PIN_BL;

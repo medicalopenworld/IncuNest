@@ -1,33 +1,28 @@
 #ifndef AUDIO_MANAGER_H
 #define AUDIO_MANAGER_H
 
-#include "Audio.h"
-
+// Pantalla antigua no tiene hardware I2S — stub vacío
 class AudioManager {
 public:
-    static AudioManager& getInstance();
-    
-    void begin();
-    void loop();
-    void playTone();
-    void playUrl(const char* url);
-    void stop();
-    void setVolume(uint8_t volume);
-    bool isPlaying();
-    bool isLooping();
-    uint8_t getVolume();
-    static void audioTask(void* pvParameters);
+    static AudioManager& getInstance() {
+        static AudioManager instance;
+        return instance;
+    }
+
+    void begin() {}
+    void loop() {}
+    void playTone() {}
+    void playUrl(const char* url) { (void)url; }
+    void stop() {}
+    void setVolume(uint8_t volume) { _volume = volume > 21 ? 21 : volume; }
+    bool isPlaying() { return false; }
+    bool isLooping() { return false; }
+    uint8_t getVolume() { return _volume; }
+    static void audioTask(void* pvParameters) { (void)pvParameters; }
 
 private:
-    AudioManager();
-    Audio audio;
-    uint8_t _volume  = 15;   // Volumen activo (0-21)
-    bool    _looping = false; // true → reiniciar al llegar al EOF
-    
-    // Pines I2S definitivos para CrowPanel 7.0 Advance
-    const int I2S_DOUT = 4;
-    const int I2S_BCLK = 5;
-    const int I2S_LRCK = 6;
+    AudioManager() {}
+    uint8_t _volume = 15;
 };
 
 #endif

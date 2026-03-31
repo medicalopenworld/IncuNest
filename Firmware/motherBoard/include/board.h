@@ -25,7 +25,7 @@
 #define HW_NUM 15
 #define HW_REVISION 'A'
 #define HWversion String(HW_NUM) + "." + String(HW_REVISION)
-#define FWversion "15.7"
+#define FWversion "15.8"
 #define WIFI_NAME "IncuNest"
 #define CURRENT_FIRMWARE_TITLE "IncuNest"
 // Set to true only on the HMI board
