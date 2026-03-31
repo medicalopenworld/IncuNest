@@ -1112,7 +1112,6 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_y(ui_HumCont, -64);
   lv_obj_set_align(ui_HumCont, LV_ALIGN_CENTER);
   lv_obj_clear_flag(ui_HumCont, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_add_flag(ui_HumCont, LV_OBJ_FLAG_HIDDEN); // Hide humidity control
 
   ui_Panel3 = lv_obj_create(ui_HumCont);
   lv_obj_set_width(ui_Panel3, 376);
@@ -1327,8 +1326,8 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_remove_style_all(ui_PhotoTimerCont);
   lv_obj_set_width(ui_PhotoTimerCont, 384);
   lv_obj_set_height(ui_PhotoTimerCont, 120);
-  lv_obj_set_x(ui_PhotoTimerCont, 193);
-  lv_obj_set_y(ui_PhotoTimerCont, -65);
+  lv_obj_set_x(ui_PhotoTimerCont, 198);
+  lv_obj_set_y(ui_PhotoTimerCont, 170);
   lv_obj_set_align(ui_PhotoTimerCont, LV_ALIGN_CENTER);
   // lv_obj_add_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN); // Always visible
   // as requested
@@ -1432,8 +1431,8 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_remove_style_all(ui_PhotoCont);
   lv_obj_set_width(ui_PhotoCont, 384);
   lv_obj_set_height(ui_PhotoCont, 54);
-  lv_obj_set_x(ui_PhotoCont, 193);
-  lv_obj_set_y(ui_PhotoCont, -130);
+  lv_obj_set_x(ui_PhotoCont, 200);
+  lv_obj_set_y(ui_PhotoCont, 100);
   lv_obj_set_align(ui_PhotoCont, LV_ALIGN_CENTER);
   lv_obj_clear_flag(ui_PhotoCont,
                     LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);

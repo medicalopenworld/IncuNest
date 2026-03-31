@@ -79,6 +79,8 @@ int chartLastPressed = -1;
 
 bool wifiVisible = false;
 bool isConnected = false;
+static bool pendingReconnect = false;
+static uint32_t disconnectTimestampMs = 0;
 char wifi_ssid[64] = "";
 char wifi_pass[64] = "";
 
@@ -2003,6 +2005,8 @@ void WifiConnectButton_cb(lv_event_t *e) {
 void WifiDisconnectButton_cb(lv_event_t *e) {
   WiFi.disconnect();
   isConnected = false;
+  pendingReconnect = true;
+  disconnectTimestampMs = millis();
   updateButtonVisibility();
 }
 
@@ -2572,6 +2576,11 @@ void UI_Task(void *pvParameters) {
       ESP_LOGD(TAG, "UI and Audio Loop active");
     }
     vTaskDelay(pdMS_TO_TICKS(LOOP_DELAY_MS));
+
+    if (pendingReconnect && (millis() - disconnectTimestampMs >= 5000)) {
+      pendingReconnect = false;
+      wifiInit();
+    }
 
     if (wifiVisible) {
       lv_obj_clear_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
