@@ -162,7 +162,12 @@ void PIDHandler()
 
 void startPID(byte var)
 {
-  in3.heaterSafeMAXPWM = HEATER_START_PWM;
+  if (var != humidityPID &&
+      airControlPID.GetMode() != AUTOMATIC &&
+      skinControlPID.GetMode() != AUTOMATIC)
+  {
+    in3.heaterSafeMAXPWM = HEATER_START_PWM;
+  }
   switch (var)
   {
   case airPID:
