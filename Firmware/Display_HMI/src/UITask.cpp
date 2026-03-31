@@ -759,20 +759,19 @@ void TextArea_focus_cb(lv_event_t *e) {
   lv_obj_t *ta = lv_event_get_target(e);
   lv_keyboard_set_textarea(ui_Keyboard1, ta);
   lv_obj_clear_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_WifiDisconnectButton, LV_OBJ_FLAG_HIDDEN);
 }
 
 void Keyboard_cb(lv_event_t *e) {
   lv_event_code_t code = lv_event_get_code(e);
   if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
     lv_obj_add_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
     const char *txt1 = lv_textarea_get_text(ui_TextArea1);
     const char *txt2 = lv_textarea_get_text(ui_TextArea2);
     strncpy(wifi_ssid, txt1, sizeof(wifi_ssid));
     strncpy(wifi_pass, txt2, sizeof(wifi_pass));
+    updateButtonVisibility();
   }
 }
 
