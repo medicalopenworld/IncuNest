@@ -83,8 +83,8 @@ void updatedCallback(const bool &success) {
     // esp_restart();
   } else {
     logCon("[GPRS] -> No new firmware");
-    GPRS.OTAInProgress = false;
   }
+  GPRS.OTAInProgress = false;
 }
 
 const OTA_Update_Callback OTAcallback(&progressCallback, &updatedCallback,

@@ -400,6 +400,7 @@ bool initCurrentSensor(bool currentSensor) {
       if (currentSensor == MAIN) {
         mainDigitalCurrentSensor.begin();
         mainDigitalCurrentSensor.reset();
+        vTaskDelay(pdMS_TO_TICKS(100));
         // Set shunt resistors to 10 mOhm for all channels
         mainDigitalCurrentSensor.setShuntRes(SYSTEM_SHUNT, PHOTOTHERAPY_SHUNT,
                                              FAN_SHUNT);
@@ -410,6 +411,7 @@ bool initCurrentSensor(bool currentSensor) {
         digitalCurrentSensorPresent[currentSensor] = true;
         secundaryDigitalCurrentSensor.begin();
         secundaryDigitalCurrentSensor.reset();
+        vTaskDelay(pdMS_TO_TICKS(100));
         // Set shunt resistors to 10 mOhm for all channels
         secundaryDigitalCurrentSensor.setShuntRes(HEATER_SHUNT, USB_SHUNT,
                                                   BATTERY_SHUNT);

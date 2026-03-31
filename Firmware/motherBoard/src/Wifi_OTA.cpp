@@ -118,6 +118,7 @@ const char *serverIndex =
     "script>"
     "<h3>Firmware Update</h3>"
     "<p>Current Version: <span id='fw_version'></span></p>"
+    "<p>CCID: <span id='ccid'></span></p>"
     "<form method='POST' action='#' enctype='multipart/form-data' "
     "id='upload_form'>"
     "<input type='file' name='update'>"
@@ -128,6 +129,9 @@ const char *serverIndex =
     "$(document).ready(function() {"
     "  $.get('/get_fw_version', function(data) {"
     "    $('#fw_version').text(data.version);"
+    "  });"
+    "  $.get('/get_ccid', function(data) {"
+    "    $('#ccid').text(data.ccid);"
     "  });"
     "});"
     "</script>"
@@ -282,6 +286,13 @@ void configWifiServer() {
   wifiServer.on("/get_fw_version", HTTP_GET, []() {
     String json = "{";
     json += "\"version\":\"" + String(FWversion) + "\"";
+    json += "}";
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "application/json", json);
+  });
+  wifiServer.on("/get_ccid", HTTP_GET, []() {
+    String json = "{";
+    json += "\"ccid\":\"" + GPRS.CCID + "\"";
     json += "}";
     wifiServer.sendHeader("Connection", "close");
     wifiServer.send(200, "application/json", json);
@@ -759,7 +770,8 @@ void WIFI_TB_OTA() {
           WIFI_JSON.clear();
           Wifi_TB.lastMQTTPublish = millis();
         }
-        if (millis() - Wifi_TB.lastOTACheck > WIFI_OTA_CHECK_INTERVAL) {
+        if (millis() - Wifi_TB.lastOTACheck > WIFI_OTA_CHECK_INTERVAL &&
+            !GPRS.OTAInProgress) {
           WIFICheckOTA();
           Wifi_TB.lastOTACheck = millis();
         }

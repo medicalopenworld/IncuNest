@@ -429,12 +429,13 @@ void setup() {
   logI("Initializing communication task ...");
   CommunicationHost_Init();
 
-  xTaskCreatePinnedToCore(Communication_Task, "COMM_TASK", 4096, NULL, COMMUNICATION_TASK_PRIORITY, NULL,
+  xTaskCreatePinnedToCore(Communication_Task, "COMM_TASK", 4096, NULL,
+                          COMMUNICATION_TASK_PRIORITY, NULL,
                           CORE_ID_FREERTOS // o 0/1 según tu placa
   );
 
-  xTaskCreatePinnedToCore(Communication_Receiver, "COMM_TASK_RX", 4096, NULL, COMMUNICATION_RECEIVER_PRIORITY,
-                          NULL,
+  xTaskCreatePinnedToCore(Communication_Receiver, "COMM_TASK_RX", 4096, NULL,
+                          COMMUNICATION_RECEIVER_PRIORITY, NULL,
                           CORE_ID_FREERTOS // o 0/1 según tu placa
   );
   logI("Communication task successfully created!\n");
@@ -450,7 +451,7 @@ void setup() {
     logI("WiFi Initialization started.");
   }
 
-  // EEPROM.writeString(EEPROM_THINGSBOARD_TOKEN, "3UlOzWQCWwspCQP768hZ");
+  // EEPROM.writeString(EEPROM_THINGSBOARD_TOKEN, "MrpCM8s8STUNG9hM3p5x");
   // EEPROM.write(EEPROM_THINGSBOARD_PROVISIONED, true);
   // EEPROM.commit();
 

@@ -18,7 +18,7 @@
 #include "main.h"
 
 #define CURRENT_FIRMWARE_TITLE "IncuNest_HMI"
-#define CURRENT_FIRMWARE_VERSION "1.0.0"
+#define CURRENT_FIRMWARE_VERSION "1.0.5"
 
 #define WIFI_PUBLISH_INTERVAL 5000    // milliseconds
 #define WIFI_RECONNECT_INTERVAL 10000 // 10 seconds
