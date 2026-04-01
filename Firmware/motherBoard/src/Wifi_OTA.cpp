@@ -796,7 +796,7 @@ void WifiOTAHandler(void) {
       Wifi_TB.lastWifiReconnectAttempt = millis();
       logI("[WIFI] -> Connection lost, attempting to reconnect...");
       MDNS.end();
-      wifiInit();
+      WiFi.reconnect();
     }
   }
 
