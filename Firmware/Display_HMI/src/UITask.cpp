@@ -84,6 +84,11 @@ static uint32_t disconnectTimestampMs = 0;
 char wifi_ssid[64] = "";
 char wifi_pass[64] = "";
 
+// WiFi scan state
+static bool wifiScanInProgress = false;
+static lv_obj_t *ui_WifiScanList = NULL;
+static void WifiScanList_Close(); // forward declaration
+
 bool LanguagesVisible = false;
 bool locked = true;
 
@@ -715,7 +720,8 @@ void InfoButton_cb(lv_event_t *e) {
   LanguagesVisible = false;
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
-
+  WifiScanList_Close();
+  
   lv_obj_clear_flag(ui_InfoDetailsCont, LV_OBJ_FLAG_HIDDEN);
 
   // Update values
@@ -739,6 +745,7 @@ void LanguageButton_cb(lv_event_t *e) {
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_InfoDetailsCont, LV_OBJ_FLAG_HIDDEN);
+  WifiScanList_Close();
   wifiVisible = false;
   lv_obj_clear_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
   LanguagesVisible = true;
@@ -757,12 +764,133 @@ void TextArea_Change_cb(lv_event_t *e) {
   }
 }
 
+// ── WiFi Scan helpers ─────────────────────────────────────────────────────────
+
+static void WifiScanList_Close() {
+  if (ui_WifiScanList != NULL) {
+    lv_obj_del(ui_WifiScanList);
+    ui_WifiScanList = NULL;
+  }
+  wifiScanInProgress = false;
+}
+
+static void WifiScanItem_cb(lv_event_t *e) {
+  lv_obj_t *btn = lv_event_get_target(e);
+  // First child is the SSID label
+  lv_obj_t *ssid_lbl = lv_obj_get_child(btn, 0);
+  const char *ssid = lv_label_get_text(ssid_lbl);
+  lv_textarea_set_text(ui_TextArea1, ssid);
+  strncpy(wifi_ssid, ssid, sizeof(wifi_ssid) - 1);
+  wifi_ssid[sizeof(wifi_ssid) - 1] = '\0';
+  WifiScanList_Close();
+  // Move keyboard focus to password field
+  lv_keyboard_set_textarea(ui_Keyboard1, ui_TextArea2);
+  lv_obj_clear_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_ConnectLabel, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void WifiScanList_Show(int n) {
+  WifiScanList_Close();
+
+  lv_obj_t *list = lv_obj_create(ui_ScreenSettings);
+  lv_obj_remove_style_all(list);
+  lv_obj_set_size(list, 400, n > 0 ? 152 : 50);
+  lv_obj_align_to(list, ui_SSIDPanel, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 2);
+  lv_obj_set_style_bg_color(list, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(list, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_radius(list, 8, LV_PART_MAIN);
+  lv_obj_set_style_border_color(list, lv_color_hex(0xDDDDDD), LV_PART_MAIN);
+  lv_obj_set_style_border_width(list, 1, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(list, 4, LV_PART_MAIN);
+  lv_obj_set_style_pad_row(list, 2, LV_PART_MAIN);
+  lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_scroll_dir(list, LV_DIR_VER);
+  lv_obj_set_style_clip_corner(list, true, LV_PART_MAIN);
+
+  if (n <= 0) {
+    lv_obj_t *lbl = lv_label_create(list);
+    lv_obj_set_width(lbl, lv_pct(100));
+    lv_label_set_text(lbl, "No se encontraron redes");
+    lv_obj_set_style_text_color(lbl, lv_color_hex(0x888888), LV_PART_MAIN);
+    lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_set_style_pad_top(lbl, 8, LV_PART_MAIN);
+  } else {
+    for (int i = 0; i < n; i++) {
+      lv_obj_t *btn = lv_btn_create(list);
+      lv_obj_set_width(btn, lv_pct(100));
+      lv_obj_set_height(btn, 34);
+      lv_obj_set_style_bg_color(btn, lv_color_hex(0xF8F8F8), LV_PART_MAIN);
+      lv_obj_set_style_bg_color(btn, lv_color_hex(0xE3F2FD), LV_PART_MAIN | LV_STATE_PRESSED);
+      lv_obj_set_style_radius(btn, 6, LV_PART_MAIN);
+      lv_obj_set_style_shadow_width(btn, 0, LV_PART_MAIN);
+      lv_obj_set_style_pad_hor(btn, 8, LV_PART_MAIN);
+      lv_obj_set_style_pad_ver(btn, 0, LV_PART_MAIN);
+      lv_obj_set_flex_flow(btn, LV_FLEX_FLOW_ROW);
+      lv_obj_set_flex_align(btn, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+      lv_obj_t *ssid_lbl = lv_label_create(btn);
+      lv_label_set_text(ssid_lbl, WiFi.SSID(i).c_str());
+      lv_label_set_long_mode(ssid_lbl, LV_LABEL_LONG_CLIP);
+      lv_obj_set_flex_grow(ssid_lbl, 1);
+      lv_obj_set_style_text_color(ssid_lbl, lv_color_hex(0x333333), LV_PART_MAIN);
+
+      char rssi_buf[12];
+      snprintf(rssi_buf, sizeof(rssi_buf), "%d dBm", WiFi.RSSI(i));
+      lv_obj_t *rssi_lbl = lv_label_create(btn);
+      lv_label_set_text(rssi_lbl, rssi_buf);
+      lv_obj_set_style_text_color(rssi_lbl, lv_color_hex(0x999999), LV_PART_MAIN);
+      lv_obj_set_style_text_font(rssi_lbl, &lv_font_montserrat_12, LV_PART_MAIN);
+
+      lv_obj_add_event_cb(btn, WifiScanItem_cb, LV_EVENT_CLICKED, NULL);
+    }
+  }
+
+  ui_WifiScanList = list;
+  WiFi.scanDelete();
+}
+
+static void WifiScanList_ShowScanning() {
+  WifiScanList_Close();
+
+  lv_obj_t *list = lv_obj_create(ui_ScreenSettings);
+  lv_obj_remove_style_all(list);
+  lv_obj_set_size(list, 400, 50);
+  lv_obj_align_to(list, ui_SSIDPanel, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 2);
+  lv_obj_set_style_bg_color(list, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(list, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_radius(list, 8, LV_PART_MAIN);
+  lv_obj_set_style_border_color(list, lv_color_hex(0xDDDDDD), LV_PART_MAIN);
+  lv_obj_set_style_border_width(list, 1, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(list, 4, LV_PART_MAIN);
+
+  lv_obj_t *lbl = lv_label_create(list);
+  lv_obj_set_width(lbl, lv_pct(100));
+  lv_label_set_text(lbl, "Buscando redes...");
+  lv_obj_set_style_text_color(lbl, lv_color_hex(0x555555), LV_PART_MAIN);
+  lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
+
+  ui_WifiScanList = list;
+}
+
+// ── End WiFi Scan helpers ─────────────────────────────────────────────────────
+
 void TextArea_focus_cb(lv_event_t *e) {
   lv_obj_t *ta = lv_event_get_target(e);
   lv_keyboard_set_textarea(ui_Keyboard1, ta);
   lv_obj_clear_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiDisconnectButton, LV_OBJ_FLAG_HIDDEN);
+  if (ta == ui_TextArea1) {
+    // Launch async WiFi scan and show "searching" indicator
+    WiFi.scanNetworks(/*async=*/true);
+    wifiScanInProgress = true;
+    WifiScanList_ShowScanning();
+  } else {
+    // Password field focused — close scan dropdown if open
+    WifiScanList_Close();
+  }
 }
 
 void Keyboard_cb(lv_event_t *e) {
@@ -774,6 +902,7 @@ void Keyboard_cb(lv_event_t *e) {
     strncpy(wifi_ssid, txt1, sizeof(wifi_ssid));
     strncpy(wifi_pass, txt2, sizeof(wifi_pass));
     updateButtonVisibility();
+    WifiScanList_Close();
   }
 }
 
@@ -2099,6 +2228,7 @@ void AlarmLockCont_cb(lv_event_t *e) {
 }
 
 void ImgButton2_cb(lv_event_t *e) {
+  WifiScanList_Close();
   _ui_screen_change(&ui_ScreenMain, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
                     &ui_ScreenMain_screen_init);
   _ui_screen_delete(&ui_ScreenSettings);
@@ -2381,6 +2511,7 @@ void UI_Task(void *pvParameters) {
   lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
   lv_keyboard_set_textarea(ui_Keyboard1, NULL);
+  WifiScanList_Close();
 
   lv_textarea_set_text(ui_TextArea2, wifi_pass);
 
@@ -2594,6 +2725,15 @@ void UI_Task(void *pvParameters) {
         lv_label_set_text(ui_WifiSSIDLabel, WiFi.SSID().c_str());
       } else {
         lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
+      }
+    }
+
+    // Poll async WiFi scan results
+    if (wifiScanInProgress) {
+      int16_t scanResult = WiFi.scanComplete();
+      if (scanResult >= 0) {
+        wifiScanInProgress = false;
+        WifiScanList_Show(scanResult);
       }
     }
 
