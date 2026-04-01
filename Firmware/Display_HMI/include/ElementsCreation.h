@@ -206,6 +206,12 @@ extern lv_obj_t *ui_AutoAirGestVal;
 extern lv_obj_t *ui_AutoAirDaysVal;
 extern lv_obj_t *ui_AutoAirErrLabel;
 extern lv_obj_t *ui_AutoAirToast;
+// --- AUTO AIR range display widgets ---
+extern lv_obj_t *aa_range_bar;
+extern lv_obj_t *aa_label_hi;
+extern lv_obj_t *aa_label_mid;
+extern lv_obj_t *aa_label_lo;
+extern lv_obj_t *aa_setpoint_label;
 void create_autoair_button(void);
 void create_autoair_popup(void);
 

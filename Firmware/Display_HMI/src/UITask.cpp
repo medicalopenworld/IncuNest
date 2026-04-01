@@ -103,6 +103,9 @@ static int g_babyDaysOfLife   = 0;
 static int g_popupWeight      = 1500;
 static int g_popupGest        = 32;
 static int g_popupDays        = 0;
+static float aa_popup_setpoint = 0.0f;
+static float aa_popup_lo       = 0.0f;
+static float aa_popup_hi       = 0.0f;
 
 static bool eepromDirty = false;
 static unsigned long lastVarChangeTime = 0;
@@ -693,7 +696,9 @@ void chart_add_skin_temp(float v) {
 // Returns -1.0f on invalid input.
 static float autoair_calculate_setpoint(int weightGrams, int gestWeeks,
                                           int daysOfLife,
-                                          char *row_desc, size_t desc_len) {
+                                          char *row_desc, size_t desc_len,
+                                          float *lo_out = nullptr,
+                                          float *hi_out = nullptr) {
   if (weightGrams <= 0 || gestWeeks <= 0 || daysOfLife < 0) {
     snprintf(row_desc, desc_len, "invalid inputs");
     return -1.0f;
@@ -776,6 +781,8 @@ static float autoair_calculate_setpoint(int weightGrams, int gestWeeks,
     if (lt1500) { lo=31.6f; hi=33.6f; snprintf(row_desc,desc_len,">4sem,<1500g(aprox)"); }
     else        { lo=30.0f; hi=32.7f; snprintf(row_desc,desc_len,">4sem,>1500g(aprox)"); }
   }
+  if (lo_out) *lo_out = lo;
+  if (hi_out) *hi_out = hi;
   return (lo + hi) / 2.0f;
 }
 
@@ -908,15 +915,55 @@ static void autoair_activate(float setpoint, const char *rowDesc) {
            (unsigned long)millis());
 }
 
+static void aa_update_range_display() {
+  if (!aa_range_bar || !aa_label_hi || !aa_label_mid || !aa_label_lo || !aa_setpoint_label) return;
+  char rowDesc[48];
+  float lo, hi;
+  float sp = autoair_calculate_setpoint(g_popupWeight, g_popupGest, g_popupDays,
+                                         rowDesc, sizeof(rowDesc), &lo, &hi);
+  char buf[16];
+  if (sp < 0.0f) {
+    lv_label_set_text(aa_label_hi,  "--.-");
+    lv_label_set_text(aa_label_mid, "--.-");
+    lv_label_set_text(aa_label_lo,  "--.-");
+    lv_label_set_text(aa_setpoint_label, "--.-");
+    lv_bar_set_start_value(aa_range_bar, 280, LV_ANIM_OFF);
+    lv_bar_set_value(aa_range_bar, 280, LV_ANIM_OFF);
+    aa_popup_lo = 0.0f; aa_popup_hi = 0.0f; aa_popup_setpoint = 0.0f;
+    return;
+  }
+  aa_popup_lo = lo;
+  aa_popup_hi = hi;
+  // Midpoint rounded to 0.2°C grid
+  float mid = (float)((int)(sp * 5.0f + 0.5f)) * 0.2f;
+  if (mid < lo) mid = lo;
+  if (mid > hi) mid = hi;
+  aa_popup_setpoint = mid;
+
+  // Bar: range 280–370 (°C × 10)
+  lv_bar_set_start_value(aa_range_bar, (int)(lo * 10.0f), LV_ANIM_OFF);
+  lv_bar_set_value(aa_range_bar, (int)(hi * 10.0f), LV_ANIM_OFF);
+
+  snprintf(buf, sizeof(buf), "%.1f", hi);
+  lv_label_set_text(aa_label_hi, buf);
+  snprintf(buf, sizeof(buf), "%.1f", aa_popup_setpoint);
+  lv_label_set_text(aa_label_mid, buf);
+  snprintf(buf, sizeof(buf), "%.1f", lo);
+  lv_label_set_text(aa_label_lo, buf);
+  snprintf(buf, sizeof(buf), "%.1f C", aa_popup_setpoint);
+  lv_label_set_text(aa_setpoint_label, buf);
+}
+
 static void autoair_popup_update_labels() {
   if (!ui_AutoAirWeightVal || !ui_AutoAirGestVal || !ui_AutoAirDaysVal) return;
-  char buf[20];
-  snprintf(buf, sizeof(buf), "%d g", g_popupWeight);
+  char buf[12];
+  snprintf(buf, sizeof(buf), "%d", g_popupWeight);
   lv_label_set_text(ui_AutoAirWeightVal, buf);
-  snprintf(buf, sizeof(buf), "%d sem", g_popupGest);
+  snprintf(buf, sizeof(buf), "%d", g_popupGest);
   lv_label_set_text(ui_AutoAirGestVal, buf);
-  snprintf(buf, sizeof(buf), "%d dias", g_popupDays);
+  snprintf(buf, sizeof(buf), "%d", g_popupDays);
   lv_label_set_text(ui_AutoAirDaysVal, buf);
+  aa_update_range_display();
 }
 
 static void autoair_popup_show(bool show) {
@@ -974,26 +1021,60 @@ void aa_confirm_cb(lv_event_t *) {
     }
     return;
   }
-  g_babyWeightGrams = g_popupWeight;
-  g_babyGestWeeks   = g_popupGest;
-  g_babyDaysOfLife  = g_popupDays;
-
-  char rowDesc[48];
-  float sp = autoair_calculate_setpoint(g_babyWeightGrams, g_babyGestWeeks,
-                                         g_babyDaysOfLife, rowDesc, sizeof(rowDesc));
-  if (sp < 0.0f) {
+  if (aa_popup_setpoint <= 0.0f) {
     if (ui_AutoAirErrLabel) {
-      lv_label_set_text(ui_AutoAirErrLabel, "Error en calculo");
+      const char *errTxt = (g_lang == LANG_ES)
+          ? "Rango no calculado"
+      : (g_lang == LANG_FR)
+          ? "Plage non calculee"
+          : "Range not computed";
+      lv_label_set_text(ui_AutoAirErrLabel, errTxt);
       lv_obj_clear_flag(ui_AutoAirErrLabel, LV_OBJ_FLAG_HIDDEN);
     }
     return;
   }
+  g_babyWeightGrams = g_popupWeight;
+  g_babyGestWeeks   = g_popupGest;
+  g_babyDaysOfLife  = g_popupDays;
+  char rowDesc[48];
+  autoair_calculate_setpoint(g_babyWeightGrams, g_babyGestWeeks,
+                              g_babyDaysOfLife, rowDesc, sizeof(rowDesc));
   autoair_popup_show(false);
-  autoair_activate(sp, rowDesc);
+  autoair_activate(aa_popup_setpoint, rowDesc);
 }
 
 void aa_cancel_cb(lv_event_t *) {
   autoair_popup_show(false);
+}
+
+void aa_setpoint_up_cb(lv_event_t *) {
+  if (aa_popup_hi <= 0.0f) return;
+  int steps = (int)(aa_popup_setpoint * 5.0f + 0.5f) + 1;
+  float next = (float)steps * 0.2f;
+  if (next > aa_popup_hi) next = aa_popup_hi;
+  aa_popup_setpoint = next;
+  if (aa_label_mid && aa_setpoint_label) {
+    char buf[12];
+    snprintf(buf, sizeof(buf), "%.1f", aa_popup_setpoint);
+    lv_label_set_text(aa_label_mid, buf);
+    snprintf(buf, sizeof(buf), "%.1f C", aa_popup_setpoint);
+    lv_label_set_text(aa_setpoint_label, buf);
+  }
+}
+
+void aa_setpoint_down_cb(lv_event_t *) {
+  if (aa_popup_lo <= 0.0f) return;
+  int steps = (int)(aa_popup_setpoint * 5.0f + 0.5f) - 1;
+  float next = (float)steps * 0.2f;
+  if (next < aa_popup_lo) next = aa_popup_lo;
+  aa_popup_setpoint = next;
+  if (aa_label_mid && aa_setpoint_label) {
+    char buf[12];
+    snprintf(buf, sizeof(buf), "%.1f", aa_popup_setpoint);
+    lv_label_set_text(aa_label_mid, buf);
+    snprintf(buf, sizeof(buf), "%.1f C", aa_popup_setpoint);
+    lv_label_set_text(aa_setpoint_label, buf);
+  }
 }
 
 void AutoAirBtn_cb(lv_event_t *e) {
