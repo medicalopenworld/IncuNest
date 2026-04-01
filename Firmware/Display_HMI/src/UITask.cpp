@@ -817,6 +817,21 @@ static void autoair_update_button_style() {
     lv_obj_set_style_opa(ui_AutoAirBtn, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_text_color(ui_AutoAirBtnLabel, fg, 0);
   }
+
+  // Temperature arrows: disabled (grey, non-clickable) while AUTO AIR is active
+  if (g_autoAirActive) {
+    lv_obj_clear_flag(ui_ImgArrowUpTemp,   LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_img_recolor(ui_ImgArrowUpTemp,   lv_color_hex(0x888888), LV_PART_MAIN);
+    lv_obj_set_style_img_recolor_opa(ui_ImgArrowUpTemp,   LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_img_recolor(ui_ImgArrowDownTemp, lv_color_hex(0x888888), LV_PART_MAIN);
+    lv_obj_set_style_img_recolor_opa(ui_ImgArrowDownTemp, LV_OPA_COVER, LV_PART_MAIN);
+  } else {
+    lv_obj_add_flag(ui_ImgArrowUpTemp,   LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_img_recolor_opa(ui_ImgArrowUpTemp,   LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_img_recolor_opa(ui_ImgArrowDownTemp, LV_OPA_TRANSP, LV_PART_MAIN);
+  }
 }
 
 static void autoair_deactivate(bool fromModeSwitch) {
