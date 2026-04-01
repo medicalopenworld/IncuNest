@@ -3239,7 +3239,7 @@ static lv_obj_t *aa_make_input_row(lv_obj_t *parent, const char *fieldName,
                                     const char *fieldUnits, int yOffset,
                                     lv_event_cb_t decCb, lv_event_cb_t incCb) {
   lv_obj_t *row = lv_obj_create(parent);
-  lv_obj_set_size(row, 295, 60);
+  lv_obj_set_size(row, 295, 76);
   lv_obj_align(row, LV_ALIGN_TOP_MID, 0, yOffset);
   lv_obj_set_style_border_width(row, 1, LV_PART_MAIN);
   lv_obj_set_style_border_color(row, lv_color_hex(0xDDDDDD), LV_PART_MAIN);
@@ -3293,9 +3293,9 @@ void create_autoair_popup() {
   lv_obj_clear_flag(ui_AutoAirOverlay, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(ui_AutoAirOverlay, LV_OBJ_FLAG_HIDDEN);
 
-  // Modal — wide landscape layout (700×340)
+  // Modal — wide landscape layout (700×420)
   lv_obj_t *modal = lv_obj_create(ui_AutoAirOverlay);
-  lv_obj_set_size(modal, 700, 340);
+  lv_obj_set_size(modal, 700, 420);
   lv_obj_align(modal, LV_ALIGN_CENTER, 0, 0);
   lv_obj_set_style_radius(modal, 12, LV_PART_MAIN);
   lv_obj_set_style_border_width(modal, 2, LV_PART_MAIN);
@@ -3332,7 +3332,7 @@ void create_autoair_popup() {
 
   // Vertical separator between columns
   lv_obj_t *vSep = lv_obj_create(modal);
-  lv_obj_set_size(vSep, 2, 288);
+  lv_obj_set_size(vSep, 2, 366);
   lv_obj_set_pos(vSep, 329, 52);
   lv_obj_set_style_bg_color(vSep, lv_color_hex(0xDDDDDD), LV_PART_MAIN);
   lv_obj_set_style_border_width(vSep, 0, LV_PART_MAIN);
@@ -3342,7 +3342,7 @@ void create_autoair_popup() {
   // LEFT COLUMN — Baby Information
   // ══════════════════════════════════════════════════════════
   lv_obj_t *colLeft = lv_obj_create(modal);
-  lv_obj_set_size(colLeft, 327, 286);
+  lv_obj_set_size(colLeft, 327, 366);
   lv_obj_set_pos(colLeft, 2, 52);
   lv_obj_set_style_border_width(colLeft, 0, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(colLeft, LV_OPA_TRANSP, LV_PART_MAIN);
@@ -3368,14 +3368,14 @@ void create_autoair_popup() {
       colLeft,
       (g_lang == LANG_ES) ? "Edad Postnatal" : (g_lang == LANG_FR) ? "Age Post-Natal" : "Post-Natal Age",
       "DAYS",
-      84, aa_days_dec_cb, aa_days_inc_cb);
+      104, aa_days_dec_cb, aa_days_inc_cb);
 
   // [2] Weight → ui_AutoAirWeightVal
   ui_AutoAirWeightVal = aa_make_input_row(
       colLeft,
       (g_lang == LANG_ES) ? "Peso" : (g_lang == LANG_FR) ? "Poids" : "Weight",
       "GRAMS",
-      150, aa_weight_dec_cb, aa_weight_inc_cb);
+      192, aa_weight_dec_cb, aa_weight_inc_cb);
 
   // Error label
   ui_AutoAirErrLabel = lv_label_create(colLeft);
@@ -3403,7 +3403,7 @@ void create_autoair_popup() {
   // RIGHT COLUMN — Recommended Range
   // ══════════════════════════════════════════════════════════
   lv_obj_t *colRight = lv_obj_create(modal);
-  lv_obj_set_size(colRight, 369, 286);
+  lv_obj_set_size(colRight, 369, 366);
   lv_obj_set_pos(colRight, 331, 52);
   lv_obj_set_style_border_width(colRight, 0, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(colRight, LV_OPA_TRANSP, LV_PART_MAIN);
@@ -3418,7 +3418,7 @@ void create_autoair_popup() {
 
   // Vertical range bar (height > width → LVGL 8 draws it vertical)
   aa_range_bar = lv_bar_create(colRight);
-  lv_obj_set_size(aa_range_bar, 22, 160);
+  lv_obj_set_size(aa_range_bar, 22, 210);
   lv_obj_set_pos(aa_range_bar, 18, 22);
   lv_bar_set_mode(aa_range_bar, LV_BAR_MODE_RANGE);
   lv_bar_set_range(aa_range_bar, 280, 370);   // °C × 10 → 28.0–37.0
@@ -3441,25 +3441,25 @@ void create_autoair_popup() {
   lv_label_set_text(aa_label_mid, "--.-");
   lv_obj_set_style_text_font(aa_label_mid, &lv_font_montserrat_20, 0);
   lv_obj_set_style_text_color(aa_label_mid, lv_color_hex(0x0075EE), 0);
-  lv_obj_set_pos(aa_label_mid, 48, 88);
+  lv_obj_set_pos(aa_label_mid, 48, 118);
 
   // setpoint sub-label (shows "XX.X C")
   aa_setpoint_label = lv_label_create(colRight);
   lv_label_set_text(aa_setpoint_label, "--.-");
   lv_obj_set_style_text_font(aa_setpoint_label, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(aa_setpoint_label, lv_color_hex(0x555555), 0);
-  lv_obj_set_pos(aa_setpoint_label, 50, 112);
+  lv_obj_set_pos(aa_setpoint_label, 50, 142);
 
   // lo label — bottom of bar
   aa_label_lo = lv_label_create(colRight);
   lv_label_set_text(aa_label_lo, "--.-");
   lv_obj_set_style_text_font(aa_label_lo, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(aa_label_lo, lv_color_hex(0x333333), 0);
-  lv_obj_set_pos(aa_label_lo, 50, 168);
+  lv_obj_set_pos(aa_label_lo, 50, 218);
 
   // Setpoint ▲ button
   lv_obj_t *btnSpUp = lv_btn_create(colRight);
-  lv_obj_set_size(btnSpUp, 80, 42);
+  lv_obj_set_size(btnSpUp, 80, 46);
   lv_obj_set_pos(btnSpUp, 238, 18);
   lv_obj_set_style_bg_color(btnSpUp, lv_color_hex(0x0075EE), LV_PART_MAIN);
   lv_obj_set_style_radius(btnSpUp, 8, LV_PART_MAIN);
@@ -3472,8 +3472,8 @@ void create_autoair_popup() {
 
   // APPLY button (center-right)
   lv_obj_t *btnApply = lv_btn_create(colRight);
-  lv_obj_set_size(btnApply, 140, 42);
-  lv_obj_set_pos(btnApply, 178, 108);
+  lv_obj_set_size(btnApply, 140, 46);
+  lv_obj_set_pos(btnApply, 178, 136);
   lv_obj_set_style_bg_color(btnApply, lv_color_hex(0x00AA44), LV_PART_MAIN);
   lv_obj_set_style_radius(btnApply, 8, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(btnApply, 0, LV_PART_MAIN);
@@ -3486,8 +3486,8 @@ void create_autoair_popup() {
 
   // Setpoint ▼ button
   lv_obj_t *btnSpDown = lv_btn_create(colRight);
-  lv_obj_set_size(btnSpDown, 80, 42);
-  lv_obj_set_pos(btnSpDown, 238, 200);
+  lv_obj_set_size(btnSpDown, 80, 46);
+  lv_obj_set_pos(btnSpDown, 238, 242);
   lv_obj_set_style_bg_color(btnSpDown, lv_color_hex(0x0075EE), LV_PART_MAIN);
   lv_obj_set_style_radius(btnSpDown, 8, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(btnSpDown, 0, LV_PART_MAIN);
