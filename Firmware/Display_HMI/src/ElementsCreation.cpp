@@ -287,6 +287,16 @@ lv_obj_t *ui_PanelLockAlarm = NULL;
 lv_obj_t *ui_AlarmLockNumLabel = NULL;
 lv_obj_t *ui_CheckImg = NULL;
 
+// --- AUTO AIR UI objects ---
+lv_obj_t *ui_AutoAirBtn       = NULL;
+lv_obj_t *ui_AutoAirBtnLabel  = NULL;
+lv_obj_t *ui_AutoAirOverlay   = NULL;
+lv_obj_t *ui_AutoAirWeightVal = NULL;
+lv_obj_t *ui_AutoAirGestVal   = NULL;
+lv_obj_t *ui_AutoAirDaysVal   = NULL;
+lv_obj_t *ui_AutoAirErrLabel  = NULL;
+lv_obj_t *ui_AutoAirToast     = NULL;
+
 // --- EXTERN CALLBACKS FROM UITASK.CPP ---
 extern void Settings_cb(lv_event_t *e);
 extern void AlarmButton_cb(lv_event_t *e);
@@ -320,6 +330,15 @@ extern void PhotoTimeMinusBtn_cb(lv_event_t *e);
 extern void PhotoTimePlusBtn_cb(lv_event_t *e);
 extern void PhotoStartBtn_cb(lv_event_t *e);
 extern void PhotoCancelBtn_cb(lv_event_t *e);
+extern void AutoAirBtn_cb(lv_event_t *e);
+extern void aa_weight_dec_cb(lv_event_t *e);
+extern void aa_weight_inc_cb(lv_event_t *e);
+extern void aa_gest_dec_cb(lv_event_t *e);
+extern void aa_gest_inc_cb(lv_event_t *e);
+extern void aa_days_dec_cb(lv_event_t *e);
+extern void aa_days_inc_cb(lv_event_t *e);
+extern void aa_confirm_cb(lv_event_t *e);
+extern void aa_cancel_cb(lv_event_t *e);
 
 // ============================================================================
 // EVENT HANDLERS
@@ -3184,6 +3203,178 @@ void ui_ScreenLock_screen_init(void) {
   lv_obj_add_event_cb(ui_AlarmLockCont, ui_event_AlarmLockCont, LV_EVENT_ALL,
                       NULL);
   lv_obj_add_event_cb(ui_ScreenLock, ui_event_ScreenLock, LV_EVENT_ALL, NULL);
+}
+
+// ============================================================================
+// AUTO AIR — widget creation (logic/callbacks stay in UITask.cpp)
+// ============================================================================
+
+// Helper: create a glove-friendly +/- button for the popup
+static lv_obj_t *aa_make_spinbtn(lv_obj_t *parent, const char *text,
+                                  lv_event_cb_t cb) {
+  lv_obj_t *btn = lv_btn_create(parent);
+  lv_obj_set_size(btn, 64, 56);
+  lv_obj_set_style_bg_color(btn, lv_color_hex(0x0075EE), LV_PART_MAIN);
+  lv_obj_set_style_radius(btn, 8, LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(btn, 0, LV_PART_MAIN);
+  lv_obj_t *lbl = lv_label_create(btn);
+  lv_label_set_text(lbl, text);
+  lv_obj_set_style_text_font(lbl, &lv_font_montserrat_20, 0);
+  lv_obj_center(lbl);
+  lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, nullptr);
+  return btn;
+}
+
+// Build one input row inside the popup modal.
+// Returns the value display label.
+static lv_obj_t *aa_make_input_row(lv_obj_t *modal, const char *fieldLabel,
+                                    int yOffset,
+                                    lv_event_cb_t decCb, lv_event_cb_t incCb) {
+  lv_obj_t *row = lv_obj_create(modal);
+  lv_obj_set_size(row, 448, 68);
+  lv_obj_align(row, LV_ALIGN_TOP_MID, 0, yOffset);
+  lv_obj_set_style_border_width(row, 1, LV_PART_MAIN);
+  lv_obj_set_style_border_color(row, lv_color_hex(0xCCCCCC), LV_PART_MAIN);
+  lv_obj_set_style_radius(row, 6, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(row, 6, LV_PART_MAIN);
+  lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+  lv_obj_t *lbl = lv_label_create(row);
+  lv_label_set_text(lbl, fieldLabel);
+  lv_obj_set_style_text_font(lbl, &lv_font_montserrat_16, 0);
+  lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
+
+  lv_obj_t *val = lv_label_create(row);
+  lv_label_set_text(val, "---");
+  lv_obj_set_style_text_font(val, &lv_font_montserrat_20, 0);
+  lv_obj_set_style_text_color(val, lv_color_hex(0x0075EE), 0);
+  lv_obj_align(val, LV_ALIGN_CENTER, -20, 0);
+
+  lv_obj_t *btnDec = aa_make_spinbtn(row, LV_SYMBOL_MINUS, decCb);
+  lv_obj_align(btnDec, LV_ALIGN_RIGHT_MID, -72, 0);
+  lv_obj_t *btnInc = aa_make_spinbtn(row, LV_SYMBOL_PLUS, incCb);
+  lv_obj_align(btnInc, LV_ALIGN_RIGHT_MID, -2, 0);
+
+  return val;
+}
+
+void create_autoair_popup() {
+  // Full-screen dim overlay; child of ScreenMain so it persists after intro
+  ui_AutoAirOverlay = lv_obj_create(ui_ScreenMain);
+  lv_obj_set_size(ui_AutoAirOverlay, DISPLAY_WIDTH, DISPLAY_HEIGHT);
+  lv_obj_set_pos(ui_AutoAirOverlay, 0, 0);
+  lv_obj_set_style_bg_color(ui_AutoAirOverlay, lv_color_hex(0x000000), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(ui_AutoAirOverlay, LV_OPA_60, LV_PART_MAIN);
+  lv_obj_set_style_border_width(ui_AutoAirOverlay, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(ui_AutoAirOverlay, 0, LV_PART_MAIN);
+  lv_obj_clear_flag(ui_AutoAirOverlay, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(ui_AutoAirOverlay, LV_OBJ_FLAG_HIDDEN);
+
+  // Modal box centered in the overlay
+  lv_obj_t *modal = lv_obj_create(ui_AutoAirOverlay);
+  lv_obj_set_size(modal, 490, 380);
+  lv_obj_align(modal, LV_ALIGN_CENTER, 0, 0);
+  lv_obj_set_style_radius(modal, 12, LV_PART_MAIN);
+  lv_obj_set_style_border_width(modal, 2, LV_PART_MAIN);
+  lv_obj_set_style_border_color(modal, lv_color_hex(0x0075EE), LV_PART_MAIN);
+  lv_obj_set_style_pad_all(modal, 14, LV_PART_MAIN);
+  lv_obj_clear_flag(modal, LV_OBJ_FLAG_SCROLLABLE);
+
+  // Title
+  lv_obj_t *title = lv_label_create(modal);
+  lv_label_set_text(title, "AUTO AIR");
+  lv_obj_set_style_text_font(title, &lv_font_montserrat_26, 0);
+  lv_obj_set_style_text_color(title, lv_color_hex(0x0075EE), 0);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 0);
+
+  // Three input rows (Peso, EG, Dias)
+  const char *weightLabel = (g_lang == LANG_ES) ? "Peso RN (g):"
+                          : (g_lang == LANG_FR) ? "Poids (g):"
+                                                : "Weight (g):";
+  const char *gestLabel   = (g_lang == LANG_ES) ? "EG (semanas):"
+                          : (g_lang == LANG_FR) ? "AG (semaines):"
+                                                : "Gest. age (wk):";
+  const char *daysLabel   = (g_lang == LANG_ES) ? "Dias de vida:"
+                          : (g_lang == LANG_FR) ? "Jours de vie:"
+                                                : "Days of life:";
+
+  ui_AutoAirWeightVal = aa_make_input_row(modal, weightLabel, 40,
+                                           aa_weight_dec_cb, aa_weight_inc_cb);
+  ui_AutoAirGestVal   = aa_make_input_row(modal, gestLabel,   118,
+                                           aa_gest_dec_cb,   aa_gest_inc_cb);
+  ui_AutoAirDaysVal   = aa_make_input_row(modal, daysLabel,   196,
+                                           aa_days_dec_cb,   aa_days_inc_cb);
+
+  // Error label
+  ui_AutoAirErrLabel = lv_label_create(modal);
+  lv_label_set_text(ui_AutoAirErrLabel, "");
+  lv_obj_set_style_text_color(ui_AutoAirErrLabel, lv_color_hex(0xFF3300), 0);
+  lv_obj_set_style_text_font(ui_AutoAirErrLabel, &lv_font_montserrat_12, 0);
+  lv_obj_align(ui_AutoAirErrLabel, LV_ALIGN_TOP_MID, 0, 274);
+  lv_obj_add_flag(ui_AutoAirErrLabel, LV_OBJ_FLAG_HIDDEN);
+
+  // Cancel button
+  lv_obj_t *btnCancel = lv_btn_create(modal);
+  lv_obj_set_size(btnCancel, 185, 54);
+  lv_obj_align(btnCancel, LV_ALIGN_BOTTOM_LEFT, 8, -4);
+  lv_obj_set_style_bg_color(btnCancel, lv_color_hex(0x888888), LV_PART_MAIN);
+  lv_obj_set_style_radius(btnCancel, 8, LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(btnCancel, 0, LV_PART_MAIN);
+  lv_obj_t *cancelLbl = lv_label_create(btnCancel);
+  const char *CANCEL_TXT[] = {"CANCELAR", "CANCEL", "ANNULER"};
+  lv_label_set_text(cancelLbl, CANCEL_TXT[g_lang]);
+  lv_obj_set_style_text_font(cancelLbl, &lv_font_montserrat_16, 0);
+  lv_obj_center(cancelLbl);
+  lv_obj_add_event_cb(btnCancel, aa_cancel_cb, LV_EVENT_CLICKED, nullptr);
+
+  // Confirm button
+  lv_obj_t *btnConfirm = lv_btn_create(modal);
+  lv_obj_set_size(btnConfirm, 185, 54);
+  lv_obj_align(btnConfirm, LV_ALIGN_BOTTOM_RIGHT, -8, -4);
+  lv_obj_set_style_bg_color(btnConfirm, lv_color_hex(0x00AA44), LV_PART_MAIN);
+  lv_obj_set_style_radius(btnConfirm, 8, LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(btnConfirm, 0, LV_PART_MAIN);
+  lv_obj_t *confirmLbl = lv_label_create(btnConfirm);
+  const char *CONFIRM_TXT[] = {"CONFIRMAR", "CONFIRM", "CONFIRMER"};
+  lv_label_set_text(confirmLbl, CONFIRM_TXT[g_lang]);
+  lv_obj_set_style_text_font(confirmLbl, &lv_font_montserrat_16, 0);
+  lv_obj_center(confirmLbl);
+  lv_obj_add_event_cb(btnConfirm, aa_confirm_cb, LV_EVENT_CLICKED, nullptr);
+}
+
+void create_autoair_button() {
+  // AUTO AIR button inside the air panel (bottom area, last child → front Z-order)
+  ui_AutoAirBtn = lv_btn_create(ui_AirPanelCont);
+  lv_obj_set_size(ui_AutoAirBtn, 122, 32);
+  lv_obj_align(ui_AutoAirBtn, LV_ALIGN_BOTTOM_MID, 8, -3);
+  lv_obj_set_style_radius(ui_AutoAirBtn, 6, LV_PART_MAIN);
+  lv_obj_set_style_border_width(ui_AutoAirBtn, 1, LV_PART_MAIN);
+  lv_obj_set_style_border_color(ui_AutoAirBtn, lv_color_hex(0x0075EE), LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(ui_AutoAirBtn, 0, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(ui_AutoAirBtn, COLOR_PANEL_WHITE, LV_PART_MAIN);
+  lv_obj_set_style_opa(ui_AutoAirBtn, LV_OPA_COVER, LV_PART_MAIN);
+
+  ui_AutoAirBtnLabel = lv_label_create(ui_AutoAirBtn);
+  lv_label_set_text(ui_AutoAirBtnLabel, "AUTO AIR");
+  lv_obj_set_style_text_font(ui_AutoAirBtnLabel, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(ui_AutoAirBtnLabel, lv_color_make(30, 30, 30), 0);
+  lv_obj_center(ui_AutoAirBtnLabel);
+
+  lv_obj_add_event_cb(ui_AutoAirBtn, AutoAirBtn_cb, LV_EVENT_ALL, nullptr);
+
+  // Dedicated blue toast for AUTO AIR feedback (child of ScreenMain)
+  ui_AutoAirToast = lv_label_create(ui_ScreenMain);
+  lv_label_set_text(ui_AutoAirToast, "");
+  lv_label_set_long_mode(ui_AutoAirToast, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(ui_AutoAirToast, 400);
+  lv_obj_align(ui_AutoAirToast, LV_ALIGN_BOTTOM_MID, 0, -20);
+  lv_obj_set_style_text_align(ui_AutoAirToast, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_set_style_bg_color(ui_AutoAirToast, lv_color_hex(0x004A9E), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(ui_AutoAirToast, LV_OPA_90, LV_PART_MAIN);
+  lv_obj_set_style_text_color(ui_AutoAirToast, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+  lv_obj_set_style_pad_all(ui_AutoAirToast, 10, LV_PART_MAIN);
+  lv_obj_set_style_radius(ui_AutoAirToast, 8, LV_PART_MAIN);
+  lv_obj_add_flag(ui_AutoAirToast, LV_OBJ_FLAG_HIDDEN);
 }
 
 // ============================================================================

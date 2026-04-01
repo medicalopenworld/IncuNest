@@ -197,6 +197,18 @@ void ui_ScreenMain_screen_init(void);
 void ui_ScreenMain_screen_destroy(void);
 void ui_event_PhotoCancelBtn(lv_event_t * e);
 
+// --- AUTO AIR widgets (created in ElementsCreation.cpp) ---
+extern lv_obj_t *ui_AutoAirBtn;
+extern lv_obj_t *ui_AutoAirBtnLabel;
+extern lv_obj_t *ui_AutoAirOverlay;
+extern lv_obj_t *ui_AutoAirWeightVal;
+extern lv_obj_t *ui_AutoAirGestVal;
+extern lv_obj_t *ui_AutoAirDaysVal;
+extern lv_obj_t *ui_AutoAirErrLabel;
+extern lv_obj_t *ui_AutoAirToast;
+void create_autoair_button(void);
+void create_autoair_popup(void);
+
 // --- SCREEN: Settings ---
 extern lv_obj_t * ui_ScreenSettings;
 extern lv_obj_t * ui_Label8;
