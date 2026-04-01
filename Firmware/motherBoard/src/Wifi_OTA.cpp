@@ -393,8 +393,7 @@ void configWifiServer() {
         } else if (upload.status == UPLOAD_FILE_END) {
           if (Update.end(
                   true)) { // true to set the size to the current progress
-            logI(
-                String("Update Success: %u\nRebooting...\n", upload.totalSize));
+            logI("Update Success: " + String(upload.totalSize) + " bytes");
           } else {
             Update.printError(Serial);
           }
@@ -579,6 +578,7 @@ void addConfigTelemetriesToWIFIJSON() {
   addVariableToTelemetryWIFIJSON[HW_NUM_KEY] = HW_NUM;
   addVariableToTelemetryWIFIJSON[HW_REV_KEY] = String(HW_REVISION);
   addVariableToTelemetryWIFIJSON[FW_VERSION_KEY] = FWversion;
+  addVariableToTelemetryWIFIJSON[CCID_KEY] = GPRS.CCID.c_str();
 
   addVariableToTelemetryWIFIJSON[SYS_CURR_STANDBY_TEST_KEY] =
       roundSignificantDigits(in3.system_current_standby_test,
