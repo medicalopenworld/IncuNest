@@ -199,7 +199,7 @@ void voltageMonitor() {
 double measureStabilizedCurrent(bool sensor, int shunt, float offsetCurrent,
                                  float minExpected, float maxExpected,
                                  int maxTimeMs, int intervalMs) {
-  float threshold = (maxExpected - minExpected) * 0.1;
+  float threshold = (maxExpected - minExpected) * CURRENT_STABILIZE_THRESHOLD_RATIO;
   float prev = measureMeanConsumption(sensor, shunt) - offsetCurrent;
   int elapsed = 0;
   while (elapsed < maxTimeMs) {
@@ -209,7 +209,8 @@ double measureStabilizedCurrent(bool sensor, int shunt, float offsetCurrent,
     if (curr > maxExpected) {
       return curr;
     }
-    if (abs(curr - prev) < threshold) {
+    if (abs(curr - prev) < threshold && curr >= minExpected &&
+        curr <= maxExpected) {
       return curr;
     }
     prev = curr;

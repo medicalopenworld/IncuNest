@@ -25,7 +25,7 @@
 #define HW_NUM 15
 #define HW_REVISION 'A'
 #define HWversion String(HW_NUM) + "." + String(HW_REVISION)
-#define FWversion "15.9"
+#define FWversion "15.10"
 #define WIFI_NAME "IncuNest"
 #define CURRENT_FIRMWARE_TITLE "IncuNest"
 // Set to true only on the HMI board
@@ -278,6 +278,7 @@
 #define FAN_SHUNT_CHANNEL INA3221_CH3
 
 #define HEATER_SHUNT_CHANNEL INA3221_CH1
+#define DISPLAY_SHUNT_CHANNEL INA3221_CH2
 #define USB_SHUNT_CHANNEL INA3221_CH2
 #define BATTERY_SHUNT_CHANNEL INA3221_CH3
 
@@ -291,6 +292,7 @@
 #else
 #define PHOTOTHERAPY_SHUNT 20 // miliohms
 #endif
+#define DISPLAY_SHUNT 100   // miliohms
 #define BATTERY_SHUNT 27000 // miliohms
 #define USB_SHUNT 100       // miliohms
 #define HEATER_SHUNT 2      // miliohms

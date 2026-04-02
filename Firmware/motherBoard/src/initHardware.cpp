@@ -151,6 +151,9 @@ extern int ScreenBacklightMode;
 #define CURRENT_STABILIZE_TIME_HEATER 1000
 #define CURRENT_STABILIZE_MAX_TIME 2000
 
+#define INA3221_RESET_DELAY_MS 100
+#define INA3221_FIRST_CONVERSION_DELAY_MS 150
+
 #define NTC_BABY_MIN 1
 #define NTC_BABY_MAX 60
 #define DIG_TEMP_ROOM_MIN 1
@@ -159,6 +162,9 @@ extern int ScreenBacklightMode;
 #define DIG_HUM_ROOM_MAX 100
 
 #if (HW_NUM != 6)
+
+#define CURRENT_STABILIZE_THRESHOLD_RATIO 0.1
+
 #define HEATER_CONSUMPTION_MIN 1.5
 #define FAN_CONSUMPTION_MIN 0.03
 #define PHOTOTHERAPY_CONSUMPTION_MIN 0.3
@@ -402,8 +408,7 @@ bool initCurrentSensor(bool currentSensor) {
       if (currentSensor == MAIN) {
         mainDigitalCurrentSensor.begin();
         mainDigitalCurrentSensor.reset();
-        vTaskDelay(pdMS_TO_TICKS(100));
-        // Set shunt resistors to 10 mOhm for all channels
+        vTaskDelay(pdMS_TO_TICKS(INA3221_RESET_DELAY_MS));
         mainDigitalCurrentSensor.setShuntRes(SYSTEM_SHUNT, PHOTOTHERAPY_SHUNT,
                                              FAN_SHUNT);
         mainDigitalCurrentSensor.setShuntConversionTime(
@@ -413,15 +418,16 @@ bool initCurrentSensor(bool currentSensor) {
         digitalCurrentSensorPresent[currentSensor] = true;
         secundaryDigitalCurrentSensor.begin();
         secundaryDigitalCurrentSensor.reset();
-        vTaskDelay(pdMS_TO_TICKS(100));
-        // Set shunt resistors to 10 mOhm for all channels
-        secundaryDigitalCurrentSensor.setShuntRes(HEATER_SHUNT, USB_SHUNT,
+        vTaskDelay(pdMS_TO_TICKS(INA3221_RESET_DELAY_MS));
+        secundaryDigitalCurrentSensor.setShuntRes(HEATER_SHUNT, DISPLAY_SHUNT,
                                                   BATTERY_SHUNT);
         secundaryDigitalCurrentSensor.setShuntConversionTime(
             INA3221_REG_CONF_CT_140US);
         secundaryDigitalCurrentSensor.setAveragingMode(
             INA3221_REG_CONF_AVG_128);
       }
+      // Wait for first full conversion cycle: 128 avg × 140µs × 2 (bus+shunt) × 3 ch ≈ 108ms
+      vTaskDelay(pdMS_TO_TICKS(INA3221_FIRST_CONVERSION_DELAY_MS));
       return (true);
     } else {
       logE("[HW] -> no digital sensor detected");
@@ -523,7 +529,7 @@ void initTFT() {
 #endif
 }
 
-void testTFT() {
+void testDisplay() {
 #if (HW_NUM < 15)
   long error = HW_error;
   float testCurrent, offsetCurrent;
@@ -538,10 +544,6 @@ void testTFT() {
   GPIOWrite(TOUCH_CS, HIGH);
   GPIOWrite(SD_CS, HIGH);
   GPIOWrite(TFT_CS_EXP, HIGH);
-  // GPIOWrite(TFT_RST, LOW); // alternating HIGH/LOW
-  // delay(5);
-  // GPIOWrite(TFT_RST, HIGH); // alternating HIGH/LOW
-  // delay(5);
 #endif
   loadlogo();
   if (BACKLIGHT_CONTROL == DIRECT_BACKLIGHT_CONTROL) {
@@ -563,11 +565,9 @@ void testTFT() {
       MAIN, SYSTEM_SHUNT_CHANNEL, offsetCurrent, SCREEN_CONSUMPTION_MIN,
       SCREEN_CONSUMPTION_MAX, CURRENT_STABILIZE_MAX_TIME);
   if (testCurrent < SCREEN_CONSUMPTION_MIN) {
-    // addErrorToVar(HW_error, DEFECTIVE_SCREEN;
     logE("[HW] -> WARNING -> Screen current is not high enough");
   }
   if (testCurrent > SCREEN_CONSUMPTION_MAX) {
-    // addErrorToVar(HW_error, DEFECTIVE_SCREEN;
     logE("[HW] -> WARNING -> Screen current exceeded");
   }
   if (error == HW_error) {
@@ -577,6 +577,23 @@ void testTFT() {
     logE("[HW] -> Fail -> test current is " + String(testCurrent) + " Amps");
   }
   in3.display_current_test = testCurrent;
+#else
+  long error = HW_error;
+  float testCurrent;
+  testCurrent = measureStabilizedCurrent(
+      SECUNDARY, DISPLAY_SHUNT_CHANNEL, 0, SCREEN_CONSUMPTION_MIN,
+      SCREEN_CONSUMPTION_MAX, CURRENT_STABILIZE_MAX_TIME);
+  logI("[HW] -> Display current consumption: " + String(testCurrent) + " Amps");
+  in3.display_current_test = testCurrent;
+  if (testCurrent < SCREEN_CONSUMPTION_MIN) {
+    logE("[HW] -> Fail -> Display current consumption is too low");
+  }
+  if (testCurrent > SCREEN_CONSUMPTION_MAX) {
+    logE("[HW] -> Fail -> Display current consumption is too high");
+  }
+  if (error == HW_error) {
+    logI("[HW] -> OK -> Display is working as expected");
+  }
 #endif
 }
 
@@ -608,13 +625,16 @@ bool actuatorsTest() {
   long error = HW_error;
   logI("[HW] -> Checking actuators...");
   GPIOWrite(ACTUATORS_EN, HIGH);
-
+  logI("[HW] -> System current consumption: " +
+       String(measureMeanConsumption(MAIN, SYSTEM_SHUNT_CHANNEL)) + " Amps");
   float testCurrent, offsetCurrent;
-  offsetCurrent = measureMeanConsumption(MAIN, SYSTEM_SHUNT_CHANNEL);
+  offsetCurrent = measureMeanConsumption(SECUNDARY, SYSTEM_SHUNT_CHANNEL);
   ledcWrite(HEATER_PWM_CHANNEL, PWM_MAX_VALUE);
   testCurrent = measureStabilizedCurrent(
-      MAIN, SYSTEM_SHUNT_CHANNEL, offsetCurrent, HEATER_CONSUMPTION_MIN,
-      HEATER_CONSUMPTION_MAX, CURRENT_STABILIZE_MAX_TIME);
+                    SECUNDARY, HEATER_SHUNT_CHANNEL, 0, HEATER_CONSUMPTION_MIN,
+                    HEATER_CONSUMPTION_MAX, CURRENT_STABILIZE_MAX_TIME) -
+                offsetCurrent;
+
   logI("[HW] -> Heater current consumption: " + String(testCurrent) + " Amps");
   in3.heater_current_test = testCurrent;
   ledcWrite(HEATER_PWM_CHANNEL, 0);
@@ -813,7 +833,7 @@ void initHardware(bool printOutputTest) {
   PIDInit();
   if (!in3.restoreState) {
     testStandByCurrent();
-    testTFT();
+    testDisplay();
     testBuzzer();
   }
   ledcWrite(SCREENBACKLIGHT_PWM_CHANNEL, BACKLIGHT_POWER_DEFAULT);
