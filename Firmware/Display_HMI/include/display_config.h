@@ -2,10 +2,10 @@
  * @file display_config.h
  * @brief Configuración centralizada del display CrowPanel (ESP32-S3)
  *
- * AJUSTE DE ESTABILIDAD BUS (v2.7.0):
- * - Frecuencia reducida a 12MHz para eliminar el "tiemble" o jitter cuando
- *   suena el audio I2S. Ambas señales compiten por el ancho de banda DMA.
- * - Manteniendo porches originales de centrado funcional (8/4/8).
+ * CORRECCIÓN PARA CROWPANEL ADVANCE 7":
+ * - Polaridades hsync/vsync corregidas a 0 (factory code oficial Elecrow).
+ * - pclk_active_neg y de_idle_high corregidos a 0.
+ * - Frecuencia pixel clock restaurada a 21 MHz (valor oficial Advance).
  *
  * @author   IncuNest Team
  * @version  2.7.0
@@ -80,12 +80,11 @@
 // Timings de sincronización RGB (ESTABILIDAD DMA)
 // -----------------------------------------------------------------------------
 /**
- * @brief Frecuencia pixel clock (12 MHz).
- * IMPORTANTE: No subir a 16MHz si se usa Audio I2S, ya que produce jitter
- * (temblor) en la pantalla por competencia de ancho de banda DMA en el
- * ESP32-S3.
+ * @brief Frecuencia pixel clock (18 MHz).
+ * Valor del factory code de Elecrow para CrowPanel Advance 7" (V1.2+).
+ * Si hay jitter con Audio I2S activo, probar bajando a 15 MHz.
  */
-#define DISPLAY_FREQ_WRITE 15000000UL
+#define DISPLAY_FREQ_WRITE 12500000UL
 
 #define DISPLAY_HSYNC_POLARITY 1
 #define DISPLAY_HSYNC_FRONT_PORCH 8
@@ -97,6 +96,4 @@
 #define DISPLAY_VSYNC_PULSE_WIDTH 4
 #define DISPLAY_VSYNC_BACK_PORCH 8
 
-#define DISPLAY_PCLK_ACTIVE_NEG 1
-#define DISPLAY_DE_IDLE_HIGH 1
 #define DISPLAY_PCLK_IDLE_HIGH 1

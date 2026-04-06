@@ -27,6 +27,7 @@
 
 #include "esp_log.h"
 #include "main.h"
+#include "UITask.h"
 
 static const char *TAG = "WiFi";
 
@@ -73,47 +74,66 @@ const char *serverIndex =
     "<script "
     "src='https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js'></"
     "script>"
+    "<style>body{font-family:sans-serif;margin:20px} .section{margin:20px 0;padding:15px;border:1px solid #ccc;border-radius:8px} "
+    "input[type=number]{width:120px;padding:4px;font-size:16px} "
+    "button,.btn{padding:6px 16px;font-size:14px;cursor:pointer;border-radius:4px;border:1px solid #888} "
+    "#freq_status{margin-left:10px;font-weight:bold}</style>"
+    "<h2>IncuNest Display HMI</h2>"
+    "<p>FW Version: <span id='fw_version'></span></p>"
+    // --- Display Freq section ---
+    "<div class='section'>"
+    "<h3>Display Pixel Clock</h3>"
+    "<p>Current: <span id='cur_freq'>--</span> Hz (<span id='cur_freq_mhz'>--</span> MHz)</p>"
+    "<label>New freq (Hz): </label>"
+    "<input type='range' id='freq_slider' min='12000000' max='25000000' step='250000' oninput='updateSlider()'>"
+    "<br><span id='freq_val' style='font-size:20px;font-weight:bold'>-- MHz</span>"
+    "<br><br>"
+    "<button onclick='setFreq()' style='padding:8px 24px;font-size:16px'>Apply (restart)</button>"
+    "<span id='freq_status'></span>"
+    "</div>"
+    // --- OTA section ---
+    "<div class='section'>"
     "<h3>Firmware Update</h3>"
-    "<p>Current Version: <span id='fw_version'></span></p>"
     "<form method='POST' action='#' enctype='multipart/form-data' "
     "id='upload_form'>"
     "<input type='file' name='update'>"
     "<input type='submit' value='Update'>"
     "</form>"
     "<div id='prg'>progress: 0%</div>"
+    "</div>"
+    // --- JS ---
     "<script>"
-    "$(document).ready(function() {"
-    "  $.get('/get_fw_version', function(data) {"
-    "    $('#fw_version').text(data.version);"
+    "function updateSlider(){"
+    "  var v=$('#freq_slider').val();"
+    "  $('#freq_val').text((v/1e6).toFixed(2)+' MHz');"
+    "}"
+    "function refreshFreq(){"
+    "  $.get('/get_freq',function(d){"
+    "    $('#cur_freq').text(d.freq);$('#cur_freq_mhz').text((d.freq/1e6).toFixed(2));"
+    "    $('#freq_slider').val(d.freq);updateSlider();"
     "  });"
+    "}"
+    "function setFreq(){"
+    "  var f=$('#freq_slider').val();"
+    "  $.post('/set_freq',{freq:f},function(d){$('#freq_status').text(d.ok?'Restarting...':'FAIL').css('color',d.ok?'green':'red');});"
+    "}"
+    "$(document).ready(function(){"
+    "  $.get('/get_fw_version',function(d){$('#fw_version').text(d.version);});"
+    "  refreshFreq();"
     "});"
-    "</script>"
-    "<script>"
     "$('form').submit(function(e){"
     "e.preventDefault();"
-    "var form = $('#upload_form')[0];"
-    "var data = new FormData(form);"
-    " $.ajax({"
-    "url: '/update',"
-    "type: 'POST',"
-    "data: data,"
-    "contentType: false,"
-    "processData:false,"
-    "xhr: function() {"
-    "var xhr = new window.XMLHttpRequest();"
-    "xhr.upload.addEventListener('progress', function(evt) {"
-    "if (evt.lengthComputable) {"
-    "var per = evt.loaded / evt.total;"
-    "$('#prg').html('progress: ' + Math.round(per*100) + '%');"
-    "}"
-    "}, false);"
-    "return xhr;"
-    "},"
-    "success:function(d, s) {"
-    "console.log('success!')"
-    "},"
-    "error: function (a, b, c) {"
-    "}"
+    "var form=$('#upload_form')[0];"
+    "var data=new FormData(form);"
+    "$.ajax({"
+    "url:'/update',type:'POST',data:data,contentType:false,processData:false,"
+    "xhr:function(){var xhr=new window.XMLHttpRequest();"
+    "xhr.upload.addEventListener('progress',function(evt){"
+    "if(evt.lengthComputable){var per=evt.loaded/evt.total;"
+    "$('#prg').html('progress: '+Math.round(per*100)+'%');}},false);"
+    "return xhr;},"
+    "success:function(d,s){console.log('success!')},"
+    "error:function(a,b,c){}"
     "});"
     "});"
     "</script>";
@@ -193,6 +213,25 @@ void configWifiServer() {
     String json = "{";
     json += "\"version\":\"" + String(FWversion) + "\"";
     json += "}";
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "application/json", json);
+  });
+  wifiServer.on("/get_freq", HTTP_GET, []() {
+    String json = "{\"freq\":" + String(lcd_get_freq_write()) + "}";
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "application/json", json);
+  });
+  wifiServer.on("/set_freq", HTTP_POST, []() {
+    if (!wifiServer.authenticate(www_username, www_password)) {
+      return wifiServer.requestAuthentication();
+    }
+    String freqStr = wifiServer.arg("freq");
+    uint32_t freq = freqStr.toInt();
+    bool ok = (freq >= 12000000 && freq <= 25000000);
+    if (ok) {
+      lcd_set_freq_write(freq);
+    }
+    String json = "{\"ok\":" + String(ok ? "true" : "false") + ",\"freq\":" + String(lcd_get_freq_write()) + "}";
     wifiServer.sendHeader("Connection", "close");
     wifiServer.send(200, "application/json", json);
   });
@@ -620,15 +659,15 @@ void WIFI_TB_OTA() {
           // WIFI_JSON.clear();
         }
         addTelemetriesToWIFIJSON();
-        // if (tb_wifi.sendTelemetryJson(addVariableToTelemetryWIFIJSON,
-        //                               JSON_STRING_SIZE(measureJson(
-        //                                   addVariableToTelemetryWIFIJSON))))
-        //                                   {
-        //   ESP_LOGI(TAG, "WIFI MQTT PUBLISH TELEMETRIES SUCCESS");
-        // } else {
-        //   ESP_LOGI(TAG, "WIFI MQTT PUBLISH TELEMETRIES FAIL");
-        // }
-        // WIFI_JSON.clear();
+        if (tb_wifi.sendTelemetryJson(addVariableToTelemetryWIFIJSON,
+                                      JSON_STRING_SIZE(measureJson(
+                                          addVariableToTelemetryWIFIJSON)))) {
+          ESP_LOGI(TAG, "WIFI MQTT PUBLISH TELEMETRIES SUCCESS");
+        } else {
+          ESP_LOGI(TAG, "WIFI MQTT PUBLISH TELEMETRIES FAIL");
+        }
+        WIFI_JSON.clear();
+        addVariableToTelemetryWIFIJSON = WIFI_JSON.to<JsonObject>();
         Wifi_TB.lastMQTTPublish = millis();
       }
     }

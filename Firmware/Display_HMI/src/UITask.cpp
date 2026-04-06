@@ -1,17 +1,16 @@
 #include "UITask.h"
-#include "AudioManager.h"
+// #include "AudioManager.h"  // Deshabilitado para migración Arduino 3.x
 #include "CommTask.h"
 #include "buzzer.h"
 #include "display_config.h"
 #include "esp_log.h"
 #include "main.h"
 #include "ui.h"
-#include <LovyanGFX.hpp>
 #include <PCA9557.h>
 #include <SPI.h>
 #include <TAMC_GT911.h>
-#include <lgfx/v1/platforms/esp32s3/Bus_RGB.hpp>
-#include <lgfx/v1/platforms/esp32s3/Panel_RGB.hpp>
+#include "esp_lcd_panel_ops.h"
+#include "esp_lcd_panel_rgb.h"
 
 static const char *TAG = "UI";
 
@@ -94,7 +93,6 @@ lv_chart_series_t *humSeries = NULL;
 bool g_stateSynced = false;
 uint32_t g_lastStateReqMs = 0;
 bool g_ui_initialized = false;
-
 static bool eepromDirty = false;
 static unsigned long lastVarChangeTime = 0;
 
@@ -109,90 +107,27 @@ static int lastPhotoMinutesSent = -1;
 Alarm alarmList[MAX_ALARMS];
 
 // ==========================================
-// LGFX Setup
+// esp_lcd RGB Panel (bounce buffers anti-flicker)
 // ==========================================
-class LGFX : public lgfx::LGFX_Device {
-public:
-  lgfx::Bus_RGB _bus_instance;
-  lgfx::Panel_RGB _panel_instance;
+static esp_lcd_panel_handle_t lcd_panel = NULL;
 
-  LGFX(void) {
-    {
-      auto cfg = _bus_instance.config();
-      cfg.panel = &_panel_instance;
+// Bounce buffer: 20 líneas en SRAM interno desacoplan LCD DMA de PSRAM
+// 800 * 20 * 2 = 32KB por bounce buffer (x2 ping-pong = 64KB SRAM)
+#define BOUNCE_BUF_LINES 20
+#define BOUNCE_BUF_SIZE_PX (DISPLAY_WIDTH * BOUNCE_BUF_LINES)
 
-      // Pines del bus RGB — referencia oficial Elecrow CrowPanel 7.0
-      // Fuente centralizada: include/display_config.h
+static uint32_t g_currentFreqWrite = DISPLAY_FREQ_WRITE;
 
-      // Blue (B0-B4): d0..d4
-      cfg.pin_d0 = DISPLAY_PIN_B0;
-      cfg.pin_d1 = DISPLAY_PIN_B1;
-      cfg.pin_d2 = DISPLAY_PIN_B2;
-      cfg.pin_d3 = DISPLAY_PIN_B3;
-      cfg.pin_d4 = DISPLAY_PIN_B4;
+uint32_t lcd_get_freq_write() { return g_currentFreqWrite; }
 
-      // Green (G0-G5): d5..d10
-      cfg.pin_d5 = DISPLAY_PIN_G0;
-      cfg.pin_d6 = DISPLAY_PIN_G1;
-      cfg.pin_d7 = DISPLAY_PIN_G2;
-      cfg.pin_d8 = DISPLAY_PIN_G3;
-      cfg.pin_d9 = DISPLAY_PIN_G4;
-      cfg.pin_d10 = DISPLAY_PIN_G5;
-
-      // Red (R0-R4): d11..d15
-      cfg.pin_d11 = DISPLAY_PIN_R0;
-      cfg.pin_d12 = DISPLAY_PIN_R1;
-      cfg.pin_d13 = DISPLAY_PIN_R2;
-      cfg.pin_d14 = DISPLAY_PIN_R3;
-      cfg.pin_d15 = DISPLAY_PIN_R4;
-
-      // Señales de control
-      cfg.pin_henable = DISPLAY_PIN_DE;
-      cfg.pin_vsync = DISPLAY_PIN_VSYNC;
-      cfg.pin_hsync = DISPLAY_PIN_HSYNC;
-      cfg.pin_pclk = DISPLAY_PIN_PCLK;
-      cfg.freq_write = DISPLAY_FREQ_WRITE;
-
-      // Timings de sincronización
-      // CORRECCIÓN: polarity=0 (activo en LOW). El valor anterior (1) causaba
-      // parpadeo RGB en algunas unidades por diferencias de tolerancia de fab.
-      cfg.hsync_polarity = DISPLAY_HSYNC_POLARITY;
-      cfg.hsync_front_porch = DISPLAY_HSYNC_FRONT_PORCH;
-      cfg.hsync_pulse_width = DISPLAY_HSYNC_PULSE_WIDTH;
-      cfg.hsync_back_porch = DISPLAY_HSYNC_BACK_PORCH;
-
-      cfg.vsync_polarity = DISPLAY_VSYNC_POLARITY;
-      cfg.vsync_front_porch = DISPLAY_VSYNC_FRONT_PORCH;
-      cfg.vsync_pulse_width = DISPLAY_VSYNC_PULSE_WIDTH;
-      cfg.vsync_back_porch = DISPLAY_VSYNC_BACK_PORCH;
-
-      cfg.pclk_active_neg = DISPLAY_PCLK_ACTIVE_NEG;
-      cfg.de_idle_high = DISPLAY_DE_IDLE_HIGH;
-      cfg.pclk_idle_high = DISPLAY_PCLK_IDLE_HIGH;
-
-      _bus_instance.config(cfg);
-    }
-    {
-      auto cfg = _panel_instance.config_detail();
-      cfg.use_psram = 1;
-      _panel_instance.config_detail(cfg);
-    }
-    {
-      auto cfg = _panel_instance.config();
-      cfg.memory_width = DISPLAY_WIDTH;
-      cfg.memory_height = DISPLAY_HEIGHT;
-      cfg.panel_width = DISPLAY_WIDTH;
-      cfg.panel_height = DISPLAY_HEIGHT;
-      cfg.offset_x = 0;
-      cfg.offset_y = 0;
-      _panel_instance.config(cfg);
-    }
-    _panel_instance.setBus(&_bus_instance);
-    setPanel(&_panel_instance);
-  }
-};
-
-LGFX lcd;
+void lcd_set_freq_write(uint32_t freq_hz) {
+  g_currentFreqWrite = freq_hz;
+  EEPROM.put(EEPROM_DISPLAY_FREQ, freq_hz);
+  EEPROM.commit();
+  ESP_LOGW("LCD", "freq_write saved: %lu Hz — restarting...", freq_hz);
+  delay(200);
+  ESP.restart();
+}
 
 // Touch GT911 — pines y resolución desde display_config.h
 TAMC_GT911 ts =
@@ -211,10 +146,8 @@ static lv_timer_t *intro_timer = NULL;
 // ==========================================
 void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area,
                    lv_color_t *color_p) {
-  uint32_t w = (area->x2 - area->x1 + AREA_PIXEL_OFFSET);
-  uint32_t h = (area->y2 - area->y1 + AREA_PIXEL_OFFSET);
-  lcd.pushImageDMA(area->x1, area->y1, w, h, (lgfx::rgb565_t *)&color_p->full);
-  lcd.waitDMA();
+  esp_lcd_panel_draw_bitmap(lcd_panel, area->x1, area->y1,
+                            area->x2 + 1, area->y2 + 1, color_p);
   lv_disp_flush_ready(disp);
 }
 
@@ -2124,57 +2057,21 @@ void ImgButton9_cb(lv_event_t *e) {
 // Callbacks
 // ==========================================
 void AudioTestBtn_cb(lv_event_t *e) {
-  AudioManager::getInstance().playTone();
-  if (ui_AudioPlayBtn) {
-    lv_obj_add_state(ui_AudioPlayBtn, LV_STATE_DISABLED);
-  }
-  if (ui_AudioStopBtn) {
-    lv_obj_clear_flag(ui_AudioStopBtn, LV_OBJ_FLAG_HIDDEN);
-  }
+  // Audio deshabilitado para migración Arduino 3.x
+  // AudioManager::getInstance().playTone();
 }
 
 void AudioStopBtn_cb(lv_event_t *e) {
-  AudioManager::getInstance().stop();
-  if (ui_AudioPlayBtn) {
-    lv_obj_clear_state(ui_AudioPlayBtn, LV_STATE_DISABLED);
-  }
-  if (ui_AudioStopBtn) {
-    lv_obj_add_flag(ui_AudioStopBtn, LV_OBJ_FLAG_HIDDEN);
-  }
+  // Audio deshabilitado para migración Arduino 3.x
+  // AudioManager::getInstance().stop();
 }
 
 void VolumeUp_cb(lv_event_t *e) {
-  uint8_t vol = AudioManager::getInstance().getVolume();
-  if (vol < 21) {
-    AudioManager::getInstance().setVolume(vol + 1);
-    // Guardar en EEPROM de forma diferida (sin bloquear el bus flash)
-    EEPROM.write(EEPROM_AUDIO_VOLUME, AudioManager::getInstance().getVolume());
-    eepromDirty = true;
-    lastVarChangeTime = millis();
-  }
-  if (ui_VolumeLabel) {
-    char buf[12];
-    snprintf(buf, sizeof(buf), "Vol: %d",
-             AudioManager::getInstance().getVolume());
-    lv_label_set_text(ui_VolumeLabel, buf);
-  }
+  // Audio deshabilitado para migración Arduino 3.x
 }
 
 void VolumeDown_cb(lv_event_t *e) {
-  uint8_t vol = AudioManager::getInstance().getVolume();
-  if (vol > 1) {
-    AudioManager::getInstance().setVolume(vol - 1);
-    // Guardar en EEPROM de forma diferida (sin bloquear el bus flash)
-    EEPROM.write(EEPROM_AUDIO_VOLUME, AudioManager::getInstance().getVolume());
-    eepromDirty = true;
-    lastVarChangeTime = millis();
-  }
-  if (ui_VolumeLabel) {
-    char buf[12];
-    snprintf(buf, sizeof(buf), "Vol: %d",
-             AudioManager::getInstance().getVolume());
-    lv_label_set_text(ui_VolumeLabel, buf);
-  }
+  // Audio deshabilitado para migración Arduino 3.x
 }
 
 // ==========================================
@@ -2204,15 +2101,86 @@ void UI_Task(void *pvParameters) {
     vTaskDelay(pdMS_TO_TICKS(100));
   }
 
-  // Display initialization
-  lcd.begin();
+  // Display initialization — leer freq_write de EEPROM antes de crear panel
+  {
+    uint32_t savedFreq = 0;
+    EEPROM.get(EEPROM_DISPLAY_FREQ, savedFreq);
+    if (savedFreq >= 12000000 && savedFreq <= 25000000) {
+      g_currentFreqWrite = savedFreq;
+      ESP_LOGW("LCD", "freq_write from EEPROM: %lu Hz", savedFreq);
+    } else {
+      g_currentFreqWrite = DISPLAY_FREQ_WRITE;
+      ESP_LOGI("LCD", "freq_write default: %lu Hz", (uint32_t)DISPLAY_FREQ_WRITE);
+    }
+  }
 
-  // Clear screen to black initially
-  lcd.fillScreen(TFT_BLACK);
-  lcd.setTextSize(2);
-  // vTaskDelay(pdMS_TO_TICKS(DELAY_SHORT_MS)); // Skip delay
+  // Crear panel RGB con bounce buffers (anti-flicker)
+  {
+    esp_lcd_rgb_panel_config_t panel_cfg = {};
 
-  // DIAGNOSTIC REMOVED: Direct boot to UI
+    panel_cfg.clk_src = LCD_CLK_SRC_DEFAULT;
+    panel_cfg.timings.pclk_hz = g_currentFreqWrite;
+    panel_cfg.timings.h_res = DISPLAY_WIDTH;
+    panel_cfg.timings.v_res = DISPLAY_HEIGHT;
+
+    panel_cfg.timings.hsync_pulse_width = DISPLAY_HSYNC_PULSE_WIDTH;
+    panel_cfg.timings.hsync_back_porch = DISPLAY_HSYNC_BACK_PORCH;
+    panel_cfg.timings.hsync_front_porch = DISPLAY_HSYNC_FRONT_PORCH;
+    panel_cfg.timings.vsync_pulse_width = DISPLAY_VSYNC_PULSE_WIDTH;
+    panel_cfg.timings.vsync_back_porch = DISPLAY_VSYNC_BACK_PORCH;
+    panel_cfg.timings.vsync_front_porch = DISPLAY_VSYNC_FRONT_PORCH;
+
+    panel_cfg.timings.flags.hsync_idle_low = !DISPLAY_HSYNC_POLARITY;
+    panel_cfg.timings.flags.vsync_idle_low = !DISPLAY_VSYNC_POLARITY;
+    panel_cfg.timings.flags.pclk_idle_high = DISPLAY_PCLK_IDLE_HIGH;
+    panel_cfg.timings.flags.pclk_active_neg = 0;
+    panel_cfg.timings.flags.de_idle_high = 0;
+
+    panel_cfg.data_width = 16; // RGB565
+    panel_cfg.num_fbs = 1;     // Single FB + bounce buffers
+    panel_cfg.bounce_buffer_size_px = BOUNCE_BUF_SIZE_PX; // SRAM bounce buffers (anti-flicker)
+    panel_cfg.psram_trans_align = 64;
+    panel_cfg.sram_trans_align = 4;
+    panel_cfg.flags.fb_in_psram = 1;          // Framebuffer en PSRAM
+    panel_cfg.flags.bb_invalidate_cache = 1;  // Cache coherency para bounce buffers
+
+    // Pines de datos RGB565: B[4:0], G[5:0], R[4:0]
+    panel_cfg.data_gpio_nums[0]  = DISPLAY_PIN_B0;
+    panel_cfg.data_gpio_nums[1]  = DISPLAY_PIN_B1;
+    panel_cfg.data_gpio_nums[2]  = DISPLAY_PIN_B2;
+    panel_cfg.data_gpio_nums[3]  = DISPLAY_PIN_B3;
+    panel_cfg.data_gpio_nums[4]  = DISPLAY_PIN_B4;
+    panel_cfg.data_gpio_nums[5]  = DISPLAY_PIN_G0;
+    panel_cfg.data_gpio_nums[6]  = DISPLAY_PIN_G1;
+    panel_cfg.data_gpio_nums[7]  = DISPLAY_PIN_G2;
+    panel_cfg.data_gpio_nums[8]  = DISPLAY_PIN_G3;
+    panel_cfg.data_gpio_nums[9]  = DISPLAY_PIN_G4;
+    panel_cfg.data_gpio_nums[10] = DISPLAY_PIN_G5;
+    panel_cfg.data_gpio_nums[11] = DISPLAY_PIN_R0;
+    panel_cfg.data_gpio_nums[12] = DISPLAY_PIN_R1;
+    panel_cfg.data_gpio_nums[13] = DISPLAY_PIN_R2;
+    panel_cfg.data_gpio_nums[14] = DISPLAY_PIN_R3;
+    panel_cfg.data_gpio_nums[15] = DISPLAY_PIN_R4;
+
+    panel_cfg.hsync_gpio_num = DISPLAY_PIN_HSYNC;
+    panel_cfg.vsync_gpio_num = DISPLAY_PIN_VSYNC;
+    panel_cfg.de_gpio_num    = DISPLAY_PIN_DE;
+    panel_cfg.pclk_gpio_num  = DISPLAY_PIN_PCLK;
+    panel_cfg.disp_gpio_num  = -1; // No separate enable pin
+
+    ESP_LOGI("LCD", "Creating RGB panel: %lux%lu @ %lu Hz, bounce=%d px",
+             (uint32_t)DISPLAY_WIDTH, (uint32_t)DISPLAY_HEIGHT,
+             g_currentFreqWrite, BOUNCE_BUF_SIZE_PX);
+
+    ESP_ERROR_CHECK(esp_lcd_new_rgb_panel(&panel_cfg, &lcd_panel));
+    ESP_ERROR_CHECK(esp_lcd_panel_reset(lcd_panel));
+    ESP_ERROR_CHECK(esp_lcd_panel_init(lcd_panel));
+
+    // 180° rotation = mirror X + mirror Y
+    ESP_ERROR_CHECK(esp_lcd_panel_mirror(lcd_panel, true, true));
+
+    ESP_LOGI("LCD", "RGB panel initialized with bounce buffers OK");
+  }
 
   lv_init();
 
@@ -2237,10 +2205,12 @@ void UI_Task(void *pvParameters) {
 
   // ts.reset();
   ts.setRotation(TOUCH_ROTATION);
-  lcd.setRotation(LCD_ROTATION);
+  // Rotation already handled by esp_lcd_panel_mirror() above
 
-  screenWidth = lcd.width();
-  screenHeight = lcd.height();
+  screenWidth = DISPLAY_WIDTH;
+  screenHeight = DISPLAY_HEIGHT;
+
+  // Draw buffer parcial en SRAM interno (~48KB)
   lv_disp_draw_buf_init(&draw_buf, disp_draw_buf, NULL,
                         screenWidth * screenHeight / COLOR_DIVISOR);
 
@@ -2313,10 +2283,7 @@ void UI_Task(void *pvParameters) {
   // Label de volumen central
   ui_VolumeLabel = lv_label_create(ui_ScreenSettings);
   {
-    char buf[12];
-    snprintf(buf, sizeof(buf), "Vol: %d",
-             AudioManager::getInstance().getVolume());
-    lv_label_set_text(ui_VolumeLabel, buf);
+    lv_label_set_text(ui_VolumeLabel, "Vol: --");
   }
   lv_obj_set_style_text_font(ui_VolumeLabel, &lv_font_montserrat_16, 0);
   lv_obj_align(ui_VolumeLabel, LV_ALIGN_BOTTOM_RIGHT, -170, -90);
@@ -2563,7 +2530,7 @@ void UI_Task(void *pvParameters) {
     // (Core 0)
 
     // Debug Pulse
-    static uint32_t lastLoopMs = 0;
+    // static uint32_t lastLoopMs = 0;
     static uint32_t lastSyncMs = 0;
 
     if (millis() - lastSyncMs > 1000) {
@@ -2571,10 +2538,12 @@ void UI_Task(void *pvParameters) {
       UI_SyncAll();
     }
 
+    /*
     if (millis() - lastLoopMs > 5000) {
       lastLoopMs = millis();
       ESP_LOGD(TAG, "UI and Audio Loop active");
     }
+    */
     vTaskDelay(pdMS_TO_TICKS(LOOP_DELAY_MS));
 
     if (pendingReconnect && (millis() - disconnectTimestampMs >= 5000)) {

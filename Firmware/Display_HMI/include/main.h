@@ -17,7 +17,7 @@
 #include <lvgl.h>
 #include <stdint.h>
 
-#define FWversion "1.0.6"
+#define FWversion "1.0.7"
 #define ENABLE_WIFI_OTA true // enable wifi OTA
 extern bool OTA_inprogress;
 

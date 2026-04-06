@@ -5,7 +5,7 @@
 #define EEPROM_COMMIT_DELAY INACTIVITY_TIMEOUT_MS
 
 // EEPROM variables
-#define EEPROM_SIZE 256
+#define EEPROM_SIZE 260
 #define EEPROM_CHECK_STATUS 0
 #define EEPROM_FIRST_TURN_ON 10
 #define EEPROM_AUTO_LOCK 20
@@ -38,6 +38,7 @@
 #define EEPROM_PANIC_OTA_CHANGE 250
 #define EEPROM_AUDIO_VOLUME     251  // Volumen del speaker (0-21), por defecto 15
 #define EEPROM_DARK_MODE        252  // 0: Off, 1: On
+#define EEPROM_DISPLAY_FREQ     253  // uint32_t: pixel clock Hz (4 bytes, 253-256)
 
 void initEEPROM();
 void loaddefaultValues();

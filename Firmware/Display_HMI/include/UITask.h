@@ -5,6 +5,10 @@
 
 void CreateUITask();
 
+// Cambiar freq_write del bus RGB en runtime (reinicia el display)
+void lcd_set_freq_write(uint32_t freq_hz);
+uint32_t lcd_get_freq_write();
+
 // UI Update functions (Exported for CommTask)
 void update_labels();
 void update_alarm_panels();

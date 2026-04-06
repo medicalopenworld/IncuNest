@@ -1,5 +1,5 @@
 #include "main.h"
-#include "AudioManager.h"
+// #include "AudioManager.h"  // Deshabilitado para migración Arduino 3.x
 #include "CommTask.h"
 #include "UITask.h"
 #include "Wifi_OTA.h"
