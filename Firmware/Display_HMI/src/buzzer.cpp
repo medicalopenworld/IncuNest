@@ -1,21 +1,20 @@
 #include <Wire.h>
 #include "buzzer.h"
-
-#define HMI_MXOR_ADDR 0x30  // dirección I2C del Crowpanel
+#include "main.h"
 
 // Activar buzzer (NEUTRALIZADO para silencio total)
 void buzzerOn() {
     // Comentado por petición del usuario: queremos el buzzer OFF
     /*
-    Wire.beginTransmission(HMI_MXOR_ADDR);
-    Wire.write(246); 
+    Wire.beginTransmission(I2C_ADDR_BACKLIGHT);
+    Wire.write(I2C_CMD_BUZZER_ON);
     Wire.endTransmission();
     */
 }
 
 // Desactivar buzzer (Forzar OFF)
 void buzzerOff() {
-    Wire.beginTransmission(HMI_MXOR_ADDR);
-    Wire.write(247); // comando para apagar buzzer v1.3
+    Wire.beginTransmission(I2C_ADDR_BACKLIGHT);
+    Wire.write(I2C_CMD_BUZZER_OFF);
     Wire.endTransmission();
 }

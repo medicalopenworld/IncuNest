@@ -23,6 +23,7 @@ extern bool OTA_inprogress;
 
 #define OTA_TASK_PRIORITY 4
 #define OTA_TASK_PERIOD_MS 1
+#define OTA_TASK_STACK_SIZE 8192
 #define CORE_MONITOR_FREERTOS 0
 #define CORE_ID_FREERTOS 1
 
@@ -129,16 +130,26 @@ constexpr double SKIN_TEMP_MAX = 37.5;
 constexpr double TEMP_INCREMENT = 0.2;
 constexpr double TEMP_ALARM_THRESHOLD = 37.0;
 constexpr double TEMP_DIVISOR = 10.0;
+constexpr double TEMP_LABEL_UPDATE_THRESHOLD = 0.05; // ºC — min change to refresh label
+constexpr double SKIN_PROBE_DETECT_THRESHOLD = 0.1;  // ºC — above this = probe present
+constexpr double DEFAULT_AIR_TEMP  = 30.0;  // ºC — EEPROM default
+constexpr double DEFAULT_SKIN_TEMP = 37.0;  // ºC — EEPROM default
+constexpr int    DEFAULT_HUMIDITY  = 50;    // %  — EEPROM default
 
 constexpr int NUM_ALARM_0 = 0;
 constexpr int NUM_ALARM_1 = 1;
 constexpr int NUM_ALARM_2 = 2;
 constexpr int NUM_ALARM_3 = 3;
 
-#define TEMP_BAR_MIN 0
-#define TEMP_BAR_MAX 40 // ºC
-#define HUM_BAR_MIN 0
-#define HUM_BAR_MAX 100 // %
+constexpr double TEMP_BAR_DISPLAY_MIN = 20.0; // ºC — lower bound of thermometer
+constexpr double TEMP_BAR_DISPLAY_MAX = 40.0; // ºC — upper bound of thermometer
+constexpr int    TEMP_BAR_RANGE       = 20;   // TEMP_BAR_DISPLAY_MAX - TEMP_BAR_DISPLAY_MIN
+constexpr int    HUM_BAR_MIN          = 0;
+constexpr int    HUM_BAR_MAX          = 100;  // %
+constexpr int    TEMP_CHART_MIN       = 20;   // ºC — chart Y-axis minimum
+constexpr int    TEMP_CHART_MAX       = 40;   // ºC — chart Y-axis maximum
+constexpr int    HUM_CHART_MIN        = 10;   // %  — chart Y-axis minimum
+constexpr int    HUM_CHART_MAX        = 100;  // %  — chart Y-axis maximum
 
 // -----------------------------
 // Panel selection
@@ -154,6 +165,64 @@ constexpr int HUM_MIN = 20;
 constexpr int HUM_MAX = 90;
 constexpr int HUM_STEP = 5;
 constexpr int HUM_ALARM_THRESHOLD = 60;
+
+// -----------------------------
+// Phototherapy
+// -----------------------------
+constexpr int PHOTO_TIMER_DEFAULT_MINUTES = 30;   // initial UI value
+constexpr int PHOTO_TIMER_EEPROM_DEFAULT  = 240;  // 4h — EEPROM factory default
+constexpr int PHOTO_TIMER_MIN_MINUTES     = 120;  // 2h — lower bound
+constexpr int PHOTO_TIMER_MAX_MINUTES     = 600;  // 10h — upper bound
+constexpr int PHOTO_TIMER_STEP_MINUTES    = 20;   // +/- step
+
+// -----------------------------
+// Chart safe zones
+// -----------------------------
+constexpr double AIR_SAFE_ZONE_MIN  = 34.0;  // ºC
+constexpr double AIR_SAFE_ZONE_MAX  = 37.0;  // ºC
+constexpr double SKIN_SAFE_ZONE_MIN = 36.0;  // ºC
+constexpr double SKIN_SAFE_ZONE_MAX = 37.5;  // ºC
+constexpr double HUM_SAFE_ZONE_MIN  = 40.0;  // %
+constexpr double HUM_SAFE_ZONE_MAX  = 70.0;  // %
+
+// -----------------------------
+// History chart
+// -----------------------------
+constexpr int HISTORY_POINTS_5MIN  = 30;
+constexpr int HISTORY_POINTS_30MIN = 180;
+constexpr int HISTORY_POINTS_1H    = 360;
+constexpr int HISTORY_POINTS_2H    = 720;
+
+// -----------------------------
+// Communication
+// -----------------------------
+constexpr int COMM_BAUD_RATE          = 115200;
+constexpr int COMM_RX_TIMEOUT_MS      = 50;
+constexpr int COMM_STATE_SYNC_MS      = 500;
+constexpr double COMM_TEMP_VALID_THRESHOLD = 0.1; // received temp > this = valid
+constexpr int COMM_TASK_STACK_SIZE    = 8192;
+constexpr int COMM_TASK_PRIORITY      = 3;
+
+// -----------------------------
+// Audio
+// -----------------------------
+constexpr uint8_t AUDIO_VOLUME_MIN     = 0;
+constexpr uint8_t AUDIO_VOLUME_MAX     = 21;
+constexpr uint8_t AUDIO_VOLUME_DEFAULT = 15;
+constexpr int AUDIO_TASK_STACK_SIZE    = 8192;
+
+// -----------------------------
+// I2C commands (CrowPanel STC8H1K28)
+// -----------------------------
+constexpr uint8_t I2C_CMD_BUZZER_ON  = 246;
+constexpr uint8_t I2C_CMD_BUZZER_OFF = 247;
+constexpr uint8_t I2C_CMD_SPEAKER_ON = 248;
+
+// -----------------------------
+// Display pixel clock bounds (OTA validation)
+// -----------------------------
+constexpr uint32_t DISPLAY_FREQ_MIN = 12000000;
+constexpr uint32_t DISPLAY_FREQ_MAX = 25000000;
 
 // -----------------------------
 // Random ranges (used with random())

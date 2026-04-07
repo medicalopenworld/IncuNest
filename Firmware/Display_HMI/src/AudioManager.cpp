@@ -4,6 +4,7 @@
 #include "esp_log.h"
 #include <EEPROM.h>
 #include "EEPROM_defines.h"
+#include "main.h"
 
 static const char* TAG = "Audio";
 
@@ -35,9 +36,9 @@ void AudioManager::begin() {
     // ACTIVACIÓN DE ENERGÍA v1.3 (STC8 @ 0x30)
     // Según doc v1.3: 246=Buzzer ON, 247=Buzzer OFF.
     // Deducimos 248=Speaker ON, 249=Speaker OFF basado en la secuencia.
-    uint8_t wakeup_cmds[] = {247, 248}; // Apagar buzzer (247), encender speaker (248)
+    uint8_t wakeup_cmds[] = {I2C_CMD_BUZZER_OFF, I2C_CMD_SPEAKER_ON}; // Apagar buzzer, encender speaker
     for(uint8_t cmd : wakeup_cmds) {
-        Wire.beginTransmission(0x30);
+        Wire.beginTransmission(I2C_ADDR_BACKLIGHT);
         Wire.write(cmd);
         Wire.endTransmission();
         vTaskDelay(pdMS_TO_TICKS(20));
@@ -63,7 +64,7 @@ void AudioManager::begin() {
     
     // Leer volumen guardado en EEPROM (0-21). Si es 0 o >21, usar default 15.
     uint8_t savedVol = EEPROM.read(EEPROM_AUDIO_VOLUME);
-    if (savedVol == 0 || savedVol > 21) savedVol = 15;
+    if (savedVol == AUDIO_VOLUME_MIN || savedVol > AUDIO_VOLUME_MAX) savedVol = AUDIO_VOLUME_DEFAULT;
     _volume = savedVol;
     audio.setVolume(_volume);
     Serial.printf("AudioManager: Volume loaded from EEPROM: %d\n", _volume);
@@ -74,7 +75,7 @@ void AudioManager::begin() {
     xTaskCreatePinnedToCore(
         audioTask,
         "AudioTask",
-        8192,  // Stack 8K para MP3
+        AUDIO_TASK_STACK_SIZE,  // Stack 8K para MP3
         NULL,
         2,     // Prioridad igual que UI (evita monopolizar DMA y causar temblor de pantalla)
         NULL,
@@ -105,8 +106,8 @@ void AudioManager::playTone() {
     Serial.println("AudioManager: Starting LOCAL playback (loop)...");
     
     // RE-ACTIVACIÓN DE ENERGÍA v1.3 (Speaker ON: 248)
-    Wire.beginTransmission(0x30);
-    Wire.write(248);
+    Wire.beginTransmission(I2C_ADDR_BACKLIGHT);
+    Wire.write(I2C_CMD_SPEAKER_ON);
     Wire.endTransmission();
     vTaskDelay(pdMS_TO_TICKS(10));
 
@@ -127,9 +128,9 @@ void AudioManager::playTone() {
 
 void AudioManager::playUrl(const char* url) {
     if (url) {
-        // RE-ACTIVACIÓN DE ENERGÍA v1.3 (Speaker ON: 248)
-        Wire.beginTransmission(0x30);
-        Wire.write(248);
+        // RE-ACTIVACIÓN DE ENERGÍA v1.3 (Speaker ON)
+        Wire.beginTransmission(I2C_ADDR_BACKLIGHT);
+        Wire.write(I2C_CMD_SPEAKER_ON);
         Wire.endTransmission();
         
         audio.connecttohost(url);
@@ -140,14 +141,14 @@ void AudioManager::stop() {
     _looping = false; // Detener el bucle antes de parar la reproducción
     audio.stopSong();
     // Apagar speaker físicamente para ahorrar energía/evitar ruidos
-    Wire.beginTransmission(0x30);
-    Wire.write(249); 
+    Wire.beginTransmission(I2C_ADDR_BACKLIGHT);
+    Wire.write(249); // Speaker OFF
     Wire.endTransmission();
-    Serial.println("AudioManager: Playback stopped and speaker OFF (249)");
+    Serial.println("AudioManager: Playback stopped and speaker OFF");
 }
 
 void AudioManager::setVolume(uint8_t volume) {
-    if (volume > 21) volume = 21;
+    if (volume > AUDIO_VOLUME_MAX) volume = AUDIO_VOLUME_MAX;
     _volume = volume;
     audio.setVolume(_volume);
     // NOTA: El guardado en EEPROM se hace desde la UI con commit diferido

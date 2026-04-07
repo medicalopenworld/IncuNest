@@ -76,10 +76,10 @@ void initEEPROM() {
 
 void loaddefaultValues() {
   EEPROM.write(EEPROM_LANGUAGE, LANG_EN);
-  EEPROM.writeFloat(EEPROM_DESIRED_AIR_TEMP, 30.0);
-  EEPROM.writeFloat(EEPROM_DESIRED_SKIN_TEMP, 37);
-  EEPROM.write(EEPROM_DESIRED_HUMIDITY, 50);
-  EEPROM.write(EEPROM_PHOTO_TIMER_MINUTES, 240);
+  EEPROM.writeFloat(EEPROM_DESIRED_AIR_TEMP, DEFAULT_AIR_TEMP);
+  EEPROM.writeFloat(EEPROM_DESIRED_SKIN_TEMP, DEFAULT_SKIN_TEMP);
+  EEPROM.write(EEPROM_DESIRED_HUMIDITY, DEFAULT_HUMIDITY);
+  EEPROM.write(EEPROM_PHOTO_TIMER_MINUTES, PHOTO_TIMER_EEPROM_DEFAULT);
   EEPROM.write(EEPROM_DARK_MODE, 0); // Default off
   EEPROM.write(EEPROM_HUMIDITY_ENABLED, 0); // Default off
   EEPROM.commit();
@@ -91,7 +91,7 @@ extern char wifi_pass[64];
 void recapVariables() {
   g_lang = (ui_lang_t)EEPROM.read(EEPROM_LANGUAGE);
   // Validation
-  if (g_lang > 2 || g_lang < 0) {
+  if (g_lang > LANG_FR || g_lang < LANG_ES) {
     g_lang = LANG_EN;
   }
 
@@ -109,14 +109,14 @@ void recapVariables() {
 
   // Validation
   if (isnan(airTempValue) || airTempValue < AIR_TEMP_MIN || airTempValue > AIR_TEMP_MAX)
-    airTempValue = 30.0;
+    airTempValue = DEFAULT_AIR_TEMP;
   if (isnan(skinTempValue) || skinTempValue < SKIN_TEMP_MIN || skinTempValue > SKIN_TEMP_MAX)
-    skinTempValue = 37.0;
+    skinTempValue = DEFAULT_SKIN_TEMP;
   if (humValue < HUM_MIN || humValue > HUM_MAX)
-    humValue = 50;
+    humValue = DEFAULT_HUMIDITY;
 
-  if (photoTimerMinutes < 120 || photoTimerMinutes > 600)
-    photoTimerMinutes = 240;
+  if (photoTimerMinutes < PHOTO_TIMER_MIN_MINUTES || photoTimerMinutes > PHOTO_TIMER_MAX_MINUTES)
+    photoTimerMinutes = PHOTO_TIMER_EEPROM_DEFAULT;
 
   in3.serialNumber = EEPROM.readInt(EEPROM_SERIAL_NUMBER);
 

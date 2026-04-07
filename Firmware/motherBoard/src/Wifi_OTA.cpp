@@ -176,7 +176,8 @@ const char *configIndex =
     "<label>Fan PWM (0-255):</label><br>"
     "<input type='number' name='fan_pwm' id='fan_pwm'><br><br>"
     "<label>Heater Max Power (Amps):</label><br>"
-    "<input type='number' step='0.1' name='heater_amps' id='heater_amps'><br><br>"
+    "<input type='number' step='0.1' name='heater_amps' "
+    "id='heater_amps'><br><br>"
     "<label>Air Temp Max (C):</label><br>"
     "<input type='number' step='0.1' name='air_tmax' id='air_tmax'><br><br>"
     "<label>Skin Temp Max (C):</label><br>"
@@ -227,7 +228,7 @@ void wifiInit(void) {
   // Connect to WiFi network
   ESP_LOGI(TAG, "Initializing WiFi");
   Wifi_TB.lastWifiReconnectAttempt = millis();
-  
+
   String hostname = String(WIFI_NAME) + "-" + String(in3.serialNumber);
 
   // Copy hostname to wifiHost for MDNS
@@ -796,7 +797,7 @@ void WifiOTAHandler(void) {
       Wifi_TB.lastWifiReconnectAttempt = millis();
       logI("[WIFI] -> Connection lost, attempting to reconnect...");
       MDNS.end();
-      wifiInit();
+      WiFi.reconnect();
     }
   }
 

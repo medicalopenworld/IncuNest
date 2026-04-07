@@ -174,7 +174,7 @@ static bool ReceiveMessageFromOtherESP() {
 
   while (COMM_SERIAL.available()) {
     // Timeout check: if buffer has data but no new char for >50ms, clear it
-    if (rxIndex > 0 && (millis() - lastRxTime > 50)) {
+    if (rxIndex > 0 && (millis() - lastRxTime > COMM_RX_TIMEOUT_MS)) {
       rxIndex = 0;
       COMM_LOG("[COMM] RX Timeout, buffer cleared\n");
     }
@@ -238,9 +238,9 @@ static bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
   }
   */
 
-  if (st.desiredAirTemperature > 0.1)
+  if (st.desiredAirTemperature > COMM_TEMP_VALID_THRESHOLD)
     airTempValue = st.desiredAirTemperature;
-  if (st.desiredSkinTemperature > 0.1)
+  if (st.desiredSkinTemperature > COMM_TEMP_VALID_THRESHOLD)
     skinTempValue = st.desiredSkinTemperature;
   if (st.language != (int)g_lang) {
     // Only update if it's a valid change to avoid loops
@@ -343,7 +343,7 @@ static void Display_StateSync_Service(void) {
   if (g_stateSynced)
     return;
   uint32_t now = millis();
-  if (now - g_lastStateReqMs >= 500) {
+  if (now - g_lastStateReqMs >= COMM_STATE_SYNC_MS) {
     Communication_RequestState();
     g_lastStateReqMs = now;
   }
@@ -413,7 +413,7 @@ static void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
 
 void Comm_Task(void *pvParameters) {
   ESP_LOGI(TAG, "Communication Task Started");
-  COMM_SERIAL.begin(115200);
+  COMM_SERIAL.begin(COMM_BAUD_RATE);
 
   Communication_RequestState();
   g_lastStateReqMs = millis();
@@ -443,6 +443,6 @@ void Comm_Task(void *pvParameters) {
 }
 
 void CreateCommTask() {
-  xTaskCreatePinnedToCore(Comm_Task, "Comm", 8192, NULL, 3, NULL,
+  xTaskCreatePinnedToCore(Comm_Task, "Comm", COMM_TASK_STACK_SIZE, NULL, COMM_TASK_PRIORITY, NULL,
                           CORE_ID_FREERTOS);
 }

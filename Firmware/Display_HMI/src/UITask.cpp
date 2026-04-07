@@ -100,7 +100,7 @@ static unsigned long lastVarChangeTime = 0;
 ui_lang_t g_lang = LANG_EN;
 
 // Phototherapy Timer
-int photoTimerMinutes = 30; // Default
+int photoTimerMinutes = PHOTO_TIMER_DEFAULT_MINUTES;
 bool photoTimerActive = false;
 unsigned long photoTimerStartMs = 0;
 static int lastPhotoMinutesSent = -1;
@@ -184,14 +184,14 @@ void update_labels() {
 
   char buffer[BUFFER_SIZE];
 
-  if (abs(airTempValue - l_airDesired) > 0.05) {
+  if (abs(airTempValue - l_airDesired) > TEMP_LABEL_UPDATE_THRESHOLD) {
     l_airDesired = airTempValue;
     snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValue);
     lv_label_set_text(ui_TempAirDesired, buffer);
     lv_label_set_text(ui_TargetAirTempNumLabel, buffer);
   }
 
-  if (abs(skinTempValue - l_skinDesired) > 0.05) {
+  if (abs(skinTempValue - l_skinDesired) > TEMP_LABEL_UPDATE_THRESHOLD) {
     l_skinDesired = skinTempValue;
     snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValue);
     lv_label_set_text(ui_TempSkinDesired, buffer);
@@ -205,7 +205,7 @@ void update_labels() {
     lv_label_set_text(ui_Label24, buffer);
   }
 
-  if (abs(airTempValueDetected - l_airDet) > 0.05) {
+  if (abs(airTempValueDetected - l_airDet) > TEMP_LABEL_UPDATE_THRESHOLD) {
     l_airDet = airTempValueDetected;
     snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValueDetected);
     lv_label_set_text(ui_TempAirDetected, buffer);
@@ -213,7 +213,7 @@ void update_labels() {
     lv_label_set_text(ui_Label18, buffer);
   }
 
-  if (abs(skinTempValueDetected - l_skinDet) > 0.05) {
+  if (abs(skinTempValueDetected - l_skinDet) > TEMP_LABEL_UPDATE_THRESHOLD) {
     l_skinDet = skinTempValueDetected;
     snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValueDetected);
     lv_label_set_text(ui_TempSkinDetected, buffer);
@@ -229,17 +229,17 @@ void update_labels() {
     lv_label_set_text(ui_Label20, buffer);
   }
 
-  int airBar = (airTempValueDetected <= 20.0)
+  int airBar = (airTempValueDetected <= TEMP_BAR_DISPLAY_MIN)
                    ? 0
-                   : (airTempValueDetected >= 40.0
-                          ? 20
-                          : (int)round(airTempValueDetected - 20.0));
-  int skinBar = (skinTempValueDetected <= 20.0)
+                   : (airTempValueDetected >= TEMP_BAR_DISPLAY_MAX
+                          ? TEMP_BAR_RANGE
+                          : (int)round(airTempValueDetected - TEMP_BAR_DISPLAY_MIN));
+  int skinBar = (skinTempValueDetected <= TEMP_BAR_DISPLAY_MIN)
                     ? 0
-                    : (skinTempValueDetected >= 40.0
-                           ? 20
-                           : (int)round(skinTempValueDetected - 20.0));
-  int humBar = constrain(humValueDetected, 0, 100);
+                    : (skinTempValueDetected >= TEMP_BAR_DISPLAY_MAX
+                           ? TEMP_BAR_RANGE
+                           : (int)round(skinTempValueDetected - TEMP_BAR_DISPLAY_MIN));
+  int humBar = constrain(humValueDetected, HUM_BAR_MIN, HUM_BAR_MAX);
 
   lv_bar_set_value(ui_AirTempBar, airBar, LV_ANIM_OFF);
   lv_bar_set_value(ui_SkinTempBar, skinBar, LV_ANIM_OFF);
@@ -270,7 +270,7 @@ void update_labels() {
   // Derive skin probe presence from detected temperature and update switch
   // visibility
   static bool lastProbePresent = true; // force update on first call
-  bool probePresent = (skinTempValueDetected > 0.1);
+  bool probePresent = (skinTempValueDetected > SKIN_PROBE_DETECT_THRESHOLD);
   g_skinProbeState = probePresent ? SKIN_PROBE_VALID : SKIN_PROBE_NOT_CONNECTED;
   if (probePresent != lastProbePresent) {
     lastProbePresent = probePresent;
@@ -776,8 +776,8 @@ void PhotoTimeMinusBtn_cb(lv_event_t *e) {
   if (photoTimerActive)
     return;
 
-  if (photoTimerMinutes > 120) {
-    photoTimerMinutes -= 20;
+  if (photoTimerMinutes > PHOTO_TIMER_MIN_MINUTES) {
+    photoTimerMinutes -= PHOTO_TIMER_STEP_MINUTES;
   }
 
   char buf[16];
@@ -796,8 +796,8 @@ void PhotoTimePlusBtn_cb(lv_event_t *e) {
   if (photoTimerActive)
     return;
 
-  if (photoTimerMinutes < 600) {
-    photoTimerMinutes += 20;
+  if (photoTimerMinutes < PHOTO_TIMER_MAX_MINUTES) {
+    photoTimerMinutes += PHOTO_TIMER_STEP_MINUTES;
   }
 
   char buf[16];
@@ -1656,19 +1656,19 @@ void update_history_charts() {
   int point_count = 0;
   switch (interval_idx) {
   case 0:
-    point_count = 30;
+    point_count = HISTORY_POINTS_5MIN;
     break; // 5 min (~5 min @ 10s/sample)
   case 1:
-    point_count = 180;
+    point_count = HISTORY_POINTS_30MIN;
     break; // 30 min
   case 2:
-    point_count = 360;
+    point_count = HISTORY_POINTS_1H;
     break; // 1 h
   case 3:
-    point_count = 720;
+    point_count = HISTORY_POINTS_2H;
     break; // 2 h
   default:
-    point_count = 30;
+    point_count = HISTORY_POINTS_5MIN;
   }
 
   // Si hay menos datos que los pedidos, mostrar solo los disponibles
@@ -2363,9 +2363,9 @@ void UI_Task(void *pvParameters) {
   lv_timer_set_repeat_count(intro_timer, 1);
 
   // Visuals
-  lv_bar_set_range(ui_AirTempBar, 0, 20);
-  lv_bar_set_range(ui_SkinTempBar, 0, 20);
-  lv_bar_set_range(ui_HumBar, 0, 100);
+  lv_bar_set_range(ui_AirTempBar, 0, TEMP_BAR_RANGE);
+  lv_bar_set_range(ui_SkinTempBar, 0, TEMP_BAR_RANGE);
+  lv_bar_set_range(ui_HumBar, HUM_BAR_MIN, HUM_BAR_MAX);
 
   lv_obj_add_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
@@ -2461,9 +2461,9 @@ void UI_Task(void *pvParameters) {
   lv_obj_clear_flag(ui_CheckImg, LV_OBJ_FLAG_HIDDEN);
 
   airTempSeries =
-      configure_temp_chart(ui_AirTempChart, LV_PALETTE_BLUE, 20, 40);
+      configure_temp_chart(ui_AirTempChart, LV_PALETTE_BLUE, TEMP_CHART_MIN, TEMP_CHART_MAX);
   skinTempSeries =
-      configure_temp_chart(ui_SkinTempChart, LV_PALETTE_BLUE, 20, 40);
+      configure_temp_chart(ui_SkinTempChart, LV_PALETTE_BLUE, TEMP_CHART_MIN, TEMP_CHART_MAX);
 
   lv_obj_add_flag(ui_AirTempChartCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_SkinTempChartCont, LV_OBJ_FLAG_HIDDEN);
@@ -2481,7 +2481,7 @@ void UI_Task(void *pvParameters) {
   }
   lv_chart_set_type(ui_HumChart, LV_CHART_TYPE_LINE);
   lv_chart_set_point_count(ui_HumChart, 50);
-  lv_chart_set_range(ui_HumChart, LV_CHART_AXIS_PRIMARY_Y, 10, 100);
+  lv_chart_set_range(ui_HumChart, LV_CHART_AXIS_PRIMARY_Y, HUM_CHART_MIN, HUM_CHART_MAX);
   humSeries = lv_chart_add_series(
       ui_HumChart, lv_palette_main(LV_PALETTE_GREEN), LV_CHART_AXIS_PRIMARY_Y);
   lv_chart_set_axis_tick(ui_HumChart, LV_CHART_AXIS_SECONDARY_Y, 0, 0, 0, 0,

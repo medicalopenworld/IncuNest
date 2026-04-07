@@ -227,7 +227,7 @@ void configWifiServer() {
     }
     String freqStr = wifiServer.arg("freq");
     uint32_t freq = freqStr.toInt();
-    bool ok = (freq >= 12000000 && freq <= 25000000);
+    bool ok = (freq >= DISPLAY_FREQ_MIN && freq <= DISPLAY_FREQ_MAX);
     if (ok) {
       lcd_set_freq_write(freq);
     }
@@ -700,6 +700,6 @@ static void OTA_WIFI_Task(void *pvParameters) {
 }
 
 void CreateOTATask() {
-  xTaskCreatePinnedToCore(OTA_WIFI_Task, "OTA", 8192, NULL, OTA_TASK_PRIORITY,
+  xTaskCreatePinnedToCore(OTA_WIFI_Task, "OTA", OTA_TASK_STACK_SIZE, NULL, OTA_TASK_PRIORITY,
                           NULL, CORE_ID_FREERTOS);
 }
