@@ -38,6 +38,7 @@ extern bool OTA_inprogress;
 typedef enum { LANG_ES = 0, LANG_EN = 1, LANG_FR = 2 } ui_lang_t;
 extern ui_lang_t g_lang;
 extern bool darkMode; // Global Dark Mode state
+extern bool humidityEnabled; // Humidity control enabled from Settings
 extern double airTempValue, skinTempValue;
 extern double airTempValueDetected, skinTempValueDetected;
 extern int humValue;

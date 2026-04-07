@@ -64,6 +64,7 @@ bool tempSwitched = false;
 bool humSwitched = false;
 bool arrowsActive = false;
 bool darkMode = false;
+bool humidityEnabled = false;
 int g_selectedAlarmId = -1;
 volatile bool g_pendingAlarmUpdate = false;
 
@@ -284,9 +285,9 @@ void update_labels() {
     } else {
       if (ui_Switch4)
         lv_obj_add_flag(ui_Switch4, LV_OBJ_FLAG_HIDDEN);
-      const char *text = (g_lang == LANG_ES)   ? "Sin sonda de piel"
-                         : (g_lang == LANG_FR) ? "Sonde peau absente"
-                                               : "No skin probe detected";
+      const char *text = (g_lang == LANG_ES)   ? "SIN SONDA DE PIEL"
+                         : (g_lang == LANG_FR) ? "SONDE PEAU ABSENTE"
+                                               : "NO SKIN PROBE DETECTED";
       if (ui_SkinOptionLabel)
         lv_label_set_text(ui_SkinOptionLabel, text);
       if (skinPanelEnabled) {
@@ -298,6 +299,7 @@ void update_labels() {
       }
     }
   }
+
 }
 
 const char *getConnectivityString(int status, ui_lang_t lang) {
@@ -445,6 +447,11 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   lv_label_set_text(ui_SkinOptionLabel, TXT_SKINMODE[lang]);
   lv_label_set_text(ui_InfoLabel, TXT_INFO[lang]);
   lv_label_set_text(ui_DarkModeLabel, TXT_DARKMODE[lang]);
+  {
+    const char *TXT_HUMIDITY_MODE[] = {"CONTROL HUMEDAD", "HUMIDITY CONTROL",
+                                      "CONTROLE HUMIDITE"};
+    lv_label_set_text(ui_HumidityModeLabel, TXT_HUMIDITY_MODE[lang]);
+  }
   lv_label_set_text(ui_HMIVerTitle, TXT_HMI_VERSION[lang]);
   lv_label_set_text(ui_MBVerTitle, TXT_MB_VERSION[lang]);
   lv_label_set_text(ui_SNTitle, TXT_SN[lang]);
@@ -1106,6 +1113,22 @@ void Switch_cb(lv_event_t *e) {
     eepromDirty = true;
     lastVarChangeTime = millis();
     UI_ApplyTheme();
+  } else if (obj == ui_SwitchHumidityMode) { // HUMIDITY ENABLE SWITCH
+    bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
+    humidityEnabled = checked;
+    EEPROM.write(EEPROM_HUMIDITY_ENABLED, humidityEnabled ? 1 : 0);
+    eepromDirty = true;
+    lastVarChangeTime = millis();
+    if (humidityEnabled) {
+      lv_obj_clear_flag(ui_HumCont, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(ui_HumCont, LV_OBJ_FLAG_HIDDEN);
+      // Turn off humidity if it was active
+      if (switchHum) {
+        lv_obj_clear_state(ui_Switch2, LV_STATE_CHECKED);
+        lv_event_send(ui_Switch2, LV_EVENT_VALUE_CHANGED, NULL);
+      }
+    }
   }
 
   // If temperature is OFF, disable panels and arrows (por si acaso)
@@ -1745,7 +1768,7 @@ static void show_targets_for_mode(void) {
     }
   }
 
-  if (switchHum) {
+  if (humidityEnabled && switchHum) {
     lv_obj_clear_flag(ui_HumLockDesiredCont, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(ui_ArrowHumLock, LV_OBJ_FLAG_HIDDEN);
   }
@@ -1755,7 +1778,7 @@ static void show_targets_for_mode(void) {
     lv_obj_clear_flag(ui_AirTempLockCont, LV_OBJ_FLAG_HIDDEN);
   if (ui_SkinTempLockCont)
     lv_obj_clear_flag(ui_SkinTempLockCont, LV_OBJ_FLAG_HIDDEN);
-  if (ui_HumLockCont)
+  if (humidityEnabled && ui_HumLockCont)
     lv_obj_clear_flag(ui_HumLockCont, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -2241,6 +2264,10 @@ void UI_Task(void *pvParameters) {
 
   UI_ApplyLanguage(g_lang);
   ui_set_switch_state_silent(ui_SwitchDarkMode, darkMode);
+  ui_set_switch_state_silent(ui_SwitchHumidityMode, humidityEnabled);
+  if (humidityEnabled) {
+    lv_obj_clear_flag(ui_HumCont, LV_OBJ_FLAG_HIDDEN);
+  }
   // UI_ApplyTheme() movida al final de la creación de elementos manuales para
   // que les afecte
 
@@ -2737,7 +2764,7 @@ void UI_SyncAll() {
       lv_obj_clear_flag(ui_AirTempLockCont, LV_OBJ_FLAG_HIDDEN);
     if (ui_SkinTempLockCont)
       lv_obj_clear_flag(ui_SkinTempLockCont, LV_OBJ_FLAG_HIDDEN);
-    if (ui_HumLockCont)
+    if (humidityEnabled && ui_HumLockCont)
       lv_obj_clear_flag(ui_HumLockCont, LV_OBJ_FLAG_HIDDEN);
 
     // Enable arrows
@@ -2796,7 +2823,7 @@ void UI_SyncAll() {
       lv_obj_clear_flag(ui_AirTempLockCont, LV_OBJ_FLAG_HIDDEN);
     if (ui_SkinTempLockCont)
       lv_obj_clear_flag(ui_SkinTempLockCont, LV_OBJ_FLAG_HIDDEN);
-    if (ui_HumLockCont)
+    if (humidityEnabled && ui_HumLockCont)
       lv_obj_clear_flag(ui_HumLockCont, LV_OBJ_FLAG_HIDDEN);
   }
 
@@ -3090,6 +3117,8 @@ void UI_ApplyTheme() {
     lv_obj_set_style_bg_color(ui_Panel9, panel_col, 0);
   if (ui_PanelDarkMode)
     lv_obj_set_style_bg_color(ui_PanelDarkMode, panel_col, 0);
+  if (ui_PanelHumidityMode)
+    lv_obj_set_style_bg_color(ui_PanelHumidityMode, panel_col, 0);
   if (ui_InfoPanel)
     lv_obj_set_style_bg_color(ui_InfoPanel, panel_col, 0);
 

@@ -39,6 +39,7 @@
 #define EEPROM_AUDIO_VOLUME     251  // Volumen del speaker (0-21), por defecto 15
 #define EEPROM_DARK_MODE        252  // 0: Off, 1: On
 #define EEPROM_DISPLAY_FREQ     253  // uint32_t: pixel clock Hz (4 bytes, 253-256)
+#define EEPROM_HUMIDITY_ENABLED 257  // 0: Off (default), 1: On
 
 void initEEPROM();
 void loaddefaultValues();

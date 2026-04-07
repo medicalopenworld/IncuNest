@@ -141,6 +141,10 @@ lv_obj_t *ui_DarkModeCont = NULL;
 lv_obj_t *ui_PanelDarkMode = NULL;
 lv_obj_t *ui_DarkModeLabel = NULL;
 lv_obj_t *ui_SwitchDarkMode = NULL;
+lv_obj_t *ui_HumidityModeCont = NULL;
+lv_obj_t *ui_PanelHumidityMode = NULL;
+lv_obj_t *ui_HumidityModeLabel = NULL;
+lv_obj_t *ui_SwitchHumidityMode = NULL;
 lv_obj_t *ui_InfoCont = NULL;
 lv_obj_t *ui_InfoPanel = NULL;
 lv_obj_t *ui_InfoLabel = NULL;
@@ -528,6 +532,13 @@ void ui_event_Switch4(lv_event_t *e) {
 }
 
 void ui_event_SwitchDarkMode(lv_event_t *e) {
+  lv_event_code_t event_code = lv_event_get_code(e);
+  if (event_code == LV_EVENT_VALUE_CHANGED) {
+    Switch_cb(e);
+  }
+}
+
+void ui_event_SwitchHumidityMode(lv_event_t *e) {
   lv_event_code_t event_code = lv_event_get_code(e);
   if (event_code == LV_EVENT_VALUE_CHANGED) {
     Switch_cb(e);
@@ -1109,9 +1120,10 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_width(ui_HumCont, 378);
   lv_obj_set_height(ui_HumCont, 248);
   lv_obj_set_x(ui_HumCont, 193);
-  lv_obj_set_y(ui_HumCont, -64);
+  lv_obj_set_y(ui_HumCont, 111);
   lv_obj_set_align(ui_HumCont, LV_ALIGN_CENTER);
   lv_obj_clear_flag(ui_HumCont, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(ui_HumCont, LV_OBJ_FLAG_HIDDEN); // Humidity UI disabled
 
   ui_Panel3 = lv_obj_create(ui_HumCont);
   lv_obj_set_width(ui_Panel3, 376);
@@ -1326,8 +1338,8 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_remove_style_all(ui_PhotoTimerCont);
   lv_obj_set_width(ui_PhotoTimerCont, 384);
   lv_obj_set_height(ui_PhotoTimerCont, 120);
-  lv_obj_set_x(ui_PhotoTimerCont, 198);
-  lv_obj_set_y(ui_PhotoTimerCont, 170);
+  lv_obj_set_x(ui_PhotoTimerCont, 193);
+  lv_obj_set_y(ui_PhotoTimerCont, -73);
   lv_obj_set_align(ui_PhotoTimerCont, LV_ALIGN_CENTER);
   // lv_obj_add_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN); // Always visible
   // as requested
@@ -1431,8 +1443,8 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_remove_style_all(ui_PhotoCont);
   lv_obj_set_width(ui_PhotoCont, 384);
   lv_obj_set_height(ui_PhotoCont, 54);
-  lv_obj_set_x(ui_PhotoCont, 200);
-  lv_obj_set_y(ui_PhotoCont, 100);
+  lv_obj_set_x(ui_PhotoCont, 193);
+  lv_obj_set_y(ui_PhotoCont, -160);
   lv_obj_set_align(ui_PhotoCont, LV_ALIGN_CENTER);
   lv_obj_clear_flag(ui_PhotoCont,
                     LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
@@ -2186,7 +2198,7 @@ void ui_ScreenSettings_screen_init(void) {
   ui_Container3 = lv_obj_create(ui_ScreenSettings);
   lv_obj_remove_style_all(ui_Container3);
   lv_obj_set_width(ui_Container3, 331);
-  lv_obj_set_height(ui_Container3, 316);
+  lv_obj_set_height(ui_Container3, 420);
   lv_obj_set_x(ui_Container3, -200);
   lv_obj_set_y(ui_Container3, -10);
   lv_obj_set_align(ui_Container3, LV_ALIGN_CENTER);
@@ -2357,7 +2369,7 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_x(ui_SkinOptionLabel, 20);
   lv_obj_set_y(ui_SkinOptionLabel, 0);
   lv_obj_set_align(ui_SkinOptionLabel, LV_ALIGN_LEFT_MID);
-  lv_label_set_text(ui_SkinOptionLabel, "Skin mode");
+  lv_label_set_text(ui_SkinOptionLabel, "SKIN MODE");
   lv_obj_set_style_text_font(ui_SkinOptionLabel, &lv_font_montserrat_18,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
 
@@ -2374,8 +2386,7 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_width(ui_DarkModeCont, 331);
   lv_obj_set_height(ui_DarkModeCont, 45);
   lv_obj_set_x(ui_DarkModeCont, 0);
-  lv_obj_set_y(ui_DarkModeCont,
-               120); // Offset 55px more than Skin Mode (65 + 55 = 120)
+  lv_obj_set_y(ui_DarkModeCont, 175);
   lv_obj_set_align(ui_DarkModeCont, LV_ALIGN_CENTER);
   lv_obj_clear_flag(ui_DarkModeCont,
                     LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
@@ -2402,6 +2413,40 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_x(ui_SwitchDarkMode, 91);
   lv_obj_set_y(ui_SwitchDarkMode, 0);
   lv_obj_set_align(ui_SwitchDarkMode, LV_ALIGN_CENTER);
+
+  // Humidity Mode Toggle (Settings)
+  ui_HumidityModeCont = lv_obj_create(ui_Container3);
+  lv_obj_remove_style_all(ui_HumidityModeCont);
+  lv_obj_set_width(ui_HumidityModeCont, 331);
+  lv_obj_set_height(ui_HumidityModeCont, 45);
+  lv_obj_set_x(ui_HumidityModeCont, 0);
+  lv_obj_set_y(ui_HumidityModeCont, 120);
+  lv_obj_set_align(ui_HumidityModeCont, LV_ALIGN_CENTER);
+  lv_obj_clear_flag(ui_HumidityModeCont,
+                    LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+
+  ui_PanelHumidityMode = lv_obj_create(ui_HumidityModeCont);
+  lv_obj_set_width(ui_PanelHumidityMode, 331);
+  lv_obj_set_height(ui_PanelHumidityMode, 45);
+  lv_obj_set_align(ui_PanelHumidityMode, LV_ALIGN_CENTER);
+  lv_obj_clear_flag(ui_PanelHumidityMode, LV_OBJ_FLAG_SCROLLABLE);
+
+  ui_HumidityModeLabel = lv_label_create(ui_HumidityModeCont);
+  lv_obj_set_width(ui_HumidityModeLabel, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_HumidityModeLabel, LV_SIZE_CONTENT);
+  lv_obj_set_x(ui_HumidityModeLabel, 20);
+  lv_obj_set_y(ui_HumidityModeLabel, 0);
+  lv_obj_set_align(ui_HumidityModeLabel, LV_ALIGN_LEFT_MID);
+  lv_label_set_text(ui_HumidityModeLabel, "HUMIDITY CONTROL");
+  lv_obj_set_style_text_font(ui_HumidityModeLabel, &lv_font_montserrat_18,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  ui_SwitchHumidityMode = lv_switch_create(ui_HumidityModeCont);
+  lv_obj_set_width(ui_SwitchHumidityMode, 90);
+  lv_obj_set_height(ui_SwitchHumidityMode, 35);
+  lv_obj_set_x(ui_SwitchHumidityMode, 91);
+  lv_obj_set_y(ui_SwitchHumidityMode, 0);
+  lv_obj_set_align(ui_SwitchHumidityMode, LV_ALIGN_CENTER);
 
   ui_WifiConfigCont = lv_obj_create(ui_ScreenSettings);
   lv_obj_remove_style_all(ui_WifiConfigCont);
@@ -2705,6 +2750,8 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_add_event_cb(ui_Switch4, ui_event_Switch4, LV_EVENT_ALL, NULL);
   lv_obj_add_event_cb(ui_SwitchDarkMode, ui_event_SwitchDarkMode, LV_EVENT_ALL,
                       NULL);
+  lv_obj_add_event_cb(ui_SwitchHumidityMode, ui_event_SwitchHumidityMode,
+                      LV_EVENT_ALL, NULL);
   lv_obj_add_event_cb(ui_TextArea1, ui_event_TextArea1, LV_EVENT_ALL, NULL);
   lv_obj_add_event_cb(ui_TextArea2, ui_event_TextArea2, LV_EVENT_ALL, NULL);
   lv_obj_add_event_cb(ui_Keyboard1, ui_event_Keyboard1, LV_EVENT_ALL, NULL);
