@@ -142,7 +142,7 @@ void AudioManager::stop() {
     audio.stopSong();
     // Apagar speaker físicamente para ahorrar energía/evitar ruidos
     Wire.beginTransmission(I2C_ADDR_BACKLIGHT);
-    Wire.write(249); // Speaker OFF
+    Wire.write(I2C_CMD_SPEAKER_OFF);
     Wire.endTransmission();
     Serial.println("AudioManager: Playback stopped and speaker OFF");
 }

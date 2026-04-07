@@ -30,7 +30,7 @@ void setup() {
   */
 
   // Power stability delay
-  delay(1000);
+  delay(STARTUP_DELAY_MS);
 
   ESP_LOGI(TAG, "Creating OTA task ...");
   CreateOTATask();
@@ -45,4 +45,4 @@ void setup() {
   ESP_LOGI(TAG, "UI task successfully created!");
 }
 
-void loop() { vTaskDelay(pdMS_TO_TICKS(1000)); }
+void loop() { vTaskDelay(pdMS_TO_TICKS(MS_PER_SECOND)); }

@@ -248,8 +248,8 @@ void update_labels() {
   // Update photo timer label if not active
   if (!photoTimerActive) {
     char buf[16];
-    snprintf(buf, sizeof(buf), "%d:%02d", photoTimerMinutes / 60,
-             photoTimerMinutes % 60);
+    snprintf(buf, sizeof(buf), "%d:%02d", photoTimerMinutes / SECONDS_PER_MINUTE,
+             photoTimerMinutes % SECONDS_PER_MINUTE);
     lv_label_set_text(ui_PhotoTimeValueLabel, buf);
   }
 
@@ -781,8 +781,8 @@ void PhotoTimeMinusBtn_cb(lv_event_t *e) {
   }
 
   char buf[16];
-  snprintf(buf, sizeof(buf), "%d:%02d", photoTimerMinutes / 60,
-           photoTimerMinutes % 60);
+  snprintf(buf, sizeof(buf), "%d:%02d", photoTimerMinutes / SECONDS_PER_MINUTE,
+           photoTimerMinutes % SECONDS_PER_MINUTE);
   lv_label_set_text(ui_PhotoTimeValueLabel, buf);
 
   // Persist last used timer
@@ -801,8 +801,8 @@ void PhotoTimePlusBtn_cb(lv_event_t *e) {
   }
 
   char buf[16];
-  snprintf(buf, sizeof(buf), "%d:%02d", photoTimerMinutes / 60,
-           photoTimerMinutes % 60);
+  snprintf(buf, sizeof(buf), "%d:%02d", photoTimerMinutes / SECONDS_PER_MINUTE,
+           photoTimerMinutes % SECONDS_PER_MINUTE);
   lv_label_set_text(ui_PhotoTimeValueLabel, buf);
 
   // Persist last used timer
@@ -982,8 +982,8 @@ void Switch_cb(lv_event_t *e) {
       // Reset timer UI if no timer is running
       if (!photoTimerActive) {
         char buf[16];
-        snprintf(buf, sizeof(buf), "%d:%02d", photoTimerMinutes / 60,
-                 photoTimerMinutes % 60);
+        snprintf(buf, sizeof(buf), "%d:%02d", photoTimerMinutes / SECONDS_PER_MINUTE,
+                 photoTimerMinutes % SECONDS_PER_MINUTE);
         lv_label_set_text(ui_PhotoTimeValueLabel, buf);
 
         // Use localized text
@@ -2108,7 +2108,7 @@ void UI_Task(void *pvParameters) {
     vTaskDelay(pdMS_TO_TICKS(100));
 
     // STC8 requires these commands before it accepts the backlight command
-    uint8_t init_cmds[] = {247, 248}; // Buzzer OFF, Speaker ON
+    uint8_t init_cmds[] = {I2C_CMD_BUZZER_OFF, I2C_CMD_SPEAKER_ON}; // Buzzer OFF, Speaker ON
     for (uint8_t cmd : init_cmds) {
       Wire.beginTransmission(I2C_ADDR_BACKLIGHT);
       Wire.write(cmd);
@@ -2128,7 +2128,7 @@ void UI_Task(void *pvParameters) {
   {
     uint32_t savedFreq = 0;
     EEPROM.get(EEPROM_DISPLAY_FREQ, savedFreq);
-    if (savedFreq >= 12000000 && savedFreq <= 25000000) {
+    if (savedFreq >= DISPLAY_FREQ_MIN && savedFreq <= DISPLAY_FREQ_MAX) {
       g_currentFreqWrite = savedFreq;
       ESP_LOGW("LCD", "freq_write from EEPROM: %lu Hz", savedFreq);
     } else {
@@ -2595,7 +2595,7 @@ void UI_Task(void *pvParameters) {
 
     if (photoTimerActive) {
       unsigned long elapsed = millis() - photoTimerStartMs;
-      long totalSeconds = photoTimerMinutes * 60;
+      long totalSeconds = photoTimerMinutes * SECONDS_PER_MINUTE;
       long remaining = totalSeconds - (elapsed / 1000);
 
       if (remaining <= 0) {
@@ -2613,9 +2613,9 @@ void UI_Task(void *pvParameters) {
       } else {
         // Update countdown display
         int totalMins =
-            (remaining + 59) / 60; // Round up to show minutes correctly
-        int hours = totalMins / 60;
-        int mins = totalMins % 60;
+            (remaining + (SECONDS_PER_MINUTE - 1)) / SECONDS_PER_MINUTE; // Round up to show minutes correctly
+        int hours = totalMins / SECONDS_PER_MINUTE;
+        int mins = totalMins % SECONDS_PER_MINUTE;
         char buf[16];
         snprintf(buf, sizeof(buf), "%d:%02d", hours, mins);
 
@@ -2661,7 +2661,7 @@ void UI_Task(void *pvParameters) {
 }
 
 void CreateUITask() {
-  xTaskCreatePinnedToCore(UI_Task, "UI", 8192 * 2, NULL, 2, NULL,
+  xTaskCreatePinnedToCore(UI_Task, "UI", UI_TASK_STACK_SIZE, NULL, UI_TASK_PRIORITY, NULL,
                           CORE_ID_FREERTOS);
 }
 

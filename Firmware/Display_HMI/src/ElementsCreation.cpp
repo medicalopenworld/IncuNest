@@ -332,7 +332,7 @@ extern void PhotoCancelBtn_cb(lv_event_t *e);
 void ui_event_Settings(lv_event_t *e) {
   lv_event_code_t event_code = lv_event_get_code(e);
   if (event_code == LV_EVENT_CLICKED) {
-    _ui_screen_change(&ui_ScreenSettings, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
+    _ui_screen_change(&ui_ScreenSettings, LV_SCR_LOAD_ANIM_FADE_ON, ANIM_TIME_MS, 0,
                       &ui_ScreenSettings_screen_init);
     _ui_screen_delete(&ui_ScreenMain);
     Settings_cb(e);
@@ -345,7 +345,7 @@ void ui_event_AlarmButton(lv_event_t *e) {
   if (event_code == LV_EVENT_CLICKED) {
     hmi_msg.shouldSendData =
         true; // Beep en motherboard al tocar icono de alarmas
-    _ui_screen_change(&ui_ScreenAlarms, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
+    _ui_screen_change(&ui_ScreenAlarms, LV_SCR_LOAD_ANIM_FADE_ON, ANIM_TIME_MS, 0,
                       &ui_ScreenAlarms_screen_init);
     _ui_screen_delete(&ui_ScreenMain);
     AlarmButton_cb(e);
@@ -356,7 +356,7 @@ void ui_event_SPO2Button(lv_event_t *e) {
   lv_event_code_t event_code = lv_event_get_code(e);
   if (event_code == LV_EVENT_CLICKED) {
     _ui_screen_delete(&ui_ScreenMain);
-    _ui_screen_change(&ui_ScreenPulseOxi, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
+    _ui_screen_change(&ui_ScreenPulseOxi, LV_SCR_LOAD_ANIM_FADE_ON, ANIM_TIME_MS, 0,
                       &ui_ScreenPulseOxi_screen_init);
     SPO2Button_cb(e);
   }
@@ -366,7 +366,7 @@ void ui_event_ChartButton(lv_event_t *e) {
   lv_event_code_t event_code = lv_event_get_code(e);
   if (event_code == LV_EVENT_CLICKED) {
     _ui_screen_delete(&ui_ScreenMain);
-    _ui_screen_change(&ui_ScreenCharts, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
+    _ui_screen_change(&ui_ScreenCharts, LV_SCR_LOAD_ANIM_FADE_ON, ANIM_TIME_MS, 0,
                       &ui_ScreenCharts_screen_init);
     ChartButton_cb(e);
   }
@@ -376,7 +376,7 @@ void ui_event_ImgButton1(lv_event_t *e) {
   lv_event_code_t event_code = lv_event_get_code(e);
   if (event_code == LV_EVENT_CLICKED) {
     _ui_screen_delete(&ui_ScreenMain);
-    _ui_screen_change(&ui_ScreenLock, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
+    _ui_screen_change(&ui_ScreenLock, LV_SCR_LOAD_ANIM_FADE_ON, ANIM_TIME_MS, 0,
                       &ui_ScreenLock_screen_init);
     ImgButton1_Lock_cb(e);
   }
@@ -385,7 +385,7 @@ void ui_event_ImgButton1(lv_event_t *e) {
 void ui_event_ImgButton7(lv_event_t *e) {
   lv_event_code_t event_code = lv_event_get_code(e);
   if (event_code == LV_EVENT_CLICKED) {
-    _ui_screen_change(&ui_ScreenMain, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
+    _ui_screen_change(&ui_ScreenMain, LV_SCR_LOAD_ANIM_FADE_ON, ANIM_TIME_MS, 0,
                       &ui_ScreenMain_screen_init);
     _ui_screen_delete(&ui_ScreenAlarms);
     // In UITask.cpp this button also triggers AlarmsTabview_cb but that
@@ -398,7 +398,7 @@ void ui_event_ImgButton7(lv_event_t *e) {
 void ui_event_ImgButton8(lv_event_t *e) {
   lv_event_code_t event_code = lv_event_get_code(e);
   if (event_code == LV_EVENT_CLICKED) {
-    _ui_screen_change(&ui_ScreenMain, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
+    _ui_screen_change(&ui_ScreenMain, LV_SCR_LOAD_ANIM_FADE_ON, ANIM_TIME_MS, 0,
                       &ui_ScreenMain_screen_init);
     _ui_screen_delete(&ui_ScreenCharts);
   }
@@ -407,7 +407,7 @@ void ui_event_ImgButton8(lv_event_t *e) {
 void ui_event_ImgButton9(lv_event_t *e) {
   lv_event_code_t event_code = lv_event_get_code(e);
   if (event_code == LV_EVENT_CLICKED) {
-    _ui_screen_change(&ui_ScreenMain, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
+    _ui_screen_change(&ui_ScreenMain, LV_SCR_LOAD_ANIM_FADE_ON, ANIM_TIME_MS, 0,
                       &ui_ScreenMain_screen_init);
     _ui_screen_delete(&ui_ScreenPulseOxi);
   }
@@ -416,7 +416,7 @@ void ui_event_ImgButton9(lv_event_t *e) {
 void ui_event_ImgButton2(lv_event_t *e) {
   lv_event_code_t event_code = lv_event_get_code(e);
   if (event_code == LV_EVENT_CLICKED) {
-    _ui_screen_change(&ui_ScreenMain, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
+    _ui_screen_change(&ui_ScreenMain, LV_SCR_LOAD_ANIM_FADE_ON, ANIM_TIME_MS, 0,
                       &ui_ScreenMain_screen_init);
     _ui_screen_delete(&ui_ScreenSettings);
     hmi_msg.shouldSendData = true;
@@ -428,7 +428,7 @@ void ui_event_AlarmLockImg(lv_event_t *e) {
   if (event_code == LV_EVENT_CLICKED) {
     hmi_msg.shouldSendData =
         true; // Beep en motherboard al tocar icono de alarmas
-    _ui_screen_change(&ui_ScreenAlarms, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
+    _ui_screen_change(&ui_ScreenAlarms, LV_SCR_LOAD_ANIM_FADE_ON, ANIM_TIME_MS, 0,
                       &ui_ScreenAlarms_screen_init);
     _ui_screen_delete(&ui_ScreenLock);
     AlarmButton_cb(e);
@@ -635,7 +635,7 @@ void ui_event_AlarmLockCont(lv_event_t *e) {
   if (event_code == LV_EVENT_CLICKED) {
     hmi_msg.shouldSendData =
         true; // Beep en motherboard al tocar icono de alarmas
-    _ui_screen_change(&ui_ScreenAlarms, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
+    _ui_screen_change(&ui_ScreenAlarms, LV_SCR_LOAD_ANIM_FADE_ON, ANIM_TIME_MS, 0,
                       &ui_ScreenAlarms_screen_init);
     _ui_screen_delete(&ui_ScreenLock);
     AlarmButton_cb(e);
@@ -646,11 +646,11 @@ void ui_event_PhotoTimeMinusBtn(lv_event_t *e) {
   lv_event_code_t event_code = lv_event_get_code(e);
   lv_obj_t *target = lv_event_get_target(e);
   if (event_code == LV_EVENT_PRESSED) {
-    lv_obj_set_style_transform_zoom(target, 280,
+    lv_obj_set_style_transform_zoom(target, ZOOM_PRESSED,
                                     LV_PART_MAIN | LV_STATE_DEFAULT);
   } else if (event_code == LV_EVENT_RELEASED ||
              event_code == LV_EVENT_PRESS_LOST) {
-    lv_obj_set_style_transform_zoom(target, 256,
+    lv_obj_set_style_transform_zoom(target, ZOOM_NORMAL,
                                     LV_PART_MAIN | LV_STATE_DEFAULT);
   } else if (event_code == LV_EVENT_CLICKED) {
     PhotoTimeMinusBtn_cb(e);
@@ -661,11 +661,11 @@ void ui_event_PhotoTimePlusBtn(lv_event_t *e) {
   lv_event_code_t event_code = lv_event_get_code(e);
   lv_obj_t *target = lv_event_get_target(e);
   if (event_code == LV_EVENT_PRESSED) {
-    lv_obj_set_style_transform_zoom(target, 280,
+    lv_obj_set_style_transform_zoom(target, ZOOM_PRESSED,
                                     LV_PART_MAIN | LV_STATE_DEFAULT);
   } else if (event_code == LV_EVENT_RELEASED ||
              event_code == LV_EVENT_PRESS_LOST) {
-    lv_obj_set_style_transform_zoom(target, 256,
+    lv_obj_set_style_transform_zoom(target, ZOOM_NORMAL,
                                     LV_PART_MAIN | LV_STATE_DEFAULT);
   } else if (event_code == LV_EVENT_CLICKED) {
     PhotoTimePlusBtn_cb(e);
@@ -860,9 +860,9 @@ void ui_ScreenMain_screen_init(void) {
                              LV_PART_MAIN | LV_STATE_DEFAULT);
 
   ui_AirTempBar = lv_bar_create(ui_AirTempBarCont);
-  lv_bar_set_range(ui_AirTempBar, 0, 40);
+  lv_bar_set_range(ui_AirTempBar, HUM_BAR_MIN, (int)TEMP_BAR_DISPLAY_MAX);
   lv_bar_set_value(ui_AirTempBar, 25, LV_ANIM_OFF);
-  lv_bar_set_start_value(ui_AirTempBar, 0, LV_ANIM_OFF);
+  lv_bar_set_start_value(ui_AirTempBar, HUM_BAR_MIN, LV_ANIM_OFF);
   lv_obj_set_width(ui_AirTempBar, 13);
   lv_obj_set_height(ui_AirTempBar, 55);
   lv_obj_set_x(ui_AirTempBar, -35);
@@ -949,9 +949,9 @@ void ui_ScreenMain_screen_init(void) {
                     LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
 
   ui_SkinTempBar = lv_bar_create(ui_SkinTempBarCont);
-  lv_bar_set_range(ui_SkinTempBar, 0, 40);
+  lv_bar_set_range(ui_SkinTempBar, HUM_BAR_MIN, (int)TEMP_BAR_DISPLAY_MAX);
   lv_bar_set_value(ui_SkinTempBar, 25, LV_ANIM_OFF);
-  lv_bar_set_start_value(ui_SkinTempBar, 0, LV_ANIM_OFF);
+  lv_bar_set_start_value(ui_SkinTempBar, HUM_BAR_MIN, LV_ANIM_OFF);
   lv_obj_set_width(ui_SkinTempBar, 13);
   lv_obj_set_height(ui_SkinTempBar, 56);
   lv_obj_set_x(ui_SkinTempBar, -35);
@@ -2071,7 +2071,7 @@ void ui_ScreenCharts_screen_init(void) {
                          true, 40); // Etiquetas eje Y
   lv_obj_set_style_pad_left(ui_OxChart, 50,
                             LV_PART_MAIN); // Margen para números
-  lv_chart_set_range(ui_OxChart, LV_CHART_AXIS_PRIMARY_Y, 0, 100);
+  lv_chart_set_range(ui_OxChart, LV_CHART_AXIS_PRIMARY_Y, HUM_BAR_MIN, HUM_BAR_MAX);
   lv_chart_series_t *ui_OxChart_series_1 = lv_chart_add_series(
       ui_OxChart, lv_color_hex(0x808080), LV_CHART_AXIS_PRIMARY_Y);
   static lv_coord_t ui_OxChart_series_1_array[] = {0,  10, 20, 40, 80,

@@ -115,6 +115,9 @@ constexpr int LOOP_DELAY_MS = 10;
 // -----------------------------
 // LVGL / PWM
 // -----------------------------
+constexpr int UI_TASK_STACK_SIZE = 16384; // 8192 * 2
+constexpr int UI_TASK_PRIORITY   = 2;
+
 constexpr int PWM_CHANNEL = 1;
 constexpr int PWM_FREQ = 300;
 constexpr int PWM_RESOLUTION = 8;
@@ -202,6 +205,8 @@ constexpr int COMM_STATE_SYNC_MS      = 500;
 constexpr double COMM_TEMP_VALID_THRESHOLD = 0.1; // received temp > this = valid
 constexpr int COMM_TASK_STACK_SIZE    = 8192;
 constexpr int COMM_TASK_PRIORITY      = 3;
+constexpr int COMM_RX_BUFFER_SIZE     = 512;
+constexpr int COMM_TASK_LOOP_MS       = 10;
 
 // -----------------------------
 // Audio
@@ -216,7 +221,8 @@ constexpr int AUDIO_TASK_STACK_SIZE    = 8192;
 // -----------------------------
 constexpr uint8_t I2C_CMD_BUZZER_ON  = 246;
 constexpr uint8_t I2C_CMD_BUZZER_OFF = 247;
-constexpr uint8_t I2C_CMD_SPEAKER_ON = 248;
+constexpr uint8_t I2C_CMD_SPEAKER_ON  = 248;
+constexpr uint8_t I2C_CMD_SPEAKER_OFF = 249;
 
 // -----------------------------
 // Display pixel clock bounds (OTA validation)
@@ -250,6 +256,17 @@ static const uint32_t UNLOCK_TIMEOUT_MS = 5000;         // 5 seconds timeout
 // Serial
 // -----------------------------
 constexpr int SERIAL_BAUD = 115200;
+
+// -----------------------------
+// Time conversion
+// -----------------------------
+constexpr int SECONDS_PER_MINUTE = 60;
+constexpr int MS_PER_SECOND      = 1000;
+
+// -----------------------------
+// Startup
+// -----------------------------
+constexpr int STARTUP_DELAY_MS = 1000;
 
 // -----------------------------
 // Misc sizes / lengths
@@ -329,6 +346,8 @@ static const lv_color_t COLOR_TEXT_DARK = lv_color_make(220, 220, 220);
 // -----------------------------
 constexpr int ANIM_TIME_MS = 500;
 constexpr int ANIM_PLAYBACK_MS = 500;
+constexpr int ZOOM_NORMAL      = 256;  // LVGL 1:1 zoom
+constexpr int ZOOM_PRESSED     = 280;  // ~1.09x press effect
 
 // -----------------------------
 // Other small numeric defaults used by LVGL calls etc.

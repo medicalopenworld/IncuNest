@@ -17,7 +17,7 @@ ControlBoard_Message_State ctrl_state_msg = {0};
 int g_skinProbeState = SKIN_PROBE_NOT_CONNECTED; // Last received skin probe state
 
 bool error = false;
-static char rxBuffer[512];
+static char rxBuffer[COMM_RX_BUFFER_SIZE];
 static int rxIndex = 0;
 
 // --- Phototherapy Timer (from UITask.cpp) ---
@@ -75,7 +75,7 @@ static void SendMessageToOtherESP() {
 
 static void parse_message(const char *line) {
 #if IS_HMI
-  if (strncmp(line, "CTRL,TEL", 8) == 0) {
+  if (strncmp(line, "CTRL,TEL", strlen("CTRL,TEL")) == 0) {
     int probeState = SKIN_PROBE_NOT_CONNECTED;
     int result = sscanf(
         line, "CTRL,TEL,%lf,%lf,%lf,%d,%d", &ctrl_tel_msg.detectedAirTemperature,
@@ -92,7 +92,7 @@ static void parse_message(const char *line) {
       // Update skin probe state from periodic telemetry (RF-SKIN-008, ARQ-SKIN-003)
       g_skinProbeState = probeState;
     }
-  } else if (strncmp(line, "CTRL,STATE", 10) == 0) {
+  } else if (strncmp(line, "CTRL,STATE", strlen("CTRL,STATE")) == 0) {
     int act, mode, photo, mute, sn, hwNum, numAlarms, skinE, commStatus, lang, probeState = 0;
     uint32_t alarmBitmask = 0;
     double photoTimeRemaining;  // Formato MM.SS (ej: 18.33 = 18 min 33 seg)
@@ -128,7 +128,7 @@ static void parse_message(const char *line) {
       // Extract minutes and seconds from MM.SS format
       if (result >= 15) {
         int mins = (int)photoTimeRemaining;
-        int secs = (int)((photoTimeRemaining - mins) * 100.0 + 0.5);  // Round to nearest second
+        int secs = (int)((photoTimeRemaining - mins) * 100.0 + 0.5);  // Extract SS from MM.SS format, round to nearest
         ctrl_state_msg.photoMinutesRemaining = mins;
         ctrl_state_msg.photoSecondsRemaining = secs;
       } else {
@@ -143,8 +143,8 @@ static void parse_message(const char *line) {
     } else {
       COMM_LOG("[COMM] HMI failed to parse CTRL,STATE: %s\n", line);
     }
-  } else if (strncmp(line, "CTRL,ALM", 8) ==
-             0) { // Fix bug: was "CTRL,ALM" len 8, logic matches
+  } else if (strncmp(line, "CTRL,ALM", strlen("CTRL,ALM")) ==
+             0) {
     int id, stateInt;
     char type[ALARM_TYPE_LEN];
     char description[ALARM_DESC_LEN];
@@ -264,12 +264,12 @@ static bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
           photoTimerActive = true;
           
           // Calculate total seconds remaining and elapsed
-          long totalSecondsRemaining = st.photoMinutesRemaining * 60 + st.photoSecondsRemaining;
-          long totalSecondsOriginal = photoTimerMinutes * 60;
+          long totalSecondsRemaining = st.photoMinutesRemaining * SECONDS_PER_MINUTE + st.photoSecondsRemaining;
+          long totalSecondsOriginal = photoTimerMinutes * SECONDS_PER_MINUTE;
           long elapsedSeconds = totalSecondsOriginal - totalSecondsRemaining;
           
           // Adjust start time to reflect elapsed time
-          photoTimerStartMs = millis() - (elapsedSeconds * 1000);
+          photoTimerStartMs = millis() - (elapsedSeconds * MS_PER_SECOND);
           
           // Sync to avoid sending 0 back
           hmi_msg.photoMinutesRemaining = st.photoMinutesRemaining;
@@ -438,7 +438,7 @@ void Comm_Task(void *pvParameters) {
     }
 #endif
 
-    vTaskDelay(pdMS_TO_TICKS(10));
+    vTaskDelay(pdMS_TO_TICKS(COMM_TASK_LOOP_MS));
   }
 }
 
