@@ -250,7 +250,7 @@ void initPWMGPIO() {
   ledcWrite(BUZZER_PWM_CHANNEL, false);
   ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, false);
 #if (HW_NUM >= 6)
-  ledcSetup(FAN_PWM_CHANNEL, LOW_PWM_FREQUENCY, DEFAULT_PWM_RESOLUTION);
+  ledcSetup(FAN_PWM_CHANNEL, DEFAULT_PWM_FREQUENCY, DEFAULT_PWM_RESOLUTION);
   ledcAttachPin(FAN, FAN_PWM_CHANNEL);
   ledcWrite(FAN_PWM_CHANNEL, false);
 #endif
@@ -309,10 +309,10 @@ void initGPIO() {
   GPIOWrite(PWR_EN, LOW);        // keep LOW until power-latch check in setup()
   initPin(ON_OFF_SWITCH, INPUT); // active HIGH: pressed=HIGH, released=LOW
   initPin(USB_EN, OUTPUT);
-  GPIOWrite(USB_EN, LOW);        // humidifier OFF by default
-  initPin(USB_FAULT, INPUT);     // active LOW: fault = LOW (external pull-up)
+  GPIOWrite(USB_EN, LOW);    // humidifier OFF by default
+  initPin(USB_FAULT, INPUT); // active LOW: fault = LOW (external pull-up)
   initPin(BABY_TEMP_EN, OUTPUT);
-  GPIOWrite(BABY_TEMP_EN, LOW);  // NTC power OFF by default
+  GPIOWrite(BABY_TEMP_EN, LOW); // NTC power OFF by default
 #endif
   initPWMGPIO();
   logI("[HW] -> GPIOs initilialized");
@@ -702,8 +702,10 @@ bool actuatorsTest() {
   offsetCurrent = measureMeanConsumption(SECUNDARY, USB_SHUNT_CHANNEL);
   in3_hum.turn(ON);
   vTaskDelay(pdMS_TO_TICKS(CURRENT_STABILIZE_TIME_DEFAULT));
-  testCurrent = measureMeanConsumption(SECUNDARY, USB_SHUNT_CHANNEL) - offsetCurrent;
-  logI("[HW] -> Humidifier current consumption: " + String(testCurrent) + " Amps");
+  testCurrent =
+      measureMeanConsumption(SECUNDARY, USB_SHUNT_CHANNEL) - offsetCurrent;
+  logI("[HW] -> Humidifier current consumption: " + String(testCurrent) +
+       " Amps");
   in3.humidifier_current_test = testCurrent;
   in3_hum.turn(OFF);
   if (testCurrent < HUMIDIFIER_CONSUMPTION_MIN) {
