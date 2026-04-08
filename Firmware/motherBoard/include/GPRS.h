@@ -29,7 +29,9 @@
 
 #define AT_OK "OK"
 #define AT_CPIN_READY "+CPIN: READY"
+#define AT_CPIN_SIM_PIN "+CPIN: SIM PIN"
 #define AT_ERROR "ERROR"
+#define SIMCOM800_ENTER_PIN "AT+CPIN=1503\n"
 
 #define CREDENTIALS_TYPE "credentialsType"
 #define CREDENTIALS_VALUE "credentialsValue"

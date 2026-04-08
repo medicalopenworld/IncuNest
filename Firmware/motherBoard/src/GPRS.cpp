@@ -248,6 +248,12 @@ void GPRSPowerUp() {
       Serial2.print(SIMCOM800_ASK_CPIN);
       GPRS.packetSentenceTime = millis();
     }
+    if (strstr(GPRS.buffer, AT_CPIN_SIM_PIN)) {
+      logCon("[GPRS] -> SIM PIN required, unlocking...");
+      Serial2.print(SIMCOM800_ENTER_PIN);
+      clearGPRSBuffer();
+      GPRS.packetSentenceTime = 0; // force re-query after 1 s
+    }
     checkSerial(AT_CPIN_READY, AT_ERROR);
     break;
   case 3:
