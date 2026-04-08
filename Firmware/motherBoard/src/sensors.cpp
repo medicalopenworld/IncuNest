@@ -270,19 +270,11 @@ void fanSpeedHandler() {
   }
 }
 
-bool measureNTCTemperature() {
-  int NTCmeasurement;
-  if (ADC_READ_FUNCTION == MILLIVOTSREAD_ADC) {
-    NTCmeasurement = analogReadMilliVolts(BABY_NTC_PIN);
-  } else if (ADC_READ_FUNCTION == ANALOGREAD_ADC) {
-    NTCmeasurement = analogRead(BABY_NTC_PIN);
-  }
-  if (NTCmeasurement > ADC_TO_DISCARD_MIN &&
-      NTCmeasurement < ADC_TO_DISCARD_MAX) {
+// Shared post-processing: calibration, filter, clamp
+static bool applyNTCResult(float millivolts) {
+  if (millivolts > ADC_TO_DISCARD_MIN && millivolts < ADC_TO_DISCARD_MAX) {
     lastSuccesfullSensorUpdate[SKIN_SENSOR] = millis();
-    //        xQueueSend(sharedSensorQueue,
-    //        &lastSuccesfullSensorUpdate[SKIN_SENSOR], portMAX_DELAY);
-    in3.temperature[SKIN_SENSOR] = filter_1(adcToCelsius(NTCmeasurement));
+    in3.temperature[SKIN_SENSOR] = filter_1(adcToCelsius(millivolts));
     errorTemperature[SKIN_SENSOR] = in3.temperature[SKIN_SENSOR];
     if (RawTemperatureRange[SKIN_SENSOR]) {
       in3.temperature[SKIN_SENSOR] =
@@ -297,12 +289,47 @@ bool measureNTCTemperature() {
       in3.temperature[SKIN_SENSOR] = 0;
     }
     return true;
-  } else {
-    // logAlarm("[ALARM] -> NTC read is: " + String(NTCmeasurement));
+  }
+  in3.temperature[SKIN_SENSOR] = 0;
+  return false;
+}
+
+bool measureNTCTemperature() {
+#if (HW_NUM == 16)
+  // Power the NTC divider via BABY_TEMP_EN
+  GPIOWrite(BABY_TEMP_EN, HIGH);
+  vTaskDelay(pdMS_TO_TICKS(2)); // 2 ms stabilisation
+
+  // Read ADS1110 (16-bit I2C ADC, default: gain=1, continuous)
+  // 3-byte frame: [data_MSB, data_LSB, config]
+  uint8_t bytesRead =
+      wire->requestFrom((uint8_t)ADS1110_I2C_ADDRESS, (uint8_t)3);
+  if (bytesRead < 3) {
+    GPIOWrite(BABY_TEMP_EN, LOW);
     in3.temperature[SKIN_SENSOR] = 0;
     return false;
   }
-  return false;
+  uint8_t msb = wire->read();
+  uint8_t lsb = wire->read();
+  wire->read(); // config byte — discard
+
+  GPIOWrite(BABY_TEMP_EN, LOW); // power off NTC divider immediately after read
+
+  int16_t raw = (int16_t)((msb << 8) | lsb);
+  // ADS1110 at 16-bit, PGA=1: LSB = 4096 mV / 65536 = 0.0625 mV
+  float millivolts = raw * 0.0625f;
+
+  return applyNTCResult(millivolts);
+
+#else
+  int NTCmeasurement;
+  if (ADC_READ_FUNCTION == MILLIVOTSREAD_ADC) {
+    NTCmeasurement = analogReadMilliVolts(BABY_NTC_PIN);
+  } else {
+    NTCmeasurement = analogRead(BABY_NTC_PIN);
+  }
+  return applyNTCResult((float)NTCmeasurement);
+#endif
 }
 
 bool updateRoomSensor() {

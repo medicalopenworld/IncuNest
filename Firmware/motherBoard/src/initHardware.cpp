@@ -27,6 +27,7 @@
 #include "main.h"
 
 extern TwoWire *wire;
+extern TwoWire *wire2;
 extern MAM_in3ator_Humidifier in3_hum;
 extern TFT_eSPI tft;
 extern SHTC3 mySHTC3; // Declare an instance of the SHTC3 class
@@ -206,18 +207,30 @@ TCA9535 TCA(0x20);
 bool initI2C() {
   int clkSpeed = false;
   for (int i = 0; i < INIT_I2C_RETRIES; i++) {
-    logI("[HW] -> Initializing i2c port");
+    logI("[HW] -> Initializing I2C1 (SDA=" + String(I2C_SDA) +
+         " SCL=" + String(I2C_SCL) + ")");
     Wire.begin(I2C_SDA, I2C_SCL, DEFAULT_I2C_SPEED);
     wire = &Wire;
     clkSpeed = Wire.getClock();
     if (clkSpeed) {
-      logI("[HW] -> I2c port initialized with clock speed: " +
-           String(clkSpeed));
-      return true;
+      logI("[HW] -> I2C1 initialized, clock: " + String(clkSpeed));
+      break;
     }
   }
-  logI("[HW] -> I2c init error");
-  return false;
+  if (!clkSpeed) {
+    logI("[HW] -> I2C1 init error");
+    return false;
+  }
+
+#if (HW_NUM == 16)
+  logI("[HW] -> Initializing I2C2 (SDA=" + String(I2C2_SDA) +
+       " SCL=" + String(I2C2_SCL) + ")");
+  Wire1.begin(I2C2_SDA, I2C2_SCL, DEFAULT_I2C_SPEED);
+  wire2 = &Wire1;
+  logI("[HW] -> I2C2 initialized (SHTC3 + STS35 bus)");
+#endif
+
+  return true;
 }
 
 void initPWMGPIO() {
@@ -298,6 +311,8 @@ void initGPIO() {
   initPin(USB_EN, OUTPUT);
   GPIOWrite(USB_EN, LOW);        // humidifier OFF by default
   initPin(USB_FAULT, INPUT);     // active LOW: fault = LOW (external pull-up)
+  initPin(BABY_TEMP_EN, OUTPUT);
+  GPIOWrite(BABY_TEMP_EN, LOW);  // NTC power OFF by default
 #endif
   initPWMGPIO();
   logI("[HW] -> GPIOs initilialized");
@@ -335,8 +350,13 @@ void initRoomSensor() {
       continue;
     }
 
+#if (HW_NUM == 16)
+    wire2->beginTransmission(addr);
+    roomSensorPresent[i] = (wire2->endTransmission() == 0);
+#else
     wire->beginTransmission(addr);
     roomSensorPresent[i] = (wire->endTransmission() == 0);
+#endif
     if (!roomSensorPresent[i])
       continue;
 
@@ -346,7 +366,11 @@ void initRoomSensor() {
     switch (i) {
     case ROOM_SENSOR_STS3X_MAIN:
     case ROOM_SENSOR_STS3X_REDUNDANT: {
+#if (HW_NUM == 16)
+      mySTS35[i].begin(Wire1, addr);
+#else
       mySTS35[i].begin(Wire, addr);
+#endif
       mySTS35[i].stopMeasurement(); // <-- salir de periódico por si acaso
       vTaskDelay(pdMS_TO_TICKS(INIT_ROOM_SENSOR_STS3X_DELAY));
       mySTS35[i].softReset();
@@ -366,7 +390,11 @@ void initRoomSensor() {
     }
 
     case ROOM_SENSOR_SHTC3: {
+#if (HW_NUM == 16)
+      mySHTC3.begin(Wire1);
+#else
       mySHTC3.begin(Wire);
+#endif
       logI("SHTC3 initialized");
       break;
     }

@@ -82,12 +82,15 @@
 // Sensors
 #define BABY_NTC_PIN 8
 #define BABY_TEMP_EN 18
+#define ADS1110_I2C_ADDRESS 0x48 // I2C ADC for baby NTC
 
-// USB
+// USB / Second I2C bus (SHTC3 + STS35 for HW16)
 #define USB_D_MINUS 19
 #define USB_D_PLUS 20
+#define I2C2_SCL 19 // repurposed from USB_D_PLUS
+#define I2C2_SDA 20 // repurposed from USB_D_MINUS
 
-// I2C
+// I2C (primary: SHT4x + INA3221)
 #define I2C_SDA 47
 #define I2C_SCL 48
 

@@ -43,6 +43,7 @@ char wifi_pass[64] = "";
 #include <stdio.h>
 
 TwoWire *wire;
+TwoWire *wire2 = nullptr; // second I2C bus (HW16: SHTC3 + STS35 on pins 19/20)
 MAM_in3ator_Humidifier in3_hum(DEFAULT_ADDRESS);
 // Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC);
 TFT_eSPI tft = TFT_eSPI(); // Invoke custom library

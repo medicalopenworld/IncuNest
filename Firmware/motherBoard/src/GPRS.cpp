@@ -126,7 +126,7 @@ void initGPRS() {
   }
 
   // Normal power‑up path:
-  Serial2.begin(MODEM_BAUD, SERIAL_8N1, SERIAL2_RX_PIN, SERIAL2_TX_PIN);
+  Serial2.begin(MODEM_BAUD, SERIAL_8N1, GSM_UART_TX_PIN, GSM_UART_RX_PIN);
   GPRS.powerUp = true;
 #if (GPRS_PWRKEY)
   GPIOWrite(GPRS_PWRKEY, HIGH);
@@ -304,7 +304,9 @@ void GPRSStablishConnection() {
 
 void GPRSSetPostPeriod() {
   if (GPRS.firstPublish) {
-    if (in3.actuation == ACTUATION_TEMPERATURE || in3.actuation == ACTUATION_HUMIDITY || in3.actuation == ACTUATION_TEMP_AND_HUMIDITY) {
+    if (in3.actuation == ACTUATION_TEMPERATURE ||
+        in3.actuation == ACTUATION_HUMIDITY ||
+        in3.actuation == ACTUATION_TEMP_AND_HUMIDITY) {
       GPRS.sendPeriod = in3.actuating_gprs_period;
     } else if (in3.phototherapy) {
       GPRS.sendPeriod = in3.phototherapy_gprs_period;
