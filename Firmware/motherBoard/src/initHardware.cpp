@@ -278,12 +278,6 @@ void initGPIO() {
 #if (HW_NUM >= 10)
   initPin(FAN_SPEED_FEEDBACK, INPUT_PULLUP);
 #endif
-#if (HW_NUM >= 14)
-  initPin(TOUCH_SENSOR, OUTPUT);
-  GPIOWrite(TOUCH_SENSOR, LOW);
-  initPin(TOUCH_SENSOR_SEL, OUTPUT);
-  GPIOWrite(TOUCH_SENSOR_SEL, LOW);
-#endif
 #if (GPRS_PWRKEY)
   initPin(GPRS_PWRKEY, OUTPUT);
 #endif
@@ -297,8 +291,14 @@ void initGPIO() {
   initPin(BUZZER, OUTPUT);
   initPin(SCREENBACKLIGHT, OUTPUT);
   initPin(ACTUATORS_EN, OUTPUT);
-  // GPIOWrite(FAN, LOW);
-  //  initPin(ON_OFF_SWITCH, INPUT);
+#if (HW_NUM == 16)
+  initPin(PWR_EN, OUTPUT);
+  GPIOWrite(PWR_EN, LOW);        // keep LOW until power-latch check in setup()
+  initPin(ON_OFF_SWITCH, INPUT); // active HIGH: pressed=HIGH, released=LOW
+  initPin(USB_EN, OUTPUT);
+  GPIOWrite(USB_EN, LOW);        // humidifier OFF by default
+  initPin(USB_FAULT, INPUT);     // active LOW: fault = LOW (external pull-up)
+#endif
   initPWMGPIO();
   logI("[HW] -> GPIOs initilialized");
 }
@@ -657,14 +657,25 @@ bool actuatorsTest() {
          String(float(in3.phototherapy_intensity) * 100 / PWM_MAX_VALUE) +
          " %");
   }
-  offsetCurrent = measureMeanConsumption(
-      SECUNDARY, USB_SHUNT_CHANNEL); // <- UPDATE THIS CODE TO ASK I2C DATA
+#if (HW_NUM == 16)
   in3_hum.turn(ON);
   vTaskDelay(pdMS_TO_TICKS(CURRENT_STABILIZE_TIME_DEFAULT));
-  testCurrent = measureMeanConsumption(SECUNDARY, USB_SHUNT_CHANNEL) -
-                offsetCurrent; // <- UPDATE THIS CODE TO ASK I2C DATA
-  logI("[HW] -> Humidifier current consumption: " + String(testCurrent) +
-       " Amps");
+  bool usbFaultDetected = !GPIORead(USB_FAULT); // active LOW: LOW = fault
+  in3_hum.turn(OFF);
+  if (usbFaultDetected) {
+    addErrorToVar(HW_error, HUMIDIFIER_CONSUMPTION_MAX_ERROR);
+    logE("[HW] -> Fail -> USB_FAULT on humidifier (short-circuit/overload)");
+    GPIOWrite(ACTUATORS_EN, LOW);
+    return (true);
+  }
+  in3.humidifier_current_test = 1.0; // no INA3221 on USB channel for HW16
+  logI("[HW] -> OK -> Humidifier USB_EN test passed, no fault");
+#else
+  offsetCurrent = measureMeanConsumption(SECUNDARY, USB_SHUNT_CHANNEL);
+  in3_hum.turn(ON);
+  vTaskDelay(pdMS_TO_TICKS(CURRENT_STABILIZE_TIME_DEFAULT));
+  testCurrent = measureMeanConsumption(SECUNDARY, USB_SHUNT_CHANNEL) - offsetCurrent;
+  logI("[HW] -> Humidifier current consumption: " + String(testCurrent) + " Amps");
   in3.humidifier_current_test = testCurrent;
   in3_hum.turn(OFF);
   if (testCurrent < HUMIDIFIER_CONSUMPTION_MIN) {
@@ -677,6 +688,7 @@ bool actuatorsTest() {
     GPIOWrite(ACTUATORS_EN, LOW);
     return (true);
   }
+#endif
   vTaskDelay(pdMS_TO_TICKS(CURRENT_STABILIZE_TIME_DEFAULT));
   offsetCurrent = measureMeanConsumption(MAIN, FAN_SHUNT_CHANNEL);
 // GPIOWrite(FAN, HIGH);
@@ -724,6 +736,8 @@ bool initActuators() {
   in3_hum.begin(HUMIDIFIER_BINARY, HUMIDIFIER_CTL);
 #elif (HW_NUM <= 8)
   in3_hum.begin(HUMIDIFIER_PWM, HUMIDIFIER_CTL);
+#elif (HW_NUM == 16)
+  in3_hum.begin(HUMIDIFIER_BINARY, USB_EN);
 #else
   in3_hum.begin();
 #endif
@@ -823,9 +837,9 @@ void initHardware(bool printOutputTest) {
 #if (HW_NUM < 15)
     drawHardwareErrorMessage(HW_error, in3.HW_critical_error,
                              in3.calibrationError);
-#endif
     while (GPIORead(ENC_SWITCH))
       ;
+#endif
   }
   if (!in3.restoreState) {
     buzzerTone(2, buzzerStandbyToneDuration, buzzerStandbyTone);

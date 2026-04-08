@@ -65,11 +65,11 @@
 
 #define DEFAULT_WIFI_EN ON
 
-#define LOG_GPRS true
-#define LOG_MODEM_DATA true
+#define LOG_GPRS false
+#define LOG_MODEM_DATA false
 #define LOG_INFORMATION true
-#define LOG_ERRORS true
-#define LOG_ALARMS true
+#define LOG_ERRORS false
+#define LOG_ALARMS false
 
 #define USE_SYSTEM_WITHOUT_ACTUATORS_TEST                                      \
   true // only if previous test was OK and that fail cause is not being able to
@@ -102,9 +102,6 @@
 #define HOLD_PRESS_TO_GO_TO_SETTINGS 0
 
 #define UI_MENU_OLD false
-
-#define TOUCH_MEAN_TIMES 20
-#define TOUCH_DELAY_BETWEEN_MEASURES_MS 5
 
 #define BROWN_OUT_BATTERY_MODE 0
 #define BROWN_OUT_NORMAL_MODE 0
@@ -326,6 +323,7 @@ typedef enum {
 #define CONTROL_AIR true
 
 // Tasks priorities
+#define POWER_MANAGEMENT_TASK_PRIORITY 1
 #define TIME_TRACK_TASK_PRIORITY 2
 #define BACKLIGHT_TASK_PRIORITY 3
 #define OTA_TASK_PRIORITY 4
@@ -337,6 +335,9 @@ typedef enum {
 #define SENSORS_TASK_PRIORITY 8
 #define SECURITY_TASK_PRIORITY 9
 #define GPRS_MONITOR_TASK_PRIORITY 10
+
+#define PWR_HOLD_MS 3000
+#define POWER_MANAGEMENT_TASK_PERIOD_MS 50
 
 #define GPRS_TASK_PERIOD_MS 1
 #define OTA_TASK_PERIOD_MS 1

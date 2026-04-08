@@ -219,31 +219,9 @@ void Backlight_Task(void *pvParameters) {
 }
 
 void sensors_Task(void *pvParameters) {
-  int touchValue, touchValueMean, touchValueOK;
   for (;;) {
     fanSpeedHandler();
     measureNTCTemperature();
-    if (millis() - lastSkinAttachedSensorUpdate >
-        SKIN_CAPACITANCE_UPDATE_PERIOD_MS) {
-      lastSkinAttachedSensorUpdate = millis();
-      GPIOWrite(TOUCH_SENSOR_SEL, HIGH);
-      initPin(TOUCH_SENSOR, INPUT);
-      touchValueOK = false;
-      touchValueMean = false;
-      for (int i = 0; i < TOUCH_MEAN_TIMES; i++) {
-        vTaskDelay(pdMS_TO_TICKS(TOUCH_DELAY_BETWEEN_MEASURES_MS));
-        touchValue = touchRead(TOUCH_SENSOR);
-        touchValueMean += touchValue;
-        if (touchValue) {
-          touchValueOK++;
-        }
-      }
-      if (touchValueOK) {
-        in3.skinSensorCapacitance = touchValueMean / touchValueOK;
-      }
-      initPin(TOUCH_SENSOR, OUTPUT);
-      GPIOWrite(TOUCH_SENSOR_SEL, LOW);
-    }
     if (millis() - lastRoomSensorUpdate > ROOM_SENSOR_UPDATE_PERIOD_MS) {
       updateRoomSensor();
       updateAmbientSensor();
@@ -395,6 +373,27 @@ void Communication_Receiver(void *pvParameters) {
   }
 }
 
+#if (HW_NUM == 16)
+void PowerManagement_Task(void *pvParameters) {
+  for (;;) {
+    if (GPIORead(ON_OFF_SWITCH)) { // button pressed (active HIGH)
+      unsigned long pressStart = millis();
+      while (GPIORead(ON_OFF_SWITCH)) {
+        if (millis() - pressStart >= PWR_HOLD_MS) {
+          logI("[PWR] Long press detected, powering off");
+          GPIOWrite(PWR_EN, LOW);
+          while (true) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+          }
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+      }
+    }
+    vTaskDelay(pdMS_TO_TICKS(POWER_MANAGEMENT_TASK_PERIOD_MS));
+  }
+}
+#endif
+
 extern "C" int sync_vprintf(const char *fmt, va_list args) {
   if (log_mutex == NULL) {
     return vprintf(fmt, args);
@@ -416,6 +415,34 @@ void setup() {
   GPRS_monitor_mutex = xSemaphoreCreateBinary();
   security_check_reboot_cause();
   initGPIO();
+
+#if (HW_NUM == 16)
+  // Power latch: ON_OFF_SWITCH must be held >PWR_HOLD_MS to keep the device ON.
+  // PWR_EN goes HIGH to self-power; releasing early cuts power via hardware.
+  {
+    logI("[PWR] Waiting for power button hold...");
+    unsigned long t0 = millis();
+    bool held = true;
+    while (millis() - t0 < PWR_HOLD_MS) {
+      if (!GPIORead(ON_OFF_SWITCH)) { // button released before threshold
+        held = false;
+        break;
+      }
+      delay(10);
+    }
+    if (held) {
+      GPIOWrite(PWR_EN, HIGH);
+      logI("[PWR] Power latched ON");
+    } else {
+      logI("[PWR] Button released early, powering off");
+      GPIOWrite(PWR_EN, LOW);
+      while (true) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+      }
+    }
+  }
+#endif
+
   initEEPROM();
 
   // Now that EEPROM is loaded, set the serial number and log it
@@ -454,6 +481,15 @@ void setup() {
   // EEPROM.writeString(EEPROM_THINGSBOARD_TOKEN, "MrpCM8s8STUNG9hM3p5x");
   // EEPROM.write(EEPROM_THINGSBOARD_PROVISIONED, true);
   // EEPROM.commit();
+
+#if (HW_NUM == 16)
+  logI("Creating power management task ...\n");
+  while (xTaskCreatePinnedToCore(PowerManagement_Task, "PWR_MGMT", 2048, NULL,
+                                 POWER_MANAGEMENT_TASK_PRIORITY, NULL,
+                                 CORE_ID_FREERTOS) != pdPASS)
+    ;
+  logI("Power management task successfully created!\n");
+#endif
 
   logI("Creating buzzer task ...\n");
   while (xTaskCreatePinnedToCore(buzzer_Task, "BUZZER", 4096, NULL,
@@ -517,5 +553,6 @@ void loop() {
 
   watchdogReload();
   updateData();
+  Serial.println(String("ON_OFF_SWITCH: ") + String(GPIORead(ON_OFF_SWITCH)));
   vTaskDelay(pdMS_TO_TICKS(LOOP_TASK_PERIOD_MS));
 }
