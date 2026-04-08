@@ -29,7 +29,7 @@
 #include "main.h"
 
 extern GPRSstruct GPRS;
-static const char *TAG = "WiFi";
+static const char *TAG __attribute__((unused)) = "WiFi";
 char wifiHost[32];
 
 WebServer wifiServer(80);

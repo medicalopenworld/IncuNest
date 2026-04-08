@@ -376,13 +376,16 @@ void Communication_Receiver(void *pvParameters) {
 
 #if (HW_NUM == 16)
 void PowerManagement_Task(void *pvParameters) {
+  while (GPIORead(ON_OFF_SWITCH)) {
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
   for (;;) {
     if (GPIORead(ON_OFF_SWITCH)) { // button pressed (active HIGH)
       unsigned long pressStart = millis();
       while (GPIORead(ON_OFF_SWITCH)) {
         if (millis() - pressStart >= PWR_HOLD_MS) {
           logI("[PWR] Long press detected, powering off");
-          GPIOWrite(PWR_EN, LOW);
+          digitalWrite(PWR_EN, LOW);
           while (true) {
             vTaskDelay(pdMS_TO_TICKS(100));
           }
@@ -408,6 +411,15 @@ extern "C" int sync_vprintf(const char *fmt, va_list args) {
 }
 
 void setup() {
+#if (HW_NUM == 16)
+  // Power latch: a single press (button already held when boot starts) is
+  // enough to keep the device ON. Latch PWR_EN immediately, then wait for
+  // the button to be released so the runtime task starts from a clean state.
+  {
+    pinMode(PWR_EN, OUTPUT);
+    digitalWrite(PWR_EN, HIGH);
+  }
+#endif
   esp_bt_controller_mem_release(ESP_BT_MODE_BLE);
   debugSerial.begin(115200);
   log_mutex = xSemaphoreCreateRecursiveMutex();
@@ -416,34 +428,6 @@ void setup() {
   GPRS_monitor_mutex = xSemaphoreCreateBinary();
   security_check_reboot_cause();
   initGPIO();
-
-#if (HW_NUM == 16)
-  // Power latch: ON_OFF_SWITCH must be held >PWR_HOLD_MS to keep the device ON.
-  // PWR_EN goes HIGH to self-power; releasing early cuts power via hardware.
-  {
-    logI("[PWR] Waiting for power button hold...");
-    unsigned long t0 = millis();
-    bool held = true;
-    while (millis() - t0 < PWR_HOLD_MS) {
-      if (!GPIORead(ON_OFF_SWITCH)) { // button released before threshold
-        held = false;
-        break;
-      }
-      delay(10);
-    }
-    if (held) {
-      GPIOWrite(PWR_EN, HIGH);
-      logI("[PWR] Power latched ON");
-    } else {
-      logI("[PWR] Button released early, powering off");
-      GPIOWrite(PWR_EN, LOW);
-      while (true) {
-        vTaskDelay(pdMS_TO_TICKS(100));
-      }
-    }
-  }
-#endif
-
   initEEPROM();
 
   // Now that EEPROM is loaded, set the serial number and log it

@@ -297,27 +297,62 @@ static bool applyNTCResult(float millivolts) {
 bool measureNTCTemperature() {
 #if (HW_NUM == 16)
   // Power the NTC divider via BABY_TEMP_EN
-  GPIOWrite(BABY_TEMP_EN, HIGH);
-  vTaskDelay(pdMS_TO_TICKS(2)); // 2 ms stabilisation
+  digitalWrite(BABY_TEMP_EN, HIGH);
+  vTaskDelay(pdMS_TO_TICKS(5)); // let NTC divider voltage settle
 
-  // Read ADS1110 (16-bit I2C ADC, default: gain=1, continuous)
-  // 3-byte frame: [data_MSB, data_LSB, config]
-  uint8_t bytesRead =
-      wire->requestFrom((uint8_t)ADS1110_I2C_ADDRESS, (uint8_t)3);
-  if (bytesRead < 3) {
-    GPIOWrite(BABY_TEMP_EN, LOW);
-    in3.temperature[SKIN_SENSOR] = 0;
+  // Poll ADS1110 /RDY bit (bit 7 of config byte) until a fresh conversion is
+  // ready. /RDY=0 means new data is available; /RDY=1 means conversion in
+  // progress or no conversion started yet. Timeout: 500 ms (covers 3.75 SPS
+  // worst-case conversion time of ~267 ms).
+  int16_t raw = 0;
+  uint8_t msb = 0, lsb = 0, cfg = 0;
+  bool convReady = false;
+  uint32_t deadline = millis() + 500;
+  while (millis() < deadline) {
+    uint8_t n = wire->requestFrom((uint8_t)ADS1110_I2C_ADDRESS, (uint8_t)3);
+    if (n < 3) {
+      digitalWrite(BABY_TEMP_EN, LOW);
+      static uint32_t lastI2cErrLog = 0;
+      if (millis() - lastI2cErrLog >= 1000) {
+        logI("[SKIN] ADS1110 I2C error: only " + String(n) + " bytes received");
+        lastI2cErrLog = millis();
+      }
+      in3.temperature[SKIN_SENSOR] = 0;
+      return false;
+    }
+    msb = wire->read();
+    lsb = wire->read();
+    cfg = wire->read();
+    if (!(cfg & 0x80)) { // /RDY=0: conversion complete, data fresh
+      raw = (int16_t)((msb << 8) | lsb);
+      convReady = true;
+      break;
+    }
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+
+  digitalWrite(BABY_TEMP_EN, LOW); // power off NTC divider after read
+
+  if (!convReady) {
+    static uint32_t lastTimeoutLog = 0;
+    if (millis() - lastTimeoutLog >= 1000) {
+      logI("[SKIN] ADS1110 timeout waiting for /RDY (cfg=0x" +
+           String(cfg, HEX) + ")");
+      lastTimeoutLog = millis();
+    }
     return false;
   }
-  uint8_t msb = wire->read();
-  uint8_t lsb = wire->read();
-  wire->read(); // config byte — discard
 
-  GPIOWrite(BABY_TEMP_EN, LOW); // power off NTC divider immediately after read
-
-  int16_t raw = (int16_t)((msb << 8) | lsb);
   // ADS1110 at 16-bit, PGA=1: LSB = 4096 mV / 65536 = 0.0625 mV
   float millivolts = raw * 0.0625f;
+  float tempC = adcToCelsius(millivolts);
+
+  static uint32_t lastAds1110Log = 0;
+  if (millis() - lastAds1110Log >= 1000) {
+    logI("[SKIN] ADS1110 raw=" + String(raw) + " mV=" + String(millivolts, 1) +
+         " T=" + String(tempC, 2) + "C" + " cfg=0x" + String(cfg, HEX));
+    lastAds1110Log = millis();
+  }
 
   return applyNTCResult(millivolts);
 

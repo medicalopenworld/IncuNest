@@ -35,7 +35,7 @@ int controlPin;
 
 void MAM_in3ator_Humidifier::_read(in3atorHum_param_t param, uint16_t *val) {
   _i2c->beginTransmission(_i2c_addr);
-  _i2c->write(param);  // parameter
+  _i2c->write(param); // parameter
   _i2c->endTransmission();
 
   _i2c->requestFrom(_i2c_addr, 2);
@@ -47,9 +47,9 @@ void MAM_in3ator_Humidifier::_read(in3atorHum_param_t param, uint16_t *val) {
 
 void MAM_in3ator_Humidifier::_write(in3atorHum_param_t param, uint16_t *val) {
   _i2c->beginTransmission(_i2c_addr);
-  _i2c->write(param);               // parameter
-  _i2c->write((*val >> 8) & 0xFF);  // Upper 8-bits
-  _i2c->write(*val & 0xFF);         // Lower 8-bits
+  _i2c->write(param);              // parameter
+  _i2c->write((*val >> 8) & 0xFF); // Upper 8-bits
+  _i2c->write(*val & 0xFF);        // Lower 8-bits
   _i2c->endTransmission();
 }
 
@@ -75,20 +75,20 @@ void MAM_in3ator_Humidifier::reset() {}
 void MAM_in3ator_Humidifier::turn(uint16_t mode) {
   int16_t val = false;
   switch (activationMode) {
-    case HUMIDIFIER_BINARY:
-      GPIOWrite(controlPin, mode);
-      break;
-    case HUMIDIFIER_PWM:
-      // HUMIDIFIER_CTL to 115Khz
-      ledcWrite(HUMIDIFIER_PWM_CHANNEL, (PWM_MAX_VALUE / 2) * mode);
-      break;
-    case HUMIDIFIER_I2C:
-    default:
-      if (mode) {
-        val = true;
-      }
-      _write(IN3ATOR_HUM_ON, (uint16_t *)&val);
-      logI("HUMIDIFIER I2C: " + String(mode));
-      break;
+  case HUMIDIFIER_BINARY:
+    digitalWrite(controlPin, mode);
+    break;
+  case HUMIDIFIER_PWM:
+    // HUMIDIFIER_CTL to 115Khz
+    ledcWrite(HUMIDIFIER_PWM_CHANNEL, (PWM_MAX_VALUE / 2) * mode);
+    break;
+  case HUMIDIFIER_I2C:
+  default:
+    if (mode) {
+      val = true;
+    }
+    _write(IN3ATOR_HUM_ON, (uint16_t *)&val);
+    logI("HUMIDIFIER I2C: " + String(mode));
+    break;
   }
 }

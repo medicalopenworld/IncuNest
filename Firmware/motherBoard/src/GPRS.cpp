@@ -68,21 +68,21 @@ extern double RawTemperatureLow[SENSOR_TEMP_QTY],
 
 void progressCallback(const uint32_t &currentChunk,
                       const uint32_t &totalChuncks) {
-  if (LOG_GPRS) {
+  if (LOG_MODEM_DATA) {
     char buffer[50]; // Create a buffer to hold the formatted string
     snprintf(buffer, sizeof(buffer), "Progress %.2f%%",
              static_cast<float>(currentChunk * 100U) / totalChuncks);
-    logCon(String(buffer)); // Pass the formatted string to logCon
+    logModemData(String(buffer)); // Pass the formatted string to logModemData
   }
   GPRS.OTAInProgress = true;
 }
 
 void updatedCallback(const bool &success) {
   if (success) {
-    logCon("[GPRS] -> Done, OTA will be implemented on next boot");
+    logModemData("[GPRS] -> Done, OTA will be implemented on next boot");
     // esp_restart();
   } else {
-    logCon("[GPRS] -> No new firmware");
+    logModemData("[GPRS] -> No new firmware");
   }
   GPRS.OTAInProgress = false;
 }
@@ -118,8 +118,8 @@ void initGPRS() {
   if (reason == ESP_RST_SW || reason == ESP_RST_WDT ||
       reason == ESP_RST_TASK_WDT || reason == ESP_RST_INT_WDT ||
       reason == ESP_RST_PANIC) {
-    logCon("[GPRS] -> Abnormal reset detected (" + String(reason) +
-           "), deleting GPRS task this session");
+    logModemData("[GPRS] -> Abnormal reset detected (" + String(reason) +
+                 "), deleting GPRS task this session");
     // Delete the *current* task (i.e. GPRS_Task)
     vTaskDelete(NULL);
     // Note: control never returns here
@@ -129,7 +129,7 @@ void initGPRS() {
   Serial2.begin(MODEM_BAUD, SERIAL_8N1, GSM_UART_TX_PIN, GSM_UART_RX_PIN);
   GPRS.powerUp = true;
 #if (GPRS_PWRKEY)
-  GPIOWrite(GPRS_PWRKEY, HIGH);
+  digitalWrite(GPRS_PWRKEY, HIGH);
 #endif
 }
 
@@ -172,25 +172,25 @@ void GPRS_get_SIM_info() {
 
   GPRS.IP = modem.localIP();
 
-  logCon("[GPRS] -> IMSI is: " + GPRS.IMSI);
-  logCon("[GPRS] -> COP is: " + GPRS.COP);
+  logModemData("[GPRS] -> IMSI is: " + GPRS.IMSI);
+  logModemData("[GPRS] -> COP is: " + GPRS.COP);
 }
 
 void GPRSUpdateCSQ() {
   GPRS.CSQ = modem.getSignalQuality();
-  logCon("[GPRS] -> CSQ is: " + String(GPRS.CSQ));
+  logModemData("[GPRS] -> CSQ is: " + String(GPRS.CSQ));
 }
 
 void readGPRSData() {
   while (Serial2.available()) {
     GPRS.buffer[GPRS.bufferWritePos] = Serial2.read();
-    if (LOG_GPRS) {
+    if (LOG_MODEM_DATA) {
       debugSerial.print(GPRS.buffer[GPRS.bufferWritePos]);
     }
     GPRS.bufferWritePos++;
     if (GPRS.bufferWritePos >= RX_BUFFER_LENGTH) {
       GPRS.bufferWritePos = 0;
-      logCon("[GPRS] -> Buffer overflow");
+      logModemData("[GPRS] -> Buffer overflow");
     }
     GPRS.charToRead++;
   }
@@ -209,7 +209,7 @@ void GPRSStatusHandler() {
         GPRS.connect = false;
         GPRS.powerUp = true;
         GPRS.serverConnectionStatus = false;
-        logCon("[GPRS] -> powering module down...");
+        logModemData("[GPRS] -> powering module down...");
         Serial2.print("AT+CPOWD=1\n");
         GPRS.packetSentenceTime = millis();
         GPRS.processTime = millis();
@@ -226,17 +226,17 @@ void GPRSPowerUp() {
   case 0:
     GPRS.processTime = millis();
 #if (GPRS_PWRKEY)
-    GPIOWrite(GPRS_PWRKEY, LOW);
+    digitalWrite(GPRS_PWRKEY, LOW);
 #endif
     GPRS.process++;
     GPRS.packetSentenceTime = millis();
-    logCon("[GPRS] -> powering up GPRS");
+    logModemData("[GPRS] -> powering up GPRS");
     break;
   case 1:
 #if (GPRS_PWRKEY)
     if (millis() - GPRS.packetSentenceTime > 1000) {
-      GPIOWrite(GPRS_PWRKEY, HIGH);
-      logCon("[GPRS] -> GPRS powered");
+      digitalWrite(GPRS_PWRKEY, HIGH);
+      logModemData("[GPRS] -> GPRS powered");
     }
 #endif
     GPRS.process++;
@@ -244,12 +244,12 @@ void GPRSPowerUp() {
   case 2:
     if (millis() - GPRS.packetSentenceTime > 1000) {
       clearGPRSBuffer();
-      logCon("[GPRS] -> Sending AT command");
+      logModemData("[GPRS] -> Sending AT command");
       Serial2.print(SIMCOM800_ASK_CPIN);
       GPRS.packetSentenceTime = millis();
     }
     if (strstr(GPRS.buffer, AT_CPIN_SIM_PIN)) {
-      logCon("[GPRS] -> SIM PIN required, unlocking...");
+      logModemData("[GPRS] -> SIM PIN required, unlocking...");
       Serial2.print(SIMCOM800_ENTER_PIN);
       clearGPRSBuffer();
       GPRS.packetSentenceTime = 0; // force re-query after 1 s
@@ -257,7 +257,7 @@ void GPRSPowerUp() {
     checkSerial(AT_CPIN_READY, AT_ERROR);
     break;
   case 3:
-    logCon("[GPRS] -> Power up success");
+    logModemData("[GPRS] -> Power up success");
     GPRS.CCID = modem.getSimCCID();
     GPRS.CCID.remove(GPRS.CCID.length() - 1);
     GPRS.IMEI = modem.getIMEI();
@@ -278,24 +278,24 @@ void GPRSPowerUp() {
 void GPRSStablishConnection() {
   switch (GPRS.process) {
   case 0:
-    logCon("[GPRS] -> Stablishing connection...");
+    logModemData("[GPRS] -> Stablishing connection...");
     GPRS.processTime = millis();
     GPRS.packetSentenceTime = millis();
     GPRS.process++;
     break;
   case 1:
-    logCon("[GPRS] -> Connecting...");
+    logModemData("[GPRS] -> Connecting...");
     if (modem.gprsConnect(GPRS.APN.c_str(), GPRS_USER, GPRS_PASS)) {
-      logCon("[GPRS] -> Attached");
+      logModemData("[GPRS] -> Attached");
       GPRS.process++;
     } else {
-      logCon("[GPRS] -> Attach FAIL, retrying with different APN...");
+      logModemData("[GPRS] -> Attach FAIL, retrying with different APN...");
       if (GPRS.APN == APN_TM) {
         GPRS.APN = APN_TRUPHONE;
       } else {
         GPRS.APN = APN_TM;
       }
-      logCon("[GPRS] -> New APN: " + GPRS.APN);
+      logModemData("[GPRS] -> New APN: " + GPRS.APN);
       vTaskDelay(GPRS_RECONNECT_INTERVAL / portTICK_PERIOD_MS);
     }
     break;
@@ -325,14 +325,14 @@ void GPRSSetPostPeriod() {
 }
 
 void GPRSProvisionResponse(const JsonObjectConst &data) {
-  logCon("[GPRS] -> Received device provision response");
+  logModemData("[GPRS] -> Received device provision response");
   const size_t jsonSize = Helper::Measure_Json(data);
   char buffer[jsonSize];
   serializeJson(data, buffer, jsonSize);
-  // logCon("[GPRS] -> " + String(buffer));
+  // logModemData("[GPRS] -> " + String(buffer));
   if (strncmp(data["status"], "SUCCESS", strlen("SUCCESS")) != 0) {
-    logCon("[GPRS] -> Provision response contains the error: ");
-    logCon("[GPRS] -> " + data["errorMsg"].as<String>());
+    logModemData("[GPRS] -> Provision response contains the error: ");
+    logModemData("[GPRS] -> " + data["errorMsg"].as<String>());
     return;
   }
 
@@ -347,7 +347,7 @@ void GPRSProvisionResponse(const JsonObjectConst &data) {
     EEPROM.writeString(EEPROM_THINGSBOARD_TOKEN, GPRS.device_token);
     EEPROM.write(EEPROM_THINGSBOARD_PROVISIONED, GPRS.provisioned);
     EEPROM.commit();
-    logCon("[GPRS] -> Device provisioned successfully");
+    logModemData("[GPRS] -> Device provisioned successfully");
   } else if (strncmp(data[CREDENTIALS_TYPE], MQTT_BASIC_CRED_TYPE,
                      strlen(MQTT_BASIC_CRED_TYPE)) == 0) {
     auto credentials_value = data[CREDENTIALS_VALUE].as<JsonObjectConst>();
@@ -359,9 +359,9 @@ void GPRSProvisionResponse(const JsonObjectConst &data) {
     EEPROM.writeString(EEPROM_THINGSBOARD_TOKEN, GPRS.device_token);
     EEPROM.write(EEPROM_THINGSBOARD_PROVISIONED, GPRS.provisioned);
     EEPROM.commit();
-    logCon("[GPRS] -> Device provisioned successfully");
+    logModemData("[GPRS] -> Device provisioned successfully");
   } else {
-    logCon("[GPRS] -> Unexpected provision credentialsType");
+    logModemData("[GPRS] -> Unexpected provision credentialsType");
     return;
   }
   if (tb.connected()) {
@@ -372,16 +372,16 @@ void GPRSProvisionResponse(const JsonObjectConst &data) {
 
 void TBProvision() {
   if (!tb.connected()) {
-    logCon("[GPRS] -> Connecting for provision to: " +
-           String(THINGSBOARD_SERVER));
+    logModemData("[GPRS] -> Connecting for provision to: " +
+                 String(THINGSBOARD_SERVER));
     if (!tb.connect(THINGSBOARD_SERVER, "provision", THINGSBOARD_PORT)) {
-      logCon("Failed to connect");
+      logModemData("Failed to connect");
       return;
     }
   }
   // Connect to the ThingsBoard
-  logCon("[GPRS] -> Sending provision request to: " +
-         String(THINGSBOARD_SERVER));
+  logModemData("[GPRS] -> Sending provision request to: " +
+               String(THINGSBOARD_SERVER));
   const Provision_Callback provisionCallback(
       Access_Token(), &GPRSProvisionResponse, PROVISION_DEVICE_KEY,
       PROVISION_DEVICE_SECRET, GPRS.CCID.c_str());
@@ -396,7 +396,7 @@ void addIntVariableToTelemetryJSON(JsonObject &json, const char *key,
 }
 
 void GPRSCheckOTA() {
-  logCon("Checking GPRS firwmare Update...");
+  logModemData("Checking GPRS firwmare Update...");
   if (!currentFWSent) {
     // Firmware state send at the start of the firmware, to inform the cloud
     // about the current firmware and that it was installed correctly,
@@ -635,19 +635,19 @@ void GPRSPost() {
       if (millis() - GPRS.lastReconnectAttempt < THINGSBOARD_RECONNECT_DELAY) {
         return;
       }
-      logCon(
+      logModemData(
           "[GPRS] -> Connecting over GPRS to: " + String(THINGSBOARD_SERVER) +
           " with token " + String(GPRS.device_token));
 
       GPRS.lastReconnectAttempt = millis();
       if (!tb.connect(THINGSBOARD_SERVER, GPRS.device_token.c_str())) {
-        logCon("[GPRS] -> Failed to connect");
+        logModemData("[GPRS] -> Failed to connect");
         return;
       } else {
-        logCon("[GPRS] -> Connected to host");
+        logModemData("[GPRS] -> Connected to host");
         GPRS.serverConnectionStatus = true;
         if (ENABLE_GPRS_OTA && !GPRS.OTA_requested) {
-          logCon("[GPRS] -> Requesting OTA");
+          logModemData("[GPRS] -> Requesting OTA");
           GPRSCheckOTA();
           GPRS.OTA_requested = true;
           GPRS.lastOTACheck = millis();
@@ -660,8 +660,9 @@ void GPRSPost() {
         // StaticJsonDocument<JSON_OBJECT_SIZE(2)> TB_telemetries;
         // JsonObject telemetriesObject = TB_telemetries.to<JsonObject>();
 
-        logCon("[GPRS] -> sendPeriod is " + String(GPRS.sendPeriod) + " secs");
-        logCon("[GPRS] -> Posting GPRS data...");
+        logModemData("[GPRS] -> sendPeriod is " + String(GPRS.sendPeriod) +
+                     " secs");
+        logModemData("[GPRS] -> Posting GPRS data...");
 
         if (!GPRS.firstPublish) {
           GPRS.firstPublish = true;
@@ -669,9 +670,9 @@ void GPRSPost() {
           if (tb.sendTelemetryJson(addVariableToTelemetryGPRSJSON,
                                    JSON_STRING_SIZE(measureJson(
                                        addVariableToTelemetryGPRSJSON)))) {
-            logCon("[GPRS] -> GPRS MQTT PUBLISH CONFIG SUCCESS");
+            logModemData("[GPRS] -> GPRS MQTT PUBLISH CONFIG SUCCESS");
           } else {
-            logCon("[GPRS] -> GPRS MQTT PUBLISH CONFIG FAIL");
+            logModemData("[GPRS] -> GPRS MQTT PUBLISH CONFIG FAIL");
           }
           GPRS_JSON.clear();
         }
@@ -681,9 +682,9 @@ void GPRSPost() {
         if (tb.sendTelemetryJson(addVariableToTelemetryGPRSJSON,
                                  JSON_STRING_SIZE(measureJson(
                                      addVariableToTelemetryGPRSJSON)))) {
-          logCon("[GPRS] -> GPRS MQTT PUBLISH TELEMETRIES SUCCESS");
+          logModemData("[GPRS] -> GPRS MQTT PUBLISH TELEMETRIES SUCCESS");
         } else {
-          logCon("[GPRS] -> GPRS MQTT PUBLISH TELEMETRIES FAIL");
+          logModemData("[GPRS] -> GPRS MQTT PUBLISH TELEMETRIES FAIL");
         }
         GPRS_JSON.clear();
         GPRS.process = false;

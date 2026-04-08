@@ -17,7 +17,7 @@
 using namespace esp_usb;
 #endif
 
-static const char *TAG = "COMM_HOST";
+static const char *TAG __attribute__((unused)) = "COMM_HOST";
 extern SemaphoreHandle_t log_mutex;
 extern char pendingSSID[64];
 extern char pendingPass[64];
@@ -187,9 +187,8 @@ void parse_line(const char *line) {
   }
 
   if (strcmp(line, "HMI,UI_READY") == 0 || strcmp(line, "HMI,REQ,STATE") == 0) {
-    bool isUIReady = (strcmp(line, "HMI,UI_READY") == 0);
     if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-      ESP_LOGI(TAG, "HMI %s (Queued)", isUIReady ? "UI_READY" : "REQ,STATE");
+      ESP_LOGI(TAG, "HMI %s (Queued)", strcmp(line, "HMI,UI_READY") == 0 ? "UI_READY" : "REQ,STATE");
       xSemaphoreGiveRecursive(log_mutex);
     }
     setHMIConnected(true);

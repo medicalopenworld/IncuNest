@@ -26,7 +26,7 @@
 
 #include "main.h"
 
-static const char *TAG = "SECURITY";
+static const char *TAG __attribute__((unused)) = "SECURITY";
 extern SemaphoreHandle_t log_mutex;
 
 // Pending alarm queue for HMI connection

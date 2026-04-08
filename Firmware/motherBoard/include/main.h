@@ -65,8 +65,7 @@
 
 #define DEFAULT_WIFI_EN ON
 
-#define LOG_GPRS false
-#define LOG_MODEM_DATA false
+#define LOG_MODEM_DATA true
 #define LOG_INFORMATION true
 #define LOG_ERRORS false
 #define LOG_ALARMS false
@@ -667,7 +666,7 @@ typedef struct {
 void logE(String dataString);
 void logAlarm(String dataString);
 void logI(String dataString);
-void logCon(String dataString);
+void logModemData(String dataString);
 void logModemData(String dataString);
 long secsToMillis(long timeInMillis);
 long minsToMillis(long timeInMillis);
@@ -797,9 +796,9 @@ void fanSpeedHandler();
 bool measureNTCTemperature();
 void loadlogo();
 
-void initPin(uint8_t GPIO, uint8_t Mode);
+void pinMode(uint8_t GPIO, uint8_t Mode);
 bool GPIORead(uint8_t GPIO);
-void GPIOWrite(uint8_t GPIO, uint8_t Mode);
+void digitalWrite(uint8_t GPIO, uint8_t Mode);
 
 void basictemperatureControl();
 
