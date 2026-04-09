@@ -679,7 +679,11 @@ void buzzerHandler();
 void buzzerTone(int beepTimes, int timevTaskDelay, int freq);
 
 void shutBuzzer();
+
 double measureMeanConsumption(bool, int);
+double measureStabilizedCurrent(bool sensor, int shunt, float offsetCurrent,
+                                float minExpected, float maxExpected,
+                                int maxTimeMs, int intervalMs = 200);
 float measureMeanVoltage(bool, int);
 void WIFI_TB_Init();
 void WifiOTAHandler(void);
