@@ -3254,19 +3254,19 @@ static lv_obj_t *aa_make_input_row(lv_obj_t *parent, const char *fieldName,
   lv_obj_set_style_text_color(nameLbl, lv_color_hex(0x555555), 0);
   lv_obj_align(nameLbl, LV_ALIGN_TOP_LEFT, 2, 0);
 
-  // Units sublabel (e.g. "WEEKS")
-  lv_obj_t *unitsLbl = lv_label_create(row);
-  lv_label_set_text(unitsLbl, fieldUnits);
-  lv_obj_set_style_text_font(unitsLbl, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(unitsLbl, lv_color_hex(0xAAAAAA), 0);
-  lv_obj_align(unitsLbl, LV_ALIGN_BOTTOM_LEFT, 2, 0);
-
   // Value label
   lv_obj_t *val = lv_label_create(row);
   lv_label_set_text(val, "--");
   lv_obj_set_style_text_font(val, &lv_font_montserrat_20, 0);
   lv_obj_set_style_text_color(val, lv_color_hex(0x0075EE), 0);
   lv_obj_align(val, LV_ALIGN_LEFT_MID, 2, 2);
+
+  // Units sublabel (e.g. "WEEKS") — shown to the right of the value
+  lv_obj_t *unitsLbl = lv_label_create(row);
+  lv_label_set_text(unitsLbl, fieldUnits);
+  lv_obj_set_style_text_font(unitsLbl, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(unitsLbl, lv_color_hex(0xAAAAAA), 0);
+  lv_obj_align_to(unitsLbl, nameLbl, LV_ALIGN_OUT_RIGHT_MID, 4, 0);
 
   // Dec (▼) button — override size after aa_make_spinbtn
   lv_obj_t *btnDec = aa_make_spinbtn(row, LV_SYMBOL_DOWN, decCb);
@@ -3428,11 +3428,13 @@ void create_autoair_popup() {
   lv_obj_set_style_bg_color(aa_range_bar, lv_color_hex(0x0095DA), LV_PART_INDICATOR);
   lv_obj_set_style_radius(aa_range_bar, 4, LV_PART_MAIN);
   lv_obj_set_style_radius(aa_range_bar, 4, LV_PART_INDICATOR);
+  lv_obj_set_style_border_width(aa_range_bar, 2, LV_PART_MAIN);
+  lv_obj_set_style_border_color(aa_range_bar, lv_color_hex(0x000000), LV_PART_MAIN);
 
   // hi label — top of bar
   aa_label_hi = lv_label_create(colRight);
   lv_label_set_text(aa_label_hi, "--.-");
-  lv_obj_set_style_text_font(aa_label_hi, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_font(aa_label_hi, &lv_font_montserrat_16, 0);
   lv_obj_set_style_text_color(aa_label_hi, lv_color_hex(0x333333), 0);
   lv_obj_set_pos(aa_label_hi, 50, 22);
 
@@ -3443,17 +3445,18 @@ void create_autoair_popup() {
   lv_obj_set_style_text_color(aa_label_mid, lv_color_hex(0x0075EE), 0);
   lv_obj_set_pos(aa_label_mid, 48, 118);
 
-  // setpoint sub-label (shows "XX.X C")
+  // setpoint sub-label — kept alive for guard checks but hidden (duplicate of aa_label_mid)
   aa_setpoint_label = lv_label_create(colRight);
   lv_label_set_text(aa_setpoint_label, "--.-");
   lv_obj_set_style_text_font(aa_setpoint_label, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(aa_setpoint_label, lv_color_hex(0x555555), 0);
   lv_obj_set_pos(aa_setpoint_label, 50, 142);
+  lv_obj_add_flag(aa_setpoint_label, LV_OBJ_FLAG_HIDDEN);
 
   // lo label — bottom of bar
   aa_label_lo = lv_label_create(colRight);
   lv_label_set_text(aa_label_lo, "--.-");
-  lv_obj_set_style_text_font(aa_label_lo, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_font(aa_label_lo, &lv_font_montserrat_16, 0);
   lv_obj_set_style_text_color(aa_label_lo, lv_color_hex(0x333333), 0);
   lv_obj_set_pos(aa_label_lo, 50, 218);
 
