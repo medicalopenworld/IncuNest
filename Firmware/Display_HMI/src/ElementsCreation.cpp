@@ -288,15 +288,21 @@ lv_obj_t *ui_AlarmLockNumLabel = NULL;
 lv_obj_t *ui_CheckImg = NULL;
 
 // --- AUTO AIR UI objects ---
-lv_obj_t *ui_AutoAirBtn       = NULL;
-lv_obj_t *ui_AutoAirBtnLabel  = NULL;
-lv_obj_t *ui_AutoAirOverlay   = NULL;
-lv_obj_t *ui_AutoAirWeightVal = NULL;
-lv_obj_t *ui_AutoAirGestVal   = NULL;
+lv_obj_t *ui_AutoAirBtn         = NULL;
+lv_obj_t *ui_AutoAirBtnLabel    = NULL;
+lv_obj_t *ui_AutoAirOverlay     = NULL;
+lv_obj_t *ui_AutoAirModal       = NULL;
+lv_obj_t *ui_AutoAirWeightVal   = NULL;
+lv_obj_t *ui_AutoAirGestVal     = NULL;
 lv_obj_t *ui_AutoAirDaysVal     = NULL;
 lv_obj_t *ui_AutoAirDaysUnitLbl = NULL;
-lv_obj_t *ui_AutoAirErrLabel  = NULL;
-lv_obj_t *ui_AutoAirToast     = NULL;
+lv_obj_t *ui_AutoAirErrLabel    = NULL;
+lv_obj_t *ui_AutoAirToast       = NULL;
+lv_obj_t *ui_AutoAirRowGest     = NULL;
+lv_obj_t *ui_AutoAirRowDays     = NULL;
+lv_obj_t *ui_AutoAirRowWeight   = NULL;
+lv_obj_t *ui_AutoAirHSep        = NULL;
+lv_obj_t *ui_AutoAirVSep        = NULL;
 // --- AUTO AIR range display widgets ---
 lv_obj_t *aa_range_bar      = NULL;
 lv_obj_t *aa_label_hi       = NULL;
@@ -3239,7 +3245,8 @@ static lv_obj_t *aa_make_spinbtn(lv_obj_t *parent, const char *text,
 static lv_obj_t *aa_make_input_row(lv_obj_t *parent, const char *fieldName,
                                     const char *fieldUnits, int yOffset,
                                     lv_event_cb_t decCb, lv_event_cb_t incCb,
-                                    lv_obj_t **unitsLblOut = nullptr) {
+                                    lv_obj_t **unitsLblOut = nullptr,
+                                    lv_obj_t **rowOut = nullptr) {
   lv_obj_t *row = lv_obj_create(parent);
   lv_obj_set_size(row, 295, 76);
   lv_obj_align(row, LV_ALIGN_TOP_MID, 0, yOffset);
@@ -3270,6 +3277,7 @@ static lv_obj_t *aa_make_input_row(lv_obj_t *parent, const char *fieldName,
   lv_obj_set_style_text_color(unitsLbl, lv_color_hex(0xAAAAAA), 0);
   lv_obj_align_to(unitsLbl, nameLbl, LV_ALIGN_OUT_RIGHT_MID, 4, 0);
   if (unitsLblOut) *unitsLblOut = unitsLbl;
+  if (rowOut)      *rowOut      = row;
 
   // Dec (▼) button — override size after aa_make_spinbtn
   lv_obj_t *btnDec = aa_make_spinbtn(row, LV_SYMBOL_DOWN, decCb);
@@ -3297,7 +3305,8 @@ void create_autoair_popup() {
   lv_obj_add_flag(ui_AutoAirOverlay, LV_OBJ_FLAG_HIDDEN);
 
   // Modal — wide landscape layout (700×420)
-  lv_obj_t *modal = lv_obj_create(ui_AutoAirOverlay);
+  ui_AutoAirModal = lv_obj_create(ui_AutoAirOverlay);
+  lv_obj_t *modal = ui_AutoAirModal;
   lv_obj_set_size(modal, 700, 420);
   lv_obj_align(modal, LV_ALIGN_CENTER, 0, 0);
   lv_obj_set_style_radius(modal, 12, LV_PART_MAIN);
@@ -3326,7 +3335,8 @@ void create_autoair_popup() {
   lv_obj_add_event_cb(btnClose, aa_cancel_cb, LV_EVENT_CLICKED, nullptr);
 
   // Horizontal separator
-  lv_obj_t *hSep = lv_obj_create(modal);
+  ui_AutoAirHSep = lv_obj_create(modal);
+  lv_obj_t *hSep = ui_AutoAirHSep;
   lv_obj_set_size(hSep, 698, 2);
   lv_obj_set_pos(hSep, 1, 50);
   lv_obj_set_style_bg_color(hSep, lv_color_hex(0xDDDDDD), LV_PART_MAIN);
@@ -3334,7 +3344,8 @@ void create_autoair_popup() {
   lv_obj_set_style_radius(hSep, 0, LV_PART_MAIN);
 
   // Vertical separator between columns
-  lv_obj_t *vSep = lv_obj_create(modal);
+  ui_AutoAirVSep = lv_obj_create(modal);
+  lv_obj_t *vSep = ui_AutoAirVSep;
   lv_obj_set_size(vSep, 2, 366);
   lv_obj_set_pos(vSep, 329, 52);
   lv_obj_set_style_bg_color(vSep, lv_color_hex(0xDDDDDD), LV_PART_MAIN);
@@ -3364,21 +3375,21 @@ void create_autoair_popup() {
       colLeft,
       (g_lang == LANG_ES) ? "Edad Gestacional" : (g_lang == LANG_FR) ? "Age Gestationnel" : "Gestational Age",
       "WEEKS",
-      18, aa_gest_dec_cb, aa_gest_inc_cb);
+      18, aa_gest_dec_cb, aa_gest_inc_cb, nullptr, &ui_AutoAirRowGest);
 
   // [1] Post-Natal Age → ui_AutoAirDaysVal
   ui_AutoAirDaysVal = aa_make_input_row(
       colLeft,
       (g_lang == LANG_ES) ? "Edad Postnatal" : (g_lang == LANG_FR) ? "Age Post-Natal" : "Post-Natal Age",
       "DAYS",
-      104, aa_days_dec_cb, aa_days_inc_cb, &ui_AutoAirDaysUnitLbl);
+      104, aa_days_dec_cb, aa_days_inc_cb, &ui_AutoAirDaysUnitLbl, &ui_AutoAirRowDays);
 
   // [2] Weight → ui_AutoAirWeightVal
   ui_AutoAirWeightVal = aa_make_input_row(
       colLeft,
       (g_lang == LANG_ES) ? "Peso" : (g_lang == LANG_FR) ? "Poids" : "Weight",
       "GRAMS",
-      192, aa_weight_dec_cb, aa_weight_inc_cb);
+      192, aa_weight_dec_cb, aa_weight_inc_cb, nullptr, &ui_AutoAirRowWeight);
 
   // Error label
   ui_AutoAirErrLabel = lv_label_create(colLeft);

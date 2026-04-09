@@ -3724,5 +3724,40 @@ void UI_ApplyTheme() {
     }
   }
 
+  // --- AUTO AIR POPUP DARK MODE ---
+  if (ui_AutoAirModal) {
+    lv_color_t aa_modal_bg  = darkMode ? COLOR_BG_DARK          : COLOR_PANEL_WHITE;
+    lv_color_t aa_row_bg    = darkMode ? COLOR_PANEL_DARK        : COLOR_PANEL_WHITE;
+    lv_color_t aa_row_brd   = darkMode ? lv_color_hex(0x555555)  : lv_color_hex(0xDDDDDD);
+    lv_color_t aa_sep_col   = darkMode ? lv_color_hex(0x444444)  : lv_color_hex(0xDDDDDD);
+
+    lv_obj_set_style_bg_color(ui_AutoAirModal, aa_modal_bg, LV_PART_MAIN);
+
+    lv_obj_t *rows[] = { ui_AutoAirRowGest, ui_AutoAirRowDays, ui_AutoAirRowWeight };
+    for (int i = 0; i < 3; i++) {
+      if (rows[i]) {
+        lv_obj_set_style_bg_color(rows[i],     aa_row_bg,  LV_PART_MAIN);
+        lv_obj_set_style_border_color(rows[i], aa_row_brd, LV_PART_MAIN);
+      }
+    }
+    if (ui_AutoAirHSep) lv_obj_set_style_bg_color(ui_AutoAirHSep, aa_sep_col, LV_PART_MAIN);
+    if (ui_AutoAirVSep) lv_obj_set_style_bg_color(ui_AutoAirVSep, aa_sep_col, LV_PART_MAIN);
+
+    // Re-apply blue to value labels overridden by the recursive text sweep
+    lv_color_t blue = lv_color_hex(0x0075EE);
+    if (ui_AutoAirGestVal)   lv_obj_set_style_text_color(ui_AutoAirGestVal,   blue, 0);
+    if (ui_AutoAirDaysVal)   lv_obj_set_style_text_color(ui_AutoAirDaysVal,   blue, 0);
+    if (ui_AutoAirWeightVal) lv_obj_set_style_text_color(ui_AutoAirWeightVal, blue, 0);
+    if (aa_label_mid)        lv_obj_set_style_text_color(aa_label_mid,        blue, 0);
+
+    // Range bar: background light, indicator gray in dark mode
+    if (aa_range_bar) {
+      lv_obj_set_style_bg_color(aa_range_bar,
+          darkMode ? lv_color_hex(0xCCCCCC) : lv_color_hex(0xE0E0E0), LV_PART_MAIN);
+      lv_obj_set_style_bg_color(aa_range_bar,
+          darkMode ? lv_color_hex(0x5588AA) : lv_color_hex(0x0095DA), LV_PART_INDICATOR);
+    }
+  }
+
   UI_SyncAll();
 }

@@ -201,12 +201,18 @@ void ui_event_PhotoCancelBtn(lv_event_t * e);
 extern lv_obj_t *ui_AutoAirBtn;
 extern lv_obj_t *ui_AutoAirBtnLabel;
 extern lv_obj_t *ui_AutoAirOverlay;
+extern lv_obj_t *ui_AutoAirModal;
 extern lv_obj_t *ui_AutoAirWeightVal;
 extern lv_obj_t *ui_AutoAirGestVal;
 extern lv_obj_t *ui_AutoAirDaysVal;
 extern lv_obj_t *ui_AutoAirDaysUnitLbl;
 extern lv_obj_t *ui_AutoAirErrLabel;
 extern lv_obj_t *ui_AutoAirToast;
+extern lv_obj_t *ui_AutoAirRowGest;
+extern lv_obj_t *ui_AutoAirRowDays;
+extern lv_obj_t *ui_AutoAirRowWeight;
+extern lv_obj_t *ui_AutoAirHSep;
+extern lv_obj_t *ui_AutoAirVSep;
 // --- AUTO AIR range display widgets ---
 extern lv_obj_t *aa_range_bar;
 extern lv_obj_t *aa_label_hi;
