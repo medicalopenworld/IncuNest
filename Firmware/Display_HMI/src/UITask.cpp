@@ -416,6 +416,45 @@ const char *getConnectivityString(int status, ui_lang_t lang) {
   }
 }
 
+static void autoair_apply_language(ui_lang_t lang) {
+  if (!ui_AutoAirModal) return;  // popup not created yet
+  lv_label_set_text(ui_AutoAirTitle,
+      (lang == LANG_ES) ? "Zona de Confort"
+    : (lang == LANG_FR) ? "Zone de Confort"
+    :                     "Comfort Zone");
+  lv_label_set_text(ui_AutoAirLeftHeader,
+      (lang == LANG_ES) ? "Info. del Bebe:"
+    : (lang == LANG_FR) ? "Infos Bebe:"
+    :                     "Baby Information:");
+  lv_label_set_text(ui_AutoAirRightHeader,
+      (lang == LANG_ES) ? "Rango Recomendado (C)"
+    : (lang == LANG_FR) ? "Plage Recommandee (C)"
+    :                     "Recommended Range (C)");
+  lv_label_set_text(ui_AutoAirGestLabel,
+      (lang == LANG_ES) ? "Edad Gestacional"
+    : (lang == LANG_FR) ? "Age Gestationnel"
+    :                     "Gestational Age");
+  lv_label_set_text(ui_AutoAirDaysLabel,
+      (lang == LANG_ES) ? "Edad Postnatal"
+    : (lang == LANG_FR) ? "Age Post-Natal"
+    :                     "Post-Natal Age");
+  lv_label_set_text(ui_AutoAirWeightLabel,
+      (lang == LANG_ES) ? "Peso"
+    : (lang == LANG_FR) ? "Poids"
+    :                     "Weight");
+  lv_label_set_text(ui_AutoAirCancelLabel,
+      (lang == LANG_ES) ? "CANCELAR"
+    : (lang == LANG_FR) ? "ANNULER"
+    :                     "CANCEL");
+  lv_label_set_text(ui_AutoAirApplyLabel,
+      (lang == LANG_ES) ? "APLICAR"
+    : (lang == LANG_FR) ? "APPLIQUER"
+    :                     "APPLY");
+  // Reposicionar unitsLbl de cada fila tras cambio de texto del nameLbl
+  if (ui_AutoAirDaysUnitLbl && ui_AutoAirDaysLabel)
+    lv_obj_align_to(ui_AutoAirDaysUnitLbl, ui_AutoAirDaysLabel, LV_ALIGN_OUT_RIGHT_MID, 4, 0);
+}
+
 void UI_ApplyLanguage(ui_lang_t lang) {
   g_lang = lang;
   EEPROM.write(EEPROM_LANGUAGE, g_lang);
@@ -608,6 +647,8 @@ void UI_ApplyLanguage(ui_lang_t lang) {
         "FOTOTERAPIA:", "PHOTOTHERAPY:", "PHOTOTHERAPIE:"};
     lv_label_set_text(ui_PhotoLockLabel, TXT_PHOTO_LOCK[lang]);
   }
+
+  autoair_apply_language(lang);
 
   update_labels();
   UI_SyncAll();
@@ -974,6 +1015,7 @@ static void autoair_popup_update_labels() {
 static void autoair_popup_show(bool show) {
   if (!ui_AutoAirOverlay) return;
   if (show) {
+    autoair_apply_language(g_lang);
     g_popupWeight = (g_babyWeightGrams > 0)  ? g_babyWeightGrams : 1500;
     g_popupGest   = (g_babyGestWeeks   > 0)  ? g_babyGestWeeks   : 32;
     g_popupAgeHours = (g_babyAgeHours >= 0) ? g_babyAgeHours : 0;

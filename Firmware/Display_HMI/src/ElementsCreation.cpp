@@ -303,6 +303,14 @@ lv_obj_t *ui_AutoAirRowDays     = NULL;
 lv_obj_t *ui_AutoAirRowWeight   = NULL;
 lv_obj_t *ui_AutoAirHSep        = NULL;
 lv_obj_t *ui_AutoAirVSep        = NULL;
+lv_obj_t *ui_AutoAirTitle       = NULL;
+lv_obj_t *ui_AutoAirLeftHeader  = NULL;
+lv_obj_t *ui_AutoAirRightHeader = NULL;
+lv_obj_t *ui_AutoAirGestLabel   = NULL;
+lv_obj_t *ui_AutoAirDaysLabel   = NULL;
+lv_obj_t *ui_AutoAirWeightLabel = NULL;
+lv_obj_t *ui_AutoAirCancelLabel = NULL;
+lv_obj_t *ui_AutoAirApplyLabel  = NULL;
 // --- AUTO AIR range display widgets ---
 lv_obj_t *aa_range_bar      = NULL;
 lv_obj_t *aa_label_hi       = NULL;
@@ -3246,7 +3254,8 @@ static lv_obj_t *aa_make_input_row(lv_obj_t *parent, const char *fieldName,
                                     const char *fieldUnits, int yOffset,
                                     lv_event_cb_t decCb, lv_event_cb_t incCb,
                                     lv_obj_t **unitsLblOut = nullptr,
-                                    lv_obj_t **rowOut = nullptr) {
+                                    lv_obj_t **rowOut = nullptr,
+                                    lv_obj_t **nameLblOut = nullptr) {
   lv_obj_t *row = lv_obj_create(parent);
   lv_obj_set_size(row, 295, 76);
   lv_obj_align(row, LV_ALIGN_TOP_MID, 0, yOffset);
@@ -3276,6 +3285,7 @@ static lv_obj_t *aa_make_input_row(lv_obj_t *parent, const char *fieldName,
   lv_obj_set_style_text_font(unitsLbl, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(unitsLbl, lv_color_hex(0xAAAAAA), 0);
   lv_obj_align_to(unitsLbl, nameLbl, LV_ALIGN_OUT_RIGHT_MID, 4, 0);
+  if (nameLblOut)  *nameLblOut  = nameLbl;
   if (unitsLblOut) *unitsLblOut = unitsLbl;
   if (rowOut)      *rowOut      = row;
 
@@ -3316,7 +3326,8 @@ void create_autoair_popup() {
   lv_obj_clear_flag(modal, LV_OBJ_FLAG_SCROLLABLE);
 
   // ── Title bar ──────────────────────────────────────────────
-  lv_obj_t *title = lv_label_create(modal);
+  ui_AutoAirTitle = lv_label_create(modal);
+  lv_obj_t *title = ui_AutoAirTitle;
   lv_label_set_text(title, "Comfort Zone");
   lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
   lv_obj_set_style_text_color(title, lv_color_hex(0x0075EE), 0);
@@ -3363,7 +3374,8 @@ void create_autoair_popup() {
   lv_obj_set_style_pad_all(colLeft, 10, LV_PART_MAIN);
   lv_obj_clear_flag(colLeft, LV_OBJ_FLAG_SCROLLABLE);
 
-  lv_obj_t *leftHeader = lv_label_create(colLeft);
+  ui_AutoAirLeftHeader = lv_label_create(colLeft);
+  lv_obj_t *leftHeader = ui_AutoAirLeftHeader;
   lv_label_set_text(leftHeader, "Baby Information:");
   lv_obj_set_style_text_font(leftHeader, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(leftHeader, lv_color_hex(0x555555), 0);
@@ -3375,21 +3387,21 @@ void create_autoair_popup() {
       colLeft,
       (g_lang == LANG_ES) ? "Edad Gestacional" : (g_lang == LANG_FR) ? "Age Gestationnel" : "Gestational Age",
       "WEEKS",
-      18, aa_gest_dec_cb, aa_gest_inc_cb, nullptr, &ui_AutoAirRowGest);
+      18, aa_gest_dec_cb, aa_gest_inc_cb, nullptr, &ui_AutoAirRowGest, &ui_AutoAirGestLabel);
 
   // [1] Post-Natal Age → ui_AutoAirDaysVal
   ui_AutoAirDaysVal = aa_make_input_row(
       colLeft,
       (g_lang == LANG_ES) ? "Edad Postnatal" : (g_lang == LANG_FR) ? "Age Post-Natal" : "Post-Natal Age",
       "DAYS",
-      104, aa_days_dec_cb, aa_days_inc_cb, &ui_AutoAirDaysUnitLbl, &ui_AutoAirRowDays);
+      104, aa_days_dec_cb, aa_days_inc_cb, &ui_AutoAirDaysUnitLbl, &ui_AutoAirRowDays, &ui_AutoAirDaysLabel);
 
   // [2] Weight → ui_AutoAirWeightVal
   ui_AutoAirWeightVal = aa_make_input_row(
       colLeft,
       (g_lang == LANG_ES) ? "Peso" : (g_lang == LANG_FR) ? "Poids" : "Weight",
       "GRAMS",
-      192, aa_weight_dec_cb, aa_weight_inc_cb, nullptr, &ui_AutoAirRowWeight);
+      192, aa_weight_dec_cb, aa_weight_inc_cb, nullptr, &ui_AutoAirRowWeight, &ui_AutoAirWeightLabel);
 
   // Error label
   ui_AutoAirErrLabel = lv_label_create(colLeft);
@@ -3406,7 +3418,8 @@ void create_autoair_popup() {
   lv_obj_set_style_bg_color(btnCancel, lv_color_hex(0x888888), LV_PART_MAIN);
   lv_obj_set_style_radius(btnCancel, 8, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(btnCancel, 0, LV_PART_MAIN);
-  lv_obj_t *cancelLbl = lv_label_create(btnCancel);
+  ui_AutoAirCancelLabel = lv_label_create(btnCancel);
+  lv_obj_t *cancelLbl = ui_AutoAirCancelLabel;
   const char *CANCEL_TXT[] = {"CANCELAR", "CANCEL", "ANNULER"};
   lv_label_set_text(cancelLbl, CANCEL_TXT[g_lang]);
   lv_obj_set_style_text_font(cancelLbl, &lv_font_montserrat_16, 0);
@@ -3424,7 +3437,8 @@ void create_autoair_popup() {
   lv_obj_set_style_pad_all(colRight, 10, LV_PART_MAIN);
   lv_obj_clear_flag(colRight, LV_OBJ_FLAG_SCROLLABLE);
 
-  lv_obj_t *rightHeader = lv_label_create(colRight);
+  ui_AutoAirRightHeader = lv_label_create(colRight);
+  lv_obj_t *rightHeader = ui_AutoAirRightHeader;
   lv_label_set_text(rightHeader, "Recommended Range (C)");
   lv_obj_set_style_text_font(rightHeader, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(rightHeader, lv_color_hex(0x555555), 0);
@@ -3494,7 +3508,8 @@ void create_autoair_popup() {
   lv_obj_set_style_bg_color(btnApply, lv_color_hex(0x00AA44), LV_PART_MAIN);
   lv_obj_set_style_radius(btnApply, 8, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(btnApply, 0, LV_PART_MAIN);
-  lv_obj_t *applyLbl = lv_label_create(btnApply);
+  ui_AutoAirApplyLabel = lv_label_create(btnApply);
+  lv_obj_t *applyLbl = ui_AutoAirApplyLabel;
   const char *APPLY_TXT[] = {"APLICAR", "APPLY", "APPLIQUER"};
   lv_label_set_text(applyLbl, APPLY_TXT[g_lang]);
   lv_obj_set_style_text_font(applyLbl, &lv_font_montserrat_16, 0);

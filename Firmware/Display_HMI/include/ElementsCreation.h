@@ -213,6 +213,14 @@ extern lv_obj_t *ui_AutoAirRowDays;
 extern lv_obj_t *ui_AutoAirRowWeight;
 extern lv_obj_t *ui_AutoAirHSep;
 extern lv_obj_t *ui_AutoAirVSep;
+extern lv_obj_t *ui_AutoAirTitle;
+extern lv_obj_t *ui_AutoAirLeftHeader;
+extern lv_obj_t *ui_AutoAirRightHeader;
+extern lv_obj_t *ui_AutoAirGestLabel;
+extern lv_obj_t *ui_AutoAirDaysLabel;
+extern lv_obj_t *ui_AutoAirWeightLabel;
+extern lv_obj_t *ui_AutoAirCancelLabel;
+extern lv_obj_t *ui_AutoAirApplyLabel;
 // --- AUTO AIR range display widgets ---
 extern lv_obj_t *aa_range_bar;
 extern lv_obj_t *aa_label_hi;
