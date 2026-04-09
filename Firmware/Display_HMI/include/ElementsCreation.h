@@ -204,6 +204,7 @@ extern lv_obj_t *ui_AutoAirOverlay;
 extern lv_obj_t *ui_AutoAirWeightVal;
 extern lv_obj_t *ui_AutoAirGestVal;
 extern lv_obj_t *ui_AutoAirDaysVal;
+extern lv_obj_t *ui_AutoAirDaysUnitLbl;
 extern lv_obj_t *ui_AutoAirErrLabel;
 extern lv_obj_t *ui_AutoAirToast;
 // --- AUTO AIR range display widgets ---

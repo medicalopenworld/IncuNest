@@ -293,7 +293,8 @@ lv_obj_t *ui_AutoAirBtnLabel  = NULL;
 lv_obj_t *ui_AutoAirOverlay   = NULL;
 lv_obj_t *ui_AutoAirWeightVal = NULL;
 lv_obj_t *ui_AutoAirGestVal   = NULL;
-lv_obj_t *ui_AutoAirDaysVal   = NULL;
+lv_obj_t *ui_AutoAirDaysVal     = NULL;
+lv_obj_t *ui_AutoAirDaysUnitLbl = NULL;
 lv_obj_t *ui_AutoAirErrLabel  = NULL;
 lv_obj_t *ui_AutoAirToast     = NULL;
 // --- AUTO AIR range display widgets ---
@@ -3237,7 +3238,8 @@ static lv_obj_t *aa_make_spinbtn(lv_obj_t *parent, const char *text,
 // Returns the value display label.
 static lv_obj_t *aa_make_input_row(lv_obj_t *parent, const char *fieldName,
                                     const char *fieldUnits, int yOffset,
-                                    lv_event_cb_t decCb, lv_event_cb_t incCb) {
+                                    lv_event_cb_t decCb, lv_event_cb_t incCb,
+                                    lv_obj_t **unitsLblOut = nullptr) {
   lv_obj_t *row = lv_obj_create(parent);
   lv_obj_set_size(row, 295, 76);
   lv_obj_align(row, LV_ALIGN_TOP_MID, 0, yOffset);
@@ -3267,6 +3269,7 @@ static lv_obj_t *aa_make_input_row(lv_obj_t *parent, const char *fieldName,
   lv_obj_set_style_text_font(unitsLbl, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(unitsLbl, lv_color_hex(0xAAAAAA), 0);
   lv_obj_align_to(unitsLbl, nameLbl, LV_ALIGN_OUT_RIGHT_MID, 4, 0);
+  if (unitsLblOut) *unitsLblOut = unitsLbl;
 
   // Dec (▼) button — override size after aa_make_spinbtn
   lv_obj_t *btnDec = aa_make_spinbtn(row, LV_SYMBOL_DOWN, decCb);
@@ -3368,7 +3371,7 @@ void create_autoair_popup() {
       colLeft,
       (g_lang == LANG_ES) ? "Edad Postnatal" : (g_lang == LANG_FR) ? "Age Post-Natal" : "Post-Natal Age",
       "DAYS",
-      104, aa_days_dec_cb, aa_days_inc_cb);
+      104, aa_days_dec_cb, aa_days_inc_cb, &ui_AutoAirDaysUnitLbl);
 
   // [2] Weight → ui_AutoAirWeightVal
   ui_AutoAirWeightVal = aa_make_input_row(

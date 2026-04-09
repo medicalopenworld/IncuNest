@@ -99,10 +99,10 @@ bool g_ui_initialized = false;
 bool   g_autoAirActive    = false;
 static int g_babyWeightGrams  = 0;
 static int g_babyGestWeeks    = 0;
-static int g_babyDaysOfLife   = 0;
+static int g_babyAgeHours     = 0;   // age stored in hours for sub-day precision
 static int g_popupWeight      = 1500;
 static int g_popupGest        = 32;
-static int g_popupDays        = 0;
+static int g_popupAgeHours    = 0;   // hours in popup (0–23 = hours mode, ≥24 = days mode)
 static float aa_popup_setpoint = 0.0f;
 static float aa_popup_lo       = 0.0f;
 static float aa_popup_hi       = 0.0f;
@@ -695,15 +695,14 @@ void chart_add_skin_temp(float v) {
 // Also writes a short row description into row_desc for audit logging.
 // Returns -1.0f on invalid input.
 static float autoair_calculate_setpoint(int weightGrams, int gestWeeks,
-                                          int daysOfLife,
+                                          int ageHours,
                                           char *row_desc, size_t desc_len,
                                           float *lo_out = nullptr,
                                           float *hi_out = nullptr) {
-  if (weightGrams <= 0 || gestWeeks <= 0 || daysOfLife < 0) {
+  if (weightGrams <= 0 || gestWeeks <= 0 || ageHours < 0) {
     snprintf(row_desc, desc_len, "invalid inputs");
     return -1.0f;
   }
-  int ageHours = daysOfLife * 24;
   // Conservative rule: >2500g with EG<=36wk → use 1501-2500g row
   bool heavy = (weightGrams > 2500) && (gestWeeks > 36);
   float lo, hi;
@@ -872,9 +871,9 @@ static void autoair_deactivate(bool fromModeSwitch) {
   autoair_show_toast(msg, 3500);
   ESP_LOGI(TAG,
            "[AUTO-AIR] Deactivated. fromModeSwitch=%d "
-           "weight=%dg gest=%dwk days=%d",
+           "weight=%dg gest=%dwk age=%dh",
            (int)fromModeSwitch, g_babyWeightGrams,
-           g_babyGestWeeks, g_babyDaysOfLife);
+           g_babyGestWeeks, g_babyAgeHours);
 }
 
 static void autoair_activate(float setpoint, const char *rowDesc) {
@@ -909,9 +908,9 @@ static void autoair_activate(float setpoint, const char *rowDesc) {
 
   ESP_LOGI(TAG,
            "[AUTO-AIR] Activated. Setpoint=%.1f degC row='%s' "
-           "weight=%dg gest=%dwk days=%d ts=%lu",
+           "weight=%dg gest=%dwk age=%dh ts=%lu",
            setpoint, rowDesc,
-           g_babyWeightGrams, g_babyGestWeeks, g_babyDaysOfLife,
+           g_babyWeightGrams, g_babyGestWeeks, g_babyAgeHours,
            (unsigned long)millis());
 }
 
@@ -919,7 +918,7 @@ static void aa_update_range_display() {
   if (!aa_range_bar || !aa_label_hi || !aa_label_mid || !aa_label_lo || !aa_setpoint_label) return;
   char rowDesc[48];
   float lo, hi;
-  float sp = autoair_calculate_setpoint(g_popupWeight, g_popupGest, g_popupDays,
+  float sp = autoair_calculate_setpoint(g_popupWeight, g_popupGest, g_popupAgeHours,
                                          rowDesc, sizeof(rowDesc), &lo, &hi);
   char buf[16];
   if (sp < 0.0f) {
@@ -961,7 +960,13 @@ static void autoair_popup_update_labels() {
   lv_label_set_text(ui_AutoAirWeightVal, buf);
   snprintf(buf, sizeof(buf), "%d", g_popupGest);
   lv_label_set_text(ui_AutoAirGestVal, buf);
-  snprintf(buf, sizeof(buf), "%d", g_popupDays);
+  if (g_popupAgeHours < 24) {
+    snprintf(buf, sizeof(buf), "%d", g_popupAgeHours);
+    if (ui_AutoAirDaysUnitLbl) lv_label_set_text(ui_AutoAirDaysUnitLbl, "HRS");
+  } else {
+    snprintf(buf, sizeof(buf), "%d", g_popupAgeHours / 24);
+    if (ui_AutoAirDaysUnitLbl) lv_label_set_text(ui_AutoAirDaysUnitLbl, "DAYS");
+  }
   lv_label_set_text(ui_AutoAirDaysVal, buf);
   aa_update_range_display();
 }
@@ -971,7 +976,7 @@ static void autoair_popup_show(bool show) {
   if (show) {
     g_popupWeight = (g_babyWeightGrams > 0)  ? g_babyWeightGrams : 1500;
     g_popupGest   = (g_babyGestWeeks   > 0)  ? g_babyGestWeeks   : 32;
-    g_popupDays   = (g_babyDaysOfLife  >= 0) ? g_babyDaysOfLife  : 0;
+    g_popupAgeHours = (g_babyAgeHours >= 0) ? g_babyAgeHours : 0;
     autoair_popup_update_labels();
     if (ui_AutoAirErrLabel)
       lv_obj_add_flag(ui_AutoAirErrLabel, LV_OBJ_FLAG_HIDDEN);
@@ -1000,16 +1005,20 @@ void aa_gest_inc_cb(lv_event_t *) {
   autoair_popup_update_labels();
 }
 void aa_days_dec_cb(lv_event_t *) {
-  if (g_popupDays > 0) g_popupDays--;
+  if      (g_popupAgeHours > 24)  g_popupAgeHours -= 24; // bajar 1 día
+  else if (g_popupAgeHours == 24) g_popupAgeHours = 23;  // cruzar a modo horas
+  else if (g_popupAgeHours > 0)   g_popupAgeHours--;     // bajar 1 hora
   autoair_popup_update_labels();
 }
 void aa_days_inc_cb(lv_event_t *) {
-  if (g_popupDays < 28) g_popupDays++;
+  if      (g_popupAgeHours < 23)       g_popupAgeHours++;     // subir 1 hora
+  else if (g_popupAgeHours == 23)      g_popupAgeHours = 24;  // cruzar a modo días
+  else if (g_popupAgeHours < 28 * 24)  g_popupAgeHours += 24; // subir 1 día
   autoair_popup_update_labels();
 }
 
 void aa_confirm_cb(lv_event_t *) {
-  if (g_popupWeight <= 0 || g_popupGest <= 0 || g_popupDays < 0) {
+  if (g_popupWeight <= 0 || g_popupGest <= 0 || g_popupAgeHours < 0) {
     if (ui_AutoAirErrLabel) {
       const char *errTxt = (g_lang == LANG_ES)
           ? "Faltan datos del bebe"
@@ -1035,10 +1044,10 @@ void aa_confirm_cb(lv_event_t *) {
   }
   g_babyWeightGrams = g_popupWeight;
   g_babyGestWeeks   = g_popupGest;
-  g_babyDaysOfLife  = g_popupDays;
+  g_babyAgeHours    = g_popupAgeHours;
   char rowDesc[48];
   autoair_calculate_setpoint(g_babyWeightGrams, g_babyGestWeeks,
-                              g_babyDaysOfLife, rowDesc, sizeof(rowDesc));
+                              g_babyAgeHours, rowDesc, sizeof(rowDesc));
   autoair_popup_show(false);
   autoair_activate(aa_popup_setpoint, rowDesc);
 }
