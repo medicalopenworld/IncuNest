@@ -223,6 +223,7 @@ extern lv_obj_t *ui_AutoAirCancelLabel;
 extern lv_obj_t *ui_AutoAirApplyLabel;
 // --- AUTO AIR range display widgets ---
 extern lv_obj_t *aa_range_bar;
+extern lv_obj_t *aa_setpoint_marker;
 extern lv_obj_t *aa_label_hi;
 extern lv_obj_t *aa_label_mid;
 extern lv_obj_t *aa_label_lo;

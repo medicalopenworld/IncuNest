@@ -952,6 +952,21 @@ static void autoair_activate(float setpoint, const char *rowDesc) {
            (unsigned long)millis());
 }
 
+static void aa_update_marker_pos(float sp) {
+  if (!aa_setpoint_marker) return;
+  if (sp <= 0.0f) {
+    lv_obj_add_flag(aa_setpoint_marker, LV_OBJ_FLAG_HIDDEN);
+    return;
+  }
+  lv_obj_clear_flag(aa_setpoint_marker, LV_OBJ_FLAG_HIDDEN);
+  // Bar spans 28.0–37.0°C over 210px; marker height = 14px
+  float fraction = (37.0f - sp) / 9.0f;
+  if (fraction < 0.0f) fraction = 0.0f;
+  if (fraction > 1.0f) fraction = 1.0f;
+  int y = 22 + (int)(fraction * (210 - 14));
+  lv_obj_set_pos(aa_setpoint_marker, 18, y);
+}
+
 static void aa_update_range_display() {
   if (!aa_range_bar || !aa_label_hi || !aa_label_mid || !aa_label_lo || !aa_setpoint_label) return;
   char rowDesc[48];
@@ -964,8 +979,7 @@ static void aa_update_range_display() {
     lv_label_set_text(aa_label_mid, "--.-");
     lv_label_set_text(aa_label_lo,  "--.-");
     lv_label_set_text(aa_setpoint_label, "--.-");
-    lv_bar_set_start_value(aa_range_bar, 280, LV_ANIM_OFF);
-    lv_bar_set_value(aa_range_bar, 280, LV_ANIM_OFF);
+    aa_update_marker_pos(-1.0f);
     aa_popup_lo = 0.0f; aa_popup_hi = 0.0f; aa_popup_setpoint = 0.0f;
     return;
   }
@@ -977,10 +991,6 @@ static void aa_update_range_display() {
   if (mid > hi) mid = hi;
   aa_popup_setpoint = mid;
 
-  // Bar: range 280–370 (°C × 10)
-  lv_bar_set_start_value(aa_range_bar, (int)(lo * 10.0f), LV_ANIM_OFF);
-  lv_bar_set_value(aa_range_bar, (int)(hi * 10.0f), LV_ANIM_OFF);
-
   snprintf(buf, sizeof(buf), "%.1f", hi);
   lv_label_set_text(aa_label_hi, buf);
   snprintf(buf, sizeof(buf), "%.1f", aa_popup_setpoint);
@@ -989,6 +999,7 @@ static void aa_update_range_display() {
   lv_label_set_text(aa_label_lo, buf);
   snprintf(buf, sizeof(buf), "%.1f C", aa_popup_setpoint);
   lv_label_set_text(aa_setpoint_label, buf);
+  aa_update_marker_pos(aa_popup_setpoint);
 }
 
 static void autoair_popup_update_labels() {
@@ -3789,12 +3800,15 @@ void UI_ApplyTheme() {
     if (ui_AutoAirWeightVal) lv_obj_set_style_text_color(ui_AutoAirWeightVal, blue, 0);
     if (aa_label_mid)        lv_obj_set_style_text_color(aa_label_mid,        blue, 0);
 
-    // Range bar: background light, indicator gray in dark mode
+    // Range bar track color
     if (aa_range_bar) {
       lv_obj_set_style_bg_color(aa_range_bar,
           darkMode ? lv_color_hex(0xCCCCCC) : lv_color_hex(0xE0E0E0), LV_PART_MAIN);
-      lv_obj_set_style_bg_color(aa_range_bar,
-          darkMode ? lv_color_hex(0x5588AA) : lv_color_hex(0x0095DA), LV_PART_INDICATOR);
+    }
+    // Setpoint marker color
+    if (aa_setpoint_marker) {
+      lv_obj_set_style_bg_color(aa_setpoint_marker,
+          darkMode ? lv_color_hex(0x5588AA) : lv_color_hex(0x0095DA), LV_PART_MAIN);
     }
   }
 

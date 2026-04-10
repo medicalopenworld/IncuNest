@@ -312,11 +312,12 @@ lv_obj_t *ui_AutoAirWeightLabel = NULL;
 lv_obj_t *ui_AutoAirCancelLabel = NULL;
 lv_obj_t *ui_AutoAirApplyLabel  = NULL;
 // --- AUTO AIR range display widgets ---
-lv_obj_t *aa_range_bar      = NULL;
-lv_obj_t *aa_label_hi       = NULL;
-lv_obj_t *aa_label_mid      = NULL;
-lv_obj_t *aa_label_lo       = NULL;
-lv_obj_t *aa_setpoint_label = NULL;
+lv_obj_t *aa_range_bar        = NULL;
+lv_obj_t *aa_setpoint_marker  = NULL;
+lv_obj_t *aa_label_hi         = NULL;
+lv_obj_t *aa_label_mid        = NULL;
+lv_obj_t *aa_label_lo         = NULL;
+lv_obj_t *aa_setpoint_label   = NULL;
 
 // --- EXTERN CALLBACKS FROM UITASK.CPP ---
 extern void Settings_cb(lv_event_t *e);
@@ -3448,16 +3449,24 @@ void create_autoair_popup() {
   aa_range_bar = lv_bar_create(colRight);
   lv_obj_set_size(aa_range_bar, 22, 210);
   lv_obj_set_pos(aa_range_bar, 18, 22);
-  lv_bar_set_mode(aa_range_bar, LV_BAR_MODE_RANGE);
+  lv_bar_set_mode(aa_range_bar, LV_BAR_MODE_NORMAL);
   lv_bar_set_range(aa_range_bar, 280, 370);   // °C × 10 → 28.0–37.0
   lv_bar_set_value(aa_range_bar, 280, LV_ANIM_OFF);
-  lv_bar_set_start_value(aa_range_bar, 280, LV_ANIM_OFF);
   lv_obj_set_style_bg_color(aa_range_bar, lv_color_hex(0xE0E0E0), LV_PART_MAIN);
-  lv_obj_set_style_bg_color(aa_range_bar, lv_color_hex(0x0095DA), LV_PART_INDICATOR);
+  lv_obj_set_style_bg_opa(aa_range_bar, LV_OPA_TRANSP, LV_PART_INDICATOR);
   lv_obj_set_style_radius(aa_range_bar, 4, LV_PART_MAIN);
-  lv_obj_set_style_radius(aa_range_bar, 4, LV_PART_INDICATOR);
   lv_obj_set_style_border_width(aa_range_bar, 2, LV_PART_MAIN);
   lv_obj_set_style_border_color(aa_range_bar, lv_color_hex(0x000000), LV_PART_MAIN);
+
+  // Fixed-size blue setpoint marker
+  aa_setpoint_marker = lv_obj_create(colRight);
+  lv_obj_set_size(aa_setpoint_marker, 22, 14);
+  lv_obj_set_pos(aa_setpoint_marker, 18, 22);
+  lv_obj_set_style_bg_color(aa_setpoint_marker, lv_color_hex(0x0095DA), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(aa_setpoint_marker, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(aa_setpoint_marker, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(aa_setpoint_marker, 3, LV_PART_MAIN);
+  lv_obj_add_flag(aa_setpoint_marker, LV_OBJ_FLAG_HIDDEN);
 
   // hi label — top of bar
   aa_label_hi = lv_label_create(colRight);
