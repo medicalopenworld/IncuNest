@@ -1054,16 +1054,31 @@ void aa_gest_inc_cb(lv_event_t *) {
   if (g_popupGest < 44) g_popupGest++;
   autoair_popup_update_labels();
 }
+// Every 2 hours from 0–22 h, then one step per day (1–28 days)
+static const int AA_AGE_SNAPS[] = {
+    0,   2,   4,   6,   8,  10,  12,  14,  16,  18,  20,  22,  // 2-hour steps
+   24,  48,  72,  96, 120, 144, 168, 192, 216, 240, 264, 288,   // days 1–12
+  312, 336, 360, 384, 408, 432, 456, 480, 504, 528, 552, 576,   // days 13–24
+  600, 624, 648, 672                                             // days 25–28
+};
+static const int AA_AGE_SNAPS_N = (int)(sizeof(AA_AGE_SNAPS) / sizeof(AA_AGE_SNAPS[0]));
+
 void aa_days_dec_cb(lv_event_t *) {
-  if      (g_popupAgeHours > 24)  g_popupAgeHours -= 24; // bajar 1 día
-  else if (g_popupAgeHours == 24) g_popupAgeHours = 23;  // cruzar a modo horas
-  else if (g_popupAgeHours > 0)   g_popupAgeHours--;     // bajar 1 hora
+  for (int i = AA_AGE_SNAPS_N - 1; i >= 0; i--) {
+    if (AA_AGE_SNAPS[i] < g_popupAgeHours) {
+      g_popupAgeHours = AA_AGE_SNAPS[i];
+      break;
+    }
+  }
   autoair_popup_update_labels();
 }
 void aa_days_inc_cb(lv_event_t *) {
-  if      (g_popupAgeHours < 23)       g_popupAgeHours++;     // subir 1 hora
-  else if (g_popupAgeHours == 23)      g_popupAgeHours = 24;  // cruzar a modo días
-  else if (g_popupAgeHours < 28 * 24)  g_popupAgeHours += 24; // subir 1 día
+  for (int i = 0; i < AA_AGE_SNAPS_N; i++) {
+    if (AA_AGE_SNAPS[i] > g_popupAgeHours) {
+      g_popupAgeHours = AA_AGE_SNAPS[i];
+      break;
+    }
+  }
   autoair_popup_update_labels();
 }
 
