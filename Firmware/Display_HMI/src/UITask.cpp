@@ -954,13 +954,13 @@ static void autoair_activate(float setpoint, const char *rowDesc) {
 
 static void aa_update_marker_pos(float sp) {
   if (!aa_setpoint_marker) return;
-  if (sp <= 0.0f) {
+  if (sp <= 0.0f || aa_popup_hi <= aa_popup_lo) {
     lv_obj_add_flag(aa_setpoint_marker, LV_OBJ_FLAG_HIDDEN);
     return;
   }
   lv_obj_clear_flag(aa_setpoint_marker, LV_OBJ_FLAG_HIDDEN);
-  // Bar spans 28.0–37.0°C over 210px; marker height = 14px
-  float fraction = (37.0f - sp) / 9.0f;
+  // Map sp within [lo, hi]: hi → top of bar (y=22), lo → bottom (y=22+196)
+  float fraction = (aa_popup_hi - sp) / (aa_popup_hi - aa_popup_lo);
   if (fraction < 0.0f) fraction = 0.0f;
   if (fraction > 1.0f) fraction = 1.0f;
   int y = 22 + (int)(fraction * (210 - 14));
@@ -1108,8 +1108,8 @@ void aa_cancel_cb(lv_event_t *) {
 
 void aa_setpoint_up_cb(lv_event_t *) {
   if (aa_popup_hi <= 0.0f) return;
-  int steps = (int)(aa_popup_setpoint * 5.0f + 0.5f) + 1;
-  float next = (float)steps * 0.2f;
+  int steps = (int)(aa_popup_setpoint * 10.0f + 0.5f) + 1;
+  float next = (float)steps * 0.1f;
   if (next > aa_popup_hi) next = aa_popup_hi;
   aa_popup_setpoint = next;
   if (aa_label_mid && aa_setpoint_label) {
@@ -1119,12 +1119,13 @@ void aa_setpoint_up_cb(lv_event_t *) {
     snprintf(buf, sizeof(buf), "%.1f C", aa_popup_setpoint);
     lv_label_set_text(aa_setpoint_label, buf);
   }
+  aa_update_marker_pos(aa_popup_setpoint);
 }
 
 void aa_setpoint_down_cb(lv_event_t *) {
   if (aa_popup_lo <= 0.0f) return;
-  int steps = (int)(aa_popup_setpoint * 5.0f + 0.5f) - 1;
-  float next = (float)steps * 0.2f;
+  int steps = (int)(aa_popup_setpoint * 10.0f + 0.5f) - 1;
+  float next = (float)steps * 0.1f;
   if (next < aa_popup_lo) next = aa_popup_lo;
   aa_popup_setpoint = next;
   if (aa_label_mid && aa_setpoint_label) {
@@ -1134,6 +1135,7 @@ void aa_setpoint_down_cb(lv_event_t *) {
     snprintf(buf, sizeof(buf), "%.1f C", aa_popup_setpoint);
     lv_label_set_text(aa_setpoint_label, buf);
   }
+  aa_update_marker_pos(aa_popup_setpoint);
 }
 
 void AutoAirBtn_cb(lv_event_t *e) {
