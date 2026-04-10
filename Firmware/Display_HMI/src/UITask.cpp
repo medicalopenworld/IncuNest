@@ -450,9 +450,6 @@ static void autoair_apply_language(ui_lang_t lang) {
       (lang == LANG_ES) ? "APLICAR"
     : (lang == LANG_FR) ? "APPLIQUER"
     :                     "APPLY");
-  // Reposicionar unitsLbl de cada fila tras cambio de texto del nameLbl
-  if (ui_AutoAirDaysUnitLbl && ui_AutoAirDaysLabel)
-    lv_obj_align_to(ui_AutoAirDaysUnitLbl, ui_AutoAirDaysLabel, LV_ALIGN_OUT_RIGHT_MID, 4, 0);
 }
 
 void UI_ApplyLanguage(ui_lang_t lang) {

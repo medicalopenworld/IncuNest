@@ -3275,16 +3275,16 @@ static lv_obj_t *aa_make_input_row(lv_obj_t *parent, const char *fieldName,
   // Value label
   lv_obj_t *val = lv_label_create(row);
   lv_label_set_text(val, "--");
-  lv_obj_set_style_text_font(val, &lv_font_montserrat_20, 0);
+  lv_obj_set_style_text_font(val, &lv_font_montserrat_28, 0);
   lv_obj_set_style_text_color(val, lv_color_hex(0x0075EE), 0);
-  lv_obj_align(val, LV_ALIGN_LEFT_MID, 2, 2);
+  lv_obj_align(val, LV_ALIGN_LEFT_MID, 2, 6);
 
-  // Units sublabel (e.g. "WEEKS") — shown to the right of the value
+  // Units sublabel (e.g. "WEEKS") — anchored to the right, before the buttons
   lv_obj_t *unitsLbl = lv_label_create(row);
   lv_label_set_text(unitsLbl, fieldUnits);
   lv_obj_set_style_text_font(unitsLbl, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(unitsLbl, lv_color_hex(0xAAAAAA), 0);
-  lv_obj_align_to(unitsLbl, nameLbl, LV_ALIGN_OUT_RIGHT_MID, 4, 0);
+  lv_obj_align(unitsLbl, LV_ALIGN_RIGHT_MID, -116, 0);
   if (nameLblOut)  *nameLblOut  = nameLbl;
   if (unitsLblOut) *unitsLblOut = unitsLbl;
   if (rowOut)      *rowOut      = row;
