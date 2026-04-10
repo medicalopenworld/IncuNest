@@ -1,5 +1,7 @@
 #include "UITask.h"
 #include "AudioManager.h"
+#include <EEPROM.h>
+#include "EEPROM_defines.h"
 #include "CommTask.h"
 #include "buzzer.h"
 #include "display_config.h"
@@ -1018,6 +1020,12 @@ static void autoair_popup_update_labels() {
   }
   lv_label_set_text(ui_AutoAirDaysVal, buf);
   aa_update_range_display();
+  // Persist popup values with deferred commit (same pattern as rest of project)
+  EEPROM.writeUShort(EEPROM_AUTOAIR_WEIGHT, (uint16_t)g_popupWeight);
+  EEPROM.write(EEPROM_AUTOAIR_GEST,         (uint8_t)g_popupGest);
+  EEPROM.writeUShort(EEPROM_AUTOAIR_AGE_H,  (uint16_t)g_popupAgeHours);
+  eepromDirty = true;
+  lastVarChangeTime = millis();
 }
 
 static void autoair_popup_show(bool show) {
@@ -2884,6 +2892,15 @@ void UI_Task(void *pvParameters) {
   // --- AUTO AIR button & popup (UI-AUTOAIR-001..010) ---
   create_autoair_button();
   create_autoair_popup();
+  // Restore last-used Auto Air values from EEPROM
+  {
+    uint16_t w = EEPROM.readUShort(EEPROM_AUTOAIR_WEIGHT);
+    uint8_t  g = EEPROM.read(EEPROM_AUTOAIR_GEST);
+    uint16_t a = EEPROM.readUShort(EEPROM_AUTOAIR_AGE_H);
+    if (w >= 400 && w <= 5000)  g_babyWeightGrams = w;
+    if (g >= 22  && g <= 44)    g_babyGestWeeks   = g;
+    if (a <= 672)               g_babyAgeHours    = a;
+  }
   autoair_update_button_style(); // set initial visual state after creation
 
   intro_timer = lv_timer_create(intro_timer_cb, 5000, NULL);
