@@ -3284,7 +3284,7 @@ static lv_obj_t *aa_make_input_row(lv_obj_t *parent, const char *fieldName,
   lv_label_set_text(unitsLbl, fieldUnits);
   lv_obj_set_style_text_font(unitsLbl, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(unitsLbl, lv_color_hex(0xAAAAAA), 0);
-  lv_obj_align(unitsLbl, LV_ALIGN_RIGHT_MID, -116, 0);
+  lv_obj_align(unitsLbl, LV_ALIGN_RIGHT_MID, -116, 6);
   if (nameLblOut)  *nameLblOut  = nameLbl;
   if (unitsLblOut) *unitsLblOut = unitsLbl;
   if (rowOut)      *rowOut      = row;
@@ -3292,12 +3292,12 @@ static lv_obj_t *aa_make_input_row(lv_obj_t *parent, const char *fieldName,
   // Dec (▼) button — override size after aa_make_spinbtn
   lv_obj_t *btnDec = aa_make_spinbtn(row, LV_SYMBOL_DOWN, decCb);
   lv_obj_set_size(btnDec, 52, 30);
-  lv_obj_align(btnDec, LV_ALIGN_RIGHT_MID, -56, 0);
+  lv_obj_align(btnDec, LV_ALIGN_RIGHT_MID, -56, 6);
 
   // Inc (▲) button
   lv_obj_t *btnInc = aa_make_spinbtn(row, LV_SYMBOL_UP, incCb);
   lv_obj_set_size(btnInc, 52, 30);
-  lv_obj_align(btnInc, LV_ALIGN_RIGHT_MID, -2, 0);
+  lv_obj_align(btnInc, LV_ALIGN_RIGHT_MID, -2, 6);
 
   return val;
 }
@@ -3462,14 +3462,14 @@ void create_autoair_popup() {
   // hi label — top of bar
   aa_label_hi = lv_label_create(colRight);
   lv_label_set_text(aa_label_hi, "--.-");
-  lv_obj_set_style_text_font(aa_label_hi, &lv_font_montserrat_16, 0);
+  lv_obj_set_style_text_font(aa_label_hi, &lv_font_montserrat_20, 0);
   lv_obj_set_style_text_color(aa_label_hi, lv_color_hex(0x333333), 0);
   lv_obj_set_pos(aa_label_hi, 50, 22);
 
   // mid label — current setpoint (highlighted)
   aa_label_mid = lv_label_create(colRight);
   lv_label_set_text(aa_label_mid, "--.-");
-  lv_obj_set_style_text_font(aa_label_mid, &lv_font_montserrat_20, 0);
+  lv_obj_set_style_text_font(aa_label_mid, &lv_font_montserrat_28, 0);
   lv_obj_set_style_text_color(aa_label_mid, lv_color_hex(0x0075EE), 0);
   lv_obj_set_pos(aa_label_mid, 48, 118);
 
@@ -3484,7 +3484,7 @@ void create_autoair_popup() {
   // lo label — bottom of bar
   aa_label_lo = lv_label_create(colRight);
   lv_label_set_text(aa_label_lo, "--.-");
-  lv_obj_set_style_text_font(aa_label_lo, &lv_font_montserrat_16, 0);
+  lv_obj_set_style_text_font(aa_label_lo, &lv_font_montserrat_20, 0);
   lv_obj_set_style_text_color(aa_label_lo, lv_color_hex(0x333333), 0);
   lv_obj_set_pos(aa_label_lo, 50, 218);
 
