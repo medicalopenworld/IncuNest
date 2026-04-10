@@ -1106,12 +1106,12 @@ void aa_cancel_cb(lv_event_t *) {
   autoair_popup_show(false);
 }
 
-void aa_setpoint_up_cb(lv_event_t *) {
-  if (aa_popup_hi <= 0.0f) return;
-  int steps = (int)(aa_popup_setpoint * 10.0f + 0.5f) + 1;
-  float next = (float)steps * 0.1f;
-  if (next > aa_popup_hi) next = aa_popup_hi;
-  aa_popup_setpoint = next;
+static void aa_apply_setpoint(float sp) {
+  int steps = (int)(sp * 10.0f + 0.5f);
+  sp = (float)steps * 0.1f;
+  if (sp < aa_popup_lo) sp = aa_popup_lo;
+  if (sp > aa_popup_hi) sp = aa_popup_hi;
+  aa_popup_setpoint = sp;
   if (aa_label_mid && aa_setpoint_label) {
     char buf[12];
     snprintf(buf, sizeof(buf), "%.1f", aa_popup_setpoint);
@@ -1122,20 +1122,33 @@ void aa_setpoint_up_cb(lv_event_t *) {
   aa_update_marker_pos(aa_popup_setpoint);
 }
 
+void aa_bar_drag_cb(lv_event_t *) {
+  if (aa_popup_hi <= aa_popup_lo || !aa_range_bar) return;
+  lv_indev_t *indev = lv_indev_get_act();
+  if (!indev) return;
+  lv_point_t pt;
+  lv_indev_get_point(indev, &pt);
+  lv_area_t coords;
+  lv_obj_get_coords(aa_range_bar, &coords);
+  int bar_h = coords.y2 - coords.y1;       // 210
+  int rel_y = pt.y - coords.y1 - 7;        // 7 = half marker height, centres on finger
+  float fraction = (float)rel_y / (float)(bar_h - 14);
+  if (fraction < 0.0f) fraction = 0.0f;
+  if (fraction > 1.0f) fraction = 1.0f;
+  float sp = aa_popup_hi - fraction * (aa_popup_hi - aa_popup_lo);
+  aa_apply_setpoint(sp);
+}
+
+void aa_setpoint_up_cb(lv_event_t *) {
+  if (aa_popup_hi <= 0.0f) return;
+  int steps = (int)(aa_popup_setpoint * 10.0f + 0.5f) + 1;
+  aa_apply_setpoint((float)steps * 0.1f);
+}
+
 void aa_setpoint_down_cb(lv_event_t *) {
   if (aa_popup_lo <= 0.0f) return;
   int steps = (int)(aa_popup_setpoint * 10.0f + 0.5f) - 1;
-  float next = (float)steps * 0.1f;
-  if (next < aa_popup_lo) next = aa_popup_lo;
-  aa_popup_setpoint = next;
-  if (aa_label_mid && aa_setpoint_label) {
-    char buf[12];
-    snprintf(buf, sizeof(buf), "%.1f", aa_popup_setpoint);
-    lv_label_set_text(aa_label_mid, buf);
-    snprintf(buf, sizeof(buf), "%.1f C", aa_popup_setpoint);
-    lv_label_set_text(aa_setpoint_label, buf);
-  }
-  aa_update_marker_pos(aa_popup_setpoint);
+  aa_apply_setpoint((float)steps * 0.1f);
 }
 
 void AutoAirBtn_cb(lv_event_t *e) {

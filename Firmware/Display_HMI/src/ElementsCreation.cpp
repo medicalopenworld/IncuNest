@@ -363,6 +363,7 @@ extern void aa_confirm_cb(lv_event_t *e);
 extern void aa_cancel_cb(lv_event_t *e);
 extern void aa_setpoint_up_cb(lv_event_t *e);
 extern void aa_setpoint_down_cb(lv_event_t *e);
+extern void aa_bar_drag_cb(lv_event_t *e);
 
 // ============================================================================
 // EVENT HANDLERS
@@ -3457,6 +3458,7 @@ void create_autoair_popup() {
   lv_obj_set_style_radius(aa_range_bar, 4, LV_PART_MAIN);
   lv_obj_set_style_border_width(aa_range_bar, 2, LV_PART_MAIN);
   lv_obj_set_style_border_color(aa_range_bar, lv_color_hex(0x000000), LV_PART_MAIN);
+  lv_obj_add_event_cb(aa_range_bar, aa_bar_drag_cb, LV_EVENT_PRESSING, nullptr);
 
   // Fixed-size blue setpoint marker
   aa_setpoint_marker = lv_obj_create(colRight);
@@ -3467,6 +3469,7 @@ void create_autoair_popup() {
   lv_obj_set_style_border_width(aa_setpoint_marker, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(aa_setpoint_marker, 3, LV_PART_MAIN);
   lv_obj_add_flag(aa_setpoint_marker, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_event_cb(aa_setpoint_marker, aa_bar_drag_cb, LV_EVENT_PRESSING, nullptr);
 
   // hi label — top of bar
   aa_label_hi = lv_label_create(colRight);
