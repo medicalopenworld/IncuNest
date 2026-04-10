@@ -848,35 +848,14 @@ static void autoair_update_button_style() {
     lv_obj_set_style_bg_color(ui_AutoAirBtn, COLOR_PANEL_GRAY, LV_PART_MAIN);
     lv_obj_set_style_opa(ui_AutoAirBtn, LV_OPA_50, LV_PART_MAIN);
     lv_obj_set_style_text_color(ui_AutoAirBtnLabel, COLOR_PANEL_LIGHT_GRAY, 0);
-  } else if (g_autoAirActive) {
-    // Active — AUTO AIR running
-    lv_obj_add_flag(ui_AutoAirBtn, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_bg_color(ui_AutoAirBtn, lv_color_hex(0x0095DA), LV_PART_MAIN);
-    lv_obj_set_style_opa(ui_AutoAirBtn, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_text_color(ui_AutoAirBtnLabel, lv_color_hex(0xFFFFFF), 0);
   } else {
-    // Passive — AIR mode, waiting for activation
+    // Available — normal appearance, no "active" state
     lv_color_t bg = darkMode ? COLOR_PANEL_GRAY : COLOR_PANEL_WHITE;
     lv_color_t fg = darkMode ? COLOR_TEXT_DARK  : lv_color_make(30, 30, 30);
     lv_obj_add_flag(ui_AutoAirBtn, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_style_bg_color(ui_AutoAirBtn, bg, LV_PART_MAIN);
     lv_obj_set_style_opa(ui_AutoAirBtn, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_text_color(ui_AutoAirBtnLabel, fg, 0);
-  }
-
-  // Temperature arrows: disabled (grey, non-clickable) while AUTO AIR is active
-  if (g_autoAirActive) {
-    lv_obj_clear_flag(ui_ImgArrowUpTemp,   LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_img_recolor(ui_ImgArrowUpTemp,   lv_color_hex(0x888888), LV_PART_MAIN);
-    lv_obj_set_style_img_recolor_opa(ui_ImgArrowUpTemp,   LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_img_recolor(ui_ImgArrowDownTemp, lv_color_hex(0x888888), LV_PART_MAIN);
-    lv_obj_set_style_img_recolor_opa(ui_ImgArrowDownTemp, LV_OPA_COVER, LV_PART_MAIN);
-  } else {
-    lv_obj_add_flag(ui_ImgArrowUpTemp,   LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_img_recolor_opa(ui_ImgArrowUpTemp,   LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_img_recolor_opa(ui_ImgArrowDownTemp, LV_OPA_TRANSP, LV_PART_MAIN);
   }
 }
 
@@ -917,12 +896,11 @@ static void autoair_deactivate(bool fromModeSwitch) {
 }
 
 static void autoair_activate(float setpoint, const char *rowDesc) {
-  // Clamp to AIR range and round to 0.2 °C step
+  // Clamp to AIR range and round to 0.1 °C step
   if (setpoint < (float)AIR_TEMP_MIN) setpoint = (float)AIR_TEMP_MIN;
   if (setpoint > (float)AIR_TEMP_MAX) setpoint = (float)AIR_TEMP_MAX;
-  setpoint = (float)((int)(setpoint * 5.0f + 0.5f)) * 0.2f;
+  setpoint = (float)((int)(setpoint * 10.0f + 0.5f)) * 0.1f;
 
-  g_autoAirActive   = true;
   airTempValue      = setpoint;
   hmi_msg.desiredAirTemperature = airTempValue;
   hmi_msg.shouldSendData = true;
@@ -930,24 +908,17 @@ static void autoair_activate(float setpoint, const char *rowDesc) {
   eepromDirty = true;
   lastVarChangeTime = millis();
 
-  // Disable manual arrows (AUTO AIR owns the setpoint)
-  lv_obj_clear_flag(ui_ImgArrowUpTemp, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_clear_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_style_bg_color(ui_ArrowUpTemp, COLOR_PANEL_GRAY, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(ui_ArrowDownTemp, COLOR_PANEL_GRAY, LV_PART_MAIN);
-
-  autoair_update_button_style();
   update_labels();
 
   const char *msg = (g_lang == LANG_ES)
-      ? "AUTO AIR activado - Ajuste automatico segun peso y EG"
+      ? "Temperatura recomendada Auto Air aplicada"
   : (g_lang == LANG_FR)
-      ? "AUTO AIR active - Reglage automatique poids/AG"
-      : "AUTO AIR activated - Auto setpoint by weight & GA";
+      ? "Temperature recommandee Auto Air appliquee"
+      : "Auto Air recommended temperature applied";
   autoair_show_toast(msg, 4000);
 
   ESP_LOGI(TAG,
-           "[AUTO-AIR] Activated. Setpoint=%.1f degC row='%s' "
+           "[AUTO-AIR] Recommendation applied. Setpoint=%.1f degC row='%s' "
            "weight=%dg gest=%dwk age=%dh ts=%lu",
            setpoint, rowDesc,
            g_babyWeightGrams, g_babyGestWeeks, g_babyAgeHours,
@@ -1186,10 +1157,6 @@ void AutoAirBtn_cb(lv_event_t *e) {
     autoair_show_toast(msg, 3000);
     return;
   }
-  if (g_autoAirActive) {
-    autoair_deactivate(false);
-    return;
-  }
   autoair_popup_show(true);
 }
 
@@ -1348,8 +1315,6 @@ void SkinPanel_cb(lv_event_t *e) {
 
   hmi_msg.controlMode = CONTROL_SKIN;
   hmi_msg.shouldSendData = true;
-  if (g_autoAirActive)
-    autoair_deactivate(true); // ARQ-AUTOAIR-004: auto-deactivate on mode switch
   temp_chart_show_for_selected_panel();
 }
 
@@ -1447,8 +1412,6 @@ void Switch_cb(lv_event_t *e) {
         selectedPanel = SKIN_PANEL_SELECTED;
         set_active_panel(ui_SkinPanel, ui_AirPanel);
         hmi_msg.controlMode = CONTROL_SKIN;
-        if (g_autoAirActive)
-          autoair_deactivate(true); // ARQ-AUTOAIR-004
       } else { // No previous panel, default to Air
         selectedPanel = AIR_PANEL_SELECTED;
         set_active_panel(ui_AirPanel, ui_SkinPanel);
