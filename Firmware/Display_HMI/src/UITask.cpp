@@ -186,6 +186,54 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
   }
 }
 
+// Forward declarations
+void set_active_panel(lv_obj_t *active, lv_obj_t *inactive);
+void temp_chart_show_for_selected_panel(void);
+void ui_set_switch_state_silent(lv_obj_t *sw, bool on);
+
+// Fully disables Skin mode — same effect as flipping the Skin switch OFF.
+// Call this both from the switch-OFF handler and from the probe-disconnect path.
+static void skin_mode_force_off() {
+  // Uncheck the switch FIRST — line 3219 re-reads skinPanelEnabled from it
+  // every cycle, so leaving it checked would immediately undo everything else.
+  ui_set_switch_state_silent(ui_Switch4, false);
+
+  skinPanelEnabled = false;
+  hmi_msg.skinModeEnabled = false;
+  hmi_msg.shouldSendData = true;
+
+  if (ui_SkinPanelCont)
+    lv_obj_add_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
+  lastSelectedPanel = AIR_PANEL_SELECTED;
+  if (ui_AirTempBarCont)
+    lv_obj_clear_flag(ui_AirTempBarCont, LV_OBJ_FLAG_HIDDEN);
+
+  if (selectedPanel == SKIN_PANEL_SELECTED) {
+    selectedPanel = AIR_PANEL_SELECTED;
+    lastSelectedPanel = selectedPanel;
+
+    set_active_panel(ui_AirPanel, ui_SkinPanel);
+
+    if (ui_AirTempBarCont)
+      lv_obj_clear_flag(ui_AirTempBarCont, LV_OBJ_FLAG_HIDDEN);
+    if (ui_SkinTempBarCont)
+      lv_obj_add_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
+    if (ui_AirTempLockCont)
+      lv_obj_clear_flag(ui_AirTempLockCont, LV_OBJ_FLAG_HIDDEN);
+    if (ui_TargetAirTempCont)
+      lv_obj_clear_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);
+    if (ui_SkinTempLockCont)
+      lv_obj_add_flag(ui_SkinTempLockCont, LV_OBJ_FLAG_HIDDEN);
+    if (ui_TargetSkinTempCont)
+      lv_obj_add_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
+
+    if (tempSwitched) {
+      hmi_msg.controlMode = CONTROL_AIR;
+      temp_chart_show_for_selected_panel();
+    }
+  }
+}
+
 void update_labels() {
   if (!g_ui_initialized)
     return;
@@ -305,11 +353,9 @@ void update_labels() {
       if (ui_SkinOptionLabel)
         lv_label_set_text(ui_SkinOptionLabel, text);
       if (skinPanelEnabled) {
-        skinPanelEnabled = false;
-        hmi_msg.skinModeEnabled = false;
-        hmi_msg.shouldSendData = true;
-        if (ui_SkinPanelCont)
-          lv_obj_add_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
+        skin_mode_force_off();
+      } else if (ui_SkinPanelCont) {
+        lv_obj_add_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
       }
     }
   }
@@ -1587,37 +1633,8 @@ void Switch_cb(lv_event_t *e) {
                                 LV_PART_MAIN);
       lv_obj_set_style_opa(ui_SkinPanelCont, LV_OPA_COVER, LV_PART_MAIN);
     } else {
-      // Hide container of skin
-      lv_obj_add_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
-      lastSelectedPanel = AIR_PANEL_SELECTED;
-      lv_obj_clear_flag(ui_AirTempBarCont, LV_OBJ_FLAG_HIDDEN);
-
-      if (selectedPanel == SKIN_PANEL_SELECTED) {
-        selectedPanel = AIR_PANEL_SELECTED;
-        lastSelectedPanel = selectedPanel;
-
-        // Switch active panel to Air
-        set_active_panel(ui_AirPanel, ui_SkinPanel);
-
-        // Visibility restore
-        lv_obj_clear_flag(ui_AirTempBarCont, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
-
-        if (ui_AirTempLockCont)
-          lv_obj_clear_flag(ui_AirTempLockCont, LV_OBJ_FLAG_HIDDEN);
-        if (ui_TargetAirTempCont)
-          lv_obj_clear_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);
-        if (ui_SkinTempLockCont)
-          lv_obj_add_flag(ui_SkinTempLockCont, LV_OBJ_FLAG_HIDDEN);
-        if (ui_TargetSkinTempCont)
-          lv_obj_add_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
-
-        // Update control mode if temperature is switched on
-        if (tempSwitched) { // only if temp is ON
-          hmi_msg.controlMode = CONTROL_AIR;
-          temp_chart_show_for_selected_panel();
-        }
-      }
+      // Hide container of skin and restore Air panel
+      skin_mode_force_off();
     }
   } else if (obj == ui_SwitchDarkMode) { // DARK MODE SWITCH
     bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
