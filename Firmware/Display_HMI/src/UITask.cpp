@@ -94,6 +94,20 @@ lv_chart_series_t *humSeries = NULL;
 bool g_stateSynced = false;
 uint32_t g_lastStateReqMs = 0;
 bool g_ui_initialized = false;
+
+// AUTO AIR state (ARQ-AUTOAIR-001)
+bool   g_autoAirActive    = false;
+static int g_babyWeightGrams  = 0;
+static int g_babyGestWeeks    = 0;
+static int g_babyAgeHours     = 0;   // age stored in hours for sub-day precision
+static int g_popupWeight      = 1500;
+static int g_popupGest        = 32;
+static int g_popupAgeHours    = 0;   // hours in popup (0–23 = hours mode, ≥24 = days mode)
+static float aa_popup_setpoint = 0.0f;
+static float aa_popup_lo       = 0.0f;
+static float aa_popup_hi       = 0.0f;
+
+
 static bool eepromDirty = false;
 static unsigned long lastVarChangeTime = 0;
 
@@ -339,6 +353,42 @@ const char *getConnectivityString(int status, ui_lang_t lang) {
   }
 }
 
+static void autoair_apply_language(ui_lang_t lang) {
+  if (!ui_AutoAirModal) return;  // popup not created yet
+  lv_label_set_text(ui_AutoAirTitle,
+      (lang == LANG_ES) ? "Zona de Confort"
+    : (lang == LANG_FR) ? "Zone de Confort"
+    :                     "Comfort Zone");
+  lv_label_set_text(ui_AutoAirLeftHeader,
+      (lang == LANG_ES) ? "Info. del Bebe:"
+    : (lang == LANG_FR) ? "Infos Bebe:"
+    :                     "Baby Information:");
+  lv_label_set_text(ui_AutoAirRightHeader,
+      (lang == LANG_ES) ? "Rango Recomendado (C)"
+    : (lang == LANG_FR) ? "Plage Recommandee (C)"
+    :                     "Recommended Range (C)");
+  lv_label_set_text(ui_AutoAirGestLabel,
+      (lang == LANG_ES) ? "Edad Gestacional"
+    : (lang == LANG_FR) ? "Age Gestationnel"
+    :                     "Gestational Age");
+  lv_label_set_text(ui_AutoAirDaysLabel,
+      (lang == LANG_ES) ? "Edad Postnatal"
+    : (lang == LANG_FR) ? "Age Post-Natal"
+    :                     "Post-Natal Age");
+  lv_label_set_text(ui_AutoAirWeightLabel,
+      (lang == LANG_ES) ? "Peso"
+    : (lang == LANG_FR) ? "Poids"
+    :                     "Weight");
+  lv_label_set_text(ui_AutoAirCancelLabel,
+      (lang == LANG_ES) ? "CANCELAR"
+    : (lang == LANG_FR) ? "ANNULER"
+    :                     "CANCEL");
+  lv_label_set_text(ui_AutoAirApplyLabel,
+      (lang == LANG_ES) ? "APLICAR"
+    : (lang == LANG_FR) ? "APPLIQUER"
+    :                     "APPLY");
+}
+
 void UI_ApplyLanguage(ui_lang_t lang) {
   g_lang = lang;
   EEPROM.write(EEPROM_LANGUAGE, g_lang);
@@ -537,6 +587,8 @@ void UI_ApplyLanguage(ui_lang_t lang) {
     lv_label_set_text(ui_PhotoLockLabel, TXT_PHOTO_LOCK[lang]);
   }
 
+  autoair_apply_language(lang);
+
   update_labels();
   UI_SyncAll();
 }
@@ -611,6 +663,441 @@ void chart_add_skin_temp(float v) {
   if (!skinTempSeries)
     return;
   lv_chart_set_next_value(ui_SkinTempChart, skinTempSeries, (lv_coord_t)v);
+}
+
+// ============================================================================
+// AUTO AIR — Neutral Thermal Environment table & UI logic
+// ARQ-AUTOAIR-001..010 / UI-AUTOAIR-001..010
+// Clinical source: "Termorregulacion y Humedad en el RN"
+// ============================================================================
+
+// Returns the midpoint setpoint (°C) from the Neutral Thermal Environment table.
+// Also writes a short row description into row_desc for audit logging.
+// Returns -1.0f on invalid input.
+static float autoair_calculate_setpoint(int weightGrams, int gestWeeks,
+                                          int ageHours,
+                                          char *row_desc, size_t desc_len,
+                                          float *lo_out = nullptr,
+                                          float *hi_out = nullptr) {
+  if (weightGrams <= 0 || gestWeeks <= 0 || ageHours < 0) {
+    snprintf(row_desc, desc_len, "invalid inputs");
+    return -1.0f;
+  }
+  // Conservative rule: >2500g with EG<=36wk → use 1501-2500g row
+  bool heavy = (weightGrams > 2500) && (gestWeeks > 36);
+  float lo, hi;
+
+  if (ageHours < 96) {
+    bool vLight  = (weightGrams < 1200);
+    bool medLow  = (weightGrams >= 1200 && weightGrams <= 1500);
+    bool medHigh = (!vLight && !medLow && !heavy);
+    if (ageHours < 6) {
+      if      (vLight)  { lo=34.0f; hi=35.4f; snprintf(row_desc,desc_len,"0-6h,<1200g"); }
+      else if (medLow)  { lo=33.9f; hi=34.4f; snprintf(row_desc,desc_len,"0-6h,1200-1500g"); }
+      else if (medHigh) { lo=32.8f; hi=33.8f; snprintf(row_desc,desc_len,"0-6h,1501-2500g"); }
+      else              { lo=32.0f; hi=33.8f; snprintf(row_desc,desc_len,"0-6h,>2500g+>36sem"); }
+    } else if (ageHours < 12) {
+      if      (vLight)  { lo=34.0f; hi=35.4f; snprintf(row_desc,desc_len,"6-12h,<1200g"); }
+      else if (medLow)  { lo=33.5f; hi=34.4f; snprintf(row_desc,desc_len,"6-12h,1200-1500g"); }
+      else if (medHigh) { lo=32.2f; hi=33.8f; snprintf(row_desc,desc_len,"6-12h,1501-2500g"); }
+      else              { lo=31.4f; hi=33.8f; snprintf(row_desc,desc_len,"6-12h,>2500g+>36sem"); }
+    } else if (ageHours < 24) {
+      if      (vLight)  { lo=34.0f; hi=35.4f; snprintf(row_desc,desc_len,"12-24h,<1200g"); }
+      else if (medLow)  { lo=33.3f; hi=34.3f; snprintf(row_desc,desc_len,"12-24h,1200-1500g"); }
+      else if (medHigh) { lo=31.8f; hi=33.8f; snprintf(row_desc,desc_len,"12-24h,1501-2500g"); }
+      else              { lo=31.0f; hi=33.7f; snprintf(row_desc,desc_len,"12-24h,>2500g+>36sem"); }
+    } else if (ageHours < 36) {
+      if      (vLight)  { lo=34.0f; hi=35.0f; snprintf(row_desc,desc_len,"24-36h,<1200g"); }
+      else if (medLow)  { lo=33.1f; hi=34.2f; snprintf(row_desc,desc_len,"24-36h,1200-1500g"); }
+      else if (medHigh) { lo=31.6f; hi=33.6f; snprintf(row_desc,desc_len,"24-36h,1501-2500g"); }
+      else              { lo=30.7f; hi=33.5f; snprintf(row_desc,desc_len,"24-36h,>2500g+>36sem"); }
+    } else if (ageHours < 48) {
+      if      (vLight)  { lo=34.0f; hi=35.0f; snprintf(row_desc,desc_len,"36-48h,<1200g"); }
+      else if (medLow)  { lo=33.0f; hi=34.1f; snprintf(row_desc,desc_len,"36-48h,1200-1500g"); }
+      else if (medHigh) { lo=31.4f; hi=33.5f; snprintf(row_desc,desc_len,"36-48h,1501-2500g"); }
+      else              { lo=30.5f; hi=33.3f; snprintf(row_desc,desc_len,"36-48h,>2500g+>36sem"); }
+    } else if (ageHours < 72) {
+      if      (vLight)  { lo=34.0f; hi=35.0f; snprintf(row_desc,desc_len,"48-72h,<1200g"); }
+      else if (medLow)  { lo=33.0f; hi=34.0f; snprintf(row_desc,desc_len,"48-72h,1200-1500g"); }
+      else if (medHigh) { lo=31.2f; hi=33.4f; snprintf(row_desc,desc_len,"48-72h,1501-2500g"); }
+      else              { lo=30.1f; hi=33.2f; snprintf(row_desc,desc_len,"48-72h,>2500g+>36sem"); }
+    } else {                                                    // 72-96 h
+      if      (vLight)  { lo=34.0f; hi=35.0f; snprintf(row_desc,desc_len,"72-96h,<1200g"); }
+      else if (medLow)  { lo=33.0f; hi=34.0f; snprintf(row_desc,desc_len,"72-96h,1200-1500g"); }
+      else if (medHigh) { lo=31.1f; hi=33.2f; snprintf(row_desc,desc_len,"72-96h,1501-2500g"); }
+      else              { lo=29.8f; hi=32.8f; snprintf(row_desc,desc_len,"72-96h,>2500g+>36sem"); }
+    }
+  } else if (ageHours < 288) {                                  // 4-12 days
+    bool lt1500 = (weightGrams < 1500);
+    bool m15_25 = (!lt1500 && !heavy);
+    if (lt1500) {
+      lo=33.0f; hi=34.0f; snprintf(row_desc,desc_len,"4-12d,<1500g");
+    } else if (m15_25) {
+      lo=31.0f; hi=33.2f; snprintf(row_desc,desc_len,"4-12d,1500-2500g");
+    } else {
+      if      (ageHours < 120) { lo=29.5f; hi=32.6f; snprintf(row_desc,desc_len,"4-5d,>2500g+>36sem"); }
+      else if (ageHours < 144) { lo=29.4f; hi=32.3f; snprintf(row_desc,desc_len,"5-6d,>2500g+>36sem"); }
+      else if (ageHours < 192) { lo=29.0f; hi=32.2f; snprintf(row_desc,desc_len,"6-8d,>2500g+>36sem"); }
+      else if (ageHours < 240) { lo=29.0f; hi=32.0f; snprintf(row_desc,desc_len,"8-10d,>2500g+>36sem"); }
+      else                     { lo=29.0f; hi=31.4f; snprintf(row_desc,desc_len,"10-12d,>2500g+>36sem"); }
+    }
+  } else if (ageHours < 336) {                                  // 12-14 days
+    bool lt1500 = (weightGrams < 1500);
+    bool m15_25 = (!lt1500 && !heavy);
+    if      (lt1500)  { lo=32.6f; hi=34.0f; snprintf(row_desc,desc_len,"12-14d,<1500g"); }
+    else if (m15_25)  { lo=31.0f; hi=33.2f; snprintf(row_desc,desc_len,"12-14d,1500-2500g"); }
+    else              { lo=29.0f; hi=30.8f; snprintf(row_desc,desc_len,"12-14d,>2500g+>36sem"); }
+  } else if (ageHours < 504) {                                  // 2-3 weeks
+    bool lt1500 = (weightGrams < 1500);
+    if (lt1500) { lo=32.2f; hi=34.0f; snprintf(row_desc,desc_len,"2-3sem,<1500g"); }
+    else        { lo=30.5f; hi=33.0f; snprintf(row_desc,desc_len,"2-3sem,1500-2500g"); }
+  } else if (ageHours < 672) {                                  // 3-4 weeks
+    bool lt1500 = (weightGrams < 1500);
+    if (lt1500) { lo=31.6f; hi=33.6f; snprintf(row_desc,desc_len,"3-4sem,<1500g"); }
+    else        { lo=30.0f; hi=32.7f; snprintf(row_desc,desc_len,"3-4sem,1500-2500g"); }
+  } else {                                                      // >4 weeks (approximation)
+    bool lt1500 = (weightGrams < 1500);
+    if (lt1500) { lo=31.6f; hi=33.6f; snprintf(row_desc,desc_len,">4sem,<1500g(aprox)"); }
+    else        { lo=30.0f; hi=32.7f; snprintf(row_desc,desc_len,">4sem,>1500g(aprox)"); }
+  }
+  if (lo_out) *lo_out = lo;
+  if (hi_out) *hi_out = hi;
+  return (lo + hi) / 2.0f;
+}
+
+static void autoair_show_toast(const char *msg, uint32_t ms) {
+  if (!ui_AutoAirToast) return;
+  lv_label_set_text(ui_AutoAirToast, msg);
+  lv_obj_clear_flag(ui_AutoAirToast, LV_OBJ_FLAG_HIDDEN);
+  lv_timer_create(
+      [](lv_timer_t *t) {
+        if (ui_AutoAirToast)
+          lv_obj_add_flag(ui_AutoAirToast, LV_OBJ_FLAG_HIDDEN);
+        lv_timer_del(t);
+      },
+      ms, nullptr);
+}
+
+static void autoair_update_button_style() {
+  if (!ui_AutoAirBtn || !ui_AutoAirBtnLabel) return;
+  bool inAirMode = (selectedPanel == AIR_PANEL_SELECTED) && tempSwitched;
+
+  if (!inAirMode) {
+    // Disabled — skin mode or no temperature switch active
+    lv_obj_clear_flag(ui_AutoAirBtn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_bg_color(ui_AutoAirBtn, COLOR_PANEL_GRAY, LV_PART_MAIN);
+    lv_obj_set_style_opa(ui_AutoAirBtn, LV_OPA_50, LV_PART_MAIN);
+    lv_obj_set_style_text_color(ui_AutoAirBtnLabel, COLOR_PANEL_LIGHT_GRAY, 0);
+  } else {
+    // Available — normal appearance, no "active" state
+    lv_color_t bg = darkMode ? COLOR_PANEL_GRAY : COLOR_PANEL_WHITE;
+    lv_color_t fg = darkMode ? COLOR_TEXT_DARK  : lv_color_make(30, 30, 30);
+    lv_obj_add_flag(ui_AutoAirBtn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_bg_color(ui_AutoAirBtn, bg, LV_PART_MAIN);
+    lv_obj_set_style_opa(ui_AutoAirBtn, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_text_color(ui_AutoAirBtnLabel, fg, 0);
+  }
+}
+
+static void autoair_deactivate(bool fromModeSwitch) {
+  if (!g_autoAirActive) return;
+  g_autoAirActive = false;
+
+  // Re-enable manual temperature arrows
+  if (arrowsActive) {
+    lv_obj_add_flag(ui_ImgArrowUpTemp, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
+    lv_color_t active_col = darkMode ? COLOR_PANEL_GRAY : COLOR_PANEL_WHITE;
+    lv_obj_set_style_bg_color(ui_ArrowUpTemp, active_col, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_ArrowDownTemp, active_col, LV_PART_MAIN);
+  }
+  autoair_update_button_style();
+
+  const char *msg;
+  if (fromModeSwitch) {
+    msg = (g_lang == LANG_ES)
+              ? "AUTO AIR desactivado al cambiar a modo PIEL"
+          : (g_lang == LANG_FR)
+              ? "AUTO AIR desactive: passage en mode PEAU"
+              : "AUTO AIR auto-deactivated: switched to SKIN mode";
+  } else {
+    msg = (g_lang == LANG_ES)
+              ? "AUTO AIR desactivado - Control manual activo"
+          : (g_lang == LANG_FR)
+              ? "AUTO AIR desactive - Controle manuel actif"
+              : "AUTO AIR deactivated - Manual control active";
+  }
+  autoair_show_toast(msg, 3500);
+  ESP_LOGI(TAG,
+           "[AUTO-AIR] Deactivated. fromModeSwitch=%d "
+           "weight=%dg gest=%dwk age=%dh",
+           (int)fromModeSwitch, g_babyWeightGrams,
+           g_babyGestWeeks, g_babyAgeHours);
+}
+
+static void autoair_activate(float setpoint, const char *rowDesc) {
+  // Clamp to AIR range and round to 0.1 °C step
+  if (setpoint < (float)AIR_TEMP_MIN) setpoint = (float)AIR_TEMP_MIN;
+  if (setpoint > (float)AIR_TEMP_MAX) setpoint = (float)AIR_TEMP_MAX;
+  setpoint = (float)((int)(setpoint * 10.0f + 0.5f)) * 0.1f;
+
+  airTempValue      = setpoint;
+  hmi_msg.desiredAirTemperature = airTempValue;
+  hmi_msg.shouldSendData = true;
+  EEPROM.writeFloat(EEPROM_DESIRED_AIR_TEMP, airTempValue);
+  eepromDirty = true;
+  lastVarChangeTime = millis();
+
+  update_labels();
+
+  const char *msg = (g_lang == LANG_ES)
+      ? "Temperatura recomendada Auto Air aplicada"
+  : (g_lang == LANG_FR)
+      ? "Temperature recommandee Auto Air appliquee"
+      : "Auto Air recommended temperature applied";
+  autoair_show_toast(msg, 4000);
+
+  ESP_LOGI(TAG,
+           "[AUTO-AIR] Recommendation applied. Setpoint=%.1f degC row='%s' "
+           "weight=%dg gest=%dwk age=%dh ts=%lu",
+           setpoint, rowDesc,
+           g_babyWeightGrams, g_babyGestWeeks, g_babyAgeHours,
+           (unsigned long)millis());
+}
+
+static void aa_update_marker_pos(float sp) {
+  if (!aa_setpoint_marker) return;
+  if (sp <= 0.0f || aa_popup_hi <= aa_popup_lo) {
+    lv_obj_add_flag(aa_setpoint_marker, LV_OBJ_FLAG_HIDDEN);
+    return;
+  }
+  lv_obj_clear_flag(aa_setpoint_marker, LV_OBJ_FLAG_HIDDEN);
+  // Map sp within [lo, hi]: hi → top of bar (y=22), lo → bottom (y=22+196)
+  float fraction = (aa_popup_hi - sp) / (aa_popup_hi - aa_popup_lo);
+  if (fraction < 0.0f) fraction = 0.0f;
+  if (fraction > 1.0f) fraction = 1.0f;
+  int y = 22 + (int)(fraction * (210 - 14));
+  lv_obj_set_pos(aa_setpoint_marker, 18, y);
+}
+
+static void aa_update_range_display() {
+  if (!aa_range_bar || !aa_label_hi || !aa_label_mid || !aa_label_lo || !aa_setpoint_label) return;
+  char rowDesc[48];
+  float lo, hi;
+  float sp = autoair_calculate_setpoint(g_popupWeight, g_popupGest, g_popupAgeHours,
+                                         rowDesc, sizeof(rowDesc), &lo, &hi);
+  char buf[16];
+  if (sp < 0.0f) {
+    lv_label_set_text(aa_label_hi,  "--.-");
+    lv_label_set_text(aa_label_mid, "--.-");
+    lv_label_set_text(aa_label_lo,  "--.-");
+    lv_label_set_text(aa_setpoint_label, "--.-");
+    aa_update_marker_pos(-1.0f);
+    aa_popup_lo = 0.0f; aa_popup_hi = 0.0f; aa_popup_setpoint = 0.0f;
+    return;
+  }
+  aa_popup_lo = lo;
+  aa_popup_hi = hi;
+  // Midpoint rounded to 0.2°C grid
+  float mid = (float)((int)(sp * 5.0f + 0.5f)) * 0.2f;
+  if (mid < lo) mid = lo;
+  if (mid > hi) mid = hi;
+  aa_popup_setpoint = mid;
+
+  snprintf(buf, sizeof(buf), "%.1f", hi);
+  lv_label_set_text(aa_label_hi, buf);
+  snprintf(buf, sizeof(buf), "%.1f", aa_popup_setpoint);
+  lv_label_set_text(aa_label_mid, buf);
+  snprintf(buf, sizeof(buf), "%.1f", lo);
+  lv_label_set_text(aa_label_lo, buf);
+  snprintf(buf, sizeof(buf), "%.1f C", aa_popup_setpoint);
+  lv_label_set_text(aa_setpoint_label, buf);
+  aa_update_marker_pos(aa_popup_setpoint);
+}
+
+static void autoair_popup_update_labels() {
+  if (!ui_AutoAirWeightVal || !ui_AutoAirGestVal || !ui_AutoAirDaysVal) return;
+  char buf[12];
+  snprintf(buf, sizeof(buf), "%d", g_popupWeight);
+  lv_label_set_text(ui_AutoAirWeightVal, buf);
+  snprintf(buf, sizeof(buf), "%d", g_popupGest);
+  lv_label_set_text(ui_AutoAirGestVal, buf);
+  if (g_popupAgeHours < 24) {
+    snprintf(buf, sizeof(buf), "%d", g_popupAgeHours);
+    if (ui_AutoAirDaysUnitLbl) lv_label_set_text(ui_AutoAirDaysUnitLbl, "HRS");
+  } else {
+    snprintf(buf, sizeof(buf), "%d", g_popupAgeHours / 24);
+    if (ui_AutoAirDaysUnitLbl) lv_label_set_text(ui_AutoAirDaysUnitLbl, "DAYS");
+  }
+  lv_label_set_text(ui_AutoAirDaysVal, buf);
+  aa_update_range_display();
+  // Persist popup values with deferred commit (same pattern as rest of project)
+  EEPROM.writeUShort(EEPROM_AUTOAIR_WEIGHT, (uint16_t)g_popupWeight);
+  EEPROM.write(EEPROM_AUTOAIR_GEST,         (uint8_t)g_popupGest);
+  EEPROM.writeUShort(EEPROM_AUTOAIR_AGE_H,  (uint16_t)g_popupAgeHours);
+  eepromDirty = true;
+  lastVarChangeTime = millis();
+}
+
+static void autoair_popup_show(bool show) {
+  if (!ui_AutoAirOverlay) return;
+  if (show) {
+    autoair_apply_language(g_lang);
+    g_popupWeight = (g_babyWeightGrams > 0)  ? g_babyWeightGrams : 1500;
+    g_popupGest   = (g_babyGestWeeks   > 0)  ? g_babyGestWeeks   : 32;
+    g_popupAgeHours = (g_babyAgeHours >= 0) ? g_babyAgeHours : 0;
+    autoair_popup_update_labels();
+    if (ui_AutoAirErrLabel)
+      lv_obj_add_flag(ui_AutoAirErrLabel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_AutoAirOverlay, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(ui_AutoAirOverlay);
+  } else {
+    lv_obj_add_flag(ui_AutoAirOverlay, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+// Popup spinbox callbacks
+void aa_weight_dec_cb(lv_event_t *) {
+  if (g_popupWeight > 100) g_popupWeight -= 50;
+  autoair_popup_update_labels();
+}
+void aa_weight_inc_cb(lv_event_t *) {
+  if (g_popupWeight < 5000) g_popupWeight += 50;
+  autoair_popup_update_labels();
+}
+void aa_gest_dec_cb(lv_event_t *) {
+  if (g_popupGest > 23) g_popupGest--;
+  autoair_popup_update_labels();
+}
+void aa_gest_inc_cb(lv_event_t *) {
+  if (g_popupGest < 44) g_popupGest++;
+  autoair_popup_update_labels();
+}
+// Every 2 hours from 0–22 h, then one step per day (1–28 days)
+static const int AA_AGE_SNAPS[] = {
+    0,   2,   4,   6,   8,  10,  12,  14,  16,  18,  20,  22,  // 2-hour steps
+   24,  48,  72,  96, 120, 144, 168, 192, 216, 240, 264, 288,   // days 1–12
+  312, 336, 360, 384, 408, 432, 456, 480, 504, 528, 552, 576,   // days 13–24
+  600, 624, 648, 672                                             // days 25–28
+};
+static const int AA_AGE_SNAPS_N = (int)(sizeof(AA_AGE_SNAPS) / sizeof(AA_AGE_SNAPS[0]));
+
+void aa_days_dec_cb(lv_event_t *) {
+  for (int i = AA_AGE_SNAPS_N - 1; i >= 0; i--) {
+    if (AA_AGE_SNAPS[i] < g_popupAgeHours) {
+      g_popupAgeHours = AA_AGE_SNAPS[i];
+      break;
+    }
+  }
+  autoair_popup_update_labels();
+}
+void aa_days_inc_cb(lv_event_t *) {
+  for (int i = 0; i < AA_AGE_SNAPS_N; i++) {
+    if (AA_AGE_SNAPS[i] > g_popupAgeHours) {
+      g_popupAgeHours = AA_AGE_SNAPS[i];
+      break;
+    }
+  }
+  autoair_popup_update_labels();
+}
+
+void aa_confirm_cb(lv_event_t *) {
+  if (g_popupWeight <= 0 || g_popupGest <= 0 || g_popupAgeHours < 0) {
+    if (ui_AutoAirErrLabel) {
+      const char *errTxt = (g_lang == LANG_ES)
+          ? "Faltan datos del bebe"
+      : (g_lang == LANG_FR)
+          ? "Donnees du bebe manquantes"
+          : "Missing baby data";
+      lv_label_set_text(ui_AutoAirErrLabel, errTxt);
+      lv_obj_clear_flag(ui_AutoAirErrLabel, LV_OBJ_FLAG_HIDDEN);
+    }
+    return;
+  }
+  if (aa_popup_setpoint <= 0.0f) {
+    if (ui_AutoAirErrLabel) {
+      const char *errTxt = (g_lang == LANG_ES)
+          ? "Rango no calculado"
+      : (g_lang == LANG_FR)
+          ? "Plage non calculee"
+          : "Range not computed";
+      lv_label_set_text(ui_AutoAirErrLabel, errTxt);
+      lv_obj_clear_flag(ui_AutoAirErrLabel, LV_OBJ_FLAG_HIDDEN);
+    }
+    return;
+  }
+  g_babyWeightGrams = g_popupWeight;
+  g_babyGestWeeks   = g_popupGest;
+  g_babyAgeHours    = g_popupAgeHours;
+  char rowDesc[48];
+  autoair_calculate_setpoint(g_babyWeightGrams, g_babyGestWeeks,
+                              g_babyAgeHours, rowDesc, sizeof(rowDesc));
+  autoair_popup_show(false);
+  autoair_activate(aa_popup_setpoint, rowDesc);
+}
+
+void aa_cancel_cb(lv_event_t *) {
+  autoair_popup_show(false);
+}
+
+static void aa_apply_setpoint(float sp) {
+  int steps = (int)(sp * 10.0f + 0.5f);
+  sp = (float)steps * 0.1f;
+  if (sp < aa_popup_lo) sp = aa_popup_lo;
+  if (sp > aa_popup_hi) sp = aa_popup_hi;
+  aa_popup_setpoint = sp;
+  if (aa_label_mid && aa_setpoint_label) {
+    char buf[12];
+    snprintf(buf, sizeof(buf), "%.1f", aa_popup_setpoint);
+    lv_label_set_text(aa_label_mid, buf);
+    snprintf(buf, sizeof(buf), "%.1f C", aa_popup_setpoint);
+    lv_label_set_text(aa_setpoint_label, buf);
+  }
+  aa_update_marker_pos(aa_popup_setpoint);
+}
+
+void aa_bar_drag_cb(lv_event_t *) {
+  if (aa_popup_hi <= aa_popup_lo || !aa_range_bar) return;
+  lv_indev_t *indev = lv_indev_get_act();
+  if (!indev) return;
+  lv_point_t pt;
+  lv_indev_get_point(indev, &pt);
+  lv_area_t coords;
+  lv_obj_get_coords(aa_range_bar, &coords);
+  int bar_h = coords.y2 - coords.y1;       // 210
+  int rel_y = pt.y - coords.y1 - 7;        // 7 = half marker height, centres on finger
+  float fraction = (float)rel_y / (float)(bar_h - 14);
+  if (fraction < 0.0f) fraction = 0.0f;
+  if (fraction > 1.0f) fraction = 1.0f;
+  float sp = aa_popup_hi - fraction * (aa_popup_hi - aa_popup_lo);
+  aa_apply_setpoint(sp);
+}
+
+void aa_setpoint_up_cb(lv_event_t *) {
+  if (aa_popup_hi <= 0.0f) return;
+  int steps = (int)(aa_popup_setpoint * 10.0f + 0.5f) + 1;
+  aa_apply_setpoint((float)steps * 0.1f);
+}
+
+void aa_setpoint_down_cb(lv_event_t *) {
+  if (aa_popup_lo <= 0.0f) return;
+  int steps = (int)(aa_popup_setpoint * 10.0f + 0.5f) - 1;
+  aa_apply_setpoint((float)steps * 0.1f);
+}
+
+void AutoAirBtn_cb(lv_event_t *e) {
+  if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+
+  if (selectedPanel != AIR_PANEL_SELECTED || !tempSwitched) {
+    const char *msg = (g_lang == LANG_ES)
+        ? "Disponible solo en modo AIR"
+    : (g_lang == LANG_FR)
+        ? "Disponible uniquement en mode AIR"
+        : "Available in AIR mode only";
+    autoair_show_toast(msg, 3000);
+    return;
+  }
+  autoair_popup_show(true);
 }
 
 void set_active_panel(lv_obj_t *active, lv_obj_t *inactive) {
@@ -2359,6 +2846,20 @@ void UI_Task(void *pvParameters) {
                               LV_PART_MAIN);
   lv_obj_add_flag(ui_SkinProbeStatusLabel, LV_OBJ_FLAG_HIDDEN);
 
+  // --- AUTO AIR button & popup (UI-AUTOAIR-001..010) ---
+  create_autoair_button();
+  create_autoair_popup();
+  // Restore last-used Auto Air values from EEPROM
+  {
+    uint16_t w = EEPROM.readUShort(EEPROM_AUTOAIR_WEIGHT);
+    uint8_t  g = EEPROM.read(EEPROM_AUTOAIR_GEST);
+    uint16_t a = EEPROM.readUShort(EEPROM_AUTOAIR_AGE_H);
+    if (w >= 400 && w <= 5000)  g_babyWeightGrams = w;
+    if (g >= 22  && g <= 44)    g_babyGestWeeks   = g;
+    if (a <= 672)               g_babyAgeHours    = a;
+  }
+  autoair_update_button_style(); // set initial visual state after creation
+
   intro_timer = lv_timer_create(intro_timer_cb, 5000, NULL);
   lv_timer_set_repeat_count(intro_timer, 1);
 
@@ -3052,6 +3553,7 @@ void UI_SyncAll() {
 
   hmi_msg.language = (int)g_lang;
   update_labels();
+  autoair_update_button_style(); // ARQ-AUTOAIR-005: keep button style in sync
 }
 
 static void UI_ApplyStyleToLabelsRecursive(lv_obj_t *obj, lv_color_t color) {
@@ -3277,6 +3779,44 @@ void UI_ApplyTheme() {
         // Color de la opción seleccionada
         lv_obj_set_style_bg_color(list, dd_list_sel, LV_PART_SELECTED);
       }
+    }
+  }
+
+  // --- AUTO AIR POPUP DARK MODE ---
+  if (ui_AutoAirModal) {
+    lv_color_t aa_modal_bg  = darkMode ? COLOR_BG_DARK          : COLOR_PANEL_WHITE;
+    lv_color_t aa_row_bg    = darkMode ? COLOR_PANEL_DARK        : COLOR_PANEL_WHITE;
+    lv_color_t aa_row_brd   = darkMode ? lv_color_hex(0x555555)  : lv_color_hex(0xDDDDDD);
+    lv_color_t aa_sep_col   = darkMode ? lv_color_hex(0x444444)  : lv_color_hex(0xDDDDDD);
+
+    lv_obj_set_style_bg_color(ui_AutoAirModal, aa_modal_bg, LV_PART_MAIN);
+
+    lv_obj_t *rows[] = { ui_AutoAirRowGest, ui_AutoAirRowDays, ui_AutoAirRowWeight };
+    for (int i = 0; i < 3; i++) {
+      if (rows[i]) {
+        lv_obj_set_style_bg_color(rows[i],     aa_row_bg,  LV_PART_MAIN);
+        lv_obj_set_style_border_color(rows[i], aa_row_brd, LV_PART_MAIN);
+      }
+    }
+    if (ui_AutoAirHSep) lv_obj_set_style_bg_color(ui_AutoAirHSep, aa_sep_col, LV_PART_MAIN);
+    if (ui_AutoAirVSep) lv_obj_set_style_bg_color(ui_AutoAirVSep, aa_sep_col, LV_PART_MAIN);
+
+    // Re-apply blue to value labels overridden by the recursive text sweep
+    lv_color_t blue = lv_color_hex(0x0075EE);
+    if (ui_AutoAirGestVal)   lv_obj_set_style_text_color(ui_AutoAirGestVal,   blue, 0);
+    if (ui_AutoAirDaysVal)   lv_obj_set_style_text_color(ui_AutoAirDaysVal,   blue, 0);
+    if (ui_AutoAirWeightVal) lv_obj_set_style_text_color(ui_AutoAirWeightVal, blue, 0);
+    if (aa_label_mid)        lv_obj_set_style_text_color(aa_label_mid,        blue, 0);
+
+    // Range bar track color
+    if (aa_range_bar) {
+      lv_obj_set_style_bg_color(aa_range_bar,
+          darkMode ? lv_color_hex(0xCCCCCC) : lv_color_hex(0xE0E0E0), LV_PART_MAIN);
+    }
+    // Setpoint marker color
+    if (aa_setpoint_marker) {
+      lv_obj_set_style_bg_color(aa_setpoint_marker,
+          darkMode ? lv_color_hex(0x5588AA) : lv_color_hex(0x0095DA), LV_PART_MAIN);
     }
   }
 

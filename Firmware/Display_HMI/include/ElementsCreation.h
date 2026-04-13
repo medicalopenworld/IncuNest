@@ -197,6 +197,40 @@ void ui_ScreenMain_screen_init(void);
 void ui_ScreenMain_screen_destroy(void);
 void ui_event_PhotoCancelBtn(lv_event_t * e);
 
+// --- AUTO AIR widgets (created in ElementsCreation.cpp) ---
+extern lv_obj_t *ui_AutoAirBtn;
+extern lv_obj_t *ui_AutoAirBtnLabel;
+extern lv_obj_t *ui_AutoAirOverlay;
+extern lv_obj_t *ui_AutoAirModal;
+extern lv_obj_t *ui_AutoAirWeightVal;
+extern lv_obj_t *ui_AutoAirGestVal;
+extern lv_obj_t *ui_AutoAirDaysVal;
+extern lv_obj_t *ui_AutoAirDaysUnitLbl;
+extern lv_obj_t *ui_AutoAirErrLabel;
+extern lv_obj_t *ui_AutoAirToast;
+extern lv_obj_t *ui_AutoAirRowGest;
+extern lv_obj_t *ui_AutoAirRowDays;
+extern lv_obj_t *ui_AutoAirRowWeight;
+extern lv_obj_t *ui_AutoAirHSep;
+extern lv_obj_t *ui_AutoAirVSep;
+extern lv_obj_t *ui_AutoAirTitle;
+extern lv_obj_t *ui_AutoAirLeftHeader;
+extern lv_obj_t *ui_AutoAirRightHeader;
+extern lv_obj_t *ui_AutoAirGestLabel;
+extern lv_obj_t *ui_AutoAirDaysLabel;
+extern lv_obj_t *ui_AutoAirWeightLabel;
+extern lv_obj_t *ui_AutoAirCancelLabel;
+extern lv_obj_t *ui_AutoAirApplyLabel;
+// --- AUTO AIR range display widgets ---
+extern lv_obj_t *aa_range_bar;
+extern lv_obj_t *aa_setpoint_marker;
+extern lv_obj_t *aa_label_hi;
+extern lv_obj_t *aa_label_mid;
+extern lv_obj_t *aa_label_lo;
+extern lv_obj_t *aa_setpoint_label;
+void create_autoair_button(void);
+void create_autoair_popup(void);
+
 // --- SCREEN: Settings ---
 extern lv_obj_t * ui_ScreenSettings;
 extern lv_obj_t * ui_Label8;

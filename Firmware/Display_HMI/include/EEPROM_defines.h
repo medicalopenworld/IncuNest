@@ -5,7 +5,7 @@
 #define EEPROM_COMMIT_DELAY INACTIVITY_TIMEOUT_MS
 
 // EEPROM variables
-#define EEPROM_SIZE 260
+#define EEPROM_SIZE 263
 #define EEPROM_CHECK_STATUS 0
 #define EEPROM_FIRST_TURN_ON 10
 #define EEPROM_AUTO_LOCK 20
@@ -40,6 +40,9 @@
 #define EEPROM_DARK_MODE        252  // 0: Off, 1: On
 #define EEPROM_DISPLAY_FREQ     253  // uint32_t: pixel clock Hz (4 bytes, 253-256)
 #define EEPROM_HUMIDITY_ENABLED 257  // 0: Off (default), 1: On
+#define EEPROM_AUTOAIR_WEIGHT   258  // Baby weight in grams (uint16, 2 bytes → 258-259)
+#define EEPROM_AUTOAIR_GEST     260  // Gestational age in weeks (uint8, 1 byte)
+#define EEPROM_AUTOAIR_AGE_H    261  // Postnatal age in hours (uint16, 2 bytes → 261-262)
 
 void initEEPROM();
 void loaddefaultValues();

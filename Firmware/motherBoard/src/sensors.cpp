@@ -196,6 +196,28 @@ void voltageMonitor() {
   }
 }
 
+double measureStabilizedCurrent(bool sensor, int shunt, float offsetCurrent,
+                                 float minExpected, float maxExpected,
+                                 int maxTimeMs, int intervalMs) {
+  float threshold = (maxExpected - minExpected) * CURRENT_STABILIZE_THRESHOLD_RATIO;
+  float prev = measureMeanConsumption(sensor, shunt) - offsetCurrent;
+  int elapsed = 0;
+  while (elapsed < maxTimeMs) {
+    vTaskDelay(pdMS_TO_TICKS(intervalMs));
+    elapsed += intervalMs;
+    float curr = measureMeanConsumption(sensor, shunt) - offsetCurrent;
+    if (curr > maxExpected) {
+      return curr;
+    }
+    if (abs(curr - prev) < threshold && curr >= minExpected &&
+        curr <= maxExpected) {
+      return curr;
+    }
+    prev = curr;
+  }
+  return prev;
+}
+
 double measureMeanConsumption(bool sensor, int shunt) {
 #if (HW_NUM >= 6 && HW_NUM <= 8)
   for (int i = 0; i < CURRENT_MEASURES_AMOUNT; i++) {
