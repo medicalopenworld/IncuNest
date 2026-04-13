@@ -2643,8 +2643,8 @@ void UI_Task(void *pvParameters) {
     panel_cfg.timings.flags.hsync_idle_low = !DISPLAY_HSYNC_POLARITY;
     panel_cfg.timings.flags.vsync_idle_low = !DISPLAY_VSYNC_POLARITY;
     panel_cfg.timings.flags.pclk_idle_high = DISPLAY_PCLK_IDLE_HIGH;
-    panel_cfg.timings.flags.pclk_active_neg = 0;
-    panel_cfg.timings.flags.de_idle_high = 0;
+    panel_cfg.timings.flags.pclk_active_neg = DISPLAY_PCLK_ACTIVE_NEG;
+    panel_cfg.timings.flags.de_idle_high    = DISPLAY_DE_IDLE_HIGH;
 
     panel_cfg.data_width = 16; // RGB565
     panel_cfg.num_fbs = 1;     // Single FB + bounce buffers

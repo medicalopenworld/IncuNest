@@ -96,4 +96,6 @@
 #define DISPLAY_VSYNC_PULSE_WIDTH 4
 #define DISPLAY_VSYNC_BACK_PORCH 8
 
-#define DISPLAY_PCLK_IDLE_HIGH 1
+#define DISPLAY_PCLK_ACTIVE_NEG 1  // Pixels latched on falling edge (panel requirement)
+#define DISPLAY_DE_IDLE_HIGH    1  // DE signal idle state
+#define DISPLAY_PCLK_IDLE_HIGH  1
