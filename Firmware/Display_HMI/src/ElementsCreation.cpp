@@ -3304,7 +3304,8 @@ static lv_obj_t *aa_make_input_row(lv_obj_t *parent, const char *fieldName,
                                     lv_event_cb_t decCb, lv_event_cb_t incCb,
                                     lv_obj_t **unitsLblOut = nullptr,
                                     lv_obj_t **rowOut = nullptr,
-                                    lv_obj_t **nameLblOut = nullptr) {
+                                    lv_obj_t **nameLblOut = nullptr,
+                                    int unitsXOffset = 85) {
   lv_obj_t *row = lv_obj_create(parent);
   lv_obj_set_size(row, 295, 76);
   lv_obj_align(row, LV_ALIGN_TOP_MID, 0, yOffset);
@@ -3332,21 +3333,21 @@ static lv_obj_t *aa_make_input_row(lv_obj_t *parent, const char *fieldName,
   lv_obj_t *unitsLbl = lv_label_create(row);
   lv_label_set_text(unitsLbl, fieldUnits);
   lv_obj_set_style_text_font(unitsLbl, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(unitsLbl, lv_color_hex(0xAAAAAA), 0);
-  lv_obj_align(unitsLbl, LV_ALIGN_RIGHT_MID, -116, 6);
+  lv_obj_set_style_text_color(unitsLbl, lv_color_hex(0x000000), 0);
+  lv_obj_align(unitsLbl, LV_ALIGN_LEFT_MID, unitsXOffset, 8);
   if (nameLblOut)  *nameLblOut  = nameLbl;
   if (unitsLblOut) *unitsLblOut = unitsLbl;
   if (rowOut)      *rowOut      = row;
 
   // Dec (▼) button — override size after aa_make_spinbtn
   lv_obj_t *btnDec = aa_make_spinbtn(row, LV_SYMBOL_DOWN, decCb);
-  lv_obj_set_size(btnDec, 52, 30);
-  lv_obj_align(btnDec, LV_ALIGN_RIGHT_MID, -56, 6);
+  lv_obj_set_size(btnDec, 64, 40);
+  lv_obj_align(btnDec, LV_ALIGN_RIGHT_MID, -78, 0);
 
   // Inc (▲) button
   lv_obj_t *btnInc = aa_make_spinbtn(row, LV_SYMBOL_UP, incCb);
-  lv_obj_set_size(btnInc, 52, 30);
-  lv_obj_align(btnInc, LV_ALIGN_RIGHT_MID, -2, 6);
+  lv_obj_set_size(btnInc, 64, 40);
+  lv_obj_align(btnInc, LV_ALIGN_RIGHT_MID, -2, 0);
 
   return val;
 }
@@ -3377,10 +3378,10 @@ void create_autoair_popup() {
   // ── Title bar ──────────────────────────────────────────────
   ui_AutoAirTitle = lv_label_create(modal);
   lv_obj_t *title = ui_AutoAirTitle;
-  lv_label_set_text(title, "Comfort Zone");
+  lv_label_set_text(title, "COMFORT ZONE");
   lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
   lv_obj_set_style_text_color(title, lv_color_hex(0x0075EE), 0);
-  lv_obj_align(title, LV_ALIGN_TOP_LEFT, 16, 10);
+  lv_obj_align(title, LV_ALIGN_TOP_LEFT, 16, 15);
 
   lv_obj_t *btnClose = lv_btn_create(modal);
   lv_obj_set_size(btnClose, 32, 32);
@@ -3425,7 +3426,7 @@ void create_autoair_popup() {
 
   ui_AutoAirLeftHeader = lv_label_create(colLeft);
   lv_obj_t *leftHeader = ui_AutoAirLeftHeader;
-  lv_label_set_text(leftHeader, "Baby Information:");
+  lv_label_set_text(leftHeader, "BABY INFORMATION:");
   lv_obj_set_style_text_font(leftHeader, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(leftHeader, lv_color_hex(0x555555), 0);
   lv_obj_align(leftHeader, LV_ALIGN_TOP_LEFT, 0, 0);
@@ -3434,23 +3435,23 @@ void create_autoair_popup() {
   // [0] Gestational Age → ui_AutoAirGestVal
   ui_AutoAirGestVal = aa_make_input_row(
       colLeft,
-      (g_lang == LANG_ES) ? "Edad Gestacional" : (g_lang == LANG_FR) ? "Age Gestationnel" : "Gestational Age",
+      (g_lang == LANG_ES) ? "EDAD GESTACIONAL" : (g_lang == LANG_FR) ? "AGE GESTATIONNEL" : "GESTATIONAL AGE",
       "WEEKS",
-      18, aa_gest_dec_cb, aa_gest_inc_cb, nullptr, &ui_AutoAirRowGest, &ui_AutoAirGestLabel);
+      28, aa_gest_dec_cb, aa_gest_inc_cb, nullptr, &ui_AutoAirRowGest, &ui_AutoAirGestLabel, 50);
 
   // [1] Post-Natal Age → ui_AutoAirDaysVal
   ui_AutoAirDaysVal = aa_make_input_row(
       colLeft,
-      (g_lang == LANG_ES) ? "Edad Postnatal" : (g_lang == LANG_FR) ? "Age Post-Natal" : "Post-Natal Age",
+      (g_lang == LANG_ES) ? "EDAD POSTNATAL" : (g_lang == LANG_FR) ? "AGE POST-NATAL" : "POST-NATAL AGE",
       "DAYS",
-      104, aa_days_dec_cb, aa_days_inc_cb, &ui_AutoAirDaysUnitLbl, &ui_AutoAirRowDays, &ui_AutoAirDaysLabel);
+      114, aa_days_dec_cb, aa_days_inc_cb, &ui_AutoAirDaysUnitLbl, &ui_AutoAirRowDays, &ui_AutoAirDaysLabel, 50);
 
   // [2] Weight → ui_AutoAirWeightVal
   ui_AutoAirWeightVal = aa_make_input_row(
       colLeft,
-      (g_lang == LANG_ES) ? "Peso" : (g_lang == LANG_FR) ? "Poids" : "Weight",
+      (g_lang == LANG_ES) ? "PESO" : (g_lang == LANG_FR) ? "POIDS" : "WEIGHT",
       "GRAMS",
-      192, aa_weight_dec_cb, aa_weight_inc_cb, nullptr, &ui_AutoAirRowWeight, &ui_AutoAirWeightLabel);
+      202, aa_weight_dec_cb, aa_weight_inc_cb, nullptr, &ui_AutoAirRowWeight, &ui_AutoAirWeightLabel, 75);
 
   // Error label
   ui_AutoAirErrLabel = lv_label_create(colLeft);
@@ -3488,7 +3489,7 @@ void create_autoair_popup() {
 
   ui_AutoAirRightHeader = lv_label_create(colRight);
   lv_obj_t *rightHeader = ui_AutoAirRightHeader;
-  lv_label_set_text(rightHeader, "Recommended Range (C)");
+  lv_label_set_text(rightHeader, "RECOMMENDED RANGE (C)");
   lv_obj_set_style_text_font(rightHeader, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(rightHeader, lv_color_hex(0x555555), 0);
   lv_obj_align(rightHeader, LV_ALIGN_TOP_LEFT, 0, 0);
@@ -3496,7 +3497,7 @@ void create_autoair_popup() {
   // Vertical range bar (height > width → LVGL 8 draws it vertical)
   aa_range_bar = lv_bar_create(colRight);
   lv_obj_set_size(aa_range_bar, 40, 320);
-  lv_obj_set_pos(aa_range_bar, 18, 22);
+  lv_obj_set_pos(aa_range_bar, 70, 22);
   lv_bar_set_mode(aa_range_bar, LV_BAR_MODE_NORMAL);
   lv_bar_set_range(aa_range_bar, 280, 370);   // °C × 10 → 28.0–37.0
   lv_bar_set_value(aa_range_bar, 280, LV_ANIM_OFF);
@@ -3509,8 +3510,8 @@ void create_autoair_popup() {
 
   // Fixed-size blue setpoint marker
   aa_setpoint_marker = lv_obj_create(colRight);
-  lv_obj_set_size(aa_setpoint_marker, 40, 14);
-  lv_obj_set_pos(aa_setpoint_marker, 18, 22);
+  lv_obj_set_size(aa_setpoint_marker, 40, 32);
+  lv_obj_set_pos(aa_setpoint_marker, 70, 22);
   lv_obj_set_style_bg_color(aa_setpoint_marker, lv_color_hex(0x0095DA), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(aa_setpoint_marker, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(aa_setpoint_marker, 0, LV_PART_MAIN);
@@ -3523,21 +3524,21 @@ void create_autoair_popup() {
   lv_label_set_text(aa_label_hi, "--.-");
   lv_obj_set_style_text_font(aa_label_hi, &lv_font_montserrat_20, 0);
   lv_obj_set_style_text_color(aa_label_hi, lv_color_hex(0x333333), 0);
-  lv_obj_set_pos(aa_label_hi, 65, 22);
+  lv_obj_set_pos(aa_label_hi, 118, 22);
 
-  // mid label — current setpoint (highlighted)
+  // mid label — current setpoint (highlighted); y updated dynamically in aa_update_marker_pos
   aa_label_mid = lv_label_create(colRight);
   lv_label_set_text(aa_label_mid, "--.-");
   lv_obj_set_style_text_font(aa_label_mid, &lv_font_montserrat_28, 0);
   lv_obj_set_style_text_color(aa_label_mid, lv_color_hex(0x0075EE), 0);
-  lv_obj_set_pos(aa_label_mid, 65, 173);
+  lv_obj_set_pos(aa_label_mid, 5, 173);
 
   // setpoint sub-label — kept alive for guard checks but hidden (duplicate of aa_label_mid)
   aa_setpoint_label = lv_label_create(colRight);
   lv_label_set_text(aa_setpoint_label, "--.-");
   lv_obj_set_style_text_font(aa_setpoint_label, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(aa_setpoint_label, lv_color_hex(0x555555), 0);
-  lv_obj_set_pos(aa_setpoint_label, 65, 197);
+  lv_obj_set_pos(aa_setpoint_label, 5, 197);
   lv_obj_add_flag(aa_setpoint_label, LV_OBJ_FLAG_HIDDEN);
 
   // lo label — bottom of bar
@@ -3545,12 +3546,12 @@ void create_autoair_popup() {
   lv_label_set_text(aa_label_lo, "--.-");
   lv_obj_set_style_text_font(aa_label_lo, &lv_font_montserrat_20, 0);
   lv_obj_set_style_text_color(aa_label_lo, lv_color_hex(0x333333), 0);
-  lv_obj_set_pos(aa_label_lo, 65, 328);
+  lv_obj_set_pos(aa_label_lo, 118, 328);
 
   // Setpoint ▲ button
   lv_obj_t *btnSpUp = lv_btn_create(colRight);
   lv_obj_set_size(btnSpUp, 80, 46);
-  lv_obj_set_pos(btnSpUp, 238, 18);
+  lv_obj_set_pos(btnSpUp, 234, 18);
   lv_obj_set_style_bg_color(btnSpUp, lv_color_hex(0x0075EE), LV_PART_MAIN);
   lv_obj_set_style_radius(btnSpUp, 8, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(btnSpUp, 0, LV_PART_MAIN);
@@ -3563,7 +3564,7 @@ void create_autoair_popup() {
   // APPLY button (center-right)
   lv_obj_t *btnApply = lv_btn_create(colRight);
   lv_obj_set_size(btnApply, 140, 46);
-  lv_obj_set_pos(btnApply, 178, 136);
+  lv_obj_set_pos(btnApply, 204, 136);
   lv_obj_set_style_bg_color(btnApply, lv_color_hex(0x00AA44), LV_PART_MAIN);
   lv_obj_set_style_radius(btnApply, 8, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(btnApply, 0, LV_PART_MAIN);
@@ -3578,7 +3579,7 @@ void create_autoair_popup() {
   // Setpoint ▼ button
   lv_obj_t *btnSpDown = lv_btn_create(colRight);
   lv_obj_set_size(btnSpDown, 80, 46);
-  lv_obj_set_pos(btnSpDown, 238, 242);
+  lv_obj_set_pos(btnSpDown, 234, 242);
   lv_obj_set_style_bg_color(btnSpDown, lv_color_hex(0x0075EE), LV_PART_MAIN);
   lv_obj_set_style_radius(btnSpDown, 8, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(btnSpDown, 0, LV_PART_MAIN);

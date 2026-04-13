@@ -356,29 +356,29 @@ const char *getConnectivityString(int status, ui_lang_t lang) {
 static void autoair_apply_language(ui_lang_t lang) {
   if (!ui_AutoAirModal) return;  // popup not created yet
   lv_label_set_text(ui_AutoAirTitle,
-      (lang == LANG_ES) ? "Zona de Confort"
-    : (lang == LANG_FR) ? "Zone de Confort"
-    :                     "Comfort Zone");
+      (lang == LANG_ES) ? "ZONA DE CONFORT"
+    : (lang == LANG_FR) ? "ZONE DE CONFORT"
+    :                     "COMFORT ZONE");
   lv_label_set_text(ui_AutoAirLeftHeader,
-      (lang == LANG_ES) ? "Info. del Bebe:"
-    : (lang == LANG_FR) ? "Infos Bebe:"
-    :                     "Baby Information:");
+      (lang == LANG_ES) ? "INFO. DEL BEBE:"
+    : (lang == LANG_FR) ? "INFOS BEBE:"
+    :                     "BABY INFORMATION:");
   lv_label_set_text(ui_AutoAirRightHeader,
-      (lang == LANG_ES) ? "Rango Recomendado (C)"
-    : (lang == LANG_FR) ? "Plage Recommandee (C)"
-    :                     "Recommended Range (C)");
+      (lang == LANG_ES) ? "RANGO RECOMENDADO (C)"
+    : (lang == LANG_FR) ? "PLAGE RECOMMANDEE (C)"
+    :                     "RECOMMENDED RANGE (C)");
   lv_label_set_text(ui_AutoAirGestLabel,
-      (lang == LANG_ES) ? "Edad Gestacional"
-    : (lang == LANG_FR) ? "Age Gestationnel"
-    :                     "Gestational Age");
+      (lang == LANG_ES) ? "EDAD GESTACIONAL"
+    : (lang == LANG_FR) ? "AGE GESTATIONNEL"
+    :                     "GESTATIONAL AGE");
   lv_label_set_text(ui_AutoAirDaysLabel,
-      (lang == LANG_ES) ? "Edad Postnatal"
-    : (lang == LANG_FR) ? "Age Post-Natal"
-    :                     "Post-Natal Age");
+      (lang == LANG_ES) ? "EDAD POSTNATAL"
+    : (lang == LANG_FR) ? "AGE POST-NATAL"
+    :                     "POST-NATAL AGE");
   lv_label_set_text(ui_AutoAirWeightLabel,
-      (lang == LANG_ES) ? "Peso"
-    : (lang == LANG_FR) ? "Poids"
-    :                     "Weight");
+      (lang == LANG_ES) ? "PESO"
+    : (lang == LANG_FR) ? "POIDS"
+    :                     "WEIGHT");
   lv_label_set_text(ui_AutoAirCancelLabel,
       (lang == LANG_ES) ? "CANCELAR"
     : (lang == LANG_FR) ? "ANNULER"
@@ -872,12 +872,21 @@ static void aa_update_marker_pos(float sp) {
     return;
   }
   lv_obj_clear_flag(aa_setpoint_marker, LV_OBJ_FLAG_HIDDEN);
-  // Map sp within [lo, hi]: hi → top of bar (y=22), lo → bottom (y=22+196)
+  // Map sp within [lo, hi]: hi → top of bar (y=22), lo → bottom (y=22+288)
+  // bar_h=320, marker_h=32 → travel = 320-32 = 288
   float fraction = (aa_popup_hi - sp) / (aa_popup_hi - aa_popup_lo);
   if (fraction < 0.0f) fraction = 0.0f;
   if (fraction > 1.0f) fraction = 1.0f;
-  int y = 22 + (int)(fraction * (210 - 14));
-  lv_obj_set_pos(aa_setpoint_marker, 18, y);
+  int y = 22 + (int)(fraction * (320 - 32));
+  lv_obj_set_pos(aa_setpoint_marker, 70, y);
+
+  // Move aa_label_mid to track the marker vertically in real time
+  if (aa_label_mid) {
+    int label_y = y + 16 - 17;  // center M28 label (~34px) on marker center (y+16)
+    if (label_y < 22)  label_y = 22;
+    if (label_y > 310) label_y = 310;  // 22 + 320 - 32 = 310 (max marker y)
+    lv_obj_set_pos(aa_label_mid, 5, label_y);
+  }
 }
 
 static void aa_update_range_display() {
@@ -1064,9 +1073,9 @@ void aa_bar_drag_cb(lv_event_t *) {
   lv_indev_get_point(indev, &pt);
   lv_area_t coords;
   lv_obj_get_coords(aa_range_bar, &coords);
-  int bar_h = coords.y2 - coords.y1;       // 210
-  int rel_y = pt.y - coords.y1 - 7;        // 7 = half marker height, centres on finger
-  float fraction = (float)rel_y / (float)(bar_h - 14);
+  int bar_h = coords.y2 - coords.y1;       // 320
+  int rel_y = pt.y - coords.y1 - 16;       // 16 = half marker height (32/2), centres on finger
+  float fraction = (float)rel_y / (float)(bar_h - 32);
   if (fraction < 0.0f) fraction = 0.0f;
   if (fraction > 1.0f) fraction = 1.0f;
   float sp = aa_popup_hi - fraction * (aa_popup_hi - aa_popup_lo);
