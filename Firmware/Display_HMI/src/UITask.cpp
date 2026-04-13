@@ -99,10 +99,10 @@ bool g_ui_initialized = false;
 bool   g_autoAirActive    = false;
 static int g_babyWeightGrams  = 0;
 static int g_babyGestWeeks    = 0;
-static int g_babyAgeHours     = 0;   // age stored in hours for sub-day precision
+static int g_babyAgeHours     = 0;   // age stored as hours at start of day: day N → (N-1)*24
 static int g_popupWeight      = 1500;
 static int g_popupGest        = 32;
-static int g_popupAgeHours    = 0;   // hours in popup (0–23 = hours mode, ≥24 = days mode)
+static int g_popupAgeHours    = 0;   // hours at start of postnatal day (0=day1, 24=day2, …)
 static float aa_popup_setpoint = 0.0f;
 static float aa_popup_lo       = 0.0f;
 static float aa_popup_hi       = 0.0f;
@@ -672,94 +672,116 @@ void chart_add_skin_temp(float v) {
 // ============================================================================
 
 // Returns the midpoint setpoint (°C) from the Neutral Thermal Environment table.
+// Sources: Sauer/Dane/Visser (1984); Deacon/O'Neill (2004); Cloherty 3rd ed.; WHO/AAP
 // Also writes a short row description into row_desc for audit logging.
-// Returns -1.0f on invalid input.
+// Returns -1.0f when the cell is "—" (no incubator needed) or on invalid input.
 static float autoair_calculate_setpoint(int weightGrams, int gestWeeks,
                                           int ageHours,
                                           char *row_desc, size_t desc_len,
                                           float *lo_out = nullptr,
                                           float *hi_out = nullptr) {
-  if (weightGrams <= 0 || gestWeeks <= 0 || ageHours < 0) {
-    snprintf(row_desc, desc_len, "invalid inputs");
+  auto ret_invalid = [&](const char *msg) -> float {
+    snprintf(row_desc, desc_len, "%s", msg);
+    if (lo_out) *lo_out = -1.0f;
+    if (hi_out) *hi_out = -1.0f;
     return -1.0f;
-  }
-  // Conservative rule: >2500g with EG<=36wk → use 1501-2500g row
-  bool heavy = (weightGrams > 2500) && (gestWeeks > 36);
-  float lo, hi;
+  };
 
-  if (ageHours < 96) {
-    bool vLight  = (weightGrams < 1200);
-    bool medLow  = (weightGrams >= 1200 && weightGrams <= 1500);
-    bool medHigh = (!vLight && !medLow && !heavy);
-    if (ageHours < 6) {
-      if      (vLight)  { lo=34.0f; hi=35.4f; snprintf(row_desc,desc_len,"0-6h,<1200g"); }
-      else if (medLow)  { lo=33.9f; hi=34.4f; snprintf(row_desc,desc_len,"0-6h,1200-1500g"); }
-      else if (medHigh) { lo=32.8f; hi=33.8f; snprintf(row_desc,desc_len,"0-6h,1501-2500g"); }
-      else              { lo=32.0f; hi=33.8f; snprintf(row_desc,desc_len,"0-6h,>2500g+>36sem"); }
-    } else if (ageHours < 12) {
-      if      (vLight)  { lo=34.0f; hi=35.4f; snprintf(row_desc,desc_len,"6-12h,<1200g"); }
-      else if (medLow)  { lo=33.5f; hi=34.4f; snprintf(row_desc,desc_len,"6-12h,1200-1500g"); }
-      else if (medHigh) { lo=32.2f; hi=33.8f; snprintf(row_desc,desc_len,"6-12h,1501-2500g"); }
-      else              { lo=31.4f; hi=33.8f; snprintf(row_desc,desc_len,"6-12h,>2500g+>36sem"); }
-    } else if (ageHours < 24) {
-      if      (vLight)  { lo=34.0f; hi=35.4f; snprintf(row_desc,desc_len,"12-24h,<1200g"); }
-      else if (medLow)  { lo=33.3f; hi=34.3f; snprintf(row_desc,desc_len,"12-24h,1200-1500g"); }
-      else if (medHigh) { lo=31.8f; hi=33.8f; snprintf(row_desc,desc_len,"12-24h,1501-2500g"); }
-      else              { lo=31.0f; hi=33.7f; snprintf(row_desc,desc_len,"12-24h,>2500g+>36sem"); }
-    } else if (ageHours < 36) {
-      if      (vLight)  { lo=34.0f; hi=35.0f; snprintf(row_desc,desc_len,"24-36h,<1200g"); }
-      else if (medLow)  { lo=33.1f; hi=34.2f; snprintf(row_desc,desc_len,"24-36h,1200-1500g"); }
-      else if (medHigh) { lo=31.6f; hi=33.6f; snprintf(row_desc,desc_len,"24-36h,1501-2500g"); }
-      else              { lo=30.7f; hi=33.5f; snprintf(row_desc,desc_len,"24-36h,>2500g+>36sem"); }
-    } else if (ageHours < 48) {
-      if      (vLight)  { lo=34.0f; hi=35.0f; snprintf(row_desc,desc_len,"36-48h,<1200g"); }
-      else if (medLow)  { lo=33.0f; hi=34.1f; snprintf(row_desc,desc_len,"36-48h,1200-1500g"); }
-      else if (medHigh) { lo=31.4f; hi=33.5f; snprintf(row_desc,desc_len,"36-48h,1501-2500g"); }
-      else              { lo=30.5f; hi=33.3f; snprintf(row_desc,desc_len,"36-48h,>2500g+>36sem"); }
-    } else if (ageHours < 72) {
-      if      (vLight)  { lo=34.0f; hi=35.0f; snprintf(row_desc,desc_len,"48-72h,<1200g"); }
-      else if (medLow)  { lo=33.0f; hi=34.0f; snprintf(row_desc,desc_len,"48-72h,1200-1500g"); }
-      else if (medHigh) { lo=31.2f; hi=33.4f; snprintf(row_desc,desc_len,"48-72h,1501-2500g"); }
-      else              { lo=30.1f; hi=33.2f; snprintf(row_desc,desc_len,"48-72h,>2500g+>36sem"); }
-    } else {                                                    // 72-96 h
-      if      (vLight)  { lo=34.0f; hi=35.0f; snprintf(row_desc,desc_len,"72-96h,<1200g"); }
-      else if (medLow)  { lo=33.0f; hi=34.0f; snprintf(row_desc,desc_len,"72-96h,1200-1500g"); }
-      else if (medHigh) { lo=31.1f; hi=33.2f; snprintf(row_desc,desc_len,"72-96h,1501-2500g"); }
-      else              { lo=29.8f; hi=32.8f; snprintf(row_desc,desc_len,"72-96h,>2500g+>36sem"); }
+  if (weightGrams <= 0 || gestWeeks < 24 || ageHours < 0)
+    return ret_invalid("invalid inputs");
+
+  // ── Time-period index (tp): 0=D1, 1=D2, 2=D3, 3=D4-7, 4=W2, 5=W3, 6=W4+ ──
+  int tp;
+  const char *tp_str;
+  if      (ageHours <  24) { tp = 0; tp_str = "D1";   }
+  else if (ageHours <  48) { tp = 1; tp_str = "D2";   }
+  else if (ageHours <  72) { tp = 2; tp_str = "D3";   }
+  else if (ageHours < 168) { tp = 3; tp_str = "D4-7"; }
+  else if (ageHours < 336) { tp = 4; tp_str = "W2";   }
+  else if (ageHours < 504) { tp = 5; tp_str = "W3";   }
+  else                     { tp = 6; tp_str = "W4+";  }
+
+  float lo, hi;
+  const char *wt_str;
+
+  // ── EG 24–27 semanas (extremadamente prematuro) ───────────────────────────
+  if (gestWeeks <= 27) {
+    // 3 weight rows × 7 time periods × [lo, hi]
+    static const float T[3][7][2] = {
+      // <750 g
+      {{35.0f,36.0f},{34.5f,35.5f},{34.0f,35.0f},{33.5f,34.5f},{33.0f,34.0f},{32.5f,33.5f},{32.0f,33.0f}},
+      // 750–1000 g
+      {{34.5f,35.5f},{34.0f,35.0f},{34.0f,35.0f},{33.5f,34.5f},{33.0f,34.0f},{32.5f,33.5f},{32.0f,33.0f}},
+      // 1000–1200 g  (also used conservatively if weight > 1200 at this EG)
+      {{34.0f,35.4f},{34.0f,35.0f},{34.0f,35.0f},{33.0f,34.0f},{32.6f,34.0f},{32.2f,34.0f},{31.6f,33.6f}},
+    };
+    int wr;
+    if      (weightGrams <  750) { wr = 0; wt_str = "<750g";       }
+    else if (weightGrams <= 1000){ wr = 1; wt_str = "750-1000g";   }
+    else                         { wr = 2; wt_str = "1000-1200g";  }
+    lo = T[wr][tp][0];  hi = T[wr][tp][1];
+
+  // ── EG 28–31 semanas (muy prematuro) ─────────────────────────────────────
+  } else if (gestWeeks <= 31) {
+    static const float T[3][7][2] = {
+      // <1200 g
+      {{34.0f,35.4f},{34.0f,35.0f},{34.0f,35.0f},{33.0f,34.0f},{32.6f,34.0f},{32.2f,34.0f},{31.6f,33.6f}},
+      // 1200–1500 g
+      {{33.9f,34.4f},{33.1f,34.2f},{33.0f,34.0f},{33.0f,34.0f},{31.0f,33.2f},{30.5f,33.0f},{30.0f,32.7f}},
+      // 1501–1800 g  (also used conservatively if weight > 1800 at this EG)
+      {{33.5f,34.5f},{33.0f,34.0f},{32.5f,33.5f},{32.0f,33.5f},{31.0f,33.2f},{30.5f,33.0f},{30.0f,32.7f}},
+    };
+    int wr;
+    if      (weightGrams < 1200) { wr = 0; wt_str = "<1200g";     }
+    else if (weightGrams <= 1500){ wr = 1; wt_str = "1200-1500g"; }
+    else                         { wr = 2; wt_str = "1501-1800g"; }
+    lo = T[wr][tp][0];  hi = T[wr][tp][1];
+
+  // ── EG 32–35 semanas (prematuro moderado/tardío) ──────────────────────────
+  } else if (gestWeeks <= 35) {
+    // >2500g W3 and W4+ are "—"
+    static const float T[3][7][2] = {
+      // 1200–1500 g  (also used if weight < 1200 at this EG — conservative)
+      {{33.9f,34.4f},{33.0f,34.1f},{33.0f,34.0f},{33.0f,34.0f},{31.0f,33.2f},{30.5f,33.0f},{30.0f,32.7f}},
+      // 1501–2500 g
+      {{32.8f,33.8f},{31.6f,33.6f},{31.2f,33.4f},{31.1f,33.2f},{31.0f,33.2f},{30.5f,33.0f},{30.0f,32.7f}},
+      // >2500 g  (W3=tp5 and W4+=tp6 are "—")
+      {{32.0f,33.8f},{30.7f,33.5f},{30.1f,33.2f},{29.8f,32.8f},{29.0f,31.4f},{-1.0f,-1.0f},{-1.0f,-1.0f}},
+    };
+    int wr;
+    if      (weightGrams <= 1500){ wr = 0; wt_str = (weightGrams < 1200) ? "<1200g" : "1200-1500g"; }
+    else if (weightGrams <= 2500){ wr = 1; wt_str = "1501-2500g"; }
+    else                         { wr = 2; wt_str = ">2500g";     }
+    lo = T[wr][tp][0];  hi = T[wr][tp][1];
+
+  // ── EG ≥ 36 semanas (cercano a término / término) ────────────────────────
+  } else {
+    // All rows: W3+ (tp>=5) are "—"
+    static const float T[3][5][2] = {
+      // 1501–2500 g  (also used conservatively if weight <= 1500 at this EG)
+      {{32.8f,33.8f},{31.4f,33.5f},{31.2f,33.4f},{31.0f,33.2f},{29.0f,31.4f}},
+      // 2500–3500 g
+      {{32.0f,33.8f},{30.5f,33.3f},{30.1f,33.2f},{29.5f,32.6f},{29.0f,30.8f}},
+      // >3500 g
+      {{31.5f,33.5f},{30.0f,33.0f},{29.8f,32.8f},{29.5f,32.0f},{29.0f,30.5f}},
+    };
+    int wr;
+    if      (weightGrams <= 2500){ wr = 0; wt_str = (weightGrams <= 1500) ? "<=1500g" : "1501-2500g"; }
+    else if (weightGrams <= 3500){ wr = 1; wt_str = "2500-3500g"; }
+    else                         { wr = 2; wt_str = ">3500g";     }
+
+    if (tp >= 5) {
+      // W3 and beyond — no incubator needed
+      return ret_invalid("no aplica");
     }
-  } else if (ageHours < 288) {                                  // 4-12 days
-    bool lt1500 = (weightGrams < 1500);
-    bool m15_25 = (!lt1500 && !heavy);
-    if (lt1500) {
-      lo=33.0f; hi=34.0f; snprintf(row_desc,desc_len,"4-12d,<1500g");
-    } else if (m15_25) {
-      lo=31.0f; hi=33.2f; snprintf(row_desc,desc_len,"4-12d,1500-2500g");
-    } else {
-      if      (ageHours < 120) { lo=29.5f; hi=32.6f; snprintf(row_desc,desc_len,"4-5d,>2500g+>36sem"); }
-      else if (ageHours < 144) { lo=29.4f; hi=32.3f; snprintf(row_desc,desc_len,"5-6d,>2500g+>36sem"); }
-      else if (ageHours < 192) { lo=29.0f; hi=32.2f; snprintf(row_desc,desc_len,"6-8d,>2500g+>36sem"); }
-      else if (ageHours < 240) { lo=29.0f; hi=32.0f; snprintf(row_desc,desc_len,"8-10d,>2500g+>36sem"); }
-      else                     { lo=29.0f; hi=31.4f; snprintf(row_desc,desc_len,"10-12d,>2500g+>36sem"); }
-    }
-  } else if (ageHours < 336) {                                  // 12-14 days
-    bool lt1500 = (weightGrams < 1500);
-    bool m15_25 = (!lt1500 && !heavy);
-    if      (lt1500)  { lo=32.6f; hi=34.0f; snprintf(row_desc,desc_len,"12-14d,<1500g"); }
-    else if (m15_25)  { lo=31.0f; hi=33.2f; snprintf(row_desc,desc_len,"12-14d,1500-2500g"); }
-    else              { lo=29.0f; hi=30.8f; snprintf(row_desc,desc_len,"12-14d,>2500g+>36sem"); }
-  } else if (ageHours < 504) {                                  // 2-3 weeks
-    bool lt1500 = (weightGrams < 1500);
-    if (lt1500) { lo=32.2f; hi=34.0f; snprintf(row_desc,desc_len,"2-3sem,<1500g"); }
-    else        { lo=30.5f; hi=33.0f; snprintf(row_desc,desc_len,"2-3sem,1500-2500g"); }
-  } else if (ageHours < 672) {                                  // 3-4 weeks
-    bool lt1500 = (weightGrams < 1500);
-    if (lt1500) { lo=31.6f; hi=33.6f; snprintf(row_desc,desc_len,"3-4sem,<1500g"); }
-    else        { lo=30.0f; hi=32.7f; snprintf(row_desc,desc_len,"3-4sem,1500-2500g"); }
-  } else {                                                      // >4 weeks (approximation)
-    bool lt1500 = (weightGrams < 1500);
-    if (lt1500) { lo=31.6f; hi=33.6f; snprintf(row_desc,desc_len,">4sem,<1500g(aprox)"); }
-    else        { lo=30.0f; hi=32.7f; snprintf(row_desc,desc_len,">4sem,>1500g(aprox)"); }
+    lo = T[wr][tp][0];  hi = T[wr][tp][1];
   }
+
+  // "—" cells (lo stored as -1 sentinel)
+  if (lo < 0.0f || hi < 0.0f)
+    return ret_invalid("no aplica");
+
+  snprintf(row_desc, desc_len, "%s,EG%d,%s", tp_str, gestWeeks, wt_str);
   if (lo_out) *lo_out = lo;
   if (hi_out) *hi_out = hi;
   return (lo + hi) / 2.0f;
@@ -931,13 +953,8 @@ static void autoair_popup_update_labels() {
   lv_label_set_text(ui_AutoAirWeightVal, buf);
   snprintf(buf, sizeof(buf), "%d", g_popupGest);
   lv_label_set_text(ui_AutoAirGestVal, buf);
-  if (g_popupAgeHours < 24) {
-    snprintf(buf, sizeof(buf), "%d", g_popupAgeHours);
-    if (ui_AutoAirDaysUnitLbl) lv_label_set_text(ui_AutoAirDaysUnitLbl, "HRS");
-  } else {
-    snprintf(buf, sizeof(buf), "%d", g_popupAgeHours / 24);
-    if (ui_AutoAirDaysUnitLbl) lv_label_set_text(ui_AutoAirDaysUnitLbl, "DAYS");
-  }
+  snprintf(buf, sizeof(buf), "%d", g_popupAgeHours / 24 + 1);
+  if (ui_AutoAirDaysUnitLbl) lv_label_set_text(ui_AutoAirDaysUnitLbl, "DAYS");
   lv_label_set_text(ui_AutoAirDaysVal, buf);
   aa_update_range_display();
   // Persist popup values with deferred commit (same pattern as rest of project)
@@ -975,19 +992,19 @@ void aa_weight_inc_cb(lv_event_t *) {
   autoair_popup_update_labels();
 }
 void aa_gest_dec_cb(lv_event_t *) {
-  if (g_popupGest > 23) g_popupGest--;
+  if (g_popupGest > 24) g_popupGest--;
   autoair_popup_update_labels();
 }
 void aa_gest_inc_cb(lv_event_t *) {
   if (g_popupGest < 44) g_popupGest++;
   autoair_popup_update_labels();
 }
-// Every 2 hours from 0–22 h, then one step per day (1–28 days)
+// One step per day; value = hours at the START of that day → day N = (N-1)*24 h
+// Day 1 = 0 h (maps to clinical period D1: 0–24 h)
 static const int AA_AGE_SNAPS[] = {
-    0,   2,   4,   6,   8,  10,  12,  14,  16,  18,  20,  22,  // 2-hour steps
-   24,  48,  72,  96, 120, 144, 168, 192, 216, 240, 264, 288,   // days 1–12
-  312, 336, 360, 384, 408, 432, 456, 480, 504, 528, 552, 576,   // days 13–24
-  600, 624, 648, 672                                             // days 25–28
+    0,  24,  48,  72,  96, 120, 144, 168, 192, 216, 240, 264,   // days  1–12
+  288, 312, 336, 360, 384, 408, 432, 456, 480, 504, 528, 552,   // days 13–24
+  576, 600, 624, 648                                             // days 25–28
 };
 static const int AA_AGE_SNAPS_N = (int)(sizeof(AA_AGE_SNAPS) / sizeof(AA_AGE_SNAPS[0]));
 
