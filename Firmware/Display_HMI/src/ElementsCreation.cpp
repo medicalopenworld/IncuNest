@@ -1163,7 +1163,7 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_remove_style_all(ui_HumCont);
   lv_obj_set_width(ui_HumCont, 378);
   lv_obj_set_height(ui_HumCont, 248);
-  lv_obj_set_x(ui_HumCont, 193);
+  lv_obj_set_x(ui_HumCont, 190);
   lv_obj_set_y(ui_HumCont, 111);
   lv_obj_set_align(ui_HumCont, LV_ALIGN_CENTER);
   lv_obj_clear_flag(ui_HumCont, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
@@ -1382,8 +1382,8 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_remove_style_all(ui_PhotoTimerCont);
   lv_obj_set_width(ui_PhotoTimerCont, 384);
   lv_obj_set_height(ui_PhotoTimerCont, 120);
-  lv_obj_set_x(ui_PhotoTimerCont, 193);
-  lv_obj_set_y(ui_PhotoTimerCont, -73);
+  lv_obj_set_x(ui_PhotoTimerCont, 191);
+  lv_obj_set_y(ui_PhotoTimerCont, -88);
   lv_obj_set_align(ui_PhotoTimerCont, LV_ALIGN_CENTER);
   // lv_obj_add_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN); // Always visible
   // as requested
