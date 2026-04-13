@@ -249,7 +249,7 @@ void parse_line(const char *line) {
     if (line[7] == ',' && sscanf(line, "/config,%31[^,],%f", param, &value) == 2) {
       success = true;
       extern float maxDesiredTemp[2];
-      if (strcmp(param, "FAN_PWM") == 0) {
+      if (strcmp(param, "FAN_SUPPLY_PWM") == 0) {
         in3.fanPWM = (int)value;
         EEPROM.writeInt(EEPROM_FAN_PWM, in3.fanPWM);
       } else if (strcmp(param, "HEATER_AMPS") == 0) {
@@ -272,6 +272,10 @@ void parse_line(const char *line) {
       } else if (strcmp(param, "GPRS_STBY") == 0) {
         in3.standby_gprs_period = (int)value;
         EEPROM.writeInt(EEPROM_GPRS_STBY_PERIOD, in3.standby_gprs_period);
+      } else if (strcmp(param, "FAN_CTL_PWM") == 0) {
+        in3.fanCtlPWM = (int)value;
+        EEPROM.writeInt(EEPROM_FAN_CTL_PWM, in3.fanCtlPWM);
+        ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
       } else {
         success = false;
       }
@@ -286,8 +290,8 @@ void parse_line(const char *line) {
       }
     } else {
       if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        ESP_LOGI(TAG, "FAN_PWM:%d HEATER_AMPS:%.2f SKIN_TMAX:%.2f AIR_TMAX:%.2f",
-                 in3.fanPWM, in3.heaterMaxPowerAmps, in3.skinTemperatureSetMax,
+        ESP_LOGI(TAG, "FAN_SUPPLY_PWM:%d FAN_CTL_PWM:%d HEATER_AMPS:%.2f SKIN_TMAX:%.2f AIR_TMAX:%.2f",
+                 in3.fanPWM, in3.fanCtlPWM, in3.heaterMaxPowerAmps, in3.skinTemperatureSetMax,
                  in3.airTemperatureSetMax);
         xSemaphoreGiveRecursive(log_mutex);
       }

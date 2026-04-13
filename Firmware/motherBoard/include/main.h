@@ -53,11 +53,9 @@
 #include "usb/vcp.hpp"
 #include "usb/vcp_ch34x.hpp"
 #endif
-#include <BQ25792_Driver.h>
+#include "BQ25730.h"
 #include <SensirionI2cSts3x.h>
 #include <TFT_eSPI.h> // Hardware-specific library
-
-// #include <BQ25792_Driver.h>
 
 #include <Arduino_MQTT_Client.h>
 #include <Espressif_MQTT_Client.h>
@@ -67,7 +65,7 @@
 
 #define LOG_MODEM_DATA true
 #define LOG_INFORMATION true
-#define LOG_ERRORS false
+#define LOG_ERRORS true
 #define LOG_ALARMS false
 
 #define USE_SYSTEM_WITHOUT_ACTUATORS_TEST                                      \
@@ -336,13 +334,14 @@ typedef enum {
 #define GPRS_MONITOR_TASK_PRIORITY 10
 
 #define PWR_HOLD_MS 3000
+#define PWR_OFF_UPDATE_INTERVAL_MS 200
 #define POWER_MANAGEMENT_TASK_PERIOD_MS 50
 
 #define GPRS_TASK_PERIOD_MS 1
 #define OTA_TASK_PERIOD_MS 1
 #define SENSORS_TASK_PERIOD_MS 1
+#define SKIN_SENSOR_UPDATE_PERIOD_MS 200 // in millis
 #define ROOM_SENSOR_UPDATE_PERIOD_MS 5000
-#define SKIN_CAPACITANCE_UPDATE_PERIOD_MS 2000
 #define DIGITAL_CURRENT_SENSOR_PERIOD_MS 5
 #define BUZZER_TASK_PERIOD_MS 10
 #define UI_TASK_PERIOD_MS 10
@@ -356,7 +355,6 @@ typedef enum {
 #define GPRS_MONITOR_TASK_PERIOD 5000
 #define GPRS_MONITOR_TASK_DELETE 30000
 
-#define NTC_SAMPLES_TEST 100
 #define DIGITAL_CURRENT_SENSOR_READ_PERIOD_MS 500
 #define CURRENT_UPDATE_PERIOD_MS 100 // in millis
 #define CURRENT_CHECK_PERIOD_MS 2000
@@ -415,6 +413,7 @@ typedef enum {
 #define EEPROM_GPRS_ACT_PERIOD 270
 #define EEPROM_GPRS_PHOTO_PERIOD 274
 #define EEPROM_GPRS_STBY_PERIOD 278
+#define EEPROM_FAN_CTL_PWM 282
 
 #define SKIN_CALIBRATION_CORRECTION_FACTOR 0
 
@@ -633,6 +632,7 @@ typedef struct {
   byte phototherapy_intensity = PWM_MAX_VALUE;
 
   int fanPWM = FAN_PWM;
+  int fanCtlPWM = false;
   float heaterMaxPowerAmps = HEATER_MAX_POWER_AMPS;
   float skinTemperatureSetMax = SKIN_TEMPERATURE_SET_MAX;
   float airTemperatureSetMax = AIR_TEMPERATURE_SET_MAX;
@@ -775,6 +775,7 @@ void updateDisplayHeader();
 
 void initRoomSensor();
 void initAmbientSensor();
+void initSkinSensor();
 void powerMonitor();
 void currentMonitor();
 void voltageMonitor();
@@ -793,7 +794,7 @@ void IRAM_ATTR fanEncoderISR();
 void backlightHandler();
 
 void fanSpeedHandler();
-bool measureNTCTemperature();
+bool measureSkinSensor();
 void loadlogo();
 
 void pinMode(uint8_t GPIO, uint8_t Mode);

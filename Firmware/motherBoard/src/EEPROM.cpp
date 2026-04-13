@@ -99,6 +99,9 @@ void loaddefaultValues() {
   EEPROM.writeFloat(EEPROM_RAW_SKIN_TEMP_RANGE_CORRECTION,
                     RawTemperatureRange[SKIN_SENSOR]);
 
+  in3.fanCtlPWM = FAN_CTL_PWM_DEFAULT;
+  EEPROM.writeInt(EEPROM_FAN_CTL_PWM, in3.fanCtlPWM);
+
   EEPROM.commit();
 }
 
@@ -178,6 +181,9 @@ void recapVariables() {
   int gprsStby_ee = EEPROM.readInt(EEPROM_GPRS_STBY_PERIOD);
   if (gprsStby_ee > 0)
     in3.standby_gprs_period = gprsStby_ee;
+  int fanCtlPWM_ee = EEPROM.readInt(EEPROM_FAN_CTL_PWM);
+  if (fanCtlPWM_ee >= 0 && fanCtlPWM_ee <= 255)
+    in3.fanCtlPWM = fanCtlPWM_ee;
 
   in3.controlMode = EEPROM.read(EEPROM_CONTROL_MODE);
   ESP_LOGI("APP", "Control Mode from EEPROM: %d", in3.controlMode);

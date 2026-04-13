@@ -100,6 +100,13 @@ typedef struct {
 #endif
 
 // ======================
+//   POWER OFF STATE
+// ======================
+extern volatile bool g_pwrOffActive;       // true while MB is counting down
+extern volatile int  g_pwrOffRemainingMs;  // ms remaining (3000 → 0)
+constexpr int PWR_OFF_TOTAL_MS = 3000;     // must match MB PWR_HOLD_MS
+
+// ======================
 //   GLOBAL VARIABLES
 // ======================
 extern HMI_Message hmi_msg;

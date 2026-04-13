@@ -25,7 +25,7 @@
 #define HW_NUM 16
 #define HW_REVISION 'A'
 #define HWversion String(HW_NUM) + "." + String(HW_REVISION)
-#define FWversion "15.9"
+#define FWversion "16.0"
 #define WIFI_NAME "IncuNest"
 #define CURRENT_FIRMWARE_TITLE "IncuNest"
 // Set to true only on the HMI board
@@ -335,17 +335,18 @@
 
 #define HUMIDIFIER_SHUNT 1
 
+// Cuando es true, el GPIO BABY_TEMP_EN se pone LOW tras cada lectura para
+// reducir el autocalentamiento de la NTC (excitación pulsada).
+// Cuando es false, BABY_TEMP_EN permanece HIGH entre medidas.
+#define SKIN_NTC_PULSED_EXCITATION false
+
 #define SDCard false
-#define SYSTEM_SHUNT 2 // miliohms
-#define FAN_SHUNT 100  // miliohms
-#if (HW_NUM >= 12)
-#define PHOTOTHERAPY_SHUNT 82 // miliohms
-#else
-#define PHOTOTHERAPY_SHUNT 20 // miliohms
-#endif
-#define BATTERY_SHUNT 27000 // miliohms
-#define USB_SHUNT 100       // miliohms
-#define HEATER_SHUNT 2      // miliohms
+#define SYSTEM_SHUNT 3        // miliohms
+#define FAN_SHUNT 3           // miliohms
+#define PHOTOTHERAPY_SHUNT 15 // miliohms
+#define BATTERY_SHUNT 27000   // miliohms
+#define USB_SHUNT 3           // miliohms
+#define HEATER_SHUNT 3        // miliohms
 
 #define DISPLAY_DEFAULT_ROTATION 3
 
@@ -354,8 +355,8 @@
 #define HEATER_PWM_CHANNEL 2
 #define FAN_PWM_CHANNEL 3
 #define PHOTOTHERAPY_PWM_CHANNEL 4
-
 #define HUMIDIFIER_PWM_CHANNEL 5
+#define FAN_CTL_PWM_CHANNEL 6
 #define DEFAULT_PWM_RESOLUTION 8
 #define DEFAULT_PWM_FREQUENCY 2000
 #define BUZZER_PWM_FREQUENCY 800
@@ -368,6 +369,7 @@
 // #define PWM_MAX_VALUE maxADCvalue
 #define PWM_MAX_VALUE (pow(2, DEFAULT_PWM_RESOLUTION) - 1)
 #define FAN_PWM PWM_MAX_VALUE
+#define FAN_CTL_PWM_DEFAULT 120
 
 #if (ADC_READ_FUNCTION == MILLIVOTSREAD_ADC)
 #define ADC_TO_DISCARD_MIN 500  // in mV

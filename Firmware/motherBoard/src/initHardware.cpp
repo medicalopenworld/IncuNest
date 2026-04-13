@@ -254,6 +254,11 @@ void initPWMGPIO() {
   ledcAttachPin(FAN, FAN_PWM_CHANNEL);
   ledcWrite(FAN_PWM_CHANNEL, false);
 #endif
+#if (HW_NUM >= 16)
+  ledcSetup(FAN_CTL_PWM_CHANNEL, FAN_PWM_FREQUENCY, DEFAULT_PWM_RESOLUTION);
+  ledcAttachPin(FAN_CTL, FAN_CTL_PWM_CHANNEL);
+  ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
+#endif
 
 #if (HW_NUM == 8)
   ledcSetup(HUMIDIFIER_PWM_CHANNEL, HUMIDIFIER_PWM_FREQUENCY,
@@ -311,8 +316,6 @@ void initGPIO() {
   pinMode(USB_EN, OUTPUT);
   digitalWrite(USB_EN, LOW); // humidifier OFF by default
   pinMode(USB_FAULT, INPUT); // active LOW: fault = LOW (external pull-up)
-  pinMode(BABY_TEMP_EN, OUTPUT);
-  digitalWrite(BABY_TEMP_EN, LOW); // NTC power OFF by default
 #endif
   initPWMGPIO();
   logI("[HW] -> GPIOs initilialized");
@@ -429,7 +432,7 @@ bool initCurrentSensor(bool currentSensor) {
         mainDigitalCurrentSensor.begin();
         mainDigitalCurrentSensor.reset();
         vTaskDelay(pdMS_TO_TICKS(100));
-        // Set shunt resistors to 10 mOhm for all channels
+        // Set shunt resistors
         mainDigitalCurrentSensor.setShuntRes(SYSTEM_SHUNT, PHOTOTHERAPY_SHUNT,
                                              FAN_SHUNT);
         mainDigitalCurrentSensor.setShuntConversionTime(
@@ -459,21 +462,46 @@ bool initCurrentSensor(bool currentSensor) {
 
 void addErrorToVar(long &errorVar, int error) { errorVar |= (1 << error); }
 
+void initSkinSensor() {
+#if (HW_NUM == 16)
+  // BABY_TEMP_EN excita el divisor resistivo; se mantiene LOW hasta la medida.
+  pinMode(BABY_TEMP_EN, OUTPUT);
+#if SKIN_NTC_PULSED_EXCITATION
+  digitalWrite(BABY_TEMP_EN, LOW);
+#else
+  digitalWrite(BABY_TEMP_EN, HIGH);
+#endif
+  // Configura el ADS1110: single-shot, 14-bit (60 SPS), PGA=1.
+  // Bit map: [ST/RDY][SC][PGA1][PGA0][DR1][DR0][0][0]
+  //          [  0  ][ 1][  0 ][  0 ][  0][  1][0][0] = 0x44
+  // Single-shot evita leer una conversión obsoleta al arranque y reduce
+  // el tiempo de excitación de la NTC (~22 ms vs ~80 ms), minimizando
+  // el autocalentamiento. 14-bit da 0.008°C de resolución, suficiente.
+  // Los datos siguen left-justificados en 16 bits → fórmula raw*0.0625 válida.
+  wire->beginTransmission(ADS1110_I2C_ADDRESS);
+  wire->write(0x44);
+  uint8_t err = wire->endTransmission();
+  if (err) {
+    logE("[SKIN] ADS1110 init I2C error: " + String(err));
+  } else {
+    logI("[SKIN] ADS1110 configured: single-shot, 14-bit/60SPS, PGA=1");
+  }
+#endif
+}
+
 void initSensors() {
   initCurrentSensor(MAIN);
   initCurrentSensor(SECUNDARY);
   initRoomSensor();
   initAmbientSensor();
+  initSkinSensor();
 }
 
 void testSensors() {
   long error = HW_error;
   logI("[HW] -> Initialiting sensors");
   // sensors verification
-  for (int i = 0; i <= NTC_SAMPLES_TEST; i++) {
-    measureNTCTemperature();
-  }
-
+  measureSkinSensor();
   if (in3.temperature[SKIN_SENSOR] < NTC_BABY_MIN) {
     logE("[HW] -> Fail -> NTC temperature is lower than expected");
     addErrorToVar(HW_error, NTC_BABY_MIN_ERROR);
@@ -633,11 +661,33 @@ bool actuatorsTest() {
   digitalWrite(ACTUATORS_EN, HIGH);
 
   float testCurrent, offsetCurrent;
-  offsetCurrent = measureMeanConsumption(MAIN, SYSTEM_SHUNT_CHANNEL);
+  logI("[HW] -> digitalCurrentSensorPresent MAIN=" +
+       String(digitalCurrentSensorPresent[MAIN]) +
+       " SECUNDARY=" + String(digitalCurrentSensorPresent[SECUNDARY]));
+#if (HW_NUM == 16)
+  // V16: heater is on SECUNDARY sensor (HEATER_SHUNT_CHANNEL), not MAIN
+  offsetCurrent = measureMeanConsumption(SECUNDARY, HEATER_SHUNT_CHANNEL);
+  logI("[HW] -> Heater offset (SECUNDARY): " + String(offsetCurrent) + " Amps");
   ledcWrite(HEATER_PWM_CHANNEL, PWM_MAX_VALUE);
+  logI("[HW] -> Heater PWM ON, waiting " +
+       String(CURRENT_STABILIZE_TIME_HEATER) + " ms...");
   vTaskDelay(pdMS_TO_TICKS(CURRENT_STABILIZE_TIME_HEATER));
-  testCurrent =
-      measureMeanConsumption(MAIN, SYSTEM_SHUNT_CHANNEL) - offsetCurrent;
+  float rawAfter = measureMeanConsumption(SECUNDARY, HEATER_SHUNT_CHANNEL);
+  testCurrent = rawAfter - offsetCurrent;
+  logI("[HW] -> Heater raw after=" + String(rawAfter) + " offset=" +
+       String(offsetCurrent) + " -> delta=" + String(testCurrent) + " Amps");
+#else
+  offsetCurrent = measureMeanConsumption(MAIN, SYSTEM_SHUNT_CHANNEL);
+  logI("[HW] -> Heater offset (MAIN): " + String(offsetCurrent) + " Amps");
+  ledcWrite(HEATER_PWM_CHANNEL, PWM_MAX_VALUE);
+  logI("[HW] -> Heater PWM ON, waiting " +
+       String(CURRENT_STABILIZE_TIME_HEATER) + " ms...");
+  vTaskDelay(pdMS_TO_TICKS(CURRENT_STABILIZE_TIME_HEATER));
+  float rawAfter = measureMeanConsumption(MAIN, SYSTEM_SHUNT_CHANNEL);
+  testCurrent = rawAfter - offsetCurrent;
+  logI("[HW] -> Heater raw after=" + String(rawAfter) + " offset=" +
+       String(offsetCurrent) + " -> delta=" + String(testCurrent) + " Amps");
+#endif
   logI("[HW] -> Heater current consumption: " + String(testCurrent) + " Amps");
   in3.heater_current_test = testCurrent;
   ledcWrite(HEATER_PWM_CHANNEL, 0);
@@ -824,6 +874,12 @@ void security_check_reboot_cause() {
 void initHardware(bool printOutputTest) {
   logI("[HW] -> Initialiting hardware");
   initSensors();
+#if (HW_NUM == 16)
+  logI("[HW] -> Initializing BQ25730 charger");
+  if (!init_BQ25730(wire)) {
+    logE("[HW] -> BQ25730 not found or init failed");
+  }
+#endif
   initTFT();
   initInterrupts();
   PIDInit();

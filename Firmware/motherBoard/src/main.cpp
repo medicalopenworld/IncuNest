@@ -53,7 +53,7 @@ Adafruit_SHT4x sht4 = Adafruit_SHT4x();
 RotaryEncoder encoder(ENC_A, ENC_B, RotaryEncoder::LatchMode::TWO03);
 Beastdevices_INA3221 mainDigitalCurrentSensor(INA3221_ADDR41_VCC);
 Beastdevices_INA3221 secundaryDigitalCurrentSensor(INA3221_ADDR40_GND);
-BQ25792 charger(0, 0);
+// BQ25730 gestionado por BQ25730.cpp (chargerPresent definido allí)
 
 bool WIFI_EN = true;
 long lastDebugUpdate;
@@ -219,10 +219,19 @@ void Backlight_Task(void *pvParameters) {
   }
 }
 
+#ifdef BQ25730_TEST
+static BQ25730_Status bq_cached_status;
+static volatile bool bq_status_valid = false;
+#endif
+
 void sensors_Task(void *pvParameters) {
   for (;;) {
     fanSpeedHandler();
-    measureNTCTemperature();
+    if (millis() - lastSkinAttachedSensorUpdate >
+        SKIN_SENSOR_UPDATE_PERIOD_MS) {
+      measureSkinSensor();
+      lastSkinAttachedSensorUpdate = millis();
+    }
     if (millis() - lastRoomSensorUpdate > ROOM_SENSOR_UPDATE_PERIOD_MS) {
       updateRoomSensor();
       updateAmbientSensor();
@@ -232,6 +241,15 @@ void sensors_Task(void *pvParameters) {
       powerMonitor();
       lastCurrentSensorUpdate = millis();
     }
+#ifdef BQ25730_TEST
+    {
+      static long lastChargerUpdate = 0;
+      if (chargerPresent && millis() - lastChargerUpdate > 2000) {
+        bq_status_valid = charge_status(&bq_cached_status);
+        lastChargerUpdate = millis();
+      }
+    }
+#endif
     ctrl_tel_msg.detectedAirTemperature =
         in3.temperature[ROOM_DIGITAL_TEMP_SENSOR];
     ctrl_tel_msg.detectedSkinTemperature = in3.temperature[SKIN_SENSOR];
@@ -382,16 +400,38 @@ void PowerManagement_Task(void *pvParameters) {
   for (;;) {
     if (GPIORead(ON_OFF_SWITCH)) { // button pressed (active HIGH)
       unsigned long pressStart = millis();
+      unsigned long lastSend = 0;
+      char msg[32];
+
+      // Send initial PWR_OFF message with full hold time
+      snprintf(msg, sizeof(msg), "CTRL,PWR_OFF,%d\n", PWR_HOLD_MS);
+      CommunicationHost_Send(msg);
+      lastSend = millis();
+
       while (GPIORead(ON_OFF_SWITCH)) {
-        if (millis() - pressStart >= PWR_HOLD_MS) {
+        unsigned long elapsed = millis() - pressStart;
+        if (elapsed >= (unsigned long)PWR_HOLD_MS) {
+          CommunicationHost_Send("CTRL,PWR_OFF,0\n");
           logI("[PWR] Long press detected, powering off");
+          vTaskDelay(pdMS_TO_TICKS(50)); // allow UART to flush
           digitalWrite(PWR_EN, LOW);
           while (true) {
             vTaskDelay(pdMS_TO_TICKS(100));
           }
         }
+        // Send remaining time every PWR_OFF_UPDATE_INTERVAL_MS
+        if (millis() - lastSend >= PWR_OFF_UPDATE_INTERVAL_MS) {
+          int remaining = PWR_HOLD_MS - (int)elapsed;
+          if (remaining < 0)
+            remaining = 0;
+          snprintf(msg, sizeof(msg), "CTRL,PWR_OFF,%d\n", remaining);
+          CommunicationHost_Send(msg);
+          lastSend = millis();
+        }
         vTaskDelay(pdMS_TO_TICKS(10));
       }
+      // Button released before timeout — cancel
+      CommunicationHost_Send("CTRL,PWR_OFF_CANCEL\n");
     }
     vTaskDelay(pdMS_TO_TICKS(POWER_MANAGEMENT_TASK_PERIOD_MS));
   }
@@ -409,6 +449,99 @@ extern "C" int sync_vprintf(const char *fmt, va_list args) {
   }
   return vprintf(fmt, args);
 }
+
+// ─── BQ25730 test (activo con -DBQ25730_TEST en build_flags)
+// ──────────────────
+#ifdef BQ25730_TEST
+static void dump_BQ25730_regs() {
+  extern TwoWire *wire;
+  auto read8 = [](TwoWire *w, uint8_t reg) -> uint8_t {
+    w->beginTransmission(BQ25730_ADDR);
+    w->write(reg);
+    if (w->endTransmission(false) != 0)
+      return 0xFF;
+    if (w->requestFrom((uint8_t)BQ25730_ADDR, (uint8_t)1) != 1)
+      return 0xFF;
+    return w->read();
+  };
+  auto read16 = [](TwoWire *w, uint8_t reg) -> uint16_t {
+    w->beginTransmission(BQ25730_ADDR);
+    w->write(reg);
+    if (w->endTransmission(false) != 0)
+      return 0xFFFF;
+    if (w->requestFrom((uint8_t)BQ25730_ADDR, (uint8_t)2) != 2)
+      return 0xFFFF;
+    uint8_t lo = w->read();
+    uint8_t hi = w->read();
+    return (uint16_t)lo | ((uint16_t)hi << 8);
+  };
+  Serial.println("=== BQ25730 register dump (PDF V2) ===");
+  Serial.println("REG 0x3E MfgID(8b)  : 0x" + String(read8(wire, 0x3E), HEX));
+  Serial.println("REG 0x3F DevID(8b)  : 0x" + String(read8(wire, 0x3F), HEX));
+  Serial.println("--- Config basica ---");
+  Serial.println("REG 0x00 ChargeOpt0 : 0x" + String(read16(wire, 0x00), HEX));
+  Serial.println("REG 0x02 ChargeCurr : 0x" + String(read16(wire, 0x02), HEX));
+  Serial.println("REG 0x04 MaxChrVolt : 0x" + String(read16(wire, 0x04), HEX));
+  Serial.println("--- Config electrica (PDF V2) ---");
+  Serial.println("REG 0x0A VINDPM     : 0x" + String(read16(wire, 0x0A), HEX));
+  Serial.println("REG 0x0C VSYS_MIN   : 0x" + String(read16(wire, 0x0C), HEX));
+  Serial.println("REG 0x0E IIN_HOST   : 0x" + String(read16(wire, 0x0E), HEX));
+  Serial.println("--- Estado y ADC ---");
+  Serial.println("REG 0x20 ChrStatus  : 0x" + String(read16(wire, 0x20), HEX));
+  Serial.println("REG 0x26 ADC_VBUS   : 0x" + String(read16(wire, 0x26), HEX));
+  Serial.println("REG 0x28 ADC_IBAT   : 0x" + String(read16(wire, 0x28), HEX));
+  Serial.println("REG 0x2C ADC_VSYS_VBAT:0x" + String(read16(wire, 0x2C), HEX));
+  Serial.println("--- ChargeOptions (PDF V2) ---");
+  Serial.println("REG 0x30 ChargeOpt1 : 0x" + String(read16(wire, 0x30), HEX));
+  Serial.println("REG 0x32 ChargeOpt2 : 0x" + String(read16(wire, 0x32), HEX));
+  Serial.println("REG 0x34 ChargeOpt3 : 0x" + String(read16(wire, 0x34), HEX));
+  Serial.println("REG 0x3A ADCOption  : 0x" + String(read16(wire, 0x3A), HEX));
+  Serial.println("======================================");
+}
+
+static void print_charger_status() {
+  if (!chargerPresent) {
+    Serial.println("[CHG] Cargador no detectado");
+    return;
+  }
+  if (!bq_status_valid) {
+    Serial.println("[CHG] Esperando primera lectura...");
+    return;
+  }
+  const BQ25730_Status &s = bq_cached_status;
+  const char *state_str;
+  switch (s.state) {
+  case BQ25730_STATE_NO_POWER:
+    state_str = "SIN ADAPTADOR";
+    break;
+  case BQ25730_STATE_ABSORPTION:
+    state_str = "ABSORCION";
+    break;
+  case BQ25730_STATE_FLOAT:
+    state_str = "FLOTACION";
+    break;
+  case BQ25730_STATE_FAULT:
+    state_str = "FAULT";
+    break;
+  default:
+    state_str = "?";
+    break;
+  }
+  Serial.println("──── BQ25730 ─────────────────────────────");
+  Serial.println("  Estado   : " + String(state_str));
+  Serial.println("  AC       : " + String(s.ac_present ? "SI" : "NO"));
+  Serial.println("  VBUS     : " + String(s.vbus_mv) + " mV");
+  Serial.println("  VBAT     : " + String(s.vbat_mv) + " mV");
+  Serial.println("  VSYS     : " + String(s.vsys_mv) + " mV");
+  Serial.println("  ICHG     : " + String(s.ichg_ma) +
+                 " mA  (real, corregido)");
+  Serial.println("  IBUS     : " + String(s.ibus_ma) +
+                 " mA  (real, corregido)");
+  Serial.println("  Fault    : " +
+                 String(s.fault ? "SI 0x" + String(s.raw_status, HEX) : "NO"));
+  Serial.println("──────────────────────────────────────────");
+}
+#endif
 
 void setup() {
 #if (HW_NUM == 16)
@@ -434,7 +567,6 @@ void setup() {
   ctrl_tel_msg.serialNumber = in3.serialNumber;
   logI("in3ator debug uart, version v" + String(FWversion) + "/" +
        String(HWversion) + ", SN: " + String(in3.serialNumber));
-  initRoomSensor();
 
 #if CONFIG_IDF_TARGET_ESP32S3
   // --- Initialize UART communication between ESP32 boards ---
@@ -458,6 +590,9 @@ void setup() {
   }
 
   initHardware(false);
+#ifdef BQ25730_TEST
+  dump_BQ25730_regs();
+#endif
   if (WIFI_EN) {
     wifiInit();
     logI("WiFi Initialization started.");
@@ -535,9 +670,14 @@ void setup() {
 }
 
 void loop() {
-
   watchdogReload();
   updateData();
-  Serial.println(String("ON_OFF_SWITCH: ") + String(GPIORead(ON_OFF_SWITCH)));
+#ifdef BQ25730_TEST
+  static long lastPrint = 0;
+  if (millis() - lastPrint > 2000) {
+    print_charger_status();
+    lastPrint = millis();
+  }
+#endif
   vTaskDelay(pdMS_TO_TICKS(LOOP_TASK_PERIOD_MS));
 }
