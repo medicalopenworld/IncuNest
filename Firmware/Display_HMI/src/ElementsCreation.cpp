@@ -3381,7 +3381,17 @@ void create_autoair_popup() {
   lv_label_set_text(title, "COMFORT ZONE");
   lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
   lv_obj_set_style_text_color(title, lv_color_hex(0x0075EE), 0);
-  lv_obj_align(title, LV_ALIGN_TOP_LEFT, 16, 15);
+  lv_obj_align(title, LV_ALIGN_TOP_LEFT, 16, 6);
+
+  lv_obj_t *citLbl = lv_label_create(modal);
+  lv_label_set_text(citLbl,
+      "BASED ON: SAUER, DANE & VISSER (1984); DEACON & O'NEILL (2004); "
+      "CLOHERTY 3RD ED.; WHO/AAP GUIDELINES");
+  lv_obj_set_style_text_font(citLbl, &lv_font_montserrat_10, 0);
+  lv_obj_set_style_text_color(citLbl, lv_color_hex(0x000000), 0);
+  lv_obj_set_width(citLbl, 620);
+  lv_label_set_long_mode(citLbl, LV_LABEL_LONG_WRAP);
+  lv_obj_align(citLbl, LV_ALIGN_TOP_LEFT, 16, 33);
 
   lv_obj_t *btnClose = lv_btn_create(modal);
   lv_obj_set_size(btnClose, 32, 32);
@@ -3399,7 +3409,7 @@ void create_autoair_popup() {
   ui_AutoAirHSep = lv_obj_create(modal);
   lv_obj_t *hSep = ui_AutoAirHSep;
   lv_obj_set_size(hSep, 698, 2);
-  lv_obj_set_pos(hSep, 1, 50);
+  lv_obj_set_pos(hSep, 1, 56);
   lv_obj_set_style_bg_color(hSep, lv_color_hex(0xDDDDDD), LV_PART_MAIN);
   lv_obj_set_style_border_width(hSep, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(hSep, 0, LV_PART_MAIN);
@@ -3407,8 +3417,8 @@ void create_autoair_popup() {
   // Vertical separator between columns
   ui_AutoAirVSep = lv_obj_create(modal);
   lv_obj_t *vSep = ui_AutoAirVSep;
-  lv_obj_set_size(vSep, 2, 366);
-  lv_obj_set_pos(vSep, 329, 52);
+  lv_obj_set_size(vSep, 2, 362);
+  lv_obj_set_pos(vSep, 329, 58);
   lv_obj_set_style_bg_color(vSep, lv_color_hex(0xDDDDDD), LV_PART_MAIN);
   lv_obj_set_style_border_width(vSep, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(vSep, 0, LV_PART_MAIN);
@@ -3417,8 +3427,8 @@ void create_autoair_popup() {
   // LEFT COLUMN — Baby Information
   // ══════════════════════════════════════════════════════════
   lv_obj_t *colLeft = lv_obj_create(modal);
-  lv_obj_set_size(colLeft, 327, 366);
-  lv_obj_set_pos(colLeft, 2, 52);
+  lv_obj_set_size(colLeft, 327, 362);
+  lv_obj_set_pos(colLeft, 2, 58);
   lv_obj_set_style_border_width(colLeft, 0, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(colLeft, LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_pad_all(colLeft, 10, LV_PART_MAIN);
@@ -3480,8 +3490,8 @@ void create_autoair_popup() {
   // RIGHT COLUMN — Recommended Range
   // ══════════════════════════════════════════════════════════
   lv_obj_t *colRight = lv_obj_create(modal);
-  lv_obj_set_size(colRight, 369, 366);
-  lv_obj_set_pos(colRight, 331, 52);
+  lv_obj_set_size(colRight, 369, 362);
+  lv_obj_set_pos(colRight, 331, 58);
   lv_obj_set_style_border_width(colRight, 0, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(colRight, LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_pad_all(colRight, 10, LV_PART_MAIN);
@@ -3546,12 +3556,12 @@ void create_autoair_popup() {
   lv_label_set_text(aa_label_lo, "--.-");
   lv_obj_set_style_text_font(aa_label_lo, &lv_font_montserrat_20, 0);
   lv_obj_set_style_text_color(aa_label_lo, lv_color_hex(0x333333), 0);
-  lv_obj_set_pos(aa_label_lo, 118, 328);
+  lv_obj_set_pos(aa_label_lo, 118, 318);
 
   // Setpoint ▲ button
   lv_obj_t *btnSpUp = lv_btn_create(colRight);
   lv_obj_set_size(btnSpUp, 80, 46);
-  lv_obj_set_pos(btnSpUp, 234, 18);
+  lv_obj_set_pos(btnSpUp, 214, 38);
   lv_obj_set_style_bg_color(btnSpUp, lv_color_hex(0x0075EE), LV_PART_MAIN);
   lv_obj_set_style_radius(btnSpUp, 8, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(btnSpUp, 0, LV_PART_MAIN);
@@ -3564,7 +3574,7 @@ void create_autoair_popup() {
   // APPLY button (center-right)
   lv_obj_t *btnApply = lv_btn_create(colRight);
   lv_obj_set_size(btnApply, 140, 46);
-  lv_obj_set_pos(btnApply, 204, 136);
+  lv_obj_set_pos(btnApply, 184, 136);
   lv_obj_set_style_bg_color(btnApply, lv_color_hex(0x00AA44), LV_PART_MAIN);
   lv_obj_set_style_radius(btnApply, 8, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(btnApply, 0, LV_PART_MAIN);
@@ -3579,7 +3589,7 @@ void create_autoair_popup() {
   // Setpoint ▼ button
   lv_obj_t *btnSpDown = lv_btn_create(colRight);
   lv_obj_set_size(btnSpDown, 80, 46);
-  lv_obj_set_pos(btnSpDown, 234, 242);
+  lv_obj_set_pos(btnSpDown, 214, 222);
   lv_obj_set_style_bg_color(btnSpDown, lv_color_hex(0x0075EE), LV_PART_MAIN);
   lv_obj_set_style_radius(btnSpDown, 8, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(btnSpDown, 0, LV_PART_MAIN);
