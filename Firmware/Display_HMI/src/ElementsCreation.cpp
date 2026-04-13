@@ -1092,7 +1092,7 @@ void ui_ScreenMain_screen_init(void) {
   ui_Label6 = lv_label_create(ui_TempCont);
   lv_obj_set_width(ui_Label6, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_Label6, LV_SIZE_CONTENT);
-  lv_obj_set_x(ui_Label6, 53);
+  lv_obj_set_x(ui_Label6, 80);
   lv_obj_set_y(ui_Label6, 25);
   lv_obj_set_align(ui_Label6, LV_ALIGN_CENTER);
   lv_label_set_text(ui_Label6, "Set");
@@ -1116,7 +1116,7 @@ void ui_ScreenMain_screen_init(void) {
   ui_ArrowDownTemp = lv_obj_create(ui_TempCont);
   lv_obj_set_width(ui_ArrowDownTemp, 60);
   lv_obj_set_height(ui_ArrowDownTemp, 60);
-  lv_obj_set_x(ui_ArrowDownTemp, -15);
+  lv_obj_set_x(ui_ArrowDownTemp, 12);
   lv_obj_set_y(ui_ArrowDownTemp, 26);
   lv_obj_set_align(ui_ArrowDownTemp, LV_ALIGN_CENTER);
   lv_obj_clear_flag(ui_ArrowDownTemp, LV_OBJ_FLAG_SCROLLABLE);
@@ -1124,7 +1124,7 @@ void ui_ScreenMain_screen_init(void) {
   ui_ArrowUpTemp = lv_obj_create(ui_TempCont);
   lv_obj_set_width(ui_ArrowUpTemp, 60);
   lv_obj_set_height(ui_ArrowUpTemp, 60);
-  lv_obj_set_x(ui_ArrowUpTemp, 120);
+  lv_obj_set_x(ui_ArrowUpTemp, 147);
   lv_obj_set_y(ui_ArrowUpTemp, 27);
   lv_obj_set_align(ui_ArrowUpTemp, LV_ALIGN_CENTER);
   lv_obj_clear_flag(ui_ArrowUpTemp, LV_OBJ_FLAG_SCROLLABLE);
@@ -1134,7 +1134,7 @@ void ui_ScreenMain_screen_init(void) {
                     &ui_img_triangulo_abajo_png, NULL);
   lv_obj_set_width(ui_ImgArrowDownTemp, 39);
   lv_obj_set_height(ui_ImgArrowDownTemp, 42);
-  lv_obj_set_x(ui_ImgArrowDownTemp, -15);
+  lv_obj_set_x(ui_ImgArrowDownTemp, 12);
   lv_obj_set_y(ui_ImgArrowDownTemp, 29);
   lv_obj_set_align(ui_ImgArrowDownTemp, LV_ALIGN_CENTER);
 
@@ -1143,7 +1143,7 @@ void ui_ScreenMain_screen_init(void) {
                     &ui_img_triangulo_arriba_png, NULL);
   lv_obj_set_width(ui_ImgArrowUpTemp, 39);
   lv_obj_set_height(ui_ImgArrowUpTemp, 41);
-  lv_obj_set_x(ui_ImgArrowUpTemp, 119);
+  lv_obj_set_x(ui_ImgArrowUpTemp, 146);
   lv_obj_set_y(ui_ImgArrowUpTemp, 25);
   lv_obj_set_align(ui_ImgArrowUpTemp, LV_ALIGN_CENTER);
 
@@ -3593,21 +3593,23 @@ void create_autoair_popup() {
 void create_autoair_button() {
   // AUTO AIR button inside the air panel (bottom area, last child → front Z-order)
   ui_AutoAirBtn = lv_btn_create(ui_TempCont);
-  lv_obj_set_size(ui_AutoAirBtn, 110, 44);
-  lv_obj_set_x(ui_AutoAirBtn, -118);
-  lv_obj_set_y(ui_AutoAirBtn, 27);
+  lv_obj_set_size(ui_AutoAirBtn, 130, 60);
+  lv_obj_set_x(ui_AutoAirBtn, -108);
+  lv_obj_set_y(ui_AutoAirBtn, 26);
   lv_obj_set_align(ui_AutoAirBtn, LV_ALIGN_CENTER);
   lv_obj_set_style_radius(ui_AutoAirBtn, 6, LV_PART_MAIN);
-  lv_obj_set_style_border_width(ui_AutoAirBtn, 1, LV_PART_MAIN);
+  lv_obj_set_style_border_width(ui_AutoAirBtn, 2, LV_PART_MAIN);
   lv_obj_set_style_border_color(ui_AutoAirBtn, lv_color_hex(0x0075EE), LV_PART_MAIN);
   lv_obj_set_style_shadow_width(ui_AutoAirBtn, 0, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(ui_AutoAirBtn, COLOR_PANEL_WHITE, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(ui_AutoAirBtn, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(ui_AutoAirBtn, LV_OPA_TRANSP, LV_STATE_PRESSED);
   lv_obj_set_style_opa(ui_AutoAirBtn, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(ui_AutoAirBtn, 0, LV_PART_MAIN);
 
-  ui_AutoAirBtnLabel = lv_label_create(ui_AutoAirBtn);
-  lv_label_set_text(ui_AutoAirBtnLabel, "AUTO AIR");
-  lv_obj_set_style_text_font(ui_AutoAirBtnLabel, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(ui_AutoAirBtnLabel, lv_color_make(30, 30, 30), 0);
+  // Image fills the entire button area
+  ui_AutoAirBtnLabel = lv_img_create(ui_AutoAirBtn);
+  lv_img_set_src(ui_AutoAirBtnLabel, &ui_img_auto_air_png);
+  lv_obj_set_size(ui_AutoAirBtnLabel, 130, 60);
   lv_obj_center(ui_AutoAirBtnLabel);
 
   lv_obj_add_event_cb(ui_AutoAirBtn, AutoAirBtn_cb, LV_EVENT_ALL, nullptr);
