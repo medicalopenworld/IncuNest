@@ -2420,7 +2420,7 @@ void ui_ScreenSettings_screen_init(void) {
   ui_Switch4 = lv_switch_create(ui_SkinModeCont);
   lv_obj_set_width(ui_Switch4, 90);
   lv_obj_set_height(ui_Switch4, 35);
-  lv_obj_set_x(ui_Switch4, 91);
+  lv_obj_set_x(ui_Switch4, 111);
   lv_obj_set_y(ui_Switch4, 0);
   lv_obj_set_align(ui_Switch4, LV_ALIGN_CENTER);
 
@@ -2454,7 +2454,7 @@ void ui_ScreenSettings_screen_init(void) {
   ui_SwitchDarkMode = lv_switch_create(ui_DarkModeCont);
   lv_obj_set_width(ui_SwitchDarkMode, 90);
   lv_obj_set_height(ui_SwitchDarkMode, 35);
-  lv_obj_set_x(ui_SwitchDarkMode, 91);
+  lv_obj_set_x(ui_SwitchDarkMode, 111);
   lv_obj_set_y(ui_SwitchDarkMode, 0);
   lv_obj_set_align(ui_SwitchDarkMode, LV_ALIGN_CENTER);
 
@@ -2488,7 +2488,7 @@ void ui_ScreenSettings_screen_init(void) {
   ui_SwitchHumidityMode = lv_switch_create(ui_HumidityModeCont);
   lv_obj_set_width(ui_SwitchHumidityMode, 90);
   lv_obj_set_height(ui_SwitchHumidityMode, 35);
-  lv_obj_set_x(ui_SwitchHumidityMode, 91);
+  lv_obj_set_x(ui_SwitchHumidityMode, 111);
   lv_obj_set_y(ui_SwitchHumidityMode, 0);
   lv_obj_set_align(ui_SwitchHumidityMode, LV_ALIGN_CENTER);
 
