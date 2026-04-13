@@ -18,6 +18,7 @@ lv_obj_t *ui____initial_actions0;
 // Screen Intro
 lv_obj_t *ui_ScreenIntro = NULL;
 lv_obj_t *ui_ImageLogoIncunest = NULL;
+lv_obj_t *ui_ImageTogoFlag = NULL;
 
 // Screen Main
 lv_obj_t *ui_ScreenMain = NULL;
@@ -741,13 +742,27 @@ void ui_ScreenIntro_screen_init(void) {
                             LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_bg_opa(ui_ScreenIntro, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
 
+  // Logo IncuNest subido 80px desde el centro
   ui_ImageLogoIncunest = lv_img_create(ui_ScreenIntro);
   lv_img_set_src(ui_ImageLogoIncunest, &ui_img_incunest2_png);
   lv_obj_set_width(ui_ImageLogoIncunest, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_ImageLogoIncunest, LV_SIZE_CONTENT);
+  lv_obj_set_x(ui_ImageLogoIncunest, 0);
+  lv_obj_set_y(ui_ImageLogoIncunest, -80);
   lv_obj_set_align(ui_ImageLogoIncunest, LV_ALIGN_CENTER);
   lv_obj_add_flag(ui_ImageLogoIncunest, LV_OBJ_FLAG_ADV_HITTEST);
   lv_obj_clear_flag(ui_ImageLogoIncunest, LV_OBJ_FLAG_SCROLLABLE);
+
+  // Bandera de Togo centrada debajo del logo (220x136 px)
+  ui_ImageTogoFlag = lv_img_create(ui_ScreenIntro);
+  lv_img_set_src(ui_ImageTogoFlag, &ui_img_togo_flag_jpeg);
+  lv_obj_set_width(ui_ImageTogoFlag, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_ImageTogoFlag, LV_SIZE_CONTENT);
+  lv_obj_set_x(ui_ImageTogoFlag, 0);
+  lv_obj_set_y(ui_ImageTogoFlag, 75);
+  lv_obj_set_align(ui_ImageTogoFlag, LV_ALIGN_CENTER);
+  lv_obj_add_flag(ui_ImageTogoFlag, LV_OBJ_FLAG_ADV_HITTEST);
+  lv_obj_clear_flag(ui_ImageTogoFlag, LV_OBJ_FLAG_SCROLLABLE);
 }
 
 void ui_ScreenMain_screen_init(void) {

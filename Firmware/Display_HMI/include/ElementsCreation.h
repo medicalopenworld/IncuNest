@@ -89,6 +89,7 @@ LV_IMG_DECLARE(ui_img_windvector_png);    // assets/windVector.png
 LV_IMG_DECLARE(ui_img_check_png);    // assets/check.png
 LV_IMG_DECLARE(ui_img_flecha_png);    // assets/Flecha.png
 LV_IMG_DECLARE(ui_img_incunest2_png);    // assets/INCUNEST2.png
+LV_IMG_DECLARE(ui_img_togo_flag_jpeg);  // data/Togo_flag.jpeg
 
 // --- GLOBAL VARIABLES ---
 extern lv_obj_t * ui____initial_actions0;
@@ -96,6 +97,7 @@ extern lv_obj_t * ui____initial_actions0;
 // --- SCREEN: Intro ---
 extern lv_obj_t * ui_ScreenIntro;
 extern lv_obj_t * ui_ImageLogoIncunest;
+extern lv_obj_t * ui_ImageTogoFlag;
 void ui_ScreenIntro_screen_init(void);
 void ui_ScreenIntro_screen_destroy(void);
 
