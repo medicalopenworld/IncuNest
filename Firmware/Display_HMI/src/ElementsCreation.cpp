@@ -3495,7 +3495,7 @@ void create_autoair_popup() {
 
   // Vertical range bar (height > width → LVGL 8 draws it vertical)
   aa_range_bar = lv_bar_create(colRight);
-  lv_obj_set_size(aa_range_bar, 22, 210);
+  lv_obj_set_size(aa_range_bar, 40, 320);
   lv_obj_set_pos(aa_range_bar, 18, 22);
   lv_bar_set_mode(aa_range_bar, LV_BAR_MODE_NORMAL);
   lv_bar_set_range(aa_range_bar, 280, 370);   // °C × 10 → 28.0–37.0
@@ -3509,7 +3509,7 @@ void create_autoair_popup() {
 
   // Fixed-size blue setpoint marker
   aa_setpoint_marker = lv_obj_create(colRight);
-  lv_obj_set_size(aa_setpoint_marker, 22, 14);
+  lv_obj_set_size(aa_setpoint_marker, 40, 14);
   lv_obj_set_pos(aa_setpoint_marker, 18, 22);
   lv_obj_set_style_bg_color(aa_setpoint_marker, lv_color_hex(0x0095DA), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(aa_setpoint_marker, LV_OPA_COVER, LV_PART_MAIN);
@@ -3523,21 +3523,21 @@ void create_autoair_popup() {
   lv_label_set_text(aa_label_hi, "--.-");
   lv_obj_set_style_text_font(aa_label_hi, &lv_font_montserrat_20, 0);
   lv_obj_set_style_text_color(aa_label_hi, lv_color_hex(0x333333), 0);
-  lv_obj_set_pos(aa_label_hi, 50, 22);
+  lv_obj_set_pos(aa_label_hi, 65, 22);
 
   // mid label — current setpoint (highlighted)
   aa_label_mid = lv_label_create(colRight);
   lv_label_set_text(aa_label_mid, "--.-");
   lv_obj_set_style_text_font(aa_label_mid, &lv_font_montserrat_28, 0);
   lv_obj_set_style_text_color(aa_label_mid, lv_color_hex(0x0075EE), 0);
-  lv_obj_set_pos(aa_label_mid, 48, 118);
+  lv_obj_set_pos(aa_label_mid, 65, 173);
 
   // setpoint sub-label — kept alive for guard checks but hidden (duplicate of aa_label_mid)
   aa_setpoint_label = lv_label_create(colRight);
   lv_label_set_text(aa_setpoint_label, "--.-");
   lv_obj_set_style_text_font(aa_setpoint_label, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(aa_setpoint_label, lv_color_hex(0x555555), 0);
-  lv_obj_set_pos(aa_setpoint_label, 50, 142);
+  lv_obj_set_pos(aa_setpoint_label, 65, 197);
   lv_obj_add_flag(aa_setpoint_label, LV_OBJ_FLAG_HIDDEN);
 
   // lo label — bottom of bar
@@ -3545,7 +3545,7 @@ void create_autoair_popup() {
   lv_label_set_text(aa_label_lo, "--.-");
   lv_obj_set_style_text_font(aa_label_lo, &lv_font_montserrat_20, 0);
   lv_obj_set_style_text_color(aa_label_lo, lv_color_hex(0x333333), 0);
-  lv_obj_set_pos(aa_label_lo, 50, 218);
+  lv_obj_set_pos(aa_label_lo, 65, 328);
 
   // Setpoint ▲ button
   lv_obj_t *btnSpUp = lv_btn_create(colRight);
