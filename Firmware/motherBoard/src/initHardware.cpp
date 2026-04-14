@@ -449,14 +449,15 @@ bool initCurrentSensor(bool currentSensor) {
         secundaryDigitalCurrentSensor.begin();
         secundaryDigitalCurrentSensor.reset();
         vTaskDelay(pdMS_TO_TICKS(INA3221_RESET_DELAY_MS));
-        secundaryDigitalCurrentSensor.setShuntRes(HEATER_SHUNT, DISPLAY_SHUNT,
+        secundaryDigitalCurrentSensor.setShuntRes(HEATER_SHUNT, HEATER_SHUNT,
                                                   BATTERY_SHUNT);
         secundaryDigitalCurrentSensor.setShuntConversionTime(
             INA3221_REG_CONF_CT_140US);
         secundaryDigitalCurrentSensor.setAveragingMode(
             INA3221_REG_CONF_AVG_128);
       }
-      // Wait for first full conversion cycle: 128 avg × 140µs × 2 (bus+shunt) × 3 ch ≈ 108ms
+      // Wait for first full conversion cycle: 128 avg × 140µs × 2 (bus+shunt) ×
+      // 3 ch ≈ 108ms
       vTaskDelay(pdMS_TO_TICKS(INA3221_FIRST_CONVERSION_DELAY_MS));
       return (true);
     } else {
@@ -729,7 +730,7 @@ bool actuatorsTest() {
     logE("[HW] -> Fail -> Heater current consumption is too high");
     in3.alarmToReport[HEATER_ISSUE_ALARM] = true;
     setAlarm(HEATER_ISSUE_ALARM);
-    GPIOWrite(ACTUATORS_EN, LOW);
+    digitalWrite(ACTUATORS_EN, LOW);
     return (true);
   }
   EEPROM.write(EEPROM_HEATER_TEST, true);
