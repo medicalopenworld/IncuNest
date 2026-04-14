@@ -134,7 +134,6 @@ extern PID humidityControlPID;
 
 extern in3ator_parameters in3;
 
-
 void turnActuators(bool mode) {
   ledcWrite(HEATER_PWM_CHANNEL,
             mode * HEATER_MAX_PWM * !ongoingCriticalAlarm());
@@ -154,12 +153,13 @@ void stopActuation() {
 }
 
 void turnFans(bool mode) {
-  GPIOWrite(ACTUATORS_EN, mode || in3.phototherapy);
+  digitalWrite(ACTUATORS_EN, mode || in3.phototherapy);
 #if (HW_NUM >= 8)
   // ledcWrite(HEATER_PWM_CHANNEL, mode * HEATER_MAX_PWM);
-  ledcWrite(FAN_PWM_CHANNEL, (mode && !ongoingCriticalWiringAlarm()) * in3.fanPWM);
+  ledcWrite(FAN_PWM_CHANNEL,
+            (mode && !ongoingCriticalWiringAlarm()) * in3.fanPWM);
 #else
-  GPIOWrite(FAN, in3.phototherapy || mode && !ongoingCriticalWiringAlarm());
+  digitalWrite(FAN, in3.phototherapy || mode && !ongoingCriticalWiringAlarm());
 #endif
 }
 

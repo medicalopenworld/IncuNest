@@ -204,7 +204,7 @@ void updateDisplaySensors() {
 
 void logI(String dataString) {
   if (LOG_INFORMATION) {
-    static const char *TAG_USER = "APP";
+    static const char *TAG_USER __attribute__((unused)) = "APP";
     if (log_mutex == NULL ||
         xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
       // Formato: "123: mensaje"
@@ -215,24 +215,11 @@ void logI(String dataString) {
   }
 }
 
-void logCon(String dataString) {
-  if (!LOG_GPRS)
-    return;
-
-  static const char *TAG_USER = "APP";
-  if (log_mutex == NULL ||
-      xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-    ESP_LOGI(TAG_USER, "%lu: %s", millis() / 1000, dataString.c_str());
-    if (log_mutex)
-      xSemaphoreGiveRecursive(log_mutex);
-  }
-}
-
 void logModemData(String dataString) {
   if (!LOG_MODEM_DATA)
     return;
 
-  static const char *TAG_USER = "APP";
+  static const char *TAG_USER __attribute__((unused)) = "MODEM";
   if (log_mutex == NULL ||
       xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
     ESP_LOGI(TAG_USER, "%lu: %s", millis() / 1000, dataString.c_str());
@@ -245,7 +232,7 @@ void logE(String dataString) {
   if (!LOG_ERRORS)
     return;
 
-  static const char *TAG_USER = "APP";
+  static const char *TAG_USER __attribute__((unused)) = "APP";
   if (log_mutex == NULL ||
       xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
     ESP_LOGI(TAG_USER, "%lu: %s", millis() / 1000, dataString.c_str());
@@ -258,7 +245,7 @@ void logAlarm(String dataString) {
   if (!LOG_ALARMS)
     return;
 
-  static const char *TAG_USER = "APP";
+  static const char *TAG_USER __attribute__((unused)) = "APP";
   if (log_mutex == NULL ||
       xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
     ESP_LOGI(TAG_USER, "%lu: %s", millis() / 1000, dataString.c_str());

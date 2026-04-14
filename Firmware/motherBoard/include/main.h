@@ -53,11 +53,9 @@
 #include "usb/vcp.hpp"
 #include "usb/vcp_ch34x.hpp"
 #endif
-#include <BQ25792_Driver.h>
+#include "BQ25730.h"
 #include <SensirionI2cSts3x.h>
 #include <TFT_eSPI.h> // Hardware-specific library
-
-// #include <BQ25792_Driver.h>
 
 #include <Arduino_MQTT_Client.h>
 #include <Espressif_MQTT_Client.h>
@@ -65,11 +63,10 @@
 
 #define DEFAULT_WIFI_EN ON
 
-#define LOG_GPRS true
 #define LOG_MODEM_DATA true
 #define LOG_INFORMATION true
 #define LOG_ERRORS true
-#define LOG_ALARMS true
+#define LOG_ALARMS false
 
 #define USE_SYSTEM_WITHOUT_ACTUATORS_TEST                                      \
   true // only if previous test was OK and that fail cause is not being able to
@@ -105,9 +102,6 @@
 #define HOLD_PRESS_TO_GO_TO_SETTINGS 0
 
 #define UI_MENU_OLD false
-
-#define TOUCH_MEAN_TIMES 20
-#define TOUCH_DELAY_BETWEEN_MEASURES_MS 5
 
 #define BROWN_OUT_BATTERY_MODE 0
 #define BROWN_OUT_NORMAL_MODE 0
@@ -329,6 +323,7 @@ typedef enum {
 #define CONTROL_AIR true
 
 // Tasks priorities
+#define POWER_MANAGEMENT_TASK_PRIORITY 1
 #define TIME_TRACK_TASK_PRIORITY 2
 #define BACKLIGHT_TASK_PRIORITY 3
 #define OTA_TASK_PRIORITY 4
@@ -341,11 +336,15 @@ typedef enum {
 #define SECURITY_TASK_PRIORITY 9
 #define GPRS_MONITOR_TASK_PRIORITY 10
 
+#define PWR_HOLD_MS 3000
+#define PWR_OFF_UPDATE_INTERVAL_MS 200
+#define POWER_MANAGEMENT_TASK_PERIOD_MS 50
+
 #define GPRS_TASK_PERIOD_MS 1
 #define OTA_TASK_PERIOD_MS 1
 #define SENSORS_TASK_PERIOD_MS 1
+#define SKIN_SENSOR_UPDATE_PERIOD_MS 200 // in millis
 #define ROOM_SENSOR_UPDATE_PERIOD_MS 5000
-#define SKIN_CAPACITANCE_UPDATE_PERIOD_MS 2000
 #define DIGITAL_CURRENT_SENSOR_PERIOD_MS 5
 #define BUZZER_TASK_PERIOD_MS 10
 #define UI_TASK_PERIOD_MS 10
@@ -359,7 +358,6 @@ typedef enum {
 #define GPRS_MONITOR_TASK_PERIOD 5000
 #define GPRS_MONITOR_TASK_DELETE 30000
 
-#define NTC_SAMPLES_TEST 100
 #define DIGITAL_CURRENT_SENSOR_READ_PERIOD_MS 500
 #define CURRENT_UPDATE_PERIOD_MS 100 // in millis
 #define CURRENT_CHECK_PERIOD_MS 2000
@@ -418,6 +416,7 @@ typedef enum {
 #define EEPROM_GPRS_ACT_PERIOD 270
 #define EEPROM_GPRS_PHOTO_PERIOD 274
 #define EEPROM_GPRS_STBY_PERIOD 278
+#define EEPROM_FAN_CTL_PWM 282
 
 #define SKIN_CALIBRATION_CORRECTION_FACTOR 0
 
@@ -636,6 +635,7 @@ typedef struct {
   byte phototherapy_intensity = PWM_MAX_VALUE;
 
   int fanPWM = FAN_PWM;
+  int fanCtlPWM = false;
   float heaterMaxPowerAmps = HEATER_MAX_POWER_AMPS;
   float skinTemperatureSetMax = SKIN_TEMPERATURE_SET_MAX;
   float airTemperatureSetMax = AIR_TEMPERATURE_SET_MAX;
@@ -669,7 +669,7 @@ typedef struct {
 void logE(String dataString);
 void logAlarm(String dataString);
 void logI(String dataString);
-void logCon(String dataString);
+void logModemData(String dataString);
 void logModemData(String dataString);
 long secsToMillis(long timeInMillis);
 long minsToMillis(long timeInMillis);
@@ -782,6 +782,7 @@ void updateDisplayHeader();
 
 void initRoomSensor();
 void initAmbientSensor();
+void initSkinSensor();
 void powerMonitor();
 void currentMonitor();
 void voltageMonitor();
@@ -800,12 +801,12 @@ void IRAM_ATTR fanEncoderISR();
 void backlightHandler();
 
 void fanSpeedHandler();
-bool measureNTCTemperature();
+bool measureSkinSensor();
 void loadlogo();
 
-void initPin(uint8_t GPIO, uint8_t Mode);
+void pinMode(uint8_t GPIO, uint8_t Mode);
 bool GPIORead(uint8_t GPIO);
-void GPIOWrite(uint8_t GPIO, uint8_t Mode);
+void digitalWrite(uint8_t GPIO, uint8_t Mode);
 
 void basictemperatureControl();
 

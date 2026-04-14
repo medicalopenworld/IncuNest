@@ -16,6 +16,10 @@ ControlBoard_Message_Alarm ctrl_msg_alarm;
 ControlBoard_Message_State ctrl_state_msg = {0};
 int g_skinProbeState = SKIN_PROBE_NOT_CONNECTED; // Last received skin probe state
 
+// --- Power Off countdown state (written here, read by UITask) ---
+volatile bool g_pwrOffActive = false;
+volatile int  g_pwrOffRemainingMs = 0;
+
 bool error = false;
 static char rxBuffer[COMM_RX_BUFFER_SIZE];
 static int rxIndex = 0;
@@ -75,6 +79,21 @@ static void SendMessageToOtherESP() {
 
 static void parse_message(const char *line) {
 #if IS_HMI
+  if (strcmp(line, "CTRL,PWR_OFF_CANCEL") == 0) {
+    g_pwrOffActive = false;
+    g_pwrOffRemainingMs = 0;
+    COMM_LOG("[COMM] PWR_OFF cancelled\n");
+    return;
+  }
+  if (strncmp(line, "CTRL,PWR_OFF,", 13) == 0) {
+    int ms = 0;
+    if (sscanf(line, "CTRL,PWR_OFF,%d", &ms) == 1) {
+      g_pwrOffRemainingMs = ms;
+      g_pwrOffActive = true;
+      COMM_LOG("[COMM] PWR_OFF remaining=%d ms\n", ms);
+    }
+    return;
+  }
   if (strncmp(line, "CTRL,TEL", strlen("CTRL,TEL")) == 0) {
     int probeState = SKIN_PROBE_NOT_CONNECTED;
     int result = sscanf(

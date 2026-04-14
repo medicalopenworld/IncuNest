@@ -29,7 +29,7 @@
 #include "main.h"
 
 extern GPRSstruct GPRS;
-static const char *TAG = "WiFi";
+static const char *TAG __attribute__((unused)) = "WiFi";
 char wifiHost[32];
 
 WebServer wifiServer(80);
@@ -169,41 +169,44 @@ const char *configIndex =
     "<script "
     "src='https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js'></"
     "script>"
-    "<form method='POST' action='/config' id='config_form'>"
     "<h3>System Configuration</h3>"
     "<label>Serial Number:</label><br>"
     "<input type='number' name='serial' id='serial'><br><br>"
-    "<label>Fan PWM (0-255):</label><br>"
-    "<input type='number' name='fan_pwm' id='fan_pwm'><br><br>"
+    "<label>Fan Supply PWM (0-255):</label><br>"
+    "<input type='number' name='fan_supply_pwm' id='fan_supply_pwm'><br><br>"
+    "<label>Fan Control PWM (0-255):</label><br>"
+    "<input type='number' name='fan_ctl_pwm' id='fan_ctl_pwm'><br><br>"
     "<label>Heater Max Power (Amps):</label><br>"
-    "<input type='number' step='0.1' name='heater_amps' "
-    "id='heater_amps'><br><br>"
+    "<input type='number' step='0.1' name='heater_amps' id='heater_amps'><br><br>"
     "<label>Air Temp Max (C):</label><br>"
     "<input type='number' step='0.1' name='air_tmax' id='air_tmax'><br><br>"
     "<label>Skin Temp Max (C):</label><br>"
     "<input type='number' step='0.1' name='skin_tmax' id='skin_tmax'><br><br>"
-    "<h4>GPRS Reporting Periods (seconds)</h4>"
+    "<button type='button' onclick='saveSection([\"serial\",\"fan_supply_pwm\",\"fan_ctl_pwm\",\"heater_amps\",\"air_tmax\",\"skin_tmax\"])'>Save System Configuration</button>"
+    "<br><br>"
+    "<h3>GPRS Reporting Periods (seconds)</h3>"
     "<label>Actuating Period:</label><br>"
     "<input type='number' name='gprs_act' id='gprs_act'><br><br>"
     "<label>Phototherapy Period:</label><br>"
     "<input type='number' name='gprs_photo' id='gprs_photo'><br><br>"
     "<label>Standby Period:</label><br>"
     "<input type='number' name='gprs_stby' id='gprs_stby'><br><br>"
+    "<button type='button' onclick='saveSection([\"gprs_act\",\"gprs_photo\",\"gprs_stby\"])'>Save GPRS Reporting</button>"
+    "<br><br>"
     "<h3>Calibration</h3>"
     "<label>Reference Skin Temp (Current Actual):</label><br>"
-    "<input type='number' step='0.01' name='reference_temp' "
-    "id='reference_temp'><br><br>"
+    "<input type='number' step='0.01' name='reference_temp' id='reference_temp'><br><br>"
     "<label>Fine Tune Skin Temperature Offset:</label><br>"
-    "<input type='number' step='0.01' name='fine_tune' id='fine_tune' "
-    "readonly><br><br>"
-    "<input type='submit' value='Save All Settings'>"
-    "</form>"
+    "<input type='number' step='0.01' name='fine_tune' id='fine_tune' readonly><br><br>"
+    "<button type='button' onclick='saveSection([\"reference_temp\"])'>Save Calibration</button>"
+    "<br><br>"
     "<div id='msg'></div>"
     "<script>"
     "$(document).ready(function() {"
     "  $.get('/get_config', function(data) {"
     "    $('#serial').val(data.serial);"
-    "    $('#fan_pwm').val(data.fan_pwm);"
+    "    $('#fan_supply_pwm').val(data.fan_supply_pwm);"
+    "    $('#fan_ctl_pwm').val(data.fan_ctl_pwm);"
     "    $('#heater_amps').val(data.heater_amps);"
     "    $('#air_tmax').val(data.air_tmax);"
     "    $('#skin_tmax').val(data.skin_tmax);"
@@ -214,6 +217,13 @@ const char *configIndex =
     "    $('#fine_tune').val(data.fine_tune);"
     "  });"
     "});"
+    "function saveSection(fields) {"
+    "  var data = {};"
+    "  fields.forEach(function(f) { data[f] = $('#'+f).val(); });"
+    "  $.post('/config', data, function(resp) {"
+    "    $('#msg').text(resp);"
+    "  });"
+    "}"
     "</script>";
 
 /*
@@ -306,7 +316,8 @@ void configWifiServer() {
   wifiServer.on("/get_config", HTTP_GET, []() {
     String json = "{";
     json += "\"serial\":" + String(in3.serialNumber) + ",";
-    json += "\"fan_pwm\":" + String(in3.fanPWM) + ",";
+    json += "\"fan_supply_pwm\":" + String(in3.fanPWM) + ",";
+    json += "\"fan_ctl_pwm\":" + String(in3.fanCtlPWM) + ",";
     json += "\"heater_amps\":" + String(in3.heaterMaxPowerAmps) + ",";
     json += "\"air_tmax\":" + String(in3.airTemperatureSetMax) + ",";
     json += "\"skin_tmax\":" + String(in3.skinTemperatureSetMax) + ",";
@@ -327,9 +338,14 @@ void configWifiServer() {
       in3.serialNumber = wifiServer.arg("serial").toInt();
       EEPROM.writeInt(EEPROM_SERIAL_NUMBER, in3.serialNumber);
     }
-    if (wifiServer.hasArg("fan_pwm")) {
-      in3.fanPWM = wifiServer.arg("fan_pwm").toInt();
+    if (wifiServer.hasArg("fan_supply_pwm")) {
+      in3.fanPWM = wifiServer.arg("fan_supply_pwm").toInt();
       EEPROM.writeInt(EEPROM_FAN_PWM, in3.fanPWM);
+    }
+    if (wifiServer.hasArg("fan_ctl_pwm")) {
+      in3.fanCtlPWM = wifiServer.arg("fan_ctl_pwm").toInt();
+      EEPROM.writeInt(EEPROM_FAN_CTL_PWM, in3.fanCtlPWM);
+      ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
     }
     if (wifiServer.hasArg("heater_amps")) {
       in3.heaterMaxPowerAmps = wifiServer.arg("heater_amps").toFloat();

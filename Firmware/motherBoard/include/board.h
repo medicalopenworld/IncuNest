@@ -22,10 +22,10 @@
   SOFTWARE.
 
 */
-#define HW_NUM 15
+#define HW_NUM 16
 #define HW_REVISION 'A'
 #define HWversion String(HW_NUM) + "." + String(HW_REVISION)
-#define FWversion "15.11"
+#define FWversion "16.0"
 #define WIFI_NAME "IncuNest"
 #define CURRENT_FIRMWARE_TITLE "IncuNest"
 // Set to true only on the HMI board
@@ -47,19 +47,75 @@
 #define HUMIDIFIER_INTERFACE HUMIDIFIER_BINARY
 #elif (HW_NUM <= 8)
 #define HUMIDIFIER_INTERFACE HUMIDIFIER_PWM
+#elif (HW_NUM == 16)
+#define HUMIDIFIER_INTERFACE HUMIDIFIER_BINARY // USB_EN GPIO ON/OFF
 #else
-// Hardware
 #define HUMIDIFIER_INTERFACE HUMIDIFIER_I2C
-#endif
-#if (HW_NUM == 15)
-#define DEFAULT_TUNE_SKIN_TEMP 2
 #endif
 
 #define GPIO_EXP_BASE 100 // To differentiate with ESP32 GPIO
-#if (HW_NUM > 14)
+#if (HW_NUM == 16)
+// Power / control
+#define PWR_EN 2
+#define ON_OFF_SWITCH 4
+#define BUZZER 1
+
+// GSM
+#define GSM_UART_TX_PIN 9
+#define GSM_UART_RX_PIN 10
+// #define GSM_PWRKEY         // No se ve conectado a ningún IO del uC
+
+// Display / Modbus UART
+#define UART_MB_TX_PIN 15
+#define UART_MB_RX_PIN 16
+
+// Actuators
+#define ACTUATORS_EN 14
+#define HEATER 45
+#define FAN 12
+#define PHOTOTHERAPY 13
+#define FAN_CTL 11
+#define FAN_SPEED_FEEDBACK 38
+#define USB_EN 5
+#define USB_FAULT 6
+
+// Sensors
+#define BABY_NTC_PIN 8
+#define BABY_TEMP_EN 18
+#define ADS1110_I2C_ADDRESS 0x48 // I2C ADC for baby NTC
+
+// USB / Second I2C bus (SHTC3 + STS35 for HW16)
+#define USB_D_MINUS 19
+#define USB_D_PLUS 20
+#define I2C2_SCL 19 // repurposed from USB_D_PLUS
+#define I2C2_SDA 20 // repurposed from USB_D_MINUS
+
+// I2C (primary: SHT4x + INA3221)
+#define I2C_SDA 47
+#define I2C_SCL 48
+
+// AFE
+#define AFE_MISO 37
+#define AFE_MOSI 35
+#define AFE_SCK 36
+#define AFE_ADC_READY 17
+#define AFE44XX_CS 21
+#define AFE_LED_ALM 7
+
+#define FAKE_PIN 46
+
+#define SCREENBACKLIGHT FAKE_PIN
+#define AFE44XX_PWDN_PIN FAKE_PIN
+#define GPRS_PWRKEY FAKE_PIN
+#undef TFT_DC
+#define TFT_DC FAKE_PIN
+#define ENC_SWITCH FAKE_PIN
+#define ENC_A FAKE_PIN
+#define ENC_B FAKE_PIN
+#undef TFT_CS
+#define TFT_CS FAKE_PIN
+#elif (HW_NUM == 15)
 // PINOUT
-#define TOUCH_SENSOR 1
-#define TOUCH_SENSOR_SEL 2
 #define BUZZER 5 // Set FAKE_PIN to mute buzzer
 #define LED 7
 #define I2C_SDA 8
@@ -72,8 +128,8 @@
 #define AFE44XX_CS 21
 #define FAN_SPEED_FEEDBACK 38
 #define AFE4490_ADC_READY 45
-#define SERIAL2_RX_PIN 48
-#define SERIAL2_TX_PIN 47
+#define GSM_UART_TX_PIN 48
+#define GSM_UART_RX_PIN 47
 
 #define FAKE_PIN 46
 
@@ -103,14 +159,12 @@
 #define I2C_SCL 22
 #define ENC_A 25
 #define HEATER 27
-#define TOUCH_SENSOR_SEL 26
-#define TOUCH_SENSOR 32
 #define SCREENBACKLIGHT 33
 #define ENC_B 34
 #define FAN_SPEED_FEEDBACK 35
 #define BABY_NTC_PIN 39
-#define SERIAL2_RX_PIN 16
-#define SERIAL2_TX_PIN 17
+#define GSM_UART_TX_PIN 16
+#define GSM_UART_RX_PIN 17
 #define AFE4490_ADC_READY NULL
 #define ON_OFF_SWITCH NULL
 #define AFE44XX_PWDN_PIN NULL
@@ -125,8 +179,8 @@
 #define FAN 12
 #define PHOTOTHERAPY 13
 #define ACTUATORS_EN 14
-#define SERIAL2_RX_PIN 16
-#define SERIAL2_TX_PIN 17
+#define GSM_UART_TX_PIN 16
+#define GSM_UART_RX_PIN 17
 // #define TFT_CS 15
 #define I2C_SDA 21
 #define I2C_SCL 22
@@ -137,8 +191,6 @@
 #define ENC_B 32
 #define FAN_SPEED_FEEDBACK 35
 #define BABY_NTC_PIN 39
-#define TOUCH_SENSOR_SEL NULL
-#define TOUCH_SENSOR NULL
 #define AFE4490_ADC_READY NULL
 #define ON_OFF_SWITCH NULL
 #define AFE44XX_PWDN_PIN NULL
@@ -155,8 +207,8 @@
 #define PHOTOTHERAPY 13
 #define ACTUATORS_EN 14
 #define TFT_CS 15
-#define SERIAL2_RX_PIN 16
-#define SERIAL2_TX_PIN 17
+#define GSM_UART_TX_PIN 16
+#define GSM_UART_RX_PIN 17
 #define I2C_SDA 21
 #define I2C_SCL 22
 #define ENC_A 25
@@ -179,8 +231,8 @@
 #define PHOTOTHERAPY 13
 #define HUMIDIFIER_CTL 14
 #define TFT_CS 15
-#define SERIAL2_RX_PIN 16
-#define SERIAL2_TX_PIN 17
+#define GSM_UART_TX_PIN 16
+#define GSM_UART_RX_PIN 17
 #define I2C_SDA 21
 #define I2C_SCL 22
 #define ENC_A 25
@@ -202,8 +254,8 @@
 #define TFT_DC 4
 #define BUZZER 5
 #define TFT_CS 15 // fake GPIO
-#define SERIAL2_RX_PIN 16
-#define SERIAL2_TX_PIN 17
+#define GSM_UART_TX_PIN 16
+#define GSM_UART_RX_PIN 17
 #define I2C_SDA 21
 #define I2C_SCL 22
 #define ENC_A 25
@@ -284,18 +336,18 @@
 
 #define HUMIDIFIER_SHUNT 1
 
+// Cuando es true, el GPIO BABY_TEMP_EN se pone LOW tras cada lectura para
+// reducir el autocalentamiento de la NTC (excitación pulsada).
+// Cuando es false, BABY_TEMP_EN permanece HIGH entre medidas.
+#define SKIN_NTC_PULSED_EXCITATION false
+
 #define SDCard false
-#define SYSTEM_SHUNT 2 // miliohms
-#define FAN_SHUNT 100  // miliohms
-#if (HW_NUM >= 12)
-#define PHOTOTHERAPY_SHUNT 82 // miliohms
-#else
-#define PHOTOTHERAPY_SHUNT 20 // miliohms
-#endif
-#define DISPLAY_SHUNT 100   // miliohms
-#define BATTERY_SHUNT 27000 // miliohms
-#define USB_SHUNT 100       // miliohms
-#define HEATER_SHUNT 2      // miliohms
+#define SYSTEM_SHUNT 3        // miliohms
+#define FAN_SHUNT 3           // miliohms
+#define PHOTOTHERAPY_SHUNT 15 // miliohms
+#define BATTERY_SHUNT 27000   // miliohms
+#define USB_SHUNT 3           // miliohms
+#define HEATER_SHUNT 3        // miliohms
 
 #define DISPLAY_DEFAULT_ROTATION 3
 
@@ -304,13 +356,13 @@
 #define HEATER_PWM_CHANNEL 2
 #define FAN_PWM_CHANNEL 3
 #define PHOTOTHERAPY_PWM_CHANNEL 4
-
 #define HUMIDIFIER_PWM_CHANNEL 5
+#define FAN_CTL_PWM_CHANNEL 6
 #define DEFAULT_PWM_RESOLUTION 8
-#define LOW_PWM_FREQUENCY 32
 #define DEFAULT_PWM_FREQUENCY 2000
 #define BUZZER_PWM_FREQUENCY 800
 #define HEATER_PWM_FREQUENCY 400
+#define FAN_PWM_FREQUENCY 25000
 #define HUMIDIFIER_PWM_FREQUENCY 109000
 
 #define maxADCvalue 4095
@@ -318,6 +370,7 @@
 // #define PWM_MAX_VALUE maxADCvalue
 #define PWM_MAX_VALUE (pow(2, DEFAULT_PWM_RESOLUTION) - 1)
 #define FAN_PWM PWM_MAX_VALUE
+#define FAN_CTL_PWM_DEFAULT 120
 
 #if (ADC_READ_FUNCTION == MILLIVOTSREAD_ADC)
 #define ADC_TO_DISCARD_MIN 500  // in mV

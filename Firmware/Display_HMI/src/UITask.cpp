@@ -20,6 +20,12 @@ static lv_obj_t *ui_SkinProbeToast =
 static lv_obj_t *ui_SkinProbeStatusLabel =
     nullptr; // Estado informativo en modo aire
 
+// --- Power-off popup UI elements ---
+static lv_obj_t *ui_PwrOffOverlay = nullptr;
+static lv_obj_t *ui_PwrOffArc = nullptr;
+static lv_obj_t *ui_PwrOffSymbol = nullptr;
+static bool pwrOffPopupVisible = false;
+
 static lv_obj_t *ui_AudioPlayBtn;
 static lv_obj_t *ui_AudioStopBtn;
 static lv_obj_t *ui_AudioPlayLabel;
@@ -2628,6 +2634,96 @@ void VolumeDown_cb(lv_event_t *e) {
 }
 
 // ==========================================
+// Power-Off Popup
+// ==========================================
+static void pwroff_create_popup(void) {
+  if (ui_PwrOffOverlay) return; // already created
+
+  // Semi-transparent dark overlay covering the whole screen
+  ui_PwrOffOverlay = lv_obj_create(lv_layer_top());
+  lv_obj_remove_style_all(ui_PwrOffOverlay);
+  lv_obj_set_size(ui_PwrOffOverlay, DISPLAY_WIDTH, DISPLAY_HEIGHT);
+  lv_obj_set_style_bg_color(ui_PwrOffOverlay, lv_color_black(), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(ui_PwrOffOverlay, LV_OPA_70, LV_PART_MAIN);
+  lv_obj_clear_flag(ui_PwrOffOverlay, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_center(ui_PwrOffOverlay);
+
+  // Arc (progress ring) — 150x150, range 0..360
+  ui_PwrOffArc = lv_arc_create(ui_PwrOffOverlay);
+  lv_obj_set_size(ui_PwrOffArc, 150, 150);
+  lv_obj_center(ui_PwrOffArc);
+  lv_arc_set_rotation(ui_PwrOffArc, 270);           // start from top
+  lv_arc_set_range(ui_PwrOffArc, 0, 360);
+  lv_arc_set_value(ui_PwrOffArc, 0);
+  lv_arc_set_bg_angles(ui_PwrOffArc, 0, 360);       // full background ring
+  lv_obj_remove_style(ui_PwrOffArc, NULL, LV_PART_KNOB);  // hide knob
+  lv_obj_clear_flag(ui_PwrOffArc, LV_OBJ_FLAG_CLICKABLE);
+
+  // Arc style: white indicator on dark grey background
+  lv_obj_set_style_arc_color(ui_PwrOffArc, lv_color_hex(0x333333), LV_PART_MAIN);      // bg ring
+  lv_obj_set_style_arc_width(ui_PwrOffArc, 8, LV_PART_MAIN);
+  lv_obj_set_style_arc_color(ui_PwrOffArc, lv_color_hex(0xFF3333), LV_PART_INDICATOR);  // progress ring (red)
+  lv_obj_set_style_arc_width(ui_PwrOffArc, 8, LV_PART_INDICATOR);
+
+  // Power symbol label centered inside the arc
+  ui_PwrOffSymbol = lv_label_create(ui_PwrOffOverlay);
+  lv_label_set_text(ui_PwrOffSymbol, LV_SYMBOL_POWER);
+  lv_obj_set_style_text_color(ui_PwrOffSymbol, lv_color_white(), LV_PART_MAIN);
+  lv_obj_set_style_text_font(ui_PwrOffSymbol, &lv_font_montserrat_48, LV_PART_MAIN);
+  lv_obj_center(ui_PwrOffSymbol);
+
+  lv_obj_add_flag(ui_PwrOffOverlay, LV_OBJ_FLAG_HIDDEN); // hidden by default
+}
+
+static void pwroff_show(void) {
+  if (!ui_PwrOffOverlay) pwroff_create_popup();
+  lv_arc_set_value(ui_PwrOffArc, 0);
+  lv_obj_clear_flag(ui_PwrOffOverlay, LV_OBJ_FLAG_HIDDEN);
+  pwrOffPopupVisible = true;
+}
+
+static void pwroff_hide(void) {
+  if (ui_PwrOffOverlay) {
+    lv_obj_add_flag(ui_PwrOffOverlay, LV_OBJ_FLAG_HIDDEN);
+  }
+  pwrOffPopupVisible = false;
+}
+
+static void pwroff_update(void) {
+  if (g_pwrOffActive) {
+    if (!pwrOffPopupVisible) {
+      pwroff_show();
+    }
+    // Calculate arc angle: 0 at start → 360 when remaining reaches 0
+    int elapsed = PWR_OFF_TOTAL_MS - g_pwrOffRemainingMs;
+    if (elapsed < 0) elapsed = 0;
+    if (elapsed > PWR_OFF_TOTAL_MS) elapsed = PWR_OFF_TOTAL_MS;
+    int angle = (elapsed * 360) / PWR_OFF_TOTAL_MS;
+    lv_arc_set_value(ui_PwrOffArc, angle);
+
+    // Shutdown: remaining reached 0
+    if (g_pwrOffRemainingMs <= 0) {
+      lv_arc_set_value(ui_PwrOffArc, 360);
+      lv_timer_handler(); // flush last frame
+
+      // Turn off backlight via I2C
+      Wire.beginTransmission(I2C_ADDR_BACKLIGHT);
+      Wire.write(DISPLAY_BL_OFF_VALUE);
+      Wire.endTransmission();
+
+      // Halt — device power will be cut by motherboard
+      while (true) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+      }
+    }
+  } else {
+    if (pwrOffPopupVisible) {
+      pwroff_hide();
+    }
+  }
+}
+
+// ==========================================
 // Main Task
 // ==========================================
 void UI_Task(void *pvParameters) {
@@ -3069,9 +3165,11 @@ void UI_Task(void *pvParameters) {
                         LV_EVENT_CLICKED, NULL);
 
   lv_timer_create(inactivity_timer_cb, 1000, NULL);
+  pwroff_create_popup();
 
   for (;;) {
     lv_timer_handler();
+    pwroff_update();
 
     // Gestión de estado de botones de Audio — deshabilitada (UI oculta
     // permanentemente) Si se quiere reactivar, descomentar el bloque siguiente

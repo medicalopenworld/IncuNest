@@ -26,7 +26,7 @@
 
 #include "main.h"
 
-static const char *TAG = "SECURITY";
+static const char *TAG __attribute__((unused)) = "SECURITY";
 extern SemaphoreHandle_t log_mutex;
 
 // Pending alarm queue for HMI connection
@@ -615,6 +615,20 @@ void powerSupplyCheck() {
 #endif
 }
 
+#if (HW_NUM == 16)
+static void checkUsbFault() {
+  if (!GPIORead(USB_FAULT)) { // active LOW: LOW = fault
+    if (humidifierState) {
+      logE("[PWR] USB_FAULT: humidifier short-circuit/overload, turning OFF");
+      in3_hum.turn(OFF);
+      humidifierState = false;
+      in3.humidityControl = false;
+      stopPID(humidityPID);
+    }
+  }
+}
+#endif
+
 void securityCheck() {
   if (in3.actuation) {
     checkThermalCutOuts();
@@ -622,4 +636,7 @@ void securityCheck() {
   checkAlarms();
   sensorHealthMonitor();
   powerSupplyCheck();
+#if (HW_NUM == 16)
+  checkUsbFault();
+#endif
 }

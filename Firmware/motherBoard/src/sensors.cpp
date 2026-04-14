@@ -249,32 +249,62 @@ float measureMeanVoltage(bool sensor, int shunt) {
   return (false);
 }
 
-float adcToCelsius(float adcReading) {
-  // Valores fijos del circuito
-  float rAux = 10000.0;
-  float vcc = 3.3;
-  float beta = 3950.0;
-  float temp0 = 298.0;
-  float r0 = 10000.0;
-  // float adcReadingCorrection = 215;
-  // Bloque de cálculo
-  // Variables used in calculus
-  float vm = 0.0;
-  float rntc = 0.0;
-  if (adcReading) {
-    if (ADC_READ_FUNCTION == MILLIVOTSREAD_ADC) {
-      rntc = rAux / ((vcc / (adcReading / 1000)) -
-                     1); // Calcular la resistencia de la NTC
-    } else if (ADC_READ_FUNCTION == ANALOGREAD_ADC) {
-      vm = (vcc) *
-           ((adcReading) / maxADCvalue); // Calcular tensión en la entrada
-      rntc = rAux / ((vcc / vm) - 1);
+struct YsiPoint {
+  float tempC;
+  float resistance;
+};
+
+// Valores calibrados: base teórica S-H YSI 44006 (2252 Ω a 25 °C,
+// A=1.4733e-3, B=2.3730e-4, C=1.0540e-7) con corrección de +0.97 °C
+// aplicada sobre un punto de calibración real (36 °C → leía 35.03 °C).
+// Método: R_corr(T) = R_teorica(T - 0.97 °C) para cada entrada.
+// Resistencias en orden DESCENDENTE (NTC: más temperatura → menos resistencia).
+static const YsiPoint ysi400Table[] = {
+    {10.0f, 4707.0f}, {11.0f, 4486.0f}, {12.0f, 4277.0f}, {13.0f, 4076.0f},
+    {14.0f, 3890.0f}, {15.0f, 3709.0f}, {16.0f, 3539.0f}, {17.0f, 3379.0f},
+    {18.0f, 3227.0f}, {19.0f, 3083.0f}, {20.0f, 2945.0f}, {21.0f, 2815.0f},
+    {22.0f, 2692.0f}, {23.0f, 2573.0f}, {24.0f, 2461.0f}, {25.0f, 2354.0f},
+    {26.0f, 2252.0f}, {27.0f, 2156.0f}, {28.0f, 2063.0f}, {29.0f, 1977.0f},
+    {30.0f, 1893.0f}, {31.0f, 1814.0f}, {32.0f, 1738.0f}, {33.0f, 1667.0f},
+    {34.0f, 1599.0f}, {35.0f, 1532.0f}, {36.0f, 1470.0f}, {37.0f, 1411.0f},
+    {38.0f, 1354.0f}, {39.0f, 1300.0f}, {40.0f, 1250.0f}, {41.0f, 1201.0f},
+    {42.0f, 1155.0f},
+};
+
+static float resistanceToTempYSI400(float rntc) {
+  const int n = sizeof(ysi400Table) / sizeof(ysi400Table[0]);
+
+  if (rntc <= 0.0f)
+    return NAN;
+
+  // La NTC baja su resistencia al subir temperatura
+  for (int i = 0; i < n - 1; ++i) {
+    float r1 = ysi400Table[i].resistance;
+    float r2 = ysi400Table[i + 1].resistance;
+
+    if ((rntc <= r1 && rntc >= r2) || (rntc >= r1 && rntc <= r2)) {
+      float t1 = ysi400Table[i].tempC;
+      float t2 = ysi400Table[i + 1].tempC;
+
+      float frac = (rntc - r1) / (r2 - r1);
+      return t1 + frac * (t2 - t1);
     }
-  } else {
-    return false;
   }
-  return (beta / (log(rntc / r0) + (beta / temp0)) -
-          273.15); // Calcular la temperatura en Celsius
+
+  return NAN;
+}
+
+float adcToCelsius(float adcReading_mV) {
+  const float rTop = 2260.0f; // Resistencia del divisor (Ω, 0.1%)
+  const float vExc = 3.3f;    // Tensión de excitación (GPIO)
+
+  if (adcReading_mV <= 0.0f || adcReading_mV >= vExc * 1000.0f)
+    return NAN;
+
+  float vm = adcReading_mV / 1000.0f;
+  float rntc = rTop * vm / (vExc - vm);
+
+  return resistanceToTempYSI400(rntc);
 }
 
 void fanSpeedHandler() {
@@ -292,19 +322,25 @@ void fanSpeedHandler() {
   }
 }
 
-bool measureNTCTemperature() {
-  int NTCmeasurement;
-  if (ADC_READ_FUNCTION == MILLIVOTSREAD_ADC) {
-    NTCmeasurement = analogReadMilliVolts(BABY_NTC_PIN);
-  } else if (ADC_READ_FUNCTION == ANALOGREAD_ADC) {
-    NTCmeasurement = analogRead(BABY_NTC_PIN);
-  }
-  if (NTCmeasurement > ADC_TO_DISCARD_MIN &&
-      NTCmeasurement < ADC_TO_DISCARD_MAX) {
+// Shared post-processing: calibration, filter, clamp
+static bool applyNTCResult(float millivolts) {
+  if (millivolts > ADC_TO_DISCARD_MIN && millivolts < ADC_TO_DISCARD_MAX) {
+    float tempRaw = adcToCelsius(millivolts);
+    if (isnan(tempRaw)) {
+      in3.temperature[SKIN_SENSOR] = 0;
+      return false;
+    }
+    // El filtro Butterworth de orden 6 con ω_n=0.02 tiene b0_cascada ≈ 8e-10,
+    // por lo que tarda ~150 muestras discretas en converger desde estado cero.
+    // Llamado a 0.5 Hz eso equivale a >5 minutos. En la primera lectura válida
+    // se pre-inicializa el estado del filtro con el valor medido.
+    if (lastSuccesfullSensorUpdate[SKIN_SENSOR] == 0) {
+      for (int i = 0; i < 200; i++)
+        filter_1(tempRaw);
+    }
     lastSuccesfullSensorUpdate[SKIN_SENSOR] = millis();
-    //        xQueueSend(sharedSensorQueue,
-    //        &lastSuccesfullSensorUpdate[SKIN_SENSOR], portMAX_DELAY);
-    in3.temperature[SKIN_SENSOR] = filter_1(adcToCelsius(NTCmeasurement));
+    in3.temperature[SKIN_SENSOR] = filter_1(tempRaw);
+    // in3.temperature[SKIN_SENSOR] = tempRaw;
     errorTemperature[SKIN_SENSOR] = in3.temperature[SKIN_SENSOR];
     if (RawTemperatureRange[SKIN_SENSOR]) {
       in3.temperature[SKIN_SENSOR] =
@@ -319,12 +355,108 @@ bool measureNTCTemperature() {
       in3.temperature[SKIN_SENSOR] = 0;
     }
     return true;
-  } else {
-    // logAlarm("[ALARM] -> NTC read is: " + String(NTCmeasurement));
+  }
+  in3.temperature[SKIN_SENSOR] = 0;
+  return false;
+}
+
+bool measureSkinSensor() {
+#if (HW_NUM == 16)
+  // Alimenta el divisor resistivo, espera estabilización y dispara una
+  // conversión single-shot en el ADS1110 (14-bit/60 SPS, PGA=1).
+  // [ST=1][SC=1][PGA=00][DR=01][00] = 0xC4
+  // Con single-shot no hay riesgo de leer una conversión obsoleta y el
+  // tiempo de excitación de la NTC queda en ~22 ms (5 ms settle + ~17 ms
+  // conversión), minimizando el autocalentamiento.
+  digitalWrite(BABY_TEMP_EN, HIGH);
+  vTaskDelay(pdMS_TO_TICKS(22)); // espera estabilización del divisor
+
+  wire->beginTransmission(ADS1110_I2C_ADDRESS);
+  wire->write(0xC4); // dispara conversión single-shot
+  if (wire->endTransmission() != 0) {
+#if SKIN_NTC_PULSED_EXCITATION
+    digitalWrite(BABY_TEMP_EN, LOW);
+#endif
     in3.temperature[SKIN_SENSOR] = 0;
     return false;
   }
-  return false;
+
+  // Espera a que el ADS1110 complete la conversión (/RDY=0).
+  // Timeout: 100 ms (14-bit/60 SPS tarda ~17 ms).
+  int16_t raw = 0;
+  uint8_t msb = 0, lsb = 0, cfg = 0;
+  bool convReady = false;
+  uint32_t deadline = millis() + 100;
+  while (millis() < deadline) {
+    uint8_t n = wire->requestFrom((uint8_t)ADS1110_I2C_ADDRESS, (uint8_t)3);
+    if (n < 3) {
+#if SKIN_NTC_PULSED_EXCITATION
+      digitalWrite(BABY_TEMP_EN, LOW);
+#endif
+      static uint32_t lastI2cErrLog = 0;
+      if (millis() - lastI2cErrLog >= 1000) {
+        logI("[SKIN] ADS1110 I2C error: only " + String(n) + " bytes received");
+        lastI2cErrLog = millis();
+      }
+      in3.temperature[SKIN_SENSOR] = 0;
+      return false;
+    }
+    msb = wire->read();
+    lsb = wire->read();
+    cfg = wire->read();
+    if (!(cfg & 0x80)) { // /RDY=0: conversion complete, data fresh
+      raw = (int16_t)((msb << 8) | lsb);
+      convReady = true;
+      break;
+    }
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+#if SKIN_NTC_PULSED_EXCITATION
+  digitalWrite(BABY_TEMP_EN, LOW); // power off NTC divider after read
+#endif
+
+  if (!convReady) {
+    static uint32_t lastTimeoutLog = 0;
+    if (millis() - lastTimeoutLog >= 1000) {
+      logI("[SKIN] ADS1110 timeout waiting for /RDY (cfg=0x" +
+           String(cfg, HEX) + ")");
+      lastTimeoutLog = millis();
+    }
+    return false;
+  }
+
+  // En 14-bit, raw=8191 indica saturación del ADS1110 (vm >= 2.048 V).
+  // Esto ocurre cuando la sonda está desconectada (circuito abierto) o
+  // cuando la temperatura es tan baja que rNTC > 3697 Ω (~< 16 °C).
+  // En ambos casos reportar temperatura=0.
+  if (raw >= 8191) {
+    in3.temperature[SKIN_SENSOR] = 0;
+    return false;
+  }
+
+  // ADS1110 right-justifica el dato. En 14-bit (DR=01): rango ±8191,
+  // LSB = 4096 mV / 16384 = 0.25 mV/bit.
+  float millivolts = raw * 0.25f;
+  float tempC = adcToCelsius(millivolts);
+
+  static uint32_t lastAds1110Log = 0;
+  if (millis() - lastAds1110Log >= 1000) {
+    logI("[SKIN] ADS1110 raw=" + String(raw) + " mV=" + String(millivolts, 1) +
+         " T=" + String(tempC, 2) + "C" + " cfg=0x" + String(cfg, HEX));
+    lastAds1110Log = millis();
+  }
+
+  return applyNTCResult(millivolts);
+
+#else
+  int NTCmeasurement;
+  if (ADC_READ_FUNCTION == MILLIVOTSREAD_ADC) {
+    NTCmeasurement = analogReadMilliVolts(BABY_NTC_PIN);
+  } else {
+    NTCmeasurement = analogRead(BABY_NTC_PIN);
+  }
+  return applyNTCResult((float)NTCmeasurement);
+#endif
 }
 
 bool updateRoomSensor() {

@@ -164,19 +164,15 @@ extern in3ator_parameters in3;
 long lastCurrentMeasurement, lastVoltageMeasurement;
 long lastEncoderUpdate;
 
-void currentMonitor()
-{
-  if (millis() - lastCurrentMeasurement > CURRENT_UPDATE_PERIOD)
-  {
-    if (digitalCurrentSensorPresent[MAIN])
-    {
+void currentMonitor() {
+  if (millis() - lastCurrentMeasurement > CURRENT_UPDATE_PERIOD) {
+    if (digitalCurrentSensorPresent[MAIN]) {
       in3.system_current = measureMeanConsumption(MAIN, SYSTEM_SHUNT_CHANNEL);
       in3.fan_current = measureMeanConsumption(MAIN, FAN_SHUNT_CHANNEL);
       in3.phototherapy_current =
           measureMeanConsumption(MAIN, PHOTOTHERAPY_SHUNT_CHANNEL);
     }
-    if (digitalCurrentSensorPresent[SECUNDARY])
-    {
+    if (digitalCurrentSensorPresent[SECUNDARY]) {
       in3.heater_current =
           measureMeanConsumption(SECUNDARY, HEATER_SHUNT_CHANNEL);
       in3.USB_current = measureMeanConsumption(SECUNDARY, USB_SHUNT_CHANNEL);
@@ -187,16 +183,12 @@ void currentMonitor()
   }
 }
 
-void voltageMonitor()
-{
-  if (millis() - lastVoltageMeasurement > VOLTAGE_UPDATE_PERIOD)
-  {
-    if (digitalCurrentSensorPresent[MAIN])
-    {
+void voltageMonitor() {
+  if (millis() - lastVoltageMeasurement > VOLTAGE_UPDATE_PERIOD) {
+    if (digitalCurrentSensorPresent[MAIN]) {
       in3.system_voltage = measureMeanVoltage(MAIN, SYSTEM_SHUNT_CHANNEL);
     }
-    if (digitalCurrentSensorPresent[SECUNDARY])
-    {
+    if (digitalCurrentSensorPresent[SECUNDARY]) {
       in3.USB_voltage = measureMeanVoltage(SECUNDARY, USB_SHUNT_CHANNEL);
       in3.BATTERY_voltage =
           measureMeanVoltage(SECUNDARY, BATTERY_SHUNT_CHANNEL);
@@ -205,20 +197,16 @@ void voltageMonitor()
   }
 }
 
-double measureMeanConsumption(bool sensor, int shunt)
-{
+double measureMeanConsumption(bool sensor, int shunt) {
 #if (HW_NUM >= 6 && HW_NUM <= 8)
-  for (int i = 0; i < CURRENT_MEASURES_AMOUNT; i++)
-  {
+  for (int i = 0; i < CURRENT_MEASURES_AMOUNT; i++) {
     in3.system_current = filter_2(analogReadMilliVolts(SYSTEM_CURRENT_SENSOR) *
                                   ANALOG_TO_AMP_FACTOR);
   }
   return (in3.system_current);
 #else
-  if (digitalCurrentSensorPresent[sensor])
-  {
-    if (sensor)
-    {
+  if (digitalCurrentSensorPresent[sensor]) {
+    if (sensor) {
       return (secundaryDigitalCurrentSensor.getCurrent(
           ina3221_ch_t(shunt))); // Amperes
     }
@@ -229,12 +217,9 @@ double measureMeanConsumption(bool sensor, int shunt)
   return (false);
 }
 
-float measureMeanVoltage(bool sensor, int shunt)
-{
-  if (digitalCurrentSensorPresent[sensor])
-  {
-    if (sensor)
-    {
+float measureMeanVoltage(bool sensor, int shunt) {
+  if (digitalCurrentSensorPresent[sensor]) {
+    if (sensor) {
       return (secundaryDigitalCurrentSensor.getVoltage(
           ina3221_ch_t(shunt))); // Volts
     }
@@ -243,83 +228,86 @@ float measureMeanVoltage(bool sensor, int shunt)
   return (false);
 }
 
-float adcToCelsius(float adcReading)
-{
-  // Valores fijos del circuito
-  float rAux = 10000.0;
-  float vcc = 3.3;
-  float beta = 3950.0;
-  float temp0 = 298.0;
-  float r0 = 10000.0;
-  // float adcReadingCorrection = 215;
-  // Bloque de cálculo
-  // Variables used in calculus
-  float vm = 0.0;
-  float rntc = 0.0;
-  if (adcReading)
-  {
-    if (ADC_READ_FUNCTION == MILLIVOTSREAD_ADC)
-    {
-      rntc = rAux / ((vcc / (adcReading / 1000)) -
-                     1); // Calcular la resistencia de la NTC
-    }
-    else if (ADC_READ_FUNCTION == ANALOGREAD_ADC)
-    {
-      vm = (vcc) *
-           ((adcReading) / maxADCvalue); // Calcular tensión en la entrada
-      rntc = rAux / ((vcc / vm) - 1);
+struct YsiPoint {
+  float tempC;
+  float resistance;
+};
+
+// Sustituye estos valores por la tabla real de TU sonda/fabricante.
+// Te dejo puntos de ejemplo para que pegues los definitivos.
+static const YsiPoint ysi400Table[] = {
+    {32.0f, 0.0f}, {33.0f, 0.0f}, {34.0f, 0.0f}, {35.0f, 0.0f},
+    {36.0f, 0.0f}, {37.0f, 0.0f}, {38.0f, 0.0f}, {39.0f, 0.0f},
+    {40.0f, 0.0f}, {41.0f, 0.0f}, {42.0f, 0.0f},
+};
+
+float resistanceToTempYSI400(float rntc) {
+  const int n = sizeof(ysi400Table) / sizeof(ysi400Table[0]);
+
+  if (rntc <= 0.0f)
+    return NAN;
+
+  // La NTC baja su resistencia al subir temperatura
+  for (int i = 0; i < n - 1; ++i) {
+    float r1 = ysi400Table[i].resistance;
+    float r2 = ysi400Table[i + 1].resistance;
+
+    if ((rntc <= r1 && rntc >= r2) || (rntc >= r1 && rntc <= r2)) {
+      float t1 = ysi400Table[i].tempC;
+      float t2 = ysi400Table[i + 1].tempC;
+
+      float frac = (rntc - r1) / (r2 - r1);
+      return t1 + frac * (t2 - t1);
     }
   }
-  else
-  {
-    return false;
-  }
-  return (beta / (log(rntc / r0) + (beta / temp0)) -
-          273.15); // Calcular la temperatura en Celsius
+
+  return NAN;
 }
 
-void fanSpeedHandler()
-{
+float adcToCelsius(float adcReading_mV) {
+  const float rTop = 2260.0f;
+  float vExc = 3.3f;
+  if (adcReading_mV <= 0.0f || adcReading_mV >= vExc * 1000.0f) {
+    return NAN;
+  }
+
+  float vm = adcReading_mV / 1000.0f;
+  float rntc = rTop * vm / (vExc - vm);
+
+  return resistanceToTempYSI400(rntc);
+}
+
+void fanSpeedHandler() {
   double fanEncoderPeriodFiltered;
-  if (in3.fanEncoderUpdate)
-  {
+  if (in3.fanEncoderUpdate) {
     in3.fanEncoderUpdate = false;
     lastEncoderUpdate = millis();
     fanEncoderPeriodFiltered =
         filter_0(in3.fanEncoderPeriod[1] - in3.fanEncoderPeriod[0]);
-    if (fanEncoderPeriodFiltered)
-    {
+    if (fanEncoderPeriodFiltered) {
       in3.fan_rpm = FAN_RPM_CONVERSION / fanEncoderPeriodFiltered;
     }
-  }
-  else if (millis() - lastEncoderUpdate > FAN_UPDATE_TIME_MIN)
-  {
+  } else if (millis() - lastEncoderUpdate > FAN_UPDATE_TIME_MIN) {
     in3.fan_rpm = false;
   }
 }
 
-bool measureNTCTemperature()
-{
+bool measureNTCTemperature() {
   int NTCmeasurement;
-  if (millis() - lastNTCmeasurement > NTC_MEASUREMENT_PERIOD)
-  {
-    if (ADC_READ_FUNCTION == MILLIVOTSREAD_ADC)
-    {
+  if (millis() - lastNTCmeasurement > NTC_MEASUREMENT_PERIOD) {
+    if (ADC_READ_FUNCTION == MILLIVOTSREAD_ADC) {
       NTCmeasurement = analogReadMilliVolts(BABY_NTC_PIN);
-    }
-    else if (ADC_READ_FUNCTION == ANALOGREAD_ADC)
-    {
+    } else if (ADC_READ_FUNCTION == ANALOGREAD_ADC) {
       NTCmeasurement = analogRead(BABY_NTC_PIN);
     }
     if (NTCmeasurement > ADC_TO_DISCARD_MIN &&
-        NTCmeasurement < ADC_TO_DISCARD_MAX)
-    {
+        NTCmeasurement < ADC_TO_DISCARD_MAX) {
       lastSuccesfullSensorUpdate[SKIN_SENSOR] = millis();
-      xQueueSend(sharedSensorQueue, &lastSuccesfullSensorUpdate[SKIN_SENSOR], portMAX_DELAY);
+      xQueueSend(sharedSensorQueue, &lastSuccesfullSensorUpdate[SKIN_SENSOR],
+                 portMAX_DELAY);
       in3.temperature[SKIN_SENSOR] = filter_1(adcToCelsius(NTCmeasurement));
       errorTemperature[SKIN_SENSOR] = in3.temperature[SKIN_SENSOR];
-      if (RawTemperatureRange[SKIN_SENSOR])
-      {
+      if (RawTemperatureRange[SKIN_SENSOR]) {
         in3.temperature[SKIN_SENSOR] =
             (((in3.temperature[SKIN_SENSOR] - RawTemperatureLow[SKIN_SENSOR]) *
               ReferenceTemperatureRange) /
@@ -328,14 +316,11 @@ bool measureNTCTemperature()
       }
       in3.temperature[SKIN_SENSOR] += fineTuneSkinTemperature;
       errorTemperature[SKIN_SENSOR] -= in3.temperature[SKIN_SENSOR];
-      if (in3.temperature < 0)
-      {
+      if (in3.temperature < 0) {
         in3.temperature[SKIN_SENSOR] = 0;
       }
       lastNTCmeasurement = millis();
-    }
-    else
-    {
+    } else {
       // logAlarm("[ALARM] -> NTC read is: " + String(NTCmeasurement));
     }
     return true;
@@ -343,53 +328,43 @@ bool measureNTCTemperature()
   return false;
 }
 
-bool updateRoomSensor()
-{
-  if (roomSensorPresent)
-  {
+bool updateRoomSensor() {
+  if (roomSensorPresent) {
     SHTC3_Status_TypeDef sensorState = mySHTC3.update();
     float sensedTemperature;
     // logI("[SENSORS] -> Updating room humidity: state is " +
     // String(sensorState));
-    if (!sensorState)
-    {
+    if (!sensorState) {
       sensedTemperature = mySHTC3.toDegC();
       if (sensedTemperature > DIG_TEMP_TO_DISCARD_MIN &&
-          sensedTemperature < DIG_TEMP_TO_DISCARD_MAX)
-      {
+          sensedTemperature < DIG_TEMP_TO_DISCARD_MAX) {
         lastSuccesfullSensorUpdate[ROOM_DIGITAL_TEMP_SENSOR] = millis();
-        xQueueSend(sharedSensorQueue, &lastSuccesfullSensorUpdate[ROOM_DIGITAL_TEMP_SENSOR], portMAX_DELAY);
+        xQueueSend(sharedSensorQueue,
+                   &lastSuccesfullSensorUpdate[ROOM_DIGITAL_TEMP_SENSOR],
+                   portMAX_DELAY);
         in3.temperature[ROOM_DIGITAL_TEMP_SENSOR] =
             sensedTemperature; // Add here measurement to temp array
         in3.humidity[ROOM_DIGITAL_HUM_SENSOR] = mySHTC3.toPercent();
         return true;
       }
-    }
-    else
-    {
+    } else {
       initRoomSensor();
     }
-  }
-  else
-  {
+  } else {
     initRoomSensor();
   }
   return false;
 }
 
-bool updateAmbientSensor()
-{
-  if (ambientSensorPresent)
-  {
+bool updateAmbientSensor() {
+  if (ambientSensorPresent) {
     sensors_event_t humidity, temp;
     sht4.getEvent(&humidity,
                   &temp); // populate temp and humidity objects with fresh data
     in3.temperature[AMBIENT_DIGITAL_TEMP_SENSOR] = temp.temperature;
     in3.humidity[AMBIENT_DIGITAL_HUM_SENSOR] = humidity.relative_humidity;
     return true;
-  }
-  else
-  {
+  } else {
     initAmbientSensor();
   }
   return false;
