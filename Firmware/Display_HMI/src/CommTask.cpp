@@ -132,6 +132,7 @@ static void parse_message(const char *line) {
       ctrl_state_msg.desiredHumidity = humSet;
       ctrl_state_msg.phototherapyMode = photo;
       ctrl_state_msg.muteAlarm = mute;
+      if (result >= 13) ctrl_state_msg.skinModeEnabled = skinE;
       if (result >= 16) ctrl_state_msg.language = lang;
       if (result >= 17) {
         ctrl_state_msg.skinProbeState = probeState;
@@ -236,9 +237,14 @@ static bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
   ui_set_switch_state_silent(ui_Switch1, st.actuation & 0x01);
   ui_set_switch_state_silent(ui_Switch2, (st.actuation >> 1) & 0x01);
   ui_set_switch_state_silent(ui_Switch3, st.phototherapyMode);
-  ui_set_switch_state_silent(ui_Switch4, st.skinModeEnabled);
+  // Restore skin: only activate if saved state says ON *and* probe is present.
+  // If saved ON but no probe → fall back to Air and force switch OFF.
+  bool probeAvailable = (st.skinProbeState == SKIN_PROBE_VALID);
+  bool restoreSkin = (st.skinModeEnabled && probeAvailable);
 
-  skinPanelEnabled = st.skinModeEnabled; // Ensure sync with UITask global
+  ui_set_switch_state_silent(ui_Switch4, restoreSkin);
+
+  skinPanelEnabled = restoreSkin;
   if (skinPanelEnabled) {
     if (ui_SkinPanelCont) lv_obj_clear_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
   } else {
@@ -274,7 +280,7 @@ static bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
   hmi_msg.phototherapyMode = st.phototherapyMode;
   hmi_msg.muteAlarm = st.muteAlarm;
   // hmi_msg.language = st.language; // REMOVIDO: No sobrescribir idioma local
-  hmi_msg.skinModeEnabled = st.skinModeEnabled;
+  hmi_msg.skinModeEnabled = restoreSkin;
   hmi_msg.photoMinutesRemaining = st.photoMinutesRemaining;
 
   // Restore Phototherapy Timer if active in received state
@@ -298,17 +304,13 @@ static bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
       }
   }
 
-  if (st.controlMode == CONTROL_SKIN) {
+  if (st.controlMode == CONTROL_SKIN && restoreSkin) {
     selectedPanel = SKIN_PANEL_SELECTED;
     lastSelectedPanel = SKIN_PANEL_SELECTED;
-    // If we are in Skin mode, the enabler switch MUST be ON
     if (ui_Switch4) lv_obj_add_state(ui_Switch4, LV_STATE_CHECKED);
   } else {
     selectedPanel = AIR_PANEL_SELECTED;
     lastSelectedPanel = AIR_PANEL_SELECTED;
-    // We don't force ui_Switch4 to OFF here, as it might be enabled but in AIR mode.
-    // However, the user said "by default it should be OFF". 
-    // This will be handled by the initial state and MB default controlMode (AIR).
   }
 
   if (st.serialNumber != 0 && st.serialNumber != in3.serialNumber) {

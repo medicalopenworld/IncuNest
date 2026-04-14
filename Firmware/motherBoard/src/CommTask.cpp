@@ -148,7 +148,7 @@ double getRemainingPhotoTime() {
 //  SEND STATE TO HMI
 // ======================================================
 static void send_state_to_hmi() {
-  char msg[128];
+  char msg[160];
   int alarmCount = getActiveAlarmCount();
   double remainingTime = getRemainingPhotoTime();
 
@@ -159,8 +159,12 @@ static void send_state_to_hmi() {
       alarmBitmask |= (1 << i);
   }
 
+  // Derive probe state from skin temperature: >0.1°C means probe is physically connected
+  int skinProbeState = (in3.temperature[SKIN_SENSOR] > 0.1f) ? SKIN_PROBE_VALID
+                                                              : SKIN_PROBE_NOT_CONNECTED;
+
   snprintf(msg, sizeof(msg),
-           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d,0x%X\n",
+           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d,%d,0x%X\n",
            (int)g_last_cmd.actuation, (int)g_last_cmd.controlMode,
            (double)g_last_cmd.desiredAirTemperature,
            (double)g_last_cmd.desiredSkinTemperature,
@@ -168,7 +172,7 @@ static void send_state_to_hmi() {
            (int)g_last_cmd.muteAlarm, ctrl_tel_msg.serialNumber, HW_NUM,
            HW_REVISION, FWversion, alarmCount, (int)g_last_cmd.skinModeEnabled,
            (int)ctrl_tel_msg.serverCommStatus, remainingTime, in3.language,
-           alarmBitmask);
+           skinProbeState, alarmBitmask);
 
   ESP_LOGI(TAG, "Sending state to HMI: %s", msg);
   CommunicationHost_Send(msg);

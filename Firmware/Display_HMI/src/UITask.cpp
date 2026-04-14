@@ -336,12 +336,14 @@ void update_labels() {
   }
 
   // Derive skin probe presence from detected temperature and update switch
-  // visibility
-  static bool lastProbePresent = true; // force update on first call
+  // visibility. lastProbePresent starts as false so the first call with
+  // skinTempValueDetected=0 (no TEL received yet) does NOT trigger a spurious
+  // "probe lost" event that would undo state restoration done by Display_ApplyCtrlState.
+  static bool lastProbePresent = false;
   bool probePresent = (skinTempValueDetected > SKIN_PROBE_DETECT_THRESHOLD);
-  g_skinProbeState = probePresent ? SKIN_PROBE_VALID : SKIN_PROBE_NOT_CONNECTED;
   if (probePresent != lastProbePresent) {
     lastProbePresent = probePresent;
+    g_skinProbeState = probePresent ? SKIN_PROBE_VALID : SKIN_PROBE_NOT_CONNECTED;
     if (probePresent) {
       if (ui_Switch4)
         lv_obj_clear_flag(ui_Switch4, LV_OBJ_FLAG_HIDDEN);
