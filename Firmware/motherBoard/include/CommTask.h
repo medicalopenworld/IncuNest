@@ -8,6 +8,10 @@
 #define EXPECTED_PREFIX "HMI"
 #endif
 
+// Skin probe state values (must match defines in Display_HMI CommTask.h)
+#define SKIN_PROBE_NOT_CONNECTED  0
+#define SKIN_PROBE_VALID          2
+
 // ======================================================
 //  TELEMETRY (CTRL → HMI)
 // ======================================================
