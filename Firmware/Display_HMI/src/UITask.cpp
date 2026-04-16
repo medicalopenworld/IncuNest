@@ -2731,8 +2731,8 @@ void UI_Task(void *pvParameters) {
     ESP_ERROR_CHECK(esp_lcd_panel_reset(lcd_panel));
     ESP_ERROR_CHECK(esp_lcd_panel_init(lcd_panel));
 
-    // 180° rotation = mirror X + mirror Y
-    ESP_ERROR_CHECK(esp_lcd_panel_mirror(lcd_panel, true, true));
+    // No rotation (0°)
+    ESP_ERROR_CHECK(esp_lcd_panel_mirror(lcd_panel, false, false));
 
     ESP_LOGI("LCD", "RGB panel initialized with bounce buffers OK");
   }
@@ -2759,8 +2759,7 @@ void UI_Task(void *pvParameters) {
   }
 
   // ts.reset();
-  ts.setRotation(TOUCH_ROTATION);
-  // Rotation already handled by esp_lcd_panel_mirror() above
+  ts.setRotation(TOUCH_ROTATION); // ROTATION_INVERTED: raw coordinates, no mirror
 
   screenWidth = DISPLAY_WIDTH;
   screenHeight = DISPLAY_HEIGHT;
