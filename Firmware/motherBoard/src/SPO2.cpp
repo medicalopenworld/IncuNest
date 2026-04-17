@@ -1,5 +1,6 @@
 #include "SPO2.h"
 #include "main.h"
+#include "DriveUpload.h"
 
 INCUNEST_AFE4490    afe;
 TaskHandle_t        g_spo2_task = nullptr;
@@ -14,6 +15,7 @@ void SPO2_Task(void *pvParameters) {
   for (;;) {
     if (afe.getData(data)) {
       memcpy((void*)&g_spo2_data, &data, sizeof(data));
+      drivePushSample(data);
 
       if (++sample_count % SPO2_LOG_INTERVAL_SAMPLES == 0) {
         logSPO2("[SPO2] n=" + String(sample_count) +

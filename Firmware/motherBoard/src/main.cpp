@@ -28,6 +28,7 @@
 // Firmware version and head title of UI screen
 
 #include "main.h"
+#include "DriveUpload.h"
 
 #if !CONFIG_IDF_TARGET_ESP32S3
 TelemetryMessage ctrl_tel_msg = {0, 0, 0, 0};
@@ -590,6 +591,7 @@ void setup() {
   }
 
   initHardware(false);
+  initDriveUpload();
   initSPO2();
 #ifdef BQ25730_TEST
   dump_BQ25730_regs();
