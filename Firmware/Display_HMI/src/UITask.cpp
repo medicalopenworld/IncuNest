@@ -93,6 +93,11 @@ char wifi_pass[64] = "";
 bool LanguagesVisible = false;
 bool locked = true;
 
+static float ppg_disp_min = 128.0f;
+static float ppg_disp_max = 128.0f;
+static bool  spo2ProbeAttached = false;
+
+
 lv_chart_series_t *airTempSeries = NULL;
 lv_chart_series_t *skinTempSeries = NULL;
 lv_chart_series_t *humSeries = NULL;
@@ -3218,17 +3223,25 @@ void UI_Task(void *pvParameters) {
     */
     vTaskDelay(pdMS_TO_TICKS(LOOP_DELAY_MS));
 
-    // --- Lock screen: PPG waveform ---
-    if (locked && ui_LockPPGChart && lockPPGSeries && ctrl_ppg_msg.updated) {
+    // --- Lock screen: PPG waveform & probe detection ---
+    if (ui_LockPPGChart && lockPPGSeries && ctrl_ppg_msg.updated) {
+      float ppg_val = (float)ctrl_ppg_msg.ppg;
       ctrl_ppg_msg.updated = false;
-      lv_chart_set_next_value(ui_LockPPGChart, lockPPGSeries,
-                              (lv_coord_t)ctrl_ppg_msg.ppg);
+      if (ppg_val < ppg_disp_min) ppg_disp_min = ppg_val;
+      else ppg_disp_min += (128.0f - ppg_disp_min) * 0.05f;
+      if (ppg_val > ppg_disp_max) ppg_disp_max = ppg_val;
+      else ppg_disp_max += (128.0f - ppg_disp_max) * 0.05f;
+      spo2ProbeAttached = (ppg_disp_max - ppg_disp_min) > 20.0f;
+
+      if (locked && spo2ProbeAttached) {
+        lv_chart_set_next_value(ui_LockPPGChart, lockPPGSeries, (lv_coord_t)ppg_val);
+      }
     }
 
     // --- Lock screen: HR value ---
     if (locked && ui_LockHRCont && ctrl_vit_msg.updated) {
       ctrl_vit_msg.updated = false;
-      if (!ctrl_vit_msg.probe_attached) {
+      if (!spo2ProbeAttached) {
         lv_obj_add_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
       } else {
         lv_obj_clear_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);

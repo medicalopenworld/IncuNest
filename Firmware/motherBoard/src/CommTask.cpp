@@ -522,17 +522,15 @@ void Communication_Task(void *pvParameters) {
                ctrl_tel_msg.serverCommStatus);
       hmiSerial.print(msg);
 
-      // HR = average of HR2 and HR3 when both SQI > 0.9; 0 = no valid signal
+      // HR = average of HR2 and HR3 when both SQI > 0.6; 0 = no valid signal
       uint8_t hr_byte = 0;
-      if (g_spo2_data.hr2_sqi > 0.9f && g_spo2_data.hr3_sqi > 0.9f) {
+      if (g_spo2_data.hr2_sqi > 0.6f && g_spo2_data.hr3_sqi > 0.6f) {
         float hr_avg = (g_spo2_data.hr2 + g_spo2_data.hr3) / 2.0f;
         if (hr_avg >= 40.0f && hr_avg <= 240.0f)
           hr_byte = (uint8_t)(hr_avg + 0.5f);
       }
-      // probe_attached = 1 when spo2_sqi > 0 (PI-based; 0 means no finger/probe)
-      uint8_t probe_attached = (g_spo2_data.spo2_sqi > 0.05f) ? 1 : 0;
-      char vit_msg[24];
-      snprintf(vit_msg, sizeof(vit_msg), "CTRL,VIT,%u,0,%u\n", hr_byte, probe_attached);
+      char vit_msg[20];
+      snprintf(vit_msg, sizeof(vit_msg), "CTRL,VIT,%u,0\n", hr_byte);
       hmiSerial.print(vit_msg);
 
       last_tel_time = millis();

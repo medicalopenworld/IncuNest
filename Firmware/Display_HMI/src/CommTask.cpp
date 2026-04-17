@@ -172,13 +172,11 @@ static void parse_message(const char *line) {
       ctrl_ppg_msg.updated = true;
     }
   } else if (strncmp(line, "CTRL,VIT", 8) == 0) {
-    int hr = 0, spo2 = 0, probe = 0;
-    int parsed = sscanf(line, "CTRL,VIT,%d,%d,%d", &hr, &spo2, &probe);
-    if (parsed >= 2) {
-      ctrl_vit_msg.hr             = (uint8_t)hr;
-      ctrl_vit_msg.spo2           = (uint8_t)spo2;
-      ctrl_vit_msg.probe_attached = (parsed >= 3) ? (uint8_t)probe : 0;
-      ctrl_vit_msg.updated        = true;
+    int hr = 0, spo2 = 0;
+    if (sscanf(line, "CTRL,VIT,%d,%d", &hr, &spo2) == 2) {
+      ctrl_vit_msg.hr      = (uint8_t)hr;
+      ctrl_vit_msg.spo2    = (uint8_t)spo2;
+      ctrl_vit_msg.updated = true;
     }
   } else if (strncmp(line, "CTRL,ALM", strlen("CTRL,ALM")) ==
              0) {

@@ -69,9 +69,8 @@ typedef struct {
 
 // Vital signs (CTRL,VIT — 1 Hz)
 typedef struct {
-  uint8_t hr;             // 40–240 bpm; 0 = no valid signal
-  uint8_t spo2;           // 0–100 %; 0 = no valid signal (reserved, always 0 for now)
-  uint8_t probe_attached; // 1 = SPO2 probe physically connected (spo2_sqi > 0)
+  uint8_t hr;         // 40–240 bpm; 0 = no valid signal
+  uint8_t spo2;       // 0–100 %; 0 = no valid signal (reserved, always 0 for now)
   bool    updated;
 } ControlBoard_Message_VIT;
 
