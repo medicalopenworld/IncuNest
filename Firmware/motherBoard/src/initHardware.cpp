@@ -695,24 +695,22 @@ bool actuatorsTest() {
   offsetCurrent = measureMeanConsumption(SECUNDARY, HEATER_SHUNT_CHANNEL);
   logI("[HW] -> Heater offset (SECUNDARY): " + String(offsetCurrent) + " Amps");
   ledcWrite(HEATER_PWM_CHANNEL, PWM_MAX_VALUE);
-  logI("[HW] -> Heater PWM ON, waiting " +
-       String(CURRENT_STABILIZE_TIME_HEATER) + " ms...");
-  vTaskDelay(pdMS_TO_TICKS(CURRENT_STABILIZE_TIME_HEATER));
-  float rawAfter = measureMeanConsumption(SECUNDARY, HEATER_SHUNT_CHANNEL);
-  testCurrent = rawAfter - offsetCurrent;
-  logI("[HW] -> Heater raw after=" + String(rawAfter) + " offset=" +
-       String(offsetCurrent) + " -> delta=" + String(testCurrent) + " Amps");
+  logI("[HW] -> Heater PWM ON, stabilizing...");
+  testCurrent = measureStabilizedCurrent(SECUNDARY, HEATER_SHUNT_CHANNEL,
+                                         offsetCurrent, HEATER_CONSUMPTION_MIN,
+                                         HEATER_CONSUMPTION_MAX,
+                                         CURRENT_STABILIZE_MAX_TIME);
+  logI("[HW] -> Heater delta=" + String(testCurrent) + " Amps");
 #else
   offsetCurrent = measureMeanConsumption(MAIN, SYSTEM_SHUNT_CHANNEL);
   logI("[HW] -> Heater offset (MAIN): " + String(offsetCurrent) + " Amps");
   ledcWrite(HEATER_PWM_CHANNEL, PWM_MAX_VALUE);
-  logI("[HW] -> Heater PWM ON, waiting " +
-       String(CURRENT_STABILIZE_TIME_HEATER) + " ms...");
-  vTaskDelay(pdMS_TO_TICKS(CURRENT_STABILIZE_TIME_HEATER));
-  float rawAfter = measureMeanConsumption(MAIN, SYSTEM_SHUNT_CHANNEL);
-  testCurrent = rawAfter - offsetCurrent;
-  logI("[HW] -> Heater raw after=" + String(rawAfter) + " offset=" +
-       String(offsetCurrent) + " -> delta=" + String(testCurrent) + " Amps");
+  logI("[HW] -> Heater PWM ON, stabilizing...");
+  testCurrent = measureStabilizedCurrent(MAIN, SYSTEM_SHUNT_CHANNEL,
+                                         offsetCurrent, HEATER_CONSUMPTION_MIN,
+                                         HEATER_CONSUMPTION_MAX,
+                                         CURRENT_STABILIZE_MAX_TIME);
+  logI("[HW] -> Heater delta=" + String(testCurrent) + " Amps");
 #endif
   logI("[HW] -> Heater current consumption: " + String(testCurrent) + " Amps");
   in3.heater_current_test = testCurrent;
@@ -804,6 +802,9 @@ bool actuatorsTest() {
 #else
   digitalWrite(FAN, HIGH);
 #endif
+  // Wait for motor to spin up and INA3221 to fill its 128-sample buffer
+  // before measureStabilizedCurrent takes its first reading (~2 full cycles)
+  vTaskDelay(pdMS_TO_TICKS(120));
 
   testCurrent = measureStabilizedCurrent(
       MAIN, FAN_SHUNT_CHANNEL, offsetCurrent, FAN_CONSUMPTION_MIN,
@@ -853,6 +854,11 @@ bool initActuators() {
       USE_SYSTEM_WITHOUT_ACTUATORS_TEST) {
     logI("[HW] -> Fail -> No current sensor present, but still giving "
          "possibility to use incubator");
+    return false;
+  }
+  if (!digitalCurrentSensorPresent[SECUNDARY] &&
+      EEPROM.read(EEPROM_HEATER_TEST) && USE_SYSTEM_WITHOUT_ACTUATORS_TEST) {
+    logI("[HW] -> Fail -> No secondary current sensor, skipping heater test");
     return false;
   }
   return (actuatorsTest());
