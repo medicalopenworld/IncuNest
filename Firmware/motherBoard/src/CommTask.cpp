@@ -522,9 +522,9 @@ void Communication_Task(void *pvParameters) {
                ctrl_tel_msg.serverCommStatus);
       hmiSerial.print(msg);
 
-      // HR = average of HR2 and HR3 when both SQI > 0.6; 0 = no valid signal
+      // HR = average of HR2 and HR3 when both SQI > 0.9; 0 = no valid signal
       uint8_t hr_byte = 0;
-      if (g_spo2_data.hr2_sqi > 0.6f && g_spo2_data.hr3_sqi > 0.6f) {
+      if (g_spo2_data.hr2_sqi > 0.9f && g_spo2_data.hr3_sqi > 0.9f) {
         float hr_avg = (g_spo2_data.hr2 + g_spo2_data.hr3) / 2.0f;
         if (hr_avg >= 40.0f && hr_avg <= 240.0f)
           hr_byte = (uint8_t)(hr_avg + 0.5f);
