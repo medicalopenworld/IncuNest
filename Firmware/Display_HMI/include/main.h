@@ -312,7 +312,7 @@ constexpr int CFG_OFFSET_Y = 0;
 // -----------------------------
 // Touch / Display rotations
 // -----------------------------
-constexpr int TOUCH_ROTATION = 3;
+constexpr int TOUCH_ROTATION = 1; // ROTATION_INVERTED = identity (no transform)
 constexpr int LCD_ROTATION = 2;
 
 constexpr int COLOR_PANEL_WHITE_R = 255;

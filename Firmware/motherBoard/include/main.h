@@ -37,6 +37,7 @@
 #include "GPRS.h"
 #include "PID.h"
 #include "SPI.h"
+#include "SPO2.h"
 #include "SparkFun_SHTC3.h"
 #include "TCA9555.h"
 #include "Wifi_OTA.h"
@@ -63,10 +64,11 @@
 
 #define DEFAULT_WIFI_EN ON
 
-#define LOG_MODEM_DATA true
-#define LOG_INFORMATION true
-#define LOG_ERRORS true
+#define LOG_MODEM_DATA false
+#define LOG_INFORMATION false
+#define LOG_ERRORS false
 #define LOG_ALARMS false
+#define LOG_PULSIOXIMETRY true
 
 #define USE_SYSTEM_WITHOUT_ACTUATORS_TEST                                      \
   true // only if previous test was OK and that fail cause is not being able to
@@ -333,6 +335,7 @@ typedef enum {
 #define COMMUNICATION_TASK_PRIORITY 7
 #define COMMUNICATION_RECEIVER_PRIORITY 7
 #define SENSORS_TASK_PRIORITY 8
+#define SPO2_TASK_PRIORITY 8
 #define SECURITY_TASK_PRIORITY 9
 #define GPRS_MONITOR_TASK_PRIORITY 10
 
@@ -343,6 +346,7 @@ typedef enum {
 #define GPRS_TASK_PERIOD_MS 1
 #define OTA_TASK_PERIOD_MS 1
 #define SENSORS_TASK_PERIOD_MS 1
+#define SPO2_TASK_PERIOD_MS 1
 #define SKIN_SENSOR_UPDATE_PERIOD_MS 200 // in millis
 #define ROOM_SENSOR_UPDATE_PERIOD_MS 5000
 #define DIGITAL_CURRENT_SENSOR_PERIOD_MS 5
@@ -670,6 +674,7 @@ void logE(String dataString);
 void logAlarm(String dataString);
 void logI(String dataString);
 void logModemData(String dataString);
+void logSPO2(String dataString);
 void logModemData(String dataString);
 long secsToMillis(long timeInMillis);
 long minsToMillis(long timeInMillis);

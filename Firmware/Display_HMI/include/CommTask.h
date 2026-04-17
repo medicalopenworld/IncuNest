@@ -61,6 +61,20 @@ typedef struct {
   bool state;
 } ControlBoard_Message_Alarm;
 
+// PPG waveform sample (CTRL,PPG — 25 Hz)
+typedef struct {
+  uint8_t ppg;        // normalised 0–255
+  bool    updated;    // true after each new sample, cleared by consumer
+} ControlBoard_Message_PPG;
+
+// Vital signs (CTRL,VIT — 1 Hz)
+typedef struct {
+  uint8_t hr;             // 40–240 bpm; 0 = no valid signal
+  uint8_t spo2;           // 0–100 %; 0 = no valid signal (reserved, always 0 for now)
+  uint8_t probe_attached; // 1 = SPO2 probe physically connected (spo2_sqi > 0)
+  bool    updated;
+} ControlBoard_Message_VIT;
+
 typedef struct {
   int actuation;
   int controlMode;
@@ -114,6 +128,8 @@ extern ControlBoard_Message ctrl_msg;
 extern ControlBoard_Message_Telemetry ctrl_tel_msg;
 extern ControlBoard_Message_Alarm ctrl_msg_alarm;
 extern ControlBoard_Message_State ctrl_state_msg;
+extern ControlBoard_Message_PPG ctrl_ppg_msg;
+extern ControlBoard_Message_VIT ctrl_vit_msg;
 extern int g_skinProbeState; // Last received skin probe state (SKIN_PROBE_*)
 
 extern bool error;

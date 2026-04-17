@@ -459,6 +459,9 @@ void Communication_Task(void *pvParameters) {
 #if (HW_NUM == 16)
   // ---- UART path ----
   uint32_t last_tel_time = 0;
+  uint32_t last_ppg_time = 0;
+  // PPG normalisation state: decaying min/max keeps signal filling 0–255
+  float ppg_min = -1.0f, ppg_max = 1.0f;
   ESP_LOGI(TAG, "UART communication task started");
 
   for (;;) {
@@ -481,7 +484,25 @@ void Communication_Task(void *pvParameters) {
       send_state_to_hmi();
     }
 
-    // --- Periodic telemetry (every 1 s) ---
+    // --- PPG waveform (25 Hz = every 40 ms) ---
+    if (millis() - last_ppg_time >= 40) {
+      float ppg_raw = g_spo2_data.ppg;
+      // Expand range immediately, decay slowly toward 0 (bandpass signal is zero-mean)
+      if (ppg_raw < ppg_min) ppg_min = ppg_raw;
+      else ppg_min += (0.0f - ppg_min) * 0.005f;
+      if (ppg_raw > ppg_max) ppg_max = ppg_raw;
+      else ppg_max += (0.0f - ppg_max) * 0.005f;
+      float range = ppg_max - ppg_min;
+      uint8_t ppg_byte = (range > 1e-3f)
+          ? (uint8_t)constrain((ppg_raw - ppg_min) / range * 255.0f, 0.0f, 255.0f)
+          : 128;
+      char ppg_msg[16];
+      snprintf(ppg_msg, sizeof(ppg_msg), "CTRL,PPG,%u\n", ppg_byte);
+      hmiSerial.print(ppg_msg);
+      last_ppg_time = millis();
+    }
+
+    // --- Periodic telemetry + vitals (every 1 s) ---
     if (millis() - last_tel_time > 1000) {
       int status = COMM_STATUS_NONE;
       if (WIFIIsConnected()) {
@@ -500,6 +521,20 @@ void Communication_Task(void *pvParameters) {
                (int)ctrl_tel_msg.detectedHumidity,
                ctrl_tel_msg.serverCommStatus);
       hmiSerial.print(msg);
+
+      // HR = average of HR2 and HR3 when both SQI > 0.9; 0 = no valid signal
+      uint8_t hr_byte = 0;
+      if (g_spo2_data.hr2_sqi > 0.9f && g_spo2_data.hr3_sqi > 0.9f) {
+        float hr_avg = (g_spo2_data.hr2 + g_spo2_data.hr3) / 2.0f;
+        if (hr_avg >= 40.0f && hr_avg <= 240.0f)
+          hr_byte = (uint8_t)(hr_avg + 0.5f);
+      }
+      // probe_attached = 1 when spo2_sqi > 0 (PI-based; 0 means no finger/probe)
+      uint8_t probe_attached = (g_spo2_data.spo2_sqi > 0.05f) ? 1 : 0;
+      char vit_msg[24];
+      snprintf(vit_msg, sizeof(vit_msg), "CTRL,VIT,%u,0,%u\n", hr_byte, probe_attached);
+      hmiSerial.print(vit_msg);
+
       last_tel_time = millis();
     }
 

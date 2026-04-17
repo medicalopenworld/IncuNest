@@ -14,6 +14,8 @@ ControlBoard_Message ctrl_msg;
 ControlBoard_Message_Telemetry ctrl_tel_msg;
 ControlBoard_Message_Alarm ctrl_msg_alarm;
 ControlBoard_Message_State ctrl_state_msg = {0};
+ControlBoard_Message_PPG ctrl_ppg_msg     = {0, false};
+ControlBoard_Message_VIT ctrl_vit_msg     = {0, 0, false};
 int g_skinProbeState = SKIN_PROBE_NOT_CONNECTED; // Last received skin probe state
 
 // --- Power Off countdown state (written here, read by UITask) ---
@@ -162,6 +164,21 @@ static void parse_message(const char *line) {
       // but individual alarm messages will follow anyway.
     } else {
       COMM_LOG("[COMM] HMI failed to parse CTRL,STATE: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,PPG", 8) == 0) {
+    int ppg = 0;
+    if (sscanf(line, "CTRL,PPG,%d", &ppg) == 1) {
+      ctrl_ppg_msg.ppg     = (uint8_t)ppg;
+      ctrl_ppg_msg.updated = true;
+    }
+  } else if (strncmp(line, "CTRL,VIT", 8) == 0) {
+    int hr = 0, spo2 = 0, probe = 0;
+    int parsed = sscanf(line, "CTRL,VIT,%d,%d,%d", &hr, &spo2, &probe);
+    if (parsed >= 2) {
+      ctrl_vit_msg.hr             = (uint8_t)hr;
+      ctrl_vit_msg.spo2           = (uint8_t)spo2;
+      ctrl_vit_msg.probe_attached = (parsed >= 3) ? (uint8_t)probe : 0;
+      ctrl_vit_msg.updated        = true;
     }
   } else if (strncmp(line, "CTRL,ALM", strlen("CTRL,ALM")) ==
              0) {

@@ -412,6 +412,9 @@ extern lv_obj_t * ui_AlarmLockImg;
 extern lv_obj_t * ui_PanelLockAlarm;
 extern lv_obj_t * ui_AlarmLockNumLabel;
 extern lv_obj_t * ui_CheckImg;
+extern lv_obj_t * ui_LockPPGChart;
+extern lv_obj_t * ui_LockHRCont;
+extern lv_obj_t * ui_LockHRLabel;
 void ui_ScreenLock_screen_init(void);
 void ui_ScreenLock_screen_destroy(void);
 

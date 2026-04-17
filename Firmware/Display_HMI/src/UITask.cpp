@@ -96,6 +96,7 @@ bool locked = true;
 lv_chart_series_t *airTempSeries = NULL;
 lv_chart_series_t *skinTempSeries = NULL;
 lv_chart_series_t *humSeries = NULL;
+lv_chart_series_t *lockPPGSeries = NULL;
 
 bool g_stateSynced = false;
 uint32_t g_lastStateReqMs = 0;
@@ -2322,6 +2323,7 @@ static void show_targets_for_mode(void) {
 
 static void unlock_timeout_cb(lv_timer_t *t) {
   (void)t;
+  locked = true;
   show_targets_for_mode();
   if (unlockTimeoutTimer) {
     lv_timer_del(unlockTimeoutTimer);
@@ -2827,8 +2829,7 @@ void UI_Task(void *pvParameters) {
     ESP_ERROR_CHECK(esp_lcd_panel_reset(lcd_panel));
     ESP_ERROR_CHECK(esp_lcd_panel_init(lcd_panel));
 
-    // 180° rotation = mirror X + mirror Y
-    ESP_ERROR_CHECK(esp_lcd_panel_mirror(lcd_panel, true, true));
+    ESP_ERROR_CHECK(esp_lcd_panel_mirror(lcd_panel, false, false));
 
     ESP_LOGI("LCD", "RGB panel initialized with bounce buffers OK");
   }
@@ -3216,6 +3217,32 @@ void UI_Task(void *pvParameters) {
     }
     */
     vTaskDelay(pdMS_TO_TICKS(LOOP_DELAY_MS));
+
+    // --- Lock screen: PPG waveform ---
+    if (locked && ui_LockPPGChart && lockPPGSeries && ctrl_ppg_msg.updated) {
+      ctrl_ppg_msg.updated = false;
+      lv_chart_set_next_value(ui_LockPPGChart, lockPPGSeries,
+                              (lv_coord_t)ctrl_ppg_msg.ppg);
+    }
+
+    // --- Lock screen: HR value ---
+    if (locked && ui_LockHRCont && ctrl_vit_msg.updated) {
+      ctrl_vit_msg.updated = false;
+      if (!ctrl_vit_msg.probe_attached) {
+        lv_obj_add_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
+      } else {
+        lv_obj_clear_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
+        if (ui_LockHRLabel) {
+          if (ctrl_vit_msg.hr > 0) {
+            char hr_buf[8];
+            snprintf(hr_buf, sizeof(hr_buf), "%u", ctrl_vit_msg.hr);
+            lv_label_set_text(ui_LockHRLabel, hr_buf);
+          } else {
+            lv_label_set_text(ui_LockHRLabel, "--");
+          }
+        }
+      }
+    }
 
     if (pendingReconnect && (millis() - disconnectTimestampMs >= 5000)) {
       pendingReconnect = false;

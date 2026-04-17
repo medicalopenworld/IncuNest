@@ -590,6 +590,7 @@ void setup() {
   }
 
   initHardware(false);
+  initSPO2();
 #ifdef BQ25730_TEST
   dump_BQ25730_regs();
 #endif
@@ -672,12 +673,12 @@ void setup() {
 void loop() {
   watchdogReload();
   updateData();
-#ifdef BQ25730_TEST
-  static long lastPrint = 0;
-  if (millis() - lastPrint > 2000) {
-    print_charger_status();
-    lastPrint = millis();
-  }
-#endif
+// #ifdef BQ25730_TEST
+//   static long lastPrint = 0;
+//   if (millis() - lastPrint > 2000) {
+//     print_charger_status();
+//     lastPrint = millis();
+//   }
+// #endif
   vTaskDelay(pdMS_TO_TICKS(LOOP_TASK_PERIOD_MS));
 }
