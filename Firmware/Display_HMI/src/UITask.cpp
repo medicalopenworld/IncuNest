@@ -3025,6 +3025,7 @@ void UI_Task(void *pvParameters) {
   lv_obj_add_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
   lv_keyboard_set_textarea(ui_Keyboard1, NULL);
 
+  lv_textarea_set_text(ui_TextArea1, wifi_ssid);
   lv_textarea_set_text(ui_TextArea2, wifi_pass);
 
   lv_color_t init_panel_col = darkMode ? COLOR_PANEL_DARK : COLOR_PANEL_WHITE;

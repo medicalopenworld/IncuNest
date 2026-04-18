@@ -24,7 +24,6 @@
 */
 #include <Arduino.h>
 #include <string.h>
-#include "lwip/dns.h"
 
 #include "esp_log.h"
 #include "main.h"
@@ -37,8 +36,6 @@ char wifiHost[32] = "in3ator";
 WebServer wifiServer(80);
 
 WiFiClient espClient;
-
-// Initalize the Mqtt client instance
 Arduino_MQTT_Client mqttClientWIFI(espClient);
 
 // Initialize ThingsBoard instance
@@ -158,23 +155,9 @@ void wifiInit(void) {
 
   // In Arduino 3.x (ESP-IDF 5.x), setHostname must be called BEFORE mode(WIFI_STA).
   WiFi.setHostname(hostname.c_str());
-  WiFi.mode(WIFI_STA);
-
-  // Override DHCP-assigned DNS with Google DNS on every IP assignment.
-  // lwIP won't fall back to slot 1 on error (only on timeout), so we must
-  // own slot 0. Register once — fires on initial connect and every reconnect.
-  static bool dns_handler_registered = false;
-  if (!dns_handler_registered) {
-    WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
-      ip_addr_t dns;
-      IP4_ADDR(&dns.u_addr.ip4, 8, 8, 8, 8);
-      dns.type = IPADDR_TYPE_V4;
-      dns_setserver(0, &dns);
-      IP4_ADDR(&dns.u_addr.ip4, 8, 8, 4, 4);
-      dns_setserver(1, &dns);
-      ESP_LOGI("WiFi", "DNS overridden: slot0=8.8.8.8 slot1=8.8.4.4");
-    }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
-    dns_handler_registered = true;
+  // Skip mode change if already STA — calling mode() while connecting causes ESP_ERR_WIFI_CONN.
+  if (WiFi.getMode() != WIFI_MODE_STA) {
+    WiFi.mode(WIFI_STA);
   }
 
   String ssid;
@@ -646,12 +629,13 @@ void WIFI_TB_OTA() {
       tb_wifi.loop();
     } else {
       if (!tb_wifi.connected()) {
-        if (millis() - Wifi_TB.lastReconnectAttempt < THINGSBOARD_RECONNECT_DELAY) {
+        if (Wifi_TB.lastReconnectAttempt != 0 &&
+            millis() - Wifi_TB.lastReconnectAttempt < THINGSBOARD_RECONNECT_DELAY) {
           return;
         }
-        Wifi_TB.lastReconnectAttempt = millis();
         ESP_LOGI(TAG, "Connecting over WIFI to: %s with token %s",
                  THINGSBOARD_SERVER, Wifi_TB.device_token.c_str());
+        Wifi_TB.lastReconnectAttempt = millis();
         if (!tb_wifi.connect(THINGSBOARD_SERVER,
                              Wifi_TB.device_token.c_str())) {
           ESP_LOGI(TAG, "Failed to connect");
