@@ -1,6 +1,8 @@
 #include "CommTask.h"
 #include "main.h"
+#include "DriveUpload.h"
 #include <EEPROM.h>
+#include <LittleFS.h>
 
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -8,6 +10,7 @@
 #include "freertos/task.h"
 #include <cstdio>
 #include <cstring>
+#include <time.h>
 
 #if (HW_NUM != 16)
 #include "usb/cdc_acm_host.h"
@@ -183,9 +186,136 @@ static void send_state_to_hmi() {
 }
 
 // ======================================================
+//  HMI PANIC CAPTURE
+//
+//  The HMI board's UART0 (boot/panic output) is wired to this motherboard's
+//  hmiSerial. Regular protocol lines start with "HMI,"/"CTRL," etc., but when
+//  the HMI panics the ESP32 ROM dumps register/backtrace text we want to keep.
+//  We buffer those lines into LittleFS and hand them off to the Drive uploader.
+// ======================================================
+#define HMI_CRASH_BUF_SIZE    4096
+#define HMI_CRASH_TIMEOUT_MS  10000UL
+
+static char     hmi_crash_buf[HMI_CRASH_BUF_SIZE];
+static int      hmi_crash_len        = 0;
+static bool     hmi_crash_capturing  = false;
+static uint32_t hmi_crash_last_ms    = 0;
+static uint32_t hmi_crash_start_ms   = 0;
+
+static bool lineStartsCrash(const char *line) {
+  return strncmp(line, "Guru Meditation", 15) == 0 ||
+         strncmp(line, "abort() was called", 18) == 0 ||
+         strncmp(line, "Stack canary", 12) == 0 ||
+         strstr(line, "Task watchdog got triggered") != NULL ||
+         strncmp(line, "Debug exception", 15) == 0 ||
+         strstr(line, "assert failed") != NULL ||
+         strncmp(line, "PC      :", 9) == 0 ||
+         strncmp(line, "Backtrace:", 10) == 0 ||
+         strstr(line, "LoadProhibited") != NULL ||
+         strstr(line, "StoreProhibited") != NULL;
+}
+
+static bool lineEndsCrash(const char *line) {
+  // Boot ROM banner signals the HMI has rebooted past the panic.
+  return strncmp(line, "rst:", 4) == 0 || strncmp(line, "ets ", 4) == 0;
+}
+
+static void hmiCrashFlush() {
+  if (hmi_crash_len <= 0) {
+    hmi_crash_capturing = false;
+    hmi_crash_len       = 0;
+    return;
+  }
+
+  char path[48];
+  snprintf(path, sizeof(path), "/crash_hmi_%lu.log",
+           (unsigned long)hmi_crash_start_ms);
+
+  File f = LittleFS.open(path, "w", true);
+  if (!f) {
+    logDrive(String("HMI crash: cannot open ") + path);
+    hmi_crash_capturing = false;
+    hmi_crash_len       = 0;
+    return;
+  }
+  f.printf("=== IncuNest display_HMI panic capture ===\n");
+  f.printf("Captured by motherboard FW %s (SN %d)\n", FWversion,
+           (int)in3.serialNumber);
+  f.printf("Capture window: %lu ms\n",
+           (unsigned long)(hmi_crash_last_ms - hmi_crash_start_ms));
+  f.printf("-- begin --\n");
+  f.write((const uint8_t *)hmi_crash_buf, hmi_crash_len);
+  f.printf("\n-- end --\n");
+  f.close();
+
+  char drive_name[64];
+  time_t now;
+  time(&now);
+  if (now > 1609459200UL) {
+    struct tm t;
+    gmtime_r(&now, &t);
+    char tsbuf[32];
+    strftime(tsbuf, sizeof(tsbuf), "%Y_%m_%d_%H_%M_%S", &t);
+    snprintf(drive_name, sizeof(drive_name), "%s_%d_crash_hmi.log", tsbuf,
+             (int)in3.serialNumber);
+  } else {
+    snprintf(drive_name, sizeof(drive_name), "boot_%d_crash_hmi_%lu.log",
+             (int)in3.serialNumber, (unsigned long)hmi_crash_start_ms);
+  }
+
+  if (!driveEnqueueLogUpload(path, drive_name)) {
+    logDrive("HMI crash enqueue failed");
+  } else {
+    logDrive(String("HMI crash captured (") + hmi_crash_len + " bytes) -> " +
+             drive_name);
+  }
+
+  hmi_crash_capturing = false;
+  hmi_crash_len       = 0;
+}
+
+// Returns true when the line was consumed by the crash FSM and must not be
+// processed further as a protocol frame.
+static bool hmiCrashAppend(const char *line) {
+  uint32_t now = millis();
+
+  if (hmi_crash_capturing && now - hmi_crash_last_ms > HMI_CRASH_TIMEOUT_MS) {
+    // Stream stalled — flush what we have before re-evaluating this line.
+    hmiCrashFlush();
+  }
+
+  if (!hmi_crash_capturing) {
+    if (!lineStartsCrash(line))
+      return false;
+    hmi_crash_capturing = true;
+    hmi_crash_len       = 0;
+    hmi_crash_start_ms  = now;
+    logDrive(String("HMI crash capture armed: ") + line);
+  }
+
+  size_t n = strlen(line);
+  if (hmi_crash_len + (int)n + 1 < HMI_CRASH_BUF_SIZE) {
+    memcpy(hmi_crash_buf + hmi_crash_len, line, n);
+    hmi_crash_len += n;
+    hmi_crash_buf[hmi_crash_len++] = '\n';
+  }
+  hmi_crash_last_ms = now;
+
+  if (lineEndsCrash(line)) {
+    hmiCrashFlush();
+  }
+  return true;
+}
+
+// ======================================================
 //  LINE PARSER (common to UART and USB)
 // ======================================================
 void parse_line(const char *line) {
+  // HMI panic output arrives as plain ROM/ESP_LOG text, so intercept it
+  // before the protocol-prefix filter discards everything without "HMI,".
+  if (hmiCrashAppend(line))
+    return;
+
   if (strncmp(line, EXPECTED_PREFIX, strlen(EXPECTED_PREFIX)) != 0) {
     return;
   }
@@ -462,6 +592,10 @@ void Communication_Task(void *pvParameters) {
   uint32_t last_ppg_time = 0;
   // PPG normalisation state: decaying min/max keeps signal filling 0–255
   float ppg_min = -1.0f, ppg_max = 1.0f;
+  // HR hysteresis: show after 2 consecutive valid samples, hide after 3 bad ones
+  uint8_t hr_valid_streak = 0;
+  uint8_t hr_bad_streak   = 0;
+  bool    hr_displaying   = false;
   ESP_LOGI(TAG, "UART communication task started");
 
   for (;;) {
@@ -486,19 +620,27 @@ void Communication_Task(void *pvParameters) {
 
     // --- PPG waveform (25 Hz = every 40 ms) ---
     if (millis() - last_ppg_time >= 40) {
-      float ppg_raw = g_spo2_data.ppg;
-      // Expand range immediately, decay slowly toward 0 (bandpass signal is zero-mean)
-      if (ppg_raw < ppg_min) ppg_min = ppg_raw;
-      else ppg_min += (0.0f - ppg_min) * 0.005f;
-      if (ppg_raw > ppg_max) ppg_max = ppg_raw;
-      else ppg_max += (0.0f - ppg_max) * 0.005f;
-      float range = ppg_max - ppg_min;
-      uint8_t ppg_byte = (range > 1e-3f)
-          ? (uint8_t)constrain((ppg_raw - ppg_min) / range * 255.0f, 0.0f, 255.0f)
-          : 128;
-      char ppg_msg[16];
-      snprintf(ppg_msg, sizeof(ppg_msg), "CTRL,PPG,%u\n", ppg_byte);
-      hmiSerial.print(ppg_msg);
+      // No valid signal: reset normalisation and send flat midpoint so the
+      // display collapses its amplitude window immediately.
+      if (g_spo2_data.spo2_sqi < 0.05f) {
+        ppg_min = -1.0f;
+        ppg_max =  1.0f;
+        hmiSerial.print("CTRL,PPG,128\n");
+      } else {
+        float ppg_raw = g_spo2_data.ppg;
+        // Expand range immediately, decay slowly toward 0 (bandpass signal is zero-mean)
+        if (ppg_raw < ppg_min) ppg_min = ppg_raw;
+        else ppg_min += (0.0f - ppg_min) * 0.005f;
+        if (ppg_raw > ppg_max) ppg_max = ppg_raw;
+        else ppg_max += (0.0f - ppg_max) * 0.005f;
+        float range = ppg_max - ppg_min;
+        uint8_t ppg_byte = (range > 1e-3f)
+            ? (uint8_t)constrain((ppg_raw - ppg_min) / range * 255.0f, 0.0f, 255.0f)
+            : 128;
+        char ppg_msg[16];
+        snprintf(ppg_msg, sizeof(ppg_msg), "CTRL,PPG,%u\n", ppg_byte);
+        hmiSerial.print(ppg_msg);
+      }
       last_ppg_time = millis();
     }
 
@@ -522,12 +664,27 @@ void Communication_Task(void *pvParameters) {
                ctrl_tel_msg.serverCommStatus);
       hmiSerial.print(msg);
 
-      // HR = average of HR2 and HR3 when both SQI > 0.9; 0 = no valid signal
+      // HR fusion: weighted average of HR2+HR3 with agreement check and hysteresis
       uint8_t hr_byte = 0;
-      if (g_spo2_data.hr2_sqi > 0.9f && g_spo2_data.hr3_sqi > 0.9f) {
-        float hr_avg = (g_spo2_data.hr2 + g_spo2_data.hr3) / 2.0f;
-        if (hr_avg >= 40.0f && hr_avg <= 240.0f)
-          hr_byte = (uint8_t)(hr_avg + 0.5f);
+      {
+        float h2 = g_spo2_data.hr2, h3 = g_spo2_data.hr3;
+        float s2 = g_spo2_data.hr2_sqi, s3 = g_spo2_data.hr3_sqi;
+        bool valid = (h2 > 0.0f) && (h3 > 0.0f) &&
+                     (fabsf(h2 - h3) < 8.0f) &&
+                     (fmaxf(s2, s3) >= 0.8f) &&
+                     (fminf(s2, s3) >= 0.5f);
+        if (valid) {
+          hr_bad_streak = 0;
+          if (++hr_valid_streak >= 2) hr_displaying = true;
+        } else {
+          hr_valid_streak = 0;
+          if (++hr_bad_streak >= 3) hr_displaying = false;
+        }
+        if (hr_displaying && valid) {
+          float hr_fused = (h2 * s2 + h3 * s3) / (s2 + s3);
+          if (hr_fused >= 40.0f && hr_fused <= 240.0f)
+            hr_byte = (uint8_t)(hr_fused + 0.5f);
+        }
       }
       char vit_msg[20];
       snprintf(vit_msg, sizeof(vit_msg), "CTRL,VIT,%u,0\n", hr_byte);

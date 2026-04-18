@@ -29,6 +29,7 @@
 
 #include "main.h"
 #include "DriveUpload.h"
+#include "CrashReporter.h"
 
 #if !CONFIG_IDF_TARGET_ESP32S3
 TelemetryMessage ctrl_tel_msg = {0, 0, 0, 0};
@@ -440,6 +441,19 @@ void PowerManagement_Task(void *pvParameters) {
 #endif
 
 extern "C" int sync_vprintf(const char *fmt, va_list args) {
+  // Tee formatted output into the crash-report ring so that, after a panic,
+  // the last few KB of ESP_LOG context survive in RTC memory.
+  char ring_buf[256];
+  va_list args_copy;
+  va_copy(args_copy, args);
+  int ring_len = vsnprintf(ring_buf, sizeof(ring_buf), fmt, args_copy);
+  va_end(args_copy);
+  if (ring_len > 0) {
+    if (ring_len > (int)sizeof(ring_buf))
+      ring_len = sizeof(ring_buf);
+    crashReporterPut(ring_buf, ring_len);
+  }
+
   if (log_mutex == NULL) {
     return vprintf(fmt, args);
   }
@@ -557,6 +571,7 @@ void setup() {
   esp_bt_controller_mem_release(ESP_BT_MODE_BLE);
   debugSerial.begin(115200);
   log_mutex = xSemaphoreCreateRecursiveMutex();
+  crashReporterInit();
   esp_log_set_vprintf(sync_vprintf);
 
   GPRS_monitor_mutex = xSemaphoreCreateBinary();
@@ -592,6 +607,7 @@ void setup() {
 
   initHardware(false);
   initDriveUpload();
+  crashReporterMaybeFlush();
   initSPO2();
 #ifdef BQ25730_TEST
   dump_BQ25730_regs();

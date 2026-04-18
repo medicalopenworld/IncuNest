@@ -24,6 +24,7 @@
 */
 #include <Arduino.h>
 #include <string.h>
+#include "lwip/dns.h"
 
 #include "GPRS.h"
 #include "main.h"
@@ -248,7 +249,6 @@ void wifiInit(void) {
 
   WiFi.setHostname(hostname.c_str());
   WiFi.mode(WIFI_STA);
-  WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
 
   String ssid;
   String pass;
@@ -279,6 +279,12 @@ void configWifiServer() {
   // Wait for connection
   logI("Connected to " + WiFi.SSID() + " IP address " +
        WiFi.localIP().toString());
+
+  // Pin a fallback DNS so subsequent lookups survive lwIP reinit after reconnects
+  ip_addr_t dns_fallback;
+  IP4_ADDR(&dns_fallback.u_addr.ip4, 8, 8, 8, 8);
+  dns_fallback.type = IPADDR_TYPE_V4;
+  dns_setserver(1, &dns_fallback);
 
   /*use mdns for wifiHost name resolution*/
   if (!MDNS.begin(wifiHost)) { // http://esp32.local

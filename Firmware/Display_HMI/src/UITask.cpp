@@ -93,9 +93,10 @@ char wifi_pass[64] = "";
 bool LanguagesVisible = false;
 bool locked = true;
 
-static float ppg_disp_min = 128.0f;
-static float ppg_disp_max = 128.0f;
-static bool  spo2ProbeAttached = false;
+static float ppg_disp_min      = 128.0f;
+static float ppg_disp_max      = 128.0f;
+static bool  spo2ProbeAttached     = false;
+static bool  spo2ProbeAttachedPrev = false;
 
 
 lv_chart_series_t *airTempSeries = NULL;
@@ -3232,6 +3233,19 @@ void UI_Task(void *pvParameters) {
       if (ppg_val > ppg_disp_max) ppg_disp_max = ppg_val;
       else ppg_disp_max += (128.0f - ppg_disp_max) * 0.05f;
       spo2ProbeAttached = (ppg_disp_max - ppg_disp_min) > 20.0f;
+
+      // On falling edge: hide chart and HR, reset normalisation
+      if (!spo2ProbeAttached && spo2ProbeAttachedPrev) {
+        ppg_disp_min = 128.0f;
+        ppg_disp_max = 128.0f;
+        lv_obj_add_flag(ui_LockPPGChart, LV_OBJ_FLAG_HIDDEN);
+        if (ui_LockHRCont) lv_obj_add_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
+      }
+      // On rising edge: show chart
+      if (spo2ProbeAttached && !spo2ProbeAttachedPrev) {
+        lv_obj_clear_flag(ui_LockPPGChart, LV_OBJ_FLAG_HIDDEN);
+      }
+      spo2ProbeAttachedPrev = spo2ProbeAttached;
 
       if (locked && spo2ProbeAttached) {
         lv_chart_set_next_value(ui_LockPPGChart, lockPPGSeries, (lv_coord_t)ppg_val);

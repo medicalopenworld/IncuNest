@@ -267,6 +267,19 @@ void logSPO2(String dataString) {
   }
 }
 
+void logDrive(String dataString) {
+  if (!LOG_DRIVE)
+    return;
+
+  static const char *TAG_USER __attribute__((unused)) = "DRIVE";
+  if (log_mutex == NULL ||
+      xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    ESP_LOGI(TAG_USER, "%lu: %s", millis() / 1000, dataString.c_str());
+    if (log_mutex)
+      xSemaphoreGiveRecursive(log_mutex);
+  }
+}
+
 void backlightHandler() {
   if (autoLock) {
     if (millis() - lastbacklightHandler > BACKLIGHT_NO_INTERACTION_TIME &&

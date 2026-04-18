@@ -68,7 +68,8 @@
 #define LOG_INFORMATION false
 #define LOG_ERRORS false
 #define LOG_ALARMS false
-#define LOG_PULSIOXIMETRY true
+#define LOG_PULSIOXIMETRY false
+#define LOG_DRIVE false // Google Drive upload + MB/HMI crash capture
 
 #define USE_SYSTEM_WITHOUT_ACTUATORS_TEST                                      \
   true // only if previous test was OK and that fail cause is not being able to
@@ -675,6 +676,7 @@ void logAlarm(String dataString);
 void logI(String dataString);
 void logModemData(String dataString);
 void logSPO2(String dataString);
+void logDrive(String dataString);
 void logModemData(String dataString);
 long secsToMillis(long timeInMillis);
 long minsToMillis(long timeInMillis);

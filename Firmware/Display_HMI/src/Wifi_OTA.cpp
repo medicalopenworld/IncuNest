@@ -24,6 +24,7 @@
 */
 #include <Arduino.h>
 #include <string.h>
+#include "lwip/dns.h"
 
 #include "esp_log.h"
 #include "main.h"
@@ -156,9 +157,25 @@ void wifiInit(void) {
   ESP_LOGI(TAG, "Setting hostname to: %s", wifiHost);
 
   // In Arduino 3.x (ESP-IDF 5.x), setHostname must be called BEFORE mode(WIFI_STA).
-  // WiFi.config(INADDR_NONE,...) was an Arduino 2.x workaround that blocks ~20s on ESP-IDF 5.x.
-  WiFi.mode(WIFI_STA);
   WiFi.setHostname(hostname.c_str());
+  WiFi.mode(WIFI_STA);
+
+  // Override DHCP-assigned DNS with Google DNS on every IP assignment.
+  // lwIP won't fall back to slot 1 on error (only on timeout), so we must
+  // own slot 0. Register once — fires on initial connect and every reconnect.
+  static bool dns_handler_registered = false;
+  if (!dns_handler_registered) {
+    WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+      ip_addr_t dns;
+      IP4_ADDR(&dns.u_addr.ip4, 8, 8, 8, 8);
+      dns.type = IPADDR_TYPE_V4;
+      dns_setserver(0, &dns);
+      IP4_ADDR(&dns.u_addr.ip4, 8, 8, 4, 4);
+      dns_setserver(1, &dns);
+      ESP_LOGI("WiFi", "DNS overridden: slot0=8.8.8.8 slot1=8.8.4.4");
+    }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
+    dns_handler_registered = true;
+  }
 
   String ssid;
   String pass;
@@ -527,6 +544,8 @@ void addConfigTelemetriesToWIFIJSON() {
 }
 
 void addTelemetriesToWIFIJSON() {
+  addVariableToTelemetryWIFIJSON["fw_version"] = FWversion;
+  addVariableToTelemetryWIFIJSON["sn"] = in3.serialNumber;
   // addAlarmTelemetriesToWIFIJSON();
   // addVariableToTelemetryWIFIJSON[SKIN_CAPACITANCE_KEY] =
   //     in3.skinSensorCapacitance;
@@ -627,7 +646,10 @@ void WIFI_TB_OTA() {
       tb_wifi.loop();
     } else {
       if (!tb_wifi.connected()) {
-        // Connect to the ThingsBoard
+        if (millis() - Wifi_TB.lastReconnectAttempt < THINGSBOARD_RECONNECT_DELAY) {
+          return;
+        }
+        Wifi_TB.lastReconnectAttempt = millis();
         ESP_LOGI(TAG, "Connecting over WIFI to: %s with token %s",
                  THINGSBOARD_SERVER, Wifi_TB.device_token.c_str());
         if (!tb_wifi.connect(THINGSBOARD_SERVER,
@@ -637,39 +659,26 @@ void WIFI_TB_OTA() {
         } else {
           ESP_LOGI(TAG, "Connected to host");
           Wifi_TB.serverConnectionStatus = true;
-          if (ENABLE_WIFI_OTA && !Wifi_TB.OTA_requested) {
-            ESP_LOGI(TAG, "Requesting OTA");
-            WIFICheckOTA();
-            Wifi_TB.OTA_requested = true;
+          WIFICheckOTA();
+          Wifi_TB.lastOTACheck = millis();
+        }
+      } else {
+        if (millis() - Wifi_TB.lastMQTTPublish > WIFI_PUBLISH_INTERVAL) {
+          addTelemetriesToWIFIJSON();
+          if (tb_wifi.sendTelemetryJson(addVariableToTelemetryWIFIJSON,
+                                        JSON_STRING_SIZE(measureJson(
+                                            addVariableToTelemetryWIFIJSON)))) {
+            ESP_LOGI(TAG, "WIFI MQTT PUBLISH TELEMETRIES SUCCESS");
+          } else {
+            ESP_LOGI(TAG, "WIFI MQTT PUBLISH TELEMETRIES FAIL");
           }
+          WIFI_JSON.clear();
+          Wifi_TB.lastMQTTPublish = millis();
         }
-      }
-      if (tb_wifi.connected() &&
-          millis() - Wifi_TB.lastMQTTPublish > WIFI_PUBLISH_INTERVAL) {
-        if (!Wifi_TB.firstPublish) {
-          Wifi_TB.firstPublish = true;
-          // addConfigTelemetriesToWIFIJSON();
-          // if (tb_wifi.sendTelemetryJson(addVariableToTelemetryWIFIJSON,
-          //                               JSON_STRING_SIZE(measureJson(
-          //                                   addVariableToTelemetryWIFIJSON))))
-          //                                   {
-          //   ESP_LOGI(TAG, "WIFI MQTT PUBLISH CONFIG SUCCESS");
-          // } else {
-          //   ESP_LOGI(TAG, "WIFI MQTT PUBLISH CONFIG FAIL");
-          // }
-          // WIFI_JSON.clear();
+        if (millis() - Wifi_TB.lastOTACheck > WIFI_OTA_CHECK_INTERVAL) {
+          WIFICheckOTA();
+          Wifi_TB.lastOTACheck = millis();
         }
-        addTelemetriesToWIFIJSON();
-        if (tb_wifi.sendTelemetryJson(addVariableToTelemetryWIFIJSON,
-                                      JSON_STRING_SIZE(measureJson(
-                                          addVariableToTelemetryWIFIJSON)))) {
-          ESP_LOGI(TAG, "WIFI MQTT PUBLISH TELEMETRIES SUCCESS");
-        } else {
-          ESP_LOGI(TAG, "WIFI MQTT PUBLISH TELEMETRIES FAIL");
-        }
-        WIFI_JSON.clear();
-        addVariableToTelemetryWIFIJSON = WIFI_JSON.to<JsonObject>();
-        Wifi_TB.lastMQTTPublish = millis();
       }
     }
   } else {
