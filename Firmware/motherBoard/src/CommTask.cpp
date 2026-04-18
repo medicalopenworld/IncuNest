@@ -53,6 +53,8 @@ static int photoTimerMinutes = 0;
 // ======================================================
 //  USB-ONLY HELPERS
 // ======================================================
+void parse_line(const char *line);
+
 #if (HW_NUM != 16)
 static void reset_vcp() {
   if (xSemaphoreTake(vcp_mux, pdMS_TO_TICKS(100)) == pdTRUE) {

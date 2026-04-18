@@ -633,6 +633,9 @@ void WIFI_TB_OTA() {
             millis() - Wifi_TB.lastReconnectAttempt < THINGSBOARD_RECONNECT_DELAY) {
           return;
         }
+        ESP_LOGW(TAG, "TB disconnected. tcp_connected=%d wifi_status=%d heap=%u",
+                 (int)espClient.connected(), (int)WiFi.status(),
+                 (unsigned)ESP.getFreeHeap());
         ESP_LOGI(TAG, "Connecting over WIFI to: %s with token %s",
                  THINGSBOARD_SERVER, Wifi_TB.device_token.c_str());
         Wifi_TB.lastReconnectAttempt = millis();

@@ -53,6 +53,11 @@ void setup() {
   // Suppress ESP-IDF gpio error logs (caused by GT911 using pin -1)
   esp_log_level_set("gpio", ESP_LOG_NONE);
 
+  ESP_LOGW(TAG, "BOOT heap: internal=%u SPIRAM=%u psramFound=%d psramSize=%u",
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+           (int)psramFound(), (unsigned)ESP.getPsramSize());
+
   initEEPROM();
 
   Wire.begin(TOUCH_SDA_PIN, TOUCH_SCL_PIN);

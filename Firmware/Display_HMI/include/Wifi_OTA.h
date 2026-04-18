@@ -18,12 +18,14 @@
 #include "main.h"
 
 #define CURRENT_FIRMWARE_TITLE "IncuNest_HMI"
-#define CURRENT_FIRMWARE_VERSION "1.0.5"
 
-#define WIFI_PUBLISH_INTERVAL 5000         // milliseconds
-#define WIFI_RECONNECT_INTERVAL 10000      // 10 seconds
-#define THINGSBOARD_RECONNECT_DELAY 30000  // 30 seconds
-#define WIFI_OTA_CHECK_INTERVAL 60000      // 1 minute
+#define WIFI_PUBLISH_INTERVAL 5000 // milliseconds
+// Arduino-ESP32 3.x WiFi association can take >10 s on some APs; retrying
+// wifiInit() before the in-flight WiFi.begin() finishes corrupts STA state
+// (ESP_ERR_WIFI_CONN + HANDSHAKE_TIMEOUT) and has triggered IRQ-wdt panics.
+#define WIFI_RECONNECT_INTERVAL 30000     // 30 seconds
+#define THINGSBOARD_RECONNECT_DELAY 30000 // 30 seconds
+#define WIFI_OTA_CHECK_INTERVAL 60000     // 1 minute
 
 #define ENABLE_WIFI_OTA true // enable wifi OTA
 #define ENABLE_GPRS_OTA true // enable GPRS OTA
