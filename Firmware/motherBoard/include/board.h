@@ -130,6 +130,11 @@
 #define AFE4490_ADC_READY 45
 #define GSM_UART_TX_PIN 48
 #define GSM_UART_RX_PIN 47
+// AFE SPI bus (shared with TFT SPI, pins from build flags TFT_SCLK/MISO/MOSI)
+#define AFE_SCK  18
+#define AFE_MISO 19
+#define AFE_MOSI 23
+#define AFE_ADC_READY AFE4490_ADC_READY
 
 #define FAKE_PIN 46
 
