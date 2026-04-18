@@ -69,7 +69,13 @@
 #define LOG_ERRORS false
 #define LOG_ALARMS false
 #define LOG_PULSIOXIMETRY false
-#define LOG_DRIVE false // Google Drive upload + MB/HMI crash capture
+#define LOG_DRIVE true // Google Drive upload + MB/HMI crash capture
+
+// Diagnostic: set to 1 to skip the upload task entirely. Writer keeps rotating
+// but every closed window is deleted instead of enqueued. Isolates whether the
+// crash originates in TLS/upload (heap corruption) or in the writer/littlefs
+// path itself.
+#define DRIVE_DISABLE_UPLOAD 0
 
 #define USE_SYSTEM_WITHOUT_ACTUATORS_TEST                                      \
   true // only if previous test was OK and that fail cause is not being able to

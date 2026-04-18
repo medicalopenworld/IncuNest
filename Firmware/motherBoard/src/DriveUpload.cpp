@@ -239,12 +239,13 @@ static void ensureTimeSynced() {
   }
 }
 
-// ─── Writer: queue -> active CSV, rotate every DRIVE_UPLOAD_WINDOW_MS ────────
-// Uses POSIX fd (::open/::write/::close) instead of Arduino's File + stdio to
-// avoid an lfs_file_t leak in esp_littlefs' FILE*/fclose path that asserted
-// `lfs_mlist_isopen` after ~4 rotation cycles.
+// ─── Writer: queue -> unique CSV per window, rotate every WINDOW_MS ──────────
+// Each window writes to /pox_<ms>.csv with a fresh inode — we never reuse a
+// path or rename an existing file, which avoided an esp_littlefs fd-table
+// corruption that asserted `lfs_mlist_isopen` on the next open after rotation.
 static void driveWriteTask(void *pv) {
   int      csv_fd          = -1;
+  char     csv_rel[24]     = {0};  // "/pox_<ms>.csv" (LittleFS-relative)
   uint32_t window_start_ms = 0;
   bool     hb_detected     = false;
 
@@ -254,16 +255,15 @@ static void driveWriteTask(void *pv) {
     ::close(csv_fd);
     csv_fd = -1;
 
-    if (s_upload_slot_busy) {
-      removeIfExists(DRIVE_CSV_ACTIVE_PATH);
-      logDrive("upload still busy, dropped window");
-      return;
-    }
+#if DRIVE_DISABLE_UPLOAD
+    removeIfExists(csv_rel);
+    logDrive("upload disabled, dropped window");
+    return;
+#endif
 
-    removeIfExists(DRIVE_CSV_UPLOAD_PATH);
-    if (!LittleFS.rename(DRIVE_CSV_ACTIVE_PATH, DRIVE_CSV_UPLOAD_PATH)) {
-      logDrive("rename active->upload failed");
-      removeIfExists(DRIVE_CSV_ACTIVE_PATH);
+    if (s_upload_slot_busy) {
+      removeIfExists(csv_rel);
+      logDrive("upload still busy, dropped window");
       return;
     }
 
@@ -274,8 +274,7 @@ static void driveWriteTask(void *pv) {
     gmtime_r(&now, &t);
     char tsbuf[32];
     strftime(tsbuf, sizeof(tsbuf), "%Y_%m_%d_%H_%M_%S", &t);
-    snprintf(req.source_path, sizeof(req.source_path), "%s",
-             DRIVE_CSV_UPLOAD_PATH);
+    snprintf(req.source_path, sizeof(req.source_path), "%s", csv_rel);
     snprintf(req.drive_folder, sizeof(req.drive_folder), "%s",
              DRIVE_SUBFOLDER_PULSIOX);
     snprintf(req.drive_filename, sizeof(req.drive_filename),
@@ -287,7 +286,7 @@ static void driveWriteTask(void *pv) {
     if (xQueueSend(s_upload_queue, &req, 0) != pdTRUE) {
       // Should not happen (slot_busy guards the queue) — recover.
       s_upload_slot_busy = false;
-      removeIfExists(DRIVE_CSV_UPLOAD_PATH);
+      removeIfExists(csv_rel);
       logDrive("upload queue full");
     }
   };
@@ -305,11 +304,21 @@ static void driveWriteTask(void *pv) {
 
     do {
       if (csv_fd < 0) {
-        removeIfExists(DRIVE_CSV_ACTIVE_PATH);
-        csv_fd = ::open(LFS_MOUNT DRIVE_CSV_ACTIVE_PATH,
-                        O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        // Serialize with the upload task: esp_littlefs in Arduino 2.x corrupts
+        // the open-files mlist if two fds from different tasks are alive at
+        // once. Skip opening a new window while an upload is in flight —
+        // samples are dropped (~upload duration) but system stays alive.
+        if (s_upload_slot_busy) {
+          break;
+        }
+        snprintf(csv_rel, sizeof(csv_rel),
+                 DRIVE_CSV_PATH_PREFIX "%lu" DRIVE_CSV_PATH_SUFFIX,
+                 (unsigned long)s.t_ms);
+        char full[40];
+        snprintf(full, sizeof(full), LFS_MOUNT "%s", csv_rel);
+        csv_fd = ::open(full, O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (csv_fd < 0) {
-          logDrive("cannot open active CSV");
+          logDrive(String("cannot open ") + csv_rel);
           vTaskDelay(pdMS_TO_TICKS(1000));
           break;
         }
@@ -338,6 +347,26 @@ static void driveWriteTask(void *pv) {
   }
 }
 
+// Minimum heap we accept after a TLS failure. Below this the mbedTLS stack
+// has likely corrupted internal allocator state (observed: next LFS write
+// asserts `lfs_mlist_isopen`). Restart cleanly instead of operating blind.
+#define DRIVE_MIN_HEAP_AFTER_UPLOAD 50000
+
+// DNS preflight: skip TLS entirely if the host is not resolvable quickly.
+// Broken/partial handshakes are the path that corrupts heap.
+static bool driveHostReachable() {
+  if (WiFi.status() != WL_CONNECTED)
+    return false;
+  if (WiFi.localIP() == IPAddress(0, 0, 0, 0))
+    return false;
+  IPAddress ip;
+  if (!WiFi.hostByName(DRIVE_GAS_HOST, ip)) {
+    logDrive("DNS failed for " DRIVE_GAS_HOST);
+    return false;
+  }
+  return true;
+}
+
 static void driveUploadTask(void *pv) {
   for (;;) {
     DriveUploadRequest req;
@@ -346,21 +375,33 @@ static void driveUploadTask(void *pv) {
 
     ensureTimeSynced();
 
-    if (WiFi.status() != WL_CONNECTED) {
-      logDrive("no WiFi, dropping upload");
+    if (!driveHostReachable()) {
+      logDrive("network not ready, dropping upload");
       removeIfExists(req.source_path);
       if (req.clear_pulsiox_slot)
         s_upload_slot_busy = false;
       continue;
     }
 
+    uint32_t heap_before = ESP.getFreeHeap();
     logDrive(String("uploading ") + req.drive_folder + "/" +
-             req.drive_filename);
+             req.drive_filename + " (heap=" + heap_before + ")");
     bool ok = uploadToGoogleDrive(req);
+    uint32_t heap_after = ESP.getFreeHeap();
     removeIfExists(req.source_path);
     if (req.clear_pulsiox_slot)
       s_upload_slot_busy = false;
-    logDrive(ok ? "upload OK" : "upload FAILED");
+    logDrive(String(ok ? "upload OK" : "upload FAILED") +
+             " (heap=" + heap_after +
+             ", delta=" + (int32_t)(heap_after - heap_before) + ")");
+
+    if (heap_after < DRIVE_MIN_HEAP_AFTER_UPLOAD) {
+      logDrive(String("CRITICAL heap ") + heap_after +
+               " after upload, restarting to recover");
+      Serial.flush();
+      vTaskDelay(pdMS_TO_TICKS(200));
+      esp_restart();
+    }
   }
 }
 
@@ -396,8 +437,22 @@ void initDriveUpload() {
     logDrive("LittleFS begin failed");
     return;
   }
-  removeIfExists(DRIVE_CSV_ACTIVE_PATH);
-  removeIfExists(DRIVE_CSV_UPLOAD_PATH);
+  // Drop any leftover per-window CSVs from a previous (possibly crashed) boot.
+  File root = LittleFS.open("/");
+  if (root && root.isDirectory()) {
+    File f;
+    while ((f = root.openNextFile())) {
+      const char *n = f.name();
+      if (n && strncmp(n, "pox_", 4) == 0) {
+        String rel = String("/") + n;
+        f.close();
+        LittleFS.remove(rel);
+      } else {
+        f.close();
+      }
+    }
+    root.close();
+  }
 
   s_sample_queue = xQueueCreate(DRIVE_SAMPLE_QUEUE_LEN, sizeof(DrivePpgSample));
   s_upload_queue = xQueueCreate(DRIVE_UPLOAD_QUEUE_LEN,
@@ -410,8 +465,12 @@ void initDriveUpload() {
   xTaskCreatePinnedToCore(driveWriteTask, "DRV_WR", 6144, nullptr,
                           SPO2_TASK_PRIORITY - 1, &s_write_task,
                           CORE_MONITOR_FREERTOS);
+#if DRIVE_DISABLE_UPLOAD
+  logDrive("DriveUpload initialized (UPLOAD DISABLED — diagnostic)");
+#else
   xTaskCreatePinnedToCore(driveUploadTask, "DRV_UP", 8192, nullptr,
                           OTA_TASK_PRIORITY, &s_upload_task,
                           CORE_MONITOR_FREERTOS);
   logDrive("DriveUpload initialized");
+#endif
 }

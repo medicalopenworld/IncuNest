@@ -19,8 +19,11 @@
 // ~1 s buffer at 500 Hz between SPO2 producer and the file writer consumer.
 #define DRIVE_SAMPLE_QUEUE_LEN 500
 
-#define DRIVE_CSV_ACTIVE_PATH "/pox_active.csv"
-#define DRIVE_CSV_UPLOAD_PATH "/pox_upload.csv"
+// Each window writes to a unique file /pox_<ms>.csv to avoid path reuse,
+// which triggers an esp_littlefs fd-table corruption bug in Arduino-ESP32 2.x
+// (asserted lfs_mlist_isopen after a few rename/reopen cycles).
+#define DRIVE_CSV_PATH_PREFIX "/pox_"
+#define DRIVE_CSV_PATH_SUFFIX ".csv"
 
 // Drive subfolder layout inside <SN>/
 #define DRIVE_SUBFOLDER_LOGS   "1-Logs"
