@@ -14,6 +14,14 @@
 
 static const char *TAG = "UI";
 
+SemaphoreHandle_t g_lvgl_mutex = NULL;
+
+void LVGL_Mutex_Init(void) {
+  if (!g_lvgl_mutex) {
+    g_lvgl_mutex = xSemaphoreCreateRecursiveMutex();
+  }
+}
+
 // --- Skin probe UI (RF-SKIN-008/009/010, UI-SKIN-002/003/004/005) ---
 static lv_obj_t *ui_SkinProbeToast =
     nullptr; // Toast de bloqueo cuando sonda no válida
@@ -146,6 +154,7 @@ static esp_lcd_panel_handle_t lcd_panel = NULL;
 
 static uint32_t g_currentFreqWrite = DISPLAY_FREQ_WRITE;
 
+
 uint32_t lcd_get_freq_write() { return g_currentFreqWrite; }
 
 void lcd_set_freq_write(uint32_t freq_hz) {
@@ -174,8 +183,12 @@ static lv_timer_t *intro_timer = NULL;
 // ==========================================
 void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area,
                    lv_color_t *color_p) {
-  esp_lcd_panel_draw_bitmap(lcd_panel, area->x1, area->y1,
-                            area->x2 + 1, area->y2 + 1, color_p);
+  int offsetx1 = area->x1;
+  int offsetx2 = area->x2;
+  int offsety1 = area->y1;
+  int offsety2 = area->y2;
+  esp_lcd_panel_draw_bitmap(lcd_panel, offsetx1, offsety1, offsetx2 + 1,
+                            offsety2 + 1, color_p);
   lv_disp_flush_ready(disp);
 }
 
@@ -2758,16 +2771,18 @@ void UI_Task(void *pvParameters) {
   ESP_LOGI(TAG, "UI Task Started");
 
   // CrowPanel STC8H1K28 init + Backlight (I2C 0x30)
+  // On crash recovery the STC8 keeps its state, so skip init delays and
+  // only send the backlight-on command to confirm the screen stays lit.
   {
-    vTaskDelay(pdMS_TO_TICKS(100));
-
-    // STC8 requires these commands before it accepts the backlight command
-    uint8_t init_cmds[] = {I2C_CMD_BUZZER_OFF, I2C_CMD_SPEAKER_ON}; // Buzzer OFF, Speaker ON
-    for (uint8_t cmd : init_cmds) {
-      Wire.beginTransmission(I2C_ADDR_BACKLIGHT);
-      Wire.write(cmd);
-      Wire.endTransmission();
-      vTaskDelay(pdMS_TO_TICKS(20));
+    if (!g_hmiRestoreState) {
+      vTaskDelay(pdMS_TO_TICKS(100));
+      uint8_t init_cmds[] = {I2C_CMD_BUZZER_OFF, I2C_CMD_SPEAKER_ON};
+      for (uint8_t cmd : init_cmds) {
+        Wire.beginTransmission(I2C_ADDR_BACKLIGHT);
+        Wire.write(cmd);
+        Wire.endTransmission();
+        vTaskDelay(pdMS_TO_TICKS(20));
+      }
     }
 
     // Según doc v1.3: 0 es Brillo Máximo, 245 es Apagado.
@@ -2775,7 +2790,9 @@ void UI_Task(void *pvParameters) {
     Wire.write(DISPLAY_BL_ON_VALUE);
     Wire.endTransmission();
 
-    vTaskDelay(pdMS_TO_TICKS(100));
+    if (!g_hmiRestoreState) {
+      vTaskDelay(pdMS_TO_TICKS(100));
+    }
   }
 
   // Display initialization — leer freq_write de EEPROM antes de crear panel
@@ -2814,7 +2831,7 @@ void UI_Task(void *pvParameters) {
     panel_cfg.timings.flags.de_idle_high    = DISPLAY_DE_IDLE_HIGH;
 
     panel_cfg.data_width = 16; // RGB565
-    panel_cfg.num_fbs = 1;     // Single FB + bounce buffers
+    panel_cfg.num_fbs = 1;
     panel_cfg.bounce_buffer_size_px = BOUNCE_BUF_SIZE_PX; // SRAM bounce buffers (anti-flicker)
     panel_cfg.psram_trans_align = 64;
     panel_cfg.sram_trans_align = 4;
@@ -2852,6 +2869,7 @@ void UI_Task(void *pvParameters) {
     ESP_ERROR_CHECK(esp_lcd_new_rgb_panel(&panel_cfg, &lcd_panel));
     ESP_ERROR_CHECK(esp_lcd_panel_reset(lcd_panel));
     ESP_ERROR_CHECK(esp_lcd_panel_init(lcd_panel));
+
 
 #if DISPLAY_ROTATE_180
     ESP_ERROR_CHECK(esp_lcd_panel_mirror(lcd_panel, true, true));
@@ -3029,8 +3047,15 @@ void UI_Task(void *pvParameters) {
   }
   autoair_update_button_style(); // set initial visual state after creation
 
-  intro_timer = lv_timer_create(intro_timer_cb, 5000, NULL);
-  lv_timer_set_repeat_count(intro_timer, 1);
+  if (g_hmiRestoreState) {
+    // Skip 5-second splash and go straight to lock screen on crash recovery
+    lv_scr_load(ui_ScreenMain);
+    enter_lock_screen();
+    intro_timer = NULL;
+  } else {
+    intro_timer = lv_timer_create(intro_timer_cb, 5000, NULL);
+    lv_timer_set_repeat_count(intro_timer, 1);
+  }
 
   // Visuals
   lv_bar_set_range(ui_AirTempBar, 0, TEMP_BAR_RANGE);
@@ -3199,6 +3224,7 @@ void UI_Task(void *pvParameters) {
   pwroff_create_popup();
 
   for (;;) {
+    LVGL_Lock();
     lv_timer_handler();
     pwroff_update();
 
@@ -3244,7 +3270,9 @@ void UI_Task(void *pvParameters) {
       ESP_LOGD(TAG, "UI and Audio Loop active");
     }
     */
+    LVGL_Unlock();
     vTaskDelay(pdMS_TO_TICKS(LOOP_DELAY_MS));
+    LVGL_Lock();
 
     // --- Lock screen: PPG waveform & probe detection ---
     if (ui_LockPPGChart && lockPPGSeries && ctrl_ppg_msg.updated) {
@@ -3377,6 +3405,7 @@ void UI_Task(void *pvParameters) {
       eepromDirty = false;
       ESP_LOGI(TAG, "EEPROM committed after delay");
     }
+    LVGL_Unlock();
   }
 }
 

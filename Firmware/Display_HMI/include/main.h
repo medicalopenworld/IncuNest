@@ -50,6 +50,7 @@ typedef struct {
 } in3ator_parameters;
 
 extern in3ator_parameters in3;
+extern bool g_hmiRestoreState;
 
 // -----------------------------
 // Communication actuation modes
