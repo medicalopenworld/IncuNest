@@ -75,7 +75,7 @@
 // 1 = display mirrored X+Y (esp_lcd_panel_mirror true,true) + touch rotation 3
 // 0 = sin inversión (mirror false,false) + touch rotation 1
 // -----------------------------------------------------------------------------
-#define DISPLAY_ROTATE_180 1
+#define DISPLAY_ROTATE_180 0
 
 // -----------------------------------------------------------------------------
 // Resolución del panel

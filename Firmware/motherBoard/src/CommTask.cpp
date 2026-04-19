@@ -447,13 +447,13 @@ void parse_line(const char *line) {
   if (strncmp(line, "HMI,", 4) == 0) {
     int act, skinE, mode, photo, mute, lang, photoMin;
     double air, skin, hum;
-    int babyWeight = 0, babyGest = 0, babyAgeH = 0;
+    int babyWeight = 0, babyGest = 0, babyAgeD = 0;
 
     int parsed = sscanf(line,
                         "HMI,%d,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%d,%d,%d",
                         &act, &skinE, &mode, &air, &skin, &hum, &photo,
                         &mute, &lang, &photoMin,
-                        &babyWeight, &babyGest, &babyAgeH);
+                        &babyWeight, &babyGest, &babyAgeD);
     if (parsed >= 9) {
       hmi_cmd_msg.actuation = act;
       hmi_cmd_msg.skinModeEnabled = skinE;
@@ -468,11 +468,14 @@ void parse_line(const char *line) {
       if (parsed >= 13 && babyWeight > 0 && babyGest > 0) {
         bool changed = (hmi_cmd_msg.babyWeightGrams != babyWeight ||
                         hmi_cmd_msg.babyGestWeeks   != babyGest   ||
-                        hmi_cmd_msg.babyAgeHours    != babyAgeH);
+                        hmi_cmd_msg.babyAgeDays     != babyAgeD);
         hmi_cmd_msg.babyWeightGrams = babyWeight;
         hmi_cmd_msg.babyGestWeeks   = babyGest;
-        hmi_cmd_msg.babyAgeHours    = babyAgeH;
-        if (changed) hmi_cmd_msg.newBabyData = true;
+        hmi_cmd_msg.babyAgeDays     = babyAgeD;
+        if (changed) {
+          hmi_cmd_msg.newBabyData = true;
+          hmi_cmd_msg.newBabyDataForTelemetry = true;
+        }
       }
       hmi_cmd_msg.newCommand = true;
 

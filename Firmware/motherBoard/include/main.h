@@ -312,7 +312,7 @@ typedef enum {
 #define PI_KEY "PI"
 #define BABY_WEIGHT_KEY "baby_weight_g"
 #define BABY_GEST_AGE_KEY "baby_gest_weeks"
-#define BABY_AGE_HOURS_KEY "baby_age_hours"
+#define BABY_AGE_DAYS_KEY "baby_age_days"
 #define HUMIDITY_ALARM_KEY "hum_alarm"
 #define TEMPERATURE_ALARM_KEY "temp_alarm"
 #define AIR_THERMAL_CUTOUT_ALARM_KEY "air_TC_alarm"
@@ -364,7 +364,7 @@ typedef enum {
 #define POWER_MANAGEMENT_TASK_PERIOD_MS 50
 
 #define GPRS_TASK_PERIOD_MS 1
-#define OTA_TASK_PERIOD_MS 1
+#define OTA_TASK_PERIOD_MS 50
 #define SENSORS_TASK_PERIOD_MS 1
 #define SPO2_TASK_PERIOD_MS 1
 #define SKIN_SENSOR_UPDATE_PERIOD_MS 200 // in millis

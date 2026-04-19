@@ -9,7 +9,10 @@
 #define WIFI_PUBLISH_INTERVAL 5000        // milliseconds
 #define WIFI_OTA_CHECK_INTERVAL 60000     // 1 minute in milliseconds
 #define THINGSBOARD_RECONNECT_DELAY 30000 // 30 seconds
-#define WIFI_RECONNECT_INTERVAL 10000     // 10 seconds
+// Arduino-ESP32 3.x WiFi association can take >10 s on some APs; retrying
+// before the in-flight WiFi.begin() finishes corrupts STA state
+// (ESP_ERR_WIFI_CONN + HANDSHAKE_TIMEOUT). Match Display_HMI interval.
+#define WIFI_RECONNECT_INTERVAL 30000     // 30 seconds
 
 struct WIFIstruct {
   int provisioned = false;

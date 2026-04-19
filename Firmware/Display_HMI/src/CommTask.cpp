@@ -71,7 +71,7 @@ static void SendMessageToOtherESP() {
       hmi_msg.desiredAirTemperature, hmi_msg.desiredSkinTemperature,
       hmi_msg.desiredHumidity, hmi_msg.phototherapyMode, hmi_msg.muteAlarm,
       hmi_msg.language, hmi_msg.photoMinutesRemaining,
-      hmi_msg.babyWeightGrams, hmi_msg.babyGestWeeks, hmi_msg.babyAgeHours);
+      hmi_msg.babyWeightGrams, hmi_msg.babyGestWeeks, hmi_msg.babyAgeDays);
 #else
   COMM_SERIAL.printf("CTRL,%0.2f,%0.2f,%0.2f,%0.2f,%0.2f\n",
                      ctrl_msg.temperature[0], ctrl_msg.temperature[1],

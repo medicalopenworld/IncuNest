@@ -249,8 +249,28 @@ void wifiInit(void) {
   wifiHost[sizeof(wifiHost) - 1] = '\0';
   ESP_LOGI(TAG, "Setting hostname to: %s", wifiHost);
 
+  // In Arduino 3.x (ESP-IDF 5.x), setHostname must be called BEFORE mode(WIFI_STA).
   WiFi.setHostname(hostname.c_str());
-  WiFi.mode(WIFI_STA);
+  // Skip mode change if already STA — calling mode() while connecting causes ESP_ERR_WIFI_CONN.
+  if (WiFi.getMode() != WIFI_MODE_STA) {
+    WiFi.mode(WIFI_STA);
+  }
+
+  // Register disconnect/got-IP handlers once so reason codes land in the log.
+  static bool s_wifiEventsRegistered = false;
+  if (!s_wifiEventsRegistered) {
+    WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t info) {
+      ESP_LOGW(TAG, "STA_DISCONNECTED reason=%d",
+               info.wifi_sta_disconnected.reason);
+    }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+    WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t) {
+      ESP_LOGI(TAG, "STA_GOT_IP: %s", WiFi.localIP().toString().c_str());
+    }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
+    s_wifiEventsRegistered = true;
+  }
+
+  WiFi.persistent(true);
+  WiFi.setAutoReconnect(true);
 
   String ssid;
   String pass;
@@ -272,6 +292,8 @@ void wifiInit(void) {
   }
 
   WiFi.begin(ssid.c_str(), pass.c_str());
+  // Mobile hotspots often drop power-saving clients. Disable modem sleep.
+  WiFi.setSleep(WIFI_PS_NONE);
   lastconnectiontrywifi = millis();
 }
 
@@ -746,14 +768,18 @@ void addTelemetriesToWIFIJSON() {
         roundSignificantDigits(g_spo2_data.hr3_sqi, TELEMETRIES_DECIMALS);
   }
 
-  // Baby data sent from HMI on Auto Air Apply. Only publish once populated.
-  if (hmi_cmd_msg.babyWeightGrams > 0 && hmi_cmd_msg.babyGestWeeks > 0) {
+  // Baby data sent from HMI on Auto Air Apply. Published exactly once per
+  // Apply: the telemetry pipeline consumes the pending-flag, so subsequent
+  // telemetry cycles skip these keys until the next HMI change.
+  if (hmi_cmd_msg.newBabyDataForTelemetry &&
+      hmi_cmd_msg.babyWeightGrams > 0 && hmi_cmd_msg.babyGestWeeks > 0) {
     addVariableToTelemetryWIFIJSON[BABY_WEIGHT_KEY] =
         hmi_cmd_msg.babyWeightGrams;
     addVariableToTelemetryWIFIJSON[BABY_GEST_AGE_KEY] =
         hmi_cmd_msg.babyGestWeeks;
-    addVariableToTelemetryWIFIJSON[BABY_AGE_HOURS_KEY] =
-        hmi_cmd_msg.babyAgeHours;
+    addVariableToTelemetryWIFIJSON[BABY_AGE_DAYS_KEY] =
+        hmi_cmd_msg.babyAgeDays;
+    hmi_cmd_msg.newBabyDataForTelemetry = false;
   }
 }
 
@@ -857,10 +883,8 @@ void WifiOTAHandler(void) {
 
   if (WIFI_EN && WiFi.status() != WL_CONNECTED) {
     if (millis() - Wifi_TB.lastWifiReconnectAttempt > WIFI_RECONNECT_INTERVAL) {
-      Wifi_TB.lastWifiReconnectAttempt = millis();
-      logI("[WIFI] -> Connection lost, attempting to reconnect...");
-      MDNS.end();
-      WiFi.reconnect();
+      logI("[WIFI] -> Connection lost, re-init WiFi");
+      wifiInit();   // updates lastWifiReconnectAttempt
     }
   }
 

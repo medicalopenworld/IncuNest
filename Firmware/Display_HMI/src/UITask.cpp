@@ -190,7 +190,6 @@ static void intro_timer_cb(lv_timer_t *t) {
 
 void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
   ts.read();
-  static bool prevTouched = false;
   if (ts.isTouched) {
     data->state = LV_INDEV_STATE_PR;
     data->point.x = ts.points[0].x;
@@ -198,12 +197,6 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
   } else {
     data->state = LV_INDEV_STATE_REL;
   }
-  // Re-sync state to the motherboard on every tap (press->release transition)
-  // so any UI interaction refreshes the full HMI frame (incl. baby data).
-  if (prevTouched && !ts.isTouched) {
-    hmi_msg.shouldSendData = true;
-  }
-  prevTouched = ts.isTouched;
 }
 
 // Forward declarations
@@ -1055,18 +1048,22 @@ static void autoair_popup_show(bool show) {
 void aa_weight_dec_cb(lv_event_t *) {
   if (g_popupWeight > 100) g_popupWeight -= 50;
   autoair_popup_update_labels();
+  hmi_msg.shouldSendData = true;
 }
 void aa_weight_inc_cb(lv_event_t *) {
   if (g_popupWeight < 5000) g_popupWeight += 50;
   autoair_popup_update_labels();
+  hmi_msg.shouldSendData = true;
 }
 void aa_gest_dec_cb(lv_event_t *) {
   if (g_popupGest > 24) g_popupGest--;
   autoair_popup_update_labels();
+  hmi_msg.shouldSendData = true;
 }
 void aa_gest_inc_cb(lv_event_t *) {
   if (g_popupGest < 44) g_popupGest++;
   autoair_popup_update_labels();
+  hmi_msg.shouldSendData = true;
 }
 // One step per day; value = hours at the START of that day → day N = (N-1)*24 h
 // Day 1 = 0 h (maps to clinical period D1: 0–24 h)
@@ -1085,6 +1082,7 @@ void aa_days_dec_cb(lv_event_t *) {
     }
   }
   autoair_popup_update_labels();
+  hmi_msg.shouldSendData = true;
 }
 void aa_days_inc_cb(lv_event_t *) {
   for (int i = 0; i < AA_AGE_SNAPS_N; i++) {
@@ -1094,9 +1092,11 @@ void aa_days_inc_cb(lv_event_t *) {
     }
   }
   autoair_popup_update_labels();
+  hmi_msg.shouldSendData = true;
 }
 
 void aa_confirm_cb(lv_event_t *) {
+  hmi_msg.shouldSendData = true;
   if (g_popupWeight <= 0 || g_popupGest <= 0 || g_popupAgeHours < 0) {
     if (ui_AutoAirErrLabel) {
       const char *errTxt = (g_lang == LANG_ES)
@@ -1124,10 +1124,12 @@ void aa_confirm_cb(lv_event_t *) {
   g_babyWeightGrams = g_popupWeight;
   g_babyGestWeeks   = g_popupGest;
   g_babyAgeHours    = g_popupAgeHours;
-  // Forward baby data to motherboard so it can be published to ThingsBoard
+  // Forward baby data to motherboard so it can be published to ThingsBoard.
+  // Age is stored internally as hours at start of day (day N → (N-1)*24),
+  // converted to clinical day-of-life (1..29) on the wire.
   hmi_msg.babyWeightGrams = g_babyWeightGrams;
   hmi_msg.babyGestWeeks   = g_babyGestWeeks;
-  hmi_msg.babyAgeHours    = g_babyAgeHours;
+  hmi_msg.babyAgeDays     = (g_babyAgeHours / 24) + 1;
   char rowDesc[48];
   autoair_calculate_setpoint(g_babyWeightGrams, g_babyGestWeeks,
                               g_babyAgeHours, rowDesc, sizeof(rowDesc));
@@ -1137,6 +1139,7 @@ void aa_confirm_cb(lv_event_t *) {
 
 void aa_cancel_cb(lv_event_t *) {
   autoair_popup_show(false);
+  hmi_msg.shouldSendData = true;
 }
 
 static void aa_apply_setpoint(float sp) {
@@ -1176,16 +1179,19 @@ void aa_setpoint_up_cb(lv_event_t *) {
   if (aa_popup_hi <= 0.0f) return;
   int steps = (int)(aa_popup_setpoint * 10.0f + 0.5f) + 1;
   aa_apply_setpoint((float)steps * 0.1f);
+  hmi_msg.shouldSendData = true;
 }
 
 void aa_setpoint_down_cb(lv_event_t *) {
   if (aa_popup_lo <= 0.0f) return;
   int steps = (int)(aa_popup_setpoint * 10.0f + 0.5f) - 1;
   aa_apply_setpoint((float)steps * 0.1f);
+  hmi_msg.shouldSendData = true;
 }
 
 void AutoAirBtn_cb(lv_event_t *e) {
   if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+  hmi_msg.shouldSendData = true;
 
   if (selectedPanel != AIR_PANEL_SELECTED || !tempSwitched) {
     const char *msg = (g_lang == LANG_ES)

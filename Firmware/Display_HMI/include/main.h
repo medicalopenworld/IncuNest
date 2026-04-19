@@ -17,12 +17,12 @@
 #include <lvgl.h>
 #include <stdint.h>
 
-#define FWversion "2.0.1"
+#define FWversion "2.0.2"
 #define ENABLE_WIFI_OTA true // enable wifi OTA
 extern bool OTA_inprogress;
 
 #define OTA_TASK_PRIORITY 4
-#define OTA_TASK_PERIOD_MS 1
+#define OTA_TASK_PERIOD_MS 50
 #define OTA_TASK_STACK_SIZE 8192
 #define CORE_MONITOR_FREERTOS 0
 #define CORE_ID_FREERTOS 1

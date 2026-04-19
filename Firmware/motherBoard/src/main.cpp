@@ -328,7 +328,7 @@ void Communication_Receiver(void *pvParameters) {
         logI("Auto Air baby data -> weight=" +
              String(hmi_cmd_msg.babyWeightGrams) +
              "g gest=" + String(hmi_cmd_msg.babyGestWeeks) +
-             "w ageH=" + String(hmi_cmd_msg.babyAgeHours));
+             "w ageD=" + String(hmi_cmd_msg.babyAgeDays));
       }
       in3.actuation = hmi_cmd_msg.actuation;
       if (in3.controlMode != hmi_cmd_msg.controlMode) {

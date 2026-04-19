@@ -160,6 +160,22 @@ void wifiInit(void) {
     WiFi.mode(WIFI_STA);
   }
 
+  // Register disconnect/got-IP handlers once so reason codes land in the log.
+  static bool s_wifiEventsRegistered = false;
+  if (!s_wifiEventsRegistered) {
+    WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t info) {
+      ESP_LOGW(TAG, "STA_DISCONNECTED reason=%d",
+               info.wifi_sta_disconnected.reason);
+    }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+    WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t) {
+      ESP_LOGI(TAG, "STA_GOT_IP: %s", WiFi.localIP().toString().c_str());
+    }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
+    s_wifiEventsRegistered = true;
+  }
+
+  WiFi.persistent(true);
+  WiFi.setAutoReconnect(true);
+
   String ssid;
   String pass;
 
@@ -180,6 +196,8 @@ void wifiInit(void) {
   }
 
   WiFi.begin(ssid.c_str(), pass.c_str());
+  // Mobile hotspots often drop power-saving clients. Disable modem sleep.
+  WiFi.setSleep(WIFI_PS_NONE);
   lastconnectiontrywifi = millis();
 }
 
@@ -679,10 +697,8 @@ void WifiOTAHandler(void) {
   WEB_OTA();
   if (WiFi.status() != WL_CONNECTED) {
     if (millis() - Wifi_TB.lastWifiReconnectAttempt > WIFI_RECONNECT_INTERVAL) {
-      // Wifi_TB.lastWifiReconnectAttempt = millis(); // wifiInit does this
-      ESP_LOGI(TAG, "Connection lost, attempting to reconnect...");
-      MDNS.end();
-      wifiInit();
+      ESP_LOGI(TAG, "Connection lost, re-init WiFi");
+      wifiInit();   // updates lastWifiReconnectAttempt
     }
   }
 }

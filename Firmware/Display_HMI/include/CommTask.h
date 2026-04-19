@@ -38,7 +38,7 @@ typedef struct {
   // Auto Air baby data (0 = not set)
   int babyWeightGrams;
   int babyGestWeeks;
-  int babyAgeHours;
+  int babyAgeDays;
 } HMI_Message;
 
 // Message with sensor data for control logic

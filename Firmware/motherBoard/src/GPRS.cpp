@@ -654,14 +654,18 @@ void addTelemetriesToGPRSJSON() {
         roundSignificantDigits(g_spo2_data.hr3_sqi, TELEMETRIES_DECIMALS);
   }
 
-  // Baby data sent from HMI on Auto Air Apply. Only publish once populated.
-  if (hmi_cmd_msg.babyWeightGrams > 0 && hmi_cmd_msg.babyGestWeeks > 0) {
+  // Baby data sent from HMI on Auto Air Apply. Published exactly once per
+  // Apply: the telemetry pipeline consumes the pending-flag, so subsequent
+  // telemetry cycles skip these keys until the next HMI change.
+  if (hmi_cmd_msg.newBabyDataForTelemetry &&
+      hmi_cmd_msg.babyWeightGrams > 0 && hmi_cmd_msg.babyGestWeeks > 0) {
     addVariableToTelemetryGPRSJSON[BABY_WEIGHT_KEY] =
         hmi_cmd_msg.babyWeightGrams;
     addVariableToTelemetryGPRSJSON[BABY_GEST_AGE_KEY] =
         hmi_cmd_msg.babyGestWeeks;
-    addVariableToTelemetryGPRSJSON[BABY_AGE_HOURS_KEY] =
-        hmi_cmd_msg.babyAgeHours;
+    addVariableToTelemetryGPRSJSON[BABY_AGE_DAYS_KEY] =
+        hmi_cmd_msg.babyAgeDays;
+    hmi_cmd_msg.newBabyDataForTelemetry = false;
   }
 }
 

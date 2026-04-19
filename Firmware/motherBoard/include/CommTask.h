@@ -39,11 +39,12 @@ typedef struct {
   int language;
   int skinModeEnabled;
   int photoMinutesRemaining;
-  // Auto Air baby data (0 = not set). Published to ThingsBoard when > 0.
+  // Auto Air baby data (0 = not set). Published once per Apply.
   int babyWeightGrams;
   int babyGestWeeks;
-  int babyAgeHours;
-  bool newBabyData;
+  int babyAgeDays;
+  bool newBabyData;              // cleared by receive-side log
+  bool newBabyDataForTelemetry;  // cleared by telemetry publish (WiFi or GPRS)
   bool newCommand;
 } HMI_CommandMessage;
 
