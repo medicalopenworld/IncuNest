@@ -143,6 +143,7 @@ extern bool error;
 void CreateCommTask();
 void Communication_RequestState(void);
 void Communication_UIReady(void);
+void Communication_SendBootInfo(void);
 void Communication_SendWiFiCredentials(const char *ssid, const char *password);
 
 #endif

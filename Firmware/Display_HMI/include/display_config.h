@@ -91,7 +91,7 @@
  * Valor del factory code de Elecrow para CrowPanel Advance 7" (V1.2+).
  * Si hay jitter con Audio I2S activo, probar bajando a 15 MHz.
  */
-#define DISPLAY_FREQ_WRITE 18000000UL
+#define DISPLAY_FREQ_WRITE 15000000UL
 
 #define DISPLAY_HSYNC_POLARITY 1
 #define DISPLAY_HSYNC_FRONT_PORCH 8

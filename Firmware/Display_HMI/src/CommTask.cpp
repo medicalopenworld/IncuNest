@@ -57,6 +57,15 @@ void Communication_UIReady(void) {
 #endif
 }
 
+void Communication_SendBootInfo(void) {
+#if IS_HMI
+  extern uint32_t g_hmiBootCount;
+  extern int      g_hmiLastRst;
+  COMM_SERIAL.printf("HMI,BOOT,%d,%u\n", g_hmiLastRst,
+                     (unsigned)g_hmiBootCount);
+#endif
+}
+
 void Communication_SendWiFiCredentials(const char *ssid, const char *password) {
 #if IS_HMI
   COMM_SERIAL.printf("HMI,WIFI,%s,%s\n", ssid, password);
@@ -250,6 +259,7 @@ static bool ReceiveMessageFromOtherESP() {
 static bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
   if (!g_ui_initialized)
     return false;
+  LVGL_Lock();
   ui_set_switch_state_silent(ui_Switch1, st.actuation & 0x01);
   ui_set_switch_state_silent(ui_Switch2, (st.actuation >> 1) & 0x01);
   ui_set_switch_state_silent(ui_Switch3, st.phototherapyMode);
@@ -373,6 +383,7 @@ static bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
   }
 
   UI_SyncAll();
+  LVGL_Unlock();
   return true;
 }
 
@@ -399,6 +410,7 @@ static void applyHMIData() {
   airTempValueDetected = ctrl_tel_msg.detectedAirTemperature;
   skinTempValueDetected = ctrl_tel_msg.detectedSkinTemperature;
   humValueDetected = (int)ctrl_tel_msg.detectedHumidity;
+  LVGL_Lock();
   update_labels();
   if (tempSwitched) {
     chart_add_air_temp((float)airTempValueDetected);
@@ -406,6 +418,7 @@ static void applyHMIData() {
   }
   chart_add_hum_value((float)humValueDetected);
   chart_save_history();
+  LVGL_Unlock();
 }
 
 static void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
@@ -452,6 +465,7 @@ void Comm_Task(void *pvParameters) {
   ESP_LOGI(TAG, "Communication Task Started");
   COMM_SERIAL.begin(COMM_BAUD_RATE);
 
+  Communication_SendBootInfo();
   Communication_RequestState();
   g_lastStateReqMs = millis();
 

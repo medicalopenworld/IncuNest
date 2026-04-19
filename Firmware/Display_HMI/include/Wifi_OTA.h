@@ -40,25 +40,17 @@
 
 struct WIFIstruct {
   int provisioned = false;
-  bool OTA_requested = false;
   bool provision_request_sent = false;
   bool provision_request_processed = false;
   bool serverConnectionStatus = false;
-  bool lastServerConnectionStatus = false;
-  bool lastWIFIConnectionStatus = false;
-  bool lastOTAInProgress = false;
-  long lastMQTTPublish = false;
-  bool firstPublish = false;
-  bool firstConfigPost = false;
   String device_token;
-  long lastWifiReconnectAttempt = 0;
   long lastReconnectAttempt = 0;
+  long lastMQTTPublish = 0;
   long lastOTACheck = 0;
 };
 
 bool WIFIIsConnectedToServer();
 bool WIFIIsConnected();
-bool WIFICheckNewEvent();
 void WIFI_TB_Init();
 void WifiOTAHandler(void);
 void WIFI_TB_OTA();

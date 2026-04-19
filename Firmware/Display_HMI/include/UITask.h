@@ -1,9 +1,21 @@
 #pragma once
 #include <Arduino.h>
 #include <lvgl.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "main.h"
 
 void CreateUITask();
+
+extern SemaphoreHandle_t g_lvgl_mutex;
+void LVGL_Mutex_Init(void);
+
+static inline void LVGL_Lock(void) {
+  if (g_lvgl_mutex) xSemaphoreTakeRecursive(g_lvgl_mutex, portMAX_DELAY);
+}
+static inline void LVGL_Unlock(void) {
+  if (g_lvgl_mutex) xSemaphoreGiveRecursive(g_lvgl_mutex);
+}
 
 // Cambiar freq_write del bus RGB en runtime (reinicia el display)
 void lcd_set_freq_write(uint32_t freq_hz);
