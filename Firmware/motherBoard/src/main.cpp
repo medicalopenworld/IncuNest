@@ -30,6 +30,40 @@
 #include "main.h"
 #include "DriveUpload.h"
 #include "CrashReporter.h"
+#include <Preferences.h>
+
+static Preferences diag_prefs;
+uint32_t g_bootCount = 0;
+uint32_t g_gprsKillCount = 0;
+uint32_t g_monKillCount = 0;
+int g_hmiBootCount = 0;
+int g_hmiLastRst = 0;
+int g_restore_photo_minutes = 0;
+
+// Build-flag crash simulator. Add -DCRASH_TEST_MB=1 to platformio.ini
+// build_flags to fire a panic after CRASH_TEST_MB_DELAY_S seconds (default 130).
+// Remove the flag for production builds.
+//   CRASH_TEST_MB=1  → abort() (panic, RST_reason=12)
+//   CRASH_TEST_MB=2  → null-pointer LoadProhibited
+#ifdef CRASH_TEST_MB
+#ifndef CRASH_TEST_MB_DELAY_S
+#define CRASH_TEST_MB_DELAY_S 130
+#endif
+static void CrashTestMBTask(void *pv) {
+  for (int i = CRASH_TEST_MB_DELAY_S; i > 0; i--) {
+    ESP_LOGW("CRASH_TEST_MB", "MB crash firing in %d s", i);
+    vTaskDelay(pdMS_TO_TICKS(1000));
+  }
+  ESP_LOGE("CRASH_TEST_MB", "Crashing now (CRASH_TEST_MB=%d)", CRASH_TEST_MB);
+  vTaskDelay(pdMS_TO_TICKS(50));
+#if CRASH_TEST_MB == 2
+  { volatile int *p = (int *)0; *p = 0xDEAD; }
+#else
+  abort();
+#endif
+  vTaskDelete(NULL);
+}
+#endif
 
 #if !CONFIG_IDF_TARGET_ESP32S3
 TelemetryMessage ctrl_tel_msg = {0, 0, 0, 0};
@@ -177,6 +211,14 @@ void GPRSMonitorTask(void *pvParameters) {
     if (xSemaphoreTake(GPRS_monitor_mutex, portMAX_DELAY)) // Lock the mutex
     {
       if (millis() - GPRS_lastMillisTaskClear > GPRS_MONITOR_TASK_DELETE) {
+        g_monKillCount++;
+        diag_prefs.begin("diag", false);
+        diag_prefs.putUInt("mon_kill", g_monKillCount);
+        diag_prefs.end();
+        {
+          const char *m = "[MON] killing GPRS_Task after idle timeout\n";
+          crashReporterPut(m, strlen(m));
+        }
         vTaskDelete(taskHandle); // Delete the hung task
         // Serial.println("Task deleted. Restarting task...");
 
@@ -331,11 +373,12 @@ void Communication_Receiver(void *pvParameters) {
              "w ageD=" + String(hmi_cmd_msg.babyAgeDays));
       }
       in3.actuation = hmi_cmd_msg.actuation;
+      EEPROM.write(EEPROM_CONTROL_ACTIVE, in3.actuation);
       if (in3.controlMode != hmi_cmd_msg.controlMode) {
         in3.controlMode = hmi_cmd_msg.controlMode;
         EEPROM.write(EEPROM_CONTROL_MODE, in3.controlMode);
-        EEPROM.commit();
       }
+      EEPROM.commit();
 
       switch (in3.actuation) {
       case ACTUATION_TEMPERATURE:
@@ -378,6 +421,8 @@ void Communication_Receiver(void *pvParameters) {
       }
 
       in3.phototherapy = hmi_cmd_msg.phototherapyMode;
+      EEPROM.write(EEPROM_PHOTOTHERAPY_ACTIVE, in3.phototherapy);
+      EEPROM.commit();
       if (in3.language != hmi_cmd_msg.language) {
         in3.language = hmi_cmd_msg.language;
         resendActiveAlarms();
@@ -584,6 +629,19 @@ void setup() {
 
   GPRS_monitor_mutex = xSemaphoreCreateBinary();
   security_check_reboot_cause();
+
+  diag_prefs.begin("diag", false);
+  g_bootCount = diag_prefs.getUInt("boots", 0) + 1;
+  diag_prefs.putUInt("boots", g_bootCount);
+  diag_prefs.putInt("last_rst", (int)esp_reset_reason());
+  g_gprsKillCount = diag_prefs.getUInt("gprs_kill", 0);
+  g_monKillCount  = diag_prefs.getUInt("mon_kill", 0);
+  diag_prefs.end();
+  logI("[DIAG] bootCount=" + String(g_bootCount) +
+       " lastRst="    + String((int)esp_reset_reason()) +
+       " gprs_kill="  + String(g_gprsKillCount) +
+       " mon_kill="   + String(g_monKillCount));
+
   initGPIO();
   initEEPROM();
 
@@ -697,6 +755,11 @@ void setup() {
                                  NULL, CORE_ID_FREERTOS) != pdPASS)
     ;
   logI("UI task successfully created!\n");
+#endif
+
+#ifdef CRASH_TEST_MB
+  xTaskCreatePinnedToCore(CrashTestMBTask, "CRASH_TEST_MB", 2048, NULL, 1,
+                          NULL, CORE_ID_FREERTOS);
 #endif
 }
 

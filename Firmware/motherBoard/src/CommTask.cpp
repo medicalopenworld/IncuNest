@@ -3,6 +3,7 @@
 #include "DriveUpload.h"
 #include <EEPROM.h>
 #include <LittleFS.h>
+#include <Preferences.h>
 
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -144,6 +145,7 @@ double getRemainingPhotoTime() {
       in3.phototherapy = false;
       ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, 0);
       turnFans(bool(in3.phototherapy || in3.actuation));
+      { Preferences p; p.begin("photo", false); p.clear(); p.end(); }
 
       if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         ESP_LOGI(TAG, "Phototherapy timer expired. Hardware turned OFF.");
@@ -328,6 +330,19 @@ void parse_line(const char *line) {
     return;
 
   if (strncmp(line, EXPECTED_PREFIX, strlen(EXPECTED_PREFIX)) != 0) {
+    return;
+  }
+
+  if (strncmp(line, "HMI,BOOT,", 9) == 0) {
+    int rst = 0, cnt = 0;
+    if (sscanf(line, "HMI,BOOT,%d,%d", &rst, &cnt) == 2) {
+      g_hmiLastRst = rst;
+      g_hmiBootCount = cnt;
+      if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        ESP_LOGW(TAG, "[DIAG] HMI boot count=%d lastRst=%d", cnt, rst);
+        xSemaphoreGiveRecursive(log_mutex);
+      }
+    }
     return;
   }
 
@@ -635,6 +650,14 @@ void Communication_Task(void *pvParameters) {
   bool    hr_displaying   = false;
   ESP_LOGI(TAG, "UART communication task started");
 
+  if (g_restore_photo_minutes > 0) {
+    photoTimerMinutes  = g_restore_photo_minutes;
+    photoTimerActive   = true;
+    photoTimerStartMs  = millis();
+    g_restore_photo_minutes = 0;
+    ESP_LOGW(TAG, "[RESTORE] photo timer resumed: %d min", photoTimerMinutes);
+  }
+
   for (;;) {
     // --- RX: drain Serial1 into line buffer ---
     while (hmiSerial.available()) {
@@ -679,6 +702,22 @@ void Communication_Task(void *pvParameters) {
         hmiSerial.print(ppg_msg);
       }
       last_ppg_time = millis();
+    }
+
+    // --- Persist phototherapy timer to NVS every 60 s ---
+    {
+      static unsigned long last_photo_save = 0;
+      if (photoTimerActive && millis() - last_photo_save > 60000) {
+        long elapsed = (long)((millis() - photoTimerStartMs) / 1000);
+        int remaining_mins = ((long)photoTimerMinutes * 60 - elapsed + 59) / 60;
+        if (remaining_mins < 1) remaining_mins = 1;
+        Preferences p;
+        p.begin("photo", false);
+        p.putBool("active", true);
+        p.putInt("mins", remaining_mins);
+        p.end();
+        last_photo_save = millis();
+      }
     }
 
     // --- Periodic telemetry + vitals (every 1 s) ---

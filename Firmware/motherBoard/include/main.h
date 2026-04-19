@@ -332,6 +332,23 @@ typedef enum {
 #define CALIBRATION_SKIN_FINETUNE_KEY "Cal_finetune_skin_temp"
 #define CALIBRATION_AIR_FINETUNE_KEY "Cal_finetune_air_temp"
 
+// Diagnostic telemetry keys
+#define BOOT_COUNT_KEY "boot_count"
+#define FREE_HEAP_KEY "free_heap"
+#define MIN_FREE_HEAP_KEY "min_free_heap"
+#define UPTIME_S_KEY "uptime_s"
+#define GPRS_KILL_COUNT_KEY "gprs_kill_count"
+#define GPRS_MON_KILL_COUNT_KEY "gprs_mon_kill_count"
+#define HMI_BOOT_COUNT_KEY "hmi_boot_count"
+#define HMI_LAST_RST_KEY "hmi_last_rst"
+
+extern uint32_t g_bootCount;
+extern uint32_t g_gprsKillCount;
+extern uint32_t g_monKillCount;
+extern int g_hmiBootCount;
+extern int g_hmiLastRst;
+extern int g_restore_photo_minutes;
+
 #define ANALOGREAD_ADC 0
 #define MILLIVOTSREAD_ADC 1
 

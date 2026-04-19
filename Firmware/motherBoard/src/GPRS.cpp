@@ -26,6 +26,7 @@
 #include "GPRS.h"
 
 #include <Arduino.h>
+#include <Preferences.h>
 
 #include "CommTask.h"
 #include "SPO2.h"
@@ -67,6 +68,40 @@ extern double ReferenceTemperatureRange, ReferenceTemperatureLow;
 
 extern double RawTemperatureLow[SENSOR_TEMP_QTY],
     RawTemperatureRange[SENSOR_TEMP_QTY];
+
+// ── RPC handlers ─────────────────────────────────────────────────────────────
+static void rpc_restart_cb(JsonVariantConst const & /*data*/,
+                           JsonDocument & response) {
+  response["status"] = "restarting";
+  logModemData("[RPC] restart command received");
+  vTaskDelay(pdMS_TO_TICKS(200)); // let TB ACK the response before reset
+  ESP.restart();
+}
+
+static void rpc_diag_cb(JsonVariantConst const & /*data*/,
+                        JsonDocument & response) {
+  response["boot_count"]    = g_bootCount;
+  response["free_heap"]     = (uint32_t)ESP.getFreeHeap();
+  response["min_free_heap"] = (uint32_t)ESP.getMinFreeHeap();
+  response["uptime_s"]      = (uint32_t)(millis() / 1000);
+  response["gprs_kill"]     = g_gprsKillCount;
+  response["mon_kill"]      = g_monKillCount;
+  response["hmi_boots"]     = g_hmiBootCount;
+  response["hmi_last_rst"]  = g_hmiLastRst;
+}
+
+static RPC_Callback rpc_callbacks[] = {
+  RPC_Callback("restart", rpc_restart_cb),
+  RPC_Callback("getDiag",  rpc_diag_cb),
+};
+static constexpr size_t RPC_CB_COUNT = sizeof(rpc_callbacks) / sizeof(rpc_callbacks[0]);
+
+static void subscribeRPCHandlers() {
+  for (size_t i = 0; i < RPC_CB_COUNT; i++) {
+    tb.RPC_Subscribe(rpc_callbacks[i]);
+  }
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 void progressCallback(const uint32_t &currentChunk,
                       const uint32_t &totalChuncks) {
@@ -122,6 +157,13 @@ void initGPRS() {
       reason == ESP_RST_PANIC) {
     logModemData("[GPRS] -> Abnormal reset detected (" + String(reason) +
                  "), deleting GPRS task this session");
+    {
+      Preferences p;
+      p.begin("diag", false);
+      g_gprsKillCount = p.getUInt("gprs_kill", 0) + 1;
+      p.putUInt("gprs_kill", g_gprsKillCount);
+      p.end();
+    }
     // Delete the *current* task (i.e. GPRS_Task)
     vTaskDelete(NULL);
     // Note: control never returns here
@@ -476,6 +518,14 @@ void addConfigTelemetriesToGPRSJSON() {
   addAlarmTelemetriesToGPRSJSON();
   addVariableToTelemetryGPRSJSON[SN_KEY] = in3.serialNumber;
   addVariableToTelemetryGPRSJSON[SYSTEM_RESET_REASON] = in3.resetReason;
+  addVariableToTelemetryGPRSJSON[BOOT_COUNT_KEY] = g_bootCount;
+  addVariableToTelemetryGPRSJSON[GPRS_KILL_COUNT_KEY] = g_gprsKillCount;
+  addVariableToTelemetryGPRSJSON[GPRS_MON_KILL_COUNT_KEY] = g_monKillCount;
+  addVariableToTelemetryGPRSJSON[FREE_HEAP_KEY] = (uint32_t)ESP.getFreeHeap();
+  addVariableToTelemetryGPRSJSON[MIN_FREE_HEAP_KEY] = (uint32_t)ESP.getMinFreeHeap();
+  addVariableToTelemetryGPRSJSON[UPTIME_S_KEY] = (uint32_t)(millis() / 1000);
+  addVariableToTelemetryGPRSJSON[HMI_BOOT_COUNT_KEY] = g_hmiBootCount;
+  addVariableToTelemetryGPRSJSON[HMI_LAST_RST_KEY] = g_hmiLastRst;
   addVariableToTelemetryGPRSJSON[HW_NUM_KEY] = HW_NUM;
   addVariableToTelemetryGPRSJSON[HW_REV_KEY] = String(HW_REVISION);
   addVariableToTelemetryGPRSJSON[FW_VERSION_KEY] = FWversion;
@@ -691,6 +741,7 @@ void GPRSPost() {
       } else {
         logModemData("[GPRS] -> Connected to host");
         GPRS.serverConnectionStatus = true;
+        subscribeRPCHandlers();
         if (ENABLE_GPRS_OTA && !GPRS.OTA_requested) {
           logModemData("[GPRS] -> Requesting OTA");
           GPRSCheckOTA();
