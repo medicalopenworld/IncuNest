@@ -165,9 +165,7 @@ TAMC_GT911 ts =
 static uint32_t screenWidth;
 static uint32_t screenHeight;
 static lv_disp_draw_buf_t draw_buf;
-// Allocated in PSRAM at init to free ~48 KB of internal DRAM for WiFi/lwIP DMA buffers.
-static lv_color_t *disp_draw_buf = NULL;
-static const size_t disp_draw_buf_px = (size_t)DISPLAY_WIDTH * DISPLAY_HEIGHT / COLOR_DIVISOR;
+static lv_color_t disp_draw_buf[DISPLAY_WIDTH * DISPLAY_HEIGHT / COLOR_DIVISOR];
 static lv_disp_drv_t disp_drv;
 static lv_timer_t *intro_timer = NULL;
 
@@ -2837,7 +2835,11 @@ void UI_Task(void *pvParameters) {
     ESP_ERROR_CHECK(esp_lcd_panel_reset(lcd_panel));
     ESP_ERROR_CHECK(esp_lcd_panel_init(lcd_panel));
 
+#if DISPLAY_ROTATE_180
+    ESP_ERROR_CHECK(esp_lcd_panel_mirror(lcd_panel, true, true));
+#else
     ESP_ERROR_CHECK(esp_lcd_panel_mirror(lcd_panel, false, false));
+#endif
 
     ESP_LOGI("LCD", "RGB panel initialized with bounce buffers OK");
   }
@@ -2870,17 +2872,8 @@ void UI_Task(void *pvParameters) {
   screenWidth = DISPLAY_WIDTH;
   screenHeight = DISPLAY_HEIGHT;
 
-  // Draw buffer parcial en PSRAM para liberar DRAM interna (necesaria para WiFi DMA).
-  // El framebuffer del panel ya vive en PSRAM con bounce buffers, así que mantener
-  // el draw buffer también en PSRAM no añade overhead adicional de bus.
-  disp_draw_buf = (lv_color_t *)heap_caps_malloc(
-      disp_draw_buf_px * sizeof(lv_color_t), MALLOC_CAP_SPIRAM);
-  if (!disp_draw_buf) {
-    ESP_LOGE("LCD", "PSRAM alloc for disp_draw_buf failed (%u bytes)",
-             (unsigned)(disp_draw_buf_px * sizeof(lv_color_t)));
-    abort();
-  }
-  lv_disp_draw_buf_init(&draw_buf, disp_draw_buf, NULL, disp_draw_buf_px);
+  lv_disp_draw_buf_init(&draw_buf, disp_draw_buf, NULL,
+                        DISPLAY_WIDTH * DISPLAY_HEIGHT / COLOR_DIVISOR);
 
   lv_disp_drv_init(&disp_drv);
   disp_drv.hor_res = screenWidth;

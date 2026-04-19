@@ -27,6 +27,7 @@
 #include "lwip/dns.h"
 
 #include "GPRS.h"
+#include "SPO2.h"
 #include "main.h"
 
 extern GPRSstruct GPRS;
@@ -637,6 +638,11 @@ void addTelemetriesToWIFIJSON() {
       in3.temperature[SKIN_SENSOR], TELEMETRIES_DECIMALS);
   addVariableToTelemetryWIFIJSON[AIR_TEMPERATURE_KEY] = roundSignificantDigits(
       in3.temperature[ROOM_DIGITAL_TEMP_SENSOR], TELEMETRIES_DECIMALS);
+  if (in3.airTemperatureRedundantSensor) {
+    addVariableToTelemetryWIFIJSON[AIR_TEMPERATURE_REDUNDANT_KEY] =
+        roundSignificantDigits(in3.airTemperatureRedundantSensor,
+                               TELEMETRIES_DECIMALS);
+  }
   if (in3.temperature[AMBIENT_DIGITAL_TEMP_SENSOR] &&
       in3.humidity[AMBIENT_DIGITAL_HUM_SENSOR]) {
     addVariableToTelemetryWIFIJSON[AMBIENT_TEMPERATURE_KEY] =
@@ -713,6 +719,30 @@ void addTelemetriesToWIFIJSON() {
     addVariableToTelemetryWIFIJSON[PHOTHERAPY_ACTIVE_TIME_KEY] =
         roundSignificantDigits(in3.phototherapy_active_time,
                                TELEMETRIES_DECIMALS);
+  }
+
+  if (g_spo2_data.spo2_sqi > 0.0f) {
+    addVariableToTelemetryWIFIJSON[SPO2_KEY] =
+        roundSignificantDigits(g_spo2_data.spo2, TELEMETRIES_DECIMALS);
+    addVariableToTelemetryWIFIJSON[SPO2_SQI_KEY] =
+        roundSignificantDigits(g_spo2_data.spo2_sqi, TELEMETRIES_DECIMALS);
+    addVariableToTelemetryWIFIJSON[PI_KEY] =
+        roundSignificantDigits(g_spo2_data.pi, TELEMETRIES_DECIMALS);
+  }
+  if (g_spo2_data.hr1_sqi > 0.0f) {
+    addVariableToTelemetryWIFIJSON[HR1_KEY] = (int)(g_spo2_data.hr1 + 0.5f);
+    addVariableToTelemetryWIFIJSON[HR1_SQI_KEY] =
+        roundSignificantDigits(g_spo2_data.hr1_sqi, TELEMETRIES_DECIMALS);
+  }
+  if (g_spo2_data.hr2_sqi > 0.0f) {
+    addVariableToTelemetryWIFIJSON[HR2_KEY] = (int)(g_spo2_data.hr2 + 0.5f);
+    addVariableToTelemetryWIFIJSON[HR2_SQI_KEY] =
+        roundSignificantDigits(g_spo2_data.hr2_sqi, TELEMETRIES_DECIMALS);
+  }
+  if (g_spo2_data.hr3_sqi > 0.0f) {
+    addVariableToTelemetryWIFIJSON[HR3_KEY] = (int)(g_spo2_data.hr3 + 0.5f);
+    addVariableToTelemetryWIFIJSON[HR3_SQI_KEY] =
+        roundSignificantDigits(g_spo2_data.hr3_sqi, TELEMETRIES_DECIMALS);
   }
 }
 

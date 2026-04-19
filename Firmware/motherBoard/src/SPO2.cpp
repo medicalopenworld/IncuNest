@@ -1,9 +1,10 @@
 #include "SPO2.h"
-#include "main.h"
 #include "DriveUpload.h"
+#include "esp32-hal-gpio.h"
+#include "main.h"
 
-INCUNEST_AFE4490    afe;
-TaskHandle_t        g_spo2_task = nullptr;
+INCUNEST_AFE4490 afe;
+TaskHandle_t g_spo2_task = nullptr;
 volatile AFE4490Data g_spo2_data = {};
 
 #define SPO2_LOG_INTERVAL_SAMPLES 500 // ~1 s at 500 Hz
@@ -14,7 +15,7 @@ void SPO2_Task(void *pvParameters) {
 
   for (;;) {
     if (afe.getData(data)) {
-      memcpy((void*)&g_spo2_data, &data, sizeof(data));
+      memcpy((void *)&g_spo2_data, &data, sizeof(data));
       drivePushSample(data);
 
       if (++sample_count % SPO2_LOG_INTERVAL_SAMPLES == 0) {

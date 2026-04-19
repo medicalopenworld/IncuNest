@@ -584,8 +584,21 @@ void setup() {
   logI("in3ator debug uart, version v" + String(FWversion) + "/" +
        String(HWversion) + ", SN: " + String(in3.serialNumber));
 
+  if (!GPIORead(ENC_SWITCH)) {
+    goToSettings = true;
+  }
+
+  initHardware(false);
+  initDriveUpload();
+  crashReporterMaybeFlush();
+  // SPO2/AFE must initialize SPI (GPIO19 as MISO) before USB host starts.
+  // On V15, usb_host_install() claims GPIO19 as USB D−, which conflicts with
+  // AFE SPI MISO. Initializing AFE first ensures the chip is configured and
+  // DRDY is active before USB takes GPIO19.
+  initSPO2();
+
 #if CONFIG_IDF_TARGET_ESP32S3
-  // --- Initialize UART communication between ESP32 boards ---
+  // --- Initialize UART/USB communication between ESP32 boards ---
   logI("Initializing communication task ...");
   CommunicationHost_Init();
 
@@ -600,15 +613,6 @@ void setup() {
   );
   logI("Communication task successfully created!\n");
 #endif
-
-  if (!GPIORead(ENC_SWITCH)) {
-    goToSettings = true;
-  }
-
-  initHardware(false);
-  initDriveUpload();
-  crashReporterMaybeFlush();
-  initSPO2();
 #ifdef BQ25730_TEST
   dump_BQ25730_regs();
 #endif

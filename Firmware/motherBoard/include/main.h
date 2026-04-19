@@ -69,7 +69,7 @@
 #define LOG_ERRORS false
 #define LOG_ALARMS false
 #define LOG_PULSIOXIMETRY false
-#define LOG_DRIVE true // Google Drive upload + MB/HMI crash capture
+#define LOG_DRIVE false // Google Drive upload + MB/HMI crash capture
 
 // Diagnostic: set to 1 to skip the upload task entirely. Writer keeps rotating
 // but every closed window is deleted instead of enqueued. Isolates whether the
@@ -82,8 +82,8 @@
        // read current measurements
 #define WDT_TIMEOUT 75
 #if (HW_NUM >= 14)
-#define HEATER_MAX_POWER_AMPS 10.5
-#define HEATER_SAFE_POWER_AMPS 9.5
+#define HEATER_MAX_POWER_AMPS 6
+#define HEATER_SAFE_POWER_AMPS 5
 #else
 #define HEATER_MAX_POWER_AMPS 12.5
 #define HEATER_SAFE_POWER_AMPS 11.5
@@ -270,6 +270,7 @@ typedef enum {
 #define SKIN_CAPACITANCE_KEY "Skin_CAP"
 #define SKIN_TEMPERATURE_KEY "Skin_temp"
 #define AIR_TEMPERATURE_KEY "Air_temp"
+#define AIR_TEMPERATURE_REDUNDANT_KEY "Air_temp_redundant"
 #define AMBIENT_TEMPERATURE_KEY "Amb_temp"
 #define HUMIDITY_ROOM_KEY "Humidity"
 #define HUMIDITY_AMBIENT_KEY "Amb_humidity"
@@ -300,6 +301,15 @@ typedef enum {
 #define HUMIDIFIER_ACTIVE_TIME_KEY "Humidifier_active_time"
 #define GPRS_CONNECTIVITY_KEY "GPRS_connection"
 #define WIFI_CONNECTIVITY_KEY "WIFI_connection"
+#define HR1_KEY "HR1"
+#define HR1_SQI_KEY "HR1_SQI"
+#define HR2_KEY "HR2"
+#define HR2_SQI_KEY "HR2_SQI"
+#define HR3_KEY "HR3"
+#define HR3_SQI_KEY "HR3_SQI"
+#define SPO2_KEY "SpO2"
+#define SPO2_SQI_KEY "SpO2_SQI"
+#define PI_KEY "PI"
 #define HUMIDITY_ALARM_KEY "hum_alarm"
 #define TEMPERATURE_ALARM_KEY "temp_alarm"
 #define AIR_THERMAL_CUTOUT_ALARM_KEY "air_TC_alarm"
@@ -607,6 +617,7 @@ typedef enum {
 typedef struct {
   int skinSensorCapacitance;
   double temperature[SENSOR_TEMP_QTY];
+  double airTemperatureRedundantSensor = 0;
   double humidity[SENSOR_HUM_QTY];
   double desiredControlTemperature = false;
   double desiredControlHumidity = false;

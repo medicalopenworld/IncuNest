@@ -22,10 +22,10 @@
   SOFTWARE.
 
 */
-#define HW_NUM 16
+#define HW_NUM 15
 #define HW_REVISION 'A'
 #define HWversion String(HW_NUM) + "." + String(HW_REVISION)
-#define FWversion "16.2"
+#define FWversion "16.3"
 #define WIFI_NAME "IncuNest"
 #define CURRENT_FIRMWARE_TITLE "IncuNest"
 // Set to true only on the HMI board
@@ -127,14 +127,13 @@
 #define HEATER 16
 #define AFE44XX_CS 21
 #define FAN_SPEED_FEEDBACK 38
-#define AFE4490_ADC_READY 45
+#define AFE_ADC_READY 45
 #define GSM_UART_TX_PIN 48
 #define GSM_UART_RX_PIN 47
 // AFE SPI bus (shared with TFT SPI, pins from build flags TFT_SCLK/MISO/MOSI)
-#define AFE_SCK  18
-#define AFE_MISO 19
-#define AFE_MOSI 23
-#define AFE_ADC_READY AFE4490_ADC_READY
+#define AFE_SCK 36
+#define AFE_MISO 37
+#define AFE_MOSI 35
 
 #define FAKE_PIN 46
 
@@ -359,15 +358,17 @@
 #define SCREENBACKLIGHT_PWM_CHANNEL 0
 #define BUZZER_PWM_CHANNEL 1
 #define HEATER_PWM_CHANNEL 2
-#define FAN_PWM_CHANNEL 3
+// FAN y FAN_CTL comparten timer 3 (ch 6,7) a 25 kHz; HEATER (ch 2, timer 1)
+// queda aislado para que HEATER_PWM_FREQUENCY (400 Hz) no sea sobrescrito.
+#define FAN_PWM_CHANNEL 7
 #define PHOTOTHERAPY_PWM_CHANNEL 4
 #define HUMIDIFIER_PWM_CHANNEL 5
 #define FAN_CTL_PWM_CHANNEL 6
 #define DEFAULT_PWM_RESOLUTION 8
-#define DEFAULT_PWM_FREQUENCY 2000
-#define BUZZER_PWM_FREQUENCY 800
-#define HEATER_PWM_FREQUENCY 400
-#define FAN_PWM_FREQUENCY 25000
+#define DEFAULT_PWM_FREQUENCY 400
+#define BUZZER_PWM_FREQUENCY DEFAULT_PWM_FREQUENCY
+#define HEATER_PWM_FREQUENCY DEFAULT_PWM_FREQUENCY
+#define FAN_PWM_FREQUENCY DEFAULT_PWM_FREQUENCY
 #define HUMIDIFIER_PWM_FREQUENCY 109000
 
 #define maxADCvalue 4095

@@ -461,76 +461,54 @@ bool measureSkinSensor() {
 
 bool updateRoomSensor() {
   static char errorMessage[64];
-  SHTC3_Status_TypeDef shtc3_sensor_status;
 
-  // Acumuladores/flags para STS3X
-  bool sts_main_ok = false;
-  bool sts_red_ok = false;
-  float sts_main_T = 0.0f;
-  float sts_red_T = 0.0f;
-  bool saw_sts_red =
-      false; // Sabremos si pasamos por el REDUNDANT en este ciclo
+  // Lecturas aisladas para decidir primario/redundante tras el loop.
+  float sts_sum = 0.0f;
+  int sts_count = 0;
+  bool shtc3_ok = false;
+  float shtc3_T = 0.0f;
+  float shtc3_H = 0.0f;
+
+  in3.airTemperatureRedundantSensor = 0;
 
   for (int i = 0; i < ROOM_SENSOR_POSIBILITIES; i++) {
     if (!roomSensorPresent[i])
       continue;
 
     switch (i) {
-    case ROOM_SENSOR_STS3X_MAIN: {
-      float aTemperature = 0.0f;
-      uint16_t err =
-          mySTS35[i].measureSingleShot(REPEATABILITY_HIGH, false, aTemperature);
-      if (err != NO_ERROR) {
-        errorToString(err, errorMessage, sizeof(errorMessage));
-        logI(String("Error in measureSingleShot() STS3X_MAIN: ") +
-             String(errorMessage));
-        break;
-      }
-      if (aTemperature > DIG_TEMP_TO_DISCARD_MIN &&
-          aTemperature < DIG_TEMP_TO_DISCARD_MAX) {
-        sts_main_ok = true;
-        sts_main_T = aTemperature;
-        logI(String("STS35[MAIN] OK: ") + String(aTemperature, 2) + " °C");
-      } else {
-        logI(String("STS35[MAIN] out of range: ") + String(aTemperature, 2) +
-             " °C");
-      }
-      break;
-    }
+    case ROOM_SENSOR_STS3X_MAIN:
     case ROOM_SENSOR_STS3X_REDUNDANT: {
       float aTemperature = 0.0f;
       uint16_t err =
           mySTS35[i].measureSingleShot(REPEATABILITY_HIGH, false, aTemperature);
-      saw_sts_red = true;
       if (err != NO_ERROR) {
         errorToString(err, errorMessage, sizeof(errorMessage));
-        logI(String("Error in measureSingleShot() STS3X_REDUNDANT: ") +
+        logI(String("Error in measureSingleShot() STS35: ") +
              String(errorMessage));
         break;
       }
       if (aTemperature > DIG_TEMP_TO_DISCARD_MIN &&
           aTemperature < DIG_TEMP_TO_DISCARD_MAX) {
-        sts_red_ok = true;
-        sts_red_T = aTemperature;
-        logI(String("STS35[RED] OK: ") + String(aTemperature, 2) + " °C");
+        sts_sum += aTemperature;
+        sts_count++;
+        logI(String("STS35 OK: ") + String(aTemperature, 2) + " °C");
       } else {
-        logI(String("STS35[RED] out of range: ") + String(aTemperature, 2) +
-             " °C");
+        logI(String("STS35 out of range: ") + String(aTemperature, 2) + " °C");
       }
       break;
     }
 
     case ROOM_SENSOR_SHTC3: {
-      shtc3_sensor_status = mySHTC3.update();
+      SHTC3_Status_TypeDef shtc3_sensor_status = mySHTC3.update();
       if (!shtc3_sensor_status) {
         float sensedTemperature = mySHTC3.toDegC();
         if (sensedTemperature > DIG_TEMP_TO_DISCARD_MIN &&
             sensedTemperature < DIG_TEMP_TO_DISCARD_MAX) {
-          lastSuccesfullSensorUpdate[ROOM_DIGITAL_TEMP_SENSOR] = millis();
-          in3.temperature[ROOM_DIGITAL_TEMP_SENSOR] = sensedTemperature;
-          in3.humidity[ROOM_DIGITAL_HUM_SENSOR] = mySHTC3.toPercent();
+          shtc3_ok = true;
+          shtc3_T = sensedTemperature;
+          shtc3_H = mySHTC3.toPercent();
           logI(String("SHTC3 OK: ") + String(sensedTemperature, 2) + " °C, " +
-               String(in3.humidity[ROOM_DIGITAL_HUM_SENSOR], 2) + " %RH");
+               String(shtc3_H, 2) + " %RH");
         }
       }
       break;
@@ -540,19 +518,28 @@ bool updateRoomSensor() {
     }
   }
 
-  // Confirmamos éxito con STS3X solo cuando:
-  // - ya pasamos por el REDUNDANT
-  // - y ambas lecturas son válidas
-  if (saw_sts_red && sts_main_ok && sts_red_ok) {
-    float avgT = (sts_main_T + sts_red_T) * 0.5f;
+  // SHTC3 es la única fuente de humedad: actualiza siempre que haya lectura.
+  if (shtc3_ok) {
+    in3.humidity[ROOM_DIGITAL_HUM_SENSOR] = shtc3_H;
+  }
+
+  // Primario: STS35 si lee; si no, fallback al SHTC3. Redundante: SHTC3 solo
+  // cuando el STS35 provee el primario (de lo contrario no hay redundancia).
+  if (sts_count > 0) {
     lastSuccesfullSensorUpdate[ROOM_DIGITAL_TEMP_SENSOR] = millis();
-    in3.temperature[ROOM_DIGITAL_TEMP_SENSOR] = avgT;
+    in3.temperature[ROOM_DIGITAL_TEMP_SENSOR] = sts_sum / sts_count;
+    if (shtc3_ok) {
+      in3.airTemperatureRedundantSensor = shtc3_T;
+    }
     return true;
   }
 
-  if (!shtc3_sensor_status) {
+  if (shtc3_ok) {
+    lastSuccesfullSensorUpdate[ROOM_DIGITAL_TEMP_SENSOR] = millis();
+    in3.temperature[ROOM_DIGITAL_TEMP_SENSOR] = shtc3_T;
     return true;
   }
+
   initRoomSensor();
   return false;
 }

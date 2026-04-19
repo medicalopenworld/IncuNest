@@ -43,6 +43,9 @@ static HardwareSerial &hmiSerial = Serial1;
 static std::unique_ptr<CdcAcmDevice> vcp;
 static SemaphoreHandle_t device_disconnected_sem;
 static SemaphoreHandle_t vcp_mux;
+// Bloquea nuevos TX en cuanto se detecta desconexión para que el close() no
+// curse con URBs en vuelo (evita assert en hcd_urb_dequeue del USB host).
+static volatile bool vcp_disconnecting = false;
 #endif
 
 // ---- Phototherapy Timer (Motherboard is source of truth) ----
@@ -57,12 +60,17 @@ void parse_line(const char *line);
 
 #if (HW_NUM != 16)
 static void reset_vcp() {
-  if (xSemaphoreTake(vcp_mux, pdMS_TO_TICKS(100)) == pdTRUE) {
+  vcp_disconnecting = true;
+  // Espera hasta 2s a que termine un tx_blocking en curso antes de cerrar.
+  if (xSemaphoreTake(vcp_mux, pdMS_TO_TICKS(2000)) == pdTRUE) {
     if (vcp) {
       try {
         vcp->close();
       } catch (...) {
       }
+      // Deja que cdc_acm_client_task drene URBs pendientes antes de liberar
+      // el objeto; si no, el dequeue async asserta en hcd_dwc.c.
+      vTaskDelay(pdMS_TO_TICKS(200));
       vcp.reset();
     }
     xSemaphoreGive(vcp_mux);
@@ -100,6 +108,7 @@ static bool handle_rx(const uint8_t *data, size_t len, void *arg) {
 static void handle_event(const cdc_acm_host_dev_event_data_t *event,
                          void *user_ctx) {
   if (event->type == CDC_ACM_HOST_DEVICE_DISCONNECTED) {
+    vcp_disconnecting = true;
     if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
       ESP_LOGW(TAG, "HMI disconnected event");
       xSemaphoreGiveRecursive(log_mutex);
@@ -522,10 +531,15 @@ void CommunicationHost_Send(const char *msg) {
 #if (HW_NUM == 16)
   hmiSerial.print(msg);
 #else
+  // Si ya hay un cierre en curso o señalado, no iniciar nuevos URBs: cualquier
+  // TX en flight mientras se llama a vcp->close() dispara assert en hcd_dwc.
+  if (vcp_disconnecting)
+    return;
+
   if (xSemaphoreTake(vcp_mux, pdMS_TO_TICKS(100)) != pdTRUE)
     return;
 
-  if (!vcp) {
+  if (!vcp || vcp_disconnecting) {
     xSemaphoreGive(vcp_mux);
     return;
   }
@@ -544,6 +558,11 @@ void CommunicationHost_Send(const char *msg) {
 
   memcpy(buf, msg, len);
   esp_err_t err = vcp->tx_blocking(buf, len);
+  if (err != ESP_OK) {
+    // Marca ya dentro del mutex para que cualquier caller concurrente que
+    // esté bloqueado tomándolo salga sin intentar TX.
+    vcp_disconnecting = true;
+  }
   xSemaphoreGive(vcp_mux);
 
   if (err == ESP_OK) {
@@ -738,6 +757,9 @@ void Communication_Task(void *pvParameters) {
 
     if (xSemaphoreTake(vcp_mux, pdMS_TO_TICKS(500)) == pdTRUE) {
       vcp = std::move(new_vcp);
+      vcp_disconnecting = false;
+      // Drena posible señal pendiente de una sesión anterior.
+      xSemaphoreTake(device_disconnected_sem, 0);
       if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         ESP_LOGI(TAG, "HMI connected!");
         xSemaphoreGiveRecursive(log_mutex);
@@ -793,10 +815,37 @@ void Communication_Task(void *pvParameters) {
 
     xSemaphoreTake(device_disconnected_sem, 0);
     uint32_t last_tel_time = 0;
+    uint32_t last_ppg_time = 0;
+    float ppg_min = -1.0f, ppg_max = 1.0f;
+    uint8_t hr_valid_streak = 0, hr_bad_streak = 0;
+    bool hr_displaying = false;
 
     while (true) {
       if (xSemaphoreTake(hmi_state_req_sem, 0) == pdTRUE) {
         send_state_to_hmi();
+      }
+
+      // PPG waveform at 25 Hz
+      if (millis() - last_ppg_time >= 40) {
+        char ppg_msg[16];
+        if (g_spo2_data.spo2_sqi < 0.05f) {
+          ppg_min = -1.0f;
+          ppg_max =  1.0f;
+          snprintf(ppg_msg, sizeof(ppg_msg), "CTRL,PPG,128\n");
+        } else {
+          float ppg_raw = g_spo2_data.ppg;
+          if (ppg_raw < ppg_min) ppg_min = ppg_raw;
+          else ppg_min += (0.0f - ppg_min) * 0.005f;
+          if (ppg_raw > ppg_max) ppg_max = ppg_raw;
+          else ppg_max += (0.0f - ppg_max) * 0.005f;
+          float range = ppg_max - ppg_min;
+          uint8_t ppg_byte = (range > 1e-3f)
+              ? (uint8_t)constrain((ppg_raw - ppg_min) / range * 255.0f, 0.0f, 255.0f)
+              : 128;
+          snprintf(ppg_msg, sizeof(ppg_msg), "CTRL,PPG,%u\n", ppg_byte);
+        }
+        CommunicationHost_Send(ppg_msg);
+        last_ppg_time = millis();
       }
 
       if (millis() - last_tel_time > 1000) {
@@ -816,25 +865,38 @@ void Communication_Task(void *pvParameters) {
                  ctrl_tel_msg.detectedSkinTemperature,
                  (int)ctrl_tel_msg.detectedHumidity,
                  ctrl_tel_msg.serverCommStatus);
+        CommunicationHost_Send(msg);
 
-        if (xSemaphoreTake(vcp_mux, pdMS_TO_TICKS(100)) == pdTRUE) {
-          if (!vcp) {
-            xSemaphoreGive(vcp_mux);
-            break;
+        // HR fusion with hysteresis (same logic as UART path)
+        uint8_t hr_byte = 0;
+        {
+          float h2 = g_spo2_data.hr2, h3 = g_spo2_data.hr3;
+          float s2 = g_spo2_data.hr2_sqi, s3 = g_spo2_data.hr3_sqi;
+          bool valid = (h2 > 0.0f) && (h3 > 0.0f) &&
+                       (fabsf(h2 - h3) < 8.0f) &&
+                       (fmaxf(s2, s3) >= 0.8f) &&
+                       (fminf(s2, s3) >= 0.5f);
+          if (valid) {
+            hr_bad_streak = 0;
+            if (++hr_valid_streak >= 2) hr_displaying = true;
+          } else {
+            hr_valid_streak = 0;
+            if (++hr_bad_streak >= 3) hr_displaying = false;
           }
-          esp_err_t err = vcp->tx_blocking((uint8_t *)msg, strlen(msg));
-          xSemaphoreGive(vcp_mux);
-          if (err != ESP_OK) {
-            if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-              ESP_LOGE(TAG, "Periodic TX failed: %s", esp_err_to_name(err));
-              xSemaphoreGiveRecursive(log_mutex);
-            }
+          if (hr_displaying && valid) {
+            float hr_fused = (h2 * s2 + h3 * s3) / (s2 + s3);
+            if (hr_fused >= 40.0f && hr_fused <= 240.0f)
+              hr_byte = (uint8_t)(hr_fused + 0.5f);
           }
         }
+        char vit_msg[20];
+        snprintf(vit_msg, sizeof(vit_msg), "CTRL,VIT,%u,0\n", hr_byte);
+        CommunicationHost_Send(vit_msg);
+
         last_tel_time = millis();
       }
 
-      if (xSemaphoreTake(device_disconnected_sem, pdMS_TO_TICKS(50)) == pdTRUE) {
+      if (xSemaphoreTake(device_disconnected_sem, pdMS_TO_TICKS(10)) == pdTRUE) {
         if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
           ESP_LOGW(TAG, "Disconnect requested");
           xSemaphoreGiveRecursive(log_mutex);
