@@ -66,11 +66,12 @@ void Communication_SendWiFiCredentials(const char *ssid, const char *password) {
 static void SendMessageToOtherESP() {
 #if IS_HMI
   COMM_SERIAL.printf(
-      "HMI,%d,%d,%d,%0.2f,%0.2f,%0.0f,%d,%d,%d,%d\n", hmi_msg.actuation,
+      "HMI,%d,%d,%d,%0.2f,%0.2f,%0.0f,%d,%d,%d,%d,%d,%d,%d\n", hmi_msg.actuation,
       (int)hmi_msg.skinModeEnabled, hmi_msg.controlMode,
       hmi_msg.desiredAirTemperature, hmi_msg.desiredSkinTemperature,
       hmi_msg.desiredHumidity, hmi_msg.phototherapyMode, hmi_msg.muteAlarm,
-      hmi_msg.language, hmi_msg.photoMinutesRemaining);
+      hmi_msg.language, hmi_msg.photoMinutesRemaining,
+      hmi_msg.babyWeightGrams, hmi_msg.babyGestWeeks, hmi_msg.babyAgeHours);
 #else
   COMM_SERIAL.printf("CTRL,%0.2f,%0.2f,%0.2f,%0.2f,%0.2f\n",
                      ctrl_msg.temperature[0], ctrl_msg.temperature[1],

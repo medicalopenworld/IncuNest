@@ -35,6 +35,10 @@ typedef struct {
   int language;
   bool skinModeEnabled;
   int photoMinutesRemaining;
+  // Auto Air baby data (0 = not set)
+  int babyWeightGrams;
+  int babyGestWeeks;
+  int babyAgeHours;
 } HMI_Message;
 
 // Message with sensor data for control logic

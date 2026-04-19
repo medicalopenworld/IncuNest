@@ -322,6 +322,14 @@ void Communication_Receiver(void *pvParameters) {
                    " lang=" + String(hmi_cmd_msg.language);
 
       logI(msg);
+
+      if (hmi_cmd_msg.newBabyData) {
+        hmi_cmd_msg.newBabyData = false;
+        logI("Auto Air baby data -> weight=" +
+             String(hmi_cmd_msg.babyWeightGrams) +
+             "g gest=" + String(hmi_cmd_msg.babyGestWeeks) +
+             "w ageH=" + String(hmi_cmd_msg.babyAgeHours));
+      }
       in3.actuation = hmi_cmd_msg.actuation;
       if (in3.controlMode != hmi_cmd_msg.controlMode) {
         in3.controlMode = hmi_cmd_msg.controlMode;

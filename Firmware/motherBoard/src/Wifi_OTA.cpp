@@ -26,6 +26,7 @@
 #include <string.h>
 #include "lwip/dns.h"
 
+#include "CommTask.h"
 #include "GPRS.h"
 #include "SPO2.h"
 #include "main.h"
@@ -743,6 +744,16 @@ void addTelemetriesToWIFIJSON() {
     addVariableToTelemetryWIFIJSON[HR3_KEY] = (int)(g_spo2_data.hr3 + 0.5f);
     addVariableToTelemetryWIFIJSON[HR3_SQI_KEY] =
         roundSignificantDigits(g_spo2_data.hr3_sqi, TELEMETRIES_DECIMALS);
+  }
+
+  // Baby data sent from HMI on Auto Air Apply. Only publish once populated.
+  if (hmi_cmd_msg.babyWeightGrams > 0 && hmi_cmd_msg.babyGestWeeks > 0) {
+    addVariableToTelemetryWIFIJSON[BABY_WEIGHT_KEY] =
+        hmi_cmd_msg.babyWeightGrams;
+    addVariableToTelemetryWIFIJSON[BABY_GEST_AGE_KEY] =
+        hmi_cmd_msg.babyGestWeeks;
+    addVariableToTelemetryWIFIJSON[BABY_AGE_HOURS_KEY] =
+        hmi_cmd_msg.babyAgeHours;
   }
 }
 

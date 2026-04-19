@@ -27,6 +27,7 @@
 
 #include <Arduino.h>
 
+#include "CommTask.h"
 #include "SPO2.h"
 #include "main.h"
 
@@ -651,6 +652,16 @@ void addTelemetriesToGPRSJSON() {
     addVariableToTelemetryGPRSJSON[HR3_KEY] = (int)(g_spo2_data.hr3 + 0.5f);
     addVariableToTelemetryGPRSJSON[HR3_SQI_KEY] =
         roundSignificantDigits(g_spo2_data.hr3_sqi, TELEMETRIES_DECIMALS);
+  }
+
+  // Baby data sent from HMI on Auto Air Apply. Only publish once populated.
+  if (hmi_cmd_msg.babyWeightGrams > 0 && hmi_cmd_msg.babyGestWeeks > 0) {
+    addVariableToTelemetryGPRSJSON[BABY_WEIGHT_KEY] =
+        hmi_cmd_msg.babyWeightGrams;
+    addVariableToTelemetryGPRSJSON[BABY_GEST_AGE_KEY] =
+        hmi_cmd_msg.babyGestWeeks;
+    addVariableToTelemetryGPRSJSON[BABY_AGE_HOURS_KEY] =
+        hmi_cmd_msg.babyAgeHours;
   }
 }
 

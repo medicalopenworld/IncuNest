@@ -190,6 +190,7 @@ static void intro_timer_cb(lv_timer_t *t) {
 
 void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
   ts.read();
+  static bool prevTouched = false;
   if (ts.isTouched) {
     data->state = LV_INDEV_STATE_PR;
     data->point.x = ts.points[0].x;
@@ -197,6 +198,12 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
   } else {
     data->state = LV_INDEV_STATE_REL;
   }
+  // Re-sync state to the motherboard on every tap (press->release transition)
+  // so any UI interaction refreshes the full HMI frame (incl. baby data).
+  if (prevTouched && !ts.isTouched) {
+    hmi_msg.shouldSendData = true;
+  }
+  prevTouched = ts.isTouched;
 }
 
 // Forward declarations
@@ -927,6 +934,7 @@ static void autoair_activate(float setpoint, const char *rowDesc) {
   airTempValue      = setpoint;
   hmi_msg.desiredAirTemperature = airTempValue;
   hmi_msg.shouldSendData = true;
+  g_autoAirActive = true;
   EEPROM.writeFloat(EEPROM_DESIRED_AIR_TEMP, airTempValue);
   eepromDirty = true;
   lastVarChangeTime = millis();
@@ -1116,6 +1124,10 @@ void aa_confirm_cb(lv_event_t *) {
   g_babyWeightGrams = g_popupWeight;
   g_babyGestWeeks   = g_popupGest;
   g_babyAgeHours    = g_popupAgeHours;
+  // Forward baby data to motherboard so it can be published to ThingsBoard
+  hmi_msg.babyWeightGrams = g_babyWeightGrams;
+  hmi_msg.babyGestWeeks   = g_babyGestWeeks;
+  hmi_msg.babyAgeHours    = g_babyAgeHours;
   char rowDesc[48];
   autoair_calculate_setpoint(g_babyWeightGrams, g_babyGestWeeks,
                               g_babyAgeHours, rowDesc, sizeof(rowDesc));
