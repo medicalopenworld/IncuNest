@@ -924,7 +924,12 @@ void initHardware(bool printOutputTest) {
   }
   ledcWrite(SCREENBACKLIGHT_PWM_CHANNEL, BACKLIGHT_POWER_DEFAULT);
   testSensors();
-  in3.HW_critical_error = initActuators();
+  if (!in3.restoreState) {
+    in3.HW_critical_error = initActuators();
+  } else {
+    logI("[HW] -> restoreState: skipping actuatorsTest");
+    in3.HW_critical_error = false;
+  }
   if (!HW_error) {
     logI("[HW] -> HARDWARE OK");
   } else {
@@ -948,6 +953,17 @@ void initHardware(bool printOutputTest) {
     ledcWrite(PHOTOTHERAPY_PWM_CHANNEL,
               in3.phototherapy * in3.phototherapy_intensity);
     turnFans(in3.phototherapy);
+  }
+  if (in3.restoreState) {
+    if (in3.temperatureControl) {
+      startPID(in3.controlMode);
+      turnFans(ON);
+      logI("[HW] -> restoreState: temperature PID restarted, fan ON");
+    }
+    if (in3.humidityControl) {
+      startPID(humidityPID);
+      logI("[HW] -> restoreState: humidity PID restarted");
+    }
   }
   watchdogInit(WDT_TIMEOUT);
   initAlarms();

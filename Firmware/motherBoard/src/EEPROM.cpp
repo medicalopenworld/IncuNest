@@ -23,6 +23,7 @@
 
 */
 #include <Arduino.h>
+#include <Preferences.h>
 
 #include "main.h"
 
@@ -228,6 +229,20 @@ void recapVariables() {
   if (in3.restoreState) {
     in3.actuation = EEPROM.read(EEPROM_CONTROL_ACTIVE);
     in3.phototherapy = EEPROM.read(EEPROM_PHOTOTHERAPY_ACTIVE);
+
+    if (in3.phototherapy) {
+      Preferences p;
+      p.begin("photo", true);
+      bool was_active = p.getBool("active", false);
+      int  saved_mins = p.getInt("mins", 0);
+      p.end();
+      if (was_active && saved_mins > 0) {
+        g_restore_photo_minutes = saved_mins;
+        logI("[HW] -> restoreState: phototherapy timer restored (" +
+             String(saved_mins) + " min remaining)");
+      }
+    }
+
     switch (in3.actuation) {
     case ACTUATION_TEMPERATURE:
       in3.temperatureControl = true;
@@ -244,7 +259,7 @@ void recapVariables() {
     default:
       in3.temperatureControl = false;
       in3.humidityControl = false;
-      in3.restoreState = false;
+      // ACTUATION_NONE is a valid crash-recovery state — still skip actuatorsTest
       break;
     }
   } else {
