@@ -171,7 +171,7 @@ extern int ScreenBacklightMode;
 
 #define HEATER_CONSUMPTION_MAX 13
 #define FAN_CONSUMPTION_MAX 0.8
-#define PHOTOTHERAPY_CONSUMPTION_DEFAULT 0.6
+#define PHOTOTHERAPY_CONSUMPTION_DEFAULT 0.45
 #define PHOTOTHERAPY_CONSUMPTION_MAX 3
 #define HUMIDIFIER_CONSUMPTION_MAX 0.8
 
@@ -696,20 +696,18 @@ bool actuatorsTest() {
   logI("[HW] -> Heater offset (SECUNDARY): " + String(offsetCurrent) + " Amps");
   ledcWrite(HEATER_PWM_CHANNEL, PWM_MAX_VALUE);
   logI("[HW] -> Heater PWM ON, stabilizing...");
-  testCurrent = measureStabilizedCurrent(SECUNDARY, HEATER_SHUNT_CHANNEL,
-                                         offsetCurrent, HEATER_CONSUMPTION_MIN,
-                                         HEATER_CONSUMPTION_MAX,
-                                         CURRENT_STABILIZE_MAX_TIME);
+  testCurrent = measureStabilizedCurrent(
+      SECUNDARY, HEATER_SHUNT_CHANNEL, offsetCurrent, HEATER_CONSUMPTION_MIN,
+      HEATER_CONSUMPTION_MAX, CURRENT_STABILIZE_MAX_TIME);
   logI("[HW] -> Heater delta=" + String(testCurrent) + " Amps");
 #else
   offsetCurrent = measureMeanConsumption(MAIN, SYSTEM_SHUNT_CHANNEL);
   logI("[HW] -> Heater offset (MAIN): " + String(offsetCurrent) + " Amps");
   ledcWrite(HEATER_PWM_CHANNEL, PWM_MAX_VALUE);
   logI("[HW] -> Heater PWM ON, stabilizing...");
-  testCurrent = measureStabilizedCurrent(MAIN, SYSTEM_SHUNT_CHANNEL,
-                                         offsetCurrent, HEATER_CONSUMPTION_MIN,
-                                         HEATER_CONSUMPTION_MAX,
-                                         CURRENT_STABILIZE_MAX_TIME);
+  testCurrent = measureStabilizedCurrent(
+      MAIN, SYSTEM_SHUNT_CHANNEL, offsetCurrent, HEATER_CONSUMPTION_MIN,
+      HEATER_CONSUMPTION_MAX, CURRENT_STABILIZE_MAX_TIME);
   logI("[HW] -> Heater delta=" + String(testCurrent) + " Amps");
 #endif
   logI("[HW] -> Heater current consumption: " + String(testCurrent) + " Amps");

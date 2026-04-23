@@ -22,7 +22,7 @@
   SOFTWARE.
 
 */
-#define HW_NUM 16
+#define HW_NUM 15
 #define HW_REVISION 'A'
 #define HWversion String(HW_NUM) + "." + String(HW_REVISION)
 #define FWversion "16.4"
@@ -346,12 +346,21 @@
 #define SKIN_NTC_PULSED_EXCITATION false
 
 #define SDCard false
+#if (HW_NUM >= 16)
 #define SYSTEM_SHUNT 3        // miliohms
 #define FAN_SHUNT 3           // miliohms
 #define PHOTOTHERAPY_SHUNT 15 // miliohms
 #define BATTERY_SHUNT 27000   // miliohms
 #define USB_SHUNT 3           // miliohms
 #define HEATER_SHUNT 3        // miliohms
+#else
+#define SYSTEM_SHUNT 2        // miliohms
+#define BATTERY_SHUNT 27000   // miliohms
+#define FAN_SHUNT 100         // miliohms
+#define PHOTOTHERAPY_SHUNT 82 // miliohms
+#define HEATER_SHUNT 2        // miliohms
+#define USB_SHUNT 3           // miliohms
+#endif
 
 #define DISPLAY_DEFAULT_ROTATION 3
 

@@ -289,6 +289,10 @@ void alarmTimerStart() {
       -1 * minsToMillis(ALARM_TIME_DELAY);
   lastAlarmTrigger[SKIN_THERMAL_CUTOUT_ALARM] =
       -1 * minsToMillis(ALARM_TIME_DELAY);
+  lastAlarmTrigger[TEMPERATURE_ALARM] =
+      -1 * minsToMillis(ALARM_TIME_DELAY);
+  lastAlarmTrigger[HUMIDITY_ALARM] =
+      -1 * minsToMillis(ALARM_TIME_DELAY);
 }
 
 byte activeAlarm() {
