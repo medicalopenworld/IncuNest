@@ -149,8 +149,12 @@
 #define BQ25730_IIN_LIMIT_MA 6400           // Límite entrada máximo [mA real]
 // VSYS_MIN: 100 mV/bit + 1000 mV offset → 11000 mV
 #define BQ25730_VSYS_MIN_MV 11000 // 100 × 100 mV + 1000 = 11000 mV
-// VINDPM: 64 mV/bit + 3200 mV offset → máx. registro
-#define BQ25730_VINDPM_MV 19520 // (255×64)+3200 → máx. registro
+// VINDPM: 64 mV/bit + 3200 mV offset.
+// Umbral mínimo de VBUS al que el chip empieza a regular IIN para no hundir la
+// entrada. Para fuente 24V + batería 12V se deja con holgura (≈12V): así no
+// recorta corriente salvo que la fuente realmente colapse.
+// (12000-3200)/64 = 137 → reg = 137<<6 = 0x2240
+#define BQ25730_VINDPM_MV 12000
 
 // ─── Estado de carga
 // ──────────────────────────────────────────────────────────

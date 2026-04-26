@@ -266,6 +266,9 @@ void Backlight_Task(void *pvParameters) {
 #ifdef BQ25730_TEST
 static BQ25730_Status bq_cached_status;
 static volatile bool bq_status_valid = false;
+// Forward decls (defined later in the file)
+static void dump_BQ25730_regs();
+static void print_charger_status();
 #endif
 
 void sensors_Task(void *pvParameters) {
@@ -288,9 +291,30 @@ void sensors_Task(void *pvParameters) {
 #ifdef BQ25730_TEST
     {
       static long lastChargerUpdate = 0;
+      static long lastChargerPrint  = 0;
+      static long lastChargerDump   = 0;
+      static bool prev_ac_present   = false;
       if (chargerPresent && millis() - lastChargerUpdate > 2000) {
         bq_status_valid = charge_status(&bq_cached_status);
         lastChargerUpdate = millis();
+
+        // Detecta transición ausente→presente del adaptador y reinicializa el
+        // chip: algunos BQ25xxx pierden VINDPM/IIN al re-detectar VBUS, así que
+        // reaplicamos toda la config para asegurar carga estable.
+        if (bq_status_valid && bq_cached_status.ac_present && !prev_ac_present) {
+          Serial.println("[CHG] Adaptador detectado → reinicializando config");
+          extern TwoWire *wire;
+          init_BQ25730(wire);
+        }
+        if (bq_status_valid) prev_ac_present = bq_cached_status.ac_present;
+      }
+      if (chargerPresent && millis() - lastChargerPrint > 3000) {
+        print_charger_status();
+        lastChargerPrint = millis();
+      }
+      if (chargerPresent && millis() - lastChargerDump > 10000) {
+        dump_BQ25730_regs();
+        lastChargerDump = millis();
       }
     }
 #endif
