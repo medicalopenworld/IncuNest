@@ -158,6 +158,7 @@ void turnFans(bool mode) {
   // ledcWrite(HEATER_PWM_CHANNEL, mode * HEATER_MAX_PWM);
   ledcWrite(FAN_PWM_CHANNEL,
             (mode && !ongoingCriticalWiringAlarm()) * in3.fanPWM);
+  ledcWrite(FAN_CTL_PWM_CHANNEL, mode * in3.fanCtlPWM);
 #else
   digitalWrite(FAN, in3.phototherapy || mode && !ongoingCriticalWiringAlarm());
 #endif
