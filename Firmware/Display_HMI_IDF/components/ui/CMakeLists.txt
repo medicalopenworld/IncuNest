@@ -1,0 +1,26 @@
+idf_component_register(
+    SRCS
+        "theme/ui_theme.c"
+        "widgets/widget_temp_display.c"
+        "widgets/widget_alarm_banner.c"
+        "widgets/widget_status_bar.c"
+        "widgets/widget_confirm_popup.c"
+        "widgets/widget_spinner_temp.c"
+        "screens/screen_home.c"
+        "screens/screen_settings.c"
+        "screens/screen_alarms.c"
+        "screens/screen_info.c"
+        "screens/screen_splash.c"
+        "ui_manager.c"
+    INCLUDE_DIRS
+        "."
+        "theme"
+        "widgets"
+        "screens"
+    PRIV_REQUIRES
+        config
+    REQUIRES
+        freertos
+        log
+)
+## Phase 1: add REQUIRES lvgl__lvgl alarm comm

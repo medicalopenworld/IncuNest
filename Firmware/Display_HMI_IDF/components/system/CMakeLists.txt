@@ -1,0 +1,12 @@
+idf_component_register(
+    SRCS
+        "system_monitor.c"
+        "error_log.c"
+    INCLUDE_DIRS
+        "."
+    PRIV_REQUIRES
+        config
+    REQUIRES
+        freertos
+        log
+)

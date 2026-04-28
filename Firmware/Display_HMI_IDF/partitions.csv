@@ -1,0 +1,9 @@
+# IncuNest HMI — Flash Partitions (16 MB)
+# Matches original IncuNest_display_v1_audio.csv layout
+# Name,    Type, SubType,  Offset,   Size,    Flags
+nvs,       data, nvs,      0x9000,   0x5000,
+otadata,   data, ota,      0xe000,   0x2000,
+app0,      app,  ota_0,    0x10000,  0x300000,
+app1,      app,  ota_1,    0x310000, 0x300000,
+spiffs,    data, spiffs,   0x610000, 0x800000,
+coredump,  data, coredump, 0xe10000, 0x10000,

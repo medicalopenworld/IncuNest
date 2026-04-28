@@ -1,0 +1,58 @@
+# =============================================================================
+# IncuNest HMI — sdkconfig.defaults
+# Hardware: CrowPanel Advance 7" (ESP32-S3, 16MB Flash, 8MB PSRAM OPI)
+# =============================================================================
+
+# --- Target ---
+CONFIG_IDF_TARGET="esp32s3"
+
+# --- Flash ---
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+
+# --- Partitions ---
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# --- CPU ---
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+
+# --- PSRAM OPI (required for RGB LCD framebuffer and LVGL heap) ---
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_FETCH_INSTRUCTIONS=y
+CONFIG_SPIRAM_RODATA=y
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
+
+# --- FreeRTOS (dual-core, 1kHz tick) ---
+CONFIG_FREERTOS_HZ=1000
+CONFIG_FREERTOS_UNICORE=n
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# --- LCD RGB: restart in VSYNC to avoid DMA timing issues ---
+CONFIG_LCD_RGB_RESTART_IN_VSYNC=y
+
+# --- UART console via CH340C (USB-OTG not wired on CrowPanel Advance) ---
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+
+# --- OTA rollback ---
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+# --- Power management: disable to avoid DMA interference ---
+CONFIG_PM_ENABLE=n
+
+# --- Watchdog ---
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=10
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=n
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
+
+# --- Logging ---
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# --- Stack overflow: canary word at end of stack (lightweight) ---
+CONFIG_FREERTOS_CHECK_STACKOVERFLOW_CANARY=y
+
+# --- Coredump to flash ---
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y

@@ -1,0 +1,20 @@
+## IDF Component Manager Manifest — IncuNest HMI
+##
+## External component dependencies. Versions are pinned to prevent
+## unexpected breaking changes in a medical device firmware build.
+## Update only after reviewing changelogs and regression testing.
+##
+dependencies:
+  ## LVGL 8.4.x — graphics engine. Pinned to 8.4.x (no 9.x migration yet).
+  ## IEC 62304 SOUP: LVGL LLC, MIT license, HARA reviewed in 10_REGULATORY_COMPLIANCE.md
+  lvgl/lvgl:
+    version: ">=8.4.0,<9.0.0"
+
+  ## GT911 touch controller driver from Espressif IDF component registry.
+  ## IEC 62304 SOUP: Espressif Systems, Apache 2.0
+  espressif/esp_lcd_touch_gt911:
+    version: "^1.1.0"
+
+  ## Minimum IDF version constraint
+  idf:
+    version: ">=5.1.0"
