@@ -1,0 +1,21 @@
+## IDF Component Manager Manifest — IncuNest HMI (main component)
+##
+## In idf-component-manager 2.x, managed dependencies must be declared
+## in the component directory (not the project root).
+## Placing them here (main/) makes them available to all project components.
+##
+## IEC 62304 SOUP: versions pinned — update only after regression testing.
+##
+dependencies:
+  ## LVGL 8.4.x — graphics engine
+  ## SOUP: LVGL LLC, MIT license, HARA reviewed in 10_REGULATORY_COMPLIANCE.md
+  lvgl/lvgl:
+    version: ">=8.4.0,<9.0.0"
+
+  ## GT911 touch controller driver
+  ## SOUP: Espressif Systems, Apache 2.0
+  espressif/esp_lcd_touch_gt911:
+    version: "^1.1.0"
+
+  idf:
+    version: ">=5.1.0"

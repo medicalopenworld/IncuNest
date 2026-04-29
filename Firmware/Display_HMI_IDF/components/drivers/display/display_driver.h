@@ -20,6 +20,7 @@
 #include <stdint.h>
 #include "esp_err.h"
 #include "esp_lcd_panel_ops.h"
+#include "driver/i2c_master.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -80,6 +81,13 @@ void display_driver_set_backlight(uint8_t brightness_pct);
  * @return esp_lcd_panel_handle_t — NULL if display_driver_init() has not been called.
  */
 esp_lcd_panel_handle_t display_driver_get_panel(void);
+
+/**
+ * @brief Get the I2C master bus handle (shared with touch driver).
+ * Phase 1: used by touch_driver_init() to call esp_lcd_new_panel_io_i2c().
+ * @return i2c_master_bus_handle_t — NULL if display_driver_init() not called.
+ */
+i2c_master_bus_handle_t display_driver_get_i2c_bus(void);
 
 /**
  * @brief Notify the display driver that a VSYNC event has occurred.

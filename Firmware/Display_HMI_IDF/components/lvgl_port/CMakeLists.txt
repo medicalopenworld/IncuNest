@@ -10,8 +10,12 @@ idf_component_register(
         freertos
         log
         esp_timer
+        lvgl__lvgl
 )
 
-## When LVGL is available (after idf_component.yml download), add it:
-## REQUIRES lvgl__lvgl espressif__esp_lcd_touch_gt911
-## This will be enabled in Phase 1.
+# Inject our lv_conf.h into LVGL's include search path.
+# LV_CONF_INCLUDE_SIMPLE=1 makes LVGL use: #include "lv_conf.h"
+# BEFORE INTERFACE ensures this directory is searched before LVGL's own dir.
+idf_component_get_property(lvgl_lib lvgl__lvgl COMPONENT_LIB)
+target_compile_definitions(${lvgl_lib} PUBLIC LV_CONF_INCLUDE_SIMPLE=1)
+target_include_directories(${lvgl_lib} BEFORE INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})

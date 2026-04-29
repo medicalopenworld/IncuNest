@@ -19,8 +19,10 @@ idf_component_register(
         "screens"
     PRIV_REQUIRES
         config
+        lvgl_port
     REQUIRES
         freertos
         log
+        lvgl__lvgl
 )
-## Phase 1: add REQUIRES lvgl__lvgl alarm comm
+## Phase 2: add REQUIRES alarm comm

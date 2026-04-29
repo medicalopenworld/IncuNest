@@ -1,14 +1,22 @@
 /**
  * @file screen_home.h
- * @brief Home screen API — main dashboard with all vital parameters.
+ * @brief Phase 1 home screen — proof-of-life LVGL render with version label.
+ *
+ * @details Phase 1: single centered label "IncuNest vX.Y.Z / Display OK".
+ *          Phase 2: full dashboard with temperature widgets, status bar, alarm banner.
  *
  * @author IncuNest Team
  * @date   2026-04-28
  */
 #pragma once
 
-// TODO: Fase 2 — Define this module's public API
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-#include <stdint.h>
-#include <stdbool.h>
-#include "esp_err.h"
+/** @brief Create and load the home screen. Must be called within lvgl_port_lock(). */
+void screen_home_show(void);
+
+#ifdef __cplusplus
+}
+#endif

@@ -7,8 +7,8 @@
  *          No business logic belongs here — only initialization sequence.
  *
  *          Phase 0: Display init + backlight. Solid blue on screen.
- *          Phase 1: + LVGL port + touch driver
- *          Phase 2: + UI manager + home screen
+ *          Phase 1: + Touch driver + LVGL port + UITask + home screen
+ *          Phase 2: + UI manager full dashboard
  *          Phase 4: + alarm manager
  *          Phase 5: + motherboard communication
  *          Phase 6: + splash screen + system info
@@ -28,6 +28,9 @@
 #include "esp_log.h"
 
 #include "display_driver.h"
+#include "touch_driver.h"
+#include "lvgl_port.h"
+#include "ui_manager.h"
 #include "nvs_storage.h"
 #include "version.h"
 #include "app_config.h"
@@ -45,27 +48,37 @@ void app_main(void)
     ESP_ERROR_CHECK(nvs_storage_init());
 
     /* ------------------------------------------------------------------
-     * Step 2 — Display: init RGB panel + I2C bus + backlight controller
+     * Step 2 — Display: RGB panel + shared I2C bus + backlight controller
      * ------------------------------------------------------------------ */
     ESP_ERROR_CHECK(display_driver_init());
-
-    /* Step 3 — Turn on backlight (80% default)
-     * Phase 6 will restore persisted brightness from NVS. */
     display_driver_set_backlight(80);
 
     /* ------------------------------------------------------------------
-     * TODO: Phase 1 — lvgl_port_init() + touch_driver_init()
-     * TODO: Phase 2 — ui_manager_init() + create UITask
+     * Step 3 — Touch: GT911 over shared I2C bus (must follow display init)
+     * ------------------------------------------------------------------ */
+    ESP_ERROR_CHECK(touch_driver_init());
+
+    /* ------------------------------------------------------------------
+     * Step 4 — LVGL: init library, register display/touch, start UITask
+     * ------------------------------------------------------------------ */
+    ESP_ERROR_CHECK(lvgl_port_init());
+
+    /* ------------------------------------------------------------------
+     * Step 5 — UI: load first screen within LVGL lock
+     * ------------------------------------------------------------------ */
+    ESP_ERROR_CHECK(ui_manager_init());
+
+    /* ------------------------------------------------------------------
      * TODO: Phase 4 — alarm_manager_init()
      * TODO: Phase 5 — motherboard_comm_init() + create CommTask
      * TODO: Phase 6 — screen_splash_show() during boot
      * TODO: Phase 7 — wifi_manager_init() + create OTATask
      * ------------------------------------------------------------------ */
 
-    ESP_LOGI(TAG, "Phase 0 complete — display active, backlight on");
+    ESP_LOGI(TAG, "Phase 1 complete — LVGL active, touch ready, home screen on");
     ESP_LOGI(TAG, "Free heap: %lu bytes", (unsigned long)esp_get_free_heap_size());
 
-    /* Main loop — replaced by FreeRTOS tasks in later phases */
+    /* Main loop — UITask handles all display work from here */
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(5000));
         ESP_LOGI(TAG, "Heartbeat — free heap: %lu bytes",

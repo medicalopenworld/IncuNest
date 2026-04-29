@@ -36,10 +36,11 @@
 #define HW_BL_OFF_VALUE      245    /**< 0xF5 — backlight off */
 
 /* ==========================================================================
-   Touch controller — Goodix GT911 @ I2C 0x14
-   Source: display_config.h v2.7
+   Touch controller — Goodix GT911 @ I2C 0x5D
+   Note: 0x14 (display_config.h v2.7) failed — STC8H1K28 holds INT HIGH
+   during GT911 reset, selecting address 0x5D.
    ========================================================================== */
-#define HW_TOUCH_I2C_ADDR    0x14
+#define HW_TOUCH_I2C_ADDR    0x5D
 #define HW_TOUCH_INT_PIN     (-1)   /**< INT not wired to ESP32-S3 */
 #define HW_TOUCH_RST_PIN     (-1)   /**< RST managed by STC8H1K28, not ESP32-S3 */
 

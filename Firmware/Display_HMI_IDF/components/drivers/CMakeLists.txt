@@ -16,6 +16,6 @@ idf_component_register(
         nvs_flash
         freertos
         log
+        espressif__esp_lcd_touch_gt911
+        espressif__esp_lcd_touch
 )
-## Phase 1: add REQUIRES espressif__esp_lcd_touch_gt911
-
