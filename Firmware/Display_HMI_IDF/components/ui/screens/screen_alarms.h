@@ -1,14 +1,13 @@
 /**
  * @file screen_alarms.h
- * @brief Alarms screen API — list of active alarms with acknowledge actions.
- *
- * @author IncuNest Team
- * @date   2026-04-28
+ * @brief Alarms screen — stub navigable in FASE 2, full impl in FASE 4.
  */
 #pragma once
 
-// TODO: Fase 4 — Define this module's public API
-
-#include <stdint.h>
 #include <stdbool.h>
-#include "esp_err.h"
+
+void screen_alarms_show(void);
+
+/** Enable/disable the back button. Call with false immediately after show()
+ *  to lock out touch bounce, then with true after the debounce window. */
+void screen_alarms_set_nav_enabled(bool enabled);

@@ -57,6 +57,12 @@ CONFIG_FREERTOS_CHECK_STACKOVERFLOW_CANARY=y
 # --- Coredump to flash ---
 CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
 
+# --- LVGL tick source (CONFIG_LV_CONF_SKIP=y by default → all config via Kconfig) ---
+# LV_TICK_CUSTOM_SYS_TIME_EXPR is not a Kconfig option; set via target_compile_definitions
+# in components/lvgl_port/CMakeLists.txt
+CONFIG_LV_TICK_CUSTOM=y
+CONFIG_LV_TICK_CUSTOM_INCLUDE="esp_timer.h"
+
 # --- LVGL fonts (must be in sdkconfig — managed component compiles fonts via Kconfig) ---
 CONFIG_LV_FONT_MONTSERRAT_14=y
 CONFIG_LV_FONT_MONTSERRAT_16=y

@@ -1,28 +1,38 @@
 /**
  * @file ui_manager.h
- * @brief Screen navigation manager — state machine for active screen.
- *
- * @details ui_manager is the ONLY component that calls lv_disp_load_scr().
- *          All screen transitions go through ui_manager_navigate_to().
- *          Phase 1: init only, shows home screen.
- *          Phase 2: full navigation state machine.
- *
- * @author IncuNest Team
- * @date   2026-04-28
+ * @brief Screen navigation manager and data update API.
  */
 #pragma once
 
 #include "esp_err.h"
+#include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/**
- * @brief Initialize UI and load the first screen.
- * Must be called after lvgl_port_init(). Acquires LVGL lock internally.
- */
+typedef enum {
+    SCREEN_HOME     = 0,
+    SCREEN_SETTINGS,
+    SCREEN_ALARMS,
+    SCREEN_INFO,
+} screen_id_t;
+
+/* Initialization — call once from app_main after lvgl_port_init() */
 esp_err_t ui_manager_init(void);
+
+/* Navigate to a screen (acquires LVGL lock internally) */
+void ui_manager_navigate(screen_id_t screen);
+
+/* Update dashboard parameter tiles (acquires LVGL lock internally) */
+void ui_manager_update_air_temp(const char *measured, const char *setpoint);
+void ui_manager_update_humidity(const char *measured, const char *setpoint);
+void ui_manager_update_skin_temp(const char *measured, const char *setpoint);
+
+/* Update status bar indicators (acquires LVGL lock internally) */
+void ui_manager_set_comm_state(bool connected);
+void ui_manager_set_alarm_count(uint8_t count);
 
 #ifdef __cplusplus
 }

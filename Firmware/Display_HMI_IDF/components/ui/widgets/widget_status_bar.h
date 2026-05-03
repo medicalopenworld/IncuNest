@@ -1,14 +1,13 @@
 /**
  * @file widget_status_bar.h
- * @brief Status bar widget API — shows mode, comm state, uptime.
- *
- * @author IncuNest Team
- * @date   2026-04-28
+ * @brief Top status bar: product name, comm state, active alarm count.
  */
 #pragma once
 
-// TODO: Fase 2 — Define this module's public API
-
-#include <stdint.h>
+#include "lvgl.h"
 #include <stdbool.h>
-#include "esp_err.h"
+#include <stdint.h>
+
+lv_obj_t *widget_status_bar_create(lv_obj_t *parent);
+void      widget_status_bar_set_comm(lv_obj_t *bar, bool connected);
+void      widget_status_bar_set_alarms(lv_obj_t *bar, uint8_t count);

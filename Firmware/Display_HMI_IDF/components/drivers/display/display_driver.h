@@ -98,6 +98,18 @@ i2c_master_bus_handle_t display_driver_get_i2c_bus(void);
  *
  * @return true if a higher-priority task was woken (yield needed), false otherwise.
  */
+/**
+ * @brief Return both PSRAM framebuffers allocated by the RGB panel driver.
+ *
+ * @details Used by lvgl_port to supply the panel's own double-buffers directly
+ *          to LVGL (zero-copy, no tearing). Requires num_fbs=2 in panel config.
+ *
+ * @param[out] fb0  First framebuffer pointer
+ * @param[out] fb1  Second framebuffer pointer
+ * @return ESP_OK, or ESP_ERR_INVALID_STATE if panel not initialized.
+ */
+esp_err_t display_driver_get_frame_buffers(void **fb0, void **fb1);
+
 bool display_driver_notify_vsync(void);
 
 /**

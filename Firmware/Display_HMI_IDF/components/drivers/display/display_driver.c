@@ -139,7 +139,8 @@ esp_err_t display_driver_init(void)
             HW_LCD_PIN_G0, HW_LCD_PIN_G1, HW_LCD_PIN_G2, HW_LCD_PIN_G3, HW_LCD_PIN_G4, HW_LCD_PIN_G5,
             HW_LCD_PIN_R0, HW_LCD_PIN_R1, HW_LCD_PIN_R2, HW_LCD_PIN_R3, HW_LCD_PIN_R4,
         },
-        .flags.fb_in_psram = 1,
+        .flags.fb_in_psram         = 1,
+        .flags.bb_invalidate_cache = 1,
     };
 
     ret = esp_lcd_new_rgb_panel(&panel_cfg, &s_panel);
@@ -165,19 +166,11 @@ esp_err_t display_driver_init(void)
     }
 
     /* ------------------------------------------------------------------
-     * Step 5 — Fill framebuffer with solid blue (Phase 0/1 proof-of-life)
+     * Step 5 — Zero-fill the framebuffer (black, avoids PSRAM garbage)
      * ------------------------------------------------------------------ */
-    void *fb = NULL;
-    ret = esp_lcd_rgb_panel_get_frame_buffer(s_panel, 1, &fb);
-    if (ret == ESP_OK && fb != NULL) {
-        uint16_t *pixels = (uint16_t *)fb;
-        const size_t total_px = HW_LCD_H_RES * HW_LCD_V_RES;
-        for (size_t i = 0; i < total_px; i++) {
-            pixels[i] = 0x001Fu;
-        }
-        ESP_LOGI(TAG, "Framebuffer filled blue (%zu px @ %p)", total_px, fb);
-    } else {
-        ESP_LOGW(TAG, "Could not get framebuffer — display may be blank");
+    void *fb0 = NULL;
+    if (esp_lcd_rgb_panel_get_frame_buffer(s_panel, 1, &fb0) == ESP_OK && fb0) {
+        memset(fb0, 0, HW_LCD_H_RES * HW_LCD_V_RES * sizeof(uint16_t));
     }
 
     ESP_LOGI(TAG, "Display init OK — %dx%d @ %luMHz bounce=%dpx",
@@ -231,6 +224,13 @@ i2c_master_bus_handle_t display_driver_get_i2c_bus(void)
 }
 
 /* ------------------------------------------------------------------------- */
+
+esp_err_t display_driver_get_frame_buffers(void **fb0, void **fb1)
+{
+    if (s_panel == NULL) return ESP_ERR_INVALID_STATE;
+    if (fb1 != NULL) *fb1 = NULL;
+    return esp_lcd_rgb_panel_get_frame_buffer(s_panel, 1, fb0);
+}
 
 bool display_driver_notify_vsync(void)
 {

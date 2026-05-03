@@ -42,6 +42,14 @@ bool lvgl_port_lock(int timeout_ms);
 /** @brief Release the LVGL recursive mutex. */
 void lvgl_port_unlock(void);
 
+/**
+ * @brief Suppress all touch input for a fixed duration.
+ * @param ms Duration in milliseconds. Blocks input regardless of what
+ *           the touch hardware reports, avoiding GT911 data-stale issues.
+ * Call after every screen navigation.
+ */
+void lvgl_port_suppress_touch_for_ms(uint32_t ms);
+
 #ifdef __cplusplus
 }
 #endif

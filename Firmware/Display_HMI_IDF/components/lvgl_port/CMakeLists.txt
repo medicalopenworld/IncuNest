@@ -13,9 +13,9 @@ idf_component_register(
         lvgl__lvgl
 )
 
-# Inject our lv_conf.h into LVGL's include search path.
-# LV_CONF_INCLUDE_SIMPLE=1 makes LVGL use: #include "lv_conf.h"
-# BEFORE INTERFACE ensures this directory is searched before LVGL's own dir.
+# LV_TICK_CUSTOM_SYS_TIME_EXPR has no Kconfig entry in lvgl__lvgl; inject via compile flag.
+# CONFIG_LV_TICK_CUSTOM=y and CONFIG_LV_TICK_CUSTOM_INCLUDE="esp_timer.h" are in sdkconfig.defaults.
 idf_component_get_property(lvgl_lib lvgl__lvgl COMPONENT_LIB)
-target_compile_definitions(${lvgl_lib} PUBLIC LV_CONF_INCLUDE_SIMPLE=1)
-target_include_directories(${lvgl_lib} BEFORE INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_definitions(${lvgl_lib} PUBLIC
+    "LV_TICK_CUSTOM_SYS_TIME_EXPR=((uint32_t)(esp_timer_get_time()/1000LL))"
+)

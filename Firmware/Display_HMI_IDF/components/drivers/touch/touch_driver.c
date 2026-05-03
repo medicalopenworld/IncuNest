@@ -85,6 +85,10 @@ void touch_driver_read(uint16_t *x, uint16_t *y, bool *pressed)
     bool got = esp_lcd_touch_get_coordinates(s_touch, touch_x, touch_y,
                                               NULL, &touch_cnt, 1);
 
+    if (got && touch_cnt > 0) {
+        ESP_LOGD(TAG, "TOUCH x=%d y=%d", touch_x[0], touch_y[0]);
+    }
+
     if (x)       *x       = (got && touch_cnt > 0) ? touch_x[0] : 0;
     if (y)       *y       = (got && touch_cnt > 0) ? touch_y[0] : 0;
     if (pressed) *pressed = (got && touch_cnt > 0);
