@@ -117,7 +117,7 @@ constexpr int LOOP_DELAY_MS = 10;
 // LVGL / PWM
 // -----------------------------
 constexpr int UI_TASK_STACK_SIZE = 16384; // 8192 * 2
-constexpr int UI_TASK_PRIORITY = 2;
+constexpr int UI_TASK_PRIORITY = 5;
 
 constexpr int PWM_CHANNEL = 1;
 constexpr int PWM_FREQ = 300;
@@ -253,6 +253,7 @@ constexpr int RAND_HUM_MAX = 0;
 static lv_obj_t *lockProgressArc = NULL;
 static lv_timer_t *lockProgressTimer = NULL;
 static lv_timer_t *unlockTimeoutTimer = NULL;
+static lv_timer_t *lockStopDebounceTimer = NULL;
 static uint32_t lockProgressStart = 0;
 static const uint32_t LOCK_PROGRESS_DURATION_MS = 1500; // 1.5 seconds
 static const uint32_t UNLOCK_TIMEOUT_MS = 5000;         // 5 seconds timeout

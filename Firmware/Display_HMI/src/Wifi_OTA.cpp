@@ -153,7 +153,10 @@ void wifiInit(void) {
     }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
 
     WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t) {
-      ESP_LOGI(TAG, "STA_GOT_IP: %s", WiFi.localIP().toString().c_str());
+      ESP_LOGW(TAG, "STA_GOT_IP: %s  [HEAP] internal=%u PSRAM=%u",
+               WiFi.localIP().toString().c_str(),
+               (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+               (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
       MDNS.begin(wifiHost);
       // If new credentials are pending, schedule their EEPROM save.
       if (pendingSSID[0] != '\0') {
@@ -184,6 +187,9 @@ void wifiInit(void) {
     }
   }
 
+  ESP_LOGW(TAG, "[HEAP] before WiFi.begin — internal=%u PSRAM=%u",
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
   WiFi.begin(ssid.c_str(), pass.c_str());
   WiFi.setSleep(WIFI_PS_NONE);
 }
