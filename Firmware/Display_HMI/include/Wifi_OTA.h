@@ -2,11 +2,28 @@
 #ifndef _WIFI_OTA_H_
 #define _WIFI_OTA_H_
 
-#include <Arduino.h>
 #include <string>
 
 #define THINGSBOARD_ENABLE_PSRAM 0
 #define THINGSBOARD_ENABLE_DYNAMIC 1
+
+#ifdef USE_IDF_FRAMEWORK
+#ifndef PROGMEM
+#define PROGMEM
+#endif
+#include "esp_wifi.h"
+#include "esp_event.h"
+#include "esp_netif.h"
+#include "esp_http_server.h"
+#include "esp_ota_ops.h"
+#include "esp_log.h"
+#include "esp_heap_caps.h"
+#include "lwip/inet.h"
+#include <Espressif_MQTT_Client.h>
+#include <ThingsBoard.h>
+extern httpd_handle_t wifiServer;
+#else
+#include <Arduino.h>
 #include <Arduino_MQTT_Client.h>
 #include <ESPmDNS.h>
 #include <Espressif_Updater.h>
@@ -14,6 +31,7 @@
 #include <Update.h>
 #include <WebServer.h>
 #include <WiFi.h>
+#endif
 
 #include "main.h"
 
@@ -43,7 +61,7 @@ struct WIFIstruct {
   bool provision_request_sent = false;
   bool provision_request_processed = false;
   bool serverConnectionStatus = false;
-  String device_token;
+  std::string device_token;
   long lastReconnectAttempt = 0;
   long lastMQTTPublish = 0;
   long lastOTACheck = 0;

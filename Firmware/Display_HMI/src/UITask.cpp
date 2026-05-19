@@ -8,9 +8,14 @@
 #include "esp_log.h"
 #include "main.h"
 #include "ui.h"
+#ifndef USE_IDF_FRAMEWORK
 #include <PCA9557.h>
 #include <SPI.h>
 #include <TAMC_GT911.h>
+#else
+#include "esp_wifi.h"
+#include "i2c_bus.h"
+#endif
 
 static const char *TAG = "UI";
 
@@ -149,7 +154,14 @@ static esp_lcd_panel_handle_t lcd_panel = NULL;
 
 // Bounce buffer: 20 líneas en SRAM interno desacoplan LCD DMA de PSRAM
 // 800 * 20 * 2 = 32KB por bounce buffer (x2 ping-pong = 64KB SRAM)
+// IDF build: WiFi/lwIP forced to SRAM (CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=n),
+// so bus contention is gone and we can use the full 20-line buffer.
+// Arduino build: WiFi shares PSRAM OPI bus → keep at 8 to avoid contention.
+#ifdef USE_IDF_FRAMEWORK
+#define BOUNCE_BUF_LINES 20
+#else
 #define BOUNCE_BUF_LINES 8
+#endif
 #define BOUNCE_BUF_SIZE_PX (DISPLAY_WIDTH * BOUNCE_BUF_LINES)
 
 // ==========================================
@@ -223,13 +235,19 @@ void lcd_set_freq_write(uint32_t freq_hz) {
   EEPROM.commit();
   ESP_LOGW("LCD", "freq_write saved: %lu Hz — restarting...", freq_hz);
   delay(200);
+#ifdef USE_IDF_FRAMEWORK
+  esp_restart();
+#else
   ESP.restart();
+#endif
 }
 
 // Touch GT911 — pines y resolución desde display_config.h
+#ifndef USE_IDF_FRAMEWORK
 TAMC_GT911 ts =
     TAMC_GT911(DISPLAY_TOUCH_SDA, DISPLAY_TOUCH_SCL, DISPLAY_TOUCH_INT,
                DISPLAY_TOUCH_RST, DISPLAY_WIDTH, DISPLAY_HEIGHT);
+#endif
 
 static uint32_t screenWidth;
 static uint32_t screenHeight;
@@ -262,6 +280,11 @@ static void intro_timer_cb(lv_timer_t *t) {
 }
 
 void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
+#ifdef USE_IDF_FRAMEWORK
+  // TODO: implement GT911 IDF driver (Task 9)
+  data->state = LV_INDEV_STATE_REL;
+  (void)indev_driver;
+#else
   ts.read();
   if (ts.isTouched) {
     data->state = LV_INDEV_STATE_PR;
@@ -270,6 +293,7 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
   } else {
     data->state = LV_INDEV_STATE_REL;
   }
+#endif
 }
 
 // Forward declarations
@@ -1452,12 +1476,32 @@ void WifiButton_cb(lv_event_t *e) {
   lv_obj_add_flag(ui_InfoDetailsCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
-  isConnected = (WiFi.status() == WL_CONNECTED);
+  isConnected = WIFIIsConnected();
 
   // Pre-fill TextAreas with saved credentials so the user only needs to
   // correct what's wrong. Falls back to compile-time defaults if EEPROM
   // is empty or contains invalid (non-printable) data.
   if (!isConnected) {
+#ifdef USE_IDF_FRAMEWORK
+    {
+      std::string savedSSID = EEPROM.readString(EEPROM_WIFI_SSID);
+      std::string savedPass = EEPROM.readString(EEPROM_WIFI_PASSWORD);
+      bool ok = !savedSSID.empty() && savedSSID.length() <= 32;
+      for (size_t i = 0; ok && i < savedSSID.length(); i++) {
+        uint8_t c = (uint8_t)savedSSID[i];
+        if (c < 0x20 || c > 0x7E) ok = false;
+      }
+      if (!ok) {
+        savedSSID = WIFI_SSID;
+        savedPass = WIFI_PASSWORD;
+        ESP_LOGW("WiFiUI", "EEPROM credentials invalid, showing defaults");
+      }
+      strncpy(wifi_ssid, savedSSID.c_str(), sizeof(wifi_ssid) - 1);
+      wifi_ssid[sizeof(wifi_ssid) - 1] = '\0';
+      strncpy(wifi_pass, savedPass.c_str(), sizeof(wifi_pass) - 1);
+      wifi_pass[sizeof(wifi_pass) - 1] = '\0';
+    }
+#else
     String savedSSID = EEPROM.readString(EEPROM_WIFI_SSID);
     String savedPass = EEPROM.readString(EEPROM_WIFI_PASSWORD);
 
@@ -1483,6 +1527,7 @@ void WifiButton_cb(lv_event_t *e) {
     wifi_ssid[sizeof(wifi_ssid) - 1] = '\0';
     strncpy(wifi_pass, savedPass.c_str(), sizeof(wifi_pass) - 1);
     wifi_pass[sizeof(wifi_pass) - 1] = '\0';
+#endif
 
     if (ui_TextArea1)
       lv_textarea_set_text(ui_TextArea1, wifi_ssid);
@@ -2799,7 +2844,11 @@ void WifiConnectButton_cb(lv_event_t *e) {
 }
 
 void WifiDisconnectButton_cb(lv_event_t *e) {
+#ifdef USE_IDF_FRAMEWORK
+  esp_wifi_disconnect();
+#else
   WiFi.disconnect();
+#endif
   isConnected = false;
   pendingReconnect = true;
   disconnectTimestampMs = millis();
@@ -3018,9 +3067,13 @@ static void pwroff_update(void) {
       lv_timer_handler(); // flush last frame
 
       // Turn off backlight via I2C
+#ifdef USE_IDF_FRAMEWORK
+      { uint8_t cmd = DISPLAY_BL_OFF_VALUE; i2c_send(I2C_ADDR_BACKLIGHT, &cmd, 1); }
+#else
       Wire.beginTransmission(I2C_ADDR_BACKLIGHT);
       Wire.write(DISPLAY_BL_OFF_VALUE);
       Wire.endTransmission();
+#endif
 
       // Halt — device power will be cut by motherboard
       while (true) {
@@ -3048,17 +3101,25 @@ void UI_Task(void *pvParameters) {
       vTaskDelay(pdMS_TO_TICKS(100));
       uint8_t init_cmds[] = {I2C_CMD_BUZZER_OFF, I2C_CMD_SPEAKER_ON};
       for (uint8_t cmd : init_cmds) {
+#ifdef USE_IDF_FRAMEWORK
+        i2c_send(I2C_ADDR_BACKLIGHT, &cmd, 1);
+#else
         Wire.beginTransmission(I2C_ADDR_BACKLIGHT);
         Wire.write(cmd);
         Wire.endTransmission();
+#endif
         vTaskDelay(pdMS_TO_TICKS(20));
       }
     }
 
     // Según doc v1.3: 0 es Brillo Máximo, 245 es Apagado.
+#ifdef USE_IDF_FRAMEWORK
+    { uint8_t cmd = DISPLAY_BL_ON_VALUE; i2c_send(I2C_ADDR_BACKLIGHT, &cmd, 1); }
+#else
     Wire.beginTransmission(I2C_ADDR_BACKLIGHT);
     Wire.write(DISPLAY_BL_ON_VALUE);
     Wire.endTransmission();
+#endif
 
     if (!g_hmiRestoreState) {
       vTaskDelay(pdMS_TO_TICKS(100));
@@ -3163,6 +3224,7 @@ void UI_Task(void *pvParameters) {
   lv_init();
 
   // Try to initialize Touch
+#ifndef USE_IDF_FRAMEWORK
   bool touch_ok = false;
   for (int i = 0; i < 3; i++) {
     // Note: PCA9557 at 0x18 was not found in scan.
@@ -3175,14 +3237,15 @@ void UI_Task(void *pvParameters) {
     ESP_LOGW(TAG, "Touch init failed, retrying...");
     vTaskDelay(pdMS_TO_TICKS(500));
   }
-
   if (!touch_ok) {
     ESP_LOGE(TAG, "Touch controller FAILED to init after retries. Touch may "
                   "trigger ghost clicks or not work.");
   }
-
   // ts.reset();
   ts.setRotation(TOUCH_ROTATION);
+#else
+  ESP_LOGI(TAG, "Touch: IDF stub (no GT911 driver yet)");
+#endif
   // Rotation already handled by esp_lcd_panel_mirror() above
 
   screenWidth = DISPLAY_WIDTH;
@@ -3629,14 +3692,18 @@ void UI_Task(void *pvParameters) {
 
     if (wifiVisible) {
       lv_obj_clear_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
-      bool actuallyConnected = (WiFi.status() == WL_CONNECTED);
+      bool actuallyConnected = WIFIIsConnected();
       if (actuallyConnected != isConnected) {
         isConnected = actuallyConnected;
         updateButtonVisibility();
       }
       if (isConnected) {
         lv_obj_clear_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
+#ifdef USE_IDF_FRAMEWORK
+        lv_label_set_text(ui_WifiSSIDLabel, wifi_ssid);
+#else
         lv_label_set_text(ui_WifiSSIDLabel, WiFi.SSID().c_str());
+#endif
       } else {
         lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
       }

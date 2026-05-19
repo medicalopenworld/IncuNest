@@ -4,8 +4,12 @@
 #include "UITask.h"
 #include "Wifi_OTA.h"
 #include "esp_log.h"
+#ifndef USE_IDF_FRAMEWORK
 #include <PCA9557.h>
 #include <Preferences.h>
+#else
+#include "i2c_bus.h"
+#endif
 #include <lvgl.h>
 
 static const char *TAG = "Main";
@@ -77,6 +81,77 @@ static void CrashTestHMITask(void *pv) {
 }
 #endif
 
+#ifdef USE_IDF_FRAMEWORK
+
+extern "C" void app_main(void) {
+  Serial.begin(SERIAL_BAUD);
+
+  esp_log_level_set("gpio", ESP_LOG_NONE);
+
+  // NVS boot counter (replaces Preferences in Arduino mode)
+  {
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+      nvs_flash_erase();
+      nvs_flash_init();
+    }
+    nvs_handle_t nvsh;
+    if (nvs_open("diag", NVS_READWRITE, &nvsh) == ESP_OK) {
+      g_hmiBootCount = 0;
+      nvs_get_u32(nvsh, "boots", &g_hmiBootCount);
+      g_hmiBootCount++;
+      nvs_set_u32(nvsh, "boots", g_hmiBootCount);
+      esp_reset_reason_t rst = esp_reset_reason();
+      g_hmiLastRst = (int)rst;
+      nvs_set_i32(nvsh, "last_rst", g_hmiLastRst);
+      nvs_commit(nvsh);
+      nvs_close(nvsh);
+      g_hmiRestoreState = (rst != ESP_RST_POWERON && rst != ESP_RST_BROWNOUT);
+    }
+    ESP_LOGW(TAG, "[DIAG] HMI bootCount=%u lastRst=%d restoreState=%d",
+             (unsigned)g_hmiBootCount, g_hmiLastRst, (int)g_hmiRestoreState);
+  }
+
+  ESP_LOGW(TAG, "BOOT heap: internal=%u SPIRAM=%u psramFound=%d psramSize=%u",
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+           (int)psramFound(), (unsigned)esp_psram_get_size());
+
+  initEEPROM();
+
+  i2c_bus_init();  // IDF I2C master (backlight, GT911)
+
+  // Power stability delay — only needed on cold power-on
+  if (!g_hmiRestoreState) {
+    delay(STARTUP_DELAY_MS);
+  }
+
+  LVGL_Mutex_Init();
+
+  ESP_LOGI(TAG, "Creating OTA task ...");
+  CreateOTATask();
+  ESP_LOGI(TAG, "OTA task successfully created!");
+
+  ESP_LOGI(TAG, "Creating Communication task ...");
+  CreateCommTask();
+  ESP_LOGI(TAG, "Communication task successfully created!");
+
+  ESP_LOGI(TAG, "Creating UI task ...");
+  CreateUITask();
+  ESP_LOGI(TAG, "UI task successfully created!");
+
+#ifdef CRASH_TEST
+  xTaskCreatePinnedToCore(CrashTestTask, "CRASH_TEST", 2048, NULL, 1, NULL, 1);
+#endif
+#ifdef CRASH_TEST_HMI
+  xTaskCreatePinnedToCore(CrashTestHMITask, "CRASH_TEST_HMI", 2048, NULL, 1, NULL, 1);
+#endif
+
+  while (1) { vTaskDelay(pdMS_TO_TICKS(MS_PER_SECOND)); }
+}
+
+#else // Arduino framework
+
 void setup() {
   Serial.begin(SERIAL_BAUD);
 
@@ -141,3 +216,5 @@ void setup() {
 }
 
 void loop() { vTaskDelay(pdMS_TO_TICKS(MS_PER_SECOND)); }
+
+#endif // USE_IDF_FRAMEWORK
