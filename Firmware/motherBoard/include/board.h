@@ -22,7 +22,7 @@
   SOFTWARE.
 
 */
-#define HW_NUM 15
+#define HW_NUM 16
 #define HW_REVISION 'A'
 #define HWversion String(HW_NUM) + "." + String(HW_REVISION)
 #define FWversion "16.4"
@@ -385,7 +385,7 @@
 // #define PWM_MAX_VALUE maxADCvalue
 #define PWM_MAX_VALUE (pow(2, DEFAULT_PWM_RESOLUTION) - 1)
 #define FAN_PWM PWM_MAX_VALUE
-#define FAN_CTL_PWM_DEFAULT 120
+#define FAN_CTL_PWM_DEFAULT 130
 
 #if (ADC_READ_FUNCTION == MILLIVOTSREAD_ADC)
 #define ADC_TO_DISCARD_MIN 500  // in mV

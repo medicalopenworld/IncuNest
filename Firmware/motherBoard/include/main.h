@@ -82,8 +82,8 @@
        // read current measurements
 #define WDT_TIMEOUT 75
 #if (HW_NUM >= 14)
-#define HEATER_MAX_POWER_AMPS 6
-#define HEATER_SAFE_POWER_AMPS 5
+#define HEATER_MAX_POWER_AMPS 7.5
+#define HEATER_SAFE_POWER_AMPS 6.5
 #else
 #define HEATER_MAX_POWER_AMPS 12.5
 #define HEATER_SAFE_POWER_AMPS 11.5
@@ -677,7 +677,7 @@ typedef struct {
   byte phototherapy_intensity = PWM_MAX_VALUE;
 
   int fanPWM = FAN_PWM;
-  int fanCtlPWM = false;
+  int fanCtlPWM = FAN_CTL_PWM_DEFAULT;
   float heaterMaxPowerAmps = HEATER_MAX_POWER_AMPS;
   float skinTemperatureSetMax = SKIN_TEMPERATURE_SET_MAX;
   float airTemperatureSetMax = AIR_TEMPERATURE_SET_MAX;

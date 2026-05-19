@@ -755,26 +755,26 @@ void ui_ScreenIntro_screen_init(void) {
   lv_obj_clear_flag(ui_ImageLogoIncunest, LV_OBJ_FLAG_SCROLLABLE);
 
   // SJD logo – bottom-left below IncuNest logo (155x130 px)
-  ui_ImageSJD = lv_img_create(ui_ScreenIntro);
-  lv_img_set_src(ui_ImageSJD, &ui_img_sjd_png);
-  lv_obj_set_width(ui_ImageSJD, LV_SIZE_CONTENT);
-  lv_obj_set_height(ui_ImageSJD, LV_SIZE_CONTENT);
-  lv_obj_set_align(ui_ImageSJD, LV_ALIGN_CENTER);
-  lv_obj_set_x(ui_ImageSJD, -200);
-  lv_obj_set_y(ui_ImageSJD, 136);
-  lv_obj_add_flag(ui_ImageSJD, LV_OBJ_FLAG_ADV_HITTEST);
-  lv_obj_clear_flag(ui_ImageSJD, LV_OBJ_FLAG_SCROLLABLE);
+  // ui_ImageSJD = lv_img_create(ui_ScreenIntro);
+  // lv_img_set_src(ui_ImageSJD, &ui_img_sjd_png);
+  // lv_obj_set_width(ui_ImageSJD, LV_SIZE_CONTENT);
+  // lv_obj_set_height(ui_ImageSJD, LV_SIZE_CONTENT);
+  // lv_obj_set_align(ui_ImageSJD, LV_ALIGN_CENTER);
+  // lv_obj_set_x(ui_ImageSJD, -200);
+  // lv_obj_set_y(ui_ImageSJD, 136);
+  // lv_obj_add_flag(ui_ImageSJD, LV_OBJ_FLAG_ADV_HITTEST);
+  // lv_obj_clear_flag(ui_ImageSJD, LV_OBJ_FLAG_SCROLLABLE);
 
   // Flag Togo – bottom-right below IncuNest logo (210x130 px)
-  ui_ImageFlagTogo = lv_img_create(ui_ScreenIntro);
-  lv_img_set_src(ui_ImageFlagTogo, &ui_img_flag_togo_png);
-  lv_obj_set_width(ui_ImageFlagTogo, LV_SIZE_CONTENT);
-  lv_obj_set_height(ui_ImageFlagTogo, LV_SIZE_CONTENT);
-  lv_obj_set_align(ui_ImageFlagTogo, LV_ALIGN_CENTER);
-  lv_obj_set_x(ui_ImageFlagTogo, 200);
-  lv_obj_set_y(ui_ImageFlagTogo, 136);
-  lv_obj_add_flag(ui_ImageFlagTogo, LV_OBJ_FLAG_ADV_HITTEST);
-  lv_obj_clear_flag(ui_ImageFlagTogo, LV_OBJ_FLAG_SCROLLABLE);
+  // ui_ImageFlagTogo = lv_img_create(ui_ScreenIntro);
+  // lv_img_set_src(ui_ImageFlagTogo, &ui_img_flag_togo_png);
+  // lv_obj_set_width(ui_ImageFlagTogo, LV_SIZE_CONTENT);
+  // lv_obj_set_height(ui_ImageFlagTogo, LV_SIZE_CONTENT);
+  // lv_obj_set_align(ui_ImageFlagTogo, LV_ALIGN_CENTER);
+  // lv_obj_set_x(ui_ImageFlagTogo, 200);
+  // lv_obj_set_y(ui_ImageFlagTogo, 136);
+  // lv_obj_add_flag(ui_ImageFlagTogo, LV_OBJ_FLAG_ADV_HITTEST);
+  // lv_obj_clear_flag(ui_ImageFlagTogo, LV_OBJ_FLAG_SCROLLABLE);
 }
 
 void ui_ScreenMain_screen_init(void) {
@@ -3337,8 +3337,7 @@ void ui_ScreenLock_screen_init(void) {
                           LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_border_width(ui_LockPPGChart, 0,
                                 LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_pad_all(ui_LockPPGChart, 0,
-                           LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_pad_all(ui_LockPPGChart, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_size(ui_LockPPGChart, 0,
                         LV_PART_INDICATOR | LV_STATE_DEFAULT);
   lv_obj_set_style_line_color(ui_LockPPGChart, lv_color_hex(0x00FF7F),

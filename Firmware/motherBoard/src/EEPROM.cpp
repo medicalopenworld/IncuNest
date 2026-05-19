@@ -183,7 +183,7 @@ void recapVariables() {
   if (gprsStby_ee > 0)
     in3.standby_gprs_period = gprsStby_ee;
   int fanCtlPWM_ee = EEPROM.readInt(EEPROM_FAN_CTL_PWM);
-  if (fanCtlPWM_ee >= 0 && fanCtlPWM_ee <= 255)
+  if (fanCtlPWM_ee > 0 && fanCtlPWM_ee <= 255)
     in3.fanCtlPWM = fanCtlPWM_ee;
 
   in3.controlMode = EEPROM.read(EEPROM_CONTROL_MODE);

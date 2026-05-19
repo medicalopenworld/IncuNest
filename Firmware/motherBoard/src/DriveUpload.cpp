@@ -388,20 +388,26 @@ static void driveUploadTask(void *pv) {
              req.drive_filename + " (heap=" + heap_before + ")");
     bool ok = uploadToGoogleDrive(req);
     uint32_t heap_after = ESP.getFreeHeap();
+    bool heap_corrupt = !heap_caps_check_integrity_all(false);
+
+    // Check heap BEFORE releasing the slot: if the TLS stack corrupted the
+    // allocator, releasing s_upload_slot_busy would let the write task open a
+    // new LFS file on a broken heap, which asserts lfs_mlist_isopen.
+    if (heap_after < DRIVE_MIN_HEAP_AFTER_UPLOAD || heap_corrupt) {
+      logDrive(String("CRITICAL heap ") + heap_after +
+               (heap_corrupt ? " (corrupt)" : "") +
+               " after upload, restarting to recover");
+      Serial.flush();
+      vTaskDelay(pdMS_TO_TICKS(200));
+      esp_restart();
+    }
+
     removeIfExists(req.source_path);
     if (req.clear_pulsiox_slot)
       s_upload_slot_busy = false;
     logDrive(String(ok ? "upload OK" : "upload FAILED") +
              " (heap=" + heap_after +
              ", delta=" + (int32_t)(heap_after - heap_before) + ")");
-
-    if (heap_after < DRIVE_MIN_HEAP_AFTER_UPLOAD) {
-      logDrive(String("CRITICAL heap ") + heap_after +
-               " after upload, restarting to recover");
-      Serial.flush();
-      vTaskDelay(pdMS_TO_TICKS(200));
-      esp_restart();
-    }
   }
 }
 

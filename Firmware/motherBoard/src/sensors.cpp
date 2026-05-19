@@ -255,20 +255,20 @@ struct YsiPoint {
 };
 
 // Valores calibrados: base teórica S-H YSI 44006 (2252 Ω a 25 °C,
-// A=1.4733e-3, B=2.3730e-4, C=1.0540e-7) con corrección de +0.97 °C
-// aplicada sobre un punto de calibración real (36 °C → leía 35.03 °C).
-// Método: R_corr(T) = R_teorica(T - 0.97 °C) para cada entrada.
+// A=1.4733e-3, B=2.3730e-4, C=1.0540e-7) con corrección de +0.37 °C
+// aplicada sobre un punto de calibración real (36 °C → leía 36.6 °C).
+// Método: R_corr(T) = R_teorica(T - 0.37 °C) para cada entrada.
 // Resistencias en orden DESCENDENTE (NTC: más temperatura → menos resistencia).
 static const YsiPoint ysi400Table[] = {
-    {10.0f, 4707.0f}, {11.0f, 4486.0f}, {12.0f, 4277.0f}, {13.0f, 4076.0f},
-    {14.0f, 3890.0f}, {15.0f, 3709.0f}, {16.0f, 3539.0f}, {17.0f, 3379.0f},
-    {18.0f, 3227.0f}, {19.0f, 3083.0f}, {20.0f, 2945.0f}, {21.0f, 2815.0f},
-    {22.0f, 2692.0f}, {23.0f, 2573.0f}, {24.0f, 2461.0f}, {25.0f, 2354.0f},
-    {26.0f, 2252.0f}, {27.0f, 2156.0f}, {28.0f, 2063.0f}, {29.0f, 1977.0f},
-    {30.0f, 1893.0f}, {31.0f, 1814.0f}, {32.0f, 1738.0f}, {33.0f, 1667.0f},
-    {34.0f, 1599.0f}, {35.0f, 1532.0f}, {36.0f, 1470.0f}, {37.0f, 1411.0f},
-    {38.0f, 1354.0f}, {39.0f, 1300.0f}, {40.0f, 1250.0f}, {41.0f, 1201.0f},
-    {42.0f, 1155.0f},
+    {10.0f, 4574.0f}, {11.0f, 4361.0f}, {12.0f, 4156.0f}, {13.0f, 3964.0f},
+    {14.0f, 3781.0f}, {15.0f, 3607.0f}, {16.0f, 3443.0f}, {17.0f, 3288.0f},
+    {18.0f, 3141.0f}, {19.0f, 3000.0f}, {20.0f, 2867.0f}, {21.0f, 2741.0f},
+    {22.0f, 2621.0f}, {23.0f, 2506.0f}, {24.0f, 2397.0f}, {25.0f, 2293.0f},
+    {26.0f, 2194.0f}, {27.0f, 2100.0f}, {28.0f, 2011.0f}, {29.0f, 1927.0f},
+    {30.0f, 1846.0f}, {31.0f, 1768.0f}, {32.0f, 1695.0f}, {33.0f, 1626.0f},
+    {34.0f, 1559.0f}, {35.0f, 1495.0f}, {36.0f, 1435.0f}, {37.0f, 1377.0f},
+    {38.0f, 1322.0f}, {39.0f, 1270.0f}, {40.0f, 1221.0f}, {41.0f, 1173.0f},
+    {42.0f, 1127.0f},
 };
 
 static float resistanceToTempYSI400(float rntc) {
