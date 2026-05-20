@@ -2,9 +2,11 @@
 cd /d "%~dp0"
 echo Installing dependencies...
 pip install -r requirements.txt pyinstaller
+if errorlevel 1 ( echo ERROR: pip install failed & exit /b 1 )
 
 echo Building IncuNest_Flasher.exe...
 pyinstaller flasher.spec --clean --noconfirm
+if errorlevel 1 ( echo ERROR: PyInstaller build failed & exit /b 1 )
 
 echo.
 echo Build complete.
