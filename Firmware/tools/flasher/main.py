@@ -120,7 +120,7 @@ class FlasherApp:
         try:
             board = detect_board(port)
             self.root.after(0, self._on_detect_ok, board)
-        except BoardDetectionError as exc:
+        except Exception as exc:
             self.root.after(0, self._on_detect_err, str(exc))
 
     def _on_detect_ok(self, board: Board) -> None:
