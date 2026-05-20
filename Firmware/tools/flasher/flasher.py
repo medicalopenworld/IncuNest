@@ -41,7 +41,7 @@ def flash_board(
     args = [
         '--port', port,
         '--chip', 'esp32s3',
-        '--baud', '460800',
+        '--baud', '921600',
         '--no-stub',
         'write_flash',
         '--flash_mode', 'qio',
