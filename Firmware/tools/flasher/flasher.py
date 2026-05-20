@@ -42,6 +42,7 @@ def flash_board(
         '--port', port,
         '--chip', 'esp32s3',
         '--baud', '460800',
+        '--no-stub',
         'write_flash',
         '--flash_mode', 'qio',
         '--flash_size', 'detect',
