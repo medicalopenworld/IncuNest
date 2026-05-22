@@ -110,6 +110,69 @@ class _Slot:
             self._indeterminate = False
 
 
+class _SerialNumberDialog:
+    """Modal dialog that asks for a serial number (0-9999) before flashing a motherBoard."""
+
+    def __init__(self, parent: tk.Tk, port: str) -> None:
+        self.result: Optional[int] = None
+
+        top = tk.Toplevel(parent)
+        top.title("Número de serie")
+        top.resizable(False, False)
+        top.transient(parent)
+        top.grab_set()
+
+        tk.Label(top, text=f"motherBoard detectada en {port}.",
+                 font=('', 10, 'bold')).pack(padx=24, pady=(18, 4))
+        tk.Label(top, text="Introduce el número de serie:").pack(padx=24)
+
+        vcmd = (top.register(self._validate), '%P')
+        self._var = tk.StringVar(value='')
+        entry = tk.Entry(top, textvariable=self._var, width=10,
+                         validate='key', validatecommand=vcmd,
+                         font=('', 16), justify='center')
+        entry.pack(padx=24, pady=8)
+        tk.Label(top, text="(0 – 9999)", fg='#757575').pack()
+
+        btn_frame = tk.Frame(top)
+        btn_frame.pack(padx=24, pady=(12, 18))
+        tk.Button(btn_frame, text="Cancelar", width=10,
+                  command=top.destroy).pack(side='left', padx=4)
+        self._ok_btn = tk.Button(btn_frame, text="Aceptar", width=10,
+                                 command=self._on_ok,
+                                 bg='#1565C0', fg='white', font=('', 9, 'bold'))
+        self._ok_btn.pack(side='left', padx=4)
+
+        entry.focus_set()
+        top.bind('<Return>', lambda _: self._on_ok())
+        top.bind('<Escape>', lambda _: top.destroy())
+
+        parent.update_idletasks()
+        x = parent.winfo_rootx() + (parent.winfo_width()  - 300) // 2
+        y = parent.winfo_rooty() + (parent.winfo_height() - 200) // 2
+        top.geometry(f"300x195+{x}+{y}")
+
+        self._top = top
+        parent.wait_window(top)
+
+    @staticmethod
+    def _validate(value: str) -> bool:
+        if value == '':
+            return True
+        if not value.isdigit():
+            return False
+        return len(value) <= 4 and int(value) <= 9999
+
+    def _on_ok(self) -> None:
+        val = self._var.get().strip()
+        if val == '' or not val.isdigit():
+            return
+        n = int(val)
+        if 0 <= n <= 9999:
+            self.result = n
+            self._top.destroy()
+
+
 class FlasherApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
@@ -212,21 +275,33 @@ class FlasherApp:
             )
             return
 
+        # Reserve slot now to block re-entry if hotplug fires again while dialog is open
         self._port_to_slot[port] = slot_idx
+
+        serial_number: Optional[int] = None
+        if board == Board.MOTHERBOARD:
+            dlg = _SerialNumberDialog(self.root, port)
+            if dlg.result is None:
+                del self._port_to_slot[port]
+                self._log_line(f"Flasheo de {board.value} cancelado.", 'info')
+                return
+            serial_number = dlg.result
+
         self._slots[slot_idx].assign(port, board)
         self._log_line(f"{board.value} detectado en {port} → slot {slot_idx + 1}", 'info')
         self._update_status_banner()
-        self._run_flash(port, board, slot_idx)
+        self._run_flash(port, board, slot_idx, serial_number)
 
     # ------------------------------------------------------------------ #
     # Flashing flow
     # ------------------------------------------------------------------ #
 
-    def _run_flash(self, port: str, board: Board, slot_idx: int) -> None:
+    def _run_flash(self, port: str, board: Board, slot_idx: int,
+                   serial_number: Optional[int] = None) -> None:
         progress_cb = self._make_progress_cb(slot_idx)
         threading.Thread(
             target=self._flash_thread,
-            args=(port, board, slot_idx, progress_cb),
+            args=(port, board, slot_idx, progress_cb, serial_number),
             daemon=True,
         ).start()
 
@@ -235,9 +310,10 @@ class FlasherApp:
             self.root.after(0, self._update_slot_progress, slot_idx, msg, pct)
         return cb
 
-    def _flash_thread(self, port: str, board: Board, slot_idx: int, progress_cb) -> None:
+    def _flash_thread(self, port: str, board: Board, slot_idx: int,
+                      progress_cb, serial_number: Optional[int] = None) -> None:
         try:
-            flash_board(port, board, get_firmware_base(), progress_cb)
+            flash_board(port, board, get_firmware_base(), progress_cb, serial_number)
             self.root.after(0, self._on_flash_ok, port, board, slot_idx)
         except Exception as exc:
             self.root.after(0, self._on_flash_err, str(exc), port, board, slot_idx)
