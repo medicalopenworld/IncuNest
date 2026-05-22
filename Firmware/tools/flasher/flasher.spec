@@ -4,7 +4,7 @@ a = Analysis(
     ['main.py'],
     pathex=['.'],
     binaries=[],
-    datas=[],
+    datas=[('logo/IncuNest_logo.png', 'logo')],
     hiddenimports=[
         'esptool',
         'esptool.cmds',
@@ -21,6 +21,9 @@ a = Analysis(
         'serial.tools',
         'serial.tools.list_ports',
         'serial.tools.list_ports_windows',
+        'PIL',
+        'PIL.Image',
+        'PIL.ImageTk',
     ],
     hookspath=[],
     hooksconfig={},

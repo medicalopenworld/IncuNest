@@ -7,6 +7,7 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext
 
 import serial.tools.list_ports
+from PIL import Image, ImageTk
 
 from detector import detect_board, Board, BoardDetectionError
 from flasher import flash_board
@@ -24,11 +25,17 @@ def get_firmware_base() -> Path:
     return Path(__file__).parent / 'firmware'
 
 
+def get_logo_path() -> Path:
+    if getattr(sys, 'frozen', False):
+        return Path(getattr(sys, '_MEIPASS', '')) / 'logo' / 'IncuNest_logo.png'
+    return Path(__file__).parent / 'logo' / 'IncuNest_logo.png'
+
+
 class FlasherApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("IncuNest Firmware Flasher")
-        self.root.geometry("480x450")
+        self.root.geometry("480x540")
         self.root.resizable(False, False)
 
         self._detected_board: Optional[Board] = None
@@ -45,6 +52,21 @@ class FlasherApp:
 
     def _build_ui(self) -> None:
         pad = {'padx': 12, 'pady': 4}
+
+        # --- Logo ---
+        logo_path = get_logo_path()
+        if logo_path.exists():
+            img = Image.open(logo_path)
+            target_h = 90
+            target_w = int(img.width * target_h / img.height)
+            img = img.resize((target_w, target_h), Image.LANCZOS)
+            self._logo_img = ImageTk.PhotoImage(img)
+            tk.Label(self.root, image=self._logo_img).pack(pady=(10, 4))
+        else:
+            tk.Label(self.root, text="IncuNest", font=('', 16, 'bold'),
+                     fg='#1565C0').pack(pady=(10, 4))
+
+        ttk.Separator(self.root, orient='horizontal').pack(fill='x', padx=12)
 
         # --- Status banner ---
         self._status_label = tk.Label(
