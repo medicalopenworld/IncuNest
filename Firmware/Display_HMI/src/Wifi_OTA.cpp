@@ -22,28 +22,21 @@
   SOFTWARE.
 */
 
+#include <Arduino.h>
 #include <string.h>
 
 #include "esp_log.h"
 #include "main.h"
 #include "UITask.h"
 
-#ifndef USE_IDF_FRAMEWORK
-#include <Arduino.h>
-#endif
-
 static const char *TAG = "WiFi";
 
 char wifiHost[32] = "in3ator";
 
-#ifdef USE_IDF_FRAMEWORK
-httpd_handle_t wifiServer = NULL;
-Espressif_MQTT_Client mqttClientWIFI;
-#else
 WebServer wifiServer(80);
+
 WiFiClient espClient;
 Arduino_MQTT_Client mqttClientWIFI(espClient);
-#endif
 
 ThingsBoard tb_wifi(mqttClientWIFI, MAX_MESSAGE_SIZE);
 StaticJsonDocument<JSON_OBJECT_SIZE(THINGSBOARD_FIELDS_AMOUNT)> WIFI_JSON;
@@ -51,8 +44,6 @@ JsonObject addVariableToTelemetryWIFIJSON = WIFI_JSON.to<JsonObject>();
 
 WIFIstruct Wifi_TB;
 Credentials credentials;
-
-#ifndef USE_IDF_FRAMEWORK
 Espressif_Updater updater_WIFI;
 
 const OTA_Update_Callback OTAcallback(&progressCallback, &updatedCallback,
@@ -60,37 +51,12 @@ const OTA_Update_Callback OTAcallback(&progressCallback, &updatedCallback,
                                       &updater_WIFI, FIRMWARE_FAILURE_RETRIES,
                                       FIRMWARE_PACKET_SIZE,
                                       WAIT_FAILED_OTA_CHUNKS);
-#endif
 
 // Credentials staged by the UI before calling wifiInit().
 // Persisted to EEPROM on the first successful GOT_IP with these credentials.
 char pendingSSID[64] = "";
 char pendingPass[64] = "";
 static volatile bool s_persistCredentials = false;
-
-#ifdef USE_IDF_FRAMEWORK
-static volatile bool s_wifi_connected = false;
-
-static void wifi_event_handler(void *arg, esp_event_base_t base,
-                                int32_t id, void *data) {
-    if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
-        wifi_event_sta_disconnected_t *d = (wifi_event_sta_disconnected_t *)data;
-        s_wifi_connected = false;
-        ESP_LOGW(TAG, "STA_DISCONNECTED reason=%d", d->reason);
-        esp_wifi_connect();
-    } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
-        ip_event_got_ip_t *e = (ip_event_got_ip_t *)data;
-        s_wifi_connected = true;
-        ESP_LOGW(TAG, "STA_GOT_IP: " IPSTR "  [HEAP] internal=%u PSRAM=%u",
-                 IP2STR(&e->ip_info.ip),
-                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
-        if (pendingSSID[0] != '\0') {
-            s_persistCredentials = true;
-        }
-    }
-}
-#endif // USE_IDF_FRAMEWORK
 
 const char *www_username = "in3admin";
 const char *www_password = "savinglives";
@@ -168,68 +134,13 @@ const char *serverIndex =
 void wifiInit(void) {
   ESP_LOGI(TAG, "Initializing WiFi");
 
-  snprintf(wifiHost, sizeof(wifiHost), "%s-%d", WIFI_NAME, in3.serialNumber);
+  String hostname = String(WIFI_NAME) + "-" + String(in3.serialNumber);
+  strncpy(wifiHost, hostname.c_str(), sizeof(wifiHost) - 1);
+  wifiHost[sizeof(wifiHost) - 1] = '\0';
   ESP_LOGI(TAG, "Setting hostname to: %s", wifiHost);
 
-#ifdef USE_IDF_FRAMEWORK
-
-  // Initialize TCP/IP + event loop (idempotent)
-  esp_netif_init();
-  esp_event_loop_create_default();
-  esp_netif_t *sta_netif = esp_netif_create_default_wifi_sta();
-  esp_netif_set_hostname(sta_netif, wifiHost);
-
-  wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-  esp_wifi_init(&cfg);
-
-  static bool s_eventsRegistered = false;
-  if (!s_eventsRegistered) {
-    esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
-                               wifi_event_handler, NULL);
-    esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
-                               wifi_event_handler, NULL);
-    s_eventsRegistered = true;
-  }
-
-  esp_wifi_set_mode(WIFI_MODE_STA);
-
-  // Choose credentials
-  char ssid[64] = {}, pass[64] = {};
-  if (pendingSSID[0] != '\0') {
-    strncpy(ssid, pendingSSID, sizeof(ssid) - 1);
-    strncpy(pass, pendingPass, sizeof(pass) - 1);
-    ESP_LOGI(TAG, "Connecting to pending SSID: %s", ssid);
-  } else {
-    std::string s = EEPROM.readString(EEPROM_WIFI_SSID);
-    std::string p = EEPROM.readString(EEPROM_WIFI_PASSWORD);
-    if (!s.empty()) {
-      strncpy(ssid, s.c_str(), sizeof(ssid) - 1);
-      strncpy(pass, p.c_str(), sizeof(pass) - 1);
-      ESP_LOGI(TAG, "Connecting to SSID from EEPROM: %s", ssid);
-    } else {
-      strncpy(ssid, WIFI_SSID, sizeof(ssid) - 1);
-      strncpy(pass, WIFI_PASSWORD, sizeof(pass) - 1);
-      ESP_LOGI(TAG, "Connecting to default SSID: %s", ssid);
-    }
-  }
-
-  wifi_config_t wifi_cfg = {};
-  strncpy((char *)wifi_cfg.sta.ssid, ssid, sizeof(wifi_cfg.sta.ssid) - 1);
-  strncpy((char *)wifi_cfg.sta.password, pass, sizeof(wifi_cfg.sta.password) - 1);
-
-  ESP_LOGW(TAG, "[HEAP] before esp_wifi_start — internal=%u PSRAM=%u",
-           (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-           (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
-
-  esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg);
-  esp_wifi_start();
-  esp_wifi_set_ps(WIFI_PS_NONE);
-  esp_wifi_connect();
-
-#else // Arduino framework
-
   // setHostname must be called before mode() in Arduino 3.x / IDF 5.x.
-  WiFi.setHostname(wifiHost);
+  WiFi.setHostname(hostname.c_str());
   if (WiFi.getMode() != WIFI_MODE_STA) {
     WiFi.mode(WIFI_STA);
   }
@@ -247,6 +158,7 @@ void wifiInit(void) {
                (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
       MDNS.begin(wifiHost);
+      // If new credentials are pending, schedule their EEPROM save.
       if (pendingSSID[0] != '\0') {
         s_persistCredentials = true;
       }
@@ -280,19 +192,12 @@ void wifiInit(void) {
            (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
   WiFi.begin(ssid.c_str(), pass.c_str());
   WiFi.setSleep(WIFI_PS_NONE);
-
-#endif // USE_IDF_FRAMEWORK
 }
 
 // ---------------------------------------------------------------------------
 // Web server — register routes and start once at task init.
 // ---------------------------------------------------------------------------
 void configWifiServer() {
-#ifdef USE_IDF_FRAMEWORK
-  ESP_LOGI(TAG, "Web server: IDF httpd not yet implemented");
-  // TODO: implement esp_http_server routes (Task 6)
-  (void)wifiServer;
-#else
   wifiServer.on("/", HTTP_GET, []() {
     if (!wifiServer.authenticate(www_username, www_password)) {
       return wifiServer.requestAuthentication();
@@ -354,7 +259,6 @@ void configWifiServer() {
       });
   wifiServer.begin();
   ESP_LOGI(TAG, "Web server started on port 80");
-#endif // USE_IDF_FRAMEWORK
 }
 
 // ---------------------------------------------------------------------------
@@ -373,13 +277,7 @@ void updatedCallback(const bool &success) {
   }
 }
 
-bool WIFIIsConnected() {
-#ifdef USE_IDF_FRAMEWORK
-  return s_wifi_connected;
-#else
-  return WiFi.status() == WL_CONNECTED;
-#endif
-}
+bool WIFIIsConnected() { return WiFi.status() == WL_CONNECTED; }
 
 bool WIFIIsConnectedToServer() {
   return Wifi_TB.serverConnectionStatus && WIFIIsConnected();
@@ -389,16 +287,14 @@ void WIFICheckOTA() {
   ESP_LOGI(TAG, "Checking ThingsBoard firmware update...");
   OTA_inprogress = true;
   tb_wifi.Firmware_Send_Info(CURRENT_FIRMWARE_TITLE, FWversion);
-#ifndef USE_IDF_FRAMEWORK
   tb_wifi.Start_Firmware_Update(OTAcallback);
-#endif
 }
 
 void WIFI_TB_Init() {
   Wifi_TB.provisioned = EEPROM.read(EEPROM_THINGSBOARD_PROVISIONED);
   ESP_LOGI(TAG, "WIFI_TB_Init provisioned=%d", Wifi_TB.provisioned);
   if (Wifi_TB.provisioned) {
-    Wifi_TB.device_token = std::string(EEPROM.readString(EEPROM_THINGSBOARD_TOKEN).c_str());
+    Wifi_TB.device_token = EEPROM.readString(EEPROM_THINGSBOARD_TOKEN);
     ESP_LOGI(TAG, "Token: %s", Wifi_TB.device_token.c_str());
   }
 }
@@ -410,7 +306,7 @@ void WIFIProvisionResponse(const JsonObjectConst &data) {
   serializeJson(data, buffer, jsonSize);
 
   if (strncmp(data["status"], "SUCCESS", strlen("SUCCESS")) != 0) {
-    ESP_LOGE(TAG, "Provision FAIL: %s", data["errorMsg"].as<const char *>());
+    ESP_LOGE(TAG, "Provision FAIL: %s", data["errorMsg"].as<String>().c_str());
     return;
   }
 
@@ -432,7 +328,7 @@ void WIFIProvisionResponse(const JsonObjectConst &data) {
 
   Wifi_TB.provisioned = true;
   Wifi_TB.device_token = credentials.username.c_str();
-  EEPROM.writeString(EEPROM_THINGSBOARD_TOKEN, Wifi_TB.device_token.c_str());
+  EEPROM.writeString(EEPROM_THINGSBOARD_TOKEN, Wifi_TB.device_token);
   EEPROM.write(EEPROM_THINGSBOARD_PROVISIONED, Wifi_TB.provisioned);
   EEPROM.commit();
   ESP_LOGI(TAG, "Device provisioned successfully");
@@ -454,11 +350,10 @@ void WIFITBProvision() {
       return;
     }
   }
-  char deviceName[64];
-  snprintf(deviceName, sizeof(deviceName), "%s-%d", WIFI_NAME, in3.serialNumber);
+  String deviceName = String(WIFI_NAME) + "-" + String(in3.serialNumber);
   const Provision_Callback provisionCallback(
       Access_Token(), &WIFIProvisionResponse, PROVISION_DEVICE_KEY,
-      PROVISION_DEVICE_SECRET, deviceName);
+      PROVISION_DEVICE_SECRET, deviceName.c_str());
   Wifi_TB.provision_request_sent = tb_wifi.Provision_Request(provisionCallback);
 }
 
@@ -468,7 +363,7 @@ void addTelemetriesToWIFIJSON() {
 }
 
 void WIFI_TB_OTA() {
-  if (!WIFIIsConnected()) {
+  if (WiFi.status() != WL_CONNECTED) {
     Wifi_TB.serverConnectionStatus = false;
     tb_wifi.loop();
     return;
@@ -487,8 +382,7 @@ void WIFI_TB_OTA() {
       return;
     }
     Wifi_TB.lastReconnectAttempt = millis();
-    ESP_LOGW(TAG, "TB disconnected, reconnecting... heap=%u",
-             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+    ESP_LOGW(TAG, "TB disconnected, reconnecting... heap=%u", (unsigned)ESP.getFreeHeap());
     if (!tb_wifi.connect(THINGSBOARD_SERVER, Wifi_TB.device_token.c_str())) {
       ESP_LOGI(TAG, "TB connect failed");
       tb_wifi.loop();
@@ -533,10 +427,8 @@ void WifiOTAHandler(void) {
 
   WIFI_TB_OTA();
 
-  if (WIFIIsConnected()) {
-#ifndef USE_IDF_FRAMEWORK
+  if (WiFi.status() == WL_CONNECTED) {
     wifiServer.handleClient();
-#endif
   }
 }
 
