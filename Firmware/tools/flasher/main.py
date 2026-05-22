@@ -9,10 +9,9 @@ from tkinter import ttk, scrolledtext
 import serial.tools.list_ports
 from PIL import Image, ImageTk
 
-from detector import detect_board, Board, BoardDetectionError
+from detector import detect_board, Board, BoardDetectionError, find_all_board_ports, board_from_vid_pid
 from flasher import flash_board
 
-ESPRESSIF_VID = 0x303A
 HOTPLUG_POLL_S = 0.5
 # After a successful flash the ESP32 resets and briefly re-enumerates.
 # Ignore new connections on the same port for this many seconds.
@@ -39,9 +38,9 @@ class FlasherApp:
         self.root.resizable(False, False)
 
         self._detected_board: Optional[Board] = None
-        self._hotplug_triggered = False
         self._cooldown_until = 0.0
-        self._known_esp_ports: set = set()
+        self._active_flashes: int = 0
+        self._known_ports: set = set()
 
         self._build_ui()
         self._init_hotplug()
@@ -104,7 +103,7 @@ class FlasherApp:
         self._flash_btn = tk.Button(
             self.root, text="FLASHEAR",
             command=self._on_flash_manual, width=22,
-            state='disabled',
+            state='normal',
             bg='#1565C0', fg='white',
             font=('', 11, 'bold'),
             disabledforeground='#90A4AE',
@@ -135,9 +134,9 @@ class FlasherApp:
     # ------------------------------------------------------------------ #
 
     def _init_hotplug(self) -> None:
-        self._known_esp_ports = {
+        self._known_ports = {
             p.device for p in serial.tools.list_ports.comports()
-            if p.vid == ESPRESSIF_VID
+            if board_from_vid_pid(p.vid, p.pid) is not None
         }
         threading.Thread(target=self._hotplug_loop, daemon=True).start()
 
@@ -145,41 +144,35 @@ class FlasherApp:
         while True:
             time.sleep(HOTPLUG_POLL_S)
             try:
-                current = {
-                    p.device for p in serial.tools.list_ports.comports()
-                    if p.vid == ESPRESSIF_VID
+                current: dict[str, object] = {
+                    p.device: p for p in serial.tools.list_ports.comports()
+                    if board_from_vid_pid(p.vid, p.pid) is not None
                 }
             except Exception:
                 continue
-            new_ports = current - self._known_esp_ports
-            self._known_esp_ports = current
-            for port in sorted(new_ports):
-                self.root.after(0, self._on_hotplug_detected, port)
+            new_devices = {d: p for d, p in current.items() if d not in self._known_ports}
+            self._known_ports = set(current.keys())
+            for device, port_info in sorted(new_devices.items()):
+                board = board_from_vid_pid(port_info.vid, port_info.pid)
+                self.root.after(0, self._on_hotplug_detected, device, board)
 
-    def _on_hotplug_detected(self, port: str) -> None:
+    def _on_hotplug_detected(self, port: str, board: Board) -> None:
         if time.time() < self._cooldown_until:
             self._log_line(
-                f"Nuevo ESP32 en {port} ignorado (enfriamiento post-flash).", 'info'
+                f"{board.value} en {port} ignorado (enfriamiento post-flash).", 'info'
             )
             return
-        if self._detect_btn['state'] == 'disabled':
+        if self._active_flashes > 0:
             self._log_line(
-                f"Nuevo ESP32 en {port} ignorado (operación en curso).", 'info'
+                f"{board.value} en {port} ignorado (operación en curso).", 'info'
             )
             return
 
-        self._log_line(f"ESP32-S3 detectado automáticamente en {port}", 'info')
-        existing = list(self._port_combo['values'])
-        if port not in existing:
-            existing.insert(0, port)
-            self._port_combo['values'] = existing
-        self._port_var.set(port)
-
+        self._log_line(f"{board.value} detectado en {port} — iniciando flasheo…", 'info')
         self._status_label.configure(
-            text=f"🔌  Dispositivo en {port} — detectando…", fg='#1565C0'
+            text=f"🔌  {board.value} en {port} — flasheando…", fg='#1565C0'
         )
-        self._hotplug_triggered = True
-        self._run_detect(port)
+        self._run_flash(port, board)
 
     # ------------------------------------------------------------------ #
     # Manual controls
@@ -196,15 +189,16 @@ class FlasherApp:
         if not port:
             self._log_line("Selecciona un puerto COM.", 'error')
             return
-        self._hotplug_triggered = False
         self._run_detect(port)
 
     def _on_flash_manual(self) -> None:
-        port = self._port_var.get()
-        if not port or self._detected_board is None:
+        boards = find_all_board_ports()
+        if not boards:
+            self._log_line("No se encontró ninguna placa IncuNest conectada.", 'error')
+            self._status_label.configure(text="❌  Sin placa detectada", fg='#C62828')
             return
-        self._hotplug_triggered = False
-        self._run_flash(port, self._detected_board)
+        for board, port in boards.items():
+            self._run_flash(port, board)
 
     # ------------------------------------------------------------------ #
     # Detection flow
@@ -236,22 +230,20 @@ class FlasherApp:
         self._status_label.configure(
             text=f"✅  {board.value} en {port}", fg='#2E7D32'
         )
-        if self._hotplug_triggered:
-            self._hotplug_triggered = False
-            self._run_flash(port, board)
 
     def _on_detect_err(self, msg: str) -> None:
         self._board_label.configure(text="Error de detección")
         self._log_line(msg, 'error')
         self._detect_btn.configure(state='normal')
+        self._flash_btn.configure(state='normal')
         self._status_label.configure(text="❌  Error de detección", fg='#C62828')
-        self._hotplug_triggered = False
 
     # ------------------------------------------------------------------ #
     # Flashing flow
     # ------------------------------------------------------------------ #
 
     def _run_flash(self, port: str, board: Board) -> None:
+        self._active_flashes += 1
         self._flash_btn.configure(state='disabled', text="Flasheando…")
         self._detect_btn.configure(state='disabled')
         self._progress_var.set(0)
@@ -267,9 +259,9 @@ class FlasherApp:
     def _flash_thread(self, port: str, board: Board) -> None:
         try:
             flash_board(port, board, get_firmware_base(), self._on_progress)
-            self.root.after(0, self._on_flash_ok)
+            self.root.after(0, self._on_flash_ok, board)
         except Exception as exc:
-            self.root.after(0, self._on_flash_err, str(exc))
+            self.root.after(0, self._on_flash_err, str(exc), board)
 
     def _on_progress(self, msg: str, pct: Optional[int]) -> None:
         self.root.after(0, self._update_progress_ui, msg, pct)
@@ -281,23 +273,26 @@ class FlasherApp:
             self._progress_var.set(pct)
             self._pct_label.configure(text=f"{pct}%")
 
-    def _on_flash_ok(self) -> None:
+    def _on_flash_ok(self, board: Board) -> None:
+        self._active_flashes -= 1
         self._progress_var.set(100)
         self._pct_label.configure(text="100%")
-        self._log_line("¡Flasheo completado con éxito!", 'success')
-        self._flash_btn.configure(state='normal', text="FLASHEAR")
-        self._detect_btn.configure(state='normal')
-        self._status_label.configure(
-            text="✅  ¡Completado! Desconecta la placa.", fg='#2E7D32'
-        )
-        self._cooldown_until = time.time() + POST_FLASH_COOLDOWN_S
+        self._log_line(f"¡{board.value} flasheado con éxito!", 'success')
+        if self._active_flashes == 0:
+            self._flash_btn.configure(state='normal', text="FLASHEAR")
+            self._detect_btn.configure(state='normal')
+            self._status_label.configure(
+                text="✅  ¡Completado! Desconecta la placa.", fg='#2E7D32'
+            )
+            self._cooldown_until = time.time() + POST_FLASH_COOLDOWN_S
 
-    def _on_flash_err(self, msg: str) -> None:
-        self._log_line(f"Flasheo fallido.\n{msg}", 'error')
-        self._flash_btn.configure(state='normal', text="FLASHEAR")
-        self._detect_btn.configure(state='normal')
-        self._status_label.configure(text="❌  Flasheo fallido", fg='#C62828')
-        self._hotplug_triggered = False
+    def _on_flash_err(self, msg: str, board: Board) -> None:
+        self._active_flashes -= 1
+        self._log_line(f"Flasheo de {board.value} fallido.\n{msg}", 'error')
+        if self._active_flashes == 0:
+            self._flash_btn.configure(state='normal', text="FLASHEAR")
+            self._detect_btn.configure(state='normal')
+            self._status_label.configure(text="❌  Flasheo fallido", fg='#C62828')
 
     # ------------------------------------------------------------------ #
 

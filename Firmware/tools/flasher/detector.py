@@ -1,8 +1,10 @@
 import io
 import sys
 from enum import Enum
+from typing import Optional
 
 import esptool
+import serial.tools.list_ports
 
 
 class Board(Enum):
@@ -14,10 +16,35 @@ class BoardDetectionError(Exception):
     pass
 
 
+# USB fingerprint per board: vid required, pid optional for disambiguation
+BOARD_VID_PID: dict[Board, dict] = {
+    Board.MOTHERBOARD: {'vid': 0x303A},             # ESP32-S3 native USB
+    Board.DISPLAY_HMI: {'vid': 0x1A86, 'pid': 0x7522},  # CH340K
+}
+
 _FLASH_SIZE_MAP = {
     '8MB': Board.MOTHERBOARD,
     '16MB': Board.DISPLAY_HMI,
 }
+
+
+def find_all_board_ports() -> dict[Board, str]:
+    """Scan COM ports and return {Board: device} for every known board found."""
+    result: dict[Board, str] = {}
+    for port_info in serial.tools.list_ports.comports():
+        board = board_from_vid_pid(port_info.vid, port_info.pid)
+        if board is not None and board not in result:
+            result[board] = port_info.device
+    return result
+
+
+def board_from_vid_pid(vid: Optional[int], pid: Optional[int]) -> Optional[Board]:
+    """Return the Board type matching the given VID/PID, or None if unknown."""
+    for board, criteria in BOARD_VID_PID.items():
+        if vid == criteria['vid']:
+            if 'pid' not in criteria or pid == criteria['pid']:
+                return board
+    return None
 
 
 def detect_board(port: str) -> Board:
