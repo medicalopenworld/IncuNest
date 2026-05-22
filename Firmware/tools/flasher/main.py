@@ -9,13 +9,13 @@ from tkinter import ttk, scrolledtext
 import serial.tools.list_ports
 from PIL import Image, ImageTk
 
-from detector import detect_board, Board, BoardDetectionError, find_all_board_ports, board_from_vid_pid
+from detector import Board, find_all_board_ports, board_from_vid_pid
 from flasher import flash_board
 
 HOTPLUG_POLL_S = 0.5
-# After a successful flash the ESP32 resets and briefly re-enumerates.
-# Ignore new connections on the same port for this many seconds.
 POST_FLASH_COOLDOWN_S = 8
+SLOT_CLEAR_DELAY_S = 5
+NUM_SLOTS = 3
 
 
 def get_firmware_base() -> Path:
@@ -30,16 +30,77 @@ def get_logo_path() -> Path:
     return Path(__file__).parent / 'logo' / 'IncuNest_logo.png'
 
 
+class _Slot:
+    """One device flash slot: board label + progress bar + status line."""
+
+    def __init__(self, parent: tk.Widget, index: int) -> None:
+        self.port: Optional[str] = None
+        self.board: Optional[Board] = None
+
+        self._frame = tk.LabelFrame(
+            parent, text=f"Slot {index + 1}",
+            padx=8, pady=4, font=('', 9, 'bold'),
+        )
+        self._frame.pack(fill='x', padx=12, pady=4)
+
+        self._title = tk.Label(
+            self._frame, text="—  Esperando dispositivo…",
+            anchor='w', fg='#9E9E9E',
+        )
+        self._title.pack(fill='x')
+
+        self._progress_var = tk.DoubleVar()
+        self._bar = ttk.Progressbar(
+            self._frame, variable=self._progress_var, maximum=100,
+        )
+        self._bar.pack(fill='x', pady=2)
+
+        self._status = tk.Label(self._frame, text="", anchor='w', fg='#9E9E9E')
+        self._status.pack(fill='x')
+
+    @property
+    def is_free(self) -> bool:
+        return self.port is None
+
+    def assign(self, port: str, board: Board) -> None:
+        self.port = port
+        self.board = board
+        self._title.configure(text=f"{board.value}  ·  {port}", fg='#000000')
+        self._progress_var.set(0)
+        self._status.configure(text="⚡  Iniciando…", fg='#E65100')
+
+    def update_progress(self, pct: Optional[int]) -> None:
+        if pct is not None:
+            self._progress_var.set(pct)
+            self._status.configure(text=f"⚡  Flasheando…  {pct}%", fg='#E65100')
+
+    def set_done(self) -> None:
+        self._progress_var.set(100)
+        self._title.configure(fg='#2E7D32')
+        self._status.configure(text="✅  Completado", fg='#2E7D32')
+
+    def set_error(self) -> None:
+        self._title.configure(fg='#C62828')
+        self._status.configure(text="❌  Error — revisa el log", fg='#C62828')
+
+    def reset(self) -> None:
+        self.port = None
+        self.board = None
+        self._title.configure(text="—  Esperando dispositivo…", fg='#9E9E9E')
+        self._progress_var.set(0)
+        self._status.configure(text="", fg='#9E9E9E')
+
+
 class FlasherApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("IncuNest Firmware Flasher")
-        self.root.geometry("480x540")
+        self.root.geometry("480x580")
         self.root.resizable(False, False)
 
-        self._detected_board: Optional[Board] = None
-        self._cooldown_until = 0.0
-        self._active_flashes: int = 0
+        self._slots: list[_Slot] = []
+        self._port_to_slot: dict[str, int] = {}
+        self._cooldown_until: dict[str, float] = {}
         self._known_ports: set = set()
 
         self._build_ui()
@@ -50,8 +111,6 @@ class FlasherApp:
     # ------------------------------------------------------------------ #
 
     def _build_ui(self) -> None:
-        pad = {'padx': 12, 'pady': 4}
-
         # --- Logo ---
         logo_path = get_logo_path()
         if logo_path.exists():
@@ -69,65 +128,25 @@ class FlasherApp:
 
         # --- Status banner ---
         self._status_label = tk.Label(
-            self.root, text="⏳  Esperando dispositivo…",
+            self.root, text="⏳  Conecta un dispositivo para comenzar…",
             anchor='w', font=('', 10), fg='#757575',
         )
-        self._status_label.pack(fill='x', padx=12, pady=(8, 2))
+        self._status_label.pack(fill='x', padx=12, pady=(6, 2))
 
-        ttk.Separator(self.root, orient='horizontal').pack(
-            fill='x', padx=12, pady=2
-        )
+        ttk.Separator(self.root, orient='horizontal').pack(fill='x', padx=12, pady=2)
 
-        # --- Port row (manual fallback) ---
-        port_frame = tk.Frame(self.root)
-        port_frame.pack(fill='x', **pad)
-        tk.Label(port_frame, text="Puerto COM:").pack(side='left')
-        self._port_var = tk.StringVar()
-        self._port_combo = ttk.Combobox(
-            port_frame, textvariable=self._port_var, width=12, state='readonly'
-        )
-        self._port_combo.pack(side='left', padx=6)
-        tk.Button(port_frame, text="↺", width=3,
-                  command=self._refresh_ports).pack(side='left')
-        self._detect_btn = tk.Button(
-            port_frame, text="Detectar",
-            command=self._on_detect_manual,
-        )
-        self._detect_btn.pack(side='left', padx=6)
-
-        # --- Board info ---
-        self._board_label = tk.Label(self.root, text="Placa:  —", anchor='w')
-        self._board_label.pack(fill='x', **pad)
-
-        # --- Flash button ---
-        self._flash_btn = tk.Button(
-            self.root, text="FLASHEAR",
-            command=self._on_flash_manual, width=22,
-            state='normal',
-            bg='#1565C0', fg='white',
-            font=('', 11, 'bold'),
-            disabledforeground='#90A4AE',
-        )
-        self._flash_btn.pack(**pad)
-
-        # --- Progress bar + percentage ---
-        self._progress_var = tk.DoubleVar()
-        ttk.Progressbar(
-            self.root, variable=self._progress_var, maximum=100,
-        ).pack(fill='x', padx=12, pady=2)
-        self._pct_label = tk.Label(self.root, text="")
-        self._pct_label.pack()
+        # --- Device slots ---
+        for i in range(NUM_SLOTS):
+            self._slots.append(_Slot(self.root, i))
 
         # --- Log area ---
         self._log = scrolledtext.ScrolledText(
-            self.root, height=9, state='disabled', font=('Courier', 9)
+            self.root, height=7, state='disabled', font=('Courier', 9),
         )
         self._log.pack(fill='both', expand=True, padx=12, pady=6)
         self._log.tag_config('success', foreground='#2E7D32')
         self._log.tag_config('error',   foreground='#C62828')
         self._log.tag_config('info',    foreground='#1565C0')
-
-        self._refresh_ports()
 
     # ------------------------------------------------------------------ #
     # Hotplug monitor
@@ -157,144 +176,88 @@ class FlasherApp:
                 self.root.after(0, self._on_hotplug_detected, device, board)
 
     def _on_hotplug_detected(self, port: str, board: Board) -> None:
-        if time.time() < self._cooldown_until:
+        if time.time() < self._cooldown_until.get(port, 0.0):
             self._log_line(
                 f"{board.value} en {port} ignorado (enfriamiento post-flash).", 'info'
             )
             return
-        if self._active_flashes > 0:
+        if port in self._port_to_slot:
+            return  # already being processed
+
+        slot_idx = next((i for i, s in enumerate(self._slots) if s.is_free), None)
+        if slot_idx is None:
             self._log_line(
-                f"{board.value} en {port} ignorado (operación en curso).", 'info'
+                f"{board.value} en {port} ignorado — todos los slots ocupados.", 'info'
             )
             return
 
-        self._log_line(f"{board.value} detectado en {port} — iniciando flasheo…", 'info')
-        self._status_label.configure(
-            text=f"🔌  {board.value} en {port} — flasheando…", fg='#1565C0'
-        )
-        self._run_flash(port, board)
-
-    # ------------------------------------------------------------------ #
-    # Manual controls
-    # ------------------------------------------------------------------ #
-
-    def _refresh_ports(self) -> None:
-        ports = [p.device for p in serial.tools.list_ports.comports()]
-        self._port_combo['values'] = ports
-        if ports and not self._port_var.get():
-            self._port_combo.current(0)
-
-    def _on_detect_manual(self) -> None:
-        port = self._port_var.get()
-        if not port:
-            self._log_line("Selecciona un puerto COM.", 'error')
-            return
-        self._run_detect(port)
-
-    def _on_flash_manual(self) -> None:
-        boards = find_all_board_ports()
-        if not boards:
-            self._log_line("No se encontró ninguna placa IncuNest conectada.", 'error')
-            self._status_label.configure(text="❌  Sin placa detectada", fg='#C62828')
-            return
-        for board, port in boards.items():
-            self._run_flash(port, board)
-
-    # ------------------------------------------------------------------ #
-    # Detection flow
-    # ------------------------------------------------------------------ #
-
-    def _run_detect(self, port: str) -> None:
-        self._detect_btn.configure(state='disabled')
-        self._flash_btn.configure(state='disabled')
-        self._detected_board = None
-        self._board_label.configure(text="Placa:  —")
-        self._log_line(f"Conectando a {port}…")
-        threading.Thread(
-            target=self._detect_thread, args=(port,), daemon=True
-        ).start()
-
-    def _detect_thread(self, port: str) -> None:
-        try:
-            board = detect_board(port)
-            self.root.after(0, self._on_detect_ok, board, port)
-        except Exception as exc:
-            self.root.after(0, self._on_detect_err, str(exc))
-
-    def _on_detect_ok(self, board: Board, port: str) -> None:
-        self._detected_board = board
-        self._board_label.configure(text=f"Placa:  {board.value}")
-        self._log_line(f"Placa identificada: {board.value}", 'success')
-        self._detect_btn.configure(state='normal')
-        self._flash_btn.configure(state='normal')
-        self._status_label.configure(
-            text=f"✅  {board.value} en {port}", fg='#2E7D32'
-        )
-
-    def _on_detect_err(self, msg: str) -> None:
-        self._board_label.configure(text="Error de detección")
-        self._log_line(msg, 'error')
-        self._detect_btn.configure(state='normal')
-        self._flash_btn.configure(state='normal')
-        self._status_label.configure(text="❌  Error de detección", fg='#C62828')
+        self._port_to_slot[port] = slot_idx
+        self._slots[slot_idx].assign(port, board)
+        self._log_line(f"{board.value} detectado en {port} → slot {slot_idx + 1}", 'info')
+        self._update_status_banner()
+        self._run_flash(port, board, slot_idx)
 
     # ------------------------------------------------------------------ #
     # Flashing flow
     # ------------------------------------------------------------------ #
 
-    def _run_flash(self, port: str, board: Board) -> None:
-        self._active_flashes += 1
-        self._flash_btn.configure(state='disabled', text="Flasheando…")
-        self._detect_btn.configure(state='disabled')
-        self._progress_var.set(0)
-        self._pct_label.configure(text="")
-        self._status_label.configure(
-            text=f"⚡  Flasheando {board.value}…", fg='#E65100'
-        )
-        self._log_line(f"Iniciando flasheo de {board.value} en {port}…")
+    def _run_flash(self, port: str, board: Board, slot_idx: int) -> None:
+        progress_cb = self._make_progress_cb(slot_idx)
         threading.Thread(
-            target=self._flash_thread, args=(port, board), daemon=True
+            target=self._flash_thread,
+            args=(port, board, slot_idx, progress_cb),
+            daemon=True,
         ).start()
 
-    def _flash_thread(self, port: str, board: Board) -> None:
+    def _make_progress_cb(self, slot_idx: int):
+        def cb(msg: str, pct: Optional[int]) -> None:
+            self.root.after(0, self._update_slot_progress, slot_idx, msg, pct)
+        return cb
+
+    def _flash_thread(self, port: str, board: Board, slot_idx: int, progress_cb) -> None:
         try:
-            flash_board(port, board, get_firmware_base(), self._on_progress)
-            self.root.after(0, self._on_flash_ok, board)
+            flash_board(port, board, get_firmware_base(), progress_cb)
+            self.root.after(0, self._on_flash_ok, port, board, slot_idx)
         except Exception as exc:
-            self.root.after(0, self._on_flash_err, str(exc), board)
+            self.root.after(0, self._on_flash_err, str(exc), port, board, slot_idx)
 
-    def _on_progress(self, msg: str, pct: Optional[int]) -> None:
-        self.root.after(0, self._update_progress_ui, msg, pct)
-
-    def _update_progress_ui(self, msg: str, pct: Optional[int]) -> None:
+    def _update_slot_progress(self, slot_idx: int, msg: str, pct: Optional[int]) -> None:
         if msg.strip():
             self._log_line(msg)
-        if pct is not None:
-            self._progress_var.set(pct)
-            self._pct_label.configure(text=f"{pct}%")
+        self._slots[slot_idx].update_progress(pct)
 
-    def _on_flash_ok(self, board: Board) -> None:
-        self._active_flashes -= 1
-        self._progress_var.set(100)
-        self._pct_label.configure(text="100%")
+    def _on_flash_ok(self, port: str, board: Board, slot_idx: int) -> None:
         self._log_line(f"¡{board.value} flasheado con éxito!", 'success')
-        if self._active_flashes == 0:
-            self._flash_btn.configure(state='normal', text="FLASHEAR")
-            self._detect_btn.configure(state='normal')
-            self._status_label.configure(
-                text="✅  ¡Completado! Desconecta la placa.", fg='#2E7D32'
-            )
-            self._cooldown_until = time.time() + POST_FLASH_COOLDOWN_S
+        self._slots[slot_idx].set_done()
+        self._cooldown_until[port] = time.time() + POST_FLASH_COOLDOWN_S
+        self._update_status_banner()
+        self.root.after(SLOT_CLEAR_DELAY_S * 1000, self._clear_slot, slot_idx, port)
 
-    def _on_flash_err(self, msg: str, board: Board) -> None:
-        self._active_flashes -= 1
+    def _on_flash_err(self, msg: str, port: str, board: Board, slot_idx: int) -> None:
         self._log_line(f"Flasheo de {board.value} fallido.\n{msg}", 'error')
-        if self._active_flashes == 0:
-            self._flash_btn.configure(state='normal', text="FLASHEAR")
-            self._detect_btn.configure(state='normal')
-            self._status_label.configure(text="❌  Flasheo fallido", fg='#C62828')
+        self._slots[slot_idx].set_error()
+        self._update_status_banner()
+        self.root.after(SLOT_CLEAR_DELAY_S * 1000, self._clear_slot, slot_idx, port)
+
+    def _clear_slot(self, slot_idx: int, port: str) -> None:
+        self._slots[slot_idx].reset()
+        self._port_to_slot.pop(port, None)
+        self._update_status_banner()
 
     # ------------------------------------------------------------------ #
+
+    def _update_status_banner(self) -> None:
+        active = sum(1 for s in self._slots if not s.is_free)
+        if active == 0:
+            self._status_label.configure(
+                text="⏳  Conecta un dispositivo para comenzar…", fg='#757575',
+            )
+        else:
+            n = str(active)
+            self._status_label.configure(
+                text=f"⚡  Flasheando {n} dispositivo{'s' if active > 1 else ''}…",
+                fg='#E65100',
+            )
 
     def _log_line(self, msg: str, tag: str = '') -> None:
         self._log.configure(state='normal')
