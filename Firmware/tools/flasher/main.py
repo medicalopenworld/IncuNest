@@ -33,9 +33,10 @@ def get_logo_path() -> Path:
 class _Slot:
     """One device flash slot: board label + progress bar + status line."""
 
-    def __init__(self, parent: tk.Widget, index: int) -> None:
+    def __init__(self, parent: tk.Widget, index: int, style_name: str) -> None:
         self.port: Optional[str] = None
         self.board: Optional[Board] = None
+        self._indeterminate = False
 
         self._frame = tk.LabelFrame(
             parent, text=f"Slot {index + 1}",
@@ -52,8 +53,9 @@ class _Slot:
         self._progress_var = tk.DoubleVar()
         self._bar = ttk.Progressbar(
             self._frame, variable=self._progress_var, maximum=100,
+            style=style_name,
         )
-        self._bar.pack(fill='x', pady=2)
+        self._bar.pack(fill='x', pady=(4, 2))
 
         self._status = tk.Label(self._frame, text="", anchor='w', fg='#9E9E9E')
         self._status.pack(fill='x')
@@ -67,28 +69,45 @@ class _Slot:
         self.board = board
         self._title.configure(text=f"{board.value}  ·  {port}", fg='#000000')
         self._progress_var.set(0)
+        self._bar.configure(mode='indeterminate')
+        self._bar.start(12)
+        self._indeterminate = True
         self._status.configure(text="⚡  Iniciando…", fg='#E65100')
 
     def update_progress(self, pct: Optional[int]) -> None:
-        if pct is not None:
-            self._progress_var.set(pct)
-            self._status.configure(text=f"⚡  Flasheando…  {pct}%", fg='#E65100')
+        if pct is None:
+            return
+        if self._indeterminate:
+            self._bar.stop()
+            self._bar.configure(mode='determinate')
+            self._indeterminate = False
+        self._progress_var.set(pct)
+        self._status.configure(text=f"⚡  Flasheando…  {pct}%", fg='#E65100')
 
     def set_done(self) -> None:
+        self._stop_indeterminate()
         self._progress_var.set(100)
         self._title.configure(fg='#2E7D32')
         self._status.configure(text="✅  Completado", fg='#2E7D32')
 
     def set_error(self) -> None:
+        self._stop_indeterminate()
         self._title.configure(fg='#C62828')
         self._status.configure(text="❌  Error — revisa el log", fg='#C62828')
 
     def reset(self) -> None:
+        self._stop_indeterminate()
         self.port = None
         self.board = None
         self._title.configure(text="—  Esperando dispositivo…", fg='#9E9E9E')
         self._progress_var.set(0)
         self._status.configure(text="", fg='#9E9E9E')
+
+    def _stop_indeterminate(self) -> None:
+        if self._indeterminate:
+            self._bar.stop()
+            self._bar.configure(mode='determinate')
+            self._indeterminate = False
 
 
 class FlasherApp:
@@ -136,8 +155,10 @@ class FlasherApp:
         ttk.Separator(self.root, orient='horizontal').pack(fill='x', padx=12, pady=2)
 
         # --- Device slots ---
+        style = ttk.Style()
+        style.configure('Flash.Horizontal.TProgressbar', thickness=18)
         for i in range(NUM_SLOTS):
-            self._slots.append(_Slot(self.root, i))
+            self._slots.append(_Slot(self.root, i, 'Flash.Horizontal.TProgressbar'))
 
         # --- Log area ---
         self._log = scrolledtext.ScrolledText(
