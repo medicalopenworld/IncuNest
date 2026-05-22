@@ -36,7 +36,7 @@ def _read_flash_size(port: str) -> str:
     sys.stdout = buf
     sys.stderr = buf
     try:
-        esptool.main(['--port', port, '--no-stub', 'flash_id'])
+        esptool.main(['--port', port, '--no-stub', 'flash-id'])
     except SystemExit as e:
         if e.code != 0:
             raise BoardDetectionError(

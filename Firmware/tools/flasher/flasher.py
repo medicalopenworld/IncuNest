@@ -41,11 +41,11 @@ def flash_board(
     args = [
         '--port', port,
         '--chip', 'esp32s3',
-        '--baud', '1500000',
+        '--baud', '1152000',
         '--no-stub',
-        'write_flash',
-        '--flash_mode', 'qio',
-        '--flash_size', 'detect',
+        'write-flash',
+        '--flash-mode', 'qio',
+        '--flash-size', 'detect',
     ]
 
     for addr, filename in file_pairs:
