@@ -149,5 +149,8 @@ def flash_board(
             os.environ.pop('NO_COLOR', None)
         else:
             os.environ['NO_COLOR'] = _prev_no_color
-        if nvs_tmp and os.path.exists(nvs_tmp):
-            os.unlink(nvs_tmp)
+        if nvs_tmp:
+            try:
+                os.unlink(nvs_tmp)
+            except OSError:
+                pass
