@@ -17,6 +17,13 @@ _BOARD_FOLDER = {
     Board.DISPLAY_HMI: 'display_hmi',
 }
 
+# ESP32-S3 native USB supports automatic bootloader entry via USB reset sequence.
+# CH340K boards use classic DTR/RTS toggle (default_reset).
+_BOARD_BEFORE_RESET = {
+    Board.MOTHERBOARD: 'usb_reset',
+    Board.DISPLAY_HMI: 'default_reset',
+}
+
 _BOARD_FILES = {
     Board.MOTHERBOARD: [
         ('0x0000', 'bootloader.bin'),
@@ -110,6 +117,7 @@ def flash_board(
         '--port', port,
         '--chip', 'esp32s3',
         '--baud', '460800',
+        '--before', _BOARD_BEFORE_RESET[board],
         '--no-stub',
         'write-flash',
         '--flash-mode', 'keep',
