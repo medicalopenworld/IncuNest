@@ -119,9 +119,14 @@ def flash_board(
     for addr, fname in file_pairs:
         args += [addr, fname if os.path.isabs(fname) else str(folder / fname)]
 
+    reset_seen = False
+
     class _Writer(io.StringIO):
         def write(self, text: str) -> int:
+            nonlocal reset_seen
             result = super().write(text)
+            if 'resetting' in text.lower():
+                reset_seen = True
             if text.strip():
                 progress_callback(text.rstrip(), tracker.parse(text))
             return result
@@ -142,6 +147,12 @@ def flash_board(
                 f"esptool terminó con error (código {e.code}). "
                 "Flasheo fallido. Vuelve a intentarlo."
             )
+    except Exception as e:
+        # ESP32-S3 native USB re-enumerates after hard reset, making the COM
+        # port temporarily invalid. If the reset already happened, the flash
+        # completed successfully — the port error is expected and harmless.
+        if not reset_seen:
+            raise RuntimeError(str(e))
     finally:
         sys.stdout = old_out
         sys.stderr = old_err
