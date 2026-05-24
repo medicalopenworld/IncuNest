@@ -4,8 +4,10 @@ Produces a single 4 KiB NVS page containing:
   namespace : mb_cfg
   key       : serial  (uint16, range 0-9999)
 
-CRC algorithm: standard CRC32 (same as zlib.crc32), which matches
-the ESP-IDF crc32_le(0xFFFFFFFF, data) followed by bitwise NOT.
+CRC algorithm: ESP-IDF stores crc32_le(0xFFFFFFFF, data) which is the
+standard CRC32 table loop WITHOUT the final XOR inversion. zlib.crc32
+DOES apply that inversion, so we must complement it:
+  esp_idf_crc = (~zlib.crc32(data)) & 0xFFFFFFFF
 """
 import struct
 import zlib
@@ -27,7 +29,8 @@ _DEFAULT_NVS_OFFSET = 0x9000
 
 
 def _crc32(data: bytes) -> int:
-    return zlib.crc32(data) & 0xFFFFFFFF
+    # ESP-IDF crc32_le(0xFFFFFFFF, data) omits the final XOR that zlib applies.
+    return (~zlib.crc32(data)) & 0xFFFFFFFF
 
 
 def _make_entry(ns: int, typ: int, key: str, value: bytes) -> bytes:
@@ -78,8 +81,10 @@ def generate_serial_nvs(serial_number: int) -> bytes:
     bitmap = struct.pack('<I', 0xFFFFFFFA) + b'\xFF' * 28
 
     # Page header: state(4) + seqnum(4) + version(1) + reserved(19) + crc32(4)
-    hdr_payload = struct.pack('<IIB', _PAGE_ACTIVE, 0, _NVS_VER2)
-    header = hdr_payload + b'\xFF' * 19 + struct.pack('<I', _crc32(hdr_payload))
+    # ESP-IDF calculates header CRC over bytes [4:28]: seq_no + version + reserved.
+    # The state field (bytes [0:4]) is intentionally excluded from the CRC.
+    seq_ver_reserved = struct.pack('<IB', 0, _NVS_VER2) + b'\xFF' * 19  # 24 bytes
+    header = struct.pack('<I', _PAGE_ACTIVE) + seq_ver_reserved + struct.pack('<I', _crc32(seq_ver_reserved))
 
     page = bytearray(header) + bytearray(bitmap) + bytearray(e0) + bytearray(e1)
     page += b'\xFF' * (_PAGE_SIZE - len(page))
