@@ -37,6 +37,7 @@ class _Slot:
         self.port: Optional[str] = None
         self.board: Optional[Board] = None
         self._indeterminate = False
+        self._start_time: Optional[float] = None
 
         self._frame = tk.LabelFrame(
             parent, text=f"Slot {index + 1}",
@@ -67,12 +68,23 @@ class _Slot:
     def assign(self, port: str, board: Board) -> None:
         self.port = port
         self.board = board
+        self._start_time = time.time()
         self._title.configure(text=f"{board.value}  ·  {port}", fg='#000000')
         self._progress_var.set(0)
         self._bar.configure(mode='indeterminate')
         self._bar.start(12)
         self._indeterminate = True
-        self._status.configure(text="⚡  Iniciando…", fg='#E65100')
+        self._status.configure(text="⚡  Iniciando…  0s", fg='#E65100')
+
+    def tick(self) -> bool:
+        """Refresh elapsed time while in indeterminate phase. Returns True if still active."""
+        if self._start_time is None or not self._indeterminate:
+            return False
+        self._status.configure(
+            text=f"⚡  Iniciando…  {self._elapsed()}",
+            fg='#E65100',
+        )
+        return True
 
     def update_progress(self, pct: Optional[int]) -> None:
         if pct is None:
@@ -82,26 +94,33 @@ class _Slot:
             self._bar.configure(mode='determinate')
             self._indeterminate = False
         self._progress_var.set(pct)
-        self._status.configure(text=f"⚡  Flasheando…  {pct}%", fg='#E65100')
+        self._status.configure(text=f"⚡  Flasheando…  {pct}%  ({self._elapsed()})", fg='#E65100')
 
     def set_done(self) -> None:
         self._stop_indeterminate()
         self._progress_var.set(100)
         self._title.configure(fg='#2E7D32')
-        self._status.configure(text="✅  Completado", fg='#2E7D32')
+        self._status.configure(text=f"✅  Completado en {self._elapsed()}", fg='#2E7D32')
 
     def set_error(self) -> None:
         self._stop_indeterminate()
         self._title.configure(fg='#C62828')
-        self._status.configure(text="❌  Error — revisa el log", fg='#C62828')
+        self._status.configure(text=f"❌  Error ({self._elapsed()}) — revisa el log", fg='#C62828')
 
     def reset(self) -> None:
         self._stop_indeterminate()
         self.port = None
         self.board = None
+        self._start_time = None
         self._title.configure(text="—  Esperando dispositivo…", fg='#9E9E9E')
         self._progress_var.set(0)
         self._status.configure(text="", fg='#9E9E9E')
+
+    def _elapsed(self) -> str:
+        if self._start_time is None:
+            return '0s'
+        s = int(time.time() - self._start_time)
+        return f'{s}s' if s < 60 else f'{s // 60}m{s % 60:02d}s'
 
     def _stop_indeterminate(self) -> None:
         if self._indeterminate:
@@ -290,7 +309,12 @@ class FlasherApp:
         self._slots[slot_idx].assign(port, board)
         self._log_line(f"{board.value} detectado en {port} → slot {slot_idx + 1}", 'info')
         self._update_status_banner()
+        self._tick_slot(slot_idx)
         self._run_flash(port, board, slot_idx, serial_number)
+
+    def _tick_slot(self, slot_idx: int) -> None:
+        if self._slots[slot_idx].tick():
+            self.root.after(500, self._tick_slot, slot_idx)
 
     # ------------------------------------------------------------------ #
     # Flashing flow

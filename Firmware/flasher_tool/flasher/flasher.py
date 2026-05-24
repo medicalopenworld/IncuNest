@@ -116,7 +116,7 @@ def flash_board(
     args = [
         '--port', port,
         '--chip', 'esp32s3',
-        '--baud', '460800',
+        '--baud', '2000000',
         '--before', _BOARD_BEFORE_RESET[board],
         'write-flash',
         '--flash-mode', 'keep',
