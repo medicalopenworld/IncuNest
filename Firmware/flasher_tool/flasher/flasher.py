@@ -118,11 +118,11 @@ def flash_board(
         '--chip', 'esp32s3',
         '--baud', '460800',
         '--before', _BOARD_BEFORE_RESET[board],
-        '--no-stub',
         'write-flash',
         '--flash-mode', 'keep',
         '--flash-freq', 'keep',
         '--flash-size', 'detect',
+        '--compress',
     ]
     for addr, fname in file_pairs:
         args += [addr, fname if os.path.isabs(fname) else str(folder / fname)]
