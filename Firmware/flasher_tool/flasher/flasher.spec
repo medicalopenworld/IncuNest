@@ -1,10 +1,14 @@
 block_cipher = None
 
+from PyInstaller.utils.hooks import collect_data_files
+
 a = Analysis(
     ['main.py'],
     pathex=['.'],
     binaries=[],
-    datas=[('logo/IncuNest_logo.png', 'logo')],
+    datas=[
+        ('logo/IncuNest_logo.png', 'logo'),
+    ] + collect_data_files('esptool'),
     hiddenimports=[
         'esptool',
         'esptool.cmds',
