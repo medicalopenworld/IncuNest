@@ -1,3 +1,4 @@
+import json
 import sys
 import time
 import threading
@@ -28,6 +29,19 @@ def get_logo_path() -> Path:
     if getattr(sys, 'frozen', False):
         return Path(getattr(sys, '_MEIPASS', '')) / 'logo' / 'IncuNest_logo.png'
     return Path(__file__).parent / 'logo' / 'IncuNest_logo.png'
+
+
+def load_config() -> dict:
+    if getattr(sys, 'frozen', False):
+        path = Path(sys.executable).parent / 'flasher_config.json'
+    else:
+        path = Path(__file__).parent / 'flasher_config.json'
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding='utf-8'))
+    except Exception:
+        return {}
 
 
 class _Slot:
@@ -204,6 +218,9 @@ class FlasherApp:
         self._cooldown_until: dict[str, float] = {}
         self._known_ports: set = set()
 
+        cfg = load_config()
+        self._require_serial: bool = bool(cfg.get('require_serial', False))
+
         self._build_ui()
         self._init_hotplug()
 
@@ -298,7 +315,7 @@ class FlasherApp:
         self._port_to_slot[port] = slot_idx
 
         serial_number: Optional[int] = None
-        if board == Board.MOTHERBOARD:
+        if board == Board.MOTHERBOARD and self._require_serial:
             dlg = _SerialNumberDialog(self.root, port)
             if dlg.result is None:
                 del self._port_to_slot[port]
