@@ -35,13 +35,21 @@ def test_crc32_differs_from_plain_zlib():
 # Page structure
 # ------------------------------------------------------------------ #
 
+_PARTITION_SIZE = 0x6000  # 24 KB default
+
+
 @pytest.fixture
 def page():
-    return generate_serial_nvs(42)
+    return generate_serial_nvs(42, _PARTITION_SIZE)
 
 
-def test_page_is_4096_bytes(page):
-    assert len(page) == _PAGE_SIZE
+def test_image_is_full_partition_size(page):
+    assert len(page) == _PARTITION_SIZE
+
+
+def test_remainder_is_erased_flash(page):
+    # Bytes beyond the first page must be 0xFF so old NVS pages are overwritten.
+    assert page[_PAGE_SIZE:] == b'\xFF' * (_PARTITION_SIZE - _PAGE_SIZE)
 
 
 def test_page_state_is_active(page):
@@ -127,7 +135,7 @@ def test_bitmap_marks_first_two_entries_written(page):
 
 @pytest.mark.parametrize('serial', [0, 1, 9999])
 def test_serial_round_trips(serial):
-    page = generate_serial_nvs(serial)
+    page = generate_serial_nvs(serial, _PARTITION_SIZE)
     offset = _ENTRIES_OFFSET + _ENTRY_SIZE
     e = page[offset: offset + _ENTRY_SIZE]
     value, = struct.unpack_from('<H', e, 24)
@@ -136,6 +144,11 @@ def test_serial_round_trips(serial):
 
 def test_invalid_serial_raises():
     with pytest.raises(ValueError):
-        generate_serial_nvs(10000)
+        generate_serial_nvs(10000, _PARTITION_SIZE)
     with pytest.raises(ValueError):
-        generate_serial_nvs(-1)
+        generate_serial_nvs(-1, _PARTITION_SIZE)
+
+
+def test_invalid_partition_size_raises():
+    with pytest.raises(ValueError):
+        generate_serial_nvs(1, 1000)  # not a multiple of 4096

@@ -46,28 +46,45 @@ def _make_entry(ns: int, typ: int, key: str, value: bytes) -> bytes:
     return bytes(e)
 
 
-def find_nvs_offset(partitions_bin: Path) -> int:
-    """Parse a compiled partition table binary and return the NVS partition offset.
-    Falls back to 0x9000 (ESP32 default) if the file cannot be read or parsed.
+_DEFAULT_NVS_SIZE = 0x6000  # 24 KB — typical ESP32 NVS partition
+
+
+def find_nvs_partition(partitions_bin: Path) -> tuple[int, int]:
+    """Return (offset, size) of the NVS partition.
+    Falls back to (0x9000, 0x6000) if the file cannot be read or parsed.
     """
     try:
         data = partitions_bin.read_bytes()
     except OSError:
-        return _DEFAULT_NVS_OFFSET
+        return _DEFAULT_NVS_OFFSET, _DEFAULT_NVS_SIZE
     for i in range(0, len(data), 32):
         row = data[i:i + 32]
         if len(row) < 32 or row[0] == 0xFF:
             break
         # magic=0xAA50, type=0x01 (data), subtype=0x02 (nvs)
         if row[0] == 0xAA and row[1] == 0x50 and row[2] == 0x01 and row[3] == 0x02:
-            return struct.unpack_from('<I', row, 4)[0]
-    return _DEFAULT_NVS_OFFSET
+            offset = struct.unpack_from('<I', row, 4)[0]
+            size   = struct.unpack_from('<I', row, 8)[0]
+            return offset, size
+    return _DEFAULT_NVS_OFFSET, _DEFAULT_NVS_SIZE
 
 
-def generate_serial_nvs(serial_number: int) -> bytes:
-    """Return a 4096-byte NVS partition image with mb_cfg::serial = serial_number."""
+def find_nvs_offset(partitions_bin: Path) -> int:
+    """Kept for backwards compatibility."""
+    return find_nvs_partition(partitions_bin)[0]
+
+
+def generate_serial_nvs(serial_number: int, partition_size: int = _DEFAULT_NVS_SIZE) -> bytes:
+    """Return an NVS partition image of partition_size bytes with mb_cfg::serial = serial_number.
+
+    Writing the full partition size (not just the first 4 KB page) ensures any
+    pre-existing NVS pages with higher seq_no values are overwritten with 0xFF
+    (erased flash), so ESP-IDF picks our page as the only valid one.
+    """
     if not (0 <= serial_number <= 9999):
         raise ValueError(f"serial_number must be 0-9999, got {serial_number}")
+    if partition_size < _PAGE_SIZE or partition_size % _PAGE_SIZE != 0:
+        raise ValueError(f"partition_size must be a multiple of {_PAGE_SIZE}, got {partition_size}")
 
     # Entry 0 — namespace declaration: 'mb_cfg' is assigned index 1
     e0 = _make_entry(0, _T_U8,  'mb_cfg', bytes([1]))
@@ -89,4 +106,7 @@ def generate_serial_nvs(serial_number: int) -> bytes:
     page = bytearray(header) + bytearray(bitmap) + bytearray(e0) + bytearray(e1)
     page += b'\xFF' * (_PAGE_SIZE - len(page))
     assert len(page) == _PAGE_SIZE
-    return bytes(page)
+
+    # Pad to full partition size with 0xFF (erased flash). This overwrites any
+    # pre-existing NVS pages with higher seq_no that ESP-IDF would otherwise prefer.
+    return bytes(page) + b'\xFF' * (partition_size - _PAGE_SIZE)

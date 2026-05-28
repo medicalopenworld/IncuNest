@@ -102,8 +102,8 @@ def flash_board(
     nvs_tmp: Optional[str] = None
 
     if serial_number is not None and board == Board.MOTHERBOARD:
-        nvs_offset = nvs_gen.find_nvs_offset(folder / 'partitions.bin')
-        nvs_data   = nvs_gen.generate_serial_nvs(serial_number)
+        nvs_offset, nvs_size = nvs_gen.find_nvs_partition(folder / 'partitions.bin')
+        nvs_data = nvs_gen.generate_serial_nvs(serial_number, nvs_size)
         fd, nvs_tmp = tempfile.mkstemp(suffix='.bin')
         try:
             os.write(fd, nvs_data)
