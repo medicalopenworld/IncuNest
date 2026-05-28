@@ -25,6 +25,9 @@
 
 #include "main.h" // Incluye BQ25730.h, logI/logE, Wire, etc.
 
+static inline void bqI(const String &s) { if (LOG_CHARGER) logI(s); }
+static inline void bqE(const String &s) { if (LOG_CHARGER) logE(s); }
+
 // ─── Estado interno del módulo ────────────────────────────────────────────────
 bool chargerPresent = false;
 static TwoWire *_i2c = nullptr;
@@ -123,16 +126,16 @@ bool init_BQ25730(TwoWire *i2c) {
     uint8_t mfr_id = 0, dev_id = 0;
     if (!read_reg8(BQ25730_REG_MFR_ID, &mfr_id) ||
         !read_reg8(BQ25730_REG_DEV_ID, &dev_id)) {
-        logE("[BQ25730] I2C sin respuesta en 0x" + String(BQ25730_ADDR, HEX));
+        bqE("[BQ25730] I2C sin respuesta en 0x" + String(BQ25730_ADDR, HEX));
         return false;
     }
     if (mfr_id != BQ25730_MFR_ID_EXPECTED || dev_id != BQ25730_DEV_ID_EXPECTED) {
-        logE("[BQ25730] ID inesperado: mfr=0x" + String(mfr_id, HEX) +
+        bqE("[BQ25730] ID inesperado: mfr=0x" + String(mfr_id, HEX) +
              " dev=0x" + String(dev_id, HEX) +
              " (esperado 0x" + String(BQ25730_MFR_ID_EXPECTED, HEX) +
              "/0x" + String(BQ25730_DEV_ID_EXPECTED, HEX) + ") – continuando");
     } else {
-        logI("[BQ25730] Chip detectado (mfr=0x" + String(mfr_id, HEX) +
+        bqI("[BQ25730] Chip detectado (mfr=0x" + String(mfr_id, HEX) +
              " dev=0x" + String(dev_id, HEX) + ")");
     }
 
@@ -151,10 +154,10 @@ bool init_BQ25730(TwoWire *i2c) {
                                     BQ25730_OPT0_EN_LDO          |  // bit  2
                                     BQ25730_OPT0_EN_IDPM;           // bit  1
     if (!write_reg16(BQ25730_REG_CHARGE_OPTION0, charge_option0)) {
-        logE("[BQ25730] Error escribiendo ChargeOption0");
+        bqE("[BQ25730] Error escribiendo ChargeOption0");
         return false;
     }
-    logI("[BQ25730] ChargeOption0 = 0x" + String(charge_option0, HEX));
+    bqI("[BQ25730] ChargeOption0 = 0x" + String(charge_option0, HEX));
 
     // ── 3. ChargeOption1 (0x30) ───────────────────────────────────────────────
     //  • EN_IBAT = 1   → Medición de corriente de batería por ADC.
@@ -165,15 +168,15 @@ bool init_BQ25730(TwoWire *i2c) {
                                     BQ25730_OPT1_RSNS_RAC   |  // bit 11
                                     BQ25730_OPT1_RSNS_RSR;     // bit 10
     if (!write_reg16(BQ25730_REG_CHARGE_OPTION1, charge_option1)) {
-        logE("[BQ25730] Error escribiendo ChargeOption1");
+        bqE("[BQ25730] Error escribiendo ChargeOption1");
         return false;
     }
-    logI("[BQ25730] ChargeOption1 = 0x" + String(charge_option1, HEX));
+    bqI("[BQ25730] ChargeOption1 = 0x" + String(charge_option1, HEX));
 
     // ── 4. ChargeOption2 y ChargeOption3 (0x32 / 0x34) ───────────────────────
     if (!write_reg16(BQ25730_REG_CHARGE_OPTION2, 0x0000) ||
         !write_reg16(BQ25730_REG_CHARGE_OPTION3, 0x0000)) {
-        logE("[BQ25730] Error escribiendo ChargeOption2/3");
+        bqE("[BQ25730] Error escribiendo ChargeOption2/3");
         return false;
     }
 
@@ -192,64 +195,64 @@ bool init_BQ25730(TwoWire *i2c) {
                                 BQ25730_ADC_EN_VSYS    |  // bit  1
                                 BQ25730_ADC_EN_VBAT;      // bit  0
     if (!write_reg16(BQ25730_REG_ADC_OPTION, adc_option)) {
-        logE("[BQ25730] Error escribiendo ADCOption");
+        bqE("[BQ25730] Error escribiendo ADCOption");
         return false;
     }
-    logI("[BQ25730] ADCOption = 0x" + String(adc_option, HEX));
+    bqI("[BQ25730] ADCOption = 0x" + String(adc_option, HEX));
 
     // ── 6. IIN_HOST (0x0E): límite de corriente de entrada ───────────────────
     //  6400 mA real → adj 3840 mA → code = 3840/100-1 = 37 → reg 0x2500
     const uint16_t iin_host = calc_iin_host_reg(BQ25730_IIN_LIMIT_MA);
     if (!write_reg16(BQ25730_REG_IIN_HOST, iin_host)) {
-        logE("[BQ25730] Error escribiendo IIN_HOST");
+        bqE("[BQ25730] Error escribiendo IIN_HOST");
         return false;
     }
-    logI("[BQ25730] IIN_HOST = " + String(BQ25730_IIN_LIMIT_MA) + " mA (reg=0x" +
+    bqI("[BQ25730] IIN_HOST = " + String(BQ25730_IIN_LIMIT_MA) + " mA (reg=0x" +
          String(iin_host, HEX) + ")");
 
     // ── 7. VINDPM (0x0A): umbral mínimo de entrada ────────────────────────────
     //  Para 19520 mV: (19520-3200)/64 = 255 → 0x3FC0
     const uint16_t vindpm = calc_vindpm_reg(BQ25730_VINDPM_MV);
     if (!write_reg16(BQ25730_REG_INPUT_VOLTAGE, vindpm)) {
-        logE("[BQ25730] Error escribiendo VINDPM");
+        bqE("[BQ25730] Error escribiendo VINDPM");
         return false;
     }
-    logI("[BQ25730] VINDPM = " + String(BQ25730_VINDPM_MV) + " mV (reg=0x" +
+    bqI("[BQ25730] VINDPM = " + String(BQ25730_VINDPM_MV) + " mV (reg=0x" +
          String(vindpm, HEX) + ")");
 
     // ── 8. VSYS_MIN (0x0C): tensión mínima de sistema ────────────────────────
     //  11000 mV: (11000-1000)/100 = 100 → reg 0x6400
     const uint16_t vsys_min = calc_vsys_min_reg(BQ25730_VSYS_MIN_MV);
     if (!write_reg16(BQ25730_REG_VSYS_MIN, vsys_min)) {
-        logE("[BQ25730] Error escribiendo VSYS_MIN");
+        bqE("[BQ25730] Error escribiendo VSYS_MIN");
         return false;
     }
-    logI("[BQ25730] VSYS_MIN = " + String(BQ25730_VSYS_MIN_MV) + " mV (reg=0x" +
+    bqI("[BQ25730] VSYS_MIN = " + String(BQ25730_VSYS_MIN_MV) + " mV (reg=0x" +
          String(vsys_min, HEX) + ")");
 
     // ── 9. ChargeCurrent (0x02) ───────────────────────────────────────────────
     //  960 mA real → adj 576 mA → 576/64=9 → reg 0x0240
     const uint16_t chg_current = calc_charge_current_reg(BQ25730_ICHG_MA);
     if (!write_reg16(BQ25730_REG_CHARGE_CURRENT, chg_current)) {
-        logE("[BQ25730] Error escribiendo ChargeCurrent");
+        bqE("[BQ25730] Error escribiendo ChargeCurrent");
         return false;
     }
-    logI("[BQ25730] ChargeCurrent = " + String(BQ25730_ICHG_MA) + " mA (reg=0x" +
+    bqI("[BQ25730] ChargeCurrent = " + String(BQ25730_ICHG_MA) + " mA (reg=0x" +
          String(chg_current, HEX) + ")");
 
     // ── 10. MaxChargeVoltage (0x04): tensión de absorción ─────────────────────
     //  14400 mV: 14400/16=900 → reg 0x3840
     const uint16_t chg_voltage = calc_charge_voltage_reg(BQ25730_VCHARGE_ABSORPTION_MV);
     if (!write_reg16(BQ25730_REG_MAX_CHG_VOLT, chg_voltage)) {
-        logE("[BQ25730] Error escribiendo MaxChargeVoltage");
+        bqE("[BQ25730] Error escribiendo MaxChargeVoltage");
         return false;
     }
-    logI("[BQ25730] MaxChargeVoltage = " + String(BQ25730_VCHARGE_ABSORPTION_MV) +
+    bqI("[BQ25730] MaxChargeVoltage = " + String(BQ25730_VCHARGE_ABSORPTION_MV) +
          " mV (absorción) (reg=0x" + String(chg_voltage, HEX) + ")");
 
     _initialized   = true;
     chargerPresent = true;
-    logI("[BQ25730] Init OK (PDF V2) – Vabs=14.4V Ichg=960mA IIN=6400mA VSYS=11V VINDPM=12V");
+    bqI("[BQ25730] Init OK (PDF V2) – Vabs=14.4V Ichg=960mA IIN=6400mA VSYS=11V VINDPM=12V");
     return true;
 }
 
@@ -265,31 +268,31 @@ bool charge_status(BQ25730_Status *status) {
 
     // REG 0x20: ChargerStatus
     if (!read_reg16(BQ25730_REG_CHARGER_STATUS, &raw_status)) {
-        logE("[BQ25730] Error leyendo ChargerStatus");
+        bqE("[BQ25730] Error leyendo ChargerStatus");
         return false;
     }
 
     // REG 0x26: byte bajo = PSYS, byte alto = VBUS (96 mV/bit, sin offset)
     if (!read_reg16(BQ25730_REG_ADC_VBUS_PSYS, &raw_vbus_psys)) {
-        logE("[BQ25730] Error leyendo ADC_VBUS");
+        bqE("[BQ25730] Error leyendo ADC_VBUS");
         return false;
     }
 
     // REG 0x28: byte bajo = IDCHG, byte alto = ICHG
     if (!read_reg16(BQ25730_REG_ADC_IBAT, &raw_ibat)) {
-        logE("[BQ25730] Error leyendo ADC_IBAT");
+        bqE("[BQ25730] Error leyendo ADC_IBAT");
         return false;
     }
 
     // REG 0x2A: byte bajo = CMPIN, byte alto = IBUS
     if (!read_reg16(BQ25730_REG_ADC_IBUS_IDCHG, &raw_ibus)) {
-        logE("[BQ25730] Error leyendo ADC_IBUS");
+        bqE("[BQ25730] Error leyendo ADC_IBUS");
         return false;
     }
 
     // REG 0x2C: byte bajo = VBAT, byte alto = VSYS
     if (!read_reg16(BQ25730_REG_ADC_VSYS_VBAT, &raw_vsys_vbat)) {
-        logE("[BQ25730] Error leyendo ADC_VSYS_VBAT");
+        bqE("[BQ25730] Error leyendo ADC_VSYS_VBAT");
         return false;
     }
 
@@ -343,15 +346,15 @@ bool charge_status(BQ25730_Status *status) {
 // ─── set_charge_voltage() ─────────────────────────────────────────────────────
 bool set_charge_voltage(uint16_t voltage_mv) {
     if (!_initialized) {
-        logE("[BQ25730] set_charge_voltage: chip no inicializado");
+        bqE("[BQ25730] set_charge_voltage: chip no inicializado");
         return false;
     }
     uint16_t reg_val = calc_charge_voltage_reg(voltage_mv);
     if (!write_reg16(BQ25730_REG_MAX_CHG_VOLT, reg_val)) {
-        logE("[BQ25730] Error escribiendo tensión: " + String(voltage_mv) + " mV");
+        bqE("[BQ25730] Error escribiendo tensión: " + String(voltage_mv) + " mV");
         return false;
     }
-    logI("[BQ25730] Tensión de carga cambiada a " + String(voltage_mv) +
+    bqI("[BQ25730] Tensión de carga cambiada a " + String(voltage_mv) +
          " mV (reg=0x" + String(reg_val, HEX) + ")");
     return true;
 }
