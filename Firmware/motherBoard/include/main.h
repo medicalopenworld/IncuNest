@@ -19,7 +19,7 @@
 #include "esp_system.h"
 #include "freertos/semphr.h"
 #include <Beastdevices_INA3221.h>
-#include <EEPROM.h>
+#include <Preferences.h>
 #include <Filters.h>
 #include <RotaryEncoder.h>
 #include <Wire.h>
@@ -428,45 +428,60 @@ extern int g_restore_photo_minutes;
 #define buzzerSwitchDuration 10      // in micros, tone freq
 #define buzzerStandbyToneTimes 1     // in micros, tone freq
 
-// EEPROM variables
-#define EEPROM_SIZE 512
-#define EEPROM_CHECK_STATUS 0
-#define EEPROM_FIRST_TURN_ON 10
-#define EEPROM_AUTO_LOCK 20
-#define EEPROM_LANGUAGE 30
-#define EEPROM_SERIAL_NUMBER 40
-#define EEPROM_WIFI_EN 50
-#define EEPROM_CONTROL_ACTIVE 60
-#define EEPROM_PHOTOTHERAPY_ACTIVE 65
-#define EEPROM_CONTROL_MODE 70
-#define EEPROM_HEATER_TEST 75
-#define EEPROM_DESIRED_CONTROL_TEMPERATURE 80
-#define EEPROM_DESIRED_CONTROL_HUMIDITY 90
-#define EEPROM_RAW_SKIN_TEMP_LOW_CORRECTION 100
-#define EEPROM_RAW_SKIN_TEMP_RANGE_CORRECTION 110
-#define EEPROM_WIFI_SSID 115
-#define EEPROM_WIFI_PASSWORD 145
-#define EEPROM_REFERENCE_TEMP_RANGE 170
-#define EEPROM_REFERENCE_TEMP_LOW 180
-#define EEPROM_FINE_TUNE_TEMP_SKIN 190
-#define EEPROM_FINE_TUNE_TEMP_AIR 194
-#define EEPROM_THINGSBOARD_PROVISIONED 200
-#define EEPROM_THINGSBOARD_TOKEN 205
-#define EEPROM_STANDBY_TIME 226
-#define EEPROM_CONTROL_ACTIVE_TIME 230
-#define EEPROM_HEATER_ACTIVE_TIME 234
-#define EEPROM_FAN_ACTIVE_TIME 238
-#define EEPROM_PHOTOTHERAPY_ACTIVE_TIME 242
-#define EEPROM_HUMIDIFIER_ACTIVE_TIME 246
-#define EEPROM_PANIC_OTA_CHANGE 250
-#define EEPROM_FAN_PWM 254
-#define EEPROM_HEATER_MAX_AMPS 258
-#define EEPROM_SKIN_TEMP_MAX 262
-#define EEPROM_AIR_TEMP_MAX 266
-#define EEPROM_GPRS_ACT_PERIOD 270
-#define EEPROM_GPRS_PHOTO_PERIOD 274
-#define EEPROM_GPRS_STBY_PERIOD 278
-#define EEPROM_FAN_CTL_PWM 282
+// --------------- Preferences namespaces ---------------
+constexpr char NS_CFG[]   = "mb_cfg";
+constexpr char NS_CAL[]   = "mb_cal";
+constexpr char NS_WIFI[]  = "mb_wifi";
+constexpr char NS_GPRS[]  = "mb_gprs";
+constexpr char NS_RT[]    = "mb_rt";
+constexpr char NS_STATE[] = "mb_state";
+
+// --------------- Key names: mb_cfg ---------------
+constexpr char KEY_LANG[]        = "lang";
+constexpr char KEY_AUTOLOCK[]    = "autolock";
+constexpr char KEY_SERIAL[]      = "serial";
+constexpr char KEY_CTRL_MODE[]   = "ctrl_mode";
+constexpr char KEY_CTRL_TEMP[]   = "ctrl_temp";
+constexpr char KEY_CTRL_HUM[]    = "ctrl_hum";
+constexpr char KEY_FAN_PWM[]     = "fan_pwm";
+constexpr char KEY_HEAT_MAX_A[]  = "heat_max_A";
+constexpr char KEY_SKIN_T_MAX[]  = "skin_t_max";
+constexpr char KEY_AIR_T_MAX[]   = "air_t_max";
+constexpr char KEY_HEATER_TEST[] = "heater_test";
+constexpr char KEY_PANIC_OTA[]   = "panic_ota";
+constexpr char KEY_FAN_CTL_PWM[] = "fan_ctl_pwm";
+
+// --------------- Key names: mb_cal ---------------
+constexpr char KEY_CAL_SK_LOW[]  = "cal_sk_low";
+constexpr char KEY_CAL_SK_RNG[]  = "cal_sk_rng";
+constexpr char KEY_CAL_REF_RNG[] = "cal_ref_rng";
+constexpr char KEY_CAL_REF_LOW[] = "cal_ref_low";
+constexpr char KEY_FT_SKIN[]     = "ft_skin";
+constexpr char KEY_FT_AIR[]      = "ft_air";
+
+// --------------- Key names: mb_wifi ---------------
+constexpr char KEY_SSID[]     = "ssid";
+constexpr char KEY_PASSWORD[] = "password";
+
+// --------------- Key names: mb_gprs ---------------
+constexpr char KEY_PROVISIONED[]  = "provisioned";
+constexpr char KEY_TOKEN[]        = "token";
+constexpr char KEY_ACT_PERIOD[]   = "act_period";
+constexpr char KEY_PHOTO_PERIOD[] = "photo_period";
+constexpr char KEY_STBY_PERIOD[]  = "stby_period";
+
+// --------------- Key names: mb_rt ---------------
+constexpr char KEY_RT_STANDBY[]  = "standby";
+constexpr char KEY_RT_CTRL[]     = "ctrl_time";
+constexpr char KEY_RT_HEATER[]   = "heater_t";
+constexpr char KEY_RT_FAN[]      = "fan_t";
+constexpr char KEY_RT_PHOTO[]    = "photo_t";
+constexpr char KEY_RT_HUM[]      = "hum_t";
+
+// --------------- Key names: mb_state ---------------
+constexpr char KEY_CTRL_ACTIVE[]  = "ctrl_active";
+constexpr char KEY_PHOTO_ACTIVE[] = "photo_active";
+constexpr char KEY_ACTUATION[]    = "actuation";
 
 #define SKIN_CALIBRATION_CORRECTION_FACTOR 0
 
