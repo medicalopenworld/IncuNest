@@ -676,10 +676,10 @@ void setup() {
        " gprs_kill="  + String(g_gprsKillCount) +
        " mon_kill="   + String(g_monKillCount));
 
-  initGPIO();
   initEEPROM();
+  initGPIO();
 
-  // Now that EEPROM is loaded, set the serial number and log it
+  // Set the serial number and log it
   ctrl_tel_msg.serialNumber = in3.serialNumber;
   logI("IncuNest debug uart, version v" + String(FWversion) + "/" +
        String(HWversion) + ", SN: " + String(in3.serialNumber));
