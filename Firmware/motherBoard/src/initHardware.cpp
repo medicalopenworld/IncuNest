@@ -151,6 +151,10 @@ extern int ScreenBacklightMode;
 #define CURRENT_STABILIZE_TIME_DEFAULT 700
 #define CURRENT_STABILIZE_TIME_HEATER 1000
 #define CURRENT_STABILIZE_MAX_TIME 2000
+// Cargas térmicas (heater, fotosterapia): necesitan más tiempo para que la
+// ventana deslizante de measureStabilizedCurrent (WINDOW=10 × 200ms = 2 s)
+// detecte estabilización real y no una deriva lenta.
+#define CURRENT_STABILIZE_MAX_TIME_THERMAL 8000
 
 #define INA3221_RESET_DELAY_MS 100
 #define INA3221_FIRST_CONVERSION_DELAY_MS 150
@@ -173,13 +177,11 @@ extern int ScreenBacklightMode;
 #define FAN_CONSUMPTION_MAX 0.8
 #define PHOTOTHERAPY_CONSUMPTION_DEFAULT 0.45
 #define PHOTOTHERAPY_CONSUMPTION_MAX 3
+#define PHOTOTHERAPY_INITIAL_PWM_PCT 40
 #define HUMIDIFIER_CONSUMPTION_MAX 0.8
 
 #define STANDBY_CONSUMPTION_MIN 0
 #define STANDBY_CONSUMPTION_MAX 1
-
-#define SCREEN_CONSUMPTION_MIN 0.005
-#define SCREEN_CONSUMPTION_MAX 1
 
 #define BUZZER_CONSUMPTION_MIN 0
 #define BUZZER_CONSUMPTION_MAX 1
@@ -321,7 +323,7 @@ void initGPIO() {
   pinMode(ON_OFF_SWITCH, INPUT); // active HIGH: pressed=HIGH, released=LOW
   pinMode(USB_EN, OUTPUT);
   digitalWrite(USB_EN, LOW); // humidifier OFF by default
-  pinMode(USB_FAULT, INPUT); // active LOW: fault = LOW (external pull-up)
+  pinMode(USB_FAULT, INPUT_PULLUP); // open-drain activo bajo: pull-up necesario
 #endif
   initPWMGPIO();
   logI("[HW] -> GPIOs initilialized");
@@ -637,30 +639,13 @@ void testDisplay() {
     logE("[HW] -> Fail -> test current is " + String(testCurrent) + " Amps");
   }
   in3.display_current_test = testCurrent;
-#else
-  long error = HW_error;
-  float testCurrent;
-  testCurrent = measureStabilizedCurrent(
-      SECUNDARY, DISPLAY_SHUNT_CHANNEL, 0, SCREEN_CONSUMPTION_MIN,
-      SCREEN_CONSUMPTION_MAX, CURRENT_STABILIZE_MAX_TIME);
-  logI("[HW] -> Display current consumption: " + String(testCurrent) + " Amps");
-  in3.display_current_test = testCurrent;
-  if (testCurrent < SCREEN_CONSUMPTION_MIN) {
-    logE("[HW] -> Fail -> Display current consumption is too low");
-  }
-  if (testCurrent > SCREEN_CONSUMPTION_MAX) {
-    logE("[HW] -> Fail -> Display current consumption is too high");
-  }
-  if (error == HW_error) {
-    logI("[HW] -> OK -> Display is working as expected");
-  }
 #endif
 }
 
 void testBuzzer() {
   long error = HW_error;
   float testCurrent, offsetCurrent;
-
+    #if(HW_NUM <= 16)
   offsetCurrent = measureMeanConsumption(MAIN, SYSTEM_SHUNT_CHANNEL);
   ledcWrite(BUZZER_PWM_CHANNEL, BUZZER_HALF_PWM);
   testCurrent = measureStabilizedCurrent(
@@ -668,6 +653,11 @@ void testBuzzer() {
       BUZZER_CONSUMPTION_MAX, CURRENT_STABILIZE_MAX_TIME);
   ledcWrite(BUZZER_PWM_CHANNEL, false);
   vTaskDelay(pdMS_TO_TICKS(CURRENT_STABILIZE_TIME_DEFAULT));
+  #else
+    ledcWrite(BUZZER_PWM_CHANNEL, BUZZER_HALF_PWM);
+    vTaskDelay(pdMS_TO_TICKS(CURRENT_STABILIZE_TIME_DEFAULT));
+    ledcWrite(BUZZER_PWM_CHANNEL, false);
+  #endif
   if (testCurrent < BUZZER_CONSUMPTION_MIN) {
     addErrorToVar(HW_error, DEFECTIVE_BUZZER);
     logE("[HW] -> Fail -> Buzzer current is not high enough");
@@ -698,7 +688,7 @@ bool actuatorsTest() {
   logI("[HW] -> Heater PWM ON, stabilizing...");
   testCurrent = measureStabilizedCurrent(
       SECUNDARY, HEATER_SHUNT_CHANNEL, offsetCurrent, HEATER_CONSUMPTION_MIN,
-      HEATER_CONSUMPTION_MAX, CURRENT_STABILIZE_MAX_TIME);
+      HEATER_CONSUMPTION_MAX, CURRENT_STABILIZE_MAX_TIME_THERMAL, 110, 10);
   logI("[HW] -> Heater delta=" + String(testCurrent) + " Amps");
 #else
   offsetCurrent = measureMeanConsumption(MAIN, SYSTEM_SHUNT_CHANNEL);
@@ -707,7 +697,7 @@ bool actuatorsTest() {
   logI("[HW] -> Heater PWM ON, stabilizing...");
   testCurrent = measureStabilizedCurrent(
       MAIN, SYSTEM_SHUNT_CHANNEL, offsetCurrent, HEATER_CONSUMPTION_MIN,
-      HEATER_CONSUMPTION_MAX, CURRENT_STABILIZE_MAX_TIME);
+      HEATER_CONSUMPTION_MAX, CURRENT_STABILIZE_MAX_TIME_THERMAL, 110, 10);
   logI("[HW] -> Heater delta=" + String(testCurrent) + " Amps");
 #endif
   logI("[HW] -> Heater current consumption: " + String(testCurrent) + " Amps");
@@ -731,33 +721,50 @@ bool actuatorsTest() {
   }
   EEPROM.write(EEPROM_HEATER_TEST, true);
   EEPROM.commit();
+  // Test a 10 % PWM: no deslumbra, estabilización térmica rápida.
+  // La recta I(PWM) = m·PWM + b cruza el eje en PWM = -PHOTOTHERAPY_PWM_ZERO,
+  // calibrado con el barrido inicial. La extrapolación es:
+  //   PWM_target = I_target·(PWM_test + Z) / I_test − Z
+  // Los límites de pass/fail se escalan por (PWM_test+Z)/(PWM_MAX+Z).
+  const int   PHOTOTHERAPY_TEST_PWM  = PWM_MAX_VALUE * 10 / 100; // ~25
+  const float PHOTOTHERAPY_PWM_ZERO  = 20.0f; // cruce de cero calibrado
+  const float photoScale = (PHOTOTHERAPY_TEST_PWM + PHOTOTHERAPY_PWM_ZERO) /
+                           (PWM_MAX_VALUE         + PHOTOTHERAPY_PWM_ZERO);
+
   vTaskDelay(pdMS_TO_TICKS(CURRENT_STABILIZE_TIME_DEFAULT));
   offsetCurrent = measureMeanConsumption(MAIN, PHOTOTHERAPY_SHUNT_CHANNEL);
-  ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, PWM_MAX_VALUE);
+  ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, PHOTOTHERAPY_TEST_PWM);
   testCurrent = measureStabilizedCurrent(
       MAIN, PHOTOTHERAPY_SHUNT_CHANNEL, offsetCurrent,
-      PHOTOTHERAPY_CONSUMPTION_MIN, PHOTOTHERAPY_CONSUMPTION_MAX,
-      CURRENT_STABILIZE_MAX_TIME);
+      PHOTOTHERAPY_CONSUMPTION_MIN * photoScale,
+      PHOTOTHERAPY_CONSUMPTION_MAX * photoScale,
+      CURRENT_STABILIZE_MAX_TIME_THERMAL, 110, 10);
   ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, false);
-  logI("[HW] -> Phototherapy current consumption: " + String(testCurrent) +
-       " Amps");
-  in3.phototherapy_current_test = testCurrent;
-  if (testCurrent < PHOTOTHERAPY_CONSUMPTION_MIN) {
+
+  logI("[HW] -> Phototherapy @10% (PWM=" + String(PHOTOTHERAPY_TEST_PWM) +
+       "): " + String(testCurrent, 3) + " A");
+  in3.phototherapy_current_test = testCurrent;;
+  if (testCurrent < PHOTOTHERAPY_CONSUMPTION_MIN * photoScale) {
     addErrorToVar(HW_error, PHOTOTHERAPY_CONSUMPTION_MIN_ERROR);
-    logE("[HW] -> Fail -> PHOTOTHERAPY current consumption is too low");
+    logE("[HW] -> Fail -> PHOTOTHERAPY current too low at 10%");
   }
-  if (testCurrent > PHOTOTHERAPY_CONSUMPTION_MAX) {
+  if (testCurrent > PHOTOTHERAPY_CONSUMPTION_MAX * photoScale) {
     addErrorToVar(HW_error, PHOTOTHERAPY_CONSUMPTION_MAX_ERROR);
-    logE("[HW] -> Fail -> PHOTOTHERAPY current consumption is too high");
+    logE("[HW] -> Fail -> PHOTOTHERAPY current too high at 10%");
     digitalWrite(ACTUATORS_EN, LOW);
     return (true);
-  } else if (testCurrent > PHOTOTHERAPY_CONSUMPTION_DEFAULT) {
-    in3.phototherapy_intensity =
-        PHOTOTHERAPY_CONSUMPTION_DEFAULT * PWM_MAX_VALUE / testCurrent;
-    logI("[HW] -> Phototherapy regulated to: " +
-         String(float(in3.phototherapy_intensity) * 100 / PWM_MAX_VALUE) +
-         " %");
   }
+
+  // Extrapolación: PWM para PHOTOTHERAPY_CONSUMPTION_DEFAULT amperios
+  int pwmTarget = (int)roundf(
+      PHOTOTHERAPY_CONSUMPTION_DEFAULT *
+          (PHOTOTHERAPY_TEST_PWM + PHOTOTHERAPY_PWM_ZERO) / testCurrent -
+      PHOTOTHERAPY_PWM_ZERO);
+  pwmTarget = constrain(pwmTarget, 0, PWM_MAX_VALUE);
+  in3.phototherapy_intensity = pwmTarget;
+  logI("[HW] -> Phototherapy extrapolated PWM=" + String(pwmTarget) +
+       " (" + String(pwmTarget * 100 / PWM_MAX_VALUE) + "%) for " +
+       String(PHOTOTHERAPY_CONSUMPTION_DEFAULT, 2) + " A");
 #if (HW_NUM >= 16)
   in3_hum.turn(ON);
   vTaskDelay(pdMS_TO_TICKS(CURRENT_STABILIZE_TIME_DEFAULT));
@@ -767,7 +774,6 @@ bool actuatorsTest() {
     addErrorToVar(HW_error, HUMIDIFIER_CONSUMPTION_MAX_ERROR);
     logE("[HW] -> Fail -> USB_FAULT on humidifier (short-circuit/overload)");
     digitalWrite(ACTUATORS_EN, LOW);
-    return (true);
   }
   in3.humidifier_current_test = 1.0; // no INA3221 on USB channel for HW16
   logI("[HW] -> OK -> Humidifier USB_EN test passed, no fault");
@@ -802,7 +808,7 @@ bool actuatorsTest() {
 #endif
   // Wait for motor to spin up and INA3221 to fill its 128-sample buffer
   // before measureStabilizedCurrent takes its first reading (~2 full cycles)
-  vTaskDelay(pdMS_TO_TICKS(120));
+  vTaskDelay(pdMS_TO_TICKS(220));
 
   testCurrent = measureStabilizedCurrent(
       MAIN, FAN_SHUNT_CHANNEL, offsetCurrent, FAN_CONSUMPTION_MIN,

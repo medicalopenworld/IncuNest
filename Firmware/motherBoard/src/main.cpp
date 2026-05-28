@@ -451,6 +451,13 @@ void Communication_Receiver(void *pvParameters) {
         in3.language = hmi_cmd_msg.language;
         resendActiveAlarms();
       }
+      if (in3.phototherapy) {
+        if (in3.photoFirstRun) {
+          in3.phototherapy_intensity = PWM_MAX_VALUE * PHOTOTHERAPY_INITIAL_PWM_PCT / 100;
+          in3.photoFirstRun = false;
+        }
+        in3.photoTurnOnTime = millis();
+      }
       ledcWrite(PHOTOTHERAPY_PWM_CHANNEL,
                 in3.phototherapy * in3.phototherapy_intensity);
       turnFans(bool(in3.phototherapy || in3.actuation));

@@ -641,8 +641,6 @@ void addConfigTelemetriesToWIFIJSON() {
       roundSignificantDigits(in3.phototherapy_intensity, TELEMETRIES_DECIMALS);
   addVariableToTelemetryWIFIJSON[HUMIDIFIER_CURR_KEY] =
       roundSignificantDigits(in3.humidifier_current_test, TELEMETRIES_DECIMALS);
-  addVariableToTelemetryWIFIJSON[DISPLAY_CURR_TEST_KEY] =
-      roundSignificantDigits(in3.display_current_test, TELEMETRIES_DECIMALS);
   addVariableToTelemetryWIFIJSON[BUZZER_CURR_TEST_KEY] =
       roundSignificantDigits(in3.buzzer_current_test, TELEMETRIES_DECIMALS);
   addVariableToTelemetryWIFIJSON[HW_TEST_KEY] = in3.HW_test_error_code;

@@ -548,8 +548,6 @@ void addConfigTelemetriesToGPRSJSON() {
       roundSignificantDigits(in3.phototherapy_intensity, TELEMETRIES_DECIMALS);
   addVariableToTelemetryGPRSJSON[HUMIDIFIER_CURR_KEY] =
       roundSignificantDigits(in3.humidifier_current_test, TELEMETRIES_DECIMALS);
-  addVariableToTelemetryGPRSJSON[DISPLAY_CURR_TEST_KEY] =
-      roundSignificantDigits(in3.display_current_test, TELEMETRIES_DECIMALS);
   addVariableToTelemetryGPRSJSON[BUZZER_CURR_TEST_KEY] =
       roundSignificantDigits(in3.buzzer_current_test, TELEMETRIES_DECIMALS);
   addVariableToTelemetryGPRSJSON[HW_TEST_KEY] = in3.HW_test_error_code;

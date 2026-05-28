@@ -351,10 +351,10 @@
 
 #define SDCard false
 #if (HW_NUM >= 17)
-#define SYSTEM_SHUNT 3        // miliohms
+#define SYSTEM_SHUNT 1000        // miliohms (VSYS_SHUNT+ is not connected properly, is connected before O-ring)
 #define HEATER_SHUNT 5        // miliohms
 #define FAN_SHUNT 100         // miliohms
-#define PHOTOTHERAPY_SHUNT 5  // miliohms
+#define PHOTOTHERAPY_SHUNT 5   // miliohms
 #define USB_SHUNT 100         // miliohms (humidifier via USB_EN channel)
 #define BATTERY_SHUNT 27000   // miliohms
 #elif (HW_NUM >= 16)

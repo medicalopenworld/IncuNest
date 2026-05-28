@@ -387,6 +387,13 @@ extern int g_restore_photo_minutes;
 #define SPO2_TASK_PERIOD_MS 1
 #define SKIN_SENSOR_UPDATE_PERIOD_MS 200 // in millis
 #define ROOM_SENSOR_UPDATE_PERIOD_MS 5000
+#define PHOTOTHERAPY_INITIAL_PWM_PCT 40
+#define PHOTO_TARGET_CURRENT 0.45f
+#define PHOTO_SETTLE_MS      3000
+#define PHOTO_CONTROL_PERIOD_MS 1000
+#define PHOTO_MAX_STEP       5
+#define PHOTO_TOLERANCE_A    0.02f
+#define PHOTO_MIN_PWM        10
 #define DIGITAL_CURRENT_SENSOR_PERIOD_MS 5
 #define BUZZER_TASK_PERIOD_MS 10
 #define UI_TASK_PERIOD_MS 10
@@ -676,6 +683,8 @@ typedef struct {
   bool humidityControl = false;
   bool phototherapy = false;
   byte phototherapy_intensity = PWM_MAX_VALUE;
+  bool photoFirstRun = true;
+  long photoTurnOnTime = 0;
 
   int fanPWM = FAN_PWM;
   int fanCtlPWM = FAN_CTL_PWM_DEFAULT;
@@ -731,7 +740,8 @@ void shutBuzzer();
 double measureMeanConsumption(bool, int);
 double measureStabilizedCurrent(bool sensor, int shunt, float offsetCurrent,
                                 float minExpected, float maxExpected,
-                                int maxTimeMs, int intervalMs = 200);
+                                int maxTimeMs, int intervalMs = 200,
+                                int window = 3);
 float measureMeanVoltage(bool, int);
 void WIFI_TB_Init();
 void WifiOTAHandler(void);

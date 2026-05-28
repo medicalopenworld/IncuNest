@@ -151,17 +151,24 @@ const double FILTER_CUTOFF_FREQUENCY = 10; // Hz
 const double FILTER_NORMALIZED_CUT_OFF_FREQUENCY =
     (2 * FILTER_CUTOFF_FREQUENCY / FILTER_SAMPLE_FREQUENCY);
 
+// filter_1 (NTC piel) se llama a 1000/SKIN_SENSOR_UPDATE_PERIOD_MS ≈ 5 Hz.
+// Con ω_n=0.02 (diseñado a 1000 Hz) el corte efectivo cae a 0.05 Hz → τ≈3 s.
+// Con ω_n=0.2 (f_c=0.5 Hz a 5 Hz) → τ≈0.32 s → 5τ≈1.5 s de asentamiento.
+const double SKIN_FILTER_NORMALIZED_CUT_OFF_FREQUENCY =
+    2.0 * 0.5 / (1000.0 / SKIN_SENSOR_UPDATE_PERIOD_MS);
+
 // Sample timer for filter
 Timer<micros> timer = std::round(1e6 / FILTER_SAMPLE_FREQUENCY);
 // Sixth-order Butterworth filter
 auto filter_0 = butter<6>(FILTER_NORMALIZED_CUT_OFF_FREQUENCY);
-auto filter_1 = butter<6>(FILTER_NORMALIZED_CUT_OFF_FREQUENCY);
+auto filter_1 = butter<6>(SKIN_FILTER_NORMALIZED_CUT_OFF_FREQUENCY);
 auto filter_2 = butter<6>(FILTER_NORMALIZED_CUT_OFF_FREQUENCY);
 
 extern IncuNest_parameters in3;
 
 long lastCurrentMeasurement, lastVoltageMeasurement;
 long lastEncoderUpdate;
+static long lastPhotoControl = 0;
 
 void currentMonitor() {
   if (millis() - lastCurrentMeasurement > CURRENT_UPDATE_PERIOD_MS) {
@@ -179,6 +186,27 @@ void currentMonitor() {
           measureMeanConsumption(SECUNDARY, BATTERY_SHUNT_CHANNEL);
     }
     lastCurrentMeasurement = millis();
+  }
+
+  if (in3.phototherapy &&
+      (millis() - in3.photoTurnOnTime  > PHOTO_SETTLE_MS) &&
+      (millis() - lastPhotoControl     > PHOTO_CONTROL_PERIOD_MS) &&
+      in3.phototherapy_current > 0.0f) {
+
+    float error = in3.phototherapy_current - PHOTO_TARGET_CURRENT;
+    if (error > PHOTO_TOLERANCE_A || error < -PHOTO_TOLERANCE_A) {
+      int newIntensity = (int)(in3.phototherapy_intensity *
+                               PHOTO_TARGET_CURRENT / in3.phototherapy_current + 0.5f);
+      int delta = newIntensity - (int)in3.phototherapy_intensity;
+      if (delta >  PHOTO_MAX_STEP) delta =  PHOTO_MAX_STEP;
+      if (delta < -PHOTO_MAX_STEP) delta = -PHOTO_MAX_STEP;
+      int next = (int)in3.phototherapy_intensity + delta;
+      if (next < PHOTO_MIN_PWM)   next = PHOTO_MIN_PWM;
+      if (next > PWM_MAX_VALUE)   next = PWM_MAX_VALUE;
+      in3.phototherapy_intensity = (byte)next;
+      ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, in3.phototherapy_intensity);
+    }
+    lastPhotoControl = millis();
   }
 }
 
@@ -198,24 +226,47 @@ void voltageMonitor() {
 
 double measureStabilizedCurrent(bool sensor, int shunt, float offsetCurrent,
                                  float minExpected, float maxExpected,
-                                 int maxTimeMs, int intervalMs) {
+                                 int maxTimeMs, int intervalMs, int window) {
+  // Ventana deslizante de `window` lecturas: compara rango (max-min) contra
+  // threshold. Evita salidas prematuras por deriva térmica lenta (heater,
+  // fotosterapia), donde |curr-prev| en un solo intervalo es menor que el
+  // threshold aunque la corriente siga subiendo.
+  // Cargas rápidas: window=3 (~330 ms a 110 ms/intervalo).
+  // Cargas térmicas: window=10 (~1.1 s a 110 ms/intervalo).
+  const int WINDOW = window;
   float threshold = (maxExpected - minExpected) * CURRENT_STABILIZE_THRESHOLD_RATIO;
-  float prev = measureMeanConsumption(sensor, shunt) - offsetCurrent;
-  int elapsed = 0;
+
+  float first = measureMeanConsumption(sensor, shunt) - offsetCurrent;
+  float buf[WINDOW];
+  for (int i = 0; i < WINDOW; i++) buf[i] = first;
+
+  int idx = 0, count = 0, elapsed = 0, overMaxCount = 0;
+  float curr = first;
+
   while (elapsed < maxTimeMs) {
     vTaskDelay(pdMS_TO_TICKS(intervalMs));
     elapsed += intervalMs;
-    float curr = measureMeanConsumption(sensor, shunt) - offsetCurrent;
+    curr = measureMeanConsumption(sensor, shunt) - offsetCurrent;
     if (curr > maxExpected) {
-      return curr;
+      if (++overMaxCount >= 2) return curr;  // confirmed overcurrent, not a transient spike
+    } else {
+      overMaxCount = 0;
     }
-    if (abs(curr - prev) < threshold && curr >= minExpected &&
-        curr <= maxExpected) {
-      return curr;
+    buf[idx % WINDOW] = curr;
+    idx++;
+    count++;
+    if (count >= WINDOW) {
+      float mn = buf[0], mx = buf[0];
+      for (int i = 1; i < WINDOW; i++) {
+        if (buf[i] < mn) mn = buf[i];
+        if (buf[i] > mx) mx = buf[i];
+      }
+      if ((mx - mn) < threshold && curr >= minExpected && curr <= maxExpected) {
+        return curr;
+      }
     }
-    prev = curr;
   }
-  return prev;
+  return curr;
 }
 
 double measureMeanConsumption(bool sensor, int shunt) {
@@ -334,10 +385,8 @@ static bool applyNTCResult(float millivolts) {
       in3.temperature[SKIN_SENSOR] = 0;
       return false;
     }
-    // El filtro Butterworth de orden 6 con ω_n=0.02 tiene b0_cascada ≈ 8e-10,
-    // por lo que tarda ~150 muestras discretas en converger desde estado cero.
-    // Llamado a 0.5 Hz eso equivale a >5 minutos. En la primera lectura válida
-    // se pre-inicializa el estado del filtro con el valor medido.
+    // filter_1 tiene ω_n=0.2 a 5 Hz → τ≈1.6 muestras. 200 iteraciones
+    // garantizan convergencia total en la primera lectura válida.
     if (lastSuccesfullSensorUpdate[SKIN_SENSOR] == 0) {
       for (int i = 0; i < 200; i++)
         filter_1(tempRaw);
