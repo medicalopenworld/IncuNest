@@ -13,7 +13,7 @@
 // fully-qualified vfs path; LittleFS.* methods take the relative one.
 #define LFS_MOUNT "/littlefs"
 
-extern in3ator_parameters in3;
+extern IncuNest_parameters in3;
 
 static QueueHandle_t s_sample_queue = nullptr;
 static QueueHandle_t s_upload_queue = nullptr;

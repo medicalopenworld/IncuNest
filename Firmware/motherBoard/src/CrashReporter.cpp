@@ -6,7 +6,7 @@
 #include <LittleFS.h>
 #include <esp_system.h>
 
-extern in3ator_parameters in3;
+extern IncuNest_parameters in3;
 
 // RTC slow memory. Survives abort/panic/SW reset; cleared on cold boot.
 #define CRASH_RING_MAGIC 0xC0FFEE42u

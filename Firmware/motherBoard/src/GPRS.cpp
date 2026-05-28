@@ -54,7 +54,7 @@ JsonObject addVariableToTelemetryGPRSJSON = GPRS_JSON.to<JsonObject>();
 unsigned long previous_processing_time;
 extern bool ambientSensorPresent;
 
-extern in3ator_parameters in3;
+extern IncuNest_parameters in3;
 
 GPRSstruct GPRS;
 Credentials credentials;

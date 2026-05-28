@@ -34,7 +34,7 @@ extern double RawTemperatureLow[SENSOR_TEMP_QTY],
     RawTemperatureRange[SENSOR_TEMP_QTY];
 extern double ReferenceTemperatureRange, ReferenceTemperatureLow;
 
-extern in3ator_parameters in3;
+extern IncuNest_parameters in3;
 
 void resetFlash() {
   for (int i = false; i < EEPROM_SIZE; i++) {

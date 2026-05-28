@@ -52,7 +52,7 @@ JsonObject addVariableToTelemetryWIFIJSON = WIFI_JSON.to<JsonObject>();
 // WIFI
 bool WIFI_connection_status = false;
 
-extern in3ator_parameters in3;
+extern IncuNest_parameters in3;
 extern bool WIFI_EN;
 
 WIFIstruct Wifi_TB;

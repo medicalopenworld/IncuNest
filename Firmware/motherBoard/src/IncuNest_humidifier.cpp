@@ -1,6 +1,6 @@
 /*
 
-        Arduino library for in3ator humidifier.
+        Arduino library for IncuNest humidifier.
 
         MIT License
 
@@ -26,14 +26,14 @@
 
 */
 
-#include "in3ator_humidifier.h"
+#include "IncuNest_humidifier.h"
 
 #include "main.h"
 
 int activationMode;
 int controlPin;
 
-void MAM_in3ator_Humidifier::_read(in3atorHum_param_t param, uint16_t *val) {
+void MAM_IncuNest_Humidifier::_read(IncuNestHum_param_t param, uint16_t *val) {
   _i2c->beginTransmission(_i2c_addr);
   _i2c->write(param); // parameter
   _i2c->endTransmission();
@@ -45,7 +45,7 @@ void MAM_in3ator_Humidifier::_read(in3atorHum_param_t param, uint16_t *val) {
   }
 }
 
-void MAM_in3ator_Humidifier::_write(in3atorHum_param_t param, uint16_t *val) {
+void MAM_IncuNest_Humidifier::_write(IncuNestHum_param_t param, uint16_t *val) {
   _i2c->beginTransmission(_i2c_addr);
   _i2c->write(param);              // parameter
   _i2c->write((*val >> 8) & 0xFF); // Upper 8-bits
@@ -53,26 +53,26 @@ void MAM_in3ator_Humidifier::_write(in3atorHum_param_t param, uint16_t *val) {
   _i2c->endTransmission();
 }
 
-void MAM_in3ator_Humidifier::begin(TwoWire *theWire) {
+void MAM_IncuNest_Humidifier::begin(TwoWire *theWire) {
   _i2c = theWire;
   _i2c->begin();
   activationMode = HUMIDIFIER_I2C;
 }
 
-void MAM_in3ator_Humidifier::begin(uint16_t mode, uint8_t pin) {
+void MAM_IncuNest_Humidifier::begin(uint16_t mode, uint8_t pin) {
   activationMode = mode;
   controlPin = pin;
 }
 
-uint16_t MAM_in3ator_Humidifier::getParam(in3atorHum_param_t param) {
+uint16_t MAM_IncuNest_Humidifier::getParam(IncuNestHum_param_t param) {
   uint16_t val = 0;
   _read(param, &val);
   return val;
 }
 
-void MAM_in3ator_Humidifier::reset() {}
+void MAM_IncuNest_Humidifier::reset() {}
 
-void MAM_in3ator_Humidifier::turn(uint16_t mode) {
+void MAM_IncuNest_Humidifier::turn(uint16_t mode) {
   int16_t val = false;
   switch (activationMode) {
   case HUMIDIFIER_BINARY:

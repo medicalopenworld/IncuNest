@@ -36,8 +36,8 @@ int humidifierTimeCycle = 5000;
 unsigned long windowStartTime;
 long lastHeaterPowerCheck = false;
 
-extern in3ator_parameters in3;
-extern MAM_in3ator_Humidifier in3_hum;
+extern IncuNest_parameters in3;
+extern MAM_IncuNest_Humidifier in3_hum;
 extern bool humidifierState, humidifierStateChange;
 
 double Kp[numPID] = {KP_SKIN, KP_AIR, KP_HUMIDITY};

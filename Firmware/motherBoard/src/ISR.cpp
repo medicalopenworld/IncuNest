@@ -28,7 +28,7 @@
 #include "main.h"
 
 extern TwoWire *wire;
-extern MAM_in3ator_Humidifier in3_hum;
+extern MAM_IncuNest_Humidifier in3_hum;
 extern TFT_eSPI tft;
 extern RotaryEncoder encoder;
 
@@ -134,7 +134,7 @@ extern PID airControlPID;
 extern PID skinControlPID;
 extern PID humidityControlPID;
 
-extern in3ator_parameters in3;
+extern IncuNest_parameters in3;
 
 void IRAM_ATTR encoderISR()
 {

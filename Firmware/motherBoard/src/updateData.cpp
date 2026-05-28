@@ -26,7 +26,7 @@
 
 #include "main.h"
 extern TwoWire *wire;
-extern MAM_in3ator_Humidifier in3_hum;
+extern MAM_IncuNest_Humidifier in3_hum;
 extern TFT_eSPI tft;
 extern RotaryEncoder encoder;
 
@@ -145,7 +145,7 @@ bool activeStatus, lastActiveStatus;
 
 float previousTemperature[2];
 
-extern in3ator_parameters in3;
+extern IncuNest_parameters in3;
 
 void updateDisplaySensors() {
   float temperatureToUpdate;
