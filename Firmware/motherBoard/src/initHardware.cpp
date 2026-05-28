@@ -28,7 +28,7 @@
 
 extern TwoWire *wire;
 extern TwoWire *wire2;
-extern MAM_in3ator_Humidifier in3_hum;
+extern MAM_IncuNest_Humidifier in3_hum;
 extern TFT_eSPI tft;
 extern SHTC3 mySHTC3; // Declare an instance of the SHTC3 class
 extern SensirionI2cSts3x mySTS35[STS3X_NUM];
@@ -207,7 +207,7 @@ long HW_error = false;
 long lastTFTCheck;
 int tft_width, tft_height;
 
-extern in3ator_parameters in3;
+extern IncuNest_parameters in3;
 TCA9535 TCA(0x20);
 
 bool initI2C() {
@@ -228,7 +228,7 @@ bool initI2C() {
     return false;
   }
 
-#if (HW_NUM == 16)
+#if (HW_NUM >= 16)
   logI("[HW] -> Initializing I2C2 (SDA=" + String(I2C2_SDA) +
        " SCL=" + String(I2C2_SCL) + ")");
   Wire1.begin(I2C2_SDA, I2C2_SCL, DEFAULT_I2C_SPEED);
@@ -315,7 +315,7 @@ void initGPIO() {
   pinMode(BUZZER, OUTPUT);
   pinMode(SCREENBACKLIGHT, OUTPUT);
   pinMode(ACTUATORS_EN, OUTPUT);
-#if (HW_NUM == 16)
+#if (HW_NUM >= 16)
   pinMode(PWR_EN, OUTPUT);
   digitalWrite(PWR_EN, HIGH);    // keep LOW until power-latch check in setup()
   pinMode(ON_OFF_SWITCH, INPUT); // active HIGH: pressed=HIGH, released=LOW
@@ -359,7 +359,7 @@ void initRoomSensor() {
       continue;
     }
 
-#if (HW_NUM == 16)
+#if (HW_NUM >= 16)
     wire2->beginTransmission(addr);
     roomSensorPresent[i] = (wire2->endTransmission() == 0);
 #else
@@ -375,7 +375,7 @@ void initRoomSensor() {
     switch (i) {
     case ROOM_SENSOR_STS3X_MAIN:
     case ROOM_SENSOR_STS3X_REDUNDANT: {
-#if (HW_NUM == 16)
+#if (HW_NUM >= 16)
       mySTS35[i].begin(Wire1, addr);
 #else
       mySTS35[i].begin(Wire, addr);
@@ -399,7 +399,7 @@ void initRoomSensor() {
     }
 
     case ROOM_SENSOR_SHTC3: {
-#if (HW_NUM == 16)
+#if (HW_NUM >= 16)
       mySHTC3.begin(Wire1);
 #else
       mySHTC3.begin(Wire);
@@ -449,7 +449,7 @@ bool initCurrentSensor(bool currentSensor) {
         secundaryDigitalCurrentSensor.begin();
         secundaryDigitalCurrentSensor.reset();
         vTaskDelay(pdMS_TO_TICKS(INA3221_RESET_DELAY_MS));
-        secundaryDigitalCurrentSensor.setShuntRes(HEATER_SHUNT, HEATER_SHUNT,
+        secundaryDigitalCurrentSensor.setShuntRes(HEATER_SHUNT, USB_SHUNT,
                                                   BATTERY_SHUNT);
         secundaryDigitalCurrentSensor.setShuntConversionTime(
             INA3221_REG_CONF_CT_140US);
@@ -471,7 +471,7 @@ bool initCurrentSensor(bool currentSensor) {
 void addErrorToVar(long &errorVar, int error) { errorVar |= (1 << error); }
 
 void initSkinSensor() {
-#if (HW_NUM == 16)
+#if (HW_NUM >= 16)
   // BABY_TEMP_EN excita el divisor resistivo; se mantiene LOW hasta la medida.
   pinMode(BABY_TEMP_EN, OUTPUT);
 #if SKIN_NTC_PULSED_EXCITATION
@@ -690,8 +690,8 @@ bool actuatorsTest() {
   logI("[HW] -> digitalCurrentSensorPresent MAIN=" +
        String(digitalCurrentSensorPresent[MAIN]) +
        " SECUNDARY=" + String(digitalCurrentSensorPresent[SECUNDARY]));
-#if (HW_NUM == 16)
-  // V16: heater is on SECUNDARY sensor (HEATER_SHUNT_CHANNEL), not MAIN
+#if (HW_NUM >= 16)
+  // V16+: heater is on SECUNDARY sensor (HEATER_SHUNT_CHANNEL), not MAIN
   offsetCurrent = measureMeanConsumption(SECUNDARY, HEATER_SHUNT_CHANNEL);
   logI("[HW] -> Heater offset (SECUNDARY): " + String(offsetCurrent) + " Amps");
   ledcWrite(HEATER_PWM_CHANNEL, PWM_MAX_VALUE);
@@ -758,7 +758,7 @@ bool actuatorsTest() {
          String(float(in3.phototherapy_intensity) * 100 / PWM_MAX_VALUE) +
          " %");
   }
-#if (HW_NUM == 16)
+#if (HW_NUM >= 16)
   in3_hum.turn(ON);
   vTaskDelay(pdMS_TO_TICKS(CURRENT_STABILIZE_TIME_DEFAULT));
   bool usbFaultDetected = !GPIORead(USB_FAULT); // active LOW: LOW = fault
@@ -843,7 +843,7 @@ bool initActuators() {
   in3_hum.begin(HUMIDIFIER_BINARY, HUMIDIFIER_CTL);
 #elif (HW_NUM <= 8)
   in3_hum.begin(HUMIDIFIER_PWM, HUMIDIFIER_CTL);
-#elif (HW_NUM == 16)
+#elif (HW_NUM >= 16)
   in3_hum.begin(HUMIDIFIER_BINARY, USB_EN);
 #else
   in3_hum.begin();
@@ -906,7 +906,7 @@ void security_check_reboot_cause() {
 void initHardware(bool printOutputTest) {
   logI("[HW] -> Initialiting hardware");
   initSensors();
-#if (HW_NUM == 16)
+#if (HW_NUM >= 16)
   logI("[HW] -> Initializing BQ25730 charger");
   if (!init_BQ25730(wire)) {
     logE("[HW] -> BQ25730 not found or init failed");

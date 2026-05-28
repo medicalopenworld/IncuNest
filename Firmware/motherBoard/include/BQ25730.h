@@ -121,13 +121,9 @@
   (BQ25730_STAT_F_ACOV | BQ25730_STAT_F_BATOC | BQ25730_STAT_F_ACOC |          \
    BQ25730_STAT_F_SYS_OV | BQ25730_STAT_F_SYS_UV | BQ25730_STAT_F_LATCHOFF)
 
-// ─── Sense resistors – corrección hardware PCB V16A
-// ─────────────────────────── El chip con RSNS=1 asume shunts de 5 mΩ
-// internamente. El PCB V16A monta shunts de 3 mΩ por error de componente.
-// TODO: cambiar a 3 mΩ → 5 mΩ en la siguiente revisión de PCB y eliminar
-//       la corrección software (igualar ambas defines).
+// ─── Sense resistors
 #define BQ25730_RSNS_NOMINAL_MOHM 5 // mΩ asumido por chip (RSNS=1)
-#define BQ25730_RSNS_ACTUAL_MOHM 3 // mΩ real en PCB — cambiar en rev. siguiente
+#define BQ25730_RSNS_ACTUAL_MOHM  5 // mΩ real en PCB (HW17: shunts correctos)
 
 // ─── Resoluciones del ADC interno (según PDF V2)
 // ──────────────────────────────

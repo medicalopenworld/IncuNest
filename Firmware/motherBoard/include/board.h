@@ -22,10 +22,10 @@
   SOFTWARE.
 
 */
-#define HW_NUM 16
+#define HW_NUM 17
 #define HW_REVISION 'A'
 #define HWversion String(HW_NUM) + "." + String(HW_REVISION)
-#define FWversion "16.4"
+#define FWversion "17.0"
 #define WIFI_NAME "IncuNest"
 #define CURRENT_FIRMWARE_TITLE "IncuNest"
 // Set to true only on the HMI board
@@ -47,14 +47,14 @@
 #define HUMIDIFIER_INTERFACE HUMIDIFIER_BINARY
 #elif (HW_NUM <= 8)
 #define HUMIDIFIER_INTERFACE HUMIDIFIER_PWM
-#elif (HW_NUM == 16)
+#elif (HW_NUM >= 16)
 #define HUMIDIFIER_INTERFACE HUMIDIFIER_BINARY // USB_EN GPIO ON/OFF
 #else
 #define HUMIDIFIER_INTERFACE HUMIDIFIER_I2C
 #endif
 
 #define GPIO_EXP_BASE 100 // To differentiate with ESP32 GPIO
-#if (HW_NUM == 16)
+#if (HW_NUM >= 16)
 // Power / control
 #define PWR_EN 2
 #define ON_OFF_SWITCH 4
@@ -338,7 +338,11 @@
 #define USB_SHUNT_CHANNEL INA3221_CH2
 #define BATTERY_SHUNT_CHANNEL INA3221_CH3
 
-#define HUMIDIFIER_SHUNT 1
+#if (HW_NUM >= 17)
+#define HUMIDIFIER_SHUNT 100 // miliohms
+#else
+#define HUMIDIFIER_SHUNT 1   // flag (boolean legacy, not used as resistance)
+#endif
 
 // Cuando es true, el GPIO BABY_TEMP_EN se pone LOW tras cada lectura para
 // reducir el autocalentamiento de la NTC (excitación pulsada).
@@ -346,7 +350,14 @@
 #define SKIN_NTC_PULSED_EXCITATION false
 
 #define SDCard false
-#if (HW_NUM >= 16)
+#if (HW_NUM >= 17)
+#define SYSTEM_SHUNT 3        // miliohms
+#define HEATER_SHUNT 5        // miliohms
+#define FAN_SHUNT 100         // miliohms
+#define PHOTOTHERAPY_SHUNT 5  // miliohms
+#define USB_SHUNT 100         // miliohms (humidifier via USB_EN channel)
+#define BATTERY_SHUNT 27000   // miliohms
+#elif (HW_NUM >= 16)
 #define SYSTEM_SHUNT 3        // miliohms
 #define FAN_SHUNT 3           // miliohms
 #define PHOTOTHERAPY_SHUNT 15 // miliohms

@@ -13,7 +13,7 @@
 #include <cstring>
 #include <time.h>
 
-#if (HW_NUM != 16)
+#if (HW_NUM < 16)
 #include "usb/cdc_acm_host.h"
 #include "usb/usb_host.h"
 #include "usb/vcp.hpp"
@@ -25,7 +25,7 @@ static const char *TAG __attribute__((unused)) = "COMM_HOST";
 extern SemaphoreHandle_t log_mutex;
 extern char pendingSSID[64];
 extern char pendingPass[64];
-extern in3ator_parameters in3;
+extern IncuNest_parameters in3;
 
 // ======================================================
 //  GLOBAL DATA
@@ -38,7 +38,7 @@ static char rxBuffer[256];
 static int rxIndex = 0;
 static SemaphoreHandle_t hmi_state_req_sem;
 
-#if (HW_NUM == 16)
+#if (HW_NUM >= 16)
 static HardwareSerial &hmiSerial = Serial1;
 #else
 static std::unique_ptr<CdcAcmDevice> vcp;
@@ -59,7 +59,7 @@ static int photoTimerMinutes = 0;
 // ======================================================
 void parse_line(const char *line);
 
-#if (HW_NUM != 16)
+#if (HW_NUM < 16)
 static void reset_vcp() {
   vcp_disconnecting = true;
   // Espera hasta 2s a que termine un tx_blocking en curso antes de cerrar.
@@ -124,7 +124,7 @@ static void usb_lib_task(void *arg) {
     usb_host_lib_handle_events(portMAX_DELAY, &flags);
   }
 }
-#endif // HW_NUM != 16
+#endif // HW_NUM < 16
 
 // ======================================================
 //  PHOTOTHERAPY TIMER
@@ -559,7 +559,7 @@ void parse_line(const char *line) {
 //  SEND DATA TO HMI
 // ======================================================
 void CommunicationHost_Send(const char *msg) {
-#if (HW_NUM == 16)
+#if (HW_NUM >= 16)
   hmiSerial.print(msg);
 #else
   // Si ya hay un cierre en curso o señalado, no iniciar nuevos URBs: cualquier
@@ -614,7 +614,7 @@ void CommunicationHost_Send(const char *msg) {
 void CommunicationHost_Init() {
   hmi_state_req_sem = xSemaphoreCreateBinary();
 
-#if (HW_NUM == 16)
+#if (HW_NUM >= 16)
   hmiSerial.begin(115200, SERIAL_8N1, UART_MB_RX_PIN, UART_MB_TX_PIN);
   ESP_LOGI(TAG, "UART comm initialized on RX=%d TX=%d",
            UART_MB_RX_PIN, UART_MB_TX_PIN);
@@ -638,7 +638,7 @@ void CommunicationHost_Init() {
 //  COMMUNICATION TASK
 // ======================================================
 void Communication_Task(void *pvParameters) {
-#if (HW_NUM == 16)
+#if (HW_NUM >= 16)
   // ---- UART path ----
   uint32_t last_tel_time = 0;
   uint32_t last_ppg_time = 0;
@@ -967,5 +967,5 @@ void Communication_Task(void *pvParameters) {
     reset_vcp();
     vTaskDelay(pdMS_TO_TICKS(1000));
   }
-#endif // HW_NUM == 16
+#endif // HW_NUM >= 16
 }

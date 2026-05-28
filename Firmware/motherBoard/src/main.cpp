@@ -23,7 +23,7 @@
 
 */
 
-// pio run -e in3ator_V15 -t upload ; pio device monitor
+// pio run -e IncuNest_V15 -t upload ; pio device monitor
 
 // Firmware version and head title of UI screen
 
@@ -80,7 +80,7 @@ char wifi_pass[64] = "";
 
 TwoWire *wire;
 TwoWire *wire2 = nullptr; // second I2C bus (HW16: SHTC3 + STS35 on pins 19/20)
-MAM_in3ator_Humidifier in3_hum(DEFAULT_ADDRESS);
+MAM_IncuNest_Humidifier in3_hum(DEFAULT_ADDRESS);
 // Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC);
 TFT_eSPI tft = TFT_eSPI(); // Invoke custom library
 SHTC3 mySHTC3;             // Declare an instance of the SHTC3 class
@@ -194,7 +194,7 @@ int ScreenBacklightMode;
 long lastSkinAttachedSensorUpdate;
 long lastRoomSensorUpdate, lastCurrentSensorUpdate;
 
-in3ator_parameters in3;
+IncuNest_parameters in3;
 
 TaskHandle_t taskHandle =
     NULL; // Handle for the task we want to delete if it hangs
@@ -471,7 +471,7 @@ void Communication_Receiver(void *pvParameters) {
   }
 }
 
-#if (HW_NUM == 16)
+#if (HW_NUM >= 16)
 void PowerManagement_Task(void *pvParameters) {
   while (GPIORead(ON_OFF_SWITCH)) {
     vTaskDelay(pdMS_TO_TICKS(10));
@@ -636,7 +636,7 @@ static void print_charger_status() {
 #endif
 
 void setup() {
-#if (HW_NUM == 16)
+#if (HW_NUM >= 16)
   // Power latch: a single press (button already held when boot starts) is
   // enough to keep the device ON. Latch PWR_EN immediately, then wait for
   // the button to be released so the runtime task starts from a clean state.
@@ -671,7 +671,7 @@ void setup() {
 
   // Now that EEPROM is loaded, set the serial number and log it
   ctrl_tel_msg.serialNumber = in3.serialNumber;
-  logI("in3ator debug uart, version v" + String(FWversion) + "/" +
+  logI("IncuNest debug uart, version v" + String(FWversion) + "/" +
        String(HWversion) + ", SN: " + String(in3.serialNumber));
 
   if (!GPIORead(ENC_SWITCH)) {
@@ -715,7 +715,7 @@ void setup() {
   // EEPROM.write(EEPROM_THINGSBOARD_PROVISIONED, true);
   // EEPROM.commit();
 
-#if (HW_NUM == 16)
+#if (HW_NUM >= 16)
   logI("Creating power management task ...\n");
   while (xTaskCreatePinnedToCore(PowerManagement_Task, "PWR_MGMT", 2048, NULL,
                                  POWER_MANAGEMENT_TASK_PRIORITY, NULL,

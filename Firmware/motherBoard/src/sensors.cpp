@@ -27,7 +27,7 @@
 #include "main.h"
 
 extern TwoWire *wire;
-extern MAM_in3ator_Humidifier in3_hum;
+extern MAM_IncuNest_Humidifier in3_hum;
 extern TFT_eSPI tft;
 extern SHTC3 mySHTC3; // Declare an instance of the SHTC3 class
 extern SensirionI2cSts3x mySTS35[STS3X_NUM];
@@ -158,7 +158,7 @@ auto filter_0 = butter<6>(FILTER_NORMALIZED_CUT_OFF_FREQUENCY);
 auto filter_1 = butter<6>(FILTER_NORMALIZED_CUT_OFF_FREQUENCY);
 auto filter_2 = butter<6>(FILTER_NORMALIZED_CUT_OFF_FREQUENCY);
 
-extern in3ator_parameters in3;
+extern IncuNest_parameters in3;
 
 long lastCurrentMeasurement, lastVoltageMeasurement;
 long lastEncoderUpdate;
@@ -296,7 +296,11 @@ static float resistanceToTempYSI400(float rntc) {
 
 float adcToCelsius(float adcReading_mV) {
   const float rTop = 2260.0f; // Resistencia del divisor (Ω, 0.1%)
-  const float vExc = 3.3f;    // Tensión de excitación (GPIO)
+#if (HW_NUM >= 17)
+  const float vExc = 2.048f;  // Tensión de excitación (LM4040EIM7-2.0, 2.048 V)
+#else
+  const float vExc = 3.3f;    // Tensión de excitación (GPIO, 3.3 V)
+#endif
 
   if (adcReading_mV <= 0.0f || adcReading_mV >= vExc * 1000.0f)
     return NAN;
@@ -361,7 +365,7 @@ static bool applyNTCResult(float millivolts) {
 }
 
 bool measureSkinSensor() {
-#if (HW_NUM == 16)
+#if (HW_NUM >= 16)
   // Alimenta el divisor resistivo, espera estabilización y dispara una
   // conversión single-shot en el ADS1110 (14-bit/60 SPS, PGA=1).
   // [ST=1][SC=1][PGA=00][DR=01][00] = 0xC4

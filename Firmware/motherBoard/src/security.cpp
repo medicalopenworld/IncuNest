@@ -40,7 +40,7 @@ static int pending_alarm_count = 0;
 static bool hmi_connected = false;
 
 extern TwoWire *wire;
-extern MAM_in3ator_Humidifier in3_hum;
+extern MAM_IncuNest_Humidifier in3_hum;
 extern TFT_eSPI tft;
 extern RotaryEncoder encoder;
 
@@ -182,7 +182,7 @@ long lastAlarmTrigger[NUM_ALARMS];
 float alarmSensedValue;
 long lastPowerSupplyCheck;
 
-extern in3ator_parameters in3;
+extern IncuNest_parameters in3;
 
 void initAlarms() {
   lastAlarmTrigger[AIR_THERMAL_CUTOUT_ALARM] =
@@ -619,7 +619,7 @@ void powerSupplyCheck() {
 #endif
 }
 
-#if (HW_NUM == 16)
+#if (HW_NUM >= 16)
 static void checkUsbFault() {
   if (!GPIORead(USB_FAULT)) { // active LOW: LOW = fault
     if (humidifierState) {
@@ -640,7 +640,7 @@ void securityCheck() {
   checkAlarms();
   sensorHealthMonitor();
   powerSupplyCheck();
-#if (HW_NUM == 16)
+#if (HW_NUM >= 16)
   checkUsbFault();
 #endif
 }
