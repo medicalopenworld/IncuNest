@@ -387,6 +387,7 @@ extern int g_restore_photo_minutes;
 #define SPO2_TASK_PERIOD_MS 1
 #define SKIN_SENSOR_UPDATE_PERIOD_MS 200 // in millis
 #define ROOM_SENSOR_UPDATE_PERIOD_MS 5000
+#define ROOM_SENSOR_RECONNECT_MS     500
 #define PHOTOTHERAPY_INITIAL_PWM_PCT 40
 #define PHOTO_TARGET_CURRENT 0.45f
 #define PHOTO_SETTLE_MS      3000

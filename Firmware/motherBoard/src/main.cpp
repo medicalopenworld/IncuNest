@@ -193,6 +193,7 @@ long lastSuccesfullSensorUpdate[SENSOR_TEMP_QTY];
 int ScreenBacklightMode;
 long lastSkinAttachedSensorUpdate;
 long lastRoomSensorUpdate, lastCurrentSensorUpdate;
+bool roomSensorOk = false;
 
 IncuNest_parameters in3;
 
@@ -279,10 +280,14 @@ void sensors_Task(void *pvParameters) {
       measureSkinSensor();
       lastSkinAttachedSensorUpdate = millis();
     }
-    if (millis() - lastRoomSensorUpdate > ROOM_SENSOR_UPDATE_PERIOD_MS) {
-      updateRoomSensor();
-      updateAmbientSensor();
-      lastRoomSensorUpdate = millis();
+    {
+      long roomPeriod = roomSensorOk ? ROOM_SENSOR_UPDATE_PERIOD_MS
+                                     : ROOM_SENSOR_RECONNECT_MS;
+      if (millis() - lastRoomSensorUpdate > roomPeriod) {
+        roomSensorOk = updateRoomSensor();
+        updateAmbientSensor();
+        lastRoomSensorUpdate = millis();
+      }
     }
     if (millis() - lastCurrentSensorUpdate > DIGITAL_CURRENT_SENSOR_PERIOD_MS) {
       powerMonitor();
