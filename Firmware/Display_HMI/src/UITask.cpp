@@ -219,8 +219,7 @@ uint32_t lcd_get_freq_write() { return g_currentFreqWrite; }
 
 void lcd_set_freq_write(uint32_t freq_hz) {
   g_currentFreqWrite = freq_hz;
-  EEPROM.put(EEPROM_DISPLAY_FREQ, freq_hz);
-  EEPROM.commit();
+  { Preferences p; p.begin(HMI_NS_CFG, false); p.putUInt(HMI_KEY_DISP_FREQ, freq_hz); p.end(); }
   ESP_LOGW("LCD", "freq_write saved: %lu Hz — restarting...", freq_hz);
   delay(200);
   ESP.restart();
@@ -527,7 +526,7 @@ static void autoair_apply_language(ui_lang_t lang) {
 
 void UI_ApplyLanguage(ui_lang_t lang) {
   g_lang = lang;
-  EEPROM.write(EEPROM_LANGUAGE, g_lang);
+  { Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_LANG, (uint8_t)g_lang); p.end(); }
   eepromDirty = true;
   lastVarChangeTime = millis();
 
@@ -1125,7 +1124,7 @@ static void autoair_activate(float setpoint, const char *rowDesc) {
   hmi_msg.desiredAirTemperature = airTempValue;
   hmi_msg.shouldSendData = true;
   g_autoAirActive = true;
-  EEPROM.writeFloat(EEPROM_DESIRED_AIR_TEMP, airTempValue);
+  { Preferences p; p.begin(HMI_NS_CFG, false); p.putFloat(HMI_KEY_AIR_TEMP, (float)airTempValue); p.end(); }
   eepromDirty = true;
   lastVarChangeTime = millis();
 
@@ -1229,10 +1228,12 @@ static void autoair_popup_update_labels() {
     lv_label_set_text(ui_AutoAirDaysUnitLbl, "DAYS");
   lv_label_set_text(ui_AutoAirDaysVal, buf);
   aa_update_range_display();
-  // Persist popup values with deferred commit (same pattern as rest of project)
-  EEPROM.writeUShort(EEPROM_AUTOAIR_WEIGHT, (uint16_t)g_popupWeight);
-  EEPROM.write(EEPROM_AUTOAIR_GEST, (uint8_t)g_popupGest);
-  EEPROM.writeUShort(EEPROM_AUTOAIR_AGE_H, (uint16_t)g_popupAgeHours);
+  // Persist popup values
+  { Preferences p; p.begin(HMI_NS_CFG, false);
+    p.putUShort(HMI_KEY_AA_WEIGHT, (uint16_t)g_popupWeight);
+    p.putUChar (HMI_KEY_AA_GEST,   (uint8_t)g_popupGest);
+    p.putUShort(HMI_KEY_AA_AGE_H,  (uint16_t)g_popupAgeHours);
+    p.end(); }
   eepromDirty = true;
   lastVarChangeTime = millis();
 }
@@ -1458,8 +1459,11 @@ void WifiButton_cb(lv_event_t *e) {
   // correct what's wrong. Falls back to compile-time defaults if EEPROM
   // is empty or contains invalid (non-printable) data.
   if (!isConnected) {
-    String savedSSID = EEPROM.readString(EEPROM_WIFI_SSID);
-    String savedPass = EEPROM.readString(EEPROM_WIFI_PASSWORD);
+    String savedSSID, savedPass;
+    { Preferences p; p.begin(HMI_NS_WIFI, true);
+      savedSSID = p.getString(HMI_KEY_SSID,     "");
+      savedPass = p.getString(HMI_KEY_PASSWORD, "");
+      p.end(); }
 
     // Validate: 1–32 printable ASCII chars for SSID, up to 63 for password
     auto isValidCred = [](const String &s, size_t maxLen) -> bool {
@@ -1638,7 +1642,7 @@ void PhotoTimeMinusBtn_cb(lv_event_t *e) {
   lv_label_set_text(ui_PhotoTimeValueLabel, buf);
 
   // Persist last used timer
-  EEPROM.write(EEPROM_PHOTO_TIMER_MINUTES, photoTimerMinutes);
+  { Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_PHOTO_MIN, (uint8_t)photoTimerMinutes); p.end(); }
   eepromDirty = true;
   lastVarChangeTime = millis();
 }
@@ -1658,7 +1662,7 @@ void PhotoTimePlusBtn_cb(lv_event_t *e) {
   lv_label_set_text(ui_PhotoTimeValueLabel, buf);
 
   // Persist last used timer
-  EEPROM.write(EEPROM_PHOTO_TIMER_MINUTES, photoTimerMinutes);
+  { Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_PHOTO_MIN, (uint8_t)photoTimerMinutes); p.end(); }
   eepromDirty = true;
   lastVarChangeTime = millis();
 }
@@ -1933,14 +1937,14 @@ void Switch_cb(lv_event_t *e) {
   } else if (obj == ui_SwitchDarkMode) { // DARK MODE SWITCH
     bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
     darkMode = checked;
-    EEPROM.write(EEPROM_DARK_MODE, darkMode ? 1 : 0);
+    { Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_DARK_MODE, darkMode ? 1 : 0); p.end(); }
     eepromDirty = true;
     lastVarChangeTime = millis();
     UI_ApplyTheme();
   } else if (obj == ui_SwitchHumidityMode) { // HUMIDITY ENABLE SWITCH
     bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
     humidityEnabled = checked;
-    EEPROM.write(EEPROM_HUMIDITY_ENABLED, humidityEnabled ? 1 : 0);
+    { Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_HUM_EN, humidityEnabled ? 1 : 0); p.end(); }
     eepromDirty = true;
     lastVarChangeTime = millis();
     if (humidityEnabled) {
@@ -2091,13 +2095,13 @@ void setup_arrow_callbacks() {
             if (airTempValue > AIR_TEMP_MAX)
               airTempValue = AIR_TEMP_MAX;
             hmi_msg.desiredAirTemperature = airTempValue;
-            EEPROM.writeFloat(EEPROM_DESIRED_AIR_TEMP, airTempValue);
+            { Preferences p; p.begin(HMI_NS_CFG, false); p.putFloat(HMI_KEY_AIR_TEMP, (float)airTempValue); p.end(); }
           } else if (selectedPanel == SKIN_PANEL_SELECTED) {
             skinTempValue += TEMP_INCREMENT;
             if (skinTempValue > SKIN_TEMP_MAX)
               skinTempValue = SKIN_TEMP_MAX;
             hmi_msg.desiredSkinTemperature = skinTempValue;
-            EEPROM.writeFloat(EEPROM_DESIRED_SKIN_TEMP, skinTempValue);
+            { Preferences p; p.begin(HMI_NS_CFG, false); p.putFloat(HMI_KEY_SKIN_TEMP, (float)skinTempValue); p.end(); }
           }
           hmi_msg.shouldSendData = true;
           eepromDirty = true;
@@ -2127,13 +2131,13 @@ void setup_arrow_callbacks() {
             if (airTempValue < AIR_TEMP_MIN)
               airTempValue = AIR_TEMP_MIN;
             hmi_msg.desiredAirTemperature = airTempValue;
-            EEPROM.writeFloat(EEPROM_DESIRED_AIR_TEMP, airTempValue);
+            { Preferences p; p.begin(HMI_NS_CFG, false); p.putFloat(HMI_KEY_AIR_TEMP, (float)airTempValue); p.end(); }
           } else if (selectedPanel == SKIN_PANEL_SELECTED) {
             skinTempValue -= TEMP_INCREMENT;
             if (skinTempValue < SKIN_TEMP_MIN)
               skinTempValue = SKIN_TEMP_MIN;
             hmi_msg.desiredSkinTemperature = skinTempValue;
-            EEPROM.writeFloat(EEPROM_DESIRED_SKIN_TEMP, skinTempValue);
+            { Preferences p; p.begin(HMI_NS_CFG, false); p.putFloat(HMI_KEY_SKIN_TEMP, (float)skinTempValue); p.end(); }
           }
           hmi_msg.shouldSendData = true;
           eepromDirty = true;
@@ -2165,7 +2169,7 @@ void setup_arrow_hum_callbacks() {
             humValue = HUM_MAX;
           hmi_msg.desiredHumidity = humValue;
           hmi_msg.shouldSendData = true;
-          EEPROM.write(EEPROM_DESIRED_HUMIDITY, humValue);
+          { Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_HUMIDITY, (uint8_t)humValue); p.end(); }
           eepromDirty = true;
           lastVarChangeTime = millis();
           update_labels();
@@ -2193,7 +2197,7 @@ void setup_arrow_hum_callbacks() {
             humValue = HUM_MIN;
           hmi_msg.desiredHumidity = humValue;
           hmi_msg.shouldSendData = true;
-          EEPROM.write(EEPROM_DESIRED_HUMIDITY, humValue);
+          { Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_HUMIDITY, (uint8_t)humValue); p.end(); }
           eepromDirty = true;
           lastVarChangeTime = millis();
           update_labels();
@@ -3065,13 +3069,15 @@ void UI_Task(void *pvParameters) {
     }
   }
 
-  // Display initialization — leer freq_write de EEPROM antes de crear panel
+  // Display initialization — leer freq_write de Preferences antes de crear panel
   {
     uint32_t savedFreq = 0;
-    EEPROM.get(EEPROM_DISPLAY_FREQ, savedFreq);
+    { Preferences p; p.begin(HMI_NS_CFG, true);
+      savedFreq = p.getUInt(HMI_KEY_DISP_FREQ, 0);
+      p.end(); }
     if (savedFreq >= DISPLAY_FREQ_MIN && savedFreq <= DISPLAY_FREQ_MAX) {
       g_currentFreqWrite = savedFreq;
-      ESP_LOGW("LCD", "freq_write from EEPROM: %lu Hz", savedFreq);
+      ESP_LOGW("LCD", "freq_write from Preferences: %lu Hz", savedFreq);
     } else {
       g_currentFreqWrite = DISPLAY_FREQ_WRITE;
       ESP_LOGI("LCD", "freq_write default: %lu Hz",
@@ -3316,11 +3322,14 @@ void UI_Task(void *pvParameters) {
   // --- AUTO AIR button & popup (UI-AUTOAIR-001..010) ---
   create_autoair_button();
   create_autoair_popup();
-  // Restore last-used Auto Air values from EEPROM
+  // Restore last-used Auto Air values from Preferences
   {
-    uint16_t w = EEPROM.readUShort(EEPROM_AUTOAIR_WEIGHT);
-    uint8_t g = EEPROM.read(EEPROM_AUTOAIR_GEST);
-    uint16_t a = EEPROM.readUShort(EEPROM_AUTOAIR_AGE_H);
+    uint16_t w = 0; uint8_t g = 0; uint16_t a = 0;
+    { Preferences p; p.begin(HMI_NS_CFG, true);
+      w = p.getUShort(HMI_KEY_AA_WEIGHT, 0);
+      g = p.getUChar (HMI_KEY_AA_GEST,   0);
+      a = p.getUShort(HMI_KEY_AA_AGE_H,  0);
+      p.end(); }
     if (w >= 400 && w <= 5000)
       g_babyWeightGrams = w;
     if (g >= 22 && g <= 44)
@@ -3703,9 +3712,9 @@ void UI_Task(void *pvParameters) {
     }
 
     if (eepromDirty && (millis() - lastVarChangeTime > EEPROM_COMMIT_DELAY)) {
-      EEPROM.commit();
+      // Preferences writes are atomic (NVS); no explicit commit needed.
       eepromDirty = false;
-      ESP_LOGI(TAG, "EEPROM committed after delay");
+      ESP_LOGI(TAG, "Preferences write cycle complete");
     }
     LVGL_Unlock();
   }

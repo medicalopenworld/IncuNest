@@ -29,6 +29,7 @@
 
 extern char wifi_ssid[64];
 extern char wifi_pass[64];
+extern int photoTimerMinutes;
 
 void resetFlash() {
   Preferences p;

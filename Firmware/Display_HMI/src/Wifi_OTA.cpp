@@ -176,10 +176,12 @@ void wifiInit(void) {
     pass = pendingPass;
     ESP_LOGI(TAG, "Connecting to pending SSID: %s", ssid.c_str());
   } else {
-    ssid = EEPROM.readString(EEPROM_WIFI_SSID);
-    pass = EEPROM.readString(EEPROM_WIFI_PASSWORD);
+    { Preferences p; p.begin(HMI_NS_WIFI, true);
+      ssid = p.getString(HMI_KEY_SSID,     "");
+      pass = p.getString(HMI_KEY_PASSWORD, "");
+      p.end(); }
     if (ssid.length() > 0) {
-      ESP_LOGI(TAG, "Connecting to SSID from EEPROM: %s", ssid.c_str());
+      ESP_LOGI(TAG, "Connecting to SSID from Preferences: %s", ssid.c_str());
     } else {
       ESP_LOGI(TAG, "Connecting to default SSID: %s", WIFI_SSID);
       ssid = WIFI_SSID;
@@ -291,10 +293,14 @@ void WIFICheckOTA() {
 }
 
 void WIFI_TB_Init() {
-  Wifi_TB.provisioned = EEPROM.read(EEPROM_THINGSBOARD_PROVISIONED);
+  { Preferences p; p.begin(HMI_NS_GPRS, true);
+    Wifi_TB.provisioned = p.getUChar(HMI_KEY_PROVISIONED, 0);
+    if (Wifi_TB.provisioned) {
+      Wifi_TB.device_token = p.getString(HMI_KEY_TOKEN, "");
+    }
+    p.end(); }
   ESP_LOGI(TAG, "WIFI_TB_Init provisioned=%d", Wifi_TB.provisioned);
   if (Wifi_TB.provisioned) {
-    Wifi_TB.device_token = EEPROM.readString(EEPROM_THINGSBOARD_TOKEN);
     ESP_LOGI(TAG, "Token: %s", Wifi_TB.device_token.c_str());
   }
 }
@@ -328,9 +334,10 @@ void WIFIProvisionResponse(const JsonObjectConst &data) {
 
   Wifi_TB.provisioned = true;
   Wifi_TB.device_token = credentials.username.c_str();
-  EEPROM.writeString(EEPROM_THINGSBOARD_TOKEN, Wifi_TB.device_token);
-  EEPROM.write(EEPROM_THINGSBOARD_PROVISIONED, Wifi_TB.provisioned);
-  EEPROM.commit();
+  { Preferences p; p.begin(HMI_NS_GPRS, false);
+    p.putString(HMI_KEY_TOKEN,       Wifi_TB.device_token);
+    p.putUChar (HMI_KEY_PROVISIONED, (uint8_t)Wifi_TB.provisioned);
+    p.end(); }
   ESP_LOGI(TAG, "Device provisioned successfully");
 
   if (tb_wifi.connected()) tb_wifi.disconnect();
@@ -417,10 +424,11 @@ void WifiOTAHandler(void) {
   // Persist credentials staged by the UI on the first successful connection.
   if (s_persistCredentials) {
     s_persistCredentials = false;
-    EEPROM.writeString(EEPROM_WIFI_SSID, pendingSSID);
-    EEPROM.writeString(EEPROM_WIFI_PASSWORD, pendingPass);
-    EEPROM.commit();
-    ESP_LOGI(TAG, "WiFi credentials saved to EEPROM (SSID: %s)", pendingSSID);
+    { Preferences p; p.begin(HMI_NS_WIFI, false);
+      p.putString(HMI_KEY_SSID,     pendingSSID);
+      p.putString(HMI_KEY_PASSWORD, pendingPass);
+      p.end(); }
+    ESP_LOGI(TAG, "WiFi credentials saved to Preferences (SSID: %s)", pendingSSID);
     pendingSSID[0] = '\0';
     pendingPass[0] = '\0';
   }

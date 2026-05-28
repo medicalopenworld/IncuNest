@@ -8,8 +8,8 @@
 #include "Credentials_public.h"
 #include "Wifi_OTA.h"
 #include "display_config.h"
-#include <EEPROM.h>
-#include <EEPROM_defines.h>
+#include <Preferences.h>
+#include "EEPROM_defines.h"
 #include <ESPmDNS.h>
 #include <Update.h>
 #include <WebServer.h>

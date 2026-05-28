@@ -341,8 +341,7 @@ static bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
 
   if (st.serialNumber != 0 && st.serialNumber != in3.serialNumber) {
     in3.serialNumber = st.serialNumber;
-    EEPROM.writeInt(EEPROM_SERIAL_NUMBER, in3.serialNumber);
-    EEPROM.commit();
+    { Preferences p; p.begin(HMI_NS_CFG, false); p.putInt(HMI_KEY_SERIAL, in3.serialNumber); p.end(); }
     ESP_LOGI(TAG, "Serial Number updated from motherboard: %d",
              in3.serialNumber);
   }
