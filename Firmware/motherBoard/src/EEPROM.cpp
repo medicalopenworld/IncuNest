@@ -40,7 +40,7 @@ extern int g_restore_photo_minutes;
 
 void resetFlash() {
   Preferences p;
-  const char* ns[] = { NS_CFG, NS_CAL, NS_WIFI, NS_GPRS, NS_RT, NS_STATE };
+  const char* ns[] = { NS_CFG, NS_CAL, NS_WIFI, NS_GPRS, NS_RT, NS_STATE, "photo" };
   for (auto n : ns) {
     p.begin(n, false);
     p.clear();
@@ -87,12 +87,12 @@ void loaddefaultValues() {
 }
 
 void resetCalibration() {
-  RawTemperatureLow[SKIN_SENSOR]   = false;
-  RawTemperatureRange[SKIN_SENSOR] = false;
-  ReferenceTemperatureRange        = false;
-  ReferenceTemperatureLow          = false;
-  in3.fineTuneSkinTemperature      = false;
-  in3.fineTuneAirTemperature       = false;
+  RawTemperatureLow[SKIN_SENSOR]   = 0.0;
+  RawTemperatureRange[SKIN_SENSOR] = 0.0;
+  ReferenceTemperatureRange        = 0.0;
+  ReferenceTemperatureLow          = 0.0;
+  in3.fineTuneSkinTemperature      = 0.0;
+  in3.fineTuneAirTemperature       = 0.0;
 }
 
 static bool migrateFromEEPROM() {
@@ -157,9 +157,6 @@ static bool migrateFromEEPROM() {
     p.putFloat (KEY_HEAT_MAX_A,   rf(OLD_HEAT_MAX_A));
     p.putFloat (KEY_SKIN_T_MAX,   rf(OLD_SKIN_T_MAX));
     p.putFloat (KEY_AIR_T_MAX,    rf(OLD_AIR_T_MAX));
-    p.putInt   (KEY_ACT_PERIOD,   ri(OLD_ACT_PERIOD));
-    p.putInt   (KEY_PHOTO_PERIOD, ri(OLD_PHOTO_PERIOD));
-    p.putInt   (KEY_STBY_PERIOD,  ri(OLD_STBY_PERIOD));
     p.putInt   (KEY_FAN_CTL_PWM,  ri(OLD_FAN_CTL_PWM));
     p.end(); }
 
@@ -172,14 +169,24 @@ static bool migrateFromEEPROM() {
     p.putFloat(KEY_FT_AIR,      rf(OLD_FT_AIR));
     p.end(); }
 
+  char ssid_tmp[31]  = {};
+  char pass_tmp[26]  = {};
+  char token_tmp[22] = {};
+  memcpy(ssid_tmp,  buf + OLD_WIFI_SSID,  30);
+  memcpy(pass_tmp,  buf + OLD_WIFI_PASS,  25);
+  memcpy(token_tmp, buf + OLD_TB_TOKEN,   21);
+
   { Preferences p; p.begin(NS_WIFI, false);
-    p.putString(KEY_SSID,     String((char*)(buf + OLD_WIFI_SSID)));
-    p.putString(KEY_PASSWORD, String((char*)(buf + OLD_WIFI_PASS)));
+    p.putString(KEY_SSID,     ssid_tmp);
+    p.putString(KEY_PASSWORD, pass_tmp);
     p.end(); }
 
   { Preferences p; p.begin(NS_GPRS, false);
     p.putUChar (KEY_PROVISIONED, buf[OLD_TB_PROV]);
-    p.putString(KEY_TOKEN,       String((char*)(buf + OLD_TB_TOKEN)));
+    p.putString(KEY_TOKEN,       token_tmp);
+    p.putInt   (KEY_ACT_PERIOD,  ri(OLD_ACT_PERIOD));
+    p.putInt   (KEY_PHOTO_PERIOD,ri(OLD_PHOTO_PERIOD));
+    p.putInt   (KEY_STBY_PERIOD, ri(OLD_STBY_PERIOD));
     p.end(); }
 
   { Preferences p; p.begin(NS_RT, false);
@@ -194,6 +201,7 @@ static bool migrateFromEEPROM() {
   { Preferences p; p.begin(NS_STATE, false);
     p.putUChar(KEY_CTRL_ACTIVE,  buf[OLD_CTRL_ACTIVE]);
     p.putUChar(KEY_PHOTO_ACTIVE, buf[OLD_PHOTO_ACTIVE]);
+    p.putUChar(KEY_ACTUATION,    buf[OLD_CTRL_ACTIVE]);  // actuation encodes same byte
     p.end(); }
 
   old.begin("eeprom", false);
@@ -229,6 +237,10 @@ void recapVariables() {
     in3.serialNumber              = p.getInt  (KEY_SERIAL,     0);
     in3.controlMode               = p.getUChar(KEY_CTRL_MODE,  CONTROL_AIR);
     in3.desiredControlTemperature = p.getFloat(KEY_CTRL_TEMP,  presetTemp[CONTROL_AIR]);
+    if (isnan(in3.desiredControlTemperature) ||
+        in3.desiredControlTemperature < AIR_TEMPERATURE_SET_MIN ||
+        in3.desiredControlTemperature > AIR_TEMPERATURE_SET_MAX)
+      in3.desiredControlTemperature = presetTemp[CONTROL_AIR];
     in3.desiredControlHumidity    = p.getUChar(KEY_CTRL_HUM,   presetHumidity);
     in3.fanPWM                    = p.getInt  (KEY_FAN_PWM,    0);
     if (in3.fanPWM <= 0 || in3.fanPWM > 255) in3.fanPWM = 0;
@@ -238,9 +250,6 @@ void recapVariables() {
     if (isnan(in3.skinTemperatureSetMax) || in3.skinTemperatureSetMax <= 0) in3.skinTemperatureSetMax = 0.0f;
     in3.airTemperatureSetMax      = p.getFloat(KEY_AIR_T_MAX,  0.0f);
     if (isnan(in3.airTemperatureSetMax) || in3.airTemperatureSetMax <= 0) in3.airTemperatureSetMax = 0.0f;
-    in3.actuating_gprs_period     = p.getInt(KEY_ACT_PERIOD,   0);
-    in3.phototherapy_gprs_period  = p.getInt(KEY_PHOTO_PERIOD, 0);
-    in3.standby_gprs_period       = p.getInt(KEY_STBY_PERIOD,  0);
     in3.fanCtlPWM                 = p.getInt(KEY_FAN_CTL_PWM,  FAN_CTL_PWM_DEFAULT);
     if (in3.fanCtlPWM <= 0 || in3.fanCtlPWM > 255) in3.fanCtlPWM = FAN_CTL_PWM_DEFAULT;
     p.end(); }
@@ -270,17 +279,25 @@ void recapVariables() {
     in3.humidifier_active_time   = p.getFloat(KEY_RT_HUM,     0.0f);
     p.end(); }
 
+  { Preferences p; p.begin(NS_GPRS, true);
+    in3.actuating_gprs_period    = p.getInt(KEY_ACT_PERIOD,   0);
+    in3.phototherapy_gprs_period = p.getInt(KEY_PHOTO_PERIOD, 0);
+    in3.standby_gprs_period      = p.getInt(KEY_STBY_PERIOD,  0);
+    p.end(); }
+
   { Preferences p; p.begin(NS_WIFI, true);
     String s  = p.getString(KEY_SSID,     "");
     String pw = p.getString(KEY_PASSWORD, "");
     strncpy(wifi_ssid, s.c_str(),  sizeof(wifi_ssid) - 1);
+    wifi_ssid[sizeof(wifi_ssid) - 1] = '\0';
     strncpy(wifi_pass, pw.c_str(), sizeof(wifi_pass) - 1);
+    wifi_pass[sizeof(wifi_pass) - 1] = '\0';
     p.end(); }
 
   { Preferences p; p.begin(NS_STATE, true);
-    in3.restoreState = true;
     in3.actuation    = p.getUChar(KEY_ACTUATION,    0);
     in3.phototherapy = p.getUChar(KEY_PHOTO_ACTIVE, 0);
+    in3.restoreState = (in3.actuation != 0);
     p.end(); }
 
   // Restore phototherapy timer if it was active
