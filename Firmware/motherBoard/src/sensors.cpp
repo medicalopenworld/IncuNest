@@ -593,6 +593,8 @@ bool updateRoomSensor() {
     return true;
   }
 
+  in3.temperature[ROOM_DIGITAL_TEMP_SENSOR] = 0;
+  in3.humidity[ROOM_DIGITAL_HUM_SENSOR] = 0;
   initRoomSensor();
   return false;
 }

@@ -64,13 +64,13 @@
 
 #define DEFAULT_WIFI_EN ON
 
-#define LOG_MODEM_DATA true
+#define LOG_MODEM_DATA false
 #define LOG_INFORMATION true
-#define LOG_ERRORS true
-#define LOG_ALARMS true
+#define LOG_ERRORS false
+#define LOG_ALARMS false
 #define LOG_PULSIOXIMETRY false
-#define LOG_DRIVE true // Google Drive upload + MB/HMI crash capture
-#define LOG_CHARGER true
+#define LOG_DRIVE false // Google Drive upload + MB/HMI crash capture
+#define LOG_CHARGER false
 
 // Diagnostic: set to 1 to skip the upload task entirely. Writer keeps rotating
 // but every closed window is deleted instead of enqueued. Isolates whether the
@@ -448,7 +448,6 @@ constexpr char KEY_HEAT_MAX_A[]  = "heat_max_A";
 constexpr char KEY_SKIN_T_MAX[]  = "skin_t_max";
 constexpr char KEY_AIR_T_MAX[]   = "air_t_max";
 constexpr char KEY_HEATER_TEST[] = "heater_test";
-constexpr char KEY_PANIC_OTA[]   = "panic_ota";
 constexpr char KEY_FAN_CTL_PWM[] = "fan_ctl_pwm";
 
 // --------------- Key names: mb_cal ---------------
@@ -479,7 +478,6 @@ constexpr char KEY_RT_PHOTO[]    = "photo_t";
 constexpr char KEY_RT_HUM[]      = "hum_t";
 
 // --------------- Key names: mb_state ---------------
-constexpr char KEY_CTRL_ACTIVE[]  = "ctrl_active";
 constexpr char KEY_PHOTO_ACTIVE[] = "photo_active";
 constexpr char KEY_ACTUATION[]    = "actuation";
 

@@ -721,10 +721,6 @@ void setup() {
     logI("WiFi Initialization started.");
   }
 
-  // EEPROM.writeString(EEPROM_THINGSBOARD_TOKEN, "MrpCM8s8STUNG9hM3p5x");
-  // EEPROM.write(EEPROM_THINGSBOARD_PROVISIONED, true);
-  // EEPROM.commit();
-
 #if (HW_NUM >= 16)
   logI("Creating power management task ...\n");
   while (xTaskCreatePinnedToCore(PowerManagement_Task, "PWR_MGMT", 2048, NULL,

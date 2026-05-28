@@ -122,7 +122,6 @@ static bool migrateFromEEPROM() {
   constexpr int OLD_FAN_TIME      = 238;
   constexpr int OLD_PHOTO_TIME    = 242;
   constexpr int OLD_HUM_TIME      = 246;
-  constexpr int OLD_PANIC_OTA     = 250;
   constexpr int OLD_FAN_PWM       = 254;
   constexpr int OLD_HEAT_MAX_A    = 258;
   constexpr int OLD_SKIN_T_MAX    = 262;
@@ -152,7 +151,6 @@ static bool migrateFromEEPROM() {
     p.putUChar (KEY_CTRL_MODE,    buf[OLD_CTRL_MODE]);
     p.putFloat (KEY_CTRL_TEMP,    rf(OLD_CTRL_TEMP));
     p.putUChar (KEY_CTRL_HUM,     buf[OLD_CTRL_HUM]);
-    p.putUChar (KEY_PANIC_OTA,    buf[OLD_PANIC_OTA]);
     p.putInt   (KEY_FAN_PWM,      ri(OLD_FAN_PWM));
     p.putFloat (KEY_HEAT_MAX_A,   rf(OLD_HEAT_MAX_A));
     p.putFloat (KEY_SKIN_T_MAX,   rf(OLD_SKIN_T_MAX));
@@ -199,7 +197,6 @@ static bool migrateFromEEPROM() {
     p.end(); }
 
   { Preferences p; p.begin(NS_STATE, false);
-    p.putUChar(KEY_CTRL_ACTIVE,  buf[OLD_CTRL_ACTIVE]);
     p.putUChar(KEY_PHOTO_ACTIVE, buf[OLD_PHOTO_ACTIVE]);
     p.putUChar(KEY_ACTUATION,    buf[OLD_CTRL_ACTIVE]);  // actuation encodes same byte
     p.end(); }
@@ -333,11 +330,6 @@ void recapVariables() {
         in3.humidityControl    = false;
         break;
     }
-  } else {
-    Preferences p;
-    p.begin(NS_STATE, false);
-    p.putUChar(KEY_CTRL_ACTIVE, 0);
-    p.end();
   }
 
   ESP_LOGI("APP", "Serial: %d, Lang: %d", in3.serialNumber, in3.language);
