@@ -719,8 +719,7 @@ bool actuatorsTest() {
     digitalWrite(ACTUATORS_EN, LOW);
     return (true);
   }
-  EEPROM.write(EEPROM_HEATER_TEST, true);
-  EEPROM.commit();
+  { Preferences p; p.begin(NS_CFG, false); p.putUChar(KEY_HEATER_TEST, 1); p.end(); }
   // Test a 10 % PWM: no deslumbra, estabilización térmica rápida.
   // La recta I(PWM) = m·PWM + b cruza el eje en PWM = -PHOTOTHERAPY_PWM_ZERO,
   // calibrado con el barrido inicial. La extrapolación es:
@@ -854,16 +853,20 @@ bool initActuators() {
 #else
   in3_hum.begin();
 #endif
-  if (!digitalCurrentSensorPresent[MAIN] && EEPROM.read(EEPROM_HEATER_TEST) &&
-      USE_SYSTEM_WITHOUT_ACTUATORS_TEST) {
-    logI("[HW] -> Fail -> No current sensor present, but still giving "
-         "possibility to use incubator");
-    return false;
-  }
-  if (!digitalCurrentSensorPresent[SECUNDARY] &&
-      EEPROM.read(EEPROM_HEATER_TEST) && USE_SYSTEM_WITHOUT_ACTUATORS_TEST) {
-    logI("[HW] -> Fail -> No secondary current sensor, skipping heater test");
-    return false;
+  { Preferences _p; _p.begin(NS_CFG, true);
+    bool _heaterTest = _p.getUChar(KEY_HEATER_TEST, 0);
+    _p.end();
+    if (!digitalCurrentSensorPresent[MAIN] && _heaterTest &&
+        USE_SYSTEM_WITHOUT_ACTUATORS_TEST) {
+      logI("[HW] -> Fail -> No current sensor present, but still giving "
+           "possibility to use incubator");
+      return false;
+    }
+    if (!digitalCurrentSensorPresent[SECUNDARY] &&
+        _heaterTest && USE_SYSTEM_WITHOUT_ACTUATORS_TEST) {
+      logI("[HW] -> Fail -> No secondary current sensor, skipping heater test");
+      return false;
+    }
   }
   return (actuatorsTest());
 }

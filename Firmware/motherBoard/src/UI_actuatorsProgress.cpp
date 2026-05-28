@@ -289,8 +289,7 @@ void UI_actuatorsProgress() {
       in3.actuation = ACTUATION_HUMIDITY;
     }
   }
-  EEPROM.write(EEPROM_CONTROL_ACTIVE, in3.actuation);
-  EEPROM.commit();
+  { Preferences p; p.begin(NS_STATE, false); p.putUChar(KEY_ACTUATION, in3.actuation); p.end(); }
   alarmTimerStart();
   temperaturePercentage = false;
   page = ACTUATORS_PROGRESS_PAGE;
@@ -314,6 +313,5 @@ void UI_actuatorsProgress() {
   }
   stopActuation();
   in3.actuation = false;
-  EEPROM.write(EEPROM_CONTROL_ACTIVE, in3.actuation);
-  EEPROM.commit();
+  { Preferences p; p.begin(NS_STATE, false); p.putUChar(KEY_ACTUATION, in3.actuation); p.end(); }
 }

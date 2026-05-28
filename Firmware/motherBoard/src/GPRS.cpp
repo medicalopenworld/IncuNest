@@ -388,9 +388,10 @@ void GPRSProvisionResponse(const JsonObjectConst &data) {
     credentials.password = "";
     GPRS.provisioned = true;
     GPRS.device_token = credentials.username.c_str();
-    EEPROM.writeString(EEPROM_THINGSBOARD_TOKEN, GPRS.device_token);
-    EEPROM.write(EEPROM_THINGSBOARD_PROVISIONED, GPRS.provisioned);
-    EEPROM.commit();
+    { Preferences p; p.begin(NS_GPRS, false);
+      p.putString(KEY_TOKEN,       GPRS.device_token);
+      p.putUChar (KEY_PROVISIONED, GPRS.provisioned);
+      p.end(); }
     logModemData("[GPRS] -> Device provisioned successfully");
   } else if (strncmp(data[CREDENTIALS_TYPE], MQTT_BASIC_CRED_TYPE,
                      strlen(MQTT_BASIC_CRED_TYPE)) == 0) {
@@ -400,9 +401,10 @@ void GPRSProvisionResponse(const JsonObjectConst &data) {
     credentials.password = credentials_value[CLIENT_PASSWORD].as<std::string>();
     GPRS.provisioned = true;
     GPRS.device_token = credentials.username.c_str();
-    EEPROM.writeString(EEPROM_THINGSBOARD_TOKEN, GPRS.device_token);
-    EEPROM.write(EEPROM_THINGSBOARD_PROVISIONED, GPRS.provisioned);
-    EEPROM.commit();
+    { Preferences p; p.begin(NS_GPRS, false);
+      p.putString(KEY_TOKEN,       GPRS.device_token);
+      p.putUChar (KEY_PROVISIONED, GPRS.provisioned);
+      p.end(); }
     logModemData("[GPRS] -> Device provisioned successfully");
   } else {
     logModemData("[GPRS] -> Unexpected provision credentialsType");
@@ -793,10 +795,12 @@ void GPRSPost() {
 }
 
 void GPRS_TB_Init() {
-  GPRS.provisioned = EEPROM.read(EEPROM_THINGSBOARD_PROVISIONED);
-  if (GPRS.provisioned) {
-    GPRS.device_token = EEPROM.readString(EEPROM_THINGSBOARD_TOKEN);
-  }
+  { Preferences p; p.begin(NS_GPRS, true);
+    GPRS.provisioned   = p.getUChar (KEY_PROVISIONED, 0);
+    if (GPRS.provisioned) {
+      GPRS.device_token = p.getString(KEY_TOKEN, "").c_str();
+    }
+    p.end(); }
 }
 
 void GPRS_Handler() {

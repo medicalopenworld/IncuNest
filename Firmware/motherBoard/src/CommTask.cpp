@@ -1,7 +1,6 @@
 #include "CommTask.h"
 #include "main.h"
 #include "DriveUpload.h"
-#include <EEPROM.h>
 #include <LittleFS.h>
 #include <Preferences.h>
 
@@ -411,36 +410,35 @@ void parse_line(const char *line) {
       extern float maxDesiredTemp[2];
       if (strcmp(param, "FAN_SUPPLY_PWM") == 0) {
         in3.fanPWM = (int)value;
-        EEPROM.writeInt(EEPROM_FAN_PWM, in3.fanPWM);
+        { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_PWM, in3.fanPWM); p.end(); }
       } else if (strcmp(param, "HEATER_AMPS") == 0) {
         in3.heaterMaxPowerAmps = value;
-        EEPROM.writeFloat(EEPROM_HEATER_MAX_AMPS, in3.heaterMaxPowerAmps);
+        { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_HEAT_MAX_A, in3.heaterMaxPowerAmps); p.end(); }
       } else if (strcmp(param, "SKIN_TMAX") == 0) {
         in3.skinTemperatureSetMax = value;
         maxDesiredTemp[CONTROL_SKIN] = value;
-        EEPROM.writeFloat(EEPROM_SKIN_TEMP_MAX, in3.skinTemperatureSetMax);
+        { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_SKIN_T_MAX, in3.skinTemperatureSetMax); p.end(); }
       } else if (strcmp(param, "AIR_TMAX") == 0) {
         in3.airTemperatureSetMax = value;
         maxDesiredTemp[CONTROL_AIR] = value;
-        EEPROM.writeFloat(EEPROM_AIR_TEMP_MAX, in3.airTemperatureSetMax);
+        { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_AIR_T_MAX, in3.airTemperatureSetMax); p.end(); }
       } else if (strcmp(param, "GPRS_ACT") == 0) {
         in3.actuating_gprs_period = (int)value;
-        EEPROM.writeInt(EEPROM_GPRS_ACT_PERIOD, in3.actuating_gprs_period);
+        { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_ACT_PERIOD, in3.actuating_gprs_period); p.end(); }
       } else if (strcmp(param, "GPRS_PHOTO") == 0) {
         in3.phototherapy_gprs_period = (int)value;
-        EEPROM.writeInt(EEPROM_GPRS_PHOTO_PERIOD, in3.phototherapy_gprs_period);
+        { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_PHOTO_PERIOD, in3.phototherapy_gprs_period); p.end(); }
       } else if (strcmp(param, "GPRS_STBY") == 0) {
         in3.standby_gprs_period = (int)value;
-        EEPROM.writeInt(EEPROM_GPRS_STBY_PERIOD, in3.standby_gprs_period);
+        { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_STBY_PERIOD, in3.standby_gprs_period); p.end(); }
       } else if (strcmp(param, "FAN_CTL_PWM") == 0) {
         in3.fanCtlPWM = (int)value;
-        EEPROM.writeInt(EEPROM_FAN_CTL_PWM, in3.fanCtlPWM);
+        { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_CTL_PWM, in3.fanCtlPWM); p.end(); }
         ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
       } else {
         success = false;
       }
-      if (success)
-        EEPROM.commit();
+      if (success) { /* Preferences commits on p.end() */ }
       if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         if (success)
           ESP_LOGI(TAG, "Config updated: %s = %.2f", param, value);

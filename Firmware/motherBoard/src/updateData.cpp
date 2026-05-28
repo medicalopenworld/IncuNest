@@ -308,36 +308,33 @@ void timeTrackHandler() {
     if (millis() - in3.last_check_time > TIME_TRACK_UPDATE_PERIOD) {
       in3.last_check_time = millis();
       in3.control_active_time += millisToHours(TIME_TRACK_UPDATE_PERIOD);
-      EEPROM.writeFloat(EEPROM_CONTROL_ACTIVE_TIME, in3.control_active_time);
       if (in3.temperatureControl) {
         in3.heater_active_time += millisToHours(TIME_TRACK_UPDATE_PERIOD);
         in3.fan_active_time += millisToHours(TIME_TRACK_UPDATE_PERIOD);
-        EEPROM.writeFloat(EEPROM_HEATER_ACTIVE_TIME, in3.heater_active_time);
-        EEPROM.writeFloat(EEPROM_FAN_ACTIVE_TIME, in3.fan_active_time);
       }
       if (in3.humidityControl) {
         in3.humidifier_active_time += millisToHours(TIME_TRACK_UPDATE_PERIOD);
-        EEPROM.writeFloat(EEPROM_HUMIDIFIER_ACTIVE_TIME,
-                          in3.humidifier_active_time);
         if (!in3.temperatureControl) {
           in3.fan_active_time += millisToHours(TIME_TRACK_UPDATE_PERIOD);
-          EEPROM.writeFloat(EEPROM_FAN_ACTIVE_TIME, in3.fan_active_time);
         }
       }
       if (in3.phototherapy) {
         in3.phototherapy_active_time += millisToHours(TIME_TRACK_UPDATE_PERIOD);
-        EEPROM.writeFloat(EEPROM_PHOTOTHERAPY_ACTIVE_TIME,
-                          in3.phototherapy_active_time);
       }
-      EEPROM.commit();
+      { Preferences p; p.begin(NS_RT, false);
+        p.putFloat(KEY_RT_CTRL,   in3.control_active_time);
+        p.putFloat(KEY_RT_HEATER, in3.heater_active_time);
+        p.putFloat(KEY_RT_FAN,    in3.fan_active_time);
+        p.putFloat(KEY_RT_HUM,    in3.humidifier_active_time);
+        p.putFloat(KEY_RT_PHOTO,  in3.phototherapy_active_time);
+        p.end(); }
     }
   } else {
     activeStatus = false;
     if (millis() - in3.last_check_time > TIME_TRACK_UPDATE_PERIOD) {
       in3.last_check_time = millis();
       in3.standby_time += millisToHours(TIME_TRACK_UPDATE_PERIOD);
-      EEPROM.writeFloat(EEPROM_STANDBY_TIME, in3.standby_time);
-      EEPROM.commit();
+      { Preferences p; p.begin(NS_RT, false); p.putFloat(KEY_RT_STANDBY, in3.standby_time); p.end(); }
     }
   }
   if (activeStatus != lastActiveStatus) {

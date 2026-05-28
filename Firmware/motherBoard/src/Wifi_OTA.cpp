@@ -280,10 +280,12 @@ void wifiInit(void) {
     pass = pendingPass;
     ESP_LOGI(TAG, "Connecting to pending SSID: %s", ssid.c_str());
   } else {
-    ssid = EEPROM.readString(EEPROM_WIFI_SSID);
-    pass = EEPROM.readString(EEPROM_WIFI_PASSWORD);
+    { Preferences p; p.begin(NS_WIFI, true);
+      ssid = p.getString(KEY_SSID,     "");
+      pass = p.getString(KEY_PASSWORD, "");
+      p.end(); }
     if (ssid.length() > 0) {
-      ESP_LOGI(TAG, "Connecting to SSID from EEPROM: %s", ssid.c_str());
+      ESP_LOGI(TAG, "Connecting to SSID from Preferences: %s", ssid.c_str());
     } else {
       ESP_LOGI(TAG, "Connecting to default SSID: %s", WIFI_SSID);
       ssid = WIFI_SSID;
@@ -366,52 +368,51 @@ void configWifiServer() {
     extern float maxDesiredTemp[2];
     if (wifiServer.hasArg("serial")) {
       in3.serialNumber = wifiServer.arg("serial").toInt();
-      EEPROM.writeInt(EEPROM_SERIAL_NUMBER, in3.serialNumber);
+      { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_SERIAL, in3.serialNumber); p.end(); }
     }
     if (wifiServer.hasArg("fan_supply_pwm")) {
       in3.fanPWM = wifiServer.arg("fan_supply_pwm").toInt();
-      EEPROM.writeInt(EEPROM_FAN_PWM, in3.fanPWM);
+      { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_PWM, in3.fanPWM); p.end(); }
     }
     if (wifiServer.hasArg("fan_ctl_pwm")) {
       in3.fanCtlPWM = wifiServer.arg("fan_ctl_pwm").toInt();
-      EEPROM.writeInt(EEPROM_FAN_CTL_PWM, in3.fanCtlPWM);
+      { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_CTL_PWM, in3.fanCtlPWM); p.end(); }
       ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
     }
     if (wifiServer.hasArg("heater_amps")) {
       in3.heaterMaxPowerAmps = wifiServer.arg("heater_amps").toFloat();
-      EEPROM.writeFloat(EEPROM_HEATER_MAX_AMPS, in3.heaterMaxPowerAmps);
+      { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_HEAT_MAX_A, in3.heaterMaxPowerAmps); p.end(); }
     }
     if (wifiServer.hasArg("air_tmax")) {
       in3.airTemperatureSetMax = wifiServer.arg("air_tmax").toFloat();
       maxDesiredTemp[CONTROL_AIR] = in3.airTemperatureSetMax;
-      EEPROM.writeFloat(EEPROM_AIR_TEMP_MAX, in3.airTemperatureSetMax);
+      { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_AIR_T_MAX, in3.airTemperatureSetMax); p.end(); }
     }
     if (wifiServer.hasArg("skin_tmax")) {
       in3.skinTemperatureSetMax = wifiServer.arg("skin_tmax").toFloat();
       maxDesiredTemp[CONTROL_SKIN] = in3.skinTemperatureSetMax;
-      EEPROM.writeFloat(EEPROM_SKIN_TEMP_MAX, in3.skinTemperatureSetMax);
+      { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_SKIN_T_MAX, in3.skinTemperatureSetMax); p.end(); }
     }
     if (wifiServer.hasArg("gprs_act")) {
       in3.actuating_gprs_period = wifiServer.arg("gprs_act").toInt();
-      EEPROM.writeInt(EEPROM_GPRS_ACT_PERIOD, in3.actuating_gprs_period);
+      { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_ACT_PERIOD, in3.actuating_gprs_period); p.end(); }
     }
     if (wifiServer.hasArg("gprs_photo")) {
       in3.phototherapy_gprs_period = wifiServer.arg("gprs_photo").toInt();
-      EEPROM.writeInt(EEPROM_GPRS_PHOTO_PERIOD, in3.phototherapy_gprs_period);
+      { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_PHOTO_PERIOD, in3.phototherapy_gprs_period); p.end(); }
     }
     if (wifiServer.hasArg("gprs_stby")) {
       in3.standby_gprs_period = wifiServer.arg("gprs_stby").toInt();
-      EEPROM.writeInt(EEPROM_GPRS_STBY_PERIOD, in3.standby_gprs_period);
+      { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_STBY_PERIOD, in3.standby_gprs_period); p.end(); }
     }
     if (wifiServer.hasArg("reference_temp")) {
       double referenceTemp = wifiServer.arg("reference_temp").toDouble();
       in3.fineTuneSkinTemperature =
           in3.fineTuneSkinTemperature +
           (referenceTemp - in3.temperature[SKIN_SENSOR]);
-      EEPROM.writeFloat(EEPROM_FINE_TUNE_TEMP_SKIN,
-                        in3.fineTuneSkinTemperature);
+      { Preferences p; p.begin(NS_CAL, false); p.putFloat(KEY_FT_SKIN, in3.fineTuneSkinTemperature); p.end(); }
     }
-    EEPROM.commit();
+    /* Preferences commits on p.end() — no explicit commit needed */
     wifiServer.sendHeader("Connection", "close");
     wifiServer.send(200, "text/plain", "Saved. Settings applied immediately.");
   });
@@ -485,14 +486,15 @@ void WIFICheckOTA() {
 }
 
 void WIFI_TB_Init() {
-  Wifi_TB.provisioned = EEPROM.read(EEPROM_THINGSBOARD_PROVISIONED);
-  if (Wifi_TB.provisioned == 0xff) { // default EEPROM value
-    Wifi_TB.provisioned = false;
-  }
+  { Preferences p; p.begin(NS_GPRS, true);
+    Wifi_TB.provisioned   = p.getUChar (KEY_PROVISIONED, 0);
+    if (Wifi_TB.provisioned) {
+      Wifi_TB.device_token = p.getString(KEY_TOKEN, "").c_str();
+    }
+    p.end(); }
   logI("[WIFI] -> WIFI_TB_Init check provisioning: " +
        String(Wifi_TB.provisioned));
   if (Wifi_TB.provisioned) {
-    Wifi_TB.device_token = EEPROM.readString(EEPROM_THINGSBOARD_TOKEN);
     logI("[WIFI] -> Provisioned with token: " + String(Wifi_TB.device_token));
   }
 }
@@ -517,9 +519,10 @@ void WIFIProvisionResponse(const JsonObjectConst &data) {
     wifi_credentials.password = "";
     Wifi_TB.provisioned = true;
     Wifi_TB.device_token = wifi_credentials.username.c_str();
-    EEPROM.writeString(EEPROM_THINGSBOARD_TOKEN, Wifi_TB.device_token);
-    EEPROM.write(EEPROM_THINGSBOARD_PROVISIONED, Wifi_TB.provisioned);
-    EEPROM.commit();
+    { Preferences p; p.begin(NS_GPRS, false);
+      p.putString(KEY_TOKEN,       Wifi_TB.device_token);
+      p.putUChar (KEY_PROVISIONED, Wifi_TB.provisioned);
+      p.end(); }
     logI("[WIFI] -> Device provisioned successfully");
   } else if (strncmp(data[CREDENTIALS_TYPE], MQTT_BASIC_CRED_TYPE,
                      strlen(MQTT_BASIC_CRED_TYPE)) == 0) {
@@ -531,9 +534,10 @@ void WIFIProvisionResponse(const JsonObjectConst &data) {
         credentials_value[CLIENT_PASSWORD].as<std::string>();
     Wifi_TB.provisioned = true;
     Wifi_TB.device_token = wifi_credentials.username.c_str();
-    EEPROM.writeString(EEPROM_THINGSBOARD_TOKEN, Wifi_TB.device_token);
-    EEPROM.write(EEPROM_THINGSBOARD_PROVISIONED, Wifi_TB.provisioned);
-    EEPROM.commit();
+    { Preferences p; p.begin(NS_GPRS, false);
+      p.putString(KEY_TOKEN,       Wifi_TB.device_token);
+      p.putUChar (KEY_PROVISIONED, Wifi_TB.provisioned);
+      p.end(); }
     logI("[WIFI] -> Device provisioned successfully");
   } else {
     logI("[WIFI] -> Unexpected provision credentialsType");
@@ -784,10 +788,11 @@ void addTelemetriesToWIFIJSON() {
 void WEB_OTA() {
   if (WiFi.status() == WL_CONNECTED) {
     if (strlen(pendingSSID) > 0 && WiFi.SSID() == String(pendingSSID)) {
-      logI("[WIFI] -> Connection successful, persisting credentials to EEPROM");
-      EEPROM.writeString(EEPROM_WIFI_SSID, pendingSSID);
-      EEPROM.writeString(EEPROM_WIFI_PASSWORD, pendingPass);
-      EEPROM.commit();
+      logI("[WIFI] -> Connection successful, persisting credentials to Preferences");
+      { Preferences p; p.begin(NS_WIFI, false);
+        p.putString(KEY_SSID,     pendingSSID);
+        p.putString(KEY_PASSWORD, pendingPass);
+        p.end(); }
       pendingSSID[0] = '\0';
       pendingPass[0] = '\0';
     }

@@ -402,12 +402,11 @@ void Communication_Receiver(void *pvParameters) {
              "w ageD=" + String(hmi_cmd_msg.babyAgeDays));
       }
       in3.actuation = hmi_cmd_msg.actuation;
-      EEPROM.write(EEPROM_CONTROL_ACTIVE, in3.actuation);
+      { Preferences p; p.begin(NS_STATE, false); p.putUChar(KEY_ACTUATION, in3.actuation); p.end(); }
       if (in3.controlMode != hmi_cmd_msg.controlMode) {
         in3.controlMode = hmi_cmd_msg.controlMode;
-        EEPROM.write(EEPROM_CONTROL_MODE, in3.controlMode);
+        { Preferences p; p.begin(NS_CFG, false); p.putUChar(KEY_CTRL_MODE, in3.controlMode); p.end(); }
       }
-      EEPROM.commit();
 
       switch (in3.actuation) {
       case ACTUATION_TEMPERATURE:
@@ -450,8 +449,7 @@ void Communication_Receiver(void *pvParameters) {
       }
 
       in3.phototherapy = hmi_cmd_msg.phototherapyMode;
-      EEPROM.write(EEPROM_PHOTOTHERAPY_ACTIVE, in3.phototherapy);
-      EEPROM.commit();
+      { Preferences p; p.begin(NS_STATE, false); p.putUChar(KEY_PHOTO_ACTIVE, in3.phototherapy); p.end(); }
       if (in3.language != hmi_cmd_msg.language) {
         in3.language = hmi_cmd_msg.language;
         resendActiveAlarms();
