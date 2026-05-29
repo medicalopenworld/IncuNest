@@ -91,18 +91,18 @@ def test_namespace_entry_crc_is_valid(page):
 
 
 # ------------------------------------------------------------------ #
-# Entry 1 — uint16 'serial'
+# Entry 1 — int32 'serial'  (matches Preferences.putInt / nvs_get_i32)
 # ------------------------------------------------------------------ #
 
 def test_data_entry_fields(page):
     offset = _ENTRIES_OFFSET + _ENTRY_SIZE
     e = page[offset: offset + _ENTRY_SIZE]
     assert e[0] == 0x01   # ns_index = 1 (mb_cfg)
-    assert e[1] == 0x02   # type = U16
+    assert e[1] == 0x14   # type = I32 (matches getInt / nvs_get_i32)
     assert e[2] == 0x01   # span = 1
     assert e[3] == 0xFF   # chunk_index = ANY
     assert e[8:14] == b'serial'
-    value, = struct.unpack_from('<H', e, 24)
+    value, = struct.unpack_from('<i', e, 24)
     assert value == 42
 
 
@@ -138,7 +138,7 @@ def test_serial_round_trips(serial):
     page = generate_serial_nvs(serial, _PARTITION_SIZE)
     offset = _ENTRIES_OFFSET + _ENTRY_SIZE
     e = page[offset: offset + _ENTRY_SIZE]
-    value, = struct.unpack_from('<H', e, 24)
+    value, = struct.unpack_from('<i', e, 24)
     assert value == serial
 
 

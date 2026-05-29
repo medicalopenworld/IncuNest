@@ -23,7 +23,7 @@ _PAGE_ACTIVE = 0xFFFFFFFE
 _NVS_VER2    = 0xFE
 
 _T_U8  = 0x01
-_T_U16 = 0x02
+_T_I32 = 0x14  # matches Preferences.putInt / nvs_set_i32
 
 _DEFAULT_NVS_OFFSET = 0x9000
 
@@ -88,8 +88,8 @@ def generate_serial_nvs(serial_number: int, partition_size: int = _DEFAULT_NVS_S
 
     # Entry 0 — namespace declaration: 'mb_cfg' is assigned index 1
     e0 = _make_entry(0, _T_U8,  'mb_cfg', bytes([1]))
-    # Entry 1 — data: ns=1, type=uint16, key='serial'
-    e1 = _make_entry(1, _T_U16, 'serial', struct.pack('<H', serial_number))
+    # Entry 1 — data: ns=1, type=int32, key='serial' (matches Preferences.getInt/nvs_get_i32)
+    e1 = _make_entry(1, _T_I32, 'serial', struct.pack('<i', serial_number))
 
     # Entry-state bitmap (32 bytes = 128 entries × 2 bits, packed LSB-first per uint32).
     # Written = 0b10, Empty = 0b11.
