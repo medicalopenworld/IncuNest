@@ -63,12 +63,19 @@ void loaddefaultValues() {
   }
 
   { Preferences p; p.begin(NS_CFG, false);
-    p.putUChar(KEY_LANG,        in3.language);
-    p.putUChar(KEY_AUTOLOCK,    autoLock);
-    p.putUChar(KEY_CTRL_MODE,   in3.controlMode);
-    p.putFloat(KEY_CTRL_TEMP,   in3.desiredControlTemperature);
-    p.putUChar(KEY_CTRL_HUM,    in3.desiredControlHumidity);
-    p.putInt  (KEY_FAN_CTL_PWM, in3.fanCtlPWM);
+    p.putUChar (KEY_LANG,        in3.language);
+    p.putUChar (KEY_AUTOLOCK,    autoLock);
+    p.putUChar (KEY_CTRL_MODE,   in3.controlMode);
+    p.putFloat (KEY_CTRL_TEMP,   in3.desiredControlTemperature);
+    p.putUChar (KEY_CTRL_HUM,    in3.desiredControlHumidity);
+    p.putInt   (KEY_FAN_CTL_PWM, in3.fanCtlPWM);
+    p.putInt   (KEY_FAN_PWM,     0);
+    p.putFloat (KEY_HEAT_MAX_A,  0.0f);
+    p.putFloat (KEY_SKIN_T_MAX,  0.0f);
+    p.putFloat (KEY_AIR_T_MAX,   0.0f);
+    p.putInt   (KEY_ACT_PERIOD,  0);
+    p.putInt   (KEY_PHOTO_PERIOD,0);
+    p.putInt   (KEY_STBY_PERIOD, 0);
     p.end(); }
 
   { Preferences p; p.begin(NS_CAL, false);
@@ -83,6 +90,20 @@ void loaddefaultValues() {
   { Preferences p; p.begin(NS_WIFI, false);
     p.putString(KEY_SSID,     "");
     p.putString(KEY_PASSWORD, "");
+    p.end(); }
+
+  { Preferences p; p.begin(NS_RT, false);
+    p.putFloat(KEY_RT_STANDBY, 0.0f);
+    p.putFloat(KEY_RT_CTRL,    0.0f);
+    p.putFloat(KEY_RT_HEATER,  0.0f);
+    p.putFloat(KEY_RT_FAN,     0.0f);
+    p.putFloat(KEY_RT_PHOTO,   0.0f);
+    p.putFloat(KEY_RT_HUM,     0.0f);
+    p.end(); }
+
+  { Preferences p; p.begin(NS_STATE, false);
+    p.putUChar(KEY_PHOTO_ACTIVE, 0);
+    p.putUChar(KEY_ACTUATION,    0);
     p.end(); }
 }
 
@@ -211,7 +232,7 @@ static bool migrateFromEEPROM() {
 
 void initEEPROM() {
   Preferences p;
-  p.begin(NS_CFG, true);
+  p.begin(NS_CFG, false);  // write mode: avoids NOT_FOUND error when namespace is new
   bool initialized = p.isKey(KEY_LANG);
   p.end();
 
