@@ -162,6 +162,8 @@ extern int ScreenBacklightMode;
 #define INA3221_ONE_CYCLE_SETTLE_MS 200
 // USB_FAULT GPIO latches within ~50ms of USB_EN assertion; 100ms gives 2x margin.
 #define USB_FAULT_SETTLE_MS 100
+// Startup beep duration: clearly audible but not drawn out.
+#define BUZZER_BEEP_DURATION_MS 300
 
 #define NTC_BABY_MIN 1
 #define NTC_BABY_MAX 60
@@ -667,7 +669,7 @@ void testBuzzer() {
   vTaskDelay(pdMS_TO_TICKS(CURRENT_STABILIZE_TIME_DEFAULT));
   #else
     ledcWrite(BUZZER_PWM_CHANNEL, BUZZER_HALF_PWM);
-    vTaskDelay(pdMS_TO_TICKS(CURRENT_STABILIZE_TIME_DEFAULT));
+    vTaskDelay(pdMS_TO_TICKS(BUZZER_BEEP_DURATION_MS));
     ledcWrite(BUZZER_PWM_CHANNEL, false);
   #endif
   if (testCurrent < BUZZER_CONSUMPTION_MIN) {
