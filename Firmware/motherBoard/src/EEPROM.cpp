@@ -69,13 +69,13 @@ void loaddefaultValues() {
     p.putFloat (KEY_CTRL_TEMP,   in3.desiredControlTemperature);
     p.putUChar (KEY_CTRL_HUM,    in3.desiredControlHumidity);
     p.putInt   (KEY_FAN_CTL_PWM, in3.fanCtlPWM);
-    p.putInt   (KEY_FAN_PWM,     0);
-    p.putFloat (KEY_HEAT_MAX_A,  0.0f);
-    p.putFloat (KEY_SKIN_T_MAX,  0.0f);
-    p.putFloat (KEY_AIR_T_MAX,   0.0f);
-    p.putInt   (KEY_ACT_PERIOD,  0);
-    p.putInt   (KEY_PHOTO_PERIOD,0);
-    p.putInt   (KEY_STBY_PERIOD, 0);
+    p.putInt   (KEY_FAN_PWM,      0);
+    p.putFloat (KEY_HEAT_MAX_A,   HEATER_MAX_POWER_AMPS);
+    p.putFloat (KEY_SKIN_T_MAX,   SKIN_TEMPERATURE_SET_MAX);
+    p.putFloat (KEY_AIR_T_MAX,    AIR_TEMPERATURE_SET_MAX);
+    p.putInt   (KEY_ACT_PERIOD,   60);
+    p.putInt   (KEY_PHOTO_PERIOD, 180);
+    p.putInt   (KEY_STBY_PERIOD,  3600);
     p.end(); }
 
   { Preferences p; p.begin(NS_CAL, false);
@@ -262,12 +262,15 @@ void recapVariables() {
     in3.desiredControlHumidity    = p.getUChar(KEY_CTRL_HUM,   presetHumidity);
     in3.fanPWM                    = p.getInt  (KEY_FAN_PWM,    0);
     if (in3.fanPWM <= 0 || in3.fanPWM > 255) in3.fanPWM = 0;
-    in3.heaterMaxPowerAmps        = p.getFloat(KEY_HEAT_MAX_A, 0.0f);
-    if (isnan(in3.heaterMaxPowerAmps) || in3.heaterMaxPowerAmps <= 0) in3.heaterMaxPowerAmps = 0.0f;
-    in3.skinTemperatureSetMax     = p.getFloat(KEY_SKIN_T_MAX, 0.0f);
-    if (isnan(in3.skinTemperatureSetMax) || in3.skinTemperatureSetMax <= 0) in3.skinTemperatureSetMax = 0.0f;
-    in3.airTemperatureSetMax      = p.getFloat(KEY_AIR_T_MAX,  0.0f);
-    if (isnan(in3.airTemperatureSetMax) || in3.airTemperatureSetMax <= 0) in3.airTemperatureSetMax = 0.0f;
+    in3.heaterMaxPowerAmps        = p.getFloat(KEY_HEAT_MAX_A, HEATER_MAX_POWER_AMPS);
+    if (isnan(in3.heaterMaxPowerAmps) || in3.heaterMaxPowerAmps <= 0)
+      in3.heaterMaxPowerAmps = HEATER_MAX_POWER_AMPS;
+    in3.skinTemperatureSetMax     = p.getFloat(KEY_SKIN_T_MAX, SKIN_TEMPERATURE_SET_MAX);
+    if (isnan(in3.skinTemperatureSetMax) || in3.skinTemperatureSetMax <= 0)
+      in3.skinTemperatureSetMax = SKIN_TEMPERATURE_SET_MAX;
+    in3.airTemperatureSetMax      = p.getFloat(KEY_AIR_T_MAX,  AIR_TEMPERATURE_SET_MAX);
+    if (isnan(in3.airTemperatureSetMax) || in3.airTemperatureSetMax <= 0)
+      in3.airTemperatureSetMax = AIR_TEMPERATURE_SET_MAX;
     in3.fanCtlPWM                 = p.getInt(KEY_FAN_CTL_PWM,  FAN_CTL_PWM_DEFAULT);
     if (in3.fanCtlPWM <= 0 || in3.fanCtlPWM > 255) in3.fanCtlPWM = FAN_CTL_PWM_DEFAULT;
     p.end(); }
@@ -298,9 +301,9 @@ void recapVariables() {
     p.end(); }
 
   { Preferences p; p.begin(NS_GPRS, true);
-    in3.actuating_gprs_period    = p.getInt(KEY_ACT_PERIOD,   0);
-    in3.phototherapy_gprs_period = p.getInt(KEY_PHOTO_PERIOD, 0);
-    in3.standby_gprs_period      = p.getInt(KEY_STBY_PERIOD,  0);
+    in3.actuating_gprs_period    = p.getInt(KEY_ACT_PERIOD,   60);
+    in3.phototherapy_gprs_period = p.getInt(KEY_PHOTO_PERIOD, 180);
+    in3.standby_gprs_period      = p.getInt(KEY_STBY_PERIOD,  3600);
     p.end(); }
 
   { Preferences p; p.begin(NS_WIFI, true);
