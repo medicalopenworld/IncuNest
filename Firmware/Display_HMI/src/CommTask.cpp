@@ -16,6 +16,7 @@ ControlBoard_Message_Alarm ctrl_msg_alarm;
 ControlBoard_Message_State ctrl_state_msg = {0};
 ControlBoard_Message_PPG ctrl_ppg_msg     = {0, false};
 ControlBoard_Message_VIT ctrl_vit_msg     = {0, 0, false};
+ControlBoard_Message_Probe ctrl_probe_msg = {SPO2_PROBE_DISCONNECTED, false};
 int g_skinProbeState = SKIN_PROBE_NOT_CONNECTED; // Last received skin probe state
 
 // --- Power Off countdown state (written here, read by UITask) ---
@@ -187,6 +188,13 @@ static void parse_message(const char *line) {
       ctrl_vit_msg.hr      = (uint8_t)hr;
       ctrl_vit_msg.spo2    = (uint8_t)spo2;
       ctrl_vit_msg.updated = true;
+    }
+  } else if (strncmp(line, "CTRL,PROBE", 10) == 0) {
+    int state = 0;
+    if (sscanf(line, "CTRL,PROBE,%d", &state) == 1 &&
+        state >= SPO2_PROBE_DISCONNECTED && state <= SPO2_PROBE_APPLIED) {
+      ctrl_probe_msg.state   = (ProbeContactState)state;
+      ctrl_probe_msg.updated = true;
     }
   } else if (strncmp(line, "CTRL,ALM", strlen("CTRL,ALM")) ==
              0) {
