@@ -158,6 +158,10 @@ extern int ScreenBacklightMode;
 
 #define INA3221_RESET_DELAY_MS 100
 #define INA3221_FIRST_CONVERSION_DELAY_MS 150
+// One fresh INA3221 conversion cycle: AVG128 x 140us x 2 (bus+shunt) x 3ch ~= 107ms, rounded up.
+#define INA3221_ONE_CYCLE_SETTLE_MS 200
+// USB_FAULT GPIO latches within ~50ms of USB_EN assertion; 100ms gives 2x margin.
+#define USB_FAULT_SETTLE_MS 100
 
 #define NTC_BABY_MIN 1
 #define NTC_BABY_MAX 60
