@@ -20,8 +20,8 @@ _BOARD_FOLDER = {
 # ESP32-S3 native USB supports automatic bootloader entry via USB reset sequence.
 # CH340K boards use classic DTR/RTS toggle (default_reset).
 _BOARD_BEFORE_RESET = {
-    Board.MOTHERBOARD: 'default_reset',
-    Board.DISPLAY_HMI: 'default_reset',
+    Board.MOTHERBOARD: 'default-reset',
+    Board.DISPLAY_HMI: 'default-reset',
 }
 
 _BOARD_FILES = {
@@ -107,8 +107,8 @@ def has_firmware_flashed(port: str) -> bool:
             '--port', port,
             '--chip', 'esp32s3',
             '--no-stub',
-            '--before', 'no_reset',
-            '--after', 'no_reset',
+            '--before', 'no-reset',
+            '--after', 'no-reset',
             'read_flash',
             '0x10000', '4', tmp,
         ])
@@ -164,7 +164,7 @@ def flash_board(
         '--chip', 'esp32s3',
         '--baud', '921600',
         '--before', _BOARD_BEFORE_RESET[board],
-        '--after', 'no_reset',   # keep stub alive for the post-flash reset step
+        '--after', 'no-reset',   # keep stub alive for the post-flash reset step
         'write-flash',
         '--flash-mode', 'keep',
         '--flash-freq', 'keep',
@@ -210,32 +210,37 @@ def flash_board(
             except OSError:
                 pass
 
-    # Clear RTC_CNTL_FORCE_DOWNLOAD_BOOT (bit 0 of 0x600080DC) and hard-reset.
-    # The ROM sets this bit when entering download mode; if left set the device
-    # re-enters download mode on every subsequent reset regardless of GPIO0.
-    # We reuse the stub still in RAM (--after no_reset above) to write the
-    # register and trigger a proper SW reset that respects the strapping pins.
-    _prev_no_color = os.environ.get('NO_COLOR')
-    os.environ['NO_COLOR'] = '1'
-    _sink = io.StringIO()
-    old_out, old_err = sys.stdout, sys.stderr
-    sys.stdout = _sink
-    sys.stderr = _sink
-    try:
-        esptool.main([
-            '--port', port,
-            '--chip', 'esp32s3',
-            '--baud', '921600',
-            '--before', 'no_reset',
-            '--after', 'hard_reset',
-            'write_reg', '0x600080DC', '0', '0x1',
-        ])
-    except Exception:
-        pass
-    finally:
-        sys.stdout = old_out
-        sys.stderr = old_err
-        if _prev_no_color is None:
-            os.environ.pop('NO_COLOR', None)
-        else:
-            os.environ['NO_COLOR'] = _prev_no_color
+    # Clear RTC_CNTL_FORCE_DOWNLOAD_BOOT and reset into app mode.
+    # Run in a thread with a timeout so a connection failure never blocks.
+    import threading as _threading
+
+    def _boot_to_app() -> None:
+        time.sleep(1.0)  # let the port settle after write-flash closes it
+        _nc = os.environ.get('NO_COLOR')
+        os.environ['NO_COLOR'] = '1'
+        _sink = io.StringIO()
+        _o, _e = sys.stdout, sys.stderr
+        sys.stdout = _sink
+        sys.stderr = _sink
+        try:
+            esptool.main([
+                '--port', port,
+                '--chip', 'esp32s3',
+                '--baud', '921600',
+                '--before', 'no-reset',
+                '--after', 'hard-reset',
+                'write_reg', '0x600080DC', '0',
+            ])
+        except Exception:
+            pass
+        finally:
+            sys.stdout = _o
+            sys.stderr = _e
+            if _nc is None:
+                os.environ.pop('NO_COLOR', None)
+            else:
+                os.environ['NO_COLOR'] = _nc
+
+    _t = _threading.Thread(target=_boot_to_app, daemon=True)
+    _t.start()
+    _t.join(timeout=8)  # max 8 s; if stub timed out just move on
