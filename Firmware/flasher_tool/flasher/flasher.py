@@ -1,7 +1,6 @@
 import io
 import os
 import re
-import struct
 import sys
 import tempfile
 from pathlib import Path
@@ -151,24 +150,6 @@ def flash_board(
         nvs_offset, nvs_size = nvs_gen.find_nvs_partition(folder / 'partitions.bin')
         nvs_data = nvs_gen.generate_serial_nvs(serial_number, nvs_size)
 
-        # Diagnostic: verify generated NVS entry before writing
-        _HDR = 32; _BMP = 32; _ENT = 32
-        _data_entry = nvs_data[_HDR + _BMP + _ENT : _HDR + _BMP + _ENT * 2]
-        _ns   = _data_entry[0]
-        _typ  = _data_entry[1]
-        _key  = _data_entry[8:24].rstrip(b'\x00').decode('ascii', errors='replace')
-        _val, = struct.unpack_from('<i', _data_entry, 24)
-        progress_callback(
-            f"[NVS] offset=0x{nvs_offset:05x} size={nvs_size}B  "
-            f"entry: ns={_ns} type=0x{_typ:02x} key='{_key}' value={_val}  "
-            f"(expected serial={serial_number})",
-            None
-        )
-        if _val != serial_number or _typ != 0x14:
-            progress_callback(
-                f"[NVS] ADVERTENCIA: valor o tipo incorrecto en NVS generado", None
-            )
-
         fd, nvs_tmp = tempfile.mkstemp(suffix='.bin')
         try:
             os.write(fd, nvs_data)
@@ -183,6 +164,7 @@ def flash_board(
         '--chip', 'esp32s3',
         '--baud', '921600',
         '--before', _BOARD_BEFORE_RESET[board],
+        '--after', 'hard_reset',
         'write-flash',
         '--flash-mode', 'keep',
         '--flash-freq', 'keep',
