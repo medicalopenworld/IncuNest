@@ -640,6 +640,8 @@ void Communication_Task(void *pvParameters) {
   // ---- UART path ----
   uint32_t last_tel_time = 0;
   uint32_t last_ppg_time = 0;
+  static unsigned long last_probe_status_time = 0;
+  static ProbeState    prev_probe_state       = ProbeState::DISCONNECTED;
   // PPG normalisation state: decaying min/max keeps signal filling 0–255
   float ppg_min = -1.0f, ppg_max = 1.0f;
   // HR hysteresis: show after 2 consecutive valid samples, hide after 3 bad ones
@@ -671,6 +673,15 @@ void Communication_Task(void *pvParameters) {
       }
     }
 
+    // Detect APPLIED transition — notify display immediately
+    {
+      ProbeState cur = g_spo2_data.probe_state;
+      if (cur == ProbeState::APPLIED && prev_probe_state != ProbeState::APPLIED) {
+        hmiSerial.print("CTRL,PROBE,2\n");
+      }
+      prev_probe_state = cur;
+    }
+
     // --- STATE request ---
     if (xSemaphoreTake(hmi_state_req_sem, 0) == pdTRUE) {
       send_state_to_hmi();
@@ -678,26 +689,28 @@ void Communication_Task(void *pvParameters) {
 
     // --- PPG waveform (25 Hz = every 40 ms) ---
     if (millis() - last_ppg_time >= 40) {
-      // No valid signal: reset normalisation and send flat midpoint so the
-      // display collapses its amplitude window immediately.
-      if (g_spo2_data.spo2_sqi < 0.05f) {
-        ppg_min = -1.0f;
-        ppg_max =  1.0f;
-        hmiSerial.print("CTRL,PPG,128\n");
-      } else {
-        float ppg_raw = g_spo2_data.ppg;
-        // Expand range immediately, decay slowly toward 0 (bandpass signal is zero-mean)
-        if (ppg_raw < ppg_min) ppg_min = ppg_raw;
-        else ppg_min += (0.0f - ppg_min) * 0.005f;
-        if (ppg_raw > ppg_max) ppg_max = ppg_raw;
-        else ppg_max += (0.0f - ppg_max) * 0.005f;
-        float range = ppg_max - ppg_min;
-        uint8_t ppg_byte = (range > 1e-3f)
-            ? (uint8_t)constrain((ppg_raw - ppg_min) / range * 255.0f, 0.0f, 255.0f)
-            : 128;
-        char ppg_msg[16];
-        snprintf(ppg_msg, sizeof(ppg_msg), "CTRL,PPG,%u\n", ppg_byte);
-        hmiSerial.print(ppg_msg);
+      if (g_spo2_data.probe_state == ProbeState::APPLIED) {
+        // No valid signal: reset normalisation and send flat midpoint so the
+        // display collapses its amplitude window immediately.
+        if (g_spo2_data.spo2_sqi < 0.05f) {
+          ppg_min = -1.0f;
+          ppg_max =  1.0f;
+          hmiSerial.print("CTRL,PPG,128\n");
+        } else {
+          float ppg_raw = g_spo2_data.ppg;
+          // Expand range immediately, decay slowly toward 0 (bandpass signal is zero-mean)
+          if (ppg_raw < ppg_min) ppg_min = ppg_raw;
+          else ppg_min += (0.0f - ppg_min) * 0.005f;
+          if (ppg_raw > ppg_max) ppg_max = ppg_raw;
+          else ppg_max += (0.0f - ppg_max) * 0.005f;
+          float range = ppg_max - ppg_min;
+          uint8_t ppg_byte = (range > 1e-3f)
+              ? (uint8_t)constrain((ppg_raw - ppg_min) / range * 255.0f, 0.0f, 255.0f)
+              : 128;
+          char ppg_msg[16];
+          snprintf(ppg_msg, sizeof(ppg_msg), "CTRL,PPG,%u\n", ppg_byte);
+          hmiSerial.print(ppg_msg);
+        }
       }
       last_ppg_time = millis();
     }
@@ -738,31 +751,42 @@ void Communication_Task(void *pvParameters) {
                ctrl_tel_msg.serverCommStatus);
       hmiSerial.print(msg);
 
-      // HR fusion: weighted average of HR2+HR3 with agreement check and hysteresis
-      uint8_t hr_byte = 0;
-      {
-        float h2 = g_spo2_data.hr2, h3 = g_spo2_data.hr3;
-        float s2 = g_spo2_data.hr2_sqi, s3 = g_spo2_data.hr3_sqi;
-        bool valid = (h2 > 0.0f) && (h3 > 0.0f) &&
-                     (fabsf(h2 - h3) < 8.0f) &&
-                     (fmaxf(s2, s3) >= 0.8f) &&
-                     (fminf(s2, s3) >= 0.5f);
-        if (valid) {
-          hr_bad_streak = 0;
-          if (++hr_valid_streak >= 2) hr_displaying = true;
-        } else {
-          hr_valid_streak = 0;
-          if (++hr_bad_streak >= 3) hr_displaying = false;
+      if (g_spo2_data.probe_state != ProbeState::APPLIED) {
+        // Probe not on patient — send status every 2 s, suppress vitals
+        if (millis() - last_probe_status_time >= 2000) {
+          char probe_msg[20];
+          snprintf(probe_msg, sizeof(probe_msg), "CTRL,PROBE,%u\n",
+                   (uint8_t)g_spo2_data.probe_state);
+          hmiSerial.print(probe_msg);
+          last_probe_status_time = millis();
         }
-        if (hr_displaying && valid) {
-          float hr_fused = (h2 * s2 + h3 * s3) / (s2 + s3);
-          if (hr_fused >= 40.0f && hr_fused <= 240.0f)
-            hr_byte = (uint8_t)(hr_fused + 0.5f);
+      } else {
+        // Probe applied — send fused HR vitals
+        uint8_t hr_byte = 0;
+        {
+          float h2 = g_spo2_data.hr2, h3 = g_spo2_data.hr3;
+          float s2 = g_spo2_data.hr2_sqi, s3 = g_spo2_data.hr3_sqi;
+          bool valid = (h2 > 0.0f) && (h3 > 0.0f) &&
+                       (fabsf(h2 - h3) < 8.0f) &&
+                       (fmaxf(s2, s3) >= 0.8f) &&
+                       (fminf(s2, s3) >= 0.5f);
+          if (valid) {
+            hr_bad_streak = 0;
+            if (++hr_valid_streak >= 2) hr_displaying = true;
+          } else {
+            hr_valid_streak = 0;
+            if (++hr_bad_streak >= 3) hr_displaying = false;
+          }
+          if (hr_displaying && valid) {
+            float hr_fused = (h2 * s2 + h3 * s3) / (s2 + s3);
+            if (hr_fused >= 40.0f && hr_fused <= 240.0f)
+              hr_byte = (uint8_t)(hr_fused + 0.5f);
+          }
         }
+        char vit_msg[20];
+        snprintf(vit_msg, sizeof(vit_msg), "CTRL,VIT,%u,0\n", hr_byte);
+        hmiSerial.print(vit_msg);
       }
-      char vit_msg[20];
-      snprintf(vit_msg, sizeof(vit_msg), "CTRL,VIT,%u,0\n", hr_byte);
-      hmiSerial.print(vit_msg);
 
       last_tel_time = millis();
     }
@@ -869,35 +893,48 @@ void Communication_Task(void *pvParameters) {
     xSemaphoreTake(device_disconnected_sem, 0);
     uint32_t last_tel_time = 0;
     uint32_t last_ppg_time = 0;
+    static unsigned long last_probe_status_time_usb = 0;
+    static ProbeState    prev_probe_state_usb       = ProbeState::DISCONNECTED;
     float ppg_min = -1.0f, ppg_max = 1.0f;
     uint8_t hr_valid_streak = 0, hr_bad_streak = 0;
     bool hr_displaying = false;
 
     while (true) {
+      // Detect APPLIED transition — notify display immediately
+      {
+        ProbeState cur = g_spo2_data.probe_state;
+        if (cur == ProbeState::APPLIED && prev_probe_state_usb != ProbeState::APPLIED) {
+          CommunicationHost_Send("CTRL,PROBE,2\n");
+        }
+        prev_probe_state_usb = cur;
+      }
+
       if (xSemaphoreTake(hmi_state_req_sem, 0) == pdTRUE) {
         send_state_to_hmi();
       }
 
       // PPG waveform at 25 Hz
       if (millis() - last_ppg_time >= 40) {
-        char ppg_msg[16];
-        if (g_spo2_data.spo2_sqi < 0.05f) {
-          ppg_min = -1.0f;
-          ppg_max =  1.0f;
-          snprintf(ppg_msg, sizeof(ppg_msg), "CTRL,PPG,128\n");
-        } else {
-          float ppg_raw = g_spo2_data.ppg;
-          if (ppg_raw < ppg_min) ppg_min = ppg_raw;
-          else ppg_min += (0.0f - ppg_min) * 0.005f;
-          if (ppg_raw > ppg_max) ppg_max = ppg_raw;
-          else ppg_max += (0.0f - ppg_max) * 0.005f;
-          float range = ppg_max - ppg_min;
-          uint8_t ppg_byte = (range > 1e-3f)
-              ? (uint8_t)constrain((ppg_raw - ppg_min) / range * 255.0f, 0.0f, 255.0f)
-              : 128;
-          snprintf(ppg_msg, sizeof(ppg_msg), "CTRL,PPG,%u\n", ppg_byte);
+        if (g_spo2_data.probe_state == ProbeState::APPLIED) {
+          char ppg_msg[16];
+          if (g_spo2_data.spo2_sqi < 0.05f) {
+            ppg_min = -1.0f;
+            ppg_max =  1.0f;
+            snprintf(ppg_msg, sizeof(ppg_msg), "CTRL,PPG,128\n");
+          } else {
+            float ppg_raw = g_spo2_data.ppg;
+            if (ppg_raw < ppg_min) ppg_min = ppg_raw;
+            else ppg_min += (0.0f - ppg_min) * 0.005f;
+            if (ppg_raw > ppg_max) ppg_max = ppg_raw;
+            else ppg_max += (0.0f - ppg_max) * 0.005f;
+            float range = ppg_max - ppg_min;
+            uint8_t ppg_byte = (range > 1e-3f)
+                ? (uint8_t)constrain((ppg_raw - ppg_min) / range * 255.0f, 0.0f, 255.0f)
+                : 128;
+            snprintf(ppg_msg, sizeof(ppg_msg), "CTRL,PPG,%u\n", ppg_byte);
+          }
+          CommunicationHost_Send(ppg_msg);
         }
-        CommunicationHost_Send(ppg_msg);
         last_ppg_time = millis();
       }
 
@@ -920,31 +957,42 @@ void Communication_Task(void *pvParameters) {
                  ctrl_tel_msg.serverCommStatus);
         CommunicationHost_Send(msg);
 
-        // HR fusion with hysteresis (same logic as UART path)
-        uint8_t hr_byte = 0;
-        {
-          float h2 = g_spo2_data.hr2, h3 = g_spo2_data.hr3;
-          float s2 = g_spo2_data.hr2_sqi, s3 = g_spo2_data.hr3_sqi;
-          bool valid = (h2 > 0.0f) && (h3 > 0.0f) &&
-                       (fabsf(h2 - h3) < 8.0f) &&
-                       (fmaxf(s2, s3) >= 0.8f) &&
-                       (fminf(s2, s3) >= 0.5f);
-          if (valid) {
-            hr_bad_streak = 0;
-            if (++hr_valid_streak >= 2) hr_displaying = true;
-          } else {
-            hr_valid_streak = 0;
-            if (++hr_bad_streak >= 3) hr_displaying = false;
+        if (g_spo2_data.probe_state != ProbeState::APPLIED) {
+          // Probe not on patient — send status every 2 s, suppress vitals
+          if (millis() - last_probe_status_time_usb >= 2000) {
+            char probe_msg[20];
+            snprintf(probe_msg, sizeof(probe_msg), "CTRL,PROBE,%u\n",
+                     (uint8_t)g_spo2_data.probe_state);
+            CommunicationHost_Send(probe_msg);
+            last_probe_status_time_usb = millis();
           }
-          if (hr_displaying && valid) {
-            float hr_fused = (h2 * s2 + h3 * s3) / (s2 + s3);
-            if (hr_fused >= 40.0f && hr_fused <= 240.0f)
-              hr_byte = (uint8_t)(hr_fused + 0.5f);
+        } else {
+          // Probe applied — send fused HR vitals
+          uint8_t hr_byte = 0;
+          {
+            float h2 = g_spo2_data.hr2, h3 = g_spo2_data.hr3;
+            float s2 = g_spo2_data.hr2_sqi, s3 = g_spo2_data.hr3_sqi;
+            bool valid = (h2 > 0.0f) && (h3 > 0.0f) &&
+                         (fabsf(h2 - h3) < 8.0f) &&
+                         (fmaxf(s2, s3) >= 0.8f) &&
+                         (fminf(s2, s3) >= 0.5f);
+            if (valid) {
+              hr_bad_streak = 0;
+              if (++hr_valid_streak >= 2) hr_displaying = true;
+            } else {
+              hr_valid_streak = 0;
+              if (++hr_bad_streak >= 3) hr_displaying = false;
+            }
+            if (hr_displaying && valid) {
+              float hr_fused = (h2 * s2 + h3 * s3) / (s2 + s3);
+              if (hr_fused >= 40.0f && hr_fused <= 240.0f)
+                hr_byte = (uint8_t)(hr_fused + 0.5f);
+            }
           }
+          char vit_msg[20];
+          snprintf(vit_msg, sizeof(vit_msg), "CTRL,VIT,%u,0\n", hr_byte);
+          CommunicationHost_Send(vit_msg);
         }
-        char vit_msg[20];
-        snprintf(vit_msg, sizeof(vit_msg), "CTRL,VIT,%u,0\n", hr_byte);
-        CommunicationHost_Send(vit_msg);
 
         last_tel_time = millis();
       }
