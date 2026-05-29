@@ -11,7 +11,7 @@ import serial.tools.list_ports
 from PIL import Image, ImageTk
 
 from detector import Board, find_all_board_ports, board_from_vid_pid
-from flasher import flash_board, read_board_serial
+from flasher import flash_board
 
 HOTPLUG_POLL_S = 0.5
 POST_FLASH_COOLDOWN_S = 8
@@ -153,11 +153,19 @@ class _Slot:
             self._indeterminate = False
 
 
+_SERIAL_KEEP = object()  # sentinel: flash without writing NVS
+
+
 class _SerialNumberDialog:
-    """Modal dialog that asks for a serial number (0-9999) before flashing a motherBoard."""
+    """Modal dialog shown before flashing a motherBoard when require_serial=True.
+
+    result is None       → user cancelled (abort flash)
+    result is _SERIAL_KEEP → flash without writing NVS (preserve existing serial)
+    result is int        → flash and write this serial to NVS
+    """
 
     def __init__(self, parent: tk.Tk, port: str) -> None:
-        self.result: Optional[int] = None
+        self.result = None
 
         top = tk.Toplevel(parent)
         top.title("Número de serie")
@@ -167,21 +175,27 @@ class _SerialNumberDialog:
 
         tk.Label(top, text=f"motherBoard detectada en {port}.",
                  font=('', 10, 'bold')).pack(padx=24, pady=(18, 4))
-        tk.Label(top, text="Introduce el número de serie:").pack(padx=24)
+        tk.Label(top, text="Nuevo número de serie (0 – 9999):").pack(padx=24)
 
         vcmd = (top.register(self._validate), '%P')
         self._var = tk.StringVar(value='')
         entry = tk.Entry(top, textvariable=self._var, width=10,
                          validate='key', validatecommand=vcmd,
                          font=('', 16), justify='center')
-        entry.pack(padx=24, pady=8)
-        tk.Label(top, text="(0 – 9999)", fg='#757575').pack()
+        entry.pack(padx=24, pady=(6, 2))
+
+        tk.Label(top, text="— o —", fg='#9E9E9E').pack()
+
+        keep_btn = tk.Button(top, text="Conservar serial existente",
+                             command=self._on_keep,
+                             fg='#1565C0', relief='flat', cursor='hand2')
+        keep_btn.pack(pady=(2, 4))
 
         btn_frame = tk.Frame(top)
-        btn_frame.pack(padx=24, pady=(12, 18))
+        btn_frame.pack(padx=24, pady=(4, 18))
         tk.Button(btn_frame, text="Cancelar", width=10,
                   command=top.destroy).pack(side='left', padx=4)
-        self._ok_btn = tk.Button(btn_frame, text="Aceptar", width=10,
+        self._ok_btn = tk.Button(btn_frame, text="Asignar serial", width=14,
                                  command=self._on_ok,
                                  bg='#1565C0', fg='white', font=('', 9, 'bold'))
         self._ok_btn.pack(side='left', padx=4)
@@ -191,9 +205,9 @@ class _SerialNumberDialog:
         top.bind('<Escape>', lambda _: top.destroy())
 
         parent.update_idletasks()
-        x = parent.winfo_rootx() + (parent.winfo_width()  - 300) // 2
-        y = parent.winfo_rooty() + (parent.winfo_height() - 200) // 2
-        top.geometry(f"300x195+{x}+{y}")
+        x = parent.winfo_rootx() + (parent.winfo_width()  - 320) // 2
+        y = parent.winfo_rooty() + (parent.winfo_height() - 220) // 2
+        top.geometry(f"320x220+{x}+{y}")
 
         self._top = top
         parent.wait_window(top)
@@ -205,6 +219,10 @@ class _SerialNumberDialog:
         if not value.isdigit():
             return False
         return len(value) <= 4 and int(value) <= 9999
+
+    def _on_keep(self) -> None:
+        self.result = _SERIAL_KEEP
+        self._top.destroy()
 
     def _on_ok(self) -> None:
         val = self._var.get().strip()
@@ -329,41 +347,19 @@ class FlasherApp:
         self._tick_slot(slot_idx)
 
         if board == Board.MOTHERBOARD and self._require_serial:
-            # Read existing serial in background, then decide whether to show dialog
-            threading.Thread(
-                target=self._check_existing_serial,
-                args=(port, board, slot_idx),
-                daemon=True,
-            ).start()
+            dlg = _SerialNumberDialog(self.root, port)
+            if dlg.result is None:
+                self._slots[slot_idx].reset()
+                del self._port_to_slot[port]
+                self._log_line(f"Flasheo de {board.value} cancelado.", 'info')
+                self._update_status_banner()
+                return
+            serial_number = None if dlg.result is _SERIAL_KEEP else dlg.result
+            if dlg.result is _SERIAL_KEEP:
+                self._log_line("Serial existente conservado — NVS no modificado.", 'info')
+            self._run_flash(port, board, slot_idx, serial_number)
         else:
             self._run_flash(port, board, slot_idx, None)
-
-    def _check_existing_serial(self, port: str, board: Board, slot_idx: int) -> None:
-        """Background: read NVS serial from device, then dispatch to main thread."""
-        self.root.after(0, self._slots[slot_idx].set_status, '🔍  Leyendo serial…')
-        existing = read_board_serial(port, get_firmware_base())
-        self.root.after(0, self._slots[slot_idx].set_status, '')
-        self.root.after(0, self._on_serial_read, port, board, slot_idx, existing)
-
-    def _on_serial_read(self, port: str, board: Board, slot_idx: int,
-                        existing: Optional[int]) -> None:
-        """Main thread: decide whether to ask for serial or preserve existing."""
-        if existing is not None:
-            self._log_line(
-                f"Serial existente {existing} detectado → se conserva.", 'info'
-            )
-            self._run_flash(port, board, slot_idx, None)
-            return
-
-        # No existing serial → ask the user
-        dlg = _SerialNumberDialog(self.root, port)
-        if dlg.result is None:
-            self._slots[slot_idx].reset()
-            del self._port_to_slot[port]
-            self._log_line(f"Flasheo de {board.value} cancelado.", 'info')
-            self._update_status_banner()
-            return
-        self._run_flash(port, board, slot_idx, dlg.result)
 
     def _tick_slot(self, slot_idx: int) -> None:
         if self._slots[slot_idx].tick():
