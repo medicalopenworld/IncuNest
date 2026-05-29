@@ -231,9 +231,11 @@ static bool migrateFromEEPROM() {
 }
 
 void initEEPROM() {
+  // Read any flasher-provisioned serial before a potential resetFlash clears it.
   Preferences p;
-  p.begin(NS_CFG, false);  // write mode: avoids NOT_FOUND error when namespace is new
-  bool initialized = p.isKey(KEY_LANG);
+  p.begin(NS_CFG, false);
+  bool initialized    = p.isKey(KEY_LANG);
+  int  flashedSerial  = p.getInt(KEY_SERIAL, -1);
   p.end();
 
   if (!initialized) {
@@ -241,6 +243,14 @@ void initEEPROM() {
       ESP_LOGI("APP", "Primer arranque — cargando valores por defecto");
       resetFlash();
       loaddefaultValues();
+      // Restore serial written by flasher tool (resetFlash cleared it).
+      if (flashedSerial >= 0) {
+        Preferences p2;
+        p2.begin(NS_CFG, false);
+        p2.putInt(KEY_SERIAL, flashedSerial);
+        p2.end();
+        ESP_LOGI("APP", "Serial restaurado desde flasher: %d", flashedSerial);
+      }
     }
   } else {
     ESP_LOGI("APP", "Cargando variables desde Preferences");
