@@ -12,23 +12,30 @@ _ENTRIES_OFFSET = _HDR_SIZE + _BITMAP_SIZE  # 64
 
 
 def _esp_crc32(data: bytes) -> int:
-    """ESP-IDF crc32_le(0xFFFFFFFF, data) — table loop, no final XOR."""
-    return (~zlib.crc32(data)) & 0xFFFFFFFF
+    """ESP-IDF crc32_le(0xFFFFFFFF, data) — matches official nvs_partition_gen.py."""
+    return zlib.crc32(data, 0xFFFFFFFF) & 0xFFFFFFFF
 
 
 # ------------------------------------------------------------------ #
 # _crc32 helper
 # ------------------------------------------------------------------ #
 
-def test_crc32_matches_esp_idf_no_final_xor():
-    # ESP-IDF omits the final XOR that zlib applies; verify our helper matches.
+def test_crc32_matches_official_nvs_generator():
+    # Verified against official ESP-IDF nvs_partition_gen.py formula.
     data = b'\x00\x01\x02\x03'
     assert _crc32(data) == _esp_crc32(data)
 
 
-def test_crc32_differs_from_plain_zlib():
+def test_crc32_header_matches_known_value():
+    # Known-good header CRC from official nvs_partition_gen.py for
+    # seq_no=0, version=0xFE, reserved=0xFF*19
+    data = b'\x00\x00\x00\x00\xfe' + b'\xff' * 19
+    assert _crc32(data) == 0xB9BA2D84
+
+
+def test_crc32_differs_from_wrong_formula():
     data = b'\xDE\xAD\xBE\xEF'
-    assert _crc32(data) != (zlib.crc32(data) & 0xFFFFFFFF)
+    assert _crc32(data) != ((~zlib.crc32(data)) & 0xFFFFFFFF)
 
 
 # ------------------------------------------------------------------ #

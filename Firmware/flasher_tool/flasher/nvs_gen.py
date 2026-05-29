@@ -29,8 +29,10 @@ _DEFAULT_NVS_OFFSET = 0x9000
 
 
 def _crc32(data: bytes) -> int:
-    # ESP-IDF crc32_le(0xFFFFFFFF, data) omits the final XOR that zlib applies.
-    return (~zlib.crc32(data)) & 0xFFFFFFFF
+    # Matches ESP-IDF crc32_le(0xFFFFFFFF, data) and the official nvs_partition_gen.py:
+    # zlib.crc32(data, 0xFFFFFFFF) uses init=0xFFFFFFFF which internally starts table
+    # loop from 0 (0xFFFF^0xFFFF), processes data, then XORs result with 0xFFFFFFFF.
+    return zlib.crc32(data, 0xFFFFFFFF) & 0xFFFFFFFF
 
 
 def _make_entry(ns: int, typ: int, key: str, value: bytes) -> bytes:
