@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add `probe_state` (DISCONNECTED / NOT_APPLIED / APPLIED) to the AFE4490 library, expose it via the communication protocol, and gate SpO2 display data behind `PROBE_APPLIED`.
+**Goal:** Add `probe_state` (DISCONNECTED / NOT_APPLIED / APPLIED) to the AFE4490 library, expose it via the communication protocol on the motherboard, and make the Display_HMI receive and act on the new `CTRL,PROBE,<N>` messages.
 
-**Architecture:** The `ProbeState` enum and field are added to `AFE4490Data` in the library. Detection logic is computed inside `_update_spo2()` using the already-available DC and PI metrics. `CommTask.cpp` reads `g_spo2_data.probe_state` and sends `CTRL,PROBE,<N>` every 2 s while not APPLIED, suppressing PPG/VIT in that same state.
+**Architecture:** The `ProbeState` enum and field are added to `AFE4490Data` in the library. Detection logic is computed inside `_update_spo2()` using the already-available DC and PI metrics. Motherboard `CommTask.cpp` reads `g_spo2_data.probe_state`: sends `CTRL,PROBE,<N>` every 2 s while not APPLIED, and `CTRL,PROBE,2` immediately on the APPLIED transition; PPG/VIT are suppressed until APPLIED. Display `CommTask.cpp` parses the new message and `UITask.cpp` drives probe attachment state from it, replacing the old variance heuristic.
 
-**Tech Stack:** C++17, ESP32-S3, Arduino + FreeRTOS, PlatformIO, incunest_afe4490 library (v0.25).
+**Tech Stack:** C++17, ESP32-S3, Arduino + FreeRTOS, PlatformIO, incunest_afe4490 library (v0.25), LVGL.
 
 > ⚠️ **Library path note:** Changes go into `.pio/libdeps/main/incunest_afe4490/`. This directory is managed by PlatformIO and can be overwritten by `pio update`. After validating, propagate these changes to the library's source repository.
 
@@ -18,20 +18,25 @@
 |--------|------|
 | Modify | `.pio/libdeps/main/incunest_afe4490/incunest_afe4490.h` |
 | Modify | `.pio/libdeps/main/incunest_afe4490/incunest_afe4490.cpp` |
-| Modify | `src/CommTask.cpp` |
+| Modify | `src/CommTask.cpp` (motherboard) |
+| Modify | `../Display_HMI/include/CommTask.h` |
+| Modify | `../Display_HMI/src/CommTask.cpp` |
+| Modify | `../Display_HMI/src/UITask.cpp` |
+
+All paths are relative to `Firmware/motherBoard/` unless noted. The display lives at `Firmware/Display_HMI/`.
 
 ---
 
 ### Task 1: Add `ProbeState` enum and field to the library header
 
 **Files:**
-- Modify: `.pio/libdeps/main/incunest_afe4490/incunest_afe4490.h` (lines 77–79)
+- Modify: `.pio/libdeps/main/incunest_afe4490/incunest_afe4490.h`
 
-Context: `AFE4490Data` is defined at lines 56–77. The `ProbeState` enum goes right after the struct closing brace, before the existing `AFE4490Channel` enum (line 80).
+Context: `AFE4490Data` struct closes at line 77 (`};`). The existing enums section begins at line 79. `ProbeState` is inserted between them and then referenced as a field inside `AFE4490Data`.
 
-- [ ] **Step 1: Add the `ProbeState` enum after `AFE4490Data`**
+- [ ] **Step 1: Add `ProbeState` enum immediately after `AFE4490Data` closing brace**
 
-Insert between line 77 (`};` closing `AFE4490Data`) and line 79 (`// ── Enumerations`):
+Between line 77 (`};` of `AFE4490Data`) and line 79 (`// ── Enumerations`), insert:
 
 ```cpp
 // Probe contact state — updated every sample inside _update_spo2().
@@ -43,29 +48,24 @@ enum class ProbeState : uint8_t {
 };
 ```
 
-- [ ] **Step 2: Add `probe_state` field to `AFE4490Data`**
+- [ ] **Step 2: Add `probe_state` field at the end of `AFE4490Data`**
 
-Append inside `AFE4490Data` (after `hr3_sqi`, before the closing `};`):
+Inside `AFE4490Data`, after `hr3_sqi` and before the closing `};`:
 
 ```cpp
-    ProbeState probe_state; // contact state — DISCONNECTED / NOT_APPLIED / APPLIED
-```
-
-The full tail of the struct becomes:
-```cpp
-    float   hr3;         // HR3 (FFT + HPS) in bpm
     float   hr3_sqi;     // HR3 Signal Quality Index [0–1]: HPS peak prominence in search range; 0=diffuse HPS, 1=dominant peak
     ProbeState probe_state; // contact state — DISCONNECTED / NOT_APPLIED / APPLIED
 };
 ```
 
-- [ ] **Step 3: Verify the header compiles (build check)**
+- [ ] **Step 3: Build check**
 
 ```
+cd C:\Users\Pablo\Documents\IncuNest_dev\IncuNest\Firmware\motherBoard
 pio run -e main 2>&1 | head -30
 ```
 
-Expected: no errors about `ProbeState` or `probe_state`.
+Expected: no errors related to `ProbeState` or `probe_state`.
 
 - [ ] **Step 4: Commit**
 
@@ -76,24 +76,19 @@ git commit -m "feat(afe4490-lib): add ProbeState enum and probe_state field to A
 
 ---
 
-### Task 2: Implement probe_state detection in `_update_spo2()`
+### Task 2: Implement `probe_state` detection in `_update_spo2()`
 
 **Files:**
-- Modify: `.pio/libdeps/main/incunest_afe4490/incunest_afe4490.cpp` (around line 1504)
+- Modify: `.pio/libdeps/main/incunest_afe4490/incunest_afe4490.cpp`
 
-Context: `_update_spo2(int32_t ir_corr, int32_t red_corr)` computes `pi` at line 1504, then immediately checks `_spo2_dc_ir < _spo2_min_dc` at line 1509 (which is the natural DISCONNECTED threshold). `probe_state` is computed from the same signals.
+Context: `_update_spo2(int32_t ir_corr, int32_t red_corr)` is at line 1489. `_current_data.pi` is computed at line 1504. Right after that, at line 1509, the algorithm already checks `_spo2_dc_ir < _spo2_min_dc` for "no finger" — the exact condition for `DISCONNECTED`. The three-way detection reuses `_spo2_min_dc` (hardware disconnect threshold) and `_cfg.spo2_pi_sqi_lo` (low-PI threshold) — both already in the config.
 
-```cpp
-// Line 1504 (existing):
-_current_data.pi = (_spo2_dc_ir > 1.0f) ? (sqrtf(_spo2_ac2_ir) / _spo2_dc_ir) * 100.0f : -1.0f;
-```
+- [ ] **Step 1: Insert `probe_state` detection after `pi` computation**
 
-- [ ] **Step 1: Add probe_state detection immediately after `pi` is computed**
-
-After line 1504 and before line 1506 (`_spo2_sample_count++`), insert:
+After line 1504 (`_current_data.pi = ...`) and before line 1506 (`_spo2_sample_count++`), insert:
 
 ```cpp
-    // Probe state: reuses the same thresholds already used by the SpO2 algorithm.
+    // Probe state — reuses thresholds already used by the SpO2 algorithm.
     if (_spo2_dc_ir < _spo2_min_dc || _spo2_dc_red < _spo2_min_dc) {
         _current_data.probe_state = ProbeState::DISCONNECTED;
     } else if (_current_data.pi < _cfg.spo2_pi_sqi_lo) {
@@ -103,12 +98,13 @@ After line 1504 and before line 1506 (`_spo2_sample_count++`), insert:
     }
 ```
 
-The resulting block (lines 1503–1510):
+The resulting block:
+
 ```cpp
     // Perfusion Index (always updated, independent of SpO2 warmup)
     _current_data.pi = (_spo2_dc_ir > 1.0f) ? (sqrtf(_spo2_ac2_ir) / _spo2_dc_ir) * 100.0f : -1.0f;
 
-    // Probe state: reuses the same thresholds already used by the SpO2 algorithm.
+    // Probe state — reuses thresholds already used by the SpO2 algorithm.
     if (_spo2_dc_ir < _spo2_min_dc || _spo2_dc_red < _spo2_min_dc) {
         _current_data.probe_state = ProbeState::DISCONNECTED;
     } else if (_current_data.pi < _cfg.spo2_pi_sqi_lo) {
@@ -130,11 +126,11 @@ The resulting block (lines 1503–1510):
 pio run -e main 2>&1 | head -30
 ```
 
-Expected: clean build (no errors).
+Expected: clean build.
 
-- [ ] **Step 3: Sanity check — `probe_state` is reachable via `g_spo2_data`**
+- [ ] **Step 3: Note — no changes needed in `SPO2.cpp`**
 
-In `SPO2.cpp`, `memcpy((void*)&g_spo2_data, &data, sizeof(data))` copies the entire struct including `probe_state`. No changes needed to `SPO2.cpp`.
+`SPO2_Task` does `memcpy((void*)&g_spo2_data, &data, sizeof(data))` which copies the full struct including `probe_state`. No changes needed.
 
 - [ ] **Step 4: Commit**
 
@@ -145,50 +141,62 @@ git commit -m "feat(afe4490-lib): compute probe_state in _update_spo2 using DC a
 
 ---
 
-### Task 3: Add probe status protocol and gate SPO2 data in `CommTask.cpp`
+### Task 3: Add probe status protocol and gate SPO2 data in motherboard `CommTask.cpp`
 
 **Files:**
-- Modify: `src/CommTask.cpp`
+- Modify: `src/CommTask.cpp` (motherboard, at `Firmware/motherBoard/src/CommTask.cpp`)
 
-**Protocol addition:**
+**Protocol:**
 ```
 CTRL,PROBE,<N>\n
 ```
-Where N = 0 (DISCONNECTED), 1 (NOT_APPLIED), 2 (APPLIED).  
-Sent every 2 s while `probe_state != APPLIED`. When `APPLIED`, normal PPG + VIT flow resumes and `CTRL,PROBE` is not sent.
+- N=0 (DISCONNECTED): sent every 2 s
+- N=1 (NOT_APPLIED): sent every 2 s
+- N=2 (APPLIED): sent **once** immediately on the DISCONNECTED/NOT_APPLIED → APPLIED transition; then PPG+VIT resume
 
-**What changes in each path:**
-- Add a `static unsigned long last_probe_status_time = 0;` alongside existing timing statics.
-- PPG block: skip (continue) if not APPLIED.
-- Vitals block: skip VIT if not APPLIED; instead, if 2 s elapsed send `CTRL,PROBE,<N>`.
+**Changes in both UART (`#if HW_NUM >= 16`) and USB (`#else`) paths:**
+1. Add `static ProbeState prev_probe_state` for transition detection
+2. Add `static unsigned long last_probe_status_time` for the 2 s timer
+3. PPG block: skip sending if `probe_state != APPLIED`
+4. 1 s vitals block: if not APPLIED send probe status every 2 s; if APPLIED send VIT
+5. Transition detection: at the top of the loop body, send `CTRL,PROBE,2` when state becomes APPLIED
 
-#### 3a — UART path (lines ~679–768, inside `#if HW_NUM >= 16`)
+#### 3a — UART path (inside `#if HW_NUM >= 16`, around lines 674–771)
 
-- [ ] **Step 1: Add `last_probe_status_time` static alongside the existing statics**
-
-Find the block that declares `last_ppg_time` and `last_tel_time` in the UART path and add the new variable. It will look like:
+- [ ] **Step 1: Add static variables near the existing `last_ppg_time` / `last_tel_time` declarations**
 
 ```cpp
-static unsigned long last_ppg_time         = 0;
-static unsigned long last_tel_time         = 0;
-static unsigned long last_probe_status_time = 0;  // add this line
+static unsigned long last_ppg_time          = 0;
+static unsigned long last_tel_time          = 0;
+static unsigned long last_probe_status_time = 0;
+static ProbeState    prev_probe_state       = ProbeState::DISCONNECTED;
 ```
 
-- [ ] **Step 2: Replace the PPG block to skip when not APPLIED**
+- [ ] **Step 2: Add transition detection at the top of the `while(true)` loop body** (before the STATE request block, around line 675)
 
-Old (line ~680–703):
+```cpp
+    // Detect APPLIED transition — notify display immediately
+    {
+      ProbeState cur = g_spo2_data.probe_state;
+      if (cur == ProbeState::APPLIED && prev_probe_state != ProbeState::APPLIED) {
+        hmiSerial.print("CTRL,PROBE,2\n");
+      }
+      prev_probe_state = cur;
+    }
+```
+
+- [ ] **Step 3: Wrap the PPG block with a `probe_state == APPLIED` guard**
+
+Old PPG block (lines ~680–703):
 ```cpp
     // --- PPG waveform (25 Hz = every 40 ms) ---
     if (millis() - last_ppg_time >= 40) {
-      // No valid signal: reset normalisation and send flat midpoint so the
-      // display collapses its amplitude window immediately.
       if (g_spo2_data.spo2_sqi < 0.05f) {
         ppg_min = -1.0f;
         ppg_max =  1.0f;
         hmiSerial.print("CTRL,PPG,128\n");
       } else {
         float ppg_raw = g_spo2_data.ppg;
-        // Expand range immediately, decay slowly toward 0 (bandpass signal is zero-mean)
         if (ppg_raw < ppg_min) ppg_min = ppg_raw;
         else ppg_min += (0.0f - ppg_min) * 0.005f;
         if (ppg_raw > ppg_max) ppg_max = ppg_raw;
@@ -205,7 +213,7 @@ Old (line ~680–703):
     }
 ```
 
-New (add `probe_state` guard at the top of the block):
+New (add outer guard):
 ```cpp
     // --- PPG waveform (25 Hz = every 40 ms) — only when probe is applied ---
     if (millis() - last_ppg_time >= 40) {
@@ -233,9 +241,9 @@ New (add `probe_state` guard at the top of the block):
     }
 ```
 
-- [ ] **Step 3: Replace the vitals block to add probe status and gate VIT**
+- [ ] **Step 4: Replace the vitals section inside the 1 s block**
 
-Old (line ~741–768):
+Old (lines ~741–768, inside `if (millis() - last_tel_time > 1000)`):
 ```cpp
       // HR fusion: weighted average of HR2+HR3 with agreement check and hysteresis
       uint8_t hr_byte = 0;
@@ -266,7 +274,7 @@ Old (line ~741–768):
       last_tel_time = millis();
 ```
 
-New (insert probe status block; keep VIT conditional on APPLIED):
+New:
 ```cpp
       if (g_spo2_data.probe_state != ProbeState::APPLIED) {
         // Probe not on patient — send status every 2 s, suppress vitals
@@ -308,13 +316,24 @@ New (insert probe status block; keep VIT conditional on APPLIED):
       last_tel_time = millis();
 ```
 
-#### 3b — USB CDC path (lines ~881–950, inside `#else` branch)
+#### 3b — USB CDC path (inside `#else`, around lines 876–951) — mirror of 3a
 
-The USB path has structurally identical PPG and vitals blocks. Apply the exact same changes, replacing `hmiSerial.print(...)` with `CommunicationHost_Send(...)`.
+- [ ] **Step 5: Add static variables (same as Step 1)**
 
-- [ ] **Step 4: Add `last_probe_status_time` static in the USB path** (same as Step 1, inside the `#else` scope).
+- [ ] **Step 6: Add transition detection at the top of the USB `while(true)` loop body**
 
-- [ ] **Step 5: Replace USB PPG block** — same guard as Step 2, using `CommunicationHost_Send`:
+```cpp
+    // Detect APPLIED transition — notify display immediately
+    {
+      ProbeState cur = g_spo2_data.probe_state;
+      if (cur == ProbeState::APPLIED && prev_probe_state != ProbeState::APPLIED) {
+        CommunicationHost_Send("CTRL,PROBE,2\n");
+      }
+      prev_probe_state = cur;
+    }
+```
+
+- [ ] **Step 7: Wrap USB PPG block** (same guard as Step 3, using `CommunicationHost_Send`)
 
 ```cpp
     // PPG waveform at 25 Hz — only when probe is applied
@@ -343,7 +362,7 @@ The USB path has structurally identical PPG and vitals blocks. Apply the exact s
     }
 ```
 
-- [ ] **Step 6: Replace USB vitals block** — same logic as Step 3, using `CommunicationHost_Send`:
+- [ ] **Step 8: Replace USB vitals section** (same logic as Step 4, using `CommunicationHost_Send`)
 
 ```cpp
       if (g_spo2_data.probe_state != ProbeState::APPLIED) {
@@ -384,29 +403,262 @@ The USB path has structurally identical PPG and vitals blocks. Apply the exact s
       last_tel_time = millis();
 ```
 
-- [ ] **Step 7: Build**
+- [ ] **Step 9: Build**
 
 ```
 pio run -e main 2>&1 | head -40
 ```
 
-Expected: clean build, no errors.
+Expected: clean build.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
 git add src/CommTask.cpp
-git commit -m "feat(comm): gate SPO2 data on PROBE_APPLIED; send CTRL,PROBE every 2s otherwise"
+git commit -m "feat(comm): gate SPO2 data on PROBE_APPLIED; send CTRL,PROBE status every 2s; notify on transition"
 ```
 
 ---
 
-## Protocol summary (for display-side reference)
+### Task 4: Add `ProbeContactState` and `ControlBoard_Message_Probe` to Display `CommTask.h`
 
-| Message | Direction | When sent | Meaning |
-|---------|-----------|-----------|---------|
-| `CTRL,PROBE,0\n` | MB → Display | Every 2 s | Probe disconnected (no optical path) |
-| `CTRL,PROBE,1\n` | MB → Display | Every 2 s | Probe present but not applied to patient |
-| `CTRL,PROBE,2\n` | MB → Display | — | (Never sent — APPLIED transitions to normal PPG/VIT flow) |
-| `CTRL,PPG,<byte>\n` | MB → Display | 25 Hz | Only when `probe_state == APPLIED` |
-| `CTRL,VIT,<hr>,0\n` | MB → Display | 1 Hz | Only when `probe_state == APPLIED` |
+**Files:**
+- Modify: `Firmware/Display_HMI/include/CommTask.h`
+
+Context: The file already has `SKIN_PROBE_*` defines (lines 103–110) for a different sensor (skin temperature probe). The new type is for the SpO2/AFE4490 probe and goes after the `ControlBoard_Message_VIT` struct (line 79) and before the `ControlBoard_Message_State` struct (line 81).
+
+- [ ] **Step 1: Add `ProbeContactState` enum and `ControlBoard_Message_Probe` struct**
+
+After line 79 (`} ControlBoard_Message_VIT;`) and before line 81 (`typedef struct {` for `ControlBoard_Message_State`), insert:
+
+```c
+// SpO2 probe contact state (CTRL,PROBE — sent every 2 s when not APPLIED, once on APPLIED)
+// Values must match ProbeState enum in motherboard incunest_afe4490.h
+typedef enum {
+  SPO2_PROBE_DISCONNECTED = 0,  // No optical path (DC below threshold)
+  SPO2_PROBE_NOT_APPLIED  = 1,  // Probe present but not on skin (PI too low)
+  SPO2_PROBE_APPLIED      = 2   // Valid contact
+} ProbeContactState;
+
+typedef struct {
+  ProbeContactState state;
+  bool              updated;
+} ControlBoard_Message_Probe;
+```
+
+- [ ] **Step 2: Add `extern` declaration** at the bottom of the globals section (after `extern ControlBoard_Message_VIT ctrl_vit_msg;`, line 135):
+
+```c
+extern ControlBoard_Message_Probe ctrl_probe_msg;
+```
+
+- [ ] **Step 3: Build check (display firmware)**
+
+```
+cd C:\Users\Pablo\Documents\IncuNest_dev\IncuNest\Firmware\Display_HMI
+pio run 2>&1 | head -30
+```
+
+Expected: no errors.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add Firmware/Display_HMI/include/CommTask.h
+git commit -m "feat(display-comm): add ProbeContactState enum and ControlBoard_Message_Probe"
+```
+
+---
+
+### Task 5: Add `CTRL,PROBE` parser to Display `CommTask.cpp`
+
+**Files:**
+- Modify: `Firmware/Display_HMI/src/CommTask.cpp`
+
+Context: Global instances are declared at lines 12–19. The `CTRL,VIT` parser is at lines 184–190. The new `CTRL,PROBE` parser goes immediately after it, before the `CTRL,ALM` branch (line 191).
+
+- [ ] **Step 1: Add global instance** at line ~18 (after `ctrl_vit_msg`):
+
+```c
+ControlBoard_Message_Probe ctrl_probe_msg = {SPO2_PROBE_DISCONNECTED, false};
+```
+
+- [ ] **Step 2: Add `CTRL,PROBE` parser in `parse_message()`** after the `CTRL,VIT` block (line 190):
+
+```c
+  } else if (strncmp(line, "CTRL,PROBE", 10) == 0) {
+    int state = 0;
+    if (sscanf(line, "CTRL,PROBE,%d", &state) == 1 &&
+        state >= SPO2_PROBE_DISCONNECTED && state <= SPO2_PROBE_APPLIED) {
+      ctrl_probe_msg.state   = (ProbeContactState)state;
+      ctrl_probe_msg.updated = true;
+    }
+```
+
+The full surrounding block becomes:
+```c
+  } else if (strncmp(line, "CTRL,VIT", 8) == 0) {
+    int hr = 0, spo2 = 0;
+    if (sscanf(line, "CTRL,VIT,%d,%d", &hr, &spo2) == 2) {
+      ctrl_vit_msg.hr      = (uint8_t)hr;
+      ctrl_vit_msg.spo2    = (uint8_t)spo2;
+      ctrl_vit_msg.updated = true;
+    }
+  } else if (strncmp(line, "CTRL,PROBE", 10) == 0) {
+    int state = 0;
+    if (sscanf(line, "CTRL,PROBE,%d", &state) == 1 &&
+        state >= SPO2_PROBE_DISCONNECTED && state <= SPO2_PROBE_APPLIED) {
+      ctrl_probe_msg.state   = (ProbeContactState)state;
+      ctrl_probe_msg.updated = true;
+    }
+  } else if (strncmp(line, "CTRL,ALM", strlen("CTRL,ALM")) == 0) {
+```
+
+- [ ] **Step 3: Build check**
+
+```
+cd C:\Users\Pablo\Documents\IncuNest_dev\IncuNest\Firmware\Display_HMI
+pio run 2>&1 | head -30
+```
+
+Expected: clean build.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add Firmware/Display_HMI/src/CommTask.cpp
+git commit -m "feat(display-comm): parse CTRL,PROBE messages into ctrl_probe_msg"
+```
+
+---
+
+### Task 6: Drive probe attachment from `CTRL,PROBE` in Display `UITask.cpp`
+
+**Files:**
+- Modify: `Firmware/Display_HMI/src/UITask.cpp`
+
+Context: The lock screen PPG block is at lines 3582–3613. The current probe detection is variance-based: `spo2ProbeAttached = (ppg_disp_max - ppg_disp_min) > 20.0f` (line 3593). This heuristic is replaced with the authoritative `ctrl_probe_msg`. The HR block is at lines 3615–3632 and reads `spo2ProbeAttached` — it does not need to change.
+
+Static variables at lines 104–107:
+```c
+static float ppg_disp_min = 128.0f;
+static float ppg_disp_max = 128.0f;
+static bool spo2ProbeAttached = false;
+static bool spo2ProbeAttachedPrev = false;
+```
+
+- [ ] **Step 1: Add a new `CTRL,PROBE` handler block before the PPG block (before line 3582)**
+
+Insert:
+```cpp
+    // --- Lock screen: probe contact state from CTRL,PROBE ---
+    if (ctrl_probe_msg.updated) {
+      ctrl_probe_msg.updated = false;
+      bool applied = (ctrl_probe_msg.state == SPO2_PROBE_APPLIED);
+      // Falling edge: probe removed — hide chart and HR, reset normalisation
+      if (!applied && spo2ProbeAttachedPrev) {
+        ppg_disp_min = 128.0f;
+        ppg_disp_max = 128.0f;
+        if (ui_LockPPGChart)
+          lv_obj_add_flag(ui_LockPPGChart, LV_OBJ_FLAG_HIDDEN);
+        if (ui_LockHRCont)
+          lv_obj_add_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
+      }
+      // Rising edge: probe applied — show chart, reset normalisation
+      if (applied && !spo2ProbeAttachedPrev) {
+        ppg_disp_min = 128.0f;
+        ppg_disp_max = 128.0f;
+        if (ui_LockPPGChart)
+          lv_obj_clear_flag(ui_LockPPGChart, LV_OBJ_FLAG_HIDDEN);
+      }
+      spo2ProbeAttached     = applied;
+      spo2ProbeAttachedPrev = applied;
+    }
+```
+
+- [ ] **Step 2: Remove the variance-based probe detection from the PPG block**
+
+Old PPG block (lines 3582–3613):
+```cpp
+    if (ui_LockPPGChart && lockPPGSeries && ctrl_ppg_msg.updated) {
+      float ppg_val = (float)ctrl_ppg_msg.ppg;
+      ctrl_ppg_msg.updated = false;
+      if (ppg_val < ppg_disp_min)
+        ppg_disp_min = ppg_val;
+      else
+        ppg_disp_min += (128.0f - ppg_disp_min) * 0.05f;
+      if (ppg_val > ppg_disp_max)
+        ppg_disp_max = ppg_val;
+      else
+        ppg_disp_max += (128.0f - ppg_disp_max) * 0.05f;
+      spo2ProbeAttached = (ppg_disp_max - ppg_disp_min) > 20.0f;
+
+      // On falling edge: hide chart and HR, reset normalisation
+      if (!spo2ProbeAttached && spo2ProbeAttachedPrev) {
+        ppg_disp_min = 128.0f;
+        ppg_disp_max = 128.0f;
+        lv_obj_add_flag(ui_LockPPGChart, LV_OBJ_FLAG_HIDDEN);
+        if (ui_LockHRCont)
+          lv_obj_add_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
+      }
+      // On rising edge: show chart
+      if (spo2ProbeAttached && !spo2ProbeAttachedPrev) {
+        lv_obj_clear_flag(ui_LockPPGChart, LV_OBJ_FLAG_HIDDEN);
+      }
+      spo2ProbeAttachedPrev = spo2ProbeAttached;
+
+      if (locked && spo2ProbeAttached) {
+        lv_chart_set_next_value(ui_LockPPGChart, lockPPGSeries,
+                                (lv_coord_t)ppg_val);
+      }
+    }
+```
+
+New PPG block (retain min/max tracking for normalisation; remove variance detection and edge handling — those now live in the `CTRL,PROBE` block above):
+```cpp
+    if (ui_LockPPGChart && lockPPGSeries && ctrl_ppg_msg.updated) {
+      float ppg_val = (float)ctrl_ppg_msg.ppg;
+      ctrl_ppg_msg.updated = false;
+      if (ppg_val < ppg_disp_min)
+        ppg_disp_min = ppg_val;
+      else
+        ppg_disp_min += (128.0f - ppg_disp_min) * 0.05f;
+      if (ppg_val > ppg_disp_max)
+        ppg_disp_max = ppg_val;
+      else
+        ppg_disp_max += (128.0f - ppg_disp_max) * 0.05f;
+
+      if (locked && spo2ProbeAttached) {
+        lv_chart_set_next_value(ui_LockPPGChart, lockPPGSeries,
+                                (lv_coord_t)ppg_val);
+      }
+    }
+```
+
+- [ ] **Step 3: Build check**
+
+```
+cd C:\Users\Pablo\Documents\IncuNest_dev\IncuNest\Firmware\Display_HMI
+pio run 2>&1 | head -40
+```
+
+Expected: clean build.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add Firmware/Display_HMI/src/UITask.cpp
+git commit -m "feat(display-ui): drive spo2ProbeAttached from CTRL,PROBE messages, remove variance heuristic"
+```
+
+---
+
+## Protocol summary (final)
+
+| Message | When sent | Meaning |
+|---------|-----------|---------|
+| `CTRL,PROBE,0\n` | Every 2 s (from 1 s telemetry tick) | Probe disconnected — no optical path |
+| `CTRL,PROBE,1\n` | Every 2 s (from 1 s telemetry tick) | Probe present, not on patient skin |
+| `CTRL,PROBE,2\n` | Once, on DISCONNECTED/NOT_APPLIED → APPLIED transition | Probe contact established |
+| `CTRL,PPG,<byte>\n` | 25 Hz | Only when `probe_state == APPLIED` |
+| `CTRL,VIT,<hr>,0\n` | 1 Hz | Only when `probe_state == APPLIED` |
