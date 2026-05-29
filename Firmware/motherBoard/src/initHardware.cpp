@@ -343,6 +343,14 @@ void initRoomSensor() {
   static int16_t room_sensor_error;
   static char errorMessage[64];
 
+  // Without an explicit timeout, the ESP32 Wire library blocks ~1s per probe
+  // for any address that returns NACK. At 3 sensor possibilities this costs ~3s.
+#if (HW_NUM >= 16)
+  wire2->setTimeOut(10);
+#else
+  wire->setTimeOut(10);
+#endif
+
   for (int i = 0; i < ROOM_SENSOR_POSIBILITIES; i++) {
     roomSensorPresent[i] = false;
 
