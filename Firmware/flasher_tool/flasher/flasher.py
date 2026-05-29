@@ -164,10 +164,6 @@ def flash_board(
         '--chip', 'esp32s3',
         '--baud', '921600',
         '--before', _BOARD_BEFORE_RESET[board],
-        # soft-reset tells the stub to jump directly into the flashed app without
-        # triggering a hardware reset. A hardware reset via USB-JTAG causes
-        # USB_UART_CHIP_RESET which always enters download mode on ESP32-S3.
-        '--after', 'soft-reset',
         'write-flash',
         '--flash-mode', 'keep',
         '--flash-freq', 'keep',
@@ -177,11 +173,13 @@ def flash_board(
     for addr, fname in file_pairs:
         args += [addr, fname if os.path.isabs(fname) else str(folder / fname)]
 
+    reset_seen = False
+
     class _Writer(io.StringIO):
         def write(self, text: str) -> int:
             nonlocal reset_seen
             result = super().write(text)
-            if 'reset' in text.lower() or 'running' in text.lower():
+            if 'resetting' in text.lower():
                 reset_seen = True
             if text.strip():
                 progress_callback(text.rstrip(), tracker.parse(text))
@@ -195,8 +193,6 @@ def flash_board(
     old_out, old_err = sys.stdout, sys.stderr
     sys.stdout = writer
     sys.stderr = writer
-    reset_seen = False
-
     try:
         esptool.main(args)
     except SystemExit as e:
@@ -206,8 +202,6 @@ def flash_board(
                 "Flasheo fallido. Vuelve a intentarlo."
             )
     except Exception as e:
-        # soft-reset causes the app's USB to take over; the port may briefly
-        # disappear. Treat any serial error after seeing a reset as success.
         if not reset_seen:
             raise RuntimeError(str(e))
     finally:
