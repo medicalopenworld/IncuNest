@@ -85,16 +85,15 @@ class _ProgressTracker:
         return None
 
 
-def read_board_serial(port: str, firmware_base: Path) -> Optional[int]:
-    """Read the current serial number from the device's NVS partition.
+def has_firmware_flashed(port: str) -> bool:
+    """Return True if the app partition (0x10000) contains firmware.
 
-    Uses --no-stub and --after no_reset so the device stays in ROM download
-    mode for the subsequent write_flash call.  Returns the serial if > 0,
-    else None.
+    Reads only 4 bytes using the ROM bootloader (--no-stub) so no stub
+    is left in RAM and the port is cleanly released.  If the bytes are
+    all 0xFF the flash is erased (new device); anything else means
+    firmware has been written before.  Returns False on any error so the
+    caller can fall back to showing the serial dialog.
     """
-    folder = firmware_base / _BOARD_FOLDER[Board.MOTHERBOARD]
-    nvs_offset, nvs_size = nvs_gen.find_nvs_partition(folder / 'partitions.bin')
-
     fd, tmp = tempfile.mkstemp(suffix='.bin')
     os.close(fd)
 
@@ -108,16 +107,16 @@ def read_board_serial(port: str, firmware_base: Path) -> Optional[int]:
         esptool.main([
             '--port', port,
             '--chip', 'esp32s3',
-            '--baud', '921600',
+            '--no-stub',
             '--before', 'no_reset',
             '--after', 'no_reset',
             'read_flash',
-            hex(nvs_offset), str(nvs_size), tmp,
+            '0x10000', '4', tmp,
         ])
-        nvs_data = open(tmp, 'rb').read()
-        return nvs_gen.parse_nvs_serial(nvs_data)
+        data = open(tmp, 'rb').read()
+        return len(data) == 4 and data != b'\xff\xff\xff\xff'
     except Exception:
-        return None
+        return False
     finally:
         sys.stdout = old_out
         sys.stderr = old_err
