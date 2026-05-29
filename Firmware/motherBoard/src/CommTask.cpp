@@ -641,7 +641,7 @@ void Communication_Task(void *pvParameters) {
   uint32_t last_tel_time = 0;
   uint32_t last_ppg_time = 0;
   static unsigned long last_probe_status_time = 0;
-  static ProbeState    prev_probe_state       = ProbeState::DISCONNECTED;
+  static ProbeState    prev_probe_state       = ProbeState::PROBE_DISCONNECTED;
   // PPG normalisation state: decaying min/max keeps signal filling 0–255
   float ppg_min = -1.0f, ppg_max = 1.0f;
   // HR hysteresis: show after 2 consecutive valid samples, hide after 3 bad ones
@@ -676,7 +676,7 @@ void Communication_Task(void *pvParameters) {
     // Detect APPLIED transition — notify display immediately
     {
       ProbeState cur = g_spo2_data.probe_state;
-      if (cur == ProbeState::APPLIED && prev_probe_state != ProbeState::APPLIED) {
+      if (cur == ProbeState::PROBE_APPLIED && prev_probe_state != ProbeState::PROBE_APPLIED) {
         hmiSerial.print("CTRL,PROBE,2\n");
       }
       prev_probe_state = cur;
@@ -689,7 +689,7 @@ void Communication_Task(void *pvParameters) {
 
     // --- PPG waveform (25 Hz = every 40 ms) ---
     if (millis() - last_ppg_time >= 40) {
-      if (g_spo2_data.probe_state == ProbeState::APPLIED) {
+      if (g_spo2_data.probe_state == ProbeState::PROBE_APPLIED) {
         // No valid signal: reset normalisation and send flat midpoint so the
         // display collapses its amplitude window immediately.
         if (g_spo2_data.spo2_sqi < 0.05f) {
@@ -751,7 +751,7 @@ void Communication_Task(void *pvParameters) {
                ctrl_tel_msg.serverCommStatus);
       hmiSerial.print(msg);
 
-      if (g_spo2_data.probe_state != ProbeState::APPLIED) {
+      if (g_spo2_data.probe_state != ProbeState::PROBE_APPLIED) {
         // Probe not on patient — send status every 2 s, suppress vitals
         if (millis() - last_probe_status_time >= 2000) {
           char probe_msg[20];
@@ -894,7 +894,7 @@ void Communication_Task(void *pvParameters) {
     uint32_t last_tel_time = 0;
     uint32_t last_ppg_time = 0;
     static unsigned long last_probe_status_time_usb = 0;
-    static ProbeState    prev_probe_state_usb       = ProbeState::DISCONNECTED;
+    static ProbeState    prev_probe_state_usb       = ProbeState::PROBE_DISCONNECTED;
     float ppg_min = -1.0f, ppg_max = 1.0f;
     uint8_t hr_valid_streak = 0, hr_bad_streak = 0;
     bool hr_displaying = false;
@@ -903,7 +903,7 @@ void Communication_Task(void *pvParameters) {
       // Detect APPLIED transition — notify display immediately
       {
         ProbeState cur = g_spo2_data.probe_state;
-        if (cur == ProbeState::APPLIED && prev_probe_state_usb != ProbeState::APPLIED) {
+        if (cur == ProbeState::PROBE_APPLIED && prev_probe_state_usb != ProbeState::PROBE_APPLIED) {
           CommunicationHost_Send("CTRL,PROBE,2\n");
         }
         prev_probe_state_usb = cur;
@@ -915,7 +915,7 @@ void Communication_Task(void *pvParameters) {
 
       // PPG waveform at 25 Hz
       if (millis() - last_ppg_time >= 40) {
-        if (g_spo2_data.probe_state == ProbeState::APPLIED) {
+        if (g_spo2_data.probe_state == ProbeState::PROBE_APPLIED) {
           char ppg_msg[16];
           if (g_spo2_data.spo2_sqi < 0.05f) {
             ppg_min = -1.0f;
@@ -957,7 +957,7 @@ void Communication_Task(void *pvParameters) {
                  ctrl_tel_msg.serverCommStatus);
         CommunicationHost_Send(msg);
 
-        if (g_spo2_data.probe_state != ProbeState::APPLIED) {
+        if (g_spo2_data.probe_state != ProbeState::PROBE_APPLIED) {
           // Probe not on patient — send status every 2 s, suppress vitals
           if (millis() - last_probe_status_time_usb >= 2000) {
             char probe_msg[20];
