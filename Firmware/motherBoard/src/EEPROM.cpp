@@ -69,7 +69,7 @@ void loaddefaultValues() {
     p.putFloat (KEY_CTRL_TEMP,   in3.desiredControlTemperature);
     p.putUChar (KEY_CTRL_HUM,    in3.desiredControlHumidity);
     p.putInt   (KEY_FAN_CTL_PWM, in3.fanCtlPWM);
-    p.putInt   (KEY_FAN_PWM,      0);
+    p.putInt   (KEY_FAN_PWR_SUPPLY_PWM,      0);
     p.putFloat (KEY_HEAT_MAX_A,   HEATER_MAX_POWER_AMPS);
     p.putFloat (KEY_SKIN_T_MAX,   SKIN_TEMPERATURE_SET_MAX);
     p.putFloat (KEY_AIR_T_MAX,    AIR_TEMPERATURE_SET_MAX);
@@ -172,7 +172,7 @@ static bool migrateFromEEPROM() {
     p.putUChar (KEY_CTRL_MODE,    buf[OLD_CTRL_MODE]);
     p.putFloat (KEY_CTRL_TEMP,    rf(OLD_CTRL_TEMP));
     p.putUChar (KEY_CTRL_HUM,     buf[OLD_CTRL_HUM]);
-    p.putInt   (KEY_FAN_PWM,      ri(OLD_FAN_PWM));
+    p.putInt   (KEY_FAN_PWR_SUPPLY_PWM,      ri(OLD_FAN_PWM));
     p.putFloat (KEY_HEAT_MAX_A,   rf(OLD_HEAT_MAX_A));
     p.putFloat (KEY_SKIN_T_MAX,   rf(OLD_SKIN_T_MAX));
     p.putFloat (KEY_AIR_T_MAX,    rf(OLD_AIR_T_MAX));
@@ -271,8 +271,8 @@ void recapVariables() {
         in3.desiredControlTemperature > AIR_TEMPERATURE_SET_MAX)
       in3.desiredControlTemperature = presetTemp[CONTROL_AIR];
     in3.desiredControlHumidity    = p.getUChar(KEY_CTRL_HUM,   presetHumidity);
-    in3.fanPWM                    = p.getInt  (KEY_FAN_PWM,    0);
-    if (in3.fanPWM <= 0 || in3.fanPWM > 255) in3.fanPWM = 0;
+    in3.fanPwrSupplyPWM                    = p.getInt  (KEY_FAN_PWR_SUPPLY_PWM,    0);
+    if (in3.fanPwrSupplyPWM <= 0 || in3.fanPwrSupplyPWM > 255) in3.fanPwrSupplyPWM = 0;
     in3.heaterMaxPowerAmps        = p.getFloat(KEY_HEAT_MAX_A, HEATER_MAX_POWER_AMPS);
     if (isnan(in3.heaterMaxPowerAmps) || in3.heaterMaxPowerAmps <= 0)
       in3.heaterMaxPowerAmps = HEATER_MAX_POWER_AMPS;
