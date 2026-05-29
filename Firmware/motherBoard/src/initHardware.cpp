@@ -698,8 +698,7 @@ static ActuatorResult measureThreeActuatorsParallel(
     float heaterMin, float heaterMax,
     float photoMin,  float photoMax,
     float fanMin,    float fanMax,
-    int maxTimeMs, int intervalMs)
-{
+    int maxTimeMs, int intervalMs) {
   const int W = 10;
   const float hThresh = (heaterMax - heaterMin) * CURRENT_STABILIZE_THRESHOLD_RATIO;
   const float pThresh = (photoMax  - photoMin)  * CURRENT_STABILIZE_THRESHOLD_RATIO;
@@ -714,6 +713,7 @@ static ActuatorResult measureThreeActuatorsParallel(
   ActuatorResult r = {h0, p0, f0};
   bool hStable = false, pStable = false, fStable = false;
   int idx = 0, count = 0, elapsed = 0;
+  int hOverMax = 0, pOverMax = 0, fOverMax = 0;
 
   while (elapsed < maxTimeMs && !(hStable && pStable && fStable)) {
     vTaskDelay(pdMS_TO_TICKS(intervalMs));
@@ -722,6 +722,11 @@ static ActuatorResult measureThreeActuatorsParallel(
     r.heater = measureMeanConsumption(SECUNDARY, HEATER_SHUNT_CHANNEL)       - heaterOffset;
     r.photo  = measureMeanConsumption(MAIN,      PHOTOTHERAPY_SHUNT_CHANNEL) - photoOffset;
     r.fan    = measureMeanConsumption(MAIN,      FAN_SHUNT_CHANNEL)          - fanOffset;
+
+    // Early exit on confirmed overcurrent (2 consecutive readings above max)
+    if (r.heater > heaterMax) { if (++hOverMax >= 2) break; } else { hOverMax = 0; }
+    if (r.photo  > photoMax)  { if (++pOverMax >= 2) break; } else { pOverMax = 0; }
+    if (r.fan    > fanMax)    { if (++fOverMax >= 2) break; } else { fOverMax = 0; }
 
     hBuf[idx % W] = r.heater;
     pBuf[idx % W] = r.photo;
