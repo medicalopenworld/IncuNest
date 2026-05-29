@@ -112,3 +112,45 @@ def generate_serial_nvs(serial_number: int, partition_size: int = _DEFAULT_NVS_S
     # Pad to full partition size with 0xFF (erased flash). This overwrites any
     # pre-existing NVS pages with higher seq_no that ESP-IDF would otherwise prefer.
     return bytes(page) + b'\xFF' * (partition_size - _PAGE_SIZE)
+
+
+def parse_nvs_serial(data: bytes) -> Optional[int]:
+    """Return the mb_cfg::serial value from an NVS partition binary dump.
+
+    Scans all pages looking for the 'mb_cfg' namespace declaration and the
+    corresponding 'serial' (I32) entry.  Returns the serial number if found
+    and > 0, otherwise None.
+    """
+    _ACTIVE = 0xFFFFFFFE
+    _FULL   = 0xFFFFFFFC
+    _WRITTEN = 0b10
+    MAX_ENTRIES = (_PAGE_SIZE - _HDR_SIZE - _BITMAP_SIZE) // _ENTRY_SIZE
+
+    page_count = len(data) // _PAGE_SIZE
+    for page_idx in range(page_count):
+        page = data[page_idx * _PAGE_SIZE: (page_idx + 1) * _PAGE_SIZE]
+        state, = struct.unpack_from('<I', page, 0)
+        if state not in (_ACTIVE, _FULL):
+            continue
+        crc_stored, = struct.unpack_from('<I', page, 28)
+        if _crc32(page[4:28]) != crc_stored:
+            continue
+
+        mb_cfg_idx: Optional[int] = None
+        for i in range(MAX_ENTRIES):
+            # Check bitmap: entry i must be Written (0b10)
+            word, = struct.unpack_from('<I', page, _HDR_SIZE + (i // 16) * 4)
+            if ((word >> ((i % 16) * 2)) & 0x3) != _WRITTEN:
+                continue
+            off = _HDR_SIZE + _BITMAP_SIZE + i * _ENTRY_SIZE
+            e = page[off: off + _ENTRY_SIZE]
+            ns_idx, typ = e[0], e[1]
+            key = e[8:24].rstrip(b'\x00').decode('ascii', errors='replace')
+
+            if ns_idx == 0 and typ == _T_U8 and key == 'mb_cfg':
+                mb_cfg_idx = e[24]
+            elif mb_cfg_idx is not None and ns_idx == mb_cfg_idx and typ == _T_I32 and key == 'serial':
+                val, = struct.unpack_from('<i', e, 24)
+                return val if val > 0 else None
+
+    return None

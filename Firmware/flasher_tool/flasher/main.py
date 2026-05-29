@@ -11,7 +11,7 @@ import serial.tools.list_ports
 from PIL import Image, ImageTk
 
 from detector import Board, find_all_board_ports, board_from_vid_pid
-from flasher import flash_board
+from flasher import flash_board, read_board_serial
 
 HOTPLUG_POLL_S = 0.5
 POST_FLASH_COOLDOWN_S = 8
@@ -311,23 +311,49 @@ class FlasherApp:
             )
             return
 
-        # Reserve slot now to block re-entry if hotplug fires again while dialog is open
+        # Reserve slot and show immediately so the user sees activity
         self._port_to_slot[port] = slot_idx
-
-        serial_number: Optional[int] = None
-        if board == Board.MOTHERBOARD and self._require_serial:
-            dlg = _SerialNumberDialog(self.root, port)
-            if dlg.result is None:
-                del self._port_to_slot[port]
-                self._log_line(f"Flasheo de {board.value} cancelado.", 'info')
-                return
-            serial_number = dlg.result
-
         self._slots[slot_idx].assign(port, board)
         self._log_line(f"{board.value} detectado en {port} → slot {slot_idx + 1}", 'info')
         self._update_status_banner()
         self._tick_slot(slot_idx)
-        self._run_flash(port, board, slot_idx, serial_number)
+
+        if board == Board.MOTHERBOARD and self._require_serial:
+            # Read existing serial in background, then decide whether to show dialog
+            threading.Thread(
+                target=self._check_existing_serial,
+                args=(port, board, slot_idx),
+                daemon=True,
+            ).start()
+        else:
+            self._run_flash(port, board, slot_idx, None)
+
+    def _check_existing_serial(self, port: str, board: Board, slot_idx: int) -> None:
+        """Background: read NVS serial from device, then dispatch to main thread."""
+        self.root.after(0, self._slots[slot_idx]._status.configure,
+                        {'text': '🔍  Leyendo serial…', 'fg': '#E65100'})
+        existing = read_board_serial(port, get_firmware_base())
+        self.root.after(0, self._on_serial_read, port, board, slot_idx, existing)
+
+    def _on_serial_read(self, port: str, board: Board, slot_idx: int,
+                        existing: Optional[int]) -> None:
+        """Main thread: decide whether to ask for serial or preserve existing."""
+        if existing is not None:
+            self._log_line(
+                f"Serial existente {existing} detectado → se conserva.", 'info'
+            )
+            self._run_flash(port, board, slot_idx, None)
+            return
+
+        # No existing serial → ask the user
+        dlg = _SerialNumberDialog(self.root, port)
+        if dlg.result is None:
+            self._slots[slot_idx].reset()
+            del self._port_to_slot[port]
+            self._log_line(f"Flasheo de {board.value} cancelado.", 'info')
+            self._update_status_banner()
+            return
+        self._run_flash(port, board, slot_idx, dlg.result)
 
     def _tick_slot(self, slot_idx: int) -> None:
         if self._slots[slot_idx].tick():

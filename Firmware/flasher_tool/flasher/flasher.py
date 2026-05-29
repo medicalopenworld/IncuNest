@@ -85,6 +85,52 @@ class _ProgressTracker:
         return None
 
 
+def read_board_serial(port: str, firmware_base: Path) -> Optional[int]:
+    """Read the current serial number from the device's NVS partition.
+
+    Uses --no-stub and --after no_reset so the device stays in ROM download
+    mode for the subsequent write_flash call.  Returns the serial if > 0,
+    else None.
+    """
+    folder = firmware_base / _BOARD_FOLDER[Board.MOTHERBOARD]
+    nvs_offset, nvs_size = nvs_gen.find_nvs_partition(folder / 'partitions.bin')
+
+    fd, tmp = tempfile.mkstemp(suffix='.bin')
+    os.close(fd)
+
+    prev_no_color = os.environ.get('NO_COLOR')
+    os.environ['NO_COLOR'] = '1'
+    old_out, old_err = sys.stdout, sys.stderr
+    sys.stdout = io.StringIO()
+    sys.stderr = sys.stdout
+
+    try:
+        esptool.main([
+            '--port', port,
+            '--chip', 'esp32s3',
+            '--no-stub',
+            '--before', 'no_reset',
+            '--after', 'no_reset',
+            'read_flash',
+            hex(nvs_offset), str(nvs_size), tmp,
+        ])
+        nvs_data = open(tmp, 'rb').read()
+        return nvs_gen.parse_nvs_serial(nvs_data)
+    except Exception:
+        return None
+    finally:
+        sys.stdout = old_out
+        sys.stderr = old_err
+        if prev_no_color is None:
+            os.environ.pop('NO_COLOR', None)
+        else:
+            os.environ['NO_COLOR'] = prev_no_color
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
 def flash_board(
     port: str,
     board: Board,
