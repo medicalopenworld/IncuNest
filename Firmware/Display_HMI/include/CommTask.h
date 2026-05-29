@@ -78,6 +78,19 @@ typedef struct {
   bool    updated;
 } ControlBoard_Message_VIT;
 
+// SpO2 probe contact state (CTRL,PROBE — sent every 2 s when not APPLIED, once on APPLIED)
+// Values must match ProbeState enum in motherboard incunest_afe4490.h
+typedef enum {
+  SPO2_PROBE_DISCONNECTED = 0,  // No optical path (DC below threshold)
+  SPO2_PROBE_NOT_APPLIED  = 1,  // Probe present but not on skin (PI too low)
+  SPO2_PROBE_APPLIED      = 2   // Valid contact
+} ProbeContactState;
+
+typedef struct {
+  ProbeContactState state;
+  bool              updated;
+} ControlBoard_Message_Probe;
+
 typedef struct {
   int actuation;
   int controlMode;
@@ -133,6 +146,7 @@ extern ControlBoard_Message_Alarm ctrl_msg_alarm;
 extern ControlBoard_Message_State ctrl_state_msg;
 extern ControlBoard_Message_PPG ctrl_ppg_msg;
 extern ControlBoard_Message_VIT ctrl_vit_msg;
+extern ControlBoard_Message_Probe ctrl_probe_msg;
 extern int g_skinProbeState; // Last received skin probe state (SKIN_PROBE_*)
 
 extern bool error;
