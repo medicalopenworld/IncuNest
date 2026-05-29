@@ -164,7 +164,7 @@ def flash_board(
         '--chip', 'esp32s3',
         '--baud', '921600',
         '--before', _BOARD_BEFORE_RESET[board],
-        '--after', 'hard_reset',
+        '--after', 'no_reset',   # keep stub alive for the post-flash reset step
         'write-flash',
         '--flash-mode', 'keep',
         '--flash-freq', 'keep',
@@ -174,14 +174,9 @@ def flash_board(
     for addr, fname in file_pairs:
         args += [addr, fname if os.path.isabs(fname) else str(folder / fname)]
 
-    reset_seen = False
-
     class _Writer(io.StringIO):
         def write(self, text: str) -> int:
-            nonlocal reset_seen
             result = super().write(text)
-            if 'resetting' in text.lower():
-                reset_seen = True
             if text.strip():
                 progress_callback(text.rstrip(), tracker.parse(text))
             return result
@@ -202,12 +197,6 @@ def flash_board(
                 f"esptool terminó con error (código {e.code}). "
                 "Flasheo fallido. Vuelve a intentarlo."
             )
-    except Exception as e:
-        # ESP32-S3 native USB re-enumerates after hard reset, making the COM
-        # port temporarily invalid. If the reset already happened, the flash
-        # completed successfully — the port error is expected and harmless.
-        if not reset_seen:
-            raise RuntimeError(str(e))
     finally:
         sys.stdout = old_out
         sys.stderr = old_err
@@ -220,3 +209,33 @@ def flash_board(
                 os.unlink(nvs_tmp)
             except OSError:
                 pass
+
+    # Clear RTC_CNTL_FORCE_DOWNLOAD_BOOT (bit 0 of 0x600080DC) and hard-reset.
+    # The ROM sets this bit when entering download mode; if left set the device
+    # re-enters download mode on every subsequent reset regardless of GPIO0.
+    # We reuse the stub still in RAM (--after no_reset above) to write the
+    # register and trigger a proper SW reset that respects the strapping pins.
+    _prev_no_color = os.environ.get('NO_COLOR')
+    os.environ['NO_COLOR'] = '1'
+    _sink = io.StringIO()
+    old_out, old_err = sys.stdout, sys.stderr
+    sys.stdout = _sink
+    sys.stderr = _sink
+    try:
+        esptool.main([
+            '--port', port,
+            '--chip', 'esp32s3',
+            '--baud', '921600',
+            '--before', 'no_reset',
+            '--after', 'hard_reset',
+            'write_reg', '0x600080DC', '0', '0x1',
+        ])
+    except Exception:
+        pass
+    finally:
+        sys.stdout = old_out
+        sys.stderr = old_err
+        if _prev_no_color is None:
+            os.environ.pop('NO_COLOR', None)
+        else:
+            os.environ['NO_COLOR'] = _prev_no_color
