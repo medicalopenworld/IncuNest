@@ -3578,7 +3578,31 @@ void UI_Task(void *pvParameters) {
     vTaskDelay(pdMS_TO_TICKS(LOOP_DELAY_MS));
     LVGL_Lock();
 
-    // --- Lock screen: PPG waveform & probe detection ---
+    // --- Lock screen: probe contact state from CTRL,PROBE ---
+    if (ctrl_probe_msg.updated) {
+      ctrl_probe_msg.updated = false;
+      bool applied = (ctrl_probe_msg.state == SPO2_PROBE_APPLIED);
+      // Falling edge: probe removed — hide chart and HR, reset normalisation
+      if (!applied && spo2ProbeAttachedPrev) {
+        ppg_disp_min = 128.0f;
+        ppg_disp_max = 128.0f;
+        if (ui_LockPPGChart)
+          lv_obj_add_flag(ui_LockPPGChart, LV_OBJ_FLAG_HIDDEN);
+        if (ui_LockHRCont)
+          lv_obj_add_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
+      }
+      // Rising edge: probe applied — show chart, reset normalisation
+      if (applied && !spo2ProbeAttachedPrev) {
+        ppg_disp_min = 128.0f;
+        ppg_disp_max = 128.0f;
+        if (ui_LockPPGChart)
+          lv_obj_clear_flag(ui_LockPPGChart, LV_OBJ_FLAG_HIDDEN);
+      }
+      spo2ProbeAttached     = applied;
+      spo2ProbeAttachedPrev = applied;
+    }
+
+    // --- Lock screen: PPG waveform ---
     if (ui_LockPPGChart && lockPPGSeries && ctrl_ppg_msg.updated) {
       float ppg_val = (float)ctrl_ppg_msg.ppg;
       ctrl_ppg_msg.updated = false;
@@ -3590,21 +3614,6 @@ void UI_Task(void *pvParameters) {
         ppg_disp_max = ppg_val;
       else
         ppg_disp_max += (128.0f - ppg_disp_max) * 0.05f;
-      spo2ProbeAttached = (ppg_disp_max - ppg_disp_min) > 20.0f;
-
-      // On falling edge: hide chart and HR, reset normalisation
-      if (!spo2ProbeAttached && spo2ProbeAttachedPrev) {
-        ppg_disp_min = 128.0f;
-        ppg_disp_max = 128.0f;
-        lv_obj_add_flag(ui_LockPPGChart, LV_OBJ_FLAG_HIDDEN);
-        if (ui_LockHRCont)
-          lv_obj_add_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
-      }
-      // On rising edge: show chart
-      if (spo2ProbeAttached && !spo2ProbeAttachedPrev) {
-        lv_obj_clear_flag(ui_LockPPGChart, LV_OBJ_FLAG_HIDDEN);
-      }
-      spo2ProbeAttachedPrev = spo2ProbeAttached;
 
       if (locked && spo2ProbeAttached) {
         lv_chart_set_next_value(ui_LockPPGChart, lockPPGSeries,
