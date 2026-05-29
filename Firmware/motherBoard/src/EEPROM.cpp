@@ -237,6 +237,7 @@ void initEEPROM() {
   bool initialized    = p.isKey(KEY_LANG);
   int  flashedSerial  = p.getInt(KEY_SERIAL, -1);
   p.end();
+  ESP_LOGI("APP", "initEEPROM: initialized=%d flashedSerial=%d", initialized, flashedSerial);
 
   if (!initialized) {
     if (!migrateFromEEPROM()) {
