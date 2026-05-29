@@ -348,7 +348,7 @@ void configWifiServer() {
   wifiServer.on("/get_config", HTTP_GET, []() {
     String json = "{";
     json += "\"serial\":" + String(in3.serialNumber) + ",";
-    json += "\"fan_supply_pwm\":" + String(in3.fanPWM) + ",";
+    json += "\"fan_supply_pwm\":" + String(in3.fanPwrSupplyPWM) + ",";
     json += "\"fan_ctl_pwm\":" + String(in3.fanCtlPWM) + ",";
     json += "\"heater_amps\":" + String(in3.heaterMaxPowerAmps) + ",";
     json += "\"air_tmax\":" + String(in3.airTemperatureSetMax) + ",";
@@ -371,8 +371,8 @@ void configWifiServer() {
       { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_SERIAL, in3.serialNumber); p.end(); }
     }
     if (wifiServer.hasArg("fan_supply_pwm")) {
-      in3.fanPWM = wifiServer.arg("fan_supply_pwm").toInt();
-      { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_PWM, in3.fanPWM); p.end(); }
+      in3.fanPwrSupplyPWM = wifiServer.arg("fan_supply_pwm").toInt();
+      { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_PWR_SUPPLY_PWM, in3.fanPwrSupplyPWM); p.end(); }
     }
     if (wifiServer.hasArg("fan_ctl_pwm")) {
       in3.fanCtlPWM = wifiServer.arg("fan_ctl_pwm").toInt();

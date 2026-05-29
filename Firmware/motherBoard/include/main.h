@@ -443,7 +443,7 @@ constexpr char KEY_SERIAL[]      = "serial";
 constexpr char KEY_CTRL_MODE[]   = "ctrl_mode";
 constexpr char KEY_CTRL_TEMP[]   = "ctrl_temp";
 constexpr char KEY_CTRL_HUM[]    = "ctrl_hum";
-constexpr char KEY_FAN_PWM[]     = "fan_pwm";
+constexpr char KEY_FAN_PWR_SUPPLY_PWM[] = "fan_pwr_sup_pwm";
 constexpr char KEY_HEAT_MAX_A[]  = "heat_max_A";
 constexpr char KEY_SKIN_T_MAX[]  = "skin_t_max";
 constexpr char KEY_AIR_T_MAX[]   = "air_t_max";
@@ -700,7 +700,7 @@ typedef struct {
   bool photoFirstRun = true;
   long photoTurnOnTime = 0;
 
-  int fanPWM = FAN_PWM;
+  int fanPwrSupplyPWM = FAN_PWR_SUPPLY_PWM;
   int fanCtlPWM = FAN_CTL_PWM_DEFAULT;
   float heaterMaxPowerAmps = HEATER_MAX_POWER_AMPS;
   float skinTemperatureSetMax = SKIN_TEMPERATURE_SET_MAX;

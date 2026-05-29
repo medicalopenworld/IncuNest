@@ -157,7 +157,7 @@ void turnFans(bool mode) {
 #if (HW_NUM >= 8)
   // ledcWrite(HEATER_PWM_CHANNEL, mode * HEATER_MAX_PWM);
   ledcWrite(FAN_PWM_CHANNEL,
-            (mode && !ongoingCriticalWiringAlarm()) * in3.fanPWM);
+            (mode && !ongoingCriticalWiringAlarm()) * in3.fanPwrSupplyPWM);
   ledcWrite(FAN_CTL_PWM_CHANNEL, mode * in3.fanCtlPWM);
 #else
   digitalWrite(FAN, in3.phototherapy || mode && !ongoingCriticalWiringAlarm());

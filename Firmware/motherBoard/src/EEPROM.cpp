@@ -69,7 +69,7 @@ void loaddefaultValues() {
     p.putFloat (KEY_CTRL_TEMP,   in3.desiredControlTemperature);
     p.putUChar (KEY_CTRL_HUM,    in3.desiredControlHumidity);
     p.putInt   (KEY_FAN_CTL_PWM, in3.fanCtlPWM);
-    p.putInt   (KEY_FAN_PWR_SUPPLY_PWM,      0);
+    p.putInt   (KEY_FAN_PWR_SUPPLY_PWM,      FAN_PWR_SUPPLY_PWM);
     p.putFloat (KEY_HEAT_MAX_A,   HEATER_MAX_POWER_AMPS);
     p.putFloat (KEY_SKIN_T_MAX,   SKIN_TEMPERATURE_SET_MAX);
     p.putFloat (KEY_AIR_T_MAX,    AIR_TEMPERATURE_SET_MAX);
@@ -271,8 +271,8 @@ void recapVariables() {
         in3.desiredControlTemperature > AIR_TEMPERATURE_SET_MAX)
       in3.desiredControlTemperature = presetTemp[CONTROL_AIR];
     in3.desiredControlHumidity    = p.getUChar(KEY_CTRL_HUM,   presetHumidity);
-    in3.fanPwrSupplyPWM                    = p.getInt  (KEY_FAN_PWR_SUPPLY_PWM,    0);
-    if (in3.fanPwrSupplyPWM <= 0 || in3.fanPwrSupplyPWM > 255) in3.fanPwrSupplyPWM = 0;
+    in3.fanPwrSupplyPWM                    = p.getInt  (KEY_FAN_PWR_SUPPLY_PWM,    FAN_PWR_SUPPLY_PWM);
+    if (in3.fanPwrSupplyPWM <= 0 || in3.fanPwrSupplyPWM > 255) in3.fanPwrSupplyPWM = FAN_PWR_SUPPLY_PWM;
     in3.heaterMaxPowerAmps        = p.getFloat(KEY_HEAT_MAX_A, HEATER_MAX_POWER_AMPS);
     if (isnan(in3.heaterMaxPowerAmps) || in3.heaterMaxPowerAmps <= 0)
       in3.heaterMaxPowerAmps = HEATER_MAX_POWER_AMPS;
