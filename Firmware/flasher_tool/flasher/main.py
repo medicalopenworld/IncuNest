@@ -52,6 +52,7 @@ class _Slot:
         self.board: Optional[Board] = None
         self._indeterminate = False
         self._start_time: Optional[float] = None
+        self._status_override: Optional[str] = None  # overrides tick default text
 
         self._frame = tk.LabelFrame(
             parent, text=f"Slot {index + 1}",
@@ -90,14 +91,22 @@ class _Slot:
         self._indeterminate = True
         self._status.configure(text="⚡  Iniciando…  0s", fg='#E65100')
 
+    def set_status(self, text: str) -> None:
+        """Set a persistent status override shown by tick() instead of 'Iniciando…'."""
+        self._status_override = text
+        self._status.configure(text=text, fg='#E65100')
+
     def tick(self) -> bool:
         """Refresh elapsed time while in indeterminate phase. Returns True if still active."""
         if self._start_time is None or not self._indeterminate:
             return False
-        self._status.configure(
-            text=f"⚡  Iniciando…  {self._elapsed()}",
-            fg='#E65100',
-        )
+        if self._status_override:
+            self._status.configure(text=self._status_override, fg='#E65100')
+        else:
+            self._status.configure(
+                text=f"⚡  Iniciando…  {self._elapsed()}",
+                fg='#E65100',
+            )
         return True
 
     def update_progress(self, pct: Optional[int]) -> None:
@@ -126,6 +135,7 @@ class _Slot:
         self.port = None
         self.board = None
         self._start_time = None
+        self._status_override = None
         self._title.configure(text="—  Esperando dispositivo…", fg='#9E9E9E')
         self._progress_var.set(0)
         self._status.configure(text="", fg='#9E9E9E')
@@ -330,9 +340,9 @@ class FlasherApp:
 
     def _check_existing_serial(self, port: str, board: Board, slot_idx: int) -> None:
         """Background: read NVS serial from device, then dispatch to main thread."""
-        self.root.after(0, self._slots[slot_idx]._status.configure,
-                        {'text': '🔍  Leyendo serial…', 'fg': '#E65100'})
+        self.root.after(0, self._slots[slot_idx].set_status, '🔍  Leyendo serial…')
         existing = read_board_serial(port, get_firmware_base())
+        self.root.after(0, self._slots[slot_idx].set_status, '')
         self.root.after(0, self._on_serial_read, port, board, slot_idx, existing)
 
     def _on_serial_read(self, port: str, board: Board, slot_idx: int,

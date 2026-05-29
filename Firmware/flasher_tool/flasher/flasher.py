@@ -108,6 +108,7 @@ def read_board_serial(port: str, firmware_base: Path) -> Optional[int]:
         esptool.main([
             '--port', port,
             '--chip', 'esp32s3',
+            '--baud', '921600',
             '--no-stub',
             '--before', 'no_reset',
             '--after', 'no_reset',
