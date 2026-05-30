@@ -65,12 +65,12 @@
 
 #define DEFAULT_WIFI_EN ON
 
-#define LOG_MODEM_DATA false
+#define LOG_MODEM_DATA true
 #define LOG_INFORMATION true
 #define LOG_ERRORS false
 #define LOG_ALARMS false
 #define LOG_PULSIOXIMETRY false
-#define LOG_DRIVE false // Google Drive upload + MB/HMI crash capture
+#define LOG_DRIVE true // Google Drive upload + MB/HMI crash capture
 #define LOG_CHARGER false
 
 // Diagnostic: set to 1 to skip the upload task entirely. Writer keeps rotating
