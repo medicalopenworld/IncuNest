@@ -18,6 +18,7 @@
 #include "esp_log.h"
 #include "esp_system.h"
 #include "freertos/semphr.h"
+#include <math.h>
 #include <Beastdevices_INA3221.h>
 #include <Preferences.h>
 #include <Filters.h>
@@ -664,6 +665,8 @@ typedef struct {
   double desiredControlTemperature = false;
   double desiredControlHumidity = false;
   double fineTuneSkinTemperature = false;
+  double skinTemperatureForecast = NAN;  // Prony T_ss estimate. NAN = not yet available
+  uint8_t skinContactQuality = 0;        // 0=unknown, 1=poor, 2=good
   double fineTuneAirTemperature = false;
   double system_current_standby_test = false;
   double heater_current_test = false;
