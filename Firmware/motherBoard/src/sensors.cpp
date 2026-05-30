@@ -166,18 +166,6 @@ auto filter_2 = butter<6>(FILTER_NORMALIZED_CUT_OFF_FREQUENCY);
 
 extern IncuNest_parameters in3;
 
-// --- Skin forecast configuration ---
-static constexpr float    SKIN_WARMUP_DETECT_DELTA_C          = 1.5f;   // °C/5s to detect placement
-static constexpr float    SKIN_REMOVAL_DELTA_C                = 2.0f;   // °C/5s drop = removal
-static constexpr float    SKIN_SETTLED_RATE_C_PER_S           = 0.005f; // dT/dt < this → settled
-static constexpr uint32_t SKIN_SAMPLE_INTERVAL_MS             = 10000;  // Prony buffer cadence
-static constexpr float    SKIN_PRONY_MIN_DENOM                = 0.05f;  // numerical guard
-static constexpr float    SKIN_FORECAST_MAX_C                 = 42.0f;
-static constexpr float    SKIN_FORECAST_MIN_C                 = 30.0f;
-static constexpr float    SKIN_CONTACT_QUALITY_RATE_THRESHOLD = 0.20f;  // °C/s at t=15s (tune later)
-
-enum SkinWarmupState : uint8_t { SW_IDLE, SW_WARMING, SW_SETTLED };
-
 long lastCurrentMeasurement, lastVoltageMeasurement;
 long lastEncoderUpdate;
 static long lastPhotoControl = 0;
@@ -389,159 +377,6 @@ void fanSpeedHandler() {
   }
 }
 
-// Estimates final skin temperature (Prony 3-point method) and classifies
-// sensor contact quality (dT/dt at t=15s). Called after every valid NTC reading.
-// All state is static — no heap allocation.
-static void updateSkinForecast(float tempRaw) {
-  static SkinWarmupState state      = SW_IDLE;
-  static uint32_t warmupStartMs     = 0;
-  static float T_at_placement       = 0.0f;
-  static bool qualityClassified     = false;
-
-  // 5-second sliding window for placement/removal/settled detection
-  static float    tempBefore5s      = NAN;
-  static uint32_t last5sMs         = 0;
-  static uint8_t  settledWindows   = 0;  // consecutive 5s windows below settled threshold
-
-  // Circular sample buffer: one entry per SKIN_SAMPLE_INTERVAL_MS from placement
-  static float    pronyBuf[12]     = {};
-  static uint16_t pronyTotal       = 0;  // total samples written this placement
-  static uint32_t lastSampleMs     = 0;
-
-  uint32_t now = millis();
-
-  // Guard: if called after a long gap (sensor was absent), reset to IDLE.
-  if (state != SW_IDLE && (now - last5sMs) > 30000) {
-    state             = SW_IDLE;
-    in3.skinTemperatureForecast = NAN;
-    in3.skinContactQuality      = 0;
-    pronyTotal        = 0;
-    settledWindows    = 0;
-    qualityClassified = false;
-    tempBefore5s      = NAN;
-  }
-
-  // ── 5-second delta check ──────────────────────────────────────────────────
-  if (now - last5sMs >= 5000) {
-    if (!isnan(tempBefore5s)) {
-      float delta = tempRaw - tempBefore5s;
-
-      if (state == SW_IDLE) {
-        if (delta > SKIN_WARMUP_DETECT_DELTA_C) {
-          // Placement detected
-          state             = SW_WARMING;
-          warmupStartMs     = now;
-          T_at_placement    = tempBefore5s;  // temp just before the jump
-          qualityClassified = false;
-          pronyTotal        = 0;
-          settledWindows    = 0;
-          lastSampleMs      = now;
-          in3.skinContactQuality      = 0;
-          in3.skinTemperatureForecast = NAN;
-          // First Prony sample at t≈0
-          pronyBuf[0] = tempRaw;
-          pronyTotal  = 1;
-        }
-      } else if (state == SW_WARMING) {
-        if (delta < -SKIN_REMOVAL_DELTA_C) {
-          // Removal detected
-          state                       = SW_IDLE;
-          in3.skinTemperatureForecast = NAN;
-          in3.skinContactQuality      = 0;
-          pronyTotal                  = 0;
-        } else {
-          // Check settled: |delta| < threshold × 5s
-          if (fabsf(delta) < SKIN_SETTLED_RATE_C_PER_S * 5.0f) {
-            settledWindows++;
-            if (settledWindows >= 6) {  // 6 × 5s = 30s
-              state = SW_SETTLED;
-            }
-          } else {
-            settledWindows = 0;
-          }
-        }
-      } else {  // SW_SETTLED
-        if (delta < -SKIN_REMOVAL_DELTA_C) {
-          state                       = SW_IDLE;
-          in3.skinTemperatureForecast = NAN;
-          in3.skinContactQuality      = 0;
-          pronyTotal                  = 0;
-        }
-      }
-    }
-    tempBefore5s = tempRaw;
-    last5sMs     = now;
-  }
-
-  // ── Contact quality at t=15s ──────────────────────────────────────────────
-  if (state == SW_WARMING && !qualityClassified) {
-    uint32_t elapsed = now - warmupStartMs;
-    if (elapsed >= 14800 && elapsed <= 15200) {
-      float dT_dt = (tempRaw - T_at_placement) / 15.0f;
-      in3.skinContactQuality = (dT_dt >= SKIN_CONTACT_QUALITY_RATE_THRESHOLD) ? 2 : 1;
-      qualityClassified = true;
-    }
-  }
-
-  // ── Prony buffer: add one sample every SKIN_SAMPLE_INTERVAL_MS ───────────
-  if (state == SW_WARMING && now - lastSampleMs >= SKIN_SAMPLE_INTERVAL_MS) {
-    pronyBuf[pronyTotal % 12] = tempRaw;
-    pronyTotal++;
-    lastSampleMs = now;
-  }
-
-  // ── Forecast computation ──────────────────────────────────────────────────
-  if (state == SW_SETTLED) {
-    in3.skinTemperatureForecast = in3.temperature[SKIN_SENSOR];
-    return;
-  }
-
-  uint8_t pronyValid = (pronyTotal >= 12) ? 12 : (uint8_t)pronyTotal;
-  if (state != SW_WARMING || pronyValid < 3) {
-    in3.skinTemperatureForecast = NAN;
-    return;
-  }
-
-  // Select spacing k (in number of 10s samples) based on elapsed time.
-  // Larger k → more spread → better numerical conditioning.
-  uint32_t elapsed = now - warmupStartMs;
-  uint8_t k;
-  if      (elapsed < 40000)  k = 1;   // Δt=10s, need ≥3 samples
-  else if (elapsed < 80000)  k = 2;   // Δt=20s, need ≥5 samples
-  else if (elapsed < 120000) k = 3;   // Δt=30s, need ≥7 samples
-  else                        k = 4;   // Δt=40s, need ≥9 samples
-
-  if (pronyValid < (uint8_t)(2 * k + 1)) {
-    in3.skinTemperatureForecast = NAN;
-    return;
-  }
-
-  // Read T1 (oldest), T2 (middle), T3 (newest) from circular buffer.
-  // pronyTotal-1 is the index of the most recent write.
-  // Adding 1200 (=100×12) ensures the expression stays positive before % 12.
-  int base  = (int)pronyTotal - 1;
-  float T3  = pronyBuf[(base          + 1200) % 12];  // most recent
-  float T2  = pronyBuf[(base - k      + 1200) % 12];  // middle
-  float T1  = pronyBuf[(base - 2 * k  + 1200) % 12];  // oldest
-
-  float denom = T1 + T3 - 2.0f * T2;
-
-  if (fabsf(denom) < SKIN_PRONY_MIN_DENOM) {
-    // Signal nearly flat → treat as settled
-    in3.skinTemperatureForecast = in3.temperature[SKIN_SENSOR];
-    return;
-  }
-
-  float T_ss = (T1 * T3 - T2 * T2) / denom;
-
-  if (T_ss < SKIN_FORECAST_MIN_C || T_ss > SKIN_FORECAST_MAX_C || T_ss < (double)tempRaw) {
-    in3.skinTemperatureForecast = NAN;
-    return;
-  }
-
-  in3.skinTemperatureForecast = (double)T_ss;
-}
-
 // Shared post-processing: calibration, filter, clamp
 static bool applyNTCResult(float millivolts) {
   if (millivolts > ADC_TO_DISCARD_MIN && millivolts < ADC_TO_DISCARD_MAX) {
@@ -574,11 +409,8 @@ static bool applyNTCResult(float millivolts) {
       in3.temperature[SKIN_SENSOR] = 0;
     }
 
-    updateSkinForecast(tempRaw);
-
     // [SKIN_WARMUP_LOG] CSV para análisis de curva de calentamiento.
-    // Formato: t_ms,raw_C,filtered_C,calibrated_C,forecast_C,quality
-    // Borrar este bloque cuando el algoritmo de predicción esté validado.
+    // Formato: t_ms,raw_C,filtered_C,calibrated_C
     static uint32_t skinLogLastMs = 0;
     static uint32_t skinLogT0 = 0;
     static float skinLogLastRaw = 0;
@@ -587,15 +419,10 @@ static bool applyNTCResult(float millivolts) {
     }
     skinLogLastRaw = tempRaw;
     if (millis() - skinLogLastMs >= 1000) {
-      String forecastStr = isnan(in3.skinTemperatureForecast)
-                               ? "nan"
-                               : String((float)in3.skinTemperatureForecast, 3);
       logI("[SKIN_WARMUP] " + String(millis() - skinLogT0) + "," +
            String(tempRaw, 3) + "," +
            String(filteredTemp, 3) + "," +
-           String(in3.temperature[SKIN_SENSOR], 3) + "," +
-           forecastStr + "," +
-           String(in3.skinContactQuality));
+           String(in3.temperature[SKIN_SENSOR], 3));
       skinLogLastMs = millis();
     }
 

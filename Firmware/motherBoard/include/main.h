@@ -18,7 +18,6 @@
 #include "esp_log.h"
 #include "esp_system.h"
 #include "freertos/semphr.h"
-#include <math.h>
 #include <Beastdevices_INA3221.h>
 #include <Preferences.h>
 #include <Filters.h>
@@ -270,9 +269,7 @@ typedef enum {
 #define TRI_ACCURACY_KEY "tri_accuracy"
 #define UI_LANGUAGE_KEY "UI_language"
 #define SKIN_CAPACITANCE_KEY "Skin_CAP"
-#define SKIN_TEMPERATURE_KEY     "Skin_temp"
-#define SKIN_TEMP_FORECAST_KEY   "Skin_temp_forecast"
-#define SKIN_CONTACT_QUALITY_KEY "Skin_contact_quality"
+#define SKIN_TEMPERATURE_KEY "Skin_temp"
 #define AIR_TEMPERATURE_KEY "Air_temp"
 #define AIR_TEMPERATURE_REDUNDANT_KEY "Air_temp_redundant"
 #define AMBIENT_TEMPERATURE_KEY "Amb_temp"
@@ -667,8 +664,6 @@ typedef struct {
   double desiredControlTemperature = false;
   double desiredControlHumidity = false;
   double fineTuneSkinTemperature = false;
-  double skinTemperatureForecast = NAN;  // Prony T_ss estimate. NAN = not yet available
-  uint8_t skinContactQuality = 0;        // 0=unknown, 1=poor, 2=good
   double fineTuneAirTemperature = false;
   double system_current_standby_test = false;
   double heater_current_test = false;
