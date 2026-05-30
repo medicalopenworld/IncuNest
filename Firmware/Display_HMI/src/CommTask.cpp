@@ -195,6 +195,10 @@ static void parse_message(const char *line) {
         state >= SPO2_PROBE_DISCONNECTED && state <= SPO2_PROBE_APPLIED) {
       ctrl_probe_msg.state   = (ProbeContactState)state;
       ctrl_probe_msg.updated = true;
+      static const char *const probe_state_names[] = {"DISCONNECTED", "NOT_APPLIED", "APPLIED"};
+      // COMM_LOG("[COMM] CTRL,PROBE -> %s\n", probe_state_names[state]);
+    } else {
+      COMM_LOG("[COMM] CTRL,PROBE parse error: %s\n", line);
     }
   } else if (strncmp(line, "CTRL,ALM", strlen("CTRL,ALM")) ==
              0) {

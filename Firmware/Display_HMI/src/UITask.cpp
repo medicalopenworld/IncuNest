@@ -208,8 +208,8 @@ void lcd_diagnostics_log() {
              "worst_frame=%.1fms (%.1f fps)",
              underruns, slow_frames, total, worst_us / 1000.0f, fps);
   } else {
-    ESP_LOGI("LCD_DIAG", "OK — frames=%lu  worst_frame=%.1fms", total,
-             worst_us / 1000.0f);
+    // ESP_LOGI("LCD_DIAG", "OK — frames=%lu  worst_frame=%.1fms", total,
+    //          worst_us / 1000.0f);
   }
 }
 

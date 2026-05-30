@@ -2,7 +2,7 @@
 #include <Preferences.h>
 
 // --------------- Non-EEPROM constants kept from original header ---------------
-#define INACTIVITY_TIMEOUT_MS 20000 // 20s
+#define INACTIVITY_TIMEOUT_MS 0 // 0s
 #define EEPROM_COMMIT_DELAY INACTIVITY_TIMEOUT_MS
 
 // --------------- Namespaces ---------------
