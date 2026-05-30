@@ -412,11 +412,13 @@ static void updateSkinForecast(float tempRaw) {
 
   // Guard: if called after a long gap (sensor was absent), reset to IDLE.
   if (state != SW_IDLE && (now - last5sMs) > 30000) {
-    state = SW_IDLE;
+    state             = SW_IDLE;
     in3.skinTemperatureForecast = NAN;
     in3.skinContactQuality      = 0;
-    pronyTotal                  = 0;
-    tempBefore5s                = NAN;
+    pronyTotal        = 0;
+    settledWindows    = 0;
+    qualityClassified = false;
+    tempBefore5s      = NAN;
   }
 
   // ── 5-second delta check ──────────────────────────────────────────────────
@@ -572,22 +574,28 @@ static bool applyNTCResult(float millivolts) {
       in3.temperature[SKIN_SENSOR] = 0;
     }
 
+    updateSkinForecast(tempRaw);
+
     // [SKIN_WARMUP_LOG] CSV para análisis de curva de calentamiento.
-    // Formato: t_ms,raw_C,filtered_C,calibrated_C
-    // Filtrar con tag "SKIN_W" en el monitor serie.
+    // Formato: t_ms,raw_C,filtered_C,calibrated_C,forecast_C,quality
     // Borrar este bloque cuando el algoritmo de predicción esté validado.
     static uint32_t skinLogLastMs = 0;
     static uint32_t skinLogT0 = 0;
     static float skinLogLastRaw = 0;
     if (fabsf(tempRaw - skinLogLastRaw) > 2.0f || skinLogT0 == 0) {
-      skinLogT0 = millis(); // reset si el sensor fue recolocado (salto >2°C)
+      skinLogT0 = millis();
     }
     skinLogLastRaw = tempRaw;
     if (millis() - skinLogLastMs >= 1000) {
+      String forecastStr = isnan(in3.skinTemperatureForecast)
+                               ? "nan"
+                               : String((float)in3.skinTemperatureForecast, 3);
       logI("[SKIN_WARMUP] " + String(millis() - skinLogT0) + "," +
            String(tempRaw, 3) + "," +
            String(filteredTemp, 3) + "," +
-           String(in3.temperature[SKIN_SENSOR], 3));
+           String(in3.temperature[SKIN_SENSOR], 3) + "," +
+           forecastStr + "," +
+           String(in3.skinContactQuality));
       skinLogLastMs = millis();
     }
 
