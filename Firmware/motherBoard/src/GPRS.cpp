@@ -586,6 +586,10 @@ void addTelemetriesToGPRSJSON() {
       in3.skinSensorCapacitance;
   addVariableToTelemetryGPRSJSON[SKIN_TEMPERATURE_KEY] = roundSignificantDigits(
       in3.temperature[SKIN_SENSOR], TELEMETRIES_DECIMALS);
+  if (!isnan(in3.skinTemperatureForecast))
+    addVariableToTelemetryGPRSJSON[SKIN_TEMP_FORECAST_KEY] =
+        roundSignificantDigits(in3.skinTemperatureForecast, TELEMETRIES_DECIMALS);
+  addVariableToTelemetryGPRSJSON[SKIN_CONTACT_QUALITY_KEY] = in3.skinContactQuality;
   addVariableToTelemetryGPRSJSON[AIR_TEMPERATURE_KEY] = roundSignificantDigits(
       in3.temperature[ROOM_DIGITAL_TEMP_SENSOR], TELEMETRIES_DECIMALS);
   if (in3.airTemperatureRedundantSensor) {
