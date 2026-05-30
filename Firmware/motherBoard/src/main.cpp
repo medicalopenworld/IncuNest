@@ -307,7 +307,7 @@ void sensors_Task(void *pvParameters) {
         // chip: algunos BQ25xxx pierden VINDPM/IIN al re-detectar VBUS, así que
         // reaplicamos toda la config para asegurar carga estable.
         if (bq_status_valid && bq_cached_status.ac_present && !prev_ac_present) {
-          Serial.println("[CHG] Adaptador detectado → reinicializando config");
+          if (LOG_CHARGER) logI("[CHG] Adaptador detectado → reinicializando config");
           extern TwoWire *wire;
           init_BQ25730(wire);
         }
@@ -577,37 +577,39 @@ static void dump_BQ25730_regs() {
     uint8_t hi = w->read();
     return (uint16_t)lo | ((uint16_t)hi << 8);
   };
-  Serial.println("=== BQ25730 register dump (PDF V2) ===");
-  Serial.println("REG 0x3E MfgID(8b)  : 0x" + String(read8(wire, 0x3E), HEX));
-  Serial.println("REG 0x3F DevID(8b)  : 0x" + String(read8(wire, 0x3F), HEX));
-  Serial.println("--- Config basica ---");
-  Serial.println("REG 0x00 ChargeOpt0 : 0x" + String(read16(wire, 0x00), HEX));
-  Serial.println("REG 0x02 ChargeCurr : 0x" + String(read16(wire, 0x02), HEX));
-  Serial.println("REG 0x04 MaxChrVolt : 0x" + String(read16(wire, 0x04), HEX));
-  Serial.println("--- Config electrica (PDF V2) ---");
-  Serial.println("REG 0x0A VINDPM     : 0x" + String(read16(wire, 0x0A), HEX));
-  Serial.println("REG 0x0C VSYS_MIN   : 0x" + String(read16(wire, 0x0C), HEX));
-  Serial.println("REG 0x0E IIN_HOST   : 0x" + String(read16(wire, 0x0E), HEX));
-  Serial.println("--- Estado y ADC ---");
-  Serial.println("REG 0x20 ChrStatus  : 0x" + String(read16(wire, 0x20), HEX));
-  Serial.println("REG 0x26 ADC_VBUS   : 0x" + String(read16(wire, 0x26), HEX));
-  Serial.println("REG 0x28 ADC_IBAT   : 0x" + String(read16(wire, 0x28), HEX));
-  Serial.println("REG 0x2C ADC_VSYS_VBAT:0x" + String(read16(wire, 0x2C), HEX));
-  Serial.println("--- ChargeOptions (PDF V2) ---");
-  Serial.println("REG 0x30 ChargeOpt1 : 0x" + String(read16(wire, 0x30), HEX));
-  Serial.println("REG 0x32 ChargeOpt2 : 0x" + String(read16(wire, 0x32), HEX));
-  Serial.println("REG 0x34 ChargeOpt3 : 0x" + String(read16(wire, 0x34), HEX));
-  Serial.println("REG 0x3A ADCOption  : 0x" + String(read16(wire, 0x3A), HEX));
-  Serial.println("======================================");
+  if (!LOG_CHARGER) return;
+  logI("=== BQ25730 register dump (PDF V2) ===");
+  logI("REG 0x3E MfgID(8b)  : 0x" + String(read8(wire, 0x3E), HEX));
+  logI("REG 0x3F DevID(8b)  : 0x" + String(read8(wire, 0x3F), HEX));
+  logI("--- Config basica ---");
+  logI("REG 0x00 ChargeOpt0 : 0x" + String(read16(wire, 0x00), HEX));
+  logI("REG 0x02 ChargeCurr : 0x" + String(read16(wire, 0x02), HEX));
+  logI("REG 0x04 MaxChrVolt : 0x" + String(read16(wire, 0x04), HEX));
+  logI("--- Config electrica (PDF V2) ---");
+  logI("REG 0x0A VINDPM     : 0x" + String(read16(wire, 0x0A), HEX));
+  logI("REG 0x0C VSYS_MIN   : 0x" + String(read16(wire, 0x0C), HEX));
+  logI("REG 0x0E IIN_HOST   : 0x" + String(read16(wire, 0x0E), HEX));
+  logI("--- Estado y ADC ---");
+  logI("REG 0x20 ChrStatus  : 0x" + String(read16(wire, 0x20), HEX));
+  logI("REG 0x26 ADC_VBUS   : 0x" + String(read16(wire, 0x26), HEX));
+  logI("REG 0x28 ADC_IBAT   : 0x" + String(read16(wire, 0x28), HEX));
+  logI("REG 0x2C ADC_VSYS_VBAT:0x" + String(read16(wire, 0x2C), HEX));
+  logI("--- ChargeOptions (PDF V2) ---");
+  logI("REG 0x30 ChargeOpt1 : 0x" + String(read16(wire, 0x30), HEX));
+  logI("REG 0x32 ChargeOpt2 : 0x" + String(read16(wire, 0x32), HEX));
+  logI("REG 0x34 ChargeOpt3 : 0x" + String(read16(wire, 0x34), HEX));
+  logI("REG 0x3A ADCOption  : 0x" + String(read16(wire, 0x3A), HEX));
+  logI("======================================");
 }
 
 static void print_charger_status() {
+  if (!LOG_CHARGER) return;
   if (!chargerPresent) {
-    Serial.println("[CHG] Cargador no detectado");
+    logI("[CHG] Cargador no detectado");
     return;
   }
   if (!bq_status_valid) {
-    Serial.println("[CHG] Esperando primera lectura...");
+    logI("[CHG] Esperando primera lectura...");
     return;
   }
   const BQ25730_Status &s = bq_cached_status;
@@ -629,19 +631,16 @@ static void print_charger_status() {
     state_str = "?";
     break;
   }
-  Serial.println("──── BQ25730 ─────────────────────────────");
-  Serial.println("  Estado   : " + String(state_str));
-  Serial.println("  AC       : " + String(s.ac_present ? "SI" : "NO"));
-  Serial.println("  VBUS     : " + String(s.vbus_mv) + " mV");
-  Serial.println("  VBAT     : " + String(s.vbat_mv) + " mV");
-  Serial.println("  VSYS     : " + String(s.vsys_mv) + " mV");
-  Serial.println("  ICHG     : " + String(s.ichg_ma) +
-                 " mA  (real, corregido)");
-  Serial.println("  IBUS     : " + String(s.ibus_ma) +
-                 " mA  (real, corregido)");
-  Serial.println("  Fault    : " +
-                 String(s.fault ? "SI 0x" + String(s.raw_status, HEX) : "NO"));
-  Serial.println("──────────────────────────────────────────");
+  logI("──── BQ25730 ─────────────────────────────");
+  logI("  Estado   : " + String(state_str));
+  logI("  AC       : " + String(s.ac_present ? "SI" : "NO"));
+  logI("  VBUS     : " + String(s.vbus_mv) + " mV");
+  logI("  VBAT     : " + String(s.vbat_mv) + " mV");
+  logI("  VSYS     : " + String(s.vsys_mv) + " mV");
+  logI("  ICHG     : " + String(s.ichg_ma) + " mA  (real, corregido)");
+  logI("  IBUS     : " + String(s.ibus_ma) + " mA  (real, corregido)");
+  logI("  Fault    : " + String(s.fault ? "SI 0x" + String(s.raw_status, HEX) : "NO"));
+  logI("──────────────────────────────────────────");
 }
 #endif
 
