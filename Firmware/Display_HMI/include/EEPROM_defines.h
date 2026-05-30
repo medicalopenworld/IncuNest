@@ -2,8 +2,8 @@
 #include <Preferences.h>
 
 // --------------- Non-EEPROM constants kept from original header ---------------
-#define INACTIVITY_TIMEOUT_MS 0 // 0s
-#define EEPROM_COMMIT_DELAY INACTIVITY_TIMEOUT_MS
+#define INACTIVITY_TIMEOUT_MS 20000 // 20s of inactivity before auto-lock
+#define EEPROM_COMMIT_DELAY 0       // write immediately after change
 
 // --------------- Namespaces ---------------
 constexpr char HMI_NS_CFG[]  = "hmi_cfg";
