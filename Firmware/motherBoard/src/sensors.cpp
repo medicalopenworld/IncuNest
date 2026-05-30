@@ -392,9 +392,7 @@ static bool applyNTCResult(float millivolts) {
         filter_1(tempRaw);
     }
     lastSuccesfullSensorUpdate[SKIN_SENSOR] = millis();
-    float filteredTemp = filter_1(tempRaw);
-    in3.temperature[SKIN_SENSOR] = filteredTemp;
-    // in3.temperature[SKIN_SENSOR] = tempRaw;
+    in3.temperature[SKIN_SENSOR] = filter_1(tempRaw);
     errorTemperature[SKIN_SENSOR] = in3.temperature[SKIN_SENSOR];
     if (RawTemperatureRange[SKIN_SENSOR]) {
       in3.temperature[SKIN_SENSOR] =
@@ -408,24 +406,6 @@ static bool applyNTCResult(float millivolts) {
     if (in3.temperature[SKIN_SENSOR] < 0) {
       in3.temperature[SKIN_SENSOR] = 0;
     }
-
-    // [SKIN_WARMUP_LOG] CSV para análisis de curva de calentamiento.
-    // Formato: t_ms,raw_C,filtered_C,calibrated_C
-    static uint32_t skinLogLastMs = 0;
-    static uint32_t skinLogT0 = 0;
-    static float skinLogLastRaw = 0;
-    if (fabsf(tempRaw - skinLogLastRaw) > 2.0f || skinLogT0 == 0) {
-      skinLogT0 = millis();
-    }
-    skinLogLastRaw = tempRaw;
-    if (millis() - skinLogLastMs >= 1000) {
-      logI("[SKIN_WARMUP] " + String(millis() - skinLogT0) + "," +
-           String(tempRaw, 3) + "," +
-           String(filteredTemp, 3) + "," +
-           String(in3.temperature[SKIN_SENSOR], 3));
-      skinLogLastMs = millis();
-    }
-
     return true;
   }
   in3.temperature[SKIN_SENSOR] = 0;
