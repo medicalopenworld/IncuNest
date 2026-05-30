@@ -261,13 +261,30 @@ static void intro_timer_cb(lv_timer_t *t) {
 }
 
 void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
+  static uint16_t lastX = 0, lastY = 0;
+  static uint8_t releaseCount = 0;
+  // GT911 clears its buffer after each I2C read, causing phantom releases when
+  // LVGL reads faster than the controller updates. Require 3 consecutive
+  // "not touched" frames (~30ms at 10ms/frame) before reporting RELEASED.
+  const uint8_t DEBOUNCE_FRAMES = 3;
+
   ts.read();
   if (ts.isTouched) {
+    releaseCount = 0;
+    lastX = ts.points[0].x;
+    lastY = ts.points[0].y;
     data->state = LV_INDEV_STATE_PR;
-    data->point.x = ts.points[0].x;
-    data->point.y = ts.points[0].y;
+    data->point.x = lastX;
+    data->point.y = lastY;
   } else {
-    data->state = LV_INDEV_STATE_REL;
+    if (releaseCount < DEBOUNCE_FRAMES) {
+      releaseCount++;
+      data->state = LV_INDEV_STATE_PR;
+      data->point.x = lastX;
+      data->point.y = lastY;
+    } else {
+      data->state = LV_INDEV_STATE_REL;
+    }
   }
 }
 
