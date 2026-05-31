@@ -1,5 +1,6 @@
 #include "CommTask.h"
 #include "UITask.h"
+#include "Wifi_OTA.h"
 #include "esp_log.h"
 #include "main.h"
 #include "ui.h"
@@ -220,6 +221,14 @@ static void parse_message(const char *line) {
       ctrl_msg_alarm.state = (stateInt != 0);
     } else {
       COMM_LOG("[COMM] HMI failed to parse CTRL,ALM: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,WIFI,", 10) == 0) {
+    char ssid[64], pass[64];
+    if (sscanf(line, "CTRL,WIFI,%63[^,],%63[^\n]", ssid, pass) == 2) {
+      wifiApplyNewCredentials(ssid, pass);
+      COMM_LOG("[COMM] CTRL,WIFI: reconnecting to %s\n", ssid);
+    } else {
+      COMM_LOG("[COMM] CTRL,WIFI parse error: %s\n", line);
     }
   }
 #endif

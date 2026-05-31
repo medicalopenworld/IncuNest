@@ -197,6 +197,22 @@ void wifiInit(void) {
 }
 
 // ---------------------------------------------------------------------------
+// Apply new WiFi credentials received from the motherboard (CTRL,WIFI message).
+// Disconnects from the current AP, reconnects with the new credentials, and
+// relies on the GOT_IP event handler + WifiOTAHandler() to persist them to NVS.
+// ---------------------------------------------------------------------------
+void wifiApplyNewCredentials(const char* ssid, const char* pass) {
+  strncpy(pendingSSID, ssid, sizeof(pendingSSID) - 1);
+  pendingSSID[sizeof(pendingSSID) - 1] = '\0';
+  strncpy(pendingPass, pass, sizeof(pendingPass) - 1);
+  pendingPass[sizeof(pendingPass) - 1] = '\0';
+  WiFi.disconnect();
+  WiFi.begin(ssid, pass);
+  // GOT_IP event handler detects pendingSSID != "" and sets s_persistCredentials
+  // so WifiOTAHandler() will save to NVS automatically on successful connection.
+}
+
+// ---------------------------------------------------------------------------
 // Web server — register routes and start once at task init.
 // ---------------------------------------------------------------------------
 void configWifiServer() {

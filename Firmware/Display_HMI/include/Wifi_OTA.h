@@ -55,6 +55,7 @@ void WIFI_TB_Init();
 void WifiOTAHandler(void);
 void WIFI_TB_OTA();
 void wifiInit(void);
+void wifiApplyNewCredentials(const char* ssid, const char* pass);
 void CreateOTATask();
 
 void progressCallback(const uint32_t &currentChunk,
