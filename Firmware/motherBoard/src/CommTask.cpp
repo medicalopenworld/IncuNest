@@ -649,6 +649,7 @@ void Communication_Task(void *pvParameters) {
   // ---- UART path ----
   uint32_t last_tel_time = 0;
   uint32_t last_ppg_time = 0;
+  uint32_t ppg_time      = 0;
   static unsigned long last_probe_status_time = 0;
   static ProbeState    prev_probe_state       = ProbeState::PROBE_DISCONNECTED;
   // PPG normalisation state: decaying min/max keeps signal filling 0–255
@@ -697,7 +698,8 @@ void Communication_Task(void *pvParameters) {
     }
 
     // --- PPG waveform (25 Hz = every 40 ms) ---
-    if (millis() - last_ppg_time >= 40) {
+    ppg_time = millis();
+    if (ppg_time - last_ppg_time >= 40) {
       if (g_spo2_data.probe_state == ProbeState::PROBE_APPLIED) {
         // No valid signal: reset normalisation and send flat midpoint so the
         // display collapses its amplitude window immediately.
@@ -721,7 +723,7 @@ void Communication_Task(void *pvParameters) {
           hmiSerial.print(ppg_msg);
         }
       }
-      last_ppg_time = millis();
+      last_ppg_time = ppg_time;
     }
 
     // --- Persist phototherapy timer to NVS every 60 s ---
@@ -902,6 +904,7 @@ void Communication_Task(void *pvParameters) {
     xSemaphoreTake(device_disconnected_sem, 0);
     uint32_t last_tel_time = 0;
     uint32_t last_ppg_time = 0;
+    uint32_t ppg_time      = 0;
     static unsigned long last_probe_status_time_usb = 0;
     static ProbeState    prev_probe_state_usb       = ProbeState::PROBE_DISCONNECTED;
     float ppg_min = -1.0f, ppg_max = 1.0f;
@@ -923,7 +926,8 @@ void Communication_Task(void *pvParameters) {
       }
 
       // PPG waveform at 25 Hz
-      if (millis() - last_ppg_time >= 40) {
+      ppg_time = millis();
+      if (ppg_time - last_ppg_time >= 40) {
         if (g_spo2_data.probe_state == ProbeState::PROBE_APPLIED) {
           char ppg_msg[16];
           if (g_spo2_data.spo2_sqi < 0.05f) {
@@ -944,7 +948,7 @@ void Communication_Task(void *pvParameters) {
           }
           CommunicationHost_Send(ppg_msg);
         }
-        last_ppg_time = millis();
+        last_ppg_time = ppg_time;
       }
 
       if (millis() - last_tel_time > 1000) {
