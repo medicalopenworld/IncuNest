@@ -41,3 +41,9 @@ Hardware/Electronics/Motherboard/History/
 .agent
 *.code-workspace
 .claude
+
+# Serial capture logs
+Firmware/motherBoard/serial_*.txt
+
+# Thingsboard local folder
+Firmware/Thingsboard/
