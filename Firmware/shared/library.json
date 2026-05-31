@@ -1,0 +1,7 @@
+{
+  "name": "incunest_shared",
+  "version": "1.0.0",
+  "description": "Shared protocol types and enums for IncuNest MB<->HMI communication",
+  "frameworks": ["arduino"],
+  "platforms": ["espressif32"]
+}

@@ -32,6 +32,8 @@
 #include "Adafruit_SHT4x.h"
 #include "BluetoothSerial.h"
 #include "CommTask.h"
+#include "control_types.h"
+#include "alarm_ids.h"
 #include "Credentials_public.h"
 #include "ESP32_config.h"
 #include "GPRS.h"
@@ -175,15 +177,8 @@ typedef enum {
 extern SemaphoreHandle_t GPRS_monitor_mutex;
 extern SemaphoreHandle_t log_mutex;
 
-// languages numbers that will be called in language variable
-typedef enum {
-  SPANISH = 0,
-  ENGLISH,
-  FRENCH,
-  PORTUGUESE,
-  NUM_LANGUAGES,
-
-} UI_LANGUAGES;
+// Language enum is now in shared control_types.h (Language enum:
+// SPANISH=0, ENGLISH, FRENCH, PORTUGUESE, NUM_LANGUAGES)
 #define defaultLanguage                                                        \
   ENGLISH // Preset number configuration when booting for first time
 
@@ -210,28 +205,10 @@ typedef enum {
   UNCALIBRATED_SENSOR,
 } HW_ERROR_ID;
 
-typedef enum {
-  NO_ALARMS = 0,
-  HUMIDITY_ALARM,
-  TEMPERATURE_ALARM,
-  AIR_THERMAL_CUTOUT_ALARM,
-  SKIN_THERMAL_CUTOUT_ALARM,
-  AIR_SENSOR_ISSUE_ALARM,
-  SKIN_SENSOR_ISSUE_ALARM,
-  FAN_ISSUE_ALARM,
-  HEATER_ISSUE_ALARM,
-  POWER_SUPPLY_ALARM,
-  NUM_ALARMS,
-  MAX_ALARM_STRING_SIZE = 255,
-} ALARMS_ID;
-
-typedef enum {
-  COMM_STATUS_NONE = 0,
-  COMM_STATUS_GPRS_ONLY = 1,
-  COMM_STATUS_GPRS_SERVER = 2,
-  COMM_STATUS_WIFI_ONLY = 3,
-  COMM_STATUS_WIFI_SERVER = 4
-} COMM_STATUS;
+// AlarmId enum (NO_ALARMS, HUMIDITY_ALARM ... POWER_SUPPLY_ALARM,
+// NUM_ALARMS, MAX_ALARM_STRING_SIZE=255) is now in shared alarm_ids.h.
+// CommStatus enum (COMM_STATUS_NONE ... COMM_STATUS_WIFI_SERVER) is now
+// in shared control_types.h. Both are included transitively via CommTask.h.
 
 typedef enum {
   EVENT_2G = 0,

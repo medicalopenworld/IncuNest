@@ -16,6 +16,8 @@
 #include <WiFi.h>
 #include <lvgl.h>
 #include <stdint.h>
+#include "control_types.h"
+#include "alarm_ids.h"
 
 #define FWversion "2.0.2"
 #define ENABLE_WIFI_OTA true // enable wifi OTA
@@ -55,19 +57,14 @@ extern bool g_hmiRestoreState;
 // -----------------------------
 // Communication actuation modes
 // -----------------------------
+// ActuationMode enum (ACTUATION_OFF=0, ACTUATION_TEMPERATURE=1,
+// ACTUATION_HUMIDITY=2, ACTUATION_TEMP_AND_HUMIDITY=3) is now in
+// shared control_types.h.
+// Backward-compat alias for existing HMI code that uses ACTUATION_NONE.
+#define ACTUATION_NONE ((int)ACTUATION_OFF)
 
-#define ACTUATION_NONE 0
-#define ACTUATION_TEMPERATURE 1
-#define ACTUATION_HUMIDITY 2
-#define ACTUATION_TEMP_AND_HUMIDITY 3
-
-typedef enum {
-  COMM_STATUS_NONE = 0,
-  COMM_STATUS_GPRS_ONLY = 1,
-  COMM_STATUS_GPRS_SERVER = 2,
-  COMM_STATUS_WIFI_ONLY = 3,
-  COMM_STATUS_WIFI_SERVER = 4
-} COMM_STATUS;
+// CommStatus enum (COMM_STATUS_NONE ... COMM_STATUS_WIFI_SERVER) is now
+// in shared control_types.h.
 
 #define CONTROL_SKIN false
 #define CONTROL_AIR true
@@ -282,20 +279,8 @@ constexpr int DHT_BUFFER_SIZE = 6; // used in commented DHT code
 constexpr int ALARM_TYPE_LEN = 30;
 constexpr int ALARM_DESC_LEN = 100;
 
-typedef enum {
-  NO_ALARMS = 0,
-  HUMIDITY_ALARM,
-  TEMPERATURE_ALARM,
-  AIR_THERMAL_CUTOUT_ALARM,
-  SKIN_THERMAL_CUTOUT_ALARM,
-  AIR_SENSOR_ISSUE_ALARM,
-  SKIN_SENSOR_ISSUE_ALARM,
-  FAN_ISSUE_ALARM,
-  HEATER_ISSUE_ALARM,
-  POWER_SUPPLY_ALARM,
-  NUM_ALARMS_ID, // Renamed to avoid partial conflict with constexpr NUM_ALARMS
-                 // legacy if any, though likely safe. Keeps consistent with MB
-} ALARMS_ID;
+// AlarmId enum (NO_ALARMS, HUMIDITY_ALARM ... POWER_SUPPLY_ALARM, NUM_ALARMS,
+// MAX_ALARM_STRING_SIZE=255) is now in shared alarm_ids.h.
 
 constexpr int MAX_ALARMS = 10;
 constexpr int MAX_ALARM_DISPLAY = 4;

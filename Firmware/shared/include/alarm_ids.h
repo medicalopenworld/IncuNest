@@ -1,0 +1,24 @@
+#pragma once
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef enum {
+  NO_ALARMS = 0,
+  HUMIDITY_ALARM,
+  TEMPERATURE_ALARM,
+  AIR_THERMAL_CUTOUT_ALARM,
+  SKIN_THERMAL_CUTOUT_ALARM,
+  AIR_SENSOR_ISSUE_ALARM,
+  SKIN_SENSOR_ISSUE_ALARM,
+  FAN_ISSUE_ALARM,
+  HEATER_ISSUE_ALARM,
+  POWER_SUPPLY_ALARM,
+  NUM_ALARMS,
+  MAX_ALARM_STRING_SIZE = 255,
+} AlarmId;
+
+#ifdef __cplusplus
+}
+#endif
