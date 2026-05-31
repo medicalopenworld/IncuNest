@@ -852,6 +852,27 @@ void WEB_OTA() {
   }
 }
 
+// ── RPC handlers (WiFi TB path) ───────────────────────────────────────────────
+static void rpc_setwifi_wifi_cb(JsonVariantConst const & data,
+                                JsonDocument & /*response*/) {
+  const char* ssid = data["ssid"];
+  const char* pass = data["password"];
+  if (!ssid || !pass || ssid[0] == '\0' || pass[0] == '\0' ||
+      strlen(ssid) > 63 || strlen(pass) > 63) {
+    ESP_LOGW("WiFi", "[RPC] setWifi: invalid ssid or password");
+    return;
+  }
+  ESP_LOGI("WiFi", "[RPC] setWifi received, applying credentials");
+  applyWifiCredentials(ssid, pass);
+}
+
+static RPC_Callback wifi_rpc_callbacks[] = {
+  RPC_Callback("setWifi", rpc_setwifi_wifi_cb),
+};
+static constexpr size_t WIFI_RPC_CB_COUNT =
+    sizeof(wifi_rpc_callbacks) / sizeof(wifi_rpc_callbacks[0]);
+// ─────────────────────────────────────────────────────────────────────────────
+
 void WIFI_TB_OTA() {
   if (WiFi.status() == WL_CONNECTED) {
     if (!Wifi_TB.provisioned) {
@@ -889,6 +910,9 @@ void WIFI_TB_OTA() {
             WIFI_JSON.clear();
           }
           Wifi_TB.serverConnectionStatus = true;
+          for (size_t i = 0; i < WIFI_RPC_CB_COUNT; i++) {
+            tb_wifi.RPC_Subscribe(wifi_rpc_callbacks[i]);
+          }
           if (ENABLE_WIFI_OTA && !Wifi_TB.OTA_requested) {
             Wifi_TB.OTA_requested = true;
           }
