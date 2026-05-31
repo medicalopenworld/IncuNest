@@ -334,6 +334,14 @@ typedef enum {
 #define CALIBRATION_AIR_FINETUNE_KEY "Cal_finetune_air_temp"
 
 // Diagnostic telemetry keys
+// BQ25730 charger telemetry keys
+#define BQ_STATE_KEY  "BQ_state"
+#define BQ_FAULT_KEY  "BQ_fault"
+#define BQ_AC_KEY     "BQ_ac"
+#define BQ_VBAT_KEY   "BQ_vbat_V"
+#define BQ_VBUS_KEY   "BQ_vbus_V"
+#define BQ_ICHG_KEY   "BQ_ichg_mA"
+
 #define BOOT_COUNT_KEY "boot_count"
 #define FREE_HEAP_KEY "free_heap"
 #define MIN_FREE_HEAP_KEY "min_free_heap"

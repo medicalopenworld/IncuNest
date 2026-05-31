@@ -693,6 +693,18 @@ void addTelemetriesToWIFIJSON() {
   addVariableToTelemetryWIFIJSON[BAT_VOLTAGE_KEY] =
       roundSignificantDigits(in3.BATTERY_voltage, TELEMETRIES_DECIMALS);
 
+  if (chargerPresent && g_bq_status_valid &&
+      g_bq_status.ac_present && g_bq_status.vbat_mv > 10000) {
+    addVariableToTelemetryWIFIJSON[BQ_STATE_KEY] = (int)g_bq_status.state;
+    addVariableToTelemetryWIFIJSON[BQ_FAULT_KEY] = g_bq_status.fault;
+    addVariableToTelemetryWIFIJSON[BQ_AC_KEY]    = g_bq_status.ac_present;
+    addVariableToTelemetryWIFIJSON[BQ_VBAT_KEY]  =
+        roundSignificantDigits(g_bq_status.vbat_mv / 1000.0f, 3);
+    addVariableToTelemetryWIFIJSON[BQ_VBUS_KEY]  =
+        roundSignificantDigits(g_bq_status.vbus_mv / 1000.0f, 3);
+    addVariableToTelemetryWIFIJSON[BQ_ICHG_KEY]  = (int)g_bq_status.ichg_ma;
+  }
+
   if (in3.temperatureControl || in3.humidityControl) {
     addVariableToTelemetryWIFIJSON[FAN_CURRENT_KEY] =
         roundSignificantDigits(in3.fan_current, TELEMETRIES_DECIMALS);

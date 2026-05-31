@@ -180,6 +180,10 @@ typedef struct {
 // ─── Variable de presencia (definida en BQ25730.cpp) ─────────────────────────
 extern bool chargerPresent;
 
+// ─── Estado cacheado (definido en main.cpp, actualizado cada 5 s) ────────────
+extern BQ25730_Status g_bq_status;
+extern bool           g_bq_status_valid;
+
 // ─── Funciones públicas
 // ───────────────────────────────────────────────────────
 bool init_BQ25730(TwoWire *i2c);

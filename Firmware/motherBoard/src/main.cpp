@@ -264,9 +264,9 @@ void Backlight_Task(void *pvParameters) {
   }
 }
 
+BQ25730_Status g_bq_status      = {};
+bool           g_bq_status_valid = false;
 #ifdef BQ25730_TEST
-static BQ25730_Status bq_cached_status;
-static volatile bool bq_status_valid = false;
 // Forward decls (defined later in the file)
 static void dump_BQ25730_regs();
 static void print_charger_status();
@@ -293,26 +293,27 @@ void sensors_Task(void *pvParameters) {
       powerMonitor();
       lastCurrentSensorUpdate = millis();
     }
-#ifdef BQ25730_TEST
     {
       static long lastChargerUpdate = 0;
-      static long lastChargerPrint  = 0;
-      static long lastChargerDump   = 0;
       static bool prev_ac_present   = false;
-      if (chargerPresent && millis() - lastChargerUpdate > 2000) {
-        bq_status_valid = charge_status(&bq_cached_status);
+      if (chargerPresent && millis() - lastChargerUpdate > 5000) {
+        g_bq_status_valid = charge_status(&g_bq_status);
         lastChargerUpdate = millis();
-
         // Detecta transición ausente→presente del adaptador y reinicializa el
         // chip: algunos BQ25xxx pierden VINDPM/IIN al re-detectar VBUS, así que
         // reaplicamos toda la config para asegurar carga estable.
-        if (bq_status_valid && bq_cached_status.ac_present && !prev_ac_present) {
+        if (g_bq_status_valid && g_bq_status.ac_present && !prev_ac_present) {
           if (LOG_CHARGER) logI("[CHG] Adaptador detectado → reinicializando config");
           extern TwoWire *wire;
           init_BQ25730(wire);
         }
-        if (bq_status_valid) prev_ac_present = bq_cached_status.ac_present;
+        if (g_bq_status_valid) prev_ac_present = g_bq_status.ac_present;
       }
+    }
+#ifdef BQ25730_TEST
+    {
+      static long lastChargerPrint = 0;
+      static long lastChargerDump  = 0;
       if (chargerPresent && millis() - lastChargerPrint > 3000) {
         print_charger_status();
         lastChargerPrint = millis();
@@ -608,11 +609,11 @@ static void print_charger_status() {
     logI("[CHG] Cargador no detectado");
     return;
   }
-  if (!bq_status_valid) {
+  if (!g_bq_status_valid) {
     logI("[CHG] Esperando primera lectura...");
     return;
   }
-  const BQ25730_Status &s = bq_cached_status;
+  const BQ25730_Status &s = g_bq_status;
   const char *state_str;
   switch (s.state) {
   case BQ25730_STATE_NO_POWER:
