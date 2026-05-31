@@ -101,8 +101,6 @@ char wifi_pass[64] = "";
 bool LanguagesVisible = false;
 bool locked = true;
 
-static float ppg_disp_min = 128.0f;
-static float ppg_disp_max = 128.0f;
 static bool spo2ProbeAttached = false;
 static bool spo2ProbeAttachedPrev = false;
 
@@ -3599,19 +3597,15 @@ void UI_Task(void *pvParameters) {
     if (ctrl_probe_msg.updated) {
       ctrl_probe_msg.updated = false;
       bool applied = (ctrl_probe_msg.state == SPO2_PROBE_APPLIED);
-      // Falling edge: probe removed — hide chart and HR, reset normalisation
+      // Falling edge: probe removed — hide chart and HR
       if (!applied && spo2ProbeAttachedPrev) {
-        ppg_disp_min = 128.0f;
-        ppg_disp_max = 128.0f;
         if (ui_LockPPGChart)
           lv_obj_add_flag(ui_LockPPGChart, LV_OBJ_FLAG_HIDDEN);
         if (ui_LockHRCont)
           lv_obj_add_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
       }
-      // Rising edge: probe applied — show chart, reset normalisation
+      // Rising edge: probe applied — show chart
       if (applied && !spo2ProbeAttachedPrev) {
-        ppg_disp_min = 128.0f;
-        ppg_disp_max = 128.0f;
         if (ui_LockPPGChart)
           lv_obj_clear_flag(ui_LockPPGChart, LV_OBJ_FLAG_HIDDEN);
       }
@@ -3623,15 +3617,6 @@ void UI_Task(void *pvParameters) {
     if (ui_LockPPGChart && lockPPGSeries && ctrl_ppg_msg.updated) {
       float ppg_val = (float)ctrl_ppg_msg.ppg;
       ctrl_ppg_msg.updated = false;
-      if (ppg_val < ppg_disp_min)
-        ppg_disp_min = ppg_val;
-      else
-        ppg_disp_min += (128.0f - ppg_disp_min) * 0.05f;
-      if (ppg_val > ppg_disp_max)
-        ppg_disp_max = ppg_val;
-      else
-        ppg_disp_max += (128.0f - ppg_disp_max) * 0.05f;
-
       if (locked && spo2ProbeAttached) {
         lv_chart_set_next_value(ui_LockPPGChart, lockPPGSeries,
                                 (lv_coord_t)ppg_val);
