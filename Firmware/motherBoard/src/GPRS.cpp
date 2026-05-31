@@ -95,8 +95,9 @@ static void rpc_setwifi_cb(JsonVariantConst const & data,
                            JsonDocument & /*response*/) {
   const char* ssid = data["ssid"];
   const char* pass = data["password"];
-  if (!ssid || !pass || ssid[0] == '\0' || pass[0] == '\0') {
-    logModemData("[RPC] setWifi: missing ssid or password");
+  if (!ssid || !pass || ssid[0] == '\0' || pass[0] == '\0' ||
+      strlen(ssid) > 63 || strlen(pass) > 63) {
+    logModemData("[RPC] setWifi: invalid ssid or password");
     return;
   }
   logModemData("[RPC] setWifi received, applying credentials");
