@@ -16,7 +16,8 @@ void SPO2_Task(void *pvParameters) {
   for (;;) {
     if (afe.getData(data)) {
       memcpy((void *)&g_spo2_data, &data, sizeof(data));
-      drivePushSample(data);
+      if (data.probe_state == ProbeState::PROBE_APPLIED)
+        drivePushSample(data);
 
       if (++sample_count % SPO2_LOG_INTERVAL_SAMPLES == 0) {
         logSPO2("[SPO2] n=" + String(sample_count) +

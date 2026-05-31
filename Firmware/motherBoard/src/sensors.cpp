@@ -181,6 +181,11 @@ void currentMonitor() {
     if (digitalCurrentSensorPresent[SECUNDARY]) {
       in3.heater_current =
           measureMeanConsumption(SECUNDARY, HEATER_SHUNT_CHANNEL);
+#if (HW_NUM == 17)
+      if (in3.heater_current < 0) {
+        in3.heater_current = -in3.heater_current / HEATER_CURRENT_CORRECTION_FACTOR;
+      }
+#endif
       in3.USB_current = measureMeanConsumption(SECUNDARY, USB_SHUNT_CHANNEL);
       in3.BATTERY_current =
           measureMeanConsumption(SECUNDARY, BATTERY_SHUNT_CHANNEL);

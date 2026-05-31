@@ -336,9 +336,11 @@ void initGPIO() {
 }
 
 void initInterrupts() {
+#if (HW_NUM <= 13)
   attachInterrupt(ENC_SWITCH, encSwitchHandler, CHANGE);
   attachInterrupt(ENC_A, encoderISR, CHANGE);
   attachInterrupt(ENC_B, encoderISR, CHANGE);
+#endif
 
 #if (HW_NUM >= 10)
   attachInterrupt(FAN_SPEED_FEEDBACK, fanEncoderISR, CHANGE);
@@ -658,7 +660,7 @@ void testDisplay() {
 
 void testBuzzer() {
   long error = HW_error;
-  float testCurrent, offsetCurrent;
+  float testCurrent;
     #if(HW_NUM <= 16)
   offsetCurrent = measureMeanConsumption(MAIN, SYSTEM_SHUNT_CHANNEL);
   ledcWrite(BUZZER_PWM_CHANNEL, BUZZER_HALF_PWM);
@@ -761,7 +763,6 @@ bool actuatorsTest() {
   logI("[HW] -> Checking actuators...");
   digitalWrite(ACTUATORS_EN, HIGH);
 
-  float testCurrent, offsetCurrent;
   logI("[HW] -> digitalCurrentSensorPresent MAIN=" +
        String(digitalCurrentSensorPresent[MAIN]) +
        " SECUNDARY=" + String(digitalCurrentSensorPresent[SECUNDARY]));
@@ -879,6 +880,7 @@ bool actuatorsTest() {
   in3.humidifier_current_test = 1.0f;
   logI("[HW] -> Humidifier USB_EN test passed, no fault");
 #else
+  float testCurrent, offsetCurrent;
   offsetCurrent = measureMeanConsumption(MAIN, SYSTEM_SHUNT_CHANNEL);
   logI("[HW] -> Heater offset (MAIN): " + String(offsetCurrent) + " Amps");
   ledcWrite(HEATER_PWM_CHANNEL, PWM_MAX_VALUE);

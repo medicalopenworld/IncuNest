@@ -25,7 +25,7 @@
 #define HW_NUM 17
 #define HW_REVISION 'A'
 #define HWversion String(HW_NUM) + "." + String(HW_REVISION)
-#define FWversion "17.0"
+#define FWversion "17.1"
 #define WIFI_NAME "IncuNest"
 #define CURRENT_FIRMWARE_TITLE "IncuNest"
 // Set to true only on the HMI board
@@ -351,6 +351,11 @@
 
 #define SDCard false
 #if (HW_NUM >= 17)
+// PCB layout bug: INA3221 IN+ taps the MOSFET switching node instead of the
+// shunt pad. During PWM switching the reading flips negative with amplified
+// magnitude. Empirical correction: I_real ≈ |I_measured| / factor.
+// Tune HEATER_CURRENT_CORRECTION_FACTOR based on measured vs. expected current.
+#define HEATER_CURRENT_CORRECTION_FACTOR 2.5f
 #define SYSTEM_SHUNT 1000        // miliohms (VSYS_SHUNT+ is not connected properly, is connected before O-ring)
 #define HEATER_SHUNT 5        // miliohms
 #define FAN_SHUNT 100         // miliohms
