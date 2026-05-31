@@ -35,5 +35,6 @@ struct WIFIstruct {
 bool WIFIIsConnectedToServer();
 bool WIFIIsConnected();
 bool WIFICheckNewEvent();
+void applyWifiCredentials(const char* ssid, const char* pass);
 
 #endif // _WIFI_OTA_H_

@@ -198,6 +198,15 @@ static void send_state_to_hmi() {
 }
 
 // ======================================================
+//  SEND WIFI CREDENTIALS TO HMI
+// ======================================================
+void sendWifiToHMI(const char* ssid, const char* pass) {
+  char msg[160];
+  snprintf(msg, sizeof(msg), "CTRL,WIFI,%s,%s\n", ssid, pass);
+  CommunicationHost_Send(msg);
+}
+
+// ======================================================
 //  HMI PANIC CAPTURE
 //
 //  The HMI board's UART0 (boot/panic output) is wired to this motherboard's

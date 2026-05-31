@@ -30,6 +30,7 @@
 
 #include "CommTask.h"
 #include "SPO2.h"
+#include "Wifi_OTA.h"
 #include "main.h"
 
 // Initialize GSM modem
@@ -90,9 +91,22 @@ static void rpc_diag_cb(JsonVariantConst const & /*data*/,
   response["hmi_last_rst"]  = g_hmiLastRst;
 }
 
+static void rpc_setwifi_cb(JsonVariantConst const & data,
+                           JsonDocument & /*response*/) {
+  const char* ssid = data["ssid"];
+  const char* pass = data["password"];
+  if (!ssid || !pass || ssid[0] == '\0' || pass[0] == '\0') {
+    logModemData("[RPC] setWifi: missing ssid or password");
+    return;
+  }
+  logModemData("[RPC] setWifi received, applying credentials");
+  applyWifiCredentials(ssid, pass);
+}
+
 static RPC_Callback rpc_callbacks[] = {
-  RPC_Callback("restart", rpc_restart_cb),
+  RPC_Callback("restart",  rpc_restart_cb),
   RPC_Callback("getDiag",  rpc_diag_cb),
+  RPC_Callback("setWifi",  rpc_setwifi_cb),
 };
 static constexpr size_t RPC_CB_COUNT = sizeof(rpc_callbacks) / sizeof(rpc_callbacks[0]);
 

@@ -65,6 +65,39 @@ const OTA_Update_Callback OTAcallback(&progressCallback, &updatedCallback,
                                       FIRMWARE_PACKET_SIZE,
                                       WAIT_FAILED_OTA_CHUNKS);
 
+void applyWifiCredentials(const char* ssid, const char* pass) {
+  Preferences prefs;
+  char prevSSID[64] = "";
+  char prevPass[64] = "";
+  prefs.begin("mb_wifi", true);
+  prefs.getString("ssid", prevSSID, sizeof(prevSSID));
+  prefs.getString("password", prevPass, sizeof(prevPass));
+  prefs.end();
+
+  prefs.begin("mb_wifi", false);
+  prefs.putString("ssid", ssid);
+  prefs.putString("password", pass);
+  prefs.end();
+
+  WiFi.disconnect();
+  WiFi.begin(ssid, pass);
+
+  uint32_t start = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - start < 15000) {
+    vTaskDelay(pdMS_TO_TICKS(500));
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    sendWifiToHMI(ssid, pass);
+  } else {
+    prefs.begin("mb_wifi", false);
+    prefs.putString("ssid", prevSSID);
+    prefs.putString("password", prevPass);
+    prefs.end();
+    WiFi.begin(prevSSID, prevPass);
+  }
+}
+
 /*
    Login page
 */
