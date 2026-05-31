@@ -303,7 +303,7 @@ void sensors_Task(void *pvParameters) {
         // chip: algunos BQ25xxx pierden VINDPM/IIN al re-detectar VBUS, así que
         // reaplicamos toda la config para asegurar carga estable.
         if (g_bq_status_valid && g_bq_status.ac_present && !prev_ac_present) {
-          if (LOG_CHARGER) logI("[CHG] Adaptador detectado → reinicializando config");
+          if (LOG_CHARGER) logCharger("[CHG] Adaptador detectado → reinicializando config");
           extern TwoWire *wire;
           init_BQ25730(wire);
         }
@@ -579,38 +579,38 @@ static void dump_BQ25730_regs() {
     return (uint16_t)lo | ((uint16_t)hi << 8);
   };
   if (!LOG_CHARGER) return;
-  logI("=== BQ25730 register dump (PDF V2) ===");
-  logI("REG 0x3E MfgID(8b)  : 0x" + String(read8(wire, 0x3E), HEX));
-  logI("REG 0x3F DevID(8b)  : 0x" + String(read8(wire, 0x3F), HEX));
-  logI("--- Config basica ---");
-  logI("REG 0x00 ChargeOpt0 : 0x" + String(read16(wire, 0x00), HEX));
-  logI("REG 0x02 ChargeCurr : 0x" + String(read16(wire, 0x02), HEX));
-  logI("REG 0x04 MaxChrVolt : 0x" + String(read16(wire, 0x04), HEX));
-  logI("--- Config electrica (PDF V2) ---");
-  logI("REG 0x0A VINDPM     : 0x" + String(read16(wire, 0x0A), HEX));
-  logI("REG 0x0C VSYS_MIN   : 0x" + String(read16(wire, 0x0C), HEX));
-  logI("REG 0x0E IIN_HOST   : 0x" + String(read16(wire, 0x0E), HEX));
-  logI("--- Estado y ADC ---");
-  logI("REG 0x20 ChrStatus  : 0x" + String(read16(wire, 0x20), HEX));
-  logI("REG 0x26 ADC_VBUS   : 0x" + String(read16(wire, 0x26), HEX));
-  logI("REG 0x28 ADC_IBAT   : 0x" + String(read16(wire, 0x28), HEX));
-  logI("REG 0x2C ADC_VSYS_VBAT:0x" + String(read16(wire, 0x2C), HEX));
-  logI("--- ChargeOptions (PDF V2) ---");
-  logI("REG 0x30 ChargeOpt1 : 0x" + String(read16(wire, 0x30), HEX));
-  logI("REG 0x32 ChargeOpt2 : 0x" + String(read16(wire, 0x32), HEX));
-  logI("REG 0x34 ChargeOpt3 : 0x" + String(read16(wire, 0x34), HEX));
-  logI("REG 0x3A ADCOption  : 0x" + String(read16(wire, 0x3A), HEX));
-  logI("======================================");
+  logCharger("=== BQ25730 register dump (PDF V2) ===");
+  logCharger("REG 0x3E MfgID(8b)  : 0x" + String(read8(wire, 0x3E), HEX));
+  logCharger("REG 0x3F DevID(8b)  : 0x" + String(read8(wire, 0x3F), HEX));
+  logCharger("--- Config basica ---");
+  logCharger("REG 0x00 ChargeOpt0 : 0x" + String(read16(wire, 0x00), HEX));
+  logCharger("REG 0x02 ChargeCurr : 0x" + String(read16(wire, 0x02), HEX));
+  logCharger("REG 0x04 MaxChrVolt : 0x" + String(read16(wire, 0x04), HEX));
+  logCharger("--- Config electrica (PDF V2) ---");
+  logCharger("REG 0x0A VINDPM     : 0x" + String(read16(wire, 0x0A), HEX));
+  logCharger("REG 0x0C VSYS_MIN   : 0x" + String(read16(wire, 0x0C), HEX));
+  logCharger("REG 0x0E IIN_HOST   : 0x" + String(read16(wire, 0x0E), HEX));
+  logCharger("--- Estado y ADC ---");
+  logCharger("REG 0x20 ChrStatus  : 0x" + String(read16(wire, 0x20), HEX));
+  logCharger("REG 0x26 ADC_VBUS   : 0x" + String(read16(wire, 0x26), HEX));
+  logCharger("REG 0x28 ADC_IBAT   : 0x" + String(read16(wire, 0x28), HEX));
+  logCharger("REG 0x2C ADC_VSYS_VBAT:0x" + String(read16(wire, 0x2C), HEX));
+  logCharger("--- ChargeOptions (PDF V2) ---");
+  logCharger("REG 0x30 ChargeOpt1 : 0x" + String(read16(wire, 0x30), HEX));
+  logCharger("REG 0x32 ChargeOpt2 : 0x" + String(read16(wire, 0x32), HEX));
+  logCharger("REG 0x34 ChargeOpt3 : 0x" + String(read16(wire, 0x34), HEX));
+  logCharger("REG 0x3A ADCOption  : 0x" + String(read16(wire, 0x3A), HEX));
+  logCharger("======================================");
 }
 
 static void print_charger_status() {
   if (!LOG_CHARGER) return;
   if (!chargerPresent) {
-    logI("[CHG] Cargador no detectado");
+    logCharger("[CHG] Cargador no detectado");
     return;
   }
   if (!g_bq_status_valid) {
-    logI("[CHG] Esperando primera lectura...");
+    logCharger("[CHG] Esperando primera lectura...");
     return;
   }
   const BQ25730_Status &s = g_bq_status;
@@ -632,20 +632,21 @@ static void print_charger_status() {
     state_str = "?";
     break;
   }
-  logI("──── BQ25730 ─────────────────────────────");
-  logI("  Estado   : " + String(state_str));
-  logI("  AC       : " + String(s.ac_present ? "SI" : "NO"));
-  logI("  VBUS     : " + String(s.vbus_mv) + " mV");
-  logI("  VBAT     : " + String(s.vbat_mv) + " mV");
-  logI("  VSYS     : " + String(s.vsys_mv) + " mV");
-  logI("  ICHG     : " + String(s.ichg_ma) + " mA  (real, corregido)");
-  logI("  IBUS     : " + String(s.ibus_ma) + " mA  (real, corregido)");
-  logI("  Fault    : " + String(s.fault ? "SI 0x" + String(s.raw_status, HEX) : "NO"));
-  logI("──────────────────────────────────────────");
+  logCharger("──── BQ25730 ─────────────────────────────");
+  logCharger("  Estado   : " + String(state_str));
+  logCharger("  AC       : " + String(s.ac_present ? "SI" : "NO"));
+  logCharger("  VBUS     : " + String(s.vbus_mv) + " mV");
+  logCharger("  VBAT     : " + String(s.vbat_mv) + " mV");
+  logCharger("  VSYS     : " + String(s.vsys_mv) + " mV");
+  logCharger("  ICHG     : " + String(s.ichg_ma) + " mA  (real, corregido)");
+  logCharger("  IBUS     : " + String(s.ibus_ma) + " mA  (real, corregido)");
+  logCharger("  Fault    : " + String(s.fault ? "SI 0x" + String(s.raw_status, HEX) : "NO"));
+  logCharger("──────────────────────────────────────────");
 }
 #endif
 
 void setup() {
+
 #if (HW_NUM >= 16)
   // Power latch: a single press (button already held when boot starts) is
   // enough to keep the device ON. Latch PWR_EN immediately, then wait for
