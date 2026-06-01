@@ -660,7 +660,7 @@ void testDisplay() {
 
 void testBuzzer() {
   long error = HW_error;
-  float testCurrent;
+  float testCurrent, offsetCurrent;
     #if(HW_NUM <= 16)
   offsetCurrent = measureMeanConsumption(MAIN, SYSTEM_SHUNT_CHANNEL);
   ledcWrite(BUZZER_PWM_CHANNEL, BUZZER_HALF_PWM);

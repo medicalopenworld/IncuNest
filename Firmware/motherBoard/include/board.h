@@ -22,7 +22,9 @@
   SOFTWARE.
 
 */
-#define HW_NUM 17
+#ifndef HW_NUM
+#error "HW_NUM must be defined via build_flags in platformio.ini (-DHW_NUM=16 or -DHW_NUM=17)"
+#endif
 #define HW_REVISION 'A'
 #define HWversion String(HW_NUM) + "." + String(HW_REVISION)
 #define FWversion "17.1"
