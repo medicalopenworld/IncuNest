@@ -108,9 +108,6 @@
 #define UKRAINE_MODE false
 #define SENEGAL_MODE false
 
-#define CORE_MONITOR_FREERTOS 0
-#define CORE_ID_FREERTOS 1
-
 #define HOLD_PRESS_TO_GO_TO_SETTINGS 0
 
 #define UI_MENU_OLD false
@@ -132,46 +129,7 @@
 #define FIRMWARE_PACKET_SIZE 4096
 #define WAIT_FAILED_OTA_CHUNKS 10U * 1000U * 1000U
 
-// User Interface display constants
-#define valuePosition 245
-#define separatorPosition 240
-#define unitPosition 315
-#define textFontSize 2 // text default size
-#define width_select 20
-#define TFT_HEIGHT_HEADING 34
-#define TFT_SEPARATOR_HEIGHT 4
-#define width_back 50
-#define side_gap 0
-#define letter_height 26
-#define letter_width 14
-#define logo 40
-#define arrow_height 6
-#define arrow_tail 5
-#define headint_text_height TFT_HEIGHT_HEADING / 5
-#define initialSensorsValue "XX"
-#define barThickness 3
-#define blinkTimeON 1000 // displayed text ON time
-#define blinkTimeOFF 100 // displayed text OFF time
-#define time_back_draw 255
-#define time_back_wait 255
-
-// pages number in UI. Configuration and information will be displayed depending
-// on the page number
-
-#define ACTUATION_TEMPERATURE 1
-#define ACTUATION_HUMIDITY 2
-#define ACTUATION_TEMP_AND_HUMIDITY 3
-
-typedef enum {
-  MAIN_MENU_PAGE = 1,
-  ACTUATORS_PROGRESS_PAGE,
-  SETTINGS_PAGE,
-  CALIBRATION_SENSORS_PAGE,
-  FIRST_POINT_CALIBRATION_PAGE,
-  SECOND_POINT_CALIBRATION_PAGE,
-  AUTO_CALIBRATION_PAGE,
-  FINE_TUNE_CALIBRATION_PAGE,
-} UI_PAGES;
+#include "ui_constants.h"
 
 // Mutex for protecting the shared variable
 extern SemaphoreHandle_t GPRS_monitor_mutex;
@@ -210,123 +168,8 @@ typedef enum {
 // CommStatus enum (COMM_STATUS_NONE ... COMM_STATUS_WIFI_SERVER) is now
 // in shared control_types.h. Both are included transitively via CommTask.h.
 
-typedef enum {
-  EVENT_2G = 0,
-  EVENT_WIFI,
-  EVENT_SERVER_CONNECTION,
-  EVENT_OTA_ONGOING,
-} UI_EVENTS_ID;
 
-typedef enum {
-  EVENT_2G_UI_POS = 5,
-  EVENT_SERVER_CONNECTION_UI_POS = EVENT_2G_UI_POS + 2 * letter_width,
-  EVENT_WIFI_UI_POS = EVENT_SERVER_CONNECTION_UI_POS + letter_width,
-  EVENT_OTA_ONGOING_UI_POS = EVENT_WIFI_UI_POS + letter_width,
-} UI_EVENTS_ID_POS;
-
-#define SN_KEY "SN"
-#define HW_NUM_KEY "HW_num"
-#define HW_REV_KEY "HW_revision"
-#define FW_VERSION_KEY "FW_version"
-#define CCID_KEY "CCID"
-#define IMEI_KEY "IMEI"
-#define APN_KEY "APN"
-#define COP_KEY "COP"
-#define SYSTEM_RESET_REASON "RST_reason"
-#define SYS_CURR_STANDBY_TEST_KEY "SYS_current_stanby_test"
-#define HEATER_CURR_TEST_KEY "Heater_current_test"
-#define FAN_CURR_TEST_KEY "Fan_current_test"
-#define PHOTOTHERAPY_CURR_KEY "Phototherapy_current_test"
-#define HUMIDIFIER_CURR_KEY "Humidifier_current_test"
-#define DISPLAY_CURR_TEST_KEY "Display_current_test"
-#define BUZZER_CURR_TEST_KEY "Buzzer_current_test"
-#define HW_TEST_KEY "HW_Test"
-#define LOCATION_LONGTITUD_KEY "tri_longitud"
-#define LOCATION_LATITUD_KEY "tri_latitud"
-#define TRI_ACCURACY_KEY "tri_accuracy"
-#define UI_LANGUAGE_KEY "UI_language"
-#define SKIN_CAPACITANCE_KEY "Skin_CAP"
-#define SKIN_TEMPERATURE_KEY "Skin_temp"
-#define AIR_TEMPERATURE_KEY "Air_temp"
-#define AIR_TEMPERATURE_REDUNDANT_KEY "Air_temp_redundant"
-#define AMBIENT_TEMPERATURE_KEY "Amb_temp"
-#define HUMIDITY_ROOM_KEY "Humidity"
-#define HUMIDITY_AMBIENT_KEY "Amb_humidity"
-#define SYSTEM_CURRENT_KEY "SYS_current"
-#define SYSTEM_VOLTAGE_KEY "SYS_voltage"
-#define CELL_SIGNAL_QUALITY_KEY "CSQ"
-#define HEATER_CURRENT_KEY "Heater_current"
-#define FAN_CURRENT_KEY "Fan_current"
-#define V5_CURRENT_KEY "V5_current"
-#define V5_VOLTAGE_KEY "V5_voltage"
-#define BAT_CURRENT_KEY "BAT_current"
-#define BAT_VOLTAGE_KEY "BAT_voltage"
-#define CONTROL_ACTIVE_KEY "Control_active"
-#define CONTROL_MODE_KEY "Control_mode"
-#define DESIRED_TEMPERATURE_KEY "Temp_desired"
-#define DESIRED_HUMIDITY_ROOM_KEY "Hum_desired"
-#define HUMIDIFIER_CURRENT_KEY "Humidifier_current"
-#define HUMIDIFIER_VOLTAGE_KEY "Humidifier_voltage"
-#define PHOTOTHERAPY_PWM_KEY "PH_PWM"
-#define PHOTOTHERAPY_CURRENT_KEY "Phototherapy_current"
-#define PHOTOTHERAPY_ACTIVE_KEY "Phototherapy_active"
-#define CALIBRATED_SENSOR_KEY "Calibrated_sensor"
-#define STANBY_TIME_KEY "Standby_time"
-#define CONTROL_ACTIVE_TIME_KEY "Control_active_time"
-#define HEATER_ACTIVE_TIME_KEY "Heater_active_time"
-#define FAN_ACTIVE_TIME_KEY "Fan_active_time"
-#define PHOTHERAPY_ACTIVE_TIME_KEY "Phototherapy_active_time"
-#define HUMIDIFIER_ACTIVE_TIME_KEY "Humidifier_active_time"
-#define GPRS_CONNECTIVITY_KEY "GPRS_connection"
-#define WIFI_CONNECTIVITY_KEY "WIFI_connection"
-#define HR1_KEY "HR1"
-#define HR1_SQI_KEY "HR1_SQI"
-#define HR2_KEY "HR2"
-#define HR2_SQI_KEY "HR2_SQI"
-#define HR3_KEY "HR3"
-#define HR3_SQI_KEY "HR3_SQI"
-#define SPO2_KEY "SpO2"
-#define SPO2_SQI_KEY "SpO2_SQI"
-#define PI_KEY "PI"
-#define BABY_WEIGHT_KEY "baby_weight_g"
-#define BABY_GEST_AGE_KEY "baby_gest_weeks"
-#define BABY_AGE_DAYS_KEY "baby_age_days"
-#define HUMIDITY_ALARM_KEY "hum_alarm"
-#define TEMPERATURE_ALARM_KEY "temp_alarm"
-#define AIR_THERMAL_CUTOUT_ALARM_KEY "air_TC_alarm"
-#define SKIN_THERMAL_CUTOUT_ALARM_KEY "skin_TC_alarm"
-#define AIR_SENSOR_ISSUE_ALARM_KEY "air_sensor_alarm"
-#define SKIN_SENSOR_ISSUE_ALARM_KEY "skin_sensor_alarm"
-#define FAN_ISSUE_ALARM_KEY "fan_alarm"
-#define HEATER_ISSUE_ALARM_KEY "heater_alarm"
-#define POWER_SUPPLY_ALARM_KEY "power_alarm"
-
-#define CALIBRATION_RAW_TEMPERATURE_RANGE_SKIN_KEY "Cal_raw_range_skin_temp"
-#define CALIBRATION_RAW_TEMPERATURE_LOW_SKIN_KEY "Cal_raw_low_skin_temp"
-#define CALIBRATION_RAW_TEMPERATURE_RANGE_AIR_KEY "Cal_raw_range_air_temp"
-#define CALIBRATION_RAW_TEMPERATURE_LOW_AIR_KEY "Cal_raw_low_air_temp"
-#define CALIBRATION_REFERENCE_TEMPERATURE_RANGE_KEY "Cal_ref_range_temp"
-#define CALIBRATION_REFERENCE_TEMPERATURE_LOW_KEY "Cal_ref_low_temp"
-#define CALIBRATION_SKIN_FINETUNE_KEY "Cal_finetune_skin_temp"
-#define CALIBRATION_AIR_FINETUNE_KEY "Cal_finetune_air_temp"
-
-// Diagnostic telemetry keys
-// BQ25730 charger telemetry keys
-#define BQ_STATE_KEY  "BQ_state"
-#define BQ_FAULT_KEY  "BQ_fault"
-#define BQ_AC_KEY     "BQ_ac"
-#define BQ_VBAT_KEY   "BQ_vbat_V"
-#define BQ_VBUS_KEY   "BQ_vbus_V"
-#define BQ_ICHG_KEY   "BQ_ichg_mA"
-
-#define BOOT_COUNT_KEY "boot_count"
-#define FREE_HEAP_KEY "free_heap"
-#define MIN_FREE_HEAP_KEY "min_free_heap"
-#define UPTIME_S_KEY "uptime_s"
-#define GPRS_KILL_COUNT_KEY "gprs_kill_count"
-#define GPRS_MON_KILL_COUNT_KEY "gprs_mon_kill_count"
-#define HMI_BOOT_COUNT_KEY "hmi_boot_count"
-#define HMI_LAST_RST_KEY "hmi_last_rst"
+#include "telemetry_keys.h"
 
 extern uint32_t g_bootCount;
 extern uint32_t g_gprsKillCount;
@@ -347,51 +190,7 @@ extern int g_restore_photo_minutes;
 #define CONTROL_SKIN false
 #define CONTROL_AIR true
 
-// Tasks priorities
-#define POWER_MANAGEMENT_TASK_PRIORITY 1
-#define TIME_TRACK_TASK_PRIORITY 2
-#define BACKLIGHT_TASK_PRIORITY 3
-#define OTA_TASK_PRIORITY 4
-#define GPRS_TAST_PRIORITY 5
-#define BUZZER_TASK_PRIORITY 6
-#define UI_TASK_PRIORITY 7
-#define COMMUNICATION_TASK_PRIORITY 7
-#define COMMUNICATION_RECEIVER_PRIORITY 7
-#define SENSORS_TASK_PRIORITY 8
-#define SPO2_TASK_PRIORITY 8
-#define SECURITY_TASK_PRIORITY 9
-#define GPRS_MONITOR_TASK_PRIORITY 10
-
-#define PWR_HOLD_MS 3000
-#define PWR_OFF_UPDATE_INTERVAL_MS 200
-#define POWER_MANAGEMENT_TASK_PERIOD_MS 50
-
-#define GPRS_TASK_PERIOD_MS 1
-#define OTA_TASK_PERIOD_MS 50
-#define SENSORS_TASK_PERIOD_MS 1
-#define SPO2_TASK_PERIOD_MS 1
-#define SKIN_SENSOR_UPDATE_PERIOD_MS 200 // in millis
-#define ROOM_SENSOR_UPDATE_PERIOD_MS 5000
-#define ROOM_SENSOR_RECONNECT_MS     500
-#define PHOTOTHERAPY_INITIAL_PWM_PCT 40
-#define PHOTO_TARGET_CURRENT 0.45f
-#define PHOTO_SETTLE_MS      3000
-#define PHOTO_CONTROL_PERIOD_MS 1000
-#define PHOTO_MAX_STEP       5
-#define PHOTO_TOLERANCE_A    0.02f
-#define PHOTO_MIN_PWM        10
-#define DIGITAL_CURRENT_SENSOR_PERIOD_MS 5
-#define BUZZER_TASK_PERIOD_MS 10
-#define UI_TASK_PERIOD_MS 10
-#define SECURITY_TASK_PERIOD_MS 1
-#define COMMUNICATION_TASK_PERIOD_MS 1
-#define TIME_TRACK_TASK_PERIOD_MS 100
-#define BACKLIGHT_TASK_PERIOD_MS 100
-#define FAN_TASK_PERIOD_MS 10
-#define LOOP_TASK_PERIOD_MS 1000
-#define CALIBRATION_TASK_PERIOD_MS 100
-#define GPRS_MONITOR_TASK_PERIOD 5000
-#define GPRS_MONITOR_TASK_DELETE 30000
+#include "task_config.h"
 
 #define DIGITAL_CURRENT_SENSOR_READ_PERIOD_MS 500
 #define CURRENT_UPDATE_PERIOD_MS 100 // in millis
@@ -413,58 +212,7 @@ extern int g_restore_photo_minutes;
 #define buzzerSwitchDuration 10      // in micros, tone freq
 #define buzzerStandbyToneTimes 1     // in micros, tone freq
 
-// --------------- Preferences namespaces ---------------
-constexpr char NS_CFG[]   = "mb_cfg";
-constexpr char NS_CAL[]   = "mb_cal";
-constexpr char NS_WIFI[]  = "mb_wifi";
-constexpr char NS_GPRS[]  = "mb_gprs";
-constexpr char NS_RT[]    = "mb_rt";
-constexpr char NS_STATE[] = "mb_state";
-
-// --------------- Key names: mb_cfg ---------------
-constexpr char KEY_LANG[]        = "lang";
-constexpr char KEY_AUTOLOCK[]    = "autolock";
-constexpr char KEY_SERIAL[]      = "serial";
-constexpr char KEY_CTRL_MODE[]   = "ctrl_mode";
-constexpr char KEY_CTRL_TEMP[]   = "ctrl_temp";
-constexpr char KEY_CTRL_HUM[]    = "ctrl_hum";
-constexpr char KEY_FAN_PWR_SUPPLY_PWM[] = "fan_pwr_sup_pwm";
-constexpr char KEY_HEAT_MAX_A[]  = "heat_max_A";
-constexpr char KEY_SKIN_T_MAX[]  = "skin_t_max";
-constexpr char KEY_AIR_T_MAX[]   = "air_t_max";
-constexpr char KEY_HEATER_TEST[] = "heater_test";
-constexpr char KEY_FAN_CTL_PWM[] = "fan_ctl_pwm";
-
-// --------------- Key names: mb_cal ---------------
-constexpr char KEY_CAL_SK_LOW[]  = "cal_sk_low";
-constexpr char KEY_CAL_SK_RNG[]  = "cal_sk_rng";
-constexpr char KEY_CAL_REF_RNG[] = "cal_ref_rng";
-constexpr char KEY_CAL_REF_LOW[] = "cal_ref_low";
-constexpr char KEY_FT_SKIN[]     = "ft_skin";
-constexpr char KEY_FT_AIR[]      = "ft_air";
-
-// --------------- Key names: mb_wifi ---------------
-constexpr char KEY_SSID[]     = "ssid";
-constexpr char KEY_PASSWORD[] = "password";
-
-// --------------- Key names: mb_gprs ---------------
-constexpr char KEY_PROVISIONED[]  = "provisioned";
-constexpr char KEY_TOKEN[]        = "token";
-constexpr char KEY_ACT_PERIOD[]   = "act_period";
-constexpr char KEY_PHOTO_PERIOD[] = "photo_period";
-constexpr char KEY_STBY_PERIOD[]  = "stby_period";
-
-// --------------- Key names: mb_rt ---------------
-constexpr char KEY_RT_STANDBY[]  = "standby";
-constexpr char KEY_RT_CTRL[]     = "ctrl_time";
-constexpr char KEY_RT_HEATER[]   = "heater_t";
-constexpr char KEY_RT_FAN[]      = "fan_t";
-constexpr char KEY_RT_PHOTO[]    = "photo_t";
-constexpr char KEY_RT_HUM[]      = "hum_t";
-
-// --------------- Key names: mb_state ---------------
-constexpr char KEY_PHOTO_ACTIVE[] = "photo_active";
-constexpr char KEY_ACTUATION[]    = "actuation";
+#include "preferences_keys.h"
 
 #define SKIN_CALIBRATION_CORRECTION_FACTOR 0
 
@@ -553,84 +301,12 @@ typedef enum {
 #define CENTER true
 #define LEFT_MARGIN false
 
-// below are all the different variables positions that will be displayed in
-// user interface mainMenu
-typedef enum {
-  CONTROL_MODE_UI_ROW = 0,
-  TEMPERATURE_UI_ROW,
-  HUMIDITY_UI_ROW,
-  LED_UI_ROW,
-  START_UI_ROW,
-  SETTINGS_UI_ROW,
-} MAIN_MENU_UI;
-
-// settings
-typedef enum {
-  SERIAL_NUMBER_UI_ROW = 0,
-  LANGUAGE_UI_ROW,
-  WIFI_EN_UI_ROW,
-  CCID_UI_ROW,
-  CALIBRATION_UI_ROW,
-  DEFAULT_VALUES_UI_ROW,
-  HW_TEST_UI_ROW,
-} SETTINGS_MENU_UI;
-
-// calibration menu
-typedef enum {
-  AUTO_CALIB_UI_ROW = 0,
-  FINE_TUNE_UI_ROW,
-  TWO_POINT_CALIB_UI_ROW,
-  RESET_CALIB_UI_ROW,
-} CALIBRATION_MENU_UI;
-
 // 2p calibration
 #define TEMP_CALIB_UI_ROW 0
 #define SET_CALIB_UI_ROW 1
 
 // auto calibration
 #define AUTO_CALIB_MESSAGE_UI_ROW 0
-
-// Inverted colour options
-// #define BLACK 0xFFFF    // Inverted Black
-// #define BLUE 0xFFE0     // Inverted Blue
-// #define RED 0x07FF      // Inverted Red
-// #define GREEN 0xF81F    // Inverted Green
-// #define CYAN 0xF800     // Inverted Cyan
-// #define MAGENTA 0x07E0  // Inverted Magenta
-// #define YELLOW 0x001F   // Inverted Yellow
-// #define WHITE 0x0000    // Inverted White
-// #define ORANGE 0x02DF   // Inverted Orange
-
-// colour options
-#define BLACK 0x0000
-#define BLUE 0x001F
-#define RED 0xF800
-#define GREEN 0x07E0
-#define CYAN 0x07FF
-#define MAGENTA 0xF81F
-#define YELLOW 0xFFE0
-#define WHITE 0xFFFF
-#define ORANGE 0xFD20
-
-#define COLOUR_WARNING_TEXT ORANGE
-#define COLOUR_MENU BLACK
-#define COLOUR_BAR BLACK
-#define COLOUR_MENU_TEXT WHITE
-#define COLOUR_SELECTED WHITE
-#define COLOUR_CHOSEN BLUE
-#define COLOUR_HEADING BLUE
-#define COLOUR_ARROW BLACK
-#define COLOUR_BATTERY BLACK
-#define COLOUR_BATTERY_LEFT BLACK
-#define COLOUR_FRAME_BAR WHITE
-#define COLOUR_LOADING_BAR RED
-#define COLOUR_COMPLETED_BAR GREEN
-#define introBackColor WHITE
-#define introTextColor BLACK
-#define transitionEffect BLACK
-
-#define BACKLIGHT_NO_INTERACTION_TIME                                          \
-  12000 // time to decrease backlight display if no user actions
 
 #define INIT_I2C_DELAY 50
 #define INIT_ROOM_SENSOR_STS3X_DELAY 100
