@@ -28,6 +28,7 @@
 // Firmware version and head title of UI screen
 
 #include "main.h"
+#include "state/state.h"
 #include "DriveUpload.h"
 #include "CrashReporter.h"
 #include <Preferences.h>
@@ -646,6 +647,7 @@ static void print_charger_status() {
 #endif
 
 void setup() {
+  state_init();
 
 #if (HW_NUM >= 16)
   // Power latch: a single press (button already held when boot starts) is
