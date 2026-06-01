@@ -1,6 +1,7 @@
 #include "main.h"
 // #include "AudioManager.h"  // Deshabilitado para migración Arduino 3.x
 #include "CommTask.h"
+#include "state/hmi_state.h"
 #include "UITask.h"
 #include "Wifi_OTA.h"
 #include "esp_log.h"
@@ -78,6 +79,7 @@ static void CrashTestHMITask(void *pv) {
 #endif
 
 void setup() {
+  hmi_state_init();
   Serial.begin(SERIAL_BAUD);
 
   // Suppress ESP-IDF gpio error logs (caused by GT911 using pin -1)
