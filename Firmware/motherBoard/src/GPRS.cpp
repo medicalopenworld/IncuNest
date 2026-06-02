@@ -390,8 +390,14 @@ void GPRSProvisionResponse(const JsonObjectConst &data) {
   serializeJson(data, buffer, jsonSize);
   // logModemData("[GPRS] -> " + String(buffer));
   if (strncmp(data["status"], "SUCCESS", strlen("SUCCESS")) != 0) {
-    logModemData("[GPRS] -> Provision response contains the error: ");
-    logModemData("[GPRS] -> " + data["errorMsg"].as<String>());
+    GPRS.provision_retry_count++;
+    if (GPRS.provision_retry_count <= PROVISION_MAX_RETRIES) {
+      logModemData("[GPRS] -> Provision failed: " + data["errorMsg"].as<String>() +
+                   " - retrying as " + GPRS.CCID + "_" + String(GPRS.provision_retry_count));
+      GPRS.provision_request_sent = false;
+    } else {
+      logModemData("[GPRS] -> Provision failed after max retries, giving up");
+    }
     return;
   }
 
@@ -443,9 +449,13 @@ void TBProvision() {
   // Connect to the ThingsBoard
   logModemData("[GPRS] -> Sending provision request to: " +
                String(THINGSBOARD_SERVER));
+  String deviceName = (GPRS.provision_retry_count == 0)
+      ? GPRS.CCID
+      : GPRS.CCID + "_" + String(GPRS.provision_retry_count);
+  logModemData("[GPRS] -> Provisioning as: " + deviceName);
   const Provision_Callback provisionCallback(
       Access_Token(), &GPRSProvisionResponse, PROVISION_DEVICE_KEY,
-      PROVISION_DEVICE_SECRET, GPRS.CCID.c_str());
+      PROVISION_DEVICE_SECRET, deviceName.c_str());
   GPRS.provision_request_sent = tb.Provision_Request(provisionCallback);
 }
 

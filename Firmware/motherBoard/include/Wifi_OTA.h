@@ -30,6 +30,7 @@ struct WIFIstruct {
   bool firstConfigPost = false;
   String device_token;
   long lastWifiReconnectAttempt = 0;
+  uint8_t provision_retry_count = 0;
 };
 
 bool WIFIIsConnectedToServer();

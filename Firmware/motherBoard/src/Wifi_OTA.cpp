@@ -539,8 +539,14 @@ void WIFIProvisionResponse(const JsonObjectConst &data) {
   serializeJson(data, buffer, jsonSize);
 
   if (strncmp(data["status"], "SUCCESS", strlen("SUCCESS")) != 0) {
-    logI("[WIFI] -> Provision response contains the error: " +
-         data["errorMsg"].as<String>());
+    Wifi_TB.provision_retry_count++;
+    if (Wifi_TB.provision_retry_count <= PROVISION_MAX_RETRIES) {
+      logI("[WIFI] -> Provision failed: " + data["errorMsg"].as<String>() +
+           " - retrying as " + GPRS.CCID + "_" + String(Wifi_TB.provision_retry_count));
+      Wifi_TB.provision_request_sent = false;
+    } else {
+      logI("[WIFI] -> Provision failed after max retries, giving up");
+    }
     return;
   }
 
@@ -594,9 +600,13 @@ void WIFITBProvision() {
   // Connect to the ThingsBoard
   logI("[WIFI] -> Sending provision request to: " + String(THINGSBOARD_SERVER));
 
+  String deviceName = (Wifi_TB.provision_retry_count == 0)
+      ? GPRS.CCID
+      : GPRS.CCID + "_" + String(Wifi_TB.provision_retry_count);
+  logI("[WIFI] -> Provisioning as: " + deviceName);
   const Provision_Callback provisionCallback(
       Access_Token(), &WIFIProvisionResponse, PROVISION_DEVICE_KEY,
-      PROVISION_DEVICE_SECRET, GPRS.CCID.c_str());
+      PROVISION_DEVICE_SECRET, deviceName.c_str());
   Wifi_TB.provision_request_sent = tb_wifi.Provision_Request(provisionCallback);
 }
 
