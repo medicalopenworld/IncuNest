@@ -3,22 +3,36 @@
 #include "CommTask.h"
 #include "buzzer.h"
 #include "display_config.h"
+#include "esp_lcd_panel_ops.h"
+#include "esp_lcd_panel_rgb.h"
 #include "esp_log.h"
 #include "main.h"
 #include "ui.h"
 #include <PCA9557.h>
 #include <SPI.h>
 #include <TAMC_GT911.h>
-#include "esp_lcd_panel_ops.h"
-#include "esp_lcd_panel_rgb.h"
 
 static const char *TAG = "UI";
+
+SemaphoreHandle_t g_lvgl_mutex = NULL;
+
+void LVGL_Mutex_Init(void) {
+  if (!g_lvgl_mutex) {
+    g_lvgl_mutex = xSemaphoreCreateRecursiveMutex();
+  }
+}
 
 // --- Skin probe UI (RF-SKIN-008/009/010, UI-SKIN-002/003/004/005) ---
 static lv_obj_t *ui_SkinProbeToast =
     nullptr; // Toast de bloqueo cuando sonda no válida
 static lv_obj_t *ui_SkinProbeStatusLabel =
     nullptr; // Estado informativo en modo aire
+
+// --- Power-off popup UI elements ---
+static lv_obj_t *ui_PwrOffOverlay = nullptr;
+static lv_obj_t *ui_PwrOffArc = nullptr;
+static lv_obj_t *ui_PwrOffSymbol = nullptr;
+static bool pwrOffPopupVisible = false;
 
 static lv_obj_t *ui_AudioPlayBtn;
 static lv_obj_t *ui_AudioStopBtn;
@@ -87,26 +101,31 @@ char wifi_pass[64] = "";
 bool LanguagesVisible = false;
 bool locked = true;
 
+static bool spo2ProbeAttached = false;
+static bool spo2ProbeAttachedPrev = false;
+
 lv_chart_series_t *airTempSeries = NULL;
 lv_chart_series_t *skinTempSeries = NULL;
 lv_chart_series_t *humSeries = NULL;
+lv_chart_series_t *lockPPGSeries = NULL;
 
 bool g_stateSynced = false;
 uint32_t g_lastStateReqMs = 0;
 bool g_ui_initialized = false;
 
 // AUTO AIR state (ARQ-AUTOAIR-001)
-bool   g_autoAirActive    = false;
-static int g_babyWeightGrams  = 0;
-static int g_babyGestWeeks    = 0;
-static int g_babyAgeHours     = 0;   // age stored as hours at start of day: day N → (N-1)*24
-static int g_popupWeight      = 1500;
-static int g_popupGest        = 32;
-static int g_popupAgeHours    = 0;   // hours at start of postnatal day (0=day1, 24=day2, …)
+bool g_autoAirActive = false;
+static int g_babyWeightGrams = 0;
+static int g_babyGestWeeks = 0;
+static int g_babyAgeHours =
+    0; // age stored as hours at start of day: day N → (N-1)*24
+static int g_popupWeight = 1500;
+static int g_popupGest = 32;
+static int g_popupAgeHours =
+    0; // hours at start of postnatal day (0=day1, 24=day2, …)
 static float aa_popup_setpoint = 0.0f;
-static float aa_popup_lo       = 0.0f;
-static float aa_popup_hi       = 0.0f;
-
+static float aa_popup_lo = 0.0f;
+static float aa_popup_hi = 0.0f;
 
 static bool eepromDirty = false;
 static unsigned long lastVarChangeTime = 0;
@@ -128,8 +147,69 @@ static esp_lcd_panel_handle_t lcd_panel = NULL;
 
 // Bounce buffer: 20 líneas en SRAM interno desacoplan LCD DMA de PSRAM
 // 800 * 20 * 2 = 32KB por bounce buffer (x2 ping-pong = 64KB SRAM)
-#define BOUNCE_BUF_LINES 20
+#define BOUNCE_BUF_LINES 8
 #define BOUNCE_BUF_SIZE_PX (DISPLAY_WIDTH * BOUNCE_BUF_LINES)
+
+// ==========================================
+// LCD Glitch diagnostics
+// ==========================================
+// Frame interval > este umbral se considera frame lento (glitch potencial)
+#define LCD_VSYNC_SLOW_THRESHOLD_US 25000 // 25 ms → <40 fps
+
+static volatile uint32_t g_lcd_bounce_empty_count = 0; // underruns DMA
+static volatile uint32_t g_lcd_vsync_slow_count = 0;   // frames lentos
+static volatile uint32_t g_lcd_vsync_total = 0;        // frames totales
+static volatile int64_t g_lcd_last_vsync_us = 0;
+static volatile int64_t g_lcd_worst_frame_us = 0; // peor intervalo visto
+
+static bool IRAM_ATTR lcd_on_bounce_empty(esp_lcd_panel_handle_t panel,
+                                          void *bounce_buf, int pos_px,
+                                          int len_bytes, void *user_ctx) {
+  g_lcd_bounce_empty_count++;
+  return false;
+}
+
+static bool IRAM_ATTR lcd_on_vsync(esp_lcd_panel_handle_t panel,
+                                   const esp_lcd_rgb_panel_event_data_t *edata,
+                                   void *user_ctx) {
+  int64_t now = esp_timer_get_time();
+  if (g_lcd_last_vsync_us > 0) {
+    int64_t delta = now - g_lcd_last_vsync_us;
+    if (delta > g_lcd_worst_frame_us)
+      g_lcd_worst_frame_us = delta;
+    if (delta > LCD_VSYNC_SLOW_THRESHOLD_US)
+      g_lcd_vsync_slow_count++;
+  }
+  g_lcd_last_vsync_us = now;
+  g_lcd_vsync_total++;
+  return false;
+}
+
+// Llamar periódicamente desde una tarea para volcar diagnóstico al log
+void lcd_diagnostics_log() {
+  uint32_t underruns = g_lcd_bounce_empty_count;
+  uint32_t slow_frames = g_lcd_vsync_slow_count;
+  uint32_t total = g_lcd_vsync_total;
+  int64_t worst_us = g_lcd_worst_frame_us;
+
+  // Reset contadores después de leer
+  g_lcd_bounce_empty_count = 0;
+  g_lcd_vsync_slow_count = 0;
+  g_lcd_vsync_total = 0;
+  g_lcd_worst_frame_us = 0;
+
+  float fps = (worst_us > 0) ? (1000000.0f / worst_us) : 0.0f;
+
+  if (underruns > 0 || slow_frames > 0) {
+    ESP_LOGW("LCD_DIAG",
+             "GLITCH DETECTED — underruns=%lu  slow_frames=%lu/%lu  "
+             "worst_frame=%.1fms (%.1f fps)",
+             underruns, slow_frames, total, worst_us / 1000.0f, fps);
+  } else {
+    // ESP_LOGI("LCD_DIAG", "OK — frames=%lu  worst_frame=%.1fms", total,
+    //          worst_us / 1000.0f);
+  }
+}
 
 static uint32_t g_currentFreqWrite = DISPLAY_FREQ_WRITE;
 
@@ -137,8 +217,7 @@ uint32_t lcd_get_freq_write() { return g_currentFreqWrite; }
 
 void lcd_set_freq_write(uint32_t freq_hz) {
   g_currentFreqWrite = freq_hz;
-  EEPROM.put(EEPROM_DISPLAY_FREQ, freq_hz);
-  EEPROM.commit();
+  { Preferences p; p.begin(HMI_NS_CFG, false); p.putUInt(HMI_KEY_DISP_FREQ, freq_hz); p.end(); }
   ESP_LOGW("LCD", "freq_write saved: %lu Hz — restarting...", freq_hz);
   delay(200);
   ESP.restart();
@@ -161,8 +240,12 @@ static lv_timer_t *intro_timer = NULL;
 // ==========================================
 void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area,
                    lv_color_t *color_p) {
-  esp_lcd_panel_draw_bitmap(lcd_panel, area->x1, area->y1,
-                            area->x2 + 1, area->y2 + 1, color_p);
+  int offsetx1 = area->x1;
+  int offsetx2 = area->x2;
+  int offsety1 = area->y1;
+  int offsety2 = area->y2;
+  esp_lcd_panel_draw_bitmap(lcd_panel, offsetx1, offsety1, offsetx2 + 1,
+                            offsety2 + 1, color_p);
   lv_disp_flush_ready(disp);
 }
 
@@ -176,13 +259,30 @@ static void intro_timer_cb(lv_timer_t *t) {
 }
 
 void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
+  static uint16_t lastX = 0, lastY = 0;
+  static uint8_t releaseCount = 0;
+  // GT911 clears its buffer after each I2C read, causing phantom releases when
+  // LVGL reads faster than the controller updates. Require 3 consecutive
+  // "not touched" frames (~30ms at 10ms/frame) before reporting RELEASED.
+  const uint8_t DEBOUNCE_FRAMES = 3;
+
   ts.read();
   if (ts.isTouched) {
+    releaseCount = 0;
+    lastX = ts.points[0].x;
+    lastY = ts.points[0].y;
     data->state = LV_INDEV_STATE_PR;
-    data->point.x = ts.points[0].x;
-    data->point.y = ts.points[0].y;
+    data->point.x = lastX;
+    data->point.y = lastY;
   } else {
-    data->state = LV_INDEV_STATE_REL;
+    if (releaseCount < DEBOUNCE_FRAMES) {
+      releaseCount++;
+      data->state = LV_INDEV_STATE_PR;
+      data->point.x = lastX;
+      data->point.y = lastY;
+    } else {
+      data->state = LV_INDEV_STATE_REL;
+    }
   }
 }
 
@@ -192,7 +292,8 @@ void temp_chart_show_for_selected_panel(void);
 void ui_set_switch_state_silent(lv_obj_t *sw, bool on);
 
 // Fully disables Skin mode — same effect as flipping the Skin switch OFF.
-// Call this both from the switch-OFF handler and from the probe-disconnect path.
+// Call this both from the switch-OFF handler and from the probe-disconnect
+// path.
 static void skin_mode_force_off() {
   // Uncheck the switch FIRST — line 3219 re-reads skinPanelEnabled from it
   // every cycle, so leaving it checked would immediately undo everything else.
@@ -291,16 +392,18 @@ void update_labels() {
     lv_label_set_text(ui_Label20, buffer);
   }
 
-  int airBar = (airTempValueDetected <= TEMP_BAR_DISPLAY_MIN)
-                   ? 0
-                   : (airTempValueDetected >= TEMP_BAR_DISPLAY_MAX
-                          ? TEMP_BAR_RANGE
-                          : (int)round(airTempValueDetected - TEMP_BAR_DISPLAY_MIN));
-  int skinBar = (skinTempValueDetected <= TEMP_BAR_DISPLAY_MIN)
-                    ? 0
-                    : (skinTempValueDetected >= TEMP_BAR_DISPLAY_MAX
-                           ? TEMP_BAR_RANGE
-                           : (int)round(skinTempValueDetected - TEMP_BAR_DISPLAY_MIN));
+  int airBar =
+      (airTempValueDetected <= TEMP_BAR_DISPLAY_MIN)
+          ? 0
+          : (airTempValueDetected >= TEMP_BAR_DISPLAY_MAX
+                 ? TEMP_BAR_RANGE
+                 : (int)round(airTempValueDetected - TEMP_BAR_DISPLAY_MIN));
+  int skinBar =
+      (skinTempValueDetected <= TEMP_BAR_DISPLAY_MIN)
+          ? 0
+          : (skinTempValueDetected >= TEMP_BAR_DISPLAY_MAX
+                 ? TEMP_BAR_RANGE
+                 : (int)round(skinTempValueDetected - TEMP_BAR_DISPLAY_MIN));
   int humBar = constrain(humValueDetected, HUM_BAR_MIN, HUM_BAR_MAX);
 
   lv_bar_set_value(ui_AirTempBar, airBar, LV_ANIM_OFF);
@@ -310,7 +413,8 @@ void update_labels() {
   // Update photo timer label if not active
   if (!photoTimerActive) {
     char buf[16];
-    snprintf(buf, sizeof(buf), "%d:%02d", photoTimerMinutes / SECONDS_PER_MINUTE,
+    snprintf(buf, sizeof(buf), "%d:%02d",
+             photoTimerMinutes / SECONDS_PER_MINUTE,
              photoTimerMinutes % SECONDS_PER_MINUTE);
     lv_label_set_text(ui_PhotoTimeValueLabel, buf);
   }
@@ -332,12 +436,14 @@ void update_labels() {
   // Derive skin probe presence from detected temperature and update switch
   // visibility. lastProbePresent starts as false so the first call with
   // skinTempValueDetected=0 (no TEL received yet) does NOT trigger a spurious
-  // "probe lost" event that would undo state restoration done by Display_ApplyCtrlState.
+  // "probe lost" event that would undo state restoration done by
+  // Display_ApplyCtrlState.
   static bool lastProbePresent = false;
   bool probePresent = (skinTempValueDetected > SKIN_PROBE_DETECT_THRESHOLD);
   if (probePresent != lastProbePresent) {
     lastProbePresent = probePresent;
-    g_skinProbeState = probePresent ? SKIN_PROBE_VALID : SKIN_PROBE_NOT_CONNECTED;
+    g_skinProbeState =
+        probePresent ? SKIN_PROBE_VALID : SKIN_PROBE_NOT_CONNECTED;
     if (probePresent) {
       if (ui_Switch4)
         lv_obj_clear_flag(ui_Switch4, LV_OBJ_FLAG_HIDDEN);
@@ -361,7 +467,6 @@ void update_labels() {
       }
     }
   }
-
 }
 
 const char *getConnectivityString(int status, ui_lang_t lang) {
@@ -402,44 +507,41 @@ const char *getConnectivityString(int status, ui_lang_t lang) {
 }
 
 static void autoair_apply_language(ui_lang_t lang) {
-  if (!ui_AutoAirModal) return;  // popup not created yet
-  lv_label_set_text(ui_AutoAirTitle,
-      (lang == LANG_ES) ? "ZONA DE CONFORT"
-    : (lang == LANG_FR) ? "ZONE DE CONFORT"
-    :                     "COMFORT ZONE");
-  lv_label_set_text(ui_AutoAirLeftHeader,
-      (lang == LANG_ES) ? "INFO. DEL BEBE:"
-    : (lang == LANG_FR) ? "INFOS BEBE:"
-    :                     "BABY INFORMATION:");
+  if (!ui_AutoAirModal)
+    return; // popup not created yet
+  lv_label_set_text(ui_AutoAirTitle, (lang == LANG_ES)   ? "ZONA DE CONFORT"
+                                     : (lang == LANG_FR) ? "ZONE DE CONFORT"
+                                                         : "COMFORT ZONE");
+  lv_label_set_text(ui_AutoAirLeftHeader, (lang == LANG_ES) ? "INFO. DEL BEBE:"
+                                          : (lang == LANG_FR)
+                                              ? "INFOS BEBE:"
+                                              : "BABY INFORMATION:");
   lv_label_set_text(ui_AutoAirRightHeader,
-      (lang == LANG_ES) ? "RANGO RECOMENDADO (C)"
-    : (lang == LANG_FR) ? "PLAGE RECOMMANDEE (C)"
-    :                     "RECOMMENDED RANGE (C)");
-  lv_label_set_text(ui_AutoAirGestLabel,
-      (lang == LANG_ES) ? "EDAD GESTACIONAL"
-    : (lang == LANG_FR) ? "AGE GESTATIONNEL"
-    :                     "GESTATIONAL AGE");
-  lv_label_set_text(ui_AutoAirDaysLabel,
-      (lang == LANG_ES) ? "EDAD POSTNATAL"
-    : (lang == LANG_FR) ? "AGE POST-NATAL"
-    :                     "POST-NATAL AGE");
-  lv_label_set_text(ui_AutoAirWeightLabel,
-      (lang == LANG_ES) ? "PESO"
-    : (lang == LANG_FR) ? "POIDS"
-    :                     "WEIGHT");
-  lv_label_set_text(ui_AutoAirCancelLabel,
-      (lang == LANG_ES) ? "CANCELAR"
-    : (lang == LANG_FR) ? "ANNULER"
-    :                     "CANCEL");
-  lv_label_set_text(ui_AutoAirApplyLabel,
-      (lang == LANG_ES) ? "APLICAR"
-    : (lang == LANG_FR) ? "APPLIQUER"
-    :                     "APPLY");
+                    (lang == LANG_ES)   ? "RANGO RECOMENDADO (C)"
+                    : (lang == LANG_FR) ? "PLAGE RECOMMANDEE (C)"
+                                        : "RECOMMENDED RANGE (C)");
+  lv_label_set_text(ui_AutoAirGestLabel, (lang == LANG_ES) ? "EDAD GESTACIONAL"
+                                         : (lang == LANG_FR)
+                                             ? "AGE GESTATIONNEL"
+                                             : "GESTATIONAL AGE");
+  lv_label_set_text(ui_AutoAirDaysLabel, (lang == LANG_ES) ? "EDAD POSTNATAL"
+                                         : (lang == LANG_FR)
+                                             ? "AGE POST-NATAL"
+                                             : "POST-NATAL AGE");
+  lv_label_set_text(ui_AutoAirWeightLabel, (lang == LANG_ES)   ? "PESO"
+                                           : (lang == LANG_FR) ? "POIDS"
+                                                               : "WEIGHT");
+  lv_label_set_text(ui_AutoAirCancelLabel, (lang == LANG_ES)   ? "CANCELAR"
+                                           : (lang == LANG_FR) ? "ANNULER"
+                                                               : "CANCEL");
+  lv_label_set_text(ui_AutoAirApplyLabel, (lang == LANG_ES)   ? "APLICAR"
+                                          : (lang == LANG_FR) ? "APPLIQUER"
+                                                              : "APPLY");
 }
 
 void UI_ApplyLanguage(ui_lang_t lang) {
   g_lang = lang;
-  EEPROM.write(EEPROM_LANGUAGE, g_lang);
+  { Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_LANG, (uint8_t)g_lang); p.end(); }
   eepromDirty = true;
   lastVarChangeTime = millis();
 
@@ -547,7 +649,7 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   lv_label_set_text(ui_DarkModeLabel, TXT_DARKMODE[lang]);
   {
     const char *TXT_HUMIDITY_MODE[] = {"CONTROL HUMEDAD", "HUMIDITY CONTROL",
-                                      "CONTROLE HUMIDITE"};
+                                       "CONTROLE HUMIDITE"};
     lv_label_set_text(ui_HumidityModeLabel, TXT_HUMIDITY_MODE[lang]);
   }
   lv_label_set_text(ui_HMIVerTitle, TXT_HMI_VERSION[lang]);
@@ -719,19 +821,22 @@ void chart_add_skin_temp(float v) {
 // Clinical source: "Termorregulacion y Humedad en el RN"
 // ============================================================================
 
-// Returns the midpoint setpoint (°C) from the Neutral Thermal Environment table.
-// Sources: Sauer/Dane/Visser (1984); Deacon/O'Neill (2004); Cloherty 3rd ed.; WHO/AAP
-// Also writes a short row description into row_desc for audit logging.
-// Returns -1.0f when the cell is "—" (no incubator needed) or on invalid input.
+// Returns the midpoint setpoint (°C) from the Neutral Thermal Environment
+// table. Sources: Sauer/Dane/Visser (1984); Deacon/O'Neill (2004); Cloherty 3rd
+// ed.; WHO/AAP Also writes a short row description into row_desc for audit
+// logging. Returns -1.0f when the cell is "—" (no incubator needed) or on
+// invalid input.
 static float autoair_calculate_setpoint(int weightGrams, int gestWeeks,
-                                          int ageHours,
-                                          char *row_desc, size_t desc_len,
-                                          float *lo_out = nullptr,
-                                          float *hi_out = nullptr) {
+                                        int ageHours, char *row_desc,
+                                        size_t desc_len,
+                                        float *lo_out = nullptr,
+                                        float *hi_out = nullptr) {
   auto ret_invalid = [&](const char *msg) -> float {
     snprintf(row_desc, desc_len, "%s", msg);
-    if (lo_out) *lo_out = -1.0f;
-    if (hi_out) *hi_out = -1.0f;
+    if (lo_out)
+      *lo_out = -1.0f;
+    if (hi_out)
+      *hi_out = -1.0f;
     return -1.0f;
   };
 
@@ -741,13 +846,28 @@ static float autoair_calculate_setpoint(int weightGrams, int gestWeeks,
   // ── Time-period index (tp): 0=D1, 1=D2, 2=D3, 3=D4-7, 4=W2, 5=W3, 6=W4+ ──
   int tp;
   const char *tp_str;
-  if      (ageHours <  24) { tp = 0; tp_str = "D1";   }
-  else if (ageHours <  48) { tp = 1; tp_str = "D2";   }
-  else if (ageHours <  72) { tp = 2; tp_str = "D3";   }
-  else if (ageHours < 168) { tp = 3; tp_str = "D4-7"; }
-  else if (ageHours < 336) { tp = 4; tp_str = "W2";   }
-  else if (ageHours < 504) { tp = 5; tp_str = "W3";   }
-  else                     { tp = 6; tp_str = "W4+";  }
+  if (ageHours < 24) {
+    tp = 0;
+    tp_str = "D1";
+  } else if (ageHours < 48) {
+    tp = 1;
+    tp_str = "D2";
+  } else if (ageHours < 72) {
+    tp = 2;
+    tp_str = "D3";
+  } else if (ageHours < 168) {
+    tp = 3;
+    tp_str = "D4-7";
+  } else if (ageHours < 336) {
+    tp = 4;
+    tp_str = "W2";
+  } else if (ageHours < 504) {
+    tp = 5;
+    tp_str = "W3";
+  } else {
+    tp = 6;
+    tp_str = "W4+";
+  }
 
   float lo, hi;
   const char *wt_str;
@@ -756,73 +876,172 @@ static float autoair_calculate_setpoint(int weightGrams, int gestWeeks,
   if (gestWeeks <= 27) {
     // 3 weight rows × 7 time periods × [lo, hi]
     static const float T[3][7][2] = {
-      // <750 g
-      {{35.0f,36.0f},{34.5f,35.5f},{34.0f,35.0f},{33.5f,34.5f},{33.0f,34.0f},{32.5f,33.5f},{32.0f,33.0f}},
-      // 750–1000 g
-      {{34.5f,35.5f},{34.0f,35.0f},{34.0f,35.0f},{33.5f,34.5f},{33.0f,34.0f},{32.5f,33.5f},{32.0f,33.0f}},
-      // 1000–1200 g  (also used conservatively if weight > 1200 at this EG)
-      {{34.0f,35.4f},{34.0f,35.0f},{34.0f,35.0f},{33.0f,34.0f},{32.6f,34.0f},{32.2f,34.0f},{31.6f,33.6f}},
+        // <750 g
+        {{35.0f, 36.0f},
+         {34.5f, 35.5f},
+         {34.0f, 35.0f},
+         {33.5f, 34.5f},
+         {33.0f, 34.0f},
+         {32.5f, 33.5f},
+         {32.0f, 33.0f}},
+        // 750–1000 g
+        {{34.5f, 35.5f},
+         {34.0f, 35.0f},
+         {34.0f, 35.0f},
+         {33.5f, 34.5f},
+         {33.0f, 34.0f},
+         {32.5f, 33.5f},
+         {32.0f, 33.0f}},
+        // 1000–1200 g  (also used conservatively if weight > 1200 at this EG)
+        {{34.0f, 35.4f},
+         {34.0f, 35.0f},
+         {34.0f, 35.0f},
+         {33.0f, 34.0f},
+         {32.6f, 34.0f},
+         {32.2f, 34.0f},
+         {31.6f, 33.6f}},
     };
     int wr;
-    if      (weightGrams <  750) { wr = 0; wt_str = "<750g";       }
-    else if (weightGrams <= 1000){ wr = 1; wt_str = "750-1000g";   }
-    else                         { wr = 2; wt_str = "1000-1200g";  }
-    lo = T[wr][tp][0];  hi = T[wr][tp][1];
+    if (weightGrams < 750) {
+      wr = 0;
+      wt_str = "<750g";
+    } else if (weightGrams <= 1000) {
+      wr = 1;
+      wt_str = "750-1000g";
+    } else {
+      wr = 2;
+      wt_str = "1000-1200g";
+    }
+    lo = T[wr][tp][0];
+    hi = T[wr][tp][1];
 
-  // ── EG 28–31 semanas (muy prematuro) ─────────────────────────────────────
+    // ── EG 28–31 semanas (muy prematuro) ─────────────────────────────────────
   } else if (gestWeeks <= 31) {
     static const float T[3][7][2] = {
-      // <1200 g
-      {{34.0f,35.4f},{34.0f,35.0f},{34.0f,35.0f},{33.0f,34.0f},{32.6f,34.0f},{32.2f,34.0f},{31.6f,33.6f}},
-      // 1200–1500 g
-      {{33.9f,34.4f},{33.1f,34.2f},{33.0f,34.0f},{33.0f,34.0f},{31.0f,33.2f},{30.5f,33.0f},{30.0f,32.7f}},
-      // 1501–1800 g  (also used conservatively if weight > 1800 at this EG)
-      {{33.5f,34.5f},{33.0f,34.0f},{32.5f,33.5f},{32.0f,33.5f},{31.0f,33.2f},{30.5f,33.0f},{30.0f,32.7f}},
+        // <1200 g
+        {{34.0f, 35.4f},
+         {34.0f, 35.0f},
+         {34.0f, 35.0f},
+         {33.0f, 34.0f},
+         {32.6f, 34.0f},
+         {32.2f, 34.0f},
+         {31.6f, 33.6f}},
+        // 1200–1500 g
+        {{33.9f, 34.4f},
+         {33.1f, 34.2f},
+         {33.0f, 34.0f},
+         {33.0f, 34.0f},
+         {31.0f, 33.2f},
+         {30.5f, 33.0f},
+         {30.0f, 32.7f}},
+        // 1501–1800 g  (also used conservatively if weight > 1800 at this EG)
+        {{33.5f, 34.5f},
+         {33.0f, 34.0f},
+         {32.5f, 33.5f},
+         {32.0f, 33.5f},
+         {31.0f, 33.2f},
+         {30.5f, 33.0f},
+         {30.0f, 32.7f}},
     };
     int wr;
-    if      (weightGrams < 1200) { wr = 0; wt_str = "<1200g";     }
-    else if (weightGrams <= 1500){ wr = 1; wt_str = "1200-1500g"; }
-    else                         { wr = 2; wt_str = "1501-1800g"; }
-    lo = T[wr][tp][0];  hi = T[wr][tp][1];
+    if (weightGrams < 1200) {
+      wr = 0;
+      wt_str = "<1200g";
+    } else if (weightGrams <= 1500) {
+      wr = 1;
+      wt_str = "1200-1500g";
+    } else {
+      wr = 2;
+      wt_str = "1501-1800g";
+    }
+    lo = T[wr][tp][0];
+    hi = T[wr][tp][1];
 
-  // ── EG 32–35 semanas (prematuro moderado/tardío) ──────────────────────────
+    // ── EG 32–35 semanas (prematuro moderado/tardío)
+    // ──────────────────────────
   } else if (gestWeeks <= 35) {
     // >2500g W3 and W4+ are "—"
     static const float T[3][7][2] = {
-      // 1200–1500 g  (also used if weight < 1200 at this EG — conservative)
-      {{33.9f,34.4f},{33.0f,34.1f},{33.0f,34.0f},{33.0f,34.0f},{31.0f,33.2f},{30.5f,33.0f},{30.0f,32.7f}},
-      // 1501–2500 g
-      {{32.8f,33.8f},{31.6f,33.6f},{31.2f,33.4f},{31.1f,33.2f},{31.0f,33.2f},{30.5f,33.0f},{30.0f,32.7f}},
-      // >2500 g  (W3=tp5 and W4+=tp6 are "—")
-      {{32.0f,33.8f},{30.7f,33.5f},{30.1f,33.2f},{29.8f,32.8f},{29.0f,31.4f},{-1.0f,-1.0f},{-1.0f,-1.0f}},
+        // 1200–1500 g  (also used if weight < 1200 at this EG — conservative)
+        {{33.9f, 34.4f},
+         {33.0f, 34.1f},
+         {33.0f, 34.0f},
+         {33.0f, 34.0f},
+         {31.0f, 33.2f},
+         {30.5f, 33.0f},
+         {30.0f, 32.7f}},
+        // 1501–2500 g
+        {{32.8f, 33.8f},
+         {31.6f, 33.6f},
+         {31.2f, 33.4f},
+         {31.1f, 33.2f},
+         {31.0f, 33.2f},
+         {30.5f, 33.0f},
+         {30.0f, 32.7f}},
+        // >2500 g  (W3=tp5 and W4+=tp6 are "—")
+        {{32.0f, 33.8f},
+         {30.7f, 33.5f},
+         {30.1f, 33.2f},
+         {29.8f, 32.8f},
+         {29.0f, 31.4f},
+         {-1.0f, -1.0f},
+         {-1.0f, -1.0f}},
     };
     int wr;
-    if      (weightGrams <= 1500){ wr = 0; wt_str = (weightGrams < 1200) ? "<1200g" : "1200-1500g"; }
-    else if (weightGrams <= 2500){ wr = 1; wt_str = "1501-2500g"; }
-    else                         { wr = 2; wt_str = ">2500g";     }
-    lo = T[wr][tp][0];  hi = T[wr][tp][1];
+    if (weightGrams <= 1500) {
+      wr = 0;
+      wt_str = (weightGrams < 1200) ? "<1200g" : "1200-1500g";
+    } else if (weightGrams <= 2500) {
+      wr = 1;
+      wt_str = "1501-2500g";
+    } else {
+      wr = 2;
+      wt_str = ">2500g";
+    }
+    lo = T[wr][tp][0];
+    hi = T[wr][tp][1];
 
-  // ── EG ≥ 36 semanas (cercano a término / término) ────────────────────────
+    // ── EG ≥ 36 semanas (cercano a término / término) ────────────────────────
   } else {
     // All rows: W3+ (tp>=5) are "—"
     static const float T[3][5][2] = {
-      // 1501–2500 g  (also used conservatively if weight <= 1500 at this EG)
-      {{32.8f,33.8f},{31.4f,33.5f},{31.2f,33.4f},{31.0f,33.2f},{29.0f,31.4f}},
-      // 2500–3500 g
-      {{32.0f,33.8f},{30.5f,33.3f},{30.1f,33.2f},{29.5f,32.6f},{29.0f,30.8f}},
-      // >3500 g
-      {{31.5f,33.5f},{30.0f,33.0f},{29.8f,32.8f},{29.5f,32.0f},{29.0f,30.5f}},
+        // 1501–2500 g  (also used conservatively if weight <= 1500 at this EG)
+        {{32.8f, 33.8f},
+         {31.4f, 33.5f},
+         {31.2f, 33.4f},
+         {31.0f, 33.2f},
+         {29.0f, 31.4f}},
+        // 2500–3500 g
+        {{32.0f, 33.8f},
+         {30.5f, 33.3f},
+         {30.1f, 33.2f},
+         {29.5f, 32.6f},
+         {29.0f, 30.8f}},
+        // >3500 g
+        {{31.5f, 33.5f},
+         {30.0f, 33.0f},
+         {29.8f, 32.8f},
+         {29.5f, 32.0f},
+         {29.0f, 30.5f}},
     };
     int wr;
-    if      (weightGrams <= 2500){ wr = 0; wt_str = (weightGrams <= 1500) ? "<=1500g" : "1501-2500g"; }
-    else if (weightGrams <= 3500){ wr = 1; wt_str = "2500-3500g"; }
-    else                         { wr = 2; wt_str = ">3500g";     }
+    if (weightGrams <= 2500) {
+      wr = 0;
+      wt_str = (weightGrams <= 1500) ? "<=1500g" : "1501-2500g";
+    } else if (weightGrams <= 3500) {
+      wr = 1;
+      wt_str = "2500-3500g";
+    } else {
+      wr = 2;
+      wt_str = ">3500g";
+    }
 
     if (tp >= 5) {
       // W3 and beyond — no incubator needed
       return ret_invalid("no aplica");
     }
-    lo = T[wr][tp][0];  hi = T[wr][tp][1];
+    lo = T[wr][tp][0];
+    hi = T[wr][tp][1];
   }
 
   // "—" cells (lo stored as -1 sentinel)
@@ -830,13 +1049,16 @@ static float autoair_calculate_setpoint(int weightGrams, int gestWeeks,
     return ret_invalid("no aplica");
 
   snprintf(row_desc, desc_len, "%s,EG%d,%s", tp_str, gestWeeks, wt_str);
-  if (lo_out) *lo_out = lo;
-  if (hi_out) *hi_out = hi;
+  if (lo_out)
+    *lo_out = lo;
+  if (hi_out)
+    *hi_out = hi;
   return (lo + hi) / 2.0f;
 }
 
 static void autoair_show_toast(const char *msg, uint32_t ms) {
-  if (!ui_AutoAirToast) return;
+  if (!ui_AutoAirToast)
+    return;
   lv_label_set_text(ui_AutoAirToast, msg);
   lv_obj_clear_flag(ui_AutoAirToast, LV_OBJ_FLAG_HIDDEN);
   lv_timer_create(
@@ -849,7 +1071,8 @@ static void autoair_show_toast(const char *msg, uint32_t ms) {
 }
 
 static void autoair_update_button_style() {
-  if (!ui_AutoAirBtn || !ui_AutoAirBtnLabel) return;
+  if (!ui_AutoAirBtn || !ui_AutoAirBtnLabel)
+    return;
   bool inAirMode = (selectedPanel == AIR_PANEL_SELECTED) && tempSwitched;
 
   if (!inAirMode) {
@@ -861,7 +1084,7 @@ static void autoair_update_button_style() {
   } else {
     // Available — normal appearance, no "active" state
     lv_color_t bg = darkMode ? COLOR_PANEL_GRAY : COLOR_PANEL_WHITE;
-    lv_color_t fg = darkMode ? COLOR_TEXT_DARK  : lv_color_make(30, 30, 30);
+    lv_color_t fg = darkMode ? COLOR_TEXT_DARK : lv_color_make(30, 30, 30);
     lv_obj_add_flag(ui_AutoAirBtn, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_style_bg_color(ui_AutoAirBtn, bg, LV_PART_MAIN);
     lv_obj_set_style_opa(ui_AutoAirBtn, LV_OPA_COVER, LV_PART_MAIN);
@@ -870,7 +1093,8 @@ static void autoair_update_button_style() {
 }
 
 static void autoair_deactivate(bool fromModeSwitch) {
-  if (!g_autoAirActive) return;
+  if (!g_autoAirActive)
+    return;
   g_autoAirActive = false;
 
   // Re-enable manual temperature arrows
@@ -885,14 +1109,12 @@ static void autoair_deactivate(bool fromModeSwitch) {
 
   const char *msg;
   if (fromModeSwitch) {
-    msg = (g_lang == LANG_ES)
-              ? "AUTO AIR desactivado al cambiar a modo PIEL"
+    msg = (g_lang == LANG_ES) ? "AUTO AIR desactivado al cambiar a modo PIEL"
           : (g_lang == LANG_FR)
               ? "AUTO AIR desactive: passage en mode PEAU"
               : "AUTO AIR auto-deactivated: switched to SKIN mode";
   } else {
-    msg = (g_lang == LANG_ES)
-              ? "AUTO AIR desactivado - Control manual activo"
+    msg = (g_lang == LANG_ES) ? "AUTO AIR desactivado - Control manual activo"
           : (g_lang == LANG_FR)
               ? "AUTO AIR desactive - Controle manuel actif"
               : "AUTO AIR deactivated - Manual control active";
@@ -901,42 +1123,44 @@ static void autoair_deactivate(bool fromModeSwitch) {
   ESP_LOGI(TAG,
            "[AUTO-AIR] Deactivated. fromModeSwitch=%d "
            "weight=%dg gest=%dwk age=%dh",
-           (int)fromModeSwitch, g_babyWeightGrams,
-           g_babyGestWeeks, g_babyAgeHours);
+           (int)fromModeSwitch, g_babyWeightGrams, g_babyGestWeeks,
+           g_babyAgeHours);
 }
 
 static void autoair_activate(float setpoint, const char *rowDesc) {
   // Clamp to AIR range and round to 0.1 °C step
-  if (setpoint < (float)AIR_TEMP_MIN) setpoint = (float)AIR_TEMP_MIN;
-  if (setpoint > (float)AIR_TEMP_MAX) setpoint = (float)AIR_TEMP_MAX;
+  if (setpoint < (float)AIR_TEMP_MIN)
+    setpoint = (float)AIR_TEMP_MIN;
+  if (setpoint > (float)AIR_TEMP_MAX)
+    setpoint = (float)AIR_TEMP_MAX;
   setpoint = (float)((int)(setpoint * 10.0f + 0.5f)) * 0.1f;
 
-  airTempValue      = setpoint;
+  airTempValue = setpoint;
   hmi_msg.desiredAirTemperature = airTempValue;
   hmi_msg.shouldSendData = true;
-  EEPROM.writeFloat(EEPROM_DESIRED_AIR_TEMP, airTempValue);
+  g_autoAirActive = true;
+  { Preferences p; p.begin(HMI_NS_CFG, false); p.putFloat(HMI_KEY_AIR_TEMP, (float)airTempValue); p.end(); }
   eepromDirty = true;
   lastVarChangeTime = millis();
 
   update_labels();
 
-  const char *msg = (g_lang == LANG_ES)
-      ? "Temperatura recomendada Auto Air aplicada"
-  : (g_lang == LANG_FR)
-      ? "Temperature recommandee Auto Air appliquee"
-      : "Auto Air recommended temperature applied";
+  const char *msg =
+      (g_lang == LANG_ES)   ? "Temperatura recomendada Auto Air aplicada"
+      : (g_lang == LANG_FR) ? "Temperature recommandee Auto Air appliquee"
+                            : "Auto Air recommended temperature applied";
   autoair_show_toast(msg, 4000);
 
   ESP_LOGI(TAG,
            "[AUTO-AIR] Recommendation applied. Setpoint=%.1f degC row='%s' "
            "weight=%dg gest=%dwk age=%dh ts=%lu",
-           setpoint, rowDesc,
-           g_babyWeightGrams, g_babyGestWeeks, g_babyAgeHours,
-           (unsigned long)millis());
+           setpoint, rowDesc, g_babyWeightGrams, g_babyGestWeeks,
+           g_babyAgeHours, (unsigned long)millis());
 }
 
 static void aa_update_marker_pos(float sp) {
-  if (!aa_setpoint_marker) return;
+  if (!aa_setpoint_marker)
+    return;
   if (sp <= 0.0f || aa_popup_hi <= aa_popup_lo) {
     lv_obj_add_flag(aa_setpoint_marker, LV_OBJ_FLAG_HIDDEN);
     return;
@@ -945,42 +1169,54 @@ static void aa_update_marker_pos(float sp) {
   // Map sp within [lo, hi]: hi → top of bar (y=22), lo → bottom (y=22+288)
   // bar_h=320, marker_h=32 → travel = 320-32 = 288
   float fraction = (aa_popup_hi - sp) / (aa_popup_hi - aa_popup_lo);
-  if (fraction < 0.0f) fraction = 0.0f;
-  if (fraction > 1.0f) fraction = 1.0f;
+  if (fraction < 0.0f)
+    fraction = 0.0f;
+  if (fraction > 1.0f)
+    fraction = 1.0f;
   int y = 22 + (int)(fraction * (320 - 32));
   lv_obj_set_pos(aa_setpoint_marker, 70, y);
 
   // Move aa_label_mid to track the marker vertically in real time
   if (aa_label_mid) {
-    int label_y = y + 16 - 17;  // center M28 label (~34px) on marker center (y+16)
-    if (label_y < 22)  label_y = 22;
-    if (label_y > 310) label_y = 310;  // 22 + 320 - 32 = 310 (max marker y)
+    int label_y =
+        y + 16 - 17; // center M28 label (~34px) on marker center (y+16)
+    if (label_y < 22)
+      label_y = 22;
+    if (label_y > 310)
+      label_y = 310; // 22 + 320 - 32 = 310 (max marker y)
     lv_obj_set_pos(aa_label_mid, 5, label_y);
   }
 }
 
 static void aa_update_range_display() {
-  if (!aa_range_bar || !aa_label_hi || !aa_label_mid || !aa_label_lo || !aa_setpoint_label) return;
+  if (!aa_range_bar || !aa_label_hi || !aa_label_mid || !aa_label_lo ||
+      !aa_setpoint_label)
+    return;
   char rowDesc[48];
   float lo, hi;
-  float sp = autoair_calculate_setpoint(g_popupWeight, g_popupGest, g_popupAgeHours,
-                                         rowDesc, sizeof(rowDesc), &lo, &hi);
+  float sp =
+      autoair_calculate_setpoint(g_popupWeight, g_popupGest, g_popupAgeHours,
+                                 rowDesc, sizeof(rowDesc), &lo, &hi);
   char buf[16];
   if (sp < 0.0f) {
-    lv_label_set_text(aa_label_hi,  "--.-");
+    lv_label_set_text(aa_label_hi, "--.-");
     lv_label_set_text(aa_label_mid, "--.-");
-    lv_label_set_text(aa_label_lo,  "--.-");
+    lv_label_set_text(aa_label_lo, "--.-");
     lv_label_set_text(aa_setpoint_label, "--.-");
     aa_update_marker_pos(-1.0f);
-    aa_popup_lo = 0.0f; aa_popup_hi = 0.0f; aa_popup_setpoint = 0.0f;
+    aa_popup_lo = 0.0f;
+    aa_popup_hi = 0.0f;
+    aa_popup_setpoint = 0.0f;
     return;
   }
   aa_popup_lo = lo;
   aa_popup_hi = hi;
   // Midpoint rounded to 0.2°C grid
   float mid = (float)((int)(sp * 5.0f + 0.5f)) * 0.2f;
-  if (mid < lo) mid = lo;
-  if (mid > hi) mid = hi;
+  if (mid < lo)
+    mid = lo;
+  if (mid > hi)
+    mid = hi;
   aa_popup_setpoint = mid;
 
   snprintf(buf, sizeof(buf), "%.1f", hi);
@@ -995,30 +1231,35 @@ static void aa_update_range_display() {
 }
 
 static void autoair_popup_update_labels() {
-  if (!ui_AutoAirWeightVal || !ui_AutoAirGestVal || !ui_AutoAirDaysVal) return;
+  if (!ui_AutoAirWeightVal || !ui_AutoAirGestVal || !ui_AutoAirDaysVal)
+    return;
   char buf[12];
   snprintf(buf, sizeof(buf), "%d", g_popupWeight);
   lv_label_set_text(ui_AutoAirWeightVal, buf);
   snprintf(buf, sizeof(buf), "%d", g_popupGest);
   lv_label_set_text(ui_AutoAirGestVal, buf);
   snprintf(buf, sizeof(buf), "%d", g_popupAgeHours / 24 + 1);
-  if (ui_AutoAirDaysUnitLbl) lv_label_set_text(ui_AutoAirDaysUnitLbl, "DAYS");
+  if (ui_AutoAirDaysUnitLbl)
+    lv_label_set_text(ui_AutoAirDaysUnitLbl, "DAYS");
   lv_label_set_text(ui_AutoAirDaysVal, buf);
   aa_update_range_display();
-  // Persist popup values with deferred commit (same pattern as rest of project)
-  EEPROM.writeUShort(EEPROM_AUTOAIR_WEIGHT, (uint16_t)g_popupWeight);
-  EEPROM.write(EEPROM_AUTOAIR_GEST,         (uint8_t)g_popupGest);
-  EEPROM.writeUShort(EEPROM_AUTOAIR_AGE_H,  (uint16_t)g_popupAgeHours);
+  // Persist popup values
+  { Preferences p; p.begin(HMI_NS_CFG, false);
+    p.putUShort(HMI_KEY_AA_WEIGHT, (uint16_t)g_popupWeight);
+    p.putUChar (HMI_KEY_AA_GEST,   (uint8_t)g_popupGest);
+    p.putUShort(HMI_KEY_AA_AGE_H,  (uint16_t)g_popupAgeHours);
+    p.end(); }
   eepromDirty = true;
   lastVarChangeTime = millis();
 }
 
 static void autoair_popup_show(bool show) {
-  if (!ui_AutoAirOverlay) return;
+  if (!ui_AutoAirOverlay)
+    return;
   if (show) {
     autoair_apply_language(g_lang);
-    g_popupWeight = (g_babyWeightGrams > 0)  ? g_babyWeightGrams : 1500;
-    g_popupGest   = (g_babyGestWeeks   > 0)  ? g_babyGestWeeks   : 32;
+    g_popupWeight = (g_babyWeightGrams > 0) ? g_babyWeightGrams : 1500;
+    g_popupGest = (g_babyGestWeeks > 0) ? g_babyGestWeeks : 32;
     g_popupAgeHours = (g_babyAgeHours >= 0) ? g_babyAgeHours : 0;
     autoair_popup_update_labels();
     if (ui_AutoAirErrLabel)
@@ -1032,29 +1273,38 @@ static void autoair_popup_show(bool show) {
 
 // Popup spinbox callbacks
 void aa_weight_dec_cb(lv_event_t *) {
-  if (g_popupWeight > 100) g_popupWeight -= 50;
+  if (g_popupWeight > 100)
+    g_popupWeight -= 50;
   autoair_popup_update_labels();
+  hmi_msg.shouldSendData = true;
 }
 void aa_weight_inc_cb(lv_event_t *) {
-  if (g_popupWeight < 5000) g_popupWeight += 50;
+  if (g_popupWeight < 5000)
+    g_popupWeight += 50;
   autoair_popup_update_labels();
+  hmi_msg.shouldSendData = true;
 }
 void aa_gest_dec_cb(lv_event_t *) {
-  if (g_popupGest > 24) g_popupGest--;
+  if (g_popupGest > 24)
+    g_popupGest--;
   autoair_popup_update_labels();
+  hmi_msg.shouldSendData = true;
 }
 void aa_gest_inc_cb(lv_event_t *) {
-  if (g_popupGest < 44) g_popupGest++;
+  if (g_popupGest < 44)
+    g_popupGest++;
   autoair_popup_update_labels();
+  hmi_msg.shouldSendData = true;
 }
 // One step per day; value = hours at the START of that day → day N = (N-1)*24 h
 // Day 1 = 0 h (maps to clinical period D1: 0–24 h)
 static const int AA_AGE_SNAPS[] = {
-    0,  24,  48,  72,  96, 120, 144, 168, 192, 216, 240, 264,   // days  1–12
-  288, 312, 336, 360, 384, 408, 432, 456, 480, 504, 528, 552,   // days 13–24
-  576, 600, 624, 648                                             // days 25–28
+    0,   24,  48,  72,  96,  120, 144, 168, 192, 216, 240, 264, // days  1–12
+    288, 312, 336, 360, 384, 408, 432, 456, 480, 504, 528, 552, // days 13–24
+    576, 600, 624, 648                                          // days 25–28
 };
-static const int AA_AGE_SNAPS_N = (int)(sizeof(AA_AGE_SNAPS) / sizeof(AA_AGE_SNAPS[0]));
+static const int AA_AGE_SNAPS_N =
+    (int)(sizeof(AA_AGE_SNAPS) / sizeof(AA_AGE_SNAPS[0]));
 
 void aa_days_dec_cb(lv_event_t *) {
   for (int i = AA_AGE_SNAPS_N - 1; i >= 0; i--) {
@@ -1064,6 +1314,7 @@ void aa_days_dec_cb(lv_event_t *) {
     }
   }
   autoair_popup_update_labels();
+  hmi_msg.shouldSendData = true;
 }
 void aa_days_inc_cb(lv_event_t *) {
   for (int i = 0; i < AA_AGE_SNAPS_N; i++) {
@@ -1073,16 +1324,16 @@ void aa_days_inc_cb(lv_event_t *) {
     }
   }
   autoair_popup_update_labels();
+  hmi_msg.shouldSendData = true;
 }
 
 void aa_confirm_cb(lv_event_t *) {
+  hmi_msg.shouldSendData = true;
   if (g_popupWeight <= 0 || g_popupGest <= 0 || g_popupAgeHours < 0) {
     if (ui_AutoAirErrLabel) {
-      const char *errTxt = (g_lang == LANG_ES)
-          ? "Faltan datos del bebe"
-      : (g_lang == LANG_FR)
-          ? "Donnees du bebe manquantes"
-          : "Missing baby data";
+      const char *errTxt = (g_lang == LANG_ES)   ? "Faltan datos del bebe"
+                           : (g_lang == LANG_FR) ? "Donnees du bebe manquantes"
+                                                 : "Missing baby data";
       lv_label_set_text(ui_AutoAirErrLabel, errTxt);
       lv_obj_clear_flag(ui_AutoAirErrLabel, LV_OBJ_FLAG_HIDDEN);
     }
@@ -1090,35 +1341,42 @@ void aa_confirm_cb(lv_event_t *) {
   }
   if (aa_popup_setpoint <= 0.0f) {
     if (ui_AutoAirErrLabel) {
-      const char *errTxt = (g_lang == LANG_ES)
-          ? "Rango no calculado"
-      : (g_lang == LANG_FR)
-          ? "Plage non calculee"
-          : "Range not computed";
+      const char *errTxt = (g_lang == LANG_ES)   ? "Rango no calculado"
+                           : (g_lang == LANG_FR) ? "Plage non calculee"
+                                                 : "Range not computed";
       lv_label_set_text(ui_AutoAirErrLabel, errTxt);
       lv_obj_clear_flag(ui_AutoAirErrLabel, LV_OBJ_FLAG_HIDDEN);
     }
     return;
   }
   g_babyWeightGrams = g_popupWeight;
-  g_babyGestWeeks   = g_popupGest;
-  g_babyAgeHours    = g_popupAgeHours;
+  g_babyGestWeeks = g_popupGest;
+  g_babyAgeHours = g_popupAgeHours;
+  // Forward baby data to motherboard so it can be published to ThingsBoard.
+  // Age is stored internally as hours at start of day (day N → (N-1)*24),
+  // converted to clinical day-of-life (1..29) on the wire.
+  hmi_msg.babyWeightGrams = g_babyWeightGrams;
+  hmi_msg.babyGestWeeks = g_babyGestWeeks;
+  hmi_msg.babyAgeDays = (g_babyAgeHours / 24) + 1;
   char rowDesc[48];
-  autoair_calculate_setpoint(g_babyWeightGrams, g_babyGestWeeks,
-                              g_babyAgeHours, rowDesc, sizeof(rowDesc));
+  autoair_calculate_setpoint(g_babyWeightGrams, g_babyGestWeeks, g_babyAgeHours,
+                             rowDesc, sizeof(rowDesc));
   autoair_popup_show(false);
   autoair_activate(aa_popup_setpoint, rowDesc);
 }
 
 void aa_cancel_cb(lv_event_t *) {
   autoair_popup_show(false);
+  hmi_msg.shouldSendData = true;
 }
 
 static void aa_apply_setpoint(float sp) {
   int steps = (int)(sp * 10.0f + 0.5f);
   sp = (float)steps * 0.1f;
-  if (sp < aa_popup_lo) sp = aa_popup_lo;
-  if (sp > aa_popup_hi) sp = aa_popup_hi;
+  if (sp < aa_popup_lo)
+    sp = aa_popup_lo;
+  if (sp > aa_popup_hi)
+    sp = aa_popup_hi;
   aa_popup_setpoint = sp;
   if (aa_label_mid && aa_setpoint_label) {
     char buf[12];
@@ -1131,43 +1389,53 @@ static void aa_apply_setpoint(float sp) {
 }
 
 void aa_bar_drag_cb(lv_event_t *) {
-  if (aa_popup_hi <= aa_popup_lo || !aa_range_bar) return;
+  if (aa_popup_hi <= aa_popup_lo || !aa_range_bar)
+    return;
   lv_indev_t *indev = lv_indev_get_act();
-  if (!indev) return;
+  if (!indev)
+    return;
   lv_point_t pt;
   lv_indev_get_point(indev, &pt);
   lv_area_t coords;
   lv_obj_get_coords(aa_range_bar, &coords);
-  int bar_h = coords.y2 - coords.y1;       // 320
-  int rel_y = pt.y - coords.y1 - 16;       // 16 = half marker height (32/2), centres on finger
+  int bar_h = coords.y2 - coords.y1; // 320
+  int rel_y = pt.y - coords.y1 -
+              16; // 16 = half marker height (32/2), centres on finger
   float fraction = (float)rel_y / (float)(bar_h - 32);
-  if (fraction < 0.0f) fraction = 0.0f;
-  if (fraction > 1.0f) fraction = 1.0f;
+  if (fraction < 0.0f)
+    fraction = 0.0f;
+  if (fraction > 1.0f)
+    fraction = 1.0f;
   float sp = aa_popup_hi - fraction * (aa_popup_hi - aa_popup_lo);
   aa_apply_setpoint(sp);
 }
 
 void aa_setpoint_up_cb(lv_event_t *) {
-  if (aa_popup_hi <= 0.0f) return;
+  if (aa_popup_hi <= 0.0f)
+    return;
   int steps = (int)(aa_popup_setpoint * 10.0f + 0.5f) + 1;
   aa_apply_setpoint((float)steps * 0.1f);
+  hmi_msg.shouldSendData = true;
 }
 
 void aa_setpoint_down_cb(lv_event_t *) {
-  if (aa_popup_lo <= 0.0f) return;
+  if (aa_popup_lo <= 0.0f)
+    return;
   int steps = (int)(aa_popup_setpoint * 10.0f + 0.5f) - 1;
   aa_apply_setpoint((float)steps * 0.1f);
+  hmi_msg.shouldSendData = true;
 }
 
 void AutoAirBtn_cb(lv_event_t *e) {
-  if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+  if (lv_event_get_code(e) != LV_EVENT_CLICKED)
+    return;
+  hmi_msg.shouldSendData = true;
 
   if (selectedPanel != AIR_PANEL_SELECTED || !tempSwitched) {
-    const char *msg = (g_lang == LANG_ES)
-        ? "Disponible solo en modo AIR"
-    : (g_lang == LANG_FR)
-        ? "Disponible uniquement en mode AIR"
-        : "Available in AIR mode only";
+    const char *msg = (g_lang == LANG_ES) ? "Disponible solo en modo AIR"
+                      : (g_lang == LANG_FR)
+                          ? "Disponible uniquement en mode AIR"
+                          : "Available in AIR mode only";
     autoair_show_toast(msg, 3000);
     return;
   }
@@ -1201,6 +1469,46 @@ void WifiButton_cb(lv_event_t *e) {
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
   isConnected = (WiFi.status() == WL_CONNECTED);
+
+  // Pre-fill TextAreas with saved credentials so the user only needs to
+  // correct what's wrong. Falls back to compile-time defaults if EEPROM
+  // is empty or contains invalid (non-printable) data.
+  if (!isConnected) {
+    String savedSSID, savedPass;
+    { Preferences p; p.begin(HMI_NS_WIFI, true);
+      savedSSID = p.getString(HMI_KEY_SSID,     "");
+      savedPass = p.getString(HMI_KEY_PASSWORD, "");
+      p.end(); }
+
+    // Validate: 1–32 printable ASCII chars for SSID, up to 63 for password
+    auto isValidCred = [](const String &s, size_t maxLen) -> bool {
+      if (s.length() == 0 || s.length() > maxLen)
+        return false;
+      for (size_t i = 0; i < s.length(); i++) {
+        uint8_t c = (uint8_t)s[i];
+        if (c < 0x20 || c > 0x7E)
+          return false;
+      }
+      return true;
+    };
+
+    if (!isValidCred(savedSSID, 32)) {
+      savedSSID = WIFI_SSID;
+      savedPass = WIFI_PASSWORD;
+      ESP_LOGW("WiFiUI", "EEPROM credentials invalid, showing defaults");
+    }
+
+    strncpy(wifi_ssid, savedSSID.c_str(), sizeof(wifi_ssid) - 1);
+    wifi_ssid[sizeof(wifi_ssid) - 1] = '\0';
+    strncpy(wifi_pass, savedPass.c_str(), sizeof(wifi_pass) - 1);
+    wifi_pass[sizeof(wifi_pass) - 1] = '\0';
+
+    if (ui_TextArea1)
+      lv_textarea_set_text(ui_TextArea1, wifi_ssid);
+    if (ui_TextArea2)
+      lv_textarea_set_text(ui_TextArea2, wifi_pass);
+  }
+
   if (isConnected) {
     lv_obj_clear_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
   } else {
@@ -1272,8 +1580,10 @@ void Keyboard_cb(lv_event_t *e) {
     lv_obj_add_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
     const char *txt1 = lv_textarea_get_text(ui_TextArea1);
     const char *txt2 = lv_textarea_get_text(ui_TextArea2);
-    strncpy(wifi_ssid, txt1, sizeof(wifi_ssid));
-    strncpy(wifi_pass, txt2, sizeof(wifi_pass));
+    strncpy(wifi_ssid, txt1, sizeof(wifi_ssid) - 1);
+    wifi_ssid[sizeof(wifi_ssid) - 1] = '\0';
+    strncpy(wifi_pass, txt2, sizeof(wifi_pass) - 1);
+    wifi_pass[sizeof(wifi_pass) - 1] = '\0';
     updateButtonVisibility();
   }
 }
@@ -1347,7 +1657,7 @@ void PhotoTimeMinusBtn_cb(lv_event_t *e) {
   lv_label_set_text(ui_PhotoTimeValueLabel, buf);
 
   // Persist last used timer
-  EEPROM.write(EEPROM_PHOTO_TIMER_MINUTES, photoTimerMinutes);
+  { Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_PHOTO_MIN, (uint8_t)photoTimerMinutes); p.end(); }
   eepromDirty = true;
   lastVarChangeTime = millis();
 }
@@ -1367,7 +1677,7 @@ void PhotoTimePlusBtn_cb(lv_event_t *e) {
   lv_label_set_text(ui_PhotoTimeValueLabel, buf);
 
   // Persist last used timer
-  EEPROM.write(EEPROM_PHOTO_TIMER_MINUTES, photoTimerMinutes);
+  { Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_PHOTO_MIN, (uint8_t)photoTimerMinutes); p.end(); }
   eepromDirty = true;
   lastVarChangeTime = millis();
 }
@@ -1543,7 +1853,8 @@ void Switch_cb(lv_event_t *e) {
       // Reset timer UI if no timer is running
       if (!photoTimerActive) {
         char buf[16];
-        snprintf(buf, sizeof(buf), "%d:%02d", photoTimerMinutes / SECONDS_PER_MINUTE,
+        snprintf(buf, sizeof(buf), "%d:%02d",
+                 photoTimerMinutes / SECONDS_PER_MINUTE,
                  photoTimerMinutes % SECONDS_PER_MINUTE);
         lv_label_set_text(ui_PhotoTimeValueLabel, buf);
 
@@ -1641,14 +1952,14 @@ void Switch_cb(lv_event_t *e) {
   } else if (obj == ui_SwitchDarkMode) { // DARK MODE SWITCH
     bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
     darkMode = checked;
-    EEPROM.write(EEPROM_DARK_MODE, darkMode ? 1 : 0);
+    { Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_DARK_MODE, darkMode ? 1 : 0); p.end(); }
     eepromDirty = true;
     lastVarChangeTime = millis();
     UI_ApplyTheme();
   } else if (obj == ui_SwitchHumidityMode) { // HUMIDITY ENABLE SWITCH
     bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
     humidityEnabled = checked;
-    EEPROM.write(EEPROM_HUMIDITY_ENABLED, humidityEnabled ? 1 : 0);
+    { Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_HUM_EN, humidityEnabled ? 1 : 0); p.end(); }
     eepromDirty = true;
     lastVarChangeTime = millis();
     if (humidityEnabled) {
@@ -1799,13 +2110,13 @@ void setup_arrow_callbacks() {
             if (airTempValue > AIR_TEMP_MAX)
               airTempValue = AIR_TEMP_MAX;
             hmi_msg.desiredAirTemperature = airTempValue;
-            EEPROM.writeFloat(EEPROM_DESIRED_AIR_TEMP, airTempValue);
+            { Preferences p; p.begin(HMI_NS_CFG, false); p.putFloat(HMI_KEY_AIR_TEMP, (float)airTempValue); p.end(); }
           } else if (selectedPanel == SKIN_PANEL_SELECTED) {
             skinTempValue += TEMP_INCREMENT;
             if (skinTempValue > SKIN_TEMP_MAX)
               skinTempValue = SKIN_TEMP_MAX;
             hmi_msg.desiredSkinTemperature = skinTempValue;
-            EEPROM.writeFloat(EEPROM_DESIRED_SKIN_TEMP, skinTempValue);
+            { Preferences p; p.begin(HMI_NS_CFG, false); p.putFloat(HMI_KEY_SKIN_TEMP, (float)skinTempValue); p.end(); }
           }
           hmi_msg.shouldSendData = true;
           eepromDirty = true;
@@ -1835,13 +2146,13 @@ void setup_arrow_callbacks() {
             if (airTempValue < AIR_TEMP_MIN)
               airTempValue = AIR_TEMP_MIN;
             hmi_msg.desiredAirTemperature = airTempValue;
-            EEPROM.writeFloat(EEPROM_DESIRED_AIR_TEMP, airTempValue);
+            { Preferences p; p.begin(HMI_NS_CFG, false); p.putFloat(HMI_KEY_AIR_TEMP, (float)airTempValue); p.end(); }
           } else if (selectedPanel == SKIN_PANEL_SELECTED) {
             skinTempValue -= TEMP_INCREMENT;
             if (skinTempValue < SKIN_TEMP_MIN)
               skinTempValue = SKIN_TEMP_MIN;
             hmi_msg.desiredSkinTemperature = skinTempValue;
-            EEPROM.writeFloat(EEPROM_DESIRED_SKIN_TEMP, skinTempValue);
+            { Preferences p; p.begin(HMI_NS_CFG, false); p.putFloat(HMI_KEY_SKIN_TEMP, (float)skinTempValue); p.end(); }
           }
           hmi_msg.shouldSendData = true;
           eepromDirty = true;
@@ -1873,7 +2184,7 @@ void setup_arrow_hum_callbacks() {
             humValue = HUM_MAX;
           hmi_msg.desiredHumidity = humValue;
           hmi_msg.shouldSendData = true;
-          EEPROM.write(EEPROM_DESIRED_HUMIDITY, humValue);
+          { Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_HUMIDITY, (uint8_t)humValue); p.end(); }
           eepromDirty = true;
           lastVarChangeTime = millis();
           update_labels();
@@ -1901,7 +2212,7 @@ void setup_arrow_hum_callbacks() {
             humValue = HUM_MIN;
           hmi_msg.desiredHumidity = humValue;
           hmi_msg.shouldSendData = true;
-          EEPROM.write(EEPROM_DESIRED_HUMIDITY, humValue);
+          { Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_HUMIDITY, (uint8_t)humValue); p.end(); }
           eepromDirty = true;
           lastVarChangeTime = millis();
           update_labels();
@@ -2316,6 +2627,7 @@ static void show_targets_for_mode(void) {
 
 static void unlock_timeout_cb(lv_timer_t *t) {
   (void)t;
+  locked = true;
   show_targets_for_mode();
   if (unlockTimeoutTimer) {
     lv_timer_del(unlockTimeoutTimer);
@@ -2429,20 +2741,36 @@ void LockScreenAnyTouch_cb(lv_event_t *e) {
   }
 }
 
+static void lock_stop_debounce_cb(lv_timer_t *t) {
+  (void)t;
+  lockStopDebounceTimer = NULL;
+  stop_lock_progress();
+  if (unlockTimeoutTimer) {
+    lv_timer_resume(unlockTimeoutTimer);
+    lv_timer_reset(unlockTimeoutTimer);
+  }
+}
+
 static void UnlockCont_event_cb(lv_event_t *e) {
   lv_event_code_t code = lv_event_get_code(e);
   if (code == LV_EVENT_PRESSED) {
-    start_lock_progress();
-    // Pause timeout timer while pressing
+    // Cancel any pending stop (handles finger drift between children)
+    if (lockStopDebounceTimer) {
+      lv_timer_del(lockStopDebounceTimer);
+      lockStopDebounceTimer = NULL;
+    }
+    // Only start if not already running (prevents duplicate events)
+    if (!lockProgressTimer) {
+      start_lock_progress();
+    }
     if (unlockTimeoutTimer) {
       lv_timer_pause(unlockTimeoutTimer);
     }
   } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
-    stop_lock_progress();
-    // Resume/Reset timeout timer when released
-    if (unlockTimeoutTimer) {
-      lv_timer_resume(unlockTimeoutTimer);
-      lv_timer_reset(unlockTimeoutTimer);
+    // Debounce: tolerate brief finger drift between children (150 ms window)
+    if (!lockStopDebounceTimer) {
+      lockStopDebounceTimer = lv_timer_create(lock_stop_debounce_cb, 20, NULL);
+      lv_timer_set_repeat_count(lockStopDebounceTimer, 1);
     }
   }
 }
@@ -2486,8 +2814,7 @@ void WifiConnectButton_cb(lv_event_t *e) {
   vTaskDelay(
       pdMS_TO_TICKS(100)); // Ensure serial is clear before WiFi logs start
   wifiInit();              // Trigger new connection attempt
-  isConnected = true;
-  updateButtonVisibility();
+  // isConnected se actualiza en el loop principal via WiFi.status()
 }
 
 void WifiDisconnectButton_cb(lv_event_t *e) {
@@ -2630,22 +2957,121 @@ void VolumeDown_cb(lv_event_t *e) {
 }
 
 // ==========================================
+// Power-Off Popup
+// ==========================================
+static void pwroff_create_popup(void) {
+  if (ui_PwrOffOverlay)
+    return; // already created
+
+  // Semi-transparent dark overlay covering the whole screen
+  ui_PwrOffOverlay = lv_obj_create(lv_layer_top());
+  lv_obj_remove_style_all(ui_PwrOffOverlay);
+  lv_obj_set_size(ui_PwrOffOverlay, DISPLAY_WIDTH, DISPLAY_HEIGHT);
+  lv_obj_set_style_bg_color(ui_PwrOffOverlay, lv_color_black(), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(ui_PwrOffOverlay, LV_OPA_70, LV_PART_MAIN);
+  lv_obj_clear_flag(ui_PwrOffOverlay, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_center(ui_PwrOffOverlay);
+
+  // Arc (progress ring) — 150x150, range 0..360
+  ui_PwrOffArc = lv_arc_create(ui_PwrOffOverlay);
+  lv_obj_set_size(ui_PwrOffArc, 150, 150);
+  lv_obj_center(ui_PwrOffArc);
+  lv_arc_set_rotation(ui_PwrOffArc, 270); // start from top
+  lv_arc_set_range(ui_PwrOffArc, 0, 360);
+  lv_arc_set_value(ui_PwrOffArc, 0);
+  lv_arc_set_bg_angles(ui_PwrOffArc, 0, 360);            // full background ring
+  lv_obj_remove_style(ui_PwrOffArc, NULL, LV_PART_KNOB); // hide knob
+  lv_obj_clear_flag(ui_PwrOffArc, LV_OBJ_FLAG_CLICKABLE);
+
+  // Arc style: white indicator on dark grey background
+  lv_obj_set_style_arc_color(ui_PwrOffArc, lv_color_hex(0x333333),
+                             LV_PART_MAIN); // bg ring
+  lv_obj_set_style_arc_width(ui_PwrOffArc, 8, LV_PART_MAIN);
+  lv_obj_set_style_arc_color(ui_PwrOffArc, lv_color_hex(0xFF3333),
+                             LV_PART_INDICATOR); // progress ring (red)
+  lv_obj_set_style_arc_width(ui_PwrOffArc, 8, LV_PART_INDICATOR);
+
+  // Power symbol label centered inside the arc
+  ui_PwrOffSymbol = lv_label_create(ui_PwrOffOverlay);
+  lv_label_set_text(ui_PwrOffSymbol, LV_SYMBOL_POWER);
+  lv_obj_set_style_text_color(ui_PwrOffSymbol, lv_color_white(), LV_PART_MAIN);
+  lv_obj_set_style_text_font(ui_PwrOffSymbol, &lv_font_montserrat_48,
+                             LV_PART_MAIN);
+  lv_obj_center(ui_PwrOffSymbol);
+
+  lv_obj_add_flag(ui_PwrOffOverlay, LV_OBJ_FLAG_HIDDEN); // hidden by default
+}
+
+static void pwroff_show(void) {
+  if (!ui_PwrOffOverlay)
+    pwroff_create_popup();
+  lv_arc_set_value(ui_PwrOffArc, 0);
+  lv_obj_clear_flag(ui_PwrOffOverlay, LV_OBJ_FLAG_HIDDEN);
+  pwrOffPopupVisible = true;
+}
+
+static void pwroff_hide(void) {
+  if (ui_PwrOffOverlay) {
+    lv_obj_add_flag(ui_PwrOffOverlay, LV_OBJ_FLAG_HIDDEN);
+  }
+  pwrOffPopupVisible = false;
+}
+
+static void pwroff_update(void) {
+  if (g_pwrOffActive) {
+    if (!pwrOffPopupVisible) {
+      pwroff_show();
+    }
+    // Calculate arc angle: 0 at start → 360 when remaining reaches 0
+    int elapsed = PWR_OFF_TOTAL_MS - g_pwrOffRemainingMs;
+    if (elapsed < 0)
+      elapsed = 0;
+    if (elapsed > PWR_OFF_TOTAL_MS)
+      elapsed = PWR_OFF_TOTAL_MS;
+    int angle = (elapsed * 360) / PWR_OFF_TOTAL_MS;
+    lv_arc_set_value(ui_PwrOffArc, angle);
+
+    // Shutdown: remaining reached 0
+    if (g_pwrOffRemainingMs <= 0) {
+      lv_arc_set_value(ui_PwrOffArc, 360);
+      lv_timer_handler(); // flush last frame
+
+      // Turn off backlight via I2C
+      Wire.beginTransmission(I2C_ADDR_BACKLIGHT);
+      Wire.write(DISPLAY_BL_OFF_VALUE);
+      Wire.endTransmission();
+
+      // Halt — device power will be cut by motherboard
+      while (true) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+      }
+    }
+  } else {
+    if (pwrOffPopupVisible) {
+      pwroff_hide();
+    }
+  }
+}
+
+// ==========================================
 // Main Task
 // ==========================================
 void UI_Task(void *pvParameters) {
   ESP_LOGI(TAG, "UI Task Started");
 
   // CrowPanel STC8H1K28 init + Backlight (I2C 0x30)
+  // On crash recovery the STC8 keeps its state, so skip init delays and
+  // only send the backlight-on command to confirm the screen stays lit.
   {
-    vTaskDelay(pdMS_TO_TICKS(100));
-
-    // STC8 requires these commands before it accepts the backlight command
-    uint8_t init_cmds[] = {I2C_CMD_BUZZER_OFF, I2C_CMD_SPEAKER_ON}; // Buzzer OFF, Speaker ON
-    for (uint8_t cmd : init_cmds) {
-      Wire.beginTransmission(I2C_ADDR_BACKLIGHT);
-      Wire.write(cmd);
-      Wire.endTransmission();
-      vTaskDelay(pdMS_TO_TICKS(20));
+    if (!g_hmiRestoreState) {
+      vTaskDelay(pdMS_TO_TICKS(100));
+      uint8_t init_cmds[] = {I2C_CMD_BUZZER_OFF, I2C_CMD_SPEAKER_ON};
+      for (uint8_t cmd : init_cmds) {
+        Wire.beginTransmission(I2C_ADDR_BACKLIGHT);
+        Wire.write(cmd);
+        Wire.endTransmission();
+        vTaskDelay(pdMS_TO_TICKS(20));
+      }
     }
 
     // Según doc v1.3: 0 es Brillo Máximo, 245 es Apagado.
@@ -2653,19 +3079,24 @@ void UI_Task(void *pvParameters) {
     Wire.write(DISPLAY_BL_ON_VALUE);
     Wire.endTransmission();
 
-    vTaskDelay(pdMS_TO_TICKS(100));
+    if (!g_hmiRestoreState) {
+      vTaskDelay(pdMS_TO_TICKS(100));
+    }
   }
 
-  // Display initialization — leer freq_write de EEPROM antes de crear panel
+  // Display initialization — leer freq_write de Preferences antes de crear panel
   {
     uint32_t savedFreq = 0;
-    EEPROM.get(EEPROM_DISPLAY_FREQ, savedFreq);
+    { Preferences p; p.begin(HMI_NS_CFG, true);
+      savedFreq = p.getUInt(HMI_KEY_DISP_FREQ, 0);
+      p.end(); }
     if (savedFreq >= DISPLAY_FREQ_MIN && savedFreq <= DISPLAY_FREQ_MAX) {
       g_currentFreqWrite = savedFreq;
-      ESP_LOGW("LCD", "freq_write from EEPROM: %lu Hz", savedFreq);
+      ESP_LOGW("LCD", "freq_write from Preferences: %lu Hz", savedFreq);
     } else {
       g_currentFreqWrite = DISPLAY_FREQ_WRITE;
-      ESP_LOGI("LCD", "freq_write default: %lu Hz", (uint32_t)DISPLAY_FREQ_WRITE);
+      ESP_LOGI("LCD", "freq_write default: %lu Hz",
+               (uint32_t)DISPLAY_FREQ_WRITE);
     }
   }
 
@@ -2689,27 +3120,27 @@ void UI_Task(void *pvParameters) {
     panel_cfg.timings.flags.vsync_idle_low = !DISPLAY_VSYNC_POLARITY;
     panel_cfg.timings.flags.pclk_idle_high = DISPLAY_PCLK_IDLE_HIGH;
     panel_cfg.timings.flags.pclk_active_neg = DISPLAY_PCLK_ACTIVE_NEG;
-    panel_cfg.timings.flags.de_idle_high    = DISPLAY_DE_IDLE_HIGH;
+    panel_cfg.timings.flags.de_idle_high = DISPLAY_DE_IDLE_HIGH;
 
     panel_cfg.data_width = 16; // RGB565
-    panel_cfg.num_fbs = 1;     // Single FB + bounce buffers
-    panel_cfg.bounce_buffer_size_px = BOUNCE_BUF_SIZE_PX; // SRAM bounce buffers (anti-flicker)
+    panel_cfg.num_fbs = 1;
+    panel_cfg.bounce_buffer_size_px = BOUNCE_BUF_SIZE_PX;
     panel_cfg.psram_trans_align = 64;
     panel_cfg.sram_trans_align = 4;
-    panel_cfg.flags.fb_in_psram = 1;          // Framebuffer en PSRAM
-    panel_cfg.flags.bb_invalidate_cache = 1;  // Cache coherency para bounce buffers
+    panel_cfg.flags.fb_in_psram = 1;         // Framebuffer en PSRAM
+    panel_cfg.flags.bb_invalidate_cache = 0; // DMA usa bounce buffer completo
 
     // Pines de datos RGB565: B[4:0], G[5:0], R[4:0]
-    panel_cfg.data_gpio_nums[0]  = DISPLAY_PIN_B0;
-    panel_cfg.data_gpio_nums[1]  = DISPLAY_PIN_B1;
-    panel_cfg.data_gpio_nums[2]  = DISPLAY_PIN_B2;
-    panel_cfg.data_gpio_nums[3]  = DISPLAY_PIN_B3;
-    panel_cfg.data_gpio_nums[4]  = DISPLAY_PIN_B4;
-    panel_cfg.data_gpio_nums[5]  = DISPLAY_PIN_G0;
-    panel_cfg.data_gpio_nums[6]  = DISPLAY_PIN_G1;
-    panel_cfg.data_gpio_nums[7]  = DISPLAY_PIN_G2;
-    panel_cfg.data_gpio_nums[8]  = DISPLAY_PIN_G3;
-    panel_cfg.data_gpio_nums[9]  = DISPLAY_PIN_G4;
+    panel_cfg.data_gpio_nums[0] = DISPLAY_PIN_B0;
+    panel_cfg.data_gpio_nums[1] = DISPLAY_PIN_B1;
+    panel_cfg.data_gpio_nums[2] = DISPLAY_PIN_B2;
+    panel_cfg.data_gpio_nums[3] = DISPLAY_PIN_B3;
+    panel_cfg.data_gpio_nums[4] = DISPLAY_PIN_B4;
+    panel_cfg.data_gpio_nums[5] = DISPLAY_PIN_G0;
+    panel_cfg.data_gpio_nums[6] = DISPLAY_PIN_G1;
+    panel_cfg.data_gpio_nums[7] = DISPLAY_PIN_G2;
+    panel_cfg.data_gpio_nums[8] = DISPLAY_PIN_G3;
+    panel_cfg.data_gpio_nums[9] = DISPLAY_PIN_G4;
     panel_cfg.data_gpio_nums[10] = DISPLAY_PIN_G5;
     panel_cfg.data_gpio_nums[11] = DISPLAY_PIN_R0;
     panel_cfg.data_gpio_nums[12] = DISPLAY_PIN_R1;
@@ -2719,9 +3150,9 @@ void UI_Task(void *pvParameters) {
 
     panel_cfg.hsync_gpio_num = DISPLAY_PIN_HSYNC;
     panel_cfg.vsync_gpio_num = DISPLAY_PIN_VSYNC;
-    panel_cfg.de_gpio_num    = DISPLAY_PIN_DE;
-    panel_cfg.pclk_gpio_num  = DISPLAY_PIN_PCLK;
-    panel_cfg.disp_gpio_num  = -1; // No separate enable pin
+    panel_cfg.de_gpio_num = DISPLAY_PIN_DE;
+    panel_cfg.pclk_gpio_num = DISPLAY_PIN_PCLK;
+    panel_cfg.disp_gpio_num = -1; // No separate enable pin
 
     ESP_LOGI("LCD", "Creating RGB panel: %lux%lu @ %lu Hz, bounce=%d px",
              (uint32_t)DISPLAY_WIDTH, (uint32_t)DISPLAY_HEIGHT,
@@ -2731,10 +3162,23 @@ void UI_Task(void *pvParameters) {
     ESP_ERROR_CHECK(esp_lcd_panel_reset(lcd_panel));
     ESP_ERROR_CHECK(esp_lcd_panel_init(lcd_panel));
 
-    // No rotation (0°)
-    ESP_ERROR_CHECK(esp_lcd_panel_mirror(lcd_panel, false, false));
+    esp_lcd_rgb_panel_event_callbacks_t lcd_cbs = {
+        .on_vsync = lcd_on_vsync,
+        .on_bounce_empty = lcd_on_bounce_empty,
+    };
+    ESP_ERROR_CHECK(
+        esp_lcd_rgb_panel_register_event_callbacks(lcd_panel, &lcd_cbs, NULL));
+    ESP_LOGI("LCD", "Glitch diagnostics callbacks registered");
 
-    ESP_LOGI("LCD", "RGB panel initialized with bounce buffers OK");
+#if DISPLAY_ROTATE_180
+    ESP_ERROR_CHECK(esp_lcd_panel_mirror(lcd_panel, true, true));
+#else
+    ESP_ERROR_CHECK(esp_lcd_panel_mirror(lcd_panel, false, false));
+#endif
+
+    ESP_LOGW("LCD", "RGB panel initialized OK  [HEAP] internal=%u PSRAM=%u",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
   }
 
   lv_init();
@@ -2759,14 +3203,14 @@ void UI_Task(void *pvParameters) {
   }
 
   // ts.reset();
-  ts.setRotation(TOUCH_ROTATION); // ROTATION_INVERTED: raw coordinates, no mirror
+  ts.setRotation(TOUCH_ROTATION);
+  // Rotation already handled by esp_lcd_panel_mirror() above
 
   screenWidth = DISPLAY_WIDTH;
   screenHeight = DISPLAY_HEIGHT;
 
-  // Draw buffer parcial en SRAM interno (~48KB)
   lv_disp_draw_buf_init(&draw_buf, disp_draw_buf, NULL,
-                        screenWidth * screenHeight / COLOR_DIVISOR);
+                        DISPLAY_WIDTH * DISPLAY_HEIGHT / COLOR_DIVISOR);
 
   lv_disp_drv_init(&disp_drv);
   disp_drv.hor_res = screenWidth;
@@ -2893,19 +3337,32 @@ void UI_Task(void *pvParameters) {
   // --- AUTO AIR button & popup (UI-AUTOAIR-001..010) ---
   create_autoair_button();
   create_autoair_popup();
-  // Restore last-used Auto Air values from EEPROM
+  // Restore last-used Auto Air values from Preferences
   {
-    uint16_t w = EEPROM.readUShort(EEPROM_AUTOAIR_WEIGHT);
-    uint8_t  g = EEPROM.read(EEPROM_AUTOAIR_GEST);
-    uint16_t a = EEPROM.readUShort(EEPROM_AUTOAIR_AGE_H);
-    if (w >= 400 && w <= 5000)  g_babyWeightGrams = w;
-    if (g >= 22  && g <= 44)    g_babyGestWeeks   = g;
-    if (a <= 672)               g_babyAgeHours    = a;
+    uint16_t w = 0; uint8_t g = 0; uint16_t a = 0;
+    { Preferences p; p.begin(HMI_NS_CFG, true);
+      w = p.getUShort(HMI_KEY_AA_WEIGHT, 0);
+      g = p.getUChar (HMI_KEY_AA_GEST,   0);
+      a = p.getUShort(HMI_KEY_AA_AGE_H,  0);
+      p.end(); }
+    if (w >= 400 && w <= 5000)
+      g_babyWeightGrams = w;
+    if (g >= 22 && g <= 44)
+      g_babyGestWeeks = g;
+    if (a <= 672)
+      g_babyAgeHours = a;
   }
   autoair_update_button_style(); // set initial visual state after creation
 
-  intro_timer = lv_timer_create(intro_timer_cb, 5000, NULL);
-  lv_timer_set_repeat_count(intro_timer, 1);
+  if (g_hmiRestoreState) {
+    // Skip 5-second splash and go straight to lock screen on crash recovery
+    lv_scr_load(ui_ScreenMain);
+    enter_lock_screen();
+    intro_timer = NULL;
+  } else {
+    intro_timer = lv_timer_create(intro_timer_cb, 5000, NULL);
+    lv_timer_set_repeat_count(intro_timer, 1);
+  }
 
   // Visuals
   lv_bar_set_range(ui_AirTempBar, 0, TEMP_BAR_RANGE);
@@ -2921,6 +3378,7 @@ void UI_Task(void *pvParameters) {
   lv_obj_add_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
   lv_keyboard_set_textarea(ui_Keyboard1, NULL);
 
+  lv_textarea_set_text(ui_TextArea1, wifi_ssid);
   lv_textarea_set_text(ui_TextArea2, wifi_pass);
 
   lv_color_t init_panel_col = darkMode ? COLOR_PANEL_DARK : COLOR_PANEL_WHITE;
@@ -3005,10 +3463,10 @@ void UI_Task(void *pvParameters) {
   lv_obj_add_flag(ui_AlarmLockCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_clear_flag(ui_CheckImg, LV_OBJ_FLAG_HIDDEN);
 
-  airTempSeries =
-      configure_temp_chart(ui_AirTempChart, LV_PALETTE_BLUE, TEMP_CHART_MIN, TEMP_CHART_MAX);
-  skinTempSeries =
-      configure_temp_chart(ui_SkinTempChart, LV_PALETTE_BLUE, TEMP_CHART_MIN, TEMP_CHART_MAX);
+  airTempSeries = configure_temp_chart(ui_AirTempChart, LV_PALETTE_BLUE,
+                                       TEMP_CHART_MIN, TEMP_CHART_MAX);
+  skinTempSeries = configure_temp_chart(ui_SkinTempChart, LV_PALETTE_BLUE,
+                                        TEMP_CHART_MIN, TEMP_CHART_MAX);
 
   lv_obj_add_flag(ui_AirTempChartCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_SkinTempChartCont, LV_OBJ_FLAG_HIDDEN);
@@ -3026,7 +3484,8 @@ void UI_Task(void *pvParameters) {
   }
   lv_chart_set_type(ui_HumChart, LV_CHART_TYPE_LINE);
   lv_chart_set_point_count(ui_HumChart, 50);
-  lv_chart_set_range(ui_HumChart, LV_CHART_AXIS_PRIMARY_Y, HUM_CHART_MIN, HUM_CHART_MAX);
+  lv_chart_set_range(ui_HumChart, LV_CHART_AXIS_PRIMARY_Y, HUM_CHART_MIN,
+                     HUM_CHART_MAX);
   humSeries = lv_chart_add_series(
       ui_HumChart, lv_palette_main(LV_PALETTE_GREEN), LV_CHART_AXIS_PRIMARY_Y);
   lv_chart_set_axis_tick(ui_HumChart, LV_CHART_AXIS_SECONDARY_Y, 0, 0, 0, 0,
@@ -3070,9 +3529,12 @@ void UI_Task(void *pvParameters) {
                         LV_EVENT_CLICKED, NULL);
 
   lv_timer_create(inactivity_timer_cb, 1000, NULL);
+  pwroff_create_popup();
 
   for (;;) {
+    LVGL_Lock();
     lv_timer_handler();
+    pwroff_update();
 
     // Gestión de estado de botones de Audio — deshabilitada (UI oculta
     // permanentemente) Si se quiere reactivar, descomentar el bloque siguiente
@@ -3116,7 +3578,69 @@ void UI_Task(void *pvParameters) {
       ESP_LOGD(TAG, "UI and Audio Loop active");
     }
     */
+    LVGL_Unlock();
+
+    // LCD diagnostics: log cada 10 segundos
+    {
+      static uint32_t lcd_diag_last_ms = 0;
+      uint32_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+      if (now_ms - lcd_diag_last_ms >= 10000) {
+        lcd_diag_last_ms = now_ms;
+        lcd_diagnostics_log();
+      }
+    }
+
     vTaskDelay(pdMS_TO_TICKS(LOOP_DELAY_MS));
+    LVGL_Lock();
+
+    // --- Lock screen: probe contact state from CTRL,PROBE ---
+    if (ctrl_probe_msg.updated) {
+      ctrl_probe_msg.updated = false;
+      bool applied = (ctrl_probe_msg.state == SPO2_PROBE_APPLIED);
+      // Falling edge: probe removed — hide chart and HR
+      if (!applied && spo2ProbeAttachedPrev) {
+        if (ui_LockPPGChart)
+          lv_obj_add_flag(ui_LockPPGChart, LV_OBJ_FLAG_HIDDEN);
+        if (ui_LockHRCont)
+          lv_obj_add_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
+      }
+      // Rising edge: probe applied — show chart
+      if (applied && !spo2ProbeAttachedPrev) {
+        if (ui_LockPPGChart)
+          lv_obj_clear_flag(ui_LockPPGChart, LV_OBJ_FLAG_HIDDEN);
+      }
+      spo2ProbeAttached     = applied;
+      spo2ProbeAttachedPrev = applied;
+    }
+
+    // --- Lock screen: PPG waveform ---
+    if (ui_LockPPGChart && lockPPGSeries && ctrl_ppg_msg.updated) {
+      float ppg_val = (float)ctrl_ppg_msg.ppg;
+      ctrl_ppg_msg.updated = false;
+      if (locked && spo2ProbeAttached) {
+        lv_chart_set_next_value(ui_LockPPGChart, lockPPGSeries,
+                                (lv_coord_t)ppg_val);
+      }
+    }
+
+    // --- Lock screen: HR value ---
+    if (locked && ui_LockHRCont && ctrl_vit_msg.updated) {
+      ctrl_vit_msg.updated = false;
+      if (!spo2ProbeAttached) {
+        lv_obj_add_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
+      } else {
+        lv_obj_clear_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
+        if (ui_LockHRLabel) {
+          if (ctrl_vit_msg.hr > 0) {
+            char hr_buf[8];
+            snprintf(hr_buf, sizeof(hr_buf), "%u", ctrl_vit_msg.hr);
+            lv_label_set_text(ui_LockHRLabel, hr_buf);
+          } else {
+            lv_label_set_text(ui_LockHRLabel, "--");
+          }
+        }
+      }
+    }
 
     if (pendingReconnect && (millis() - disconnectTimestampMs >= 5000)) {
       pendingReconnect = false;
@@ -3158,7 +3682,8 @@ void UI_Task(void *pvParameters) {
       } else {
         // Update countdown display
         int totalMins =
-            (remaining + (SECONDS_PER_MINUTE - 1)) / SECONDS_PER_MINUTE; // Round up to show minutes correctly
+            (remaining + (SECONDS_PER_MINUTE - 1)) /
+            SECONDS_PER_MINUTE; // Round up to show minutes correctly
         int hours = totalMins / SECONDS_PER_MINUTE;
         int mins = totalMins % SECONDS_PER_MINUTE;
         char buf[16];
@@ -3198,16 +3723,17 @@ void UI_Task(void *pvParameters) {
     }
 
     if (eepromDirty && (millis() - lastVarChangeTime > EEPROM_COMMIT_DELAY)) {
-      EEPROM.commit();
+      // Preferences writes are atomic (NVS); no explicit commit needed.
       eepromDirty = false;
-      ESP_LOGI(TAG, "EEPROM committed after delay");
+      ESP_LOGI(TAG, "Preferences write cycle complete");
     }
+    LVGL_Unlock();
   }
 }
 
 void CreateUITask() {
-  xTaskCreatePinnedToCore(UI_Task, "UI", UI_TASK_STACK_SIZE, NULL, UI_TASK_PRIORITY, NULL,
-                          CORE_ID_FREERTOS);
+  xTaskCreatePinnedToCore(UI_Task, "UI", UI_TASK_STACK_SIZE, NULL,
+                          UI_TASK_PRIORITY, NULL, CORE_ID_FREERTOS);
 }
 
 void UI_SyncAll() {
@@ -3828,39 +4354,52 @@ void UI_ApplyTheme() {
 
   // --- AUTO AIR POPUP DARK MODE ---
   if (ui_AutoAirModal) {
-    lv_color_t aa_modal_bg  = darkMode ? COLOR_BG_DARK          : COLOR_PANEL_WHITE;
-    lv_color_t aa_row_bg    = darkMode ? COLOR_PANEL_DARK        : COLOR_PANEL_WHITE;
-    lv_color_t aa_row_brd   = darkMode ? lv_color_hex(0x555555)  : lv_color_hex(0xDDDDDD);
-    lv_color_t aa_sep_col   = darkMode ? lv_color_hex(0x444444)  : lv_color_hex(0xDDDDDD);
+    lv_color_t aa_modal_bg = darkMode ? COLOR_BG_DARK : COLOR_PANEL_WHITE;
+    lv_color_t aa_row_bg = darkMode ? COLOR_PANEL_DARK : COLOR_PANEL_WHITE;
+    lv_color_t aa_row_brd =
+        darkMode ? lv_color_hex(0x555555) : lv_color_hex(0xDDDDDD);
+    lv_color_t aa_sep_col =
+        darkMode ? lv_color_hex(0x444444) : lv_color_hex(0xDDDDDD);
 
     lv_obj_set_style_bg_color(ui_AutoAirModal, aa_modal_bg, LV_PART_MAIN);
 
-    lv_obj_t *rows[] = { ui_AutoAirRowGest, ui_AutoAirRowDays, ui_AutoAirRowWeight };
+    lv_obj_t *rows[] = {ui_AutoAirRowGest, ui_AutoAirRowDays,
+                        ui_AutoAirRowWeight};
     for (int i = 0; i < 3; i++) {
       if (rows[i]) {
-        lv_obj_set_style_bg_color(rows[i],     aa_row_bg,  LV_PART_MAIN);
+        lv_obj_set_style_bg_color(rows[i], aa_row_bg, LV_PART_MAIN);
         lv_obj_set_style_border_color(rows[i], aa_row_brd, LV_PART_MAIN);
       }
     }
-    if (ui_AutoAirHSep) lv_obj_set_style_bg_color(ui_AutoAirHSep, aa_sep_col, LV_PART_MAIN);
-    if (ui_AutoAirVSep) lv_obj_set_style_bg_color(ui_AutoAirVSep, aa_sep_col, LV_PART_MAIN);
+    if (ui_AutoAirHSep)
+      lv_obj_set_style_bg_color(ui_AutoAirHSep, aa_sep_col, LV_PART_MAIN);
+    if (ui_AutoAirVSep)
+      lv_obj_set_style_bg_color(ui_AutoAirVSep, aa_sep_col, LV_PART_MAIN);
 
     // Re-apply blue to value labels overridden by the recursive text sweep
     lv_color_t blue = lv_color_hex(0x0075EE);
-    if (ui_AutoAirGestVal)   lv_obj_set_style_text_color(ui_AutoAirGestVal,   blue, 0);
-    if (ui_AutoAirDaysVal)   lv_obj_set_style_text_color(ui_AutoAirDaysVal,   blue, 0);
-    if (ui_AutoAirWeightVal) lv_obj_set_style_text_color(ui_AutoAirWeightVal, blue, 0);
-    if (aa_label_mid)        lv_obj_set_style_text_color(aa_label_mid,        blue, 0);
+    if (ui_AutoAirGestVal)
+      lv_obj_set_style_text_color(ui_AutoAirGestVal, blue, 0);
+    if (ui_AutoAirDaysVal)
+      lv_obj_set_style_text_color(ui_AutoAirDaysVal, blue, 0);
+    if (ui_AutoAirWeightVal)
+      lv_obj_set_style_text_color(ui_AutoAirWeightVal, blue, 0);
+    if (aa_label_mid)
+      lv_obj_set_style_text_color(aa_label_mid, blue, 0);
 
     // Range bar track color
     if (aa_range_bar) {
       lv_obj_set_style_bg_color(aa_range_bar,
-          darkMode ? lv_color_hex(0xCCCCCC) : lv_color_hex(0xE0E0E0), LV_PART_MAIN);
+                                darkMode ? lv_color_hex(0xCCCCCC)
+                                         : lv_color_hex(0xE0E0E0),
+                                LV_PART_MAIN);
     }
     // Setpoint marker color
     if (aa_setpoint_marker) {
       lv_obj_set_style_bg_color(aa_setpoint_marker,
-          darkMode ? lv_color_hex(0x5588AA) : lv_color_hex(0x0095DA), LV_PART_MAIN);
+                                darkMode ? lv_color_hex(0x5588AA)
+                                         : lv_color_hex(0x0095DA),
+                                LV_PART_MAIN);
     }
   }
 

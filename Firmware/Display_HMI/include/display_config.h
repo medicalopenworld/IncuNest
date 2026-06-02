@@ -2,10 +2,11 @@
  * @file display_config.h
  * @brief Configuración centralizada del display CrowPanel (ESP32-S3)
  *
- * CORRECCIÓN PARA CROWPANEL ADVANCE 7":
- * - Polaridades hsync/vsync corregidas a 0 (factory code oficial Elecrow).
- * - pclk_active_neg y de_idle_high corregidos a 0.
- * - Frecuencia pixel clock restaurada a 21 MHz (valor oficial Advance).
+ * Configuración para CrowPanel Advance 7" (ESP32-S3):
+ * - hsync_polarity=0, vsync_polarity=0, de_idle_high=0 (factory code oficial
+ * Elecrow).
+ * - pclk_active_neg=1, pclk_idle_high=1 (requerido en V1.2 para estabilidad).
+ * - Pixel clock: 18 MHz (rango válido 18–21 MHz).
  *
  * @author   IncuNest Team
  * @version  2.7.0
@@ -71,6 +72,13 @@
 #define DISPLAY_I2C_FREQ_TOUCH 400000
 
 // -----------------------------------------------------------------------------
+// Rotación 180° — define para invertir display y touch simultáneamente.
+// 1 = display mirrored X+Y (esp_lcd_panel_mirror true,true) + touch rotation 3
+// 0 = sin inversión (mirror false,false) + touch rotation 1
+// -----------------------------------------------------------------------------
+#define DISPLAY_ROTATE_180 0
+
+// -----------------------------------------------------------------------------
 // Resolución del panel
 // -----------------------------------------------------------------------------
 #define DISPLAY_W 800
@@ -86,16 +94,17 @@
  */
 #define DISPLAY_FREQ_WRITE 18000000UL
 
-#define DISPLAY_HSYNC_POLARITY 1
+#define DISPLAY_HSYNC_POLARITY 0
 #define DISPLAY_HSYNC_FRONT_PORCH 8
 #define DISPLAY_HSYNC_PULSE_WIDTH 4
 #define DISPLAY_HSYNC_BACK_PORCH 8
 
-#define DISPLAY_VSYNC_POLARITY 1
+#define DISPLAY_VSYNC_POLARITY 0
 #define DISPLAY_VSYNC_FRONT_PORCH 8
 #define DISPLAY_VSYNC_PULSE_WIDTH 4
 #define DISPLAY_VSYNC_BACK_PORCH 8
 
-#define DISPLAY_PCLK_ACTIVE_NEG 1  // Pixels latched on falling edge (panel requirement)
-#define DISPLAY_DE_IDLE_HIGH    1  // DE signal idle state
-#define DISPLAY_PCLK_IDLE_HIGH  1
+#define DISPLAY_PCLK_ACTIVE_NEG                                                \
+  1 // Pixels latched on falling edge (panel requirement)
+#define DISPLAY_DE_IDLE_HIGH 0
+#define DISPLAY_PCLK_IDLE_HIGH 1

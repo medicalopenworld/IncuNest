@@ -22,6 +22,9 @@ build/
 *.elf
 *.hex
 
+# Flasher tool firmware binaries are intentionally tracked
+!Firmware/flasher_tool/data/firmware/**/*.bin
+
 # clangd cache (esto es lo tuyo)
 Firmware/motherBoard/.cache/
 # (opcional más fino, si solo quieres clangd)
@@ -38,3 +41,9 @@ Hardware/Electronics/Motherboard/History/
 .agent
 *.code-workspace
 .claude
+
+# Serial capture logs
+Firmware/motherBoard/serial_*.txt
+
+# Thingsboard local folder
+Firmware/Thingsboard/

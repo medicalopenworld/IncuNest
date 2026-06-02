@@ -29,7 +29,9 @@
 
 #define AT_OK "OK"
 #define AT_CPIN_READY "+CPIN: READY"
+#define AT_CPIN_SIM_PIN "+CPIN: SIM PIN"
 #define AT_ERROR "ERROR"
+#define SIMCOM800_ENTER_PIN "AT+CPIN=1503\n"
 
 #define CREDENTIALS_TYPE "credentialsType"
 #define CREDENTIALS_VALUE "credentialsValue"
@@ -38,6 +40,8 @@
 #define CLIENT_USERNAME "userName"
 
 #define FW_STATE_UPDATED "UPDATED"
+
+#define PROVISION_MAX_RETRIES 3
 
 constexpr char ACCESS_TOKEN_CRED_TYPE[] PROGMEM = "ACCESS_TOKEN";
 constexpr char MQTT_BASIC_CRED_TYPE[] PROGMEM = "MQTT_BASIC";
@@ -81,6 +85,7 @@ struct GPRSstruct {
   String APN;
   IPAddress IP;
   String device_token;
+  uint8_t provision_retry_count = 0;
 
   float longitud;
   float latitud;

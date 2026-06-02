@@ -1,51 +1,39 @@
-#ifndef EEPROM_DEFINES_H
-#define EEPROM_DEFINES_H
+#pragma once
+#include <Preferences.h>
 
-#define INACTIVITY_TIMEOUT_MS 20000 // 20s
-#define EEPROM_COMMIT_DELAY INACTIVITY_TIMEOUT_MS
+// --------------- Non-EEPROM constants kept from original header ---------------
+#define INACTIVITY_TIMEOUT_MS 20000 // 20s of inactivity before auto-lock
+#define EEPROM_COMMIT_DELAY 0       // write immediately after change
 
-// EEPROM variables
-#define EEPROM_SIZE 263
-#define EEPROM_CHECK_STATUS 0
-#define EEPROM_FIRST_TURN_ON 10
-#define EEPROM_AUTO_LOCK 20
-#define EEPROM_LANGUAGE 30
-#define EEPROM_SERIAL_NUMBER 40
-#define EEPROM_CONTROL_ACTIVE 60
-#define EEPROM_PHOTOTHERAPY_ACTIVE 65
-#define EEPROM_PHOTO_TIMER_MINUTES 66
-#define EEPROM_CONTROL_MODE 70
-#define EEPROM_HEATER_TEST 75
-#define EEPROM_DESIRED_AIR_TEMP 80
-#define EEPROM_DESIRED_SKIN_TEMP 85
-#define EEPROM_DESIRED_HUMIDITY 90
-#define EEPROM_RAW_SKIN_TEMP_LOW_CORRECTION 100
-#define EEPROM_RAW_SKIN_TEMP_RANGE_CORRECTION 110
-#define EEPROM_WIFI_SSID 115
-#define EEPROM_WIFI_PASSWORD 145
-#define EEPROM_REFERENCE_TEMP_RANGE 170
-#define EEPROM_REFERENCE_TEMP_LOW 180
-#define EEPROM_FINE_TUNE_TEMP_SKIN 190
-#define EEPROM_FINE_TUNE_TEMP_AIR 194
-#define EEPROM_THINGSBOARD_PROVISIONED 200
-#define EEPROM_THINGSBOARD_TOKEN 205
-#define EEPROM_STANDBY_TIME 226
-#define EEPROM_CONTROL_ACTIVE_TIME 230
-#define EEPROM_HEATER_ACTIVE_TIME 234
-#define EEPROM_FAN_ACTIVE_TIME 238
-#define EEPROM_PHOTOTHERAPY_ACTIVE_TIME 242
-#define EEPROM_HUMIDIFIER_ACTIVE_TIME 246
-#define EEPROM_PANIC_OTA_CHANGE 250
-#define EEPROM_AUDIO_VOLUME     251  // Volumen del speaker (0-21), por defecto 15
-#define EEPROM_DARK_MODE        252  // 0: Off, 1: On
-#define EEPROM_DISPLAY_FREQ     253  // uint32_t: pixel clock Hz (4 bytes, 253-256)
-#define EEPROM_HUMIDITY_ENABLED 257  // 0: Off (default), 1: On
-#define EEPROM_AUTOAIR_WEIGHT   258  // Baby weight in grams (uint16, 2 bytes → 258-259)
-#define EEPROM_AUTOAIR_GEST     260  // Gestational age in weeks (uint8, 1 byte)
-#define EEPROM_AUTOAIR_AGE_H    261  // Postnatal age in hours (uint16, 2 bytes → 261-262)
+// --------------- Namespaces ---------------
+constexpr char HMI_NS_CFG[]  = "hmi_cfg";
+constexpr char HMI_NS_WIFI[] = "hmi_wifi";
+constexpr char HMI_NS_GPRS[] = "hmi_gprs";
+
+// --------------- Keys: hmi_cfg ---------------
+constexpr char HMI_KEY_LANG[]        = "lang";
+constexpr char HMI_KEY_SERIAL[]      = "serial";
+constexpr char HMI_KEY_AIR_TEMP[]    = "air_temp";
+constexpr char HMI_KEY_SKIN_TEMP[]   = "skin_temp";
+constexpr char HMI_KEY_HUMIDITY[]    = "humidity";
+constexpr char HMI_KEY_PHOTO_MIN[]   = "photo_min";
+constexpr char HMI_KEY_DARK_MODE[]   = "dark_mode";
+constexpr char HMI_KEY_HUM_EN[]      = "hum_en";
+constexpr char HMI_KEY_VOLUME[]      = "volume";
+constexpr char HMI_KEY_DISP_FREQ[]   = "disp_freq";
+constexpr char HMI_KEY_AA_WEIGHT[]   = "aa_weight";
+constexpr char HMI_KEY_AA_GEST[]     = "aa_gest";
+constexpr char HMI_KEY_AA_AGE_H[]    = "aa_age_h";
+
+// --------------- Keys: hmi_wifi ---------------
+constexpr char HMI_KEY_SSID[]     = "ssid";
+constexpr char HMI_KEY_PASSWORD[] = "password";
+
+// --------------- Keys: hmi_gprs ---------------
+constexpr char HMI_KEY_PROVISIONED[] = "provisioned";
+constexpr char HMI_KEY_TOKEN[]       = "token";
 
 void initEEPROM();
 void loaddefaultValues();
 void recapVariables();
 void resetFlash();
-#endif

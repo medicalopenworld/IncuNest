@@ -23,11 +23,48 @@
 
 */
 
-// pio run -e in3ator_V15 -t upload ; pio device monitor
+// pio run -e IncuNest_V15 -t upload ; pio device monitor
 
 // Firmware version and head title of UI screen
 
 #include "main.h"
+#include "state/state.h"
+#include "DriveUpload.h"
+#include "CrashReporter.h"
+#include <Preferences.h>
+
+static Preferences diag_prefs;
+uint32_t g_bootCount = 0;
+uint32_t g_gprsKillCount = 0;
+uint32_t g_monKillCount = 0;
+int g_hmiBootCount = 0;
+int g_hmiLastRst = 0;
+int g_restore_photo_minutes = 0;
+
+// Build-flag crash simulator. Add -DCRASH_TEST_MB=1 to platformio.ini
+// build_flags to fire a panic after CRASH_TEST_MB_DELAY_S seconds (default 130).
+// Remove the flag for production builds.
+//   CRASH_TEST_MB=1  → abort() (panic, RST_reason=12)
+//   CRASH_TEST_MB=2  → null-pointer LoadProhibited
+#ifdef CRASH_TEST_MB
+#ifndef CRASH_TEST_MB_DELAY_S
+#define CRASH_TEST_MB_DELAY_S 130
+#endif
+static void CrashTestMBTask(void *pv) {
+  for (int i = CRASH_TEST_MB_DELAY_S; i > 0; i--) {
+    ESP_LOGW("CRASH_TEST_MB", "MB crash firing in %d s", i);
+    vTaskDelay(pdMS_TO_TICKS(1000));
+  }
+  ESP_LOGE("CRASH_TEST_MB", "Crashing now (CRASH_TEST_MB=%d)", CRASH_TEST_MB);
+  vTaskDelay(pdMS_TO_TICKS(50));
+#if CRASH_TEST_MB == 2
+  { volatile int *p = (int *)0; *p = 0xDEAD; }
+#else
+  abort();
+#endif
+  vTaskDelete(NULL);
+}
+#endif
 
 #if !CONFIG_IDF_TARGET_ESP32S3
 TelemetryMessage ctrl_tel_msg = {0, 0, 0, 0};
@@ -43,7 +80,8 @@ char wifi_pass[64] = "";
 #include <stdio.h>
 
 TwoWire *wire;
-MAM_in3ator_Humidifier in3_hum(DEFAULT_ADDRESS);
+TwoWire *wire2 = nullptr; // second I2C bus (HW16: SHTC3 + STS35 on pins 19/20)
+MAM_IncuNest_Humidifier in3_hum(DEFAULT_ADDRESS);
 // Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC);
 TFT_eSPI tft = TFT_eSPI(); // Invoke custom library
 SHTC3 mySHTC3;             // Declare an instance of the SHTC3 class
@@ -52,7 +90,7 @@ Adafruit_SHT4x sht4 = Adafruit_SHT4x();
 RotaryEncoder encoder(ENC_A, ENC_B, RotaryEncoder::LatchMode::TWO03);
 Beastdevices_INA3221 mainDigitalCurrentSensor(INA3221_ADDR41_VCC);
 Beastdevices_INA3221 secundaryDigitalCurrentSensor(INA3221_ADDR40_GND);
-BQ25792 charger(0, 0);
+// BQ25730 gestionado por BQ25730.cpp (chargerPresent definido allí)
 
 bool WIFI_EN = true;
 long lastDebugUpdate;
@@ -156,8 +194,9 @@ long lastSuccesfullSensorUpdate[SENSOR_TEMP_QTY];
 int ScreenBacklightMode;
 long lastSkinAttachedSensorUpdate;
 long lastRoomSensorUpdate, lastCurrentSensorUpdate;
+bool roomSensorOk = false;
 
-in3ator_parameters in3;
+IncuNest_parameters in3;
 
 TaskHandle_t taskHandle =
     NULL; // Handle for the task we want to delete if it hangs
@@ -174,6 +213,14 @@ void GPRSMonitorTask(void *pvParameters) {
     if (xSemaphoreTake(GPRS_monitor_mutex, portMAX_DELAY)) // Lock the mutex
     {
       if (millis() - GPRS_lastMillisTaskClear > GPRS_MONITOR_TASK_DELETE) {
+        g_monKillCount++;
+        diag_prefs.begin("diag", false);
+        diag_prefs.putUInt("mon_kill", g_monKillCount);
+        diag_prefs.end();
+        {
+          const char *m = "[MON] killing GPRS_Task after idle timeout\n";
+          crashReporterPut(m, strlen(m));
+        }
         vTaskDelete(taskHandle); // Delete the hung task
         // Serial.println("Task deleted. Restarting task...");
 
@@ -218,41 +265,94 @@ void Backlight_Task(void *pvParameters) {
   }
 }
 
+BQ25730_Status g_bq_status      = {};
+bool           g_bq_status_valid = false;
+#ifdef BQ25730_TEST
+// Forward decls (defined later in the file)
+static void dump_BQ25730_regs();
+static void print_charger_status();
+#endif
+
 void sensors_Task(void *pvParameters) {
-  int touchValue, touchValueMean, touchValueOK;
   for (;;) {
     fanSpeedHandler();
-    measureNTCTemperature();
     if (millis() - lastSkinAttachedSensorUpdate >
-        SKIN_CAPACITANCE_UPDATE_PERIOD_MS) {
+        SKIN_SENSOR_UPDATE_PERIOD_MS) {
+      measureSkinSensor();
       lastSkinAttachedSensorUpdate = millis();
-      GPIOWrite(TOUCH_SENSOR_SEL, HIGH);
-      initPin(TOUCH_SENSOR, INPUT);
-      touchValueOK = false;
-      touchValueMean = false;
-      for (int i = 0; i < TOUCH_MEAN_TIMES; i++) {
-        vTaskDelay(pdMS_TO_TICKS(TOUCH_DELAY_BETWEEN_MEASURES_MS));
-        touchValue = touchRead(TOUCH_SENSOR);
-        touchValueMean += touchValue;
-        if (touchValue) {
-          touchValueOK++;
-        }
-      }
-      if (touchValueOK) {
-        in3.skinSensorCapacitance = touchValueMean / touchValueOK;
-      }
-      initPin(TOUCH_SENSOR, OUTPUT);
-      GPIOWrite(TOUCH_SENSOR_SEL, LOW);
     }
-    if (millis() - lastRoomSensorUpdate > ROOM_SENSOR_UPDATE_PERIOD_MS) {
-      updateRoomSensor();
-      updateAmbientSensor();
-      lastRoomSensorUpdate = millis();
+    {
+      long roomPeriod = roomSensorOk ? ROOM_SENSOR_UPDATE_PERIOD_MS
+                                     : ROOM_SENSOR_RECONNECT_MS;
+      if (millis() - lastRoomSensorUpdate > roomPeriod) {
+        roomSensorOk = updateRoomSensor();
+        updateAmbientSensor();
+        lastRoomSensorUpdate = millis();
+      }
     }
     if (millis() - lastCurrentSensorUpdate > DIGITAL_CURRENT_SENSOR_PERIOD_MS) {
       powerMonitor();
       lastCurrentSensorUpdate = millis();
     }
+    {
+      static long lastChargerUpdate = 0;
+      static bool prev_ac_present   = false;
+      static bool charger_in_float  = false;
+      static long ichg_low_since    = 0;
+      if (chargerPresent && millis() - lastChargerUpdate > 5000) {
+        g_bq_status_valid = charge_status(&g_bq_status);
+        lastChargerUpdate = millis();
+        // Detecta transición ausente→presente del adaptador y reinicializa el
+        // chip: algunos BQ25xxx pierden VINDPM/IIN al re-detectar VBUS, así que
+        // reaplicamos toda la config para asegurar carga estable.
+        // Al reconectar siempre se vuelve a absorción: la batería pudo haberse
+        // descargado parcialmente durante el corte.
+        if (g_bq_status_valid && g_bq_status.ac_present && !prev_ac_present) {
+          if (LOG_CHARGER) logCharger("[CHG] Adaptador detectado → reinicializando config");
+          extern TwoWire *wire;
+          init_BQ25730(wire);  // restaura MaxChargeVoltage = 14.4V (absorción)
+          charger_in_float = false;
+          ichg_low_since   = 0;
+        }
+        if (g_bq_status_valid) prev_ac_present = g_bq_status.ac_present;
+
+        // ── Transición Absorción → Flotación ─────────────────────────────────
+        // Cuando ICHG cae por debajo del umbral de corte durante 60 s seguidos,
+        // se cambia la tensión objetivo a flotación para mantener la batería sin
+        // seguir gasificándola. El umbral (320 mA ≈ C/22 para 7 Ah) equivale a
+        // 2–3 counts ADC; la ventana de 60 s evita falsos disparos por ruido.
+        if (g_bq_status_valid && g_bq_status.ac_present && !charger_in_float) {
+          if (g_bq_status.ichg_ma < BQ25730_ICHG_TERM_MA) {
+            if (ichg_low_since == 0) {
+              ichg_low_since = millis();
+            } else if (millis() - ichg_low_since >= 60000UL) {
+              set_charge_voltage(BQ25730_VCHARGE_FLOAT_MV);
+              charger_in_float = true;
+              ichg_low_since   = 0;
+              if (LOG_CHARGER)
+                logCharger("[CHG] Absorcion completa → Flotacion " +
+                           String(BQ25730_VCHARGE_FLOAT_MV) + " mV");
+            }
+          } else {
+            ichg_low_since = 0;
+          }
+        }
+      }
+    }
+#ifdef BQ25730_TEST
+    {
+      static long lastChargerPrint = 0;
+      static long lastChargerDump  = 0;
+      if (chargerPresent && millis() - lastChargerPrint > 3000) {
+        print_charger_status();
+        lastChargerPrint = millis();
+      }
+      if (chargerPresent && millis() - lastChargerDump > 10000) {
+        dump_BQ25730_regs();
+        lastChargerDump = millis();
+      }
+    }
+#endif
     ctrl_tel_msg.detectedAirTemperature =
         in3.temperature[ROOM_DIGITAL_TEMP_SENSOR];
     ctrl_tel_msg.detectedSkinTemperature = in3.temperature[SKIN_SENSOR];
@@ -323,11 +423,19 @@ void Communication_Receiver(void *pvParameters) {
                    " lang=" + String(hmi_cmd_msg.language);
 
       logI(msg);
+
+      if (hmi_cmd_msg.newBabyData) {
+        hmi_cmd_msg.newBabyData = false;
+        logI("Auto Air baby data -> weight=" +
+             String(hmi_cmd_msg.babyWeightGrams) +
+             "g gest=" + String(hmi_cmd_msg.babyGestWeeks) +
+             "w ageD=" + String(hmi_cmd_msg.babyAgeDays));
+      }
       in3.actuation = hmi_cmd_msg.actuation;
+      { Preferences p; p.begin(NS_STATE, false); p.putUChar(KEY_ACTUATION, in3.actuation); p.end(); }
       if (in3.controlMode != hmi_cmd_msg.controlMode) {
         in3.controlMode = hmi_cmd_msg.controlMode;
-        EEPROM.write(EEPROM_CONTROL_MODE, in3.controlMode);
-        EEPROM.commit();
+        { Preferences p; p.begin(NS_CFG, false); p.putUChar(KEY_CTRL_MODE, in3.controlMode); p.end(); }
       }
 
       switch (in3.actuation) {
@@ -371,9 +479,17 @@ void Communication_Receiver(void *pvParameters) {
       }
 
       in3.phototherapy = hmi_cmd_msg.phototherapyMode;
+      { Preferences p; p.begin(NS_STATE, false); p.putUChar(KEY_PHOTO_ACTIVE, in3.phototherapy); p.end(); }
       if (in3.language != hmi_cmd_msg.language) {
         in3.language = hmi_cmd_msg.language;
         resendActiveAlarms();
+      }
+      if (in3.phototherapy) {
+        if (in3.photoFirstRun) {
+          in3.phototherapy_intensity = PWM_MAX_VALUE * PHOTOTHERAPY_INITIAL_PWM_PCT / 100;
+          in3.photoFirstRun = false;
+        }
+        in3.photoTurnOnTime = millis();
       }
       ledcWrite(PHOTOTHERAPY_PWM_CHANNEL,
                 in3.phototherapy * in3.phototherapy_intensity);
@@ -395,7 +511,66 @@ void Communication_Receiver(void *pvParameters) {
   }
 }
 
+#if (HW_NUM >= 16)
+void PowerManagement_Task(void *pvParameters) {
+  while (GPIORead(ON_OFF_SWITCH)) {
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+  for (;;) {
+    if (GPIORead(ON_OFF_SWITCH)) { // button pressed (active HIGH)
+      unsigned long pressStart = millis();
+      unsigned long lastSend = 0;
+      char msg[32];
+
+      // Send initial PWR_OFF message with full hold time
+      snprintf(msg, sizeof(msg), "CTRL,PWR_OFF,%d\n", PWR_HOLD_MS);
+      CommunicationHost_Send(msg);
+      lastSend = millis();
+
+      while (GPIORead(ON_OFF_SWITCH)) {
+        unsigned long elapsed = millis() - pressStart;
+        if (elapsed >= (unsigned long)PWR_HOLD_MS) {
+          CommunicationHost_Send("CTRL,PWR_OFF,0\n");
+          logI("[PWR] Long press detected, powering off");
+          vTaskDelay(pdMS_TO_TICKS(50)); // allow UART to flush
+          digitalWrite(PWR_EN, LOW);
+          while (true) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+          }
+        }
+        // Send remaining time every PWR_OFF_UPDATE_INTERVAL_MS
+        if (millis() - lastSend >= PWR_OFF_UPDATE_INTERVAL_MS) {
+          int remaining = PWR_HOLD_MS - (int)elapsed;
+          if (remaining < 0)
+            remaining = 0;
+          snprintf(msg, sizeof(msg), "CTRL,PWR_OFF,%d\n", remaining);
+          CommunicationHost_Send(msg);
+          lastSend = millis();
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+      }
+      // Button released before timeout — cancel
+      CommunicationHost_Send("CTRL,PWR_OFF_CANCEL\n");
+    }
+    vTaskDelay(pdMS_TO_TICKS(POWER_MANAGEMENT_TASK_PERIOD_MS));
+  }
+}
+#endif
+
 extern "C" int sync_vprintf(const char *fmt, va_list args) {
+  // Tee formatted output into the crash-report ring so that, after a panic,
+  // the last few KB of ESP_LOG context survive in RTC memory.
+  char ring_buf[256];
+  va_list args_copy;
+  va_copy(args_copy, args);
+  int ring_len = vsnprintf(ring_buf, sizeof(ring_buf), fmt, args_copy);
+  va_end(args_copy);
+  if (ring_len > 0) {
+    if (ring_len > (int)sizeof(ring_buf))
+      ring_len = sizeof(ring_buf);
+    crashReporterPut(ring_buf, ring_len);
+  }
+
   if (log_mutex == NULL) {
     return vprintf(fmt, args);
   }
@@ -407,25 +582,154 @@ extern "C" int sync_vprintf(const char *fmt, va_list args) {
   return vprintf(fmt, args);
 }
 
+// ─── BQ25730 test (activo con -DBQ25730_TEST en build_flags)
+// ──────────────────
+#ifdef BQ25730_TEST
+static void dump_BQ25730_regs() {
+  extern TwoWire *wire;
+  auto read8 = [](TwoWire *w, uint8_t reg) -> uint8_t {
+    w->beginTransmission(BQ25730_ADDR);
+    w->write(reg);
+    if (w->endTransmission(false) != 0)
+      return 0xFF;
+    if (w->requestFrom((uint8_t)BQ25730_ADDR, (uint8_t)1) != 1)
+      return 0xFF;
+    return w->read();
+  };
+  auto read16 = [](TwoWire *w, uint8_t reg) -> uint16_t {
+    w->beginTransmission(BQ25730_ADDR);
+    w->write(reg);
+    if (w->endTransmission(false) != 0)
+      return 0xFFFF;
+    if (w->requestFrom((uint8_t)BQ25730_ADDR, (uint8_t)2) != 2)
+      return 0xFFFF;
+    uint8_t lo = w->read();
+    uint8_t hi = w->read();
+    return (uint16_t)lo | ((uint16_t)hi << 8);
+  };
+  if (!LOG_CHARGER) return;
+  logCharger("=== BQ25730 register dump (PDF V2) ===");
+  logCharger("REG 0x3E MfgID(8b)  : 0x" + String(read8(wire, 0x3E), HEX));
+  logCharger("REG 0x3F DevID(8b)  : 0x" + String(read8(wire, 0x3F), HEX));
+  logCharger("--- Config basica ---");
+  logCharger("REG 0x00 ChargeOpt0 : 0x" + String(read16(wire, 0x00), HEX));
+  logCharger("REG 0x02 ChargeCurr : 0x" + String(read16(wire, 0x02), HEX));
+  logCharger("REG 0x04 MaxChrVolt : 0x" + String(read16(wire, 0x04), HEX));
+  logCharger("--- Config electrica (PDF V2) ---");
+  logCharger("REG 0x0A VINDPM     : 0x" + String(read16(wire, 0x0A), HEX));
+  logCharger("REG 0x0C VSYS_MIN   : 0x" + String(read16(wire, 0x0C), HEX));
+  logCharger("REG 0x0E IIN_HOST   : 0x" + String(read16(wire, 0x0E), HEX));
+  logCharger("--- Estado y ADC ---");
+  logCharger("REG 0x20 ChrStatus  : 0x" + String(read16(wire, 0x20), HEX));
+  logCharger("REG 0x26 ADC_VBUS   : 0x" + String(read16(wire, 0x26), HEX));
+  logCharger("REG 0x28 ADC_IBAT   : 0x" + String(read16(wire, 0x28), HEX));
+  logCharger("REG 0x2C ADC_VSYS_VBAT:0x" + String(read16(wire, 0x2C), HEX));
+  logCharger("--- ChargeOptions (PDF V2) ---");
+  logCharger("REG 0x30 ChargeOpt1 : 0x" + String(read16(wire, 0x30), HEX));
+  logCharger("REG 0x32 ChargeOpt2 : 0x" + String(read16(wire, 0x32), HEX));
+  logCharger("REG 0x34 ChargeOpt3 : 0x" + String(read16(wire, 0x34), HEX));
+  logCharger("REG 0x3A ADCOption  : 0x" + String(read16(wire, 0x3A), HEX));
+  logCharger("======================================");
+}
+
+static void print_charger_status() {
+  if (!LOG_CHARGER) return;
+  if (!chargerPresent) {
+    logCharger("[CHG] Cargador no detectado");
+    return;
+  }
+  if (!g_bq_status_valid) {
+    logCharger("[CHG] Esperando primera lectura...");
+    return;
+  }
+  const BQ25730_Status &s = g_bq_status;
+  const char *state_str;
+  switch (s.state) {
+  case BQ25730_STATE_NO_POWER:
+    state_str = "SIN ADAPTADOR";
+    break;
+  case BQ25730_STATE_ABSORPTION:
+    state_str = "ABSORCION";
+    break;
+  case BQ25730_STATE_FLOAT:
+    state_str = "FLOTACION";
+    break;
+  case BQ25730_STATE_FAULT:
+    state_str = "FAULT";
+    break;
+  default:
+    state_str = "?";
+    break;
+  }
+  logCharger("──── BQ25730 ─────────────────────────────");
+  logCharger("  Estado   : " + String(state_str));
+  logCharger("  AC       : " + String(s.ac_present ? "SI" : "NO"));
+  logCharger("  VBUS     : " + String(s.vbus_mv) + " mV");
+  logCharger("  VBAT     : " + String(s.vbat_mv) + " mV");
+  logCharger("  VSYS     : " + String(s.vsys_mv) + " mV");
+  logCharger("  ICHG     : " + String(s.ichg_ma) + " mA  (real, corregido)");
+  logCharger("  IBUS     : " + String(s.ibus_ma) + " mA  (real, corregido)");
+  logCharger("  Fault    : " + String(s.fault ? "SI 0x" + String(s.raw_status, HEX) : "NO"));
+  logCharger("──────────────────────────────────────────");
+}
+#endif
+
 void setup() {
+  state_init();
+
+#if (HW_NUM >= 16)
+  // Power latch: a single press (button already held when boot starts) is
+  // enough to keep the device ON. Latch PWR_EN immediately, then wait for
+  // the button to be released so the runtime task starts from a clean state.
+  {
+    pinMode(PWR_EN, OUTPUT);
+    digitalWrite(PWR_EN, HIGH);
+  }
+#endif
   esp_bt_controller_mem_release(ESP_BT_MODE_BLE);
   debugSerial.begin(115200);
   log_mutex = xSemaphoreCreateRecursiveMutex();
+  crashReporterInit();
   esp_log_set_vprintf(sync_vprintf);
 
   GPRS_monitor_mutex = xSemaphoreCreateBinary();
   security_check_reboot_cause();
-  initGPIO();
-  initEEPROM();
 
-  // Now that EEPROM is loaded, set the serial number and log it
+  diag_prefs.begin("diag", false);
+  g_bootCount = diag_prefs.getUInt("boots", 0) + 1;
+  diag_prefs.putUInt("boots", g_bootCount);
+  diag_prefs.putInt("last_rst", (int)esp_reset_reason());
+  g_gprsKillCount = diag_prefs.getUInt("gprs_kill", 0);
+  g_monKillCount  = diag_prefs.getUInt("mon_kill", 0);
+  diag_prefs.end();
+  logI("[DIAG] bootCount=" + String(g_bootCount) +
+       " lastRst="    + String((int)esp_reset_reason()) +
+       " gprs_kill="  + String(g_gprsKillCount) +
+       " mon_kill="   + String(g_monKillCount));
+
+  initEEPROM();
+  initGPIO();
+
+  // Set the serial number and log it
   ctrl_tel_msg.serialNumber = in3.serialNumber;
-  logI("in3ator debug uart, version v" + String(FWversion) + "/" +
+  logI("IncuNest debug uart, version v" + String(FWversion) + "/" +
        String(HWversion) + ", SN: " + String(in3.serialNumber));
-  initRoomSensor();
+
+  if (!GPIORead(ENC_SWITCH)) {
+    goToSettings = true;
+  }
+
+  initHardware(false);
+  initDriveUpload();
+  crashReporterMaybeFlush();
+  // SPO2/AFE must initialize SPI (GPIO19 as MISO) before USB host starts.
+  // On V15, usb_host_install() claims GPIO19 as USB D−, which conflicts with
+  // AFE SPI MISO. Initializing AFE first ensures the chip is configured and
+  // DRDY is active before USB takes GPIO19.
+  initSPO2();
 
 #if CONFIG_IDF_TARGET_ESP32S3
-  // --- Initialize UART communication between ESP32 boards ---
+  // --- Initialize UART/USB communication between ESP32 boards ---
   logI("Initializing communication task ...");
   CommunicationHost_Init();
 
@@ -440,20 +744,22 @@ void setup() {
   );
   logI("Communication task successfully created!\n");
 #endif
-
-  if (!GPIORead(ENC_SWITCH)) {
-    goToSettings = true;
-  }
-
-  initHardware(false);
+#ifdef BQ25730_TEST
+  dump_BQ25730_regs();
+#endif
   if (WIFI_EN) {
     wifiInit();
     logI("WiFi Initialization started.");
   }
 
-  // EEPROM.writeString(EEPROM_THINGSBOARD_TOKEN, "MrpCM8s8STUNG9hM3p5x");
-  // EEPROM.write(EEPROM_THINGSBOARD_PROVISIONED, true);
-  // EEPROM.commit();
+#if (HW_NUM >= 16)
+  logI("Creating power management task ...\n");
+  while (xTaskCreatePinnedToCore(PowerManagement_Task, "PWR_MGMT", 2048, NULL,
+                                 POWER_MANAGEMENT_TASK_PRIORITY, NULL,
+                                 CORE_ID_FREERTOS) != pdPASS)
+    ;
+  logI("Power management task successfully created!\n");
+#endif
 
   logI("Creating buzzer task ...\n");
   while (xTaskCreatePinnedToCore(buzzer_Task, "BUZZER", 4096, NULL,
@@ -511,11 +817,22 @@ void setup() {
     ;
   logI("UI task successfully created!\n");
 #endif
+
+#ifdef CRASH_TEST_MB
+  xTaskCreatePinnedToCore(CrashTestMBTask, "CRASH_TEST_MB", 2048, NULL, 1,
+                          NULL, CORE_ID_FREERTOS);
+#endif
 }
 
 void loop() {
-
   watchdogReload();
   updateData();
+// #ifdef BQ25730_TEST
+//   static long lastPrint = 0;
+//   if (millis() - lastPrint > 2000) {
+//     print_charger_status();
+//     lastPrint = millis();
+//   }
+// #endif
   vTaskDelay(pdMS_TO_TICKS(LOOP_TASK_PERIOD_MS));
 }

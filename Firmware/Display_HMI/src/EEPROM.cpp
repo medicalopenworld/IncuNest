@@ -23,107 +23,159 @@
 
 */
 #include <Arduino.h>
-#include <cmath>
-
-#include "EEPROM.h"
-#include "esp_log.h"
+#include <Preferences.h>
+#include "EEPROM_defines.h"
 #include "main.h"
-
-static const char *TAG = "EEPROM";
-
-void loaddefaultValues();
-void recapVariables();
-void resetCalibration();
-
-extern int photoTimerMinutes;
-
-void resetFlash() {
-  for (int i = false; i < EEPROM_SIZE; i++) {
-    EEPROM.write(i, 0);
-    EEPROM.commit();
-  }
-}
-
-void initEEPROM() {
-  if (!EEPROM.begin(EEPROM_SIZE)) {
-    ESP_LOGE(TAG, "Failed to initialise EEPROM");
-  }
-  // if (!EEPROM.read(EEPROM_PANIC_OTA_CHANGE)) {
-  //   EEPROM.write(EEPROM_PANIC_OTA_CHANGE, true);
-  //   EEPROM.writeFloat(EEPROM_RAW_SKIN_TEMP_RANGE_CORRECTION, 20.23);
-  //   EEPROM.commit();
-  // }
-  //   EEPROM.write(EEPROM_CHECK_STATUS, 0);
-  //   EEPROM.commit();
-  //   vTaskDelay(30);
-  // }
-  // else
-  // {
-  //   EEPROM.write(EEPROM_CHECK_STATUS, 1);
-  //   EEPROM.commit();
-  //   vTaskDelay(30);
-  // }
-  if (EEPROM.read(EEPROM_FIRST_TURN_ON)) { // firstTimePowerOn
-    resetFlash();
-    loaddefaultValues();
-    ESP_LOGI(TAG, "[FLASH] -> First turn on, loading default values");
-  } else {
-    ESP_LOGI(TAG, "[FLASH] -> Loading variables stored in flash");
-    recapVariables();
-  }
-  ESP_LOGI(TAG, "[FLASH] -> Variables loaded");
-}
-
-void loaddefaultValues() {
-  EEPROM.write(EEPROM_LANGUAGE, LANG_EN);
-  EEPROM.writeFloat(EEPROM_DESIRED_AIR_TEMP, DEFAULT_AIR_TEMP);
-  EEPROM.writeFloat(EEPROM_DESIRED_SKIN_TEMP, DEFAULT_SKIN_TEMP);
-  EEPROM.write(EEPROM_DESIRED_HUMIDITY, DEFAULT_HUMIDITY);
-  EEPROM.write(EEPROM_PHOTO_TIMER_MINUTES, PHOTO_TIMER_EEPROM_DEFAULT);
-  EEPROM.write(EEPROM_DARK_MODE, 0); // Default off
-  EEPROM.write(EEPROM_HUMIDITY_ENABLED, 0); // Default off
-  EEPROM.commit();
-}
 
 extern char wifi_ssid[64];
 extern char wifi_pass[64];
+extern int photoTimerMinutes;
 
-void recapVariables() {
-  g_lang = (ui_lang_t)EEPROM.read(EEPROM_LANGUAGE);
-  // Validation
-  if (g_lang > LANG_FR || g_lang < LANG_ES) {
-    g_lang = LANG_EN;
+void resetFlash() {
+  Preferences p;
+  const char* ns[] = { HMI_NS_CFG, HMI_NS_WIFI, HMI_NS_GPRS };
+  for (auto n : ns) { p.begin(n, false); p.clear(); p.end(); }
+}
+
+void loaddefaultValues() {
+  Preferences p;
+  p.begin(HMI_NS_CFG, false);
+  p.putUChar (HMI_KEY_LANG,      LANG_EN);
+  p.putFloat (HMI_KEY_AIR_TEMP,  DEFAULT_AIR_TEMP);
+  p.putFloat (HMI_KEY_SKIN_TEMP, DEFAULT_SKIN_TEMP);
+  p.putUChar (HMI_KEY_HUMIDITY,  DEFAULT_HUMIDITY);
+  p.putUChar (HMI_KEY_PHOTO_MIN, PHOTO_TIMER_EEPROM_DEFAULT);
+  p.putUChar (HMI_KEY_DARK_MODE, 0);
+  p.putUChar (HMI_KEY_HUM_EN,    0);
+  p.end();
+}
+
+static bool migrateFromEEPROM() {
+  constexpr int OLD_FIRST_TURN_ON = 10;
+  constexpr int OLD_LANG          = 30;
+  constexpr int OLD_SERIAL        = 40;
+  constexpr int OLD_AIR_TEMP      = 80;
+  constexpr int OLD_SKIN_TEMP     = 85;
+  constexpr int OLD_HUMIDITY      = 90;
+  constexpr int OLD_PHOTO_MIN     = 66;
+  constexpr int OLD_DARK_MODE     = 252;
+  constexpr int OLD_HUM_EN        = 257;
+  constexpr int OLD_WIFI_SSID     = 115;
+  constexpr int OLD_WIFI_PASS     = 145;
+  constexpr int OLD_TB_PROV       = 200;
+  constexpr int OLD_TB_TOKEN      = 205;
+  constexpr int OLD_VOLUME        = 251;
+  constexpr int OLD_DISP_FREQ     = 253;
+  constexpr int OLD_AA_WEIGHT     = 258;
+  constexpr int OLD_AA_GEST       = 260;
+  constexpr int OLD_AA_AGE_H      = 261;
+
+  Preferences old;
+  old.begin("eeprom", true);
+  uint8_t buf[263] = {};
+  size_t len = old.getBytes("data", buf, sizeof(buf));
+  old.end();
+
+  if (len < 263 || buf[OLD_FIRST_TURN_ON] != 0) {
+    return false;
   }
 
-  airTempValue = EEPROM.readFloat(EEPROM_DESIRED_AIR_TEMP);
-  skinTempValue = EEPROM.readFloat(EEPROM_DESIRED_SKIN_TEMP);
-  humValue = EEPROM.read(EEPROM_DESIRED_HUMIDITY);
-  photoTimerMinutes = EEPROM.read(EEPROM_PHOTO_TIMER_MINUTES);
-  darkMode = EEPROM.read(EEPROM_DARK_MODE) == 1;
-  humidityEnabled = EEPROM.read(EEPROM_HUMIDITY_ENABLED) == 1;
+  auto rf   = [&](int off) { float    v; memcpy(&v, buf + off, 4); return v; };
+  auto ru   = [&](int off) { uint32_t v; memcpy(&v, buf + off, 4); return v; };
+  auto ru16 = [&](int off) { uint16_t v; memcpy(&v, buf + off, 2); return v; };
 
-  String ssid = EEPROM.readString(EEPROM_WIFI_SSID);
-  String pass = EEPROM.readString(EEPROM_WIFI_PASSWORD);
-  strncpy(wifi_ssid, ssid.c_str(), sizeof(wifi_ssid));
-  strncpy(wifi_pass, pass.c_str(), sizeof(wifi_pass));
+  char ssid_tmp[31]  = {};
+  char pass_tmp[26]  = {};
+  char token_tmp[22] = {};
+  memcpy(ssid_tmp,  buf + OLD_WIFI_SSID, 30);
+  memcpy(pass_tmp,  buf + OLD_WIFI_PASS, 25);
+  memcpy(token_tmp, buf + OLD_TB_TOKEN,  21);
+
+  { Preferences p; p.begin(HMI_NS_CFG, false);
+    p.putUChar (HMI_KEY_LANG,      buf[OLD_LANG]);
+    p.putInt   (HMI_KEY_SERIAL,    *((int32_t*)(buf + OLD_SERIAL)));
+    p.putFloat (HMI_KEY_AIR_TEMP,  rf(OLD_AIR_TEMP));
+    p.putFloat (HMI_KEY_SKIN_TEMP, rf(OLD_SKIN_TEMP));
+    p.putUChar (HMI_KEY_HUMIDITY,  buf[OLD_HUMIDITY]);
+    p.putUChar (HMI_KEY_PHOTO_MIN, buf[OLD_PHOTO_MIN]);
+    p.putUChar (HMI_KEY_DARK_MODE, buf[OLD_DARK_MODE]);
+    p.putUChar (HMI_KEY_HUM_EN,    buf[OLD_HUM_EN]);
+    p.putUChar (HMI_KEY_VOLUME,    buf[OLD_VOLUME]);
+    p.putUInt  (HMI_KEY_DISP_FREQ, ru(OLD_DISP_FREQ));
+    p.putUShort(HMI_KEY_AA_WEIGHT, ru16(OLD_AA_WEIGHT));
+    p.putUChar (HMI_KEY_AA_GEST,   buf[OLD_AA_GEST]);
+    p.putUShort(HMI_KEY_AA_AGE_H,  ru16(OLD_AA_AGE_H));
+    p.end(); }
+
+  { Preferences p; p.begin(HMI_NS_WIFI, false);
+    p.putString(HMI_KEY_SSID,     ssid_tmp);
+    p.putString(HMI_KEY_PASSWORD, pass_tmp);
+    p.end(); }
+
+  { Preferences p; p.begin(HMI_NS_GPRS, false);
+    p.putUChar (HMI_KEY_PROVISIONED, buf[OLD_TB_PROV]);
+    p.putString(HMI_KEY_TOKEN,       token_tmp);
+    p.end(); }
+
+  old.begin("eeprom", false);
+  old.clear();
+  old.end();
+
+  ESP_LOGI("HMI", "Migration EEPROM -> Preferences complete");
+  return true;
+}
+
+void initEEPROM() {
+  Preferences p;
+  p.begin(HMI_NS_CFG, true);
+  bool initialized = p.isKey(HMI_KEY_LANG);
+  p.end();
+
+  if (!initialized) {
+    if (!migrateFromEEPROM()) {
+      resetFlash();
+      loaddefaultValues();
+    }
+  }
+  recapVariables();
+}
+
+void recapVariables() {
+  { Preferences p; p.begin(HMI_NS_CFG, true);
+    g_lang            = (ui_lang_t)p.getUChar(HMI_KEY_LANG, LANG_EN);
+    if (g_lang >= LANG_FR + 1) g_lang = LANG_EN;
+    airTempValue      = p.getFloat (HMI_KEY_AIR_TEMP,  DEFAULT_AIR_TEMP);
+    if (isnan(airTempValue) || airTempValue < AIR_TEMP_MIN || airTempValue > AIR_TEMP_MAX)
+      airTempValue = DEFAULT_AIR_TEMP;
+    skinTempValue     = p.getFloat (HMI_KEY_SKIN_TEMP, DEFAULT_SKIN_TEMP);
+    if (isnan(skinTempValue) || skinTempValue < SKIN_TEMP_MIN || skinTempValue > SKIN_TEMP_MAX)
+      skinTempValue = DEFAULT_SKIN_TEMP;
+    humValue          = p.getUChar (HMI_KEY_HUMIDITY,  DEFAULT_HUMIDITY);
+    photoTimerMinutes = p.getUChar (HMI_KEY_PHOTO_MIN, PHOTO_TIMER_EEPROM_DEFAULT);
+    darkMode          = p.getUChar (HMI_KEY_DARK_MODE, 0) != 0;
+    humidityEnabled   = p.getUChar (HMI_KEY_HUM_EN,    0) != 0;
+    in3.serialNumber  = p.getInt   (HMI_KEY_SERIAL,    0);
+    p.end(); }
+
+  { Preferences p; p.begin(HMI_NS_WIFI, true);
+    String s  = p.getString(HMI_KEY_SSID,     "");
+    String pw = p.getString(HMI_KEY_PASSWORD, "");
+    strncpy(wifi_ssid, s.c_str(),  sizeof(wifi_ssid) - 1);
+    wifi_ssid[sizeof(wifi_ssid) - 1] = '\0';
+    strncpy(wifi_pass, pw.c_str(), sizeof(wifi_pass) - 1);
+    wifi_pass[sizeof(wifi_pass) - 1] = '\0';
+    p.end(); }
 
   // Validation
-  if (isnan(airTempValue) || airTempValue < AIR_TEMP_MIN || airTempValue > AIR_TEMP_MAX)
-    airTempValue = DEFAULT_AIR_TEMP;
-  if (isnan(skinTempValue) || skinTempValue < SKIN_TEMP_MIN || skinTempValue > SKIN_TEMP_MAX)
-    skinTempValue = DEFAULT_SKIN_TEMP;
   if (humValue < HUM_MIN || humValue > HUM_MAX)
     humValue = DEFAULT_HUMIDITY;
-
   if (photoTimerMinutes < PHOTO_TIMER_MIN_MINUTES || photoTimerMinutes > PHOTO_TIMER_MAX_MINUTES)
     photoTimerMinutes = PHOTO_TIMER_EEPROM_DEFAULT;
 
-  in3.serialNumber = EEPROM.readInt(EEPROM_SERIAL_NUMBER);
-
-  ESP_LOGI(TAG, "Language loaded: %d", g_lang);
-  ESP_LOGI(TAG, "Serial Number loaded: %d", in3.serialNumber);
-  ESP_LOGI(TAG, "Air Temp loaded: %.2f", airTempValue);
-  ESP_LOGI(TAG, "Skin Temp loaded: %.2f", skinTempValue);
-  ESP_LOGI(TAG, "Humidity loaded: %d", humValue);
-  ESP_LOGI(TAG, "WiFi SSID loaded: %s", wifi_ssid);
+  ESP_LOGI("HMI", "Language loaded: %d", g_lang);
+  ESP_LOGI("HMI", "Serial Number loaded: %d", in3.serialNumber);
+  ESP_LOGI("HMI", "Air Temp loaded: %.2f", airTempValue);
+  ESP_LOGI("HMI", "Skin Temp loaded: %.2f", skinTempValue);
+  ESP_LOGI("HMI", "Humidity loaded: %d", humValue);
+  ESP_LOGI("HMI", "WiFi SSID loaded: %s", wifi_ssid);
 }

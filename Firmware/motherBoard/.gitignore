@@ -4,3 +4,5 @@
 .vscode/launch.json
 .vscode/ipch
 .cache
+serial_log_*.txt
+monitor_*.py

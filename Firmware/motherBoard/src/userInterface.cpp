@@ -27,7 +27,7 @@
 #include "main.h"
 
 extern TwoWire *wire;
-extern MAM_in3ator_Humidifier in3_hum;
+extern MAM_IncuNest_Humidifier in3_hum;
 extern TFT_eSPI tft;
 extern RotaryEncoder encoder;
 
@@ -136,7 +136,7 @@ extern PID airControlPID;
 extern PID skinControlPID;
 extern PID humidityControlPID;
 
-extern in3ator_parameters in3;
+extern IncuNest_parameters in3;
 
 void updateDisplayHeader() {
   if (millis() - lastGraphicSensorsUpdate > UI_SENSOR_UPDATE_PERIOD_MS) {
@@ -232,8 +232,7 @@ void userInterfaceHandler(int UI_page) {
         switch (bar_pos - graphicTextOffset) {
         case CONTROL_MODE_UI_ROW:
           in3.controlMode = !in3.controlMode;
-          EEPROM.write(EEPROM_CONTROL_MODE, in3.controlMode);
-          EEPROM.commit();
+          { Preferences p; p.begin(NS_CFG, false); p.putUChar(KEY_CTRL_MODE, in3.controlMode); p.end(); }
           UI_mainMenu();
           break;
         case TEMPERATURE_UI_ROW:
@@ -275,9 +274,7 @@ void userInterfaceHandler(int UI_page) {
               updateUIData = false;
             }
           }
-          EEPROM.writeFloat(EEPROM_DESIRED_CONTROL_TEMPERATURE,
-                            in3.desiredControlTemperature);
-          EEPROM.commit();
+          { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_CTRL_TEMP, in3.desiredControlTemperature); p.end(); }
           break;
         case HUMIDITY_UI_ROW:
           while (GPIORead(ENC_SWITCH)) {
@@ -315,14 +312,11 @@ void userInterfaceHandler(int UI_page) {
             EncMove = false;
             updateUIData = false;
           }
-          EEPROM.write(EEPROM_DESIRED_CONTROL_HUMIDITY,
-                       in3.desiredControlHumidity);
-          EEPROM.commit();
+          { Preferences p; p.begin(NS_CFG, false); p.putUChar(KEY_CTRL_HUM, in3.desiredControlHumidity); p.end(); }
           break;
         case LED_UI_ROW:
           in3.phototherapy = !in3.phototherapy;
-          EEPROM.write(EEPROM_PHOTOTHERAPY_ACTIVE, in3.phototherapy);
-          EEPROM.commit();
+          { Preferences p; p.begin(NS_STATE, false); p.putUChar(KEY_PHOTO_ACTIVE, in3.phototherapy); p.end(); }
           setTextColor(COLOUR_MENU);
           if (in3.phototherapy) {
             drawRightString((char *)("OFF"), unitPosition, ypos, textFontSize);
@@ -334,6 +328,13 @@ void userInterfaceHandler(int UI_page) {
             drawRightString((char *)("ON"), unitPosition, ypos, textFontSize);
           } else {
             drawRightString((char *)("OFF"), unitPosition, ypos, textFontSize);
+          }
+          if (in3.phototherapy) {
+            if (in3.photoFirstRun) {
+              in3.phototherapy_intensity = PWM_MAX_VALUE * PHOTOTHERAPY_INITIAL_PWM_PCT / 100;
+              in3.photoFirstRun = false;
+            }
+            in3.photoTurnOnTime = millis();
           }
           ledcWrite(PHOTOTHERAPY_PWM_CHANNEL,
                     in3.phototherapy * in3.phototherapy_intensity);
@@ -395,8 +396,7 @@ void userInterfaceHandler(int UI_page) {
               EncMove = false;
             }
           }
-          EEPROM.write(EEPROM_LANGUAGE, in3.language);
-          EEPROM.commit();
+          { Preferences p; p.begin(NS_CFG, false); p.putUChar(KEY_LANG, in3.language); p.end(); }
           UI_settings();
           break;
         case SERIAL_NUMBER_UI_ROW:
@@ -406,13 +406,13 @@ void userInterfaceHandler(int UI_page) {
               setTextColor(COLOUR_MENU);
               drawRightNumber(in3.serialNumber, unitPosition, ypos);
               in3.serialNumber -= EncMove;
-              EEPROM.writeInt(EEPROM_SERIAL_NUMBER, in3.serialNumber);
+              { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_SERIAL, in3.serialNumber); p.end(); }
               setTextColor(COLOUR_MENU_TEXT);
               drawRightNumber(in3.serialNumber, unitPosition, ypos);
             }
             EncMove = false;
           }
-          EEPROM.commit();
+          /* Preferences commits on p.end() */
           break;
         case CCID_UI_ROW:
           break;
@@ -501,10 +501,10 @@ void userInterfaceHandler(int UI_page) {
                String(in3.fineTuneSkinTemperature));
           logI("[CALIBRATION] -> Fine tune Air value is " +
                String(in3.fineTuneAirTemperature));
-          EEPROM.writeFloat(EEPROM_FINE_TUNE_TEMP_SKIN,
-                            in3.fineTuneSkinTemperature);
-          EEPROM.writeFloat(EEPROM_FINE_TUNE_TEMP_AIR, in3.fineTuneAirTemperature);
-          EEPROM.commit();
+          { Preferences p; p.begin(NS_CAL, false);
+            p.putFloat(KEY_FT_SKIN, in3.fineTuneSkinTemperature);
+            p.putFloat(KEY_FT_AIR,  in3.fineTuneAirTemperature);
+            p.end(); }
           UI_mainMenu();
           break;
         }

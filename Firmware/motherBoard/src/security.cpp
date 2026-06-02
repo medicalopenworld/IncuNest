@@ -26,7 +26,7 @@
 
 #include "main.h"
 
-static const char *TAG = "SECURITY";
+static const char *TAG __attribute__((unused)) = "SECURITY";
 extern SemaphoreHandle_t log_mutex;
 
 // Pending alarm queue for HMI connection
@@ -40,7 +40,7 @@ static int pending_alarm_count = 0;
 static bool hmi_connected = false;
 
 extern TwoWire *wire;
-extern MAM_in3ator_Humidifier in3_hum;
+extern MAM_IncuNest_Humidifier in3_hum;
 extern TFT_eSPI tft;
 extern RotaryEncoder encoder;
 
@@ -182,7 +182,7 @@ long lastAlarmTrigger[NUM_ALARMS];
 float alarmSensedValue;
 long lastPowerSupplyCheck;
 
-extern in3ator_parameters in3;
+extern IncuNest_parameters in3;
 
 void initAlarms() {
   lastAlarmTrigger[AIR_THERMAL_CUTOUT_ALARM] =
@@ -288,6 +288,10 @@ void alarmTimerStart() {
   lastAlarmTrigger[AIR_THERMAL_CUTOUT_ALARM] =
       -1 * minsToMillis(ALARM_TIME_DELAY);
   lastAlarmTrigger[SKIN_THERMAL_CUTOUT_ALARM] =
+      -1 * minsToMillis(ALARM_TIME_DELAY);
+  lastAlarmTrigger[TEMPERATURE_ALARM] =
+      -1 * minsToMillis(ALARM_TIME_DELAY);
+  lastAlarmTrigger[HUMIDITY_ALARM] =
       -1 * minsToMillis(ALARM_TIME_DELAY);
 }
 
@@ -615,6 +619,20 @@ void powerSupplyCheck() {
 #endif
 }
 
+#if (HW_NUM >= 16)
+static void checkUsbFault() {
+  if (!GPIORead(USB_FAULT)) { // active LOW: LOW = fault
+    if (humidifierState) {
+      logE("[PWR] USB_FAULT: humidifier short-circuit/overload, turning OFF");
+      in3_hum.turn(OFF);
+      humidifierState = false;
+      in3.humidityControl = false;
+      stopPID(humidityPID);
+    }
+  }
+}
+#endif
+
 void securityCheck() {
   if (in3.actuation) {
     checkThermalCutOuts();
@@ -622,4 +640,7 @@ void securityCheck() {
   checkAlarms();
   sensorHealthMonitor();
   powerSupplyCheck();
+#if (HW_NUM >= 16)
+  checkUsbFault();
+#endif
 }

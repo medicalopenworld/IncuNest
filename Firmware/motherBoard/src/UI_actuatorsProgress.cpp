@@ -27,7 +27,7 @@
 #include "main.h"
 
 extern TwoWire *wire;
-extern MAM_in3ator_Humidifier in3_hum;
+extern MAM_IncuNest_Humidifier in3_hum;
 extern TFT_eSPI tft;
 extern RotaryEncoder encoder;
 
@@ -132,8 +132,7 @@ extern PID airControlPID;
 extern PID skinControlPID;
 extern PID humidityControlPID;
 
-extern in3ator_parameters in3;
-
+extern IncuNest_parameters in3;
 
 void turnActuators(bool mode) {
   ledcWrite(HEATER_PWM_CHANNEL,
@@ -154,12 +153,14 @@ void stopActuation() {
 }
 
 void turnFans(bool mode) {
-  GPIOWrite(ACTUATORS_EN, mode || in3.phototherapy);
+  digitalWrite(ACTUATORS_EN, mode || in3.phototherapy);
 #if (HW_NUM >= 8)
   // ledcWrite(HEATER_PWM_CHANNEL, mode * HEATER_MAX_PWM);
-  ledcWrite(FAN_PWM_CHANNEL, (mode && !ongoingCriticalWiringAlarm()) * in3.fanPWM);
+  ledcWrite(FAN_PWM_CHANNEL,
+            (mode && !ongoingCriticalWiringAlarm()) * in3.fanPwrSupplyPWM);
+  ledcWrite(FAN_CTL_PWM_CHANNEL, mode * in3.fanCtlPWM);
 #else
-  GPIOWrite(FAN, in3.phototherapy || mode && !ongoingCriticalWiringAlarm());
+  digitalWrite(FAN, in3.phototherapy || mode && !ongoingCriticalWiringAlarm());
 #endif
 }
 
@@ -288,8 +289,7 @@ void UI_actuatorsProgress() {
       in3.actuation = ACTUATION_HUMIDITY;
     }
   }
-  EEPROM.write(EEPROM_CONTROL_ACTIVE, in3.actuation);
-  EEPROM.commit();
+  { Preferences p; p.begin(NS_STATE, false); p.putUChar(KEY_ACTUATION, in3.actuation); p.end(); }
   alarmTimerStart();
   temperaturePercentage = false;
   page = ACTUATORS_PROGRESS_PAGE;
@@ -313,6 +313,5 @@ void UI_actuatorsProgress() {
   }
   stopActuation();
   in3.actuation = false;
-  EEPROM.write(EEPROM_CONTROL_ACTIVE, in3.actuation);
-  EEPROM.commit();
+  { Preferences p; p.begin(NS_STATE, false); p.putUChar(KEY_ACTUATION, in3.actuation); p.end(); }
 }

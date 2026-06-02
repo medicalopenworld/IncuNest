@@ -27,7 +27,8 @@
 #include "main.h"
 
 extern TwoWire *wire;
-extern MAM_in3ator_Humidifier in3_hum;
+extern TwoWire *wire2;
+extern MAM_IncuNest_Humidifier in3_hum;
 extern TFT_eSPI tft;
 extern SHTC3 mySHTC3; // Declare an instance of the SHTC3 class
 extern SensirionI2cSts3x mySTS35[STS3X_NUM];
@@ -150,9 +151,19 @@ extern int ScreenBacklightMode;
 #define CURRENT_STABILIZE_TIME_DEFAULT 700
 #define CURRENT_STABILIZE_TIME_HEATER 1000
 #define CURRENT_STABILIZE_MAX_TIME 2000
+// Cargas térmicas (heater, fotosterapia): necesitan más tiempo para que la
+// ventana deslizante de measureStabilizedCurrent (WINDOW=10 × 200ms = 2 s)
+// detecte estabilización real y no una deriva lenta.
+#define CURRENT_STABILIZE_MAX_TIME_THERMAL 8000
 
 #define INA3221_RESET_DELAY_MS 100
 #define INA3221_FIRST_CONVERSION_DELAY_MS 150
+// One fresh INA3221 conversion cycle: AVG128 x 140us x 2 (bus+shunt) x 3ch ~= 107ms, rounded up.
+#define INA3221_ONE_CYCLE_SETTLE_MS 200
+// USB_FAULT GPIO latches within ~50ms of USB_EN assertion; 100ms gives 2x margin.
+#define USB_FAULT_SETTLE_MS 100
+// Startup beep duration: clearly audible but not drawn out.
+#define BUZZER_BEEP_DURATION_MS 300
 
 #define NTC_BABY_MIN 1
 #define NTC_BABY_MAX 60
@@ -170,15 +181,13 @@ extern int ScreenBacklightMode;
 
 #define HEATER_CONSUMPTION_MAX 13
 #define FAN_CONSUMPTION_MAX 0.8
-#define PHOTOTHERAPY_CONSUMPTION_DEFAULT 0.6
+#define PHOTOTHERAPY_CONSUMPTION_DEFAULT 0.45
 #define PHOTOTHERAPY_CONSUMPTION_MAX 3
+#define PHOTOTHERAPY_INITIAL_PWM_PCT 40
 #define HUMIDIFIER_CONSUMPTION_MAX 0.8
 
 #define STANDBY_CONSUMPTION_MIN 0
 #define STANDBY_CONSUMPTION_MAX 1
-
-#define SCREEN_CONSUMPTION_MIN 0.005
-#define SCREEN_CONSUMPTION_MAX 1
 
 #define BUZZER_CONSUMPTION_MIN 0
 #define BUZZER_CONSUMPTION_MAX 1
@@ -206,24 +215,36 @@ long HW_error = false;
 long lastTFTCheck;
 int tft_width, tft_height;
 
-extern in3ator_parameters in3;
+extern IncuNest_parameters in3;
 TCA9535 TCA(0x20);
 
 bool initI2C() {
   int clkSpeed = false;
   for (int i = 0; i < INIT_I2C_RETRIES; i++) {
-    logI("[HW] -> Initializing i2c port");
+    logI("[HW] -> Initializing I2C1 (SDA=" + String(I2C_SDA) +
+         " SCL=" + String(I2C_SCL) + ")");
     Wire.begin(I2C_SDA, I2C_SCL, DEFAULT_I2C_SPEED);
     wire = &Wire;
     clkSpeed = Wire.getClock();
     if (clkSpeed) {
-      logI("[HW] -> I2c port initialized with clock speed: " +
-           String(clkSpeed));
-      return true;
+      logI("[HW] -> I2C1 initialized, clock: " + String(clkSpeed));
+      break;
     }
   }
-  logI("[HW] -> I2c init error");
-  return false;
+  if (!clkSpeed) {
+    logI("[HW] -> I2C1 init error");
+    return false;
+  }
+
+#if (HW_NUM >= 16)
+  logI("[HW] -> Initializing I2C2 (SDA=" + String(I2C2_SDA) +
+       " SCL=" + String(I2C2_SCL) + ")");
+  Wire1.begin(I2C2_SDA, I2C2_SCL, DEFAULT_I2C_SPEED);
+  wire2 = &Wire1;
+  logI("[HW] -> I2C2 initialized (SHTC3 + STS35 bus)");
+#endif
+
+  return true;
 }
 
 void initPWMGPIO() {
@@ -243,9 +264,14 @@ void initPWMGPIO() {
   ledcWrite(BUZZER_PWM_CHANNEL, false);
   ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, false);
 #if (HW_NUM >= 6)
-  ledcSetup(FAN_PWM_CHANNEL, LOW_PWM_FREQUENCY, DEFAULT_PWM_RESOLUTION);
+  ledcSetup(FAN_PWM_CHANNEL, FAN_PWM_FREQUENCY, DEFAULT_PWM_RESOLUTION);
   ledcAttachPin(FAN, FAN_PWM_CHANNEL);
   ledcWrite(FAN_PWM_CHANNEL, false);
+#endif
+#if (HW_NUM >= 16)
+  ledcSetup(FAN_CTL_PWM_CHANNEL, FAN_PWM_FREQUENCY, DEFAULT_PWM_RESOLUTION);
+  ledcAttachPin(FAN_CTL, FAN_CTL_PWM_CHANNEL);
+  ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
 #endif
 
 #if (HW_NUM == 8)
@@ -265,54 +291,56 @@ void initGPIO() {
   for (int pin = 0; pin < 16; pin++) {
     TCA.setPolarity(pin, false);
   }
-  initPin(UNUSED_GPIO_EXP0, OUTPUT);
-  initPin(UNUSED_GPIO_EXP1, OUTPUT);
-  initPin(UNUSED_GPIO_EXP2, OUTPUT);
-  initPin(UNUSED_GPIO_EXP3, OUTPUT);
-  GPIOWrite(UNUSED_GPIO_EXP0, HIGH);
-  GPIOWrite(UNUSED_GPIO_EXP1, HIGH);
-  GPIOWrite(UNUSED_GPIO_EXP2, HIGH);
-  GPIOWrite(UNUSED_GPIO_EXP3, HIGH);
-  initPin(GPRS_EN, OUTPUT);
-  GPIOWrite(GPRS_EN, HIGH);
-  initPin(HUMIDIFIER_CTL, OUTPUT);
-  GPIOWrite(HUMIDIFIER_CTL, LOW);
-  GPIOWrite(TFT_CS_EXP, LOW);
+  pinMode(UNUSED_GPIO_EXP0, OUTPUT);
+  pinMode(UNUSED_GPIO_EXP1, OUTPUT);
+  pinMode(UNUSED_GPIO_EXP2, OUTPUT);
+  pinMode(UNUSED_GPIO_EXP3, OUTPUT);
+  digitalWrite(UNUSED_GPIO_EXP0, HIGH);
+  digitalWrite(UNUSED_GPIO_EXP1, HIGH);
+  digitalWrite(UNUSED_GPIO_EXP2, HIGH);
+  digitalWrite(UNUSED_GPIO_EXP3, HIGH);
+  pinMode(GPRS_EN, OUTPUT);
+  digitalWrite(GPRS_EN, HIGH);
+  pinMode(HUMIDIFIER_CTL, OUTPUT);
+  digitalWrite(HUMIDIFIER_CTL, LOW);
+  digitalWrite(TFT_CS_EXP, LOW);
 #elif (HW_NUM == 8)
-  initPin(HUMIDIFIER_PWM, OUTPUT);
+  pinMode(HUMIDIFIER_PWM, OUTPUT);
 #endif
 #if (HW_NUM >= 10)
-  initPin(FAN_SPEED_FEEDBACK, INPUT_PULLUP);
-#endif
-#if (HW_NUM >= 14)
-  initPin(TOUCH_SENSOR, OUTPUT);
-  GPIOWrite(TOUCH_SENSOR, LOW);
-  initPin(TOUCH_SENSOR_SEL, OUTPUT);
-  GPIOWrite(TOUCH_SENSOR_SEL, LOW);
+  pinMode(FAN_SPEED_FEEDBACK, INPUT_PULLUP);
 #endif
 #if (GPRS_PWRKEY)
-  initPin(GPRS_PWRKEY, OUTPUT);
+  pinMode(GPRS_PWRKEY, OUTPUT);
 #endif
-  initPin(encoderpinA, INPUT_PULLUP);
-  initPin(encoderpinB, INPUT_PULLUP);
-  initPin(ENC_SWITCH, INPUT_PULLUP);
-  initPin(TFT_CS, OUTPUT);
-  initPin(PHOTOTHERAPY, OUTPUT);
-  initPin(FAN, OUTPUT);
-  initPin(HEATER, OUTPUT);
-  initPin(BUZZER, OUTPUT);
-  initPin(SCREENBACKLIGHT, OUTPUT);
-  initPin(ACTUATORS_EN, OUTPUT);
-  // GPIOWrite(FAN, LOW);
-  //  initPin(ON_OFF_SWITCH, INPUT);
+  pinMode(encoderpinA, INPUT_PULLUP);
+  pinMode(encoderpinB, INPUT_PULLUP);
+  pinMode(ENC_SWITCH, INPUT_PULLUP);
+  pinMode(TFT_CS, OUTPUT);
+  pinMode(PHOTOTHERAPY, OUTPUT);
+  pinMode(FAN, OUTPUT);
+  pinMode(HEATER, OUTPUT);
+  pinMode(BUZZER, OUTPUT);
+  pinMode(SCREENBACKLIGHT, OUTPUT);
+  pinMode(ACTUATORS_EN, OUTPUT);
+#if (HW_NUM >= 16)
+  pinMode(PWR_EN, OUTPUT);
+  digitalWrite(PWR_EN, HIGH);    // keep LOW until power-latch check in setup()
+  pinMode(ON_OFF_SWITCH, INPUT); // active HIGH: pressed=HIGH, released=LOW
+  pinMode(USB_EN, OUTPUT);
+  digitalWrite(USB_EN, LOW); // humidifier OFF by default
+  pinMode(USB_FAULT, INPUT_PULLUP); // open-drain activo bajo: pull-up necesario
+#endif
   initPWMGPIO();
   logI("[HW] -> GPIOs initilialized");
 }
 
 void initInterrupts() {
+#if (HW_NUM <= 13)
   attachInterrupt(ENC_SWITCH, encSwitchHandler, CHANGE);
   attachInterrupt(ENC_A, encoderISR, CHANGE);
   attachInterrupt(ENC_B, encoderISR, CHANGE);
+#endif
 
 #if (HW_NUM >= 10)
   attachInterrupt(FAN_SPEED_FEEDBACK, fanEncoderISR, CHANGE);
@@ -322,6 +350,14 @@ void initInterrupts() {
 void initRoomSensor() {
   static int16_t room_sensor_error;
   static char errorMessage[64];
+
+  // Without an explicit timeout, the ESP32 Wire library blocks ~1s per probe
+  // for any address that returns NACK. At 3 sensor possibilities this costs ~3s.
+#if (HW_NUM >= 16)
+  wire2->setTimeOut(10);
+#else
+  wire->setTimeOut(10);
+#endif
 
   for (int i = 0; i < ROOM_SENSOR_POSIBILITIES; i++) {
     roomSensorPresent[i] = false;
@@ -341,8 +377,13 @@ void initRoomSensor() {
       continue;
     }
 
+#if (HW_NUM >= 16)
+    wire2->beginTransmission(addr);
+    roomSensorPresent[i] = (wire2->endTransmission() == 0);
+#else
     wire->beginTransmission(addr);
     roomSensorPresent[i] = (wire->endTransmission() == 0);
+#endif
     if (!roomSensorPresent[i])
       continue;
 
@@ -352,7 +393,11 @@ void initRoomSensor() {
     switch (i) {
     case ROOM_SENSOR_STS3X_MAIN:
     case ROOM_SENSOR_STS3X_REDUNDANT: {
+#if (HW_NUM >= 16)
+      mySTS35[i].begin(Wire1, addr);
+#else
       mySTS35[i].begin(Wire, addr);
+#endif
       mySTS35[i].stopMeasurement(); // <-- salir de periódico por si acaso
       vTaskDelay(pdMS_TO_TICKS(INIT_ROOM_SENSOR_STS3X_DELAY));
       mySTS35[i].softReset();
@@ -372,7 +417,11 @@ void initRoomSensor() {
     }
 
     case ROOM_SENSOR_SHTC3: {
+#if (HW_NUM >= 16)
+      mySHTC3.begin(Wire1);
+#else
       mySHTC3.begin(Wire);
+#endif
       logI("SHTC3 initialized");
       break;
     }
@@ -406,7 +455,8 @@ bool initCurrentSensor(bool currentSensor) {
       if (currentSensor == MAIN) {
         mainDigitalCurrentSensor.begin();
         mainDigitalCurrentSensor.reset();
-        vTaskDelay(pdMS_TO_TICKS(INA3221_RESET_DELAY_MS));
+        vTaskDelay(pdMS_TO_TICKS(100));
+        // Set shunt resistors
         mainDigitalCurrentSensor.setShuntRes(SYSTEM_SHUNT, PHOTOTHERAPY_SHUNT,
                                              FAN_SHUNT);
         mainDigitalCurrentSensor.setShuntConversionTime(
@@ -417,14 +467,15 @@ bool initCurrentSensor(bool currentSensor) {
         secundaryDigitalCurrentSensor.begin();
         secundaryDigitalCurrentSensor.reset();
         vTaskDelay(pdMS_TO_TICKS(INA3221_RESET_DELAY_MS));
-        secundaryDigitalCurrentSensor.setShuntRes(HEATER_SHUNT, DISPLAY_SHUNT,
+        secundaryDigitalCurrentSensor.setShuntRes(HEATER_SHUNT, USB_SHUNT,
                                                   BATTERY_SHUNT);
         secundaryDigitalCurrentSensor.setShuntConversionTime(
             INA3221_REG_CONF_CT_140US);
         secundaryDigitalCurrentSensor.setAveragingMode(
             INA3221_REG_CONF_AVG_128);
       }
-      // Wait for first full conversion cycle: 128 avg × 140µs × 2 (bus+shunt) × 3 ch ≈ 108ms
+      // Wait for first full conversion cycle: 128 avg × 140µs × 2 (bus+shunt) ×
+      // 3 ch ≈ 108ms
       vTaskDelay(pdMS_TO_TICKS(INA3221_FIRST_CONVERSION_DELAY_MS));
       return (true);
     } else {
@@ -437,21 +488,46 @@ bool initCurrentSensor(bool currentSensor) {
 
 void addErrorToVar(long &errorVar, int error) { errorVar |= (1 << error); }
 
+void initSkinSensor() {
+#if (HW_NUM >= 16)
+  // BABY_TEMP_EN excita el divisor resistivo; se mantiene LOW hasta la medida.
+  pinMode(BABY_TEMP_EN, OUTPUT);
+#if SKIN_NTC_PULSED_EXCITATION
+  digitalWrite(BABY_TEMP_EN, LOW);
+#else
+  digitalWrite(BABY_TEMP_EN, HIGH);
+#endif
+  // Configura el ADS1110: single-shot, 14-bit (60 SPS), PGA=1.
+  // Bit map: [ST/RDY][SC][PGA1][PGA0][DR1][DR0][0][0]
+  //          [  0  ][ 1][  0 ][  0 ][  0][  1][0][0] = 0x44
+  // Single-shot evita leer una conversión obsoleta al arranque y reduce
+  // el tiempo de excitación de la NTC (~22 ms vs ~80 ms), minimizando
+  // el autocalentamiento. 14-bit da 0.008°C de resolución, suficiente.
+  // Los datos siguen left-justificados en 16 bits → fórmula raw*0.0625 válida.
+  wire->beginTransmission(ADS1110_I2C_ADDRESS);
+  wire->write(0x44);
+  uint8_t err = wire->endTransmission();
+  if (err) {
+    logE("[SKIN] ADS1110 init I2C error: " + String(err));
+  } else {
+    logI("[SKIN] ADS1110 configured: single-shot, 14-bit/60SPS, PGA=1");
+  }
+#endif
+}
+
 void initSensors() {
   initCurrentSensor(MAIN);
   initCurrentSensor(SECUNDARY);
   initRoomSensor();
   initAmbientSensor();
+  initSkinSensor();
 }
 
 void testSensors() {
   long error = HW_error;
   logI("[HW] -> Initialiting sensors");
   // sensors verification
-  for (int i = 0; i <= NTC_SAMPLES_TEST; i++) {
-    measureNTCTemperature();
-  }
-
+  measureSkinSensor();
   if (in3.temperature[SKIN_SENSOR] < NTC_BABY_MIN) {
     logE("[HW] -> Fail -> NTC temperature is lower than expected");
     addErrorToVar(HW_error, NTC_BABY_MIN_ERROR);
@@ -516,9 +592,9 @@ void initTFT() {
 #if (HW_NUM < 15)
   tft.init();
 #if (HW_NUM == 6)
-  GPIOWrite(TFT_CS_EXP, HIGH);
+  digitalWrite(TFT_CS_EXP, HIGH);
   vTaskDelay(pdMS_TO_TICKS(5));
-  GPIOWrite(TFT_CS_EXP, LOW);
+  digitalWrite(TFT_CS_EXP, LOW);
 #endif
   tft.setRotation(DISPLAY_DEFAULT_ROTATION);
   tft.fillScreen(TFT_BLACK);
@@ -534,14 +610,18 @@ void testDisplay() {
   int backlight_start_value, backlight_end_value;
   offsetCurrent = measureMeanConsumption(MAIN, SYSTEM_SHUNT_CHANNEL);
 #if (HW_NUM == 6)
-  initPin(TOUCH_CS, OUTPUT);
-  initPin(SD_CS, OUTPUT);
-  initPin(TFT_RST, OUTPUT);
-  initPin(TFT_CS_EXP, OUTPUT);
-  initPin(TFT_DC, OUTPUT);
-  GPIOWrite(TOUCH_CS, HIGH);
-  GPIOWrite(SD_CS, HIGH);
-  GPIOWrite(TFT_CS_EXP, HIGH);
+  pinMode(TOUCH_CS, OUTPUT);
+  pinMode(SD_CS, OUTPUT);
+  pinMode(TFT_RST, OUTPUT);
+  pinMode(TFT_CS_EXP, OUTPUT);
+  pinMode(TFT_DC, OUTPUT);
+  digitalWrite(TOUCH_CS, HIGH);
+  digitalWrite(SD_CS, HIGH);
+  digitalWrite(TFT_CS_EXP, HIGH);
+  // digitalWrite(TFT_RST, LOW); // alternating HIGH/LOW
+  // delay(5);
+  // digitalWrite(TFT_RST, HIGH); // alternating HIGH/LOW
+  // delay(5);
 #endif
   loadlogo();
   if (BACKLIGHT_CONTROL == DIRECT_BACKLIGHT_CONTROL) {
@@ -575,30 +655,13 @@ void testDisplay() {
     logE("[HW] -> Fail -> test current is " + String(testCurrent) + " Amps");
   }
   in3.display_current_test = testCurrent;
-#else
-  long error = HW_error;
-  float testCurrent;
-  testCurrent = measureStabilizedCurrent(
-      SECUNDARY, DISPLAY_SHUNT_CHANNEL, 0, SCREEN_CONSUMPTION_MIN,
-      SCREEN_CONSUMPTION_MAX, CURRENT_STABILIZE_MAX_TIME);
-  logI("[HW] -> Display current consumption: " + String(testCurrent) + " Amps");
-  in3.display_current_test = testCurrent;
-  if (testCurrent < SCREEN_CONSUMPTION_MIN) {
-    logE("[HW] -> Fail -> Display current consumption is too low");
-  }
-  if (testCurrent > SCREEN_CONSUMPTION_MAX) {
-    logE("[HW] -> Fail -> Display current consumption is too high");
-  }
-  if (error == HW_error) {
-    logI("[HW] -> OK -> Display is working as expected");
-  }
 #endif
 }
 
 void testBuzzer() {
   long error = HW_error;
   float testCurrent, offsetCurrent;
-
+    #if(HW_NUM <= 16)
   offsetCurrent = measureMeanConsumption(MAIN, SYSTEM_SHUNT_CHANNEL);
   ledcWrite(BUZZER_PWM_CHANNEL, BUZZER_HALF_PWM);
   testCurrent = measureStabilizedCurrent(
@@ -606,6 +669,11 @@ void testBuzzer() {
       BUZZER_CONSUMPTION_MAX, CURRENT_STABILIZE_MAX_TIME);
   ledcWrite(BUZZER_PWM_CHANNEL, false);
   vTaskDelay(pdMS_TO_TICKS(CURRENT_STABILIZE_TIME_DEFAULT));
+  #else
+    ledcWrite(BUZZER_PWM_CHANNEL, BUZZER_HALF_PWM);
+    vTaskDelay(pdMS_TO_TICKS(BUZZER_BEEP_DURATION_MS));
+    ledcWrite(BUZZER_PWM_CHANNEL, false);
+  #endif
   if (testCurrent < BUZZER_CONSUMPTION_MIN) {
     addErrorToVar(HW_error, DEFECTIVE_BUZZER);
     logE("[HW] -> Fail -> Buzzer current is not high enough");
@@ -619,20 +687,208 @@ void testBuzzer() {
   in3.buzzer_current_test = testCurrent;
 }
 
+struct ActuatorResult {
+  float heater;
+  float photo;
+  float fan;
+};
+
+// Turns heater (SECUNDARY CH1), phototherapy (MAIN CH2), and fan (MAIN CH3) ON
+// simultaneously and measures all three in a single interleaved loop, avoiding
+// the ~4s of sequential stabilisation waits. Channels are hardware-independent
+// even when on the same INA3221 chip.
+static ActuatorResult measureThreeActuatorsParallel(
+    float heaterOffset, float photoOffset, float fanOffset,
+    float heaterMin, float heaterMax,
+    float photoMin,  float photoMax,
+    float fanMin,    float fanMax,
+    int maxTimeMs, int intervalMs) {
+  const int W = 10;
+  const float hThresh = (heaterMax - heaterMin) * CURRENT_STABILIZE_THRESHOLD_RATIO;
+  const float pThresh = (photoMax  - photoMin)  * CURRENT_STABILIZE_THRESHOLD_RATIO;
+  const float fThresh = (fanMax    - fanMin)    * CURRENT_STABILIZE_THRESHOLD_RATIO;
+
+  float hBuf[W], pBuf[W], fBuf[W];
+  float h0 = measureMeanConsumption(SECUNDARY, HEATER_SHUNT_CHANNEL)       - heaterOffset;
+  float p0 = measureMeanConsumption(MAIN,      PHOTOTHERAPY_SHUNT_CHANNEL) - photoOffset;
+  float f0 = measureMeanConsumption(MAIN,      FAN_SHUNT_CHANNEL)          - fanOffset;
+  for (int i = 0; i < W; i++) { hBuf[i] = h0; pBuf[i] = p0; fBuf[i] = f0; }
+
+  ActuatorResult r = {h0, p0, f0};
+  bool hStable = false, pStable = false, fStable = false;
+  int idx = 0, count = 0, elapsed = 0;
+  int hOverMax = 0, pOverMax = 0, fOverMax = 0;
+
+  while (elapsed < maxTimeMs && !(hStable && pStable && fStable)) {
+    vTaskDelay(pdMS_TO_TICKS(intervalMs));
+    elapsed += intervalMs;
+
+    r.heater = measureMeanConsumption(SECUNDARY, HEATER_SHUNT_CHANNEL)       - heaterOffset;
+    r.photo  = measureMeanConsumption(MAIN,      PHOTOTHERAPY_SHUNT_CHANNEL) - photoOffset;
+    r.fan    = measureMeanConsumption(MAIN,      FAN_SHUNT_CHANNEL)          - fanOffset;
+
+    // Early exit on confirmed overcurrent (2 consecutive readings above max)
+    if (r.heater > heaterMax) { if (++hOverMax >= 2) break; } else { hOverMax = 0; }
+    if (r.photo  > photoMax)  { if (++pOverMax >= 2) break; } else { pOverMax = 0; }
+    if (r.fan    > fanMax)    { if (++fOverMax >= 2) break; } else { fOverMax = 0; }
+
+    hBuf[idx % W] = r.heater;
+    pBuf[idx % W] = r.photo;
+    fBuf[idx % W] = r.fan;
+    idx++; count++;
+
+    if (count < W) continue;
+
+    if (!hStable) {
+      float mn = hBuf[0], mx = hBuf[0];
+      for (int i = 1; i < W; i++) { if (hBuf[i] < mn) mn = hBuf[i]; if (hBuf[i] > mx) mx = hBuf[i]; }
+      hStable = ((mx - mn) < hThresh && r.heater >= heaterMin && r.heater <= heaterMax);
+    }
+    if (!pStable) {
+      float mn = pBuf[0], mx = pBuf[0];
+      for (int i = 1; i < W; i++) { if (pBuf[i] < mn) mn = pBuf[i]; if (pBuf[i] > mx) mx = pBuf[i]; }
+      pStable = ((mx - mn) < pThresh && r.photo >= photoMin && r.photo <= photoMax);
+    }
+    if (!fStable) {
+      float mn = fBuf[0], mx = fBuf[0];
+      for (int i = 1; i < W; i++) { if (fBuf[i] < mn) mn = fBuf[i]; if (fBuf[i] > mx) mx = fBuf[i]; }
+      fStable = ((mx - mn) < fThresh && r.fan >= fanMin && r.fan <= fanMax);
+    }
+  }
+  return r;
+}
+
 bool actuatorsTest() {
   long error = HW_error;
   logI("[HW] -> Checking actuators...");
-  GPIOWrite(ACTUATORS_EN, HIGH);
-  logI("[HW] -> System current consumption: " +
-       String(measureMeanConsumption(MAIN, SYSTEM_SHUNT_CHANNEL)) + " Amps");
-  float testCurrent, offsetCurrent;
-  offsetCurrent = measureMeanConsumption(SECUNDARY, SYSTEM_SHUNT_CHANNEL);
-  ledcWrite(HEATER_PWM_CHANNEL, PWM_MAX_VALUE);
-  testCurrent = measureStabilizedCurrent(
-                    SECUNDARY, HEATER_SHUNT_CHANNEL, 0, HEATER_CONSUMPTION_MIN,
-                    HEATER_CONSUMPTION_MAX, CURRENT_STABILIZE_MAX_TIME) -
-                offsetCurrent;
+  digitalWrite(ACTUATORS_EN, HIGH);
 
+  logI("[HW] -> digitalCurrentSensorPresent MAIN=" +
+       String(digitalCurrentSensorPresent[MAIN]) +
+       " SECUNDARY=" + String(digitalCurrentSensorPresent[SECUNDARY]));
+#if (HW_NUM >= 16)
+  // Phototherapy test constants (same formula as original sequential code)
+  const int   PHOTOTHERAPY_TEST_PWM = PWM_MAX_VALUE * 10 / 100;
+  const float PHOTOTHERAPY_PWM_ZERO = 20.0f;
+  const float photoScale = (PHOTOTHERAPY_TEST_PWM + PHOTOTHERAPY_PWM_ZERO) /
+                           (PWM_MAX_VALUE          + PHOTOTHERAPY_PWM_ZERO);
+
+  // Measure all baselines while all actuators are OFF
+  float heaterOffset = measureMeanConsumption(SECUNDARY, HEATER_SHUNT_CHANNEL);
+  float photoOffset  = measureMeanConsumption(MAIN,      PHOTOTHERAPY_SHUNT_CHANNEL);
+  float fanOffset    = measureMeanConsumption(MAIN,      FAN_SHUNT_CHANNEL);
+  logI("[HW] -> Heater offset: " + String(heaterOffset, 3) +
+       "  Photo offset: " + String(photoOffset, 3) +
+       "  Fan offset: " + String(fanOffset, 3) + " A");
+
+  // Turn on heater and phototherapy; delay to let first INA3221 samples arrive,
+  // then turn on fan so its spin-up overlaps with heater/photo thermal ramp.
+  ledcWrite(HEATER_PWM_CHANNEL,       PWM_MAX_VALUE);
+  ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, PHOTOTHERAPY_TEST_PWM);
+  vTaskDelay(pdMS_TO_TICKS(INA3221_ONE_CYCLE_SETTLE_MS));
+  ledcWrite(FAN_PWM_CHANNEL, PWM_MAX_VALUE);
+  vTaskDelay(pdMS_TO_TICKS(220));
+  logI("[HW] -> Heater + Phototherapy + Fan ON, measuring in parallel...");
+
+  ActuatorResult res = measureThreeActuatorsParallel(
+      heaterOffset, photoOffset, fanOffset,
+      HEATER_CONSUMPTION_MIN,                        HEATER_CONSUMPTION_MAX,
+      PHOTOTHERAPY_CONSUMPTION_MIN * photoScale,     PHOTOTHERAPY_CONSUMPTION_MAX * photoScale,
+      FAN_CONSUMPTION_MIN,                           FAN_CONSUMPTION_MAX,
+      CURRENT_STABILIZE_MAX_TIME_THERMAL,            110);
+
+  ledcWrite(HEATER_PWM_CHANNEL,       0);
+  ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, 0);
+  ledcWrite(FAN_PWM_CHANNEL,          0);
+
+  in3.heater_current_test       = res.heater;
+  in3.phototherapy_current_test = res.photo;
+  in3.fan_current_test          = res.fan;
+
+  logI("[HW] -> Heater: "       + String(res.heater, 3) + " A  (min=" +
+       String(HEATER_CONSUMPTION_MIN) + " max=" + String(HEATER_CONSUMPTION_MAX) + ")");
+  logI("[HW] -> Phototherapy: " + String(res.photo, 3)  + " A  @10% PWM");
+  logI("[HW] -> FAN: "          + String(res.fan, 3)    + " A");
+
+  // Heater checks (critical — abort on failure)
+  if (res.heater < HEATER_CONSUMPTION_MIN) {
+    addErrorToVar(HW_error, HEATER_CONSUMPTION_MIN_ERROR);
+    logE("[HW] -> Fail -> Heater current too low");
+    in3.alarmToReport[HEATER_ISSUE_ALARM] = true;
+    setAlarm(HEATER_ISSUE_ALARM);
+    digitalWrite(ACTUATORS_EN, LOW);
+    return true;
+  }
+  if (res.heater > HEATER_CONSUMPTION_MAX) {
+    addErrorToVar(HW_error, HEATER_CONSUMPTION_MAX_ERROR);
+    logE("[HW] -> Fail -> Heater current too high");
+    in3.alarmToReport[HEATER_ISSUE_ALARM] = true;
+    setAlarm(HEATER_ISSUE_ALARM);
+    digitalWrite(ACTUATORS_EN, LOW);
+    return true;
+  }
+  { Preferences p; p.begin(NS_CFG, false); p.putUChar(KEY_HEATER_TEST, 1); p.end(); }
+
+  // Phototherapy checks
+  if (res.photo < PHOTOTHERAPY_CONSUMPTION_MIN * photoScale) {
+    addErrorToVar(HW_error, PHOTOTHERAPY_CONSUMPTION_MIN_ERROR);
+    logE("[HW] -> Fail -> Phototherapy current too low at 10%");
+  }
+  if (res.photo > PHOTOTHERAPY_CONSUMPTION_MAX * photoScale) {
+    addErrorToVar(HW_error, PHOTOTHERAPY_CONSUMPTION_MAX_ERROR);
+    logE("[HW] -> Fail -> Phototherapy current too high at 10%");
+    digitalWrite(ACTUATORS_EN, LOW);
+    return true;
+  }
+
+  // Extrapolate phototherapy PWM for the target operating current
+  int pwmTarget = (int)roundf(
+      PHOTOTHERAPY_CONSUMPTION_DEFAULT *
+          (PHOTOTHERAPY_TEST_PWM + PHOTOTHERAPY_PWM_ZERO) / res.photo -
+      PHOTOTHERAPY_PWM_ZERO);
+  pwmTarget = constrain(pwmTarget, 0, PWM_MAX_VALUE);
+  in3.phototherapy_intensity = pwmTarget;
+  logI("[HW] -> Phototherapy extrapolated PWM=" + String(pwmTarget) +
+       " (" + String(pwmTarget * 100 / PWM_MAX_VALUE) + "%) for " +
+       String(PHOTOTHERAPY_CONSUMPTION_DEFAULT, 2) + " A");
+
+  // Fan checks
+  if (res.fan < FAN_CONSUMPTION_MIN) {
+    addErrorToVar(HW_error, FAN_CONSUMPTION_MIN_ERROR);
+    logE("[HW] -> Fail -> Fan current too low");
+    digitalWrite(ACTUATORS_EN, LOW);
+    return true;
+  }
+  if (res.fan > FAN_CONSUMPTION_MAX &&
+      res.fan > FAN_MAX_CURRENT_OVERRIDE * FAN_CONSUMPTION_MAX * 2) {
+    addErrorToVar(HW_error, FAN_CONSUMPTION_MAX_ERROR);
+    logE("[HW] -> Fail -> Fan current too high");
+    digitalWrite(ACTUATORS_EN, LOW);
+    return true;
+  }
+
+  // Humidifier: GPIO fault-pin check only (HW>=16 has no INA3221 on USB channel)
+  in3_hum.turn(ON);
+  vTaskDelay(pdMS_TO_TICKS(USB_FAULT_SETTLE_MS));
+  bool usbFaultDetected = !GPIORead(USB_FAULT);
+  in3_hum.turn(OFF);
+  if (usbFaultDetected) {
+    addErrorToVar(HW_error, HUMIDIFIER_CONSUMPTION_MAX_ERROR);
+    logE("[HW] -> Fail -> USB_FAULT on humidifier (short-circuit/overload)");
+    digitalWrite(ACTUATORS_EN, LOW);
+  }
+  in3.humidifier_current_test = 1.0f;
+  logI("[HW] -> Humidifier USB_EN test passed, no fault");
+#else
+  float testCurrent, offsetCurrent;
+  offsetCurrent = measureMeanConsumption(MAIN, SYSTEM_SHUNT_CHANNEL);
+  logI("[HW] -> Heater offset (MAIN): " + String(offsetCurrent) + " Amps");
+  ledcWrite(HEATER_PWM_CHANNEL, PWM_MAX_VALUE);
+  logI("[HW] -> Heater PWM ON, stabilizing...");
+  testCurrent = measureStabilizedCurrent(
+      MAIN, SYSTEM_SHUNT_CHANNEL, offsetCurrent, HEATER_CONSUMPTION_MIN,
+      HEATER_CONSUMPTION_MAX, CURRENT_STABILIZE_MAX_TIME_THERMAL, 110, 10);
+  logI("[HW] -> Heater delta=" + String(testCurrent) + " Amps");
   logI("[HW] -> Heater current consumption: " + String(testCurrent) + " Amps");
   in3.heater_current_test = testCurrent;
   ledcWrite(HEATER_PWM_CHANNEL, 0);
@@ -641,7 +897,7 @@ bool actuatorsTest() {
     logE("[HW] -> Fail -> Heater current consumption is too low");
     in3.alarmToReport[HEATER_ISSUE_ALARM] = true;
     setAlarm(HEATER_ISSUE_ALARM);
-    GPIOWrite(ACTUATORS_EN, LOW);
+    digitalWrite(ACTUATORS_EN, LOW);
     return (true);
   }
   if (testCurrent > HEATER_CONSUMPTION_MAX) {
@@ -649,45 +905,59 @@ bool actuatorsTest() {
     logE("[HW] -> Fail -> Heater current consumption is too high");
     in3.alarmToReport[HEATER_ISSUE_ALARM] = true;
     setAlarm(HEATER_ISSUE_ALARM);
-    GPIOWrite(ACTUATORS_EN, LOW);
+    digitalWrite(ACTUATORS_EN, LOW);
     return (true);
   }
-  EEPROM.write(EEPROM_HEATER_TEST, true);
-  EEPROM.commit();
+  { Preferences p; p.begin(NS_CFG, false); p.putUChar(KEY_HEATER_TEST, 1); p.end(); }
+  // Test a 10 % PWM: no deslumbra, estabilización térmica rápida.
+  // La recta I(PWM) = m·PWM + b cruza el eje en PWM = -PHOTOTHERAPY_PWM_ZERO,
+  // calibrado con el barrido inicial. La extrapolación es:
+  //   PWM_target = I_target·(PWM_test + Z) / I_test − Z
+  // Los límites de pass/fail se escalan por (PWM_test+Z)/(PWM_MAX+Z).
+  const int   PHOTOTHERAPY_TEST_PWM  = PWM_MAX_VALUE * 10 / 100; // ~25
+  const float PHOTOTHERAPY_PWM_ZERO  = 20.0f; // cruce de cero calibrado
+  const float photoScale = (PHOTOTHERAPY_TEST_PWM + PHOTOTHERAPY_PWM_ZERO) /
+                           (PWM_MAX_VALUE         + PHOTOTHERAPY_PWM_ZERO);
+
   vTaskDelay(pdMS_TO_TICKS(CURRENT_STABILIZE_TIME_DEFAULT));
   offsetCurrent = measureMeanConsumption(MAIN, PHOTOTHERAPY_SHUNT_CHANNEL);
-  ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, PWM_MAX_VALUE);
+  ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, PHOTOTHERAPY_TEST_PWM);
   testCurrent = measureStabilizedCurrent(
       MAIN, PHOTOTHERAPY_SHUNT_CHANNEL, offsetCurrent,
-      PHOTOTHERAPY_CONSUMPTION_MIN, PHOTOTHERAPY_CONSUMPTION_MAX,
-      CURRENT_STABILIZE_MAX_TIME);
+      PHOTOTHERAPY_CONSUMPTION_MIN * photoScale,
+      PHOTOTHERAPY_CONSUMPTION_MAX * photoScale,
+      CURRENT_STABILIZE_MAX_TIME_THERMAL, 110, 10);
   ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, false);
-  logI("[HW] -> Phototherapy current consumption: " + String(testCurrent) +
-       " Amps");
-  in3.phototherapy_current_test = testCurrent;
-  if (testCurrent < PHOTOTHERAPY_CONSUMPTION_MIN) {
+
+  logI("[HW] -> Phototherapy @10% (PWM=" + String(PHOTOTHERAPY_TEST_PWM) +
+       "): " + String(testCurrent, 3) + " A");
+  in3.phototherapy_current_test = testCurrent;;
+  if (testCurrent < PHOTOTHERAPY_CONSUMPTION_MIN * photoScale) {
     addErrorToVar(HW_error, PHOTOTHERAPY_CONSUMPTION_MIN_ERROR);
-    logE("[HW] -> Fail -> PHOTOTHERAPY current consumption is too low");
+    logE("[HW] -> Fail -> PHOTOTHERAPY current too low at 10%");
   }
-  if (testCurrent > PHOTOTHERAPY_CONSUMPTION_MAX) {
+  if (testCurrent > PHOTOTHERAPY_CONSUMPTION_MAX * photoScale) {
     addErrorToVar(HW_error, PHOTOTHERAPY_CONSUMPTION_MAX_ERROR);
-    logE("[HW] -> Fail -> PHOTOTHERAPY current consumption is too high");
-    GPIOWrite(ACTUATORS_EN, LOW);
+    logE("[HW] -> Fail -> PHOTOTHERAPY current too high at 10%");
+    digitalWrite(ACTUATORS_EN, LOW);
     return (true);
-  } else if (testCurrent > PHOTOTHERAPY_CONSUMPTION_DEFAULT) {
-    in3.phototherapy_intensity =
-        PHOTOTHERAPY_CONSUMPTION_DEFAULT * PWM_MAX_VALUE / testCurrent;
-    logI("[HW] -> Phototherapy regulated to: " +
-         String(float(in3.phototherapy_intensity) * 100 / PWM_MAX_VALUE) +
-         " %");
   }
-  offsetCurrent = measureMeanConsumption(
-      SECUNDARY, USB_SHUNT_CHANNEL); // <- UPDATE THIS CODE TO ASK I2C DATA
+
+  // Extrapolación: PWM para PHOTOTHERAPY_CONSUMPTION_DEFAULT amperios
+  int pwmTarget = (int)roundf(
+      PHOTOTHERAPY_CONSUMPTION_DEFAULT *
+          (PHOTOTHERAPY_TEST_PWM + PHOTOTHERAPY_PWM_ZERO) / testCurrent -
+      PHOTOTHERAPY_PWM_ZERO);
+  pwmTarget = constrain(pwmTarget, 0, PWM_MAX_VALUE);
+  in3.phototherapy_intensity = pwmTarget;
+  logI("[HW] -> Phototherapy extrapolated PWM=" + String(pwmTarget) +
+       " (" + String(pwmTarget * 100 / PWM_MAX_VALUE) + "%) for " +
+       String(PHOTOTHERAPY_CONSUMPTION_DEFAULT, 2) + " A");
+  offsetCurrent = measureMeanConsumption(SECUNDARY, USB_SHUNT_CHANNEL);
   in3_hum.turn(ON);
-  testCurrent = measureStabilizedCurrent(
-      SECUNDARY, USB_SHUNT_CHANNEL, offsetCurrent, HUMIDIFIER_CONSUMPTION_MIN,
-      HUMIDIFIER_CONSUMPTION_MAX,
-      CURRENT_STABILIZE_MAX_TIME); // <- UPDATE THIS CODE TO ASK I2C DATA
+  vTaskDelay(pdMS_TO_TICKS(CURRENT_STABILIZE_TIME_DEFAULT));
+  testCurrent =
+      measureMeanConsumption(SECUNDARY, USB_SHUNT_CHANNEL) - offsetCurrent;
   logI("[HW] -> Humidifier current consumption: " + String(testCurrent) +
        " Amps");
   in3.humidifier_current_test = testCurrent;
@@ -699,49 +969,53 @@ bool actuatorsTest() {
   if (testCurrent > HUMIDIFIER_CONSUMPTION_MAX) {
     addErrorToVar(HW_error, HUMIDIFIER_CONSUMPTION_MAX_ERROR);
     logE("[HW] -> Fail -> HUMIDIFIER current consumption is too high");
-    GPIOWrite(ACTUATORS_EN, LOW);
+    digitalWrite(ACTUATORS_EN, LOW);
     return (true);
   }
   vTaskDelay(pdMS_TO_TICKS(CURRENT_STABILIZE_TIME_DEFAULT));
   offsetCurrent = measureMeanConsumption(MAIN, FAN_SHUNT_CHANNEL);
-// GPIOWrite(FAN, HIGH);
+// digitalWrite(FAN, HIGH);
 #if (HW_NUM >= 8)
   ledcWrite(FAN_PWM_CHANNEL, PWM_MAX_VALUE);
 #else
-  GPIOWrite(FAN, HIGH);
+  digitalWrite(FAN, HIGH);
 #endif
+  // Wait for motor to spin up and INA3221 to fill its 128-sample buffer
+  // before measureStabilizedCurrent takes its first reading (~2 full cycles)
+  vTaskDelay(pdMS_TO_TICKS(220));
 
   testCurrent = measureStabilizedCurrent(
       MAIN, FAN_SHUNT_CHANNEL, offsetCurrent, FAN_CONSUMPTION_MIN,
       FAN_CONSUMPTION_MAX, CURRENT_STABILIZE_MAX_TIME);
   logI("[HW] -> FAN consumption: " + String(testCurrent) + " Amps");
   in3.fan_current_test = testCurrent;
-  // GPIOWrite(FAN, LOW);
+  // digitalWrite(FAN, LOW);
 #if (HW_NUM >= 8)
   ledcWrite(FAN_PWM_CHANNEL, false);
 #else
-  GPIOWrite(FAN, LOW);
+  digitalWrite(FAN, LOW);
 #endif
 
   if (testCurrent < FAN_CONSUMPTION_MIN) {
     addErrorToVar(HW_error, FAN_CONSUMPTION_MIN_ERROR);
     logE("[HW] -> Fail -> Fan current consumption is too low");
-    GPIOWrite(ACTUATORS_EN, LOW);
+    digitalWrite(ACTUATORS_EN, LOW);
     return (true);
   }
   if (testCurrent > FAN_CONSUMPTION_MAX &&
       testCurrent > FAN_MAX_CURRENT_OVERRIDE * FAN_CONSUMPTION_MAX * 2) {
     addErrorToVar(HW_error, FAN_CONSUMPTION_MAX_ERROR);
     logE("[HW] -> Fail -> Fan current consumption is too high");
-    GPIOWrite(ACTUATORS_EN, LOW);
+    digitalWrite(ACTUATORS_EN, LOW);
     return (true);
   }
+#endif
   if (error == HW_error) {
     logI("[HW] -> OK -> Actuators are working as expected");
   } else {
     logI("[HW] -> Fail -> Some actuators are not working as expected");
   }
-  GPIOWrite(ACTUATORS_EN, LOW);
+  digitalWrite(ACTUATORS_EN, LOW);
   return (false);
 }
 
@@ -750,36 +1024,27 @@ bool initActuators() {
   in3_hum.begin(HUMIDIFIER_BINARY, HUMIDIFIER_CTL);
 #elif (HW_NUM <= 8)
   in3_hum.begin(HUMIDIFIER_PWM, HUMIDIFIER_CTL);
+#elif (HW_NUM >= 16)
+  in3_hum.begin(HUMIDIFIER_BINARY, USB_EN);
 #else
   in3_hum.begin();
 #endif
-  if (!digitalCurrentSensorPresent[MAIN] && EEPROM.read(EEPROM_HEATER_TEST) &&
-      USE_SYSTEM_WITHOUT_ACTUATORS_TEST) {
-    logI("[HW] -> Fail -> No current sensor present, but still giving "
-         "possibility to use incubator");
-    return false;
-  }
-  return (actuatorsTest());
-}
-
-void initPin(uint8_t GPIO, uint8_t Mode) {
-  if (GPIO < GPIO_EXP_BASE) {
-    pinMode(GPIO, Mode);
-  } else {
-    TCA.pinMode1(GPIO - GPIO_EXP_BASE, Mode);
-  }
-}
-
-void GPIOWrite(uint8_t GPIO, uint8_t Mode) {
-  if (GPIO < GPIO_EXP_BASE) {
-    digitalWrite(GPIO, Mode);
-  } else {
-    logI("[HW] -> TCA9355 writing pin" + String(GPIO - GPIO_EXP_BASE) + " -> " +
-         String(Mode));
-    if (!TCA.write1(GPIO - GPIO_EXP_BASE, Mode)) {
-      logE("[HW] -> TCA9355 WRITE ERROR");
+  { Preferences _p; _p.begin(NS_CFG, true);
+    bool _heaterTest = _p.getUChar(KEY_HEATER_TEST, 0);
+    _p.end();
+    if (!digitalCurrentSensorPresent[MAIN] && _heaterTest &&
+        USE_SYSTEM_WITHOUT_ACTUATORS_TEST) {
+      logI("[HW] -> Fail -> No current sensor present, but still giving "
+           "possibility to use incubator");
+      return false;
+    }
+    if (!digitalCurrentSensorPresent[SECUNDARY] &&
+        _heaterTest && USE_SYSTEM_WITHOUT_ACTUATORS_TEST) {
+      logI("[HW] -> Fail -> No secondary current sensor, skipping heater test");
+      return false;
     }
   }
+  return (actuatorsTest());
 }
 
 bool GPIORead(uint8_t GPIO) {
@@ -826,6 +1091,12 @@ void security_check_reboot_cause() {
 void initHardware(bool printOutputTest) {
   logI("[HW] -> Initialiting hardware");
   initSensors();
+#if (HW_NUM >= 16)
+  logI("[HW] -> Initializing BQ25730 charger");
+  if (!init_BQ25730(wire)) {
+    logE("[HW] -> BQ25730 not found or init failed");
+  }
+#endif
   initTFT();
   initInterrupts();
   PIDInit();
@@ -836,7 +1107,12 @@ void initHardware(bool printOutputTest) {
   }
   ledcWrite(SCREENBACKLIGHT_PWM_CHANNEL, BACKLIGHT_POWER_DEFAULT);
   testSensors();
-  in3.HW_critical_error = initActuators();
+  if (!in3.restoreState) {
+    in3.HW_critical_error = initActuators();
+  } else {
+    logI("[HW] -> restoreState: skipping actuatorsTest");
+    in3.HW_critical_error = false;
+  }
   if (!HW_error) {
     logI("[HW] -> HARDWARE OK");
   } else {
@@ -849,9 +1125,9 @@ void initHardware(bool printOutputTest) {
 #if (HW_NUM < 15)
     drawHardwareErrorMessage(HW_error, in3.HW_critical_error,
                              in3.calibrationError);
-#endif
     while (GPIORead(ENC_SWITCH))
       ;
+#endif
   }
   if (!in3.restoreState) {
     buzzerTone(2, buzzerStandbyToneDuration, buzzerStandbyTone);
@@ -860,6 +1136,17 @@ void initHardware(bool printOutputTest) {
     ledcWrite(PHOTOTHERAPY_PWM_CHANNEL,
               in3.phototherapy * in3.phototherapy_intensity);
     turnFans(in3.phototherapy);
+  }
+  if (in3.restoreState) {
+    if (in3.temperatureControl) {
+      startPID(in3.controlMode);
+      turnFans(ON);
+      logI("[HW] -> restoreState: temperature PID restarted, fan ON");
+    }
+    if (in3.humidityControl) {
+      startPID(humidityPID);
+      logI("[HW] -> restoreState: humidity PID restarted");
+    }
   }
   watchdogInit(WDT_TIMEOUT);
   initAlarms();

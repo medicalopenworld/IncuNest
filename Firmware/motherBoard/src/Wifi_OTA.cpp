@@ -24,12 +24,15 @@
 */
 #include <Arduino.h>
 #include <string.h>
+#include "lwip/dns.h"
 
+#include "CommTask.h"
 #include "GPRS.h"
+#include "SPO2.h"
 #include "main.h"
 
 extern GPRSstruct GPRS;
-static const char *TAG = "WiFi";
+static const char *TAG __attribute__((unused)) = "WiFi";
 char wifiHost[32];
 
 WebServer wifiServer(80);
@@ -49,7 +52,7 @@ JsonObject addVariableToTelemetryWIFIJSON = WIFI_JSON.to<JsonObject>();
 // WIFI
 bool WIFI_connection_status = false;
 
-extern in3ator_parameters in3;
+extern IncuNest_parameters in3;
 extern bool WIFI_EN;
 
 WIFIstruct Wifi_TB;
@@ -61,6 +64,39 @@ const OTA_Update_Callback OTAcallback(&progressCallback, &updatedCallback,
                                       &updater_WIFI, FIRMWARE_FAILURE_RETRIES,
                                       FIRMWARE_PACKET_SIZE,
                                       WAIT_FAILED_OTA_CHUNKS);
+
+void applyWifiCredentials(const char* ssid, const char* pass) {
+  Preferences prefs;
+  char prevSSID[64] = "";
+  char prevPass[64] = "";
+  prefs.begin("mb_wifi", true);
+  prefs.getString("ssid", prevSSID, sizeof(prevSSID));
+  prefs.getString("password", prevPass, sizeof(prevPass));
+  prefs.end();
+
+  prefs.begin("mb_wifi", false);
+  prefs.putString("ssid", ssid);
+  prefs.putString("password", pass);
+  prefs.end();
+
+  WiFi.disconnect();
+  WiFi.begin(ssid, pass);
+
+  uint32_t start = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - start < 15000) {
+    vTaskDelay(pdMS_TO_TICKS(500));
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    sendWifiToHMI(ssid, pass);
+  } else {
+    prefs.begin("mb_wifi", false);
+    prefs.putString("ssid", prevSSID);
+    prefs.putString("password", prevPass);
+    prefs.end();
+    WiFi.begin(prevSSID, prevPass);
+  }
+}
 
 /*
    Login page
@@ -169,41 +205,44 @@ const char *configIndex =
     "<script "
     "src='https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js'></"
     "script>"
-    "<form method='POST' action='/config' id='config_form'>"
     "<h3>System Configuration</h3>"
     "<label>Serial Number:</label><br>"
     "<input type='number' name='serial' id='serial'><br><br>"
-    "<label>Fan PWM (0-255):</label><br>"
-    "<input type='number' name='fan_pwm' id='fan_pwm'><br><br>"
+    "<label>Fan Supply PWM (0-255):</label><br>"
+    "<input type='number' name='fan_supply_pwm' id='fan_supply_pwm'><br><br>"
+    "<label>Fan Control PWM (0-255):</label><br>"
+    "<input type='number' name='fan_ctl_pwm' id='fan_ctl_pwm'><br><br>"
     "<label>Heater Max Power (Amps):</label><br>"
-    "<input type='number' step='0.1' name='heater_amps' "
-    "id='heater_amps'><br><br>"
+    "<input type='number' step='0.1' name='heater_amps' id='heater_amps'><br><br>"
     "<label>Air Temp Max (C):</label><br>"
     "<input type='number' step='0.1' name='air_tmax' id='air_tmax'><br><br>"
     "<label>Skin Temp Max (C):</label><br>"
     "<input type='number' step='0.1' name='skin_tmax' id='skin_tmax'><br><br>"
-    "<h4>GPRS Reporting Periods (seconds)</h4>"
+    "<button type='button' onclick='saveSection([\"serial\",\"fan_supply_pwm\",\"fan_ctl_pwm\",\"heater_amps\",\"air_tmax\",\"skin_tmax\"])'>Save System Configuration</button>"
+    "<br><br>"
+    "<h3>GPRS Reporting Periods (seconds)</h3>"
     "<label>Actuating Period:</label><br>"
     "<input type='number' name='gprs_act' id='gprs_act'><br><br>"
     "<label>Phototherapy Period:</label><br>"
     "<input type='number' name='gprs_photo' id='gprs_photo'><br><br>"
     "<label>Standby Period:</label><br>"
     "<input type='number' name='gprs_stby' id='gprs_stby'><br><br>"
+    "<button type='button' onclick='saveSection([\"gprs_act\",\"gprs_photo\",\"gprs_stby\"])'>Save GPRS Reporting</button>"
+    "<br><br>"
     "<h3>Calibration</h3>"
     "<label>Reference Skin Temp (Current Actual):</label><br>"
-    "<input type='number' step='0.01' name='reference_temp' "
-    "id='reference_temp'><br><br>"
+    "<input type='number' step='0.01' name='reference_temp' id='reference_temp'><br><br>"
     "<label>Fine Tune Skin Temperature Offset:</label><br>"
-    "<input type='number' step='0.01' name='fine_tune' id='fine_tune' "
-    "readonly><br><br>"
-    "<input type='submit' value='Save All Settings'>"
-    "</form>"
+    "<input type='number' step='0.01' name='fine_tune' id='fine_tune' readonly><br><br>"
+    "<button type='button' onclick='saveSection([\"reference_temp\"])'>Save Calibration</button>"
+    "<br><br>"
     "<div id='msg'></div>"
     "<script>"
     "$(document).ready(function() {"
     "  $.get('/get_config', function(data) {"
     "    $('#serial').val(data.serial);"
-    "    $('#fan_pwm').val(data.fan_pwm);"
+    "    $('#fan_supply_pwm').val(data.fan_supply_pwm);"
+    "    $('#fan_ctl_pwm').val(data.fan_ctl_pwm);"
     "    $('#heater_amps').val(data.heater_amps);"
     "    $('#air_tmax').val(data.air_tmax);"
     "    $('#skin_tmax').val(data.skin_tmax);"
@@ -214,6 +253,13 @@ const char *configIndex =
     "    $('#fine_tune').val(data.fine_tune);"
     "  });"
     "});"
+    "function saveSection(fields) {"
+    "  var data = {};"
+    "  fields.forEach(function(f) { data[f] = $('#'+f).val(); });"
+    "  $.post('/config', data, function(resp) {"
+    "    $('#msg').text(resp);"
+    "  });"
+    "}"
     "</script>";
 
 /*
@@ -236,9 +282,28 @@ void wifiInit(void) {
   wifiHost[sizeof(wifiHost) - 1] = '\0';
   ESP_LOGI(TAG, "Setting hostname to: %s", wifiHost);
 
+  // In Arduino 3.x (ESP-IDF 5.x), setHostname must be called BEFORE mode(WIFI_STA).
   WiFi.setHostname(hostname.c_str());
-  WiFi.mode(WIFI_STA);
-  WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
+  // Skip mode change if already STA — calling mode() while connecting causes ESP_ERR_WIFI_CONN.
+  if (WiFi.getMode() != WIFI_MODE_STA) {
+    WiFi.mode(WIFI_STA);
+  }
+
+  // Register disconnect/got-IP handlers once so reason codes land in the log.
+  static bool s_wifiEventsRegistered = false;
+  if (!s_wifiEventsRegistered) {
+    WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t info) {
+      ESP_LOGW(TAG, "STA_DISCONNECTED reason=%d",
+               info.wifi_sta_disconnected.reason);
+    }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+    WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t) {
+      ESP_LOGI(TAG, "STA_GOT_IP: %s", WiFi.localIP().toString().c_str());
+    }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
+    s_wifiEventsRegistered = true;
+  }
+
+  WiFi.persistent(true);
+  WiFi.setAutoReconnect(true);
 
   String ssid;
   String pass;
@@ -248,10 +313,12 @@ void wifiInit(void) {
     pass = pendingPass;
     ESP_LOGI(TAG, "Connecting to pending SSID: %s", ssid.c_str());
   } else {
-    ssid = EEPROM.readString(EEPROM_WIFI_SSID);
-    pass = EEPROM.readString(EEPROM_WIFI_PASSWORD);
+    { Preferences p; p.begin(NS_WIFI, true);
+      ssid = p.getString(KEY_SSID,     "");
+      pass = p.getString(KEY_PASSWORD, "");
+      p.end(); }
     if (ssid.length() > 0) {
-      ESP_LOGI(TAG, "Connecting to SSID from EEPROM: %s", ssid.c_str());
+      ESP_LOGI(TAG, "Connecting to SSID from Preferences: %s", ssid.c_str());
     } else {
       ESP_LOGI(TAG, "Connecting to default SSID: %s", WIFI_SSID);
       ssid = WIFI_SSID;
@@ -260,6 +327,8 @@ void wifiInit(void) {
   }
 
   WiFi.begin(ssid.c_str(), pass.c_str());
+  // Mobile hotspots often drop power-saving clients. Disable modem sleep.
+  WiFi.setSleep(WIFI_PS_NONE);
   lastconnectiontrywifi = millis();
 }
 
@@ -269,6 +338,12 @@ void configWifiServer() {
   // Wait for connection
   logI("Connected to " + WiFi.SSID() + " IP address " +
        WiFi.localIP().toString());
+
+  // Pin a fallback DNS so subsequent lookups survive lwIP reinit after reconnects
+  ip_addr_t dns_fallback;
+  IP4_ADDR(&dns_fallback.u_addr.ip4, 8, 8, 8, 8);
+  dns_fallback.type = IPADDR_TYPE_V4;
+  dns_setserver(1, &dns_fallback);
 
   /*use mdns for wifiHost name resolution*/
   if (!MDNS.begin(wifiHost)) { // http://esp32.local
@@ -306,7 +381,8 @@ void configWifiServer() {
   wifiServer.on("/get_config", HTTP_GET, []() {
     String json = "{";
     json += "\"serial\":" + String(in3.serialNumber) + ",";
-    json += "\"fan_pwm\":" + String(in3.fanPWM) + ",";
+    json += "\"fan_supply_pwm\":" + String(in3.fanPwrSupplyPWM) + ",";
+    json += "\"fan_ctl_pwm\":" + String(in3.fanCtlPWM) + ",";
     json += "\"heater_amps\":" + String(in3.heaterMaxPowerAmps) + ",";
     json += "\"air_tmax\":" + String(in3.airTemperatureSetMax) + ",";
     json += "\"skin_tmax\":" + String(in3.skinTemperatureSetMax) + ",";
@@ -325,47 +401,51 @@ void configWifiServer() {
     extern float maxDesiredTemp[2];
     if (wifiServer.hasArg("serial")) {
       in3.serialNumber = wifiServer.arg("serial").toInt();
-      EEPROM.writeInt(EEPROM_SERIAL_NUMBER, in3.serialNumber);
+      { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_SERIAL, in3.serialNumber); p.end(); }
     }
-    if (wifiServer.hasArg("fan_pwm")) {
-      in3.fanPWM = wifiServer.arg("fan_pwm").toInt();
-      EEPROM.writeInt(EEPROM_FAN_PWM, in3.fanPWM);
+    if (wifiServer.hasArg("fan_supply_pwm")) {
+      in3.fanPwrSupplyPWM = wifiServer.arg("fan_supply_pwm").toInt();
+      { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_PWR_SUPPLY_PWM, in3.fanPwrSupplyPWM); p.end(); }
+    }
+    if (wifiServer.hasArg("fan_ctl_pwm")) {
+      in3.fanCtlPWM = wifiServer.arg("fan_ctl_pwm").toInt();
+      { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_CTL_PWM, in3.fanCtlPWM); p.end(); }
+      ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
     }
     if (wifiServer.hasArg("heater_amps")) {
       in3.heaterMaxPowerAmps = wifiServer.arg("heater_amps").toFloat();
-      EEPROM.writeFloat(EEPROM_HEATER_MAX_AMPS, in3.heaterMaxPowerAmps);
+      { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_HEAT_MAX_A, in3.heaterMaxPowerAmps); p.end(); }
     }
     if (wifiServer.hasArg("air_tmax")) {
       in3.airTemperatureSetMax = wifiServer.arg("air_tmax").toFloat();
       maxDesiredTemp[CONTROL_AIR] = in3.airTemperatureSetMax;
-      EEPROM.writeFloat(EEPROM_AIR_TEMP_MAX, in3.airTemperatureSetMax);
+      { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_AIR_T_MAX, in3.airTemperatureSetMax); p.end(); }
     }
     if (wifiServer.hasArg("skin_tmax")) {
       in3.skinTemperatureSetMax = wifiServer.arg("skin_tmax").toFloat();
       maxDesiredTemp[CONTROL_SKIN] = in3.skinTemperatureSetMax;
-      EEPROM.writeFloat(EEPROM_SKIN_TEMP_MAX, in3.skinTemperatureSetMax);
+      { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_SKIN_T_MAX, in3.skinTemperatureSetMax); p.end(); }
     }
     if (wifiServer.hasArg("gprs_act")) {
       in3.actuating_gprs_period = wifiServer.arg("gprs_act").toInt();
-      EEPROM.writeInt(EEPROM_GPRS_ACT_PERIOD, in3.actuating_gprs_period);
+      { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_ACT_PERIOD, in3.actuating_gprs_period); p.end(); }
     }
     if (wifiServer.hasArg("gprs_photo")) {
       in3.phototherapy_gprs_period = wifiServer.arg("gprs_photo").toInt();
-      EEPROM.writeInt(EEPROM_GPRS_PHOTO_PERIOD, in3.phototherapy_gprs_period);
+      { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_PHOTO_PERIOD, in3.phototherapy_gprs_period); p.end(); }
     }
     if (wifiServer.hasArg("gprs_stby")) {
       in3.standby_gprs_period = wifiServer.arg("gprs_stby").toInt();
-      EEPROM.writeInt(EEPROM_GPRS_STBY_PERIOD, in3.standby_gprs_period);
+      { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_STBY_PERIOD, in3.standby_gprs_period); p.end(); }
     }
     if (wifiServer.hasArg("reference_temp")) {
       double referenceTemp = wifiServer.arg("reference_temp").toDouble();
       in3.fineTuneSkinTemperature =
           in3.fineTuneSkinTemperature +
           (referenceTemp - in3.temperature[SKIN_SENSOR]);
-      EEPROM.writeFloat(EEPROM_FINE_TUNE_TEMP_SKIN,
-                        in3.fineTuneSkinTemperature);
+      { Preferences p; p.begin(NS_CAL, false); p.putFloat(KEY_FT_SKIN, in3.fineTuneSkinTemperature); p.end(); }
     }
-    EEPROM.commit();
+    /* Preferences commits on p.end() — no explicit commit needed */
     wifiServer.sendHeader("Connection", "close");
     wifiServer.send(200, "text/plain", "Saved. Settings applied immediately.");
   });
@@ -439,14 +519,15 @@ void WIFICheckOTA() {
 }
 
 void WIFI_TB_Init() {
-  Wifi_TB.provisioned = EEPROM.read(EEPROM_THINGSBOARD_PROVISIONED);
-  if (Wifi_TB.provisioned == 0xff) { // default EEPROM value
-    Wifi_TB.provisioned = false;
-  }
+  { Preferences p; p.begin(NS_GPRS, true);
+    Wifi_TB.provisioned   = p.getUChar (KEY_PROVISIONED, 0);
+    if (Wifi_TB.provisioned) {
+      Wifi_TB.device_token = p.getString(KEY_TOKEN, "").c_str();
+    }
+    p.end(); }
   logI("[WIFI] -> WIFI_TB_Init check provisioning: " +
        String(Wifi_TB.provisioned));
   if (Wifi_TB.provisioned) {
-    Wifi_TB.device_token = EEPROM.readString(EEPROM_THINGSBOARD_TOKEN);
     logI("[WIFI] -> Provisioned with token: " + String(Wifi_TB.device_token));
   }
 }
@@ -458,8 +539,14 @@ void WIFIProvisionResponse(const JsonObjectConst &data) {
   serializeJson(data, buffer, jsonSize);
 
   if (strncmp(data["status"], "SUCCESS", strlen("SUCCESS")) != 0) {
-    logI("[WIFI] -> Provision response contains the error: " +
-         data["errorMsg"].as<String>());
+    Wifi_TB.provision_retry_count++;
+    if (Wifi_TB.provision_retry_count <= PROVISION_MAX_RETRIES) {
+      logI("[WIFI] -> Provision failed: " + data["errorMsg"].as<String>() +
+           " - retrying as " + GPRS.CCID + "_" + String(Wifi_TB.provision_retry_count));
+      Wifi_TB.provision_request_sent = false;
+    } else {
+      logI("[WIFI] -> Provision failed after max retries, giving up");
+    }
     return;
   }
 
@@ -471,9 +558,10 @@ void WIFIProvisionResponse(const JsonObjectConst &data) {
     wifi_credentials.password = "";
     Wifi_TB.provisioned = true;
     Wifi_TB.device_token = wifi_credentials.username.c_str();
-    EEPROM.writeString(EEPROM_THINGSBOARD_TOKEN, Wifi_TB.device_token);
-    EEPROM.write(EEPROM_THINGSBOARD_PROVISIONED, Wifi_TB.provisioned);
-    EEPROM.commit();
+    { Preferences p; p.begin(NS_GPRS, false);
+      p.putString(KEY_TOKEN,       Wifi_TB.device_token);
+      p.putUChar (KEY_PROVISIONED, Wifi_TB.provisioned);
+      p.end(); }
     logI("[WIFI] -> Device provisioned successfully");
   } else if (strncmp(data[CREDENTIALS_TYPE], MQTT_BASIC_CRED_TYPE,
                      strlen(MQTT_BASIC_CRED_TYPE)) == 0) {
@@ -485,9 +573,10 @@ void WIFIProvisionResponse(const JsonObjectConst &data) {
         credentials_value[CLIENT_PASSWORD].as<std::string>();
     Wifi_TB.provisioned = true;
     Wifi_TB.device_token = wifi_credentials.username.c_str();
-    EEPROM.writeString(EEPROM_THINGSBOARD_TOKEN, Wifi_TB.device_token);
-    EEPROM.write(EEPROM_THINGSBOARD_PROVISIONED, Wifi_TB.provisioned);
-    EEPROM.commit();
+    { Preferences p; p.begin(NS_GPRS, false);
+      p.putString(KEY_TOKEN,       Wifi_TB.device_token);
+      p.putUChar (KEY_PROVISIONED, Wifi_TB.provisioned);
+      p.end(); }
     logI("[WIFI] -> Device provisioned successfully");
   } else {
     logI("[WIFI] -> Unexpected provision credentialsType");
@@ -511,9 +600,13 @@ void WIFITBProvision() {
   // Connect to the ThingsBoard
   logI("[WIFI] -> Sending provision request to: " + String(THINGSBOARD_SERVER));
 
+  String deviceName = (Wifi_TB.provision_retry_count == 0)
+      ? GPRS.CCID
+      : GPRS.CCID + "_" + String(Wifi_TB.provision_retry_count);
+  logI("[WIFI] -> Provisioning as: " + deviceName);
   const Provision_Callback provisionCallback(
       Access_Token(), &WIFIProvisionResponse, PROVISION_DEVICE_KEY,
-      PROVISION_DEVICE_SECRET, GPRS.CCID.c_str());
+      PROVISION_DEVICE_SECRET, deviceName.c_str());
   Wifi_TB.provision_request_sent = tb_wifi.Provision_Request(provisionCallback);
 }
 
@@ -595,8 +688,6 @@ void addConfigTelemetriesToWIFIJSON() {
       roundSignificantDigits(in3.phototherapy_intensity, TELEMETRIES_DECIMALS);
   addVariableToTelemetryWIFIJSON[HUMIDIFIER_CURR_KEY] =
       roundSignificantDigits(in3.humidifier_current_test, TELEMETRIES_DECIMALS);
-  addVariableToTelemetryWIFIJSON[DISPLAY_CURR_TEST_KEY] =
-      roundSignificantDigits(in3.display_current_test, TELEMETRIES_DECIMALS);
   addVariableToTelemetryWIFIJSON[BUZZER_CURR_TEST_KEY] =
       roundSignificantDigits(in3.buzzer_current_test, TELEMETRIES_DECIMALS);
   addVariableToTelemetryWIFIJSON[HW_TEST_KEY] = in3.HW_test_error_code;
@@ -615,6 +706,11 @@ void addTelemetriesToWIFIJSON() {
       in3.temperature[SKIN_SENSOR], TELEMETRIES_DECIMALS);
   addVariableToTelemetryWIFIJSON[AIR_TEMPERATURE_KEY] = roundSignificantDigits(
       in3.temperature[ROOM_DIGITAL_TEMP_SENSOR], TELEMETRIES_DECIMALS);
+  if (in3.airTemperatureRedundantSensor) {
+    addVariableToTelemetryWIFIJSON[AIR_TEMPERATURE_REDUNDANT_KEY] =
+        roundSignificantDigits(in3.airTemperatureRedundantSensor,
+                               TELEMETRIES_DECIMALS);
+  }
   if (in3.temperature[AMBIENT_DIGITAL_TEMP_SENSOR] &&
       in3.humidity[AMBIENT_DIGITAL_HUM_SENSOR]) {
     addVariableToTelemetryWIFIJSON[AMBIENT_TEMPERATURE_KEY] =
@@ -639,6 +735,18 @@ void addTelemetriesToWIFIJSON() {
       roundSignificantDigits(in3.BATTERY_current, TELEMETRIES_DECIMALS);
   addVariableToTelemetryWIFIJSON[BAT_VOLTAGE_KEY] =
       roundSignificantDigits(in3.BATTERY_voltage, TELEMETRIES_DECIMALS);
+
+  if (chargerPresent && g_bq_status_valid &&
+      g_bq_status.ac_present && g_bq_status.vbat_mv > 10000) {
+    addVariableToTelemetryWIFIJSON[BQ_STATE_KEY] = (int)g_bq_status.state;
+    addVariableToTelemetryWIFIJSON[BQ_FAULT_KEY] = g_bq_status.fault;
+    addVariableToTelemetryWIFIJSON[BQ_AC_KEY]    = g_bq_status.ac_present;
+    addVariableToTelemetryWIFIJSON[BQ_VBAT_KEY]  =
+        roundSignificantDigits(g_bq_status.vbat_mv / 1000.0f, 3);
+    addVariableToTelemetryWIFIJSON[BQ_VBUS_KEY]  =
+        roundSignificantDigits(g_bq_status.vbus_mv / 1000.0f, 3);
+    addVariableToTelemetryWIFIJSON[BQ_ICHG_KEY]  = (int)g_bq_status.ichg_ma;
+  }
 
   if (in3.temperatureControl || in3.humidityControl) {
     addVariableToTelemetryWIFIJSON[FAN_CURRENT_KEY] =
@@ -692,15 +800,54 @@ void addTelemetriesToWIFIJSON() {
         roundSignificantDigits(in3.phototherapy_active_time,
                                TELEMETRIES_DECIMALS);
   }
+
+  if (g_spo2_data.spo2_sqi > 0.0f) {
+    addVariableToTelemetryWIFIJSON[SPO2_KEY] =
+        roundSignificantDigits(g_spo2_data.spo2, TELEMETRIES_DECIMALS);
+    addVariableToTelemetryWIFIJSON[SPO2_SQI_KEY] =
+        roundSignificantDigits(g_spo2_data.spo2_sqi, TELEMETRIES_DECIMALS);
+    addVariableToTelemetryWIFIJSON[PI_KEY] =
+        roundSignificantDigits(g_spo2_data.pi, TELEMETRIES_DECIMALS);
+  }
+  if (g_spo2_data.hr1_sqi > 0.0f) {
+    addVariableToTelemetryWIFIJSON[HR1_KEY] = (int)(g_spo2_data.hr1 + 0.5f);
+    addVariableToTelemetryWIFIJSON[HR1_SQI_KEY] =
+        roundSignificantDigits(g_spo2_data.hr1_sqi, TELEMETRIES_DECIMALS);
+  }
+  if (g_spo2_data.hr2_sqi > 0.0f) {
+    addVariableToTelemetryWIFIJSON[HR2_KEY] = (int)(g_spo2_data.hr2 + 0.5f);
+    addVariableToTelemetryWIFIJSON[HR2_SQI_KEY] =
+        roundSignificantDigits(g_spo2_data.hr2_sqi, TELEMETRIES_DECIMALS);
+  }
+  if (g_spo2_data.hr3_sqi > 0.0f) {
+    addVariableToTelemetryWIFIJSON[HR3_KEY] = (int)(g_spo2_data.hr3 + 0.5f);
+    addVariableToTelemetryWIFIJSON[HR3_SQI_KEY] =
+        roundSignificantDigits(g_spo2_data.hr3_sqi, TELEMETRIES_DECIMALS);
+  }
+
+  // Baby data sent from HMI on Auto Air Apply. Published exactly once per
+  // Apply: the telemetry pipeline consumes the pending-flag, so subsequent
+  // telemetry cycles skip these keys until the next HMI change.
+  if (hmi_cmd_msg.newBabyDataForTelemetry &&
+      hmi_cmd_msg.babyWeightGrams > 0 && hmi_cmd_msg.babyGestWeeks > 0) {
+    addVariableToTelemetryWIFIJSON[BABY_WEIGHT_KEY] =
+        hmi_cmd_msg.babyWeightGrams;
+    addVariableToTelemetryWIFIJSON[BABY_GEST_AGE_KEY] =
+        hmi_cmd_msg.babyGestWeeks;
+    addVariableToTelemetryWIFIJSON[BABY_AGE_DAYS_KEY] =
+        hmi_cmd_msg.babyAgeDays;
+    hmi_cmd_msg.newBabyDataForTelemetry = false;
+  }
 }
 
 void WEB_OTA() {
   if (WiFi.status() == WL_CONNECTED) {
     if (strlen(pendingSSID) > 0 && WiFi.SSID() == String(pendingSSID)) {
-      logI("[WIFI] -> Connection successful, persisting credentials to EEPROM");
-      EEPROM.writeString(EEPROM_WIFI_SSID, pendingSSID);
-      EEPROM.writeString(EEPROM_WIFI_PASSWORD, pendingPass);
-      EEPROM.commit();
+      logI("[WIFI] -> Connection successful, persisting credentials to Preferences");
+      { Preferences p; p.begin(NS_WIFI, false);
+        p.putString(KEY_SSID,     pendingSSID);
+        p.putString(KEY_PASSWORD, pendingPass);
+        p.end(); }
       pendingSSID[0] = '\0';
       pendingPass[0] = '\0';
     }
@@ -714,6 +861,27 @@ void WEB_OTA() {
     WIFI_connection_status = false;
   }
 }
+
+// ── RPC handlers (WiFi TB path) ───────────────────────────────────────────────
+static void rpc_setwifi_wifi_cb(JsonVariantConst const & data,
+                                JsonDocument & /*response*/) {
+  const char* ssid = data["ssid"];
+  const char* pass = data["password"];
+  if (!ssid || !pass || ssid[0] == '\0' || pass[0] == '\0' ||
+      strlen(ssid) > 63 || strlen(pass) > 63) {
+    ESP_LOGW("WiFi", "[RPC] setWifi: invalid ssid or password");
+    return;
+  }
+  ESP_LOGI("WiFi", "[RPC] setWifi received, applying credentials");
+  applyWifiCredentials(ssid, pass);
+}
+
+static RPC_Callback wifi_rpc_callbacks[] = {
+  RPC_Callback("setWifi", rpc_setwifi_wifi_cb),
+};
+static constexpr size_t WIFI_RPC_CB_COUNT =
+    sizeof(wifi_rpc_callbacks) / sizeof(wifi_rpc_callbacks[0]);
+// ─────────────────────────────────────────────────────────────────────────────
 
 void WIFI_TB_OTA() {
   if (WiFi.status() == WL_CONNECTED) {
@@ -752,6 +920,9 @@ void WIFI_TB_OTA() {
             WIFI_JSON.clear();
           }
           Wifi_TB.serverConnectionStatus = true;
+          for (size_t i = 0; i < WIFI_RPC_CB_COUNT; i++) {
+            tb_wifi.RPC_Subscribe(wifi_rpc_callbacks[i]);
+          }
           if (ENABLE_WIFI_OTA && !Wifi_TB.OTA_requested) {
             Wifi_TB.OTA_requested = true;
           }
@@ -794,10 +965,8 @@ void WifiOTAHandler(void) {
 
   if (WIFI_EN && WiFi.status() != WL_CONNECTED) {
     if (millis() - Wifi_TB.lastWifiReconnectAttempt > WIFI_RECONNECT_INTERVAL) {
-      Wifi_TB.lastWifiReconnectAttempt = millis();
-      logI("[WIFI] -> Connection lost, attempting to reconnect...");
-      MDNS.end();
-      WiFi.reconnect();
+      logI("[WIFI] -> Connection lost, re-init WiFi");
+      wifiInit();   // updates lastWifiReconnectAttempt
     }
   }
 

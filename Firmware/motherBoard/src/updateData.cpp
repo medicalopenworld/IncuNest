@@ -26,7 +26,7 @@
 
 #include "main.h"
 extern TwoWire *wire;
-extern MAM_in3ator_Humidifier in3_hum;
+extern MAM_IncuNest_Humidifier in3_hum;
 extern TFT_eSPI tft;
 extern RotaryEncoder encoder;
 
@@ -145,7 +145,7 @@ bool activeStatus, lastActiveStatus;
 
 float previousTemperature[2];
 
-extern in3ator_parameters in3;
+extern IncuNest_parameters in3;
 
 void updateDisplaySensors() {
   float temperatureToUpdate;
@@ -204,7 +204,7 @@ void updateDisplaySensors() {
 
 void logI(String dataString) {
   if (LOG_INFORMATION) {
-    static const char *TAG_USER = "APP";
+    static const char *TAG_USER __attribute__((unused)) = "APP";
     if (log_mutex == NULL ||
         xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
       // Formato: "123: mensaje"
@@ -215,16 +215,16 @@ void logI(String dataString) {
   }
 }
 
-void logCon(String dataString) {
-  if (!LOG_GPRS)
-    return;
-
-  static const char *TAG_USER = "APP";
-  if (log_mutex == NULL ||
-      xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-    ESP_LOGI(TAG_USER, "%lu: %s", millis() / 1000, dataString.c_str());
-    if (log_mutex)
-      xSemaphoreGiveRecursive(log_mutex);
+void logCharger(String dataString) {
+  if (LOG_CHARGER) {
+    static const char *TAG_USER __attribute__((unused)) = "APP";
+    if (log_mutex == NULL ||
+        xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      // Formato: "123: mensaje"
+      ESP_LOGI(TAG_USER, "%lu: %s", millis() / 1000, dataString.c_str());
+      if (log_mutex)
+        xSemaphoreGiveRecursive(log_mutex);
+    }
   }
 }
 
@@ -232,7 +232,7 @@ void logModemData(String dataString) {
   if (!LOG_MODEM_DATA)
     return;
 
-  static const char *TAG_USER = "APP";
+  static const char *TAG_USER __attribute__((unused)) = "MODEM";
   if (log_mutex == NULL ||
       xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
     ESP_LOGI(TAG_USER, "%lu: %s", millis() / 1000, dataString.c_str());
@@ -245,7 +245,7 @@ void logE(String dataString) {
   if (!LOG_ERRORS)
     return;
 
-  static const char *TAG_USER = "APP";
+  static const char *TAG_USER __attribute__((unused)) = "APP";
   if (log_mutex == NULL ||
       xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
     ESP_LOGI(TAG_USER, "%lu: %s", millis() / 1000, dataString.c_str());
@@ -258,7 +258,33 @@ void logAlarm(String dataString) {
   if (!LOG_ALARMS)
     return;
 
-  static const char *TAG_USER = "APP";
+  static const char *TAG_USER __attribute__((unused)) = "APP";
+  if (log_mutex == NULL ||
+      xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    ESP_LOGI(TAG_USER, "%lu: %s", millis() / 1000, dataString.c_str());
+    if (log_mutex)
+      xSemaphoreGiveRecursive(log_mutex);
+  }
+}
+
+void logSPO2(String dataString) {
+  if (!LOG_PULSIOXIMETRY)
+    return;
+
+  static const char *TAG_USER __attribute__((unused)) = "SPO2";
+  if (log_mutex == NULL ||
+      xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    ESP_LOGI(TAG_USER, "%lu: %s", millis() / 1000, dataString.c_str());
+    if (log_mutex)
+      xSemaphoreGiveRecursive(log_mutex);
+  }
+}
+
+void logDrive(String dataString) {
+  if (!LOG_DRIVE)
+    return;
+
+  static const char *TAG_USER __attribute__((unused)) = "DRIVE";
   if (log_mutex == NULL ||
       xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
     ESP_LOGI(TAG_USER, "%lu: %s", millis() / 1000, dataString.c_str());
@@ -295,36 +321,33 @@ void timeTrackHandler() {
     if (millis() - in3.last_check_time > TIME_TRACK_UPDATE_PERIOD) {
       in3.last_check_time = millis();
       in3.control_active_time += millisToHours(TIME_TRACK_UPDATE_PERIOD);
-      EEPROM.writeFloat(EEPROM_CONTROL_ACTIVE_TIME, in3.control_active_time);
       if (in3.temperatureControl) {
         in3.heater_active_time += millisToHours(TIME_TRACK_UPDATE_PERIOD);
         in3.fan_active_time += millisToHours(TIME_TRACK_UPDATE_PERIOD);
-        EEPROM.writeFloat(EEPROM_HEATER_ACTIVE_TIME, in3.heater_active_time);
-        EEPROM.writeFloat(EEPROM_FAN_ACTIVE_TIME, in3.fan_active_time);
       }
       if (in3.humidityControl) {
         in3.humidifier_active_time += millisToHours(TIME_TRACK_UPDATE_PERIOD);
-        EEPROM.writeFloat(EEPROM_HUMIDIFIER_ACTIVE_TIME,
-                          in3.humidifier_active_time);
         if (!in3.temperatureControl) {
           in3.fan_active_time += millisToHours(TIME_TRACK_UPDATE_PERIOD);
-          EEPROM.writeFloat(EEPROM_FAN_ACTIVE_TIME, in3.fan_active_time);
         }
       }
       if (in3.phototherapy) {
         in3.phototherapy_active_time += millisToHours(TIME_TRACK_UPDATE_PERIOD);
-        EEPROM.writeFloat(EEPROM_PHOTOTHERAPY_ACTIVE_TIME,
-                          in3.phototherapy_active_time);
       }
-      EEPROM.commit();
+      { Preferences p; p.begin(NS_RT, false);
+        p.putFloat(KEY_RT_CTRL,   in3.control_active_time);
+        p.putFloat(KEY_RT_HEATER, in3.heater_active_time);
+        p.putFloat(KEY_RT_FAN,    in3.fan_active_time);
+        p.putFloat(KEY_RT_HUM,    in3.humidifier_active_time);
+        p.putFloat(KEY_RT_PHOTO,  in3.phototherapy_active_time);
+        p.end(); }
     }
   } else {
     activeStatus = false;
     if (millis() - in3.last_check_time > TIME_TRACK_UPDATE_PERIOD) {
       in3.last_check_time = millis();
       in3.standby_time += millisToHours(TIME_TRACK_UPDATE_PERIOD);
-      EEPROM.writeFloat(EEPROM_STANDBY_TIME, in3.standby_time);
-      EEPROM.commit();
+      { Preferences p; p.begin(NS_RT, false); p.putFloat(KEY_RT_STANDBY, in3.standby_time); p.end(); }
     }
   }
   if (activeStatus != lastActiveStatus) {

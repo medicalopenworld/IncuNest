@@ -27,7 +27,7 @@
 #include "main.h"
 
 extern TwoWire *wire;
-extern MAM_in3ator_Humidifier in3_hum;
+extern MAM_IncuNest_Humidifier in3_hum;
 extern TFT_eSPI tft;
 extern RotaryEncoder encoder;
 
@@ -137,7 +137,7 @@ extern PID humidityControlPID;
 
 extern GPRSstruct GPRS;
 
-extern in3ator_parameters in3;
+extern IncuNest_parameters in3;
 
 void setTextColor(int16_t colour) { screenTextColor = colour; }
 
@@ -327,7 +327,7 @@ void drawIntroMessage()
   switch (in3.language)
   {
   case ENGLISH:
-    words[0] = (char *)("Welcome to in3ator");
+    words[0] = (char *)("Welcome to IncuNest");
     words[1] = (char *)("");
     words[2] = (char *)("Saving lives");
     break;

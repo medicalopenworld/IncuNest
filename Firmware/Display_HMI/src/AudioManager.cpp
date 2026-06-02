@@ -2,7 +2,7 @@
 #include <SPIFFS.h>
 #include <Wire.h>
 #include "esp_log.h"
-#include <EEPROM.h>
+#include <Preferences.h>
 #include "EEPROM_defines.h"
 #include "main.h"
 
@@ -62,12 +62,14 @@ void AudioManager::begin() {
     audio.setPinout(I2S_BCLK, I2S_LRCK, I2S_DOUT);
     audio.forceMono(true);
     
-    // Leer volumen guardado en EEPROM (0-21). Si es 0 o >21, usar default 15.
-    uint8_t savedVol = EEPROM.read(EEPROM_AUDIO_VOLUME);
-    if (savedVol == AUDIO_VOLUME_MIN || savedVol > AUDIO_VOLUME_MAX) savedVol = AUDIO_VOLUME_DEFAULT;
-    _volume = savedVol;
+    // Leer volumen guardado en Preferences (0-21). Si es 0 o >21, usar default 15.
+    { Preferences p; p.begin(HMI_NS_CFG, true);
+      uint8_t savedVol = p.getUChar(HMI_KEY_VOLUME, AUDIO_VOLUME_DEFAULT);
+      p.end();
+      if (savedVol == AUDIO_VOLUME_MIN || savedVol > AUDIO_VOLUME_MAX) savedVol = AUDIO_VOLUME_DEFAULT;
+      _volume = savedVol; }
     audio.setVolume(_volume);
-    Serial.printf("AudioManager: Volume loaded from EEPROM: %d\n", _volume);
+    Serial.printf("AudioManager: Volume loaded from Preferences: %d\n", _volume);
     Serial.println("AudioManager: Initialized pins BCLK:5, LRCK:6, DOUT:4 (Safe)");
 
     // Crear tarea de audio en el Core 0 (Sistemas)

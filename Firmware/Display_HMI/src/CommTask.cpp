@@ -1,5 +1,6 @@
 #include "CommTask.h"
 #include "UITask.h"
+#include "Wifi_OTA.h"
 #include "esp_log.h"
 #include "main.h"
 #include "ui.h"
@@ -14,7 +15,14 @@ ControlBoard_Message ctrl_msg;
 ControlBoard_Message_Telemetry ctrl_tel_msg;
 ControlBoard_Message_Alarm ctrl_msg_alarm;
 ControlBoard_Message_State ctrl_state_msg = {0};
+ControlBoard_Message_PPG ctrl_ppg_msg     = {0, false};
+ControlBoard_Message_VIT ctrl_vit_msg     = {0, 0, false};
+ControlBoard_Message_Probe ctrl_probe_msg = {SPO2_PROBE_DISCONNECTED, false};
 int g_skinProbeState = SKIN_PROBE_NOT_CONNECTED; // Last received skin probe state
+
+// --- Power Off countdown state (written here, read by UITask) ---
+volatile bool g_pwrOffActive = false;
+volatile int  g_pwrOffRemainingMs = 0;
 
 bool error = false;
 static char rxBuffer[COMM_RX_BUFFER_SIZE];
@@ -51,6 +59,15 @@ void Communication_UIReady(void) {
 #endif
 }
 
+void Communication_SendBootInfo(void) {
+#if IS_HMI
+  extern uint32_t g_hmiBootCount;
+  extern int      g_hmiLastRst;
+  COMM_SERIAL.printf("HMI,BOOT,%d,%u\n", g_hmiLastRst,
+                     (unsigned)g_hmiBootCount);
+#endif
+}
+
 void Communication_SendWiFiCredentials(const char *ssid, const char *password) {
 #if IS_HMI
   COMM_SERIAL.printf("HMI,WIFI,%s,%s\n", ssid, password);
@@ -60,11 +77,12 @@ void Communication_SendWiFiCredentials(const char *ssid, const char *password) {
 static void SendMessageToOtherESP() {
 #if IS_HMI
   COMM_SERIAL.printf(
-      "HMI,%d,%d,%d,%0.2f,%0.2f,%0.0f,%d,%d,%d,%d\n", hmi_msg.actuation,
+      "HMI,%d,%d,%d,%0.2f,%0.2f,%0.0f,%d,%d,%d,%d,%d,%d,%d\n", hmi_msg.actuation,
       (int)hmi_msg.skinModeEnabled, hmi_msg.controlMode,
       hmi_msg.desiredAirTemperature, hmi_msg.desiredSkinTemperature,
       hmi_msg.desiredHumidity, hmi_msg.phototherapyMode, hmi_msg.muteAlarm,
-      hmi_msg.language, hmi_msg.photoMinutesRemaining);
+      hmi_msg.language, hmi_msg.photoMinutesRemaining,
+      hmi_msg.babyWeightGrams, hmi_msg.babyGestWeeks, hmi_msg.babyAgeDays);
 #else
   COMM_SERIAL.printf("CTRL,%0.2f,%0.2f,%0.2f,%0.2f,%0.2f\n",
                      ctrl_msg.temperature[0], ctrl_msg.temperature[1],
@@ -75,6 +93,21 @@ static void SendMessageToOtherESP() {
 
 static void parse_message(const char *line) {
 #if IS_HMI
+  if (strcmp(line, "CTRL,PWR_OFF_CANCEL") == 0) {
+    g_pwrOffActive = false;
+    g_pwrOffRemainingMs = 0;
+    COMM_LOG("[COMM] PWR_OFF cancelled\n");
+    return;
+  }
+  if (strncmp(line, "CTRL,PWR_OFF,", 13) == 0) {
+    int ms = 0;
+    if (sscanf(line, "CTRL,PWR_OFF,%d", &ms) == 1) {
+      g_pwrOffRemainingMs = ms;
+      g_pwrOffActive = true;
+      COMM_LOG("[COMM] PWR_OFF remaining=%d ms\n", ms);
+    }
+    return;
+  }
   if (strncmp(line, "CTRL,TEL", strlen("CTRL,TEL")) == 0) {
     int probeState = SKIN_PROBE_NOT_CONNECTED;
     int result = sscanf(
@@ -144,6 +177,30 @@ static void parse_message(const char *line) {
     } else {
       COMM_LOG("[COMM] HMI failed to parse CTRL,STATE: %s\n", line);
     }
+  } else if (strncmp(line, "CTRL,PPG", 8) == 0) {
+    int ppg = 0;
+    if (sscanf(line, "CTRL,PPG,%d", &ppg) == 1) {
+      ctrl_ppg_msg.ppg     = (uint8_t)ppg;
+      ctrl_ppg_msg.updated = true;
+    }
+  } else if (strncmp(line, "CTRL,VIT", 8) == 0) {
+    int hr = 0, spo2 = 0;
+    if (sscanf(line, "CTRL,VIT,%d,%d", &hr, &spo2) == 2) {
+      ctrl_vit_msg.hr      = (uint8_t)hr;
+      ctrl_vit_msg.spo2    = (uint8_t)spo2;
+      ctrl_vit_msg.updated = true;
+    }
+  } else if (strncmp(line, "CTRL,PROBE", 10) == 0) {
+    int state = 0;
+    if (sscanf(line, "CTRL,PROBE,%d", &state) == 1 &&
+        state >= SPO2_PROBE_DISCONNECTED && state <= SPO2_PROBE_APPLIED) {
+      ctrl_probe_msg.state   = (ProbeContactState)state;
+      ctrl_probe_msg.updated = true;
+      static const char *const probe_state_names[] = {"DISCONNECTED", "NOT_APPLIED", "APPLIED"};
+      // COMM_LOG("[COMM] CTRL,PROBE -> %s\n", probe_state_names[state]);
+    } else {
+      COMM_LOG("[COMM] CTRL,PROBE parse error: %s\n", line);
+    }
   } else if (strncmp(line, "CTRL,ALM", strlen("CTRL,ALM")) ==
              0) {
     int id, stateInt;
@@ -164,6 +221,14 @@ static void parse_message(const char *line) {
       ctrl_msg_alarm.state = (stateInt != 0);
     } else {
       COMM_LOG("[COMM] HMI failed to parse CTRL,ALM: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,WIFI,", 10) == 0) {
+    char ssid[64], pass[64];
+    if (sscanf(line, "CTRL,WIFI,%63[^,],%63[^\n]", ssid, pass) == 2) {
+      wifiApplyNewCredentials(ssid, pass);
+      COMM_LOG("[COMM] CTRL,WIFI: reconnecting to %s\n", ssid);
+    } else {
+      COMM_LOG("[COMM] CTRL,WIFI parse error: %s\n", line);
     }
   }
 #endif
@@ -215,6 +280,7 @@ static bool ReceiveMessageFromOtherESP() {
 static bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
   if (!g_ui_initialized)
     return false;
+  LVGL_Lock();
   ui_set_switch_state_silent(ui_Switch1, st.actuation & 0x01);
   ui_set_switch_state_silent(ui_Switch2, (st.actuation >> 1) & 0x01);
   ui_set_switch_state_silent(ui_Switch3, st.phototherapyMode);
@@ -296,8 +362,7 @@ static bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
 
   if (st.serialNumber != 0 && st.serialNumber != in3.serialNumber) {
     in3.serialNumber = st.serialNumber;
-    EEPROM.writeInt(EEPROM_SERIAL_NUMBER, in3.serialNumber);
-    EEPROM.commit();
+    { Preferences p; p.begin(HMI_NS_CFG, false); p.putInt(HMI_KEY_SERIAL, in3.serialNumber); p.end(); }
     ESP_LOGI(TAG, "Serial Number updated from motherboard: %d",
              in3.serialNumber);
   }
@@ -338,6 +403,7 @@ static bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
   }
 
   UI_SyncAll();
+  LVGL_Unlock();
   return true;
 }
 
@@ -364,6 +430,7 @@ static void applyHMIData() {
   airTempValueDetected = ctrl_tel_msg.detectedAirTemperature;
   skinTempValueDetected = ctrl_tel_msg.detectedSkinTemperature;
   humValueDetected = (int)ctrl_tel_msg.detectedHumidity;
+  LVGL_Lock();
   update_labels();
   if (tempSwitched) {
     chart_add_air_temp((float)airTempValueDetected);
@@ -371,6 +438,7 @@ static void applyHMIData() {
   }
   chart_add_hum_value((float)humValueDetected);
   chart_save_history();
+  LVGL_Unlock();
 }
 
 static void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
@@ -417,6 +485,7 @@ void Comm_Task(void *pvParameters) {
   ESP_LOGI(TAG, "Communication Task Started");
   COMM_SERIAL.begin(COMM_BAUD_RATE);
 
+  Communication_SendBootInfo();
   Communication_RequestState();
   g_lastStateReqMs = millis();
 

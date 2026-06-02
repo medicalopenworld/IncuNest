@@ -23,226 +23,361 @@
 
 */
 #include <Arduino.h>
+#include <Preferences.h>
 
 #include "main.h"
 
 extern bool autoLock;
 extern bool WIFI_EN;
 extern int presetTemp[2]; // preset baby skin temperature
-extern double RawTemperatureLow[SENSOR_TEMP_QTY],
-    RawTemperatureRange[SENSOR_TEMP_QTY];
+extern double RawTemperatureLow[SENSOR_TEMP_QTY];
+extern double RawTemperatureRange[SENSOR_TEMP_QTY];
 extern double ReferenceTemperatureRange, ReferenceTemperatureLow;
-
-
-extern in3ator_parameters in3;
+extern IncuNest_parameters in3;
+extern char wifi_ssid[64];
+extern char wifi_pass[64];
+extern int g_restore_photo_minutes;
 
 void resetFlash() {
-  for (int i = false; i < EEPROM_SIZE; i++) {
-    EEPROM.write(i, 0);
-    EEPROM.commit();
-  }
-}
-
-// Magic byte to indicate EEPROM is initialized
-#define EEPROM_MAGIC_BYTE 0xAB
-
-void initEEPROM() {
-  if (!EEPROM.begin(EEPROM_SIZE)) {
-    logE("failed to initialise EEPROM");
-    return;
-  }
-
-  // Check if EEPROM has been initialized with our magic byte
-  if (EEPROM.read(EEPROM_FIRST_TURN_ON) != EEPROM_MAGIC_BYTE) {
-    logI("[FLASH] -> First turn on or uninitialized, resetting flash...");
-    resetFlash();
-    loaddefaultValues();
-    
-    // Mark as initialized
-    EEPROM.write(EEPROM_FIRST_TURN_ON, EEPROM_MAGIC_BYTE);
-    EEPROM.commit();
-    
-    logI("[FLASH] -> Default values loaded and flash marked as initialized");
-  } else {
-    logI("[FLASH] -> Loading variables stored in flash");
-    recapVariables();
-    logI("[FLASH] -> Variables loaded");
+  Preferences p;
+  const char* ns[] = { NS_CFG, NS_CAL, NS_WIFI, NS_GPRS, NS_RT, NS_STATE, "photo" };
+  for (auto n : ns) {
+    p.begin(n, false);
+    p.clear();
+    p.end();
   }
 }
 
 void loaddefaultValues() {
-  autoLock = DEFAULT_AUTOLOCK;
-  in3.language = defaultLanguage;
-  in3.controlMode = CONTROL_AIR;
-  in3.desiredControlTemperature = presetTemp[in3.controlMode];
-  in3.desiredControlHumidity = presetHumidity;
-  in3.fineTuneSkinTemperature = DEFAULT_TUNE_SKIN_TEMP;
-  
-  // Initialize calibration variables to safe defaults
-  ReferenceTemperatureRange = 0.0; 
-  ReferenceTemperatureLow = 0.0;
+  autoLock                      = DEFAULT_AUTOLOCK;
+  in3.language                  = defaultLanguage;
+  in3.controlMode               = CONTROL_AIR;
+  in3.desiredControlTemperature = presetTemp[CONTROL_AIR];
+  in3.desiredControlHumidity    = presetHumidity;
+  in3.fanCtlPWM                 = FAN_CTL_PWM_DEFAULT;
+  ReferenceTemperatureRange     = 0.0;
+  ReferenceTemperatureLow       = 0.0;
   for (int i = 0; i < SENSOR_TEMP_QTY; i++) {
-    RawTemperatureLow[i] = 0.0;
+    RawTemperatureLow[i]   = 0.0;
     RawTemperatureRange[i] = 0.0;
   }
 
-  EEPROM.write(EEPROM_AUTO_LOCK, autoLock);
-  EEPROM.write(EEPROM_LANGUAGE, in3.language);
-  EEPROM.write(EEPROM_CONTROL_MODE, in3.controlMode);
-  EEPROM.writeFloat(EEPROM_DESIRED_CONTROL_TEMPERATURE,
-                    in3.desiredControlTemperature);
-  EEPROM.writeFloat(EEPROM_FINE_TUNE_TEMP_SKIN, in3.fineTuneSkinTemperature);
-  
-  // Save calibration defaults
-  EEPROM.writeFloat(EEPROM_REFERENCE_TEMP_RANGE, ReferenceTemperatureRange);
-  EEPROM.writeFloat(EEPROM_REFERENCE_TEMP_LOW, ReferenceTemperatureLow);
-  EEPROM.writeFloat(EEPROM_RAW_SKIN_TEMP_LOW_CORRECTION, RawTemperatureLow[SKIN_SENSOR]);
-  EEPROM.writeFloat(EEPROM_RAW_SKIN_TEMP_RANGE_CORRECTION, RawTemperatureRange[SKIN_SENSOR]);
-  
-  EEPROM.commit();
+  { Preferences p; p.begin(NS_CFG, false);
+    p.putUChar (KEY_LANG,        in3.language);
+    p.putUChar (KEY_AUTOLOCK,    autoLock);
+    p.putUChar (KEY_CTRL_MODE,   in3.controlMode);
+    p.putFloat (KEY_CTRL_TEMP,   in3.desiredControlTemperature);
+    p.putUChar (KEY_CTRL_HUM,    in3.desiredControlHumidity);
+    p.putInt   (KEY_FAN_CTL_PWM, in3.fanCtlPWM);
+    p.putInt   (KEY_FAN_PWR_SUPPLY_PWM,      FAN_PWR_SUPPLY_PWM);
+    p.putFloat (KEY_HEAT_MAX_A,   HEATER_MAX_POWER_AMPS);
+    p.putFloat (KEY_SKIN_T_MAX,   SKIN_TEMPERATURE_SET_MAX);
+    p.putFloat (KEY_AIR_T_MAX,    AIR_TEMPERATURE_SET_MAX);
+    p.putInt   (KEY_ACT_PERIOD,   60);
+    p.putInt   (KEY_PHOTO_PERIOD, 180);
+    p.putInt   (KEY_STBY_PERIOD,  3600);
+    p.end(); }
+
+  { Preferences p; p.begin(NS_CAL, false);
+    p.putFloat(KEY_CAL_SK_LOW,  0.0f);
+    p.putFloat(KEY_CAL_SK_RNG,  0.0f);
+    p.putFloat(KEY_CAL_REF_RNG, 0.0f);
+    p.putFloat(KEY_CAL_REF_LOW, 0.0f);
+    p.putFloat(KEY_FT_SKIN,     0.0f);
+    p.putFloat(KEY_FT_AIR,      0.0f);
+    p.end(); }
+
+  { Preferences p; p.begin(NS_WIFI, false);
+    p.putString(KEY_SSID,     "");
+    p.putString(KEY_PASSWORD, "");
+    p.end(); }
+
+  { Preferences p; p.begin(NS_RT, false);
+    p.putFloat(KEY_RT_STANDBY, 0.0f);
+    p.putFloat(KEY_RT_CTRL,    0.0f);
+    p.putFloat(KEY_RT_HEATER,  0.0f);
+    p.putFloat(KEY_RT_FAN,     0.0f);
+    p.putFloat(KEY_RT_PHOTO,   0.0f);
+    p.putFloat(KEY_RT_HUM,     0.0f);
+    p.end(); }
+
+  { Preferences p; p.begin(NS_STATE, false);
+    p.putUChar(KEY_PHOTO_ACTIVE, 0);
+    p.putUChar(KEY_ACTUATION,    0);
+    p.end(); }
 }
 
 void resetCalibration() {
-  RawTemperatureLow[SKIN_SENSOR] = false;
-  RawTemperatureRange[SKIN_SENSOR] = false;
-  ReferenceTemperatureRange = false;
-  ReferenceTemperatureLow = false;
-  in3.fineTuneSkinTemperature = false;
-  in3.fineTuneAirTemperature = false;
+  RawTemperatureLow[SKIN_SENSOR]   = 0.0;
+  RawTemperatureRange[SKIN_SENSOR] = 0.0;
+  ReferenceTemperatureRange        = 0.0;
+  ReferenceTemperatureLow          = 0.0;
+  in3.fineTuneSkinTemperature      = 0.0;
+  in3.fineTuneAirTemperature       = 0.0;
+}
+
+static bool migrateFromEEPROM() {
+  constexpr int OLD_MAGIC_OFFSET  = 10;
+  constexpr uint8_t OLD_MAGIC_VAL = 0xAB;
+  constexpr int OLD_AUTOLOCK      = 20;
+  constexpr int OLD_LANG          = 30;
+  constexpr int OLD_SERIAL        = 40;
+  constexpr int OLD_CTRL_ACTIVE   = 60;
+  constexpr int OLD_PHOTO_ACTIVE  = 65;
+  constexpr int OLD_CTRL_MODE     = 70;
+  constexpr int OLD_CTRL_TEMP     = 80;
+  constexpr int OLD_CTRL_HUM      = 90;
+  constexpr int OLD_SK_LOW        = 100;
+  constexpr int OLD_SK_RNG        = 110;
+  constexpr int OLD_WIFI_SSID     = 115;
+  constexpr int OLD_WIFI_PASS     = 145;
+  constexpr int OLD_REF_RNG       = 170;
+  constexpr int OLD_REF_LOW       = 180;
+  constexpr int OLD_FT_SKIN       = 190;
+  constexpr int OLD_FT_AIR        = 194;
+  constexpr int OLD_TB_PROV       = 200;
+  constexpr int OLD_TB_TOKEN      = 205;
+  constexpr int OLD_STANDBY       = 226;
+  constexpr int OLD_CTRL_TIME     = 230;
+  constexpr int OLD_HEATER_TIME   = 234;
+  constexpr int OLD_FAN_TIME      = 238;
+  constexpr int OLD_PHOTO_TIME    = 242;
+  constexpr int OLD_HUM_TIME      = 246;
+  constexpr int OLD_FAN_PWM       = 254;
+  constexpr int OLD_HEAT_MAX_A    = 258;
+  constexpr int OLD_SKIN_T_MAX    = 262;
+  constexpr int OLD_AIR_T_MAX     = 266;
+  constexpr int OLD_ACT_PERIOD    = 270;
+  constexpr int OLD_PHOTO_PERIOD  = 274;
+  constexpr int OLD_STBY_PERIOD   = 278;
+  constexpr int OLD_FAN_CTL_PWM   = 282;
+
+  Preferences old;
+  old.begin("eeprom", true);
+  uint8_t buf[512] = {};
+  size_t len = old.getBytes("data", buf, sizeof(buf));
+  old.end();
+
+  if (len < 512 || buf[OLD_MAGIC_OFFSET] != OLD_MAGIC_VAL) {
+    return false;
+  }
+
+  auto rf = [&](int off) { float v;   memcpy(&v, buf + off, 4); return v; };
+  auto ri = [&](int off) { int32_t v; memcpy(&v, buf + off, 4); return v; };
+
+  { Preferences p; p.begin(NS_CFG, false);
+    p.putUChar (KEY_AUTOLOCK,     buf[OLD_AUTOLOCK]);
+    p.putUChar (KEY_LANG,         buf[OLD_LANG]);
+    p.putInt   (KEY_SERIAL,       ri(OLD_SERIAL));
+    p.putUChar (KEY_CTRL_MODE,    buf[OLD_CTRL_MODE]);
+    p.putFloat (KEY_CTRL_TEMP,    rf(OLD_CTRL_TEMP));
+    p.putUChar (KEY_CTRL_HUM,     buf[OLD_CTRL_HUM]);
+    p.putInt   (KEY_FAN_PWR_SUPPLY_PWM,      ri(OLD_FAN_PWM));
+    p.putFloat (KEY_HEAT_MAX_A,   rf(OLD_HEAT_MAX_A));
+    p.putFloat (KEY_SKIN_T_MAX,   rf(OLD_SKIN_T_MAX));
+    p.putFloat (KEY_AIR_T_MAX,    rf(OLD_AIR_T_MAX));
+    p.putInt   (KEY_FAN_CTL_PWM,  ri(OLD_FAN_CTL_PWM));
+    p.end(); }
+
+  { Preferences p; p.begin(NS_CAL, false);
+    p.putFloat(KEY_CAL_SK_LOW,  rf(OLD_SK_LOW));
+    p.putFloat(KEY_CAL_SK_RNG,  rf(OLD_SK_RNG));
+    p.putFloat(KEY_CAL_REF_RNG, rf(OLD_REF_RNG));
+    p.putFloat(KEY_CAL_REF_LOW, rf(OLD_REF_LOW));
+    p.putFloat(KEY_FT_SKIN,     rf(OLD_FT_SKIN));
+    p.putFloat(KEY_FT_AIR,      rf(OLD_FT_AIR));
+    p.end(); }
+
+  char ssid_tmp[31]  = {};
+  char pass_tmp[26]  = {};
+  char token_tmp[22] = {};
+  memcpy(ssid_tmp,  buf + OLD_WIFI_SSID,  30);
+  memcpy(pass_tmp,  buf + OLD_WIFI_PASS,  25);
+  memcpy(token_tmp, buf + OLD_TB_TOKEN,   21);
+
+  { Preferences p; p.begin(NS_WIFI, false);
+    p.putString(KEY_SSID,     ssid_tmp);
+    p.putString(KEY_PASSWORD, pass_tmp);
+    p.end(); }
+
+  { Preferences p; p.begin(NS_GPRS, false);
+    p.putUChar (KEY_PROVISIONED, buf[OLD_TB_PROV]);
+    p.putString(KEY_TOKEN,       token_tmp);
+    p.putInt   (KEY_ACT_PERIOD,  ri(OLD_ACT_PERIOD));
+    p.putInt   (KEY_PHOTO_PERIOD,ri(OLD_PHOTO_PERIOD));
+    p.putInt   (KEY_STBY_PERIOD, ri(OLD_STBY_PERIOD));
+    p.end(); }
+
+  { Preferences p; p.begin(NS_RT, false);
+    p.putFloat(KEY_RT_STANDBY, rf(OLD_STANDBY));
+    p.putFloat(KEY_RT_CTRL,    rf(OLD_CTRL_TIME));
+    p.putFloat(KEY_RT_HEATER,  rf(OLD_HEATER_TIME));
+    p.putFloat(KEY_RT_FAN,     rf(OLD_FAN_TIME));
+    p.putFloat(KEY_RT_PHOTO,   rf(OLD_PHOTO_TIME));
+    p.putFloat(KEY_RT_HUM,     rf(OLD_HUM_TIME));
+    p.end(); }
+
+  { Preferences p; p.begin(NS_STATE, false);
+    p.putUChar(KEY_PHOTO_ACTIVE, buf[OLD_PHOTO_ACTIVE]);
+    p.putUChar(KEY_ACTUATION,    buf[OLD_CTRL_ACTIVE]);  // actuation encodes same byte
+    p.end(); }
+
+  old.begin("eeprom", false);
+  old.clear();
+  old.end();
+
+  ESP_LOGI("APP", "Migración EEPROM → Preferences completada");
+  return true;
+}
+
+void initEEPROM() {
+  // Read any flasher-provisioned serial before a potential resetFlash clears it.
+  Preferences p;
+  p.begin(NS_CFG, false);
+  bool initialized    = p.isKey(KEY_LANG);
+  int  flashedSerial  = p.getInt(KEY_SERIAL, -1);
+  p.end();
+  ESP_LOGI("APP", "initEEPROM: initialized=%d flashedSerial=%d", initialized, flashedSerial);
+
+  if (!initialized) {
+    if (!migrateFromEEPROM()) {
+      ESP_LOGI("APP", "Primer arranque — cargando valores por defecto");
+      resetFlash();
+      loaddefaultValues();
+      // Restore serial written by flasher tool (resetFlash cleared it).
+      if (flashedSerial >= 0) {
+        Preferences p2;
+        p2.begin(NS_CFG, false);
+        p2.putInt(KEY_SERIAL, flashedSerial);
+        p2.end();
+        ESP_LOGI("APP", "Serial restaurado desde flasher: %d", flashedSerial);
+      }
+    }
+  } else {
+    ESP_LOGI("APP", "Cargando variables desde Preferences");
+  }
+  recapVariables();
 }
 
 void recapVariables() {
-  autoLock = EEPROM.read(EEPROM_AUTO_LOCK);
-  in3.language = EEPROM.read(EEPROM_LANGUAGE);
-  RawTemperatureLow[SKIN_SENSOR] =
-      EEPROM.readFloat(EEPROM_RAW_SKIN_TEMP_LOW_CORRECTION);
-  RawTemperatureRange[SKIN_SENSOR] =
-      EEPROM.readFloat(EEPROM_RAW_SKIN_TEMP_RANGE_CORRECTION);
-  ReferenceTemperatureRange = EEPROM.readFloat(EEPROM_REFERENCE_TEMP_RANGE);
-  ReferenceTemperatureLow = EEPROM.readFloat(EEPROM_REFERENCE_TEMP_LOW);
-  in3.fineTuneSkinTemperature = EEPROM.readFloat(EEPROM_FINE_TUNE_TEMP_SKIN);
-  if (isnan(in3.fineTuneSkinTemperature)) {
-    in3.fineTuneSkinTemperature = 0.0;
-  }
-  in3.fineTuneAirTemperature = EEPROM.readFloat(EEPROM_FINE_TUNE_TEMP_AIR);
-  if (isnan(in3.fineTuneAirTemperature)) {
-    in3.fineTuneAirTemperature = 0.0;
-  }
-  in3.standby_time = EEPROM.readFloat(EEPROM_STANDBY_TIME);
-  in3.control_active_time = EEPROM.readFloat(EEPROM_CONTROL_ACTIVE_TIME);
-  in3.heater_active_time = EEPROM.readFloat(EEPROM_HEATER_ACTIVE_TIME);
-  in3.fan_active_time = EEPROM.readFloat(EEPROM_FAN_ACTIVE_TIME);
-  in3.humidifier_active_time = EEPROM.readFloat(EEPROM_HUMIDIFIER_ACTIVE_TIME);
-  in3.phototherapy_active_time =
-      EEPROM.readFloat(EEPROM_PHOTOTHERAPY_ACTIVE_TIME);
+  { Preferences p; p.begin(NS_CFG, true);
+    autoLock                      = p.getUChar(KEY_AUTOLOCK,   DEFAULT_AUTOLOCK);
+    in3.language                  = p.getUChar(KEY_LANG,       defaultLanguage);
+    in3.serialNumber              = p.getInt  (KEY_SERIAL,     0);
+    in3.controlMode               = p.getUChar(KEY_CTRL_MODE,  CONTROL_AIR);
+    in3.desiredControlTemperature = p.getFloat(KEY_CTRL_TEMP,  presetTemp[CONTROL_AIR]);
+    if (isnan(in3.desiredControlTemperature) ||
+        in3.desiredControlTemperature < AIR_TEMPERATURE_SET_MIN ||
+        in3.desiredControlTemperature > AIR_TEMPERATURE_SET_MAX)
+      in3.desiredControlTemperature = presetTemp[CONTROL_AIR];
+    in3.desiredControlHumidity    = p.getUChar(KEY_CTRL_HUM,   presetHumidity);
+    in3.fanPwrSupplyPWM                    = p.getInt  (KEY_FAN_PWR_SUPPLY_PWM,    FAN_PWR_SUPPLY_PWM);
+    if (in3.fanPwrSupplyPWM <= 0 || in3.fanPwrSupplyPWM > 255) in3.fanPwrSupplyPWM = FAN_PWR_SUPPLY_PWM;
+    in3.heaterMaxPowerAmps        = p.getFloat(KEY_HEAT_MAX_A, HEATER_MAX_POWER_AMPS);
+    if (isnan(in3.heaterMaxPowerAmps) || in3.heaterMaxPowerAmps <= 0)
+      in3.heaterMaxPowerAmps = HEATER_MAX_POWER_AMPS;
+    in3.skinTemperatureSetMax     = p.getFloat(KEY_SKIN_T_MAX, SKIN_TEMPERATURE_SET_MAX);
+    if (isnan(in3.skinTemperatureSetMax) || in3.skinTemperatureSetMax <= 0)
+      in3.skinTemperatureSetMax = SKIN_TEMPERATURE_SET_MAX;
+    in3.airTemperatureSetMax      = p.getFloat(KEY_AIR_T_MAX,  AIR_TEMPERATURE_SET_MAX);
+    if (isnan(in3.airTemperatureSetMax) || in3.airTemperatureSetMax <= 0)
+      in3.airTemperatureSetMax = AIR_TEMPERATURE_SET_MAX;
+    in3.fanCtlPWM                 = p.getInt(KEY_FAN_CTL_PWM,  FAN_CTL_PWM_DEFAULT);
+    if (in3.fanCtlPWM <= 0 || in3.fanCtlPWM > 255) in3.fanCtlPWM = FAN_CTL_PWM_DEFAULT;
+    p.end(); }
 
-  for (int i = 0; i < SENSOR_TEMP_QTY; i++) {
-    logI("calibration factors: " + String(RawTemperatureLow[i]) + "," +
-         String(RawTemperatureRange[i]) + "," +
-         String(ReferenceTemperatureRange) + "," +
-         String(ReferenceTemperatureLow));
-  }
+  { Preferences p; p.begin(NS_CAL, true);
+    RawTemperatureLow[SKIN_SENSOR]   = p.getFloat(KEY_CAL_SK_LOW,  0.0f);
+    RawTemperatureRange[SKIN_SENSOR] = p.getFloat(KEY_CAL_SK_RNG,  0.0f);
+    ReferenceTemperatureRange        = p.getFloat(KEY_CAL_REF_RNG, 0.0f);
+    ReferenceTemperatureLow          = p.getFloat(KEY_CAL_REF_LOW, 0.0f);
+    in3.fineTuneSkinTemperature      = p.getFloat(KEY_FT_SKIN,     0.0f);
+    if (isnan(in3.fineTuneSkinTemperature)) in3.fineTuneSkinTemperature = 0.0f;
+    in3.fineTuneAirTemperature       = p.getFloat(KEY_FT_AIR,      0.0f);
+    if (isnan(in3.fineTuneAirTemperature)) in3.fineTuneAirTemperature = 0.0f;
+    p.end(); }
 
   if (!ReferenceTemperatureRange) {
     in3.calibrationError = true;
     logE("[HW] -> Fail -> temperature sensor is not calibrated");
   }
 
-  for (int i = 0; i < SENSOR_TEMP_QTY; i++) {
-    if (RawTemperatureLow[i] > 100) {
-      // critical error
+  { Preferences p; p.begin(NS_RT, true);
+    in3.standby_time             = p.getFloat(KEY_RT_STANDBY, 0.0f);
+    in3.control_active_time      = p.getFloat(KEY_RT_CTRL,    0.0f);
+    in3.heater_active_time       = p.getFloat(KEY_RT_HEATER,  0.0f);
+    in3.fan_active_time          = p.getFloat(KEY_RT_FAN,     0.0f);
+    in3.phototherapy_active_time = p.getFloat(KEY_RT_PHOTO,   0.0f);
+    in3.humidifier_active_time   = p.getFloat(KEY_RT_HUM,     0.0f);
+    p.end(); }
+
+  { Preferences p; p.begin(NS_GPRS, true);
+    in3.actuating_gprs_period    = p.getInt(KEY_ACT_PERIOD,   60);
+    in3.phototherapy_gprs_period = p.getInt(KEY_PHOTO_PERIOD, 180);
+    in3.standby_gprs_period      = p.getInt(KEY_STBY_PERIOD,  3600);
+    p.end(); }
+
+  { Preferences p; p.begin(NS_WIFI, true);
+    String s  = p.getString(KEY_SSID,     "");
+    String pw = p.getString(KEY_PASSWORD, "");
+    strncpy(wifi_ssid, s.c_str(),  sizeof(wifi_ssid) - 1);
+    wifi_ssid[sizeof(wifi_ssid) - 1] = '\0';
+    strncpy(wifi_pass, pw.c_str(), sizeof(wifi_pass) - 1);
+    wifi_pass[sizeof(wifi_pass) - 1] = '\0';
+    p.end(); }
+
+  { Preferences p; p.begin(NS_STATE, true);
+    in3.actuation    = p.getUChar(KEY_ACTUATION,    0);
+    in3.phototherapy = p.getUChar(KEY_PHOTO_ACTIVE, 0);
+    in3.restoreState = (in3.actuation != 0);
+    p.end(); }
+
+  // Restore phototherapy timer if it was active
+  if (in3.phototherapy) {
+    Preferences p;
+    p.begin("photo", true);
+    bool was_active = p.getBool("active", false);
+    int  saved_mins = p.getInt ("mins",   0);
+    p.end();
+    if (was_active && saved_mins > 0) {
+      g_restore_photo_minutes = saved_mins;
+      logI("[HW] -> restoreState: phototherapy timer restored (" + String(saved_mins) + " min remaining)");
     }
   }
-  in3.serialNumber = EEPROM.readInt(EEPROM_SERIAL_NUMBER);
-  ESP_LOGI("APP", "Serial Number from EEPROM: %d", in3.serialNumber);
 
-  // Read config settings from EEPROM (with validation against defaults)
-  int fanPWM_ee = EEPROM.readInt(EEPROM_FAN_PWM);
-  if (fanPWM_ee > 0 && fanPWM_ee <= 255) in3.fanPWM = fanPWM_ee;
-  float heaterAmps_ee = EEPROM.readFloat(EEPROM_HEATER_MAX_AMPS);
-  if (!isnan(heaterAmps_ee) && heaterAmps_ee > 0) in3.heaterMaxPowerAmps = heaterAmps_ee;
-  float skinTmax_ee = EEPROM.readFloat(EEPROM_SKIN_TEMP_MAX);
-  if (!isnan(skinTmax_ee) && skinTmax_ee > 0) in3.skinTemperatureSetMax = skinTmax_ee;
-  float airTmax_ee = EEPROM.readFloat(EEPROM_AIR_TEMP_MAX);
-  if (!isnan(airTmax_ee) && airTmax_ee > 0) in3.airTemperatureSetMax = airTmax_ee;
-  int gprsAct_ee = EEPROM.readInt(EEPROM_GPRS_ACT_PERIOD);
-  if (gprsAct_ee > 0) in3.actuating_gprs_period = gprsAct_ee;
-  int gprsPhoto_ee = EEPROM.readInt(EEPROM_GPRS_PHOTO_PERIOD);
-  if (gprsPhoto_ee > 0) in3.phototherapy_gprs_period = gprsPhoto_ee;
-  int gprsStby_ee = EEPROM.readInt(EEPROM_GPRS_STBY_PERIOD);
-  if (gprsStby_ee > 0) in3.standby_gprs_period = gprsStby_ee;
-
-  in3.controlMode = EEPROM.read(EEPROM_CONTROL_MODE);
-  ESP_LOGI("APP", "Control Mode from EEPROM: %d", in3.controlMode);
-  in3.desiredControlTemperature =
-      EEPROM.readFloat(EEPROM_DESIRED_CONTROL_TEMPERATURE);
-  
-  // Validation
-  if (in3.controlMode == CONTROL_AIR) {
-    if (isnan(in3.desiredControlTemperature) || in3.desiredControlTemperature < AIR_TEMPERATURE_SET_MIN || in3.desiredControlTemperature > in3.airTemperatureSetMax)
-      in3.desiredControlTemperature = presetTemp[CONTROL_AIR];
-  } else {
-    if (isnan(in3.desiredControlTemperature) || in3.desiredControlTemperature < SKIN_TEMPERATURE_SET_MIN || in3.desiredControlTemperature > in3.skinTemperatureSetMax)
-      in3.desiredControlTemperature = presetTemp[CONTROL_SKIN];
-  }
-
-  ESP_LOGI("APP", "Control Temperature from EEPROM: %f",
-           in3.desiredControlTemperature);
-  in3.desiredControlHumidity = EEPROM.read(EEPROM_DESIRED_CONTROL_HUMIDITY);
-
-  if (in3.desiredControlHumidity < minHum || in3.desiredControlHumidity > maxHum)
-      in3.desiredControlHumidity = presetHumidity;
-
-  ESP_LOGI("APP", "Control Humidity from EEPROM: %d",
-           in3.desiredControlHumidity);
-
-  extern char wifi_ssid[64];
-  extern char wifi_pass[64];
-
-  String ssid = EEPROM.readString(EEPROM_WIFI_SSID);
-  String pass = EEPROM.readString(EEPROM_WIFI_PASSWORD);
-  strncpy(wifi_ssid, ssid.c_str(), sizeof(wifi_ssid));
-  strncpy(wifi_pass, pass.c_str(), sizeof(wifi_pass));
-  // logI("[WIFI] -> Read SSID: " + String(wifi_ssid));
-  ESP_LOGI("APP", "WiFi SSID from EEPROM: %s", wifi_ssid);
-  ESP_LOGI("APP", "WiFi Pass from EEPROM: %s", wifi_pass);
-
+  // Process actuation mode (restore temperature/humidity control state)
   if (in3.restoreState) {
-    in3.actuation = EEPROM.read(EEPROM_CONTROL_ACTIVE);
-    in3.phototherapy = EEPROM.read(EEPROM_PHOTOTHERAPY_ACTIVE);
     switch (in3.actuation) {
-    case ACTUATION_TEMPERATURE:
-      in3.temperatureControl = true;
-      in3.humidityControl = false;
-      break;
-    case ACTUATION_HUMIDITY:
-      in3.temperatureControl = false;
-      in3.humidityControl = true;
-      break;
-    case ACTUATION_TEMP_AND_HUMIDITY:
-      in3.temperatureControl = true;
-      in3.humidityControl = true;
-      break;
-    default:
-      in3.temperatureControl = false;
-      in3.humidityControl = false;
-      in3.restoreState = false;
-      break;
+      case ACTUATION_TEMPERATURE:
+        in3.temperatureControl = true;
+        in3.humidityControl    = false;
+        break;
+      case ACTUATION_HUMIDITY:
+        in3.temperatureControl = false;
+        in3.humidityControl    = true;
+        break;
+      case ACTUATION_TEMP_AND_HUMIDITY:
+        in3.temperatureControl = true;
+        in3.humidityControl    = true;
+        break;
+      default:
+        in3.temperatureControl = false;
+        in3.humidityControl    = false;
+        break;
     }
-  } else {
-    EEPROM.write(EEPROM_CONTROL_ACTIVE, false);
-    EEPROM.commit();
   }
+
+  ESP_LOGI("APP", "Serial: %d, Lang: %d", in3.serialNumber, in3.language);
 }
 
 void saveCalibrationToEEPROM() {
-  EEPROM.writeFloat(EEPROM_RAW_SKIN_TEMP_LOW_CORRECTION,
-                    RawTemperatureLow[SKIN_SENSOR]);
-  EEPROM.writeFloat(EEPROM_RAW_SKIN_TEMP_RANGE_CORRECTION,
-                    RawTemperatureRange[SKIN_SENSOR]);
-  EEPROM.writeFloat(EEPROM_REFERENCE_TEMP_RANGE, ReferenceTemperatureRange);
-  EEPROM.writeFloat(EEPROM_REFERENCE_TEMP_LOW, ReferenceTemperatureLow);
-  EEPROM.writeFloat(EEPROM_FINE_TUNE_TEMP_SKIN, in3.fineTuneSkinTemperature);
-  EEPROM.writeFloat(EEPROM_FINE_TUNE_TEMP_AIR, in3.fineTuneAirTemperature);
-  EEPROM.commit();
+  Preferences p;
+  p.begin(NS_CAL, false);
+  p.putFloat(KEY_CAL_SK_LOW,  RawTemperatureLow[SKIN_SENSOR]);
+  p.putFloat(KEY_CAL_SK_RNG,  RawTemperatureRange[SKIN_SENSOR]);
+  p.putFloat(KEY_CAL_REF_RNG, ReferenceTemperatureRange);
+  p.putFloat(KEY_CAL_REF_LOW, ReferenceTemperatureLow);
+  p.putFloat(KEY_FT_SKIN,     in3.fineTuneSkinTemperature);
+  p.putFloat(KEY_FT_AIR,      in3.fineTuneAirTemperature);
+  p.end();
 }
