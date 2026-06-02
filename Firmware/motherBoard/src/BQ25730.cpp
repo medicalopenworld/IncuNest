@@ -1,6 +1,6 @@
 /*
   BQ25730RSNR – Driver de inicialización y monitorización
-  Hardware: IncuNest V16, batería Plomo-Ácido AGM 12V 7Ah (NX FR)
+  Hardware: IncuNest V16/V17, batería Plomo-Ácido abierto 12V 7Ah
   Bus: I2C primario (SDA=47, SCL=48), dirección 0x6B
   Referencia: datasheet PDF V2 (mapa de registros alternativo)
 

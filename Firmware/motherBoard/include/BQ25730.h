@@ -130,14 +130,14 @@
 #define BQ25730_ADC_VBUS_STEP_MV 96  // 96 mV/bit, rango 0–24.48V (sin offset)
 #define BQ25730_ADC_VBUS_OFFSET_MV 0 // Sin offset en PDF V2
 #define BQ25730_ADC_VBAT_STEP_MV 64  // 64 mV/bit
-#define BQ25730_ADC_VBAT_OFFSET_MV 2880 // Offset 2.88 V → rango 2.88–19.2 V
+#define BQ25730_ADC_VBAT_OFFSET_MV 8192 // Offset 8.192 V → rango 8.19–24.51 V (variante PDF V2, plomo-ácido 12V)
 #define BQ25730_ADC_VSYS_STEP_MV 64     // 64 mV/bit
-#define BQ25730_ADC_VSYS_OFFSET_MV 2880
+#define BQ25730_ADC_VSYS_OFFSET_MV 8192
 #define BQ25730_ADC_ICHG_STEP_MA 128 // mA/bit nominal con RSNS_RSR=1 (5 mΩ)
 #define BQ25730_ADC_IBUS_STEP_MA 100 // mA/bit nominal con RSNS_RAC=1 (5 mΩ)
 
-// ─── Parámetros de carga para batería Plomo-Ácido AGM 12V 7Ah
-// ─────────────────
+// ─── Parámetros de carga para batería Plomo-Ácido abierto 12V 7Ah
+// ───────────────
 #define BQ25730_VCHARGE_ABSORPTION_MV 14400 // 900 × 16 mV → registro 0x3840
 #define BQ25730_VCHARGE_FLOAT_MV 13648      // 853 × 16 mV → registro 0x3550
 #define BQ25730_ICHG_MA 960                 // Corriente de carga real [mA]

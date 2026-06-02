@@ -297,18 +297,46 @@ void sensors_Task(void *pvParameters) {
     {
       static long lastChargerUpdate = 0;
       static bool prev_ac_present   = false;
+      static bool charger_in_float  = false;
+      static long ichg_low_since    = 0;
       if (chargerPresent && millis() - lastChargerUpdate > 5000) {
         g_bq_status_valid = charge_status(&g_bq_status);
         lastChargerUpdate = millis();
         // Detecta transición ausente→presente del adaptador y reinicializa el
         // chip: algunos BQ25xxx pierden VINDPM/IIN al re-detectar VBUS, así que
         // reaplicamos toda la config para asegurar carga estable.
+        // Al reconectar siempre se vuelve a absorción: la batería pudo haberse
+        // descargado parcialmente durante el corte.
         if (g_bq_status_valid && g_bq_status.ac_present && !prev_ac_present) {
           if (LOG_CHARGER) logCharger("[CHG] Adaptador detectado → reinicializando config");
           extern TwoWire *wire;
-          init_BQ25730(wire);
+          init_BQ25730(wire);  // restaura MaxChargeVoltage = 14.4V (absorción)
+          charger_in_float = false;
+          ichg_low_since   = 0;
         }
         if (g_bq_status_valid) prev_ac_present = g_bq_status.ac_present;
+
+        // ── Transición Absorción → Flotación ─────────────────────────────────
+        // Cuando ICHG cae por debajo del umbral de corte durante 60 s seguidos,
+        // se cambia la tensión objetivo a flotación para mantener la batería sin
+        // seguir gasificándola. El umbral (320 mA ≈ C/22 para 7 Ah) equivale a
+        // 2–3 counts ADC; la ventana de 60 s evita falsos disparos por ruido.
+        if (g_bq_status_valid && g_bq_status.ac_present && !charger_in_float) {
+          if (g_bq_status.ichg_ma < BQ25730_ICHG_TERM_MA) {
+            if (ichg_low_since == 0) {
+              ichg_low_since = millis();
+            } else if (millis() - ichg_low_since >= 60000UL) {
+              set_charge_voltage(BQ25730_VCHARGE_FLOAT_MV);
+              charger_in_float = true;
+              ichg_low_since   = 0;
+              if (LOG_CHARGER)
+                logCharger("[CHG] Absorcion completa → Flotacion " +
+                           String(BQ25730_VCHARGE_FLOAT_MV) + " mV");
+            }
+          } else {
+            ichg_low_since = 0;
+          }
+        }
       }
     }
 #ifdef BQ25730_TEST
