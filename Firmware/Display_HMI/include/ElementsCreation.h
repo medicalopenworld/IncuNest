@@ -419,6 +419,7 @@ extern lv_obj_t * ui_CheckImg;
 extern lv_obj_t * ui_LockPPGChart;
 extern lv_obj_t * ui_LockHRCont;
 extern lv_obj_t * ui_LockHRLabel;
+extern lv_obj_t * ui_LockAfeDebugLabel; // TEST (photo_vs_afe_tests)
 void ui_ScreenLock_screen_init(void);
 void ui_ScreenLock_screen_destroy(void);
 

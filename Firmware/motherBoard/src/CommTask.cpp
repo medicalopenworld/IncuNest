@@ -799,6 +799,22 @@ void Communication_Task(void *pvParameters) {
         hmiSerial.print(vit_msg);
       }
 
+      // TEST (photo_vs_afe_tests): full AFE4490 raw data — always, regardless of probe state
+      {
+        char afe_msg[220];
+        snprintf(afe_msg, sizeof(afe_msg),
+            "CTRL,AFE_RAW,%ld,%ld,%ld,%ld,%ld,%ld,%.2f,%.3f,%.3f,%.1f,%.3f,%.1f,%.3f,%.1f,%.3f,%u,%lu\n",
+            (long)g_spo2_data.led2,       (long)g_spo2_data.led1,
+            (long)g_spo2_data.aled2,      (long)g_spo2_data.aled1,
+            (long)g_spo2_data.led2_aled2, (long)g_spo2_data.led1_aled1,
+            g_spo2_data.spo2,    g_spo2_data.spo2_sqi, g_spo2_data.pi,
+            g_spo2_data.hr1,     g_spo2_data.hr1_sqi,
+            g_spo2_data.hr2,     g_spo2_data.hr2_sqi,
+            g_spo2_data.hr3,     g_spo2_data.hr3_sqi,
+            (unsigned)g_spo2_data.rsqi,   (unsigned long)g_spo2_data.diag_code);
+        hmiSerial.print(afe_msg);
+      }
+
       last_tel_time = millis();
     }
 

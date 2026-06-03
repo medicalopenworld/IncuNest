@@ -101,6 +101,16 @@ typedef struct {
   bool              updated;
 } ControlBoard_Message_Probe;
 
+// TEST (photo_vs_afe_tests): full AFE4490 raw data for phototherapy interference study
+typedef struct {
+  int32_t led2, led1, aled2, aled1, led2_aled2, led1_aled1;
+  float   spo2, spo2_sqi, pi;
+  float   hr1, hr1_sqi, hr2, hr2_sqi, hr3, hr3_sqi;
+  uint8_t  rsqi;
+  uint32_t diag_code;
+  bool     updated;
+} ControlBoard_Message_AFE_RAW;
+
 // Sensor data message (HMI-internal, not a protocol type)
 typedef struct {
   double temperature[3];
@@ -126,6 +136,7 @@ extern ControlBoard_Message_State     ctrl_state_msg;
 extern ControlBoard_Message_PPG       ctrl_ppg_msg;
 extern ControlBoard_Message_VIT       ctrl_vit_msg;
 extern ControlBoard_Message_Probe     ctrl_probe_msg;
+extern ControlBoard_Message_AFE_RAW   ctrl_afe_raw_msg;
 extern int  g_skinProbeState;
 extern bool error;
 

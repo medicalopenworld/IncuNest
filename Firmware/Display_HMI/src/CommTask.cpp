@@ -18,6 +18,7 @@ ControlBoard_Message_State ctrl_state_msg = {0};
 ControlBoard_Message_PPG ctrl_ppg_msg     = {0, false};
 ControlBoard_Message_VIT ctrl_vit_msg     = {0, 0, false};
 ControlBoard_Message_Probe ctrl_probe_msg = {SPO2_PROBE_DISCONNECTED, false};
+ControlBoard_Message_AFE_RAW ctrl_afe_raw_msg = {};
 int g_skinProbeState = SKIN_PROBE_NOT_CONNECTED; // Last received skin probe state
 
 // --- Power Off countdown state (written here, read by UITask) ---
@@ -221,6 +222,23 @@ static void parse_message(const char *line) {
       ctrl_msg_alarm.state = (stateInt != 0);
     } else {
       COMM_LOG("[COMM] HMI failed to parse CTRL,ALM: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,AFE_RAW", 12) == 0) {
+    // TEST (photo_vs_afe_tests): parse full AFE4490 raw data
+    ControlBoard_Message_AFE_RAW d;
+    int parsed = sscanf(line,
+        "CTRL,AFE_RAW,%ld,%ld,%ld,%ld,%ld,%ld,%f,%f,%f,%f,%f,%f,%f,%f,%f,%hhu,%lu",
+        &d.led2, &d.led1, &d.aled2, &d.aled1, &d.led2_aled2, &d.led1_aled1,
+        &d.spo2, &d.spo2_sqi, &d.pi,
+        &d.hr1, &d.hr1_sqi, &d.hr2, &d.hr2_sqi, &d.hr3, &d.hr3_sqi,
+        &d.rsqi, &d.diag_code);
+    if (parsed == 17) {
+      d.updated = true;
+      ctrl_afe_raw_msg = d;
+      ESP_LOGI(TAG, "AFE_RAW: led2=%ld led1=%ld spo2=%.1f%%(sqi=%.2f) pi=%.2f hr2=%.0f(sqi=%.2f) hr3=%.0f(sqi=%.2f) rsqi=%u diag=0x%lX",
+               d.led2, d.led1, d.spo2, d.spo2_sqi, d.pi,
+               d.hr2, d.hr2_sqi, d.hr3, d.hr3_sqi,
+               d.rsqi, (unsigned long)d.diag_code);
     }
   } else if (strncmp(line, "CTRL,WIFI,", 10) == 0) {
     char ssid[64], pass[64];

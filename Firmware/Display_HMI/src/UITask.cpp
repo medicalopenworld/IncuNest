@@ -3623,6 +3623,22 @@ void UI_Task(void *pvParameters) {
       }
     }
 
+    // TEST (photo_vs_afe_tests): AFE4490 raw data debug label
+    if (locked && ui_LockAfeDebugLabel && ctrl_afe_raw_msg.updated) {
+      ctrl_afe_raw_msg.updated = false;
+      char afe_buf[200];
+      snprintf(afe_buf, sizeof(afe_buf),
+               "R:%ld IR:%ld\nRs:%ld IRs:%ld\nSpO2:%.1f%%[%.2f]\nPI:%.2f\nHR2:%.0f[%.2f]\nHR3:%.0f[%.2f]\nrsqi:%u diag:%lX",
+               ctrl_afe_raw_msg.led2,       ctrl_afe_raw_msg.led1,
+               ctrl_afe_raw_msg.led2_aled2, ctrl_afe_raw_msg.led1_aled1,
+               ctrl_afe_raw_msg.spo2,       ctrl_afe_raw_msg.spo2_sqi,
+               ctrl_afe_raw_msg.pi,
+               ctrl_afe_raw_msg.hr2,        ctrl_afe_raw_msg.hr2_sqi,
+               ctrl_afe_raw_msg.hr3,        ctrl_afe_raw_msg.hr3_sqi,
+               ctrl_afe_raw_msg.rsqi, (unsigned long)ctrl_afe_raw_msg.diag_code);
+      lv_label_set_text(ui_LockAfeDebugLabel, afe_buf);
+    }
+
     // --- Lock screen: HR value ---
     if (locked && ui_LockHRCont && ctrl_vit_msg.updated) {
       ctrl_vit_msg.updated = false;

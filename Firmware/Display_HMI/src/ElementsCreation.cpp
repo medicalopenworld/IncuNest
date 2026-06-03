@@ -295,6 +295,7 @@ lv_obj_t *ui_CheckImg = NULL;
 lv_obj_t *ui_LockPPGChart = NULL;
 lv_obj_t *ui_LockHRCont = NULL;
 lv_obj_t *ui_LockHRLabel = NULL;
+lv_obj_t *ui_LockAfeDebugLabel = NULL; // TEST (photo_vs_afe_tests)
 
 // --- AUTO AIR UI objects ---
 lv_obj_t *ui_AutoAirBtn = NULL;
@@ -3389,6 +3390,20 @@ void ui_ScreenLock_screen_init(void) {
   lv_obj_add_event_cb(ui_AlarmLockCont, ui_event_AlarmLockCont, LV_EVENT_ALL,
                       NULL);
   lv_obj_add_event_cb(ui_ScreenLock, ui_event_ScreenLock, LV_EVENT_ALL, NULL);
+
+  // TEST (photo_vs_afe_tests): AFE4490 raw data debug label — top-right above PPG chart
+  ui_LockAfeDebugLabel = lv_label_create(ui_ScreenLock);
+  lv_obj_set_width(ui_LockAfeDebugLabel, 185);
+  lv_obj_set_height(ui_LockAfeDebugLabel, LV_SIZE_CONTENT);
+  lv_obj_set_align(ui_LockAfeDebugLabel, LV_ALIGN_BOTTOM_RIGHT);
+  lv_obj_set_x(ui_LockAfeDebugLabel, -5);
+  lv_obj_set_y(ui_LockAfeDebugLabel, -115);
+  lv_label_set_long_mode(ui_LockAfeDebugLabel, LV_LABEL_LONG_WRAP);
+  lv_label_set_text(ui_LockAfeDebugLabel, "AFE: --");
+  lv_obj_set_style_text_color(ui_LockAfeDebugLabel, lv_color_hex(0xAAFF00),
+                              LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_text_font(ui_LockAfeDebugLabel, &lv_font_montserrat_10,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
 }
 
 // ============================================================================
