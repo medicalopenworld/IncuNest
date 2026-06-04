@@ -3053,6 +3053,25 @@ static void pwroff_update(void) {
   }
 }
 
+// TEST (photo_vs_afe_tests): format long with thousands comma separator
+static void fmt_thou(long val, char *out, int width) {
+  char tmp[16];
+  bool neg = (val < 0);
+  unsigned long v = neg ? (unsigned long)(-val) : (unsigned long)val;
+  char rev[16]; int ri = 0, di = 0;
+  if (v == 0) { rev[ri++] = '0'; }
+  while (v > 0) {
+    if (di && di % 3 == 0) rev[ri++] = ',';
+    rev[ri++] = (char)('0' + v % 10);
+    v /= 10; di++;
+  }
+  if (neg) rev[ri++] = '-';
+  int len = ri;
+  for (int i = 0; i < len; i++) tmp[i] = rev[len - 1 - i];
+  tmp[len] = '\0';
+  snprintf(out, width + 1, "%*s", width, tmp);
+}
+
 // ==========================================
 // Main Task
 // ==========================================
@@ -3626,11 +3645,15 @@ void UI_Task(void *pvParameters) {
     // TEST (photo_vs_afe_tests): AFE4490 raw data debug label
     if (locked && ui_LockAfeDebugLabel && ctrl_afe_raw_msg.updated) {
       ctrl_afe_raw_msg.updated = false;
+      char s0[12], s1[12], s2[12], s3[12];
+      fmt_thou(ctrl_afe_raw_msg.led2,       s0, 9);
+      fmt_thou(ctrl_afe_raw_msg.led1,       s1, 9);
+      fmt_thou(ctrl_afe_raw_msg.led2_aled2, s2, 9);
+      fmt_thou(ctrl_afe_raw_msg.led1_aled1, s3, 9);
       char afe_buf[200];
       snprintf(afe_buf, sizeof(afe_buf),
-               "R:%ld IR:%ld\nRs:%ld IRs:%ld\nSpO2:%.1f%%[%.2f]\nPI:%.2f\nHR2:%.0f[%.2f]\nHR3:%.0f[%.2f]\nrsqi:%u diag:%lX",
-               ctrl_afe_raw_msg.led2,       ctrl_afe_raw_msg.led1,
-               ctrl_afe_raw_msg.led2_aled2, ctrl_afe_raw_msg.led1_aled1,
+               " R: %s\nIR: %s\nRs: %s\nIRs:%s\nSpO2:%.1f%%[%.2f]\nPI:%.2f\nHR2:%.0f[%.2f]\nHR3:%.0f[%.2f]\nrsqi:%u diag:%lX",
+               s0, s1, s2, s3,
                ctrl_afe_raw_msg.spo2,       ctrl_afe_raw_msg.spo2_sqi,
                ctrl_afe_raw_msg.pi,
                ctrl_afe_raw_msg.hr2,        ctrl_afe_raw_msg.hr2_sqi,

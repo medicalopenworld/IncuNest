@@ -788,7 +788,7 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_x(ui_Incunest, -250);
   lv_obj_set_y(ui_Incunest, -213);
   lv_obj_set_align(ui_Incunest, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_Incunest, "IncuNest [test]");
+  lv_label_set_text(ui_Incunest, "IncuNest [test 2]");
   lv_obj_set_style_text_font(ui_Incunest, &lv_font_montserrat_26,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
 
@@ -3402,7 +3402,7 @@ void ui_ScreenLock_screen_init(void) {
   lv_label_set_text(ui_LockAfeDebugLabel, "AFE: --");
   lv_obj_set_style_text_color(ui_LockAfeDebugLabel, lv_color_hex(0xAAFF00),
                               LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_text_font(ui_LockAfeDebugLabel, &lv_font_montserrat_10,
+  lv_obj_set_style_text_font(ui_LockAfeDebugLabel, &lv_font_unscii_8,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
 }
 
