@@ -129,6 +129,7 @@ extern ControlBoard_Message_Probe     ctrl_probe_msg;
 extern int  g_skinProbeState;
 extern bool error;
 extern volatile bool g_pendingTelemetryApply;
+extern portMUX_TYPE  g_telemetry_mux;
 
 // ======================
 //   PUBLIC FUNCTIONS

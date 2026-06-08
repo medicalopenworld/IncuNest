@@ -43,9 +43,9 @@ extern ui_lang_t g_lang;
 extern bool darkMode;        // Global Dark Mode state
 extern bool humidityEnabled; // Humidity control enabled from Settings
 extern double airTempValue, skinTempValue;
-extern double airTempValueDetected, skinTempValueDetected;
+extern volatile double airTempValueDetected, skinTempValueDetected;
 extern int humValue;
-extern int humValueDetected;
+extern volatile int humValueDetected;
 
 typedef struct {
   int serialNumber = 0;

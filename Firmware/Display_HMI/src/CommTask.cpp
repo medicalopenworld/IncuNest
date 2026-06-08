@@ -27,6 +27,9 @@ volatile int  g_pwrOffRemainingMs = 0;
 // --- Pending LVGL work flags (set by CommTask, consumed by UITask) ---
 volatile bool g_pendingTelemetryApply = false;
 
+// --- Spinlock protecting double-width telemetry writes (Fix: ARQ-THREAD-001) ---
+portMUX_TYPE g_telemetry_mux = portMUX_INITIALIZER_UNLOCKED;
+
 static TaskHandle_t s_comm_task_handle = NULL;
 
 bool error = false;
@@ -426,10 +429,12 @@ static void Display_StateSync_Service(void) {
 static void applyHMIData() {
   if (!g_ui_initialized)
     return;
-  airTempValueDetected  = ctrl_tel_msg.detectedAirTemperature;
-  skinTempValueDetected = ctrl_tel_msg.detectedSkinTemperature;
-  humValueDetected      = (int)ctrl_tel_msg.detectedHumidity;
+  taskENTER_CRITICAL(&g_telemetry_mux);
+  airTempValueDetected    = ctrl_tel_msg.detectedAirTemperature;
+  skinTempValueDetected   = ctrl_tel_msg.detectedSkinTemperature;
+  humValueDetected        = (int)ctrl_tel_msg.detectedHumidity;
   g_pendingTelemetryApply = true;
+  taskEXIT_CRITICAL(&g_telemetry_mux);
   // LVGL calls (update_labels, chart_add_*, chart_save_history) have been
   // moved to UITask — it consumes g_pendingTelemetryApply inside LVGL_Lock().
 }

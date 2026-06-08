@@ -66,9 +66,9 @@ static int decimationCounter = 0;
 // Globals
 // ==========================================
 double airTempValue, skinTempValue;
-double airTempValueDetected = 0.00, skinTempValueDetected = 0.00;
+volatile double airTempValueDetected = 0.00, skinTempValueDetected = 0.00;
 int humValue;
-int humValueDetected = 0;
+volatile int humValueDetected = 0;
 int selectedPanel = NO_PANEL_SELECTED;
 int lastSelectedPanel = NO_PANEL_SELECTED;
 bool skinPanelEnabled = false;
@@ -3591,6 +3591,7 @@ void UI_Task(void *pvParameters) {
     }
 
     vTaskDelay(pdMS_TO_TICKS(LOOP_DELAY_MS));
+    bool doAlarmSound = false;
     LVGL_Lock();
 
     // --- Lock screen: probe contact state from CTRL,PROBE ---
@@ -3728,20 +3729,25 @@ void UI_Task(void *pvParameters) {
 
     // Telemetry: update labels and charts (moved from CommTask)
     if (g_pendingTelemetryApply) {
+      taskENTER_CRITICAL(&g_telemetry_mux);
+      double snapAir  = airTempValueDetected;
+      double snapSkin = skinTempValueDetected;
+      int    snapHum  = humValueDetected;
       g_pendingTelemetryApply = false;
+      taskEXIT_CRITICAL(&g_telemetry_mux);
       update_labels();
       if (tempSwitched) {
-        chart_add_air_temp((float)airTempValueDetected);
-        chart_add_skin_temp((float)skinTempValueDetected);
+        chart_add_air_temp((float)snapAir);
+        chart_add_skin_temp((float)snapSkin);
       }
-      chart_add_hum_value((float)humValueDetected);
+      chart_add_hum_value((float)snapHum);
       chart_save_history();
     }
 
     if (g_pendingAlarmUpdate) {
       update_alarm_panels();
-      AlarmSound_Update();
       g_pendingAlarmUpdate = false;
+      doAlarmSound = true;
     }
 
     if (eepromDirty && (millis() - lastVarChangeTime > EEPROM_COMMIT_DELAY)) {
@@ -3750,6 +3756,12 @@ void UI_Task(void *pvParameters) {
       ESP_LOGI(TAG, "Preferences write cycle complete");
     }
     LVGL_Unlock();
+
+    // AlarmSound_Update uses I2C (Wire.endTransmission) — must run outside
+    // LVGL_Lock to avoid blocking the LVGL mutex for ~50 ms (Fix: ARQ-LOCK-001)
+    if (doAlarmSound) {
+      AlarmSound_Update();
+    }
   }
 }
 
