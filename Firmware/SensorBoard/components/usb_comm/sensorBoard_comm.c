@@ -335,7 +335,8 @@ esp_err_t sensorBoard_comm_init(void)
     s_prev_vprintf = esp_log_set_vprintf(sb_log_vprintf);
 
     /* Start RX task (stack 4 kB, priority 5) */
-    BaseType_t rc = xTaskCreate(usb_rx_task, "usb_rx", 4096, NULL, 5, NULL);
+    TaskHandle_t rx_task_handle = NULL;
+    BaseType_t rc = xTaskCreate(usb_rx_task, "usb_rx", 4096, NULL, 5, &rx_task_handle);
     if (rc != pdPASS) {
         ESP_LOGE(TAG, "Failed to create RX task");
         esp_log_set_vprintf(s_prev_vprintf);
@@ -351,7 +352,7 @@ esp_err_t sensorBoard_comm_init(void)
     rc = xTaskCreate(usb_tx_task, "usb_tx", 4096, NULL, 5, NULL);
     if (rc != pdPASS) {
         ESP_LOGE(TAG, "Failed to create TX task");
-        /* RX task is already running; acceptable to leave it (not critical path) */
+        vTaskDelete(rx_task_handle);
         esp_log_set_vprintf(s_prev_vprintf);
         tinyusb_driver_uninstall();
         vSemaphoreDelete(s_rx_sem);
@@ -372,7 +373,7 @@ esp_err_t sensorBoard_comm_send_json(const char *json_str)
     }
 
     size_t slen = strlen(json_str);
-    if (slen > SB_PROTO_MAX_JSON_PAYLOAD) {
+    if (slen >= SB_PROTO_MAX_JSON_PAYLOAD) {
         return ESP_ERR_INVALID_SIZE;
     }
 

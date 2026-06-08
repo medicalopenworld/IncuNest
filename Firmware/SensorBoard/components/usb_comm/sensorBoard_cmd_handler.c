@@ -11,17 +11,20 @@ static const char *TAG = "CMD";
 
 static void send_error(uint32_t id, const char *cmd_name, const char *msg)
 {
+    cJSON *root = cJSON_CreateObject();
+    if (!root) { return; }
+    cJSON_AddStringToObject(root, "type", "resp");
+    cJSON_AddStringToObject(root, "cmd", cmd_name ? cmd_name : "unknown");
+    cJSON_AddNumberToObject(root, "id", (double)id);
+    cJSON_AddStringToObject(root, "status", "error");
+    cJSON_AddStringToObject(root, "msg", msg);
+    cJSON_AddNumberToObject(root, "ts", (double)(esp_timer_get_time() / 1000ULL));
+
     char buf[SB_PROTO_MAX_JSON_PAYLOAD];
-    /* Build: {"type":"resp","cmd":"<cmd_name>","id":<id>,"status":"error","msg":"<msg>","ts":<ms>} */
-    int n = snprintf(buf, sizeof(buf),
-        "{\"type\":\"resp\",\"cmd\":\"%s\",\"id\":%lu,\"status\":\"error\",\"msg\":\"%s\",\"ts\":%lu}",
-        cmd_name ? cmd_name : "unknown",
-        (unsigned long)id,
-        msg,
-        (unsigned long)(esp_timer_get_time() / 1000ULL));
-    if (n > 0 && n < (int)sizeof(buf)) {
+    if (cJSON_PrintPreallocated(root, buf, sizeof(buf), 0)) {
         sensorBoard_comm_send_json(buf);
     }
+    cJSON_Delete(root);
 }
 
 static void handle_status(uint32_t id)
