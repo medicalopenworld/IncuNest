@@ -3791,7 +3791,9 @@ void ui_init(void) {
   ui_ScreenIntro_screen_init();
 
   ui____initial_actions0 = lv_obj_create(NULL);
-  lv_scr_load(ui_ScreenIntro);
+  if (!g_hmiRestoreState) {
+    lv_scr_load(ui_ScreenIntro);
+  }
 }
 
 void ui_destroy(void) {
