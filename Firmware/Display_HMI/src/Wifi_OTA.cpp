@@ -384,8 +384,9 @@ void WIFITBProvision() {
 void addTelemetriesToWIFIJSON() {
   addVariableToTelemetryWIFIJSON["fw_version"] = FWversion;
   addVariableToTelemetryWIFIJSON["sn"]         = in3.serialNumber;
-  addVariableToTelemetryWIFIJSON["hmi_heap_int_b"]   = (uint32_t)heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
-  addVariableToTelemetryWIFIJSON["hmi_heap_psram_b"] = (uint32_t)heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+  addVariableToTelemetryWIFIJSON["hmi_heap_int_b"]     = (uint32_t)heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+  addVariableToTelemetryWIFIJSON["hmi_heap_int_min_b"] = (uint32_t)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
+  addVariableToTelemetryWIFIJSON["hmi_heap_psram_b"]   = (uint32_t)heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
   TaskHandle_t ui_h   = xTaskGetHandle("UI");
   TaskHandle_t comm_h = CommTask_GetHandle();
   addVariableToTelemetryWIFIJSON["hmi_stack_ui_b"]   = ui_h   ? (uint32_t)uxTaskGetStackHighWaterMark(ui_h)   * sizeof(StackType_t) : 0;

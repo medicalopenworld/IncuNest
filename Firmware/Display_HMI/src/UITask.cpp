@@ -3596,20 +3596,23 @@ void UI_Task(void *pvParameters) {
       uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
       if (now_ms - s_diag_last_ms >= 60000) {
         s_diag_last_ms = now_ms;
-        uint32_t heap_int   = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
-        uint32_t heap_psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+        uint32_t heap_int     = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+        uint32_t heap_int_min = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
+        uint32_t heap_psram   = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
         UBaseType_t ui_hwm   = uxTaskGetStackHighWaterMark(NULL);
         TaskHandle_t comm_h  = CommTask_GetHandle();
         UBaseType_t comm_hwm = comm_h ? uxTaskGetStackHighWaterMark(comm_h) : 0;
         uint32_t ui_hwm_b   = (uint32_t)ui_hwm   * sizeof(StackType_t);
         uint32_t comm_hwm_b = (uint32_t)comm_hwm * sizeof(StackType_t);
-        if (heap_int < 20480 || ui_hwm_b < 2048 || comm_hwm_b < 2048) {
-          ESP_LOGE("DIAG", "LOW RESOURCES heap_int=%lu heap_psram=%lu ui_hwm=%lu B comm_hwm=%lu B",
-                   (unsigned long)heap_int, (unsigned long)heap_psram,
+        if (heap_int_min < 20480 || ui_hwm_b < 2048 || comm_hwm_b < 2048) {
+          ESP_LOGE("DIAG", "LOW RESOURCES heap_int=%lu heap_int_min=%lu heap_psram=%lu ui_hwm=%lu B comm_hwm=%lu B",
+                   (unsigned long)heap_int, (unsigned long)heap_int_min,
+                   (unsigned long)heap_psram,
                    (unsigned long)ui_hwm_b, (unsigned long)comm_hwm_b);
         } else {
-          ESP_LOGW("DIAG", "heap_int=%lu heap_psram=%lu ui_hwm=%lu B comm_hwm=%lu B",
-                   (unsigned long)heap_int, (unsigned long)heap_psram,
+          ESP_LOGW("DIAG", "heap_int=%lu heap_int_min=%lu heap_psram=%lu ui_hwm=%lu B comm_hwm=%lu B",
+                   (unsigned long)heap_int, (unsigned long)heap_int_min,
+                   (unsigned long)heap_psram,
                    (unsigned long)ui_hwm_b, (unsigned long)comm_hwm_b);
         }
       }
