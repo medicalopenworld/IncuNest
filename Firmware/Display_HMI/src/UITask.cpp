@@ -3717,8 +3717,30 @@ void UI_Task(void *pvParameters) {
       }
     }
 
+    // State sync: apply ctrl_state from CommTask (moved from CommTask)
+    if (ctrl_state_msg.newState) {
+      if (Display_ApplyCtrlState(ctrl_state_msg)) {
+        ctrl_state_msg.newState = false;
+        g_stateSynced = true;
+        hmi_msg.shouldSendData = true;
+      }
+    }
+
+    // Telemetry: update labels and charts (moved from CommTask)
+    if (g_pendingTelemetryApply) {
+      g_pendingTelemetryApply = false;
+      update_labels();
+      if (tempSwitched) {
+        chart_add_air_temp((float)airTempValueDetected);
+        chart_add_skin_temp((float)skinTempValueDetected);
+      }
+      chart_add_hum_value((float)humValueDetected);
+      chart_save_history();
+    }
+
     if (g_pendingAlarmUpdate) {
       update_alarm_panels();
+      AlarmSound_Update();
       g_pendingAlarmUpdate = false;
     }
 

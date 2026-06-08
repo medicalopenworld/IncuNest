@@ -128,14 +128,17 @@ extern ControlBoard_Message_VIT       ctrl_vit_msg;
 extern ControlBoard_Message_Probe     ctrl_probe_msg;
 extern int  g_skinProbeState;
 extern bool error;
+extern volatile bool g_pendingTelemetryApply;
 
 // ======================
 //   PUBLIC FUNCTIONS
 // ======================
 void CreateCommTask();
+TaskHandle_t CommTask_GetHandle(void);
 void Communication_RequestState(void);
 void Communication_UIReady(void);
 void Communication_SendBootInfo(void);
 void Communication_SendWiFiCredentials(const char *ssid, const char *password);
+bool Display_ApplyCtrlState(const ControlBoard_Message_State &st);
 
 #endif
