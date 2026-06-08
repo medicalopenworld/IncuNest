@@ -39,6 +39,56 @@ TEST_CASE("CRC16 incremental equals batch", "[crc16]")
     TEST_ASSERT_EQUAL_HEX16(batch, inc);
 }
 
+/* ── Frame encoder tests ───────────────────────────────────── */
+
+TEST_CASE("frame_encode: output size = payload + overhead", "[frame]")
+{
+    const uint8_t payload[] = "hello";
+    uint8_t out[SB_PROTO_MAX_JSON_FRAME];
+    size_t len = sb_frame_encode(SB_PROTO_TYPE_JSON, payload, 5, out, sizeof(out));
+    TEST_ASSERT_EQUAL(5 + SB_PROTO_FRAME_OVERHEAD, len);
+}
+
+TEST_CASE("frame_encode: magic bytes correct", "[frame]")
+{
+    uint8_t out[32];
+    sb_frame_encode(SB_PROTO_TYPE_JSON, (uint8_t *)"A", 1, out, sizeof(out));
+    TEST_ASSERT_EQUAL_HEX8(SB_PROTO_MAGIC_0, out[0]);
+    TEST_ASSERT_EQUAL_HEX8(SB_PROTO_MAGIC_1, out[1]);
+}
+
+TEST_CASE("frame_encode: type byte at position 2", "[frame]")
+{
+    uint8_t out[32];
+    sb_frame_encode(SB_PROTO_TYPE_JSON, (uint8_t *)"A", 1, out, sizeof(out));
+    TEST_ASSERT_EQUAL_HEX8(SB_PROTO_TYPE_JSON, out[2]);
+}
+
+TEST_CASE("frame_encode: length LE at bytes 3-6", "[frame]")
+{
+    uint8_t out[32];
+    sb_frame_encode(SB_PROTO_TYPE_JSON, (uint8_t *)"ABCDE", 5, out, sizeof(out));
+    TEST_ASSERT_EQUAL_HEX8(5, out[3]);
+    TEST_ASSERT_EQUAL_HEX8(0, out[4]);
+    TEST_ASSERT_EQUAL_HEX8(0, out[5]);
+    TEST_ASSERT_EQUAL_HEX8(0, out[6]);
+}
+
+TEST_CASE("frame_encode: payload copied at offset 7", "[frame]")
+{
+    uint8_t out[32];
+    sb_frame_encode(SB_PROTO_TYPE_JSON, (uint8_t *)"HI", 2, out, sizeof(out));
+    TEST_ASSERT_EQUAL_HEX8('H', out[7]);
+    TEST_ASSERT_EQUAL_HEX8('I', out[8]);
+}
+
+TEST_CASE("frame_encode: returns 0 when buffer too small", "[frame]")
+{
+    uint8_t out[5];
+    size_t len = sb_frame_encode(SB_PROTO_TYPE_JSON, (uint8_t *)"hello", 5, out, sizeof(out));
+    TEST_ASSERT_EQUAL(0, len);
+}
+
 void app_main(void)
 {
     UNITY_BEGIN();
