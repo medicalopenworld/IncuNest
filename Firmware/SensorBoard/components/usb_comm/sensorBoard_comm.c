@@ -334,8 +334,8 @@ esp_err_t sensorBoard_comm_init(void)
     /* Redirect ESP_LOG output through our JSON log interceptor */
     s_prev_vprintf = esp_log_set_vprintf(sb_log_vprintf);
 
-    /* Start RX task (stack 4 kB, priority 4) */
-    BaseType_t rc = xTaskCreate(usb_rx_task, "usb_rx", 4096, NULL, 4, NULL);
+    /* Start RX task (stack 4 kB, priority 5) */
+    BaseType_t rc = xTaskCreate(usb_rx_task, "usb_rx", 4096, NULL, 5, NULL);
     if (rc != pdPASS) {
         ESP_LOGE(TAG, "Failed to create RX task");
         esp_log_set_vprintf(s_prev_vprintf);
@@ -347,8 +347,8 @@ esp_err_t sensorBoard_comm_init(void)
         return ESP_ERR_NO_MEM;
     }
 
-    /* Start TX task (stack 4 kB, priority 4) */
-    rc = xTaskCreate(usb_tx_task, "usb_tx", 4096, NULL, 4, NULL);
+    /* Start TX task (stack 4 kB, priority 5) */
+    rc = xTaskCreate(usb_tx_task, "usb_tx", 4096, NULL, 5, NULL);
     if (rc != pdPASS) {
         ESP_LOGE(TAG, "Failed to create TX task");
         /* RX task is already running; acceptable to leave it (not critical path) */
