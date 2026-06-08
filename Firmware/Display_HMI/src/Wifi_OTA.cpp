@@ -28,6 +28,7 @@
 #include "esp_log.h"
 #include "main.h"
 #include "UITask.h"
+#include "CommTask.h"
 
 static const char *TAG = "WiFi";
 
@@ -382,7 +383,13 @@ void WIFITBProvision() {
 
 void addTelemetriesToWIFIJSON() {
   addVariableToTelemetryWIFIJSON["fw_version"] = FWversion;
-  addVariableToTelemetryWIFIJSON["sn"] = in3.serialNumber;
+  addVariableToTelemetryWIFIJSON["sn"]         = in3.serialNumber;
+  addVariableToTelemetryWIFIJSON["hmi_heap_int_b"]   = (uint32_t)heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+  addVariableToTelemetryWIFIJSON["hmi_heap_psram_b"] = (uint32_t)heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+  TaskHandle_t ui_h   = xTaskGetHandle("UI");
+  TaskHandle_t comm_h = CommTask_GetHandle();
+  addVariableToTelemetryWIFIJSON["hmi_stack_ui_b"]   = ui_h   ? (uint32_t)uxTaskGetStackHighWaterMark(ui_h)   * sizeof(StackType_t) : 0;
+  addVariableToTelemetryWIFIJSON["hmi_stack_comm_b"] = comm_h ? (uint32_t)uxTaskGetStackHighWaterMark(comm_h) * sizeof(StackType_t) : 0;
 }
 
 void WIFI_TB_OTA() {
