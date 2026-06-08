@@ -38,3 +38,20 @@ Thumbs.db
 desktop.ini
 .DS_Store
 
+# Build artifacts
+compile_commands.json
+managed_components/
+
+# Logs and debug
+*.log
+serial_*.txt
+
+# Credentials (keep locally, never commit)
+include/Credentials.h
+
+# IDE
+.vscode/
+
+# Python cache
+__pycache__/
+*.pyc
