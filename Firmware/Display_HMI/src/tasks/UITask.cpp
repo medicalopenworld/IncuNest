@@ -234,6 +234,7 @@ static lv_disp_draw_buf_t draw_buf;
 static lv_color_t disp_draw_buf[DISPLAY_WIDTH * DISPLAY_HEIGHT / COLOR_DIVISOR];
 static lv_disp_drv_t disp_drv;
 static lv_timer_t *intro_timer = NULL;
+static uint32_t intro_start_ms = 0;
 
 // ==========================================
 // Definitions
@@ -250,12 +251,16 @@ void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area,
 }
 
 static void intro_timer_cb(lv_timer_t *t) {
-  (void)t;
-  lv_scr_load(ui_ScreenMain);
+  bool synced  = g_stateSynced;
+  bool timedout = (millis() - intro_start_ms >= 10000);
+  if (!synced && !timedout) return;
   if (intro_timer) {
     lv_timer_del(intro_timer);
     intro_timer = NULL;
   }
+  lv_scr_load(ui_ScreenMain);
+  if (!synced)
+    ESP_LOGW(TAG, "Intro: no state sync after 10s — proceeding anyway");
 }
 
 void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
@@ -3060,8 +3065,10 @@ void UI_Task(void *pvParameters) {
   ESP_LOGI(TAG, "UI Task Started");
 
   // CrowPanel STC8H1K28 init + Backlight (I2C 0x30)
-  // On crash recovery the STC8 keeps its state, so skip init delays and
-  // only send the backlight-on command to confirm the screen stays lit.
+  // On crash recovery the STC8 keeps its audio/buzzer state (no reset needed).
+  // The brightness command is retried up to 5 times: a single silently-failing
+  // I2C write (NACK due to STC8 settle time after ESP32 soft-reset) would leave
+  // the screen black for the entire session with no way to recover.
   {
     if (!g_hmiRestoreState) {
       vTaskDelay(pdMS_TO_TICKS(100));
@@ -3072,16 +3079,32 @@ void UI_Task(void *pvParameters) {
         Wire.endTransmission();
         vTaskDelay(pdMS_TO_TICKS(20));
       }
+    } else {
+      // Brief settle time on crash recovery: the ESP32 I2C peripheral just
+      // restarted and the STC8 may need a moment before it ACKs.
+      vTaskDelay(pdMS_TO_TICKS(50));
     }
 
     // Según doc v1.3: 0 es Brillo Máximo, 245 es Apagado.
-    Wire.beginTransmission(I2C_ADDR_BACKLIGHT);
-    Wire.write(DISPLAY_BL_ON_VALUE);
-    Wire.endTransmission();
-
-    if (!g_hmiRestoreState) {
-      vTaskDelay(pdMS_TO_TICKS(100));
+    bool bl_ok = false;
+    for (int attempt = 0; attempt < 5 && !bl_ok; attempt++) {
+      Wire.beginTransmission(I2C_ADDR_BACKLIGHT);
+      Wire.write(DISPLAY_BL_ON_VALUE);
+      uint8_t err = Wire.endTransmission();
+      if (err == 0) {
+        bl_ok = true;
+        if (attempt > 0)
+          ESP_LOGI(TAG, "Backlight ON: OK after %d retr%s", attempt,
+                   attempt == 1 ? "y" : "ies");
+      } else {
+        ESP_LOGE(TAG, "Backlight ON: I2C err=%d (attempt %d/5)", err, attempt + 1);
+        vTaskDelay(pdMS_TO_TICKS(50));
+      }
     }
+    if (!bl_ok)
+      ESP_LOGE(TAG, "Backlight ON: FAILED after all retries — screen will be black");
+
+    vTaskDelay(pdMS_TO_TICKS(100));
   }
 
   // Display initialization — leer freq_write de Preferences antes de crear panel
@@ -3360,8 +3383,8 @@ void UI_Task(void *pvParameters) {
     enter_lock_screen();
     intro_timer = NULL;
   } else {
-    intro_timer = lv_timer_create(intro_timer_cb, 5000, NULL);
-    lv_timer_set_repeat_count(intro_timer, 1);
+    intro_start_ms = millis();
+    intro_timer = lv_timer_create(intro_timer_cb, 200, NULL);
   }
 
   // Visuals

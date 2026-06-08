@@ -269,7 +269,7 @@ constexpr int MS_PER_SECOND = 1000;
 // -----------------------------
 // Startup
 // -----------------------------
-constexpr int STARTUP_DELAY_MS = 1000;
+constexpr int STARTUP_DELAY_MS = 0;
 
 // -----------------------------
 // Misc sizes / lengths
