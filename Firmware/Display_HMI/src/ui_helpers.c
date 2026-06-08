@@ -4,6 +4,7 @@
 // Project name: esp32HMIInterface
 
 #include "ui_helpers.h"
+#include "esp_log.h"
 
 void _ui_bar_set_property(lv_obj_t * target, int id, int val)
 {
@@ -53,6 +54,10 @@ void _ui_screen_change(lv_obj_t ** target, lv_scr_load_anim_t fademode, int spd,
 {
     if(*target == NULL)
         target_init();
+    if(*target == NULL) {
+        ESP_LOGE("UI", "_ui_screen_change: screen init failed, skipping load");
+        return;
+    }
     lv_scr_load_anim(*target, fademode, spd, delay, false);
 }
 

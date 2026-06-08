@@ -2258,7 +2258,7 @@ void ui_ScreenPulseOxi_screen_init(void) {
   lv_obj_add_event_cb(ui_ImgButton9, ui_event_ImgButton9, LV_EVENT_ALL, NULL);
 }
 
-#define LVGL_INIT_GUARD(ptr, name)                                           \
+#define LVGL_INIT_GUARD_ROOT(ptr, name)                                      \
     do {                                                                     \
         if (!(ptr)) {                                                        \
             ESP_LOGE("UI_INIT", "LVGL OOM: " name " == NULL");              \
@@ -2266,9 +2266,19 @@ void ui_ScreenPulseOxi_screen_init(void) {
         }                                                                    \
     } while (0)
 
+#define LVGL_INIT_GUARD_CHILD(ptr, name)                                     \
+    do {                                                                     \
+        if (!(ptr)) {                                                        \
+            ESP_LOGE("UI_INIT", "LVGL OOM: " name " == NULL");              \
+            lv_obj_del(ui_ScreenSettings);                                   \
+            ui_ScreenSettings = NULL;                                        \
+            return;                                                          \
+        }                                                                    \
+    } while (0)
+
 void ui_ScreenSettings_screen_init(void) {
   ui_ScreenSettings = lv_obj_create(NULL);
-  LVGL_INIT_GUARD(ui_ScreenSettings, "ui_ScreenSettings");
+  LVGL_INIT_GUARD_ROOT(ui_ScreenSettings, "ui_ScreenSettings");
   lv_obj_clear_flag(ui_ScreenSettings, LV_OBJ_FLAG_SCROLLABLE);
 
   ui_Label8 = lv_label_create(ui_ScreenSettings);
@@ -2544,7 +2554,7 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_align(ui_SwitchHumidityMode, LV_ALIGN_CENTER);
 
   ui_WifiConfigCont = lv_obj_create(ui_ScreenSettings);
-  LVGL_INIT_GUARD(ui_WifiConfigCont, "ui_WifiConfigCont");
+  LVGL_INIT_GUARD_CHILD(ui_WifiConfigCont, "ui_WifiConfigCont");
   lv_obj_remove_style_all(ui_WifiConfigCont);
   lv_obj_set_width(ui_WifiConfigCont, 770);
   lv_obj_set_height(ui_WifiConfigCont, 361);
@@ -2632,6 +2642,7 @@ void ui_ScreenSettings_screen_init(void) {
   lv_textarea_set_password_mode(ui_TextArea2, true);
 
   ui_WifiConnectButton = lv_btn_create(ui_WifiConfigCont);
+  LVGL_INIT_GUARD_CHILD(ui_WifiConnectButton, "ui_WifiConnectButton");
   lv_obj_set_width(ui_WifiConnectButton, 130);
   lv_obj_set_height(ui_WifiConnectButton, 45);
   lv_obj_set_x(ui_WifiConnectButton, 320);
@@ -2653,7 +2664,7 @@ void ui_ScreenSettings_screen_init(void) {
                               LV_PART_MAIN | LV_STATE_DEFAULT);
 
   ui_WifiDisconnectButton = lv_btn_create(ui_WifiConfigCont);
-  LVGL_INIT_GUARD(ui_WifiDisconnectButton, "ui_WifiDisconnectButton");
+  LVGL_INIT_GUARD_CHILD(ui_WifiDisconnectButton, "ui_WifiDisconnectButton");
   lv_obj_set_width(ui_WifiDisconnectButton, 130);
   lv_obj_set_height(ui_WifiDisconnectButton, 45);
   lv_obj_set_x(ui_WifiDisconnectButton, 320);
@@ -2859,6 +2870,8 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_add_event_cb(ui_LanguagesDropDown, ui_event_LanguagesDropDown,
                       LV_EVENT_ALL, NULL);
 }
+#undef LVGL_INIT_GUARD_ROOT
+#undef LVGL_INIT_GUARD_CHILD
 
 void ui_ScreenLock_screen_init(void) {
   ui_ScreenLock = lv_obj_create(NULL);
