@@ -89,6 +89,93 @@ TEST_CASE("frame_encode: returns 0 when buffer too small", "[frame]")
     TEST_ASSERT_EQUAL(0, len);
 }
 
+/* ── Frame decoder tests ───────────────────────────────────── */
+
+static uint8_t s_cb_type;
+static uint8_t s_cb_payload[64];
+static size_t  s_cb_len;
+static int     s_cb_calls;
+
+static void test_frame_cb(uint8_t type, const uint8_t *payload, size_t len, void *ctx)
+{
+    (void)ctx;
+    s_cb_type = type;
+    s_cb_len  = len < sizeof(s_cb_payload) ? len : sizeof(s_cb_payload);
+    memcpy(s_cb_payload, payload, s_cb_len);
+    s_cb_calls++;
+}
+
+static void feed_frame(sb_frame_dec_t *dec, const uint8_t *payload, size_t len, uint8_t type)
+{
+    uint8_t frame[SB_PROTO_MAX_JSON_FRAME];
+    size_t flen = sb_frame_encode(type, payload, len, frame, sizeof(frame));
+    for (size_t i = 0; i < flen; i++) {
+        sb_frame_dec_feed(dec, frame[i], test_frame_cb, NULL);
+    }
+}
+
+TEST_CASE("decoder: round-trip JSON payload", "[decoder]")
+{
+    uint8_t dec_buf[SB_PROTO_MAX_JSON_PAYLOAD];
+    sb_frame_dec_t dec;
+    sb_frame_dec_init(&dec, dec_buf, sizeof(dec_buf));
+    s_cb_calls = 0;
+
+    const uint8_t payload[] = "hello world";
+    feed_frame(&dec, payload, 11, SB_PROTO_TYPE_JSON);
+
+    TEST_ASSERT_EQUAL(1, s_cb_calls);
+    TEST_ASSERT_EQUAL(SB_PROTO_TYPE_JSON, s_cb_type);
+    TEST_ASSERT_EQUAL(11, s_cb_len);
+    TEST_ASSERT_EQUAL_MEMORY(payload, s_cb_payload, 11);
+}
+
+TEST_CASE("decoder: bad CRC discarded silently", "[decoder]")
+{
+    uint8_t dec_buf[SB_PROTO_MAX_JSON_PAYLOAD];
+    sb_frame_dec_t dec;
+    sb_frame_dec_init(&dec, dec_buf, sizeof(dec_buf));
+    s_cb_calls = 0;
+
+    uint8_t frame[32];
+    size_t flen = sb_frame_encode(SB_PROTO_TYPE_JSON, (uint8_t *)"X", 1, frame, sizeof(frame));
+    frame[flen - 1] ^= 0xFF;
+
+    for (size_t i = 0; i < flen; i++) {
+        sb_frame_dec_feed(&dec, frame[i], test_frame_cb, NULL);
+    }
+    TEST_ASSERT_EQUAL(0, s_cb_calls);
+}
+
+TEST_CASE("decoder: resync after garbage bytes", "[decoder]")
+{
+    uint8_t dec_buf[SB_PROTO_MAX_JSON_PAYLOAD];
+    sb_frame_dec_t dec;
+    sb_frame_dec_init(&dec, dec_buf, sizeof(dec_buf));
+    s_cb_calls = 0;
+
+    uint8_t garbage[] = {0x00, 0xFF, 0x12, 0x34};
+    for (int i = 0; i < 4; i++) {
+        sb_frame_dec_feed(&dec, garbage[i], test_frame_cb, NULL);
+    }
+    feed_frame(&dec, (uint8_t *)"OK", 2, SB_PROTO_TYPE_JSON);
+
+    TEST_ASSERT_EQUAL(1, s_cb_calls);
+    TEST_ASSERT_EQUAL(2, s_cb_len);
+}
+
+TEST_CASE("decoder: empty payload frame", "[decoder]")
+{
+    uint8_t dec_buf[SB_PROTO_MAX_JSON_PAYLOAD];
+    sb_frame_dec_t dec;
+    sb_frame_dec_init(&dec, dec_buf, sizeof(dec_buf));
+    s_cb_calls = 0;
+
+    feed_frame(&dec, NULL, 0, SB_PROTO_TYPE_JSON);
+    TEST_ASSERT_EQUAL(1, s_cb_calls);
+    TEST_ASSERT_EQUAL(0, s_cb_len);
+}
+
 void app_main(void)
 {
     UNITY_BEGIN();

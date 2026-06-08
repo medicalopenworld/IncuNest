@@ -37,14 +37,88 @@ size_t sb_frame_encode(uint8_t type, const uint8_t *payload, size_t payload_len,
     return total;
 }
 
-/* Decoder stubs — implemented in Task 5 */
 void sb_frame_dec_init(sb_frame_dec_t *dec, uint8_t *buf, size_t buf_size)
 {
-    (void)dec; (void)buf; (void)buf_size;
+    dec->state            = SB_DEC_MAGIC0;
+    dec->payload_buf      = buf;
+    dec->payload_buf_size = buf_size;
+    dec->payload_len      = 0;
+    dec->payload_pos      = 0;
+    dec->crc_acc          = 0xFFFFu;
 }
 
 void sb_frame_dec_feed(sb_frame_dec_t *dec, uint8_t byte,
                        sb_frame_cb_t cb, void *ctx)
 {
-    (void)dec; (void)byte; (void)cb; (void)ctx;
+    switch (dec->state) {
+
+    case SB_DEC_MAGIC0:
+        if (byte == SB_PROTO_MAGIC_0) dec->state = SB_DEC_MAGIC1;
+        break;
+
+    case SB_DEC_MAGIC1:
+        dec->state = (byte == SB_PROTO_MAGIC_1) ? SB_DEC_TYPE : SB_DEC_MAGIC0;
+        break;
+
+    case SB_DEC_TYPE:
+        dec->type    = byte;
+        dec->crc_acc = sb_crc16_byte(0xFFFFu, byte);
+        dec->state   = SB_DEC_LEN0;
+        break;
+
+    case SB_DEC_LEN0:
+        dec->payload_len  = byte;
+        dec->crc_acc      = sb_crc16_byte(dec->crc_acc, byte);
+        dec->state        = SB_DEC_LEN1;
+        break;
+
+    case SB_DEC_LEN1:
+        dec->payload_len |= ((uint32_t)byte << 8);
+        dec->crc_acc      = sb_crc16_byte(dec->crc_acc, byte);
+        dec->state        = SB_DEC_LEN2;
+        break;
+
+    case SB_DEC_LEN2:
+        dec->payload_len |= ((uint32_t)byte << 16);
+        dec->crc_acc      = sb_crc16_byte(dec->crc_acc, byte);
+        dec->state        = SB_DEC_LEN3;
+        break;
+
+    case SB_DEC_LEN3:
+        dec->payload_len |= ((uint32_t)byte << 24);
+        dec->crc_acc      = sb_crc16_byte(dec->crc_acc, byte);
+        if (dec->payload_len == 0) {
+            dec->state = SB_DEC_CRC0;
+        } else if (dec->payload_len > dec->payload_buf_size) {
+            dec->state = SB_DEC_MAGIC0;
+        } else {
+            dec->payload_pos = 0;
+            dec->state       = SB_DEC_PAYLOAD;
+        }
+        break;
+
+    case SB_DEC_PAYLOAD:
+        dec->payload_buf[dec->payload_pos++] = byte;
+        dec->crc_acc = sb_crc16_byte(dec->crc_acc, byte);
+        if (dec->payload_pos >= dec->payload_len) {
+            dec->state = SB_DEC_CRC0;
+        }
+        break;
+
+    case SB_DEC_CRC0:
+        dec->crc_rx[0] = byte;
+        dec->state     = SB_DEC_CRC1;
+        break;
+
+    case SB_DEC_CRC1:
+        dec->crc_rx[1] = byte;
+        dec->state     = SB_DEC_MAGIC0;
+        {
+            uint16_t crc_rx = ((uint16_t)dec->crc_rx[0] << 8) | dec->crc_rx[1];
+            if (crc_rx == dec->crc_acc && cb) {
+                cb(dec->type, dec->payload_buf, dec->payload_len, ctx);
+            }
+        }
+        break;
+    }
 }
