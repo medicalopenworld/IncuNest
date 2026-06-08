@@ -9,6 +9,7 @@ monitor_*.py
 
 # Build artifacts
 compile_commands.json
+managed_components/
 
 # Logs and debug
 *.log
