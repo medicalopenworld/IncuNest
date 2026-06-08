@@ -2,4 +2,9 @@
 #include <stdint.h>
 #include <stddef.h>
 
-void sensorBoard_cmd_handle(const uint8_t *payload, size_t len) { (void)payload; (void)len; }
+/* Stub implementation — will be filled in Task 10. */
+void sensorBoard_cmd_handle(const uint8_t *payload, size_t len)
+{
+    (void)payload;
+    (void)len;
+}
