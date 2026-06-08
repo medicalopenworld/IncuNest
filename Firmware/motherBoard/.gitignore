@@ -6,3 +6,20 @@
 .cache
 serial_log_*.txt
 monitor_*.py
+
+# Build artifacts
+compile_commands.json
+
+# Logs and debug
+*.log
+serial_*.txt
+
+# Credentials (keep locally, never commit)
+include/Credentials.h
+
+# IDE
+.vscode/
+
+# Python cache
+__pycache__/
+*.pyc
