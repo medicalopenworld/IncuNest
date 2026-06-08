@@ -381,8 +381,6 @@ extern void aa_bar_drag_cb(lv_event_t *e);
 void ui_event_Settings(lv_event_t *e) {
   lv_event_code_t event_code = lv_event_get_code(e);
   if (event_code == LV_EVENT_CLICKED) {
-    _ui_screen_change(&ui_ScreenSettings, LV_SCR_LOAD_ANIM_FADE_ON,
-                      ANIM_TIME_MS, 0, &ui_ScreenSettings_screen_init);
     _ui_screen_delete(&ui_ScreenMain);
     Settings_cb(e);
     hmi_msg.shouldSendData = true;
