@@ -12,6 +12,7 @@ from PIL import Image, ImageTk
 
 from detector import Board, find_all_board_ports, board_from_vid_pid
 from flasher import flash_board, has_firmware_flashed
+from updater import check_update_available, download_latest
 
 HOTPLUG_POLL_S = 0.5
 POST_FLASH_COOLDOWN_S = 8
@@ -229,10 +230,14 @@ class FlasherApp:
         self._known_ports: set = set()
 
         cfg = load_config()
-        self._require_serial: bool = bool(cfg.get('require_serial', False))
+        self._force_serial_number_entry: bool = bool(cfg.get('force_serial_number_entry', False))
+        self._force_download: bool = bool(cfg.get('force_download_latest_firmware', False))
+        self._downloading: bool = False
 
         self._build_ui()
         self._init_hotplug()
+        if self._force_download:
+            self.root.after(500, self._start_update_check)
 
     # ------------------------------------------------------------------ #
     # UI construction
@@ -314,6 +319,12 @@ class FlasherApp:
         if port in self._port_to_slot:
             return  # already being processed
 
+        if self._downloading:
+            self._log_line(
+                f"{board.value} en {port} ignorado — descarga de firmware en curso.", 'info'
+            )
+            return
+
         slot_idx = next((i for i, s in enumerate(self._slots) if s.is_free), None)
         if slot_idx is None:
             self._log_line(
@@ -328,7 +339,20 @@ class FlasherApp:
         self._update_status_banner()
         self._tick_slot(slot_idx)
 
-        if board == Board.MOTHERBOARD and self._require_serial:
+        if board == Board.MOTHERBOARD and self._force_serial_number_entry:
+            # Always ask for serial number regardless of existing firmware
+            self._slots[slot_idx].set_status('📋  Introduce el serial…')
+            dlg = _SerialNumberDialog(self.root, port)
+            self._slots[slot_idx].set_status('')
+            if dlg.result is None:
+                self._slots[slot_idx].reset()
+                del self._port_to_slot[port]
+                self._log_line(f"Flasheo de {board.value} cancelado.", 'info')
+                self._update_status_banner()
+                return
+            self._run_flash(port, board, slot_idx, dlg.result)
+        elif board == Board.MOTHERBOARD:
+            # Auto-detect: check firmware presence, preserve NVS if already flashed
             threading.Thread(
                 target=self._check_firmware_present,
                 args=(port, board, slot_idx),
@@ -338,7 +362,6 @@ class FlasherApp:
             self._run_flash(port, board, slot_idx, None)
 
     def _check_firmware_present(self, port: str, board: Board, slot_idx: int) -> None:
-        """Background: read 4 bytes at 0x10000 to detect existing firmware."""
         self._slots[slot_idx].set_status('🔍  Leyendo dispositivo…')
         firmware_present = has_firmware_flashed(port)
         self.root.after(0, self._on_firmware_check_done, port, board, slot_idx, firmware_present)
@@ -347,18 +370,8 @@ class FlasherApp:
                                 firmware_present: bool) -> None:
         self._slots[slot_idx].set_status('')
         if firmware_present:
-            self._log_line("Firmware existente detectado — serial conservado.", 'info')
-            self._run_flash(port, board, slot_idx, None)
-            return
-        # New device — ask for serial number
-        dlg = _SerialNumberDialog(self.root, port)
-        if dlg.result is None:
-            self._slots[slot_idx].reset()
-            del self._port_to_slot[port]
-            self._log_line(f"Flasheo de {board.value} cancelado.", 'info')
-            self._update_status_banner()
-            return
-        self._run_flash(port, board, slot_idx, dlg.result)
+            self._log_line("Firmware existente — serial conservado.", 'info')
+        self._run_flash(port, board, slot_idx, None)
 
     def _tick_slot(self, slot_idx: int) -> None:
         if self._slots[slot_idx].tick():
@@ -411,6 +424,49 @@ class FlasherApp:
     def _clear_slot(self, slot_idx: int, port: str) -> None:
         self._slots[slot_idx].reset()
         self._port_to_slot.pop(port, None)
+        self._update_status_banner()
+
+    # ------------------------------------------------------------------ #
+    # Firmware update check
+    # ------------------------------------------------------------------ #
+
+    def _start_update_check(self) -> None:
+        self._log_line("Buscando actualizaciones de firmware…", 'info')
+        threading.Thread(target=self._update_check_thread, daemon=True).start()
+
+    def _update_check_thread(self) -> None:
+        available, latest = check_update_available(get_firmware_base())
+        self.root.after(0, self._on_update_check_done, available, latest)
+
+    def _on_update_check_done(self, available: bool, latest: Optional[str]) -> None:
+        if not available:
+            msg = f"Firmware al día ({latest})." if latest else "Sin conexión — usando firmware local."
+            self._log_line(msg, 'info')
+            return
+        self._log_line(f"Nueva versión disponible: {latest}. Descargando…", 'info')
+        self._status_label.configure(text=f"⬇  Descargando firmware {latest}…", fg='#1565C0')
+        self._downloading = True
+        threading.Thread(target=self._download_thread, args=(latest,), daemon=True).start()
+
+    def _download_thread(self, latest: str) -> None:
+        def progress_cb(asset_name: str, downloaded: int, total: int) -> None:
+            self.root.after(0, self._on_download_progress, asset_name, downloaded, total)
+
+        success = download_latest(get_firmware_base(), progress_cb)
+        self.root.after(0, self._on_download_done, success, latest)
+
+    def _on_download_progress(self, asset_name: str, downloaded: int, total: int) -> None:
+        if total > 0:
+            pct = int(downloaded / total * 100)
+            short = asset_name.replace('_', ' ').replace('.bin', '')
+            self._status_label.configure(text=f"⬇  {short}… {pct}%", fg='#1565C0')
+
+    def _on_download_done(self, success: bool, latest: str) -> None:
+        self._downloading = False
+        if success:
+            self._log_line(f"Firmware {latest} descargado correctamente.", 'success')
+        else:
+            self._log_line("Error al descargar — usando binarios locales.", 'error')
         self._update_status_banner()
 
     # ------------------------------------------------------------------ #

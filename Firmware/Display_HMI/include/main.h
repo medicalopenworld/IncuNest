@@ -19,7 +19,7 @@
 #include "control_types.h"
 #include "alarm_ids.h"
 
-#define FWversion "2.0.2"
+#define FWversion "2.1.0"
 #define ENABLE_WIFI_OTA true // enable wifi OTA
 extern bool OTA_inprogress;
 
@@ -43,9 +43,9 @@ extern ui_lang_t g_lang;
 extern bool darkMode;        // Global Dark Mode state
 extern bool humidityEnabled; // Humidity control enabled from Settings
 extern double airTempValue, skinTempValue;
-extern double airTempValueDetected, skinTempValueDetected;
+extern volatile double airTempValueDetected, skinTempValueDetected;
 extern int humValue;
-extern int humValueDetected;
+extern volatile int humValueDetected;
 
 typedef struct {
   int serialNumber = 0;
@@ -205,7 +205,7 @@ constexpr int COMM_RX_TIMEOUT_MS = 50;
 constexpr int COMM_STATE_SYNC_MS = 500;
 constexpr double COMM_TEMP_VALID_THRESHOLD =
     0.1; // received temp > this = valid
-constexpr int COMM_TASK_STACK_SIZE = 8192;
+constexpr int COMM_TASK_STACK_SIZE = 16384;   // 16 KB — margen para calls LVGL profundas
 constexpr int COMM_TASK_PRIORITY = 3;
 constexpr int COMM_RX_BUFFER_SIZE = 512;
 constexpr int COMM_TASK_LOOP_MS = 10;

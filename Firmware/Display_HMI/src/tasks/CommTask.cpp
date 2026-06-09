@@ -24,6 +24,14 @@ int g_skinProbeState = SKIN_PROBE_NOT_CONNECTED; // Last received skin probe sta
 volatile bool g_pwrOffActive = false;
 volatile int  g_pwrOffRemainingMs = 0;
 
+// --- Pending LVGL work flags (set by CommTask, consumed by UITask) ---
+volatile bool g_pendingTelemetryApply = false;
+
+// --- Spinlock protecting double-width telemetry writes (Fix: ARQ-THREAD-001) ---
+portMUX_TYPE g_telemetry_mux = portMUX_INITIALIZER_UNLOCKED;
+
+static TaskHandle_t s_comm_task_handle = NULL;
+
 bool error = false;
 static char rxBuffer[COMM_RX_BUFFER_SIZE];
 static int rxIndex = 0;
@@ -277,7 +285,7 @@ static bool ReceiveMessageFromOtherESP() {
 //  HIGH-LEVEL LOGIC
 // ======================
 
-static bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
+bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
   if (!g_ui_initialized)
     return false;
   LVGL_Lock();
@@ -398,7 +406,7 @@ static bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
       }
       if (changed) {
           g_pendingAlarmUpdate = true;
-          AlarmSound_Update(); // Audio is thread-safe or runs in Core 0 separately
+          // AlarmSound_Update() moved to UITask — consumed in g_pendingAlarmUpdate handler
       }
   }
 
@@ -415,30 +423,20 @@ static void Display_StateSync_Service(void) {
     Communication_RequestState();
     g_lastStateReqMs = now;
   }
-  if (ctrl_state_msg.newState) {
-    if (Display_ApplyCtrlState(ctrl_state_msg)) {
-      ctrl_state_msg.newState = false;
-      g_stateSynced = true;
-      hmi_msg.shouldSendData = true; // Forzar envío inicial para sincronizar idioma y setpoints locales
-    }
-  }
+  // UITask handles Display_ApplyCtrlState when ctrl_state_msg.newState == true
 }
 
 static void applyHMIData() {
   if (!g_ui_initialized)
     return;
-  airTempValueDetected = ctrl_tel_msg.detectedAirTemperature;
-  skinTempValueDetected = ctrl_tel_msg.detectedSkinTemperature;
-  humValueDetected = (int)ctrl_tel_msg.detectedHumidity;
-  LVGL_Lock();
-  update_labels();
-  if (tempSwitched) {
-    chart_add_air_temp((float)airTempValueDetected);
-    chart_add_skin_temp((float)skinTempValueDetected);
-  }
-  chart_add_hum_value((float)humValueDetected);
-  chart_save_history();
-  LVGL_Unlock();
+  taskENTER_CRITICAL(&g_telemetry_mux);
+  airTempValueDetected    = ctrl_tel_msg.detectedAirTemperature;
+  skinTempValueDetected   = ctrl_tel_msg.detectedSkinTemperature;
+  humValueDetected        = (int)ctrl_tel_msg.detectedHumidity;
+  g_pendingTelemetryApply = true;
+  taskEXIT_CRITICAL(&g_telemetry_mux);
+  // LVGL calls (update_labels, chart_add_*, chart_save_history) have been
+  // moved to UITask — it consumes g_pendingTelemetryApply inside LVGL_Lock().
 }
 
 static void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
@@ -478,7 +476,7 @@ static void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
   if (!g_ui_initialized)
     return;
   g_pendingAlarmUpdate = true;
-  AlarmSound_Update();
+  // AlarmSound_Update() moved to UITask — consumed in g_pendingAlarmUpdate handler
 }
 
 void Comm_Task(void *pvParameters) {
@@ -514,6 +512,8 @@ void Comm_Task(void *pvParameters) {
 }
 
 void CreateCommTask() {
-  xTaskCreatePinnedToCore(Comm_Task, "Comm", COMM_TASK_STACK_SIZE, NULL, COMM_TASK_PRIORITY, NULL,
-                          CORE_ID_FREERTOS);
+  xTaskCreatePinnedToCore(Comm_Task, "Comm", COMM_TASK_STACK_SIZE, NULL,
+                          COMM_TASK_PRIORITY, &s_comm_task_handle, CORE_ID_FREERTOS);
 }
+
+TaskHandle_t CommTask_GetHandle(void) { return s_comm_task_handle; }

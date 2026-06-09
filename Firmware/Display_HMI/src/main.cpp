@@ -78,6 +78,13 @@ static void CrashTestHMITask(void *pv) {
 }
 #endif
 
+extern "C" void vApplicationStackOverflowHook(TaskHandle_t xTask,
+                                               char *pcTaskName) {
+  (void)xTask;
+  ESP_EARLY_LOGE("STACK", "OVERFLOW in task '%s' — restarting", pcTaskName);
+  esp_restart();
+}
+
 void setup() {
   hmi_state_init();
   Serial.begin(SERIAL_BAUD);
