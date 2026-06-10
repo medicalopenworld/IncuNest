@@ -21,9 +21,9 @@ void SPO2_Task(void *pvParameters) {
 
       if (++sample_count % SPO2_LOG_INTERVAL_SAMPLES == 0) {
         logSPO2("[SPO2] n=" + String(sample_count) +
-                " PPG=" + String(data.ppg, 4) + " RED=" + String(data.led2) +
+                " PPG=" + String(data.ppg_disp, 4) + " RED=" + String(data.led2) +
                 " IR=" + String(data.led1) + " RED_sub=" +
-                String(data.led2_aled2) + " IR_sub=" + String(data.led1_aled1) +
+                String(data.led2_sub) + " IR_sub=" + String(data.led1_sub) +
                 " SpO2=" + String(data.spo2_sqi > 0.0f ? data.spo2 : -1.0f, 1) +
                 " SpO2_SQI=" + String(data.spo2_sqi, 3) +
                 " R=" + String(data.spo2_r, 3) + " PI=" + String(data.pi, 2) +

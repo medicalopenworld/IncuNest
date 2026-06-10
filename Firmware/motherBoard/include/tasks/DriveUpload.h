@@ -37,9 +37,9 @@
 
 struct DrivePpgSample {
   uint32_t t_ms;
-  int32_t  led1_aled1;
-  int32_t  led2_aled2;
-  int32_t  ppg;
+  int32_t  led1_sub;
+  int32_t  led2_sub;
+  int32_t  ppg_disp;
   float    hr2_sqi;
   float    hr3_sqi;
 };

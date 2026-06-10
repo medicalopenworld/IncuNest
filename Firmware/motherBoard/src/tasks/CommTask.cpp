@@ -708,7 +708,7 @@ void Communication_Task(void *pvParameters) {
           ppg_max =  1.0f;
           hmiSerial.print("CTRL,PPG,128\n");
         } else {
-          float ppg_raw = g_spo2_data.ppg;
+          float ppg_raw = g_spo2_data.ppg_disp;
           // Expand range immediately, decay slowly toward 0 (bandpass signal is zero-mean)
           if (ppg_raw < ppg_min) ppg_min = ppg_raw;
           else ppg_min += (0.0f - ppg_min) * 0.005f;
@@ -935,7 +935,7 @@ void Communication_Task(void *pvParameters) {
             ppg_max =  1.0f;
             snprintf(ppg_msg, sizeof(ppg_msg), "CTRL,PPG,128\n");
           } else {
-            float ppg_raw = g_spo2_data.ppg;
+            float ppg_raw = g_spo2_data.ppg_disp;
             if (ppg_raw < ppg_min) ppg_min = ppg_raw;
             else ppg_min += (0.0f - ppg_min) * 0.005f;
             if (ppg_raw > ppg_max) ppg_max = ppg_raw;
