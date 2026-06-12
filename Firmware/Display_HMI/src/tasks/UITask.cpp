@@ -2115,13 +2115,11 @@ void setup_arrow_callbacks() {
             if (airTempValue > AIR_TEMP_MAX)
               airTempValue = AIR_TEMP_MAX;
             hmi_msg.desiredAirTemperature = airTempValue;
-            { Preferences p; p.begin(HMI_NS_CFG, false); p.putFloat(HMI_KEY_AIR_TEMP, (float)airTempValue); p.end(); }
           } else if (selectedPanel == SKIN_PANEL_SELECTED) {
             skinTempValue += TEMP_INCREMENT;
             if (skinTempValue > SKIN_TEMP_MAX)
               skinTempValue = SKIN_TEMP_MAX;
             hmi_msg.desiredSkinTemperature = skinTempValue;
-            { Preferences p; p.begin(HMI_NS_CFG, false); p.putFloat(HMI_KEY_SKIN_TEMP, (float)skinTempValue); p.end(); }
           }
           hmi_msg.shouldSendData = true;
           eepromDirty = true;
@@ -2151,13 +2149,11 @@ void setup_arrow_callbacks() {
             if (airTempValue < AIR_TEMP_MIN)
               airTempValue = AIR_TEMP_MIN;
             hmi_msg.desiredAirTemperature = airTempValue;
-            { Preferences p; p.begin(HMI_NS_CFG, false); p.putFloat(HMI_KEY_AIR_TEMP, (float)airTempValue); p.end(); }
           } else if (selectedPanel == SKIN_PANEL_SELECTED) {
             skinTempValue -= TEMP_INCREMENT;
             if (skinTempValue < SKIN_TEMP_MIN)
               skinTempValue = SKIN_TEMP_MIN;
             hmi_msg.desiredSkinTemperature = skinTempValue;
-            { Preferences p; p.begin(HMI_NS_CFG, false); p.putFloat(HMI_KEY_SKIN_TEMP, (float)skinTempValue); p.end(); }
           }
           hmi_msg.shouldSendData = true;
           eepromDirty = true;
@@ -2189,7 +2185,6 @@ void setup_arrow_hum_callbacks() {
             humValue = HUM_MAX;
           hmi_msg.desiredHumidity = humValue;
           hmi_msg.shouldSendData = true;
-          { Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_HUMIDITY, (uint8_t)humValue); p.end(); }
           eepromDirty = true;
           lastVarChangeTime = millis();
           update_labels();
@@ -2217,7 +2212,6 @@ void setup_arrow_hum_callbacks() {
             humValue = HUM_MIN;
           hmi_msg.desiredHumidity = humValue;
           hmi_msg.shouldSendData = true;
-          { Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_HUMIDITY, (uint8_t)humValue); p.end(); }
           eepromDirty = true;
           lastVarChangeTime = millis();
           update_labels();
@@ -2907,9 +2901,11 @@ void ChartButton_cb(lv_event_t *e) {
 
 void AlarmLockImg_cb(lv_event_t *e) {
   reset_alarm_detail_state();
-  _ui_screen_delete(&ui_ScreenLock);
   _ui_screen_change(&ui_ScreenAlarms, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
                     &ui_ScreenAlarms_screen_init);
+  if (ui_ScreenLock)
+    lv_obj_add_event_cb(ui_ScreenLock, scr_unloaded_delete_cb,
+                        LV_EVENT_SCREEN_UNLOADED, &ui_ScreenLock);
 }
 
 void AlarmLockCont_cb(lv_event_t *e) {
@@ -2921,7 +2917,9 @@ void AlarmLockCont_cb(lv_event_t *e) {
 void ImgButton2_cb(lv_event_t *e) {
   _ui_screen_change(&ui_ScreenMain, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
                     &ui_ScreenMain_screen_init);
-  _ui_screen_delete(&ui_ScreenSettings);
+  if (ui_ScreenSettings)
+    lv_obj_add_event_cb(ui_ScreenSettings, scr_unloaded_delete_cb,
+                        LV_EVENT_SCREEN_UNLOADED, &ui_ScreenSettings);
 }
 
 void ImgButton7_cb(lv_event_t *e) {
@@ -3643,6 +3641,7 @@ void UI_Task(void *pvParameters) {
 
     vTaskDelay(pdMS_TO_TICKS(LOOP_DELAY_MS));
     bool doAlarmSound = false;
+    bool doNVSWrite = false;
     LVGL_Lock();
 
     // --- Lock screen: probe contact state from CTRL,PROBE ---
@@ -3802,11 +3801,22 @@ void UI_Task(void *pvParameters) {
     }
 
     if (eepromDirty && (millis() - lastVarChangeTime > EEPROM_COMMIT_DELAY)) {
-      // Preferences writes are atomic (NVS); no explicit commit needed.
       eepromDirty = false;
-      ESP_LOGI(TAG, "Preferences write cycle complete");
+      doNVSWrite = true;
     }
     LVGL_Unlock();
+
+    // NVS writes run outside LVGL_Lock — avoids blocking the renderer during
+    // wear-leveling erasure (~30ms worst case). Same pattern as AlarmSound_Update.
+    if (doNVSWrite) {
+      Preferences p;
+      p.begin(HMI_NS_CFG, false);
+      p.putFloat(HMI_KEY_AIR_TEMP, (float)airTempValue);
+      p.putFloat(HMI_KEY_SKIN_TEMP, (float)skinTempValue);
+      p.putUChar(HMI_KEY_HUMIDITY, (uint8_t)humValue);
+      p.end();
+      ESP_LOGI(TAG, "Preferences write cycle complete");
+    }
 
     // AlarmSound_Update uses I2C (Wire.endTransmission) — must run outside
     // LVGL_Lock to avoid blocking the LVGL mutex for ~50 ms (Fix: ARQ-LOCK-001)

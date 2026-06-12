@@ -381,7 +381,6 @@ extern void aa_bar_drag_cb(lv_event_t *e);
 void ui_event_Settings(lv_event_t *e) {
   lv_event_code_t event_code = lv_event_get_code(e);
   if (event_code == LV_EVENT_CLICKED) {
-    _ui_screen_delete(&ui_ScreenMain);
     Settings_cb(e);
     hmi_msg.shouldSendData = true;
   }
@@ -394,7 +393,6 @@ void ui_event_AlarmButton(lv_event_t *e) {
         true; // Beep en motherboard al tocar icono de alarmas
     _ui_screen_change(&ui_ScreenAlarms, LV_SCR_LOAD_ANIM_FADE_ON, ANIM_TIME_MS,
                       0, &ui_ScreenAlarms_screen_init);
-    _ui_screen_delete(&ui_ScreenMain);
     AlarmButton_cb(e);
   }
 }
@@ -402,7 +400,6 @@ void ui_event_AlarmButton(lv_event_t *e) {
 void ui_event_SPO2Button(lv_event_t *e) {
   lv_event_code_t event_code = lv_event_get_code(e);
   if (event_code == LV_EVENT_CLICKED) {
-    _ui_screen_delete(&ui_ScreenMain);
     _ui_screen_change(&ui_ScreenPulseOxi, LV_SCR_LOAD_ANIM_FADE_ON,
                       ANIM_TIME_MS, 0, &ui_ScreenPulseOxi_screen_init);
     SPO2Button_cb(e);
@@ -412,7 +409,6 @@ void ui_event_SPO2Button(lv_event_t *e) {
 void ui_event_ChartButton(lv_event_t *e) {
   lv_event_code_t event_code = lv_event_get_code(e);
   if (event_code == LV_EVENT_CLICKED) {
-    _ui_screen_delete(&ui_ScreenMain);
     _ui_screen_change(&ui_ScreenCharts, LV_SCR_LOAD_ANIM_FADE_ON, ANIM_TIME_MS,
                       0, &ui_ScreenCharts_screen_init);
     ChartButton_cb(e);
@@ -422,7 +418,6 @@ void ui_event_ChartButton(lv_event_t *e) {
 void ui_event_ImgButton1(lv_event_t *e) {
   lv_event_code_t event_code = lv_event_get_code(e);
   if (event_code == LV_EVENT_CLICKED) {
-    _ui_screen_delete(&ui_ScreenMain);
     _ui_screen_change(&ui_ScreenLock, LV_SCR_LOAD_ANIM_FADE_ON, ANIM_TIME_MS, 0,
                       &ui_ScreenLock_screen_init);
     ImgButton1_Lock_cb(e);
@@ -434,10 +429,9 @@ void ui_event_ImgButton7(lv_event_t *e) {
   if (event_code == LV_EVENT_CLICKED) {
     _ui_screen_change(&ui_ScreenMain, LV_SCR_LOAD_ANIM_FADE_ON, ANIM_TIME_MS, 0,
                       &ui_ScreenMain_screen_init);
-    _ui_screen_delete(&ui_ScreenAlarms);
-    // In UITask.cpp this button also triggers AlarmsTabview_cb but that
-    // function checks for TabView act 0 which might be redundant or wrong for a
-    // button. We'll omit it if it doesn't make sense.
+    if (ui_ScreenAlarms)
+      lv_obj_add_event_cb(ui_ScreenAlarms, scr_unloaded_delete_cb,
+                          LV_EVENT_SCREEN_UNLOADED, &ui_ScreenAlarms);
     hmi_msg.shouldSendData = true;
   }
 }
@@ -447,7 +441,9 @@ void ui_event_ImgButton8(lv_event_t *e) {
   if (event_code == LV_EVENT_CLICKED) {
     _ui_screen_change(&ui_ScreenMain, LV_SCR_LOAD_ANIM_FADE_ON, ANIM_TIME_MS, 0,
                       &ui_ScreenMain_screen_init);
-    _ui_screen_delete(&ui_ScreenCharts);
+    if (ui_ScreenCharts)
+      lv_obj_add_event_cb(ui_ScreenCharts, scr_unloaded_delete_cb,
+                          LV_EVENT_SCREEN_UNLOADED, &ui_ScreenCharts);
   }
 }
 
@@ -456,7 +452,9 @@ void ui_event_ImgButton9(lv_event_t *e) {
   if (event_code == LV_EVENT_CLICKED) {
     _ui_screen_change(&ui_ScreenMain, LV_SCR_LOAD_ANIM_FADE_ON, ANIM_TIME_MS, 0,
                       &ui_ScreenMain_screen_init);
-    _ui_screen_delete(&ui_ScreenPulseOxi);
+    if (ui_ScreenPulseOxi)
+      lv_obj_add_event_cb(ui_ScreenPulseOxi, scr_unloaded_delete_cb,
+                          LV_EVENT_SCREEN_UNLOADED, &ui_ScreenPulseOxi);
   }
 }
 
@@ -465,7 +463,9 @@ void ui_event_ImgButton2(lv_event_t *e) {
   if (event_code == LV_EVENT_CLICKED) {
     _ui_screen_change(&ui_ScreenMain, LV_SCR_LOAD_ANIM_FADE_ON, ANIM_TIME_MS, 0,
                       &ui_ScreenMain_screen_init);
-    _ui_screen_delete(&ui_ScreenSettings);
+    if (ui_ScreenSettings)
+      lv_obj_add_event_cb(ui_ScreenSettings, scr_unloaded_delete_cb,
+                          LV_EVENT_SCREEN_UNLOADED, &ui_ScreenSettings);
     hmi_msg.shouldSendData = true;
   }
 }
@@ -477,7 +477,9 @@ void ui_event_AlarmLockImg(lv_event_t *e) {
         true; // Beep en motherboard al tocar icono de alarmas
     _ui_screen_change(&ui_ScreenAlarms, LV_SCR_LOAD_ANIM_FADE_ON, ANIM_TIME_MS,
                       0, &ui_ScreenAlarms_screen_init);
-    _ui_screen_delete(&ui_ScreenLock);
+    if (ui_ScreenLock)
+      lv_obj_add_event_cb(ui_ScreenLock, scr_unloaded_delete_cb,
+                          LV_EVENT_SCREEN_UNLOADED, &ui_ScreenLock);
     AlarmButton_cb(e);
   }
 }
@@ -684,7 +686,9 @@ void ui_event_AlarmLockCont(lv_event_t *e) {
         true; // Beep en motherboard al tocar icono de alarmas
     _ui_screen_change(&ui_ScreenAlarms, LV_SCR_LOAD_ANIM_FADE_ON, ANIM_TIME_MS,
                       0, &ui_ScreenAlarms_screen_init);
-    _ui_screen_delete(&ui_ScreenLock);
+    if (ui_ScreenLock)
+      lv_obj_add_event_cb(ui_ScreenLock, scr_unloaded_delete_cb,
+                          LV_EVENT_SCREEN_UNLOADED, &ui_ScreenLock);
     AlarmButton_cb(e);
   }
 }
@@ -3383,27 +3387,35 @@ void ui_ScreenLock_screen_init(void) {
   lv_obj_add_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_clear_flag(ui_LockHRCont,
                     LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_flex_flow(ui_LockHRCont, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(ui_LockHRCont, LV_FLEX_ALIGN_CENTER,
+                        LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_row(ui_LockHRCont, 2,
+                           LV_PART_MAIN | LV_STATE_DEFAULT);
 
   lv_obj_t *ui_LockHRImg = lv_img_create(ui_LockHRCont);
-  lv_img_set_src(ui_LockHRImg, &ui_img_pulse_png);
+  lv_img_set_src(ui_LockHRImg, &ui_img_heart_red_png);
   lv_obj_set_width(ui_LockHRImg, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_LockHRImg, LV_SIZE_CONTENT);
-  lv_obj_set_align(ui_LockHRImg, LV_ALIGN_TOP_MID);
-  lv_obj_set_x(ui_LockHRImg, 0);
-  lv_obj_set_y(ui_LockHRImg, 5);
   lv_obj_add_flag(ui_LockHRImg, LV_OBJ_FLAG_ADV_HITTEST);
   lv_obj_clear_flag(ui_LockHRImg, LV_OBJ_FLAG_SCROLLABLE);
 
   ui_LockHRLabel = lv_label_create(ui_LockHRCont);
   lv_obj_set_width(ui_LockHRLabel, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_LockHRLabel, LV_SIZE_CONTENT);
-  lv_obj_set_align(ui_LockHRLabel, LV_ALIGN_BOTTOM_MID);
-  lv_obj_set_x(ui_LockHRLabel, 0);
-  lv_obj_set_y(ui_LockHRLabel, -2);
   lv_label_set_text(ui_LockHRLabel, "--");
   lv_obj_set_style_text_color(ui_LockHRLabel, lv_color_hex(0xFFFFFF),
                               LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_text_font(ui_LockHRLabel, &lv_font_montserrat_48,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  lv_obj_t *ui_LockHRUnit = lv_label_create(ui_LockHRCont);
+  lv_obj_set_width(ui_LockHRUnit, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_LockHRUnit, LV_SIZE_CONTENT);
+  lv_label_set_text(ui_LockHRUnit, "BPM");
+  lv_obj_set_style_text_color(ui_LockHRUnit, lv_color_hex(0xFFFFFF),
+                              LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_text_font(ui_LockHRUnit, &lv_font_montserrat_14,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
 
   lv_obj_add_event_cb(ui_AlarmLockImg, ui_event_AlarmLockImg, LV_EVENT_ALL,

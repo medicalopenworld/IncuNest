@@ -80,6 +80,7 @@ LV_IMG_DECLARE(ui_img_triangulo_arriba_png);    // assets/triangulo_arriba.png
 LV_IMG_DECLARE(ui_img_gota_png);    // assets/gota.png
 LV_IMG_DECLARE(ui_img_auto_air_png);    // data/Auto_Air.png
 LV_IMG_DECLARE(ui_img_pulse_png);    // assets/pulse.png
+LV_IMG_DECLARE(ui_img_heart_red_png);  // assets/heart_red 30x30
 LV_IMG_DECLARE(ui_img_chart_png);    // assets/chart.png
 LV_IMG_DECLARE(ui_img_1508956403);    // assets/back icon (1).png
 LV_IMG_DECLARE(ui_img_mute_icon_png);    // assets/mute_icon.png

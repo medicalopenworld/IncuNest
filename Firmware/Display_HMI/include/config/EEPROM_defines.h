@@ -3,7 +3,7 @@
 
 // --------------- Non-EEPROM constants kept from original header ---------------
 #define INACTIVITY_TIMEOUT_MS 20000 // 20s of inactivity before auto-lock
-#define EEPROM_COMMIT_DELAY 0       // write immediately after change
+#define EEPROM_COMMIT_DELAY 5000    // 5s debounce — NVS writes happen outside LVGL lock
 
 // --------------- Namespaces ---------------
 constexpr char HMI_NS_CFG[]  = "hmi_cfg";
