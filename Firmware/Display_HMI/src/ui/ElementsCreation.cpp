@@ -443,9 +443,6 @@ void ui_event_ImgButton8(lv_event_t *e) {
   if (event_code == LV_EVENT_CLICKED) {
     _ui_screen_change(&ui_ScreenMain, LV_SCR_LOAD_ANIM_FADE_ON, ANIM_TIME_MS, 0,
                       &ui_ScreenMain_screen_init);
-    if (ui_ScreenCharts)
-      lv_obj_add_event_cb(ui_ScreenCharts, scr_unloaded_delete_cb,
-                          LV_EVENT_SCREEN_UNLOADED, &ui_ScreenCharts);
   }
 }
 
@@ -465,9 +462,6 @@ void ui_event_ImgButton2(lv_event_t *e) {
   if (event_code == LV_EVENT_CLICKED) {
     _ui_screen_change(&ui_ScreenMain, LV_SCR_LOAD_ANIM_FADE_ON, ANIM_TIME_MS, 0,
                       &ui_ScreenMain_screen_init);
-    if (ui_ScreenSettings)
-      lv_obj_add_event_cb(ui_ScreenSettings, scr_unloaded_delete_cb,
-                          LV_EVENT_SCREEN_UNLOADED, &ui_ScreenSettings);
     hmi_msg.shouldSendData = true;
   }
 }
@@ -479,9 +473,6 @@ void ui_event_AlarmLockImg(lv_event_t *e) {
         true; // Beep en motherboard al tocar icono de alarmas
     _ui_screen_change(&ui_ScreenAlarms, LV_SCR_LOAD_ANIM_FADE_ON, ANIM_TIME_MS,
                       0, &ui_ScreenAlarms_screen_init);
-    if (ui_ScreenLock)
-      lv_obj_add_event_cb(ui_ScreenLock, scr_unloaded_delete_cb,
-                          LV_EVENT_SCREEN_UNLOADED, &ui_ScreenLock);
     AlarmButton_cb(e);
   }
 }
@@ -688,9 +679,6 @@ void ui_event_AlarmLockCont(lv_event_t *e) {
         true; // Beep en motherboard al tocar icono de alarmas
     _ui_screen_change(&ui_ScreenAlarms, LV_SCR_LOAD_ANIM_FADE_ON, ANIM_TIME_MS,
                       0, &ui_ScreenAlarms_screen_init);
-    if (ui_ScreenLock)
-      lv_obj_add_event_cb(ui_ScreenLock, scr_unloaded_delete_cb,
-                          LV_EVENT_SCREEN_UNLOADED, &ui_ScreenLock);
     AlarmButton_cb(e);
   }
 }

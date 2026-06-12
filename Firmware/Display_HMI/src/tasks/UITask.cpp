@@ -2903,9 +2903,6 @@ void AlarmLockImg_cb(lv_event_t *e) {
   reset_alarm_detail_state();
   _ui_screen_change(&ui_ScreenAlarms, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
                     &ui_ScreenAlarms_screen_init);
-  if (ui_ScreenLock)
-    lv_obj_add_event_cb(ui_ScreenLock, scr_unloaded_delete_cb,
-                        LV_EVENT_SCREEN_UNLOADED, &ui_ScreenLock);
 }
 
 void AlarmLockCont_cb(lv_event_t *e) {
@@ -2917,9 +2914,6 @@ void AlarmLockCont_cb(lv_event_t *e) {
 void ImgButton2_cb(lv_event_t *e) {
   _ui_screen_change(&ui_ScreenMain, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
                     &ui_ScreenMain_screen_init);
-  if (ui_ScreenSettings)
-    lv_obj_add_event_cb(ui_ScreenSettings, scr_unloaded_delete_cb,
-                        LV_EVENT_SCREEN_UNLOADED, &ui_ScreenSettings);
 }
 
 void ImgButton7_cb(lv_event_t *e) {
