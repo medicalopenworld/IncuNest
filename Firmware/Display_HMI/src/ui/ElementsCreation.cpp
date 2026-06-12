@@ -3345,7 +3345,7 @@ void ui_ScreenLock_screen_init(void) {
 
   // --- PPG Chart (lock screen, bottom-left) ---
   ui_LockPPGChart = lv_chart_create(ui_ScreenLock);
-  lv_obj_set_size(ui_LockPPGChart, 600, 105);
+  lv_obj_set_size(ui_LockPPGChart, 550, 105);
   lv_obj_set_align(ui_LockPPGChart, LV_ALIGN_BOTTOM_LEFT);
   lv_obj_set_x(ui_LockPPGChart, 10);
   lv_obj_set_y(ui_LockPPGChart, -5);
@@ -3384,7 +3384,7 @@ void ui_ScreenLock_screen_init(void) {
   lv_obj_remove_style_all(ui_LockHRCont);
   lv_obj_set_size(ui_LockHRCont, 110, 105);
   lv_obj_set_align(ui_LockHRCont, LV_ALIGN_BOTTOM_RIGHT);
-  lv_obj_set_x(ui_LockHRCont, -80);
+  lv_obj_set_x(ui_LockHRCont, -125);
   lv_obj_set_y(ui_LockHRCont, -5);
   lv_obj_add_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_clear_flag(ui_LockHRCont,
@@ -3423,7 +3423,7 @@ void ui_ScreenLock_screen_init(void) {
   // --- PI Container (lock screen, bottom-right, to the right of HR) ---
   ui_LockPICont = lv_obj_create(ui_ScreenLock);
   lv_obj_remove_style_all(ui_LockPICont);
-  lv_obj_set_size(ui_LockPICont, 65, 105);
+  lv_obj_set_size(ui_LockPICont, 110, 105);
   lv_obj_set_align(ui_LockPICont, LV_ALIGN_BOTTOM_RIGHT);
   lv_obj_set_x(ui_LockPICont, -10);
   lv_obj_set_y(ui_LockPICont, -5);
@@ -3451,7 +3451,7 @@ void ui_ScreenLock_screen_init(void) {
   lv_label_set_text(ui_LockPILabel, "--");
   lv_obj_set_style_text_color(ui_LockPILabel, lv_color_hex(0xFFFFFF),
                               LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_text_font(ui_LockPILabel, &lv_font_montserrat_20,
+  lv_obj_set_style_text_font(ui_LockPILabel, &lv_font_montserrat_48,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
 
   lv_obj_t *ui_LockPIUnit = lv_label_create(ui_LockPICont);

@@ -3648,12 +3648,14 @@ void UI_Task(void *pvParameters) {
     if (ctrl_probe_msg.updated) {
       ctrl_probe_msg.updated = false;
       bool applied = (ctrl_probe_msg.state == SPO2_PROBE_APPLIED);
-      // Falling edge: probe removed — hide chart and HR
+      // Falling edge: probe removed — hide chart, HR and PI
       if (!applied && spo2ProbeAttachedPrev) {
         if (ui_LockPPGChart)
           lv_obj_add_flag(ui_LockPPGChart, LV_OBJ_FLAG_HIDDEN);
         if (ui_LockHRCont)
           lv_obj_add_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
+        if (ui_LockPICont)
+          lv_obj_add_flag(ui_LockPICont, LV_OBJ_FLAG_HIDDEN);
       }
       // Rising edge: probe applied — show chart
       if (applied && !spo2ProbeAttachedPrev) {
