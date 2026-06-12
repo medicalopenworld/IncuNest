@@ -420,6 +420,8 @@ extern lv_obj_t * ui_CheckImg;
 extern lv_obj_t * ui_LockPPGChart;
 extern lv_obj_t * ui_LockHRCont;
 extern lv_obj_t * ui_LockHRLabel;
+extern lv_obj_t * ui_LockPICont;
+extern lv_obj_t * ui_LockPILabel;
 void ui_ScreenLock_screen_init(void);
 void ui_ScreenLock_screen_destroy(void);
 

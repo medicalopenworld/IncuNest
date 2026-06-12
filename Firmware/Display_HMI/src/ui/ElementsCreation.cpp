@@ -295,6 +295,8 @@ lv_obj_t *ui_CheckImg = NULL;
 lv_obj_t *ui_LockPPGChart = NULL;
 lv_obj_t *ui_LockHRCont = NULL;
 lv_obj_t *ui_LockHRLabel = NULL;
+lv_obj_t *ui_LockPICont = NULL;
+lv_obj_t *ui_LockPILabel = NULL;
 
 // --- AUTO AIR UI objects ---
 lv_obj_t *ui_AutoAirBtn = NULL;
@@ -3380,9 +3382,9 @@ void ui_ScreenLock_screen_init(void) {
   // --- HR Container (lock screen, bottom-right) ---
   ui_LockHRCont = lv_obj_create(ui_ScreenLock);
   lv_obj_remove_style_all(ui_LockHRCont);
-  lv_obj_set_size(ui_LockHRCont, 170, 105);
+  lv_obj_set_size(ui_LockHRCont, 110, 105);
   lv_obj_set_align(ui_LockHRCont, LV_ALIGN_BOTTOM_RIGHT);
-  lv_obj_set_x(ui_LockHRCont, -10);
+  lv_obj_set_x(ui_LockHRCont, -80);
   lv_obj_set_y(ui_LockHRCont, -5);
   lv_obj_add_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_clear_flag(ui_LockHRCont,
@@ -3416,6 +3418,49 @@ void ui_ScreenLock_screen_init(void) {
   lv_obj_set_style_text_color(ui_LockHRUnit, lv_color_hex(0xFFFFFF),
                               LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_text_font(ui_LockHRUnit, &lv_font_montserrat_14,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  // --- PI Container (lock screen, bottom-right, to the right of HR) ---
+  ui_LockPICont = lv_obj_create(ui_ScreenLock);
+  lv_obj_remove_style_all(ui_LockPICont);
+  lv_obj_set_size(ui_LockPICont, 65, 105);
+  lv_obj_set_align(ui_LockPICont, LV_ALIGN_BOTTOM_RIGHT);
+  lv_obj_set_x(ui_LockPICont, -10);
+  lv_obj_set_y(ui_LockPICont, -5);
+  lv_obj_add_flag(ui_LockPICont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_clear_flag(ui_LockPICont,
+                    LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_flex_flow(ui_LockPICont, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(ui_LockPICont, LV_FLEX_ALIGN_CENTER,
+                        LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_row(ui_LockPICont, 2,
+                           LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  lv_obj_t *ui_LockPITitle = lv_label_create(ui_LockPICont);
+  lv_obj_set_width(ui_LockPITitle, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_LockPITitle, LV_SIZE_CONTENT);
+  lv_label_set_text(ui_LockPITitle, "PI");
+  lv_obj_set_style_text_color(ui_LockPITitle, lv_color_hex(0xFFFFFF),
+                              LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_text_font(ui_LockPITitle, &lv_font_montserrat_14,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  ui_LockPILabel = lv_label_create(ui_LockPICont);
+  lv_obj_set_width(ui_LockPILabel, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_LockPILabel, LV_SIZE_CONTENT);
+  lv_label_set_text(ui_LockPILabel, "--");
+  lv_obj_set_style_text_color(ui_LockPILabel, lv_color_hex(0xFFFFFF),
+                              LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_text_font(ui_LockPILabel, &lv_font_montserrat_20,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  lv_obj_t *ui_LockPIUnit = lv_label_create(ui_LockPICont);
+  lv_obj_set_width(ui_LockPIUnit, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_LockPIUnit, LV_SIZE_CONTENT);
+  lv_label_set_text(ui_LockPIUnit, "%");
+  lv_obj_set_style_text_color(ui_LockPIUnit, lv_color_hex(0xFFFFFF),
+                              LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_text_font(ui_LockPIUnit, &lv_font_montserrat_12,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
 
   lv_obj_add_event_cb(ui_AlarmLockImg, ui_event_AlarmLockImg, LV_EVENT_ALL,

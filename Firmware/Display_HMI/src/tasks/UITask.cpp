@@ -3674,20 +3674,35 @@ void UI_Task(void *pvParameters) {
       }
     }
 
-    // --- Lock screen: HR value ---
-    if (locked && ui_LockHRCont && ctrl_vit_msg.updated) {
+    // --- Lock screen: HR and PI values ---
+    if (locked && ctrl_vit_msg.updated) {
       ctrl_vit_msg.updated = false;
       if (!spo2ProbeAttached) {
-        lv_obj_add_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
+        if (ui_LockHRCont) lv_obj_add_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
+        if (ui_LockPICont) lv_obj_add_flag(ui_LockPICont, LV_OBJ_FLAG_HIDDEN);
       } else {
-        lv_obj_clear_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
-        if (ui_LockHRLabel) {
-          if (ctrl_vit_msg.hr > 0) {
-            char hr_buf[8];
-            snprintf(hr_buf, sizeof(hr_buf), "%u", ctrl_vit_msg.hr);
-            lv_label_set_text(ui_LockHRLabel, hr_buf);
-          } else {
-            lv_label_set_text(ui_LockHRLabel, "--");
+        if (ui_LockHRCont) {
+          lv_obj_clear_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
+          if (ui_LockHRLabel) {
+            if (ctrl_vit_msg.hr > 0) {
+              char hr_buf[8];
+              snprintf(hr_buf, sizeof(hr_buf), "%u", ctrl_vit_msg.hr);
+              lv_label_set_text(ui_LockHRLabel, hr_buf);
+            } else {
+              lv_label_set_text(ui_LockHRLabel, "--");
+            }
+          }
+        }
+        if (ui_LockPICont) {
+          lv_obj_clear_flag(ui_LockPICont, LV_OBJ_FLAG_HIDDEN);
+          if (ui_LockPILabel) {
+            if (ctrl_vit_msg.pi > 0.0f) {
+              char pi_buf[8];
+              snprintf(pi_buf, sizeof(pi_buf), "%.1f", ctrl_vit_msg.pi);
+              lv_label_set_text(ui_LockPILabel, pi_buf);
+            } else {
+              lv_label_set_text(ui_LockPILabel, "--");
+            }
           }
         }
       }

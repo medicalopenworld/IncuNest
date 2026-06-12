@@ -794,8 +794,10 @@ void Communication_Task(void *pvParameters) {
               hr_byte = (uint8_t)(hr_fused + 0.5f);
           }
         }
-        char vit_msg[20];
-        snprintf(vit_msg, sizeof(vit_msg), "CTRL,VIT,%u,0\n", hr_byte);
+        float pi_val = g_spo2_data.pi;
+        char vit_msg[32];
+        snprintf(vit_msg, sizeof(vit_msg), "CTRL,VIT,%u,0,%.2f\n",
+                 hr_byte, pi_val);
         hmiSerial.print(vit_msg);
       }
 
@@ -1002,8 +1004,10 @@ void Communication_Task(void *pvParameters) {
                 hr_byte = (uint8_t)(hr_fused + 0.5f);
             }
           }
-          char vit_msg[20];
-          snprintf(vit_msg, sizeof(vit_msg), "CTRL,VIT,%u,0\n", hr_byte);
+          float pi_val = g_spo2_data.pi;
+          char vit_msg[32];
+          snprintf(vit_msg, sizeof(vit_msg), "CTRL,VIT,%u,0,%.2f\n",
+                   hr_byte, pi_val);
           CommunicationHost_Send(vit_msg);
         }
 

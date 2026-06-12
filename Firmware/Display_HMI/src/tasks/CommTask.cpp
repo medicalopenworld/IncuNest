@@ -16,7 +16,7 @@ ControlBoard_Message_Telemetry ctrl_tel_msg;
 ControlBoard_Message_Alarm ctrl_msg_alarm;
 ControlBoard_Message_State ctrl_state_msg = {0};
 ControlBoard_Message_PPG ctrl_ppg_msg     = {0, false};
-ControlBoard_Message_VIT ctrl_vit_msg     = {0, 0, false};
+ControlBoard_Message_VIT ctrl_vit_msg     = {0, 0, 0.0f, false};
 ControlBoard_Message_Probe ctrl_probe_msg = {SPO2_PROBE_DISCONNECTED, false};
 int g_skinProbeState = SKIN_PROBE_NOT_CONNECTED; // Last received skin probe state
 
@@ -193,9 +193,12 @@ static void parse_message(const char *line) {
     }
   } else if (strncmp(line, "CTRL,VIT", 8) == 0) {
     int hr = 0, spo2 = 0;
-    if (sscanf(line, "CTRL,VIT,%d,%d", &hr, &spo2) == 2) {
+    float pi = 0.0f;
+    int n = sscanf(line, "CTRL,VIT,%d,%d,%f", &hr, &spo2, &pi);
+    if (n >= 2) {
       ctrl_vit_msg.hr      = (uint8_t)hr;
       ctrl_vit_msg.spo2    = (uint8_t)spo2;
+      ctrl_vit_msg.pi      = (n >= 3) ? pi : 0.0f;
       ctrl_vit_msg.updated = true;
     }
   } else if (strncmp(line, "CTRL,PROBE", 10) == 0) {

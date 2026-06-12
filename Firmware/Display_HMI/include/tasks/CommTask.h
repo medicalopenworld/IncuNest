@@ -92,6 +92,7 @@ typedef struct {
 typedef struct {
   uint8_t hr;   // 40-240 bpm; 0 = no valid signal
   uint8_t spo2; // 0-100 %; 0 = no valid signal
+  float   pi;   // Perfusion Index [%]; 0.0 = no valid signal
   bool    updated;
 } ControlBoard_Message_VIT;
 
