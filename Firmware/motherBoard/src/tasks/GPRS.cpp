@@ -393,7 +393,7 @@ void GPRSProvisionResponse(const JsonObjectConst &data) {
     GPRS.provision_retry_count++;
     if (GPRS.provision_retry_count <= PROVISION_MAX_RETRIES) {
       logModemData("[GPRS] -> Provision failed: " + data["errorMsg"].as<String>() +
-                   " - retrying as " + GPRS.CCID + "_" + String(GPRS.provision_retry_count));
+                   " - retrying as IncuNest-" + String(in3.serialNumber) + "_" + String(GPRS.provision_retry_count));
       GPRS.provision_request_sent = false;
     } else {
       logModemData("[GPRS] -> Provision failed after max retries, giving up");
@@ -449,9 +449,10 @@ void TBProvision() {
   // Connect to the ThingsBoard
   logModemData("[GPRS] -> Sending provision request to: " +
                String(THINGSBOARD_SERVER));
+  String baseName = "IncuNest-" + String(in3.serialNumber);
   String deviceName = (GPRS.provision_retry_count == 0)
-      ? GPRS.CCID
-      : GPRS.CCID + "_" + String(GPRS.provision_retry_count);
+      ? baseName
+      : baseName + "_" + String(GPRS.provision_retry_count);
   logModemData("[GPRS] -> Provisioning as: " + deviceName);
   const Provision_Callback provisionCallback(
       Access_Token(), &GPRSProvisionResponse, PROVISION_DEVICE_KEY,
@@ -758,6 +759,10 @@ void addTelemetriesToGPRSJSON() {
 
 void GPRSPost() {
   if (!GPRS.provisioned) {
+    if (in3.serialNumber == 0) {
+      logModemData("[GPRS] -> Waiting for serial number before provisioning");
+      return;
+    }
     if (!GPRS.provision_request_sent) {
       TBProvision();
     }

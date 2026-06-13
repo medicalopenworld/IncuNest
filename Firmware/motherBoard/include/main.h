@@ -5,7 +5,7 @@
 #define modemSerial Serial2
 #define THINGSBOARD_ENABLE_PSRAM 0
 #define THINGSBOARD_ENABLE_DYNAMIC 1
-// #define THINGSBOARD_ENABLE_STREAM_UTILS 1
+#define THINGSBOARD_ENABLE_STREAM_UTILS 1
 #include "ThingsBoard.h"
 #include <Arduino.h>
 #include <TinyGsmClient.h>
@@ -80,17 +80,18 @@
 // path itself.
 #define DRIVE_DISABLE_UPLOAD 0
 
-#define USE_SYSTEM_WITHOUT_ACTUATORS_TEST                                      \
+#define USE_SYSTEM_WITHOUT_ACTUATORS_TEST \
   true // only if previous test was OK and that fail cause is not being able to
        // read current measurements
 #define WDT_TIMEOUT 75
-#if (HW_NUM >= 14)
+#if (HW_NUM >= 14 && HW_NUM <= 16)
 #define HEATER_MAX_POWER_AMPS 7.5
-#define HEATER_SAFE_POWER_AMPS 6.5
 #else
-#define HEATER_MAX_POWER_AMPS 12.5
-#define HEATER_SAFE_POWER_AMPS 11.5
+#define HEATER_MAX_POWER_AMPS 9.5
 #endif
+
+#define HEATER_SAFE_MARGIN_AMPS 1
+
 #define HEATER_POWER_FACTOR_INCREASE 5
 #define HEATER_POWER_FACTOR_DECREASE 5
 #if (HW_NUM != 6)
@@ -137,10 +138,11 @@ extern SemaphoreHandle_t log_mutex;
 
 // Language enum is now in shared control_types.h (Language enum:
 // SPANISH=0, ENGLISH, FRENCH, PORTUGUESE, NUM_LANGUAGES)
-#define defaultLanguage                                                        \
+#define defaultLanguage \
   ENGLISH // Preset number configuration when booting for first time
 
-typedef enum {
+typedef enum
+{
   NTC_BABY_MIN_ERROR = 0,
   NTC_BABY_MAX_ERROR,
   DIG_TEMP_ROOM_MIN_ERROR,
@@ -167,7 +169,6 @@ typedef enum {
 // NUM_ALARMS, MAX_ALARM_STRING_SIZE=255) is now in shared alarm_ids.h.
 // CommStatus enum (COMM_STATUS_NONE ... COMM_STATUS_WIFI_SERVER) is now
 // in shared control_types.h. Both are included transitively via CommTask.h.
-
 
 #include "telemetry_keys.h"
 
@@ -200,9 +201,9 @@ extern int g_restore_photo_minutes;
 #define POWER_SUPPLY_CHECK_PERIOD 2000 // 2 secs
 
 // buzzer variables
-#define buzzerStandbyPeriod                                                    \
-  10000 // in millis, there will be a periodic tone when regulating baby's
-        // constants
+#define buzzerStandbyPeriod \
+  10000                              // in millis, there will be a periodic tone when regulating baby's
+                                     // constants
 #define buzzerStandbyTone 500        // in micros, tone freq
 #define buzzerAlarmTone 500          // in micros, tone freq
 #define buzzerAlarmBeepTime 500      // ms ON and OFF per alarm beep cycle
@@ -218,8 +219,8 @@ extern int g_restore_photo_minutes;
 
 // configuration variables
 #define SWITCH_DEBOUNCE_TIME_MS 30 // encoder debouncing time
-#define timePressToSettings                                                    \
-  3000 // in millis, time to press to go to settings window in UI
+#define timePressToSettings \
+  3000                        // in millis, time to press to go to settings window in UI
 #define DEBUG_LOOP_PRINT 1000 // in millis,
 
 #define DEFAULT_CONTROL_MODE CONTROL_AIR
@@ -246,7 +247,8 @@ extern int g_restore_photo_minutes;
 #define AMBIENT_SENSOR_I2C_ADDRESS 0x44
 
 // calibration menu
-typedef enum {
+typedef enum
+{
   ROOM_SENSOR_STS3X_MAIN = 0,
   ROOM_SENSOR_STS3X_REDUNDANT,
   ROOM_SENSOR_SHTC3,
@@ -254,7 +256,8 @@ typedef enum {
 } ROOM_SENSORS;
 
 // calibration menu
-typedef enum {
+typedef enum
+{
   STS3X_MAIN = 0,
   STS3X_REDUNDANT,
   STS3X_NUM,
@@ -265,9 +268,9 @@ typedef enum {
 #define ROOM_SENSOR_STS35_I2C_ADDRESS_REDUNDANT 0x4B
 
 // #define system constants
-#define HUMIDIFIER_DUTY_CYCLE_MAX                                              \
+#define HUMIDIFIER_DUTY_CYCLE_MAX \
   95 // maximum humidity cycle in heater to be set
-#define HUMIDIFIER_DUTY_CYCLE_MIN                                              \
+#define HUMIDIFIER_DUTY_CYCLE_MIN \
   0 // minimum humidity cycle in heater to be set
 
 #define stepTemperatureIncrement 0.1 // maximum allowed temperature to be set
@@ -317,7 +320,8 @@ typedef enum {
 
 #define TIME_TRACK_UPDATE_PERIOD 900000 // 15 minutes
 
-typedef struct {
+typedef struct
+{
   int skinSensorCapacitance;
   double temperature[SENSOR_TEMP_QTY];
   double airTemperatureRedundantSensor = 0;

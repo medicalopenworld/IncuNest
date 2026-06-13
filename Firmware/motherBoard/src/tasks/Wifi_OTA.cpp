@@ -303,7 +303,10 @@ void wifiInit(void) {
   }
 
   WiFi.persistent(true);
-  WiFi.setAutoReconnect(true);
+  // Manual reconnect via WifiOTAHandler() at WIFI_RECONNECT_INTERVAL.
+  // Auto-reconnect has no backoff for ASSOC_TOOMANY (reason=5) and causes a
+  // 25 Hz event storm that starves other tasks and flickers the display.
+  WiFi.setAutoReconnect(false);
 
   String ssid;
   String pass;
@@ -542,7 +545,7 @@ void WIFIProvisionResponse(const JsonObjectConst &data) {
     Wifi_TB.provision_retry_count++;
     if (Wifi_TB.provision_retry_count <= PROVISION_MAX_RETRIES) {
       logI("[WIFI] -> Provision failed: " + data["errorMsg"].as<String>() +
-           " - retrying as " + GPRS.CCID + "_" + String(Wifi_TB.provision_retry_count));
+           " - retrying as IncuNest-" + String(in3.serialNumber) + "_" + String(Wifi_TB.provision_retry_count));
       Wifi_TB.provision_request_sent = false;
     } else {
       logI("[WIFI] -> Provision failed after max retries, giving up");
@@ -600,9 +603,10 @@ void WIFITBProvision() {
   // Connect to the ThingsBoard
   logI("[WIFI] -> Sending provision request to: " + String(THINGSBOARD_SERVER));
 
+  String baseName = "IncuNest-" + String(in3.serialNumber);
   String deviceName = (Wifi_TB.provision_retry_count == 0)
-      ? GPRS.CCID
-      : GPRS.CCID + "_" + String(Wifi_TB.provision_retry_count);
+      ? baseName
+      : baseName + "_" + String(Wifi_TB.provision_retry_count);
   logI("[WIFI] -> Provisioning as: " + deviceName);
   const Provision_Callback provisionCallback(
       Access_Token(), &WIFIProvisionResponse, PROVISION_DEVICE_KEY,
@@ -886,10 +890,10 @@ static constexpr size_t WIFI_RPC_CB_COUNT =
 void WIFI_TB_OTA() {
   if (WiFi.status() == WL_CONNECTED) {
     if (!Wifi_TB.provisioned) {
-      if (GPRS.CCID.length() > 0) {
-        if (!Wifi_TB.provision_request_sent) {
-          WIFITBProvision();
-        }
+      if (in3.serialNumber == 0) {
+        logI("[WIFI] -> Waiting for serial number before provisioning");
+      } else if (!Wifi_TB.provision_request_sent) {
+        WIFITBProvision();
       }
     } else {
       if (!tb_wifi.connected()) {

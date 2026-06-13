@@ -36,7 +36,7 @@ def load_config() -> dict:
     if getattr(sys, 'frozen', False):
         path = Path(sys.executable).parent / 'flasher_config.json'
     else:
-        path = Path(__file__).parent / 'flasher_config.json'
+        path = Path(__file__).parent.parent / 'flasher_config.json'
     if not path.exists():
         return {}
     try:
@@ -230,7 +230,7 @@ class FlasherApp:
         self._known_ports: set = set()
 
         cfg = load_config()
-        self._force_serial_number_entry: bool = bool(cfg.get('force_serial_number_entry', False))
+        self._force_serial_number_entry: bool = bool(cfg.get('force_serial_number', False))
         self._force_download: bool = bool(cfg.get('force_download_latest_firmware', False))
         self._downloading: bool = False
 

@@ -783,14 +783,14 @@ void setup() {
   logI("Security task successfully created!\n");
 
   logI("Creating GPRS task ...\n");
-  while (xTaskCreatePinnedToCore(GPRS_Task, "GPRS", 8192, NULL,
+  while (xTaskCreatePinnedToCore(GPRS_Task, "GPRS", 16384, NULL,
                                  GPRS_TAST_PRIORITY, &taskHandle,
                                  CORE_ID_FREERTOS) != pdPASS)
     ;
   logI("GPRS task successfully created!\n");
 
   logI("Creating OTA task ...\n");
-  while (xTaskCreatePinnedToCore(OTA_WIFI_Task, "OTA", 8192, NULL,
+  while (xTaskCreatePinnedToCore(OTA_WIFI_Task, "OTA", 16384, NULL,
                                  OTA_TASK_PRIORITY, NULL,
                                  CORE_ID_FREERTOS) != pdPASS)
     ;

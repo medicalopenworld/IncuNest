@@ -77,7 +77,7 @@ void heaterPowerConsumptionCheck()
         in3.heaterSafeMAXPWM = 0;
       }
     }
-    else if (in3.heater_current < HEATER_SAFE_POWER_AMPS || in3.system_current < HEATER_SAFE_POWER_AMPS)
+    else if (in3.heater_current < (in3.heaterMaxPowerAmps - HEATER_SAFE_MARGIN_AMPS) || in3.system_current < (in3.heaterMaxPowerAmps - HEATER_SAFE_MARGIN_AMPS))
     {
       in3.heaterSafeMAXPWM += HEATER_POWER_FACTOR_INCREASE;
       if (in3.heaterSafeMAXPWM > HEATER_MAX_PWM)

@@ -357,7 +357,7 @@
 // shunt pad. During PWM switching the reading flips negative with amplified
 // magnitude. Empirical correction: I_real ≈ |I_measured| / factor.
 // Tune HEATER_CURRENT_CORRECTION_FACTOR based on measured vs. expected current.
-#define HEATER_CURRENT_CORRECTION_FACTOR 2.5f
+#define HEATER_CURRENT_CORRECTION_FACTOR 5.80f  
 #define SYSTEM_SHUNT 1000        // miliohms (VSYS_SHUNT+ is not connected properly, is connected before O-ring)
 #define HEATER_SHUNT 5        // miliohms
 #define FAN_SHUNT 100         // miliohms
