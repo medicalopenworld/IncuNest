@@ -431,9 +431,6 @@ void ui_event_ImgButton7(lv_event_t *e) {
   if (event_code == LV_EVENT_CLICKED) {
     _ui_screen_change(&ui_ScreenMain, LV_SCR_LOAD_ANIM_FADE_ON, ANIM_TIME_MS, 0,
                       &ui_ScreenMain_screen_init);
-    if (ui_ScreenAlarms)
-      lv_obj_add_event_cb(ui_ScreenAlarms, scr_unloaded_delete_cb,
-                          LV_EVENT_SCREEN_UNLOADED, &ui_ScreenAlarms);
     hmi_msg.shouldSendData = true;
   }
 }
@@ -451,9 +448,6 @@ void ui_event_ImgButton9(lv_event_t *e) {
   if (event_code == LV_EVENT_CLICKED) {
     _ui_screen_change(&ui_ScreenMain, LV_SCR_LOAD_ANIM_FADE_ON, ANIM_TIME_MS, 0,
                       &ui_ScreenMain_screen_init);
-    if (ui_ScreenPulseOxi)
-      lv_obj_add_event_cb(ui_ScreenPulseOxi, scr_unloaded_delete_cb,
-                          LV_EVENT_SCREEN_UNLOADED, &ui_ScreenPulseOxi);
   }
 }
 
