@@ -25,10 +25,8 @@ build/
 # Flasher tool firmware binaries are intentionally tracked
 !Firmware/flasher_tool/data/firmware/**/*.bin
 
-# clangd cache (esto es lo tuyo)
-Firmware/motherBoard/.cache/
-# (opcional más fino, si solo quieres clangd)
-# Firmware/motherBoard/.cache/clangd/
+# clangd cache (all subprojects)
+**/.cache/
 # Credentials (nunca versionar)
 **/Credentials.h
 

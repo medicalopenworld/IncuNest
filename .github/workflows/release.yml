@@ -1,0 +1,69 @@
+name: Release Firmware
+
+on:
+  push:
+    tags:
+      - 'v[0-9]*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: ${{ runner.os }}-pio-${{ hashFiles('Firmware/motherBoard/platformio.ini', 'Firmware/Display_HMI/platformio.ini') }}
+          restore-keys: ${{ runner.os }}-pio-
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Build motherboard firmware
+        run: pio run -e IncuNest_V17
+        working-directory: Firmware/motherBoard
+
+      - name: Build Display HMI firmware
+        run: pio run -e main
+        working-directory: Firmware/Display_HMI
+
+      - name: Stage release assets
+        run: |
+          mkdir release_assets
+          cp Firmware/motherBoard/.pio/build/IncuNest_V17/bootloader.bin release_assets/motherboard_bootloader.bin
+          cp Firmware/motherBoard/.pio/build/IncuNest_V17/partitions.bin release_assets/motherboard_partitions.bin
+          cp Firmware/motherBoard/.pio/build/IncuNest_V17/firmware.bin   release_assets/motherboard_firmware.bin
+          cp Firmware/Display_HMI/.pio/build/main/bootloader.bin         release_assets/display_hmi_bootloader.bin
+          cp Firmware/Display_HMI/.pio/build/main/partitions.bin         release_assets/display_hmi_partitions.bin
+          cp Firmware/Display_HMI/.pio/build/main/firmware.bin           release_assets/display_hmi_firmware.bin
+          cp Firmware/Display_HMI/.pio/build/main/ota_data_initial.bin   release_assets/display_hmi_ota_data_initial.bin 2>/dev/null || true
+
+      - name: Generate manifest.json
+        run: |
+          python3 - <<'EOF'
+          import json, hashlib, os
+          from pathlib import Path
+
+          def sha256(path):
+              return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+          tag = os.environ["GITHUB_REF_NAME"]
+          assets_dir = Path("release_assets")
+          files = {f.name: sha256(f) for f in sorted(assets_dir.iterdir()) if f.is_file()}
+          manifest = {"release": tag, "files": files}
+          (assets_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+          print(json.dumps(manifest, indent=2))
+          EOF
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release_assets/*
+          generate_release_notes: true
