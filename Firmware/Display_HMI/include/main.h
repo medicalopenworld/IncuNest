@@ -19,7 +19,7 @@
 #include "control_types.h"
 #include "alarm_ids.h"
 
-#define FWversion "2.1.0"
+#define FWversion "2.2.0"
 #define ENABLE_WIFI_OTA true // enable wifi OTA
 extern bool OTA_inprogress;
 
