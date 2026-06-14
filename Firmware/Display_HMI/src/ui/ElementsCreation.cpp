@@ -20,6 +20,9 @@ lv_obj_t *ui_ScreenIntro = NULL;
 lv_obj_t *ui_ImageLogoIncunest = NULL;
 lv_obj_t *ui_ImageSJD = NULL;
 lv_obj_t *ui_ImageFlagTogo = NULL;
+#if INTRO_FLAG != INTRO_FLAG_NONE
+lv_obj_t *ui_ImageIntroFlag = NULL;
+#endif
 
 // Screen Main
 lv_obj_t *ui_ScreenMain = NULL;
@@ -739,6 +742,22 @@ void ui_ScreenIntro_screen_init(void) {
   lv_obj_set_align(ui_ImageLogoIncunest, LV_ALIGN_CENTER);
   lv_obj_add_flag(ui_ImageLogoIncunest, LV_OBJ_FLAG_ADV_HITTEST);
   lv_obj_clear_flag(ui_ImageLogoIncunest, LV_OBJ_FLAG_SCROLLABLE);
+
+#if INTRO_FLAG != INTRO_FLAG_NONE
+  ui_ImageIntroFlag = lv_img_create(ui_ScreenIntro);
+#if INTRO_FLAG == INTRO_FLAG_RASD
+  lv_img_set_src(ui_ImageIntroFlag, &ui_img_flag_rasd_jpg);
+#elif INTRO_FLAG == INTRO_FLAG_TOGO
+  lv_img_set_src(ui_ImageIntroFlag, &ui_img_flag_togo_png);
+#endif
+  lv_obj_set_width(ui_ImageIntroFlag, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_ImageIntroFlag, LV_SIZE_CONTENT);
+  lv_obj_set_align(ui_ImageIntroFlag, LV_ALIGN_CENTER);
+  lv_obj_set_x(ui_ImageIntroFlag, 0);
+  lv_obj_set_y(ui_ImageIntroFlag, 127);
+  lv_obj_add_flag(ui_ImageIntroFlag, LV_OBJ_FLAG_ADV_HITTEST);
+  lv_obj_clear_flag(ui_ImageIntroFlag, LV_OBJ_FLAG_SCROLLABLE);
+#endif
 
   // SJD logo – bottom-left below IncuNest logo (155x130 px)
   // ui_ImageSJD = lv_img_create(ui_ScreenIntro);

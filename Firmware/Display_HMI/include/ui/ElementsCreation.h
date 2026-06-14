@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 #include "lvgl.h"
+#include "config/display_config.h"
 
 // --- UI HELPERS DEFINES & FUNCTIONS ---
 #define _UI_TEMPORARY_STRING_BUFFER_SIZE 32
@@ -91,7 +92,11 @@ LV_IMG_DECLARE(ui_img_check_png);    // assets/check.png
 LV_IMG_DECLARE(ui_img_flecha_png);    // assets/Flecha.png
 LV_IMG_DECLARE(ui_img_incunest2_png);    // assets/INCUNEST2.png
 LV_IMG_DECLARE(ui_img_sjd_png);          // data/SJD.png
+#if INTRO_FLAG == INTRO_FLAG_TOGO
 LV_IMG_DECLARE(ui_img_flag_togo_png);    // data/Flag_Togo.png
+#elif INTRO_FLAG == INTRO_FLAG_RASD
+LV_IMG_DECLARE(ui_img_flag_rasd_jpg);    // flags/RASD.jpg
+#endif
 
 // --- GLOBAL VARIABLES ---
 extern lv_obj_t * ui____initial_actions0;
@@ -101,6 +106,9 @@ extern lv_obj_t * ui_ScreenIntro;
 extern lv_obj_t * ui_ImageLogoIncunest;
 extern lv_obj_t * ui_ImageSJD;
 extern lv_obj_t * ui_ImageFlagTogo;
+#if INTRO_FLAG != INTRO_FLAG_NONE
+extern lv_obj_t * ui_ImageIntroFlag;
+#endif
 void ui_ScreenIntro_screen_init(void);
 void ui_ScreenIntro_screen_destroy(void);
 

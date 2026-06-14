@@ -108,3 +108,15 @@
   1 // Pixels latched on falling edge (panel requirement)
 #define DISPLAY_DE_IDLE_HIGH 0
 #define DISPLAY_PCLK_IDLE_HIGH 1
+
+// -----------------------------------------------------------------------------
+// Bandera en pantalla de inicio
+// INTRO_FLAG_NONE : sin bandera (no se compila ningún asset de bandera)
+// INTRO_FLAG_RASD : República Árabe Saharaui Democrática
+// INTRO_FLAG_TOGO : República de Togo
+// -----------------------------------------------------------------------------
+#define INTRO_FLAG_NONE 0
+#define INTRO_FLAG_RASD 1
+#define INTRO_FLAG_TOGO 2
+
+#define INTRO_FLAG INTRO_FLAG_RASD

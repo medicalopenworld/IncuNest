@@ -251,9 +251,11 @@ void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area,
 }
 
 static void intro_timer_cb(lv_timer_t *t) {
-  bool synced  = g_stateSynced;
-  bool timedout = (millis() - intro_start_ms >= 10000);
-  if (!synced && !timedout) return;
+  uint32_t elapsed = millis() - intro_start_ms;
+  bool synced      = g_stateSynced;
+  bool min_elapsed = (elapsed >= 5000);
+  bool timedout    = (elapsed >= 10000);
+  if (!timedout && (!synced || !min_elapsed)) return;
   if (intro_timer) {
     lv_timer_del(intro_timer);
     intro_timer = NULL;
