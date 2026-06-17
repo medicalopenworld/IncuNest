@@ -1,4 +1,6 @@
+import glob
 import json
+import shutil
 import sys
 import time
 import threading
@@ -243,6 +245,25 @@ class _WifiTab:
 
         ttk.Separator(parent, orient='horizontal').pack(fill='x', padx=12, pady=4)
 
+        # "Actualizar binarios locales" — only shown when dev build outputs exist
+        build_sources = self._get_build_sources()
+        if build_sources:
+            upd_frame = tk.Frame(parent)
+            upd_frame.pack(fill='x', padx=12, pady=(0, 4))
+            self._upd_btn = tk.Button(
+                upd_frame, text="📂  Actualizar binarios locales",
+                font=('', 9), bg='#37474F', fg='white',
+                command=self._on_update_locals_clicked,
+            )
+            self._upd_btn.pack(side='left')
+            self._upd_status = tk.Label(upd_frame, text='', anchor='w', fg='#757575')
+            self._upd_status.pack(side='left', padx=8)
+        else:
+            self._upd_btn = None
+            self._upd_status = None
+
+        ttk.Separator(parent, orient='horizontal').pack(fill='x', padx=12, pady=(0, 4))
+
         # Slots (reuse _Slot with IP as the "port" display string)
         for i in range(NUM_SLOTS):
             self._slots.append(_Slot(parent, i, 'Flash.Horizontal.TProgressbar'))
@@ -281,9 +302,11 @@ class _WifiTab:
         self._active_flashes = len(boards_to_flash)
 
         for i, wb in enumerate(boards_to_flash):
-            self._slots[i].assign(wb.ip, wb.board)
+            sn_str = f"SN:{wb.sn}  " if wb.sn is not None else ""
+            self._slots[i].assign(f"{sn_str}{wb.ip}", wb.board)
+            sn_log = f"  SN:{wb.sn}" if wb.sn is not None else ""
             self._log_cb(
-                f"{wb.board.value} en {wb.ip} (FW {wb.fw_version}) → slot {i + 1}", 'info',
+                f"{wb.board.value} en {wb.ip}{sn_log} (FW {wb.fw_version}) → slot {i + 1}", 'info',
             )
             self._tick_slot(i)
             threading.Thread(
@@ -332,6 +355,49 @@ class _WifiTab:
 
     def _clear_slot(self, slot_idx: int) -> None:
         self._slots[slot_idx].reset()
+
+    def _get_build_sources(self) -> dict[str, Path]:
+        """Return {board_folder → firmware.bin path} for locally built PlatformIO outputs."""
+        try:
+            repo_root = self._firmware_base.parents[2]
+            sources: dict[str, Path] = {}
+            for board_folder, pio_dir in [
+                ('display_hmi', repo_root / 'Display_HMI' / '.pio' / 'build'),
+                ('motherboard', repo_root / 'motherBoard' / '.pio' / 'build'),
+            ]:
+                candidates = sorted(
+                    glob.glob(str(pio_dir / '*' / 'firmware.bin')),
+                    key=lambda p: Path(p).stat().st_mtime,
+                    reverse=True,
+                )
+                if candidates:
+                    sources[board_folder] = Path(candidates[0])
+            return sources
+        except Exception:
+            return {}
+
+    def _on_update_locals_clicked(self) -> None:
+        if self._upd_btn:
+            self._upd_btn.configure(state='disabled')
+        sources = self._get_build_sources()
+        if not sources:
+            if self._upd_status:
+                self._upd_status.configure(text='No se encontraron binarios', fg='#C62828')
+            if self._upd_btn:
+                self._upd_btn.configure(state='normal')
+            return
+        copied: list[str] = []
+        for board_folder, src in sources.items():
+            dst = self._firmware_base / board_folder / 'firmware.bin'
+            shutil.copy2(src, dst)
+            copied.append(board_folder)
+            self._log_cb(f"Copiado: {src} → {dst}", 'info')
+        if self._upd_status:
+            self._upd_status.configure(
+                text=f"✓ {', '.join(copied)}", fg='#2E7D32',
+            )
+        if self._upd_btn:
+            self._upd_btn.configure(state='normal')
 
 
 class FlasherApp:

@@ -40,6 +40,7 @@ class WifiBoard:
     board: Board
     fw_version: str
     hostname: str = ''
+    sn: Optional[int] = None
 
 
 def _board_from_hostname(hostname: str) -> Optional[Board]:
@@ -50,6 +51,72 @@ def _board_from_hostname(hostname: str) -> Optional[Board]:
     if name.startswith('IncuNest'):
         return Board.MOTHERBOARD
     return None
+
+
+def _sn_from_hostname(hostname: str) -> Optional[int]:
+    """Extract serial number from hostname, e.g. 'IncuNest_Display-7' or 'IncuNest-42.local' → 7 / 42."""
+    try:
+        name = hostname.split('.')[0]  # strip .local
+        return int(name.split('-')[-1])
+    except (ValueError, IndexError):
+        return None
+
+
+def _resolve_hostname(ip: str) -> str:
+    """Reverse-lookup hostname via OS mDNS resolver; returns '' on failure.
+
+    Runs in a daemon thread so a slow resolver does not block the caller.
+    """
+    result: list[str] = ['']
+
+    def _work() -> None:
+        try:
+            result[0] = socket.gethostbyaddr(ip)[0]
+        except Exception:
+            pass
+
+    t = threading.Thread(target=_work, daemon=True)
+    t.start()
+    t.join(timeout=1.0)
+    return result[0]
+
+
+class _ProgressFile:
+    """Wraps a firmware binary and reports upload progress via progress_cb on each read()."""
+
+    def __init__(self, path: Path, cb: Callable[[str, Optional[int]], None]) -> None:
+        self._f = open(path, 'rb')
+        self._size = path.stat().st_size
+        self._sent = 0
+        self._cb = cb
+
+    def read(self, n: int = -1) -> bytes:
+        data = self._f.read(n)
+        if data and self._size:
+            self._sent = min(self._sent + len(data), self._size)
+            pct = int(self._sent * 98 / self._size)  # 99 is reserved for server-confirmed OK
+            self._cb('', pct)
+        return data
+
+    def __len__(self) -> int:
+        return self._size
+
+    def seek(self, offset: int, whence: int = 0) -> int:
+        pos = self._f.seek(offset, whence)
+        self._sent = self._f.tell()
+        return pos
+
+    def tell(self) -> int:
+        return self._f.tell()
+
+    def close(self) -> None:
+        self._f.close()
+
+    def __enter__(self) -> '_ProgressFile':
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
 
 
 def flash_board_wifi(
@@ -71,10 +138,10 @@ def flash_board_wifi(
     progress_cb('Conectando…', None)
 
     for auth in _AUTH_SEQUENCES[board]:
-        with open(fw_path, 'rb') as f:
+        with _ProgressFile(fw_path, progress_cb) as pf:
             resp = requests.post(
                 f'http://{ip}/update',
-                files={'update': ('firmware.bin', f, 'application/octet-stream')},
+                files={'update': ('firmware.bin', pf, 'application/octet-stream')},
                 auth=auth,
                 timeout=timeout_s,
             )
@@ -149,7 +216,12 @@ def _discover_mdns(timeout_s: float) -> list[WifiBoard]:
         zc.close()
 
     return [
-        WifiBoard(ip=ip, board=board, fw_version=_get_fw_version(ip), hostname=hostname)
+        WifiBoard(
+            ip=ip, board=board,
+            fw_version=_get_fw_version(ip),
+            hostname=hostname,
+            sn=_sn_from_hostname(hostname),
+        )
         for ip, board, hostname in found
     ]
 
@@ -199,11 +271,17 @@ def _probe_ip(ip: str) -> Optional[WifiBoard]:
         resp = requests.get(f'http://{ip}/get_fw_version', timeout=0.3)
         if resp.status_code != 200:
             return None
-        fw_version = resp.json().get('version', '?')
+        data = resp.json()
+        fw_version = data.get('version', '?')
+        sn: Optional[int] = data.get('sn', None)
         board = _identify_board_type(ip)
         if board is None:
             return None
-        return WifiBoard(ip=ip, board=board, fw_version=fw_version)
+        if sn is None:
+            # Firmware without sn field — try OS mDNS reverse lookup
+            hostname = _resolve_hostname(ip)
+            sn = _sn_from_hostname(hostname)
+        return WifiBoard(ip=ip, board=board, fw_version=fw_version, sn=sn)
     except Exception:
         return None
 

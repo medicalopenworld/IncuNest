@@ -369,6 +369,7 @@ void configWifiServer() {
   wifiServer.on("/get_fw_version", HTTP_GET, []() {
     String json = "{";
     json += "\"version\":\"" + String(FWversion) + "\"";
+    json += ",\"sn\":" + String(in3.serialNumber);
     json += "}";
     wifiServer.sendHeader("Connection", "close");
     wifiServer.send(200, "application/json", json);

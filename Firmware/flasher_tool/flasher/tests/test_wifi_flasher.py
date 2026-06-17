@@ -3,7 +3,7 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock, call
 
 from detector import Board
-from wifi_flasher import WifiBoard, flash_board_wifi, _board_from_hostname
+from wifi_flasher import WifiBoard, flash_board_wifi, _board_from_hostname, _sn_from_hostname
 
 
 @pytest.fixture
@@ -118,6 +118,28 @@ class TestFlashBoardWifi:
             flash_board_wifi('192.168.1.1', Board.DISPLAY_HMI, firmware_base,
                              lambda msg, pct: progress.append(pct))
         assert 99 in progress
+
+
+# ── _sn_from_hostname ─────────────────────────────────────────────────────
+
+class TestSnFromHostname:
+    def test_display_hmi_serial(self):
+        assert _sn_from_hostname('IncuNest_Display-7') == 7
+
+    def test_display_hmi_with_local_suffix(self):
+        assert _sn_from_hostname('IncuNest_Display-0.local') == 0
+
+    def test_motherboard_serial(self):
+        assert _sn_from_hostname('IncuNest-42') == 42
+
+    def test_motherboard_with_local_suffix(self):
+        assert _sn_from_hostname('IncuNest-99.local') == 99
+
+    def test_unknown_returns_none(self):
+        assert _sn_from_hostname('SomeOtherDevice') is None
+
+    def test_empty_returns_none(self):
+        assert _sn_from_hostname('') is None
 
 
 # ── Discovery helpers ─────────────────────────────────────────────────────
