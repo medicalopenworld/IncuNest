@@ -218,16 +218,120 @@ class _SerialNumberDialog:
 
 
 class _WifiTab:
-    """WiFi OTA tab — stub placeholder, logic added in Task 5."""
+    """WiFi OTA tab: discover IncuNest boards on the network and flash them."""
 
     def __init__(self, parent: tk.Widget, root: tk.Tk, log_cb, firmware_base: Path) -> None:
         self._root = root
         self._log_cb = log_cb
         self._firmware_base = firmware_base
         self._slots: list[_Slot] = []
+        self._active_flashes = 0
 
-        tk.Label(parent, text="WiFi OTA — próximamente",
-                 fg='#9E9E9E', font=('', 10)).pack(pady=20)
+        # Button + status row
+        ctrl_frame = tk.Frame(parent)
+        ctrl_frame.pack(fill='x', padx=12, pady=(8, 4))
+
+        self._scan_btn = tk.Button(
+            ctrl_frame, text="🔍  Buscar y flashear",
+            font=('', 10, 'bold'), bg='#1565C0', fg='white',
+            command=self._on_scan_clicked,
+        )
+        self._scan_btn.pack(side='left')
+
+        self._scan_status = tk.Label(ctrl_frame, text="Listo", anchor='w', fg='#757575')
+        self._scan_status.pack(side='left', padx=8)
+
+        ttk.Separator(parent, orient='horizontal').pack(fill='x', padx=12, pady=4)
+
+        # Slots (reuse _Slot with IP as the "port" display string)
+        for i in range(NUM_SLOTS):
+            self._slots.append(_Slot(parent, i, 'Flash.Horizontal.TProgressbar'))
+
+    def _on_scan_clicked(self) -> None:
+        self._scan_btn.configure(state='disabled')
+        self._scan_status.configure(text="Escaneando red…", fg='#E65100')
+        for slot in self._slots:
+            slot.reset()
+        self._log_cb("Iniciando búsqueda de dispositivos por WiFi…", 'info')
+        threading.Thread(target=self._scan_thread, daemon=True).start()
+
+    def _scan_thread(self) -> None:
+        from wifi_flasher import discover_boards
+        try:
+            boards = discover_boards(timeout_s=5.0)
+        except Exception as exc:
+            boards = []
+            self._root.after(0, self._log_cb, f"Error durante el escaneo: {exc}", 'error')
+        self._root.after(0, self._on_scan_done, boards)
+
+    def _on_scan_done(self, boards: list) -> None:
+        if not boards:
+            self._scan_status.configure(text="No se encontraron dispositivos", fg='#C62828')
+            self._log_cb("No se encontraron dispositivos IncuNest en la red.", 'info')
+            self._scan_btn.configure(state='normal')
+            return
+
+        n = len(boards)
+        plural = 's' if n > 1 else ''
+        self._scan_status.configure(
+            text=f"{n} dispositivo{plural} encontrado{plural}", fg='#2E7D32',
+        )
+        self._log_cb(f"{n} dispositivo(s) encontrado(s) por WiFi.", 'success')
+        self._active_flashes = 0
+
+        for i, wb in enumerate(boards[:NUM_SLOTS]):
+            self._slots[i].assign(wb.ip, wb.board)
+            self._log_cb(
+                f"{wb.board.value} en {wb.ip} (FW {wb.fw_version}) → slot {i + 1}", 'info',
+            )
+            self._tick_slot(i)
+            self._active_flashes += 1
+            threading.Thread(
+                target=self._flash_thread, args=(wb, i), daemon=True,
+            ).start()
+
+    def _tick_slot(self, slot_idx: int) -> None:
+        if self._slots[slot_idx].tick():
+            self._root.after(500, self._tick_slot, slot_idx)
+
+    def _flash_thread(self, wb, slot_idx: int) -> None:
+        from wifi_flasher import flash_board_wifi
+        progress_cb = self._make_progress_cb(slot_idx)
+        try:
+            flash_board_wifi(wb.ip, wb.board, self._firmware_base, progress_cb)
+            self._root.after(0, self._on_flash_ok, wb, slot_idx)
+        except Exception as exc:
+            self._root.after(0, self._on_flash_err, str(exc), wb, slot_idx)
+
+    def _make_progress_cb(self, slot_idx: int):
+        def cb(msg: str, pct: Optional[int]) -> None:
+            self._root.after(0, self._update_slot_progress, slot_idx, msg, pct)
+        return cb
+
+    def _update_slot_progress(self, slot_idx: int, msg: str, pct: Optional[int]) -> None:
+        if msg.strip():
+            self._log_cb(msg)
+        self._slots[slot_idx].update_progress(pct)
+
+    def _on_flash_ok(self, wb, slot_idx: int) -> None:
+        self._log_cb(f"¡{wb.board.value} en {wb.ip} flasheado con éxito!", 'success')
+        self._slots[slot_idx].set_done()
+        self._active_flashes -= 1
+        self._root.after(SLOT_CLEAR_DELAY_S * 1000, self._clear_slot, slot_idx)
+        if self._active_flashes <= 0:
+            self._scan_status.configure(text="Completado", fg='#2E7D32')
+            self._scan_btn.configure(state='normal')
+
+    def _on_flash_err(self, msg: str, wb, slot_idx: int) -> None:
+        self._log_cb(f"Flash WiFi de {wb.board.value} ({wb.ip}) fallido.\n{msg}", 'error')
+        self._slots[slot_idx].set_error()
+        self._active_flashes -= 1
+        self._root.after(SLOT_CLEAR_DELAY_S * 1000, self._clear_slot, slot_idx)
+        if self._active_flashes <= 0:
+            self._scan_btn.configure(state='normal')
+
+    def _clear_slot(self, slot_idx: int) -> None:
+        self._slots[slot_idx].reset()
 
 
 class FlasherApp:
