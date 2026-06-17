@@ -39,6 +39,7 @@ a = Analysis(
         'zeroconf._services.browser',
         'zeroconf._handlers',
         'ifaddr',
+        'requests_toolbelt',
     ],
     hookspath=[],
     hooksconfig={},

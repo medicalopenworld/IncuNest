@@ -3,12 +3,13 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from concurrent.futures import TimeoutError as FuturesTimeout
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
 import requests
 from requests.auth import HTTPBasicAuth
+from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
 
 from detector import Board
 
@@ -81,44 +82,6 @@ def _resolve_hostname(ip: str) -> str:
     return result[0]
 
 
-class _ProgressFile:
-    """Wraps a firmware binary and reports upload progress via progress_cb on each read()."""
-
-    def __init__(self, path: Path, cb: Callable[[str, Optional[int]], None]) -> None:
-        self._f = open(path, 'rb')
-        self._size = path.stat().st_size
-        self._sent = 0
-        self._cb = cb
-
-    def read(self, n: int = -1) -> bytes:
-        data = self._f.read(n)
-        if data and self._size:
-            self._sent = min(self._sent + len(data), self._size)
-            pct = int(self._sent * 98 / self._size)  # 99 is reserved for server-confirmed OK
-            self._cb('', pct)
-        return data
-
-    def __len__(self) -> int:
-        return self._size
-
-    def seek(self, offset: int, whence: int = 0) -> int:
-        pos = self._f.seek(offset, whence)
-        self._sent = self._f.tell()
-        return pos
-
-    def tell(self) -> int:
-        return self._f.tell()
-
-    def close(self) -> None:
-        self._f.close()
-
-    def __enter__(self) -> '_ProgressFile':
-        return self
-
-    def __exit__(self, *_: object) -> None:
-        self.close()
-
-
 def flash_board_wifi(
     ip: str,
     board: Board,
@@ -128,6 +91,7 @@ def flash_board_wifi(
 ) -> None:
     """Flash firmware.bin to an ESP32 via HTTP OTA POST /update.
 
+    Uses MultipartEncoderMonitor for real network-level progress (0–98%).
     Tries auth credentials in order: incunestadmin, in3admin, None (MB only).
     Raises RuntimeError on auth failure, FAIL response, or unexpected response.
     """
@@ -138,10 +102,18 @@ def flash_board_wifi(
     progress_cb('Conectando…', None)
 
     for auth in _AUTH_SEQUENCES[board]:
-        with _ProgressFile(fw_path, progress_cb) as pf:
+        with open(fw_path, 'rb') as fw_file:
+            encoder = MultipartEncoder(
+                fields={'update': ('firmware.bin', fw_file, 'application/octet-stream')}
+            )
+            monitor = MultipartEncoderMonitor(
+                encoder,
+                lambda m: progress_cb('', int(m.bytes_read * 98 / m.len)),
+            )
             resp = requests.post(
                 f'http://{ip}/update',
-                files={'update': ('firmware.bin', pf, 'application/octet-stream')},
+                data=monitor,
+                headers={'Content-Type': monitor.content_type},
                 auth=auth,
                 timeout=timeout_s,
             )
