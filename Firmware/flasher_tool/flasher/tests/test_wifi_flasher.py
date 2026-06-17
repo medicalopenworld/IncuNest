@@ -155,9 +155,9 @@ class TestIdentifyBoardType:
         with patch('wifi_flasher.requests.get', return_value=r):
             assert _identify_board_type('192.168.1.6') == Board.MOTHERBOARD
 
-    def test_motherboard_on_connection_error(self):
+    def test_returns_none_on_connection_error(self):
         with patch('wifi_flasher.requests.get', side_effect=Exception('refused')):
-            assert _identify_board_type('192.168.1.7') == Board.MOTHERBOARD
+            assert _identify_board_type('192.168.1.7') is None
 
 
 class TestDiscoverBoards:

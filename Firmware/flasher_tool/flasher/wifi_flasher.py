@@ -17,6 +17,8 @@ _BOARD_FOLDER: dict[Board, str] = {
     Board.DISPLAY_HMI: 'display_hmi',
 }
 
+# Credentials are intentionally embedded: this is a factory-floor tool used on a
+# local network. The same credentials are compiled into the ESP32 firmware.
 _AUTH_SEQUENCES: dict[Board, list] = {
     Board.DISPLAY_HMI: [
         HTTPBasicAuth('incunestadmin', 'savinglives'),
@@ -100,15 +102,21 @@ def _get_fw_version(ip: str, timeout: float = 2.0) -> str:
     return '?'
 
 
-def _identify_board_type(ip: str, timeout: float = 0.5) -> Board:
-    """Determine board type by probing /get_freq (Display HMI only endpoint)."""
+def _identify_board_type(ip: str, timeout: float = 0.5) -> Optional[Board]:
+    """Return board type by probing /get_freq (Display HMI only).
+
+    Returns None when the response is ambiguous (connection error or unexpected
+    status), so _probe_ip can skip the host rather than risk flashing wrong firmware.
+    """
     try:
         resp = requests.get(f'http://{ip}/get_freq', timeout=timeout)
         if resp.status_code == 200:
             return Board.DISPLAY_HMI
+        if resp.status_code == 404:
+            return Board.MOTHERBOARD
     except Exception:
         pass
-    return Board.MOTHERBOARD
+    return None
 
 
 def _discover_mdns(timeout_s: float) -> list[WifiBoard]:
@@ -151,9 +159,11 @@ def _local_subnet() -> str:
     Falls back to Windows hotspot default '192.168.137' on failure."""
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(('8.8.8.8', 80))
-        ip = s.getsockname()[0]
-        s.close()
+        try:
+            s.connect(('8.8.8.8', 80))
+            ip = s.getsockname()[0]
+        finally:
+            s.close()
         if not ip.startswith('127.'):
             return ip.rsplit('.', 1)[0]
     except Exception:
@@ -169,6 +179,8 @@ def _probe_ip(ip: str) -> Optional[WifiBoard]:
             return None
         fw_version = resp.json().get('version', '?')
         board = _identify_board_type(ip)
+        if board is None:
+            return None
         return WifiBoard(ip=ip, board=board, fw_version=fw_version)
     except Exception:
         return None
@@ -191,7 +203,8 @@ def _discover_subnet(timeout_s: float) -> list[WifiBoard]:
                 except Exception:
                     pass
         except FuturesTimeout:
-            pass
+            for f in futures:
+                f.cancel()
 
     return results
 

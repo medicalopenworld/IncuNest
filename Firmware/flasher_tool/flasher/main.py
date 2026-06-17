@@ -277,15 +277,15 @@ class _WifiTab:
             text=f"{n} dispositivo{plural} encontrado{plural}", fg='#2E7D32',
         )
         self._log_cb(f"{n} dispositivo(s) encontrado(s) por WiFi.", 'success')
-        self._active_flashes = 0
+        boards_to_flash = boards[:NUM_SLOTS]
+        self._active_flashes = len(boards_to_flash)
 
-        for i, wb in enumerate(boards[:NUM_SLOTS]):
+        for i, wb in enumerate(boards_to_flash):
             self._slots[i].assign(wb.ip, wb.board)
             self._log_cb(
                 f"{wb.board.value} en {wb.ip} (FW {wb.fw_version}) → slot {i + 1}", 'info',
             )
             self._tick_slot(i)
-            self._active_flashes += 1
             threading.Thread(
                 target=self._flash_thread, args=(wb, i), daemon=True,
             ).start()
@@ -398,7 +398,7 @@ class FlasherApp:
         for i in range(NUM_SLOTS):
             self._slots.append(_Slot(usb_frame, i, 'Flash.Horizontal.TProgressbar'))
 
-        # WiFi tab (stub — logic added in Task 5)
+        # WiFi tab
         wifi_frame = tk.Frame(notebook)
         notebook.add(wifi_frame, text='  WiFi  ')
         self._wifi_tab = _WifiTab(wifi_frame, self.root, self._log_line, get_firmware_base())
