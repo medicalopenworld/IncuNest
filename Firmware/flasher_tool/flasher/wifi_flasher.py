@@ -147,10 +147,13 @@ def flash_board_wifi(
             )
         if resp.status_code == 401:
             continue
-        body = resp.text.strip()
+        try:
+            body = resp.text.strip()
+        except Exception:
+            body = ''  # ESP32 reset TCP mid-response after restart — treat 200 as success
         if body == 'FAIL':
             raise RuntimeError(f'El dispositivo reportó FAIL ({ip})')
-        if body != 'OK':
+        if body not in ('OK', ''):
             raise RuntimeError(f'Respuesta inesperada ({ip}): {body[:50]}')
         progress_cb('', 99)
         return
@@ -310,13 +313,23 @@ def _discover_subnet(timeout_s: float) -> list[WifiBoard]:
 
 
 def discover_boards(timeout_s: float = 5.0) -> list[WifiBoard]:
-    """Discover IncuNest boards: mDNS first, subnet scan as fallback."""
+    """Discover IncuNest boards via mDNS + subnet scan, merged and deduplicated.
+
+    Both scans always run: mDNS may find devices with the new firmware while older
+    devices (no MDNS.addService) are only reachable via subnet scan.
+    """
+    mdns_results: list[WifiBoard] = []
     try:
         mdns_results = _discover_mdns(timeout_s / 2)
     except Exception:
-        mdns_results = []
+        pass
 
-    if mdns_results:
-        return mdns_results
+    subnet_results = _discover_subnet(timeout_s / 2)
 
-    return _discover_subnet(timeout_s / 2)
+    # Prefer mDNS entries (carry hostname + sn); fill in IPs only seen by subnet scan
+    seen_ips = {wb.ip for wb in mdns_results}
+    combined = list(mdns_results)
+    for wb in subnet_results:
+        if wb.ip not in seen_ips:
+            combined.append(wb)
+    return combined

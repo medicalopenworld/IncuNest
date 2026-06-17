@@ -183,19 +183,42 @@ class TestIdentifyBoardType:
 
 
 class TestDiscoverBoards:
-    def _make_wifi_board(self, ip, board):
-        return WifiBoard(ip=ip, board=board, fw_version='2.2.0', hostname='')
+    def _make_wifi_board(self, ip, board, hostname=''):
+        return WifiBoard(ip=ip, board=board, fw_version='2.2.0', hostname=hostname)
 
-    def test_mdns_results_returned_without_subnet_scan(self):
+    def test_both_scans_always_run(self):
         mb = self._make_wifi_board('192.168.1.5', Board.MOTHERBOARD)
         with patch('wifi_flasher._discover_mdns', return_value=[mb]) as mock_mdns, \
-             patch('wifi_flasher._discover_subnet') as mock_subnet:
+             patch('wifi_flasher._discover_subnet', return_value=[]) as mock_subnet:
             result = discover_boards(timeout_s=1.0)
 
         assert result == [mb]
-        mock_subnet.assert_not_called()
+        mock_mdns.assert_called_once()
+        mock_subnet.assert_called_once()
 
-    def test_empty_mdns_triggers_subnet_scan(self):
+    def test_merges_mdns_and_subnet_results(self):
+        hmi = self._make_wifi_board('192.168.137.10', Board.DISPLAY_HMI, hostname='IncuNest_Display-5')
+        mb = self._make_wifi_board('192.168.137.11', Board.MOTHERBOARD)
+        with patch('wifi_flasher._discover_mdns', return_value=[hmi]), \
+             patch('wifi_flasher._discover_subnet', return_value=[mb]):
+            result = discover_boards(timeout_s=1.0)
+
+        assert len(result) == 2
+        ips = {wb.ip for wb in result}
+        assert '192.168.137.10' in ips
+        assert '192.168.137.11' in ips
+
+    def test_deduplicates_same_ip_mdns_wins(self):
+        mdns_entry = self._make_wifi_board('192.168.1.5', Board.MOTHERBOARD, hostname='IncuNest-3')
+        subnet_entry = self._make_wifi_board('192.168.1.5', Board.MOTHERBOARD)
+        with patch('wifi_flasher._discover_mdns', return_value=[mdns_entry]), \
+             patch('wifi_flasher._discover_subnet', return_value=[subnet_entry]):
+            result = discover_boards(timeout_s=1.0)
+
+        assert len(result) == 1
+        assert result[0].hostname == 'IncuNest-3'
+
+    def test_empty_mdns_still_runs_subnet_scan(self):
         hmi = self._make_wifi_board('192.168.137.10', Board.DISPLAY_HMI)
         with patch('wifi_flasher._discover_mdns', return_value=[]), \
              patch('wifi_flasher._discover_subnet', return_value=[hmi]):
@@ -203,7 +226,7 @@ class TestDiscoverBoards:
 
         assert result == [hmi]
 
-    def test_mdns_exception_falls_back_to_subnet_scan(self):
+    def test_mdns_exception_still_runs_subnet_scan(self):
         mb = self._make_wifi_board('192.168.1.1', Board.MOTHERBOARD)
         with patch('wifi_flasher._discover_mdns', side_effect=Exception('zeroconf error')), \
              patch('wifi_flasher._discover_subnet', return_value=[mb]):

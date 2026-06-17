@@ -472,6 +472,7 @@ void configWifiServer() {
         }
         wifiServer.sendHeader("Connection", "close");
         wifiServer.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
+        delay(500); // let TCP stack flush the response before hardware reset
         ESP.restart();
       },
       []() {
