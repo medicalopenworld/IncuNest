@@ -21,6 +21,9 @@
 
 #define WIFI_SSID "myssid"
 #define WIFI_PASSWORD "mypassword"
+
+#define WEB_SERVER_USERNAME "incunest"
+#define WEB_SERVER_PASSWORD "changeme"
 #endif
 
 #endif // _CREDENTIALS_PUBLIC_H_
