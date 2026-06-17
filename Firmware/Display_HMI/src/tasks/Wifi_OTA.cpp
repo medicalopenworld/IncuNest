@@ -157,6 +157,7 @@ void wifiInit(void) {
                (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
       MDNS.begin(wifiHost);
+      MDNS.addService("http", "tcp", 80);
       // If new credentials are pending, schedule their EEPROM save.
       if (pendingSSID[0] != '\0') {
         s_persistCredentials = true;

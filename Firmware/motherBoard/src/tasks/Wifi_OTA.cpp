@@ -352,6 +352,7 @@ void configWifiServer() {
   if (!MDNS.begin(wifiHost)) { // http://esp32.local
     logI("Error setting up MDNS responder!");
   }
+  MDNS.addService("http", "tcp", 80);
   logI("mDNS responder started");
   /*return index page which is stored in ServerIndex */
   wifiServer.on("/", HTTP_GET, []() {

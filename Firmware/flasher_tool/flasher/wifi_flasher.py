@@ -154,9 +154,31 @@ def _discover_mdns(timeout_s: float) -> list[WifiBoard]:
     ]
 
 
-def _local_subnet() -> str:
-    """Return the first two octets + third of the local IP (e.g. '192.168.137').
-    Falls back to Windows hotspot default '192.168.137' on failure."""
+def _local_subnets() -> list[str]:
+    """Return /24 subnet prefixes for every local non-loopback IPv4 interface.
+
+    Uses ifaddr to enumerate all adapters so the hotspot interface (e.g.
+    192.168.137.x) is included even when the PC also has internet access on a
+    different adapter.  Falls back to the socket routing trick, then to the
+    Windows hotspot default '192.168.137'.
+    """
+    try:
+        import ifaddr
+        seen: list[str] = []
+        for adapter in ifaddr.get_adapters():
+            for ip_info in adapter.ips:
+                if not isinstance(ip_info.ip, str):
+                    continue  # skip IPv6 tuples
+                if ip_info.ip.startswith('127.') or ip_info.ip == '0.0.0.0':
+                    continue
+                base = ip_info.ip.rsplit('.', 1)[0]
+                if base not in seen:
+                    seen.append(base)
+        if seen:
+            return seen
+    except Exception:
+        pass
+    # socket fallback: finds only the internet-facing interface
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
@@ -165,10 +187,10 @@ def _local_subnet() -> str:
         finally:
             s.close()
         if not ip.startswith('127.'):
-            return ip.rsplit('.', 1)[0]
+            return [ip.rsplit('.', 1)[0]]
     except Exception:
         pass
-    return '192.168.137'
+    return ['192.168.137']
 
 
 def _probe_ip(ip: str) -> Optional[WifiBoard]:
@@ -187,9 +209,9 @@ def _probe_ip(ip: str) -> Optional[WifiBoard]:
 
 
 def _discover_subnet(timeout_s: float) -> list[WifiBoard]:
-    """Scan all 254 hosts in the local /24 subnet concurrently."""
-    base = _local_subnet()
-    ips = [f'{base}.{i}' for i in range(1, 255)]
+    """Scan all 254 hosts across every local /24 subnet concurrently."""
+    subnets = _local_subnets()
+    ips = [f'{base}.{i}' for base in subnets for i in range(1, 255)]
     results: list[WifiBoard] = []
 
     with ThreadPoolExecutor(max_workers=50) as ex:
