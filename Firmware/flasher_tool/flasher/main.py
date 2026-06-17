@@ -217,11 +217,24 @@ class _SerialNumberDialog:
             self._top.destroy()
 
 
+class _WifiTab:
+    """WiFi OTA tab — stub placeholder, logic added in Task 5."""
+
+    def __init__(self, parent: tk.Widget, root: tk.Tk, log_cb, firmware_base: Path) -> None:
+        self._root = root
+        self._log_cb = log_cb
+        self._firmware_base = firmware_base
+        self._slots: list[_Slot] = []
+
+        tk.Label(parent, text="WiFi OTA — próximamente",
+                 fg='#9E9E9E', font=('', 10)).pack(pady=20)
+
+
 class FlasherApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("IncuNest Firmware Flasher")
-        self.root.geometry("480x580")
+        self.root.geometry("480x660")
         self.root.resizable(False, False)
 
         self._slots: list[_Slot] = []
@@ -259,7 +272,7 @@ class FlasherApp:
 
         ttk.Separator(self.root, orient='horizontal').pack(fill='x', padx=12)
 
-        # --- Status banner ---
+        # --- Status banner (shared) ---
         self._status_label = tk.Label(
             self.root, text="⏳  Conecta un dispositivo para comenzar…",
             anchor='w', font=('', 10), fg='#757575',
@@ -268,13 +281,25 @@ class FlasherApp:
 
         ttk.Separator(self.root, orient='horizontal').pack(fill='x', padx=12, pady=2)
 
-        # --- Device slots ---
+        # --- Notebook ---
         style = ttk.Style()
         style.configure('Flash.Horizontal.TProgressbar', thickness=18)
-        for i in range(NUM_SLOTS):
-            self._slots.append(_Slot(self.root, i, 'Flash.Horizontal.TProgressbar'))
 
-        # --- Log area ---
+        notebook = ttk.Notebook(self.root)
+        notebook.pack(fill='x', padx=0, pady=0)
+
+        # USB tab
+        usb_frame = tk.Frame(notebook)
+        notebook.add(usb_frame, text='  USB  ')
+        for i in range(NUM_SLOTS):
+            self._slots.append(_Slot(usb_frame, i, 'Flash.Horizontal.TProgressbar'))
+
+        # WiFi tab (stub — logic added in Task 5)
+        wifi_frame = tk.Frame(notebook)
+        notebook.add(wifi_frame, text='  WiFi  ')
+        self._wifi_tab = _WifiTab(wifi_frame, self.root, self._log_line, get_firmware_base())
+
+        # --- Log area (shared, outside notebook) ---
         self._log = scrolledtext.ScrolledText(
             self.root, height=7, state='disabled', font=('Courier', 9),
         )
