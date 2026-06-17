@@ -1,4 +1,3 @@
-import glob
 import json
 import shutil
 import sys
@@ -365,13 +364,15 @@ class _WifiTab:
                 ('display_hmi', repo_root / 'Display_HMI' / '.pio' / 'build'),
                 ('motherboard', repo_root / 'motherBoard' / '.pio' / 'build'),
             ]:
+                if not pio_dir.is_dir():
+                    continue
                 candidates = sorted(
-                    glob.glob(str(pio_dir / '*' / 'firmware.bin')),
-                    key=lambda p: Path(p).stat().st_mtime,
+                    pio_dir.glob('*/firmware.bin'),
+                    key=lambda p: p.stat().st_mtime,
                     reverse=True,
                 )
                 if candidates:
-                    sources[board_folder] = Path(candidates[0])
+                    sources[board_folder] = candidates[0]
             return sources
         except Exception:
             return {}
