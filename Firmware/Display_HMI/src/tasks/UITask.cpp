@@ -136,6 +136,7 @@ ui_lang_t g_lang = LANG_EN;
 int photoTimerMinutes = PHOTO_TIMER_DEFAULT_MINUTES;
 bool photoTimerActive = false;
 unsigned long photoTimerStartMs = 0;
+static bool g_photo_safety_confirmed = false;
 static int lastPhotoMinutesSent = -1;
 
 Alarm alarmList[MAX_ALARMS];
@@ -513,6 +514,25 @@ const char *getConnectivityString(int status, ui_lang_t lang) {
   }
 }
 
+static void photo_safety_apply_language(ui_lang_t lang) {
+  if (!ui_PhotoSafetyModal)
+    return;
+  lv_label_set_text(ui_PhotoSafetyTitleLabel,
+      (lang == LANG_ES)   ? "PROTECCION OCULAR OBLIGATORIA"
+      : (lang == LANG_FR) ? "PROTECTION OCULAIRE OBLIGATOIRE"
+                          : "EYE PROTECTION REQUIRED");
+  lv_label_set_text(ui_PhotoSafetyBodyLabel,
+      (lang == LANG_ES)
+          ? "Coloque proteccion ocular al paciente\nantes de activar la fototerapia."
+      : (lang == LANG_FR)
+          ? "Protegez les yeux du patient avec des\nlunettes adaptees avant d'activer\nla phototherapie."
+          : "Protect the patient's eyes with eye\nshields before activating phototherapy.");
+  lv_label_set_text(ui_PhotoSafetyTurnOnLabel,
+      (lang == LANG_ES)   ? "ENCENDER"
+      : (lang == LANG_FR) ? "ACTIVER"
+                          : "TURN ON");
+}
+
 static void autoair_apply_language(ui_lang_t lang) {
   if (!ui_AutoAirModal)
     return; // popup not created yet
@@ -745,6 +765,7 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   }
 
   autoair_apply_language(lang);
+  photo_safety_apply_language(lang);
 
   update_labels();
   UI_SyncAll();
@@ -1250,12 +1271,6 @@ static void autoair_popup_update_labels() {
     lv_label_set_text(ui_AutoAirDaysUnitLbl, "DAYS");
   lv_label_set_text(ui_AutoAirDaysVal, buf);
   aa_update_range_display();
-  // Persist popup values
-  { Preferences p; p.begin(HMI_NS_CFG, false);
-    p.putUShort(HMI_KEY_AA_WEIGHT, (uint16_t)g_popupWeight);
-    p.putUChar (HMI_KEY_AA_GEST,   (uint8_t)g_popupGest);
-    p.putUShort(HMI_KEY_AA_AGE_H,  (uint16_t)g_popupAgeHours);
-    p.end(); }
   eepromDirty = true;
   lastVarChangeTime = millis();
 }
@@ -1276,6 +1291,63 @@ static void autoair_popup_show(bool show) {
   } else {
     lv_obj_add_flag(ui_AutoAirOverlay, LV_OBJ_FLAG_HIDDEN);
   }
+}
+
+static void photo_safety_popup_show(bool show) {
+  if (!ui_PhotoSafetyOverlay)
+    return;
+  if (show) {
+    photo_safety_apply_language(g_lang);
+    lv_obj_clear_flag(ui_PhotoSafetyOverlay, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(ui_PhotoSafetyOverlay);
+  } else {
+    lv_obj_add_flag(ui_PhotoSafetyOverlay, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+void photo_safety_overlay_cb(lv_event_t *e) {
+  if (lv_event_get_target(e) == ui_PhotoSafetyOverlay)
+    photo_safety_popup_show(false);
+}
+
+void photo_turnon_cb(lv_event_t *) {
+  photo_safety_popup_show(false);
+  g_photo_safety_confirmed = true;
+  ui_set_switch_state_silent(ui_Switch3, true);
+  lv_event_send(ui_Switch3, LV_EVENT_VALUE_CHANGED, NULL);
+}
+
+static void update_main_toggle_buttons() {
+  if (!ui_TempToggleBtn || !ui_HumToggleBtn || !ui_PhotoToggleBtn)
+    return;
+
+  bool t = lv_obj_has_state(ui_Switch1, LV_STATE_CHECKED);
+  bool h = lv_obj_has_state(ui_Switch2, LV_STATE_CHECKED);
+  bool p = lv_obj_has_state(ui_Switch3, LV_STATE_CHECKED);
+
+  lv_color_t bg, txt;
+  lv_obj_t  *lbl;
+
+  bg  = t ? lv_color_hex(0xFFAE84) : lv_color_hex(0x3A3A4A);
+  txt = t ? lv_color_hex(0x1A1010) : lv_color_hex(0xFFFFFF);
+  lv_obj_set_style_bg_color(ui_TempToggleBtn, bg, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_color(ui_TempToggleBtn, bg, LV_PART_MAIN | LV_STATE_PRESSED);
+  lbl = lv_obj_get_child(ui_TempToggleBtn, 0);
+  if (lbl) { lv_label_set_text(lbl, t ? "ON" : "OFF"); lv_obj_set_style_text_color(lbl, txt, 0); }
+
+  bg  = h ? lv_color_hex(0xFFAE84) : lv_color_hex(0x3A3A4A);
+  txt = h ? lv_color_hex(0x1A1010) : lv_color_hex(0xFFFFFF);
+  lv_obj_set_style_bg_color(ui_HumToggleBtn, bg, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_color(ui_HumToggleBtn, bg, LV_PART_MAIN | LV_STATE_PRESSED);
+  lbl = lv_obj_get_child(ui_HumToggleBtn, 0);
+  if (lbl) { lv_label_set_text(lbl, h ? "ON" : "OFF"); lv_obj_set_style_text_color(lbl, txt, 0); }
+
+  bg  = p ? lv_color_hex(0xFFAE84) : lv_color_hex(0x3A3A4A);
+  txt = p ? lv_color_hex(0x1A1010) : lv_color_hex(0xFFFFFF);
+  lv_obj_set_style_bg_color(ui_PhotoToggleBtn, bg, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_color(ui_PhotoToggleBtn, bg, LV_PART_MAIN | LV_STATE_PRESSED);
+  lbl = lv_obj_get_child(ui_PhotoToggleBtn, 0);
+  if (lbl) { lv_label_set_text(lbl, p ? "ON" : "OFF"); lv_obj_set_style_text_color(lbl, txt, 0); }
 }
 
 // Popup spinbox callbacks
@@ -1662,9 +1734,6 @@ void PhotoTimeMinusBtn_cb(lv_event_t *e) {
   snprintf(buf, sizeof(buf), "%d:%02d", photoTimerMinutes / SECONDS_PER_MINUTE,
            photoTimerMinutes % SECONDS_PER_MINUTE);
   lv_label_set_text(ui_PhotoTimeValueLabel, buf);
-
-  // Persist last used timer
-  { Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_PHOTO_MIN, (uint8_t)photoTimerMinutes); p.end(); }
   eepromDirty = true;
   lastVarChangeTime = millis();
 }
@@ -1682,9 +1751,6 @@ void PhotoTimePlusBtn_cb(lv_event_t *e) {
   snprintf(buf, sizeof(buf), "%d:%02d", photoTimerMinutes / SECONDS_PER_MINUTE,
            photoTimerMinutes % SECONDS_PER_MINUTE);
   lv_label_set_text(ui_PhotoTimeValueLabel, buf);
-
-  // Persist last used timer
-  { Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_PHOTO_MIN, (uint8_t)photoTimerMinutes); p.end(); }
   eepromDirty = true;
   lastVarChangeTime = millis();
 }
@@ -1713,6 +1779,24 @@ void PhotoCancelBtn_cb(lv_event_t *e) {
   // Update visual state via SyncAll (this handles colors, labels and "X"
   // visibility)
   UI_SyncAll();
+}
+
+void temp_content_set_visible(bool visible) {
+  lv_obj_t *widgets[] = {
+      ui_Panel1,        ui_AirPanelCont,     ui_ArrowDownTemp,
+      ui_ArrowUpTemp,   ui_ImgArrowDownTemp, ui_ImgArrowUpTemp,
+      ui_Label6,        ui_TempButton,       ui_AutoAirBtn
+  };
+  for (auto w : widgets) {
+    if (!w) continue;
+    if (visible) lv_obj_clear_flag(w, LV_OBJ_FLAG_HIDDEN);
+    else         lv_obj_add_flag(w, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (ui_SkinPanelCont) {
+    bool showSkin = visible && skinPanelEnabled;
+    if (showSkin) lv_obj_clear_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
+    else          lv_obj_add_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
+  }
 }
 
 /* Switch callback for temperature and humidity */
@@ -1792,6 +1876,7 @@ void Switch_cb(lv_event_t *e) {
       lv_obj_set_style_opa(ui_AirPanel, LV_OPA_COVER, LV_PART_MAIN);
       lv_obj_set_style_opa(ui_SkinPanel, LV_OPA_COVER, LV_PART_MAIN);
     }
+    temp_content_set_visible(checked);
   } else if (obj == ui_Switch2) { // HUMIDITY SWITCH
     switchHum = checked;
     humSwitched = checked;
@@ -1842,6 +1927,14 @@ void Switch_cb(lv_event_t *e) {
     bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
 
     if (checked) {
+      // Show safety popup unless already confirmed via it
+      if (!g_photo_safety_confirmed) {
+        ui_set_switch_state_silent(ui_Switch3, false);
+        photo_safety_popup_show(true);
+        return;
+      }
+      g_photo_safety_confirmed = false; // reset for next activation
+
       // Active state on Motherboard immediately
       hmi_msg.phototherapyMode = PHOTOTHERAPY_ON;
       hmi_msg.shouldSendData = true;
@@ -1879,6 +1972,8 @@ void Switch_cb(lv_event_t *e) {
         lv_obj_set_style_bg_color(ui_PhotoStartBtn, lv_color_hex(0x888888),
                                   LV_PART_MAIN | LV_STATE_DEFAULT);
       }
+      if (ui_PhotoTimerCont)
+        lv_obj_clear_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN);
     } else {
       // OFF / Grayed out
       hmi_msg.phototherapyMode = PHOTOTHERAPY_OFF;
@@ -1907,6 +2002,9 @@ void Switch_cb(lv_event_t *e) {
 
       if (ui_PhotoCancelBtn)
         lv_obj_add_flag(ui_PhotoCancelBtn, LV_OBJ_FLAG_HIDDEN);
+
+      if (ui_PhotoTimerCont)
+        lv_obj_add_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN);
 
       photoTimerActive = false;
     }
@@ -2727,7 +2825,10 @@ void LockScreenAnyTouch_cb(lv_event_t *e) {
   if (lv_scr_act() != ui_ScreenLock)
     return;
   lv_obj_t *origin = lv_event_get_target(e);
-  if (origin != ui_ScreenLock)
+  if (origin != ui_ScreenLock &&
+      origin != ui_LockPPGChart &&
+      origin != ui_LockHRCont &&
+      origin != ui_LockPICont)
     return;
 
   bool unlockVisible = !lv_obj_has_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
@@ -2853,6 +2954,30 @@ void Label10_cb(lv_event_t *e) {
 
 void Label17_cb(lv_event_t *e) {
   lv_obj_clear_state(ui_Switch3, LV_STATE_CHECKED);
+  lv_event_send(ui_Switch3, LV_EVENT_VALUE_CHANGED, NULL);
+}
+
+void TempToggleBtn_cb(lv_event_t *) {
+  if (lv_obj_has_state(ui_Switch1, LV_STATE_CHECKED))
+    lv_obj_clear_state(ui_Switch1, LV_STATE_CHECKED);
+  else
+    lv_obj_add_state(ui_Switch1, LV_STATE_CHECKED);
+  lv_event_send(ui_Switch1, LV_EVENT_VALUE_CHANGED, NULL);
+}
+
+void HumToggleBtn_cb(lv_event_t *) {
+  if (lv_obj_has_state(ui_Switch2, LV_STATE_CHECKED))
+    lv_obj_clear_state(ui_Switch2, LV_STATE_CHECKED);
+  else
+    lv_obj_add_state(ui_Switch2, LV_STATE_CHECKED);
+  lv_event_send(ui_Switch2, LV_EVENT_VALUE_CHANGED, NULL);
+}
+
+void PhotoToggleBtn_cb(lv_event_t *) {
+  if (lv_obj_has_state(ui_Switch3, LV_STATE_CHECKED))
+    lv_obj_clear_state(ui_Switch3, LV_STATE_CHECKED);
+  else
+    lv_obj_add_state(ui_Switch3, LV_STATE_CHECKED);
   lv_event_send(ui_Switch3, LV_EVENT_VALUE_CHANGED, NULL);
 }
 
@@ -3143,7 +3268,6 @@ void UI_Task(void *pvParameters) {
     panel_cfg.num_fbs = 1;
     panel_cfg.bounce_buffer_size_px = BOUNCE_BUF_SIZE_PX;
     panel_cfg.psram_trans_align = 64;
-    panel_cfg.sram_trans_align = 4;
     panel_cfg.flags.fb_in_psram = 1;         // Framebuffer en PSRAM
     panel_cfg.flags.bb_invalidate_cache = 0; // DMA usa bounce buffer completo
 
@@ -3354,6 +3478,11 @@ void UI_Task(void *pvParameters) {
   // --- AUTO AIR button & popup (UI-AUTOAIR-001..010) ---
   create_autoair_button();
   create_autoair_popup();
+
+  // --- Phototherapy safety confirmation popup (ISO 7010 M025) ---
+  create_photo_safety_popup();
+  // --- Replace slider switches with single toggle buttons ---
+  create_main_toggle_buttons();
   // Restore last-used Auto Air values from Preferences
   {
     uint16_t w = 0; uint8_t g = 0; uint16_t a = 0;
@@ -3824,9 +3953,13 @@ void UI_Task(void *pvParameters) {
     if (doNVSWrite) {
       Preferences p;
       p.begin(HMI_NS_CFG, false);
-      p.putFloat(HMI_KEY_AIR_TEMP, (float)airTempValue);
-      p.putFloat(HMI_KEY_SKIN_TEMP, (float)skinTempValue);
-      p.putUChar(HMI_KEY_HUMIDITY, (uint8_t)humValue);
+      p.putFloat(HMI_KEY_AIR_TEMP,   (float)airTempValue);
+      p.putFloat(HMI_KEY_SKIN_TEMP,  (float)skinTempValue);
+      p.putUChar(HMI_KEY_HUMIDITY,   (uint8_t)humValue);
+      p.putUShort(HMI_KEY_AA_WEIGHT, (uint16_t)g_popupWeight);
+      p.putUChar (HMI_KEY_AA_GEST,   (uint8_t)g_popupGest);
+      p.putUShort(HMI_KEY_AA_AGE_H,  (uint16_t)g_popupAgeHours);
+      p.putUChar(HMI_KEY_PHOTO_MIN,  (uint8_t)photoTimerMinutes);
       p.end();
       ESP_LOGI(TAG, "Preferences write cycle complete");
     }
@@ -4232,6 +4365,7 @@ void UI_SyncAll() {
   hmi_msg.language = (int)g_lang;
   update_labels();
   autoair_update_button_style(); // ARQ-AUTOAIR-005: keep button style in sync
+  update_main_toggle_buttons();
 }
 
 static void UI_ApplyStyleToLabelsRecursive(lv_obj_t *obj, lv_color_t color) {
