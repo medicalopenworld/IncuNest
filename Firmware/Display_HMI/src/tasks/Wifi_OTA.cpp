@@ -59,8 +59,6 @@ char pendingSSID[64] = "";
 char pendingPass[64] = "";
 static volatile bool s_persistCredentials = false;
 
-const char *www_username = "in3admin";
-const char *www_password = "savinglives";
 
 const char *serverIndex =
     "<script "
@@ -218,14 +216,14 @@ void wifiApplyNewCredentials(const char* ssid, const char* pass) {
 // ---------------------------------------------------------------------------
 void configWifiServer() {
   wifiServer.on("/", HTTP_GET, []() {
-    if (!wifiServer.authenticate(www_username, www_password)) {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
       return wifiServer.requestAuthentication();
     }
     wifiServer.sendHeader("Connection", "close");
     wifiServer.send(200, "text/html", serverIndex);
   });
   wifiServer.on("/serverIndex", HTTP_GET, []() {
-    if (!wifiServer.authenticate(www_username, www_password)) {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
       return wifiServer.requestAuthentication();
     }
     wifiServer.sendHeader("Connection", "close");
@@ -242,7 +240,7 @@ void configWifiServer() {
     wifiServer.send(200, "application/json", json);
   });
   wifiServer.on("/set_freq", HTTP_POST, []() {
-    if (!wifiServer.authenticate(www_username, www_password)) {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
       return wifiServer.requestAuthentication();
     }
     uint32_t freq = wifiServer.arg("freq").toInt();
@@ -256,7 +254,7 @@ void configWifiServer() {
   wifiServer.on(
       "/update", HTTP_POST,
       []() {
-        if (!wifiServer.authenticate(www_username, www_password)) {
+        if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
           return wifiServer.requestAuthentication();
         }
         wifiServer.sendHeader("Connection", "close");
@@ -264,7 +262,7 @@ void configWifiServer() {
         ESP.restart();
       },
       []() {
-        if (!wifiServer.authenticate(www_username, www_password)) return;
+        if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) return;
         HTTPUpload &upload = wifiServer.upload();
         if (upload.status == UPLOAD_FILE_START) {
           OTA_inprogress = true;
