@@ -1,2 +1,4 @@
 esptool>=4.7.0
 pyserial>=3.5
+requests>=2.28
+zeroconf>=0.128
