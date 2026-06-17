@@ -359,6 +359,9 @@ void configWifiServer() {
     wifiServer.send(200, "text/html", loginIndex);
   });
   wifiServer.on("/serverIndex", HTTP_GET, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
     wifiServer.sendHeader("Connection", "close");
     wifiServer.send(200, "text/html", serverIndex);
   });
@@ -378,6 +381,9 @@ void configWifiServer() {
   });
   /* config page */
   wifiServer.on("/config", HTTP_GET, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
     wifiServer.sendHeader("Connection", "close");
     wifiServer.send(200, "text/html", configIndex);
   });
@@ -401,6 +407,9 @@ void configWifiServer() {
     wifiServer.send(200, "application/json", json);
   });
   wifiServer.on("/config", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
     extern float maxDesiredTemp[2];
     if (wifiServer.hasArg("serial")) {
       in3.serialNumber = wifiServer.arg("serial").toInt();
@@ -456,11 +465,15 @@ void configWifiServer() {
   wifiServer.on(
       "/update", HTTP_POST,
       []() {
+        if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+          return wifiServer.requestAuthentication();
+        }
         wifiServer.sendHeader("Connection", "close");
         wifiServer.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
         ESP.restart();
       },
       []() {
+        if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) return;
         HTTPUpload &upload = wifiServer.upload();
         if (upload.status == UPLOAD_FILE_START) {
           // debugSerial.printf("Update: %s\n", upload.filename.c_str());
