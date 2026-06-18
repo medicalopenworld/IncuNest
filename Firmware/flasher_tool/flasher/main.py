@@ -519,7 +519,19 @@ class FlasherApp:
         self._slots[slot_idx].set_status('')
         if firmware_present:
             self._log_line("Firmware existente — serial conservado.", 'info')
-        self._run_flash(port, board, slot_idx, None)
+            self._run_flash(port, board, slot_idx, None)
+        else:
+            # Virgin board — ask for serial number before flashing
+            self._slots[slot_idx].set_status('📋  Introduce el serial…')
+            dlg = _SerialNumberDialog(self.root, port)
+            self._slots[slot_idx].set_status('')
+            if dlg.result is None:
+                self._slots[slot_idx].reset()
+                del self._port_to_slot[port]
+                self._log_line(f"Flasheo de {board.value} cancelado.", 'info')
+                self._update_status_banner()
+                return
+            self._run_flash(port, board, slot_idx, dlg.result)
 
     def _tick_slot(self, slot_idx: int) -> None:
         if self._slots[slot_idx].tick():

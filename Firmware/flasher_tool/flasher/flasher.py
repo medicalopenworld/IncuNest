@@ -90,8 +90,9 @@ def has_firmware_flashed(port: str) -> bool:
     Reads only 4 bytes using the ROM bootloader (--no-stub) so no stub
     is left in RAM and the port is cleanly released.  If the bytes are
     all 0xFF the flash is erased (new device); anything else means
-    firmware has been written before.  Returns False on any error so the
-    caller can fall back to showing the serial dialog.
+    firmware has been written before.  Returns True on any read error
+    (conservative: assume firmware present so the serial dialog is not
+    shown for a board that is merely slow to respond).
     """
     fd, tmp = tempfile.mkstemp(suffix='.bin')
     os.close(fd)
@@ -115,7 +116,7 @@ def has_firmware_flashed(port: str) -> bool:
         data = open(tmp, 'rb').read()
         return len(data) == 4 and data != b'\xff\xff\xff\xff'
     except Exception:
-        return False
+        return True  # conservative: unknown state → assume firmware present, preserve NVS
     finally:
         sys.stdout = old_out
         sys.stderr = old_err
