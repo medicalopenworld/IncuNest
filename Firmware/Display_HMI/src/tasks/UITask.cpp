@@ -2752,8 +2752,8 @@ static void SlideUnlock_event_cb(lv_event_t *e) {
         lv_timer_del(unlockTimeoutTimer);
         unlockTimeoutTimer = NULL;
       }
-      lv_scr_load(ui_ScreenMain);
       locked = false;
+      lv_scr_load(ui_ScreenMain);
     } else {
       // --- SNAP BACK ---
       lv_anim_t a;
@@ -2816,15 +2816,15 @@ static void show_targets_for_mode(void) {
 
 static void unlock_timeout_cb(lv_timer_t *t) {
   (void)t;
+  unlockTimeoutTimer = NULL;
   locked = true;
   show_targets_for_mode();
-  if (unlockTimeoutTimer) {
-    lv_timer_del(unlockTimeoutTimer);
-    unlockTimeoutTimer = NULL;
-  }
 }
 
 static void show_slide_unlock(void) {
+  lv_anim_del(ui_SlideThumb, slide_snap_back_anim_cb);
+  if (ui_SlideThumb) lv_obj_set_x(ui_SlideThumb, SLIDE_MARGIN);
+  if (ui_SlideFill)  lv_obj_set_width(ui_SlideFill, 0);
   lv_obj_clear_flag(ui_SlideUnlockCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
