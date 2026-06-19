@@ -619,9 +619,9 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   const char *TXT_TARGETHUM[] = {
       "HUMEDAD OBJETIVO:", "TARGET HUMIDITY:", "HUMIDITE OBJECTIF:"};
   const char *TXT_STATUS[] = {"ESTADO:", "STATUS:", "ETAT:"};
-  const char *TXT_UNLOCK[] = {"PRESIONA 2 SEG\nPARA DESBLOQUEAR",
-                              "PRESS 2 SEC \nTO UNLOCK",
-                              "APPUYEZ 2 SEG\nPOUR DEVERROUILLER"};
+  const char *TXT_UNLOCK[] = {"DESLIZA PARA DESBLOQUEAR",
+                              "SLIDE TO UNLOCK",
+                              "GLISSEZ POUR DEVERROUILLER"};
   const char *TXT_INCUNEST[] = {"INCUNEST", "INCUNEST", "INCUNEST"};
   const char *TXT_SET[] = {"AJUSTAR", "SET", "REGLER"};
   const char *TXT_WIFISSID[] = {"WIFISSID", "WIFISSID", "WIFISSID"};
@@ -755,7 +755,7 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   lv_label_set_text(ui_TargetSkinTempLabel, TXT_TARGETTEMP[lang]);
   lv_label_set_text(ui_Label23, TXT_TARGETHUM[lang]);
   lv_label_set_text(ui_StatusLabel, TXT_STATUS[lang]);
-  lv_label_set_text(ui_Label4, TXT_UNLOCK[lang]);
+  if (ui_SlideLabel) lv_label_set_text(ui_SlideLabel, TXT_UNLOCK[lang]);
 
   // Phototherapy Timer
   if (ui_PhotoLockLabel) {
@@ -2687,12 +2687,83 @@ void MuteAlarm_cb(lv_event_t *e) {
   AlarmSound_Update();
 }
 
+// Animation callback: moves thumb and shrinks fill simultaneously.
+// `var` is ui_SlideThumb; `v` is the animated x position.
+static void slide_snap_back_anim_cb(void *var, int32_t v) {
+  lv_obj_t *thumb = (lv_obj_t *)var;
+  lv_obj_set_x(thumb, (lv_coord_t)v);
+  if (ui_SlideFill)
+    lv_obj_set_width(ui_SlideFill, LV_MAX(0, (lv_coord_t)v - SLIDE_MARGIN));
+}
+
+static void SlideUnlock_event_cb(lv_event_t *e) {
+  lv_event_code_t code = lv_event_get_code(e);
+
+  if (code == LV_EVENT_PRESSED) {
+    // Cancel any running snap-back before starting a new drag
+    lv_anim_del(ui_SlideThumb, slide_snap_back_anim_cb);
+
+    lv_indev_t *indev = lv_indev_get_act();
+    lv_point_t pt;
+    lv_indev_get_point(indev, &pt);
+    slideThumbStartX = lv_obj_get_x(ui_SlideThumb);
+    slideDragStartX  = pt.x;
+
+    if (unlockTimeoutTimer) lv_timer_pause(unlockTimeoutTimer);
+
+  } else if (code == LV_EVENT_PRESSING) {
+    lv_indev_t *indev = lv_indev_get_act();
+    lv_point_t pt;
+    lv_indev_get_point(indev, &pt);
+
+    lv_coord_t new_x = slideThumbStartX + (pt.x - slideDragStartX);
+    if (new_x < SLIDE_MARGIN)       new_x = SLIDE_MARGIN;
+    if (new_x > SLIDE_THUMB_MAX_X)  new_x = SLIDE_THUMB_MAX_X;
+
+    lv_obj_set_x(ui_SlideThumb, new_x);
+    lv_obj_set_width(ui_SlideFill, LV_MAX(0, new_x - SLIDE_MARGIN));
+
+  } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+    lv_coord_t current_x = lv_obj_get_x(ui_SlideThumb);
+
+    if (current_x >= SLIDE_UNLOCK_X) {
+      // --- UNLOCK ---
+      lv_obj_add_flag(ui_SlideUnlockCont, LV_OBJ_FLAG_HIDDEN);
+      if (unlockTimeoutTimer) {
+        lv_timer_del(unlockTimeoutTimer);
+        unlockTimeoutTimer = NULL;
+      }
+      lv_scr_load(ui_ScreenMain);
+      locked = false;
+    } else {
+      // --- SNAP BACK ---
+      lv_anim_t a;
+      lv_anim_init(&a);
+      lv_anim_set_var(&a, ui_SlideThumb);
+      lv_anim_set_exec_cb(&a, slide_snap_back_anim_cb);
+      lv_anim_set_values(&a, current_x, SLIDE_MARGIN);
+      lv_anim_set_time(&a, 200);
+      lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+      lv_anim_start(&a);
+
+      if (unlockTimeoutTimer) {
+        lv_timer_resume(unlockTimeoutTimer);
+        lv_timer_reset(unlockTimeoutTimer);
+      }
+    }
+  }
+}
+
 static void show_targets_for_mode(void) {
   if (unlockTimeoutTimer) {
     lv_timer_del(unlockTimeoutTimer);
     unlockTimeoutTimer = NULL;
   }
-  lv_obj_add_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
+  // Cancel any running snap-back and reset thumb/fill to initial state
+  lv_anim_del(ui_SlideThumb, slide_snap_back_anim_cb);
+  lv_obj_add_flag(ui_SlideUnlockCont, LV_OBJ_FLAG_HIDDEN);
+  if (ui_SlideThumb) lv_obj_set_x(ui_SlideThumb, SLIDE_MARGIN);
+  if (ui_SlideFill)  lv_obj_set_width(ui_SlideFill, 0);
   lv_obj_add_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_HumLockDesiredCont, LV_OBJ_FLAG_HIDDEN);
@@ -2734,8 +2805,8 @@ static void unlock_timeout_cb(lv_timer_t *t) {
   }
 }
 
-static void show_unlock_only(void) {
-  lv_obj_clear_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
+static void show_slide_unlock(void) {
+  lv_obj_clear_flag(ui_SlideUnlockCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_HumLockDesiredCont, LV_OBJ_FLAG_HIDDEN);
@@ -2750,63 +2821,12 @@ static void show_unlock_only(void) {
   }
 }
 
-static void lock_progress_timer_cb(lv_timer_t *t) {
-  (void)t;
-  if (!lockProgressArc)
-    return;
-  uint32_t now = lv_tick_get();
-  uint32_t elapsed = now - lockProgressStart;
-  if (elapsed > LOCK_PROGRESS_DURATION_MS)
-    elapsed = LOCK_PROGRESS_DURATION_MS;
-  int perc = (int)((elapsed * 100) / LOCK_PROGRESS_DURATION_MS);
-  lv_arc_set_value(lockProgressArc, perc);
-
-  if (elapsed >= LOCK_PROGRESS_DURATION_MS) {
-    if (lockProgressTimer) {
-      lv_timer_del(lockProgressTimer);
-      lockProgressTimer = NULL;
-    }
-    lv_scr_load(ui_ScreenMain);
-    locked = false;
-    if (lockProgressArc)
-      lv_obj_add_flag(lockProgressArc, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
-  }
-}
-
-static void start_lock_progress(void) {
-  lockProgressArc = ui_Spinner1;
-  if (!lockProgressArc)
-    return;
-  lv_obj_clear_flag(lockProgressArc, LV_OBJ_FLAG_HIDDEN);
-  lv_arc_set_value(lockProgressArc, 0);
-  lockProgressStart = lv_tick_get();
-  if (lockProgressTimer) {
-    lv_timer_del(lockProgressTimer);
-    lockProgressTimer = NULL;
-  }
-  lockProgressTimer = lv_timer_create(lock_progress_timer_cb, 50, NULL);
-}
-
-static void stop_lock_progress(void) {
-  if (lockProgressTimer) {
-    lv_timer_del(lockProgressTimer);
-    lockProgressTimer = NULL;
-  }
-  if (lockProgressArc) {
-    lv_arc_set_value(lockProgressArc, 0);
-    lv_obj_add_flag(lockProgressArc, LV_OBJ_FLAG_HIDDEN);
-  }
-}
-
 static void enter_lock_screen(void) {
   if (lv_scr_act() == ui_ScreenLock) {
-    stop_lock_progress();
     locked = true;
     show_targets_for_mode();
     return;
   }
-  stop_lock_progress();
   locked = true;
   lv_scr_load(ui_ScreenLock);
   show_targets_for_mode();
@@ -2825,67 +2845,14 @@ void LockScreenAnyTouch_cb(lv_event_t *e) {
   if (lv_scr_act() != ui_ScreenLock)
     return;
   lv_obj_t *origin = lv_event_get_target(e);
-  if (origin != ui_ScreenLock &&
-      origin != ui_LockPPGChart &&
-      origin != ui_LockHRCont &&
-      origin != ui_LockPICont)
+  // Ignore events that originate within the slider itself
+  if (origin == ui_SlideTrack || origin == ui_SlideUnlockCont)
     return;
 
-  bool unlockVisible = !lv_obj_has_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
-
-  if (!unlockVisible) {
-    show_unlock_only();
-    locked = false;
-  } else {
-    stop_lock_progress();
-    show_targets_for_mode();
-    locked = true;
-  }
-}
-
-static void lock_stop_debounce_cb(lv_timer_t *t) {
-  (void)t;
-  lockStopDebounceTimer = NULL;
-  stop_lock_progress();
-  if (unlockTimeoutTimer) {
-    lv_timer_resume(unlockTimeoutTimer);
+  if (lv_obj_has_flag(ui_SlideUnlockCont, LV_OBJ_FLAG_HIDDEN)) {
+    show_slide_unlock();
+  } else if (unlockTimeoutTimer) {
     lv_timer_reset(unlockTimeoutTimer);
-  }
-}
-
-static void UnlockCont_event_cb(lv_event_t *e) {
-  lv_event_code_t code = lv_event_get_code(e);
-  if (code == LV_EVENT_PRESSED) {
-    // Cancel any pending stop (handles finger drift between children)
-    if (lockStopDebounceTimer) {
-      lv_timer_del(lockStopDebounceTimer);
-      lockStopDebounceTimer = NULL;
-    }
-    // Only start if not already running (prevents duplicate events)
-    if (!lockProgressTimer) {
-      start_lock_progress();
-    }
-    if (unlockTimeoutTimer) {
-      lv_timer_pause(unlockTimeoutTimer);
-    }
-  } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
-    // Debounce: tolerate brief finger drift between children (150 ms window)
-    if (!lockStopDebounceTimer) {
-      lockStopDebounceTimer = lv_timer_create(lock_stop_debounce_cb, 20, NULL);
-      lv_timer_set_repeat_count(lockStopDebounceTimer, 1);
-    }
-  }
-}
-
-static void add_unlock_press_cb_recursive(lv_obj_t *obj) {
-  if (!obj)
-    return;
-  lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_event_cb(obj, UnlockCont_event_cb, LV_EVENT_ALL, NULL);
-  uint32_t n = lv_obj_get_child_cnt(obj);
-  for (uint32_t i = 0; i < n; i++) {
-    lv_obj_t *child = lv_obj_get_child(obj, i);
-    add_unlock_press_cb_recursive(child);
   }
 }
 
@@ -2897,7 +2864,6 @@ void inactivity_timer_cb(lv_timer_t *timer) {
   uint32_t inactive = lv_disp_get_inactive_time(NULL);
   if (inactive > INACTIVITY_TIMEOUT_MS) {
     if (lv_scr_act() != ui_ScreenLock) {
-      stop_lock_progress();
       locked = true;
       lv_scr_load(ui_ScreenLock);
       show_targets_for_mode();
@@ -3364,7 +3330,6 @@ void UI_Task(void *pvParameters) {
   lv_indev_drv_init(&indev_drv);
   indev_drv.type = LV_INDEV_TYPE_POINTER;
   indev_drv.read_cb = my_touchpad_read;
-  indev_drv.long_press_time = LOCK_PROGRESS_DURATION_MS;
   lv_indev_drv_register(&indev_drv);
 
   ui_init();
@@ -3601,10 +3566,8 @@ void UI_Task(void *pvParameters) {
   lv_obj_add_flag(ui_ArrowSkinLock, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_ArrowHumLock, LV_OBJ_FLAG_HIDDEN);
 
-  lv_obj_add_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_Spinner1, LV_OBJ_FLAG_HIDDEN);
-
-  add_unlock_press_cb_recursive(ui_UnlockCont);
+  lv_obj_add_flag(ui_SlideUnlockCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_event_cb(ui_SlideTrack, SlideUnlock_event_cb, LV_EVENT_ALL, NULL);
 
   lv_obj_add_flag(ui_AlarmLockCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_clear_flag(ui_CheckImg, LV_OBJ_FLAG_HIDDEN);
