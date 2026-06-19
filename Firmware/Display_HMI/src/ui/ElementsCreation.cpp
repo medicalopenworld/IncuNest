@@ -274,11 +274,11 @@ lv_obj_t *ui_HumLockDesiredCont = NULL;
 lv_obj_t *ui_Label23 = NULL;
 lv_obj_t *ui_Label24 = NULL;
 lv_obj_t *ui_ArrowHumLock = NULL;
-lv_obj_t *ui_SlideUnlockCont = NULL;
-lv_obj_t *ui_SlideTrack      = NULL;
-lv_obj_t *ui_SlideLabel      = NULL;
-lv_obj_t *ui_SlideThumb      = NULL;
-lv_obj_t *ui_SlideFill       = NULL;
+lv_obj_t *ui_UnlockCont = NULL;
+lv_obj_t *ui_Panel11    = NULL;
+lv_obj_t *ui_Label4     = NULL;
+lv_obj_t *ui_LockButton2 = NULL;
+lv_obj_t *ui_Spinner1   = NULL;
 lv_obj_t *ui_TargetSkinTempCont = NULL;
 lv_obj_t *ui_TargetSkinTempLabel = NULL;
 lv_obj_t *ui_TargetSkinTempNumLabel = NULL;
@@ -3373,88 +3373,64 @@ void ui_ScreenLock_screen_init(void) {
   lv_obj_clear_flag(ui_CheckImg, LV_OBJ_FLAG_SCROLLABLE);
   lv_img_set_zoom(ui_CheckImg, 200);
 
-  // --- SLIDE TO UNLOCK POPUP (created last so it renders on top) ---
-  ui_SlideUnlockCont = lv_obj_create(ui_ScreenLock);
-  lv_obj_set_size(ui_SlideUnlockCont, 640, 130);
-  lv_obj_set_align(ui_SlideUnlockCont, LV_ALIGN_CENTER);
-  lv_obj_set_y(ui_SlideUnlockCont, 0);
-  lv_obj_add_flag(ui_SlideUnlockCont, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_clear_flag(ui_SlideUnlockCont, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_color(ui_SlideUnlockCont, lv_color_hex(0x000000),
-                            LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_bg_opa(ui_SlideUnlockCont, 220, LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_border_color(ui_SlideUnlockCont, lv_color_hex(0xFFFFFF),
-                                LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_border_width(ui_SlideUnlockCont, 2,
-                                LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_radius(ui_SlideUnlockCont, 20,
-                          LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_pad_all(ui_SlideUnlockCont, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+  // --- RE-INSERTED UNLOCK CONT AT THE END TO BE ON TOP LAYER ---
+  ui_UnlockCont = lv_obj_create(ui_ScreenLock);
+  lv_obj_remove_style_all(ui_UnlockCont);
+  lv_obj_set_width(ui_UnlockCont, 310);
+  lv_obj_set_height(ui_UnlockCont, 200);
+  lv_obj_set_align(ui_UnlockCont, LV_ALIGN_CENTER);
+  lv_obj_add_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_clear_flag(ui_UnlockCont,
+                    LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
 
-  // Label at top of popup
-  ui_SlideLabel = lv_label_create(ui_SlideUnlockCont);
-  lv_obj_set_align(ui_SlideLabel, LV_ALIGN_TOP_MID);
-  lv_obj_set_y(ui_SlideLabel, 12);
-  lv_label_set_text(ui_SlideLabel, "DESLIZA PARA DESBLOQUEAR");
-  lv_obj_set_style_text_color(ui_SlideLabel, lv_color_hex(0xFFFFFF),
+  ui_Panel11 = lv_obj_create(ui_UnlockCont);
+  lv_obj_set_width(ui_Panel11, 310);
+  lv_obj_set_height(ui_Panel11, 200);
+  lv_obj_set_align(ui_Panel11, LV_ALIGN_CENTER);
+  lv_obj_clear_flag(ui_Panel11, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_bg_color(ui_Panel11, lv_color_hex(0x000000),
+                            LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_opa(ui_Panel11, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  ui_Label4 = lv_label_create(ui_UnlockCont);
+  lv_obj_set_width(ui_Label4, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_Label4, LV_SIZE_CONTENT);
+  lv_obj_set_x(ui_Label4, 0);
+  lv_obj_set_y(ui_Label4, -50);
+  lv_obj_set_align(ui_Label4, LV_ALIGN_CENTER);
+  lv_label_set_text(ui_Label4, "Keep pressed\nto unlock");
+  lv_obj_set_style_text_color(ui_Label4, lv_color_hex(0xFFFFFF),
                               LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_text_font(ui_SlideLabel, &lv_font_montserrat_18,
+  lv_obj_set_style_text_opa(ui_Label4, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_text_font(ui_Label4, &lv_font_montserrat_26,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_text_align(ui_SlideLabel, LV_TEXT_ALIGN_CENTER,
+  lv_obj_set_style_text_align(ui_Label4, LV_TEXT_ALIGN_CENTER,
                               LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_clear_flag(ui_SlideLabel, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
 
-  ui_SlideTrack = lv_obj_create(ui_SlideUnlockCont);
-  lv_obj_set_size(ui_SlideTrack, SLIDE_TRACK_W, SLIDE_TRACK_H);
-  lv_obj_set_align(ui_SlideTrack, LV_ALIGN_BOTTOM_MID);
-  lv_obj_set_y(ui_SlideTrack, -8);
-  lv_obj_clear_flag(ui_SlideTrack, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_color(ui_SlideTrack, lv_color_hex(0x000000),
-                            LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_bg_opa(ui_SlideTrack, 200, LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_border_color(ui_SlideTrack, lv_color_hex(0xFFFFFF),
-                                LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_border_width(ui_SlideTrack, 2,
-                                LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_radius(ui_SlideTrack, SLIDE_TRACK_H / 2,
-                          LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_pad_all(ui_SlideTrack, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-
-  // Progress fill (grows as thumb moves right)
-  ui_SlideFill = lv_obj_create(ui_SlideTrack);
-  lv_obj_remove_style_all(ui_SlideFill);
-  lv_obj_set_size(ui_SlideFill, 0, SLIDE_THUMB_SIZE);
-  lv_obj_set_align(ui_SlideFill, LV_ALIGN_LEFT_MID);
-  lv_obj_set_x(ui_SlideFill, SLIDE_MARGIN);
-  lv_obj_clear_flag(ui_SlideFill, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_color(ui_SlideFill, lv_color_hex(0xFFFFFF),
-                            LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_bg_opa(ui_SlideFill, 80, LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_radius(ui_SlideFill, SLIDE_THUMB_SIZE / 2,
-                          LV_PART_MAIN | LV_STATE_DEFAULT);
-
-  // Thumb (white circle with padlock icon; non-clickable so touches reach track)
-  ui_SlideThumb = lv_obj_create(ui_SlideTrack);
-  lv_obj_remove_style_all(ui_SlideThumb);
-  lv_obj_set_size(ui_SlideThumb, SLIDE_THUMB_SIZE, SLIDE_THUMB_SIZE);
-  lv_obj_set_align(ui_SlideThumb, LV_ALIGN_LEFT_MID);
-  lv_obj_set_x(ui_SlideThumb, SLIDE_MARGIN);
-  lv_obj_clear_flag(ui_SlideThumb, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_color(ui_SlideThumb, lv_color_hex(0xFFFFFF),
-                            LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_bg_opa(ui_SlideThumb, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_radius(ui_SlideThumb, SLIDE_THUMB_SIZE / 2,
-                          LV_PART_MAIN | LV_STATE_DEFAULT);
-
-  lv_obj_t *slide_icon = lv_img_create(ui_SlideThumb);
-  lv_img_set_src(slide_icon, &ui_img_candado_png);
-  lv_obj_set_align(slide_icon, LV_ALIGN_CENTER);
-  lv_obj_add_flag(slide_icon, LV_OBJ_FLAG_ADV_HITTEST);
-  lv_obj_clear_flag(slide_icon, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_img_recolor(slide_icon, lv_color_hex(0x000000),
+  ui_LockButton2 = lv_imgbtn_create(ui_UnlockCont);
+  lv_imgbtn_set_src(ui_LockButton2, LV_IMGBTN_STATE_RELEASED, NULL,
+                    &ui_img_candado_png, NULL);
+  lv_obj_set_width(ui_LockButton2, 38);
+  lv_obj_set_height(ui_LockButton2, 44);
+  lv_obj_set_x(ui_LockButton2, 0);
+  lv_obj_set_y(ui_LockButton2, 50);
+  lv_obj_set_align(ui_LockButton2, LV_ALIGN_CENTER);
+  lv_obj_set_style_img_recolor(ui_LockButton2, lv_color_hex(0xFFFFFF),
                                LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_img_recolor_opa(slide_icon, 255,
+  lv_obj_set_style_img_recolor_opa(ui_LockButton2, 255,
                                    LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  ui_Spinner1 = lv_arc_create(ui_UnlockCont);
+  lv_obj_set_size(ui_Spinner1, 80, 80);
+  lv_obj_set_align(ui_Spinner1, LV_ALIGN_CENTER);
+  lv_obj_set_x(ui_Spinner1, 0);
+  lv_obj_set_y(ui_Spinner1, 51);
+  lv_arc_set_range(ui_Spinner1, 0, 100);
+  lv_arc_set_value(ui_Spinner1, 0);
+  lv_obj_clear_flag(ui_Spinner1, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_style(ui_Spinner1, NULL, LV_PART_KNOB);
+  lv_arc_set_bg_angles(ui_Spinner1, 0, 360);
+  lv_arc_set_angles(ui_Spinner1, 0, 0);
   // --------------------------------------------------------------------------
 
   // --- PPG Chart (lock screen, bottom-left) ---

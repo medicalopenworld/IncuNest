@@ -245,23 +245,16 @@ constexpr int RAND_HUM_MIN = 0;
 constexpr int RAND_HUM_MAX = 0;
 
 // -----------------------------
-// Slide-to-unlock state
+// Progress arc for lock long-press
 // -----------------------------
 
+static lv_obj_t *lockProgressArc = NULL;
+static lv_timer_t *lockProgressTimer = NULL;
 static lv_timer_t *unlockTimeoutTimer = NULL;
-static const uint32_t UNLOCK_TIMEOUT_MS = 5000; // 5 seconds timeout
-
-static lv_coord_t slideDragStartX  = 0;
-static lv_coord_t slideThumbStartX = 2;
-
-static const lv_coord_t SLIDE_TRACK_W     = 600;
-static const lv_coord_t SLIDE_TRACK_H     = 70;
-static const lv_coord_t SLIDE_THUMB_SIZE  = 66;
-static const lv_coord_t SLIDE_MARGIN      = 2;
-// Max x the thumb can reach (right edge minus one margin)
-static const lv_coord_t SLIDE_THUMB_MAX_X = SLIDE_TRACK_W - SLIDE_THUMB_SIZE - SLIDE_MARGIN; // 532
-// 80 % of travel triggers unlock: SLIDE_MARGIN + (530 * 0.8) = 426
-static const lv_coord_t SLIDE_UNLOCK_X    = SLIDE_MARGIN + (lv_coord_t)((SLIDE_THUMB_MAX_X - SLIDE_MARGIN) * 0.8f);
+static lv_timer_t *lockStopDebounceTimer = NULL;
+static uint32_t lockProgressStart = 0;
+static const uint32_t LOCK_PROGRESS_DURATION_MS = 1500; // 1.5 seconds
+static const uint32_t UNLOCK_TIMEOUT_MS = 5000;         // 5 seconds timeout
 
 // -----------------------------
 // Serial
