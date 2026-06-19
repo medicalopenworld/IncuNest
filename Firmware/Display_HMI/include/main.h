@@ -258,7 +258,7 @@ static const uint32_t UNLOCK_TIMEOUT_MS = 5000;         // 5 seconds timeout
 // Unlock popup border-fill dimensions
 static const lv_coord_t UNLOCK_POPUP_W  = 420;
 static const lv_coord_t UNLOCK_POPUP_H  = 300;
-static const lv_coord_t UNLOCK_BORDER_T = 5;
+static const lv_coord_t UNLOCK_BORDER_T = 10;
 
 // -----------------------------
 // Serial

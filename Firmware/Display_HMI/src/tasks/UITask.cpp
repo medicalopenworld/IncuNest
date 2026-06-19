@@ -1325,29 +1325,16 @@ static void update_main_toggle_buttons() {
   bool h = lv_obj_has_state(ui_Switch2, LV_STATE_CHECKED);
   bool p = lv_obj_has_state(ui_Switch3, LV_STATE_CHECKED);
 
-  lv_color_t bg, txt;
-  lv_obj_t  *lbl;
+  lv_obj_t *lbl;
 
-  bg  = t ? lv_color_hex(0xFFAE84) : lv_color_hex(0x3A3A4A);
-  txt = t ? lv_color_hex(0x1A1010) : lv_color_hex(0xFFFFFF);
-  lv_obj_set_style_bg_color(ui_TempToggleBtn, bg, LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_bg_color(ui_TempToggleBtn, bg, LV_PART_MAIN | LV_STATE_PRESSED);
   lbl = lv_obj_get_child(ui_TempToggleBtn, 0);
-  if (lbl) { lv_label_set_text(lbl, t ? "ON" : "OFF"); lv_obj_set_style_text_color(lbl, txt, 0); }
+  if (lbl) lv_label_set_text(lbl, t ? "TURN ON" : "TURN OFF");
 
-  bg  = h ? lv_color_hex(0xFFAE84) : lv_color_hex(0x3A3A4A);
-  txt = h ? lv_color_hex(0x1A1010) : lv_color_hex(0xFFFFFF);
-  lv_obj_set_style_bg_color(ui_HumToggleBtn, bg, LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_bg_color(ui_HumToggleBtn, bg, LV_PART_MAIN | LV_STATE_PRESSED);
   lbl = lv_obj_get_child(ui_HumToggleBtn, 0);
-  if (lbl) { lv_label_set_text(lbl, h ? "ON" : "OFF"); lv_obj_set_style_text_color(lbl, txt, 0); }
+  if (lbl) lv_label_set_text(lbl, h ? "TURN ON" : "TURN OFF");
 
-  bg  = p ? lv_color_hex(0xFFAE84) : lv_color_hex(0x3A3A4A);
-  txt = p ? lv_color_hex(0x1A1010) : lv_color_hex(0xFFFFFF);
-  lv_obj_set_style_bg_color(ui_PhotoToggleBtn, bg, LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_bg_color(ui_PhotoToggleBtn, bg, LV_PART_MAIN | LV_STATE_PRESSED);
   lbl = lv_obj_get_child(ui_PhotoToggleBtn, 0);
-  if (lbl) { lv_label_set_text(lbl, p ? "ON" : "OFF"); lv_obj_set_style_text_color(lbl, txt, 0); }
+  if (lbl) lv_label_set_text(lbl, p ? "TURN ON" : "TURN OFF");
 }
 
 // Popup spinbox callbacks
@@ -1590,6 +1577,7 @@ void WifiButton_cb(lv_event_t *e) {
 
   if (isConnected) {
     lv_obj_clear_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(ui_WifiSSIDLabel, WiFi.SSID().c_str());
   } else {
     lv_obj_clear_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
   }
@@ -2736,6 +2724,8 @@ static void unlock_timeout_cb(lv_timer_t *t) {
 
 static void show_unlock_only(void) {
   lv_obj_clear_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_move_foreground(ui_UnlockCont);
+  if (ui_LockButton) lv_obj_add_flag(ui_LockButton, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_HumLockDesiredCont, LV_OBJ_FLAG_HIDDEN);
@@ -2956,6 +2946,8 @@ void WifiDisconnectButton_cb(lv_event_t *e) {
   pendingReconnect = true;
   disconnectTimestampMs = millis();
   updateButtonVisibility();
+  lv_obj_clear_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
 }
 
 void Label9_cb(lv_event_t *e) {
@@ -3871,17 +3863,16 @@ void UI_Task(void *pvParameters) {
     }
 
     if (wifiVisible) {
-      lv_obj_clear_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
       bool actuallyConnected = (WiFi.status() == WL_CONNECTED);
       if (actuallyConnected != isConnected) {
         isConnected = actuallyConnected;
         updateButtonVisibility();
-      }
-      if (isConnected) {
-        lv_obj_clear_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
-        lv_label_set_text(ui_WifiSSIDLabel, WiFi.SSID().c_str());
-      } else {
-        lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
+        if (isConnected) {
+          lv_obj_clear_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
+          lv_label_set_text(ui_WifiSSIDLabel, WiFi.SSID().c_str());
+        } else {
+          lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
+        }
       }
     }
 
