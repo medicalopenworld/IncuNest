@@ -222,7 +222,7 @@ class _SerialNumberDialog:
 
 
 class _WifiDeviceSlot:
-    """Compact device card in the WiFi tab."""
+    """Compact two-line device card in the WiFi tab."""
 
     _STATE_EMPTY = 'empty'
     _STATE_AVAILABLE = 'available'
@@ -237,35 +237,34 @@ class _WifiDeviceSlot:
         self._indeterminate = False
 
         row = tk.Frame(parent, relief='groove', bd=1)
-        row.pack(fill='x', padx=8, pady=2)
+        row.pack(fill='x', padx=8, pady=1)
 
         info = tk.Frame(row)
-        info.pack(side='left', fill='both', expand=True, padx=6, pady=3)
+        info.pack(side='left', fill='both', expand=True, padx=6, pady=2)
 
+        # Line 1: board + IP
         self._title = tk.Label(info, text="—  Sin dispositivo",
                                anchor='w', fg='#BDBDBD', font=('', 9))
         self._title.pack(fill='x')
 
-        self._subtitle = tk.Label(info, text='', anchor='w',
-                                  fg='#9E9E9E', font=('', 8))
-        self._subtitle.pack(fill='x')
+        # Line 2: SN + FW + status (all in one compact label)
+        self._detail = tk.Label(info, text='', anchor='w',
+                                fg='#9E9E9E', font=('', 8))
+        self._detail.pack(fill='x')
 
+        # Progress bar — only packed when flashing
         self._bar_var = tk.DoubleVar()
         self._bar = ttk.Progressbar(info, variable=self._bar_var,
-                                    maximum=100, style=style_name)
+                                    maximum=100, style=style_name, length=1)
         self._bar_visible = False
 
-        self._status = tk.Label(info, text='', anchor='w',
-                                fg='#9E9E9E', font=('', 8))
-        self._status.pack(fill='x')
-
         self._flash_btn = tk.Button(
-            row, text="⚡", font=('', 10), width=3,
+            row, text="⚡", font=('', 9), width=3,
             bg='#1565C0', fg='white',
             command=self._on_flash_clicked,
             state='disabled',
         )
-        self._flash_btn.pack(side='right', padx=6, pady=4)
+        self._flash_btn.pack(side='right', padx=4, pady=4)
 
     # ------------------------------------------------------------------ #
 
@@ -282,8 +281,8 @@ class _WifiDeviceSlot:
         self._state = self._STATE_AVAILABLE
         sn_str = f"SN:{wb.sn}  " if wb.sn is not None else ""
         self._title.configure(text=f"{wb.board.value}  ·  {wb.ip}", fg='#212121')
-        self._subtitle.configure(text=f"{sn_str}FW {wb.fw_version}")
-        self._status.configure(text="Disponible", fg='#2E7D32')
+        self._detail.configure(text=f"{sn_str}FW {wb.fw_version}  |  Disponible",
+                               fg='#2E7D32')
         self._flash_btn.configure(state='normal')
         self._hide_bar()
 
@@ -292,8 +291,7 @@ class _WifiDeviceSlot:
         self._wb = None
         self._state = self._STATE_EMPTY
         self._title.configure(text="—  Sin dispositivo", fg='#BDBDBD')
-        self._subtitle.configure(text='')
-        self._status.configure(text='', fg='#9E9E9E')
+        self._detail.configure(text='', fg='#9E9E9E')
         self._flash_btn.configure(state='disabled')
         self._hide_bar()
 
@@ -304,8 +302,7 @@ class _WifiDeviceSlot:
         self._bar.configure(mode='indeterminate')
         self._bar.start(12)
         self._indeterminate = True
-        self._bar_var.set(0)
-        self._status.configure(text="⚡ Conectando…", fg='#E65100')
+        self._detail.configure(text="⚡ Conectando…", fg='#E65100')
 
     def update_progress(self, pct: Optional[int]) -> None:
         if pct is None:
@@ -315,18 +312,22 @@ class _WifiDeviceSlot:
             self._bar.configure(mode='determinate')
             self._indeterminate = False
         self._bar_var.set(pct)
-        self._status.configure(text=f"⚡ Flasheando… {pct}%", fg='#E65100')
+        self._detail.configure(text=f"⚡ Flasheando… {pct}%", fg='#E65100')
 
     def set_done(self) -> None:
         self._stop_bar()
         self._state = self._STATE_DONE
         self._bar_var.set(100)
-        self._status.configure(text="✅ Completado", fg='#2E7D32')
+        sn_str = f"SN:{self._wb.sn}  " if self._wb and self._wb.sn is not None else ""
+        fw = self._wb.fw_version if self._wb else ''
+        self._detail.configure(text=f"{sn_str}FW {fw}  |  ✅ Completado", fg='#2E7D32')
 
     def set_error(self) -> None:
         self._stop_bar()
         self._state = self._STATE_ERROR
-        self._status.configure(text="❌ Error — ver log", fg='#C62828')
+        sn_str = f"SN:{self._wb.sn}  " if self._wb and self._wb.sn is not None else ""
+        fw = self._wb.fw_version if self._wb else ''
+        self._detail.configure(text=f"{sn_str}FW {fw}  |  ❌ Error", fg='#C62828')
         self._flash_btn.configure(state='normal')
 
     # ------------------------------------------------------------------ #
@@ -337,7 +338,7 @@ class _WifiDeviceSlot:
 
     def _show_bar(self) -> None:
         if not self._bar_visible:
-            self._bar.pack(fill='x', before=self._status)
+            self._bar.pack(fill='x')
             self._bar_visible = True
 
     def _hide_bar(self) -> None:
@@ -646,19 +647,21 @@ class FlasherApp:
                 side='bottom', fill='x', padx=12,
             )
             upd_frame = tk.Frame(self.root)
-            upd_frame.pack(side='bottom', fill='x', padx=12, pady=(4, 6))
+            upd_frame.pack(side='bottom', fill='x', padx=12, pady=(6, 8))
             self._upd_btn = tk.Button(
                 upd_frame, text="📂  Actualizar binarios locales",
-                font=('', 9), bg='#37474F', fg='white',
+                font=('', 10, 'bold'), bg='#37474F', fg='white',
+                padx=12, pady=6,
                 command=self._on_update_locals_clicked,
             )
             self._upd_btn.pack(side='left')
-            self._upd_status = tk.Label(upd_frame, text='', anchor='w', fg='#757575')
-            self._upd_status.pack(side='left', padx=8)
+            self._upd_status = tk.Label(upd_frame, text='', anchor='w',
+                                        fg='#757575', font=('', 10))
+            self._upd_status.pack(side='left', padx=10)
 
         # --- Log area (shared, outside notebook) ---
         self._log = scrolledtext.ScrolledText(
-            self.root, height=7, state='disabled', font=('Courier', 9),
+            self.root, height=5, state='disabled', font=('Courier', 9),
         )
         self._log.pack(fill='both', expand=True, padx=12, pady=6)
         self._log.tag_config('success', foreground='#2E7D32')
