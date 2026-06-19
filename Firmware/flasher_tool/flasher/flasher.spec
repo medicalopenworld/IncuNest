@@ -40,6 +40,7 @@ a = Analysis(
         'zeroconf._handlers',
         'ifaddr',
         'requests_toolbelt',
+        'hotspot',
     ],
     hookspath=[],
     hooksconfig={},

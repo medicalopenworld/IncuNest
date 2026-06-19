@@ -228,9 +228,27 @@ class _WifiTab:
         self._slots: list[_Slot] = []
         self._active_flashes = 0
 
-        # Button + status row
+        # Hotspot row (Windows only)
+        if sys.platform == 'win32':
+            from hotspot import is_supported, HOTSPOT_SSID
+            hotspot_frame = tk.Frame(parent)
+            hotspot_frame.pack(fill='x', padx=12, pady=(8, 2))
+            self._hotspot_btn = tk.Button(
+                hotspot_frame, text=f"📡  Hotspot {HOTSPOT_SSID}",
+                font=('', 9), bg='#37474F', fg='white',
+                command=self._on_hotspot_clicked,
+                state='normal' if is_supported() else 'disabled',
+            )
+            self._hotspot_btn.pack(side='left')
+            self._hotspot_status = tk.Label(hotspot_frame, text='', anchor='w', fg='#757575')
+            self._hotspot_status.pack(side='left', padx=8)
+        else:
+            self._hotspot_btn = None
+            self._hotspot_status = None
+
+        # Scan button + status row
         ctrl_frame = tk.Frame(parent)
-        ctrl_frame.pack(fill='x', padx=12, pady=(8, 4))
+        ctrl_frame.pack(fill='x', padx=12, pady=(2, 4))
 
         self._scan_btn = tk.Button(
             ctrl_frame, text="🔍  Buscar y flashear",
@@ -247,6 +265,30 @@ class _WifiTab:
         # Slots (reuse _Slot with IP as the "port" display string)
         for i in range(NUM_SLOTS):
             self._slots.append(_Slot(parent, i, 'Flash.Horizontal.TProgressbar'))
+
+    def _on_hotspot_clicked(self) -> None:
+        self._hotspot_btn.configure(state='disabled')
+        self._hotspot_status.configure(text="Iniciando hotspot…", fg='#E65100')
+        threading.Thread(target=self._hotspot_thread, daemon=True).start()
+
+    def _hotspot_thread(self) -> None:
+        from hotspot import start_hotspot, HOTSPOT_SSID, HOTSPOT_PASSWORD
+        try:
+            start_hotspot(HOTSPOT_SSID, HOTSPOT_PASSWORD)
+            self._root.after(0, self._on_hotspot_ok)
+        except Exception as exc:
+            self._root.after(0, self._on_hotspot_err, str(exc))
+
+    def _on_hotspot_ok(self) -> None:
+        from hotspot import HOTSPOT_SSID
+        self._hotspot_status.configure(text=f"✅  {HOTSPOT_SSID} activo", fg='#2E7D32')
+        self._hotspot_btn.configure(state='normal')
+        self._log_cb(f"Hotspot '{HOTSPOT_SSID}' iniciado. Conecta las incubadoras y pulsa Buscar.", 'success')
+
+    def _on_hotspot_err(self, msg: str) -> None:
+        self._hotspot_status.configure(text="❌  Error — ver log", fg='#C62828')
+        self._hotspot_btn.configure(state='normal')
+        self._log_cb(f"Error al crear hotspot:\n{msg}", 'error')
 
     def _on_scan_clicked(self) -> None:
         self._scan_btn.configure(state='disabled')
