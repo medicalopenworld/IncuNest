@@ -1,4 +1,5 @@
 import json
+import re
 import shutil
 import sys
 import time
@@ -227,6 +228,8 @@ class _WifiTab:
         self._firmware_base = firmware_base
         self._slots: list[_Slot] = []
         self._active_flashes = 0
+        self._flash_queue: list = []
+        self._slot_assignments: dict = {}
 
         # Hotspot row (Windows only)
         if sys.platform == 'win32':
@@ -314,30 +317,44 @@ class _WifiTab:
             self._scan_btn.configure(state='normal')
             return
 
-        n = len(boards)
+        from detector import Board as _Board
+        # HMIs primero para que el reinicio de los MB no interrumpa su OTA
+        boards_sorted = sorted(
+            boards[:NUM_SLOTS],
+            key=lambda wb: 0 if wb.board == _Board.DISPLAY_HMI else 1,
+        )
+        n = len(boards_sorted)
         plural = 's' if n > 1 else ''
         self._scan_status.configure(
             text=f"{n} dispositivo{plural} encontrado{plural}", fg='#2E7D32',
         )
         self._log_cb(f"{n} dispositivo(s) encontrado(s) por WiFi.", 'success')
-        boards_to_flash = boards[:NUM_SLOTS]
-        self._active_flashes = len(boards_to_flash)
+        self._active_flashes = n
+        self._flash_queue = list(boards_sorted)
+        self._slot_assignments = {}
 
-        for i, wb in enumerate(boards_to_flash):
+        for i, wb in enumerate(boards_sorted):
             sn_str = f"SN:{wb.sn}  " if wb.sn is not None else ""
             self._slots[i].assign(f"{sn_str}{wb.ip}", wb.board)
             sn_log = f"  SN:{wb.sn}" if wb.sn is not None else ""
             self._log_cb(
                 f"{wb.board.value} en {wb.ip}{sn_log} (FW {wb.fw_version}) → slot {i + 1}", 'info',
             )
+            self._slot_assignments[wb.ip] = i
             self._tick_slot(i)
-            threading.Thread(
-                target=self._flash_thread, args=(wb, i), daemon=True,
-            ).start()
+
+        self._flash_next_wifi()
 
     def _tick_slot(self, slot_idx: int) -> None:
         if self._slots[slot_idx].tick():
             self._root.after(500, self._tick_slot, slot_idx)
+
+    def _flash_next_wifi(self) -> None:
+        if not self._flash_queue:
+            return
+        wb = self._flash_queue.pop(0)
+        slot_idx = self._slot_assignments[wb.ip]
+        threading.Thread(target=self._flash_thread, args=(wb, slot_idx), daemon=True).start()
 
     def _flash_thread(self, wb, slot_idx: int) -> None:
         from wifi_flasher import flash_board_wifi
@@ -366,6 +383,8 @@ class _WifiTab:
         if self._active_flashes <= 0:
             self._scan_status.configure(text="Completado", fg='#2E7D32')
             self._scan_btn.configure(state='normal')
+        else:
+            self._flash_next_wifi()
 
     def _on_flash_err(self, msg: str, wb, slot_idx: int) -> None:
         self._log_cb(f"Flash WiFi de {wb.board.value} ({wb.ip}) fallido.\n{msg}", 'error')
@@ -374,6 +393,8 @@ class _WifiTab:
         self._root.after(SLOT_CLEAR_DELAY_S * 1000, self._clear_slot, slot_idx)
         if self._active_flashes <= 0:
             self._scan_btn.configure(state='normal')
+        else:
+            self._flash_next_wifi()
 
     def _clear_slot(self, slot_idx: int) -> None:
         self._slots[slot_idx].reset()
@@ -448,22 +469,16 @@ class FlasherApp:
         notebook.add(wifi_frame, text='  WiFi  ')
         self._wifi_tab = _WifiTab(wifi_frame, self.root, self._log_line, get_firmware_base())
 
-        # --- Log area (shared, outside notebook) ---
-        self._log = scrolledtext.ScrolledText(
-            self.root, height=7, state='disabled', font=('Courier', 9),
-        )
-        self._log.pack(fill='both', expand=True, padx=12, pady=6)
-        self._log.tag_config('success', foreground='#2E7D32')
-        self._log.tag_config('error',   foreground='#C62828')
-        self._log.tag_config('info',    foreground='#1565C0')
-
-        # --- "Actualizar binarios locales" — only shown when .pio outputs exist ---
+        # --- "Actualizar binarios locales" — packed at bottom BEFORE log so it
+        #     isn't swallowed by the log's expand=True fill. ---
         self._upd_btn: Optional[tk.Button] = None
         self._upd_status: Optional[tk.Label] = None
         if self._get_build_sources():
-            ttk.Separator(self.root, orient='horizontal').pack(fill='x', padx=12)
+            ttk.Separator(self.root, orient='horizontal').pack(
+                side='bottom', fill='x', padx=12,
+            )
             upd_frame = tk.Frame(self.root)
-            upd_frame.pack(fill='x', padx=12, pady=(4, 6))
+            upd_frame.pack(side='bottom', fill='x', padx=12, pady=(4, 6))
             self._upd_btn = tk.Button(
                 upd_frame, text="📂  Actualizar binarios locales",
                 font=('', 9), bg='#37474F', fg='white',
@@ -472,6 +487,15 @@ class FlasherApp:
             self._upd_btn.pack(side='left')
             self._upd_status = tk.Label(upd_frame, text='', anchor='w', fg='#757575')
             self._upd_status.pack(side='left', padx=8)
+
+        # --- Log area (shared, outside notebook) ---
+        self._log = scrolledtext.ScrolledText(
+            self.root, height=7, state='disabled', font=('Courier', 9),
+        )
+        self._log.pack(fill='both', expand=True, padx=12, pady=6)
+        self._log.tag_config('success', foreground='#2E7D32')
+        self._log.tag_config('error',   foreground='#C62828')
+        self._log.tag_config('info',    foreground='#1565C0')
 
     # ------------------------------------------------------------------ #
     # Hotplug monitor
@@ -698,6 +722,11 @@ class FlasherApp:
 
     def _get_build_sources(self) -> dict[str, Path]:
         """Return {board_folder → firmware.bin} for locally built PlatformIO outputs."""
+        def _env_sort_key(p: Path) -> tuple:
+            # Prefer higher version number (e.g. V17 > V16); mtime as tiebreaker.
+            m = re.search(r'[Vv](\d+)', p.parent.name)
+            return (int(m.group(1)) if m else -1, p.stat().st_mtime)
+
         try:
             firmware_base = get_firmware_base()
             repo_root = firmware_base.parents[2]
@@ -710,7 +739,7 @@ class FlasherApp:
                     continue
                 candidates = sorted(
                     pio_dir.glob('*/firmware.bin'),
-                    key=lambda p: p.stat().st_mtime,
+                    key=_env_sort_key,
                     reverse=True,
                 )
                 if candidates:
