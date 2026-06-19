@@ -55,9 +55,9 @@ lv_chart_series_t *historySeriesSkin = NULL;
 lv_chart_series_t *historySeriesHum = NULL;
 
 #define HISTORY_BUFFER_SIZE 720 // 2 horas a 10s/punto
-EXT_RAM_BSS_ATTR float historyBufferAir[HISTORY_BUFFER_SIZE];
-EXT_RAM_BSS_ATTR float historyBufferSkin[HISTORY_BUFFER_SIZE];
-EXT_RAM_BSS_ATTR float historyBufferHum[HISTORY_BUFFER_SIZE];
+float historyBufferAir[HISTORY_BUFFER_SIZE];
+float historyBufferSkin[HISTORY_BUFFER_SIZE];
+float historyBufferHum[HISTORY_BUFFER_SIZE];
 int historyWriteIdx = 0;
 int historySampleCount = 0;
 static int decimationCounter = 0;
@@ -148,7 +148,7 @@ static esp_lcd_panel_handle_t lcd_panel = NULL;
 
 // Bounce buffer: 20 líneas en SRAM interno desacoplan LCD DMA de PSRAM
 // 800 * 20 * 2 = 32KB por bounce buffer (x2 ping-pong = 64KB SRAM)
-#define BOUNCE_BUF_LINES 20
+#define BOUNCE_BUF_LINES 8
 #define BOUNCE_BUF_SIZE_PX (DISPLAY_WIDTH * BOUNCE_BUF_LINES)
 
 // ==========================================
@@ -157,24 +157,16 @@ static esp_lcd_panel_handle_t lcd_panel = NULL;
 // Frame interval > este umbral se considera frame lento (glitch potencial)
 #define LCD_VSYNC_SLOW_THRESHOLD_US 25000 // 25 ms → <40 fps
 
-static volatile uint32_t g_lcd_bounce_empty_count = 0;     // underruns DMA total
-static volatile uint32_t g_lcd_bounce_empty_bot_count = 0; // underruns en mitad inferior
-static volatile uint32_t g_lcd_bounce_empty_last_px = 0;   // posición del último underrun
-static volatile uint32_t g_lcd_vsync_slow_count = 0;       // frames lentos
-static volatile uint32_t g_lcd_vsync_total = 0;            // frames totales
+static volatile uint32_t g_lcd_bounce_empty_count = 0; // underruns DMA
+static volatile uint32_t g_lcd_vsync_slow_count = 0;   // frames lentos
+static volatile uint32_t g_lcd_vsync_total = 0;        // frames totales
 static volatile int64_t g_lcd_last_vsync_us = 0;
-static volatile int64_t g_lcd_worst_frame_us = 0;          // peor intervalo visto
-
-// Semáforo para sincronizar my_disp_flush con vsync (evita tearing single-FB)
-static SemaphoreHandle_t g_lcd_vsync_sem = NULL;
+static volatile int64_t g_lcd_worst_frame_us = 0; // peor intervalo visto
 
 static bool IRAM_ATTR lcd_on_bounce_empty(esp_lcd_panel_handle_t panel,
                                           void *bounce_buf, int pos_px,
                                           int len_bytes, void *user_ctx) {
   g_lcd_bounce_empty_count++;
-  g_lcd_bounce_empty_last_px = (uint32_t)pos_px;
-  if (pos_px > (DISPLAY_WIDTH * DISPLAY_HEIGHT / 2))
-    g_lcd_bounce_empty_bot_count++;
   return false;
 }
 
@@ -191,44 +183,32 @@ static bool IRAM_ATTR lcd_on_vsync(esp_lcd_panel_handle_t panel,
   }
   g_lcd_last_vsync_us = now;
   g_lcd_vsync_total++;
-  BaseType_t high_task_awoken = pdFALSE;
-  xSemaphoreGiveFromISR(g_lcd_vsync_sem, &high_task_awoken);
-  return high_task_awoken == pdTRUE;
+  return false;
 }
 
 // Llamar periódicamente desde una tarea para volcar diagnóstico al log
 void lcd_diagnostics_log() {
-  uint32_t underruns     = g_lcd_bounce_empty_count;
-  uint32_t bot_underruns = g_lcd_bounce_empty_bot_count;
-  uint32_t last_px       = g_lcd_bounce_empty_last_px;
-  uint32_t slow_frames   = g_lcd_vsync_slow_count;
-  uint32_t total         = g_lcd_vsync_total;
-  int64_t  worst_us      = g_lcd_worst_frame_us;
+  uint32_t underruns = g_lcd_bounce_empty_count;
+  uint32_t slow_frames = g_lcd_vsync_slow_count;
+  uint32_t total = g_lcd_vsync_total;
+  int64_t worst_us = g_lcd_worst_frame_us;
 
   // Reset contadores después de leer
-  g_lcd_bounce_empty_count     = 0;
-  g_lcd_bounce_empty_bot_count = 0;
-  g_lcd_vsync_slow_count       = 0;
-  g_lcd_vsync_total            = 0;
-  g_lcd_worst_frame_us         = 0;
+  g_lcd_bounce_empty_count = 0;
+  g_lcd_vsync_slow_count = 0;
+  g_lcd_vsync_total = 0;
+  g_lcd_worst_frame_us = 0;
 
-  uint32_t last_line = last_px / DISPLAY_WIDTH;
-  float    worst_ms  = worst_us / 1000.0f;
-
-  bool    wifi_up = (WiFi.status() == WL_CONNECTED);
-  int32_t rssi    = wifi_up ? WiFi.RSSI() : 0;
+  float fps = (worst_us > 0) ? (1000000.0f / worst_us) : 0.0f;
 
   if (underruns > 0 || slow_frames > 0) {
     ESP_LOGW("LCD_DIAG",
-             "GLITCH — underruns=%lu (bot=%lu last_line=%lu/%d)  slow=%lu/%lu"
-             "  worst=%.1fms  wifi=%s rssi=%ld",
-             underruns, bot_underruns, last_line, DISPLAY_HEIGHT,
-             slow_frames, total, worst_ms,
-             wifi_up ? "UP" : "DOWN", rssi);
+             "GLITCH DETECTED — underruns=%lu  slow_frames=%lu/%lu  "
+             "worst_frame=%.1fms (%.1f fps)",
+             underruns, slow_frames, total, worst_us / 1000.0f, fps);
   } else {
-    ESP_LOGI("LCD_DIAG",
-             "OK — frames=%lu  worst=%.1fms  wifi=%s rssi=%ld",
-             total, worst_ms, wifi_up ? "UP" : "DOWN", rssi);
+    // ESP_LOGI("LCD_DIAG", "OK — frames=%lu  worst_frame=%.1fms", total,
+    //          worst_us / 1000.0f);
   }
 }
 
@@ -252,7 +232,7 @@ TAMC_GT911 ts =
 static uint32_t screenWidth;
 static uint32_t screenHeight;
 static lv_disp_draw_buf_t draw_buf;
-static lv_color_t *disp_draw_buf = NULL; // asignado en PSRAM — ver lv_disp_draw_buf_init
+static lv_color_t disp_draw_buf[DISPLAY_WIDTH * DISPLAY_HEIGHT / COLOR_DIVISOR];
 static lv_disp_drv_t disp_drv;
 static lv_timer_t *intro_timer = NULL;
 static uint32_t intro_start_ms = 0;
@@ -268,11 +248,6 @@ void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area,
   int offsety2 = area->y2;
   esp_lcd_panel_draw_bitmap(lcd_panel, offsetx1, offsety1, offsetx2 + 1,
                             offsety2 + 1, color_p);
-  // Esperar vsync en el último flush del frame para evitar tearing
-  // (single framebuffer en PSRAM — DMA lee mientras LVGL escribe sin sync)
-  if (lv_disp_flush_is_last(disp)) {
-    xSemaphoreTake(g_lcd_vsync_sem, pdMS_TO_TICKS(50));
-  }
   lv_disp_flush_ready(disp);
 }
 
@@ -644,9 +619,9 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   const char *TXT_TARGETHUM[] = {
       "HUMEDAD OBJETIVO:", "TARGET HUMIDITY:", "HUMIDITE OBJECTIF:"};
   const char *TXT_STATUS[] = {"ESTADO:", "STATUS:", "ETAT:"};
-  const char *TXT_UNLOCK[] = {"DESLIZA PARA DESBLOQUEAR",
-                              "SLIDE TO UNLOCK",
-                              "GLISSEZ POUR DEVERROUILLER"};
+  const char *TXT_UNLOCK[] = {"PRESIONA 2 SEG\nPARA DESBLOQUEAR",
+                              "PRESS 2 SEC \nTO UNLOCK",
+                              "APPUYEZ 2 SEG\nPOUR DEVERROUILLER"};
   const char *TXT_INCUNEST[] = {"INCUNEST", "INCUNEST", "INCUNEST"};
   const char *TXT_SET[] = {"AJUSTAR", "SET", "REGLER"};
   const char *TXT_WIFISSID[] = {"WIFISSID", "WIFISSID", "WIFISSID"};
@@ -780,7 +755,7 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   lv_label_set_text(ui_TargetSkinTempLabel, TXT_TARGETTEMP[lang]);
   lv_label_set_text(ui_Label23, TXT_TARGETHUM[lang]);
   lv_label_set_text(ui_StatusLabel, TXT_STATUS[lang]);
-  if (ui_SlideLabel) lv_label_set_text(ui_SlideLabel, TXT_UNLOCK[lang]);
+  lv_label_set_text(ui_Label4, TXT_UNLOCK[lang]);
 
   // Phototherapy Timer
   if (ui_PhotoLockLabel) {
@@ -1350,32 +1325,29 @@ static void update_main_toggle_buttons() {
   bool h = lv_obj_has_state(ui_Switch2, LV_STATE_CHECKED);
   bool p = lv_obj_has_state(ui_Switch3, LV_STATE_CHECKED);
 
-  const char *s_on  = (g_lang == LANG_ES) ? "ENCENDER" : (g_lang == LANG_FR) ? "ACTIVER"   : "TURN ON";
-  const char *s_off = (g_lang == LANG_ES) ? "APAGAR"   : (g_lang == LANG_FR) ? "\xC3\x89TEINDRE" : "TURN OFF";
-
   lv_color_t bg, txt;
   lv_obj_t  *lbl;
 
-  bg  = t ? lv_color_hex(0xFF7A00) : lv_color_hex(0x4EC7FF);
-  txt = t ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x07111C);
+  bg  = t ? lv_color_hex(0xFFAE84) : lv_color_hex(0x3A3A4A);
+  txt = t ? lv_color_hex(0x1A1010) : lv_color_hex(0xFFFFFF);
   lv_obj_set_style_bg_color(ui_TempToggleBtn, bg, LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_bg_color(ui_TempToggleBtn, bg, LV_PART_MAIN | LV_STATE_PRESSED);
   lbl = lv_obj_get_child(ui_TempToggleBtn, 0);
-  if (lbl) { lv_label_set_text(lbl, t ? s_off : s_on); lv_obj_set_style_text_color(lbl, txt, 0); }
+  if (lbl) { lv_label_set_text(lbl, t ? "ON" : "OFF"); lv_obj_set_style_text_color(lbl, txt, 0); }
 
-  bg  = h ? lv_color_hex(0xFF7A00) : lv_color_hex(0x4EC7FF);
-  txt = h ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x07111C);
+  bg  = h ? lv_color_hex(0xFFAE84) : lv_color_hex(0x3A3A4A);
+  txt = h ? lv_color_hex(0x1A1010) : lv_color_hex(0xFFFFFF);
   lv_obj_set_style_bg_color(ui_HumToggleBtn, bg, LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_bg_color(ui_HumToggleBtn, bg, LV_PART_MAIN | LV_STATE_PRESSED);
   lbl = lv_obj_get_child(ui_HumToggleBtn, 0);
-  if (lbl) { lv_label_set_text(lbl, h ? s_off : s_on); lv_obj_set_style_text_color(lbl, txt, 0); }
+  if (lbl) { lv_label_set_text(lbl, h ? "ON" : "OFF"); lv_obj_set_style_text_color(lbl, txt, 0); }
 
-  bg  = p ? lv_color_hex(0xFF7A00) : lv_color_hex(0x4EC7FF);
-  txt = p ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x07111C);
+  bg  = p ? lv_color_hex(0xFFAE84) : lv_color_hex(0x3A3A4A);
+  txt = p ? lv_color_hex(0x1A1010) : lv_color_hex(0xFFFFFF);
   lv_obj_set_style_bg_color(ui_PhotoToggleBtn, bg, LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_bg_color(ui_PhotoToggleBtn, bg, LV_PART_MAIN | LV_STATE_PRESSED);
   lbl = lv_obj_get_child(ui_PhotoToggleBtn, 0);
-  if (lbl) { lv_label_set_text(lbl, p ? s_off : s_on); lv_obj_set_style_text_color(lbl, txt, 0); }
+  if (lbl) { lv_label_set_text(lbl, p ? "ON" : "OFF"); lv_obj_set_style_text_color(lbl, txt, 0); }
 }
 
 // Popup spinbox callbacks
@@ -1827,15 +1799,6 @@ void temp_content_set_visible(bool visible) {
   }
 }
 
-void hum_content_set_visible(bool visible) {
-  lv_obj_t *widgets[] = {ui_Panel3, ui_HumPanelCont, ui_HumidButton};
-  for (auto w : widgets) {
-    if (!w) continue;
-    if (visible) lv_obj_clear_flag(w, LV_OBJ_FLAG_HIDDEN);
-    else         lv_obj_add_flag(w, LV_OBJ_FLAG_HIDDEN);
-  }
-}
-
 /* Switch callback for temperature and humidity */
 void Switch_cb(lv_event_t *e) {
   lv_color_t active_col = darkMode ? COLOR_PANEL_GRAY : COLOR_PANEL_WHITE;
@@ -1920,7 +1883,6 @@ void Switch_cb(lv_event_t *e) {
     panel = ui_Panel3;
 
     if (checked) {
-      hum_content_set_visible(true);
       // mark last pressed chart and show hum page
       chartLastPressed = 1;
       lv_tabview_set_act(ui_TabView1, 1, LV_ANIM_ON);
@@ -1937,7 +1899,6 @@ void Switch_cb(lv_event_t *e) {
       lv_obj_set_style_bg_color(ui_Panel3, active_col, LV_PART_MAIN);
       lv_obj_set_style_bg_opa(ui_Panel3, LV_OPA_COVER, LV_PART_MAIN);
     } else {
-      hum_content_set_visible(false);
       lv_obj_add_flag(ui_HumChartCont, LV_OBJ_FLAG_HIDDEN); // hide hum chart
       // Humidity OFF
       lv_obj_clear_flag(ui_ImgArrowDownHum, LV_OBJ_FLAG_CLICKABLE);
@@ -2079,7 +2040,6 @@ void Switch_cb(lv_event_t *e) {
     }
 
     skinPanelEnabled = checked;
-    { Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_SKIN_EN, skinPanelEnabled ? 1 : 0); p.end(); }
     hmi_msg.skinModeEnabled = checked;
     hmi_msg.shouldSendData = true;
 
@@ -2109,7 +2069,6 @@ void Switch_cb(lv_event_t *e) {
     lastVarChangeTime = millis();
     if (humidityEnabled) {
       lv_obj_clear_flag(ui_HumCont, LV_OBJ_FLAG_HIDDEN);
-      hum_content_set_visible(switchHum);
     } else {
       lv_obj_add_flag(ui_HumCont, LV_OBJ_FLAG_HIDDEN);
       // Turn off humidity if it was active
@@ -2476,27 +2435,49 @@ void update_alarm_panels() {
     alarmsMuted = false;
   }
 
-  // Disable temperature control when fan or heater alarm is active
-  bool fanHeaterAlarm = false;
-  for (int i = 0; i < MAX_ALARMS; i++) {
-    if ((alarmList[i].id == FAN_ISSUE_ALARM || alarmList[i].id == HEATER_ISSUE_ALARM) && alarmList[i].state) {
-      fanHeaterAlarm = true;
-      break;
+  // Handle Heater Error logic
+  static bool heaterCriticalError = false; // Latching variable
+
+  if (!heaterCriticalError) {
+    for (int i = 0; i < MAX_ALARMS; i++) {
+      if (alarmList[i].id == HEATER_ISSUE_ALARM && alarmList[i].state) {
+        heaterCriticalError = true;
+        break;
+      }
     }
   }
 
-  // Warning overlays are always hidden
-  if (ui_HeaterErrorTempCont)
-    lv_obj_add_flag(ui_HeaterErrorTempCont, LV_OBJ_FLAG_HIDDEN);
-  if (ui_HeaterErrorHumCont)
-    lv_obj_add_flag(ui_HeaterErrorHumCont, LV_OBJ_FLAG_HIDDEN);
+  if (heaterCriticalError) {
+    // Show Warning UI
+    if (ui_HeaterErrorTempCont)
+      lv_obj_clear_flag(ui_HeaterErrorTempCont, LV_OBJ_FLAG_HIDDEN);
+    if (ui_HeaterErrorHumCont)
+      lv_obj_clear_flag(ui_HeaterErrorHumCont, LV_OBJ_FLAG_HIDDEN);
 
-  if (fanHeaterAlarm) {
-    if (ui_Switch1)
+    // Disable Switches
+    if (ui_Switch1) {
+      lv_obj_clear_state(ui_Switch1, LV_STATE_CHECKED);
       lv_obj_add_state(ui_Switch1, LV_STATE_DISABLED);
-    if (ui_Switch2)
+    }
+    if (ui_Switch2) {
+      lv_obj_clear_state(ui_Switch2, LV_STATE_CHECKED);
       lv_obj_add_state(ui_Switch2, LV_STATE_DISABLED);
+    }
+
+    // Blink - Blink the CONTAINER for visibility
+    if (ui_HeaterErrorTempCont)
+      start_alarm_blink(ui_HeaterErrorTempCont);
+    if (ui_HeaterErrorHumCont)
+      start_alarm_blink(ui_HeaterErrorHumCont);
+
   } else {
+    // Hide Warning UI
+    if (ui_HeaterErrorTempCont)
+      lv_obj_add_flag(ui_HeaterErrorTempCont, LV_OBJ_FLAG_HIDDEN);
+    if (ui_HeaterErrorHumCont)
+      lv_obj_add_flag(ui_HeaterErrorHumCont, LV_OBJ_FLAG_HIDDEN);
+
+    // Enable Switches
     if (ui_Switch1)
       lv_obj_clear_state(ui_Switch1, LV_STATE_DISABLED);
     if (ui_Switch2)
@@ -2706,83 +2687,12 @@ void MuteAlarm_cb(lv_event_t *e) {
   AlarmSound_Update();
 }
 
-// Animation callback: moves thumb and shrinks fill simultaneously.
-// `var` is ui_SlideThumb; `v` is the animated x position.
-static void slide_snap_back_anim_cb(void *var, int32_t v) {
-  lv_obj_t *thumb = (lv_obj_t *)var;
-  lv_obj_set_x(thumb, (lv_coord_t)v);
-  if (ui_SlideFill)
-    lv_obj_set_width(ui_SlideFill, LV_MAX(0, (lv_coord_t)v - SLIDE_MARGIN));
-}
-
-static void SlideUnlock_event_cb(lv_event_t *e) {
-  lv_event_code_t code = lv_event_get_code(e);
-
-  if (code == LV_EVENT_PRESSED) {
-    // Cancel any running snap-back before starting a new drag
-    lv_anim_del(ui_SlideThumb, slide_snap_back_anim_cb);
-
-    lv_indev_t *indev = lv_indev_get_act();
-    lv_point_t pt;
-    lv_indev_get_point(indev, &pt);
-    slideThumbStartX = lv_obj_get_x(ui_SlideThumb);
-    slideDragStartX  = pt.x;
-
-    if (unlockTimeoutTimer) lv_timer_pause(unlockTimeoutTimer);
-
-  } else if (code == LV_EVENT_PRESSING) {
-    lv_indev_t *indev = lv_indev_get_act();
-    lv_point_t pt;
-    lv_indev_get_point(indev, &pt);
-
-    lv_coord_t new_x = slideThumbStartX + (pt.x - slideDragStartX);
-    if (new_x < SLIDE_MARGIN)       new_x = SLIDE_MARGIN;
-    if (new_x > SLIDE_THUMB_MAX_X)  new_x = SLIDE_THUMB_MAX_X;
-
-    lv_obj_set_x(ui_SlideThumb, new_x);
-    lv_obj_set_width(ui_SlideFill, LV_MAX(0, new_x - SLIDE_MARGIN));
-
-  } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
-    lv_coord_t current_x = lv_obj_get_x(ui_SlideThumb);
-
-    if (current_x >= SLIDE_UNLOCK_X) {
-      // --- UNLOCK ---
-      lv_obj_add_flag(ui_SlideUnlockCont, LV_OBJ_FLAG_HIDDEN);
-      if (unlockTimeoutTimer) {
-        lv_timer_del(unlockTimeoutTimer);
-        unlockTimeoutTimer = NULL;
-      }
-      locked = false;
-      lv_scr_load(ui_ScreenMain);
-    } else {
-      // --- SNAP BACK ---
-      lv_anim_t a;
-      lv_anim_init(&a);
-      lv_anim_set_var(&a, ui_SlideThumb);
-      lv_anim_set_exec_cb(&a, slide_snap_back_anim_cb);
-      lv_anim_set_values(&a, current_x, SLIDE_MARGIN);
-      lv_anim_set_time(&a, 200);
-      lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
-      lv_anim_start(&a);
-
-      if (unlockTimeoutTimer) {
-        lv_timer_resume(unlockTimeoutTimer);
-        lv_timer_reset(unlockTimeoutTimer);
-      }
-    }
-  }
-}
-
 static void show_targets_for_mode(void) {
   if (unlockTimeoutTimer) {
     lv_timer_del(unlockTimeoutTimer);
     unlockTimeoutTimer = NULL;
   }
-  // Cancel any running snap-back and reset thumb/fill to initial state
-  lv_anim_del(ui_SlideThumb, slide_snap_back_anim_cb);
-  lv_obj_add_flag(ui_SlideUnlockCont, LV_OBJ_FLAG_HIDDEN);
-  if (ui_SlideThumb) lv_obj_set_x(ui_SlideThumb, SLIDE_MARGIN);
-  if (ui_SlideFill)  lv_obj_set_width(ui_SlideFill, 0);
+  lv_obj_add_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_HumLockDesiredCont, LV_OBJ_FLAG_HIDDEN);
@@ -2816,21 +2726,21 @@ static void show_targets_for_mode(void) {
 
 static void unlock_timeout_cb(lv_timer_t *t) {
   (void)t;
-  unlockTimeoutTimer = NULL;
   locked = true;
   show_targets_for_mode();
+  if (unlockTimeoutTimer) {
+    lv_timer_del(unlockTimeoutTimer);
+    unlockTimeoutTimer = NULL;
+  }
 }
 
-static void show_slide_unlock(void) {
-  lv_anim_del(ui_SlideThumb, slide_snap_back_anim_cb);
-  if (ui_SlideThumb) lv_obj_set_x(ui_SlideThumb, SLIDE_MARGIN);
-  if (ui_SlideFill)  lv_obj_set_width(ui_SlideFill, 0);
-  lv_obj_clear_flag(ui_SlideUnlockCont, LV_OBJ_FLAG_HIDDEN);
+static void show_unlock_only(void) {
+  lv_obj_clear_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_HumLockDesiredCont, LV_OBJ_FLAG_HIDDEN);
 
-  // Start or reset inactivity timer to hide slide unlock
+  // Start or reset inactivity timer to hide UnlockCont
   if (unlockTimeoutTimer) {
     lv_timer_reset(unlockTimeoutTimer);
   } else {
@@ -2840,12 +2750,63 @@ static void show_slide_unlock(void) {
   }
 }
 
+static void lock_progress_timer_cb(lv_timer_t *t) {
+  (void)t;
+  if (!lockProgressArc)
+    return;
+  uint32_t now = lv_tick_get();
+  uint32_t elapsed = now - lockProgressStart;
+  if (elapsed > LOCK_PROGRESS_DURATION_MS)
+    elapsed = LOCK_PROGRESS_DURATION_MS;
+  int perc = (int)((elapsed * 100) / LOCK_PROGRESS_DURATION_MS);
+  lv_arc_set_value(lockProgressArc, perc);
+
+  if (elapsed >= LOCK_PROGRESS_DURATION_MS) {
+    if (lockProgressTimer) {
+      lv_timer_del(lockProgressTimer);
+      lockProgressTimer = NULL;
+    }
+    lv_scr_load(ui_ScreenMain);
+    locked = false;
+    if (lockProgressArc)
+      lv_obj_add_flag(lockProgressArc, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+static void start_lock_progress(void) {
+  lockProgressArc = ui_Spinner1;
+  if (!lockProgressArc)
+    return;
+  lv_obj_clear_flag(lockProgressArc, LV_OBJ_FLAG_HIDDEN);
+  lv_arc_set_value(lockProgressArc, 0);
+  lockProgressStart = lv_tick_get();
+  if (lockProgressTimer) {
+    lv_timer_del(lockProgressTimer);
+    lockProgressTimer = NULL;
+  }
+  lockProgressTimer = lv_timer_create(lock_progress_timer_cb, 50, NULL);
+}
+
+static void stop_lock_progress(void) {
+  if (lockProgressTimer) {
+    lv_timer_del(lockProgressTimer);
+    lockProgressTimer = NULL;
+  }
+  if (lockProgressArc) {
+    lv_arc_set_value(lockProgressArc, 0);
+    lv_obj_add_flag(lockProgressArc, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
 static void enter_lock_screen(void) {
   if (lv_scr_act() == ui_ScreenLock) {
+    stop_lock_progress();
     locked = true;
     show_targets_for_mode();
     return;
   }
+  stop_lock_progress();
   locked = true;
   lv_scr_load(ui_ScreenLock);
   show_targets_for_mode();
@@ -2864,14 +2825,67 @@ void LockScreenAnyTouch_cb(lv_event_t *e) {
   if (lv_scr_act() != ui_ScreenLock)
     return;
   lv_obj_t *origin = lv_event_get_target(e);
-  // Ignore events that originate within the slider itself
-  if (origin == ui_SlideTrack || origin == ui_SlideUnlockCont)
+  if (origin != ui_ScreenLock &&
+      origin != ui_LockPPGChart &&
+      origin != ui_LockHRCont &&
+      origin != ui_LockPICont)
     return;
 
-  if (lv_obj_has_flag(ui_SlideUnlockCont, LV_OBJ_FLAG_HIDDEN)) {
-    show_slide_unlock();
-  } else if (unlockTimeoutTimer) {
+  bool unlockVisible = !lv_obj_has_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
+
+  if (!unlockVisible) {
+    show_unlock_only();
+    locked = false;
+  } else {
+    stop_lock_progress();
+    show_targets_for_mode();
+    locked = true;
+  }
+}
+
+static void lock_stop_debounce_cb(lv_timer_t *t) {
+  (void)t;
+  lockStopDebounceTimer = NULL;
+  stop_lock_progress();
+  if (unlockTimeoutTimer) {
+    lv_timer_resume(unlockTimeoutTimer);
     lv_timer_reset(unlockTimeoutTimer);
+  }
+}
+
+static void UnlockCont_event_cb(lv_event_t *e) {
+  lv_event_code_t code = lv_event_get_code(e);
+  if (code == LV_EVENT_PRESSED) {
+    // Cancel any pending stop (handles finger drift between children)
+    if (lockStopDebounceTimer) {
+      lv_timer_del(lockStopDebounceTimer);
+      lockStopDebounceTimer = NULL;
+    }
+    // Only start if not already running (prevents duplicate events)
+    if (!lockProgressTimer) {
+      start_lock_progress();
+    }
+    if (unlockTimeoutTimer) {
+      lv_timer_pause(unlockTimeoutTimer);
+    }
+  } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+    // Debounce: tolerate brief finger drift between children (150 ms window)
+    if (!lockStopDebounceTimer) {
+      lockStopDebounceTimer = lv_timer_create(lock_stop_debounce_cb, 20, NULL);
+      lv_timer_set_repeat_count(lockStopDebounceTimer, 1);
+    }
+  }
+}
+
+static void add_unlock_press_cb_recursive(lv_obj_t *obj) {
+  if (!obj)
+    return;
+  lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(obj, UnlockCont_event_cb, LV_EVENT_ALL, NULL);
+  uint32_t n = lv_obj_get_child_cnt(obj);
+  for (uint32_t i = 0; i < n; i++) {
+    lv_obj_t *child = lv_obj_get_child(obj, i);
+    add_unlock_press_cb_recursive(child);
   }
 }
 
@@ -2883,6 +2897,7 @@ void inactivity_timer_cb(lv_timer_t *timer) {
   uint32_t inactive = lv_disp_get_inactive_time(NULL);
   if (inactive > INACTIVITY_TIMEOUT_MS) {
     if (lv_scr_act() != ui_ScreenLock) {
+      stop_lock_progress();
       locked = true;
       lv_scr_load(ui_ScreenLock);
       show_targets_for_mode();
@@ -3227,10 +3242,6 @@ void UI_Task(void *pvParameters) {
     }
   }
 
-  // Semáforo vsync — debe existir antes de registrar los callbacks del panel
-  g_lcd_vsync_sem = xSemaphoreCreateBinary();
-  assert(g_lcd_vsync_sem != NULL);
-
   // Crear panel RGB con bounce buffers (anti-flicker)
   {
     esp_lcd_rgb_panel_config_t panel_cfg = {};
@@ -3339,10 +3350,6 @@ void UI_Task(void *pvParameters) {
   screenWidth = DISPLAY_WIDTH;
   screenHeight = DISPLAY_HEIGHT;
 
-  disp_draw_buf = (lv_color_t *)heap_caps_malloc(
-      DISPLAY_WIDTH * DISPLAY_HEIGHT / COLOR_DIVISOR * sizeof(lv_color_t),
-      MALLOC_CAP_SPIRAM);
-  assert(disp_draw_buf != NULL);
   lv_disp_draw_buf_init(&draw_buf, disp_draw_buf, NULL,
                         DISPLAY_WIDTH * DISPLAY_HEIGHT / COLOR_DIVISOR);
 
@@ -3357,6 +3364,7 @@ void UI_Task(void *pvParameters) {
   lv_indev_drv_init(&indev_drv);
   indev_drv.type = LV_INDEV_TYPE_POINTER;
   indev_drv.read_cb = my_touchpad_read;
+  indev_drv.long_press_time = LOCK_PROGRESS_DURATION_MS;
   lv_indev_drv_register(&indev_drv);
 
   ui_init();
@@ -3375,11 +3383,7 @@ void UI_Task(void *pvParameters) {
   ui_set_switch_state_silent(ui_SwitchHumidityMode, humidityEnabled);
   if (humidityEnabled) {
     lv_obj_clear_flag(ui_HumCont, LV_OBJ_FLAG_HIDDEN);
-    hum_content_set_visible(false); // switchHum is false at startup
   }
-  ui_set_switch_state_silent(ui_Switch4, skinPanelEnabled);
-  // SkinPanelCont stays hidden at startup (switchTemp is false); SyncAll shows
-  // it when the temperature switch is turned on and skinPanelEnabled is true.
   // UI_ApplyTheme() movida al final de la creación de elementos manuales para
   // que les afecte
 
@@ -3462,7 +3466,7 @@ void UI_Task(void *pvParameters) {
 
   // --- Skin probe status label (RF-SKIN-004, UI-SKIN-005): informativo en modo
   // aire ---
-  ui_SkinProbeStatusLabel = lv_label_create(ui_ScreenMain);
+  ui_SkinProbeStatusLabel = lv_label_create(lv_scr_act());
   lv_label_set_text(ui_SkinProbeStatusLabel, "");
   lv_obj_align(ui_SkinProbeStatusLabel, LV_ALIGN_BOTTOM_LEFT, 10, -5);
   lv_obj_set_style_text_font(ui_SkinProbeStatusLabel, &lv_font_montserrat_12,
@@ -3597,8 +3601,10 @@ void UI_Task(void *pvParameters) {
   lv_obj_add_flag(ui_ArrowSkinLock, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_ArrowHumLock, LV_OBJ_FLAG_HIDDEN);
 
-  lv_obj_add_flag(ui_SlideUnlockCont, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_event_cb(ui_SlideTrack, SlideUnlock_event_cb, LV_EVENT_ALL, NULL);
+  lv_obj_add_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_Spinner1, LV_OBJ_FLAG_HIDDEN);
+
+  add_unlock_press_cb_recursive(ui_UnlockCont);
 
   lv_obj_add_flag(ui_AlarmLockCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_clear_flag(ui_CheckImg, LV_OBJ_FLAG_HIDDEN);
@@ -4134,7 +4140,6 @@ void UI_SyncAll() {
   }
 
   // 3. Humidity Logic
-  hum_content_set_visible(switchHum);
   if (switchHum) {
     lv_obj_clear_flag(ui_HumChartCont, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(ui_HumLockDesiredCont, LV_OBJ_FLAG_HIDDEN);
@@ -4266,7 +4271,7 @@ void UI_SyncAll() {
   lv_obj_set_style_opa(ui_Panel2, LV_OPA_COVER, LV_PART_MAIN);
 
   // 5. Skin Block (Switch 4)
-  if (skinPanelEnabled && switchTemp) {
+  if (skinPanelEnabled) {
     lv_obj_clear_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
   } else {
     lv_obj_add_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
