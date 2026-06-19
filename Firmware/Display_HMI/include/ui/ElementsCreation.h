@@ -90,12 +90,16 @@ LV_IMG_DECLARE(ui_img_302897630);    // assets/water-drop-icon-transparent-free-
 LV_IMG_DECLARE(ui_img_windvector_png);    // assets/windVector.png
 LV_IMG_DECLARE(ui_img_check_png);    // assets/check.png
 LV_IMG_DECLARE(ui_img_flecha_png);    // assets/Flecha.png
-LV_IMG_DECLARE(ui_img_incunest2_png);    // assets/INCUNEST2.png
+LV_IMG_DECLARE(ui_img_incunest2_png);          // assets/INCUNEST2.png
+LV_IMG_DECLARE(ui_img_incunest_baby_logo_png); // data/IncuNest_baby_logo.png
 LV_IMG_DECLARE(ui_img_sjd_png);          // data/SJD.png
+LV_IMG_DECLARE(ui_img_iso7010_m025_png); // data/ISO_7010_M025.png
 #if INTRO_FLAG == INTRO_FLAG_TOGO
-LV_IMG_DECLARE(ui_img_flag_togo_png);    // data/Flag_Togo.png
+LV_IMG_DECLARE(ui_img_flag_togo_png);      // data/Flag_Togo.png
 #elif INTRO_FLAG == INTRO_FLAG_RASD
-LV_IMG_DECLARE(ui_img_flag_rasd_jpg);    // flags/RASD.jpg
+LV_IMG_DECLARE(ui_img_flag_rasd_jpg);      // flags/RASD.jpg
+#elif INTRO_FLAG == INTRO_FLAG_SENEGAL
+LV_IMG_DECLARE(ui_img_flag_senegal_png);   // flags/senegal-flag.png
 #endif
 
 // --- GLOBAL VARIABLES ---
@@ -103,6 +107,7 @@ extern lv_obj_t * ui____initial_actions0;
 
 // --- SCREEN: Intro ---
 extern lv_obj_t * ui_ScreenIntro;
+extern lv_obj_t * ui_ImageBabyLogo;
 extern lv_obj_t * ui_ImageLogoIncunest;
 extern lv_obj_t * ui_ImageSJD;
 extern lv_obj_t * ui_ImageFlagTogo;
@@ -244,6 +249,20 @@ extern lv_obj_t *aa_label_lo;
 extern lv_obj_t *aa_setpoint_label;
 void create_autoair_button(void);
 void create_autoair_popup(void);
+
+// --- PHOTO SAFETY POPUP ---
+extern lv_obj_t *ui_PhotoSafetyOverlay;
+extern lv_obj_t *ui_PhotoSafetyModal;
+extern lv_obj_t *ui_PhotoSafetyTitleLabel;
+extern lv_obj_t *ui_PhotoSafetyBodyLabel;
+extern lv_obj_t *ui_PhotoSafetyTurnOnLabel;
+void create_photo_safety_popup(void);
+
+// --- MAIN SCREEN TOGGLE BUTTONS ---
+extern lv_obj_t *ui_TempToggleBtn;
+extern lv_obj_t *ui_HumToggleBtn;
+extern lv_obj_t *ui_PhotoToggleBtn;
+void create_main_toggle_buttons(void);
 
 // --- SCREEN: Settings ---
 extern lv_obj_t * ui_ScreenSettings;
@@ -402,15 +421,15 @@ extern lv_obj_t * ui_HumLockDesiredCont;
 extern lv_obj_t * ui_Label23;
 extern lv_obj_t * ui_Label24;
 extern lv_obj_t * ui_ArrowHumLock;
-extern lv_obj_t * ui_UnlockCont;
-extern lv_obj_t * ui_Panel11;
-extern lv_obj_t * ui_Label4;
-extern lv_obj_t * ui_LockButton2;
+extern lv_obj_t * ui_SlideUnlockCont;
+extern lv_obj_t * ui_SlideTrack;
+extern lv_obj_t * ui_SlideLabel;
+extern lv_obj_t * ui_SlideThumb;
+extern lv_obj_t * ui_SlideFill;
 extern lv_obj_t * ui_TargetSkinTempCont;
 extern lv_obj_t * ui_TargetSkinTempLabel;
 extern lv_obj_t * ui_TargetSkinTempNumLabel;
 extern lv_obj_t * ui_ArrowSkinLock;
-extern lv_obj_t * ui_Spinner1;
 extern lv_obj_t * ui_TargetAirTempCont;
 extern lv_obj_t * ui_TargetAirTempLabel;
 extern lv_obj_t * ui_TargetAirTempNumLabel;
