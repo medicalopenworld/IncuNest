@@ -3,3 +3,7 @@ pyserial>=3.5
 requests>=2.28
 requests-toolbelt>=1.0
 zeroconf>=0.128
+winrt-runtime>=3.2.1; sys_platform == "win32"
+winrt-Windows.Foundation>=3.2.1; sys_platform == "win32"
+winrt-Windows.Networking.Connectivity>=3.2.1; sys_platform == "win32"
+winrt-Windows.Networking.NetworkOperators>=3.2.1; sys_platform == "win32"

@@ -1,53 +1,83 @@
-"""Windows Wi-Fi hotspot management via netsh wlan hosted network."""
-import subprocess
+"""Windows Wi-Fi hotspot management via the Windows Mobile Hotspot API (WinRT)."""
+import asyncio
 import sys
 
 HOTSPOT_SSID = 'in3wifi'
 HOTSPOT_PASSWORD = '12345678'
 
 
-def _netsh(*args: str) -> tuple[bool, str]:
-    result = subprocess.run(
-        ['netsh', 'wlan'] + list(args),
-        capture_output=True, text=True, encoding='utf-8', errors='replace',
-        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0,
-    )
-    return result.returncode == 0, (result.stdout + result.stderr).strip()
-
-
 def is_supported() -> bool:
-    """Return True if this Windows machine supports hosted networks."""
-    if sys.platform != 'win32':
-        return False
-    ok, out = _netsh('show', 'hostednetwork')
-    return ok
+    return sys.platform == 'win32'
 
 
 def start_hotspot(ssid: str = HOTSPOT_SSID, password: str = HOTSPOT_PASSWORD) -> None:
-    """Configure and start the Windows hosted-network hotspot.
+    """Start the Windows Mobile Hotspot.
 
-    Raises RuntimeError with a human-readable message on failure (missing
-    admin rights, unsupported adapter, etc.).
+    Raises RuntimeError with a user-readable message on failure.
     """
-    ok, out = _netsh('set', 'hostednetwork', 'mode=allow', f'ssid={ssid}', f'key={password}')
-    if not ok:
-        if 'acceso' in out.lower() or 'access' in out.lower() or 'denied' in out.lower():
-            raise RuntimeError(
-                "Se requieren permisos de administrador.\n"
-                "Ejecuta el flasher como administrador e inténtalo de nuevo."
-            )
-        raise RuntimeError(f"No se pudo configurar el hotspot:\n{out}")
+    if sys.platform != 'win32':
+        raise RuntimeError("Hotspot solo disponible en Windows.")
+    try:
+        asyncio.run(_start_async(ssid, password))
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        raise RuntimeError(
+            f"No se pudo iniciar el hotspot:\n{exc}\n\n"
+            "Activa el hotspot manualmente desde:\n"
+            "Configuracion -> Red e Internet -> Zona Wi-Fi\n"
+            f"SSID: {ssid}  |  Contrasena: {password}"
+        ) from exc
 
-    ok, out = _netsh('start', 'hostednetwork')
-    if not ok:
-        if 'no se puede' in out.lower() or 'cannot' in out.lower() or 'unable' in out.lower():
-            raise RuntimeError(
-                "El adaptador WiFi no soporta hosted network.\n"
-                "Activa el hotspot manualmente en Configuración → Red → Zona Wi-Fi."
-            )
-        raise RuntimeError(f"No se pudo iniciar el hotspot:\n{out}")
+
+async def _start_async(ssid: str, password: str) -> None:
+    from winrt.windows.networking.connectivity import NetworkInformation
+    from winrt.windows.networking.networkoperators import (
+        NetworkOperatorTetheringManager,
+        TetheringOperationStatus,
+    )
+
+    prof = NetworkInformation.get_internet_connection_profile()
+    if prof is None:
+        raise RuntimeError(
+            "No se encontro ningún perfil de red.\n\n"
+            "Activa el hotspot manualmente desde:\n"
+            "Configuracion -> Red e Internet -> Zona Wi-Fi\n"
+            f"SSID: {ssid}  |  Contrasena: {password}"
+        )
+
+    mgr = NetworkOperatorTetheringManager.create_from_connection_profile(prof)
+    cfg = mgr.get_current_access_point_configuration()
+    cfg.ssid = ssid
+    cfg.passphrase = password
+    await mgr.configure_access_point_async(cfg)
+    result = await mgr.start_tethering_async()
+
+    if result.status != TetheringOperationStatus.SUCCESS:
+        raise RuntimeError(
+            f"Windows rechazó el hotspot (status={result.status}).\n\n"
+            "Activa el hotspot manualmente desde:\n"
+            "Configuracion -> Red e Internet -> Zona Wi-Fi\n"
+            f"SSID: {ssid}  |  Contrasena: {password}"
+        )
 
 
 def stop_hotspot() -> None:
-    """Stop the hosted-network hotspot (best effort, no exception raised)."""
-    _netsh('stop', 'hostednetwork')
+    """Stop the hotspot (best effort)."""
+    if sys.platform != 'win32':
+        return
+    try:
+        asyncio.run(_stop_async())
+    except Exception:
+        pass
+
+
+async def _stop_async() -> None:
+    from winrt.windows.networking.connectivity import NetworkInformation
+    from winrt.windows.networking.networkoperators import NetworkOperatorTetheringManager
+
+    prof = NetworkInformation.get_internet_connection_profile()
+    if prof is None:
+        return
+    mgr = NetworkOperatorTetheringManager.create_from_connection_profile(prof)
+    await mgr.stop_tethering_async()
