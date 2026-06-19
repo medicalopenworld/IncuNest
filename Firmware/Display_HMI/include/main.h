@@ -248,13 +248,17 @@ constexpr int RAND_HUM_MAX = 0;
 // Progress arc for lock long-press
 // -----------------------------
 
-static lv_obj_t *lockProgressArc = NULL;
 static lv_timer_t *lockProgressTimer = NULL;
 static lv_timer_t *unlockTimeoutTimer = NULL;
 static lv_timer_t *lockStopDebounceTimer = NULL;
 static uint32_t lockProgressStart = 0;
 static const uint32_t LOCK_PROGRESS_DURATION_MS = 1500; // 1.5 seconds
 static const uint32_t UNLOCK_TIMEOUT_MS = 5000;         // 5 seconds timeout
+
+// Unlock popup border-fill dimensions
+static const lv_coord_t UNLOCK_POPUP_W  = 420;
+static const lv_coord_t UNLOCK_POPUP_H  = 300;
+static const lv_coord_t UNLOCK_BORDER_T = 5;
 
 // -----------------------------
 // Serial

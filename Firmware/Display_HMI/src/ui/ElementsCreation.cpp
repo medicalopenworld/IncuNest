@@ -274,11 +274,14 @@ lv_obj_t *ui_HumLockDesiredCont = NULL;
 lv_obj_t *ui_Label23 = NULL;
 lv_obj_t *ui_Label24 = NULL;
 lv_obj_t *ui_ArrowHumLock = NULL;
-lv_obj_t *ui_UnlockCont = NULL;
-lv_obj_t *ui_Panel11    = NULL;
-lv_obj_t *ui_Label4     = NULL;
+lv_obj_t *ui_UnlockCont  = NULL;
+lv_obj_t *ui_Panel11     = NULL;
+lv_obj_t *ui_Label4      = NULL;
 lv_obj_t *ui_LockButton2 = NULL;
-lv_obj_t *ui_Spinner1   = NULL;
+lv_obj_t *ui_BorderTop   = NULL;
+lv_obj_t *ui_BorderRight  = NULL;
+lv_obj_t *ui_BorderBottom = NULL;
+lv_obj_t *ui_BorderLeft   = NULL;
 lv_obj_t *ui_TargetSkinTempCont = NULL;
 lv_obj_t *ui_TargetSkinTempLabel = NULL;
 lv_obj_t *ui_TargetSkinTempNumLabel = NULL;
@@ -3373,31 +3376,30 @@ void ui_ScreenLock_screen_init(void) {
   lv_obj_clear_flag(ui_CheckImg, LV_OBJ_FLAG_SCROLLABLE);
   lv_img_set_zoom(ui_CheckImg, 200);
 
-  // --- RE-INSERTED UNLOCK CONT AT THE END TO BE ON TOP LAYER ---
+  // --- UNLOCK POPUP (on top layer, border-fill progress) ---
   ui_UnlockCont = lv_obj_create(ui_ScreenLock);
   lv_obj_remove_style_all(ui_UnlockCont);
-  lv_obj_set_width(ui_UnlockCont, 310);
-  lv_obj_set_height(ui_UnlockCont, 200);
+  lv_obj_set_size(ui_UnlockCont, UNLOCK_POPUP_W, UNLOCK_POPUP_H);
   lv_obj_set_align(ui_UnlockCont, LV_ALIGN_CENTER);
   lv_obj_add_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_clear_flag(ui_UnlockCont,
-                    LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_clear_flag(ui_UnlockCont, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
 
   ui_Panel11 = lv_obj_create(ui_UnlockCont);
-  lv_obj_set_width(ui_Panel11, 310);
-  lv_obj_set_height(ui_Panel11, 200);
+  lv_obj_set_size(ui_Panel11, UNLOCK_POPUP_W, UNLOCK_POPUP_H);
   lv_obj_set_align(ui_Panel11, LV_ALIGN_CENTER);
   lv_obj_clear_flag(ui_Panel11, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_bg_color(ui_Panel11, lv_color_hex(0x000000),
                             LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_bg_opa(ui_Panel11, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_border_width(ui_Panel11, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_radius(ui_Panel11, 12, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_pad_all(ui_Panel11, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
 
   ui_Label4 = lv_label_create(ui_UnlockCont);
   lv_obj_set_width(ui_Label4, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_Label4, LV_SIZE_CONTENT);
-  lv_obj_set_x(ui_Label4, 0);
-  lv_obj_set_y(ui_Label4, -50);
   lv_obj_set_align(ui_Label4, LV_ALIGN_CENTER);
+  lv_obj_set_y(ui_Label4, -50);
   lv_label_set_text(ui_Label4, "Keep pressed\nto unlock");
   lv_obj_set_style_text_color(ui_Label4, lv_color_hex(0xFFFFFF),
                               LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -3410,27 +3412,58 @@ void ui_ScreenLock_screen_init(void) {
   ui_LockButton2 = lv_imgbtn_create(ui_UnlockCont);
   lv_imgbtn_set_src(ui_LockButton2, LV_IMGBTN_STATE_RELEASED, NULL,
                     &ui_img_candado_png, NULL);
-  lv_obj_set_width(ui_LockButton2, 38);
-  lv_obj_set_height(ui_LockButton2, 44);
-  lv_obj_set_x(ui_LockButton2, 0);
-  lv_obj_set_y(ui_LockButton2, 50);
+  lv_obj_set_size(ui_LockButton2, 52, 60);
   lv_obj_set_align(ui_LockButton2, LV_ALIGN_CENTER);
+  lv_obj_set_y(ui_LockButton2, 50);
   lv_obj_set_style_img_recolor(ui_LockButton2, lv_color_hex(0xFFFFFF),
                                LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_img_recolor_opa(ui_LockButton2, 255,
                                    LV_PART_MAIN | LV_STATE_DEFAULT);
 
-  ui_Spinner1 = lv_arc_create(ui_UnlockCont);
-  lv_obj_set_size(ui_Spinner1, 80, 80);
-  lv_obj_set_align(ui_Spinner1, LV_ALIGN_CENTER);
-  lv_obj_set_x(ui_Spinner1, 0);
-  lv_obj_set_y(ui_Spinner1, 51);
-  lv_arc_set_range(ui_Spinner1, 0, 100);
-  lv_arc_set_value(ui_Spinner1, 0);
-  lv_obj_clear_flag(ui_Spinner1, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_remove_style(ui_Spinner1, NULL, LV_PART_KNOB);
-  lv_arc_set_bg_angles(ui_Spinner1, 0, 360);
-  lv_arc_set_angles(ui_Spinner1, 0, 0);
+  // Border-fill bars: grow clockwise (top→right→bottom→left) as user holds
+  // All start at 0 size; UITask's lock_progress_timer_cb drives the growth.
+  ui_BorderTop = lv_obj_create(ui_Panel11);
+  lv_obj_remove_style_all(ui_BorderTop);
+  lv_obj_set_size(ui_BorderTop, 0, UNLOCK_BORDER_T);
+  lv_obj_set_align(ui_BorderTop, LV_ALIGN_TOP_LEFT);
+  lv_obj_clear_flag(ui_BorderTop, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_bg_color(ui_BorderTop, lv_color_hex(0xFFFFFF),
+                            LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_opa(ui_BorderTop, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_radius(ui_BorderTop, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  ui_BorderRight = lv_obj_create(ui_Panel11);
+  lv_obj_remove_style_all(ui_BorderRight);
+  lv_obj_set_size(ui_BorderRight, UNLOCK_BORDER_T, 0);
+  lv_obj_set_align(ui_BorderRight, LV_ALIGN_TOP_LEFT);
+  lv_obj_set_x(ui_BorderRight, UNLOCK_POPUP_W - UNLOCK_BORDER_T);
+  lv_obj_clear_flag(ui_BorderRight, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_bg_color(ui_BorderRight, lv_color_hex(0xFFFFFF),
+                            LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_opa(ui_BorderRight, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_radius(ui_BorderRight, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  ui_BorderBottom = lv_obj_create(ui_Panel11);
+  lv_obj_remove_style_all(ui_BorderBottom);
+  lv_obj_set_size(ui_BorderBottom, 0, UNLOCK_BORDER_T);
+  lv_obj_set_align(ui_BorderBottom, LV_ALIGN_TOP_LEFT);
+  lv_obj_set_pos(ui_BorderBottom, UNLOCK_POPUP_W, UNLOCK_POPUP_H - UNLOCK_BORDER_T);
+  lv_obj_clear_flag(ui_BorderBottom, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_bg_color(ui_BorderBottom, lv_color_hex(0xFFFFFF),
+                            LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_opa(ui_BorderBottom, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_radius(ui_BorderBottom, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  ui_BorderLeft = lv_obj_create(ui_Panel11);
+  lv_obj_remove_style_all(ui_BorderLeft);
+  lv_obj_set_size(ui_BorderLeft, UNLOCK_BORDER_T, 0);
+  lv_obj_set_align(ui_BorderLeft, LV_ALIGN_TOP_LEFT);
+  lv_obj_set_pos(ui_BorderLeft, 0, UNLOCK_POPUP_H);
+  lv_obj_clear_flag(ui_BorderLeft, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_bg_color(ui_BorderLeft, lv_color_hex(0xFFFFFF),
+                            LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_opa(ui_BorderLeft, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_radius(ui_BorderLeft, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
   // --------------------------------------------------------------------------
 
   // --- PPG Chart (lock screen, bottom-left) ---

@@ -2750,36 +2750,67 @@ static void show_unlock_only(void) {
   }
 }
 
+static void reset_border_bars(void) {
+  if (ui_BorderTop)    lv_obj_set_width(ui_BorderTop, 0);
+  if (ui_BorderRight)  lv_obj_set_height(ui_BorderRight, 0);
+  if (ui_BorderBottom) {
+    lv_obj_set_width(ui_BorderBottom, 0);
+    lv_obj_set_x(ui_BorderBottom, UNLOCK_POPUP_W);
+  }
+  if (ui_BorderLeft) {
+    lv_obj_set_height(ui_BorderLeft, 0);
+    lv_obj_set_y(ui_BorderLeft, UNLOCK_POPUP_H);
+  }
+}
+
 static void lock_progress_timer_cb(lv_timer_t *t) {
   (void)t;
-  if (!lockProgressArc)
-    return;
-  uint32_t now = lv_tick_get();
-  uint32_t elapsed = now - lockProgressStart;
+  uint32_t elapsed = lv_tick_get() - lockProgressStart;
   if (elapsed > LOCK_PROGRESS_DURATION_MS)
     elapsed = LOCK_PROGRESS_DURATION_MS;
-  int perc = (int)((elapsed * 100) / LOCK_PROGRESS_DURATION_MS);
-  lv_arc_set_value(lockProgressArc, perc);
+
+  // 4 phases, 25% each: top→right→bottom(RTL)→left(BTT)
+  int pct = (int)(elapsed * 100 / LOCK_PROGRESS_DURATION_MS);
+
+  if (pct <= 25) {
+    if (ui_BorderTop)
+      lv_obj_set_width(ui_BorderTop, (lv_coord_t)(UNLOCK_POPUP_W * pct / 25));
+  } else if (pct <= 50) {
+    if (ui_BorderTop)   lv_obj_set_width(ui_BorderTop, UNLOCK_POPUP_W);
+    if (ui_BorderRight) lv_obj_set_height(ui_BorderRight,
+                          (lv_coord_t)(UNLOCK_POPUP_H * (pct - 25) / 25));
+  } else if (pct <= 75) {
+    if (ui_BorderRight) lv_obj_set_height(ui_BorderRight, UNLOCK_POPUP_H);
+    if (ui_BorderBottom) {
+      lv_coord_t bw = (lv_coord_t)(UNLOCK_POPUP_W * (pct - 50) / 25);
+      lv_obj_set_width(ui_BorderBottom, bw);
+      lv_obj_set_x(ui_BorderBottom, UNLOCK_POPUP_W - bw);
+    }
+  } else {
+    if (ui_BorderBottom) {
+      lv_obj_set_width(ui_BorderBottom, UNLOCK_POPUP_W);
+      lv_obj_set_x(ui_BorderBottom, 0);
+    }
+    if (ui_BorderLeft) {
+      lv_coord_t lh = (lv_coord_t)(UNLOCK_POPUP_H * (pct - 75) / 25);
+      lv_obj_set_height(ui_BorderLeft, lh);
+      lv_obj_set_y(ui_BorderLeft, UNLOCK_POPUP_H - lh);
+    }
+  }
 
   if (elapsed >= LOCK_PROGRESS_DURATION_MS) {
     if (lockProgressTimer) {
       lv_timer_del(lockProgressTimer);
       lockProgressTimer = NULL;
     }
-    lv_scr_load(ui_ScreenMain);
     locked = false;
-    if (lockProgressArc)
-      lv_obj_add_flag(lockProgressArc, LV_OBJ_FLAG_HIDDEN);
+    lv_scr_load(ui_ScreenMain);
     lv_obj_add_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
   }
 }
 
 static void start_lock_progress(void) {
-  lockProgressArc = ui_Spinner1;
-  if (!lockProgressArc)
-    return;
-  lv_obj_clear_flag(lockProgressArc, LV_OBJ_FLAG_HIDDEN);
-  lv_arc_set_value(lockProgressArc, 0);
+  reset_border_bars();
   lockProgressStart = lv_tick_get();
   if (lockProgressTimer) {
     lv_timer_del(lockProgressTimer);
@@ -2793,10 +2824,7 @@ static void stop_lock_progress(void) {
     lv_timer_del(lockProgressTimer);
     lockProgressTimer = NULL;
   }
-  if (lockProgressArc) {
-    lv_arc_set_value(lockProgressArc, 0);
-    lv_obj_add_flag(lockProgressArc, LV_OBJ_FLAG_HIDDEN);
-  }
+  reset_border_bars();
 }
 
 static void enter_lock_screen(void) {
@@ -2825,11 +2853,14 @@ void LockScreenAnyTouch_cb(lv_event_t *e) {
   if (lv_scr_act() != ui_ScreenLock)
     return;
   lv_obj_t *origin = lv_event_get_target(e);
-  if (origin != ui_ScreenLock &&
-      origin != ui_LockPPGChart &&
-      origin != ui_LockHRCont &&
-      origin != ui_LockPICont)
-    return;
+  // Ignore touches that originate inside the popup itself
+  if (ui_UnlockCont) {
+    lv_obj_t *o = origin;
+    while (o && o != lv_scr_act()) {
+      if (o == ui_UnlockCont) return;
+      o = lv_obj_get_parent(o);
+    }
+  }
 
   bool unlockVisible = !lv_obj_has_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
 
@@ -3602,7 +3633,6 @@ void UI_Task(void *pvParameters) {
   lv_obj_add_flag(ui_ArrowHumLock, LV_OBJ_FLAG_HIDDEN);
 
   lv_obj_add_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_Spinner1, LV_OBJ_FLAG_HIDDEN);
 
   add_unlock_press_cb_recursive(ui_UnlockCont);
 
