@@ -4,7 +4,7 @@ on:
   push:
     branches: [dev, master]
     paths:
-      - 'flasher_tool/flasher/**'
+      - 'Firmware/flasher_tool/flasher/**'
 
 jobs:
   build:
@@ -27,27 +27,28 @@ jobs:
       - name: Install Python dependencies
         run: |
           pip install pyinstaller pillow
-          pip install -r flasher_tool/flasher/requirements.txt
+          pip install -r Firmware/flasher_tool/flasher/requirements.txt
 
       - name: Build .app
         run: |
-          cd flasher_tool/flasher
+          cd Firmware/flasher_tool/flasher
           python -m PyInstaller flasher_mac.spec --noconfirm
 
       - name: Zip .app
         run: |
-          cd flasher_tool/flasher/dist
+          cd Firmware/flasher_tool/flasher/dist
           zip -r IncuNest_Flasher.app.zip IncuNest_Flasher.app
 
       - name: Copy to MAC folder
         run: |
-          mkdir -p flasher_tool/MAC
-          cp flasher_tool/flasher/dist/IncuNest_Flasher.app.zip flasher_tool/MAC/IncuNest_Flasher.app.zip
+          mkdir -p Firmware/flasher_tool/MAC
+          cp Firmware/flasher_tool/flasher/dist/IncuNest_Flasher.app.zip \
+             Firmware/flasher_tool/MAC/IncuNest_Flasher.app.zip
 
       - name: Commit and push
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add flasher_tool/MAC/IncuNest_Flasher.app.zip
+          git add Firmware/flasher_tool/MAC/IncuNest_Flasher.app.zip
           git diff --staged --quiet && echo "No changes" || \
-            git commit -m "chore(flasher): rebuild Mac .app [skip ci]" && git push
+            (git commit -m "chore(flasher): rebuild Mac .app [skip ci]" && git push)
