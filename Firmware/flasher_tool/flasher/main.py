@@ -20,6 +20,8 @@ HOTPLUG_POLL_S = 0.5
 POST_FLASH_COOLDOWN_S = 8
 SLOT_CLEAR_DELAY_S = 5
 NUM_SLOTS = 3
+WIFI_SLOTS = 8
+WIFI_SCAN_INTERVAL_S = 5
 
 
 def get_firmware_base() -> Path:
@@ -219,59 +221,205 @@ class _SerialNumberDialog:
             self._top.destroy()
 
 
+class _WifiDeviceSlot:
+    """Compact device card in the WiFi tab."""
+
+    _STATE_EMPTY = 'empty'
+    _STATE_AVAILABLE = 'available'
+    _STATE_FLASHING = 'flashing'
+    _STATE_DONE = 'done'
+    _STATE_ERROR = 'error'
+
+    def __init__(self, parent: tk.Widget, style_name: str, flash_cb) -> None:
+        self._wb = None
+        self._flash_cb = flash_cb
+        self._state = self._STATE_EMPTY
+        self._indeterminate = False
+
+        row = tk.Frame(parent, relief='groove', bd=1)
+        row.pack(fill='x', padx=8, pady=2)
+
+        info = tk.Frame(row)
+        info.pack(side='left', fill='both', expand=True, padx=6, pady=3)
+
+        self._title = tk.Label(info, text="—  Sin dispositivo",
+                               anchor='w', fg='#BDBDBD', font=('', 9))
+        self._title.pack(fill='x')
+
+        self._subtitle = tk.Label(info, text='', anchor='w',
+                                  fg='#9E9E9E', font=('', 8))
+        self._subtitle.pack(fill='x')
+
+        self._bar_var = tk.DoubleVar()
+        self._bar = ttk.Progressbar(info, variable=self._bar_var,
+                                    maximum=100, style=style_name)
+        self._bar_visible = False
+
+        self._status = tk.Label(info, text='', anchor='w',
+                                fg='#9E9E9E', font=('', 8))
+        self._status.pack(fill='x')
+
+        self._flash_btn = tk.Button(
+            row, text="⚡", font=('', 10), width=3,
+            bg='#1565C0', fg='white',
+            command=self._on_flash_clicked,
+            state='disabled',
+        )
+        self._flash_btn.pack(side='right', padx=6, pady=4)
+
+    # ------------------------------------------------------------------ #
+
+    @property
+    def wb(self):
+        return self._wb
+
+    @property
+    def is_busy(self) -> bool:
+        return self._state == self._STATE_FLASHING
+
+    def assign(self, wb) -> None:
+        self._wb = wb
+        self._state = self._STATE_AVAILABLE
+        sn_str = f"SN:{wb.sn}  " if wb.sn is not None else ""
+        self._title.configure(text=f"{wb.board.value}  ·  {wb.ip}", fg='#212121')
+        self._subtitle.configure(text=f"{sn_str}FW {wb.fw_version}")
+        self._status.configure(text="Disponible", fg='#2E7D32')
+        self._flash_btn.configure(state='normal')
+        self._hide_bar()
+
+    def clear(self) -> None:
+        self._stop_bar()
+        self._wb = None
+        self._state = self._STATE_EMPTY
+        self._title.configure(text="—  Sin dispositivo", fg='#BDBDBD')
+        self._subtitle.configure(text='')
+        self._status.configure(text='', fg='#9E9E9E')
+        self._flash_btn.configure(state='disabled')
+        self._hide_bar()
+
+    def set_flashing(self) -> None:
+        self._state = self._STATE_FLASHING
+        self._flash_btn.configure(state='disabled')
+        self._show_bar()
+        self._bar.configure(mode='indeterminate')
+        self._bar.start(12)
+        self._indeterminate = True
+        self._bar_var.set(0)
+        self._status.configure(text="⚡ Conectando…", fg='#E65100')
+
+    def update_progress(self, pct: Optional[int]) -> None:
+        if pct is None:
+            return
+        if self._indeterminate:
+            self._bar.stop()
+            self._bar.configure(mode='determinate')
+            self._indeterminate = False
+        self._bar_var.set(pct)
+        self._status.configure(text=f"⚡ Flasheando… {pct}%", fg='#E65100')
+
+    def set_done(self) -> None:
+        self._stop_bar()
+        self._state = self._STATE_DONE
+        self._bar_var.set(100)
+        self._status.configure(text="✅ Completado", fg='#2E7D32')
+
+    def set_error(self) -> None:
+        self._stop_bar()
+        self._state = self._STATE_ERROR
+        self._status.configure(text="❌ Error — ver log", fg='#C62828')
+        self._flash_btn.configure(state='normal')
+
+    # ------------------------------------------------------------------ #
+
+    def _on_flash_clicked(self) -> None:
+        if self._wb:
+            self._flash_cb(self._wb)
+
+    def _show_bar(self) -> None:
+        if not self._bar_visible:
+            self._bar.pack(fill='x', before=self._status)
+            self._bar_visible = True
+
+    def _hide_bar(self) -> None:
+        if self._bar_visible:
+            self._bar.pack_forget()
+            self._bar_visible = False
+
+    def _stop_bar(self) -> None:
+        if self._indeterminate:
+            self._bar.stop()
+            self._bar.configure(mode='determinate')
+            self._indeterminate = False
+
+
 class _WifiTab:
-    """WiFi OTA tab: discover IncuNest boards on the network and flash them."""
+    """WiFi OTA tab: 8 device slots with auto-scan and per-device flash."""
 
     def __init__(self, parent: tk.Widget, root: tk.Tk, log_cb, firmware_base: Path) -> None:
         self._root = root
         self._log_cb = log_cb
         self._firmware_base = firmware_base
-        self._slots: list[_Slot] = []
-        self._active_flashes = 0
+        self._slots: list[_WifiDeviceSlot] = []
         self._flash_queue: list = []
-        self._slot_assignments: dict = {}
+        self._flashing = False
+        self._scanning = False
+        self._auto_scan_id = None
 
-        # Hotspot row (Windows only)
+        # ── Control row ──────────────────────────────────────────────── #
+        ctrl = tk.Frame(parent)
+        ctrl.pack(fill='x', padx=8, pady=(8, 4))
+
         if sys.platform == 'win32':
             from hotspot import is_supported, HOTSPOT_SSID
-            hotspot_frame = tk.Frame(parent)
-            hotspot_frame.pack(fill='x', padx=12, pady=(8, 2))
             self._hotspot_btn = tk.Button(
-                hotspot_frame, text=f"📡  Hotspot {HOTSPOT_SSID}",
+                ctrl, text=f"📡 {HOTSPOT_SSID}",
                 font=('', 9), bg='#37474F', fg='white',
                 command=self._on_hotspot_clicked,
                 state='normal' if is_supported() else 'disabled',
             )
-            self._hotspot_btn.pack(side='left')
-            self._hotspot_status = tk.Label(hotspot_frame, text='', anchor='w', fg='#757575')
-            self._hotspot_status.pack(side='left', padx=8)
+            self._hotspot_btn.pack(side='left', padx=(0, 4))
+            self._hotspot_status = tk.Label(ctrl, text='', fg='#757575', font=('', 8))
+            self._hotspot_status.pack(side='left', padx=(0, 6))
         else:
             self._hotspot_btn = None
             self._hotspot_status = None
 
-        # Scan button + status row
-        ctrl_frame = tk.Frame(parent)
-        ctrl_frame.pack(fill='x', padx=12, pady=(2, 4))
-
         self._scan_btn = tk.Button(
-            ctrl_frame, text="🔍  Buscar y flashear",
-            font=('', 10, 'bold'), bg='#1565C0', fg='white',
+            ctrl, text="🔍 Buscar",
+            font=('', 9), bg='#455A64', fg='white',
             command=self._on_scan_clicked,
         )
-        self._scan_btn.pack(side='left')
+        self._scan_btn.pack(side='left', padx=(0, 4))
 
-        self._scan_status = tk.Label(ctrl_frame, text="Listo", anchor='w', fg='#757575')
+        self._flash_all_btn = tk.Button(
+            ctrl, text="⚡ Flash All",
+            font=('', 9, 'bold'), bg='#1565C0', fg='white',
+            command=self._on_flash_all_clicked,
+            state='disabled',
+        )
+        self._flash_all_btn.pack(side='left')
+
+        self._scan_status = tk.Label(ctrl, text="Auto-scan activo",
+                                     anchor='w', fg='#757575', font=('', 8))
         self._scan_status.pack(side='left', padx=8)
 
-        ttk.Separator(parent, orient='horizontal').pack(fill='x', padx=12, pady=4)
+        ttk.Separator(parent, orient='horizontal').pack(fill='x', padx=8, pady=(4, 2))
 
-        # Slots (reuse _Slot with IP as the "port" display string)
-        for i in range(NUM_SLOTS):
-            self._slots.append(_Slot(parent, i, 'Flash.Horizontal.TProgressbar'))
+        # ── 8 device slots ────────────────────────────────────────────── #
+        for _ in range(WIFI_SLOTS):
+            self._slots.append(
+                _WifiDeviceSlot(parent, 'Flash.Horizontal.TProgressbar',
+                                self._on_flash_single)
+            )
+
+        # Kick off the first automatic scan after UI is ready
+        self._root.after(500, self._do_scan)
+
+    # ── Hotspot ──────────────────────────────────────────────────────── #
 
     def _on_hotspot_clicked(self) -> None:
         self._hotspot_btn.configure(state='disabled')
-        self._hotspot_status.configure(text="Iniciando hotspot…", fg='#E65100')
+        self._hotspot_status.configure(text="Iniciando…", fg='#E65100')
         threading.Thread(target=self._hotspot_thread, daemon=True).start()
 
     def _hotspot_thread(self) -> None:
@@ -284,21 +432,29 @@ class _WifiTab:
 
     def _on_hotspot_ok(self) -> None:
         from hotspot import HOTSPOT_SSID
-        self._hotspot_status.configure(text=f"✅  {HOTSPOT_SSID} activo", fg='#2E7D32')
+        self._hotspot_status.configure(text=f"✅ {HOTSPOT_SSID} activo", fg='#2E7D32')
         self._hotspot_btn.configure(state='normal')
-        self._log_cb(f"Hotspot '{HOTSPOT_SSID}' iniciado. Conecta las incubadoras y pulsa Buscar.", 'success')
+        self._log_cb(f"Hotspot '{HOTSPOT_SSID}' iniciado.", 'success')
 
     def _on_hotspot_err(self, msg: str) -> None:
-        self._hotspot_status.configure(text="❌  Error — ver log", fg='#C62828')
+        self._hotspot_status.configure(text="❌ Error", fg='#C62828')
         self._hotspot_btn.configure(state='normal')
         self._log_cb(f"Error al crear hotspot:\n{msg}", 'error')
 
+    # ── Scanning ─────────────────────────────────────────────────────── #
+
     def _on_scan_clicked(self) -> None:
+        if self._scanning:
+            return
+        if self._auto_scan_id is not None:
+            self._root.after_cancel(self._auto_scan_id)
+            self._auto_scan_id = None
+        self._do_scan()
+
+    def _do_scan(self) -> None:
+        self._scanning = True
         self._scan_btn.configure(state='disabled')
-        self._scan_status.configure(text="Escaneando red…", fg='#E65100')
-        for slot in self._slots:
-            slot.reset()
-        self._log_cb("Iniciando búsqueda de dispositivos por WiFi…", 'info')
+        self._scan_status.configure(text="Escaneando…", fg='#E65100')
         threading.Thread(target=self._scan_thread, daemon=True).start()
 
     def _scan_thread(self) -> None:
@@ -307,104 +463,116 @@ class _WifiTab:
             boards = discover_boards(timeout_s=5.0)
         except Exception as exc:
             boards = []
-            self._root.after(0, self._log_cb, f"Error durante el escaneo: {exc}", 'error')
+            self._root.after(0, self._log_cb, f"Error escaneo WiFi: {exc}", 'error')
         self._root.after(0, self._on_scan_done, boards)
 
     def _on_scan_done(self, boards: list) -> None:
-        if not boards:
-            self._scan_status.configure(text="No se encontraron dispositivos", fg='#C62828')
-            self._log_cb("No se encontraron dispositivos IncuNest en la red.", 'info')
-            self._scan_btn.configure(state='normal')
-            return
+        self._scanning = False
+        self._scan_btn.configure(state='normal')
 
-        from detector import Board as _Board
-        # HMIs primero para que el reinicio de los MB no interrumpa su OTA
-        boards_sorted = sorted(
-            boards[:NUM_SLOTS],
-            key=lambda wb: 0 if wb.board == _Board.DISPLAY_HMI else 1,
-        )
-        n = len(boards_sorted)
-        plural = 's' if n > 1 else ''
-        self._scan_status.configure(
-            text=f"{n} dispositivo{plural} encontrado{plural}", fg='#2E7D32',
-        )
-        self._log_cb(f"{n} dispositivo(s) encontrado(s) por WiFi.", 'success')
-        self._active_flashes = n
-        self._flash_queue = list(boards_sorted)
-        self._slot_assignments = {}
+        boards_by_ip = {wb.ip: wb for wb in boards}
 
-        for i, wb in enumerate(boards_sorted):
-            sn_str = f"SN:{wb.sn}  " if wb.sn is not None else ""
-            self._slots[i].assign(f"{sn_str}{wb.ip}", wb.board)
-            sn_log = f"  SN:{wb.sn}" if wb.sn is not None else ""
-            self._log_cb(
-                f"{wb.board.value} en {wb.ip}{sn_log} (FW {wb.fw_version}) → slot {i + 1}", 'info',
+        # Remove stale devices from non-busy slots
+        for slot in self._slots:
+            if not slot.is_busy and slot.wb is not None:
+                if slot.wb.ip not in boards_by_ip:
+                    slot.clear()
+
+        # Assign newly found devices to free slots
+        occupied_ips = {s.wb.ip for s in self._slots if s.wb is not None}
+        free_slots = [s for s in self._slots if s.wb is None]
+        for wb in boards:
+            if wb.ip not in occupied_ips and free_slots:
+                free_slots.pop(0).assign(wb)
+                occupied_ips.add(wb.ip)
+
+        n_found = sum(1 for s in self._slots if s.wb is not None)
+        if n_found:
+            self._scan_status.configure(
+                text=f"{n_found} dispositivo(s) • auto-scan", fg='#2E7D32',
             )
-            self._slot_assignments[wb.ip] = i
-            self._tick_slot(i)
+            if not self._flashing:
+                self._flash_all_btn.configure(state='normal')
+        else:
+            self._scan_status.configure(text="Sin dispositivos • auto-scan", fg='#C62828')
+            self._flash_all_btn.configure(state='disabled')
 
-        self._flash_next_wifi()
+        if not self._flashing:
+            self._auto_scan_id = self._root.after(
+                WIFI_SCAN_INTERVAL_S * 1000, self._do_scan,
+            )
 
-    def _tick_slot(self, slot_idx: int) -> None:
-        if self._slots[slot_idx].tick():
-            self._root.after(500, self._tick_slot, slot_idx)
+    # ── Flashing ─────────────────────────────────────────────────────── #
 
-    def _flash_next_wifi(self) -> None:
+    def _on_flash_single(self, wb) -> None:
+        self._start_flash_queue([wb])
+
+    def _on_flash_all_clicked(self) -> None:
+        from detector import Board as _Board
+        wbs = [s.wb for s in self._slots if s.wb is not None and not s.is_busy]
+        wbs_sorted = sorted(wbs, key=lambda wb: 0 if wb.board == _Board.DISPLAY_HMI else 1)
+        if wbs_sorted:
+            self._start_flash_queue(wbs_sorted)
+
+    def _start_flash_queue(self, boards: list) -> None:
+        self._flashing = True
+        self._flash_all_btn.configure(state='disabled')
+        self._flash_queue = list(boards)
+        self._flash_next()
+
+    def _flash_next(self) -> None:
         if not self._flash_queue:
+            self._flashing = False
+            n_found = sum(1 for s in self._slots if s.wb is not None)
+            if n_found:
+                self._flash_all_btn.configure(state='normal')
+            # Resume auto-scan
+            self._auto_scan_id = self._root.after(
+                WIFI_SCAN_INTERVAL_S * 1000, self._do_scan,
+            )
             return
         wb = self._flash_queue.pop(0)
-        slot_idx = self._slot_assignments[wb.ip]
-        threading.Thread(target=self._flash_thread, args=(wb, slot_idx), daemon=True).start()
+        slot = next((s for s in self._slots if s.wb and s.wb.ip == wb.ip), None)
+        if slot is None:
+            self._flash_next()
+            return
+        slot.set_flashing()
+        slot_idx = self._slots.index(slot)
+        threading.Thread(
+            target=self._flash_thread, args=(wb, slot_idx), daemon=True,
+        ).start()
 
     def _flash_thread(self, wb, slot_idx: int) -> None:
         from wifi_flasher import flash_board_wifi
-        progress_cb = self._make_progress_cb(slot_idx)
+
+        def progress_cb(msg: str, pct: Optional[int]) -> None:
+            if msg.strip():
+                self._root.after(0, self._log_cb, msg, '')
+            if pct is not None:
+                self._root.after(0, self._slots[slot_idx].update_progress, pct)
+
         try:
             flash_board_wifi(wb.ip, wb.board, self._firmware_base, progress_cb)
             self._root.after(0, self._on_flash_ok, wb, slot_idx)
         except Exception as exc:
             self._root.after(0, self._on_flash_err, str(exc), wb, slot_idx)
 
-    def _make_progress_cb(self, slot_idx: int):
-        def cb(msg: str, pct: Optional[int]) -> None:
-            self._root.after(0, self._update_slot_progress, slot_idx, msg, pct)
-        return cb
-
-    def _update_slot_progress(self, slot_idx: int, msg: str, pct: Optional[int]) -> None:
-        if msg.strip():
-            self._log_cb(msg)
-        self._slots[slot_idx].update_progress(pct)
-
     def _on_flash_ok(self, wb, slot_idx: int) -> None:
         self._log_cb(f"¡{wb.board.value} en {wb.ip} flasheado con éxito!", 'success')
         self._slots[slot_idx].set_done()
-        self._active_flashes -= 1
-        self._root.after(SLOT_CLEAR_DELAY_S * 1000, self._clear_slot, slot_idx)
-        if self._active_flashes <= 0:
-            self._scan_status.configure(text="Completado", fg='#2E7D32')
-            self._scan_btn.configure(state='normal')
-        else:
-            self._flash_next_wifi()
+        self._flash_next()
 
     def _on_flash_err(self, msg: str, wb, slot_idx: int) -> None:
         self._log_cb(f"Flash WiFi de {wb.board.value} ({wb.ip}) fallido.\n{msg}", 'error')
         self._slots[slot_idx].set_error()
-        self._active_flashes -= 1
-        self._root.after(SLOT_CLEAR_DELAY_S * 1000, self._clear_slot, slot_idx)
-        if self._active_flashes <= 0:
-            self._scan_btn.configure(state='normal')
-        else:
-            self._flash_next_wifi()
-
-    def _clear_slot(self, slot_idx: int) -> None:
-        self._slots[slot_idx].reset()
+        self._flash_next()
 
 
 class FlasherApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("IncuNest Firmware Flasher")
-        self.root.geometry("480x700")
+        self.root.geometry("480x820")
         self.root.resizable(False, False)
 
         self._slots: list[_Slot] = []
