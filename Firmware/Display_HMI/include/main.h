@@ -41,7 +41,8 @@ extern bool OTA_inprogress;
 typedef enum { LANG_ES = 0, LANG_EN = 1, LANG_FR = 2 } ui_lang_t;
 extern ui_lang_t g_lang;
 extern bool darkMode;        // Global Dark Mode state
-extern bool humidityEnabled; // Humidity control enabled from Settings
+extern bool humidityEnabled;   // Humidity control enabled from Settings
+extern bool skinPanelEnabled;  // Skin mode control enabled from Settings
 extern double airTempValue, skinTempValue;
 extern volatile double airTempValueDetected, skinTempValueDetected;
 extern int humValue;
@@ -244,16 +245,23 @@ constexpr int RAND_HUM_MIN = 0;
 constexpr int RAND_HUM_MAX = 0;
 
 // -----------------------------
-// Progress arc for lock long-press
+// Slide-to-unlock state
 // -----------------------------
 
-static lv_obj_t *lockProgressArc = NULL;
-static lv_timer_t *lockProgressTimer = NULL;
 static lv_timer_t *unlockTimeoutTimer = NULL;
-static lv_timer_t *lockStopDebounceTimer = NULL;
-static uint32_t lockProgressStart = 0;
-static const uint32_t LOCK_PROGRESS_DURATION_MS = 1500; // 1.5 seconds
-static const uint32_t UNLOCK_TIMEOUT_MS = 5000;         // 5 seconds timeout
+static const uint32_t UNLOCK_TIMEOUT_MS = 5000; // 5 seconds timeout
+
+static lv_coord_t slideDragStartX  = 0;
+static lv_coord_t slideThumbStartX = 2;
+
+static const lv_coord_t SLIDE_TRACK_W     = 600;
+static const lv_coord_t SLIDE_TRACK_H     = 70;
+static const lv_coord_t SLIDE_THUMB_SIZE  = 66;
+static const lv_coord_t SLIDE_MARGIN      = 2;
+// Max x the thumb can reach (right edge minus one margin)
+static const lv_coord_t SLIDE_THUMB_MAX_X = SLIDE_TRACK_W - SLIDE_THUMB_SIZE - SLIDE_MARGIN; // 532
+// 80 % of travel triggers unlock: SLIDE_MARGIN + (530 * 0.8) = 426
+static const lv_coord_t SLIDE_UNLOCK_X    = SLIDE_MARGIN + (lv_coord_t)((SLIDE_THUMB_MAX_X - SLIDE_MARGIN) * 0.8f);
 
 // -----------------------------
 // Serial
