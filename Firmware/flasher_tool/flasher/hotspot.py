@@ -35,6 +35,7 @@ async def _start_async(ssid: str, password: str) -> None:
     from winrt.windows.networking.networkoperators import (
         NetworkOperatorTetheringManager,
         TetheringOperationStatus,
+        TetheringWiFiBand,
     )
 
     prof = NetworkInformation.get_internet_connection_profile()
@@ -50,6 +51,7 @@ async def _start_async(ssid: str, password: str) -> None:
     cfg = mgr.get_current_access_point_configuration()
     cfg.ssid = ssid
     cfg.passphrase = password
+    cfg.band = TetheringWiFiBand.TWO_POINT_FOUR_GIGAHERTZ
     await mgr.configure_access_point_async(cfg)
     result = await mgr.start_tethering_async()
 
