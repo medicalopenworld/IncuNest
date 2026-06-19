@@ -3,6 +3,7 @@ import os
 import re
 import sys
 import tempfile
+import threading
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -12,13 +13,57 @@ import nvs_gen
 from detector import Board
 
 
+# Force plain-text esptool output for all threads (no ANSI / rich).
+os.environ.setdefault('NO_COLOR', '1')
+
+_tl = threading.local()          # per-thread writer slot
+_proxy_lock = threading.Lock()
+_proxy_installed = False
+
+
+class _EsptoolProxy(io.TextIOBase):
+    """Thread-local stdout/stderr proxy for concurrent esptool calls.
+
+    Installed once as sys.stdout and sys.stderr so that parallel flash
+    threads each route output only to their own per-slot writer.
+    """
+
+    @property
+    def encoding(self) -> str:
+        return 'utf-8'
+
+    def write(self, s: str) -> int:
+        w = getattr(_tl, 'writer', None)
+        if w is not None:
+            return w.write(s)
+        return len(s)  # discard; don't block esptool callers
+
+    def flush(self) -> None:
+        w = getattr(_tl, 'writer', None)
+        if w is not None:
+            try:
+                w.flush()
+            except Exception:
+                pass
+
+
+def _install_proxy() -> None:
+    global _proxy_installed
+    if _proxy_installed:
+        return
+    with _proxy_lock:
+        if not _proxy_installed:
+            proxy = _EsptoolProxy()
+            sys.stdout = proxy
+            sys.stderr = proxy
+            _proxy_installed = True
+
+
 _BOARD_FOLDER = {
     Board.MOTHERBOARD: 'motherboard',
     Board.DISPLAY_HMI: 'display_hmi',
 }
 
-# ESP32-S3 native USB supports automatic bootloader entry via USB reset sequence.
-# CH340K boards use classic DTR/RTS toggle (default_reset).
 _BOARD_BEFORE_RESET = {
     Board.MOTHERBOARD: 'default-reset',
     Board.DISPLAY_HMI: 'default-reset',
@@ -59,14 +104,12 @@ class _ProgressTracker:
         self._last = 0
 
     def parse(self, text: str) -> Optional[int]:
-        # Direct percentage from esptool (stub mode or plain-text mode)
         m = re.search(r'\((\d+)\s*%\)', text)
         if m:
             pct = int(m.group(1))
             self._last = pct
             return pct
 
-        # Fallback: estimate from the write address
         m = re.search(r'[Ww]riting at 0x([0-9a-fA-F]+)', text)
         if m and self._total > 0:
             addr = int(m.group(1), 16)
@@ -85,24 +128,13 @@ class _ProgressTracker:
 
 
 def has_firmware_flashed(port: str) -> bool:
-    """Return True if the app partition (0x10000) contains firmware.
+    """Return True if the app partition (0x10000) contains firmware."""
+    _install_proxy()
 
-    Reads only 4 bytes using the ROM bootloader (--no-stub) so no stub
-    is left in RAM and the port is cleanly released.  If the bytes are
-    all 0xFF the flash is erased (new device); anything else means
-    firmware has been written before.  Returns True on any read error
-    (conservative: assume firmware present so the serial dialog is not
-    shown for a board that is merely slow to respond).
-    """
     fd, tmp = tempfile.mkstemp(suffix='.bin')
     os.close(fd)
 
-    prev_no_color = os.environ.get('NO_COLOR')
-    os.environ['NO_COLOR'] = '1'
-    old_out, old_err = sys.stdout, sys.stderr
-    sys.stdout = io.StringIO()
-    sys.stderr = sys.stdout
-
+    _tl.writer = io.StringIO()  # discard all esptool output
     try:
         esptool.main([
             '--port', port,
@@ -116,14 +148,9 @@ def has_firmware_flashed(port: str) -> bool:
         data = open(tmp, 'rb').read()
         return len(data) == 4 and data != b'\xff\xff\xff\xff'
     except Exception:
-        return True  # conservative: unknown state → assume firmware present, preserve NVS
+        return True  # conservative: assume firmware present, preserve NVS
     finally:
-        sys.stdout = old_out
-        sys.stderr = old_err
-        if prev_no_color is None:
-            os.environ.pop('NO_COLOR', None)
-        else:
-            os.environ['NO_COLOR'] = prev_no_color
+        _tl.writer = None
         try:
             os.unlink(tmp)
         except OSError:
@@ -137,6 +164,8 @@ def flash_board(
     progress_callback: Callable[[str, Optional[int]], None],
     serial_number: Optional[int] = None,
 ) -> None:
+    _install_proxy()
+
     folder = firmware_base / _BOARD_FOLDER[board]
     file_pairs = list(_BOARD_FILES[board])
 
@@ -186,14 +215,7 @@ def flash_board(
                 progress_callback(text.rstrip(), tracker.parse(text))
             return result
 
-    # Disable rich/color output so esptool writes plain parseable text
-    _prev_no_color = os.environ.get('NO_COLOR')
-    os.environ['NO_COLOR'] = '1'
-
-    writer = _Writer()
-    old_out, old_err = sys.stdout, sys.stderr
-    sys.stdout = writer
-    sys.stderr = writer
+    _tl.writer = _Writer()
     try:
         esptool.main(args)
     except SystemExit as e:
@@ -206,12 +228,7 @@ def flash_board(
         if not reset_seen:
             raise RuntimeError(str(e))
     finally:
-        sys.stdout = old_out
-        sys.stderr = old_err
-        if _prev_no_color is None:
-            os.environ.pop('NO_COLOR', None)
-        else:
-            os.environ['NO_COLOR'] = _prev_no_color
+        _tl.writer = None
         if nvs_tmp:
             try:
                 os.unlink(nvs_tmp)
