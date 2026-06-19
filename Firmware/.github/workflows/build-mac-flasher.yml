@@ -1,0 +1,53 @@
+name: Build Mac Flasher
+
+on:
+  push:
+    branches: [dev, master]
+    paths:
+      - 'flasher_tool/flasher/**'
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install tkinter
+        run: brew install python-tk@3.12
+
+      - name: Install Python dependencies
+        run: |
+          pip install pyinstaller pillow
+          pip install -r flasher_tool/flasher/requirements.txt
+
+      - name: Build .app
+        run: |
+          cd flasher_tool/flasher
+          python -m PyInstaller flasher_mac.spec --noconfirm
+
+      - name: Zip .app
+        run: |
+          cd flasher_tool/flasher/dist
+          zip -r IncuNest_Flasher.app.zip IncuNest_Flasher.app
+
+      - name: Copy to MAC folder
+        run: |
+          mkdir -p flasher_tool/MAC
+          cp flasher_tool/flasher/dist/IncuNest_Flasher.app.zip flasher_tool/MAC/IncuNest_Flasher.app.zip
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add flasher_tool/MAC/IncuNest_Flasher.app.zip
+          git diff --staged --quiet && echo "No changes" || \
+            git commit -m "chore(flasher): rebuild Mac .app [skip ci]" && git push
