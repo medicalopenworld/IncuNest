@@ -3391,7 +3391,10 @@ void ui_ScreenLock_screen_init(void) {
   lv_obj_set_style_bg_color(ui_Panel11, lv_color_hex(0x000000),
                             LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_bg_opa(ui_Panel11, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_border_width(ui_Panel11, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_border_width(ui_Panel11, 2, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_border_color(ui_Panel11, lv_color_hex(0xFFFFFF),
+                                LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_border_opa(ui_Panel11, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_radius(ui_Panel11, 12, LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_pad_all(ui_Panel11, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
 
@@ -3409,12 +3412,12 @@ void ui_ScreenLock_screen_init(void) {
   lv_obj_set_style_text_align(ui_Label4, LV_TEXT_ALIGN_CENTER,
                               LV_PART_MAIN | LV_STATE_DEFAULT);
 
-  ui_LockButton2 = lv_imgbtn_create(ui_UnlockCont);
-  lv_imgbtn_set_src(ui_LockButton2, LV_IMGBTN_STATE_RELEASED, NULL,
-                    &ui_img_candado_png, NULL);
-  lv_obj_set_size(ui_LockButton2, 52, 60);
+  ui_LockButton2 = lv_img_create(ui_UnlockCont);
+  lv_img_set_src(ui_LockButton2, &ui_img_candado_png);
+  lv_img_set_zoom(ui_LockButton2, 384);  // 1.5× → 60×60 px, no tiling
   lv_obj_set_align(ui_LockButton2, LV_ALIGN_CENTER);
   lv_obj_set_y(ui_LockButton2, 50);
+  lv_obj_add_flag(ui_LockButton2, LV_OBJ_FLAG_ADV_HITTEST);
   lv_obj_set_style_img_recolor(ui_LockButton2, lv_color_hex(0xFFFFFF),
                                LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_img_recolor_opa(ui_LockButton2, 255,
@@ -4070,7 +4073,7 @@ void create_main_toggle_buttons() {
   lv_obj_add_event_cb(ui_TempToggleBtn, TempToggleBtn_cb, LV_EVENT_CLICKED, NULL);
   {
     lv_obj_t *lbl = lv_label_create(ui_TempToggleBtn);
-    lv_label_set_text(lbl, "TURN OFF");
+    lv_label_set_text(lbl, "TURN ON");
     lv_obj_set_style_text_font(lbl, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0);
     lv_obj_center(lbl);
@@ -4091,7 +4094,7 @@ void create_main_toggle_buttons() {
   lv_obj_add_event_cb(ui_HumToggleBtn, HumToggleBtn_cb, LV_EVENT_CLICKED, NULL);
   {
     lv_obj_t *lbl = lv_label_create(ui_HumToggleBtn);
-    lv_label_set_text(lbl, "TURN OFF");
+    lv_label_set_text(lbl, "TURN ON");
     lv_obj_set_style_text_font(lbl, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0);
     lv_obj_center(lbl);
@@ -4112,7 +4115,7 @@ void create_main_toggle_buttons() {
   lv_obj_add_event_cb(ui_PhotoToggleBtn, PhotoToggleBtn_cb, LV_EVENT_CLICKED, NULL);
   {
     lv_obj_t *lbl = lv_label_create(ui_PhotoToggleBtn);
-    lv_label_set_text(lbl, "TURN OFF");
+    lv_label_set_text(lbl, "TURN ON");
     lv_obj_set_style_text_font(lbl, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0);
     lv_obj_center(lbl);

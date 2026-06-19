@@ -1325,16 +1325,24 @@ static void update_main_toggle_buttons() {
   bool h = lv_obj_has_state(ui_Switch2, LV_STATE_CHECKED);
   bool p = lv_obj_has_state(ui_Switch3, LV_STATE_CHECKED);
 
-  lv_obj_t *lbl;
+  lv_color_t blue = lv_color_hex(0x4EC7FF);
+  lv_color_t red  = lv_color_hex(0xFF4040);
+  lv_obj_t  *lbl;
 
+  lv_obj_set_style_bg_color(ui_TempToggleBtn, t ? red : blue, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_color(ui_TempToggleBtn, t ? red : blue, LV_PART_MAIN | LV_STATE_PRESSED);
   lbl = lv_obj_get_child(ui_TempToggleBtn, 0);
-  if (lbl) lv_label_set_text(lbl, t ? "TURN ON" : "TURN OFF");
+  if (lbl) lv_label_set_text(lbl, t ? "TURN OFF" : "TURN ON");
 
+  lv_obj_set_style_bg_color(ui_HumToggleBtn, h ? red : blue, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_color(ui_HumToggleBtn, h ? red : blue, LV_PART_MAIN | LV_STATE_PRESSED);
   lbl = lv_obj_get_child(ui_HumToggleBtn, 0);
-  if (lbl) lv_label_set_text(lbl, h ? "TURN ON" : "TURN OFF");
+  if (lbl) lv_label_set_text(lbl, h ? "TURN OFF" : "TURN ON");
 
+  lv_obj_set_style_bg_color(ui_PhotoToggleBtn, p ? red : blue, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_color(ui_PhotoToggleBtn, p ? red : blue, LV_PART_MAIN | LV_STATE_PRESSED);
   lbl = lv_obj_get_child(ui_PhotoToggleBtn, 0);
-  if (lbl) lv_label_set_text(lbl, p ? "TURN ON" : "TURN OFF");
+  if (lbl) lv_label_set_text(lbl, p ? "TURN OFF" : "TURN ON");
 }
 
 // Popup spinbox callbacks
@@ -1539,7 +1547,7 @@ void WifiButton_cb(lv_event_t *e) {
   // Pre-fill TextAreas with saved credentials so the user only needs to
   // correct what's wrong. Falls back to compile-time defaults if EEPROM
   // is empty or contains invalid (non-printable) data.
-  if (!isConnected) {
+  {
     String savedSSID, savedPass;
     { Preferences p; p.begin(HMI_NS_WIFI, true);
       savedSSID = p.getString(HMI_KEY_SSID,     "");
@@ -1575,11 +1583,11 @@ void WifiButton_cb(lv_event_t *e) {
       lv_textarea_set_text(ui_TextArea2, wifi_pass);
   }
 
+  // Config form is always visible when WiFi panel is open
+  lv_obj_clear_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
   if (isConnected) {
     lv_obj_clear_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
     lv_label_set_text(ui_WifiSSIDLabel, WiFi.SSID().c_str());
-  } else {
-    lv_obj_clear_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
   }
   updateButtonVisibility();
   wifiVisible = true;
@@ -2942,10 +2950,10 @@ void WifiConnectButton_cb(lv_event_t *e) {
 
 void WifiDisconnectButton_cb(lv_event_t *e) {
   WiFi.disconnect();
-  isConnected = false;
   pendingReconnect = true;
   disconnectTimestampMs = millis();
-  updateButtonVisibility();
+  // Show the config form immediately for responsiveness. The loop will update
+  // isConnected and button visibility once WiFi.status() confirms the disconnect.
   lv_obj_clear_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
 }
