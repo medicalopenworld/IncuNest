@@ -171,6 +171,10 @@ extern lv_obj_t * ui_ArrowUpHum;
 extern lv_obj_t * ui_ArrowDownHum;
 extern lv_obj_t * ui_HumDetectedRight;
 extern lv_obj_t * ui_HumDesired;
+// PID power bar widgets (duty cycle indicator, hidden until control ON)
+extern lv_obj_t * ui_AirPowerBar;
+extern lv_obj_t * ui_SkinPowerBar;
+extern lv_obj_t * ui_HumPowerBar;
 extern lv_obj_t * ui_ImgArrowUpHum;
 extern lv_obj_t * ui_ImgArrowDownHum;
 extern lv_obj_t * ui_Label7;
