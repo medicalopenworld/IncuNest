@@ -994,23 +994,6 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_style_text_font(ui_TempAirDesired, &lv_font_montserrat_30,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
 
-  ui_AirPowerBar = lv_bar_create(ui_AirTempBarCont);
-  lv_bar_set_range(ui_AirPowerBar, 0, POWER_BAR_PCT_MAX);
-  lv_bar_set_value(ui_AirPowerBar, 0, LV_ANIM_OFF);
-  lv_obj_set_width(ui_AirPowerBar, POWER_BAR_WIDTH);
-  lv_obj_set_height(ui_AirPowerBar, POWER_BAR_HEIGHT);
-  lv_obj_align_to(ui_AirPowerBar, ui_TempAirDesired,
-                  LV_ALIGN_OUT_RIGHT_MID, POWER_BAR_X_OFFSET, 0);
-  lv_obj_set_style_bg_color(ui_AirPowerBar, lv_color_hex(0x404040),
-                            LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_bg_opa(ui_AirPowerBar, LV_OPA_COVER,
-                          LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_bg_color(ui_AirPowerBar, COLOR_POWER_BAR,
-                            LV_PART_INDICATOR | LV_STATE_DEFAULT);
-  lv_obj_set_style_bg_opa(ui_AirPowerBar, LV_OPA_COVER,
-                          LV_PART_INDICATOR | LV_STATE_DEFAULT);
-  lv_obj_add_flag(ui_AirPowerBar, LV_OBJ_FLAG_HIDDEN);
-
   ui_AirTempBar = lv_bar_create(ui_AirTempBarCont);
   lv_bar_set_range(ui_AirTempBar, HUM_BAR_MIN, (int)TEMP_BAR_DISPLAY_MAX);
   lv_bar_set_value(ui_AirTempBar, 25, LV_ANIM_OFF);
@@ -1186,23 +1169,6 @@ void ui_ScreenMain_screen_init(void) {
   lv_label_set_text(ui_TempSkinDesired, "28.3");
   lv_obj_set_style_text_font(ui_TempSkinDesired, &lv_font_montserrat_30,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
-
-  ui_SkinPowerBar = lv_bar_create(ui_SkinTempBarCont);
-  lv_bar_set_range(ui_SkinPowerBar, 0, POWER_BAR_PCT_MAX);
-  lv_bar_set_value(ui_SkinPowerBar, 0, LV_ANIM_OFF);
-  lv_obj_set_width(ui_SkinPowerBar, POWER_BAR_WIDTH);
-  lv_obj_set_height(ui_SkinPowerBar, POWER_BAR_HEIGHT);
-  lv_obj_align_to(ui_SkinPowerBar, ui_TempSkinDesired,
-                  LV_ALIGN_OUT_RIGHT_MID, POWER_BAR_X_OFFSET, 0);
-  lv_obj_set_style_bg_color(ui_SkinPowerBar, lv_color_hex(0x404040),
-                            LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_bg_opa(ui_SkinPowerBar, LV_OPA_COVER,
-                          LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_bg_color(ui_SkinPowerBar, COLOR_POWER_BAR,
-                            LV_PART_INDICATOR | LV_STATE_DEFAULT);
-  lv_obj_set_style_bg_opa(ui_SkinPowerBar, LV_OPA_COVER,
-                          LV_PART_INDICATOR | LV_STATE_DEFAULT);
-  lv_obj_add_flag(ui_SkinPowerBar, LV_OBJ_FLAG_HIDDEN);
 
   ui_Label6 = lv_label_create(ui_TempCont);
   lv_obj_set_width(ui_Label6, LV_SIZE_CONTENT);
@@ -1425,23 +1391,6 @@ void ui_ScreenMain_screen_init(void) {
   lv_label_set_text(ui_HumDesired, "55");
   lv_obj_set_style_text_font(ui_HumDesired, &lv_font_montserrat_30,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
-
-  ui_HumPowerBar = lv_bar_create(ui_HumPanelCont);
-  lv_bar_set_range(ui_HumPowerBar, 0, POWER_BAR_PCT_MAX);
-  lv_bar_set_value(ui_HumPowerBar, 0, LV_ANIM_OFF);
-  lv_obj_set_width(ui_HumPowerBar, POWER_BAR_WIDTH);
-  lv_obj_set_height(ui_HumPowerBar, POWER_BAR_HEIGHT);
-  lv_obj_align_to(ui_HumPowerBar, ui_HumDesired,
-                  LV_ALIGN_OUT_RIGHT_MID, POWER_BAR_X_OFFSET, 0);
-  lv_obj_set_style_bg_color(ui_HumPowerBar, lv_color_hex(0x404040),
-                            LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_bg_opa(ui_HumPowerBar, LV_OPA_COVER,
-                          LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_bg_color(ui_HumPowerBar, COLOR_POWER_BAR,
-                            LV_PART_INDICATOR | LV_STATE_DEFAULT);
-  lv_obj_set_style_bg_opa(ui_HumPowerBar, LV_OPA_COVER,
-                          LV_PART_INDICATOR | LV_STATE_DEFAULT);
-  lv_obj_add_flag(ui_HumPowerBar, LV_OBJ_FLAG_HIDDEN);
 
   ui_ImgArrowUpHum = lv_imgbtn_create(ui_HumPanelCont);
   lv_imgbtn_set_src(ui_ImgArrowUpHum, LV_IMGBTN_STATE_RELEASED, NULL,
@@ -3249,6 +3198,22 @@ void ui_ScreenLock_screen_init(void) {
   lv_obj_set_style_text_font(ui_Label24, &lv_font_montserrat_48,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
 
+  ui_HumPowerBar = lv_bar_create(ui_HumLockDesiredCont);
+  lv_bar_set_range(ui_HumPowerBar, 0, POWER_BAR_PCT_MAX);
+  lv_bar_set_value(ui_HumPowerBar, 0, LV_ANIM_OFF);
+  lv_obj_set_width(ui_HumPowerBar, POWER_BAR_WIDTH);
+  lv_obj_set_height(ui_HumPowerBar, POWER_BAR_HEIGHT);
+  lv_obj_align_to(ui_HumPowerBar, ui_Label24,
+                  LV_ALIGN_OUT_RIGHT_MID, POWER_BAR_X_OFFSET, 0);
+  lv_obj_set_style_bg_color(ui_HumPowerBar, lv_color_hex(0x404040),
+                            LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_opa(ui_HumPowerBar, LV_OPA_COVER,
+                          LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_color(ui_HumPowerBar, COLOR_POWER_BAR,
+                            LV_PART_INDICATOR | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_opa(ui_HumPowerBar, LV_OPA_COVER,
+                          LV_PART_INDICATOR | LV_STATE_DEFAULT);
+
   ui_ArrowHumLock = lv_img_create(ui_Container1);
   lv_img_set_src(ui_ArrowHumLock, &ui_img_flecha_png);
   lv_obj_set_width(ui_ArrowHumLock, LV_SIZE_CONTENT);
@@ -3295,6 +3260,22 @@ void ui_ScreenLock_screen_init(void) {
   lv_obj_set_style_text_font(ui_TargetSkinTempNumLabel, &lv_font_montserrat_48,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
 
+  ui_SkinPowerBar = lv_bar_create(ui_TargetSkinTempCont);
+  lv_bar_set_range(ui_SkinPowerBar, 0, POWER_BAR_PCT_MAX);
+  lv_bar_set_value(ui_SkinPowerBar, 0, LV_ANIM_OFF);
+  lv_obj_set_width(ui_SkinPowerBar, POWER_BAR_WIDTH);
+  lv_obj_set_height(ui_SkinPowerBar, POWER_BAR_HEIGHT);
+  lv_obj_align_to(ui_SkinPowerBar, ui_TargetSkinTempNumLabel,
+                  LV_ALIGN_OUT_RIGHT_MID, POWER_BAR_X_OFFSET, 0);
+  lv_obj_set_style_bg_color(ui_SkinPowerBar, lv_color_hex(0x404040),
+                            LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_opa(ui_SkinPowerBar, LV_OPA_COVER,
+                          LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_color(ui_SkinPowerBar, COLOR_POWER_BAR,
+                            LV_PART_INDICATOR | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_opa(ui_SkinPowerBar, LV_OPA_COVER,
+                          LV_PART_INDICATOR | LV_STATE_DEFAULT);
+
   ui_ArrowSkinLock = lv_img_create(ui_Container1);
   lv_img_set_src(ui_ArrowSkinLock, &ui_img_flecha_png);
   lv_obj_set_width(ui_ArrowSkinLock, LV_SIZE_CONTENT);
@@ -3339,6 +3320,22 @@ void ui_ScreenLock_screen_init(void) {
                               LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_text_font(ui_TargetAirTempNumLabel, &lv_font_montserrat_48,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  ui_AirPowerBar = lv_bar_create(ui_TargetAirTempCont);
+  lv_bar_set_range(ui_AirPowerBar, 0, POWER_BAR_PCT_MAX);
+  lv_bar_set_value(ui_AirPowerBar, 0, LV_ANIM_OFF);
+  lv_obj_set_width(ui_AirPowerBar, POWER_BAR_WIDTH);
+  lv_obj_set_height(ui_AirPowerBar, POWER_BAR_HEIGHT);
+  lv_obj_align_to(ui_AirPowerBar, ui_TargetAirTempNumLabel,
+                  LV_ALIGN_OUT_RIGHT_MID, POWER_BAR_X_OFFSET, 0);
+  lv_obj_set_style_bg_color(ui_AirPowerBar, lv_color_hex(0x404040),
+                            LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_opa(ui_AirPowerBar, LV_OPA_COVER,
+                          LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_color(ui_AirPowerBar, COLOR_POWER_BAR,
+                            LV_PART_INDICATOR | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_opa(ui_AirPowerBar, LV_OPA_COVER,
+                          LV_PART_INDICATOR | LV_STATE_DEFAULT);
 
   ui_ArrowAirLock = lv_img_create(ui_Container1);
   lv_img_set_src(ui_ArrowAirLock, &ui_img_flecha_png);

@@ -139,6 +139,6 @@
 // -----------------------------------------------------------------------------
 #define COLOR_POWER_BAR     lv_color_hex(0xFF8C00)
 #define POWER_BAR_WIDTH     8
-#define POWER_BAR_HEIGHT    30
+#define POWER_BAR_HEIGHT    48
 #define POWER_BAR_X_OFFSET  10
 #define POWER_BAR_PCT_MAX   100
