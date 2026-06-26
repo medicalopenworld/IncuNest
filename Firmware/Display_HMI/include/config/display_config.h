@@ -137,8 +137,14 @@
 // -----------------------------------------------------------------------------
 // Power bar widget constants (PID duty cycle indicator)
 // -----------------------------------------------------------------------------
-#define COLOR_POWER_BAR     lv_color_hex(0xFF8C00)
-#define POWER_BAR_WIDTH     8
-#define POWER_BAR_HEIGHT    48
-#define POWER_BAR_X_OFFSET  10
-#define POWER_BAR_PCT_MAX   100
+#define COLOR_POWER_BAR         lv_color_hex(0xFF8C00)
+#define POWER_BAR_WIDTH         8
+#define POWER_BAR_HEIGHT        48
+#define POWER_BAR_PCT_MAX       100
+// Lock-screen fixed positions (absolute within 220×100 px containers)
+// Temp values (e.g. "36.5") in montserrat_48 span ~100 px starting at x=20.
+// Humidity values (e.g. "55") span ~58 px; label shifted right to center visually.
+#define POWER_BAR_LOCK_Y         25   // shared y-offset with value labels (LEFT_MID)
+#define POWER_BAR_LOCK_TEMP_X   145   // x of temp power bars (right of "40.0")
+#define POWER_BAR_LOCK_HUM_VAL_X 45   // x of desired-humidity label (centered under temp)
+#define POWER_BAR_LOCK_HUM_X    115   // x of hum power bar (right of "95" at x=45)

@@ -3189,7 +3189,7 @@ void ui_ScreenLock_screen_init(void) {
   ui_Label24 = lv_label_create(ui_HumLockDesiredCont);
   lv_obj_set_width(ui_Label24, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_Label24, LV_SIZE_CONTENT);
-  lv_obj_set_x(ui_Label24, 20); // Reajustado a la derecha (era 5)
+  lv_obj_set_x(ui_Label24, POWER_BAR_LOCK_HUM_VAL_X);
   lv_obj_set_y(ui_Label24, 25);
   lv_obj_set_align(ui_Label24, LV_ALIGN_LEFT_MID);
   lv_label_set_text(ui_Label24, "37");
@@ -3203,8 +3203,9 @@ void ui_ScreenLock_screen_init(void) {
   lv_bar_set_value(ui_HumPowerBar, 0, LV_ANIM_OFF);
   lv_obj_set_width(ui_HumPowerBar, POWER_BAR_WIDTH);
   lv_obj_set_height(ui_HumPowerBar, POWER_BAR_HEIGHT);
-  lv_obj_align_to(ui_HumPowerBar, ui_Label24,
-                  LV_ALIGN_OUT_RIGHT_MID, POWER_BAR_X_OFFSET, 0);
+  lv_obj_set_align(ui_HumPowerBar, LV_ALIGN_LEFT_MID);
+  lv_obj_set_x(ui_HumPowerBar, POWER_BAR_LOCK_HUM_X);
+  lv_obj_set_y(ui_HumPowerBar, POWER_BAR_LOCK_Y);
   lv_obj_set_style_bg_color(ui_HumPowerBar, lv_color_hex(0x404040),
                             LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_bg_opa(ui_HumPowerBar, LV_OPA_COVER,
@@ -3265,8 +3266,9 @@ void ui_ScreenLock_screen_init(void) {
   lv_bar_set_value(ui_SkinPowerBar, 0, LV_ANIM_OFF);
   lv_obj_set_width(ui_SkinPowerBar, POWER_BAR_WIDTH);
   lv_obj_set_height(ui_SkinPowerBar, POWER_BAR_HEIGHT);
-  lv_obj_align_to(ui_SkinPowerBar, ui_TargetSkinTempNumLabel,
-                  LV_ALIGN_OUT_RIGHT_MID, POWER_BAR_X_OFFSET, 0);
+  lv_obj_set_align(ui_SkinPowerBar, LV_ALIGN_LEFT_MID);
+  lv_obj_set_x(ui_SkinPowerBar, POWER_BAR_LOCK_TEMP_X);
+  lv_obj_set_y(ui_SkinPowerBar, POWER_BAR_LOCK_Y);
   lv_obj_set_style_bg_color(ui_SkinPowerBar, lv_color_hex(0x404040),
                             LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_bg_opa(ui_SkinPowerBar, LV_OPA_COVER,
@@ -3326,8 +3328,9 @@ void ui_ScreenLock_screen_init(void) {
   lv_bar_set_value(ui_AirPowerBar, 0, LV_ANIM_OFF);
   lv_obj_set_width(ui_AirPowerBar, POWER_BAR_WIDTH);
   lv_obj_set_height(ui_AirPowerBar, POWER_BAR_HEIGHT);
-  lv_obj_align_to(ui_AirPowerBar, ui_TargetAirTempNumLabel,
-                  LV_ALIGN_OUT_RIGHT_MID, POWER_BAR_X_OFFSET, 0);
+  lv_obj_set_align(ui_AirPowerBar, LV_ALIGN_LEFT_MID);
+  lv_obj_set_x(ui_AirPowerBar, POWER_BAR_LOCK_TEMP_X);
+  lv_obj_set_y(ui_AirPowerBar, POWER_BAR_LOCK_Y);
   lv_obj_set_style_bg_color(ui_AirPowerBar, lv_color_hex(0x404040),
                             LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_bg_opa(ui_AirPowerBar, LV_OPA_COVER,
