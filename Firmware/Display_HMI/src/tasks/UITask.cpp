@@ -302,6 +302,15 @@ void ui_set_switch_state_silent(lv_obj_t *sw, bool on);
 // Fully disables Skin mode — same effect as flipping the Skin switch OFF.
 // Call this both from the switch-OFF handler and from the probe-disconnect
 // path.
+void UI_UpdatePowerBars(int tempPct, int humPct) {
+  if (ui_AirPowerBar && !lv_obj_has_flag(ui_AirPowerBar, LV_OBJ_FLAG_HIDDEN))
+    lv_bar_set_value(ui_AirPowerBar, tempPct, LV_ANIM_ON);
+  if (ui_SkinPowerBar && !lv_obj_has_flag(ui_SkinPowerBar, LV_OBJ_FLAG_HIDDEN))
+    lv_bar_set_value(ui_SkinPowerBar, tempPct, LV_ANIM_ON);
+  if (ui_HumPowerBar && !lv_obj_has_flag(ui_HumPowerBar, LV_OBJ_FLAG_HIDDEN))
+    lv_bar_set_value(ui_HumPowerBar, humPct, LV_ANIM_ON);
+}
+
 static void skin_mode_force_off() {
   // Uncheck the switch FIRST — line 3219 re-reads skinPanelEnabled from it
   // every cycle, so leaving it checked would immediately undo everything else.
@@ -339,6 +348,8 @@ static void skin_mode_force_off() {
     if (tempSwitched) {
       hmi_msg.controlMode = CONTROL_AIR;
       temp_chart_show_for_selected_panel();
+      lv_obj_add_flag(ui_SkinPowerBar, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_clear_flag(ui_AirPowerBar, LV_OBJ_FLAG_HIDDEN);
     }
   }
 }
@@ -1673,6 +1684,8 @@ void AirPanel_cb(lv_event_t *e) {
   // Visibility
   lv_obj_clear_flag(ui_AirTempBarCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_clear_flag(ui_AirPowerBar, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_SkinPowerBar, LV_OBJ_FLAG_HIDDEN);
 
   // Lock Screen Sync (if objects exist)
   if (ui_AirTempLockCont)
@@ -1701,6 +1714,8 @@ void SkinPanel_cb(lv_event_t *e) {
   // Visibility
   lv_obj_clear_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_AirTempBarCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_AirPowerBar, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_clear_flag(ui_SkinPowerBar, LV_OBJ_FLAG_HIDDEN);
 
   // Lock Screen Sync
   if (ui_SkinTempLockCont)
@@ -1843,6 +1858,14 @@ void Switch_cb(lv_event_t *e) {
         hmi_msg.controlMode = CONTROL_AIR;
       }
 
+      if (selectedPanel == AIR_PANEL_SELECTED) {
+        lv_obj_clear_flag(ui_AirPowerBar, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ui_SkinPowerBar, LV_OBJ_FLAG_HIDDEN);
+      } else {
+        lv_obj_add_flag(ui_AirPowerBar, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(ui_SkinPowerBar, LV_OBJ_FLAG_HIDDEN);
+      }
+
       temp_chart_show_for_selected_panel();
 
       // Enable temperature arrows
@@ -1885,6 +1908,9 @@ void Switch_cb(lv_event_t *e) {
       lv_obj_set_style_bg_color(ui_SkinPanel, COLOR_PANEL_GRAY, LV_PART_MAIN);
       lv_obj_set_style_opa(ui_AirPanel, LV_OPA_COVER, LV_PART_MAIN);
       lv_obj_set_style_opa(ui_SkinPanel, LV_OPA_COVER, LV_PART_MAIN);
+
+      lv_obj_add_flag(ui_AirPowerBar, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_add_flag(ui_SkinPowerBar, LV_OBJ_FLAG_HIDDEN);
     }
     temp_content_set_visible(checked);
   } else if (obj == ui_Switch2) { // HUMIDITY SWITCH
@@ -1895,6 +1921,7 @@ void Switch_cb(lv_event_t *e) {
     if (checked) {
       // Show humidity content panel
       lv_obj_clear_flag(ui_HumPanelCont, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_clear_flag(ui_HumPowerBar, LV_OBJ_FLAG_HIDDEN);
       lv_obj_clear_flag(ui_Panel3, LV_OBJ_FLAG_HIDDEN);
       // mark last pressed chart and show hum page
       chartLastPressed = 1;
@@ -1914,6 +1941,7 @@ void Switch_cb(lv_event_t *e) {
     } else {
       // Hide humidity content panel
       lv_obj_add_flag(ui_HumPanelCont, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_add_flag(ui_HumPowerBar, LV_OBJ_FLAG_HIDDEN);
       lv_obj_add_flag(ui_Panel3, LV_OBJ_FLAG_HIDDEN);
       lv_obj_add_flag(ui_HumChartCont, LV_OBJ_FLAG_HIDDEN); // hide hum chart
       // Humidity OFF
@@ -3967,6 +3995,11 @@ void UI_Task(void *pvParameters) {
       }
       chart_add_hum_value((float)snapHum);
       chart_save_history();
+    }
+
+    if (g_pendingDutyApply) {
+      g_pendingDutyApply = false;
+      UI_UpdatePowerBars(g_tempDutyPct, g_humDutyPct);
     }
 
     if (g_pendingAlarmUpdate) {
