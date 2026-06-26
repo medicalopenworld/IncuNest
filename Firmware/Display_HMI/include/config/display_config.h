@@ -133,3 +133,12 @@
 #define TOUCH_EXT_SMALL  40   // Botones muy pequeños (<40px): ImgButton1, PhotoCancelBtn, LockButtons
 #define TOUCH_EXT_MEDIUM 30   // Botones de navegación e iconos (~48px): Settings, Alarms, Arrows, Mute
 #define TOUCH_EXT_NARROW 20   // Widgets anchos pero bajos (switches, TempButton, WifiButtons)
+
+// -----------------------------------------------------------------------------
+// Power bar widget constants (PID duty cycle indicator)
+// -----------------------------------------------------------------------------
+#define COLOR_POWER_BAR     lv_color_hex(0xFF8C00)
+#define POWER_BAR_WIDTH     8
+#define POWER_BAR_HEIGHT    30
+#define POWER_BAR_X_OFFSET  10
+#define POWER_BAR_PCT_MAX   100

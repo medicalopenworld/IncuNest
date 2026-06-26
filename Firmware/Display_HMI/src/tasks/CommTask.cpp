@@ -26,6 +26,9 @@ volatile int  g_pwrOffRemainingMs = 0;
 
 // --- Pending LVGL work flags (set by CommTask, consumed by UITask) ---
 volatile bool g_pendingTelemetryApply = false;
+volatile int  g_tempDutyPct           = 0;
+volatile int  g_humDutyPct            = 0;
+volatile bool g_pendingDutyApply      = false;
 
 // --- Spinlock protecting double-width telemetry writes (Fix: ARQ-THREAD-001) ---
 portMUX_TYPE g_telemetry_mux = portMUX_INITIALIZER_UNLOCKED;
@@ -240,6 +243,13 @@ static void parse_message(const char *line) {
       COMM_LOG("[COMM] CTRL,WIFI: reconnecting to %s\n", ssid);
     } else {
       COMM_LOG("[COMM] CTRL,WIFI parse error: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,DUTY", 9) == 0) {
+    int t = 0, h = 0;
+    if (sscanf(line, "CTRL,DUTY,%d,%d", &t, &h) == 2) {
+      g_tempDutyPct      = t;
+      g_humDutyPct       = h;
+      g_pendingDutyApply = true;
     }
   }
 #endif
