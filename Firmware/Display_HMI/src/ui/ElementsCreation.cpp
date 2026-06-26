@@ -1268,7 +1268,7 @@ void ui_ScreenMain_screen_init(void) {
   ui_HumPanelCont = lv_obj_create(ui_HumCont);
   lv_obj_remove_style_all(ui_HumPanelCont);
   lv_obj_set_width(ui_HumPanelCont, 358);
-  lv_obj_set_height(ui_HumPanelCont, 163);
+  lv_obj_set_height(ui_HumPanelCont, 220);
   lv_obj_set_x(ui_HumPanelCont, 0);
   lv_obj_set_y(ui_HumPanelCont, 18);
   lv_obj_set_align(ui_HumPanelCont, LV_ALIGN_CENTER);
@@ -1278,11 +1278,11 @@ void ui_ScreenMain_screen_init(void) {
   ui_HumDetected = lv_label_create(ui_HumPanelCont);
   lv_obj_set_width(ui_HumDetected, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_HumDetected, LV_SIZE_CONTENT);
-  lv_obj_set_x(ui_HumDetected, -145);
-  lv_obj_set_y(ui_HumDetected, 14);
+  lv_obj_set_x(ui_HumDetected, -115);
+  lv_obj_set_y(ui_HumDetected, 15);
   lv_obj_set_align(ui_HumDetected, LV_ALIGN_CENTER);
   lv_label_set_text(ui_HumDetected, "50");
-  lv_obj_set_style_text_font(ui_HumDetected, &lv_font_montserrat_26,
+  lv_obj_set_style_text_font(ui_HumDetected, &lv_font_montserrat_30,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
 
   ui_HumBar = lv_bar_create(ui_HumPanelCont);
@@ -1299,13 +1299,14 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_style_border_width(ui_HumBar, 1, LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_border_side(ui_HumBar, LV_BORDER_SIDE_FULL,
                                LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_add_flag(ui_HumBar, LV_OBJ_FLAG_HIDDEN);
 
   ui_Image7 = lv_img_create(ui_HumPanelCont);
   lv_img_set_src(ui_Image7, &ui_img_gota_png);
   lv_obj_set_width(ui_Image7, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_Image7, LV_SIZE_CONTENT);
-  lv_obj_set_x(ui_Image7, -60);
-  lv_obj_set_y(ui_Image7, 0);
+  lv_obj_set_x(ui_Image7, 25);
+  lv_obj_set_y(ui_Image7, -42);
   lv_obj_set_align(ui_Image7, LV_ALIGN_CENTER);
   lv_obj_add_flag(ui_Image7, LV_OBJ_FLAG_ADV_HITTEST);
   lv_obj_clear_flag(ui_Image7, LV_OBJ_FLAG_SCROLLABLE);
@@ -1313,16 +1314,16 @@ void ui_ScreenMain_screen_init(void) {
   ui_ArrowUpHum = lv_obj_create(ui_HumPanelCont);
   lv_obj_set_width(ui_ArrowUpHum, 60);
   lv_obj_set_height(ui_ArrowUpHum, 60);
-  lv_obj_set_x(ui_ArrowUpHum, 127);
-  lv_obj_set_y(ui_ArrowUpHum, -42);
+  lv_obj_set_x(ui_ArrowUpHum, 75);
+  lv_obj_set_y(ui_ArrowUpHum, 70);
   lv_obj_set_align(ui_ArrowUpHum, LV_ALIGN_CENTER);
   lv_obj_clear_flag(ui_ArrowUpHum, LV_OBJ_FLAG_SCROLLABLE);
 
   ui_ArrowDownHum = lv_obj_create(ui_HumPanelCont);
   lv_obj_set_width(ui_ArrowDownHum, 60);
   lv_obj_set_height(ui_ArrowDownHum, 60);
-  lv_obj_set_x(ui_ArrowDownHum, 127);
-  lv_obj_set_y(ui_ArrowDownHum, 53);
+  lv_obj_set_x(ui_ArrowDownHum, -60);
+  lv_obj_set_y(ui_ArrowDownHum, 70);
   lv_obj_set_align(ui_ArrowDownHum, LV_ALIGN_CENTER);
   lv_obj_clear_flag(ui_ArrowDownHum, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -1376,15 +1377,16 @@ void ui_ScreenMain_screen_init(void) {
   lv_label_set_text(ui_HumDetectedRight, "50");
   lv_obj_set_style_text_font(ui_HumDetectedRight, &lv_font_montserrat_20,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_add_flag(ui_HumDetectedRight, LV_OBJ_FLAG_HIDDEN);
 
   ui_HumDesired = lv_label_create(ui_HumPanelCont);
   lv_obj_set_width(ui_HumDesired, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_HumDesired, LV_SIZE_CONTENT);
-  lv_obj_set_x(ui_HumDesired, 13);
-  lv_obj_set_y(ui_HumDesired, -24);
+  lv_obj_set_x(ui_HumDesired, 115);
+  lv_obj_set_y(ui_HumDesired, 15);
   lv_obj_set_align(ui_HumDesired, LV_ALIGN_CENTER);
   lv_label_set_text(ui_HumDesired, "55");
-  lv_obj_set_style_text_font(ui_HumDesired, &lv_font_montserrat_20,
+  lv_obj_set_style_text_font(ui_HumDesired, &lv_font_montserrat_30,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
 
   ui_ImgArrowUpHum = lv_imgbtn_create(ui_HumPanelCont);
@@ -1392,8 +1394,8 @@ void ui_ScreenMain_screen_init(void) {
                     &ui_img_triangulo_arriba_png, NULL);
   lv_obj_set_width(ui_ImgArrowUpHum, 40);
   lv_obj_set_height(ui_ImgArrowUpHum, 38);
-  lv_obj_set_x(ui_ImgArrowUpHum, 127);
-  lv_obj_set_y(ui_ImgArrowUpHum, -46);
+  lv_obj_set_x(ui_ImgArrowUpHum, 75);
+  lv_obj_set_y(ui_ImgArrowUpHum, 68);
   lv_obj_set_align(ui_ImgArrowUpHum, LV_ALIGN_CENTER);
 
   ui_ImgArrowDownHum = lv_imgbtn_create(ui_HumPanelCont);
@@ -1401,8 +1403,8 @@ void ui_ScreenMain_screen_init(void) {
                     &ui_img_triangulo_abajo_png, NULL);
   lv_obj_set_width(ui_ImgArrowDownHum, 39);
   lv_obj_set_height(ui_ImgArrowDownHum, 45);
-  lv_obj_set_x(ui_ImgArrowDownHum, 127);
-  lv_obj_set_y(ui_ImgArrowDownHum, 55);
+  lv_obj_set_x(ui_ImgArrowDownHum, -60);
+  lv_obj_set_y(ui_ImgArrowDownHum, 73);
   lv_obj_set_align(ui_ImgArrowDownHum, LV_ALIGN_CENTER);
 
   ui_Label7 = lv_label_create(ui_HumPanelCont);
@@ -1412,6 +1414,32 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_y(ui_Label7, 4);
   lv_obj_set_align(ui_Label7, LV_ALIGN_CENTER);
   lv_label_set_text(ui_Label7, "Set");
+  lv_obj_add_flag(ui_Label7, LV_OBJ_FLAG_HIDDEN);
+
+  lv_obj_t *ui_HumTitleLabel = lv_label_create(ui_HumPanelCont);
+  lv_obj_set_width(ui_HumTitleLabel, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_HumTitleLabel, LV_SIZE_CONTENT);
+  lv_obj_set_x(ui_HumTitleLabel, -65);
+  lv_obj_set_y(ui_HumTitleLabel, -42);
+  lv_obj_set_align(ui_HumTitleLabel, LV_ALIGN_CENTER);
+  lv_label_set_text(ui_HumTitleLabel, "Humidity");
+  lv_obj_set_style_text_font(ui_HumTitleLabel, &lv_font_montserrat_20,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  lv_obj_t *ui_ArrowHumPanel = lv_img_create(ui_HumPanelCont);
+  lv_img_set_src(ui_ArrowHumPanel, &ui_img_flecha_png);
+  lv_obj_set_width(ui_ArrowHumPanel, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_ArrowHumPanel, LV_SIZE_CONTENT);
+  lv_obj_set_x(ui_ArrowHumPanel, -15);
+  lv_obj_set_y(ui_ArrowHumPanel, 15);
+  lv_obj_set_align(ui_ArrowHumPanel, LV_ALIGN_CENTER);
+  lv_img_set_zoom(ui_ArrowHumPanel, 150);
+  lv_obj_set_style_img_recolor(ui_ArrowHumPanel, lv_color_hex(0x303030),
+                               LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_img_recolor_opa(ui_ArrowHumPanel, LV_OPA_COVER,
+                                   LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_add_flag(ui_ArrowHumPanel, LV_OBJ_FLAG_ADV_HITTEST);
+  lv_obj_clear_flag(ui_ArrowHumPanel, LV_OBJ_FLAG_SCROLLABLE);
 
   ui_Label16 = lv_label_create(ui_HumCont);
   lv_obj_set_width(ui_Label16, LV_SIZE_CONTENT);

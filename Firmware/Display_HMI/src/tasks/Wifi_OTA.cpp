@@ -126,9 +126,8 @@ const char *serverIndex =
     "</script>";
 
 // ---------------------------------------------------------------------------
-// WiFi init — call once at boot, and again when credentials change.
-// Auto-reconnect is enabled: the driver handles all subsequent reconnections
-// automatically; no manual reconnect loop is needed.
+// WiFi init — called once at boot, on credential changes, and periodically
+// by WifiOTAHandler() when disconnected (manual reconnect, no auto-reconnect).
 // ---------------------------------------------------------------------------
 void wifiInit(void) {
   ESP_LOGI(TAG, "Initializing WiFi");
@@ -168,7 +167,9 @@ void wifiInit(void) {
   }
 
   WiFi.persistent(true);
-  WiFi.setAutoReconnect(true);
+  // Auto-reconnect disabled: no backoff for ASSOC_TOOMANY (reason=5) causes a
+  // 25 Hz event storm that starves other tasks. Manual retry in WifiOTAHandler.
+  WiFi.setAutoReconnect(false);
 
   String ssid, pass;
   if (pendingSSID[0] != '\0') {
@@ -194,6 +195,7 @@ void wifiInit(void) {
            (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
   WiFi.begin(ssid.c_str(), pass.c_str());
   WiFi.setSleep(WIFI_PS_NONE);
+  Wifi_TB.lastWifiReconnectAttempt = millis();
 }
 
 // ---------------------------------------------------------------------------
@@ -292,6 +294,8 @@ void updatedCallback(const bool &success) {
   if (success) {
     ESP_LOGI(TAG, "OTA done, will apply on next boot");
   } else {
+    // No update available — clear the flag so the periodic check can run again.
+    OTA_inprogress = false;
     ESP_LOGI(TAG, "OTA: no new firmware");
   }
 }
@@ -433,7 +437,7 @@ void WIFI_TB_OTA() {
       WIFI_JSON.clear();
       Wifi_TB.lastMQTTPublish = millis();
     }
-    if (millis() - Wifi_TB.lastOTACheck > WIFI_OTA_CHECK_INTERVAL) {
+    if (!OTA_inprogress && millis() - Wifi_TB.lastOTACheck > WIFI_OTA_CHECK_INTERVAL) {
       WIFICheckOTA();
       Wifi_TB.lastOTACheck = millis();
     }
@@ -445,6 +449,15 @@ void WIFI_TB_OTA() {
 // Main OTA/WiFi handler — called every OTA_TASK_PERIOD_MS from the OTA task.
 // ---------------------------------------------------------------------------
 void WifiOTAHandler(void) {
+  // Manual reconnect: retry wifiInit() when disconnected. Auto-reconnect is
+  // disabled to avoid ASSOC_TOOMANY event storms; this provides the fallback.
+  if (WiFi.status() != WL_CONNECTED) {
+    if (millis() - Wifi_TB.lastWifiReconnectAttempt > WIFI_RECONNECT_INTERVAL) {
+      ESP_LOGW(TAG, "WiFi disconnected, retrying wifiInit()");
+      wifiInit();
+    }
+  }
+
   // Persist credentials staged by the UI on the first successful connection.
   if (s_persistCredentials) {
     s_persistCredentials = false;

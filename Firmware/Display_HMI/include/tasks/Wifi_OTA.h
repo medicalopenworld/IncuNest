@@ -47,6 +47,7 @@ struct WIFIstruct {
   long lastReconnectAttempt = 0;
   long lastMQTTPublish = 0;
   long lastOTACheck = 0;
+  long lastWifiReconnectAttempt = 0;
 };
 
 bool WIFIIsConnectedToServer();

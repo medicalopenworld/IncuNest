@@ -148,7 +148,7 @@ static esp_lcd_panel_handle_t lcd_panel = NULL;
 
 // Bounce buffer: 20 líneas en SRAM interno desacoplan LCD DMA de PSRAM
 // 800 * 20 * 2 = 32KB por bounce buffer (x2 ping-pong = 64KB SRAM)
-#define BOUNCE_BUF_LINES 8
+#define BOUNCE_BUF_LINES 20
 #define BOUNCE_BUF_SIZE_PX (DISPLAY_WIDTH * BOUNCE_BUF_LINES)
 
 // ==========================================
@@ -255,7 +255,7 @@ static void intro_timer_cb(lv_timer_t *t) {
   uint32_t elapsed = millis() - intro_start_ms;
   bool synced      = g_stateSynced;
   bool min_elapsed = (elapsed >= 5000);
-  bool timedout    = (elapsed >= 10000);
+  bool timedout    = (elapsed >= 15000);
   if (!timedout && (!synced || !min_elapsed)) return;
   if (intro_timer) {
     lv_timer_del(intro_timer);
@@ -1795,6 +1795,14 @@ void temp_content_set_visible(bool visible) {
   }
 }
 
+static bool isFanHeaterAlarmActive() {
+  for (int i = 0; i < MAX_ALARMS; i++) {
+    if ((alarmList[i].id == FAN_ISSUE_ALARM || alarmList[i].id == HEATER_ISSUE_ALARM) && alarmList[i].state)
+      return true;
+  }
+  return false;
+}
+
 /* Switch callback for temperature and humidity */
 void Switch_cb(lv_event_t *e) {
   lv_color_t active_col = darkMode ? COLOR_PANEL_GRAY : COLOR_PANEL_WHITE;
@@ -1810,6 +1818,12 @@ void Switch_cb(lv_event_t *e) {
     panel = ui_Panel1;
 
     if (checked) { // Temperature switch turned ON
+      if (isFanHeaterAlarmActive()) {
+        ui_set_switch_state_silent(ui_Switch1, false);
+        switchTemp = false;
+        tempSwitched = false;
+        return;
+      }
       // mark last pressed chart and show temp page
       chartLastPressed = 0;
       lv_tabview_set_act(ui_TabView1, 0, LV_ANIM_ON);
@@ -1879,6 +1893,9 @@ void Switch_cb(lv_event_t *e) {
     panel = ui_Panel3;
 
     if (checked) {
+      // Show humidity content panel
+      lv_obj_clear_flag(ui_HumPanelCont, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_clear_flag(ui_Panel3, LV_OBJ_FLAG_HIDDEN);
       // mark last pressed chart and show hum page
       chartLastPressed = 1;
       lv_tabview_set_act(ui_TabView1, 1, LV_ANIM_ON);
@@ -1895,6 +1912,9 @@ void Switch_cb(lv_event_t *e) {
       lv_obj_set_style_bg_color(ui_Panel3, active_col, LV_PART_MAIN);
       lv_obj_set_style_bg_opa(ui_Panel3, LV_OPA_COVER, LV_PART_MAIN);
     } else {
+      // Hide humidity content panel
+      lv_obj_add_flag(ui_HumPanelCont, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_add_flag(ui_Panel3, LV_OBJ_FLAG_HIDDEN);
       lv_obj_add_flag(ui_HumChartCont, LV_OBJ_FLAG_HIDDEN); // hide hum chart
       // Humidity OFF
       lv_obj_clear_flag(ui_ImgArrowDownHum, LV_OBJ_FLAG_CLICKABLE);
@@ -2333,6 +2353,15 @@ void start_alarm_blink(lv_obj_t *obj) {
 }
 
 void update_alarm_panels() {
+  // Determine fan/heater alarm state first — used in multiple sections below
+  bool fanHeaterAlarm = false;
+  for (int i = 0; i < MAX_ALARMS; i++) {
+    if ((alarmList[i].id == FAN_ISSUE_ALARM || alarmList[i].id == HEATER_ISSUE_ALARM) && alarmList[i].state) {
+      fanHeaterAlarm = true;
+      break;
+    }
+  }
+
   int totalActiveAlarms = 0;
   int activeCount = 0;
   alarmSlotToIndex[0] = -1;
@@ -2364,7 +2393,6 @@ void update_alarm_panels() {
 
   alarmActive = (totalActiveAlarms > 0);
   hmi_msg.muteAlarm = alarmActive ? (alarmsMuted ? 1 : 0) : 0;
-  // hmi_msg.shouldSendData = true; Dont send reply when receive an alarm msg
 
   if (activeCount > NUM_ALARM_0) {
     lv_obj_clear_flag(ui_Alarm1Cont, LV_OBJ_FLAG_HIDDEN);
@@ -2403,6 +2431,7 @@ void update_alarm_panels() {
       lv_obj_add_flag(ui_Alarm4Cont, LV_OBJ_FLAG_HIDDEN);
   }
 
+  bool anyAlarm = (totalActiveAlarms > 0) || fanHeaterAlarm;
   if (totalActiveAlarms > 0) {
     char buf[10];
     itoa(totalActiveAlarms, buf, 10);
@@ -2417,67 +2446,38 @@ void update_alarm_panels() {
     lv_label_set_text(ui_AlarmLockNumLabel, buf);
     lv_obj_add_flag(ui_CheckImg, LV_OBJ_FLAG_HIDDEN);
   } else {
-    // Main screen
+    // Main screen — hide alarm button; OK only if no fan/heater alarm either
     lv_obj_add_flag(ui_Panel10, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_NumAlarm, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_AlarmButton, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(ui_CheckImgMain, LV_OBJ_FLAG_HIDDEN);
+    if (fanHeaterAlarm)
+      lv_obj_add_flag(ui_CheckImgMain, LV_OBJ_FLAG_HIDDEN);
+    else
+      lv_obj_clear_flag(ui_CheckImgMain, LV_OBJ_FLAG_HIDDEN);
     // Lock screen
     lv_obj_add_flag(ui_AlarmLockCont, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(ui_CheckImg, LV_OBJ_FLAG_HIDDEN);
+    if (fanHeaterAlarm)
+      lv_obj_add_flag(ui_CheckImg, LV_OBJ_FLAG_HIDDEN);
+    else
+      lv_obj_clear_flag(ui_CheckImg, LV_OBJ_FLAG_HIDDEN);
   }
 
-  if (totalActiveAlarms == 0) {
+  if (!anyAlarm) {
     alarmsMuted = false;
   }
 
-  // Handle Heater Error logic
-  static bool heaterCriticalError = false; // Latching variable
+  // Warning overlays always hidden (replaced by TempCont visibility)
+  if (ui_HeaterErrorTempCont)
+    lv_obj_add_flag(ui_HeaterErrorTempCont, LV_OBJ_FLAG_HIDDEN);
+  if (ui_HeaterErrorHumCont)
+    lv_obj_add_flag(ui_HeaterErrorHumCont, LV_OBJ_FLAG_HIDDEN);
 
-  if (!heaterCriticalError) {
-    for (int i = 0; i < MAX_ALARMS; i++) {
-      if (alarmList[i].id == HEATER_ISSUE_ALARM && alarmList[i].state) {
-        heaterCriticalError = true;
-        break;
-      }
-    }
-  }
-
-  if (heaterCriticalError) {
-    // Show Warning UI
-    if (ui_HeaterErrorTempCont)
-      lv_obj_clear_flag(ui_HeaterErrorTempCont, LV_OBJ_FLAG_HIDDEN);
-    if (ui_HeaterErrorHumCont)
-      lv_obj_clear_flag(ui_HeaterErrorHumCont, LV_OBJ_FLAG_HIDDEN);
-
-    // Disable Switches
-    if (ui_Switch1) {
-      lv_obj_clear_state(ui_Switch1, LV_STATE_CHECKED);
-      lv_obj_add_state(ui_Switch1, LV_STATE_DISABLED);
-    }
-    if (ui_Switch2) {
-      lv_obj_clear_state(ui_Switch2, LV_STATE_CHECKED);
-      lv_obj_add_state(ui_Switch2, LV_STATE_DISABLED);
-    }
-
-    // Blink - Blink the CONTAINER for visibility
-    if (ui_HeaterErrorTempCont)
-      start_alarm_blink(ui_HeaterErrorTempCont);
-    if (ui_HeaterErrorHumCont)
-      start_alarm_blink(ui_HeaterErrorHumCont);
-
-  } else {
-    // Hide Warning UI
-    if (ui_HeaterErrorTempCont)
-      lv_obj_add_flag(ui_HeaterErrorTempCont, LV_OBJ_FLAG_HIDDEN);
-    if (ui_HeaterErrorHumCont)
-      lv_obj_add_flag(ui_HeaterErrorHumCont, LV_OBJ_FLAG_HIDDEN);
-
-    // Enable Switches
-    if (ui_Switch1)
-      lv_obj_clear_state(ui_Switch1, LV_STATE_DISABLED);
-    if (ui_Switch2)
-      lv_obj_clear_state(ui_Switch2, LV_STATE_DISABLED);
+  // Hide the entire temperature control container when fan/heater alarm is active
+  if (ui_TempCont) {
+    if (fanHeaterAlarm)
+      lv_obj_add_flag(ui_TempCont, LV_OBJ_FLAG_HIDDEN);
+    else
+      lv_obj_clear_flag(ui_TempCont, LV_OBJ_FLAG_HIDDEN);
   }
 }
 
@@ -2959,6 +2959,7 @@ void WifiDisconnectButton_cb(lv_event_t *e) {
 }
 
 void Label9_cb(lv_event_t *e) {
+  if (isFanHeaterAlarmActive()) return;
   lv_obj_add_state(ui_Switch1, LV_STATE_CHECKED);
   lv_event_send(ui_Switch1, LV_EVENT_VALUE_CHANGED, NULL);
 }
@@ -2989,7 +2990,9 @@ void Label17_cb(lv_event_t *e) {
 }
 
 void TempToggleBtn_cb(lv_event_t *) {
-  if (lv_obj_has_state(ui_Switch1, LV_STATE_CHECKED))
+  bool isOn = lv_obj_has_state(ui_Switch1, LV_STATE_CHECKED);
+  if (!isOn && isFanHeaterAlarmActive()) return;
+  if (isOn)
     lv_obj_clear_state(ui_Switch1, LV_STATE_CHECKED);
   else
     lv_obj_add_state(ui_Switch1, LV_STATE_CHECKED);
@@ -3945,6 +3948,7 @@ void UI_Task(void *pvParameters) {
         ctrl_state_msg.newState = false;
         g_stateSynced = true;
         hmi_msg.shouldSendData = true;
+        g_pendingAlarmUpdate = true; // Refresh alarm UI after state sync
       }
     }
 
@@ -4170,6 +4174,8 @@ void UI_SyncAll() {
 
   // 3. Humidity Logic
   if (switchHum) {
+    lv_obj_clear_flag(ui_HumPanelCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_Panel3, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(ui_HumChartCont, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(ui_HumLockDesiredCont, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_ImgArrowDownHum, LV_OBJ_FLAG_CLICKABLE);
@@ -4180,13 +4186,9 @@ void UI_SyncAll() {
     lv_obj_set_style_bg_opa(ui_ArrowUpHum, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_bg_color(ui_Panel3, active_col, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(ui_Panel3, LV_OPA_COVER, LV_PART_MAIN);
-
-    // Apply active color to the inner humidity panel
-    if (ui_HumPanelCont) {
-      lv_obj_set_style_bg_color(ui_HumPanelCont, active_col, LV_PART_MAIN);
-      lv_obj_set_style_bg_opa(ui_HumPanelCont, LV_OPA_COVER, LV_PART_MAIN);
-    }
   } else {
+    lv_obj_add_flag(ui_HumPanelCont, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_Panel3, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_HumChartCont, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_HumLockDesiredCont, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(ui_ImgArrowDownHum, LV_OBJ_FLAG_CLICKABLE);
@@ -4197,12 +4199,6 @@ void UI_SyncAll() {
     lv_obj_set_style_bg_opa(ui_ArrowUpHum, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_bg_color(ui_Panel3, inactive_col, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(ui_Panel3, LV_OPA_COVER, LV_PART_MAIN);
-
-    // Apply inactive color to the inner humidity panel
-    if (ui_HumPanelCont) {
-      lv_obj_set_style_bg_color(ui_HumPanelCont, inactive_col, LV_PART_MAIN);
-      lv_obj_set_style_bg_opa(ui_HumPanelCont, LV_OPA_COVER, LV_PART_MAIN);
-    }
   }
 
   // 4. Phototherapy Logic (Switch 3)

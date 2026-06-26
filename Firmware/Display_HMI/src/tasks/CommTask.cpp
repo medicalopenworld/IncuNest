@@ -292,9 +292,16 @@ bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
   if (!g_ui_initialized)
     return false;
   LVGL_Lock();
-  ui_set_switch_state_silent(ui_Switch1, st.actuation & 0x01);
+  bool tempOn = st.actuation & 0x01;
+  ui_set_switch_state_silent(ui_Switch1, tempOn);
+  temp_content_set_visible(tempOn);
   ui_set_switch_state_silent(ui_Switch2, (st.actuation >> 1) & 0x01);
-  ui_set_switch_state_silent(ui_Switch3, st.phototherapyMode);
+  bool photoOn = st.phototherapyMode;
+  ui_set_switch_state_silent(ui_Switch3, photoOn);
+  if (ui_PhotoTimerCont) {
+    if (photoOn) lv_obj_clear_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN);
+    else         lv_obj_add_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN);
+  }
   // Restore skin: only activate if saved state says ON *and* probe is present.
   // If saved ON but no probe → fall back to Air and force switch OFF.
   bool probeAvailable = (st.skinProbeState == SKIN_PROBE_VALID);
@@ -303,7 +310,7 @@ bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
   ui_set_switch_state_silent(ui_Switch4, restoreSkin);
 
   skinPanelEnabled = restoreSkin;
-  if (skinPanelEnabled) {
+  if (skinPanelEnabled && tempOn) {
     if (ui_SkinPanelCont) lv_obj_clear_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
   } else {
     if (ui_SkinPanelCont) lv_obj_add_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);

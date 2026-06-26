@@ -88,11 +88,13 @@
 // Timings de sincronización RGB (ESTABILIDAD DMA)
 // -----------------------------------------------------------------------------
 /**
- * @brief Frecuencia pixel clock (18 MHz).
- * Valor del factory code de Elecrow para CrowPanel Advance 7" (V1.2+).
+ * @brief Frecuencia pixel clock (20 MHz).
+ * Aumentado de 18 MHz: algunos lotes de panel requieren PCLK >= 20 MHz para
+ * aislar correctamente las filas de gate. A 18 MHz (mínimo del rango 18-21 MHz)
+ * ciertos paneles muestran bleed del top de pantalla en la parte inferior.
  * Si hay jitter con Audio I2S activo, probar bajando a 15 MHz.
  */
-#define DISPLAY_FREQ_WRITE 18000000UL
+#define DISPLAY_FREQ_WRITE 20000000UL
 
 #define DISPLAY_HSYNC_POLARITY 0
 #define DISPLAY_HSYNC_FRONT_PORCH 8
@@ -111,12 +113,23 @@
 
 // -----------------------------------------------------------------------------
 // Bandera en pantalla de inicio
-// INTRO_FLAG_NONE : sin bandera (no se compila ningún asset de bandera)
-// INTRO_FLAG_RASD : República Árabe Saharaui Democrática
-// INTRO_FLAG_TOGO : República de Togo
+// INTRO_FLAG_NONE    : sin bandera (no se compila ningún asset de bandera)
+// INTRO_FLAG_RASD    : República Árabe Saharaui Democrática
+// INTRO_FLAG_TOGO    : República de Togo
+// INTRO_FLAG_SENEGAL : República de Senegal
 // -----------------------------------------------------------------------------
-#define INTRO_FLAG_NONE 0
-#define INTRO_FLAG_RASD 1
-#define INTRO_FLAG_TOGO 2
+#define INTRO_FLAG_NONE    0
+#define INTRO_FLAG_RASD    1
+#define INTRO_FLAG_TOGO    2
+#define INTRO_FLAG_SENEGAL 3
 
-#define INTRO_FLAG INTRO_FLAG_RASD
+#define INTRO_FLAG INTRO_FLAG_SENEGAL
+
+// -----------------------------------------------------------------------------
+// Touch hitbox extensions (lv_obj_set_ext_click_area)
+// Amplían el área táctil sin cambiar la apariencia visual.
+// Ajustar aquí si los usuarios tienen dificultad para pulsar ciertos widgets.
+// -----------------------------------------------------------------------------
+#define TOUCH_EXT_SMALL  40   // Botones muy pequeños (<40px): ImgButton1, PhotoCancelBtn, LockButtons
+#define TOUCH_EXT_MEDIUM 30   // Botones de navegación e iconos (~48px): Settings, Alarms, Arrows, Mute
+#define TOUCH_EXT_NARROW 20   // Widgets anchos pero bajos (switches, TempButton, WifiButtons)

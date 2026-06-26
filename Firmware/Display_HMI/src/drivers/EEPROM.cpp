@@ -47,6 +47,7 @@ void loaddefaultValues() {
   p.putUChar (HMI_KEY_PHOTO_MIN, PHOTO_TIMER_EEPROM_DEFAULT);
   p.putUChar (HMI_KEY_DARK_MODE, 0);
   p.putUChar (HMI_KEY_HUM_EN,    0);
+  p.putUChar (HMI_KEY_SKIN_EN,   0);
   p.end();
 }
 
@@ -154,6 +155,7 @@ void recapVariables() {
     photoTimerMinutes = p.getUChar (HMI_KEY_PHOTO_MIN, PHOTO_TIMER_EEPROM_DEFAULT);
     darkMode          = p.getUChar (HMI_KEY_DARK_MODE, 0) != 0;
     humidityEnabled   = p.getUChar (HMI_KEY_HUM_EN,    0) != 0;
+    skinPanelEnabled  = p.getUChar (HMI_KEY_SKIN_EN,   0) != 0;
     in3.serialNumber  = p.getInt   (HMI_KEY_SERIAL,    0);
     p.end(); }
 

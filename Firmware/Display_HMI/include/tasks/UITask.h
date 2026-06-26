@@ -33,6 +33,7 @@ void update_history_charts();
 void HistoryDropdown_cb(lv_event_t *e);
 void ScreenCharts_load_cb(lv_event_t *e);
 void ui_set_switch_state_silent(lv_obj_t *sw, bool on);
+void temp_content_set_visible(bool visible);
 void UI_ApplyLanguage(ui_lang_t lang);
 void UI_SyncAll();
 void UI_ApplyTheme();
