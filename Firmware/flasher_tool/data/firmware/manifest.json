@@ -1,4 +1,12 @@
 {
   "release": null,
-  "files": {}
+  "files": {
+    "display_hmi_bootloader.bin": "a81f432c79695c65b0be0024bfcb7b9618df7f75331f3fb1ba06fcbb93c76a95",
+    "display_hmi_firmware.bin": "f4d8ac066569d53dd91b7de75aa8d6dc18f737d4fe201ee7b145789d17d4fc2d",
+    "display_hmi_ota_data_initial.bin": "7d2c7ac4888bfd75cd5f56e8d61f69595121183afc81556c876732fd3782c62f",
+    "display_hmi_partitions.bin": "ecaa705ffe254cec585fe0a0e5281dec2c70891a6e515e943a7ecb143fe4acac",
+    "motherboard_bootloader.bin": "be3068f692ae3d3e87944845d8512fe1cf5abbbe0721e477099d43e865190987",
+    "motherboard_firmware.bin": "224119c1797fbb4bf969f99037cb7a438b2259d6158a9f8a23f5093b189d75ae",
+    "motherboard_partitions.bin": "efd1b03ff8ede014cb7cf121003f9d2067cc632aba070f67cf91a4033e75b0d2"
+  }
 }
