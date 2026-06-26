@@ -147,4 +147,4 @@
 #define POWER_BAR_LOCK_Y         25   // shared y-offset with value labels (LEFT_MID)
 #define POWER_BAR_LOCK_TEMP_X   185   // x of temp power bars (right of "40.0°C")
 #define POWER_BAR_LOCK_HUM_VAL_X 45   // x of desired-humidity label (centered under temp)
-#define POWER_BAR_LOCK_HUM_X    145   // x of hum power bar (right of "95%" at x=45)
+#define POWER_BAR_LOCK_HUM_X    POWER_BAR_LOCK_TEMP_X   // aligned with temp bars
