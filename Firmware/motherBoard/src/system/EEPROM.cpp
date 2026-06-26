@@ -403,7 +403,7 @@ void recapVariables()
     p.begin(NS_STATE, true);
     in3.actuation = p.getUChar(KEY_ACTUATION, 0);
     in3.phototherapy = p.getUChar(KEY_PHOTO_ACTIVE, 0);
-    in3.restoreState = (in3.actuation != 0);
+    // restoreState is set only by security_check_reboot_cause() on crash/WDT
     p.end();
   }
 

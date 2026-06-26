@@ -27,7 +27,7 @@
 #endif
 #define HW_REVISION 'A'
 #define HWversion String(HW_NUM) + "." + String(HW_REVISION)
-#define FWversion "17.1"
+#define FWversion "17.3"
 #define WIFI_NAME "IncuNest"
 #define CURRENT_FIRMWARE_TITLE "IncuNest"
 // Set to true only on the HMI board
@@ -394,6 +394,7 @@
 #define DEFAULT_PWM_RESOLUTION 8
 #define DEFAULT_PWM_FREQUENCY 400
 #define BUZZER_PWM_FREQUENCY DEFAULT_PWM_FREQUENCY
+#define PHOTOTHERAPY_PWM_FREQUENCY 10000
 #define HEATER_PWM_FREQUENCY DEFAULT_PWM_FREQUENCY
 #define FAN_PWM_FREQUENCY DEFAULT_PWM_FREQUENCY
 #define HUMIDIFIER_PWM_FREQUENCY 109000

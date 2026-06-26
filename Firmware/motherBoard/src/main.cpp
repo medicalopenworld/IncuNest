@@ -438,9 +438,11 @@ void Communication_Receiver(void *pvParameters) {
         { Preferences p; p.begin(NS_CFG, false); p.putUChar(KEY_CTRL_MODE, in3.controlMode); p.end(); }
       }
 
+      const bool tempBlocked = ongoingCriticalWiringAlarm();
+
       switch (in3.actuation) {
       case ACTUATION_TEMPERATURE:
-        in3.temperatureControl = true;
+        in3.temperatureControl = !tempBlocked;
         in3.humidityControl = false;
         break;
       case ACTUATION_HUMIDITY:
@@ -448,7 +450,7 @@ void Communication_Receiver(void *pvParameters) {
         in3.humidityControl = true;
         break;
       case ACTUATION_TEMP_AND_HUMIDITY:
-        in3.temperatureControl = true;
+        in3.temperatureControl = !tempBlocked;
         in3.humidityControl = true;
         break;
       default:

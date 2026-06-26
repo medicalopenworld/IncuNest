@@ -323,7 +323,7 @@ void GPRSPowerUp() {
     logModemData("[GPRS] -> CCID is: " + GPRS.CCID);
     logModemData("[GPRS] -> IMEI is: " + GPRS.IMEI);
     if (GPRS.firstPowerUp) {
-      buzzerTone(3, buzzerStandbyToneDuration, buzzerStandbyTone);
+      // buzzerTone(3, buzzerStandbyToneDuration, buzzerStandbyTone);
       GPRS.firstPowerUp = false;
     }
     GPRS.powerUp = false;
@@ -524,7 +524,7 @@ void switchAlarmTelemetryGPRS(int alarm, bool value) {
 }
 
 void addAlarmTelemetriesToGPRSJSON() {
-  int alarmReported = false;
+  int alarmReported = 0;
   for (int i = NO_ALARMS + 1; i < NUM_ALARMS; i++) {
     if (in3.alarmToReport[i]) {
       switchAlarmTelemetryGPRS(i, true);

@@ -30,7 +30,8 @@ static const char *TAG __attribute__((unused)) = "SECURITY";
 extern SemaphoreHandle_t log_mutex;
 
 // Pending alarm queue for HMI connection
-struct PendingAlarm {
+struct PendingAlarm
+{
   char message[128];
   bool valid;
 };
@@ -154,15 +155,18 @@ extern PID skinControlPID;
 extern PID humidityControlPID;
 
 #define TEMPERATURE_ERROR 1 // 1 degrees difference to trigger alarm
-#define HUMIDITY_ERROR 12 // 12 %RH to trigger alarm
+#define HUMIDITY_ERROR 10   // 10 %RH to trigger alarm
 
-#define TEMPERATURE_ERROR_HYSTERESIS                                           \
-  0.05 // 0.05 degrees difference to disable alarm
+#define TEMPERATURE_ERROR_HYSTERESIS \
+  0.05                              // 0.05 degrees difference to disable alarm
 #define HUMIDITY_ERROR_HYSTERESIS 5 // 5 %RH to disable alarm
 
-#define FAN_TEST_CURRENTDIF_MIN                                                \
+// Set to 1 for testing, then change to 30 for production
+#define ACTUATORS_ALARM_STABILIZATION_MINS 30
+
+#define FAN_TEST_CURRENTDIF_MIN \
   0.2 // when the fan is spinning, heater cools down and consume less current
-#define FAN_TEST_PREHEAT_TIME                                                  \
+#define FAN_TEST_PREHEAT_TIME \
   30000 // when the fan is spinning, heater cools down and consume less current
 
 #define ALARM_TIME_DELAY 30 // in mins, time to check alarm
@@ -184,7 +188,8 @@ long lastPowerSupplyCheck;
 
 extern IncuNest_parameters in3;
 
-void initAlarms() {
+void initAlarms()
+{
   lastAlarmTrigger[AIR_THERMAL_CUTOUT_ALARM] =
       -1 * minsToMillis(ALARM_TIME_DELAY);
   lastAlarmTrigger[SKIN_THERMAL_CUTOUT_ALARM] =
@@ -192,33 +197,58 @@ void initAlarms() {
 }
 
 bool evaluateAlarm(byte alarmID, float setPoint, float measuredValue,
-                   float errorMargin, float hysteresisValue, long alarmTime) {
+                   float errorMargin, float hysteresisValue, long alarmTime,
+                   bool bidirectional = false)
+{
   bool alarmSound = DEFAULT_SOUND_ALARM;
-  if (millis() - alarmTime < minsToMillis(ALARM_TIME_DELAY)) {
+  if (millis() - alarmTime < minsToMillis(ALARM_TIME_DELAY))
+  {
     alarmSound = SILENCED_ALARM;
   }
-  // Alarm triggering condition
-  if (errorMargin) {
-    if (!alarmOnGoing[alarmID] &&
-        (measuredValue > (setPoint + errorMargin + hysteresisValue))) {
+  if (bidirectional)
+  {
+    float deviation = fabsf(measuredValue - setPoint);
+    if (!alarmOnGoing[alarmID] && deviation > errorMargin)
+    {
       in3.alarmToReport[alarmID] = true;
       setAlarm(alarmID, alarmSound);
       return true;
     }
-    // Alarm reset condition
     else if (alarmOnGoing[alarmID] &&
-             (measuredValue < (setPoint + errorMargin - hysteresisValue))) {
+             deviation < errorMargin - hysteresisValue)
+    {
       in3.alarmToReport[alarmID] = false;
       resetAlarm(alarmID);
     }
-  } else {
+  }
+  else if (errorMargin)
+  {
     if (!alarmOnGoing[alarmID] &&
-        (measuredValue > (setPoint + hysteresisValue))) {
+        (measuredValue > (setPoint + errorMargin + hysteresisValue)))
+    {
       in3.alarmToReport[alarmID] = true;
       setAlarm(alarmID, alarmSound);
       return true;
-    } else if (alarmOnGoing[alarmID] &&
-               (measuredValue < (setPoint - hysteresisValue))) {
+    }
+    else if (alarmOnGoing[alarmID] &&
+             (measuredValue < (setPoint + errorMargin - hysteresisValue)))
+    {
+      in3.alarmToReport[alarmID] = false;
+      resetAlarm(alarmID);
+    }
+  }
+  else
+  {
+    if (!alarmOnGoing[alarmID] &&
+        (measuredValue > (setPoint + hysteresisValue)))
+    {
+      in3.alarmToReport[alarmID] = true;
+      setAlarm(alarmID, alarmSound);
+      return true;
+    }
+    else if (alarmOnGoing[alarmID] &&
+             (measuredValue < (setPoint - hysteresisValue)))
+    {
       in3.alarmToReport[alarmID] = false;
       resetAlarm(alarmID);
     }
@@ -226,7 +256,8 @@ bool evaluateAlarm(byte alarmID, float setPoint, float measuredValue,
   return false;
 }
 
-void checkThermalCutOuts() {
+void checkThermalCutOuts()
+{
   evaluateAlarm(AIR_THERMAL_CUTOUT_ALARM, in3.airTemperatureSetMax,
                 in3.temperature[ROOM_DIGITAL_TEMP_SENSOR], false,
                 AIR_THERMAL_CUTOUT_HYSTERESIS,
@@ -237,9 +268,11 @@ void checkThermalCutOuts() {
                 lastAlarmTrigger[SKIN_THERMAL_CUTOUT_ALARM]);
 }
 
-void checkStatusOfSensor(byte sensor) {
+void checkStatusOfSensor(byte sensor)
+{
   byte alarmID = false;
-  switch (sensor) {
+  switch (sensor)
+  {
   case ROOM_DIGITAL_TEMP_SENSOR:
     alarmID = AIR_SENSOR_ISSUE_ALARM;
     break;
@@ -247,19 +280,25 @@ void checkStatusOfSensor(byte sensor) {
     alarmID = SKIN_SENSOR_ISSUE_ALARM;
     break;
   }
-  if (alarmID) {
+  if (alarmID)
+  {
     // if (xQueueReceive(sharedSensorQueue, &lastSuccesfullSensorUpdate[sensor],
     // portMAX_DELAY))
     // {
     if (millis() - lastSuccesfullSensorUpdate[sensor] >
-        MINIMUM_SUCCESSFULL_SENSOR_UPDATE) {
+        MINIMUM_SUCCESSFULL_SENSOR_UPDATE)
+    {
       in3.alarmToReport[alarmID] = true;
-      if (!alarmOnGoing[alarmID]) {
+      if (!alarmOnGoing[alarmID])
+      {
         setAlarm(alarmID);
       }
-    } else {
+    }
+    else
+    {
       in3.alarmToReport[alarmID] = false;
-      if (alarmOnGoing[alarmID]) {
+      if (alarmOnGoing[alarmID])
+      {
         resetAlarm(alarmID);
       }
     }
@@ -267,22 +306,29 @@ void checkStatusOfSensor(byte sensor) {
   }
 }
 
-void sensorHealthMonitor() {
+void sensorHealthMonitor()
+{
   checkStatusOfSensor(ROOM_DIGITAL_TEMP_SENSOR);
-  if (in3.temperatureControl && in3.controlMode == CONTROL_SKIN) {
+  if (in3.temperatureControl && in3.controlMode == CONTROL_SKIN)
+  {
     checkStatusOfSensor(SKIN_SENSOR);
-  } else if (alarmOnGoing[SKIN_SENSOR_ISSUE_ALARM]) {
+  }
+  else if (alarmOnGoing[SKIN_SENSOR_ISSUE_ALARM])
+  {
     resetAlarm(SKIN_SENSOR_ISSUE_ALARM);
   }
 }
 
-void powerMonitor() {
+void powerMonitor()
+{
   currentMonitor();
   voltageMonitor();
 }
 
-void alarmTimerStart() {
-  for (int i = 0; i < NUM_ALARMS; i++) {
+void alarmTimerStart()
+{
+  for (int i = 0; i < NUM_ALARMS; i++)
+  {
     lastAlarmTrigger[i] = millis();
   }
   lastAlarmTrigger[AIR_THERMAL_CUTOUT_ALARM] =
@@ -291,20 +337,24 @@ void alarmTimerStart() {
       -1 * minsToMillis(ALARM_TIME_DELAY);
   lastAlarmTrigger[TEMPERATURE_ALARM] =
       -1 * minsToMillis(ALARM_TIME_DELAY);
-  lastAlarmTrigger[HUMIDITY_ALARM] =
-      -1 * minsToMillis(ALARM_TIME_DELAY);
+  // HUMIDITY_ALARM keeps its millis() value from the loop above so the
+  // stabilization period (ACTUATORS_ALARM_STABILIZATION_MINS) is enforced.
 }
 
-byte activeAlarm() {
-  for (int i = 0; i < NUM_ALARMS; i++) {
-    if (alarmOnGoing[i]) {
+byte activeAlarm()
+{
+  for (int i = 0; i < NUM_ALARMS; i++)
+  {
+    if (alarmOnGoing[i])
+    {
       return (i);
     }
   }
   return false;
 }
 
-bool ongoingAlarms() {
+bool ongoingAlarms()
+{
   return (alarmOnGoing[TEMPERATURE_ALARM] || alarmOnGoing[HUMIDITY_ALARM] ||
           alarmOnGoing[AIR_THERMAL_CUTOUT_ALARM] ||
           alarmOnGoing[SKIN_THERMAL_CUTOUT_ALARM] ||
@@ -314,73 +364,97 @@ bool ongoingAlarms() {
           alarmOnGoing[POWER_SUPPLY_ALARM]);
 }
 
-int getActiveAlarmCount() {
+int getActiveAlarmCount()
+{
   int count = 0;
-  for (int i = 0; i < NUM_ALARMS; i++) {
-    if (alarmOnGoing[i]) {
+  for (int i = 0; i < NUM_ALARMS; i++)
+  {
+    if (alarmOnGoing[i])
+    {
       count++;
     }
   }
   return count;
 }
 
-bool ongoingCriticalAlarm() {
+bool ongoingCriticalAlarm()
+{
   return (alarmOnGoing[AIR_THERMAL_CUTOUT_ALARM] ||
           alarmOnGoing[SKIN_THERMAL_CUTOUT_ALARM] ||
           alarmOnGoing[AIR_SENSOR_ISSUE_ALARM] ||
           (alarmOnGoing[SKIN_SENSOR_ISSUE_ALARM] &&
            in3.controlMode == CONTROL_SKIN) ||
           alarmOnGoing[HEATER_ISSUE_ALARM] ||
+          alarmOnGoing[FAN_ISSUE_ALARM] ||
           alarmOnGoing[POWER_SUPPLY_ALARM]);
 }
 
-bool ongoingCriticalWiringAlarm() {
-  return (alarmOnGoing[HEATER_ISSUE_ALARM] || alarmOnGoing[POWER_SUPPLY_ALARM]);
-  // return (true);
+bool ongoingCriticalWiringAlarm()
+{
+  return (alarmOnGoing[HEATER_ISSUE_ALARM] || alarmOnGoing[FAN_ISSUE_ALARM] ||
+          alarmOnGoing[POWER_SUPPLY_ALARM]);
 }
 
-char *alarmIDtoString(byte alarmID) {
+char *alarmIDtoString(byte alarmID)
+{
   byte lang = in3.language; // or hmi_cmd_msg.language
-  switch (alarmID) {
+  switch (alarmID)
+  {
   case AIR_THERMAL_CUTOUT_ALARM:
   case SKIN_THERMAL_CUTOUT_ALARM:
-    if (lang == SPANISH) return (char *)("CORTE TERMICO");
-    if (lang == FRENCH) return (char *)("COUPURE THERMIQUE");
+    if (lang == SPANISH)
+      return (char *)("CORTE TERMICO");
+    if (lang == FRENCH)
+      return (char *)("COUPURE THERMIQUE");
     return (char *)("THERMAL CUTOUT");
     break;
   case TEMPERATURE_ALARM:
-    if (lang == SPANISH) return (char *)("ERROR TEMPERATURA");
-    if (lang == FRENCH) return (char *)("ERREUR TEMPERATURE");
+    if (lang == SPANISH)
+      return (char *)("ERROR TEMPERATURA");
+    if (lang == FRENCH)
+      return (char *)("ERREUR TEMPERATURE");
     return (char *)("TEMPERATURE ALARM");
     break;
   case HUMIDITY_ALARM:
-    if (lang == SPANISH) return (char *)("ERROR HUMEDAD");
-    if (lang == FRENCH) return (char *)("ERREUR HUMIDITE");
+    if (lang == SPANISH)
+      return (char *)("ERROR HUMEDAD");
+    if (lang == FRENCH)
+      return (char *)("ERREUR HUMIDITE");
     return (char *)("HUMIDITY ALARM");
     break;
   case AIR_SENSOR_ISSUE_ALARM:
-    if (lang == SPANISH) return (char *)("ALERTA SENSOR AIRE");
-    if (lang == FRENCH) return (char *)("ALERTE CAPTEUR AIR");
+    if (lang == SPANISH)
+      return (char *)("ALERTA SENSOR AIRE");
+    if (lang == FRENCH)
+      return (char *)("ALERTE CAPTEUR AIR");
     return (char *)("AIR SENSOR ALARM");
     break;
   case SKIN_SENSOR_ISSUE_ALARM:
-    if (lang == SPANISH) return (char *)("ALERTA SENSOR PIEL");
-    if (lang == FRENCH) return (char *)("ALERTE CAPTEUR PEAU");
+    if (lang == SPANISH)
+      return (char *)("ALERTA SENSOR PIEL");
+    if (lang == FRENCH)
+      return (char *)("ALERTE CAPTEUR PEAU");
     return (char *)("SKIN SENSOR ALARM");
     break;
   case FAN_ISSUE_ALARM:
-    if (lang == SPANISH) return (char *)("ERROR VENTILADOR");
-    if (lang == FRENCH) return (char *)("ERREUR VENTILATEUR");
+    if (lang == SPANISH)
+      return (char *)("ERROR VENTILADOR");
+    if (lang == FRENCH)
+      return (char *)("ERREUR VENTILATEUR");
     return (char *)("FAN ALARM");
     break;
   case HEATER_ISSUE_ALARM:
-    if (lang == SPANISH) return (char *)("ERROR CALENTADOR");
-    if (lang == FRENCH) return (char *)("ERREUR CHAUFFAGE");
+    if (lang == SPANISH)
+      return (char *)("ERROR CALENTADOR");
+    if (lang == FRENCH)
+      return (char *)("ERREUR CHAUFFAGE");
     return (char *)("HEATER ALARM");
     break;
   case POWER_SUPPLY_ALARM:
-    if (lang == SPANISH) return (char *)("ERROR ALIMENTACION");
-    if (lang == FRENCH) return (char *)("ERREUR ALIMENTATION");
+    if (lang == SPANISH)
+      return (char *)("ERROR ALIMENTACION");
+    if (lang == FRENCH)
+      return (char *)("ERREUR ALIMENTATION");
     return (char *)("POWER SUPPLY ALARM");
     break;
   default:
@@ -389,8 +463,10 @@ char *alarmIDtoString(byte alarmID) {
   }
 }
 
-int alarmPendingToDisplay() {
-  for (int i = 0; i < NUM_ALARMS; i++) {
+int alarmPendingToDisplay()
+{
+  for (int i = 0; i < NUM_ALARMS; i++)
+  {
     if (displayAlarm[i])
       return i;
   }
@@ -401,22 +477,28 @@ void clearDisplayedAlarm(byte alarm) { displayAlarm[alarm] = false; }
 
 void clearAlarmPendingToClear(byte alarm) { clearedAlarm[alarm] = false; }
 
-int alarmPendingToClear() {
-  for (int i = 0; i < NUM_ALARMS; i++) {
+int alarmPendingToClear()
+{
+  for (int i = 0; i < NUM_ALARMS; i++)
+  {
     if (clearedAlarm[i])
       return i;
   }
   return false;
 }
 
-void sendPendingAlarms() {
-  for (int i = 0; i < pending_alarm_count && i < 10; i++) {
-    if (pending_alarms[i].valid) {
+void sendPendingAlarms()
+{
+  for (int i = 0; i < pending_alarm_count && i < 10; i++)
+  {
+    if (pending_alarms[i].valid)
+    {
 #if CONFIG_IDF_TARGET_ESP32S3
       CommunicationHost_Send(pending_alarms[i].message);
 #endif
       if (log_mutex == NULL ||
-          xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+          xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE)
+      {
         ESP_LOGI(TAG, "Sent pending alarm: %s", pending_alarms[i].message);
         if (log_mutex)
           xSemaphoreGiveRecursive(log_mutex);
@@ -427,10 +509,13 @@ void sendPendingAlarms() {
   pending_alarm_count = 0;
 }
 
-void setHMIConnected(bool connected) {
-  if (connected && !hmi_connected) {
+void setHMIConnected(bool connected)
+{
+  if (connected && !hmi_connected)
+  {
     if (log_mutex == NULL ||
-        xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE)
+    {
       ESP_LOGI(TAG, "HMI newly connected, flushing %d pending alarms",
                pending_alarm_count);
       if (log_mutex)
@@ -438,79 +523,194 @@ void setHMIConnected(bool connected) {
     }
     hmi_connected = true;
     sendPendingAlarms();
-  } else {
+  }
+  else
+  {
     hmi_connected = connected;
   }
 }
 
-void sendAlarmUSB(byte alarmID, bool isActive) {
+void sendAlarmUSB(byte alarmID, bool isActive)
+{
   char msg[128];
   const char *title = "ALARM";
   const char *desc = "alarm";
 
   byte lang = in3.language;
 
-  switch (alarmID) {
+  switch (alarmID)
+  {
   case HUMIDITY_ALARM:
-    if (lang == SPANISH) { title = "ERROR HUMEDAD"; desc = "ERROR DE HUMEDAD"; }
-    else if (lang == FRENCH) { title = "ERREUR HUMIDITE"; desc = "ERREUR D HUMIDITE"; }
-    else { title = "HUMIDITY ERROR"; desc = "HUMIDITY ERROR"; }
+    if (lang == SPANISH)
+    {
+      title = "ERROR HUMEDAD";
+      desc = "ERROR DE HUMEDAD";
+    }
+    else if (lang == FRENCH)
+    {
+      title = "ERREUR HUMIDITE";
+      desc = "ERREUR D HUMIDITE";
+    }
+    else
+    {
+      title = "HUMIDITY ERROR";
+      desc = "HUMIDITY ERROR";
+    }
     break;
   case TEMPERATURE_ALARM:
-    if (lang == SPANISH) { title = "TEMP MUY ALTA"; desc = "TEMPERATURA MUY ALTA"; }
-    else if (lang == FRENCH) { title = "TEMP TRES ELEVEE"; desc = "TEMPERATURE TRES ELEVEE"; }
-    else { title = "TEMP VERY HIGH"; desc = "TEMPERATURE VERY HIGH"; }
+    if (lang == SPANISH)
+    {
+      title = "ALARMA DE TEMPERATURA";
+      desc = "ALARMA DE TEMPERATURA";
+    }
+    else if (lang == FRENCH)
+    {
+      title = "ALARME DE TEMPERATURE";
+      desc = "ALARME DE TEMPERATURE";
+    }
+    else
+    {
+      title = "TEMPERATURE ALARM";
+      desc = "TEMPERATURE ALARM";
+    }
     break;
   case AIR_THERMAL_CUTOUT_ALARM:
-    if (lang == SPANISH) { title = "CORTE TERMICO AIRE"; desc = "FALLO TERMICO AIRE"; }
-    else if (lang == FRENCH) { title = "COUPURE THERMIQUE AIR"; desc = "PANNE THERMIQUE AIR"; }
-    else { title = "AIR THERMAL CUTOUT"; desc = "AIR THERMAL FAILURE"; }
+    if (lang == SPANISH)
+    {
+      title = "CORTE TERMICO AIRE";
+      desc = "TEMPERATURA AIRE ELEVADA";
+    }
+    else if (lang == FRENCH)
+    {
+      title = "COUPURE THERMIQUE AIR";
+      desc = "TEMPERATURE AIR ELEVEE";
+    }
+    else
+    {
+      title = "AIR THERMAL CUTOUT";
+      desc = "AIR TEMP TOO HIGH";
+    }
     break;
   case SKIN_THERMAL_CUTOUT_ALARM:
-    if (lang == SPANISH) { title = "CORTE TERMICO PIEL"; desc = "FALLO TERMICO PIEL"; }
-    else if (lang == FRENCH) { title = "COUPURE THERMIQUE PEAU"; desc = "PANNE THERMIQUE PEAU"; }
-    else { title = "SKIN THERMAL CUTOUT"; desc = "SKIN THERMAL FAILURE"; }
+    if (lang == SPANISH)
+    {
+      title = "CORTE TERMICO PIEL";
+      desc = "TEMPERATURA PIEL ELEVADA";
+    }
+    else if (lang == FRENCH)
+    {
+      title = "COUPURE THERMIQUE PEAU";
+      desc = "TEMPERATURE PEAU ELEVEE";
+    }
+    else
+    {
+      title = "SKIN THERMAL CUTOUT";
+      desc = "SKIN TEMP TOO HIGH";
+    }
     break;
   case AIR_SENSOR_ISSUE_ALARM:
-    if (lang == SPANISH) { title = "ERROR SENSOR AIRE"; desc = "FALLO SENSOR AIRE"; }
-    else if (lang == FRENCH) { title = "ERREUR CAPTEUR AIR"; desc = "PANNE CAPTEUR AIR"; }
-    else { title = "AIR SENSOR ERROR"; desc = "AIR SENSOR FAILURE"; }
+    if (lang == SPANISH)
+    {
+      title = "ERROR SENSOR AIRE";
+      desc = "FALLO SENSOR AIRE";
+    }
+    else if (lang == FRENCH)
+    {
+      title = "ERREUR CAPTEUR AIR";
+      desc = "PANNE CAPTEUR AIR";
+    }
+    else
+    {
+      title = "AIR SENSOR ERROR";
+      desc = "AIR SENSOR FAILURE";
+    }
     break;
   case SKIN_SENSOR_ISSUE_ALARM:
-    if (lang == SPANISH) { title = "ERROR SENSOR PIEL"; desc = "FALLO SENSOR PIEL"; }
-    else if (lang == FRENCH) { title = "ERREUR CAPTEUR PEAU"; desc = "PANNE CAPTEUR PEAU"; }
-    else { title = "SKIN SENSOR ERROR"; desc = "SKIN SENSOR FAILURE"; }
+    if (lang == SPANISH)
+    {
+      title = "ERROR SENSOR PIEL";
+      desc = "FALLO SENSOR PIEL";
+    }
+    else if (lang == FRENCH)
+    {
+      title = "ERREUR CAPTEUR PEAU";
+      desc = "PANNE CAPTEUR PEAU";
+    }
+    else
+    {
+      title = "SKIN SENSOR ERROR";
+      desc = "SKIN SENSOR FAILURE";
+    }
     break;
   case FAN_ISSUE_ALARM:
-    if (lang == SPANISH) { title = "ERROR VENTILADOR"; desc = "FALLO VENTILADOR"; }
-    else if (lang == FRENCH) { title = "ERREUR VENTILATEUR"; desc = "PANNE VENTILATEUR"; }
-    else { title = "FAN ERROR"; desc = "FAN FAILURE"; }
+    if (lang == SPANISH)
+    {
+      title = "ERROR VENTILADOR";
+      desc = "FALLO VENTILADOR";
+    }
+    else if (lang == FRENCH)
+    {
+      title = "ERREUR VENTILATEUR";
+      desc = "PANNE VENTILATEUR";
+    }
+    else
+    {
+      title = "FAN ERROR";
+      desc = "FAN FAILURE";
+    }
     break;
   case HEATER_ISSUE_ALARM:
-    if (lang == SPANISH) { title = "ERROR CALENTADOR"; desc = "FALLO CALENTADOR"; }
-    else if (lang == FRENCH) { title = "ERREUR CHAUFFAGE"; desc = "PANNE CHAUFFAGE"; }
-    else { title = "HEATER ERROR"; desc = "HEATER FAILURE"; }
+    if (lang == SPANISH)
+    {
+      title = "ERROR CALENTADOR";
+      desc = "FALLO CALENTADOR";
+    }
+    else if (lang == FRENCH)
+    {
+      title = "ERREUR CHAUFFAGE";
+      desc = "PANNE CHAUFFAGE";
+    }
+    else
+    {
+      title = "HEATER ERROR";
+      desc = "HEATER FAILURE";
+    }
     break;
   case POWER_SUPPLY_ALARM:
-    if (lang == SPANISH) { title = "ERROR ALIMENTACION"; desc = "FALLO FUENTE"; }
-    else if (lang == FRENCH) { title = "ERREUR ALIMENTATION"; desc = "PANNE ALIMENTATION"; }
-    else { title = "POWER SUPPLY ERROR"; desc = "POWER SUPPLY FAILURE"; }
+    if (lang == SPANISH)
+    {
+      title = "ERROR ALIMENTACION";
+      desc = "FALLO FUENTE";
+    }
+    else if (lang == FRENCH)
+    {
+      title = "ERREUR ALIMENTATION";
+      desc = "PANNE ALIMENTATION";
+    }
+    else
+    {
+      title = "POWER SUPPLY ERROR";
+      desc = "POWER SUPPLY FAILURE";
+    }
     break;
   }
 
   snprintf(msg, sizeof(msg), "CTRL,ALM,%d,%s,%s,%d\n", alarmID, title,
            desc, isActive ? 1 : 0);
   if (log_mutex == NULL ||
-      xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE)
+  {
     ESP_LOGI(TAG, "%s", msg);
     if (log_mutex)
       xSemaphoreGiveRecursive(log_mutex);
   }
 
 #if CONFIG_IDF_TARGET_ESP32S3
-  if (!hmi_connected) {
+  if (!hmi_connected)
+  {
     // Queue the alarm if HMI not connected
-    if (pending_alarm_count < 10) {
+    if (pending_alarm_count < 10)
+    {
       strncpy(pending_alarms[pending_alarm_count].message, msg,
               sizeof(pending_alarms[pending_alarm_count].message) - 1);
       pending_alarms[pending_alarm_count].message[127] = '\0';
@@ -518,22 +718,28 @@ void sendAlarmUSB(byte alarmID, bool isActive) {
       pending_alarm_count++;
       ESP_LOGI(TAG, "Queued alarm: %s", msg);
     }
-  } else {
+  }
+  else
+  {
     // Send immediately if HMI is connected
     CommunicationHost_Send(msg);
   }
 #endif
 }
 
-void resendActiveAlarms() {
-  for (int i = 0; i < NUM_ALARMS; i++) {
-    if (alarmOnGoing[i]) {
+void resendActiveAlarms()
+{
+  for (int i = 0; i < NUM_ALARMS; i++)
+  {
+    if (alarmOnGoing[i])
+    {
       sendAlarmUSB(i, true);
     }
   }
 }
 
-void setAlarm(byte alarmID) {
+void setAlarm(byte alarmID)
+{
   logAlarm("[ALARM] ->" + String(alarmIDtoString(alarmID)) +
            " has been triggered");
   alarmOnGoing[alarmID] = true;
@@ -542,54 +748,75 @@ void setAlarm(byte alarmID) {
   sendAlarmUSB(alarmID, true);
 }
 
-void setAlarm(byte alarmID, bool alarmSound) {
+void setAlarm(byte alarmID, bool alarmSound)
+{
   logAlarm("[ALARM] ->" + String(alarmIDtoString(alarmID)) +
            " has been triggered");
   alarmOnGoing[alarmID] = true;
   displayAlarm[alarmID] = true;
-  if (alarmSound) {
+  if (alarmSound)
+  {
     buzzerTone(buzzerAlarmBeepCount, buzzerAlarmBeepTime, buzzerAlarmTone);
   }
   sendAlarmUSB(alarmID, true);
 }
 
-void resetAlarm(byte alarmID) {
+void resetAlarm(byte alarmID)
+{
   logAlarm("[ALARM] ->" + String(alarmIDtoString(alarmID)) +
            " has been disable");
   alarmOnGoing[alarmID] = false;
   clearedAlarm[alarmID] = true;
-  if (!ongoingAlarms()) {
+  if (!ongoingAlarms())
+  {
     shutBuzzer();
   }
   sendAlarmUSB(alarmID, false);
 }
 
-void reestartOngoingAlarms() {
-  for (int i = 0; i < NUM_ALARMS; i++) {
-    if (alarmOnGoing[i]) {
+void reestartOngoingAlarms()
+{
+  for (int i = 0; i < NUM_ALARMS; i++)
+  {
+    if (alarmOnGoing[i])
+    {
       lastAlarmTrigger[i] = millis();
     }
   }
 }
 
-void checkAlarms() {
-  if (page == ACTUATORS_PROGRESS_PAGE) {
-    if (in3.temperatureControl) {
-      if (in3.controlMode) {
+void checkAlarms()
+{
+  // Only evaluate after stabilization period has elapsed
+  if (millis() - lastAlarmTrigger[TEMPERATURE_ALARM] >=
+      minsToMillis(ACTUATORS_ALARM_STABILIZATION_MINS))
+  {
+    if (in3.temperatureControl)
+    {
+      if (in3.controlMode)
+      {
         alarmSensedValue = in3.temperature[ROOM_DIGITAL_TEMP_SENSOR];
-      } else {
+      }
+      else
+      {
         alarmSensedValue = in3.temperature[SKIN_SENSOR];
       }
       evaluateAlarm(TEMPERATURE_ALARM, in3.desiredControlTemperature,
                     alarmSensedValue, TEMPERATURE_ERROR,
                     TEMPERATURE_ERROR_HYSTERESIS,
-                    lastAlarmTrigger[TEMPERATURE_ALARM]);
+                    lastAlarmTrigger[TEMPERATURE_ALARM], true);
     }
-    if (in3.humidityControl) {
-      evaluateAlarm(HUMIDITY_ALARM, in3.humidity[ROOM_DIGITAL_HUM_SENSOR],
-                    in3.desiredControlHumidity, HUMIDITY_ERROR,
+  }
+  if (in3.humidityControl)
+  {
+    // Only evaluate after stabilization period has elapsed
+    if (millis() - lastAlarmTrigger[HUMIDITY_ALARM] >=
+        minsToMillis(ACTUATORS_ALARM_STABILIZATION_MINS))
+    {
+      evaluateAlarm(HUMIDITY_ALARM, in3.desiredControlHumidity,
+                    in3.humidity[ROOM_DIGITAL_HUM_SENSOR], HUMIDITY_ERROR,
                     HUMIDITY_ERROR_HYSTERESIS,
-                    lastAlarmTrigger[HUMIDITY_ALARM]);
+                    lastAlarmTrigger[HUMIDITY_ALARM], true);
     }
   }
   // if (!ongoingAlarms())
@@ -598,18 +825,23 @@ void checkAlarms() {
   // }
 }
 
-void powerSupplyCheck() {
+void powerSupplyCheck()
+{
 #if (HW_NUM >= 13)
   {
-    if (millis() - lastPowerSupplyCheck > POWER_SUPPLY_CHECK_PERIOD) {
+    if (millis() - lastPowerSupplyCheck > POWER_SUPPLY_CHECK_PERIOD)
+    {
       lastPowerSupplyCheck = millis();
       if (digitalCurrentSensorPresent[MAIN] &&
           in3.system_voltage > MIN_SYSTEM_VOLTAGE_TRIGGER &&
-          in3.system_voltage < MAX_SYSTEM_VOLTAGE_TRIGGER) {
+          in3.system_voltage < MAX_SYSTEM_VOLTAGE_TRIGGER)
+      {
         in3.alarmToReport[POWER_SUPPLY_ALARM] = true;
         if (!alarmOnGoing[POWER_SUPPLY_ALARM])
           setAlarm(POWER_SUPPLY_ALARM);
-      } else {
+      }
+      else
+      {
         in3.alarmToReport[POWER_SUPPLY_ALARM] = false;
         if (alarmOnGoing[POWER_SUPPLY_ALARM])
           resetAlarm(POWER_SUPPLY_ALARM);
@@ -620,9 +852,12 @@ void powerSupplyCheck() {
 }
 
 #if (HW_NUM >= 16)
-static void checkUsbFault() {
-  if (!GPIORead(USB_FAULT)) { // active LOW: LOW = fault
-    if (humidifierState) {
+static void checkUsbFault()
+{
+  if (!GPIORead(USB_FAULT))
+  { // active LOW: LOW = fault
+    if (humidifierState)
+    {
       logE("[PWR] USB_FAULT: humidifier short-circuit/overload, turning OFF");
       in3_hum.turn(OFF);
       humidifierState = false;
@@ -633,8 +868,10 @@ static void checkUsbFault() {
 }
 #endif
 
-void securityCheck() {
-  if (in3.actuation) {
+void securityCheck()
+{
+  if (in3.actuation)
+  {
     checkThermalCutOuts();
   }
   checkAlarms();

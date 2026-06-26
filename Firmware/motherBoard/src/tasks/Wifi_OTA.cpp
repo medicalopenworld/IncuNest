@@ -54,6 +54,8 @@ bool WIFI_connection_status = false;
 
 extern IncuNest_parameters in3;
 extern bool WIFI_EN;
+extern char pendingSSID[64];
+extern char pendingPass[64];
 
 WIFIstruct Wifi_TB;
 Credentials wifi_credentials;
@@ -95,6 +97,8 @@ void applyWifiCredentials(const char* ssid, const char* pass) {
     prefs.putString("password", prevPass);
     prefs.end();
     WiFi.begin(prevSSID, prevPass);
+    pendingSSID[0] = '\0';
+    pendingPass[0] = '\0';
   }
 }
 
@@ -667,7 +671,7 @@ void switchAlarmTelemetryWIFI(int alarm, bool value) {
 }
 
 void addAlarmTelemetriesToWIFIJSON() {
-  int alarmReported = false;
+  int alarmReported = 0;
   for (int i = NO_ALARMS + 1; i < NUM_ALARMS; i++) {
     if (in3.alarmToReport[i]) {
       switchAlarmTelemetryWIFI(i, true);
@@ -871,12 +875,13 @@ void WEB_OTA() {
       pendingSSID[0] = '\0';
       pendingPass[0] = '\0';
     }
-    if (!WIFI_connection_status) {
+    static bool s_server_initialized = false;
+    if (!s_server_initialized) {
       configWifiServer();
-      WIFI_connection_status = true;
-    } else {
-      wifiServer.handleClient();
+      s_server_initialized = true;
     }
+    wifiServer.handleClient();
+    WIFI_connection_status = true;
   } else {
     WIFI_connection_status = false;
   }

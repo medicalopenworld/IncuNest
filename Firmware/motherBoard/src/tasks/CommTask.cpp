@@ -748,7 +748,7 @@ void Communication_Task(void *pvParameters) {
       if (WIFIIsConnected()) {
         status = WIFIIsConnectedToServer() ? COMM_STATUS_WIFI_SERVER
                                            : COMM_STATUS_WIFI_ONLY;
-      } else if (GPRS.connectionStatus) {
+      } else if (GPRSIsAttached()) {
         status = GPRSIsConnectedToServer() ? COMM_STATUS_GPRS_SERVER
                                            : COMM_STATUS_GPRS_ONLY;
       }
@@ -958,7 +958,7 @@ void Communication_Task(void *pvParameters) {
         if (WIFIIsConnected()) {
           status = WIFIIsConnectedToServer() ? COMM_STATUS_WIFI_SERVER
                                              : COMM_STATUS_WIFI_ONLY;
-        } else if (GPRS.connectionStatus) {
+        } else if (GPRSIsAttached()) {
           status = GPRSIsConnectedToServer() ? COMM_STATUS_GPRS_SERVER
                                              : COMM_STATUS_GPRS_ONLY;
         }

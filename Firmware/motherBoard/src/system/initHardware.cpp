@@ -254,7 +254,7 @@ void initPWMGPIO() {
   ledcSetup(BUZZER_PWM_CHANNEL, BUZZER_PWM_FREQUENCY, DEFAULT_PWM_RESOLUTION);
   ledcSetup(SCREENBACKLIGHT_PWM_CHANNEL, BUZZER_PWM_FREQUENCY,
             DEFAULT_PWM_RESOLUTION);
-  ledcSetup(PHOTOTHERAPY_PWM_CHANNEL, BUZZER_PWM_FREQUENCY,
+  ledcSetup(PHOTOTHERAPY_PWM_CHANNEL, PHOTOTHERAPY_PWM_FREQUENCY,
             DEFAULT_PWM_RESOLUTION);
   ledcAttachPin(SCREENBACKLIGHT, SCREENBACKLIGHT_PWM_CHANNEL);
   ledcAttachPin(BUZZER, BUZZER_PWM_CHANNEL);
@@ -816,6 +816,13 @@ bool actuatorsTest() {
     logE("[HW] -> Fail -> Heater current too low");
     in3.alarmToReport[HEATER_ISSUE_ALARM] = true;
     setAlarm(HEATER_ISSUE_ALARM);
+    // Fan measured in parallel — report it too if also bad
+    if (res.fan < FAN_CONSUMPTION_MIN) {
+      addErrorToVar(HW_error, FAN_CONSUMPTION_MIN_ERROR);
+      logE("[HW] -> Fail -> Fan current also too low (wiring error)");
+      in3.alarmToReport[FAN_ISSUE_ALARM] = true;
+      setAlarm(FAN_ISSUE_ALARM);
+    }
     digitalWrite(ACTUATORS_EN, LOW);
     return true;
   }
@@ -856,6 +863,8 @@ bool actuatorsTest() {
   if (res.fan < FAN_CONSUMPTION_MIN) {
     addErrorToVar(HW_error, FAN_CONSUMPTION_MIN_ERROR);
     logE("[HW] -> Fail -> Fan current too low");
+    in3.alarmToReport[FAN_ISSUE_ALARM] = true;
+    setAlarm(FAN_ISSUE_ALARM);
     digitalWrite(ACTUATORS_EN, LOW);
     return true;
   }
@@ -863,6 +872,8 @@ bool actuatorsTest() {
       res.fan > FAN_MAX_CURRENT_OVERRIDE * FAN_CONSUMPTION_MAX * 2) {
     addErrorToVar(HW_error, FAN_CONSUMPTION_MAX_ERROR);
     logE("[HW] -> Fail -> Fan current too high");
+    in3.alarmToReport[FAN_ISSUE_ALARM] = true;
+    setAlarm(FAN_ISSUE_ALARM);
     digitalWrite(ACTUATORS_EN, LOW);
     return true;
   }
@@ -999,6 +1010,8 @@ bool actuatorsTest() {
   if (testCurrent < FAN_CONSUMPTION_MIN) {
     addErrorToVar(HW_error, FAN_CONSUMPTION_MIN_ERROR);
     logE("[HW] -> Fail -> Fan current consumption is too low");
+    in3.alarmToReport[FAN_ISSUE_ALARM] = true;
+    setAlarm(FAN_ISSUE_ALARM);
     digitalWrite(ACTUATORS_EN, LOW);
     return (true);
   }
@@ -1006,6 +1019,8 @@ bool actuatorsTest() {
       testCurrent > FAN_MAX_CURRENT_OVERRIDE * FAN_CONSUMPTION_MAX * 2) {
     addErrorToVar(HW_error, FAN_CONSUMPTION_MAX_ERROR);
     logE("[HW] -> Fail -> Fan current consumption is too high");
+    in3.alarmToReport[FAN_ISSUE_ALARM] = true;
+    setAlarm(FAN_ISSUE_ALARM);
     digitalWrite(ACTUATORS_EN, LOW);
     return (true);
   }
