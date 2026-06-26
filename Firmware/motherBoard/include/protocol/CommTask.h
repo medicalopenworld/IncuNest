@@ -15,6 +15,8 @@
 #define SKIN_PROBE_NOT_CONNECTED  0
 #define SKIN_PROBE_VALID          2
 
+#define DUTY_MSG_BUF_SIZE 24
+
 // Backward-compatibility aliases so callers compile unchanged.
 // TelemetryMessage and HMI_CommandMessage are the MB-local wrappers
 // that add internal flags on top of the shared protocol types.

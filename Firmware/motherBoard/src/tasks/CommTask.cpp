@@ -1,5 +1,6 @@
 #include "CommTask.h"
 #include "main.h"
+#include "tasks/PID.h"
 #include "DriveUpload.h"
 #include <LittleFS.h>
 #include <Preferences.h>
@@ -25,6 +26,9 @@ extern SemaphoreHandle_t log_mutex;
 extern char pendingSSID[64];
 extern char pendingPass[64];
 extern IncuNest_parameters in3;
+extern double HeaterPIDOutput;
+extern double humidityControlPIDOutput;
+extern int    humidifierTimeCycle;
 
 // ======================================================
 //  GLOBAL DATA
@@ -762,6 +766,24 @@ void Communication_Task(void *pvParameters) {
                ctrl_tel_msg.serverCommStatus);
       hmiSerial.print(msg);
 
+      {
+        int temp_duty = (in3.heaterSafeMAXPWM > 0)
+            ? (int)(HeaterPIDOutput / in3.heaterSafeMAXPWM * DUTY_TEMP_PCT_MAX)
+            : 0;
+        if (temp_duty < 0)                 temp_duty = 0;
+        if (temp_duty > DUTY_TEMP_PCT_MAX) temp_duty = DUTY_TEMP_PCT_MAX;
+
+        int hum_duty = (humidifierTimeCycle > 0)
+            ? (int)(humidityControlPIDOutput / humidifierTimeCycle * DUTY_TEMP_PCT_MAX)
+            : 0;
+        if (hum_duty < HUMIDIFIER_DUTY_CYCLE_MIN) hum_duty = HUMIDIFIER_DUTY_CYCLE_MIN;
+        if (hum_duty > HUMIDIFIER_DUTY_CYCLE_MAX) hum_duty = HUMIDIFIER_DUTY_CYCLE_MAX;
+
+        char duty_msg[DUTY_MSG_BUF_SIZE];
+        snprintf(duty_msg, sizeof(duty_msg), "CTRL,DUTY,%d,%d\n", temp_duty, hum_duty);
+        hmiSerial.print(duty_msg);
+      }
+
       if (g_spo2_data.probe_state != ProbeState::PROBE_APPLIED) {
         // Probe not on patient — send status every 2 s, suppress vitals
         if (millis() - last_probe_status_time >= 2000) {
@@ -971,6 +993,24 @@ void Communication_Task(void *pvParameters) {
                  (int)ctrl_tel_msg.detectedHumidity,
                  ctrl_tel_msg.serverCommStatus);
         CommunicationHost_Send(msg);
+
+        {
+          int temp_duty = (in3.heaterSafeMAXPWM > 0)
+              ? (int)(HeaterPIDOutput / in3.heaterSafeMAXPWM * DUTY_TEMP_PCT_MAX)
+              : 0;
+          if (temp_duty < 0)                 temp_duty = 0;
+          if (temp_duty > DUTY_TEMP_PCT_MAX) temp_duty = DUTY_TEMP_PCT_MAX;
+
+          int hum_duty = (humidifierTimeCycle > 0)
+              ? (int)(humidityControlPIDOutput / humidifierTimeCycle * DUTY_TEMP_PCT_MAX)
+              : 0;
+          if (hum_duty < HUMIDIFIER_DUTY_CYCLE_MIN) hum_duty = HUMIDIFIER_DUTY_CYCLE_MIN;
+          if (hum_duty > HUMIDIFIER_DUTY_CYCLE_MAX) hum_duty = HUMIDIFIER_DUTY_CYCLE_MAX;
+
+          char duty_msg[DUTY_MSG_BUF_SIZE];
+          snprintf(duty_msg, sizeof(duty_msg), "CTRL,DUTY,%d,%d\n", temp_duty, hum_duty);
+          CommunicationHost_Send(duty_msg);
+        }
 
         if (g_spo2_data.probe_state != ProbeState::PROBE_APPLIED) {
           // Probe not on patient — send status every 2 s, suppress vitals
