@@ -1,0 +1,33 @@
+# .clang-format — SensorBoard (ESP-IDF v6, C, FreeRTOS).
+# Estilo embebido inspirado en el usado en Firmware/docs/superpowers/plans/
+# 2026-06-08-sensorboard-phase1.md: 4 espacios, sin tabs, ~100 columnas,
+# llave de función en línea propia pero llave de control (if/for/while/switch)
+# pegada a la misma línea (equivalente a BreakBeforeBraces: Linux).
+BasedOnStyle: LLVM
+
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 100
+
+BreakBeforeBraces: Linux
+IndentCaseLabels: false
+
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: false
+AllowShortEnumsOnASingleLine: false
+
+PointerAlignment: Right
+ReferenceAlignment: Right
+SpaceBeforeParens: ControlStatements
+SpacesInParentheses: false
+AlignAfterOpenBracket: Align
+
+BinPackArguments: true
+BinPackParameters: true
+SortIncludes: false
+
+DerivePointerAlignment: false
+ReflowComments: false

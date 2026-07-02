@@ -1,0 +1,7 @@
+logs/
+*.log
+.unattended-state
+.loop-mode
+.merge-approved
+settings.local.json
+scheduled_tasks.lock
