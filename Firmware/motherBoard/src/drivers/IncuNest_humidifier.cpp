@@ -73,7 +73,7 @@ uint16_t MAM_IncuNest_Humidifier::getParam(IncuNestHum_param_t param) {
 void MAM_IncuNest_Humidifier::reset() {}
 
 void MAM_IncuNest_Humidifier::turn(uint16_t mode) {
-  int16_t val = false;
+  int16_t val = 0;
   switch (activationMode) {
   case HUMIDIFIER_BINARY:
     digitalWrite(controlPin, mode);
@@ -85,7 +85,7 @@ void MAM_IncuNest_Humidifier::turn(uint16_t mode) {
   case HUMIDIFIER_I2C:
   default:
     if (mode) {
-      val = true;
+      val = 1;
     }
     _write(IN3ATOR_HUM_ON, (uint16_t *)&val);
     logI("HUMIDIFIER I2C: " + String(mode));

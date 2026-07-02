@@ -82,9 +82,9 @@ extern bool WIFI_connection_status;
 extern bool digitalCurrentSensorPresent[2];
 
 // room variables;         // desired temperature in heater
-extern const float minDesiredTemp[2]; // minimum allowed temperature to be set
-extern const float maxDesiredTemp[2]; // maximum allowed temperature to be set
-extern const int presetTemp[2];       // preset baby skin temperature
+extern float minDesiredTemp[2]; // minimum allowed temperature to be set
+extern float maxDesiredTemp[2]; // maximum allowed temperature to be set
+extern int presetTemp[2];       // preset baby skin temperature
 
 extern boolean A_set;
 extern boolean B_set;
@@ -270,7 +270,7 @@ void checkThermalCutOuts()
 
 void checkStatusOfSensor(byte sensor)
 {
-  byte alarmID = false;
+  byte alarmID = 0;
   switch (sensor)
   {
   case ROOM_DIGITAL_TEMP_SENSOR:
@@ -350,7 +350,7 @@ byte activeAlarm()
       return (i);
     }
   }
-  return false;
+  return 0;
 }
 
 bool ongoingAlarms()
@@ -470,7 +470,7 @@ int alarmPendingToDisplay()
     if (displayAlarm[i])
       return i;
   }
-  return false;
+  return 0;
 }
 
 void clearDisplayedAlarm(byte alarm) { displayAlarm[alarm] = false; }
@@ -484,7 +484,7 @@ int alarmPendingToClear()
     if (clearedAlarm[i])
       return i;
   }
-  return false;
+  return 0;
 }
 
 void sendPendingAlarms()

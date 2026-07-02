@@ -184,7 +184,7 @@ void autoCalibration()
   in3.alarmsEnabled = false;
   byte numWords = 1;
   long lastTemperatureMeasurement = millis();
-  int historyLengthPosition = false;
+  int historyLengthPosition = 0;
   double referenceSensorHistory[SAMPLES_WITHIN_ERROR];
   double sensorToCalibrateHistory[SAMPLES_WITHIN_ERROR];
   referenceSensorHistory[0] = in3.temperature[ROOM_DIGITAL_TEMP_SENSOR];
@@ -193,7 +193,7 @@ void autoCalibration()
   print_text = true;
   tft.setTextSize(1);
   setTextColor(COLOUR_MENU_TEXT);
-  for (int i = false; i < numWords; i++)
+  for (int i = 0; i < numWords; i++)
   {
     pos_text[i] = LEFT_MARGIN;
   }
@@ -258,8 +258,8 @@ void autoCalibration()
         in3.desiredControlTemperature = DEFAULT_CALIBRATION_TEMPERATURE;
         startPID(airPID);
         autoCalibrationProcess = secondAutoCalibrationPoint;
-        referenceSensorHistory[historyLengthPosition] = false;
-        sensorToCalibrateHistory[historyLengthPosition] = false;
+        referenceSensorHistory[historyLengthPosition] = 0.0;
+        sensorToCalibrateHistory[historyLengthPosition] = 0.0;
         logI(
             "=================================================point 1");
       }
@@ -286,7 +286,7 @@ void autoCalibration()
              String(ReferenceTemperatureRange) + "," +
              String(ReferenceTemperatureLow));
         saveCalibrationToEEPROM();
-        ledcWrite(HEATER_PWM_CHANNEL, false);
+        ledcWrite(HEATER_PWM_CHANNEL, 0);
         turnFans(OFF);
         exitCalibrationMenu = true;
         stopPID(airPID);
@@ -299,7 +299,7 @@ void autoCalibration()
       lastTemperatureMeasurement = millis();
       if (historyLengthPosition == SAMPLES_WITHIN_ERROR)
       {
-        historyLengthPosition = false;
+        historyLengthPosition = 0;
       }
       referenceSensorHistory[historyLengthPosition] =
           in3.temperature[ROOM_DIGITAL_TEMP_SENSOR];
@@ -320,13 +320,13 @@ void autoCalibration()
 void fineTuneCalibration()
 {
   byte numWords = 2;
-  in3.fineTuneSkinTemperature = false;
-  in3.fineTuneAirTemperature = false;
+  in3.fineTuneSkinTemperature = 0.0f;
+  in3.fineTuneAirTemperature = 0.0f;
   page = FINE_TUNE_CALIBRATION_PAGE;
   print_text = true;
   tft.setTextSize(1);
   setTextColor(COLOUR_MENU_TEXT);
-  for (int i = false; i < numWords; i++)
+  for (int i = 0; i < numWords; i++)
   {
     pos_text[i] = LEFT_MARGIN;
   }
@@ -354,7 +354,7 @@ void firstPointCalibration()
   print_text = true;
   tft.setTextSize(1);
   setTextColor(COLOUR_MENU_TEXT);
-  for (int i = false; i < numWords; i++)
+  for (int i = 0; i < numWords; i++)
   {
     pos_text[i] = LEFT_MARGIN;
   }
@@ -402,7 +402,7 @@ void secondPointCalibration()
   print_text = true;
   tft.setTextSize(1);
   setTextColor(COLOUR_MENU_TEXT);
-  for (int i = false; i < numWords; i++)
+  for (int i = 0; i < numWords; i++)
   {
     pos_text[i] = LEFT_MARGIN;
   }
@@ -459,10 +459,10 @@ bool checkStableCurrentConsumption(double *referenceSensorHistory,
 
 void clearCalibrationValues()
 {
-  RawTemperatureLow[SKIN_SENSOR] = false;
-  RawTemperatureRange[SKIN_SENSOR] = false;
-  RawTemperatureLow[ROOM_DIGITAL_TEMP_SENSOR] = false;
-  RawTemperatureRange[ROOM_DIGITAL_TEMP_SENSOR] = false;
-  ReferenceTemperatureRange = false;
-  ReferenceTemperatureLow = false;
+  RawTemperatureLow[SKIN_SENSOR] = 0.0;
+  RawTemperatureRange[SKIN_SENSOR] = 0.0;
+  RawTemperatureLow[ROOM_DIGITAL_TEMP_SENSOR] = 0.0;
+  RawTemperatureRange[ROOM_DIGITAL_TEMP_SENSOR] = 0.0;
+  ReferenceTemperatureRange = 0.0;
+  ReferenceTemperatureLow = 0.0;
 }

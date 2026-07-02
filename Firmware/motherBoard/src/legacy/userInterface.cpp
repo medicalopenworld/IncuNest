@@ -65,9 +65,9 @@ extern volatile bool statusEncSwitch;
 extern bool WIFI_connection_status;
 
 // room variables
-extern const float minDesiredTemp[2]; // minimum allowed temperature to be set
-extern const float maxDesiredTemp[2]; // maximum allowed temperature to be set
-extern const int presetTemp[2];       // preset baby skin temperature
+extern float minDesiredTemp[2]; // minimum allowed temperature to be set
+extern float maxDesiredTemp[2]; // maximum allowed temperature to be set
+extern int presetTemp[2];       // preset baby skin temperature
 
 extern boolean A_set;
 extern boolean B_set;
@@ -655,7 +655,7 @@ void checkSetMessage(int UI_page, int UI_menu_rows) {
 bool back_mode() {
   vTaskDelay(pdMS_TO_TICKS(SWITCH_DEBOUNCE_TIME_MS));
   last_encPulsed = millis();
-  byte back_bar = false;
+  byte back_bar = 0;
   while (!GPIORead(ENC_SWITCH)) {
     if (millis() - last_encPulsed > time_back_wait) {
       back_bar++;

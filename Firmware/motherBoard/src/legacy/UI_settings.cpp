@@ -66,9 +66,9 @@ extern volatile bool statusEncSwitch;
 extern bool WIFI_connection_status;
 
 // room variables
-extern const float minDesiredTemp[2]; // minimum allowed temperature to be set
-extern const float maxDesiredTemp[2]; // maximum allowed temperature to be set
-extern const int presetTemp[2];       // preset baby skin temperature
+extern float minDesiredTemp[2]; // minimum allowed temperature to be set
+extern float maxDesiredTemp[2]; // maximum allowed temperature to be set
+extern int presetTemp[2];       // preset baby skin temperature
 
 extern boolean A_set;
 extern boolean B_set;
@@ -143,7 +143,7 @@ void UI_settings() {
   print_text = true;
   tft.setTextSize(1);
   setTextColor(COLOUR_MENU_TEXT);
-  for (int i = false; i < numWords; i++) {
+  for (int i = 0; i < numWords; i++) {
     pos_text[i] = LEFT_MARGIN;
   }
   pos_text[DEFAULT_VALUES_UI_ROW] = CENTER;

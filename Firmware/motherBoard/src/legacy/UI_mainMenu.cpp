@@ -142,7 +142,7 @@ void UI_mainMenu() {
   print_text = true;
   tft.setTextSize(1);
   tft.setTextColor(COLOUR_MENU_TEXT);
-  for (int i = false; i < numWords; i++) {
+  for (int i = 0; i < numWords; i++) {
     pos_text[i] = LEFT_MARGIN;
   }
   pos_text[START_UI_ROW] = CENTER;

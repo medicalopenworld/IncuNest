@@ -378,7 +378,7 @@ void fanSpeedHandler() {
       in3.fan_rpm = FAN_RPM_CONVERSION / fanEncoderPeriodFiltered;
     }
   } else if (millis() - lastEncoderUpdate > FAN_UPDATE_TIME_MIN) {
-    in3.fan_rpm = false;
+    in3.fan_rpm = 0;
   }
 }
 

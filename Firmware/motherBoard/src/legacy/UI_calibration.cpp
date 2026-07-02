@@ -139,7 +139,7 @@ void UI_calibration() {
   print_text = true;
   tft.setTextSize(1);
   setTextColor(COLOUR_MENU_TEXT);
-  for (int i = false; i < numWords; i++) {
+  for (int i = 0; i < numWords; i++) {
     pos_text[i] = CENTER;
   }
   switch (in3.language) {

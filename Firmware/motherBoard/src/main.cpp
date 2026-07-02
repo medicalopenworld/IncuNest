@@ -267,12 +267,6 @@ void Backlight_Task(void *pvParameters) {
 
 BQ25730_Status g_bq_status      = {};
 bool           g_bq_status_valid = false;
-#ifdef BQ25730_TEST
-// Forward decls (defined later in the file)
-static void dump_BQ25730_regs();
-static void print_charger_status();
-#endif
-
 void sensors_Task(void *pvParameters) {
   for (;;) {
     fanSpeedHandler();
@@ -339,20 +333,6 @@ void sensors_Task(void *pvParameters) {
         }
       }
     }
-#ifdef BQ25730_TEST
-    {
-      static long lastChargerPrint = 0;
-      static long lastChargerDump  = 0;
-      if (chargerPresent && millis() - lastChargerPrint > 3000) {
-        print_charger_status();
-        lastChargerPrint = millis();
-      }
-      if (chargerPresent && millis() - lastChargerDump > 10000) {
-        dump_BQ25730_regs();
-        lastChargerDump = millis();
-      }
-    }
-#endif
     ctrl_tel_msg.detectedAirTemperature =
         in3.temperature[ROOM_DIGITAL_TEMP_SENSOR];
     ctrl_tel_msg.detectedSkinTemperature = in3.temperature[SKIN_SENSOR];
@@ -584,98 +564,6 @@ extern "C" int sync_vprintf(const char *fmt, va_list args) {
   return vprintf(fmt, args);
 }
 
-// ─── BQ25730 test (activo con -DBQ25730_TEST en build_flags)
-// ──────────────────
-#ifdef BQ25730_TEST
-static void dump_BQ25730_regs() {
-  extern TwoWire *wire;
-  auto read8 = [](TwoWire *w, uint8_t reg) -> uint8_t {
-    w->beginTransmission(BQ25730_ADDR);
-    w->write(reg);
-    if (w->endTransmission(false) != 0)
-      return 0xFF;
-    if (w->requestFrom((uint8_t)BQ25730_ADDR, (uint8_t)1) != 1)
-      return 0xFF;
-    return w->read();
-  };
-  auto read16 = [](TwoWire *w, uint8_t reg) -> uint16_t {
-    w->beginTransmission(BQ25730_ADDR);
-    w->write(reg);
-    if (w->endTransmission(false) != 0)
-      return 0xFFFF;
-    if (w->requestFrom((uint8_t)BQ25730_ADDR, (uint8_t)2) != 2)
-      return 0xFFFF;
-    uint8_t lo = w->read();
-    uint8_t hi = w->read();
-    return (uint16_t)lo | ((uint16_t)hi << 8);
-  };
-  if (!LOG_CHARGER) return;
-  logCharger("=== BQ25730 register dump (PDF V2) ===");
-  logCharger("REG 0x3E MfgID(8b)  : 0x" + String(read8(wire, 0x3E), HEX));
-  logCharger("REG 0x3F DevID(8b)  : 0x" + String(read8(wire, 0x3F), HEX));
-  logCharger("--- Config basica ---");
-  logCharger("REG 0x00 ChargeOpt0 : 0x" + String(read16(wire, 0x00), HEX));
-  logCharger("REG 0x02 ChargeCurr : 0x" + String(read16(wire, 0x02), HEX));
-  logCharger("REG 0x04 MaxChrVolt : 0x" + String(read16(wire, 0x04), HEX));
-  logCharger("--- Config electrica (PDF V2) ---");
-  logCharger("REG 0x0A VINDPM     : 0x" + String(read16(wire, 0x0A), HEX));
-  logCharger("REG 0x0C VSYS_MIN   : 0x" + String(read16(wire, 0x0C), HEX));
-  logCharger("REG 0x0E IIN_HOST   : 0x" + String(read16(wire, 0x0E), HEX));
-  logCharger("--- Estado y ADC ---");
-  logCharger("REG 0x20 ChrStatus  : 0x" + String(read16(wire, 0x20), HEX));
-  logCharger("REG 0x26 ADC_VBUS   : 0x" + String(read16(wire, 0x26), HEX));
-  logCharger("REG 0x28 ADC_IBAT   : 0x" + String(read16(wire, 0x28), HEX));
-  logCharger("REG 0x2C ADC_VSYS_VBAT:0x" + String(read16(wire, 0x2C), HEX));
-  logCharger("--- ChargeOptions (PDF V2) ---");
-  logCharger("REG 0x30 ChargeOpt1 : 0x" + String(read16(wire, 0x30), HEX));
-  logCharger("REG 0x32 ChargeOpt2 : 0x" + String(read16(wire, 0x32), HEX));
-  logCharger("REG 0x34 ChargeOpt3 : 0x" + String(read16(wire, 0x34), HEX));
-  logCharger("REG 0x3A ADCOption  : 0x" + String(read16(wire, 0x3A), HEX));
-  logCharger("======================================");
-}
-
-static void print_charger_status() {
-  if (!LOG_CHARGER) return;
-  if (!chargerPresent) {
-    logCharger("[CHG] Cargador no detectado");
-    return;
-  }
-  if (!g_bq_status_valid) {
-    logCharger("[CHG] Esperando primera lectura...");
-    return;
-  }
-  const BQ25730_Status &s = g_bq_status;
-  const char *state_str;
-  switch (s.state) {
-  case BQ25730_STATE_NO_POWER:
-    state_str = "SIN ADAPTADOR";
-    break;
-  case BQ25730_STATE_ABSORPTION:
-    state_str = "ABSORCION";
-    break;
-  case BQ25730_STATE_FLOAT:
-    state_str = "FLOTACION";
-    break;
-  case BQ25730_STATE_FAULT:
-    state_str = "FAULT";
-    break;
-  default:
-    state_str = "?";
-    break;
-  }
-  logCharger("──── BQ25730 ─────────────────────────────");
-  logCharger("  Estado   : " + String(state_str));
-  logCharger("  AC       : " + String(s.ac_present ? "SI" : "NO"));
-  logCharger("  VBUS     : " + String(s.vbus_mv) + " mV");
-  logCharger("  VBAT     : " + String(s.vbat_mv) + " mV");
-  logCharger("  VSYS     : " + String(s.vsys_mv) + " mV");
-  logCharger("  ICHG     : " + String(s.ichg_ma) + " mA  (real, corregido)");
-  logCharger("  IBUS     : " + String(s.ibus_ma) + " mA  (real, corregido)");
-  logCharger("  Fault    : " + String(s.fault ? "SI 0x" + String(s.raw_status, HEX) : "NO"));
-  logCharger("──────────────────────────────────────────");
-}
-#endif
-
 void setup() {
   state_init();
 
@@ -745,9 +633,6 @@ void setup() {
                           CORE_ID_FREERTOS // o 0/1 según tu placa
   );
   logI("Communication task successfully created!\n");
-#endif
-#ifdef BQ25730_TEST
-  dump_BQ25730_regs();
 #endif
   if (WIFI_EN) {
     wifiInit();
@@ -829,12 +714,5 @@ void setup() {
 void loop() {
   watchdogReload();
   updateData();
-// #ifdef BQ25730_TEST
-//   static long lastPrint = 0;
-//   if (millis() - lastPrint > 2000) {
-//     print_charger_status();
-//     lastPrint = millis();
-//   }
-// #endif
   vTaskDelay(pdMS_TO_TICKS(LOOP_TASK_PERIOD_MS));
 }

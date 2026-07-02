@@ -34,7 +34,7 @@ double airControlPIDInput;
 double humidityControlPIDOutput;
 int humidifierTimeCycle = 5000;
 unsigned long windowStartTime;
-long lastHeaterPowerCheck = false;
+long lastHeaterPowerCheck = 0;
 
 extern IncuNest_parameters in3;
 extern MAM_IncuNest_Humidifier in3_hum;

@@ -253,6 +253,7 @@ bool init_BQ25730(TwoWire *i2c) {
     _initialized   = true;
     chargerPresent = true;
     bqI("[BQ25730] Init OK (PDF V2) – Vabs=14.4V Ichg=960mA IIN=6400mA VSYS=11V VINDPM=12V");
+
     return true;
 }
 

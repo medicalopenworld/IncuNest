@@ -347,7 +347,7 @@ void drawIntroMessage()
     words[2] = (char *)("Salvando vidas");
     break;
   }
-  for (int i = false; i < numWords; i++)
+  for (int i = 0; i < numWords; i++)
   {
     drawCentreString(words[i], tft_width / 2,
                      tft_height * (1 + i) / (2 + numWords), textFontSize);
@@ -898,7 +898,7 @@ void graphics(uint8_t UI_page, uint8_t UI_language, uint8_t UI_print_text,
   if (UI_print_text)
   {
     tft.setTextSize(1);
-    for (int i = false; i < UI_menu_rows; i++)
+    for (int i = 0; i < UI_menu_rows; i++)
     {
       ypos = graphicHeight(i);
       if (!pos_text[i])

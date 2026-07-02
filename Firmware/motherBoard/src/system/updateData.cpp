@@ -67,9 +67,9 @@ extern bool WIFI_connection_status;
 extern bool digitalCurrentSensorPresent[2];
 
 // room variables
-extern const float minDesiredTemp[2]; // minimum allowed temperature to be set
-extern const float maxDesiredTemp[2]; // maximum allowed temperature to be set
-extern const int presetTemp[2];       // preset baby skin temperature
+extern float minDesiredTemp[2]; // minimum allowed temperature to be set
+extern float maxDesiredTemp[2]; // maximum allowed temperature to be set
+extern int presetTemp[2];       // preset baby skin temperature
 
 extern boolean A_set;
 extern boolean B_set;
@@ -177,7 +177,7 @@ void updateDisplaySensors() {
         temperaturePercentage = 100;
       }
       if (temperaturePercentage < 0) {
-        temperaturePercentage = false;
+        temperaturePercentage = 0.0f;
       }
       updateLoadingTemperatureBar(int(previousTemperaturePercentage),
                                   int(temperaturePercentage));
@@ -194,7 +194,7 @@ void updateDisplaySensors() {
         humidityPercentage = 100;
       }
       if (humidityPercentage < 0) {
-        humidityPercentage = false;
+        humidityPercentage = 0.0f;
       }
       updateLoadingHumidityBar(int(previousHumidityPercentage),
                                int(humidityPercentage));

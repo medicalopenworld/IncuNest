@@ -211,7 +211,7 @@ extern int ScreenBacklightMode;
 #define BUZZER_CONSUMPTION_MIN 0
 #endif
 
-long HW_error = false;
+long HW_error = 0;
 long lastTFTCheck;
 int tft_width, tft_height;
 
@@ -219,7 +219,7 @@ extern IncuNest_parameters in3;
 TCA9535 TCA(0x20);
 
 bool initI2C() {
-  int clkSpeed = false;
+  int clkSpeed = 0;
   for (int i = 0; i < INIT_I2C_RETRIES; i++) {
     logI("[HW] -> Initializing I2C1 (SDA=" + String(I2C_SDA) +
          " SCL=" + String(I2C_SCL) + ")");
@@ -259,14 +259,14 @@ void initPWMGPIO() {
   ledcAttachPin(SCREENBACKLIGHT, SCREENBACKLIGHT_PWM_CHANNEL);
   ledcAttachPin(BUZZER, BUZZER_PWM_CHANNEL);
   ledcAttachPin(PHOTOTHERAPY, PHOTOTHERAPY_PWM_CHANNEL);
-  ledcWrite(SCREENBACKLIGHT_PWM_CHANNEL, false);
-  ledcWrite(HEATER_PWM_CHANNEL, false);
-  ledcWrite(BUZZER_PWM_CHANNEL, false);
-  ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, false);
+  ledcWrite(SCREENBACKLIGHT_PWM_CHANNEL, 0);
+  ledcWrite(HEATER_PWM_CHANNEL, 0);
+  ledcWrite(BUZZER_PWM_CHANNEL, 0);
+  ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, 0);
 #if (HW_NUM >= 6)
   ledcSetup(FAN_PWM_CHANNEL, FAN_PWM_FREQUENCY, DEFAULT_PWM_RESOLUTION);
   ledcAttachPin(FAN, FAN_PWM_CHANNEL);
-  ledcWrite(FAN_PWM_CHANNEL, false);
+  ledcWrite(FAN_PWM_CHANNEL, 0);
 #endif
 #if (HW_NUM >= 16)
   ledcSetup(FAN_CTL_PWM_CHANNEL, FAN_PWM_FREQUENCY, DEFAULT_PWM_RESOLUTION);
@@ -278,7 +278,7 @@ void initPWMGPIO() {
   ledcSetup(HUMIDIFIER_PWM_CHANNEL, HUMIDIFIER_PWM_FREQUENCY,
             DEFAULT_PWM_RESOLUTION);
   ledcAttachPin(HUMIDIFIER_CTL, HUMIDIFIER_PWM_CHANNEL);
-  ledcWrite(HUMIDIFIER_CTL, false);
+  ledcWrite(HUMIDIFIER_CTL, 0);
 #endif
   logI("[HW] -> PWM GPIOs initialized");
 }
@@ -606,7 +606,7 @@ void initTFT() {
 void testDisplay() {
 #if (HW_NUM < 15)
   long error = HW_error;
-  float testCurrent, offsetCurrent;
+  float testCurrent = 0.0f, offsetCurrent = 0.0f;
   int backlight_start_value, backlight_end_value;
   offsetCurrent = measureMeanConsumption(MAIN, SYSTEM_SHUNT_CHANNEL);
 #if (HW_NUM == 6)
@@ -660,19 +660,19 @@ void testDisplay() {
 
 void testBuzzer() {
   long error = HW_error;
-  float testCurrent, offsetCurrent;
+  float testCurrent = 0.0f;
     #if(HW_NUM <= 16)
-  offsetCurrent = measureMeanConsumption(MAIN, SYSTEM_SHUNT_CHANNEL);
+  float offsetCurrent = measureMeanConsumption(MAIN, SYSTEM_SHUNT_CHANNEL);
   ledcWrite(BUZZER_PWM_CHANNEL, BUZZER_HALF_PWM);
   testCurrent = measureStabilizedCurrent(
       MAIN, SYSTEM_SHUNT_CHANNEL, offsetCurrent, BUZZER_CONSUMPTION_MIN,
       BUZZER_CONSUMPTION_MAX, CURRENT_STABILIZE_MAX_TIME);
-  ledcWrite(BUZZER_PWM_CHANNEL, false);
+  ledcWrite(BUZZER_PWM_CHANNEL, 0);
   vTaskDelay(pdMS_TO_TICKS(CURRENT_STABILIZE_TIME_DEFAULT));
   #else
     ledcWrite(BUZZER_PWM_CHANNEL, BUZZER_HALF_PWM);
     vTaskDelay(pdMS_TO_TICKS(BUZZER_BEEP_DURATION_MS));
-    ledcWrite(BUZZER_PWM_CHANNEL, false);
+    ledcWrite(BUZZER_PWM_CHANNEL, 0);
   #endif
   if (testCurrent < BUZZER_CONSUMPTION_MIN) {
     addErrorToVar(HW_error, DEFECTIVE_BUZZER);
@@ -855,6 +855,7 @@ bool actuatorsTest() {
       PHOTOTHERAPY_PWM_ZERO);
   pwmTarget = constrain(pwmTarget, 0, PWM_MAX_VALUE);
   in3.phototherapy_intensity = pwmTarget;
+  in3.photoFirstRun = false;
   logI("[HW] -> Phototherapy extrapolated PWM=" + String(pwmTarget) +
        " (" + String(pwmTarget * 100 / PWM_MAX_VALUE) + "%) for " +
        String(PHOTOTHERAPY_CONSUMPTION_DEFAULT, 2) + " A");
@@ -891,7 +892,7 @@ bool actuatorsTest() {
   in3.humidifier_current_test = 1.0f;
   logI("[HW] -> Humidifier USB_EN test passed, no fault");
 #else
-  float testCurrent, offsetCurrent;
+  float testCurrent = 0.0f, offsetCurrent = 0.0f;
   offsetCurrent = measureMeanConsumption(MAIN, SYSTEM_SHUNT_CHANNEL);
   logI("[HW] -> Heater offset (MAIN): " + String(offsetCurrent) + " Amps");
   ledcWrite(HEATER_PWM_CHANNEL, PWM_MAX_VALUE);
@@ -961,6 +962,7 @@ bool actuatorsTest() {
       PHOTOTHERAPY_PWM_ZERO);
   pwmTarget = constrain(pwmTarget, 0, PWM_MAX_VALUE);
   in3.phototherapy_intensity = pwmTarget;
+  in3.photoFirstRun = false;
   logI("[HW] -> Phototherapy extrapolated PWM=" + String(pwmTarget) +
        " (" + String(pwmTarget * 100 / PWM_MAX_VALUE) + "%) for " +
        String(PHOTOTHERAPY_CONSUMPTION_DEFAULT, 2) + " A");
@@ -1002,7 +1004,7 @@ bool actuatorsTest() {
   in3.fan_current_test = testCurrent;
   // digitalWrite(FAN, LOW);
 #if (HW_NUM >= 8)
-  ledcWrite(FAN_PWM_CHANNEL, false);
+  ledcWrite(FAN_PWM_CHANNEL, 0);
 #else
   digitalWrite(FAN, LOW);
 #endif
