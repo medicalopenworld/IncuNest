@@ -8,9 +8,13 @@
 
 Implementación del firmware completo desde cero, en orden 1 → 2 → 4 → 3 → 5, con ramas encadenadas desde `claude_agents_tests` y merges a `dev` pendientes de aprobación humana al final. Hardware confirmado y documentado en `docs/hardware.md`.
 
-**Próximo paso:** Fase 2 — sensores ambientales en `feat/sb-phase2-env-sensors` (rama desde `feat/sb-phase1-usb-cdc`): SHT40 ×2 en bus I2C IO41/IO42 (0x44+0x46) + SHT40 en bus principal IO4/IO5 (0x44) + ALS-PT19 por ADC en IO1, `sensor_task` con polling, evento `sensor_data`, extensión de `status` con `sensors{}`.
+**Próximo paso:** Fase 4 — sensor de puerta en `feat/sb-phase4-door` (rama desde `feat/sb-phase2-env-sensors`): hall DRV5032 en IO47, ISR de flanco con hand-off por cola, debounce considerando los 5 Hz internos del sensor, eventos `door_open`/`door_closed`, `sensors.door` en status.
 
-**Fases cerradas:** Fase 1 (USB CDC) completada en `feat/sb-phase1-usb-cdc` — 8 commits, spec archivada como `2026-07-03-sb-phase1-usb-cdc`, retro en `docs/retro/2026-07-03-fase1-usb-cdc.md`. Verificación on-device (flash + Unity en placa) pendiente de sesión manual con hardware.
+**Fases cerradas:**
+- Fase 1 (USB CDC) — `feat/sb-phase1-usb-cdc`, spec `2026-07-03-sb-phase1-usb-cdc`, retro `docs/retro/2026-07-03-fase1-usb-cdc.md`.
+- Fase 2 (SHT40 ×3 + ALS) — `feat/sb-phase2-env-sensors`, spec `2026-07-03-sb-phase2-env-sensors`, retro `docs/retro/2026-07-03-fase2-env-sensors.md`.
+
+Verificación on-device (flash + Unity en placa) de ambas fases pendiente de sesión manual con hardware.
 
 ## Épicas cerradas
 
