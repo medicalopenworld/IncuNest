@@ -1,0 +1,17 @@
+menu "SensorBoard env_sensors"
+
+    config SB_ENV_POLL_PERIOD_S
+        int "Periodo de polling de sensores (segundos)"
+        default 5
+        range 1 3600
+
+    config SB_ALS_UV_PER_LUX
+        int "ALS: microvoltios por lux (placeholder SIN calibrar)"
+        default 1000
+        range 1 1000000
+        help
+            Factor de conversion mV->lux del ALS-PT19. Depende de la
+            resistencia de carga del esquema. PENDIENTE de calibracion
+            contra luxometro; el valor por defecto es un placeholder.
+
+endmenu

@@ -2,8 +2,8 @@
 
 ## 1. Red
 
-- [ ] 1.1 Registro `sensorBoard_status_set_sensor` (stub) + tests de builder `status` con `sensors{}` en `comm_test`
-- [ ] 1.2 Componente `env_sensors` con headers y stubs puros (`sht4x_crc8`, `sht4x_convert_temp/rh`, `sb_env_build_event`, `sb_als_mv_to_lux`) + test app `env_sensors_test` con los TEST_CASE de los Scenarios — fallan sobre stubs
+- [x] 1.1 Registro `sensorBoard_status_set_sensor` (stub) + tests de builder `status` con `sensors{}` en `comm_test`
+- [x] 1.2 Componente `env_sensors` con headers y stubs puros (`sht4x_crc8`, `sht4x_convert_temp/rh`, `sb_env_build_event`, `sb_als_mv_to_lux`) + test app `env_sensors_test` con los TEST_CASE de los Scenarios — fallan sobre stubs
 
 ## 2. Green
 

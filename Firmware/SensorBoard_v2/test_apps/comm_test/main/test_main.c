@@ -235,9 +235,11 @@ TEST_CASE("decoder: resync on 0xAB 0xAB 0xCD pattern", "[decoder]")
 /* ── Builders de respuesta (puros: verifican contenido exacto) ── */
 
 #include "sensorBoard_cmd_builder.h"
+#include "sensorBoard_status.h"
 
-TEST_CASE("build_status: exact JSON content", "[cmd]")
+TEST_CASE("build_status: exact JSON content (no sensors registered)", "[cmd]")
 {
+    sb_status_reset();
     char buf[SB_PROTO_MAX_JSON_PAYLOAD];
     size_t n = sb_cmd_build_status(buf, sizeof(buf), 7, 1234);
     TEST_ASSERT_EQUAL_STRING("{\"type\":\"resp\",\"cmd\":\"status\",\"id\":7,"
@@ -276,6 +278,55 @@ TEST_CASE("build_error: oversized cmd truncated, JSON stays closed", "[cmd]")
     size_t n = sb_cmd_build_error(buf, sizeof(buf), long_cmd, 1, "cmd not found", 1);
     TEST_ASSERT_GREATER_THAN(0, n);
     TEST_ASSERT_EQUAL('}', buf[n - 1]); /* JSON completo, no truncado a mitad */
+}
+
+/* ── Registro de sensores en status (Fase 2) ───────────────── */
+
+TEST_CASE("status: registered sensors appear in sensors{}", "[status]")
+{
+    sb_status_reset();
+    TEST_ASSERT_EQUAL(ESP_OK, sensorBoard_status_set_sensor("sht0", true));
+    TEST_ASSERT_EQUAL(ESP_OK, sensorBoard_status_set_sensor("als", false));
+
+    char buf[SB_PROTO_MAX_JSON_PAYLOAD];
+    size_t n = sb_cmd_build_status(buf, sizeof(buf), 1, 2);
+    TEST_ASSERT_GREATER_THAN(0, n);
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"sensors\":{\"sht0\":true,\"als\":false}"));
+    TEST_ASSERT_EQUAL('}', buf[n - 1]);
+}
+
+TEST_CASE("status: re-registering a name updates in place", "[status]")
+{
+    sb_status_reset();
+    sensorBoard_status_set_sensor("sht0", true);
+    sensorBoard_status_set_sensor("sht0", false);
+
+    char buf[SB_PROTO_MAX_JSON_PAYLOAD];
+    sb_cmd_build_status(buf, sizeof(buf), 1, 2);
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"sht0\":false"));
+    /* una sola aparición */
+    char *first = strstr(buf, "sht0");
+    TEST_ASSERT_NULL(strstr(first + 1, "sht0"));
+}
+
+TEST_CASE("status: table full rejects ninth sensor", "[status]")
+{
+    sb_status_reset();
+    const char *names[] = { "s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7" };
+    for (int i = 0; i < 8; i++) {
+        TEST_ASSERT_EQUAL(ESP_OK, sensorBoard_status_set_sensor(names[i], true));
+    }
+    TEST_ASSERT_EQUAL(ESP_ERR_NO_MEM, sensorBoard_status_set_sensor("s8", true));
+    sb_status_reset();
+}
+
+TEST_CASE("status: invalid names rejected", "[status]")
+{
+    sb_status_reset();
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, sensorBoard_status_set_sensor(NULL, true));
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, sensorBoard_status_set_sensor("", true));
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG,
+                      sensorBoard_status_set_sensor("nombre-demasiado-largo", true));
 }
 
 /* ── API pública (sin init: no requieren host USB) ─────────── */
