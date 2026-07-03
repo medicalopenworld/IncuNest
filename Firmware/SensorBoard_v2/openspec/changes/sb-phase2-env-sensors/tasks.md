@@ -16,8 +16,8 @@
 
 ## 3. Verify
 
-- [ ] 3.1 `idf.py build` app principal y ambos test apps sin errores
-- [ ] 3.2 Cada Scenario con TEST_CASE o cobertura manual documentada
+- [x] 3.1 `idf.py build` app principal y ambos test apps sin errores
+- [x] 3.2 Cada Scenario con TEST_CASE o cobertura manual documentada
 
 ## 4. Review
 
