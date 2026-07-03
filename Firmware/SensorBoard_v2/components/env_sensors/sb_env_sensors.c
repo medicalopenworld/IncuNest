@@ -136,6 +136,26 @@ static void sensor_task(void *arg)
     }
 }
 
+#if CONFIG_SB_ENV_I2C_SCAN
+/* Diagnóstico de arranque: qué direcciones responden realmente en el bus.
+ * Distingue "dirección equivocada" (responde otra) de "bus muerto" (nada). */
+static void i2c_scan_bus(i2c_master_bus_handle_t bus, i2c_port_num_t port)
+{
+    int found = 0;
+    for (uint16_t addr = 0x08; addr <= 0x77; addr++) {
+        if (i2c_master_probe(bus, addr, 20) == ESP_OK) {
+            ESP_LOGI(TAG, "I2C%d scan: 0x%02X responde", (int)port, addr);
+            found++;
+        }
+    }
+    if (found == 0) {
+        ESP_LOGW(TAG, "I2C%d scan: NINGUNA direccion responde (bus muerto: "
+                      "pull-ups/alimentacion/SDA-SCL intercambiados)",
+                 (int)port);
+    }
+}
+#endif
+
 /* Fallo de un bus/sensor/ADC = ese sensor queda no-disponible (sensors.x
  * false); solo el fallo de la tarea es fatal. Roadmap Fase 2: "reportar
  * false en lugar de bloquear la tarea o crashear". */
@@ -156,6 +176,9 @@ static i2c_master_bus_handle_t init_bus_devices(i2c_port_num_t port, int sda, in
         ESP_LOGW(TAG, "I2C bus %d init failed", (int)port);
         return NULL;
     }
+#if CONFIG_SB_ENV_I2C_SCAN
+    i2c_scan_bus(bus, port);
+#endif
     for (int i = 0; i < count; i++) {
         i2c_device_config_t dev_cfg = {
             .dev_addr_length = I2C_ADDR_BIT_LEN_7,
