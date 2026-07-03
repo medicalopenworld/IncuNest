@@ -1,0 +1,27 @@
+menu "SensorBoard mic_sensor"
+
+    config SB_MIC_SAMPLE_RATE_HZ
+        int "Frecuencia de muestreo PDM (Hz)"
+        default 16000
+        range 8000 48000
+
+    config SB_MIC_WINDOW_MS
+        int "Ventana de calculo RMS (ms)"
+        default 1000
+        range 100 5000
+
+    config SB_MIC_PUBLISH_PERIOD_S
+        int "Periodo de publicacion de sound_level (segundos)"
+        default 5
+        range 1 600
+
+    config SB_MIC_DB_OFFSET_TENTHS
+        int "Offset de calibracion dBFS->SPL (decimas de dB)"
+        default 1200
+        range 0 2000
+        help
+            Sensibilidad del ICS-41350: -26 dBFS @ 94 dB SPL => offset 120 dB
+            (1200 decimas). Ajustar contra sonometro; el valor publicado NO
+            lleva ponderacion A todavia (diferido, ver README).
+
+endmenu
