@@ -23,6 +23,18 @@ Magic(0xAB 0xCD) + Type(1B) + Length(4B LE) + Payload(N) + CRC16(2B BE)
 
 La API para las fases de sensores es `sensorBoard_comm_send_json()` (y `send_binary()` a partir de la Fase 5); ninguna fase reabre el framing.
 
+## Telemetría (Fase 2)
+
+Cada `CONFIG_SB_ENV_POLL_PERIOD_S` (5 s por defecto) se publica:
+
+```json
+{"type":"event","cmd":"sensor_data","data":{"temp":[36.5,37.0,36.8],"hum":[55.0,54.5,60.1],"lux":320.5},"ts":5200}
+```
+
+- Posición i = sensor físico (0 = bus temp 0x44, 1 = bus temp 0x46, 2 = bus principal 0x44). Un sensor caído aparece como `null` en su posición — la **fusión/votación es responsabilidad de la motherboard** (ADR-0002).
+- `lux` proviene del ALS-PT19 por ADC; la conversión usa `CONFIG_SB_ALS_UV_PER_LUX`, **sin calibrar** contra luxómetro todavía.
+- La resp de `status` incluye ahora `"sensors":{"sht0":…,"sht1":…,"sht2":…,"als":…}` con la disponibilidad real.
+
 ## Compilar y flashear
 
 ```bash
