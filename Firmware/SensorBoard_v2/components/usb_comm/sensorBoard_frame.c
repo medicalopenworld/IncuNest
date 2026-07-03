@@ -53,7 +53,14 @@ void sb_frame_dec_feed(sb_frame_dec_t *dec, uint8_t byte, sb_frame_cb_t cb, void
         break;
 
     case SB_DEC_MAGIC1:
-        dec->state = (byte == SB_PROTO_MAGIC_1) ? SB_DEC_TYPE : SB_DEC_MAGIC0;
+        if (byte == SB_PROTO_MAGIC_1) {
+            dec->state = SB_DEC_TYPE;
+        } else if (byte == SB_PROTO_MAGIC_0) {
+            /* 0xAB 0xAB 0xCD: este byte puede ser el inicio del frame real */
+            dec->state = SB_DEC_MAGIC1;
+        } else {
+            dec->state = SB_DEC_MAGIC0;
+        }
         break;
 
     case SB_DEC_TYPE:

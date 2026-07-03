@@ -194,6 +194,90 @@ TEST_CASE("decoder: oversize length discarded, then resyncs", "[decoder]")
     TEST_ASSERT_EQUAL(2, s_cb_len);
 }
 
+TEST_CASE("decoder: round-trip at exact SB_PROTO_MAX_JSON_PAYLOAD", "[decoder]")
+{
+    static uint8_t dec_buf[SB_PROTO_MAX_JSON_PAYLOAD];
+    static uint8_t payload[SB_PROTO_MAX_JSON_PAYLOAD];
+    for (size_t i = 0; i < sizeof(payload); i++) {
+        payload[i] = (uint8_t)(i & 0xFF);
+    }
+
+    sb_frame_dec_t dec;
+    sb_frame_dec_init(&dec, dec_buf, sizeof(dec_buf));
+    s_cb_calls = 0;
+
+    static uint8_t frame[SB_PROTO_MAX_JSON_FRAME];
+    size_t flen = sb_frame_encode(SB_PROTO_TYPE_JSON, payload, sizeof(payload), frame, sizeof(frame));
+    TEST_ASSERT_EQUAL(SB_PROTO_MAX_JSON_PAYLOAD + SB_PROTO_FRAME_OVERHEAD, flen);
+    for (size_t i = 0; i < flen; i++) {
+        sb_frame_dec_feed(&dec, frame[i], test_frame_cb, NULL);
+    }
+
+    TEST_ASSERT_EQUAL(1, s_cb_calls);
+}
+
+TEST_CASE("decoder: resync on 0xAB 0xAB 0xCD pattern", "[decoder]")
+{
+    uint8_t dec_buf[SB_PROTO_MAX_JSON_PAYLOAD];
+    sb_frame_dec_t dec;
+    sb_frame_dec_init(&dec, dec_buf, sizeof(dec_buf));
+    s_cb_calls = 0;
+
+    /* Un 0xAB extra antes de un frame válido: el segundo 0xAB debe
+     * reconocerse como posible inicio del frame real, sin perderlo */
+    sb_frame_dec_feed(&dec, 0xAB, test_frame_cb, NULL);
+    feed_frame(&dec, (const uint8_t *)"OK", 2, SB_PROTO_TYPE_JSON);
+
+    TEST_ASSERT_EQUAL(1, s_cb_calls);
+    TEST_ASSERT_EQUAL(2, s_cb_len);
+}
+
+/* ── Builders de respuesta (puros: verifican contenido exacto) ── */
+
+#include "sensorBoard_cmd_builder.h"
+
+TEST_CASE("build_status: exact JSON content", "[cmd]")
+{
+    char buf[SB_PROTO_MAX_JSON_PAYLOAD];
+    size_t n = sb_cmd_build_status(buf, sizeof(buf), 7, 1234);
+    TEST_ASSERT_EQUAL_STRING("{\"type\":\"resp\",\"cmd\":\"status\",\"id\":7,"
+                             "\"status\":\"ok\",\"device\":\"SensorBoard\","
+                             "\"fw\":\"1.0.0\",\"uptime\":1234}",
+                             buf);
+    TEST_ASSERT_EQUAL(strlen(buf), n);
+}
+
+TEST_CASE("build_error: exact JSON content for unknown cmd", "[cmd]")
+{
+    char buf[SB_PROTO_MAX_JSON_PAYLOAD];
+    size_t n = sb_cmd_build_error(buf, sizeof(buf), "foo", 2, "cmd not found", 55);
+    TEST_ASSERT_EQUAL_STRING("{\"type\":\"resp\",\"cmd\":\"foo\",\"id\":2,"
+                             "\"status\":\"error\",\"msg\":\"cmd not found\",\"ts\":55}",
+                             buf);
+    TEST_ASSERT_EQUAL(strlen(buf), n);
+}
+
+TEST_CASE("build_error: escapes quotes and backslashes in cmd echo", "[cmd]")
+{
+    char buf[SB_PROTO_MAX_JSON_PAYLOAD];
+    size_t n = sb_cmd_build_error(buf, sizeof(buf), "a\"b\\c", 9, "cmd not found", 1);
+    TEST_ASSERT_GREATER_THAN(0, n);
+    /* El eco debe llegar escapado: a\"b\\c */
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"cmd\":\"a\\\"b\\\\c\""));
+}
+
+TEST_CASE("build_error: oversized cmd truncated, JSON stays closed", "[cmd]")
+{
+    char long_cmd[300];
+    memset(long_cmd, 'A', sizeof(long_cmd) - 1);
+    long_cmd[sizeof(long_cmd) - 1] = '\0';
+
+    char buf[SB_PROTO_MAX_JSON_PAYLOAD];
+    size_t n = sb_cmd_build_error(buf, sizeof(buf), long_cmd, 1, "cmd not found", 1);
+    TEST_ASSERT_GREATER_THAN(0, n);
+    TEST_ASSERT_EQUAL('}', buf[n - 1]); /* JSON completo, no truncado a mitad */
+}
+
 /* ── API pública (sin init: no requieren host USB) ─────────── */
 
 #include "sensorBoard_comm.h"

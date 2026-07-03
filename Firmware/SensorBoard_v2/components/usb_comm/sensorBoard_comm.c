@@ -1,7 +1,7 @@
 #include "sensorBoard_comm.h"
 #include "sensorBoard_comm_protocol.h"
 #include "sensorBoard_frame.h"
-#include "esp_check.h"
+#include "sensorBoard_json.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -24,12 +24,49 @@ typedef struct {
 } sb_tx_item_t;
 
 #define SB_TX_QUEUE_DEPTH 8
+
+/* 4096 B para ambas tareas: usb_rx ejecuta decoder + cJSON (la más profunda);
+ * usb_tx solo copia a TinyUSB. Ajustar con uxTaskGetStackHighWaterMark si una
+ * fase futura engorda el dispatcher. */
 #define SB_COMM_TASK_STACK 4096
+
+/* Prioridad 5: por encima de las tareas de sensores de las fases 2-4 (que
+ * deben crearse con prioridad <5) para que la telemetría siempre se drene.
+ * Presupuesto de prioridades del firmware: 5 = transporte, <5 = productores. */
 #define SB_COMM_TASK_PRIO 5
 
 static QueueHandle_t s_tx_queue = NULL;
 static SemaphoreHandle_t s_rx_sem = NULL;
+
+/* Flag escrito por el callback de line-state (contexto de tarea TinyUSB) y
+ * leído por usb_tx_task. volatile bool basta para un flag de un solo bit en
+ * este idiom ESP-IDF (sin ordering C11 estricto — elección deliberada). */
 static volatile bool s_cdc_ready = false;
+
+/* ── envío interno (timeout parametrizado) ─────────────────── */
+static esp_err_t send_json_timeout(const char *json_str, TickType_t wait_ticks)
+{
+    if (json_str == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (s_tx_queue == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    size_t payload_len = strlen(json_str);
+    if (payload_len > SB_PROTO_MAX_JSON_PAYLOAD) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    sb_tx_item_t item;
+    item.len = sb_frame_encode(SB_PROTO_TYPE_JSON, (const uint8_t *)json_str, payload_len,
+                               item.frame, sizeof(item.frame));
+    if (item.len == 0) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    return (xQueueSend(s_tx_queue, &item, wait_ticks) == pdTRUE) ? ESP_OK : ESP_ERR_TIMEOUT;
+}
 
 /* ── CDC callbacks (contexto de la tarea TinyUSB, no ISR) ──── */
 static void cdc_rx_callback(int itf, cdcacm_event_t *event)
@@ -46,6 +83,8 @@ static void cdc_line_state_callback(int itf, cdcacm_event_t *event)
 }
 
 /* ── Log interceptor ───────────────────────────────────────── */
+/* Restricción de proyecto: NUNCA llamar ESP_LOG* desde ISR — este interceptor
+ * encola (no bloqueante) y eso es ilegal en contexto de interrupción. */
 static int sb_log_vprintf(const char *fmt, va_list args)
 {
     if (s_tx_queue == NULL) {
@@ -69,27 +108,23 @@ static int sb_log_vprintf(const char *fmt, va_list args)
 
     uint32_t ts_ms = (uint32_t)(esp_timer_get_time() / 1000);
 
-    /* JSON con escapado manual de " y \ */
     char json_buf[SB_PROTO_MAX_JSON_PAYLOAD];
     int jpos = snprintf(json_buf, sizeof(json_buf), "{\"type\":\"log\",\"ts\":%lu,\"msg\":\"",
                         (unsigned long)ts_ms);
-    if (jpos < 0 || jpos >= (int)sizeof(json_buf)) {
+    if (jpos < 0 || jpos >= (int)sizeof(json_buf) - 3) {
         return msg_len;
     }
 
-    for (int i = 0; i < msg_len && jpos < (int)sizeof(json_buf) - 4; i++) {
-        char c = msg_buf[i];
-        if (c == '"' || c == '\\') {
-            json_buf[jpos++] = '\\';
-        }
-        /* Los caracteres de control romperían el JSON: se sustituyen */
-        json_buf[jpos++] = ((unsigned char)c < 0x20) ? ' ' : c;
-    }
-
+    /* Reservar 2 chars de cierre + NUL */
+    jpos += (int)sb_json_escape(json_buf + jpos, sizeof(json_buf) - (size_t)jpos - 2, msg_buf,
+                                (size_t)msg_len);
     json_buf[jpos++] = '"';
     json_buf[jpos++] = '}';
     json_buf[jpos] = '\0';
-    sensorBoard_comm_send_json(json_buf);
+
+    /* Timeout 0: un log jamás bloquea a la tarea que loguea; si la cola está
+     * llena, el log se pierde (sin reintento — evita recursión y jitter). */
+    send_json_timeout(json_buf, 0);
 
     return msg_len;
 }
@@ -142,23 +177,39 @@ static void usb_tx_task(void *arg)
                 tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, item.frame, item.len);
                 tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0, pdMS_TO_TICKS(50));
             }
-            /* Sin host conectado (DTR bajo): el frame se descarta */
+            /* Sin host conectado (DTR bajo): el frame se descarta. La señal de
+             * vida para la motherboard es el heartbeat, no un contador aquí. */
         }
     }
 }
 
 /* ── API pública ───────────────────────────────────────────── */
+/* Política de fallo: main.c envuelve init en ESP_ERROR_CHECK (fallo de
+ * arranque ⇒ reboot; la motherboard detecta la ausencia de heartbeat como
+ * "SensorBoard no disponible"). Aun así, esta función limpia lo creado en
+ * caso de fallo parcial para ser segura ante futuros reintentos. */
 esp_err_t sensorBoard_comm_init(void)
 {
     if (s_tx_queue != NULL) {
         return ESP_ERR_INVALID_STATE; /* ya inicializado */
     }
 
+    esp_err_t err = ESP_OK;
+    TaskHandle_t tx_task_handle = NULL;
+    bool driver_installed = false;
+    bool cdc_initialized = false;
+
     s_rx_sem = xSemaphoreCreateBinary();
-    ESP_RETURN_ON_FALSE(s_rx_sem != NULL, ESP_ERR_NO_MEM, TAG, "rx sem alloc failed");
+    if (s_rx_sem == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
 
     const tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
-    ESP_RETURN_ON_ERROR(tinyusb_driver_install(&tusb_cfg), TAG, "TinyUSB install failed");
+    err = tinyusb_driver_install(&tusb_cfg);
+    if (err != ESP_OK) {
+        goto fail;
+    }
+    driver_installed = true;
 
     const tinyusb_config_cdcacm_t acm_cfg = {
         .cdc_port = TINYUSB_CDC_ACM_0,
@@ -167,48 +218,58 @@ esp_err_t sensorBoard_comm_init(void)
         .callback_line_state_changed = cdc_line_state_callback,
         .callback_line_coding_changed = NULL,
     };
-    ESP_RETURN_ON_ERROR(tinyusb_cdcacm_init(&acm_cfg), TAG, "CDC ACM init failed");
+    err = tinyusb_cdcacm_init(&acm_cfg);
+    if (err != ESP_OK) {
+        goto fail;
+    }
+    cdc_initialized = true;
 
-    QueueHandle_t tx_queue = xQueueCreate(SB_TX_QUEUE_DEPTH, sizeof(sb_tx_item_t));
-    ESP_RETURN_ON_FALSE(tx_queue != NULL, ESP_ERR_NO_MEM, TAG, "tx queue alloc failed");
+    /* La cola se publica ANTES de crear las tareas: usb_tx_task tiene prio 5
+     * (> main, prio 1) y puede ejecutar xQueueReceive(s_tx_queue) de inmediato
+     * — si la global fuera NULL en ese momento, configASSERT/hardfault. */
+    s_tx_queue = xQueueCreate(SB_TX_QUEUE_DEPTH, sizeof(sb_tx_item_t));
+    if (s_tx_queue == NULL) {
+        err = ESP_ERR_NO_MEM;
+        goto fail;
+    }
 
-    BaseType_t ok;
-    ok = xTaskCreate(usb_tx_task, "usb_tx", SB_COMM_TASK_STACK, NULL, SB_COMM_TASK_PRIO, NULL);
-    ESP_RETURN_ON_FALSE(ok == pdPASS, ESP_ERR_NO_MEM, TAG, "tx task create failed");
-    ok = xTaskCreate(usb_rx_task, "usb_rx", SB_COMM_TASK_STACK, NULL, SB_COMM_TASK_PRIO, NULL);
-    ESP_RETURN_ON_FALSE(ok == pdPASS, ESP_ERR_NO_MEM, TAG, "rx task create failed");
+    if (xTaskCreate(usb_tx_task, "usb_tx", SB_COMM_TASK_STACK, NULL, SB_COMM_TASK_PRIO,
+                    &tx_task_handle) != pdPASS) {
+        err = ESP_ERR_NO_MEM;
+        goto fail;
+    }
+    if (xTaskCreate(usb_rx_task, "usb_rx", SB_COMM_TASK_STACK, NULL, SB_COMM_TASK_PRIO, NULL) !=
+        pdPASS) {
+        err = ESP_ERR_NO_MEM;
+        goto fail;
+    }
 
-    /* La cola se publica al final: hasta aquí, el interceptor descarta logs.
-     * (El interceptor solo emite cuando s_tx_queue != NULL.) */
-    s_tx_queue = tx_queue;
     esp_log_set_vprintf(sb_log_vprintf);
-
     ESP_LOGI(TAG, "USB CDC ready");
     return ESP_OK;
+
+fail:
+    if (tx_task_handle != NULL) {
+        vTaskDelete(tx_task_handle);
+    }
+    if (s_tx_queue != NULL) {
+        vQueueDelete(s_tx_queue);
+        s_tx_queue = NULL;
+    }
+    if (cdc_initialized) {
+        tinyusb_cdcacm_deinit(TINYUSB_CDC_ACM_0);
+    }
+    if (driver_installed) {
+        tinyusb_driver_uninstall();
+    }
+    vSemaphoreDelete(s_rx_sem);
+    s_rx_sem = NULL;
+    return err;
 }
 
 esp_err_t sensorBoard_comm_send_json(const char *json_str)
 {
-    if (json_str == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    if (s_tx_queue == NULL) {
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    size_t payload_len = strlen(json_str);
-    if (payload_len > SB_PROTO_MAX_JSON_PAYLOAD) {
-        return ESP_ERR_INVALID_SIZE;
-    }
-
-    sb_tx_item_t item;
-    item.len = sb_frame_encode(SB_PROTO_TYPE_JSON, (const uint8_t *)json_str, payload_len,
-                               item.frame, sizeof(item.frame));
-    if (item.len == 0) {
-        return ESP_ERR_INVALID_SIZE;
-    }
-
-    return (xQueueSend(s_tx_queue, &item, pdMS_TO_TICKS(10)) == pdTRUE) ? ESP_OK : ESP_ERR_TIMEOUT;
+    return send_json_timeout(json_str, pdMS_TO_TICKS(10));
 }
 
 esp_err_t sensorBoard_comm_send_binary(uint8_t type, uint8_t *buf, size_t len)
