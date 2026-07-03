@@ -4,6 +4,7 @@
 #include "freertos/task.h"
 #include "sb_door_sensor.h"
 #include "sb_env_sensors.h"
+#include "sb_mic_sensor.h"
 #include "sensorBoard_comm.h"
 #include "sensorBoard_comm_protocol.h"
 #include <stdio.h>
@@ -19,6 +20,7 @@ void app_main(void)
     /* Sensores: fallo no fatal — cada componente reporta su disponibilidad */
     ESP_ERROR_CHECK_WITHOUT_ABORT(sb_env_sensors_init());
     ESP_ERROR_CHECK_WITHOUT_ABORT(sb_door_sensor_init());
+    ESP_ERROR_CHECK_WITHOUT_ABORT(sb_mic_sensor_init());
     ESP_LOGI(TAG, "SensorBoard ready — USB CDC active");
 
     /* Heartbeat: señal de vida hacia la motherboard */
