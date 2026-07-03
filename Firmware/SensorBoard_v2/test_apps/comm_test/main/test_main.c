@@ -21,8 +21,11 @@ TEST_CASE("CRC16 empty data returns 0xFFFF", "[crc16]")
 
 TEST_CASE("CRC16 single byte 0x00", "[crc16]")
 {
+    /* CCITT FALSE (poly 0x1021, init 0xFFFF) de 0x00 = 0xE1F0, verificado a
+     * mano y consistente con el vector "123456789"->0x29B1. El plan original
+     * decía 0x84C0 (erróneo) — detectado en hardware real el 2026-07-03. */
     const uint8_t data[] = { 0x00 };
-    TEST_ASSERT_EQUAL_HEX16(0x84C0, sb_crc16(data, 1));
+    TEST_ASSERT_EQUAL_HEX16(0xE1F0, sb_crc16(data, 1));
 }
 
 TEST_CASE("CRC16 incremental equals batch", "[crc16]")
