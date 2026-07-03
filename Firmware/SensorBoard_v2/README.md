@@ -33,7 +33,13 @@ Cada `CONFIG_SB_ENV_POLL_PERIOD_S` (5 s por defecto) se publica:
 
 - Posición i = sensor físico (0 = bus temp 0x44, 1 = bus temp 0x46, 2 = bus principal 0x44). Un sensor caído aparece como `null` en su posición — la **fusión/votación es responsabilidad de la motherboard** (ADR-0002).
 - `lux` proviene del ALS-PT19 por ADC; la conversión usa `CONFIG_SB_ALS_UV_PER_LUX`, **sin calibrar** contra luxómetro todavía.
-- La resp de `status` incluye ahora `"sensors":{"sht0":…,"sht1":…,"sht2":…,"als":…}` con la disponibilidad real.
+- La resp de `status` incluye ahora `"sensors":{"sht0":…,"sht1":…,"sht2":…,"als":…,"door":…}` con la disponibilidad real.
+
+## Puerta (Fase 4)
+
+Eventos en tiempo real por interrupción (hall DRV5032 en IO47, debounce `CONFIG_SB_DOOR_DEBOUNCE_MS`): `{"type":"event","cmd":"door_open","ts":…}` / `door_closed`, solo en cambios estables. Al arrancar se publica el estado actual una vez y, sin cambios, se **re-afirma cada `CONFIG_SB_DOOR_REASSERT_S` (30 s)** — un evento perdido por backpressure se autocorrige. Polaridad con `CONFIG_SB_DOOR_ACTIVE_LOW` (por defecto: imán presente = cerrada).
+
+**Contrato de fail-safe (motherboard):** con una sola línea digital el firmware **no puede distinguir** "puerta abierta" de "hall desconectado/averiado" (pull-up ⇒ nivel alto en ambos). La motherboard debe tratar un `door_open` sostenido implausible o un flapping open/closed como posible fallo de sensor (alarma), nunca como entrada directa del control térmico.
 
 ## Compilar y flashear
 
