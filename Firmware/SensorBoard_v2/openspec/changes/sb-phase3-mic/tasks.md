@@ -16,8 +16,10 @@
 
 ## 4. Review
 
-- [ ] 4.1 code-reviewer + security-reviewer; hallazgos resueltos
+- [x] 4.1 code-reviewer + security-reviewer; hallazgos resueltos
 
 ## 5. Docs / cierre
 
-- [ ] 5.1 README/CHANGELOG (advertir dba sin ponderación A); archivar; retro; checkbox EPIC-001
+- [x] 5.1 README/CHANGELOG (advertir dba sin ponderación A); archivar; retro; checkbox EPIC-001
+
+> Verificación manual on-target pendiente: micrófono real (nivel razonable vs. sonómetro de referencia), desconectar DIN y confirmar `sensors.mic:false` (señal viva), medir latencia de `i2s_channel_read` bajo tráfico USB.

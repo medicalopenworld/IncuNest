@@ -7,8 +7,20 @@
 #define SB_AUDIO_DB_MIN 0.0f
 #define SB_AUDIO_DB_MAX 140.0f
 
-/* RMS de una ventana int16; 0.0f si count == 0 */
-float sb_audio_rms(const int16_t *samples, size_t count);
+/* Señal viva: pico-a-pico mínimo (LSB). El ESP32 genera el clock PDM, así
+ * que una línea DIN pegada/flotante devuelve lecturas "correctas" a nivel
+ * driver — una ventana casi constante delata micrófono muerto/desconectado. */
+#define SB_AUDIO_ALIVE_MIN_PP 8
+
+typedef struct {
+    float rms;  /* RMS de la componente AC (media/DC eliminada) */
+    float mean; /* componente DC de la ventana */
+    bool alive; /* pico-a-pico >= SB_AUDIO_ALIVE_MIN_PP */
+} sb_audio_stats_t;
+
+/* Analiza una ventana int16: RMS AC, DC y detección de señal viva.
+ * count == 0 → rms 0, alive false. */
+sb_audio_stats_t sb_audio_analyze(const int16_t *samples, size_t count);
 
 /* rms → dB: 20·log10(rms/32768) + offset_db, con suelo en SB_AUDIO_DB_MIN
  * (el silencio absoluto no produce -inf) */
