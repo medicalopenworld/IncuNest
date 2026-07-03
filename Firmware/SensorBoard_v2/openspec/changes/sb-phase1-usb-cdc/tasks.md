@@ -2,8 +2,8 @@
 
 ## 1. Red (tests primero)
 
-- [ ] 1.1 Scaffold ESP-IDF compilable: CMake raíz, `sdkconfig.defaults`, `partitions.csv`, `main/` stub, `components/usb_comm/` con stubs y headers (`sensorBoard_comm.h`, `sensorBoard_comm_protocol.h`, `sensorBoard_crc16.h`, `sensorBoard_frame.h`)
-- [ ] 1.2 Test app `test_apps/comm_test/` con `TEST_CASE`s Unity que cubren cada Scenario de `usb-transport` (CRC16, encoder, decoder) — fallan sobre los stubs
+- [x] 1.1 Scaffold ESP-IDF compilable: CMake raíz, `sdkconfig.defaults`, `partitions.csv`, `main/` stub, `components/usb_comm/` con stubs y headers (`sensorBoard_comm.h`, `sensorBoard_comm_protocol.h`, `sensorBoard_crc16.h`, `sensorBoard_frame.h`)
+- [x] 1.2 Test app `test_apps/comm_test/` con `TEST_CASE`s Unity que cubren cada Scenario de `usb-transport` (CRC16, encoder, decoder) — fallan sobre los stubs
 
 ## 2. Green
 
