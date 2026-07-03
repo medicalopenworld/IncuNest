@@ -1,0 +1,24 @@
+menu "SensorBoard door_sensor"
+
+    config SB_DOOR_DEBOUNCE_MS
+        int "Ventana de debounce (ms)"
+        default 250
+        range 50 5000
+        help
+            El DRV5032FB muestrea internamente a ~5 Hz (200 ms): la ventana
+            debe ser >= a ese periodo para leer un nivel ya asentado.
+
+    config SB_DOOR_ACTIVE_LOW
+        bool "Nivel bajo = iman presente = puerta cerrada"
+        default y
+
+    config SB_DOOR_REASSERT_S
+        int "Re-asercion periodica del estado (segundos)"
+        default 30
+        range 5 600
+        help
+            Sin cambios de puerta, el estado actual se reemite cada N
+            segundos: un evento perdido por backpressure USB se autocorrige
+            y la motherboard puede reconciliar (el modelo edge-only es lossy).
+
+endmenu

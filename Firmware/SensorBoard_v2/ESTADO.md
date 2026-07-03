@@ -8,11 +8,12 @@
 
 Implementación del firmware completo desde cero, en orden 1 → 2 → 4 → 3 → 5, con ramas encadenadas desde `claude_agents_tests` y merges a `dev` pendientes de aprobación humana al final. Hardware confirmado y documentado en `docs/hardware.md`.
 
-**Próximo paso:** Fase 4 — sensor de puerta en `feat/sb-phase4-door` (rama desde `feat/sb-phase2-env-sensors`): hall DRV5032 en IO47, ISR de flanco con hand-off por cola, debounce considerando los 5 Hz internos del sensor, eventos `door_open`/`door_closed`, `sensors.door` en status.
+**Próximo paso:** Fase 3 — micrófono PDM en `feat/sb-phase3-mic` (rama desde `feat/sb-phase4-door`): ICS-41350 por I2S en modo PDM RX (IO40 clk, IO39 data), `audio_task` con RMS→dBA (calibración documentada como pendiente), evento `sound_level`, `sensors.mic` en status. Validar no-contención con el transporte (prio 5).
 
 **Fases cerradas:**
 - Fase 1 (USB CDC) — `feat/sb-phase1-usb-cdc`, spec `2026-07-03-sb-phase1-usb-cdc`, retro `docs/retro/2026-07-03-fase1-usb-cdc.md`.
 - Fase 2 (SHT40 ×3 + ALS) — `feat/sb-phase2-env-sensors`, spec `2026-07-03-sb-phase2-env-sensors`, retro `docs/retro/2026-07-03-fase2-env-sensors.md`.
+- Fase 4 (puerta) — `feat/sb-phase4-door`, spec `2026-07-03-sb-phase4-door`, retro `docs/retro/2026-07-03-fase4-door.md`.
 
 Verificación on-device (flash + Unity en placa) de ambas fases pendiente de sesión manual con hardware.
 
