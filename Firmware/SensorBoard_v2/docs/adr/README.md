@@ -10,10 +10,6 @@ Las escribe el agente `scribe`, típicamente en el stage `design` del loop, cuan
 
 ## Índice
 
-Ninguna ADR registrada todavía.
-
-<!-- Añadir una fila aquí por cada ADR creada:
 | Nº | Título | Estado |
 |---|---|---|
-| 0001 | ... | Aceptada |
--->
+| [0001](0001-tinyusb-cdc-framing-binario.md) | Transporte USB: TinyUSB CDC-ACM con framing binario propio | Aceptada |
