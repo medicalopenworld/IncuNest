@@ -22,12 +22,14 @@ El campo `sensors.<nombre>` en la respuesta de `status` (booleano de disponibili
 
 ## Fases del roadmap
 
+Orden de implementación acordado: **1 → 2 → 4 → 3 → 5** (de menor a mayor complejidad). Hardware confirmado en [`hardware.md`](hardware.md).
+
 | Fase | Qué añade | Hardware/componente |
 |---|---|---|
-| 1 — Comunicación USB CDC (✅ completada) | Framing, CRC16, `usb_comm`, comando `status` | — (capa de transporte, sin sensores) |
-| 2 — Sensores ambientales | `sensor_task`, evento `sensor_data` (temp/hum/lux) | SHT40 (I2C) + ALS (I2C o ADC) |
-| 3 — Micrófono / dBA | `audio_task`, evento `sound_level` | Micrófono MEMS I2S |
-| 4 — Sensor de puerta | ISR con hand-off a tarea, eventos `door_open`/`door_closed` | GPIO + interrupción de flanco |
-| 5 — Cámara | Activa `TYPE=0x01`, implementa `send_binary()` real, comando `capture` | Módulo cámara JPEG (usa la PSRAM 8MB OPI) |
+| 1 — Comunicación USB CDC | Framing, CRC16, `usb_comm`, comando `status`, heartbeat | USB nativo (IO19/IO20) |
+| 2 — Sensores ambientales | `sensor_task`, evento `sensor_data` (temp/hum/lux) | SHT40 ×3 en dos buses I2C + ALS-PT19 analógico (ADC, IO1) |
+| 4 — Sensor de puerta | ISR con hand-off a tarea, eventos `door_open`/`door_closed` | Hall DRV5032 (IO47, salida digital) |
+| 3 — Micrófono / dBA | `audio_task`, evento `sound_level` | ICS-41350 **PDM** (I2S en modo PDM RX; IO40 clk, IO39 data) |
+| 5 — Cámara | Activa `TYPE=0x01`, implementa `send_binary()` real, comando `capture` | OV2640 DVP + SCCB en I2C principal (usa la PSRAM 8MB OPI) |
 
 Solo la Fase 5 toca `usb_comm` de forma acotada (necesita payloads grandes en TX); el resto son estrictamente aditivas.

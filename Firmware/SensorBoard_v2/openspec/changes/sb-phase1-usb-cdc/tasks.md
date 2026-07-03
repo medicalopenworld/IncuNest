@@ -28,5 +28,5 @@
 
 ## 5. Docs / cierre
 
-- [ ] 5.1 README del proyecto + CHANGELOG + `docs/architecture.md` actualizados
+- [x] 5.1 README del proyecto + CHANGELOG + `docs/architecture.md` actualizados
 - [ ] 5.2 Archivar change, retro y checkbox de EPIC-001
