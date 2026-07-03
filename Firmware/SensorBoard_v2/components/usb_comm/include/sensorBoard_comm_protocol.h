@@ -16,6 +16,10 @@
 #define SB_PROTO_MAX_JSON_PAYLOAD   256u
 #define SB_PROTO_MAX_JSON_FRAME     (SB_PROTO_FRAME_OVERHEAD + SB_PROTO_MAX_JSON_PAYLOAD)
 
+/* Payload binario máximo (TYPE=0x01, JPEG en PSRAM). Un QVGA JPEG típico son
+ * 10-30 KB; 128 KB da margen a framesize mayores sin permitir Length absurdos. */
+#define SB_PROTO_MAX_BINARY_PAYLOAD (128u * 1024u)
+
 /* ── Device identity ───────────────────────────────────────── */
 #define SB_PROTO_FW_VERSION         "1.0.0"
 #define SB_PROTO_DEVICE_NAME        "SensorBoard"
