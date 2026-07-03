@@ -1,6 +1,0 @@
-# ESP-IDF build artifacts
-build/
-sdkconfig
-
-# Managed components — auto-downloaded by idf.py build via idf_component.yml
-managed_components/
