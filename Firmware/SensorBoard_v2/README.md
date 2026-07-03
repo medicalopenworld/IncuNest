@@ -75,7 +75,9 @@ Los `TEST_CASE` derivan de los escenarios OpenSpec (`openspec/specs/`). La ejecu
 |---|---|
 | `main/` | `app_main`: init + heartbeat |
 | `components/usb_comm/` | Transporte: framing, CRC16, tareas RX/TX, dispatcher de comandos |
-| `test_apps/comm_test/` | Test app Unity del transporte |
+| `components/{env_sensors,door_sensor,mic_sensor,camera_sensor}/` | Un componente por fase de sensor |
+| `test_apps/<comp>_test/` | Test apps Unity por componente |
+| `tools/` | `monitor_sb.py`: monitor/decodificador host del enlace USB |
 | `docs/` | Hardware, ADRs, arquitectura, retros, épicas |
 | `openspec/` | Specs (fuente de los tests) y changes en curso |
 | `.claude/` | Framework agéntico (agentes, rules, hooks, skills) |
