@@ -17,6 +17,11 @@ CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y
 
+# Cámara: sensores soportados (esp32-camera autodetecta por SCCB:
+# OV2640 en 0x30, OV5640 en 0x3C)
+CONFIG_OV2640_SUPPORT=y
+CONFIG_OV5640_SUPPORT=y
+
 # Logs verbose en desarrollo
 CONFIG_LOG_DEFAULT_LEVEL_DEBUG=y
 

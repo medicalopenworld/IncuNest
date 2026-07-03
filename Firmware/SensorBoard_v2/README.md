@@ -47,7 +47,7 @@ Cada `CONFIG_SB_MIC_PUBLISH_PERIOD_S` (5 s): `{"type":"event","cmd":"sound_level
 
 ## Cámara (Fase 5)
 
-`{"type":"cmd","cmd":"capture","id":N}` → resp `{"type":"resp","cmd":"capture","id":N,"status":"ok","size":<bytes>,"ts":…}` seguida de un frame binario `TYPE=0x01` con el JPEG (QVGA, `CONFIG_SB_CAM_JPEG_QUALITY`). Solo bajo demanda — no hay captura continua. Un `capture` con otro en vuelo responde `error`/`busy`; una captura colgada >10 s responde `camera stalled` y baja `sensors.cam`. El SCCB de la OV2640 comparte el bus I2C principal con el SHT40 (requiere que `env_sensors` inicie primero); si ese bus no está disponible, `sensors.cam:false`.
+`{"type":"cmd","cmd":"capture","id":N}` → resp `{"type":"resp","cmd":"capture","id":N,"status":"ok","size":<bytes>,"ts":…}` seguida de un frame binario `TYPE=0x01` con el JPEG (QVGA, `CONFIG_SB_CAM_JPEG_QUALITY`). El sensor se autodetecta por SCCB — **OV2640 (0x30) u OV5640 (0x3C)** — y el modelo detectado se loguea al arrancar. Solo bajo demanda — no hay captura continua. Un `capture` con otro en vuelo responde `error`/`busy`; una captura colgada >10 s responde `camera stalled` y baja `sensors.cam`. El SCCB de la OV2640 comparte el bus I2C principal con el SHT40 (requiere que `env_sensors` inicie primero); si ese bus no está disponible, `sensors.cam:false`.
 
 **Prioridad de TX:** el JSON (telemetría/heartbeat/resp) siempre drena antes que los binarios; hay como máximo **un JPEG en vuelo** (PSRAM acotada) y, por el framing contiguo, un JSON urgente puede esperar como mucho la transmisión de ese único frame (~600 ms en el peor caso con host atascado, típicamente <100 ms).
 

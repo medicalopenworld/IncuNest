@@ -14,7 +14,8 @@
 
 static const char *TAG = "CAM";
 
-/* Pinout DVP OV2640: docs/hardware.md. d0..d7 = Y2..Y9. RESET no cableado. */
+/* Pinout DVP (OV2640/OV5640, autodetección por SCCB): docs/hardware.md.
+ * d0..d7 = Y2..Y9. RESET no cableado. */
 #define SB_CAM_PIN_PWDN 21
 #define SB_CAM_PIN_RESET (-1)
 #define SB_CAM_PIN_XCLK 15
@@ -193,7 +194,16 @@ esp_err_t sb_camera_sensor_init(void)
     }
 
     sensorBoard_status_set_sensor("cam", true);
-    ESP_LOGI(TAG, "camera up (QVGA JPEG q%d)", CONFIG_SB_CAM_JPEG_QUALITY);
+
+    sensor_t *sensor = esp_camera_sensor_get();
+    if (sensor != NULL) {
+        camera_sensor_info_t *info = esp_camera_sensor_get_info(&sensor->id);
+        ESP_LOGI(TAG, "camera detected: %s (PID 0x%04X), QVGA JPEG q%d",
+                 (info != NULL) ? info->name : "unknown", sensor->id.PID,
+                 CONFIG_SB_CAM_JPEG_QUALITY);
+    } else {
+        ESP_LOGI(TAG, "camera up (QVGA JPEG q%d)", CONFIG_SB_CAM_JPEG_QUALITY);
+    }
     return ESP_OK;
 
 fail:

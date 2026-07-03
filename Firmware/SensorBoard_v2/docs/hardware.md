@@ -15,7 +15,7 @@ Referencia de configuración para todas las fases del roadmap (`Firmware/docs/su
 | Luz ambiental | ALS-PT19-315C/L177/TR8 | Analógica (IO1) |
 | Micrófono | ICS-41350 | PDM (IO39/IO40) |
 | Sensor de puerta (efecto Hall) | DRV5032FBDBZR | GPIO digital (IO47) |
-| Cámara | OV2640 | DVP + SCCB (I2C principal) |
+| Cámara | OV2640 u OV5640 (autodetección por SCCB: 0x30 / 0x3C) | DVP + SCCB (I2C principal) |
 
 ## Pinout
 
