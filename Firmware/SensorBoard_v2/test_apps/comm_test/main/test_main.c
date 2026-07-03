@@ -194,6 +194,37 @@ TEST_CASE("decoder: oversize length discarded, then resyncs", "[decoder]")
     TEST_ASSERT_EQUAL(2, s_cb_len);
 }
 
+/* ── API pública (sin init: no requieren host USB) ─────────── */
+
+#include "sensorBoard_comm.h"
+
+TEST_CASE("send_binary returns ESP_ERR_NOT_SUPPORTED in Phase 1", "[comm]")
+{
+    uint8_t buf[4] = { 0 };
+    TEST_ASSERT_EQUAL(ESP_ERR_NOT_SUPPORTED, sensorBoard_comm_send_binary(0x01, buf, sizeof(buf)));
+}
+
+TEST_CASE("send_json without init returns ESP_ERR_INVALID_STATE", "[comm]")
+{
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, sensorBoard_comm_send_json("{}"));
+}
+
+TEST_CASE("cmd_handle: malformed JSON does not crash", "[cmd]")
+{
+    const uint8_t garbage[] = "{not json!!";
+    sensorBoard_cmd_handle(garbage, sizeof(garbage) - 1);
+    /* Sin crash == pasa; la respuesta (si la hubiera) exige host USB */
+    TEST_PASS();
+}
+
+TEST_CASE("cmd_handle: NULL/oversize payload ignored", "[cmd]")
+{
+    sensorBoard_cmd_handle(NULL, 10);
+    static const uint8_t big[SB_PROTO_MAX_JSON_PAYLOAD + 1] = { '{' };
+    sensorBoard_cmd_handle(big, sizeof(big));
+    TEST_PASS();
+}
+
 void app_main(void)
 {
     UNITY_BEGIN();

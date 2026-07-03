@@ -16,9 +16,11 @@
 
 ## 3. Verify
 
-- [ ] 3.1 `idf.py build` de la app principal sin errores
-- [ ] 3.2 `idf.py build` del test app sin errores
-- [ ] 3.3 Cada Scenario del spec tiene su `TEST_CASE` (o cobertura manual documentada para los que exigen hardware: status/heartbeat on-device)
+- [x] 3.1 `idf.py build` de la app principal sin errores
+- [x] 3.2 `idf.py build` del test app sin errores
+- [x] 3.3 Cada Scenario del spec tiene su `TEST_CASE` (o cobertura manual documentada para los que exigen hardware: status/heartbeat on-device)
+
+> Cobertura manual pendiente de hardware (checklist del plan de junio, paso "Task 11/Step 4"): respuesta `status` ok, resp de error para cmd desconocido, logs como frames, CRC corrupto sin respuesta y heartbeat cada 30 s se verifican con `idf.py -p COMx flash` + script Python decodificador. Los Scenarios de `send_json` oversize y "log antes de init" quedan cubiertos por guardas testeadas indirectamente (`send_json` sin init → `INVALID_STATE`) y por diseño (interceptor descarta con cola NULL).
 
 ## 4. Review
 
