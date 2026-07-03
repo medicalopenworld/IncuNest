@@ -4,31 +4,28 @@
 
 ## Épica activa
 
-**EPIC-001 · Roadmap SensorBoard — Fases 1-5** (`docs/epics/sensorboard-roadmap-fases.md`)
+Ninguna. **EPIC-001 (Roadmap SensorBoard, Fases 1-5) se completó el 2026-07-03** — ver `docs/epics/sensorboard-roadmap-fases.md`.
 
-Implementación del firmware completo desde cero, en orden 1 → 2 → 4 → 3 → 5, con ramas encadenadas desde `claude_agents_tests` y merges a `dev` pendientes de aprobación humana al final. Hardware confirmado y documentado en `docs/hardware.md`.
+**Próximo paso (requiere a Pablo):**
 
-**Próximo paso:** Fase 5 — cámara OV2640 en `feat/sb-phase5-camera` (rama desde `feat/sb-phase3-mic`): esp32-camera (DVP según `docs/hardware.md`, PWDN IO21, sin RESET), SCCB compartiendo el bus I2C principal (handle vía `sb_env_get_main_i2c_bus()` — riesgo: compatibilidad esp32-camera con el driver i2c_master nuevo, investigar antes de diseñar), activar `TYPE=0x01`, implementar `send_binary` (única fase que toca `usb_comm`, acotado a TX), comando `capture`, `sensors.cam`.
-
-**Fases cerradas:**
-- Fase 1 (USB CDC) — `feat/sb-phase1-usb-cdc`, spec `2026-07-03-sb-phase1-usb-cdc`, retro `docs/retro/2026-07-03-fase1-usb-cdc.md`.
-- Fase 2 (SHT40 ×3 + ALS) — `feat/sb-phase2-env-sensors`, spec `2026-07-03-sb-phase2-env-sensors`, retro `docs/retro/2026-07-03-fase2-env-sensors.md`.
-- Fase 4 (puerta) — `feat/sb-phase4-door`, spec `2026-07-03-sb-phase4-door`, retro `docs/retro/2026-07-03-fase4-door.md`.
-- Fase 3 (micrófono PDM) — `feat/sb-phase3-mic`, spec `2026-07-03-sb-phase3-mic`, retro `docs/retro/2026-07-03-fase3-mic.md`. Tests Unity de Fases 1/2/4 ya ejecutados en hardware real por Pablo (todo PASS tras corregir un vector CRC del plan).
-
-Verificación on-device (flash + Unity en placa) de ambas fases pendiente de sesión manual con hardware.
+1. **Aprobar e integrar los merges a `dev`** (gate `guard-merge`, siempre humano), en orden de encadenado:
+   `feat/sb-phase1-usb-cdc` → `feat/sb-phase2-env-sensors` → `feat/sb-phase4-door` → `feat/sb-phase3-mic` → `feat/sb-phase5-camera`
+   (al estar encadenadas, basta merge --no-ff de `feat/sb-phase5-camera` a `dev` para integrarlo todo; los 5 merges separados preservan mejor la trazabilidad por fase — a elección).
+2. **Verificación on-target pendiente:** Fases 3 y 5 (Unity + integración con hardware real); las Fases 1/2/4 ya pasaron sus tests Unity en placa (2026-07-03). Checklists manuales en los `tasks.md` archivados de cada change.
+3. Extender el **parser de la motherboard** para los nuevos `cmd`/`event` (fuera de este repo): `sensor_data`, `door_open/closed` + re-aserción, `sound_level`, `capture`/`TYPE=0x01`, y los contratos de fail-safe del README (heartbeat >90 s, hall averiado, flapping).
 
 ## Épicas cerradas
 
-- **EPIC-000 · Adaptación del framework Genesis a ESP-IDF** — archivada como `openspec/changes/archive/2026-07-02-adapt-genesis-esp-idf/`, retro en `docs/retro/2026-07-03-epic-000-adapt-genesis-esp-idf.md`.
+- **EPIC-001 · Roadmap SensorBoard Fases 1-5** — 5 changes OpenSpec archivados (`2026-07-03-sb-phase{1,2,4,3,5}-*`), 5 retros en `docs/retro/`, ~40 commits en ramas encadenadas.
+- **EPIC-000 · Adaptación del framework Genesis a ESP-IDF** — archivada como `2026-07-02-adapt-genesis-esp-idf`.
 
 ## Últimas decisiones relevantes
 
-- La Fase 1 que el roadmap marcaba "completada" nunca se implementó — se parte de cero (confirmado por Pablo, 2026-07-03).
-- Pinout y sensores confirmados por Pablo en `docs/hardware.md`: ALS es analógico (ADC en IO1), el micrófono es PDM (no I2S estándar), SHT40 ×3 repartidos en dos buses I2C.
-- El gate de merge/tag (`guard-merge.sh`) es siempre-on, independiente de `.loop-mode` (firmware de dispositivo médico).
-- La verificación automática (Stop hook) es solo `idf.py build` (compilación); nunca flashea ni ejecuta Unity en el dispositivo sin supervisión.
+- TX con dos colas: JSON siempre prioritario; máx. 1 binario en vuelo (Fase 5).
+- Enlace USB = canal de confianza intra-dispositivo (riesgo documentado en README).
+- Gates de plausibilidad en todos los sensores (temp, dB, señal viva PDM) — CRC/lectura OK ≠ dato válido.
+- La verificación automática (Stop hook) es solo `idf.py build`; flash/Unity on-target siempre manual.
 
-## Backlog
+## Seguimientos diferidos (candidatos a próximas tareas)
 
-Ver `docs/epics/sensorboard-roadmap-fases.md` (EPIC-001, activa) y `docs/epics/README.md` (índice).
+Calibraciones (ALS, dBA + ponderación A), recovery de bus I2C colgado, pool estático cJSON, contratos de fail-safe en la motherboard. Detalle en las retros de `docs/retro/`.
