@@ -8,6 +8,8 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ### Added
 
+- **Fase 1 — Transporte USB CDC (`usb_comm`)**: proyecto ESP-IDF v6 (ESP32-S3 N16R8, flash 16MB OTA, PSRAM OPI), framing binario `Magic+Type+Length+Payload+CRC16-CCITT`, tareas FreeRTOS RX/TX con `tx_queue`, logs `ESP_LOG` como frames JSON, comando `status`, heartbeat 30 s y test app Unity `comm_test` (ADR-0001).
+- Documento de hardware `docs/hardware.md` con el pinout completo confirmado (SHT40 ×3, ALS-PT19 analógico, mic PDM ICS-41350, hall DRV5032, OV2640).
 - Framework de agentes Genesis adaptado a ESP-IDF v6/C/FreeRTOS (agentes, rules, hooks, skills y documentación mínima: `ESTADO.md`, `docs/adr/`, `docs/retro/`, `docs/epics/`, `docs/architecture.md`, `docs/blueprint/`).
 
 <!--

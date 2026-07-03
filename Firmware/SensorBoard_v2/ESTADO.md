@@ -8,7 +8,9 @@
 
 Implementación del firmware completo desde cero, en orden 1 → 2 → 4 → 3 → 5, con ramas encadenadas desde `claude_agents_tests` y merges a `dev` pendientes de aprobación humana al final. Hardware confirmado y documentado en `docs/hardware.md`.
 
-**Próximo paso:** Fase 1 — transporte USB CDC (`usb_comm`) en `feat/sb-phase1-usb-cdc`: proyecto ESP-IDF nuevo + framing binario + CRC16-CCITT + tareas RX/TX + comando `status`. Loop completo con OpenSpec (cambio grande).
+**Próximo paso:** Fase 2 — sensores ambientales en `feat/sb-phase2-env-sensors` (rama desde `feat/sb-phase1-usb-cdc`): SHT40 ×2 en bus I2C IO41/IO42 (0x44+0x46) + SHT40 en bus principal IO4/IO5 (0x44) + ALS-PT19 por ADC en IO1, `sensor_task` con polling, evento `sensor_data`, extensión de `status` con `sensors{}`.
+
+**Fases cerradas:** Fase 1 (USB CDC) completada en `feat/sb-phase1-usb-cdc` — 8 commits, spec archivada como `2026-07-03-sb-phase1-usb-cdc`, retro en `docs/retro/2026-07-03-fase1-usb-cdc.md`. Verificación on-device (flash + Unity en placa) pendiente de sesión manual con hardware.
 
 ## Épicas cerradas
 
