@@ -54,8 +54,9 @@ static void audio_task(void *arg)
                   (err == ESP_ERR_TIMEOUT && bytes_read >= SB_MIC_MIN_WINDOW_BYTES);
 
         float db = 0.0f;
+        sb_audio_stats_t st = { 0 };
         if (ok) {
-            sb_audio_stats_t st = sb_audio_analyze(window, bytes_read / sizeof(int16_t));
+            st = sb_audio_analyze(window, bytes_read / sizeof(int16_t));
             /* Señal viva: el clock lo genera el S3 — una línea DIN pegada o
              * flotante produce lecturas "OK" con dB plausible pero falso */
             ok = st.alive;
@@ -65,8 +66,13 @@ static void audio_task(void *arg)
             }
         }
         if (!ok) {
-            ESP_LOGW(TAG, "window discarded (err=%d, %u/%u B)", (int)err,
-                     (unsigned)bytes_read, (unsigned)sizeof(window));
+            /* Diagnóstico: err!=0 con pocos bytes = DMA/clock (IO40) no
+             * entrega; bytes completos con alive=0 = DIN (IO39) pegada,
+             * flotante o slot L/R equivocado; db fuera de rango = offset */
+            ESP_LOGW(TAG,
+                     "window discarded: err=%d %u/%uB alive=%d rms=%.1f mean=%.0f db=%.1f",
+                     (int)err, (unsigned)bytes_read, (unsigned)sizeof(window),
+                     (int)st.alive, (double)st.rms, (double)st.mean, (double)db);
         }
         sensorBoard_status_set_sensor("mic", ok);
 
