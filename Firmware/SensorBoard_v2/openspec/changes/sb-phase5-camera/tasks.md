@@ -17,8 +17,10 @@
 
 ## 4. Review
 
-- [ ] 4.1 code-reviewer + security-reviewer; hallazgos resueltos
+- [x] 4.1 code-reviewer + security-reviewer; hallazgos resueltos
 
 ## 5. Docs / cierre
 
-- [ ] 5.1 README/CHANGELOG/architecture; archivar; retro; checkbox EPIC-001 (última fase)
+- [x] 5.1 README/CHANGELOG/architecture; archivar; retro; checkbox EPIC-001 (última fase)
+
+> Verificación manual on-target pendiente: captura real con OV2640 (resp + JPEG decodificable), flood de `capture` sin pérdida de heartbeat/telemetría, throughput real del enlace con JPEG QVGA, y convivencia SCCB↔SHT40 en el bus compartido.

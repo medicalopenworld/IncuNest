@@ -14,6 +14,17 @@ size_t sb_cam_build_capture_ok(char *buf, size_t buf_size, uint32_t id, size_t s
     return (n < 0 || n >= (int)buf_size) ? 0 : (size_t)n;
 }
 
+sb_cam_gate_t sb_cam_gate(int ready, int busy, uint32_t busy_elapsed_ms, uint32_t stall_ms)
+{
+    if (!ready) {
+        return SB_CAM_GATE_NOT_READY;
+    }
+    if (busy) {
+        return (busy_elapsed_ms > stall_ms) ? SB_CAM_GATE_STALLED : SB_CAM_GATE_BUSY;
+    }
+    return SB_CAM_GATE_ACCEPT;
+}
+
 size_t sb_cam_build_capture_err(char *buf, size_t buf_size, uint32_t id, const char *msg,
                                 uint32_t ts_ms)
 {

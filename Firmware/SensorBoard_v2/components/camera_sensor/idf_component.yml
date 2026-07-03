@@ -1,3 +1,3 @@
 dependencies:
   idf: ">=5.0"
-  espressif/esp32-camera: "*"
+  espressif/esp32-camera: "^2.1.7" # pin: version probada; no actualizar sin re-verificar

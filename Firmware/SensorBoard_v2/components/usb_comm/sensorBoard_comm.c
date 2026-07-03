@@ -19,15 +19,26 @@
 
 static const char *TAG = "USB_COMM";
 
-/* ── TX queue ──────────────────────────────────────────────── */
+/* ── TX queues ─────────────────────────────────────────────── */
+/* JSON (telemetría/resp/heartbeat): por valor, prioridad de drenado */
 typedef struct {
-    bool heap;          /* true: heap_frame con ownership (usb_tx_task libera) */
-    uint8_t *heap_frame; /* frame completo ya codificado, en PSRAM/heap */
-    uint8_t frame[SB_PROTO_MAX_JSON_FRAME]; /* camino JSON por valor (Fase 1) */
+    uint8_t frame[SB_PROTO_MAX_JSON_FRAME];
     size_t len;
 } sb_tx_item_t;
 
+/* Binarios (JPEG): cola separada de profundidad 1 — cota dura de un frame
+ * en vuelo (presión de PSRAM acotada) y el JSON nunca espera detrás de más
+ * de un binario. Ownership del puntero: usb_tx_task SIEMPRE libera. */
+typedef struct {
+    uint8_t *frame;
+    size_t len;
+} sb_tx_bin_item_t;
+
 #define SB_TX_QUEUE_DEPTH 8
+#define SB_TX_BIN_QUEUE_DEPTH 1
+
+/* Sondeo de la cola binaria cuando la JSON está vacía (ms) */
+#define SB_TX_IDLE_POLL_MS 20
 
 /* 4096 B para ambas tareas: usb_rx ejecuta decoder + cJSON (la más profunda);
  * usb_tx solo copia a TinyUSB. Ajustar con uxTaskGetStackHighWaterMark si una
@@ -40,6 +51,7 @@ typedef struct {
 #define SB_COMM_TASK_PRIO 5
 
 static QueueHandle_t s_tx_queue = NULL;
+static QueueHandle_t s_tx_bin_queue = NULL;
 static SemaphoreHandle_t s_rx_sem = NULL;
 
 /* Flag escrito por el callback de line-state (contexto de tarea TinyUSB) y
@@ -62,7 +74,7 @@ static esp_err_t send_json_timeout(const char *json_str, TickType_t wait_ticks)
         return ESP_ERR_INVALID_SIZE;
     }
 
-    sb_tx_item_t item = { .heap = false, .heap_frame = NULL };
+    sb_tx_item_t item;
     item.len = sb_frame_encode(SB_PROTO_TYPE_JSON, (const uint8_t *)json_str, payload_len,
                                item.frame, sizeof(item.frame));
     if (item.len == 0) {
@@ -170,16 +182,21 @@ static void usb_rx_task(void *arg)
 }
 
 /* Escribe un frame grande por chunks; aborta ante stalls repetidos o host
- * desconectado (el frame se descarta — la motherboard reintenta capture). */
+ * desconectado (el frame se descarta — la motherboard reintenta capture).
+ * LIMITACIÓN documentada: el framing exige frames contiguos en el cable, así
+ * que un JSON urgente que llegue durante ESTE frame espera a que termine —
+ * peor caso ~600 ms con host atascado (10 stalls × ~60 ms) antes de abortar.
+ * La cola binaria de profundidad 1 garantiza que nunca hay más de un frame
+ * grande por delante. */
 static void tx_write_large(const uint8_t *data, size_t len)
 {
     size_t off = 0;
     int stalls = 0;
 
-    while (off < len && stalls < 20 && s_cdc_ready) {
+    while (off < len && stalls < 10 && s_cdc_ready) {
         size_t queued = tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, data + off, len - off);
         off += queued;
-        esp_err_t err = tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0, pdMS_TO_TICKS(100));
+        esp_err_t err = tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0, pdMS_TO_TICKS(50));
         if (queued == 0 || err != ESP_OK) {
             stalls++;
             vTaskDelay(pdMS_TO_TICKS(10));
@@ -197,21 +214,34 @@ static void usb_tx_task(void *arg)
 {
     (void)arg;
     static sb_tx_item_t item;
+    sb_tx_bin_item_t bin;
 
     for (;;) {
-        if (xQueueReceive(s_tx_queue, &item, portMAX_DELAY) == pdTRUE) {
-            if (item.heap) {
-                if (s_cdc_ready && item.heap_frame != NULL) {
-                    tx_write_large(item.heap_frame, item.len);
-                }
-                free(item.heap_frame); /* ownership: SIEMPRE se libera aquí */
-            } else if (s_cdc_ready) {
+        /* El JSON (telemetría/heartbeat/resp) SIEMPRE drena primero */
+        if (xQueueReceive(s_tx_queue, &item, 0) == pdTRUE) {
+            if (s_cdc_ready) {
                 tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, item.frame, item.len);
                 tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0, pdMS_TO_TICKS(50));
             }
-            /* Sin host conectado (DTR bajo): el frame se descarta. La señal de
-             * vida para la motherboard es el heartbeat, no un contador aquí. */
+            continue;
         }
+        /* Sin JSON pendiente: un binario como mucho */
+        if (xQueueReceive(s_tx_bin_queue, &bin, 0) == pdTRUE) {
+            if (s_cdc_ready && bin.frame != NULL) {
+                tx_write_large(bin.frame, bin.len);
+            }
+            free(bin.frame); /* ownership: SIEMPRE se libera aquí */
+            continue;
+        }
+        /* Nada pendiente: bloquear en la JSON con sondeo corto de la binaria */
+        if (xQueueReceive(s_tx_queue, &item, pdMS_TO_TICKS(SB_TX_IDLE_POLL_MS)) == pdTRUE) {
+            if (s_cdc_ready) {
+                tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, item.frame, item.len);
+                tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0, pdMS_TO_TICKS(50));
+            }
+        }
+        /* Sin host conectado (DTR bajo): los frames se descartan. La señal de
+         * vida para la motherboard es el heartbeat, no un contador aquí. */
     }
 }
 
@@ -256,11 +286,16 @@ esp_err_t sensorBoard_comm_init(void)
     }
     cdc_initialized = true;
 
-    /* La cola se publica ANTES de crear las tareas: usb_tx_task tiene prio 5
-     * (> main, prio 1) y puede ejecutar xQueueReceive(s_tx_queue) de inmediato
-     * — si la global fuera NULL en ese momento, configASSERT/hardfault. */
+    /* Las colas se publican ANTES de crear las tareas: usb_tx_task tiene
+     * prio 5 (> main, prio 1) y puede ejecutar xQueueReceive de inmediato
+     * — si una global fuera NULL en ese momento, configASSERT/hardfault. */
     s_tx_queue = xQueueCreate(SB_TX_QUEUE_DEPTH, sizeof(sb_tx_item_t));
     if (s_tx_queue == NULL) {
+        err = ESP_ERR_NO_MEM;
+        goto fail;
+    }
+    s_tx_bin_queue = xQueueCreate(SB_TX_BIN_QUEUE_DEPTH, sizeof(sb_tx_bin_item_t));
+    if (s_tx_bin_queue == NULL) {
         err = ESP_ERR_NO_MEM;
         goto fail;
     }
@@ -283,6 +318,10 @@ esp_err_t sensorBoard_comm_init(void)
 fail:
     if (tx_task_handle != NULL) {
         vTaskDelete(tx_task_handle);
+    }
+    if (s_tx_bin_queue != NULL) {
+        vQueueDelete(s_tx_bin_queue);
+        s_tx_bin_queue = NULL;
     }
     if (s_tx_queue != NULL) {
         vQueueDelete(s_tx_queue);
@@ -309,29 +348,38 @@ esp_err_t sensorBoard_comm_send_binary(uint8_t type, uint8_t *buf, size_t len)
     if (buf == NULL || len == 0 || len > SB_PROTO_MAX_BINARY_PAYLOAD) {
         return ESP_ERR_INVALID_ARG;
     }
-    if (s_tx_queue == NULL) {
+    if (s_tx_bin_queue == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
 
-    /* Frame completo en PSRAM (fallback a heap interna): el caller recupera
-     * su buffer al retornar; el ownership del frame pasa a la cola TX */
+    /* Frame completo SOLO en PSRAM: sin fallback a DRAM interna — un JPEG de
+     * decenas de KB compitiendo con stacks/cJSON es peor que descartar la
+     * captura (fail-safe). El caller recupera su buffer al retornar. */
     size_t frame_len = len + SB_PROTO_FRAME_OVERHEAD;
     uint8_t *frame = heap_caps_malloc(frame_len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (frame == NULL) {
-        frame = malloc(frame_len);
-    }
-    if (frame == NULL) {
         return ESP_ERR_NO_MEM;
     }
-    if (sb_frame_encode(type, buf, len, frame, frame_len) == 0) {
+    size_t encoded = sb_frame_encode(type, buf, len, frame, frame_len);
+    if (encoded == 0) {
         free(frame);
         return ESP_ERR_INVALID_SIZE;
     }
 
-    sb_tx_item_t item = { .heap = true, .heap_frame = frame, .len = frame_len };
-    if (xQueueSend(s_tx_queue, &item, pdMS_TO_TICKS(100)) != pdTRUE) {
+    /* Cola de profundidad 1 y sin espera: si hay un binario en vuelo, este
+     * se rechaza (cota dura de PSRAM y de latencia del JSON) */
+    sb_tx_bin_item_t item = { .frame = frame, .len = encoded };
+    if (xQueueSend(s_tx_bin_queue, &item, 0) != pdTRUE) {
         free(frame);
-        return ESP_ERR_TIMEOUT;
+        return ESP_ERR_TIMEOUT; /* binario anterior aún sin drenar */
     }
     return ESP_OK;
+}
+
+esp_err_t sensorBoard_comm_send_json_noblock(const char *json_str)
+{
+    /* Para contextos que no deben bloquear jamás (dispatcher en usb_rx):
+     * bajo saturación de la cola la respuesta se pierde y el emisor
+     * reintenta — nunca al revés */
+    return send_json_timeout(json_str, 0);
 }

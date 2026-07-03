@@ -36,7 +36,9 @@ static void send_error(const char *cmd_str, uint32_t id, const char *msg)
 {
     char buf[SB_PROTO_MAX_JSON_PAYLOAD];
     if (sb_cmd_build_error(buf, sizeof(buf), cmd_str, id, msg, now_ms()) > 0) {
-        sensorBoard_comm_send_json(buf);
+        /* Contexto usb_rx: nunca bloquear la ruta de recepción por la salida
+         * (un flood de comandos inválidos no debe frenar el decoder) */
+        sensorBoard_comm_send_json_noblock(buf);
     }
 }
 
@@ -44,7 +46,7 @@ static void handle_status(uint32_t id)
 {
     char buf[SB_PROTO_MAX_JSON_PAYLOAD];
     if (sb_cmd_build_status(buf, sizeof(buf), id, now_ms()) > 0) {
-        sensorBoard_comm_send_json(buf);
+        sensorBoard_comm_send_json_noblock(buf);
     } else {
         /* Fail-closed pero NO mudo: con demasiados sensores registrados el
          * status no cabría en 256B y el host solo vería un timeout. */

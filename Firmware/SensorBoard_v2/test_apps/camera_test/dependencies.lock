@@ -78,6 +78,6 @@ direct_dependencies:
 - espressif/esp32-camera
 - espressif/esp_tinyusb
 - idf
-manifest_hash: 247dc5e801567b4dbdcb0bdc66fe1cbffb1b7c1cec0118d89c360dd2b29fa394
+manifest_hash: d141ed81a4c03213acf6cf872f75fad18123c145d19cdb879ed23f687e2fbf82
 target: esp32s3
 version: 3.0.0

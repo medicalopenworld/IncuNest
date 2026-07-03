@@ -397,11 +397,14 @@ TEST_CASE("cmd_register: re-register replaces handler", "[cmdreg]")
 TEST_CASE("cmd_register: table full and invalid args rejected", "[cmdreg]")
 {
     sb_cmd_registry_reset();
-    TEST_ASSERT_EQUAL(ESP_OK, sensorBoard_cmd_register("c0", reg_test_handler));
-    TEST_ASSERT_EQUAL(ESP_OK, sensorBoard_cmd_register("c1", reg_test_handler));
-    TEST_ASSERT_EQUAL(ESP_OK, sensorBoard_cmd_register("c2", reg_test_handler));
-    TEST_ASSERT_EQUAL(ESP_OK, sensorBoard_cmd_register("c3", reg_test_handler));
-    TEST_ASSERT_EQUAL(ESP_ERR_NO_MEM, sensorBoard_cmd_register("c4", reg_test_handler));
+    /* Deriva del límite real para que un cambio de SB_CMD_REG_MAX no deje
+     * este test midiendo otra cosa */
+    for (unsigned i = 0; i < SB_CMD_REG_MAX; i++) {
+        char name[SB_CMD_REG_NAME_MAX];
+        snprintf(name, sizeof(name), "c%u", i);
+        TEST_ASSERT_EQUAL(ESP_OK, sensorBoard_cmd_register(name, reg_test_handler));
+    }
+    TEST_ASSERT_EQUAL(ESP_ERR_NO_MEM, sensorBoard_cmd_register("extra", reg_test_handler));
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, sensorBoard_cmd_register(NULL, reg_test_handler));
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, sensorBoard_cmd_register("x", NULL));
     sb_cmd_registry_reset();

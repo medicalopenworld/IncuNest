@@ -32,6 +32,29 @@ TEST_CASE("capture_err: busy message", "[cam]")
     TEST_ASSERT_NOT_NULL(strstr(buf, "\"msg\":\"busy\""));
 }
 
+/* ── Gate de capture (puro) ────────────────────────────────── */
+
+TEST_CASE("gate: not ready rejected before anything else", "[cam]")
+{
+    TEST_ASSERT_EQUAL(SB_CAM_GATE_NOT_READY, sb_cam_gate(0, 0, 0, 10000));
+    TEST_ASSERT_EQUAL(SB_CAM_GATE_NOT_READY, sb_cam_gate(0, 1, 99999, 10000));
+}
+
+TEST_CASE("gate: busy rejects second request while pending", "[cam]")
+{
+    TEST_ASSERT_EQUAL(SB_CAM_GATE_BUSY, sb_cam_gate(1, 1, 500, 10000));
+}
+
+TEST_CASE("gate: stalled capture reports fault, not busy", "[cam]")
+{
+    TEST_ASSERT_EQUAL(SB_CAM_GATE_STALLED, sb_cam_gate(1, 1, 10001, 10000));
+}
+
+TEST_CASE("gate: idle accepts", "[cam]")
+{
+    TEST_ASSERT_EQUAL(SB_CAM_GATE_ACCEPT, sb_cam_gate(1, 0, 0, 10000));
+}
+
 TEST_CASE("builders: tiny buffer returns 0", "[cam]")
 {
     char tiny[8];

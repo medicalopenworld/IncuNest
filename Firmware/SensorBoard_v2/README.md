@@ -45,6 +45,14 @@ Eventos en tiempo real por interrupción (hall DRV5032 en IO47, debounce `CONFIG
 
 Cada `CONFIG_SB_MIC_PUBLISH_PERIOD_S` (5 s): `{"type":"event","cmd":"sound_level","data":{"dba":42.3},"ts":…}` — RMS de una ventana de `CONFIG_SB_MIC_WINDOW_MS` (1 s) del ICS-41350 (PDM, 16 kHz). **Advertencia:** el campo se llama `dba` por el protocolo del roadmap, pero el valor es SPL estimado **sin ponderación A** y con offset de sensibilidad de datasheet (`CONFIG_SB_MIC_DB_OFFSET_TENTHS`) **sin calibrar contra sonómetro**. No usar para decisiones clínicas hasta calibrar.
 
+## Cámara (Fase 5)
+
+`{"type":"cmd","cmd":"capture","id":N}` → resp `{"type":"resp","cmd":"capture","id":N,"status":"ok","size":<bytes>,"ts":…}` seguida de un frame binario `TYPE=0x01` con el JPEG (QVGA, `CONFIG_SB_CAM_JPEG_QUALITY`). Solo bajo demanda — no hay captura continua. Un `capture` con otro en vuelo responde `error`/`busy`; una captura colgada >10 s responde `camera stalled` y baja `sensors.cam`. El SCCB de la OV2640 comparte el bus I2C principal con el SHT40 (requiere que `env_sensors` inicie primero); si ese bus no está disponible, `sensors.cam:false`.
+
+**Prioridad de TX:** el JSON (telemetría/heartbeat/resp) siempre drena antes que los binarios; hay como máximo **un JPEG en vuelo** (PSRAM acotada) y, por el framing contiguo, un JSON urgente puede esperar como mucho la transmisión de ese único frame (~600 ms en el peor caso con host atascado, típicamente <100 ms).
+
+**Modelo de amenaza del enlace (decisión registrada):** el USB SensorBoard↔motherboard se trata como **canal de confianza intra-dispositivo** (conector interno del equipo). No hay autenticación en el protocolo: cualquier host físico en ese USB puede pedir `capture` (imagen del interior de la incubadora). Riesgo aceptado mientras el conector no sea accesible externamente; re-evaluar si el enlace sale del chasis.
+
 ## Compilar y flashear
 
 ```bash

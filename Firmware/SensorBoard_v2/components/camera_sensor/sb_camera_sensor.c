@@ -39,39 +39,56 @@ static const char *TAG = "CAM";
 #define SB_CAM_TASK_PRIO 3
 #define SB_CAM_TASK_STACK 4096
 
+/* Si una captura tarda más que esto, la cámara está colgada (DVP sin PCLK,
+ * SCCB caído): el gate responde el fallo real en vez de "busy" eterno */
+#define SB_CAM_STALL_MS 10000
+
 static TaskHandle_t s_cam_task = NULL;
-/* Escrito por el handler (contexto usb_rx, único productor); leído/limpiado
- * por camera_task */
+/* Escritos por el handler (contexto usb_rx, único productor); leídos/
+ * limpiados por camera_task */
 static volatile uint32_t s_pending_id = 0;
 static volatile bool s_busy = false;
+static volatile uint32_t s_busy_since_ms = 0;
 
 static uint32_t now_ms(void)
 {
     return (uint32_t)(esp_timer_get_time() / 1000);
 }
 
+/* noblock: se invoca también desde el contexto usb_rx (handler) */
 static void send_capture_err(uint32_t id, const char *msg)
 {
     char buf[SB_PROTO_MAX_JSON_PAYLOAD];
     if (sb_cam_build_capture_err(buf, sizeof(buf), id, msg, now_ms()) > 0) {
-        sensorBoard_comm_send_json(buf);
+        sensorBoard_comm_send_json_noblock(buf);
     }
 }
 
-/* Handler de "capture": contexto usb_rx — solo valida y notifica */
+/* Handler de "capture": contexto usb_rx — solo valida y notifica (contrato
+ * de sensorBoard_cmd_registry.h) */
 static void capture_cmd_handler(uint32_t id)
 {
-    if (s_cam_task == NULL) {
+    uint32_t elapsed = s_busy ? (now_ms() - s_busy_since_ms) : 0;
+
+    switch (sb_cam_gate(s_cam_task != NULL, s_busy, elapsed, SB_CAM_STALL_MS)) {
+    case SB_CAM_GATE_NOT_READY:
         send_capture_err(id, "camera not ready");
-        return;
-    }
-    if (s_busy) {
+        break;
+    case SB_CAM_GATE_BUSY:
         send_capture_err(id, "busy");
-        return;
+        break;
+    case SB_CAM_GATE_STALLED:
+        /* Fallo real, no "busy" eterno: la cámara quedó colgada en fb_get */
+        send_capture_err(id, "camera stalled");
+        sensorBoard_status_set_sensor("cam", false);
+        break;
+    case SB_CAM_GATE_ACCEPT:
+        s_busy = true;
+        s_busy_since_ms = now_ms();
+        s_pending_id = id;
+        xTaskNotifyGive(s_cam_task);
+        break;
     }
-    s_busy = true;
-    s_pending_id = id;
-    xTaskNotifyGive(s_cam_task);
 }
 
 static void camera_task(void *arg)
@@ -98,7 +115,8 @@ static void camera_task(void *arg)
         }
 
         esp_err_t err = sensorBoard_comm_send_binary(SB_PROTO_TYPE_JPEG, fb->buf, fb->len);
-        /* send_binary copia el frame a PSRAM: el fb vuelve al driver ya */
+        /* send_binary copia el frame a PSRAM: el fb vuelve al driver ya.
+         * ESP_ERR_TIMEOUT = binario anterior sin drenar (cota en vuelo=1). */
         esp_camera_fb_return(fb);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "jpeg frame dropped (%d)", (int)err);
