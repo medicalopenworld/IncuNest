@@ -1,0 +1,15 @@
+menu "SensorBoard door_sensor"
+
+    config SB_DOOR_DEBOUNCE_MS
+        int "Ventana de debounce (ms)"
+        default 250
+        range 50 5000
+        help
+            El DRV5032FB muestrea internamente a ~5 Hz (200 ms): la ventana
+            debe ser >= a ese periodo para leer un nivel ya asentado.
+
+    config SB_DOOR_ACTIVE_LOW
+        bool "Nivel bajo = iman presente = puerta cerrada"
+        default y
+
+endmenu
