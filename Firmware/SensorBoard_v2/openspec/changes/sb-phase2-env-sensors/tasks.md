@@ -7,12 +7,12 @@
 
 ## 2. Green
 
-- [ ] 2.1 Implementar registro de sensores en `usb_comm` (tabla estática) + volcado en `sb_cmd_build_status`
-- [ ] 2.2 Implementar puros: CRC-8 Sensirion, conversiones SHT4x, builder de evento (null posicional), conversión ALS
-- [ ] 2.3 Driver I2C `i2c_master` (2 buses) + lectura SHT40 (cmd 0xFD, delay 10 ms, CRC por palabra)
-- [ ] 2.4 ADC oneshot para ALS (IO1) + Kconfig (`SB_ENV_POLL_PERIOD_S`, `SB_ALS_UV_PER_LUX`)
-- [ ] 2.5 `sensor_task` (prio 4): polling, publicación del evento, actualización de disponibilidad
-- [ ] 2.6 `main.c`: init de `env_sensors`
+- [x] 2.1 Implementar registro de sensores en `usb_comm` (tabla estática) + volcado en `sb_cmd_build_status`
+- [x] 2.2 Implementar puros: CRC-8 Sensirion, conversiones SHT4x, builder de evento (null posicional), conversión ALS
+- [x] 2.3 Driver I2C `i2c_master` (2 buses) + lectura SHT40 (cmd 0xFD, delay 10 ms, CRC por palabra)
+- [x] 2.4 ADC oneshot para ALS (IO1) + Kconfig (`SB_ENV_POLL_PERIOD_S`, `SB_ALS_UV_PER_LUX`)
+- [x] 2.5 `sensor_task` (prio 4): polling, publicación del evento, actualización de disponibilidad
+- [x] 2.6 `main.c`: init de `env_sensors`
 
 ## 3. Verify
 
