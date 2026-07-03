@@ -7,6 +7,7 @@ idf_component_register(
         "sensorBoard_frame.c"
         "sensorBoard_json.c"
         "sensorBoard_status.c"
+        "sensorBoard_cmd_registry.c"
     INCLUDE_DIRS "include"
     REQUIRES esp_timer
 )

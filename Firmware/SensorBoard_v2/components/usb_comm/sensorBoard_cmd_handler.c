@@ -1,6 +1,7 @@
 #include "sensorBoard_comm.h"
 #include "sensorBoard_comm_protocol.h"
 #include "sensorBoard_cmd_builder.h"
+#include "sensorBoard_cmd_registry.h"
 #include "cJSON.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -35,7 +36,9 @@ static void send_error(const char *cmd_str, uint32_t id, const char *msg)
 {
     char buf[SB_PROTO_MAX_JSON_PAYLOAD];
     if (sb_cmd_build_error(buf, sizeof(buf), cmd_str, id, msg, now_ms()) > 0) {
-        sensorBoard_comm_send_json(buf);
+        /* Contexto usb_rx: nunca bloquear la ruta de recepción por la salida
+         * (un flood de comandos inválidos no debe frenar el decoder) */
+        sensorBoard_comm_send_json_noblock(buf);
     }
 }
 
@@ -43,7 +46,7 @@ static void handle_status(uint32_t id)
 {
     char buf[SB_PROTO_MAX_JSON_PAYLOAD];
     if (sb_cmd_build_status(buf, sizeof(buf), id, now_ms()) > 0) {
-        sensorBoard_comm_send_json(buf);
+        sensorBoard_comm_send_json_noblock(buf);
     } else {
         /* Fail-closed pero NO mudo: con demasiados sensores registrados el
          * status no cabría en 256B y el host solo vería un timeout. */
@@ -76,8 +79,14 @@ void sensorBoard_cmd_handle(const uint8_t *payload, size_t len)
     } else if (strcmp(cmd->valuestring, SB_CMD_STATUS) == 0) {
         handle_status(id);
     } else {
-        ESP_LOGW(TAG, "Unknown cmd");
-        send_error(cmd->valuestring, id, "cmd not found");
+        /* Comandos de fases (Fase 5+): registrados sin que usb_comm los conozca */
+        sb_cmd_handler_t handler = sb_cmd_registry_find(cmd->valuestring);
+        if (handler != NULL) {
+            handler(id);
+        } else {
+            ESP_LOGW(TAG, "Unknown cmd");
+            send_error(cmd->valuestring, id, "cmd not found");
+        }
     }
 
     cJSON_Delete(root);

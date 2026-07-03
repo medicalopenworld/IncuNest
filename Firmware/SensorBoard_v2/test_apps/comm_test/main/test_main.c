@@ -348,14 +348,107 @@ TEST_CASE("status: invalid names rejected", "[status]")
                       sensorBoard_status_set_sensor("nombre-demasiado-largo", true));
 }
 
+/* ── Registro de comandos (Fase 5) ─────────────────────────── */
+
+#include "sensorBoard_cmd_registry.h"
+
+static uint32_t s_reg_last_id;
+static int s_reg_calls;
+static void reg_test_handler(uint32_t id)
+{
+    s_reg_last_id = id;
+    s_reg_calls++;
+}
+static void reg_test_handler2(uint32_t id)
+{
+    (void)id;
+    s_reg_calls += 100;
+}
+
+TEST_CASE("cmd_register: registered handler is found and callable", "[cmdreg]")
+{
+    sb_cmd_registry_reset();
+    TEST_ASSERT_EQUAL(ESP_OK, sensorBoard_cmd_register("capture", reg_test_handler));
+
+    sb_cmd_handler_t h = sb_cmd_registry_find("capture");
+    TEST_ASSERT_NOT_NULL(h);
+    s_reg_calls = 0;
+    h(7);
+    TEST_ASSERT_EQUAL(1, s_reg_calls);
+    TEST_ASSERT_EQUAL(7, s_reg_last_id);
+}
+
+TEST_CASE("cmd_register: unknown cmd finds NULL", "[cmdreg]")
+{
+    sb_cmd_registry_reset();
+    TEST_ASSERT_NULL(sb_cmd_registry_find("nope"));
+}
+
+TEST_CASE("cmd_register: re-register replaces handler", "[cmdreg]")
+{
+    sb_cmd_registry_reset();
+    sensorBoard_cmd_register("capture", reg_test_handler);
+    sensorBoard_cmd_register("capture", reg_test_handler2);
+    s_reg_calls = 0;
+    sb_cmd_registry_find("capture")(1);
+    TEST_ASSERT_EQUAL(100, s_reg_calls);
+}
+
+TEST_CASE("cmd_register: table full and invalid args rejected", "[cmdreg]")
+{
+    sb_cmd_registry_reset();
+    /* Deriva del límite real para que un cambio de SB_CMD_REG_MAX no deje
+     * este test midiendo otra cosa */
+    for (unsigned i = 0; i < SB_CMD_REG_MAX; i++) {
+        char name[SB_CMD_REG_NAME_MAX];
+        snprintf(name, sizeof(name), "c%u", i);
+        TEST_ASSERT_EQUAL(ESP_OK, sensorBoard_cmd_register(name, reg_test_handler));
+    }
+    TEST_ASSERT_EQUAL(ESP_ERR_NO_MEM, sensorBoard_cmd_register("extra", reg_test_handler));
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, sensorBoard_cmd_register(NULL, reg_test_handler));
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, sensorBoard_cmd_register("x", NULL));
+    sb_cmd_registry_reset();
+}
+
 /* ── API pública (sin init: no requieren host USB) ─────────── */
 
 #include "sensorBoard_comm.h"
 
-TEST_CASE("send_binary returns ESP_ERR_NOT_SUPPORTED in Phase 1", "[comm]")
+TEST_CASE("send_binary: invalid args rejected before any allocation", "[comm]")
+{
+    uint8_t small[4] = { 0 };
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, sensorBoard_comm_send_binary(0x01, NULL, 4));
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, sensorBoard_comm_send_binary(0x01, small, 0));
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG,
+                      sensorBoard_comm_send_binary(0x01, small, SB_PROTO_MAX_BINARY_PAYLOAD + 1));
+}
+
+TEST_CASE("send_binary: without init returns ESP_ERR_INVALID_STATE", "[comm]")
 {
     uint8_t buf[4] = { 0 };
-    TEST_ASSERT_EQUAL(ESP_ERR_NOT_SUPPORTED, sensorBoard_comm_send_binary(0x01, buf, sizeof(buf)));
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, sensorBoard_comm_send_binary(0x01, buf, sizeof(buf)));
+}
+
+TEST_CASE("frame: binary TYPE=0x01 round-trip with 4KB payload", "[frame]")
+{
+    static uint8_t payload[4096];
+    static uint8_t frame[4096 + SB_PROTO_FRAME_OVERHEAD];
+    static uint8_t dec_buf[4096];
+    for (size_t i = 0; i < sizeof(payload); i++) {
+        payload[i] = (uint8_t)(i * 7);
+    }
+
+    size_t flen = sb_frame_encode(SB_PROTO_TYPE_JPEG, payload, sizeof(payload), frame, sizeof(frame));
+    TEST_ASSERT_EQUAL(sizeof(payload) + SB_PROTO_FRAME_OVERHEAD, flen);
+
+    sb_frame_dec_t dec;
+    sb_frame_dec_init(&dec, dec_buf, sizeof(dec_buf));
+    s_cb_calls = 0;
+    for (size_t i = 0; i < flen; i++) {
+        sb_frame_dec_feed(&dec, frame[i], test_frame_cb, NULL);
+    }
+    TEST_ASSERT_EQUAL(1, s_cb_calls);
+    TEST_ASSERT_EQUAL(SB_PROTO_TYPE_JPEG, s_cb_type);
 }
 
 TEST_CASE("send_json without init returns ESP_ERR_INVALID_STATE", "[comm]")

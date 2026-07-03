@@ -39,9 +39,6 @@ Hardware/Electronics/Motherboard/History/
 .agent
 *.code-workspace
 .claude
-# Exception: SensorBoard_v2 versions its agentic framework deliberately (claude_agents_tests experiment)
-!Firmware/SensorBoard_v2/.claude/
-!Firmware/SensorBoard_v2/.claude/**
 
 # Serial capture logs
 Firmware/motherBoard/serial_*.txt
