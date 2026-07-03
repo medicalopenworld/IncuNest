@@ -320,6 +320,22 @@ TEST_CASE("status: table full rejects ninth sensor", "[status]")
     sb_status_reset();
 }
 
+TEST_CASE("status: 8 max-length names overflow fails closed, not garbled", "[status]")
+{
+    /* Techo documentado: 8 nombres de 11 chars no caben en los 256B del
+     * payload — build_status debe devolver 0 (fail-closed), nunca JSON roto */
+    sb_status_reset();
+    for (int i = 0; i < 8; i++) {
+        char name[SB_STATUS_NAME_MAX];
+        snprintf(name, sizeof(name), "sensor_%04d", i);
+        TEST_ASSERT_EQUAL(ESP_OK, sensorBoard_status_set_sensor(name, true));
+    }
+    char buf[SB_PROTO_MAX_JSON_PAYLOAD];
+    size_t n = sb_cmd_build_status(buf, sizeof(buf), 1, 2);
+    TEST_ASSERT_EQUAL(0, n);
+    sb_status_reset();
+}
+
 TEST_CASE("status: invalid names rejected", "[status]")
 {
     sb_status_reset();

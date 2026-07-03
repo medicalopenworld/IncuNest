@@ -21,9 +21,9 @@
 
 ## 4. Review
 
-- [ ] 4.1 code-reviewer y security-reviewer en paralelo; hallazgos resueltos
+- [x] 4.1 code-reviewer y security-reviewer en paralelo; hallazgos resueltos
 
 ## 5. Docs / cierre
 
-- [ ] 5.1 README + CHANGELOG + architecture.md
+- [x] 5.1 README + CHANGELOG + architecture.md
 - [ ] 5.2 Archivar change, retro y checkbox de EPIC-001

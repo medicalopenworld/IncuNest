@@ -1,4 +1,5 @@
 #include "sb_env_convert.h"
+#include <math.h>
 #include <stdio.h>
 
 uint8_t sht4x_crc8(const uint8_t *data, size_t len)
@@ -44,8 +45,11 @@ static int append_val(char *buf, size_t buf_size, int pos, float v, bool valid)
     if (pos < 0 || (size_t)pos >= buf_size) {
         return -1;
     }
-    int n = valid ? snprintf(buf + pos, buf_size - (size_t)pos, "%.1f", (double)v)
-                  : snprintf(buf + pos, buf_size - (size_t)pos, "null");
+    /* NaN/inf con %.1f emitiría "nan"/"inf" — JSON inválido con CRC válido.
+     * Un valor no finito se trata como sensor no válido (fail-safe). */
+    bool emit = valid && isfinite(v);
+    int n = emit ? snprintf(buf + pos, buf_size - (size_t)pos, "%.1f", (double)v)
+                 : snprintf(buf + pos, buf_size - (size_t)pos, "null");
     if (n < 0 || n >= (int)(buf_size - (size_t)pos)) {
         return -1;
     }

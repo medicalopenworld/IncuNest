@@ -1,5 +1,6 @@
 #include "sb_env_sensors.h"
 #include "sb_env_convert.h"
+#include "sb_env_i2c.h"
 #include "sensorBoard_comm.h"
 #include "sensorBoard_comm_protocol.h"
 #include "sensorBoard_status.h"
@@ -32,6 +33,18 @@ static const char *TAG = "ENV";
 #define SB_I2C_SPEED_HZ 100000
 #define SB_I2C_TIMEOUT_MS 100
 
+/* Gate de plausibilidad (rules/security.md: fuera de rango físico ⇒ sensor
+ * no disponible). Rango operativo del SHT4x: -40..+125 °C — atrapa además
+ * patrones bus-stuck (raw 0x0000→-45, 0xFFFF→+130) que colisionen en CRC-8. */
+#define SHT4X_TEMP_MIN_C (-40.0f)
+#define SHT4X_TEMP_MAX_C (125.0f)
+
+/* Fallback si no hay calibración eFuse: fondo de escala aprox. a 12 dB
+ * y máximo raw de 12 bits — mantener coherentes con ADC_ATTEN_DB_12 y
+ * ADC_BITWIDTH_DEFAULT usados abajo. */
+#define SB_ADC_FALLBACK_FULLSCALE_MV 3100
+#define SB_ADC_MAX_RAW_12BIT 4095
+
 /* Prio 4: por debajo del transporte usb_comm (5) — presupuesto de
  * prioridades comentado en sensorBoard_comm.c */
 #define SB_ENV_TASK_PRIO 4
@@ -47,6 +60,13 @@ typedef struct {
 static sb_sht_t s_sht[SB_ENV_SHT_COUNT] = { { NULL, "sht0" }, { NULL, "sht1" }, { NULL, "sht2" } };
 static adc_oneshot_unit_handle_t s_adc = NULL;
 static adc_cali_handle_t s_adc_cali = NULL;
+/* Bus principal (IO4/IO5): lo comparte la cámara (SCCB) en Fase 5 */
+static i2c_master_bus_handle_t s_i2c_main_bus = NULL;
+
+i2c_master_bus_handle_t sb_env_get_main_i2c_bus(void)
+{
+    return s_i2c_main_bus;
+}
 
 static esp_err_t sht40_read(i2c_master_dev_handle_t dev, float *temp, float *rh)
 {
@@ -65,7 +85,11 @@ static esp_err_t sht40_read(i2c_master_dev_handle_t dev, float *temp, float *rh)
     if (sht4x_crc8(&rx[0], 2) != rx[2] || sht4x_crc8(&rx[3], 2) != rx[5]) {
         return ESP_ERR_INVALID_CRC;
     }
-    *temp = sht4x_convert_temp((uint16_t)((rx[0] << 8) | rx[1]));
+    float t = sht4x_convert_temp((uint16_t)((rx[0] << 8) | rx[1]));
+    if (t < SHT4X_TEMP_MIN_C || t > SHT4X_TEMP_MAX_C) {
+        return ESP_ERR_INVALID_RESPONSE; /* dato CRC-válido pero no plausible */
+    }
+    *temp = t;
     *rh = sht4x_convert_rh((uint16_t)((rx[3] << 8) | rx[4]));
     return ESP_OK;
 }
@@ -82,7 +106,7 @@ static float als_read(bool *valid)
     }
     int mv;
     if (s_adc_cali == NULL || adc_cali_raw_to_voltage(s_adc_cali, raw, &mv) != ESP_OK) {
-        mv = raw * 3100 / 4095; /* aproximación sin calibración eFuse (12dB) */
+        mv = raw * SB_ADC_FALLBACK_FULLSCALE_MV / SB_ADC_MAX_RAW_12BIT;
     }
     *valid = true;
     return sb_als_mv_to_lux(mv, CONFIG_SB_ALS_UV_PER_LUX);
@@ -115,8 +139,8 @@ static void sensor_task(void *arg)
 /* Fallo de un bus/sensor/ADC = ese sensor queda no-disponible (sensors.x
  * false); solo el fallo de la tarea es fatal. Roadmap Fase 2: "reportar
  * false en lugar de bloquear la tarea o crashear". */
-static void init_bus_devices(i2c_port_num_t port, int sda, int scl, sb_sht_t **devs,
-                             const uint8_t *addrs, int count)
+static i2c_master_bus_handle_t init_bus_devices(i2c_port_num_t port, int sda, int scl,
+                                                sb_sht_t **devs, const uint8_t *addrs, int count)
 {
     i2c_master_bus_config_t bus_cfg = {
         .i2c_port = port,
@@ -130,7 +154,7 @@ static void init_bus_devices(i2c_port_num_t port, int sda, int scl, sb_sht_t **d
     esp_err_t err = i2c_new_master_bus(&bus_cfg, &bus);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "I2C bus %d init failed", (int)port);
-        return;
+        return NULL;
     }
     for (int i = 0; i < count; i++) {
         i2c_device_config_t dev_cfg = {
@@ -143,6 +167,7 @@ static void init_bus_devices(i2c_port_num_t port, int sda, int scl, sb_sht_t **d
             ESP_LOGW(TAG, "SHT40 add failed (bus %d addr 0x%02X)", (int)port, addrs[i]);
         }
     }
+    return bus;
 }
 
 static void init_als(void)
@@ -185,8 +210,8 @@ esp_err_t sb_env_sensors_init(void)
     /* Bus principal (IO4/IO5, compartido con SCCB de cámara en Fase 5): sht2 */
     sb_sht_t *main_bus_devs[] = { &s_sht[2] };
     const uint8_t main_bus_addrs[] = { SHT40_ADDR_AD1B };
-    init_bus_devices(I2C_NUM_1, SB_PIN_I2C_MAIN_SDA, SB_PIN_I2C_MAIN_SCL, main_bus_devs,
-                     main_bus_addrs, 1);
+    s_i2c_main_bus = init_bus_devices(I2C_NUM_1, SB_PIN_I2C_MAIN_SDA, SB_PIN_I2C_MAIN_SCL,
+                                      main_bus_devs, main_bus_addrs, 1);
 
     init_als();
 
