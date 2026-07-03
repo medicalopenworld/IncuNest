@@ -1,6 +1,7 @@
 #include "sensorBoard_comm.h"
 #include "sensorBoard_comm_protocol.h"
 #include "sensorBoard_cmd_builder.h"
+#include "sensorBoard_cmd_registry.h"
 #include "cJSON.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -76,8 +77,14 @@ void sensorBoard_cmd_handle(const uint8_t *payload, size_t len)
     } else if (strcmp(cmd->valuestring, SB_CMD_STATUS) == 0) {
         handle_status(id);
     } else {
-        ESP_LOGW(TAG, "Unknown cmd");
-        send_error(cmd->valuestring, id, "cmd not found");
+        /* Comandos de fases (Fase 5+): registrados sin que usb_comm los conozca */
+        sb_cmd_handler_t handler = sb_cmd_registry_find(cmd->valuestring);
+        if (handler != NULL) {
+            handler(id);
+        } else {
+            ESP_LOGW(TAG, "Unknown cmd");
+            send_error(cmd->valuestring, id, "cmd not found");
+        }
     }
 
     cJSON_Delete(root);

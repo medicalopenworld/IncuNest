@@ -2,6 +2,7 @@
 #include "sensorBoard_comm_protocol.h"
 #include "sensorBoard_frame.h"
 #include "sensorBoard_json.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -13,13 +14,16 @@
 #include "tinyusb_default_config.h"
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static const char *TAG = "USB_COMM";
 
 /* ── TX queue ──────────────────────────────────────────────── */
 typedef struct {
-    uint8_t frame[SB_PROTO_MAX_JSON_FRAME];
+    bool heap;          /* true: heap_frame con ownership (usb_tx_task libera) */
+    uint8_t *heap_frame; /* frame completo ya codificado, en PSRAM/heap */
+    uint8_t frame[SB_PROTO_MAX_JSON_FRAME]; /* camino JSON por valor (Fase 1) */
     size_t len;
 } sb_tx_item_t;
 
@@ -58,7 +62,7 @@ static esp_err_t send_json_timeout(const char *json_str, TickType_t wait_ticks)
         return ESP_ERR_INVALID_SIZE;
     }
 
-    sb_tx_item_t item;
+    sb_tx_item_t item = { .heap = false, .heap_frame = NULL };
     item.len = sb_frame_encode(SB_PROTO_TYPE_JSON, (const uint8_t *)json_str, payload_len,
                                item.frame, sizeof(item.frame));
     if (item.len == 0) {
@@ -165,6 +169,29 @@ static void usb_rx_task(void *arg)
     }
 }
 
+/* Escribe un frame grande por chunks; aborta ante stalls repetidos o host
+ * desconectado (el frame se descarta — la motherboard reintenta capture). */
+static void tx_write_large(const uint8_t *data, size_t len)
+{
+    size_t off = 0;
+    int stalls = 0;
+
+    while (off < len && stalls < 20 && s_cdc_ready) {
+        size_t queued = tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, data + off, len - off);
+        off += queued;
+        esp_err_t err = tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0, pdMS_TO_TICKS(100));
+        if (queued == 0 || err != ESP_OK) {
+            stalls++;
+            vTaskDelay(pdMS_TO_TICKS(10));
+        } else {
+            stalls = 0;
+        }
+    }
+    if (off < len) {
+        ESP_LOGE(TAG, "binary frame aborted at %u/%u B", (unsigned)off, (unsigned)len);
+    }
+}
+
 /* ── TX task: único escritor del endpoint CDC ──────────────── */
 static void usb_tx_task(void *arg)
 {
@@ -173,7 +200,12 @@ static void usb_tx_task(void *arg)
 
     for (;;) {
         if (xQueueReceive(s_tx_queue, &item, portMAX_DELAY) == pdTRUE) {
-            if (s_cdc_ready) {
+            if (item.heap) {
+                if (s_cdc_ready && item.heap_frame != NULL) {
+                    tx_write_large(item.heap_frame, item.len);
+                }
+                free(item.heap_frame); /* ownership: SIEMPRE se libera aquí */
+            } else if (s_cdc_ready) {
                 tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, item.frame, item.len);
                 tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0, pdMS_TO_TICKS(50));
             }
@@ -274,9 +306,32 @@ esp_err_t sensorBoard_comm_send_json(const char *json_str)
 
 esp_err_t sensorBoard_comm_send_binary(uint8_t type, uint8_t *buf, size_t len)
 {
-    /* Fase 5: transferencia de payloads grandes (JPEG) con ownership de buffer */
-    (void)type;
-    (void)buf;
-    (void)len;
-    return ESP_ERR_NOT_SUPPORTED;
+    if (buf == NULL || len == 0 || len > SB_PROTO_MAX_BINARY_PAYLOAD) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (s_tx_queue == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    /* Frame completo en PSRAM (fallback a heap interna): el caller recupera
+     * su buffer al retornar; el ownership del frame pasa a la cola TX */
+    size_t frame_len = len + SB_PROTO_FRAME_OVERHEAD;
+    uint8_t *frame = heap_caps_malloc(frame_len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (frame == NULL) {
+        frame = malloc(frame_len);
+    }
+    if (frame == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    if (sb_frame_encode(type, buf, len, frame, frame_len) == 0) {
+        free(frame);
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    sb_tx_item_t item = { .heap = true, .heap_frame = frame, .len = frame_len };
+    if (xQueueSend(s_tx_queue, &item, pdMS_TO_TICKS(100)) != pdTRUE) {
+        free(frame);
+        return ESP_ERR_TIMEOUT;
+    }
+    return ESP_OK;
 }
