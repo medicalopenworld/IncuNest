@@ -7,12 +7,12 @@
 
 ## 2. Green
 
-- [ ] 2.1 Implementar `sensorBoard_crc16.c` (CCITT FALSE, incremental + bloque)
-- [ ] 2.2 Implementar `sb_frame_encode`
-- [ ] 2.3 Implementar decoder (máquina de estados con resync y rechazo de longitud excesiva)
-- [ ] 2.4 Implementar `sensorBoard_comm.c`: init TinyUSB CDC, tareas RX/TX, cola, `send_json`, `send_binary` stub, interceptor de logs
-- [ ] 2.5 Implementar `sensorBoard_cmd_handler.c`: dispatcher cJSON, `status`, desconocido, malformado
-- [ ] 2.6 `main.c` final con heartbeat de 30 s
+- [x] 2.1 Implementar `sensorBoard_crc16.c` (CCITT FALSE, incremental + bloque)
+- [x] 2.2 Implementar `sb_frame_encode`
+- [x] 2.3 Implementar decoder (máquina de estados con resync y rechazo de longitud excesiva)
+- [x] 2.4 Implementar `sensorBoard_comm.c`: init TinyUSB CDC, tareas RX/TX, cola, `send_json`, `send_binary` stub, interceptor de logs
+- [x] 2.5 Implementar `sensorBoard_cmd_handler.c`: dispatcher cJSON, `status`, desconocido, malformado
+- [x] 2.6 `main.c` final con heartbeat de 30 s
 
 ## 3. Verify
 
