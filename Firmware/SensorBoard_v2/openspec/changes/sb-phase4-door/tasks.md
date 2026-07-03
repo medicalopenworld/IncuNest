@@ -16,8 +16,10 @@
 
 ## 4. Review
 
-- [ ] 4.1 code-reviewer + security-reviewer; hallazgos resueltos
+- [x] 4.1 code-reviewer + security-reviewer; hallazgos resueltos
 
 ## 5. Docs / cierre
 
-- [ ] 5.1 README/CHANGELOG; archivar; retro; checkbox EPIC-001
+- [x] 5.1 README/CHANGELOG; archivar; retro; checkbox EPIC-001
+
+> Verificación manual on-target pendiente: generar rebotes rápidos en IO47 durante la ventana de debounce y confirmar que `door_task` vuelve a bloquear sin ciclos fantasma (el contador se vacía con `ulTaskNotifyValueClear`); medir `uxTaskGetStackHighWaterMark` de `door` (stack 3072 asumido).

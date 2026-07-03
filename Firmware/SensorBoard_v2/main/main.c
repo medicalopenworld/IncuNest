@@ -5,7 +5,6 @@
 #include "sb_door_sensor.h"
 #include "sb_env_sensors.h"
 #include "sensorBoard_comm.h"
-#include "sensorBoard_status.h"
 #include "sensorBoard_comm_protocol.h"
 #include <stdio.h>
 
@@ -17,11 +16,9 @@ void app_main(void)
 {
     ESP_LOGI(TAG, "SensorBoard v%s booting", SB_PROTO_FW_VERSION);
     ESP_ERROR_CHECK(sensorBoard_comm_init());
-    /* Sensores: fallo no fatal — status reporta la disponibilidad real */
+    /* Sensores: fallo no fatal — cada componente reporta su disponibilidad */
     ESP_ERROR_CHECK_WITHOUT_ABORT(sb_env_sensors_init());
-    if (sb_door_sensor_init() != ESP_OK) {
-        sensorBoard_status_set_sensor("door", false);
-    }
+    ESP_ERROR_CHECK_WITHOUT_ABORT(sb_door_sensor_init());
     ESP_LOGI(TAG, "SensorBoard ready — USB CDC active");
 
     /* Heartbeat: señal de vida hacia la motherboard */

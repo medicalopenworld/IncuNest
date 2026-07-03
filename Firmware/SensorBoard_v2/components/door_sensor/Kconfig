@@ -12,4 +12,13 @@ menu "SensorBoard door_sensor"
         bool "Nivel bajo = iman presente = puerta cerrada"
         default y
 
+    config SB_DOOR_REASSERT_S
+        int "Re-asercion periodica del estado (segundos)"
+        default 30
+        range 5 600
+        help
+            Sin cambios de puerta, el estado actual se reemite cada N
+            segundos: un evento perdido por backpressure USB se autocorrige
+            y la motherboard puede reconciliar (el modelo edge-only es lossy).
+
 endmenu
