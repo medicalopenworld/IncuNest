@@ -210,35 +210,30 @@ static void tx_write_large(const uint8_t *data, size_t len)
 }
 
 /* ── Retención de arranque ─────────────────────────────────── */
-/* Sin host (DTR bajo) los frames JSON se guardan en un ring estático y se
- * vuelcan al conectar: los logs de init dejan de perderse por llegar antes
- * de que el monitor enumere/abra el puerto (~6.5 KB de RAM). */
-#define SB_BOOT_RING_FRAMES 24
+/* Sin host (DTR bajo) los frames JSON se guardan en un buffer estático que
+ * CONSERVA LOS PRIMEROS (se congela al llenarse — para diagnosticar un
+ * arranque importa el principio, no lo último) y se vuelca al conectar.
+ * Tras el volcado vuelve a armarse para el siguiente periodo sin host. */
+#define SB_BOOT_RING_FRAMES 32
 
 static sb_tx_item_t s_boot_ring[SB_BOOT_RING_FRAMES];
-static size_t s_boot_head = 0;  /* próximo hueco */
-static size_t s_boot_count = 0; /* válidos (<= FRAMES; al llenarse, rota) */
+static size_t s_boot_count = 0;
 
 static void boot_ring_push(const sb_tx_item_t *item)
 {
-    s_boot_ring[s_boot_head] = *item;
-    s_boot_head = (s_boot_head + 1) % SB_BOOT_RING_FRAMES;
-    if (s_boot_count < SB_BOOT_RING_FRAMES) {
-        s_boot_count++;
+    if (s_boot_count >= SB_BOOT_RING_FRAMES) {
+        return; /* lleno: se conservan los primeros, el resto se descarta */
     }
+    s_boot_ring[s_boot_count++] = *item;
 }
 
 static void boot_ring_flush(void)
 {
-    size_t idx = (s_boot_head + SB_BOOT_RING_FRAMES - s_boot_count) % SB_BOOT_RING_FRAMES;
     for (size_t i = 0; i < s_boot_count && s_cdc_ready; i++) {
-        tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, s_boot_ring[idx].frame,
-                                   s_boot_ring[idx].len);
+        tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, s_boot_ring[i].frame, s_boot_ring[i].len);
         tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0, pdMS_TO_TICKS(50));
-        idx = (idx + 1) % SB_BOOT_RING_FRAMES;
     }
     s_boot_count = 0;
-    s_boot_head = 0;
 }
 
 /* ── TX task: único escritor del endpoint CDC ──────────────── */
@@ -307,6 +302,25 @@ esp_err_t sensorBoard_comm_init(void)
         return ESP_ERR_NO_MEM;
     }
 
+    /* Las colas se publican ANTES de crear las tareas: usb_tx_task tiene
+     * prio 5 (> main, prio 1) y puede ejecutar xQueueReceive de inmediato
+     * — si una global fuera NULL en ese momento, configASSERT/hardfault. */
+    s_tx_queue = xQueueCreate(SB_TX_QUEUE_DEPTH, sizeof(sb_tx_item_t));
+    if (s_tx_queue == NULL) {
+        err = ESP_ERR_NO_MEM;
+        goto fail;
+    }
+    s_tx_bin_queue = xQueueCreate(SB_TX_BIN_QUEUE_DEPTH, sizeof(sb_tx_bin_item_t));
+    if (s_tx_bin_queue == NULL) {
+        err = ESP_ERR_NO_MEM;
+        goto fail;
+    }
+
+    /* Interceptor ANTES de TinyUSB: los logs del propio arranque USB entran
+     * en la cola (y de ahí a la retención) en vez de perderse. Hasta que
+     * usb_tx_task exista, la cola (depth 8) conserva los primeros frames. */
+    esp_log_set_vprintf(sb_log_vprintf);
+
     const tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
     err = tinyusb_driver_install(&tusb_cfg);
     if (err != ESP_OK) {
@@ -327,20 +341,6 @@ esp_err_t sensorBoard_comm_init(void)
     }
     cdc_initialized = true;
 
-    /* Las colas se publican ANTES de crear las tareas: usb_tx_task tiene
-     * prio 5 (> main, prio 1) y puede ejecutar xQueueReceive de inmediato
-     * — si una global fuera NULL en ese momento, configASSERT/hardfault. */
-    s_tx_queue = xQueueCreate(SB_TX_QUEUE_DEPTH, sizeof(sb_tx_item_t));
-    if (s_tx_queue == NULL) {
-        err = ESP_ERR_NO_MEM;
-        goto fail;
-    }
-    s_tx_bin_queue = xQueueCreate(SB_TX_BIN_QUEUE_DEPTH, sizeof(sb_tx_bin_item_t));
-    if (s_tx_bin_queue == NULL) {
-        err = ESP_ERR_NO_MEM;
-        goto fail;
-    }
-
     if (xTaskCreate(usb_tx_task, "usb_tx", SB_COMM_TASK_STACK, NULL, SB_COMM_TASK_PRIO,
                     &tx_task_handle) != pdPASS) {
         err = ESP_ERR_NO_MEM;
@@ -352,11 +352,11 @@ esp_err_t sensorBoard_comm_init(void)
         goto fail;
     }
 
-    esp_log_set_vprintf(sb_log_vprintf);
     ESP_LOGI(TAG, "USB CDC ready");
     return ESP_OK;
 
 fail:
+    esp_log_set_vprintf(vprintf); /* el interceptor apuntaría a colas muertas */
     if (tx_task_handle != NULL) {
         vTaskDelete(tx_task_handle);
     }

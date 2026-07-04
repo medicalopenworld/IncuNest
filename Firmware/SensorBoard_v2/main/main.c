@@ -16,8 +16,10 @@ static const char *TAG = "MAIN";
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "SensorBoard v%s booting", SB_PROTO_FW_VERSION);
+    /* comm_init primero: instala el interceptor de logs — cualquier ESP_LOG
+     * anterior no tiene canal (consola NONE) y se pierde */
     ESP_ERROR_CHECK(sensorBoard_comm_init());
+    ESP_LOGI(TAG, "SensorBoard v%s booting", SB_PROTO_FW_VERSION);
     /* Sensores: fallo no fatal — cada componente reporta su disponibilidad */
     ESP_ERROR_CHECK_WITHOUT_ABORT(sb_env_sensors_init());
     ESP_ERROR_CHECK_WITHOUT_ABORT(sb_door_sensor_init());

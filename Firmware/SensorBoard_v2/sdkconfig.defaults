@@ -22,8 +22,9 @@ CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_OV2640_SUPPORT=y
 CONFIG_OV5640_SUPPORT=y
 
-# Logs verbose en desarrollo
-CONFIG_LOG_DEFAULT_LEVEL_DEBUG=y
+# Nivel INFO: en DEBUG el escaneo I2C emite ~110 frames "nack" por bus y
+# barre la retencion de arranque; subir a DEBUG puntualmente via menuconfig
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 
 # FreeRTOS tick 1kHz
 CONFIG_FREERTOS_HZ=1000
