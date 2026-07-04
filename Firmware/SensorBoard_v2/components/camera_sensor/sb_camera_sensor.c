@@ -5,6 +5,9 @@
 #include "sensorBoard_comm.h"
 #include "sensorBoard_comm_protocol.h"
 #include "sensorBoard_status.h"
+#include "driver/gpio.h"
+#include "driver/i2c_master.h"
+#include "driver/ledc.h"
 #include "esp_camera.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -127,6 +130,82 @@ static void camera_task(void *arg)
     }
 }
 
+/* Diagnóstico cuando el probe falla con NOT_SUPPORTED: algo ACKa en una
+ * dirección de cámara pero su ID no coincide con ningún driver. Arranca el
+ * XCLK (la SCCB de los OV no responde sin reloj), lee los registros de
+ * chip-ID crudos de 0x30 (OV2640: banco 0xFF=1, regs 0x0A/0x0B ⇒ 0x26/0x4x)
+ * y 0x3C (OV5640: regs 0x300A/0x300B ⇒ 0x56/0x40) y los loguea. */
+static void cam_sccb_diag(void)
+{
+    i2c_master_bus_handle_t bus = sb_env_get_main_i2c_bus();
+    if (bus == NULL) {
+        return;
+    }
+
+    const ledc_timer_config_t tcfg = {
+        .speed_mode = LEDC_LOW_SPEED_MODE,
+        .duty_resolution = LEDC_TIMER_1_BIT,
+        .timer_num = LEDC_TIMER_0,
+        .freq_hz = CONFIG_SB_CAM_XCLK_HZ,
+        .clk_cfg = LEDC_AUTO_CLK,
+    };
+    const ledc_channel_config_t ccfg = {
+        .gpio_num = SB_CAM_PIN_XCLK,
+        .speed_mode = LEDC_LOW_SPEED_MODE,
+        .channel = LEDC_CHANNEL_0,
+        .timer_sel = LEDC_TIMER_0,
+        .duty = 1,
+        .hpoint = 0,
+    };
+    if (ledc_timer_config(&tcfg) != ESP_OK || ledc_channel_config(&ccfg) != ESP_OK) {
+        return;
+    }
+    /* PWDN bajo = sensor encendido (convención esp32-camera) */
+    gpio_set_direction(SB_CAM_PIN_PWDN, GPIO_MODE_OUTPUT);
+    gpio_set_level(SB_CAM_PIN_PWDN, 0);
+    vTaskDelay(pdMS_TO_TICKS(20));
+
+    const struct {
+        uint8_t addr;
+        const char *name;
+    } cams[] = { { 0x30, "OV2640" }, { 0x3C, "OV5640" } };
+
+    for (size_t i = 0; i < 2; i++) {
+        if (i2c_master_probe(bus, cams[i].addr, 50) != ESP_OK) {
+            ESP_LOGW(TAG, "diag: 0x%02X (%s) no ACKa", cams[i].addr, cams[i].name);
+            continue;
+        }
+        i2c_device_config_t dcfg = {
+            .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+            .device_address = cams[i].addr,
+            .scl_speed_hz = 100000,
+        };
+        i2c_master_dev_handle_t dev = NULL;
+        if (i2c_master_bus_add_device(bus, &dcfg, &dev) != ESP_OK) {
+            continue;
+        }
+        uint8_t pid[2] = { 0xEE, 0xEE };
+        if (cams[i].addr == 0x30) {
+            const uint8_t bank[] = { 0xFF, 0x01 };
+            i2c_master_transmit(dev, bank, 2, 100);
+            const uint8_t r0a = 0x0A, r0b = 0x0B;
+            i2c_master_transmit_receive(dev, &r0a, 1, &pid[0], 1, 100);
+            i2c_master_transmit_receive(dev, &r0b, 1, &pid[1], 1, 100);
+        } else {
+            const uint8_t ra[] = { 0x30, 0x0A };
+            const uint8_t rb[] = { 0x30, 0x0B };
+            i2c_master_transmit_receive(dev, ra, 2, &pid[0], 1, 100);
+            i2c_master_transmit_receive(dev, rb, 2, &pid[1], 1, 100);
+        }
+        ESP_LOGW(TAG, "diag: 0x%02X ACKa — chip-ID crudo: 0x%02X 0x%02X (%s esperaria %s)",
+                 cams[i].addr, pid[0], pid[1], cams[i].name,
+                 (cams[i].addr == 0x30) ? "0x26 0x4x" : "0x56 0x40");
+        i2c_master_bus_rm_device(dev);
+    }
+
+    ledc_stop(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, 0);
+}
+
 esp_err_t sb_camera_sensor_init(void)
 {
     if (s_cam_task != NULL) {
@@ -175,6 +254,9 @@ esp_err_t sb_camera_sensor_init(void)
     err = esp_camera_init(&cfg);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "esp_camera_init failed (%d)", (int)err);
+        if (err == ESP_ERR_NOT_SUPPORTED) {
+            cam_sccb_diag(); /* algo ACKa pero el ID no coincide: volcarlo */
+        }
         goto fail;
     }
 
