@@ -209,7 +209,52 @@ static void tx_write_large(const uint8_t *data, size_t len)
     }
 }
 
+/* ── Retención de arranque ─────────────────────────────────── */
+/* Sin host (DTR bajo) los frames JSON se guardan en un ring estático y se
+ * vuelcan al conectar: los logs de init dejan de perderse por llegar antes
+ * de que el monitor enumere/abra el puerto (~6.5 KB de RAM). */
+#define SB_BOOT_RING_FRAMES 24
+
+static sb_tx_item_t s_boot_ring[SB_BOOT_RING_FRAMES];
+static size_t s_boot_head = 0;  /* próximo hueco */
+static size_t s_boot_count = 0; /* válidos (<= FRAMES; al llenarse, rota) */
+
+static void boot_ring_push(const sb_tx_item_t *item)
+{
+    s_boot_ring[s_boot_head] = *item;
+    s_boot_head = (s_boot_head + 1) % SB_BOOT_RING_FRAMES;
+    if (s_boot_count < SB_BOOT_RING_FRAMES) {
+        s_boot_count++;
+    }
+}
+
+static void boot_ring_flush(void)
+{
+    size_t idx = (s_boot_head + SB_BOOT_RING_FRAMES - s_boot_count) % SB_BOOT_RING_FRAMES;
+    for (size_t i = 0; i < s_boot_count && s_cdc_ready; i++) {
+        tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, s_boot_ring[idx].frame,
+                                   s_boot_ring[idx].len);
+        tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0, pdMS_TO_TICKS(50));
+        idx = (idx + 1) % SB_BOOT_RING_FRAMES;
+    }
+    s_boot_count = 0;
+    s_boot_head = 0;
+}
+
 /* ── TX task: único escritor del endpoint CDC ──────────────── */
+static void tx_send_or_retain(const sb_tx_item_t *item)
+{
+    if (s_cdc_ready) {
+        if (s_boot_count > 0) {
+            boot_ring_flush(); /* lo retenido sale primero, en orden */
+        }
+        tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, item->frame, item->len);
+        tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0, pdMS_TO_TICKS(50));
+    } else {
+        boot_ring_push(item);
+    }
+}
+
 static void usb_tx_task(void *arg)
 {
     (void)arg;
@@ -217,12 +262,13 @@ static void usb_tx_task(void *arg)
     sb_tx_bin_item_t bin;
 
     for (;;) {
+        /* Host recién conectado sin tráfico nuevo: volcar lo retenido */
+        if (s_cdc_ready && s_boot_count > 0) {
+            boot_ring_flush();
+        }
         /* El JSON (telemetría/heartbeat/resp) SIEMPRE drena primero */
         if (xQueueReceive(s_tx_queue, &item, 0) == pdTRUE) {
-            if (s_cdc_ready) {
-                tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, item.frame, item.len);
-                tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0, pdMS_TO_TICKS(50));
-            }
+            tx_send_or_retain(&item);
             continue;
         }
         /* Sin JSON pendiente: un binario como mucho */
@@ -235,13 +281,8 @@ static void usb_tx_task(void *arg)
         }
         /* Nada pendiente: bloquear en la JSON con sondeo corto de la binaria */
         if (xQueueReceive(s_tx_queue, &item, pdMS_TO_TICKS(SB_TX_IDLE_POLL_MS)) == pdTRUE) {
-            if (s_cdc_ready) {
-                tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, item.frame, item.len);
-                tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0, pdMS_TO_TICKS(50));
-            }
+            tx_send_or_retain(&item);
         }
-        /* Sin host conectado (DTR bajo): los frames se descartan. La señal de
-         * vida para la motherboard es el heartbeat, no un contador aquí. */
     }
 }
 

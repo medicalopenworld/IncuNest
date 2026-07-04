@@ -124,16 +124,20 @@ def handle_frame(ftype: int, payload: bytes) -> None:
         print(f"[{ts}] <<    {json.dumps(msg)}")
 
 
-def stdin_loop(ser: serial.Serial, next_id):
+def stdin_loop(state: dict, next_id):
     for line in sys.stdin:
         cmd = line.strip()
         if not cmd:
             continue
         if cmd in ("quit", "exit", "q"):
             print("cerrando...")
-            ser.close()
+            state["quit"] = True
+            state["ser"].close()
             return
-        send_cmd(ser, cmd, next_id())
+        try:
+            send_cmd(state["ser"], cmd, next_id())
+        except (serial.SerialException, OSError):
+            print("!! puerto no disponible, reintenta tras la reconexión")
 
 
 def main():
@@ -143,7 +147,21 @@ def main():
     ap.add_argument("--capture", action="store_true", help="pedir una captura JPEG al arrancar")
     args = ap.parse_args()
 
-    ser = serial.Serial(args.port, baudrate=115200, timeout=0.2)  # baudrate irrelevante en CDC
+    def open_port() -> serial.Serial:
+        """Espera a que el puerto exista y lo abre (la placa re-enumera al resetear)."""
+        import time
+
+        announced = False
+        while True:
+            try:
+                return serial.Serial(args.port, baudrate=115200, timeout=0.2)
+            except (serial.SerialException, OSError):
+                if not announced:
+                    print(f"esperando {args.port}... (resetea la placa cuando quieras)")
+                    announced = True
+                time.sleep(0.2)
+
+    state = {"ser": open_port(), "quit": False}
     print(f"escuchando {args.port} — comandos: status | capture | quit")
 
     counter = {"id": 0}
@@ -152,22 +170,33 @@ def main():
         counter["id"] += 1
         return counter["id"]
 
-    threading.Thread(target=stdin_loop, args=(ser, next_id), daemon=True).start()
+    threading.Thread(target=stdin_loop, args=(state, next_id), daemon=True).start()
 
     if args.status:
-        send_cmd(ser, "status", next_id())
+        send_cmd(state["ser"], "status", next_id())
     if args.capture:
-        send_cmd(ser, "capture", next_id())
+        send_cmd(state["ser"], "capture", next_id())
 
     dec = Decoder()
     try:
-        while ser.is_open:
-            data = ser.read(4096)
+        while not state["quit"]:
+            try:
+                data = state["ser"].read(4096)
+            except (serial.SerialException, OSError):
+                if state["quit"]:
+                    break
+                print(f"-- {args.port} perdido (reset/re-enumeracion), reconectando --")
+                try:
+                    state["ser"].close()
+                except OSError:
+                    pass
+                state["ser"] = open_port()
+                dec = Decoder()  # descartar estado a medias del frame anterior
+                print("-- reconectado --")
+                continue
             if data:
                 for ftype, payload in dec.feed(data):
                     handle_frame(ftype, payload)
-    except (serial.SerialException, OSError):
-        pass
     except KeyboardInterrupt:
         print("\ninterrumpido")
 
