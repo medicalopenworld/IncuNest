@@ -940,6 +940,7 @@ bool actuatorsTest() {
     logE("[HW] -> Fail -> Heater current consumption is too low");
     in3.alarmToReport[HEATER_ISSUE_ALARM] = true;
     setAlarm(HEATER_ISSUE_ALARM);
+    disableFanOnUnverifiedHeaterFault();
     digitalWrite(ACTUATORS_EN, LOW);
     return (true);
   }
@@ -948,6 +949,7 @@ bool actuatorsTest() {
     logE("[HW] -> Fail -> Heater current consumption is too high");
     in3.alarmToReport[HEATER_ISSUE_ALARM] = true;
     setAlarm(HEATER_ISSUE_ALARM);
+    disableFanOnUnverifiedHeaterFault();
     digitalWrite(ACTUATORS_EN, LOW);
     return (true);
   }
@@ -1020,7 +1022,7 @@ bool actuatorsTest() {
   offsetCurrent = measureMeanConsumption(MAIN, FAN_SHUNT_CHANNEL);
 // digitalWrite(FAN, HIGH);
 #if (HW_NUM >= 8)
-  ledcWrite(FAN_PWM_CHANNEL, PWM_MAX_VALUE);
+  ledcWrite(FAN_PWM_CHANNEL, in3.fanPwrSupplyPWM);
 #else
   digitalWrite(FAN, HIGH);
 #endif
@@ -1057,6 +1059,26 @@ bool actuatorsTest() {
     digitalWrite(ACTUATORS_EN, LOW);
     return (true);
   }
+
+  // Fan type detection: does this unit's assembled fan report RPM pulses?
+#if defined(FAN_SPEED_FEEDBACK)
+  fanSpeedHandler();
+  in3.fanHasSpeedFeedback = (in3.fan_rpm > 0);
+  { Preferences p; p.begin(NS_CFG, false);
+    p.putUChar(KEY_FAN_RPM_FEEDBACK, in3.fanHasSpeedFeedback); p.end(); }
+  logI("[HW] -> Fan type: " +
+       String(in3.fanHasSpeedFeedback ? "RPM feedback" : "no RPM feedback") +
+       " (" + String(in3.fan_rpm) + " rpm)");
+  if (in3.fanHasSpeedFeedback && in3.fan_rpm < FAN_MIN_RPM) {
+    addErrorToVar(HW_error, FAN_RPM_MIN_ERROR);
+    logE("[HW] -> Fail -> Fan RPM too low (" + String(in3.fan_rpm) +
+         " < " + String(FAN_MIN_RPM) + ")");
+    in3.alarmToReport[FAN_ISSUE_ALARM] = true;
+    setAlarm(FAN_ISSUE_ALARM);
+  }
+#else
+  in3.fanHasSpeedFeedback = false;
+#endif
 #endif
   if (error == HW_error) {
     logI("[HW] -> OK -> Actuators are working as expected");
