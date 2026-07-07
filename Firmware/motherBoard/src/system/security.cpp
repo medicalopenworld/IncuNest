@@ -395,6 +395,15 @@ bool ongoingCriticalWiringAlarm()
           alarmOnGoing[POWER_SUPPLY_ALARM]);
 }
 
+// Unlike ongoingCriticalWiringAlarm() (used for heater/humidifier gating),
+// a heater fault only has to take the fan down with it when this unit has
+// no independent way (RPM feedback) to verify the fan is still spinning.
+bool ongoingFanCriticalAlarm()
+{
+  return (alarmOnGoing[FAN_ISSUE_ALARM] || alarmOnGoing[POWER_SUPPLY_ALARM] ||
+          (alarmOnGoing[HEATER_ISSUE_ALARM] && !in3.fanHasSpeedFeedback));
+}
+
 char *alarmIDtoString(byte alarmID)
 {
   byte lang = in3.language; // or hmi_cmd_msg.language
@@ -825,6 +834,48 @@ void checkAlarms()
   // }
 }
 
+#if defined(FAN_SPEED_FEEDBACK)
+#define FAN_SPINUP_GRACE_MS 3000 // time allowed for the fan to reach FAN_MIN_RPM after being commanded on
+
+void checkFanSpeed()
+{
+  static bool wasFanCommandedOn = false;
+  static long fanCommandedOnSince = 0;
+
+  if (!in3.fanHasSpeedFeedback)
+  {
+    return; // this unit's fan has no tachometer signal — nothing to check
+  }
+
+  if (in3.fanCommandedOn && !wasFanCommandedOn)
+  {
+    fanCommandedOnSince = millis();
+  }
+  wasFanCommandedOn = in3.fanCommandedOn;
+
+  if (!in3.fanCommandedOn)
+  {
+    return; // fan intentionally off — no RPM expected
+  }
+  if (millis() - fanCommandedOnSince < FAN_SPINUP_GRACE_MS)
+  {
+    return; // still spinning up
+  }
+
+  if (!alarmOnGoing[FAN_ISSUE_ALARM] && in3.fan_rpm < FAN_MIN_RPM)
+  {
+    in3.alarmToReport[FAN_ISSUE_ALARM] = true;
+    setAlarm(FAN_ISSUE_ALARM);
+  }
+  else if (alarmOnGoing[FAN_ISSUE_ALARM] &&
+           in3.fan_rpm >= FAN_MIN_RPM + FAN_MIN_RPM_HYSTERESIS)
+  {
+    in3.alarmToReport[FAN_ISSUE_ALARM] = false;
+    resetAlarm(FAN_ISSUE_ALARM);
+  }
+}
+#endif
+
 void powerSupplyCheck()
 {
 #if (HW_NUM >= 13)
@@ -877,6 +928,9 @@ void securityCheck()
   checkAlarms();
   sensorHealthMonitor();
   powerSupplyCheck();
+#if defined(FAN_SPEED_FEEDBACK)
+  checkFanSpeed();
+#endif
 #if (HW_NUM >= 16)
   checkUsbFault();
 #endif
