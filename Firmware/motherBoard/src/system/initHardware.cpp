@@ -156,6 +156,12 @@ extern int ScreenBacklightMode;
 // detecte estabilización real y no una deriva lenta.
 #define CURRENT_STABILIZE_MAX_TIME_THERMAL 8000
 
+// filter_0 (fan RPM Butterworth filter, src/legacy/sensors.cpp) is stateful
+// and cold at boot — it needs several real samples to settle before its
+// output is trustworthy. See the fanSpeedHandler() settle loop below.
+#define FAN_RPM_SETTLE_INTERVAL_MS 20
+#define FAN_RPM_SETTLE_ITERATIONS 100 // ~2 s total
+
 #define INA3221_RESET_DELAY_MS 100
 #define INA3221_FIRST_CONVERSION_DELAY_MS 150
 // One fresh INA3221 conversion cycle: AVG128 x 140us x 2 (bus+shunt) x 3ch ~= 107ms, rounded up.
@@ -905,7 +911,17 @@ bool actuatorsTest() {
   // relies on being the very first fanSpeedHandler() call at boot:
   // sensors_Task/security_Task (the only other callers) start after
   // initHardware() returns — see the fan-speed-feedback design doc.
-  fanSpeedHandler();
+  //
+  // filter_0 (used inside fanSpeedHandler()) is a stateful 6th-order
+  // Butterworth filter that has never been fed a sample before this point.
+  // Its very first output from a cold/zero state is close to zero, which
+  // sends FAN_RPM_CONVERSION/period to an absurd value (observed: RPM in
+  // the trillions in the boot log) instead of a real reading. Feed it real
+  // pulses for a couple of seconds so it settles before trusting fan_rpm.
+  for (int i = 0; i < FAN_RPM_SETTLE_ITERATIONS; i++) {
+    vTaskDelay(pdMS_TO_TICKS(FAN_RPM_SETTLE_INTERVAL_MS));
+    fanSpeedHandler();
+  }
   in3.fanHasSpeedFeedback = (in3.fan_rpm > 0);
   { Preferences p; p.begin(NS_CFG, false);
     p.putUChar(KEY_FAN_RPM_FEEDBACK, in3.fanHasSpeedFeedback); p.end(); }
@@ -1081,7 +1097,17 @@ bool actuatorsTest() {
   // relies on being the very first fanSpeedHandler() call at boot:
   // sensors_Task/security_Task (the only other callers) start after
   // initHardware() returns — see the fan-speed-feedback design doc.
-  fanSpeedHandler();
+  //
+  // filter_0 (used inside fanSpeedHandler()) is a stateful 6th-order
+  // Butterworth filter that has never been fed a sample before this point.
+  // Its very first output from a cold/zero state is close to zero, which
+  // sends FAN_RPM_CONVERSION/period to an absurd value (observed: RPM in
+  // the trillions in the boot log) instead of a real reading. Feed it real
+  // pulses for a couple of seconds so it settles before trusting fan_rpm.
+  for (int i = 0; i < FAN_RPM_SETTLE_ITERATIONS; i++) {
+    vTaskDelay(pdMS_TO_TICKS(FAN_RPM_SETTLE_INTERVAL_MS));
+    fanSpeedHandler();
+  }
   in3.fanHasSpeedFeedback = (in3.fan_rpm > 0);
   { Preferences p; p.begin(NS_CFG, false);
     p.putUChar(KEY_FAN_RPM_FEEDBACK, in3.fanHasSpeedFeedback); p.end(); }
