@@ -21,6 +21,25 @@ There are **9+1 Main Alarm Identifiers** in the system mapped through a vector i
 
 *Note: IDs 3 to 9 (Hardware Faults + PSU and Cutouts) are managed unified under the software flag `ongoingCriticalAlarm()` which instantly nullifies logical outputs to actuators ("Trip-Off").*
 
+### 1.1 Fan RPM Feedback (Two Supported Fan Variants)
+
+The motherboard PCB routes `FAN_SPEED_FEEDBACK` (tachometer input) on HW_NUM
+9, 13–17, but the assembled fan may or may not have that wire connected.
+At boot, `actuatorsTest()` measures RPM once the fan's current draw passes
+its own check, and persists the result (`in3.fanHasSpeedFeedback`) to NVS
+so it survives watchdog-reboot fast paths that skip re-running the test.
+
+- **With RPM feedback**: `FAN_ISSUE_ALARM` is raised at boot if RPM is below
+  `FAN_MIN_RPM` (3000 rpm), and continuously during operation (with a 3 s
+  spin-up grace period after the fan is commanded on). A heater fault
+  (`HEATER_ISSUE_ALARM`) does **not** disable the fan — it keeps running and
+  is independently verified by the RPM monitor.
+- **Without RPM feedback**: RPM cannot be checked at all. A heater fault
+  disables *both* the heater and the fan (`FAN_ISSUE_ALARM` is also raised)
+  because there is no way to independently confirm the fan is still
+  spinning. Recovery requires the user to power-cycle the unit — this is
+  not forced automatically.
+
 ## 2. Life Cycle: Activation and Deactivation
 
 ### 2.1 Thresholds and Hysteresis
