@@ -22,6 +22,7 @@ constexpr char KEY_SKIN_T_MAX[]  = "skin_t_max";
 constexpr char KEY_AIR_T_MAX[]   = "air_t_max";
 constexpr char KEY_HEATER_TEST[] = "heater_test";
 constexpr char KEY_FAN_CTL_PWM[] = "fan_ctl_pwm";
+constexpr char KEY_FAN_RPM_FEEDBACK[] = "fan_rpm_fb";
 
 // --------------- Key names: mb_cal ---------------
 constexpr char KEY_CAL_SK_LOW[]  = "cal_sk_low";

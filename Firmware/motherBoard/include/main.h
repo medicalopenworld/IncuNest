@@ -163,6 +163,7 @@ typedef enum
   DEFECTIVE_BUZZER,
   DEFECTIVE_CURRENT_SENSOR,
   UNCALIBRATED_SENSOR,
+  FAN_RPM_MIN_ERROR,
 } HW_ERROR_ID;
 
 // AlarmId enum (NO_ALARMS, HUMIDITY_ALARM ... POWER_SUPPLY_ALARM,
@@ -367,6 +368,7 @@ typedef struct
 
   int fanPwrSupplyPWM = FAN_PWR_SUPPLY_PWM;
   int fanCtlPWM = FAN_CTL_PWM_DEFAULT;
+  bool fanHasSpeedFeedback = false;
   float heaterMaxPowerAmps = HEATER_MAX_POWER_AMPS;
   float skinTemperatureSetMax = SKIN_TEMPERATURE_SET_MAX;
   float airTemperatureSetMax = AIR_TEMPERATURE_SET_MAX;
@@ -392,6 +394,7 @@ typedef struct
   float fan_rpm = false;
   bool fanEncoderUpdate = false;
   long fanEncoderPeriod[2] = {false, false};
+  bool fanCommandedOn = false;
 
   byte language;
 
@@ -449,6 +452,7 @@ void timeTrackHandler();
 
 bool ongoingCriticalAlarm();
 bool ongoingCriticalWiringAlarm();
+bool ongoingFanCriticalAlarm();
 void setAlarm(byte alarmID);
 void setAlarm(byte alarmID, bool alarmSound);
 void resetAlarm(byte alarmID);

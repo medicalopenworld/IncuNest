@@ -340,6 +340,7 @@ void recapVariables()
     in3.fanCtlPWM = p.getInt(KEY_FAN_CTL_PWM, FAN_CTL_PWM_DEFAULT);
     if (in3.fanCtlPWM <= 0 || in3.fanCtlPWM > 255)
       in3.fanCtlPWM = FAN_CTL_PWM_DEFAULT;
+    in3.fanHasSpeedFeedback = p.getUChar(KEY_FAN_RPM_FEEDBACK, 0);
     p.end();
   }
 
