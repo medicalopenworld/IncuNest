@@ -273,8 +273,11 @@ static void dump_BQ25730_regs();
 static void print_charger_status();
 #endif
 
+void photoFreqSweep();  // defined in sensors.cpp
+
 void sensors_Task(void *pvParameters) {
   for (;;) {
+    photoFreqSweep();
     fanSpeedHandler();
     if (millis() - lastSkinAttachedSensorUpdate >
         SKIN_SENSOR_UPDATE_PERIOD_MS) {

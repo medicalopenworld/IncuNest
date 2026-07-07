@@ -322,7 +322,7 @@ static void driveWriteTask(void *pv) {
           vTaskDelay(pdMS_TO_TICKS(1000));
           break;
         }
-        static const char header[] = "t_ms,led1_aled1,led2_aled2,ppg\n";
+        static const char header[] = "t_ms,led1_sub,led2_sub,ppg_disp\n";
         ::write(csv_fd, header, sizeof(header) - 1);
         window_start_ms = s.t_ms;
         hb_detected = false;
@@ -331,7 +331,7 @@ static void driveWriteTask(void *pv) {
       uint32_t rel_ms = s.t_ms - window_start_ms;
       char line[48];
       int  n = snprintf(line, sizeof(line), "%u,%d,%d,%d\n", (unsigned)rel_ms,
-                        (int)s.led1_aled1, (int)s.led2_aled2, (int)s.ppg);
+                        (int)s.led1_sub, (int)s.led2_sub, (int)s.ppg_disp);
       if (n > 0)
         ::write(csv_fd, line, n);
 
@@ -430,9 +430,9 @@ void drivePushSample(const AFE4490Data &data) {
     return;
   DrivePpgSample s;
   s.t_ms       = millis();
-  s.led1_aled1 = data.led1_aled1;
-  s.led2_aled2 = data.led2_aled2;
-  s.ppg        = data.ppg;
+  s.led1_sub = data.led1_sub;
+  s.led2_sub = data.led2_sub;
+  s.ppg_disp        = data.ppg_disp;
   s.hr2_sqi    = data.hr2_sqi;
   s.hr3_sqi    = data.hr3_sqi;
   xQueueSend(s_sample_queue, &s, 0);

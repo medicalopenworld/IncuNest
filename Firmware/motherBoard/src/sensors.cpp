@@ -23,8 +23,10 @@
 
 */
 #include <Arduino.h>
+#include <WiFiUDP.h>
 
 #include "main.h"
+#include "SPO2.h"
 
 extern TwoWire *wire;
 extern MAM_IncuNest_Humidifier in3_hum;
@@ -169,6 +171,22 @@ extern IncuNest_parameters in3;
 long lastCurrentMeasurement, lastVoltageMeasurement;
 long lastEncoderUpdate;
 static long lastPhotoControl = 0;
+static WiFiUDP photoUdp;
+
+// ── Frequency sweep state machine ─────────────────────────────────────────────
+static const uint32_t SWEEP_FREQS[] = {
+    10, 20, 50, 100, 200, 250, 400, 500,
+    1000, 2000, 4000, 5000, 6000, 8000, 10000
+};
+static const int SWEEP_N = (int)(sizeof(SWEEP_FREQS) / sizeof(SWEEP_FREQS[0]));
+
+enum SweepPhase { SP_IDLE, SP_SETTLING, SP_CAPTURING, SP_PAUSING };
+static SweepPhase sweepPhase   = SP_IDLE;
+static int        sweepIdx     = 0;
+static unsigned long sweepPhaseStart = 0;
+static unsigned long lastSweepUdp   = 0;
+static bool       prevPhoto    = false;
+static volatile bool sweepPausing = false;  // blocks current regulation during pause
 
 void currentMonitor() {
   if (millis() - lastCurrentMeasurement > CURRENT_UPDATE_PERIOD_MS) {
@@ -194,6 +212,7 @@ void currentMonitor() {
   }
 
   if (in3.phototherapy &&
+      !sweepPausing &&
       (millis() - in3.photoTurnOnTime  > PHOTO_SETTLE_MS) &&
       (millis() - lastPhotoControl     > PHOTO_CONTROL_PERIOD_MS) &&
       in3.phototherapy_current > 0.0f) {
@@ -211,7 +230,110 @@ void currentMonitor() {
       in3.phototherapy_intensity = (byte)next;
       ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, in3.phototherapy_intensity);
     }
+    // UDP monitoring (solo fuera del sweep para no mezclar tramas)
+    if (sweepPhase == SP_IDLE) {
+      char udpMsg[64];
+      snprintf(udpMsg, sizeof(udpMsg), "PHOTO,%lu,%d,%.3f\n",
+               millis(), (int)in3.phototherapy_intensity,
+               in3.phototherapy_current);
+      photoUdp.beginPacket(PHOTO_UDP_HOST, PHOTO_UDP_PORT);
+      photoUdp.print(udpMsg);
+      photoUdp.endPacket();
+    }
     lastPhotoControl = millis();
+  }
+}
+
+void photoFreqSweep() {
+  bool photo = in3.phototherapy;
+  bool risingEdge = photo && !prevPhoto;
+  prevPhoto = photo;
+
+  // Rising edge → start new sweep from first frequency
+  if (risingEdge) {
+    sweepIdx        = 0;
+    sweepPhase      = SP_SETTLING;
+    sweepPhaseStart = millis();
+    sweepPausing    = false;
+    ledcSetup(PHOTOTHERAPY_PWM_CHANNEL, SWEEP_FREQS[0], DEFAULT_PWM_RESOLUTION);
+    in3.phototherapy_intensity = PWM_MAX_VALUE * PHOTOTHERAPY_INITIAL_PWM_PCT / 100;
+    in3.photoTurnOnTime = millis();
+    ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, in3.phototherapy_intensity);
+    ESP_LOGI("SWEEP", "Start: %d freqs, first=%u Hz", SWEEP_N, SWEEP_FREQS[0]);
+  }
+
+  if (!photo) { sweepPhase = SP_IDLE; sweepPausing = false; return; }
+  if (sweepPhase == SP_IDLE) return;
+
+  unsigned long now = millis();
+
+  switch (sweepPhase) {
+    case SP_IDLE:
+      break;
+
+    case SP_SETTLING:
+      if (now - sweepPhaseStart >= PHOTO_SWEEP_SETTLE_MS) {
+        sweepPhase      = SP_CAPTURING;
+        sweepPhaseStart = now;
+        lastSweepUdp    = 0;
+        ESP_LOGI("SWEEP", "Capturing at %u Hz", SWEEP_FREQS[sweepIdx]);
+      }
+      break;
+
+    case SP_CAPTURING:
+      if (now - lastSweepUdp >= PHOTO_SWEEP_UDP_MS) {
+        char msg[220];
+        snprintf(msg, sizeof(msg),
+            "SWEEP,%lu,%u,%d,%.3f,%ld,%ld,%ld,%ld,%ld,%ld,%.2f,%.1f,%.1f,%.1f,%u\n",
+            now, (unsigned)SWEEP_FREQS[sweepIdx],
+            (int)in3.phototherapy_intensity, in3.phototherapy_current,
+            (long)g_spo2_data.led2,     (long)g_spo2_data.led1,
+            (long)g_spo2_data.aled2,    (long)g_spo2_data.aled1,
+            (long)g_spo2_data.led2_sub,   (long)g_spo2_data.led1_sub,
+            g_spo2_data.spo2,
+            g_spo2_data.hr1, g_spo2_data.hr2, g_spo2_data.hr3,
+            (unsigned)g_spo2_data.rsqi);
+        photoUdp.beginPacket(PHOTO_UDP_HOST, PHOTO_UDP_PORT);
+        photoUdp.print(msg);
+        photoUdp.endPacket();
+        lastSweepUdp = now;
+      }
+      if (now - sweepPhaseStart >= PHOTO_SWEEP_CAPTURE_MS) {
+        sweepPhase      = SP_PAUSING;
+        sweepPhaseStart = now;
+        sweepPausing    = true;
+        ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, 0);
+        ESP_LOGI("SWEEP", "Pause after %u Hz", SWEEP_FREQS[sweepIdx]);
+      }
+      break;
+
+    case SP_PAUSING:
+      if (now - sweepPhaseStart >= PHOTO_SWEEP_PAUSE_MS) {
+        sweepIdx++;
+        sweepPausing = false;
+        if (sweepIdx >= SWEEP_N) {
+          // Sweep complete — restore normal operation
+          sweepPhase = SP_IDLE;
+          ledcSetup(PHOTOTHERAPY_PWM_CHANNEL, PHOTOTHERAPY_PWM_FREQUENCY, DEFAULT_PWM_RESOLUTION);
+          in3.phototherapy_intensity = PWM_MAX_VALUE * PHOTOTHERAPY_INITIAL_PWM_PCT / 100;
+          ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, in3.phototherapy * in3.phototherapy_intensity);
+          photoUdp.beginPacket(PHOTO_UDP_HOST, PHOTO_UDP_PORT);
+          photoUdp.print("SWEEP,DONE\n");
+          photoUdp.endPacket();
+          ESP_LOGI("SWEEP", "Complete. Normal operation resumed at %u Hz.",
+                   PHOTOTHERAPY_PWM_FREQUENCY);
+        } else {
+          // Next frequency
+          ledcSetup(PHOTOTHERAPY_PWM_CHANNEL, SWEEP_FREQS[sweepIdx], DEFAULT_PWM_RESOLUTION);
+          in3.phototherapy_intensity = PWM_MAX_VALUE * PHOTOTHERAPY_INITIAL_PWM_PCT / 100;
+          in3.photoTurnOnTime = millis();
+          ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, in3.phototherapy_intensity);
+          sweepPhase      = SP_SETTLING;
+          sweepPhaseStart = now;
+          ESP_LOGI("SWEEP", "Next freq: %u Hz", SWEEP_FREQS[sweepIdx]);
+        }
+      }
+      break;
   }
 }
 

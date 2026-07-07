@@ -37,6 +37,13 @@
 #define PHOTO_MAX_STEP       5
 #define PHOTO_TOLERANCE_A    0.02f
 #define PHOTO_MIN_PWM        10
+#define PHOTO_UDP_HOST       "192.168.137.255"  // broadcast subnet
+#define PHOTO_UDP_PORT       4210
+// Frequency sweep test
+#define PHOTO_SWEEP_SETTLE_MS   4000  // settle time per freq (reg kicks in at 3s)
+#define PHOTO_SWEEP_CAPTURE_MS  5000  // capture duration per freq
+#define PHOTO_SWEEP_PAUSE_MS    1000  // pause between freqs (LEDs off)
+#define PHOTO_SWEEP_UDP_MS       200  // UDP period during capture (5 samples/s)
 #define DIGITAL_CURRENT_SENSOR_PERIOD_MS 5
 #define BUZZER_TASK_PERIOD_MS 10
 #define UI_TASK_PERIOD_MS 10
