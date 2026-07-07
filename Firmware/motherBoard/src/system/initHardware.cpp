@@ -307,7 +307,7 @@ void initGPIO() {
 #elif (HW_NUM == 8)
   pinMode(HUMIDIFIER_PWM, OUTPUT);
 #endif
-#if (HW_NUM >= 10)
+#if (HW_NUM >= 9)
   pinMode(FAN_SPEED_FEEDBACK, INPUT_PULLUP);
 #endif
 #if (GPRS_PWRKEY)
@@ -342,7 +342,7 @@ void initInterrupts() {
   attachInterrupt(ENC_B, encoderISR, CHANGE);
 #endif
 
-#if (HW_NUM >= 10)
+#if (HW_NUM >= 9)
   attachInterrupt(FAN_SPEED_FEEDBACK, fanEncoderISR, CHANGE);
 #endif
 }

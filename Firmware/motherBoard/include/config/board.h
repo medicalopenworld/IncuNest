@@ -405,6 +405,8 @@
 #define PWM_MAX_VALUE (pow(2, DEFAULT_PWM_RESOLUTION) - 1)
 #define FAN_PWR_SUPPLY_PWM PWM_MAX_VALUE
 #define FAN_CTL_PWM_DEFAULT 130
+#define FAN_MIN_RPM 3000            // minimum acceptable fan RPM when speed feedback is present
+#define FAN_MIN_RPM_HYSTERESIS 300  // rpm above FAN_MIN_RPM required to clear FAN_ISSUE_ALARM
 
 #if (ADC_READ_FUNCTION == MILLIVOTSREAD_ADC)
 #define ADC_TO_DISCARD_MIN 500  // in mV
