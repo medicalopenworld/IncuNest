@@ -488,6 +488,18 @@ bool initCurrentSensor(bool currentSensor) {
 
 void addErrorToVar(long &errorVar, int error) { errorVar |= (1 << error); }
 
+// Without RPM feedback there is no independent way to confirm the fan is
+// still spinning once the heater has failed, so the safest option is to
+// disable both actuators. This does NOT force a restart: the operator must
+// power-cycle the unit manually, same as the existing (unrecoverable within
+// the session) HEATER_ISSUE_ALARM behavior today.
+static void disableFanOnUnverifiedHeaterFault() {
+  if (!in3.fanHasSpeedFeedback) {
+    in3.alarmToReport[FAN_ISSUE_ALARM] = true;
+    setAlarm(FAN_ISSUE_ALARM);
+  }
+}
+
 void initSkinSensor() {
 #if (HW_NUM >= 16)
   // BABY_TEMP_EN excita el divisor resistivo; se mantiene LOW hasta la medida.
@@ -783,10 +795,13 @@ bool actuatorsTest() {
 
   // Turn on heater and phototherapy; delay to let first INA3221 samples arrive,
   // then turn on fan so its spin-up overlaps with heater/photo thermal ramp.
+  // The fan runs at its configured default operating speed (not full PWM) so
+  // the current and RPM measured below reflect real operating conditions.
   ledcWrite(HEATER_PWM_CHANNEL,       PWM_MAX_VALUE);
   ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, PHOTOTHERAPY_TEST_PWM);
   vTaskDelay(pdMS_TO_TICKS(INA3221_ONE_CYCLE_SETTLE_MS));
-  ledcWrite(FAN_PWM_CHANNEL, PWM_MAX_VALUE);
+  ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
+  ledcWrite(FAN_PWM_CHANNEL, in3.fanPwrSupplyPWM);
   vTaskDelay(pdMS_TO_TICKS(220));
   logI("[HW] -> Heater + Phototherapy + Fan ON, measuring in parallel...");
 
@@ -816,13 +831,7 @@ bool actuatorsTest() {
     logE("[HW] -> Fail -> Heater current too low");
     in3.alarmToReport[HEATER_ISSUE_ALARM] = true;
     setAlarm(HEATER_ISSUE_ALARM);
-    // Fan measured in parallel — report it too if also bad
-    if (res.fan < FAN_CONSUMPTION_MIN) {
-      addErrorToVar(HW_error, FAN_CONSUMPTION_MIN_ERROR);
-      logE("[HW] -> Fail -> Fan current also too low (wiring error)");
-      in3.alarmToReport[FAN_ISSUE_ALARM] = true;
-      setAlarm(FAN_ISSUE_ALARM);
-    }
+    disableFanOnUnverifiedHeaterFault();
     digitalWrite(ACTUATORS_EN, LOW);
     return true;
   }
@@ -831,6 +840,7 @@ bool actuatorsTest() {
     logE("[HW] -> Fail -> Heater current too high");
     in3.alarmToReport[HEATER_ISSUE_ALARM] = true;
     setAlarm(HEATER_ISSUE_ALARM);
+    disableFanOnUnverifiedHeaterFault();
     digitalWrite(ACTUATORS_EN, LOW);
     return true;
   }
@@ -878,6 +888,27 @@ bool actuatorsTest() {
     digitalWrite(ACTUATORS_EN, LOW);
     return true;
   }
+
+  // Fan type detection: does this unit's assembled fan report RPM pulses?
+  // Persisted so restoreState boots (which skip this whole test) still know.
+#if defined(FAN_SPEED_FEEDBACK)
+  fanSpeedHandler();
+  in3.fanHasSpeedFeedback = (in3.fan_rpm > 0);
+  { Preferences p; p.begin(NS_CFG, false);
+    p.putUChar(KEY_FAN_RPM_FEEDBACK, in3.fanHasSpeedFeedback); p.end(); }
+  logI("[HW] -> Fan type: " +
+       String(in3.fanHasSpeedFeedback ? "RPM feedback" : "no RPM feedback") +
+       " (" + String(in3.fan_rpm) + " rpm)");
+  if (in3.fanHasSpeedFeedback && in3.fan_rpm < FAN_MIN_RPM) {
+    addErrorToVar(HW_error, FAN_RPM_MIN_ERROR);
+    logE("[HW] -> Fail -> Fan RPM too low (" + String(in3.fan_rpm) +
+         " < " + String(FAN_MIN_RPM) + ")");
+    in3.alarmToReport[FAN_ISSUE_ALARM] = true;
+    setAlarm(FAN_ISSUE_ALARM);
+  }
+#else
+  in3.fanHasSpeedFeedback = false;
+#endif
 
   // Humidifier: GPIO fault-pin check only (HW>=16 has no INA3221 on USB channel)
   in3_hum.turn(ON);
