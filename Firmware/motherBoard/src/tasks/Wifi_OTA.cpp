@@ -828,8 +828,7 @@ void addTelemetriesToWIFIJSON() {
   }
 
   if (in3.fanCommandedOn) {
-    addVariableToTelemetryWIFIJSON[FAN_RPM_KEY] =
-        roundSignificantDigits(in3.fan_rpm, TELEMETRIES_DECIMALS);
+    addVariableToTelemetryWIFIJSON[FAN_RPM_KEY] = (int)(in3.fan_rpm + 0.5f);
   }
 
   if (g_spo2_data.spo2_sqi > 0.0f) {
