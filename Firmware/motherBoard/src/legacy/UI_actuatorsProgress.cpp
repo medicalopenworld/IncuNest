@@ -153,14 +153,15 @@ void stopActuation() {
 }
 
 void turnFans(bool mode) {
+  in3.fanCommandedOn = mode || in3.phototherapy;
   digitalWrite(ACTUATORS_EN, mode || in3.phototherapy);
 #if (HW_NUM >= 8)
   // ledcWrite(HEATER_PWM_CHANNEL, mode * HEATER_MAX_PWM);
   ledcWrite(FAN_PWM_CHANNEL,
-            (mode && !ongoingCriticalWiringAlarm()) * in3.fanPwrSupplyPWM);
+            (mode && !ongoingFanCriticalAlarm()) * in3.fanPwrSupplyPWM);
   ledcWrite(FAN_CTL_PWM_CHANNEL, mode * in3.fanCtlPWM);
 #else
-  digitalWrite(FAN, in3.phototherapy || mode && !ongoingCriticalWiringAlarm());
+  digitalWrite(FAN, in3.phototherapy || mode && !ongoingFanCriticalAlarm());
 #endif
 }
 
