@@ -705,6 +705,8 @@ void addConfigTelemetriesToWIFIJSON() {
       roundSignificantDigits(in3.heater_current_test, TELEMETRIES_DECIMALS);
   addVariableToTelemetryWIFIJSON[FAN_CURR_TEST_KEY] =
       roundSignificantDigits(in3.fan_current_test, TELEMETRIES_DECIMALS);
+  addVariableToTelemetryWIFIJSON[FAN_RPM_FEEDBACK_KEY] =
+      in3.fanHasSpeedFeedback;
   addVariableToTelemetryWIFIJSON[PHOTOTHERAPY_CURR_KEY] =
       roundSignificantDigits(in3.phototherapy_current_test,
                              TELEMETRIES_DECIMALS);
@@ -823,6 +825,11 @@ void addTelemetriesToWIFIJSON() {
     addVariableToTelemetryWIFIJSON[PHOTHERAPY_ACTIVE_TIME_KEY] =
         roundSignificantDigits(in3.phototherapy_active_time,
                                TELEMETRIES_DECIMALS);
+  }
+
+  if (in3.fanCommandedOn) {
+    addVariableToTelemetryWIFIJSON[FAN_RPM_KEY] =
+        roundSignificantDigits(in3.fan_rpm, TELEMETRIES_DECIMALS);
   }
 
   if (g_spo2_data.spo2_sqi > 0.0f) {
