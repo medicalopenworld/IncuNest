@@ -34,7 +34,7 @@
 #define CELL_SIGNAL_QUALITY_KEY "CSQ"
 #define HEATER_CURRENT_KEY "Heater_current"
 #define FAN_CURRENT_KEY "Fan_current"
-#define FAN_RPM_FEEDBACK_KEY "fan_rpm_feedback"
+#define FAN_FEEDBACK_PRESENT_KEY "fan_has_fb"
 #define FAN_RPM_KEY "fan_rpm"
 #define V5_CURRENT_KEY "V5_current"
 #define V5_VOLTAGE_KEY "V5_voltage"

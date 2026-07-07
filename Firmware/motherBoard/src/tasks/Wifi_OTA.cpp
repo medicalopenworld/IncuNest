@@ -705,7 +705,7 @@ void addConfigTelemetriesToWIFIJSON() {
       roundSignificantDigits(in3.heater_current_test, TELEMETRIES_DECIMALS);
   addVariableToTelemetryWIFIJSON[FAN_CURR_TEST_KEY] =
       roundSignificantDigits(in3.fan_current_test, TELEMETRIES_DECIMALS);
-  addVariableToTelemetryWIFIJSON[FAN_RPM_FEEDBACK_KEY] =
+  addVariableToTelemetryWIFIJSON[FAN_FEEDBACK_PRESENT_KEY] =
       in3.fanHasSpeedFeedback;
   addVariableToTelemetryWIFIJSON[PHOTOTHERAPY_CURR_KEY] =
       roundSignificantDigits(in3.phototherapy_current_test,

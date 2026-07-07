@@ -569,7 +569,7 @@ void addConfigTelemetriesToGPRSJSON() {
       roundSignificantDigits(in3.heater_current_test, TELEMETRIES_DECIMALS);
   addVariableToTelemetryGPRSJSON[FAN_CURR_TEST_KEY] =
       roundSignificantDigits(in3.fan_current_test, TELEMETRIES_DECIMALS);
-  addVariableToTelemetryGPRSJSON[FAN_RPM_FEEDBACK_KEY] =
+  addVariableToTelemetryGPRSJSON[FAN_FEEDBACK_PRESENT_KEY] =
       in3.fanHasSpeedFeedback;
   addVariableToTelemetryGPRSJSON[PHOTOTHERAPY_CURR_KEY] =
       roundSignificantDigits(in3.phototherapy_current_test,
