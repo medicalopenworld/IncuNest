@@ -68,3 +68,22 @@
 - (pendiente de tarea)
 
 ---
+
+## Sesión 2026-06-04
+
+### Trabajo realizado
+- OTA verificados (motherBoard 192.168.137.158, Display_HMI 192.168.137.138 — IPs dinámicas, usar `arp -a`)
+- feat: `CTRL,AFE_RAW` completo flasheado en ambos dispositivos
+- feat: label `ui_LockAfeDebugLabel` en lock screen con font monospace `lv_font_unscii_8` y miles con comas
+- feat: `rsqm_disconn_raw_upper_limit=100000` en `incunest_afe4490.cpp:1046` (solo en .pio/libdeps, pendiente subir a lib/)
+- Título pantalla: "IncuNest [test 2]"
+
+### Continuación sesión 2026-06-04 (tarde)
+- `lib/incunest_afe4490` es un **symlink** → `/c/PRJ/MOW/incunest_afe4490/` (repo git independiente)
+- La entrada `incunest_afe4490.git#master` en `lib_deps` fue sustituida por el symlink local
+- PlatformIO resuelve el symlink correctamente: eliminó la versión cacheada en `.pio/libdeps` y usó la local (`0.27.0`)
+- Build `IncuNest_V17`: **SUCCESS** — RAM 23.2%, Flash 48.1%
+
+### Pendiente
+- Verificar visualmente label AFE en pantalla (comas + monospace)
+- Continuar tests de interferencia de fototerapia
