@@ -832,6 +832,13 @@ bool actuatorsTest() {
     in3.alarmToReport[HEATER_ISSUE_ALARM] = true;
     setAlarm(HEATER_ISSUE_ALARM);
     disableFanOnUnverifiedHeaterFault();
+    // Fan measured in parallel — report it too if also bad
+    if (res.fan < FAN_CONSUMPTION_MIN) {
+      addErrorToVar(HW_error, FAN_CONSUMPTION_MIN_ERROR);
+      logE("[HW] -> Fail -> Fan current also too low (wiring error)");
+      in3.alarmToReport[FAN_ISSUE_ALARM] = true;
+      setAlarm(FAN_ISSUE_ALARM);
+    }
     digitalWrite(ACTUATORS_EN, LOW);
     return true;
   }
@@ -892,6 +899,12 @@ bool actuatorsTest() {
   // Fan type detection: does this unit's assembled fan report RPM pulses?
   // Persisted so restoreState boots (which skip this whole test) still know.
 #if defined(FAN_SPEED_FEEDBACK)
+  // fanSpeedHandler() reads the last ISR-latched pulse period, not a live
+  // poll — safe even though the fan's PWM was already cut a few lines
+  // above; it's still coasting at full speed on this timescale. This also
+  // relies on being the very first fanSpeedHandler() call at boot:
+  // sensors_Task/security_Task (the only other callers) start after
+  // initHardware() returns — see the fan-speed-feedback design doc.
   fanSpeedHandler();
   in3.fanHasSpeedFeedback = (in3.fan_rpm > 0);
   { Preferences p; p.begin(NS_CFG, false);
@@ -1062,6 +1075,12 @@ bool actuatorsTest() {
 
   // Fan type detection: does this unit's assembled fan report RPM pulses?
 #if defined(FAN_SPEED_FEEDBACK)
+  // fanSpeedHandler() reads the last ISR-latched pulse period, not a live
+  // poll — safe even though the fan's PWM was already cut a few lines
+  // above; it's still coasting at full speed on this timescale. This also
+  // relies on being the very first fanSpeedHandler() call at boot:
+  // sensors_Task/security_Task (the only other callers) start after
+  // initHardware() returns — see the fan-speed-feedback design doc.
   fanSpeedHandler();
   in3.fanHasSpeedFeedback = (in3.fan_rpm > 0);
   { Preferences p; p.begin(NS_CFG, false);
