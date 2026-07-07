@@ -1,0 +1,28 @@
+schema: spec-driven
+
+context: |
+  Project: SensorBoard firmware for the IncuNest infant incubator (medical device).
+  Hardware: ESP32-S3-WROOM-1-N16R8 (16MB flash, 8MB PSRAM Octal).
+  Framework: ESP-IDF v6 native (CMake + idf.py), NOT PlatformIO. FreeRTOS. C (not C++ for new code).
+  Transport: custom USB-CDC binary framing (Magic 2B + Type 1B + Length 4B LE + Payload + CRC16-CCITT)
+  carrying JSON commands/events, implemented by the `usb_comm` ESP-IDF component. `usb_comm` is
+  transport-agnostic and no phase after Phase 1 should need to modify it — new phases add their own
+  component with a FreeRTOS task that calls `sensorBoard_comm_send_json()`/`send_binary()`.
+  Testing: Unity, run via `idf.py build` (compile check, automatable) and `idf.py -p COMx flash monitor`
+  (on-device execution, manual only — never automate flashing/monitoring in a hook).
+  Roadmap: 5 phases (1=USB CDC transport [done], 2=SHT40+ALS sensors, 3=I2S microphone/dBA,
+  4=door GPIO+ISR, 5=camera/JPEG binary frames). See Firmware/docs/superpowers/specs/2026-07-03-sensorboard-roadmap.md
+  and Firmware/docs/superpowers/plans/2026-06-08-sensorboard-phase1.md for full historical context.
+  Conventions: Conventional Commits, gitflow (feat/*, meta/* → dev → release/* → main), sole author
+  Pablo Sánchez Bergasa (GitHub: pablo18393) — never attribute commits to Claude/Anthropic.
+  This is a solo-developer project, not a team — don't assume multi-engineer PR review conventions.
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
