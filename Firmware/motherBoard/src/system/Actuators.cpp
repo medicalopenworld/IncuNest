@@ -47,14 +47,13 @@ void turnFans(bool mode) {
 #if defined(FAN_SPEED_FEEDBACK)
   if (in3.fanHasSpeedFeedback) {
     if (in3.fanCommandedOn) {
+      // Start (or hold) open-loop at the calibrated baseline duty.
+      // PIDHandler() closes the loop bumplessly after FAN_SPINUP_GRACE_MS —
+      // running the loop during the mechanical spin-up wound the duty far
+      // past baseline (a ~6000rpm overshoot). Skip the write once the PID
+      // has taken over so we don't stomp its output.
       if (fanControlPID.GetMode() != AUTOMATIC) {
-        // Bumpless engage: PID_v1 latches *myOutput into its integral sum on
-        // the MANUAL->AUTOMATIC edge, so seed the loop at the known-good
-        // baseline duty and let it trim from there. Starting from 0 makes
-        // the integrator wind up through the whole spin-up and overshoot.
-        fanControlPIDOutput = in3.fanCtlPWM;
         ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
-        fanControlPID.SetMode(AUTOMATIC);
       }
     } else {
       fanControlPID.SetMode(MANUAL);

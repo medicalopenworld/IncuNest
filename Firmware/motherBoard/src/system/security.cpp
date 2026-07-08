@@ -869,11 +869,8 @@ void checkAlarms()
 }
 
 #if defined(FAN_SPEED_FEEDBACK)
-// Time allowed for the fan to reach FAN_MIN_RPM after being commanded on.
-// The fan physically takes ~3s to spin up, and the Butterworth RPM filter
-// needs additional samples to converge after the fan restarts — 3000ms was
-// exactly the spin-up time with zero margin and false-fired in the field.
-#define FAN_SPINUP_GRACE_MS 6000
+// FAN_SPINUP_GRACE_MS now lives in board.h (shared with the PID handover in
+// PID.cpp so both use one spin-up window).
 
 void checkFanSpeed()
 {

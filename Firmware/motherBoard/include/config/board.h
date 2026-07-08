@@ -410,6 +410,13 @@
 
 // Closed-loop fan speed control (HW>=16, feedback-capable units only).
 #define FAN_TARGET_RPM 4000
+// The fan is held open-loop at its baseline duty for this long after being
+// commanded on; only then does the PID close the loop (bumpless). Running
+// the loop during the ~3s mechanical spin-up made it chase the lagged,
+// still-ramping RPM measurement and wind the duty far past baseline — a
+// ~6000rpm overshoot on a 4000 target. Also used by the RPM/air-blockage
+// monitors in security.cpp as their spin-up grace.
+#define FAN_SPINUP_GRACE_MS 6000
 // Factory baseline duty (0-255) to hold FAN_TARGET_RPM with a clean air
 // outlet is 137. This threshold (margin above baseline) must be confirmed
 // on the bench against real unit-to-unit variance AND worst-case legitimate

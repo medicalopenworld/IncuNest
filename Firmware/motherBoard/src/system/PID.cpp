@@ -186,11 +186,38 @@ void PIDHandler()
       humidifierState = true;
     }
   }
-  if (fanControlPID.GetMode() == AUTOMATIC)
+  // Fan closed-loop lifecycle: turnFans() holds the calibrated baseline duty
+  // open-loop while the fan spins up; here we hand over to the PID bumplessly
+  // once FAN_SPINUP_GRACE_MS has elapsed. Running the loop during the ~3s
+  // spin-up made it chase the lagged, still-ramping RPM measurement and wind
+  // the duty far past baseline (a ~6000rpm overshoot on a 4000 target).
   {
-    fanControlPID.Compute();
-    ledcWrite(FAN_CTL_PWM_CHANNEL,
-              fanControlPIDOutput * !ongoingFanCriticalAlarm());
+    static bool fanWasCommanded = false;
+    static long fanCommandedAt = 0;
+    bool fanActive = in3.fanHasSpeedFeedback && in3.fanCommandedOn &&
+                     !ongoingFanCriticalAlarm();
+    if (fanActive && !fanWasCommanded)
+    {
+      fanCommandedAt = millis();
+    }
+    fanWasCommanded = fanActive;
+    if (fanActive)
+    {
+      if (fanControlPID.GetMode() == AUTOMATIC)
+      {
+        fanControlPID.Compute();
+        ledcWrite(FAN_CTL_PWM_CHANNEL,
+                  fanControlPIDOutput * !ongoingFanCriticalAlarm());
+      }
+      else if (millis() - fanCommandedAt >= FAN_SPINUP_GRACE_MS)
+      {
+        // Fan has reached ~target open-loop; seed the loop at the baseline
+        // it's already running at so PID_v1 latches it into its integral on
+        // the MANUAL->AUTOMATIC edge, then take over for slow trim.
+        fanControlPIDOutput = in3.fanCtlPWM;
+        fanControlPID.SetMode(AUTOMATIC);
+      }
+    }
   }
 }
 
