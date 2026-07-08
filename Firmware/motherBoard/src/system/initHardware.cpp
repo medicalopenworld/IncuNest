@@ -135,6 +135,8 @@ extern unsigned long windowStartTime;
 
 extern double Kp[numPID], Ki[numPID], Kd[numPID];
 extern PID airControlPID;
+extern PID fanControlPID;
+extern double fanControlPIDOutput;
 extern PID skinControlPID;
 extern PID humidityControlPID;
 
@@ -926,6 +928,24 @@ bool actuatorsTest() {
          " < " + String(FAN_MIN_RPM) + ")");
     in3.alarmToReport[FAN_ISSUE_ALARM] = true;
     setAlarm(FAN_ISSUE_ALARM);
+  }
+  if (in3.fanHasSpeedFeedback && in3.fan_rpm >= FAN_MIN_RPM) {
+    // Engage closed-loop control and let it settle at the real target
+    // before checking how much duty it took to get there.
+    fanControlPID.SetMode(AUTOMATIC);
+    for (int i = 0; i < FAN_RPM_SETTLE_ITERATIONS; i++) {
+      vTaskDelay(pdMS_TO_TICKS(FAN_RPM_SETTLE_INTERVAL_MS));
+      fanSpeedHandler();
+      fanControlPID.Compute();
+      ledcWrite(FAN_CTL_PWM_CHANNEL, fanControlPIDOutput);
+    }
+    logI("[HW] -> Fan duty to hold " + String(FAN_TARGET_RPM) + " rpm: " +
+         String(fanControlPIDOutput) + " (rpm=" + String(in3.fan_rpm) + ")");
+    if (fanControlPIDOutput > FAN_DUTY_BLOCKED_THRESHOLD) {
+      logE("[HW] -> Warning -> Fan duty too high, possible air outlet blockage");
+      in3.alarmToReport[AIR_BLOCKED_ALARM] = true;
+      setAlarm(AIR_BLOCKED_ALARM);
+    }
   }
 #else
   in3.fanHasSpeedFeedback = false;

@@ -146,6 +146,8 @@ extern int humidifierTimeCycle;
 extern unsigned long windowStartTime;
 
 extern PID airControlPID;
+extern PID fanControlPID;
+extern double fanControlPIDOutput;
 extern PID skinControlPID;
 extern PID humidityControlPID;
 
@@ -460,6 +462,13 @@ char *alarmIDtoString(byte alarmID)
       return (char *)("ERREUR VENTILATEUR");
     return (char *)("FAN ALARM");
     break;
+  case AIR_BLOCKED_ALARM:
+    if (lang == SPANISH)
+      return (char *)("SALIDA DE AIRE OBSTRUIDA");
+    if (lang == FRENCH)
+      return (char *)("SORTIE D'AIR OBSTRUEE");
+    return (char *)("AIR OUTLET BLOCKED");
+    break;
   case HEATER_ISSUE_ALARM:
     if (lang == SPANISH)
       return (char *)("ERROR CALENTADOR");
@@ -676,6 +685,23 @@ void sendAlarmUSB(byte alarmID, bool isActive)
       desc = "FAN FAILURE";
     }
     break;
+  case AIR_BLOCKED_ALARM:
+    if (lang == SPANISH)
+    {
+      title = "SALIDA DE AIRE OBSTRUIDA";
+      desc = "POSIBLE OBSTRUCCION EN LA SALIDA DE AIRE";
+    }
+    else if (lang == FRENCH)
+    {
+      title = "SORTIE D'AIR OBSTRUEE";
+      desc = "OBSTRUCTION POSSIBLE DE LA SORTIE D'AIR";
+    }
+    else
+    {
+      title = "AIR OUTLET BLOCKED";
+      desc = "POSSIBLE AIR OUTLET BLOCKAGE";
+    }
+    break;
   case HEATER_ISSUE_ALARM:
     if (lang == SPANISH)
     {
@@ -882,6 +908,31 @@ void checkFanSpeed()
     resetAlarm(FAN_ISSUE_ALARM);
   }
 }
+
+void checkAirBlockage()
+{
+  if (fanControlPID.GetMode() != AUTOMATIC)
+  {
+    return; // not under closed-loop control — no duty signal to evaluate
+  }
+  if (alarmOnGoing[FAN_ISSUE_ALARM])
+  {
+    return; // total fan failure already reported — don't also report this
+  }
+  if (!alarmOnGoing[AIR_BLOCKED_ALARM] &&
+      fanControlPIDOutput > FAN_DUTY_BLOCKED_THRESHOLD)
+  {
+    in3.alarmToReport[AIR_BLOCKED_ALARM] = true;
+    setAlarm(AIR_BLOCKED_ALARM);
+  }
+  else if (alarmOnGoing[AIR_BLOCKED_ALARM] &&
+           fanControlPIDOutput <=
+               FAN_DUTY_BLOCKED_THRESHOLD - FAN_DUTY_BLOCKED_HYSTERESIS)
+  {
+    in3.alarmToReport[AIR_BLOCKED_ALARM] = false;
+    resetAlarm(AIR_BLOCKED_ALARM);
+  }
+}
 #endif
 
 void powerSupplyCheck()
@@ -935,6 +986,7 @@ void securityCheck()
   powerSupplyCheck();
 #if defined(FAN_SPEED_FEEDBACK)
   checkFanSpeed();
+  checkAirBlockage();
 #endif
 #if (HW_NUM >= 16)
   checkUsbFault();
