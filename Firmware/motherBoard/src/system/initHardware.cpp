@@ -935,7 +935,11 @@ bool actuatorsTest() {
   }
   if (in3.fanHasSpeedFeedback && in3.fan_rpm >= FAN_MIN_RPM) {
     // Engage closed-loop control and let it settle at the real target
-    // before checking how much duty it took to get there.
+    // before checking how much duty it took to get there. Seed the loop at
+    // the duty the fan is already running at (bumpless: PID_v1 latches
+    // *myOutput into its integral sum on the MANUAL->AUTOMATIC edge) so the
+    // 2s settle window measures a converged trim, not a wind-up from zero.
+    fanControlPIDOutput = in3.fanCtlPWM;
     fanControlPID.SetMode(AUTOMATIC);
     for (int i = 0; i < FAN_RPM_SETTLE_ITERATIONS; i++) {
       vTaskDelay(pdMS_TO_TICKS(FAN_RPM_SETTLE_INTERVAL_MS));

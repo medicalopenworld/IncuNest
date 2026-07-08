@@ -29,9 +29,16 @@
 // Fan RPM closed-loop control. Not part of the numPID-indexed arrays above
 // (air/skin/humidity are mutually-exclusive control *modes*; the fan loop
 // simply follows in3.fanCommandedOn independently of which mode is active).
-// These are starting values — must be bench-tuned on real hardware, exactly
-// like the gains above were.
-#define KP_FAN 0.5
-#define KI_FAN 0.3
+//
+// Gain sizing: the plant needs ~137/255 duty for 4000 rpm, i.e. ~29 rpm per
+// duty count, and the measured RPM passes a 6th-order Butterworth with a
+// few hundred ms of lag — so the loop must stay slow (crossover ~1 rad/s).
+// The original 0.5/0.3 gains commanded ~15x the duty the plant needs per
+// rpm of error, slamming the output rail-to-rail against the filter lag
+// (observed on hardware: fan revs up hard, brakes hard, in a limit cycle).
+// Bench-trim from here: raise KI if heater-sag recovery feels too slow,
+// lower it if the post-spin-up overshoot lingers too long.
+#define KP_FAN 0.03
+#define KI_FAN 0.05
 #define KD_FAN 0.0
 #define PID_FAN_SAMPLE_TIME 200

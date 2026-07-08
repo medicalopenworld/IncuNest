@@ -46,8 +46,18 @@ void turnFans(bool mode) {
                                  in3.fanPwrSupplyPWM);
 #if defined(FAN_SPEED_FEEDBACK)
   if (in3.fanHasSpeedFeedback) {
-    fanControlPID.SetMode(in3.fanCommandedOn ? AUTOMATIC : MANUAL);
-    if (!in3.fanCommandedOn) {
+    if (in3.fanCommandedOn) {
+      if (fanControlPID.GetMode() != AUTOMATIC) {
+        // Bumpless engage: PID_v1 latches *myOutput into its integral sum on
+        // the MANUAL->AUTOMATIC edge, so seed the loop at the known-good
+        // baseline duty and let it trim from there. Starting from 0 makes
+        // the integrator wind up through the whole spin-up and overshoot.
+        fanControlPIDOutput = in3.fanCtlPWM;
+        ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
+        fanControlPID.SetMode(AUTOMATIC);
+      }
+    } else {
+      fanControlPID.SetMode(MANUAL);
       fanControlPIDOutput = 0;
       ledcWrite(FAN_CTL_PWM_CHANNEL, 0);
     }
