@@ -3199,7 +3199,7 @@ void ui_ScreenLock_screen_init(void) {
                              LV_PART_MAIN | LV_STATE_DEFAULT);
 
   ui_HumPowerBar = lv_bar_create(ui_HumLockDesiredCont);
-  lv_bar_set_range(ui_HumPowerBar, 0, POWER_BAR_PCT_MAX);
+  lv_bar_set_range(ui_HumPowerBar, 0, POWER_BAR_PWM_MAX);
   lv_bar_set_value(ui_HumPowerBar, 0, LV_ANIM_OFF);
   lv_obj_set_width(ui_HumPowerBar, POWER_BAR_WIDTH);
   lv_obj_set_height(ui_HumPowerBar, POWER_BAR_HEIGHT);
@@ -3262,7 +3262,7 @@ void ui_ScreenLock_screen_init(void) {
                              LV_PART_MAIN | LV_STATE_DEFAULT);
 
   ui_SkinPowerBar = lv_bar_create(ui_TargetSkinTempCont);
-  lv_bar_set_range(ui_SkinPowerBar, 0, POWER_BAR_PCT_MAX);
+  lv_bar_set_range(ui_SkinPowerBar, 0, POWER_BAR_PWM_MAX);
   lv_bar_set_value(ui_SkinPowerBar, 0, LV_ANIM_OFF);
   lv_obj_set_width(ui_SkinPowerBar, POWER_BAR_WIDTH);
   lv_obj_set_height(ui_SkinPowerBar, POWER_BAR_HEIGHT);
@@ -3324,7 +3324,7 @@ void ui_ScreenLock_screen_init(void) {
                              LV_PART_MAIN | LV_STATE_DEFAULT);
 
   ui_AirPowerBar = lv_bar_create(ui_TargetAirTempCont);
-  lv_bar_set_range(ui_AirPowerBar, 0, POWER_BAR_PCT_MAX);
+  lv_bar_set_range(ui_AirPowerBar, 0, POWER_BAR_PWM_MAX);
   lv_bar_set_value(ui_AirPowerBar, 0, LV_ANIM_OFF);
   lv_obj_set_width(ui_AirPowerBar, POWER_BAR_WIDTH);
   lv_obj_set_height(ui_AirPowerBar, POWER_BAR_HEIGHT);

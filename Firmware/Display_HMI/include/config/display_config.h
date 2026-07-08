@@ -140,7 +140,9 @@
 #define COLOR_POWER_BAR         lv_color_hex(0xFF8C00)
 #define POWER_BAR_WIDTH         16
 #define POWER_BAR_HEIGHT        48
-#define POWER_BAR_PCT_MAX       100
+// Raw motherBoard PWM duty (0 = empty, 255 = full), matching its
+// DEFAULT_PWM_RESOLUTION (8-bit) — not a percentage.
+#define POWER_BAR_PWM_MAX       255
 // Lock-screen fixed positions (absolute within 220×100 px containers)
 // Temp values (e.g. "40.0°C") in montserrat_48 span ~146 px starting at x=20.
 // Humidity values (e.g. "95%") span ~84 px; label at x=45 to center under temp.

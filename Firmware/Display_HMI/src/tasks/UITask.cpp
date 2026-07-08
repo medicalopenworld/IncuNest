@@ -302,10 +302,10 @@ void ui_set_switch_state_silent(lv_obj_t *sw, bool on);
 // Fully disables Skin mode — same effect as flipping the Skin switch OFF.
 // Call this both from the switch-OFF handler and from the probe-disconnect
 // path.
-void UI_UpdatePowerBars(int tempPct, int humPct) {
-  if (ui_AirPowerBar)  lv_bar_set_value(ui_AirPowerBar,  tempPct, LV_ANIM_ON);
-  if (ui_SkinPowerBar) lv_bar_set_value(ui_SkinPowerBar, tempPct, LV_ANIM_ON);
-  if (ui_HumPowerBar)  lv_bar_set_value(ui_HumPowerBar,  humPct,  LV_ANIM_ON);
+void UI_UpdatePowerBars(int tempPwm, int humPwm) {
+  if (ui_AirPowerBar)  lv_bar_set_value(ui_AirPowerBar,  tempPwm, LV_ANIM_ON);
+  if (ui_SkinPowerBar) lv_bar_set_value(ui_SkinPowerBar, tempPwm, LV_ANIM_ON);
+  if (ui_HumPowerBar)  lv_bar_set_value(ui_HumPowerBar,  humPwm,  LV_ANIM_ON);
 }
 
 static void skin_mode_force_off() {
@@ -3977,7 +3977,7 @@ void UI_Task(void *pvParameters) {
 
     if (g_pendingDutyApply) {
       g_pendingDutyApply = false;
-      UI_UpdatePowerBars(g_tempDutyPct, g_humDutyPct);
+      UI_UpdatePowerBars(g_tempDutyPwm, g_humDutyPwm);
     }
 
     if (g_pendingAlarmUpdate) {

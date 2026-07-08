@@ -131,8 +131,8 @@ extern int  g_skinProbeState;
 extern bool error;
 extern volatile bool g_pendingTelemetryApply;
 extern portMUX_TYPE  g_telemetry_mux;
-extern volatile int  g_tempDutyPct;
-extern volatile int  g_humDutyPct;
+extern volatile int  g_tempDutyPwm;
+extern volatile int  g_humDutyPwm;
 extern volatile bool g_pendingDutyApply;
 
 // ======================
