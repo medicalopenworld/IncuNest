@@ -43,7 +43,9 @@ so it survives watchdog-reboot fast paths that skip re-running the test.
 
 ### 1.2 Closed-Loop RPM Control and Air-Blockage Detection
 
-The motherboard implements closed-loop PID control to maintain the fan at approximately 4000 rpm on HW ≥ 16 (feedback-capable units). As part of this system, `AIR_BLOCKED_ALARM` (ID 10) is raised when the fan's PWM duty cycle remains sustained above normal while holding the 4000 rpm setpoint, indicating increased static pressure from a partial air-outlet obstruction. This alarm is **notify-only** — it does not disable the heater or fan. It complements `FAN_ISSUE_ALARM` (which covers total fan failure or stall) by distinguishing partial air-outlet obstruction from transient voltage events (such as heater inrush or battery drain) that could produce similar low-RPM readings.
+The motherboard implements closed-loop PID control to maintain the fan at approximately 4000 rpm on HW ≥ 16 (feedback-capable units). As part of this system, `AIR_BLOCKED_ALARM` (ID 10) is raised when the fan's PWM duty cycle remains sustained above normal (`AIR_BLOCKED_SUSTAIN_MS`, past the spin-up grace period) while holding the 4000 rpm setpoint, indicating increased static pressure from a partial air-outlet obstruction. This alarm is **notify-only** — it does not disable the heater or fan. It complements `FAN_ISSUE_ALARM` (which covers total fan failure or stall) by distinguishing partial air-outlet obstruction from transient voltage events (such as heater inrush or battery drain) that could produce similar low-RPM readings.
+
+Detection is compile-time gated by `AIR_BLOCKED_DETECTION_ENABLED` (`board.h`), **disabled by default**: with the heater at max power the supply voltage sags and the PID legitimately raises the duty to hold the setpoint, so `FAN_DUTY_BLOCKED_THRESHOLD` must be bench-calibrated above that worst-case legitimate duty before enabling. The duty needed to hold the setpoint is always logged at boot to collect that calibration data.
 
 ## 2. Life Cycle: Activation and Deactivation
 

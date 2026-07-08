@@ -943,13 +943,17 @@ bool actuatorsTest() {
       fanControlPID.Compute();
       ledcWrite(FAN_CTL_PWM_CHANNEL, fanControlPIDOutput);
     }
+    // Always logged (even with detection disabled) — this is the bench data
+    // FAN_DUTY_BLOCKED_THRESHOLD must be calibrated from.
     logI("[HW] -> Fan duty to hold " + String(FAN_TARGET_RPM) + " rpm: " +
          String(fanControlPIDOutput) + " (rpm=" + String(in3.fan_rpm) + ")");
+#if AIR_BLOCKED_DETECTION_ENABLED
     if (fanControlPIDOutput > FAN_DUTY_BLOCKED_THRESHOLD) {
       logE("[HW] -> Warning -> Fan duty too high, possible air outlet blockage");
       in3.alarmToReport[AIR_BLOCKED_ALARM] = true;
       setAlarm(AIR_BLOCKED_ALARM);
     }
+#endif
     // Don't leave the PID AUTOMATIC relying on a later turnFans() call to
     // fix it — the fan is about to be cut below, matching heater/photo.
     fanControlPID.SetMode(MANUAL);

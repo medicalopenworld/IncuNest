@@ -412,9 +412,21 @@
 #define FAN_TARGET_RPM 4000
 // Factory baseline duty (0-255) to hold FAN_TARGET_RPM with a clean air
 // outlet is 137. This threshold (margin above baseline) must be confirmed
-// on the bench against real unit-to-unit variance, not guessed further.
+// on the bench against real unit-to-unit variance AND worst-case legitimate
+// load: with the heater at max power the supply voltage sags and the PID
+// legitimately raises the duty to keep FAN_TARGET_RPM — the threshold must
+// sit above that sagged-supply duty, not above the idle-supply baseline.
 #define FAN_DUTY_BLOCKED_THRESHOLD 160
 #define FAN_DUTY_BLOCKED_HYSTERESIS 15 // duty below (threshold - this) required to clear AIR_BLOCKED_ALARM
+// Master enable for air-outlet-blockage detection (boot check + runtime
+// monitor). Disabled until FAN_DUTY_BLOCKED_THRESHOLD is bench-validated as
+// described above — with an unvalidated threshold the alarm false-fires
+// during normal heater operation. The duty needed to hold FAN_TARGET_RPM is
+// still logged at boot regardless, to collect the calibration data.
+#define AIR_BLOCKED_DETECTION_ENABLED false
+// Duty must stay above the threshold continuously this long before alarming
+// (rejects transients: spin-up saturation, heater kick-in sag compensation).
+#define AIR_BLOCKED_SUSTAIN_MS 5000
 
 #if (ADC_READ_FUNCTION == MILLIVOTSREAD_ADC)
 #define ADC_TO_DISCARD_MIN 500  // in mV

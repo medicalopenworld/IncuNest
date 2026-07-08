@@ -289,9 +289,21 @@ void fanSpeedHandler() {
   double fanEncoderPeriodFiltered;
   if (in3.fanEncoderUpdate) {
     in3.fanEncoderUpdate = false;
+    long rawPeriod = in3.fanEncoderPeriod[1] - in3.fanEncoderPeriod[0];
+    // The first edge after an idle gap pairs a fresh timestamp with one from
+    // the last time the fan spun (possibly minutes old), producing a huge
+    // bogus period. Fed into the stateful 6th-order Butterworth, that single
+    // impulse dominates its output for hundreds of samples, holding fan_rpm
+    // near 0 well past the spin-up grace and firing a spurious
+    // FAN_ISSUE_ALARM right after the fan is commanded back on. Discard any
+    // period longer than the zero-RPM timeout already covers; don't refresh
+    // lastEncoderUpdate for discarded samples so a genuinely dead/slow fan
+    // still falls through to the timeout below.
+    if (rawPeriod <= 0 || rawPeriod > (long)FAN_UPDATE_TIME_MIN * 1000) {
+      return;
+    }
     lastEncoderUpdate = millis();
-    fanEncoderPeriodFiltered =
-        filter_0(in3.fanEncoderPeriod[1] - in3.fanEncoderPeriod[0]);
+    fanEncoderPeriodFiltered = filter_0(rawPeriod);
     if (fanEncoderPeriodFiltered) {
       in3.fan_rpm = FAN_RPM_CONVERSION / fanEncoderPeriodFiltered;
     }

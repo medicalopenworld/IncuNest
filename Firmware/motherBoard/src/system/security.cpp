@@ -869,7 +869,11 @@ void checkAlarms()
 }
 
 #if defined(FAN_SPEED_FEEDBACK)
-#define FAN_SPINUP_GRACE_MS 3000 // time allowed for the fan to reach FAN_MIN_RPM after being commanded on
+// Time allowed for the fan to reach FAN_MIN_RPM after being commanded on.
+// The fan physically takes ~3s to spin up, and the Butterworth RPM filter
+// needs additional samples to converge after the fan restarts — 3000ms was
+// exactly the spin-up time with zero margin and false-fired in the field.
+#define FAN_SPINUP_GRACE_MS 6000
 
 void checkFanSpeed()
 {
@@ -911,27 +915,64 @@ void checkFanSpeed()
 
 void checkAirBlockage()
 {
+#if AIR_BLOCKED_DETECTION_ENABLED
+  static bool wasFanCommandedOn = false;
+  static long fanCommandedOnSince = 0;
+  static long dutyHighSince = 0;
+
   if (fanControlPID.GetMode() != AUTOMATIC)
   {
+    dutyHighSince = 0;
     return; // not under closed-loop control — no duty signal to evaluate
   }
   if (alarmOnGoing[FAN_ISSUE_ALARM])
   {
+    dutyHighSince = 0;
     return; // total fan failure already reported — don't also report this
   }
-  if (!alarmOnGoing[AIR_BLOCKED_ALARM] &&
-      fanControlPIDOutput > FAN_DUTY_BLOCKED_THRESHOLD)
+
+  if (in3.fanCommandedOn && !wasFanCommandedOn)
   {
-    in3.alarmToReport[AIR_BLOCKED_ALARM] = true;
-    setAlarm(AIR_BLOCKED_ALARM);
+    fanCommandedOnSince = millis();
   }
-  else if (alarmOnGoing[AIR_BLOCKED_ALARM] &&
-           fanControlPIDOutput <=
-               FAN_DUTY_BLOCKED_THRESHOLD - FAN_DUTY_BLOCKED_HYSTERESIS)
+  wasFanCommandedOn = in3.fanCommandedOn;
+  if (!in3.fanCommandedOn ||
+      millis() - fanCommandedOnSince < FAN_SPINUP_GRACE_MS)
   {
-    in3.alarmToReport[AIR_BLOCKED_ALARM] = false;
-    resetAlarm(AIR_BLOCKED_ALARM);
+    // During spin-up the PID output saturates at max duty by design (large
+    // RPM error) — evaluating it here would false-alarm on every start.
+    dutyHighSince = 0;
+    return;
   }
+
+  if (fanControlPIDOutput > FAN_DUTY_BLOCKED_THRESHOLD)
+  {
+    // Require the excess to be sustained: transients (heater kicking in and
+    // sagging the supply, setpoint recovery) legitimately spike the duty
+    // while the loop compensates.
+    if (dutyHighSince == 0)
+    {
+      dutyHighSince = millis();
+    }
+    if (!alarmOnGoing[AIR_BLOCKED_ALARM] &&
+        millis() - dutyHighSince >= AIR_BLOCKED_SUSTAIN_MS)
+    {
+      in3.alarmToReport[AIR_BLOCKED_ALARM] = true;
+      setAlarm(AIR_BLOCKED_ALARM);
+    }
+  }
+  else
+  {
+    dutyHighSince = 0;
+    if (alarmOnGoing[AIR_BLOCKED_ALARM] &&
+        fanControlPIDOutput <=
+            FAN_DUTY_BLOCKED_THRESHOLD - FAN_DUTY_BLOCKED_HYSTERESIS)
+    {
+      in3.alarmToReport[AIR_BLOCKED_ALARM] = false;
+      resetAlarm(AIR_BLOCKED_ALARM);
+    }
+  }
+#endif
 }
 #endif
 
