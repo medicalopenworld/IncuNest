@@ -1245,6 +1245,10 @@ void initHardware(bool printOutputTest) {
     turnFans(in3.phototherapy);
   }
   if (in3.restoreState) {
+    // Resuming a control session that was already running, not starting
+    // cold - assume the stabilization window already elapsed instead of
+    // making temperature/humidity alarms wait out another full one.
+    alarmTimerStart(true);
     if (in3.temperatureControl) {
       startPID(in3.controlMode);
       turnFans(ON);

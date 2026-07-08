@@ -1,7 +1,9 @@
 # Eliminación de la UI on-board legacy — Propuesta
 
 **Fecha:** 2026-07-08
-**Status:** Aprobada, sin bloqueos pendientes; lista para ejecución por fases
+**Status:** Ejecutada (fases 0-3) y validada en hardware real (`IncuNest_V16`/`V17`): actuación por HMI, botón físico del encoder (mute/reconocimiento de alarma), arranque con `restoreState`, y sensores/logging tras la migración a `modules/sensors/`.
+
+**Post-validación**: `resetCalibration()`/`saveCalibrationToEEPROM()` (código muerto en `EEPROM.cpp`, sin llamador tras el borrado del proceso de calibración) se han eliminado. `alarmTimerStart()` ahora acepta `assumeStabilized` (default `false`); el arranque con `restoreState` (`initHardware.cpp`) lo llama con `true` para no exigirle a temperatura/humedad esperar de nuevo la ventana de estabilización tras resumir una sesión que ya estaba en marcha.
 
 ## Contexto
 

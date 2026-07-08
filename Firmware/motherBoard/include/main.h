@@ -443,7 +443,7 @@ void securityCheck();
 void buzzerConstantTone(int freq);
 
 void turnFans(bool mode);
-void alarmTimerStart();
+void alarmTimerStart(bool assumeStabilized = false);
 void timeTrackHandler();
 
 bool ongoingCriticalAlarm();

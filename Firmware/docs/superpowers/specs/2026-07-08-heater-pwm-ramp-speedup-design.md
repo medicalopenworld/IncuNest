@@ -36,4 +36,4 @@ What the ramp actually did before this change: start `heaterSafeMAXPWM` at 5/255
 
 ## Verification
 
-Compiled clean on `IncuNest_V16` and `IncuNest_V17` (`pio run`). `PID.cpp`/`sensors.cpp` are outside the `native` Unity test scope (`modules/control/` only) — manual verification on real hardware still pending.
+Compiled clean on `IncuNest_V16` and `IncuNest_V17` (`pio run`). `PID.cpp`/`sensors.cpp` are outside the `native` Unity test scope (`modules/control/` only) — verified manually on real hardware: ramp reaches full PWM in ~28s under normal operation, `heaterSafeMAXPWM` parks (does not climb) and `HEATER_ISSUE_ALARM` raises when the SECUNDARY current sensor is made to stop responding, and normal operation stays within `heaterMaxPowerAmps`.

@@ -320,7 +320,7 @@ void powerMonitor()
   voltageMonitor();
 }
 
-void alarmTimerStart()
+void alarmTimerStart(bool assumeStabilized)
 {
   for (int i = 0; i < NUM_ALARMS; i++)
   {
@@ -330,11 +330,23 @@ void alarmTimerStart()
       -1 * minsToMillis(ALARM_TIME_DELAY);
   lastAlarmTrigger[SKIN_THERMAL_CUTOUT_ALARM] =
       -1 * minsToMillis(ALARM_TIME_DELAY);
-  // TEMPERATURE_ALARM and HUMIDITY_ALARM both keep their millis() value from
-  // the loop above, so checkAlarms() enforces the same
-  // ACTUATORS_ALARM_STABILIZATION_MINS grace period for both after
-  // activation. The thermal cutouts stay immediately eligible - they are a
-  // hard over-temperature safety limit, not a setpoint-tracking alarm.
+  if (assumeStabilized)
+  {
+    // Used when resuming an already-running control (restoreState boot):
+    // the incubator didn't just go cold, so there is no need to make
+    // temperature/humidity alarms wait out another full stabilization
+    // window - treat it as already elapsed, same as the thermal cutouts.
+    lastAlarmTrigger[TEMPERATURE_ALARM] =
+        -1 * minsToMillis(ACTUATORS_ALARM_STABILIZATION_MINS);
+    lastAlarmTrigger[HUMIDITY_ALARM] =
+        -1 * minsToMillis(ACTUATORS_ALARM_STABILIZATION_MINS);
+  }
+  // Otherwise TEMPERATURE_ALARM and HUMIDITY_ALARM both keep their millis()
+  // value from the loop above, so checkAlarms() enforces the same
+  // ACTUATORS_ALARM_STABILIZATION_MINS grace period for both after a fresh
+  // activation. The thermal cutouts stay immediately eligible either way -
+  // they are a hard over-temperature safety limit, not a setpoint-tracking
+  // alarm.
 }
 
 byte activeAlarm()

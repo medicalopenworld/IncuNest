@@ -123,16 +123,6 @@ void loaddefaultValues()
   }
 }
 
-void resetCalibration()
-{
-  RawTemperatureLow[SKIN_SENSOR] = 0.0;
-  RawTemperatureRange[SKIN_SENSOR] = 0.0;
-  ReferenceTemperatureRange = 0.0;
-  ReferenceTemperatureLow = 0.0;
-  in3.fineTuneSkinTemperature = 0.0;
-  in3.fineTuneAirTemperature = 0.0;
-}
-
 static bool migrateFromEEPROM()
 {
   constexpr int OLD_MAGIC_OFFSET = 10;
@@ -444,15 +434,3 @@ void recapVariables()
   ESP_LOGI("APP", "Serial: %d, Lang: %d", in3.serialNumber, in3.language);
 }
 
-void saveCalibrationToEEPROM()
-{
-  Preferences p;
-  p.begin(NS_CAL, false);
-  p.putFloat(KEY_CAL_SK_LOW, RawTemperatureLow[SKIN_SENSOR]);
-  p.putFloat(KEY_CAL_SK_RNG, RawTemperatureRange[SKIN_SENSOR]);
-  p.putFloat(KEY_CAL_REF_RNG, ReferenceTemperatureRange);
-  p.putFloat(KEY_CAL_REF_LOW, ReferenceTemperatureLow);
-  p.putFloat(KEY_FT_SKIN, in3.fineTuneSkinTemperature);
-  p.putFloat(KEY_FT_AIR, in3.fineTuneAirTemperature);
-  p.end();
-}
