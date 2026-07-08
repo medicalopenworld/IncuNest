@@ -287,7 +287,7 @@ constexpr int ALARM_DESC_LEN = 100;
 // AlarmId enum (NO_ALARMS, HUMIDITY_ALARM ... POWER_SUPPLY_ALARM, NUM_ALARMS,
 // MAX_ALARM_STRING_SIZE=255) is now in shared alarm_ids.h.
 
-constexpr int MAX_ALARMS = 10;
+constexpr int MAX_ALARMS = NUM_ALARMS;
 constexpr int MAX_ALARM_DISPLAY = 4;
 
 struct Alarm {
