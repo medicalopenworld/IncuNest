@@ -38,8 +38,12 @@ void turnFans(bool mode) {
   in3.fanCommandedOn = mode || in3.phototherapy;
   digitalWrite(ACTUATORS_EN, mode || in3.phototherapy);
 #if (HW_NUM >= 8)
-  ledcWrite(FAN_PWM_CHANNEL,
-            (mode && !ongoingFanCriticalAlarm()) * in3.fanPwrSupplyPWM);
+  // Gate on in3.fanCommandedOn (mode || in3.phototherapy), not mode alone —
+  // otherwise a phototherapy-only activation enables ACTUATORS_EN but never
+  // powers the fan itself, leaving fanControlPID AUTOMATIC with nothing to
+  // drive.
+  ledcWrite(FAN_PWM_CHANNEL, (in3.fanCommandedOn && !ongoingFanCriticalAlarm()) *
+                                 in3.fanPwrSupplyPWM);
 #if defined(FAN_SPEED_FEEDBACK)
   if (in3.fanHasSpeedFeedback) {
     fanControlPID.SetMode(in3.fanCommandedOn ? AUTOMATIC : MANUAL);
@@ -50,7 +54,7 @@ void turnFans(bool mode) {
   } else
 #endif
   {
-    ledcWrite(FAN_CTL_PWM_CHANNEL, mode * in3.fanCtlPWM);
+    ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCommandedOn * in3.fanCtlPWM);
   }
 #else
   digitalWrite(FAN, in3.phototherapy || mode && !ongoingFanCriticalAlarm());
