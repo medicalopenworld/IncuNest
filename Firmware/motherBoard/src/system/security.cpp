@@ -371,7 +371,7 @@ bool ongoingAlarms()
           alarmOnGoing[AIR_SENSOR_ISSUE_ALARM] ||
           alarmOnGoing[SKIN_SENSOR_ISSUE_ALARM] ||
           alarmOnGoing[HEATER_ISSUE_ALARM] || alarmOnGoing[FAN_ISSUE_ALARM] ||
-          alarmOnGoing[POWER_SUPPLY_ALARM]);
+          alarmOnGoing[POWER_SUPPLY_ALARM] || alarmOnGoing[AIR_BLOCKED_ALARM]);
 }
 
 int getActiveAlarmCount()

@@ -899,11 +899,15 @@ bool actuatorsTest() {
   // Fan type detection: does this unit's assembled fan report RPM pulses?
   // Persisted so restoreState boots (which skip this whole test) still know.
 #if defined(FAN_SPEED_FEEDBACK)
+  // Fan was cut along with heater/phototherapy above (this file, a few lines
+  // up) — re-power it here so the RPM/duty checks below measure a genuinely
+  // driven fan, not one coasting to a stop for the ~4s these checks take.
+  ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
+  ledcWrite(FAN_PWM_CHANNEL, in3.fanPwrSupplyPWM);
+
   // fanSpeedHandler() reads the last ISR-latched pulse period, not a live
-  // poll — safe even though the fan's PWM was already cut a few lines
-  // above; it's still coasting at full speed on this timescale. This also
-  // relies on being the very first fanSpeedHandler() call at boot:
-  // sensors_Task/security_Task (the only other callers) start after
+  // poll. This relies on being the very first fanSpeedHandler() call at
+  // boot: sensors_Task/security_Task (the only other callers) start after
   // initHardware() returns — see the fan-speed-feedback design doc.
   //
   // filter_0 (used inside fanSpeedHandler()) is a stateful 6th-order
@@ -946,7 +950,14 @@ bool actuatorsTest() {
       in3.alarmToReport[AIR_BLOCKED_ALARM] = true;
       setAlarm(AIR_BLOCKED_ALARM);
     }
+    // Don't leave the PID AUTOMATIC relying on a later turnFans() call to
+    // fix it — the fan is about to be cut below, matching heater/photo.
+    fanControlPID.SetMode(MANUAL);
   }
+  // Cut the fan back off, matching heater/phototherapy already being off —
+  // normal operation re-enables it via turnFans() once boot completes.
+  ledcWrite(FAN_CTL_PWM_CHANNEL, 0);
+  ledcWrite(FAN_PWM_CHANNEL, 0);
 #else
   in3.fanHasSpeedFeedback = false;
 #endif
@@ -1103,11 +1114,15 @@ bool actuatorsTest() {
 
   // Fan type detection: does this unit's assembled fan report RPM pulses?
 #if defined(FAN_SPEED_FEEDBACK)
+  // Fan was just cut above (this file, a few lines up) — re-power it so the
+  // settle loop below measures a genuinely driven fan, not one coasting to
+  // a stop. FAN_SPEED_FEEDBACK is only ever defined where HW_NUM>=8's
+  // ledcWrite branch above applies, so this mirrors that branch.
+  ledcWrite(FAN_PWM_CHANNEL, in3.fanPwrSupplyPWM);
+
   // fanSpeedHandler() reads the last ISR-latched pulse period, not a live
-  // poll — safe even though the fan's PWM was already cut a few lines
-  // above; it's still coasting at full speed on this timescale. This also
-  // relies on being the very first fanSpeedHandler() call at boot:
-  // sensors_Task/security_Task (the only other callers) start after
+  // poll. This relies on being the very first fanSpeedHandler() call at
+  // boot: sensors_Task/security_Task (the only other callers) start after
   // initHardware() returns — see the fan-speed-feedback design doc.
   //
   // filter_0 (used inside fanSpeedHandler()) is a stateful 6th-order
@@ -1133,6 +1148,8 @@ bool actuatorsTest() {
     in3.alarmToReport[FAN_ISSUE_ALARM] = true;
     setAlarm(FAN_ISSUE_ALARM);
   }
+  // Cut the fan back off — normal operation re-enables it via turnFans().
+  ledcWrite(FAN_PWM_CHANNEL, 0);
 #else
   in3.fanHasSpeedFeedback = false;
 #endif
