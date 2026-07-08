@@ -517,6 +517,9 @@ void switchAlarmTelemetryGPRS(int alarm, bool value) {
   case POWER_SUPPLY_ALARM:
     alarmKey = POWER_SUPPLY_ALARM_KEY;
     break;
+  case AIR_BLOCKED_ALARM:
+    alarmKey = AIR_BLOCKED_ALARM_KEY;
+    break;
   default:
     return;
   }

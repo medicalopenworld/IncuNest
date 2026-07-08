@@ -79,6 +79,7 @@
 #define FAN_ISSUE_ALARM_KEY "fan_alarm"
 #define HEATER_ISSUE_ALARM_KEY "heater_alarm"
 #define POWER_SUPPLY_ALARM_KEY "power_alarm"
+#define AIR_BLOCKED_ALARM_KEY "air_blocked_alarm"
 
 #define CALIBRATION_RAW_TEMPERATURE_RANGE_SKIN_KEY "Cal_raw_range_skin_temp"
 #define CALIBRATION_RAW_TEMPERATURE_LOW_SKIN_KEY "Cal_raw_low_skin_temp"
