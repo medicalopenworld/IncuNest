@@ -34,6 +34,8 @@ double airControlPIDInput;
 double humidityControlPIDOutput;
 int humidifierTimeCycle = 5000;
 unsigned long windowStartTime;
+double fanControlPIDOutput;
+double fanTargetRPM = FAN_TARGET_RPM;
 // Tracks heaterCurrentSampleSeq (legacy/sensors.cpp) so heaterSafeMAXPWM only
 // steps once HEATER_RAMP_SAMPLE_CYCLES genuinely new heater current samples
 // have arrived, instead of on a wall-clock timer or a tick that advances
@@ -62,12 +64,17 @@ PID humidityControlPID(&in3.humidity[ROOM_DIGITAL_HUM_SENSOR],
                        &humidityControlPIDOutput, &in3.desiredControlHumidity,
                        Kp[humidityPID], Ki[humidityPID], Kd[humidityPID],
                        P_ON_E, DIRECT);
+PID fanControlPID(&in3.fan_rpm, &fanControlPIDOutput, &fanTargetRPM, KP_FAN,
+                  KI_FAN, KD_FAN, P_ON_E, DIRECT);
 
 void PIDInit()
 {
   airControlPID.SetMode(MANUAL);
   skinControlPID.SetMode(MANUAL);
   humidityControlPID.SetMode(MANUAL);
+  fanControlPID.SetMode(MANUAL);
+  fanControlPID.SetOutputLimits(0, PWM_MAX_VALUE);
+  fanControlPID.SetSampleTime(PID_FAN_SAMPLE_TIME);
 }
 
 void heaterPowerConsumptionCheck()
@@ -178,6 +185,12 @@ void PIDHandler()
       }
       humidifierState = true;
     }
+  }
+  if (fanControlPID.GetMode() == AUTOMATIC)
+  {
+    fanControlPID.Compute();
+    ledcWrite(FAN_CTL_PWM_CHANNEL,
+              fanControlPIDOutput * !ongoingFanCriticalAlarm());
   }
 }
 

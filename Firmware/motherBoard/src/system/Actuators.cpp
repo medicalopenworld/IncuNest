@@ -27,6 +27,8 @@
 #include "main.h"
 
 extern IncuNest_parameters in3;
+extern PID fanControlPID;
+extern double fanControlPIDOutput;
 
 // Migrated from legacy/UI_actuatorsProgress.cpp - despite living in the
 // on-board UI folder, this is live actuator control called from the active
@@ -38,7 +40,18 @@ void turnFans(bool mode) {
 #if (HW_NUM >= 8)
   ledcWrite(FAN_PWM_CHANNEL,
             (mode && !ongoingFanCriticalAlarm()) * in3.fanPwrSupplyPWM);
-  ledcWrite(FAN_CTL_PWM_CHANNEL, mode * in3.fanCtlPWM);
+#if defined(FAN_SPEED_FEEDBACK)
+  if (in3.fanHasSpeedFeedback) {
+    fanControlPID.SetMode(in3.fanCommandedOn ? AUTOMATIC : MANUAL);
+    if (!in3.fanCommandedOn) {
+      fanControlPIDOutput = 0;
+      ledcWrite(FAN_CTL_PWM_CHANNEL, 0);
+    }
+  } else
+#endif
+  {
+    ledcWrite(FAN_CTL_PWM_CHANNEL, mode * in3.fanCtlPWM);
+  }
 #else
   digitalWrite(FAN, in3.phototherapy || mode && !ongoingFanCriticalAlarm());
 #endif

@@ -402,7 +402,7 @@ typedef struct
   char alarmMessage[MAX_ALARM_STRING_SIZE];
   bool previousAlarmReport;
 
-  float fan_rpm = false;
+  double fan_rpm = false;
   bool fanEncoderUpdate = false;
   long fanEncoderPeriod[2] = {false, false};
   bool fanCommandedOn = false;

@@ -408,6 +408,14 @@
 #define FAN_MIN_RPM 3000            // minimum acceptable fan RPM when speed feedback is present
 #define FAN_MIN_RPM_HYSTERESIS 300  // rpm above FAN_MIN_RPM required to clear FAN_ISSUE_ALARM
 
+// Closed-loop fan speed control (HW>=16, feedback-capable units only).
+#define FAN_TARGET_RPM 4000
+// Factory baseline duty (0-255) to hold FAN_TARGET_RPM with a clean air
+// outlet is 137. This threshold (margin above baseline) must be confirmed
+// on the bench against real unit-to-unit variance, not guessed further.
+#define FAN_DUTY_BLOCKED_THRESHOLD 160
+#define FAN_DUTY_BLOCKED_HYSTERESIS 15 // duty below (threshold - this) required to clear AIR_BLOCKED_ALARM
+
 #if (ADC_READ_FUNCTION == MILLIVOTSREAD_ADC)
 #define ADC_TO_DISCARD_MIN 500  // in mV
 #define ADC_TO_DISCARD_MAX 2500 // in mV
