@@ -34,7 +34,14 @@ double airControlPIDInput;
 double humidityControlPIDOutput;
 int humidifierTimeCycle = 5000;
 unsigned long windowStartTime;
-long lastHeaterPowerCheck = 0;
+// Tracks heaterCurrentSampleSeq (legacy/sensors.cpp) so heaterSafeMAXPWM only
+// steps once HEATER_RAMP_SAMPLE_CYCLES genuinely new heater current samples
+// have arrived, instead of on a wall-clock timer or a tick that advances
+// whether or not the heater sensor actually responded. If the SECUNDARY
+// sensor is absent, heaterCurrentSampleSeq never moves and the ramp stays
+// parked at HEATER_START_PWM instead of climbing blind.
+static unsigned long lastSeenHeaterCurrentSampleSeq = 0;
+static int heaterRampSampleCounter = 0;
 
 extern IncuNest_parameters in3;
 extern MAM_IncuNest_Humidifier in3_hum;
@@ -65,37 +72,51 @@ void PIDInit()
 
 void heaterPowerConsumptionCheck()
 {
-  int heaterSafeMAXPWM_before = in3.heaterSafeMAXPWM;
-  if (millis() - lastHeaterPowerCheck > CURRENT_CHECK_PERIOD_MS)
+  // Only advance once a genuinely new in3.heater_current sample has landed
+  // (heaterCurrentSampleSeq changed) - PIDHandler() runs every 1ms, much
+  // faster than the ~110ms current sensor refresh, so without this guard
+  // the same sample would be counted as "new" on every call. This also
+  // fails safe if the heater sensor is absent/down: heaterCurrentSampleSeq
+  // then never advances, so the ramp stays parked instead of climbing blind.
+  if (heaterCurrentSampleSeq == lastSeenHeaterCurrentSampleSeq)
   {
-    lastHeaterPowerCheck = millis();
-    if (in3.heater_current > in3.heaterMaxPowerAmps || in3.system_current > in3.heaterMaxPowerAmps)
+    return;
+  }
+  lastSeenHeaterCurrentSampleSeq = heaterCurrentSampleSeq;
+
+  if (++heaterRampSampleCounter < HEATER_RAMP_SAMPLE_CYCLES)
+  {
+    return;
+  }
+  heaterRampSampleCounter = 0;
+
+  int heaterSafeMAXPWM_before = in3.heaterSafeMAXPWM;
+  if (in3.heater_current > in3.heaterMaxPowerAmps || in3.system_current > in3.heaterMaxPowerAmps)
+  {
+    in3.heaterSafeMAXPWM -= HEATER_POWER_FACTOR_DECREASE;
+    if (in3.heaterSafeMAXPWM < 0)
     {
-      in3.heaterSafeMAXPWM -= HEATER_POWER_FACTOR_DECREASE;
-      if (in3.heaterSafeMAXPWM < 0)
-      {
-        in3.heaterSafeMAXPWM = 0;
-      }
+      in3.heaterSafeMAXPWM = 0;
     }
-    else if (in3.heater_current < (in3.heaterMaxPowerAmps - HEATER_SAFE_MARGIN_AMPS) || in3.system_current < (in3.heaterMaxPowerAmps - HEATER_SAFE_MARGIN_AMPS))
+  }
+  else if (in3.heater_current < (in3.heaterMaxPowerAmps - HEATER_SAFE_MARGIN_AMPS) || in3.system_current < (in3.heaterMaxPowerAmps - HEATER_SAFE_MARGIN_AMPS))
+  {
+    in3.heaterSafeMAXPWM += HEATER_POWER_FACTOR_INCREASE;
+    if (in3.heaterSafeMAXPWM > HEATER_MAX_PWM)
     {
-      in3.heaterSafeMAXPWM += HEATER_POWER_FACTOR_INCREASE;
-      if (in3.heaterSafeMAXPWM > HEATER_MAX_PWM)
-      {
-        in3.heaterSafeMAXPWM = HEATER_MAX_PWM;
-      }
+      in3.heaterSafeMAXPWM = HEATER_MAX_PWM;
     }
-    if (heaterSafeMAXPWM_before != in3.heaterSafeMAXPWM)
+  }
+  if (heaterSafeMAXPWM_before != in3.heaterSafeMAXPWM)
+  {
+    logI("[PID] -> Heater current is " + String(in3.heater_current) + ", changed max PWM to: " + String(in3.heaterSafeMAXPWM));
+    if (airControlPID.GetMode() == AUTOMATIC)
     {
-      logI("[PID] -> Heater current is " + String(in3.heater_current) + ", changed max PWM to: " + String(in3.heaterSafeMAXPWM));
-      if (airControlPID.GetMode() == AUTOMATIC)
-      {
-        airControlPID.SetOutputLimits(0, in3.heaterSafeMAXPWM); // Set safe limits
-      }
-      if (skinControlPID.GetMode() == AUTOMATIC)
-      {
-        skinControlPID.SetOutputLimits(0, in3.heaterSafeMAXPWM); // Set safe limits
-      }
+      airControlPID.SetOutputLimits(0, in3.heaterSafeMAXPWM); // Set safe limits
+    }
+    if (skinControlPID.GetMode() == AUTOMATIC)
+    {
+      skinControlPID.SetOutputLimits(0, in3.heaterSafeMAXPWM); // Set safe limits
     }
   }
 }
@@ -167,6 +188,9 @@ void startPID(byte var)
       skinControlPID.GetMode() != AUTOMATIC)
   {
     in3.heaterSafeMAXPWM = HEATER_START_PWM;
+    // Restart the ramp cadence so each control activation behaves the same,
+    // regardless of how heaterPowerConsumptionCheck() was mid-cycle before.
+    heaterRampSampleCounter = 0;
   }
   switch (var)
   {

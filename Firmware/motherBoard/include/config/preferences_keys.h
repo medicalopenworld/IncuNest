@@ -11,7 +11,6 @@ constexpr char NS_STATE[] = "mb_state";
 
 // --------------- Key names: mb_cfg ---------------
 constexpr char KEY_LANG[]        = "lang";
-constexpr char KEY_AUTOLOCK[]    = "autolock";
 constexpr char KEY_SERIAL[]      = "serial";
 constexpr char KEY_CTRL_MODE[]   = "ctrl_mode";
 constexpr char KEY_CTRL_TEMP[]   = "ctrl_temp";

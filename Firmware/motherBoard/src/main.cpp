@@ -168,11 +168,6 @@ int barWidth, barHeight, tempBarPosX, tempBarPosY, humBarPosX, humBarPosY;
 int screenTextColor, screenTextBackgroundColour;
 
 // User Interface display variables
-bool goToSettings = false;
-bool autoLock; // setting that enables backlight switch OFF after a given time
-               // of no user actions
-long lastbacklightHandler; // last time there was a encoder movement or pulse
-
 bool selected;
 char cstring[128];
 char *textToWrite;
@@ -191,7 +186,6 @@ long lastBlinkSetMessage;
 
 long lastSuccesfullSensorUpdate[SENSOR_TEMP_QTY];
 
-int ScreenBacklightMode;
 long lastSkinAttachedSensorUpdate;
 long lastRoomSensorUpdate, lastCurrentSensorUpdate;
 bool roomSensorOk = false;
@@ -255,13 +249,6 @@ void GPRS_Task(void *pvParameters) {
     // Unlock the mutex
     xSemaphoreGive(GPRS_monitor_mutex);
     vTaskDelay(pdMS_TO_TICKS(GPRS_TASK_PERIOD_MS));
-  }
-}
-
-void Backlight_Task(void *pvParameters) {
-  for (;;) {
-    backlightHandler();
-    vTaskDelay(pdMS_TO_TICKS(BACKLIGHT_TASK_PERIOD_MS));
   }
 }
 
@@ -365,22 +352,6 @@ void security_Task(void *pvParameters) {
   }
 }
 
-void UI_Task(void *pvParameters) {
-  if (in3.restoreState) {
-    UI_actuatorsProgress();
-  } else {
-    if (goToSettings) {
-      UI_settings();
-    } else {
-      UI_mainMenu();
-    }
-  }
-  for (;;) {
-    userInterfaceHandler(page);
-    vTaskDelay(pdMS_TO_TICKS(UI_TASK_PERIOD_MS));
-  }
-}
-
 void TimeTrack_Task(void *pvParameters) {
   for (;;) {
     timeTrackHandler();
@@ -411,8 +382,19 @@ void Communication_Receiver(void *pvParameters) {
              "g gest=" + String(hmi_cmd_msg.babyGestWeeks) +
              "w ageD=" + String(hmi_cmd_msg.babyAgeDays));
       }
+      // Reset the alarm stabilization window (see alarmTimerStart(),
+      // security.cpp) only on the OFF->ON transition, matching what the
+      // now-removed on-board UI (legacy/UI_actuatorsProgress.cpp) used to do
+      // when a user confirmed activation from its menu. The HMI-driven path
+      // resends this command on every command cycle even while actuation
+      // stays on, so gating on the transition (rather than "actuation != 0")
+      // avoids perpetually postponing the window and suppressing alarms.
+      bool actuationWasOff = (in3.actuation == ACTUATION_OFF);
       in3.actuation = hmi_cmd_msg.actuation;
       { Preferences p; p.begin(NS_STATE, false); p.putUChar(KEY_ACTUATION, in3.actuation); p.end(); }
+      if (actuationWasOff && in3.actuation != ACTUATION_OFF) {
+        alarmTimerStart();
+      }
       if (in3.controlMode != hmi_cmd_msg.controlMode) {
         in3.controlMode = hmi_cmd_msg.controlMode;
         { Preferences p; p.begin(NS_CFG, false); p.putUChar(KEY_CTRL_MODE, in3.controlMode); p.end(); }
@@ -605,10 +587,6 @@ void setup() {
   logI("IncuNest debug uart, version v" + String(FWversion) + "/" +
        String(HWversion) + ", SN: " + String(in3.serialNumber));
 
-  if (!GPIORead(ENC_SWITCH)) {
-    goToSettings = true;
-  }
-
   initHardware(false);
   initDriveUpload();
   crashReporterMaybeFlush();
@@ -683,27 +661,12 @@ void setup() {
     ;
   logI("OTA task successfully created!\n");
 
-  logI("Creating Backlight task ...\n");
-  while (xTaskCreatePinnedToCore(Backlight_Task, "BACKLIGHT", 4096, NULL,
-                                 BACKLIGHT_TASK_PRIORITY, NULL,
-                                 CORE_ID_FREERTOS) != pdPASS)
-    ;
-  logI("Backlight task successfully created!\n");
-
   logI("Creating time track task ...\n");
   while (xTaskCreatePinnedToCore(TimeTrack_Task, "TimeTrack", 4096, NULL,
                                  TIME_TRACK_TASK_PRIORITY, NULL,
                                  CORE_ID_FREERTOS) != pdPASS)
     ;
   logI("Time track task successfully created!\n");
-
-#if HW_NUM < 15
-  logI("Creating UI task ...\n");
-  while (xTaskCreatePinnedToCore(UI_Task, "UI", 4096, NULL, UI_TASK_PRIORITY,
-                                 NULL, CORE_ID_FREERTOS) != pdPASS)
-    ;
-  logI("UI task successfully created!\n");
-#endif
 
 #ifdef CRASH_TEST_MB
   xTaskCreatePinnedToCore(CrashTestMBTask, "CRASH_TEST_MB", 2048, NULL, 1,

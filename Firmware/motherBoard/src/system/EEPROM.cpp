@@ -27,7 +27,6 @@
 
 #include "main.h"
 
-extern bool autoLock;
 extern bool WIFI_EN;
 extern int presetTemp[2]; // preset baby skin temperature
 extern double RawTemperatureLow[SENSOR_TEMP_QTY];
@@ -52,7 +51,6 @@ void resetFlash()
 
 void loaddefaultValues()
 {
-  autoLock = DEFAULT_AUTOLOCK;
   in3.language = defaultLanguage;
   in3.controlMode = CONTROL_AIR;
   in3.desiredControlTemperature = presetTemp[CONTROL_AIR];
@@ -70,7 +68,6 @@ void loaddefaultValues()
     Preferences p;
     p.begin(NS_CFG, false);
     p.putUChar(KEY_LANG, in3.language);
-    p.putUChar(KEY_AUTOLOCK, autoLock);
     p.putUChar(KEY_CTRL_MODE, in3.controlMode);
     p.putFloat(KEY_CTRL_TEMP, in3.desiredControlTemperature);
     p.putUChar(KEY_CTRL_HUM, in3.desiredControlHumidity);
@@ -140,7 +137,6 @@ static bool migrateFromEEPROM()
 {
   constexpr int OLD_MAGIC_OFFSET = 10;
   constexpr uint8_t OLD_MAGIC_VAL = 0xAB;
-  constexpr int OLD_AUTOLOCK = 20;
   constexpr int OLD_LANG = 30;
   constexpr int OLD_SERIAL = 40;
   constexpr int OLD_CTRL_ACTIVE = 60;
@@ -192,7 +188,6 @@ static bool migrateFromEEPROM()
   {
     Preferences p;
     p.begin(NS_CFG, false);
-    p.putUChar(KEY_AUTOLOCK, buf[OLD_AUTOLOCK]);
     p.putUChar(KEY_LANG, buf[OLD_LANG]);
     p.putInt(KEY_SERIAL, ri(OLD_SERIAL));
     p.putUChar(KEY_CTRL_MODE, buf[OLD_CTRL_MODE]);
@@ -312,7 +307,6 @@ void recapVariables()
   {
     Preferences p;
     p.begin(NS_CFG, true);
-    autoLock = p.getUChar(KEY_AUTOLOCK, DEFAULT_AUTOLOCK);
     in3.language = p.getUChar(KEY_LANG, defaultLanguage);
     in3.serialNumber = p.getInt(KEY_SERIAL, 0);
     in3.controlMode = p.getUChar(KEY_CTRL_MODE, CONTROL_AIR);

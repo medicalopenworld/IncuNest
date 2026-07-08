@@ -119,11 +119,6 @@ extern int barWidth, barHeight, tempBarPosX, tempBarPosY, humBarPosX,
 extern int screenTextColor, screenTextBackgroundColour;
 
 // User Interface display variables
-extern bool autoLock; // setting that enables backlight switch OFF after a
-                      // given time of no user actions
-extern long
-    lastbacklightHandler; // last time there was a encoder movement or pulse
-
 extern bool selected;
 extern char cstring[128];
 extern char *textToWrite;
@@ -335,10 +330,11 @@ void alarmTimerStart()
       -1 * minsToMillis(ALARM_TIME_DELAY);
   lastAlarmTrigger[SKIN_THERMAL_CUTOUT_ALARM] =
       -1 * minsToMillis(ALARM_TIME_DELAY);
-  lastAlarmTrigger[TEMPERATURE_ALARM] =
-      -1 * minsToMillis(ALARM_TIME_DELAY);
-  // HUMIDITY_ALARM keeps its millis() value from the loop above so the
-  // stabilization period (ACTUATORS_ALARM_STABILIZATION_MINS) is enforced.
+  // TEMPERATURE_ALARM and HUMIDITY_ALARM both keep their millis() value from
+  // the loop above, so checkAlarms() enforces the same
+  // ACTUATORS_ALARM_STABILIZATION_MINS grace period for both after
+  // activation. The thermal cutouts stay immediately eligible - they are a
+  // hard over-temperature safety limit, not a setpoint-tracking alarm.
 }
 
 byte activeAlarm()
@@ -921,10 +917,7 @@ static void checkUsbFault()
 
 void securityCheck()
 {
-  if (in3.actuation)
-  {
-    checkThermalCutOuts();
-  }
+  checkThermalCutOuts();
   checkAlarms();
   sensorHealthMonitor();
   powerSupplyCheck();

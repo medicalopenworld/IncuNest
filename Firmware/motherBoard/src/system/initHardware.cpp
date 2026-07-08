@@ -110,11 +110,6 @@ extern int barWidth, barHeight, tempBarPosX, tempBarPosY, humBarPosX,
 extern int screenTextColor, screenTextBackgroundColour;
 
 // User Interface display variables
-extern bool autoLock; // setting that enables backlight switch OFF after a
-                      // given time of no user actions
-extern long
-    lastbacklightHandler; // last time there was a encoder movement or pulse
-
 extern bool selected;
 extern char cstring[128];
 extern char *textToWrite;
@@ -142,8 +137,6 @@ extern double Kp[numPID], Ki[numPID], Kd[numPID];
 extern PID airControlPID;
 extern PID skinControlPID;
 extern PID humidityControlPID;
-
-extern int ScreenBacklightMode;
 
 #define testMode false
 #define operativeMode true
@@ -641,7 +634,6 @@ void testDisplay() {
   // digitalWrite(TFT_RST, HIGH); // alternating HIGH/LOW
   // delay(5);
 #endif
-  loadlogo();
   if (BACKLIGHT_CONTROL == DIRECT_BACKLIGHT_CONTROL) {
     backlight_start_value = false;
     backlight_end_value = BACKLIGHT_POWER_DEFAULT;

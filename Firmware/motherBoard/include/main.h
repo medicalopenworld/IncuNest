@@ -92,8 +92,17 @@
 
 #define HEATER_SAFE_MARGIN_AMPS 1
 
-#define HEATER_POWER_FACTOR_INCREASE 5
-#define HEATER_POWER_FACTOR_DECREASE 5
+#define HEATER_POWER_FACTOR_INCREASE 3
+#define HEATER_POWER_FACTOR_DECREASE 3
+// Number of fresh in3.heater_current samples (see lastCurrentMeasurement)
+// between each heaterSafeMAXPWM ramp step, instead of a wall-clock period.
+#define HEATER_RAMP_SAMPLE_CYCLES 3
+// Consecutive failed I2C presence probes of the SECUNDARY current sensor
+// (heater/USB/battery chip) before raising HEATER_ISSUE_ALARM for a runtime
+// dropout - see currentMonitor() in legacy/sensors.cpp. ~10 x 110ms = 1.1s,
+// long enough to ride out a transient EMI glitch without missing a real
+// dropout for many cycles.
+#define HEATER_SENSOR_DROPOUT_ALARM_CYCLES 10
 #if (HW_NUM != 6)
 #define CURRENT_STABILIZE_THRESHOLD_RATIO 0.1
 #endif
@@ -195,8 +204,12 @@ extern int g_restore_photo_minutes;
 #include "task_config.h"
 
 #define DIGITAL_CURRENT_SENSOR_READ_PERIOD_MS 500
-#define CURRENT_UPDATE_PERIOD_MS 100 // in millis
-#define CURRENT_CHECK_PERIOD_MS 2000
+// 110ms (not 100ms): must exceed one full INA3221 conversion cycle
+// (AVG_128 x 140us x 2 (bus+shunt) x 3ch ~= 107.52ms, see initHardware.cpp)
+// so every currentMonitor() call reflects a genuinely new conversion, not a
+// stale repeat. Matches the interval already used by the boot self-test
+// (measureThreeActuatorsParallel(..., 110) in initHardware.cpp).
+#define CURRENT_UPDATE_PERIOD_MS 110 // in millis
 #define VOLTAGE_UPDATE_PERIOD_MS 50 // in millis
 #define UI_SENSOR_UPDATE_PERIOD_MS 1000
 #define POWER_SUPPLY_CHECK_PERIOD 2000 // 2 secs
@@ -293,8 +306,6 @@ typedef enum
 #define ENCODER_TICKS_DIV 0
 #endif
 #define encPulseDebounce 200
-
-#define DEFAULT_AUTOLOCK ON
 
 // Graphic variables
 #define ERASE false
@@ -430,21 +441,6 @@ void WIFI_TB_Init();
 void WifiOTAHandler(void);
 void securityCheck();
 void buzzerConstantTone(int freq);
-void drawAlarmMessage(char *alertMessage);
-void drawHeading(int UI_page, int UI_serialNumber);
-void updateHeadingEvent(byte Event, bool event_status);
-char *convertStringToChar(char *arrayInput, String input);
-int16_t drawCentreString(char *string, int16_t dX, int16_t poY, int16_t size);
-void eraseBar(int UI_menu_rows, int bar_pos);
-void UI_updateConnectivityEvents();
-void updateBar(int UI_menu_rows, int bar_pos);
-void graphics(uint8_t UI_page, uint8_t UI_language, uint8_t UI_print_text,
-              uint8_t UI_menu_rows, uint8_t UI_var_0, uint8_t UI_var_1);
-int graphicHeight(int position);
-int16_t drawFloat(float floatNumber, int16_t decimal, int16_t poX, int16_t poY,
-                  int16_t size);
-void setTextColor(int16_t colour);
-int16_t getBackgroundColor();
 
 void turnFans(bool mode);
 void alarmTimerStart();
@@ -463,26 +459,6 @@ void PIDHandler();
 void startPID(byte var);
 void stopPID(byte var);
 
-bool encoderContinuousPress(int UI_page);
-
-void updateLoadingTemperatureBar(float prev, float actual);
-void updateLoadingHumidityBar(float prev, float actual);
-void drawSelectedTemperature(float temperatureToDraw,
-                             float previousTemperatureDrawn);
-void drawUnselectedTemperature(float temperatureToDraw,
-                               float previousTemperatureDrawn);
-void drawHumidity(int UI_humidity, int UI_previousHumdity);
-int16_t drawRightString(char *string, int16_t dX, int16_t poY, int16_t size);
-void drawStartMessage(bool UI_enableSet, int UI_menu_rows);
-void drawCentreNumber(int n, int x, int i);
-void drawRightNumber(int n, int x, int i);
-void drawBack();
-void drawActuatorsSeparators();
-void drawStop();
-void drawHelpMessage(byte UI_language);
-void printLoadingTemperatureBar(double UI_desiredControlTemperature);
-void printLoadingHumidityBar(int UI_desiredControlHumidity);
-void blinkGoBackMessage();
 bool ongoingAlarms();
 byte activeAlarm();
 void reestartOngoingAlarms();
@@ -492,32 +468,15 @@ void clearDisplayedAlarm(byte alarm);
 void clearAlarmPendingToClear(byte alarm);
 char *alarmIDtoString(byte alarmID);
 void resendActiveAlarms();
-void checkSetMessage(int UI_page, int UI_menu_rows);
 
 bool updateRoomSensor();
 bool updateAmbientSensor();
-void updateDisplaySensors();
-
-void UI_settings();
-void UI_actuatorsProgress();
 
 void wifiInit(void);
 void wifiDisable();
 
 void loaddefaultValues();
-void UI_calibration();
-void firstPointCalibration();
-void fineTuneCalibration();
-void autoCalibration();
-void resetCalibration();
 void recapVariables();
-void clearCalibrationValues();
-void secondPointCalibration();
-void saveCalibrationToEEPROM();
-int getYpos(int UI_menu_rows, byte row);
-bool back_mode();
-void setSensorsGraphicPosition(int UI_page);
-void updateDisplayHeader();
 
 void initRoomSensor();
 void initAmbientSensor();
@@ -525,6 +484,11 @@ void initSkinSensor();
 void powerMonitor();
 void currentMonitor();
 void voltageMonitor();
+
+// Incremented only when in3.heater_current is genuinely refreshed
+// (legacy/sensors.cpp); used by heaterPowerConsumptionCheck() to detect a
+// real new sample instead of currentMonitor() merely having ticked.
+extern unsigned long heaterCurrentSampleSeq;
 
 double roundSignificantDigits(double value, int numberOfDecimals);
 
@@ -537,11 +501,9 @@ void security_check_reboot_cause();
 void IRAM_ATTR encSwitchHandler();
 void IRAM_ATTR encoderISR();
 void IRAM_ATTR fanEncoderISR();
-void backlightHandler();
 
 void fanSpeedHandler();
 bool measureSkinSensor();
-void loadlogo();
 
 void pinMode(uint8_t GPIO, uint8_t Mode);
 bool GPIORead(uint8_t GPIO);

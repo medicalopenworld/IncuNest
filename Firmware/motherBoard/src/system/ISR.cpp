@@ -101,12 +101,6 @@ extern int barWidth, barHeight, tempBarPosX, tempBarPosY, humBarPosX,
 extern int screenTextColor, screenTextBackgroundColour;
 
 // User Interface display variables
-extern bool autoLock; // setting that enables backlight switch OFF after a
-                      // given time of no user actions
-extern long
-    lastbacklightHandler; // last time there was a encoder movement or pulse
-
-
 extern bool selected;
 extern char cstring[128];
 extern char *textToWrite;
@@ -141,7 +135,6 @@ void IRAM_ATTR encoderISR()
   int newPos;
   encoder.tick(); // just call tick() to check the state.
   newPos = encoder.getPosition();
-  lastbacklightHandler = millis();
   if (abs(lastEncMove - newPos) > ENCODER_TICKS_DIV)
   {
     EncMove = EncMoveOrientation * int(encoder.getDirection());
@@ -172,6 +165,5 @@ void IRAM_ATTR encSwitchHandler()
       // logI"[ENCODER] -> Pushed");
     }
     lastEncPulse = millis();
-    lastbacklightHandler = millis();
   }
 }
