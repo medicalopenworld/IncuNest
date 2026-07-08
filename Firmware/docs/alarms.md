@@ -4,7 +4,7 @@ The IncuNest alarm system is designed under guidelines for life-critical risk eq
 
 ## 1. Alarm Typologies and Hierarchies
 
-There are **9+1 Main Alarm Identifiers** in the system mapped through a vector in explicit enumerated numerical space `ALARMS_ID`:
+There are **10+1 Main Alarm Identifiers** in the system mapped through a vector in explicit enumerated numerical space `ALARMS_ID`:
 
 | ID | System Name | Origin/Main Trigger | Risk Type |
 |:---|:---|:---|:---|
@@ -18,6 +18,7 @@ There are **9+1 Main Alarm Identifiers** in the system mapped through a vector i
 | 7 | `FAN_ISSUE_ALARM` | Loss of motor pulse (Duty Ticks encoder) | HW Fault/Emergency |
 | 8 | `HEATER_ISSUE_ALARM`| Sudden drop in amperage consumed in Resistor | HW Fault/Emergency |
 | 9 | `POWER_SUPPLY_ALARM`| INA3221 detects drop or spike in PSU Vin 12V (Only on `HW_NUM >= 13`) | Elec Fault/Critical |
+| 10 | `AIR_BLOCKED_ALARM` | Sustained above-normal fan PWM duty while holding the closed-loop RPM setpoint (4000 rpm) | Medical/Mild |
 
 *Note: IDs 3 to 9 (Hardware Faults + PSU and Cutouts) are managed unified under the software flag `ongoingCriticalAlarm()` which instantly nullifies logical outputs to actuators ("Trip-Off").*
 
@@ -39,6 +40,10 @@ so it survives watchdog-reboot fast paths that skip re-running the test.
   because there is no way to independently confirm the fan is still
   spinning. Recovery requires the user to power-cycle the unit — this is
   not forced automatically.
+
+### 1.2 Closed-Loop RPM Control and Air-Blockage Detection
+
+The motherboard implements closed-loop PID control to maintain the fan at approximately 4000 rpm on HW ≥ 16 (feedback-capable units). As part of this system, `AIR_BLOCKED_ALARM` (ID 10) is raised when the fan's PWM duty cycle remains sustained above normal while holding the 4000 rpm setpoint, indicating increased static pressure from a partial air-outlet obstruction. This alarm is **notify-only** — it does not disable the heater or fan. It complements `FAN_ISSUE_ALARM` (which covers total fan failure or stall) by distinguishing partial air-outlet obstruction from transient voltage events (such as heater inrush or battery drain) that could produce similar low-RPM readings.
 
 ## 2. Life Cycle: Activation and Deactivation
 
