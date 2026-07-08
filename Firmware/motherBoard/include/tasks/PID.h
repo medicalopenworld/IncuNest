@@ -25,5 +25,3 @@
 #define KI_HUMIDITY 2
 #define KD_HUMIDITY 20
 #define AWO_HUMIDITY 5
-
-#define DUTY_TEMP_PCT_MAX 100

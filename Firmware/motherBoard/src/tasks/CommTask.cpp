@@ -767,17 +767,18 @@ void Communication_Task(void *pvParameters) {
       hmiSerial.print(msg);
 
       {
-        int temp_duty = (in3.heaterSafeMAXPWM > 0)
-            ? (int)(HeaterPIDOutput / in3.heaterSafeMAXPWM * DUTY_TEMP_PCT_MAX)
-            : 0;
-        if (temp_duty < 0)                 temp_duty = 0;
-        if (temp_duty > DUTY_TEMP_PCT_MAX) temp_duty = DUTY_TEMP_PCT_MAX;
+        // Mirrors the same 0..PWM_MAX_VALUE scale and ongoingCriticalAlarm()
+        // gating that PIDHandler() actually writes via ledcWrite(), so the
+        // HMI bar never disagrees with the log or with the real hardware duty.
+        int temp_duty = ongoingCriticalAlarm() ? 0 : (int)(HeaterPIDOutput + 0.5);
+        if (temp_duty < 0)               temp_duty = 0;
+        if (temp_duty > PWM_MAX_VALUE)   temp_duty = PWM_MAX_VALUE;
 
         int hum_duty = (humidifierTimeCycle > 0)
-            ? (int)(humidityControlPIDOutput / humidifierTimeCycle * DUTY_TEMP_PCT_MAX)
+            ? (int)(humidityControlPIDOutput / humidifierTimeCycle * PWM_MAX_VALUE + 0.5)
             : 0;
-        if (hum_duty < HUMIDIFIER_DUTY_CYCLE_MIN) hum_duty = HUMIDIFIER_DUTY_CYCLE_MIN;
-        if (hum_duty > HUMIDIFIER_DUTY_CYCLE_MAX) hum_duty = HUMIDIFIER_DUTY_CYCLE_MAX;
+        if (hum_duty < 0)             hum_duty = 0;
+        if (hum_duty > PWM_MAX_VALUE) hum_duty = PWM_MAX_VALUE;
 
         char duty_msg[DUTY_MSG_BUF_SIZE];
         snprintf(duty_msg, sizeof(duty_msg), "CTRL,DUTY,%d,%d\n", temp_duty, hum_duty);
@@ -995,17 +996,18 @@ void Communication_Task(void *pvParameters) {
         CommunicationHost_Send(msg);
 
         {
-          int temp_duty = (in3.heaterSafeMAXPWM > 0)
-              ? (int)(HeaterPIDOutput / in3.heaterSafeMAXPWM * DUTY_TEMP_PCT_MAX)
-              : 0;
-          if (temp_duty < 0)                 temp_duty = 0;
-          if (temp_duty > DUTY_TEMP_PCT_MAX) temp_duty = DUTY_TEMP_PCT_MAX;
+          // Mirrors the same 0..PWM_MAX_VALUE scale and ongoingCriticalAlarm()
+          // gating that PIDHandler() actually writes via ledcWrite(), so the
+          // HMI bar never disagrees with the log or with the real hardware duty.
+          int temp_duty = ongoingCriticalAlarm() ? 0 : (int)(HeaterPIDOutput + 0.5);
+          if (temp_duty < 0)               temp_duty = 0;
+          if (temp_duty > PWM_MAX_VALUE)   temp_duty = PWM_MAX_VALUE;
 
           int hum_duty = (humidifierTimeCycle > 0)
-              ? (int)(humidityControlPIDOutput / humidifierTimeCycle * DUTY_TEMP_PCT_MAX)
+              ? (int)(humidityControlPIDOutput / humidifierTimeCycle * PWM_MAX_VALUE + 0.5)
               : 0;
-          if (hum_duty < HUMIDIFIER_DUTY_CYCLE_MIN) hum_duty = HUMIDIFIER_DUTY_CYCLE_MIN;
-          if (hum_duty > HUMIDIFIER_DUTY_CYCLE_MAX) hum_duty = HUMIDIFIER_DUTY_CYCLE_MAX;
+          if (hum_duty < 0)             hum_duty = 0;
+          if (hum_duty > PWM_MAX_VALUE) hum_duty = PWM_MAX_VALUE;
 
           char duty_msg[DUTY_MSG_BUF_SIZE];
           snprintf(duty_msg, sizeof(duty_msg), "CTRL,DUTY,%d,%d\n", temp_duty, hum_duty);
