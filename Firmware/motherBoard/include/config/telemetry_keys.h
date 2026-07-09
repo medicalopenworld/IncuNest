@@ -36,6 +36,7 @@
 #define FAN_CURRENT_KEY "Fan_current"
 #define FAN_FEEDBACK_PRESENT_KEY "fan_has_fb"
 #define FAN_RPM_KEY "fan_rpm"
+#define FAN_PWM_KEY "fan_pwm"  // applied fan control duty, raw 0-255 counts
 #define V5_CURRENT_KEY "V5_current"
 #define V5_VOLTAGE_KEY "V5_voltage"
 #define BAT_CURRENT_KEY "BAT_current"

@@ -23,6 +23,7 @@
 
 */
 #include <Arduino.h>
+#include <Preferences.h>
 
 #include "main.h"
 
@@ -45,7 +46,7 @@ void turnFans(bool mode) {
   ledcWrite(FAN_PWM_CHANNEL, (in3.fanCommandedOn && !ongoingFanCriticalAlarm()) *
                                  in3.fanPwrSupplyPWM);
 #if defined(FAN_SPEED_FEEDBACK)
-  if (in3.fanHasSpeedFeedback) {
+  if (in3.fanHasSpeedFeedback && in3.fanPidEnabled) {
     if (in3.fanCommandedOn) {
       // Start (or hold) open-loop at the calibrated baseline duty.
       // PIDHandler() closes the loop bumplessly after FAN_SPINUP_GRACE_MS —
@@ -67,5 +68,23 @@ void turnFans(bool mode) {
   }
 #else
   digitalWrite(FAN, in3.phototherapy || mode && !ongoingFanCriticalAlarm());
+#endif
+}
+
+// Runtime toggle for the closed-loop fan PID (from /config web + USB). When
+// disabled, turnFans()/PIDHandler() leave the fan at the fixed in3.fanCtlPWM
+// duty (same path as a no-feedback unit). Applied immediately: disabling
+// drops to fixed duty now; enabling while running lets PIDHandler() re-engage
+// after its spin-up grace, so no action is needed here for that case.
+void setFanPidEnabled(bool enabled) {
+  in3.fanPidEnabled = enabled;
+  { Preferences p; p.begin(NS_CFG, false); p.putUChar(KEY_FAN_PID_EN, enabled); p.end(); }
+#if defined(FAN_SPEED_FEEDBACK)
+  if (!enabled && in3.fanHasSpeedFeedback) {
+    fanControlPID.SetMode(MANUAL);
+    if (in3.fanCommandedOn) {
+      ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
+    }
+  }
 #endif
 }

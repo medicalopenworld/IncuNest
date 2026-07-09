@@ -410,6 +410,10 @@
 
 // Closed-loop fan speed control (HW>=16, feedback-capable units only).
 #define FAN_TARGET_RPM 4000
+// Default for in3.fanPidEnabled (runtime-toggleable via /config and USB). When
+// false, the fan runs at the fixed in3.fanCtlPWM duty with the PID bypassed —
+// same as a unit without RPM feedback.
+#define FAN_PID_ENABLED_DEFAULT true
 // The fan is held open-loop at its baseline duty for this long after being
 // commanded on; only then does the PID close the loop (bumpless). Running
 // the loop during the ~3s mechanical spin-up made it chase the lagged,

@@ -194,8 +194,8 @@ void PIDHandler()
   {
     static bool fanWasCommanded = false;
     static long fanCommandedAt = 0;
-    bool fanActive = in3.fanHasSpeedFeedback && in3.fanCommandedOn &&
-                     !ongoingFanCriticalAlarm();
+    bool fanActive = in3.fanHasSpeedFeedback && in3.fanPidEnabled &&
+                     in3.fanCommandedOn && !ongoingFanCriticalAlarm();
     if (fanActive && !fanWasCommanded)
     {
       fanCommandedAt = millis();

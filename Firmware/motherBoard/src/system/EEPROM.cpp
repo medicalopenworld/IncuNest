@@ -56,6 +56,7 @@ void loaddefaultValues()
   in3.desiredControlTemperature = presetTemp[CONTROL_AIR];
   in3.desiredControlHumidity = presetHumidity;
   in3.fanCtlPWM = FAN_CTL_PWM_DEFAULT;
+  in3.fanPidEnabled = FAN_PID_ENABLED_DEFAULT;
   ReferenceTemperatureRange = 0.0;
   ReferenceTemperatureLow = 0.0;
   for (int i = 0; i < SENSOR_TEMP_QTY; i++)
@@ -72,6 +73,7 @@ void loaddefaultValues()
     p.putFloat(KEY_CTRL_TEMP, in3.desiredControlTemperature);
     p.putUChar(KEY_CTRL_HUM, in3.desiredControlHumidity);
     p.putInt(KEY_FAN_CTL_PWM, in3.fanCtlPWM);
+    p.putUChar(KEY_FAN_PID_EN, in3.fanPidEnabled);
     p.putInt(KEY_FAN_PWR_SUPPLY_PWM, FAN_PWR_SUPPLY_PWM);
     p.putFloat(KEY_HEAT_MAX_A, HEATER_MAX_POWER_AMPS);
     p.putFloat(KEY_SKIN_T_MAX, SKIN_TEMPERATURE_SET_MAX);
@@ -325,6 +327,7 @@ void recapVariables()
     if (in3.fanCtlPWM <= 0 || in3.fanCtlPWM > 255)
       in3.fanCtlPWM = FAN_CTL_PWM_DEFAULT;
     in3.fanHasSpeedFeedback = p.getUChar(KEY_FAN_RPM_FEEDBACK, 0);
+    in3.fanPidEnabled = p.getUChar(KEY_FAN_PID_EN, FAN_PID_ENABLED_DEFAULT);
     p.end();
   }
 

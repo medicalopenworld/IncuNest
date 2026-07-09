@@ -448,6 +448,8 @@ void parse_line(const char *line) {
         in3.fanCtlPWM = (int)value;
         { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_CTL_PWM, in3.fanCtlPWM); p.end(); }
         ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
+      } else if (strcmp(param, "FAN_PID_EN") == 0) {
+        setFanPidEnabled(value != 0);
       } else {
         success = false;
       }

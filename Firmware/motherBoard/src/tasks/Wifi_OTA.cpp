@@ -53,6 +53,8 @@ JsonObject addVariableToTelemetryWIFIJSON = WIFI_JSON.to<JsonObject>();
 bool WIFI_connection_status = false;
 
 extern IncuNest_parameters in3;
+extern PID fanControlPID;
+extern double fanControlPIDOutput;
 extern bool WIFI_EN;
 extern char pendingSSID[64];
 extern char pendingPass[64];
@@ -216,13 +218,18 @@ const char *configIndex =
     "<input type='number' name='fan_supply_pwm' id='fan_supply_pwm'><br><br>"
     "<label>Fan Control PWM (0-255):</label><br>"
     "<input type='number' name='fan_ctl_pwm' id='fan_ctl_pwm'><br><br>"
+    "<label>Fan Speed PID:</label><br>"
+    "<select name='fan_pid_en' id='fan_pid_en'>"
+    "<option value='1'>Enabled</option>"
+    "<option value='0'>Disabled (fixed Fan Control PWM)</option>"
+    "</select><br><br>"
     "<label>Heater Max Power (Amps):</label><br>"
     "<input type='number' step='0.1' name='heater_amps' id='heater_amps'><br><br>"
     "<label>Air Temp Max (C):</label><br>"
     "<input type='number' step='0.1' name='air_tmax' id='air_tmax'><br><br>"
     "<label>Skin Temp Max (C):</label><br>"
     "<input type='number' step='0.1' name='skin_tmax' id='skin_tmax'><br><br>"
-    "<button type='button' onclick='saveSection([\"serial\",\"fan_supply_pwm\",\"fan_ctl_pwm\",\"heater_amps\",\"air_tmax\",\"skin_tmax\"])'>Save System Configuration</button>"
+    "<button type='button' onclick='saveSection([\"serial\",\"fan_supply_pwm\",\"fan_ctl_pwm\",\"fan_pid_en\",\"heater_amps\",\"air_tmax\",\"skin_tmax\"])'>Save System Configuration</button>"
     "<br><br>"
     "<h3>GPRS Reporting Periods (seconds)</h3>"
     "<label>Actuating Period:</label><br>"
@@ -247,6 +254,7 @@ const char *configIndex =
     "    $('#serial').val(data.serial);"
     "    $('#fan_supply_pwm').val(data.fan_supply_pwm);"
     "    $('#fan_ctl_pwm').val(data.fan_ctl_pwm);"
+    "    $('#fan_pid_en').val(data.fan_pid_en);"
     "    $('#heater_amps').val(data.heater_amps);"
     "    $('#air_tmax').val(data.air_tmax);"
     "    $('#skin_tmax').val(data.skin_tmax);"
@@ -398,6 +406,7 @@ void configWifiServer() {
     json += "\"serial\":" + String(in3.serialNumber) + ",";
     json += "\"fan_supply_pwm\":" + String(in3.fanPwrSupplyPWM) + ",";
     json += "\"fan_ctl_pwm\":" + String(in3.fanCtlPWM) + ",";
+    json += "\"fan_pid_en\":" + String(in3.fanPidEnabled) + ",";
     json += "\"heater_amps\":" + String(in3.heaterMaxPowerAmps) + ",";
     json += "\"air_tmax\":" + String(in3.airTemperatureSetMax) + ",";
     json += "\"skin_tmax\":" + String(in3.skinTemperatureSetMax) + ",";
@@ -429,6 +438,9 @@ void configWifiServer() {
       in3.fanCtlPWM = wifiServer.arg("fan_ctl_pwm").toInt();
       { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_CTL_PWM, in3.fanCtlPWM); p.end(); }
       ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
+    }
+    if (wifiServer.hasArg("fan_pid_en")) {
+      setFanPidEnabled(wifiServer.arg("fan_pid_en").toInt() != 0);
     }
     if (wifiServer.hasArg("heater_amps")) {
       in3.heaterMaxPowerAmps = wifiServer.arg("heater_amps").toFloat();
@@ -832,6 +844,9 @@ void addTelemetriesToWIFIJSON() {
 
   if (in3.fanCommandedOn) {
     addVariableToTelemetryWIFIJSON[FAN_RPM_KEY] = (int)(in3.fan_rpm + 0.5f);
+    addVariableToTelemetryWIFIJSON[FAN_PWM_KEY] =
+        fanControlPID.GetMode() == AUTOMATIC ? (int)(fanControlPIDOutput + 0.5)
+                                             : in3.fanCtlPWM;
   }
 
   if (g_spo2_data.spo2_sqi > 0.0f) {

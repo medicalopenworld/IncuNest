@@ -47,6 +47,8 @@ The motherboard implements closed-loop PID control to maintain the fan at approx
 
 Detection is compile-time gated by `AIR_BLOCKED_DETECTION_ENABLED` (`board.h`), **disabled by default**: with the heater at max power the supply voltage sags and the PID legitimately raises the duty to hold the setpoint, so `FAN_DUTY_BLOCKED_THRESHOLD` must be bench-calibrated above that worst-case legitimate duty before enabling. The duty needed to hold the setpoint is always logged at boot to collect that calibration data.
 
+The closed-loop control itself is runtime-toggleable via `in3.fanPidEnabled` (default `FAN_PID_ENABLED_DEFAULT`, editable in the WiFi `/config` page as "Fan Speed PID" and over USB with the `FAN_PID_EN` parameter). When disabled, the fan runs at the fixed `fanCtlPWM` duty with the PID bypassed — the same path a unit without RPM feedback takes — and `AIR_BLOCKED_ALARM` is not evaluated. The applied fan control duty (0-255 raw counts) is published to ThingsBoard as `fan_pwm` while the fan is running.
+
 ## 2. Life Cycle: Activation and Deactivation
 
 ### 2.1 Thresholds and Hysteresis

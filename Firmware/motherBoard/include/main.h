@@ -380,6 +380,7 @@ typedef struct
   int fanPwrSupplyPWM = FAN_PWR_SUPPLY_PWM;
   int fanCtlPWM = FAN_CTL_PWM_DEFAULT;
   bool fanHasSpeedFeedback = false;
+  bool fanPidEnabled = FAN_PID_ENABLED_DEFAULT;
   float heaterMaxPowerAmps = HEATER_MAX_POWER_AMPS;
   float skinTemperatureSetMax = SKIN_TEMPERATURE_SET_MAX;
   float airTemperatureSetMax = AIR_TEMPERATURE_SET_MAX;
@@ -443,6 +444,7 @@ void securityCheck();
 void buzzerConstantTone(int freq);
 
 void turnFans(bool mode);
+void setFanPidEnabled(bool enabled);
 void alarmTimerStart(bool assumeStabilized = false);
 void timeTrackHandler();
 

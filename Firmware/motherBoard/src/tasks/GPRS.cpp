@@ -56,6 +56,8 @@ unsigned long previous_processing_time;
 extern bool ambientSensorPresent;
 
 extern IncuNest_parameters in3;
+extern PID fanControlPID;
+extern double fanControlPIDOutput;
 
 GPRSstruct GPRS;
 Credentials credentials;
@@ -725,6 +727,9 @@ void addTelemetriesToGPRSJSON() {
 
   if (in3.fanCommandedOn) {
     addVariableToTelemetryGPRSJSON[FAN_RPM_KEY] = (int)(in3.fan_rpm + 0.5f);
+    addVariableToTelemetryGPRSJSON[FAN_PWM_KEY] =
+        fanControlPID.GetMode() == AUTOMATIC ? (int)(fanControlPIDOutput + 0.5)
+                                             : in3.fanCtlPWM;
   }
 
   if (g_spo2_data.spo2_sqi > 0.0f) {

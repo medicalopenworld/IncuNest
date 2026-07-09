@@ -933,7 +933,8 @@ bool actuatorsTest() {
     in3.alarmToReport[FAN_ISSUE_ALARM] = true;
     setAlarm(FAN_ISSUE_ALARM);
   }
-  if (in3.fanHasSpeedFeedback && in3.fan_rpm >= FAN_MIN_RPM) {
+  if (in3.fanHasSpeedFeedback && in3.fanPidEnabled &&
+      in3.fan_rpm >= FAN_MIN_RPM) {
     // Engage closed-loop control and let it settle at the real target
     // before checking how much duty it took to get there. Seed the loop at
     // the duty the fan is already running at (bumpless: PID_v1 latches
