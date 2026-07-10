@@ -1106,7 +1106,6 @@ bool actuatorsTest() {
   }
   vTaskDelay(pdMS_TO_TICKS(CURRENT_STABILIZE_TIME_DEFAULT));
   offsetCurrent = measureMeanConsumption(MAIN, FAN_SHUNT_CHANNEL);
-// digitalWrite(FAN, HIGH);
 #if (HW_NUM >= 8)
   ledcWrite(FAN_PWM_CHANNEL, in3.fanPwrSupplyPWM);
 #else
@@ -1121,7 +1120,6 @@ bool actuatorsTest() {
       FAN_CONSUMPTION_MAX, CURRENT_STABILIZE_MAX_TIME);
   logI("[HW] -> FAN consumption: " + String(testCurrent) + " Amps");
   in3.fan_current_test = testCurrent;
-  // digitalWrite(FAN, LOW);
 #if (HW_NUM >= 8)
   ledcWrite(FAN_PWM_CHANNEL, 0);
 #else

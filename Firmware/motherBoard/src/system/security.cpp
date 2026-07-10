@@ -279,9 +279,6 @@ void checkStatusOfSensor(byte sensor)
   }
   if (alarmID)
   {
-    // if (xQueueReceive(sharedSensorQueue, &lastSuccesfullSensorUpdate[sensor],
-    // portMAX_DELAY))
-    // {
     if (millis() - lastSuccesfullSensorUpdate[sensor] >
         MINIMUM_SUCCESSFULL_SENSOR_UPDATE)
     {
@@ -862,10 +859,6 @@ void checkAlarms()
                     lastAlarmTrigger[HUMIDITY_ALARM], true);
     }
   }
-  // if (!ongoingAlarms())
-  // {
-  //   shutBuzzer();
-  // }
 }
 
 #if defined(FAN_SPEED_FEEDBACK)
