@@ -123,7 +123,7 @@
 #define INTRO_FLAG_TOGO    2
 #define INTRO_FLAG_SENEGAL 3
 
-#define INTRO_FLAG INTRO_FLAG_SENEGAL
+#define INTRO_FLAG INTRO_FLAG_NONE
 
 // -----------------------------------------------------------------------------
 // Touch hitbox extensions (lv_obj_set_ext_click_area)

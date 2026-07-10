@@ -29,7 +29,7 @@ extern bool OTA_inprogress;
 #define CORE_MONITOR_FREERTOS 0
 #define CORE_ID_FREERTOS 1
 
-#define WIFI_NAME "IncuNest_Display"
+#define WIFI_NAME "IncuNest-Display"
 
 // Set to true only on the HMI board
 #define IS_HMI true
