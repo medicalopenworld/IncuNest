@@ -166,7 +166,14 @@ void wifiInit(void) {
     s_eventsRegistered = true;
   }
 
-  WiFi.persistent(true);
+  // persistent(false): las credenciales ya se guardan a mano en Preferences
+  // (HMI_NS_WIFI, ver WifiOTAHandler) tras el primer GOT_IP. persistent(true)
+  // hacía que el driver escribiese además su propio blob en NVS en cada
+  // begin()/disconnect() — flash write redundante que, al deshabilitar la
+  // cache de memoria externa (incluye PSRAM), bloquea la ISR del panel RGB
+  // (no es IRAM-safe) y provoca el parpadeo/desync de un frame reportado al
+  // conectar/reconectar. Ver LCD_DIAG en lcd_diagnostics_log() (UITask.cpp).
+  WiFi.persistent(false);
   // Auto-reconnect disabled: no backoff for ASSOC_TOOMANY (reason=5) causes a
   // 25 Hz event storm that starves other tasks. Manual retry in WifiOTAHandler.
   WiFi.setAutoReconnect(false);
@@ -193,8 +200,13 @@ void wifiInit(void) {
   ESP_LOGW(TAG, "[HEAP] before WiFi.begin — internal=%u PSRAM=%u",
            (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
            (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+  // LCD_DIAG evidencia: WiFi.begin() puede disparar una escritura/calibración
+  // en NVS (RF cal data) que suspende la cache externa unos ms. Medir su
+  // duración permite correlar un glitch de pantalla visto en ese instante.
+  uint32_t t0 = millis();
   WiFi.begin(ssid.c_str(), pass.c_str());
   WiFi.setSleep(WIFI_PS_NONE);
+  ESP_LOGW(TAG, "LCD_DIAG: WiFi.begin() tomó %lu ms", (unsigned long)(millis() - t0));
   Wifi_TB.lastWifiReconnectAttempt = millis();
 }
 
@@ -355,11 +367,14 @@ void WIFIProvisionResponse(const JsonObjectConst &data) {
 
   Wifi_TB.provisioned = true;
   Wifi_TB.device_token = credentials.username.c_str();
+  uint32_t t0 = millis();
   { Preferences p; p.begin(HMI_NS_GPRS, false);
     p.putString(HMI_KEY_TOKEN,       Wifi_TB.device_token);
     p.putUChar (HMI_KEY_PROVISIONED, (uint8_t)Wifi_TB.provisioned);
     p.end(); }
   ESP_LOGI(TAG, "Device provisioned successfully");
+  ESP_LOGW(TAG, "LCD_DIAG: provisioning Preferences write tomó %lu ms",
+           (unsigned long)(millis() - t0));
 
   if (tb_wifi.connected()) tb_wifi.disconnect();
   Wifi_TB.provision_request_processed = true;
@@ -461,11 +476,14 @@ void WifiOTAHandler(void) {
   // Persist credentials staged by the UI on the first successful connection.
   if (s_persistCredentials) {
     s_persistCredentials = false;
+    uint32_t t0 = millis();
     { Preferences p; p.begin(HMI_NS_WIFI, false);
       p.putString(HMI_KEY_SSID,     pendingSSID);
       p.putString(HMI_KEY_PASSWORD, pendingPass);
       p.end(); }
     ESP_LOGI(TAG, "WiFi credentials saved to Preferences (SSID: %s)", pendingSSID);
+    ESP_LOGW(TAG, "LCD_DIAG: credentials Preferences write tomó %lu ms",
+             (unsigned long)(millis() - t0));
     pendingSSID[0] = '\0';
     pendingPass[0] = '\0';
   }

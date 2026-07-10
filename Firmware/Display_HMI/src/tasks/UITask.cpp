@@ -146,9 +146,17 @@ Alarm alarmList[MAX_ALARMS];
 // ==========================================
 static esp_lcd_panel_handle_t lcd_panel = NULL;
 
-// Bounce buffer: 20 líneas en SRAM interno desacoplan LCD DMA de PSRAM
-// 800 * 20 * 2 = 32KB por bounce buffer (x2 ping-pong = 64KB SRAM)
-#define BOUNCE_BUF_LINES 20
+// Bounce buffer: N líneas en SRAM interno desacoplan LCD DMA de PSRAM.
+// N=24 (divisor exacto de las 480 líneas del panel, evita wraps parciales)
+// amplía el margen de "drenaje" frente a jitter de CPU/bus (p.ej. tráfico
+// WiFi) sin comprometer el heap interno — medido con WiFi conectado:
+// heap_int_min=87980 B (ver log [DIAG]); el salto de 20→24 líneas cuesta
+// ~12.8 KB adicionales, dejando margen holgado para picos de TLS/mbedTLS.
+// NO cubre stalls largos (borrado de sector NVS, hasta ~30 ms, ver comentario
+// en UITask.cpp:doNVSWrite) — eso se ataca con WiFi.persistent(false)
+// (Wifi_OTA.cpp) y CONFIG_SPIRAM_FETCH_INSTRUCTIONS/RODATA (platformio.ini).
+// 800 * 24 * 2 = 38.4KB por bounce buffer (x2 ping-pong = ~76.8KB SRAM)
+#define BOUNCE_BUF_LINES 24
 #define BOUNCE_BUF_SIZE_PX (DISPLAY_WIDTH * BOUNCE_BUF_LINES)
 
 // ==========================================
@@ -157,9 +165,10 @@ static esp_lcd_panel_handle_t lcd_panel = NULL;
 // Frame interval > este umbral se considera frame lento (glitch potencial)
 #define LCD_VSYNC_SLOW_THRESHOLD_US 25000 // 25 ms → <40 fps
 
-static volatile uint32_t g_lcd_bounce_empty_count = 0; // underruns DMA
+static volatile uint32_t g_lcd_bounce_empty_count = 0; // underruns DMA (solo aplica con num_fbs=0; con num_fbs=1 este callback no se invoca — ver g_lcd_bounce_frame_finish_count)
 static volatile uint32_t g_lcd_vsync_slow_count = 0;   // frames lentos
 static volatile uint32_t g_lcd_vsync_total = 0;        // frames totales
+static volatile uint32_t g_lcd_bounce_frame_finish_count = 0; // ciclos de bounce buffer completados
 static volatile int64_t g_lcd_last_vsync_us = 0;
 static volatile int64_t g_lcd_worst_frame_us = 0; // peor intervalo visto
 
@@ -167,6 +176,20 @@ static bool IRAM_ATTR lcd_on_bounce_empty(esp_lcd_panel_handle_t panel,
                                           void *bounce_buf, int pos_px,
                                           int len_bytes, void *user_ctx) {
   g_lcd_bounce_empty_count++;
+  return false;
+}
+
+// Con num_fbs=1 el driver rellena el bounce buffer por memcpy (no llama a
+// on_bounce_empty). Este callback SÍ se invoca una vez por cada ciclo
+// completo de bounce buffer (~1 por frame). Si el DMA se reinicia por un
+// underrun (desync de un frame, ver esp_lcd_panel_rgb.c:
+// lcd_rgb_panel_try_restart_transmission), ocurre dentro del vblank y no
+// altera el intervalo entre vsyncs — por eso este contador es la única señal
+// disponible sin parchear el driver vendored.
+static bool IRAM_ATTR lcd_on_bounce_frame_finish(esp_lcd_panel_handle_t panel,
+                                                 const esp_lcd_rgb_panel_event_data_t *edata,
+                                                 void *user_ctx) {
+  g_lcd_bounce_frame_finish_count++;
   return false;
 }
 
@@ -191,21 +214,33 @@ void lcd_diagnostics_log() {
   uint32_t underruns = g_lcd_bounce_empty_count;
   uint32_t slow_frames = g_lcd_vsync_slow_count;
   uint32_t total = g_lcd_vsync_total;
+  uint32_t frame_finish = g_lcd_bounce_frame_finish_count;
   int64_t worst_us = g_lcd_worst_frame_us;
 
   // Reset contadores después de leer
   g_lcd_bounce_empty_count = 0;
   g_lcd_vsync_slow_count = 0;
   g_lcd_vsync_total = 0;
+  g_lcd_bounce_frame_finish_count = 0;
   g_lcd_worst_frame_us = 0;
 
   float fps = (worst_us > 0) ? (1000000.0f / worst_us) : 0.0f;
 
-  if (underruns > 0 || slow_frames > 0) {
+  // frame_finish debería igualar total (±1-2 por skew de lectura no atómica
+  // entre ISR y esta función) en régimen normal. Una desviación mayor indica
+  // ciclos de bounce buffer re-arrancados por underrun — el modo de fallo
+  // que "underruns"/"slow_frames" NO detectan con num_fbs=1. Tolerancia=2
+  // es una calibración inicial: si en campo aparecen falsos positivos
+  // frecuentes con mismatch=2 y sin glitch visible reportado, subirla a 3.
+  int32_t frame_mismatch = (int32_t)total - (int32_t)frame_finish;
+  if (frame_mismatch < 0) frame_mismatch = -frame_mismatch;
+
+  if (underruns > 0 || slow_frames > 0 || frame_mismatch > 2) {
     ESP_LOGW("LCD_DIAG",
              "GLITCH DETECTED — underruns=%lu  slow_frames=%lu/%lu  "
-             "worst_frame=%.1fms (%.1f fps)",
-             underruns, slow_frames, total, worst_us / 1000.0f, fps);
+             "frame_finish=%lu (mismatch=%ld)  worst_frame=%.1fms (%.1f fps)",
+             underruns, slow_frames, total, frame_finish, (long)frame_mismatch,
+             worst_us / 1000.0f, fps);
   } else {
     // ESP_LOGI("LCD_DIAG", "OK — frames=%lu  worst_frame=%.1fms", total,
     //          worst_us / 1000.0f);
@@ -3346,6 +3381,7 @@ void UI_Task(void *pvParameters) {
     esp_lcd_rgb_panel_event_callbacks_t lcd_cbs = {
         .on_vsync = lcd_on_vsync,
         .on_bounce_empty = lcd_on_bounce_empty,
+        .on_bounce_frame_finish = lcd_on_bounce_frame_finish,
     };
     ESP_ERROR_CHECK(
         esp_lcd_rgb_panel_register_event_callbacks(lcd_panel, &lcd_cbs, NULL));
@@ -3995,6 +4031,7 @@ void UI_Task(void *pvParameters) {
     // NVS writes run outside LVGL_Lock — avoids blocking the renderer during
     // wear-leveling erasure (~30ms worst case). Same pattern as AlarmSound_Update.
     if (doNVSWrite) {
+      uint32_t t0 = millis(); // LCD_DIAG: correlar con glitches de pantalla (ver lcd_diagnostics_log)
       Preferences p;
       p.begin(HMI_NS_CFG, false);
       p.putFloat(HMI_KEY_AIR_TEMP,   (float)airTempValue);
@@ -4006,6 +4043,8 @@ void UI_Task(void *pvParameters) {
       p.putUChar(HMI_KEY_PHOTO_MIN,  (uint8_t)photoTimerMinutes);
       p.end();
       ESP_LOGI(TAG, "Preferences write cycle complete");
+      ESP_LOGW(TAG, "LCD_DIAG: periodic Preferences write tomó %lu ms",
+               (unsigned long)(millis() - t0));
     }
 
     // AlarmSound_Update uses I2C (Wire.endTransmission) — must run outside
