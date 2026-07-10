@@ -42,4 +42,4 @@ Se han aplicado optimizaciones profundas para garantizar una experiencia de usua
 3. **Debug Seleccionado**: Nivel de debug ajustado para evitar cuellos de botella en el puerto serie.
 
 ---
-© 2026 In3ator - Advanced Neonatal Care Systems
+© 2026 IncuNest - Advanced Neonatal Care Systems
