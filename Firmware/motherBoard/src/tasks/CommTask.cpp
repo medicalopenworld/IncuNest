@@ -13,14 +13,6 @@
 #include <cstring>
 #include <time.h>
 
-#if (HW_NUM < 16)
-#include "usb/cdc_acm_host.h"
-#include "usb/usb_host.h"
-#include "usb/vcp.hpp"
-#include "usb/vcp_ch34x.hpp"
-using namespace esp_usb;
-#endif
-
 static const char *TAG __attribute__((unused)) = "COMM_HOST";
 extern SemaphoreHandle_t log_mutex;
 extern char pendingSSID[64];
@@ -41,16 +33,7 @@ static char rxBuffer[256];
 static int rxIndex = 0;
 static SemaphoreHandle_t hmi_state_req_sem;
 
-#if (HW_NUM >= 16)
 static HardwareSerial &hmiSerial = Serial1;
-#else
-static std::unique_ptr<CdcAcmDevice> vcp;
-static SemaphoreHandle_t device_disconnected_sem;
-static SemaphoreHandle_t vcp_mux;
-// Bloquea nuevos TX en cuanto se detecta desconexión para que el close() no
-// curse con URBs en vuelo (evita assert en hcd_urb_dequeue del USB host).
-static volatile bool vcp_disconnecting = false;
-#endif
 
 // ---- Phototherapy Timer (Motherboard is source of truth) ----
 static bool photoTimerActive = false;
@@ -61,73 +44,6 @@ static int photoTimerMinutes = 0;
 //  USB-ONLY HELPERS
 // ======================================================
 void parse_line(const char *line);
-
-#if (HW_NUM < 16)
-static void reset_vcp() {
-  vcp_disconnecting = true;
-  // Espera hasta 2s a que termine un tx_blocking en curso antes de cerrar.
-  if (xSemaphoreTake(vcp_mux, pdMS_TO_TICKS(2000)) == pdTRUE) {
-    if (vcp) {
-      try {
-        vcp->close();
-      } catch (...) {
-      }
-      // Deja que cdc_acm_client_task drene URBs pendientes antes de liberar
-      // el objeto; si no, el dequeue async asserta en hcd_dwc.c.
-      vTaskDelay(pdMS_TO_TICKS(200));
-      vcp.reset();
-    }
-    xSemaphoreGive(vcp_mux);
-  } else {
-    if (vcp) {
-      vcp.reset();
-    }
-  }
-}
-
-static bool handle_rx(const uint8_t *data, size_t len, void *arg) {
-  static uint32_t lastRxTime = 0;
-
-  if (rxIndex > 0 && (millis() - lastRxTime > 50)) {
-    rxIndex = 0;
-  }
-
-  for (size_t i = 0; i < len; i++) {
-    char c = data[i];
-    if (c == '\r')
-      continue;
-    if (c == '\n') {
-      rxBuffer[rxIndex] = 0;
-      parse_line(rxBuffer);
-      rxIndex = 0;
-      continue;
-    }
-    if (rxIndex < sizeof(rxBuffer) - 1)
-      rxBuffer[rxIndex++] = c;
-  }
-  lastRxTime = millis();
-  return true;
-}
-
-static void handle_event(const cdc_acm_host_dev_event_data_t *event,
-                         void *user_ctx) {
-  if (event->type == CDC_ACM_HOST_DEVICE_DISCONNECTED) {
-    vcp_disconnecting = true;
-    if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-      ESP_LOGW(TAG, "HMI disconnected event");
-      xSemaphoreGiveRecursive(log_mutex);
-    }
-    xSemaphoreGive(device_disconnected_sem);
-  }
-}
-
-static void usb_lib_task(void *arg) {
-  while (1) {
-    uint32_t flags;
-    usb_host_lib_handle_events(portMAX_DELAY, &flags);
-  }
-}
-#endif // HW_NUM < 16
 
 // ======================================================
 //  PHOTOTHERAPY TIMER
@@ -572,53 +488,7 @@ void parse_line(const char *line) {
 //  SEND DATA TO HMI
 // ======================================================
 void CommunicationHost_Send(const char *msg) {
-#if (HW_NUM >= 16)
   hmiSerial.print(msg);
-#else
-  // Si ya hay un cierre en curso o señalado, no iniciar nuevos URBs: cualquier
-  // TX en flight mientras se llama a vcp->close() dispara assert en hcd_dwc.
-  if (vcp_disconnecting)
-    return;
-
-  if (xSemaphoreTake(vcp_mux, pdMS_TO_TICKS(100)) != pdTRUE)
-    return;
-
-  if (!vcp || vcp_disconnecting) {
-    xSemaphoreGive(vcp_mux);
-    return;
-  }
-
-  size_t len = strlen(msg);
-  static uint8_t buf[256];
-
-  if (len >= sizeof(buf)) {
-    if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-      ESP_LOGE(TAG, "TX too long");
-      xSemaphoreGiveRecursive(log_mutex);
-    }
-    xSemaphoreGive(vcp_mux);
-    return;
-  }
-
-  memcpy(buf, msg, len);
-  esp_err_t err = vcp->tx_blocking(buf, len);
-  if (err != ESP_OK) {
-    // Marca ya dentro del mutex para que cualquier caller concurrente que
-    // esté bloqueado tomándolo salga sin intentar TX.
-    vcp_disconnecting = true;
-  }
-  xSemaphoreGive(vcp_mux);
-
-  if (err == ESP_OK) {
-    vTaskDelay(pdMS_TO_TICKS(10));
-  } else {
-    if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-      ESP_LOGE(TAG, "TX failed: %s", esp_err_to_name(err));
-      xSemaphoreGiveRecursive(log_mutex);
-    }
-    xSemaphoreGive(device_disconnected_sem);
-  }
-#endif
 }
 
 // ======================================================
@@ -627,31 +497,15 @@ void CommunicationHost_Send(const char *msg) {
 void CommunicationHost_Init() {
   hmi_state_req_sem = xSemaphoreCreateBinary();
 
-#if (HW_NUM >= 16)
   hmiSerial.begin(115200, SERIAL_8N1, UART_MB_RX_PIN, UART_MB_TX_PIN);
   ESP_LOGI(TAG, "UART comm initialized on RX=%d TX=%d",
            UART_MB_RX_PIN, UART_MB_TX_PIN);
-#else
-  device_disconnected_sem = xSemaphoreCreateBinary();
-  vcp_mux = xSemaphoreCreateMutex();
-
-  const usb_host_config_t cfg = {
-      .skip_phy_setup = false,
-      .intr_flags = ESP_INTR_FLAG_LEVEL1,
-  };
-  ESP_ERROR_CHECK(usb_host_install(&cfg));
-
-  xTaskCreate(usb_lib_task, "usb_lib", 4096, NULL, 10, NULL);
-  ESP_ERROR_CHECK(cdc_acm_host_install(NULL));
-  VCP::register_driver<CH34x>();
-#endif
 }
 
 // ======================================================
 //  COMMUNICATION TASK
 // ======================================================
 void Communication_Task(void *pvParameters) {
-#if (HW_NUM >= 16)
   // ---- UART path ----
   uint32_t last_tel_time = 0;
   uint32_t last_ppg_time = 0;
@@ -831,248 +685,4 @@ void Communication_Task(void *pvParameters) {
 
     vTaskDelay(pdMS_TO_TICKS(COMMUNICATION_TASK_PERIOD_MS));
   }
-
-#else
-  // ---- USB CDC/ACM path ----
-  while (true) {
-    const cdc_acm_host_device_config_t dev = {
-        .connection_timeout_ms = 4000,
-        .out_buffer_size = 512,
-        .in_buffer_size = 512,
-        .event_cb = handle_event,
-        .data_cb = handle_rx,
-        .user_arg = NULL,
-    };
-
-    if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-      ESP_LOGI(TAG, "Waiting for HMI...");
-      xSemaphoreGiveRecursive(log_mutex);
-    }
-
-    std::unique_ptr<CdcAcmDevice> new_vcp;
-    try {
-      new_vcp = std::unique_ptr<CdcAcmDevice>(VCP::open(&dev));
-    } catch (const std::exception &e) {
-      if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        ESP_LOGE(TAG, "VCP::open threw exception: %s", e.what());
-        xSemaphoreGiveRecursive(log_mutex);
-      }
-      vTaskDelay(pdMS_TO_TICKS(2000));
-      continue;
-    }
-
-    if (!new_vcp) {
-      if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        ESP_LOGW(TAG, "HMI not found");
-        xSemaphoreGiveRecursive(log_mutex);
-      }
-      vTaskDelay(pdMS_TO_TICKS(2000));
-      continue;
-    }
-
-    if (xSemaphoreTake(vcp_mux, pdMS_TO_TICKS(500)) == pdTRUE) {
-      vcp = std::move(new_vcp);
-      vcp_disconnecting = false;
-      // Drena posible señal pendiente de una sesión anterior.
-      xSemaphoreTake(device_disconnected_sem, 0);
-      if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        ESP_LOGI(TAG, "HMI connected!");
-        xSemaphoreGiveRecursive(log_mutex);
-      }
-
-      bool handshake_success = false;
-      for (int retry = 0; retry < 3; retry++) {
-        if (vcp) {
-          vcp->set_control_line_state(false, false);
-          vTaskDelay(pdMS_TO_TICKS(500));
-          vcp->set_control_line_state(true, true);
-          handshake_success = true;
-        }
-        if (handshake_success)
-          break;
-        vTaskDelay(pdMS_TO_TICKS(200));
-      }
-
-      vTaskDelay(pdMS_TO_TICKS(50));
-
-      cdc_acm_line_coding_t line = {
-          .dwDTERate = 115200, .bCharFormat = 0, .bParityType = 0, .bDataBits = 8};
-
-      bool init_success = false;
-      esp_err_t err_coding = ESP_FAIL;
-      for (int i = 0; i < 3; i++) {
-        err_coding = vcp->line_coding_set(&line);
-        if (err_coding == ESP_OK) {
-          init_success = true;
-          break;
-        }
-        vTaskDelay(pdMS_TO_TICKS(100));
-      }
-
-      if (!init_success) {
-        if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-          ESP_LOGE(TAG, "line_coding_set failed: %s", esp_err_to_name(err_coding));
-          xSemaphoreGiveRecursive(log_mutex);
-        }
-        xSemaphoreGive(vcp_mux);
-        reset_vcp();
-        vTaskDelay(pdMS_TO_TICKS(1000));
-        continue;
-      }
-      xSemaphoreGive(vcp_mux);
-    } else {
-      if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        ESP_LOGE(TAG, "Failed to take vcp_mux");
-        xSemaphoreGiveRecursive(log_mutex);
-      }
-      continue;
-    }
-
-    xSemaphoreTake(device_disconnected_sem, 0);
-    uint32_t last_tel_time = 0;
-    uint32_t last_ppg_time = 0;
-    uint32_t ppg_time      = 0;
-    static unsigned long last_probe_status_time_usb = 0;
-    static ProbeState    prev_probe_state_usb       = ProbeState::PROBE_DISCONNECTED;
-    float ppg_min = -1.0f, ppg_max = 1.0f;
-    uint8_t hr_valid_streak = 0, hr_bad_streak = 0;
-    bool hr_displaying = false;
-
-    while (true) {
-      // Detect APPLIED transition — notify display immediately
-      {
-        ProbeState cur = g_spo2_data.probe_state;
-        if (cur == ProbeState::PROBE_APPLIED && prev_probe_state_usb != ProbeState::PROBE_APPLIED) {
-          CommunicationHost_Send("CTRL,PROBE,2\n");
-        }
-        prev_probe_state_usb = cur;
-      }
-
-      if (xSemaphoreTake(hmi_state_req_sem, 0) == pdTRUE) {
-        send_state_to_hmi();
-      }
-
-      // PPG waveform at 25 Hz
-      ppg_time = millis();
-      if (ppg_time - last_ppg_time >= 40) {
-        if (g_spo2_data.probe_state == ProbeState::PROBE_APPLIED) {
-          char ppg_msg[16];
-          if (g_spo2_data.spo2_sqi < 0.05f) {
-            ppg_min = -1.0f;
-            ppg_max =  1.0f;
-            snprintf(ppg_msg, sizeof(ppg_msg), "CTRL,PPG,128\n");
-          } else {
-            float ppg_raw = g_spo2_data.ppg_disp;
-            if (ppg_raw < ppg_min) ppg_min = ppg_raw;
-            else ppg_min += (0.0f - ppg_min) * 0.005f;
-            if (ppg_raw > ppg_max) ppg_max = ppg_raw;
-            else ppg_max += (0.0f - ppg_max) * 0.005f;
-            float range = ppg_max - ppg_min;
-            uint8_t ppg_byte = (range > 1e-3f)
-                ? (uint8_t)constrain((ppg_raw - ppg_min) / range * 255.0f, 0.0f, 255.0f)
-                : 128;
-            snprintf(ppg_msg, sizeof(ppg_msg), "CTRL,PPG,%u\n", ppg_byte);
-          }
-          CommunicationHost_Send(ppg_msg);
-        }
-        last_ppg_time = ppg_time;
-      }
-
-      if (millis() - last_tel_time > 1000) {
-        int status = COMM_STATUS_NONE;
-        if (WIFIIsConnected()) {
-          status = WIFIIsConnectedToServer() ? COMM_STATUS_WIFI_SERVER
-                                             : COMM_STATUS_WIFI_ONLY;
-        } else if (GPRSIsAttached()) {
-          status = GPRSIsConnectedToServer() ? COMM_STATUS_GPRS_SERVER
-                                             : COMM_STATUS_GPRS_ONLY;
-        }
-        ctrl_tel_msg.serverCommStatus = status;
-
-        char msg[64];
-        snprintf(msg, sizeof(msg), "CTRL,TEL,%.1f,%.1f,%d,%d\n",
-                 ctrl_tel_msg.detectedAirTemperature,
-                 ctrl_tel_msg.detectedSkinTemperature,
-                 (int)ctrl_tel_msg.detectedHumidity,
-                 ctrl_tel_msg.serverCommStatus);
-        CommunicationHost_Send(msg);
-
-        {
-          // Mirrors the same 0..PWM_MAX_VALUE scale and ongoingCriticalAlarm()
-          // gating that PIDHandler() actually writes via ledcWrite(), so the
-          // HMI bar never disagrees with the log or with the real hardware duty.
-          int temp_duty = ongoingCriticalAlarm() ? 0 : (int)(HeaterPIDOutput + 0.5);
-          if (temp_duty < 0)               temp_duty = 0;
-          if (temp_duty > PWM_MAX_VALUE)   temp_duty = PWM_MAX_VALUE;
-
-          int hum_duty = (humidifierTimeCycle > 0)
-              ? (int)(humidityControlPIDOutput / humidifierTimeCycle * PWM_MAX_VALUE + 0.5)
-              : 0;
-          if (hum_duty < 0)             hum_duty = 0;
-          if (hum_duty > PWM_MAX_VALUE) hum_duty = PWM_MAX_VALUE;
-
-          char duty_msg[DUTY_MSG_BUF_SIZE];
-          snprintf(duty_msg, sizeof(duty_msg), "CTRL,DUTY,%d,%d\n", temp_duty, hum_duty);
-          CommunicationHost_Send(duty_msg);
-        }
-
-        if (g_spo2_data.probe_state != ProbeState::PROBE_APPLIED) {
-          // Probe not on patient — send status every 2 s, suppress vitals
-          if (millis() - last_probe_status_time_usb >= 2000) {
-            char probe_msg[20];
-            snprintf(probe_msg, sizeof(probe_msg), "CTRL,PROBE,%u\n",
-                     (uint8_t)g_spo2_data.probe_state);
-            CommunicationHost_Send(probe_msg);
-            last_probe_status_time_usb = millis();
-          }
-        } else {
-          // Probe applied — send fused HR vitals
-          uint8_t hr_byte = 0;
-          {
-            float h2 = g_spo2_data.hr2, h3 = g_spo2_data.hr3;
-            float s2 = g_spo2_data.hr2_sqi, s3 = g_spo2_data.hr3_sqi;
-            bool valid = (h2 > 0.0f) && (h3 > 0.0f) &&
-                         (fabsf(h2 - h3) < 8.0f) &&
-                         (fmaxf(s2, s3) >= 0.8f) &&
-                         (fminf(s2, s3) >= 0.5f);
-            if (valid) {
-              hr_bad_streak = 0;
-              if (++hr_valid_streak >= 2) hr_displaying = true;
-            } else {
-              hr_valid_streak = 0;
-              if (++hr_bad_streak >= 3) hr_displaying = false;
-            }
-            if (hr_displaying && valid) {
-              float hr_fused = (h2 * s2 + h3 * s3) / (s2 + s3);
-              if (hr_fused >= 40.0f && hr_fused <= 240.0f)
-                hr_byte = (uint8_t)(hr_fused + 0.5f);
-            }
-          }
-          float pi_val = g_spo2_data.pi;
-          char vit_msg[32];
-          snprintf(vit_msg, sizeof(vit_msg), "CTRL,VIT,%u,0,%.2f\n",
-                   hr_byte, pi_val);
-          CommunicationHost_Send(vit_msg);
-        }
-
-        last_tel_time = millis();
-      }
-
-      if (xSemaphoreTake(device_disconnected_sem, pdMS_TO_TICKS(10)) == pdTRUE) {
-        if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-          ESP_LOGW(TAG, "Disconnect requested");
-          xSemaphoreGiveRecursive(log_mutex);
-        }
-        break;
-      }
-    }
-
-    if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-      ESP_LOGW(TAG, "Closing VCP and retrying...");
-      xSemaphoreGiveRecursive(log_mutex);
-    }
-    reset_vcp();
-    vTaskDelay(pdMS_TO_TICKS(1000));
-  }
-#endif // HW_NUM >= 16
 }
