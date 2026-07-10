@@ -45,3 +45,6 @@ Firmware/motherBoard/serial_*.txt
 
 # Thingsboard local folder
 Firmware/Thingsboard/
+
+# Git worktrees (superpowers:using-git-worktrees isolated workspaces)
+Firmware/.worktrees/
