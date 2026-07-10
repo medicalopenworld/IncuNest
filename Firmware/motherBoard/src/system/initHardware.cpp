@@ -865,17 +865,29 @@ bool actuatorsTest() {
     return true;
   }
 
-  // Extrapolate phototherapy PWM for the target operating current
-  int pwmTarget = (int)roundf(
+  // Extrapolate phototherapy PWM for the target operating current. This is a
+  // 1/x extrapolation from a 10%-PWM reading: a res.photo close to zero
+  // (noise, or a reading that only barely cleared the MIN check above) blows
+  // the result up towards/beyond PWM_MAX_VALUE. Only commit it — and only
+  // clear photoFirstRun — when the *raw*, unclamped result actually lands in
+  // range; otherwise leave phototherapy_intensity/photoFirstRun untouched so
+  // the safe PHOTOTHERAPY_INITIAL_PWM_PCT fallback (main.cpp/initHardware.cpp
+  // photoFirstRun checks) applies instead of silently maxing out the light.
+  int pwmTargetRaw = (int)roundf(
       PHOTOTHERAPY_CONSUMPTION_DEFAULT *
           (PHOTOTHERAPY_TEST_PWM + PHOTOTHERAPY_PWM_ZERO) / res.photo -
       PHOTOTHERAPY_PWM_ZERO);
-  pwmTarget = constrain(pwmTarget, 0, PWM_MAX_VALUE);
-  in3.phototherapy_intensity = pwmTarget;
-  in3.photoFirstRun = false;
-  logI("[HW] -> Phototherapy extrapolated PWM=" + String(pwmTarget) +
-       " (" + String(pwmTarget * 100 / PWM_MAX_VALUE) + "%) for " +
-       String(PHOTOTHERAPY_CONSUMPTION_DEFAULT, 2) + " A");
+  if (pwmTargetRaw < 0 || pwmTargetRaw > PWM_MAX_VALUE) {
+    addErrorToVar(HW_error, PHOTOTHERAPY_CONSUMPTION_MIN_ERROR);
+    logE("[HW] -> Fail -> Phototherapy current too low/high to extrapolate a "
+         "reliable intensity (raw PWM=" + String(pwmTargetRaw) + ")");
+  } else {
+    in3.phototherapy_intensity = pwmTargetRaw;
+    in3.photoFirstRun = false;
+    logI("[HW] -> Phototherapy extrapolated PWM=" + String(pwmTargetRaw) +
+         " (" + String(pwmTargetRaw * 100 / PWM_MAX_VALUE) + "%) for " +
+         String(PHOTOTHERAPY_CONSUMPTION_DEFAULT, 2) + " A");
+  }
 
   // Fan checks
   if (res.fan < FAN_CONSUMPTION_MIN) {
@@ -1049,17 +1061,30 @@ bool actuatorsTest() {
     return (true);
   }
 
-  // Extrapolación: PWM para PHOTOTHERAPY_CONSUMPTION_DEFAULT amperios
-  int pwmTarget = (int)roundf(
+  // Extrapolación: PWM para PHOTOTHERAPY_CONSUMPTION_DEFAULT amperios. Es una
+  // extrapolación 1/x de una lectura al 10% de PWM: un testCurrent cercano a
+  // cero (ruido, o una lectura que apenas superó el check MIN de arriba) hace
+  // que el resultado se dispare hacia/más allá de PWM_MAX_VALUE. Solo se
+  // aplica -y solo se limpia photoFirstRun- cuando el resultado bruto (sin
+  // recortar) cae realmente dentro de rango; si no, se deja
+  // phototherapy_intensity/photoFirstRun intactos para que el fallback seguro
+  // PHOTOTHERAPY_INITIAL_PWM_PCT (checks de photoFirstRun en main.cpp /
+  // initHardware.cpp) se aplique en vez de encender la luz a máxima potencia.
+  int pwmTargetRaw = (int)roundf(
       PHOTOTHERAPY_CONSUMPTION_DEFAULT *
           (PHOTOTHERAPY_TEST_PWM + PHOTOTHERAPY_PWM_ZERO) / testCurrent -
       PHOTOTHERAPY_PWM_ZERO);
-  pwmTarget = constrain(pwmTarget, 0, PWM_MAX_VALUE);
-  in3.phototherapy_intensity = pwmTarget;
-  in3.photoFirstRun = false;
-  logI("[HW] -> Phototherapy extrapolated PWM=" + String(pwmTarget) +
-       " (" + String(pwmTarget * 100 / PWM_MAX_VALUE) + "%) for " +
-       String(PHOTOTHERAPY_CONSUMPTION_DEFAULT, 2) + " A");
+  if (pwmTargetRaw < 0 || pwmTargetRaw > PWM_MAX_VALUE) {
+    addErrorToVar(HW_error, PHOTOTHERAPY_CONSUMPTION_MIN_ERROR);
+    logE("[HW] -> Fail -> Phototherapy current too low/high to extrapolate a "
+         "reliable intensity (raw PWM=" + String(pwmTargetRaw) + ")");
+  } else {
+    in3.phototherapy_intensity = pwmTargetRaw;
+    in3.photoFirstRun = false;
+    logI("[HW] -> Phototherapy extrapolated PWM=" + String(pwmTargetRaw) +
+         " (" + String(pwmTargetRaw * 100 / PWM_MAX_VALUE) + "%) for " +
+         String(PHOTOTHERAPY_CONSUMPTION_DEFAULT, 2) + " A");
+  }
   offsetCurrent = measureMeanConsumption(SECUNDARY, USB_SHUNT_CHANNEL);
   in3_hum.turn(ON);
   vTaskDelay(pdMS_TO_TICKS(CURRENT_STABILIZE_TIME_DEFAULT));
@@ -1286,6 +1311,16 @@ void initHardware(bool printOutputTest) {
     buzzerTone(2, buzzerStandbyToneDuration, buzzerStandbyTone);
   }
   if (in3.phototherapy) {
+    // in3.phototherapy was just restored from NVS (EEPROM.cpp restoreState())
+    // regardless of whether actuatorsTest() ran. On a restoreState boot
+    // (crash/WDT) actuatorsTest() is skipped entirely, so phototherapy_intensity
+    // is still its raw struct default (PWM_MAX_VALUE) — apply the same
+    // photoFirstRun safe-default fallback main.cpp uses instead of driving
+    // the light at full intensity.
+    if (in3.photoFirstRun) {
+      in3.phototherapy_intensity = PWM_MAX_VALUE * PHOTOTHERAPY_INITIAL_PWM_PCT / 100;
+      in3.photoFirstRun = false;
+    }
     ledcWrite(PHOTOTHERAPY_PWM_CHANNEL,
               in3.phototherapy * in3.phototherapy_intensity);
     turnFans(in3.phototherapy);
