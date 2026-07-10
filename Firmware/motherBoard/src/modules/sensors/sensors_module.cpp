@@ -193,13 +193,6 @@ double measureStabilizedCurrent(bool sensor, int shunt, float offsetCurrent,
 }
 
 double measureMeanConsumption(bool sensor, int shunt) {
-#if (HW_NUM >= 6 && HW_NUM <= 8)
-  for (int i = 0; i < CURRENT_MEASURES_AMOUNT; i++) {
-    in3.system_current = filter_2(analogReadMilliVolts(SYSTEM_CURRENT_SENSOR) *
-                                  ANALOG_TO_AMP_FACTOR);
-  }
-  return (in3.system_current);
-#else
   if (digitalCurrentSensorPresent[sensor]) {
     if (sensor == SECUNDARY) {
       return (secundaryDigitalCurrentSensor.getCurrent(
@@ -208,7 +201,6 @@ double measureMeanConsumption(bool sensor, int shunt) {
     return (
         mainDigitalCurrentSensor.getCurrent(ina3221_ch_t(shunt))); // Amperes
   }
-#endif
   return (false);
 }
 
@@ -348,7 +340,6 @@ static bool applyNTCResult(float millivolts) {
 }
 
 bool measureSkinSensor() {
-#if (HW_NUM >= 16)
   // Alimenta el divisor resistivo, espera estabilización y dispara una
   // conversión single-shot en el ADS1110 (14-bit/60 SPS, PGA=1).
   // [ST=1][SC=1][PGA=00][DR=01][00] = 0xC4
@@ -434,16 +425,6 @@ bool measureSkinSensor() {
   }
 
   return applyNTCResult(millivolts);
-
-#else
-  int NTCmeasurement;
-  if (ADC_READ_FUNCTION == MILLIVOTSREAD_ADC) {
-    NTCmeasurement = analogReadMilliVolts(BABY_NTC_PIN);
-  } else {
-    NTCmeasurement = analogRead(BABY_NTC_PIN);
-  }
-  return applyNTCResult((float)NTCmeasurement);
-#endif
 }
 
 bool updateRoomSensor() {
