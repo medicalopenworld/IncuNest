@@ -155,10 +155,6 @@ int humidityY;
 int temperatureX;
 int temperatureY;
 int separatorTopYPos, separatorMidYPos, separatorBotYPos;
-int ypos;
-bool print_text;
-int initialSensorPosition = separatorPosition - letter_width;
-bool pos_text[8];
 
 bool enableSet;
 float temperaturePercentage, temperatureAtStart;

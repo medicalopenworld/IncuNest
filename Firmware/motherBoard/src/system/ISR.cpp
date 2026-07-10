@@ -88,10 +88,6 @@ extern int humidityX;
 extern int humidityY;
 extern int temperatureX;
 extern int temperatureY;
-extern int ypos;
-extern bool print_text;
-extern int initialSensorPosition;
-extern bool pos_text[8];
 
 extern bool enableSet;
 extern float temperaturePercentage, temperatureAtStart;

@@ -441,7 +441,6 @@ float measureMeanVoltage(bool, int);
 void WIFI_TB_Init();
 void WifiOTAHandler(void);
 void securityCheck();
-void buzzerConstantTone(int freq);
 
 void turnFans(bool mode);
 void setFanPidEnabled(bool enabled);
@@ -464,10 +463,6 @@ void stopPID(byte var);
 bool ongoingAlarms();
 byte activeAlarm();
 void reestartOngoingAlarms();
-int alarmPendingToDisplay();
-int alarmPendingToClear();
-void clearDisplayedAlarm(byte alarm);
-void clearAlarmPendingToClear(byte alarm);
 char *alarmIDtoString(byte alarmID);
 void resendActiveAlarms();
 
@@ -475,7 +470,6 @@ bool updateRoomSensor();
 bool updateAmbientSensor();
 
 void wifiInit(void);
-void wifiDisable();
 
 void loaddefaultValues();
 void recapVariables();

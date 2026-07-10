@@ -347,8 +347,6 @@ void wifiInit(void) {
   lastconnectiontrywifi = millis();
 }
 
-void wifiDisable() { WiFi.mode(WIFI_OFF); }
-
 void configWifiServer() {
   // Wait for connection
   logI("Connected to " + WiFi.SSID() + " IP address " +
