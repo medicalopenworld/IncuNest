@@ -259,17 +259,10 @@
 #define MIN_SYSTEM_VOLTAGE_TRIGGER 0
 #define MAX_SYSTEM_VOLTAGE_TRIGGER 8
 
-#if (HW_NUM <= 8 || (HW_NUM == 9 && HW_REVISION == 'A'))
-#define SCREEN_BRIGHTNESS_FACTOR                                               \
-  0.1 // Max brightness will be multiplied by this constant
-#define BACKLIGHT_POWER_SAFE_PERCENTAGE 0.6
-#define BACKLIGHT_CONTROL INVERTED_BACKLIGHT_CONTROL
-#else
 #define SCREEN_BRIGHTNESS_FACTOR                                               \
   0.7 // Max brightness will be multiplied by this constant
 #define BACKLIGHT_POWER_SAFE_PERCENTAGE 0.3
 #define BACKLIGHT_CONTROL DIRECT_BACKLIGHT_CONTROL
-#endif
 
 #define BACKLIGHT_POWER_SAFE PWM_MAX_VALUE *BACKLIGHT_POWER_SAFE_PERCENTAGE
 #define BACKLIGHT_POWER_DEFAULT PWM_MAX_VALUE *SCREEN_BRIGHTNESS_FACTOR

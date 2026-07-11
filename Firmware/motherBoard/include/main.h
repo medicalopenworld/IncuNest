@@ -103,9 +103,7 @@
 // long enough to ride out a transient EMI glitch without missing a real
 // dropout for many cycles.
 #define HEATER_SENSOR_DROPOUT_ALARM_CYCLES 10
-#if (HW_NUM != 6)
 #define CURRENT_STABILIZE_THRESHOLD_RATIO 0.1
-#endif
 
 #define FAN_RPM_CONVERSION 13333333
 #define FAN_UPDATE_TIME_MIN 1000
@@ -300,11 +298,7 @@ typedef enum
 
 // Encoder variables
 #define NUMENCODERS 1 // number of encoders in circuit
-#if (HW_NUM == 6)
-#define ENCODER_TICKS_DIV 1
-#else
 #define ENCODER_TICKS_DIV 0
-#endif
 #define encPulseDebounce 200
 
 // Graphic variables
