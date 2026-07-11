@@ -118,8 +118,6 @@
 
 #define HOLD_PRESS_TO_GO_TO_SETTINGS 0
 
-#define UI_MENU_OLD false
-
 #define BROWN_OUT_BATTERY_MODE 0
 #define BROWN_OUT_NORMAL_MODE 0
 #define INIT_I2C_RETRIES 3
@@ -136,8 +134,6 @@
 #define FIRMWARE_FAILURE_RETRIES 12
 #define FIRMWARE_PACKET_SIZE 4096
 #define WAIT_FAILED_OTA_CHUNKS 10U * 1000U * 1000U
-
-#include "ui_constants.h"
 
 // Mutex for protecting the shared variable
 extern SemaphoreHandle_t GPRS_monitor_mutex;

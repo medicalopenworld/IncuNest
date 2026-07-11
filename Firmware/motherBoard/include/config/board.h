@@ -33,24 +33,6 @@
 // Set to true only on the HMI board
 #define IS_HMI false
 
-#if (HW_NUM <= 8)
-#define DISPLAY_SPI_CLK SPI_CLOCK_DIV16
-#elif (HW_NUM == 9)
-#define DISPLAY_SPI_CLK SPI_CLOCK_DIV16
-#elif (HW_NUM >= 10)
-#define DISPLAY_SPI_CLK SPI_CLOCK_DIV16
-#endif
-
-#if (HW_NUM <= 6)
-#define HUMIDIFIER_INTERFACE HUMIDIFIER_BINARY
-#elif (HW_NUM <= 8)
-#define HUMIDIFIER_INTERFACE HUMIDIFIER_PWM
-#elif (HW_NUM >= 16)
-#define HUMIDIFIER_INTERFACE HUMIDIFIER_BINARY // USB_EN GPIO ON/OFF
-#else
-#define HUMIDIFIER_INTERFACE HUMIDIFIER_I2C
-#endif
-
 #define GPIO_EXP_BASE 100 // To differentiate with ESP32 GPIO
 // Power / control
 #define PWR_EN 2
@@ -97,7 +79,6 @@
 #define AFE_SCK 36
 #define AFE_ADC_READY 17
 #define AFE44XX_CS 21
-#define AFE_LED_ALM 7
 
 #define FAKE_PIN 46
 
@@ -123,7 +104,6 @@
 
 // number assignment of each environmental sensor for later call in variable
 #define SKIN_SENSOR 0
-#define NTC_QTY 1 // number of NTC
 #define ROOM_DIGITAL_TEMP_SENSOR 1
 #define AMBIENT_DIGITAL_TEMP_SENSOR 2
 #define SENSOR_TEMP_QTY 3 // number of total temperature sensors in system
@@ -151,7 +131,6 @@
 // Cuando es false, BABY_TEMP_EN permanece HIGH entre medidas.
 #define SKIN_NTC_PULSED_EXCITATION false
 
-#define SDCard false
 #if (HW_NUM >= 17)
 // PCB layout bug: INA3221 IN+ taps the MOSFET switching node instead of the
 // shunt pad. During PWM switching the reading flips negative with amplified
@@ -193,7 +172,6 @@
 #define HUMIDIFIER_PWM_FREQUENCY 109000
 
 #define maxADCvalue 4095
-#define maxDACvalue 4095
 // #define PWM_MAX_VALUE maxADCvalue
 #define PWM_MAX_VALUE (pow(2, DEFAULT_PWM_RESOLUTION) - 1)
 #define FAN_PWR_SUPPLY_PWM PWM_MAX_VALUE
@@ -243,9 +221,6 @@
 #define DIG_TEMP_TO_DISCARD_MAX 60
 #define DIG_TEMP_TO_DISCARD_MIN 5
 
-#define BL_NORMAL 0
-#define BL_POWERSAVE 1
-
 #define HEATER_MAX_PWM PWM_MAX_VALUE
 #define HEATER_HALF_PWR PWM_MAX_VALUE / 2
 #define HEATER_START_PWM 1
@@ -253,16 +228,10 @@
 #define BUZZER_MAX_PWM PWM_MAX_VALUE
 #define BUZZER_HALF_PWM PWM_MAX_VALUE / 2
 
-#define DIRECT_BACKLIGHT_CONTROL true
-#define INVERTED_BACKLIGHT_CONTROL false
-
 #define MIN_SYSTEM_VOLTAGE_TRIGGER 0
 #define MAX_SYSTEM_VOLTAGE_TRIGGER 8
 
 #define SCREEN_BRIGHTNESS_FACTOR                                               \
   0.7 // Max brightness will be multiplied by this constant
-#define BACKLIGHT_POWER_SAFE_PERCENTAGE 0.3
-#define BACKLIGHT_CONTROL DIRECT_BACKLIGHT_CONTROL
 
-#define BACKLIGHT_POWER_SAFE PWM_MAX_VALUE *BACKLIGHT_POWER_SAFE_PERCENTAGE
 #define BACKLIGHT_POWER_DEFAULT PWM_MAX_VALUE *SCREEN_BRIGHTNESS_FACTOR
