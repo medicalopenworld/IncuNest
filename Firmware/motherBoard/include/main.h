@@ -424,8 +424,6 @@ long secsToMillis(long timeInMillis);
 long minsToMillis(long timeInMillis);
 float millisToHours(long timeInMillis);
 void initHardware(bool printOutputTest);
-void UI_mainMenu();
-void userInterfaceHandler(int UI_page);
 void updateData();
 void buzzerHandler();
 void buzzerTone(int beepTimes, int timevTaskDelay, int freq);
@@ -490,8 +488,6 @@ double roundSignificantDigits(double value, int numberOfDecimals);
 
 void initGPIO();
 void initEEPROM();
-void drawHardwareErrorMessage(long error, bool criticalError,
-                              bool calibrationError);
 void initAlarms();
 void security_check_reboot_cause();
 void IRAM_ATTR encSwitchHandler();

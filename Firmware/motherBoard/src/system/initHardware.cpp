@@ -271,42 +271,13 @@ void initPWMGPIO() {
   ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
 #endif
 
-#if (HW_NUM == 8)
-  ledcSetup(HUMIDIFIER_PWM_CHANNEL, HUMIDIFIER_PWM_FREQUENCY,
-            DEFAULT_PWM_RESOLUTION);
-  ledcAttachPin(HUMIDIFIER_CTL, HUMIDIFIER_PWM_CHANNEL);
-  ledcWrite(HUMIDIFIER_CTL, 0);
-#endif
   logI("[HW] -> PWM GPIOs initialized");
 }
 
 void initGPIO() {
   initI2C();
   logI("[HW] -> Initializing GPIOs");
-#if (HW_NUM == 6)
-  TCA.begin();
-  for (int pin = 0; pin < 16; pin++) {
-    TCA.setPolarity(pin, false);
-  }
-  pinMode(UNUSED_GPIO_EXP0, OUTPUT);
-  pinMode(UNUSED_GPIO_EXP1, OUTPUT);
-  pinMode(UNUSED_GPIO_EXP2, OUTPUT);
-  pinMode(UNUSED_GPIO_EXP3, OUTPUT);
-  digitalWrite(UNUSED_GPIO_EXP0, HIGH);
-  digitalWrite(UNUSED_GPIO_EXP1, HIGH);
-  digitalWrite(UNUSED_GPIO_EXP2, HIGH);
-  digitalWrite(UNUSED_GPIO_EXP3, HIGH);
-  pinMode(GPRS_EN, OUTPUT);
-  digitalWrite(GPRS_EN, HIGH);
-  pinMode(HUMIDIFIER_CTL, OUTPUT);
-  digitalWrite(HUMIDIFIER_CTL, LOW);
-  digitalWrite(TFT_CS_EXP, LOW);
-#elif (HW_NUM == 8)
-  pinMode(HUMIDIFIER_PWM, OUTPUT);
-#endif
-#if (HW_NUM >= 9)
   pinMode(FAN_SPEED_FEEDBACK, INPUT_PULLUP);
-#endif
 #if (GPRS_PWRKEY)
   pinMode(GPRS_PWRKEY, OUTPUT);
 #endif
@@ -594,76 +565,6 @@ void testStandByCurrent() {
     logE("[HW] -> Fail -> test current is " + String(testCurrent) + " Amps");
   }
   in3.system_current_standby_test = testCurrent;
-}
-
-void initTFT() {
-
-#if (HW_NUM < 15)
-  tft.init();
-#if (HW_NUM == 6)
-  digitalWrite(TFT_CS_EXP, HIGH);
-  vTaskDelay(pdMS_TO_TICKS(5));
-  digitalWrite(TFT_CS_EXP, LOW);
-#endif
-  tft.setRotation(DISPLAY_DEFAULT_ROTATION);
-  tft.fillScreen(TFT_BLACK);
-  tft_width = tft.width();
-  tft_height = tft.height();
-#endif
-}
-
-void testDisplay() {
-#if (HW_NUM < 15)
-  long error = HW_error;
-  float testCurrent = 0.0f, offsetCurrent = 0.0f;
-  int backlight_start_value, backlight_end_value;
-  offsetCurrent = measureMeanConsumption(MAIN, SYSTEM_SHUNT_CHANNEL);
-#if (HW_NUM == 6)
-  pinMode(TOUCH_CS, OUTPUT);
-  pinMode(SD_CS, OUTPUT);
-  pinMode(TFT_RST, OUTPUT);
-  pinMode(TFT_CS_EXP, OUTPUT);
-  pinMode(TFT_DC, OUTPUT);
-  digitalWrite(TOUCH_CS, HIGH);
-  digitalWrite(SD_CS, HIGH);
-  digitalWrite(TFT_CS_EXP, HIGH);
-  // digitalWrite(TFT_RST, LOW); // alternating HIGH/LOW
-  // delay(5);
-  // digitalWrite(TFT_RST, HIGH); // alternating HIGH/LOW
-  // delay(5);
-#endif
-  if (BACKLIGHT_CONTROL == DIRECT_BACKLIGHT_CONTROL) {
-    backlight_start_value = false;
-    backlight_end_value = BACKLIGHT_POWER_DEFAULT;
-  } else {
-    backlight_start_value = BACKLIGHT_POWER_DEFAULT;
-    backlight_end_value = false;
-  }
-  for (int i = backlight_start_value; i < backlight_end_value; i++) {
-    ledcWrite(SCREENBACKLIGHT_PWM_CHANNEL, i);
-    vTaskDelay(pdMS_TO_TICKS(BACKLIGHT_DELAY));
-    if (BACKLIGHT_CONTROL == INVERTED_BACKLIGHT_CONTROL) {
-      i -= 2;
-    }
-  }
-  vTaskDelay(pdMS_TO_TICKS(INIT_TFT_DELAY));
-  testCurrent = measureStabilizedCurrent(
-      MAIN, SYSTEM_SHUNT_CHANNEL, offsetCurrent, SCREEN_CONSUMPTION_MIN,
-      SCREEN_CONSUMPTION_MAX, CURRENT_STABILIZE_MAX_TIME);
-  if (testCurrent < SCREEN_CONSUMPTION_MIN) {
-    logE("[HW] -> WARNING -> Screen current is not high enough");
-  }
-  if (testCurrent > SCREEN_CONSUMPTION_MAX) {
-    logE("[HW] -> WARNING -> Screen current exceeded");
-  }
-  if (error == HW_error) {
-    logI("[HW] -> OK -> Screen is working as expected: " + String(testCurrent) +
-         " Amps");
-  } else {
-    logE("[HW] -> Fail -> test current is " + String(testCurrent) + " Amps");
-  }
-  in3.display_current_test = testCurrent;
-#endif
 }
 
 void testBuzzer() {
@@ -1192,15 +1093,7 @@ bool actuatorsTest() {
 }
 
 bool initActuators() {
-#if (HW_NUM <= 6)
-  in3_hum.begin(HUMIDIFIER_BINARY, HUMIDIFIER_CTL);
-#elif (HW_NUM <= 8)
-  in3_hum.begin(HUMIDIFIER_PWM, HUMIDIFIER_CTL);
-#elif (HW_NUM >= 16)
   in3_hum.begin(HUMIDIFIER_BINARY, USB_EN);
-#else
-  in3_hum.begin();
-#endif
   { Preferences _p; _p.begin(NS_CFG, true);
     bool _heaterTest = _p.getUChar(KEY_HEATER_TEST, 0);
     _p.end();
@@ -1269,12 +1162,10 @@ void initHardware(bool printOutputTest) {
     logE("[HW] -> BQ25730 not found or init failed");
   }
 #endif
-  initTFT();
   initInterrupts();
   PIDInit();
   if (!in3.restoreState) {
     testStandByCurrent();
-    testDisplay();
     testBuzzer();
   }
   ledcWrite(SCREENBACKLIGHT_PWM_CHANNEL, BACKLIGHT_POWER_DEFAULT);
@@ -1294,12 +1185,6 @@ void initHardware(bool printOutputTest) {
   in3.HW_test_error_code = HW_error;
   if (printOutputTest || in3.HW_critical_error || in3.calibrationError) {
     logE("[HW] -> PRINTING ERROR TO USER");
-#if (HW_NUM < 15)
-    drawHardwareErrorMessage(HW_error, in3.HW_critical_error,
-                             in3.calibrationError);
-    while (GPIORead(ENC_SWITCH))
-      ;
-#endif
   }
   if (!in3.restoreState) {
     buzzerTone(2, buzzerStandbyToneDuration, buzzerStandbyTone);
