@@ -58,7 +58,6 @@ class MAM_IncuNest_Humidifier {
 
  public:
   MAM_IncuNest_Humidifier(IncuNestHum_addr_t addr) : _i2c_addr(addr){};
-  //    MAM_IncuNest_Humidifier();
 
   // Initializes i2c humidifier
   void begin(TwoWire *theWire = &Wire);

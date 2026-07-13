@@ -103,9 +103,7 @@
 // long enough to ride out a transient EMI glitch without missing a real
 // dropout for many cycles.
 #define HEATER_SENSOR_DROPOUT_ALARM_CYCLES 10
-#if (HW_NUM != 6)
 #define CURRENT_STABILIZE_THRESHOLD_RATIO 0.1
-#endif
 
 #define FAN_RPM_CONVERSION 13333333
 #define FAN_UPDATE_TIME_MIN 1000
@@ -119,8 +117,6 @@
 #define SENEGAL_MODE false
 
 #define HOLD_PRESS_TO_GO_TO_SETTINGS 0
-
-#define UI_MENU_OLD false
 
 #define BROWN_OUT_BATTERY_MODE 0
 #define BROWN_OUT_NORMAL_MODE 0
@@ -138,8 +134,6 @@
 #define FIRMWARE_FAILURE_RETRIES 12
 #define FIRMWARE_PACKET_SIZE 4096
 #define WAIT_FAILED_OTA_CHUNKS 10U * 1000U * 1000U
-
-#include "ui_constants.h"
 
 // Mutex for protecting the shared variable
 extern SemaphoreHandle_t GPRS_monitor_mutex;
@@ -300,11 +294,7 @@ typedef enum
 
 // Encoder variables
 #define NUMENCODERS 1 // number of encoders in circuit
-#if (HW_NUM == 6)
-#define ENCODER_TICKS_DIV 1
-#else
 #define ENCODER_TICKS_DIV 0
-#endif
 #define encPulseDebounce 200
 
 // Graphic variables
@@ -424,8 +414,6 @@ long secsToMillis(long timeInMillis);
 long minsToMillis(long timeInMillis);
 float millisToHours(long timeInMillis);
 void initHardware(bool printOutputTest);
-void UI_mainMenu();
-void userInterfaceHandler(int UI_page);
 void updateData();
 void buzzerHandler();
 void buzzerTone(int beepTimes, int timevTaskDelay, int freq);
@@ -441,7 +429,6 @@ float measureMeanVoltage(bool, int);
 void WIFI_TB_Init();
 void WifiOTAHandler(void);
 void securityCheck();
-void buzzerConstantTone(int freq);
 
 void turnFans(bool mode);
 void setFanPidEnabled(bool enabled);
@@ -464,10 +451,6 @@ void stopPID(byte var);
 bool ongoingAlarms();
 byte activeAlarm();
 void reestartOngoingAlarms();
-int alarmPendingToDisplay();
-int alarmPendingToClear();
-void clearDisplayedAlarm(byte alarm);
-void clearAlarmPendingToClear(byte alarm);
 char *alarmIDtoString(byte alarmID);
 void resendActiveAlarms();
 
@@ -475,7 +458,6 @@ bool updateRoomSensor();
 bool updateAmbientSensor();
 
 void wifiInit(void);
-void wifiDisable();
 
 void loaddefaultValues();
 void recapVariables();
@@ -496,8 +478,6 @@ double roundSignificantDigits(double value, int numberOfDecimals);
 
 void initGPIO();
 void initEEPROM();
-void drawHardwareErrorMessage(long error, bool criticalError,
-                              bool calibrationError);
 void initAlarms();
 void security_check_reboot_cause();
 void IRAM_ATTR encSwitchHandler();

@@ -82,7 +82,6 @@ char wifi_pass[64] = "";
 TwoWire *wire;
 TwoWire *wire2 = nullptr; // second I2C bus (HW16: SHTC3 + STS35 on pins 19/20)
 MAM_IncuNest_Humidifier in3_hum(DEFAULT_ADDRESS);
-// Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC);
 TFT_eSPI tft = TFT_eSPI(); // Invoke custom library
 SHTC3 mySHTC3;             // Declare an instance of the SHTC3 class
 SensirionI2cSts3x mySTS35[STS3X_NUM];
@@ -156,10 +155,6 @@ int humidityY;
 int temperatureX;
 int temperatureY;
 int separatorTopYPos, separatorMidYPos, separatorBotYPos;
-int ypos;
-bool print_text;
-int initialSensorPosition = separatorPosition - letter_width;
-bool pos_text[8];
 
 bool enableSet;
 float temperaturePercentage, temperatureAtStart;
@@ -216,14 +211,6 @@ void GPRSMonitorTask(void *pvParameters) {
           crashReporterPut(m, strlen(m));
         }
         vTaskDelete(taskHandle); // Delete the hung task
-        // Serial.println("Task deleted. Restarting task...");
-
-        // // Optionally restart the task
-        // while (xTaskCreatePinnedToCore(GPRS_Task, (const char *)"GPRS", 8192,
-        //                                NULL, GPRS_TAST_PRIORITY, &taskHandle,
-        //                                CORE_ID_FREERTOS) != pdPASS)
-        //   ;
-        // logI("GPRS task successfully created!\n");
         vTaskDelete(NULL); // Delete the monitor task
       }
       if (GPRSIsConnectedToServer() || WIFIIsConnectedToServer()) {

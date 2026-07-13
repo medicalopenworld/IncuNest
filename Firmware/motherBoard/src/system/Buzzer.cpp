@@ -44,12 +44,6 @@ void buzzerHandler()
   }
 }
 
-void buzzerConstantTone(int freq)
-{
-  logI("[BUZZER] -> BUZZER activated in constant Mode");
-  ledcWrite(BUZZER_PWM_CHANNEL, BUZZER_HALF_PWM);
-}
-
 void shutBuzzer()
 {
     // logI("[BUZZER] -> BUZZER was shutted");

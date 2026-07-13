@@ -485,7 +485,6 @@ void GPRSCheckOTA() {
   }
   if (!updateRequestSent) {
     tb.Start_Firmware_Update(OTAcallback);
-    // updateRequestSent = tb.Subscribe_Firmware_Update(callback);
   }
 }
 
@@ -809,9 +808,6 @@ void GPRSPost() {
     if (tb.connected()) {
       if (millis() - GPRS.lastSent > secsToMillis(GPRS.sendPeriod)) {
         // Send our firmware title and version
-        // StaticJsonDocument<JSON_OBJECT_SIZE(2)> TB_telemetries;
-        // JsonObject telemetriesObject = TB_telemetries.to<JsonObject>();
-
         logModemData("[GPRS] -> sendPeriod is " + String(GPRS.sendPeriod) +
                      " secs");
         logModemData("[GPRS] -> Posting GPRS data...");

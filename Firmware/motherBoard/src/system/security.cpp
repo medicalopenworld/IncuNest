@@ -106,10 +106,6 @@ extern int humidityX;
 extern int humidityY;
 extern int temperatureX;
 extern int temperatureY;
-extern int ypos;
-extern bool print_text;
-extern int initialSensorPosition;
-extern bool pos_text[8];
 
 extern bool enableSet;
 extern float temperaturePercentage, temperatureAtStart;
@@ -279,9 +275,6 @@ void checkStatusOfSensor(byte sensor)
   }
   if (alarmID)
   {
-    // if (xQueueReceive(sharedSensorQueue, &lastSuccesfullSensorUpdate[sensor],
-    // portMAX_DELAY))
-    // {
     if (millis() - lastSuccesfullSensorUpdate[sensor] >
         MINIMUM_SUCCESSFULL_SENSOR_UPDATE)
     {
@@ -487,30 +480,6 @@ char *alarmIDtoString(byte alarmID)
     return (char *)("ALARM");
     break;
   }
-}
-
-int alarmPendingToDisplay()
-{
-  for (int i = 0; i < NUM_ALARMS; i++)
-  {
-    if (displayAlarm[i])
-      return i;
-  }
-  return 0;
-}
-
-void clearDisplayedAlarm(byte alarm) { displayAlarm[alarm] = false; }
-
-void clearAlarmPendingToClear(byte alarm) { clearedAlarm[alarm] = false; }
-
-int alarmPendingToClear()
-{
-  for (int i = 0; i < NUM_ALARMS; i++)
-  {
-    if (clearedAlarm[i])
-      return i;
-  }
-  return 0;
 }
 
 void sendPendingAlarms()
@@ -862,10 +831,6 @@ void checkAlarms()
                     lastAlarmTrigger[HUMIDITY_ALARM], true);
     }
   }
-  // if (!ongoingAlarms())
-  // {
-  //   shutBuzzer();
-  // }
 }
 
 #if defined(FAN_SPEED_FEEDBACK)
