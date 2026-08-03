@@ -955,9 +955,16 @@ void initHardware(bool printOutputTest) {
   }
   if (in3.restoreState) {
     // Resuming a control session that was already running, not starting
-    // cold - assume the stabilization window already elapsed instead of
-    // making temperature/humidity alarms wait out another full one.
-    alarmTimerStart(true);
+    // cold - give TEMPERATURE_ALARM/HUMIDITY_ALARM a short RESTART_ALARM_GRACE_MINS
+    // pause (instead of the full ACTUATORS_ALARM_STABILIZATION_MINS a fresh
+    // activation waits out) so telemetry/sensors have time to resync after
+    // the reboot before alarms can fire again.
+    logI("[BOOT][DEBUG] initHardware: entering restoreState resume block, "
+         "temperatureControl=" + String(in3.temperatureControl) +
+         " humidityControl=" + String(in3.humidityControl) +
+         " controlMode=" + String(in3.controlMode) +
+         " HW_critical_error=" + String(in3.HW_critical_error));
+    alarmTimerStart(RESTART_ALARM_GRACE_MINS);
     if (in3.temperatureControl) {
       startPID(in3.controlMode);
       turnFans(ON);

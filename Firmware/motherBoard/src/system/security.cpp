@@ -154,8 +154,8 @@ extern PID humidityControlPID;
   0.05                              // 0.05 degrees difference to disable alarm
 #define HUMIDITY_ERROR_HYSTERESIS 5 // 5 %RH to disable alarm
 
-// Set to 1 for testing, then change to 30 for production
-#define ACTUATORS_ALARM_STABILIZATION_MINS 30
+// ACTUATORS_ALARM_STABILIZATION_MINS / RESTART_ALARM_GRACE_MINS now live in
+// main.h (initHardware.cpp needs them too for the restoreState resume path).
 
 #define FAN_TEST_CURRENTDIF_MIN \
   0.2 // when the fan is spinning, heater cools down and consume less current
@@ -315,7 +315,7 @@ void powerMonitor()
   voltageMonitor();
 }
 
-void alarmTimerStart(bool assumeStabilized)
+void alarmTimerStart(long graceMinutes)
 {
   for (int i = 0; i < NUM_ALARMS; i++)
   {
@@ -325,23 +325,21 @@ void alarmTimerStart(bool assumeStabilized)
       -1 * minsToMillis(ALARM_TIME_DELAY);
   lastAlarmTrigger[SKIN_THERMAL_CUTOUT_ALARM] =
       -1 * minsToMillis(ALARM_TIME_DELAY);
-  if (assumeStabilized)
+  // checkAlarms() only evaluates TEMPERATURE_ALARM/HUMIDITY_ALARM once
+  // ACTUATORS_ALARM_STABILIZATION_MINS have passed since lastAlarmTrigger.
+  // Offsetting it into the past by (stabilization - graceMinutes) makes
+  // that window elapse `graceMinutes` from now instead of the full wait -
+  // a fresh activation passes graceMinutes=0 (full wait, unchanged
+  // behavior), a restoreState boot passes RESTART_ALARM_GRACE_MINS.
+  long alreadyElapsedMins = ACTUATORS_ALARM_STABILIZATION_MINS - graceMinutes;
+  if (alreadyElapsedMins < 0)
   {
-    // Used when resuming an already-running control (restoreState boot):
-    // the incubator didn't just go cold, so there is no need to make
-    // temperature/humidity alarms wait out another full stabilization
-    // window - treat it as already elapsed, same as the thermal cutouts.
-    lastAlarmTrigger[TEMPERATURE_ALARM] =
-        -1 * minsToMillis(ACTUATORS_ALARM_STABILIZATION_MINS);
-    lastAlarmTrigger[HUMIDITY_ALARM] =
-        -1 * minsToMillis(ACTUATORS_ALARM_STABILIZATION_MINS);
+    alreadyElapsedMins = 0;
   }
-  // Otherwise TEMPERATURE_ALARM and HUMIDITY_ALARM both keep their millis()
-  // value from the loop above, so checkAlarms() enforces the same
-  // ACTUATORS_ALARM_STABILIZATION_MINS grace period for both after a fresh
-  // activation. The thermal cutouts stay immediately eligible either way -
-  // they are a hard over-temperature safety limit, not a setpoint-tracking
-  // alarm.
+  lastAlarmTrigger[TEMPERATURE_ALARM] = -1 * minsToMillis(alreadyElapsedMins);
+  lastAlarmTrigger[HUMIDITY_ALARM] = -1 * minsToMillis(alreadyElapsedMins);
+  // The thermal cutouts stay immediately eligible either way - they are a
+  // hard over-temperature safety limit, not a setpoint-tracking alarm.
 }
 
 byte activeAlarm()

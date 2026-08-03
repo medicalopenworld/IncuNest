@@ -119,6 +119,13 @@
 #define SILENCED_ALARM false
 #define DEFAULT_SOUND_ALARM true
 
+// Minutes TEMPERATURE_ALARM/HUMIDITY_ALARM stay silenced after a fresh
+// activation (checkAlarms(), security.cpp) vs. after a restoreState boot
+// (crash/WDT - initHardware.cpp), which only needs a short re-sync pause
+// rather than a full cold-start stabilization wait.
+#define ACTUATORS_ALARM_STABILIZATION_MINS 30
+#define RESTART_ALARM_GRACE_MINS 0
+
 #define UKRAINE_MODE false
 #define SENEGAL_MODE false
 
@@ -438,7 +445,7 @@ void securityCheck();
 
 void turnFans(bool mode);
 void setFanPidEnabled(bool enabled);
-void alarmTimerStart(bool assumeStabilized = false);
+void alarmTimerStart(long graceMinutes = ACTUATORS_ALARM_STABILIZATION_MINS);
 void timeTrackHandler();
 
 bool ongoingCriticalAlarm();
