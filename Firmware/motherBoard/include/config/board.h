@@ -25,11 +25,6 @@
 #ifndef HW_NUM
 #error "HW_NUM must be defined via build_flags in platformio.ini (-DHW_NUM=16 or -DHW_NUM=17)"
 #endif
-#define HW_REVISION 'A'
-#define HWversion String(HW_NUM) + "." + String(HW_REVISION)
-#define FWversion "17.4"
-#define WIFI_NAME "IncuNest"
-#define CURRENT_FIRMWARE_TITLE "IncuNest"
 // Set to true only on the HMI board
 #define IS_HMI false
 
@@ -220,6 +215,13 @@
 
 #define DIG_TEMP_TO_DISCARD_MAX 60
 #define DIG_TEMP_TO_DISCARD_MIN 5
+
+// Master enable for heaterPowerConsumptionCheck() (PID.cpp): the current-based
+// ramp that throttles heaterSafeMAXPWM down when in3.heater_current/system_current
+// exceed in3.heaterMaxPowerAmps. When false, that check is skipped and
+// heaterSafeMAXPWM is pinned at HEATER_MAX_PWM instead - i.e. the heater is no
+// longer power-limited by the current sensor.
+#define HEATER_CURRENT_LIMIT_ENABLED true
 
 #define HEATER_MAX_PWM PWM_MAX_VALUE
 #define HEATER_HALF_PWR PWM_MAX_VALUE / 2

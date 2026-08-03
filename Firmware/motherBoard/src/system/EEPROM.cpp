@@ -308,13 +308,15 @@ void recapVariables()
         in3.desiredControlTemperature > AIR_TEMPERATURE_SET_MAX)
       in3.desiredControlTemperature = presetTemp[CONTROL_AIR];
     in3.desiredControlHumidity = p.getUChar(KEY_CTRL_HUM, presetHumidity);
+    logI("[BOOT][DEBUG] recapVariables: KEY_CTRL_TEMP as read from NVS -> desiredControlTemperature=" +
+         String(in3.desiredControlTemperature) +
+         " desiredControlHumidity=" + String(in3.desiredControlHumidity) +
+         " (fallback defaults would be " + String(presetTemp[CONTROL_AIR]) +
+         "/" + String(presetHumidity) + " - if these match, the setpoint was never persisted)");
     in3.fanPwrSupplyPWM = p.getInt(KEY_FAN_PWR_SUPPLY_PWM, FAN_PWR_SUPPLY_PWM);
     if (in3.fanPwrSupplyPWM <= 0 || in3.fanPwrSupplyPWM > 255)
       in3.fanPwrSupplyPWM = FAN_PWR_SUPPLY_PWM;
     in3.heaterMaxPowerAmps = p.getFloat(KEY_HEAT_MAX_A, HEATER_MAX_POWER_AMPS);
-#if (HW_NUM == 17)
-    in3.heaterMaxPowerAmps = HEATER_MAX_POWER_AMPS; // ignore stored value for HW17 which has a new heater with different characteristics, until we have enough data to set a proper default
-#endif
     if (isnan(in3.heaterMaxPowerAmps) || in3.heaterMaxPowerAmps <= 0)
       in3.heaterMaxPowerAmps = HEATER_MAX_POWER_AMPS;
     in3.skinTemperatureSetMax = p.getFloat(KEY_SKIN_T_MAX, SKIN_TEMPERATURE_SET_MAX);
@@ -411,6 +413,9 @@ void recapVariables()
   }
 
   // Process actuation mode (restore temperature/humidity control state)
+  logI("[BOOT][DEBUG] recapVariables: restoreState=" + String(in3.restoreState) +
+       " actuation=" + String(in3.actuation) +
+       " controlMode=" + String(in3.controlMode));
   if (in3.restoreState)
   {
     switch (in3.actuation)
@@ -432,6 +437,9 @@ void recapVariables()
       in3.humidityControl = false;
       break;
     }
+    logI("[BOOT][DEBUG] recapVariables: restoreState resolved -> temperatureControl=" +
+         String(in3.temperatureControl) +
+         " humidityControl=" + String(in3.humidityControl));
   }
 
   ESP_LOGI("APP", "Serial: %d, Lang: %d", in3.serialNumber, in3.language);
