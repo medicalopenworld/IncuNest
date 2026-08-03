@@ -409,20 +409,33 @@ void Communication_Receiver(void *pvParameters) {
       }
 
       if (in3.temperatureControl) {
-        if (in3.controlMode) {
-          in3.desiredControlTemperature = hmi_cmd_msg.desiredAirTemperature;
-          startPID(in3.controlMode);
-        } else {
-          in3.desiredControlTemperature = hmi_cmd_msg.desiredSkinTemperature;
-          startPID(!in3.controlMode);
+        double newDesiredTemp = in3.controlMode ? hmi_cmd_msg.desiredAirTemperature
+                                                 : hmi_cmd_msg.desiredSkinTemperature;
+        if (newDesiredTemp != in3.desiredControlTemperature) {
+          in3.desiredControlTemperature = newDesiredTemp;
+          // Persisted so a restoreState boot (crash/WDT) restarts the PID at
+          // the setpoint the user actually configured, not the compiled-in
+          // default (KEY_CTRL_TEMP's fallback in recapVariables()).
+          Preferences p;
+          p.begin(NS_CFG, false);
+          p.putFloat(KEY_CTRL_TEMP, in3.desiredControlTemperature);
+          p.end();
         }
+        startPID(in3.controlMode);
       } else {
         stopPID(CONTROL_AIR);
         stopPID(!CONTROL_AIR);
         ledcWrite(HEATER_PWM_CHANNEL, false);
       }
       if (in3.humidityControl) {
-        in3.desiredControlHumidity = hmi_cmd_msg.desiredHumidity;
+        if (hmi_cmd_msg.desiredHumidity != in3.desiredControlHumidity) {
+          in3.desiredControlHumidity = hmi_cmd_msg.desiredHumidity;
+          // Same rationale as KEY_CTRL_TEMP above, for humidity restoreState boots.
+          Preferences p;
+          p.begin(NS_CFG, false);
+          p.putUChar(KEY_CTRL_HUM, in3.desiredControlHumidity);
+          p.end();
+        }
         startPID(humidityPID);
       } else {
         stopPID(humidityPID);
