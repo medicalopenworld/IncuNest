@@ -59,6 +59,11 @@ char pendingSSID[64] = "";
 char pendingPass[64] = "";
 static volatile bool s_persistCredentials = false;
 
+// Backoff exponencial de reconexión WiFi (ver WIFI_RECONNECT_MAX_INTERVAL).
+// Se incrementa en cada reintento de wifiInit() mientras no haya IP; se
+// resetea a 0 en STA_GOT_IP.
+static volatile uint32_t s_wifiReconnectFailStreak = 0;
+
 
 const char *serverIndex =
     "<script "
@@ -155,6 +160,7 @@ void wifiInit(void) {
                WiFi.localIP().toString().c_str(),
                (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+      s_wifiReconnectFailStreak = 0; // reconexión OK: backoff vuelve a la base
       MDNS.begin(wifiHost);
       MDNS.addService("http", "tcp", 80);
       // If new credentials are pending, schedule their EEPROM save.
@@ -466,10 +472,23 @@ void WIFI_TB_OTA() {
 void WifiOTAHandler(void) {
   // Manual reconnect: retry wifiInit() when disconnected. Auto-reconnect is
   // disabled to avoid ASSOC_TOOMANY event storms; this provides the fallback.
+  // Backoff exponencial: cada intento fallido dobla la espera hasta el tope
+  // WIFI_RECONNECT_MAX_INTERVAL. Sin esto, una pérdida prolongada del AP
+  // (NO_AP_FOUND visto en campo durante 50+ min seguidos) machaca WiFi.begin()
+  // cada 30s indefinidamente, y cada intento es una escritura NVS que puede
+  // desincronizar un frame del panel LCD (ver LCD_DIAG). Nunca baja de
+  // WIFI_RECONNECT_INTERVAL — ver el comentario de esa constante.
   if (WiFi.status() != WL_CONNECTED) {
-    if (millis() - Wifi_TB.lastWifiReconnectAttempt > WIFI_RECONNECT_INTERVAL) {
-      ESP_LOGW(TAG, "WiFi disconnected, retrying wifiInit()");
+    uint32_t backoff = WIFI_RECONNECT_INTERVAL;
+    for (uint32_t i = 0; i < s_wifiReconnectFailStreak && backoff < WIFI_RECONNECT_MAX_INTERVAL; i++) {
+      backoff *= 2;
+    }
+    if (backoff > WIFI_RECONNECT_MAX_INTERVAL) backoff = WIFI_RECONNECT_MAX_INTERVAL;
+    if (millis() - Wifi_TB.lastWifiReconnectAttempt > backoff) {
+      ESP_LOGW(TAG, "WiFi disconnected, retrying wifiInit() (backoff=%lu ms, streak=%lu)",
+               (unsigned long)backoff, (unsigned long)s_wifiReconnectFailStreak);
       wifiInit();
+      s_wifiReconnectFailStreak++;
     }
   }
 

@@ -23,7 +23,13 @@
 // Arduino-ESP32 3.x WiFi association can take >10 s on some APs; retrying
 // wifiInit() before the in-flight WiFi.begin() finishes corrupts STA state
 // (ESP_ERR_WIFI_CONN + HANDSHAKE_TIMEOUT) and has triggered IRQ-wdt panics.
-#define WIFI_RECONNECT_INTERVAL 30000     // 30 seconds
+#define WIFI_RECONNECT_INTERVAL 30000     // 30 seconds (base interval — no bajar, ver comentario arriba)
+// Backoff exponencial tras fallos consecutivos de reconexión (NO_AP_FOUND
+// prolongado observado en campo: bucles de 30s durante 50+ minutos seguidos
+// martillean WiFi.begin() sin parar, cada uno con su golpe de escritura NVS
+// -> glitch LCD). Duplica el intervalo tras cada intento fallido hasta este
+// tope; se resetea a WIFI_RECONNECT_INTERVAL en el próximo STA_GOT_IP.
+#define WIFI_RECONNECT_MAX_INTERVAL 300000 // 5 minutos (tope del backoff)
 #define THINGSBOARD_RECONNECT_DELAY 30000 // 30 seconds
 #define WIFI_OTA_CHECK_INTERVAL 60000     // 1 minute
 
