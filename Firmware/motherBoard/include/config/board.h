@@ -23,7 +23,7 @@
 
 */
 #ifndef HW_NUM
-#error "HW_NUM must be defined via build_flags in platformio.ini (-DHW_NUM=16 or -DHW_NUM=17)"
+#error "HW_NUM must be defined via build_flags in platformio.ini (-DHW_NUM=16, -DHW_NUM=17 or -DHW_NUM=18)"
 #endif
 // Set to true only on the HMI board
 #define IS_HMI false
@@ -126,14 +126,25 @@
 // Cuando es false, BABY_TEMP_EN permanece HIGH entre medidas.
 #define SKIN_NTC_PULSED_EXCITATION false
 
-#if (HW_NUM >= 17)
+#if (HW_NUM == 17)
 // PCB layout bug: INA3221 IN+ taps the MOSFET switching node instead of the
 // shunt pad. During PWM switching the reading flips negative with amplified
 // magnitude. Empirical correction: I_real ≈ |I_measured| / factor.
 // Tune HEATER_CURRENT_CORRECTION_FACTOR based on measured vs. expected current.
-#define HEATER_CURRENT_CORRECTION_FACTOR 5.80f  
+#define HEATER_CURRENT_CORRECTION_FACTOR 5.80f
 #define SYSTEM_SHUNT 1000        // miliohms (VSYS_SHUNT+ is not connected properly, is connected before O-ring)
 #define HEATER_SHUNT 5        // miliohms
+#define FAN_SHUNT 100         // miliohms
+#define PHOTOTHERAPY_SHUNT 5   // miliohms
+#define USB_SHUNT 100         // miliohms (humidifier via USB_EN channel)
+#define BATTERY_SHUNT 27000   // miliohms
+#elif (HW_NUM == 18)
+// HW18: VSYS_SHUNT+/heater shunt wiring fixed, no more MOSFET-switching-node
+// tap - HEATER_CURRENT_CORRECTION_FACTOR is a HW17-only workaround, not
+// needed here (see HW_NUM == 17 above and sensors_module.cpp's
+// #if (HW_NUM == 17) around heater_current).
+#define SYSTEM_SHUNT 5        // miliohms
+#define HEATER_SHUNT 2        // miliohms
 #define FAN_SHUNT 100         // miliohms
 #define PHOTOTHERAPY_SHUNT 5   // miliohms
 #define USB_SHUNT 100         // miliohms (humidifier via USB_EN channel)

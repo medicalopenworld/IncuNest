@@ -66,7 +66,7 @@
 
 #define HW_REVISION 'A'
 #define HWversion String(HW_NUM) + "." + String(HW_REVISION)
-#define FWversion "17.5"
+#define FWversion "18.1"
 #define WIFI_NAME "IncuNest"
 #define CURRENT_FIRMWARE_TITLE "IncuNest"
 
