@@ -325,7 +325,7 @@ ClassGenCCAutoRoomEnabled=0
 ClassGenNCAutoScope=None
 DItemRevisionGUID=
 GenerateClassCluster=0
-DocumentUniqueId=
+DocumentUniqueId=EVZCLILV
 
 [Document17]
 DocumentPath=libraries\in3ator_components_v2.PcbLib
@@ -359,7 +359,7 @@ ClassGenCCAutoRoomEnabled=0
 ClassGenNCAutoScope=None
 DItemRevisionGUID=
 GenerateClassCluster=0
-DocumentUniqueId=
+DocumentUniqueId=ACQMCPVT
 
 [Document19]
 DocumentPath=libraries\jlcpcb_components.IntLib
@@ -379,23 +379,6 @@ GenerateClassCluster=0
 DocumentUniqueId=
 
 [Document20]
-DocumentPath=libraries\jlcpcb_components.SCHLIB
-AnnotationEnabled=1
-AnnotateStartValue=1
-AnnotationIndexControlEnabled=0
-AnnotateSuffix=
-AnnotateScope=All
-AnnotateOrder=-1
-DoLibraryUpdate=1
-DoDatabaseUpdate=1
-ClassGenCCAutoEnabled=1
-ClassGenCCAutoRoomEnabled=0
-ClassGenNCAutoScope=None
-DItemRevisionGUID=
-GenerateClassCluster=0
-DocumentUniqueId=
-
-[Document21]
 DocumentPath=libraries\LCSC.PcbLib
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -412,7 +395,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=
 
-[Document22]
+[Document21]
 DocumentPath=libraries\LCSC.SCHLIB
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -427,9 +410,9 @@ ClassGenCCAutoRoomEnabled=0
 ClassGenNCAutoScope=None
 DItemRevisionGUID=
 GenerateClassCluster=0
-DocumentUniqueId=
+DocumentUniqueId=DLHIFLTI
 
-[Document23]
+[Document22]
 DocumentPath=libraries\net_tie.PcbLib
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -446,7 +429,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=
 
-[Document24]
+[Document23]
 DocumentPath=libraries\net_tie.SchLib
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -461,18 +444,18 @@ ClassGenCCAutoRoomEnabled=0
 ClassGenNCAutoScope=None
 DItemRevisionGUID=
 GenerateClassCluster=0
-DocumentUniqueId=
+DocumentUniqueId=IETCVIWS
 
 [ProjectVariant1]
 UniqueId=90D3DB23-2F93-4347-8D07-03B855282129
 Description=Main
 AllowFabrication=0
 ParameterCount=0
-VariationCount=45
+VariationCount=49
 Variation1=Designator=U1|UniqueId=\SRMPUMLM\KXVYLXEI|Kind=0|AlternatePart=
 ParamVariation1=ParameterName=Comment|VariantValue=Espressif Systems ESP32-WROOM-32D
 ParamDesignator1=U1
-Variation2=Designator=J3|UniqueId=\SRMPUMLM\OJTHBEAK|Kind=0|AlternatePart=
+Variation2=Designator=J3|UniqueId=\SRMPUMLM\OJTHBEAK|Kind=1|AlternatePart=
 Variation3=Designator=J5|UniqueId=\SRMPUMLM\BPBQMMIG|Kind=1|AlternatePart=
 Variation4=Designator=R39|UniqueId=\YCVLGAEH\SRDIPYGW|Kind=0|AlternatePart=
 Variation5=Designator=R9|UniqueId=\SRMPUMLM\KVMLDHFS|Kind=1|AlternatePart=
@@ -485,13 +468,13 @@ Variation11=Designator=R41|UniqueId=\QESGLCCP\FSLKBTOX|Kind=1|AlternatePart=
 Variation12=Designator=R?|UniqueId=\ELLKDCBI\KLFWQOOA|Kind=1|AlternatePart=
 Variation13=Designator=J12|UniqueId=\YCVLGAEH\MNYFMPKW|Kind=0|AlternatePart=
 Variation14=Designator=R58|UniqueId=\SRMPUMLM\KKTVNKSC|Kind=1|AlternatePart=
-Variation15=Designator=R61|UniqueId=\OVDTLPPQ\JXCLEWMA|Kind=1|AlternatePart=
+Variation15=Designator=R61|UniqueId=\OVDTLPPQ\JXCLEWMA|Kind=0|AlternatePart=
 Variation16=Designator=L2|UniqueId=\QESGLCCP\CYYZWNYY|Kind=1|AlternatePart=
 Variation17=Designator=R48|UniqueId=\DTENNPGM\IWPZSNYY|Kind=1|AlternatePart=
 Variation18=Designator=L3|UniqueId=\QESGLCCP\EJKQDQEL|Kind=1|AlternatePart=
 Variation19=Designator=R63|UniqueId=\MJRDAMQJ\MWMYJDBS|Kind=1|AlternatePart=
 Variation20=Designator=U8|UniqueId=\WYHTQPDD\LALBQHMB|Kind=1|AlternatePart=
-Variation21=Designator=R71|UniqueId=\OVDTLPPQ\TPSGEPOX|Kind=1|AlternatePart=
+Variation21=Designator=R71|UniqueId=\OVDTLPPQ\TPSGEPOX|Kind=0|AlternatePart=
 Variation22=Designator=D8|UniqueId=\MJRDAMQJ\IELNLBLF|Kind=0|AlternatePart=
 Variation23=Designator=R31|UniqueId=\YCVLGAEH\TJRLXDHN|Kind=0|AlternatePart=
 Variation24=Designator=L1|UniqueId=\DTENNPGM\OMQTANHP|Kind=1|AlternatePart=
@@ -516,6 +499,10 @@ Variation42=Designator=R47|UniqueId=\SSTYDAAW\KWYSRYLD|Kind=1|AlternatePart=
 Variation43=Designator=J12|UniqueId=\MJRDAMQJ\DUQCQZNF|Kind=0|AlternatePart=
 Variation44=Designator=U6|UniqueId=\MJRDAMQJ\KNBRPLSP|Kind=1|AlternatePart=
 Variation45=Designator=RF_PCB1|UniqueId=\MJRDAMQJ\SWRVBBOM|Kind=1|AlternatePart=
+Variation46=Designator=R46|UniqueId=\SSTYDAAW\BEFSMEKV|Kind=1|AlternatePart=
+Variation47=Designator=R52|UniqueId=\SSTYDAAW\OPZRXIDN|Kind=1|AlternatePart=
+Variation48=Designator=C?|UniqueId=\QESGLCCP\PLQKEGSH|Kind=1|AlternatePart=
+Variation49=Designator=R57|UniqueId=\SSTYDAAW\RPIQINYK|Kind=1|AlternatePart=
 ParamVariationCount=1
 
 [ProjectVariant2]
@@ -755,14 +742,18 @@ DocumentPath=Project Outputs for IncuNest\Gerber\Motherboard.GTS
 DItemRevisionGUID=
 
 [GeneratedDocument50]
-DocumentPath=Project Outputs for IncuNest\Gerber\Motherboard.REP
+DocumentPath=Project Outputs for IncuNest\NC Drill\Motherboard.LDP
 DItemRevisionGUID=
 
 [GeneratedDocument51]
-DocumentPath=Project Outputs for IncuNest\Gerber\Motherboard.RUL
+DocumentPath=Project Outputs for IncuNest\Gerber\Motherboard.REP
 DItemRevisionGUID=
 
 [GeneratedDocument52]
+DocumentPath=Project Outputs for IncuNest\Gerber\Motherboard.RUL
+DItemRevisionGUID=
+
+[GeneratedDocument53]
 DocumentPath=Project Outputs for IncuNest\Pick Place\Pick Place for Motherboard(Main).csv
 DItemRevisionGUID=
 
@@ -1902,10 +1893,10 @@ SelectedOnly=1
 UpdateVariants=1
 UpdateToLatestRevision=1
 PartTypes=0
-ComponentLibIdentifierKind0=Library Name And Type
-ComponentLibraryIdentifier0=net_tie.SchLib
-ComponentDesignItemID0=NetTie_SMD
-ComponentSymbolReference0=NetTie_SMD
+ComponentLibIdentifierKind0=Any
+ComponentLibraryIdentifier0=
+ComponentDesignItemID0=B6B-PH-K-S__LF__SN_
+ComponentSymbolReference0=B6B-PH-K-S__LF__SN_
 ComponentUpdate0=1
 ComponentIsDeviceSheet0=0
 FullReplace=1
@@ -1921,18 +1912,34 @@ RemoveParameters=0
 AddModels=1
 RemoveModels=1
 UpdateCurrentModels=1
-ParameterName0=Comment
+ParameterName0=Arrow Part Number
 ParameterUpdate0=1
-ParameterName1=Component Kind
+ParameterName1=Arrow Price/Stock
 ParameterUpdate1=1
-ParameterName2=Description
+ParameterName2=Comment
 ParameterUpdate2=1
-ParameterName3=Library Reference
+ParameterName3=Component Kind
 ParameterUpdate3=1
+ParameterName4=Datasheet Link
+ParameterUpdate4=1
+ParameterName5=Description
+ParameterUpdate5=1
+ParameterName6=Height
+ParameterUpdate6=1
+ParameterName7=Library Reference
+ParameterUpdate7=1
+ParameterName8=Manufacturer_Name
+ParameterUpdate8=1
+ParameterName9=Manufacturer_Part_Number
+ParameterUpdate9=1
+ParameterName10=Mouser Part Number
+ParameterUpdate10=1
+ParameterName11=Mouser Price/Stock
+ParameterUpdate11=1
 ModelTypeGroup0=PCBLIB
 ModelTypeUpdate0=1
 ModelType0=PCBLIB
-ModelName0=NETTIE_SMD
+ModelName0=SHDR6W50P0X200_1X6_1390X450X600P
 ModelUpdate0=1
 
 [DatabaseUpdateOptions]
