@@ -786,6 +786,8 @@ void ui_ScreenIntro_screen_init(void) {
   lv_img_set_src(ui_ImageIntroFlag, &ui_img_flag_togo_png);
 #elif INTRO_FLAG == INTRO_FLAG_SENEGAL
   lv_img_set_src(ui_ImageIntroFlag, &ui_img_flag_senegal_png);
+#elif INTRO_FLAG == INTRO_FLAG_GHANA
+  lv_img_set_src(ui_ImageIntroFlag, &ui_img_flag_ghana_png);
 #endif
   lv_obj_set_width(ui_ImageIntroFlag, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_ImageIntroFlag, LV_SIZE_CONTENT);

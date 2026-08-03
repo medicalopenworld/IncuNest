@@ -100,6 +100,8 @@ LV_IMG_DECLARE(ui_img_flag_togo_png);      // data/Flag_Togo.png
 LV_IMG_DECLARE(ui_img_flag_rasd_jpg);      // flags/RASD.jpg
 #elif INTRO_FLAG == INTRO_FLAG_SENEGAL
 LV_IMG_DECLARE(ui_img_flag_senegal_png);   // flags/senegal-flag.png
+#elif INTRO_FLAG == INTRO_FLAG_GHANA
+LV_IMG_DECLARE(ui_img_flag_ghana_png);     // data/Flag_Ghana.png
 #endif
 
 // --- GLOBAL VARIABLES ---

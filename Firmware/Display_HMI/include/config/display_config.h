@@ -117,11 +117,13 @@
 // INTRO_FLAG_RASD    : República Árabe Saharaui Democrática
 // INTRO_FLAG_TOGO    : República de Togo
 // INTRO_FLAG_SENEGAL : República de Senegal
+// INTRO_FLAG_GHANA   : República de Ghana
 // -----------------------------------------------------------------------------
 #define INTRO_FLAG_NONE    0
 #define INTRO_FLAG_RASD    1
 #define INTRO_FLAG_TOGO    2
 #define INTRO_FLAG_SENEGAL 3
+#define INTRO_FLAG_GHANA   4
 
 #define INTRO_FLAG INTRO_FLAG_NONE
 
