@@ -129,9 +129,13 @@ void setup() {
 
   LVGL_Mutex_Init();
 
+#ifndef DISABLE_WIFI_TEST
   ESP_LOGI(TAG, "Creating OTA task ...");
   CreateOTATask();
   ESP_LOGI(TAG, "OTA task successfully created!");
+#else
+  ESP_LOGW(TAG, "[DISABLE_WIFI_TEST] WiFi/OTA task NOT created — bench test build");
+#endif
 
   ESP_LOGI(TAG, "Creating Communication task ...");
   CreateCommTask();

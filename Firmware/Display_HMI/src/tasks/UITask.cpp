@@ -242,8 +242,11 @@ void lcd_diagnostics_log() {
              underruns, slow_frames, total, frame_finish, (long)frame_mismatch,
              worst_us / 1000.0f, fps);
   } else {
-    // ESP_LOGI("LCD_DIAG", "OK — frames=%lu  worst_frame=%.1fms", total,
-    //          worst_us / 1000.0f);
+    // Bench-debug: imprime siempre para ver contención sub-umbral (worst_frame
+    // por debajo de 25ms) que "GLITCH DETECTED" no reporta. Correlar con
+    // glitches vistos a simple vista sin evento de WiFi/flash en el log.
+    ESP_LOGI("LCD_DIAG", "ok — frames=%lu  worst_frame=%.2fms (%.1f fps)",
+             total, worst_us / 1000.0f, fps);
   }
 }
 
@@ -3805,7 +3808,7 @@ void UI_Task(void *pvParameters) {
     {
       static uint32_t lcd_diag_last_ms = 0;
       uint32_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
-      if (now_ms - lcd_diag_last_ms >= 10000) {
+      if (now_ms - lcd_diag_last_ms >= 3000) { // 3s: bench-debug, más resolución temporal
         lcd_diag_last_ms = now_ms;
         lcd_diagnostics_log();
       }
