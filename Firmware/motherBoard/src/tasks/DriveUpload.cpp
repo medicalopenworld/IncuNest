@@ -47,6 +47,40 @@ static void removeIfExists(const char *path) {
     LittleFS.remove(path);
 }
 
+// crash_mb_/crash_hmi_ logs are normally deleted by driveUploadTask once
+// uploaded (or once it confirms there is no network). But a crash loop
+// reboots faster than that task can ever get scheduled, so logs from a
+// crash loop pile up forever and each one adds to every future boot's
+// directory scan. Track only the newest DRIVE_CRASH_LOG_RETENTION_CAP
+// per prefix during that scan and delete the rest outright.
+#define DRIVE_CRASH_LOG_RETENTION_CAP 5
+
+struct CrashLogEntry {
+  char name[32];
+  unsigned long key; // numeric suffix embedded in the filename (millis() at write time)
+};
+
+static void keepNewestCrashLog(CrashLogEntry *kept, int *count, const char *name,
+                                unsigned long key) {
+  if (*count < DRIVE_CRASH_LOG_RETENTION_CAP) {
+    snprintf(kept[*count].name, sizeof(kept[*count].name), "%s", name);
+    kept[*count].key = key;
+    (*count)++;
+    return;
+  }
+  int oldestIdx = 0;
+  for (int i = 1; i < *count; i++)
+    if (kept[i].key < kept[oldestIdx].key)
+      oldestIdx = i;
+  if (key > kept[oldestIdx].key) {
+    LittleFS.remove(String("/") + kept[oldestIdx].name);
+    snprintf(kept[oldestIdx].name, sizeof(kept[oldestIdx].name), "%s", name);
+    kept[oldestIdx].key = key;
+  } else {
+    LittleFS.remove(String("/") + name);
+  }
+}
+
 // ─── Base64 encoder (3 bytes -> 4 chars) ─────────────────────────────────────
 static const char B64_ALPHABET[] =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -443,18 +477,32 @@ void initDriveUpload() {
     logDrive("LittleFS begin failed");
     return;
   }
-  // Drop any leftover per-window CSVs from a previous (possibly crashed) boot.
+  // Drop leftover per-window CSVs from a previous (possibly crashed) boot,
+  // and cap crash_mb_/crash_hmi_ logs that a crash loop left un-uploaded.
+  CrashLogEntry mbKept[DRIVE_CRASH_LOG_RETENTION_CAP]  = {};
+  CrashLogEntry hmiKept[DRIVE_CRASH_LOG_RETENTION_CAP] = {};
+  int mbKeptCount = 0, hmiKeptCount = 0;
+
   File root = LittleFS.open("/");
   if (root && root.isDirectory()) {
     File f;
     while ((f = root.openNextFile())) {
       const char *n = f.name();
-      if (n && strncmp(n, "pox_", 4) == 0) {
-        String rel = String("/") + n;
-        f.close();
-        LittleFS.remove(rel);
-      } else {
-        f.close();
+      char nameBuf[32] = {0};
+      if (n)
+        snprintf(nameBuf, sizeof(nameBuf), "%s", n);
+      f.close();
+
+      if (nameBuf[0] == '\0')
+        continue;
+      if (strncmp(nameBuf, "pox_", 4) == 0) {
+        LittleFS.remove(String("/") + nameBuf);
+      } else if (strncmp(nameBuf, "crash_mb_", 9) == 0) {
+        keepNewestCrashLog(mbKept, &mbKeptCount, nameBuf,
+                            strtoul(nameBuf + 9, nullptr, 10));
+      } else if (strncmp(nameBuf, "crash_hmi_", 10) == 0) {
+        keepNewestCrashLog(hmiKept, &hmiKeptCount, nameBuf,
+                            strtoul(nameBuf + 10, nullptr, 10));
       }
     }
     root.close();
