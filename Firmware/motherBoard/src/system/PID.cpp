@@ -79,6 +79,25 @@ void PIDInit()
 
 void heaterPowerConsumptionCheck()
 {
+#if !HEATER_CURRENT_LIMIT_ENABLED
+  // Current-based throttling disabled (HEATER_CURRENT_LIMIT_ENABLED false):
+  // pin heaterSafeMAXPWM at HEATER_MAX_PWM so the ramp startPID() kicks off at
+  // HEATER_START_PWM doesn't leave the heater stuck at minimum power - this
+  // function is otherwise the only place that raises heaterSafeMAXPWM.
+  if (in3.heaterSafeMAXPWM != HEATER_MAX_PWM)
+  {
+    in3.heaterSafeMAXPWM = HEATER_MAX_PWM;
+    if (airControlPID.GetMode() == AUTOMATIC)
+    {
+      airControlPID.SetOutputLimits(0, in3.heaterSafeMAXPWM);
+    }
+    if (skinControlPID.GetMode() == AUTOMATIC)
+    {
+      skinControlPID.SetOutputLimits(0, in3.heaterSafeMAXPWM);
+    }
+  }
+  return;
+#endif
   // Only advance once a genuinely new in3.heater_current sample has landed
   // (heaterCurrentSampleSeq changed) - PIDHandler() runs every 1ms, much
   // faster than the ~110ms current sensor refresh, so without this guard
@@ -131,14 +150,35 @@ void heaterPowerConsumptionCheck()
 void PIDHandler()
 {
   heaterPowerConsumptionCheck();
+  {
+    static bool prevHeaterGateBlocked = false;
+    bool heaterGateBlocked = ongoingCriticalAlarm();
+    if (heaterGateBlocked != prevHeaterGateBlocked &&
+        (airControlPID.GetMode() == AUTOMATIC || skinControlPID.GetMode() == AUTOMATIC))
+    {
+      logI(String("[BOOT][DEBUG] PIDHandler: heater output ") +
+           (heaterGateBlocked ? "BLOCKED by ongoingCriticalAlarm()" : "UNBLOCKED (ongoingCriticalAlarm cleared)"));
+      prevHeaterGateBlocked = heaterGateBlocked;
+    }
+  }
   if (airControlPID.GetMode() == AUTOMATIC)
   {
-    if (abs(in3.temperature[ROOM_DIGITAL_TEMP_SENSOR] -
-            in3.desiredControlTemperature) <
-            anti_windup_offset[ROOM_DIGITAL_TEMP_SENSOR] &&
-        airControlPID.GetKi() != Ki[airPID])
+    // Conditional integration: only integrate once the error is inside
+    // anti_windup_offset, and drop back to Ki=0 if it grows past that again
+    // (e.g. a large setpoint increase) - previously the only way Ki got
+    // back to 0 was startPID() re-zeroing it as a side effect of being
+    // called on every HMI heartbeat, which also wiped out integral progress
+    // built up while legitimately closing in on the setpoint (see startPID()).
+    bool airNearSetpoint = abs(in3.temperature[ROOM_DIGITAL_TEMP_SENSOR] -
+                               in3.desiredControlTemperature) <
+                           anti_windup_offset[ROOM_DIGITAL_TEMP_SENSOR];
+    if (airNearSetpoint && airControlPID.GetKi() != Ki[airPID])
     {
       airControlPID.SetTunings(Kp[airPID], Ki[airPID], Kd[airPID]);
+    }
+    else if (!airNearSetpoint && airControlPID.GetKi() != 0)
+    {
+      airControlPID.SetTunings(Kp[airPID], false, Kd[airPID]);
     }
     airControlPID.Compute();
     ledcWrite(HEATER_PWM_CHANNEL, HeaterPIDOutput * !ongoingCriticalAlarm());
@@ -223,6 +263,32 @@ void PIDHandler()
 
 void startPID(byte var)
 {
+  logI("[BOOT][DEBUG] startPID called with var=" + String(var) +
+       " (0=skinPID,1=airPID,2=humidityPID), in3.controlMode=" +
+       String(in3.controlMode));
+
+  // Communication_Receiver() (main.cpp) calls startPID() on every HMI
+  // command while temperature/humidity control stays on, not only on a
+  // genuine OFF->ON transition or setpoint change. Bail out if the
+  // requested loop is already AUTOMATIC so we don't re-zero Ki (below) and
+  // wipe out integral progress the anti-windup logic in PIDHandler() has
+  // legitimately built up while closing in on the setpoint.
+  switch (var)
+  {
+  case airPID:
+    if (airControlPID.GetMode() == AUTOMATIC)
+      return;
+    break;
+  case skinPID:
+    if (skinControlPID.GetMode() == AUTOMATIC)
+      return;
+    break;
+  case humidityPID:
+    if (humidityControlPID.GetMode() == AUTOMATIC)
+      return;
+    break;
+  }
+
   if (var != humidityPID &&
       airControlPID.GetMode() != AUTOMATIC &&
       skinControlPID.GetMode() != AUTOMATIC)
@@ -244,7 +310,7 @@ void startPID(byte var)
   case skinPID:
     skinControlPID.SetTunings(Kp[skinPID], false, Kd[skinPID]);
     skinControlPID.SetControllerDirection(DIRECT);
-    airControlPID.SetSampleTime(PID_TEMPERATURE_SAMPLE_TIME);
+    skinControlPID.SetSampleTime(PID_TEMPERATURE_SAMPLE_TIME);
     skinControlPID.SetMode(AUTOMATIC);
     skinControlPID.SetOutputLimits(0, in3.heaterSafeMAXPWM); // reset safe limits
 
@@ -257,7 +323,7 @@ void startPID(byte var)
     humidityControlPID.SetOutputLimits(
         humidifierTimeCycle * HUMIDIFIER_DUTY_CYCLE_MIN / 100,
         humidifierTimeCycle * HUMIDIFIER_DUTY_CYCLE_MAX / 100);
-    airControlPID.SetSampleTime(PID_HUMIDITY_SAMPLE_TIME);
+    humidityControlPID.SetSampleTime(PID_HUMIDITY_SAMPLE_TIME);
     humidityControlPID.SetMode(AUTOMATIC);
     break;
   }
