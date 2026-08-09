@@ -36,13 +36,14 @@ int humidifierTimeCycle = 5000;
 unsigned long windowStartTime;
 double fanControlPIDOutput;
 double fanTargetRPM = FAN_TARGET_RPM;
-// Tracks heaterCurrentSampleSeq (legacy/sensors.cpp) so heaterSafeMAXPWM only
-// steps once HEATER_RAMP_SAMPLE_CYCLES genuinely new heater current samples
-// have arrived, instead of on a wall-clock timer or a tick that advances
-// whether or not the heater sensor actually responded. If the SECUNDARY
-// sensor is absent, heaterCurrentSampleSeq never moves and the ramp stays
+// Tracks heaterCurrentSampleSeq/systemCurrentSampleSeq (sensors_module.cpp)
+// so heaterSafeMAXPWM only steps once HEATER_RAMP_SAMPLE_CYCLES genuinely new
+// samples of the reference current (see HEATER_POWER_REFERENCE_IS_SYSTEM_CURRENT,
+// board.h) have arrived, instead of on a wall-clock timer or a tick that
+// advances whether or not the corresponding sensor actually responded. If
+// that sensor is absent, its sample seq never moves and the ramp stays
 // parked at HEATER_START_PWM instead of climbing blind.
-static unsigned long lastSeenHeaterCurrentSampleSeq = 0;
+static unsigned long lastSeenCurrentControlSampleSeq = 0;
 static int heaterRampSampleCounter = 0;
 
 extern IncuNest_parameters in3;
@@ -98,17 +99,22 @@ void heaterPowerConsumptionCheck()
   }
   return;
 #endif
-  // Only advance once a genuinely new in3.heater_current sample has landed
-  // (heaterCurrentSampleSeq changed) - PIDHandler() runs every 1ms, much
-  // faster than the ~110ms current sensor refresh, so without this guard
-  // the same sample would be counted as "new" on every call. This also
-  // fails safe if the heater sensor is absent/down: heaterCurrentSampleSeq
-  // then never advances, so the ramp stays parked instead of climbing blind.
-  if (heaterCurrentSampleSeq == lastSeenHeaterCurrentSampleSeq)
+  // Only advance once a genuinely new sample of the reference current has
+  // landed (sample seq changed) - PIDHandler() runs every 1ms, much faster
+  // than the ~110ms current sensor refresh, so without this guard the same
+  // sample would be counted as "new" on every call. This also fails safe if
+  // the corresponding sensor is absent/down: its sample seq then never
+  // advances, so the ramp stays parked instead of climbing blind.
+#if HEATER_POWER_REFERENCE_IS_SYSTEM_CURRENT
+  unsigned long currentControlSampleSeq = systemCurrentSampleSeq;
+#else
+  unsigned long currentControlSampleSeq = heaterCurrentSampleSeq;
+#endif
+  if (currentControlSampleSeq == lastSeenCurrentControlSampleSeq)
   {
     return;
   }
-  lastSeenHeaterCurrentSampleSeq = heaterCurrentSampleSeq;
+  lastSeenCurrentControlSampleSeq = currentControlSampleSeq;
 
   if (++heaterRampSampleCounter < HEATER_RAMP_SAMPLE_CYCLES)
   {
@@ -117,7 +123,14 @@ void heaterPowerConsumptionCheck()
   heaterRampSampleCounter = 0;
 
   int heaterSafeMAXPWM_before = in3.heaterSafeMAXPWM;
-  if (in3.heater_current > in3.heaterMaxPowerAmps || in3.system_current > in3.heaterMaxPowerAmps)
+#if HEATER_POWER_REFERENCE_IS_SYSTEM_CURRENT
+  bool overLimit = in3.system_current > in3.heaterMaxPowerAmps;
+  bool underMargin = in3.system_current < (in3.heaterMaxPowerAmps - HEATER_SAFE_MARGIN_AMPS);
+#else
+  bool overLimit = in3.heater_current > in3.heaterMaxPowerAmps || in3.system_current > in3.heaterMaxPowerAmps;
+  bool underMargin = in3.heater_current < (in3.heaterMaxPowerAmps - HEATER_SAFE_MARGIN_AMPS) || in3.system_current < (in3.heaterMaxPowerAmps - HEATER_SAFE_MARGIN_AMPS);
+#endif
+  if (overLimit)
   {
     in3.heaterSafeMAXPWM -= HEATER_POWER_FACTOR_DECREASE;
     if (in3.heaterSafeMAXPWM < 0)
@@ -125,7 +138,7 @@ void heaterPowerConsumptionCheck()
       in3.heaterSafeMAXPWM = 0;
     }
   }
-  else if (in3.heater_current < (in3.heaterMaxPowerAmps - HEATER_SAFE_MARGIN_AMPS) || in3.system_current < (in3.heaterMaxPowerAmps - HEATER_SAFE_MARGIN_AMPS))
+  else if (underMargin)
   {
     in3.heaterSafeMAXPWM += HEATER_POWER_FACTOR_INCREASE;
     if (in3.heaterSafeMAXPWM > HEATER_MAX_PWM)
@@ -135,7 +148,11 @@ void heaterPowerConsumptionCheck()
   }
   if (heaterSafeMAXPWM_before != in3.heaterSafeMAXPWM)
   {
+#if HEATER_POWER_REFERENCE_IS_SYSTEM_CURRENT
+    logI("[PID] -> System current is " + String(in3.system_current) + ", changed max PWM to: " + String(in3.heaterSafeMAXPWM));
+#else
     logI("[PID] -> Heater current is " + String(in3.heater_current) + ", changed max PWM to: " + String(in3.heaterSafeMAXPWM));
+#endif
     if (airControlPID.GetMode() == AUTOMATIC)
     {
       airControlPID.SetOutputLimits(0, in3.heaterSafeMAXPWM); // Set safe limits

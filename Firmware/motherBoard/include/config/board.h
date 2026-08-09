@@ -234,6 +234,17 @@
 // longer power-limited by the current sensor.
 #define HEATER_CURRENT_LIMIT_ENABLED true
 
+// HW18 only: heaterPowerConsumptionCheck() (PID.cpp) keys its current-based
+// PWM ramp off in3.system_current (MAIN/INA3221 sensor) instead of
+// in3.heater_current (SECUNDARY sensor) - HW16/HW17 keep using heater_current
+// (OR'd with system_current, unchanged). in3.heater_current is still read and
+// telemetered on HW18, just not used as the throttling reference.
+#if (HW_NUM == 18)
+#define HEATER_POWER_REFERENCE_IS_SYSTEM_CURRENT true
+#else
+#define HEATER_POWER_REFERENCE_IS_SYSTEM_CURRENT false
+#endif
+
 #define HEATER_MAX_PWM PWM_MAX_VALUE
 #define HEATER_HALF_PWR PWM_MAX_VALUE / 2
 #define HEATER_START_PWM 1

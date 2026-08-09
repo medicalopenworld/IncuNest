@@ -54,6 +54,10 @@ long lastCurrentMeasurement, lastVoltageMeasurement;
 // directly would let the PWM ramp climb blind if the heater sensor is
 // absent or drops out.
 unsigned long heaterCurrentSampleSeq = 0;
+// Same idea as heaterCurrentSampleSeq above, but for in3.system_current
+// (MAIN sensor) - used as the heaterPowerConsumptionCheck() reference on
+// HW18 (see HEATER_POWER_REFERENCE_IS_SYSTEM_CURRENT, board.h).
+unsigned long systemCurrentSampleSeq = 0;
 long lastEncoderUpdate;
 static long lastPhotoControl = 0;
 static int heaterSensorDropoutCycles = 0;
@@ -77,6 +81,7 @@ void currentMonitor() {
       in3.fan_current = measureMeanConsumption(MAIN, FAN_SHUNT_CHANNEL);
       in3.phototherapy_current =
           measureMeanConsumption(MAIN, PHOTOTHERAPY_SHUNT_CHANNEL);
+      systemCurrentSampleSeq++;
     }
     if (digitalCurrentSensorPresent[SECUNDARY] &&
         i2cDevicePresent(SECUNDARY_DIGITAL_CURRENT_SENSOR_I2C_ADDRESS)) {

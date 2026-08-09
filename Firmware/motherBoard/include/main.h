@@ -486,6 +486,9 @@ void voltageMonitor();
 // (legacy/sensors.cpp); used by heaterPowerConsumptionCheck() to detect a
 // real new sample instead of currentMonitor() merely having ticked.
 extern unsigned long heaterCurrentSampleSeq;
+// Same idea, but for in3.system_current - the heaterPowerConsumptionCheck()
+// reference on HW18 (see HEATER_POWER_REFERENCE_IS_SYSTEM_CURRENT, board.h).
+extern unsigned long systemCurrentSampleSeq;
 
 double roundSignificantDigits(double value, int numberOfDecimals);
 
