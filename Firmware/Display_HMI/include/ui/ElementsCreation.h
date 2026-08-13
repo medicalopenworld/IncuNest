@@ -215,6 +215,7 @@ extern lv_obj_t * ui_PhotoTimePlusLabel;
 extern lv_obj_t * ui_SPO2Button;
 extern lv_obj_t * ui_ChartButton;
 extern lv_obj_t * ui_ImgButton1;
+extern lv_obj_t * ui_LockAutoArc; // auto-lock countdown ring around ui_ImgButton1
 extern lv_obj_t * ui_CheckImgMain;
 extern lv_obj_t * uic_Tempbutton;
 extern lv_obj_t * uic_HumidButton;

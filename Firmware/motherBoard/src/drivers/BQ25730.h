@@ -130,9 +130,13 @@
 #define BQ25730_ADC_VBUS_STEP_MV 96  // 96 mV/bit, rango 0–24.48V (sin offset)
 #define BQ25730_ADC_VBUS_OFFSET_MV 0 // Sin offset en PDF V2
 #define BQ25730_ADC_VBAT_STEP_MV 64  // 64 mV/bit
-#define BQ25730_ADC_VBAT_OFFSET_MV 8192 // Offset 8.192 V → rango 8.19–24.51 V (variante PDF V2, plomo-ácido 12V)
+// Offset dependiente del strap CELL_BATPRESZ del chip: 2.88 V en modo 1S-4S,
+// 8.16 V en modo 5S. Esta placa es la variante plomo-ácido 12V (1S-4S) →
+// offset 2.88 V, rango 2.88-19.20 V. Confirmado: con 8192 mV (offset de 5S)
+// una VBAT real de ~13.4 V se decodificaba como ~18.5 V.
+#define BQ25730_ADC_VBAT_OFFSET_MV 2880
 #define BQ25730_ADC_VSYS_STEP_MV 64     // 64 mV/bit
-#define BQ25730_ADC_VSYS_OFFSET_MV 8192
+#define BQ25730_ADC_VSYS_OFFSET_MV 2880 // idem VBAT: strap 1S-4S
 #define BQ25730_ADC_ICHG_STEP_MA 128 // mA/bit nominal con RSNS_RSR=1 (5 mΩ)
 #define BQ25730_ADC_IBUS_STEP_MA 100 // mA/bit nominal con RSNS_RAC=1 (5 mΩ)
 
