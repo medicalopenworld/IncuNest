@@ -22,9 +22,6 @@ constexpr char HMI_KEY_HUM_EN[]      = "hum_en";
 constexpr char HMI_KEY_SKIN_EN[]     = "skin_en";
 constexpr char HMI_KEY_VOLUME[]      = "volume";
 constexpr char HMI_KEY_DISP_FREQ[]   = "disp_freq";
-constexpr char HMI_KEY_AA_WEIGHT[]   = "aa_weight";
-constexpr char HMI_KEY_AA_GEST[]     = "aa_gest";
-constexpr char HMI_KEY_AA_AGE_H[]    = "aa_age_h";
 
 // --------------- Keys: hmi_wifi ---------------
 constexpr char HMI_KEY_SSID[]     = "ssid";

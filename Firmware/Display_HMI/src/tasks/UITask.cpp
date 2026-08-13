@@ -2,6 +2,9 @@
 // #include "AudioManager.h"  // Deshabilitado para migración Arduino 3.x
 #include "CommTask.h"
 #include "buzzer.h"
+#include "ui/BabyHistory.h"
+#include "ui/BabyExitDialog.h"
+#include "ui/BabyWizard.h"
 #include "display_config.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_rgb.h"
@@ -22,11 +25,10 @@ void LVGL_Mutex_Init(void) {
   }
 }
 
-// --- Skin probe UI (RF-SKIN-008/009/010, UI-SKIN-002/003/004/005) ---
+// --- Skin probe UI (RF-SKIN-008/009/010, UI-SKIN-002/003/004) ---
+// Also the generic toast surface for the whole UI — see UI_ShowToast().
 static lv_obj_t *ui_SkinProbeToast =
     nullptr; // Toast de bloqueo cuando sonda no válida
-static lv_obj_t *ui_SkinProbeStatusLabel =
-    nullptr; // Estado informativo en modo aire
 
 // --- Power-off popup UI elements ---
 static lv_obj_t *ui_PwrOffOverlay = nullptr;
@@ -113,20 +115,6 @@ bool g_stateSynced = false;
 uint32_t g_lastStateReqMs = 0;
 bool g_ui_initialized = false;
 
-// AUTO AIR state (ARQ-AUTOAIR-001)
-bool g_autoAirActive = false;
-static int g_babyWeightGrams = 0;
-static int g_babyGestWeeks = 0;
-static int g_babyAgeHours =
-    0; // age stored as hours at start of day: day N → (N-1)*24
-static int g_popupWeight = 1500;
-static int g_popupGest = 32;
-static int g_popupAgeHours =
-    0; // hours at start of postnatal day (0=day1, 24=day2, …)
-static float aa_popup_setpoint = 0.0f;
-static float aa_popup_lo = 0.0f;
-static float aa_popup_hi = 0.0f;
-
 static bool eepromDirty = false;
 static unsigned long lastVarChangeTime = 0;
 
@@ -137,6 +125,10 @@ int photoTimerMinutes = PHOTO_TIMER_DEFAULT_MINUTES;
 bool photoTimerActive = false;
 unsigned long photoTimerStartMs = 0;
 static bool g_photo_safety_confirmed = false;
+// Same one-shot gate pattern as g_photo_safety_confirmed, for the baby-data
+// wizard that now precedes phototherapy activation: the wizard re-triggers
+// the switch when it finishes, and this flag lets that second pass through.
+static bool g_photo_wizard_done = false;
 static int lastPhotoMinutesSent = -1;
 
 Alarm alarmList[MAX_ALARMS];
@@ -336,6 +328,8 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
 void set_active_panel(lv_obj_t *active, lv_obj_t *inactive);
 void temp_chart_show_for_selected_panel(void);
 void ui_set_switch_state_silent(lv_obj_t *sw, bool on);
+void computeAndSendActuation(void);
+void ActivateTempControlUI(bool isAirMode);
 
 // Fully disables Skin mode — same effect as flipping the Skin switch OFF.
 // Call this both from the switch-OFF handler and from the probe-disconnect
@@ -577,37 +571,66 @@ static void photo_safety_apply_language(ui_lang_t lang) {
                           : "TURN ON");
 }
 
-static void autoair_apply_language(ui_lang_t lang) {
-  if (!ui_AutoAirModal)
-    return; // popup not created yet
-  lv_label_set_text(ui_AutoAirTitle, (lang == LANG_ES)   ? "ZONA DE CONFORT"
-                                     : (lang == LANG_FR) ? "ZONE DE CONFORT"
-                                                         : "COMFORT ZONE");
-  lv_label_set_text(ui_AutoAirLeftHeader, (lang == LANG_ES) ? "INFO. DEL BEBE:"
-                                          : (lang == LANG_FR)
-                                              ? "INFOS BEBE:"
-                                              : "BABY INFORMATION:");
-  lv_label_set_text(ui_AutoAirRightHeader,
-                    (lang == LANG_ES)   ? "RANGO RECOMENDADO (C)"
-                    : (lang == LANG_FR) ? "PLAGE RECOMMANDEE (C)"
-                                        : "RECOMMENDED RANGE (C)");
-  lv_label_set_text(ui_AutoAirGestLabel, (lang == LANG_ES) ? "EDAD GESTACIONAL"
-                                         : (lang == LANG_FR)
-                                             ? "AGE GESTATIONNEL"
-                                             : "GESTATIONAL AGE");
-  lv_label_set_text(ui_AutoAirDaysLabel, (lang == LANG_ES) ? "EDAD POSTNATAL"
-                                         : (lang == LANG_FR)
-                                             ? "AGE POST-NATAL"
-                                             : "POST-NATAL AGE");
-  lv_label_set_text(ui_AutoAirWeightLabel, (lang == LANG_ES)   ? "PESO"
-                                           : (lang == LANG_FR) ? "POIDS"
-                                                               : "WEIGHT");
-  lv_label_set_text(ui_AutoAirCancelLabel, (lang == LANG_ES)   ? "CANCELAR"
-                                           : (lang == LANG_FR) ? "ANNULER"
-                                                               : "CANCEL");
-  lv_label_set_text(ui_AutoAirApplyLabel, (lang == LANG_ES)   ? "APLICAR"
-                                          : (lang == LANG_FR) ? "APPLIQUER"
-                                                              : "APPLY");
+static void photo_safety_popup_show(bool show) {
+  if (!ui_PhotoSafetyOverlay)
+    return;
+  if (show) {
+    photo_safety_apply_language(g_lang);
+    lv_obj_clear_flag(ui_PhotoSafetyOverlay, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(ui_PhotoSafetyOverlay);
+  } else {
+    lv_obj_add_flag(ui_PhotoSafetyOverlay, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+void photo_safety_overlay_cb(lv_event_t *e) {
+  if (lv_event_get_target(e) == ui_PhotoSafetyOverlay)
+    photo_safety_popup_show(false);
+}
+
+void photo_turnon_cb(lv_event_t *) {
+  photo_safety_popup_show(false);
+  g_photo_safety_confirmed = true;
+  ui_set_switch_state_silent(ui_Switch3, true);
+  lv_event_send(ui_Switch3, LV_EVENT_VALUE_CHANGED, NULL);
+}
+
+// Called by BabyWizard when its phototherapy flow completes. Mirrors
+// photo_turnon_cb: raise the one-shot gate and re-trigger the switch, so the
+// handler runs again and this time falls through to the ISO 7010 safety
+// popup — which stays the last step before the lamp actually turns on.
+void ActivatePhototherapyFromWizard() {
+  g_photo_wizard_done = true;
+  ui_set_switch_state_silent(ui_Switch3, true);
+  lv_event_send(ui_Switch3, LV_EVENT_VALUE_CHANGED, NULL);
+}
+
+static void update_main_toggle_buttons() {
+  if (!ui_TempToggleBtn || !ui_HumToggleBtn || !ui_PhotoToggleBtn)
+    return;
+
+  bool t = lv_obj_has_state(ui_Switch1, LV_STATE_CHECKED);
+  bool h = lv_obj_has_state(ui_Switch2, LV_STATE_CHECKED);
+  bool p = lv_obj_has_state(ui_Switch3, LV_STATE_CHECKED);
+
+  lv_color_t blue = lv_color_hex(0x4EC7FF);
+  lv_color_t red  = lv_color_hex(0xFF4040);
+  lv_obj_t  *lbl;
+
+  lv_obj_set_style_bg_color(ui_TempToggleBtn, t ? red : blue, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_color(ui_TempToggleBtn, t ? red : blue, LV_PART_MAIN | LV_STATE_PRESSED);
+  lbl = lv_obj_get_child(ui_TempToggleBtn, 0);
+  if (lbl) lv_label_set_text(lbl, t ? "TURN OFF" : "TURN ON");
+
+  lv_obj_set_style_bg_color(ui_HumToggleBtn, h ? red : blue, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_color(ui_HumToggleBtn, h ? red : blue, LV_PART_MAIN | LV_STATE_PRESSED);
+  lbl = lv_obj_get_child(ui_HumToggleBtn, 0);
+  if (lbl) lv_label_set_text(lbl, h ? "TURN OFF" : "TURN ON");
+
+  lv_obj_set_style_bg_color(ui_PhotoToggleBtn, p ? red : blue, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_color(ui_PhotoToggleBtn, p ? red : blue, LV_PART_MAIN | LV_STATE_PRESSED);
+  lbl = lv_obj_get_child(ui_PhotoToggleBtn, 0);
+  if (lbl) lv_label_set_text(lbl, p ? "TURN OFF" : "TURN ON");
 }
 
 void UI_ApplyLanguage(ui_lang_t lang) {
@@ -808,7 +831,12 @@ void UI_ApplyLanguage(ui_lang_t lang) {
     lv_label_set_text(ui_PhotoLockLabel, TXT_PHOTO_LOCK[lang]);
   }
 
-  autoair_apply_language(lang);
+  // Babies history button (baby-history-viewer)
+  if (ui_BabiesButtonLabel) {
+    const char *TXT_BABIES[] = {"Bebes", "Babies", "Bebes"};
+    lv_label_set_text(ui_BabiesButtonLabel, TXT_BABIES[lang]);
+  }
+
   photo_safety_apply_language(lang);
 
   update_labels();
@@ -887,678 +915,6 @@ void chart_add_skin_temp(float v) {
   lv_chart_set_next_value(ui_SkinTempChart, skinTempSeries, (lv_coord_t)v);
 }
 
-// ============================================================================
-// AUTO AIR — Neutral Thermal Environment table & UI logic
-// ARQ-AUTOAIR-001..010 / UI-AUTOAIR-001..010
-// Clinical source: "Termorregulacion y Humedad en el RN"
-// ============================================================================
-
-// Returns the midpoint setpoint (°C) from the Neutral Thermal Environment
-// table. Sources: Sauer/Dane/Visser (1984); Deacon/O'Neill (2004); Cloherty 3rd
-// ed.; WHO/AAP Also writes a short row description into row_desc for audit
-// logging. Returns -1.0f when the cell is "—" (no incubator needed) or on
-// invalid input.
-static float autoair_calculate_setpoint(int weightGrams, int gestWeeks,
-                                        int ageHours, char *row_desc,
-                                        size_t desc_len,
-                                        float *lo_out = nullptr,
-                                        float *hi_out = nullptr) {
-  auto ret_invalid = [&](const char *msg) -> float {
-    snprintf(row_desc, desc_len, "%s", msg);
-    if (lo_out)
-      *lo_out = -1.0f;
-    if (hi_out)
-      *hi_out = -1.0f;
-    return -1.0f;
-  };
-
-  if (weightGrams <= 0 || gestWeeks < 24 || ageHours < 0)
-    return ret_invalid("invalid inputs");
-
-  // ── Time-period index (tp): 0=D1, 1=D2, 2=D3, 3=D4-7, 4=W2, 5=W3, 6=W4+ ──
-  int tp;
-  const char *tp_str;
-  if (ageHours < 24) {
-    tp = 0;
-    tp_str = "D1";
-  } else if (ageHours < 48) {
-    tp = 1;
-    tp_str = "D2";
-  } else if (ageHours < 72) {
-    tp = 2;
-    tp_str = "D3";
-  } else if (ageHours < 168) {
-    tp = 3;
-    tp_str = "D4-7";
-  } else if (ageHours < 336) {
-    tp = 4;
-    tp_str = "W2";
-  } else if (ageHours < 504) {
-    tp = 5;
-    tp_str = "W3";
-  } else {
-    tp = 6;
-    tp_str = "W4+";
-  }
-
-  float lo, hi;
-  const char *wt_str;
-
-  // ── EG 24–27 semanas (extremadamente prematuro) ───────────────────────────
-  if (gestWeeks <= 27) {
-    // 3 weight rows × 7 time periods × [lo, hi]
-    static const float T[3][7][2] = {
-        // <750 g
-        {{35.0f, 36.0f},
-         {34.5f, 35.5f},
-         {34.0f, 35.0f},
-         {33.5f, 34.5f},
-         {33.0f, 34.0f},
-         {32.5f, 33.5f},
-         {32.0f, 33.0f}},
-        // 750–1000 g
-        {{34.5f, 35.5f},
-         {34.0f, 35.0f},
-         {34.0f, 35.0f},
-         {33.5f, 34.5f},
-         {33.0f, 34.0f},
-         {32.5f, 33.5f},
-         {32.0f, 33.0f}},
-        // 1000–1200 g  (also used conservatively if weight > 1200 at this EG)
-        {{34.0f, 35.4f},
-         {34.0f, 35.0f},
-         {34.0f, 35.0f},
-         {33.0f, 34.0f},
-         {32.6f, 34.0f},
-         {32.2f, 34.0f},
-         {31.6f, 33.6f}},
-    };
-    int wr;
-    if (weightGrams < 750) {
-      wr = 0;
-      wt_str = "<750g";
-    } else if (weightGrams <= 1000) {
-      wr = 1;
-      wt_str = "750-1000g";
-    } else {
-      wr = 2;
-      wt_str = "1000-1200g";
-    }
-    lo = T[wr][tp][0];
-    hi = T[wr][tp][1];
-
-    // ── EG 28–31 semanas (muy prematuro) ─────────────────────────────────────
-  } else if (gestWeeks <= 31) {
-    static const float T[3][7][2] = {
-        // <1200 g
-        {{34.0f, 35.4f},
-         {34.0f, 35.0f},
-         {34.0f, 35.0f},
-         {33.0f, 34.0f},
-         {32.6f, 34.0f},
-         {32.2f, 34.0f},
-         {31.6f, 33.6f}},
-        // 1200–1500 g
-        {{33.9f, 34.4f},
-         {33.1f, 34.2f},
-         {33.0f, 34.0f},
-         {33.0f, 34.0f},
-         {31.0f, 33.2f},
-         {30.5f, 33.0f},
-         {30.0f, 32.7f}},
-        // 1501–1800 g  (also used conservatively if weight > 1800 at this EG)
-        {{33.5f, 34.5f},
-         {33.0f, 34.0f},
-         {32.5f, 33.5f},
-         {32.0f, 33.5f},
-         {31.0f, 33.2f},
-         {30.5f, 33.0f},
-         {30.0f, 32.7f}},
-    };
-    int wr;
-    if (weightGrams < 1200) {
-      wr = 0;
-      wt_str = "<1200g";
-    } else if (weightGrams <= 1500) {
-      wr = 1;
-      wt_str = "1200-1500g";
-    } else {
-      wr = 2;
-      wt_str = "1501-1800g";
-    }
-    lo = T[wr][tp][0];
-    hi = T[wr][tp][1];
-
-    // ── EG 32–35 semanas (prematuro moderado/tardío)
-    // ──────────────────────────
-  } else if (gestWeeks <= 35) {
-    // >2500g W3 and W4+ are "—"
-    static const float T[3][7][2] = {
-        // 1200–1500 g  (also used if weight < 1200 at this EG — conservative)
-        {{33.9f, 34.4f},
-         {33.0f, 34.1f},
-         {33.0f, 34.0f},
-         {33.0f, 34.0f},
-         {31.0f, 33.2f},
-         {30.5f, 33.0f},
-         {30.0f, 32.7f}},
-        // 1501–2500 g
-        {{32.8f, 33.8f},
-         {31.6f, 33.6f},
-         {31.2f, 33.4f},
-         {31.1f, 33.2f},
-         {31.0f, 33.2f},
-         {30.5f, 33.0f},
-         {30.0f, 32.7f}},
-        // >2500 g  (W3=tp5 and W4+=tp6 are "—")
-        {{32.0f, 33.8f},
-         {30.7f, 33.5f},
-         {30.1f, 33.2f},
-         {29.8f, 32.8f},
-         {29.0f, 31.4f},
-         {-1.0f, -1.0f},
-         {-1.0f, -1.0f}},
-    };
-    int wr;
-    if (weightGrams <= 1500) {
-      wr = 0;
-      wt_str = (weightGrams < 1200) ? "<1200g" : "1200-1500g";
-    } else if (weightGrams <= 2500) {
-      wr = 1;
-      wt_str = "1501-2500g";
-    } else {
-      wr = 2;
-      wt_str = ">2500g";
-    }
-    lo = T[wr][tp][0];
-    hi = T[wr][tp][1];
-
-    // ── EG ≥ 36 semanas (cercano a término / término) ────────────────────────
-  } else {
-    // All rows: W3+ (tp>=5) are "—"
-    static const float T[3][5][2] = {
-        // 1501–2500 g  (also used conservatively if weight <= 1500 at this EG)
-        {{32.8f, 33.8f},
-         {31.4f, 33.5f},
-         {31.2f, 33.4f},
-         {31.0f, 33.2f},
-         {29.0f, 31.4f}},
-        // 2500–3500 g
-        {{32.0f, 33.8f},
-         {30.5f, 33.3f},
-         {30.1f, 33.2f},
-         {29.5f, 32.6f},
-         {29.0f, 30.8f}},
-        // >3500 g
-        {{31.5f, 33.5f},
-         {30.0f, 33.0f},
-         {29.8f, 32.8f},
-         {29.5f, 32.0f},
-         {29.0f, 30.5f}},
-    };
-    int wr;
-    if (weightGrams <= 2500) {
-      wr = 0;
-      wt_str = (weightGrams <= 1500) ? "<=1500g" : "1501-2500g";
-    } else if (weightGrams <= 3500) {
-      wr = 1;
-      wt_str = "2500-3500g";
-    } else {
-      wr = 2;
-      wt_str = ">3500g";
-    }
-
-    if (tp >= 5) {
-      // W3 and beyond — no incubator needed
-      return ret_invalid("no aplica");
-    }
-    lo = T[wr][tp][0];
-    hi = T[wr][tp][1];
-  }
-
-  // "—" cells (lo stored as -1 sentinel)
-  if (lo < 0.0f || hi < 0.0f)
-    return ret_invalid("no aplica");
-
-  snprintf(row_desc, desc_len, "%s,EG%d,%s", tp_str, gestWeeks, wt_str);
-  if (lo_out)
-    *lo_out = lo;
-  if (hi_out)
-    *hi_out = hi;
-  return (lo + hi) / 2.0f;
-}
-
-static void autoair_show_toast(const char *msg, uint32_t ms) {
-  if (!ui_AutoAirToast)
-    return;
-  lv_label_set_text(ui_AutoAirToast, msg);
-  lv_obj_clear_flag(ui_AutoAirToast, LV_OBJ_FLAG_HIDDEN);
-  lv_timer_create(
-      [](lv_timer_t *t) {
-        if (ui_AutoAirToast)
-          lv_obj_add_flag(ui_AutoAirToast, LV_OBJ_FLAG_HIDDEN);
-        lv_timer_del(t);
-      },
-      ms, nullptr);
-}
-
-static void autoair_update_button_style() {
-  if (!ui_AutoAirBtn || !ui_AutoAirBtnLabel)
-    return;
-  bool inAirMode = (selectedPanel == AIR_PANEL_SELECTED) && tempSwitched;
-
-  if (!inAirMode) {
-    // Disabled — skin mode or no temperature switch active
-    lv_obj_clear_flag(ui_AutoAirBtn, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_bg_color(ui_AutoAirBtn, COLOR_PANEL_GRAY, LV_PART_MAIN);
-    lv_obj_set_style_opa(ui_AutoAirBtn, LV_OPA_50, LV_PART_MAIN);
-    lv_obj_set_style_text_color(ui_AutoAirBtnLabel, COLOR_PANEL_LIGHT_GRAY, 0);
-  } else {
-    // Available — normal appearance, no "active" state
-    lv_color_t bg = darkMode ? COLOR_PANEL_GRAY : COLOR_PANEL_WHITE;
-    lv_color_t fg = darkMode ? COLOR_TEXT_DARK : lv_color_make(30, 30, 30);
-    lv_obj_add_flag(ui_AutoAirBtn, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_bg_color(ui_AutoAirBtn, bg, LV_PART_MAIN);
-    lv_obj_set_style_opa(ui_AutoAirBtn, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_text_color(ui_AutoAirBtnLabel, fg, 0);
-  }
-}
-
-static void autoair_deactivate(bool fromModeSwitch) {
-  if (!g_autoAirActive)
-    return;
-  g_autoAirActive = false;
-
-  // Re-enable manual temperature arrows
-  if (arrowsActive) {
-    lv_obj_add_flag(ui_ImgArrowUpTemp, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
-    lv_color_t active_col = darkMode ? COLOR_PANEL_GRAY : COLOR_PANEL_WHITE;
-    lv_obj_set_style_bg_color(ui_ArrowUpTemp, active_col, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_ArrowDownTemp, active_col, LV_PART_MAIN);
-  }
-  autoair_update_button_style();
-
-  const char *msg;
-  if (fromModeSwitch) {
-    msg = (g_lang == LANG_ES) ? "AUTO AIR desactivado al cambiar a modo PIEL"
-          : (g_lang == LANG_FR)
-              ? "AUTO AIR desactive: passage en mode PEAU"
-              : "AUTO AIR auto-deactivated: switched to SKIN mode";
-  } else {
-    msg = (g_lang == LANG_ES) ? "AUTO AIR desactivado - Control manual activo"
-          : (g_lang == LANG_FR)
-              ? "AUTO AIR desactive - Controle manuel actif"
-              : "AUTO AIR deactivated - Manual control active";
-  }
-  autoair_show_toast(msg, 3500);
-  ESP_LOGI(TAG,
-           "[AUTO-AIR] Deactivated. fromModeSwitch=%d "
-           "weight=%dg gest=%dwk age=%dh",
-           (int)fromModeSwitch, g_babyWeightGrams, g_babyGestWeeks,
-           g_babyAgeHours);
-}
-
-static void autoair_activate(float setpoint, const char *rowDesc) {
-  // Clamp to AIR range and round to 0.1 °C step
-  if (setpoint < (float)AIR_TEMP_MIN)
-    setpoint = (float)AIR_TEMP_MIN;
-  if (setpoint > (float)AIR_TEMP_MAX)
-    setpoint = (float)AIR_TEMP_MAX;
-  setpoint = (float)((int)(setpoint * 10.0f + 0.5f)) * 0.1f;
-
-  airTempValue = setpoint;
-  hmi_msg.desiredAirTemperature = airTempValue;
-  hmi_msg.shouldSendData = true;
-  g_autoAirActive = true;
-  { Preferences p; p.begin(HMI_NS_CFG, false); p.putFloat(HMI_KEY_AIR_TEMP, (float)airTempValue); p.end(); }
-  eepromDirty = true;
-  lastVarChangeTime = millis();
-
-  update_labels();
-
-  const char *msg =
-      (g_lang == LANG_ES)   ? "Temperatura recomendada Auto Air aplicada"
-      : (g_lang == LANG_FR) ? "Temperature recommandee Auto Air appliquee"
-                            : "Auto Air recommended temperature applied";
-  autoair_show_toast(msg, 4000);
-
-  ESP_LOGI(TAG,
-           "[AUTO-AIR] Recommendation applied. Setpoint=%.1f degC row='%s' "
-           "weight=%dg gest=%dwk age=%dh ts=%lu",
-           setpoint, rowDesc, g_babyWeightGrams, g_babyGestWeeks,
-           g_babyAgeHours, (unsigned long)millis());
-}
-
-static void aa_update_marker_pos(float sp) {
-  if (!aa_setpoint_marker)
-    return;
-  if (sp <= 0.0f || aa_popup_hi <= aa_popup_lo) {
-    lv_obj_add_flag(aa_setpoint_marker, LV_OBJ_FLAG_HIDDEN);
-    return;
-  }
-  lv_obj_clear_flag(aa_setpoint_marker, LV_OBJ_FLAG_HIDDEN);
-  // Map sp within [lo, hi]: hi → top of bar (y=22), lo → bottom (y=22+288)
-  // bar_h=320, marker_h=32 → travel = 320-32 = 288
-  float fraction = (aa_popup_hi - sp) / (aa_popup_hi - aa_popup_lo);
-  if (fraction < 0.0f)
-    fraction = 0.0f;
-  if (fraction > 1.0f)
-    fraction = 1.0f;
-  int y = 22 + (int)(fraction * (320 - 32));
-  lv_obj_set_pos(aa_setpoint_marker, 70, y);
-
-  // Move aa_label_mid to track the marker vertically in real time
-  if (aa_label_mid) {
-    int label_y =
-        y + 16 - 17; // center M28 label (~34px) on marker center (y+16)
-    if (label_y < 22)
-      label_y = 22;
-    if (label_y > 310)
-      label_y = 310; // 22 + 320 - 32 = 310 (max marker y)
-    lv_obj_set_pos(aa_label_mid, 5, label_y);
-  }
-}
-
-static void aa_update_range_display() {
-  if (!aa_range_bar || !aa_label_hi || !aa_label_mid || !aa_label_lo ||
-      !aa_setpoint_label)
-    return;
-  char rowDesc[48];
-  float lo, hi;
-  float sp =
-      autoair_calculate_setpoint(g_popupWeight, g_popupGest, g_popupAgeHours,
-                                 rowDesc, sizeof(rowDesc), &lo, &hi);
-  char buf[16];
-  if (sp < 0.0f) {
-    lv_label_set_text(aa_label_hi, "--.-");
-    lv_label_set_text(aa_label_mid, "--.-");
-    lv_label_set_text(aa_label_lo, "--.-");
-    lv_label_set_text(aa_setpoint_label, "--.-");
-    aa_update_marker_pos(-1.0f);
-    aa_popup_lo = 0.0f;
-    aa_popup_hi = 0.0f;
-    aa_popup_setpoint = 0.0f;
-    return;
-  }
-  aa_popup_lo = lo;
-  aa_popup_hi = hi;
-  // Midpoint rounded to 0.2°C grid
-  float mid = (float)((int)(sp * 5.0f + 0.5f)) * 0.2f;
-  if (mid < lo)
-    mid = lo;
-  if (mid > hi)
-    mid = hi;
-  aa_popup_setpoint = mid;
-
-  snprintf(buf, sizeof(buf), "%.1f", hi);
-  lv_label_set_text(aa_label_hi, buf);
-  snprintf(buf, sizeof(buf), "%.1f", aa_popup_setpoint);
-  lv_label_set_text(aa_label_mid, buf);
-  snprintf(buf, sizeof(buf), "%.1f", lo);
-  lv_label_set_text(aa_label_lo, buf);
-  snprintf(buf, sizeof(buf), "%.1f C", aa_popup_setpoint);
-  lv_label_set_text(aa_setpoint_label, buf);
-  aa_update_marker_pos(aa_popup_setpoint);
-}
-
-static void autoair_popup_update_labels() {
-  if (!ui_AutoAirWeightVal || !ui_AutoAirGestVal || !ui_AutoAirDaysVal)
-    return;
-  char buf[12];
-  snprintf(buf, sizeof(buf), "%d", g_popupWeight);
-  lv_label_set_text(ui_AutoAirWeightVal, buf);
-  snprintf(buf, sizeof(buf), "%d", g_popupGest);
-  lv_label_set_text(ui_AutoAirGestVal, buf);
-  snprintf(buf, sizeof(buf), "%d", g_popupAgeHours / 24 + 1);
-  if (ui_AutoAirDaysUnitLbl)
-    lv_label_set_text(ui_AutoAirDaysUnitLbl, "DAYS");
-  lv_label_set_text(ui_AutoAirDaysVal, buf);
-  aa_update_range_display();
-  eepromDirty = true;
-  lastVarChangeTime = millis();
-}
-
-static void autoair_popup_show(bool show) {
-  if (!ui_AutoAirOverlay)
-    return;
-  if (show) {
-    autoair_apply_language(g_lang);
-    g_popupWeight = (g_babyWeightGrams > 0) ? g_babyWeightGrams : 1500;
-    g_popupGest = (g_babyGestWeeks > 0) ? g_babyGestWeeks : 32;
-    g_popupAgeHours = (g_babyAgeHours >= 0) ? g_babyAgeHours : 0;
-    autoair_popup_update_labels();
-    if (ui_AutoAirErrLabel)
-      lv_obj_add_flag(ui_AutoAirErrLabel, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(ui_AutoAirOverlay, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(ui_AutoAirOverlay);
-  } else {
-    lv_obj_add_flag(ui_AutoAirOverlay, LV_OBJ_FLAG_HIDDEN);
-  }
-}
-
-static void photo_safety_popup_show(bool show) {
-  if (!ui_PhotoSafetyOverlay)
-    return;
-  if (show) {
-    photo_safety_apply_language(g_lang);
-    lv_obj_clear_flag(ui_PhotoSafetyOverlay, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(ui_PhotoSafetyOverlay);
-  } else {
-    lv_obj_add_flag(ui_PhotoSafetyOverlay, LV_OBJ_FLAG_HIDDEN);
-  }
-}
-
-void photo_safety_overlay_cb(lv_event_t *e) {
-  if (lv_event_get_target(e) == ui_PhotoSafetyOverlay)
-    photo_safety_popup_show(false);
-}
-
-void photo_turnon_cb(lv_event_t *) {
-  photo_safety_popup_show(false);
-  g_photo_safety_confirmed = true;
-  ui_set_switch_state_silent(ui_Switch3, true);
-  lv_event_send(ui_Switch3, LV_EVENT_VALUE_CHANGED, NULL);
-}
-
-static void update_main_toggle_buttons() {
-  if (!ui_TempToggleBtn || !ui_HumToggleBtn || !ui_PhotoToggleBtn)
-    return;
-
-  bool t = lv_obj_has_state(ui_Switch1, LV_STATE_CHECKED);
-  bool h = lv_obj_has_state(ui_Switch2, LV_STATE_CHECKED);
-  bool p = lv_obj_has_state(ui_Switch3, LV_STATE_CHECKED);
-
-  lv_color_t blue = lv_color_hex(0x4EC7FF);
-  lv_color_t red  = lv_color_hex(0xFF4040);
-  lv_obj_t  *lbl;
-
-  lv_obj_set_style_bg_color(ui_TempToggleBtn, t ? red : blue, LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_bg_color(ui_TempToggleBtn, t ? red : blue, LV_PART_MAIN | LV_STATE_PRESSED);
-  lbl = lv_obj_get_child(ui_TempToggleBtn, 0);
-  if (lbl) lv_label_set_text(lbl, t ? "TURN OFF" : "TURN ON");
-
-  lv_obj_set_style_bg_color(ui_HumToggleBtn, h ? red : blue, LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_bg_color(ui_HumToggleBtn, h ? red : blue, LV_PART_MAIN | LV_STATE_PRESSED);
-  lbl = lv_obj_get_child(ui_HumToggleBtn, 0);
-  if (lbl) lv_label_set_text(lbl, h ? "TURN OFF" : "TURN ON");
-
-  lv_obj_set_style_bg_color(ui_PhotoToggleBtn, p ? red : blue, LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_bg_color(ui_PhotoToggleBtn, p ? red : blue, LV_PART_MAIN | LV_STATE_PRESSED);
-  lbl = lv_obj_get_child(ui_PhotoToggleBtn, 0);
-  if (lbl) lv_label_set_text(lbl, p ? "TURN OFF" : "TURN ON");
-}
-
-// Popup spinbox callbacks
-void aa_weight_dec_cb(lv_event_t *) {
-  if (g_popupWeight > 100)
-    g_popupWeight -= 50;
-  autoair_popup_update_labels();
-  hmi_msg.shouldSendData = true;
-}
-void aa_weight_inc_cb(lv_event_t *) {
-  if (g_popupWeight < 5000)
-    g_popupWeight += 50;
-  autoair_popup_update_labels();
-  hmi_msg.shouldSendData = true;
-}
-void aa_gest_dec_cb(lv_event_t *) {
-  if (g_popupGest > 24)
-    g_popupGest--;
-  autoair_popup_update_labels();
-  hmi_msg.shouldSendData = true;
-}
-void aa_gest_inc_cb(lv_event_t *) {
-  if (g_popupGest < 44)
-    g_popupGest++;
-  autoair_popup_update_labels();
-  hmi_msg.shouldSendData = true;
-}
-// One step per day; value = hours at the START of that day → day N = (N-1)*24 h
-// Day 1 = 0 h (maps to clinical period D1: 0–24 h)
-static const int AA_AGE_SNAPS[] = {
-    0,   24,  48,  72,  96,  120, 144, 168, 192, 216, 240, 264, // days  1–12
-    288, 312, 336, 360, 384, 408, 432, 456, 480, 504, 528, 552, // days 13–24
-    576, 600, 624, 648                                          // days 25–28
-};
-static const int AA_AGE_SNAPS_N =
-    (int)(sizeof(AA_AGE_SNAPS) / sizeof(AA_AGE_SNAPS[0]));
-
-void aa_days_dec_cb(lv_event_t *) {
-  for (int i = AA_AGE_SNAPS_N - 1; i >= 0; i--) {
-    if (AA_AGE_SNAPS[i] < g_popupAgeHours) {
-      g_popupAgeHours = AA_AGE_SNAPS[i];
-      break;
-    }
-  }
-  autoair_popup_update_labels();
-  hmi_msg.shouldSendData = true;
-}
-void aa_days_inc_cb(lv_event_t *) {
-  for (int i = 0; i < AA_AGE_SNAPS_N; i++) {
-    if (AA_AGE_SNAPS[i] > g_popupAgeHours) {
-      g_popupAgeHours = AA_AGE_SNAPS[i];
-      break;
-    }
-  }
-  autoair_popup_update_labels();
-  hmi_msg.shouldSendData = true;
-}
-
-void aa_confirm_cb(lv_event_t *) {
-  hmi_msg.shouldSendData = true;
-  if (g_popupWeight <= 0 || g_popupGest <= 0 || g_popupAgeHours < 0) {
-    if (ui_AutoAirErrLabel) {
-      const char *errTxt = (g_lang == LANG_ES)   ? "Faltan datos del bebe"
-                           : (g_lang == LANG_FR) ? "Donnees du bebe manquantes"
-                                                 : "Missing baby data";
-      lv_label_set_text(ui_AutoAirErrLabel, errTxt);
-      lv_obj_clear_flag(ui_AutoAirErrLabel, LV_OBJ_FLAG_HIDDEN);
-    }
-    return;
-  }
-  if (aa_popup_setpoint <= 0.0f) {
-    if (ui_AutoAirErrLabel) {
-      const char *errTxt = (g_lang == LANG_ES)   ? "Rango no calculado"
-                           : (g_lang == LANG_FR) ? "Plage non calculee"
-                                                 : "Range not computed";
-      lv_label_set_text(ui_AutoAirErrLabel, errTxt);
-      lv_obj_clear_flag(ui_AutoAirErrLabel, LV_OBJ_FLAG_HIDDEN);
-    }
-    return;
-  }
-  g_babyWeightGrams = g_popupWeight;
-  g_babyGestWeeks = g_popupGest;
-  g_babyAgeHours = g_popupAgeHours;
-  // Forward baby data to motherboard so it can be published to ThingsBoard.
-  // Age is stored internally as hours at start of day (day N → (N-1)*24),
-  // converted to clinical day-of-life (1..29) on the wire.
-  hmi_msg.babyWeightGrams = g_babyWeightGrams;
-  hmi_msg.babyGestWeeks = g_babyGestWeeks;
-  hmi_msg.babyAgeDays = (g_babyAgeHours / 24) + 1;
-  char rowDesc[48];
-  autoair_calculate_setpoint(g_babyWeightGrams, g_babyGestWeeks, g_babyAgeHours,
-                             rowDesc, sizeof(rowDesc));
-  autoair_popup_show(false);
-  autoair_activate(aa_popup_setpoint, rowDesc);
-}
-
-void aa_cancel_cb(lv_event_t *) {
-  autoair_popup_show(false);
-  hmi_msg.shouldSendData = true;
-}
-
-static void aa_apply_setpoint(float sp) {
-  int steps = (int)(sp * 10.0f + 0.5f);
-  sp = (float)steps * 0.1f;
-  if (sp < aa_popup_lo)
-    sp = aa_popup_lo;
-  if (sp > aa_popup_hi)
-    sp = aa_popup_hi;
-  aa_popup_setpoint = sp;
-  if (aa_label_mid && aa_setpoint_label) {
-    char buf[12];
-    snprintf(buf, sizeof(buf), "%.1f", aa_popup_setpoint);
-    lv_label_set_text(aa_label_mid, buf);
-    snprintf(buf, sizeof(buf), "%.1f C", aa_popup_setpoint);
-    lv_label_set_text(aa_setpoint_label, buf);
-  }
-  aa_update_marker_pos(aa_popup_setpoint);
-}
-
-void aa_bar_drag_cb(lv_event_t *) {
-  if (aa_popup_hi <= aa_popup_lo || !aa_range_bar)
-    return;
-  lv_indev_t *indev = lv_indev_get_act();
-  if (!indev)
-    return;
-  lv_point_t pt;
-  lv_indev_get_point(indev, &pt);
-  lv_area_t coords;
-  lv_obj_get_coords(aa_range_bar, &coords);
-  int bar_h = coords.y2 - coords.y1; // 320
-  int rel_y = pt.y - coords.y1 -
-              16; // 16 = half marker height (32/2), centres on finger
-  float fraction = (float)rel_y / (float)(bar_h - 32);
-  if (fraction < 0.0f)
-    fraction = 0.0f;
-  if (fraction > 1.0f)
-    fraction = 1.0f;
-  float sp = aa_popup_hi - fraction * (aa_popup_hi - aa_popup_lo);
-  aa_apply_setpoint(sp);
-}
-
-void aa_setpoint_up_cb(lv_event_t *) {
-  if (aa_popup_hi <= 0.0f)
-    return;
-  int steps = (int)(aa_popup_setpoint * 10.0f + 0.5f) + 1;
-  aa_apply_setpoint((float)steps * 0.1f);
-  hmi_msg.shouldSendData = true;
-}
-
-void aa_setpoint_down_cb(lv_event_t *) {
-  if (aa_popup_lo <= 0.0f)
-    return;
-  int steps = (int)(aa_popup_setpoint * 10.0f + 0.5f) - 1;
-  aa_apply_setpoint((float)steps * 0.1f);
-  hmi_msg.shouldSendData = true;
-}
-
-void AutoAirBtn_cb(lv_event_t *e) {
-  if (lv_event_get_code(e) != LV_EVENT_CLICKED)
-    return;
-  hmi_msg.shouldSendData = true;
-
-  if (selectedPanel != AIR_PANEL_SELECTED || !tempSwitched) {
-    const char *msg = (g_lang == LANG_ES) ? "Disponible solo en modo AIR"
-                      : (g_lang == LANG_FR)
-                          ? "Disponible uniquement en mode AIR"
-                          : "Available in AIR mode only";
-    autoair_show_toast(msg, 3000);
-    return;
-  }
-  autoair_popup_show(true);
-}
 
 void set_active_panel(lv_obj_t *active, lv_obj_t *inactive) {
   lv_color_t active_col = darkMode ? COLOR_PANEL_GRAY : COLOR_PANEL_WHITE;
@@ -1825,7 +1181,7 @@ void temp_content_set_visible(bool visible) {
   lv_obj_t *widgets[] = {
       ui_Panel1,        ui_AirPanelCont,     ui_ArrowDownTemp,
       ui_ArrowUpTemp,   ui_ImgArrowDownTemp, ui_ImgArrowUpTemp,
-      ui_Label6,        ui_TempButton,       ui_AutoAirBtn
+      ui_Label6,        ui_TempButton
   };
   for (auto w : widgets) {
     if (!w) continue;
@@ -1839,12 +1195,97 @@ void temp_content_set_visible(bool visible) {
   }
 }
 
+// Generic bottom-toast, reused by the skin-probe block message, the
+// wizard's SKIN-without-range guardrail, and BabyWizard's own messages.
+void UI_ShowToast(const char *msg, uint32_t ms) {
+  if (!ui_SkinProbeToast) return;
+  lv_label_set_text(ui_SkinProbeToast, msg);
+  lv_obj_clear_flag(ui_SkinProbeToast, LV_OBJ_FLAG_HIDDEN);
+  lv_timer_create(
+      [](lv_timer_t *t) {
+        if (ui_SkinProbeToast)
+          lv_obj_add_flag(ui_SkinProbeToast, LV_OBJ_FLAG_HIDDEN);
+        lv_timer_del(t);
+      },
+      ms, nullptr);
+}
+
 static bool isFanHeaterAlarmActive() {
   for (int i = 0; i < MAX_ALARMS; i++) {
     if ((alarmList[i].id == FAN_ISSUE_ALARM || alarmList[i].id == HEATER_ISSUE_ALARM) && alarmList[i].state)
       return true;
   }
   return false;
+}
+
+// Same critical set as motherBoard's alarm_machine_any_critical() —
+// used by BabyWizard to interrupt an open wizard (Section 4).
+bool UI_IsCriticalAlarmActive() {
+  for (int i = 0; i < MAX_ALARMS; i++) {
+    if (!alarmList[i].state) continue;
+    if (alarmList[i].id == TEMPERATURE_ALARM ||
+        alarmList[i].id == AIR_THERMAL_CUTOUT_ALARM ||
+        alarmList[i].id == SKIN_THERMAL_CUTOUT_ALARM ||
+        alarmList[i].id == FAN_ISSUE_ALARM) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// "Is the incubator doing something to a baby right now?" — the single
+// definition of a live care session, shared by the baby-exit dialog (which
+// only asks paperwork when this goes false) and by BabyWizard's
+// already-identified-baby shortcut (only trustworthy while this is true).
+// Phototherapy is read from hmi_msg because ui_Switch3 is toggled silently
+// during its activation gates, so the switch state lies mid-flow.
+bool UI_AnyControlActive() {
+  return switchTemp || switchHum ||
+         hmi_msg.phototherapyMode != PHOTOTHERAPY_OFF;
+}
+
+// Runs everything the temperature switch's ON branch used to do inline,
+// now invoked from BabyWizard's "Apply" step once the mandatory baby-data
+// wizard completes (temp-control-activation-wizard spec) instead of
+// immediately on the switch toggle. isAirMode selects which panel becomes
+// active; the caller has already validated the SKIN-mode guardrail
+// (usable range required) before calling this with isAirMode=false.
+void ActivateTempControlUI(bool isAirMode) {
+  lv_color_t active_col = darkMode ? COLOR_PANEL_GRAY : COLOR_PANEL_WHITE;
+
+  chartLastPressed = 0;
+  lv_tabview_set_act(ui_TabView1, 0, LV_ANIM_ON);
+
+  if (isAirMode) {
+    selectedPanel = AIR_PANEL_SELECTED;
+    lastSelectedPanel = AIR_PANEL_SELECTED;
+    set_active_panel(ui_AirPanel, ui_SkinPanel);
+    hmi_msg.controlMode = CONTROL_AIR;
+  } else {
+    selectedPanel = SKIN_PANEL_SELECTED;
+    lastSelectedPanel = SKIN_PANEL_SELECTED;
+    set_active_panel(ui_SkinPanel, ui_AirPanel);
+    hmi_msg.controlMode = CONTROL_SKIN;
+  }
+
+  temp_chart_show_for_selected_panel();
+
+  // Enable temperature arrows (SKIN mode additionally disables them itself
+  // via the arrow press/release handlers' SKIN_PANEL_SELECTED check — the
+  // fixed 36.5 degC clinical standard has no manual adjustment).
+  arrowsActive = true;
+  lv_obj_add_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_flag(ui_ImgArrowUpTemp, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_style_bg_color(ui_ArrowDownTemp, active_col, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(ui_ArrowUpTemp, active_col, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(ui_Panel1, active_col, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(ui_Panel1, LV_OPA_COVER, LV_PART_MAIN);
+
+  switchTemp = true;
+  tempSwitched = true;
+  ui_set_switch_state_silent(ui_Switch1, true);
+  temp_content_set_visible(true);
+  computeAndSendActuation();
 }
 
 /* Switch callback for temperature and humidity */
@@ -1868,35 +1309,19 @@ void Switch_cb(lv_event_t *e) {
         tempSwitched = false;
         return;
       }
-      // mark last pressed chart and show temp page
-      chartLastPressed = 0;
-      lv_tabview_set_act(ui_TabView1, 0, LV_ANIM_ON);
-
-      // Gray out both panels initially
-      if (lastSelectedPanel == AIR_PANEL_SELECTED) {
-        selectedPanel = AIR_PANEL_SELECTED;
-        set_active_panel(ui_AirPanel, ui_SkinPanel);
-        hmi_msg.controlMode = CONTROL_AIR;
-      } else if (lastSelectedPanel == SKIN_PANEL_SELECTED) {
-        selectedPanel = SKIN_PANEL_SELECTED;
-        set_active_panel(ui_SkinPanel, ui_AirPanel);
-        hmi_msg.controlMode = CONTROL_SKIN;
-      } else { // No previous panel, default to Air
-        selectedPanel = AIR_PANEL_SELECTED;
-        set_active_panel(ui_AirPanel, ui_SkinPanel);
-        hmi_msg.controlMode = CONTROL_AIR;
-      }
-
-      temp_chart_show_for_selected_panel();
-
-      // Enable temperature arrows
-      arrowsActive = true;
-      lv_obj_add_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
-      lv_obj_add_flag(ui_ImgArrowUpTemp, LV_OBJ_FLAG_CLICKABLE);
-      lv_obj_set_style_bg_color(ui_ArrowDownTemp, active_col, LV_PART_MAIN);
-      lv_obj_set_style_bg_color(ui_ArrowUpTemp, active_col, LV_PART_MAIN);
-      lv_obj_set_style_bg_color(ui_Panel1, active_col, LV_PART_MAIN);
-      lv_obj_set_style_bg_opa(ui_Panel1, LV_OPA_COVER, LV_PART_MAIN);
+      // Defer actual activation until the mandatory baby-data wizard
+      // completes (temp-control-activation-wizard spec): the switch stays
+      // visually ON (LVGL already applied LV_STATE_CHECKED before this
+      // callback ran), but switchTemp/tempSwitched roll back to false so no
+      // actuation is sent and no panel/arrow UI changes happen yet. Cancel
+      // reverts the switch to OFF (BabyWizard); Apply calls
+      // ActivateTempControlUI() below to do everything this branch used to
+      // do inline, then sends the real actuation.
+      switchTemp = false;
+      tempSwitched = false;
+      bool desiredIsAirMode = (lastSelectedPanel != SKIN_PANEL_SELECTED);
+      BabyWizard_Open(desiredIsAirMode);
+      return;
     } else { // Temperature switch turned OFF
       selectedPanel = NO_PANEL_SELECTED;
       lv_obj_add_flag(ui_AirTempChartCont,
@@ -1987,13 +1412,36 @@ void Switch_cb(lv_event_t *e) {
     bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
 
     if (checked) {
+      // Gate order: baby-data wizard FIRST, ISO 7010 M025 safety popup last.
+      // The safety popup warns about eye protection, a hazard that starts the
+      // instant the lamp does — so it has to stay the final step immediately
+      // before activation. Putting the wizard after it would insert a long
+      // data-entry flow between the warning and the hazard.
+      // Skip the wizard only while a care session is live — i.e. temperature
+      // or humidity is already running for a baby this HMI has identified:
+      // asking again for the same baby mid-care is pure friction. Once the
+      // incubator has gone fully idle the session is over, so the lamp asks
+      // again even though the profile is still remembered
+      // (BabyWizard_HasLiveSession()).
+      if (!g_photo_wizard_done && !BabyWizard_HasLiveSession()) {
+        ui_set_switch_state_silent(ui_Switch3, false);
+        BabyWizard_OpenForPhototherapy();
+        return;
+      }
+
       // Show safety popup unless already confirmed via it
       if (!g_photo_safety_confirmed) {
         ui_set_switch_state_silent(ui_Switch3, false);
         photo_safety_popup_show(true);
         return;
       }
-      g_photo_safety_confirmed = false; // reset for next activation
+
+      // Both gates cleared — consume them only HERE, where the lamp actually
+      // turns on. Clearing the wizard flag earlier caused an infinite loop:
+      // the safety popup re-triggers this handler, and by then the wizard
+      // gate had forgotten it was already satisfied, so it reopened.
+      g_photo_wizard_done = false;
+      g_photo_safety_confirmed = false;
 
       // Active state on Motherboard immediately
       hmi_msg.phototherapyMode = PHOTOTHERAPY_ON;
@@ -2076,26 +1524,32 @@ void Switch_cb(lv_event_t *e) {
       // Revert the switch visually without triggering callback again
       ui_set_switch_state_silent(ui_Switch4, false);
       // RF-SKIN-010/UI-SKIN-004: Show clear message to user
-      if (ui_SkinProbeToast) {
-        const char *msg =
-            (g_lang == LANG_ES)
-                ? "Modo piel no disponible:\nConecte la sonda de temperatura"
-            : (g_lang == LANG_FR)
-                ? "Mode peau indisponible:\nConnectez la sonde de temperature"
-                : "Skin mode unavailable:\nConnect the skin temperature probe";
-        lv_label_set_text(ui_SkinProbeToast, msg);
-        lv_obj_clear_flag(ui_SkinProbeToast, LV_OBJ_FLAG_HIDDEN);
-        lv_timer_create(
-            [](lv_timer_t *t) {
-              if (ui_SkinProbeToast)
-                lv_obj_add_flag(ui_SkinProbeToast, LV_OBJ_FLAG_HIDDEN);
-              lv_timer_del(t);
-            },
-            4000, nullptr);
-      }
+      const char *msg =
+          (g_lang == LANG_ES)
+              ? "Modo piel no disponible:\nConecte la sonda de temperatura"
+          : (g_lang == LANG_FR)
+              ? "Mode peau indisponible:\nConnectez la sonde de temperature"
+              : "Skin mode unavailable:\nConnect the skin temperature probe";
+      UI_ShowToast(msg, 4000);
       ESP_LOGW(TAG,
                "[SKIN-PROBE] Blocked skin mode activation - probe state=%d",
                g_skinProbeState);
+      return;
+    }
+
+    // Design Section 3/4: SKIN requires a usable NTE range from the
+    // baby-data wizard (weight was not SKIPped). Only gates while control
+    // is actually running — switching the panel preference before
+    // activating temperature control is unaffected.
+    if (checked && tempSwitched && !BabyWizard_HasUsableRange()) {
+      ui_set_switch_state_silent(ui_Switch4, false);
+      const char *msg =
+          (g_lang == LANG_ES)
+              ? "Modo piel no disponible:\nsin peso no hay rango automatico"
+          : (g_lang == LANG_FR)
+              ? "Mode peau indisponible:\npoids requis pour la plage automatique"
+              : "Skin mode unavailable:\nno weight, no automatic range";
+      UI_ShowToast(msg, 4000);
       return;
     }
 
@@ -2110,6 +1564,13 @@ void Switch_cb(lv_event_t *e) {
       lv_obj_set_style_bg_color(ui_SkinPanelCont, COLOR_PANEL_WHITE,
                                 LV_PART_MAIN);
       lv_obj_set_style_opa(ui_SkinPanelCont, LV_OPA_COVER, LV_PART_MAIN);
+
+      // Design Section 4: SKIN setpoint is fixed at the clinical standard,
+      // never manually adjustable (arrow presses no-op for SKIN_PANEL_SELECTED).
+      if (tempSwitched) {
+        skinTempValue = SKIN_FIXED_SETPOINT_C;
+        computeAndSendActuation();
+      }
     } else {
       // Hide container of skin and restore Air panel
       skin_mode_force_off();
@@ -2230,6 +1691,13 @@ void Switch_cb(lv_event_t *e) {
   }
 
   // --- Actuation mode selection logic ---
+  computeAndSendActuation();
+}
+
+// Shared tail of Switch_cb's actuation logic — also called by
+// ActivateTempControlUI() when the baby-data wizard's "Apply" step
+// activates control outside the normal switch-toggle flow.
+void computeAndSendActuation() {
   if (switchTemp && switchHum) {
     hmi_msg.actuation = ACTUATION_TEMP_AND_HUMIDITY;
   } else if (switchTemp) {
@@ -2270,17 +1738,14 @@ void setup_arrow_callbacks() {
         } else if (code == LV_EVENT_CLICKED) {
           if (!tempSwitched)
             return;
-          if (selectedPanel == AIR_PANEL_SELECTED) {
-            airTempValue += TEMP_INCREMENT;
-            if (airTempValue > AIR_TEMP_MAX)
-              airTempValue = AIR_TEMP_MAX;
-            hmi_msg.desiredAirTemperature = airTempValue;
-          } else if (selectedPanel == SKIN_PANEL_SELECTED) {
-            skinTempValue += TEMP_INCREMENT;
-            if (skinTempValue > SKIN_TEMP_MAX)
-              skinTempValue = SKIN_TEMP_MAX;
-            hmi_msg.desiredSkinTemperature = skinTempValue;
-          }
+          // SKIN setpoint is fixed by the baby-data wizard (Section 4) —
+          // no manual adjustment, so this arrow no-ops outside AIR mode.
+          if (selectedPanel != AIR_PANEL_SELECTED)
+            return;
+          airTempValue += TEMP_INCREMENT;
+          if (airTempValue > AIR_TEMP_MAX)
+            airTempValue = AIR_TEMP_MAX;
+          hmi_msg.desiredAirTemperature = airTempValue;
           hmi_msg.shouldSendData = true;
           eepromDirty = true;
           lastVarChangeTime = millis();
@@ -2304,17 +1769,14 @@ void setup_arrow_callbacks() {
         } else if (code == LV_EVENT_CLICKED) {
           if (!tempSwitched)
             return;
-          if (selectedPanel == AIR_PANEL_SELECTED) {
-            airTempValue -= TEMP_INCREMENT;
-            if (airTempValue < AIR_TEMP_MIN)
-              airTempValue = AIR_TEMP_MIN;
-            hmi_msg.desiredAirTemperature = airTempValue;
-          } else if (selectedPanel == SKIN_PANEL_SELECTED) {
-            skinTempValue -= TEMP_INCREMENT;
-            if (skinTempValue < SKIN_TEMP_MIN)
-              skinTempValue = SKIN_TEMP_MIN;
-            hmi_msg.desiredSkinTemperature = skinTempValue;
-          }
+          // SKIN setpoint is fixed by the baby-data wizard (Section 4) —
+          // no manual adjustment, so this arrow no-ops outside AIR mode.
+          if (selectedPanel != AIR_PANEL_SELECTED)
+            return;
+          airTempValue -= TEMP_INCREMENT;
+          if (airTempValue < AIR_TEMP_MIN)
+            airTempValue = AIR_TEMP_MIN;
+          hmi_msg.desiredAirTemperature = airTempValue;
           hmi_msg.shouldSendData = true;
           eepromDirty = true;
           lastVarChangeTime = millis();
@@ -2962,12 +2424,27 @@ static void add_unlock_press_cb_recursive(lv_obj_t *obj) {
   }
 }
 
+// Ring around the main-screen padlock: fills clockwise as inactivity builds
+// up, so a complete circle means the auto-lock is about to fire. Any touch
+// resets lv_disp_get_inactive_time() and therefore empties the ring.
+static void update_autolock_ring(uint32_t inactive_ms) {
+  if (!ui_LockAutoArc)
+    return;
+  int16_t pct = (inactive_ms >= INACTIVITY_TIMEOUT_MS)
+                    ? 100
+                    : (int16_t)(inactive_ms * 100 / INACTIVITY_TIMEOUT_MS);
+  if (lv_arc_get_value(ui_LockAutoArc) != pct)
+    lv_arc_set_value(ui_LockAutoArc, pct);
+}
+
 void inactivity_timer_cb(lv_timer_t *timer) {
   if (lv_scr_act() == ui_ScreenAlarms) {
     lv_disp_trig_activity(NULL);
+    update_autolock_ring(0);
     return;
   }
   uint32_t inactive = lv_disp_get_inactive_time(NULL);
+  update_autolock_ring(inactive);
   if (inactive > INACTIVITY_TIMEOUT_MS) {
     if (lv_scr_act() != ui_ScreenLock) {
       stop_lock_progress();
@@ -3528,7 +3005,9 @@ void UI_Task(void *pvParameters) {
 
   // --- Skin probe toast (RF-SKIN-010, UI-SKIN-004): mensaje de bloqueo al
   // activar modo piel sin sonda ---
-  ui_SkinProbeToast = lv_label_create(lv_scr_act());
+  // ui_ScreenMain, no lv_scr_act(): ui_init() ya cargo ui_ScreenIntro, asi que
+  // la pantalla activa aqui es el splash y el toast nunca llegaba a verse.
+  ui_SkinProbeToast = lv_label_create(ui_ScreenMain);
   lv_label_set_text(ui_SkinProbeToast, "");
   lv_label_set_long_mode(ui_SkinProbeToast, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(ui_SkinProbeToast, 320);
@@ -3543,41 +3022,19 @@ void UI_Task(void *pvParameters) {
   lv_obj_set_style_radius(ui_SkinProbeToast, 8, LV_PART_MAIN);
   lv_obj_add_flag(ui_SkinProbeToast, LV_OBJ_FLAG_HIDDEN);
 
-  // --- Skin probe status label (RF-SKIN-004, UI-SKIN-005): informativo en modo
-  // aire ---
-  ui_SkinProbeStatusLabel = lv_label_create(lv_scr_act());
-  lv_label_set_text(ui_SkinProbeStatusLabel, "");
-  lv_obj_align(ui_SkinProbeStatusLabel, LV_ALIGN_BOTTOM_LEFT, 10, -5);
-  lv_obj_set_style_text_font(ui_SkinProbeStatusLabel, &lv_font_montserrat_12,
-                             0);
-  lv_obj_set_style_text_color(ui_SkinProbeStatusLabel, lv_color_hex(0x888888),
-                              LV_PART_MAIN);
-  lv_obj_add_flag(ui_SkinProbeStatusLabel, LV_OBJ_FLAG_HIDDEN);
-
-  // --- AUTO AIR button & popup (UI-AUTOAIR-001..010) ---
-  create_autoair_button();
-  create_autoair_popup();
 
   // --- Phototherapy safety confirmation popup (ISO 7010 M025) ---
   create_photo_safety_popup();
   // --- Replace slider switches with single toggle buttons ---
   create_main_toggle_buttons();
-  // Restore last-used Auto Air values from Preferences
-  {
-    uint16_t w = 0; uint8_t g = 0; uint16_t a = 0;
-    { Preferences p; p.begin(HMI_NS_CFG, true);
-      w = p.getUShort(HMI_KEY_AA_WEIGHT, 0);
-      g = p.getUChar (HMI_KEY_AA_GEST,   0);
-      a = p.getUShort(HMI_KEY_AA_AGE_H,  0);
-      p.end(); }
-    if (w >= 400 && w <= 5000)
-      g_babyWeightGrams = w;
-    if (g >= 22 && g <= 44)
-      g_babyGestWeeks = g;
-    if (a <= 672)
-      g_babyAgeHours = a;
-  }
-  autoair_update_button_style(); // set initial visual state after creation
+  // --- Baby-data activation wizard (temp-control-activation-wizard spec) ---
+  // Parent to ui_ScreenMain explicitly, never lv_scr_act(): ui_init() above
+  // already loaded ui_ScreenIntro, so the active screen here is the splash —
+  // an overlay parented to it is discarded the moment ui_ScreenMain loads.
+  BabyWizard_Init(ui_ScreenMain);
+  // --- Babies history screen (baby-history-viewer spec) ---
+  BabyHistory_Init(ui_ScreenMain);
+  BabyExitDialog_Init(ui_ScreenMain);
 
   if (g_hmiRestoreState) {
     // Skip 5-second splash and go straight to lock screen on crash recovery
@@ -3752,7 +3209,9 @@ void UI_Task(void *pvParameters) {
     lv_obj_add_event_cb(ui_HeaterErrorHumLabel, HeaterError_event_handler,
                         LV_EVENT_CLICKED, NULL);
 
-  lv_timer_create(inactivity_timer_cb, 1000, NULL);
+  // 200 ms instead of 1 s: same auto-lock behaviour, but the countdown ring
+  // around the padlock advances in 1 % steps instead of 5 % jumps.
+  lv_timer_create(inactivity_timer_cb, 200, NULL);
   pwroff_create_popup();
 
   for (;;) {
@@ -4031,6 +3490,17 @@ void UI_Task(void *pvParameters) {
       doAlarmSound = true;
     }
 
+    // Baby-data wizard: consumes CommTask's pending PROFILE_* messages,
+    // timeouts, and the critical-alarm-interrupts-wizard rule (Section 4).
+    BabyWizard_Poll();
+    // Babies history screen: same polling contract (list/history/chart
+    // responses, timeouts, critical-alarm-closes-screen).
+    BabyHistory_Poll();
+    // Baby-exit dialog: only the transition to a fully idle incubator
+    // (no temperature, no humidity, no phototherapy) means the baby
+    // actually came out; dropping one therapy among several does not.
+    BabyExitDialog_Tick(UI_AnyControlActive());
+
     if (eepromDirty && (millis() - lastVarChangeTime > EEPROM_COMMIT_DELAY)) {
       eepromDirty = false;
       doNVSWrite = true;
@@ -4046,9 +3516,6 @@ void UI_Task(void *pvParameters) {
       p.putFloat(HMI_KEY_AIR_TEMP,   (float)airTempValue);
       p.putFloat(HMI_KEY_SKIN_TEMP,  (float)skinTempValue);
       p.putUChar(HMI_KEY_HUMIDITY,   (uint8_t)humValue);
-      p.putUShort(HMI_KEY_AA_WEIGHT, (uint16_t)g_popupWeight);
-      p.putUChar (HMI_KEY_AA_GEST,   (uint8_t)g_popupGest);
-      p.putUShort(HMI_KEY_AA_AGE_H,  (uint16_t)g_popupAgeHours);
       p.putUChar(HMI_KEY_PHOTO_MIN,  (uint8_t)photoTimerMinutes);
       p.end();
       ESP_LOGI(TAG, "Preferences write cycle complete");
@@ -4083,43 +3550,9 @@ void UI_SyncAll() {
   humSwitched = switchHum;
   skinPanelEnabled = lv_obj_has_state(ui_Switch4, LV_STATE_CHECKED);
 
-  // RF-SKIN-004/RF-SKIN-008: Update skin probe informative status label
-  // (UI-SKIN-002/005)
-  if (ui_SkinProbeStatusLabel) {
-    bool inSkinMode = skinPanelEnabled && (hmi_msg.controlMode == CONTROL_SKIN);
-    if (!inSkinMode && g_skinProbeState != SKIN_PROBE_VALID) {
-      // Show informative (non-critical) probe status in air mode
-      const char *statusTxt = nullptr;
-      switch (g_skinProbeState) {
-      case SKIN_PROBE_NOT_CONNECTED:
-        statusTxt = (g_lang == LANG_ES)   ? "Sonda piel: no conectada"
-                    : (g_lang == LANG_FR) ? "Sonde peau: non connectee"
-                                          : "Skin probe: not connected";
-        break;
-      case SKIN_PROBE_PENDING_VALIDATION:
-        statusTxt = (g_lang == LANG_ES)   ? "Sonda piel: validando..."
-                    : (g_lang == LANG_FR) ? "Sonde peau: validation..."
-                                          : "Skin probe: validating...";
-        break;
-      case SKIN_PROBE_UNSTABLE:
-        statusTxt = (g_lang == LANG_ES)   ? "Sonda piel: señal inestable"
-                    : (g_lang == LANG_FR) ? "Sonde peau: signal instable"
-                                          : "Skin probe: unstable signal";
-        break;
-      default:
-        statusTxt = nullptr;
-        break;
-      }
-      if (statusTxt) {
-        lv_label_set_text(ui_SkinProbeStatusLabel, statusTxt);
-        lv_obj_clear_flag(ui_SkinProbeStatusLabel, LV_OBJ_FLAG_HIDDEN);
-      } else {
-        lv_obj_add_flag(ui_SkinProbeStatusLabel, LV_OBJ_FLAG_HIDDEN);
-      }
-    } else {
-      lv_obj_add_flag(ui_SkinProbeStatusLabel, LV_OBJ_FLAG_HIDDEN);
-    }
-  }
+  // The permanent skin-probe status label (RF-SKIN-004 / UI-SKIN-005) was
+  // removed on request: it added standing clutter to the main screen. The
+  // probe still blocks SKIN activation and reports why through UI_ShowToast.
 
   // 2. Temperature Logic
   if (tempSwitched) {
@@ -4448,7 +3881,6 @@ void UI_SyncAll() {
 
   hmi_msg.language = (int)g_lang;
   update_labels();
-  autoair_update_button_style(); // ARQ-AUTOAIR-005: keep button style in sync
   update_main_toggle_buttons();
 }
 
@@ -4678,56 +4110,6 @@ void UI_ApplyTheme() {
     }
   }
 
-  // --- AUTO AIR POPUP DARK MODE ---
-  if (ui_AutoAirModal) {
-    lv_color_t aa_modal_bg = darkMode ? COLOR_BG_DARK : COLOR_PANEL_WHITE;
-    lv_color_t aa_row_bg = darkMode ? COLOR_PANEL_DARK : COLOR_PANEL_WHITE;
-    lv_color_t aa_row_brd =
-        darkMode ? lv_color_hex(0x555555) : lv_color_hex(0xDDDDDD);
-    lv_color_t aa_sep_col =
-        darkMode ? lv_color_hex(0x444444) : lv_color_hex(0xDDDDDD);
-
-    lv_obj_set_style_bg_color(ui_AutoAirModal, aa_modal_bg, LV_PART_MAIN);
-
-    lv_obj_t *rows[] = {ui_AutoAirRowGest, ui_AutoAirRowDays,
-                        ui_AutoAirRowWeight};
-    for (int i = 0; i < 3; i++) {
-      if (rows[i]) {
-        lv_obj_set_style_bg_color(rows[i], aa_row_bg, LV_PART_MAIN);
-        lv_obj_set_style_border_color(rows[i], aa_row_brd, LV_PART_MAIN);
-      }
-    }
-    if (ui_AutoAirHSep)
-      lv_obj_set_style_bg_color(ui_AutoAirHSep, aa_sep_col, LV_PART_MAIN);
-    if (ui_AutoAirVSep)
-      lv_obj_set_style_bg_color(ui_AutoAirVSep, aa_sep_col, LV_PART_MAIN);
-
-    // Re-apply blue to value labels overridden by the recursive text sweep
-    lv_color_t blue = lv_color_hex(0x0075EE);
-    if (ui_AutoAirGestVal)
-      lv_obj_set_style_text_color(ui_AutoAirGestVal, blue, 0);
-    if (ui_AutoAirDaysVal)
-      lv_obj_set_style_text_color(ui_AutoAirDaysVal, blue, 0);
-    if (ui_AutoAirWeightVal)
-      lv_obj_set_style_text_color(ui_AutoAirWeightVal, blue, 0);
-    if (aa_label_mid)
-      lv_obj_set_style_text_color(aa_label_mid, blue, 0);
-
-    // Range bar track color
-    if (aa_range_bar) {
-      lv_obj_set_style_bg_color(aa_range_bar,
-                                darkMode ? lv_color_hex(0xCCCCCC)
-                                         : lv_color_hex(0xE0E0E0),
-                                LV_PART_MAIN);
-    }
-    // Setpoint marker color
-    if (aa_setpoint_marker) {
-      lv_obj_set_style_bg_color(aa_setpoint_marker,
-                                darkMode ? lv_color_hex(0x5588AA)
-                                         : lv_color_hex(0x0095DA),
-                                LV_PART_MAIN);
-    }
-  }
 
   UI_SyncAll();
 }

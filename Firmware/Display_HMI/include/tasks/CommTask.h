@@ -43,9 +43,6 @@ typedef struct {
   int    language;
   bool   skinModeEnabled;
   int    photoMinutesRemaining;
-  int    babyWeightGrams;
-  int    babyGestWeeks;
-  int    babyAgeDays;
   // HMI-internal flag (not part of the protocol)
   bool   shouldSendData;
 } HMI_Message;
@@ -134,6 +131,87 @@ extern portMUX_TYPE  g_telemetry_mux;
 extern volatile int  g_tempDutyPwm;
 extern volatile int  g_humDutyPwm;
 extern volatile bool g_pendingDutyApply;
+
+// ======================
+//   BABY PROFILE WIZARD PROTOCOL (temp-control-activation-wizard)
+// ======================
+struct BabyProfileListItem {
+  uint32_t seq;
+  char     name[24];
+  uint8_t  gestWeeks;
+  uint16_t weightGrams;
+  uint16_t kangarooCount;      // times taken out to the mother
+  uint32_t phototherapyMinutes;// accumulated exposure for this baby
+  uint32_t thermoMinutes;      // accumulated thermal-control time
+};
+struct BabyProfileListMsg {
+  int                  count; // 0-3
+  BabyProfileListItem  items[3];
+};
+struct BabyProfileRangeMsg {
+  uint32_t seq;
+  bool     ageKnown;
+  uint16_t ageDays;
+  float    lo, hi, mid;
+  bool     estimated;
+};
+
+extern volatile bool     g_pendingProfileList;
+extern BabyProfileListMsg g_profileList;
+extern volatile bool     g_pendingProfileAck;
+extern uint32_t          g_profileAck;
+
+// --- Wall clock, owned by the motherBoard (CTRL,TIME) ---------------------
+// The HMI has no RTC and does no NTP of its own, so the motherBoard's synced
+// epoch is the only clock available here. Returns 0 while the motherBoard
+// reports "not synced" (or before the first CTRL,TIME arrives).
+// Interpolates with millis() between the 10 s broadcasts.
+uint32_t HMI_GetEpochNow();
+extern volatile bool     g_pendingProfileRange;
+extern BabyProfileRangeMsg g_profileRange;
+
+// ======================
+//   BABY HISTORY VIEWER PROTOCOL (baby-history-viewer)
+// ======================
+struct BabyHistoryItem {
+  uint32_t seq;
+  char     name[24];
+  uint8_t  gestWeeks;
+  uint16_t lastWeightGrams;
+  uint32_t admissionEpoch;  // 0 = unknown
+  uint32_t dischargeEpoch;  // 0 = never explicitly discharged
+  uint8_t  outcome;         // 0=Unknown 1=Survived 2=Deceased 3=Transferred
+  uint16_t kangarooCount;
+  uint32_t phototherapyMinutes;
+  uint32_t thermoMinutes;
+};
+struct BabyHistoryMsg {
+  uint32_t page;
+  uint32_t totalCount;
+  int      count;  // 0-10 entries in this page
+  BabyHistoryItem items[10];
+};
+struct BabyWeightHistoryMsg {
+  uint32_t seq;
+  int      count;  // 0-50 points
+  uint16_t dayOffset[50];
+  uint16_t weightGrams[50];
+};
+
+extern volatile bool        g_pendingBabyHistory;
+extern BabyHistoryMsg       g_babyHistory;
+extern volatile bool        g_pendingWeightHistory;
+extern BabyWeightHistoryMsg g_weightHistory;
+
+void Communication_SendProfileListReq(void);
+void Communication_SendProfileNew(const char *name, uint8_t gestWeeks);
+void Communication_SendProfileSelect(uint32_t seq);
+void Communication_SendProfileWeight(uint32_t seq, uint16_t grams); // 0 = SKIP
+void Communication_SendProfileAgeManual(uint32_t seq, uint16_t ageDays);
+void Communication_SendProfileDischarge(uint32_t seq, uint8_t outcome);
+void Communication_SendProfileKangaroo(uint32_t seq);
+void Communication_SendProfileHistoryReq(uint32_t page);
+void Communication_SendWeightHistoryReq(uint32_t seq);
 
 // ======================
 //   PUBLIC FUNCTIONS

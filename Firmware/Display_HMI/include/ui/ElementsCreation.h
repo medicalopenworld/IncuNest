@@ -80,6 +80,7 @@ LV_IMG_DECLARE(ui_img_triangulo_abajo_png);    // assets/triangulo_abajo.png
 LV_IMG_DECLARE(ui_img_triangulo_arriba_png);    // assets/triangulo_arriba.png
 LV_IMG_DECLARE(ui_img_gota_png);    // assets/gota.png
 LV_IMG_DECLARE(ui_img_auto_air_png);    // data/Auto_Air.png
+LV_IMG_DECLARE(ui_img_baby_place_sensor_png); // data/Baby_place_sensor.png
 LV_IMG_DECLARE(ui_img_pulse_png);    // assets/pulse.png
 LV_IMG_DECLARE(ui_img_heart_red_png);  // assets/heart_red 30x30
 LV_IMG_DECLARE(ui_img_chart_png);    // assets/chart.png
@@ -124,6 +125,8 @@ extern lv_obj_t * ui_ScreenMain;
 extern lv_obj_t * ui_Incunest;
 extern lv_obj_t * ui_Settings;
 extern lv_obj_t * ui_AlarmButton;
+extern lv_obj_t * ui_BabiesButton;
+extern lv_obj_t * ui_BabiesButtonLabel;
 extern lv_obj_t * ui_TempCont;
 extern lv_obj_t * ui_Panel1;
 extern lv_obj_t * ui_Panel4;
@@ -224,38 +227,7 @@ void ui_ScreenMain_screen_destroy(void);
 void ui_event_PhotoCancelBtn(lv_event_t * e);
 
 // --- AUTO AIR widgets (created in ElementsCreation.cpp) ---
-extern lv_obj_t *ui_AutoAirBtn;
-extern lv_obj_t *ui_AutoAirBtnLabel;
-extern lv_obj_t *ui_AutoAirOverlay;
-extern lv_obj_t *ui_AutoAirModal;
-extern lv_obj_t *ui_AutoAirWeightVal;
-extern lv_obj_t *ui_AutoAirGestVal;
-extern lv_obj_t *ui_AutoAirDaysVal;
-extern lv_obj_t *ui_AutoAirDaysUnitLbl;
-extern lv_obj_t *ui_AutoAirErrLabel;
-extern lv_obj_t *ui_AutoAirToast;
-extern lv_obj_t *ui_AutoAirRowGest;
-extern lv_obj_t *ui_AutoAirRowDays;
-extern lv_obj_t *ui_AutoAirRowWeight;
-extern lv_obj_t *ui_AutoAirHSep;
-extern lv_obj_t *ui_AutoAirVSep;
-extern lv_obj_t *ui_AutoAirTitle;
-extern lv_obj_t *ui_AutoAirLeftHeader;
-extern lv_obj_t *ui_AutoAirRightHeader;
-extern lv_obj_t *ui_AutoAirGestLabel;
-extern lv_obj_t *ui_AutoAirDaysLabel;
-extern lv_obj_t *ui_AutoAirWeightLabel;
-extern lv_obj_t *ui_AutoAirCancelLabel;
-extern lv_obj_t *ui_AutoAirApplyLabel;
 // --- AUTO AIR range display widgets ---
-extern lv_obj_t *aa_range_bar;
-extern lv_obj_t *aa_setpoint_marker;
-extern lv_obj_t *aa_label_hi;
-extern lv_obj_t *aa_label_mid;
-extern lv_obj_t *aa_label_lo;
-extern lv_obj_t *aa_setpoint_label;
-void create_autoair_button(void);
-void create_autoair_popup(void);
 
 // --- PHOTO SAFETY POPUP ---
 extern lv_obj_t *ui_PhotoSafetyOverlay;
@@ -468,6 +440,7 @@ void ui_ScreenLock_screen_destroy(void);
 
 // --- EVENT PROTOTYPES ---
 void ui_event_Settings(lv_event_t * e);
+void ui_event_BabiesButton(lv_event_t * e);
 void ui_event_AlarmButton(lv_event_t * e);
 void ui_event_SPO2Button(lv_event_t * e);
 void ui_event_ChartButton(lv_event_t * e);

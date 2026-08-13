@@ -67,9 +67,6 @@ static bool migrateFromEEPROM() {
   constexpr int OLD_TB_TOKEN      = 205;
   constexpr int OLD_VOLUME        = 251;
   constexpr int OLD_DISP_FREQ     = 253;
-  constexpr int OLD_AA_WEIGHT     = 258;
-  constexpr int OLD_AA_GEST       = 260;
-  constexpr int OLD_AA_AGE_H      = 261;
 
   Preferences old;
   old.begin("eeprom", true);
@@ -83,7 +80,6 @@ static bool migrateFromEEPROM() {
 
   auto rf   = [&](int off) { float    v; memcpy(&v, buf + off, 4); return v; };
   auto ru   = [&](int off) { uint32_t v; memcpy(&v, buf + off, 4); return v; };
-  auto ru16 = [&](int off) { uint16_t v; memcpy(&v, buf + off, 2); return v; };
 
   char ssid_tmp[31]  = {};
   char pass_tmp[26]  = {};
@@ -103,9 +99,6 @@ static bool migrateFromEEPROM() {
     p.putUChar (HMI_KEY_HUM_EN,    buf[OLD_HUM_EN]);
     p.putUChar (HMI_KEY_VOLUME,    buf[OLD_VOLUME]);
     p.putUInt  (HMI_KEY_DISP_FREQ, ru(OLD_DISP_FREQ));
-    p.putUShort(HMI_KEY_AA_WEIGHT, ru16(OLD_AA_WEIGHT));
-    p.putUChar (HMI_KEY_AA_GEST,   buf[OLD_AA_GEST]);
-    p.putUShort(HMI_KEY_AA_AGE_H,  ru16(OLD_AA_AGE_H));
     p.end(); }
 
   { Preferences p; p.begin(HMI_NS_WIFI, false);

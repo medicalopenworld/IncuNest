@@ -31,6 +31,8 @@ lv_obj_t *ui_ScreenMain = NULL;
 lv_obj_t *ui_Incunest = NULL;
 lv_obj_t *ui_Settings = NULL;
 lv_obj_t *ui_AlarmButton = NULL;
+lv_obj_t *ui_BabiesButton = NULL;
+lv_obj_t *ui_BabiesButtonLabel = NULL;
 lv_obj_t *ui_TempCont = NULL;
 lv_obj_t *ui_Panel1 = NULL;
 lv_obj_t *ui_Panel4 = NULL;
@@ -124,6 +126,7 @@ lv_obj_t *ui_PhotoTimePlusLabel = NULL;
 
 lv_obj_t *ui_ChartButton = NULL;
 lv_obj_t *ui_ImgButton1 = NULL;
+lv_obj_t *ui_LockAutoArc = NULL;
 lv_obj_t *ui_CheckImgMain = NULL;
 lv_obj_t *uic_Tempbutton = NULL;
 lv_obj_t *uic_HumidButton = NULL;
@@ -308,36 +311,7 @@ lv_obj_t *ui_LockHRCont = NULL;
 lv_obj_t *ui_LockHRLabel = NULL;
 
 // --- AUTO AIR UI objects ---
-lv_obj_t *ui_AutoAirBtn = NULL;
-lv_obj_t *ui_AutoAirBtnLabel = NULL;
-lv_obj_t *ui_AutoAirOverlay = NULL;
-lv_obj_t *ui_AutoAirModal = NULL;
-lv_obj_t *ui_AutoAirWeightVal = NULL;
-lv_obj_t *ui_AutoAirGestVal = NULL;
-lv_obj_t *ui_AutoAirDaysVal = NULL;
-lv_obj_t *ui_AutoAirDaysUnitLbl = NULL;
-lv_obj_t *ui_AutoAirErrLabel = NULL;
-lv_obj_t *ui_AutoAirToast = NULL;
-lv_obj_t *ui_AutoAirRowGest = NULL;
-lv_obj_t *ui_AutoAirRowDays = NULL;
-lv_obj_t *ui_AutoAirRowWeight = NULL;
-lv_obj_t *ui_AutoAirHSep = NULL;
-lv_obj_t *ui_AutoAirVSep = NULL;
-lv_obj_t *ui_AutoAirTitle = NULL;
-lv_obj_t *ui_AutoAirLeftHeader = NULL;
-lv_obj_t *ui_AutoAirRightHeader = NULL;
-lv_obj_t *ui_AutoAirGestLabel = NULL;
-lv_obj_t *ui_AutoAirDaysLabel = NULL;
-lv_obj_t *ui_AutoAirWeightLabel = NULL;
-lv_obj_t *ui_AutoAirCancelLabel = NULL;
-lv_obj_t *ui_AutoAirApplyLabel = NULL;
 // --- AUTO AIR range display widgets ---
-lv_obj_t *aa_range_bar = NULL;
-lv_obj_t *aa_setpoint_marker = NULL;
-lv_obj_t *aa_label_hi = NULL;
-lv_obj_t *aa_label_mid = NULL;
-lv_obj_t *aa_label_lo = NULL;
-lv_obj_t *aa_setpoint_label = NULL;
 
 // Photo Safety Popup
 lv_obj_t *ui_PhotoSafetyOverlay   = NULL;
@@ -384,18 +358,6 @@ extern void PhotoTimeMinusBtn_cb(lv_event_t *e);
 extern void PhotoTimePlusBtn_cb(lv_event_t *e);
 extern void PhotoStartBtn_cb(lv_event_t *e);
 extern void PhotoCancelBtn_cb(lv_event_t *e);
-extern void AutoAirBtn_cb(lv_event_t *e);
-extern void aa_weight_dec_cb(lv_event_t *e);
-extern void aa_weight_inc_cb(lv_event_t *e);
-extern void aa_gest_dec_cb(lv_event_t *e);
-extern void aa_gest_inc_cb(lv_event_t *e);
-extern void aa_days_dec_cb(lv_event_t *e);
-extern void aa_days_inc_cb(lv_event_t *e);
-extern void aa_confirm_cb(lv_event_t *e);
-extern void aa_cancel_cb(lv_event_t *e);
-extern void aa_setpoint_up_cb(lv_event_t *e);
-extern void aa_setpoint_down_cb(lv_event_t *e);
-extern void aa_bar_drag_cb(lv_event_t *e);
 extern void photo_turnon_cb(lv_event_t *e);
 extern void photo_safety_overlay_cb(lv_event_t *e);
 extern void TempToggleBtn_cb(lv_event_t *e);
@@ -411,6 +373,14 @@ void ui_event_Settings(lv_event_t *e) {
   if (event_code == LV_EVENT_CLICKED) {
     Settings_cb(e);
     hmi_msg.shouldSendData = true;
+  }
+}
+
+void ui_event_BabiesButton(lv_event_t *e) {
+  lv_event_code_t event_code = lv_event_get_code(e);
+  if (event_code == LV_EVENT_CLICKED) {
+    extern void BabyHistory_Open(void);
+    BabyHistory_Open();
   }
 }
 
@@ -834,9 +804,11 @@ void ui_ScreenMain_screen_init(void) {
   ui_Incunest = lv_label_create(ui_ScreenMain);
   lv_obj_set_width(ui_Incunest, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_Incunest, LV_SIZE_CONTENT);
-  lv_obj_set_x(ui_Incunest, -250);
+  // Anchored to the left edge of the screen (20 px margin) instead of a
+  // centre-relative offset, so the title stays put whatever its width.
+  lv_obj_set_x(ui_Incunest, 20);
   lv_obj_set_y(ui_Incunest, -213);
-  lv_obj_set_align(ui_Incunest, LV_ALIGN_CENTER);
+  lv_obj_set_align(ui_Incunest, LV_ALIGN_LEFT_MID);
   lv_label_set_text(ui_Incunest, "IncuNest");
   lv_obj_set_style_text_font(ui_Incunest, &lv_font_montserrat_26,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -860,6 +832,22 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_x(ui_AlarmButton, 258);
   lv_obj_set_y(ui_AlarmButton, -212);
   lv_obj_set_align(ui_AlarmButton, LV_ALIGN_CENTER);
+
+  // "Babies" top-bar button (baby-history-viewer) — plain button + label
+  // (no dedicated image asset), same top row as AlarmButton/Settings.
+  // Independent of the AIR/SKIN switches: works with no control active.
+  ui_BabiesButton = lv_btn_create(ui_ScreenMain);
+  lv_obj_set_width(ui_BabiesButton, 110);
+  lv_obj_set_height(ui_BabiesButton, 44);
+  lv_obj_set_x(ui_BabiesButton, 155);
+  lv_obj_set_y(ui_BabiesButton, -213);
+  lv_obj_set_align(ui_BabiesButton, LV_ALIGN_CENTER);
+  lv_obj_set_style_radius(ui_BabiesButton, 8, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(ui_BabiesButton, lv_color_hex(0x0075EE),
+                            LV_PART_MAIN);
+  ui_BabiesButtonLabel = lv_label_create(ui_BabiesButton);
+  lv_label_set_text(ui_BabiesButtonLabel, "Bebes");
+  lv_obj_center(ui_BabiesButtonLabel);
 
   ui_TempCont = lv_obj_create(ui_ScreenMain);
   lv_obj_remove_style_all(ui_TempCont);
@@ -896,12 +884,15 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_y(ui_Switch1, -187);
   lv_obj_set_align(ui_Switch1, LV_ALIGN_CENTER);
 
+  // Header layout: TURN ON button on the left, title on the right.
+  // Right-aligned so longer translations of TXT_CONTROLTEMP grow towards the
+  // centre of the panel instead of running into the toggle button.
   ui_Label2 = lv_label_create(ui_TempCont);
   lv_obj_set_width(ui_Label2, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_Label2, LV_SIZE_CONTENT);
-  lv_obj_set_x(ui_Label2, 20);
+  lv_obj_set_x(ui_Label2, -20);
   lv_obj_set_y(ui_Label2, -186);
-  lv_obj_set_align(ui_Label2, LV_ALIGN_LEFT_MID);
+  lv_obj_set_align(ui_Label2, LV_ALIGN_RIGHT_MID);
   lv_label_set_text(ui_Label2, "Temperature control");
 
   ui_AirPanelCont = lv_obj_create(ui_TempCont);
@@ -1170,10 +1161,13 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_style_text_font(ui_TempSkinDesired, &lv_font_montserrat_30,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
 
+  // Setpoint row ("Set" + down/up arrows) is centred as a group inside the
+  // temperature panel: the arrows keep their 135 px spacing but the whole
+  // group is shifted 80 px left so it is no longer hugging the right edge.
   ui_Label6 = lv_label_create(ui_TempCont);
   lv_obj_set_width(ui_Label6, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_Label6, LV_SIZE_CONTENT);
-  lv_obj_set_x(ui_Label6, 80);
+  lv_obj_set_x(ui_Label6, 0);
   lv_obj_set_y(ui_Label6, 25);
   lv_obj_set_align(ui_Label6, LV_ALIGN_CENTER);
   lv_label_set_text(ui_Label6, "Set");
@@ -1197,7 +1191,7 @@ void ui_ScreenMain_screen_init(void) {
   ui_ArrowDownTemp = lv_obj_create(ui_TempCont);
   lv_obj_set_width(ui_ArrowDownTemp, 60);
   lv_obj_set_height(ui_ArrowDownTemp, 60);
-  lv_obj_set_x(ui_ArrowDownTemp, 12);
+  lv_obj_set_x(ui_ArrowDownTemp, -68);
   lv_obj_set_y(ui_ArrowDownTemp, 26);
   lv_obj_set_align(ui_ArrowDownTemp, LV_ALIGN_CENTER);
   lv_obj_clear_flag(ui_ArrowDownTemp, LV_OBJ_FLAG_SCROLLABLE);
@@ -1205,7 +1199,7 @@ void ui_ScreenMain_screen_init(void) {
   ui_ArrowUpTemp = lv_obj_create(ui_TempCont);
   lv_obj_set_width(ui_ArrowUpTemp, 60);
   lv_obj_set_height(ui_ArrowUpTemp, 60);
-  lv_obj_set_x(ui_ArrowUpTemp, 147);
+  lv_obj_set_x(ui_ArrowUpTemp, 67);
   lv_obj_set_y(ui_ArrowUpTemp, 27);
   lv_obj_set_align(ui_ArrowUpTemp, LV_ALIGN_CENTER);
   lv_obj_clear_flag(ui_ArrowUpTemp, LV_OBJ_FLAG_SCROLLABLE);
@@ -1215,7 +1209,7 @@ void ui_ScreenMain_screen_init(void) {
                     &ui_img_triangulo_abajo_png, NULL);
   lv_obj_set_width(ui_ImgArrowDownTemp, 39);
   lv_obj_set_height(ui_ImgArrowDownTemp, 42);
-  lv_obj_set_x(ui_ImgArrowDownTemp, 12);
+  lv_obj_set_x(ui_ImgArrowDownTemp, -68);
   lv_obj_set_y(ui_ImgArrowDownTemp, 29);
   lv_obj_set_align(ui_ImgArrowDownTemp, LV_ALIGN_CENTER);
 
@@ -1224,7 +1218,7 @@ void ui_ScreenMain_screen_init(void) {
                     &ui_img_triangulo_arriba_png, NULL);
   lv_obj_set_width(ui_ImgArrowUpTemp, 39);
   lv_obj_set_height(ui_ImgArrowUpTemp, 41);
-  lv_obj_set_x(ui_ImgArrowUpTemp, 146);
+  lv_obj_set_x(ui_ImgArrowUpTemp, 66);
   lv_obj_set_y(ui_ImgArrowUpTemp, 25);
   lv_obj_set_align(ui_ImgArrowUpTemp, LV_ALIGN_CENTER);
 
@@ -1688,8 +1682,40 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_width(ui_ImgButton1, 38);
   lv_obj_set_height(ui_ImgButton1, 46);
   lv_obj_set_x(ui_ImgButton1, -4);
-  lv_obj_set_y(ui_ImgButton1, -214);
+  // 4 px lower than the rest of the top bar so the 60x60 auto-lock ring below
+  // fits inside the screen while staying concentric with the padlock.
+  lv_obj_set_y(ui_ImgButton1, -210);
   lv_obj_set_align(ui_ImgButton1, LV_ALIGN_CENTER);
+
+  // Auto-lock countdown ring around the padlock: filled clockwise from 12
+  // o'clock by UITask's inactivity_timer_cb, so a complete circle means the
+  // inactivity timeout has elapsed and the screen locks itself. Non-clickable
+  // so presses fall through to ui_ImgButton1 underneath.
+  ui_LockAutoArc = lv_arc_create(ui_ScreenMain);
+  lv_obj_set_size(ui_LockAutoArc, 60, 60);
+  lv_obj_set_x(ui_LockAutoArc, -4);
+  lv_obj_set_y(ui_LockAutoArc, -210);
+  lv_obj_set_align(ui_LockAutoArc, LV_ALIGN_CENTER);
+  lv_arc_set_rotation(ui_LockAutoArc, 270);
+  lv_arc_set_bg_angles(ui_LockAutoArc, 0, 360);
+  lv_arc_set_range(ui_LockAutoArc, 0, 100);
+  lv_arc_set_value(ui_LockAutoArc, 0);
+  lv_obj_remove_style(ui_LockAutoArc, NULL, LV_PART_KNOB);
+  lv_obj_clear_flag(ui_LockAutoArc,
+                    LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_arc_width(ui_LockAutoArc, 4,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_arc_color(ui_LockAutoArc, lv_color_hex(0x9AA0A6),
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_arc_opa(ui_LockAutoArc, 100,
+                           LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_arc_width(ui_LockAutoArc, 4,
+                             LV_PART_INDICATOR | LV_STATE_DEFAULT);
+  lv_obj_set_style_arc_color(ui_LockAutoArc, lv_color_hex(0x4EC7FF),
+                             LV_PART_INDICATOR | LV_STATE_DEFAULT);
+  lv_obj_set_style_arc_opa(ui_LockAutoArc, 255,
+                           LV_PART_INDICATOR | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_opa(ui_LockAutoArc, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
 
   ui_CheckImgMain = lv_img_create(ui_ScreenMain);
   lv_img_set_src(ui_CheckImgMain, &ui_img_check_png);
@@ -1704,6 +1730,8 @@ void ui_ScreenMain_screen_init(void) {
 
   lv_obj_add_event_cb(ui_Settings, ui_event_Settings, LV_EVENT_ALL, NULL);
   lv_obj_add_event_cb(ui_AlarmButton, ui_event_AlarmButton, LV_EVENT_ALL, NULL);
+  lv_obj_add_event_cb(ui_BabiesButton, ui_event_BabiesButton, LV_EVENT_ALL,
+                      NULL);
   lv_obj_add_event_cb(ui_SPO2Button, ui_event_SPO2Button, LV_EVENT_ALL, NULL);
   lv_obj_add_event_cb(ui_ChartButton, ui_event_ChartButton, LV_EVENT_ALL, NULL);
   lv_obj_add_event_cb(ui_ImgButton1, ui_event_ImgButton1, LV_EVENT_ALL, NULL);
@@ -3649,345 +3677,6 @@ void ui_ScreenLock_screen_init(void) {
 }
 
 // ============================================================================
-// AUTO AIR — widget creation (logic/callbacks stay in UITask.cpp)
-// ============================================================================
-
-// Helper: create a glove-friendly +/- button for the popup
-static lv_obj_t *aa_make_spinbtn(lv_obj_t *parent, const char *text,
-                                 lv_event_cb_t cb) {
-  lv_obj_t *btn = lv_btn_create(parent);
-  lv_obj_set_size(btn, 64, 56);
-  lv_obj_set_style_bg_color(btn, lv_color_hex(0x0075EE), LV_PART_MAIN);
-  lv_obj_set_style_radius(btn, 8, LV_PART_MAIN);
-  lv_obj_set_style_shadow_width(btn, 0, LV_PART_MAIN);
-  lv_obj_t *lbl = lv_label_create(btn);
-  lv_label_set_text(lbl, text);
-  lv_obj_set_style_text_font(lbl, &lv_font_montserrat_20, 0);
-  lv_obj_center(lbl);
-  lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, nullptr);
-  return btn;
-}
-
-// Build one input row for the left column (fieldName + units sublabel + value +
-// dec/inc). Returns the value display label.
-static lv_obj_t *aa_make_input_row(lv_obj_t *parent, const char *fieldName,
-                                   const char *fieldUnits, int yOffset,
-                                   lv_event_cb_t decCb, lv_event_cb_t incCb,
-                                   lv_obj_t **unitsLblOut = nullptr,
-                                   lv_obj_t **rowOut = nullptr,
-                                   lv_obj_t **nameLblOut = nullptr,
-                                   int unitsXOffset = 85) {
-  lv_obj_t *row = lv_obj_create(parent);
-  lv_obj_set_size(row, 295, 76);
-  lv_obj_align(row, LV_ALIGN_TOP_MID, 0, yOffset);
-  lv_obj_set_style_border_width(row, 1, LV_PART_MAIN);
-  lv_obj_set_style_border_color(row, lv_color_hex(0xDDDDDD), LV_PART_MAIN);
-  lv_obj_set_style_radius(row, 6, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(row, 6, LV_PART_MAIN);
-  lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-
-  // Field name (e.g. "Gestational Age")
-  lv_obj_t *nameLbl = lv_label_create(row);
-  lv_label_set_text(nameLbl, fieldName);
-  lv_obj_set_style_text_font(nameLbl, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(nameLbl, lv_color_hex(0x555555), 0);
-  lv_obj_align(nameLbl, LV_ALIGN_TOP_LEFT, 2, 0);
-
-  // Value label
-  lv_obj_t *val = lv_label_create(row);
-  lv_label_set_text(val, "--");
-  lv_obj_set_style_text_font(val, &lv_font_montserrat_28, 0);
-  lv_obj_set_style_text_color(val, lv_color_hex(0x0075EE), 0);
-  lv_obj_align(val, LV_ALIGN_LEFT_MID, 2, 6);
-
-  // Units sublabel (e.g. "WEEKS") — anchored to the right, before the buttons
-  lv_obj_t *unitsLbl = lv_label_create(row);
-  lv_label_set_text(unitsLbl, fieldUnits);
-  lv_obj_set_style_text_font(unitsLbl, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(unitsLbl, lv_color_hex(0x000000), 0);
-  lv_obj_align(unitsLbl, LV_ALIGN_LEFT_MID, unitsXOffset, 8);
-  if (nameLblOut)
-    *nameLblOut = nameLbl;
-  if (unitsLblOut)
-    *unitsLblOut = unitsLbl;
-  if (rowOut)
-    *rowOut = row;
-
-  // Dec (▼) button — override size after aa_make_spinbtn
-  lv_obj_t *btnDec = aa_make_spinbtn(row, LV_SYMBOL_DOWN, decCb);
-  lv_obj_set_size(btnDec, 64, 40);
-  lv_obj_align(btnDec, LV_ALIGN_RIGHT_MID, -78, 0);
-
-  // Inc (▲) button
-  lv_obj_t *btnInc = aa_make_spinbtn(row, LV_SYMBOL_UP, incCb);
-  lv_obj_set_size(btnInc, 64, 40);
-  lv_obj_align(btnInc, LV_ALIGN_RIGHT_MID, -2, 0);
-
-  return val;
-}
-
-void create_autoair_popup() {
-  // Full-screen dim overlay; child of ScreenMain so it persists after intro
-  ui_AutoAirOverlay = lv_obj_create(ui_ScreenMain);
-  lv_obj_set_size(ui_AutoAirOverlay, DISPLAY_WIDTH, DISPLAY_HEIGHT);
-  lv_obj_set_pos(ui_AutoAirOverlay, 0, 0);
-  lv_obj_set_style_bg_color(ui_AutoAirOverlay, lv_color_hex(0x000000),
-                            LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(ui_AutoAirOverlay, LV_OPA_60, LV_PART_MAIN);
-  lv_obj_set_style_border_width(ui_AutoAirOverlay, 0, LV_PART_MAIN);
-  lv_obj_set_style_radius(ui_AutoAirOverlay, 0, LV_PART_MAIN);
-  lv_obj_clear_flag(ui_AutoAirOverlay, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_add_flag(ui_AutoAirOverlay, LV_OBJ_FLAG_HIDDEN);
-
-  // Modal — wide landscape layout (700×420)
-  ui_AutoAirModal = lv_obj_create(ui_AutoAirOverlay);
-  lv_obj_t *modal = ui_AutoAirModal;
-  lv_obj_set_size(modal, 700, 420);
-  lv_obj_align(modal, LV_ALIGN_CENTER, 0, 0);
-  lv_obj_set_style_radius(modal, 12, LV_PART_MAIN);
-  lv_obj_set_style_border_width(modal, 2, LV_PART_MAIN);
-  lv_obj_set_style_border_color(modal, lv_color_hex(0x0075EE), LV_PART_MAIN);
-  lv_obj_set_style_pad_all(modal, 0, LV_PART_MAIN);
-  lv_obj_clear_flag(modal, LV_OBJ_FLAG_SCROLLABLE);
-
-  // ── Title bar ──────────────────────────────────────────────
-  ui_AutoAirTitle = lv_label_create(modal);
-  lv_obj_t *title = ui_AutoAirTitle;
-  lv_label_set_text(title, "COMFORT ZONE");
-  lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
-  lv_obj_set_style_text_color(title, lv_color_hex(0x0075EE), 0);
-  lv_obj_align(title, LV_ALIGN_TOP_LEFT, 16, 6);
-
-  lv_obj_t *citLbl = lv_label_create(modal);
-  lv_label_set_text(
-      citLbl, "BASED ON: SAUER, DANE & VISSER (1984); DEACON & O'NEILL (2004); "
-              "CLOHERTY 3RD ED.; WHO/AAP GUIDELINES");
-  lv_obj_set_style_text_font(citLbl, &lv_font_montserrat_10, 0);
-  lv_obj_set_style_text_color(citLbl, lv_color_hex(0x000000), 0);
-  lv_obj_set_width(citLbl, 620);
-  lv_label_set_long_mode(citLbl, LV_LABEL_LONG_WRAP);
-  lv_obj_align(citLbl, LV_ALIGN_TOP_LEFT, 16, 33);
-
-  lv_obj_t *btnClose = lv_btn_create(modal);
-  lv_obj_set_size(btnClose, 32, 32);
-  lv_obj_align(btnClose, LV_ALIGN_TOP_RIGHT, -8, 8);
-  lv_obj_set_style_bg_color(btnClose, lv_color_hex(0x888888), LV_PART_MAIN);
-  lv_obj_set_style_radius(btnClose, 16, LV_PART_MAIN);
-  lv_obj_set_style_shadow_width(btnClose, 0, LV_PART_MAIN);
-  lv_obj_t *closeLbl = lv_label_create(btnClose);
-  lv_label_set_text(closeLbl, LV_SYMBOL_CLOSE);
-  lv_obj_set_style_text_font(closeLbl, &lv_font_montserrat_16, 0);
-  lv_obj_center(closeLbl);
-  lv_obj_add_event_cb(btnClose, aa_cancel_cb, LV_EVENT_CLICKED, nullptr);
-
-  // Horizontal separator
-  ui_AutoAirHSep = lv_obj_create(modal);
-  lv_obj_t *hSep = ui_AutoAirHSep;
-  lv_obj_set_size(hSep, 698, 2);
-  lv_obj_set_pos(hSep, 1, 56);
-  lv_obj_set_style_bg_color(hSep, lv_color_hex(0xDDDDDD), LV_PART_MAIN);
-  lv_obj_set_style_border_width(hSep, 0, LV_PART_MAIN);
-  lv_obj_set_style_radius(hSep, 0, LV_PART_MAIN);
-
-  // Vertical separator between columns
-  ui_AutoAirVSep = lv_obj_create(modal);
-  lv_obj_t *vSep = ui_AutoAirVSep;
-  lv_obj_set_size(vSep, 2, 362);
-  lv_obj_set_pos(vSep, 329, 58);
-  lv_obj_set_style_bg_color(vSep, lv_color_hex(0xDDDDDD), LV_PART_MAIN);
-  lv_obj_set_style_border_width(vSep, 0, LV_PART_MAIN);
-  lv_obj_set_style_radius(vSep, 0, LV_PART_MAIN);
-
-  // ══════════════════════════════════════════════════════════
-  // LEFT COLUMN — Baby Information
-  // ══════════════════════════════════════════════════════════
-  lv_obj_t *colLeft = lv_obj_create(modal);
-  lv_obj_set_size(colLeft, 327, 362);
-  lv_obj_set_pos(colLeft, 2, 58);
-  lv_obj_set_style_border_width(colLeft, 0, LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(colLeft, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(colLeft, 10, LV_PART_MAIN);
-  lv_obj_clear_flag(colLeft, LV_OBJ_FLAG_SCROLLABLE);
-
-  ui_AutoAirLeftHeader = lv_label_create(colLeft);
-  lv_obj_t *leftHeader = ui_AutoAirLeftHeader;
-  lv_label_set_text(leftHeader, "BABY INFORMATION:");
-  lv_obj_set_style_text_font(leftHeader, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(leftHeader, lv_color_hex(0x555555), 0);
-  lv_obj_align(leftHeader, LV_ALIGN_TOP_LEFT, 0, 0);
-
-  // Field rows (y offsets relative to colLeft content area)
-  // [0] Gestational Age → ui_AutoAirGestVal
-  ui_AutoAirGestVal =
-      aa_make_input_row(colLeft,
-                        (g_lang == LANG_ES)   ? "EDAD GESTACIONAL"
-                        : (g_lang == LANG_FR) ? "AGE GESTATIONNEL"
-                                              : "GESTATIONAL AGE",
-                        "WEEKS", 28, aa_gest_dec_cb, aa_gest_inc_cb, nullptr,
-                        &ui_AutoAirRowGest, &ui_AutoAirGestLabel, 50);
-
-  // [1] Post-Natal Age → ui_AutoAirDaysVal
-  ui_AutoAirDaysVal = aa_make_input_row(
-      colLeft,
-      (g_lang == LANG_ES)   ? "EDAD POSTNATAL"
-      : (g_lang == LANG_FR) ? "AGE POST-NATAL"
-                            : "POST-NATAL AGE",
-      "DAYS", 114, aa_days_dec_cb, aa_days_inc_cb, &ui_AutoAirDaysUnitLbl,
-      &ui_AutoAirRowDays, &ui_AutoAirDaysLabel, 50);
-
-  // [2] Weight → ui_AutoAirWeightVal
-  ui_AutoAirWeightVal = aa_make_input_row(
-      colLeft,
-      (g_lang == LANG_ES)   ? "PESO"
-      : (g_lang == LANG_FR) ? "POIDS"
-                            : "WEIGHT",
-      "GRAMS", 202, aa_weight_dec_cb, aa_weight_inc_cb, nullptr,
-      &ui_AutoAirRowWeight, &ui_AutoAirWeightLabel, 75);
-
-  // Error label
-  ui_AutoAirErrLabel = lv_label_create(colLeft);
-  lv_label_set_text(ui_AutoAirErrLabel, "");
-  lv_obj_set_style_text_color(ui_AutoAirErrLabel, lv_color_hex(0xFF3300), 0);
-  lv_obj_set_style_text_font(ui_AutoAirErrLabel, &lv_font_montserrat_12, 0);
-  lv_obj_align(ui_AutoAirErrLabel, LV_ALIGN_BOTTOM_MID, 0, -44);
-  lv_obj_add_flag(ui_AutoAirErrLabel, LV_OBJ_FLAG_HIDDEN);
-
-  // CANCEL button
-  lv_obj_t *btnCancel = lv_btn_create(colLeft);
-  lv_obj_set_size(btnCancel, 180, 36);
-  lv_obj_align(btnCancel, LV_ALIGN_BOTTOM_MID, 0, 0);
-  lv_obj_set_style_bg_color(btnCancel, lv_color_hex(0x888888), LV_PART_MAIN);
-  lv_obj_set_style_radius(btnCancel, 8, LV_PART_MAIN);
-  lv_obj_set_style_shadow_width(btnCancel, 0, LV_PART_MAIN);
-  ui_AutoAirCancelLabel = lv_label_create(btnCancel);
-  lv_obj_t *cancelLbl = ui_AutoAirCancelLabel;
-  const char *CANCEL_TXT[] = {"CANCELAR", "CANCEL", "ANNULER"};
-  lv_label_set_text(cancelLbl, CANCEL_TXT[g_lang]);
-  lv_obj_set_style_text_font(cancelLbl, &lv_font_montserrat_16, 0);
-  lv_obj_center(cancelLbl);
-  lv_obj_add_event_cb(btnCancel, aa_cancel_cb, LV_EVENT_CLICKED, nullptr);
-
-  // ══════════════════════════════════════════════════════════
-  // RIGHT COLUMN — Recommended Range
-  // ══════════════════════════════════════════════════════════
-  lv_obj_t *colRight = lv_obj_create(modal);
-  lv_obj_set_size(colRight, 369, 362);
-  lv_obj_set_pos(colRight, 331, 58);
-  lv_obj_set_style_border_width(colRight, 0, LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(colRight, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(colRight, 10, LV_PART_MAIN);
-  lv_obj_clear_flag(colRight, LV_OBJ_FLAG_SCROLLABLE);
-
-  ui_AutoAirRightHeader = lv_label_create(colRight);
-  lv_obj_t *rightHeader = ui_AutoAirRightHeader;
-  lv_label_set_text(rightHeader, "RECOMMENDED RANGE (C)");
-  lv_obj_set_style_text_font(rightHeader, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(rightHeader, lv_color_hex(0x555555), 0);
-  lv_obj_align(rightHeader, LV_ALIGN_TOP_LEFT, 0, 0);
-
-  // Vertical range bar (height > width → LVGL 8 draws it vertical)
-  aa_range_bar = lv_bar_create(colRight);
-  lv_obj_set_size(aa_range_bar, 40, 320);
-  lv_obj_set_pos(aa_range_bar, 70, 22);
-  lv_bar_set_mode(aa_range_bar, LV_BAR_MODE_NORMAL);
-  lv_bar_set_range(aa_range_bar, 280, 370); // °C × 10 → 28.0–37.0
-  lv_bar_set_value(aa_range_bar, 280, LV_ANIM_OFF);
-  lv_obj_set_style_bg_color(aa_range_bar, lv_color_hex(0xE0E0E0), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(aa_range_bar, LV_OPA_TRANSP, LV_PART_INDICATOR);
-  lv_obj_set_style_radius(aa_range_bar, 4, LV_PART_MAIN);
-  lv_obj_set_style_border_width(aa_range_bar, 2, LV_PART_MAIN);
-  lv_obj_set_style_border_color(aa_range_bar, lv_color_hex(0x000000),
-                                LV_PART_MAIN);
-  lv_obj_add_event_cb(aa_range_bar, aa_bar_drag_cb, LV_EVENT_PRESSING, nullptr);
-
-  // Fixed-size blue setpoint marker
-  aa_setpoint_marker = lv_obj_create(colRight);
-  lv_obj_set_size(aa_setpoint_marker, 40, 32);
-  lv_obj_set_pos(aa_setpoint_marker, 70, 22);
-  lv_obj_set_style_bg_color(aa_setpoint_marker, lv_color_hex(0x0095DA),
-                            LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(aa_setpoint_marker, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_border_width(aa_setpoint_marker, 0, LV_PART_MAIN);
-  lv_obj_set_style_radius(aa_setpoint_marker, 3, LV_PART_MAIN);
-  lv_obj_add_flag(aa_setpoint_marker, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_event_cb(aa_setpoint_marker, aa_bar_drag_cb, LV_EVENT_PRESSING,
-                      nullptr);
-
-  // hi label — top of bar
-  aa_label_hi = lv_label_create(colRight);
-  lv_label_set_text(aa_label_hi, "--.-");
-  lv_obj_set_style_text_font(aa_label_hi, &lv_font_montserrat_20, 0);
-  lv_obj_set_style_text_color(aa_label_hi, lv_color_hex(0x333333), 0);
-  lv_obj_set_pos(aa_label_hi, 118, 22);
-
-  // mid label — current setpoint (highlighted); y updated dynamically in
-  // aa_update_marker_pos
-  aa_label_mid = lv_label_create(colRight);
-  lv_label_set_text(aa_label_mid, "--.-");
-  lv_obj_set_style_text_font(aa_label_mid, &lv_font_montserrat_28, 0);
-  lv_obj_set_style_text_color(aa_label_mid, lv_color_hex(0x0075EE), 0);
-  lv_obj_set_pos(aa_label_mid, 5, 173);
-
-  // setpoint sub-label — kept alive for guard checks but hidden (duplicate of
-  // aa_label_mid)
-  aa_setpoint_label = lv_label_create(colRight);
-  lv_label_set_text(aa_setpoint_label, "--.-");
-  lv_obj_set_style_text_font(aa_setpoint_label, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(aa_setpoint_label, lv_color_hex(0x555555), 0);
-  lv_obj_set_pos(aa_setpoint_label, 5, 197);
-  lv_obj_add_flag(aa_setpoint_label, LV_OBJ_FLAG_HIDDEN);
-
-  // lo label — bottom of bar
-  aa_label_lo = lv_label_create(colRight);
-  lv_label_set_text(aa_label_lo, "--.-");
-  lv_obj_set_style_text_font(aa_label_lo, &lv_font_montserrat_20, 0);
-  lv_obj_set_style_text_color(aa_label_lo, lv_color_hex(0x333333), 0);
-  lv_obj_set_pos(aa_label_lo, 118, 318);
-
-  // Setpoint ▲ button
-  lv_obj_t *btnSpUp = lv_btn_create(colRight);
-  lv_obj_set_size(btnSpUp, 80, 46);
-  lv_obj_set_pos(btnSpUp, 214, 38);
-  lv_obj_set_style_bg_color(btnSpUp, lv_color_hex(0x0075EE), LV_PART_MAIN);
-  lv_obj_set_style_radius(btnSpUp, 8, LV_PART_MAIN);
-  lv_obj_set_style_shadow_width(btnSpUp, 0, LV_PART_MAIN);
-  lv_obj_t *spUpLbl = lv_label_create(btnSpUp);
-  lv_label_set_text(spUpLbl, LV_SYMBOL_UP);
-  lv_obj_set_style_text_font(spUpLbl, &lv_font_montserrat_20, 0);
-  lv_obj_center(spUpLbl);
-  lv_obj_add_event_cb(btnSpUp, aa_setpoint_up_cb, LV_EVENT_CLICKED, nullptr);
-
-  // APPLY button (center-right)
-  lv_obj_t *btnApply = lv_btn_create(colRight);
-  lv_obj_set_size(btnApply, 140, 46);
-  lv_obj_set_pos(btnApply, 184, 136);
-  lv_obj_set_style_bg_color(btnApply, lv_color_hex(0x00AA44), LV_PART_MAIN);
-  lv_obj_set_style_radius(btnApply, 8, LV_PART_MAIN);
-  lv_obj_set_style_shadow_width(btnApply, 0, LV_PART_MAIN);
-  ui_AutoAirApplyLabel = lv_label_create(btnApply);
-  lv_obj_t *applyLbl = ui_AutoAirApplyLabel;
-  const char *APPLY_TXT[] = {"APLICAR", "APPLY", "APPLIQUER"};
-  lv_label_set_text(applyLbl, APPLY_TXT[g_lang]);
-  lv_obj_set_style_text_font(applyLbl, &lv_font_montserrat_16, 0);
-  lv_obj_center(applyLbl);
-  lv_obj_add_event_cb(btnApply, aa_confirm_cb, LV_EVENT_CLICKED, nullptr);
-
-  // Setpoint ▼ button
-  lv_obj_t *btnSpDown = lv_btn_create(colRight);
-  lv_obj_set_size(btnSpDown, 80, 46);
-  lv_obj_set_pos(btnSpDown, 214, 222);
-  lv_obj_set_style_bg_color(btnSpDown, lv_color_hex(0x0075EE), LV_PART_MAIN);
-  lv_obj_set_style_radius(btnSpDown, 8, LV_PART_MAIN);
-  lv_obj_set_style_shadow_width(btnSpDown, 0, LV_PART_MAIN);
-  lv_obj_t *spDownLbl = lv_label_create(btnSpDown);
-  lv_label_set_text(spDownLbl, LV_SYMBOL_DOWN);
-  lv_obj_set_style_text_font(spDownLbl, &lv_font_montserrat_20, 0);
-  lv_obj_center(spDownLbl);
-  lv_obj_add_event_cb(btnSpDown, aa_setpoint_down_cb, LV_EVENT_CLICKED,
-                      nullptr);
-}
-
-// ============================================================================
 // PHOTO SAFETY POPUP (ISO 7010 M025 — eye protection required)
 // ============================================================================
 void create_photo_safety_popup() {
@@ -4104,9 +3793,11 @@ void create_main_toggle_buttons() {
   lv_obj_add_flag(ui_Label17, LV_OBJ_FLAG_HIDDEN);
 
   // Temperature toggle button (same row as the switch it replaces)
+  // Left half of the header row (mirrors the old x=91 position): the title
+  // label now sits on the right, see ui_Label2 in ui_ScreenMain_screen_init.
   ui_TempToggleBtn = lv_btn_create(ui_TempCont);
   lv_obj_set_size(ui_TempToggleBtn, 160, 39);
-  lv_obj_set_x(ui_TempToggleBtn, 91);
+  lv_obj_set_x(ui_TempToggleBtn, -91);
   lv_obj_set_y(ui_TempToggleBtn, -187);
   lv_obj_set_align(ui_TempToggleBtn, LV_ALIGN_CENTER);
   lv_obj_set_style_bg_color(ui_TempToggleBtn, lv_color_hex(0x4EC7FF), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -4167,49 +3858,6 @@ void create_main_toggle_buttons() {
   }
 }
 
-void create_autoair_button() {
-  // AUTO AIR button inside the air panel (bottom area, last child → front
-  // Z-order)
-  ui_AutoAirBtn = lv_btn_create(ui_TempCont);
-  lv_obj_set_size(ui_AutoAirBtn, 130, 60);
-  lv_obj_set_x(ui_AutoAirBtn, -108);
-  lv_obj_set_y(ui_AutoAirBtn, 26);
-  lv_obj_set_align(ui_AutoAirBtn, LV_ALIGN_CENTER);
-  lv_obj_set_style_radius(ui_AutoAirBtn, 6, LV_PART_MAIN);
-  lv_obj_set_style_border_width(ui_AutoAirBtn, 2, LV_PART_MAIN);
-  lv_obj_set_style_border_color(ui_AutoAirBtn, lv_color_hex(0x0075EE),
-                                LV_PART_MAIN);
-  lv_obj_set_style_shadow_width(ui_AutoAirBtn, 0, LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(ui_AutoAirBtn, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(ui_AutoAirBtn, LV_OPA_TRANSP, LV_STATE_PRESSED);
-  lv_obj_set_style_opa(ui_AutoAirBtn, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(ui_AutoAirBtn, 0, LV_PART_MAIN);
-
-  // Image fills the entire button area
-  ui_AutoAirBtnLabel = lv_img_create(ui_AutoAirBtn);
-  lv_img_set_src(ui_AutoAirBtnLabel, &ui_img_auto_air_png);
-  lv_obj_set_size(ui_AutoAirBtnLabel, 130, 60);
-  lv_obj_center(ui_AutoAirBtnLabel);
-
-  lv_obj_add_event_cb(ui_AutoAirBtn, AutoAirBtn_cb, LV_EVENT_ALL, nullptr);
-
-  // Dedicated blue toast for AUTO AIR feedback (child of ScreenMain)
-  ui_AutoAirToast = lv_label_create(ui_ScreenMain);
-  lv_label_set_text(ui_AutoAirToast, "");
-  lv_label_set_long_mode(ui_AutoAirToast, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(ui_AutoAirToast, 400);
-  lv_obj_align(ui_AutoAirToast, LV_ALIGN_BOTTOM_MID, 0, -20);
-  lv_obj_set_style_text_align(ui_AutoAirToast, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_set_style_bg_color(ui_AutoAirToast, lv_color_hex(0x004A9E),
-                            LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(ui_AutoAirToast, LV_OPA_90, LV_PART_MAIN);
-  lv_obj_set_style_text_color(ui_AutoAirToast, lv_color_hex(0xFFFFFF),
-                              LV_PART_MAIN);
-  lv_obj_set_style_pad_all(ui_AutoAirToast, 10, LV_PART_MAIN);
-  lv_obj_set_style_radius(ui_AutoAirToast, 8, LV_PART_MAIN);
-  lv_obj_add_flag(ui_AutoAirToast, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_AutoAirBtn,   LV_OBJ_FLAG_HIDDEN);
-}
 
 // ============================================================================
 // UI MAIN FUNCTIONS

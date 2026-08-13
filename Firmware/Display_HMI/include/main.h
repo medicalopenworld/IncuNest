@@ -19,7 +19,7 @@
 #include "control_types.h"
 #include "alarm_ids.h"
 
-#define FWversion "3.0.0"
+#define FWversion "4.0.0"
 #define ENABLE_WIFI_OTA true // enable wifi OTA
 extern bool OTA_inprogress;
 
@@ -129,6 +129,9 @@ constexpr double AIR_TEMP_MIN = 30.0;
 constexpr double AIR_TEMP_MAX = 38.5;
 constexpr double SKIN_TEMP_MIN = 35.0;
 constexpr double SKIN_TEMP_MAX = 37.5;
+// Clinical standard skin setpoint applied by the baby-data wizard — fixed,
+// never manually adjustable (temp-control-activation-wizard spec, Section 4).
+constexpr double SKIN_FIXED_SETPOINT_C = 36.5;
 constexpr double TEMP_INCREMENT = 0.2;
 constexpr double TEMP_ALARM_THRESHOLD = 37.0;
 constexpr double TEMP_DIVISOR = 10.0;
@@ -208,7 +211,9 @@ constexpr double COMM_TEMP_VALID_THRESHOLD =
     0.1; // received temp > this = valid
 constexpr int COMM_TASK_STACK_SIZE = 16384;   // 16 KB — margen para calls LVGL profundas
 constexpr int COMM_TASK_PRIORITY = 3;
-constexpr int COMM_RX_BUFFER_SIZE = 512;
+// 1024: CTRL,WEIGHT_HISTORY/CTRL,PROFILE_HISTORY can carry up to ~50/10
+// entries respectively and approach ~700 chars in the worst case.
+constexpr int COMM_RX_BUFFER_SIZE = 1280;
 constexpr int COMM_TASK_LOOP_MS = 10;
 
 // -----------------------------

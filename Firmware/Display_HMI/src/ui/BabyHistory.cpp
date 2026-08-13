@@ -1,0 +1,669 @@
+#include "ui/BabyHistory.h"
+
+#include <cstdio>
+#include <cstring>
+#include <ctime>
+
+#include "CommTask.h"
+#include "UITask.h"
+#include "main.h"
+#include "ui.h"
+
+extern ui_lang_t g_lang;
+
+namespace {
+
+enum class HistStep {
+  Closed,
+  LoadingActive,    // waiting CTRL,PROFILE_LIST
+  LoadingArchived,  // waiting CTRL,PROFILE_HISTORY
+  Showing,
+  DischargeDialog,      // outcome selection open (pure UI)
+  WaitingDischargeAck,  // waiting CTRL,PROFILE_ACK
+  LoadingChart,         // waiting CTRL,WEIGHT_HISTORY
+  ShowingChart,
+};
+
+constexpr uint32_t RESP_TIMEOUT_MS = 2000;
+constexpr uint32_t PAGE_SIZE = 10;
+
+HistStep s_step = HistStep::Closed;
+uint32_t s_deadlineMs = 0;
+int s_retries = 0;
+uint32_t s_page = 0;
+BabyProfileListMsg s_active = {0, {}};
+BabyHistoryMsg s_archived = {0, 0, 0, {}};
+bool s_activeLoaded = false;
+
+uint32_t s_dischargeSeq = 0;
+uint8_t s_dischargeOutcome = 0;
+
+uint32_t s_chartSeq = 0;
+char s_chartName[24] = "";
+
+lv_obj_t *s_overlay = nullptr;
+lv_obj_t *s_card = nullptr;
+lv_obj_t *s_content = nullptr;
+lv_obj_t *s_dlg = nullptr;  // discharge dialog (child of overlay)
+
+const char *TXT(const char *es, const char *en, const char *fr) {
+  return (g_lang == LANG_ES) ? es : (g_lang == LANG_FR) ? fr : en;
+}
+
+const char *outcomeText(uint8_t oc) {
+  switch (oc) {
+    case 1: return TXT("Sobrevivio", "Survived", "A survecu");
+    case 2: return TXT("No sobrevivio", "Deceased", "Decede");
+    case 3: return TXT("Trasladado", "Transferred", "Transfere");
+    default: return TXT("Desconocido", "Unknown", "Inconnu");
+  }
+}
+
+// epoch (UTC) -> "YYYY-MM-DD", or "--" when epoch == 0.
+void fmtDate(uint32_t epoch, char *out, size_t len) {
+  if (epoch == 0) {
+    snprintf(out, len, "--");
+    return;
+  }
+  time_t t = (time_t)epoch;
+  struct tm tmv;
+  gmtime_r(&t, &tmv);
+  snprintf(out, len, "%04d-%02d-%02d", tmv.tm_year + 1900, tmv.tm_mon + 1,
+           tmv.tm_mday);
+}
+
+void clearContent() {
+  if (s_content) lv_obj_clean(s_content);
+  s_dlg = nullptr;
+}
+
+lv_obj_t *makeTitle(const char *text) {
+  lv_obj_t *lbl = lv_label_create(s_content);
+  lv_label_set_text(lbl, text);
+  lv_obj_set_style_text_font(lbl, &lv_font_montserrat_20, 0);
+  lv_obj_align(lbl, LV_ALIGN_TOP_MID, 0, 6);
+  return lbl;
+}
+
+lv_obj_t *makeBtn(lv_obj_t *parent, const char *text, lv_event_cb_t cb,
+                  lv_color_t bg, void *userData = nullptr) {
+  lv_obj_t *btn = lv_btn_create(parent);
+  lv_obj_set_style_bg_color(btn, bg, LV_PART_MAIN);
+  lv_obj_set_style_radius(btn, 8, LV_PART_MAIN);
+  lv_obj_t *lbl = lv_label_create(btn);
+  lv_label_set_text(lbl, text);
+  lv_obj_center(lbl);
+  lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, userData);
+  return btn;
+}
+
+// Same card look as the wizard's baby list (BabyWizard.cpp): tinted fill with
+// a blue border. `accent` marks the tappable-with-actions active rows; the
+// archived rows use a flatter tone but keep identical text contrast.
+void styleCard(lv_obj_t *card, bool accent) {
+  lv_obj_set_style_bg_color(card, lv_color_hex(accent ? 0xE3F0FF : 0xEDF3F9),
+                            LV_PART_MAIN);
+  lv_obj_set_style_border_color(
+      card, lv_color_hex(accent ? 0x0075EE : 0xB8C7D4), LV_PART_MAIN);
+  lv_obj_set_style_border_width(card, 2, LV_PART_MAIN);
+  lv_obj_set_style_radius(card, 8, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(card, lv_color_hex(0xBBD9F7),
+                            LV_PART_MAIN | LV_STATE_PRESSED);
+}
+
+// The explicit text colour is the whole point: lv_btn paints its label white
+// by default, so a light card fill without this renders white-on-white.
+// Width + LONG_DOT keeps a long baby name from running under the ALTA button.
+lv_obj_t *makeCardLabel(lv_obj_t *card, const char *text, lv_coord_t width) {
+  lv_obj_t *lbl = lv_label_create(card);
+  lv_label_set_text(lbl, text);
+  lv_obj_set_style_text_color(lbl, lv_color_hex(0x0B2E4F), 0);
+  lv_obj_set_style_text_font(lbl, &lv_font_montserrat_20, 0);
+  lv_obj_set_width(lbl, width);
+  lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
+  lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 6, 0);
+  return lbl;
+}
+
+void showLoading();
+void showList();
+void showChart();
+void openDischargeDialog(uint32_t seq);
+void requestActive();
+void requestArchived(uint32_t page);
+void closeScreen();
+bool weightHistoryEmpty();
+
+void closeScreen() {
+  if (s_overlay) lv_obj_add_flag(s_overlay, LV_OBJ_FLAG_HIDDEN);
+  clearContent();
+  s_step = HistStep::Closed;
+}
+
+void onCloseClicked(lv_event_t *) { closeScreen(); }
+
+void showLoading() {
+  clearContent();
+  makeTitle(TXT("Cargando...", "Loading...", "Chargement..."));
+  lv_obj_t *close =
+      makeBtn(s_content, "X", onCloseClicked, lv_color_hex(0xAA3333));
+  lv_obj_set_size(close, 44, 44);
+  lv_obj_align(close, LV_ALIGN_TOP_RIGHT, 0, 0);
+}
+
+void requestActive() {
+  Communication_SendProfileListReq();
+  s_step = HistStep::LoadingActive;
+  s_deadlineMs = millis() + RESP_TIMEOUT_MS;
+}
+
+void requestArchived(uint32_t page) {
+  s_page = page;
+  Communication_SendProfileHistoryReq(page);
+  s_step = HistStep::LoadingArchived;
+  s_deadlineMs = millis() + RESP_TIMEOUT_MS;
+}
+
+void requestChart(uint32_t seq, const char *name) {
+  s_chartSeq = seq;
+  snprintf(s_chartName, sizeof(s_chartName), "%s", name);
+  Communication_SendWeightHistoryReq(seq);
+  s_step = HistStep::LoadingChart;
+  s_deadlineMs = millis() + RESP_TIMEOUT_MS;
+  s_retries = 0;
+  showLoading();
+}
+
+// ---- Card tap payloads (static: LVGL user_data must outlive the screen) ----
+struct ActiveRow {
+  uint32_t seq;
+  char name[24];
+};
+ActiveRow s_activeRows[3];
+BabyHistoryItem s_archRows[10];
+
+void onActiveCardTap(lv_event_t *e) {
+  auto *r = (ActiveRow *)lv_event_get_user_data(e);
+  requestChart(r->seq, r->name);
+}
+void onArchCardTap(lv_event_t *e) {
+  auto *r = (BabyHistoryItem *)lv_event_get_user_data(e);
+  requestChart(r->seq, r->name);
+}
+void onDischargeTap(lv_event_t *e) {
+  auto *r = (ActiveRow *)lv_event_get_user_data(e);
+  // Stop the tap from also opening the chart (button sits inside the card).
+  openDischargeDialog(r->seq);
+}
+void onPrevPage(lv_event_t *) {
+  if (s_page > 0) {
+    showLoading();
+    requestArchived(s_page - 1);
+  }
+}
+void onNextPage(lv_event_t *) {
+  if ((s_page + 1) * PAGE_SIZE < s_archived.totalCount) {
+    showLoading();
+    requestArchived(s_page + 1);
+  }
+}
+
+// Minutes -> compact "3h 20m" / "45m". Hours are what a clinician reads
+// for therapy exposure; raw minutes get unwieldy after a few days.
+static void fmtMinutes(uint32_t minutes, char *out, size_t len) {
+  if (minutes < 60u) {
+    snprintf(out, len, "%um", (unsigned)minutes);
+  } else if (minutes % 60u == 0u) {
+    snprintf(out, len, "%uh", (unsigned)(minutes / 60u));
+  } else {
+    snprintf(out, len, "%uh %um", (unsigned)(minutes / 60u),
+             (unsigned)(minutes % 60u));
+  }
+}
+
+void showList() {
+  clearContent();
+  makeTitle(TXT("Bebes", "Babies", "Bebes"));
+
+  lv_obj_t *close =
+      makeBtn(s_content, "X", onCloseClicked, lv_color_hex(0xAA3333));
+  lv_obj_set_size(close, 44, 44);
+  lv_obj_align(close, LV_ALIGN_TOP_RIGHT, 0, 0);
+
+  // Scrollable body: active cards first, then archived entries + paging.
+  lv_obj_t *body = lv_obj_create(s_content);
+  lv_obj_remove_style_all(body);
+  lv_obj_set_size(body, 620, 340);
+  lv_obj_align(body, LV_ALIGN_TOP_MID, 0, 44);
+  lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(body, 8, 0);
+
+  // --- Active section ---
+  lv_obj_t *secA = lv_label_create(body);
+  lv_label_set_text(secA, TXT("Activos", "Active", "Actifs"));
+  lv_obj_set_style_text_font(secA, &lv_font_montserrat_16, 0);
+
+  if (s_active.count == 0) {
+    lv_obj_t *none = lv_label_create(body);
+    lv_label_set_text(none, TXT("Sin bebes activos", "No active babies",
+                                "Aucun bebe actif"));
+  }
+  for (int i = 0; i < s_active.count; i++) {
+    const BabyProfileListItem &it = s_active.items[i];
+    s_activeRows[i].seq = it.seq;
+    snprintf(s_activeRows[i].name, sizeof(s_activeRows[i].name), "%s",
+             it.name);
+
+    lv_obj_t *card = lv_btn_create(body);
+    lv_obj_set_size(card, 600, 76);
+    styleCard(card, true);
+    lv_obj_add_event_cb(card, onActiveCardTap, LV_EVENT_CLICKED,
+                        &s_activeRows[i]);
+
+    char buf[160];
+    char wtxt[16];
+    if (it.weightGrams > 0) {
+      snprintf(wtxt, sizeof(wtxt), "%u g", (unsigned)it.weightGrams);
+    } else {
+      snprintf(wtxt, sizeof(wtxt), "--");
+    }
+    char photoTxt[16], thermoTxt[16];
+    fmtMinutes(it.phototherapyMinutes, photoTxt, sizeof(photoTxt));
+    fmtMinutes(it.thermoMinutes, thermoTxt, sizeof(thermoTxt));
+    snprintf(buf, sizeof(buf),
+             TXT("%s  -  EG %u  -  %s\nCanguro %u  -  Foto %s  -  Termo %s",
+                 "%s  -  GA %u  -  %s\nKangaroo %u  -  Photo %s  -  Thermo %s",
+                 "%s  -  AG %u  -  %s\nKangourou %u  -  Photo %s  -  Thermo %s"),
+             it.name, (unsigned)it.gestWeeks, wtxt,
+             (unsigned)it.kangarooCount, photoTxt, thermoTxt);
+    // 600 card - 150 button - margins: leave the ALTA button clear.
+    makeCardLabel(card, buf, 420);
+
+    lv_obj_t *dis = makeBtn(card, TXT("ALTA", "DISCHARGE", "SORTIE"),
+                            onDischargeTap, lv_color_hex(0xE08800),
+                            &s_activeRows[i]);
+    lv_obj_set_size(dis, 150, 44);
+    lv_obj_align(dis, LV_ALIGN_RIGHT_MID, -4, 0);
+  }
+
+  // --- Archived section ---
+  lv_obj_t *secH = lv_label_create(body);
+  char hdr[64];
+  snprintf(hdr, sizeof(hdr), "%s (%u)",
+           TXT("Historial", "History", "Historique"),
+           (unsigned)s_archived.totalCount);
+  lv_label_set_text(secH, hdr);
+  lv_obj_set_style_text_font(secH, &lv_font_montserrat_16, 0);
+
+  if (s_archived.count == 0) {
+    // An empty archive is the normal state until someone is discharged —
+    // say so, instead of a bare "no records" that reads like a failure.
+    lv_obj_t *none = lv_label_create(body);
+    lv_label_set_text(none, TXT("Aun no se ha dado de alta a ningun bebe",
+                                "No babies discharged yet",
+                                "Aucun bebe encore sorti"));
+  }
+  for (int i = 0; i < s_archived.count; i++) {
+    s_archRows[i] = s_archived.items[i];
+    const BabyHistoryItem &it = s_archRows[i];
+
+    lv_obj_t *card = lv_btn_create(body);
+    lv_obj_set_size(card, 600, 72);
+    styleCard(card, false);
+    lv_obj_add_event_cb(card, onArchCardTap, LV_EVENT_CLICKED, &s_archRows[i]);
+
+    char date[16];
+    fmtDate(it.dischargeEpoch, date, sizeof(date));
+    char buf[192];
+    char photoTxt[16], thermoTxt[16];
+    fmtMinutes(it.phototherapyMinutes, photoTxt, sizeof(photoTxt));
+    fmtMinutes(it.thermoMinutes, thermoTxt, sizeof(thermoTxt));
+    snprintf(buf, sizeof(buf),
+             TXT("%s  -  EG %u  -  %s  -  %s\nCanguro %u  -  Foto %s  -  Termo %s",
+                 "%s  -  GA %u  -  %s  -  %s\nKangaroo %u  -  Photo %s  -  Thermo %s",
+                 "%s  -  AG %u  -  %s  -  %s\nKangourou %u  -  Photo %s  -  Thermo %s"),
+             it.name, (unsigned)it.gestWeeks, outcomeText(it.outcome), date,
+             (unsigned)it.kangarooCount, photoTxt, thermoTxt);
+    makeCardLabel(card, buf, 580);
+  }
+
+  // --- Pagination ---
+  bool hasPrev = s_page > 0;
+  bool hasNext = (s_page + 1) * PAGE_SIZE < s_archived.totalCount;
+  if (hasPrev || hasNext) {
+    lv_obj_t *nav = lv_obj_create(body);
+    lv_obj_remove_style_all(nav);
+    lv_obj_set_size(nav, 600, 52);
+
+    lv_obj_t *prev = makeBtn(nav, "<", onPrevPage,
+                             hasPrev ? lv_color_hex(0x0075EE)
+                                     : lv_color_hex(0xAAAAAA));
+    lv_obj_set_size(prev, 90, 44);
+    lv_obj_align(prev, LV_ALIGN_LEFT_MID, 40, 0);
+    if (!hasPrev) lv_obj_clear_flag(prev, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t *pg = lv_label_create(nav);
+    char pbuf[24];
+    uint32_t totalPages =
+        (s_archived.totalCount + PAGE_SIZE - 1) / PAGE_SIZE;
+    snprintf(pbuf, sizeof(pbuf), "%u / %u", (unsigned)(s_page + 1),
+             (unsigned)(totalPages ? totalPages : 1));
+    lv_label_set_text(pg, pbuf);
+    lv_obj_align(pg, LV_ALIGN_CENTER, 0, 0);
+
+    lv_obj_t *next = makeBtn(nav, ">", onNextPage,
+                             hasNext ? lv_color_hex(0x0075EE)
+                                     : lv_color_hex(0xAAAAAA));
+    lv_obj_set_size(next, 90, 44);
+    lv_obj_align(next, LV_ALIGN_RIGHT_MID, -40, 0);
+    if (!hasNext) lv_obj_clear_flag(next, LV_OBJ_FLAG_CLICKABLE);
+  }
+
+  s_step = HistStep::Showing;
+}
+
+// ---------------- Discharge dialog ----------------
+
+void onOutcomePick(lv_event_t *e) {
+  s_dischargeOutcome = (uint8_t)(uintptr_t)lv_event_get_user_data(e);
+  Communication_SendProfileDischarge(s_dischargeSeq, s_dischargeOutcome);
+  if (s_dlg) {
+    lv_obj_del(s_dlg);
+    s_dlg = nullptr;
+  }
+  s_step = HistStep::WaitingDischargeAck;
+  s_deadlineMs = millis() + RESP_TIMEOUT_MS;
+  showLoading();
+}
+
+void onDialogCancel(lv_event_t *) {
+  // Dismiss without confirming: nothing is sent, profile stays active.
+  if (s_dlg) {
+    lv_obj_del(s_dlg);
+    s_dlg = nullptr;
+  }
+  s_step = HistStep::Showing;
+}
+
+void openDischargeDialog(uint32_t seq) {
+  if (s_step != HistStep::Showing) return;
+  s_dischargeSeq = seq;
+  s_step = HistStep::DischargeDialog;
+
+  s_dlg = lv_obj_create(s_overlay);
+  lv_obj_set_size(s_dlg, 480, 360);
+  lv_obj_center(s_dlg);
+  lv_obj_set_style_radius(s_dlg, 12, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(s_dlg, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+  lv_obj_clear_flag(s_dlg, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_move_foreground(s_dlg);
+  // Flex column instead of hand-computed offsets. The previous layout mixed
+  // TOP_MID offsets with a BOTTOM_MID cancel button, and those are measured
+  // against the *content* box (inside the theme's padding), not the 480x360
+  // outer box — which is how the last outcome button and CANCEL ended up
+  // overlapping. Flex makes the overlap structurally impossible.
+  lv_obj_set_style_pad_all(s_dlg, 12, LV_PART_MAIN);
+  lv_obj_set_flex_flow(s_dlg, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(s_dlg, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                        LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_row(s_dlg, 8, LV_PART_MAIN);
+
+  lv_obj_t *title = lv_label_create(s_dlg);
+  lv_label_set_text(title, TXT("Dar de alta - resultado:",
+                               "Discharge - outcome:",
+                               "Sortie - resultat:"));
+  lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
+
+  static const uint8_t OUTCOMES[4] = {1, 2, 3, 0};
+  for (int i = 0; i < 4; i++) {
+    lv_obj_t *btn = makeBtn(s_dlg, outcomeText(OUTCOMES[i]), onOutcomePick,
+                            lv_color_hex(0x0075EE),
+                            (void *)(uintptr_t)OUTCOMES[i]);
+    lv_obj_set_size(btn, 300, 46);
+  }
+
+  lv_obj_t *cancel = makeBtn(s_dlg, TXT("CANCELAR", "CANCEL", "ANNULER"),
+                             onDialogCancel, lv_color_hex(0x888888));
+  lv_obj_set_size(cancel, 160, 44);
+}
+
+// ---------------- Chart ----------------
+
+void onChartBack(lv_event_t *) {
+  showLoading();
+  s_activeLoaded = false;
+  requestActive();
+}
+
+void showChart() {
+  clearContent();
+
+  char title[64];
+  snprintf(title, sizeof(title), "%s - %s", s_chartName,
+           TXT("Evolucion de peso", "Weight evolution", "Evolution du poids"));
+  makeTitle(title);
+
+  lv_obj_t *back = makeBtn(s_content, TXT("ATRAS", "BACK", "RETOUR"),
+                           onChartBack, lv_color_hex(0x888888));
+  lv_obj_set_size(back, 120, 44);
+  lv_obj_align(back, LV_ALIGN_TOP_LEFT, 0, 0);
+
+  lv_obj_t *close =
+      makeBtn(s_content, "X", onCloseClicked, lv_color_hex(0xAA3333));
+  lv_obj_set_size(close, 44, 44);
+  lv_obj_align(close, LV_ALIGN_TOP_RIGHT, 0, 0);
+
+  if (weightHistoryEmpty()) {
+    lv_obj_t *none = lv_label_create(s_content);
+    lv_label_set_text(none, TXT("Sin datos de peso", "No weight data",
+                                "Pas de donnees de poids"));
+    lv_obj_align(none, LV_ALIGN_CENTER, 0, 0);
+    s_step = HistStep::ShowingChart;
+    return;
+  }
+
+  // Y range: min/max with a 100 g margin, rounded to 100 g.
+  uint16_t wMin = 65535, wMax = 0;
+  uint16_t dMax = 0;
+  for (int i = 0; i < g_weightHistory.count; i++) {
+    if (g_weightHistory.weightGrams[i] < wMin)
+      wMin = g_weightHistory.weightGrams[i];
+    if (g_weightHistory.weightGrams[i] > wMax)
+      wMax = g_weightHistory.weightGrams[i];
+    if (g_weightHistory.dayOffset[i] > dMax)
+      dMax = g_weightHistory.dayOffset[i];
+  }
+  int yLo = ((wMin > 100 ? wMin - 100 : 0) / 100) * 100;
+  int yHi = ((wMax + 199) / 100) * 100;
+
+  lv_obj_t *chart = lv_chart_create(s_content);
+  lv_obj_set_size(chart, 560, 300);
+  // Anchored to the top so the axis labels can't run off the card bottom.
+  lv_obj_align(chart, LV_ALIGN_TOP_MID, 10, 56);
+  // lv_chart draws its tick labels inside its own padding box, and the
+  // default theme reserves nowhere near the draw_size set below — without
+  // this the day-of-life numbers were clipped off the bottom edge.
+  lv_obj_set_style_pad_bottom(chart, 34, LV_PART_MAIN);
+  lv_obj_set_style_pad_left(chart, 55, LV_PART_MAIN);
+  lv_obj_set_style_pad_top(chart, 10, LV_PART_MAIN);
+  lv_obj_set_style_pad_right(chart, 10, LV_PART_MAIN);
+  // SCATTER: real day offsets on X (points are NOT evenly spaced in time).
+  lv_chart_set_type(chart, LV_CHART_TYPE_SCATTER);
+  lv_chart_set_range(chart, LV_CHART_AXIS_PRIMARY_X, 0,
+                     dMax > 0 ? dMax : 1);
+  lv_chart_set_range(chart, LV_CHART_AXIS_PRIMARY_Y, yLo, yHi);
+  lv_chart_set_point_count(chart, g_weightHistory.count);
+  lv_chart_set_axis_tick(chart, LV_CHART_AXIS_PRIMARY_X, 6, 3, 5, 2, true,
+                         30);
+  lv_chart_set_axis_tick(chart, LV_CHART_AXIS_PRIMARY_Y, 6, 3, 5, 2, true,
+                         50);
+
+  lv_chart_series_t *ser =
+      lv_chart_add_series(chart, lv_color_hex(0x0075EE),
+                          LV_CHART_AXIS_PRIMARY_Y);
+  for (int i = 0; i < g_weightHistory.count; i++) {
+    lv_chart_set_next_value2(chart, ser, g_weightHistory.dayOffset[i],
+                             g_weightHistory.weightGrams[i]);
+  }
+
+  // Below the chart's own bottom edge (56 + 300 = 356), clear of the tick
+  // labels now living in the chart's bottom padding.
+  lv_obj_t *xlbl = lv_label_create(s_content);
+  lv_label_set_text(xlbl, TXT("dia de vida", "day of life", "jour de vie"));
+  lv_obj_set_style_text_font(xlbl, &lv_font_montserrat_14, 0);
+  lv_obj_align(xlbl, LV_ALIGN_TOP_RIGHT, -14, 366);
+
+  s_step = HistStep::ShowingChart;
+}
+
+bool weightHistoryEmpty() {
+  return g_weightHistory.count == 0 || g_weightHistory.seq != s_chartSeq;
+}
+
+}  // namespace
+
+void BabyHistory_Init(lv_obj_t *parent) {
+  s_overlay = lv_obj_create(parent);
+  lv_obj_remove_style_all(s_overlay);
+  lv_obj_set_size(s_overlay, DISPLAY_WIDTH, DISPLAY_HEIGHT);
+  lv_obj_set_pos(s_overlay, 0, 0);
+  lv_obj_set_style_bg_color(s_overlay, lv_color_hex(0x000000), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(s_overlay, LV_OPA_70, LV_PART_MAIN);
+  lv_obj_set_style_border_width(s_overlay, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(s_overlay, 0, LV_PART_MAIN);
+  lv_obj_clear_flag(s_overlay, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(s_overlay, LV_OBJ_FLAG_HIDDEN);
+
+  s_card = lv_obj_create(s_overlay);
+  lv_obj_set_size(s_card, 660, 430);
+  lv_obj_center(s_card);
+  lv_obj_set_style_radius(s_card, 12, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(s_card, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+  lv_obj_clear_flag(s_card, LV_OBJ_FLAG_SCROLLABLE);
+
+  s_content = lv_obj_create(s_card);
+  lv_obj_remove_style_all(s_content);
+  lv_obj_set_size(s_content, 640, 410);
+  lv_obj_center(s_content);
+  lv_obj_clear_flag(s_content, LV_OBJ_FLAG_SCROLLABLE);
+}
+
+void BabyHistory_Open(void) {
+  if (s_step != HistStep::Closed) return;
+  s_activeLoaded = false;
+  s_active.count = 0;
+  s_archived = {0, 0, 0, {}};
+  s_retries = 0;
+
+  showLoading();
+  requestActive();
+
+  if (s_overlay) {
+    lv_obj_clear_flag(s_overlay, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(s_overlay);
+  }
+}
+
+void BabyHistory_Poll(void) {
+  if (s_step == HistStep::Closed) return;
+
+  // A critical alarm takes the screen (same rule as the wizard).
+  if (UI_IsCriticalAlarmActive()) {
+    closeScreen();
+    return;
+  }
+
+  switch (s_step) {
+    case HistStep::LoadingActive:
+      if (g_pendingProfileList) {
+        g_pendingProfileList = false;
+        s_active = g_profileList;
+        s_activeLoaded = true;
+        s_retries = 0;
+        requestArchived(0);
+      } else if (millis() > s_deadlineMs) {
+        if (s_retries == 0) {
+          s_retries++;
+          requestActive();
+        } else {
+          UI_ShowToast(TXT("Sin respuesta de la placa",
+                           "No response from board",
+                           "Pas de reponse de la carte"),
+                       3000);
+          s_active.count = 0;
+          s_activeLoaded = true;
+          s_retries = 0;
+          requestArchived(0);
+        }
+      }
+      break;
+
+    case HistStep::LoadingArchived:
+      if (g_pendingBabyHistory) {
+        g_pendingBabyHistory = false;
+        s_archived = g_babyHistory;
+        showList();
+      } else if (millis() > s_deadlineMs) {
+        if (s_retries == 0) {
+          s_retries++;
+          requestArchived(s_page);
+        } else {
+          UI_ShowToast(TXT("No se pudo consultar el historial",
+                           "Could not fetch history",
+                           "Impossible de recuperer l'historique"),
+                       3000);
+          s_archived = {s_page, 0, 0, {}};
+          s_retries = 0;
+          showList();
+        }
+      }
+      break;
+
+    case HistStep::WaitingDischargeAck:
+      if (g_pendingProfileAck) {
+        g_pendingProfileAck = false;
+        if (g_profileAck == 0) {
+          UI_ShowToast(TXT("Alta rechazada", "Discharge refused",
+                           "Sortie refusee"),
+                       3000);
+        } else {
+          UI_ShowToast(TXT("Bebe dado de alta", "Baby discharged",
+                           "Bebe sorti"),
+                       2500);
+        }
+        // Refresh both sections (discharged baby moved active -> archived).
+        s_retries = 0;
+        showLoading();
+        requestActive();
+      } else if (millis() > s_deadlineMs) {
+        UI_ShowToast(TXT("Sin respuesta de la placa", "No response from board",
+                         "Pas de reponse de la carte"),
+                     3000);
+        s_retries = 0;
+        showLoading();
+        requestActive();
+      }
+      break;
+
+    case HistStep::LoadingChart:
+      if (g_pendingWeightHistory) {
+        g_pendingWeightHistory = false;
+        showChart();
+      } else if (millis() > s_deadlineMs) {
+        if (s_retries == 0) {
+          s_retries++;
+          Communication_SendWeightHistoryReq(s_chartSeq);
+          s_deadlineMs = millis() + RESP_TIMEOUT_MS;
+        } else {
+          // No data / no response: render the empty chart state, not a crash.
+          g_weightHistory.count = 0;
+          g_weightHistory.seq = s_chartSeq;
+          showChart();
+        }
+      }
+      break;
+
+    default:
+      break;  // Showing/DischargeDialog/ShowingChart are event-driven
+  }
+}

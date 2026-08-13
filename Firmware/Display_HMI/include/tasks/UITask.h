@@ -34,6 +34,16 @@ void HistoryDropdown_cb(lv_event_t *e);
 void ScreenCharts_load_cb(lv_event_t *e);
 void ui_set_switch_state_silent(lv_obj_t *sw, bool on);
 void temp_content_set_visible(bool visible);
+void UI_ShowToast(const char *msg, uint32_t ms);
+void ActivateTempControlUI(bool isAirMode);
+// Resumes the phototherapy switch flow once the baby-data wizard finishes.
+void ActivatePhototherapyFromWizard();
+void computeAndSendActuation(void);
+bool UI_IsCriticalAlarmActive(void);
+// True while any therapy is running (temperature, humidity or phototherapy),
+// i.e. while a baby is under care. Gates both the baby-exit dialog and
+// BabyWizard's already-identified-baby shortcut.
+bool UI_AnyControlActive(void);
 void UI_UpdatePowerBars(int tempPwm, int humPwm);
 void UI_ApplyLanguage(ui_lang_t lang);
 void UI_SyncAll();

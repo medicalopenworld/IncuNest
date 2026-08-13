@@ -5,6 +5,7 @@
 #include "main.h"
 #include "ui.h"
 #include <cstdio>
+#include <cstdlib>
 #include <string.h>
 
 static const char *TAG = "CommTask";
@@ -19,6 +20,20 @@ ControlBoard_Message_PPG ctrl_ppg_msg     = {0, false};
 ControlBoard_Message_VIT ctrl_vit_msg     = {0, 0, 0.0f, false};
 ControlBoard_Message_Probe ctrl_probe_msg = {SPO2_PROBE_DISCONNECTED, false};
 int g_skinProbeState = SKIN_PROBE_NOT_CONNECTED; // Last received skin probe state
+
+// --- Baby profile wizard protocol state ---
+volatile bool       g_pendingProfileList = false;
+BabyProfileListMsg  g_profileList = {0, {}};
+volatile bool       g_pendingProfileAck = false;
+uint32_t            g_profileAck = 0;
+volatile bool       g_pendingProfileRange = false;
+BabyProfileRangeMsg g_profileRange = {0, false, 0, -1.0f, -1.0f, -1.0f, true};
+
+// --- Baby history viewer protocol state ---
+volatile bool        g_pendingBabyHistory = false;
+BabyHistoryMsg       g_babyHistory = {0, 0, 0, {}};
+volatile bool        g_pendingWeightHistory = false;
+BabyWeightHistoryMsg g_weightHistory = {0, 0, {}, {}};
 
 // --- Power Off countdown state (written here, read by UITask) ---
 volatile bool g_pwrOffActive = false;
@@ -38,6 +53,15 @@ static TaskHandle_t s_comm_task_handle = NULL;
 bool error = false;
 static char rxBuffer[COMM_RX_BUFFER_SIZE];
 static int rxIndex = 0;
+
+// Motherboard-provided wall clock (CTRL,TIME). 0 = not synced there yet.
+static uint32_t s_mbEpoch = 0;
+static uint32_t s_mbEpochAtMs = 0;
+
+uint32_t HMI_GetEpochNow() {
+  if (s_mbEpoch == 0) return 0;
+  return s_mbEpoch + (millis() - s_mbEpochAtMs) / 1000u;
+}
 
 // --- Phototherapy Timer (from UITask.cpp) ---
 extern int photoTimerMinutes;
@@ -85,15 +109,78 @@ void Communication_SendWiFiCredentials(const char *ssid, const char *password) {
 #endif
 }
 
+// --- Baby profile wizard protocol (PROTOCOL.md v1.6.0) ---
+void Communication_SendProfileListReq(void) {
+#if IS_HMI
+  COMM_SERIAL.print("HMI,PROFILE_LIST_REQ\n");
+#endif
+}
+
+void Communication_SendProfileNew(const char *name, uint8_t gestWeeks) {
+#if IS_HMI
+  COMM_SERIAL.printf("HMI,PROFILE_NEW,%s,%u\n", name, (unsigned)gestWeeks);
+#endif
+}
+
+void Communication_SendProfileSelect(uint32_t seq) {
+#if IS_HMI
+  COMM_SERIAL.printf("HMI,PROFILE_SELECT,%u\n", (unsigned)seq);
+#endif
+}
+
+void Communication_SendProfileWeight(uint32_t seq, uint16_t grams) {
+#if IS_HMI
+  if (grams == 0) {
+    COMM_SERIAL.printf("HMI,PROFILE_WEIGHT,%u,SKIP\n", (unsigned)seq);
+  } else {
+    COMM_SERIAL.printf("HMI,PROFILE_WEIGHT,%u,%u\n", (unsigned)seq,
+                       (unsigned)grams);
+  }
+#endif
+}
+
+void Communication_SendProfileAgeManual(uint32_t seq, uint16_t ageDays) {
+#if IS_HMI
+  COMM_SERIAL.printf("HMI,PROFILE_AGE_MANUAL,%u,%u\n", (unsigned)seq,
+                     (unsigned)ageDays);
+#endif
+}
+
+void Communication_SendProfileDischarge(uint32_t seq, uint8_t outcome) {
+#if IS_HMI
+  COMM_SERIAL.printf("HMI,PROFILE_DISCHARGE,%u,%u\n", (unsigned)seq,
+                     (unsigned)outcome);
+#endif
+}
+
+// Baby taken out to be with the mother. Deliberately NOT a discharge:
+// the motherBoard keeps the profile in its active slot.
+void Communication_SendProfileKangaroo(uint32_t seq) {
+#if IS_HMI
+  COMM_SERIAL.printf("HMI,PROFILE_KANGAROO,%u\n", (unsigned)seq);
+#endif
+}
+
+void Communication_SendProfileHistoryReq(uint32_t page) {
+#if IS_HMI
+  COMM_SERIAL.printf("HMI,PROFILE_HISTORY_REQ,%u\n", (unsigned)page);
+#endif
+}
+
+void Communication_SendWeightHistoryReq(uint32_t seq) {
+#if IS_HMI
+  COMM_SERIAL.printf("HMI,WEIGHT_HISTORY_REQ,%u\n", (unsigned)seq);
+#endif
+}
+
 static void SendMessageToOtherESP() {
 #if IS_HMI
   COMM_SERIAL.printf(
-      "HMI,%d,%d,%d,%0.2f,%0.2f,%0.0f,%d,%d,%d,%d,%d,%d,%d\n", hmi_msg.actuation,
+      "HMI,%d,%d,%d,%0.2f,%0.2f,%0.0f,%d,%d,%d,%d\n", hmi_msg.actuation,
       (int)hmi_msg.skinModeEnabled, hmi_msg.controlMode,
       hmi_msg.desiredAirTemperature, hmi_msg.desiredSkinTemperature,
       hmi_msg.desiredHumidity, hmi_msg.phototherapyMode, hmi_msg.muteAlarm,
-      hmi_msg.language, hmi_msg.photoMinutesRemaining,
-      hmi_msg.babyWeightGrams, hmi_msg.babyGestWeeks, hmi_msg.babyAgeDays);
+      hmi_msg.language, hmi_msg.photoMinutesRemaining);
 #else
   COMM_SERIAL.printf("CTRL,%0.2f,%0.2f,%0.2f,%0.2f,%0.2f\n",
                      ctrl_msg.temperature[0], ctrl_msg.temperature[1],
@@ -244,12 +331,213 @@ static void parse_message(const char *line) {
     } else {
       COMM_LOG("[COMM] CTRL,WIFI parse error: %s\n", line);
     }
+  } else if (strncmp(line, "CTRL,TIME,", 10) == 0) {
+    unsigned long epoch = 0;
+    if (sscanf(line, "CTRL,TIME,%lu", &epoch) == 1) {
+      s_mbEpoch = (uint32_t)epoch;
+      s_mbEpochAtMs = millis();
+    } else {
+      COMM_LOG("[COMM] TIME parse error: %s\n", line);
+    }
   } else if (strncmp(line, "CTRL,DUTY", 9) == 0) {
     int t = 0, h = 0;
     if (sscanf(line, "CTRL,DUTY,%d,%d", &t, &h) == 2) {
       g_tempDutyPwm      = t;
       g_humDutyPwm       = h;
       g_pendingDutyApply = true;
+    }
+  } else if (strncmp(line, "CTRL,PROFILE_LIST", 17) == 0) {
+    // CTRL,PROFILE_LIST,<n>{,<seq>,<name>,<gestWeeks>,<weightGrams>}xn
+    // Manual comma-split (variable arity) — validate every field before
+    // indexing/using it; malformed lines are silently discarded (security.md).
+    char buf[COMM_RX_BUFFER_SIZE];
+    strncpy(buf, line, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+    char *save = nullptr;
+    strtok_r(buf, ",", &save);       // "CTRL"
+    strtok_r(nullptr, ",", &save);   // "PROFILE_LIST"
+    char *nTok = strtok_r(nullptr, ",", &save);
+    char *endp = nullptr;
+    long n = nTok ? strtol(nTok, &endp, 10) : -1;
+    bool ok = (nTok != nullptr) && endp && *endp == '\0' && n >= 0 && n <= 3;
+    BabyProfileListMsg msg;
+    msg.count = ok ? (int)n : 0;
+    for (int i = 0; ok && i < n; i++) {
+      char *seqTok = strtok_r(nullptr, ",", &save);
+      char *nameTok = strtok_r(nullptr, ",", &save);
+      char *gestTok = strtok_r(nullptr, ",", &save);
+      char *wTok = strtok_r(nullptr, ",", &save);
+      char *kTok = strtok_r(nullptr, ",", &save);
+      char *ptTok = strtok_r(nullptr, ",", &save);
+      char *thTok = strtok_r(nullptr, ",", &save);
+      if (!seqTok || !nameTok || !gestTok || !wTok || !kTok || !ptTok ||
+          !thTok) {
+        ok = false;
+        break;
+      }
+      char *e1, *e2, *e3, *e4, *e5, *e6;
+      long seq = strtol(seqTok, &e1, 10);
+      long gest = strtol(gestTok, &e2, 10);
+      long w = strtol(wTok, &e3, 10);
+      long kang = strtol(kTok, &e4, 10);
+      unsigned long photoMin = strtoul(ptTok, &e5, 10);
+      unsigned long thermoMin = strtoul(thTok, &e6, 10);
+      if (*e1 || *e2 || *e3 || *e4 || *e5 || *e6 || seq < 0 || gest < 0 ||
+          gest > 255 || w < 0 || w > 65535 || kang < 0 || kang > 65535) {
+        ok = false;
+        break;
+      }
+      msg.items[i].seq = (uint32_t)seq;
+      snprintf(msg.items[i].name, sizeof(msg.items[i].name), "%s", nameTok);
+      msg.items[i].gestWeeks = (uint8_t)gest;
+      msg.items[i].weightGrams = (uint16_t)w;
+      msg.items[i].kangarooCount = (uint16_t)kang;
+      msg.items[i].phototherapyMinutes = (uint32_t)photoMin;
+      msg.items[i].thermoMinutes = (uint32_t)thermoMin;
+      msg.items[i].thermoMinutes = (uint32_t)thermoMin;
+    }
+    if (ok) {
+      g_profileList = msg;
+      g_pendingProfileList = true;
+    } else {
+      COMM_LOG("[COMM] PROFILE_LIST malformed: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,PROFILE_ACK", 16) == 0) {
+    unsigned seq = 0;
+    if (sscanf(line, "CTRL,PROFILE_ACK,%u", &seq) == 1) {
+      g_profileAck = (uint32_t)seq;
+      g_pendingProfileAck = true;
+    } else {
+      COMM_LOG("[COMM] PROFILE_ACK parse error: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,PROFILE_RANGE", 18) == 0) {
+    unsigned seq = 0;
+    int ageKnown = 0, ageDays = 0, estimated = 0;
+    float lo = -1.0f, hi = -1.0f, mid = -1.0f;
+    if (sscanf(line, "CTRL,PROFILE_RANGE,%u,%d,%d,%f,%f,%f,%d", &seq,
+               &ageKnown, &ageDays, &lo, &hi, &mid, &estimated) == 7 &&
+        ageDays >= 0 && ageDays <= 65535) {
+      g_profileRange.seq = (uint32_t)seq;
+      g_profileRange.ageKnown = (ageKnown != 0);
+      g_profileRange.ageDays = (uint16_t)ageDays;
+      g_profileRange.lo = lo;
+      g_profileRange.hi = hi;
+      g_profileRange.mid = mid;
+      g_profileRange.estimated = (estimated != 0);
+      g_pendingProfileRange = true;
+    } else {
+      COMM_LOG("[COMM] PROFILE_RANGE parse error: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,PROFILE_HISTORY", 20) == 0) {
+    // CTRL,PROFILE_HISTORY,<page>,<totalCount>,<n>{,<seq>,<name>,<gestWeeks>,
+    //   <lastWeightGrams>,<admissionEpoch>,<dischargeEpoch>,<outcome>}xn
+    // Same manual comma-split pattern as PROFILE_LIST: every field validated
+    // before use, malformed line = silent discard (security.md).
+    char buf[COMM_RX_BUFFER_SIZE];
+    strncpy(buf, line, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+    char *save = nullptr;
+    strtok_r(buf, ",", &save);      // "CTRL"
+    strtok_r(nullptr, ",", &save);  // "PROFILE_HISTORY"
+    char *pageTok = strtok_r(nullptr, ",", &save);
+    char *totTok = strtok_r(nullptr, ",", &save);
+    char *nTok = strtok_r(nullptr, ",", &save);
+    char *e0 = nullptr, *e1 = nullptr, *e2 = nullptr;
+    long page = pageTok ? strtol(pageTok, &e0, 10) : -1;
+    long tot = totTok ? strtol(totTok, &e1, 10) : -1;
+    long n = nTok ? strtol(nTok, &e2, 10) : -1;
+    bool ok = pageTok && totTok && nTok && e0 && !*e0 && e1 && !*e1 && e2 &&
+              !*e2 && page >= 0 && tot >= 0 && n >= 0 && n <= 10;
+    BabyHistoryMsg msg;
+    msg.page = ok ? (uint32_t)page : 0;
+    msg.totalCount = ok ? (uint32_t)tot : 0;
+    msg.count = ok ? (int)n : 0;
+    for (int i = 0; ok && i < n; i++) {
+      char *seqTok = strtok_r(nullptr, ",", &save);
+      char *nameTok = strtok_r(nullptr, ",", &save);
+      char *gestTok = strtok_r(nullptr, ",", &save);
+      char *wTok = strtok_r(nullptr, ",", &save);
+      char *admTok = strtok_r(nullptr, ",", &save);
+      char *disTok = strtok_r(nullptr, ",", &save);
+      char *ocTok = strtok_r(nullptr, ",", &save);
+      char *kTok = strtok_r(nullptr, ",", &save);
+      char *ptTok = strtok_r(nullptr, ",", &save);
+      char *thTok = strtok_r(nullptr, ",", &save);
+      if (!seqTok || !nameTok || !gestTok || !wTok || !admTok || !disTok ||
+          !ocTok || !kTok || !ptTok || !thTok) {
+        ok = false;
+        break;
+      }
+      char *p1, *p2, *p3, *p4, *p5, *p6, *p7, *p8, *p9;
+      long seq = strtol(seqTok, &p1, 10);
+      long gest = strtol(gestTok, &p2, 10);
+      long w = strtol(wTok, &p3, 10);
+      unsigned long adm = strtoul(admTok, &p4, 10);
+      unsigned long dis = strtoul(disTok, &p5, 10);
+      long oc = strtol(ocTok, &p6, 10);
+      long kang = strtol(kTok, &p7, 10);
+      unsigned long photoMin = strtoul(ptTok, &p8, 10);
+      unsigned long thermoMin = strtoul(thTok, &p9, 10);
+      if (*p1 || *p2 || *p3 || *p4 || *p5 || *p6 || *p7 || *p8 || *p9 ||
+          seq < 0 ||
+          gest < 0 || gest > 255 || w < 0 || w > 65535 || oc < 0 || oc > 3 ||
+          kang < 0 || kang > 65535) {
+        ok = false;
+        break;
+      }
+      msg.items[i].seq = (uint32_t)seq;
+      snprintf(msg.items[i].name, sizeof(msg.items[i].name), "%s", nameTok);
+      msg.items[i].gestWeeks = (uint8_t)gest;
+      msg.items[i].lastWeightGrams = (uint16_t)w;
+      msg.items[i].admissionEpoch = (uint32_t)adm;
+      msg.items[i].dischargeEpoch = (uint32_t)dis;
+      msg.items[i].outcome = (uint8_t)oc;
+      msg.items[i].kangarooCount = (uint16_t)kang;
+      msg.items[i].phototherapyMinutes = (uint32_t)photoMin;
+    }
+    if (ok) {
+      g_babyHistory = msg;
+      g_pendingBabyHistory = true;
+    } else {
+      COMM_LOG("[COMM] PROFILE_HISTORY malformed: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,WEIGHT_HISTORY", 19) == 0) {
+    // CTRL,WEIGHT_HISTORY,<seq>,<n>{,<dayOffset>,<weightGrams>}xn — n<=50.
+    char buf[COMM_RX_BUFFER_SIZE];
+    strncpy(buf, line, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+    char *save = nullptr;
+    strtok_r(buf, ",", &save);      // "CTRL"
+    strtok_r(nullptr, ",", &save);  // "WEIGHT_HISTORY"
+    char *seqTok = strtok_r(nullptr, ",", &save);
+    char *nTok = strtok_r(nullptr, ",", &save);
+    char *e0 = nullptr, *e1 = nullptr;
+    long seq = seqTok ? strtol(seqTok, &e0, 10) : -1;
+    long n = nTok ? strtol(nTok, &e1, 10) : -1;
+    bool ok = seqTok && nTok && e0 && !*e0 && e1 && !*e1 && seq >= 0 &&
+              n >= 0 && n <= 50;
+    BabyWeightHistoryMsg msg;
+    msg.seq = ok ? (uint32_t)seq : 0;
+    msg.count = ok ? (int)n : 0;
+    for (int i = 0; ok && i < n; i++) {
+      char *dTok = strtok_r(nullptr, ",", &save);
+      char *wTok = strtok_r(nullptr, ",", &save);
+      if (!dTok || !wTok) { ok = false; break; }
+      char *p1, *p2;
+      long d = strtol(dTok, &p1, 10);
+      long w = strtol(wTok, &p2, 10);
+      if (*p1 || *p2 || d < 0 || d > 65535 || w < 0 || w > 65535) {
+        ok = false;
+        break;
+      }
+      msg.dayOffset[i] = (uint16_t)d;
+      msg.weightGrams[i] = (uint16_t)w;
+    }
+    if (ok) {
+      g_weightHistory = msg;
+      g_pendingWeightHistory = true;
+    } else {
+      COMM_LOG("[COMM] WEIGHT_HISTORY malformed: %s\n", line);
     }
   }
 #endif
