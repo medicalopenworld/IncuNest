@@ -797,11 +797,11 @@ void reestartOngoingAlarms()
 
 void checkAlarms()
 {
-  // Only evaluate after stabilization period has elapsed
-  if (millis() - lastAlarmTrigger[TEMPERATURE_ALARM] >=
-      minsToMillis(ACTUATORS_ALARM_STABILIZATION_MINS))
+  if (in3.temperatureControl)
   {
-    if (in3.temperatureControl)
+    // Only evaluate after stabilization period has elapsed
+    if (millis() - lastAlarmTrigger[TEMPERATURE_ALARM] >=
+        minsToMillis(ACTUATORS_ALARM_STABILIZATION_MINS))
     {
       if (in3.controlMode)
       {
@@ -817,6 +817,15 @@ void checkAlarms()
                     lastAlarmTrigger[TEMPERATURE_ALARM], true);
     }
   }
+  else if (alarmOnGoing[TEMPERATURE_ALARM])
+  {
+    // Temperature control was switched off while the alarm was latched
+    // (e.g. actuation moved to humidity-only or off) - evaluateAlarm() above
+    // is the only place that can clear it, so without this branch it would
+    // stay on forever since it's never called with control disabled.
+    resetAlarm(TEMPERATURE_ALARM);
+  }
+
   if (in3.humidityControl)
   {
     // Only evaluate after stabilization period has elapsed
@@ -828,6 +837,10 @@ void checkAlarms()
                     HUMIDITY_ERROR_HYSTERESIS,
                     lastAlarmTrigger[HUMIDITY_ALARM], true);
     }
+  }
+  else if (alarmOnGoing[HUMIDITY_ALARM])
+  {
+    resetAlarm(HUMIDITY_ALARM);
   }
 }
 
