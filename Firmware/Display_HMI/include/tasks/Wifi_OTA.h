@@ -26,10 +26,19 @@
 #define WIFI_RECONNECT_INTERVAL 30000     // 30 seconds (base interval — no bajar, ver comentario arriba)
 // Backoff exponencial tras fallos consecutivos de reconexión (NO_AP_FOUND
 // prolongado observado en campo: bucles de 30s durante 50+ minutos seguidos
-// martillean WiFi.begin() sin parar, cada uno con su golpe de escritura NVS
-// -> glitch LCD). Duplica el intervalo tras cada intento fallido hasta este
-// tope; se resetea a WIFI_RECONNECT_INTERVAL en el próximo STA_GOT_IP.
-#define WIFI_RECONNECT_MAX_INTERVAL 300000 // 5 minutos (tope del backoff)
+// martillean WiFi.begin() sin parar). Duplica el intervalo tras cada intento
+// fallido hasta este tope; se resetea a WIFI_RECONNECT_INTERVAL en el próximo
+// STA_GOT_IP y en un intento manual (ver wifiResetReconnectBackoff).
+//
+// El tope era 5 minutos porque se asumía que cada reintento costaba una
+// escritura NVS (-> glitch LCD). Esa premisa ya no aplica: WiFi.persistent(false)
+// eliminó esa escritura. Medido en campo, cada WiFi.begin() cuesta 5-20 ms y el
+// panel no se entera (LCD_DIAG: worst_frame ~20.7 ms estable durante los
+// reintentos). El tope de 5 min solo añadía hasta 5 minutos de desconexión con
+// el AP ya disponible: el HMI se quedaba esperando y solo reconectaba al pulsar
+// "Conectar" a mano. 60 s mantiene el freno para una caída larga del AP
+// (60 reintentos/hora en vez de 120) sin castigar la recuperación.
+#define WIFI_RECONNECT_MAX_INTERVAL 60000 // 1 minuto (tope del backoff)
 #define THINGSBOARD_RECONNECT_DELAY 30000 // 30 seconds
 #define WIFI_OTA_CHECK_INTERVAL 60000     // 1 minute
 
@@ -63,6 +72,7 @@ void WifiOTAHandler(void);
 void WIFI_TB_OTA();
 void wifiInit(void);
 void wifiApplyNewCredentials(const char* ssid, const char* pass);
+void wifiResetReconnectBackoff(void);
 void CreateOTATask();
 
 void progressCallback(const uint32_t &currentChunk,

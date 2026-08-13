@@ -2465,6 +2465,10 @@ void WifiConnectButton_cb(lv_event_t *e) {
   Communication_SendWiFiCredentials(pendingSSID, pendingPass);
   vTaskDelay(
       pdMS_TO_TICKS(100)); // Ensure serial is clear before WiFi logs start
+  // El backoff acumulado por reintentos automáticos previos no debe penalizar a
+  // quien pulsa "Conectar": si este intento falla, el siguiente automático debe
+  // volver a los 30s base y no al tope.
+  wifiResetReconnectBackoff();
   wifiInit();              // Trigger new connection attempt
   // isConnected se actualiza en el loop principal via WiFi.status()
 }
