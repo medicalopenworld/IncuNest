@@ -1,0 +1,47 @@
+schema: spec-driven
+
+context: |
+  Project: IncuNest, a neonatal incubator medical device with two cooperating
+  boards: `motherBoard` (control, sensors, alarms, connectivity) and
+  `Display_HMI` (LVGL touch UI), plus `Firmware/shared/` (header-only library
+  of protocol types/enums consumed by both via `lib_extra_dirs = ../shared`
+  in each board's platformio.ini).
+  Scope of this OpenSpec root: `motherBoard/`, `Display_HMI/`, `shared/` only.
+  `Firmware/SensorBoard_v2/` is a separate ESP-IDF sub-project with its own
+  independent OpenSpec root (`SensorBoard_v2/openspec/`) — never mix changes
+  or specs across the two roots.
+  Framework: PlatformIO + Arduino, C++17, on both boards.
+  Protocol: `Firmware/PROTOCOL.md` documents the motherBoard<->HMI link —
+  ASCII CSV over UART, no CRC. Any line parser must validate field count and
+  numeric parseability before indexing, and discard malformed/truncated
+  lines silently (see `.claude/rules/security.md`).
+  Testing: TDD with Unity is mandatory only where a real test environment
+  exists today — motherBoard's `[env:native]` (host, no hardware,
+  `pio test -e native`), currently covering `modules/control/alarm_machine.cpp`
+  and `pid_wrapper.cpp` via `build_src_filter`. Extending that filter to cover
+  new pure logic (e.g. a new shared header/source) requires new Unity tests
+  in the same commit. Everywhere else (rest of motherBoard, all of
+  Display_HMI — no test env exists there) verification is manual and must be
+  documented explicitly (what was compiled, what was tested on real
+  hardware) — never claim test coverage that doesn't exist.
+  Known issues: `Firmware/docs/known_issues.md` documents 5 real production
+  bugs (phantom alarms, UART flooding, language desync, phototherapy timer
+  ownership, CH340 bootload race). Before touching alarms, serial comms, or
+  boot/flash, read it and confirm a change doesn't reintroduce a fixed bug.
+  Conventions: Conventional Commits, gitflow (feat/*, meta/* -> dev ->
+  release/* -> main), sole author Pablo Sanchez Bergasa (GitHub: pablo18393)
+  — never attribute commits to Claude/Anthropic. Solo-developer project, not
+  a team — don't assume multi-engineer PR review conventions. A single
+  commit should not mix changes to two different boards unless the change is
+  genuinely in `shared/` (affects both by design) — see `.claude/rules/commits.md`.
+
+rules:
+  proposal:
+    - "State which board(s) are affected in the first paragraph (motherBoard, Display_HMI, shared, or a combination)."
+    - "If the change touches an area with a documented bug in Firmware/docs/known_issues.md, reference it explicitly."
+  tasks:
+    - "Group tasks into phases by board/area (shared -> motherBoard -> Display_HMI, or similar) so each phase can land as its own atomic commit per Firmware/.claude/rules/commits.md."
+    - "Mark any manual-hardware-verification task explicitly as manual (no test env claim) where no automated test environment exists."
+  specs:
+    - "Every scenario uses the real OpenSpec scenario format: a '#### Scenario:' heading with **WHEN**/**AND**/**THEN** lines."
+    - "Every testable scenario notes which test environment covers it (motherBoard [env:native]) or is marked explicitly as manual verification."

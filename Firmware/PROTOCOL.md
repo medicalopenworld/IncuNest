@@ -1,4 +1,4 @@
-# Protocolo de Comunicación IncuNest (v1.5.0)
+# Protocolo de Comunicación IncuNest (v2.0.0)
 
 Este documento describe el protocolo de comunicación serie utilizado entre la Motherboard (MCU) y el Display (HMI).
 
@@ -26,6 +26,60 @@ Enviado cuando una alarma cambia de estado.
 **Formato**: `CTRL,ALM,id,short_text,long_text,active`
 - `active`: `1` (Activa), `0` (Eliminada).
 
+#### CTRL,TIME (Reloj de pared)
+Enviado cada 10 segundos (y una vez al arrancar la tarea de comunicación).
+**Formato**: `CTRL,TIME,epoch`
+- `epoch`: hora Unix UTC de la motherboard, o `0` si aún no ha sincronizado.
+- La motherboard es la **única** fuente de hora del sistema (NTP por WiFi);
+  el HMI no tiene RTC ni sincroniza por su cuenta. El HMI interpola con su
+  propio `millis()` entre difusiones (`HMI_GetEpochNow()`).
+- Cadencia de 10 s a propósito, no 1 Hz: el HMI solo la necesita para
+  formatear fechas, y `known_issues.md` #2 desaconseja añadir tráfico UART
+  periódico evitable.
+
+#### CTRL,PROFILE_LIST (Respuesta a HMI,PROFILE_LIST_REQ)
+Lista de los perfiles de bebé activos (0–3 slots).
+**Formato**: `CTRL,PROFILE_LIST,n{,seq,name,gestWeeks,weightGrams,kangarooCount,phototherapyMin,thermoMin}×n`
+- `weightGrams`: `0` = nunca informado (SKIP).
+- `kangarooCount`: veces que el bebé ha salido con la madre.
+- `phototherapyMin` / `thermoMin`: minutos acumulados **de ese bebé** bajo
+  fototerapia y bajo control térmico. No confundir con los contadores de
+  vida del equipo (`Phototherapy_active_time`, `Control_active_time`).
+
+#### CTRL,PROFILE_ACK (Respuesta a PROFILE_NEW / PROFILE_SELECT / PROFILE_DISCHARGE)
+Confirma la operación con el `seq` afectado.
+**Formato**: `CTRL,PROFILE_ACK,seq`
+- Tras `PROFILE_NEW`: `seq` es el identificador recién asignado (el HMI lo
+  usa en el resto del flujo). `seq=0` = operación rechazada (p. ej. no hay
+  slot elegible para desalojo porque el candidato está controlando ahora).
+- Tras `PROFILE_SELECT`/`PROFILE_DISCHARGE`: eco del `seq`, o `0` si el
+  `seq` no existe.
+
+#### CTRL,PROFILE_RANGE (Respuesta a PROFILE_WEIGHT / PROFILE_AGE_MANUAL)
+Rango NTE calculado por la motherboard (tabla clínica en `shared/nte_table`).
+**Formato**: `CTRL,PROFILE_RANGE,seq,ageKnown,ageDays,lo,hi,mid,estimated`
+- `ageKnown=0`: la placa no pudo derivar la edad (sin hora sincronizada o
+  perfil sin `admissionEpoch`); el HMI debe preguntarla y responder con
+  `HMI,PROFILE_AGE_MANUAL`. En ese caso `lo/hi/mid` llegan como `-1.0`.
+- `estimated=1` con `lo=hi=mid=-1.0`: sin rango automático (peso SKIP o
+  fuera de tabla). El HMI arranca AIR en manual y bloquea SKIN.
+
+#### CTRL,PROFILE_HISTORY (Respuesta a HMI,PROFILE_HISTORY_REQ)
+Página del historial de bebés archivados, más recientes primero.
+**Formato**: `CTRL,PROFILE_HISTORY,page,totalCount,n{,seq,name,gestWeeks,lastWeightGrams,admissionEpoch,dischargeEpoch,outcome,kangarooCount,phototherapyMin,thermoMin}×n`
+- `outcome`: `0`=Desconocido, `1`=Sobrevivió, `2`=Fallecido, `3`=Trasladado.
+- `dischargeEpoch=0`: nunca se dio de alta explícitamente (desalojo FIFO).
+- Longitud máxima de línea (10 entradas, todos los campos al ancho máximo):
+  ~950 caracteres. Buffers dimensionados a 1280 en ambas placas.
+
+#### CTRL,WEIGHT_HISTORY (Respuesta a HMI,WEIGHT_HISTORY_REQ)
+Curva de evolución de peso, submuestreada a ≤50 puntos equiespaciados.
+**Formato**: `CTRL,WEIGHT_HISTORY,seq,n{,dayOffset,weightGrams}×n`
+- `dayOffset`: días de vida desde la admisión (o desde el primer punto si
+  la admisión no tiene fecha).
+- Longitud máxima de línea (peor caso, n=50): <700 caracteres — el buffer
+  RX del HMI debe dimensionarse en consecuencia (≥1024).
+
 ### 2. Mensajes del Display (HMI → MCU)
 
 #### HMI,UI_READY (Handshake Crítico)
@@ -36,8 +90,77 @@ Enviado una sola vez cuando la interfaz gráfica del HMI está completamente car
 Enviado cuando el usuario cambia un parámetro.
 **Formato**: `HMI,act,skinE,mode,airSet,skinSet,humSet,photo,mute,lang,photoMin`
 
+> Nota (v2.0.0): las versiones 1.5.x reales añadían 3 campos extra no
+> documentados (`babyWeightGrams,babyGestWeeks,babyAgeDays`) a esta línea.
+> Esos campos se han eliminado — los datos del bebé viajan ahora por los
+> mensajes `PROFILE_*` dedicados. Ambas placas deben flashearse juntas
+> (cambio breaking sin shim de compatibilidad, por diseño).
+
 #### HMI,REQ,STATE
 Solicitud manual de sincronización completa.
+
+#### HMI,PROFILE_LIST_REQ
+Pide la lista de perfiles activos. Respuesta: `CTRL,PROFILE_LIST`.
+
+#### HMI,PROFILE_NEW
+Crea un perfil de bebé nuevo (el wizard de activación).
+**Formato**: `HMI,PROFILE_NEW,name,gestWeeks`
+- `name`: sin comas (el teclado del HMI bloquea la tecla; la placa además
+  las filtra defensivamente). Máx. 23 caracteres.
+- Respuesta: `CTRL,PROFILE_ACK,seq`. Si los 3 slots están llenos, se
+  desaloja por FIFO (menor `seq`) el que no esté controlando (`activeSeq`).
+
+#### HMI,PROFILE_SELECT
+Selecciona un bebé existente para el wizard.
+**Formato**: `HMI,PROFILE_SELECT,seq` → `CTRL,PROFILE_ACK,seq|0`
+
+#### HMI,PROFILE_WEIGHT
+Peso actual del bebé del wizard (o SKIP si no se conoce).
+**Formato**: `HMI,PROFILE_WEIGHT,seq,grams` o `HMI,PROFILE_WEIGHT,seq,SKIP`
+- Con peso: actualiza el último peso conocido y añade un punto
+  `(timestamp,grams)` a la curva de evolución (deduplicado si no cambió).
+- Respuesta: `CTRL,PROFILE_RANGE`.
+- Hasta este mensaje NADA se persiste del wizard en curso (un reinicio a
+  mitad de wizard no toca los slots).
+
+#### HMI,PROFILE_AGE_MANUAL
+Edad en días introducida a mano (solo cuando `CTRL,PROFILE_RANGE` llegó con
+`ageKnown=0`).
+**Formato**: `HMI,PROFILE_AGE_MANUAL,seq,ageDays` → `CTRL,PROFILE_RANGE`
+- No modifica `admissionEpoch`: si la hora vuelve a sincronizarse, la
+  derivación automática se reanuda sola.
+
+#### HMI,PROFILE_DISCHARGE
+Alta explícita del bebé con su resultado clínico.
+**Formato**: `HMI,PROFILE_DISCHARGE,seq,outcome` → `CTRL,PROFILE_ACK,seq|0`
+- `outcome`: `0`=Desconocido, `1`=Sobrevivió, `2`=Fallecido, `3`=Trasladado.
+- Archiva inmediatamente (historial + curva de peso) y libera el slot. No
+  apaga el control AIR/SKIN si estaba activo (acciones independientes).
+
+#### HMI,PROFILE_KANGAROO
+El bebé sale de la incubadora para estar con la madre (método canguro).
+**Formato**: `HMI,PROFILE_KANGAROO,seq` → `CTRL,PROFILE_ACK,seq|0`
+- **No es un alta**: el perfil se queda en su slot activo y conserva su
+  protección `activeSeq`. Solo incrementa `kangarooCount` y sella
+  `lastKangarooEpoch` (0 si no hay hora sincronizada — el contador sube
+  igualmente, para no perder el evento por no tener fecha).
+- Se publica a ThingsBoard como `baby_kangaroo_count` /
+  `baby_kangaroo_last_epoch`. Los minutos por terapia van en
+  `baby_phototherapy_min` y `baby_thermo_min`.
+
+#### HMI,PROFILE_HISTORY_REQ
+Página del historial de archivados (10 por página, página 0 = más reciente).
+**Formato**: `HMI,PROFILE_HISTORY_REQ,page` → `CTRL,PROFILE_HISTORY`
+
+#### HMI,WEIGHT_HISTORY_REQ
+Curva de peso de cualquier bebé (activo o archivado).
+**Formato**: `HMI,WEIGHT_HISTORY_REQ,seq` → `CTRL,WEIGHT_HISTORY`
+
+### Validación (ambos sentidos)
+Toda línea `PROFILE_*`/`WEIGHT_HISTORY_*` malformada (número de campos
+incorrecto, campo numérico no parseable, `outcome` fuera de 0–3, nombre
+vacío) se descarta en silencio con log de error — nunca se actúa sobre
+datos parciales (regla general del protocolo, `.claude/rules/security.md`).
 
 ---
 

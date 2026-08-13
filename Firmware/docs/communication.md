@@ -51,6 +51,20 @@ When the interface receives tactile validation of changes (PID slider modified, 
 *   **Format**:
     `HMI,<act>,<skinE>,<mode>,<airSet>,<skinSet>,<humSet>,<photo>,<mute>,<lang>,<photoMin>`
 
+### A.2 Baby-Profile Wizard & History (`HMI,PROFILE_*`, `HMI,WEIGHT_HISTORY_REQ`)
+Activating AIR or SKIN control launches a mandatory baby-data wizard on the
+HMI; a top-bar "Babies" screen provides discharge (with clinical outcome)
+and per-baby weight-evolution charts. The Motherboard owns all profile
+persistence (3 active NVS slots + LittleFS audit/weight history) and the
+NTE range calculation (`shared/nte_table`); the HMI only drives screens.
+See `Firmware/PROTOCOL.md` (v2.0.0) for the full message set
+(`PROFILE_LIST_REQ/LIST`, `PROFILE_NEW/SELECT/ACK`, `PROFILE_WEIGHT`,
+`PROFILE_RANGE`, `PROFILE_AGE_MANUAL`, `PROFILE_DISCHARGE`,
+`PROFILE_HISTORY_REQ/HISTORY`, `WEIGHT_HISTORY_REQ/WEIGHT_HISTORY`) and the
+v2.0.0 breaking change (the 3 undocumented baby fields formerly appended to
+the recurring `HMI,` line were removed — both boards must be flashed
+together).
+
 ### B. Logical Initialization and Handshake (`HMI,UI_READY` & `HMI,REQ,STATE`)
 *   **The Problem**: Upon energizing the combined machine, both boards take different times to be functional. The Motherboard (pure RTOS) usually boots in milliseconds and dispatches early initial alarms. LVGL/TFT usually takes 2 to 6 seconds loading the *assets* into the Display's dynamic RAM.
 *   **The Solution**: The Motherboard will save any alarm "silently". When the graphics framework draws the first actual HMI frame successfully, it issues a single universal proof: `HMI,UI_READY`.
