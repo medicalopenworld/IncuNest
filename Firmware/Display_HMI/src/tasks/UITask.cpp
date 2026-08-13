@@ -3851,14 +3851,12 @@ void UI_Task(void *pvParameters) {
     if (ctrl_probe_msg.updated) {
       ctrl_probe_msg.updated = false;
       bool applied = (ctrl_probe_msg.state == SPO2_PROBE_APPLIED);
-      // Falling edge: probe removed — hide chart, HR and PI
+      // Falling edge: probe removed — hide chart and HR
       if (!applied && spo2ProbeAttachedPrev) {
         if (ui_LockPPGChart)
           lv_obj_add_flag(ui_LockPPGChart, LV_OBJ_FLAG_HIDDEN);
         if (ui_LockHRCont)
           lv_obj_add_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
-        if (ui_LockPICont)
-          lv_obj_add_flag(ui_LockPICont, LV_OBJ_FLAG_HIDDEN);
       }
       // Rising edge: probe applied — show chart
       if (applied && !spo2ProbeAttachedPrev) {
@@ -3879,12 +3877,11 @@ void UI_Task(void *pvParameters) {
       }
     }
 
-    // --- Lock screen: HR and PI values ---
+    // --- Lock screen: HR value ---
     if (locked && ctrl_vit_msg.updated) {
       ctrl_vit_msg.updated = false;
       if (!spo2ProbeAttached) {
         if (ui_LockHRCont) lv_obj_add_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
-        if (ui_LockPICont) lv_obj_add_flag(ui_LockPICont, LV_OBJ_FLAG_HIDDEN);
       } else {
         if (ui_LockHRCont) {
           lv_obj_clear_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
@@ -3895,18 +3892,6 @@ void UI_Task(void *pvParameters) {
               lv_label_set_text(ui_LockHRLabel, hr_buf);
             } else {
               lv_label_set_text(ui_LockHRLabel, "--");
-            }
-          }
-        }
-        if (ui_LockPICont) {
-          lv_obj_clear_flag(ui_LockPICont, LV_OBJ_FLAG_HIDDEN);
-          if (ui_LockPILabel) {
-            if (ctrl_vit_msg.pi > 0.0f) {
-              char pi_buf[8];
-              snprintf(pi_buf, sizeof(pi_buf), "%.1f", ctrl_vit_msg.pi);
-              lv_label_set_text(ui_LockPILabel, pi_buf);
-            } else {
-              lv_label_set_text(ui_LockPILabel, "--");
             }
           }
         }
