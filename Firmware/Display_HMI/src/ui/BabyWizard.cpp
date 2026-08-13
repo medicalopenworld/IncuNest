@@ -439,8 +439,8 @@ void onGestBack(lv_event_t *) {
 
 void onGestContinue(lv_event_t *) {
   uint32_t v = 0;
-  if (!readNumericInput(24, 42, &v)) {
-    showRangeError(24, 42);
+  if (!readNumericInput(20, 40, &v)) {
+    showRangeError(20, 40);
     return;
   }
   s_gestWeeks = (uint8_t)v;
@@ -454,7 +454,7 @@ void showGestScreen() {
   s_inputTa = buildInputStep(
       TXT("Edad gestacional (semanas)", "Gestational age (weeks)",
           "Age gestationnel (semaines)"),
-      "24 - 42", true, onGestBack, onGestContinue);
+      "20 - 40", true, onGestBack, onGestContinue);
   // Left empty on purpose: a prefilled number invites confirming someone
   // else's value by reflex. The nurse must type the real one.
 }
