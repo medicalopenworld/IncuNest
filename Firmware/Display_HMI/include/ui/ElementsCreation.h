@@ -453,6 +453,12 @@ extern lv_obj_t * ui_AlarmLockImg;
 extern lv_obj_t * ui_PanelLockAlarm;
 extern lv_obj_t * ui_AlarmLockNumLabel;
 extern lv_obj_t * ui_CheckImg;
+// Grafica PPG de la pantalla de bloqueo. A 25 Hz (CTRL,PPG cada 40 ms),
+// 128 puntos = 5,1 s de ventana. LOCK_PPG_GAP es el hueco de borrado que se
+// mantiene por delante del cursor en modo CIRCULAR: corta la linea entre la
+// muestra nueva y la de hace 5 s, y hace visible por donde va el barrido.
+#define LOCK_PPG_POINTS 128
+#define LOCK_PPG_GAP    6
 extern lv_obj_t * ui_LockPPGChart;
 extern lv_obj_t * ui_LockHRCont;
 extern lv_obj_t * ui_LockHRLabel;

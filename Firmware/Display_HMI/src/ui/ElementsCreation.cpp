@@ -3559,8 +3559,15 @@ void ui_ScreenLock_screen_init(void) {
   lv_obj_set_y(ui_LockPPGChart, -5);
   lv_obj_clear_flag(ui_LockPPGChart, LV_OBJ_FLAG_SCROLLABLE);
   lv_chart_set_type(ui_LockPPGChart, LV_CHART_TYPE_LINE);
-  lv_chart_set_point_count(ui_LockPPGChart, 256);
-  lv_chart_set_update_mode(ui_LockPPGChart, LV_CHART_UPDATE_MODE_SHIFT);
+  // 128 puntos a 25 Hz (CTRL,PPG cada 40 ms) = 5,1 s de ventana, como un
+  // monitor clinico. Con 256 se metian 10,2 s y los latidos salian pegados.
+  lv_chart_set_point_count(ui_LockPPGChart, LOCK_PPG_POINTS);
+  // CIRCULAR (barrido con cursor), no SHIFT: en modo SHIFT LVGL hace
+  // lv_obj_invalidate() del chart entero en cada muestra (665x105 px, 25
+  // veces por segundo, partido en varias pasadas de flush porque no cabe en
+  // el draw buffer). En CIRCULAR solo invalida las tiras alrededor del
+  // cursor. Ver Display_HMI/src/tasks/UITask.cpp para el hueco de borrado.
+  lv_chart_set_update_mode(ui_LockPPGChart, LV_CHART_UPDATE_MODE_CIRCULAR);
   lv_chart_set_range(ui_LockPPGChart, LV_CHART_AXIS_PRIMARY_Y, 0, 255);
   lv_chart_set_div_line_count(ui_LockPPGChart, 0, 0);
   lv_chart_set_axis_tick(ui_LockPPGChart, LV_CHART_AXIS_PRIMARY_Y, 0, 0, 0, 0,

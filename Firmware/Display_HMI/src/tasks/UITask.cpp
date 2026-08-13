@@ -3853,8 +3853,18 @@ void UI_Task(void *pvParameters) {
       bool applied = (ctrl_probe_msg.state == SPO2_PROBE_APPLIED);
       // Falling edge: probe removed — hide chart and HR
       if (!applied && spo2ProbeAttachedPrev) {
-        if (ui_LockPPGChart)
+        if (ui_LockPPGChart) {
           lv_obj_add_flag(ui_LockPPGChart, LV_OBJ_FLAG_HIDDEN);
+          // Vaciar la traza al ocultarla, no al volver a mostrarla: asi el
+          // chart queda en blanco se muestre por donde se muestre. En modo
+          // CIRCULAR la traza vieja ya no se va desplazando sola, se quedaria
+          // congelada en pantalla hasta que el cursor la barriera entera.
+          // set_all_value ya resetea start_point a 0 y refresca; el repintado
+          // completo es gratis aqui porque el objeto esta oculto.
+          if (lockPPGSeries)
+            lv_chart_set_all_value(ui_LockPPGChart, lockPPGSeries,
+                                   LV_CHART_POINT_NONE);
+        }
         if (ui_LockHRCont)
           lv_obj_add_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
       }
@@ -3874,6 +3884,17 @@ void UI_Task(void *pvParameters) {
       if (locked && spo2ProbeAttached) {
         lv_chart_set_next_value(ui_LockPPGChart, lockPPGSeries,
                                 (lv_coord_t)ppg_val);
+        // Modo CIRCULAR: mantener un hueco por delante del cursor. Solo hace
+        // falta borrar el punto que entra al hueco en esta muestra — los
+        // LOCK_PPG_GAP-1 anteriores ya se borraron en iteraciones previas —,
+        // asi que el coste es una invalidacion extra, no LOCK_PPG_GAP.
+        // start_point directamente, no lv_chart_get_x_start_point(): ese
+        // getter devuelve 0 en modo CIRCULAR (es "por que indice empieza a
+        // dibujar el eje X"), no la posicion del cursor de escritura.
+        uint16_t blank =
+            (lockPPGSeries->start_point + LOCK_PPG_GAP - 1) % LOCK_PPG_POINTS;
+        lv_chart_set_value_by_id(ui_LockPPGChart, lockPPGSeries, blank,
+                                 LV_CHART_POINT_NONE);
       }
     }
 
