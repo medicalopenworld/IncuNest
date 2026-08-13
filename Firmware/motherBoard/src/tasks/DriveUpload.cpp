@@ -369,8 +369,7 @@ static void driveWriteTask(void *pv) {
       if (n > 0)
         ::write(csv_fd, line, n);
 
-      if (fmaxf(s.hr2_sqi, s.hr3_sqi) >= DRIVE_HR_SQI_MAX_THRESHOLD &&
-          fminf(s.hr2_sqi, s.hr3_sqi) >= DRIVE_HR_SQI_MIN_THRESHOLD) {
+      if (s.valid_signal) {
         hb_detected = true;
       }
 
@@ -463,12 +462,12 @@ void drivePushSample(const AFE4490Data &data) {
   if (s_sample_queue == nullptr)
     return;
   DrivePpgSample s;
-  s.t_ms       = millis();
-  s.led1_sub  = data.led1_sub;
-  s.led2_sub  = data.led2_sub;
-  s.ppg_disp  = data.ppg_disp;
-  s.hr2_sqi    = data.hr2_sqi;
-  s.hr3_sqi    = data.hr3_sqi;
+  s.t_ms         = millis();
+  s.led1_sub     = data.led1_sub;
+  s.led2_sub     = data.led2_sub;
+  s.ppg_disp     = data.ppg_disp;
+  s.valid_signal = (data.probe_state == ProbeState::PROBE_APPLIED) &&
+                   (data.rsqi == 1);
   xQueueSend(s_sample_queue, &s, 0);
 }
 

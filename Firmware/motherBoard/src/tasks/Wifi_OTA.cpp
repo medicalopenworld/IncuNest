@@ -24,12 +24,16 @@
 */
 #include <Arduino.h>
 #include <string.h>
+#include <time.h>
 #include "lwip/dns.h"
 
 #include "CommTask.h"
 #include "GPRS.h"
 #include "SPO2.h"
+#include "PpgSnapshot.h"
 #include "main.h"
+#include "modules/baby_profile/baby_cloud.h"
+#include "modules/baby_profile/baby_profile_store.h"
 
 extern GPRSstruct GPRS;
 static const char *TAG __attribute__((unused)) = "WiFi";
@@ -739,8 +743,15 @@ void addConfigTelemetriesToWIFIJSON() {
 
 void addTelemetriesToWIFIJSON() {
   addAlarmTelemetriesToWIFIJSON();
-  addVariableToTelemetryWIFIJSON[SKIN_CAPACITANCE_KEY] =
-      in3.skinSensorCapacitance;
+  // GSM-based location: the GPRS modem is kept attached to the cellular
+  // network purely for this even when WiFi carries the telemetry itself
+  // (see GPRSUpdateLocationIfDue() in GPRS.cpp). Only available while the
+  // inserted SIM is active and registered on a network.
+  if (GPRS.longitud || GPRS.latitud) {
+    addVariableToTelemetryWIFIJSON[LOCATION_LONGTITUD_KEY] = GPRS.longitud;
+    addVariableToTelemetryWIFIJSON[LOCATION_LATITUD_KEY] = GPRS.latitud;
+    addVariableToTelemetryWIFIJSON[TRI_ACCURACY_KEY] = GPRS.accuracy;
+  }
   addVariableToTelemetryWIFIJSON[SKIN_TEMPERATURE_KEY] = roundSignificantDigits(
       in3.temperature[SKIN_SENSOR], TELEMETRIES_DECIMALS);
   addVariableToTelemetryWIFIJSON[AIR_TEMPERATURE_KEY] = roundSignificantDigits(
@@ -847,42 +858,63 @@ void addTelemetriesToWIFIJSON() {
                                              : in3.fanCtlPWM;
   }
 
-  if (g_spo2_data.spo2_sqi > 0.0f) {
-    addVariableToTelemetryWIFIJSON[SPO2_KEY] =
-        roundSignificantDigits(g_spo2_data.spo2, TELEMETRIES_DECIMALS);
-    addVariableToTelemetryWIFIJSON[SPO2_SQI_KEY] =
-        roundSignificantDigits(g_spo2_data.spo2_sqi, TELEMETRIES_DECIMALS);
-    addVariableToTelemetryWIFIJSON[PI_KEY] =
-        roundSignificantDigits(g_spo2_data.pi, TELEMETRIES_DECIMALS);
-  }
-  if (g_spo2_data.hr1_sqi > 0.0f) {
-    addVariableToTelemetryWIFIJSON[HR1_KEY] = (int)(g_spo2_data.hr1 + 0.5f);
-    addVariableToTelemetryWIFIJSON[HR1_SQI_KEY] =
-        roundSignificantDigits(g_spo2_data.hr1_sqi, TELEMETRIES_DECIMALS);
-  }
-  if (g_spo2_data.hr2_sqi > 0.0f) {
-    addVariableToTelemetryWIFIJSON[HR2_KEY] = (int)(g_spo2_data.hr2 + 0.5f);
-    addVariableToTelemetryWIFIJSON[HR2_SQI_KEY] =
-        roundSignificantDigits(g_spo2_data.hr2_sqi, TELEMETRIES_DECIMALS);
-  }
-  if (g_spo2_data.hr3_sqi > 0.0f) {
-    addVariableToTelemetryWIFIJSON[HR3_KEY] = (int)(g_spo2_data.hr3 + 0.5f);
-    addVariableToTelemetryWIFIJSON[HR3_SQI_KEY] =
-        roundSignificantDigits(g_spo2_data.hr3_sqi, TELEMETRIES_DECIMALS);
+  // Suppress SpO2/HR telemetry unless the probe is actually on the patient —
+  // no probe or probe-present-but-not-applied readings aren't valid vitals.
+  if (g_spo2_data.probe_state == ProbeState::PROBE_APPLIED) {
+    if (g_spo2_data.spo2_sqi > 0.0f) {
+      addVariableToTelemetryWIFIJSON[SPO2_KEY] =
+          roundSignificantDigits(g_spo2_data.spo2, TELEMETRIES_DECIMALS);
+      addVariableToTelemetryWIFIJSON[SPO2_SQI_KEY] =
+          roundSignificantDigits(g_spo2_data.spo2_sqi, TELEMETRIES_DECIMALS);
+      addVariableToTelemetryWIFIJSON[PI_KEY] =
+          roundSignificantDigits(g_spo2_data.pi, TELEMETRIES_DECIMALS);
+    }
+    if (g_spo2_data.hr1_sqi > 0.0f) {
+      addVariableToTelemetryWIFIJSON[HR1_KEY] = (int)(g_spo2_data.hr1 + 0.5f);
+      addVariableToTelemetryWIFIJSON[HR1_SQI_KEY] =
+          roundSignificantDigits(g_spo2_data.hr1_sqi, TELEMETRIES_DECIMALS);
+    }
+    if (g_spo2_data.hr2_sqi > 0.0f) {
+      addVariableToTelemetryWIFIJSON[HR2_KEY] = (int)(g_spo2_data.hr2 + 0.5f);
+      addVariableToTelemetryWIFIJSON[HR2_SQI_KEY] =
+          roundSignificantDigits(g_spo2_data.hr2_sqi, TELEMETRIES_DECIMALS);
+    }
+    if (g_spo2_data.hr3_sqi > 0.0f) {
+      addVariableToTelemetryWIFIJSON[HR3_KEY] = (int)(g_spo2_data.hr3 + 0.5f);
+      addVariableToTelemetryWIFIJSON[HR3_SQI_KEY] =
+          roundSignificantDigits(g_spo2_data.hr3_sqi, TELEMETRIES_DECIMALS);
+    }
   }
 
-  // Baby data sent from HMI on Auto Air Apply. Published exactly once per
-  // Apply: the telemetry pipeline consumes the pending-flag, so subsequent
-  // telemetry cycles skip these keys until the next HMI change.
-  if (hmi_cmd_msg.newBabyDataForTelemetry &&
-      hmi_cmd_msg.babyWeightGrams > 0 && hmi_cmd_msg.babyGestWeeks > 0) {
-    addVariableToTelemetryWIFIJSON[BABY_WEIGHT_KEY] =
-        hmi_cmd_msg.babyWeightGrams;
-    addVariableToTelemetryWIFIJSON[BABY_GEST_AGE_KEY] =
-        hmi_cmd_msg.babyGestWeeks;
-    addVariableToTelemetryWIFIJSON[BABY_AGE_DAYS_KEY] =
-        hmi_cmd_msg.babyAgeDays;
-    hmi_cmd_msg.newBabyDataForTelemetry = false;
+}
+
+
+// Publishes queued baby lifecycle events and the current-occupant attributes.
+// Peek -> send -> pop: an event is only dropped once the broker accepted it,
+// so a publish failure retries on the next cycle instead of losing the
+// record (the previous dirty-flag scheme cleared itself while building the
+// payload, so any failed send lost the data permanently).
+// One event per call keeps a backlog from monopolising the modem.
+static void publishBabyCloudDataWIFI() {
+  char json[512];
+
+  if (babyStore_attributesDirty()) {
+    const BabyProfile *occ = babyStore_currentOccupant();
+    int n = occ ? babyCloud_buildAttributesJson(occ, json, sizeof(json))
+                : babyCloud_buildEmptyAttributesJson(json, sizeof(json));
+    if (n > 0 && tb_wifi.sendAttributeJson(json)) {
+      babyStore_clearAttributesDirty();
+    }
+  }
+
+  BabyCloudEvent e;
+  if (babyStore_peekCloudEvent(&e)) {
+    int n = babyCloud_buildEventJson(&e, json, sizeof(json));
+    if (n <= 0) {
+      babyStore_popCloudEvent();  // unbuildable: drop rather than wedge
+    } else if (tb_wifi.sendTelemetryJson(json)) {
+      babyStore_popCloudEvent();
+    }
   }
 }
 
@@ -923,9 +955,52 @@ static void rpc_setwifi_wifi_cb(JsonVariantConst const & data,
   applyWifiCredentials(ssid, pass);
 }
 
+// "Capturar ahora" desde el dashboard: arranca una captura de PPG_snapshot
+// bajo demanda si el gate (sonda aplicada + rsqi válido) pasa. La respuesta
+// del RPC le dice al usuario si arrancó, si ya había una en curso, o si la
+// señal no está lista todavía (ej. sonda no puesta).
+static void rpc_capture_ppg_cb(JsonVariantConst const & /*data*/,
+                               JsonDocument & response) {
+  PpgSnapshotStatus st = ppgSnapshotRequestCapture(
+      g_spo2_data.probe_state == ProbeState::PROBE_APPLIED, g_spo2_data.rsqi,
+      millis());
+  switch (st) {
+    case PpgSnapshotStatus::STARTED:
+      response["status"] = "started";
+      break;
+    case PpgSnapshotStatus::BUSY:
+      response["status"] = "busy";
+      break;
+    case PpgSnapshotStatus::SIGNAL_NOT_READY:
+      response["status"] = "signal_not_ready";
+      break;
+  }
+}
+
 static RPC_Callback wifi_rpc_callbacks[] = {
   RPC_Callback("setWifi", rpc_setwifi_wifi_cb),
+  RPC_Callback("capturePPG", rpc_capture_ppg_cb),
 };
+
+// El array de PPG_snapshot necesita un ts real por muestra (20 ms entre
+// muestras a 50 Hz) para que un chart de serie temporal estándar lo dibuje
+// bien — no basta con millis() desde el arranque. No bloqueante: si el reloj
+// aún no está sincronizado, arranca la sincronización y devuelve false; el
+// envío del snapshot simplemente se reintenta en la siguiente vuelta del
+// loop (cada OTA_TASK_PERIOD_MS, 50 ms) hasta que sincronice.
+static bool ensureWifiTimeSynced() {
+  static bool s_wifiTimeSynced = false;
+  if (s_wifiTimeSynced)
+    return true;
+  time_t now = 0;
+  time(&now);
+  if (now < 1609459200UL) { // antes de 2021-01-01: aun no sincronizado
+    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    return false;
+  }
+  s_wifiTimeSynced = true;
+  return true;
+}
 static constexpr size_t WIFI_RPC_CB_COUNT =
     sizeof(wifi_rpc_callbacks) / sizeof(wifi_rpc_callbacks[0]);
 // ─────────────────────────────────────────────────────────────────────────────
@@ -987,12 +1062,59 @@ void WIFI_TB_OTA() {
             logI("[WIFI] -> WIFI MQTT PUBLISH TELEMETRIES FAIL");
           }
           WIFI_JSON.clear();
+          publishBabyCloudDataWIFI();
           Wifi_TB.lastMQTTPublish = millis();
         }
         if (millis() - Wifi_TB.lastOTACheck > WIFI_OTA_CHECK_INTERVAL &&
             !GPRS.OTAInProgress) {
           WIFICheckOTA();
           Wifi_TB.lastOTACheck = millis();
+        }
+
+        // PPG snapshot: captura automática cada PPG_SNAPSHOT_AUTO_INTERVAL_MS
+        // mientras haya WiFi/TB arriba (además del botón "capturar ahora" del
+        // RPC capturePPG). BUSY/SIGNAL_NOT_READY se ignoran aquí a propósito:
+        // simplemente se reintenta en el siguiente intervalo.
+        if (millis() - Wifi_TB.lastPpgSnapshotAttempt >
+            PPG_SNAPSHOT_AUTO_INTERVAL_MS) {
+          Wifi_TB.lastPpgSnapshotAttempt = millis();
+          ppgSnapshotRequestCapture(
+              g_spo2_data.probe_state == ProbeState::PROBE_APPLIED,
+              g_spo2_data.rsqi, millis());
+        }
+        if (ppgSnapshotIsReady() && ensureWifiTimeSynced()) {
+          uint16_t n = ppgSnapshotSampleCount();
+          const int32_t *samples = ppgSnapshotSamples();
+          uint32_t stepMs = 1000UL / PPG_SNAPSHOT_FS_HZ;
+
+          time_t nowSec;
+          time(&nowSec);
+          // La última muestra del array es "ahora"; el resto retrocede en
+          // pasos de stepMs — el orden temporal real de la captura.
+          uint64_t lastMs = (uint64_t)nowSec * 1000ULL;
+
+          DynamicJsonDocument seriesDoc(
+              JSON_ARRAY_SIZE(n) + n * (JSON_OBJECT_SIZE(2) + JSON_OBJECT_SIZE(1)));
+          JsonArray series = seriesDoc.to<JsonArray>();
+          for (uint16_t i = 0; i < n; i++) {
+            JsonObject point = series.createNestedObject();
+            point["ts"] = lastMs - (uint64_t)(n - 1 - i) * stepMs;
+            point.createNestedObject("values")[PPG_SNAPSHOT_KEY] = samples[i];
+          }
+
+          bool seriesOk = tb_wifi.sendTelemetryJson(
+              series, JSON_STRING_SIZE(measureJson(series)));
+
+          StaticJsonDocument<JSON_OBJECT_SIZE(2)> metaDoc;
+          JsonObject metaObj = metaDoc.to<JsonObject>();
+          metaObj[PPG_SNAPSHOT_FS_KEY] = PPG_SNAPSHOT_FS_HZ;
+          metaObj[PPG_SNAPSHOT_N_KEY]  = n;
+          bool metaOk = tb_wifi.sendTelemetryJson(
+              metaObj, JSON_STRING_SIZE(measureJson(metaObj)));
+
+          logI(seriesOk && metaOk ? "[WIFI] -> PPG snapshot PUBLISH SUCCESS"
+                                  : "[WIFI] -> PPG snapshot PUBLISH FAIL");
+          ppgSnapshotClear();
         }
       }
     }

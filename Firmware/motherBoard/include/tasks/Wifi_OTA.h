@@ -24,6 +24,7 @@ struct WIFIstruct {
   bool lastWIFIConnectionStatus = false;
   bool lastOTAInProgress = false;
   long lastMQTTPublish = false;
+  long lastPpgSnapshotAttempt = false;
   long lastOTACheck = false;
   long lastReconnectAttempt = false;
   bool firstPublish = false;

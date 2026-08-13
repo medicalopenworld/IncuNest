@@ -66,19 +66,19 @@
 
 #define HW_REVISION 'A'
 #define HWversion String(HW_NUM) + "." + String(HW_REVISION)
-#define FWversion "18.1"
+#define FWversion "18.2"
 #define WIFI_NAME "IncuNest"
 #define CURRENT_FIRMWARE_TITLE "IncuNest"
 
 #define DEFAULT_WIFI_EN ON
 
-#define LOG_MODEM_DATA false
-#define LOG_INFORMATION false
-#define LOG_ERRORS false
-#define LOG_ALARMS false
-#define LOG_PULSIOXIMETRY false
-#define LOG_DRIVE false // Google Drive upload + MB/HMI crash capture
-#define LOG_CHARGER false
+#define LOG_MODEM_DATA true
+#define LOG_INFORMATION true
+#define LOG_ERRORS true
+#define LOG_ALARMS true
+#define LOG_PULSIOXIMETRY true
+#define LOG_DRIVE true // Google Drive upload + MB/HMI crash capture
+#define LOG_CHARGER true
 
 // Diagnostic: set to 1 to skip the upload task entirely. Writer keeps rotating
 // but every closed window is deleted instead of enqueued. Isolates whether the

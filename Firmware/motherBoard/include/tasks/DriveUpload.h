@@ -10,12 +10,6 @@
 // file plus the in-flight upload file stay within the 2 MB LittleFS partition.
 #define DRIVE_UPLOAD_WINDOW_MS 60000UL
 
-// Heartbeat marker: filename is prefixed with "DH_" when any sample in the
-// window passes the quality gate: max(hr2_sqi, hr3_sqi) >= 0.8 AND
-// min(hr2_sqi, hr3_sqi) >= 0.5.
-#define DRIVE_HR_SQI_MAX_THRESHOLD 0.8f
-#define DRIVE_HR_SQI_MIN_THRESHOLD 0.5f
-
 // ~1 s buffer at 500 Hz between SPO2 producer and the file writer consumer.
 #define DRIVE_SAMPLE_QUEUE_LEN 500
 
@@ -35,13 +29,16 @@
   "AKfycbwqaOIO7DsiqSeXGUxAz8LpKwROhGneH36Id8bk5asovmXefO5Z236If6eR0AksuV8"    \
   "/exec"
 
+// valid_signal: probe_state == PROBE_APPLIED && rsqi == 1 for this sample —
+// the AFE4490 library's own probe-attached/raw-signal-valid flags, not a
+// derived HR quality metric. Filename gets a "DH_" prefix (driveWriteTask)
+// when any sample in the window sets this.
 struct DrivePpgSample {
   uint32_t t_ms;
   int32_t  led1_sub;
   int32_t  led2_sub;
   int32_t  ppg_disp;
-  float    hr2_sqi;
-  float    hr3_sqi;
+  bool     valid_signal;
 };
 
 void initDriveUpload();

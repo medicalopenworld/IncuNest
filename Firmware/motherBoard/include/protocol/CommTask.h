@@ -39,12 +39,7 @@ typedef struct {
   int    language;
   int    skinModeEnabled;
   int    photoMinutesRemaining;
-  int    babyWeightGrams;
-  int    babyGestWeeks;
-  int    babyAgeDays;
   // MB-internal flags (not part of the protocol)
-  bool   newBabyData;
-  bool   newBabyDataForTelemetry;
   bool   newCommand;
 } HMI_CommandMessage;
 

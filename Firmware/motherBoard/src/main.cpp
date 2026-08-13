@@ -192,6 +192,8 @@ TaskHandle_t taskHandle =
 long GPRS_lastMillisTaskClear;
 bool TB_connected;
 
+void GPRS_Task(void *pvParameters); // forward decl: GPRSMonitorTask restarts it on hang
+
 QueueHandle_t sharedSensorQueue;
 // Mutex for protecting the shared variable
 SemaphoreHandle_t GPRS_monitor_mutex;
@@ -207,11 +209,19 @@ void GPRSMonitorTask(void *pvParameters) {
         diag_prefs.putUInt("mon_kill", g_monKillCount);
         diag_prefs.end();
         {
-          const char *m = "[MON] killing GPRS_Task after idle timeout\n";
+          const char *m = "[MON] GPRS_Task hung, restarting it\n";
           crashReporterPut(m, strlen(m));
         }
         vTaskDelete(taskHandle); // Delete the hung task
-        vTaskDelete(NULL); // Delete the monitor task
+        GPRS = GPRSstruct();     // drop state left over from the aborted attempt
+        GPRS_lastMillisTaskClear = millis();
+        // Recreate GPRS_Task so a single hung AT call doesn't kill cellular
+        // connectivity for good; the new task spawns its own fresh monitor.
+        xTaskCreatePinnedToCore(GPRS_Task, "GPRS", 16384, NULL,
+                                GPRS_TAST_PRIORITY, &taskHandle,
+                                CORE_ID_FREERTOS);
+        xSemaphoreGive(GPRS_monitor_mutex);
+        vTaskDelete(NULL); // this monitor's job is done
       }
       if (GPRSIsConnectedToServer() || WIFIIsConnectedToServer()) {
         vTaskDelete(NULL); // Delete the monitor task
@@ -362,13 +372,6 @@ void Communication_Receiver(void *pvParameters) {
 
       logI(msg);
 
-      if (hmi_cmd_msg.newBabyData) {
-        hmi_cmd_msg.newBabyData = false;
-        logI("Auto Air baby data -> weight=" +
-             String(hmi_cmd_msg.babyWeightGrams) +
-             "g gest=" + String(hmi_cmd_msg.babyGestWeeks) +
-             "w ageD=" + String(hmi_cmd_msg.babyAgeDays));
-      }
       // Reset the alarm stabilization window (see alarmTimerStart(),
       // security.cpp) only on the OFF->ON transition, matching what the
       // now-removed on-board UI (legacy/UI_actuatorsProgress.cpp) used to do
@@ -603,7 +606,10 @@ void setup() {
   logI("Initializing communication task ...");
   CommunicationHost_Init();
 
-  xTaskCreatePinnedToCore(Communication_Task, "COMM_TASK", 4096, NULL,
+  // 8 KB, up from 4 KB: the baby-profile handlers added a much deeper path
+  // through this task (protocol parse -> LittleFS read/write -> float
+  // formatting in the NTE range builder), which 4 KB could not absorb.
+  xTaskCreatePinnedToCore(Communication_Task, "COMM_TASK", 8192, NULL,
                           COMMUNICATION_TASK_PRIORITY, NULL,
                           CORE_ID_FREERTOS // o 0/1 según tu placa
   );

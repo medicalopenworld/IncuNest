@@ -28,6 +28,11 @@
 #include <Arduino.h>
 #include <Preferences.h>
 
+#include "modules/baby_profile/baby_cloud.h"
+#include "modules/baby_profile/baby_profile_store.h"
+#include "modules/util/civil_time.h"
+#include <sys/time.h>
+
 #include "CommTask.h"
 #include "SPO2.h"
 #include "Wifi_OTA.h"
@@ -62,6 +67,12 @@ extern double fanControlPIDOutput;
 GPRSstruct GPRS;
 Credentials credentials;
 Espressif_Updater updater_GPRS;
+
+// Tried in order on each attach failure; onomondo first.
+static const char *const GPRS_APN_LIST[] = {APN_ONOMONDO, APN_TM,
+                                            APN_TRUPHONE};
+static constexpr size_t GPRS_APN_COUNT =
+    sizeof(GPRS_APN_LIST) / sizeof(GPRS_APN_LIST[0]);
 
 // Statuses for updating
 bool currentFWSent = false;
@@ -106,10 +117,25 @@ static void rpc_setwifi_cb(JsonVariantConst const & data,
   applyWifiCredentials(ssid, pass);
 }
 
+static void rpc_wipe_babies_cb(JsonVariantConst const & data,
+                               JsonDocument & response) {
+  // Same explicit confirmation as the /config path: a stray RPC must never
+  // erase clinical records.
+  if (data["confirm"] != 1234) {
+    response["status"] = "refused";
+    return;
+  }
+  int n = babyStore_wipeAll();
+  response["status"] = "wiped";
+  response["files_removed"] = n;
+  logModemData("[RPC] baby data wiped");
+}
+
 static RPC_Callback rpc_callbacks[] = {
   RPC_Callback("restart",  rpc_restart_cb),
   RPC_Callback("getDiag",  rpc_diag_cb),
   RPC_Callback("setWifi",  rpc_setwifi_cb),
+  RPC_Callback("wipeBabies", rpc_wipe_babies_cb),
 };
 static constexpr size_t RPC_CB_COUNT = sizeof(rpc_callbacks) / sizeof(rpc_callbacks[0]);
 
@@ -159,7 +185,7 @@ int checkSerial(const char *success, const char *error) {
     clearGPRSBuffer();
     return true;
   }
-  if (strstr(GPRS.buffer, success)) {
+  if (strstr(GPRS.buffer, error)) {
     logE("[GPRS] -> GPRS error: " + String(error));
     clearGPRSBuffer();
     return -1;
@@ -223,6 +249,89 @@ void GPRS_get_triangulation_location() {
   int sec = 0;
   modem.getGsmLocation(&GPRS.longitud, &GPRS.latitud, &GPRS.accuracy, &year,
                        &month, &day, &hour, &min, &sec);
+}
+
+// Refreshes GPRS.longitud/latitud/accuracy at most once per
+// GPRS_TRIANGULATION_INTERVAL. Requires an active GPRS/PDP context
+// (GPRS.post), which the modem keeps up even while WiFi carries the
+// telemetry, purely so location stays available on that path too.
+void GPRSUpdateLocationIfDue() {
+  if (!GPRS.post) {
+    return;
+  }
+  if (millis() - GPRS.lastTriangulationUpdate > GPRS_TRIANGULATION_INTERVAL) {
+    GPRS_get_triangulation_location();
+    GPRS.lastTriangulationUpdate = millis();
+  }
+}
+
+// Cellular wall-clock sync. Until now the only time source was WiFi NTP
+// (DriveUpload/Wifi_OTA), so a unit deployed on GPRS alone never knew the
+// date and every baby profile had to have its age typed in by hand.
+//
+// Two sources, cheapest first:
+//   1. The modem's own RTC (AT+CCLK? via TinyGSM). TinyGSM already enables
+//      NITZ (AT+CLTS=1) at init, so the operator sets this for free, with no
+//      data traffic — but not every network sends it.
+//   2. NTP over the PDP context (AT+CNTP), which needs an attached context.
+//
+// Success sets the ESP32 system clock, which is the single integration
+// point: babyStore_nowEpoch() and the CTRL,TIME broadcast both read
+// time(nullptr), so age derivation starts working with no further changes.
+void GPRSEnsureTimeSynced() {
+  static bool s_synced = false;
+  static uint32_t s_lastAttemptMs = 0;
+  if (s_synced) return;
+
+  // WiFi NTP may have won the race; nothing to do if the clock is already set.
+  if (time(nullptr) >= (time_t)1609459200L) {
+    s_synced = true;
+    logModemData("[GPRS] -> time already synced (WiFi NTP)");
+    return;
+  }
+
+  if (s_lastAttemptMs != 0 &&
+      millis() - s_lastAttemptMs < GPRS_TIME_SYNC_RETRY_INTERVAL) {
+    return;
+  }
+  s_lastAttemptMs = millis();
+
+  int year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0;
+  float tz = 0.0f;
+  uint32_t epoch = 0;
+  bool got = false;
+
+  if (modem.getNetworkTime(&year, &month, &day, &hour, &minute, &second,
+                           &tz)) {
+    got = civil_to_unix_utc(year, (unsigned)month, (unsigned)day,
+                            (unsigned)hour, (unsigned)minute,
+                            (unsigned)second, (int)tz, &epoch);
+    if (!got) {
+      // Expected when the operator sends no NITZ: the SIM800 reports its
+      // 2004 default, which civil_to_unix_utc() rejects outright.
+      logModemData("[GPRS] -> NITZ clock not valid yet");
+    }
+  }
+
+  if (!got && GPRS.post) {
+    // Fall back to NTP over the PDP context; only possible once attached.
+    if (modem.NTPServerSync("pool.ntp.org", 0) == 1 &&
+        modem.getNetworkTime(&year, &month, &day, &hour, &minute, &second,
+                             &tz)) {
+      got = civil_to_unix_utc(year, (unsigned)month, (unsigned)day,
+                              (unsigned)hour, (unsigned)minute,
+                              (unsigned)second, (int)tz, &epoch);
+    }
+    if (!got) logModemData("[GPRS] -> NTP over PDP failed");
+  }
+
+  if (!got) return;
+
+  struct timeval tv = {};
+  tv.tv_sec = (time_t)epoch;
+  settimeofday(&tv, nullptr);
+  s_synced = true;
+  logModemData("[GPRS] -> clock synced from cellular, epoch " + String(epoch));
 }
 
 void GPRS_get_SIM_info() {
@@ -310,12 +419,23 @@ void GPRSPowerUp() {
       GPRS.packetSentenceTime = millis();
     }
     if (strstr(GPRS.buffer, AT_CPIN_SIM_PIN)) {
-      logModemData("[GPRS] -> SIM PIN required, unlocking...");
-      Serial2.print(SIMCOM800_ENTER_PIN);
+      if (!GPRS.pinAttempted) {
+        logModemData("[GPRS] -> SIM PIN required, unlocking...");
+        Serial2.print(SIMCOM800_ENTER_PIN);
+        GPRS.pinAttempted = true;
+      } else {
+        // Already tried once this boot and the SIM is still asking for the
+        // PIN: stop retrying instead of risking a PUK lock after 3 wrong
+        // attempts. The outer GPRS_TIMEOUT will keep cycling powerUp, but we
+        // will never send SIMCOM800_ENTER_PIN again until the board reboots.
+        logE("[GPRS] -> SIM still requesting PIN after one attempt, giving up");
+      }
       clearGPRSBuffer();
       GPRS.packetSentenceTime = 0; // force re-query after 1 s
     }
-    checkSerial(AT_CPIN_READY, AT_ERROR);
+    if (checkSerial(AT_CPIN_READY, AT_ERROR) == -1) {
+      logE("[GPRS] -> CPIN query failed, SIM may be missing or damaged");
+    }
     break;
   case 3:
     logModemData("[GPRS] -> Power up success");
@@ -331,7 +451,8 @@ void GPRSPowerUp() {
     GPRS.powerUp = false;
     GPRS.connect = true;
     GPRS.process = false;
-    GPRS.APN = APN_TM;
+    GPRS.apnIndex = 0; // always try onomondo first
+    GPRS.APN = GPRS_APN_LIST[GPRS.apnIndex];
     break;
   }
 }
@@ -348,14 +469,16 @@ void GPRSStablishConnection() {
     logModemData("[GPRS] -> Connecting...");
     if (modem.gprsConnect(GPRS.APN.c_str(), GPRS_USER, GPRS_PASS)) {
       logModemData("[GPRS] -> Attached");
+      // gprsConnect() blocks for the whole attach handshake, which can by
+      // itself exceed GPRS_TIMEOUT on slow networks. Refresh processTime here
+      // so GPRSStatusHandler() doesn't see stale elapsed time and kill a
+      // connection that just succeeded before case 2 gets to run.
+      GPRS.processTime = millis();
       GPRS.process++;
     } else {
       logModemData("[GPRS] -> Attach FAIL, retrying with different APN...");
-      if (GPRS.APN == APN_TM) {
-        GPRS.APN = APN_TRUPHONE;
-      } else {
-        GPRS.APN = APN_TM;
-      }
+      GPRS.apnIndex = (GPRS.apnIndex + 1) % GPRS_APN_COUNT;
+      GPRS.APN = GPRS_APN_LIST[GPRS.apnIndex];
       logModemData("[GPRS] -> New APN: " + GPRS.APN);
       vTaskDelay(GPRS_RECONNECT_INTERVAL / portTICK_PERIOD_MS);
     }
@@ -614,8 +737,6 @@ void addTelemetriesToGPRSJSON() {
     addVariableToTelemetryGPRSJSON[LOCATION_LATITUD_KEY] = GPRS.latitud;
     addVariableToTelemetryGPRSJSON[TRI_ACCURACY_KEY] = GPRS.accuracy;
   }
-  addVariableToTelemetryGPRSJSON[SKIN_CAPACITANCE_KEY] =
-      in3.skinSensorCapacitance;
   addVariableToTelemetryGPRSJSON[SKIN_TEMPERATURE_KEY] = roundSignificantDigits(
       in3.temperature[SKIN_SENSOR], TELEMETRIES_DECIMALS);
   addVariableToTelemetryGPRSJSON[AIR_TEMPERATURE_KEY] = roundSignificantDigits(
@@ -731,42 +852,63 @@ void addTelemetriesToGPRSJSON() {
                                              : in3.fanCtlPWM;
   }
 
-  if (g_spo2_data.spo2_sqi > 0.0f) {
-    addVariableToTelemetryGPRSJSON[SPO2_KEY] =
-        roundSignificantDigits(g_spo2_data.spo2, TELEMETRIES_DECIMALS);
-    addVariableToTelemetryGPRSJSON[SPO2_SQI_KEY] =
-        roundSignificantDigits(g_spo2_data.spo2_sqi, TELEMETRIES_DECIMALS);
-    addVariableToTelemetryGPRSJSON[PI_KEY] =
-        roundSignificantDigits(g_spo2_data.pi, TELEMETRIES_DECIMALS);
-  }
-  if (g_spo2_data.hr1_sqi > 0.0f) {
-    addVariableToTelemetryGPRSJSON[HR1_KEY] = (int)(g_spo2_data.hr1 + 0.5f);
-    addVariableToTelemetryGPRSJSON[HR1_SQI_KEY] =
-        roundSignificantDigits(g_spo2_data.hr1_sqi, TELEMETRIES_DECIMALS);
-  }
-  if (g_spo2_data.hr2_sqi > 0.0f) {
-    addVariableToTelemetryGPRSJSON[HR2_KEY] = (int)(g_spo2_data.hr2 + 0.5f);
-    addVariableToTelemetryGPRSJSON[HR2_SQI_KEY] =
-        roundSignificantDigits(g_spo2_data.hr2_sqi, TELEMETRIES_DECIMALS);
-  }
-  if (g_spo2_data.hr3_sqi > 0.0f) {
-    addVariableToTelemetryGPRSJSON[HR3_KEY] = (int)(g_spo2_data.hr3 + 0.5f);
-    addVariableToTelemetryGPRSJSON[HR3_SQI_KEY] =
-        roundSignificantDigits(g_spo2_data.hr3_sqi, TELEMETRIES_DECIMALS);
+  // Suppress SpO2/HR telemetry unless the probe is actually on the patient —
+  // no probe or probe-present-but-not-applied readings aren't valid vitals.
+  if (g_spo2_data.probe_state == ProbeState::PROBE_APPLIED) {
+    if (g_spo2_data.spo2_sqi > 0.0f) {
+      addVariableToTelemetryGPRSJSON[SPO2_KEY] =
+          roundSignificantDigits(g_spo2_data.spo2, TELEMETRIES_DECIMALS);
+      addVariableToTelemetryGPRSJSON[SPO2_SQI_KEY] =
+          roundSignificantDigits(g_spo2_data.spo2_sqi, TELEMETRIES_DECIMALS);
+      addVariableToTelemetryGPRSJSON[PI_KEY] =
+          roundSignificantDigits(g_spo2_data.pi, TELEMETRIES_DECIMALS);
+    }
+    if (g_spo2_data.hr1_sqi > 0.0f) {
+      addVariableToTelemetryGPRSJSON[HR1_KEY] = (int)(g_spo2_data.hr1 + 0.5f);
+      addVariableToTelemetryGPRSJSON[HR1_SQI_KEY] =
+          roundSignificantDigits(g_spo2_data.hr1_sqi, TELEMETRIES_DECIMALS);
+    }
+    if (g_spo2_data.hr2_sqi > 0.0f) {
+      addVariableToTelemetryGPRSJSON[HR2_KEY] = (int)(g_spo2_data.hr2 + 0.5f);
+      addVariableToTelemetryGPRSJSON[HR2_SQI_KEY] =
+          roundSignificantDigits(g_spo2_data.hr2_sqi, TELEMETRIES_DECIMALS);
+    }
+    if (g_spo2_data.hr3_sqi > 0.0f) {
+      addVariableToTelemetryGPRSJSON[HR3_KEY] = (int)(g_spo2_data.hr3 + 0.5f);
+      addVariableToTelemetryGPRSJSON[HR3_SQI_KEY] =
+          roundSignificantDigits(g_spo2_data.hr3_sqi, TELEMETRIES_DECIMALS);
+    }
   }
 
-  // Baby data sent from HMI on Auto Air Apply. Published exactly once per
-  // Apply: the telemetry pipeline consumes the pending-flag, so subsequent
-  // telemetry cycles skip these keys until the next HMI change.
-  if (hmi_cmd_msg.newBabyDataForTelemetry &&
-      hmi_cmd_msg.babyWeightGrams > 0 && hmi_cmd_msg.babyGestWeeks > 0) {
-    addVariableToTelemetryGPRSJSON[BABY_WEIGHT_KEY] =
-        hmi_cmd_msg.babyWeightGrams;
-    addVariableToTelemetryGPRSJSON[BABY_GEST_AGE_KEY] =
-        hmi_cmd_msg.babyGestWeeks;
-    addVariableToTelemetryGPRSJSON[BABY_AGE_DAYS_KEY] =
-        hmi_cmd_msg.babyAgeDays;
-    hmi_cmd_msg.newBabyDataForTelemetry = false;
+}
+
+
+// Publishes queued baby lifecycle events and the current-occupant attributes.
+// Peek -> send -> pop: an event is only dropped once the broker accepted it,
+// so a publish failure retries on the next cycle instead of losing the
+// record (the previous dirty-flag scheme cleared itself while building the
+// payload, so any failed send lost the data permanently).
+// One event per call keeps a backlog from monopolising the modem.
+static void publishBabyCloudDataGPRS() {
+  char json[512];
+
+  if (babyStore_attributesDirty()) {
+    const BabyProfile *occ = babyStore_currentOccupant();
+    int n = occ ? babyCloud_buildAttributesJson(occ, json, sizeof(json))
+                : babyCloud_buildEmptyAttributesJson(json, sizeof(json));
+    if (n > 0 && tb.sendAttributeJson(json)) {
+      babyStore_clearAttributesDirty();
+    }
+  }
+
+  BabyCloudEvent e;
+  if (babyStore_peekCloudEvent(&e)) {
+    int n = babyCloud_buildEventJson(&e, json, sizeof(json));
+    if (n <= 0) {
+      babyStore_popCloudEvent();  // unbuildable: drop rather than wedge
+    } else if (tb.sendTelemetryJson(json)) {
+      babyStore_popCloudEvent();
+    }
   }
 }
 
@@ -824,7 +966,8 @@ void GPRSPost() {
           }
           GPRS_JSON.clear();
         }
-        GPRS_get_triangulation_location();
+        GPRSUpdateLocationIfDue();
+        GPRSEnsureTimeSynced();
         GPRSUpdateCSQ();
         addTelemetriesToGPRSJSON();
         if (tb.sendTelemetryJson(addVariableToTelemetryGPRSJSON,
@@ -835,6 +978,7 @@ void GPRSPost() {
           logModemData("[GPRS] -> GPRS MQTT PUBLISH TELEMETRIES FAIL");
         }
         GPRS_JSON.clear();
+        publishBabyCloudDataGPRS();
         GPRS.process = false;
         GPRS.lastSent = millis();
       }
@@ -860,14 +1004,20 @@ void GPRS_Handler() {
   if (GPRS.powerUp) {
     GPRSPowerUp();
   }
-  if (!WIFIIsConnected()) {
-    if (GPRS.connect) {
-      GPRSStablishConnection();
-    }
-    if (GPRS.post) {
-      GPRSSetPostPeriod();
-      GPRSPost();
-      tb.loop();
-    }
+  // Keep attaching to the cellular network regardless of WiFi status: even
+  // when WiFi carries telemetry to ThingsBoard, the GPRS/PDP context is kept
+  // up so GSM-based location stays available (see GPRSUpdateLocationIfDue()).
+  if (GPRS.connect) {
+    GPRSStablishConnection();
+  }
+  if (WIFIIsConnected()) {
+    // WiFi already owns the ThingsBoard connection/publish; don't duplicate
+    // it over cellular, just keep location fresh off the existing attach.
+    GPRSUpdateLocationIfDue();
+    GPRSEnsureTimeSynced();
+  } else if (GPRS.post) {
+    GPRSSetPostPeriod();
+    GPRSPost();
+    tb.loop();
   }
 }

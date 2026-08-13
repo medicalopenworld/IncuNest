@@ -21,7 +21,8 @@
 #define LOCATION_LATITUD_KEY "tri_latitud"
 #define TRI_ACCURACY_KEY "tri_accuracy"
 #define UI_LANGUAGE_KEY "UI_language"
-#define SKIN_CAPACITANCE_KEY "Skin_CAP"
+// Skin_CAP retired: raw capacitance was a bring-up diagnostic, not
+// clinical data. The probe state already travels in CTRL,TEL.
 #define SKIN_TEMPERATURE_KEY "Skin_temp"
 #define AIR_TEMPERATURE_KEY "Air_temp"
 #define AIR_TEMPERATURE_REDUNDANT_KEY "Air_temp_redundant"
@@ -67,9 +68,29 @@
 #define SPO2_KEY "SpO2"
 #define SPO2_SQI_KEY "SpO2_SQI"
 #define PI_KEY "PI"
+// _v1: versionado por si cambia el formato (fs/duración/canal) más adelante.
+#define PPG_SNAPSHOT_KEY "PPG_snapshot_v1"       // 1 punto por muestra ppg_disp
+#define PPG_SNAPSHOT_FS_KEY "PPG_snapshot_fs_v1" // sample rate de la captura [Hz]
+#define PPG_SNAPSHOT_N_KEY "PPG_snapshot_n_v1"   // nº de muestras de la última captura
 #define BABY_WEIGHT_KEY "baby_weight_g"
 #define BABY_GEST_AGE_KEY "baby_gest_weeks"
 #define BABY_AGE_DAYS_KEY "baby_age_days"
+// Intentional PII publication (Ministry of Health access via ThingsBoard) —
+// see openspec design decision 14; not an accidental leak.
+#define BABY_NAME_KEY "baby_name"
+#define BABY_OUTCOME_KEY "baby_outcome"
+#define BABY_DISCHARGE_EPOCH_KEY "baby_discharge_epoch"
+#define BABY_KANGAROO_COUNT_KEY "baby_kangaroo_count"
+#define BABY_KANGAROO_LAST_KEY "baby_kangaroo_last_epoch"
+#define BABY_PHOTO_MINUTES_KEY "baby_phototherapy_min"
+#define BABY_THERMO_MINUTES_KEY "baby_thermo_min"
+// baby_seq is mandatory on every baby payload: without it the cloud cannot
+// tell one patient from the next, and per-baby cumulative counters look
+// like data corruption when a new admission resets them.
+#define BABY_SEQ_KEY "baby_seq"
+#define BABY_ADMISSION_EPOCH_KEY "baby_admission_epoch"
+#define BABY_KANGAROO_EVENT_KEY "baby_kangaroo_event"
+#define BABY_STAY_DAYS_KEY "baby_stay_days"
 #define HUMIDITY_ALARM_KEY "hum_alarm"
 #define TEMPERATURE_ALARM_KEY "temp_alarm"
 #define AIR_THERMAL_CUTOUT_ALARM_KEY "air_TC_alarm"

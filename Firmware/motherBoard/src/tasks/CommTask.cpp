@@ -5,6 +5,10 @@
 #include <LittleFS.h>
 #include <Preferences.h>
 
+#include "modules/baby_profile/baby_profile_protocol.h"
+#include "modules/baby_profile/baby_profile_store.h"
+#include "nte_table.h"
+
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -44,6 +48,196 @@ static int photoTimerMinutes = 0;
 //  USB-ONLY HELPERS
 // ======================================================
 void parse_line(const char *line);
+
+// ---- Baby-profile wizard flow state (one wizard at a time) ----
+// seq selected by the current wizard (PROFILE_NEW/PROFILE_SELECT) and the
+// weight answered for it (0 = SKIP). Used to compute CTRL,PROFILE_RANGE and
+// to stamp activeSeq when control turns on.
+static uint32_t s_wizardSeq = 0;
+static uint16_t s_wizardGrams = 0;
+
+// ---- Per-baby therapy-time accounting (phototherapy + thermoregulation) ----
+// Both counters share this: accumulate in RAM, flush to NVS only on the OFF
+// edge or every PHOTO_FLUSH_INTERVAL_MS. A slot write per elapsed minute
+// would wear the flash for no benefit.
+static const uint32_t THERAPY_FLUSH_INTERVAL_MS = 10u * 60u * 1000u;
+
+// Plain aggregate on purpose (no default member initialisers): those would
+// make it non-aggregate and break the brace-init below on this toolchain.
+struct TherapyAccumulator {
+  bool wasOn;
+  uint32_t sinceMs;   // start of the un-credited stretch
+  uint32_t creditSeq; // baby the stretch belongs to
+  bool (*commit)(uint32_t, uint32_t);
+};
+
+static TherapyAccumulator s_photoAcc{false, 0, 0,
+                                     babyStore_addPhototherapyMinutes};
+static TherapyAccumulator s_thermoAcc{false, 0, 0, babyStore_addThermoMinutes};
+
+// Credits whole elapsed minutes and rebases, keeping the sub-minute
+// remainder so repeated flushes never round it away.
+static void flushTherapy(TherapyAccumulator &a) {
+  if (a.creditSeq == 0) return;
+  uint32_t minutes = (millis() - a.sinceMs) / 60000u;
+  if (minutes == 0) return;
+  a.commit(a.creditSeq, minutes);
+  a.sinceMs += minutes * 60000u;
+}
+
+static void updateTherapyAccounting(TherapyAccumulator &a, bool on) {
+  if (on && !a.wasOn) {
+    a.creditSeq = babyStore_getActiveSeq();
+    a.sinceMs = millis();
+  } else if (!on && a.wasOn) {
+    flushTherapy(a);
+    a.creditSeq = 0;
+  } else if (on && millis() - a.sinceMs >= THERAPY_FLUSH_INTERVAL_MS) {
+    flushTherapy(a);
+  }
+  a.wasOn = on;
+}
+
+// Builds and sends CTRL,PROFILE_RANGE for the current wizard flow.
+static void sendProfileRange(uint32_t seq, bool ageKnown, uint16_t ageDays) {
+  const BabyProfile *p = babyStore_findBySeq(seq);
+  NteRange r = {-1.0f, -1.0f, -1.0f, true};
+  if (p && s_wizardGrams > 0 && ageKnown) {
+    r = calculateNteRange(s_wizardGrams, p->gestWeeks, ageDays);
+  }
+  char buf[96];
+  if (baby_proto_build_range(buf, sizeof(buf), seq, ageKnown, ageDays, &r) >
+      0) {
+    hmiSerial.print(buf);
+  }
+}
+
+// Handles one already-validated HMI,PROFILE_*/HMI,WEIGHT_HISTORY_REQ line.
+// Malformed lines are discarded with an error log (never partial data).
+// Response scratch buffers are static, NOT stack: COMM_TASK only has a 4 KB
+// stack and the PROFILE_WEIGHT path is the deepest in this file (LittleFS
+// write + float formatting in the range builder both need hundreds of bytes
+// below this frame). A 1 KB local here was enough to run it out of stack.
+// Safe: parse_line runs only on COMM_TASK and one wizard flow at a time.
+// 1280: worst-case CTRL,PROFILE_HISTORY is 10 entries x 9 fields with every
+// field at max width (~900 chars). Sized with margin so a full page can
+// never silently fail to build.
+static char s_babyRespBuf[1280];
+static BabyProfile s_babyHistPage[10];
+static BabyWeightPoint s_babyWeightPts[BABY_WEIGHT_HISTORY_MAX_OUT];
+
+static void handleBabyLine(const char *line) {
+  BabyProtoMsg m;
+  if (baby_proto_parse(line, &m) == BABY_MSG_NONE) {
+    if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      ESP_LOGE(TAG, "PROFILE line discarded (malformed)");
+      xSemaphoreGiveRecursive(log_mutex);
+    }
+    return;
+  }
+
+  char *buf = s_babyRespBuf;
+  const size_t bufLen = sizeof(s_babyRespBuf);
+  switch (m.type) {
+    case BABY_MSG_LIST_REQ: {
+      BabyProfile slots[BABY_ACTIVE_SLOTS];
+      babyStore_getSlots(slots);
+      if (baby_proto_build_list(buf, bufLen, slots) > 0) {
+        hmiSerial.print(buf);
+      }
+      break;
+    }
+    case BABY_MSG_NEW: {
+      uint32_t seq = babyStore_createProfile(m.name, m.gestWeeks);
+      if (seq != 0) {
+        s_wizardSeq = seq;
+        s_wizardGrams = 0;
+      }
+      snprintf(buf, bufLen, "CTRL,PROFILE_ACK,%u\n", (unsigned)seq);
+      hmiSerial.print(buf);
+      break;
+    }
+    case BABY_MSG_SELECT: {
+      const BabyProfile *p = babyStore_findBySeq(m.seq);
+      uint32_t ack = 0;
+      if (p) {
+        s_wizardSeq = m.seq;
+        s_wizardGrams = 0;
+        ack = m.seq;
+      }
+      snprintf(buf, bufLen, "CTRL,PROFILE_ACK,%u\n", (unsigned)ack);
+      hmiSerial.print(buf);
+      break;
+    }
+    case BABY_MSG_WEIGHT: {
+      if (!babyStore_recordWeight(m.seq, m.grams)) break;  // unknown seq
+      s_wizardSeq = m.seq;
+      s_wizardGrams = m.grams;
+      uint16_t ageDays = 0;
+      bool ageKnown = babyStore_deriveAgeDays(m.seq, &ageDays);
+      sendProfileRange(m.seq, ageKnown, ageDays);
+      break;
+    }
+    case BABY_MSG_AGE_MANUAL: {
+      if (m.seq != s_wizardSeq) break;  // stale/out-of-flow answer
+      sendProfileRange(m.seq, true, m.ageDays);
+      break;
+    }
+    case BABY_MSG_DISCHARGE: {
+      bool ok = babyStore_discharge(m.seq, m.outcome);
+      snprintf(buf, bufLen, "CTRL,PROFILE_ACK,%u\n",
+               ok ? (unsigned)m.seq : 0u);
+      hmiSerial.print(buf);
+      break;
+    }
+    case BABY_MSG_KANGAROO: {
+      // Baby out with the mother: counted, never archived, and activeSeq is
+      // deliberately left alone so the profile keeps its FIFO protection
+      // while it is out of the incubator.
+      bool ok = babyStore_recordKangaroo(m.seq);
+      snprintf(buf, bufLen, "CTRL,PROFILE_ACK,%u\n",
+               ok ? (unsigned)m.seq : 0u);
+      hmiSerial.print(buf);
+      break;
+    }
+    case BABY_MSG_HISTORY_REQ: {
+      uint32_t total = 0;
+      uint32_t n = babyStore_readHistoryPage(m.page, 10, s_babyHistPage, &total);
+      if (baby_proto_build_history(buf, bufLen, m.page, total, s_babyHistPage,
+                                   n) > 0) {
+        hmiSerial.print(buf);
+      }
+      break;
+    }
+    case BABY_MSG_WEIGHT_HISTORY_REQ: {
+      uint32_t n = babyStore_readWeightHistory(m.seq, s_babyWeightPts,
+                                               BABY_WEIGHT_HISTORY_MAX_OUT);
+      if (baby_proto_build_weight_history(buf, bufLen, m.seq, s_babyWeightPts, n) >
+          0) {
+        hmiSerial.print(buf);
+      }
+      break;
+    }
+    default:
+      break;
+  }
+
+  // Diagnostic: this task's worst-case free stack. The baby-profile paths are
+  // the deepest in COMM_TASK, so if headroom is ever going to run out it will
+  // show here first. Logged as a warning below 1 KB so it is impossible to
+  // miss on the serial monitor.
+  UBaseType_t freeStack = uxTaskGetStackHighWaterMark(nullptr);
+  if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    if (freeStack < 1024) {
+      ESP_LOGW(TAG, "PROFILE msg=%d handled, COMM_TASK stack free=%u B (LOW)",
+               (int)m.type, (unsigned)freeStack);
+    } else {
+      ESP_LOGI(TAG, "PROFILE msg=%d handled, COMM_TASK stack free=%u B",
+               (int)m.type, (unsigned)freeStack);
+    }
+    xSemaphoreGiveRecursive(log_mutex);
+  }
+}
 
 // ======================================================
 //  PHOTOTHERAPY TIMER
@@ -337,7 +531,19 @@ void parse_line(const char *line) {
     if (line[7] == ',' && sscanf(line, "/config,%31[^,],%f", param, &value) == 2) {
       success = true;
       extern float maxDesiredTemp[2];
-      if (strcmp(param, "FAN_SUPPLY_PWM") == 0) {
+      if (strcmp(param, "BABY_WIPE") == 0) {
+        // Destructive and irreversible, so it needs an explicit magic value
+        // rather than any truthy number: /config,BABY_WIPE,1234
+        if ((int)value == 1234) {
+          int n = babyStore_wipeAll();
+          if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+            ESP_LOGW(TAG, "BABY_WIPE done, %d files removed", n);
+            xSemaphoreGiveRecursive(log_mutex);
+          }
+        } else {
+          success = false;  // wrong confirmation code: do nothing
+        }
+      } else if (strcmp(param, "FAN_SUPPLY_PWM") == 0) {
         in3.fanPwrSupplyPWM = (int)value;
         { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_PWR_SUPPLY_PWM, in3.fanPwrSupplyPWM); p.end(); }
       } else if (strcmp(param, "HEATER_AMPS") == 0) {
@@ -388,17 +594,44 @@ void parse_line(const char *line) {
     return;
   }
 
+  if (strncmp(line, "HMI,PROFILE_", 12) == 0 ||
+      strncmp(line, "HMI,WEIGHT_HISTORY_REQ", 22) == 0) {
+    handleBabyLine(line);
+    return;
+  }
+
   if (strncmp(line, "HMI,", 4) == 0) {
     int act, skinE, mode, photo, mute, lang, photoMin;
     double air, skin, hum;
-    int babyWeight = 0, babyGest = 0, babyAgeD = 0;
 
     int parsed = sscanf(line,
-                        "HMI,%d,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%d,%d,%d",
+                        "HMI,%d,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d",
                         &act, &skinE, &mode, &air, &skin, &hum, &photo,
-                        &mute, &lang, &photoMin,
-                        &babyWeight, &babyGest, &babyAgeD);
+                        &mute, &lang, &photoMin);
     if (parsed >= 9) {
+      // activeSeq protection: stamp the wizard-selected baby while ANY
+      // therapy is running, and only clear it once every therapy is off.
+      // Phototherapy counts: the HMI now runs the baby-data wizard for it
+      // too, and a lamp-only session still has a baby in the incubator whose
+      // profile must keep its FIFO protection (and receive the phototherapy
+      // minutes accounted below).
+      bool anyTherapyNow = (act != 0) || (photo != 0);
+      bool anyTherapyBefore = (hmi_cmd_msg.actuation != 0) ||
+                              (hmi_cmd_msg.phototherapyMode != 0);
+      if (anyTherapyNow && !anyTherapyBefore && s_wizardSeq != 0) {
+        babyStore_setActiveSeq(s_wizardSeq);
+      } else if (!anyTherapyNow && anyTherapyBefore) {
+        babyStore_setActiveSeq(0);
+      }
+
+      // Per-baby phototherapy exposure. Accumulated in RAM and only written
+      // to NVS on the OFF edge or every PHOTO_FLUSH_INTERVAL — a slot write
+      // per minute would wear the flash for no benefit.
+      updateTherapyAccounting(s_photoAcc, photo != 0);
+      updateTherapyAccounting(s_thermoAcc,
+                              act == ACTUATION_TEMPERATURE ||
+                                  act == ACTUATION_TEMP_AND_HUMIDITY);
+
       hmi_cmd_msg.actuation = act;
       hmi_cmd_msg.skinModeEnabled = skinE;
       hmi_cmd_msg.controlMode = mode;
@@ -409,18 +642,6 @@ void parse_line(const char *line) {
       hmi_cmd_msg.muteAlarm = mute;
       hmi_cmd_msg.language = lang;
       hmi_cmd_msg.photoMinutesRemaining = photoMin;
-      if (parsed >= 13 && babyWeight > 0 && babyGest > 0) {
-        bool changed = (hmi_cmd_msg.babyWeightGrams != babyWeight ||
-                        hmi_cmd_msg.babyGestWeeks   != babyGest   ||
-                        hmi_cmd_msg.babyAgeDays     != babyAgeD);
-        hmi_cmd_msg.babyWeightGrams = babyWeight;
-        hmi_cmd_msg.babyGestWeeks   = babyGest;
-        hmi_cmd_msg.babyAgeDays     = babyAgeD;
-        if (changed) {
-          hmi_cmd_msg.newBabyData = true;
-          hmi_cmd_msg.newBabyDataForTelemetry = true;
-        }
-      }
       hmi_cmd_msg.newCommand = true;
 
       if (in3.language != lang) {
@@ -496,6 +717,7 @@ void CommunicationHost_Send(const char *msg) {
 // ======================================================
 void CommunicationHost_Init() {
   hmi_state_req_sem = xSemaphoreCreateBinary();
+  babyStore_init();
 
   hmiSerial.begin(115200, SERIAL_8N1, UART_MB_RX_PIN, UART_MB_TX_PIN);
   ESP_LOGI(TAG, "UART comm initialized on RX=%d TX=%d",
@@ -508,6 +730,8 @@ void CommunicationHost_Init() {
 void Communication_Task(void *pvParameters) {
   // ---- UART path ----
   uint32_t last_tel_time = 0;
+  // Force the first CTRL,TIME immediately rather than 10 s into the session.
+  uint32_t last_time_bcast = (uint32_t)(0 - 10001);
   uint32_t last_ppg_time = 0;
   uint32_t ppg_time      = 0;
   static unsigned long last_probe_status_time = 0;
@@ -681,6 +905,19 @@ void Communication_Task(void *pvParameters) {
       }
 
       last_tel_time = millis();
+    }
+
+    // Wall-clock broadcast. The HMI has no clock of its own (no RTC, no NTP),
+    // so the motherBoard — the only board that syncs time, over WiFi — is the
+    // single source. Every 10 s rather than with the 1 Hz block: the HMI only
+    // needs it to render dates, and known_issues #2 warns against adding
+    // avoidable periodic UART traffic. epoch 0 means "not synced yet".
+    if (millis() - last_time_bcast > 10000) {
+      last_time_bcast = millis();
+      char tmsg[32];
+      snprintf(tmsg, sizeof(tmsg), "CTRL,TIME,%lu\n",
+               (unsigned long)babyStore_nowEpoch());
+      hmiSerial.print(tmsg);
     }
 
     vTaskDelay(pdMS_TO_TICKS(COMMUNICATION_TASK_PERIOD_MS));

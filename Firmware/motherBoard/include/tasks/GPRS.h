@@ -3,6 +3,7 @@
 
 #include "main.h"
 
+#define APN_ONOMONDO "onomondo"
 #define APN_TM "TM"
 #define APN_TRUPHONE "iot.truphone.com"
 
@@ -22,6 +23,14 @@
 #define GPRS_RECONNECT_INTERVAL 10000     // 10 seconds
 #define GPRS_OTA_CHECK_INTERVAL 600000    // 10 minutes in milliseconds
 #define THINGSBOARD_RECONNECT_DELAY 30000 // 30 seconds
+// Cell-tower triangulation is a blocking AT round-trip; the incubator doesn't
+// move, so it doesn't need refreshing on every telemetry send (as often as
+// every 60 s in actuation mode).
+#define GPRS_TRIANGULATION_INTERVAL 1800000 // 30 minutes in milliseconds
+// Retry cadence for the cellular clock sync. Each attempt is a blocking AT
+// round-trip (and possibly an NTP one), so back off hard: the clock only has
+// to be found once per power cycle.
+#define GPRS_TIME_SYNC_RETRY_INTERVAL 120000 // 2 minutes in milliseconds
 
 #define SIMCOM800_AT "AT\n"
 #define SIMCOM800_ASK_CPIN "AT+CPIN?\n"
@@ -59,6 +68,7 @@ struct GPRSstruct {
   bool lastOTAInProgress = false;
   long lastOTACheck = false;
   long lastReconnectAttempt = false;
+  long lastTriangulationUpdate = false;
   bool enable = false;
   long sendPeriod = false;
   long lastSent = false;
@@ -76,6 +86,7 @@ struct GPRSstruct {
   bool firstPublish = false;
   bool firstConfigPost = false;
   bool firstPowerUp = true;
+  bool pinAttempted = false; // only ever auto-enter the SIM PIN once (PUK-lock risk)
 
   String CCID;
   String IMEI;
@@ -83,6 +94,7 @@ struct GPRSstruct {
   String COP;
   int CSQ;
   String APN;
+  uint8_t apnIndex = 0; // index into GPRS_APN_LIST, onomondo tried first
   IPAddress IP;
   String device_token;
   uint8_t provision_retry_count = 0;
