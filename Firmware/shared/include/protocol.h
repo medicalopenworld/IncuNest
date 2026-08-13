@@ -79,9 +79,6 @@ typedef struct {
   int    language;
   int    skinModeEnabled;
   int    photoMinutesRemaining;
-  int    babyWeightGrams;
-  int    babyGestWeeks;
-  int    babyAgeDays;
 } Proto_HmiCommand;
 
 #ifdef __cplusplus
