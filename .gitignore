@@ -46,3 +46,6 @@ Firmware/Thingsboard/
 
 # Git worktrees (superpowers:using-git-worktrees isolated workspaces)
 Firmware/.worktrees/
+
+# Documentacion regulatoria local (no versionar)
+Regulatory/
