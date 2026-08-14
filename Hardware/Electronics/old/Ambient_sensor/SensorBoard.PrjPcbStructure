@@ -1,0 +1,5 @@
+Record=TopLevelDocument|FileName=Main.SchDoc|SheetNumber=2
+Record=SheetSymbol|SourceDocument=Main.SchDoc|Designator=U_Power_Input|SchDesignator=U_Power_Input|FileName=Power_Input.SchDoc|SheetNumber=3|SymbolType=Normal|RawFileName=Power_Input.SchDoc|DesignItemId= |SourceLibraryName= |ObjectKind=Sheet Symbol|RevisionGUID= |ItemGUID= |VaultGUID= 
+Record=SheetSymbol|SourceDocument=Main.SchDoc|Designator=U_sensors|SchDesignator=U_sensors|FileName=Sensors.SchDoc|SheetNumber=4|SymbolType=Normal|RawFileName=Sensors.SchDoc|DesignItemId= |SourceLibraryName= |ObjectKind=Sheet Symbol|RevisionGUID= |ItemGUID= |VaultGUID= 
+Record=SheetSymbol|SourceDocument=Main.SchDoc|Designator=U_uC|SchDesignator=U_uC|FileName=uC.SchDoc|SheetNumber=5|SymbolType=Normal|RawFileName=uC.SchDoc|DesignItemId= |SourceLibraryName= |ObjectKind=Sheet Symbol|RevisionGUID= |ItemGUID= |VaultGUID= 
+Record=NoMainPathDocument|SourceDocument=Main.SchDoc|FileName=Camera.SchDoc|SheetNumber=1

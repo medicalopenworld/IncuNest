@@ -1,0 +1,10 @@
+Output: ExportSTEP
+Type  : ExportSTEP
+From  : Variant [[No Variations]] of PCB Document [IncuNest_Phototherapy.PcbDoc]
+   Generated File[IncuNest_Phototherapy.step]
+
+
+Files Generated   : 1
+Documents Printed : 0
+
+Finished Output Generation At 11.08.06 On 13/08/2026
