@@ -127,3 +127,5 @@
 #define GPRS_MON_KILL_COUNT_KEY "gprs_mon_kill_count"
 #define HMI_BOOT_COUNT_KEY "hmi_boot_count"
 #define HMI_LAST_RST_KEY "hmi_last_rst"
+// 0-100 while an OTA is downloading; absent otherwise.
+#define OTA_PROGRESS_KEY "ota_progress"

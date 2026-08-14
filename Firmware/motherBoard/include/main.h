@@ -7,6 +7,7 @@
 #define THINGSBOARD_ENABLE_DYNAMIC 1
 #define THINGSBOARD_ENABLE_STREAM_UTILS 1
 #include "ThingsBoard.h"
+#include "config/transport_policy.h" // tabla única GPRS/WiFi
 #include <Arduino.h>
 #include <TinyGsmClient.h>
 
@@ -387,9 +388,10 @@ typedef struct
   float heaterMaxPowerAmps = HEATER_MAX_POWER_AMPS;
   float skinTemperatureSetMax = SKIN_TEMPERATURE_SET_MAX;
   float airTemperatureSetMax = AIR_TEMPERATURE_SET_MAX;
-  int actuating_gprs_period = 60;
-  int phototherapy_gprs_period = 180;
-  int standby_gprs_period = 3600;
+  // Defaults en config/transport_policy.h; /config los sobrescribe en NVS.
+  int actuating_gprs_period = TX_GPRS_PERIOD_ACTUATING_S;
+  int phototherapy_gprs_period = TX_GPRS_PERIOD_PHOTOTHERAPY_S;
+  int standby_gprs_period = TX_GPRS_PERIOD_STANDBY_S;
 
   bool calibrationError = false;
 
