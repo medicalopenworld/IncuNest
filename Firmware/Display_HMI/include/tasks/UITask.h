@@ -38,6 +38,8 @@ void UI_ShowToast(const char *msg, uint32_t ms);
 void ActivateTempControlUI(bool isAirMode);
 // Resumes the phototherapy switch flow once the baby-data wizard finishes.
 void ActivatePhototherapyFromWizard();
+// Same, for the humidity switch flow.
+void ActivateHumidityFromWizard();
 void computeAndSendActuation(void);
 bool UI_IsCriticalAlarmActive(void);
 // True while any therapy is running (temperature, humidity or phototherapy),

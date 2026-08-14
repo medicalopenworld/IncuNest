@@ -21,6 +21,13 @@ void BabyWizard_Open(bool desiredIsAirMode);
 // collecting, which is the whole point of running the wizard here too.
 void BabyWizard_OpenForPhototherapy(void);
 
+// Same wizard, gating humidity instead of a thermal control mode. A
+// humidifier has no NTE range either, so this collects the baby data and
+// hands off to ActivateHumidityFromWizard() — humidity is a therapy applied
+// to a specific baby, and its hours are accounted per profile, so it must be
+// clear who is receiving it.
+void BabyWizard_OpenForHumidity(void);
+
 // Consumes CommTask's pending PROFILE_* responses, screen timeouts, and the
 // critical-alarm-interrupts-wizard rule. Call once per UI_Task loop tick,
 // inside LVGL_Lock().
