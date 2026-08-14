@@ -39,6 +39,13 @@ static SemaphoreHandle_t hmi_state_req_sem;
 
 static HardwareSerial &hmiSerial = Serial1;
 
+// PPG transport scale: ADC counts of ppg_disp per LSB of the 0-255 display range.
+// ppg_disp is zero-mean (library BPF output), so 128 is the baseline and this divisor
+// sets the half-range to 127 x 16 = ~2030 counts. Measured on the bench 2026-08-13
+// with HGAC active: peaks up to ~1350 counts at PI ~10%, so ~50% headroom.
+// Fixed on purpose — no adaptive scaling outside the library.
+static constexpr int32_t PPG_DISP_COUNTS_PER_LSB = 16;
+
 // ---- Phototherapy Timer (Motherboard is source of truth) ----
 static bool photoTimerActive = false;
 static unsigned long photoTimerStartMs = 0;
@@ -742,8 +749,6 @@ void Communication_Task(void *pvParameters) {
   uint32_t ppg_time      = 0;
   static unsigned long last_probe_status_time = 0;
   static ProbeState    prev_probe_state       = ProbeState::PROBE_DISCONNECTED;
-  // PPG normalisation state: decaying min/max keeps signal filling 0–255
-  float ppg_min = -1.0f, ppg_max = 1.0f;
   // HR hysteresis: show after 2 consecutive valid samples, hide after 3 bad ones
   uint8_t hr_valid_streak = 0;
   uint8_t hr_bad_streak   = 0;
@@ -790,28 +795,16 @@ void Communication_Task(void *pvParameters) {
     // --- PPG waveform (25 Hz = every 40 ms) ---
     ppg_time = millis();
     if (ppg_time - last_ppg_time >= 40) {
+      // Transport only: fixed scale, no state, no adaptive gain. The waveform is NOT
+      // gated on spo2_sqi — the library restarts an 18 s SpO2 warmup on every probe
+      // application (_spo2_update: EMAs reset while not APPLIED), while ppg_disp is
+      // valid within ~1 s. Gating the trace on SpO2 validity flat-lined it for 19 s.
       if (g_spo2_data.probe_state == ProbeState::PROBE_APPLIED) {
-        // No valid signal: reset normalisation and send flat midpoint so the
-        // display collapses its amplitude window immediately.
-        if (g_spo2_data.spo2_sqi < 0.05f) {
-          ppg_min = -1.0f;
-          ppg_max =  1.0f;
-          hmiSerial.print("CTRL,PPG,128\n");
-        } else {
-          float ppg_raw = g_spo2_data.ppg_disp;
-          // Expand range immediately, decay slowly toward 0 (bandpass signal is zero-mean)
-          if (ppg_raw < ppg_min) ppg_min = ppg_raw;
-          else ppg_min += (0.0f - ppg_min) * 0.005f;
-          if (ppg_raw > ppg_max) ppg_max = ppg_raw;
-          else ppg_max += (0.0f - ppg_max) * 0.005f;
-          float range = ppg_max - ppg_min;
-          uint8_t ppg_byte = (range > 1e-3f)
-              ? (uint8_t)constrain((ppg_raw - ppg_min) / range * 255.0f, 0.0f, 255.0f)
-              : 128;
-          char ppg_msg[16];
-          snprintf(ppg_msg, sizeof(ppg_msg), "CTRL,PPG,%u\n", ppg_byte);
-          hmiSerial.print(ppg_msg);
-        }
+        long ppg_scaled = 128L + (long)(g_spo2_data.ppg_disp / PPG_DISP_COUNTS_PER_LSB);
+        uint8_t ppg_byte = (uint8_t)constrain(ppg_scaled, 0L, 255L);
+        char ppg_msg[16];
+        snprintf(ppg_msg, sizeof(ppg_msg), "CTRL,PPG,%u\n", ppg_byte);
+        hmiSerial.print(ppg_msg);
       }
       last_ppg_time = ppg_time;
     }
