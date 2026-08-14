@@ -1,0 +1,11 @@
+DRC Rules Export File for PCB: C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\PCB\Motherboard.PcbDoc
+RuleKind=MinimumAnnularRing|RuleName=MinimumAnnularRing|Scope=Board|Minimum=3.54
+RuleKind=ShortCircuit|RuleName=ShortCircuit|Scope=Board|Allowed=0
+RuleKind=ShortCircuit|RuleName=ShortCircuit_Antenna|Scope=Board|Allowed=1
+RuleKind=ShortCircuit|RuleName=ShortCircuit_Grounds|Scope=Board|Allowed=1
+RuleKind=SolderMaskExpansion|RuleName=SolderMaskExpansion_1|Scope=Board|Minimum=4.00
+RuleKind=SolderMaskExpansion|RuleName=SolderMaskExpansion|Scope=Board|Minimum=4.00
+RuleKind=Width|RuleName=Width_1|Scope=Board|Minimum=3.94
+RuleKind=Width|RuleName=Width_GSM_ANTENNA_1|Scope=Board|Minimum=13.78
+RuleKind=Clearance|RuleName=Clearance_1|Scope=Board|Minimum=7.87
+RuleKind=Clearance|RuleName=Board outline clearance|Scope=Board|Minimum=7.87

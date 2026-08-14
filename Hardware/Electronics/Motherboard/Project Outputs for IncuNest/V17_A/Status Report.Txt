@@ -1,0 +1,10 @@
+Output: Bill of Materials
+Type  : BOM
+From  : Variant [Main] of Project [IncuNest.PrjPcb]
+   Generated File[Bill of Materials-IncuNest(Main).xlsx]
+
+
+Files Generated   : 1
+Documents Printed : 0
+
+Finished Output Generation At 00.42.23 On 27/04/2026
