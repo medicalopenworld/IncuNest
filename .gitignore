@@ -30,10 +30,8 @@ build/
 # Credentials (nunca versionar)
 **/Credentials.h
 
-# Hardware history folders
-Hardware/Electronics/Motherboard/History/
-# (o más genérico, si quieres ignorar cualquier carpeta History)
-# Hardware/**/[Hh]istory/
+# Hardware history folders (backups automáticos de Altium, no se versionan)
+Hardware/**/[Hh]istory/
 
 # Agents and Workspaces
 .agent
