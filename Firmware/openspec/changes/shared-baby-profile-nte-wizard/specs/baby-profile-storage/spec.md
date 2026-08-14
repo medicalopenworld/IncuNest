@@ -156,6 +156,33 @@ deleted in the same operation.
 - (Verified via motherBoard `[env:native]` for the pure cursor logic;
   confirmed with a real rotation on hardware — manual.)
 
+### Requirement: A record-layout change resets stored profiles instead of misreading them
+Neither the active-slot NVS blobs nor the audit log carries a version field,
+so a firmware whose `BabyProfile` layout or `BABY_HISTORY_RECORD_SIZE` differs
+from the one that wrote the data MUST NOT reinterpret those bytes: decoding a
+clinical record at the wrong stride would invent patient data. At init, a slot
+blob whose stored size differs from `sizeof(BabyProfile)` SHALL be reset to
+empty, and an audit log whose file size differs from
+`header + min(count, cap) * BABY_HISTORY_RECORD_SIZE` SHALL be deleted along
+with the weight archives it is the only index for. Both SHALL be logged at
+warning level, because losing an active profile is visible to the ward and
+must not look like a glitch.
+
+#### Scenario: Audit log written by an older record layout
+- **WHEN** `babyStore_init()` finds `/baby_history.log` whose size does not
+  match its own header count times the current record size
+- **THEN** the log is deleted, `weight_archive/` is emptied, a warning naming
+  both the actual and the expected size is logged, and the store starts with
+  an empty history rather than decoding the old bytes
+- (Manual verification on hardware: flash a build with the previous record
+  size, create and discharge a baby, then flash the new build.)
+
+#### Scenario: Active slot blob written by an older struct layout
+- **WHEN** a slot blob's stored size differs from `sizeof(BabyProfile)`
+- **THEN** that slot starts empty with a warning, and the other slots are
+  evaluated independently
+- (Verified on hardware alongside the scenario above — manual.)
+
 ### Requirement: Non-SKIP weight answers append a deduplicated point to the active weight-history file
 A non-`SKIP` weight received via `PROFILE_WEIGHT` (see `baby-profile-protocol`) SHALL be appended as a `(timestamp uint32, weightGrams uint16)` point
 (6 bytes) to `/littlefs/weight_active/<seq>.bin` for that profile's `seq`,

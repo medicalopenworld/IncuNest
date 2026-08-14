@@ -56,9 +56,9 @@ void parse_line(const char *line);
 static uint32_t s_wizardSeq = 0;
 static uint16_t s_wizardGrams = 0;
 
-// ---- Per-baby therapy-time accounting (phototherapy + thermoregulation) ----
-// Both counters share this: accumulate in RAM, flush to NVS only on the OFF
-// edge or every PHOTO_FLUSH_INTERVAL_MS. A slot write per elapsed minute
+// ---- Per-baby therapy-time accounting (phototherapy, thermo, humidity) ----
+// All three counters share this: accumulate in RAM, flush to NVS only on the
+// OFF edge or every THERAPY_FLUSH_INTERVAL_MS. A slot write per elapsed minute
 // would wear the flash for no benefit.
 static const uint32_t THERAPY_FLUSH_INTERVAL_MS = 10u * 60u * 1000u;
 
@@ -74,6 +74,8 @@ struct TherapyAccumulator {
 static TherapyAccumulator s_photoAcc{false, 0, 0,
                                      babyStore_addPhototherapyMinutes};
 static TherapyAccumulator s_thermoAcc{false, 0, 0, babyStore_addThermoMinutes};
+static TherapyAccumulator s_humidityAcc{false, 0, 0,
+                                        babyStore_addHumidityMinutes};
 
 // Credits whole elapsed minutes and rebases, keeping the sub-minute
 // remainder so repeated flushes never round it away.
@@ -119,9 +121,10 @@ static void sendProfileRange(uint32_t seq, bool ageKnown, uint16_t ageDays) {
 // write + float formatting in the range builder both need hundreds of bytes
 // below this frame). A 1 KB local here was enough to run it out of stack.
 // Safe: parse_line runs only on COMM_TASK and one wizard flow at a time.
-// 1280: worst-case CTRL,PROFILE_HISTORY is 10 entries x 9 fields with every
-// field at max width (~900 chars). Sized with margin so a full page can
-// never silently fail to build.
+// 1280: worst-case CTRL,PROFILE_HISTORY is 10 entries x 10 fields plus the
+// name, with every field at max width (~1110 chars). Sized with margin so a
+// full page can never silently fail to build. The HMI's COMM_RX_BUFFER_SIZE
+// is the same 1280 — keep both in step if a field is ever added.
 static char s_babyRespBuf[1280];
 static BabyProfile s_babyHistPage[10];
 static BabyWeightPoint s_babyWeightPts[BABY_WEIGHT_HISTORY_MAX_OUT];
@@ -624,12 +627,15 @@ void parse_line(const char *line) {
         babyStore_setActiveSeq(0);
       }
 
-      // Per-baby phototherapy exposure. Accumulated in RAM and only written
-      // to NVS on the OFF edge or every PHOTO_FLUSH_INTERVAL — a slot write
-      // per minute would wear the flash for no benefit.
+      // Per-baby therapy exposure. Accumulated in RAM and only written to NVS
+      // on the OFF edge or every THERAPY_FLUSH_INTERVAL — a slot write per
+      // minute would wear the flash for no benefit.
       updateTherapyAccounting(s_photoAcc, photo != 0);
       updateTherapyAccounting(s_thermoAcc,
                               act == ACTUATION_TEMPERATURE ||
+                                  act == ACTUATION_TEMP_AND_HUMIDITY);
+      updateTherapyAccounting(s_humidityAcc,
+                              act == ACTUATION_HUMIDITY ||
                                   act == ACTUATION_TEMP_AND_HUMIDITY);
 
       hmi_cmd_msg.actuation = act;

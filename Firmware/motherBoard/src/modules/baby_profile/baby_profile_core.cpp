@@ -47,7 +47,7 @@ bool baby_derive_age_days(uint32_t admissionEpoch, uint32_t nowEpoch,
 // Layout (little-endian): valid(1) seq(4) name(24) gestWeeks(1)
 // weightGrams(2) admissionEpoch(4) dischargeEpoch(4) outcome(1)
 // kangarooCount(2) lastKangarooEpoch(4) phototherapyMinutes(4)
-// thermoMinutes(4) = 55 bytes.
+// thermoMinutes(4) humidityMinutes(4) = 59 bytes.
 
 static void put_u32(uint8_t *p, uint32_t v) {
   p[0] = (uint8_t)(v & 0xFF);
@@ -82,6 +82,7 @@ void baby_history_encode(const BabyProfile *p, bool valid,
   put_u32(out + 43, p->lastKangarooEpoch);
   put_u32(out + 47, p->phototherapyMinutes);
   put_u32(out + 51, p->thermoMinutes);
+  put_u32(out + 55, p->humidityMinutes);
 }
 
 bool baby_history_decode(const uint8_t rec[BABY_HISTORY_RECORD_SIZE],
@@ -99,6 +100,7 @@ bool baby_history_decode(const uint8_t rec[BABY_HISTORY_RECORD_SIZE],
   out->lastKangarooEpoch = get_u32(rec + 43);
   out->phototherapyMinutes = get_u32(rec + 47);
   out->thermoMinutes = get_u32(rec + 51);
+  out->humidityMinutes = get_u32(rec + 55);
   return rec[0] != 0;
 }
 
