@@ -293,11 +293,23 @@ static void parse_message(const char *line) {
     }
   } else if (strncmp(line, "CTRL,PROBE", 10) == 0) {
     int state = 0;
-    if (sscanf(line, "CTRL,PROBE,%d", &state) == 1 &&
-        state >= SPO2_PROBE_DISCONNECTED && state <= SPO2_PROBE_APPLIED) {
+    if (sscanf(line, "CTRL,PROBE,%d", &state) == 1) {
+      // Fail-safe: un estado parseable NUNCA se descarta. Solo APPLIED habilita
+      // la traza; cualquier otro valor — incluido uno que esta version del HMI
+      // no conozca — significa "sin contacto valido". Descartarlo dejaria en pie
+      // el ultimo APPLIED y con el la traza PPG congelada en la pantalla de
+      // bloqueo, que es justo el fallo que esto corrige (SATURATING=3 llegaba y
+      // se rechazaba por estar fuera del rango 0..2).
+      if (state < SPO2_PROBE_DISCONNECTED || state > SPO2_PROBE_SATURATING) {
+        COMM_LOG("[COMM] CTRL,PROBE estado desconocido (%d) -> NOT_APPLIED\n",
+                 state);
+        state = SPO2_PROBE_NOT_APPLIED;
+      }
       ctrl_probe_msg.state   = (ProbeContactState)state;
       ctrl_probe_msg.updated = true;
-      static const char *const probe_state_names[] = {"DISCONNECTED", "NOT_APPLIED", "APPLIED"};
+      static const char *const probe_state_names[] = {
+          "DISCONNECTED", "NOT_APPLIED", "APPLIED", "SATURATING"};
+      (void)probe_state_names;
       // COMM_LOG("[COMM] CTRL,PROBE -> %s\n", probe_state_names[state]);
     } else {
       COMM_LOG("[COMM] CTRL,PROBE parse error: %s\n", line);

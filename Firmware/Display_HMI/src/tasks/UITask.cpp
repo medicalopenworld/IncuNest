@@ -104,7 +104,6 @@ bool LanguagesVisible = false;
 bool locked = true;
 
 static bool spo2ProbeAttached = false;
-static bool spo2ProbeAttachedPrev = false;
 
 lv_chart_series_t *airTempSeries = NULL;
 lv_chart_series_t *skinTempSeries = NULL;
@@ -3314,30 +3313,33 @@ void UI_Task(void *pvParameters) {
     if (ctrl_probe_msg.updated) {
       ctrl_probe_msg.updated = false;
       bool applied = (ctrl_probe_msg.state == SPO2_PROBE_APPLIED);
-      // Falling edge: probe removed — hide chart and HR
-      if (!applied && spo2ProbeAttachedPrev) {
+      // La visibilidad se deriva del estado ACTUAL, no de un flanco: si el
+      // HMI se perdiera una transicion, el siguiente CTRL,PROBE (la placa lo
+      // repite cada 2 s mientras no hay contacto) recolocaria la pantalla.
+      // add_flag/clear_flag son idempotentes.
+      if (applied) {
+        if (ui_LockPPGChart)
+          lv_obj_clear_flag(ui_LockPPGChart, LV_OBJ_FLAG_HIDDEN);
+      } else {
         if (ui_LockPPGChart) {
+          bool wasVisible =
+              !lv_obj_has_flag(ui_LockPPGChart, LV_OBJ_FLAG_HIDDEN);
           lv_obj_add_flag(ui_LockPPGChart, LV_OBJ_FLAG_HIDDEN);
           // Vaciar la traza al ocultarla, no al volver a mostrarla: asi el
           // chart queda en blanco se muestre por donde se muestre. En modo
           // CIRCULAR la traza vieja ya no se va desplazando sola, se quedaria
           // congelada en pantalla hasta que el cursor la barriera entera.
           // set_all_value ya resetea start_point a 0 y refresca; el repintado
-          // completo es gratis aqui porque el objeto esta oculto.
-          if (lockPPGSeries)
+          // completo es gratis aqui porque el objeto esta oculto. Solo en la
+          // transicion a oculto: repetirlo cada 2 s seria trabajo inutil.
+          if (wasVisible && lockPPGSeries)
             lv_chart_set_all_value(ui_LockPPGChart, lockPPGSeries,
                                    LV_CHART_POINT_NONE);
         }
         if (ui_LockHRCont)
           lv_obj_add_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
       }
-      // Rising edge: probe applied — show chart
-      if (applied && !spo2ProbeAttachedPrev) {
-        if (ui_LockPPGChart)
-          lv_obj_clear_flag(ui_LockPPGChart, LV_OBJ_FLAG_HIDDEN);
-      }
-      spo2ProbeAttached     = applied;
-      spo2ProbeAttachedPrev = applied;
+      spo2ProbeAttached = applied;
     }
 
     // --- Lock screen: PPG waveform ---

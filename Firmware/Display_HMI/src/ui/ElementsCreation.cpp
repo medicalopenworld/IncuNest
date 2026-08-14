@@ -3621,6 +3621,10 @@ void ui_ScreenLock_screen_init(void) {
     lockPPGSeries->y_points[i] = LV_CHART_POINT_NONE;
   }
   lv_chart_refresh(ui_LockPPGChart);
+  // Nace oculta, igual que ui_LockHRCont: al arrancar no hay sonda aplicada,
+  // asi que mostrar el recuadro vacio seria un estado inicial falso. La
+  // muestra el primer CTRL,PROBE con estado APPLIED.
+  lv_obj_add_flag(ui_LockPPGChart, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_LockPPGChart, LV_OBJ_FLAG_EVENT_BUBBLE);
 
   // --- HR Container (lock screen, bottom-right) ---

@@ -21,6 +21,45 @@ Enviado cada 1 segundo o bajo petición (`HMI,REQ,STATE`).
 Enviado cada 1 segundo (intercalado con STATE).
 **Formato**: `CTRL,TEL,airDet,skinDet,humDet,serverStatus`
 
+#### CTRL,PROBE (Estado de contacto de la sonda SpO2)
+Enviado cada 2 segundos **mientras el estado no sea `2` (APPLIED)**, y una vez
+de forma inmediata en la transición a `2`. Mientras hay contacto válido no se
+repite: en su lugar viaja `CTRL,VIT`.
+**Formato**: `CTRL,PROBE,state`
+
+- `state` es el valor crudo del enum `ProbeState` de la librería
+  `incunest_afe4490`. **El rango no es 0–2**:
+
+  | `state` | Significado |
+  |---|---|
+  | `0` | `DISCONNECTED` — sonda o conector sin enchufar |
+  | `1` | `NOT_APPLIED` — sonda conectada, sin tejido en el camino óptico |
+  | `2` | `APPLIED` — sonda sobre el paciente, medida normal |
+  | `3` | `SATURATING` — canal saturado por exceso de luz; la presencia de tejido es **desconocida**, así que **no** implica `APPLIED` |
+
+- `3` es el estado habitual justo al **retirar** la sonda: queda expuesta a la
+  luz ambiente y el ADC se va al raíl positivo. Un receptor que solo acepte
+  `0..2` descarta ese mensaje y se queda con el último `APPLIED` (fallo real
+  corregido: la gráfica PPG no se ocultaba al quitar la sonda).
+- **Regla fail-safe para el receptor**: solo `2` habilita mostrar traza y HR.
+  Cualquier otro valor parseable —incluido uno que esta versión no conozca—
+  debe tratarse como "sin contacto válido"; nunca descartarse. Si la librería
+  añade un estado, hay que reflejarlo aquí y en `Display_HMI`'s `CommTask.h`.
+
+#### CTRL,PPG (Onda pletismográfica)
+Enviado a 25 Hz (cada 40 ms) **solo** cuando el estado de sonda es `2`.
+**Formato**: `CTRL,PPG,value`
+- `value`: muestra normalizada `0..255`, escala fija (128 = línea base). No va
+  condicionada a la validez de SpO2: la librería reinicia un calentamiento de
+  SpO2 de ~18 s en cada aplicación de sonda, y condicionar la traza a eso la
+  dejaba plana 19 s.
+
+#### CTRL,VIT (Constantes vitales fusionadas)
+Enviado cada 1 segundo **solo** cuando el estado de sonda es `2`.
+**Formato**: `CTRL,VIT,hr,spo2,pi`
+- `hr`: `0` = sin valor válido (el HMI muestra `--`).
+- `pi` es opcional; el HMI acepta la línea con 2 o 3 campos.
+
 #### CTRL,ALM (Evento de Alarma)
 Enviado cuando una alarma cambia de estado.
 **Formato**: `CTRL,ALM,id,short_text,long_text,active`
