@@ -225,13 +225,22 @@ extern int g_restore_photo_minutes;
   10000                              // in millis, there will be a periodic tone when regulating baby's
                                      // constants
 #define buzzerStandbyTone 500        // in micros, tone freq
-#define buzzerAlarmTone 500          // in micros, tone freq
-#define buzzerAlarmBeepTime 500      // ms ON and OFF per alarm beep cycle
-#define buzzerAlarmBeepCount 500     // total beep toggles (~5 min of alarm)
 #define buzzerRotaryEncoderTone 2200 // in micros, tone freq
 #define buzzerStandbyToneDuration 50 // in micros, tone freq
 #define buzzerSwitchDuration 10      // in micros, tone freq
 #define buzzerStandbyToneTimes 1     // in micros, tone freq
+
+// Patron de rafaga segun la Tabla 3 de IEC 60601-1-8. ALTA: 10 pulsos con
+// intervalo entre rafagas de 2,5 a 15 s. MEDIA: 3 pulsos, de 2,5 a 30 s.
+// BAJA: 1 o 2 pulsos, intervalo > 15 s o sin repeticion.
+#define ALARM_PULSE_MS            150u
+#define ALARM_PULSE_GAP_MS        150u
+#define ALARM_BURST_PULSES_HIGH   10u
+#define ALARM_BURST_PULSES_MEDIUM 3u
+#define ALARM_BURST_PULSES_LOW    1u
+#define ALARM_BURST_PERIOD_MS_HIGH   10000u
+#define ALARM_BURST_PERIOD_MS_MEDIUM 25000u
+#define ALARM_BURST_PERIOD_MS_LOW    30000u
 
 #include "preferences_keys.h"
 
@@ -431,6 +440,12 @@ void buzzerHandler();
 void buzzerTone(int beepTimes, int timevTaskDelay, int freq);
 
 void shutBuzzer();
+
+// Motor de audio de alarma gobernado por estado (60601-1-8 6.10): se llama en
+// cada ciclo de securityCheck() y regenera el patron de rafaga indefinidamente
+// mientras audioRequired sea true. No comparte estado con buzzerHandler()
+// (feedback de encoder/HMI/autotest, ajenos a las alarmas).
+void buzzerAlarmUpdate(bool audioRequired, AlarmPriority priority);
 
 double measureMeanConsumption(bool, int);
 double measureStabilizedCurrent(bool sensor, int shunt, float offsetCurrent,

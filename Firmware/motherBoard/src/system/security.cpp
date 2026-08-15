@@ -199,10 +199,11 @@ long lastPowerSupplyCheck;
 static bool skinProbeEverRead = false;
 
 // Bitmask de condiciones senalizando en el ciclo anterior. Comparar contra el
-// actual es lo que produce los eventos que van al display (sendAlarmUSB) y al
-// buzzer: la maquina de alarmas es un estado, no un flujo de eventos.
+// actual es lo que produce los eventos que van al display (sendAlarmUSB): la
+// maquina de alarmas es un estado, no un flujo de eventos. El audio ya no
+// necesita este mismo rastreo de flanco: buzzerAlarmUpdate() (Buzzer.cpp) se
+// gobierna por estado, no por evento (ver driveAlarmBuzzer() mas abajo).
 static uint32_t previousAlarmBitmask = 0;
-static bool previousAudioRequired = false;
 
 extern IncuNest_parameters in3;
 
@@ -261,7 +262,6 @@ void initAlarms()
 {
   alarm_machine_init();
   previousAlarmBitmask = 0;
-  previousAudioRequired = false;
   skinProbeEverRead = false;
   for (int i = 0; i < NUM_ALARMS; i++)
   {
@@ -1078,19 +1078,17 @@ static void publishAlarmChanges()
 }
 
 // El audio lo gobierna la maquina (6.10 incluye la rafaga minima y la pausa
-// que pide el operador); aqui solo se traducen sus flancos al buzzer.
+// que pide el operador); aqui solo se consulta su estado en cada ciclo.
+// buzzerAlarmUpdate() (Buzzer.cpp) es quien regenera el patron de rafaga
+// indefinidamente mientras audioRequired siga en true, y quien reacciona de
+// inmediato a un cambio de prioridad sin esperar a que termine la rafaga en
+// curso — por eso esto ya no dispara por flanco (asi lo hacia el motor viejo,
+// y era la causa de que una alarma de prioridad mas alta pudiera quedar muda
+// tras una de prioridad mas baja, ver revision de la tarea 9).
 static void driveAlarmBuzzer()
 {
-  const bool audioRequired = alarm_machine_audio_required();
-  if (audioRequired && !previousAudioRequired)
-  {
-    buzzerTone(buzzerAlarmBeepCount, buzzerAlarmBeepTime, buzzerAlarmTone);
-  }
-  else if (!audioRequired && previousAudioRequired)
-  {
-    shutBuzzer();
-  }
-  previousAudioRequired = audioRequired;
+  buzzerAlarmUpdate(alarm_machine_audio_required(),
+                    alarm_machine_top_priority());
 }
 
 void securityCheck()
