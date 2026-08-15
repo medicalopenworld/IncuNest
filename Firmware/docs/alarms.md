@@ -33,8 +33,8 @@ se añaden al final.
 |---|---|---|---|---|
 | 1 | `ALARM_AIR_THERMAL_CUTOUT` | `in3.temperature[ROOM_DIGITAL_TEMP_SENSOR] > in3.airTemperatureSetMax` (histéresis 0.2 °C, `AIR_THERMAL_CUTOUT_HYSTERESIS`, `security.cpp:191`), evaluada en `checkThermalCutOuts()` | ALTA | sí |
 | 2 | `ALARM_SKIN_THERMAL_CUTOUT` | `in3.temperature[SKIN_SENSOR] > in3.skinTemperatureSetMax` (histéresis 0.2 °C, `SKIN_THERMAL_CUTOUT_HYSTERESIS`), misma función | ALTA | sí |
-| 3 | `ALARM_AIR_SENSOR_FAULT` | lectura del sensor de aire sin refrescar durante `MINIMUM_SUCCESSFULL_SENSOR_UPDATE` = 20000 ms (`checkStatusOfSensor()`) | ALTA | sí |
-| 4 | `ALARM_SKIN_SENSOR_FAULT_SKIN_MODE` | igual staleness que el 3, pero de la sonda de piel, y solo cuando `in3.controlMode == CONTROL_SKIN` | ALTA | sí |
+| 3 | `ALARM_AIR_SENSOR_FAULT` | lectura del sensor de aire sin refrescar durante `MINIMUM_SUCCESSFULL_AIR_SENSOR_UPDATE` = 5000 ms (`checkStatusOfSensor()`) | ALTA | sí |
+| 4 | `ALARM_SKIN_SENSOR_FAULT_SKIN_MODE` | mismo mecanismo de staleness que el 3 pero sobre la sonda de piel, con su propia ventana `MINIMUM_SUCCESSFULL_SKIN_SENSOR_UPDATE` = 5000 ms (~25 muestras a 200 ms), y solo cuando `in3.controlMode == CONTROL_SKIN` | ALTA | sí |
 | 5 | `ALARM_FAN_FAILURE` | en marcha, `in3.fan_rpm < FAN_MIN_RPM` (3000 rpm, `board.h:185`), con histéresis de 300 rpm para despejar (`checkFanSpeed()`); solo evaluable con `in3.fanHasSpeedFeedback`. **También la declara el autotest de arranque** (`initHardware.cpp:412,677,732,740,779`), antes de que exista lazo de control | ALTA | sí |
 | 6 | `ALARM_AIR_OUTLET_BLOCKED` | en marcha, `fanControlPIDOutput > FAN_DUTY_BLOCKED_THRESHOLD` (190, `board.h:221`) sostenido `AIR_BLOCKED_SUSTAIN_MS` = 5000 ms (`checkAirBlockage()`). **También la declara el autotest de arranque** (`initHardware.cpp:803`) | ALTA | sí |
 | 7 | `ALARM_MAINS_INTERRUPTION` | **sin detector** — ver §9 | ALTA | no (no hay condición que cortar) |

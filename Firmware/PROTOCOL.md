@@ -131,6 +131,32 @@ Curva de evolución de peso, submuestreada a ≤50 puntos equiespaciados.
 - Longitud máxima de línea (peor caso, n=50): <700 caracteres — el buffer
   RX del HMI debe dimensionarse en consecuencia (≥1024).
 
+#### CTRL,ALM_HISTORY (Respuesta a HMI,ALM_HISTORY_REQ)
+Registro de alarmas exigido por IEC 60601-1-8 6.12.2: las últimas 10
+condiciones, persistidas en NVS de la motherBoard.
+**Formato**: `CTRL,ALM_HISTORY,n{,id,prio,raisedEpoch,clearedEpoch,limitCenti,valueCenti,titulo}×n`
+- `n`: 0..10. El HMI descarta la línea entera si `n` está fuera de rango o si
+  alguna entrada viene incompleta — nunca pinta un registro clínico a medias.
+- `prio`: `0`=BAJA, `1`=MEDIA, `2`=ALTA.
+- `raisedEpoch=0`: la placa no tenía hora sincronizada al registrarla.
+- `clearedEpoch=0`: la condición seguía activa al guardarse.
+- `limitCenti`/`valueCenti`: límite en vigor y medida que la disparó, ×100;
+  `0` cuando no aplica a esa condición.
+- El **título viaja resuelto y traducido** por la motherBoard, no el id: la
+  placa es la dueña de la información de alarmas y el display sólo la pinta.
+- Longitud máxima de línea: buffer `ALARM_HISTORY_LINE_BUF_SIZE` (1024). La
+  descripción **no** cabe aquí y por eso va aparte (`CTRL,ALM_DESC`).
+
+#### CTRL,ALM_DESC (Respuesta a HMI,ALM_DESC_REQ)
+Descripción de una alarma concreta, ya traducida.
+**Formato**: `CTRL,ALM_DESC,id,titulo,descripcion`
+- La descripción es el último campo y **puede contener comas**: se parsea
+  hasta el fin de línea, no hasta la siguiente coma.
+- Se pide bajo demanda, sólo al abrir el detalle de una entrada del registro
+  (acción humana y esporádica). No entra en la telemetría periódica:
+  `known_issues.md` #2 documenta una inundación real de UART por tráfico
+  periódico evitable.
+
 ### 2. Mensajes del Display (HMI → MCU)
 
 #### HMI,UI_READY (Handshake Crítico)
@@ -207,8 +233,17 @@ Página del historial de archivados (10 por página, página 0 = más reciente).
 Curva de peso de cualquier bebé (activo o archivado).
 **Formato**: `HMI,WEIGHT_HISTORY_REQ,seq` → `CTRL,WEIGHT_HISTORY`
 
+#### HMI,ALM_HISTORY_REQ
+Registro completo de alarmas (últimas 10).
+**Formato**: `HMI,ALM_HISTORY_REQ` → `CTRL,ALM_HISTORY`
+
+#### HMI,ALM_DESC_REQ
+Descripción de una alarma concreta, para el pop-up de detalle.
+**Formato**: `HMI,ALM_DESC_REQ,id` → `CTRL,ALM_DESC`
+- `id` fuera de `[0, ALARM_COUNT)` se descarta con log en la motherBoard.
+
 ### Validación (ambos sentidos)
-Toda línea `PROFILE_*`/`WEIGHT_HISTORY_*` malformada (número de campos
+Toda línea `PROFILE_*`/`WEIGHT_HISTORY_*`/`ALM_*` malformada (número de campos
 incorrecto, campo numérico no parseable, `outcome` fuera de 0–3, nombre
 vacío) se descarta en silencio con log de error — nunca se actúa sobre
 datos parciales (regla general del protocolo, `.claude/rules/security.md`).
