@@ -22,6 +22,12 @@ Enviado cada 1 segundo o bajo petición (`HMI,REQ,STATE`).
 **Formato**: `CTRL,STATE,act,mode,airSet,skinSet,humSet,photo,mute,sn,hwNum,hwRev,fwVer,numAlarms,skinE,commStatus,photoTimeRem,lang,alarmBitmask`
 
 - `alarmBitmask`: (Hexadecimal, ej: `0x60`) Indica qué IDs de alarma están activos. Requerido para sincronización robusta.
+- `mute`: estado **real** del audio en la placa, no el eco del comando del HMI.
+  `1` = no queda ninguna condición que el operador pueda silenciar (todas las
+  que señalizan están ya en AUDIO PAUSED); `0` = hay audio vivo. El HMI decide
+  con esto si enseña el botón de silencio. Tiene que venir de la placa porque
+  la pausa caduca sola (60601-2-19 201.12.3.104) y el display necesita saber
+  que el zumbador ha vuelto para volver a ofrecer el botón.
 
 #### CTRL,TEL (Telemetría en tiempo real)
 Enviado cada 1 segundo (intercalado con STATE).

@@ -212,10 +212,20 @@ extern PID humidityControlPID;
 #define MINIMUM_SUCCESSFULL_AIR_SENSOR_UPDATE 5000  // in millis
 #define MINIMUM_SUCCESSFULL_SKIN_SENSOR_UPDATE 5000 // in millis
 
-// 60601-1-8 6.8.3: la pausa de audio no puede exceder 2 min sin reanudarse
-// sola. Es lo que dura el silencio que pide el operador con el boton de
-// silencio del display HMI (unica interaccion de operador que existe: el
-// encoder fisico es de una revision de hardware anterior y ya no se monta).
+// Duracion del AUDIO PAUSED que pide el operador con el boton de silencio del
+// display HMI (unica interaccion de operador que existe: el encoder fisico es
+// de una revision de hardware anterior y ya no se monta).
+//
+// La cita correcta es 60601-2-19 201.12.3.104, NO 60601-1-8 6.8.3 como decia
+// antes este comentario: 6.8.3 trata de los estados globales INDEFINIDOS
+// (ALARM OFF / AUDIO OFF) y no fija duracion alguna. Lo que 201.12.3.104
+// exige es que las alarmas silenciadas deliberadamente "reanuden
+// automaticamente su funcion normal dentro de un tiempo especificado POR EL
+// FABRICANTE" — el limite no lo pone la norma, lo ponemos nosotros. 2 min es
+// nuestra eleccion y, por tanto, tiene que aparecer en las instrucciones de
+// uso. La excepcion de hasta 30 min de esa misma clausula es solo para el
+// calentamiento desde COLD CONDITION, y se gestiona aparte con el retardo de
+// anuncio (alarm_machine_set_announce_delay), no alargando esta pausa.
 #define ALARM_AUDIO_PAUSE_MS 120000u
 
 // Ventana de estabilizacion: una incubadora que arranca fria tarda en alcanzar

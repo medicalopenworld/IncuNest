@@ -90,6 +90,10 @@ volatile bool g_pendingAlarmUpdate = false;
 
 bool alarmActive = false;
 bool alarmsMuted = false;
+// Hasta este instante, CTRL,STATE no puede revertir alarmsMuted. Cubre el
+// viaje de ida y vuelta del comando de silencio (ver CommTask.cpp).
+uint32_t g_muteHoldUntilMs = 0;
+#define MUTE_HOLD_MS 2000u
 
 bool prevTempAlarm = false;
 bool prevHumAlarm = false;
@@ -2446,6 +2450,7 @@ void AlarmSound_Update() {
 void MuteAlarm_cb(lv_event_t *e) {
   (void)e;
   alarmsMuted = true;
+  g_muteHoldUntilMs = millis() + MUTE_HOLD_MS;
   hmi_msg.muteAlarm = 1;
   hmi_msg.shouldSendData = true;
   lv_obj_add_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN);

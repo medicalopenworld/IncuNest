@@ -269,3 +269,12 @@ AlarmPriority alarm_machine_audible_priority(void) {
 }
 
 bool alarm_machine_any_signalling(void) { return alarm_machine_bitmask() != 0; }
+
+bool alarm_machine_any_silenceable(void) {
+  for (int i = 0; i < ALARM_COUNT; ++i) {
+    if (g_entries[i].state == ALARM_STATE_ACTIVE) {
+      return true;
+    }
+  }
+  return false;
+}

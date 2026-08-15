@@ -117,6 +117,21 @@ AlarmPriority alarm_machine_audible_priority(void);
 // true si alguna condicion esta generando senal visual.
 bool alarm_machine_any_signalling(void);
 
+// true si queda algo que el operador pueda silenciar: alguna condicion en
+// ACTIVE, es decir, con el audio vivo y sin inactivar todavia.
+//
+// Es lo que decide si el display ensena el boton de silencio. Tiene que
+// venir de aqui y no de una copia local en el HMI porque la pausa de audio
+// caduca sola a los 2 min (6.8.3): cuando la maquina devuelve SILENCED a
+// ACTIVE y el zumbador vuelve a sonar, el display necesita enterarse para
+// volver a ofrecer el boton. Con la copia local, el operador se quedaba con
+// una alarma sonando y sin forma de callarla.
+//
+// Consulta PURA, al contrario que audio_required()/audible_priority(): no
+// cierra ventanas ni toca estado, asi que puede llamarse desde cualquier
+// contexto.
+bool alarm_machine_any_silenceable(void);
+
 #ifdef __cplusplus
 }
 #endif

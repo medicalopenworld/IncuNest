@@ -96,6 +96,7 @@ extern unsigned long photoTimerStartMs;
 // --- Shared flags/state (from UITask.cpp) ---
 extern bool tempSwitched;
 extern bool alarmsMuted;
+extern uint32_t g_muteHoldUntilMs;
 extern bool g_stateSynced;
 extern uint32_t g_lastStateReqMs;
 extern int selectedPanel;
@@ -281,6 +282,20 @@ static void parse_message(const char *line) {
       ctrl_state_msg.desiredHumidity = humSet;
       ctrl_state_msg.phototherapyMode = photo;
       ctrl_state_msg.muteAlarm = mute;
+      // El campo ya no es el eco de lo que pidio este display, sino el estado
+      // REAL del audio en la placa: 1 = no queda nada que silenciar. La copia
+      // local se rinde ante el, que es quien sabe que la pausa de 2 min de
+      // 6.8.3 ha caducado y el zumbador ha vuelto. Sin esto el boton de
+      // silencio no reaparecia nunca y la alarma se quedaba sonando sin forma
+      // de callarla.
+      //
+      // La ventana de gracia evita el parpadeo de la pulsacion: entre que el
+      // operador toca SILENCIAR y la placa lo procesa puede llegar un
+      // CTRL,STATE emitido antes del silencio, que revertiria el boton y
+      // generaria un flanco de subida espurio en el comando.
+      if ((int32_t)(millis() - g_muteHoldUntilMs) >= 0) {
+        alarmsMuted = (mute != 0);
+      }
       if (result >= 13) ctrl_state_msg.skinModeEnabled = skinE;
       if (result >= 16) ctrl_state_msg.language = lang;
       if (result >= 17) {

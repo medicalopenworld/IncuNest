@@ -115,6 +115,33 @@ void test_silence_stops_audio_but_not_the_visual_signal(void) {
   TEST_ASSERT_TRUE(alarm_machine_bitmask() & (1u << ALARM_FAN_FAILURE));
 }
 
+// El display pregunta "queda algo que el operador pueda silenciar?" para
+// decidir si ensena el boton de silencio. Tiene que volver a decir que si
+// cuando la pausa caduca: si no, el zumbador vuelve a sonar y el operador se
+// queda sin forma de callarlo.
+void test_silenceable_comes_back_when_the_pause_expires(void) {
+  TEST_ASSERT_FALSE(alarm_machine_any_silenceable());
+  alarm_machine_condition(ALARM_FAN_FAILURE, true, 0);
+  TEST_ASSERT_TRUE(alarm_machine_any_silenceable());
+  alarm_machine_silence(ALARM_FAN_FAILURE, 120000, 0);
+  TEST_ASSERT_FALSE(alarm_machine_any_silenceable());
+  alarm_machine_tick(119999);
+  TEST_ASSERT_FALSE(alarm_machine_any_silenceable());
+  alarm_machine_tick(120000);
+  TEST_ASSERT_TRUE(alarm_machine_any_silenceable());
+}
+
+// Silenciar una condicion no puede ocultar el boton mientras otra distinta
+// siga sonando (6.8.1: silenciar una no afecta a las demas).
+void test_silenceable_ignores_other_conditions_being_silenced(void) {
+  alarm_machine_condition(ALARM_FAN_FAILURE, true, 0);
+  alarm_machine_condition(ALARM_HUMIDITY_DEVIATION, true, 0);
+  alarm_machine_silence(ALARM_FAN_FAILURE, 120000, 0);
+  TEST_ASSERT_TRUE(alarm_machine_any_silenceable());
+  alarm_machine_silence(ALARM_HUMIDITY_DEVIATION, 120000, 0);
+  TEST_ASSERT_FALSE(alarm_machine_any_silenceable());
+}
+
 // Al expirar el silencio con la condicion viva, el audio vuelve
 // (201.12.3.104: "deben reanudar automaticamente su funcion normal").
 void test_silence_expiry_resumes_audio(void) {
@@ -583,6 +610,8 @@ int main(void) {
   RUN_TEST(test_condition_gone_during_delay_never_announces);
   RUN_TEST(test_thermal_cutout_ignores_any_delay);
   RUN_TEST(test_silence_stops_audio_but_not_the_visual_signal);
+  RUN_TEST(test_silenceable_comes_back_when_the_pause_expires);
+  RUN_TEST(test_silenceable_ignores_other_conditions_being_silenced);
   RUN_TEST(test_silence_expiry_resumes_audio);
   RUN_TEST(test_silencing_one_leaves_the_others_audible);
   RUN_TEST(test_ack_is_indefinite_and_keeps_the_visual_signal);

@@ -298,6 +298,18 @@ static void send_state_to_hmi() {
   // Un bit por AlarmId, tal cual lo produce la maquina de alarmas.
   const uint32_t alarmBitmask = alarm_machine_bitmask();
 
+  // Estado REAL del audio, no el eco del comando del display.
+  //
+  // Este campo devolvia g_last_cmd.muteAlarm, es decir, lo ultimo que el
+  // propio HMI habia pedido: no aportaba nada y ademas mentia. La pausa de
+  // audio caduca sola a los 2 min (6.8.3) y el zumbador vuelve; el display se
+  // quedaba creyendo que seguia silenciada y no volvia a ofrecer el boton de
+  // silencio, dejando al operador con una alarma sonando que ya no podia
+  // callar. Ahora se manda si queda algo silenciable, que es la pregunta que
+  // el display necesita responder.
+  const int audioSilenced =
+      (alarmBitmask != 0 && !alarm_machine_any_silenceable()) ? 1 : 0;
+
   // Derive probe state from skin temperature: >0.1°C means probe is physically connected
   int skinProbeState = (in3.temperature[SKIN_SENSOR] > 0.1f) ? SKIN_PROBE_VALID
                                                               : SKIN_PROBE_NOT_CONNECTED;
@@ -308,7 +320,7 @@ static void send_state_to_hmi() {
            (double)g_last_cmd.desiredAirTemperature,
            (double)g_last_cmd.desiredSkinTemperature,
            (double)g_last_cmd.desiredHumidity, (int)g_last_cmd.phototherapyMode,
-           (int)g_last_cmd.muteAlarm, ctrl_tel_msg.serialNumber, HW_NUM,
+           audioSilenced, ctrl_tel_msg.serialNumber, HW_NUM,
            HW_REVISION, FWversion, alarmCount, (int)g_last_cmd.skinModeEnabled,
            (int)ctrl_tel_msg.serverCommStatus, remainingTime, in3.language,
            skinProbeState, alarmBitmask);
