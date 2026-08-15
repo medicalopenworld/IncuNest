@@ -79,12 +79,20 @@ void buzzerTone(int beepTimes, int timevTaskDelay, int freq)
 // alarma de prioridad mas alta aparece mientras ya suena una de prioridad mas
 // baja, audioRequired ya era true y no habria flanco — con el motor viejo esa
 // alarma de maxima prioridad quedaba muda. Aqui, en cambio, un cambio de
-// prioridad reinicia el patron de inmediato hacia el de la prioridad nueva.
+// prioridad arranca el patron de la prioridad nueva EN EL MISMO CICLO en que
+// se detecta el cambio (ver `freshStart` abajo), sin esperar a que termine la
+// rafaga vieja ni al periodo de silencio entre rafagas de la nueva: ese
+// periodo (2,5-15 s en ALTA, hasta 30 s en BAJA, Tabla 3) separa rafagas
+// SUCESIVAS de un patron que ya esta sonando, nunca la primera — exigirlo
+// tambien en el arranque dejaba el zumbador mudo hasta 30 s tras la primera
+// alarma, o 10 s de silencio justo al escalar a maxima prioridad (hallazgo
+// C-1 de la revision de la tarea 11).
 void buzzerAlarmUpdate(bool audioRequired, AlarmPriority priority)
 {
   static uint32_t phaseStart = 0;
   static uint32_t pulsesLeft = 0;
   static bool on = false;
+  static bool wasAudioRequired = false;
   static AlarmPriority lastPriority = ALARM_PRIORITY_LOW;
 
   if (!audioRequired)
@@ -96,27 +104,12 @@ void buzzerAlarmUpdate(bool audioRequired, AlarmPriority priority)
     }
     pulsesLeft = 0;
     phaseStart = millis();
+    wasAudioRequired = false;
     lastPriority = priority;
     return;
   }
 
   const uint32_t now = millis();
-
-  // La prioridad activa subio (p. ej. una BAJA sonando da paso a una ALTA):
-  // el patron en curso se corta y arranca de inmediato el de la prioridad
-  // nueva, sin esperar a que termine la rafaga vieja. Es lo que elimina de
-  // raiz la alarma muda que encontro la revision de la tarea 9.
-  if (priority != lastPriority)
-  {
-    pulsesLeft = 0;
-    phaseStart = now;
-    if (on)
-    {
-      ledcWrite(BUZZER_PWM_CHANNEL, 0);
-      on = false;
-    }
-    lastPriority = priority;
-  }
 
   const uint32_t burstPulses =
       priority == ALARM_PRIORITY_HIGH   ? ALARM_BURST_PULSES_HIGH
@@ -127,11 +120,31 @@ void buzzerAlarmUpdate(bool audioRequired, AlarmPriority priority)
       : priority == ALARM_PRIORITY_MEDIUM ? ALARM_BURST_PERIOD_MS_MEDIUM
                                           : ALARM_BURST_PERIOD_MS_LOW;
 
+  // Primer ciclo con audio exigido tras un silencio, o cambio de prioridad
+  // mientras ya sonaba: ambos arrancan la rafaga YA, en este mismo ciclo, en
+  // vez de caer en el chequeo de `burstPeriod` de mas abajo (que solo debe
+  // gobernar el silencio ENTRE rafagas de un patron que ya esta sonando).
+  const bool freshStart = !wasAudioRequired || (priority != lastPriority);
+  wasAudioRequired = true;
+  lastPriority = priority;
+
+  if (freshStart)
+  {
+    pulsesLeft = burstPulses;
+    phaseStart = now;
+    on = true;
+    ledcWrite(BUZZER_PWM_CHANNEL, BUZZER_HALF_PWM);
+    return; // el primer pulso ya ha salido en este mismo ciclo
+  }
+
   if (pulsesLeft == 0)
   {
+    // Silencio ENTRE rafagas sucesivas de un patron que ya esta sonando (ver
+    // comentario de cabecera): la rafaga inicial nunca pasa por aqui porque
+    // freshStart la intercepta arriba.
     if ((uint32_t)(now - phaseStart) < burstPeriod)
     {
-      return; // silencio entre rafagas
+      return;
     }
     pulsesLeft = burstPulses;
     phaseStart = now;

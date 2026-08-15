@@ -229,6 +229,37 @@ void test_pending_does_not_raise_top_priority(void) {
   TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_LOW, alarm_machine_top_priority());
 }
 
+// C-2 (revision tarea 11): silenciar una ALTA no puede prestarle su prioridad
+// al audio de una BAJA distinta que sigue activa. La senal VISUAL si debe
+// seguir mostrando la ALTA (top_priority), pero el zumbador tiene que sonar
+// como la BAJA que realmente exige audio.
+void test_audible_priority_ignores_a_silenced_high_priority_alarm(void) {
+  alarm_machine_condition(ALARM_FAN_FAILURE, true, 0);
+  alarm_machine_silence(ALARM_FAN_FAILURE, 120000, 0);
+  alarm_machine_condition(ALARM_HUMIDITY_DEVIATION, true, 1000);
+  TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_LOW, alarm_machine_audible_priority());
+  TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_HIGH, alarm_machine_top_priority());
+}
+
+// Una ALTA que si esta ACTIVE (exigiendo audio de verdad) si eleva la
+// prioridad audible por encima de una BAJA tambien activa.
+void test_audible_priority_reflects_an_active_high_priority_alarm(void) {
+  alarm_machine_condition(ALARM_HUMIDITY_DEVIATION, true, 0);
+  TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_LOW, alarm_machine_audible_priority());
+  alarm_machine_condition(ALARM_FAN_FAILURE, true, 1000);
+  TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_HIGH, alarm_machine_audible_priority());
+}
+
+// Mismo criterio que alarm_machine_audio_required(): la prioridad audible
+// sigue reflejando la ALTA mientras dure su rafaga minima (6.10), aunque la
+// condicion ya se haya retirado y el estado haya vuelto a INACTIVE.
+void test_audible_priority_holds_through_the_minimum_burst_window(void) {
+  alarm_machine_condition(ALARM_FAN_FAILURE, true, 0);
+  alarm_machine_condition(ALARM_FAN_FAILURE, false, 10);
+  TEST_ASSERT_TRUE(alarm_machine_audio_required());
+  TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_HIGH, alarm_machine_audible_priority());
+}
+
 void test_no_alarms_means_nothing_signalling(void) {
   TEST_ASSERT_FALSE(alarm_machine_any_signalling());
   alarm_machine_condition(ALARM_FAN_FAILURE, true, 0);
@@ -463,6 +494,9 @@ int main(void) {
   RUN_TEST(test_reset_on_a_non_latching_alarm_is_refused);
   RUN_TEST(test_top_priority_is_the_highest_signalling);
   RUN_TEST(test_pending_does_not_raise_top_priority);
+  RUN_TEST(test_audible_priority_ignores_a_silenced_high_priority_alarm);
+  RUN_TEST(test_audible_priority_reflects_an_active_high_priority_alarm);
+  RUN_TEST(test_audible_priority_holds_through_the_minimum_burst_window);
   RUN_TEST(test_no_alarms_means_nothing_signalling);
   RUN_TEST(test_short_condition_still_completes_its_burst);
   RUN_TEST(test_silencing_cancels_the_minimum_burst_hold);

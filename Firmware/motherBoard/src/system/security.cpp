@@ -1087,8 +1087,15 @@ static void publishAlarmChanges()
 // tras una de prioridad mas baja, ver revision de la tarea 9).
 static void driveAlarmBuzzer()
 {
+  // alarm_machine_audible_priority(), no alarm_machine_top_priority(): esta
+  // ultima incluye SILENCED/ACKED para que la senal VISUAL siga mostrando la
+  // prioridad mas alta tras una inactivacion del operador, pero eso es
+  // precisamente lo que el zumbador NO debe hacer - si una ALTA esta
+  // silenciada y una BAJA distinta esta activa, el audio tiene que sonar como
+  // BAJA. alarm_machine_audible_priority() usa el mismo criterio que
+  // alarm_machine_audio_required() (revision de la tarea 11, hallazgo C-2).
   buzzerAlarmUpdate(alarm_machine_audio_required(),
-                    alarm_machine_top_priority());
+                    alarm_machine_audible_priority());
 }
 
 void securityCheck()

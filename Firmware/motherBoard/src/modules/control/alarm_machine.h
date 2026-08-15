@@ -68,7 +68,26 @@ bool alarm_machine_reset(AlarmId id, uint32_t now_ms);
 
 // Prioridad mas alta entre las condiciones que se estan anunciando
 // (ACTIVE, SILENCED o ACKED). Si no hay ninguna, devuelve ALARM_PRIORITY_LOW.
+// Incluye SILENCED/ACKED a proposito: la senal VISUAL debe seguir mostrando
+// la prioridad mas alta aunque el operador haya inactivado su audio. NO usar
+// esto para decidir que patron reproduce el zumbador - ver
+// alarm_machine_audible_priority().
 AlarmPriority alarm_machine_top_priority(void);
+
+// Prioridad mas alta entre las condiciones que EXIGEN AUDIO ahora mismo: el
+// mismo criterio que alarm_machine_audio_required() (ACTIVE, o INACTIVE
+// dentro de la ventana de rafaga minima de 6.10), pero devolviendo la
+// prioridad en vez de un booleano. Si no hay ninguna, devuelve
+// ALARM_PRIORITY_LOW.
+//
+// Existe separada de alarm_machine_top_priority() porque son dos preguntas
+// distintas: esa incluye SILENCED/ACKED para la senal visual; esta no, porque
+// silenciar o hacer ACK es la inactivacion del OPERADOR que 6.10 exime de
+// audio. Sin esta distincion, silenciar una ALTA mientras una BAJA distinta
+// sigue ACTIVE haria que el zumbador reprodujera el patron de 10 pulsos de la
+// ALTA para una condicion que en realidad es BAJA - una alarma que ya no
+// exige audio le presta su prioridad a otra que si lo exige.
+AlarmPriority alarm_machine_audible_priority(void);
 
 // true si alguna condicion esta generando senal visual.
 bool alarm_machine_any_signalling(void);

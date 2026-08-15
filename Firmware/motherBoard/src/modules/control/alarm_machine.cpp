@@ -193,4 +193,25 @@ AlarmPriority alarm_machine_top_priority(void) {
   return top;
 }
 
+AlarmPriority alarm_machine_audible_priority(void) {
+  AlarmPriority top = ALARM_PRIORITY_LOW;
+  for (int i = ALARM_NONE + 1; i < ALARM_COUNT; ++i) {
+    const Entry &e = g_entries[i];
+    // Mismo criterio que alarm_machine_audio_required(): ACTIVE, o INACTIVE
+    // todavia dentro de la ventana de rafaga minima. SILENCED/ACKED quedan
+    // fuera a proposito - son la inactivacion del OPERADOR.
+    const bool audible =
+        e.state == ALARM_STATE_ACTIVE ||
+        (e.state == ALARM_STATE_INACTIVE &&
+         (int32_t)(g_last_tick_ms - e.audio_hold_until_ms) < 0);
+    if (audible) {
+      const AlarmPriority p = alarm_priority((AlarmId)i);
+      if (p > top) {
+        top = p;
+      }
+    }
+  }
+  return top;
+}
+
 bool alarm_machine_any_signalling(void) { return alarm_machine_bitmask() != 0; }
