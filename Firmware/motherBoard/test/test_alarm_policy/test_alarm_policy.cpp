@@ -55,6 +55,47 @@ void test_out_of_range_defaults_to_high(void) {
   TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_HIGH, alarm_priority((AlarmId)999));
 }
 
+// 201.15.4.2.1 aa) y bb): el corte termico auto-rearmable exige que "la alarma
+// opere continuamente hasta reset manual". Es la unica familia latching.
+void test_only_thermal_cutouts_latch(void) {
+  TEST_ASSERT_TRUE(alarm_is_latching(ALARM_AIR_THERMAL_CUTOUT));
+  TEST_ASSERT_TRUE(alarm_is_latching(ALARM_SKIN_THERMAL_CUTOUT));
+  for (int id = ALARM_NONE + 1; id < ALARM_COUNT; ++id) {
+    if (id == ALARM_AIR_THERMAL_CUTOUT || id == ALARM_SKIN_THERMAL_CUTOUT) {
+      continue;
+    }
+    TEST_ASSERT_FALSE(alarm_is_latching((AlarmId)id));
+  }
+}
+
+// 201.12.3.101 (ventilador y salida obstruida), 201.12.3.102 (sonda de piel),
+// 201.15.4.2.1 dd)/ee) (desviacion por el lado caliente).
+void test_conditions_that_must_cut_the_heater(void) {
+  const AlarmId cuts[] = {
+      ALARM_AIR_THERMAL_CUTOUT,       ALARM_SKIN_THERMAL_CUTOUT,
+      ALARM_AIR_SENSOR_FAULT,         ALARM_SKIN_SENSOR_FAULT_SKIN_MODE,
+      ALARM_FAN_FAILURE,              ALARM_AIR_OUTLET_BLOCKED,
+      ALARM_AIR_TEMP_DEVIATION_HIGH,  ALARM_SKIN_TEMP_DEVIATION_HIGH,
+      ALARM_HEATER_FAULT};
+  for (unsigned i = 0; i < sizeof(cuts) / sizeof(cuts[0]); ++i) {
+    TEST_ASSERT_TRUE(alarm_cuts_heater(cuts[i]));
+  }
+}
+
+// dd) y ee) son explicitas: por el lado frio el calefactor DEBE seguir
+// encendido. Cortarlo ahi enfriaria a un bebe que ya esta por debajo.
+void test_cold_side_deviation_never_cuts_the_heater(void) {
+  TEST_ASSERT_FALSE(alarm_cuts_heater(ALARM_AIR_TEMP_DEVIATION_LOW));
+  TEST_ASSERT_FALSE(alarm_cuts_heater(ALARM_SKIN_TEMP_DEVIATION_LOW));
+}
+
+void test_notify_only_conditions_do_not_cut_the_heater(void) {
+  TEST_ASSERT_FALSE(alarm_cuts_heater(ALARM_SUPPLY_UNDERVOLTAGE));
+  TEST_ASSERT_FALSE(alarm_cuts_heater(ALARM_HMI_LINK_LOST));
+  TEST_ASSERT_FALSE(alarm_cuts_heater(ALARM_HUMIDITY_DEVIATION));
+  TEST_ASSERT_FALSE(alarm_cuts_heater(ALARM_SKIN_SENSOR_FAULT_AIR_MODE));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_high_priority_set);
@@ -62,5 +103,9 @@ int main(void) {
   RUN_TEST(test_low_priority_set);
   RUN_TEST(test_priority_distribution);
   RUN_TEST(test_out_of_range_defaults_to_high);
+  RUN_TEST(test_only_thermal_cutouts_latch);
+  RUN_TEST(test_conditions_that_must_cut_the_heater);
+  RUN_TEST(test_cold_side_deviation_never_cuts_the_heater);
+  RUN_TEST(test_notify_only_conditions_do_not_cut_the_heater);
   return UNITY_END();
 }
