@@ -33,7 +33,8 @@ Step     s_step = Step::Closed;
 uint32_t s_deadlineMs = 0;
 int      s_retries = 0;
 uint8_t  s_detailId = 0;
-uint32_t s_activeSig = 0;
+uint32_t s_activeSig = 0;  // conjunto de alarmas activas
+uint32_t s_viewSig = 0;    // todo lo que se pinta
 
 AlarmHistoryMsg s_hist = {0, {}};
 
@@ -191,20 +192,29 @@ void showLoading();
 void showList();
 void openDetail(uint8_t id, const char *title, const char *desc);
 
-// Huella del conjunto de alarmas activas + estado de silencio. Sirve solo para
-// detectar "ha cambiado algo de lo que se ve"; no se guarda ni se transmite.
-uint32_t activeSignature() {
-  // El bitmask de silenciadas entra en la firma: es lo que hace que al pulsar
-  // SILENCIAR/REANUDAR la fila se repinte sola en cuanto la placa confirma, y
-  // tambien que la caducidad de los 10 min devuelva el boton a SILENCIAR sin
-  // que el operador tenga que salir y volver a entrar.
-  uint32_t sig = (alarmsMuted ? 0x8000u : 0u) ^ ctrl_state_msg.silencedBitmask;
+// Huellas para detectar "ha cambiado algo": no se guardan ni se transmiten.
+//
+// Solo el CONJUNTO de alarmas activas. Cuando esto cambia, el registro que
+// guarda la placa ya no es el que tenemos en s_hist y hay que volver a
+// pedirlo: una alarma que se resuelve con el centro abierto tiene que bajar
+// sola de "Activas" a "Registro".
+uint32_t activeIdSignature() {
+  uint32_t sig = 1u;
   for (int i = 0; i < MAX_ALARMS; i++) {
     if (alarmList[i].state) {
       sig = sig * 31u + (uint32_t)alarmList[i].id + 1u;
     }
   }
   return sig;
+}
+
+// Todo lo que se ve. Ademas del conjunto activo incluye el bitmask de
+// silenciadas, que es lo que hace que al pulsar SILENCIAR/REANUDAR la fila se
+// repinte en cuanto la placa confirma, y que la caducidad de los 10 min
+// devuelva el boton a SILENCIAR sin salir y volver a entrar.
+uint32_t viewSignature() {
+  return activeIdSignature() ^ ctrl_state_msg.silencedBitmask ^
+         (alarmsMuted ? 0x8000u : 0u);
 }
 
 void onRowSilenceTap(lv_event_t *e);
@@ -440,7 +450,8 @@ void showList() {
     makeCardLabel(card, buf, 580);
   }
 
-  s_activeSig = activeSignature();
+  s_activeSig = activeIdSignature();
+  s_viewSig = viewSignature();
   s_step = Step::Showing;
 }
 
@@ -604,15 +615,33 @@ void AlarmCenter_Poll(void) {
       break;
 
     case Step::Showing: {
-      // La lista se construye una sola vez al abrir, asi que sin esto una
-      // alarma que salta (o se resuelve) con el centro abierto no aparece
-      // hasta cerrarlo y volver a entrar — y el boton de SILENCIAR tampoco.
-      // Se compara una firma del conjunto activo en vez de reconstruir en
-      // cada pasada, que destruiria y recrearia las tarjetas 30 veces por
-      // segundo y se comeria el toque del operador a media pulsacion.
-      const uint32_t sig = activeSignature();
-      if (sig != s_activeSig) {
-        s_activeSig = sig;
+      // Registro recien llegado (pedido al abrir, o tras resolverse algo).
+      if (g_pendingAlarmHistory) {
+        g_pendingAlarmHistory = false;
+        s_hist = g_alarmHistory;
+        showList();
+        break;
+      }
+
+      // La lista se construye una sola vez, asi que sin esto una alarma que
+      // salta o se resuelve con el centro abierto no se movería hasta cerrar
+      // y volver a entrar. Se compara una firma en vez de reconstruir en cada
+      // pasada, que destruiria y recrearia las tarjetas 30 veces por segundo
+      // y se comeria el toque del operador a media pulsacion.
+      const uint32_t sig = viewSignature();
+      if (sig != s_viewSig) {
+        s_viewSig = sig;
+        // Si lo que cambio es el CONJUNTO de alarmas activas, el registro que
+        // tenemos se ha quedado viejo: la que acaba de resolverse ya lleva
+        // hora de fin en la placa, y una nueva ni siquiera esta en s_hist.
+        // Se vuelve a pedir y la respuesta entra por la rama de arriba; la
+        // lista se repinta ya con lo que hay para no dejar la pantalla
+        // congelada mientras llega.
+        const uint32_t aSig = activeIdSignature();
+        if (aSig != s_activeSig) {
+          s_activeSig = aSig;
+          Communication_SendAlarmHistoryReq();
+        }
         showList();
       }
       break;

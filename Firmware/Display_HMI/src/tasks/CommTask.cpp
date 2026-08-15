@@ -379,8 +379,17 @@ static void parse_message(const char *line) {
     } else {
       COMM_LOG("[COMM] CTRL,PROBE parse error: %s\n", line);
     }
-  } else if (strncmp(line, "CTRL,ALM", strlen("CTRL,ALM")) ==
-             0) {
+  } else if (strncmp(line, "CTRL,ALM,", strlen("CTRL,ALM,")) == 0) {
+    // La coma del prefijo NO es cosmetica. Sin ella este strncmp comparaba 8
+    // caracteres, y "CTRL,ALM" es prefijo de "CTRL,ALM_HISTORY" y de
+    // "CTRL,ALM_DESC": al ser una cadena else-if, esta rama se los tragaba a
+    // los dos y las ramas de abajo eran codigo muerto. El sintoma era que el
+    // registro de alarmas llegaba siempre vacio y el detalle de una entrada
+    // decia "descripcion no disponible", porque las respuestas de la placa se
+    // descartaban aqui como CTRL,ALM malformadas.
+    //
+    // Regla para cualquier mensaje que se anada: comparar SIEMPRE con el
+    // separador incluido, o poner la rama especifica antes que la generica.
     int id, stateInt;
     char type[ALARM_TYPE_LEN];
     char description[ALARM_DESC_LEN];
