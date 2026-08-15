@@ -49,6 +49,14 @@ void alarm_machine_silence(AlarmId id, uint32_t duration_ms, uint32_t now_ms);
 // se mantiene mientras la condicion persista.
 void alarm_machine_ack(AlarmId id, uint32_t now_ms);
 
+// true si la alarma sigue senalizando solo porque es latching y su condicion
+// ya desaparecio: esta esperando reset manual.
+bool alarm_machine_is_latched(AlarmId id);
+
+// Reset manual. Devuelve false si la alarma no es latching o si su condicion
+// sigue presente — resetear con la causa viva no puede apagar el aviso.
+bool alarm_machine_reset(AlarmId id, uint32_t now_ms);
+
 #ifdef __cplusplus
 }
 #endif

@@ -51,9 +51,12 @@ void alarm_machine_condition(AlarmId id, bool present, uint32_t now_ms) {
       e.state = may_wait ? ALARM_STATE_PENDING : ALARM_STATE_ACTIVE;
     }
   } else {
-    // El latching se aplica en la Task 6; de momento toda condicion que
-    // desaparece limpia su alarma.
-    e.state = ALARM_STATE_INACTIVE;
+    // 201.15.4.2.1 aa)/bb): un corte termico mantiene la alarma hasta reset
+    // manual aunque la temperatura ya haya vuelto a rango. El resto se limpia
+    // solo (senal non-latching, 6.10).
+    if (!alarm_is_latching(id)) {
+      e.state = ALARM_STATE_INACTIVE;
+    }
   }
 }
 
@@ -124,4 +127,22 @@ void alarm_machine_ack(AlarmId id, uint32_t now_ms) {
   if (e.state == ALARM_STATE_ACTIVE || e.state == ALARM_STATE_SILENCED) {
     e.state = ALARM_STATE_ACKED;
   }
+}
+
+bool alarm_machine_is_latched(AlarmId id) {
+  if (!valid(id)) {
+    return false;
+  }
+  const Entry &e = g_entries[id];
+  return alarm_is_latching(id) && !e.present &&
+         e.state != ALARM_STATE_INACTIVE;
+}
+
+bool alarm_machine_reset(AlarmId id, uint32_t now_ms) {
+  (void)now_ms;
+  if (!alarm_machine_is_latched(id)) {
+    return false;
+  }
+  g_entries[id].state = ALARM_STATE_INACTIVE;
+  return true;
 }

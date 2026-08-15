@@ -166,6 +166,50 @@ void test_silencing_an_inactive_condition_is_a_no_op(void) {
                         alarm_machine_state(ALARM_FAN_FAILURE));
 }
 
+// El corte termico sigue senalizando aunque la temperatura vuelva a rango.
+void test_thermal_cutout_survives_the_condition_clearing(void) {
+  alarm_machine_condition(ALARM_AIR_THERMAL_CUTOUT, true, 0);
+  alarm_machine_condition(ALARM_AIR_THERMAL_CUTOUT, false, 5000);
+  TEST_ASSERT_EQUAL_INT(ALARM_STATE_ACTIVE,
+                        alarm_machine_state(ALARM_AIR_THERMAL_CUTOUT));
+  TEST_ASSERT_TRUE(alarm_machine_is_latched(ALARM_AIR_THERMAL_CUTOUT));
+  TEST_ASSERT_TRUE(alarm_machine_bitmask() & (1u << ALARM_AIR_THERMAL_CUTOUT));
+}
+
+// Solo el reset manual la limpia, y solo si la condicion ya no esta presente.
+void test_manual_reset_clears_a_latched_alarm(void) {
+  alarm_machine_condition(ALARM_AIR_THERMAL_CUTOUT, true, 0);
+  alarm_machine_condition(ALARM_AIR_THERMAL_CUTOUT, false, 5000);
+  TEST_ASSERT_TRUE(alarm_machine_reset(ALARM_AIR_THERMAL_CUTOUT, 6000));
+  TEST_ASSERT_EQUAL_INT(ALARM_STATE_INACTIVE,
+                        alarm_machine_state(ALARM_AIR_THERMAL_CUTOUT));
+}
+
+// Resetear con la camara todavia caliente no puede apagar la alarma: seria
+// devolver el calefactor a un estado peligroso por pulsar un boton.
+void test_reset_is_refused_while_the_condition_persists(void) {
+  alarm_machine_condition(ALARM_AIR_THERMAL_CUTOUT, true, 0);
+  TEST_ASSERT_FALSE(alarm_machine_reset(ALARM_AIR_THERMAL_CUTOUT, 1000));
+  TEST_ASSERT_EQUAL_INT(ALARM_STATE_ACTIVE,
+                        alarm_machine_state(ALARM_AIR_THERMAL_CUTOUT));
+  TEST_ASSERT_TRUE(alarm_machine_heater_must_cut());
+}
+
+// Mientras esta latcheada sin condicion, el calefactor puede volver: la norma
+// solo exige mantener la ALARMA, no el corte, una vez bajada la temperatura.
+void test_latched_without_condition_releases_the_heater(void) {
+  alarm_machine_condition(ALARM_AIR_THERMAL_CUTOUT, true, 0);
+  TEST_ASSERT_TRUE(alarm_machine_heater_must_cut());
+  alarm_machine_condition(ALARM_AIR_THERMAL_CUTOUT, false, 5000);
+  TEST_ASSERT_FALSE(alarm_machine_heater_must_cut());
+}
+
+// Una non-latching no necesita reset y lo rechaza.
+void test_reset_on_a_non_latching_alarm_is_refused(void) {
+  alarm_machine_condition(ALARM_HUMIDITY_DEVIATION, true, 0);
+  TEST_ASSERT_FALSE(alarm_machine_reset(ALARM_HUMIDITY_DEVIATION, 1000));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_starts_inactive);
@@ -185,5 +229,10 @@ int main(void) {
   RUN_TEST(test_ack_is_indefinite_and_keeps_the_visual_signal);
   RUN_TEST(test_silencing_never_restores_the_heater);
   RUN_TEST(test_silencing_an_inactive_condition_is_a_no_op);
+  RUN_TEST(test_thermal_cutout_survives_the_condition_clearing);
+  RUN_TEST(test_manual_reset_clears_a_latched_alarm);
+  RUN_TEST(test_reset_is_refused_while_the_condition_persists);
+  RUN_TEST(test_latched_without_condition_releases_the_heater);
+  RUN_TEST(test_reset_on_a_non_latching_alarm_is_refused);
   return UNITY_END();
 }
