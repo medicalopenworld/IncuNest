@@ -9,6 +9,9 @@
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_rgb.h"
 #include "esp_log.h"
+// alarm_priority(): la prioridad del banner sale de la misma tabla de shared/
+// que usa la motherboard, no de una copia local.
+#include "alarm_policy.h"
 #include "main.h"
 #include "ui.h"
 #include <PCA9557.h>
@@ -1871,6 +1874,170 @@ void start_alarm_blink(lv_obj_t *obj) {
   lv_anim_start(&a);
 }
 
+// ---------------------------------------------------------------------------
+// Banner de alarma
+// ---------------------------------------------------------------------------
+// IEC 60601-1-8 6.3.2.2.2 exige al menos una senal visual que identifique la
+// condicion concreta Y su prioridad, legible a 1 m. Antes de esto, fuera de la
+// pantalla de alarmas solo habia un badge con el numero de alarmas activas,
+// que no identifica ni la condicion ni la prioridad.
+//
+// Vive en lv_layer_top() y no colgado de una pantalla: un overlay parentado a
+// una pantalla concreta desaparece al hacer lv_scr_load(), y la senal tiene
+// que existir mientras exista la condicion, este el operador donde este.
+//
+// El color y la frecuencia salen de la Tabla 2 de la misma norma: ALTA rojo
+// 1,4-2,8 Hz, MEDIA amarillo 0,4-0,8 Hz, BAJA cian o amarillo CONSTANTE. Que
+// la baja no parpadee no es un atajo: la tabla lo exige.
+//
+// Lo que parpadea es el FONDO, nunca el texto. La nota 2 de 6.3.2.2.2
+// desaconseja expresamente el texto que se enciende y se apaga porque cuesta
+// leerlo, y admite en cambio alternar entre video normal e inverso u otro
+// color. Por eso no se reutiliza start_alarm_blink(), que anima la opacidad
+// del objeto entero y dejaria el texto ilegible medio ciclo.
+static lv_obj_t *s_alarmBanner = NULL;
+static lv_obj_t *s_alarmBannerLabel = NULL;
+static int s_bannerPriority = -1;  // -1 = ninguna, para no reiniciar la anim
+static lv_color_t s_bannerHi;      // color pleno de la prioridad
+static lv_color_t s_bannerLo;      // el mismo, oscurecido
+
+#define BANNER_HEIGHT_PX 52
+// Medio periodo: 250 ms -> 2,0 Hz (ALTA), 750 ms -> 0,66 Hz (MEDIA). Ambos
+// caen dentro de los rangos de la Tabla 2 con margen a los dos lados.
+#define BANNER_HALF_PERIOD_MS_HIGH 250
+#define BANNER_HALF_PERIOD_MS_MEDIUM 750
+
+static void banner_blink_cb(void *obj, int32_t v) {
+  lv_obj_set_style_bg_color((lv_obj_t *)obj,
+                            lv_color_mix(s_bannerHi, s_bannerLo, (uint8_t)v),
+                            LV_PART_MAIN);
+}
+
+void alarm_banner_init(void) {
+  s_alarmBanner = lv_obj_create(lv_layer_top());
+  lv_obj_remove_style_all(s_alarmBanner);
+  lv_obj_set_width(s_alarmBanner, lv_pct(100));
+  lv_obj_set_height(s_alarmBanner, BANNER_HEIGHT_PX);
+  lv_obj_set_align(s_alarmBanner, LV_ALIGN_TOP_MID);
+  lv_obj_set_style_bg_opa(s_alarmBanner, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_clear_flag(s_alarmBanner, LV_OBJ_FLAG_SCROLLABLE);
+  // Sin esto el banner se traga los toques de la pantalla que tapa: es una
+  // senal, no un control.
+  lv_obj_clear_flag(s_alarmBanner, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN);
+
+  s_alarmBannerLabel = lv_label_create(s_alarmBanner);
+  lv_obj_set_align(s_alarmBannerLabel, LV_ALIGN_CENTER);
+  lv_label_set_long_mode(s_alarmBannerLabel, LV_LABEL_LONG_DOT);
+  lv_obj_set_width(s_alarmBannerLabel, lv_pct(94));
+  lv_obj_set_style_text_align(s_alarmBannerLabel, LV_TEXT_ALIGN_CENTER,
+                              LV_PART_MAIN);
+  lv_obj_set_style_text_font(s_alarmBannerLabel, &lv_font_montserrat_20,
+                             LV_PART_MAIN);
+}
+
+void alarm_banner_update(void) {
+  if (!s_alarmBanner) {
+    return;
+  }
+
+  // Alarma senalizando de mayor prioridad. La prioridad se pide a
+  // alarm_priority() de shared/, la misma funcion que usa la motherboard, en
+  // vez de deducirla de las admiraciones del titulo: una copia local de esa
+  // tabla es exactamente lo que ya se desincronizo una vez en este proyecto.
+  int topIdx = -1;
+  int topPrio = -1;
+  for (int i = 0; i < MAX_ALARMS; i++) {
+    if (!alarmList[i].state) {
+      continue;
+    }
+    const int p = (int)alarm_priority((AlarmId)alarmList[i].id);
+    if (p > topPrio) {
+      topPrio = p;
+      topIdx = i;
+    }
+  }
+
+  // En ui_ScreenAlarms el banner sobra y ademas estorba. Sobra porque esa
+  // pantalla ya lista cada alarma con su titulo, que lleva la marca de
+  // prioridad delante, asi que la senal de 1 m que pide 6.3.2.2.2 ya esta ahi
+  // de forma nativa. Y estorba porque el banner inferior ocuparia de 428 a 480
+  // px y ui_MuteAlarm llega hasta los 434: le recortaria 6 px justo al unico
+  // control que sirve para callar la alarma.
+  const bool onAlarmsScreen = (ui_ScreenAlarms && lv_scr_act() == ui_ScreenAlarms);
+
+  if (topIdx < 0 || onAlarmsScreen) {
+    lv_anim_del(s_alarmBanner, banner_blink_cb);
+    lv_obj_add_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN);
+    s_bannerPriority = -1;
+    return;
+  }
+
+  // Arriba en el bloqueo, abajo en el resto. En la pantalla de bloqueo la
+  // franja superior esta libre y es donde el equipo pasa la mayor parte del
+  // tiempo por el autolock, asi que la senal se lleva la posicion buena justo
+  // donde mas se ve. En las demas, la barra de navegacion de ui_ScreenMain
+  // arranca a 27 px del borde y un banner arriba la taparia entera —
+  // incluido ui_AlarmButton, que es la unica via a la pantalla donde vive el
+  // boton de silencio. La norma pide legibilidad a 1 m, no una posicion
+  // concreta, asi que abajo cumple igual.
+  //
+  // Se reevalua en cada pasada y no al cambiar de pantalla: el banner cuelga
+  // de lv_layer_top(), que no se entera de los lv_scr_load().
+  const bool onLockScreen = (ui_ScreenLock && lv_scr_act() == ui_ScreenLock);
+  lv_obj_set_align(s_alarmBanner,
+                   onLockScreen ? LV_ALIGN_TOP_MID : LV_ALIGN_BOTTOM_MID);
+
+  lv_label_set_text(s_alarmBannerLabel, alarmList[topIdx].type);
+  lv_obj_clear_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_move_foreground(s_alarmBanner);
+
+  if (topPrio == s_bannerPriority) {
+    return;  // misma prioridad: no reiniciar la animacion en cada ciclo
+  }
+  s_bannerPriority = topPrio;
+  lv_anim_del(s_alarmBanner, banner_blink_cb);
+
+  uint32_t halfPeriodMs = 0;
+  lv_color_t textColor;
+  switch (topPrio) {
+    case ALARM_PRIORITY_HIGH:
+      s_bannerHi = lv_color_hex(0xFF5468);
+      s_bannerLo = lv_color_hex(0x5A1822);
+      textColor = lv_color_hex(0xFFFFFF);
+      halfPeriodMs = BANNER_HALF_PERIOD_MS_HIGH;
+      break;
+    case ALARM_PRIORITY_MEDIUM:
+      s_bannerHi = lv_color_hex(0xFFB436);
+      s_bannerLo = lv_color_hex(0x6A4810);
+      textColor = lv_color_hex(0x1A1208);
+      halfPeriodMs = BANNER_HALF_PERIOD_MS_MEDIUM;
+      break;
+    default:  // BAJA: constante, sin parpadeo (Tabla 2)
+      s_bannerHi = lv_color_hex(0x4EC7FF);
+      s_bannerLo = s_bannerHi;
+      textColor = lv_color_hex(0x0A1D26);
+      halfPeriodMs = 0;
+      break;
+  }
+  lv_obj_set_style_text_color(s_alarmBannerLabel, textColor, LV_PART_MAIN);
+
+  if (halfPeriodMs == 0) {
+    lv_obj_set_style_bg_color(s_alarmBanner, s_bannerHi, LV_PART_MAIN);
+    return;
+  }
+
+  lv_anim_t a;
+  lv_anim_init(&a);
+  lv_anim_set_var(&a, s_alarmBanner);
+  lv_anim_set_values(&a, 255, 0);  // 255 = color pleno, 0 = oscurecido
+  lv_anim_set_time(&a, halfPeriodMs);
+  lv_anim_set_playback_time(&a, halfPeriodMs);
+  lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+  lv_anim_set_exec_cb(&a, banner_blink_cb);
+  lv_anim_start(&a);
+}
+
 void update_alarm_panels() {
   // Determine fan/heater alarm state first — used in multiple sections below
   bool fanHeaterAlarm = false;
@@ -1984,6 +2151,9 @@ void update_alarm_panels() {
   if (!anyAlarm) {
     alarmsMuted = false;
   }
+
+  // Senal visual de 1 m, en todas las pantallas (6.3.2.2.2).
+  alarm_banner_update();
 
   // El boton de silencio se creaba en ui_ScreenAlarms y se ocultaba al
   // arrancar, pero no habia ni un solo clear_flag en todo el fichero: nunca
@@ -3068,6 +3238,9 @@ void UI_Task(void *pvParameters) {
   // --- Babies history screen (baby-history-viewer spec) ---
   BabyHistory_Init(ui_ScreenMain);
   BabyExitDialog_Init(ui_ScreenMain);
+  // En lv_layer_top(), no colgado de una pantalla: la senal de alarma
+  // tiene que sobrevivir a lv_scr_load().
+  alarm_banner_init();
 
   if (g_hmiRestoreState) {
     // Skip 5-second splash and go straight to lock screen on crash recovery
