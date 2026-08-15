@@ -289,10 +289,10 @@ constexpr int DHT_BUFFER_SIZE = 6; // used in commented DHT code
 constexpr int ALARM_TYPE_LEN = 30;
 constexpr int ALARM_DESC_LEN = 100;
 
-// AlarmId enum (NO_ALARMS, HUMIDITY_ALARM ... POWER_SUPPLY_ALARM, NUM_ALARMS,
+// AlarmId enum (ALARM_NONE, ALARM_AIR_TEMP_DEVIATION_HIGH ... ALARM_COUNT,
 // MAX_ALARM_STRING_SIZE=255) is now in shared alarm_ids.h.
 
-constexpr int MAX_ALARMS = NUM_ALARMS;
+constexpr int MAX_ALARMS = ALARM_COUNT;
 constexpr int MAX_ALARM_DISPLAY = 4;
 
 struct Alarm {

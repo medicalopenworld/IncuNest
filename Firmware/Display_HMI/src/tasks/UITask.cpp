@@ -1,6 +1,7 @@
 #include "UITask.h"
 // #include "AudioManager.h"  // Deshabilitado para migración Arduino 3.x
 #include "CommTask.h"
+#include "alarm_policy.h"
 #include "buzzer.h"
 #include "ui/BabyHistory.h"
 #include "ui/BabyExitDialog.h"
@@ -1212,21 +1213,22 @@ void UI_ShowToast(const char *msg, uint32_t ms) {
 
 static bool isFanHeaterAlarmActive() {
   for (int i = 0; i < MAX_ALARMS; i++) {
-    if ((alarmList[i].id == FAN_ISSUE_ALARM || alarmList[i].id == HEATER_ISSUE_ALARM) && alarmList[i].state)
+    if ((alarmList[i].id == ALARM_FAN_FAILURE || alarmList[i].id == ALARM_HEATER_FAULT) && alarmList[i].state)
       return true;
   }
   return false;
 }
 
-// Same critical set as motherBoard's alarm_machine_any_critical() —
-// used by BabyWizard to interrupt an open wizard (Section 4).
+// Delegates to shared alarm_policy.h's alarm_cuts_heater() — the single
+// normative source for "is this condition severe enough to matter" — instead
+// of hand-copying motherBoard's critical set (the old copy here, keyed off
+// the now-removed alarm_machine_any_critical(), is exactly what drifted out
+// of sync and forced this rewrite). Used by BabyWizard to interrupt an open
+// wizard (Section 4).
 bool UI_IsCriticalAlarmActive() {
   for (int i = 0; i < MAX_ALARMS; i++) {
     if (!alarmList[i].state) continue;
-    if (alarmList[i].id == TEMPERATURE_ALARM ||
-        alarmList[i].id == AIR_THERMAL_CUTOUT_ALARM ||
-        alarmList[i].id == SKIN_THERMAL_CUTOUT_ALARM ||
-        alarmList[i].id == FAN_ISSUE_ALARM) {
+    if (alarm_cuts_heater(static_cast<AlarmId>(alarmList[i].id))) {
       return true;
     }
   }
@@ -1862,7 +1864,7 @@ void update_alarm_panels() {
   // Determine fan/heater alarm state first — used in multiple sections below
   bool fanHeaterAlarm = false;
   for (int i = 0; i < MAX_ALARMS; i++) {
-    if ((alarmList[i].id == FAN_ISSUE_ALARM || alarmList[i].id == HEATER_ISSUE_ALARM) && alarmList[i].state) {
+    if ((alarmList[i].id == ALARM_FAN_FAILURE || alarmList[i].id == ALARM_HEATER_FAULT) && alarmList[i].state) {
       fanHeaterAlarm = true;
       break;
     }
@@ -2008,7 +2010,7 @@ static void HeaterError_event_handler(lv_event_t *e) {
       "2. Si le pas 1 ne fonctionne pas, reparez le chauffage."};
   if (ui_AlarmDetailLabel) {
     lv_label_set_text(ui_AlarmDetailLabel, TXT_HEATER_ERROR_DESC[g_lang]);
-    g_selectedAlarmId = HEATER_ISSUE_ALARM;
+    g_selectedAlarmId = ALARM_HEATER_FAULT;
   }
 }
 
