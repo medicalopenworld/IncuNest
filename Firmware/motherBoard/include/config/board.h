@@ -183,7 +183,7 @@
 #define FAN_PWR_SUPPLY_PWM PWM_MAX_VALUE
 #define FAN_CTL_PWM_DEFAULT 130
 #define FAN_MIN_RPM 3000            // minimum acceptable fan RPM when speed feedback is present
-#define FAN_MIN_RPM_HYSTERESIS 300  // rpm above FAN_MIN_RPM required to clear FAN_ISSUE_ALARM
+#define FAN_MIN_RPM_HYSTERESIS 300  // rpm above FAN_MIN_RPM required to clear ALARM_FAN_FAILURE
 
 // Closed-loop fan speed control (HW>=16, feedback-capable units only).
 #define FAN_TARGET_RPM 4000
@@ -205,13 +205,19 @@
 // legitimately raises the duty to keep FAN_TARGET_RPM — the threshold must
 // sit above that sagged-supply duty, not above the idle-supply baseline.
 #define FAN_DUTY_BLOCKED_THRESHOLD 160
-#define FAN_DUTY_BLOCKED_HYSTERESIS 15 // duty below (threshold - this) required to clear AIR_BLOCKED_ALARM
+#define FAN_DUTY_BLOCKED_HYSTERESIS 15 // duty below (threshold - this) required to clear ALARM_AIR_OUTLET_BLOCKED
 // Master enable for air-outlet-blockage detection (boot check + runtime
-// monitor). Disabled until FAN_DUTY_BLOCKED_THRESHOLD is bench-validated as
-// described above — with an unvalidated threshold the alarm false-fires
-// during normal heater operation. The duty needed to hold FAN_TARGET_RPM is
-// still logged at boot regardless, to collect the calibration data.
-#define AIR_BLOCKED_DETECTION_ENABLED false
+// monitor). IEC 60601-2-19 201.12.3.101 requires an alarm AND a heater cut
+// when the air outlet is obstructed, and a mandated alarm cannot ship
+// disabled — so this is now ON.
+//
+// WARNING: FAN_DUTY_BLOCKED_THRESHOLD above is still NOT bench-calibrated.
+// With detection enabled and the heater cut wired in (alarm_cuts_heater()),
+// a false positive cools the infant. The unit must not go to the field
+// until that threshold is validated against real unit-to-unit variance and
+// the worst-case sagged-supply duty. The duty needed to hold FAN_TARGET_RPM
+// is logged at boot to collect exactly that calibration data.
+#define AIR_BLOCKED_DETECTION_ENABLED true
 // Duty must stay above the threshold continuously this long before alarming
 // (rejects transients: spin-up saturation, heater kick-in sag compensation).
 #define AIR_BLOCKED_SUSTAIN_MS 5000
