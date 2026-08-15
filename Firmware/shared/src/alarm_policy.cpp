@@ -49,3 +49,17 @@ bool alarm_cuts_heater(AlarmId id) {
       return false;
   }
 }
+
+static float clamp_range(float v, float lo, float hi) {
+  if (v < lo) return lo;
+  if (v > hi) return hi;
+  return v;
+}
+
+float alarm_clamp_air_cutout(float celsius) {
+  return clamp_range(celsius, ALARM_CUTOUT_MIN_C, ALARM_AIR_CUTOUT_MAX_C);
+}
+
+float alarm_clamp_skin_cutout(float celsius) {
+  return clamp_range(celsius, ALARM_CUTOUT_MIN_C, ALARM_SKIN_CUTOUT_MAX_C);
+}

@@ -96,6 +96,26 @@ void test_notify_only_conditions_do_not_cut_the_heater(void) {
   TEST_ASSERT_FALSE(alarm_cuts_heater(ALARM_SKIN_SENSOR_FAULT_AIR_MODE));
 }
 
+// 201.15.4.2.1 aa): el corte por aire no puede exceder 38 C.
+void test_air_cutout_is_capped_at_38(void) {
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 38.0f, alarm_clamp_air_cutout(45.0f));
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 38.0f, alarm_clamp_air_cutout(38.0f));
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 36.5f, alarm_clamp_air_cutout(36.5f));
+}
+
+// 201.15.4.2.1 bb): el corte de piel no puede exceder 40 C.
+void test_skin_cutout_is_capped_at_40(void) {
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 40.0f, alarm_clamp_skin_cutout(50.0f));
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 37.5f, alarm_clamp_skin_cutout(37.5f));
+}
+
+// Un valor absurdo por abajo dejaria el equipo alarmando siempre; se acota a
+// un minimo clinicamente util.
+void test_cutouts_have_a_floor(void) {
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 34.0f, alarm_clamp_air_cutout(0.0f));
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 34.0f, alarm_clamp_skin_cutout(-5.0f));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_high_priority_set);
@@ -107,5 +127,8 @@ int main(void) {
   RUN_TEST(test_conditions_that_must_cut_the_heater);
   RUN_TEST(test_cold_side_deviation_never_cuts_the_heater);
   RUN_TEST(test_notify_only_conditions_do_not_cut_the_heater);
+  RUN_TEST(test_air_cutout_is_capped_at_38);
+  RUN_TEST(test_skin_cutout_is_capped_at_40);
+  RUN_TEST(test_cutouts_have_a_floor);
   return UNITY_END();
 }
