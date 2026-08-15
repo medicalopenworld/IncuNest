@@ -18,9 +18,22 @@ typedef enum {
 } AlarmState;
 
 // Duracion minima de audio que 6.10 exige completar aunque la condicion se
-// haya ido: una rafaga entera en MEDIA, media rafaga en ALTA. Los valores
-// salen de la Tabla 3 con el patron elegido en la spec §8.
-#define ALARM_MIN_BURST_MS_HIGH   1200u
+// haya ido: una rafaga entera en MEDIA, media rafaga en ALTA.
+//
+// ATADAS al patron de pulsos que reproduce buzzerAlarmUpdate() (Buzzer.cpp)
+// con las constantes de main.h. No se pueden tocar por separado: nacieron en
+// tareas distintas y divergieron una vez ya (ALTA valia 1200 ms, que cortaba
+// el audio tras el CUARTO pulso de los cinco que exige 6.10).
+//
+//   ALARM_PULSE_MS = 150, ALARM_PULSE_GAP_MS = 150.
+//   Duracion hasta el final del pulso N = N*150 + (N-1)*150 = 300N - 150 ms.
+//   ALTA:  media rafaga = ALARM_BURST_PULSES_HIGH/2   = 5 pulsos -> 1350 ms.
+//   MEDIA: rafaga entera = ALARM_BURST_PULSES_MEDIUM  = 3 pulsos ->  750 ms.
+//
+// Los valores de abajo cubren esas duraciones con margen. Si cambia
+// ALARM_PULSE_MS, ALARM_PULSE_GAP_MS o el numero de pulsos por rafaga, hay que
+// rehacer esta cuenta.
+#define ALARM_MIN_BURST_MS_HIGH   1500u
 #define ALARM_MIN_BURST_MS_MEDIUM 1600u
 
 void alarm_machine_init(void);

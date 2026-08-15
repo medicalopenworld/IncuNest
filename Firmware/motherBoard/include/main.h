@@ -233,6 +233,12 @@ extern int g_restore_photo_minutes;
 // Patron de rafaga segun la Tabla 3 de IEC 60601-1-8. ALTA: 10 pulsos con
 // intervalo entre rafagas de 2,5 a 15 s. MEDIA: 3 pulsos, de 2,5 a 30 s.
 // BAJA: 1 o 2 pulsos, intervalo > 15 s o sin repeticion.
+//
+// ATADAS a ALARM_MIN_BURST_MS_HIGH/_MEDIUM (alarm_machine.h): esas dos fijan
+// cuanto audio exige 6.10 completar aunque la condicion se haya ido, y esa
+// duracion se calcula a partir de los pulsos de aqui. Cambiar la duracion de
+// pulso, el hueco o el numero de pulsos obliga a rehacer aquella cuenta — ver
+// la aritmetica escrita en el comentario de alarm_machine.h.
 #define ALARM_PULSE_MS            150u
 #define ALARM_PULSE_GAP_MS        150u
 #define ALARM_BURST_PULSES_HIGH   10u
