@@ -1,5 +1,6 @@
 #include <unity.h>
 #include "modules/control/alarm_machine.h"
+#include "modules/control/alarm_window.h"
 
 void setUp(void) { alarm_machine_init(); }
 void tearDown(void) {}
@@ -297,7 +298,7 @@ void test_pending_cold_deviation_never_cuts_the_heater(void) {
 }
 
 // Un retardo de anuncio puesto DESPUES de que la condicion ya esta presente no
-// puede devolverla a PENDING ni retirar el corte: declareDeviation() lo fija
+// puede devolverla a PENDING ni retirar el corte: declareHotDeviation() lo fija
 // solo en el flanco de subida, y este test fija esa garantia de la maquina.
 void test_delay_set_while_active_does_not_unannounce(void) {
   alarm_machine_condition(ALARM_AIR_TEMP_DEVIATION_HIGH, true, 1000);
@@ -362,6 +363,80 @@ void test_clearing_loses_the_condition_permanently(void) {
   TEST_ASSERT_EQUAL_UINT32(0u, alarm_machine_bitmask());
 }
 
+// R-1: ninguna accion del operador libera el corte de calefactor de una
+// condicion no-latching congelada. Silenciar y aceptar solo tocan el audio, y
+// el reset manual la rechaza por no ser latching. La UNICA salida es que un
+// detector declare false — de ahi que checkAirBlockage() tenga que poder
+// hacerlo tambien cuando su medida es permanentemente inviable (PID del
+// ventilador deshabilitado), y no solo cuando ya midio alguna vez.
+void test_no_operator_action_frees_a_non_latching_condition(void) {
+  alarm_machine_condition(ALARM_AIR_OUTLET_BLOCKED, true, 1000);
+  TEST_ASSERT_TRUE(alarm_machine_heater_must_cut());
+
+  alarm_machine_silence(ALARM_AIR_OUTLET_BLOCKED, 120000, 2000);
+  TEST_ASSERT_TRUE(alarm_machine_heater_must_cut());
+
+  alarm_machine_ack(ALARM_AIR_OUTLET_BLOCKED, 3000);
+  TEST_ASSERT_TRUE(alarm_machine_heater_must_cut());
+
+  TEST_ASSERT_FALSE(alarm_machine_reset(ALARM_AIR_OUTLET_BLOCKED, 4000));
+  TEST_ASSERT_TRUE(alarm_machine_heater_must_cut());
+
+  alarm_machine_condition(ALARM_AIR_OUTLET_BLOCKED, false, 5000);
+  TEST_ASSERT_FALSE(alarm_machine_heater_must_cut());
+}
+
+// --- Ventana de estabilizacion (R-2) ---
+
+#define WINDOW_MS (30u * 60000u)
+
+// Una activacion "en frio" (already_elapsed = 0) deja la ventana entera por
+// delante, contada desde AHORA. Este es el caso que el offset viejo rompia:
+// devolvia 0 fijo, es decir la ventana se contaba desde el origen del reloj.
+void test_window_starts_counting_from_now(void) {
+  const uint32_t now = 5u * 60u * 60000u; // equipo encendido hace 5 h
+  const uint32_t start = alarm_window_start(now, 0u);
+  TEST_ASSERT_EQUAL_UINT32(WINDOW_MS,
+                           alarm_window_remaining_ms(start, WINDOW_MS, now));
+  TEST_ASSERT_EQUAL_UINT32(
+      1u, alarm_window_remaining_ms(start, WINDOW_MS, now + WINDOW_MS - 1u));
+  TEST_ASSERT_EQUAL_UINT32(
+      0u, alarm_window_remaining_ms(start, WINDOW_MS, now + WINDOW_MS));
+}
+
+// La regresion concreta: iniciar la terapia mas de una ventana despues de
+// encender el equipo — preparar la incubadora antes de empezar — no puede
+// dejar la ventana nacida ya cerrada.
+void test_therapy_started_late_still_gets_a_full_window(void) {
+  const uint32_t now = 3u * 60u * 60000u; // 3 h de reloj
+  const uint32_t start = alarm_window_start(now, 0u);
+  TEST_ASSERT_FALSE(alarm_window_remaining_ms(start, WINDOW_MS, now) == 0u);
+}
+
+// RESTART_ALARM_GRACE_MINS = 0 se traduce en already_elapsed = ventana entera,
+// y eso tiene que anular la ventana: un reinicio por WDT reanuda la terapia y
+// no debe volver a esperar media hora.
+void test_full_grace_opens_the_window_immediately(void) {
+  const uint32_t now = 1000u;
+  const uint32_t start = alarm_window_start(now, WINDOW_MS);
+  TEST_ASSERT_EQUAL_UINT32(0u,
+                           alarm_window_remaining_ms(start, WINDOW_MS, now));
+}
+
+// El reloj de millis() desborda a los ~49 dias en mitad de una ventana y la
+// cuenta tiene que seguir siendo correcta.
+void test_window_survives_the_millis_rollover(void) {
+  const uint32_t now = 0xFFFFFFFFu - 60000u; // 1 min antes de desbordar
+  const uint32_t start = alarm_window_start(now, 0u);
+  TEST_ASSERT_EQUAL_UINT32(WINDOW_MS,
+                           alarm_window_remaining_ms(start, WINDOW_MS, now));
+  const uint32_t later = now + WINDOW_MS; // ya al otro lado del desbordamiento
+  TEST_ASSERT_EQUAL_UINT32(0u,
+                           alarm_window_remaining_ms(start, WINDOW_MS, later));
+  TEST_ASSERT_EQUAL_UINT32(
+      60000u, alarm_window_remaining_ms(start, WINDOW_MS, later - 60000u));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_starts_inactive);
@@ -398,5 +473,10 @@ int main(void) {
   RUN_TEST(test_condition_persists_until_declared_false);
   RUN_TEST(test_pending_is_visible_in_the_bitmask);
   RUN_TEST(test_clearing_loses_the_condition_permanently);
+  RUN_TEST(test_no_operator_action_frees_a_non_latching_condition);
+  RUN_TEST(test_window_starts_counting_from_now);
+  RUN_TEST(test_therapy_started_late_still_gets_a_full_window);
+  RUN_TEST(test_full_grace_opens_the_window_immediately);
+  RUN_TEST(test_window_survives_the_millis_rollover);
   return UNITY_END();
 }

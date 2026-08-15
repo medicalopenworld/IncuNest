@@ -26,6 +26,7 @@
 
 #include "main.h"
 #include "modules/control/alarm_machine.h"
+#include "modules/control/alarm_window.h"
 
 static const char *TAG __attribute__((unused)) = "SECURITY";
 extern SemaphoreHandle_t log_mutex;
@@ -184,7 +185,9 @@ extern PID humidityControlPID;
 // anuncio, porque su corte de calefactor es ESSENTIAL PERFORMANCE y no puede
 // esperar; al lado FRIO y a la humedad, que no gobiernan actuador alguno, se
 // les cierra la evaluacion entera.
-long lastAlarmTrigger[NUM_ALARMS];
+// uint32_t, no long: el reloj es millis() y la resta modular sin signo es la
+// que sigue dando el intervalo correcto al desbordar a los ~49 dias.
+uint32_t lastAlarmTrigger[NUM_ALARMS];
 long lastPowerSupplyCheck;
 
 // La sonda de piel no es obligatoria en modo aire. applyNTCResult()
@@ -217,15 +220,22 @@ static bool thresholdWithHysteresis(bool wasPresent, float value,
   return wasPresent ? (value > threshold - hysteresis) : (value > threshold);
 }
 
-// Lo que le queda a la ventana de estabilizacion de `id`, en ms. Solo lo usa
-// el lado caliente, como retardo de ANUNCIO en el flanco en que aparece la
-// condicion: asi la alarma espera pero el corte de calefactor no, porque
-// heater_must_cut() mira la condicion fisica y no el estado de senalizacion.
+// Lo que le queda a la ventana de estabilizacion de `id`, en ms. La aritmetica
+// vive en modules/control/alarm_window.cpp para poder verificarla en el
+// entorno nativo. El lado caliente la usa como retardo de ANUNCIO en el flanco
+// en que aparece la condicion (la alarma espera, el corte de calefactor no,
+// porque heater_must_cut() mira la condicion fisica y no el estado de senal);
+// el lado frio y la humedad la usan como puerta de evaluacion.
 static uint32_t stabilizationRemainingMs(AlarmId id, uint32_t now)
 {
-  const uint32_t window = (uint32_t)minsToMillis(ACTUATORS_ALARM_STABILIZATION_MINS);
-  const uint32_t elapsed = now - (uint32_t)lastAlarmTrigger[id];
-  return (elapsed < window) ? (window - elapsed) : 0u;
+  return alarm_window_remaining_ms(
+      lastAlarmTrigger[id],
+      (uint32_t)minsToMillis(ACTUATORS_ALARM_STABILIZATION_MINS), now);
+}
+
+static bool stabilizationElapsed(AlarmId id, uint32_t now)
+{
+  return stabilizationRemainingMs(id, now) == 0u;
 }
 
 // Declara una desviacion del LADO CALIENTE arrancando su retardo de anuncio en
@@ -356,12 +366,19 @@ void alarmTimerStart(long graceMinutes)
   // that window elapse `graceMinutes` from now instead of the full wait -
   // a fresh activation passes graceMinutes=0 (full wait, unchanged
   // behavior), a restoreState boot passes RESTART_ALARM_GRACE_MINS.
+  //
+  // "Into the past" cuenta desde AHORA. Antes era `-1 * ...`, es decir desde
+  // el origen del reloj, y eso rompia la ventana de dos maneras: con la
+  // terapia iniciada mas de 30 min despues de encender el equipo — preparar la
+  // incubadora antes de empezar es un flujo clinico normal — la ventana nacia
+  // ya cerrada y el lado frio alarmaba durante toda la rampa de calentamiento.
   long alreadyElapsedMins = ACTUATORS_ALARM_STABILIZATION_MINS - graceMinutes;
   if (alreadyElapsedMins < 0)
   {
     alreadyElapsedMins = 0;
   }
-  const long windowStart = -1 * minsToMillis(alreadyElapsedMins);
+  const uint32_t windowStart =
+      alarm_window_start(millis(), (uint32_t)minsToMillis(alreadyElapsedMins));
   lastAlarmTrigger[ALARM_AIR_TEMP_DEVIATION_HIGH] = windowStart;
   lastAlarmTrigger[ALARM_AIR_TEMP_DEVIATION_LOW] = windowStart;
   lastAlarmTrigger[ALARM_SKIN_TEMP_DEVIATION_HIGH] = windowStart;
@@ -805,8 +822,12 @@ void checkAlarms()
   //   aviso si se aplaza, con el retardo de anuncio que permite 201.12.3.104.
   const bool airMode = (in3.controlMode == CONTROL_AIR);
   const bool controlling = in3.temperatureControl;
-  const bool steady =
-      (stabilizationRemainingMs(ALARM_AIR_TEMP_DEVIATION_LOW, now) == 0u);
+  // Cada lado consulta su propio indice. Hoy alarmTimerStart() escribe el mismo
+  // valor en los cinco, pero leer el indice del aire para decidir sobre la piel
+  // acoplaba en silencio dos condiciones distintas y dejaba un indice muerto.
+  const bool steadyAir = stabilizationElapsed(ALARM_AIR_TEMP_DEVIATION_LOW, now);
+  const bool steadySkin =
+      stabilizationElapsed(ALARM_SKIN_TEMP_DEVIATION_LOW, now);
 
   const float measured = airMode ? in3.temperature[ROOM_DIGITAL_TEMP_SENSOR]
                                  : in3.temperature[SKIN_SENSOR];
@@ -822,13 +843,13 @@ void checkAlarms()
   airHighPresent = controlling && airMode &&
                    thresholdWithHysteresis(airHighWas, deviation, limit,
                                            TEMPERATURE_ERROR_HYSTERESIS);
-  airLowPresent = controlling && airMode && steady &&
+  airLowPresent = controlling && airMode && steadyAir &&
                   thresholdWithHysteresis(airLowWas, -deviation, limit,
                                           TEMPERATURE_ERROR_HYSTERESIS);
   skinHighPresent = controlling && !airMode &&
                     thresholdWithHysteresis(skinHighWas, deviation, limit,
                                             TEMPERATURE_ERROR_HYSTERESIS);
-  skinLowPresent = controlling && !airMode && steady &&
+  skinLowPresent = controlling && !airMode && steadySkin &&
                    thresholdWithHysteresis(skinLowWas, -deviation, limit,
                                            TEMPERATURE_ERROR_HYSTERESIS);
 
@@ -836,16 +857,15 @@ void checkAlarms()
                       now);
   declareHotDeviation(ALARM_SKIN_TEMP_DEVIATION_HIGH, skinHighWas,
                       skinHighPresent, now);
-  // El lado frio no lleva retardo de anuncio: la puerta `steady` ya impide que
-  // aparezca antes de tiempo, asi que el retardo seria siempre 0 — codigo sin
-  // efecto. Se anuncia en cuanto se declara.
+  // El lado frio no lleva retardo de anuncio: las puertas steadyAir/steadySkin
+  // ya impiden que aparezca antes de tiempo, asi que el retardo seria siempre 0
+  // — codigo sin efecto. Se anuncia en cuanto se declara.
   alarm_machine_condition(ALARM_AIR_TEMP_DEVIATION_LOW, airLowPresent, now);
   alarm_machine_condition(ALARM_SKIN_TEMP_DEVIATION_LOW, skinLowPresent, now);
 
   const bool evaluateHumidity =
       in3.humidityControl &&
-      (millis() - lastAlarmTrigger[ALARM_HUMIDITY_DEVIATION] >=
-       minsToMillis(ACTUATORS_ALARM_STABILIZATION_MINS));
+      stabilizationElapsed(ALARM_HUMIDITY_DEVIATION, now);
   const float humidityDeviation =
       fabsf((float)in3.humidity[ROOM_DIGITAL_HUM_SENSOR] -
             (float)in3.desiredControlHumidity);
@@ -918,17 +938,26 @@ void checkAirBlockage()
   // entraria por la salida de GetMode() != AUTOMATIC y tiraria el resultado
   // del autotest. Mismo patron que la guarda de fanHasSpeedFeedback en
   // checkFanSpeed().
+  //
+  // Con una excepcion: si el PID del ventilador esta deshabilitado, esta
+  // deteccion es PERMANENTEMENTE inviable — PIDHandler() no volvera a poner
+  // AUTOMATIC — y la guarda dejaria la declaracion de arranque congelada de
+  // por vida, con heater_must_cut() en true y el reset manual rechazandola por
+  // no ser latching. Es el mismo dano que cerro C-2. En ese caso la afirmacion
+  // honesta es que no hay obstruccion observable, asi que se retira.
   static bool hasObservedClosedLoop = false;
 
   if (fanControlPID.GetMode() != AUTOMATIC)
   {
     dutyHighSince = 0;
-    if (hasObservedClosedLoop)
+    if (hasObservedClosedLoop || !in3.fanPidEnabled)
     {
       alarm_machine_condition(ALARM_AIR_OUTLET_BLOCKED, false, millis());
     }
     return; // not under closed-loop control — no duty signal to evaluate
   }
+  // Las dos salidas siguientes solo se alcanzan con el lazo en AUTOMATIC, que
+  // ya implica in3.fanPidEnabled: alli la guarda sola es suficiente.
   if (alarmSignalling(ALARM_FAN_FAILURE))
   {
     dutyHighSince = 0;
