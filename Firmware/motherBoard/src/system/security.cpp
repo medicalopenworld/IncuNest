@@ -527,8 +527,24 @@ void sendAlarmUSB(byte alarmID, bool isActive)
   const char *title = alarm_title_text((AlarmId)alarmID, lang);
   const char *desc = alarm_action_text((AlarmId)alarmID, lang);
 
-  snprintf(msg, sizeof(msg), "CTRL,ALM,%d,%s,%s,%d\n", alarmID, title,
-           desc, isActive ? 1 : 0);
+  // La marca de prioridad se antepone al titulo aqui, al componer la linea,
+  // y no vive en los literales traducidos. IEC 60601-1-8 6.3.2.2.2 exige que
+  // la senal visual de 1 m identifique la condicion **y su prioridad**, y el
+  // protocolo CTRL,ALM no lleva campo de prioridad, asi que el titulo es el
+  // unico vehiculo que hay. La convencion de uno, dos o tres signos es la que
+  // la propia clausula ofrece como ejemplo valido.
+  //
+  // El ancho %.*s corta al limite del campo aunque la marca crezca: sin el,
+  // un titulo largo con "!!! " delante desbordaria ALARM_TITLE_MAX_CHARS y el
+  // display descartaria la linea entera, que es el fallo que dejo 12 de 16
+  // alarmas invisibles antes de esta rama.
+  char titled[ALARM_TITLE_MAX_CHARS + 1];
+  snprintf(titled, sizeof(titled), "%s %s",
+           alarm_priority_mark((AlarmId)alarmID), title);
+
+  snprintf(msg, sizeof(msg), "CTRL,ALM,%d,%.*s,%.*s,%d\n", alarmID,
+           ALARM_TITLE_MAX_CHARS, titled, ALARM_DESC_MAX_CHARS, desc,
+           isActive ? 1 : 0);
   if (log_mutex == NULL ||
       xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE)
   {

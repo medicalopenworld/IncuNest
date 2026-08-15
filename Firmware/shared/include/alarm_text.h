@@ -27,6 +27,23 @@ const char *alarm_title_text(AlarmId id, Language lang);
 // <descripcion>.
 const char *alarm_action_text(AlarmId id, Language lang);
 
+// Marca de prioridad: "!" BAJA, "!!" MEDIA, "!!!" ALTA.
+//
+// IEC 60601-1-8 6.3.2.2.2 exige que la senal visual de 1 m identifique "the
+// specific ALARM CONDITION **and its priority**", y ofrece literalmente esta
+// convencion de uno, dos o tres elementos como forma valida de indicarla. El
+// titulo por si solo identifica la condicion pero no su prioridad, y el
+// protocolo CTRL,ALM no lleva campo de prioridad, asi que hoy el texto es el
+// unico vehiculo que existe: sin esta marca, la senal de 1 m no cumple.
+//
+// Va antepuesta al titulo al componer la linea del protocolo, no incrustada en
+// los literales, para que las traducciones sigan siendo solo la identidad de
+// la condicion y la prioridad salga de alarm_priority(), que es su unica
+// fuente de verdad. Si algun dia el protocolo lleva la prioridad como campo
+// propio y el display la pinta con color, esta marca puede retirarse de aqui
+// sin tocar ni una traduccion.
+const char *alarm_priority_mark(AlarmId id);
+
 #ifdef __cplusplus
 }
 #endif

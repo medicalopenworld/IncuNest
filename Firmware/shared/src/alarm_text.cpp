@@ -1,5 +1,7 @@
 #include "alarm_text.h"
 
+#include "alarm_policy.h"
+
 // Ingles es el idioma de reserva: cualquier idioma sin traduccion propia
 // (hoy, PORTUGUESE) cae aqui en vez de quedarse sin texto.
 #define ES(s) if (lang == SPANISH) return (s)
@@ -33,7 +35,7 @@ const char *alarm_title_text(AlarmId id, Language lang) {
       return "FAN FAILURE";
     case ALARM_AIR_OUTLET_BLOCKED:
       ES("SALIDA DE AIRE OBSTRUIDA");
-      FR("SORTIE D'AIR OBSTRUEE");
+      FR("SORTIE D AIR OBSTRUEE");
       return "AIR OUTLET BLOCKED";
     case ALARM_MAINS_INTERRUPTION:
       ES("CORTE DE RED");
@@ -93,45 +95,45 @@ const char *alarm_action_text(AlarmId id, Language lang) {
       FR("CHAUFFAGE COUPE - VERIFIER LE BEBE - PANNE: ALARME FIXE JUSQU AU REDEMARRAGE");
       return "HEATER CUT - CHECK THE BABY - FAULT: ALARM STAYS UNTIL RESTART";
     case ALARM_AIR_SENSOR_FAULT:
-      ES("SIN MEDIDA DE AIRE - CONTROL DETENIDO");
-      FR("PAS DE MESURE D AIR - CONTROLE ARRETE");
-      return "NO AIR READING - CONTROL STOPPED";
+      ES("CALEFACTOR CORTADO - SIN MEDIDA DE AIRE - REVISAR AL BEBE");
+      FR("CHAUFFAGE COUPE - PAS DE MESURE D AIR - VERIFIER LE BEBE");
+      return "HEATER CUT - NO AIR READING - CHECK THE BABY";
     case ALARM_SKIN_SENSOR_FAULT_SKIN_MODE:
-      ES("REVISAR SONDA O PASAR A MODO AIRE");
-      FR("VERIFIER LA SONDE OU PASSER EN MODE AIR");
-      return "CHECK PROBE OR SWITCH TO AIR MODE";
+      ES("CALEFACTOR CORTADO - REVISAR SONDA O PASAR A MODO AIRE");
+      FR("CHAUFFAGE COUPE - VERIFIER LA SONDE OU PASSER EN MODE AIR");
+      return "HEATER CUT - CHECK PROBE OR SWITCH TO AIR MODE";
     case ALARM_FAN_FAILURE:
-      ES("SIN CIRCULACION DE AIRE - REVISAR EQUIPO");
-      FR("PAS DE CIRCULATION D AIR - VERIFIER");
-      return "NO AIR CIRCULATION - SERVICE UNIT";
+      ES("CALEFACTOR CORTADO - SIN CIRCULACION DE AIRE - REVISAR AL BEBE Y EL EQUIPO");
+      FR("CHAUFFAGE COUPE - PAS DE CIRCULATION D AIR - VERIFIER LE BEBE ET L APPAREIL");
+      return "HEATER CUT - NO AIR CIRCULATION - CHECK THE BABY AND SERVICE THE UNIT";
     case ALARM_AIR_OUTLET_BLOCKED:
-      ES("DESPEJAR LA SALIDA DE AIRE");
-      FR("DEGAGER LA SORTIE D AIR");
-      return "CLEAR THE AIR OUTLET";
+      ES("CALEFACTOR CORTADO - DESPEJAR LA SALIDA DE AIRE");
+      FR("CHAUFFAGE COUPE - DEGAGER LA SORTIE D AIR");
+      return "HEATER CUT - CLEAR THE AIR OUTLET";
     case ALARM_MAINS_INTERRUPTION:
       ES("REVISAR LA CONEXION A LA RED");
       FR("VERIFIER LE RACCORDEMENT SECTEUR");
       return "CHECK THE MAINS CONNECTION";
     case ALARM_AIR_TEMP_DEVIATION_HIGH:
-      ES("AIRE MAS DE 3 C SOBRE LA CONSIGNA");
-      FR("AIR A PLUS DE 3 C AU DESSUS DE LA CONSIGNE");
-      return "AIR OVER 3 C ABOVE SETPOINT";
+      ES("CALEFACTOR CORTADO - AIRE MAS DE 3 C SOBRE LA CONSIGNA");
+      FR("CHAUFFAGE COUPE - AIR A PLUS DE 3 C AU DESSUS DE LA CONSIGNE");
+      return "HEATER CUT - AIR OVER 3 C ABOVE SETPOINT";
     case ALARM_AIR_TEMP_DEVIATION_LOW:
       ES("AIRE MAS DE 3 C BAJO LA CONSIGNA");
       FR("AIR A PLUS DE 3 C SOUS LA CONSIGNE");
       return "AIR OVER 3 C BELOW SETPOINT";
     case ALARM_SKIN_TEMP_DEVIATION_HIGH:
-      ES("PIEL MAS DE 1 C SOBRE LA CONSIGNA");
-      FR("PEAU A PLUS DE 1 C AU DESSUS DE LA CONSIGNE");
-      return "SKIN OVER 1 C ABOVE SETPOINT";
+      ES("CALEFACTOR CORTADO - PIEL MAS DE 1 C SOBRE LA CONSIGNA");
+      FR("CHAUFFAGE COUPE - PEAU A PLUS DE 1 C AU DESSUS DE LA CONSIGNE");
+      return "HEATER CUT - SKIN OVER 1 C ABOVE SETPOINT";
     case ALARM_SKIN_TEMP_DEVIATION_LOW:
       ES("PIEL MAS DE 1 C BAJO LA CONSIGNA");
       FR("PEAU A PLUS DE 1 C SOUS LA CONSIGNE");
       return "SKIN OVER 1 C BELOW SETPOINT";
     case ALARM_HEATER_FAULT:
-      ES("EL EQUIPO NO CALIENTA - REVISAR EQUIPO");
-      FR("L APPAREIL NE CHAUFFE PAS - VERIFIER");
-      return "UNIT NOT HEATING - SERVICE UNIT";
+      ES("EL EQUIPO NO CALIENTA - REVISAR AL BEBE Y EL EQUIPO");
+      FR("L APPAREIL NE CHAUFFE PAS - VERIFIER LE BEBE ET L APPAREIL");
+      return "UNIT NOT HEATING - CHECK THE BABY AND SERVICE THE UNIT";
     case ALARM_SUPPLY_UNDERVOLTAGE:
       ES("REVISAR FUENTE Y CABLEADO");
       FR("VERIFIER L ALIMENTATION ET LE CABLAGE");
@@ -150,6 +152,20 @@ const char *alarm_action_text(AlarmId id, Language lang) {
       return "CHECK THE WATER TANK";
     default:
       return "alarm";
+  }
+}
+
+const char *alarm_priority_mark(AlarmId id) {
+  // La prioridad sale de alarm_priority(), no de una lista propia: duplicarla
+  // aqui seria un segundo sitio que decir lo mismo, y en esta misma rama ya se
+  // desincronizo una copia manual del conjunto de alarmas criticas.
+  switch (alarm_priority(id)) {
+    case ALARM_PRIORITY_HIGH:
+      return "!!!";
+    case ALARM_PRIORITY_MEDIUM:
+      return "!!";
+    default:
+      return "!";
   }
 }
 

@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "alarm_ids.h"
+#include "alarm_policy.h"
 #include "alarm_text.h"
 
 // Los idiomas con traduccion propia. PORTUGUESE existe en el enum pero cae en
@@ -114,6 +115,45 @@ void test_out_of_range_ids_still_return_a_text(void) {
   TEST_ASSERT_NOT_NULL(alarm_action_text(ALARM_NONE, FRENCH));
 }
 
+// IEC 60601-1-8 6.3.2.2.2 exige que la senal visual de 1 m identifique la
+// condicion **y su prioridad**. El protocolo no lleva campo de prioridad, asi
+// que la marca antepuesta al titulo es hoy el unico vehiculo, y la clausula
+// ofrece literalmente esta convencion de uno, dos o tres signos.
+void test_priority_mark_matches_the_assigned_priority(void) {
+  for (int id = ALARM_NONE + 1; id < ALARM_COUNT; ++id) {
+    const char *mark = alarm_priority_mark((AlarmId)id);
+    TEST_ASSERT_NOT_NULL(mark);
+    switch (alarm_priority((AlarmId)id)) {
+      case ALARM_PRIORITY_HIGH:
+        TEST_ASSERT_EQUAL_STRING("!!!", mark);
+        break;
+      case ALARM_PRIORITY_MEDIUM:
+        TEST_ASSERT_EQUAL_STRING("!!", mark);
+        break;
+      default:
+        TEST_ASSERT_EQUAL_STRING("!", mark);
+        break;
+    }
+  }
+}
+
+// El titulo viaja con la marca delante, y ese compuesto es lo que tiene que
+// caber en el campo del protocolo. Medir solo el titulo desnudo dejaria pasar
+// justo el fallo que dejo 12 de 16 alarmas invisibles: un campo que se pasa de
+// ancho hace que el display descarte la linea entera, no que la recorte.
+void test_title_with_priority_mark_still_fits_the_protocol_field(void) {
+  for (int id = ALARM_NONE + 1; id < ALARM_COUNT; ++id) {
+    for (unsigned l = 0; l < kNumLanguages; ++l) {
+      char composed[128];
+      snprintf(composed, sizeof(composed), "%s %s",
+               alarm_priority_mark((AlarmId)id),
+               alarm_title_text((AlarmId)id, kLanguages[l]));
+      TEST_ASSERT_TRUE_MESSAGE(
+          strlen(composed) <= (size_t)ALARM_TITLE_MAX_CHARS, composed);
+    }
+  }
+}
+
 // Un idioma sin traduccion propia cae en ingles, no en cadena vacia.
 void test_untranslated_language_falls_back_to_english(void) {
   TEST_ASSERT_EQUAL_STRING(alarm_title_text(ALARM_FAN_FAILURE, ENGLISH),
@@ -131,6 +171,8 @@ int main(void) {
   RUN_TEST(test_every_alarm_text_is_printable_ascii);
   RUN_TEST(test_no_alarm_text_is_empty);
   RUN_TEST(test_out_of_range_ids_still_return_a_text);
+  RUN_TEST(test_priority_mark_matches_the_assigned_priority);
+  RUN_TEST(test_title_with_priority_mark_still_fits_the_protocol_field);
   RUN_TEST(test_untranslated_language_falls_back_to_english);
   return UNITY_END();
 }
