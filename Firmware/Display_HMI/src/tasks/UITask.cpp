@@ -2023,6 +2023,34 @@ static void click_beep_service(void) {
   }
 }
 
+// Si tocar este objeto HACE algo. Es la definicion util de "control".
+//
+// NO sirve mirar LV_OBJ_FLAG_CLICKABLE: LVGL lo pone en el constructor de
+// TODOS los objetos (lv_obj.c, `obj->flags = LV_OBJ_FLAG_CLICKABLE`), asi que
+// las pantallas y los paneles decorativos tambien lo llevan y el chasquido
+// sonaba al tocar el fondo.
+static bool obj_is_control(lv_obj_t *o) {
+  // Una pantalla no tiene padre, y tocar el fondo nunca es pulsar un control.
+  if (lv_obj_get_parent(o) == NULL) {
+    return false;
+  }
+  // Widgets que son controles por definicion.
+  if (lv_obj_check_type(o, &lv_btn_class) ||
+      lv_obj_check_type(o, &lv_imgbtn_class) ||
+      lv_obj_check_type(o, &lv_switch_class) ||
+      lv_obj_check_type(o, &lv_checkbox_class) ||
+      lv_obj_check_type(o, &lv_slider_class) ||
+      lv_obj_check_type(o, &lv_dropdown_class) ||
+      lv_obj_check_type(o, &lv_roller_class) ||
+      lv_obj_check_type(o, &lv_btnmatrix_class)) {
+    return true;
+  }
+  // Contenedores e imagenes con manejador propio: este proyecto los usa como
+  // botones (el badge del bloqueo, el check de "todo OK", las tarjetas del
+  // centro de alarmas). Un panel decorativo no tiene manejadores y cae aqui.
+  return o->spec_attr != NULL && o->spec_attr->event_dsc_cnt > 0;
+}
+
 static void ui_click_feedback_cb(lv_indev_drv_t *drv, uint8_t event) {
   (void)drv;
   // PRESSED y no CLICKED: el chasquido tiene que salir cuando el dedo toca,
@@ -2031,8 +2059,8 @@ static void ui_click_feedback_cb(lv_indev_drv_t *drv, uint8_t event) {
     return;
   }
   lv_obj_t *obj = lv_indev_get_obj_act();
-  if (!obj || !lv_obj_has_flag(obj, LV_OBJ_FLAG_CLICKABLE)) {
-    return;  // tocar un panel o el fondo no es pulsar un control
+  if (!obj || !obj_is_control(obj)) {
+    return;
   }
   // El teclado queda fuera por peticion expresa: al escribir se pulsa muchas
   // veces seguidas y un pitido por tecla es ruido, no confirmacion. Se mira

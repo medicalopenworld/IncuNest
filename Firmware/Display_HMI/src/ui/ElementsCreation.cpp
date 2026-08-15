@@ -387,8 +387,12 @@ void ui_event_BabiesButton(lv_event_t *e) {
 void ui_event_AlarmButton(lv_event_t *e) {
   lv_event_code_t event_code = lv_event_get_code(e);
   if (event_code == LV_EVENT_CLICKED) {
-    hmi_msg.shouldSendData =
-        true; // Beep en motherboard al tocar icono de alarmas
+    // Ya no se fuerza el envio de estado. Existia solo para arrancarle un
+    // pitido a la motherBoard, y el chasquido lo da ahora el zumbador del
+    // propio display (ui_click_feedback_cb, UITask.cpp). Mandar una trama de
+    // estado como efecto secundario de un toque es trafico UART evitable
+    // (known_issues.md #2) y ademas hacia sonar el MISMO transductor que
+    // emite las senales de alarma.
     extern void AlarmCenter_Open(void);
     AlarmCenter_Open();
   }
@@ -458,8 +462,12 @@ void ui_event_ImgButton2(lv_event_t *e) {
 void ui_event_AlarmLockImg(lv_event_t *e) {
   lv_event_code_t event_code = lv_event_get_code(e);
   if (event_code == LV_EVENT_CLICKED) {
-    hmi_msg.shouldSendData =
-        true; // Beep en motherboard al tocar icono de alarmas
+    // Ya no se fuerza el envio de estado. Existia solo para arrancarle un
+    // pitido a la motherBoard, y el chasquido lo da ahora el zumbador del
+    // propio display (ui_click_feedback_cb, UITask.cpp). Mandar una trama de
+    // estado como efecto secundario de un toque es trafico UART evitable
+    // (known_issues.md #2) y ademas hacia sonar el MISMO transductor que
+    // emite las senales de alarma.
     extern void AlarmCenter_Open(void);
     AlarmCenter_Open();
   }
@@ -663,8 +671,12 @@ void ui_event_ScreenLock(lv_event_t *e) {
 void ui_event_AlarmLockCont(lv_event_t *e) {
   lv_event_code_t event_code = lv_event_get_code(e);
   if (event_code == LV_EVENT_CLICKED) {
-    hmi_msg.shouldSendData =
-        true; // Beep en motherboard al tocar icono de alarmas
+    // Ya no se fuerza el envio de estado. Existia solo para arrancarle un
+    // pitido a la motherBoard, y el chasquido lo da ahora el zumbador del
+    // propio display (ui_click_feedback_cb, UITask.cpp). Mandar una trama de
+    // estado como efecto secundario de un toque es trafico UART evitable
+    // (known_issues.md #2) y ademas hacia sonar el MISMO transductor que
+    // emite las senales de alarma.
     extern void AlarmCenter_Open(void);
     AlarmCenter_Open();
   }
