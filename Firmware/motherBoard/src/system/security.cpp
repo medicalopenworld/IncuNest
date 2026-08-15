@@ -194,7 +194,9 @@ extern PID humidityControlPID;
 #define MINIMUM_SUCCESSFULL_SENSOR_UPDATE 20000 // in millis
 
 // 60601-1-8 6.8.3: la pausa de audio no puede exceder 2 min sin reanudarse
-// sola. Es lo que dura el silencio que pide el operador con el encoder.
+// sola. Es lo que dura el silencio que pide el operador con el boton de
+// silencio del display HMI (unica interaccion de operador que existe: el
+// encoder fisico es de una revision de hardware anterior y ya no se monta).
 #define ALARM_AUDIO_PAUSE_MS 120000u
 
 // Ventana de estabilizacion: una incubadora que arranca fria tarda en alcanzar
@@ -571,11 +573,19 @@ void resendActiveAlarms()
   }
 }
 
-// Pulsacion del encoder: 60601-1-8 6.8.1 permite inactivar el audio, pero la
-// senal visual tiene que seguir mientras la condicion persista, y silenciar
-// una condicion no puede silenciar las demas — por eso se silencia una a una
-// y no existe un silencio global.
-void reestartOngoingAlarms()
+// Boton de silencio del display HMI: la unica interaccion de operador que
+// existe hoy (el encoder es hardware de una revision anterior, ya no se
+// monta). 60601-1-8 6.8.1 permite inactivar el audio, pero la senal visual
+// tiene que seguir mientras la condicion persista, y silenciar una condicion
+// no puede silenciar las demas — por eso se silencia una a una y no existe
+// un silencio global.
+//
+// Llamar solo en el flanco de subida de hmi_cmd_msg.muteAlarm (ver
+// CommTask.cpp): la trama HMI llega periodicamente con el bit a nivel alto
+// mientras el operador mantenga la vista muteada, y silenciar en cada ciclo
+// reiniciaria la ventana de ALARM_AUDIO_PAUSE_MS eternamente sin que el audio
+// llegase a reanudarse nunca.
+void silenceActiveAlarmsFromDisplayMute()
 {
   const uint32_t now = millis();
   for (int i = NO_ALARMS + 1; i < NUM_ALARMS; i++)

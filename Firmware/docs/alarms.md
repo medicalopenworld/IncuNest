@@ -139,9 +139,28 @@ inactivar el audio nunca abre ninguna de las tres puertas.
 
 `ongoingAlarms()` (`security.cpp:422`, envoltorio de
 `alarm_machine_any_signalling()`) es una cosa distinta y **no decide nada del
-audio**: es la guarda del encoder. `encSwitchHandler()` (`ISR.cpp:148-165`) la
-consulta para saber si la pulsación debe interpretarse como "silenciar" — solo
-si hay algo señalizando llama a `shutBuzzer()` y a `reestartOngoingAlarms()`.
+audio**. Guardaba la pulsación de un encoder físico que nunca llegó a montarse
+en esta placa — es de una revisión de hardware anterior — y su único
+llamante, `encSwitchHandler()` (`ISR.cpp`), tampoco estaba enganchado a
+ninguna interrupción real (`initInterrupts()`, `initHardware.cpp`, solo
+registra `fanEncoderISR`), así que era código inalcanzable. Ambas funciones se
+retiraron; `ongoingAlarms()` sigue existiendo porque nada más obliga a
+quitarla, pero hoy no tiene llamantes de producción.
+
+Quien silencia de verdad es el botón de silencio del **display HMI**, la única
+interacción de operador que existe hoy. Su estado llega en
+`hmi_cmd_msg.muteAlarm`, y `CommTask.cpp` (motherBoard) lo cablea a
+`silenceActiveAlarmsFromDisplayMute()` (`security.cpp`, la función que hasta
+este cambio se llamaba `reestartOngoingAlarms()`) en el **flanco de subida**
+del campo, no de forma continua: la trama HMI llega periódicamente con el bit
+a nivel alto mientras el operador siga en estado muteado (el display lo
+mantiene así, no lo pulsa una vez), y silenciar en cada ciclo reiniciaría la
+ventana de `ALARM_AUDIO_PAUSE_MS` eternamente sin dejar que el audio se
+reanudase nunca. Antes de este cambio, `hmi_cmd_msg.muteAlarm` llegaba desde
+el display y no se usaba para nada — solo se registraba en log y se
+devolvía en el eco de la trama de estado —, así que el botón de silencio del
+display no silenciaba nada.
+
 Quien decide si el zumbador suena es `alarm_machine_audio_required()`, y con
 qué patrón, `alarm_machine_audible_priority()` (§8). Los dos criterios no
 coinciden: PENDING señaliza pero no exige audio, y una condición dentro de su
@@ -200,20 +219,24 @@ aplaza el audio, no la señal visual.
 condición ACTIVE a SILENCED durante `duration_ms`; al expirar,
 `alarm_machine_tick()` la hace madurar de vuelta a ACTIVE
 (`alarm_machine.cpp:135-138`). El único punto del firmware que invoca esta
-función es `reestartOngoingAlarms()` (`security.cpp:578-585`), llamada desde
-`encSwitchHandler()` (`ISR.cpp:148-165`) al pulsar el encoder: silencia, una
-por una, **todas** las condiciones que en ese instante estén en ACTIVE,
-durante `ALARM_AUDIO_PAUSE_MS` = 120000 ms (2 min, `security.cpp:198`). Como
-el silencio actúa condición por condición y solo sobre las que ya están
-activas en el momento de la pulsación, una condición nueva que aparezca
-después de silenciar suena con normalidad — no hereda el silencio de las
-demás.
+función es `silenceActiveAlarmsFromDisplayMute()` (`security.cpp`), llamada
+desde `CommTask.cpp` (motherBoard) en el flanco de subida de
+`hmi_cmd_msg.muteAlarm` — el bit que llega en la trama periódica del display
+al pulsar su botón de silencio, la única interacción de operador que existe
+hoy (el encoder físico es de una revisión de hardware anterior y no se
+monta): silencia, una por una, **todas** las condiciones que en ese instante
+estén en ACTIVE, durante `ALARM_AUDIO_PAUSE_MS` = 120000 ms (2 min,
+`security.cpp:198`). Como el silencio actúa condición por condición y solo
+sobre las que ya están activas en el momento de la pulsación, una condición
+nueva que aparezca después de silenciar suena con normalidad — no hereda el
+silencio de las demás.
 
 **Aceptación.** `alarm_machine_ack(id, now)` mueve una condición ACTIVE o
 SILENCED a ACKED de forma indefinida. Existe en la máquina de estados y tiene
 tests unitarios, pero **no hay ningún punto de la firmware de producción que
-la invoque** — ni el encoder, ni el protocolo USB, ni la página `/config`
-llaman a `alarm_machine_ack()`. Hoy la única acción de operador disponible es
+la invoque** — ni el botón de silencio del display, ni el protocolo USB, ni
+la página `/config` llaman a `alarm_machine_ack()`. Hoy la única acción de
+operador disponible es
 el silencio temporal de 2 minutos descrito arriba; el estado ACKED es
 alcanzable solo desde tests.
 
@@ -257,8 +280,9 @@ aunque ya no haya sobretemperatura. `alarm_machine_is_latched(id)` es
 verdadero mientras eso ocurra, y `alarm_machine_reset(id, now)` es la única
 función que puede devolverla a INACTIVE — y solo si la condición física ya no
 está presente. **Esta función solo se llama desde los tests unitarios
-(`test_alarm_machine.cpp`); no existe ningún camino de producción — encoder,
-USB o `/config` — que la invoque.** En la práctica, hoy la única forma de
+(`test_alarm_machine.cpp`); no existe ningún camino de producción — botón de
+silencio del display, USB o `/config` — que la invoque.** En la práctica, hoy
+la única forma de
 limpiar la señal de un corte térmico ya enfriado es reiniciar el equipo:
 `initAlarms()` (`security.cpp:279-288`) reinicializa toda la máquina
 (`alarm_machine_init()`) y se llama una única vez, desde el arranque
@@ -453,22 +477,22 @@ hace hoy, para no inducir a confiar en protecciones que no existen.
   firmware de motherBoard llama a `alarm_machine_condition(ALARM_HMI_LINK_LOST, ...)`.
 - **No hay reset manual accesible al operador para los cortes térmicos
   latching.** `alarm_machine_reset()` solo se invoca desde
-  `test_alarm_machine.cpp`. No existe gesto de encoder, comando USB ni
+  `test_alarm_machine.cpp`. No existe botón del display, comando USB ni
   entrada de `/config` que la llame. Hoy, un corte térmico que ya se enfrió
   se queda en **ACTIVE**, no en silencio de audio: **el zumbador sigue sonando
   indefinidamente**, con su patrón de prioridad ALTA, hasta que el equipo se
-  reinicia por completo. Pulsar el encoder solo compra 2 minutos —
-  `ALARM_AUDIO_PAUSE_MS`—, tras los cuales `alarm_machine_tick()` devuelve la
-  condición a ACTIVE y el audio se reanuda solo, y así indefinidamente. Es lo
-  correcto según 201.15.4.2.1 aa)/bb) y 6.10 —la alarma debe operar de forma
-  continua hasta un reset manual—, pero significa que la única forma de
-  callar el equipo es apagarlo, con la incubadora aún en terapia. La
-  consecuencia es peor que la de "quedarse señalizando en silencio": es un
-  equipo que suena sin parar y sin vía de reset.
+  reinicia por completo. Pulsar el botón de silencio del display solo compra
+  2 minutos — `ALARM_AUDIO_PAUSE_MS`—, tras los cuales `alarm_machine_tick()`
+  devuelve la condición a ACTIVE y el audio se reanuda solo, y así
+  indefinidamente. Es lo correcto según 201.15.4.2.1 aa)/bb) y 6.10 —la
+  alarma debe operar de forma continua hasta un reset manual—, pero significa
+  que la única forma de callar el equipo es apagarlo, con la incubadora aún
+  en terapia. La consecuencia es peor que la de "quedarse señalizando en
+  silencio": es un equipo que suena sin parar y sin vía de reset.
 - **No hay aceptación (ACK) indefinida accesible al operador.** `alarm_machine_ack()`
   existe y tiene tests, pero no se invoca desde ningún punto de producción.
   La única acción de operador disponible hoy es el silencio temporal de 2
-  minutos por pulsación de encoder (§4).
+  minutos por botón de silencio del display (§4).
 - **Las alarmas no se distinguen por tono.** El patrón de ráfagas de la Tabla 3
   **sí** está implementado (§8), pero la componente tonal no: el
   tercer argumento de `buzzerTone()` es código muerto —`buzzerHandler()` nunca

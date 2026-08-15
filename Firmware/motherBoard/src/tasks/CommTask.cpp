@@ -630,6 +630,14 @@ void parse_line(const char *line) {
                               act == ACTUATION_TEMPERATURE ||
                                   act == ACTUATION_TEMP_AND_HUMIDITY);
 
+      // El display mantiene muteAlarm a nivel alto mientras el operador siga
+      // en estado "muteado" (se lee desde alarmsMuted en su UITask, no un
+      // pulso), y la trama HMI llega periodicamente: disparar en cada ciclo
+      // reiniciaria la ventana de silencio (ALARM_AUDIO_PAUSE_MS,
+      // security.cpp) eternamente. Por eso se detecta el flanco de subida
+      // contra el valor previo, no el nivel.
+      bool muteRisingEdge = (hmi_cmd_msg.muteAlarm == 0) && (mute != 0);
+
       hmi_cmd_msg.actuation = act;
       hmi_cmd_msg.skinModeEnabled = skinE;
       hmi_cmd_msg.controlMode = mode;
@@ -641,6 +649,10 @@ void parse_line(const char *line) {
       hmi_cmd_msg.language = lang;
       hmi_cmd_msg.photoMinutesRemaining = photoMin;
       hmi_cmd_msg.newCommand = true;
+
+      if (muteRisingEdge) {
+        silenceActiveAlarmsFromDisplayMute();
+      }
 
       if (in3.language != lang) {
         in3.language = lang;

@@ -484,7 +484,9 @@ void stopPID(byte var);
 
 bool ongoingAlarms();
 byte activeAlarm();
-void reestartOngoingAlarms();
+// Boton de silencio del display HMI (hmi_cmd_msg.muteAlarm): ver definicion
+// en security.cpp para el porque del flanco de subida.
+void silenceActiveAlarmsFromDisplayMute();
 char *alarmIDtoString(byte alarmID);
 void resendActiveAlarms();
 
@@ -517,7 +519,6 @@ void initGPIO();
 void initEEPROM();
 void initAlarms();
 void security_check_reboot_cause();
-void IRAM_ATTR encSwitchHandler();
 void IRAM_ATTR encoderISR();
 void IRAM_ATTR fanEncoderISR();
 
