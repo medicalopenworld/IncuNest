@@ -29,6 +29,12 @@ uint32_t            g_profileAck = 0;
 volatile bool       g_pendingProfileRange = false;
 BabyProfileRangeMsg g_profileRange = {0, false, 0, -1.0f, -1.0f, -1.0f, true};
 
+// --- Registro de alarmas ---
+volatile bool   g_pendingAlarmHistory = false;
+AlarmHistoryMsg g_alarmHistory = {0, {}};
+volatile bool   g_pendingAlarmDesc = false;
+AlarmDescMsg    g_alarmDesc = {0, {0}, {0}};
+
 // --- Baby history viewer protocol state ---
 volatile bool        g_pendingBabyHistory = false;
 BabyHistoryMsg       g_babyHistory = {0, 0, 0, {}};
@@ -71,7 +77,7 @@ static int rxIndex = 0;
 #define ALM_STR(x) ALM_STR2(x)
 #define ALM_SCAN_FMT                                              \
   "CTRL,ALM,%d,%" ALM_STR(ALARM_TITLE_MAX_CHARS) "[^,],%" ALM_STR( \
-      ALARM_DESC_MAX_CHARS) "[^,],%d"
+      ALARM_DESC_MAX_CHARS) "[^,],%d,%d"
 
 // Motherboard-provided wall clock (CTRL,TIME). 0 = not synced there yet.
 static uint32_t s_mbEpoch = 0;
@@ -177,6 +183,18 @@ void Communication_SendProfileDischarge(uint32_t seq, uint8_t outcome) {
 void Communication_SendProfileKangaroo(uint32_t seq) {
 #if IS_HMI
   COMM_SERIAL.printf("HMI,PROFILE_KANGAROO,%u\n", (unsigned)seq);
+#endif
+}
+
+void Communication_SendAlarmHistoryReq(void) {
+#if IS_HMI
+  COMM_SERIAL.print("HMI,ALM_HISTORY_REQ\n");
+#endif
+}
+
+void Communication_SendAlarmDescReq(uint8_t id) {
+#if IS_HMI
+  COMM_SERIAL.printf("HMI,ALM_DESC_REQ,%u\n", (unsigned)id);
 #endif
 }
 
@@ -342,17 +360,102 @@ static void parse_message(const char *line) {
                   "el ancho de parseo del titulo debe ser el del buffer - 1");
     static_assert(ALARM_DESC_LEN == ALARM_DESC_MAX_CHARS + 1,
                   "el ancho de parseo de la descripcion debe ser el del buffer - 1");
-    int result = sscanf(line, ALM_SCAN_FMT, &id, type, description, &stateInt);
-    if (result == 4) {
+    // Conteo TOLERANTE: 4 campos (placa anterior, sin prioridad) o 5. Exigir 5
+    // exactos volveria a descartar la linea entera contra un firmware viejo, y
+    // una alarma descartada es una alarma invisible.
+    int priority = -1;
+    int result =
+        sscanf(line, ALM_SCAN_FMT, &id, type, description, &stateInt, &priority);
+    if (result >= 4) {
       ctrl_msg_alarm.id = id;
       strncpy(ctrl_msg_alarm.type, type, ALARM_TYPE_LEN - 1);
       ctrl_msg_alarm.type[ALARM_TYPE_LEN - 1] = '\0';
       strncpy(ctrl_msg_alarm.description, description, ALARM_DESC_LEN - 1);
       ctrl_msg_alarm.description[ALARM_DESC_LEN - 1] = '\0';
       ctrl_msg_alarm.state = (stateInt != 0);
+      // Sin campo de prioridad se asume la mas urgente: equivocarse hacia
+      // arriba avisa de mas, hacia abajo silencia algo grave.
+      ctrl_msg_alarm.priority = (result >= 5 && priority >= 0) ? priority : 2;
     } else {
       COMM_LOG("[COMM] HMI failed to parse CTRL,ALM: %s\n", line);
     }
+  } else if (strncmp(line, "CTRL,ALM_DESC,", 14) == 0) {
+    // CTRL,ALM_DESC,<id>,<titulo>,<descripcion>
+    // Respuesta a HMI,ALM_DESC_REQ. Texto ya resuelto por la placa.
+    unsigned id = 0;
+    char title[ALARM_TITLE_MAX_CHARS + 1] = {0};
+    char desc[ALARM_DESC_MAX_CHARS + 1] = {0};
+    // La descripcion es el ultimo campo y puede llevar comas, asi que se toma
+    // hasta el fin de linea ([^\n]) en vez de hasta la siguiente coma.
+    const int got = sscanf(line + 14,
+                           "%u,%" ALM_STR(ALARM_TITLE_MAX_CHARS) "[^,],%"
+                           ALM_STR(ALARM_DESC_MAX_CHARS) "[^\n]",
+                           &id, title, desc);
+    if (got != 3 || id >= ALARM_COUNT) {
+      COMM_LOG("[COMM] CTRL,ALM_DESC malformada, descartada\n");
+      return;
+    }
+    g_alarmDesc.id = (uint8_t)id;
+    strncpy(g_alarmDesc.title, title, ALARM_TITLE_MAX_CHARS);
+    g_alarmDesc.title[ALARM_TITLE_MAX_CHARS] = '\0';
+    strncpy(g_alarmDesc.desc, desc, ALARM_DESC_MAX_CHARS);
+    g_alarmDesc.desc[ALARM_DESC_MAX_CHARS] = '\0';
+    g_pendingAlarmDesc = true;
+
+  } else if (strncmp(line, "CTRL,ALM_HISTORY,", 17) == 0) {
+    // CTRL,ALM_HISTORY,n{,id,prio,raised,cleared,limite,valor,titulo}xn
+    //
+    // Llega entero de la motherBoard, titulo incluido: aqui no se traduce ni
+    // se deduce nada, solo se pinta. La placa es la dueña de la informacion.
+    //
+    // Se parsea entrada a entrada y NO se acepta nada si alguna viene
+    // incompleta: aceptar a medias mostraria un registro clinico con campos de
+    // otra entrada. Regla general del protocolo (.claude/rules/security.md):
+    // descarte silencioso con log, nunca datos parciales.
+    int n = 0;
+    const char *p = line + 17;
+    if (sscanf(p, "%d", &n) != 1 || n < 0 || n > 10) {
+      COMM_LOG("[COMM] CTRL,ALM_HISTORY cabecera invalida: %s\n", line);
+      return;
+    }
+    AlarmHistoryMsg parsed = {0, {}};
+    bool ok = true;
+    for (int i = 0; i < n && ok; i++) {
+      p = strchr(p, ',');
+      if (!p) { ok = false; break; }
+      p++;
+      unsigned id = 0, prio = 0;
+      unsigned long raised = 0, cleared = 0;
+      int limitC = 0, valueC = 0;
+      char title[ALARM_TITLE_MAX_CHARS + 1] = {0};
+      // %n dice cuantos caracteres consumio sscanf, que es la unica forma
+      // fiable de avanzar al siguiente registro: contar comas a mano se rompe
+      // en cuanto un campo cambia de ancho. %n no cuenta para el retorno, de
+      // ahi que se comparen 7 campos y no 8.
+      int consumed = 0;
+      const int got =
+          sscanf(p, "%u,%u,%lu,%lu,%d,%d,%" ALM_STR(ALARM_TITLE_MAX_CHARS)
+                    "[^,\n]%n",
+                 &id, &prio, &raised, &cleared, &limitC, &valueC, title,
+                 &consumed);
+      if (got != 7) { ok = false; break; }
+      parsed.items[i].id = (uint8_t)id;
+      parsed.items[i].priority = (uint8_t)prio;
+      parsed.items[i].raisedEpoch = (uint32_t)raised;
+      parsed.items[i].clearedEpoch = (uint32_t)cleared;
+      parsed.items[i].limitCenti = (int16_t)limitC;
+      parsed.items[i].valueCenti = (int16_t)valueC;
+      strncpy(parsed.items[i].title, title, ALARM_TITLE_MAX_CHARS);
+      parsed.items[i].title[ALARM_TITLE_MAX_CHARS] = '\0';
+      p += consumed;
+    }
+    if (!ok) {
+      COMM_LOG("[COMM] CTRL,ALM_HISTORY incompleta, descartada\n");
+      return;
+    }
+    parsed.count = n;
+    g_alarmHistory = parsed;
+    g_pendingAlarmHistory = true;
   } else if (strncmp(line, "CTRL,WIFI,", 10) == 0) {
     char ssid[64], pass[64];
     if (sscanf(line, "CTRL,WIFI,%63[^,],%63[^\n]", ssid, pass) == 2) {
@@ -804,6 +907,7 @@ static void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
 
   // Actualizar slot con los datos recibidos
   alarmList[index].id = alarm.id;
+  alarmList[index].priority = alarm.priority;
   strncpy(alarmList[index].type, alarm.type, ALARM_TYPE_LEN - 1);
   alarmList[index].type[ALARM_TYPE_LEN - 1] = '\0';
   strncpy(alarmList[index].description, alarm.description, ALARM_DESC_LEN - 1);

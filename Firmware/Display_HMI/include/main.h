@@ -305,6 +305,9 @@ struct Alarm {
   char type[ALARM_TYPE_LEN];
   char description[ALARM_DESC_LEN];
   bool state;
+  // Prioridad tal como la manda la motherBoard en CTRL,ALM. El display no la
+  // calcula: la placa es la dueña de la informacion de alarmas.
+  uint8_t priority;
 };
 extern Alarm alarmList[MAX_ALARMS];
 

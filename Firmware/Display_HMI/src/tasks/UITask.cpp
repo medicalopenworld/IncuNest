@@ -2,6 +2,7 @@
 // #include "AudioManager.h"  // Deshabilitado para migración Arduino 3.x
 #include "CommTask.h"
 #include "buzzer.h"
+#include "ui/AlarmCenter.h"
 #include "ui/BabyHistory.h"
 #include "ui/BabyExitDialog.h"
 #include "ui/BabyWizard.h"
@@ -1942,6 +1943,19 @@ static lv_color_t s_bannerLo;      // el mismo, oscurecido
 #define BANNER_HALF_PERIOD_MS_HIGH 250
 #define BANNER_HALF_PERIOD_MS_MEDIUM 750
 
+// Definida mas abajo en este mismo fichero.
+void reset_alarm_detail_state();
+
+// Pulsar el banner abre el centro de alarmas. Es un overlay sobre
+// lv_layer_top(), no un cambio de pantalla: desde el bloqueo esto evita tener
+// que desbloquear primero para ver que pasa, que era el camino largo justo
+// cuando hay prisa.
+static void AlarmBanner_cb(lv_event_t *e) {
+  (void)e;
+  reset_alarm_detail_state();
+  AlarmCenter_Open();
+}
+
 static void banner_blink_cb(void *obj, int32_t v) {
   lv_obj_set_style_bg_color((lv_obj_t *)obj,
                             lv_color_mix(s_bannerHi, s_bannerLo, (uint8_t)v),
@@ -1956,9 +1970,17 @@ void alarm_banner_init(void) {
   lv_obj_set_align(s_alarmBanner, LV_ALIGN_TOP_MID);
   lv_obj_set_style_bg_opa(s_alarmBanner, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_clear_flag(s_alarmBanner, LV_OBJ_FLAG_SCROLLABLE);
-  // Sin esto el banner se traga los toques de la pantalla que tapa: es una
-  // senal, no un control.
-  lv_obj_clear_flag(s_alarmBanner, LV_OBJ_FLAG_CLICKABLE);
+  // El banner SI es pulsable: lleva a la pantalla de alarmas, que es donde
+  // estan el detalle, el historial y el boton de silencio. Es la ruta mas
+  // corta desde "algo suena" hasta "puedo hacer algo", y no depende de que el
+  // operador encuentre el boton de la barra superior.
+  //
+  // Consecuencia asumida: en la pantalla de bloqueo el banner ocupa la franja
+  // donde esta ui_LockButton, asi que durante una alarma un toque ahi lleva a
+  // alarmas en vez de desbloquear. Es el comportamiento util: si suena, lo que
+  // se quiere es atenderla. El resto de la pantalla sigue desbloqueando.
+  lv_obj_add_flag(s_alarmBanner, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(s_alarmBanner, AlarmBanner_cb, LV_EVENT_CLICKED, NULL);
   lv_obj_add_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN);
 
   s_alarmBannerLabel = lv_label_create(s_alarmBanner);
@@ -1976,30 +1998,33 @@ void alarm_banner_update(void) {
     return;
   }
 
-  // Alarma senalizando de mayor prioridad. La prioridad se pide a
-  // alarm_priority() de shared/, la misma funcion que usa la motherboard, en
-  // vez de deducirla de las admiraciones del titulo: una copia local de esa
-  // tabla es exactamente lo que ya se desincronizo una vez en este proyecto.
+  // Alarma senalizando de mayor prioridad. La prioridad es la que MANDA la
+  // motherBoard en el campo correspondiente de CTRL,ALM: el display no la
+  // calcula ni la deduce del titulo. La placa es la dueña de la informacion de
+  // alarmas y esta se limita a pintarla; cualquier copia local de la politica
+  // de prioridades seria una segunda fuente de verdad esperando a
+  // desincronizarse, que es un fallo que este proyecto ya ha tenido.
   int topIdx = -1;
   int topPrio = -1;
   for (int i = 0; i < MAX_ALARMS; i++) {
     if (!alarmList[i].state) {
       continue;
     }
-    const int p = (int)alarm_priority((AlarmId)alarmList[i].id);
+    const int p = (int)alarmList[i].priority;
     if (p > topPrio) {
       topPrio = p;
       topIdx = i;
     }
   }
 
-  // En ui_ScreenAlarms el banner sobra y ademas estorba. Sobra porque esa
-  // pantalla ya lista cada alarma con su titulo, que lleva la marca de
-  // prioridad delante, asi que la senal de 1 m que pide 6.3.2.2.2 ya esta ahi
-  // de forma nativa. Y estorba porque el banner inferior ocuparia de 428 a 480
-  // px y ui_MuteAlarm llega hasta los 434: le recortaria 6 px justo al unico
-  // control que sirve para callar la alarma.
-  const bool onAlarmsScreen = (ui_ScreenAlarms && lv_scr_act() == ui_ScreenAlarms);
+  // Con el centro de alarmas abierto el banner sobra: ese overlay ya lista
+  // cada alarma activa con su titulo y su marca de prioridad delante, asi que
+  // la senal de 1 m que pide 6.3.2.2.2 sigue presente de forma nativa. Y
+  // ademas estorba, porque el banner vive tambien en lv_layer_top() y se
+  // pintaria por encima de la tarjeta.
+  const bool onAlarmsScreen =
+      AlarmCenter_IsOpen() ||
+      (ui_ScreenAlarms && lv_scr_act() == ui_ScreenAlarms);
 
   if (topIdx < 0 || onAlarmsScreen) {
     lv_anim_del(s_alarmBanner, banner_blink_cb);
@@ -2824,9 +2849,22 @@ void ChartButton_cb(lv_event_t *e) {
 }
 
 void AlarmLockImg_cb(lv_event_t *e) {
+  (void)e;
   reset_alarm_detail_state();
-  _ui_screen_change(&ui_ScreenAlarms, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
-                    &ui_ScreenAlarms_screen_init);
+  AlarmCenter_Open();
+}
+
+// El check verde de "todo OK" tambien abre el centro de alarmas.
+//
+// Sin esto el registro era inaccesible en el caso mas comun: sin alarmas
+// activas se ocultan las DOS vias (ui_AlarmButton en la barra y el badge del
+// bloqueo) y en su sitio aparece este check, que no era pulsable. Es decir,
+// el historial solo se podia consultar mientras algo estaba sonando — justo
+// cuando a nadie le interesa ponerse a leer el registro.
+void CheckImg_cb(lv_event_t *e) {
+  if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+  reset_alarm_detail_state();
+  AlarmCenter_Open();
 }
 
 void AlarmLockCont_cb(lv_event_t *e) {
@@ -3277,6 +3315,24 @@ void UI_Task(void *pvParameters) {
   // --- Babies history screen (baby-history-viewer spec) ---
   BabyHistory_Init(ui_ScreenMain);
   BabyExitDialog_Init(ui_ScreenMain);
+  // --- Centro de alarmas (activas + registro) ---
+  // Sin parent: cuelga de lv_layer_top() para abrirse desde cualquier pantalla,
+  // el bloqueo incluido.
+  AlarmCenter_Init();
+  // El check de "todo OK" es lo unico visible en el sitio de las alarmas
+  // cuando no hay ninguna; hacerlo pulsable es lo que deja el registro
+  // accesible en estado normal. Las imagenes de LVGL no son pulsables por
+  // defecto, de ahi el flag explicito.
+  //
+  // Solo el de ui_ScreenMain. El gemelo de la pantalla de bloqueo (ui_CheckImg)
+  // se deja quieto a proposito: alli el toque en cualquier punto desbloquea, y
+  // hacerlo pulsable crearia una zona muerta permanente que no desbloquea. El
+  // banner ya se toma esa licencia, pero solo mientras suena una alarma;
+  // quedarsela siempre es otra cosa.
+  if (ui_CheckImgMain) {
+    lv_obj_add_flag(ui_CheckImgMain, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(ui_CheckImgMain, CheckImg_cb, LV_EVENT_CLICKED, NULL);
+  }
   // En lv_layer_top(), no colgado de una pantalla: la senal de alarma
   // tiene que sobrevivir a lv_scr_load().
   alarm_banner_init();
@@ -3744,6 +3800,10 @@ void UI_Task(void *pvParameters) {
     // Babies history screen: same polling contract (list/history/chart
     // responses, timeouts, critical-alarm-closes-screen).
     BabyHistory_Poll();
+    // Centro de alarmas: respuestas del registro y del detalle, con sus
+    // timeouts. A diferencia del resto, este NO se cierra con una alarma
+    // critica — es precisamente la pantalla donde se atiende.
+    AlarmCenter_Poll();
     // Baby-exit dialog: only the transition to a fully idle incubator
     // (no temperature, no humidity, no phototherapy) means the baby
     // actually came out; dropping one therapy among several does not.

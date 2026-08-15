@@ -209,6 +209,39 @@ struct BabyWeightHistoryMsg {
   uint16_t weightGrams[50];
 };
 
+// Registro de alarmas (IEC 60601-1-8 6.12.2). Llega entero de la motherBoard,
+// titulo incluido: aqui no se traduce ni se deduce nada, solo se pinta.
+struct AlarmHistoryItem {
+  uint8_t  id;
+  uint8_t  priority;
+  uint32_t raisedEpoch;   // 0 = la placa no tenia hora sincronizada
+  uint32_t clearedEpoch;  // 0 = seguia activa al guardarla
+  int16_t  limitCenti;    // limite en vigor x100, 0 si no aplica
+  int16_t  valueCenti;    // medida que la disparo x100, 0 si no aplica
+  char     title[ALARM_TITLE_MAX_CHARS + 1];
+};
+struct AlarmHistoryMsg {
+  int count;  // 0..10
+  AlarmHistoryItem items[10];
+};
+
+// Detalle de una alarma concreta (CTRL,ALM_DESC). No viaja dentro del
+// historial porque 10 descripciones no caben en una linea; se pide bajo
+// demanda al abrir el detalle. La placa lo manda ya traducido.
+struct AlarmDescMsg {
+  uint8_t id;
+  char    title[ALARM_TITLE_MAX_CHARS + 1];
+  char    desc[ALARM_DESC_MAX_CHARS + 1];
+};
+
+extern volatile bool        g_pendingAlarmHistory;
+extern AlarmHistoryMsg      g_alarmHistory;
+void Communication_SendAlarmHistoryReq(void);
+
+extern volatile bool        g_pendingAlarmDesc;
+extern AlarmDescMsg         g_alarmDesc;
+void Communication_SendAlarmDescReq(uint8_t id);
+
 extern volatile bool        g_pendingBabyHistory;
 extern BabyHistoryMsg       g_babyHistory;
 extern volatile bool        g_pendingWeightHistory;
