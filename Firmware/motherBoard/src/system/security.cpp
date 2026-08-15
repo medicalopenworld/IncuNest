@@ -31,6 +31,7 @@
 #include "modules/baby_profile/baby_profile_store.h"
 #include "modules/control/alarm_history.h"
 #include "modules/control/alarm_machine.h"
+#include "modules/control/alarm_test.h"
 #include "modules/control/alarm_window.h"
 
 static const char *TAG __attribute__((unused)) = "SECURITY";
@@ -1050,6 +1051,19 @@ static void driveAlarmBuzzer()
   // silenciada y una BAJA distinta esta activa, el audio tiene que sonar como
   // BAJA. alarm_machine_audible_priority() usa el mismo criterio que
   // alarm_machine_audio_required() (revision de la tarea 11, hallazgo C-2).
+  // Prueba de funcionamiento (201.12.3.105). Una alarma REAL la cancela en el
+  // acto: la prueba es una comodidad de mantenimiento y no puede quedarse ni
+  // un ciclo por delante de una condicion de verdad. Por eso se comprueba
+  // any_signalling() y no solo audio_required() — una condicion silenciada o
+  // en PENDING sigue siendo una alarma real en curso.
+  if (alarm_machine_any_signalling()) {
+    alarm_test_abort();
+  } else if (alarm_test_active()) {
+    buzzerAlarmUpdate(alarm_test_audio_required(),
+                      (AlarmPriority)alarm_test_priority());
+    return;
+  }
+
   buzzerAlarmUpdate(alarm_machine_audio_required(),
                     alarm_machine_audible_priority());
 }
@@ -1070,6 +1084,7 @@ void securityCheck()
   // El tick va DESPUES de la deteccion y ANTES de publicar: es el que hace
   // madurar PENDING -> ACTIVE y el que expira las pausas de audio.
   alarm_machine_tick(millis());
+  alarm_test_tick(millis());
   publishAlarmChanges();
   driveAlarmBuzzer();
 }

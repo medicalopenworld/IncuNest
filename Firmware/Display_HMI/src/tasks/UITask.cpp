@@ -653,6 +653,10 @@ static void update_main_toggle_buttons() {
   if (lbl) lv_label_set_text(lbl, p ? "TURN OFF" : "TURN ON");
 }
 
+// Definida mas abajo, junto al resto de la prueba de funcionamiento de
+// alarmas. UI_ApplyLanguage() la necesita para refrescar sus dos etiquetas.
+void update_alarm_test_texts(void);
+
 void UI_ApplyLanguage(ui_lang_t lang) {
   g_lang = lang;
   { Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_LANG, (uint8_t)g_lang); p.end(); }
@@ -761,6 +765,7 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   lv_label_set_text(ui_SkinOptionLabel, TXT_SKINMODE[lang]);
   lv_label_set_text(ui_InfoLabel, TXT_INFO[lang]);
   lv_label_set_text(ui_DarkModeLabel, TXT_DARKMODE[lang]);
+  update_alarm_test_texts();
   {
     const char *TXT_HUMIDITY_MODE[] = {"CONTROL HUMEDAD", "HUMIDITY CONTROL",
                                        "CONTROLE HUMIDITE"};
@@ -2097,6 +2102,83 @@ static void ui_click_feedback_cb(lv_indev_drv_t *drv, uint8_t event) {
   click_beep_start();
 }
 
+// --- Prueba de funcionamiento de las alarmas (201.12.3.105) ---------------
+//
+// "Means shall be provided for the OPERATOR to check the operation of audible
+// and visual alarms." La secuencia la ejecuta la motherBoard por el mismo
+// camino de audio que las alarmas reales; aqui solo esta el disparador y la
+// senal visual, que se pinta reutilizando el propio banner.
+//
+// Se construye en UITask y no en ElementsCreation porque ese fichero lo genera
+// SquareLine y no se reescribe a mano (.claude/rules/embedded-display-hmi.md).
+// Va como una fila mas de ui_Container3, en el hueco libre de la parte
+// superior: las filas existentes empiezan en y=-100 y nada ocupa por encima.
+static lv_obj_t *ui_AlarmTestLabel = NULL;
+static lv_obj_t *ui_AlarmTestBtnLabel = NULL;
+
+// Este fichero resuelve el idioma con arrays indexados por g_lang; se envuelve
+// en un helper local para no repetir el indexado en cada cadena de aqui.
+static const char *TXT_UI(const char *es, const char *en, const char *fr) {
+  return (g_lang == LANG_ES) ? es : (g_lang == LANG_FR) ? fr : en;
+}
+
+static void AlarmTestBtn_cb(lv_event_t *e) {
+  (void)e;
+  Communication_SendAlarmTest();
+  UI_ShowToast(TXT_UI("Probando senales de alarma...",
+                      "Testing alarm signals...",
+                      "Test des signaux d'alarme..."),
+               3000);
+}
+
+static void create_alarm_test_row(void) {
+  if (!ui_Container3) {
+    return;
+  }
+  lv_obj_t *row = lv_obj_create(ui_Container3);
+  lv_obj_remove_style_all(row);
+  lv_obj_set_size(row, 331, 45);
+  lv_obj_set_x(row, 0);
+  lv_obj_set_y(row, -155);
+  lv_obj_set_align(row, LV_ALIGN_CENTER);
+  lv_obj_clear_flag(row, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+
+  lv_obj_t *panel = lv_obj_create(row);
+  lv_obj_set_size(panel, 331, 45);
+  lv_obj_set_align(panel, LV_ALIGN_CENTER);
+  lv_obj_clear_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+
+  ui_AlarmTestLabel = lv_label_create(row);
+  lv_obj_set_x(ui_AlarmTestLabel, 20);
+  lv_obj_set_align(ui_AlarmTestLabel, LV_ALIGN_LEFT_MID);
+  lv_obj_set_style_text_font(ui_AlarmTestLabel, &lv_font_montserrat_18,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  lv_obj_t *btn = lv_btn_create(row);
+  lv_obj_set_size(btn, 100, 35);
+  lv_obj_set_x(btn, 111);
+  lv_obj_set_align(btn, LV_ALIGN_CENTER);
+  lv_obj_set_style_bg_color(btn, lv_color_hex(0x0075EE), LV_PART_MAIN);
+  lv_obj_set_style_radius(btn, 8, LV_PART_MAIN);
+  lv_obj_add_event_cb(btn, AlarmTestBtn_cb, LV_EVENT_CLICKED, NULL);
+
+  ui_AlarmTestBtnLabel = lv_label_create(btn);
+  lv_obj_center(ui_AlarmTestBtnLabel);
+}
+
+// Los textos se refrescan con el idioma, como el resto de la pantalla.
+void update_alarm_test_texts(void) {
+  if (ui_AlarmTestLabel) {
+    lv_label_set_text(ui_AlarmTestLabel,
+                      TXT_UI("PROBAR ALARMAS", "TEST ALARMS",
+                             "TESTER ALARMES"));
+  }
+  if (ui_AlarmTestBtnLabel) {
+    lv_label_set_text(ui_AlarmTestBtnLabel,
+                      TXT_UI("PROBAR", "TEST", "TESTER"));
+  }
+}
+
 // Indicador permanente de AUDIO PAUSED, en lv_layer_top() para que sobreviva a
 // los lv_scr_load() y se vea en TODAS las pantallas.
 //
@@ -2174,6 +2256,16 @@ void alarm_banner_update(void) {
     }
   }
 
+  // Prueba de funcionamiento (201.12.3.105): la clausula pide comprobar las
+  // alarmas "audible AND visual", asi que la prueba tiene que ejercitar
+  // tambien esta ruta y no solo el zumbador. Se pinta el banner con el color y
+  // el parpadeo de la prioridad que la placa este reproduciendo.
+  //
+  // Nunca puede tapar una alarma real: la placa cancela la prueba en cuanto
+  // aparece una condicion, y aqui ademas solo se entra si no hay ninguna.
+  const bool testing = (topIdx < 0) && (ctrl_state_msg.alarmTestPriority !=
+                                        ALARM_TEST_IDLE_HMI);
+
   // Con el centro de alarmas abierto el banner sobra: ese overlay ya lista
   // cada alarma activa con su titulo y su marca de prioridad delante, asi que
   // la senal de 1 m que pide 6.3.2.2.2 sigue presente de forma nativa. Y
@@ -2183,7 +2275,7 @@ void alarm_banner_update(void) {
       AlarmCenter_IsOpen() ||
       (ui_ScreenAlarms && lv_scr_act() == ui_ScreenAlarms);
 
-  if (topIdx < 0 || onAlarmsScreen) {
+  if ((topIdx < 0 && !testing) || onAlarmsScreen) {
     lv_anim_del(s_alarmBanner, banner_blink_cb);
     lv_obj_add_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN);
     s_bannerPriority = -1;
@@ -2200,8 +2292,13 @@ void alarm_banner_update(void) {
   //
   // Se reevalua en cada pasada y no al cambiar de pantalla: el banner cuelga
   // de lv_layer_top(), que no se entera de los lv_scr_load().
+  //
+  // Excepcion: durante la prueba de funcionamiento SI se pinta en cualquier
+  // pantalla. El operador la lanza desde ajustes y tiene que ver alli mismo
+  // que la senal visual responde; obligarle a bloquear la pantalla para
+  // comprobarlo haria inservible la prueba.
   const bool onLockScreen = (ui_ScreenLock && lv_scr_act() == ui_ScreenLock);
-  if (!onLockScreen) {
+  if (!onLockScreen && !testing) {
     lv_anim_del(s_alarmBanner, banner_blink_cb);
     lv_obj_add_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN);
     s_bannerPriority = -1;
@@ -2209,7 +2306,14 @@ void alarm_banner_update(void) {
   }
   lv_obj_set_align(s_alarmBanner, LV_ALIGN_TOP_MID);
 
-  lv_label_set_text(s_alarmBannerLabel, alarmList[topIdx].type);
+  if (testing) {
+    topPrio = ctrl_state_msg.alarmTestPriority;
+    lv_label_set_text(s_alarmBannerLabel,
+                      TXT_UI("PRUEBA DE ALARMA", "ALARM TEST",
+                             "TEST D'ALARME"));
+  } else {
+    lv_label_set_text(s_alarmBannerLabel, alarmList[topIdx].type);
+  }
   lv_obj_clear_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN);
   lv_obj_move_foreground(s_alarmBanner);
 
@@ -3469,6 +3573,9 @@ void UI_Task(void *pvParameters) {
   create_photo_safety_popup();
   // --- Replace slider switches with single toggle buttons ---
   create_main_toggle_buttons();
+  // --- Prueba de funcionamiento de alarmas (60601-2-19 201.12.3.105) ---
+  create_alarm_test_row();
+  update_alarm_test_texts();
   // --- Baby-data activation wizard (temp-control-activation-wizard spec) ---
   // Parent to ui_ScreenMain explicitly, never lv_scr_act(): ui_init() above
   // already loaded ui_ScreenIntro, so the active screen here is the splash —

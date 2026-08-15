@@ -71,6 +71,9 @@ typedef struct {
   // de este estado: la pausa caduca sola (60601-2-19 201.12.3.104) y el
   // display no puede saberlo por su cuenta.
   uint32_t silencedBitmask;
+  // Prioridad que reproduce la prueba de funcionamiento de alarmas
+  // (201.12.3.105), o ALARM_TEST_IDLE_HMI si no hay prueba en curso.
+  int      alarmTestPriority;
   int      skinProbeState;
   // HMI-internal flag (not part of the protocol)
   bool     newState;
@@ -253,6 +256,15 @@ void Communication_SendAlarmDescReq(uint8_t id);
 // AUDIO PAUSED de UNA condicion. on=false lo cancela, que es lo que exige
 // 60601-1-8 6.8.4 ("means to terminate any ALARM SIGNAL inactivation state").
 void Communication_SendAlarmSilence(uint8_t id, bool on);
+
+// Valor de alarmTestPriority cuando no hay prueba en curso. Espeja
+// ALARM_TEST_IDLE de la motherBoard, que el display no puede incluir por vivir
+// en motherBoard/src.
+#define ALARM_TEST_IDLE_HMI 0xFF
+
+// Lanza la prueba de funcionamiento de las senales de alarma (60601-2-19
+// 201.12.3.105). La placa la rechaza si hay alguna alarma en curso.
+void Communication_SendAlarmTest(void);
 
 extern volatile bool        g_pendingBabyHistory;
 extern BabyHistoryMsg       g_babyHistory;

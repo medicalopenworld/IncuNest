@@ -28,6 +28,7 @@
 // Para los static_assert que atan el patron de rafaga (main.h) con la rafaga
 // minima que exige 6.10 (ALARM_MIN_BURST_MS_*).
 #include "modules/control/alarm_machine.h"
+#include "modules/control/alarm_test.h"
 
 #define BUZZER_DISABLED false
 #define BUZZER_ENABLED true
@@ -133,6 +134,16 @@ static_assert(ALARM_MIN_BURST_MS_HIGH >=
               "6.10: ALARM_MIN_BURST_MS_HIGH no cubre media rafaga");
 static_assert(ALARM_MIN_BURST_MS_MEDIUM >= ALARM_BURST_LEN_MS_MEDIUM,
               "6.10: ALARM_MIN_BURST_MS_MEDIUM no cubre la rafaga entera");
+// 201.12.3.105: cada tramo de la prueba de funcionamiento tiene que durar mas
+// que la rafaga que reproduce, o el operador oiria una rafaga cortada y no
+// podria juzgar si el patron es el correcto. Se comprueba aqui por lo mismo
+// que lo demas: alarm_test.cpp no ve las constantes del patron.
+static_assert(ALARM_TEST_PHASE_MS_LOW > ALARM_PULSE_MS,
+              "la prueba corta la rafaga de BAJA");
+static_assert(ALARM_TEST_PHASE_MS_MEDIUM > ALARM_BURST_LEN_MS_MEDIUM,
+              "la prueba corta la rafaga de MEDIA");
+static_assert(ALARM_TEST_PHASE_MS_HIGH > ALARM_BURST_LEN_MS_HIGH,
+              "la prueba corta la rafaga de ALTA");
 
 // Amplitud del pulso con sus rampas de subida y bajada (Tabla 4).
 //

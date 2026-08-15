@@ -193,6 +193,12 @@ void Communication_SendAlarmHistoryReq(void) {
 #endif
 }
 
+void Communication_SendAlarmTest(void) {
+#if IS_HMI
+  COMM_SERIAL.print("HMI,ALM_TEST\n");
+#endif
+}
+
 void Communication_SendAlarmSilence(uint8_t id, bool on) {
 #if IS_HMI
   COMM_SERIAL.printf("HMI,ALM_SILENCE,%u,%d\n", (unsigned)id, on ? 1 : 0);
@@ -271,14 +277,15 @@ static void parse_message(const char *line) {
     int act, mode, photo, mute, sn, hwNum, numAlarms, skinE, commStatus, lang, probeState = 0;
     uint32_t alarmBitmask = 0;
     uint32_t silencedBitmask = 0;
+    int almTest = ALARM_TEST_IDLE_HMI;
     double photoTimeRemaining;  // Formato MM.SS (ej: 18.33 = 18 min 33 seg)
     char hwRev;
     char fwVer[20];
     double airSet, skinSet, humSet;
     int result =
-        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d,%lf,%d,%d,0x%X,0x%X",
+        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d,%lf,%d,%d,0x%X,0x%X,%d",
                &act, &mode, &airSet, &skinSet, &humSet, &photo, &mute,
-               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus, &photoTimeRemaining, &lang, &probeState, &alarmBitmask, &silencedBitmask);
+               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus, &photoTimeRemaining, &lang, &probeState, &alarmBitmask, &silencedBitmask, &almTest);
 
     // Accept 12 (old), 13 (with alarms), 14+skinModeEnabled, 15+photoTime, 16+lang, 17+probeState, 18+bitmask, 19+silenced
     if (result >= 12) {
@@ -317,6 +324,12 @@ static void parse_message(const char *line) {
       // como mucho ofrece silenciar algo que ya lo estaba, nunca oculta que
       // una alarma sigue callada.
       ctrl_state_msg.silencedBitmask = (result >= 19) ? silencedBitmask : 0u;
+      // Prioridad que reproduce la prueba de funcionamiento, o
+      // ALARM_TEST_IDLE. Una placa antigua que no mande el campo se interpreta
+      // como "sin prueba", que es lo unico seguro: nunca hace creer que suena
+      // una prueba cuando lo que suena podria ser una alarma.
+      ctrl_state_msg.alarmTestPriority =
+          (result >= 20) ? almTest : ALARM_TEST_IDLE_HMI;
       ctrl_state_msg.serialNumber = sn;
 
       strncpy(ctrl_state_msg.fwVer, fwVer, sizeof(ctrl_state_msg.fwVer));

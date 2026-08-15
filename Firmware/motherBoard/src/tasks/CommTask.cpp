@@ -8,6 +8,7 @@
 #include "alarm_text.h"
 #include "modules/control/alarm_history.h"
 #include "modules/control/alarm_machine.h"
+#include "modules/control/alarm_test.h"
 #include "modules/baby_profile/baby_profile_protocol.h"
 #include "modules/baby_profile/baby_profile_store.h"
 #include "nte_table.h"
@@ -320,12 +321,18 @@ static void send_state_to_hmi() {
   // visual. Con un booleano global eso es indistinguible.
   const uint32_t silencedBitmask = alarm_machine_silenced_bitmask();
 
+  // Prioridad que reproduce la prueba de funcionamiento, o ALARM_TEST_IDLE.
+  // El display la necesita para pintar el banner con el color y el parpadeo de
+  // esa prioridad: sin eso la prueba solo verificaria el zumbador, y
+  // 201.12.3.105 pide comprobar las alarmas "audible AND visual".
+  const int almTest = (int)alarm_test_priority();
+
   // Derive probe state from skin temperature: >0.1°C means probe is physically connected
   int skinProbeState = (in3.temperature[SKIN_SENSOR] > 0.1f) ? SKIN_PROBE_VALID
                                                               : SKIN_PROBE_NOT_CONNECTED;
 
   snprintf(msg, sizeof(msg),
-           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d,%d,0x%X,0x%X\n",
+           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d,%d,0x%X,0x%X,%d\n",
            (int)g_last_cmd.actuation, (int)g_last_cmd.controlMode,
            (double)g_last_cmd.desiredAirTemperature,
            (double)g_last_cmd.desiredSkinTemperature,
@@ -333,7 +340,7 @@ static void send_state_to_hmi() {
            audioSilenced, ctrl_tel_msg.serialNumber, HW_NUM,
            HW_REVISION, FWversion, alarmCount, (int)g_last_cmd.skinModeEnabled,
            (int)ctrl_tel_msg.serverCommStatus, remainingTime, in3.language,
-           skinProbeState, alarmBitmask, silencedBitmask);
+           skinProbeState, alarmBitmask, silencedBitmask, almTest);
 
   ESP_LOGI(TAG, "Sending state to HMI: %s", msg);
   CommunicationHost_Send(msg);
@@ -667,6 +674,21 @@ void parse_line(const char *line) {
       // del protocolo (.claude/rules/security.md).
       logE("[ALARM] historial no cabe en la linea, no se envia");
     }
+    return;
+  }
+
+  // Prueba de funcionamiento de las senales de alarma (201.12.3.105).
+  //
+  // Se rechaza si hay CUALQUIER condicion senalizando. No es una comodidad:
+  // arrancar una secuencia de prueba con una alarma real en curso pisaria el
+  // patron de esa alarma con otro distinto, que es lo contrario de lo que
+  // busca 6.3.2.2.2 — el operador dejaria de poder identificar que suena.
+  if (strncmp(line, "HMI,ALM_TEST", 12) == 0) {
+    if (alarm_machine_any_signalling()) {
+      logE("[ALARM] prueba rechazada: hay una alarma en curso");
+      return;
+    }
+    alarm_test_start(millis());
     return;
   }
 

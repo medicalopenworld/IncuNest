@@ -628,9 +628,17 @@ hace hoy, para no inducir a confiar en protecciones que no existen.
   de control. Un único fallo de sensor se lleva por delante tanto el control
   como su propio corte de seguridad. Esto no se resuelve en firmware: exige
   un segundo canal de temperatura físicamente independiente.
-- **Prueba de función de alarma para el operador: no implementada.** No hay
-  ningún medio para que el operador compruebe el funcionamiento del audio y
-  del indicador visual bajo demanda.
+- ~~Prueba de función de alarma para el operador~~ — **implementada**
+  (201.12.3.105). Botón **PROBAR ALARMAS** en ajustes: reproduce una ráfaga de
+  cada prioridad, de BAJA a ALTA, y pinta el banner con el color y el parpadeo
+  de cada una, de modo que se comprueban a la vez la señal audible y la visual.
+  Corre por el **mismo camino de audio** que las alarmas reales
+  (`buzzerAlarmUpdate`), que es lo que le da valor: no verifica una imitación.
+  La placa la rechaza si hay una alarma en curso, y una alarma que aparezca a
+  mitad la cancela en el acto. Lógica en
+  `motherBoard/src/modules/control/alarm_test.cpp`, con tests nativos.
+  **Pendiente de expediente**: 201.12.3.105 exige además que el medio se
+  describa en las instrucciones de uso.
 - **Nivel sonoro: sin medir.** No hay verificación en este repositorio de que
   el piezo alcance el nivel exigido a 3 m ni de que se mantenga por debajo
   del límite dentro del habitáculo; son medidas de banco/hardware, no de

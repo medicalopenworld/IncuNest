@@ -19,7 +19,7 @@ Este documento describe el protocolo de comunicación serie utilizado entre la M
 
 #### CTRL,STATE
 Enviado cada 1 segundo o bajo petición (`HMI,REQ,STATE`).
-**Formato**: `CTRL,STATE,act,mode,airSet,skinSet,humSet,photo,mute,sn,hwNum,hwRev,fwVer,numAlarms,skinE,commStatus,photoTimeRem,lang,probeState,alarmBitmask,silencedBitmask`
+**Formato**: `CTRL,STATE,act,mode,airSet,skinSet,humSet,photo,mute,sn,hwNum,hwRev,fwVer,numAlarms,skinE,commStatus,photoTimeRem,lang,probeState,alarmBitmask,silencedBitmask,almTest`
 
 - `alarmBitmask`: (Hexadecimal, ej: `0x60`) Indica qué IDs de alarma están activos. Requerido para sincronización robusta.
 - `mute`: estado **real** del audio en la placa, no el eco del comando del HMI.
@@ -36,6 +36,12 @@ Enviado cada 1 segundo o bajo petición (`HMI,REQ,STATE`).
   el HMI asuma `0` (ninguna silenciada), que es el lado seguro — como mucho
   ofrece silenciar algo que ya lo estaba, nunca oculta que una alarma sigue
   callada.
+- `almTest`: prioridad (`0`=BAJA, `1`=MEDIA, `2`=ALTA) que está reproduciendo la
+  prueba de funcionamiento de alarmas, o `255` si no hay prueba en curso. El
+  display la usa para pintar el banner con el color y el parpadeo de esa
+  prioridad: 60601-2-19 201.12.3.105 pide comprobar las alarmas "audible **and**
+  visual", así que la prueba tiene que ejercitar también la señal visual. Una
+  placa antigua que no mande el campo se interpreta como "sin prueba".
 
 #### CTRL,TEL (Telemetría en tiempo real)
 Enviado cada 1 segundo (intercalado con STATE).
@@ -280,6 +286,20 @@ AUDIO PAUSED de **una** condición concreta.
   inactivation state"*).
 - Silenciar una condición no afecta a las demás (6.8.1).
 - `id` fuera de rango o línea malformada: descarte con log.
+
+#### HMI,ALM_TEST
+Lanza la prueba de funcionamiento de las señales de alarma
+(60601-2-19 201.12.3.105).
+**Formato**: `HMI,ALM_TEST` (sin respuesta directa; el avance se observa en
+`almTest` de `CTRL,STATE`)
+- Reproduce **una ráfaga de cada prioridad**, de BAJA a ALTA, por el mismo
+  camino de audio que las alarmas reales. Comprobar una imitación no valdría:
+  lo que se verifica es la cadena que sonará de verdad.
+- **La placa la rechaza** si hay cualquier condición señalizando, y una alarma
+  que aparezca a mitad la **cancela en el acto**. Una prueba no puede pisar el
+  patrón de una alarma real: el operador dejaría de poder identificar qué suena
+  (6.3.2.2.2).
+- No toca actuadores ni declara condición alguna.
 
 ### Validación (ambos sentidos)
 Toda línea `PROFILE_*`/`WEIGHT_HISTORY_*`/`ALM_*` malformada (número de campos
