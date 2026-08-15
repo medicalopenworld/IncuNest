@@ -326,6 +326,42 @@ void test_condition_persists_until_declared_false(void) {
   TEST_ASSERT_EQUAL_UINT32(0u, alarm_machine_bitmask());
 }
 
+// N-2: el retardo de anuncio aplaza el AUDIO, no la senal visual. Una
+// condicion en PENDING entra igual en el bitmask, y de ahi salen el display y
+// la telemetria a nube. Es la razon por la que el lado frio de la desviacion
+// tiene que cerrarse con una puerta durante el calentamiento y no basta con
+// retrasarle el anuncio: si no, cada arranque normal mostraria una alarma
+// MEDIA durante toda la rampa.
+void test_pending_is_visible_in_the_bitmask(void) {
+  alarm_machine_set_announce_delay(ALARM_AIR_TEMP_DEVIATION_LOW, 30u * 60000u);
+  alarm_machine_condition(ALARM_AIR_TEMP_DEVIATION_LOW, true, 1000);
+  TEST_ASSERT_EQUAL_INT(ALARM_STATE_PENDING,
+                        alarm_machine_state(ALARM_AIR_TEMP_DEVIATION_LOW));
+  TEST_ASSERT_FALSE(alarm_machine_audio_required());
+  TEST_ASSERT_TRUE(alarm_machine_bitmask() &
+                   (1u << ALARM_AIR_TEMP_DEVIATION_LOW));
+  TEST_ASSERT_TRUE(alarm_machine_any_signalling());
+}
+
+// N-1: declarar false destruye la condicion sin dejar rastro, y nadie la
+// recupera salvo un detector que vuelva a declararla. Por eso checkAirBlockage()
+// no puede retirarla en sus salidas tempranas antes de haber medido en lazo
+// cerrado: la unica declaracion viva en ese momento es la del autotest de
+// arranque, que ya no volvera a producirse en toda la sesion.
+void test_clearing_loses_the_condition_permanently(void) {
+  alarm_machine_condition(ALARM_AIR_OUTLET_BLOCKED, true, 1000);
+  TEST_ASSERT_TRUE(alarm_machine_heater_must_cut());
+
+  alarm_machine_condition(ALARM_AIR_OUTLET_BLOCKED, false, 2000);
+  for (uint32_t t = 3000; t < 60000; t += 1000) {
+    alarm_machine_tick(t);
+  }
+  TEST_ASSERT_EQUAL_INT(ALARM_STATE_INACTIVE,
+                        alarm_machine_state(ALARM_AIR_OUTLET_BLOCKED));
+  TEST_ASSERT_FALSE(alarm_machine_heater_must_cut());
+  TEST_ASSERT_EQUAL_UINT32(0u, alarm_machine_bitmask());
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_starts_inactive);
@@ -360,5 +396,7 @@ int main(void) {
   RUN_TEST(test_pending_cold_deviation_never_cuts_the_heater);
   RUN_TEST(test_delay_set_while_active_does_not_unannounce);
   RUN_TEST(test_condition_persists_until_declared_false);
+  RUN_TEST(test_pending_is_visible_in_the_bitmask);
+  RUN_TEST(test_clearing_loses_the_condition_permanently);
   return UNITY_END();
 }

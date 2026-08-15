@@ -179,9 +179,11 @@ extern PID humidityControlPID;
 #define ALARM_AUDIO_PAUSE_MS 120000u
 
 // Ventana de estabilizacion: una incubadora que arranca fria tarda en alcanzar
-// la consigna y 201.12.3.104 permite retrasar el ANUNCIO hasta 30 min por eso.
-// Retrasar el anuncio, no la condicion: las desviaciones por el lado caliente
-// cortan el calefactor, y eso es ESSENTIAL PERFORMANCE que no puede esperar.
+// la consigna. Se aplica de forma distinta segun lo que gobierne la condicion
+// (ver checkAlarms()): al lado CALIENTE de la desviacion solo se le retrasa el
+// anuncio, porque su corte de calefactor es ESSENTIAL PERFORMANCE y no puede
+// esperar; al lado FRIO y a la humedad, que no gobiernan actuador alguno, se
+// les cierra la evaluacion entera.
 long lastAlarmTrigger[NUM_ALARMS];
 long lastPowerSupplyCheck;
 
@@ -215,11 +217,10 @@ static bool thresholdWithHysteresis(bool wasPresent, float value,
   return wasPresent ? (value > threshold - hysteresis) : (value > threshold);
 }
 
-// Lo que le queda a la ventana de estabilizacion de `id`, en ms. Se aplica
-// como retardo de ANUNCIO (alarm_machine_set_announce_delay()) en el flanco en
-// que aparece la condicion, no como puerta a la condicion: asi la alarma
-// espera pero el corte de calefactor no, porque heater_must_cut() mira la
-// condicion fisica y no el estado de senalizacion.
+// Lo que le queda a la ventana de estabilizacion de `id`, en ms. Solo lo usa
+// el lado caliente, como retardo de ANUNCIO en el flanco en que aparece la
+// condicion: asi la alarma espera pero el corte de calefactor no, porque
+// heater_must_cut() mira la condicion fisica y no el estado de senalizacion.
 static uint32_t stabilizationRemainingMs(AlarmId id, uint32_t now)
 {
   const uint32_t window = (uint32_t)minsToMillis(ACTUATORS_ALARM_STABILIZATION_MINS);
@@ -227,10 +228,17 @@ static uint32_t stabilizationRemainingMs(AlarmId id, uint32_t now)
   return (elapsed < window) ? (window - elapsed) : 0u;
 }
 
-// Declara una desviacion arrancando su retardo de anuncio en el flanco de
-// subida. `wasPresent` es el valor del ciclo anterior.
-static void declareDeviation(AlarmId id, bool wasPresent, bool present,
-                             uint32_t now)
+// Declara una desviacion del LADO CALIENTE arrancando su retardo de anuncio en
+// el flanco de subida. `wasPresent` es el valor del ciclo anterior.
+//
+// Ojo: el retardo de anuncio solo aplaza el AUDIO. El estado PENDING sigue
+// entrando en alarm_machine_bitmask(), asi que la condicion se ve en el
+// display y se publica a nube desde el primer ciclo. Es aceptable en el lado
+// caliente (estar 3 C por encima de la consigna durante el calentamiento no
+// es normal y ademas ya ha cortado el calefactor), y es justamente lo que
+// obliga a cerrar el lado frio con una puerta en vez de con un retardo.
+static void declareHotDeviation(AlarmId id, bool wasPresent, bool present,
+                                uint32_t now)
 {
   if (present && !wasPresent)
   {
@@ -339,11 +347,11 @@ void powerMonitor()
 
 void alarmTimerStart(long graceMinutes)
 {
-  // Marca el inicio de la ventana de estabilizacion. Las cuatro desviaciones
-  // de temperatura la usan como retardo de ANUNCIO (declareDeviation(): la
+  // Marca el inicio de la ventana de estabilizacion. El lado CALIENTE de las
+  // desviaciones la usa como retardo de ANUNCIO (declareHotDeviation(): la
   // condicion se declara igual, con corte de calefactor incluido, solo se
-  // retrasa el aviso). La desviacion de humedad, que no gobierna ningun
-  // actuador, la sigue usando como puerta de evaluacion.
+  // retrasa el aviso). El lado FRIO y la desviacion de humedad, que no
+  // gobiernan actuador alguno, la usan como puerta de evaluacion.
   // Offsetting it into the past by (stabilization - graceMinutes) makes
   // that window elapse `graceMinutes` from now instead of the full wait -
   // a fresh activation passes graceMinutes=0 (full wait, unchanged
@@ -780,15 +788,25 @@ void checkAlarms()
   // umbral dependen del modo; el par del modo inactivo se retira siempre, o
   // quedaria colgado al cambiar de modo.
   //
-  // Las cuatro se declaran SIEMPRE que haya control de temperatura, sin puerta
-  // de estabilizacion. Las de lado caliente cortan el calefactor
-  // (alarm_cuts_heater()), asi que retenerlas 30 min no silenciaba un aviso:
-  // inhibia una proteccion, y justo durante la rampa de calentamiento desde
-  // frio, que es cuando el sobreimpulso del PID es mas probable. La ventana de
-  // estabilizacion se aplica ahora como retardo de ANUNCIO, que es lo unico
-  // que 201.12.3.104 permite retrasar.
+  // Los dos lados se tratan de forma ASIMETRICA, y no es una inconsistencia:
+  //
+  // - dd) y ee) empiezan literalmente con "After STEADY TEMPERATURE CONDITIONS
+  //   ... have been achieved", asi que durante el calentamiento la condicion
+  //   de desviacion NO EXISTE segun la norma. El LADO FRIO se cierra durante
+  //   la ventana de estabilizacion: no gobierna ningun actuador, cerrarlo no
+  //   afecta a ninguna proteccion, y evita que cada arranque normal (22 C de
+  //   sala hacia una consigna de 36 C) muestre una alarma MEDIA en pantalla y
+  //   la publique a nube durante media hora.
+  // - El LADO CALIENTE se declara SIEMPRE, por conservadurismo: es mas
+  //   estricto que lo que dd)/ee) exigen, y es lo que mantiene inmediato el
+  //   corte de calefactor de alarm_cuts_heater(). Retenerlo durante la ventana
+  //   no silenciaba un aviso, inhibia una proteccion, y justo durante la rampa
+  //   desde frio, que es cuando el sobreimpulso del PID es mas probable. Su
+  //   aviso si se aplaza, con el retardo de anuncio que permite 201.12.3.104.
   const bool airMode = (in3.controlMode == CONTROL_AIR);
   const bool controlling = in3.temperatureControl;
+  const bool steady =
+      (stabilizationRemainingMs(ALARM_AIR_TEMP_DEVIATION_LOW, now) == 0u);
 
   const float measured = airMode ? in3.temperature[ROOM_DIGITAL_TEMP_SENSOR]
                                  : in3.temperature[SKIN_SENSOR];
@@ -804,23 +822,25 @@ void checkAlarms()
   airHighPresent = controlling && airMode &&
                    thresholdWithHysteresis(airHighWas, deviation, limit,
                                            TEMPERATURE_ERROR_HYSTERESIS);
-  airLowPresent = controlling && airMode &&
+  airLowPresent = controlling && airMode && steady &&
                   thresholdWithHysteresis(airLowWas, -deviation, limit,
                                           TEMPERATURE_ERROR_HYSTERESIS);
   skinHighPresent = controlling && !airMode &&
                     thresholdWithHysteresis(skinHighWas, deviation, limit,
                                             TEMPERATURE_ERROR_HYSTERESIS);
-  skinLowPresent = controlling && !airMode &&
+  skinLowPresent = controlling && !airMode && steady &&
                    thresholdWithHysteresis(skinLowWas, -deviation, limit,
                                            TEMPERATURE_ERROR_HYSTERESIS);
 
-  declareDeviation(ALARM_AIR_TEMP_DEVIATION_HIGH, airHighWas, airHighPresent,
-                   now);
-  declareDeviation(ALARM_AIR_TEMP_DEVIATION_LOW, airLowWas, airLowPresent, now);
-  declareDeviation(ALARM_SKIN_TEMP_DEVIATION_HIGH, skinHighWas, skinHighPresent,
-                   now);
-  declareDeviation(ALARM_SKIN_TEMP_DEVIATION_LOW, skinLowWas, skinLowPresent,
-                   now);
+  declareHotDeviation(ALARM_AIR_TEMP_DEVIATION_HIGH, airHighWas, airHighPresent,
+                      now);
+  declareHotDeviation(ALARM_SKIN_TEMP_DEVIATION_HIGH, skinHighWas,
+                      skinHighPresent, now);
+  // El lado frio no lleva retardo de anuncio: la puerta `steady` ya impide que
+  // aparezca antes de tiempo, asi que el retardo seria siempre 0 — codigo sin
+  // efecto. Se anuncia en cuanto se declara.
+  alarm_machine_condition(ALARM_AIR_TEMP_DEVIATION_LOW, airLowPresent, now);
+  alarm_machine_condition(ALARM_SKIN_TEMP_DEVIATION_LOW, skinLowPresent, now);
 
   const bool evaluateHumidity =
       in3.humidityControl &&
@@ -881,25 +901,41 @@ void checkAirBlockage()
   static bool wasFanCommandedOn = false;
   static long fanCommandedOnSince = 0;
   static long dutyHighSince = 0;
-
-  // Toda salida temprana RETIRA la condicion antes de volver. La maquina
-  // conserva `present` hasta que alguien declare false, asi que salir sin
-  // retirarla la congelaba: declarada la obstruccion, basta con desactivar el
+  // Toda salida temprana RETIRA la condicion antes de volver, PERO solo una vez
+  // que esta funcion ha llegado a medir de verdad con el lazo cerrado.
+  //
+  // Retirarla es obligatorio porque la maquina conserva `present` hasta que
+  // alguien declare false: declarada la obstruccion, bastaba con desactivar el
   // PID del ventilador (conmutable en caliente desde USB o /config, y
-  // persistido) para que esta funcion salga por el primer return de por vida.
-  // heater_must_cut() devolveria true para siempre y, al no ser latching, el
-  // reset manual la rechaza: solo un ciclo de alimentacion la limpiaria, con
-  // el bebe en una incubadora sin calefactor y sin explicacion.
+  // persistido) para que la funcion saliera por el primer return de por vida,
+  // con heater_must_cut() en true para siempre y el reset manual rechazandola
+  // por no ser latching.
+  //
+  // Y hace falta la guarda porque antes de la primera medida en lazo cerrado
+  // la unica declaracion existente es la del autotest de arranque
+  // (initHardware.cpp), que mide el duty en banco y despues deja el PID en
+  // MANUAL con el ventilador cortado: sin guarda, el primer securityCheck()
+  // entraria por la salida de GetMode() != AUTOMATIC y tiraria el resultado
+  // del autotest. Mismo patron que la guarda de fanHasSpeedFeedback en
+  // checkFanSpeed().
+  static bool hasObservedClosedLoop = false;
+
   if (fanControlPID.GetMode() != AUTOMATIC)
   {
     dutyHighSince = 0;
-    alarm_machine_condition(ALARM_AIR_OUTLET_BLOCKED, false, millis());
+    if (hasObservedClosedLoop)
+    {
+      alarm_machine_condition(ALARM_AIR_OUTLET_BLOCKED, false, millis());
+    }
     return; // not under closed-loop control — no duty signal to evaluate
   }
   if (alarmSignalling(ALARM_FAN_FAILURE))
   {
     dutyHighSince = 0;
-    alarm_machine_condition(ALARM_AIR_OUTLET_BLOCKED, false, millis());
+    if (hasObservedClosedLoop)
+    {
+      alarm_machine_condition(ALARM_AIR_OUTLET_BLOCKED, false, millis());
+    }
     return; // total fan failure already reported — don't also report this
   }
 
@@ -916,9 +952,16 @@ void checkAirBlockage()
     // Idem que arriba: con el ventilador parado no hay obstruccion que medir,
     // y dejarla puesta la congelaria igual.
     dutyHighSince = 0;
-    alarm_machine_condition(ALARM_AIR_OUTLET_BLOCKED, false, millis());
+    if (hasObservedClosedLoop)
+    {
+      alarm_machine_condition(ALARM_AIR_OUTLET_BLOCKED, false, millis());
+    }
     return;
   }
+
+  // A partir de aqui la medida es valida: lazo cerrado, ventilador girando y
+  // spin-up superado. Esta funcion pasa a ser la autoridad sobre la condicion.
+  hasObservedClosedLoop = true;
 
   if (fanControlPIDOutput > FAN_DUTY_BLOCKED_THRESHOLD)
   {
