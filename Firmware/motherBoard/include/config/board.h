@@ -199,24 +199,39 @@
 // monitors in security.cpp as their spin-up grace.
 #define FAN_SPINUP_GRACE_MS 6000
 // Factory baseline duty (0-255) to hold FAN_TARGET_RPM with a clean air
-// outlet is 137. This threshold (margin above baseline) must be confirmed
-// on the bench against real unit-to-unit variance AND worst-case legitimate
-// load: with the heater at max power the supply voltage sags and the PID
-// legitimately raises the duty to keep FAN_TARGET_RPM — the threshold must
-// sit above that sagged-supply duty, not above the idle-supply baseline.
-#define FAN_DUTY_BLOCKED_THRESHOLD 160
+// outlet is 137. FAN_DUTY_BLOCKED_THRESHOLD below is a REASONED starting
+// point derived from that baseline, not a bench-validated one — see the
+// WARNING further down for what is still missing.
+//
+// Why 190:
+// - A genuine obstruction chokes airflow, RPM sags, and the PID drives the
+//   duty toward saturation, so a real blockage is detected well above 190.
+// - The worst legitimate load is the heater at max power sagging the supply
+//   voltage: the PID raises the duty to keep FAN_TARGET_RPM. A 10-15% supply
+//   sag puts the duty at roughly 158. The previous value (160) sat just
+//   above that number, which is exactly why it was dangerous: a legitimate
+//   compensation spike could trip the alarm.
+// - 190 is baseline+53 (+39%), comfortably above the sag-compensation duty,
+//   and still 65 counts below saturation.
+// - The margin is deliberately biased against false positives: a false
+//   positive cuts the heater and cools the infant with no backup net,
+//   whereas a partial obstruction that slips past this threshold still
+//   shows up as a temperature-deviation alarm or a thermal cutout — both of
+//   which exist and act independently of this one.
+#define FAN_DUTY_BLOCKED_THRESHOLD 190
 #define FAN_DUTY_BLOCKED_HYSTERESIS 15 // duty below (threshold - this) required to clear ALARM_AIR_OUTLET_BLOCKED
 // Master enable for air-outlet-blockage detection (boot check + runtime
 // monitor). IEC 60601-2-19 201.12.3.101 requires an alarm AND a heater cut
 // when the air outlet is obstructed, and a mandated alarm cannot ship
 // disabled — so this is now ON.
 //
-// WARNING: FAN_DUTY_BLOCKED_THRESHOLD above is still NOT bench-calibrated.
-// With detection enabled and the heater cut wired in (alarm_cuts_heater()),
-// a false positive cools the infant. The unit must not go to the field
-// until that threshold is validated against real unit-to-unit variance and
-// the worst-case sagged-supply duty. The duty needed to hold FAN_TARGET_RPM
-// is logged at boot to collect exactly that calibration data.
+// WARNING: FAN_DUTY_BLOCKED_THRESHOLD above is a calculated starting point
+// (see the reasoning above), not a bench-validated one. It is a considerably
+// better estimate than the previous unfounded 160, but it is still pending
+// fine-tuning on the bench — by whoever owns the project, against real
+// unit-to-unit variance — before the unit goes to the field. The duty
+// needed to hold FAN_TARGET_RPM is logged at boot to collect exactly that
+// calibration data.
 #define AIR_BLOCKED_DETECTION_ENABLED true
 // Duty must stay above the threshold continuously this long before alarming
 // (rejects transients: spin-up saturation, heater kick-in sag compensation).

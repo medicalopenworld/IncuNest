@@ -36,7 +36,7 @@ se añaden al final.
 | 3 | `ALARM_AIR_SENSOR_FAULT` | lectura del sensor de aire sin refrescar durante `MINIMUM_SUCCESSFULL_SENSOR_UPDATE` = 20000 ms (`checkStatusOfSensor()`) | ALTA | sí |
 | 4 | `ALARM_SKIN_SENSOR_FAULT_SKIN_MODE` | igual staleness que el 3, pero de la sonda de piel, y solo cuando `in3.controlMode == CONTROL_SKIN` | ALTA | sí |
 | 5 | `ALARM_FAN_FAILURE` | en marcha, `in3.fan_rpm < FAN_MIN_RPM` (3000 rpm, `board.h:185`), con histéresis de 300 rpm para despejar (`checkFanSpeed()`); solo evaluable con `in3.fanHasSpeedFeedback`. **También la declara el autotest de arranque** (`initHardware.cpp:412,677,732,740,779`), antes de que exista lazo de control | ALTA | sí |
-| 6 | `ALARM_AIR_OUTLET_BLOCKED` | en marcha, `fanControlPIDOutput > FAN_DUTY_BLOCKED_THRESHOLD` (160, `board.h:207`) sostenido `AIR_BLOCKED_SUSTAIN_MS` = 5000 ms (`checkAirBlockage()`). **También la declara el autotest de arranque** (`initHardware.cpp:803`) | ALTA | sí |
+| 6 | `ALARM_AIR_OUTLET_BLOCKED` | en marcha, `fanControlPIDOutput > FAN_DUTY_BLOCKED_THRESHOLD` (190, `board.h:221`) sostenido `AIR_BLOCKED_SUSTAIN_MS` = 5000 ms (`checkAirBlockage()`). **También la declara el autotest de arranque** (`initHardware.cpp:803`) | ALTA | sí |
 | 7 | `ALARM_MAINS_INTERRUPTION` | **sin detector** — ver §9 | ALTA | no (no hay condición que cortar) |
 | 8 | `ALARM_AIR_TEMP_DEVIATION_HIGH` | en modo aire, `temperatura − consigna > 3.0 °C` (`AIR_TEMP_DEVIATION_LIMIT_C`, `checkAlarms()`) | MEDIA | sí |
 | 9 | `ALARM_AIR_TEMP_DEVIATION_LOW` | en modo aire, `consigna − temperatura > 3.0 °C`, y solo tras cerrar la ventana de estabilización (§5) | MEDIA | no |
@@ -504,14 +504,25 @@ hace hoy, para no inducir a confiar en protecciones que no existen.
   detector de fallo (`checkStatusOfSensor()`) es un timeout de 20 s de
   `lastSuccesfullSensorUpdate`, que cubre desconexión y circuito abierto pero
   no una sonda cortocircuitada que siga devolviendo una lectura verosímil.
-- **La detección de obstrucción de salida de aire está activa pero sin
-  calibrar en banco.** `AIR_BLOCKED_DETECTION_ENABLED` es `true`
-  (`board.h:220`) y ya corta el calefactor a través de `alarm_cuts_heater()`,
-  pero el propio código advierte, literalmente, que
-  `FAN_DUTY_BLOCKED_THRESHOLD` (160) *"is still NOT bench-calibrated"* y que
-  *"the unit must not go to the field until that threshold is validated"*
-  (`board.h:214-219`). Un falso positivo con esta puerta activa corta el
-  calefactor de verdad.
+- **La detección de obstrucción de salida de aire está activa, con un umbral
+  razonado pero pendiente de ajuste fino en banco.**
+  `AIR_BLOCKED_DETECTION_ENABLED` es `true` (`board.h:234`) y ya corta el
+  calefactor a través de `alarm_cuts_heater()`.
+  `FAN_DUTY_BLOCKED_THRESHOLD` vale **190** (`board.h:221`), derivado del duty
+  de fábrica de 137 que sostiene `FAN_TARGET_RPM` con la salida limpia: queda
+  +39 % por encima de esa línea base, holgadamente sobre el duty al que el PID
+  llega compensando la caída de tensión con el calefactor a máxima potencia
+  (~158), y aún 65 cuentas por debajo de la saturación a la que lleva una
+  obstrucción real. El margen está sesgado a propósito contra falsos
+  positivos, porque un falso positivo corta el calefactor y enfría al bebé sin
+  red de respaldo, mientras que una obstrucción parcial que se escape sigue
+  apareciendo como desviación de temperatura o corte térmico.
+
+  Sigue siendo un punto de partida calculado, **no validado en banco**: el
+  propio `board.h` lo dice y el arranque registra el duty necesario para
+  sostener `FAN_TARGET_RPM` precisamente para recoger esos datos. El ajuste
+  contra la dispersión real entre unidades es del responsable del proyecto,
+  antes de que el equipo salga a campo.
 - **Canal de corte térmico independiente del termostato: no existe.** El
   corte por aire (ID 1) lee el mismo `ROOM_DIGITAL_TEMP_SENSOR` que usa el PID
   de control. Un único fallo de sensor se lleva por delante tanto el control
