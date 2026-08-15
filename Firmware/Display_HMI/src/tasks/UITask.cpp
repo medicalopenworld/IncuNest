@@ -1,7 +1,6 @@
 #include "UITask.h"
 // #include "AudioManager.h"  // Deshabilitado para migración Arduino 3.x
 #include "CommTask.h"
-#include "alarm_policy.h"
 #include "buzzer.h"
 #include "ui/BabyHistory.h"
 #include "ui/BabyExitDialog.h"
@@ -1219,16 +1218,28 @@ static bool isFanHeaterAlarmActive() {
   return false;
 }
 
-// Delegates to shared alarm_policy.h's alarm_cuts_heater() — the single
-// normative source for "is this condition severe enough to matter" — instead
-// of hand-copying motherBoard's critical set (the old copy here, keyed off
-// the now-removed alarm_machine_any_critical(), is exactly what drifted out
-// of sync and forced this rewrite). Used by BabyWizard to interrupt an open
-// wizard (Section 4).
+// Criterio de interrupción de la INTERFAZ (no el corte de calefactor de la
+// motherBoard: son preguntas distintas y coincidir sería casualidad, no
+// diseño). Deliberadamente separado de shared/alarm_policy.h's
+// alarm_cuts_heater(), que responde "¿hay que cortar el calefactor?", no
+// "¿hay que interrumpir el asistente?". Mapeo 1:1 del conjunto viejo
+// (TEMPERATURE_ALARM, AIR_THERMAL_CUTOUT_ALARM, SKIN_THERMAL_CUTOUT_ALARM,
+// FAN_ISSUE_ALARM) a los IDs nuevos — TEMPERATURE_ALARM era una única
+// condición simétrica que cambiaba de sensor según el modo, de ahí las
+// cuatro variantes de desviación. Si algún día se quiere unificar con un
+// criterio de la motherBoard, hace falta una función propia y bien nombrada
+// (no alarm_cuts_heater()), con su propia revisión clínica.
+// Usada por BabyWizard para interrumpir un asistente abierto (Section 4).
 bool UI_IsCriticalAlarmActive() {
   for (int i = 0; i < MAX_ALARMS; i++) {
     if (!alarmList[i].state) continue;
-    if (alarm_cuts_heater(static_cast<AlarmId>(alarmList[i].id))) {
+    if (alarmList[i].id == ALARM_AIR_THERMAL_CUTOUT ||
+        alarmList[i].id == ALARM_SKIN_THERMAL_CUTOUT ||
+        alarmList[i].id == ALARM_FAN_FAILURE ||
+        alarmList[i].id == ALARM_AIR_TEMP_DEVIATION_HIGH ||
+        alarmList[i].id == ALARM_AIR_TEMP_DEVIATION_LOW ||
+        alarmList[i].id == ALARM_SKIN_TEMP_DEVIATION_HIGH ||
+        alarmList[i].id == ALARM_SKIN_TEMP_DEVIATION_LOW) {
       return true;
     }
   }
