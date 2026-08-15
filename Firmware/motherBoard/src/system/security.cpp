@@ -234,7 +234,7 @@ long lastPowerSupplyCheck;
 // cuando los milivoltios caen dentro de la ventana de descarte, asi que con la
 // sonda desconectada se queda en 0 de por vida. Sin este latch, el equipo de
 // fabrica (modo aire, sin sonda) levantaria una alarma BAJA permanente a los
-// 20 s de arrancar: fatiga de alarma pura. Una sonda ausente no es un fallo.
+// 5 s de arrancar: fatiga de alarma pura. Una sonda ausente no es un fallo.
 static bool skinProbeEverRead = false;
 
 // Bitmask de condiciones senalizando en el ciclo anterior. Comparar contra el
