@@ -210,6 +210,44 @@ void test_reset_on_a_non_latching_alarm_is_refused(void) {
   TEST_ASSERT_FALSE(alarm_machine_reset(ALARM_HUMIDITY_DEVIATION, 1000));
 }
 
+// La prioridad activa es la mas alta de las que se estan anunciando.
+void test_top_priority_is_the_highest_signalling(void) {
+  alarm_machine_condition(ALARM_HUMIDITY_DEVIATION, true, 0);
+  TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_LOW, alarm_machine_top_priority());
+  alarm_machine_condition(ALARM_HEATER_FAULT, true, 0);
+  TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_MEDIUM, alarm_machine_top_priority());
+  alarm_machine_condition(ALARM_FAN_FAILURE, true, 0);
+  TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_HIGH, alarm_machine_top_priority());
+}
+
+// Una condicion PENDING no eleva la prioridad activa: todavia no se anuncia.
+void test_pending_does_not_raise_top_priority(void) {
+  alarm_machine_set_announce_delay(ALARM_HEATER_FAULT, 1000);
+  alarm_machine_condition(ALARM_HUMIDITY_DEVIATION, true, 0);
+  alarm_machine_condition(ALARM_HEATER_FAULT, true, 0);
+  TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_LOW, alarm_machine_top_priority());
+}
+
+void test_no_alarms_means_nothing_signalling(void) {
+  TEST_ASSERT_FALSE(alarm_machine_any_signalling());
+  alarm_machine_condition(ALARM_FAN_FAILURE, true, 0);
+  TEST_ASSERT_TRUE(alarm_machine_any_signalling());
+  alarm_machine_condition(ALARM_FAN_FAILURE, false, 1000);
+  TEST_ASSERT_FALSE(alarm_machine_any_signalling());
+}
+
+// 6.10: una condicion que dura menos que su rafaga minima sigue exigiendo
+// audio hasta completarla.
+void test_short_condition_still_completes_its_burst(void) {
+  alarm_machine_condition(ALARM_HEATER_FAULT, true, 0);
+  alarm_machine_condition(ALARM_HEATER_FAULT, false, 10);
+  TEST_ASSERT_TRUE(alarm_machine_audio_required());
+  alarm_machine_tick(ALARM_MIN_BURST_MS_MEDIUM - 1);
+  TEST_ASSERT_TRUE(alarm_machine_audio_required());
+  alarm_machine_tick(ALARM_MIN_BURST_MS_MEDIUM);
+  TEST_ASSERT_FALSE(alarm_machine_audio_required());
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_starts_inactive);
@@ -234,5 +272,9 @@ int main(void) {
   RUN_TEST(test_reset_is_refused_while_the_condition_persists);
   RUN_TEST(test_latched_without_condition_releases_the_heater);
   RUN_TEST(test_reset_on_a_non_latching_alarm_is_refused);
+  RUN_TEST(test_top_priority_is_the_highest_signalling);
+  RUN_TEST(test_pending_does_not_raise_top_priority);
+  RUN_TEST(test_no_alarms_means_nothing_signalling);
+  RUN_TEST(test_short_condition_still_completes_its_burst);
   return UNITY_END();
 }

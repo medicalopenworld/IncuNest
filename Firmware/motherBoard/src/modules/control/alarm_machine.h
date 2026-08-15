@@ -17,6 +17,12 @@ typedef enum {
   ALARM_STATE_ACKED,     // audio inactivo indefinidamente, visual sigue
 } AlarmState;
 
+// Duracion minima de audio que 6.10 exige completar aunque la condicion se
+// haya ido: una rafaga entera en MEDIA, media rafaga en ALTA. Los valores
+// salen de la Tabla 3 con el patron elegido en la spec §8.
+#define ALARM_MIN_BURST_MS_HIGH   1200u
+#define ALARM_MIN_BURST_MS_MEDIUM 1600u
+
 void alarm_machine_init(void);
 
 // Informa de si la condicion fisica esta presente. Idempotente.
@@ -56,6 +62,13 @@ bool alarm_machine_is_latched(AlarmId id);
 // Reset manual. Devuelve false si la alarma no es latching o si su condicion
 // sigue presente — resetear con la causa viva no puede apagar el aviso.
 bool alarm_machine_reset(AlarmId id, uint32_t now_ms);
+
+// Prioridad mas alta entre las condiciones que se estan anunciando
+// (ACTIVE, SILENCED o ACKED). Si no hay ninguna, devuelve ALARM_PRIORITY_LOW.
+AlarmPriority alarm_machine_top_priority(void);
+
+// true si alguna condicion esta generando senal visual.
+bool alarm_machine_any_signalling(void);
 
 #ifdef __cplusplus
 }

@@ -8,9 +8,15 @@ struct Entry {
   uint32_t announce_delay_ms;
   uint32_t present_since_ms;
   uint32_t silenced_until_ms;
+  uint32_t audio_hold_until_ms;  // rafaga minima 6.10: audio exigido hasta aqui
 };
 
 Entry g_entries[ALARM_COUNT];
+
+// Instante de la ultima llamada a alarm_machine_tick()/alarm_machine_condition(),
+// para que alarm_machine_audio_required() pueda saber si la rafaga minima ya
+// expiro sin recibir el tiempo como parametro.
+uint32_t g_last_tick_ms = 0;
 
 bool is_signalling(AlarmState s) { return s != ALARM_STATE_INACTIVE; }
 
@@ -25,7 +31,9 @@ void alarm_machine_init(void) {
     g_entries[i].announce_delay_ms = 0;
     g_entries[i].present_since_ms = 0;
     g_entries[i].silenced_until_ms = 0;
+    g_entries[i].audio_hold_until_ms = 0;
   }
+  g_last_tick_ms = 0;
 }
 
 void alarm_machine_set_announce_delay(AlarmId id, uint32_t delay_ms) {
@@ -35,7 +43,7 @@ void alarm_machine_set_announce_delay(AlarmId id, uint32_t delay_ms) {
 }
 
 void alarm_machine_condition(AlarmId id, bool present, uint32_t now_ms) {
-  (void)now_ms;
+  g_last_tick_ms = now_ms;
   if (!valid(id)) {
     return;
   }
@@ -49,6 +57,12 @@ void alarm_machine_condition(AlarmId id, bool present, uint32_t now_ms) {
       const bool may_wait =
           e.announce_delay_ms > 0 && !alarm_is_latching(id);
       e.state = may_wait ? ALARM_STATE_PENDING : ALARM_STATE_ACTIVE;
+      if (e.state == ALARM_STATE_ACTIVE) {
+        e.audio_hold_until_ms =
+            now_ms + (alarm_priority(id) == ALARM_PRIORITY_HIGH
+                          ? ALARM_MIN_BURST_MS_HIGH
+                          : ALARM_MIN_BURST_MS_MEDIUM);
+      }
     }
   } else {
     // 201.15.4.2.1 aa)/bb): un corte termico mantiene la alarma hasta reset
@@ -61,11 +75,16 @@ void alarm_machine_condition(AlarmId id, bool present, uint32_t now_ms) {
 }
 
 void alarm_machine_tick(uint32_t now_ms) {
+  g_last_tick_ms = now_ms;
   for (int i = ALARM_NONE + 1; i < ALARM_COUNT; ++i) {
     Entry &e = g_entries[i];
     if (e.state == ALARM_STATE_PENDING && e.present &&
         (uint32_t)(now_ms - e.present_since_ms) >= e.announce_delay_ms) {
       e.state = ALARM_STATE_ACTIVE;
+      e.audio_hold_until_ms =
+          now_ms + (alarm_priority((AlarmId)i) == ALARM_PRIORITY_HIGH
+                        ? ALARM_MIN_BURST_MS_HIGH
+                        : ALARM_MIN_BURST_MS_MEDIUM);
     }
     if (e.state == ALARM_STATE_SILENCED &&
         (int32_t)(now_ms - e.silenced_until_ms) >= 0) {
@@ -76,7 +95,14 @@ void alarm_machine_tick(uint32_t now_ms) {
 
 bool alarm_machine_audio_required(void) {
   for (int i = ALARM_NONE + 1; i < ALARM_COUNT; ++i) {
-    if (g_entries[i].state == ALARM_STATE_ACTIVE) {
+    const Entry &e = g_entries[i];
+    if (e.state == ALARM_STATE_ACTIVE) {
+      return true;
+    }
+    // 6.10: la rafaga minima se completa aunque la condicion ya se haya ido,
+    // salvo que el operador la haya inactivado explicitamente.
+    if (e.state == ALARM_STATE_INACTIVE &&
+        (int32_t)(g_last_tick_ms - e.audio_hold_until_ms) < 0) {
       return true;
     }
   }
@@ -146,3 +172,20 @@ bool alarm_machine_reset(AlarmId id, uint32_t now_ms) {
   g_entries[id].state = ALARM_STATE_INACTIVE;
   return true;
 }
+
+AlarmPriority alarm_machine_top_priority(void) {
+  AlarmPriority top = ALARM_PRIORITY_LOW;
+  for (int i = ALARM_NONE + 1; i < ALARM_COUNT; ++i) {
+    const AlarmState s = g_entries[i].state;
+    if (s == ALARM_STATE_ACTIVE || s == ALARM_STATE_SILENCED ||
+        s == ALARM_STATE_ACKED) {
+      const AlarmPriority p = alarm_priority((AlarmId)i);
+      if (p > top) {
+        top = p;
+      }
+    }
+  }
+  return top;
+}
+
+bool alarm_machine_any_signalling(void) { return alarm_machine_bitmask() != 0; }
