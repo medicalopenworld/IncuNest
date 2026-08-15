@@ -520,6 +520,9 @@ double roundSignificantDigits(double value, int numberOfDecimals);
 void initGPIO();
 void initEEPROM();
 void initAlarms();
+// Registro de alarmas persistido en NVS (6.12.2). Definidas en security.cpp.
+void alarmHistorySave();
+void alarmHistoryLoad();
 void security_check_reboot_cause();
 void IRAM_ATTR encoderISR();
 void IRAM_ATTR fanEncoderISR();

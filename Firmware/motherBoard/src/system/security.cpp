@@ -26,6 +26,10 @@
 
 #include "main.h"
 #include "alarm_text.h"
+#include <Preferences.h>
+
+#include "modules/baby_profile/baby_profile_store.h"
+#include "modules/control/alarm_history.h"
 #include "modules/control/alarm_machine.h"
 #include "modules/control/alarm_window.h"
 
@@ -191,7 +195,22 @@ extern PID humidityControlPID;
 #define AIR_THERMAL_CUTOUT_HYSTERESIS 0.2f
 #define SKIN_THERMAL_CUTOUT_HYSTERESIS 0.2f
 
-#define MINIMUM_SUCCESSFULL_SENSOR_UPDATE 20000 // in millis
+// Ventana de staleness. Las dos valen 5 s, pero se mantienen separadas porque
+// lo que las justifica es distinto y sus cadencias de muestreo tambien: si
+// manana cambia ROOM_SENSOR_UPDATE_PERIOD_MS o SKIN_SENSOR_UPDATE_PERIOD_MS,
+// solo hay que revisar la suya.
+//
+// Aire: lectura cada ROOM_SENSOR_UPDATE_PERIOD_MS = 1000 ms (500 ms mientras
+// reintenta reconectar), luego 5 s son >= 5 ciclos perdidos seguidos. Es el
+// margen mas justo de los dos, y el que hay que revisar si aparecen falsos
+// positivos: esta condicion corta el calefactor.
+//
+// Piel: lectura cada SKIN_SENSOR_UPDATE_PERIOD_MS = 200 ms, luego 5 s son ~25
+// muestras seguidas descartadas. El antirrebote efectivo es cinco veces mayor
+// que el del aire pese al numero identico, que es lo que hace que bajar de
+// 20 s a 5 s no arriesgue fatiga de alarma en un frontal analogico.
+#define MINIMUM_SUCCESSFULL_AIR_SENSOR_UPDATE 5000  // in millis
+#define MINIMUM_SUCCESSFULL_SKIN_SENSOR_UPDATE 5000 // in millis
 
 // 60601-1-8 6.8.3: la pausa de audio no puede exceder 2 min sin reanudarse
 // sola. Es lo que dura el silencio que pide el operador con el boton de
@@ -287,6 +306,10 @@ void initAlarms()
   {
     in3.alarmToReport[i] = false;
   }
+  // El registro SI sobrevive al arranque: su valor esta justamente en poder
+  // mirar que paso mientras nadie estaba delante, incluido un reinicio por
+  // watchdog. La maquina de estados se reinicia; el historial se recupera.
+  alarmHistoryLoad();
 }
 
 void checkThermalCutOuts()
@@ -315,8 +338,11 @@ void checkThermalCutOuts()
 void checkStatusOfSensor(byte sensor)
 {
   const uint32_t now = millis();
-  const bool stale = (millis() - lastSuccesfullSensorUpdate[sensor] >
-                      MINIMUM_SUCCESSFULL_SENSOR_UPDATE);
+  const uint32_t staleLimit = (sensor == ROOM_DIGITAL_TEMP_SENSOR)
+                                  ? MINIMUM_SUCCESSFULL_AIR_SENSOR_UPDATE
+                                  : MINIMUM_SUCCESSFULL_SKIN_SENSOR_UPDATE;
+  const bool stale =
+      (millis() - lastSuccesfullSensorUpdate[sensor] > staleLimit);
   switch (sensor)
   {
   case ROOM_DIGITAL_TEMP_SENSOR:
@@ -542,9 +568,14 @@ void sendAlarmUSB(byte alarmID, bool isActive)
   snprintf(titled, sizeof(titled), "%s %s",
            alarm_priority_mark((AlarmId)alarmID), title);
 
-  snprintf(msg, sizeof(msg), "CTRL,ALM,%d,%.*s,%.*s,%d\n", alarmID,
+  // La prioridad viaja como campo propio y no se deja deducir al display. El
+  // display no debe tener logica de alarmas: la motherBoard es la dueña de la
+  // informacion y aquella se limita a pintarla. Antes de esto el display
+  // llamaba a alarm_priority() por su cuenta para colorear el banner, que es
+  // una segunda copia de la politica esperando a desincronizarse.
+  snprintf(msg, sizeof(msg), "CTRL,ALM,%d,%.*s,%.*s,%d,%d\n", alarmID,
            ALARM_TITLE_MAX_CHARS, titled, ALARM_DESC_MAX_CHARS, desc,
-           isActive ? 1 : 0);
+           isActive ? 1 : 0, (int)alarm_priority((AlarmId)alarmID));
   if (log_mutex == NULL ||
       xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE)
   {
@@ -876,10 +907,92 @@ static void checkUsbFault()
 // nube esperan eventos. Comparar el bitmask con el del ciclo anterior es lo
 // que los reconstruye. Sin esto el display se queda sin recibir alarmas, que
 // es lo que hacia setAlarm()/resetAlarm() al llamar a sendAlarmUSB().
+// --- Persistencia del registro de alarmas -----------------------------------
+// El modulo alarm_history no conoce NVS a proposito: expone el blob y lo acepta
+// de vuelta, que es lo que lo hace testeable en host. Estas dos funciones son
+// el unico sitio que habla con Preferences.
+static const char kAlarmHistNs[] = "alm_hist";
+static const char kAlarmHistKey[] = "blob";
+
+void alarmHistorySave()
+{
+  uint8_t blob[256];
+  const size_t n = alarm_history_serialize(blob, sizeof(blob));
+  if (n == 0)
+  {
+    logE("[ALARM] historial: blob mas grande que el buffer, no se guarda");
+    return;
+  }
+  Preferences p;
+  p.begin(kAlarmHistNs, false);
+  p.putBytes(kAlarmHistKey, blob, n);
+  p.end();
+}
+
+void alarmHistoryLoad()
+{
+  alarm_history_init();
+  uint8_t blob[256];
+  Preferences p;
+  p.begin(kAlarmHistNs, true);
+  const size_t got = p.getBytes(kAlarmHistKey, blob, sizeof(blob));
+  p.end();
+  if (got == 0)
+  {
+    return;  // primer arranque: no hay nada guardado todavia
+  }
+  if (!alarm_history_deserialize(blob, got))
+  {
+    // Formato viejo o blob corrupto. Se descarta entero y se empieza de cero:
+    // leer registros clinicos con el paso equivocado decodificaria basura.
+    logE("[ALARM] historial ilegible en NVS, se descarta");
+  }
+}
+
+// 6.12.2 recomienda anotar en el registro el limite de alarma en vigor cuando
+// es ajustable por el operador — los cortes termicos lo son — y el dato que
+// disparo la condicion. Se guardan x100 para no arrastrar coma flotante hasta
+// NVS ni hasta el protocolo. Las condiciones sin magnitud asociada (fallo de
+// ventilador, corte de red) devuelven 0/0, que la pantalla muestra como vacio.
+static void alarmMagnitudes(int id, int16_t *limitCenti, int16_t *valueCenti)
+{
+  float limit = 0.0f, value = 0.0f;
+  switch (id)
+  {
+  case ALARM_AIR_THERMAL_CUTOUT:
+    limit = in3.airTemperatureSetMax;
+    value = in3.temperature[ROOM_DIGITAL_TEMP_SENSOR];
+    break;
+  case ALARM_SKIN_THERMAL_CUTOUT:
+    limit = in3.skinTemperatureSetMax;
+    value = in3.temperature[SKIN_SENSOR];
+    break;
+  case ALARM_AIR_TEMP_DEVIATION_HIGH:
+  case ALARM_AIR_TEMP_DEVIATION_LOW:
+    limit = (float)in3.desiredControlTemperature;
+    value = in3.temperature[ROOM_DIGITAL_TEMP_SENSOR];
+    break;
+  case ALARM_SKIN_TEMP_DEVIATION_HIGH:
+  case ALARM_SKIN_TEMP_DEVIATION_LOW:
+    limit = (float)in3.desiredControlTemperature;
+    value = in3.temperature[SKIN_SENSOR];
+    break;
+  case ALARM_HUMIDITY_DEVIATION:
+    limit = (float)in3.desiredControlHumidity;
+    value = in3.humidity[ROOM_DIGITAL_HUM_SENSOR];
+    break;
+  default:
+    break;
+  }
+  *limitCenti = (int16_t)(limit * 100.0f);
+  *valueCenti = (int16_t)(value * 100.0f);
+}
+
 static void publishAlarmChanges()
 {
   const uint32_t mask = alarm_machine_bitmask();
   const uint32_t changed = mask ^ previousAlarmBitmask;
+  bool historyDirty = false;
 
   for (int i = NO_ALARMS + 1; i < NUM_ALARMS; i++)
   {
@@ -889,11 +1002,38 @@ static void publishAlarmChanges()
       logAlarm("[ALARM] ->" + String(alarmIDtoString(i)) +
                (active ? " has been triggered" : " has been disable"));
       sendAlarmUSB(i, active);
+
+      // El registro se lleva desde aqui y no desde los detectores porque este
+      // es el unico punto que ve una TRANSICION. Un detector declara la misma
+      // condicion en cada ciclo, asi que registrar alli anotaria un alta por
+      // segundo hasta llenar el anillo con una sola alarma.
+      const uint32_t nowEpoch = babyStore_nowEpoch();
+      if (active)
+      {
+        int16_t limitCenti = 0, valueCenti = 0;
+        alarmMagnitudes(i, &limitCenti, &valueCenti);
+        alarm_history_record_raise((AlarmId)i,
+                                   (uint8_t)alarm_priority((AlarmId)i),
+                                   nowEpoch, limitCenti, valueCenti);
+        historyDirty = true;
+      }
+      else if (alarm_history_record_clear((AlarmId)i, nowEpoch))
+      {
+        historyDirty = true;
+      }
     }
     // La telemetria a nube (GPRS.cpp / Wifi_OTA.cpp) publica desde aqui.
     in3.alarmToReport[i] = active;
   }
   previousAlarmBitmask = mask;
+
+  // Se persiste solo cuando algo cambio de verdad. Escribir el blob en cada
+  // ciclo desgastaria la flash sin aportar nada: entre transiciones el
+  // contenido es identico.
+  if (historyDirty)
+  {
+    alarmHistorySave();
+  }
 }
 
 // El audio lo gobierna la maquina (6.10 incluye la rafaga minima y la pausa

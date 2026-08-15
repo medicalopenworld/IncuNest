@@ -71,6 +71,18 @@ typedef enum {
 // cadenas reales.
 #define ALARM_LINE_BUF_SIZE 128
 
+// La linea de CTRL,ALM_HISTORY lleva las 10 entradas de una vez, con su texto
+// incluido: la motherBoard es la dueña de la informacion y el display solo la
+// pinta, asi que el titulo viaja resuelto y el display no compone nada.
+//
+// Peor caso por entrada: id(2) + prioridad(1) + dos epoch(10+10) + limite(6) +
+// valor(6) + titulo(ALARM_TITLE_MAX_CHARS) + 7 comas = 71. Por 10 entradas mas
+// la cabecera "CTRL,ALM_HISTORY,10" y el salto de linea: ~730. Se redondea a
+// 1024 para dejar margen a un titulo mas largo sin volver a tocar esto, y
+// queda por debajo del buffer de recepcion del display (COMM_RX_BUFFER_SIZE),
+// que es el limite real que no se puede rebasar.
+#define ALARM_HISTORY_LINE_BUF_SIZE 1024
+
 #ifdef __cplusplus
 }
 #endif

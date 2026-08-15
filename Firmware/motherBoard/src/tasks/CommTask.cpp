@@ -5,6 +5,8 @@
 #include <LittleFS.h>
 #include <Preferences.h>
 
+#include "alarm_text.h"
+#include "modules/control/alarm_history.h"
 #include "modules/control/alarm_machine.h"
 #include "modules/baby_profile/baby_profile_protocol.h"
 #include "modules/baby_profile/baby_profile_store.h"
@@ -605,6 +607,68 @@ void parse_line(const char *line) {
   if (strncmp(line, "HMI,PROFILE_", 12) == 0 ||
       strncmp(line, "HMI,WEIGHT_HISTORY_REQ", 22) == 0) {
     handleBabyLine(line);
+    return;
+  }
+
+  // Registro de alarmas (IEC 60601-1-8 6.12.2). Solo bajo demanda, nunca en la
+  // telemetria periodica: known_issues.md #2 documenta una inundacion de UART
+  // real por trafico periodico evitable.
+  //
+  // El titulo viaja RESUELTO, no el id para que el display lo traduzca: la
+  // motherBoard es la dueña de la informacion y el display se limita a
+  // pintarla. Cuesta linea, pero mantiene toda la logica de alarmas —
+  // identidad, prioridad e idioma — en un solo lado.
+  if (strncmp(line, "HMI,ALM_HISTORY_REQ", 19) == 0) {
+    char msg[ALARM_HISTORY_LINE_BUF_SIZE];
+    const Language lang = (Language)in3.language;
+    const size_t n = alarm_history_count();
+    int off = snprintf(msg, sizeof(msg), "CTRL,ALM_HISTORY,%u", (unsigned)n);
+    for (size_t i = 0; i < n && off > 0 && off < (int)sizeof(msg); ++i) {
+      const AlarmHistoryEntry *e = alarm_history_get(i);
+      if (!e) {
+        break;
+      }
+      off += snprintf(msg + off, sizeof(msg) - off,
+                      ",%u,%u,%lu,%lu,%d,%d,%.*s", (unsigned)e->id,
+                      (unsigned)e->priority, (unsigned long)e->raisedEpoch,
+                      (unsigned long)e->clearedEpoch, (int)e->limitCenti,
+                      (int)e->valueCenti, ALARM_TITLE_MAX_CHARS,
+                      alarm_title_text((AlarmId)e->id, lang));
+    }
+    if (off > 0 && off < (int)sizeof(msg)) {
+      snprintf(msg + off, sizeof(msg) - off, "\n");
+      CommunicationHost_Send(msg);
+    } else {
+      // Truncada: mandar una linea a medias es peor que no mandarla, porque el
+      // display la parsearia parcialmente. Se descarta con log, como el resto
+      // del protocolo (.claude/rules/security.md).
+      logE("[ALARM] historial no cabe en la linea, no se envia");
+    }
+    return;
+  }
+
+  // Descripcion de una alarma concreta, bajo demanda.
+  //
+  // No viaja dentro de CTRL,ALM_HISTORY porque no cabe: 10 entradas x (29 de
+  // titulo + 99 de descripcion + campos) desborda ALARM_HISTORY_LINE_BUF_SIZE,
+  // y una linea truncada se descarta entera. El display la pide solo cuando el
+  // operador abre el detalle de una entrada, que es una accion humana y
+  // esporadica — sin riesgo de inundar la UART (known_issues.md #2).
+  //
+  // Sigue siendo la placa quien resuelve texto e idioma: el display manda un
+  // id y recibe el par titulo/descripcion ya listo para pintar.
+  if (strncmp(line, "HMI,ALM_DESC_REQ,", 17) == 0) {
+    unsigned id = 0;
+    if (sscanf(line + 17, "%u", &id) != 1 || id >= ALARM_COUNT) {
+      logE("[ALARM] ALM_DESC_REQ con id invalido, descartada");
+      return;
+    }
+    const Language lang = (Language)in3.language;
+    char msg[ALARM_LINE_BUF_SIZE];
+    snprintf(msg, sizeof(msg), "CTRL,ALM_DESC,%u,%.*s,%.*s\n", id,
+             ALARM_TITLE_MAX_CHARS, alarm_title_text((AlarmId)id, lang),
+             ALARM_DESC_MAX_CHARS, alarm_action_text((AlarmId)id, lang));
+    CommunicationHost_Send(msg);
     return;
   }
 
