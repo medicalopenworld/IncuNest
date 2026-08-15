@@ -103,6 +103,69 @@ void test_thermal_cutout_ignores_any_delay(void) {
   TEST_ASSERT_TRUE(alarm_machine_audio_required());
 }
 
+// Silenciar calla el audio pero la senal visual sigue (6.8.1: AUDIO PAUSED no
+// puede inactivar la senal visual de 1 m).
+void test_silence_stops_audio_but_not_the_visual_signal(void) {
+  alarm_machine_condition(ALARM_FAN_FAILURE, true, 0);
+  alarm_machine_silence(ALARM_FAN_FAILURE, 120000, 0);
+  TEST_ASSERT_EQUAL_INT(ALARM_STATE_SILENCED,
+                        alarm_machine_state(ALARM_FAN_FAILURE));
+  TEST_ASSERT_FALSE(alarm_machine_audio_required());
+  TEST_ASSERT_TRUE(alarm_machine_bitmask() & (1u << ALARM_FAN_FAILURE));
+}
+
+// Al expirar el silencio con la condicion viva, el audio vuelve
+// (201.12.3.104: "deben reanudar automaticamente su funcion normal").
+void test_silence_expiry_resumes_audio(void) {
+  alarm_machine_condition(ALARM_FAN_FAILURE, true, 0);
+  alarm_machine_silence(ALARM_FAN_FAILURE, 120000, 0);
+  alarm_machine_tick(119999);
+  TEST_ASSERT_FALSE(alarm_machine_audio_required());
+  alarm_machine_tick(120000);
+  TEST_ASSERT_EQUAL_INT(ALARM_STATE_ACTIVE,
+                        alarm_machine_state(ALARM_FAN_FAILURE));
+  TEST_ASSERT_TRUE(alarm_machine_audio_required());
+}
+
+// El requisito nuclear de 6.8.1: silenciar una NO silencia a las otras.
+void test_silencing_one_leaves_the_others_audible(void) {
+  alarm_machine_condition(ALARM_HUMIDITY_DEVIATION, true, 0);
+  alarm_machine_silence(ALARM_HUMIDITY_DEVIATION, 120000, 0);
+  TEST_ASSERT_FALSE(alarm_machine_audio_required());
+  // Llega un corte termico mientras la otra sigue silenciada.
+  alarm_machine_condition(ALARM_AIR_THERMAL_CUTOUT, true, 1000);
+  TEST_ASSERT_TRUE(alarm_machine_audio_required());
+  TEST_ASSERT_EQUAL_INT(ALARM_STATE_SILENCED,
+                        alarm_machine_state(ALARM_HUMIDITY_DEVIATION));
+}
+
+// ACK inactiva el audio de forma indefinida, pero no la senal visual.
+void test_ack_is_indefinite_and_keeps_the_visual_signal(void) {
+  alarm_machine_condition(ALARM_FAN_FAILURE, true, 0);
+  alarm_machine_ack(ALARM_FAN_FAILURE, 0);
+  TEST_ASSERT_EQUAL_INT(ALARM_STATE_ACKED,
+                        alarm_machine_state(ALARM_FAN_FAILURE));
+  alarm_machine_tick(3600000);
+  TEST_ASSERT_FALSE(alarm_machine_audio_required());
+  TEST_ASSERT_TRUE(alarm_machine_bitmask() & (1u << ALARM_FAN_FAILURE));
+}
+
+// Silenciar o aceptar no altera la proteccion del actuador.
+void test_silencing_never_restores_the_heater(void) {
+  alarm_machine_condition(ALARM_FAN_FAILURE, true, 0);
+  alarm_machine_silence(ALARM_FAN_FAILURE, 120000, 0);
+  TEST_ASSERT_TRUE(alarm_machine_heater_must_cut());
+  alarm_machine_ack(ALARM_FAN_FAILURE, 0);
+  TEST_ASSERT_TRUE(alarm_machine_heater_must_cut());
+}
+
+// Silenciar una condicion que no se esta anunciando no debe hacer nada.
+void test_silencing_an_inactive_condition_is_a_no_op(void) {
+  alarm_machine_silence(ALARM_FAN_FAILURE, 120000, 0);
+  TEST_ASSERT_EQUAL_INT(ALARM_STATE_INACTIVE,
+                        alarm_machine_state(ALARM_FAN_FAILURE));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_starts_inactive);
@@ -116,5 +179,11 @@ int main(void) {
   RUN_TEST(test_delay_expiry_announces);
   RUN_TEST(test_condition_gone_during_delay_never_announces);
   RUN_TEST(test_thermal_cutout_ignores_any_delay);
+  RUN_TEST(test_silence_stops_audio_but_not_the_visual_signal);
+  RUN_TEST(test_silence_expiry_resumes_audio);
+  RUN_TEST(test_silencing_one_leaves_the_others_audible);
+  RUN_TEST(test_ack_is_indefinite_and_keeps_the_visual_signal);
+  RUN_TEST(test_silencing_never_restores_the_heater);
+  RUN_TEST(test_silencing_an_inactive_condition_is_a_no_op);
   return UNITY_END();
 }

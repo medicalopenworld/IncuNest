@@ -7,6 +7,7 @@ struct Entry {
   AlarmState state;
   uint32_t announce_delay_ms;
   uint32_t present_since_ms;
+  uint32_t silenced_until_ms;
 };
 
 Entry g_entries[ALARM_COUNT];
@@ -23,6 +24,7 @@ void alarm_machine_init(void) {
     g_entries[i].state = ALARM_STATE_INACTIVE;
     g_entries[i].announce_delay_ms = 0;
     g_entries[i].present_since_ms = 0;
+    g_entries[i].silenced_until_ms = 0;
   }
 }
 
@@ -62,6 +64,10 @@ void alarm_machine_tick(uint32_t now_ms) {
         (uint32_t)(now_ms - e.present_since_ms) >= e.announce_delay_ms) {
       e.state = ALARM_STATE_ACTIVE;
     }
+    if (e.state == ALARM_STATE_SILENCED &&
+        (int32_t)(now_ms - e.silenced_until_ms) >= 0) {
+      e.state = ALARM_STATE_ACTIVE;
+    }
   }
 }
 
@@ -95,4 +101,27 @@ bool alarm_machine_heater_must_cut(void) {
     }
   }
   return false;
+}
+
+void alarm_machine_silence(AlarmId id, uint32_t duration_ms, uint32_t now_ms) {
+  if (!valid(id)) {
+    return;
+  }
+  Entry &e = g_entries[id];
+  if (e.state != ALARM_STATE_ACTIVE) {
+    return;  // solo se silencia lo que se esta anunciando
+  }
+  e.state = ALARM_STATE_SILENCED;
+  e.silenced_until_ms = now_ms + duration_ms;
+}
+
+void alarm_machine_ack(AlarmId id, uint32_t now_ms) {
+  (void)now_ms;
+  if (!valid(id)) {
+    return;
+  }
+  Entry &e = g_entries[id];
+  if (e.state == ALARM_STATE_ACTIVE || e.state == ALARM_STATE_SILENCED) {
+    e.state = ALARM_STATE_ACKED;
+  }
 }

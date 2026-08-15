@@ -41,6 +41,14 @@ uint32_t alarm_machine_bitmask(void);
 // true si alguna condicion presente exige desconectar el calefactor.
 bool alarm_machine_heater_must_cut(void);
 
+// Inactiva el audio de UNA condicion durante duration_ms. 6.8.1 exige que no
+// afecte a las senales de las demas, por eso no existe un silencio global.
+void alarm_machine_silence(AlarmId id, uint32_t duration_ms, uint32_t now_ms);
+
+// Inactiva el audio de UNA condicion por tiempo indefinido. La senal visual
+// se mantiene mientras la condicion persista.
+void alarm_machine_ack(AlarmId id, uint32_t now_ms);
+
 #ifdef __cplusplus
 }
 #endif
