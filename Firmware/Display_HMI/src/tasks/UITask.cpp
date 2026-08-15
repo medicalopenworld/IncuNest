@@ -1011,7 +1011,6 @@ void WifiButton_cb(lv_event_t *e) {
   }
   updateButtonVisibility();
   wifiVisible = true;
-  hmi_msg.shouldSendData = true;
 }
 
 void InfoButton_cb(lv_event_t *e) {
@@ -1036,7 +1035,6 @@ void InfoButton_cb(lv_event_t *e) {
   }
 
   wifiVisible = false;
-  hmi_msg.shouldSendData = true;
 }
 
 void LanguageButton_cb(lv_event_t *e) {
@@ -1046,7 +1044,8 @@ void LanguageButton_cb(lv_event_t *e) {
   wifiVisible = false;
   lv_obj_clear_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
   LanguagesVisible = true;
-  hmi_msg.shouldSendData = true;
+  // Abrir el desplegable no cambia el idioma; eso lo hace
+  // LanguagesDropDown_cb(), que si manda estado.
 }
 
 void TextArea_Change_cb(lv_event_t *e) {
@@ -1138,7 +1137,9 @@ void SkinPanel_cb(lv_event_t *e) {
 }
 
 void PhotoTimeMinusBtn_cb(lv_event_t *e) {
-  hmi_msg.shouldSendData = true;
+  // Aqui no se manda estado: estos botones solo mueven photoTimerMinutes, que
+  // es local del display. hmi_msg.photoMinutesRemaining lo fija PhotoStartBtn
+  // al arrancar el temporizador, que es cuando la placa necesita saberlo.
   if (photoTimerActive)
     return;
 
@@ -1155,7 +1156,7 @@ void PhotoTimeMinusBtn_cb(lv_event_t *e) {
 }
 
 void PhotoTimePlusBtn_cb(lv_event_t *e) {
-  hmi_msg.shouldSendData = true;
+  // Mismo motivo que en PhotoTimeMinusBtn_cb: nada de la trama cambia aqui.
   if (photoTimerActive)
     return;
 
@@ -2008,7 +2009,11 @@ void alarm_banner_init(void) {
 // NO BLOQUEANTE a proposito. hmi_audio_module_beep() existe pero hace
 // delay(): llamarlo desde aqui congelaria el despacho de eventos de LVGL
 // durante todo el pitido. Aqui se enciende y se apaga desde el bucle de UI.
-#define CLICK_BEEP_MS 25u
+// 12 ms: un tic seco. Estuvo en 25 y el chasquido competia en protagonismo con
+// las senales de alarma, que es justo al reves de lo que debe ser — y en este
+// equipo, ademas, el zumbador del display se oye MAS que el de la placa (ver
+// docs/alarms.md §9: pendiente de medida acustica).
+#define CLICK_BEEP_MS 12u
 static uint32_t s_clickBeepUntilMs = 0;
 
 static void click_beep_start(void) {
@@ -2424,21 +2429,19 @@ void show_alarm_detail_from_slot(int slot) {
   g_selectedAlarmId = alarmList[idx].id;
 }
 
+// Estos cuatro solo abren el detalle de una alarma: no cambian nada de la
+// trama, asi que no mandan estado.
 void Alarm1Cont_cb(lv_event_t *e) {
   show_alarm_detail_from_slot(0);
-  hmi_msg.shouldSendData = true;
 }
 void Alarm2Cont_cb(lv_event_t *e) {
   show_alarm_detail_from_slot(1);
-  hmi_msg.shouldSendData = true;
 }
 void Alarm3Cont_cb(lv_event_t *e) {
   show_alarm_detail_from_slot(2);
-  hmi_msg.shouldSendData = true;
 }
 void Alarm4Cont_cb(lv_event_t *e) {
   show_alarm_detail_from_slot(3);
-  hmi_msg.shouldSendData = true;
 }
 
 void reset_alarm_detail_state() {
@@ -2459,7 +2462,7 @@ void AlarmsTabview_cb(lv_event_t *e) {
   if (act == 0) { // Si volvemos a la lista de alarmas
     reset_alarm_detail_state();
   }
-  hmi_msg.shouldSendData = true;
+  // Cambiar de pestana no cambia nada de la trama.
 }
 
 void chart_add_hum_value(float hum) {
@@ -2752,7 +2755,7 @@ void ImgButton1_Lock_cb(lv_event_t *e) {
   if (lv_scr_act() == ui_ScreenMain) {
     enter_lock_screen();
   }
-  hmi_msg.shouldSendData = true;
+  // El bloqueo es estado local del display: no viaja en HMI_Message.
 }
 
 void LockScreenAnyTouch_cb(lv_event_t *e) {
