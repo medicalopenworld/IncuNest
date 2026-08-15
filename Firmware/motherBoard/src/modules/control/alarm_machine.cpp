@@ -270,6 +270,32 @@ AlarmPriority alarm_machine_audible_priority(void) {
 
 bool alarm_machine_any_signalling(void) { return alarm_machine_bitmask() != 0; }
 
+uint32_t alarm_machine_silenced_bitmask(void) {
+  uint32_t mask = 0;
+  for (int i = 0; i < ALARM_COUNT; ++i) {
+    if (g_entries[i].state == ALARM_STATE_SILENCED) {
+      mask |= (1u << i);
+    }
+  }
+  return mask;
+}
+
+bool alarm_machine_unsilence(AlarmId id, uint32_t now_ms) {
+  (void)now_ms;
+  if (id <= ALARM_NONE || id >= ALARM_COUNT) {
+    return false;
+  }
+  Entry &e = g_entries[id];
+  if (e.state != ALARM_STATE_SILENCED) {
+    return false;
+  }
+  // Vuelve a ACTIVE sin rearmar la ventana de rafaga minima: esa ventana
+  // existe para que una condicion que se va no corte el audio a medias, y
+  // aqui la condicion sigue viva. El audio se reanuda por el camino normal.
+  e.state = ALARM_STATE_ACTIVE;
+  return true;
+}
+
 bool alarm_machine_any_silenceable(void) {
   for (int i = 0; i < ALARM_COUNT; ++i) {
     if (g_entries[i].state == ALARM_STATE_ACTIVE) {

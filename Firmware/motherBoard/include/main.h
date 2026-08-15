@@ -249,6 +249,33 @@ extern int g_restore_photo_minutes;
 #define ALARM_BURST_PERIOD_MS_MEDIUM 25000u
 #define ALARM_BURST_PERIOD_MS_LOW    30000u
 
+// Duracion del AUDIO PAUSED que pide el operador con el boton de silencio del
+// display HMI (unica interaccion de operador que existe: el encoder fisico es
+// de una revision de hardware anterior y ya no se monta).
+//
+// La clausula aplicable es 60601-2-19 201.12.3.104, NO 60601-1-8 6.8.3: 6.8.3
+// trata de los estados globales INDEFINIDOS (ALARM OFF / AUDIO OFF) y no fija
+// duracion alguna. 201.12.3.104 exige que las alarmas silenciadas
+// deliberadamente "reanuden automaticamente su funcion normal dentro de un
+// tiempo especificado POR EL FABRICANTE" - el limite no lo pone la norma, lo
+// ponemos nosotros.
+//
+// VALOR ACTUAL: 10 min. 6.8.5 obliga a declararlo en las instrucciones de
+// uso; esta en docs/alarms.md.
+//
+// Consecuencia que hay que tener presente: 201.12.3.103 exige que el aviso de
+// interrupcion de alimentacion se mantenga un minimo de 10 min, justo lo que
+// dura esta pausa. Silenciar esa alarma se come practicamente toda su
+// duracion obligatoria. Se acepta porque 6.8.4 permite al operador terminar
+// el silencio cuando quiera y la senal VISUAL nunca se inactiva (6.8.1), pero
+// si el analisis de riesgos lo revisa, el candidato natural es excluir
+// ALARM_MAINS_INTERRUPTION del silencio, no acortar esto.
+//
+// La excepcion de hasta 30 min de 201.12.3.104 es solo para el calentamiento
+// desde COLD CONDITION, y se gestiona aparte con el retardo de anuncio
+// (alarm_machine_set_announce_delay), no alargando esta pausa.
+#define ALARM_AUDIO_PAUSE_MS 600000u
+
 #include "preferences_keys.h"
 
 #define SKIN_CALIBRATION_CORRECTION_FACTOR 0

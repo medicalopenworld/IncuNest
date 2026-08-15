@@ -115,6 +115,67 @@ void test_silence_stops_audio_but_not_the_visual_signal(void) {
   TEST_ASSERT_TRUE(alarm_machine_bitmask() & (1u << ALARM_FAN_FAILURE));
 }
 
+// 6.8.1: el operador tiene que poder determinar QUE condiciones estan
+// inactivadas, no solo que alguna lo esta. El bitmask es lo que se lo dice.
+void test_silenced_bitmask_names_each_condition(void) {
+  TEST_ASSERT_EQUAL_UINT32(0u, alarm_machine_silenced_bitmask());
+  alarm_machine_condition(ALARM_FAN_FAILURE, true, 0);
+  alarm_machine_condition(ALARM_HUMIDITY_DEVIATION, true, 0);
+  // Senalizar no es estar silenciada.
+  TEST_ASSERT_EQUAL_UINT32(0u, alarm_machine_silenced_bitmask());
+  alarm_machine_silence(ALARM_FAN_FAILURE, 600000, 0);
+  TEST_ASSERT_EQUAL_UINT32(1u << ALARM_FAN_FAILURE,
+                           alarm_machine_silenced_bitmask());
+  alarm_machine_silence(ALARM_HUMIDITY_DEVIATION, 600000, 0);
+  TEST_ASSERT_EQUAL_UINT32((1u << ALARM_FAN_FAILURE) |
+                               (1u << ALARM_HUMIDITY_DEVIATION),
+                           alarm_machine_silenced_bitmask());
+  // Y al caducar sale del bitmask sola.
+  alarm_machine_tick(600000);
+  TEST_ASSERT_EQUAL_UINT32(0u, alarm_machine_silenced_bitmask());
+}
+
+// 6.8.4: "Means shall be provided for the OPERATOR to terminate any ALARM
+// SIGNAL inactivation state" - sin esperar a que caduque el temporizador.
+void test_unsilence_terminates_the_pause_early(void) {
+  alarm_machine_condition(ALARM_FAN_FAILURE, true, 0);
+  alarm_machine_silence(ALARM_FAN_FAILURE, 600000, 0);
+  alarm_machine_tick(1000);
+  TEST_ASSERT_FALSE(alarm_machine_audio_required());
+
+  TEST_ASSERT_TRUE(alarm_machine_unsilence(ALARM_FAN_FAILURE, 1000));
+  TEST_ASSERT_EQUAL_INT(ALARM_STATE_ACTIVE,
+                        alarm_machine_state(ALARM_FAN_FAILURE));
+  TEST_ASSERT_EQUAL_UINT32(0u, alarm_machine_silenced_bitmask());
+  TEST_ASSERT_TRUE(alarm_machine_audio_required());
+}
+
+// Cancelar el silencio de lo que no esta silenciado no puede alterar nada:
+// el display puede mandar el comando dos veces si el operador insiste.
+void test_unsilence_is_a_no_op_when_not_silenced(void) {
+  alarm_machine_condition(ALARM_FAN_FAILURE, true, 0);
+  TEST_ASSERT_FALSE(alarm_machine_unsilence(ALARM_FAN_FAILURE, 0));
+  TEST_ASSERT_EQUAL_INT(ALARM_STATE_ACTIVE,
+                        alarm_machine_state(ALARM_FAN_FAILURE));
+  TEST_ASSERT_FALSE(alarm_machine_unsilence(ALARM_NONE, 0));
+  TEST_ASSERT_FALSE(alarm_machine_unsilence((AlarmId)ALARM_COUNT, 0));
+}
+
+// 6.8.1: si la inactivacion se aplica a una condicion, "the generation of
+// ALARM SIGNALS from other ALARM CONDITIONS shall be unaffected".
+void test_unsilence_does_not_touch_other_conditions(void) {
+  alarm_machine_condition(ALARM_FAN_FAILURE, true, 0);
+  alarm_machine_condition(ALARM_HUMIDITY_DEVIATION, true, 0);
+  alarm_machine_silence(ALARM_FAN_FAILURE, 600000, 0);
+  alarm_machine_silence(ALARM_HUMIDITY_DEVIATION, 600000, 0);
+
+  alarm_machine_unsilence(ALARM_FAN_FAILURE, 0);
+  TEST_ASSERT_EQUAL_INT(ALARM_STATE_SILENCED,
+                        alarm_machine_state(ALARM_HUMIDITY_DEVIATION));
+  TEST_ASSERT_EQUAL_UINT32(1u << ALARM_HUMIDITY_DEVIATION,
+                           alarm_machine_silenced_bitmask());
+}
+
 // El display pregunta "queda algo que el operador pueda silenciar?" para
 // decidir si ensena el boton de silencio. Tiene que volver a decir que si
 // cuando la pausa caduca: si no, el zumbador vuelve a sonar y el operador se
@@ -610,6 +671,10 @@ int main(void) {
   RUN_TEST(test_condition_gone_during_delay_never_announces);
   RUN_TEST(test_thermal_cutout_ignores_any_delay);
   RUN_TEST(test_silence_stops_audio_but_not_the_visual_signal);
+  RUN_TEST(test_silenced_bitmask_names_each_condition);
+  RUN_TEST(test_unsilence_terminates_the_pause_early);
+  RUN_TEST(test_unsilence_is_a_no_op_when_not_silenced);
+  RUN_TEST(test_unsilence_does_not_touch_other_conditions);
   RUN_TEST(test_silenceable_comes_back_when_the_pause_expires);
   RUN_TEST(test_silenceable_ignores_other_conditions_being_silenced);
   RUN_TEST(test_silence_expiry_resumes_audio);

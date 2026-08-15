@@ -117,6 +117,23 @@ AlarmPriority alarm_machine_audible_priority(void);
 // true si alguna condicion esta generando senal visual.
 bool alarm_machine_any_signalling(void);
 
+// Bit por AlarmId de las condiciones cuyo audio esta en AUDIO PAUSED.
+//
+// 6.8.1 exige que el operador pueda "determinar las CONDICIONES DE ALARMA
+// cuyas SENALES DE ALARMA estan inactivadas", y 201.12.3.104 que una alarma
+// silenciada deliberadamente mantenga indicacion visual. Con un unico
+// booleano global el operador no puede saber CUAL callo, asi que la
+// informacion tiene que viajar condicion a condicion. Consulta PURA.
+uint32_t alarm_machine_silenced_bitmask(void);
+
+// Cancela el AUDIO PAUSED de UNA condicion y devuelve su audio a la vida.
+// Devuelve false si esa condicion no estaba silenciada.
+//
+// 6.8.4: "Means shall be provided for the OPERATOR to terminate any ALARM
+// SIGNAL inactivation state". Sin esto el silencio solo se podia deshacer
+// esperando a que caducara el temporizador.
+bool alarm_machine_unsilence(AlarmId id, uint32_t now_ms);
+
 // true si queda algo que el operador pueda silenciar: alguna condicion en
 // ACTIVE, es decir, con el audio vivo y sin inactivar todavia.
 //

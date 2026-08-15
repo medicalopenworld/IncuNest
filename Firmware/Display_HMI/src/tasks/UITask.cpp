@@ -1997,6 +1997,59 @@ void alarm_banner_init(void) {
                              LV_PART_MAIN);
 }
 
+// Indicador permanente de AUDIO PAUSED, en lv_layer_top() para que sobreviva a
+// los lv_scr_load() y se vea en TODAS las pantallas.
+//
+// 201.12.3.104 exige que "las alarmas silenciadas deliberadamente mantengan
+// indicacion visual", y 6.8.5 que el estado se marque con el simbolo de la
+// Tabla 5 y sea legible a 1 m. El icono por fila del centro de alarmas dice
+// CUAL esta callada (6.8.1), pero solo se ve con el centro abierto; este dice
+// QUE HAY algo callado, siempre, sin depender de donde este el operador.
+static lv_obj_t *s_audioPausedIcon = NULL;
+
+void audio_paused_icon_init(void) {
+  static lv_point_t kDiag1[] = {{4, 4}, {32, 32}};
+  static lv_point_t kDiag2[] = {{32, 4}, {4, 32}};
+  const lv_color_t col = lv_color_hex(0xFFB436);
+
+  s_audioPausedIcon = lv_obj_create(lv_layer_top());
+  lv_obj_remove_style_all(s_audioPausedIcon);
+  lv_obj_set_size(s_audioPausedIcon, 36, 36);
+  lv_obj_align(s_audioPausedIcon, LV_ALIGN_TOP_RIGHT, -8, 8);
+  lv_obj_clear_flag(s_audioPausedIcon, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(s_audioPausedIcon, LV_OBJ_FLAG_HIDDEN);
+
+  lv_obj_t *bell = lv_label_create(s_audioPausedIcon);
+  lv_label_set_text(bell, LV_SYMBOL_BELL);
+  lv_obj_set_style_text_color(bell, col, 0);
+  lv_obj_set_style_text_font(bell, &lv_font_montserrat_20, 0);
+  lv_obj_center(bell);
+
+  // X discontinua = estado TEMPORIZADO (AUDIO PAUSED). La continua queda para
+  // AUDIO OFF, que este equipo no ofrece. Ver IEC 60417-5576 / Tabla 5.
+  for (int i = 0; i < 2; i++) {
+    lv_obj_t *ln = lv_line_create(s_audioPausedIcon);
+    lv_line_set_points(ln, i == 0 ? kDiag1 : kDiag2, 2);
+    lv_obj_set_style_line_width(ln, 3, 0);
+    lv_obj_set_style_line_color(ln, col, 0);
+    lv_obj_set_style_line_dash_width(ln, 4, 0);
+    lv_obj_set_style_line_dash_gap(ln, 3, 0);
+    lv_obj_set_style_line_rounded(ln, true, 0);
+  }
+}
+
+void audio_paused_icon_update(void) {
+  if (!s_audioPausedIcon) {
+    return;
+  }
+  if (ctrl_state_msg.silencedBitmask != 0u) {
+    lv_obj_clear_flag(s_audioPausedIcon, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(s_audioPausedIcon);
+  } else {
+    lv_obj_add_flag(s_audioPausedIcon, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
 void alarm_banner_update(void) {
   if (!s_alarmBanner) {
     return;
@@ -3345,6 +3398,7 @@ void UI_Task(void *pvParameters) {
   // En lv_layer_top(), no colgado de una pantalla: la senal de alarma
   // tiene que sobrevivir a lv_scr_load().
   alarm_banner_init();
+  audio_paused_icon_init();
 
   if (g_hmiRestoreState) {
     // Skip 5-second splash and go straight to lock screen on crash recovery
@@ -3813,6 +3867,10 @@ void UI_Task(void *pvParameters) {
     // timeouts. A diferencia del resto, este NO se cierra con una alarma
     // critica — es precisamente la pantalla donde se atiende.
     AlarmCenter_Poll();
+
+    // Se reevalua en cada pasada: depende de silencedBitmask, que llega con
+    // CTRL,STATE y caduca solo en la placa.
+    audio_paused_icon_update();
     // Baby-exit dialog: only the transition to a fully idle incubator
     // (no temperature, no humidity, no phototherapy) means the baby
     // actually came out; dropping one therapy among several does not.

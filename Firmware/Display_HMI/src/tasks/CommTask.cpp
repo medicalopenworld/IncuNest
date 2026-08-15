@@ -193,6 +193,12 @@ void Communication_SendAlarmHistoryReq(void) {
 #endif
 }
 
+void Communication_SendAlarmSilence(uint8_t id, bool on) {
+#if IS_HMI
+  COMM_SERIAL.printf("HMI,ALM_SILENCE,%u,%d\n", (unsigned)id, on ? 1 : 0);
+#endif
+}
+
 void Communication_SendAlarmDescReq(uint8_t id) {
 #if IS_HMI
   COMM_SERIAL.printf("HMI,ALM_DESC_REQ,%u\n", (unsigned)id);
@@ -264,16 +270,17 @@ static void parse_message(const char *line) {
   } else if (strncmp(line, "CTRL,STATE", strlen("CTRL,STATE")) == 0) {
     int act, mode, photo, mute, sn, hwNum, numAlarms, skinE, commStatus, lang, probeState = 0;
     uint32_t alarmBitmask = 0;
+    uint32_t silencedBitmask = 0;
     double photoTimeRemaining;  // Formato MM.SS (ej: 18.33 = 18 min 33 seg)
     char hwRev;
     char fwVer[20];
     double airSet, skinSet, humSet;
     int result =
-        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d,%lf,%d,%d,0x%X",
+        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d,%lf,%d,%d,0x%X,0x%X",
                &act, &mode, &airSet, &skinSet, &humSet, &photo, &mute,
-               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus, &photoTimeRemaining, &lang, &probeState, &alarmBitmask);
+               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus, &photoTimeRemaining, &lang, &probeState, &alarmBitmask, &silencedBitmask);
 
-    // Accept 12 (old), 13 (with alarms), 14+skinModeEnabled, 15+photoTime, 16+lang, 17+probeState, 18+bitmask
+    // Accept 12 (old), 13 (with alarms), 14+skinModeEnabled, 15+photoTime, 16+lang, 17+probeState, 18+bitmask, 19+silenced
     if (result >= 12) {
       ctrl_state_msg.actuation = act;
       ctrl_state_msg.controlMode = mode;
@@ -304,6 +311,12 @@ static void parse_message(const char *line) {
       }
       if (result >= 18) ctrl_state_msg.alarmBitmask = alarmBitmask;
       else ctrl_state_msg.alarmBitmask = (uint32_t)-1; // Valor nulo si no viene
+      // Que condiciones estan en AUDIO PAUSED (6.8.1: el operador tiene que
+      // poder determinar CUALES). Si la placa es de una version anterior y no
+      // manda el campo, se asume ninguna silenciada: es el lado seguro, porque
+      // como mucho ofrece silenciar algo que ya lo estaba, nunca oculta que
+      // una alarma sigue callada.
+      ctrl_state_msg.silencedBitmask = (result >= 19) ? silencedBitmask : 0u;
       ctrl_state_msg.serialNumber = sn;
 
       strncpy(ctrl_state_msg.fwVer, fwVer, sizeof(ctrl_state_msg.fwVer));

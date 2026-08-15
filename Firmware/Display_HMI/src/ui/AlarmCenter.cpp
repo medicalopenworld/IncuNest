@@ -133,6 +133,46 @@ lv_obj_t *makeBtn(lv_obj_t *parent, const char *text, lv_event_cb_t cb,
   return btn;
 }
 
+// Icono de AUDIO PAUSED: campana con X discontinua.
+//
+// Es el simbolo IEC 60417-5576 al que remite la Tabla 5 de 60601-1-8, con la
+// variante de trazo discontinuo que el propio texto describe para los estados
+// TEMPORIZADOS ("in the event of ALARM PAUSED or AUDIO PAUSED, the X becomes a
+// dashed-X where the dashed-X means limited duration"). La X continua queda
+// reservada a AUDIO OFF, que este equipo no ofrece.
+//
+// Se dibuja en vez de incrustarse como imagen porque la fuente ya trae la
+// campana y las dos aspas son dos lv_line con estilo discontinuo. PENDIENTE:
+// contrastar el trazado contra la lamina original de la Tabla C.1 antes de la
+// evaluacion formal — la forma es la correcta, las proporciones exactas no
+// estan verificadas contra el documento.
+lv_obj_t *makeAudioPausedIcon(lv_obj_t *parent, lv_color_t color) {
+  static lv_point_t kDiag1[] = {{3, 3}, {25, 25}};
+  static lv_point_t kDiag2[] = {{25, 3}, {3, 25}};
+
+  lv_obj_t *box = lv_obj_create(parent);
+  lv_obj_remove_style_all(box);
+  lv_obj_set_size(box, 28, 28);
+  lv_obj_clear_flag(box, LV_OBJ_FLAG_SCROLLABLE);
+
+  lv_obj_t *bell = lv_label_create(box);
+  lv_label_set_text(bell, LV_SYMBOL_BELL);
+  lv_obj_set_style_text_color(bell, color, 0);
+  lv_obj_set_style_text_font(bell, &lv_font_montserrat_20, 0);
+  lv_obj_center(bell);
+
+  for (int i = 0; i < 2; i++) {
+    lv_obj_t *ln = lv_line_create(box);
+    lv_line_set_points(ln, i == 0 ? kDiag1 : kDiag2, 2);
+    lv_obj_set_style_line_width(ln, 3, 0);
+    lv_obj_set_style_line_color(ln, color, 0);
+    lv_obj_set_style_line_dash_width(ln, 4, 0);
+    lv_obj_set_style_line_dash_gap(ln, 3, 0);
+    lv_obj_set_style_line_rounded(ln, true, 0);
+  }
+  return box;
+}
+
 // El color de texto explicito es imprescindible: lv_btn pinta su etiqueta en
 // blanco por defecto y sobre el relleno claro de la tarjeta quedaria invisible
 // (mismo motivo que en BabyHistory.cpp).
@@ -154,7 +194,11 @@ void openDetail(uint8_t id, const char *title, const char *desc);
 // Huella del conjunto de alarmas activas + estado de silencio. Sirve solo para
 // detectar "ha cambiado algo de lo que se ve"; no se guarda ni se transmite.
 uint32_t activeSignature() {
-  uint32_t sig = alarmsMuted ? 0x8000u : 0u;
+  // El bitmask de silenciadas entra en la firma: es lo que hace que al pulsar
+  // SILENCIAR/REANUDAR la fila se repinte sola en cuanto la placa confirma, y
+  // tambien que la caducidad de los 10 min devuelva el boton a SILENCIAR sin
+  // que el operador tenga que salir y volver a entrar.
+  uint32_t sig = (alarmsMuted ? 0x8000u : 0u) ^ ctrl_state_msg.silencedBitmask;
   for (int i = 0; i < MAX_ALARMS; i++) {
     if (alarmList[i].state) {
       sig = sig * 31u + (uint32_t)alarmList[i].id + 1u;
@@ -162,6 +206,8 @@ uint32_t activeSignature() {
   }
   return sig;
 }
+
+void onRowSilenceTap(lv_event_t *e);
 
 void closeScreen() {
   if (s_overlay) lv_obj_add_flag(s_overlay, LV_OBJ_FLAG_HIDDEN);
@@ -207,12 +253,27 @@ void requestHistory() {
 struct Row {
   uint8_t id;
   uint8_t priority;
-  bool    active;  // true = alarma en curso, descripcion ya disponible aqui
+  bool    active;    // true = alarma en curso, descripcion ya disponible aqui
+  bool    silenced;  // AUDIO PAUSED, tal como lo reporta la placa
   char    title[ALARM_TITLE_MAX_CHARS + 1];
   char    desc[ALARM_DESC_MAX_CHARS + 1];
 };
 Row s_activeRows[MAX_ALARMS];
 Row s_histRows[10];
+
+void onRowSilenceTap(lv_event_t *e) {
+  auto *r = (Row *)lv_event_get_user_data(e);
+  if (!r) return;
+  // Se manda el comando y se deja que la placa conteste. No se toca el estado
+  // local: la duena del AUDIO PAUSED es la maquina de alarmas, que ademas lo
+  // caduca sola a los 10 min. Pintar aqui un estado adivinado seria una
+  // segunda version de la verdad que se desincroniza en cuanto caduque.
+  //
+  // La lista se repinta cuando llegue el silencedBitmask nuevo en CTRL,STATE,
+  // via la firma que compara AlarmCenter_Poll(). Ese rodeo es ademas lo que
+  // evita destruir este boton desde dentro de su propio callback.
+  Communication_SendAlarmSilence(r->id, !r->silenced);
+}
 
 void onRowTap(lv_event_t *e) {
   auto *r = (Row *)lv_event_get_user_data(e);
@@ -274,6 +335,7 @@ void showList() {
     r.id = (uint8_t)alarmList[i].id;
     r.priority = alarmList[i].priority;
     r.active = true;
+    r.silenced = (ctrl_state_msg.silencedBitmask & (1u << r.id)) != 0;
     snprintf(r.title, sizeof(r.title), "%s", alarmList[i].type);
     snprintf(r.desc, sizeof(r.desc), "%s", alarmList[i].description);
 
@@ -290,8 +352,30 @@ void showList() {
     char buf[160];
     snprintf(buf, sizeof(buf), "%s %s\n%s  -  %s", prioMark(r.priority),
              r.title, prioName(r.priority),
-             TXT("en curso", "ongoing", "en cours"));
-    makeCardLabel(card, buf, 580);
+             r.silenced ? TXT("AUDIO EN PAUSA", "AUDIO PAUSED", "AUDIO EN PAUSE")
+                        : TXT("en curso", "ongoing", "en cours"));
+    // 600 de tarjeta - 190 de boton - 34 del icono: deja sitio a ambos.
+    makeCardLabel(card, buf, 366);
+
+    // 6.8.1 pide que el operador pueda determinar QUE condiciones estan
+    // inactivadas, y 201.12.3.104 que la alarma silenciada mantenga
+    // indicacion visual. El icono va por fila, no en un rincon global, que es
+    // la unica forma de distinguir cual de varias esta callada.
+    if (r.silenced) {
+      lv_obj_t *icon = makeAudioPausedIcon(card, cardBorder(r.priority));
+      lv_obj_align(icon, LV_ALIGN_RIGHT_MID, -198, 0);
+    }
+
+    // 6.8.4: "means to terminate any ALARM SIGNAL inactivation state". El
+    // mismo control silencia y cancela el silencio, condicion a condicion.
+    lv_obj_t *btn = makeBtn(
+        card,
+        r.silenced ? TXT("REANUDAR", "RESUME", "REPRENDRE")
+                   : TXT("SILENCIAR", "SILENCE", "SILENCE"),
+        onRowSilenceTap,
+        r.silenced ? lv_color_hex(0x2E7D32) : lv_color_hex(0xE08800), &r);
+    lv_obj_set_size(btn, 190, 52);
+    lv_obj_align(btn, LV_ALIGN_RIGHT_MID, -4, 0);
   }
 
   if (nActive == 0) {
@@ -324,6 +408,7 @@ void showList() {
     r.id = it.id;
     r.priority = it.priority;
     r.active = false;
+    r.silenced = false;  // una entrada del registro ya no señaliza nada
     snprintf(r.title, sizeof(r.title), "%s", it.title);
     r.desc[0] = '\0';
 

@@ -67,6 +67,10 @@ typedef struct {
   int      photoMinutesRemaining;
   int      photoSecondsRemaining;
   uint32_t alarmBitmask;
+  // Bit por AlarmId de las condiciones en AUDIO PAUSED. La placa es la dueña
+  // de este estado: la pausa caduca sola (60601-2-19 201.12.3.104) y el
+  // display no puede saberlo por su cuenta.
+  uint32_t silencedBitmask;
   int      skinProbeState;
   // HMI-internal flag (not part of the protocol)
   bool     newState;
@@ -241,6 +245,10 @@ void Communication_SendAlarmHistoryReq(void);
 extern volatile bool        g_pendingAlarmDesc;
 extern AlarmDescMsg         g_alarmDesc;
 void Communication_SendAlarmDescReq(uint8_t id);
+
+// AUDIO PAUSED de UNA condicion. on=false lo cancela, que es lo que exige
+// 60601-1-8 6.8.4 ("means to terminate any ALARM SIGNAL inactivation state").
+void Communication_SendAlarmSilence(uint8_t id, bool on);
 
 extern volatile bool        g_pendingBabyHistory;
 extern BabyHistoryMsg       g_babyHistory;

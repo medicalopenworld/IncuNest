@@ -291,7 +291,11 @@ double getRemainingPhotoTime() {
 //  SEND STATE TO HMI
 // ======================================================
 static void send_state_to_hmi() {
-  char msg[160];
+  // 192 y no 160: el campo silencedBitmask anadio hasta 11 caracteres y el
+  // peor caso (fwVer de 20, tres bitmask/contadores al ancho maximo) se
+  // quedaba al filo. Truncar aqui no da error, da una linea que el HMI
+  // descarta entera y una pantalla que deja de refrescarse.
+  char msg[192];
   int alarmCount = getActiveAlarmCount();
   double remainingTime = getRemainingPhotoTime();
 
@@ -310,12 +314,18 @@ static void send_state_to_hmi() {
   const int audioSilenced =
       (alarmBitmask != 0 && !alarm_machine_any_silenceable()) ? 1 : 0;
 
+  // Que condiciones concretas estan en AUDIO PAUSED. 6.8.1 exige que el
+  // operador pueda determinar CUALES estan inactivadas, no solo que "algo" lo
+  // esta, y 201.12.3.104 que cada alarma silenciada mantenga su indicacion
+  // visual. Con un booleano global eso es indistinguible.
+  const uint32_t silencedBitmask = alarm_machine_silenced_bitmask();
+
   // Derive probe state from skin temperature: >0.1°C means probe is physically connected
   int skinProbeState = (in3.temperature[SKIN_SENSOR] > 0.1f) ? SKIN_PROBE_VALID
                                                               : SKIN_PROBE_NOT_CONNECTED;
 
   snprintf(msg, sizeof(msg),
-           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d,%d,0x%X\n",
+           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d,%d,0x%X,0x%X\n",
            (int)g_last_cmd.actuation, (int)g_last_cmd.controlMode,
            (double)g_last_cmd.desiredAirTemperature,
            (double)g_last_cmd.desiredSkinTemperature,
@@ -323,7 +333,7 @@ static void send_state_to_hmi() {
            audioSilenced, ctrl_tel_msg.serialNumber, HW_NUM,
            HW_REVISION, FWversion, alarmCount, (int)g_last_cmd.skinModeEnabled,
            (int)ctrl_tel_msg.serverCommStatus, remainingTime, in3.language,
-           skinProbeState, alarmBitmask);
+           skinProbeState, alarmBitmask, silencedBitmask);
 
   ESP_LOGI(TAG, "Sending state to HMI: %s", msg);
   CommunicationHost_Send(msg);
@@ -655,6 +665,28 @@ void parse_line(const char *line) {
       // display la parsearia parcialmente. Se descarta con log, como el resto
       // del protocolo (.claude/rules/security.md).
       logE("[ALARM] historial no cabe en la linea, no se envia");
+    }
+    return;
+  }
+
+  // Silencio / cancelacion de silencio de UNA condicion.
+  //
+  // 6.8.1 permite que la inactivacion se aplique a una condicion individual y
+  // exige que no afecte a las demas, que es justo lo que hace
+  // alarm_machine_silence(). 6.8.4 exige poder TERMINAR cualquier estado de
+  // inactivacion: eso es on=0.
+  if (strncmp(line, "HMI,ALM_SILENCE,", 16) == 0) {
+    unsigned id = 0;
+    int on = 0;
+    if (sscanf(line + 16, "%u,%d", &id, &on) != 2 || id >= ALARM_COUNT) {
+      logE("[ALARM] ALM_SILENCE malformada, descartada");
+      return;
+    }
+    const uint32_t now = millis();
+    if (on) {
+      alarm_machine_silence((AlarmId)id, ALARM_AUDIO_PAUSE_MS, now);
+    } else {
+      alarm_machine_unsilence((AlarmId)id, now);
     }
     return;
   }

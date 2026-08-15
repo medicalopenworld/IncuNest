@@ -215,30 +215,77 @@ estado PENDING ya cuenta en `alarm_machine_bitmask()`, así que la condición es
 visible en el bitmask del protocolo desde el primer ciclo — el retardo solo
 aplaza el audio, no la señal visual.
 
-**Silenciado.** `alarm_machine_silence(id, duration_ms, now)` mueve una
-condición ACTIVE a SILENCED durante `duration_ms`; al expirar,
+**Silenciado (AUDIO PAUSED).** `alarm_machine_silence(id, duration_ms, now)`
+mueve una condición ACTIVE a SILENCED durante `duration_ms`; al expirar,
 `alarm_machine_tick()` la hace madurar de vuelta a ACTIVE
-(`alarm_machine.cpp:135-138`). El único punto del firmware que invoca esta
-función es `silenceActiveAlarmsFromDisplayMute()` (`security.cpp`), llamada
-desde `CommTask.cpp` (motherBoard) en el flanco de subida de
-`hmi_cmd_msg.muteAlarm` — el bit que llega en la trama periódica del display
-al pulsar su botón de silencio, la única interacción de operador que existe
-hoy (el encoder físico es de una revisión de hardware anterior y no se
-monta): silencia, una por una, **todas** las condiciones que en ese instante
-estén en ACTIVE, durante `ALARM_AUDIO_PAUSE_MS` = 120000 ms (2 min,
-`security.cpp:198`). Como el silencio actúa condición por condición y solo
-sobre las que ya están activas en el momento de la pulsación, una condición
-nueva que aparezca después de silenciar suena con normalidad — no hereda el
-silencio de las demás.
+(`alarm_machine.cpp`). Hay dos vías de operador, ambas en el display HMI:
 
-**Aceptación.** `alarm_machine_ack(id, now)` mueve una condición ACTIVE o
-SILENCED a ACKED de forma indefinida. Existe en la máquina de estados y tiene
-tests unitarios, pero **no hay ningún punto de la firmware de producción que
-la invoque** — ni el botón de silencio del display, ni el protocolo USB, ni
-la página `/config` llaman a `alarm_machine_ack()`. Hoy la única acción de
-operador disponible es
-el silencio temporal de 2 minutos descrito arriba; el estado ACKED es
-alcanzable solo desde tests.
+- **Por condición** — el botón SILENCIAR/REANUDAR de cada fila del centro de
+  alarmas, que manda `HMI,ALM_SILENCE,<id>,<on>`.
+- **Global** — el botón de la cabecera del centro de alarmas, que sigue usando
+  el flanco de subida de `hmi_cmd_msg.muteAlarm` y llega a
+  `silenceActiveAlarmsFromDisplayMute()` (`security.cpp`): silencia, una por
+  una, **todas** las condiciones que en ese instante estén en ACTIVE.
+
+En ambos casos la duración es `ALARM_AUDIO_PAUSE_MS` = **600000 ms (10 min)**,
+definida en `motherBoard/include/main.h`.
+
+> **Duración declarada (IEC 60601-1-8, 6.8.5).** La cláusula obliga a que la
+> duración del AUDIO PAUSED se declare en las instrucciones de uso. **Son 10
+> minutos.** El valor lo fija el fabricante: 60601-2-19 201.12.3.104 solo
+> exige que las alarmas silenciadas deliberadamente "reanuden automáticamente
+> su función normal dentro de un tiempo especificado por el FABRICANTE", sin
+> imponer un límite. (La cita a 60601-1-8 6.8.3 que aparecía antes en el
+> código era errónea: esa cláusula trata de los estados globales
+> *indefinidos* ALARM OFF / AUDIO OFF y no fija duración alguna.)
+>
+> **Interacción conocida:** 201.12.3.103 exige que el aviso de interrupción de
+> alimentación se mantenga un mínimo de 10 min — exactamente lo que dura esta
+> pausa. Silenciar esa alarma concreta consume prácticamente toda su duración
+> obligatoria. Se acepta porque la señal **visual** nunca se inactiva y el
+> operador puede terminar el silencio cuando quiera (6.8.4). Si el análisis de
+> riesgos lo revisa, el candidato es excluir `ALARM_MAINS_INTERRUPTION` del
+> silencio, no acortar la pausa general.
+
+Como el silencio actúa condición por condición y solo sobre las que ya están
+activas en el momento de la pulsación, una condición nueva que aparezca
+después de silenciar suena con normalidad — no hereda el silencio de las
+demás (6.8.1).
+
+**Cancelación del silencio (6.8.4).** `alarm_machine_unsilence(id, now)`
+devuelve una condición de SILENCED a ACTIVE sin esperar a que caduque el
+temporizador. Lo dispara `HMI,ALM_SILENCE,<id>,0` desde el botón REANUDAR de
+la fila. La cláusula lo exige literalmente: *"Means shall be provided for the
+OPERATOR to terminate any ALARM SIGNAL inactivation state"*.
+
+**Indicación del estado (6.8.1, 6.8.5, 201.12.3.104).** Qué condiciones están
+en AUDIO PAUSED viaja en `silencedBitmask` de `CTRL,STATE` — un bit por
+`AlarmId`, producido por `alarm_machine_silenced_bitmask()`. El display lo
+pinta en dos sitios:
+
+- **Icono por fila** en el centro de alarmas, junto al título, más el texto
+  "AUDIO EN PAUSA". Responde a 6.8.1, que exige poder determinar **cuáles**
+  están inactivadas, no solo que alguna lo esté.
+- **Icono permanente** en la esquina superior derecha de `lv_layer_top()`,
+  visible en todas las pantallas mientras haya alguna condición callada.
+  Responde a 201.12.3.104 ("las alarmas silenciadas deliberadamente mantendrán
+  indicación visual") y a la legibilidad a 1 m de 6.8.5.
+
+El icono es el símbolo **IEC 60417-5576** (campana con X) al que remite la
+Tabla 5, con la X **discontinua** que la propia norma describe para los
+estados temporizados. Se dibuja en LVGL (campana de la fuente + dos `lv_line`
+con estilo discontinuo). **Pendiente de la evaluación formal:** contrastar las
+proporciones del trazado contra la lámina original de la Tabla C.1.
+
+**Aceptación (ACKNOWLEDGED).** `alarm_machine_ack(id, now)` existe en la
+máquina de estados y tiene tests unitarios, pero **ningún punto del firmware
+de producción la invoca, y es deliberado**. 60601-1-8 la trata siempre como
+opcional (*"ACKNOWLEDGED, **if provided**"*) y 60601-2-19 no la pide. En una
+incubadora con siete condiciones de prioridad ALTA, un estado de inactivación
+indefinida permitiría callar para siempre un aviso con el paciente todavía en
+riesgo, justo lo contrario de lo que persigue 201.12.3.104. Si algún día tiene
+sentido, será para las condiciones *latching* que esperan reset manual — y ahí
+lo que falta es el **reset**, no el ACK.
 
 **Ráfaga mínima (6.10) y qué la cancela.** Una condición que se va antes de
 haber sonado lo suficiente sigue exigiendo audio hasta completar su ventana:
@@ -482,17 +529,20 @@ hace hoy, para no inducir a confiar en protecciones que no existen.
   se queda en **ACTIVE**, no en silencio de audio: **el zumbador sigue sonando
   indefinidamente**, con su patrón de prioridad ALTA, hasta que el equipo se
   reinicia por completo. Pulsar el botón de silencio del display solo compra
-  2 minutos — `ALARM_AUDIO_PAUSE_MS`—, tras los cuales `alarm_machine_tick()`
+  10 minutos — `ALARM_AUDIO_PAUSE_MS`—, tras los cuales `alarm_machine_tick()`
   devuelve la condición a ACTIVE y el audio se reanuda solo, y así
   indefinidamente. Es lo correcto según 201.15.4.2.1 aa)/bb) y 6.10 —la
   alarma debe operar de forma continua hasta un reset manual—, pero significa
   que la única forma de callar el equipo es apagarlo, con la incubadora aún
   en terapia. La consecuencia es peor que la de "quedarse señalizando en
   silencio": es un equipo que suena sin parar y sin vía de reset.
-- **No hay aceptación (ACK) indefinida accesible al operador.** `alarm_machine_ack()`
-  existe y tiene tests, pero no se invoca desde ningún punto de producción.
-  La única acción de operador disponible hoy es el silencio temporal de 2
-  minutos por botón de silencio del display (§4).
+- **No hay aceptación (ACK) indefinida accesible al operador — y es una
+  decisión, no una carencia.** `alarm_machine_ack()` existe y tiene tests,
+  pero no se invoca desde producción a propósito: la norma la trata siempre
+  como opcional y un estado de inactivación indefinida es indeseable en este
+  equipo. Ver §4 para el razonamiento completo. La acción de operador
+  disponible es el AUDIO PAUSED de 10 minutos, por condición o global, con su
+  cancelación (§4).
 - **Las alarmas no se distinguen por tono.** El patrón de ráfagas de la Tabla 3
   **sí** está implementado (§8), pero la componente tonal no: el
   tercer argumento de `buzzerTone()` es código muerto —`buzzerHandler()` nunca

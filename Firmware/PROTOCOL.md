@@ -19,7 +19,7 @@ Este documento describe el protocolo de comunicación serie utilizado entre la M
 
 #### CTRL,STATE
 Enviado cada 1 segundo o bajo petición (`HMI,REQ,STATE`).
-**Formato**: `CTRL,STATE,act,mode,airSet,skinSet,humSet,photo,mute,sn,hwNum,hwRev,fwVer,numAlarms,skinE,commStatus,photoTimeRem,lang,alarmBitmask`
+**Formato**: `CTRL,STATE,act,mode,airSet,skinSet,humSet,photo,mute,sn,hwNum,hwRev,fwVer,numAlarms,skinE,commStatus,photoTimeRem,lang,probeState,alarmBitmask,silencedBitmask`
 
 - `alarmBitmask`: (Hexadecimal, ej: `0x60`) Indica qué IDs de alarma están activos. Requerido para sincronización robusta.
 - `mute`: estado **real** del audio en la placa, no el eco del comando del HMI.
@@ -28,6 +28,14 @@ Enviado cada 1 segundo o bajo petición (`HMI,REQ,STATE`).
   con esto si enseña el botón de silencio. Tiene que venir de la placa porque
   la pausa caduca sola (60601-2-19 201.12.3.104) y el display necesita saber
   que el zumbador ha vuelto para volver a ofrecer el botón.
+- `silencedBitmask`: (Hexadecimal) un bit por `AlarmId` con las condiciones que
+  están en AUDIO PAUSED. 60601-1-8 6.8.1 exige que el operador pueda determinar
+  **cuáles** están inactivadas, no solo que alguna lo esté, y 60601-2-19
+  201.12.3.104 que cada alarma silenciada mantenga indicación visual. Campo
+  añadido después de `alarmBitmask`: una placa antigua que no lo mande hace que
+  el HMI asuma `0` (ninguna silenciada), que es el lado seguro — como mucho
+  ofrece silenciar algo que ya lo estaba, nunca oculta que una alarma sigue
+  callada.
 
 #### CTRL,TEL (Telemetría en tiempo real)
 Enviado cada 1 segundo (intercalado con STATE).
@@ -74,8 +82,16 @@ Enviado cada 1 segundo **solo** cuando el estado de sonda es `2`.
 
 #### CTRL,ALM (Evento de Alarma)
 Enviado cuando una alarma cambia de estado.
-**Formato**: `CTRL,ALM,id,short_text,long_text,active`
+**Formato**: `CTRL,ALM,id,short_text,long_text,active,priority`
 - `active`: `1` (Activa), `0` (Eliminada).
+- `priority`: `0`=BAJA, `1`=MEDIA, `2`=ALTA. La calcula **la motherBoard**; el
+  display no la deduce del texto ni la recalcula. Una segunda copia de la
+  política de prioridades en el HMI sería una fuente de verdad paralela
+  esperando a desincronizarse.
+- `short_text` se trunca a `ALARM_TITLE_MAX_CHARS` y `long_text` a
+  `ALARM_DESC_MAX_CHARS`; el HMI parsea con anchos derivados de esas mismas
+  macros. El campo `priority` es opcional en el parseo (se acepta la línea con
+  4 campos) para tolerar una placa antigua.
 
 #### CTRL,TIME (Reloj de pared)
 Enviado cada 10 segundos (y una vez al arrancar la tarea de comunicación).
@@ -247,6 +263,17 @@ Registro completo de alarmas (últimas 10).
 Descripción de una alarma concreta, para el pop-up de detalle.
 **Formato**: `HMI,ALM_DESC_REQ,id` → `CTRL,ALM_DESC`
 - `id` fuera de `[0, ALARM_COUNT)` se descarta con log en la motherBoard.
+
+#### HMI,ALM_SILENCE
+AUDIO PAUSED de **una** condición concreta.
+**Formato**: `HMI,ALM_SILENCE,id,on` (sin respuesta; el efecto se observa en
+`silencedBitmask` del siguiente `CTRL,STATE`)
+- `on=1`: silencia esa condición durante `ALARM_AUDIO_PAUSE_MS` (10 min).
+- `on=0`: **cancela** el silencio de inmediato. Lo exige 60601-1-8 6.8.4
+  (*"Means shall be provided for the OPERATOR to terminate any ALARM SIGNAL
+  inactivation state"*).
+- Silenciar una condición no afecta a las demás (6.8.1).
+- `id` fuera de rango o línea malformada: descarte con log.
 
 ### Validación (ambos sentidos)
 Toda línea `PROFILE_*`/`WEIGHT_HISTORY_*`/`ALM_*` malformada (número de campos
