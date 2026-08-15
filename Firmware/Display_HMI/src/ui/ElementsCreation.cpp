@@ -372,7 +372,7 @@ void ui_event_Settings(lv_event_t *e) {
   lv_event_code_t event_code = lv_event_get_code(e);
   if (event_code == LV_EVENT_CLICKED) {
     Settings_cb(e);
-    hmi_msg.shouldSendData = true;
+    // Sin envio de estado: entrar en ajustes no cambia nada de la trama.
   }
 }
 
@@ -430,7 +430,7 @@ void ui_event_ImgButton7(lv_event_t *e) {
   if (event_code == LV_EVENT_CLICKED) {
     _ui_screen_change(&ui_ScreenMain, LV_SCR_LOAD_ANIM_FADE_ON, ANIM_TIME_MS, 0,
                       &ui_ScreenMain_screen_init);
-    hmi_msg.shouldSendData = true;
+    // Sin envio de estado: volver atras no cambia nada de la trama.
   }
 }
 
@@ -455,7 +455,7 @@ void ui_event_ImgButton2(lv_event_t *e) {
   if (event_code == LV_EVENT_CLICKED) {
     _ui_screen_change(&ui_ScreenMain, LV_SCR_LOAD_ANIM_FADE_ON, ANIM_TIME_MS, 0,
                       &ui_ScreenMain_screen_init);
-    hmi_msg.shouldSendData = true;
+    // Sin envio de estado: volver atras no cambia nada de la trama.
   }
 }
 

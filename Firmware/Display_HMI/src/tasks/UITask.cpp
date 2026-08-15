@@ -2056,6 +2056,30 @@ static bool obj_is_control(lv_obj_t *o) {
   return o->spec_attr != NULL && o->spec_attr->event_dsc_cnt > 0;
 }
 
+// Teclas: fuera del chasquido. Al escribir se pulsa muchas veces seguidas y un
+// pitido por letra es ruido, no confirmacion.
+//
+// No basta con mirar lv_keyboard_class. El teclado del asistente de bebe es un
+// lv_btnmatrix a proposito, no un lv_keyboard (BabyWizard.cpp explica por que:
+// LVGL 8.3 guarda los keymaps en un global de fichero y lv_keyboard_set_map()
+// reescribiria el mapa de TODOS los teclados de la app). Filtrando solo por
+// lv_keyboard_class sonaba una tecla por letra.
+//
+// Excepcion: la matriz de botones interna de un lv_tabview son pestanas de
+// navegacion, no teclas, y esas si deben confirmar.
+static bool obj_is_keylike(lv_obj_t *o) {
+  for (; o != NULL; o = lv_obj_get_parent(o)) {
+    if (lv_obj_check_type(o, &lv_keyboard_class)) {
+      return true;
+    }
+    if (lv_obj_check_type(o, &lv_btnmatrix_class)) {
+      lv_obj_t *parent = lv_obj_get_parent(o);
+      return parent == NULL || !lv_obj_check_type(parent, &lv_tabview_class);
+    }
+  }
+  return false;
+}
+
 static void ui_click_feedback_cb(lv_indev_drv_t *drv, uint8_t event) {
   (void)drv;
   // PRESSED y no CLICKED: el chasquido tiene que salir cuando el dedo toca,
@@ -2067,14 +2091,8 @@ static void ui_click_feedback_cb(lv_indev_drv_t *drv, uint8_t event) {
   if (!obj || !obj_is_control(obj)) {
     return;
   }
-  // El teclado queda fuera por peticion expresa: al escribir se pulsa muchas
-  // veces seguidas y un pitido por tecla es ruido, no confirmacion. Se mira
-  // toda la cadena de padres porque quien recibe el evento es el boton de la
-  // tecla, no el widget teclado.
-  for (lv_obj_t *o = obj; o != NULL; o = lv_obj_get_parent(o)) {
-    if (lv_obj_check_type(o, &lv_keyboard_class)) {
-      return;
-    }
+  if (obj_is_keylike(obj)) {
+    return;
   }
   click_beep_start();
 }
