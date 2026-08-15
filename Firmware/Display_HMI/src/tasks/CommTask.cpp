@@ -461,7 +461,7 @@ static void parse_message(const char *line) {
       p = strchr(p, ',');
       if (!p) { ok = false; break; }
       p++;
-      unsigned id = 0, prio = 0;
+      unsigned id = 0, prio = 0, resolved = 0;
       unsigned long raised = 0, cleared = 0;
       int limitC = 0, valueC = 0;
       char title[ALARM_TITLE_MAX_CHARS + 1] = {0};
@@ -471,13 +471,14 @@ static void parse_message(const char *line) {
       // ahi que se comparen 7 campos y no 8.
       int consumed = 0;
       const int got =
-          sscanf(p, "%u,%u,%lu,%lu,%d,%d,%" ALM_STR(ALARM_TITLE_MAX_CHARS)
+          sscanf(p, "%u,%u,%u,%lu,%lu,%d,%d,%" ALM_STR(ALARM_TITLE_MAX_CHARS)
                     "[^,\n]%n",
-                 &id, &prio, &raised, &cleared, &limitC, &valueC, title,
-                 &consumed);
-      if (got != 7) { ok = false; break; }
+                 &id, &prio, &resolved, &raised, &cleared, &limitC, &valueC,
+                 title, &consumed);
+      if (got != 8) { ok = false; break; }
       parsed.items[i].id = (uint8_t)id;
       parsed.items[i].priority = (uint8_t)prio;
+      parsed.items[i].resolved = (resolved != 0);
       parsed.items[i].raisedEpoch = (uint32_t)raised;
       parsed.items[i].clearedEpoch = (uint32_t)cleared;
       parsed.items[i].limitCenti = (int16_t)limitC;

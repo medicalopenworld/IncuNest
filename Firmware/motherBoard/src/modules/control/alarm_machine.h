@@ -25,16 +25,17 @@ typedef enum {
 // tareas distintas y divergieron una vez ya (ALTA valia 1200 ms, que cortaba
 // el audio tras el CUARTO pulso de los cinco que exige 6.10).
 //
-//   ALARM_PULSE_MS = 150, ALARM_PULSE_GAP_MS = 150.
-//   Duracion hasta el final del pulso N = N*150 + (N-1)*150 = 300N - 150 ms.
-//   ALTA:  media rafaga = ALARM_BURST_PULSES_HIGH/2   = 5 pulsos -> 1350 ms.
-//   MEDIA: rafaga entera = ALARM_BURST_PULSES_MEDIUM  = 3 pulsos ->  750 ms.
+//   ALARM_PULSE_MS = 150, espaciado x = 100 (ALTA) e y = 200 (MEDIA).
+//   ALTA:  media rafaga = 5 pulsos -> 5*150 + 4*100 = 1150 ms.
+//   MEDIA: rafaga entera = 3 pulsos -> 3*150 + 2*200 =  850 ms.
 //
-// Los valores de abajo cubren esas duraciones con margen. Si cambia
-// ALARM_PULSE_MS, ALARM_PULSE_GAP_MS o el numero de pulsos por rafaga, hay que
-// rehacer esta cuenta.
-#define ALARM_MIN_BURST_MS_HIGH   1500u
-#define ALARM_MIN_BURST_MS_MEDIUM 1600u
+// Los valores de abajo cubren esas duraciones con margen. Ya divergieron una
+// vez (ALTA valia 1200 ms, que cortaba el audio tras el CUARTO pulso de los
+// cinco que exige 6.10), asi que desde entonces Buzzer.cpp lleva static_assert
+// que fallan la compilacion si el patron y estos numeros dejan de cuadrar:
+// no hace falta acordarse de rehacer la cuenta, la compilacion avisa.
+#define ALARM_MIN_BURST_MS_HIGH   1300u
+#define ALARM_MIN_BURST_MS_MEDIUM 1000u
 
 void alarm_machine_init(void);
 

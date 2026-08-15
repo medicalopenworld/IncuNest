@@ -25,6 +25,9 @@
 #include <Arduino.h>
 
 #include "main.h"
+// Para los static_assert que atan el patron de rafaga (main.h) con la rafaga
+// minima que exige 6.10 (ALARM_MIN_BURST_MS_*).
+#include "modules/control/alarm_machine.h"
 
 #define BUZZER_DISABLED false
 #define BUZZER_ENABLED true
@@ -87,10 +90,98 @@ void buzzerTone(int beepTimes, int timevTaskDelay, int freq)
 // tambien en el arranque dejaba el zumbador mudo hasta 30 s tras la primera
 // alarma, o 10 s de silencio justo al escalar a maxima prioridad (hallazgo
 // C-1 de la revision de la tarea 11).
+// --- Comprobacion EN COMPILACION de las ventanas de la Tabla 3 y la Tabla 4 ---
+//
+// Este es el unico fichero que ve a la vez las constantes del patron (main.h)
+// y las de la rafaga minima de 6.10 (alarm_machine.h). Verificarlas aqui es lo
+// que impide que vuelvan a divergir en silencio, como ya paso una vez.
+static_assert(ALARM_PULSE_SPACING_X_MS >= 50u && ALARM_PULSE_SPACING_X_MS <= 125u,
+              "Tabla 3: x debe estar entre 50 y 125 ms");
+static_assert(ALARM_PULSE_SPACING_Y_MS >= 125u && ALARM_PULSE_SPACING_Y_MS <= 250u,
+              "Tabla 3: y debe estar entre 125 y 250 ms");
+static_assert(ALARM_PULSE_MS >= 75u && ALARM_PULSE_MS <= 200u,
+              "Tabla 4: duracion de pulso de ALTA entre 75 y 200 ms");
+static_assert(ALARM_PULSE_MS >= 125u && ALARM_PULSE_MS <= 250u,
+              "Tabla 4: duracion de pulso de MEDIA/BAJA entre 125 y 250 ms");
+static_assert(ALARM_PULSE_RISE_MS * 10u >= ALARM_PULSE_MS &&
+                  ALARM_PULSE_RISE_MS * 10u <= ALARM_PULSE_MS * 4u,
+              "Tabla 4: RISE TIME entre el 10 % y el 40 % de la duracion del pulso");
+static_assert(ALARM_PULSE_RISE_MS + ALARM_PULSE_FALL_MS < ALARM_PULSE_MS,
+              "las rampas no pueden comerse el pulso entero");
+// Intervalo ENTRE rafagas = periodo - duracion de la rafaga.
+static_assert(ALARM_BURST_PERIOD_MS_HIGH >= ALARM_BURST_LEN_MS_HIGH + 2500u &&
+                  ALARM_BURST_PERIOD_MS_HIGH <= ALARM_BURST_LEN_MS_HIGH + 15000u,
+              "Tabla 3: intervalo entre rafagas de ALTA entre 2,5 s y 15 s");
+static_assert(ALARM_BURST_PERIOD_MS_MEDIUM >= ALARM_BURST_LEN_MS_MEDIUM + 2500u &&
+                  ALARM_BURST_PERIOD_MS_MEDIUM <= ALARM_BURST_LEN_MS_MEDIUM + 30000u,
+              "Tabla 3: intervalo entre rafagas de MEDIA entre 2,5 s y 30 s");
+static_assert(ALARM_BURST_PERIOD_MS_LOW > ALARM_PULSE_MS + 15000u,
+              "Tabla 3: intervalo entre rafagas de BAJA mayor que 15 s");
+// Orden entre prioridades que exige la Tabla 3.
+static_assert(ALARM_BURST_PERIOD_MS_MEDIUM - ALARM_BURST_LEN_MS_MEDIUM >=
+                  ALARM_BURST_PERIOD_MS_HIGH - ALARM_BURST_LEN_MS_HIGH,
+              "Tabla 3: el intervalo de MEDIA no puede ser menor que el de ALTA");
+static_assert(ALARM_BURST_PERIOD_MS_LOW - ALARM_PULSE_MS >=
+                  ALARM_BURST_PERIOD_MS_MEDIUM - ALARM_BURST_LEN_MS_MEDIUM,
+              "Tabla 3: el intervalo de BAJA no puede ser menor que el de MEDIA");
+static_assert(ALARM_PULSE_SPACING_Y_MS >= ALARM_PULSE_SPACING_X_MS,
+              "Tabla 3: MEDIA t+y debe ser mayor o igual que ALTA t+x");
+// 6.10: media rafaga en ALTA, rafaga entera en MEDIA.
+static_assert(ALARM_MIN_BURST_MS_HIGH >=
+                  (ALARM_BURST_PULSES_HIGH / 2u) * ALARM_PULSE_MS +
+                      (ALARM_BURST_PULSES_HIGH / 2u - 1u) * ALARM_PULSE_SPACING_X_MS,
+              "6.10: ALARM_MIN_BURST_MS_HIGH no cubre media rafaga");
+static_assert(ALARM_MIN_BURST_MS_MEDIUM >= ALARM_BURST_LEN_MS_MEDIUM,
+              "6.10: ALARM_MIN_BURST_MS_MEDIUM no cubre la rafaga entera");
+
+// Amplitud del pulso con sus rampas de subida y bajada (Tabla 4).
+//
+// La unica palanca de amplitud disponible es el ciclo de trabajo del PWM: el
+// zumbador es pasivo y se excita con una onda cuadrada de
+// BUZZER_PWM_FREQUENCY. Subir el duty de 0 al 50 % sube la energia entregada
+// y con ella el nivel acustico, que es lo que la norma llama RISE TIME.
+//
+// LIMITE HONESTO: variar el duty tambien cambia el contenido armonico, y el
+// tiempo de subida ACUSTICO real lo domina la respuesta mecanica del
+// transductor, no esta rampa. Esto acerca el pulso a la forma que pide la
+// Tabla 4, pero afirmar cumplimiento exige medirlo con microfono.
+static void writePulseAmplitude(uint32_t elapsedInPulse)
+{
+  const uint32_t peak = (uint32_t)BUZZER_HALF_PWM;
+  uint32_t duty = peak;
+  if (elapsedInPulse < ALARM_PULSE_RISE_MS)
+  {
+    duty = (peak * elapsedInPulse) / ALARM_PULSE_RISE_MS;
+  }
+  else if (elapsedInPulse + ALARM_PULSE_FALL_MS >= ALARM_PULSE_MS)
+  {
+    const uint32_t remain = ALARM_PULSE_MS - elapsedInPulse;
+    duty = (peak * remain) / ALARM_PULSE_FALL_MS;
+  }
+  ledcWrite(BUZZER_PWM_CHANNEL, duty);
+}
+
+// Hueco que sigue al pulso numero `pulsesDone` (1 = ya sono el primero).
+//
+// En ALTA, tras el pulso 5 el hueco vale 2x + y en vez de x: eso parte la
+// rafaga de diez en DOS GRUPOS DE CINCO, que es lo que hace reconocible el
+// patron de maxima prioridad (Tabla 3). En MEDIA el espaciado es y.
+static uint32_t gapAfterPulse(AlarmPriority priority, uint32_t pulsesDone,
+                              uint32_t burstPulses)
+{
+  if (priority == ALARM_PRIORITY_HIGH)
+  {
+    return (pulsesDone == burstPulses / 2u) ? ALARM_GROUP_GAP_MS
+                                            : ALARM_PULSE_SPACING_X_MS;
+  }
+  return ALARM_PULSE_SPACING_Y_MS;
+}
+
 void buzzerAlarmUpdate(bool audioRequired, AlarmPriority priority)
 {
   static uint32_t phaseStart = 0;
   static uint32_t pulsesLeft = 0;
+  static uint32_t pulsesDone = 0;
   static bool on = false;
   static bool wasAudioRequired = false;
   static AlarmPriority lastPriority = ALARM_PRIORITY_LOW;
@@ -103,6 +194,7 @@ void buzzerAlarmUpdate(bool audioRequired, AlarmPriority priority)
       on = false;
     }
     pulsesLeft = 0;
+    pulsesDone = 0;
     phaseStart = millis();
     wasAudioRequired = false;
     lastPriority = priority;
@@ -131,10 +223,11 @@ void buzzerAlarmUpdate(bool audioRequired, AlarmPriority priority)
   if (freshStart)
   {
     pulsesLeft = burstPulses;
+    pulsesDone = 0;
     phaseStart = now;
     on = true;
-    ledcWrite(BUZZER_PWM_CHANNEL, BUZZER_HALF_PWM);
-    return; // el primer pulso ya ha salido en este mismo ciclo
+    writePulseAmplitude(0);
+    return; // el primer pulso ya ha arrancado en este mismo ciclo
   }
 
   if (pulsesLeft == 0)
@@ -147,20 +240,35 @@ void buzzerAlarmUpdate(bool audioRequired, AlarmPriority priority)
       return;
     }
     pulsesLeft = burstPulses;
+    pulsesDone = 0;
     phaseStart = now;
     on = false;
   }
 
-  const uint32_t slot = on ? ALARM_PULSE_MS : ALARM_PULSE_GAP_MS;
-  if ((uint32_t)(now - phaseStart) < slot)
+  const uint32_t elapsed = (uint32_t)(now - phaseStart);
+
+  if (on)
+  {
+    if (elapsed < ALARM_PULSE_MS)
+    {
+      // Dentro del pulso la amplitud la gobierna la rampa, asi que el duty se
+      // reescribe en cada ciclo, no solo en los bordes.
+      writePulseAmplitude(elapsed);
+      return;
+    }
+    ledcWrite(BUZZER_PWM_CHANNEL, 0);
+    phaseStart = now;
+    on = false;
+    pulsesDone++;
+    pulsesLeft--;
+    return;
+  }
+
+  if (elapsed < gapAfterPulse(priority, pulsesDone, burstPulses))
   {
     return;
   }
   phaseStart = now;
-  on = !on;
-  ledcWrite(BUZZER_PWM_CHANNEL, on ? BUZZER_HALF_PWM : 0);
-  if (!on && pulsesLeft > 0)
-  {
-    pulsesLeft--;
-  }
+  on = true;
+  writePulseAmplitude(0);
 }

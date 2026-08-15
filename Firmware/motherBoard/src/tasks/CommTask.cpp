@@ -651,8 +651,9 @@ void parse_line(const char *line) {
         break;
       }
       off += snprintf(msg + off, sizeof(msg) - off,
-                      ",%u,%u,%lu,%lu,%d,%d,%.*s", (unsigned)e->id,
-                      (unsigned)e->priority, (unsigned long)e->raisedEpoch,
+                      ",%u,%u,%u,%lu,%lu,%d,%d,%.*s", (unsigned)e->id,
+                      (unsigned)e->priority, (unsigned)e->resolved,
+                      (unsigned long)e->raisedEpoch,
                       (unsigned long)e->clearedEpoch, (int)e->limitCenti,
                       (int)e->valueCenti, ALARM_TITLE_MAX_CHARS,
                       alarm_title_text((AlarmId)e->id, lang));

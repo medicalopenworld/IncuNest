@@ -35,6 +35,10 @@ int      s_retries = 0;
 uint8_t  s_detailId = 0;
 uint32_t s_activeSig = 0;  // conjunto de alarmas activas
 uint32_t s_viewSig = 0;    // todo lo que se pinta
+// Instante hasta el que se espera la confirmacion de un SILENCIAR/REANUDAR. Si
+// vence sin que cambie nada, se repinta igualmente para que el boton no se
+// quede en "..." de por vida cuando la orden se pierde.
+uint32_t s_silenceWaitUntilMs = 0;
 
 AlarmHistoryMsg s_hist = {0, {}};
 
@@ -274,15 +278,28 @@ Row s_histRows[10];
 void onRowSilenceTap(lv_event_t *e) {
   auto *r = (Row *)lv_event_get_user_data(e);
   if (!r) return;
-  // Se manda el comando y se deja que la placa conteste. No se toca el estado
-  // local: la duena del AUDIO PAUSED es la maquina de alarmas, que ademas lo
-  // caduca sola a los 10 min. Pintar aqui un estado adivinado seria una
-  // segunda version de la verdad que se desincroniza en cuanto caduque.
+  // Se manda el comando y se deja que la placa conteste. No se pinta el estado
+  // NUEVO adivinado: la duena del AUDIO PAUSED es la maquina de alarmas, que
+  // ademas lo caduca sola a los 10 min, y una version local se desincroniza en
+  // cuanto caduque.
   //
-  // La lista se repinta cuando llegue el silencedBitmask nuevo en CTRL,STATE,
-  // via la firma que compara AlarmCenter_Poll(). Ese rodeo es ademas lo que
-  // evita destruir este boton desde dentro de su propio callback.
+  // Lo que si se hace es acusar recibo al instante. El estado real tarda hasta
+  // un CTRL,STATE (1 s) en llegar, y sin esto el boton se quedaba idéntico y
+  // parecia que la pulsacion se habia perdido. Se desactiva y se marca en
+  // espera; no afirma haber silenciado, solo que la orden salio.
   Communication_SendAlarmSilence(r->id, !r->silenced);
+  s_silenceWaitUntilMs = millis() + RESP_TIMEOUT_MS;
+
+  lv_obj_t *btn = lv_event_get_target(e);
+  if (btn) {
+    lv_obj_add_state(btn, LV_STATE_DISABLED);
+    lv_obj_t *lbl = lv_obj_get_child(btn, 0);
+    if (lbl) {
+      lv_label_set_text(lbl, "...");
+    }
+  }
+  // El repintado de verdad llega por la firma en AlarmCenter_Poll(): ese rodeo
+  // es lo que evita destruir este boton desde dentro de su propio callback.
 }
 
 void onRowTap(lv_event_t *e) {
@@ -314,15 +331,17 @@ void showList() {
   lv_obj_set_size(close, 44, 44);
   lv_obj_align(close, LV_ALIGN_TOP_RIGHT, 0, 0);
 
-  // El silencio vive aqui porque este es ahora el destino de todas las vias de
-  // entrada a alarmas (banner, boton de la barra, badge del bloqueo y el check
-  // de "todo OK"). Solo aparece si hay algo que silenciar.
-  if (alarmActive && !alarmsMuted) {
-    lv_obj_t *mute = makeBtn(s_content, TXT("SILENCIAR", "SILENCE", "SILENCE"),
-                             onMuteClicked, lv_color_hex(0xE08800));
-    lv_obj_set_size(mute, 170, 44);
-    lv_obj_align(mute, LV_ALIGN_TOP_LEFT, 0, 0);
-  }
+  // AQUI NO HAY BOTON GLOBAL DE SILENCIO, y es deliberado.
+  //
+  // Hubo uno en la cabecera ademas del de cada fila. Sobraba por dos motivos.
+  // El de fondo: silenciaba todas las condiciones activas de golpe sin decir
+  // cuales, que es justo lo que 6.8.1 obliga a que el operador pueda
+  // determinar. El practico: creaba un segundo camino hacia el mismo estado
+  // —uno por hmi_msg.muteAlarm y otro por HMI,ALM_SILENCE— y dos caminos hacia
+  // el unico control que calla una alarma es exactamente la clase de duplicado
+  // que este proyecto ya ha pagado antes.
+  //
+  // El silencio se pide fila a fila, mas abajo.
 
   lv_obj_t *body = lv_obj_create(s_content);
   lv_obj_remove_style_all(body);
@@ -424,11 +443,16 @@ void showList() {
 
     lv_obj_t *card = lv_btn_create(body);
     lv_obj_set_size(card, 600, 76);
-    // El registro usa el tono plano del historial de bebes: son entradas
-    // pasadas, no señales activas, y no deben competir en atencion con las
-    // tarjetas de arriba.
-    lv_obj_set_style_bg_color(card, lv_color_hex(0xEDF3F9), LV_PART_MAIN);
-    lv_obj_set_style_border_color(card, cardBorder(r.priority), LV_PART_MAIN);
+    // Resuelta -> verde; sin resolver -> el tono plano del historial de bebes.
+    // El verde no es decoracion: es la respuesta a la unica pregunta que se le
+    // hace al registro de un vistazo, "esto sigue pasando o ya paso". El
+    // borde mantiene el color de PRIORIDAD, que es lo que la senal de alarma
+    // codifica por norma y no debe reescribirse aqui.
+    lv_obj_set_style_bg_color(
+        card, lv_color_hex(it.resolved ? 0xDFF5E1 : 0xEDF3F9), LV_PART_MAIN);
+    lv_obj_set_style_border_color(
+        card, it.resolved ? lv_color_hex(0x2E7D32) : cardBorder(r.priority),
+        LV_PART_MAIN);
     lv_obj_set_style_border_width(card, 2, LV_PART_MAIN);
     lv_obj_set_style_radius(card, 8, LV_PART_MAIN);
     lv_obj_set_style_bg_color(card, lv_color_hex(0xBBD9F7),
@@ -438,14 +462,18 @@ void showList() {
     char raised[24];
     fmtStamp(it.raisedEpoch, raised, sizeof(raised));
     char buf[192];
-    if (it.clearedEpoch == 0) {
+    if (!it.resolved) {
       snprintf(buf, sizeof(buf), "%s %s\n%s  -  %s", prioMark(r.priority),
                r.title, raised, TXT("sin resolver", "unresolved", "non resolue"));
     } else {
+      // Resuelta con hora conocida: inicio -> fin. Resuelta pero sin reloj
+      // sincronizado: se dice que se resolvio y no se inventa una hora.
       char cleared[24];
       fmtStamp(it.clearedEpoch, cleared, sizeof(cleared));
       snprintf(buf, sizeof(buf), "%s %s\n%s  ->  %s", prioMark(r.priority),
-               r.title, raised, cleared);
+               r.title, raised,
+               it.clearedEpoch ? cleared
+                               : TXT("resuelta", "resolved", "resolue"));
     }
     makeCardLabel(card, buf, 580);
   }
@@ -628,9 +656,19 @@ void AlarmCenter_Poll(void) {
       // y volver a entrar. Se compara una firma en vez de reconstruir en cada
       // pasada, que destruiria y recrearia las tarjetas 30 veces por segundo
       // y se comeria el toque del operador a media pulsacion.
+      // La orden de silencio se perdio o la placa no la atendio: se repinta
+      // para devolver el boton a su estado real en vez de dejarlo en "...".
+      if (s_silenceWaitUntilMs &&
+          (int32_t)(millis() - s_silenceWaitUntilMs) >= 0) {
+        s_silenceWaitUntilMs = 0;
+        showList();
+        break;
+      }
+
       const uint32_t sig = viewSignature();
       if (sig != s_viewSig) {
         s_viewSig = sig;
+        s_silenceWaitUntilMs = 0;  // la placa ha contestado
         // Si lo que cambio es el CONJUNTO de alarmas activas, el registro que
         // tenemos se ha quedado viejo: la que acaba de resolverse ya lleva
         // hora de fin en la placa, y una nueva ni siquiera esta en s_hist.

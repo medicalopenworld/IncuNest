@@ -28,8 +28,15 @@ extern "C" {
 typedef struct {
   uint8_t id;           // AlarmId de la condicion
   uint8_t priority;     // AlarmPriority en el momento de registrarla
+  // Si la condicion ya se resolvio. Es un campo PROPIO y no se deduce de
+  // clearedEpoch != 0, que es como estaba antes y estaba mal: sin hora
+  // sincronizada babyStore_nowEpoch() devuelve 0, asi que una alarma resuelta
+  // guardaba clearedEpoch = 0 y quedaba indistinguible de una que seguia
+  // viva. El equipo arranca sin NTP, o sea que el caso no era raro: era el
+  // normal en el banco.
+  uint8_t resolved;
   uint32_t raisedEpoch;   // hora Unix UTC del alta, 0 si no habia hora
-  uint32_t clearedEpoch;  // hora Unix UTC de la resolucion, 0 si sigue viva
+  uint32_t clearedEpoch;  // hora Unix UTC de la resolucion, 0 si no habia hora
   int16_t limitCenti;   // limite en vigor x100 (los cortes son ajustables)
   int16_t valueCenti;   // medida que la disparo x100
 } AlarmHistoryEntry;

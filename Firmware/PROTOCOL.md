@@ -156,12 +156,18 @@ Curva de evolución de peso, submuestreada a ≤50 puntos equiespaciados.
 #### CTRL,ALM_HISTORY (Respuesta a HMI,ALM_HISTORY_REQ)
 Registro de alarmas exigido por IEC 60601-1-8 6.12.2: las últimas 10
 condiciones, persistidas en NVS de la motherBoard.
-**Formato**: `CTRL,ALM_HISTORY,n{,id,prio,raisedEpoch,clearedEpoch,limitCenti,valueCenti,titulo}×n`
+**Formato**: `CTRL,ALM_HISTORY,n{,id,prio,resolved,raisedEpoch,clearedEpoch,limitCenti,valueCenti,titulo}×n`
 - `n`: 0..10. El HMI descarta la línea entera si `n` está fuera de rango o si
   alguna entrada viene incompleta — nunca pinta un registro clínico a medias.
 - `prio`: `0`=BAJA, `1`=MEDIA, `2`=ALTA.
+- `resolved`: `1` si la condición ya se resolvió. Es un campo **propio**, no se
+  deduce de `clearedEpoch != 0`: sin hora sincronizada la placa guarda
+  `clearedEpoch = 0` también al resolverse, y una alarma resuelta quedaba
+  indistinguible de una viva. El equipo arranca sin NTP, así que ese era el
+  caso normal, no el raro.
 - `raisedEpoch=0`: la placa no tenía hora sincronizada al registrarla.
-- `clearedEpoch=0`: la condición seguía activa al guardarse.
+- `clearedEpoch=0`: la placa no tenía hora al resolverla (mírese `resolved`
+  para saber si se resolvió).
 - `limitCenti`/`valueCenti`: límite en vigor y medida que la disparó, ×100;
   `0` cuando no aplica a esa condición.
 - El **título viaja resuelto y traducido** por la motherBoard, no el id: la

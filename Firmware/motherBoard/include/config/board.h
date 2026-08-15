@@ -171,7 +171,21 @@
 #define FAN_CTL_PWM_CHANNEL 6
 #define DEFAULT_PWM_RESOLUTION 8
 #define DEFAULT_PWM_FREQUENCY 400
-#define BUZZER_PWM_FREQUENCY DEFAULT_PWM_FREQUENCY
+// NO uses DEFAULT_PWM_FREQUENCY aqui: esa la comparten calefactor y
+// ventilador, y ajustarla por motivos de potencia cambiaria el tono del
+// zumbador y podria tumbar la Tabla 4 sin que nadie lo relacione.
+//
+// 400 Hz es una eleccion acustica, no electrica. El zumbador es pasivo y se
+// excita con una onda cuadrada, cuyo espectro son los armonicos impares:
+// 400, 1200, 2000, 2800 y 3600 Hz. Eso da CINCO picos dentro de la banda de
+// 150 a 4000 Hz (la Tabla 4 exige al menos cuatro) y deja el fundamental
+// dentro de 150 a 1000 Hz siendo ademas la componente de mayor nivel (la
+// Tabla 4 exige al menos una de las cuatro mayores en esa banda).
+//
+// Si algun dia se cambia, hay que rehacer esa cuenta: por encima de 1000 Hz
+// el fundamental se sale de la banda obligatoria, y por encima de ~800 Hz
+// quedan menos de cuatro armonicos por debajo de 4000 Hz.
+#define BUZZER_PWM_FREQUENCY 400
 #define PHOTOTHERAPY_PWM_FREQUENCY 10000
 #define HEATER_PWM_FREQUENCY DEFAULT_PWM_FREQUENCY
 #define FAN_PWM_FREQUENCY DEFAULT_PWM_FREQUENCY

@@ -7,7 +7,7 @@ namespace {
 // Sube si cambia el layout de AlarmHistoryEntry. Un blob con otra version se
 // descarta entero: leer registros clinicos con el paso equivocado es peor que
 // no tenerlos.
-const uint16_t kBlobVersion = 1;
+const uint16_t kBlobVersion = 2;  // v2: AlarmHistoryEntry gana `resolved`
 const uint16_t kBlobMagic = 0xA1A5;
 
 struct BlobHeader {
@@ -53,6 +53,7 @@ void alarm_history_record_raise(AlarmId id, uint8_t priority,
   AlarmHistoryEntry e;
   e.id = (uint8_t)id;
   e.priority = priority;
+  e.resolved = 0;
   e.raisedEpoch = nowEpoch;
   e.clearedEpoch = 0;
   e.limitCenti = limitCenti;
@@ -65,8 +66,9 @@ bool alarm_history_record_clear(AlarmId id, uint32_t nowEpoch) {
     // La mas reciente abierta de esa condicion. Recorrer de reciente a antigua
     // importa cuando la misma alarma ha saltado varias veces: la que se cierra
     // es la que sigue viva, no la primera que aparezca.
-    if (g_entries[i].id == (uint8_t)id && g_entries[i].clearedEpoch == 0) {
-      g_entries[i].clearedEpoch = nowEpoch;
+    if (g_entries[i].id == (uint8_t)id && !g_entries[i].resolved) {
+      g_entries[i].resolved = 1;
+      g_entries[i].clearedEpoch = nowEpoch;  // 0 si la placa no tenia hora
       return true;
     }
   }

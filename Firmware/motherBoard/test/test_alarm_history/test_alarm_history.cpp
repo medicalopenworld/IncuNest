@@ -45,6 +45,40 @@ void test_clear_seals_the_entry_without_consuming_a_slot(void) {
   TEST_ASSERT_EQUAL_UINT32(1500u, alarm_history_get(0)->clearedEpoch);
 }
 
+// Sin reloj sincronizado babyStore_nowEpoch() devuelve 0, que es el mismo
+// valor que tiene clearedEpoch en una entrada que sigue viva. Antes la
+// resolucion se deducia de clearedEpoch != 0, asi que una alarma resuelta con
+// el equipo sin hora quedaba marcada como "sin resolver" para siempre — el
+// caso NORMAL en el banco, no uno raro.
+void test_resolved_does_not_depend_on_having_a_clock(void) {
+  alarm_history_record_raise(ALARM_FAN_FAILURE, ALARM_PRIORITY_HIGH, 0, 0, 0);
+  TEST_ASSERT_FALSE(alarm_history_get(0)->resolved);
+  TEST_ASSERT_TRUE(alarm_history_record_clear(ALARM_FAN_FAILURE, 0));
+  TEST_ASSERT_TRUE(alarm_history_get(0)->resolved);
+  // La hora sigue sin conocerse, y eso se dice tal cual: no se inventa.
+  TEST_ASSERT_EQUAL_UINT32(0u, alarm_history_get(0)->clearedEpoch);
+  // Y ya sellada, no se puede volver a cerrar.
+  TEST_ASSERT_FALSE(alarm_history_record_clear(ALARM_FAN_FAILURE, 0));
+}
+
+// El flag sobrevive al viaje por NVS: si no, un reinicio devolveria todas las
+// entradas resueltas al estado "sin resolver".
+void test_resolved_survives_the_blob(void) {
+  alarm_history_record_raise(ALARM_FAN_FAILURE, ALARM_PRIORITY_HIGH, 0, 0, 0);
+  alarm_history_record_clear(ALARM_FAN_FAILURE, 0);
+  alarm_history_record_raise(ALARM_HEATER_FAULT, ALARM_PRIORITY_MEDIUM, 0, 0, 0);
+
+  uint8_t blob[512];
+  const size_t n = alarm_history_serialize(blob, sizeof(blob));
+  TEST_ASSERT_TRUE(n > 0);
+  alarm_history_init();
+  TEST_ASSERT_TRUE(alarm_history_deserialize(blob, n));
+
+  TEST_ASSERT_EQUAL_UINT32(2u, (uint32_t)alarm_history_count());
+  TEST_ASSERT_FALSE(alarm_history_get(0)->resolved);  // la del calefactor
+  TEST_ASSERT_TRUE(alarm_history_get(1)->resolved);   // la del ventilador
+}
+
 void test_clear_without_a_matching_raise_is_refused(void) {
   TEST_ASSERT_FALSE(alarm_history_record_clear(ALARM_FAN_FAILURE, 1500));
   alarm_history_record_raise(ALARM_FAN_FAILURE, ALARM_PRIORITY_HIGH, 1000, 0, 0);
@@ -157,6 +191,8 @@ int main(void) {
   RUN_TEST(test_records_a_raise);
   RUN_TEST(test_most_recent_comes_first);
   RUN_TEST(test_clear_seals_the_entry_without_consuming_a_slot);
+  RUN_TEST(test_resolved_does_not_depend_on_having_a_clock);
+  RUN_TEST(test_resolved_survives_the_blob);
   RUN_TEST(test_clear_without_a_matching_raise_is_refused);
   RUN_TEST(test_clear_seals_the_most_recent_open_entry);
   RUN_TEST(test_ring_wraps_at_capacity);

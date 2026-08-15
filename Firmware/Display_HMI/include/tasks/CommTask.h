@@ -218,8 +218,12 @@ struct BabyWeightHistoryMsg {
 struct AlarmHistoryItem {
   uint8_t  id;
   uint8_t  priority;
+  // Campo propio, NO deducible de clearedEpoch != 0: sin hora sincronizada la
+  // placa guarda clearedEpoch = 0 tambien al resolverse, y una alarma resuelta
+  // quedaba indistinguible de una viva.
+  bool     resolved;
   uint32_t raisedEpoch;   // 0 = la placa no tenia hora sincronizada
-  uint32_t clearedEpoch;  // 0 = seguia activa al guardarla
+  uint32_t clearedEpoch;  // 0 = la placa no tenia hora sincronizada
   int16_t  limitCenti;    // limite en vigor x100, 0 si no aplica
   int16_t  valueCenti;    // medida que la disparo x100, 0 si no aplica
   char     title[ALARM_TITLE_MAX_CHARS + 1];

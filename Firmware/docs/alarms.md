@@ -221,11 +221,15 @@ mueve una condición ACTIVE a SILENCED durante `duration_ms`; al expirar,
 (`alarm_machine.cpp`). Hay dos vías de operador, ambas en el display HMI:
 
 - **Por condición** — el botón SILENCIAR/REANUDAR de cada fila del centro de
-  alarmas, que manda `HMI,ALM_SILENCE,<id>,<on>`.
-- **Global** — el botón de la cabecera del centro de alarmas, que sigue usando
-  el flanco de subida de `hmi_cmd_msg.muteAlarm` y llega a
-  `silenceActiveAlarmsFromDisplayMute()` (`security.cpp`): silencia, una por
-  una, **todas** las condiciones que en ese instante estén en ACTIVE.
+  alarmas, que manda `HMI,ALM_SILENCE,<id>,<on>`. Es la única vía.
+No hay botón global de silencio, y es deliberado: llegó a haberlo en la
+cabecera del centro de alarmas y se retiró. Silenciaba todas las condiciones
+activas de golpe sin decir cuáles, que es justo lo que 6.8.1 obliga a que el
+operador pueda determinar, y creaba un segundo camino hacia el mismo estado
+—uno por `hmi_cmd_msg.muteAlarm` y otro por `HMI,ALM_SILENCE`— sobre el único
+control capaz de callar una alarma. `silenceActiveAlarmsFromDisplayMute()`
+sigue existiendo para el flanco de `muteAlarm`, pero ya no lo dispara ninguna
+interfaz.
 
 En ambos casos la duración es `ALARM_AUDIO_PAUSE_MS` = **600000 ms (10 min)**,
 definida en `motherBoard/include/main.h`.
@@ -289,8 +293,8 @@ lo que falta es el **reset**, no el ACK.
 
 **Ráfaga mínima (6.10) y qué la cancela.** Una condición que se va antes de
 haber sonado lo suficiente sigue exigiendo audio hasta completar su ventana:
-`ALARM_MIN_BURST_MS_HIGH` = 1500 ms (media ráfaga de ALTA) y
-`ALARM_MIN_BURST_MS_MEDIUM` = 1600 ms (ráfaga entera de MEDIA),
+`ALARM_MIN_BURST_MS_HIGH` = 1300 ms (media ráfaga de ALTA: 1150 ms reales) y
+`ALARM_MIN_BURST_MS_MEDIUM` = 1000 ms (ráfaga entera de MEDIA: 850 ms reales),
 `alarm_machine.h:36-37`. Ambas están atadas por comentario al patrón de pulsos
 de `main.h:242-249`, del que se derivan. La ventana se sella al pasar a ACTIVE
 (en `alarm_machine_condition()` o en `alarm_machine_tick()`) mediante un flag
@@ -494,19 +498,59 @@ una sola vez en el flanco, con un contador de 500 conmutaciones × 500 ms ≈ 25
 s—, y esa era una no conformidad con 6.10: **está cerrada**, y las constantes
 de aquel contador ya no existen en el árbol.
 
-**El patrón de ráfagas de la Tabla 3 está implementado**, con las constantes de
-`main.h:242-249`: pulsos de `ALARM_PULSE_MS` = 150 ms separados por
-`ALARM_PULSE_GAP_MS` = 150 ms, en ráfagas de `ALARM_BURST_PULSES_HIGH` = 10,
-`_MEDIUM` = 3 o `_LOW` = 1 pulsos según prioridad, y con un silencio entre
-ráfagas sucesivas de `ALARM_BURST_PERIOD_MS_HIGH` = 10 s, `_MEDIUM` = 25 s o
-`_LOW` = 30 s. El silencio entre ráfagas separa ráfagas **sucesivas** de un
-patrón que ya está sonando, nunca la primera: un cambio de prioridad, o el
-primer ciclo con audio exigido tras un silencio, arrancan la ráfaga en ese
-mismo ciclo (`freshStart`). Sin esa excepción el zumbador quedaría mudo hasta
-30 s tras la primera alarma.
+**El patrón de ráfaga y de pulso de las Tablas 3 y 4 está implementado**, con
+las constantes de `motherBoard/include/main.h`:
+
+| | ALTA | MEDIA | BAJA |
+|---|---|---|---|
+| Pulsos por ráfaga | 10 | 3 | 1 |
+| Duración del pulso | 150 ms | 150 ms | 150 ms |
+| Espaciado entre pulsos | `x` = 100 ms | `y` = 200 ms | — |
+| Hueco entre el 5.º y el 6.º | `2x + y` = 400 ms | — | — |
+| Duración de la ráfaga | 2700 ms | 850 ms | 150 ms |
+| Silencio entre ráfagas | 7300 ms | 24150 ms | 29850 ms |
+| Ventana de la Tabla 3 | 2,5–15 s ✔ | 2,5–30 s ✔ | > 15 s ✔ |
+
+El **hueco de `2x + y` tras el quinto pulso** parte la ráfaga de diez en dos
+grupos de cinco. No es estético: es lo que hace reconocible el patrón de
+prioridad ALTA frente a otro equipo de la misma sala. Sin él suena como un
+tren monótono de diez y deja de ser el patrón de la norma. (Lo estuvo: hasta
+la corrección de este apartado el motor usaba un hueco uniforme de 150 ms, que
+además se salía de la ventana `x` de 50–125 ms.)
+
+**Pulso (Tabla 4).** 150 ms cumple a la vez la ventana de ALTA (75–200 ms) y la
+de MEDIA/BAJA (125–250 ms), por eso hay un único valor. Las rampas de subida y
+bajada son de 30 ms, el 20 % de la duración del pulso, dentro del 10–40 % que
+pide la norma; se generan variando el ciclo de trabajo del PWM, única palanca
+de amplitud que hay sobre un zumbador pasivo.
+
+**Espectro (Tabla 4).** `BUZZER_PWM_FREQUENCY` = 400 Hz. La onda cuadrada da
+armónicos impares en 400, 1200, 2000, 2800 y 3600 Hz: cinco picos dentro de la
+banda de 150–4000 Hz (se exigen al menos cuatro) y el fundamental dentro de
+150–1000 Hz siendo además la componente de mayor nivel. La constante está
+**desacoplada** de `DEFAULT_PWM_FREQUENCY` a propósito: esa la comparten
+calefactor y ventilador, y tocarla por motivos de potencia cambiaría el tono
+del zumbador sin que nadie lo relacione.
+
+El silencio entre ráfagas separa ráfagas **sucesivas** de un patrón que ya está
+sonando, nunca la primera: un cambio de prioridad, o el primer ciclo con audio
+exigido tras un silencio, arrancan la ráfaga en ese mismo ciclo (`freshStart`).
+Sin esa excepción el zumbador quedaría mudo hasta 30 s tras la primera alarma.
 
 Las duraciones de ráfaga mínima de 6.10 (§4) se derivan de estas mismas
-constantes y están atadas a ellas por comentario en ambos ficheros.
+constantes, y desde la corrección de este apartado ya no dependen de que
+alguien recuerde rehacer la cuenta: `Buzzer.cpp` lleva `static_assert` que
+comprueban en compilación todas las ventanas de las Tablas 3 y 4 y que
+`ALARM_MIN_BURST_MS_HIGH`/`_MEDIUM` siguen cubriendo media ráfaga y ráfaga
+entera. Si el patrón cambia y deja de cuadrar, la compilación falla.
+
+> **Pendiente de medida acústica.** Lo anterior es cierto en la señal
+> eléctrica. El tiempo de subida *acústico* real lo domina la respuesta
+> mecánica del transductor, no la rampa de PWM, y la recomendación de la Tabla
+> 4 de que las cuatro componentes mayores queden dentro de 15 dB entre sí
+> depende de la respuesta del zumbador. Afirmar cumplimiento de esos dos
+> puntos exige medirlos con micrófono; los niveles de presión sonora siguen
+> igualmente pendientes (§9).
 
 ## 9. Qué NO está implementado todavía
 
@@ -543,13 +587,19 @@ hace hoy, para no inducir a confiar en protecciones que no existen.
   equipo. Ver §4 para el razonamiento completo. La acción de operador
   disponible es el AUDIO PAUSED de 10 minutos, por condición o global, con su
   cancelación (§4).
-- **Las alarmas no se distinguen por tono.** El patrón de ráfagas de la Tabla 3
-  **sí** está implementado (§8), pero la componente tonal no: el
-  tercer argumento de `buzzerTone()` es código muerto —`buzzerHandler()` nunca
-  lo usa—, y la frecuencia real queda fijada una vez en el arranque por
-  `ledcSetup(BUZZER_PWM_CHANNEL, BUZZER_PWM_FREQUENCY, ...)`
-  (`initHardware.cpp:228`). Tampoco hay armónicos ni las relaciones de
-  intensidad que la Tabla 3 sugiere entre pulsos.
+- **Las prioridades se distinguen por ritmo, no por tono.** Y eso **cumple**:
+  ni la Tabla 3 ni la Tabla 4 exigen tonos distintos por prioridad — lo que
+  distingue ALTA de MEDIA es el número de pulsos, el espaciado y el intervalo
+  entre ráfagas, y todo eso está implementado (§8). La frecuencia queda fijada
+  en el arranque por `ledcSetup(BUZZER_PWM_CHANNEL, BUZZER_PWM_FREQUENCY, ...)`
+  y el tercer argumento de `buzzerTone()` sigue siendo código muerto, pero eso
+  ya no es una carencia normativa. *(Una versión anterior de este documento
+  afirmaba además que "tampoco hay armónicos": era falso. La onda cuadrada de
+  400 Hz tiene armónicos impares en 400/1200/2000/2800/3600 Hz, que es
+  justamente lo que satisface los cuatro picos que pide la Tabla 4.)*
+- **Lo que sí queda pendiente del audio es acústico, no de firmware**: el
+  tiempo de subida real, la relación de 15 dB entre las cuatro componentes
+  mayores y los niveles de presión sonora. Los tres exigen micrófono.
 - **Detección de cortocircuito en la sonda de piel: no implementada.** El
   detector de fallo (`checkStatusOfSensor()`) es un timeout de 20 s de
   `lastSuccesfullSensorUpdate`, que cubre desconexión y circuito abierto pero

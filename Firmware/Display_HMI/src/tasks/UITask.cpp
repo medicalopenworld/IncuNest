@@ -1997,6 +1997,55 @@ void alarm_banner_init(void) {
                              LV_PART_MAIN);
 }
 
+// --- Chasquido de confirmacion al pulsar ---------------------------------
+//
+// Se engancha al feedback_cb del driver de entrada de LVGL, que es el punto
+// que la propia libreria reserva para esto: se dispara con CUALQUIER pulsacion
+// sobre CUALQUIER control, sin tener que acordarse de anadir la llamada en
+// cada callback nuevo. Un `beep()` repartido por los cincuenta manejadores de
+// este fichero se olvida en el cincuenta y uno.
+//
+// NO BLOQUEANTE a proposito. hmi_audio_module_beep() existe pero hace
+// delay(): llamarlo desde aqui congelaria el despacho de eventos de LVGL
+// durante todo el pitido. Aqui se enciende y se apaga desde el bucle de UI.
+#define CLICK_BEEP_MS 25u
+static uint32_t s_clickBeepUntilMs = 0;
+
+static void click_beep_start(void) {
+  buzzerOn();
+  s_clickBeepUntilMs = millis() + CLICK_BEEP_MS;
+}
+
+static void click_beep_service(void) {
+  if (s_clickBeepUntilMs && (int32_t)(millis() - s_clickBeepUntilMs) >= 0) {
+    buzzerOff();
+    s_clickBeepUntilMs = 0;
+  }
+}
+
+static void ui_click_feedback_cb(lv_indev_drv_t *drv, uint8_t event) {
+  (void)drv;
+  // PRESSED y no CLICKED: el chasquido tiene que salir cuando el dedo toca,
+  // no al levantarlo. Con CLICKED se percibe como retardo del equipo.
+  if (event != LV_EVENT_PRESSED) {
+    return;
+  }
+  lv_obj_t *obj = lv_indev_get_obj_act();
+  if (!obj || !lv_obj_has_flag(obj, LV_OBJ_FLAG_CLICKABLE)) {
+    return;  // tocar un panel o el fondo no es pulsar un control
+  }
+  // El teclado queda fuera por peticion expresa: al escribir se pulsa muchas
+  // veces seguidas y un pitido por tecla es ruido, no confirmacion. Se mira
+  // toda la cadena de padres porque quien recibe el evento es el boton de la
+  // tecla, no el widget teclado.
+  for (lv_obj_t *o = obj; o != NULL; o = lv_obj_get_parent(o)) {
+    if (lv_obj_check_type(o, &lv_keyboard_class)) {
+      return;
+    }
+  }
+  click_beep_start();
+}
+
 // Indicador permanente de AUDIO PAUSED, en lv_layer_top() para que sobreviva a
 // los lv_scr_load() y se vea en TODAS las pantallas.
 //
@@ -3263,6 +3312,8 @@ void UI_Task(void *pvParameters) {
   indev_drv.type = LV_INDEV_TYPE_POINTER;
   indev_drv.read_cb = my_touchpad_read;
   indev_drv.long_press_time = LOCK_PROGRESS_DURATION_MS;
+  // Chasquido de confirmacion en cualquier control, teclado excluido.
+  indev_drv.feedback_cb = ui_click_feedback_cb;
   lv_indev_drv_register(&indev_drv);
 
   ui_init();
@@ -3879,6 +3930,9 @@ void UI_Task(void *pvParameters) {
     // Se reevalua en cada pasada por lo mismo, y ademas depende de
     // silencedBitmask, que llega con CTRL,STATE y caduca solo en la placa.
     audio_paused_icon_update();
+    // Apaga el chasquido de la ultima pulsacion cuando le toca. Va aqui, y no
+    // con un delay() dentro del callback, para no congelar LVGL.
+    click_beep_service();
     // Baby-exit dialog: only the transition to a fully idle incubator
     // (no temperature, no humidity, no phototherapy) means the baby
     // actually came out; dropping one therapy among several does not.
