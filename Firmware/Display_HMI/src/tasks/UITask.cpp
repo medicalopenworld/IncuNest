@@ -2037,20 +2037,24 @@ void alarm_banner_update(void) {
     return;
   }
 
-  // Arriba en el bloqueo, abajo en el resto. En la pantalla de bloqueo la
-  // franja superior esta libre y es donde el equipo pasa la mayor parte del
-  // tiempo por el autolock, asi que la senal se lleva la posicion buena justo
-  // donde mas se ve. En las demas, la barra de navegacion de ui_ScreenMain
-  // arranca a 27 px del borde y un banner arriba la taparia entera —
-  // incluido ui_AlarmButton, que es la unica via a la pantalla donde vive el
-  // boton de silencio. La norma pide legibilidad a 1 m, no una posicion
-  // concreta, asi que abajo cumple igual.
+  // SOLO en la pantalla de bloqueo, en la franja superior. Es donde el equipo
+  // pasa la mayor parte del tiempo por el autolock, asi que la senal se lleva
+  // la posicion buena justo donde mas se ve, y ahi arriba no tapa nada.
+  //
+  // En el resto de pantallas el banner ya no se pinta: en ellas hay alguien
+  // delante operando, con el icono de alarmas de la barra a la vista, y una
+  // franja fija en el borde inferior estorbaba mas de lo que avisaba.
   //
   // Se reevalua en cada pasada y no al cambiar de pantalla: el banner cuelga
   // de lv_layer_top(), que no se entera de los lv_scr_load().
   const bool onLockScreen = (ui_ScreenLock && lv_scr_act() == ui_ScreenLock);
-  lv_obj_set_align(s_alarmBanner,
-                   onLockScreen ? LV_ALIGN_TOP_MID : LV_ALIGN_BOTTOM_MID);
+  if (!onLockScreen) {
+    lv_anim_del(s_alarmBanner, banner_blink_cb);
+    lv_obj_add_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN);
+    s_bannerPriority = -1;
+    return;
+  }
+  lv_obj_set_align(s_alarmBanner, LV_ALIGN_TOP_MID);
 
   lv_label_set_text(s_alarmBannerLabel, alarmList[topIdx].type);
   lv_obj_clear_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN);
