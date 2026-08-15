@@ -25,20 +25,30 @@
 #include <Arduino.h>
 
 #include "main.h"
+#include "alarm_text.h"
 #include "modules/control/alarm_machine.h"
 #include "modules/control/alarm_window.h"
 
 static const char *TAG __attribute__((unused)) = "SECURITY";
 extern SemaphoreHandle_t log_mutex;
 
-// Pending alarm queue for HMI connection
+// Cola de eventos de alarma para cuando el display no esta conectado.
+//
+// Dimensionada por ALARM_COUNT y no por un numero fijo: resendActiveAlarms()
+// puede empujar una linea por cada una de las 16 condiciones de una sola vez,
+// y con una cola de 10 las 6 ultimas se perdian en silencio — sin reintento,
+// sin log de descarte y sin mas resincronizacion que el siguiente cambio de
+// bitmask. La cola cabe entera por construccion, asi que ya no hay descarte
+// posible en ese camino.
 struct PendingAlarm
 {
-  char message[128];
+  char message[ALARM_LINE_BUF_SIZE];
   bool valid;
 };
 
-static PendingAlarm pending_alarms[10];
+#define PENDING_ALARM_QUEUE_LEN ALARM_COUNT
+
+static PendingAlarm pending_alarms[PENDING_ALARM_QUEUE_LEN];
 static int pending_alarm_count = 0;
 static bool hmi_connected = false;
 
@@ -441,118 +451,20 @@ bool ongoingFanCriticalAlarm()
           (alarmSignalling(ALARM_HEATER_FAULT) && !in3.fanHasSpeedFeedback));
 }
 
-// Textos por condicion. Sin acentos ni caracteres fuera de ASCII: las fuentes
-// del display no los tienen y saldrian como basura justo cuando mas importa
-// leerlos. Cortos y accionables para personal clinico, no diagnosticos.
+// Los textos de operador (titulo y linea de accion) viven en
+// shared/src/alarm_text.cpp: tienen que caber en los campos de la linea
+// CTRL,ALM o el display descarta la linea entera, y solo desde shared/ son
+// alcanzables por el test nativo que fija ese limite (test_alarm_text).
+// Este envoltorio existe solo porque el resto del firmware ya llamaba a
+// alarmIDtoString() con un byte y esperaba un char*.
 char *alarmIDtoString(byte alarmID)
 {
-  const byte lang = in3.language; // or hmi_cmd_msg.language
-  switch (alarmID)
-  {
-  case ALARM_AIR_THERMAL_CUTOUT:
-    if (lang == SPANISH)
-      return (char *)("CORTE TERMICO AIRE");
-    if (lang == FRENCH)
-      return (char *)("COUPURE THERMIQUE AIR");
-    return (char *)("AIR THERMAL CUTOUT");
-  case ALARM_SKIN_THERMAL_CUTOUT:
-    if (lang == SPANISH)
-      return (char *)("CORTE TERMICO PIEL");
-    if (lang == FRENCH)
-      return (char *)("COUPURE THERMIQUE PEAU");
-    return (char *)("SKIN THERMAL CUTOUT");
-  case ALARM_AIR_SENSOR_FAULT:
-    if (lang == SPANISH)
-      return (char *)("FALLO SENSOR AIRE");
-    if (lang == FRENCH)
-      return (char *)("PANNE CAPTEUR AIR");
-    return (char *)("AIR SENSOR FAULT");
-  case ALARM_SKIN_SENSOR_FAULT_SKIN_MODE:
-    if (lang == SPANISH)
-      return (char *)("FALLO SONDA PIEL");
-    if (lang == FRENCH)
-      return (char *)("PANNE SONDE PEAU");
-    return (char *)("SKIN PROBE FAULT");
-  case ALARM_FAN_FAILURE:
-    if (lang == SPANISH)
-      return (char *)("FALLO VENTILADOR");
-    if (lang == FRENCH)
-      return (char *)("PANNE VENTILATEUR");
-    return (char *)("FAN FAILURE");
-  case ALARM_AIR_OUTLET_BLOCKED:
-    if (lang == SPANISH)
-      return (char *)("SALIDA DE AIRE OBSTRUIDA");
-    if (lang == FRENCH)
-      return (char *)("SORTIE D'AIR OBSTRUEE");
-    return (char *)("AIR OUTLET BLOCKED");
-  case ALARM_MAINS_INTERRUPTION:
-    if (lang == SPANISH)
-      return (char *)("CORTE DE RED");
-    if (lang == FRENCH)
-      return (char *)("COUPURE SECTEUR");
-    return (char *)("MAINS INTERRUPTION");
-  case ALARM_AIR_TEMP_DEVIATION_HIGH:
-    if (lang == SPANISH)
-      return (char *)("TEMP AIRE ALTA");
-    if (lang == FRENCH)
-      return (char *)("TEMP AIR ELEVEE");
-    return (char *)("AIR TEMP HIGH");
-  case ALARM_AIR_TEMP_DEVIATION_LOW:
-    if (lang == SPANISH)
-      return (char *)("TEMP AIRE BAJA");
-    if (lang == FRENCH)
-      return (char *)("TEMP AIR BASSE");
-    return (char *)("AIR TEMP LOW");
-  case ALARM_SKIN_TEMP_DEVIATION_HIGH:
-    if (lang == SPANISH)
-      return (char *)("TEMP PIEL ALTA");
-    if (lang == FRENCH)
-      return (char *)("TEMP PEAU ELEVEE");
-    return (char *)("SKIN TEMP HIGH");
-  case ALARM_SKIN_TEMP_DEVIATION_LOW:
-    if (lang == SPANISH)
-      return (char *)("TEMP PIEL BAJA");
-    if (lang == FRENCH)
-      return (char *)("TEMP PEAU BASSE");
-    return (char *)("SKIN TEMP LOW");
-  case ALARM_HEATER_FAULT:
-    if (lang == SPANISH)
-      return (char *)("FALLO CALENTADOR");
-    if (lang == FRENCH)
-      return (char *)("PANNE CHAUFFAGE");
-    return (char *)("HEATER FAULT");
-  case ALARM_SUPPLY_UNDERVOLTAGE:
-    if (lang == SPANISH)
-      return (char *)("TENSION BAJA");
-    if (lang == FRENCH)
-      return (char *)("TENSION BASSE");
-    return (char *)("SUPPLY UNDERVOLTAGE");
-  case ALARM_HMI_LINK_LOST:
-    if (lang == SPANISH)
-      return (char *)("SIN ENLACE PANTALLA");
-    if (lang == FRENCH)
-      return (char *)("LIAISON ECRAN PERDUE");
-    return (char *)("DISPLAY LINK LOST");
-  case ALARM_SKIN_SENSOR_FAULT_AIR_MODE:
-    if (lang == SPANISH)
-      return (char *)("SONDA PIEL NO VALIDA");
-    if (lang == FRENCH)
-      return (char *)("SONDE PEAU INVALIDE");
-    return (char *)("SKIN PROBE UNUSABLE");
-  case ALARM_HUMIDITY_DEVIATION:
-    if (lang == SPANISH)
-      return (char *)("DESVIACION HUMEDAD");
-    if (lang == FRENCH)
-      return (char *)("ECART HUMIDITE");
-    return (char *)("HUMIDITY DEVIATION");
-  default:
-    return (char *)("ALARM");
-  }
+  return (char *)alarm_title_text((AlarmId)alarmID, (Language)in3.language);
 }
 
 void sendPendingAlarms()
 {
-  for (int i = 0; i < pending_alarm_count && i < 10; i++)
+  for (int i = 0; i < pending_alarm_count && i < PENDING_ALARM_QUEUE_LEN; i++)
   {
     if (pending_alarms[i].valid)
     {
@@ -595,144 +507,15 @@ void setHMIConnected(bool connected)
 
 void sendAlarmUSB(byte alarmID, bool isActive)
 {
-  char msg[128];
-  const char *title = "ALARM";
-  const char *desc = "alarm";
+  char msg[ALARM_LINE_BUF_SIZE];
+  const Language lang = (Language)in3.language;
 
-  byte lang = in3.language;
-
-  // El titulo lo produce alarmIDtoString() para no mantener dos tablas de
-  // textos en paralelo; aqui solo vive la linea de accion, que dice al
-  // personal clinico QUE HACER, no que ha pasado. Solo ASCII: las fuentes del
-  // display no tienen acentos.
-  title = alarmIDtoString(alarmID);
-
-  switch (alarmID)
-  {
-  case ALARM_AIR_THERMAL_CUTOUT:
-  case ALARM_SKIN_THERMAL_CUTOUT:
-    if (lang == SPANISH)
-      desc = "CALEFACTOR CORTADO - REVISAR AL BEBE";
-    else if (lang == FRENCH)
-      desc = "CHAUFFAGE COUPE - VERIFIER LE BEBE";
-    else
-      desc = "HEATER CUT - CHECK THE BABY";
-    break;
-  case ALARM_AIR_SENSOR_FAULT:
-    if (lang == SPANISH)
-      desc = "SIN MEDIDA DE AIRE - CONTROL DETENIDO";
-    else if (lang == FRENCH)
-      desc = "PAS DE MESURE D AIR - CONTROLE ARRETE";
-    else
-      desc = "NO AIR READING - CONTROL STOPPED";
-    break;
-  case ALARM_SKIN_SENSOR_FAULT_SKIN_MODE:
-    if (lang == SPANISH)
-      desc = "REVISAR SONDA O PASAR A MODO AIRE";
-    else if (lang == FRENCH)
-      desc = "VERIFIER LA SONDE OU PASSER EN MODE AIR";
-    else
-      desc = "CHECK PROBE OR SWITCH TO AIR MODE";
-    break;
-  case ALARM_FAN_FAILURE:
-    if (lang == SPANISH)
-      desc = "SIN CIRCULACION DE AIRE - REVISAR EQUIPO";
-    else if (lang == FRENCH)
-      desc = "PAS DE CIRCULATION D AIR - VERIFIER";
-    else
-      desc = "NO AIR CIRCULATION - SERVICE UNIT";
-    break;
-  case ALARM_AIR_OUTLET_BLOCKED:
-    if (lang == SPANISH)
-      desc = "DESPEJAR LA SALIDA DE AIRE";
-    else if (lang == FRENCH)
-      desc = "DEGAGER LA SORTIE D AIR";
-    else
-      desc = "CLEAR THE AIR OUTLET";
-    break;
-  case ALARM_MAINS_INTERRUPTION:
-    if (lang == SPANISH)
-      desc = "REVISAR LA CONEXION A LA RED";
-    else if (lang == FRENCH)
-      desc = "VERIFIER LE RACCORDEMENT SECTEUR";
-    else
-      desc = "CHECK THE MAINS CONNECTION";
-    break;
-  case ALARM_AIR_TEMP_DEVIATION_HIGH:
-    if (lang == SPANISH)
-      desc = "AIRE MAS DE 3 C SOBRE LA CONSIGNA";
-    else if (lang == FRENCH)
-      desc = "AIR A PLUS DE 3 C AU DESSUS DE LA CONSIGNE";
-    else
-      desc = "AIR OVER 3 C ABOVE SETPOINT";
-    break;
-  case ALARM_AIR_TEMP_DEVIATION_LOW:
-    if (lang == SPANISH)
-      desc = "AIRE MAS DE 3 C BAJO LA CONSIGNA";
-    else if (lang == FRENCH)
-      desc = "AIR A PLUS DE 3 C SOUS LA CONSIGNE";
-    else
-      desc = "AIR OVER 3 C BELOW SETPOINT";
-    break;
-  case ALARM_SKIN_TEMP_DEVIATION_HIGH:
-    if (lang == SPANISH)
-      desc = "PIEL MAS DE 1 C SOBRE LA CONSIGNA";
-    else if (lang == FRENCH)
-      desc = "PEAU A PLUS DE 1 C AU DESSUS DE LA CONSIGNE";
-    else
-      desc = "SKIN OVER 1 C ABOVE SETPOINT";
-    break;
-  case ALARM_SKIN_TEMP_DEVIATION_LOW:
-    if (lang == SPANISH)
-      desc = "PIEL MAS DE 1 C BAJO LA CONSIGNA";
-    else if (lang == FRENCH)
-      desc = "PEAU A PLUS DE 1 C SOUS LA CONSIGNE";
-    else
-      desc = "SKIN OVER 1 C BELOW SETPOINT";
-    break;
-  case ALARM_HEATER_FAULT:
-    if (lang == SPANISH)
-      desc = "EL EQUIPO NO CALIENTA - REVISAR EQUIPO";
-    else if (lang == FRENCH)
-      desc = "L APPAREIL NE CHAUFFE PAS - VERIFIER";
-    else
-      desc = "UNIT NOT HEATING - SERVICE UNIT";
-    break;
-  case ALARM_SUPPLY_UNDERVOLTAGE:
-    if (lang == SPANISH)
-      desc = "REVISAR FUENTE Y CABLEADO";
-    else if (lang == FRENCH)
-      desc = "VERIFIER L ALIMENTATION ET LE CABLAGE";
-    else
-      desc = "CHECK SUPPLY AND WIRING";
-    break;
-  case ALARM_HMI_LINK_LOST:
-    if (lang == SPANISH)
-      desc = "DATOS NO FIABLES - REVISAR AL BEBE";
-    else if (lang == FRENCH)
-      desc = "DONNEES NON FIABLES - VERIFIER LE BEBE";
-    else
-      desc = "DATA UNRELIABLE - CHECK THE BABY";
-    break;
-  case ALARM_SKIN_SENSOR_FAULT_AIR_MODE:
-    if (lang == SPANISH)
-      desc = "SIN TEMP DE PIEL - MODO AIRE ACTIVO";
-    else if (lang == FRENCH)
-      desc = "PAS DE TEMP PEAU - MODE AIR ACTIF";
-    else
-      desc = "NO SKIN TEMP - AIR MODE ACTIVE";
-    break;
-  case ALARM_HUMIDITY_DEVIATION:
-    if (lang == SPANISH)
-      desc = "REVISAR DEPOSITO DE AGUA";
-    else if (lang == FRENCH)
-      desc = "VERIFIER LE RESERVOIR D EAU";
-    else
-      desc = "CHECK THE WATER TANK";
-    break;
-  default:
-    break;
-  }
+  // Titulo y linea de accion salen de la misma tabla que el resto del sistema
+  // (shared/src/alarm_text.cpp). El titulo dice QUE ha pasado y la linea de
+  // accion QUE HACER; ambas caben en los campos del protocolo por
+  // construccion, y el test nativo test_alarm_text lo fija.
+  const char *title = alarm_title_text((AlarmId)alarmID, lang);
+  const char *desc = alarm_action_text((AlarmId)alarmID, lang);
 
   snprintf(msg, sizeof(msg), "CTRL,ALM,%d,%s,%s,%d\n", alarmID, title,
            desc, isActive ? 1 : 0);
@@ -748,11 +531,13 @@ void sendAlarmUSB(byte alarmID, bool isActive)
   if (!hmi_connected)
   {
     // Queue the alarm if HMI not connected
-    if (pending_alarm_count < 10)
+    if (pending_alarm_count < PENDING_ALARM_QUEUE_LEN)
     {
       strncpy(pending_alarms[pending_alarm_count].message, msg,
               sizeof(pending_alarms[pending_alarm_count].message) - 1);
-      pending_alarms[pending_alarm_count].message[127] = '\0';
+      pending_alarms[pending_alarm_count]
+          .message[sizeof(pending_alarms[pending_alarm_count].message) - 1] =
+          '\0';
       pending_alarms[pending_alarm_count].valid = true;
       pending_alarm_count++;
       ESP_LOGI(TAG, "Queued alarm: %s", msg);

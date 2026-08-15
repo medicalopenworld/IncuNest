@@ -286,8 +286,13 @@ constexpr int STARTUP_DELAY_MS = 0;
 // -----------------------------
 constexpr int BUFFER_SIZE = 10;    // used for label char buffers
 constexpr int DHT_BUFFER_SIZE = 6; // used in commented DHT code
-constexpr int ALARM_TYPE_LEN = 30;
-constexpr int ALARM_DESC_LEN = 100;
+// Derivados de la capacidad de campo que declara el protocolo
+// (shared/include/alarm_ids.h), +1 por el terminador. No son numeros propios
+// del display: si divergen de lo que emite motherBoard, o se desborda el
+// buffer o se descartan lineas enteras. Los anchos de sscanf de CommTask.cpp
+// salen de las MISMAS macros, asi que ya no pueden separarse.
+constexpr int ALARM_TYPE_LEN = ALARM_TITLE_MAX_CHARS + 1;
+constexpr int ALARM_DESC_LEN = ALARM_DESC_MAX_CHARS + 1;
 
 // AlarmId enum (ALARM_NONE, ALARM_AIR_TEMP_DEVIATION_HIGH ... ALARM_COUNT,
 // MAX_ALARM_STRING_SIZE=255) is now in shared alarm_ids.h.
