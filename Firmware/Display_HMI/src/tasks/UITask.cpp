@@ -1985,6 +1985,26 @@ void update_alarm_panels() {
     alarmsMuted = false;
   }
 
+  // El boton de silencio se creaba en ui_ScreenAlarms y se ocultaba al
+  // arrancar, pero no habia ni un solo clear_flag en todo el fichero: nunca
+  // llegaba a mostrarse, asi que el operador no tenia forma de silenciar una
+  // alarma. Pasaba desapercibido porque el zumbador de la motherboard se
+  // agotaba solo a los ~4 min; desde que el audio solo cesa por accion del
+  // operador (IEC 60601-1-8 6.10) es la diferencia entre una alarma que se
+  // puede callar y una que no.
+  //
+  // Visible mientras haya alarma activa y no este ya silenciada. Al pulsarlo,
+  // MuteAlarm_cb() lo vuelve a ocultar y marca alarmsMuted; reaparece solo si
+  // el silencio se cancela, que ocurre cuando se limpian todas las alarmas
+  // (justo arriba) o cuando llega una alarma nueva (CommTask).
+  if (ui_MuteAlarm) {
+    if (alarmActive && !alarmsMuted) {
+      lv_obj_clear_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+
   // Warning overlays always hidden (replaced by TempCont visibility)
   if (ui_HeaterErrorTempCont)
     lv_obj_add_flag(ui_HeaterErrorTempCont, LV_OBJ_FLAG_HIDDEN);
