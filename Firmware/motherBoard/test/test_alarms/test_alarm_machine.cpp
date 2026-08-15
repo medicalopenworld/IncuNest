@@ -248,6 +248,26 @@ void test_short_condition_still_completes_its_burst(void) {
   TEST_ASSERT_FALSE(alarm_machine_audio_required());
 }
 
+// 6.10 exime de completar la rafaga minima cuando el OPERADOR ha inactivado
+// la senal ("unless inactivated by the OPERATOR"): silenciar cancela la
+// rafaga pendiente, si no el zumbador resucitaria tras retirarse la condicion
+// para una alarma que el operador ya habia silenciado.
+void test_silencing_cancels_the_minimum_burst_hold(void) {
+  alarm_machine_condition(ALARM_FAN_FAILURE, true, 0);
+  alarm_machine_silence(ALARM_FAN_FAILURE, 100, 50);
+  alarm_machine_condition(ALARM_FAN_FAILURE, false, 80);
+  TEST_ASSERT_FALSE(alarm_machine_audio_required());
+}
+
+// Mismo requisito de 6.10 para ACK: aceptar tambien es una inactivacion del
+// OPERADOR y cancela la rafaga pendiente.
+void test_ack_cancels_the_minimum_burst_hold(void) {
+  alarm_machine_condition(ALARM_FAN_FAILURE, true, 0);
+  alarm_machine_ack(ALARM_FAN_FAILURE, 50);
+  alarm_machine_condition(ALARM_FAN_FAILURE, false, 80);
+  TEST_ASSERT_FALSE(alarm_machine_audio_required());
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_starts_inactive);
@@ -276,5 +296,7 @@ int main(void) {
   RUN_TEST(test_pending_does_not_raise_top_priority);
   RUN_TEST(test_no_alarms_means_nothing_signalling);
   RUN_TEST(test_short_condition_still_completes_its_burst);
+  RUN_TEST(test_silencing_cancels_the_minimum_burst_hold);
+  RUN_TEST(test_ack_cancels_the_minimum_burst_hold);
   return UNITY_END();
 }

@@ -35,7 +35,10 @@ void alarm_machine_tick(uint32_t now_ms);
 // mientras la incubadora calienta desde frio. Los cortes termicos lo ignoran.
 void alarm_machine_set_announce_delay(AlarmId id, uint32_t delay_ms);
 
-// true si hay alguna condicion en ACTIVE. SILENCED y ACKED no cuentan.
+// true si hay alguna condicion en ACTIVE, o si una condicion que ya volvio a
+// INACTIVE sigue dentro de su ventana de rafaga minima (6.10). SILENCED y
+// ACKED no cuentan: son la inactivacion del OPERADOR que la norma exime de
+// completar la rafaga, y ambas cancelan esa ventana al producirse.
 bool alarm_machine_audio_required(void);
 
 AlarmState alarm_machine_state(AlarmId id);

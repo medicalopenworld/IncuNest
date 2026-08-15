@@ -142,16 +142,21 @@ void alarm_machine_silence(AlarmId id, uint32_t duration_ms, uint32_t now_ms) {
   }
   e.state = ALARM_STATE_SILENCED;
   e.silenced_until_ms = now_ms + duration_ms;
+  // 6.10: la rafaga minima se exige "unless inactivated by the OPERATOR" -
+  // silenciar es esa inactivacion, y cancela la rafaga pendiente.
+  e.audio_hold_until_ms = now_ms;
 }
 
 void alarm_machine_ack(AlarmId id, uint32_t now_ms) {
-  (void)now_ms;
   if (!valid(id)) {
     return;
   }
   Entry &e = g_entries[id];
   if (e.state == ALARM_STATE_ACTIVE || e.state == ALARM_STATE_SILENCED) {
     e.state = ALARM_STATE_ACKED;
+    // 6.10: idem que en silence() - ACK tambien es una inactivacion del
+    // OPERADOR y cancela la rafaga pendiente.
+    e.audio_hold_until_ms = now_ms;
   }
 }
 
