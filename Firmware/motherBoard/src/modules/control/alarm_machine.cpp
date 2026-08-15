@@ -1,27 +1,65 @@
 #include "alarm_machine.h"
-#include "alarm_policy.h"
 
-static uint32_t g_bitmask = 0;
+namespace {
 
-void alarm_machine_init(void) { g_bitmask = 0; }
+struct Entry {
+  bool present;       // la condicion fisica esta ocurriendo ahora
+  AlarmState state;
+};
 
-void alarm_machine_set(AlarmId id, bool active) {
-  if ((int)id >= (int)NUM_ALARMS) return;
-  if (active) g_bitmask |=  (1u << (int)id);
-  else        g_bitmask &= ~(1u << (int)id);
+Entry g_entries[ALARM_COUNT];
+
+bool is_signalling(AlarmState s) { return s != ALARM_STATE_INACTIVE; }
+
+bool valid(AlarmId id) { return id > ALARM_NONE && id < ALARM_COUNT; }
+
+}  // namespace
+
+void alarm_machine_init(void) {
+  for (int i = 0; i < ALARM_COUNT; ++i) {
+    g_entries[i].present = false;
+    g_entries[i].state = ALARM_STATE_INACTIVE;
+  }
 }
 
-bool alarm_machine_get(AlarmId id) {
-  return (int)id < (int)NUM_ALARMS && (g_bitmask & (1u << (int)id)) != 0;
+void alarm_machine_condition(AlarmId id, bool present, uint32_t now_ms) {
+  (void)now_ms;
+  if (!valid(id)) {
+    return;
+  }
+  Entry &e = g_entries[id];
+  e.present = present;
+
+  if (present) {
+    if (e.state == ALARM_STATE_INACTIVE) {
+      e.state = ALARM_STATE_ACTIVE;
+    }
+  } else {
+    // El latching se aplica en la Task 6; de momento toda condicion que
+    // desaparece limpia su alarma.
+    e.state = ALARM_STATE_INACTIVE;
+  }
 }
-uint32_t alarm_machine_bitmask(void)      { return g_bitmask; }
-bool     alarm_machine_any_active(void)   { return g_bitmask != 0; }
-bool     alarm_machine_any_critical(void) {
-  // "Critico" = cualquier alarma activa cuya prioridad, segun la Tabla 1 de
-  // IEC 60601-1-8 (ver alarm_policy.h), sea ALTA. Sustituye a la lista de 4
-  // ids codeada a mano, que quedo obsoleta al renombrarse el enum AlarmId.
-  for (int id = ALARM_NONE + 1; id < (int)NUM_ALARMS; ++id) {
-    if ((g_bitmask & (1u << id)) && alarm_priority((AlarmId)id) == ALARM_PRIORITY_HIGH) {
+
+void alarm_machine_tick(uint32_t now_ms) { (void)now_ms; }
+
+AlarmState alarm_machine_state(AlarmId id) {
+  return valid(id) ? g_entries[id].state : ALARM_STATE_INACTIVE;
+}
+
+uint32_t alarm_machine_bitmask(void) {
+  uint32_t mask = 0;
+  for (int i = ALARM_NONE + 1; i < ALARM_COUNT; ++i) {
+    if (is_signalling(g_entries[i].state)) {
+      mask |= (1u << i);
+    }
+  }
+  return mask;
+}
+
+bool alarm_machine_heater_must_cut(void) {
+  for (int i = ALARM_NONE + 1; i < ALARM_COUNT; ++i) {
+    if (g_entries[i].present && alarm_cuts_heater((AlarmId)i)) {
       return true;
     }
   }
