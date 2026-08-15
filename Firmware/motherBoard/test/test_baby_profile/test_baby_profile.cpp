@@ -168,6 +168,36 @@ void test_new_profile_has_no_kangaroo_events(void) {
   TEST_ASSERT_EQUAL_UINT32(0, out.lastKangarooEpoch);
 }
 
+void test_history_record_roundtrips_therapy_minutes(void) {
+  BabyProfile p = mkProfile(21, "Hum", 32, 1500, 1723200000u);
+  p.phototherapyMinutes = 90;
+  p.thermoMinutes = 4321;
+  p.humidityMinutes = 4294967295u;  // saturated counter must survive intact
+
+  uint8_t rec[BABY_HISTORY_RECORD_SIZE];
+  baby_history_encode(&p, true, rec);
+  BabyProfile out;
+  memset(&out, 0, sizeof(out));
+  TEST_ASSERT_TRUE(baby_history_decode(rec, &out));
+  TEST_ASSERT_EQUAL_UINT32(90, out.phototherapyMinutes);
+  TEST_ASSERT_EQUAL_UINT32(4321, out.thermoMinutes);
+  TEST_ASSERT_EQUAL_UINT32(4294967295u, out.humidityMinutes);
+  // Everything that precedes humidityMinutes must stay unshifted.
+  TEST_ASSERT_EQUAL_UINT32(21, out.seq);
+  TEST_ASSERT_EQUAL_STRING("Hum", out.name);
+  TEST_ASSERT_EQUAL_UINT16(1500, out.weightGrams);
+  TEST_ASSERT_EQUAL_UINT32(1723200000u, out.admissionEpoch);
+}
+
+// The reset-on-layout-change rule in babyStore_init() keys off this being
+// strictly larger than the layout it replaced; if they ever match again, an
+// old log would be read at the wrong stride without anyone noticing.
+void test_history_record_size_differs_from_legacy_layout(void) {
+  TEST_ASSERT_EQUAL_UINT32(59u, BABY_HISTORY_RECORD_SIZE);
+  TEST_ASSERT_NOT_EQUAL_UINT32(BABY_HISTORY_RECORD_SIZE_LEGACY_V1,
+                               BABY_HISTORY_RECORD_SIZE);
+}
+
 void test_history_record_tombstone_flag(void) {
   BabyProfile p = mkProfile(7, "X", 29, 0, 0);
   uint8_t rec[BABY_HISTORY_RECORD_SIZE];
@@ -218,6 +248,8 @@ int main(void) {
   RUN_TEST(test_history_record_defaults_unknown_outcome);
   RUN_TEST(test_history_record_roundtrips_kangaroo_fields);
   RUN_TEST(test_new_profile_has_no_kangaroo_events);
+  RUN_TEST(test_history_record_roundtrips_therapy_minutes);
+  RUN_TEST(test_history_record_size_differs_from_legacy_layout);
   RUN_TEST(test_history_record_tombstone_flag);
   RUN_TEST(test_circular_cursor_advances_and_saturates);
   RUN_TEST(test_circular_oldest_before_and_after_wrap);

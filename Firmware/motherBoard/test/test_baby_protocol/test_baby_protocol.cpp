@@ -153,13 +153,18 @@ void test_build_list_with_two_profiles(void) {
   BabyProfile slots[BABY_ACTIVE_SLOTS];
   memset(slots, 0, sizeof(slots));
   slots[0] = mkProfile(7, "Ana", 30, 1200);
+  slots[0].kangarooCount = 2;
+  slots[0].phototherapyMinutes = 45;
+  slots[0].thermoMinutes = 600;
+  slots[0].humidityMinutes = 120;
   slots[2] = mkProfile(9, "Luca", 33, 0);
 
   char buf[256];
   int n = baby_proto_build_list(buf, sizeof(buf), slots);
   TEST_ASSERT_GREATER_THAN_INT(0, n);
   TEST_ASSERT_EQUAL_STRING(
-      "CTRL,PROFILE_LIST,2,7,Ana,30,1200,0,0,0,9,Luca,33,0,0,0,0\n", buf);
+      "CTRL,PROFILE_LIST,2,7,Ana,30,1200,2,45,600,120,9,Luca,33,0,0,0,0,0\n",
+      buf);
 }
 
 void test_build_list_empty(void) {
@@ -195,13 +200,14 @@ void test_build_history_page(void) {
   recs[0].kangarooCount = 4;
   recs[0].phototherapyMinutes = 90;
   recs[0].thermoMinutes = 300;
+  recs[0].humidityMinutes = 240;
   recs[1] = mkProfile(7, "Ana", 30, 1200);
 
   char buf[256];
   baby_proto_build_history(buf, sizeof(buf), 0, 12, recs, 2);
   TEST_ASSERT_EQUAL_STRING(
-      "CTRL,PROFILE_HISTORY,0,12,2,9,Luca,33,1800,1000,2000,1,4,90,300,"
-      "7,Ana,30,1200,0,0,0,0,0,0\n",
+      "CTRL,PROFILE_HISTORY,0,12,2,9,Luca,33,1800,1000,2000,1,4,90,300,240,"
+      "7,Ana,30,1200,0,0,0,0,0,0,0\n",
       buf);
 }
 
@@ -252,6 +258,7 @@ void test_build_history_worst_case_fits_response_buffer(void) {
     recs[i].kangarooCount = 65535;
     recs[i].phototherapyMinutes = 4294967295u;
     recs[i].thermoMinutes = 4294967295u;
+    recs[i].humidityMinutes = 4294967295u;
   }
   char buf[1280];
   int n = baby_proto_build_history(buf, sizeof(buf), 4294967295u,

@@ -158,39 +158,41 @@ Detalles que conviene tener claros:
 
 ## 6. Importar el dashboard
 
-Fichero en `Firmware/dashboards/`, escrito para **ThingsBoard 4.2**:
+Fichero: **`Firmware/Thingsboard/incunest_TB_main_v5.json`**
 
-- `incunest_pacientes.json`
+No es un dashboard aparte: es **vuestro `incunest_TB_main_v2`** con dos páginas
+nuevas (`Bebe actual`, `Historial bebes`) y la navegación rehecha.
 
-En TB: **Dashboards → + → Import dashboard** y suelta el fichero.
+### Navegación todos-con-todos
+Cada estado lleva el juego completo de destinos como `headerButton` en su
+widget de arriba a la izquierda, siempre en el mismo orden. Se generó de forma
+canónica, lo que de paso corrigió tres defectos que había en el v2:
 
-Es **un solo dashboard con dos páginas** (estados): *Paciente actual* e
-*Historial*. Se navega con el botón de la cabecera de los widgets — el de la
-tarjeta del bebé lleva al historial, y el de la tabla de altas vuelve.
+- `device_telemetries` y `device_connectivity` tenían **dos** tarjetas de
+  navegación cada una, con juegos distintos y botones duplicados.
+- `display`, `device_vitals` y `device_ota` no tenían navegación: eran
+  callejones sin salida.
+- El botón `Telemeteries` estaba mal escrito.
 
-Usa un alias `Incubadoras` que resuelve **todos los dispositivos**, así que al
-abrirlo aparece el selector de entidad arriba para elegir incubadora. Si
-prefieres acotarlo a un perfil concreto, edita el alias y cambia el filtro de
-`entityType` a `deviceType` con el nombre de vuestro tipo.
+`setEntityId` va activado en todos los destinos salvo el de vuelta a la
+portada, que gestiona la selección por sí misma.
 
-### Notas de esquema (verificadas contra el código de import de TB)
+> El estado `display` estaba **vacío** (cero widgets): abría una página en
+> blanco. Le puse una tarjeta mínima con versión de FW e idioma para que
+> alojase la navegación. **Decide tú qué debe mostrar realmente** — no me
+> inventé contenido clínico.
 
-- Solo `title` y `configuration` son obligatorios en la raíz; el importador
-  normaliza y autocompleta el resto.
-- Cada widget aparece **dos veces**: la definición en `configuration.widgets`
-  y su posición en `states.default.layouts.main.widgets`. Si falta la segunda,
-  el widget existe pero no se dibuja.
-- Se usa `typeFullFqn` (formato 3.6+), no el `bundleAlias`/`typeAlias` antiguo.
-- Las claves de atributo llevan `"type": "attribute"`; `entityField` es otra
-  cosa (campos propios de la entidad como `name` o `label`), no sirve aquí.
+En TB: **Dashboards → + → Import dashboard**. Al compartir título con el
+existente, conviene importarlo y comprobarlo antes de retirar el v2.
 
-### Widgets deliberadamente omitidos
+Se construyó **clonando widgets reales de vuestro propio export** en vez de
+escribirlos a mano, así que hereda exactamente:
 
-La **tarta de resultados** (`baby_outcome`) no va en el JSON: no pude
-confirmar cuál de las dos variantes de pie chart expone la 4.2 por defecto, y
-prefiero no meter un `typeFullFqn` que haga fallar la importación entera.
-Añádela a mano sobre el dashboard de historial: widget de tarta, datasource
-alias `Incubadoras`, clave `baby_outcome` de tipo timeseries.
+- `system.charts.basic_timeseries` y `system.cards.attributes_card`, los
+  `typeFullFqn` que ya usáis (no los que yo había supuesto).
+- El alias `state_alias` (`stateEntity`), de modo que las páginas nuevas se
+  vinculan al dispositivo que pasa la fila de la tabla, como las demás.
+- La acción `openDashboardState` con `setEntityId`, clonada de un botón real.
 
 ## 7. Limitaciones conocidas
 
@@ -207,3 +209,59 @@ alias `Incubadoras`, clave `baby_outcome` de tipo timeseries.
 - Un bebé dado de alta mientras el equipo está sin red se reintenta desde la
   cola, pero la cola solo guarda 8 eventos: una desconexión muy larga con
   mucha actividad puede descartar los más antiguos (queda un warning en el log).
+
+---
+
+## 8. OTA desde el dashboard
+
+En ThingsBoard una OTA **se lanza asignando un paquete al dispositivo** (ficha
+del equipo o perfil), no desde un widget: al asignarlo, TB empuja los atributos
+compartidos `fw_title`/`fw_version`/`fw_checksum` y el equipo los descarga.
+El firmware ya lo soporta (`Start_Firmware_Update` por WiFi y por GPRS).
+
+La página `OTA` tenía solo una tabla de lectura. Ahora lleva:
+
+| Elemento | Qué hace |
+|---|---|
+| Botón de fila **Ficha del equipo** | Acción `custom`: navega a `devices/<id>`, donde se asigna el paquete |
+| Botón de fila **Comprobar OTA ahora** | RPC `checkOta`: fuerza la comprobación en el momento |
+| Columna **Progreso OTA %** | Telemetría `ota_progress`, 0-100 durante la descarga |
+
+**Por qué el RPC importa**: el equipo comprueba si hay firmware nuevo cada
+minuto por WiFi pero **cada 10 minutos por GPRS**. Sin él, tras asignar el
+paquete habría que esperar. El RPC llama a la `GPRSCheckOTA()` que ya existía
+(con su gestión de `currentFWSent`), no a una copia.
+
+`ota_progress` **solo se publica mientras hay una descarga en curso** y se
+limpia al terminar, con éxito o sin él: así la tabla no se queda con un 87%
+fantasma entre actualizaciones.
+
+### Dos trampas encontradas al probarlo contra el equipo real
+
+**`openEntityDetails` no existe.** No es un miembro de `WidgetActionType`; los
+válidos son `doNothing`, `openDashboardState`, `updateDashboardState`,
+`openDashboard`, `custom`, `customPretty`, `mobileAction`, `openURL` y
+`placeMapItem`. ThingsBoard **ignora en silencio** una acción de tipo
+desconocido: el botón se dibuja y al pulsarlo no pasa nada, sin error en
+consola. Ahora es una acción `custom` que navega a `devices/<id>`; esa ruta
+redirige a `/entities/devices/<id>`, así que vale en TB antiguo y nuevo.
+
+**El RPC tiene que existir en los dos transportes.** `checkOta` estaba
+registrado solo en `rpc_callbacks` (GPRS). Las listas de RPC de GPRS y WiFi son
+independientes, así que por WiFi el RPC no existía y el dashboard respondía
+"el equipo no respondió" aunque apareciese conectado. Ahora está en las dos, y
+cada una llama a la comprobación de su propio transporte (`GPRSCheckOTA()` /
+`WIFICheckOTA()`), porque cada cliente ThingsBoard es un objeto distinto.
+
+> Las dos listas siguen **asimétricas** por lo demás: `restart`, `getDiag` y
+> `wipeBabies` solo existen por GPRS, y `capturePPG` solo por WiFi. Es anterior
+> a este cambio, pero conviene tenerlo presente: un RPC probado en el banco por
+> WiFi puede no responder en campo por GPRS, y al revés.
+> El reparto completo está en [`transport_matrix.md`](transport_matrix.md).
+
+### "FW state: Not synced" sin OTA asignada es normal
+
+TB compara el firmware que reporta el equipo contra el paquete asignado al
+dispositivo o a su perfil. Sin paquete asignado no hay nada con lo que
+sincronizar, así que la columna se queda en *Not synced*. Deja de estarlo al
+asignar un paquete y completarse la descarga.

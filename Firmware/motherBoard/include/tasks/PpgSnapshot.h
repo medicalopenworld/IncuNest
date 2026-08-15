@@ -46,6 +46,19 @@ PpgSnapshotStatus ppgSnapshotRequestCapture(bool probeApplied, uint8_t rsqi,
 // True cuando ya se han recogido PPG_SNAPSHOT_SAMPLES muestras.
 bool ppgSnapshotIsReady();
 
+// Reclama en exclusiva un snapshot listo para publicarlo. Devuelve true a UN
+// SOLO llamante; el resto ve false hasta que se libere.
+//
+// Hace falta porque GPRS_Task y OTA_WIFI_Task son tareas distintas y comparten
+// este único buffer: sin esto los dos podrían publicar el mismo snapshot, o
+// uno limpiarlo mientras el otro lo está serializando.
+bool ppgSnapshotTryAcquire();
+
+// Libera el snapshot reclamado y deja el slot listo para la siguiente captura.
+// Llamar SIEMPRE tras un ppgSnapshotTryAcquire() que devolvió true, publicara
+// bien o mal: si no, no se vuelve a capturar nunca.
+void ppgSnapshotRelease();
+
 // Acceso al buffer ya capturado. Válido solo mientras ppgSnapshotIsReady()
 // sea true; el módulo no sabe nada de ThingsBoard/JSON — el llamador decide
 // cómo serializarlo (Wifi_OTA.cpp lo manda como serie temporal real, un

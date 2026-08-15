@@ -39,6 +39,13 @@ static SemaphoreHandle_t hmi_state_req_sem;
 
 static HardwareSerial &hmiSerial = Serial1;
 
+// PPG transport scale: ADC counts of ppg_disp per LSB of the 0-255 display range.
+// ppg_disp is zero-mean (library BPF output), so 128 is the baseline and this divisor
+// sets the half-range to 127 x 16 = ~2030 counts. Measured on the bench 2026-08-13
+// with HGAC active: peaks up to ~1350 counts at PI ~10%, so ~50% headroom.
+// Fixed on purpose — no adaptive scaling outside the library.
+static constexpr int32_t PPG_DISP_COUNTS_PER_LSB = 16;
+
 // ---- Phototherapy Timer (Motherboard is source of truth) ----
 static bool photoTimerActive = false;
 static unsigned long photoTimerStartMs = 0;
@@ -56,9 +63,9 @@ void parse_line(const char *line);
 static uint32_t s_wizardSeq = 0;
 static uint16_t s_wizardGrams = 0;
 
-// ---- Per-baby therapy-time accounting (phototherapy + thermoregulation) ----
-// Both counters share this: accumulate in RAM, flush to NVS only on the OFF
-// edge or every PHOTO_FLUSH_INTERVAL_MS. A slot write per elapsed minute
+// ---- Per-baby therapy-time accounting (phototherapy, thermo, humidity) ----
+// All three counters share this: accumulate in RAM, flush to NVS only on the
+// OFF edge or every THERAPY_FLUSH_INTERVAL_MS. A slot write per elapsed minute
 // would wear the flash for no benefit.
 static const uint32_t THERAPY_FLUSH_INTERVAL_MS = 10u * 60u * 1000u;
 
@@ -74,6 +81,8 @@ struct TherapyAccumulator {
 static TherapyAccumulator s_photoAcc{false, 0, 0,
                                      babyStore_addPhototherapyMinutes};
 static TherapyAccumulator s_thermoAcc{false, 0, 0, babyStore_addThermoMinutes};
+static TherapyAccumulator s_humidityAcc{false, 0, 0,
+                                        babyStore_addHumidityMinutes};
 
 // Credits whole elapsed minutes and rebases, keeping the sub-minute
 // remainder so repeated flushes never round it away.
@@ -119,9 +128,10 @@ static void sendProfileRange(uint32_t seq, bool ageKnown, uint16_t ageDays) {
 // write + float formatting in the range builder both need hundreds of bytes
 // below this frame). A 1 KB local here was enough to run it out of stack.
 // Safe: parse_line runs only on COMM_TASK and one wizard flow at a time.
-// 1280: worst-case CTRL,PROFILE_HISTORY is 10 entries x 9 fields with every
-// field at max width (~900 chars). Sized with margin so a full page can
-// never silently fail to build.
+// 1280: worst-case CTRL,PROFILE_HISTORY is 10 entries x 10 fields plus the
+// name, with every field at max width (~1110 chars). Sized with margin so a
+// full page can never silently fail to build. The HMI's COMM_RX_BUFFER_SIZE
+// is the same 1280 — keep both in step if a field is ever added.
 static char s_babyRespBuf[1280];
 static BabyProfile s_babyHistPage[10];
 static BabyWeightPoint s_babyWeightPts[BABY_WEIGHT_HISTORY_MAX_OUT];
@@ -624,12 +634,15 @@ void parse_line(const char *line) {
         babyStore_setActiveSeq(0);
       }
 
-      // Per-baby phototherapy exposure. Accumulated in RAM and only written
-      // to NVS on the OFF edge or every PHOTO_FLUSH_INTERVAL — a slot write
-      // per minute would wear the flash for no benefit.
+      // Per-baby therapy exposure. Accumulated in RAM and only written to NVS
+      // on the OFF edge or every THERAPY_FLUSH_INTERVAL — a slot write per
+      // minute would wear the flash for no benefit.
       updateTherapyAccounting(s_photoAcc, photo != 0);
       updateTherapyAccounting(s_thermoAcc,
                               act == ACTUATION_TEMPERATURE ||
+                                  act == ACTUATION_TEMP_AND_HUMIDITY);
+      updateTherapyAccounting(s_humidityAcc,
+                              act == ACTUATION_HUMIDITY ||
                                   act == ACTUATION_TEMP_AND_HUMIDITY);
 
       hmi_cmd_msg.actuation = act;
@@ -736,8 +749,6 @@ void Communication_Task(void *pvParameters) {
   uint32_t ppg_time      = 0;
   static unsigned long last_probe_status_time = 0;
   static ProbeState    prev_probe_state       = ProbeState::PROBE_DISCONNECTED;
-  // PPG normalisation state: decaying min/max keeps signal filling 0–255
-  float ppg_min = -1.0f, ppg_max = 1.0f;
   // HR hysteresis: show after 2 consecutive valid samples, hide after 3 bad ones
   uint8_t hr_valid_streak = 0;
   uint8_t hr_bad_streak   = 0;
@@ -784,28 +795,16 @@ void Communication_Task(void *pvParameters) {
     // --- PPG waveform (25 Hz = every 40 ms) ---
     ppg_time = millis();
     if (ppg_time - last_ppg_time >= 40) {
+      // Transport only: fixed scale, no state, no adaptive gain. The waveform is NOT
+      // gated on spo2_sqi — the library restarts an 18 s SpO2 warmup on every probe
+      // application (_spo2_update: EMAs reset while not APPLIED), while ppg_disp is
+      // valid within ~1 s. Gating the trace on SpO2 validity flat-lined it for 19 s.
       if (g_spo2_data.probe_state == ProbeState::PROBE_APPLIED) {
-        // No valid signal: reset normalisation and send flat midpoint so the
-        // display collapses its amplitude window immediately.
-        if (g_spo2_data.spo2_sqi < 0.05f) {
-          ppg_min = -1.0f;
-          ppg_max =  1.0f;
-          hmiSerial.print("CTRL,PPG,128\n");
-        } else {
-          float ppg_raw = g_spo2_data.ppg_disp;
-          // Expand range immediately, decay slowly toward 0 (bandpass signal is zero-mean)
-          if (ppg_raw < ppg_min) ppg_min = ppg_raw;
-          else ppg_min += (0.0f - ppg_min) * 0.005f;
-          if (ppg_raw > ppg_max) ppg_max = ppg_raw;
-          else ppg_max += (0.0f - ppg_max) * 0.005f;
-          float range = ppg_max - ppg_min;
-          uint8_t ppg_byte = (range > 1e-3f)
-              ? (uint8_t)constrain((ppg_raw - ppg_min) / range * 255.0f, 0.0f, 255.0f)
-              : 128;
-          char ppg_msg[16];
-          snprintf(ppg_msg, sizeof(ppg_msg), "CTRL,PPG,%u\n", ppg_byte);
-          hmiSerial.print(ppg_msg);
-        }
+        long ppg_scaled = 128L + (long)(g_spo2_data.ppg_disp / PPG_DISP_COUNTS_PER_LSB);
+        uint8_t ppg_byte = (uint8_t)constrain(ppg_scaled, 0L, 255L);
+        char ppg_msg[16];
+        snprintf(ppg_msg, sizeof(ppg_msg), "CTRL,PPG,%u\n", ppg_byte);
+        hmiSerial.print(ppg_msg);
       }
       last_ppg_time = ppg_time;
     }

@@ -19,6 +19,7 @@ static BabyProfile mk() {
   p.kangarooCount = 4;
   p.phototherapyMinutes = 90;
   p.thermoMinutes = 300;
+  p.humidityMinutes = 240;
   return p;
 }
 
@@ -81,6 +82,7 @@ void test_discharge_is_self_contained_with_stay_days(void) {
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_kangaroo_count\":4"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_phototherapy_min\":90"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_thermo_min\":300"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_humidity_min\":240"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_stay_days\":5"));
 }
 
@@ -125,6 +127,31 @@ void test_empty_attributes_clear_every_occupancy_key(void) {
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_name\":\"\""));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_kangaroo_count\":0"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_thermo_min\":0"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_humidity_min\":0"));
+}
+
+// The discharge row is the widest payload and the transports give it a fixed
+// 512-byte buffer, so a new key must not be the one that silently drops it.
+void test_widest_discharge_payload_fits_transport_buffer(void) {
+  BabyProfile p;
+  memset(&p, 0, sizeof(p));
+  p.slotUsed = true;
+  p.seq = 4294967295u;
+  memset(p.name, 'W', BABY_NAME_LEN - 1);
+  p.gestWeeks = 255;
+  p.weightGrams = 65535;
+  p.admissionEpoch = 1700000000u;
+  p.dischargeEpoch = 4294967295u;
+  p.outcome = 3;
+  p.kangarooCount = 65535;
+  p.phototherapyMinutes = 4294967295u;
+  p.thermoMinutes = 4294967295u;
+  p.humidityMinutes = 4294967295u;
+  BabyCloudEvent d = {BABY_EVT_DISCHARGE, p.dischargeEpoch, 65535, p};
+  char buf[512];
+  int n = babyCloud_buildEventJson(&d, buf, sizeof(buf));
+  TEST_ASSERT_GREATER_THAN_INT(0, n);
+  TEST_ASSERT_LESS_THAN_INT(512, n);
 }
 
 void test_small_buffer_fails_closed(void) {
@@ -151,6 +178,7 @@ int main(void) {
   RUN_TEST(test_stay_days_omitted_when_dates_unusable);
   RUN_TEST(test_name_with_quotes_cannot_break_the_json);
   RUN_TEST(test_empty_attributes_clear_every_occupancy_key);
+  RUN_TEST(test_widest_discharge_payload_fits_transport_buffer);
   RUN_TEST(test_small_buffer_fails_closed);
   RUN_TEST(test_unknown_event_type_builds_nothing);
   return UNITY_END();

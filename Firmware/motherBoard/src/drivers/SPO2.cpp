@@ -23,7 +23,7 @@ void SPO2_Task(void *pvParameters) {
 
       if (++sample_count % SPO2_LOG_INTERVAL_SAMPLES == 0) {
         logSPO2("[SPO2] n=" + String(sample_count) +
-                " PPG=" + String(data.ppg_disp, 4) + " RED=" + String(data.led2) +
+                " PPG=" + String(data.ppg_disp) + " RED=" + String(data.led2) +
                 " IR=" + String(data.led1) + " RED_sub=" +
                 String(data.led2_sub) + " IR_sub=" + String(data.led1_sub) +
                 " SpO2=" + String(data.spo2_sqi > 0.0f ? data.spo2 : -1.0f, 1) +
@@ -51,6 +51,11 @@ void initSPO2() {
 
   // Initialize SPI bus for AFE4490 (CS=-1: managed per device via AFE44XX_CS)
   SPI.begin(AFE_SCK, AFE_MISO, AFE_MOSI, -1);
+
+  // HGAC (RF-only descent, lib v0.53): ships disabled. Enabled here because both
+  // LED channels sit at the ADC positive rail (~2^21) with no probe applied, and
+  // the resulting DC step on probe application swamps the SpO2 AC estimators.
+  afe.setHgacEnable(true);
 
   // Configure chip registers, attach DRDY ISR, launch internal processing task
   afe.begin(AFE44XX_CS, AFE_ADC_READY);

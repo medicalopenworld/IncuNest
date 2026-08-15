@@ -172,12 +172,13 @@ int baby_proto_build_list(char *buf, size_t len,
   appendf(buf, len, &pos, &ovf, "CTRL,PROFILE_LIST,%d", used);
   for (int i = 0; i < BABY_ACTIVE_SLOTS; i++) {
     if (!slots[i].slotUsed) continue;
-    appendf(buf, len, &pos, &ovf, ",%u,%s,%u,%u,%u,%u,%u",
+    appendf(buf, len, &pos, &ovf, ",%u,%s,%u,%u,%u,%u,%u,%u",
             (unsigned)slots[i].seq, slots[i].name,
             (unsigned)slots[i].gestWeeks, (unsigned)slots[i].weightGrams,
             (unsigned)slots[i].kangarooCount,
             (unsigned)slots[i].phototherapyMinutes,
-            (unsigned)slots[i].thermoMinutes);
+            (unsigned)slots[i].thermoMinutes,
+            (unsigned)slots[i].humidityMinutes);
   }
   appendf(buf, len, &pos, &ovf, "\n");
   return ovf ? 0 : pos;
@@ -202,7 +203,7 @@ int baby_proto_build_history(char *buf, size_t len, uint32_t page,
   appendf(buf, len, &pos, &ovf, "CTRL,PROFILE_HISTORY,%u,%u,%u",
           (unsigned)page, (unsigned)totalCount, (unsigned)n);
   for (uint32_t i = 0; i < n; i++) {
-    appendf(buf, len, &pos, &ovf, ",%u,%s,%u,%u,%u,%u,%u,%u,%u,%u",
+    appendf(buf, len, &pos, &ovf, ",%u,%s,%u,%u,%u,%u,%u,%u,%u,%u,%u",
             (unsigned)records[i].seq, records[i].name,
             (unsigned)records[i].gestWeeks, (unsigned)records[i].weightGrams,
             (unsigned)records[i].admissionEpoch,
@@ -210,7 +211,8 @@ int baby_proto_build_history(char *buf, size_t len, uint32_t page,
             (unsigned)records[i].outcome,
             (unsigned)records[i].kangarooCount,
             (unsigned)records[i].phototherapyMinutes,
-            (unsigned)records[i].thermoMinutes);
+            (unsigned)records[i].thermoMinutes,
+            (unsigned)records[i].humidityMinutes);
   }
   appendf(buf, len, &pos, &ovf, "\n");
   return ovf ? 0 : pos;

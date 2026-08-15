@@ -31,6 +31,7 @@
 #include "GPRS.h"
 #include "SPO2.h"
 #include "PpgSnapshot.h"
+#include "PpgSnapshotPublish.h"
 #include "main.h"
 #include "modules/baby_profile/baby_cloud.h"
 #include "modules/baby_profile/baby_profile_store.h"
@@ -715,6 +716,27 @@ void addConfigTelemetriesToWIFIJSON() {
   addVariableToTelemetryWIFIJSON[FW_VERSION_KEY] = FWversion;
   addVariableToTelemetryWIFIJSON[CCID_KEY] = GPRS.CCID.c_str();
 
+#if TX_GROUP_DIAG_WIFI // grupo DIAG — config/transport_policy.h
+  addVariableToTelemetryWIFIJSON[BOOT_COUNT_KEY] = g_bootCount;
+  addVariableToTelemetryWIFIJSON[GPRS_KILL_COUNT_KEY] = g_gprsKillCount;
+  addVariableToTelemetryWIFIJSON[GPRS_MON_KILL_COUNT_KEY] = g_monKillCount;
+  addVariableToTelemetryWIFIJSON[FREE_HEAP_KEY] = (uint32_t)ESP.getFreeHeap();
+  addVariableToTelemetryWIFIJSON[MIN_FREE_HEAP_KEY] =
+      (uint32_t)ESP.getMinFreeHeap();
+  addVariableToTelemetryWIFIJSON[UPTIME_S_KEY] = (uint32_t)(millis() / 1000);
+  addVariableToTelemetryWIFIJSON[HMI_BOOT_COUNT_KEY] = g_hmiBootCount;
+  addVariableToTelemetryWIFIJSON[HMI_LAST_RST_KEY] = g_hmiLastRst;
+#endif
+
+#if TX_GROUP_CELLULAR_WIFI // grupo CELLULAR — config/transport_policy.h
+  // Ojo: por WiFi estos campos pueden ir vacíos o rancios si el módem no ha
+  // llegado a registrarse. Por eso el flag está a 0 por defecto.
+  addVariableToTelemetryWIFIJSON[IMEI_KEY] = GPRS.IMEI.c_str();
+  addVariableToTelemetryWIFIJSON[APN_KEY] = GPRS.APN.c_str();
+  addVariableToTelemetryWIFIJSON[COP_KEY] = GPRS.COP.c_str();
+  addVariableToTelemetryWIFIJSON[CELL_SIGNAL_QUALITY_KEY] = GPRS.CSQ;
+#endif
+
   addVariableToTelemetryWIFIJSON[SYS_CURR_STANDBY_TEST_KEY] =
       roundSignificantDigits(in3.system_current_standby_test,
                              TELEMETRIES_DECIMALS);
@@ -739,6 +761,28 @@ void addConfigTelemetriesToWIFIJSON() {
   addVariableToTelemetryWIFIJSON[CALIBRATED_SENSOR_KEY] = !in3.calibrationError;
   addVariableToTelemetryWIFIJSON[GPRS_CONNECTIVITY_KEY] = false;
   addVariableToTelemetryWIFIJSON[WIFI_CONNECTIVITY_KEY] = true;
+
+#if TX_GROUP_CALIBRATION_WIFI // grupo CALIBRATION — config/transport_policy.h
+  // Los globales de calibración no están en ningún header: cada .cpp que los
+  // usa declara su propio extern (mismo patrón que GPRS.cpp).
+  extern double ReferenceTemperatureRange, ReferenceTemperatureLow;
+  extern double RawTemperatureLow[SENSOR_TEMP_QTY],
+      RawTemperatureRange[SENSOR_TEMP_QTY];
+  addVariableToTelemetryWIFIJSON[CALIBRATION_REFERENCE_TEMPERATURE_RANGE_KEY] =
+      roundSignificantDigits(ReferenceTemperatureRange, TELEMETRIES_DECIMALS);
+  addVariableToTelemetryWIFIJSON[CALIBRATION_REFERENCE_TEMPERATURE_LOW_KEY] =
+      roundSignificantDigits(ReferenceTemperatureLow, TELEMETRIES_DECIMALS);
+  addVariableToTelemetryWIFIJSON[CALIBRATION_SKIN_FINETUNE_KEY] =
+      roundSignificantDigits(in3.fineTuneSkinTemperature, TELEMETRIES_DECIMALS);
+  addVariableToTelemetryWIFIJSON[CALIBRATION_AIR_FINETUNE_KEY] =
+      roundSignificantDigits(in3.fineTuneAirTemperature, TELEMETRIES_DECIMALS);
+  addVariableToTelemetryWIFIJSON[CALIBRATION_RAW_TEMPERATURE_RANGE_SKIN_KEY] =
+      roundSignificantDigits(RawTemperatureRange[SKIN_SENSOR],
+                             TELEMETRIES_DECIMALS);
+  addVariableToTelemetryWIFIJSON[CALIBRATION_RAW_TEMPERATURE_LOW_SKIN_KEY] =
+      roundSignificantDigits(RawTemperatureLow[SKIN_SENSOR],
+                             TELEMETRIES_DECIMALS);
+#endif
 }
 
 void addTelemetriesToWIFIJSON() {
@@ -852,7 +896,13 @@ void addTelemetriesToWIFIJSON() {
   }
 
   if (in3.fanCommandedOn) {
-    addVariableToTelemetryWIFIJSON[FAN_RPM_KEY] = (int)(in3.fan_rpm + 0.5f);
+    // Only while an OTA is actually downloading, so the key does not
+  // sit at a stale value between updates.
+  extern volatile int g_otaProgressPct;
+  if (g_otaProgressPct >= 0) {
+    addVariableToTelemetryWIFIJSON[OTA_PROGRESS_KEY] = g_otaProgressPct;
+  }
+  addVariableToTelemetryWIFIJSON[FAN_RPM_KEY] = (int)(in3.fan_rpm + 0.5f);
     addVariableToTelemetryWIFIJSON[FAN_PWM_KEY] =
         fanControlPID.GetMode() == AUTOMATIC ? (int)(fanControlPIDOutput + 0.5)
                                              : in3.fanCtlPWM;
@@ -943,16 +993,19 @@ void WEB_OTA() {
 
 // ── RPC handlers (WiFi TB path) ───────────────────────────────────────────────
 static void rpc_setwifi_wifi_cb(JsonVariantConst const & data,
-                                JsonDocument & /*response*/) {
+                                JsonDocument & response) {
   const char* ssid = data["ssid"];
   const char* pass = data["password"];
   if (!ssid || !pass || ssid[0] == '\0' || pass[0] == '\0' ||
       strlen(ssid) > 63 || strlen(pass) > 63) {
+    // Nunca registrar ssid/password: son credenciales.
     ESP_LOGW("WiFi", "[RPC] setWifi: invalid ssid or password");
+    response["status"] = "invalid";
     return;
   }
   ESP_LOGI("WiFi", "[RPC] setWifi received, applying credentials");
   applyWifiCredentials(ssid, pass);
+  response["status"] = "ok";
 }
 
 // "Capturar ahora" desde el dashboard: arranca una captura de PPG_snapshot
@@ -977,9 +1030,21 @@ static void rpc_capture_ppg_cb(JsonVariantConst const & /*data*/,
   }
 }
 
+// Mismo nombre de RPC que en GPRS.cpp, pero cada transporte tiene que llamar a
+// SU comprobación: las dos hablan con su propio cliente ThingsBoard. Sin este
+// gemelo, el botón del dashboard solo respondía si el equipo estaba en GPRS, y
+// por WiFi expiraba sin que el RPC existiese siquiera.
+static void rpc_check_ota_wifi_cb(JsonVariantConst const & /*data*/,
+                                  JsonDocument & response) {
+  WIFICheckOTA();
+  response["status"] = "checking";
+  logI("[WIFI] -> OTA check forced by RPC");
+}
+
 static RPC_Callback wifi_rpc_callbacks[] = {
   RPC_Callback("setWifi", rpc_setwifi_wifi_cb),
   RPC_Callback("capturePPG", rpc_capture_ppg_cb),
+  RPC_Callback("checkOta", rpc_check_ota_wifi_cb),
 };
 
 // El array de PPG_snapshot necesita un ts real por muestra (20 ms entre
@@ -988,18 +1053,20 @@ static RPC_Callback wifi_rpc_callbacks[] = {
 // aún no está sincronizado, arranca la sincronización y devuelve false; el
 // envío del snapshot simplemente se reintenta en la siguiente vuelta del
 // loop (cada OTA_TASK_PERIOD_MS, 50 ms) hasta que sincronice.
-static bool ensureWifiTimeSynced() {
-  static bool s_wifiTimeSynced = false;
-  if (s_wifiTimeSynced)
-    return true;
+// La comprobación de reloj para el snapshot se hace ahora dentro de
+// ppgSnapshotPublish(), común a los dos transportes. Aquí solo queda el
+// arranque de SNTP, que sigue haciendo falta para tener hora por WiFi.
+static void ensureWifiTimeStarted() {
+  static bool s_requested = false;
+  if (s_requested)
+    return;
   time_t now = 0;
   time(&now);
-  if (now < 1609459200UL) { // antes de 2021-01-01: aun no sincronizado
+  if (now < 1609459200L) { // antes de 2021-01-01: aún no sincronizado
     configTime(0, 0, "pool.ntp.org", "time.nist.gov");
-    return false;
+    return; // reintenta en la siguiente vuelta hasta que SNTP conteste
   }
-  s_wifiTimeSynced = true;
-  return true;
+  s_requested = true;
 }
 static constexpr size_t WIFI_RPC_CB_COUNT =
     sizeof(wifi_rpc_callbacks) / sizeof(wifi_rpc_callbacks[0]);
@@ -1075,6 +1142,7 @@ void WIFI_TB_OTA() {
         // mientras haya WiFi/TB arriba (además del botón "capturar ahora" del
         // RPC capturePPG). BUSY/SIGNAL_NOT_READY se ignoran aquí a propósito:
         // simplemente se reintenta en el siguiente intervalo.
+#if TX_FEATURE_PPG_AUTOCAPTURE_WIFI
         if (millis() - Wifi_TB.lastPpgSnapshotAttempt >
             PPG_SNAPSHOT_AUTO_INTERVAL_MS) {
           Wifi_TB.lastPpgSnapshotAttempt = millis();
@@ -1082,40 +1150,11 @@ void WIFI_TB_OTA() {
               g_spo2_data.probe_state == ProbeState::PROBE_APPLIED,
               g_spo2_data.rsqi, millis());
         }
-        if (ppgSnapshotIsReady() && ensureWifiTimeSynced()) {
-          uint16_t n = ppgSnapshotSampleCount();
-          const int32_t *samples = ppgSnapshotSamples();
-          uint32_t stepMs = 1000UL / PPG_SNAPSHOT_FS_HZ;
-
-          time_t nowSec;
-          time(&nowSec);
-          // La última muestra del array es "ahora"; el resto retrocede en
-          // pasos de stepMs — el orden temporal real de la captura.
-          uint64_t lastMs = (uint64_t)nowSec * 1000ULL;
-
-          DynamicJsonDocument seriesDoc(
-              JSON_ARRAY_SIZE(n) + n * (JSON_OBJECT_SIZE(2) + JSON_OBJECT_SIZE(1)));
-          JsonArray series = seriesDoc.to<JsonArray>();
-          for (uint16_t i = 0; i < n; i++) {
-            JsonObject point = series.createNestedObject();
-            point["ts"] = lastMs - (uint64_t)(n - 1 - i) * stepMs;
-            point.createNestedObject("values")[PPG_SNAPSHOT_KEY] = samples[i];
-          }
-
-          bool seriesOk = tb_wifi.sendTelemetryJson(
-              series, JSON_STRING_SIZE(measureJson(series)));
-
-          StaticJsonDocument<JSON_OBJECT_SIZE(2)> metaDoc;
-          JsonObject metaObj = metaDoc.to<JsonObject>();
-          metaObj[PPG_SNAPSHOT_FS_KEY] = PPG_SNAPSHOT_FS_HZ;
-          metaObj[PPG_SNAPSHOT_N_KEY]  = n;
-          bool metaOk = tb_wifi.sendTelemetryJson(
-              metaObj, JSON_STRING_SIZE(measureJson(metaObj)));
-
-          logI(seriesOk && metaOk ? "[WIFI] -> PPG snapshot PUBLISH SUCCESS"
-                                  : "[WIFI] -> PPG snapshot PUBLISH FAIL");
-          ppgSnapshotClear();
-        }
+#endif
+        ensureWifiTimeStarted();
+        // El montaje del JSON es idéntico por GPRS: vive en
+        // PpgSnapshotPublish.cpp para no tener dos copias que diverjan.
+        ppgSnapshotPublish(tb_wifi, "WIFI");
       }
     }
   } else {

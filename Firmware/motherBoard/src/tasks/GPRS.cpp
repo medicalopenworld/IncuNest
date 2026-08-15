@@ -34,6 +34,8 @@
 #include <sys/time.h>
 
 #include "CommTask.h"
+#include "PpgSnapshot.h"
+#include "PpgSnapshotPublish.h"
 #include "SPO2.h"
 #include "Wifi_OTA.h"
 #include "main.h"
@@ -83,6 +85,8 @@ extern double ReferenceTemperatureRange, ReferenceTemperatureLow;
 extern double RawTemperatureLow[SENSOR_TEMP_QTY],
     RawTemperatureRange[SENSOR_TEMP_QTY];
 
+void GPRSCheckOTA();  // defined below; forced by the checkOta RPC
+
 // ── RPC handlers ─────────────────────────────────────────────────────────────
 static void rpc_restart_cb(JsonVariantConst const & /*data*/,
                            JsonDocument & response) {
@@ -105,16 +109,19 @@ static void rpc_diag_cb(JsonVariantConst const & /*data*/,
 }
 
 static void rpc_setwifi_cb(JsonVariantConst const & data,
-                           JsonDocument & /*response*/) {
+                           JsonDocument & response) {
   const char* ssid = data["ssid"];
   const char* pass = data["password"];
   if (!ssid || !pass || ssid[0] == '\0' || pass[0] == '\0' ||
       strlen(ssid) > 63 || strlen(pass) > 63) {
+    // Nunca registrar ssid/password: son credenciales.
     logModemData("[RPC] setWifi: invalid ssid or password");
+    response["status"] = "invalid";
     return;
   }
   logModemData("[RPC] setWifi received, applying credentials");
   applyWifiCredentials(ssid, pass);
+  response["status"] = "ok";
 }
 
 static void rpc_wipe_babies_cb(JsonVariantConst const & data,
@@ -131,11 +138,45 @@ static void rpc_wipe_babies_cb(JsonVariantConst const & data,
   logModemData("[RPC] baby data wiped");
 }
 
+static void rpc_check_ota_cb(JsonVariantConst const & /*data*/,
+                             JsonDocument & response) {
+  GPRSCheckOTA();  // real implementation earlier in this file
+                   // (handles currentFWSent bookkeeping)
+  response["status"] = "checking";
+  logModemData("[RPC] OTA check forced");
+}
+
+#if TX_FEATURE_PPG_SNAPSHOT_GPRS
+// Gemelo del capturePPG de Wifi_OTA.cpp. La captura la hace el mismo módulo
+// compartido; lo único propio del transporte es por dónde sale el resultado.
+static void rpc_capture_ppg_gprs_cb(JsonVariantConst const & /*data*/,
+                                    JsonDocument & response) {
+  PpgSnapshotStatus st = ppgSnapshotRequestCapture(
+      g_spo2_data.probe_state == ProbeState::PROBE_APPLIED, g_spo2_data.rsqi,
+      millis());
+  switch (st) {
+    case PpgSnapshotStatus::STARTED:
+      response["status"] = "started";
+      break;
+    case PpgSnapshotStatus::BUSY:
+      response["status"] = "busy";
+      break;
+    case PpgSnapshotStatus::SIGNAL_NOT_READY:
+      response["status"] = "signal_not_ready";
+      break;
+  }
+}
+#endif
+
 static RPC_Callback rpc_callbacks[] = {
   RPC_Callback("restart",  rpc_restart_cb),
   RPC_Callback("getDiag",  rpc_diag_cb),
   RPC_Callback("setWifi",  rpc_setwifi_cb),
   RPC_Callback("wipeBabies", rpc_wipe_babies_cb),
+  RPC_Callback("checkOta",   rpc_check_ota_cb),
+#if TX_FEATURE_PPG_SNAPSHOT_GPRS
+  RPC_Callback("capturePPG", rpc_capture_ppg_gprs_cb),
+#endif
 };
 static constexpr size_t RPC_CB_COUNT = sizeof(rpc_callbacks) / sizeof(rpc_callbacks[0]);
 
@@ -146,8 +187,16 @@ static void subscribeRPCHandlers() {
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Download progress, 0-100. Published as telemetry so an OTA can be watched
+// from the dashboard instead of only from a serial log nobody is attached to
+// while the unit is in the field. -1 = no OTA in flight.
+volatile int g_otaProgressPct = -1;
+
 void progressCallback(const uint32_t &currentChunk,
                       const uint32_t &totalChuncks) {
+  if (totalChuncks > 0) {
+    g_otaProgressPct = (int)((currentChunk * 100U) / totalChuncks);
+  }
   if (LOG_MODEM_DATA) {
     char buffer[50]; // Create a buffer to hold the formatted string
     snprintf(buffer, sizeof(buffer), "Progress %.2f%%",
@@ -158,6 +207,7 @@ void progressCallback(const uint32_t &currentChunk,
 }
 
 void updatedCallback(const bool &success) {
+  g_otaProgressPct = -1;
   if (success) {
     logModemData("[GPRS] -> Done, OTA will be implemented on next boot");
     // esp_restart();
@@ -673,6 +723,7 @@ void addConfigTelemetriesToGPRSJSON() {
   addAlarmTelemetriesToGPRSJSON();
   addVariableToTelemetryGPRSJSON[SN_KEY] = in3.serialNumber;
   addVariableToTelemetryGPRSJSON[SYSTEM_RESET_REASON] = in3.resetReason;
+#if TX_GROUP_DIAG_GPRS // grupo DIAG — config/transport_policy.h
   addVariableToTelemetryGPRSJSON[BOOT_COUNT_KEY] = g_bootCount;
   addVariableToTelemetryGPRSJSON[GPRS_KILL_COUNT_KEY] = g_gprsKillCount;
   addVariableToTelemetryGPRSJSON[GPRS_MON_KILL_COUNT_KEY] = g_monKillCount;
@@ -681,13 +732,16 @@ void addConfigTelemetriesToGPRSJSON() {
   addVariableToTelemetryGPRSJSON[UPTIME_S_KEY] = (uint32_t)(millis() / 1000);
   addVariableToTelemetryGPRSJSON[HMI_BOOT_COUNT_KEY] = g_hmiBootCount;
   addVariableToTelemetryGPRSJSON[HMI_LAST_RST_KEY] = g_hmiLastRst;
+#endif
   addVariableToTelemetryGPRSJSON[HW_NUM_KEY] = HW_NUM;
   addVariableToTelemetryGPRSJSON[HW_REV_KEY] = String(HW_REVISION);
   addVariableToTelemetryGPRSJSON[FW_VERSION_KEY] = FWversion;
   addVariableToTelemetryGPRSJSON[CCID_KEY] = GPRS.CCID.c_str();
+#if TX_GROUP_CELLULAR_GPRS // grupo CELLULAR — config/transport_policy.h
   addVariableToTelemetryGPRSJSON[IMEI_KEY] = GPRS.IMEI.c_str();
   addVariableToTelemetryGPRSJSON[APN_KEY] = GPRS.APN.c_str();
   addVariableToTelemetryGPRSJSON[COP_KEY] = GPRS.COP.c_str();
+#endif
 
   addVariableToTelemetryGPRSJSON[SYS_CURR_STANDBY_TEST_KEY] =
       roundSignificantDigits(in3.system_current_standby_test,
@@ -714,6 +768,7 @@ void addConfigTelemetriesToGPRSJSON() {
   addVariableToTelemetryGPRSJSON[GPRS_CONNECTIVITY_KEY] = true;
   addVariableToTelemetryGPRSJSON[WIFI_CONNECTIVITY_KEY] = false;
 
+#if TX_GROUP_CALIBRATION_GPRS // grupo CALIBRATION — config/transport_policy.h
   addVariableToTelemetryGPRSJSON[CALIBRATION_REFERENCE_TEMPERATURE_RANGE_KEY] =
       roundSignificantDigits(ReferenceTemperatureRange, TELEMETRIES_DECIMALS);
   addVariableToTelemetryGPRSJSON[CALIBRATION_REFERENCE_TEMPERATURE_LOW_KEY] =
@@ -728,6 +783,7 @@ void addConfigTelemetriesToGPRSJSON() {
   addVariableToTelemetryGPRSJSON[CALIBRATION_RAW_TEMPERATURE_LOW_SKIN_KEY] =
       roundSignificantDigits(RawTemperatureLow[SKIN_SENSOR],
                              TELEMETRIES_DECIMALS);
+#endif // TX_GROUP_CALIBRATION_GPRS
 }
 
 void addTelemetriesToGPRSJSON() {
@@ -762,7 +818,9 @@ void addTelemetriesToGPRSJSON() {
       roundSignificantDigits(in3.system_current, TELEMETRIES_DECIMALS);
   addVariableToTelemetryGPRSJSON[SYSTEM_VOLTAGE_KEY] =
       roundSignificantDigits(in3.system_voltage, TELEMETRIES_DECIMALS);
+#if TX_GROUP_CELLULAR_GPRS // grupo CELLULAR — config/transport_policy.h
   addVariableToTelemetryGPRSJSON[CELL_SIGNAL_QUALITY_KEY] = GPRS.CSQ;
+#endif
   addVariableToTelemetryGPRSJSON[V5_CURRENT_KEY] =
       roundSignificantDigits(in3.USB_current, TELEMETRIES_DECIMALS);
   addVariableToTelemetryGPRSJSON[V5_VOLTAGE_KEY] =
@@ -846,7 +904,13 @@ void addTelemetriesToGPRSJSON() {
   }
 
   if (in3.fanCommandedOn) {
-    addVariableToTelemetryGPRSJSON[FAN_RPM_KEY] = (int)(in3.fan_rpm + 0.5f);
+    // Only while an OTA is actually downloading, so the key does not
+  // sit at a stale value between updates.
+  extern volatile int g_otaProgressPct;
+  if (g_otaProgressPct >= 0) {
+    addVariableToTelemetryGPRSJSON[OTA_PROGRESS_KEY] = g_otaProgressPct;
+  }
+  addVariableToTelemetryGPRSJSON[FAN_RPM_KEY] = (int)(in3.fan_rpm + 0.5f);
     addVariableToTelemetryGPRSJSON[FAN_PWM_KEY] =
         fanControlPID.GetMode() == AUTOMATIC ? (int)(fanControlPIDOutput + 0.5)
                                              : in3.fanCtlPWM;
@@ -979,6 +1043,20 @@ void GPRSPost() {
         }
         GPRS_JSON.clear();
         publishBabyCloudDataGPRS();
+#if TX_FEATURE_PPG_SNAPSHOT_GPRS
+        // Va después de la telemetría normal a propósito: son ~23 KB por
+        // SIM800, así que si algo se va a atascar, que no sea lo clínico.
+#if TX_FEATURE_PPG_AUTOCAPTURE_GPRS
+        if (millis() - GPRS.lastPpgSnapshotAttempt >
+            PPG_SNAPSHOT_AUTO_INTERVAL_MS) {
+          GPRS.lastPpgSnapshotAttempt = millis();
+          ppgSnapshotRequestCapture(
+              g_spo2_data.probe_state == ProbeState::PROBE_APPLIED,
+              g_spo2_data.rsqi, millis());
+        }
+#endif
+        ppgSnapshotPublish(tb, "GPRS");
+#endif
         GPRS.process = false;
         GPRS.lastSent = millis();
       }

@@ -382,20 +382,23 @@ static void parse_message(const char *line) {
       char *kTok = strtok_r(nullptr, ",", &save);
       char *ptTok = strtok_r(nullptr, ",", &save);
       char *thTok = strtok_r(nullptr, ",", &save);
+      char *huTok = strtok_r(nullptr, ",", &save);
       if (!seqTok || !nameTok || !gestTok || !wTok || !kTok || !ptTok ||
-          !thTok) {
+          !thTok || !huTok) {
         ok = false;
         break;
       }
-      char *e1, *e2, *e3, *e4, *e5, *e6;
+      char *e1, *e2, *e3, *e4, *e5, *e6, *e7;
       long seq = strtol(seqTok, &e1, 10);
       long gest = strtol(gestTok, &e2, 10);
       long w = strtol(wTok, &e3, 10);
       long kang = strtol(kTok, &e4, 10);
       unsigned long photoMin = strtoul(ptTok, &e5, 10);
       unsigned long thermoMin = strtoul(thTok, &e6, 10);
-      if (*e1 || *e2 || *e3 || *e4 || *e5 || *e6 || seq < 0 || gest < 0 ||
-          gest > 255 || w < 0 || w > 65535 || kang < 0 || kang > 65535) {
+      unsigned long humMin = strtoul(huTok, &e7, 10);
+      if (*e1 || *e2 || *e3 || *e4 || *e5 || *e6 || *e7 || seq < 0 ||
+          gest < 0 || gest > 255 || w < 0 || w > 65535 || kang < 0 ||
+          kang > 65535) {
         ok = false;
         break;
       }
@@ -406,7 +409,7 @@ static void parse_message(const char *line) {
       msg.items[i].kangarooCount = (uint16_t)kang;
       msg.items[i].phototherapyMinutes = (uint32_t)photoMin;
       msg.items[i].thermoMinutes = (uint32_t)thermoMin;
-      msg.items[i].thermoMinutes = (uint32_t)thermoMin;
+      msg.items[i].humidityMinutes = (uint32_t)humMin;
     }
     if (ok) {
       g_profileList = msg;
@@ -442,7 +445,8 @@ static void parse_message(const char *line) {
     }
   } else if (strncmp(line, "CTRL,PROFILE_HISTORY", 20) == 0) {
     // CTRL,PROFILE_HISTORY,<page>,<totalCount>,<n>{,<seq>,<name>,<gestWeeks>,
-    //   <lastWeightGrams>,<admissionEpoch>,<dischargeEpoch>,<outcome>}xn
+    //   <lastWeightGrams>,<admissionEpoch>,<dischargeEpoch>,<outcome>,
+    //   <kangarooCount>,<phototherapyMin>,<thermoMin>,<humidityMin>}xn
     // Same manual comma-split pattern as PROFILE_LIST: every field validated
     // before use, malformed line = silent discard (security.md).
     char buf[COMM_RX_BUFFER_SIZE];
@@ -475,12 +479,13 @@ static void parse_message(const char *line) {
       char *kTok = strtok_r(nullptr, ",", &save);
       char *ptTok = strtok_r(nullptr, ",", &save);
       char *thTok = strtok_r(nullptr, ",", &save);
+      char *huTok = strtok_r(nullptr, ",", &save);
       if (!seqTok || !nameTok || !gestTok || !wTok || !admTok || !disTok ||
-          !ocTok || !kTok || !ptTok || !thTok) {
+          !ocTok || !kTok || !ptTok || !thTok || !huTok) {
         ok = false;
         break;
       }
-      char *p1, *p2, *p3, *p4, *p5, *p6, *p7, *p8, *p9;
+      char *p1, *p2, *p3, *p4, *p5, *p6, *p7, *p8, *p9, *p10;
       long seq = strtol(seqTok, &p1, 10);
       long gest = strtol(gestTok, &p2, 10);
       long w = strtol(wTok, &p3, 10);
@@ -490,8 +495,9 @@ static void parse_message(const char *line) {
       long kang = strtol(kTok, &p7, 10);
       unsigned long photoMin = strtoul(ptTok, &p8, 10);
       unsigned long thermoMin = strtoul(thTok, &p9, 10);
+      unsigned long humMin = strtoul(huTok, &p10, 10);
       if (*p1 || *p2 || *p3 || *p4 || *p5 || *p6 || *p7 || *p8 || *p9 ||
-          seq < 0 ||
+          *p10 || seq < 0 ||
           gest < 0 || gest > 255 || w < 0 || w > 65535 || oc < 0 || oc > 3 ||
           kang < 0 || kang > 65535) {
         ok = false;
@@ -506,6 +512,10 @@ static void parse_message(const char *line) {
       msg.items[i].outcome = (uint8_t)oc;
       msg.items[i].kangarooCount = (uint16_t)kang;
       msg.items[i].phototherapyMinutes = (uint32_t)photoMin;
+      // Was parsed but never stored, so the archived cards showed an
+      // uninitialised "Termo" value.
+      msg.items[i].thermoMinutes = (uint32_t)thermoMin;
+      msg.items[i].humidityMinutes = (uint32_t)humMin;
     }
     if (ok) {
       g_babyHistory = msg;

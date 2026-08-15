@@ -7,7 +7,11 @@ uint16_t s_count      = 0;     // muestras (ya diezmadas) recogidas
 uint16_t s_decimCount = 0;     // muestras crudas a 500 Hz desde la última guardada
 bool     s_capturing  = false;
 bool     s_ready      = false;
+bool     s_owned      = false; // reclamado por un transporte para publicar
 uint32_t s_startMs    = 0;
+
+// GPRS y WiFi corren en tareas distintas y comparten s_buf/s_ready.
+portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 
 bool signalGateOk(bool probeApplied, uint8_t rsqi) {
   return probeApplied && rsqi == 1;
@@ -40,6 +44,11 @@ void ppgSnapshotFeed(const AFE4490Data &data, uint32_t now_ms) {
 
 PpgSnapshotStatus ppgSnapshotRequestCapture(bool probeApplied, uint8_t rsqi,
                                             uint32_t now_ms) {
+  // Un snapshot reclamado se está publicando ahora mismo: sobrescribir s_buf
+  // corrompería lo que el otro transporte está serializando.
+  if (s_owned)
+    return PpgSnapshotStatus::BUSY;
+
   if (s_capturing) {
     if (now_ms - s_startMs <= PPG_SNAPSHOT_TIMEOUT_MS)
       return PpgSnapshotStatus::BUSY;
@@ -66,4 +75,23 @@ const int32_t *ppgSnapshotSamples() { return s_buf; }
 void ppgSnapshotClear() {
   s_ready = false;
   s_count = 0;
+}
+
+bool ppgSnapshotTryAcquire() {
+  bool acquired = false;
+  portENTER_CRITICAL(&s_mux);
+  if (s_ready && !s_owned) {
+    s_owned  = true;
+    acquired = true;
+  }
+  portEXIT_CRITICAL(&s_mux);
+  return acquired;
+}
+
+void ppgSnapshotRelease() {
+  portENTER_CRITICAL(&s_mux);
+  s_owned = false;
+  s_ready = false;
+  s_count = 0;
+  portEXIT_CRITICAL(&s_mux);
 }

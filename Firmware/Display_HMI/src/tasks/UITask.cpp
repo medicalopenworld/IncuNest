@@ -128,6 +128,10 @@ static bool g_photo_safety_confirmed = false;
 // wizard that now precedes phototherapy activation: the wizard re-triggers
 // the switch when it finishes, and this flag lets that second pass through.
 static bool g_photo_wizard_done = false;
+// Same one-shot gate, for the baby-data wizard that now precedes humidity
+// activation. Humidity hours are accounted per baby, so the profile has to be
+// known before the humidifier starts.
+static bool g_hum_wizard_done = false;
 static int lastPhotoMinutesSent = -1;
 
 Alarm alarmList[MAX_ALARMS];
@@ -602,6 +606,15 @@ void ActivatePhototherapyFromWizard() {
   g_photo_wizard_done = true;
   ui_set_switch_state_silent(ui_Switch3, true);
   lv_event_send(ui_Switch3, LV_EVENT_VALUE_CHANGED, NULL);
+}
+
+// Same shape for humidity: raise the one-shot gate and re-trigger ui_Switch2
+// so its handler runs again and this time falls through to the real
+// activation. No safety popup stands between the wizard and the humidifier.
+void ActivateHumidityFromWizard() {
+  g_hum_wizard_done = true;
+  ui_set_switch_state_silent(ui_Switch2, true);
+  lv_event_send(ui_Switch2, LV_EVENT_VALUE_CHANGED, NULL);
 }
 
 static void update_main_toggle_buttons() {
@@ -1356,6 +1369,24 @@ void Switch_cb(lv_event_t *e) {
     }
     temp_content_set_visible(checked);
   } else if (obj == ui_Switch2) { // HUMIDITY SWITCH
+    if (checked) {
+      // Mandatory baby-data wizard, same gate as phototherapy: humidity is a
+      // therapy applied to a specific baby and its hours are accounted per
+      // profile, so the baby must be identified before the humidifier starts.
+      // Skipped while a care session is live (temperature or phototherapy
+      // already running for a baby this HMI identified) — re-asking mid-care
+      // is pure friction. The switch goes back to OFF and stays there until
+      // ActivateHumidityFromWizard() re-triggers this handler.
+      if (!g_hum_wizard_done && !BabyWizard_HasLiveSession()) {
+        ui_set_switch_state_silent(ui_Switch2, false);
+        BabyWizard_OpenForHumidity();
+        return;
+      }
+      // Gate cleared — consume it only HERE, where the humidifier actually
+      // starts, so a re-entrant event can never find it already spent.
+      g_hum_wizard_done = false;
+    }
+
     switchHum = checked;
     humSwitched = checked;
     panel = ui_Panel3;
@@ -1557,8 +1588,13 @@ void Switch_cb(lv_event_t *e) {
     hmi_msg.shouldSendData = true;
 
     if (checked) {
-      // show container of skin
-      lv_obj_clear_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
+      // The skin block is only a panel *preference* until temperature control
+      // actually runs: showing the baby-temperature controller with the
+      // control switched off advertises a therapy that is not happening.
+      // temp_content_set_visible() already owns the single condition
+      // (visible && skinPanelEnabled), so delegate instead of clearing the
+      // HIDDEN flag by hand.
+      temp_content_set_visible(tempSwitched);
 
       lv_obj_set_style_bg_color(ui_SkinPanelCont, COLOR_PANEL_WHITE,
                                 LV_PART_MAIN);
@@ -3793,8 +3829,10 @@ void UI_SyncAll() {
   // lv_obj_set_style_bg_color(ui_Panel2, active_col, LV_PART_MAIN);
   lv_obj_set_style_opa(ui_Panel2, LV_OPA_COVER, LV_PART_MAIN);
 
-  // 5. Skin Block (Switch 4)
-  if (skinPanelEnabled) {
+  // 5. Skin Block (Switch 4). Same condition as temp_content_set_visible():
+  // the baby-temperature controller belongs to a running thermal control, so
+  // the skin block alone must not put it on screen.
+  if (skinPanelEnabled && tempSwitched) {
     lv_obj_clear_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
   } else {
     lv_obj_add_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);

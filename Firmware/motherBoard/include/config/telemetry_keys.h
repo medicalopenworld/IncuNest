@@ -84,6 +84,7 @@
 #define BABY_KANGAROO_LAST_KEY "baby_kangaroo_last_epoch"
 #define BABY_PHOTO_MINUTES_KEY "baby_phototherapy_min"
 #define BABY_THERMO_MINUTES_KEY "baby_thermo_min"
+#define BABY_HUMIDITY_MINUTES_KEY "baby_humidity_min"
 // baby_seq is mandatory on every baby payload: without it the cloud cannot
 // tell one patient from the next, and per-baby cumulative counters look
 // like data corruption when a new admission resets them.
@@ -126,3 +127,5 @@
 #define GPRS_MON_KILL_COUNT_KEY "gprs_mon_kill_count"
 #define HMI_BOOT_COUNT_KEY "hmi_boot_count"
 #define HMI_LAST_RST_KEY "hmi_last_rst"
+// 0-100 while an OTA is downloading; absent otherwise.
+#define OTA_PROGRESS_KEY "ota_progress"

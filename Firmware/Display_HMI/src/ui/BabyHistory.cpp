@@ -255,27 +255,30 @@ void showList() {
              it.name);
 
     lv_obj_t *card = lv_btn_create(body);
-    lv_obj_set_size(card, 600, 76);
+    // Three lines: the therapy counters no longer fit on the kangaroo line
+    // once humidity joined them, and the ALTA button caps the label at 420 px.
+    lv_obj_set_size(card, 600, 100);
     styleCard(card, true);
     lv_obj_add_event_cb(card, onActiveCardTap, LV_EVENT_CLICKED,
                         &s_activeRows[i]);
 
-    char buf[160];
+    char buf[192];
     char wtxt[16];
     if (it.weightGrams > 0) {
       snprintf(wtxt, sizeof(wtxt), "%u g", (unsigned)it.weightGrams);
     } else {
       snprintf(wtxt, sizeof(wtxt), "--");
     }
-    char photoTxt[16], thermoTxt[16];
+    char photoTxt[16], thermoTxt[16], humTxt[16];
     fmtMinutes(it.phototherapyMinutes, photoTxt, sizeof(photoTxt));
     fmtMinutes(it.thermoMinutes, thermoTxt, sizeof(thermoTxt));
+    fmtMinutes(it.humidityMinutes, humTxt, sizeof(humTxt));
     snprintf(buf, sizeof(buf),
-             TXT("%s  -  EG %u  -  %s\nCanguro %u  -  Foto %s  -  Termo %s",
-                 "%s  -  GA %u  -  %s\nKangaroo %u  -  Photo %s  -  Thermo %s",
-                 "%s  -  AG %u  -  %s\nKangourou %u  -  Photo %s  -  Thermo %s"),
+             TXT("%s  -  EG %u  -  %s\nCanguro %u\nFoto %s  -  Termo %s  -  Hum %s",
+                 "%s  -  GA %u  -  %s\nKangaroo %u\nPhoto %s  -  Thermo %s  -  Hum %s",
+                 "%s  -  AG %u  -  %s\nKangourou %u\nPhoto %s  -  Thermo %s  -  Hum %s"),
              it.name, (unsigned)it.gestWeeks, wtxt,
-             (unsigned)it.kangarooCount, photoTxt, thermoTxt);
+             (unsigned)it.kangarooCount, photoTxt, thermoTxt, humTxt);
     // 600 card - 150 button - margins: leave the ALTA button clear.
     makeCardLabel(card, buf, 420);
 
@@ -308,22 +311,23 @@ void showList() {
     const BabyHistoryItem &it = s_archRows[i];
 
     lv_obj_t *card = lv_btn_create(body);
-    lv_obj_set_size(card, 600, 72);
+    lv_obj_set_size(card, 600, 100);
     styleCard(card, false);
     lv_obj_add_event_cb(card, onArchCardTap, LV_EVENT_CLICKED, &s_archRows[i]);
 
     char date[16];
     fmtDate(it.dischargeEpoch, date, sizeof(date));
-    char buf[192];
-    char photoTxt[16], thermoTxt[16];
+    char buf[224];
+    char photoTxt[16], thermoTxt[16], humTxt[16];
     fmtMinutes(it.phototherapyMinutes, photoTxt, sizeof(photoTxt));
     fmtMinutes(it.thermoMinutes, thermoTxt, sizeof(thermoTxt));
+    fmtMinutes(it.humidityMinutes, humTxt, sizeof(humTxt));
     snprintf(buf, sizeof(buf),
-             TXT("%s  -  EG %u  -  %s  -  %s\nCanguro %u  -  Foto %s  -  Termo %s",
-                 "%s  -  GA %u  -  %s  -  %s\nKangaroo %u  -  Photo %s  -  Thermo %s",
-                 "%s  -  AG %u  -  %s  -  %s\nKangourou %u  -  Photo %s  -  Thermo %s"),
+             TXT("%s  -  EG %u  -  %s  -  %s\nCanguro %u\nFoto %s  -  Termo %s  -  Hum %s",
+                 "%s  -  GA %u  -  %s  -  %s\nKangaroo %u\nPhoto %s  -  Thermo %s  -  Hum %s",
+                 "%s  -  AG %u  -  %s  -  %s\nKangourou %u\nPhoto %s  -  Thermo %s  -  Hum %s"),
              it.name, (unsigned)it.gestWeeks, outcomeText(it.outcome), date,
-             (unsigned)it.kangarooCount, photoTxt, thermoTxt);
+             (unsigned)it.kangarooCount, photoTxt, thermoTxt, humTxt);
     makeCardLabel(card, buf, 580);
   }
 

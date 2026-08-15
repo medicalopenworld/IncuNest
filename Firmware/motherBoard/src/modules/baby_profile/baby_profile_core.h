@@ -15,8 +15,14 @@
 #define BABY_WEIGHT_ARCHIVE_BUDGET_BYTES (600u * 1024u)
 // valid(1) + seq(4) + name(24) + gestWeeks(1) + weightGrams(2) +
 // admissionEpoch(4) + dischargeEpoch(4) + outcome(1) + kangarooCount(2) +
-// lastKangarooEpoch(4) + phototherapyMinutes(4) + thermoMinutes(4)
-#define BABY_HISTORY_RECORD_SIZE 55u
+// lastKangarooEpoch(4) + phototherapyMinutes(4) + thermoMinutes(4) +
+// humidityMinutes(4)
+#define BABY_HISTORY_RECORD_SIZE 59u
+// The layout before humidityMinutes existed. Kept only so babyStore_init()
+// can recognise an audit log written by an older firmware and reset it
+// instead of reading it with the wrong stride (which would decode garbage
+// into a clinical record).
+#define BABY_HISTORY_RECORD_SIZE_LEGACY_V1 55u
 // timestamp(4) + weightGrams(2)
 #define BABY_WEIGHT_POINT_SIZE 6u
 #define BABY_WEIGHT_HISTORY_MAX_OUT 50u
@@ -48,6 +54,10 @@ struct BabyProfile {
   // Accumulated time under active thermal control (air or skin) for THIS
   // baby, independent of the device-lifetime totals in in3.
   uint32_t thermoMinutes;
+  // Accumulated time under active humidity control for THIS baby (the
+  // device-lifetime total lives in in3.humidifier_active_time). Counted
+  // whenever the actuation includes humidity, alone or with temperature.
+  uint32_t humidityMinutes;
 };
 
 // ---------------- Active slots ----------------

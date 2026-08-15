@@ -1,4 +1,10 @@
-# Protocolo de Comunicación IncuNest (v2.0.0)
+# Protocolo de Comunicación IncuNest (v2.1.0)
+
+> Nota (v2.1.0): `CTRL,PROFILE_LIST` y `CTRL,PROFILE_HISTORY` añaden un campo
+> `humidityMin` al final de cada entrada. Ambas placas deben actualizarse
+> juntas: un HMI v2.1.0 descarta una línea v2.0.0 porque le falta un campo, y
+> un HMI v2.0.0 desalinea el parseo de la segunda entrada en adelante por
+> sobrarle uno.
 
 Este documento describe el protocolo de comunicación serie utilizado entre la Motherboard (MCU) y el Display (HMI).
 
@@ -78,12 +84,17 @@ Enviado cada 10 segundos (y una vez al arrancar la tarea de comunicación).
 
 #### CTRL,PROFILE_LIST (Respuesta a HMI,PROFILE_LIST_REQ)
 Lista de los perfiles de bebé activos (0–3 slots).
-**Formato**: `CTRL,PROFILE_LIST,n{,seq,name,gestWeeks,weightGrams,kangarooCount,phototherapyMin,thermoMin}×n`
+**Formato**: `CTRL,PROFILE_LIST,n{,seq,name,gestWeeks,weightGrams,kangarooCount,phototherapyMin,thermoMin,humidityMin}×n`
 - `weightGrams`: `0` = nunca informado (SKIP).
 - `kangarooCount`: veces que el bebé ha salido con la madre.
-- `phototherapyMin` / `thermoMin`: minutos acumulados **de ese bebé** bajo
-  fototerapia y bajo control térmico. No confundir con los contadores de
-  vida del equipo (`Phototherapy_active_time`, `Control_active_time`).
+- `phototherapyMin` / `thermoMin` / `humidityMin`: minutos acumulados **de ese
+  bebé** bajo fototerapia, bajo control térmico y bajo control de humedad. No
+  confundir con los contadores de vida del equipo
+  (`Phototherapy_active_time`, `Control_active_time`,
+  `Humidifier_active_time`).
+- `humidityMin` cuenta cualquier actuación que incluya humedad (`act=2` o
+  `act=3`), así que un tramo con temperatura + humedad suma en `thermoMin` y
+  en `humidityMin` a la vez.
 
 #### CTRL,PROFILE_ACK (Respuesta a PROFILE_NEW / PROFILE_SELECT / PROFILE_DISCHARGE)
 Confirma la operación con el `seq` afectado.
@@ -105,11 +116,12 @@ Rango NTE calculado por la motherboard (tabla clínica en `shared/nte_table`).
 
 #### CTRL,PROFILE_HISTORY (Respuesta a HMI,PROFILE_HISTORY_REQ)
 Página del historial de bebés archivados, más recientes primero.
-**Formato**: `CTRL,PROFILE_HISTORY,page,totalCount,n{,seq,name,gestWeeks,lastWeightGrams,admissionEpoch,dischargeEpoch,outcome,kangarooCount,phototherapyMin,thermoMin}×n`
+**Formato**: `CTRL,PROFILE_HISTORY,page,totalCount,n{,seq,name,gestWeeks,lastWeightGrams,admissionEpoch,dischargeEpoch,outcome,kangarooCount,phototherapyMin,thermoMin,humidityMin}×n`
 - `outcome`: `0`=Desconocido, `1`=Sobrevivió, `2`=Fallecido, `3`=Trasladado.
 - `dischargeEpoch=0`: nunca se dio de alta explícitamente (desalojo FIFO).
 - Longitud máxima de línea (10 entradas, todos los campos al ancho máximo):
-  ~950 caracteres. Buffers dimensionados a 1280 en ambas placas.
+  ~1110 caracteres. Buffers dimensionados a 1280 en ambas placas — cualquier
+  campo nuevo obliga a recalcular este margen.
 
 #### CTRL,WEIGHT_HISTORY (Respuesta a HMI,WEIGHT_HISTORY_REQ)
 Curva de evolución de peso, submuestreada a ≤50 puntos equiespaciados.

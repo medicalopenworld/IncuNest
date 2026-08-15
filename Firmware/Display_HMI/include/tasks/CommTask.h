@@ -152,6 +152,7 @@ struct BabyProfileListItem {
   uint16_t kangarooCount;      // times taken out to the mother
   uint32_t phototherapyMinutes;// accumulated exposure for this baby
   uint32_t thermoMinutes;      // accumulated thermal-control time
+  uint32_t humidityMinutes;    // accumulated humidity-control time
 };
 struct BabyProfileListMsg {
   int                  count; // 0-3
@@ -193,6 +194,7 @@ struct BabyHistoryItem {
   uint16_t kangarooCount;
   uint32_t phototherapyMinutes;
   uint32_t thermoMinutes;
+  uint32_t humidityMinutes;
 };
 struct BabyHistoryMsg {
   uint32_t page;
