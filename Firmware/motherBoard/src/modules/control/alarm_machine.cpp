@@ -9,6 +9,16 @@ struct Entry {
   uint32_t present_since_ms;
   uint32_t silenced_until_ms;
   uint32_t audio_hold_until_ms;  // rafaga minima 6.10: audio exigido hasta aqui
+  // Si la ventana de arriba esta SELLADA. Sin este flag habria que distinguir
+  // "nunca se sello" de "se sello en el instante 0" mirando solo
+  // audio_hold_until_ms, y no se puede: el 0 no es un centinela, es un
+  // instante del reloj. Con audio_hold_until_ms == 0 y millis() cruzando 2^31
+  // (24,86 dias), la resta con signo se vuelve negativa y las 16 condiciones
+  // que nunca se activaron declaran a la vez que estan completando su rafaga
+  // minima — zumbador en patron ALTA, bitmask a 0 (sin senal visual, sin
+  // CTRL,ALM, sin telemetria) e imposible de callar, porque el encoder exige
+  // any_signalling() y silence() solo actua sobre ACTIVE.
+  bool audio_hold_active;
 };
 
 Entry g_entries[ALARM_COUNT];
@@ -22,6 +32,47 @@ bool is_signalling(AlarmState s) { return s != ALARM_STATE_INACTIVE; }
 
 bool valid(AlarmId id) { return id > ALARM_NONE && id < ALARM_COUNT; }
 
+// Sella la ventana de rafaga minima de 6.10 al anunciarse la condicion. Unico
+// punto que la abre.
+void arm_audio_hold(Entry &e, AlarmId id, uint32_t now_ms) {
+  e.audio_hold_until_ms =
+      now_ms + (alarm_priority(id) == ALARM_PRIORITY_HIGH
+                    ? ALARM_MIN_BURST_MS_HIGH
+                    : ALARM_MIN_BURST_MS_MEDIUM);
+  e.audio_hold_active = true;
+}
+
+// Cancela la ventana. 6.10 exige completar la rafaga "unless inactivated by
+// the OPERATOR": silenciar y aceptar son esa inactivacion.
+void cancel_audio_hold(Entry &e) {
+  e.audio_hold_active = false;
+  e.audio_hold_until_ms = 0;
+}
+
+// UNICA definicion del predicado "esta condicion sigue dentro de su ventana de
+// rafaga minima". Estaba escrito por duplicado en audio_required() y en
+// audible_priority(), y esa duplicacion es exactamente lo que dio dos puntos
+// de escape al mismo fallo. La ventana consumida de forma natural se cierra
+// aqui, para que el flag no quede armado indefinidamente.
+bool audio_hold_pending(Entry &e) {
+  if (!e.audio_hold_active) {
+    return false;
+  }
+  if ((int32_t)(g_last_tick_ms - e.audio_hold_until_ms) < 0) {
+    return true;
+  }
+  cancel_audio_hold(e);
+  return false;
+}
+
+// El criterio de audio, en un solo sitio: ACTIVE, o INACTIVE todavia dentro de
+// la ventana de rafaga minima. SILENCED y ACKED quedan fuera a proposito - son
+// la inactivacion del OPERADOR que 6.10 exime de completar la rafaga.
+bool entry_requires_audio(Entry &e) {
+  return e.state == ALARM_STATE_ACTIVE ||
+         (e.state == ALARM_STATE_INACTIVE && audio_hold_pending(e));
+}
+
 }  // namespace
 
 void alarm_machine_init(void) {
@@ -32,6 +83,7 @@ void alarm_machine_init(void) {
     g_entries[i].present_since_ms = 0;
     g_entries[i].silenced_until_ms = 0;
     g_entries[i].audio_hold_until_ms = 0;
+    g_entries[i].audio_hold_active = false;
   }
   g_last_tick_ms = 0;
 }
@@ -58,10 +110,7 @@ void alarm_machine_condition(AlarmId id, bool present, uint32_t now_ms) {
           e.announce_delay_ms > 0 && !alarm_is_latching(id);
       e.state = may_wait ? ALARM_STATE_PENDING : ALARM_STATE_ACTIVE;
       if (e.state == ALARM_STATE_ACTIVE) {
-        e.audio_hold_until_ms =
-            now_ms + (alarm_priority(id) == ALARM_PRIORITY_HIGH
-                          ? ALARM_MIN_BURST_MS_HIGH
-                          : ALARM_MIN_BURST_MS_MEDIUM);
+        arm_audio_hold(e, id, now_ms);
       }
     }
   } else {
@@ -81,10 +130,7 @@ void alarm_machine_tick(uint32_t now_ms) {
     if (e.state == ALARM_STATE_PENDING && e.present &&
         (uint32_t)(now_ms - e.present_since_ms) >= e.announce_delay_ms) {
       e.state = ALARM_STATE_ACTIVE;
-      e.audio_hold_until_ms =
-          now_ms + (alarm_priority((AlarmId)i) == ALARM_PRIORITY_HIGH
-                        ? ALARM_MIN_BURST_MS_HIGH
-                        : ALARM_MIN_BURST_MS_MEDIUM);
+      arm_audio_hold(e, (AlarmId)i, now_ms);
     }
     if (e.state == ALARM_STATE_SILENCED &&
         (int32_t)(now_ms - e.silenced_until_ms) >= 0) {
@@ -94,19 +140,15 @@ void alarm_machine_tick(uint32_t now_ms) {
 }
 
 bool alarm_machine_audio_required(void) {
+  bool required = false;
   for (int i = ALARM_NONE + 1; i < ALARM_COUNT; ++i) {
-    const Entry &e = g_entries[i];
-    if (e.state == ALARM_STATE_ACTIVE) {
-      return true;
-    }
-    // 6.10: la rafaga minima se completa aunque la condicion ya se haya ido,
-    // salvo que el operador la haya inactivado explicitamente.
-    if (e.state == ALARM_STATE_INACTIVE &&
-        (int32_t)(g_last_tick_ms - e.audio_hold_until_ms) < 0) {
-      return true;
+    // Sin corte temprano: entry_requires_audio() tambien cierra las ventanas ya
+    // consumidas, y saltarse las entradas restantes solo aplazaria ese cierre.
+    if (entry_requires_audio(g_entries[i])) {
+      required = true;
     }
   }
-  return false;
+  return required;
 }
 
 AlarmState alarm_machine_state(AlarmId id) {
@@ -144,10 +186,11 @@ void alarm_machine_silence(AlarmId id, uint32_t duration_ms, uint32_t now_ms) {
   e.silenced_until_ms = now_ms + duration_ms;
   // 6.10: la rafaga minima se exige "unless inactivated by the OPERATOR" -
   // silenciar es esa inactivacion, y cancela la rafaga pendiente.
-  e.audio_hold_until_ms = now_ms;
+  cancel_audio_hold(e);
 }
 
 void alarm_machine_ack(AlarmId id, uint32_t now_ms) {
+  (void)now_ms;
   if (!valid(id)) {
     return;
   }
@@ -156,7 +199,7 @@ void alarm_machine_ack(AlarmId id, uint32_t now_ms) {
     e.state = ALARM_STATE_ACKED;
     // 6.10: idem que en silence() - ACK tambien es una inactivacion del
     // OPERADOR y cancela la rafaga pendiente.
-    e.audio_hold_until_ms = now_ms;
+    cancel_audio_hold(e);
   }
 }
 
@@ -196,15 +239,9 @@ AlarmPriority alarm_machine_top_priority(void) {
 AlarmPriority alarm_machine_audible_priority(void) {
   AlarmPriority top = ALARM_PRIORITY_LOW;
   for (int i = ALARM_NONE + 1; i < ALARM_COUNT; ++i) {
-    const Entry &e = g_entries[i];
-    // Mismo criterio que alarm_machine_audio_required(): ACTIVE, o INACTIVE
-    // todavia dentro de la ventana de rafaga minima. SILENCED/ACKED quedan
-    // fuera a proposito - son la inactivacion del OPERADOR.
-    const bool audible =
-        e.state == ALARM_STATE_ACTIVE ||
-        (e.state == ALARM_STATE_INACTIVE &&
-         (int32_t)(g_last_tick_ms - e.audio_hold_until_ms) < 0);
-    if (audible) {
+    // Mismo predicado, literalmente la misma funcion, que
+    // alarm_machine_audio_required().
+    if (entry_requires_audio(g_entries[i])) {
       const AlarmPriority p = alarm_priority((AlarmId)i);
       if (p > top) {
         top = p;

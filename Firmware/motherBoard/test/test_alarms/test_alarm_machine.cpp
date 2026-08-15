@@ -300,6 +300,55 @@ void test_ack_cancels_the_minimum_burst_hold(void) {
   TEST_ASSERT_FALSE(alarm_machine_audio_required());
 }
 
+// --- El 0 no es un centinela: es un instante (revision final, C-1) ---
+//
+// `audio_hold_until_ms` vale 0 en toda condicion que nunca se activo. Si la
+// pertenencia a la ventana de rafaga minima se decide restando ese 0 del reloj
+// e interpretando el signo, en cuanto millis() cruza 2^31 (24,86 dias) la
+// resta se vuelve negativa y las 16 condiciones declaran a la vez que estan
+// completando su rafaga: el zumbador suena en patron ALTA indefinidamente con
+// el bitmask a 0 — sin senal visual, sin CTRL,ALM y sin telemetria — y no se
+// puede callar, porque el encoder exige ongoingAlarms() (any_signalling(), que
+// es false) y silence() solo actua sobre ACTIVE. Un estado del que solo se
+// sale apagando el equipo, y que dura hasta los 49,71 dias.
+void test_no_condition_never_requires_audio_at_any_clock_value(void) {
+  const uint32_t clocks[] = {
+      0u,          1u,          1000u,       0x7FFFFFFFu, 0x80000000u,
+      0x80000001u, 0xA0000000u, 0xC0000000u, 0xFFFFF000u, 0xFFFFFFFFu};
+  for (unsigned i = 0; i < sizeof(clocks) / sizeof(clocks[0]); ++i) {
+    alarm_machine_tick(clocks[i]);
+    TEST_ASSERT_FALSE(alarm_machine_audio_required());
+    TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_LOW, alarm_machine_audible_priority());
+    TEST_ASSERT_EQUAL_UINT32(0u, alarm_machine_bitmask());
+    TEST_ASSERT_FALSE(alarm_machine_any_signalling());
+  }
+}
+
+// La misma trampa para una ventana que SI existio y ya se consumio: una vez
+// completada, la rafaga esta completada para siempre. Que el reloj llegue al
+// otro lado de 2^31 no puede resucitarla.
+void test_a_completed_burst_stays_completed_at_a_large_clock(void) {
+  alarm_machine_condition(ALARM_FAN_FAILURE, true, 0);
+  alarm_machine_condition(ALARM_FAN_FAILURE, false, 10);
+  alarm_machine_tick(ALARM_MIN_BURST_MS_HIGH);
+  TEST_ASSERT_FALSE(alarm_machine_audio_required());
+  alarm_machine_tick(0x90000000u);
+  TEST_ASSERT_FALSE(alarm_machine_audio_required());
+  TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_LOW, alarm_machine_audible_priority());
+}
+
+// Y para una ventana cancelada por el OPERADOR (6.10): silenciar la anula, y
+// anulada tiene que seguir a cualquier valor del reloj.
+void test_a_silenced_burst_stays_cancelled_at_a_large_clock(void) {
+  alarm_machine_condition(ALARM_FAN_FAILURE, true, 0);
+  alarm_machine_silence(ALARM_FAN_FAILURE, 100, 50);
+  alarm_machine_condition(ALARM_FAN_FAILURE, false, 80);
+  TEST_ASSERT_FALSE(alarm_machine_audio_required());
+  alarm_machine_tick(0x90000000u);
+  TEST_ASSERT_FALSE(alarm_machine_audio_required());
+  TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_LOW, alarm_machine_audible_priority());
+}
+
 // --- Invariantes de los que depende la integracion de security.cpp ---
 
 // C-1: la ventana de estabilizacion se aplica como retardo de ANUNCIO, nunca
@@ -501,6 +550,9 @@ int main(void) {
   RUN_TEST(test_short_condition_still_completes_its_burst);
   RUN_TEST(test_silencing_cancels_the_minimum_burst_hold);
   RUN_TEST(test_ack_cancels_the_minimum_burst_hold);
+  RUN_TEST(test_no_condition_never_requires_audio_at_any_clock_value);
+  RUN_TEST(test_a_completed_burst_stays_completed_at_a_large_clock);
+  RUN_TEST(test_a_silenced_burst_stays_cancelled_at_a_large_clock);
   RUN_TEST(test_pending_still_cuts_the_heater);
   RUN_TEST(test_pending_cold_deviation_never_cuts_the_heater);
   RUN_TEST(test_delay_set_while_active_does_not_unannounce);
