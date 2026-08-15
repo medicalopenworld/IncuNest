@@ -25,6 +25,13 @@ void alarm_machine_condition(AlarmId id, bool present, uint32_t now_ms);
 // Hace avanzar los temporizadores. Debe llamarse periodicamente.
 void alarm_machine_tick(uint32_t now_ms);
 
+// Retardo de anuncio por condicion. 201.12.3.104 lo permite hasta 30 min
+// mientras la incubadora calienta desde frio. Los cortes termicos lo ignoran.
+void alarm_machine_set_announce_delay(AlarmId id, uint32_t delay_ms);
+
+// true si hay alguna condicion en ACTIVE. SILENCED y ACKED no cuentan.
+bool alarm_machine_audio_required(void);
+
 AlarmState alarm_machine_state(AlarmId id);
 
 // Bit por AlarmId de las condiciones que estan generando senal visual, en

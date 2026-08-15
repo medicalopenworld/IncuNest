@@ -5,6 +5,8 @@ namespace {
 struct Entry {
   bool present;       // la condicion fisica esta ocurriendo ahora
   AlarmState state;
+  uint32_t announce_delay_ms;
+  uint32_t present_since_ms;
 };
 
 Entry g_entries[ALARM_COUNT];
@@ -19,6 +21,14 @@ void alarm_machine_init(void) {
   for (int i = 0; i < ALARM_COUNT; ++i) {
     g_entries[i].present = false;
     g_entries[i].state = ALARM_STATE_INACTIVE;
+    g_entries[i].announce_delay_ms = 0;
+    g_entries[i].present_since_ms = 0;
+  }
+}
+
+void alarm_machine_set_announce_delay(AlarmId id, uint32_t delay_ms) {
+  if (valid(id)) {
+    g_entries[id].announce_delay_ms = delay_ms;
   }
 }
 
@@ -32,7 +42,11 @@ void alarm_machine_condition(AlarmId id, bool present, uint32_t now_ms) {
 
   if (present) {
     if (e.state == ALARM_STATE_INACTIVE) {
-      e.state = ALARM_STATE_ACTIVE;
+      e.present_since_ms = now_ms;
+      // Un corte termico nunca espera: la norma exige aviso inmediato.
+      const bool may_wait =
+          e.announce_delay_ms > 0 && !alarm_is_latching(id);
+      e.state = may_wait ? ALARM_STATE_PENDING : ALARM_STATE_ACTIVE;
     }
   } else {
     // El latching se aplica en la Task 6; de momento toda condicion que
@@ -41,7 +55,24 @@ void alarm_machine_condition(AlarmId id, bool present, uint32_t now_ms) {
   }
 }
 
-void alarm_machine_tick(uint32_t now_ms) { (void)now_ms; }
+void alarm_machine_tick(uint32_t now_ms) {
+  for (int i = ALARM_NONE + 1; i < ALARM_COUNT; ++i) {
+    Entry &e = g_entries[i];
+    if (e.state == ALARM_STATE_PENDING && e.present &&
+        (uint32_t)(now_ms - e.present_since_ms) >= e.announce_delay_ms) {
+      e.state = ALARM_STATE_ACTIVE;
+    }
+  }
+}
+
+bool alarm_machine_audio_required(void) {
+  for (int i = ALARM_NONE + 1; i < ALARM_COUNT; ++i) {
+    if (g_entries[i].state == ALARM_STATE_ACTIVE) {
+      return true;
+    }
+  }
+  return false;
+}
 
 AlarmState alarm_machine_state(AlarmId id) {
   return valid(id) ? g_entries[id].state : ALARM_STATE_INACTIVE;
