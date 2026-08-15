@@ -7,14 +7,18 @@
 
 const char *alarm_title_text(AlarmId id, Language lang) {
   switch (id) {
+    // "FALLO" y no "CORTE": si el corte termico salta es que el termostato ha
+    // fallado (201.15.4.2.1 aa lo describe asi), no que el equipo este
+    // protegiendose de una situacion normal. El titulo tiene que decirle al
+    // operador que esto es una averia, no un ciclo de trabajo.
     case ALARM_AIR_THERMAL_CUTOUT:
-      ES("CORTE TERMICO AIRE");
-      FR("COUPURE THERMIQUE AIR");
-      return "AIR THERMAL CUTOUT";
+      ES("FALLO TERMICO AIRE");
+      FR("PANNE THERMIQUE AIR");
+      return "AIR THERMAL FAULT";
     case ALARM_SKIN_THERMAL_CUTOUT:
-      ES("CORTE TERMICO PIEL");
-      FR("COUPURE THERMIQUE PEAU");
-      return "SKIN THERMAL CUTOUT";
+      ES("FALLO TERMICO PIEL");
+      FR("PANNE THERMIQUE PEAU");
+      return "SKIN THERMAL FAULT";
     case ALARM_AIR_SENSOR_FAULT:
       ES("FALLO SENSOR AIRE");
       FR("PANNE CAPTEUR AIR");
@@ -78,11 +82,16 @@ const char *alarm_title_text(AlarmId id, Language lang) {
 
 const char *alarm_action_text(AlarmId id, Language lang) {
   switch (id) {
+    // Tres cosas, en este orden: que el bebe esta sin calefaccion, que la
+    // causa es una averia del equipo y no una condicion pasajera, y que el
+    // aviso seguira puesto aunque la temperatura baje. Lo ultimo importa
+    // porque la alarma es latching (201.15.4.2.1 aa/bb) y sin decirlo el
+    // operador cree que la pantalla se ha quedado colgada.
     case ALARM_AIR_THERMAL_CUTOUT:
     case ALARM_SKIN_THERMAL_CUTOUT:
-      ES("CALEFACTOR CORTADO - REVISAR AL BEBE");
-      FR("CHAUFFAGE COUPE - VERIFIER LE BEBE");
-      return "HEATER CUT - CHECK THE BABY";
+      ES("CALEFACTOR CORTADO - REVISAR AL BEBE - AVERIA: AVISO FIJO HASTA REINICIAR");
+      FR("CHAUFFAGE COUPE - VERIFIER LE BEBE - PANNE: ALARME FIXE JUSQU AU REDEMARRAGE");
+      return "HEATER CUT - CHECK THE BABY - FAULT: ALARM STAYS UNTIL RESTART";
     case ALARM_AIR_SENSOR_FAULT:
       ES("SIN MEDIDA DE AIRE - CONTROL DETENIDO");
       FR("PAS DE MESURE D AIR - CONTROLE ARRETE");

@@ -122,7 +122,7 @@ aguante la dispersión entre unidades. Falta:
 
 Ninguno se ha ejecutado todavía.
 
-### 6. ⬜ Corte térmico de aire
+### 6. ⬜ Fallo térmico de aire
 
 Elevar el aire por encima de `in3.airTemperatureSetMax` (38 °C por defecto).
 - El calefactor se corta.
@@ -131,8 +131,15 @@ Elevar el aire por encima de `in3.airTemperatureSetMax` (38 °C por defecto).
 - El calefactor **sí** vuelve a estar disponible al bajar la temperatura,
   aunque la alarma siga: el corte depende de la condición física, no de la
   señal.
-- **Hoy no hay forma de resetear la alarma** salvo apagar el equipo. El
-  comando de reset pertenece al plan de protocolo y no está implementado.
+- La alarma solo se quita **apagando el equipo**, y eso es deliberado: que el
+  corte térmico salte significa que el termostato ha fallado —así lo describe
+  201.15.4.2.1 aa)— así que es una condición de servicio, no algo que el
+  operador deba poder borrar para seguir usando el equipo. La norma exige
+  reset manual sin especificar el mecanismo; el ciclo de alimentación lo es.
+- **Comprobar que el texto en pantalla lo dice.** Los textos se reescribieron
+  precisamente para esto: el título es "FALLO TERMICO AIRE" y no "corte", y la
+  descripción avisa de que el aviso queda fijo hasta reiniciar. Sin esa
+  última frase el operador cree que la pantalla se ha quedado colgada.
 
 ### 7. ⬜ Desviación de temperatura
 
