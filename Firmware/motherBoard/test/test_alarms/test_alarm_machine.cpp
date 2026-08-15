@@ -268,6 +268,64 @@ void test_ack_cancels_the_minimum_burst_hold(void) {
   TEST_ASSERT_FALSE(alarm_machine_audio_required());
 }
 
+// --- Invariantes de los que depende la integracion de security.cpp ---
+
+// C-1: la ventana de estabilizacion se aplica como retardo de ANUNCIO, nunca
+// reteniendo la condicion. 201.12.3.104 permite retrasar el aviso mientras la
+// incubadora calienta desde frio; no permite retrasar el corte de calefactor,
+// que es ESSENTIAL PERFORMANCE. Con la condicion en PENDING, heater_must_cut()
+// tiene que decir true YA: mira la condicion fisica, no el estado de senal.
+void test_pending_still_cuts_the_heater(void) {
+  alarm_machine_set_announce_delay(ALARM_AIR_TEMP_DEVIATION_HIGH, 30u * 60000u);
+  alarm_machine_condition(ALARM_AIR_TEMP_DEVIATION_HIGH, true, 1000);
+  TEST_ASSERT_EQUAL_INT(ALARM_STATE_PENDING,
+                        alarm_machine_state(ALARM_AIR_TEMP_DEVIATION_HIGH));
+  TEST_ASSERT_TRUE(alarm_machine_audio_required() == false);
+  TEST_ASSERT_TRUE(alarm_machine_heater_must_cut());
+}
+
+// El lado frio no corta ni siquiera anunciandose: el bebe se enfria si el
+// calefactor se apaga por estar por debajo de la consigna.
+void test_pending_cold_deviation_never_cuts_the_heater(void) {
+  alarm_machine_set_announce_delay(ALARM_AIR_TEMP_DEVIATION_LOW, 30u * 60000u);
+  alarm_machine_condition(ALARM_AIR_TEMP_DEVIATION_LOW, true, 1000);
+  TEST_ASSERT_FALSE(alarm_machine_heater_must_cut());
+  alarm_machine_tick(1000 + 30u * 60000u);
+  TEST_ASSERT_EQUAL_INT(ALARM_STATE_ACTIVE,
+                        alarm_machine_state(ALARM_AIR_TEMP_DEVIATION_LOW));
+  TEST_ASSERT_FALSE(alarm_machine_heater_must_cut());
+}
+
+// Un retardo de anuncio puesto DESPUES de que la condicion ya esta presente no
+// puede devolverla a PENDING ni retirar el corte: declareDeviation() lo fija
+// solo en el flanco de subida, y este test fija esa garantia de la maquina.
+void test_delay_set_while_active_does_not_unannounce(void) {
+  alarm_machine_condition(ALARM_AIR_TEMP_DEVIATION_HIGH, true, 1000);
+  alarm_machine_set_announce_delay(ALARM_AIR_TEMP_DEVIATION_HIGH, 30u * 60000u);
+  alarm_machine_tick(2000);
+  TEST_ASSERT_EQUAL_INT(ALARM_STATE_ACTIVE,
+                        alarm_machine_state(ALARM_AIR_TEMP_DEVIATION_HIGH));
+  TEST_ASSERT_TRUE(alarm_machine_heater_must_cut());
+}
+
+// C-2: la condicion sobrevive a que el detector deje de mirarla. Si
+// checkAirBlockage() sale sin declarar false, el corte se queda puesto para
+// siempre — y al no ser latching, el reset manual lo rechaza. Este test fija
+// el porque de retirar la condicion en cada salida temprana.
+void test_condition_persists_until_declared_false(void) {
+  alarm_machine_condition(ALARM_AIR_OUTLET_BLOCKED, true, 1000);
+  for (uint32_t t = 2000; t < 100000; t += 1000) {
+    alarm_machine_tick(t); // el detector ya no declara nada
+  }
+  TEST_ASSERT_TRUE(alarm_machine_heater_must_cut());
+  TEST_ASSERT_FALSE(alarm_machine_reset(ALARM_AIR_OUTLET_BLOCKED, 100000));
+  TEST_ASSERT_TRUE(alarm_machine_heater_must_cut());
+
+  alarm_machine_condition(ALARM_AIR_OUTLET_BLOCKED, false, 101000);
+  TEST_ASSERT_FALSE(alarm_machine_heater_must_cut());
+  TEST_ASSERT_EQUAL_UINT32(0u, alarm_machine_bitmask());
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_starts_inactive);
@@ -298,5 +356,9 @@ int main(void) {
   RUN_TEST(test_short_condition_still_completes_its_burst);
   RUN_TEST(test_silencing_cancels_the_minimum_burst_hold);
   RUN_TEST(test_ack_cancels_the_minimum_burst_hold);
+  RUN_TEST(test_pending_still_cuts_the_heater);
+  RUN_TEST(test_pending_cold_deviation_never_cuts_the_heater);
+  RUN_TEST(test_delay_set_while_active_does_not_unannounce);
+  RUN_TEST(test_condition_persists_until_declared_false);
   return UNITY_END();
 }

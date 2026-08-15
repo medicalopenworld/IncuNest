@@ -178,11 +178,20 @@ extern PID humidityControlPID;
 // sola. Es lo que dura el silencio que pide el operador con el encoder.
 #define ALARM_AUDIO_PAUSE_MS 120000u
 
-// Ventana de estabilizacion de las desviaciones de temperatura y humedad. El
-// resto de condiciones se evaluan siempre; estas dos familias no, porque una
-// incubadora que arranca fria tarda en alcanzar la consigna (201.12.3.104).
+// Ventana de estabilizacion: una incubadora que arranca fria tarda en alcanzar
+// la consigna y 201.12.3.104 permite retrasar el ANUNCIO hasta 30 min por eso.
+// Retrasar el anuncio, no la condicion: las desviaciones por el lado caliente
+// cortan el calefactor, y eso es ESSENTIAL PERFORMANCE que no puede esperar.
 long lastAlarmTrigger[NUM_ALARMS];
 long lastPowerSupplyCheck;
+
+// La sonda de piel no es obligatoria en modo aire. applyNTCResult()
+// (sensors_module.cpp) solo refresca lastSuccesfullSensorUpdate[SKIN_SENSOR]
+// cuando los milivoltios caen dentro de la ventana de descarte, asi que con la
+// sonda desconectada se queda en 0 de por vida. Sin este latch, el equipo de
+// fabrica (modo aire, sin sonda) levantaria una alarma BAJA permanente a los
+// 20 s de arrancar: fatiga de alarma pura. Una sonda ausente no es un fallo.
+static bool skinProbeEverRead = false;
 
 // Bitmask de condiciones senalizando en el ciclo anterior. Comparar contra el
 // actual es lo que produce los eventos que van al display (sendAlarmUSB) y al
@@ -206,11 +215,36 @@ static bool thresholdWithHysteresis(bool wasPresent, float value,
   return wasPresent ? (value > threshold - hysteresis) : (value > threshold);
 }
 
+// Lo que le queda a la ventana de estabilizacion de `id`, en ms. Se aplica
+// como retardo de ANUNCIO (alarm_machine_set_announce_delay()) en el flanco en
+// que aparece la condicion, no como puerta a la condicion: asi la alarma
+// espera pero el corte de calefactor no, porque heater_must_cut() mira la
+// condicion fisica y no el estado de senalizacion.
+static uint32_t stabilizationRemainingMs(AlarmId id, uint32_t now)
+{
+  const uint32_t window = (uint32_t)minsToMillis(ACTUATORS_ALARM_STABILIZATION_MINS);
+  const uint32_t elapsed = now - (uint32_t)lastAlarmTrigger[id];
+  return (elapsed < window) ? (window - elapsed) : 0u;
+}
+
+// Declara una desviacion arrancando su retardo de anuncio en el flanco de
+// subida. `wasPresent` es el valor del ciclo anterior.
+static void declareDeviation(AlarmId id, bool wasPresent, bool present,
+                             uint32_t now)
+{
+  if (present && !wasPresent)
+  {
+    alarm_machine_set_announce_delay(id, stabilizationRemainingMs(id, now));
+  }
+  alarm_machine_condition(id, present, now);
+}
+
 void initAlarms()
 {
   alarm_machine_init();
   previousAlarmBitmask = 0;
   previousAudioRequired = false;
+  skinProbeEverRead = false;
   for (int i = 0; i < NUM_ALARMS; i++)
   {
     in3.alarmToReport[i] = false;
@@ -255,14 +289,24 @@ void checkStatusOfSensor(byte sensor)
     // corta el calefactor; en modo aire la sonda no controla nada, asi que
     // es BAJA y no toca el calefactor. Son dos condiciones distintas, y al
     // cambiar de modo hay que retirar la del par contrario o queda colgada.
+    if (lastSuccesfullSensorUpdate[SKIN_SENSOR] != 0)
+    {
+      // applyNTCResult() usa el 0 como centinela de "aun no ha leido nunca".
+      skinProbeEverRead = true;
+    }
     if (in3.controlMode == CONTROL_SKIN)
     {
+      // En modo piel la sonda es obligatoria: su ausencia SI es un fallo.
       alarm_machine_condition(ALARM_SKIN_SENSOR_FAULT_SKIN_MODE, stale, now);
       alarm_machine_condition(ALARM_SKIN_SENSOR_FAULT_AIR_MODE, false, now);
     }
     else
     {
-      alarm_machine_condition(ALARM_SKIN_SENSOR_FAULT_AIR_MODE, stale, now);
+      // En modo aire hay que distinguir AUSENCIA de FALLO: una sonda que
+      // nunca llego a leer en este ciclo de alimentacion es una sonda que no
+      // esta puesta, y eso es una configuracion normal, no una averia.
+      alarm_machine_condition(ALARM_SKIN_SENSOR_FAULT_AIR_MODE,
+                              stale && skinProbeEverRead, now);
       alarm_machine_condition(ALARM_SKIN_SENSOR_FAULT_SKIN_MODE, false, now);
     }
     break;
@@ -295,8 +339,11 @@ void powerMonitor()
 
 void alarmTimerStart(long graceMinutes)
 {
-  // checkAlarms() only evaluates the temperature deviations / humidity once
-  // ACTUATORS_ALARM_STABILIZATION_MINS have passed since lastAlarmTrigger.
+  // Marca el inicio de la ventana de estabilizacion. Las cuatro desviaciones
+  // de temperatura la usan como retardo de ANUNCIO (declareDeviation(): la
+  // condicion se declara igual, con corte de calefactor incluido, solo se
+  // retrasa el aviso). La desviacion de humedad, que no gobierna ningun
+  // actuador, la sigue usando como puerta de evaluacion.
   // Offsetting it into the past by (stabilization - graceMinutes) makes
   // that window elapse `graceMinutes` from now instead of the full wait -
   // a fresh activation passes graceMinutes=0 (full wait, unchanged
@@ -732,11 +779,16 @@ void checkAlarms()
   // 201.15.4.2.1 dd)/ee): cuatro condiciones direccionales. La medida y el
   // umbral dependen del modo; el par del modo inactivo se retira siempre, o
   // quedaria colgado al cambiar de modo.
+  //
+  // Las cuatro se declaran SIEMPRE que haya control de temperatura, sin puerta
+  // de estabilizacion. Las de lado caliente cortan el calefactor
+  // (alarm_cuts_heater()), asi que retenerlas 30 min no silenciaba un aviso:
+  // inhibia una proteccion, y justo durante la rampa de calentamiento desde
+  // frio, que es cuando el sobreimpulso del PID es mas probable. La ventana de
+  // estabilizacion se aplica ahora como retardo de ANUNCIO, que es lo unico
+  // que 201.12.3.104 permite retrasar.
   const bool airMode = (in3.controlMode == CONTROL_AIR);
-  bool evaluateDeviation =
-      in3.temperatureControl &&
-      (millis() - lastAlarmTrigger[ALARM_AIR_TEMP_DEVIATION_HIGH] >=
-       minsToMillis(ACTUATORS_ALARM_STABILIZATION_MINS));
+  const bool controlling = in3.temperatureControl;
 
   const float measured = airMode ? in3.temperature[ROOM_DIGITAL_TEMP_SENSOR]
                                  : in3.temperature[SKIN_SENSOR];
@@ -744,23 +796,31 @@ void checkAlarms()
   const float limit =
       airMode ? AIR_TEMP_DEVIATION_LIMIT_C : SKIN_TEMP_DEVIATION_LIMIT_C;
 
-  airHighPresent = evaluateDeviation && airMode &&
-                   thresholdWithHysteresis(airHighPresent, deviation, limit,
+  const bool airHighWas = airHighPresent;
+  const bool airLowWas = airLowPresent;
+  const bool skinHighWas = skinHighPresent;
+  const bool skinLowWas = skinLowPresent;
+
+  airHighPresent = controlling && airMode &&
+                   thresholdWithHysteresis(airHighWas, deviation, limit,
                                            TEMPERATURE_ERROR_HYSTERESIS);
-  airLowPresent = evaluateDeviation && airMode &&
-                  thresholdWithHysteresis(airLowPresent, -deviation, limit,
+  airLowPresent = controlling && airMode &&
+                  thresholdWithHysteresis(airLowWas, -deviation, limit,
                                           TEMPERATURE_ERROR_HYSTERESIS);
-  skinHighPresent = evaluateDeviation && !airMode &&
-                    thresholdWithHysteresis(skinHighPresent, deviation, limit,
+  skinHighPresent = controlling && !airMode &&
+                    thresholdWithHysteresis(skinHighWas, deviation, limit,
                                             TEMPERATURE_ERROR_HYSTERESIS);
-  skinLowPresent = evaluateDeviation && !airMode &&
-                   thresholdWithHysteresis(skinLowPresent, -deviation, limit,
+  skinLowPresent = controlling && !airMode &&
+                   thresholdWithHysteresis(skinLowWas, -deviation, limit,
                                            TEMPERATURE_ERROR_HYSTERESIS);
 
-  alarm_machine_condition(ALARM_AIR_TEMP_DEVIATION_HIGH, airHighPresent, now);
-  alarm_machine_condition(ALARM_AIR_TEMP_DEVIATION_LOW, airLowPresent, now);
-  alarm_machine_condition(ALARM_SKIN_TEMP_DEVIATION_HIGH, skinHighPresent, now);
-  alarm_machine_condition(ALARM_SKIN_TEMP_DEVIATION_LOW, skinLowPresent, now);
+  declareDeviation(ALARM_AIR_TEMP_DEVIATION_HIGH, airHighWas, airHighPresent,
+                   now);
+  declareDeviation(ALARM_AIR_TEMP_DEVIATION_LOW, airLowWas, airLowPresent, now);
+  declareDeviation(ALARM_SKIN_TEMP_DEVIATION_HIGH, skinHighWas, skinHighPresent,
+                   now);
+  declareDeviation(ALARM_SKIN_TEMP_DEVIATION_LOW, skinLowWas, skinLowPresent,
+                   now);
 
   const bool evaluateHumidity =
       in3.humidityControl &&
@@ -822,14 +882,24 @@ void checkAirBlockage()
   static long fanCommandedOnSince = 0;
   static long dutyHighSince = 0;
 
+  // Toda salida temprana RETIRA la condicion antes de volver. La maquina
+  // conserva `present` hasta que alguien declare false, asi que salir sin
+  // retirarla la congelaba: declarada la obstruccion, basta con desactivar el
+  // PID del ventilador (conmutable en caliente desde USB o /config, y
+  // persistido) para que esta funcion salga por el primer return de por vida.
+  // heater_must_cut() devolveria true para siempre y, al no ser latching, el
+  // reset manual la rechaza: solo un ciclo de alimentacion la limpiaria, con
+  // el bebe en una incubadora sin calefactor y sin explicacion.
   if (fanControlPID.GetMode() != AUTOMATIC)
   {
     dutyHighSince = 0;
+    alarm_machine_condition(ALARM_AIR_OUTLET_BLOCKED, false, millis());
     return; // not under closed-loop control — no duty signal to evaluate
   }
   if (alarmSignalling(ALARM_FAN_FAILURE))
   {
     dutyHighSince = 0;
+    alarm_machine_condition(ALARM_AIR_OUTLET_BLOCKED, false, millis());
     return; // total fan failure already reported — don't also report this
   }
 
@@ -843,7 +913,10 @@ void checkAirBlockage()
   {
     // During spin-up the PID output saturates at max duty by design (large
     // RPM error) — evaluating it here would false-alarm on every start.
+    // Idem que arriba: con el ventilador parado no hay obstruccion que medir,
+    // y dejarla puesta la congelaria igual.
     dutyHighSince = 0;
+    alarm_machine_condition(ALARM_AIR_OUTLET_BLOCKED, false, millis());
     return;
   }
 
