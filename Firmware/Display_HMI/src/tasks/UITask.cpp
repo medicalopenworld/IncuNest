@@ -3868,8 +3868,16 @@ void UI_Task(void *pvParameters) {
     // critica — es precisamente la pantalla donde se atiende.
     AlarmCenter_Poll();
 
-    // Se reevalua en cada pasada: depende de silencedBitmask, que llega con
-    // CTRL,STATE y caduca solo en la placa.
+    // El banner se reevalua en CADA pasada, no solo cuando cambia el conjunto
+    // de alarmas. Su visibilidad depende de la pantalla activa y el banner
+    // cuelga de lv_layer_top(), que no se entera de los lv_scr_load(): si solo
+    // se recalculara desde update_alarm_panels() —que corre con
+    // g_pendingAlarmUpdate, o sea cuando llega un CTRL,ALM—, al salir del
+    // bloqueo hacia cualquier otra pantalla el banner se quedaba pintado hasta
+    // el siguiente cambio de alarma. Es idempotente y barato.
+    alarm_banner_update();
+    // Se reevalua en cada pasada por lo mismo, y ademas depende de
+    // silencedBitmask, que llega con CTRL,STATE y caduca solo en la placa.
     audio_paused_icon_update();
     // Baby-exit dialog: only the transition to a fully idle incubator
     // (no temperature, no humidity, no phototherapy) means the baby
