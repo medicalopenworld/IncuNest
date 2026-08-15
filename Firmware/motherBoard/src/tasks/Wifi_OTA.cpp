@@ -34,6 +34,7 @@
 #include "main.h"
 #include "modules/baby_profile/baby_cloud.h"
 #include "modules/baby_profile/baby_profile_store.h"
+#include "alarm_policy.h"
 
 extern GPRSstruct GPRS;
 static const char *TAG __attribute__((unused)) = "WiFi";
@@ -449,12 +450,14 @@ void configWifiServer() {
       { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_HEAT_MAX_A, in3.heaterMaxPowerAmps); p.end(); }
     }
     if (wifiServer.hasArg("air_tmax")) {
-      in3.airTemperatureSetMax = wifiServer.arg("air_tmax").toFloat();
+      in3.airTemperatureSetMax =
+          alarm_clamp_air_cutout(wifiServer.arg("air_tmax").toFloat());
       maxDesiredTemp[CONTROL_AIR] = in3.airTemperatureSetMax;
       { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_AIR_T_MAX, in3.airTemperatureSetMax); p.end(); }
     }
     if (wifiServer.hasArg("skin_tmax")) {
-      in3.skinTemperatureSetMax = wifiServer.arg("skin_tmax").toFloat();
+      in3.skinTemperatureSetMax =
+          alarm_clamp_skin_cutout(wifiServer.arg("skin_tmax").toFloat());
       maxDesiredTemp[CONTROL_SKIN] = in3.skinTemperatureSetMax;
       { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_SKIN_T_MAX, in3.skinTemperatureSetMax); p.end(); }
     }

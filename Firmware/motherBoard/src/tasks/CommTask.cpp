@@ -8,6 +8,7 @@
 #include "modules/baby_profile/baby_profile_protocol.h"
 #include "modules/baby_profile/baby_profile_store.h"
 #include "nte_table.h"
+#include "alarm_policy.h"
 
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -550,12 +551,12 @@ void parse_line(const char *line) {
         in3.heaterMaxPowerAmps = value;
         { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_HEAT_MAX_A, in3.heaterMaxPowerAmps); p.end(); }
       } else if (strcmp(param, "SKIN_TMAX") == 0) {
-        in3.skinTemperatureSetMax = value;
-        maxDesiredTemp[CONTROL_SKIN] = value;
+        in3.skinTemperatureSetMax = alarm_clamp_skin_cutout(value);
+        maxDesiredTemp[CONTROL_SKIN] = in3.skinTemperatureSetMax;
         { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_SKIN_T_MAX, in3.skinTemperatureSetMax); p.end(); }
       } else if (strcmp(param, "AIR_TMAX") == 0) {
-        in3.airTemperatureSetMax = value;
-        maxDesiredTemp[CONTROL_AIR] = value;
+        in3.airTemperatureSetMax = alarm_clamp_air_cutout(value);
+        maxDesiredTemp[CONTROL_AIR] = in3.airTemperatureSetMax;
         { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_AIR_T_MAX, in3.airTemperatureSetMax); p.end(); }
       } else if (strcmp(param, "GPRS_ACT") == 0) {
         in3.actuating_gprs_period = (int)value;
