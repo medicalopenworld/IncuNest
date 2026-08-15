@@ -104,7 +104,7 @@
 // between each heaterSafeMAXPWM ramp step, instead of a wall-clock period.
 #define HEATER_RAMP_SAMPLE_CYCLES 3
 // Consecutive failed I2C presence probes of the SECUNDARY current sensor
-// (heater/USB/battery chip) before raising HEATER_ISSUE_ALARM for a runtime
+// (heater/USB/battery chip) before raising ALARM_HEATER_FAULT for a runtime
 // dropout - see currentMonitor() in legacy/sensors.cpp. ~10 x 110ms = 1.1s,
 // long enough to ride out a transient EMI glitch without missing a real
 // dropout for many cycles.
@@ -116,13 +116,11 @@
 
 #define ALARM_SYSTEM_ENABLED true
 #define FAN_MAX_CURRENT_OVERRIDE false
-#define SILENCED_ALARM false
-#define DEFAULT_SOUND_ALARM true
 
-// Minutes TEMPERATURE_ALARM/HUMIDITY_ALARM stay silenced after a fresh
-// activation (checkAlarms(), security.cpp) vs. after a restoreState boot
-// (crash/WDT - initHardware.cpp), which only needs a short re-sync pause
-// rather than a full cold-start stabilization wait.
+// Minutes the temperature-deviation / humidity-deviation conditions stay
+// suppressed after a fresh activation (checkAlarms(), security.cpp) vs. after
+// a restoreState boot (crash/WDT - initHardware.cpp), which only needs a short
+// re-sync pause rather than a full cold-start stabilization wait.
 #define ACTUATORS_ALARM_STABILIZATION_MINS 30
 #define RESTART_ALARM_GRACE_MINS 0
 
@@ -182,8 +180,9 @@ typedef enum
   FAN_RPM_MIN_ERROR,
 } HW_ERROR_ID;
 
-// AlarmId enum (NO_ALARMS, HUMIDITY_ALARM ... POWER_SUPPLY_ALARM,
-// NUM_ALARMS, MAX_ALARM_STRING_SIZE=255) is now in shared alarm_ids.h.
+// AlarmId enum (ALARM_NONE/NO_ALARMS, ALARM_AIR_THERMAL_CUTOUT ...
+// ALARM_HUMIDITY_DEVIATION, ALARM_COUNT/NUM_ALARMS,
+// MAX_ALARM_STRING_SIZE=255) is now in shared alarm_ids.h.
 // CommStatus enum (COMM_STATUS_NONE ... COMM_STATUS_WIFI_SERVER) is now
 // in shared control_types.h. Both are included transitively via CommTask.h.
 
@@ -448,12 +447,13 @@ void setFanPidEnabled(bool enabled);
 void alarmTimerStart(long graceMinutes = ACTUATORS_ALARM_STABILIZATION_MINS);
 void timeTrackHandler();
 
+// Puertas de actuador. Delegan en la maquina de alarmas
+// (src/modules/control/alarm_machine.h): la deteccion le pasa condiciones y
+// ella decide. Ya no hay setAlarm()/resetAlarm(): para declarar una condicion
+// se llama a alarm_machine_condition().
 bool ongoingCriticalAlarm();
 bool ongoingCriticalWiringAlarm();
 bool ongoingFanCriticalAlarm();
-void setAlarm(byte alarmID);
-void setAlarm(byte alarmID, bool alarmSound);
-void resetAlarm(byte alarmID);
 int getActiveAlarmCount();
 
 void PIDInit();

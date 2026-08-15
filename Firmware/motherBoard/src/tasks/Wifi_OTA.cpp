@@ -654,35 +654,53 @@ void WIFITBProvision() {
 void switchAlarmTelemetryWIFI(int alarm, bool value) {
   String alarmKey;
   switch (alarm) {
-  case HUMIDITY_ALARM:
-    alarmKey = HUMIDITY_ALARM_KEY;
+  case ALARM_AIR_THERMAL_CUTOUT:
+    alarmKey = ALARM_AIR_THERMAL_CUTOUT_KEY;
     break;
-  case TEMPERATURE_ALARM:
-    alarmKey = TEMPERATURE_ALARM_KEY;
+  case ALARM_SKIN_THERMAL_CUTOUT:
+    alarmKey = ALARM_SKIN_THERMAL_CUTOUT_KEY;
     break;
-  case AIR_THERMAL_CUTOUT_ALARM:
-    alarmKey = AIR_THERMAL_CUTOUT_ALARM_KEY;
+  case ALARM_AIR_SENSOR_FAULT:
+    alarmKey = ALARM_AIR_SENSOR_FAULT_KEY;
     break;
-  case SKIN_THERMAL_CUTOUT_ALARM:
-    alarmKey = SKIN_THERMAL_CUTOUT_ALARM_KEY;
+  case ALARM_SKIN_SENSOR_FAULT_SKIN_MODE:
+    alarmKey = ALARM_SKIN_SENSOR_FAULT_SKIN_MODE_KEY;
     break;
-  case AIR_SENSOR_ISSUE_ALARM:
-    alarmKey = AIR_SENSOR_ISSUE_ALARM_KEY;
+  case ALARM_FAN_FAILURE:
+    alarmKey = ALARM_FAN_FAILURE_KEY;
     break;
-  case SKIN_SENSOR_ISSUE_ALARM:
-    alarmKey = SKIN_SENSOR_ISSUE_ALARM_KEY;
+  case ALARM_AIR_OUTLET_BLOCKED:
+    alarmKey = ALARM_AIR_OUTLET_BLOCKED_KEY;
     break;
-  case FAN_ISSUE_ALARM:
-    alarmKey = FAN_ISSUE_ALARM_KEY;
+  case ALARM_MAINS_INTERRUPTION:
+    alarmKey = ALARM_MAINS_INTERRUPTION_KEY;
     break;
-  case HEATER_ISSUE_ALARM:
-    alarmKey = HEATER_ISSUE_ALARM_KEY;
+  case ALARM_AIR_TEMP_DEVIATION_HIGH:
+    alarmKey = ALARM_AIR_TEMP_DEVIATION_HIGH_KEY;
     break;
-  case POWER_SUPPLY_ALARM:
-    alarmKey = POWER_SUPPLY_ALARM_KEY;
+  case ALARM_AIR_TEMP_DEVIATION_LOW:
+    alarmKey = ALARM_AIR_TEMP_DEVIATION_LOW_KEY;
     break;
-  case AIR_BLOCKED_ALARM:
-    alarmKey = AIR_BLOCKED_ALARM_KEY;
+  case ALARM_SKIN_TEMP_DEVIATION_HIGH:
+    alarmKey = ALARM_SKIN_TEMP_DEVIATION_HIGH_KEY;
+    break;
+  case ALARM_SKIN_TEMP_DEVIATION_LOW:
+    alarmKey = ALARM_SKIN_TEMP_DEVIATION_LOW_KEY;
+    break;
+  case ALARM_HEATER_FAULT:
+    alarmKey = ALARM_HEATER_FAULT_KEY;
+    break;
+  case ALARM_SUPPLY_UNDERVOLTAGE:
+    alarmKey = ALARM_SUPPLY_UNDERVOLTAGE_KEY;
+    break;
+  case ALARM_HMI_LINK_LOST:
+    alarmKey = ALARM_HMI_LINK_LOST_KEY;
+    break;
+  case ALARM_SKIN_SENSOR_FAULT_AIR_MODE:
+    alarmKey = ALARM_SKIN_SENSOR_FAULT_AIR_MODE_KEY;
+    break;
+  case ALARM_HUMIDITY_DEVIATION:
+    alarmKey = ALARM_HUMIDITY_DEVIATION_KEY;
     break;
   default:
     return;

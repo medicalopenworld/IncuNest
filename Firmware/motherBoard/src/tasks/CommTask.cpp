@@ -5,6 +5,7 @@
 #include <LittleFS.h>
 #include <Preferences.h>
 
+#include "modules/control/alarm_machine.h"
 #include "modules/baby_profile/baby_profile_protocol.h"
 #include "modules/baby_profile/baby_profile_store.h"
 #include "nte_table.h"
@@ -282,12 +283,8 @@ static void send_state_to_hmi() {
   int alarmCount = getActiveAlarmCount();
   double remainingTime = getRemainingPhotoTime();
 
-  uint32_t alarmBitmask = 0;
-  extern bool alarmOnGoing[];
-  for (int i = 0; i < NUM_ALARMS; i++) {
-    if (alarmOnGoing[i])
-      alarmBitmask |= (1 << i);
-  }
+  // Un bit por AlarmId, tal cual lo produce la maquina de alarmas.
+  const uint32_t alarmBitmask = alarm_machine_bitmask();
 
   // Derive probe state from skin temperature: >0.1°C means probe is physically connected
   int skinProbeState = (in3.temperature[SKIN_SENSOR] > 0.1f) ? SKIN_PROBE_VALID

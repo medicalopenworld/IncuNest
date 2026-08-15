@@ -25,6 +25,7 @@
 #include <Arduino.h>
 
 #include "main.h"
+#include "modules/control/alarm_machine.h"
 
 static const char *TAG __attribute__((unused)) = "SECURITY";
 extern SemaphoreHandle_t log_mutex;
@@ -147,7 +148,12 @@ extern double fanControlPIDOutput;
 extern PID skinControlPID;
 extern PID humidityControlPID;
 
-#define TEMPERATURE_ERROR 1 // 1 degrees difference to trigger alarm
+// 201.15.4.2.1 dd): la desviacion respecto a la consigna en control por AIRE
+// alarma a +-3 C. ee): en control por PIEL, a +-1 C. Son cuatro condiciones
+// distintas (modo x sentido) porque el calefactor solo se corta por el lado
+// caliente: por el frio tiene que seguir calentando.
+#define AIR_TEMP_DEVIATION_LIMIT_C 3.0f
+#define SKIN_TEMP_DEVIATION_LIMIT_C 1.0f
 #define HUMIDITY_ERROR 10   // 10 %RH to trigger alarm
 
 #define TEMPERATURE_ERROR_HYSTERESIS \
@@ -162,150 +168,122 @@ extern PID humidityControlPID;
 #define FAN_TEST_PREHEAT_TIME \
   30000 // when the fan is spinning, heater cools down and consume less current
 
-#define ALARM_TIME_DELAY 30 // in mins, time to check alarm
 // security config
-#define AIR_THERMAL_CUTOUT AIR_TEMPERATURE_SET_MAX
-#define SKIN_THERMAL_CUTOUT SKIN_TEMPERATURE_SET_MAX
-#define AIR_THERMAL_CUTOUT_HYSTERESIS 0.2
-#define SKIN_THERMAL_CUTOUT_HYSTERESIS 0.2
-#define enableAlarms true
+#define AIR_THERMAL_CUTOUT_HYSTERESIS 0.2f
+#define SKIN_THERMAL_CUTOUT_HYSTERESIS 0.2f
 
 #define MINIMUM_SUCCESSFULL_SENSOR_UPDATE 20000 // in millis
 
-bool alarmOnGoing[NUM_ALARMS];
-bool displayAlarm[NUM_ALARMS];
-bool clearedAlarm[NUM_ALARMS];
+// 60601-1-8 6.8.3: la pausa de audio no puede exceder 2 min sin reanudarse
+// sola. Es lo que dura el silencio que pide el operador con el encoder.
+#define ALARM_AUDIO_PAUSE_MS 120000u
+
+// Ventana de estabilizacion de las desviaciones de temperatura y humedad. El
+// resto de condiciones se evaluan siempre; estas dos familias no, porque una
+// incubadora que arranca fria tarda en alcanzar la consigna (201.12.3.104).
 long lastAlarmTrigger[NUM_ALARMS];
-float alarmSensedValue;
 long lastPowerSupplyCheck;
+
+// Bitmask de condiciones senalizando en el ciclo anterior. Comparar contra el
+// actual es lo que produce los eventos que van al display (sendAlarmUSB) y al
+// buzzer: la maquina de alarmas es un estado, no un flujo de eventos.
+static uint32_t previousAlarmBitmask = 0;
+static bool previousAudioRequired = false;
 
 extern IncuNest_parameters in3;
 
-void initAlarms()
+static inline bool alarmSignalling(AlarmId id)
 {
-  lastAlarmTrigger[AIR_THERMAL_CUTOUT_ALARM] =
-      -1 * minsToMillis(ALARM_TIME_DELAY);
-  lastAlarmTrigger[SKIN_THERMAL_CUTOUT_ALARM] =
-      -1 * minsToMillis(ALARM_TIME_DELAY);
+  return alarm_machine_state(id) != ALARM_STATE_INACTIVE;
 }
 
-bool evaluateAlarm(byte alarmID, float setPoint, float measuredValue,
-                   float errorMargin, float hysteresisValue, long alarmTime,
-                   bool bidirectional = false)
+// Umbral con banda muerta: la condicion se declara al superar `threshold` y
+// no se retira hasta caer por debajo de `threshold - hysteresis`. Sin ella el
+// corte de calefactor conmutaria en cada muestra alrededor del limite.
+static bool thresholdWithHysteresis(bool wasPresent, float value,
+                                    float threshold, float hysteresis)
 {
-  bool alarmSound = DEFAULT_SOUND_ALARM;
-  if (millis() - alarmTime < minsToMillis(ALARM_TIME_DELAY))
+  return wasPresent ? (value > threshold - hysteresis) : (value > threshold);
+}
+
+void initAlarms()
+{
+  alarm_machine_init();
+  previousAlarmBitmask = 0;
+  previousAudioRequired = false;
+  for (int i = 0; i < NUM_ALARMS; i++)
   {
-    alarmSound = SILENCED_ALARM;
+    in3.alarmToReport[i] = false;
   }
-  if (bidirectional)
-  {
-    float deviation = fabsf(measuredValue - setPoint);
-    if (!alarmOnGoing[alarmID] && deviation > errorMargin)
-    {
-      in3.alarmToReport[alarmID] = true;
-      setAlarm(alarmID, alarmSound);
-      return true;
-    }
-    else if (alarmOnGoing[alarmID] &&
-             deviation < errorMargin - hysteresisValue)
-    {
-      in3.alarmToReport[alarmID] = false;
-      resetAlarm(alarmID);
-    }
-  }
-  else if (errorMargin)
-  {
-    if (!alarmOnGoing[alarmID] &&
-        (measuredValue > (setPoint + errorMargin + hysteresisValue)))
-    {
-      in3.alarmToReport[alarmID] = true;
-      setAlarm(alarmID, alarmSound);
-      return true;
-    }
-    else if (alarmOnGoing[alarmID] &&
-             (measuredValue < (setPoint + errorMargin - hysteresisValue)))
-    {
-      in3.alarmToReport[alarmID] = false;
-      resetAlarm(alarmID);
-    }
-  }
-  else
-  {
-    if (!alarmOnGoing[alarmID] &&
-        (measuredValue > (setPoint + hysteresisValue)))
-    {
-      in3.alarmToReport[alarmID] = true;
-      setAlarm(alarmID, alarmSound);
-      return true;
-    }
-    else if (alarmOnGoing[alarmID] &&
-             (measuredValue < (setPoint - hysteresisValue)))
-    {
-      in3.alarmToReport[alarmID] = false;
-      resetAlarm(alarmID);
-    }
-  }
-  return false;
 }
 
 void checkThermalCutOuts()
 {
-  evaluateAlarm(AIR_THERMAL_CUTOUT_ALARM, in3.airTemperatureSetMax,
-                in3.temperature[ROOM_DIGITAL_TEMP_SENSOR], false,
-                AIR_THERMAL_CUTOUT_HYSTERESIS,
-                lastAlarmTrigger[AIR_THERMAL_CUTOUT_ALARM]);
-  evaluateAlarm(SKIN_THERMAL_CUTOUT_ALARM, in3.skinTemperatureSetMax,
-                in3.temperature[SKIN_SENSOR], false,
-                SKIN_THERMAL_CUTOUT_HYSTERESIS,
-                lastAlarmTrigger[SKIN_THERMAL_CUTOUT_ALARM]);
+  // Los limites ya llegan acotados a 38/40 C (alarm_clamp_*_cutout() se
+  // aplica en EEPROM.cpp y en los puntos de entrada de configuracion).
+  static bool airCutoutPresent = false;
+  static bool skinCutoutPresent = false;
+  const uint32_t now = millis();
+
+  airCutoutPresent = thresholdWithHysteresis(
+      airCutoutPresent, in3.temperature[ROOM_DIGITAL_TEMP_SENSOR],
+      in3.airTemperatureSetMax, AIR_THERMAL_CUTOUT_HYSTERESIS);
+  skinCutoutPresent = thresholdWithHysteresis(
+      skinCutoutPresent, in3.temperature[SKIN_SENSOR],
+      in3.skinTemperatureSetMax, SKIN_THERMAL_CUTOUT_HYSTERESIS);
+
+  // 201.15.4.2.1 aa)/bb): ambos son latching, asi que retirar la condicion no
+  // apaga el aviso — hace falta un reset manual (alarm_machine_reset()). Lo
+  // que si se libera de inmediato es el corte de calefactor, que depende de
+  // la condicion presente y no del estado de la senal.
+  alarm_machine_condition(ALARM_AIR_THERMAL_CUTOUT, airCutoutPresent, now);
+  alarm_machine_condition(ALARM_SKIN_THERMAL_CUTOUT, skinCutoutPresent, now);
 }
 
 void checkStatusOfSensor(byte sensor)
 {
-  byte alarmID = 0;
+  const uint32_t now = millis();
+  const bool stale = (millis() - lastSuccesfullSensorUpdate[sensor] >
+                      MINIMUM_SUCCESSFULL_SENSOR_UPDATE);
   switch (sensor)
   {
   case ROOM_DIGITAL_TEMP_SENSOR:
-    alarmID = AIR_SENSOR_ISSUE_ALARM;
+    alarm_machine_condition(ALARM_AIR_SENSOR_FAULT, stale, now);
     break;
   case SKIN_SENSOR:
-    alarmID = SKIN_SENSOR_ISSUE_ALARM;
-    break;
-  }
-  if (alarmID)
-  {
-    if (millis() - lastSuccesfullSensorUpdate[sensor] >
-        MINIMUM_SUCCESSFULL_SENSOR_UPDATE)
+    // 201.12.3.102: perder la sonda de piel gobernando el lazo es ALTA y
+    // corta el calefactor; en modo aire la sonda no controla nada, asi que
+    // es BAJA y no toca el calefactor. Son dos condiciones distintas, y al
+    // cambiar de modo hay que retirar la del par contrario o queda colgada.
+    if (in3.controlMode == CONTROL_SKIN)
     {
-      in3.alarmToReport[alarmID] = true;
-      if (!alarmOnGoing[alarmID])
-      {
-        setAlarm(alarmID);
-      }
+      alarm_machine_condition(ALARM_SKIN_SENSOR_FAULT_SKIN_MODE, stale, now);
+      alarm_machine_condition(ALARM_SKIN_SENSOR_FAULT_AIR_MODE, false, now);
     }
     else
     {
-      in3.alarmToReport[alarmID] = false;
-      if (alarmOnGoing[alarmID])
-      {
-        resetAlarm(alarmID);
-      }
+      alarm_machine_condition(ALARM_SKIN_SENSOR_FAULT_AIR_MODE, stale, now);
+      alarm_machine_condition(ALARM_SKIN_SENSOR_FAULT_SKIN_MODE, false, now);
     }
-    //    }
+    break;
+  default:
+    break;
   }
 }
 
 void sensorHealthMonitor()
 {
   checkStatusOfSensor(ROOM_DIGITAL_TEMP_SENSOR);
-  if (in3.temperatureControl && in3.controlMode == CONTROL_SKIN)
+  if (in3.temperatureControl)
   {
     checkStatusOfSensor(SKIN_SENSOR);
   }
-  else if (alarmOnGoing[SKIN_SENSOR_ISSUE_ALARM])
+  else
   {
-    resetAlarm(SKIN_SENSOR_ISSUE_ALARM);
+    // Sin control de temperatura la sonda no se usa: nada que avisar.
+    const uint32_t now = millis();
+    alarm_machine_condition(ALARM_SKIN_SENSOR_FAULT_SKIN_MODE, false, now);
+    alarm_machine_condition(ALARM_SKIN_SENSOR_FAULT_AIR_MODE, false, now);
   }
 }
 
@@ -317,15 +295,7 @@ void powerMonitor()
 
 void alarmTimerStart(long graceMinutes)
 {
-  for (int i = 0; i < NUM_ALARMS; i++)
-  {
-    lastAlarmTrigger[i] = millis();
-  }
-  lastAlarmTrigger[AIR_THERMAL_CUTOUT_ALARM] =
-      -1 * minsToMillis(ALARM_TIME_DELAY);
-  lastAlarmTrigger[SKIN_THERMAL_CUTOUT_ALARM] =
-      -1 * minsToMillis(ALARM_TIME_DELAY);
-  // checkAlarms() only evaluates TEMPERATURE_ALARM/HUMIDITY_ALARM once
+  // checkAlarms() only evaluates the temperature deviations / humidity once
   // ACTUATORS_ALARM_STABILIZATION_MINS have passed since lastAlarmTrigger.
   // Offsetting it into the past by (stabilization - graceMinutes) makes
   // that window elapse `graceMinutes` from now instead of the full wait -
@@ -336,41 +306,38 @@ void alarmTimerStart(long graceMinutes)
   {
     alreadyElapsedMins = 0;
   }
-  lastAlarmTrigger[TEMPERATURE_ALARM] = -1 * minsToMillis(alreadyElapsedMins);
-  lastAlarmTrigger[HUMIDITY_ALARM] = -1 * minsToMillis(alreadyElapsedMins);
+  const long windowStart = -1 * minsToMillis(alreadyElapsedMins);
+  lastAlarmTrigger[ALARM_AIR_TEMP_DEVIATION_HIGH] = windowStart;
+  lastAlarmTrigger[ALARM_AIR_TEMP_DEVIATION_LOW] = windowStart;
+  lastAlarmTrigger[ALARM_SKIN_TEMP_DEVIATION_HIGH] = windowStart;
+  lastAlarmTrigger[ALARM_SKIN_TEMP_DEVIATION_LOW] = windowStart;
+  lastAlarmTrigger[ALARM_HUMIDITY_DEVIATION] = windowStart;
   // The thermal cutouts stay immediately eligible either way - they are a
   // hard over-temperature safety limit, not a setpoint-tracking alarm.
 }
 
 byte activeAlarm()
 {
-  for (int i = 0; i < NUM_ALARMS; i++)
+  const uint32_t mask = alarm_machine_bitmask();
+  for (int i = NO_ALARMS + 1; i < NUM_ALARMS; i++)
   {
-    if (alarmOnGoing[i])
+    if (mask & (1u << i))
     {
-      return (i);
+      return (byte)i;
     }
   }
   return 0;
 }
 
-bool ongoingAlarms()
-{
-  return (alarmOnGoing[TEMPERATURE_ALARM] || alarmOnGoing[HUMIDITY_ALARM] ||
-          alarmOnGoing[AIR_THERMAL_CUTOUT_ALARM] ||
-          alarmOnGoing[SKIN_THERMAL_CUTOUT_ALARM] ||
-          alarmOnGoing[AIR_SENSOR_ISSUE_ALARM] ||
-          alarmOnGoing[SKIN_SENSOR_ISSUE_ALARM] ||
-          alarmOnGoing[HEATER_ISSUE_ALARM] || alarmOnGoing[FAN_ISSUE_ALARM] ||
-          alarmOnGoing[POWER_SUPPLY_ALARM] || alarmOnGoing[AIR_BLOCKED_ALARM]);
-}
+bool ongoingAlarms() { return alarm_machine_any_signalling(); }
 
 int getActiveAlarmCount()
 {
+  const uint32_t mask = alarm_machine_bitmask();
   int count = 0;
-  for (int i = 0; i < NUM_ALARMS; i++)
+  for (int i = NO_ALARMS + 1; i < NUM_ALARMS; i++)
   {
-    if (alarmOnGoing[i])
+    if (mask & (1u << i))
     {
       count++;
     }
@@ -378,22 +345,18 @@ int getActiveAlarmCount()
   return count;
 }
 
-bool ongoingCriticalAlarm()
-{
-  return (alarmOnGoing[AIR_THERMAL_CUTOUT_ALARM] ||
-          alarmOnGoing[SKIN_THERMAL_CUTOUT_ALARM] ||
-          alarmOnGoing[AIR_SENSOR_ISSUE_ALARM] ||
-          (alarmOnGoing[SKIN_SENSOR_ISSUE_ALARM] &&
-           in3.controlMode == CONTROL_SKIN) ||
-          alarmOnGoing[HEATER_ISSUE_ALARM] ||
-          alarmOnGoing[FAN_ISSUE_ALARM] ||
-          alarmOnGoing[POWER_SUPPLY_ALARM]);
-}
+// Puerta del calefactor. Ya no enumera condiciones: la politica de que
+// condicion obliga a desconectar la alimentacion del calefactor vive en
+// alarm_cuts_heater() (shared/), y la maquina la aplica sobre la condicion
+// FISICA presente, no sobre la senal — un corte termico latching sigue
+// avisando tras enfriarse, pero deja de bloquear el calefactor.
+bool ongoingCriticalAlarm() { return alarm_machine_heater_must_cut(); }
 
 bool ongoingCriticalWiringAlarm()
 {
-  return (alarmOnGoing[HEATER_ISSUE_ALARM] || alarmOnGoing[FAN_ISSUE_ALARM] ||
-          alarmOnGoing[POWER_SUPPLY_ALARM]);
+  return (alarmSignalling(ALARM_HEATER_FAULT) ||
+          alarmSignalling(ALARM_FAN_FAILURE) ||
+          alarmSignalling(ALARM_SUPPLY_UNDERVOLTAGE));
 }
 
 // Unlike ongoingCriticalWiringAlarm() (used for heater/humidifier gating),
@@ -401,82 +364,117 @@ bool ongoingCriticalWiringAlarm()
 // no independent way (RPM feedback) to verify the fan is still spinning.
 bool ongoingFanCriticalAlarm()
 {
-  return (alarmOnGoing[FAN_ISSUE_ALARM] || alarmOnGoing[POWER_SUPPLY_ALARM] ||
-          (alarmOnGoing[HEATER_ISSUE_ALARM] && !in3.fanHasSpeedFeedback));
+  return (alarmSignalling(ALARM_FAN_FAILURE) ||
+          alarmSignalling(ALARM_SUPPLY_UNDERVOLTAGE) ||
+          (alarmSignalling(ALARM_HEATER_FAULT) && !in3.fanHasSpeedFeedback));
 }
 
+// Textos por condicion. Sin acentos ni caracteres fuera de ASCII: las fuentes
+// del display no los tienen y saldrian como basura justo cuando mas importa
+// leerlos. Cortos y accionables para personal clinico, no diagnosticos.
 char *alarmIDtoString(byte alarmID)
 {
-  byte lang = in3.language; // or hmi_cmd_msg.language
+  const byte lang = in3.language; // or hmi_cmd_msg.language
   switch (alarmID)
   {
-  case AIR_THERMAL_CUTOUT_ALARM:
-  case SKIN_THERMAL_CUTOUT_ALARM:
+  case ALARM_AIR_THERMAL_CUTOUT:
     if (lang == SPANISH)
-      return (char *)("CORTE TERMICO");
+      return (char *)("CORTE TERMICO AIRE");
     if (lang == FRENCH)
-      return (char *)("COUPURE THERMIQUE");
-    return (char *)("THERMAL CUTOUT");
-    break;
-  case TEMPERATURE_ALARM:
+      return (char *)("COUPURE THERMIQUE AIR");
+    return (char *)("AIR THERMAL CUTOUT");
+  case ALARM_SKIN_THERMAL_CUTOUT:
     if (lang == SPANISH)
-      return (char *)("ERROR TEMPERATURA");
+      return (char *)("CORTE TERMICO PIEL");
     if (lang == FRENCH)
-      return (char *)("ERREUR TEMPERATURE");
-    return (char *)("TEMPERATURE ALARM");
-    break;
-  case HUMIDITY_ALARM:
+      return (char *)("COUPURE THERMIQUE PEAU");
+    return (char *)("SKIN THERMAL CUTOUT");
+  case ALARM_AIR_SENSOR_FAULT:
     if (lang == SPANISH)
-      return (char *)("ERROR HUMEDAD");
+      return (char *)("FALLO SENSOR AIRE");
     if (lang == FRENCH)
-      return (char *)("ERREUR HUMIDITE");
-    return (char *)("HUMIDITY ALARM");
-    break;
-  case AIR_SENSOR_ISSUE_ALARM:
+      return (char *)("PANNE CAPTEUR AIR");
+    return (char *)("AIR SENSOR FAULT");
+  case ALARM_SKIN_SENSOR_FAULT_SKIN_MODE:
     if (lang == SPANISH)
-      return (char *)("ALERTA SENSOR AIRE");
+      return (char *)("FALLO SONDA PIEL");
     if (lang == FRENCH)
-      return (char *)("ALERTE CAPTEUR AIR");
-    return (char *)("AIR SENSOR ALARM");
-    break;
-  case SKIN_SENSOR_ISSUE_ALARM:
+      return (char *)("PANNE SONDE PEAU");
+    return (char *)("SKIN PROBE FAULT");
+  case ALARM_FAN_FAILURE:
     if (lang == SPANISH)
-      return (char *)("ALERTA SENSOR PIEL");
+      return (char *)("FALLO VENTILADOR");
     if (lang == FRENCH)
-      return (char *)("ALERTE CAPTEUR PEAU");
-    return (char *)("SKIN SENSOR ALARM");
-    break;
-  case FAN_ISSUE_ALARM:
-    if (lang == SPANISH)
-      return (char *)("ERROR VENTILADOR");
-    if (lang == FRENCH)
-      return (char *)("ERREUR VENTILATEUR");
-    return (char *)("FAN ALARM");
-    break;
-  case AIR_BLOCKED_ALARM:
+      return (char *)("PANNE VENTILATEUR");
+    return (char *)("FAN FAILURE");
+  case ALARM_AIR_OUTLET_BLOCKED:
     if (lang == SPANISH)
       return (char *)("SALIDA DE AIRE OBSTRUIDA");
     if (lang == FRENCH)
       return (char *)("SORTIE D'AIR OBSTRUEE");
     return (char *)("AIR OUTLET BLOCKED");
-    break;
-  case HEATER_ISSUE_ALARM:
+  case ALARM_MAINS_INTERRUPTION:
     if (lang == SPANISH)
-      return (char *)("ERROR CALENTADOR");
+      return (char *)("CORTE DE RED");
     if (lang == FRENCH)
-      return (char *)("ERREUR CHAUFFAGE");
-    return (char *)("HEATER ALARM");
-    break;
-  case POWER_SUPPLY_ALARM:
+      return (char *)("COUPURE SECTEUR");
+    return (char *)("MAINS INTERRUPTION");
+  case ALARM_AIR_TEMP_DEVIATION_HIGH:
     if (lang == SPANISH)
-      return (char *)("ERROR ALIMENTACION");
+      return (char *)("TEMP AIRE ALTA");
     if (lang == FRENCH)
-      return (char *)("ERREUR ALIMENTATION");
-    return (char *)("POWER SUPPLY ALARM");
-    break;
+      return (char *)("TEMP AIR ELEVEE");
+    return (char *)("AIR TEMP HIGH");
+  case ALARM_AIR_TEMP_DEVIATION_LOW:
+    if (lang == SPANISH)
+      return (char *)("TEMP AIRE BAJA");
+    if (lang == FRENCH)
+      return (char *)("TEMP AIR BASSE");
+    return (char *)("AIR TEMP LOW");
+  case ALARM_SKIN_TEMP_DEVIATION_HIGH:
+    if (lang == SPANISH)
+      return (char *)("TEMP PIEL ALTA");
+    if (lang == FRENCH)
+      return (char *)("TEMP PEAU ELEVEE");
+    return (char *)("SKIN TEMP HIGH");
+  case ALARM_SKIN_TEMP_DEVIATION_LOW:
+    if (lang == SPANISH)
+      return (char *)("TEMP PIEL BAJA");
+    if (lang == FRENCH)
+      return (char *)("TEMP PEAU BASSE");
+    return (char *)("SKIN TEMP LOW");
+  case ALARM_HEATER_FAULT:
+    if (lang == SPANISH)
+      return (char *)("FALLO CALENTADOR");
+    if (lang == FRENCH)
+      return (char *)("PANNE CHAUFFAGE");
+    return (char *)("HEATER FAULT");
+  case ALARM_SUPPLY_UNDERVOLTAGE:
+    if (lang == SPANISH)
+      return (char *)("TENSION BAJA");
+    if (lang == FRENCH)
+      return (char *)("TENSION BASSE");
+    return (char *)("SUPPLY UNDERVOLTAGE");
+  case ALARM_HMI_LINK_LOST:
+    if (lang == SPANISH)
+      return (char *)("SIN ENLACE PANTALLA");
+    if (lang == FRENCH)
+      return (char *)("LIAISON ECRAN PERDUE");
+    return (char *)("DISPLAY LINK LOST");
+  case ALARM_SKIN_SENSOR_FAULT_AIR_MODE:
+    if (lang == SPANISH)
+      return (char *)("SONDA PIEL NO VALIDA");
+    if (lang == FRENCH)
+      return (char *)("SONDE PEAU INVALIDE");
+    return (char *)("SKIN PROBE UNUSABLE");
+  case ALARM_HUMIDITY_DEVIATION:
+    if (lang == SPANISH)
+      return (char *)("DESVIACION HUMEDAD");
+    if (lang == FRENCH)
+      return (char *)("ECART HUMIDITE");
+    return (char *)("HUMIDITY DEVIATION");
   default:
     return (char *)("ALARM");
-    break;
   }
 }
 
@@ -531,177 +529,136 @@ void sendAlarmUSB(byte alarmID, bool isActive)
 
   byte lang = in3.language;
 
+  // El titulo lo produce alarmIDtoString() para no mantener dos tablas de
+  // textos en paralelo; aqui solo vive la linea de accion, que dice al
+  // personal clinico QUE HACER, no que ha pasado. Solo ASCII: las fuentes del
+  // display no tienen acentos.
+  title = alarmIDtoString(alarmID);
+
   switch (alarmID)
   {
-  case HUMIDITY_ALARM:
+  case ALARM_AIR_THERMAL_CUTOUT:
+  case ALARM_SKIN_THERMAL_CUTOUT:
     if (lang == SPANISH)
-    {
-      title = "ERROR HUMEDAD";
-      desc = "ERROR DE HUMEDAD";
-    }
+      desc = "CALEFACTOR CORTADO - REVISAR AL BEBE";
     else if (lang == FRENCH)
-    {
-      title = "ERREUR HUMIDITE";
-      desc = "ERREUR D HUMIDITE";
-    }
+      desc = "CHAUFFAGE COUPE - VERIFIER LE BEBE";
     else
-    {
-      title = "HUMIDITY ERROR";
-      desc = "HUMIDITY ERROR";
-    }
+      desc = "HEATER CUT - CHECK THE BABY";
     break;
-  case TEMPERATURE_ALARM:
+  case ALARM_AIR_SENSOR_FAULT:
     if (lang == SPANISH)
-    {
-      title = "ALARMA DE TEMPERATURA";
-      desc = "ALARMA DE TEMPERATURA";
-    }
+      desc = "SIN MEDIDA DE AIRE - CONTROL DETENIDO";
     else if (lang == FRENCH)
-    {
-      title = "ALARME DE TEMPERATURE";
-      desc = "ALARME DE TEMPERATURE";
-    }
+      desc = "PAS DE MESURE D AIR - CONTROLE ARRETE";
     else
-    {
-      title = "TEMPERATURE ALARM";
-      desc = "TEMPERATURE ALARM";
-    }
+      desc = "NO AIR READING - CONTROL STOPPED";
     break;
-  case AIR_THERMAL_CUTOUT_ALARM:
+  case ALARM_SKIN_SENSOR_FAULT_SKIN_MODE:
     if (lang == SPANISH)
-    {
-      title = "CORTE TERMICO AIRE";
-      desc = "TEMPERATURA AIRE ELEVADA";
-    }
+      desc = "REVISAR SONDA O PASAR A MODO AIRE";
     else if (lang == FRENCH)
-    {
-      title = "COUPURE THERMIQUE AIR";
-      desc = "TEMPERATURE AIR ELEVEE";
-    }
+      desc = "VERIFIER LA SONDE OU PASSER EN MODE AIR";
     else
-    {
-      title = "AIR THERMAL CUTOUT";
-      desc = "AIR TEMP TOO HIGH";
-    }
+      desc = "CHECK PROBE OR SWITCH TO AIR MODE";
     break;
-  case SKIN_THERMAL_CUTOUT_ALARM:
+  case ALARM_FAN_FAILURE:
     if (lang == SPANISH)
-    {
-      title = "CORTE TERMICO PIEL";
-      desc = "TEMPERATURA PIEL ELEVADA";
-    }
+      desc = "SIN CIRCULACION DE AIRE - REVISAR EQUIPO";
     else if (lang == FRENCH)
-    {
-      title = "COUPURE THERMIQUE PEAU";
-      desc = "TEMPERATURE PEAU ELEVEE";
-    }
+      desc = "PAS DE CIRCULATION D AIR - VERIFIER";
     else
-    {
-      title = "SKIN THERMAL CUTOUT";
-      desc = "SKIN TEMP TOO HIGH";
-    }
+      desc = "NO AIR CIRCULATION - SERVICE UNIT";
     break;
-  case AIR_SENSOR_ISSUE_ALARM:
+  case ALARM_AIR_OUTLET_BLOCKED:
     if (lang == SPANISH)
-    {
-      title = "ERROR SENSOR AIRE";
-      desc = "FALLO SENSOR AIRE";
-    }
+      desc = "DESPEJAR LA SALIDA DE AIRE";
     else if (lang == FRENCH)
-    {
-      title = "ERREUR CAPTEUR AIR";
-      desc = "PANNE CAPTEUR AIR";
-    }
+      desc = "DEGAGER LA SORTIE D AIR";
     else
-    {
-      title = "AIR SENSOR ERROR";
-      desc = "AIR SENSOR FAILURE";
-    }
+      desc = "CLEAR THE AIR OUTLET";
     break;
-  case SKIN_SENSOR_ISSUE_ALARM:
+  case ALARM_MAINS_INTERRUPTION:
     if (lang == SPANISH)
-    {
-      title = "ERROR SENSOR PIEL";
-      desc = "FALLO SENSOR PIEL";
-    }
+      desc = "REVISAR LA CONEXION A LA RED";
     else if (lang == FRENCH)
-    {
-      title = "ERREUR CAPTEUR PEAU";
-      desc = "PANNE CAPTEUR PEAU";
-    }
+      desc = "VERIFIER LE RACCORDEMENT SECTEUR";
     else
-    {
-      title = "SKIN SENSOR ERROR";
-      desc = "SKIN SENSOR FAILURE";
-    }
+      desc = "CHECK THE MAINS CONNECTION";
     break;
-  case FAN_ISSUE_ALARM:
+  case ALARM_AIR_TEMP_DEVIATION_HIGH:
     if (lang == SPANISH)
-    {
-      title = "ERROR VENTILADOR";
-      desc = "FALLO VENTILADOR";
-    }
+      desc = "AIRE MAS DE 3 C SOBRE LA CONSIGNA";
     else if (lang == FRENCH)
-    {
-      title = "ERREUR VENTILATEUR";
-      desc = "PANNE VENTILATEUR";
-    }
+      desc = "AIR A PLUS DE 3 C AU DESSUS DE LA CONSIGNE";
     else
-    {
-      title = "FAN ERROR";
-      desc = "FAN FAILURE";
-    }
+      desc = "AIR OVER 3 C ABOVE SETPOINT";
     break;
-  case AIR_BLOCKED_ALARM:
+  case ALARM_AIR_TEMP_DEVIATION_LOW:
     if (lang == SPANISH)
-    {
-      title = "SALIDA DE AIRE OBSTRUIDA";
-      desc = "POSIBLE OBSTRUCCION EN LA SALIDA DE AIRE";
-    }
+      desc = "AIRE MAS DE 3 C BAJO LA CONSIGNA";
     else if (lang == FRENCH)
-    {
-      title = "SORTIE D'AIR OBSTRUEE";
-      desc = "OBSTRUCTION POSSIBLE DE LA SORTIE D'AIR";
-    }
+      desc = "AIR A PLUS DE 3 C SOUS LA CONSIGNE";
     else
-    {
-      title = "AIR OUTLET BLOCKED";
-      desc = "POSSIBLE AIR OUTLET BLOCKAGE";
-    }
+      desc = "AIR OVER 3 C BELOW SETPOINT";
     break;
-  case HEATER_ISSUE_ALARM:
+  case ALARM_SKIN_TEMP_DEVIATION_HIGH:
     if (lang == SPANISH)
-    {
-      title = "ERROR CALENTADOR";
-      desc = "FALLO CALENTADOR";
-    }
+      desc = "PIEL MAS DE 1 C SOBRE LA CONSIGNA";
     else if (lang == FRENCH)
-    {
-      title = "ERREUR CHAUFFAGE";
-      desc = "PANNE CHAUFFAGE";
-    }
+      desc = "PEAU A PLUS DE 1 C AU DESSUS DE LA CONSIGNE";
     else
-    {
-      title = "HEATER ERROR";
-      desc = "HEATER FAILURE";
-    }
+      desc = "SKIN OVER 1 C ABOVE SETPOINT";
     break;
-  case POWER_SUPPLY_ALARM:
+  case ALARM_SKIN_TEMP_DEVIATION_LOW:
     if (lang == SPANISH)
-    {
-      title = "ERROR ALIMENTACION";
-      desc = "FALLO FUENTE";
-    }
+      desc = "PIEL MAS DE 1 C BAJO LA CONSIGNA";
     else if (lang == FRENCH)
-    {
-      title = "ERREUR ALIMENTATION";
-      desc = "PANNE ALIMENTATION";
-    }
+      desc = "PEAU A PLUS DE 1 C SOUS LA CONSIGNE";
     else
-    {
-      title = "POWER SUPPLY ERROR";
-      desc = "POWER SUPPLY FAILURE";
-    }
+      desc = "SKIN OVER 1 C BELOW SETPOINT";
+    break;
+  case ALARM_HEATER_FAULT:
+    if (lang == SPANISH)
+      desc = "EL EQUIPO NO CALIENTA - REVISAR EQUIPO";
+    else if (lang == FRENCH)
+      desc = "L APPAREIL NE CHAUFFE PAS - VERIFIER";
+    else
+      desc = "UNIT NOT HEATING - SERVICE UNIT";
+    break;
+  case ALARM_SUPPLY_UNDERVOLTAGE:
+    if (lang == SPANISH)
+      desc = "REVISAR FUENTE Y CABLEADO";
+    else if (lang == FRENCH)
+      desc = "VERIFIER L ALIMENTATION ET LE CABLAGE";
+    else
+      desc = "CHECK SUPPLY AND WIRING";
+    break;
+  case ALARM_HMI_LINK_LOST:
+    if (lang == SPANISH)
+      desc = "DATOS NO FIABLES - REVISAR AL BEBE";
+    else if (lang == FRENCH)
+      desc = "DONNEES NON FIABLES - VERIFIER LE BEBE";
+    else
+      desc = "DATA UNRELIABLE - CHECK THE BABY";
+    break;
+  case ALARM_SKIN_SENSOR_FAULT_AIR_MODE:
+    if (lang == SPANISH)
+      desc = "SIN TEMP DE PIEL - MODO AIRE ACTIVO";
+    else if (lang == FRENCH)
+      desc = "PAS DE TEMP PEAU - MODE AIR ACTIF";
+    else
+      desc = "NO SKIN TEMP - AIR MODE ACTIVE";
+    break;
+  case ALARM_HUMIDITY_DEVIATION:
+    if (lang == SPANISH)
+      desc = "REVISAR DEPOSITO DE AGUA";
+    else if (lang == FRENCH)
+      desc = "VERIFIER LE RESERVOIR D EAU";
+    else
+      desc = "CHECK THE WATER TANK";
+    break;
+  default:
     break;
   }
 
@@ -739,109 +696,84 @@ void sendAlarmUSB(byte alarmID, bool isActive)
 
 void resendActiveAlarms()
 {
-  for (int i = 0; i < NUM_ALARMS; i++)
+  const uint32_t mask = alarm_machine_bitmask();
+  for (int i = NO_ALARMS + 1; i < NUM_ALARMS; i++)
   {
-    if (alarmOnGoing[i])
+    if (mask & (1u << i))
     {
       sendAlarmUSB(i, true);
     }
   }
 }
 
-void setAlarm(byte alarmID)
-{
-  logAlarm("[ALARM] ->" + String(alarmIDtoString(alarmID)) +
-           " has been triggered");
-  alarmOnGoing[alarmID] = true;
-  displayAlarm[alarmID] = true;
-  buzzerTone(buzzerAlarmBeepCount, buzzerAlarmBeepTime, buzzerAlarmTone);
-  sendAlarmUSB(alarmID, true);
-}
-
-void setAlarm(byte alarmID, bool alarmSound)
-{
-  logAlarm("[ALARM] ->" + String(alarmIDtoString(alarmID)) +
-           " has been triggered");
-  alarmOnGoing[alarmID] = true;
-  displayAlarm[alarmID] = true;
-  if (alarmSound)
-  {
-    buzzerTone(buzzerAlarmBeepCount, buzzerAlarmBeepTime, buzzerAlarmTone);
-  }
-  sendAlarmUSB(alarmID, true);
-}
-
-void resetAlarm(byte alarmID)
-{
-  logAlarm("[ALARM] ->" + String(alarmIDtoString(alarmID)) +
-           " has been disable");
-  alarmOnGoing[alarmID] = false;
-  clearedAlarm[alarmID] = true;
-  if (!ongoingAlarms())
-  {
-    shutBuzzer();
-  }
-  sendAlarmUSB(alarmID, false);
-}
-
+// Pulsacion del encoder: 60601-1-8 6.8.1 permite inactivar el audio, pero la
+// senal visual tiene que seguir mientras la condicion persista, y silenciar
+// una condicion no puede silenciar las demas — por eso se silencia una a una
+// y no existe un silencio global.
 void reestartOngoingAlarms()
 {
-  for (int i = 0; i < NUM_ALARMS; i++)
+  const uint32_t now = millis();
+  for (int i = NO_ALARMS + 1; i < NUM_ALARMS; i++)
   {
-    if (alarmOnGoing[i])
-    {
-      lastAlarmTrigger[i] = millis();
-    }
+    alarm_machine_silence((AlarmId)i, ALARM_AUDIO_PAUSE_MS, now);
   }
 }
 
 void checkAlarms()
 {
-  if (in3.temperatureControl)
-  {
-    // Only evaluate after stabilization period has elapsed
-    if (millis() - lastAlarmTrigger[TEMPERATURE_ALARM] >=
-        minsToMillis(ACTUATORS_ALARM_STABILIZATION_MINS))
-    {
-      if (in3.controlMode)
-      {
-        alarmSensedValue = in3.temperature[ROOM_DIGITAL_TEMP_SENSOR];
-      }
-      else
-      {
-        alarmSensedValue = in3.temperature[SKIN_SENSOR];
-      }
-      evaluateAlarm(TEMPERATURE_ALARM, in3.desiredControlTemperature,
-                    alarmSensedValue, TEMPERATURE_ERROR,
-                    TEMPERATURE_ERROR_HYSTERESIS,
-                    lastAlarmTrigger[TEMPERATURE_ALARM], true);
-    }
-  }
-  else if (alarmOnGoing[TEMPERATURE_ALARM])
-  {
-    // Temperature control was switched off while the alarm was latched
-    // (e.g. actuation moved to humidity-only or off) - evaluateAlarm() above
-    // is the only place that can clear it, so without this branch it would
-    // stay on forever since it's never called with control disabled.
-    resetAlarm(TEMPERATURE_ALARM);
-  }
+  const uint32_t now = millis();
+  // Estado de la condicion fisica (no de la senal) para la banda muerta: los
+  // cortes termicos son latching y su senal sobrevive a la condicion, asi que
+  // la histeresis no puede leerse del estado de la maquina.
+  static bool airHighPresent = false, airLowPresent = false;
+  static bool skinHighPresent = false, skinLowPresent = false;
+  static bool humidityPresent = false;
 
-  if (in3.humidityControl)
-  {
-    // Only evaluate after stabilization period has elapsed
-    if (millis() - lastAlarmTrigger[HUMIDITY_ALARM] >=
-        minsToMillis(ACTUATORS_ALARM_STABILIZATION_MINS))
-    {
-      evaluateAlarm(HUMIDITY_ALARM, in3.desiredControlHumidity,
-                    in3.humidity[ROOM_DIGITAL_HUM_SENSOR], HUMIDITY_ERROR,
-                    HUMIDITY_ERROR_HYSTERESIS,
-                    lastAlarmTrigger[HUMIDITY_ALARM], true);
-    }
-  }
-  else if (alarmOnGoing[HUMIDITY_ALARM])
-  {
-    resetAlarm(HUMIDITY_ALARM);
-  }
+  // 201.15.4.2.1 dd)/ee): cuatro condiciones direccionales. La medida y el
+  // umbral dependen del modo; el par del modo inactivo se retira siempre, o
+  // quedaria colgado al cambiar de modo.
+  const bool airMode = (in3.controlMode == CONTROL_AIR);
+  bool evaluateDeviation =
+      in3.temperatureControl &&
+      (millis() - lastAlarmTrigger[ALARM_AIR_TEMP_DEVIATION_HIGH] >=
+       minsToMillis(ACTUATORS_ALARM_STABILIZATION_MINS));
+
+  const float measured = airMode ? in3.temperature[ROOM_DIGITAL_TEMP_SENSOR]
+                                 : in3.temperature[SKIN_SENSOR];
+  const float deviation = measured - (float)in3.desiredControlTemperature;
+  const float limit =
+      airMode ? AIR_TEMP_DEVIATION_LIMIT_C : SKIN_TEMP_DEVIATION_LIMIT_C;
+
+  airHighPresent = evaluateDeviation && airMode &&
+                   thresholdWithHysteresis(airHighPresent, deviation, limit,
+                                           TEMPERATURE_ERROR_HYSTERESIS);
+  airLowPresent = evaluateDeviation && airMode &&
+                  thresholdWithHysteresis(airLowPresent, -deviation, limit,
+                                          TEMPERATURE_ERROR_HYSTERESIS);
+  skinHighPresent = evaluateDeviation && !airMode &&
+                    thresholdWithHysteresis(skinHighPresent, deviation, limit,
+                                            TEMPERATURE_ERROR_HYSTERESIS);
+  skinLowPresent = evaluateDeviation && !airMode &&
+                   thresholdWithHysteresis(skinLowPresent, -deviation, limit,
+                                           TEMPERATURE_ERROR_HYSTERESIS);
+
+  alarm_machine_condition(ALARM_AIR_TEMP_DEVIATION_HIGH, airHighPresent, now);
+  alarm_machine_condition(ALARM_AIR_TEMP_DEVIATION_LOW, airLowPresent, now);
+  alarm_machine_condition(ALARM_SKIN_TEMP_DEVIATION_HIGH, skinHighPresent, now);
+  alarm_machine_condition(ALARM_SKIN_TEMP_DEVIATION_LOW, skinLowPresent, now);
+
+  const bool evaluateHumidity =
+      in3.humidityControl &&
+      (millis() - lastAlarmTrigger[ALARM_HUMIDITY_DEVIATION] >=
+       minsToMillis(ACTUATORS_ALARM_STABILIZATION_MINS));
+  const float humidityDeviation =
+      fabsf((float)in3.humidity[ROOM_DIGITAL_HUM_SENSOR] -
+            (float)in3.desiredControlHumidity);
+  humidityPresent =
+      evaluateHumidity &&
+      thresholdWithHysteresis(humidityPresent, humidityDeviation,
+                              HUMIDITY_ERROR, HUMIDITY_ERROR_HYSTERESIS);
+  alarm_machine_condition(ALARM_HUMIDITY_DEVIATION, humidityPresent, now);
 }
 
 #if defined(FAN_SPEED_FEEDBACK)
@@ -873,17 +805,14 @@ void checkFanSpeed()
     return; // still spinning up
   }
 
-  if (!alarmOnGoing[FAN_ISSUE_ALARM] && in3.fan_rpm < FAN_MIN_RPM)
-  {
-    in3.alarmToReport[FAN_ISSUE_ALARM] = true;
-    setAlarm(FAN_ISSUE_ALARM);
-  }
-  else if (alarmOnGoing[FAN_ISSUE_ALARM] &&
-           in3.fan_rpm >= FAN_MIN_RPM + FAN_MIN_RPM_HYSTERESIS)
-  {
-    in3.alarmToReport[FAN_ISSUE_ALARM] = false;
-    resetAlarm(FAN_ISSUE_ALARM);
-  }
+  // Histeresis en el mismo sentido que thresholdWithHysteresis() pero con el
+  // signo invertido (aqui alarma el valor BAJO): se declara por debajo de
+  // FAN_MIN_RPM y no se retira hasta superar FAN_MIN_RPM + histeresis.
+  static bool fanFailurePresent = false;
+  fanFailurePresent = fanFailurePresent
+                          ? (in3.fan_rpm < FAN_MIN_RPM + FAN_MIN_RPM_HYSTERESIS)
+                          : (in3.fan_rpm < FAN_MIN_RPM);
+  alarm_machine_condition(ALARM_FAN_FAILURE, fanFailurePresent, millis());
 }
 
 void checkAirBlockage()
@@ -898,7 +827,7 @@ void checkAirBlockage()
     dutyHighSince = 0;
     return; // not under closed-loop control — no duty signal to evaluate
   }
-  if (alarmOnGoing[FAN_ISSUE_ALARM])
+  if (alarmSignalling(ALARM_FAN_FAILURE))
   {
     dutyHighSince = 0;
     return; // total fan failure already reported — don't also report this
@@ -927,22 +856,18 @@ void checkAirBlockage()
     {
       dutyHighSince = millis();
     }
-    if (!alarmOnGoing[AIR_BLOCKED_ALARM] &&
-        millis() - dutyHighSince >= AIR_BLOCKED_SUSTAIN_MS)
+    if (millis() - dutyHighSince >= AIR_BLOCKED_SUSTAIN_MS)
     {
-      in3.alarmToReport[AIR_BLOCKED_ALARM] = true;
-      setAlarm(AIR_BLOCKED_ALARM);
+      alarm_machine_condition(ALARM_AIR_OUTLET_BLOCKED, true, millis());
     }
   }
   else
   {
     dutyHighSince = 0;
-    if (alarmOnGoing[AIR_BLOCKED_ALARM] &&
-        fanControlPIDOutput <=
-            FAN_DUTY_BLOCKED_THRESHOLD - FAN_DUTY_BLOCKED_HYSTERESIS)
+    if (fanControlPIDOutput <=
+        FAN_DUTY_BLOCKED_THRESHOLD - FAN_DUTY_BLOCKED_HYSTERESIS)
     {
-      in3.alarmToReport[AIR_BLOCKED_ALARM] = false;
-      resetAlarm(AIR_BLOCKED_ALARM);
+      alarm_machine_condition(ALARM_AIR_OUTLET_BLOCKED, false, millis());
     }
   }
 #endif
@@ -956,20 +881,11 @@ void powerSupplyCheck()
     if (millis() - lastPowerSupplyCheck > POWER_SUPPLY_CHECK_PERIOD)
     {
       lastPowerSupplyCheck = millis();
-      if (digitalCurrentSensorPresent[MAIN] &&
-          in3.system_voltage > MIN_SYSTEM_VOLTAGE_TRIGGER &&
-          in3.system_voltage < MAX_SYSTEM_VOLTAGE_TRIGGER)
-      {
-        in3.alarmToReport[POWER_SUPPLY_ALARM] = true;
-        if (!alarmOnGoing[POWER_SUPPLY_ALARM])
-          setAlarm(POWER_SUPPLY_ALARM);
-      }
-      else
-      {
-        in3.alarmToReport[POWER_SUPPLY_ALARM] = false;
-        if (alarmOnGoing[POWER_SUPPLY_ALARM])
-          resetAlarm(POWER_SUPPLY_ALARM);
-      }
+      const bool undervoltage = (digitalCurrentSensorPresent[MAIN] &&
+                                 in3.system_voltage > MIN_SYSTEM_VOLTAGE_TRIGGER &&
+                                 in3.system_voltage < MAX_SYSTEM_VOLTAGE_TRIGGER);
+      alarm_machine_condition(ALARM_SUPPLY_UNDERVOLTAGE, undervoltage,
+                              millis());
     }
   }
 #endif
@@ -992,6 +908,46 @@ static void checkUsbFault()
 }
 #endif
 
+// La maquina de alarmas es un ESTADO, no un flujo de eventos: el display y la
+// nube esperan eventos. Comparar el bitmask con el del ciclo anterior es lo
+// que los reconstruye. Sin esto el display se queda sin recibir alarmas, que
+// es lo que hacia setAlarm()/resetAlarm() al llamar a sendAlarmUSB().
+static void publishAlarmChanges()
+{
+  const uint32_t mask = alarm_machine_bitmask();
+  const uint32_t changed = mask ^ previousAlarmBitmask;
+
+  for (int i = NO_ALARMS + 1; i < NUM_ALARMS; i++)
+  {
+    const bool active = (mask & (1u << i)) != 0;
+    if (changed & (1u << i))
+    {
+      logAlarm("[ALARM] ->" + String(alarmIDtoString(i)) +
+               (active ? " has been triggered" : " has been disable"));
+      sendAlarmUSB(i, active);
+    }
+    // La telemetria a nube (GPRS.cpp / Wifi_OTA.cpp) publica desde aqui.
+    in3.alarmToReport[i] = active;
+  }
+  previousAlarmBitmask = mask;
+}
+
+// El audio lo gobierna la maquina (6.10 incluye la rafaga minima y la pausa
+// que pide el operador); aqui solo se traducen sus flancos al buzzer.
+static void driveAlarmBuzzer()
+{
+  const bool audioRequired = alarm_machine_audio_required();
+  if (audioRequired && !previousAudioRequired)
+  {
+    buzzerTone(buzzerAlarmBeepCount, buzzerAlarmBeepTime, buzzerAlarmTone);
+  }
+  else if (!audioRequired && previousAudioRequired)
+  {
+    shutBuzzer();
+  }
+  previousAudioRequired = audioRequired;
+}
+
 void securityCheck()
 {
   checkThermalCutOuts();
@@ -1005,4 +961,9 @@ void securityCheck()
 #if (HW_NUM >= 16)
   checkUsbFault();
 #endif
+  // El tick va DESPUES de la deteccion y ANTES de publicar: es el que hace
+  // madurar PENDING -> ACTIVE y el que expira las pausas de audio.
+  alarm_machine_tick(millis());
+  publishAlarmChanges();
+  driveAlarmBuzzer();
 }
