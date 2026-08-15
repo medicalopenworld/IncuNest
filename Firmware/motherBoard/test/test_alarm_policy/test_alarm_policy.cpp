@@ -89,6 +89,25 @@ void test_cold_side_deviation_never_cuts_the_heater(void) {
   TEST_ASSERT_FALSE(alarm_cuts_heater(ALARM_SKIN_TEMP_DEVIATION_LOW));
 }
 
+// La unica condicion de prioridad ALTA que NO corta el calefactor, y por eso
+// merece su propio assert: no hay condicion fisica que cortar. 201.12.3.103
+// pide avisar de la interrupcion de red; cortar el calefactor al recuperarla
+// solo enfriaria al bebe. Todas las demas ALTA si cortan, asi que sin fijar
+// esto un "cortan todas las ALTA" pasaria desapercibido.
+void test_mains_interruption_does_not_cut_the_heater(void) {
+  TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_HIGH,
+                        alarm_priority(ALARM_MAINS_INTERRUPTION));
+  TEST_ASSERT_FALSE(alarm_cuts_heater(ALARM_MAINS_INTERRUPTION));
+  // Y es la unica ALTA en esa situacion.
+  for (int id = ALARM_NONE + 1; id < ALARM_COUNT; ++id) {
+    if (alarm_priority((AlarmId)id) != ALARM_PRIORITY_HIGH ||
+        id == ALARM_MAINS_INTERRUPTION) {
+      continue;
+    }
+    TEST_ASSERT_TRUE(alarm_cuts_heater((AlarmId)id));
+  }
+}
+
 void test_notify_only_conditions_do_not_cut_the_heater(void) {
   TEST_ASSERT_FALSE(alarm_cuts_heater(ALARM_SUPPLY_UNDERVOLTAGE));
   TEST_ASSERT_FALSE(alarm_cuts_heater(ALARM_HMI_LINK_LOST));
@@ -126,6 +145,7 @@ int main(void) {
   RUN_TEST(test_only_thermal_cutouts_latch);
   RUN_TEST(test_conditions_that_must_cut_the_heater);
   RUN_TEST(test_cold_side_deviation_never_cuts_the_heater);
+  RUN_TEST(test_mains_interruption_does_not_cut_the_heater);
   RUN_TEST(test_notify_only_conditions_do_not_cut_the_heater);
   RUN_TEST(test_air_cutout_is_capped_at_38);
   RUN_TEST(test_skin_cutout_is_capped_at_40);
