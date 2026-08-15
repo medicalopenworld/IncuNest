@@ -52,6 +52,14 @@ void alarm_machine_set_announce_delay(AlarmId id, uint32_t delay_ms);
 // INACTIVE sigue dentro de su ventana de rafaga minima (6.10). SILENCED y
 // ACKED no cuentan: son la inactivacion del OPERADOR que la norma exime de
 // completar la rafaga, y ambas cancelan esa ventana al producirse.
+//
+// NO ES UNA CONSULTA PURA: al evaluar el criterio cierra de paso las ventanas
+// de rafaga minima que ya se hayan consumido, igual que hace
+// alarm_machine_tick(). Se lee como una pregunta y escribe estado interno, de
+// ahi el aviso. No introduce carrera nueva — el unico llamante de produccion es
+// driveAlarmBuzzer(), desde la misma tarea que el tick, y la via de ISR
+// (ongoingAlarms() -> alarm_machine_any_signalling()) es de solo lectura—, pero
+// no debe llamarse desde un contexto que no pueda escribir la maquina.
 bool alarm_machine_audio_required(void);
 
 AlarmState alarm_machine_state(AlarmId id);
@@ -100,6 +108,10 @@ AlarmPriority alarm_machine_top_priority(void);
 // sigue ACTIVE haria que el zumbador reprodujera el patron de 10 pulsos de la
 // ALTA para una condicion que en realidad es BAJA - una alarma que ya no
 // exige audio le presta su prioridad a otra que si lo exige.
+//
+// TAMPOCO ES UNA CONSULTA PURA: mismo aviso que
+// alarm_machine_audio_required(), y por el mismo motivo — comparten el
+// predicado, que cierra las ventanas ya consumidas.
 AlarmPriority alarm_machine_audible_priority(void);
 
 // true si alguna condicion esta generando senal visual.

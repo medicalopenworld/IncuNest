@@ -36,10 +36,18 @@ extern SemaphoreHandle_t log_mutex;
 //
 // Dimensionada por ALARM_COUNT y no por un numero fijo: resendActiveAlarms()
 // puede empujar una linea por cada una de las 16 condiciones de una sola vez,
-// y con una cola de 10 las 6 ultimas se perdian en silencio — sin reintento,
-// sin log de descarte y sin mas resincronizacion que el siguiente cambio de
-// bitmask. La cola cabe entera por construccion, asi que ya no hay descarte
-// posible en ese camino.
+// y con una cola de 10 las 6 ultimas se perdian en silencio — una instantanea
+// incompleta, ademas de arbitraria en que condiciones se caian.
+//
+// Lo que esto NO hace es eliminar el descarte. La cola solo se vacia en
+// setHMIConnected(true), y la trama periodica de estado (CommTask.cpp) llama a
+// resendActiveAlarms() siempre que alarmCount > 0, este el display conectado o
+// no: con una alarma viva y el display caido, bastan un par de periodos para
+// llenarla y volver a descartar. Lo que se gana es que las ALARM_COUNT
+// posiciones contienen ya una instantanea COMPLETA de las condiciones
+// senalizando, asi que lo que se descarta a partir de ahi son repeticiones de
+// lo que la cola ya lleva. Al reconectar, el display recibe esa instantanea y
+// se resincroniza ademas por el bitmask de la trama de estado.
 struct PendingAlarm
 {
   char message[ALARM_LINE_BUF_SIZE];

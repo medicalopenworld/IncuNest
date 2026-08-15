@@ -349,6 +349,58 @@ void test_a_silenced_burst_stays_cancelled_at_a_large_clock(void) {
   TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_LOW, alarm_machine_audible_priority());
 }
 
+// La misma clase de fallo, un escalon mas adentro: mientras la condicion esta
+// ACTIVE el predicado de la ventana no se evalua (el cortocircuito del || en
+// entry_requires_audio() no llega a el), asi que el flag se queda armado y
+// audio_hold_until_ms congelado en el instante de la activacion. Si una
+// condicion non-latching aguanta ACTIVE mas de 2^31 ms y luego el detector la
+// retira, la resta con signo vuelve a ser negativa y reaparece exactamente el
+// Critico 1: zumbador sonando, bitmask a 0, sin senal visual, sin CTRL,ALM, y
+// esta vez ni siquiera se puede forzar silence()/ack(), porque la entrada ya
+// esta INACTIVE. El audio fantasma dura 24,25 dias.
+//
+// La ventana tiene que caducar en tick(), para TODAS las entradas y sin
+// condicionar al estado: el tick corre cada ciclo, asi que la ventana se cierra
+// a los ~1,5 s de armarse y el flag no puede sobrevivir armado a un
+// desbordamiento.
+void test_a_long_active_condition_does_not_resurrect_audio_when_it_clears(void) {
+  alarm_machine_condition(ALARM_FAN_FAILURE, true, 0);
+  // ~25 dias de marcha con la alarma viva. Se avanza a saltos de 4,6 h: cada
+  // salto es muy inferior a 2^31, que es lo que exige la resta modular.
+  for (uint32_t t = 1000u; t < 0x90000000u; t += 0x01000000u) {
+    alarm_machine_tick(t);
+  }
+  // Sigue ACTIVE y sigue exigiendo audio: eso es lo correcto.
+  TEST_ASSERT_EQUAL_INT(ALARM_STATE_ACTIVE,
+                        alarm_machine_state(ALARM_FAN_FAILURE));
+  TEST_ASSERT_TRUE(alarm_machine_audio_required());
+
+  // El detector la retira. La rafaga minima se completo hace 25 dias.
+  alarm_machine_condition(ALARM_FAN_FAILURE, false, 0x90000000u);
+  TEST_ASSERT_EQUAL_INT(ALARM_STATE_INACTIVE,
+                        alarm_machine_state(ALARM_FAN_FAILURE));
+  TEST_ASSERT_FALSE(alarm_machine_audio_required());
+  TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_LOW, alarm_machine_audible_priority());
+  TEST_ASSERT_EQUAL_UINT32(0u, alarm_machine_bitmask());
+}
+
+// El reset manual es la tercera inactivacion del OPERADOR, junto a silence() y
+// ack(), y tiene que cancelar la ventana igual que ellas. Hoy no hay llamante
+// de produccion, pero lo habra en cuanto se anada el gesto de reset que la
+// documentacion lista como pendiente — y entonces seria la misma forma del
+// defecto: resetear un corte termico dentro de su ventana dejaria el flag
+// armado sobre una entrada ya INACTIVE.
+void test_reset_cancels_the_minimum_burst_hold(void) {
+  alarm_machine_condition(ALARM_AIR_THERMAL_CUTOUT, true, 0);
+  alarm_machine_condition(ALARM_AIR_THERMAL_CUTOUT, false, 10);
+  TEST_ASSERT_TRUE(alarm_machine_reset(ALARM_AIR_THERMAL_CUTOUT, 20));
+  TEST_ASSERT_FALSE(alarm_machine_audio_required());
+  TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_LOW, alarm_machine_audible_priority());
+  // Y cancelada tiene que seguir a cualquier valor del reloj.
+  alarm_machine_tick(0x90000000u);
+  TEST_ASSERT_FALSE(alarm_machine_audio_required());
+}
+
 // --- Invariantes de los que depende la integracion de security.cpp ---
 
 // C-1: la ventana de estabilizacion se aplica como retardo de ANUNCIO, nunca
@@ -553,6 +605,8 @@ int main(void) {
   RUN_TEST(test_no_condition_never_requires_audio_at_any_clock_value);
   RUN_TEST(test_a_completed_burst_stays_completed_at_a_large_clock);
   RUN_TEST(test_a_silenced_burst_stays_cancelled_at_a_large_clock);
+  RUN_TEST(test_a_long_active_condition_does_not_resurrect_audio_when_it_clears);
+  RUN_TEST(test_reset_cancels_the_minimum_burst_hold);
   RUN_TEST(test_pending_still_cuts_the_heater);
   RUN_TEST(test_pending_cold_deviation_never_cuts_the_heater);
   RUN_TEST(test_delay_set_while_active_does_not_unannounce);

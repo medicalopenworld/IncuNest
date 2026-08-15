@@ -31,7 +31,7 @@ se añaden al final.
 
 | ID | Identificador | Qué la dispara en el código | Prioridad | Corta calefactor |
 |---|---|---|---|---|
-| 1 | `ALARM_AIR_THERMAL_CUTOUT` | `in3.temperature[ROOM_DIGITAL_TEMP_SENSOR] > in3.airTemperatureSetMax` (histéresis 0.2 °C, `AIR_THERMAL_CUTOUT_HYSTERESIS`, `security.cpp:183`), evaluada en `checkThermalCutOuts()` | ALTA | sí |
+| 1 | `ALARM_AIR_THERMAL_CUTOUT` | `in3.temperature[ROOM_DIGITAL_TEMP_SENSOR] > in3.airTemperatureSetMax` (histéresis 0.2 °C, `AIR_THERMAL_CUTOUT_HYSTERESIS`, `security.cpp:191`), evaluada en `checkThermalCutOuts()` | ALTA | sí |
 | 2 | `ALARM_SKIN_THERMAL_CUTOUT` | `in3.temperature[SKIN_SENSOR] > in3.skinTemperatureSetMax` (histéresis 0.2 °C, `SKIN_THERMAL_CUTOUT_HYSTERESIS`), misma función | ALTA | sí |
 | 3 | `ALARM_AIR_SENSOR_FAULT` | lectura del sensor de aire sin refrescar durante `MINIMUM_SUCCESSFULL_SENSOR_UPDATE` = 20000 ms (`checkStatusOfSensor()`) | ALTA | sí |
 | 4 | `ALARM_SKIN_SENSOR_FAULT_SKIN_MODE` | igual staleness que el 3, pero de la sonda de piel, y solo cuando `in3.controlMode == CONTROL_SKIN` | ALTA | sí |
@@ -55,7 +55,7 @@ explícitamente. Es la razón por la que `checkAirBlockage()` tiene que poder
 declarar `false` incluso cuando su medida es inviable (ver §4, latching).
 
 Todas las condiciones con umbral usan banda muerta (`thresholdWithHysteresis()`,
-`security.cpp:228`): se declaran al superar el umbral y no se retiran hasta
+`security.cpp:236`): se declaran al superar el umbral y no se retiran hasta
 caer por debajo de `umbral − histéresis`. Los valores de histéresis de cada
 condición están en la tabla o en los comentarios citados.
 
@@ -84,11 +84,11 @@ seguridad-primero, según el comentario de `alarm_policy.h:9-10`.
 
 Hay **dos** consultas de prioridad, y no son intercambiables:
 
-- `alarm_machine_top_priority()` (`alarm_machine.cpp:224`) calcula la prioridad
+- `alarm_machine_top_priority()` (`alarm_machine.cpp:241`) calcula la prioridad
   más alta entre las condiciones que se están anunciando (ACTIVE, SILENCED o
   ACKED). Es la prioridad de la señal **visual**: incluye SILENCED/ACKED a
   propósito, porque inactivar el audio no puede rebajar lo que se ve.
-- `alarm_machine_audible_priority()` (`alarm_machine.cpp:239`) calcula la
+- `alarm_machine_audible_priority()` (`alarm_machine.cpp:256`) calcula la
   prioridad más alta entre las condiciones que **exigen audio ahora mismo**:
   el mismo criterio que `alarm_machine_audio_required()` (ACTIVE, o INACTIVE
   todavía dentro de su ventana de ráfaga mínima), sin SILENCED ni ACKED. Es la
@@ -112,7 +112,7 @@ recuperación. **Las tres no leen lo mismo, y la diferencia importa:**
   señalización.
 - Las puertas del **ventilador** y del **lazo de control** leen el **estado de
   señalización**: `ongoingFanCriticalAlarm()` y `ongoingCriticalWiringAlarm()`
-  están escritas sobre `alarmSignalling(id)` (`security.cpp:220-223`), que es
+  están escritas sobre `alarmSignalling(id)` (`security.cpp:228-231`), que es
   `alarm_machine_state(id) != ALARM_STATE_INACTIVE`.
 
 Hoy las dos lecturas coinciden para las condiciones que gobiernan esas dos
@@ -134,10 +134,10 @@ inactivar el audio nunca abre ninguna de las tres puertas.
 | Puerta | Función | Efecto | Condiciones | Recuperación |
 |---|---|---|---|---|
 | Calefactor | `ongoingCriticalAlarm()` → `alarm_machine_heater_must_cut()` | `HeaterPIDOutput * !ongoingCriticalAlarm()` escrito en `ledcWrite(HEATER_PWM_CHANNEL, ...)`, tanto en la rama de control por aire como por piel (`PID.cpp:201,211`) | `alarm_cuts_heater()` (`alarm_policy.cpp:36`): IDs 1, 2, 3, 4, 5, 6, 8, 10, 12 (9 condiciones) | automática, en cuanto la condición física deja de estar presente |
-| Ventilador | `ongoingFanCriticalAlarm()` | `fanControlPIDOutput * !ongoingFanCriticalAlarm()` (`PID.cpp:267`) y el PWM abierto de `turnFans()` (`Actuators.cpp:46,70`) | ID 5 (`FAN_FAILURE`), ID 13 (`SUPPLY_UNDERVOLTAGE`), e ID 12 (`HEATER_FAULT`) **solo si `!in3.fanHasSpeedFeedback`** (`security.cpp:447-453`) | automática, al volver el estado a INACTIVE |
-| Lazo de control (`in3.temperatureControl`) | `ongoingCriticalWiringAlarm()` | bloquea únicamente el **intento de volver a encender** el control de temperatura desde un comando HMI entrante (`main.cpp:393,397,405`); si la condición aparece con el control ya encendido, esta puerta no lo apaga por sí sola — solo lo hacen las puertas de calefactor/ventilador arriba | IDs 12, 5, 13 (`HEATER_FAULT`, `FAN_FAILURE`, `SUPPLY_UNDERVOLTAGE`) (`security.cpp:437-442`) | manual: el operador debe reintentar activar el control una vez la condición ya no esté señalizando |
+| Ventilador | `ongoingFanCriticalAlarm()` | `fanControlPIDOutput * !ongoingFanCriticalAlarm()` (`PID.cpp:267`) y el PWM abierto de `turnFans()` (`Actuators.cpp:46,70`) | ID 5 (`FAN_FAILURE`), ID 13 (`SUPPLY_UNDERVOLTAGE`), e ID 12 (`HEATER_FAULT`) **solo si `!in3.fanHasSpeedFeedback`** (`security.cpp:455-460`) | automática, al volver el estado a INACTIVE |
+| Lazo de control (`in3.temperatureControl`) | `ongoingCriticalWiringAlarm()` | bloquea únicamente el **intento de volver a encender** el control de temperatura desde un comando HMI entrante (`main.cpp:393,397,405`); si la condición aparece con el control ya encendido, esta puerta no lo apaga por sí sola — solo lo hacen las puertas de calefactor/ventilador arriba | IDs 12, 5, 13 (`HEATER_FAULT`, `FAN_FAILURE`, `SUPPLY_UNDERVOLTAGE`) (`security.cpp:445-450`) | manual: el operador debe reintentar activar el control una vez la condición ya no esté señalizando |
 
-`ongoingAlarms()` (`security.cpp:414`, envoltorio de
+`ongoingAlarms()` (`security.cpp:422`, envoltorio de
 `alarm_machine_any_signalling()`) es una cosa distinta y **no decide nada del
 audio**: es la guarda del encoder. `encSwitchHandler()` (`ISR.cpp:148-165`) la
 consulta para saber si la pulsación debe interpretarse como "silenciar" — solo
@@ -152,7 +152,7 @@ corte térmico, un fallo de ventilador o un fallo de tensión detienen el
 calefactor y posiblemente el ventilador, pero el humidificador sigue
 inyectando vapor. Tiene su propia protección, independiente del sistema de
 alarmas: en hardware con `HW_NUM >= 16`, `checkUsbFault()`
-(`security.cpp:825-838`) lee la línea activa-baja `USB_FAULT` y, ante un
+(`security.cpp:833-846`) lee la línea activa-baja `USB_FAULT` y, ante un
 cortocircuito o sobrecarga, apaga el humidificador, borra
 `in3.humidityControl` y detiene su PID — sin levantar ningún `AlarmId`.
 
@@ -165,7 +165,7 @@ de la condición física, un corte térmico que ya se enfrió pero sigue
 inversa, silenciar o aceptar una alarma (que solo cambia el estado de
 señalización, nunca la condición física, ver §4) nunca podría, por
 construcción, restaurar el calefactor mientras la condición siga presente, ni
-cortarlo mientras no lo esté. El comentario de `security.cpp:430-434` lo deja
+cortarlo mientras no lo esté. El comentario de `security.cpp:438-442` lo deja
 explícito: *"la maquina la aplica sobre la condicion FISICA presente, no
 sobre la senal"*.
 
@@ -188,7 +188,7 @@ llevarlas también a la condición física.
 **Retardo de anuncio.** `alarm_machine_set_announce_delay()` fija, por
 condición, cuánto puede esperar el estado PENDING antes de madurar a ACTIVE.
 Los cortes térmicos lo ignoran siempre (`alarm_machine_condition()`,
-`alarm_machine.cpp:107-109`: *"un corte termico nunca espera"*) — se declaran
+`alarm_machine.cpp:108-110`: *"un corte termico nunca espera"*) — se declaran
 ACTIVE de inmediato, con audio, en el mismo ciclo en que se detectan. Las
 demás condiciones que fijan un retardo (hoy, solo el lado caliente de las
 desviaciones de temperatura, §5) permanecen en PENDING hasta que expire; el
@@ -200,10 +200,10 @@ aplaza el audio, no la señal visual.
 condición ACTIVE a SILENCED durante `duration_ms`; al expirar,
 `alarm_machine_tick()` la hace madurar de vuelta a ACTIVE
 (`alarm_machine.cpp:135-138`). El único punto del firmware que invoca esta
-función es `reestartOngoingAlarms()` (`security.cpp:570-577`), llamada desde
+función es `reestartOngoingAlarms()` (`security.cpp:578-585`), llamada desde
 `encSwitchHandler()` (`ISR.cpp:148-165`) al pulsar el encoder: silencia, una
 por una, **todas** las condiciones que en ese instante estén en ACTIVE,
-durante `ALARM_AUDIO_PAUSE_MS` = 120000 ms (2 min, `security.cpp:190`). Como
+durante `ALARM_AUDIO_PAUSE_MS` = 120000 ms (2 min, `security.cpp:198`). Como
 el silencio actúa condición por condición y solo sobre las que ya están
 activas en el momento de la pulsación, una condición nueva que aparezca
 después de silenciar suena con normalidad — no hereda el silencio de las
@@ -227,9 +227,27 @@ de `main.h:242-249`, del que se derivan. La ventana se sella al pasar a ACTIVE
 explícito, `Entry::audio_hold_active`, y no por comparación con el instante 0:
 la señal de "nunca se selló" tiene que ser un booleano, porque el 0 es un
 instante válido del reloj y a los 24,86 días (millis() cruzando 2³¹) la
-comparación con signo lo daba por futuro. La ventana se cancela en
-`alarm_machine_silence()` y `alarm_machine_ack()` — 6.10 exime de completarla
-"unless inactivated by the OPERATOR" — y se cierra sola al consumirse.
+comparación con signo lo daba por futuro.
+
+La ventana se cancela en las tres inactivaciones del OPERADOR —
+`alarm_machine_silence()`, `alarm_machine_ack()` y `alarm_machine_reset()`;
+6.10 exime de completarla *"unless inactivated by the OPERATOR"* — y **caduca
+en `alarm_machine_tick()`, para todas las entradas y sin condicionar al
+estado**. Esto último no es un detalle de estilo: el predicado del audio solo
+se alcanza con la entrada en INACTIVE, así que una condición que aguante
+ACTIVE dejaría el flag armado con su instante congelado, y si eso durase más
+de 2³¹ ms, al retirarse la condición reaparecería el mismo zumbador fantasma.
+Como el tick corre en cada ciclo de `securityCheck()`, la ventana se cierra a
+los ~1,5 s de armarse y el flag no puede sobrevivir armado a un desbordamiento
+del reloj.
+
+Consecuencia de diseño a tener presente: `alarm_machine_audio_required()` y
+`alarm_machine_audible_priority()` **no son consultas puras**. Comparten el
+predicado y, al evaluarlo, cierran también las ventanas ya consumidas. No hay
+carrera —el único llamante de producción es `driveAlarmBuzzer()`, en la misma
+tarea que el tick, y la vía de ISR (`ongoingAlarms()`) es de solo lectura—,
+pero está anotado en el header para que nadie las llame desde un contexto que
+no pueda escribir la máquina.
 
 **Latching y reset manual.** `alarm_is_latching()` (`alarm_policy.cpp:32-34`)
 es verdadero únicamente para los dos cortes térmicos. Cuando la condición
@@ -242,7 +260,7 @@ está presente. **Esta función solo se llama desde los tests unitarios
 (`test_alarm_machine.cpp`); no existe ningún camino de producción — encoder,
 USB o `/config` — que la invoque.** En la práctica, hoy la única forma de
 limpiar la señal de un corte térmico ya enfriado es reiniciar el equipo:
-`initAlarms()` (`security.cpp:271-280`) reinicializa toda la máquina
+`initAlarms()` (`security.cpp:279-288`) reinicializa toda la máquina
 (`alarm_machine_init()`) y se llama una única vez, desde el arranque
 (`initHardware.cpp:905`). Es el **único** punto de reset de la máquina: hubo
 un segundo, `control_module_init()`, sin llamantes, y se ha eliminado — un
@@ -251,14 +269,14 @@ reset de más borra las condiciones que ya declaró el autotest de arranque
 
 ## 5. La asimetría de las desviaciones de temperatura
 
-`checkAlarms()` (`security.cpp:579-662`) trata el lado caliente y el lado frío
+`checkAlarms()` (`security.cpp:587-670`) trata el lado caliente y el lado frío
 de la desviación de temperatura de forma deliberadamente distinta, y el
 propio código lo documenta como no siendo una inconsistencia
-(`security.cpp:593-607`):
+(`security.cpp:601-615`):
 
 - **Lado caliente** (`AIR_TEMP_DEVIATION_HIGH`, `SKIN_TEMP_DEVIATION_HIGH`):
   se declara **siempre**, incluso durante la ventana de estabilización de 30
-  min tras la activación. `declareHotDeviation()` (`security.cpp:261-269`)
+  min tras la activación. `declareHotDeviation()` (`security.cpp:269-277`)
   arma el retardo de anuncio con lo que le quede a la ventana en el flanco de
   subida, pero la condición física se declara ya, con el corte de calefactor
   ya vigente desde el primer ciclo (el retardo de anuncio no afecta a
@@ -267,7 +285,7 @@ propio código lo documenta como no siendo una inconsistencia
   protección térmica, justo durante la rampa desde frío, que es cuando el
   sobreimpulso del PID es más probable.
 - **Lado frío** (`AIR_TEMP_DEVIATION_LOW`, `SKIN_TEMP_DEVIATION_LOW`): se
-  evalúa solo tras `stabilizationElapsed()` (`security.cpp:247-250`) — antes
+  evalúa solo tras `stabilizationElapsed()` (`security.cpp:255-258`) — antes
   de eso, la condición ni siquiera se declara como presente. No gobierna
   ningún actuador, así que cerrarla durante el calentamiento no compromete
   ninguna protección, y evita que cada arranque normal (por ejemplo, de 22 °C
@@ -283,7 +301,7 @@ inmediato el corte de calefactor asociado.
 
 La humedad (`ALARM_HUMIDITY_DEVIATION`) sigue el mismo patrón de puerta que el
 lado frío: `evaluateHumidity` exige `stabilizationElapsed()` además de
-`in3.humidityControl` (`security.cpp:651-653`), porque tampoco gobierna
+`in3.humidityControl` (`security.cpp:659-661`), porque tampoco gobierna
 actuador alguno.
 
 La ventana de estabilización, `ACTUATORS_ALARM_STABILIZATION_MINS` = 30 min
@@ -338,24 +356,33 @@ Todo lo que sigue es lo verificable desde `security.cpp`; el comportamiento
 interno del display queda fuera de alcance de este documento.
 
 La máquina de alarmas es un **estado**, no un flujo de eventos: cada ciclo de
-`securityCheck()` (`security.cpp:886-904`) recalcula `alarm_machine_bitmask()`
-y `publishAlarmChanges()` (`security.cpp:845-863`) lo compara contra el
+`securityCheck()` (`security.cpp:894-912`) recalcula `alarm_machine_bitmask()`
+y `publishAlarmChanges()` (`security.cpp:853-871`) lo compara contra el
 bitmask del ciclo anterior. Solo los bits que cambian generan una línea
 `CTRL,ALM,<id>,<titulo>,<descripcion>,<0|1>\n` vía `sendAlarmUSB()`
-(`security.cpp:508-552`); el resto del bitmask completo, junto con `alarmCount`,
+(`security.cpp:516-560`); el resto del bitmask completo, junto con `alarmCount`,
 se envía además en la trama periódica de estado desde `CommTask.cpp`, que
 también dispara `resendActiveAlarms()` (reenvía la línea `CTRL,ALM` de cada
 condición actualmente señalizando) cuando `alarmCount > 0`.
 
 Si el HMI no está conectado (`hmi_connected == false`), los eventos de cambio
-se encolan en `pending_alarms[PENDING_ALARM_QUEUE_LEN]` (`security.cpp:35-52`),
-con `PENDING_ALARM_QUEUE_LEN` = `ALARM_COUNT`. La cola cabe entera por
-construcción: `resendActiveAlarms()` puede empujar una línea por cada una de
-las 16 condiciones de una sola vez, y con la capacidad fija de 10 que tenía
-antes las 6 últimas se perdían en silencio, sin reintento ni log de descarte.
-El guardián sigue existiendo (`pending_alarm_count < PENDING_ALARM_QUEUE_LEN`,
-`security.cpp:534`), pero ya no puede dispararse desde ese camino. Al
-reconectar, `setHMIConnected(true)` vacía la cola con `sendPendingAlarms()`.
+se encolan en `pending_alarms[PENDING_ALARM_QUEUE_LEN]` (`security.cpp:35-60`),
+con `PENDING_ALARM_QUEUE_LEN` = `ALARM_COUNT`. `resendActiveAlarms()` puede
+empujar una línea por cada una de las 16 condiciones de una sola vez, y con la
+capacidad fija de 10 que tenía antes las 6 últimas se perdían en silencio: una
+instantánea incompleta, y arbitraria en qué condiciones se caían.
+
+**El descarte silencioso sigue existiendo**, y el guardián que lo produce
+también (`pending_alarm_count < PENDING_ALARM_QUEUE_LEN`, `security.cpp:542`).
+La cola solo se vacía en `setHMIConnected(true)`, mientras que la trama
+periódica de estado llama a `resendActiveAlarms()` siempre que
+`alarmCount > 0`, esté el display conectado o no: con una alarma viva y el
+display caído, bastan un par de periodos para llenarla. Lo que cambia con el
+dimensionado por `ALARM_COUNT` es que las posiciones de la cola contienen ya
+una instantánea **completa** de las condiciones señalizando, así que lo que se
+descarta a partir de ahí son repeticiones de lo que la cola ya lleva. Al
+reconectar, `setHMIConnected(true)` la vacía con `sendPendingAlarms()` y el
+display se resincroniza además por el bitmask de la trama de estado.
 
 **Los dos campos de texto tienen un límite y el protocolo no perdona
 pasárselo.** Su capacidad se declara una sola vez, en
@@ -377,13 +404,13 @@ test nativo `test/test_alarm_text/` pueda comprobar en cada ejecución que
 todos caben en su campo, que la línea compuesta cabe en el buffer del emisor,
 que ninguno contiene el separador de campos ni un salto de línea, y que todo
 es ASCII imprimible — las fuentes del display no tienen glifos fuera de ese
-rango. `alarmIDtoString()` (`security.cpp:460-463`) es hoy un envoltorio sobre
+rango. `alarmIDtoString()` (`security.cpp:468-471`) es hoy un envoltorio sobre
 `alarm_title_text()`.
 
 ## 8. Señal acústica
 
 El motor de audio es `buzzerAlarmUpdate()` (`Buzzer.cpp:90-166`), y lo alimenta
-`driveAlarmBuzzer()` (`security.cpp:873-884`) una vez por ciclo de
+`driveAlarmBuzzer()` (`security.cpp:881-892`) una vez por ciclo de
 `securityCheck()` con dos valores: `alarm_machine_audio_required()` (si debe
 sonar) y `alarm_machine_audible_priority()` (con qué patrón).
 

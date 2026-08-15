@@ -136,6 +136,19 @@ void alarm_machine_tick(uint32_t now_ms) {
         (int32_t)(now_ms - e.silenced_until_ms) >= 0) {
       e.state = ALARM_STATE_ACTIVE;
     }
+    // Caducar la ventana de rafaga minima SIEMPRE, sea cual sea el estado.
+    //
+    // No basta con evaluarla cuando se consulta el audio: alli solo se alcanza
+    // con la entrada en INACTIVE (el otro lado del || cortocircuita), asi que
+    // una condicion que aguanta ACTIVE deja el flag armado y
+    // audio_hold_until_ms congelado en el instante de la activacion. Si eso
+    // dura mas de 2^31 ms y despues el detector la retira, la resta con signo
+    // vuelve a ser negativa y reaparece el fallo del zumbador fantasma, esta
+    // vez sin poder forzar siquiera silence()/ack() porque la entrada ya esta
+    // INACTIVE. Como el tick corre en cada ciclo de securityCheck(), evaluarla
+    // aqui cierra la ventana a los ~1,5 s de armarse y el flag no puede
+    // sobrevivir armado a un desbordamiento del reloj.
+    (void)audio_hold_pending(e);
   }
 }
 
@@ -218,6 +231,10 @@ bool alarm_machine_reset(AlarmId id, uint32_t now_ms) {
     return false;
   }
   g_entries[id].state = ALARM_STATE_INACTIVE;
+  // El reset es la tercera inactivacion del OPERADOR, junto a silence() y
+  // ack(), y 6.10 exime a las tres de completar la rafaga. Sin esto, resetear
+  // dentro de la ventana dejaria el flag armado sobre una entrada ya INACTIVE.
+  cancel_audio_hold(g_entries[id]);
   return true;
 }
 
