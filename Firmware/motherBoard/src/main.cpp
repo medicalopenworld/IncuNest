@@ -474,7 +474,7 @@ void Communication_Receiver(void *pvParameters) {
     // Unconditional: every loop inside gates itself on its own PID mode, and
     // the fan loop must run for phototherapy-only activation too (fan is
     // commanded on with in3.actuation == 0 — gating on actuation left
-    // FAN_CTL_PWM_CHANNEL undriven and false-fired FAN_ISSUE_ALARM).
+    // FAN_CTL_PWM_CHANNEL undriven and false-fired ALARM_FAN_FAILURE).
     PIDHandler();
     vTaskDelay(pdMS_TO_TICKS(COMMUNICATION_TASK_PERIOD_MS));
   }

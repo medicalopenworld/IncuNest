@@ -54,6 +54,25 @@ bool error = false;
 static char rxBuffer[COMM_RX_BUFFER_SIZE];
 static int rxIndex = 0;
 
+// Formato de parseo de `CTRL,ALM,<id>,<titulo>,<descripcion>,<0|1>`.
+//
+// Los anchos NO se escriben a mano: se derivan de las macros de capacidad del
+// protocolo (shared/include/alarm_ids.h), que son las mismas de las que salen
+// los tamanos de los buffers. Un ancho mayor que el buffer lo desborda; uno
+// menor es peor todavia, porque no trunca: sscanf para al llenar el ancho, no
+// encuentra la coma que el formato exige a continuacion y devuelve menos
+// campos de los pedidos, asi que la LINEA ENTERA se descarta. Ese fue el
+// defecto real — 31 hardcodeado contra descripciones de hasta 43 caracteres —
+// y dejaba 12 de las 16 alarmas sin aparecer en pantalla en espanol.
+//
+// El ancho de %[...] cuenta caracteres SIN el terminador, de ahi que sea
+// exactamente ALARM_*_MAX_CHARS y el buffer uno mas.
+#define ALM_STR2(x) #x
+#define ALM_STR(x) ALM_STR2(x)
+#define ALM_SCAN_FMT                                              \
+  "CTRL,ALM,%d,%" ALM_STR(ALARM_TITLE_MAX_CHARS) "[^,],%" ALM_STR( \
+      ALARM_DESC_MAX_CHARS) "[^,],%d"
+
 // Motherboard-provided wall clock (CTRL,TIME). 0 = not synced there yet.
 static uint32_t s_mbEpoch = 0;
 static uint32_t s_mbEpochAtMs = 0;
@@ -319,17 +338,16 @@ static void parse_message(const char *line) {
     int id, stateInt;
     char type[ALARM_TYPE_LEN];
     char description[ALARM_DESC_LEN];
-    // Use width limits in sscanf to prevent buffer overflow
-    // ALARM_TYPE_LEN is typically small, we assume 20-30 chars.
-    // We'll use %31[^,] as a safe approximation if LEN is 32.
-    // Ideally we should use macros but for now we hardcode a safe limit.
-    int result = sscanf(line, "CTRL,ALM,%d,%31[^,],%31[^,],%d", &id, type,
-                        description, &stateInt);
+    static_assert(ALARM_TYPE_LEN == ALARM_TITLE_MAX_CHARS + 1,
+                  "el ancho de parseo del titulo debe ser el del buffer - 1");
+    static_assert(ALARM_DESC_LEN == ALARM_DESC_MAX_CHARS + 1,
+                  "el ancho de parseo de la descripcion debe ser el del buffer - 1");
+    int result = sscanf(line, ALM_SCAN_FMT, &id, type, description, &stateInt);
     if (result == 4) {
       ctrl_msg_alarm.id = id;
-      strncpy(ctrl_msg_alarm.type, type, ALARM_TYPE_LEN);
+      strncpy(ctrl_msg_alarm.type, type, ALARM_TYPE_LEN - 1);
       ctrl_msg_alarm.type[ALARM_TYPE_LEN - 1] = '\0';
-      strncpy(ctrl_msg_alarm.description, description, ALARM_DESC_LEN);
+      strncpy(ctrl_msg_alarm.description, description, ALARM_DESC_LEN - 1);
       ctrl_msg_alarm.description[ALARM_DESC_LEN - 1] = '\0';
       ctrl_msg_alarm.state = (stateInt != 0);
     } else {

@@ -35,6 +35,7 @@
 #include "main.h"
 #include "modules/baby_profile/baby_cloud.h"
 #include "modules/baby_profile/baby_profile_store.h"
+#include "alarm_policy.h"
 
 extern GPRSstruct GPRS;
 static const char *TAG __attribute__((unused)) = "WiFi";
@@ -450,12 +451,14 @@ void configWifiServer() {
       { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_HEAT_MAX_A, in3.heaterMaxPowerAmps); p.end(); }
     }
     if (wifiServer.hasArg("air_tmax")) {
-      in3.airTemperatureSetMax = wifiServer.arg("air_tmax").toFloat();
+      in3.airTemperatureSetMax =
+          alarm_clamp_air_cutout(wifiServer.arg("air_tmax").toFloat());
       maxDesiredTemp[CONTROL_AIR] = in3.airTemperatureSetMax;
       { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_AIR_T_MAX, in3.airTemperatureSetMax); p.end(); }
     }
     if (wifiServer.hasArg("skin_tmax")) {
-      in3.skinTemperatureSetMax = wifiServer.arg("skin_tmax").toFloat();
+      in3.skinTemperatureSetMax =
+          alarm_clamp_skin_cutout(wifiServer.arg("skin_tmax").toFloat());
       maxDesiredTemp[CONTROL_SKIN] = in3.skinTemperatureSetMax;
       { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_SKIN_T_MAX, in3.skinTemperatureSetMax); p.end(); }
     }
@@ -652,35 +655,53 @@ void WIFITBProvision() {
 void switchAlarmTelemetryWIFI(int alarm, bool value) {
   String alarmKey;
   switch (alarm) {
-  case HUMIDITY_ALARM:
-    alarmKey = HUMIDITY_ALARM_KEY;
+  case ALARM_AIR_THERMAL_CUTOUT:
+    alarmKey = ALARM_AIR_THERMAL_CUTOUT_KEY;
     break;
-  case TEMPERATURE_ALARM:
-    alarmKey = TEMPERATURE_ALARM_KEY;
+  case ALARM_SKIN_THERMAL_CUTOUT:
+    alarmKey = ALARM_SKIN_THERMAL_CUTOUT_KEY;
     break;
-  case AIR_THERMAL_CUTOUT_ALARM:
-    alarmKey = AIR_THERMAL_CUTOUT_ALARM_KEY;
+  case ALARM_AIR_SENSOR_FAULT:
+    alarmKey = ALARM_AIR_SENSOR_FAULT_KEY;
     break;
-  case SKIN_THERMAL_CUTOUT_ALARM:
-    alarmKey = SKIN_THERMAL_CUTOUT_ALARM_KEY;
+  case ALARM_SKIN_SENSOR_FAULT_SKIN_MODE:
+    alarmKey = ALARM_SKIN_SENSOR_FAULT_SKIN_MODE_KEY;
     break;
-  case AIR_SENSOR_ISSUE_ALARM:
-    alarmKey = AIR_SENSOR_ISSUE_ALARM_KEY;
+  case ALARM_FAN_FAILURE:
+    alarmKey = ALARM_FAN_FAILURE_KEY;
     break;
-  case SKIN_SENSOR_ISSUE_ALARM:
-    alarmKey = SKIN_SENSOR_ISSUE_ALARM_KEY;
+  case ALARM_AIR_OUTLET_BLOCKED:
+    alarmKey = ALARM_AIR_OUTLET_BLOCKED_KEY;
     break;
-  case FAN_ISSUE_ALARM:
-    alarmKey = FAN_ISSUE_ALARM_KEY;
+  case ALARM_MAINS_INTERRUPTION:
+    alarmKey = ALARM_MAINS_INTERRUPTION_KEY;
     break;
-  case HEATER_ISSUE_ALARM:
-    alarmKey = HEATER_ISSUE_ALARM_KEY;
+  case ALARM_AIR_TEMP_DEVIATION_HIGH:
+    alarmKey = ALARM_AIR_TEMP_DEVIATION_HIGH_KEY;
     break;
-  case POWER_SUPPLY_ALARM:
-    alarmKey = POWER_SUPPLY_ALARM_KEY;
+  case ALARM_AIR_TEMP_DEVIATION_LOW:
+    alarmKey = ALARM_AIR_TEMP_DEVIATION_LOW_KEY;
     break;
-  case AIR_BLOCKED_ALARM:
-    alarmKey = AIR_BLOCKED_ALARM_KEY;
+  case ALARM_SKIN_TEMP_DEVIATION_HIGH:
+    alarmKey = ALARM_SKIN_TEMP_DEVIATION_HIGH_KEY;
+    break;
+  case ALARM_SKIN_TEMP_DEVIATION_LOW:
+    alarmKey = ALARM_SKIN_TEMP_DEVIATION_LOW_KEY;
+    break;
+  case ALARM_HEATER_FAULT:
+    alarmKey = ALARM_HEATER_FAULT_KEY;
+    break;
+  case ALARM_SUPPLY_UNDERVOLTAGE:
+    alarmKey = ALARM_SUPPLY_UNDERVOLTAGE_KEY;
+    break;
+  case ALARM_HMI_LINK_LOST:
+    alarmKey = ALARM_HMI_LINK_LOST_KEY;
+    break;
+  case ALARM_SKIN_SENSOR_FAULT_AIR_MODE:
+    alarmKey = ALARM_SKIN_SENSOR_FAULT_AIR_MODE_KEY;
+    break;
+  case ALARM_HUMIDITY_DEVIATION:
+    alarmKey = ALARM_HUMIDITY_DEVIATION_KEY;
     break;
   default:
     return;

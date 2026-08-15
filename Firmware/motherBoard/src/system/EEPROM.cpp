@@ -26,6 +26,7 @@
 #include <Preferences.h>
 
 #include "main.h"
+#include "alarm_policy.h"
 
 extern bool WIFI_EN;
 extern int presetTemp[2]; // preset baby skin temperature
@@ -322,9 +323,14 @@ void recapVariables()
     in3.skinTemperatureSetMax = p.getFloat(KEY_SKIN_T_MAX, SKIN_TEMPERATURE_SET_MAX);
     if (isnan(in3.skinTemperatureSetMax) || in3.skinTemperatureSetMax <= 0)
       in3.skinTemperatureSetMax = SKIN_TEMPERATURE_SET_MAX;
+    // 201.15.4.2.1 bb): un valor persistido antes de que existiera este limite
+    // (o corrupto) no debe superar el tope normativo al restaurarse.
+    in3.skinTemperatureSetMax = alarm_clamp_skin_cutout(in3.skinTemperatureSetMax);
     in3.airTemperatureSetMax = p.getFloat(KEY_AIR_T_MAX, AIR_TEMPERATURE_SET_MAX);
     if (isnan(in3.airTemperatureSetMax) || in3.airTemperatureSetMax <= 0)
       in3.airTemperatureSetMax = AIR_TEMPERATURE_SET_MAX;
+    // 201.15.4.2.1 aa): idem para el corte por aire.
+    in3.airTemperatureSetMax = alarm_clamp_air_cutout(in3.airTemperatureSetMax);
     in3.fanCtlPWM = p.getInt(KEY_FAN_CTL_PWM, FAN_CTL_PWM_DEFAULT);
     if (in3.fanCtlPWM <= 0 || in3.fanCtlPWM > 255)
       in3.fanCtlPWM = FAN_CTL_PWM_DEFAULT;

@@ -105,7 +105,7 @@
 // between each heaterSafeMAXPWM ramp step, instead of a wall-clock period.
 #define HEATER_RAMP_SAMPLE_CYCLES 3
 // Consecutive failed I2C presence probes of the SECUNDARY current sensor
-// (heater/USB/battery chip) before raising HEATER_ISSUE_ALARM for a runtime
+// (heater/USB/battery chip) before raising ALARM_HEATER_FAULT for a runtime
 // dropout - see currentMonitor() in legacy/sensors.cpp. ~10 x 110ms = 1.1s,
 // long enough to ride out a transient EMI glitch without missing a real
 // dropout for many cycles.
@@ -117,13 +117,11 @@
 
 #define ALARM_SYSTEM_ENABLED true
 #define FAN_MAX_CURRENT_OVERRIDE false
-#define SILENCED_ALARM false
-#define DEFAULT_SOUND_ALARM true
 
-// Minutes TEMPERATURE_ALARM/HUMIDITY_ALARM stay silenced after a fresh
-// activation (checkAlarms(), security.cpp) vs. after a restoreState boot
-// (crash/WDT - initHardware.cpp), which only needs a short re-sync pause
-// rather than a full cold-start stabilization wait.
+// Minutes the temperature-deviation / humidity-deviation conditions stay
+// suppressed after a fresh activation (checkAlarms(), security.cpp) vs. after
+// a restoreState boot (crash/WDT - initHardware.cpp), which only needs a short
+// re-sync pause rather than a full cold-start stabilization wait.
 #define ACTUATORS_ALARM_STABILIZATION_MINS 30
 #define RESTART_ALARM_GRACE_MINS 0
 
@@ -183,8 +181,9 @@ typedef enum
   FAN_RPM_MIN_ERROR,
 } HW_ERROR_ID;
 
-// AlarmId enum (NO_ALARMS, HUMIDITY_ALARM ... POWER_SUPPLY_ALARM,
-// NUM_ALARMS, MAX_ALARM_STRING_SIZE=255) is now in shared alarm_ids.h.
+// AlarmId enum (ALARM_NONE/NO_ALARMS, ALARM_AIR_THERMAL_CUTOUT ...
+// ALARM_HUMIDITY_DEVIATION, ALARM_COUNT/NUM_ALARMS,
+// MAX_ALARM_STRING_SIZE=255) is now in shared alarm_ids.h.
 // CommStatus enum (COMM_STATUS_NONE ... COMM_STATUS_WIFI_SERVER) is now
 // in shared control_types.h. Both are included transitively via CommTask.h.
 
@@ -227,13 +226,28 @@ extern int g_restore_photo_minutes;
   10000                              // in millis, there will be a periodic tone when regulating baby's
                                      // constants
 #define buzzerStandbyTone 500        // in micros, tone freq
-#define buzzerAlarmTone 500          // in micros, tone freq
-#define buzzerAlarmBeepTime 500      // ms ON and OFF per alarm beep cycle
-#define buzzerAlarmBeepCount 500     // total beep toggles (~5 min of alarm)
 #define buzzerRotaryEncoderTone 2200 // in micros, tone freq
 #define buzzerStandbyToneDuration 50 // in micros, tone freq
 #define buzzerSwitchDuration 10      // in micros, tone freq
 #define buzzerStandbyToneTimes 1     // in micros, tone freq
+
+// Patron de rafaga segun la Tabla 3 de IEC 60601-1-8. ALTA: 10 pulsos con
+// intervalo entre rafagas de 2,5 a 15 s. MEDIA: 3 pulsos, de 2,5 a 30 s.
+// BAJA: 1 o 2 pulsos, intervalo > 15 s o sin repeticion.
+//
+// ATADAS a ALARM_MIN_BURST_MS_HIGH/_MEDIUM (alarm_machine.h): esas dos fijan
+// cuanto audio exige 6.10 completar aunque la condicion se haya ido, y esa
+// duracion se calcula a partir de los pulsos de aqui. Cambiar la duracion de
+// pulso, el hueco o el numero de pulsos obliga a rehacer aquella cuenta — ver
+// la aritmetica escrita en el comentario de alarm_machine.h.
+#define ALARM_PULSE_MS            150u
+#define ALARM_PULSE_GAP_MS        150u
+#define ALARM_BURST_PULSES_HIGH   10u
+#define ALARM_BURST_PULSES_MEDIUM 3u
+#define ALARM_BURST_PULSES_LOW    1u
+#define ALARM_BURST_PERIOD_MS_HIGH   10000u
+#define ALARM_BURST_PERIOD_MS_MEDIUM 25000u
+#define ALARM_BURST_PERIOD_MS_LOW    30000u
 
 #include "preferences_keys.h"
 
@@ -435,6 +449,12 @@ void buzzerTone(int beepTimes, int timevTaskDelay, int freq);
 
 void shutBuzzer();
 
+// Motor de audio de alarma gobernado por estado (60601-1-8 6.10): se llama en
+// cada ciclo de securityCheck() y regenera el patron de rafaga indefinidamente
+// mientras audioRequired sea true. No comparte estado con buzzerHandler()
+// (feedback de encoder/HMI/autotest, ajenos a las alarmas).
+void buzzerAlarmUpdate(bool audioRequired, AlarmPriority priority);
+
 double measureMeanConsumption(bool, int);
 double measureStabilizedCurrent(bool sensor, int shunt, float offsetCurrent,
                                 float minExpected, float maxExpected,
@@ -450,12 +470,13 @@ void setFanPidEnabled(bool enabled);
 void alarmTimerStart(long graceMinutes = ACTUATORS_ALARM_STABILIZATION_MINS);
 void timeTrackHandler();
 
+// Puertas de actuador. Delegan en la maquina de alarmas
+// (src/modules/control/alarm_machine.h): la deteccion le pasa condiciones y
+// ella decide. Ya no hay setAlarm()/resetAlarm(): para declarar una condicion
+// se llama a alarm_machine_condition().
 bool ongoingCriticalAlarm();
 bool ongoingCriticalWiringAlarm();
 bool ongoingFanCriticalAlarm();
-void setAlarm(byte alarmID);
-void setAlarm(byte alarmID, bool alarmSound);
-void resetAlarm(byte alarmID);
 int getActiveAlarmCount();
 
 void PIDInit();
@@ -465,7 +486,9 @@ void stopPID(byte var);
 
 bool ongoingAlarms();
 byte activeAlarm();
-void reestartOngoingAlarms();
+// Boton de silencio del display HMI (hmi_cmd_msg.muteAlarm): ver definicion
+// en security.cpp para el porque del flanco de subida.
+void silenceActiveAlarmsFromDisplayMute();
 char *alarmIDtoString(byte alarmID);
 void resendActiveAlarms();
 
@@ -498,7 +521,6 @@ void initGPIO();
 void initEEPROM();
 void initAlarms();
 void security_check_reboot_cause();
-void IRAM_ATTR encSwitchHandler();
 void IRAM_ATTR encoderISR();
 void IRAM_ATTR fanEncoderISR();
 

@@ -5,9 +5,11 @@
 #include <LittleFS.h>
 #include <Preferences.h>
 
+#include "modules/control/alarm_machine.h"
 #include "modules/baby_profile/baby_profile_protocol.h"
 #include "modules/baby_profile/baby_profile_store.h"
 #include "nte_table.h"
+#include "alarm_policy.h"
 
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -291,12 +293,8 @@ static void send_state_to_hmi() {
   int alarmCount = getActiveAlarmCount();
   double remainingTime = getRemainingPhotoTime();
 
-  uint32_t alarmBitmask = 0;
-  extern bool alarmOnGoing[];
-  for (int i = 0; i < NUM_ALARMS; i++) {
-    if (alarmOnGoing[i])
-      alarmBitmask |= (1 << i);
-  }
+  // Un bit por AlarmId, tal cual lo produce la maquina de alarmas.
+  const uint32_t alarmBitmask = alarm_machine_bitmask();
 
   // Derive probe state from skin temperature: >0.1°C means probe is physically connected
   int skinProbeState = (in3.temperature[SKIN_SENSOR] > 0.1f) ? SKIN_PROBE_VALID
@@ -560,12 +558,12 @@ void parse_line(const char *line) {
         in3.heaterMaxPowerAmps = value;
         { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_HEAT_MAX_A, in3.heaterMaxPowerAmps); p.end(); }
       } else if (strcmp(param, "SKIN_TMAX") == 0) {
-        in3.skinTemperatureSetMax = value;
-        maxDesiredTemp[CONTROL_SKIN] = value;
+        in3.skinTemperatureSetMax = alarm_clamp_skin_cutout(value);
+        maxDesiredTemp[CONTROL_SKIN] = in3.skinTemperatureSetMax;
         { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_SKIN_T_MAX, in3.skinTemperatureSetMax); p.end(); }
       } else if (strcmp(param, "AIR_TMAX") == 0) {
-        in3.airTemperatureSetMax = value;
-        maxDesiredTemp[CONTROL_AIR] = value;
+        in3.airTemperatureSetMax = alarm_clamp_air_cutout(value);
+        maxDesiredTemp[CONTROL_AIR] = in3.airTemperatureSetMax;
         { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_AIR_T_MAX, in3.airTemperatureSetMax); p.end(); }
       } else if (strcmp(param, "GPRS_ACT") == 0) {
         in3.actuating_gprs_period = (int)value;
@@ -645,6 +643,14 @@ void parse_line(const char *line) {
                               act == ACTUATION_HUMIDITY ||
                                   act == ACTUATION_TEMP_AND_HUMIDITY);
 
+      // El display mantiene muteAlarm a nivel alto mientras el operador siga
+      // en estado "muteado" (se lee desde alarmsMuted en su UITask, no un
+      // pulso), y la trama HMI llega periodicamente: disparar en cada ciclo
+      // reiniciaria la ventana de silencio (ALARM_AUDIO_PAUSE_MS,
+      // security.cpp) eternamente. Por eso se detecta el flanco de subida
+      // contra el valor previo, no el nivel.
+      bool muteRisingEdge = (hmi_cmd_msg.muteAlarm == 0) && (mute != 0);
+
       hmi_cmd_msg.actuation = act;
       hmi_cmd_msg.skinModeEnabled = skinE;
       hmi_cmd_msg.controlMode = mode;
@@ -656,6 +662,10 @@ void parse_line(const char *line) {
       hmi_cmd_msg.language = lang;
       hmi_cmd_msg.photoMinutesRemaining = photoMin;
       hmi_cmd_msg.newCommand = true;
+
+      if (muteRisingEdge) {
+        silenceActiveAlarmsFromDisplayMute();
+      }
 
       if (in3.language != lang) {
         in3.language = lang;

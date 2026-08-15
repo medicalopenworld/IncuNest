@@ -62,7 +62,9 @@ bool state_get_phototherapy(void) {
 }
 
 void state_set_alarm(uint8_t alarm_id, bool active) {
-  if (alarm_id >= 10) return;
+  // ALARM_COUNT, no un 10 fijo: el conjunto de condiciones paso de 10 a 16
+  // al desglosarlo segun 60601-2-19 y este limite silenciaba las nuevas.
+  if (alarm_id >= ALARM_COUNT) return;
   xSemaphoreTakeRecursive(g_mutex, portMAX_DELAY);
   if (active) g_alarms |=  (1u << alarm_id);
   else        g_alarms &= ~(1u << alarm_id);
@@ -72,7 +74,7 @@ void state_set_alarm(uint8_t alarm_id, bool active) {
 
 bool state_get_alarm(uint8_t alarm_id) {
   xSemaphoreTakeRecursive(g_mutex, portMAX_DELAY);
-  bool v = alarm_id < 10 && (g_alarms & (1u << alarm_id)) != 0;
+  bool v = alarm_id < ALARM_COUNT && (g_alarms & (1u << alarm_id)) != 0;
   xSemaphoreGiveRecursive(g_mutex);
   return v;
 }

@@ -3,6 +3,7 @@
 #include <Arduino.h>
 
 #include "main.h"
+#include "modules/control/alarm_machine.h"
 
 extern TwoWire *wire;
 extern SHTC3 mySHTC3; // Declare an instance of the SHTC3 class
@@ -10,7 +11,6 @@ extern SensirionI2cSts3x mySTS35[STS3X_NUM];
 extern Adafruit_SHT4x sht4;
 extern Beastdevices_INA3221 mainDigitalCurrentSensor;
 extern Beastdevices_INA3221 secundaryDigitalCurrentSensor;
-extern bool alarmOnGoing[];
 
 extern double errorTemperature[SENSOR_TEMP_QTY];
 extern double ReferenceTemperatureRange, ReferenceTemperatureLow;
@@ -102,15 +102,14 @@ void currentMonitor() {
       // in3.heater_current/USB/BATTERY at their last known values and do NOT
       // advance heaterCurrentSampleSeq, so heaterPowerConsumptionCheck()
       // (PID.cpp) parks the PWM ramp instead of climbing on stale/invalid
-      // data. Escalate to HEATER_ISSUE_ALARM (unrecoverable within the
+      // data. Escalate to ALARM_HEATER_FAULT (unrecoverable within the
       // session, same as the existing boot-time heater fault) if the
       // dropout persists.
       if (++heaterSensorDropoutCycles >= HEATER_SENSOR_DROPOUT_ALARM_CYCLES &&
-          !alarmOnGoing[HEATER_ISSUE_ALARM])
+          alarm_machine_state(ALARM_HEATER_FAULT) == ALARM_STATE_INACTIVE)
       {
         logE("[SENSOR] -> Heater current sensor (SECUNDARY) stopped answering on I2C");
-        in3.alarmToReport[HEATER_ISSUE_ALARM] = true;
-        setAlarm(HEATER_ISSUE_ALARM);
+        alarm_machine_condition(ALARM_HEATER_FAULT, true, millis());
       }
     }
     lastCurrentMeasurement = millis();
@@ -292,7 +291,7 @@ void fanSpeedHandler() {
     // bogus period. Fed into the stateful 6th-order Butterworth, that single
     // impulse dominates its output for hundreds of samples, holding fan_rpm
     // near 0 well past the spin-up grace and firing a spurious
-    // FAN_ISSUE_ALARM right after the fan is commanded back on. Discard any
+    // ALARM_FAN_FAILURE right after the fan is commanded back on. Discard any
     // period longer than the zero-RPM timeout already covers; don't refresh
     // lastEncoderUpdate for discarded samples so a genuinely dead/slow fan
     // still falls through to the timeout below.

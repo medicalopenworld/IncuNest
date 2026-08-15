@@ -1,11 +1,122 @@
 #pragma once
-#include <stdint.h>
 #include <stdbool.h>
-#include "alarm_ids.h"
+#include <stdint.h>
 
-void     alarm_machine_init(void);
-void     alarm_machine_set(AlarmId id, bool active);
-bool     alarm_machine_get(AlarmId id);
+#include "alarm_ids.h"
+#include "alarm_policy.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef enum {
+  ALARM_STATE_INACTIVE = 0,
+  ALARM_STATE_PENDING,   // condicion presente, dentro del retardo de anuncio
+  ALARM_STATE_ACTIVE,    // anunciandose: visual + audio
+  ALARM_STATE_SILENCED,  // audio inactivo por accion del operador, visual sigue
+  ALARM_STATE_ACKED,     // audio inactivo indefinidamente, visual sigue
+} AlarmState;
+
+// Duracion minima de audio que 6.10 exige completar aunque la condicion se
+// haya ido: una rafaga entera en MEDIA, media rafaga en ALTA.
+//
+// ATADAS al patron de pulsos que reproduce buzzerAlarmUpdate() (Buzzer.cpp)
+// con las constantes de main.h. No se pueden tocar por separado: nacieron en
+// tareas distintas y divergieron una vez ya (ALTA valia 1200 ms, que cortaba
+// el audio tras el CUARTO pulso de los cinco que exige 6.10).
+//
+//   ALARM_PULSE_MS = 150, ALARM_PULSE_GAP_MS = 150.
+//   Duracion hasta el final del pulso N = N*150 + (N-1)*150 = 300N - 150 ms.
+//   ALTA:  media rafaga = ALARM_BURST_PULSES_HIGH/2   = 5 pulsos -> 1350 ms.
+//   MEDIA: rafaga entera = ALARM_BURST_PULSES_MEDIUM  = 3 pulsos ->  750 ms.
+//
+// Los valores de abajo cubren esas duraciones con margen. Si cambia
+// ALARM_PULSE_MS, ALARM_PULSE_GAP_MS o el numero de pulsos por rafaga, hay que
+// rehacer esta cuenta.
+#define ALARM_MIN_BURST_MS_HIGH   1500u
+#define ALARM_MIN_BURST_MS_MEDIUM 1600u
+
+void alarm_machine_init(void);
+
+// Informa de si la condicion fisica esta presente. Idempotente.
+void alarm_machine_condition(AlarmId id, bool present, uint32_t now_ms);
+
+// Hace avanzar los temporizadores. Debe llamarse periodicamente.
+void alarm_machine_tick(uint32_t now_ms);
+
+// Retardo de anuncio por condicion. 201.12.3.104 lo permite hasta 30 min
+// mientras la incubadora calienta desde frio. Los cortes termicos lo ignoran.
+void alarm_machine_set_announce_delay(AlarmId id, uint32_t delay_ms);
+
+// true si hay alguna condicion en ACTIVE, o si una condicion que ya volvio a
+// INACTIVE sigue dentro de su ventana de rafaga minima (6.10). SILENCED y
+// ACKED no cuentan: son la inactivacion del OPERADOR que la norma exime de
+// completar la rafaga, y ambas cancelan esa ventana al producirse.
+//
+// NO ES UNA CONSULTA PURA: al evaluar el criterio cierra de paso las ventanas
+// de rafaga minima que ya se hayan consumido, igual que hace
+// alarm_machine_tick(). Se lee como una pregunta y escribe estado interno, de
+// ahi el aviso. No introduce carrera nueva — el unico llamante de produccion es
+// driveAlarmBuzzer(), desde la misma tarea que el tick, y la via de ISR
+// (ongoingAlarms() -> alarm_machine_any_signalling()) es de solo lectura—, pero
+// no debe llamarse desde un contexto que no pueda escribir la maquina.
+bool alarm_machine_audio_required(void);
+
+AlarmState alarm_machine_state(AlarmId id);
+
+// Bit por AlarmId de las condiciones que estan generando senal visual, en
+// cualquiera de los estados anunciables (ACTIVE, SILENCED, ACKED, PENDING).
 uint32_t alarm_machine_bitmask(void);
-bool     alarm_machine_any_active(void);
-bool     alarm_machine_any_critical(void);
+
+// true si alguna condicion presente exige desconectar el calefactor.
+bool alarm_machine_heater_must_cut(void);
+
+// Inactiva el audio de UNA condicion durante duration_ms. 6.8.1 exige que no
+// afecte a las senales de las demas, por eso no existe un silencio global.
+void alarm_machine_silence(AlarmId id, uint32_t duration_ms, uint32_t now_ms);
+
+// Inactiva el audio de UNA condicion por tiempo indefinido. La senal visual
+// se mantiene mientras la condicion persista.
+void alarm_machine_ack(AlarmId id, uint32_t now_ms);
+
+// true si la alarma sigue senalizando solo porque es latching y su condicion
+// ya desaparecio: esta esperando reset manual.
+bool alarm_machine_is_latched(AlarmId id);
+
+// Reset manual. Devuelve false si la alarma no es latching o si su condicion
+// sigue presente — resetear con la causa viva no puede apagar el aviso.
+bool alarm_machine_reset(AlarmId id, uint32_t now_ms);
+
+// Prioridad mas alta entre las condiciones que se estan anunciando
+// (ACTIVE, SILENCED o ACKED). Si no hay ninguna, devuelve ALARM_PRIORITY_LOW.
+// Incluye SILENCED/ACKED a proposito: la senal VISUAL debe seguir mostrando
+// la prioridad mas alta aunque el operador haya inactivado su audio. NO usar
+// esto para decidir que patron reproduce el zumbador - ver
+// alarm_machine_audible_priority().
+AlarmPriority alarm_machine_top_priority(void);
+
+// Prioridad mas alta entre las condiciones que EXIGEN AUDIO ahora mismo: el
+// mismo criterio que alarm_machine_audio_required() (ACTIVE, o INACTIVE
+// dentro de la ventana de rafaga minima de 6.10), pero devolviendo la
+// prioridad en vez de un booleano. Si no hay ninguna, devuelve
+// ALARM_PRIORITY_LOW.
+//
+// Existe separada de alarm_machine_top_priority() porque son dos preguntas
+// distintas: esa incluye SILENCED/ACKED para la senal visual; esta no, porque
+// silenciar o hacer ACK es la inactivacion del OPERADOR que 6.10 exime de
+// audio. Sin esta distincion, silenciar una ALTA mientras una BAJA distinta
+// sigue ACTIVE haria que el zumbador reprodujera el patron de 10 pulsos de la
+// ALTA para una condicion que en realidad es BAJA - una alarma que ya no
+// exige audio le presta su prioridad a otra que si lo exige.
+//
+// TAMPOCO ES UNA CONSULTA PURA: mismo aviso que
+// alarm_machine_audio_required(), y por el mismo motivo — comparten el
+// predicado, que cierra las ventanas ya consumidas.
+AlarmPriority alarm_machine_audible_priority(void);
+
+// true si alguna condicion esta generando senal visual.
+bool alarm_machine_any_signalling(void);
+
+#ifdef __cplusplus
+}
+#endif

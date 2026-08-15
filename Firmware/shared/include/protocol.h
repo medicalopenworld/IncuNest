@@ -50,8 +50,8 @@ typedef struct {
 
 typedef struct {
   int  id;
-  char type[30];
-  char description[100];
+  char type[ALARM_TITLE_MAX_CHARS + 1];
+  char description[ALARM_DESC_MAX_CHARS + 1];
   uint8_t state;
 } Proto_CtrlAlarm;
 
