@@ -1,8 +1,8 @@
 # Verificación en banco del sistema de alarmas
 
-Lo que el firmware no puede verificar por sí mismo. Los 150 tests nativos
+Lo que el firmware no puede verificar por sí mismo. Los 186 tests nativos
 cubren la lógica pura (`alarm_machine`, `alarm_policy`, `alarm_window`,
-`alarm_text`); `security.cpp`, `Buzzer.cpp`, la integración completa y todo el
+`alarm_text`, `alarm_history`, `alarm_test`); `security.cpp`, `Buzzer.cpp`, la integración completa y todo el
 display **no tienen ninguna cobertura en ejecución**. Compilar no es
 funcionar, así que esta lista es la única evidencia de que el sistema hace lo
 que dice.
@@ -167,6 +167,119 @@ colgada, la alarma no se limpia jamás.
 Las alarmas siguen publicándose. Aviso: `temp_alarm` **ya no existe** — se
 partió en `air_temp_high/low_alarm` y `skin_temp_high/low_alarm`, y los paneles
 de ThingsBoard que la usen hay que migrarlos.
+
+---
+
+## Bloque B — todo lo acumulado sin verificar
+
+Nada de lo que sigue se ha visto funcionar en hardware. Son ~70 commits de
+trabajo con cobertura nativa donde la había y **cero ejecución real**.
+
+**Antes de empezar: flashear LAS DOS placas.** En esta tanda cambiaron el enum
+de alarmas (17 condiciones), `CTRL,STATE` (dos campos nuevos), `CTRL,ALM`
+(prioridad) y `CTRL,ALM_HISTORY` (campo `resolved`). Una placa vieja contra un
+display nuevo descarta líneas enteras.
+
+**Atajo:** el punto 11 (prueba de función de alarma) ejercita de una vez el
+zumbador, el banner, los tres patrones de prioridad y los tres colores. Hazlo
+el primero: si falla, casi todo lo demás fallará también y te ahorra el
+recorrido.
+
+### 11. ⬜ Prueba de función de alarma (201.12.3.105)
+
+Ajustes → **PROBAR ALARMAS**, con el equipo sin ninguna alarma activa.
+
+- Suenan **tres ráfagas** seguidas, de menos a más urgente, separadas por medio
+  segundo: 1 pulso, luego 3, luego 10. Duración total ~6 s.
+- La de ALTA se oye como **cinco pulsos, pausa, cinco pulsos** — no como diez
+  seguidos. Esa agrupación es el patrón de la Tabla 3 y es lo que la hace
+  reconocible; si suena monótona, el hueco de grupo no está saliendo.
+- El banner aparece **en la propia pantalla de ajustes** (no solo en el
+  bloqueo) y cambia de color con cada tramo: cian fijo → ámbar parpadeando
+  lento → rojo parpadeando rápido.
+- Con una alarma real activa, el botón **no hace nada**: la placa lo rechaza.
+- Provoca una alarma real a mitad de la prueba (desconecta el ventilador): la
+  prueba se **corta en el acto** y suena la alarma de verdad.
+
+### 12. ⬜ Registro de alarmas
+
+- Provoca una alarma y ábrela: aparece a la vez en **Activas** y en
+  **Registro**, ahí como "sin resolver".
+- Resuélvela **con el centro de alarmas abierto**: baja sola de Activas a
+  Registro y la fila se pone **verde**, sin cerrar y reabrir.
+- Si la placa no tiene hora (sin WiFi), la fila resuelta dice "resuelta" en vez
+  de una fecha. Que salga verde igualmente es el punto: antes se quedaba en
+  "sin resolver" para siempre porque el centinela de hora chocaba con el de
+  resolución.
+- Pulsa una fila del registro: sale el pop-up con la descripción. Si dice
+  "descripción no disponible", la placa no está contestando `CTRL,ALM_DESC`.
+- Reinicia el equipo: el registro **sobrevive**. Ojo, el blob subió a versión 2
+  y los registros anteriores se descartan una sola vez — la primera vez tras
+  actualizar sale vacío, y es correcto.
+
+### 13. ⬜ Silencio por condición
+
+- Con dos alarmas activas, silencia **una**: la otra sigue sonando (6.8.1).
+- La fila silenciada muestra el icono de campana con X discontinua y el texto
+  AUDIO EN PAUSA; la otra no.
+- Aparece el icono permanente arriba a la derecha, **en todas las pantallas**.
+- El botón cambia a **REANUDAR**. Púlsalo: el audio vuelve de inmediato (6.8.4).
+- Deja pasar los **10 minutos** sin tocar nada: el audio vuelve solo y el botón
+  se ofrece otra vez. Esto es lo que estaba roto y lo que más conviene
+  confirmar; con cronómetro, porque el plazo hay que declararlo en las
+  instrucciones de uso.
+- Provoca el corte de red (desenchufa): su fila sale con **NO SILENCIABLE**
+  desactivado, y no se puede callar (201.12.3.103).
+
+### 14. ⬜ Banner y navegación
+
+- El banner solo aparece en la **pantalla de bloqueo**. Sal del bloqueo con una
+  alarma sonando: desaparece **al instante**, sin esperar al siguiente cambio
+  de alarma. Ese era el fallo del cálculo perezoso.
+- Pulsar el banner abre el centro de alarmas sin desbloquear.
+- **Sin ninguna alarma**, pulsar el check verde de la pantalla principal abre
+  el centro de alarmas. En el bloqueo el check **no** es pulsable, a propósito:
+  ahí el toque desbloquea.
+
+### 15. ⬜ Chasquido de confirmación
+
+- Suena al tocar botones, interruptores y tarjetas.
+- **No** suena al tocar el fondo ni un panel decorativo.
+- **No** suena al escribir en el teclado del asistente de bebé (ni una tecla).
+- **Sí** suena al cambiar de pestaña en las gráficas.
+- Juicio a oído: ¿el clic se oye **más** que la alarma? Si es que sí —y hoy lo
+  es— apúntalo: es el hallazgo de nivel sonoro que va con la medida acústica.
+
+### 16. ⬜ Averías por cable
+
+Las tres se provocan desconectando algo, sin calentar nada.
+
+- **Sonda de piel en corto**: puentea los dos pines del conector. El log dice
+  `CORTOCIRCUITO` con su resistencia, no `CIRCUITO ABIERTO`. En modo piel salta
+  la alarma ALTA y corta calefactor; en modo aire, la BAJA.
+- **Sonda desconectada**: el log dice `CIRCUITO ABIERTO`. Distinguirlas es todo
+  el objetivo del cambio.
+- **Ventilador**: desconecta el tacómetro (sin parar el aire) para probar el
+  detector, o el ventilador entero para probar el corte.
+- **Calefactor desconectado antes de arrancar**: sale `FALLO CALENTADOR` —el de
+  cableado—, **no** `FALLO SENSOR CALENTADOR`. Que salga el segundo significaría
+  que la separación quedó al revés.
+
+### 17. ⬜ Enlace con el display
+
+- Desconecta el cable serie con el equipo en marcha: a los **5 s** la placa
+  declara `SIN ENLACE PANTALLA` (se ve en el log de la placa; el display, obvio,
+  ya no lo pinta).
+- Reconéctalo: la condición se retira sola.
+- **Enciende solo la placa, sin display**: no debe declararla nunca. Un enlace
+  que jamás existió no es un enlace caído, y si esto falla tendrás la alarma en
+  cada arranque.
+
+### 18. ⬜ Que nada de lo anterior rompió lo de antes
+
+Rápido, pero conviene: control de temperatura en aire y en piel, humedad,
+fototerapia con temporizador, asistente de bebé y su teclado, historial de
+bebés. Se han tocado `Switch_cb`, los envíos de estado y el arranque de la UI.
 
 ---
 
