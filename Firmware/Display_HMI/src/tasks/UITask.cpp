@@ -1087,7 +1087,19 @@ void InfoButton_cb(lv_event_t *e) {
   lv_obj_clear_flag(ui_InfoDetailsCont, LV_OBJ_FLAG_HIDDEN);
 
   // Update values
-  lv_label_set_text(ui_HMIVerValue, FWversion);
+  //
+  // La version lleva pegada la MARCA DE COMPILACION del binario que esta
+  // corriendo. FWversion es una constante que solo cambia cuando alguien se
+  // acuerda de subirla, asi que no sirve para responder la pregunta que de
+  // verdad surge en el banco: "¿lo que hay flasheado es lo que acabo de
+  // compilar?". __DATE__/__TIME__ los pone el compilador en cada build y no
+  // se pueden olvidar.
+  {
+    char verBuf[48];
+    snprintf(verBuf, sizeof(verBuf), "%s (%s %s)", FWversion, __DATE__,
+             __TIME__);
+    lv_label_set_text(ui_HMIVerValue, verBuf);
+  }
   lv_label_set_text(ui_MBVerValue, ctrl_state_msg.fwVer);
   char snBuf[16];
   snprintf(snBuf, sizeof(snBuf), "%04d", in3.serialNumber);
