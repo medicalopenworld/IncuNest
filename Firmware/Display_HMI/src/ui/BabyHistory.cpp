@@ -480,6 +480,25 @@ void showChart() {
   int yLo = ((wMin > 100 ? wMin - 100 : 0) / 100) * 100;
   int yHi = ((wMax + 199) / 100) * 100;
 
+  // Eje X: dia de vida cuando abarca mas de un dia; si no, numero de muestra.
+  //
+  // dayOffset tiene resolucion de DIAS, asi que todos los pesos tomados en la
+  // misma jornada llegan con el mismo 0 — y tambien llegan todos a 0 cuando la
+  // placa no tenia hora al registrarlos. En ambos casos un eje de "dia de vida"
+  // no dice nada: lo unico cierto es el orden en que se tomaron.
+  const bool byDay = (dMax > 0);
+  int xMax = byDay ? (int)dMax : (g_weightHistory.count - 1);
+  // Un solo punto: un rango degenerado 0..0 no es dibujable.
+  if (xMax < 1) xMax = 1;
+
+  // Las marcas mayores se reparten como min + (max-min)*i/(n-1) en ENTEROS, asi
+  // que pedir mas marcas que valores distintos hay en el rango las hace repetir
+  // el mismo numero. Ese era el "eje lleno de ceros": 5 marcas sobre un rango
+  // 0..1 dan 0,0,0,0,1. Nunca mas marcas que enteros caben.
+  int xTicks = xMax + 1;
+  if (xTicks > 5) xTicks = 5;
+  if (xTicks < 2) xTicks = 2;
+
   lv_obj_t *chart = lv_chart_create(s_content);
   lv_obj_set_size(chart, 560, 300);
   // Anchored to the top so the axis labels can't run off the card bottom.
@@ -493,11 +512,10 @@ void showChart() {
   lv_obj_set_style_pad_right(chart, 10, LV_PART_MAIN);
   // SCATTER: real day offsets on X (points are NOT evenly spaced in time).
   lv_chart_set_type(chart, LV_CHART_TYPE_SCATTER);
-  lv_chart_set_range(chart, LV_CHART_AXIS_PRIMARY_X, 0,
-                     dMax > 0 ? dMax : 1);
+  lv_chart_set_range(chart, LV_CHART_AXIS_PRIMARY_X, 0, xMax);
   lv_chart_set_range(chart, LV_CHART_AXIS_PRIMARY_Y, yLo, yHi);
   lv_chart_set_point_count(chart, g_weightHistory.count);
-  lv_chart_set_axis_tick(chart, LV_CHART_AXIS_PRIMARY_X, 6, 3, 5, 2, true,
+  lv_chart_set_axis_tick(chart, LV_CHART_AXIS_PRIMARY_X, 6, 3, xTicks, 2, true,
                          30);
   lv_chart_set_axis_tick(chart, LV_CHART_AXIS_PRIMARY_Y, 6, 3, 5, 2, true,
                          50);
@@ -506,14 +524,19 @@ void showChart() {
       lv_chart_add_series(chart, lv_color_hex(0x0075EE),
                           LV_CHART_AXIS_PRIMARY_Y);
   for (int i = 0; i < g_weightHistory.count; i++) {
-    lv_chart_set_next_value2(chart, ser, g_weightHistory.dayOffset[i],
+    lv_chart_set_next_value2(chart, ser,
+                             byDay ? g_weightHistory.dayOffset[i] : i,
                              g_weightHistory.weightGrams[i]);
   }
 
   // Below the chart's own bottom edge (56 + 300 = 356), clear of the tick
   // labels now living in the chart's bottom padding.
   lv_obj_t *xlbl = lv_label_create(s_content);
-  lv_label_set_text(xlbl, TXT("dia de vida", "day of life", "jour de vie"));
+  // La etiqueta sigue a lo que se esta pintando de verdad: llamar "dia de vida"
+  // a un eje que cuenta muestras seria mentir sobre un dato clinico.
+  lv_label_set_text(xlbl,
+                    byDay ? TXT("dia de vida", "day of life", "jour de vie")
+                          : TXT("medida", "measurement", "mesure"));
   lv_obj_set_style_text_font(xlbl, &lv_font_montserrat_14, 0);
   lv_obj_align(xlbl, LV_ALIGN_TOP_RIGHT, -14, 366);
 
