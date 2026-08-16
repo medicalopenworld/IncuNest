@@ -2264,7 +2264,20 @@ void alarm_banner_update(void) {
       AlarmCenter_IsOpen() ||
       (ui_ScreenAlarms && lv_scr_act() == ui_ScreenAlarms);
 
-  if ((topIdx < 0 && !testing && !linkLost) || onAlarmsScreen) {
+  // La supresion con el centro abierto NO se aplica a la prueba ni a la
+  // perdida de enlace.
+  //
+  // La prueba se lanza desde la propia cabecera del centro de alarmas, asi
+  // que suprimir ahi el banner dejaba la prueba MUDA de vista: sonaba pero no
+  // se veia nada, que es media clausula sin cumplir (201.12.3.105 pide
+  // comprobar "audible AND visual"). Y con el enlace caido, el contenido del
+  // centro es tan viejo como el resto: taparlo con el aviso es lo correcto.
+  //
+  // El banner es una franja fina arriba y se pone en primer plano en cada
+  // pasada, asi que se lee sobre la tarjeta sin ocultar lo que importa.
+  const bool suppressed = onAlarmsScreen && !testing && !linkLost;
+
+  if ((topIdx < 0 && !testing && !linkLost) || suppressed) {
     lv_anim_del(s_alarmBanner, banner_blink_cb);
     lv_obj_add_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN);
     s_bannerPriority = -1;
