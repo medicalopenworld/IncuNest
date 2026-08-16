@@ -474,28 +474,42 @@ void update_labels() {
     lv_label_set_text(ui_Label24, buffer);
   }
 
-  if (abs(airTempValueDetected - l_airDet) > TEMP_LABEL_UPDATE_THRESHOLD) {
-    l_airDet = airTempValueDetected;
-    snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValueDetected);
-    lv_label_set_text(ui_TempAirDetected, buffer);
-    lv_label_set_text(ui_TempAirDetectedRight, buffer);
-    lv_label_set_text(ui_Label18, buffer);
-  }
+  // Con el enlace caido NO se pintan medidas, y la guarda va AQUI DENTRO.
+  //
+  // Ponerla solo en link_lost_blank_update() no bastaba: update_labels()
+  // tiene ocho llamantes (las flechas de consigna, el cambio de idioma, el
+  // arranque...), asi que en cuanto se tocaba cualquier cosa las cifras
+  // viejas volvian a pintarse un segundo despues de haberlas borrado, sin
+  // que el enlace se hubiera recuperado. Fallo observado en banco.
+  //
+  // Con la guarda dentro da igual quien llame: mientras la placa calle, la
+  // unica medida que se puede pintar es "no la hay".
+  const bool linkLost = Display_IsBoardLinkLost();
 
-  if (abs(skinTempValueDetected - l_skinDet) > TEMP_LABEL_UPDATE_THRESHOLD) {
-    l_skinDet = skinTempValueDetected;
-    snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValueDetected);
-    lv_label_set_text(ui_TempSkinDetected, buffer);
-    lv_label_set_text(ui_TempSkinDetectedRight, buffer);
-    lv_label_set_text(ui_Label14, buffer);
-  }
+  if (!linkLost) {
+    if (abs(airTempValueDetected - l_airDet) > TEMP_LABEL_UPDATE_THRESHOLD) {
+      l_airDet = airTempValueDetected;
+      snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValueDetected);
+      lv_label_set_text(ui_TempAirDetected, buffer);
+      lv_label_set_text(ui_TempAirDetectedRight, buffer);
+      lv_label_set_text(ui_Label18, buffer);
+    }
 
-  if (humValueDetected != l_humDet) {
-    l_humDet = humValueDetected;
-    snprintf(buffer, sizeof(buffer), "%d%%", humValueDetected);
-    lv_label_set_text(ui_HumDetected, buffer);
-    lv_label_set_text(ui_HumDetectedRight, buffer);
-    lv_label_set_text(ui_Label20, buffer);
+    if (abs(skinTempValueDetected - l_skinDet) > TEMP_LABEL_UPDATE_THRESHOLD) {
+      l_skinDet = skinTempValueDetected;
+      snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValueDetected);
+      lv_label_set_text(ui_TempSkinDetected, buffer);
+      lv_label_set_text(ui_TempSkinDetectedRight, buffer);
+      lv_label_set_text(ui_Label14, buffer);
+    }
+
+    if (humValueDetected != l_humDet) {
+      l_humDet = humValueDetected;
+      snprintf(buffer, sizeof(buffer), "%d%%", humValueDetected);
+      lv_label_set_text(ui_HumDetected, buffer);
+      lv_label_set_text(ui_HumDetectedRight, buffer);
+      lv_label_set_text(ui_Label20, buffer);
+    }
   }
 
   int airBar =
@@ -512,9 +526,11 @@ void update_labels() {
                  : (int)round(skinTempValueDetected - TEMP_BAR_DISPLAY_MIN));
   int humBar = constrain(humValueDetected, HUM_BAR_MIN, HUM_BAR_MAX);
 
-  lv_bar_set_value(ui_AirTempBar, airBar, LV_ANIM_OFF);
-  lv_bar_set_value(ui_SkinTempBar, skinBar, LV_ANIM_OFF);
-  lv_bar_set_value(ui_HumBar, humBar, LV_ANIM_OFF);
+  // Las barras salen de las mismas medidas muertas: a cero mientras no haya
+  // enlace, o dibujarian un nivel que ya nadie esta midiendo.
+  lv_bar_set_value(ui_AirTempBar, linkLost ? 0 : airBar, LV_ANIM_OFF);
+  lv_bar_set_value(ui_SkinTempBar, linkLost ? 0 : skinBar, LV_ANIM_OFF);
+  lv_bar_set_value(ui_HumBar, linkLost ? 0 : humBar, LV_ANIM_OFF);
 
   // Update photo timer label if not active
   if (!photoTimerActive) {
@@ -2173,6 +2189,22 @@ static const char *TXT_UI(const char *es, const char *en, const char *fr) {
 
 static void AlarmTestBtn_cb(lv_event_t *e) {
   (void)e;
+  // La placa rechaza la prueba si hay CUALQUIER condicion señalizando, y hasta
+  // ahora lo hacia en silencio: se pulsaba, no pasaba nada y no habia forma de
+  // saber por que. Un boton de prueba que calla es peor que no tenerlo.
+  //
+  // Se mira alarmBitmask de CTRL,STATE y no alarmList[], porque el bitmask es
+  // el estado AUTORITATIVO de la placa: la lista local se rellena con los
+  // CTRL,ALM que hayan llegado, y una condicion declarada antes de que el
+  // display estuviera escuchando puede no estar en ella.
+  if (ctrl_state_msg.alarmBitmask != 0 &&
+      ctrl_state_msg.alarmBitmask != (uint32_t)-1) {
+    UI_ShowToast(TXT_UI("Hay una alarma activa:\nno se puede probar ahora",
+                        "An alarm is active:\ncannot test now",
+                        "Une alarme est active:\ntest impossible"),
+                 4000);
+    return;
+  }
   Communication_SendAlarmTest();
   UI_ShowToast(TXT_UI("Probando senales de alarma...",
                       "Testing alarm signals...",
