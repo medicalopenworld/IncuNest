@@ -2240,8 +2240,12 @@ void alarm_banner_update(void) {
   //
   // Nunca puede tapar una alarma real: la placa cancela la prueba en cuanto
   // aparece una condicion, y aqui ademas solo se entra si no hay ninguna.
-  const bool testing = (topIdx < 0) && (ctrl_state_msg.alarmTestPriority !=
-                                        ALARM_TEST_IDLE_HMI);
+  // Display_BoardEverSeen() ademas del centinela: la prueba corre EN LA PLACA,
+  // asi que sin haber recibido nunca una linea suya no puede haber ninguna en
+  // curso. Cubre la ventana entre la primera linea que llega (un CTRL,TEL,
+  // por ejemplo) y el primer CTRL,STATE que trae de verdad el campo.
+  const bool testing = (topIdx < 0) && Display_BoardEverSeen() &&
+                       (ctrl_state_msg.alarmTestPriority != ALARM_TEST_IDLE_HMI);
 
   // Enlace con la placa perdido, visto desde este lado.
   //

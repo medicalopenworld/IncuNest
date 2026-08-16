@@ -33,6 +33,11 @@
 // fueran medidas actuales.
 bool Display_IsBoardLinkLost(void);
 
+// true en cuanto ha llegado una sola linea valida de la placa. Distinto de
+// "el enlace esta vivo": sirve para no afirmar nada sobre un equipo del que
+// todavia no se sabe nada, como al arrancar el display sin motherBoard.
+bool Display_BoardEverSeen(void);
+
 // Expected prefix of incoming messages
 #if IS_HMI
 #define EXPECTED_PREFIX "CTRL"

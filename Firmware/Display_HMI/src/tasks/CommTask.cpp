@@ -40,6 +40,8 @@ AlarmHistoryMsg g_alarmHistory = {0, {}};
 volatile uint32_t g_lastCtrlLineMs = 0;
 volatile bool     g_ctrlEverSeen = false;
 
+bool Display_BoardEverSeen(void) { return g_ctrlEverSeen; }
+
 bool Display_IsBoardLinkLost(void) {
   // Antes de la primera linea no hay enlace que perder: el display arranca
   // antes de que la placa empiece a emitir.
@@ -1056,6 +1058,17 @@ void Comm_Task(void *pvParameters) {
 }
 
 void CreateCommTask() {
+  // El centinela de "sin prueba en curso" es 255, pero ctrl_state_msg se
+  // inicializa a CERO, y cero es ALARM_PRIORITY_LOW: una prioridad valida.
+  // Sin motherBoard conectada no llega ningun CTRL,STATE que lo corrija, asi
+  // que el display arrancaba creyendo que habia una prueba de alarmas
+  // corriendo y pintaba el banner "ALARM TEST" para siempre.
+  //
+  // Misma familia de fallo que el clearedEpoch del registro: un centinela que
+  // coincide con un valor legitimo. Aqui se rompe el empate poniendo el
+  // centinela de verdad antes de arrancar la tarea.
+  ctrl_state_msg.alarmTestPriority = ALARM_TEST_IDLE_HMI;
+
   xTaskCreatePinnedToCore(Comm_Task, "Comm", COMM_TASK_STACK_SIZE, NULL,
                           COMM_TASK_PRIORITY, &s_comm_task_handle, CORE_ID_FREERTOS);
 }
