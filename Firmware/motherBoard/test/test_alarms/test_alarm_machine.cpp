@@ -161,6 +161,30 @@ void test_silenced_bitmask_names_each_condition(void) {
   TEST_ASSERT_EQUAL_UINT32(0u, alarm_machine_silenced_bitmask());
 }
 
+// La cuenta atras que se pinta junto al icono: siempre la pausa que expira
+// ANTES, porque la pregunta que contesta es "cuando vuelve el sonido".
+void test_silence_remaining_reports_the_soonest(void) {
+  TEST_ASSERT_EQUAL_UINT32(0u, alarm_machine_silence_remaining_ms(0));
+
+  alarm_machine_condition(ALARM_FAN_FAILURE, true, 0);
+  alarm_machine_condition(ALARM_HUMIDITY_DEVIATION, true, 0);
+  alarm_machine_silence(ALARM_FAN_FAILURE, 600000, 0);
+  TEST_ASSERT_EQUAL_UINT32(600000u, alarm_machine_silence_remaining_ms(0));
+
+  // Una segunda pausa mas corta pasa a ser la que manda.
+  alarm_machine_silence(ALARM_HUMIDITY_DEVIATION, 600000, 300000);
+  TEST_ASSERT_EQUAL_UINT32(300000u, alarm_machine_silence_remaining_ms(300000));
+
+  // Ya vencida no devuelve negativos.
+  TEST_ASSERT_EQUAL_UINT32(0u, alarm_machine_silence_remaining_ms(2000000));
+}
+
+// Sin nada silenciado no hay cuenta atras que pintar, aunque haya alarmas.
+void test_silence_remaining_is_zero_without_a_pause(void) {
+  alarm_machine_condition(ALARM_FAN_FAILURE, true, 0);
+  TEST_ASSERT_EQUAL_UINT32(0u, alarm_machine_silence_remaining_ms(1000));
+}
+
 // 6.8.4: "Means shall be provided for the OPERATOR to terminate any ALARM
 // SIGNAL inactivation state" - sin esperar a que caduque el temporizador.
 void test_unsilence_terminates_the_pause_early(void) {
@@ -700,6 +724,8 @@ int main(void) {
   RUN_TEST(test_mains_interruption_cannot_be_silenced);
   RUN_TEST(test_every_other_condition_is_still_silenceable);
   RUN_TEST(test_silenced_bitmask_names_each_condition);
+  RUN_TEST(test_silence_remaining_reports_the_soonest);
+  RUN_TEST(test_silence_remaining_is_zero_without_a_pause);
   RUN_TEST(test_unsilence_terminates_the_pause_early);
   RUN_TEST(test_unsilence_is_a_no_op_when_not_silenced);
   RUN_TEST(test_unsilence_does_not_touch_other_conditions);

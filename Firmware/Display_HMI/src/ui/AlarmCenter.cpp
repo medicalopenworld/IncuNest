@@ -421,7 +421,15 @@ void showList() {
                               LV_PART_MAIN | LV_STATE_PRESSED);
     lv_obj_add_event_cb(card, onRowTap, LV_EVENT_CLICKED, &r);
 
-    char buf[160];
+    // La CUENTA ATRAS no va en la fila, va junto al icono de la esquina.
+    //
+    // Meterla aqui obligaria a reconstruir las tarjetas cada segundo para que
+    // el numero avanzara, y eso se come el toque del operador a media
+    // pulsacion; dejarla sin refrescar seria peor, un numero congelado que
+    // miente. La fila dice el ESTADO, que no cambia durante la pausa, y el
+    // tiempo lo lleva la esquina, que es ademas donde la norma lo quiere
+    // ("adjoining the icon", racional de 6.8.5).
+    char buf[192];
     snprintf(buf, sizeof(buf), "%s %s\n%s  -  %s", prioMark(r.priority),
              r.title, prioName(r.priority),
              r.silenced ? TXT("AUDIO EN PAUSA", "AUDIO PAUSED", "AUDIO EN PAUSE")

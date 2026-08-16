@@ -95,6 +95,10 @@ typedef struct {
   // Prioridad que reproduce la prueba de funcionamiento de alarmas
   // (201.12.3.105), o ALARM_TEST_IDLE_HMI si no hay prueba en curso.
   int      alarmTestPriority;
+  // Segundos hasta que vuelva el audio de la pausa que expira antes, 0 si no
+  // hay ninguna condicion silenciada. Alimenta la cuenta atras que se pinta
+  // junto al icono de AUDIO PAUSED.
+  int      silenceRemainingS;
   int      skinProbeState;
   // HMI-internal flag (not part of the protocol)
   bool     newState;

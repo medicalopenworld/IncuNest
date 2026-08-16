@@ -276,6 +276,24 @@ AlarmPriority alarm_machine_audible_priority(void) {
 
 bool alarm_machine_any_signalling(void) { return alarm_machine_bitmask() != 0; }
 
+uint32_t alarm_machine_silence_remaining_ms(uint32_t now_ms) {
+  uint32_t soonest = 0;
+  bool any = false;
+  for (int i = 0; i < ALARM_COUNT; ++i) {
+    if (g_entries[i].state != ALARM_STATE_SILENCED) {
+      continue;
+    }
+    // Resta con signo: sobrevive al desbordamiento de millis().
+    const int32_t left = (int32_t)(g_entries[i].silenced_until_ms - now_ms);
+    const uint32_t rem = (left > 0) ? (uint32_t)left : 0u;
+    if (!any || rem < soonest) {
+      soonest = rem;
+      any = true;
+    }
+  }
+  return soonest;
+}
+
 uint32_t alarm_machine_silenced_bitmask(void) {
   uint32_t mask = 0;
   for (int i = 0; i < ALARM_COUNT; ++i) {

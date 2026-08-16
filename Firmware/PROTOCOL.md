@@ -19,7 +19,7 @@ Este documento describe el protocolo de comunicación serie utilizado entre la M
 
 #### CTRL,STATE
 Enviado cada 1 segundo o bajo petición (`HMI,REQ,STATE`).
-**Formato**: `CTRL,STATE,act,mode,airSet,skinSet,humSet,photo,mute,sn,hwNum,hwRev,fwVer,numAlarms,skinE,commStatus,photoTimeRem,lang,probeState,alarmBitmask,silencedBitmask,almTest`
+**Formato**: `CTRL,STATE,act,mode,airSet,skinSet,humSet,photo,mute,sn,hwNum,hwRev,fwVer,numAlarms,skinE,commStatus,photoTimeRem,lang,probeState,alarmBitmask,silencedBitmask,almTest,silenceLeftS`
 
 - `alarmBitmask`: (Hexadecimal, ej: `0x60`) Indica qué IDs de alarma están activos. Requerido para sincronización robusta.
 - `mute`: estado **real** del audio en la placa, no el eco del comando del HMI.
@@ -42,6 +42,14 @@ Enviado cada 1 segundo o bajo petición (`HMI,REQ,STATE`).
   prioridad: 60601-2-19 201.12.3.105 pide comprobar las alarmas "audible **and**
   visual", así que la prueba tiene que ejercitar también la señal visual. Una
   placa antigua que no mande el campo se interpreta como "sin prueba".
+- `silenceLeftS`: segundos que faltan para que caduque la pausa de audio que
+  expira **antes**, o `0` si no hay ninguna condición silenciada. Alimenta la
+  cuenta atrás que el display pinta junto al icono de AUDIO PAUSED: el racional
+  de 6.8.5 la recomienda expresamente *"adjoining the icon... so that they can
+  more easily be distinguished from ALARM OFF or AUDIO OFF"*. Se manda la más
+  próxima y no una por condición porque esa es la pregunta que contesta —
+  cuándo vuelve el sonido—; el estado silenciada/no de cada condición ya viaja
+  en `silencedBitmask`.
 
 #### CTRL,TEL (Telemetría en tiempo real)
 Enviado cada 1 segundo (intercalado con STATE).

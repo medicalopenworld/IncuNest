@@ -2181,6 +2181,7 @@ static const char *TXT_UI(const char *es, const char *en, const char *fr) {
 // CUAL esta callada (6.8.1), pero solo se ve con el centro abierto; este dice
 // QUE HAY algo callado, siempre, sin depender de donde este el operador.
 static lv_obj_t *s_audioPausedIcon = NULL;
+static lv_obj_t *s_audioPausedTimer = NULL;
 
 void audio_paused_icon_init(void) {
   // La lamina de la norma (IEC 60417-5576, variante de X DISCONTINUA =
@@ -2195,6 +2196,18 @@ void audio_paused_icon_init(void) {
   lv_obj_set_style_img_recolor_opa(s_audioPausedIcon, LV_OPA_COVER, 0);
   lv_obj_align(s_audioPausedIcon, LV_ALIGN_TOP_RIGHT, -8, 8);
   lv_obj_add_flag(s_audioPausedIcon, LV_OBJ_FLAG_HIDDEN);
+
+  // Cuenta atras JUNTO al icono, que es donde la norma la quiere: "The use of
+  // a countdown timer... adjoining the icon, is encouraged... so that they
+  // can more easily be distinguished from ALARM OFF or AUDIO OFF" (racional
+  // de 6.8.5). Con 10 min de pausa responde ademas a la pregunta util del
+  // operador, que es cuando vuelve el sonido.
+  s_audioPausedTimer = lv_label_create(lv_layer_top());
+  lv_label_set_text(s_audioPausedTimer, "");
+  lv_obj_set_style_text_color(s_audioPausedTimer, lv_color_hex(0xFFB436), 0);
+  lv_obj_set_style_text_font(s_audioPausedTimer, &lv_font_montserrat_20, 0);
+  lv_obj_align(s_audioPausedTimer, LV_ALIGN_TOP_RIGHT, -48, 14);
+  lv_obj_add_flag(s_audioPausedTimer, LV_OBJ_FLAG_HIDDEN);
 }
 
 void audio_paused_icon_update(void) {
@@ -2204,8 +2217,24 @@ void audio_paused_icon_update(void) {
   if (ctrl_state_msg.silencedBitmask != 0u) {
     lv_obj_clear_flag(s_audioPausedIcon, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(s_audioPausedIcon);
+
+    // La cuenta atras solo si la placa la manda. Con 0 se enseña el icono a
+    // secas: mejor sin numero que con uno inventado.
+    const int left = ctrl_state_msg.silenceRemainingS;
+    if (s_audioPausedTimer && left > 0) {
+      char buf[8];
+      snprintf(buf, sizeof(buf), "%d:%02d", left / 60, left % 60);
+      lv_label_set_text(s_audioPausedTimer, buf);
+      lv_obj_clear_flag(s_audioPausedTimer, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_move_foreground(s_audioPausedTimer);
+    } else if (s_audioPausedTimer) {
+      lv_obj_add_flag(s_audioPausedTimer, LV_OBJ_FLAG_HIDDEN);
+    }
   } else {
     lv_obj_add_flag(s_audioPausedIcon, LV_OBJ_FLAG_HIDDEN);
+    if (s_audioPausedTimer) {
+      lv_obj_add_flag(s_audioPausedTimer, LV_OBJ_FLAG_HIDDEN);
+    }
   }
 }
 

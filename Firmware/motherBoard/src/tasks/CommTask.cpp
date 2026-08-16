@@ -327,12 +327,19 @@ static void send_state_to_hmi() {
   // 201.12.3.105 pide comprobar las alarmas "audible AND visual".
   const int almTest = (int)alarm_test_priority();
 
+  // Segundos que faltan para que vuelva el audio de la pausa que expira
+  // antes, o 0 si no hay ninguna silenciada. El display lo pinta junto al
+  // icono de AUDIO PAUSED: la norma recomienda esa cuenta atras justamente
+  // para distinguir el estado TEMPORIZADO del permanente (racional de 6.8.5).
+  const int silenceLeftS =
+      (int)((alarm_machine_silence_remaining_ms(millis()) + 999u) / 1000u);
+
   // Derive probe state from skin temperature: >0.1°C means probe is physically connected
   int skinProbeState = (in3.temperature[SKIN_SENSOR] > 0.1f) ? SKIN_PROBE_VALID
                                                               : SKIN_PROBE_NOT_CONNECTED;
 
   snprintf(msg, sizeof(msg),
-           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d,%d,0x%X,0x%X,%d\n",
+           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d,%d,0x%X,0x%X,%d,%d\n",
            (int)g_last_cmd.actuation, (int)g_last_cmd.controlMode,
            (double)g_last_cmd.desiredAirTemperature,
            (double)g_last_cmd.desiredSkinTemperature,
@@ -340,7 +347,8 @@ static void send_state_to_hmi() {
            audioSilenced, ctrl_tel_msg.serialNumber, HW_NUM,
            HW_REVISION, FWversion, alarmCount, (int)g_last_cmd.skinModeEnabled,
            (int)ctrl_tel_msg.serverCommStatus, remainingTime, in3.language,
-           skinProbeState, alarmBitmask, silencedBitmask, almTest);
+           skinProbeState, alarmBitmask, silencedBitmask, almTest,
+           silenceLeftS);
 
   ESP_LOGI(TAG, "Sending state to HMI: %s", msg);
   CommunicationHost_Send(msg);

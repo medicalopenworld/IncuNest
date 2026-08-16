@@ -118,6 +118,21 @@ AlarmPriority alarm_machine_audible_priority(void);
 // true si alguna condicion esta generando senal visual.
 bool alarm_machine_any_signalling(void);
 
+// Milisegundos que faltan para que caduque la pausa de audio que expira
+// ANTES, o 0 si no hay ninguna condicion silenciada.
+//
+// Alimenta la cuenta atras que el display pinta junto al icono de AUDIO
+// PAUSED. La propia norma la recomienda: "The use of a countdown timer
+// (which shows the time remaining in ALARM or AUDIO PAUSED state), adjoining
+// the icon, is encouraged... so that they can more easily be distinguished
+// from ALARM OFF or AUDIO OFF" (racional de 6.8.5). Con 10 min de pausa,
+// ademas, responde a la pregunta util: cuando vuelve el sonido.
+//
+// Se devuelve la MAS PROXIMA y no una por condicion porque eso es lo que
+// contesta esa pregunta; el estado silenciada/no silenciada de cada
+// condicion por separado ya viaja en el bitmask.
+uint32_t alarm_machine_silence_remaining_ms(uint32_t now_ms);
+
 // Bit por AlarmId de las condiciones cuyo audio esta en AUDIO PAUSED.
 //
 // 6.8.1 exige que el operador pueda "determinar las CONDICIONES DE ALARMA

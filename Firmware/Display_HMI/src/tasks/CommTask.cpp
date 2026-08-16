@@ -297,14 +297,15 @@ static void parse_message(const char *line) {
     uint32_t alarmBitmask = 0;
     uint32_t silencedBitmask = 0;
     int almTest = ALARM_TEST_IDLE_HMI;
+    int silenceLeftS = 0;
     double photoTimeRemaining;  // Formato MM.SS (ej: 18.33 = 18 min 33 seg)
     char hwRev;
     char fwVer[20];
     double airSet, skinSet, humSet;
     int result =
-        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d,%lf,%d,%d,0x%X,0x%X,%d",
+        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d,%lf,%d,%d,0x%X,0x%X,%d,%d",
                &act, &mode, &airSet, &skinSet, &humSet, &photo, &mute,
-               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus, &photoTimeRemaining, &lang, &probeState, &alarmBitmask, &silencedBitmask, &almTest);
+               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus, &photoTimeRemaining, &lang, &probeState, &alarmBitmask, &silencedBitmask, &almTest, &silenceLeftS);
 
     // Accept 12 (old), 13 (with alarms), 14+skinModeEnabled, 15+photoTime, 16+lang, 17+probeState, 18+bitmask, 19+silenced
     if (result >= 12) {
@@ -349,6 +350,10 @@ static void parse_message(const char *line) {
       // una prueba cuando lo que suena podria ser una alarma.
       ctrl_state_msg.alarmTestPriority =
           (result >= 20) ? almTest : ALARM_TEST_IDLE_HMI;
+      // Cuenta atras de la pausa de audio. 0 = no hay ninguna silenciada, que
+      // es tambien lo que se asume con una placa antigua que no mande el
+      // campo: como mucho no se pinta la cuenta atras, nunca se inventa una.
+      ctrl_state_msg.silenceRemainingS = (result >= 21) ? silenceLeftS : 0;
       ctrl_state_msg.serialNumber = sn;
 
       strncpy(ctrl_state_msg.fwVer, fwVer, sizeof(ctrl_state_msg.fwVer));
