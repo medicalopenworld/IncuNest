@@ -29,6 +29,8 @@ lv_obj_t *ui_ImageIntroFlag = NULL;
 // Screen Main
 lv_obj_t *ui_ScreenMain = NULL;
 lv_obj_t *ui_Incunest = NULL;
+lv_obj_t *ui_ClockTime = NULL;
+lv_obj_t *ui_ClockDate = NULL;
 lv_obj_t *ui_Settings = NULL;
 lv_obj_t *ui_AlarmButton = NULL;
 lv_obj_t *ui_BabiesButton = NULL;
@@ -821,6 +823,32 @@ void ui_ScreenMain_screen_init(void) {
   lv_label_set_text(ui_Incunest, "IncuNest");
   lv_obj_set_style_text_font(ui_Incunest, &lv_font_montserrat_26,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  // Reloj de pared, a la derecha del titulo. Hora en grande y fecha debajo en
+  // cuerpo menor: son dos labels porque LVGL no admite dos tamanos de fuente
+  // dentro de uno solo. En el hueco entre el final de "IncuNest" (~x=140) y el
+  // boton de bebes (~x=500). El contenido lo refresca clock_update() (UITask).
+  ui_ClockTime = lv_label_create(ui_ScreenMain);
+  lv_obj_set_width(ui_ClockTime, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_ClockTime, LV_SIZE_CONTENT);
+  lv_obj_set_x(ui_ClockTime, 190);
+  lv_obj_set_y(ui_ClockTime, -222);
+  lv_obj_set_align(ui_ClockTime, LV_ALIGN_LEFT_MID);
+  lv_label_set_text(ui_ClockTime, "");
+  lv_obj_set_style_text_font(ui_ClockTime, &lv_font_montserrat_26,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  ui_ClockDate = lv_label_create(ui_ScreenMain);
+  lv_obj_set_width(ui_ClockDate, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_ClockDate, LV_SIZE_CONTENT);
+  lv_obj_set_x(ui_ClockDate, 190);
+  lv_obj_set_y(ui_ClockDate, -200);
+  lv_obj_set_align(ui_ClockDate, LV_ALIGN_LEFT_MID);
+  lv_label_set_text(ui_ClockDate, "");
+  lv_obj_set_style_text_font(ui_ClockDate, &lv_font_montserrat_14,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_text_color(ui_ClockDate, lv_color_hex(0x888888),
+                              LV_PART_MAIN);
 
   ui_Settings = lv_imgbtn_create(ui_ScreenMain);
   lv_imgbtn_set_src(ui_Settings, LV_IMGBTN_STATE_RELEASED, NULL,

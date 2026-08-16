@@ -59,13 +59,15 @@ const char *outcomeText(uint8_t oc) {
   }
 }
 
-// epoch (UTC) -> "YYYY-MM-DD", or "--" when epoch == 0.
+// epoch (UTC) -> "YYYY-MM-DD" en HORA LOCAL, o "--" cuando epoch == 0.
+// Mismo criterio que fmtStamp en AlarmCenter: todas las pantallas fechan en la
+// misma referencia. Lo almacenado sigue en UTC.
 void fmtDate(uint32_t epoch, char *out, size_t len) {
   if (epoch == 0) {
     snprintf(out, len, "--");
     return;
   }
-  time_t t = (time_t)epoch;
+  time_t t = (time_t)(HMI_HasLocalTime() ? HMI_ToLocal(epoch) : epoch);
   struct tm tmv;
   gmtime_r(&t, &tmv);
   snprintf(out, len, "%04d-%02d-%02d", tmv.tm_year + 1900, tmv.tm_mon + 1,

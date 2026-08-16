@@ -126,6 +126,8 @@ void ui_ScreenIntro_screen_destroy(void);
 // --- SCREEN: Main ---
 extern lv_obj_t * ui_ScreenMain;
 extern lv_obj_t * ui_Incunest;
+extern lv_obj_t * ui_ClockTime;
+extern lv_obj_t * ui_ClockDate;
 extern lv_obj_t * ui_Settings;
 extern lv_obj_t * ui_AlarmButton;
 extern lv_obj_t * ui_BabiesButton;
