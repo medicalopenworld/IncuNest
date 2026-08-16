@@ -34,9 +34,16 @@ constexpr uint32_t RANGE_TIMEOUT_MS = 3000;
 constexpr size_t BABY_NAME_LEN_LOCAL = 24; // matches motherBoard BABY_NAME_LEN
 
 // What the wizard is gating. AIR/SKIN pick a thermal control mode and care
-// about the NTE range; PHOTOTHERAPY only collects the baby data (no range
-// applies to a lamp) and hands off to the phototherapy activation path.
-enum class WizTarget : uint8_t { Air, Skin, Phototherapy };
+// about the NTE range; PHOTOTHERAPY and HUMIDITY only collect the baby data
+// (no NTE range applies to a lamp or a humidifier) and hand off to their own
+// activation path.
+enum class WizTarget : uint8_t { Air, Skin, Phototherapy, Humidity };
+
+// True for the two targets that identify the baby and stop there: no weight,
+// no age-in-days, no range proposal, no summary screen.
+bool targetIsIdentityOnly(WizTarget t) {
+  return t == WizTarget::Phototherapy || t == WizTarget::Humidity;
+}
 
 WizStep s_step = WizStep::Closed;
 WizTarget s_target = WizTarget::Air;
@@ -277,11 +284,12 @@ void closeOverlay() {
 }
 
 void cancelWizard() {
-  // Only revert the switch this wizard was opened for. Phototherapy comes in
-  // on ui_Switch3 (already left OFF by its handler before opening us), so
-  // touching ui_Switch1 here would silently kill a running thermal control
-  // just because the nurse backed out of the phototherapy dialog.
-  if (s_target != WizTarget::Phototherapy) {
+  // Only revert the switch this wizard was opened for. Phototherapy and
+  // humidity come in on ui_Switch3/ui_Switch2 (both already left OFF by their
+  // handler before opening us), so touching ui_Switch1 here would silently
+  // kill a running thermal control just because the nurse backed out of one
+  // of those dialogs.
+  if (!targetIsIdentityOnly(s_target)) {
     ui_set_switch_state_silent(ui_Switch1, false);
   }
   closeOverlay();
@@ -377,13 +385,13 @@ void showChooseBabyScreen() {
   lv_obj_t *newBtn = makeBtn(s_content, TXT("BEBE NUEVO", "NEW BABY", "NOUVEAU BEBE"),
                             onNewBabyClicked, lv_color_hex(0x0075EE));
   lv_obj_set_size(newBtn, 300, 56);
-  lv_obj_align(newBtn, LV_ALIGN_BOTTOM_LEFT, 10, -10);
+  lv_obj_align(newBtn, LV_ALIGN_BOTTOM_RIGHT, -10, -10);
 
   // Same escape hatch as the input steps: skip all baby data, run manual.
   lv_obj_t *skip = makeBtn(s_content, TXT("SALTAR", "SKIP", "PASSER"),
                           onSkipClicked, lv_color_hex(0xE08800));
   lv_obj_set_size(skip, 180, 56);
-  lv_obj_align(skip, LV_ALIGN_BOTTOM_RIGHT, -10, -10);
+  lv_obj_align(skip, LV_ALIGN_BOTTOM_LEFT, 10, -10);
 }
 
 void onNameChanged(lv_event_t *e) {
@@ -542,11 +550,16 @@ void showAgeScreen() {
 void finishWizard(bool useRange) {
   bool haveRange = useRange && !s_rangeEstimated && s_rangeLo >= 0.0f;
 
-  if (s_target == WizTarget::Phototherapy) {
-    // No thermal range involved; just let the lamp path continue.
+  if (targetIsIdentityOnly(s_target)) {
+    // No thermal range involved; just let the lamp / humidifier path continue.
+    bool wasPhoto = (s_target == WizTarget::Phototherapy);
     closeOverlay();
     s_step = WizStep::Closed;
-    ActivatePhototherapyFromWizard();
+    if (wasPhoto) {
+      ActivatePhototherapyFromWizard();
+    } else {
+      ActivateHumidityFromWizard();
+    }
     return;
   }
 
@@ -759,6 +772,8 @@ void BabyWizard_OpenForPhototherapy() {
   openForTarget(WizTarget::Phototherapy);
 }
 
+void BabyWizard_OpenForHumidity() { openForTarget(WizTarget::Humidity); }
+
 bool BabyWizard_HasUsableRange() { return s_hasUsableRange; }
 
 uint32_t BabyWizard_GetActiveSeq() { return s_sessionSeq; }
@@ -834,9 +849,10 @@ void BabyWizard_Poll() {
           snprintf(s_sessionName, sizeof(s_sessionName), "%s", s_name);
           s_sessionGest = s_gestWeeks;
           if (s_weightGrams > 0) s_sessionWeight = s_weightGrams;
-          if (s_target == WizTarget::Phototherapy) {
-            // A lamp needs no NTE range, so weight and age-in-days are never
-            // asked here: identifying the baby is the entire point.
+          if (targetIsIdentityOnly(s_target)) {
+            // A lamp or a humidifier needs no NTE range, so weight and
+            // age-in-days are never asked here: identifying the baby is the
+            // entire point.
             finishWizard(false);
           } else {
             showWeightScreen();

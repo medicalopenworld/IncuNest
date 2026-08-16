@@ -259,6 +259,44 @@ static void historyAppend(const BabyProfile *p) {
   f.close();
 }
 
+static int wipeDir(const char *dir);  // defined with the wipe-all helpers
+
+// The audit log stores fixed-size records with no version field, so a
+// firmware that changed BABY_HISTORY_RECORD_SIZE would read a log written by
+// the previous one at the wrong stride and decode garbage into what is a
+// clinical record. Refuse to do that: a log whose size does not match its own
+// header count times the current record size is from another layout, so drop
+// it (with its weight archives, which are only reachable through it) and
+// start a clean one.
+//
+// Writes are sequential until the cap saturates, so the expected size is
+// always header + min(count, cap) * recordSize for a log this firmware wrote.
+static void historyResetIfIncompatible() {
+  if (!LittleFS.exists(HISTORY_PATH)) return;
+  File f = LittleFS.open(HISTORY_PATH, "r");
+  if (!f) return;
+  size_t actual = f.size();
+  FileHeader h = {0, 0};  // a header too short to read stays all-zero
+  bool headerOk = readHeader(f, &h);
+  f.close();
+
+  uint32_t stored = (h.count > BABY_HISTORY_CAP) ? BABY_HISTORY_CAP : h.count;
+  size_t expected = sizeof(FileHeader) + (size_t)stored * BABY_HISTORY_RECORD_SIZE;
+  if (headerOk && h.count <= BABY_HISTORY_CAP && actual == expected) return;
+
+  size_t legacy =
+      sizeof(FileHeader) + (size_t)stored * BABY_HISTORY_RECORD_SIZE_LEGACY_V1;
+  ESP_LOGW(TAG,
+           "audit log layout mismatch (size=%u, expected=%u, legacy=%u) — "
+           "resetting baby history",
+           (unsigned)actual, (unsigned)expected, (unsigned)legacy);
+  LittleFS.remove(HISTORY_PATH);
+  int removed = wipeDir(WEIGHT_ARCHIVE_DIR);
+  if (removed > 0) {
+    ESP_LOGW(TAG, "dropped %d orphaned weight archive(s)", removed);
+  }
+}
+
 // ---------------- Weight files ----------------
 
 static uint32_t weightFileSize(uint32_t count) {
@@ -381,12 +419,23 @@ void babyStore_init() {
   s_nextSeq = p.getULong(KEY_NEXT_SEQ, 1);
   s_activeSeq = p.getULong(KEY_ACTIVE_SEQ, 0);
   for (int i = 0; i < BABY_ACTIVE_SLOTS; i++) {
-    if (p.getBytes(SLOT_KEYS[i], &s_slots[i], sizeof(BabyProfile)) !=
-        sizeof(BabyProfile)) {
+    // Slots are raw struct blobs, so a firmware that changed BabyProfile's
+    // layout finds a size mismatch here and starts the slot empty rather than
+    // reinterpreting the old bytes. Logged, because losing an active profile
+    // is visible to the ward and must not look like a glitch.
+    size_t got = p.getBytes(SLOT_KEYS[i], &s_slots[i], sizeof(BabyProfile));
+    if (got != sizeof(BabyProfile)) {
+      if (got != 0) {
+        ESP_LOGW(TAG,
+                 "slot%d blob is %u bytes, expected %u (layout changed) — "
+                 "slot reset",
+                 i, (unsigned)got, (unsigned)sizeof(BabyProfile));
+      }
       memset(&s_slots[i], 0, sizeof(BabyProfile));
     }
   }
   p.end();
+  historyResetIfIncompatible();
   archiveIndexRebuild();
   ESP_LOGI(TAG, "init: nextSeq=%u activeSeq=%u archived=%d",
            (unsigned)s_nextSeq, (unsigned)s_activeSeq, s_archiveCount);
@@ -517,6 +566,11 @@ bool babyStore_addPhototherapyMinutes(uint32_t seq, uint32_t minutes) {
 bool babyStore_addThermoMinutes(uint32_t seq, uint32_t minutes) {
   return addTherapyMinutes(seq, minutes, &BabyProfile::thermoMinutes,
                            "thermoregulation");
+}
+
+bool babyStore_addHumidityMinutes(uint32_t seq, uint32_t minutes) {
+  return addTherapyMinutes(seq, minutes, &BabyProfile::humidityMinutes,
+                           "humidity");
 }
 
 bool babyStore_discharge(uint32_t seq, uint8_t outcome) {

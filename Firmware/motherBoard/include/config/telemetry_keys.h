@@ -84,6 +84,7 @@
 #define BABY_KANGAROO_LAST_KEY "baby_kangaroo_last_epoch"
 #define BABY_PHOTO_MINUTES_KEY "baby_phototherapy_min"
 #define BABY_THERMO_MINUTES_KEY "baby_thermo_min"
+#define BABY_HUMIDITY_MINUTES_KEY "baby_humidity_min"
 // baby_seq is mandatory on every baby payload: without it the cloud cannot
 // tell one patient from the next, and per-baby cumulative counters look
 // like data corruption when a new admission resets them.
@@ -91,16 +92,27 @@
 #define BABY_ADMISSION_EPOCH_KEY "baby_admission_epoch"
 #define BABY_KANGAROO_EVENT_KEY "baby_kangaroo_event"
 #define BABY_STAY_DAYS_KEY "baby_stay_days"
-#define HUMIDITY_ALARM_KEY "hum_alarm"
-#define TEMPERATURE_ALARM_KEY "temp_alarm"
-#define AIR_THERMAL_CUTOUT_ALARM_KEY "air_TC_alarm"
-#define SKIN_THERMAL_CUTOUT_ALARM_KEY "skin_TC_alarm"
-#define AIR_SENSOR_ISSUE_ALARM_KEY "air_sensor_alarm"
-#define SKIN_SENSOR_ISSUE_ALARM_KEY "skin_sensor_alarm"
-#define FAN_ISSUE_ALARM_KEY "fan_alarm"
-#define HEATER_ISSUE_ALARM_KEY "heater_alarm"
-#define POWER_SUPPLY_ALARM_KEY "power_alarm"
-#define AIR_BLOCKED_ALARM_KEY "air_blocked_alarm"
+// Una clave por condicion de alarm_ids.h. Las condiciones que ya existian
+// conservan su cadena original para no romper los cuadros de mando de la
+// nube; las nacidas del desglose normativo (desviaciones direccionales,
+// fallo de sonda de piel en modo aire, red y enlace HMI) estrenan clave.
+#define ALARM_AIR_THERMAL_CUTOUT_KEY "air_TC_alarm"
+#define ALARM_SKIN_THERMAL_CUTOUT_KEY "skin_TC_alarm"
+#define ALARM_AIR_SENSOR_FAULT_KEY "air_sensor_alarm"
+#define ALARM_SKIN_SENSOR_FAULT_SKIN_MODE_KEY "skin_sensor_alarm"
+#define ALARM_FAN_FAILURE_KEY "fan_alarm"
+#define ALARM_AIR_OUTLET_BLOCKED_KEY "air_blocked_alarm"
+#define ALARM_MAINS_INTERRUPTION_KEY "mains_alarm"
+#define ALARM_AIR_TEMP_DEVIATION_HIGH_KEY "air_temp_high_alarm"
+#define ALARM_AIR_TEMP_DEVIATION_LOW_KEY "air_temp_low_alarm"
+#define ALARM_SKIN_TEMP_DEVIATION_HIGH_KEY "skin_temp_high_alarm"
+#define ALARM_SKIN_TEMP_DEVIATION_LOW_KEY "skin_temp_low_alarm"
+#define ALARM_HEATER_FAULT_KEY "heater_alarm"
+#define ALARM_HEATER_SENSOR_FAULT_KEY "heater_sensor_alarm"
+#define ALARM_SUPPLY_UNDERVOLTAGE_KEY "power_alarm"
+#define ALARM_HMI_LINK_LOST_KEY "hmi_link_alarm"
+#define ALARM_SKIN_SENSOR_FAULT_AIR_MODE_KEY "skin_sensor_air_alarm"
+#define ALARM_HUMIDITY_DEVIATION_KEY "hum_alarm"
 
 #define CALIBRATION_RAW_TEMPERATURE_RANGE_SKIN_KEY "Cal_raw_range_skin_temp"
 #define CALIBRATION_RAW_TEMPERATURE_LOW_SKIN_KEY "Cal_raw_low_skin_temp"
@@ -126,3 +138,5 @@
 #define GPRS_MON_KILL_COUNT_KEY "gprs_mon_kill_count"
 #define HMI_BOOT_COUNT_KEY "hmi_boot_count"
 #define HMI_LAST_RST_KEY "hmi_last_rst"
+// 0-100 while an OTA is downloading; absent otherwise.
+#define OTA_PROGRESS_KEY "ota_progress"

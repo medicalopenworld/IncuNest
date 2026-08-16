@@ -25,6 +25,7 @@
 #include <Arduino.h>
 
 #include "main.h"
+#include "modules/control/alarm_machine.h"
 
 extern TwoWire *wire;
 extern TwoWire *wire2;
@@ -405,11 +406,10 @@ void addErrorToVar(long &errorVar, int error) { errorVar |= (1 << error); }
 // still spinning once the heater has failed, so the safest option is to
 // disable both actuators. This does NOT force a restart: the operator must
 // power-cycle the unit manually, same as the existing (unrecoverable within
-// the session) HEATER_ISSUE_ALARM behavior today.
+// the session) ALARM_HEATER_FAULT behavior today.
 static void disableFanOnUnverifiedHeaterFault() {
   if (!in3.fanHasSpeedFeedback) {
-    in3.alarmToReport[FAN_ISSUE_ALARM] = true;
-    setAlarm(FAN_ISSUE_ALARM);
+    alarm_machine_condition(ALARM_FAN_FAILURE, true, millis());
   }
 }
 
@@ -668,15 +668,13 @@ bool actuatorsTest() {
   if (res.heater < HEATER_CONSUMPTION_MIN) {
     addErrorToVar(HW_error, HEATER_CONSUMPTION_MIN_ERROR);
     logE("[HW] -> Fail -> Heater current too low");
-    in3.alarmToReport[HEATER_ISSUE_ALARM] = true;
-    setAlarm(HEATER_ISSUE_ALARM);
+    alarm_machine_condition(ALARM_HEATER_FAULT, true, millis());
     disableFanOnUnverifiedHeaterFault();
     // Fan measured in parallel — report it too if also bad
     if (res.fan < FAN_CONSUMPTION_MIN) {
       addErrorToVar(HW_error, FAN_CONSUMPTION_MIN_ERROR);
       logE("[HW] -> Fail -> Fan current also too low (wiring error)");
-      in3.alarmToReport[FAN_ISSUE_ALARM] = true;
-      setAlarm(FAN_ISSUE_ALARM);
+      alarm_machine_condition(ALARM_FAN_FAILURE, true, millis());
     }
     digitalWrite(ACTUATORS_EN, LOW);
     return true;
@@ -684,8 +682,7 @@ bool actuatorsTest() {
   if (res.heater > HEATER_CONSUMPTION_MAX) {
     addErrorToVar(HW_error, HEATER_CONSUMPTION_MAX_ERROR);
     logE("[HW] -> Fail -> Heater current too high");
-    in3.alarmToReport[HEATER_ISSUE_ALARM] = true;
-    setAlarm(HEATER_ISSUE_ALARM);
+    alarm_machine_condition(ALARM_HEATER_FAULT, true, millis());
     disableFanOnUnverifiedHeaterFault();
     digitalWrite(ACTUATORS_EN, LOW);
     return true;
@@ -732,8 +729,7 @@ bool actuatorsTest() {
   if (res.fan < FAN_CONSUMPTION_MIN) {
     addErrorToVar(HW_error, FAN_CONSUMPTION_MIN_ERROR);
     logE("[HW] -> Fail -> Fan current too low");
-    in3.alarmToReport[FAN_ISSUE_ALARM] = true;
-    setAlarm(FAN_ISSUE_ALARM);
+    alarm_machine_condition(ALARM_FAN_FAILURE, true, millis());
     digitalWrite(ACTUATORS_EN, LOW);
     return true;
   }
@@ -741,8 +737,7 @@ bool actuatorsTest() {
       res.fan > FAN_MAX_CURRENT_OVERRIDE * FAN_CONSUMPTION_MAX * 2) {
     addErrorToVar(HW_error, FAN_CONSUMPTION_MAX_ERROR);
     logE("[HW] -> Fail -> Fan current too high");
-    in3.alarmToReport[FAN_ISSUE_ALARM] = true;
-    setAlarm(FAN_ISSUE_ALARM);
+    alarm_machine_condition(ALARM_FAN_FAILURE, true, millis());
     digitalWrite(ACTUATORS_EN, LOW);
     return true;
   }
@@ -781,8 +776,7 @@ bool actuatorsTest() {
     addErrorToVar(HW_error, FAN_RPM_MIN_ERROR);
     logE("[HW] -> Fail -> Fan RPM too low (" + String(in3.fan_rpm) +
          " < " + String(FAN_MIN_RPM) + ")");
-    in3.alarmToReport[FAN_ISSUE_ALARM] = true;
-    setAlarm(FAN_ISSUE_ALARM);
+    alarm_machine_condition(ALARM_FAN_FAILURE, true, millis());
   }
   if (in3.fanHasSpeedFeedback && in3.fanPidEnabled &&
       in3.fan_rpm >= FAN_MIN_RPM) {
@@ -806,8 +800,7 @@ bool actuatorsTest() {
 #if AIR_BLOCKED_DETECTION_ENABLED
     if (fanControlPIDOutput > FAN_DUTY_BLOCKED_THRESHOLD) {
       logE("[HW] -> Warning -> Fan duty too high, possible air outlet blockage");
-      in3.alarmToReport[AIR_BLOCKED_ALARM] = true;
-      setAlarm(AIR_BLOCKED_ALARM);
+      alarm_machine_condition(ALARM_AIR_OUTLET_BLOCKED, true, millis());
     }
 #endif
     // Don't leave the PID AUTOMATIC relying on a later turnFans() call to
@@ -906,6 +899,10 @@ void security_check_reboot_cause() {
 
 void initHardware(bool printOutputTest) {
   logI("[HW] -> Initialiting hardware");
+  // Antes que nada: el autotest de abajo declara condiciones de alarma
+  // (calefactor, ventilador, salida de aire) contra la maquina, asi que
+  // ponerla a cero DESPUES las borraria.
+  initAlarms();
   initSensors();
   logI("[HW] -> Initializing BQ25730 charger");
   if (!init_BQ25730(wire)) {
@@ -955,7 +952,7 @@ void initHardware(bool printOutputTest) {
   }
   if (in3.restoreState) {
     // Resuming a control session that was already running, not starting
-    // cold - give TEMPERATURE_ALARM/HUMIDITY_ALARM a short RESTART_ALARM_GRACE_MINS
+    // cold - give the temperature/humidity deviations a short RESTART_ALARM_GRACE_MINS
     // pause (instead of the full ACTUATORS_ALARM_STABILIZATION_MINS a fresh
     // activation waits out) so telemetry/sensors have time to resync after
     // the reboot before alarms can fire again.
@@ -976,5 +973,4 @@ void initHardware(bool printOutputTest) {
     }
   }
   watchdogInit(WDT_TIMEOUT);
-  initAlarms();
 }

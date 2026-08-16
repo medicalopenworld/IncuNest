@@ -19,6 +19,36 @@ removed.
 - **THEN** the wizard opens under the same rule as AIR
 - (Manual verification on real hardware.)
 
+### Requirement: Phototherapy and humidity also gate on the wizard
+The baby-data wizard SHALL also open on every OFF->ON transition of the
+phototherapy switch and the humidity switch, subject to the identified-baby
+shortcut below. Neither a lamp nor a humidifier has an NTE range, so those
+runs SHALL stop at identifying the baby: no weight step, no age-in-days step,
+no range proposal and no summary screen. Identifying the baby is still
+mandatory because both therapies accumulate per-baby exposure minutes
+(`phototherapyMin` / `humidityMin` in `CTRL,PROFILE_LIST`), which cannot be
+attributed to anyone without it.
+
+#### Scenario: Turning humidity on opens the wizard
+- **WHEN** the humidity switch transitions from OFF to ON with no therapy
+  already running
+- **THEN** the wizard opens, the switch stays OFF until the wizard finishes,
+  and no weight/age/summary screen is shown
+- (Manual verification on real hardware — no test env exists for
+  Display_HMI.)
+
+#### Scenario: Cancelling the humidity wizard leaves humidity OFF
+- **WHEN** the wizard opened by the humidity switch is cancelled
+- **THEN** humidity stays OFF and any thermal control already running is left
+  untouched
+- (Manual verification on real hardware.)
+
+#### Scenario: Phototherapy keeps the safety popup last
+- **WHEN** the wizard opened by the phototherapy switch completes
+- **THEN** the ISO 7010 M025 eye-protection popup is shown next, immediately
+  before the lamp turns on
+- (Manual verification on real hardware.)
+
 ### Requirement: The identified-baby shortcut lasts only while care is live
 The wizard MAY reuse the baby it already identified — skipping the picker and
 re-sending `HMI,PROFILE_SELECT,<seq>` — only while some therapy is actually

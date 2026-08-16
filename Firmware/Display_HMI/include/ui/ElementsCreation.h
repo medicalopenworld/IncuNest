@@ -95,6 +95,9 @@ LV_IMG_DECLARE(ui_img_incunest2_png);          // assets/INCUNEST2.png
 LV_IMG_DECLARE(ui_img_incunest_baby_logo_png); // data/IncuNest_baby_logo.png
 LV_IMG_DECLARE(ui_img_sjd_png);          // data/SJD.png
 LV_IMG_DECLARE(ui_img_iso7010_m025_png); // data/ISO_7010_M025.png
+// IEC 60417-5576 con X DISCONTINUA = AUDIO PAUSED (IEC 60601-1-8 Tabla 5).
+// Mascara de 1 bit: se tine con el color del estilo segun la prioridad.
+LV_IMG_DECLARE(ui_img_audio_paused_sym); // data/IEC 60417-5576-2.png
 #if INTRO_FLAG == INTRO_FLAG_TOGO
 LV_IMG_DECLARE(ui_img_flag_togo_png);      // data/Flag_Togo.png
 #elif INTRO_FLAG == INTRO_FLAG_RASD

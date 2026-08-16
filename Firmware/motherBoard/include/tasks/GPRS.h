@@ -16,13 +16,19 @@
 #define RX_BUFFER_LENGTH 1024
 #define GPRS_TIMEOUT 30000 // in millisecs
 
-#define standByGPRSPostPeriod 3600
-#define actuatingGPRSPostPeriod 60
-#define phototherapyGPRSPostPeriod 180
+// Los valores viven en transport_policy.h, que es la tabla única GPRS/WiFi.
+// Estos alias mantienen los nombres que ya usa el código.
+#include "config/transport_policy.h"
+
+#define standByGPRSPostPeriod TX_GPRS_PERIOD_STANDBY_S
+#define actuatingGPRSPostPeriod TX_GPRS_PERIOD_ACTUATING_S
+#define phototherapyGPRSPostPeriod TX_GPRS_PERIOD_PHOTOTHERAPY_S
 #define GPRS_SHUT OFF
-#define GPRS_RECONNECT_INTERVAL 10000     // 10 seconds
-#define GPRS_OTA_CHECK_INTERVAL 600000    // 10 minutes in milliseconds
-#define THINGSBOARD_RECONNECT_DELAY 30000 // 30 seconds
+#define GPRS_RECONNECT_INTERVAL TX_GPRS_RECONNECT_MS
+#define GPRS_OTA_CHECK_INTERVAL TX_GPRS_OTA_CHECK_MS
+#ifndef THINGSBOARD_RECONNECT_DELAY // Wifi_OTA.h define el mismo alias
+#define THINGSBOARD_RECONNECT_DELAY TX_THINGSBOARD_RECONNECT_MS
+#endif
 // Cell-tower triangulation is a blocking AT round-trip; the incubator doesn't
 // move, so it doesn't need refreshing on every telemetry send (as often as
 // every 60 s in actuation mode).
@@ -67,6 +73,7 @@ struct GPRSstruct {
   bool thingsboardConnection = true;
   bool lastOTAInProgress = false;
   long lastOTACheck = false;
+  long lastPpgSnapshotAttempt = false; // captura PPG automática (ver policy)
   long lastReconnectAttempt = false;
   long lastTriangulationUpdate = false;
   bool enable = false;

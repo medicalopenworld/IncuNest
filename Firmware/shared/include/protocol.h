@@ -50,9 +50,14 @@ typedef struct {
 
 typedef struct {
   int  id;
-  char type[30];
-  char description[100];
+  char type[ALARM_TITLE_MAX_CHARS + 1];
+  char description[ALARM_DESC_MAX_CHARS + 1];
   uint8_t state;
+  // Prioridad resuelta por la motherBoard (AlarmPriority). Viaja por el cable
+  // en vez de deducirse en el display: la placa es la dueña de la informacion
+  // de alarmas y el display se limita a pintarla, asi que no debe haber una
+  // segunda copia de la politica de prioridades esperando a desincronizarse.
+  uint8_t priority;
 } Proto_CtrlAlarm;
 
 typedef struct {

@@ -59,6 +59,8 @@ void appendCommonProfileKeys(char *buf, size_t len, int *pos, bool *ovf,
           (unsigned)p->phototherapyMinutes);
   appendf(buf, len, pos, ovf, ",\"" BABY_THERMO_MINUTES_KEY "\":%u",
           (unsigned)p->thermoMinutes);
+  appendf(buf, len, pos, ovf, ",\"" BABY_HUMIDITY_MINUTES_KEY "\":%u",
+          (unsigned)p->humidityMinutes);
 }
 
 }  // namespace
@@ -146,6 +148,7 @@ int babyCloud_buildEmptyAttributesJson(char *buf, size_t len) {
           "\"" BABY_KANGAROO_COUNT_KEY "\":0,"
           "\"" BABY_PHOTO_MINUTES_KEY "\":0,"
           "\"" BABY_THERMO_MINUTES_KEY "\":0,"
+          "\"" BABY_HUMIDITY_MINUTES_KEY "\":0,"
           "\"" BABY_ADMISSION_EPOCH_KEY "\":0}");
   return ovf ? 0 : pos;
 }

@@ -44,6 +44,7 @@ bool babyStore_addPhototherapyMinutes(uint32_t seq, uint32_t minutes);
 
 // Same batching contract, for time under active thermal control.
 bool babyStore_addThermoMinutes(uint32_t seq, uint32_t minutes);
+bool babyStore_addHumidityMinutes(uint32_t seq, uint32_t minutes);
 
 // Explicit discharge (design decision 9, second entry point): stamps
 // dischargeEpoch (now if synced, else 0) + outcome, archives immediately,

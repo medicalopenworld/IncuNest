@@ -5,9 +5,14 @@
 #include <LittleFS.h>
 #include <Preferences.h>
 
+#include "alarm_text.h"
+#include "modules/control/alarm_history.h"
+#include "modules/control/alarm_machine.h"
+#include "modules/control/alarm_test.h"
 #include "modules/baby_profile/baby_profile_protocol.h"
 #include "modules/baby_profile/baby_profile_store.h"
 #include "nte_table.h"
+#include "alarm_policy.h"
 
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -39,6 +44,13 @@ static SemaphoreHandle_t hmi_state_req_sem;
 
 static HardwareSerial &hmiSerial = Serial1;
 
+// PPG transport scale: ADC counts of ppg_disp per LSB of the 0-255 display range.
+// ppg_disp is zero-mean (library BPF output), so 128 is the baseline and this divisor
+// sets the half-range to 127 x 16 = ~2030 counts. Measured on the bench 2026-08-13
+// with HGAC active: peaks up to ~1350 counts at PI ~10%, so ~50% headroom.
+// Fixed on purpose — no adaptive scaling outside the library.
+static constexpr int32_t PPG_DISP_COUNTS_PER_LSB = 16;
+
 // ---- Phototherapy Timer (Motherboard is source of truth) ----
 static bool photoTimerActive = false;
 static unsigned long photoTimerStartMs = 0;
@@ -56,9 +68,9 @@ void parse_line(const char *line);
 static uint32_t s_wizardSeq = 0;
 static uint16_t s_wizardGrams = 0;
 
-// ---- Per-baby therapy-time accounting (phototherapy + thermoregulation) ----
-// Both counters share this: accumulate in RAM, flush to NVS only on the OFF
-// edge or every PHOTO_FLUSH_INTERVAL_MS. A slot write per elapsed minute
+// ---- Per-baby therapy-time accounting (phototherapy, thermo, humidity) ----
+// All three counters share this: accumulate in RAM, flush to NVS only on the
+// OFF edge or every THERAPY_FLUSH_INTERVAL_MS. A slot write per elapsed minute
 // would wear the flash for no benefit.
 static const uint32_t THERAPY_FLUSH_INTERVAL_MS = 10u * 60u * 1000u;
 
@@ -74,6 +86,8 @@ struct TherapyAccumulator {
 static TherapyAccumulator s_photoAcc{false, 0, 0,
                                      babyStore_addPhototherapyMinutes};
 static TherapyAccumulator s_thermoAcc{false, 0, 0, babyStore_addThermoMinutes};
+static TherapyAccumulator s_humidityAcc{false, 0, 0,
+                                        babyStore_addHumidityMinutes};
 
 // Credits whole elapsed minutes and rebases, keeping the sub-minute
 // remainder so repeated flushes never round it away.
@@ -119,9 +133,10 @@ static void sendProfileRange(uint32_t seq, bool ageKnown, uint16_t ageDays) {
 // write + float formatting in the range builder both need hundreds of bytes
 // below this frame). A 1 KB local here was enough to run it out of stack.
 // Safe: parse_line runs only on COMM_TASK and one wizard flow at a time.
-// 1280: worst-case CTRL,PROFILE_HISTORY is 10 entries x 9 fields with every
-// field at max width (~900 chars). Sized with margin so a full page can
-// never silently fail to build.
+// 1280: worst-case CTRL,PROFILE_HISTORY is 10 entries x 10 fields plus the
+// name, with every field at max width (~1110 chars). Sized with margin so a
+// full page can never silently fail to build. The HMI's COMM_RX_BUFFER_SIZE
+// is the same 1280 — keep both in step if a field is ever added.
 static char s_babyRespBuf[1280];
 static BabyProfile s_babyHistPage[10];
 static BabyWeightPoint s_babyWeightPts[BABY_WEIGHT_HISTORY_MAX_OUT];
@@ -277,31 +292,64 @@ double getRemainingPhotoTime() {
 //  SEND STATE TO HMI
 // ======================================================
 static void send_state_to_hmi() {
-  char msg[160];
+  // 192 y no 160: el campo silencedBitmask anadio hasta 11 caracteres y el
+  // peor caso (fwVer de 20, tres bitmask/contadores al ancho maximo) se
+  // quedaba al filo. Truncar aqui no da error, da una linea que el HMI
+  // descarta entera y una pantalla que deja de refrescarse.
+  char msg[192];
   int alarmCount = getActiveAlarmCount();
   double remainingTime = getRemainingPhotoTime();
 
-  uint32_t alarmBitmask = 0;
-  extern bool alarmOnGoing[];
-  for (int i = 0; i < NUM_ALARMS; i++) {
-    if (alarmOnGoing[i])
-      alarmBitmask |= (1 << i);
-  }
+  // Un bit por AlarmId, tal cual lo produce la maquina de alarmas.
+  const uint32_t alarmBitmask = alarm_machine_bitmask();
+
+  // Estado REAL del audio, no el eco del comando del display.
+  //
+  // Este campo devolvia g_last_cmd.muteAlarm, es decir, lo ultimo que el
+  // propio HMI habia pedido: no aportaba nada y ademas mentia. La pausa de
+  // audio caduca sola a los 2 min (6.8.3) y el zumbador vuelve; el display se
+  // quedaba creyendo que seguia silenciada y no volvia a ofrecer el boton de
+  // silencio, dejando al operador con una alarma sonando que ya no podia
+  // callar. Ahora se manda si queda algo silenciable, que es la pregunta que
+  // el display necesita responder.
+  const int audioSilenced =
+      (alarmBitmask != 0 && !alarm_machine_any_silenceable()) ? 1 : 0;
+
+  // Que condiciones concretas estan en AUDIO PAUSED. 6.8.1 exige que el
+  // operador pueda determinar CUALES estan inactivadas, no solo que "algo" lo
+  // esta, y 201.12.3.104 que cada alarma silenciada mantenga su indicacion
+  // visual. Con un booleano global eso es indistinguible.
+  const uint32_t silencedBitmask = alarm_machine_silenced_bitmask();
+
+  // Prioridad que reproduce la prueba de funcionamiento, o ALARM_TEST_IDLE.
+  // El display la necesita para pintar el banner con el color y el parpadeo de
+  // esa prioridad: sin eso la prueba solo verificaria el zumbador, y
+  // 201.12.3.105 pide comprobar las alarmas "audible AND visual".
+  const int almTest = (int)alarm_test_priority();
+
+  // Segundos que faltan para que vuelva el audio de la pausa que expira
+  // antes, o 0 si no hay ninguna silenciada. El display lo pinta junto al
+  // icono de AUDIO PAUSED: la norma recomienda esa cuenta atras justamente
+  // para distinguir el estado TEMPORIZADO del permanente (racional de 6.8.5).
+  const int silenceLeftS =
+      (int)((alarm_machine_silence_remaining_ms(millis()) + 999u) / 1000u);
 
   // Derive probe state from skin temperature: >0.1°C means probe is physically connected
   int skinProbeState = (in3.temperature[SKIN_SENSOR] > 0.1f) ? SKIN_PROBE_VALID
                                                               : SKIN_PROBE_NOT_CONNECTED;
 
   snprintf(msg, sizeof(msg),
-           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d,%d,0x%X\n",
+           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d,%d,0x%X,0x%X,%d,%d\n",
            (int)g_last_cmd.actuation, (int)g_last_cmd.controlMode,
            (double)g_last_cmd.desiredAirTemperature,
            (double)g_last_cmd.desiredSkinTemperature,
            (double)g_last_cmd.desiredHumidity, (int)g_last_cmd.phototherapyMode,
-           (int)g_last_cmd.muteAlarm, ctrl_tel_msg.serialNumber, HW_NUM,
+           audioSilenced, ctrl_tel_msg.serialNumber, HW_NUM,
            HW_REVISION, FWversion, alarmCount, (int)g_last_cmd.skinModeEnabled,
            (int)ctrl_tel_msg.serverCommStatus, remainingTime, in3.language,
-           skinProbeState, alarmBitmask);
+           skinProbeState, alarmBitmask, silencedBitmask, almTest,
+           silenceLeftS);
+
 
   ESP_LOGI(TAG, "Sending state to HMI: %s", msg);
   CommunicationHost_Send(msg);
@@ -445,6 +493,16 @@ static bool hmiCrashAppend(const char *line) {
 // ======================================================
 //  LINE PARSER (common to UART and USB)
 // ======================================================
+// Instante de la ultima linea valida recibida del display, y si se ha visto
+// alguna vez. Los lee checkHmiLink() (security.cpp).
+//
+// g_hmiEverSeen existe porque sin el, el arranque declararia el enlace perdido
+// durante los primeros segundos: la placa arranca antes que el display y su
+// primera trama tarda en llegar. Un enlace que nunca ha existido no es un
+// enlace caido.
+uint32_t g_lastHmiLineMs = 0;
+bool g_hmiEverSeen = false;
+
 void parse_line(const char *line) {
   // HMI panic output arrives as plain ROM/ESP_LOG text, so intercept it
   // before the protocol-prefix filter discards everything without "HMI,".
@@ -454,6 +512,13 @@ void parse_line(const char *line) {
   if (strncmp(line, EXPECTED_PREFIX, strlen(EXPECTED_PREFIX)) != 0) {
     return;
   }
+
+  // Latido del display. Se marca AQUI, con el prefijo ya validado y antes de
+  // cualquier rama: sirve igual una trama de estado que un comando suelto, y
+  // ponerlo en cada rama se olvidaria en la siguiente que se anada. Lo que se
+  // vigila es que el display siga HABLANDO, no lo que diga.
+  g_lastHmiLineMs = millis();
+  g_hmiEverSeen = true;
 
   if (strncmp(line, "HMI,BOOT,", 9) == 0) {
     int rst = 0, cnt = 0;
@@ -550,12 +615,12 @@ void parse_line(const char *line) {
         in3.heaterMaxPowerAmps = value;
         { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_HEAT_MAX_A, in3.heaterMaxPowerAmps); p.end(); }
       } else if (strcmp(param, "SKIN_TMAX") == 0) {
-        in3.skinTemperatureSetMax = value;
-        maxDesiredTemp[CONTROL_SKIN] = value;
+        in3.skinTemperatureSetMax = alarm_clamp_skin_cutout(value);
+        maxDesiredTemp[CONTROL_SKIN] = in3.skinTemperatureSetMax;
         { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_SKIN_T_MAX, in3.skinTemperatureSetMax); p.end(); }
       } else if (strcmp(param, "AIR_TMAX") == 0) {
-        in3.airTemperatureSetMax = value;
-        maxDesiredTemp[CONTROL_AIR] = value;
+        in3.airTemperatureSetMax = alarm_clamp_air_cutout(value);
+        maxDesiredTemp[CONTROL_AIR] = in3.airTemperatureSetMax;
         { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_AIR_T_MAX, in3.airTemperatureSetMax); p.end(); }
       } else if (strcmp(param, "GPRS_ACT") == 0) {
         in3.actuating_gprs_period = (int)value;
@@ -600,6 +665,116 @@ void parse_line(const char *line) {
     return;
   }
 
+  // Registro de alarmas (IEC 60601-1-8 6.12.2). Solo bajo demanda, nunca en la
+  // telemetria periodica: known_issues.md #2 documenta una inundacion de UART
+  // real por trafico periodico evitable.
+  //
+  // El titulo viaja RESUELTO, no el id para que el display lo traduzca: la
+  // motherBoard es la dueña de la informacion y el display se limita a
+  // pintarla. Cuesta linea, pero mantiene toda la logica de alarmas —
+  // identidad, prioridad e idioma — en un solo lado.
+  if (strncmp(line, "HMI,ALM_HISTORY_REQ", 19) == 0) {
+    char msg[ALARM_HISTORY_LINE_BUF_SIZE];
+    const Language lang = (Language)in3.language;
+    const size_t n = alarm_history_count();
+    int off = snprintf(msg, sizeof(msg), "CTRL,ALM_HISTORY,%u", (unsigned)n);
+    for (size_t i = 0; i < n && off > 0 && off < (int)sizeof(msg); ++i) {
+      const AlarmHistoryEntry *e = alarm_history_get(i);
+      if (!e) {
+        break;
+      }
+      off += snprintf(msg + off, sizeof(msg) - off,
+                      ",%u,%u,%u,%lu,%lu,%d,%d,%.*s", (unsigned)e->id,
+                      (unsigned)e->priority, (unsigned)e->resolved,
+                      (unsigned long)e->raisedEpoch,
+                      (unsigned long)e->clearedEpoch, (int)e->limitCenti,
+                      (int)e->valueCenti, ALARM_TITLE_MAX_CHARS,
+                      alarm_title_text((AlarmId)e->id, lang));
+    }
+    if (off > 0 && off < (int)sizeof(msg)) {
+      snprintf(msg + off, sizeof(msg) - off, "\n");
+      CommunicationHost_Send(msg);
+    } else {
+      // Truncada: mandar una linea a medias es peor que no mandarla, porque el
+      // display la parsearia parcialmente. Se descarta con log, como el resto
+      // del protocolo (.claude/rules/security.md).
+      logE("[ALARM] historial no cabe en la linea, no se envia");
+    }
+    return;
+  }
+
+  // Prueba de funcionamiento de las senales de alarma (201.12.3.105).
+  //
+  // Se rechaza si hay CUALQUIER condicion senalizando. No es una comodidad:
+  // arrancar una secuencia de prueba con una alarma real en curso pisaria el
+  // patron de esa alarma con otro distinto, que es lo contrario de lo que
+  // busca 6.3.2.2.2 — el operador dejaria de poder identificar que suena.
+  if (strncmp(line, "HMI,ALM_TEST", 12) == 0) {
+    if (alarm_machine_any_signalling()) {
+      // logAlarm: logE esta compilado a nada (LOG_ERRORS false en main.h), asi
+      // que este rechazo llevaba siendo invisible desde que se escribio.
+      logAlarm("[ALARM] prueba rechazada: bitmask=0x" +
+               String(alarm_machine_bitmask(), HEX));
+      return;
+    }
+    alarm_test_start(millis());
+    logAlarm("[ALARM] prueba de funcionamiento arrancada");
+    return;
+  }
+
+  // Silencio / cancelacion de silencio de UNA condicion.
+  //
+  // 6.8.1 permite que la inactivacion se aplique a una condicion individual y
+  // exige que no afecte a las demas, que es justo lo que hace
+  // alarm_machine_silence(). 6.8.4 exige poder TERMINAR cualquier estado de
+  // inactivacion: eso es on=0.
+  if (strncmp(line, "HMI,ALM_SILENCE,", 16) == 0) {
+    unsigned id = 0;
+    int on = 0;
+    if (sscanf(line + 16, "%u,%d", &id, &on) != 2 || id >= ALARM_COUNT) {
+      logE("[ALARM] ALM_SILENCE malformada, descartada");
+      return;
+    }
+    const uint32_t now = millis();
+    if (on) {
+      alarm_machine_silence((AlarmId)id, ALARM_AUDIO_PAUSE_MS, now);
+    } else {
+      alarm_machine_unsilence((AlarmId)id, now);
+    }
+    // Se deja registrado: silenciar es una accion del operador sobre una
+    // alarma y conviene que quede rastro. logAlarm y no logI/logE porque esas
+    // dos estan compiladas a nada (LOG_INFORMATION/LOG_ERRORS a false en
+    // main.h) — y es ademas la categoria que corresponde.
+    logAlarm("[ALARM] ALM_SILENCE id=" + String(id) + " on=" + String(on) +
+             " -> estado=" + String((int)alarm_machine_state((AlarmId)id)));
+    return;
+  }
+
+  // Descripcion de una alarma concreta, bajo demanda.
+  //
+  // No viaja dentro de CTRL,ALM_HISTORY porque no cabe: 10 entradas x (29 de
+  // titulo + 99 de descripcion + campos) desborda ALARM_HISTORY_LINE_BUF_SIZE,
+  // y una linea truncada se descarta entera. El display la pide solo cuando el
+  // operador abre el detalle de una entrada, que es una accion humana y
+  // esporadica — sin riesgo de inundar la UART (known_issues.md #2).
+  //
+  // Sigue siendo la placa quien resuelve texto e idioma: el display manda un
+  // id y recibe el par titulo/descripcion ya listo para pintar.
+  if (strncmp(line, "HMI,ALM_DESC_REQ,", 17) == 0) {
+    unsigned id = 0;
+    if (sscanf(line + 17, "%u", &id) != 1 || id >= ALARM_COUNT) {
+      logE("[ALARM] ALM_DESC_REQ con id invalido, descartada");
+      return;
+    }
+    const Language lang = (Language)in3.language;
+    char msg[ALARM_LINE_BUF_SIZE];
+    snprintf(msg, sizeof(msg), "CTRL,ALM_DESC,%u,%.*s,%.*s\n", id,
+             ALARM_TITLE_MAX_CHARS, alarm_title_text((AlarmId)id, lang),
+             ALARM_DESC_MAX_CHARS, alarm_action_text((AlarmId)id, lang));
+    CommunicationHost_Send(msg);
+    return;
+  }
+
   if (strncmp(line, "HMI,", 4) == 0) {
     int act, skinE, mode, photo, mute, lang, photoMin;
     double air, skin, hum;
@@ -624,13 +799,24 @@ void parse_line(const char *line) {
         babyStore_setActiveSeq(0);
       }
 
-      // Per-baby phototherapy exposure. Accumulated in RAM and only written
-      // to NVS on the OFF edge or every PHOTO_FLUSH_INTERVAL — a slot write
-      // per minute would wear the flash for no benefit.
+      // Per-baby therapy exposure. Accumulated in RAM and only written to NVS
+      // on the OFF edge or every THERAPY_FLUSH_INTERVAL — a slot write per
+      // minute would wear the flash for no benefit.
       updateTherapyAccounting(s_photoAcc, photo != 0);
       updateTherapyAccounting(s_thermoAcc,
                               act == ACTUATION_TEMPERATURE ||
                                   act == ACTUATION_TEMP_AND_HUMIDITY);
+      updateTherapyAccounting(s_humidityAcc,
+                              act == ACTUATION_HUMIDITY ||
+                                  act == ACTUATION_TEMP_AND_HUMIDITY);
+
+      // El display mantiene muteAlarm a nivel alto mientras el operador siga
+      // en estado "muteado" (se lee desde alarmsMuted en su UITask, no un
+      // pulso), y la trama HMI llega periodicamente: disparar en cada ciclo
+      // reiniciaria la ventana de silencio (ALARM_AUDIO_PAUSE_MS,
+      // security.cpp) eternamente. Por eso se detecta el flanco de subida
+      // contra el valor previo, no el nivel.
+      bool muteRisingEdge = (hmi_cmd_msg.muteAlarm == 0) && (mute != 0);
 
       hmi_cmd_msg.actuation = act;
       hmi_cmd_msg.skinModeEnabled = skinE;
@@ -643,6 +829,10 @@ void parse_line(const char *line) {
       hmi_cmd_msg.language = lang;
       hmi_cmd_msg.photoMinutesRemaining = photoMin;
       hmi_cmd_msg.newCommand = true;
+
+      if (muteRisingEdge) {
+        silenceActiveAlarmsFromDisplayMute();
+      }
 
       if (in3.language != lang) {
         in3.language = lang;
@@ -736,8 +926,6 @@ void Communication_Task(void *pvParameters) {
   uint32_t ppg_time      = 0;
   static unsigned long last_probe_status_time = 0;
   static ProbeState    prev_probe_state       = ProbeState::PROBE_DISCONNECTED;
-  // PPG normalisation state: decaying min/max keeps signal filling 0–255
-  float ppg_min = -1.0f, ppg_max = 1.0f;
   // HR hysteresis: show after 2 consecutive valid samples, hide after 3 bad ones
   uint8_t hr_valid_streak = 0;
   uint8_t hr_bad_streak   = 0;
@@ -776,36 +964,40 @@ void Communication_Task(void *pvParameters) {
       prev_probe_state = cur;
     }
 
-    // --- STATE request ---
-    if (xSemaphoreTake(hmi_state_req_sem, 0) == pdTRUE) {
+    // --- STATE: periodico (1 Hz) y ademas bajo peticion ---
+    //
+    // Antes SOLO salia bajo peticion, y el display deja de pedirlo en cuanto
+    // se sincroniza. Resultado: CTRL,STATE se emitia unas pocas veces al
+    // arrancar y nunca mas, asi que todo lo que viaja en el se quedaba
+    // congelado con el valor del arranque — silencedBitmask, la cuenta atras
+    // de la pausa de audio y la prioridad de la prueba de alarmas incluidos.
+    // El sintoma era que la campana de AUDIO PAUSED solo aparecia si ya habia
+    // una alarma silenciada al encender, y que el temporizador nunca bajaba.
+    //
+    // PROTOCOL.md ya decia "Enviado cada 1 segundo o bajo peticion": era el
+    // codigo el que no cumplia su propio contrato. 1 Hz es la misma cadencia
+    // que CTRL,TEL, con el que se intercala.
+    static uint32_t last_state_time = 0;
+    const bool stateRequested =
+        (xSemaphoreTake(hmi_state_req_sem, 0) == pdTRUE);
+    if (stateRequested || (millis() - last_state_time >= 1000)) {
       send_state_to_hmi();
+      last_state_time = millis();
     }
 
     // --- PPG waveform (25 Hz = every 40 ms) ---
     ppg_time = millis();
     if (ppg_time - last_ppg_time >= 40) {
+      // Transport only: fixed scale, no state, no adaptive gain. The waveform is NOT
+      // gated on spo2_sqi — the library restarts an 18 s SpO2 warmup on every probe
+      // application (_spo2_update: EMAs reset while not APPLIED), while ppg_disp is
+      // valid within ~1 s. Gating the trace on SpO2 validity flat-lined it for 19 s.
       if (g_spo2_data.probe_state == ProbeState::PROBE_APPLIED) {
-        // No valid signal: reset normalisation and send flat midpoint so the
-        // display collapses its amplitude window immediately.
-        if (g_spo2_data.spo2_sqi < 0.05f) {
-          ppg_min = -1.0f;
-          ppg_max =  1.0f;
-          hmiSerial.print("CTRL,PPG,128\n");
-        } else {
-          float ppg_raw = g_spo2_data.ppg_disp;
-          // Expand range immediately, decay slowly toward 0 (bandpass signal is zero-mean)
-          if (ppg_raw < ppg_min) ppg_min = ppg_raw;
-          else ppg_min += (0.0f - ppg_min) * 0.005f;
-          if (ppg_raw > ppg_max) ppg_max = ppg_raw;
-          else ppg_max += (0.0f - ppg_max) * 0.005f;
-          float range = ppg_max - ppg_min;
-          uint8_t ppg_byte = (range > 1e-3f)
-              ? (uint8_t)constrain((ppg_raw - ppg_min) / range * 255.0f, 0.0f, 255.0f)
-              : 128;
-          char ppg_msg[16];
-          snprintf(ppg_msg, sizeof(ppg_msg), "CTRL,PPG,%u\n", ppg_byte);
-          hmiSerial.print(ppg_msg);
-        }
+        long ppg_scaled = 128L + (long)(g_spo2_data.ppg_disp / PPG_DISP_COUNTS_PER_LSB);
+        uint8_t ppg_byte = (uint8_t)constrain(ppg_scaled, 0L, 255L);
+        char ppg_msg[16];
+        snprintf(ppg_msg, sizeof(ppg_msg), "CTRL,PPG,%u\n", ppg_byte);
+        hmiSerial.print(ppg_msg);
       }
       last_ppg_time = ppg_time;
     }

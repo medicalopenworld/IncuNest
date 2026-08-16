@@ -2,6 +2,7 @@
 // #include "AudioManager.h"  // Deshabilitado para migración Arduino 3.x
 #include "CommTask.h"
 #include "buzzer.h"
+#include "ui/AlarmCenter.h"
 #include "ui/BabyHistory.h"
 #include "ui/BabyExitDialog.h"
 #include "ui/BabyWizard.h"
@@ -9,6 +10,9 @@
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_rgb.h"
 #include "esp_log.h"
+// alarm_priority(): la prioridad del banner sale de la misma tabla de shared/
+// que usa la motherboard, no de una copia local.
+#include "alarm_policy.h"
 #include "main.h"
 #include "ui.h"
 #include <PCA9557.h>
@@ -86,6 +90,10 @@ volatile bool g_pendingAlarmUpdate = false;
 
 bool alarmActive = false;
 bool alarmsMuted = false;
+// Hasta este instante, CTRL,STATE no puede revertir alarmsMuted. Cubre el
+// viaje de ida y vuelta del comando de silencio (ver CommTask.cpp).
+uint32_t g_muteHoldUntilMs = 0;
+#define MUTE_HOLD_MS 2000u
 
 bool prevTempAlarm = false;
 bool prevHumAlarm = false;
@@ -104,7 +112,6 @@ bool LanguagesVisible = false;
 bool locked = true;
 
 static bool spo2ProbeAttached = false;
-static bool spo2ProbeAttachedPrev = false;
 
 lv_chart_series_t *airTempSeries = NULL;
 lv_chart_series_t *skinTempSeries = NULL;
@@ -129,6 +136,10 @@ static bool g_photo_safety_confirmed = false;
 // wizard that now precedes phototherapy activation: the wizard re-triggers
 // the switch when it finishes, and this flag lets that second pass through.
 static bool g_photo_wizard_done = false;
+// Same one-shot gate, for the baby-data wizard that now precedes humidity
+// activation. Humidity hours are accounted per baby, so the profile has to be
+// known before the humidifier starts.
+static bool g_hum_wizard_done = false;
 static int lastPhotoMinutesSent = -1;
 
 Alarm alarmList[MAX_ALARMS];
@@ -381,14 +392,63 @@ static void skin_mode_force_off() {
   }
 }
 
+// Ultimo valor pintado de cada MEDIDA. A nivel de fichero y no dentro de
+// update_labels() porque link_lost_blank_update() tiene que invalidarlos: al
+// recuperar el enlace, la primera lectura debe volver a pintarse aunque
+// coincida con la ultima buena, o los "--" se quedarian puestos.
+static double l_airDet = -1.0, l_skinDet = -1.0;
+static int l_humDet = -1;
+
+// Borra las MEDIDAS mientras la placa este callada, y las barras con ellas.
+//
+// Es la parte de seguridad del asunto: una cifra congelada no se ve
+// congelada. El operador lee 36,5 °C y entiende que el bebe esta a 36,5 °C
+// AHORA, cuando es lo ultimo que llego antes de caerse el enlace. Un "--" no
+// se puede malinterpretar.
+//
+// Las CONSIGNAS no se tocan: son lo que el operador pidio, no una medida, y
+// siguen siendo ciertas. Lo que ha dejado de saberse es si se cumplen.
+//
+// Corre en CADA pasada del bucle de UI, no desde update_labels(): a esa solo
+// se la llama cuando llega telemetria, que es exactamente lo que deja de
+// pasar cuando el enlace cae.
+void link_lost_blank_update(void) {
+  static bool wasLost = false;
+  const bool lost = Display_IsBoardLinkLost();
+  if (!lost) {
+    wasLost = false;
+    return;
+  }
+  if (wasLost) {
+    return;  // ya estan en blanco; no hay que reescribir en cada pasada
+  }
+  wasLost = true;
+
+  l_airDet = l_skinDet = -1.0;
+  l_humDet = -1;
+
+  const char *DEAD = "--";
+  lv_label_set_text(ui_TempAirDetected, DEAD);
+  lv_label_set_text(ui_TempAirDetectedRight, DEAD);
+  lv_label_set_text(ui_Label18, DEAD);
+  lv_label_set_text(ui_TempSkinDetected, DEAD);
+  lv_label_set_text(ui_TempSkinDetectedRight, DEAD);
+  lv_label_set_text(ui_Label14, DEAD);
+  lv_label_set_text(ui_HumDetected, DEAD);
+  lv_label_set_text(ui_HumDetectedRight, DEAD);
+  lv_label_set_text(ui_Label20, DEAD);
+
+  lv_bar_set_value(ui_AirTempBar, 0, LV_ANIM_OFF);
+  lv_bar_set_value(ui_SkinTempBar, 0, LV_ANIM_OFF);
+  lv_bar_set_value(ui_HumBar, 0, LV_ANIM_OFF);
+}
+
 void update_labels() {
   if (!g_ui_initialized)
     return;
 
   static double l_airDesired = -1.0, l_skinDesired = -1.0;
   static int l_humDesired = -1;
-  static double l_airDet = -1.0, l_skinDet = -1.0;
-  static int l_humDet = -1;
   static int l_photoMins = -1;
 
   char buffer[BUFFER_SIZE];
@@ -414,28 +474,42 @@ void update_labels() {
     lv_label_set_text(ui_Label24, buffer);
   }
 
-  if (abs(airTempValueDetected - l_airDet) > TEMP_LABEL_UPDATE_THRESHOLD) {
-    l_airDet = airTempValueDetected;
-    snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValueDetected);
-    lv_label_set_text(ui_TempAirDetected, buffer);
-    lv_label_set_text(ui_TempAirDetectedRight, buffer);
-    lv_label_set_text(ui_Label18, buffer);
-  }
+  // Con el enlace caido NO se pintan medidas, y la guarda va AQUI DENTRO.
+  //
+  // Ponerla solo en link_lost_blank_update() no bastaba: update_labels()
+  // tiene ocho llamantes (las flechas de consigna, el cambio de idioma, el
+  // arranque...), asi que en cuanto se tocaba cualquier cosa las cifras
+  // viejas volvian a pintarse un segundo despues de haberlas borrado, sin
+  // que el enlace se hubiera recuperado. Fallo observado en banco.
+  //
+  // Con la guarda dentro da igual quien llame: mientras la placa calle, la
+  // unica medida que se puede pintar es "no la hay".
+  const bool linkLost = Display_IsBoardLinkLost();
 
-  if (abs(skinTempValueDetected - l_skinDet) > TEMP_LABEL_UPDATE_THRESHOLD) {
-    l_skinDet = skinTempValueDetected;
-    snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValueDetected);
-    lv_label_set_text(ui_TempSkinDetected, buffer);
-    lv_label_set_text(ui_TempSkinDetectedRight, buffer);
-    lv_label_set_text(ui_Label14, buffer);
-  }
+  if (!linkLost) {
+    if (abs(airTempValueDetected - l_airDet) > TEMP_LABEL_UPDATE_THRESHOLD) {
+      l_airDet = airTempValueDetected;
+      snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValueDetected);
+      lv_label_set_text(ui_TempAirDetected, buffer);
+      lv_label_set_text(ui_TempAirDetectedRight, buffer);
+      lv_label_set_text(ui_Label18, buffer);
+    }
 
-  if (humValueDetected != l_humDet) {
-    l_humDet = humValueDetected;
-    snprintf(buffer, sizeof(buffer), "%d%%", humValueDetected);
-    lv_label_set_text(ui_HumDetected, buffer);
-    lv_label_set_text(ui_HumDetectedRight, buffer);
-    lv_label_set_text(ui_Label20, buffer);
+    if (abs(skinTempValueDetected - l_skinDet) > TEMP_LABEL_UPDATE_THRESHOLD) {
+      l_skinDet = skinTempValueDetected;
+      snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValueDetected);
+      lv_label_set_text(ui_TempSkinDetected, buffer);
+      lv_label_set_text(ui_TempSkinDetectedRight, buffer);
+      lv_label_set_text(ui_Label14, buffer);
+    }
+
+    if (humValueDetected != l_humDet) {
+      l_humDet = humValueDetected;
+      snprintf(buffer, sizeof(buffer), "%d%%", humValueDetected);
+      lv_label_set_text(ui_HumDetected, buffer);
+      lv_label_set_text(ui_HumDetectedRight, buffer);
+      lv_label_set_text(ui_Label20, buffer);
+    }
   }
 
   int airBar =
@@ -452,9 +526,11 @@ void update_labels() {
                  : (int)round(skinTempValueDetected - TEMP_BAR_DISPLAY_MIN));
   int humBar = constrain(humValueDetected, HUM_BAR_MIN, HUM_BAR_MAX);
 
-  lv_bar_set_value(ui_AirTempBar, airBar, LV_ANIM_OFF);
-  lv_bar_set_value(ui_SkinTempBar, skinBar, LV_ANIM_OFF);
-  lv_bar_set_value(ui_HumBar, humBar, LV_ANIM_OFF);
+  // Las barras salen de las mismas medidas muertas: a cero mientras no haya
+  // enlace, o dibujarian un nivel que ya nadie esta midiendo.
+  lv_bar_set_value(ui_AirTempBar, linkLost ? 0 : airBar, LV_ANIM_OFF);
+  lv_bar_set_value(ui_SkinTempBar, linkLost ? 0 : skinBar, LV_ANIM_OFF);
+  lv_bar_set_value(ui_HumBar, linkLost ? 0 : humBar, LV_ANIM_OFF);
 
   // Update photo timer label if not active
   if (!photoTimerActive) {
@@ -603,6 +679,15 @@ void ActivatePhototherapyFromWizard() {
   g_photo_wizard_done = true;
   ui_set_switch_state_silent(ui_Switch3, true);
   lv_event_send(ui_Switch3, LV_EVENT_VALUE_CHANGED, NULL);
+}
+
+// Same shape for humidity: raise the one-shot gate and re-trigger ui_Switch2
+// so its handler runs again and this time falls through to the real
+// activation. No safety popup stands between the wizard and the humidifier.
+void ActivateHumidityFromWizard() {
+  g_hum_wizard_done = true;
+  ui_set_switch_state_silent(ui_Switch2, true);
+  lv_event_send(ui_Switch2, LV_EVENT_VALUE_CHANGED, NULL);
 }
 
 static void update_main_toggle_buttons() {
@@ -991,7 +1076,6 @@ void WifiButton_cb(lv_event_t *e) {
   }
   updateButtonVisibility();
   wifiVisible = true;
-  hmi_msg.shouldSendData = true;
 }
 
 void InfoButton_cb(lv_event_t *e) {
@@ -1003,7 +1087,19 @@ void InfoButton_cb(lv_event_t *e) {
   lv_obj_clear_flag(ui_InfoDetailsCont, LV_OBJ_FLAG_HIDDEN);
 
   // Update values
-  lv_label_set_text(ui_HMIVerValue, FWversion);
+  //
+  // La version lleva pegada la MARCA DE COMPILACION del binario que esta
+  // corriendo. FWversion es una constante que solo cambia cuando alguien se
+  // acuerda de subirla, asi que no sirve para responder la pregunta que de
+  // verdad surge en el banco: "¿lo que hay flasheado es lo que acabo de
+  // compilar?". __DATE__/__TIME__ los pone el compilador en cada build y no
+  // se pueden olvidar.
+  {
+    char verBuf[48];
+    snprintf(verBuf, sizeof(verBuf), "%s (%s %s)", FWversion, __DATE__,
+             __TIME__);
+    lv_label_set_text(ui_HMIVerValue, verBuf);
+  }
   lv_label_set_text(ui_MBVerValue, ctrl_state_msg.fwVer);
   char snBuf[16];
   snprintf(snBuf, sizeof(snBuf), "%04d", in3.serialNumber);
@@ -1016,7 +1112,6 @@ void InfoButton_cb(lv_event_t *e) {
   }
 
   wifiVisible = false;
-  hmi_msg.shouldSendData = true;
 }
 
 void LanguageButton_cb(lv_event_t *e) {
@@ -1026,7 +1121,8 @@ void LanguageButton_cb(lv_event_t *e) {
   wifiVisible = false;
   lv_obj_clear_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
   LanguagesVisible = true;
-  hmi_msg.shouldSendData = true;
+  // Abrir el desplegable no cambia el idioma; eso lo hace
+  // LanguagesDropDown_cb(), que si manda estado.
 }
 
 void TextArea_Change_cb(lv_event_t *e) {
@@ -1118,7 +1214,9 @@ void SkinPanel_cb(lv_event_t *e) {
 }
 
 void PhotoTimeMinusBtn_cb(lv_event_t *e) {
-  hmi_msg.shouldSendData = true;
+  // Aqui no se manda estado: estos botones solo mueven photoTimerMinutes, que
+  // es local del display. hmi_msg.photoMinutesRemaining lo fija PhotoStartBtn
+  // al arrancar el temporizador, que es cuando la placa necesita saberlo.
   if (photoTimerActive)
     return;
 
@@ -1135,7 +1233,7 @@ void PhotoTimeMinusBtn_cb(lv_event_t *e) {
 }
 
 void PhotoTimePlusBtn_cb(lv_event_t *e) {
-  hmi_msg.shouldSendData = true;
+  // Mismo motivo que en PhotoTimeMinusBtn_cb: nada de la trama cambia aqui.
   if (photoTimerActive)
     return;
 
@@ -1201,6 +1299,10 @@ void UI_ShowToast(const char *msg, uint32_t ms) {
   if (!ui_SkinProbeToast) return;
   lv_label_set_text(ui_SkinProbeToast, msg);
   lv_obj_clear_flag(ui_SkinProbeToast, LV_OBJ_FLAG_HIDDEN);
+  // Al frente de su propia capa: el banner de alarma y el centro de alarmas
+  // tambien viven en lv_layer_top() y el orden ahi lo fija quien se mueve
+  // ultimo, no la jerarquia.
+  lv_obj_move_foreground(ui_SkinProbeToast);
   lv_timer_create(
       [](lv_timer_t *t) {
         if (ui_SkinProbeToast)
@@ -1212,21 +1314,34 @@ void UI_ShowToast(const char *msg, uint32_t ms) {
 
 static bool isFanHeaterAlarmActive() {
   for (int i = 0; i < MAX_ALARMS; i++) {
-    if ((alarmList[i].id == FAN_ISSUE_ALARM || alarmList[i].id == HEATER_ISSUE_ALARM) && alarmList[i].state)
+    if ((alarmList[i].id == ALARM_FAN_FAILURE || alarmList[i].id == ALARM_HEATER_FAULT) && alarmList[i].state)
       return true;
   }
   return false;
 }
 
-// Same critical set as motherBoard's alarm_machine_any_critical() —
-// used by BabyWizard to interrupt an open wizard (Section 4).
+// Criterio de interrupción de la INTERFAZ (no el corte de calefactor de la
+// motherBoard: son preguntas distintas y coincidir sería casualidad, no
+// diseño). Deliberadamente separado de shared/alarm_policy.h's
+// alarm_cuts_heater(), que responde "¿hay que cortar el calefactor?", no
+// "¿hay que interrumpir el asistente?". Mapeo 1:1 del conjunto viejo
+// (TEMPERATURE_ALARM, AIR_THERMAL_CUTOUT_ALARM, SKIN_THERMAL_CUTOUT_ALARM,
+// FAN_ISSUE_ALARM) a los IDs nuevos — TEMPERATURE_ALARM era una única
+// condición simétrica que cambiaba de sensor según el modo, de ahí las
+// cuatro variantes de desviación. Si algún día se quiere unificar con un
+// criterio de la motherBoard, hace falta una función propia y bien nombrada
+// (no alarm_cuts_heater()), con su propia revisión clínica.
+// Usada por BabyWizard para interrumpir un asistente abierto (Section 4).
 bool UI_IsCriticalAlarmActive() {
   for (int i = 0; i < MAX_ALARMS; i++) {
     if (!alarmList[i].state) continue;
-    if (alarmList[i].id == TEMPERATURE_ALARM ||
-        alarmList[i].id == AIR_THERMAL_CUTOUT_ALARM ||
-        alarmList[i].id == SKIN_THERMAL_CUTOUT_ALARM ||
-        alarmList[i].id == FAN_ISSUE_ALARM) {
+    if (alarmList[i].id == ALARM_AIR_THERMAL_CUTOUT ||
+        alarmList[i].id == ALARM_SKIN_THERMAL_CUTOUT ||
+        alarmList[i].id == ALARM_FAN_FAILURE ||
+        alarmList[i].id == ALARM_AIR_TEMP_DEVIATION_HIGH ||
+        alarmList[i].id == ALARM_AIR_TEMP_DEVIATION_LOW ||
+        alarmList[i].id == ALARM_SKIN_TEMP_DEVIATION_HIGH ||
+        alarmList[i].id == ALARM_SKIN_TEMP_DEVIATION_LOW) {
       return true;
     }
   }
@@ -1357,6 +1472,24 @@ void Switch_cb(lv_event_t *e) {
     }
     temp_content_set_visible(checked);
   } else if (obj == ui_Switch2) { // HUMIDITY SWITCH
+    if (checked) {
+      // Mandatory baby-data wizard, same gate as phototherapy: humidity is a
+      // therapy applied to a specific baby and its hours are accounted per
+      // profile, so the baby must be identified before the humidifier starts.
+      // Skipped while a care session is live (temperature or phototherapy
+      // already running for a baby this HMI identified) — re-asking mid-care
+      // is pure friction. The switch goes back to OFF and stays there until
+      // ActivateHumidityFromWizard() re-triggers this handler.
+      if (!g_hum_wizard_done && !BabyWizard_HasLiveSession()) {
+        ui_set_switch_state_silent(ui_Switch2, false);
+        BabyWizard_OpenForHumidity();
+        return;
+      }
+      // Gate cleared — consume it only HERE, where the humidifier actually
+      // starts, so a re-entrant event can never find it already spent.
+      g_hum_wizard_done = false;
+    }
+
     switchHum = checked;
     humSwitched = checked;
     panel = ui_Panel3;
@@ -1558,8 +1691,13 @@ void Switch_cb(lv_event_t *e) {
     hmi_msg.shouldSendData = true;
 
     if (checked) {
-      // show container of skin
-      lv_obj_clear_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
+      // The skin block is only a panel *preference* until temperature control
+      // actually runs: showing the baby-temperature controller with the
+      // control switched off advertises a therapy that is not happening.
+      // temp_content_set_visible() already owns the single condition
+      // (visible && skinPanelEnabled), so delegate instead of clearing the
+      // HIDDEN flag by hand.
+      temp_content_set_visible(tempSwitched);
 
       lv_obj_set_style_bg_color(ui_SkinPanelCont, COLOR_PANEL_WHITE,
                                 LV_PART_MAIN);
@@ -1858,11 +1996,475 @@ void start_alarm_blink(lv_obj_t *obj) {
   lv_anim_start(&a);
 }
 
+// ---------------------------------------------------------------------------
+// Banner de alarma
+// ---------------------------------------------------------------------------
+// IEC 60601-1-8 6.3.2.2.2 exige al menos una senal visual que identifique la
+// condicion concreta Y su prioridad, legible a 1 m. Antes de esto, fuera de la
+// pantalla de alarmas solo habia un badge con el numero de alarmas activas,
+// que no identifica ni la condicion ni la prioridad.
+//
+// Vive en lv_layer_top() y no colgado de una pantalla: un overlay parentado a
+// una pantalla concreta desaparece al hacer lv_scr_load(), y la senal tiene
+// que existir mientras exista la condicion, este el operador donde este.
+//
+// El color y la frecuencia salen de la Tabla 2 de la misma norma: ALTA rojo
+// 1,4-2,8 Hz, MEDIA amarillo 0,4-0,8 Hz, BAJA cian o amarillo CONSTANTE. Que
+// la baja no parpadee no es un atajo: la tabla lo exige.
+//
+// Lo que parpadea es el FONDO, nunca el texto. La nota 2 de 6.3.2.2.2
+// desaconseja expresamente el texto que se enciende y se apaga porque cuesta
+// leerlo, y admite en cambio alternar entre video normal e inverso u otro
+// color. Por eso no se reutiliza start_alarm_blink(), que anima la opacidad
+// del objeto entero y dejaria el texto ilegible medio ciclo.
+static lv_obj_t *s_alarmBanner = NULL;
+static lv_obj_t *s_alarmBannerLabel = NULL;
+static int s_bannerPriority = -1;  // -1 = ninguna, para no reiniciar la anim
+static lv_color_t s_bannerHi;      // color pleno de la prioridad
+static lv_color_t s_bannerLo;      // el mismo, oscurecido
+
+#define BANNER_HEIGHT_PX 52
+// Medio periodo: 250 ms -> 2,0 Hz (ALTA), 750 ms -> 0,66 Hz (MEDIA). Ambos
+// caen dentro de los rangos de la Tabla 2 con margen a los dos lados.
+#define BANNER_HALF_PERIOD_MS_HIGH 250
+#define BANNER_HALF_PERIOD_MS_MEDIUM 750
+
+// Definida mas abajo en este mismo fichero.
+void reset_alarm_detail_state();
+
+// Pulsar el banner abre el centro de alarmas. Es un overlay sobre
+// lv_layer_top(), no un cambio de pantalla: desde el bloqueo esto evita tener
+// que desbloquear primero para ver que pasa, que era el camino largo justo
+// cuando hay prisa.
+static void AlarmBanner_cb(lv_event_t *e) {
+  (void)e;
+  reset_alarm_detail_state();
+  AlarmCenter_Open();
+}
+
+static void banner_blink_cb(void *obj, int32_t v) {
+  lv_obj_set_style_bg_color((lv_obj_t *)obj,
+                            lv_color_mix(s_bannerHi, s_bannerLo, (uint8_t)v),
+                            LV_PART_MAIN);
+}
+
+void alarm_banner_init(void) {
+  s_alarmBanner = lv_obj_create(lv_layer_top());
+  lv_obj_remove_style_all(s_alarmBanner);
+  lv_obj_set_width(s_alarmBanner, lv_pct(100));
+  lv_obj_set_height(s_alarmBanner, BANNER_HEIGHT_PX);
+  lv_obj_set_align(s_alarmBanner, LV_ALIGN_TOP_MID);
+  lv_obj_set_style_bg_opa(s_alarmBanner, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_clear_flag(s_alarmBanner, LV_OBJ_FLAG_SCROLLABLE);
+  // El banner SI es pulsable: lleva a la pantalla de alarmas, que es donde
+  // estan el detalle, el historial y el boton de silencio. Es la ruta mas
+  // corta desde "algo suena" hasta "puedo hacer algo", y no depende de que el
+  // operador encuentre el boton de la barra superior.
+  //
+  // Consecuencia asumida: en la pantalla de bloqueo el banner ocupa la franja
+  // donde esta ui_LockButton, asi que durante una alarma un toque ahi lleva a
+  // alarmas en vez de desbloquear. Es el comportamiento util: si suena, lo que
+  // se quiere es atenderla. El resto de la pantalla sigue desbloqueando.
+  lv_obj_add_flag(s_alarmBanner, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(s_alarmBanner, AlarmBanner_cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_add_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN);
+
+  s_alarmBannerLabel = lv_label_create(s_alarmBanner);
+  lv_obj_set_align(s_alarmBannerLabel, LV_ALIGN_CENTER);
+  lv_label_set_long_mode(s_alarmBannerLabel, LV_LABEL_LONG_DOT);
+  lv_obj_set_width(s_alarmBannerLabel, lv_pct(94));
+  lv_obj_set_style_text_align(s_alarmBannerLabel, LV_TEXT_ALIGN_CENTER,
+                              LV_PART_MAIN);
+  lv_obj_set_style_text_font(s_alarmBannerLabel, &lv_font_montserrat_20,
+                             LV_PART_MAIN);
+}
+
+// --- Chasquido de confirmacion al pulsar ---------------------------------
+//
+// Se engancha al feedback_cb del driver de entrada de LVGL, que es el punto
+// que la propia libreria reserva para esto: se dispara con CUALQUIER pulsacion
+// sobre CUALQUIER control, sin tener que acordarse de anadir la llamada en
+// cada callback nuevo. Un `beep()` repartido por los cincuenta manejadores de
+// este fichero se olvida en el cincuenta y uno.
+//
+// NO BLOQUEANTE a proposito. hmi_audio_module_beep() existe pero hace
+// delay(): llamarlo desde aqui congelaria el despacho de eventos de LVGL
+// durante todo el pitido. Aqui se enciende y se apaga desde el bucle de UI.
+// 12 ms: un tic seco. Estuvo en 25 y el chasquido competia en protagonismo con
+// las senales de alarma, que es justo al reves de lo que debe ser — y en este
+// equipo, ademas, el zumbador del display se oye MAS que el de la placa (ver
+// docs/alarms.md §9: pendiente de medida acustica).
+#define CLICK_BEEP_MS 12u
+static uint32_t s_clickBeepUntilMs = 0;
+
+static void click_beep_start(void) {
+  buzzerOn();
+  s_clickBeepUntilMs = millis() + CLICK_BEEP_MS;
+}
+
+static void click_beep_service(void) {
+  if (s_clickBeepUntilMs && (int32_t)(millis() - s_clickBeepUntilMs) >= 0) {
+    buzzerOff();
+    s_clickBeepUntilMs = 0;
+  }
+}
+
+// Si tocar este objeto HACE algo. Es la definicion util de "control".
+//
+// NO sirve mirar LV_OBJ_FLAG_CLICKABLE: LVGL lo pone en el constructor de
+// TODOS los objetos (lv_obj.c, `obj->flags = LV_OBJ_FLAG_CLICKABLE`), asi que
+// las pantallas y los paneles decorativos tambien lo llevan y el chasquido
+// sonaba al tocar el fondo.
+static bool obj_is_control(lv_obj_t *o) {
+  // Una pantalla no tiene padre, y tocar el fondo nunca es pulsar un control.
+  if (lv_obj_get_parent(o) == NULL) {
+    return false;
+  }
+  // Widgets que son controles por definicion.
+  if (lv_obj_check_type(o, &lv_btn_class) ||
+      lv_obj_check_type(o, &lv_imgbtn_class) ||
+      lv_obj_check_type(o, &lv_switch_class) ||
+      lv_obj_check_type(o, &lv_checkbox_class) ||
+      lv_obj_check_type(o, &lv_slider_class) ||
+      lv_obj_check_type(o, &lv_dropdown_class) ||
+      lv_obj_check_type(o, &lv_roller_class) ||
+      lv_obj_check_type(o, &lv_btnmatrix_class)) {
+    return true;
+  }
+  // Contenedores e imagenes con manejador propio: este proyecto los usa como
+  // botones (el badge del bloqueo, el check de "todo OK", las tarjetas del
+  // centro de alarmas). Un panel decorativo no tiene manejadores y cae aqui.
+  return o->spec_attr != NULL && o->spec_attr->event_dsc_cnt > 0;
+}
+
+// Teclas: fuera del chasquido. Al escribir se pulsa muchas veces seguidas y un
+// pitido por letra es ruido, no confirmacion.
+//
+// No basta con mirar lv_keyboard_class. El teclado del asistente de bebe es un
+// lv_btnmatrix a proposito, no un lv_keyboard (BabyWizard.cpp explica por que:
+// LVGL 8.3 guarda los keymaps en un global de fichero y lv_keyboard_set_map()
+// reescribiria el mapa de TODOS los teclados de la app). Filtrando solo por
+// lv_keyboard_class sonaba una tecla por letra.
+//
+// Excepcion: la matriz de botones interna de un lv_tabview son pestanas de
+// navegacion, no teclas, y esas si deben confirmar.
+static bool obj_is_keylike(lv_obj_t *o) {
+  for (; o != NULL; o = lv_obj_get_parent(o)) {
+    if (lv_obj_check_type(o, &lv_keyboard_class)) {
+      return true;
+    }
+    if (lv_obj_check_type(o, &lv_btnmatrix_class)) {
+      lv_obj_t *parent = lv_obj_get_parent(o);
+      return parent == NULL || !lv_obj_check_type(parent, &lv_tabview_class);
+    }
+  }
+  return false;
+}
+
+static void ui_click_feedback_cb(lv_indev_drv_t *drv, uint8_t event) {
+  (void)drv;
+  // PRESSED y no CLICKED: el chasquido tiene que salir cuando el dedo toca,
+  // no al levantarlo. Con CLICKED se percibe como retardo del equipo.
+  if (event != LV_EVENT_PRESSED) {
+    return;
+  }
+  lv_obj_t *obj = lv_indev_get_obj_act();
+  if (!obj || !obj_is_control(obj)) {
+    return;
+  }
+  if (obj_is_keylike(obj)) {
+    return;
+  }
+  click_beep_start();
+}
+
+// Resuelve el idioma con un helper local en vez de repetir el indexado de
+// g_lang en cada cadena. Lo usan el banner y los avisos de esta tarea.
+static const char *TXT_UI(const char *es, const char *en, const char *fr) {
+  return (g_lang == LANG_ES) ? es : (g_lang == LANG_FR) ? fr : en;
+}
+
+// Indicador permanente de AUDIO PAUSED, en lv_layer_top() para que sobreviva a
+// los lv_scr_load() y se vea en TODAS las pantallas.
+//
+// 201.12.3.104 exige que "las alarmas silenciadas deliberadamente mantengan
+// indicacion visual", y 6.8.5 que el estado se marque con el simbolo de la
+// Tabla 5 y sea legible a 1 m. El icono por fila del centro de alarmas dice
+// CUAL esta callada (6.8.1), pero solo se ve con el centro abierto; este dice
+// QUE HAY algo callado, siempre, sin depender de donde este el operador.
+static lv_obj_t *s_audioPausedIcon = NULL;
+static lv_obj_t *s_audioPausedTimer = NULL;
+// Ultimo texto pintado en el banner. Existe para NO reescribirlo en cada
+// pasada: ver el comentario en alarm_banner_update().
+static char s_bannerText[64] = "";
+
+void audio_paused_icon_init(void) {
+  // La lamina de la norma (IEC 60417-5576, variante de X DISCONTINUA =
+  // AUDIO PAUSED), convertida a mascara de 1 bit. La X continua significaria
+  // AUDIO OFF, inactivacion permanente, que este equipo no ofrece.
+  // A tamaño natural (48 px), sin zoom ni set_size: escalado con
+  // lv_img_set_zoom() el pivote de la transformacion es el centro de la
+  // imagen FUENTE, cae fuera del objeto reducido y la imagen se recortaba
+  // entera. Mismo fallo que tenia el icono de la fila.
+  s_audioPausedIcon = lv_img_create(lv_layer_top());
+  lv_img_set_src(s_audioPausedIcon, &ui_img_audio_paused_sym);
+  lv_obj_set_style_img_recolor(s_audioPausedIcon, lv_color_hex(0xFFB436), 0);
+  lv_obj_set_style_img_recolor_opa(s_audioPausedIcon, LV_OPA_COVER, 0);
+  // ABAJO a la derecha, no arriba: la esquina superior derecha es la barra de
+  // navegacion de ui_ScreenMain y el icono se solapaba con sus botones. La
+  // norma pide indicacion visual mantenida y legible a 1 m (6.8.5,
+  // 201.12.3.104), no una posicion concreta, y la franja inferior esta libre
+  // desde que el banner solo se pinta arriba y solo en el bloqueo.
+  lv_obj_align(s_audioPausedIcon, LV_ALIGN_BOTTOM_RIGHT, -8, -8);
+  lv_obj_add_flag(s_audioPausedIcon, LV_OBJ_FLAG_HIDDEN);
+
+  // Cuenta atras JUNTO al icono, que es donde la norma la quiere: "The use of
+  // a countdown timer... adjoining the icon, is encouraged... so that they
+  // can more easily be distinguished from ALARM OFF or AUDIO OFF" (racional
+  // de 6.8.5). Con 10 min de pausa responde ademas a la pregunta util del
+  // operador, que es cuando vuelve el sonido.
+  s_audioPausedTimer = lv_label_create(lv_layer_top());
+  lv_label_set_text(s_audioPausedTimer, "");
+  lv_obj_set_style_text_color(s_audioPausedTimer, lv_color_hex(0xFFB436), 0);
+  lv_obj_set_style_text_font(s_audioPausedTimer, &lv_font_montserrat_20, 0);
+  // A la izquierda del icono, que mide 48 px y esta a -8 del borde inferior.
+  lv_obj_align(s_audioPausedTimer, LV_ALIGN_BOTTOM_RIGHT, -60, -20);
+  lv_obj_add_flag(s_audioPausedTimer, LV_OBJ_FLAG_HIDDEN);
+}
+
+void audio_paused_icon_update(void) {
+  if (!s_audioPausedIcon) {
+    return;
+  }
+  // Idempotente por el mismo motivo que el banner: corre en cada pasada, y
+  // mover al frente o reescribir la etiqueta invalida y redibuja aunque nada
+  // haya cambiado. Solo se toca LVGL cuando cambia la visibilidad o el
+  // SEGUNDO que toca pintar — o sea, como mucho una vez por segundo.
+  static bool s_wasVisible = false;
+  static int s_lastLeft = -1;
+
+  const bool visible = (ctrl_state_msg.silencedBitmask != 0u);
+  const int left = visible ? ctrl_state_msg.silenceRemainingS : 0;
+
+  if (visible != s_wasVisible) {
+    s_wasVisible = visible;
+    s_lastLeft = -1;  // fuerza repintar el numero al reaparecer
+    if (visible) {
+      lv_obj_clear_flag(s_audioPausedIcon, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_move_foreground(s_audioPausedIcon);
+    } else {
+      lv_obj_add_flag(s_audioPausedIcon, LV_OBJ_FLAG_HIDDEN);
+      if (s_audioPausedTimer) {
+        lv_obj_add_flag(s_audioPausedTimer, LV_OBJ_FLAG_HIDDEN);
+      }
+    }
+  }
+
+  if (!visible || !s_audioPausedTimer) {
+    return;
+  }
+
+  // La cuenta atras solo si la placa la manda. Con 0 se enseña el icono a
+  // secas: mejor sin numero que con uno inventado.
+  if (left != s_lastLeft) {
+    s_lastLeft = left;
+    if (left > 0) {
+      char buf[8];
+      snprintf(buf, sizeof(buf), "%d:%02d", left / 60, left % 60);
+      lv_label_set_text(s_audioPausedTimer, buf);
+      lv_obj_clear_flag(s_audioPausedTimer, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_move_foreground(s_audioPausedTimer);
+    } else {
+      lv_obj_add_flag(s_audioPausedTimer, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+}
+
+void alarm_banner_update(void) {
+  if (!s_alarmBanner) {
+    return;
+  }
+
+  // Alarma senalizando de mayor prioridad. La prioridad es la que MANDA la
+  // motherBoard en el campo correspondiente de CTRL,ALM: el display no la
+  // calcula ni la deduce del titulo. La placa es la dueña de la informacion de
+  // alarmas y esta se limita a pintarla; cualquier copia local de la politica
+  // de prioridades seria una segunda fuente de verdad esperando a
+  // desincronizarse, que es un fallo que este proyecto ya ha tenido.
+  int topIdx = -1;
+  int topPrio = -1;
+  for (int i = 0; i < MAX_ALARMS; i++) {
+    if (!alarmList[i].state) {
+      continue;
+    }
+    const int p = (int)alarmList[i].priority;
+    if (p > topPrio) {
+      topPrio = p;
+      topIdx = i;
+    }
+  }
+
+  // Prueba de funcionamiento (201.12.3.105): la clausula pide comprobar las
+  // alarmas "audible AND visual", asi que la prueba tiene que ejercitar
+  // tambien esta ruta y no solo el zumbador. Se pinta el banner con el color y
+  // el parpadeo de la prioridad que la placa este reproduciendo.
+  //
+  // Nunca puede tapar una alarma real: la placa cancela la prueba en cuanto
+  // aparece una condicion, y aqui ademas solo se entra si no hay ninguna.
+  // Display_BoardEverSeen() ademas del centinela: la prueba corre EN LA PLACA,
+  // asi que sin haber recibido nunca una linea suya no puede haber ninguna en
+  // curso. Cubre la ventana entre la primera linea que llega (un CTRL,TEL,
+  // por ejemplo) y el primer CTRL,STATE que trae de verdad el campo.
+  const bool testing = (topIdx < 0) && Display_BoardEverSeen() &&
+                       (ctrl_state_msg.alarmTestPriority != ALARM_TEST_IDLE_HMI);
+
+  // Enlace con la placa perdido, visto desde este lado.
+  //
+  // Tiene que verse SIEMPRE y por delante de todo lo demas: cuando la placa
+  // calla, lo que hay en pantalla ya no son medidas, son las ultimas que
+  // llegaron. El operador las lee como actuales. Por eso este caso gana al
+  // banner de cualquier alarma: esas alarmas tambien son informacion vieja.
+  //
+  // La placa declara ALARM_HMI_LINK_LOST por su cuenta y hace sonar SU
+  // zumbador; lo de aqui es la mitad visual, que por definicion no puede
+  // llegar por el enlace caido.
+  const bool linkLost = Display_IsBoardLinkLost();
+
+  // Con el centro de alarmas abierto el banner sobra: ese overlay ya lista
+  // cada alarma activa con su titulo y su marca de prioridad delante, asi que
+  // la senal de 1 m que pide 6.3.2.2.2 sigue presente de forma nativa. Y
+  // ademas estorba, porque el banner vive tambien en lv_layer_top() y se
+  // pintaria por encima de la tarjeta.
+  const bool onAlarmsScreen =
+      AlarmCenter_IsOpen() ||
+      (ui_ScreenAlarms && lv_scr_act() == ui_ScreenAlarms);
+
+  // La supresion con el centro abierto NO se aplica a la prueba ni a la
+  // perdida de enlace.
+  //
+  // La prueba se lanza desde la propia cabecera del centro de alarmas, asi
+  // que suprimir ahi el banner dejaba la prueba MUDA de vista: sonaba pero no
+  // se veia nada, que es media clausula sin cumplir (201.12.3.105 pide
+  // comprobar "audible AND visual"). Y con el enlace caido, el contenido del
+  // centro es tan viejo como el resto: taparlo con el aviso es lo correcto.
+  //
+  // El banner es una franja fina arriba y se pone en primer plano en cada
+  // pasada, asi que se lee sobre la tarjeta sin ocultar lo que importa.
+  const bool suppressed = onAlarmsScreen && !testing && !linkLost;
+
+  if ((topIdx < 0 && !testing && !linkLost) || suppressed) {
+    lv_anim_del(s_alarmBanner, banner_blink_cb);
+    lv_obj_add_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN);
+    s_bannerPriority = -1;
+    return;
+  }
+
+  // SOLO en la pantalla de bloqueo, en la franja superior. Es donde el equipo
+  // pasa la mayor parte del tiempo por el autolock, asi que la senal se lleva
+  // la posicion buena justo donde mas se ve, y ahi arriba no tapa nada.
+  //
+  // En el resto de pantallas el banner ya no se pinta: en ellas hay alguien
+  // delante operando, con el icono de alarmas de la barra a la vista, y una
+  // franja fija en el borde inferior estorbaba mas de lo que avisaba.
+  //
+  // Se reevalua en cada pasada y no al cambiar de pantalla: el banner cuelga
+  // de lv_layer_top(), que no se entera de los lv_scr_load().
+  //
+  // Excepcion: durante la prueba de funcionamiento SI se pinta en cualquier
+  // pantalla. El operador la lanza desde ajustes y tiene que ver alli mismo
+  // que la senal visual responde; obligarle a bloquear la pantalla para
+  // comprobarlo haria inservible la prueba.
+  const bool onLockScreen = (ui_ScreenLock && lv_scr_act() == ui_ScreenLock);
+  if (!onLockScreen && !testing && !linkLost) {
+    lv_anim_del(s_alarmBanner, banner_blink_cb);
+    lv_obj_add_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN);
+    s_bannerPriority = -1;
+    s_bannerText[0] = '\0';
+    return;
+  }
+  lv_obj_set_align(s_alarmBanner, LV_ALIGN_TOP_MID);
+
+  const char *wantText;
+  if (linkLost) {
+    // Por delante de cualquier alarma: si la placa calla, lo que se ve de
+    // ella es viejo, incluidas sus alarmas. MEDIA para contar lo mismo que
+    // ALARM_HMI_LINK_LOST al otro lado — un unico relato para el operador.
+    topPrio = ALARM_PRIORITY_MEDIUM;
+    wantText = TXT_UI("!! SIN ENLACE CON LA PLACA", "!! BOARD LINK LOST",
+                      "!! LIAISON CARTE PERDUE");
+  } else if (testing) {
+    topPrio = ctrl_state_msg.alarmTestPriority;
+    wantText = TXT_UI("PRUEBA DE ALARMA", "ALARM TEST", "TEST D'ALARME");
+  } else {
+    wantText = alarmList[topIdx].type;
+  }
+
+  // Solo se toca LVGL si el texto CAMBIO.
+  //
+  // Esta funcion corre en cada pasada del bucle de UI, y lv_label_set_text()
+  // y lv_obj_move_foreground() invalidan y fuerzan redibujado aunque el
+  // contenido sea identico. Llamarlos a la frecuencia del bucle repintaba la
+  // franja y reordenaba lv_layer_top() sin parar, y arrastraba toda la
+  // interfaz. No se noto al escribirlo porque el banner solo salia en la
+  // pantalla de bloqueo, donde no hay nada mas compitiendo por el redibujado.
+  if (strncmp(s_bannerText, wantText, sizeof(s_bannerText) - 1) != 0) {
+    snprintf(s_bannerText, sizeof(s_bannerText), "%s", wantText);
+    lv_label_set_text(s_alarmBannerLabel, s_bannerText);
+    lv_obj_clear_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(s_alarmBanner);
+  }
+
+  if (topPrio == s_bannerPriority) {
+    return;  // misma prioridad: no reiniciar la animacion en cada ciclo
+  }
+  s_bannerPriority = topPrio;
+  lv_anim_del(s_alarmBanner, banner_blink_cb);
+
+  uint32_t halfPeriodMs = 0;
+  lv_color_t textColor;
+  switch (topPrio) {
+    case ALARM_PRIORITY_HIGH:
+      s_bannerHi = lv_color_hex(0xFF5468);
+      s_bannerLo = lv_color_hex(0x5A1822);
+      textColor = lv_color_hex(0xFFFFFF);
+      halfPeriodMs = BANNER_HALF_PERIOD_MS_HIGH;
+      break;
+    case ALARM_PRIORITY_MEDIUM:
+      s_bannerHi = lv_color_hex(0xFFB436);
+      s_bannerLo = lv_color_hex(0x6A4810);
+      textColor = lv_color_hex(0x1A1208);
+      halfPeriodMs = BANNER_HALF_PERIOD_MS_MEDIUM;
+      break;
+    default:  // BAJA: constante, sin parpadeo (Tabla 2)
+      s_bannerHi = lv_color_hex(0x4EC7FF);
+      s_bannerLo = s_bannerHi;
+      textColor = lv_color_hex(0x0A1D26);
+      halfPeriodMs = 0;
+      break;
+  }
+  lv_obj_set_style_text_color(s_alarmBannerLabel, textColor, LV_PART_MAIN);
+
+  if (halfPeriodMs == 0) {
+    lv_obj_set_style_bg_color(s_alarmBanner, s_bannerHi, LV_PART_MAIN);
+    return;
+  }
+
+  lv_anim_t a;
+  lv_anim_init(&a);
+  lv_anim_set_var(&a, s_alarmBanner);
+  lv_anim_set_values(&a, 255, 0);  // 255 = color pleno, 0 = oscurecido
+  lv_anim_set_time(&a, halfPeriodMs);
+  lv_anim_set_playback_time(&a, halfPeriodMs);
+  lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+  lv_anim_set_exec_cb(&a, banner_blink_cb);
+  lv_anim_start(&a);
+}
+
 void update_alarm_panels() {
   // Determine fan/heater alarm state first — used in multiple sections below
   bool fanHeaterAlarm = false;
   for (int i = 0; i < MAX_ALARMS; i++) {
-    if ((alarmList[i].id == FAN_ISSUE_ALARM || alarmList[i].id == HEATER_ISSUE_ALARM) && alarmList[i].state) {
+    if ((alarmList[i].id == ALARM_FAN_FAILURE || alarmList[i].id == ALARM_HEATER_FAULT) && alarmList[i].state) {
       fanHeaterAlarm = true;
       break;
     }
@@ -1972,6 +2574,29 @@ void update_alarm_panels() {
     alarmsMuted = false;
   }
 
+  // Senal visual de 1 m, en todas las pantallas (6.3.2.2.2).
+  alarm_banner_update();
+
+  // El boton de silencio se creaba en ui_ScreenAlarms y se ocultaba al
+  // arrancar, pero no habia ni un solo clear_flag en todo el fichero: nunca
+  // llegaba a mostrarse, asi que el operador no tenia forma de silenciar una
+  // alarma. Pasaba desapercibido porque el zumbador de la motherboard se
+  // agotaba solo a los ~4 min; desde que el audio solo cesa por accion del
+  // operador (IEC 60601-1-8 6.10) es la diferencia entre una alarma que se
+  // puede callar y una que no.
+  //
+  // Visible mientras haya alarma activa y no este ya silenciada. Al pulsarlo,
+  // MuteAlarm_cb() lo vuelve a ocultar y marca alarmsMuted; reaparece solo si
+  // el silencio se cancela, que ocurre cuando se limpian todas las alarmas
+  // (justo arriba) o cuando llega una alarma nueva (CommTask).
+  if (ui_MuteAlarm) {
+    if (alarmActive && !alarmsMuted) {
+      lv_obj_clear_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+
   // Warning overlays always hidden (replaced by TempCont visibility)
   if (ui_HeaterErrorTempCont)
     lv_obj_add_flag(ui_HeaterErrorTempCont, LV_OBJ_FLAG_HIDDEN);
@@ -2008,7 +2633,7 @@ static void HeaterError_event_handler(lv_event_t *e) {
       "2. Si le pas 1 ne fonctionne pas, reparez le chauffage."};
   if (ui_AlarmDetailLabel) {
     lv_label_set_text(ui_AlarmDetailLabel, TXT_HEATER_ERROR_DESC[g_lang]);
-    g_selectedAlarmId = HEATER_ISSUE_ALARM;
+    g_selectedAlarmId = ALARM_HEATER_FAULT;
   }
 }
 
@@ -2023,21 +2648,19 @@ void show_alarm_detail_from_slot(int slot) {
   g_selectedAlarmId = alarmList[idx].id;
 }
 
+// Estos cuatro solo abren el detalle de una alarma: no cambian nada de la
+// trama, asi que no mandan estado.
 void Alarm1Cont_cb(lv_event_t *e) {
   show_alarm_detail_from_slot(0);
-  hmi_msg.shouldSendData = true;
 }
 void Alarm2Cont_cb(lv_event_t *e) {
   show_alarm_detail_from_slot(1);
-  hmi_msg.shouldSendData = true;
 }
 void Alarm3Cont_cb(lv_event_t *e) {
   show_alarm_detail_from_slot(2);
-  hmi_msg.shouldSendData = true;
 }
 void Alarm4Cont_cb(lv_event_t *e) {
   show_alarm_detail_from_slot(3);
-  hmi_msg.shouldSendData = true;
 }
 
 void reset_alarm_detail_state() {
@@ -2058,7 +2681,7 @@ void AlarmsTabview_cb(lv_event_t *e) {
   if (act == 0) { // Si volvemos a la lista de alarmas
     reset_alarm_detail_state();
   }
-  hmi_msg.shouldSendData = true;
+  // Cambiar de pestana no cambia nada de la trama.
 }
 
 void chart_add_hum_value(float hum) {
@@ -2183,6 +2806,7 @@ void AlarmSound_Update() {
 void MuteAlarm_cb(lv_event_t *e) {
   (void)e;
   alarmsMuted = true;
+  g_muteHoldUntilMs = millis() + MUTE_HOLD_MS;
   hmi_msg.muteAlarm = 1;
   hmi_msg.shouldSendData = true;
   lv_obj_add_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN);
@@ -2350,7 +2974,7 @@ void ImgButton1_Lock_cb(lv_event_t *e) {
   if (lv_scr_act() == ui_ScreenMain) {
     enter_lock_screen();
   }
-  hmi_msg.shouldSendData = true;
+  // El bloqueo es estado local del display: no viaja en HMI_Message.
 }
 
 void LockScreenAnyTouch_cb(lv_event_t *e) {
@@ -2465,6 +3089,10 @@ void WifiConnectButton_cb(lv_event_t *e) {
   Communication_SendWiFiCredentials(pendingSSID, pendingPass);
   vTaskDelay(
       pdMS_TO_TICKS(100)); // Ensure serial is clear before WiFi logs start
+  // El backoff acumulado por reintentos automáticos previos no debe penalizar a
+  // quien pulsa "Conectar": si este intento falla, el siguiente automático debe
+  // volver a los 30s base y no al tope.
+  wifiResetReconnectBackoff();
   wifiInit();              // Trigger new connection attempt
   // isConnected se actualiza en el loop principal via WiFi.status()
 }
@@ -2582,9 +3210,22 @@ void ChartButton_cb(lv_event_t *e) {
 }
 
 void AlarmLockImg_cb(lv_event_t *e) {
+  (void)e;
   reset_alarm_detail_state();
-  _ui_screen_change(&ui_ScreenAlarms, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,
-                    &ui_ScreenAlarms_screen_init);
+  AlarmCenter_Open();
+}
+
+// El check verde de "todo OK" tambien abre el centro de alarmas.
+//
+// Sin esto el registro era inaccesible en el caso mas comun: sin alarmas
+// activas se ocultan las DOS vias (ui_AlarmButton en la barra y el badge del
+// bloqueo) y en su sitio aparece este check, que no era pulsable. Es decir,
+// el historial solo se podia consultar mientras algo estaba sonando — justo
+// cuando a nadie le interesa ponerse a leer el registro.
+void CheckImg_cb(lv_event_t *e) {
+  if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+  reset_alarm_detail_state();
+  AlarmCenter_Open();
 }
 
 void AlarmLockCont_cb(lv_event_t *e) {
@@ -2921,6 +3562,8 @@ void UI_Task(void *pvParameters) {
   indev_drv.type = LV_INDEV_TYPE_POINTER;
   indev_drv.read_cb = my_touchpad_read;
   indev_drv.long_press_time = LOCK_PROGRESS_DURATION_MS;
+  // Chasquido de confirmacion en cualquier control, teclado excluido.
+  indev_drv.feedback_cb = ui_click_feedback_cb;
   lv_indev_drv_register(&indev_drv);
 
   ui_init();
@@ -3007,18 +3650,26 @@ void UI_Task(void *pvParameters) {
   // activar modo piel sin sonda ---
   // ui_ScreenMain, no lv_scr_act(): ui_init() ya cargo ui_ScreenIntro, asi que
   // la pantalla activa aqui es el splash y el toast nunca llegaba a verse.
-  ui_SkinProbeToast = lv_label_create(ui_ScreenMain);
+  // En lv_layer_top() y no colgando de ui_ScreenMain.
+  //
+  // Colgado de la pantalla principal el aviso no se veia en ninguna otra, y
+  // sobre todo quedaba DEBAJO del centro de alarmas y del asistente, que son
+  // overlays de la capa superior. Justo los sitios desde donde mas se avisa:
+  // el aviso de la prueba de alarmas salia detras de la propia tarjeta.
+  ui_SkinProbeToast = lv_label_create(lv_layer_top());
   lv_label_set_text(ui_SkinProbeToast, "");
   lv_label_set_long_mode(ui_SkinProbeToast, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(ui_SkinProbeToast, 320);
-  lv_obj_align(ui_SkinProbeToast, LV_ALIGN_BOTTOM_MID, 0, -20);
+  lv_obj_set_width(ui_SkinProbeToast, 460);
+  lv_obj_align(ui_SkinProbeToast, LV_ALIGN_BOTTOM_MID, 0, -24);
   lv_obj_set_style_text_align(ui_SkinProbeToast, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_set_style_text_font(ui_SkinProbeToast, &lv_font_montserrat_20,
+                             LV_PART_MAIN);
   lv_obj_set_style_bg_color(ui_SkinProbeToast, lv_color_hex(0xFF8C00),
                             LV_PART_MAIN);
   lv_obj_set_style_bg_opa(ui_SkinProbeToast, LV_OPA_90, LV_PART_MAIN);
   lv_obj_set_style_text_color(ui_SkinProbeToast, lv_color_hex(0xFFFFFF),
                               LV_PART_MAIN);
-  lv_obj_set_style_pad_all(ui_SkinProbeToast, 10, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(ui_SkinProbeToast, 16, LV_PART_MAIN);
   lv_obj_set_style_radius(ui_SkinProbeToast, 8, LV_PART_MAIN);
   lv_obj_add_flag(ui_SkinProbeToast, LV_OBJ_FLAG_HIDDEN);
 
@@ -3035,6 +3686,28 @@ void UI_Task(void *pvParameters) {
   // --- Babies history screen (baby-history-viewer spec) ---
   BabyHistory_Init(ui_ScreenMain);
   BabyExitDialog_Init(ui_ScreenMain);
+  // --- Centro de alarmas (activas + registro) ---
+  // Sin parent: cuelga de lv_layer_top() para abrirse desde cualquier pantalla,
+  // el bloqueo incluido.
+  AlarmCenter_Init();
+  // El check de "todo OK" es lo unico visible en el sitio de las alarmas
+  // cuando no hay ninguna; hacerlo pulsable es lo que deja el registro
+  // accesible en estado normal. Las imagenes de LVGL no son pulsables por
+  // defecto, de ahi el flag explicito.
+  //
+  // Solo el de ui_ScreenMain. El gemelo de la pantalla de bloqueo (ui_CheckImg)
+  // se deja quieto a proposito: alli el toque en cualquier punto desbloquea, y
+  // hacerlo pulsable crearia una zona muerta permanente que no desbloquea. El
+  // banner ya se toma esa licencia, pero solo mientras suena una alarma;
+  // quedarsela siempre es otra cosa.
+  if (ui_CheckImgMain) {
+    lv_obj_add_flag(ui_CheckImgMain, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(ui_CheckImgMain, CheckImg_cb, LV_EVENT_CLICKED, NULL);
+  }
+  // En lv_layer_top(), no colgado de una pantalla: la senal de alarma
+  // tiene que sobrevivir a lv_scr_load().
+  alarm_banner_init();
+  audio_paused_icon_init();
 
   if (g_hmiRestoreState) {
     // Skip 5-second splash and go straight to lock screen on crash recovery
@@ -3310,30 +3983,33 @@ void UI_Task(void *pvParameters) {
     if (ctrl_probe_msg.updated) {
       ctrl_probe_msg.updated = false;
       bool applied = (ctrl_probe_msg.state == SPO2_PROBE_APPLIED);
-      // Falling edge: probe removed — hide chart and HR
-      if (!applied && spo2ProbeAttachedPrev) {
+      // La visibilidad se deriva del estado ACTUAL, no de un flanco: si el
+      // HMI se perdiera una transicion, el siguiente CTRL,PROBE (la placa lo
+      // repite cada 2 s mientras no hay contacto) recolocaria la pantalla.
+      // add_flag/clear_flag son idempotentes.
+      if (applied) {
+        if (ui_LockPPGChart)
+          lv_obj_clear_flag(ui_LockPPGChart, LV_OBJ_FLAG_HIDDEN);
+      } else {
         if (ui_LockPPGChart) {
+          bool wasVisible =
+              !lv_obj_has_flag(ui_LockPPGChart, LV_OBJ_FLAG_HIDDEN);
           lv_obj_add_flag(ui_LockPPGChart, LV_OBJ_FLAG_HIDDEN);
           // Vaciar la traza al ocultarla, no al volver a mostrarla: asi el
           // chart queda en blanco se muestre por donde se muestre. En modo
           // CIRCULAR la traza vieja ya no se va desplazando sola, se quedaria
           // congelada en pantalla hasta que el cursor la barriera entera.
           // set_all_value ya resetea start_point a 0 y refresca; el repintado
-          // completo es gratis aqui porque el objeto esta oculto.
-          if (lockPPGSeries)
+          // completo es gratis aqui porque el objeto esta oculto. Solo en la
+          // transicion a oculto: repetirlo cada 2 s seria trabajo inutil.
+          if (wasVisible && lockPPGSeries)
             lv_chart_set_all_value(ui_LockPPGChart, lockPPGSeries,
                                    LV_CHART_POINT_NONE);
         }
         if (ui_LockHRCont)
           lv_obj_add_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
       }
-      // Rising edge: probe applied — show chart
-      if (applied && !spo2ProbeAttachedPrev) {
-        if (ui_LockPPGChart)
-          lv_obj_clear_flag(ui_LockPPGChart, LV_OBJ_FLAG_HIDDEN);
-      }
-      spo2ProbeAttached     = applied;
-      spo2ProbeAttachedPrev = applied;
+      spo2ProbeAttached = applied;
     }
 
     // --- Lock screen: PPG waveform ---
@@ -3496,6 +4172,27 @@ void UI_Task(void *pvParameters) {
     // Babies history screen: same polling contract (list/history/chart
     // responses, timeouts, critical-alarm-closes-screen).
     BabyHistory_Poll();
+    // Centro de alarmas: respuestas del registro y del detalle, con sus
+    // timeouts. A diferencia del resto, este NO se cierra con una alarma
+    // critica — es precisamente la pantalla donde se atiende.
+    AlarmCenter_Poll();
+
+    // El banner se reevalua en CADA pasada, no solo cuando cambia el conjunto
+    // de alarmas. Su visibilidad depende de la pantalla activa y el banner
+    // cuelga de lv_layer_top(), que no se entera de los lv_scr_load(): si solo
+    // se recalculara desde update_alarm_panels() —que corre con
+    // g_pendingAlarmUpdate, o sea cuando llega un CTRL,ALM—, al salir del
+    // bloqueo hacia cualquier otra pantalla el banner se quedaba pintado hasta
+    // el siguiente cambio de alarma. Es idempotente y barato.
+    alarm_banner_update();
+    // Se reevalua en cada pasada por lo mismo, y ademas depende de
+    // silencedBitmask, que llega con CTRL,STATE y caduca solo en la placa.
+    audio_paused_icon_update();
+    // Y este por el motivo opuesto: depende de que NO llegue nada.
+    link_lost_blank_update();
+    // Apaga el chasquido de la ultima pulsacion cuando le toca. Va aqui, y no
+    // con un delay() dentro del callback, para no congelar LVGL.
+    click_beep_service();
     // Baby-exit dialog: only the transition to a fully idle incubator
     // (no temperature, no humidity, no phototherapy) means the baby
     // actually came out; dropping one therapy among several does not.
@@ -3787,8 +4484,10 @@ void UI_SyncAll() {
   // lv_obj_set_style_bg_color(ui_Panel2, active_col, LV_PART_MAIN);
   lv_obj_set_style_opa(ui_Panel2, LV_OPA_COVER, LV_PART_MAIN);
 
-  // 5. Skin Block (Switch 4)
-  if (skinPanelEnabled) {
+  // 5. Skin Block (Switch 4). Same condition as temp_content_set_visible():
+  // the baby-temperature controller belongs to a running thermal control, so
+  // the skin block alone must not put it on screen.
+  if (skinPanelEnabled && tempSwitched) {
     lv_obj_clear_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
   } else {
     lv_obj_add_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);

@@ -61,7 +61,7 @@ static volatile bool s_persistCredentials = false;
 
 // Backoff exponencial de reconexión WiFi (ver WIFI_RECONNECT_MAX_INTERVAL).
 // Se incrementa en cada reintento de wifiInit() mientras no haya IP; se
-// resetea a 0 en STA_GOT_IP.
+// resetea a 0 en STA_GOT_IP y en wifiResetReconnectBackoff() (intento manual).
 static volatile uint32_t s_wifiReconnectFailStreak = 0;
 
 
@@ -217,11 +217,20 @@ void wifiInit(void) {
 }
 
 // ---------------------------------------------------------------------------
+// Reset del backoff de reconexión. Un intento explícito (botón "Conectar" de
+// ajustes, o credenciales nuevas) significa que alguien espera conexión ahora:
+// sin este reset, el streak acumulado sigue vivo y si ese intento falla el
+// siguiente reintento automático puede tardar WIFI_RECONNECT_MAX_INTERVAL.
+// ---------------------------------------------------------------------------
+void wifiResetReconnectBackoff(void) { s_wifiReconnectFailStreak = 0; }
+
+// ---------------------------------------------------------------------------
 // Apply new WiFi credentials received from the motherboard (CTRL,WIFI message).
 // Disconnects from the current AP, reconnects with the new credentials, and
 // relies on the GOT_IP event handler + WifiOTAHandler() to persist them to NVS.
 // ---------------------------------------------------------------------------
 void wifiApplyNewCredentials(const char* ssid, const char* pass) {
+  wifiResetReconnectBackoff();
   strncpy(pendingSSID, ssid, sizeof(pendingSSID) - 1);
   pendingSSID[sizeof(pendingSSID) - 1] = '\0';
   strncpy(pendingPass, pass, sizeof(pendingPass) - 1);
@@ -473,11 +482,12 @@ void WifiOTAHandler(void) {
   // Manual reconnect: retry wifiInit() when disconnected. Auto-reconnect is
   // disabled to avoid ASSOC_TOOMANY event storms; this provides the fallback.
   // Backoff exponencial: cada intento fallido dobla la espera hasta el tope
-  // WIFI_RECONNECT_MAX_INTERVAL. Sin esto, una pérdida prolongada del AP
-  // (NO_AP_FOUND visto en campo durante 50+ min seguidos) machaca WiFi.begin()
-  // cada 30s indefinidamente, y cada intento es una escritura NVS que puede
-  // desincronizar un frame del panel LCD (ver LCD_DIAG). Nunca baja de
-  // WIFI_RECONNECT_INTERVAL — ver el comentario de esa constante.
+  // WIFI_RECONNECT_MAX_INTERVAL, para no machacar WiFi.begin() cada 30s durante
+  // una pérdida prolongada del AP (NO_AP_FOUND visto en campo 50+ min seguidos).
+  // El reintento en sí es barato — 5-20 ms y sin escritura NVS desde que hay
+  // WiFi.persistent(false) —, así que el tope se mantiene corto a propósito: un
+  // tope largo solo alarga la desconexión cuando el AP ya ha vuelto. Nunca baja
+  // de WIFI_RECONNECT_INTERVAL — ver el comentario de esa constante.
   if (WiFi.status() != WL_CONNECTED) {
     uint32_t backoff = WIFI_RECONNECT_INTERVAL;
     for (uint32_t i = 0; i < s_wifiReconnectFailStreak && backoff < WIFI_RECONNECT_MAX_INTERVAL; i++) {

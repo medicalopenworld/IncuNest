@@ -145,21 +145,9 @@ void IRAM_ATTR fanEncoderISR()
   in3.fanEncoderPeriod[1] = micros();
 }
 
-void IRAM_ATTR encSwitchHandler()
-{
-  if (!GPIORead(ENC_SWITCH))
-  {
-    if (millis() - lastEncPulse > encPulseDebounce)
-    {
-      buzzerTone(buzzerStandbyToneTimes, buzzerSwitchDuration,
-                 buzzerRotaryEncoderTone);
-      if (ongoingAlarms())
-      {
-        shutBuzzer();
-        reestartOngoingAlarms();
-      }
-      // logI"[ENCODER] -> Pushed");
-    }
-    lastEncPulse = millis();
-  }
-}
+// encSwitchHandler() se retiro en el cambio que cableo el boton de silencio
+// del display (ver security.cpp:silenceActiveAlarmsFromDisplayMute()): leia
+// el encoder fisico, que es hardware de una revision anterior y nunca se
+// monta en esta placa. Nunca estuvo enganchada a una interrupcion real —
+// initInterrupts() (initHardware.cpp) solo registra fanEncoderISR — asi que
+// era codigo inalcanzable en producción.

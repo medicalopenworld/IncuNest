@@ -7,6 +7,7 @@
 #define THINGSBOARD_ENABLE_DYNAMIC 1
 #define THINGSBOARD_ENABLE_STREAM_UTILS 1
 #include "ThingsBoard.h"
+#include "config/transport_policy.h" // tabla única GPRS/WiFi
 #include <Arduino.h>
 #include <TinyGsmClient.h>
 
@@ -73,12 +74,12 @@
 #define DEFAULT_WIFI_EN ON
 
 #define LOG_MODEM_DATA true
-#define LOG_INFORMATION true
-#define LOG_ERRORS true
+#define LOG_INFORMATION false
+#define LOG_ERRORS false
 #define LOG_ALARMS true
-#define LOG_PULSIOXIMETRY true
-#define LOG_DRIVE true // Google Drive upload + MB/HMI crash capture
-#define LOG_CHARGER true
+#define LOG_PULSIOXIMETRY false
+#define LOG_DRIVE false // Google Drive upload + MB/HMI crash capture
+#define LOG_CHARGER false
 
 // Diagnostic: set to 1 to skip the upload task entirely. Writer keeps rotating
 // but every closed window is deleted instead of enqueued. Isolates whether the
@@ -104,7 +105,7 @@
 // between each heaterSafeMAXPWM ramp step, instead of a wall-clock period.
 #define HEATER_RAMP_SAMPLE_CYCLES 3
 // Consecutive failed I2C presence probes of the SECUNDARY current sensor
-// (heater/USB/battery chip) before raising HEATER_ISSUE_ALARM for a runtime
+// (heater/USB/battery chip) before raising ALARM_HEATER_FAULT for a runtime
 // dropout - see currentMonitor() in legacy/sensors.cpp. ~10 x 110ms = 1.1s,
 // long enough to ride out a transient EMI glitch without missing a real
 // dropout for many cycles.
@@ -116,13 +117,11 @@
 
 #define ALARM_SYSTEM_ENABLED true
 #define FAN_MAX_CURRENT_OVERRIDE false
-#define SILENCED_ALARM false
-#define DEFAULT_SOUND_ALARM true
 
-// Minutes TEMPERATURE_ALARM/HUMIDITY_ALARM stay silenced after a fresh
-// activation (checkAlarms(), security.cpp) vs. after a restoreState boot
-// (crash/WDT - initHardware.cpp), which only needs a short re-sync pause
-// rather than a full cold-start stabilization wait.
+// Minutes the temperature-deviation / humidity-deviation conditions stay
+// suppressed after a fresh activation (checkAlarms(), security.cpp) vs. after
+// a restoreState boot (crash/WDT - initHardware.cpp), which only needs a short
+// re-sync pause rather than a full cold-start stabilization wait.
 #define ACTUATORS_ALARM_STABILIZATION_MINS 30
 #define RESTART_ALARM_GRACE_MINS 0
 
@@ -182,8 +181,9 @@ typedef enum
   FAN_RPM_MIN_ERROR,
 } HW_ERROR_ID;
 
-// AlarmId enum (NO_ALARMS, HUMIDITY_ALARM ... POWER_SUPPLY_ALARM,
-// NUM_ALARMS, MAX_ALARM_STRING_SIZE=255) is now in shared alarm_ids.h.
+// AlarmId enum (ALARM_NONE/NO_ALARMS, ALARM_AIR_THERMAL_CUTOUT ...
+// ALARM_HUMIDITY_DEVIATION, ALARM_COUNT/NUM_ALARMS,
+// MAX_ALARM_STRING_SIZE=255) is now in shared alarm_ids.h.
 // CommStatus enum (COMM_STATUS_NONE ... COMM_STATUS_WIFI_SERVER) is now
 // in shared control_types.h. Both are included transitively via CommTask.h.
 
@@ -226,13 +226,88 @@ extern int g_restore_photo_minutes;
   10000                              // in millis, there will be a periodic tone when regulating baby's
                                      // constants
 #define buzzerStandbyTone 500        // in micros, tone freq
-#define buzzerAlarmTone 500          // in micros, tone freq
-#define buzzerAlarmBeepTime 500      // ms ON and OFF per alarm beep cycle
-#define buzzerAlarmBeepCount 500     // total beep toggles (~5 min of alarm)
 #define buzzerRotaryEncoderTone 2200 // in micros, tone freq
 #define buzzerStandbyToneDuration 50 // in micros, tone freq
 #define buzzerSwitchDuration 10      // in micros, tone freq
 #define buzzerStandbyToneTimes 1     // in micros, tone freq
+
+// Patron de rafaga y de pulso segun las Tablas 3 y 4 de IEC 60601-1-8.
+//
+// Tabla 3, numero de pulsos e intervalo ENTRE rafagas:
+//   ALTA  10 pulsos, 2,5 s a 15 s
+//   MEDIA  3 pulsos, 2,5 s a 30 s
+//   BAJA   1 o 2 pulsos, > 15 s o sin repeticion
+//
+// Tabla 3, espaciado ENTRE pulsos dentro de la rafaga:
+//   x entre 50 y 125 ms, y entre 125 y 250 ms, con variacion <= 20 % dentro
+//   de la misma rafaga. En ALTA el hueco entre el 5o y el 6o pulso vale
+//   2x + y: eso parte los diez pulsos en DOS GRUPOS DE CINCO, que es lo que
+//   hace reconocible el patron de prioridad ALTA frente a otro equipo de la
+//   misma sala. No es adorno: sin ese hueco la rafaga suena como un tren
+//   monotono de diez y deja de ser el patron de la norma.
+//   En MEDIA el espaciado es y.
+//
+// Tabla 4, duracion efectiva del pulso:
+//   ALTA 75 a 200 ms; MEDIA y BAJA 125 a 250 ms. 150 ms cumple las dos, por
+//   eso hay un unico valor.
+//   RISE TIME entre el 10 % y el 40 % de la duracion del pulso; FALL TIME lo
+//   bastante corto para que dos pulsos no se solapen.
+//
+// Las ventanas de la norma se comprueban con static_assert en Buzzer.cpp, que
+// es el unico sitio que ve a la vez estas constantes y las de alarm_machine.h.
+// ATADAS a ALARM_MIN_BURST_MS_HIGH/_MEDIUM (alarm_machine.h): esas dos fijan
+// cuanto audio exige 6.10 completar aunque la condicion se haya ido, y esa
+// duracion sale de los pulsos de aqui. Ya divergieron una vez.
+#define ALARM_PULSE_MS            150u
+#define ALARM_PULSE_RISE_MS        30u  // 20 % de 150: dentro de 10..40 %
+#define ALARM_PULSE_FALL_MS        30u
+#define ALARM_PULSE_SPACING_X_MS  100u  // x, ventana 50..125 ms
+#define ALARM_PULSE_SPACING_Y_MS  200u  // y, ventana 125..250 ms
+// Hueco entre el 5o y el 6o pulso de ALTA (2x + y).
+#define ALARM_GROUP_GAP_MS   (2u * ALARM_PULSE_SPACING_X_MS + ALARM_PULSE_SPACING_Y_MS)
+#define ALARM_BURST_PULSES_HIGH   10u
+#define ALARM_BURST_PULSES_MEDIUM 3u
+#define ALARM_BURST_PULSES_LOW    1u
+#define ALARM_BURST_PERIOD_MS_HIGH   10000u
+#define ALARM_BURST_PERIOD_MS_MEDIUM 25000u
+#define ALARM_BURST_PERIOD_MS_LOW    30000u
+
+// Duracion de cada rafaga completa, derivada de lo de arriba. El intervalo
+// ENTRE rafagas que ve el oyente es periodo - duracion:
+//   ALTA  10*150 + 8*100 + 400 = 2700 ms -> 7300 ms de silencio
+//   MEDIA  3*150 + 2*200       =  850 ms -> 24150 ms
+//   BAJA   1*150               =  150 ms -> 29850 ms
+// Se cumple ademas el orden que pide la Tabla 3: el intervalo entre rafagas
+// de MEDIA es >= el de ALTA, y el de BAJA >= el de MEDIA.
+#define ALARM_BURST_LEN_MS_HIGH                                      (ALARM_BURST_PULSES_HIGH * ALARM_PULSE_MS +                         (ALARM_BURST_PULSES_HIGH - 2u) * ALARM_PULSE_SPACING_X_MS +        ALARM_GROUP_GAP_MS)
+#define ALARM_BURST_LEN_MS_MEDIUM                                    (ALARM_BURST_PULSES_MEDIUM * ALARM_PULSE_MS +                       (ALARM_BURST_PULSES_MEDIUM - 1u) * ALARM_PULSE_SPACING_Y_MS)
+
+// Duracion del AUDIO PAUSED que pide el operador con el boton de silencio del
+// display HMI (unica interaccion de operador que existe: el encoder fisico es
+// de una revision de hardware anterior y ya no se monta).
+//
+// La clausula aplicable es 60601-2-19 201.12.3.104, NO 60601-1-8 6.8.3: 6.8.3
+// trata de los estados globales INDEFINIDOS (ALARM OFF / AUDIO OFF) y no fija
+// duracion alguna. 201.12.3.104 exige que las alarmas silenciadas
+// deliberadamente "reanuden automaticamente su funcion normal dentro de un
+// tiempo especificado POR EL FABRICANTE" - el limite no lo pone la norma, lo
+// ponemos nosotros.
+//
+// VALOR ACTUAL: 10 min. 6.8.5 obliga a declararlo en las instrucciones de
+// uso; esta en docs/alarms.md.
+//
+// Consecuencia que hay que tener presente: 201.12.3.103 exige que el aviso de
+// interrupcion de alimentacion se mantenga un minimo de 10 min, justo lo que
+// dura esta pausa. Silenciar esa alarma se come practicamente toda su
+// duracion obligatoria. Se acepta porque 6.8.4 permite al operador terminar
+// el silencio cuando quiera y la senal VISUAL nunca se inactiva (6.8.1), pero
+// si el analisis de riesgos lo revisa, el candidato natural es excluir
+// ALARM_MAINS_INTERRUPTION del silencio, no acortar esto.
+//
+// La excepcion de hasta 30 min de 201.12.3.104 es solo para el calentamiento
+// desde COLD CONDITION, y se gestiona aparte con el retardo de anuncio
+// (alarm_machine_set_announce_delay), no alargando esta pausa.
+#define ALARM_AUDIO_PAUSE_MS 600000u
 
 #include "preferences_keys.h"
 
@@ -387,9 +462,10 @@ typedef struct
   float heaterMaxPowerAmps = HEATER_MAX_POWER_AMPS;
   float skinTemperatureSetMax = SKIN_TEMPERATURE_SET_MAX;
   float airTemperatureSetMax = AIR_TEMPERATURE_SET_MAX;
-  int actuating_gprs_period = 60;
-  int phototherapy_gprs_period = 180;
-  int standby_gprs_period = 3600;
+  // Defaults en config/transport_policy.h; /config los sobrescribe en NVS.
+  int actuating_gprs_period = TX_GPRS_PERIOD_ACTUATING_S;
+  int phototherapy_gprs_period = TX_GPRS_PERIOD_PHOTOTHERAPY_S;
+  int standby_gprs_period = TX_GPRS_PERIOD_STANDBY_S;
 
   bool calibrationError = false;
 
@@ -433,6 +509,12 @@ void buzzerTone(int beepTimes, int timevTaskDelay, int freq);
 
 void shutBuzzer();
 
+// Motor de audio de alarma gobernado por estado (60601-1-8 6.10): se llama en
+// cada ciclo de securityCheck() y regenera el patron de rafaga indefinidamente
+// mientras audioRequired sea true. No comparte estado con buzzerHandler()
+// (feedback de encoder/HMI/autotest, ajenos a las alarmas).
+void buzzerAlarmUpdate(bool audioRequired, AlarmPriority priority);
+
 double measureMeanConsumption(bool, int);
 double measureStabilizedCurrent(bool sensor, int shunt, float offsetCurrent,
                                 float minExpected, float maxExpected,
@@ -448,12 +530,13 @@ void setFanPidEnabled(bool enabled);
 void alarmTimerStart(long graceMinutes = ACTUATORS_ALARM_STABILIZATION_MINS);
 void timeTrackHandler();
 
+// Puertas de actuador. Delegan en la maquina de alarmas
+// (src/modules/control/alarm_machine.h): la deteccion le pasa condiciones y
+// ella decide. Ya no hay setAlarm()/resetAlarm(): para declarar una condicion
+// se llama a alarm_machine_condition().
 bool ongoingCriticalAlarm();
 bool ongoingCriticalWiringAlarm();
 bool ongoingFanCriticalAlarm();
-void setAlarm(byte alarmID);
-void setAlarm(byte alarmID, bool alarmSound);
-void resetAlarm(byte alarmID);
 int getActiveAlarmCount();
 
 void PIDInit();
@@ -463,7 +546,9 @@ void stopPID(byte var);
 
 bool ongoingAlarms();
 byte activeAlarm();
-void reestartOngoingAlarms();
+// Boton de silencio del display HMI (hmi_cmd_msg.muteAlarm): ver definicion
+// en security.cpp para el porque del flanco de subida.
+void silenceActiveAlarmsFromDisplayMute();
 char *alarmIDtoString(byte alarmID);
 void resendActiveAlarms();
 
@@ -495,8 +580,10 @@ double roundSignificantDigits(double value, int numberOfDecimals);
 void initGPIO();
 void initEEPROM();
 void initAlarms();
+// Registro de alarmas persistido en NVS (6.12.2). Definidas en security.cpp.
+void alarmHistorySave();
+void alarmHistoryLoad();
 void security_check_reboot_cause();
-void IRAM_ATTR encSwitchHandler();
 void IRAM_ATTR encoderISR();
 void IRAM_ATTR fanEncoderISR();
 

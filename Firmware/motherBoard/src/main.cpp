@@ -462,9 +462,25 @@ void Communication_Receiver(void *pvParameters) {
                 in3.phototherapy * in3.phototherapy_intensity);
       turnFans(bool(in3.phototherapy || in3.actuation));
 
-      shutBuzzer();
-      buzzerTone(buzzerStandbyToneTimes, buzzerSwitchDuration,
-                 buzzerRotaryEncoderTone);
+      // AQUI NO SE PITA AL RECIBIR UNA TRAMA DEL DISPLAY.
+      //
+      // Habia un shutBuzzer() + buzzerTone() en este punto: el zumbador de la
+      // placa sonaba cada vez que llegaba una trama, que era el truco con el
+      // que el display conseguia confirmacion sonora al tocar un boton. Ese
+      // papel lo cubre ahora el zumbador del propio display, y los envios de
+      // estado que solo existian para dispararlo ya se retiraron.
+      //
+      // Quitarlo era obligado desde el latido de 1 Hz, que lo convertia en un
+      // pitido por segundo. Pero el problema de fondo es peor y llevaba aqui
+      // desde antes: buzzerHandler()/buzzerTone() y buzzerAlarmUpdate()
+      // escriben el MISMO canal PWM. Cada trama recibida hacia shutBuzzer(),
+      // o sea ledcWrite(0), pisando la rafaga de alarma que estuviera sonando
+      // y destrozando el patron de la Tabla 3.
+      //
+      // Y un pulso suelto del zumbador de la placa es acusticamente identico
+      // a una rafaga de prioridad BAJA, que es de UN solo pulso: el
+      // transductor de las alarmas no puede emitir sonidos que no sean
+      // alarmas.
     }
 
     // Handle Phototherapy timer expiration/calculation constantly
@@ -474,7 +490,7 @@ void Communication_Receiver(void *pvParameters) {
     // Unconditional: every loop inside gates itself on its own PID mode, and
     // the fan loop must run for phototherapy-only activation too (fan is
     // commanded on with in3.actuation == 0 — gating on actuation left
-    // FAN_CTL_PWM_CHANNEL undriven and false-fired FAN_ISSUE_ALARM).
+    // FAN_CTL_PWM_CHANNEL undriven and false-fired ALARM_FAN_FAILURE).
     PIDHandler();
     vTaskDelay(pdMS_TO_TICKS(COMMUNICATION_TASK_PERIOD_MS));
   }

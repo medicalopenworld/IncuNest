@@ -29,6 +29,31 @@ uint32_t            g_profileAck = 0;
 volatile bool       g_pendingProfileRange = false;
 BabyProfileRangeMsg g_profileRange = {0, false, 0, -1.0f, -1.0f, -1.0f, true};
 
+// --- Registro de alarmas ---
+volatile bool   g_pendingAlarmHistory = false;
+AlarmHistoryMsg g_alarmHistory = {0, {}};
+// Latido de la placa. El display tiene que detectar el silencio por su cuenta:
+// cuando el enlace cae, la alarma que declara la motherBoard no puede llegar
+// —es justamente lo que se ha perdido—, asi que si el display no lo mira solo,
+// se queda enseñando "todo OK" y unas cifras congeladas que el operador lee
+// como si fueran actuales. Ese es el peligro real, mas que el aviso en si.
+volatile uint32_t g_lastCtrlLineMs = 0;
+volatile bool     g_ctrlEverSeen = false;
+
+bool Display_BoardEverSeen(void) { return g_ctrlEverSeen; }
+
+bool Display_IsBoardLinkLost(void) {
+  // Antes de la primera linea no hay enlace que perder: el display arranca
+  // antes de que la placa empiece a emitir.
+  if (!g_ctrlEverSeen) {
+    return false;
+  }
+  return (uint32_t)(millis() - g_lastCtrlLineMs) > BOARD_LINK_TIMEOUT_MS;
+}
+
+volatile bool   g_pendingAlarmDesc = false;
+AlarmDescMsg    g_alarmDesc = {0, {0}, {0}};
+
 // --- Baby history viewer protocol state ---
 volatile bool        g_pendingBabyHistory = false;
 BabyHistoryMsg       g_babyHistory = {0, 0, 0, {}};
@@ -54,6 +79,25 @@ bool error = false;
 static char rxBuffer[COMM_RX_BUFFER_SIZE];
 static int rxIndex = 0;
 
+// Formato de parseo de `CTRL,ALM,<id>,<titulo>,<descripcion>,<0|1>`.
+//
+// Los anchos NO se escriben a mano: se derivan de las macros de capacidad del
+// protocolo (shared/include/alarm_ids.h), que son las mismas de las que salen
+// los tamanos de los buffers. Un ancho mayor que el buffer lo desborda; uno
+// menor es peor todavia, porque no trunca: sscanf para al llenar el ancho, no
+// encuentra la coma que el formato exige a continuacion y devuelve menos
+// campos de los pedidos, asi que la LINEA ENTERA se descarta. Ese fue el
+// defecto real — 31 hardcodeado contra descripciones de hasta 43 caracteres —
+// y dejaba 12 de las 16 alarmas sin aparecer en pantalla en espanol.
+//
+// El ancho de %[...] cuenta caracteres SIN el terminador, de ahi que sea
+// exactamente ALARM_*_MAX_CHARS y el buffer uno mas.
+#define ALM_STR2(x) #x
+#define ALM_STR(x) ALM_STR2(x)
+#define ALM_SCAN_FMT                                              \
+  "CTRL,ALM,%d,%" ALM_STR(ALARM_TITLE_MAX_CHARS) "[^,],%" ALM_STR( \
+      ALARM_DESC_MAX_CHARS) "[^,],%d,%d"
+
 // Motherboard-provided wall clock (CTRL,TIME). 0 = not synced there yet.
 static uint32_t s_mbEpoch = 0;
 static uint32_t s_mbEpochAtMs = 0;
@@ -71,6 +115,7 @@ extern unsigned long photoTimerStartMs;
 // --- Shared flags/state (from UITask.cpp) ---
 extern bool tempSwitched;
 extern bool alarmsMuted;
+extern uint32_t g_muteHoldUntilMs;
 extern bool g_stateSynced;
 extern uint32_t g_lastStateReqMs;
 extern int selectedPanel;
@@ -161,6 +206,30 @@ void Communication_SendProfileKangaroo(uint32_t seq) {
 #endif
 }
 
+void Communication_SendAlarmHistoryReq(void) {
+#if IS_HMI
+  COMM_SERIAL.print("HMI,ALM_HISTORY_REQ\n");
+#endif
+}
+
+void Communication_SendAlarmTest(void) {
+#if IS_HMI
+  COMM_SERIAL.print("HMI,ALM_TEST\n");
+#endif
+}
+
+void Communication_SendAlarmSilence(uint8_t id, bool on) {
+#if IS_HMI
+  COMM_SERIAL.printf("HMI,ALM_SILENCE,%u,%d\n", (unsigned)id, on ? 1 : 0);
+#endif
+}
+
+void Communication_SendAlarmDescReq(uint8_t id) {
+#if IS_HMI
+  COMM_SERIAL.printf("HMI,ALM_DESC_REQ,%u\n", (unsigned)id);
+#endif
+}
+
 void Communication_SendProfileHistoryReq(uint32_t page) {
 #if IS_HMI
   COMM_SERIAL.printf("HMI,PROFILE_HISTORY_REQ,%u\n", (unsigned)page);
@@ -226,16 +295,19 @@ static void parse_message(const char *line) {
   } else if (strncmp(line, "CTRL,STATE", strlen("CTRL,STATE")) == 0) {
     int act, mode, photo, mute, sn, hwNum, numAlarms, skinE, commStatus, lang, probeState = 0;
     uint32_t alarmBitmask = 0;
+    uint32_t silencedBitmask = 0;
+    int almTest = ALARM_TEST_IDLE_HMI;
+    int silenceLeftS = 0;
     double photoTimeRemaining;  // Formato MM.SS (ej: 18.33 = 18 min 33 seg)
     char hwRev;
     char fwVer[20];
     double airSet, skinSet, humSet;
     int result =
-        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d,%lf,%d,%d,0x%X",
+        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d,%lf,%d,%d,0x%X,0x%X,%d,%d",
                &act, &mode, &airSet, &skinSet, &humSet, &photo, &mute,
-               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus, &photoTimeRemaining, &lang, &probeState, &alarmBitmask);
+               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus, &photoTimeRemaining, &lang, &probeState, &alarmBitmask, &silencedBitmask, &almTest, &silenceLeftS);
 
-    // Accept 12 (old), 13 (with alarms), 14+skinModeEnabled, 15+photoTime, 16+lang, 17+probeState, 18+bitmask
+    // Accept 12 (old), 13 (with alarms), 14+skinModeEnabled, 15+photoTime, 16+lang, 17+probeState, 18+bitmask, 19+silenced
     if (result >= 12) {
       ctrl_state_msg.actuation = act;
       ctrl_state_msg.controlMode = mode;
@@ -244,6 +316,20 @@ static void parse_message(const char *line) {
       ctrl_state_msg.desiredHumidity = humSet;
       ctrl_state_msg.phototherapyMode = photo;
       ctrl_state_msg.muteAlarm = mute;
+      // El campo ya no es el eco de lo que pidio este display, sino el estado
+      // REAL del audio en la placa: 1 = no queda nada que silenciar. La copia
+      // local se rinde ante el, que es quien sabe que la pausa de 2 min de
+      // 6.8.3 ha caducado y el zumbador ha vuelto. Sin esto el boton de
+      // silencio no reaparecia nunca y la alarma se quedaba sonando sin forma
+      // de callarla.
+      //
+      // La ventana de gracia evita el parpadeo de la pulsacion: entre que el
+      // operador toca SILENCIAR y la placa lo procesa puede llegar un
+      // CTRL,STATE emitido antes del silencio, que revertiria el boton y
+      // generaria un flanco de subida espurio en el comando.
+      if ((int32_t)(millis() - g_muteHoldUntilMs) >= 0) {
+        alarmsMuted = (mute != 0);
+      }
       if (result >= 13) ctrl_state_msg.skinModeEnabled = skinE;
       if (result >= 16) ctrl_state_msg.language = lang;
       if (result >= 17) {
@@ -252,6 +338,22 @@ static void parse_message(const char *line) {
       }
       if (result >= 18) ctrl_state_msg.alarmBitmask = alarmBitmask;
       else ctrl_state_msg.alarmBitmask = (uint32_t)-1; // Valor nulo si no viene
+      // Que condiciones estan en AUDIO PAUSED (6.8.1: el operador tiene que
+      // poder determinar CUALES). Si la placa es de una version anterior y no
+      // manda el campo, se asume ninguna silenciada: es el lado seguro, porque
+      // como mucho ofrece silenciar algo que ya lo estaba, nunca oculta que
+      // una alarma sigue callada.
+      ctrl_state_msg.silencedBitmask = (result >= 19) ? silencedBitmask : 0u;
+      // Prioridad que reproduce la prueba de funcionamiento, o
+      // ALARM_TEST_IDLE. Una placa antigua que no mande el campo se interpreta
+      // como "sin prueba", que es lo unico seguro: nunca hace creer que suena
+      // una prueba cuando lo que suena podria ser una alarma.
+      ctrl_state_msg.alarmTestPriority =
+          (result >= 20) ? almTest : ALARM_TEST_IDLE_HMI;
+      // Cuenta atras de la pausa de audio. 0 = no hay ninguna silenciada, que
+      // es tambien lo que se asume con una placa antigua que no mande el
+      // campo: como mucho no se pinta la cuenta atras, nunca se inventa una.
+      ctrl_state_msg.silenceRemainingS = (result >= 21) ? silenceLeftS : 0;
       ctrl_state_msg.serialNumber = sn;
 
       strncpy(ctrl_state_msg.fwVer, fwVer, sizeof(ctrl_state_msg.fwVer));
@@ -293,36 +395,142 @@ static void parse_message(const char *line) {
     }
   } else if (strncmp(line, "CTRL,PROBE", 10) == 0) {
     int state = 0;
-    if (sscanf(line, "CTRL,PROBE,%d", &state) == 1 &&
-        state >= SPO2_PROBE_DISCONNECTED && state <= SPO2_PROBE_APPLIED) {
+    if (sscanf(line, "CTRL,PROBE,%d", &state) == 1) {
+      // Fail-safe: un estado parseable NUNCA se descarta. Solo APPLIED habilita
+      // la traza; cualquier otro valor — incluido uno que esta version del HMI
+      // no conozca — significa "sin contacto valido". Descartarlo dejaria en pie
+      // el ultimo APPLIED y con el la traza PPG congelada en la pantalla de
+      // bloqueo, que es justo el fallo que esto corrige (SATURATING=3 llegaba y
+      // se rechazaba por estar fuera del rango 0..2).
+      if (state < SPO2_PROBE_DISCONNECTED || state > SPO2_PROBE_SATURATING) {
+        COMM_LOG("[COMM] CTRL,PROBE estado desconocido (%d) -> NOT_APPLIED\n",
+                 state);
+        state = SPO2_PROBE_NOT_APPLIED;
+      }
       ctrl_probe_msg.state   = (ProbeContactState)state;
       ctrl_probe_msg.updated = true;
-      static const char *const probe_state_names[] = {"DISCONNECTED", "NOT_APPLIED", "APPLIED"};
+      static const char *const probe_state_names[] = {
+          "DISCONNECTED", "NOT_APPLIED", "APPLIED", "SATURATING"};
+      (void)probe_state_names;
       // COMM_LOG("[COMM] CTRL,PROBE -> %s\n", probe_state_names[state]);
     } else {
       COMM_LOG("[COMM] CTRL,PROBE parse error: %s\n", line);
     }
-  } else if (strncmp(line, "CTRL,ALM", strlen("CTRL,ALM")) ==
-             0) {
+  } else if (strncmp(line, "CTRL,ALM,", strlen("CTRL,ALM,")) == 0) {
+    // La coma del prefijo NO es cosmetica. Sin ella este strncmp comparaba 8
+    // caracteres, y "CTRL,ALM" es prefijo de "CTRL,ALM_HISTORY" y de
+    // "CTRL,ALM_DESC": al ser una cadena else-if, esta rama se los tragaba a
+    // los dos y las ramas de abajo eran codigo muerto. El sintoma era que el
+    // registro de alarmas llegaba siempre vacio y el detalle de una entrada
+    // decia "descripcion no disponible", porque las respuestas de la placa se
+    // descartaban aqui como CTRL,ALM malformadas.
+    //
+    // Regla para cualquier mensaje que se anada: comparar SIEMPRE con el
+    // separador incluido, o poner la rama especifica antes que la generica.
     int id, stateInt;
     char type[ALARM_TYPE_LEN];
     char description[ALARM_DESC_LEN];
-    // Use width limits in sscanf to prevent buffer overflow
-    // ALARM_TYPE_LEN is typically small, we assume 20-30 chars.
-    // We'll use %31[^,] as a safe approximation if LEN is 32.
-    // Ideally we should use macros but for now we hardcode a safe limit.
-    int result = sscanf(line, "CTRL,ALM,%d,%31[^,],%31[^,],%d", &id, type,
-                        description, &stateInt);
-    if (result == 4) {
+    static_assert(ALARM_TYPE_LEN == ALARM_TITLE_MAX_CHARS + 1,
+                  "el ancho de parseo del titulo debe ser el del buffer - 1");
+    static_assert(ALARM_DESC_LEN == ALARM_DESC_MAX_CHARS + 1,
+                  "el ancho de parseo de la descripcion debe ser el del buffer - 1");
+    // Conteo TOLERANTE: 4 campos (placa anterior, sin prioridad) o 5. Exigir 5
+    // exactos volveria a descartar la linea entera contra un firmware viejo, y
+    // una alarma descartada es una alarma invisible.
+    int priority = -1;
+    int result =
+        sscanf(line, ALM_SCAN_FMT, &id, type, description, &stateInt, &priority);
+    if (result >= 4) {
       ctrl_msg_alarm.id = id;
-      strncpy(ctrl_msg_alarm.type, type, ALARM_TYPE_LEN);
+      strncpy(ctrl_msg_alarm.type, type, ALARM_TYPE_LEN - 1);
       ctrl_msg_alarm.type[ALARM_TYPE_LEN - 1] = '\0';
-      strncpy(ctrl_msg_alarm.description, description, ALARM_DESC_LEN);
+      strncpy(ctrl_msg_alarm.description, description, ALARM_DESC_LEN - 1);
       ctrl_msg_alarm.description[ALARM_DESC_LEN - 1] = '\0';
       ctrl_msg_alarm.state = (stateInt != 0);
+      // Sin campo de prioridad se asume la mas urgente: equivocarse hacia
+      // arriba avisa de mas, hacia abajo silencia algo grave.
+      ctrl_msg_alarm.priority = (result >= 5 && priority >= 0) ? priority : 2;
     } else {
       COMM_LOG("[COMM] HMI failed to parse CTRL,ALM: %s\n", line);
     }
+  } else if (strncmp(line, "CTRL,ALM_DESC,", 14) == 0) {
+    // CTRL,ALM_DESC,<id>,<titulo>,<descripcion>
+    // Respuesta a HMI,ALM_DESC_REQ. Texto ya resuelto por la placa.
+    unsigned id = 0;
+    char title[ALARM_TITLE_MAX_CHARS + 1] = {0};
+    char desc[ALARM_DESC_MAX_CHARS + 1] = {0};
+    // La descripcion es el ultimo campo y puede llevar comas, asi que se toma
+    // hasta el fin de linea ([^\n]) en vez de hasta la siguiente coma.
+    const int got = sscanf(line + 14,
+                           "%u,%" ALM_STR(ALARM_TITLE_MAX_CHARS) "[^,],%"
+                           ALM_STR(ALARM_DESC_MAX_CHARS) "[^\n]",
+                           &id, title, desc);
+    if (got != 3 || id >= ALARM_COUNT) {
+      COMM_LOG("[COMM] CTRL,ALM_DESC malformada, descartada\n");
+      return;
+    }
+    g_alarmDesc.id = (uint8_t)id;
+    strncpy(g_alarmDesc.title, title, ALARM_TITLE_MAX_CHARS);
+    g_alarmDesc.title[ALARM_TITLE_MAX_CHARS] = '\0';
+    strncpy(g_alarmDesc.desc, desc, ALARM_DESC_MAX_CHARS);
+    g_alarmDesc.desc[ALARM_DESC_MAX_CHARS] = '\0';
+    g_pendingAlarmDesc = true;
+
+  } else if (strncmp(line, "CTRL,ALM_HISTORY,", 17) == 0) {
+    // CTRL,ALM_HISTORY,n{,id,prio,raised,cleared,limite,valor,titulo}xn
+    //
+    // Llega entero de la motherBoard, titulo incluido: aqui no se traduce ni
+    // se deduce nada, solo se pinta. La placa es la dueña de la informacion.
+    //
+    // Se parsea entrada a entrada y NO se acepta nada si alguna viene
+    // incompleta: aceptar a medias mostraria un registro clinico con campos de
+    // otra entrada. Regla general del protocolo (.claude/rules/security.md):
+    // descarte silencioso con log, nunca datos parciales.
+    int n = 0;
+    const char *p = line + 17;
+    if (sscanf(p, "%d", &n) != 1 || n < 0 || n > 10) {
+      COMM_LOG("[COMM] CTRL,ALM_HISTORY cabecera invalida: %s\n", line);
+      return;
+    }
+    AlarmHistoryMsg parsed = {0, {}};
+    bool ok = true;
+    for (int i = 0; i < n && ok; i++) {
+      p = strchr(p, ',');
+      if (!p) { ok = false; break; }
+      p++;
+      unsigned id = 0, prio = 0, resolved = 0;
+      unsigned long raised = 0, cleared = 0;
+      int limitC = 0, valueC = 0;
+      char title[ALARM_TITLE_MAX_CHARS + 1] = {0};
+      // %n dice cuantos caracteres consumio sscanf, que es la unica forma
+      // fiable de avanzar al siguiente registro: contar comas a mano se rompe
+      // en cuanto un campo cambia de ancho. %n no cuenta para el retorno, de
+      // ahi que se comparen 7 campos y no 8.
+      int consumed = 0;
+      const int got =
+          sscanf(p, "%u,%u,%u,%lu,%lu,%d,%d,%" ALM_STR(ALARM_TITLE_MAX_CHARS)
+                    "[^,\n]%n",
+                 &id, &prio, &resolved, &raised, &cleared, &limitC, &valueC,
+                 title, &consumed);
+      if (got != 8) { ok = false; break; }
+      parsed.items[i].id = (uint8_t)id;
+      parsed.items[i].priority = (uint8_t)prio;
+      parsed.items[i].resolved = (resolved != 0);
+      parsed.items[i].raisedEpoch = (uint32_t)raised;
+      parsed.items[i].clearedEpoch = (uint32_t)cleared;
+      parsed.items[i].limitCenti = (int16_t)limitC;
+      parsed.items[i].valueCenti = (int16_t)valueC;
+      strncpy(parsed.items[i].title, title, ALARM_TITLE_MAX_CHARS);
+      parsed.items[i].title[ALARM_TITLE_MAX_CHARS] = '\0';
+      p += consumed;
+    }
+    if (!ok) {
+      COMM_LOG("[COMM] CTRL,ALM_HISTORY incompleta, descartada\n");
+      return;
+    }
+    parsed.count = n;
+    g_alarmHistory = parsed;
+    g_pendingAlarmHistory = true;
   } else if (strncmp(line, "CTRL,WIFI,", 10) == 0) {
     char ssid[64], pass[64];
     if (sscanf(line, "CTRL,WIFI,%63[^,],%63[^\n]", ssid, pass) == 2) {
@@ -370,20 +578,23 @@ static void parse_message(const char *line) {
       char *kTok = strtok_r(nullptr, ",", &save);
       char *ptTok = strtok_r(nullptr, ",", &save);
       char *thTok = strtok_r(nullptr, ",", &save);
+      char *huTok = strtok_r(nullptr, ",", &save);
       if (!seqTok || !nameTok || !gestTok || !wTok || !kTok || !ptTok ||
-          !thTok) {
+          !thTok || !huTok) {
         ok = false;
         break;
       }
-      char *e1, *e2, *e3, *e4, *e5, *e6;
+      char *e1, *e2, *e3, *e4, *e5, *e6, *e7;
       long seq = strtol(seqTok, &e1, 10);
       long gest = strtol(gestTok, &e2, 10);
       long w = strtol(wTok, &e3, 10);
       long kang = strtol(kTok, &e4, 10);
       unsigned long photoMin = strtoul(ptTok, &e5, 10);
       unsigned long thermoMin = strtoul(thTok, &e6, 10);
-      if (*e1 || *e2 || *e3 || *e4 || *e5 || *e6 || seq < 0 || gest < 0 ||
-          gest > 255 || w < 0 || w > 65535 || kang < 0 || kang > 65535) {
+      unsigned long humMin = strtoul(huTok, &e7, 10);
+      if (*e1 || *e2 || *e3 || *e4 || *e5 || *e6 || *e7 || seq < 0 ||
+          gest < 0 || gest > 255 || w < 0 || w > 65535 || kang < 0 ||
+          kang > 65535) {
         ok = false;
         break;
       }
@@ -394,7 +605,7 @@ static void parse_message(const char *line) {
       msg.items[i].kangarooCount = (uint16_t)kang;
       msg.items[i].phototherapyMinutes = (uint32_t)photoMin;
       msg.items[i].thermoMinutes = (uint32_t)thermoMin;
-      msg.items[i].thermoMinutes = (uint32_t)thermoMin;
+      msg.items[i].humidityMinutes = (uint32_t)humMin;
     }
     if (ok) {
       g_profileList = msg;
@@ -430,7 +641,8 @@ static void parse_message(const char *line) {
     }
   } else if (strncmp(line, "CTRL,PROFILE_HISTORY", 20) == 0) {
     // CTRL,PROFILE_HISTORY,<page>,<totalCount>,<n>{,<seq>,<name>,<gestWeeks>,
-    //   <lastWeightGrams>,<admissionEpoch>,<dischargeEpoch>,<outcome>}xn
+    //   <lastWeightGrams>,<admissionEpoch>,<dischargeEpoch>,<outcome>,
+    //   <kangarooCount>,<phototherapyMin>,<thermoMin>,<humidityMin>}xn
     // Same manual comma-split pattern as PROFILE_LIST: every field validated
     // before use, malformed line = silent discard (security.md).
     char buf[COMM_RX_BUFFER_SIZE];
@@ -463,12 +675,13 @@ static void parse_message(const char *line) {
       char *kTok = strtok_r(nullptr, ",", &save);
       char *ptTok = strtok_r(nullptr, ",", &save);
       char *thTok = strtok_r(nullptr, ",", &save);
+      char *huTok = strtok_r(nullptr, ",", &save);
       if (!seqTok || !nameTok || !gestTok || !wTok || !admTok || !disTok ||
-          !ocTok || !kTok || !ptTok || !thTok) {
+          !ocTok || !kTok || !ptTok || !thTok || !huTok) {
         ok = false;
         break;
       }
-      char *p1, *p2, *p3, *p4, *p5, *p6, *p7, *p8, *p9;
+      char *p1, *p2, *p3, *p4, *p5, *p6, *p7, *p8, *p9, *p10;
       long seq = strtol(seqTok, &p1, 10);
       long gest = strtol(gestTok, &p2, 10);
       long w = strtol(wTok, &p3, 10);
@@ -478,8 +691,9 @@ static void parse_message(const char *line) {
       long kang = strtol(kTok, &p7, 10);
       unsigned long photoMin = strtoul(ptTok, &p8, 10);
       unsigned long thermoMin = strtoul(thTok, &p9, 10);
+      unsigned long humMin = strtoul(huTok, &p10, 10);
       if (*p1 || *p2 || *p3 || *p4 || *p5 || *p6 || *p7 || *p8 || *p9 ||
-          seq < 0 ||
+          *p10 || seq < 0 ||
           gest < 0 || gest > 255 || w < 0 || w > 65535 || oc < 0 || oc > 3 ||
           kang < 0 || kang > 65535) {
         ok = false;
@@ -494,6 +708,10 @@ static void parse_message(const char *line) {
       msg.items[i].outcome = (uint8_t)oc;
       msg.items[i].kangarooCount = (uint16_t)kang;
       msg.items[i].phototherapyMinutes = (uint32_t)photoMin;
+      // Was parsed but never stored, so the archived cards showed an
+      // uninitialised "Termo" value.
+      msg.items[i].thermoMinutes = (uint32_t)thermoMin;
+      msg.items[i].humidityMinutes = (uint32_t)humMin;
     }
     if (ok) {
       g_babyHistory = msg;
@@ -564,6 +782,11 @@ static bool ReceiveMessageFromOtherESP() {
       rxBuffer[rxIndex] = '\0'; // Null-terminate
       if (rxIndex > 0) {
         if (strncmp(rxBuffer, EXPECTED_PREFIX, strlen(EXPECTED_PREFIX)) == 0) {
+          // Latido de la placa, simetrico al que el display le manda a ella.
+          // Se marca con el prefijo ya validado y antes de parsear: lo que se
+          // vigila es que la placa siga hablando, no lo que diga.
+          g_lastCtrlLineMs = millis();
+          g_ctrlEverSeen = true;
           parse_message(rxBuffer);
           msgReceived = true;
         }
@@ -764,6 +987,7 @@ static void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
 
   // Actualizar slot con los datos recibidos
   alarmList[index].id = alarm.id;
+  alarmList[index].priority = alarm.priority;
   strncpy(alarmList[index].type, alarm.type, ALARM_TYPE_LEN - 1);
   alarmList[index].type[ALARM_TYPE_LEN - 1] = '\0';
   strncpy(alarmList[index].description, alarm.description, ALARM_DESC_LEN - 1);
@@ -809,9 +1033,28 @@ void Comm_Task(void *pvParameters) {
     }
 
 #if IS_HMI
+    // Keepalive de 1 Hz.
+    //
+    // Hasta ahora el display solo transmitia cuando algo cambiaba, asi que en
+    // la pantalla principal quieta podian pasar minutos sin una sola trama y
+    // el silencio no significaba nada. Sin un latido periodico la placa no
+    // puede distinguir "no hay novedades" de "el display esta muerto", y
+    // ALARM_HMI_LINK_LOST no era detectable.
+    //
+    // Una linea por segundo es del mismo orden que el CTRL,STATE que ya manda
+    // la placa; no es el trafico periodico evitable que preocupa en
+    // known_issues.md #2, que hablaba de rafagas por evento.
+    static uint32_t lastKeepaliveMs = 0;
+    const uint32_t nowMs = millis();
+    if ((uint32_t)(nowMs - lastKeepaliveMs) >= HMI_KEEPALIVE_PERIOD_MS) {
+      hmi_msg.shouldSendData = true;
+    }
     if (hmi_msg.shouldSendData) {
       SendMessageToOtherESP();
       hmi_msg.shouldSendData = false;
+      // El reloj se reinicia con CUALQUIER envio, no solo con el keepalive:
+      // una trama por cambio vale igual como latido y ahorra la siguiente.
+      lastKeepaliveMs = nowMs;
     }
 #endif
 
@@ -820,6 +1063,17 @@ void Comm_Task(void *pvParameters) {
 }
 
 void CreateCommTask() {
+  // El centinela de "sin prueba en curso" es 255, pero ctrl_state_msg se
+  // inicializa a CERO, y cero es ALARM_PRIORITY_LOW: una prioridad valida.
+  // Sin motherBoard conectada no llega ningun CTRL,STATE que lo corrija, asi
+  // que el display arrancaba creyendo que habia una prueba de alarmas
+  // corriendo y pintaba el banner "ALARM TEST" para siempre.
+  //
+  // Misma familia de fallo que el clearedEpoch del registro: un centinela que
+  // coincide con un valor legitimo. Aqui se rompe el empate poniendo el
+  // centinela de verdad antes de arrancar la tarea.
+  ctrl_state_msg.alarmTestPriority = ALARM_TEST_IDLE_HMI;
+
   xTaskCreatePinnedToCore(Comm_Task, "Comm", COMM_TASK_STACK_SIZE, NULL,
                           COMM_TASK_PRIORITY, &s_comm_task_handle, CORE_ID_FREERTOS);
 }

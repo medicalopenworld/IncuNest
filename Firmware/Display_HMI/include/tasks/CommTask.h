@@ -17,6 +17,27 @@
 
 #define COMM_SERIAL Serial
 
+// Cadencia del latido del display hacia la placa. La placa declara
+// ALARM_HMI_LINK_LOST tras HMI_LINK_TIMEOUT_MS sin recibir nada; el margen
+// entre ambos (5 tramas) evita declararlo por un hueco puntual de la UART.
+#define HMI_KEEPALIVE_PERIOD_MS 1000u
+
+// Y al reves: silencio de la PLACA visto desde el display. La motherBoard
+// emite CTRL,STATE y CTRL,TEL cada 1 s, asi que 5 s son cinco tramas — la
+// misma ventana que usa ella para declarar ALARM_HMI_LINK_LOST. Simetrica a
+// proposito: un solo numero que recordar y los dos extremos cuentan igual.
+#define BOARD_LINK_TIMEOUT_MS 5000u
+
+// true si la placa lleva BOARD_LINK_TIMEOUT_MS sin decir nada. Mientras lo
+// sea, las cifras en pantalla estan MUERTAS y no deben mostrarse como si
+// fueran medidas actuales.
+bool Display_IsBoardLinkLost(void);
+
+// true en cuanto ha llegado una sola linea valida de la placa. Distinto de
+// "el enlace esta vivo": sirve para no afirmar nada sobre un equipo del que
+// todavia no se sabe nada, como al arrancar el display sin motherBoard.
+bool Display_BoardEverSeen(void);
+
 // Expected prefix of incoming messages
 #if IS_HMI
 #define EXPECTED_PREFIX "CTRL"
@@ -67,6 +88,17 @@ typedef struct {
   int      photoMinutesRemaining;
   int      photoSecondsRemaining;
   uint32_t alarmBitmask;
+  // Bit por AlarmId de las condiciones en AUDIO PAUSED. La placa es la dueña
+  // de este estado: la pausa caduca sola (60601-2-19 201.12.3.104) y el
+  // display no puede saberlo por su cuenta.
+  uint32_t silencedBitmask;
+  // Prioridad que reproduce la prueba de funcionamiento de alarmas
+  // (201.12.3.105), o ALARM_TEST_IDLE_HMI si no hay prueba en curso.
+  int      alarmTestPriority;
+  // Segundos hasta que vuelva el audio de la pausa que expira antes, 0 si no
+  // hay ninguna condicion silenciada. Alimenta la cuenta atras que se pinta
+  // junto al icono de AUDIO PAUSED.
+  int      silenceRemainingS;
   int      skinProbeState;
   // HMI-internal flag (not part of the protocol)
   bool     newState;
@@ -75,9 +107,18 @@ typedef struct {
 // Legacy name for the probe state enum
 typedef SkinProbeState ProbeContactState;
 // SPO2_PROBE_* aliases (HMI code uses these names)
+// El contrato numerico lo fija ProbeState de la libreria incunest_afe4490 (la
+// motherboard reenvia el valor crudo en CTRL,PROBE): 0=DISCONNECTED,
+// 1=NOT_APPLIED, 2=APPLIED, 3=SATURATING. Si la libreria anade un estado
+// nuevo, hay que anadirlo aqui y en PROTOCOL.md: el HMI trata cualquier
+// estado desconocido como "sin contacto" (fail-safe), no lo descarta.
 #define SPO2_PROBE_DISCONNECTED SKIN_PROBE_NOT_CONNECTED
 #define SPO2_PROBE_NOT_APPLIED  SKIN_PROBE_PENDING_VALIDATION
 #define SPO2_PROBE_APPLIED      SKIN_PROBE_VALID
+// Canal saturado desde arriba (exceso de luz): la presencia de tejido es
+// DESCONOCIDA, por lo que no implica APPLIED. Es el estado tipico al retirar
+// la sonda, que queda expuesta a la luz ambiente.
+#define SPO2_PROBE_SATURATING   SKIN_PROBE_INVALID
 
 // PPG waveform sample (CTRL,PPG — 25 Hz)
 typedef struct {
@@ -143,6 +184,7 @@ struct BabyProfileListItem {
   uint16_t kangarooCount;      // times taken out to the mother
   uint32_t phototherapyMinutes;// accumulated exposure for this baby
   uint32_t thermoMinutes;      // accumulated thermal-control time
+  uint32_t humidityMinutes;    // accumulated humidity-control time
 };
 struct BabyProfileListMsg {
   int                  count; // 0-3
@@ -184,6 +226,7 @@ struct BabyHistoryItem {
   uint16_t kangarooCount;
   uint32_t phototherapyMinutes;
   uint32_t thermoMinutes;
+  uint32_t humidityMinutes;
 };
 struct BabyHistoryMsg {
   uint32_t page;
@@ -197,6 +240,56 @@ struct BabyWeightHistoryMsg {
   uint16_t dayOffset[50];
   uint16_t weightGrams[50];
 };
+
+// Registro de alarmas (IEC 60601-1-8 6.12.2). Llega entero de la motherBoard,
+// titulo incluido: aqui no se traduce ni se deduce nada, solo se pinta.
+struct AlarmHistoryItem {
+  uint8_t  id;
+  uint8_t  priority;
+  // Campo propio, NO deducible de clearedEpoch != 0: sin hora sincronizada la
+  // placa guarda clearedEpoch = 0 tambien al resolverse, y una alarma resuelta
+  // quedaba indistinguible de una viva.
+  bool     resolved;
+  uint32_t raisedEpoch;   // 0 = la placa no tenia hora sincronizada
+  uint32_t clearedEpoch;  // 0 = la placa no tenia hora sincronizada
+  int16_t  limitCenti;    // limite en vigor x100, 0 si no aplica
+  int16_t  valueCenti;    // medida que la disparo x100, 0 si no aplica
+  char     title[ALARM_TITLE_MAX_CHARS + 1];
+};
+struct AlarmHistoryMsg {
+  int count;  // 0..10
+  AlarmHistoryItem items[10];
+};
+
+// Detalle de una alarma concreta (CTRL,ALM_DESC). No viaja dentro del
+// historial porque 10 descripciones no caben en una linea; se pide bajo
+// demanda al abrir el detalle. La placa lo manda ya traducido.
+struct AlarmDescMsg {
+  uint8_t id;
+  char    title[ALARM_TITLE_MAX_CHARS + 1];
+  char    desc[ALARM_DESC_MAX_CHARS + 1];
+};
+
+extern volatile bool        g_pendingAlarmHistory;
+extern AlarmHistoryMsg      g_alarmHistory;
+void Communication_SendAlarmHistoryReq(void);
+
+extern volatile bool        g_pendingAlarmDesc;
+extern AlarmDescMsg         g_alarmDesc;
+void Communication_SendAlarmDescReq(uint8_t id);
+
+// AUDIO PAUSED de UNA condicion. on=false lo cancela, que es lo que exige
+// 60601-1-8 6.8.4 ("means to terminate any ALARM SIGNAL inactivation state").
+void Communication_SendAlarmSilence(uint8_t id, bool on);
+
+// Valor de alarmTestPriority cuando no hay prueba en curso. Espeja
+// ALARM_TEST_IDLE de la motherBoard, que el display no puede incluir por vivir
+// en motherBoard/src.
+#define ALARM_TEST_IDLE_HMI 0xFF
+
+// Lanza la prueba de funcionamiento de las senales de alarma (60601-2-19
+// 201.12.3.105). La placa la rechaza si hay alguna alarma en curso.
+void Communication_SendAlarmTest(void);
 
 extern volatile bool        g_pendingBabyHistory;
 extern BabyHistoryMsg       g_babyHistory;
