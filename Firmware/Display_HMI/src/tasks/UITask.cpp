@@ -486,7 +486,24 @@ void update_labels() {
   // unica medida que se puede pintar es "no la hay".
   const bool linkLost = Display_IsBoardLinkLost();
 
-  if (!linkLost) {
+  // Cada medida se juzga POR SEPARADO. El enlace puede estar perfectamente
+  // vivo y faltar un solo sensor, y hasta ahora solo la caida del enlace tenia
+  // derecho a "--": un sensor retirado pintaba el 0 que mandaba la placa, que
+  // es un numero plausible y alarmante en vez de la ausencia de dato que es.
+  // Mismo criterio para las dos causas — lo que se ha perdido es saberlo.
+  const bool airOk =
+      !linkLost && !PROTO_TEL_TEMP_IS_UNAVAILABLE(airTempValueDetected);
+  const bool skinOk =
+      !linkLost && !PROTO_TEL_TEMP_IS_UNAVAILABLE(skinTempValueDetected);
+  const bool humOk = !linkLost && humValueDetected != PROTO_TEL_HUM_UNAVAILABLE;
+
+  // Para no reescribir los mismos "--" en cada pasada, igual que hacen los
+  // ultimos valores pintados con las medidas buenas.
+  static bool airDead = false, skinDead = false, humDead = false;
+  const char *NO_DATA = "--";
+
+  if (airOk) {
+    airDead = false;
     if (abs(airTempValueDetected - l_airDet) > TEMP_LABEL_UPDATE_THRESHOLD) {
       l_airDet = airTempValueDetected;
       snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValueDetected);
@@ -494,7 +511,16 @@ void update_labels() {
       lv_label_set_text(ui_TempAirDetectedRight, buffer);
       lv_label_set_text(ui_Label18, buffer);
     }
+  } else if (!airDead) {
+    airDead = true;
+    l_airDet = -1.0;  // fuerza repintado cuando el sensor vuelva
+    lv_label_set_text(ui_TempAirDetected, NO_DATA);
+    lv_label_set_text(ui_TempAirDetectedRight, NO_DATA);
+    lv_label_set_text(ui_Label18, NO_DATA);
+  }
 
+  if (skinOk) {
+    skinDead = false;
     if (abs(skinTempValueDetected - l_skinDet) > TEMP_LABEL_UPDATE_THRESHOLD) {
       l_skinDet = skinTempValueDetected;
       snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValueDetected);
@@ -502,7 +528,16 @@ void update_labels() {
       lv_label_set_text(ui_TempSkinDetectedRight, buffer);
       lv_label_set_text(ui_Label14, buffer);
     }
+  } else if (!skinDead) {
+    skinDead = true;
+    l_skinDet = -1.0;
+    lv_label_set_text(ui_TempSkinDetected, NO_DATA);
+    lv_label_set_text(ui_TempSkinDetectedRight, NO_DATA);
+    lv_label_set_text(ui_Label14, NO_DATA);
+  }
 
+  if (humOk) {
+    humDead = false;
     if (humValueDetected != l_humDet) {
       l_humDet = humValueDetected;
       snprintf(buffer, sizeof(buffer), "%d%%", humValueDetected);
@@ -510,6 +545,12 @@ void update_labels() {
       lv_label_set_text(ui_HumDetectedRight, buffer);
       lv_label_set_text(ui_Label20, buffer);
     }
+  } else if (!humDead) {
+    humDead = true;
+    l_humDet = -1;
+    lv_label_set_text(ui_HumDetected, NO_DATA);
+    lv_label_set_text(ui_HumDetectedRight, NO_DATA);
+    lv_label_set_text(ui_Label20, NO_DATA);
   }
 
   int airBar =
@@ -526,11 +567,13 @@ void update_labels() {
                  : (int)round(skinTempValueDetected - TEMP_BAR_DISPLAY_MIN));
   int humBar = constrain(humValueDetected, HUM_BAR_MIN, HUM_BAR_MAX);
 
-  // Las barras salen de las mismas medidas muertas: a cero mientras no haya
-  // enlace, o dibujarian un nivel que ya nadie esta midiendo.
-  lv_bar_set_value(ui_AirTempBar, linkLost ? 0 : airBar, LV_ANIM_OFF);
-  lv_bar_set_value(ui_SkinTempBar, linkLost ? 0 : skinBar, LV_ANIM_OFF);
-  lv_bar_set_value(ui_HumBar, linkLost ? 0 : humBar, LV_ANIM_OFF);
+  // Las barras salen de las mismas medidas muertas: a cero cuando la medida no
+  // esta disponible, o dibujarian un nivel que ya nadie esta midiendo. Se juzga
+  // por medida y no por enlace, por lo mismo que las cifras: con la sonda
+  // retirada, una barra de piel a media altura seria igual de mentirosa.
+  lv_bar_set_value(ui_AirTempBar, airOk ? airBar : 0, LV_ANIM_OFF);
+  lv_bar_set_value(ui_SkinTempBar, skinOk ? skinBar : 0, LV_ANIM_OFF);
+  lv_bar_set_value(ui_HumBar, humOk ? humBar : 0, LV_ANIM_OFF);
 
   // Update photo timer label if not active
   if (!photoTimerActive) {
@@ -541,18 +584,31 @@ void update_labels() {
     lv_label_set_text(ui_PhotoTimeValueLabel, buf);
   }
 
-  // Update History Screen Values
+  // Update History Screen Values — mismo criterio que la pantalla principal:
+  // una medida no disponible no se pinta como cifra en ninguna pantalla.
   if (ui_HistoryValueAire) {
-    snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValueDetected);
-    lv_label_set_text(ui_HistoryValueAire, buffer);
+    if (airOk) {
+      snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValueDetected);
+      lv_label_set_text(ui_HistoryValueAire, buffer);
+    } else {
+      lv_label_set_text(ui_HistoryValueAire, NO_DATA);
+    }
   }
   if (ui_HistoryValueSkin) {
-    snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValueDetected);
-    lv_label_set_text(ui_HistoryValueSkin, buffer);
+    if (skinOk) {
+      snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValueDetected);
+      lv_label_set_text(ui_HistoryValueSkin, buffer);
+    } else {
+      lv_label_set_text(ui_HistoryValueSkin, NO_DATA);
+    }
   }
   if (ui_HistoryValueHum) {
-    snprintf(buffer, sizeof(buffer), "%d%%", humValueDetected);
-    lv_label_set_text(ui_HistoryValueHum, buffer);
+    if (humOk) {
+      snprintf(buffer, sizeof(buffer), "%d%%", humValueDetected);
+      lv_label_set_text(ui_HistoryValueHum, buffer);
+    } else {
+      lv_label_set_text(ui_HistoryValueHum, NO_DATA);
+    }
   }
 
   // Derive skin probe presence from detected temperature and update switch
