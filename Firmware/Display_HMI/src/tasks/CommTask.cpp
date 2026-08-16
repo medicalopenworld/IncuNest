@@ -45,8 +45,14 @@ bool Display_BoardEverSeen(void) { return g_ctrlEverSeen; }
 bool Display_IsBoardLinkLost(void) {
   // Antes de la primera linea no hay enlace que perder: el display arranca
   // antes de que la placa empiece a emitir.
+  //
+  // Pero esa espera TERMINA. Devolver false mientras no se haya visto nada
+  // convertia "arrancar sin el cable" en un equipo que jura estar bien para
+  // siempre: sin banner, sin borrar cifras y sin nada que delatase que al otro
+  // lado no hay placa. Pasado el margen de arranque, no haber hablado nunca ya
+  // no es que venga de camino — es que no esta.
   if (!g_ctrlEverSeen) {
-    return false;
+    return millis() > BOARD_LINK_BOOT_GRACE_MS;
   }
   return (uint32_t)(millis() - g_lastCtrlLineMs) > BOARD_LINK_TIMEOUT_MS;
 }

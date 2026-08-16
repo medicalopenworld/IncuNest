@@ -28,8 +28,19 @@
 // proposito: un solo numero que recordar y los dos extremos cuentan igual.
 #define BOARD_LINK_TIMEOUT_MS 5000u
 
-// true si la placa lleva BOARD_LINK_TIMEOUT_MS sin decir nada. Mientras lo
-// sea, las cifras en pantalla estan MUERTAS y no deben mostrarse como si
+// Margen desde el arranque del display antes de dar por ausente una placa que
+// no ha hablado NUNCA. Sin el, "todavia no ha llegado la primera linea" era un
+// estado benigno para siempre y arrancar sin el cable no producia ningun aviso.
+//
+// 5000 (minimo del splash de arranque) + BOARD_LINK_TIMEOUT_MS: no introduce un
+// numero nuevo, se deriva de los dos que ya rigen el arranque y el silencio.
+// Nota: el splash se estira hasta 15 s cuando no llega CTRL,STATE (intro_timer_cb),
+// asi que sin cable el aviso ya esta puesto cuando la pantalla principal aparece.
+#define BOARD_LINK_BOOT_GRACE_MS (5000u + BOARD_LINK_TIMEOUT_MS)
+
+// true si la placa lleva BOARD_LINK_TIMEOUT_MS sin decir nada, o si no ha dicho
+// nada en absoluto pasado BOARD_LINK_BOOT_GRACE_MS desde el arranque. Mientras
+// lo sea, las cifras en pantalla estan MUERTAS y no deben mostrarse como si
 // fueran medidas actuales.
 bool Display_IsBoardLinkLost(void);
 
