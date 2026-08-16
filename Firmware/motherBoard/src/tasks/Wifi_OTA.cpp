@@ -33,6 +33,7 @@
 #include "PpgSnapshot.h"
 #include "PpgSnapshotPublish.h"
 #include "main.h"
+#include "modules/util/tz_source.h"
 #include "modules/baby_profile/baby_cloud.h"
 #include "modules/baby_profile/baby_profile_store.h"
 #include "alarm_policy.h"
@@ -1142,6 +1143,77 @@ static void ensureWifiTimeStarted() {
   }
   s_requested = true;
 }
+
+// Zona horaria por WiFi, preguntando a quién sí la sabe.
+//
+// NTP transporta UTC y NADA más: no tiene un campo de zona horaria que pedirle,
+// y por eso `configTime(0, 0, ...)` de arriba no está mal configurado — es que
+// no hay nada que configurar. La hora local no es deducible por el equipo: es
+// una convención política, no una magnitud observable, así que alguien externo
+// tiene que comunicarla. Con módem es NITZ; sin módem, esto.
+//
+// ip-api.com devuelve el offset de la zona en SEGUNDOS. Su nivel gratuito es
+// solo HTTP (verificado contra su documentación: el SSL es de pago), así que
+// esto viaja en claro. Es un riesgo asumido y acotado: el offset solo afecta a
+// lo que se PINTA. Los epochs almacenados y la telemetría siguen en UTC, y
+// nada de esto toca el PID ni las alarmas. Lo peor que consigue quien
+// manipulase la respuesta es un reloj de pantalla desplazado.
+static void ensureWifiTimeZoneSynced() {
+  static uint32_t s_lastAttemptMs = 0;
+  // Si NITZ ya la resolvió no hay nada que preguntar: la antena está donde
+  // está el equipo y una IP puede ser de una VPN o de otro país.
+  if (tz_source_origin() == TZ_SOURCE_NITZ)
+    return;
+  if (tz_source_known())
+    return;
+  // 45 peticiones/minuto es el límite del servicio; con un intento cada
+  // 5 minutos no se roza ni compartiendo IP con toda una clínica.
+  if (s_lastAttemptMs != 0 && millis() - s_lastAttemptMs < 300000u)
+    return;
+  s_lastAttemptMs = millis();
+  if (WiFi.status() != WL_CONNECTED)
+    return;
+
+  WiFiClient client;
+  client.setTimeout(5);
+  if (!client.connect("ip-api.com", 80))
+    return;
+  client.print("GET /json/?fields=status,offset HTTP/1.1\r\n"
+               "Host: ip-api.com\r\nConnection: close\r\n\r\n");
+
+  // Respuesta minúscula (fields= recorta todo lo demás). Buffer fijo y con
+  // tope de tiempo: esto corre en la tarea de OTA y no puede quedarse colgado.
+  char buf[256];
+  size_t len = 0;
+  uint32_t deadline = millis() + 5000;
+  while ((client.connected() || client.available()) && millis() < deadline &&
+         len < sizeof(buf) - 1) {
+    if (!client.available()) {
+      vTaskDelay(pdMS_TO_TICKS(10));
+      continue;
+    }
+    int c = client.read();
+    if (c < 0)
+      break;
+    buf[len++] = (char)c;
+  }
+  buf[len] = '\0';
+  client.stop();
+
+  // El cuerpo va tras la línea en blanco de las cabeceras. Si no aparece, la
+  // respuesta está incompleta y se descarta entera.
+  const char *body = strstr(buf, "\r\n\r\n");
+  if (!body)
+    return;
+  body += 4;
+
+  int quarters = 0;
+  if (!tz_parse_ipapi_offset(body, &quarters))
+    return;
+  if (tz_source_set(quarters, TZ_SOURCE_IP)) {
+    ESP_LOGI("WiFi", "Timezone from IP lookup: %d quarter-hours", quarters);
+  }
+}
 static constexpr size_t WIFI_RPC_CB_COUNT =
     sizeof(wifi_rpc_callbacks) / sizeof(wifi_rpc_callbacks[0]);
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1226,6 +1298,7 @@ void WIFI_TB_OTA() {
         }
 #endif
         ensureWifiTimeStarted();
+        ensureWifiTimeZoneSynced();
         // El montaje del JSON es idéntico por GPRS: vive en
         // PpgSnapshotPublish.cpp para no tener dos copias que diverjan.
         ppgSnapshotPublish(tb_wifi, "WIFI");
