@@ -350,6 +350,15 @@ static void send_state_to_hmi() {
            skinProbeState, alarmBitmask, silencedBitmask, almTest,
            silenceLeftS);
 
+  // Traza temporal: la linea EXACTA que se manda, solo mientras haya algo
+  // silenciado. El display recibe bitmask=0 pese a que la placa lo calcula
+  // bien (comprobado por log), y el sscanf del display parsea sin problema
+  // una linea sintetica equivalente — asi que lo unico que queda por ver son
+  // los bytes de verdad. Rate-limitada de forma natural: CTRL,STATE sale 1/s.
+  if (silencedBitmask != 0u) {
+    logAlarm(String("[ALARM] TX ") + msg);
+  }
+
   ESP_LOGI(TAG, "Sending state to HMI: %s", msg);
   CommunicationHost_Send(msg);
 
