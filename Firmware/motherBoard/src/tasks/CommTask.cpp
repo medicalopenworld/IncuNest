@@ -1,5 +1,6 @@
 #include "CommTask.h"
 #include "main.h"
+#include "modules/util/tz_source.h"
 #include "tasks/PID.h"
 #include "DriveUpload.h"
 #include <LittleFS.h>
@@ -1145,9 +1146,17 @@ void Communication_Task(void *pvParameters) {
     // avoidable periodic UART traffic. epoch 0 means "not synced yet".
     if (millis() - last_time_bcast > 10000) {
       last_time_bcast = millis();
-      char tmsg[32];
-      snprintf(tmsg, sizeof(tmsg), "CTRL,TIME,%lu\n",
-               (unsigned long)babyStore_nowEpoch());
+      // El epoch sigue siendo UTC. La zona viaja aparte porque son dos datos
+      // distintos: el instante es medible, la hora local es una convencion que
+      // alguien de fuera (NITZ o la consulta por IP) tiene que comunicarnos.
+      //
+      // tzsrc no es redundante con tzq: sin el, "offset 0 porque estamos en
+      // Togo" y "offset 0 porque no lo sabemos" son indistinguibles, y el
+      // display no puede decidir si pintar la hora o el aviso.
+      char tmsg[48];
+      snprintf(tmsg, sizeof(tmsg), "CTRL,TIME,%lu,%d,%d\n",
+               (unsigned long)babyStore_nowEpoch(),
+               (int)tz_source_quarters(), (int)tz_source_origin());
       hmiSerial.print(tmsg);
     }
 

@@ -107,10 +107,30 @@ static int rxIndex = 0;
 // Motherboard-provided wall clock (CTRL,TIME). 0 = not synced there yet.
 static uint32_t s_mbEpoch = 0;
 static uint32_t s_mbEpochAtMs = 0;
+// Zona horaria, tambien propiedad de la placa. El epoch de arriba es UTC
+// SIEMPRE; esto solo se aplica al formatear para una persona.
+static int8_t  s_tzQuarters = 0;
+static uint8_t s_tzSource   = 0;  // 0=desconocido, 1=NITZ, 2=IP
 
 uint32_t HMI_GetEpochNow() {
   if (s_mbEpoch == 0) return 0;
   return s_mbEpoch + (millis() - s_mbEpochAtMs) / 1000u;
+}
+
+int8_t HMI_GetTzQuarterHours() { return s_tzQuarters; }
+
+// Hace falta hora Y zona. Un offset 0 con fuente desconocida no es UTC+0: es
+// que no se sabe, y pintar UTC sin avisar de que es UTC induce a error en un
+// equipo clinico.
+bool HMI_HasLocalTime() { return s_mbEpoch != 0 && s_tzSource != 0; }
+
+// Epoch UTC -> segundos en hora local, para pasarselo a gmtime_r. NUNCA se
+// almacena ni se reenvia: es exclusivamente para formatear.
+uint32_t HMI_ToLocal(uint32_t utcEpoch) {
+  if (utcEpoch == 0) return 0;
+  const int32_t shift = (int32_t)s_tzQuarters * 900;
+  if (shift < 0 && (uint32_t)(-shift) > utcEpoch) return 0;
+  return (uint32_t)((int64_t)utcEpoch + shift);
 }
 
 // --- Phototherapy Timer (from UITask.cpp) ---
@@ -547,9 +567,22 @@ static void parse_message(const char *line) {
     }
   } else if (strncmp(line, "CTRL,TIME,", 10) == 0) {
     unsigned long epoch = 0;
-    if (sscanf(line, "CTRL,TIME,%lu", &epoch) == 1) {
+    int tzq = 0, tzsrc = 0;
+    // Los dos campos de zona son opcionales a proposito: una motherBoard
+    // anterior a esta feature manda solo el epoch, y ahi lo correcto es
+    // quedarse sin hora local en vez de descartar tambien la hora.
+    const int n = sscanf(line, "CTRL,TIME,%lu,%d,%d", &epoch, &tzq, &tzsrc);
+    if (n >= 1) {
       s_mbEpoch = (uint32_t)epoch;
       s_mbEpochAtMs = millis();
+      if (n == 3 && tzsrc >= 0 && tzsrc <= 2 && tzq >= -48 && tzq <= 56) {
+        s_tzQuarters = (int8_t)tzq;
+        s_tzSource   = (uint8_t)tzsrc;
+      } else if (n != 3) {
+        s_tzSource = 0;  // placa antigua: hay hora, no hay zona
+      }
+      // Campos presentes pero fuera de rango: se descartan callando y se
+      // conserva lo ultimo bueno, en vez de aceptar un offset imposible.
     } else {
       COMM_LOG("[COMM] TIME parse error: %s\n", line);
     }

@@ -220,6 +220,17 @@ extern uint32_t          g_profileAck;
 // reports "not synced" (or before the first CTRL,TIME arrives).
 // Interpolates with millis() between the 10 s broadcasts.
 uint32_t HMI_GetEpochNow();
+
+// --- Zona horaria, tambien propiedad de la motherBoard --------------------
+// La hora UTC es medible; la hora local NO lo es: es una convencion politica,
+// asi que la placa la aprende de la red movil (NITZ) o de una consulta por IP
+// y la difunde en CTRL,TIME. Todo lo que se ALMACENA o se TRANSMITE sigue en
+// UTC — esto solo se aplica al formatear para una persona.
+int8_t   HMI_GetTzQuarterHours();
+// false mientras falte la hora o la zona. Offset 0 sin fuente NO es UTC+0.
+bool     HMI_HasLocalTime();
+// Epoch UTC -> segundos en hora local, solo para formatear.
+uint32_t HMI_ToLocal(uint32_t utcEpoch);
 extern volatile bool     g_pendingProfileRange;
 extern BabyProfileRangeMsg g_profileRange;
 

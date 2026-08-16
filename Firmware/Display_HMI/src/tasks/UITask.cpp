@@ -412,6 +412,49 @@ static int l_humDet = -1;
 // Corre en CADA pasada del bucle de UI, no desde update_labels(): a esa solo
 // se la llama cuando llega telemetria, que es exactamente lo que deja de
 // pasar cuando el enlace cae.
+// Reloj de pared de la cabecera.
+//
+// La cadena se recalcula en cada pasada pero SOLO se escribe cuando cambia:
+// repintar dos labels a 20 Hz para que cambien una vez por minuto es trabajo
+// tirado, y el repintado innecesario ya dio problemas de fluidez aqui.
+//
+// Sin hora o sin zona se muestra "Sin hora" y no una hora UTC disfrazada de
+// local: en un equipo clinico, una hora equivocada es peor que ninguna.
+void clock_update(void) {
+  if (!ui_ClockTime || !ui_ClockDate) return;
+
+  static char lastTime[8] = {0};
+  static char lastDate[12] = {0};
+  char nowTime[8];
+  char nowDate[12];
+
+  if (!HMI_HasLocalTime()) {
+    // Orden ES/EN/FR, como ui_lang_t en main.h.
+    static const char *const TXT_NO_TIME[] = {"Sin hora", "No time",
+                                              "Sans heure"};
+    snprintf(nowTime, sizeof(nowTime), "%s", TXT_NO_TIME[g_lang]);
+    nowDate[0] = '\0';
+  } else {
+    const time_t t = (time_t)HMI_ToLocal(HMI_GetEpochNow());
+    struct tm tmv;
+    gmtime_r(&t, &tmv);
+    snprintf(nowTime, sizeof(nowTime), "%02d:%02d", tmv.tm_hour, tmv.tm_min);
+    snprintf(nowDate, sizeof(nowDate), "%02d/%02d/%04d", tmv.tm_mday,
+             tmv.tm_mon + 1, tmv.tm_year + 1900);
+  }
+
+  if (strcmp(nowTime, lastTime) != 0) {
+    strncpy(lastTime, nowTime, sizeof(lastTime) - 1);
+    lastTime[sizeof(lastTime) - 1] = '\0';
+    lv_label_set_text(ui_ClockTime, nowTime);
+  }
+  if (strcmp(nowDate, lastDate) != 0) {
+    strncpy(lastDate, nowDate, sizeof(lastDate) - 1);
+    lastDate[sizeof(lastDate) - 1] = '\0';
+    lv_label_set_text(ui_ClockDate, nowDate);
+  }
+}
+
 void link_lost_blank_update(void) {
   static bool wasLost = false;
   const bool lost = Display_IsBoardLinkLost();
@@ -4246,6 +4289,7 @@ void UI_Task(void *pvParameters) {
     audio_paused_icon_update();
     // Y este por el motivo opuesto: depende de que NO llegue nada.
     link_lost_blank_update();
+    clock_update();
     // Apaga el chasquido de la ultima pulsacion cuando le toca. Va aqui, y no
     // con un delay() dentro del callback, para no congelar LVGL.
     click_beep_service();
