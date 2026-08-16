@@ -1287,6 +1287,10 @@ void UI_ShowToast(const char *msg, uint32_t ms) {
   if (!ui_SkinProbeToast) return;
   lv_label_set_text(ui_SkinProbeToast, msg);
   lv_obj_clear_flag(ui_SkinProbeToast, LV_OBJ_FLAG_HIDDEN);
+  // Al frente de su propia capa: el banner de alarma y el centro de alarmas
+  // tambien viven en lv_layer_top() y el orden ahi lo fija quien se mueve
+  // ultimo, no la jerarquia.
+  lv_obj_move_foreground(ui_SkinProbeToast);
   lv_timer_create(
       [](lv_timer_t *t) {
         if (ui_SkinProbeToast)
@@ -3547,18 +3551,26 @@ void UI_Task(void *pvParameters) {
   // activar modo piel sin sonda ---
   // ui_ScreenMain, no lv_scr_act(): ui_init() ya cargo ui_ScreenIntro, asi que
   // la pantalla activa aqui es el splash y el toast nunca llegaba a verse.
-  ui_SkinProbeToast = lv_label_create(ui_ScreenMain);
+  // En lv_layer_top() y no colgando de ui_ScreenMain.
+  //
+  // Colgado de la pantalla principal el aviso no se veia en ninguna otra, y
+  // sobre todo quedaba DEBAJO del centro de alarmas y del asistente, que son
+  // overlays de la capa superior. Justo los sitios desde donde mas se avisa:
+  // el aviso de la prueba de alarmas salia detras de la propia tarjeta.
+  ui_SkinProbeToast = lv_label_create(lv_layer_top());
   lv_label_set_text(ui_SkinProbeToast, "");
   lv_label_set_long_mode(ui_SkinProbeToast, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(ui_SkinProbeToast, 320);
-  lv_obj_align(ui_SkinProbeToast, LV_ALIGN_BOTTOM_MID, 0, -20);
+  lv_obj_set_width(ui_SkinProbeToast, 460);
+  lv_obj_align(ui_SkinProbeToast, LV_ALIGN_BOTTOM_MID, 0, -24);
   lv_obj_set_style_text_align(ui_SkinProbeToast, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_set_style_text_font(ui_SkinProbeToast, &lv_font_montserrat_20,
+                             LV_PART_MAIN);
   lv_obj_set_style_bg_color(ui_SkinProbeToast, lv_color_hex(0xFF8C00),
                             LV_PART_MAIN);
   lv_obj_set_style_bg_opa(ui_SkinProbeToast, LV_OPA_90, LV_PART_MAIN);
   lv_obj_set_style_text_color(ui_SkinProbeToast, lv_color_hex(0xFFFFFF),
                               LV_PART_MAIN);
-  lv_obj_set_style_pad_all(ui_SkinProbeToast, 10, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(ui_SkinProbeToast, 16, LV_PART_MAIN);
   lv_obj_set_style_radius(ui_SkinProbeToast, 8, LV_PART_MAIN);
   lv_obj_add_flag(ui_SkinProbeToast, LV_OBJ_FLAG_HIDDEN);
 
