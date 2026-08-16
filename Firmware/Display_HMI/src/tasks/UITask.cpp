@@ -2194,6 +2194,9 @@ static const char *TXT_UI(const char *es, const char *en, const char *fr) {
 // QUE HAY algo callado, siempre, sin depender de donde este el operador.
 static lv_obj_t *s_audioPausedIcon = NULL;
 static lv_obj_t *s_audioPausedTimer = NULL;
+// Ultimo texto pintado en el banner. Existe para NO reescribirlo en cada
+// pasada: ver el comentario en alarm_banner_update().
+static char s_bannerText[64] = "";
 
 void audio_paused_icon_init(void) {
   // La lamina de la norma (IEC 60417-5576, variante de X DISCONTINUA =
@@ -2207,7 +2210,12 @@ void audio_paused_icon_init(void) {
   lv_img_set_src(s_audioPausedIcon, &ui_img_audio_paused_sym);
   lv_obj_set_style_img_recolor(s_audioPausedIcon, lv_color_hex(0xFFB436), 0);
   lv_obj_set_style_img_recolor_opa(s_audioPausedIcon, LV_OPA_COVER, 0);
-  lv_obj_align(s_audioPausedIcon, LV_ALIGN_TOP_RIGHT, -8, 8);
+  // ABAJO a la derecha, no arriba: la esquina superior derecha es la barra de
+  // navegacion de ui_ScreenMain y el icono se solapaba con sus botones. La
+  // norma pide indicacion visual mantenida y legible a 1 m (6.8.5,
+  // 201.12.3.104), no una posicion concreta, y la franja inferior esta libre
+  // desde que el banner solo se pinta arriba y solo en el bloqueo.
+  lv_obj_align(s_audioPausedIcon, LV_ALIGN_BOTTOM_RIGHT, -8, -8);
   lv_obj_add_flag(s_audioPausedIcon, LV_OBJ_FLAG_HIDDEN);
 
   // Cuenta atras JUNTO al icono, que es donde la norma la quiere: "The use of
@@ -2219,8 +2227,8 @@ void audio_paused_icon_init(void) {
   lv_label_set_text(s_audioPausedTimer, "");
   lv_obj_set_style_text_color(s_audioPausedTimer, lv_color_hex(0xFFB436), 0);
   lv_obj_set_style_text_font(s_audioPausedTimer, &lv_font_montserrat_20, 0);
-  // A la izquierda del icono, que ahora mide 48 px y esta a -8 del borde.
-  lv_obj_align(s_audioPausedTimer, LV_ALIGN_TOP_RIGHT, -60, 20);
+  // A la izquierda del icono, que mide 48 px y esta a -8 del borde inferior.
+  lv_obj_align(s_audioPausedTimer, LV_ALIGN_BOTTOM_RIGHT, -60, -20);
   lv_obj_add_flag(s_audioPausedTimer, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -2228,25 +2236,45 @@ void audio_paused_icon_update(void) {
   if (!s_audioPausedIcon) {
     return;
   }
-  if (ctrl_state_msg.silencedBitmask != 0u) {
-    lv_obj_clear_flag(s_audioPausedIcon, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(s_audioPausedIcon);
+  // Idempotente por el mismo motivo que el banner: corre en cada pasada, y
+  // mover al frente o reescribir la etiqueta invalida y redibuja aunque nada
+  // haya cambiado. Solo se toca LVGL cuando cambia la visibilidad o el
+  // SEGUNDO que toca pintar — o sea, como mucho una vez por segundo.
+  static bool s_wasVisible = false;
+  static int s_lastLeft = -1;
 
-    // La cuenta atras solo si la placa la manda. Con 0 se enseña el icono a
-    // secas: mejor sin numero que con uno inventado.
-    const int left = ctrl_state_msg.silenceRemainingS;
-    if (s_audioPausedTimer && left > 0) {
+  const bool visible = (ctrl_state_msg.silencedBitmask != 0u);
+  const int left = visible ? ctrl_state_msg.silenceRemainingS : 0;
+
+  if (visible != s_wasVisible) {
+    s_wasVisible = visible;
+    s_lastLeft = -1;  // fuerza repintar el numero al reaparecer
+    if (visible) {
+      lv_obj_clear_flag(s_audioPausedIcon, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_move_foreground(s_audioPausedIcon);
+    } else {
+      lv_obj_add_flag(s_audioPausedIcon, LV_OBJ_FLAG_HIDDEN);
+      if (s_audioPausedTimer) {
+        lv_obj_add_flag(s_audioPausedTimer, LV_OBJ_FLAG_HIDDEN);
+      }
+    }
+  }
+
+  if (!visible || !s_audioPausedTimer) {
+    return;
+  }
+
+  // La cuenta atras solo si la placa la manda. Con 0 se enseña el icono a
+  // secas: mejor sin numero que con uno inventado.
+  if (left != s_lastLeft) {
+    s_lastLeft = left;
+    if (left > 0) {
       char buf[8];
       snprintf(buf, sizeof(buf), "%d:%02d", left / 60, left % 60);
       lv_label_set_text(s_audioPausedTimer, buf);
       lv_obj_clear_flag(s_audioPausedTimer, LV_OBJ_FLAG_HIDDEN);
       lv_obj_move_foreground(s_audioPausedTimer);
-    } else if (s_audioPausedTimer) {
-      lv_obj_add_flag(s_audioPausedTimer, LV_OBJ_FLAG_HIDDEN);
-    }
-  } else {
-    lv_obj_add_flag(s_audioPausedIcon, LV_OBJ_FLAG_HIDDEN);
-    if (s_audioPausedTimer) {
+    } else {
       lv_obj_add_flag(s_audioPausedTimer, LV_OBJ_FLAG_HIDDEN);
     }
   }
@@ -2351,29 +2379,40 @@ void alarm_banner_update(void) {
     lv_anim_del(s_alarmBanner, banner_blink_cb);
     lv_obj_add_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN);
     s_bannerPriority = -1;
+    s_bannerText[0] = '\0';
     return;
   }
   lv_obj_set_align(s_alarmBanner, LV_ALIGN_TOP_MID);
 
+  const char *wantText;
   if (linkLost) {
     // Por delante de cualquier alarma: si la placa calla, lo que se ve de
     // ella es viejo, incluidas sus alarmas. MEDIA para contar lo mismo que
     // ALARM_HMI_LINK_LOST al otro lado — un unico relato para el operador.
     topPrio = ALARM_PRIORITY_MEDIUM;
-    lv_label_set_text(s_alarmBannerLabel,
-                      TXT_UI("!! SIN ENLACE CON LA PLACA",
-                             "!! BOARD LINK LOST",
-                             "!! LIAISON CARTE PERDUE"));
+    wantText = TXT_UI("!! SIN ENLACE CON LA PLACA", "!! BOARD LINK LOST",
+                      "!! LIAISON CARTE PERDUE");
   } else if (testing) {
     topPrio = ctrl_state_msg.alarmTestPriority;
-    lv_label_set_text(s_alarmBannerLabel,
-                      TXT_UI("PRUEBA DE ALARMA", "ALARM TEST",
-                             "TEST D'ALARME"));
+    wantText = TXT_UI("PRUEBA DE ALARMA", "ALARM TEST", "TEST D'ALARME");
   } else {
-    lv_label_set_text(s_alarmBannerLabel, alarmList[topIdx].type);
+    wantText = alarmList[topIdx].type;
   }
-  lv_obj_clear_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_move_foreground(s_alarmBanner);
+
+  // Solo se toca LVGL si el texto CAMBIO.
+  //
+  // Esta funcion corre en cada pasada del bucle de UI, y lv_label_set_text()
+  // y lv_obj_move_foreground() invalidan y fuerzan redibujado aunque el
+  // contenido sea identico. Llamarlos a la frecuencia del bucle repintaba la
+  // franja y reordenaba lv_layer_top() sin parar, y arrastraba toda la
+  // interfaz. No se noto al escribirlo porque el banner solo salia en la
+  // pantalla de bloqueo, donde no hay nada mas compitiendo por el redibujado.
+  if (strncmp(s_bannerText, wantText, sizeof(s_bannerText) - 1) != 0) {
+    snprintf(s_bannerText, sizeof(s_bannerText), "%s", wantText);
+    lv_label_set_text(s_alarmBannerLabel, s_bannerText);
+    lv_obj_clear_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(s_alarmBanner);
+  }
 
   if (topPrio == s_bannerPriority) {
     return;  // misma prioridad: no reiniciar la animacion en cada ciclo
