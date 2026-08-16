@@ -350,14 +350,6 @@ static void send_state_to_hmi() {
            skinProbeState, alarmBitmask, silencedBitmask, almTest,
            silenceLeftS);
 
-  // Traza temporal: la linea EXACTA que se manda, solo mientras haya algo
-  // silenciado. El display recibe bitmask=0 pese a que la placa lo calcula
-  // bien (comprobado por log), y el sscanf del display parsea sin problema
-  // una linea sintetica equivalente — asi que lo unico que queda por ver son
-  // los bytes de verdad. Rate-limitada de forma natural: CTRL,STATE sale 1/s.
-  if (silencedBitmask != 0u) {
-    logAlarm(String("[ALARM] TX ") + msg);
-  }
 
   ESP_LOGI(TAG, "Sending state to HMI: %s", msg);
   CommunicationHost_Send(msg);
@@ -749,13 +741,12 @@ void parse_line(const char *line) {
     } else {
       alarm_machine_unsilence((AlarmId)id, now);
     }
-    // logAlarm y NO logI: en main.h estan LOG_INFORMATION y LOG_ERRORS a
-    // false, asi que logI() y logE() se compilan a nada. Solo LOG_ALARMS esta
-    // activo. Es tambien la categoria que corresponde: esto es un evento de
-    // alarma.
+    // Se deja registrado: silenciar es una accion del operador sobre una
+    // alarma y conviene que quede rastro. logAlarm y no logI/logE porque esas
+    // dos estan compiladas a nada (LOG_INFORMATION/LOG_ERRORS a false en
+    // main.h) — y es ademas la categoria que corresponde.
     logAlarm("[ALARM] ALM_SILENCE id=" + String(id) + " on=" + String(on) +
-         " -> estado=" + String((int)alarm_machine_state((AlarmId)id)) +
-         " bitmask=0x" + String(alarm_machine_silenced_bitmask(), HEX));
+             " -> estado=" + String((int)alarm_machine_state((AlarmId)id)));
     return;
   }
 
@@ -973,9 +964,25 @@ void Communication_Task(void *pvParameters) {
       prev_probe_state = cur;
     }
 
-    // --- STATE request ---
-    if (xSemaphoreTake(hmi_state_req_sem, 0) == pdTRUE) {
+    // --- STATE: periodico (1 Hz) y ademas bajo peticion ---
+    //
+    // Antes SOLO salia bajo peticion, y el display deja de pedirlo en cuanto
+    // se sincroniza. Resultado: CTRL,STATE se emitia unas pocas veces al
+    // arrancar y nunca mas, asi que todo lo que viaja en el se quedaba
+    // congelado con el valor del arranque — silencedBitmask, la cuenta atras
+    // de la pausa de audio y la prioridad de la prueba de alarmas incluidos.
+    // El sintoma era que la campana de AUDIO PAUSED solo aparecia si ya habia
+    // una alarma silenciada al encender, y que el temporizador nunca bajaba.
+    //
+    // PROTOCOL.md ya decia "Enviado cada 1 segundo o bajo peticion": era el
+    // codigo el que no cumplia su propio contrato. 1 Hz es la misma cadencia
+    // que CTRL,TEL, con el que se intercala.
+    static uint32_t last_state_time = 0;
+    const bool stateRequested =
+        (xSemaphoreTake(hmi_state_req_sem, 0) == pdTRUE);
+    if (stateRequested || (millis() - last_state_time >= 1000)) {
       send_state_to_hmi();
+      last_state_time = millis();
     }
 
     // --- PPG waveform (25 Hz = every 40 ms) ---

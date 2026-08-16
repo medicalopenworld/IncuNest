@@ -18,7 +18,15 @@ Este documento describe el protocolo de comunicación serie utilizado entre la M
 ### 1. Mensajes de la Motherboard (MCU → HMI)
 
 #### CTRL,STATE
-Enviado cada 1 segundo o bajo petición (`HMI,REQ,STATE`).
+Enviado **cada 1 segundo** (intercalado con `CTRL,TEL`) y además bajo petición
+(`HMI,REQ,STATE`).
+
+> El envío periódico no existía: hasta ahora solo salía bajo petición, y el
+> display deja de pedirlo en cuanto se sincroniza, así que en la práctica se
+> emitía unas pocas veces al arrancar y nunca más. Todo lo que viaja aquí se
+> quedaba congelado con el valor del arranque. **Los campos de este mensaje son
+> estado vivo, no una instantánea de sincronización** — cualquier campo nuevo
+> debe poder asumir la cadencia de 1 Hz.
 **Formato**: `CTRL,STATE,act,mode,airSet,skinSet,humSet,photo,mute,sn,hwNum,hwRev,fwVer,numAlarms,skinE,commStatus,photoTimeRem,lang,probeState,alarmBitmask,silencedBitmask,almTest,silenceLeftS`
 
 - `alarmBitmask`: (Hexadecimal, ej: `0x60`) Indica qué IDs de alarma están activos. Requerido para sincronización robusta.
