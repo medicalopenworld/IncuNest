@@ -117,8 +117,25 @@ Enviado cuando una alarma cambia de estado.
 
 #### CTRL,TIME (Reloj de pared)
 Enviado cada 10 segundos (y una vez al arrancar la tarea de comunicación).
-**Formato**: `CTRL,TIME,epoch`
+**Formato**: `CTRL,TIME,epoch,tzq,tzsrc`
 - `epoch`: hora Unix UTC de la motherboard, o `0` si aún no ha sincronizado.
+- `tzq`: offset de zona horaria en **cuartos de hora** (`-48`..`+56`, o sea
+  UTC-12:00..UTC+14:00). Cuartos y no horas porque existen husos no enteros
+  (Nepal, UTC+5:45), y es la unidad que ya usa `civil_to_unix_utc()`.
+- `tzsrc`: origen del offset. `0`=desconocido, `1`=NITZ (red móvil), `2`=IP.
+  **No es redundante con `tzq`**: sin él, «offset 0 porque estamos en Togo» y
+  «offset 0 porque no lo sabemos» son indistinguibles, y el HMI no puede
+  decidir si pintar la hora o el aviso «Sin hora».
+- **`tzq`/`tzsrc` son opcionales**: una motherBoard anterior a esta versión
+  envía solo `epoch`, y el HMI lo interpreta como `tzsrc=0` (hay hora, no hay
+  zona). Al revés también funciona: un HMI antiguo ignora los campos de más.
+- **La zona nunca altera un epoch.** Todo lo que se almacena o se transmite
+  —historial de alarmas, perfiles, Drive, ThingsBoard— sigue en UTC; el offset
+  se aplica solo al formatear para una persona. Un cambio de offset no
+  reinterpreta ningún registro ya escrito.
+- Prioridad entre fuentes: **NITZ gana a IP, siempre**. La antena está
+  físicamente donde está el equipo; una IP puede ser de una VPN, un enlace
+  satelital o la sede del operador en otro país.
 - La motherboard es la **única** fuente de hora del sistema (NTP por WiFi);
   el HMI no tiene RTC ni sincroniza por su cuenta. El HMI interpola con su
   propio `millis()` entre difusiones (`HMI_GetEpochNow()`).
