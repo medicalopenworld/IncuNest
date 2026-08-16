@@ -63,6 +63,21 @@ Enviado **cada 1 segundo** (intercalado con `CTRL,TEL`) y además bajo petición
 Enviado cada 1 segundo (intercalado con STATE).
 **Formato**: `CTRL,TEL,airDet,skinDet,humDet,serverStatus`
 
+- **Medida no disponible**: cuando la placa lleva más de 5 s sin conseguir una
+  lectura válida de un sensor —o no la ha conseguido nunca, como la sonda de
+  piel ausente en modo aire— el campo viaja con un centinela y **no** con `0`:
+  - `airDet`/`skinDet`: `-999.0` (`PROTO_TEL_TEMP_UNAVAILABLE`)
+  - `humDet`: `-1` (`PROTO_TEL_HUM_UNAVAILABLE`)
+- El HMI pinta esos campos como `--`, el mismo tratamiento que ya daba a la
+  caída del enlace. El motivo es de seguridad, no cosmético: `0` es un valor
+  **plausible** y quien lee la pantalla lo interpreta como una medida real y
+  alarmante, en lugar de como la ausencia de medida que es.
+- La misma ventana de 5 s que usa `checkStatusOfSensor()` para levantar las
+  alarmas de fallo de sensor, para que el `--` y la alarma aparezcan a la vez.
+- Los centinelas afectan **solo a lo que se transmite**. `in3.temperature[]`
+  conserva su convención interna porque alimenta el PID y las alarmas: la
+  presentación no cambia el control.
+
 #### CTRL,PROBE (Estado de contacto de la sonda SpO2)
 Enviado cada 2 segundos **mientras el estado no sea `2` (APPLIED)**, y una vez
 de forma inmediata en la transición a `2`. Mientras hay contacto válido no se

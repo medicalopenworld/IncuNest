@@ -895,6 +895,24 @@ void parse_line(const char *line) {
   }
 }
 
+// ¿Se sigue leyendo este sensor?
+//
+// Misma fuente y misma ventana que checkStatusOfSensor() (security.cpp) usa
+// para levantar las alarmas de fallo de sensor: si se separasen, el display
+// podria pintar una cifra mientras la alarma dice que ese sensor no responde.
+//
+// lastSuccesfullSensorUpdate == 0 es "no se ha leido NUNCA" (el centinela que
+// usa applyNTCResult), y cuenta como no disponible: es el caso de la sonda de
+// piel ausente en modo aire, donde lo honesto es un "--" y no un 0.0.
+static const uint32_t TEL_SENSOR_STALE_MS = 5000u;
+
+static bool sensorReadingFresh(byte sensor) {
+  extern long lastSuccesfullSensorUpdate[SENSOR_TEMP_QTY];
+  if (lastSuccesfullSensorUpdate[sensor] == 0) return false;
+  return (uint32_t)(millis() - (uint32_t)lastSuccesfullSensorUpdate[sensor]) <=
+         TEL_SENSOR_STALE_MS;
+}
+
 // ======================================================
 //  SEND DATA TO HMI
 // ======================================================
@@ -1030,12 +1048,33 @@ void Communication_Task(void *pvParameters) {
       }
       ctrl_tel_msg.serverCommStatus = status;
 
+      // Una medida que la placa ya no esta consiguiendo leer NO se manda como
+      // 0: se manda como centinela de "no disponible" y el display la pinta
+      // "--". Se decide aqui, en la via de presentacion, y NO tocando
+      // in3.temperature[]: ese array alimenta el PID y las alarmas, y cambiar
+      // su convencion para arreglar una etiqueta de pantalla seria meter mano
+      // en el control de un actuador por un motivo cosmetico.
+      //
+      // Misma ventana de silencio que usa checkStatusOfSensor() para levantar
+      // las alarmas de fallo de sensor, para que el "--" y la alarma aparezcan
+      // a la vez y no se contradigan en pantalla.
+      const double telAir =
+          sensorReadingFresh(ROOM_DIGITAL_TEMP_SENSOR)
+              ? ctrl_tel_msg.detectedAirTemperature
+              : PROTO_TEL_TEMP_UNAVAILABLE;
+      const double telSkin =
+          sensorReadingFresh(SKIN_SENSOR)
+              ? ctrl_tel_msg.detectedSkinTemperature
+              : PROTO_TEL_TEMP_UNAVAILABLE;
+      // La humedad y la temperatura de aire vienen del MISMO sensor digital de
+      // camara, asi que su frescura es la misma medida.
+      const int telHum = sensorReadingFresh(ROOM_DIGITAL_TEMP_SENSOR)
+                             ? (int)ctrl_tel_msg.detectedHumidity
+                             : PROTO_TEL_HUM_UNAVAILABLE;
+
       char msg[64];
-      snprintf(msg, sizeof(msg), "CTRL,TEL,%.1f,%.1f,%d,%d\n",
-               ctrl_tel_msg.detectedAirTemperature,
-               ctrl_tel_msg.detectedSkinTemperature,
-               (int)ctrl_tel_msg.detectedHumidity,
-               ctrl_tel_msg.serverCommStatus);
+      snprintf(msg, sizeof(msg), "CTRL,TEL,%.1f,%.1f,%d,%d\n", telAir, telSkin,
+               telHum, ctrl_tel_msg.serverCommStatus);
       hmiSerial.print(msg);
 
       {

@@ -19,6 +19,23 @@ typedef enum {
   SKIN_PROBE_UNSTABLE,
 } SkinProbeState;
 
+// Centinelas de "medida no disponible" en CTRL,TEL.
+//
+// Un sensor caido enviaba 0, y 0 es un valor PLAUSIBLE: quien mira la pantalla
+// lee "0.0 C" como una medida real y alarmante en vez de como la ausencia de
+// medida que es. El enlace caido ya se pintaba como "--" por ese mismo motivo
+// (ver link_lost_blank_update en el display); esto extiende el criterio al
+// fallo de sensor, para que "no se sabe" se vea igual venga de donde venga.
+//
+// Fuera de cualquier rango fisico posible, para que no puedan confundirse con
+// una lectura ni sobrevivir a un parseo descuidado.
+#define PROTO_TEL_TEMP_UNAVAILABLE (-999.0)
+#define PROTO_TEL_HUM_UNAVAILABLE  (-1)
+
+// Comparacion de igualdad sobre un double que ha ido y vuelto por "%.1f": la
+// tolerancia evita depender de la representacion exacta tras el formateo.
+#define PROTO_TEL_TEMP_IS_UNAVAILABLE(v) ((v) < -900.0)
+
 typedef struct {
   double detectedAirTemperature;
   double detectedSkinTemperature;
