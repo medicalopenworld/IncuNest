@@ -710,10 +710,14 @@ void parse_line(const char *line) {
   // busca 6.3.2.2.2 — el operador dejaria de poder identificar que suena.
   if (strncmp(line, "HMI,ALM_TEST", 12) == 0) {
     if (alarm_machine_any_signalling()) {
-      logE("[ALARM] prueba rechazada: hay una alarma en curso");
+      // logAlarm: logE esta compilado a nada (LOG_ERRORS false en main.h), asi
+      // que este rechazo llevaba siendo invisible desde que se escribio.
+      logAlarm("[ALARM] prueba rechazada: bitmask=0x" +
+               String(alarm_machine_bitmask(), HEX));
       return;
     }
     alarm_test_start(millis());
+    logAlarm("[ALARM] prueba de funcionamiento arrancada");
     return;
   }
 
@@ -736,10 +740,11 @@ void parse_line(const char *line) {
     } else {
       alarm_machine_unsilence((AlarmId)id, now);
     }
-    // Traza de diagnostico: deja ver de un vistazo si la placa hizo lo que se
-    // le pidio y QUE va a publicar en silencedBitmask. Sin esto no se puede
-    // distinguir "la placa no silencia" de "el display no se entera".
-    logI("[ALARM] ALM_SILENCE id=" + String(id) + " on=" + String(on) +
+    // logAlarm y NO logI: en main.h estan LOG_INFORMATION y LOG_ERRORS a
+    // false, asi que logI() y logE() se compilan a nada. Solo LOG_ALARMS esta
+    // activo. Es tambien la categoria que corresponde: esto es un evento de
+    // alarma.
+    logAlarm("[ALARM] ALM_SILENCE id=" + String(id) + " on=" + String(on) +
          " -> estado=" + String((int)alarm_machine_state((AlarmId)id)) +
          " bitmask=0x" + String(alarm_machine_silenced_bitmask(), HEX));
     return;
