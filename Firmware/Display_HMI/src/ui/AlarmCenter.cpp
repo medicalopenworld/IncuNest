@@ -204,8 +204,21 @@ uint32_t activeIdSignature() {
 // repinte en cuanto la placa confirma, y que la caducidad de los 10 min
 // devuelva el boton a SILENCIAR sin salir y volver a entrar.
 uint32_t viewSignature() {
-  return activeIdSignature() ^ ctrl_state_msg.silencedBitmask ^
-         (alarmsMuted ? 0x8000u : 0u);
+  // Se ENCADENA, no se hace XOR.
+  //
+  // Antes era `activeIdSignature() ^ silencedBitmask ^ (alarmsMuted ? 0x8000
+  // : 0)` y tenia una colision real: con una sola alarma activa de id N la
+  // firma vale 32+N, y al silenciarla se le hacia XOR con (1<<N) y con
+  // 0x8000, que se cancelan exactamente cuando N = 15 — o sea
+  // ALARM_SKIN_SENSOR_FAULT_AIR_MODE, precisamente la que se provoca
+  // desenchufando la sonda. La firma no cambiaba y la lista no se repintaba.
+  //
+  // Mezclar por multiplicacion en vez de por XOR hace que dos campos
+  // distintos no puedan anularse entre si.
+  uint32_t sig = activeIdSignature();
+  sig = sig * 31u + ctrl_state_msg.silencedBitmask;
+  sig = sig * 31u + (alarmsMuted ? 1u : 0u);
+  return sig;
 }
 
 void onRowSilenceTap(lv_event_t *e);
@@ -270,20 +283,23 @@ void onRowSilenceTap(lv_event_t *e) {
   // ademas lo caduca sola a los 10 min, y una version local se desincroniza en
   // cuanto caduque.
   //
-  // Lo que si se hace es acusar recibo al instante. El estado real tarda hasta
-  // un CTRL,STATE (1 s) en llegar, y sin esto el boton se quedaba idéntico y
-  // parecia que la pulsacion se habia perdido. Se desactiva y se marca en
-  // espera; no afirma haber silenciado, solo que la orden salio.
+  // El acuse de recibo es SOLO apagar el boton, sin cambiarle el texto.
+  //
+  // Antes ponia "..." mientras esperaba, y confundia: el texto dejaba de
+  // decir el estado y, si la confirmacion tardaba, se veia volver a
+  // SILENCIAR como si la pulsacion se hubiera perdido. La etiqueta es lo
+  // unico que le dice al operador si la alarma esta callada o no, y una
+  // etiqueta que a ratos no significa nada es peor que una que tarda.
+  //
+  // Ahora la etiqueta SIEMPRE refleja el estado real que reporta la placa, y
+  // el "estoy en ello" se comunica por otro canal: el boton apagado. El
+  // chasquido ya confirmo la pulsacion en el momento del toque.
   Communication_SendAlarmSilence(r->id, !r->silenced);
   s_silenceWaitUntilMs = millis() + RESP_TIMEOUT_MS;
 
   lv_obj_t *btn = lv_event_get_target(e);
   if (btn) {
     lv_obj_add_state(btn, LV_STATE_DISABLED);
-    lv_obj_t *lbl = lv_obj_get_child(btn, 0);
-    if (lbl) {
-      lv_label_set_text(lbl, "...");
-    }
   }
   // El repintado de verdad llega por la firma en AlarmCenter_Poll(): ese rodeo
   // es lo que evita destruir este boton desde dentro de su propio callback.
