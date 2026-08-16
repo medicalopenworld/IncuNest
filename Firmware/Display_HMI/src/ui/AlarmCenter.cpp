@@ -231,6 +231,37 @@ void closeScreen() {
 
 void onCloseClicked(lv_event_t *) { closeScreen(); }
 
+// Prueba de funcionamiento de las senales de alarma (60601-2-19 201.12.3.105).
+//
+// Vive AQUI y no en ajustes, que es donde estuvo primero. El centro de alarmas
+// es donde el operador ya esta cuando piensa en alarmas, se llega en un toque
+// desde el icono de la barra y esta disponible en cualquier momento — que es
+// lo que la clausula pide de un medio "for the OPERATOR". La alternativa que
+// se descarto, un gesto oculto durante el arranque, obligaria a apagar la
+// incubadora para comprobar las alarmas, con el bebe dentro.
+void onAlarmTestClicked(lv_event_t *) {
+  // La placa rechaza la prueba si hay cualquier condicion señalizando, y solo
+  // lo dejaba en un log: se pulsaba, no pasaba nada y no habia forma de saber
+  // por que. Se comprueba aqui para poder explicarlo.
+  //
+  // alarmBitmask de CTRL,STATE y no alarmList[]: el bitmask es el estado
+  // AUTORITATIVO de la placa. La lista local se rellena con los CTRL,ALM que
+  // hayan llegado y puede no tener una condicion declarada antes de que el
+  // display estuviera escuchando — el autotest de arranque, por ejemplo.
+  if (ctrl_state_msg.alarmBitmask != 0 &&
+      ctrl_state_msg.alarmBitmask != (uint32_t)-1) {
+    UI_ShowToast(TXT("Hay una alarma activa:\nno se puede probar ahora",
+                     "An alarm is active:\ncannot test now",
+                     "Une alarme est active:\ntest impossible"),
+                 4000);
+    return;
+  }
+  Communication_SendAlarmTest();
+  UI_ShowToast(TXT("Probando senales de alarma...", "Testing alarm signals...",
+                   "Test des signaux d'alarme..."),
+               3000);
+}
+
 void onMuteClicked(lv_event_t *) {
   // Se delega en MuteAlarm_cb() en vez de repetir aqui la secuencia
   // (alarmsMuted + hmi_msg.muteAlarm + shouldSendData + AlarmSound_Update).
@@ -333,6 +364,15 @@ void showList() {
       makeBtn(s_content, "X", onCloseClicked, lv_color_hex(0xAA3333));
   lv_obj_set_size(close, 44, 44);
   lv_obj_align(close, LV_ALIGN_TOP_RIGHT, 0, 0);
+
+  // El hueco de la izquierda de la cabecera lo ocupa la prueba de
+  // funcionamiento (201.12.3.105). Estuvo en ajustes y se movio aqui: es
+  // donde el operador ya esta cuando piensa en alarmas.
+  lv_obj_t *test = makeBtn(s_content,
+                           TXT("PROBAR", "TEST", "TESTER"),
+                           onAlarmTestClicked, lv_color_hex(0x0075EE));
+  lv_obj_set_size(test, 130, 44);
+  lv_obj_align(test, LV_ALIGN_TOP_LEFT, 0, 0);
 
   // AQUI NO HAY BOTON GLOBAL DE SILENCIO, y es deliberado.
   //

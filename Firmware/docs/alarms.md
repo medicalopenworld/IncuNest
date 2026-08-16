@@ -628,7 +628,7 @@ hace hoy, para no inducir a confiar en protecciones que no existen.
   como su propio corte de seguridad. Esto no se resuelve en firmware: exige
   un segundo canal de temperatura físicamente independiente.
 - ~~Prueba de función de alarma para el operador~~ — **implementada**
-  (201.12.3.105). Botón **PROBAR ALARMAS** en ajustes: reproduce una ráfaga de
+  (201.12.3.105). Botón **PROBAR** en la cabecera del centro de alarmas: reproduce una ráfaga de
   cada prioridad, de BAJA a ALTA, y pinta el banner con el color y el parpadeo
   de cada una, de modo que se comprueban a la vez la señal audible y la visual.
   Corre por el **mismo camino de audio** que las alarmas reales
@@ -636,6 +636,13 @@ hace hoy, para no inducir a confiar en protecciones que no existen.
   La placa la rechaza si hay una alarma en curso, y una alarma que aparezca a
   mitad la cancela en el acto. Lógica en
   `motherBoard/src/modules/control/alarm_test.cpp`, con tests nativos.
+  Vive en el centro de alarmas y no en ajustes —donde estuvo primero— porque
+  es donde el operador ya está cuando piensa en alarmas y se llega en un toque
+  desde el icono de la barra, a cualquier hora. Se descartó un gesto oculto
+  durante el arranque: obligaría a apagar la incubadora, con el bebé dentro,
+  para comprobar las alarmas, y dejaría de ser un medio "for the OPERATOR".
+  Si hay cualquier condición señalizando la placa la rechaza, y el display lo
+  dice en vez de callarse.
   **Pendiente de expediente**: 201.12.3.105 exige además que el medio se
   describa en las instrucciones de uso.
 - **Nivel sonoro: sin medir.** No hay verificación en este repositorio de que
