@@ -27,3 +27,46 @@ Throughout the development, redesign, and intensive testing of the dual firmware
 
 *   **Classic ESP32 Problem Description**: Because both boards communicate via a Virtual COM Port converter (USB-Host to USB-Device), it critically depended on the voltages on the Transmission lines (TX/RX) and RTS/DTR physical states for the Host to recognize the sub-device profile without muting and injecting spurious voltage hanging the *First-Stage* bootloader and leaving the Motherboard catatonic in "Waiting Download Mode".
 *   **Robust Solution**: The `VCP_CH34x` Driver on Motherboard is modified to be "Pacing-Oriented". It uses precise Mutexes (`vcp_mux`) and inserts lazy retries (`vTaskDelay`) after a false `set_control_line_state()` so any transient line instability thermally quiets down before the "115200 8N1" handshake. Meanwhile, the Display suppresses its massive LVGL debug `print`s to not trample the Motherboard's attention as soon as it boots.
+
+## 6. AUDIO PAUSED indicator not shown after silencing (OPEN)
+
+*   **Symptom**: silencing an alarm works — the buzzer stops and the motherBoard
+    logs `estado=3` (SILENCED). But on the display the row button stays amber
+    `SILENCIAR` instead of turning green `REANUDAR`, the bell-with-dashed-X
+    symbol (IEC 60417-5576) is not drawn, and the countdown next to it never
+    decrements. The symbol *is* drawn when the HMI boots with an alarm that was
+    already silenced, which is the clue: the state is painted once and never
+    refreshed.
+*   **Status**: **open**. Everything below has been ruled out with evidence, so
+    do not repeat it.
+
+**Ruled out — do not re-investigate:**
+
+| Hypothesis | How it was eliminated |
+|---|---|
+| motherBoard does not silence | Bench log: `[ALARM] ALM_SILENCE id=3 on=1 -> estado=3 bitmask=0x8` |
+| Wrong `CTRL,STATE` format or field count | The display's exact `sscanf` was compiled and run on the host against a real 21-field line: `result=21`, `silencedBitmask=0x20` |
+| Line truncated by a buffer | The line is 97 bytes; the motherBoard buffer is 192 |
+| `%c`/`%s` argument mismatch | `HW_REVISION` is `'A'` (char), `FWversion` is `"18.2"` (4-char literal) |
+| Wrong bit index on the display | `processReceivedAlarm()` stores `alarmList[id].id = id`; the row tests `1u << id` |
+| Something overwriting the struct | Only one writer of `ctrl_state_msg` in the whole display |
+| Symbol clipped by the image transform | Fixed: `lv_img_set_zoom()` transforms around the *source* image centre, which fell outside a smaller object box. Now drawn at native 48 px |
+| `CTRL,STATE` not periodic | Fixed: it was request-only and the display stops requesting after sync, so every field froze at boot values. Now 1 Hz |
+
+**Where to look next.** The two fixes above were necessary but not sufficient —
+the symptom survived both. The remaining suspects, in order:
+
+1.  Confirm on the bench whether `CTRL,STATE` now actually arrives at 1 Hz. The
+    cheapest probe is the countdown: if it still does not decrement, the line is
+    still not reaching the display and the problem is in transport, not in the UI.
+2.  The display's only UART is the protocol link, so `COMM_LOG` output travels
+    down the same wire the motherBoard parses. Any HMI-side tracing has to be
+    painted on screen or routed elsewhere — budget for that before starting.
+3.  `AlarmCenter_Poll()` repaints the row from a signature comparison
+    (`viewSignature()`). A previous XOR collision there was already fixed, but
+    the repaint path is still the least directly observed part of the chain.
+
+**Verify the flashed build first.** Two rounds of this investigation were spent
+on a board that had not been reflashed. The HMI's information screen now shows
+the compiler's `__DATE__`/`__TIME__` next to its version — check it matches the
+build before trusting any observation.
