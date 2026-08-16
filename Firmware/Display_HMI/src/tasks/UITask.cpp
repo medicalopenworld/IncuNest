@@ -455,6 +455,42 @@ void clock_update(void) {
   }
 }
 
+// Estado del enlace de la PLACA en la pantalla de WiFi.
+//
+// El resto de esa pantalla habla del radio del propio display, que solo sirve
+// para su OTA. La motherBoard es quien sube telemetria, y su conexion no
+// aparecia: se podia leer "conectado" mientras el equipo no mandaba un dato.
+// Etiquetado explicitamente para que no se confunda con lo de al lado.
+//
+// Se refresca solo con la pantalla visible, y solo escribe cuando cambia.
+void wifi_board_status_update(void) {
+  if (!ui_WifiBoardStatus) return;
+  if (!wifiVisible) return;
+
+  // Orden ES/EN/FR, como ui_lang_t en main.h.
+  static const char *const TXT_BOARD[] = {"Placa: ", "Board: ", "Carte : "};
+
+  char now[64];
+  snprintf(now, sizeof(now), "%s%s", TXT_BOARD[g_lang],
+           getConnectivityString(ctrl_state_msg.serverCommStatus, g_lang));
+
+  static char last[64] = {0};
+  if (strcmp(now, last) == 0) return;
+  strncpy(last, now, sizeof(last) - 1);
+  last[sizeof(last) - 1] = '\0';
+  lv_label_set_text(ui_WifiBoardStatus, now);
+
+  // Verde solo con servidor: tener WiFi pero no llegar a ThingsBoard es
+  // exactamente el caso que esta pantalla tenia que dejar de ocultar.
+  const bool onServer =
+      (ctrl_state_msg.serverCommStatus == COMM_STATUS_WIFI_SERVER ||
+       ctrl_state_msg.serverCommStatus == COMM_STATUS_GPRS_SERVER);
+  lv_obj_set_style_text_color(ui_WifiBoardStatus,
+                              onServer ? lv_color_hex(0x2E9E4F)
+                                       : lv_color_hex(0xCC7A00),
+                              LV_PART_MAIN);
+}
+
 void link_lost_blank_update(void) {
   static bool wasLost = false;
   const bool lost = Display_IsBoardLinkLost();
@@ -4290,6 +4326,7 @@ void UI_Task(void *pvParameters) {
     // Y este por el motivo opuesto: depende de que NO llegue nada.
     link_lost_blank_update();
     clock_update();
+    wifi_board_status_update();
     // Apaga el chasquido de la ultima pulsacion cuando le toca. Va aqui, y no
     // con un delay() dentro del callback, para no congelar LVGL.
     click_beep_service();

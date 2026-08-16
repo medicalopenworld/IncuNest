@@ -190,6 +190,7 @@ lv_obj_t *ui_WifiDisconnectButton = NULL;
 lv_obj_t *ui_DisconnectLabel = NULL;
 lv_obj_t *ui_LanguagesDropDown = NULL;
 lv_obj_t *ui_WifiConnectedCont = NULL;
+lv_obj_t *ui_WifiBoardStatus = NULL;
 lv_obj_t *ui_WifiConnectedPanel = NULL;
 lv_obj_t *ui_ArrowWifiConnected = NULL;
 lv_obj_t *ui_WifiSSIDLabel = NULL;
@@ -2992,6 +2993,24 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_align(ui_LanguagesDropDown, LV_ALIGN_CENTER);
   lv_obj_add_flag(ui_LanguagesDropDown,
                   LV_OBJ_FLAG_HIDDEN | LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+
+  // Estado del enlace de la PLACA, no el del display.
+  //
+  // El boton de conectar y el "Conectado a" de esta pantalla hablan solo del
+  // radio del propio HMI (WiFi.status()), que unicamente sirve para su OTA.
+  // Quien sube telemetria a ThingsBoard es la motherBoard, y su conexion —la
+  // que de verdad importa— no aparecia por ninguna parte: se podia estar
+  // mirando un "conectado" mientras el equipo no mandaba un solo dato.
+  //
+  // El dato ya viajaba en CTRL,STATE (serverCommStatus); lo que faltaba era
+  // ensenarlo. Por eso esto no toca el protocolo.
+  ui_WifiBoardStatus = lv_label_create(ui_WifiConfigCont);
+  lv_obj_set_width(ui_WifiBoardStatus, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_WifiBoardStatus, LV_SIZE_CONTENT);
+  lv_obj_align(ui_WifiBoardStatus, LV_ALIGN_BOTTOM_LEFT, 20, -12);
+  lv_label_set_text(ui_WifiBoardStatus, "");
+  lv_obj_set_style_text_font(ui_WifiBoardStatus, &lv_font_montserrat_16,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
 
   ui_WifiConnectedCont = lv_obj_create(ui_ScreenSettings);
   lv_obj_remove_style_all(ui_WifiConnectedCont);

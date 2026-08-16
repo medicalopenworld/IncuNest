@@ -304,6 +304,7 @@ extern lv_obj_t * ui_WifiDisconnectButton;
 extern lv_obj_t * ui_DisconnectLabel;
 extern lv_obj_t * ui_LanguagesDropDown;
 extern lv_obj_t * ui_WifiConnectedCont;
+extern lv_obj_t * ui_WifiBoardStatus;
 extern lv_obj_t * ui_WifiConnectedPanel;
 extern lv_obj_t * ui_ArrowWifiConnected;
 extern lv_obj_t * ui_WifiSSIDLabel;
