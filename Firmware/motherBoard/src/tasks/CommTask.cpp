@@ -736,6 +736,12 @@ void parse_line(const char *line) {
     } else {
       alarm_machine_unsilence((AlarmId)id, now);
     }
+    // Traza de diagnostico: deja ver de un vistazo si la placa hizo lo que se
+    // le pidio y QUE va a publicar en silencedBitmask. Sin esto no se puede
+    // distinguir "la placa no silencia" de "el display no se entera".
+    logI("[ALARM] ALM_SILENCE id=" + String(id) + " on=" + String(on) +
+         " -> estado=" + String((int)alarm_machine_state((AlarmId)id)) +
+         " bitmask=0x" + String(alarm_machine_silenced_bitmask(), HEX));
     return;
   }
 
