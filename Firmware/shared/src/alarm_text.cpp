@@ -77,6 +77,10 @@ const char *alarm_title_text(AlarmId id, Language lang) {
       ES("DESVIACION HUMEDAD");
       FR("ECART HUMIDITE");
       return "HUMIDITY DEVIATION";
+    case ALARM_HEATER_SENSOR_FAULT:
+      ES("FALLO SENSOR CALENTADOR");
+      FR("PANNE CAPTEUR CHAUFFAGE");
+      return "HEATER SENSOR FAULT";
     default:
       return "ALARM";
   }
@@ -150,6 +154,13 @@ const char *alarm_action_text(AlarmId id, Language lang) {
       ES("REVISAR DEPOSITO DE AGUA");
       FR("VERIFIER LE RESERVOIR D EAU");
       return "CHECK THE WATER TANK";
+    // Dice explicitamente que el calentador puede estar bien: es la diferencia
+    // util frente a ALARM_HEATER_FAULT. Lo que hay que revisar es el conector
+    // del sensor de corriente, no el del calefactor.
+    case ALARM_HEATER_SENSOR_FAULT:
+      ES("CALEFACTOR CORTADO - SIN MEDIDA DE CONSUMO - REVISAR SENSOR DE CORRIENTE");
+      FR("CHAUFFAGE COUPE - PAS DE MESURE DE COURANT - VERIFIER LE CAPTEUR");
+      return "HEATER CUT - NO CURRENT READING - SERVICE THE CURRENT SENSOR";
     default:
       return "alarm";
   }

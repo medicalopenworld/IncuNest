@@ -37,15 +37,32 @@ void test_low_priority_set(void) {
                         alarm_priority(ALARM_HUMIDITY_DEVIATION));
 }
 
-// El reparto declarado en la spec: 7 ALTA / 7 MEDIA / 2 BAJA.
+// El reparto declarado en la spec: 7 ALTA / 8 MEDIA / 2 BAJA.
+//
+// La MEDIA subio de 7 a 8 al separar ALARM_HEATER_SENSOR_FAULT de
+// ALARM_HEATER_FAULT: son averias distintas (calefactor frente a su sensor de
+// corriente) con acciones distintas para el operador, pero la misma urgencia.
 void test_priority_distribution(void) {
   int counts[3] = {0, 0, 0};
   for (int id = ALARM_NONE + 1; id < ALARM_COUNT; ++id) {
     counts[alarm_priority((AlarmId)id)]++;
   }
   TEST_ASSERT_EQUAL_INT(2, counts[ALARM_PRIORITY_LOW]);
-  TEST_ASSERT_EQUAL_INT(7, counts[ALARM_PRIORITY_MEDIUM]);
+  TEST_ASSERT_EQUAL_INT(8, counts[ALARM_PRIORITY_MEDIUM]);
   TEST_ASSERT_EQUAL_INT(7, counts[ALARM_PRIORITY_HIGH]);
+}
+
+// Las dos averias de calefactor comparten urgencia y comparten corte, pero no
+// identidad: son alarmas separadas para que el operador sepa que revisar.
+void test_heater_and_its_sensor_are_separate_conditions(void) {
+  TEST_ASSERT_NOT_EQUAL(ALARM_HEATER_FAULT, ALARM_HEATER_SENSOR_FAULT);
+  TEST_ASSERT_EQUAL_INT(alarm_priority(ALARM_HEATER_FAULT),
+                        alarm_priority(ALARM_HEATER_SENSOR_FAULT));
+  // Sin medida de consumo no se deja calentar sin vigilancia: separar las
+  // alarmas no puede relajar el corte que ya habia.
+  TEST_ASSERT_TRUE(alarm_cuts_heater(ALARM_HEATER_SENSOR_FAULT));
+  // Ninguna de las dos es latching: solo lo son los cortes termicos.
+  TEST_ASSERT_FALSE(alarm_is_latching(ALARM_HEATER_SENSOR_FAULT));
 }
 
 // Un id fuera de rango no debe devolver basura: se degrada a la mas urgente,
@@ -141,6 +158,7 @@ int main(void) {
   RUN_TEST(test_medium_priority_set);
   RUN_TEST(test_low_priority_set);
   RUN_TEST(test_priority_distribution);
+  RUN_TEST(test_heater_and_its_sensor_are_separate_conditions);
   RUN_TEST(test_out_of_range_defaults_to_high);
   RUN_TEST(test_only_thermal_cutouts_latch);
   RUN_TEST(test_conditions_that_must_cut_the_heater);

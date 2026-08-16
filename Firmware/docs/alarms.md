@@ -14,7 +14,7 @@ El sistema tiene tres capas, cada una en su propio fichero:
   *latching* y si corta el calefactor. No tienen estado ni dependen de
   Arduino, así que se comparten entre motherBoard y el análisis normativo.
 - **Máquina de estados** (`motherBoard/src/modules/control/alarm_machine.{h,cpp}`):
-  mantiene, para cada una de las 16 condiciones, si está físicamente presente
+  mantiene, para cada una de las 17 condiciones, si está físicamente presente
   y en qué estado de señalización se encuentra. Es el único sitio con
   temporizadores.
 - **Detección y actuación** (`motherBoard/src/system/security.cpp`,
@@ -22,9 +22,9 @@ El sistema tiene tres capas, cada una en su propio fichero:
   está presente, llama a la máquina de estados y aplica los cortes de
   actuador.
 
-## 1. Las 16 condiciones
+## 1. Las 17 condiciones
 
-El enum `AlarmId` (`shared/include/alarm_ids.h`) define 16 condiciones más el
+El enum `AlarmId` (`shared/include/alarm_ids.h`) define 17 condiciones más el
 centinela `ALARM_NONE = 0`. El valor numérico es el índice de bit del
 protocolo serie, así que el orden es significativo y las condiciones nuevas
 se añaden al final.
@@ -37,16 +37,17 @@ se añaden al final.
 | 4 | `ALARM_SKIN_SENSOR_FAULT_SKIN_MODE` | mismo mecanismo de staleness que el 3 pero sobre la sonda de piel, con su propia ventana `MINIMUM_SUCCESSFULL_SKIN_SENSOR_UPDATE` = 5000 ms (~25 muestras a 200 ms), y solo cuando `in3.controlMode == CONTROL_SKIN` | ALTA | sí |
 | 5 | `ALARM_FAN_FAILURE` | en marcha, `in3.fan_rpm < FAN_MIN_RPM` (3000 rpm, `board.h:185`), con histéresis de 300 rpm para despejar (`checkFanSpeed()`); solo evaluable con `in3.fanHasSpeedFeedback`. **También la declara el autotest de arranque** (`initHardware.cpp:412,677,732,740,779`), antes de que exista lazo de control | ALTA | sí |
 | 6 | `ALARM_AIR_OUTLET_BLOCKED` | en marcha, `fanControlPIDOutput > FAN_DUTY_BLOCKED_THRESHOLD` (190, `board.h:221`) sostenido `AIR_BLOCKED_SUSTAIN_MS` = 5000 ms (`checkAirBlockage()`). **También la declara el autotest de arranque** (`initHardware.cpp:803`) | ALTA | sí |
-| 7 | `ALARM_MAINS_INTERRUPTION` | **sin detector** — ver §9 | ALTA | no (no hay condición que cortar) |
+| 7 | `ALARM_MAINS_INTERRUPTION` | **sin detector** — ver §9 | ALTA | no (no hay condición que cortar). **No silenciable**: 201.12.3.103 exige 10 min de aviso y la pausa dura justo eso |
 | 8 | `ALARM_AIR_TEMP_DEVIATION_HIGH` | en modo aire, `temperatura − consigna > 3.0 °C` (`AIR_TEMP_DEVIATION_LIMIT_C`, `checkAlarms()`) | MEDIA | sí |
 | 9 | `ALARM_AIR_TEMP_DEVIATION_LOW` | en modo aire, `consigna − temperatura > 3.0 °C`, y solo tras cerrar la ventana de estabilización (§5) | MEDIA | no |
 | 10 | `ALARM_SKIN_TEMP_DEVIATION_HIGH` | en modo piel, `temperatura − consigna > 1.0 °C` (`SKIN_TEMP_DEVIATION_LIMIT_C`) | MEDIA | sí |
 | 11 | `ALARM_SKIN_TEMP_DEVIATION_LOW` | en modo piel, `consigna − temperatura > 1.0 °C`, tras cerrar la ventana | MEDIA | no |
-| 12 | `ALARM_HEATER_FAULT` | corriente de calefactor fuera de `[HEATER_CONSUMPTION_MIN, HEATER_CONSUMPTION_MAX]` en el autotest de arranque, o `HEATER_SENSOR_DROPOUT_ALARM_CYCLES` = 10 fallos consecutivos de sondeo I2C del sensor de corriente SECUNDARY en marcha (`initHardware.cpp`, `sensors_module.cpp`) | MEDIA | sí |
+| 12 | `ALARM_HEATER_FAULT` | corriente de calefactor fuera de `[HEATER_CONSUMPTION_MIN, HEATER_CONSUMPTION_MAX]` en el autotest de arranque (`initHardware.cpp`). Es avería de cableado o resistencia | MEDIA | sí |
 | 13 | `ALARM_SUPPLY_UNDERVOLTAGE` | `MIN_SYSTEM_VOLTAGE_TRIGGER (0 V) < in3.system_voltage < MAX_SYSTEM_VOLTAGE_TRIGGER (8 V)`, y solo si `digitalCurrentSensorPresent[MAIN]`, muestreado cada `POWER_SUPPLY_CHECK_PERIOD` = 2000 ms (`powerSupplyCheck()`) | MEDIA | no (corta ventilador, no calefactor) |
-| 14 | `ALARM_HMI_LINK_LOST` | **sin detector** — ver §9 | MEDIA | no |
+| 14 | `ALARM_HMI_LINK_LOST` | sin recibir línea válida del display durante `HMI_LINK_TIMEOUT_MS` = 5000 ms, con latido de 1 s desde el HMI (`checkHmiLink()`). No se declara antes de la primera trama | MEDIA | no |
 | 15 | `ALARM_SKIN_SENSOR_FAULT_AIR_MODE` | staleness de la sonda de piel en modo aire, solo si la sonda llegó a leer alguna vez en este ciclo de encendido (`skinProbeEverRead`) | BAJA | no |
 | 16 | `ALARM_HUMIDITY_DEVIATION` | `|humedad − consigna| > 10 %RH` (`HUMIDITY_ERROR`), solo con `in3.humidityControl` activo y tras cerrar la ventana de estabilización | BAJA | no |
+| 17 | `ALARM_HEATER_SENSOR_FAULT` | `HEATER_SENSOR_DROPOUT_ALARM_CYCLES` = 10 fallos consecutivos de sondeo I2C del sensor de corriente SECUNDARY en marcha (`sensors_module.cpp`). El calefactor puede estar bien; lo perdido es la medida de su consumo | MEDIA | sí |
 
 Que el autotest de arranque declare las condiciones 5 y 6 importa: son
 declaraciones vivas que sobreviven al arranque y que ningún detector de marcha
@@ -68,12 +69,12 @@ código es:
 - **ALTA (7)**: `AIR_THERMAL_CUTOUT`, `SKIN_THERMAL_CUTOUT`, `AIR_SENSOR_FAULT`,
   `SKIN_SENSOR_FAULT_SKIN_MODE`, `FAN_FAILURE`, `AIR_OUTLET_BLOCKED`,
   `MAINS_INTERRUPTION`.
-- **MEDIA (7)**: `AIR_TEMP_DEVIATION_HIGH`, `AIR_TEMP_DEVIATION_LOW`,
+- **MEDIA (8)**: `AIR_TEMP_DEVIATION_HIGH`, `AIR_TEMP_DEVIATION_LOW`,
   `SKIN_TEMP_DEVIATION_HIGH`, `SKIN_TEMP_DEVIATION_LOW`, `HEATER_FAULT`,
-  `SUPPLY_UNDERVOLTAGE`, `HMI_LINK_LOST`.
+  `HEATER_SENSOR_FAULT`, `SUPPLY_UNDERVOLTAGE`, `HMI_LINK_LOST`.
 - **BAJA (2)**: `SKIN_SENSOR_FAULT_AIR_MODE`, `HUMIDITY_DEVIATION`.
 
-Este 7/7/2 coincide exactamente con el reparto que propone
+Este 7/8/2 coincide con el reparto que propone
 `alarms_normative_analysis.md` §5 a partir de la Tabla 1 (resultado de no
 responder × tiempo de aparición), así que el código ya refleja esa derivación,
 condición por condición.
@@ -563,9 +564,7 @@ hace hoy, para no inducir a confiar en protecciones que no existen.
   activa. Un detector real exigiría además una reserva de energía dedicada
   que sobreviva 10 minutos de corte de red — es un requisito de hardware, no
   solo de firmware.
-- **`ALARM_HMI_LINK_LOST` no tiene detector.** Igual que el anterior: existe
-  en el enum y en la tabla de prioridades (MEDIA), pero ningún punto del
-  firmware de motherBoard llama a `alarm_machine_condition(ALARM_HMI_LINK_LOST, ...)`.
+- ~~`ALARM_HMI_LINK_LOST` no tiene detector~~ — **implementado**. El display manda un latido cada 1 s (`HMI_KEEPALIVE_PERIOD_MS`) y la placa declara la condición tras 5 s sin recibir nada (`HMI_LINK_TIMEOUT_MS`, `checkHmiLink()`). Antes no era detectable: el display solo transmitía al cambiar algo, así que el silencio no significaba nada. No se declara antes de la primera trama — la placa arranca antes que el display y un enlace que nunca existió no es un enlace caído.
 - **No hay reset manual accesible al operador para los cortes térmicos
   latching.** `alarm_machine_reset()` solo se invoca desde
   `test_alarm_machine.cpp`. No existe botón del display, comando USB ni
@@ -600,10 +599,10 @@ hace hoy, para no inducir a confiar en protecciones que no existen.
 - **Lo que sí queda pendiente del audio es acústico, no de firmware**: el
   tiempo de subida real, la relación de 15 dB entre las cuatro componentes
   mayores y los niveles de presión sonora. Los tres exigen micrófono.
-- **Detección de cortocircuito en la sonda de piel: no implementada.** El
-  detector de fallo (`checkStatusOfSensor()`) es un timeout de 20 s de
-  `lastSuccesfullSensorUpdate`, que cubre desconexión y circuito abierto pero
-  no una sonda cortocircuitada que siga devolviendo una lectura verosímil.
+- ~~Detección de cortocircuito en la sonda de piel~~ — **implementada**. `skinProbeFault()` clasifica por RESISTENCIA: por debajo de 800 Ω es cortocircuito, por encima de 6000 Ω circuito abierto, y se distinguen en el log porque la acción de servicio es distinta. Cierra además un agujero real: los límites anteriores estaban en milivoltios y venían de cuando la excitación eran 3,3 V, así que el superior quedaba por encima del raíl y no filtraba nada. Un cortocircuito PARCIAL se leía como piel plausiblemente caliente y, en modo piel, hacía que el control dejase de calentar sin ninguna alarma. La **urgencia**
+  sigue dependiendo del modo, que es lo correcto: en modo piel la avería es
+  ALTA y corta calefactor, en modo aire es BAJA. Lo que cambia con el corto no
+  es la gravedad, es qué hay que revisar.
 - **La detección de obstrucción de salida de aire está activa, con un umbral
   razonado pero pendiente de ajuste fino en banco.**
   `AIR_BLOCKED_DETECTION_ENABLED` es `true` (`board.h:234`) y ya corta el

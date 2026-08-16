@@ -15,6 +15,19 @@ AlarmPriority alarm_priority(AlarmId id);
 // haya bajado. El resto de condiciones son non-latching.
 bool alarm_is_latching(AlarmId id);
 
+// true si el operador puede inactivar el audio de esta condicion.
+//
+// Solo hay una excepcion, y es ALARM_MAINS_INTERRUPTION: 60601-2-19
+// 201.12.3.103 exige que el aviso de corte de red se mantenga un MINIMO de
+// 10 min, y la pausa de audio dura exactamente eso
+// (ALARM_AUDIO_PAUSE_MS). Silenciarla no se comeria parte de la duracion
+// obligatoria: se la comeria entera.
+//
+// 6.8.1 lo permite: dice "Means MAY be provided" para inactivar senales, y no
+// obliga a ofrecerlo condicion por condicion. La senal visual, en cambio, no
+// se inactiva nunca (eso si es obligatorio).
+bool alarm_is_silenceable(AlarmId id);
+
 // true si la norma exige desconectar la alimentacion del calefactor mientras
 // la condicion este presente.
 bool alarm_cuts_heater(AlarmId id);

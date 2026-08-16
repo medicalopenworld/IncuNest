@@ -703,6 +703,9 @@ void switchAlarmTelemetryWIFI(int alarm, bool value) {
   case ALARM_HUMIDITY_DEVIATION:
     alarmKey = ALARM_HUMIDITY_DEVIATION_KEY;
     break;
+  case ALARM_HEATER_SENSOR_FAULT:
+    alarmKey = ALARM_HEATER_SENSOR_FAULT_KEY;
+    break;
   default:
     return;
   }

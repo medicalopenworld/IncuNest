@@ -287,6 +287,13 @@ AUDIO PAUSED de **una** condición concreta.
 - Silenciar una condición no afecta a las demás (6.8.1).
 - `id` fuera de rango o línea malformada: descarte con log.
 
+#### HMI (trama de estado periódica)
+El display manda su trama **al menos cada 1 s** (`HMI_KEEPALIVE_PERIOD_MS`),
+aunque no haya cambiado nada. Es el latido que permite a la motherBoard
+detectar `ALARM_HMI_LINK_LOST` tras 5 s de silencio (`HMI_LINK_TIMEOUT_MS`).
+Cualquier trama con prefijo `HMI,` cuenta como latido, no solo la de estado:
+lo que se vigila es que el display siga hablando, no lo que diga.
+
 #### HMI,ALM_TEST
 Lanza la prueba de funcionamiento de las señales de alarma
 (60601-2-19 201.12.3.105).

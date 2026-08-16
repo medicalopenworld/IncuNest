@@ -16,6 +16,7 @@ AlarmPriority alarm_priority(AlarmId id) {
     case ALARM_SKIN_TEMP_DEVIATION_HIGH:
     case ALARM_SKIN_TEMP_DEVIATION_LOW:
     case ALARM_HEATER_FAULT:
+    case ALARM_HEATER_SENSOR_FAULT:
     case ALARM_SUPPLY_UNDERVOLTAGE:
     case ALARM_HMI_LINK_LOST:
       return ALARM_PRIORITY_MEDIUM;
@@ -33,6 +34,10 @@ bool alarm_is_latching(AlarmId id) {
   return id == ALARM_AIR_THERMAL_CUTOUT || id == ALARM_SKIN_THERMAL_CUTOUT;
 }
 
+bool alarm_is_silenceable(AlarmId id) {
+  return id != ALARM_MAINS_INTERRUPTION;
+}
+
 bool alarm_cuts_heater(AlarmId id) {
   switch (id) {
     case ALARM_AIR_THERMAL_CUTOUT:
@@ -44,6 +49,11 @@ bool alarm_cuts_heater(AlarmId id) {
     case ALARM_AIR_TEMP_DEVIATION_HIGH:
     case ALARM_SKIN_TEMP_DEVIATION_HIGH:
     case ALARM_HEATER_FAULT:
+    // Corta igual que ALARM_HEATER_FAULT, del que se separo. Sin el sensor de
+    // corriente no hay forma de saber lo que consume el calefactor, y dejarlo
+    // calentando sin vigilancia seria relajar la seguridad: la separacion
+    // sirve para decirle al operador QUE revisar, no para actuar distinto.
+    case ALARM_HEATER_SENSOR_FAULT:
       return true;
     default:
       return false;

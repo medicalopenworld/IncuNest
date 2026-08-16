@@ -986,6 +986,32 @@ static void alarmMagnitudes(int id, int16_t *limitCenti, int16_t *valueCenti)
   *valueCenti = (int16_t)(value * 100.0f);
 }
 
+// Enlace con el display perdido.
+//
+// El display manda un latido cada HMI_KEEPALIVE_PERIOD_MS (1 s); se dan cinco
+// tramas de margen antes de declararlo, que es tambien la misma ventana de
+// staleness que usan los sensores. Un solo numero de "cuanto silencio es
+// demasiado" en todo el sistema es mas facil de defender que tres distintos.
+//
+// Prioridad MEDIA (alarm_policy): perder la pantalla no para la terapia, pero
+// deja al operador sin lectura y sin la unica via para silenciar.
+#define HMI_LINK_TIMEOUT_MS 5000u
+
+static void checkHmiLink()
+{
+  extern uint32_t g_lastHmiLineMs;
+  extern bool g_hmiEverSeen;
+
+  // Antes de la primera trama no hay enlace que perder: la placa arranca antes
+  // que el display. Declararlo aqui seria una alarma en cada encendido.
+  if (!g_hmiEverSeen) {
+    return;
+  }
+  const bool lost =
+      (uint32_t)(millis() - g_lastHmiLineMs) > HMI_LINK_TIMEOUT_MS;
+  alarm_machine_condition(ALARM_HMI_LINK_LOST, lost, millis());
+}
+
 static void publishAlarmChanges()
 {
   const uint32_t mask = alarm_machine_bitmask();
@@ -1083,6 +1109,7 @@ void securityCheck()
 #endif
   // El tick va DESPUES de la deteccion y ANTES de publicar: es el que hace
   // madurar PENDING -> ACTIVE y el que expira las pausas de audio.
+  checkHmiLink();
   alarm_machine_tick(millis());
   alarm_test_tick(millis());
   publishAlarmChanges();

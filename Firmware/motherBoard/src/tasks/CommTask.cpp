@@ -484,6 +484,16 @@ static bool hmiCrashAppend(const char *line) {
 // ======================================================
 //  LINE PARSER (common to UART and USB)
 // ======================================================
+// Instante de la ultima linea valida recibida del display, y si se ha visto
+// alguna vez. Los lee checkHmiLink() (security.cpp).
+//
+// g_hmiEverSeen existe porque sin el, el arranque declararia el enlace perdido
+// durante los primeros segundos: la placa arranca antes que el display y su
+// primera trama tarda en llegar. Un enlace que nunca ha existido no es un
+// enlace caido.
+uint32_t g_lastHmiLineMs = 0;
+bool g_hmiEverSeen = false;
+
 void parse_line(const char *line) {
   // HMI panic output arrives as plain ROM/ESP_LOG text, so intercept it
   // before the protocol-prefix filter discards everything without "HMI,".
@@ -493,6 +503,13 @@ void parse_line(const char *line) {
   if (strncmp(line, EXPECTED_PREFIX, strlen(EXPECTED_PREFIX)) != 0) {
     return;
   }
+
+  // Latido del display. Se marca AQUI, con el prefijo ya validado y antes de
+  // cualquier rama: sirve igual una trama de estado que un comando suelto, y
+  // ponerlo en cada rama se olvidaria en la siguiente que se anada. Lo que se
+  // vigila es que el display siga HABLANDO, no lo que diga.
+  g_lastHmiLineMs = millis();
+  g_hmiEverSeen = true;
 
   if (strncmp(line, "HMI,BOOT,", 9) == 0) {
     int rst = 0, cnt = 0;

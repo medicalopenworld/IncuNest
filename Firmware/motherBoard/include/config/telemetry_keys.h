@@ -108,6 +108,7 @@
 #define ALARM_SKIN_TEMP_DEVIATION_HIGH_KEY "skin_temp_high_alarm"
 #define ALARM_SKIN_TEMP_DEVIATION_LOW_KEY "skin_temp_low_alarm"
 #define ALARM_HEATER_FAULT_KEY "heater_alarm"
+#define ALARM_HEATER_SENSOR_FAULT_KEY "heater_sensor_alarm"
 #define ALARM_SUPPLY_UNDERVOLTAGE_KEY "power_alarm"
 #define ALARM_HMI_LINK_LOST_KEY "hmi_link_alarm"
 #define ALARM_SKIN_SENSOR_FAULT_AIR_MODE_KEY "skin_sensor_air_alarm"

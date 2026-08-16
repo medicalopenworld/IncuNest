@@ -1004,9 +1004,28 @@ void Comm_Task(void *pvParameters) {
     }
 
 #if IS_HMI
+    // Keepalive de 1 Hz.
+    //
+    // Hasta ahora el display solo transmitia cuando algo cambiaba, asi que en
+    // la pantalla principal quieta podian pasar minutos sin una sola trama y
+    // el silencio no significaba nada. Sin un latido periodico la placa no
+    // puede distinguir "no hay novedades" de "el display esta muerto", y
+    // ALARM_HMI_LINK_LOST no era detectable.
+    //
+    // Una linea por segundo es del mismo orden que el CTRL,STATE que ya manda
+    // la placa; no es el trafico periodico evitable que preocupa en
+    // known_issues.md #2, que hablaba de rafagas por evento.
+    static uint32_t lastKeepaliveMs = 0;
+    const uint32_t nowMs = millis();
+    if ((uint32_t)(nowMs - lastKeepaliveMs) >= HMI_KEEPALIVE_PERIOD_MS) {
+      hmi_msg.shouldSendData = true;
+    }
     if (hmi_msg.shouldSendData) {
       SendMessageToOtherESP();
       hmi_msg.shouldSendData = false;
+      // El reloj se reinicia con CUALQUIER envio, no solo con el keepalive:
+      // una trama por cambio vale igual como latido y ahorra la siguiente.
+      lastKeepaliveMs = nowMs;
     }
 #endif
 

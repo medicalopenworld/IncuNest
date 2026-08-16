@@ -32,6 +32,19 @@ typedef enum {
   // --- Prioridad BAJA ---
   ALARM_SKIN_SENSOR_FAULT_AIR_MODE = 15,
   ALARM_HUMIDITY_DEVIATION = 16,
+  // Fallo del SENSOR de corriente del calefactor, no del calefactor.
+  //
+  // Se separo de ALARM_HEATER_FAULT porque son averias distintas con acciones
+  // distintas. Aquella la declara el autotest de arranque cuando la corriente
+  // del calefactor esta fuera de rango: es cableado o resistencia, permanente,
+  // y no se puede hacer nada sin servicio tecnico. Esta la declara la caida
+  // del sondeo I2C del sensor de corriente en marcha: el calefactor puede
+  // estar perfecto y lo que se ha perdido es la capacidad de VIGILARLO, asi
+  // que lo que hay que revisar es otro conector.
+  //
+  // Va al final del enum, no junto a la 12, porque el valor numerico es el
+  // indice de bit del protocolo y renumerar romperia la compatibilidad.
+  ALARM_HEATER_SENSOR_FAULT = 17,
   ALARM_COUNT
 } AlarmId;
 

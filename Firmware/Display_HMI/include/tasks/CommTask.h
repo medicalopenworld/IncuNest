@@ -17,6 +17,11 @@
 
 #define COMM_SERIAL Serial
 
+// Cadencia del latido del display hacia la placa. La placa declara
+// ALARM_HMI_LINK_LOST tras HMI_LINK_TIMEOUT_MS sin recibir nada; el margen
+// entre ambos (5 tramas) evita declararlo por un hueco puntual de la UART.
+#define HMI_KEEPALIVE_PERIOD_MS 1000u
+
 // Expected prefix of incoming messages
 #if IS_HMI
 #define EXPECTED_PREFIX "CTRL"

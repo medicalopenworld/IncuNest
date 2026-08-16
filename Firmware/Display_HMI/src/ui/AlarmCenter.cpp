@@ -7,6 +7,7 @@
 #include "CommTask.h"
 #include "UITask.h"
 #include "alarm_ids.h"
+#include "alarm_policy.h"
 #include "main.h"
 #include "ui.h"
 
@@ -146,36 +147,22 @@ lv_obj_t *makeBtn(lv_obj_t *parent, const char *text, lv_event_cb_t cb,
 // dashed-X where the dashed-X means limited duration"). La X continua queda
 // reservada a AUDIO OFF, que este equipo no ofrece.
 //
-// Se dibuja en vez de incrustarse como imagen porque la fuente ya trae la
-// campana y las dos aspas son dos lv_line con estilo discontinuo. PENDIENTE:
-// contrastar el trazado contra la lamina original de la Tabla C.1 antes de la
-// evaluacion formal — la forma es la correcta, las proporciones exactas no
-// estan verificadas contra el documento.
+// Es la LAMINA de la norma, no un dibujo aproximado: se convierte desde
+// data/IEC 60417-5576-2.png a una mascara de 1 bit. Antes se dibujaba a mano
+// con la campana de la fuente y dos lv_line discontinuas, con la salvedad
+// anotada de que las proporciones no estaban contrastadas contra el documento.
+// Ya lo estan.
 lv_obj_t *makeAudioPausedIcon(lv_obj_t *parent, lv_color_t color) {
-  static lv_point_t kDiag1[] = {{3, 3}, {25, 25}};
-  static lv_point_t kDiag2[] = {{25, 3}, {3, 25}};
-
-  lv_obj_t *box = lv_obj_create(parent);
-  lv_obj_remove_style_all(box);
-  lv_obj_set_size(box, 28, 28);
-  lv_obj_clear_flag(box, LV_OBJ_FLAG_SCROLLABLE);
-
-  lv_obj_t *bell = lv_label_create(box);
-  lv_label_set_text(bell, LV_SYMBOL_BELL);
-  lv_obj_set_style_text_color(bell, color, 0);
-  lv_obj_set_style_text_font(bell, &lv_font_montserrat_20, 0);
-  lv_obj_center(bell);
-
-  for (int i = 0; i < 2; i++) {
-    lv_obj_t *ln = lv_line_create(box);
-    lv_line_set_points(ln, i == 0 ? kDiag1 : kDiag2, 2);
-    lv_obj_set_style_line_width(ln, 3, 0);
-    lv_obj_set_style_line_color(ln, color, 0);
-    lv_obj_set_style_line_dash_width(ln, 4, 0);
-    lv_obj_set_style_line_dash_gap(ln, 3, 0);
-    lv_obj_set_style_line_rounded(ln, true, 0);
-  }
-  return box;
+  lv_obj_t *img = lv_img_create(parent);
+  lv_img_set_src(img, &ui_img_audio_paused_sym);
+  lv_obj_set_size(img, 28, 28);
+  lv_img_set_zoom(img, (28 * 256) / 48);  // la lamina es de 48 px
+  lv_img_set_antialias(img, true);
+  // ALPHA_1BIT solo lleva forma: el color sale del estilo, que es lo que
+  // permite tenirlo con el de la prioridad de la fila.
+  lv_obj_set_style_img_recolor(img, color, 0);
+  lv_obj_set_style_img_recolor_opa(img, LV_OPA_COVER, 0);
+  return img;
 }
 
 // El color de texto explicito es imprescindible: lv_btn pinta su etiqueta en
@@ -397,14 +384,28 @@ void showList() {
 
     // 6.8.4: "means to terminate any ALARM SIGNAL inactivation state". El
     // mismo control silencia y cancela el silencio, condicion a condicion.
+    //
+    // Salvo el corte de red, que no se puede silenciar: 201.12.3.103 exige
+    // 10 min de aviso y la pausa dura justo eso. El boton sale igualmente,
+    // desactivado y diciendo por que: quitarlo dejaria al operador pulsando
+    // en el vacio sin entender que pasa. Quien lo impide de verdad es la
+    // placa (alarm_machine_silence); esto solo lo explica.
+    const bool canSilence = alarm_is_silenceable((AlarmId)r.id);
     lv_obj_t *btn = makeBtn(
         card,
-        r.silenced ? TXT("REANUDAR", "RESUME", "REPRENDRE")
-                   : TXT("SILENCIAR", "SILENCE", "SILENCE"),
+        !canSilence ? TXT("NO SILENCIABLE", "CANNOT SILENCE", "NON SILENCABLE")
+        : r.silenced ? TXT("REANUDAR", "RESUME", "REPRENDRE")
+                     : TXT("SILENCIAR", "SILENCE", "SILENCE"),
         onRowSilenceTap,
-        r.silenced ? lv_color_hex(0x2E7D32) : lv_color_hex(0xE08800), &r);
+        !canSilence  ? lv_color_hex(0x9E9E9E)
+        : r.silenced ? lv_color_hex(0x2E7D32)
+                     : lv_color_hex(0xE08800),
+        &r);
     lv_obj_set_size(btn, 190, 52);
     lv_obj_align(btn, LV_ALIGN_RIGHT_MID, -4, 0);
+    if (!canSilence) {
+      lv_obj_add_state(btn, LV_STATE_DISABLED);
+    }
   }
 
   if (nActive == 0) {

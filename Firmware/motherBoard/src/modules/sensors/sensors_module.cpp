@@ -105,11 +105,15 @@ void currentMonitor() {
       // data. Escalate to ALARM_HEATER_FAULT (unrecoverable within the
       // session, same as the existing boot-time heater fault) if the
       // dropout persists.
+      // ALARM_HEATER_SENSOR_FAULT y no ALARM_HEATER_FAULT: el calefactor puede
+      // estar perfecto: lo que se ha perdido es la medida de su consumo. Corta
+      // igual (no se deja calentar sin vigilancia), pero el operador tiene que
+      // revisar el conector del SENSOR, no el del calefactor.
       if (++heaterSensorDropoutCycles >= HEATER_SENSOR_DROPOUT_ALARM_CYCLES &&
-          alarm_machine_state(ALARM_HEATER_FAULT) == ALARM_STATE_INACTIVE)
+          alarm_machine_state(ALARM_HEATER_SENSOR_FAULT) == ALARM_STATE_INACTIVE)
       {
         logE("[SENSOR] -> Heater current sensor (SECUNDARY) stopped answering on I2C");
-        alarm_machine_condition(ALARM_HEATER_FAULT, true, millis());
+        alarm_machine_condition(ALARM_HEATER_SENSOR_FAULT, true, millis());
       }
     }
     lastCurrentMeasurement = millis();
@@ -264,7 +268,11 @@ static float resistanceToTempYSI400(float rntc) {
   return NAN;
 }
 
-float adcToCelsius(float adcReading_mV) {
+// Resistencia de la NTC a partir de la tensión medida, o NAN si la lectura
+// está fuera del divisor. Se extrae de adcToCelsius() porque la clasificación
+// de averías (skinProbeFault()) razona en resistencia, no en milivoltios:
+// duplicar la fórmula del divisor en dos sitios es pedir que diverjan.
+float adcToResistance(float adcReading_mV) {
   const float rTop = 2260.0f; // Resistencia del divisor (Ω, 0.1%)
 #if (HW_NUM >= 17)
   const float vExc = 2.048f;  // Tensión de excitación (LM4040EIM7-2.0, 2.048 V)
@@ -276,10 +284,64 @@ float adcToCelsius(float adcReading_mV) {
     return NAN;
 
   float vm = adcReading_mV / 1000.0f;
-  float rntc = rTop * vm / (vExc - vm);
+  return rTop * vm / (vExc - vm);
+}
 
+float adcToCelsius(float adcReading_mV) {
+  const float rntc = adcToResistance(adcReading_mV);
+  if (isnan(rntc))
+    return NAN;
   return resistanceToTempYSI400(rntc);
 }
+
+// Clasificación de la avería de la sonda, por RESISTENCIA y no por la ventana
+// en milivoltios que había antes.
+//
+// El motivo no es elegancia. Los límites viejos (ADC_TO_DISCARD_MIN/MAX =
+// 500/2500 mV) venían de cuando la excitación eran 3,3 V y nunca se
+// rehicieron para los 2,048 V del LM4040: el superior queda POR ENCIMA del
+// raíl, así que no filtraba nada, y el inferior corresponde a ~730 Ω, muy por
+// debajo de los 1127 Ω que son 42 °C. La banda fisiológica real es 681–1371 mV
+// y la ventana era mucho más ancha.
+//
+// Ahí estaba el agujero: un cortocircuito PARCIAL —humedad puenteando el
+// conector— da una resistencia baja que se traduce en una piel plausiblemente
+// caliente. En modo piel eso hace que el control deje de calentar, sin ninguna
+// alarma. Hipotermia silenciosa, con el corte térmico de 40 °C como único
+// backstop. Acotar por fisiología en vez de por raíles lo cierra.
+typedef enum {
+  SKIN_PROBE_READING_OK = 0,
+  SKIN_PROBE_READING_SHORT,  // R muy baja: sonda en corto o conector puenteado
+  SKIN_PROBE_READING_OPEN,   // R muy alta: sonda desconectada o hilo partido
+} SkinProbeReading;
+
+// ~45 °C y ~5 °C en la YSI 400. Ni la piel de un neonato baja de 5 °C ni sube
+// de 45 °C con la sonda puesta: cualquier cosa fuera de ahí es avería, no
+// medida. Se deja margen sobre la tabla (10–42 °C) para no rechazar lecturas
+// legítimas en sus extremos.
+#define SKIN_NTC_SHORT_OHMS 800.0f
+#define SKIN_NTC_OPEN_OHMS 6000.0f
+
+static SkinProbeReading s_lastSkinProbeReading = SKIN_PROBE_READING_OK;
+
+static SkinProbeReading skinProbeFault(float millivolts) {
+  const float rntc = adcToResistance(millivolts);
+  // Fuera del divisor: el ADC saturó por arriba (circuito abierto) o leyó cero.
+  if (isnan(rntc))
+    return (millivolts <= 0.0f) ? SKIN_PROBE_READING_SHORT
+                                : SKIN_PROBE_READING_OPEN;
+  if (rntc < SKIN_NTC_SHORT_OHMS)
+    return SKIN_PROBE_READING_SHORT;
+  if (rntc > SKIN_NTC_OPEN_OHMS)
+    return SKIN_PROBE_READING_OPEN;
+  return SKIN_PROBE_READING_OK;
+}
+
+// Última clasificación, para el log y el diagnóstico en banco. La URGENCIA de
+// la avería sigue dependiendo del modo (ALARM_SKIN_SENSOR_FAULT_SKIN_MODE es
+// ALTA y corta calefactor; la de modo aire es BAJA), que es lo correcto: lo
+// que cambia con el corto no es la gravedad, es qué hay que revisar.
+SkinProbeReading skinProbeLastReading(void) { return s_lastSkinProbeReading; }
 
 void fanSpeedHandler() {
   double fanEncoderPeriodFiltered;
@@ -310,7 +372,25 @@ void fanSpeedHandler() {
 
 // Shared post-processing: calibration, filter, clamp
 static bool applyNTCResult(float millivolts) {
-  if (millivolts > ADC_TO_DISCARD_MIN && millivolts < ADC_TO_DISCARD_MAX) {
+  const SkinProbeReading fault = skinProbeFault(millivolts);
+  s_lastSkinProbeReading = fault;
+  if (fault != SKIN_PROBE_READING_OK) {
+    // Se distingue en el log porque la accion del servicio tecnico es
+    // distinta: un corto es sonda o conector danado y hay que sustituirla; un
+    // circuito abierto suele ser que esta desenchufada.
+    static uint32_t lastFaultLog = 0;
+    if (millis() - lastFaultLog >= 1000) {
+      logE(String("[SKIN] sonda ") +
+           (fault == SKIN_PROBE_READING_SHORT ? "en CORTOCIRCUITO"
+                                              : "en CIRCUITO ABIERTO") +
+           " (mV=" + String(millivolts, 1) +
+           " R=" + String(adcToResistance(millivolts), 0) + ")");
+      lastFaultLog = millis();
+    }
+    in3.temperature[SKIN_SENSOR] = 0;
+    return false;
+  }
+  {
     float tempRaw = adcToCelsius(millivolts);
     if (isnan(tempRaw)) {
       in3.temperature[SKIN_SENSOR] = 0;

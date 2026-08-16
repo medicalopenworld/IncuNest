@@ -2190,34 +2190,18 @@ void update_alarm_test_texts(void) {
 static lv_obj_t *s_audioPausedIcon = NULL;
 
 void audio_paused_icon_init(void) {
-  static lv_point_t kDiag1[] = {{4, 4}, {32, 32}};
-  static lv_point_t kDiag2[] = {{32, 4}, {4, 32}};
-  const lv_color_t col = lv_color_hex(0xFFB436);
-
-  s_audioPausedIcon = lv_obj_create(lv_layer_top());
-  lv_obj_remove_style_all(s_audioPausedIcon);
+  // La lamina de la norma (IEC 60417-5576, variante de X DISCONTINUA =
+  // AUDIO PAUSED), convertida a mascara de 1 bit. La X continua significaria
+  // AUDIO OFF, inactivacion permanente, que este equipo no ofrece.
+  s_audioPausedIcon = lv_img_create(lv_layer_top());
+  lv_img_set_src(s_audioPausedIcon, &ui_img_audio_paused_sym);
   lv_obj_set_size(s_audioPausedIcon, 36, 36);
+  lv_img_set_zoom(s_audioPausedIcon, (36 * 256) / 48);
+  lv_img_set_antialias(s_audioPausedIcon, true);
+  lv_obj_set_style_img_recolor(s_audioPausedIcon, lv_color_hex(0xFFB436), 0);
+  lv_obj_set_style_img_recolor_opa(s_audioPausedIcon, LV_OPA_COVER, 0);
   lv_obj_align(s_audioPausedIcon, LV_ALIGN_TOP_RIGHT, -8, 8);
-  lv_obj_clear_flag(s_audioPausedIcon, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(s_audioPausedIcon, LV_OBJ_FLAG_HIDDEN);
-
-  lv_obj_t *bell = lv_label_create(s_audioPausedIcon);
-  lv_label_set_text(bell, LV_SYMBOL_BELL);
-  lv_obj_set_style_text_color(bell, col, 0);
-  lv_obj_set_style_text_font(bell, &lv_font_montserrat_20, 0);
-  lv_obj_center(bell);
-
-  // X discontinua = estado TEMPORIZADO (AUDIO PAUSED). La continua queda para
-  // AUDIO OFF, que este equipo no ofrece. Ver IEC 60417-5576 / Tabla 5.
-  for (int i = 0; i < 2; i++) {
-    lv_obj_t *ln = lv_line_create(s_audioPausedIcon);
-    lv_line_set_points(ln, i == 0 ? kDiag1 : kDiag2, 2);
-    lv_obj_set_style_line_width(ln, 3, 0);
-    lv_obj_set_style_line_color(ln, col, 0);
-    lv_obj_set_style_line_dash_width(ln, 4, 0);
-    lv_obj_set_style_line_dash_gap(ln, 3, 0);
-    lv_obj_set_style_line_rounded(ln, true, 0);
-  }
 }
 
 void audio_paused_icon_update(void) {
