@@ -75,7 +75,59 @@ const OTA_Update_Callback OTAcallback(&progressCallback, &updatedCallback,
                                       FIRMWARE_PACKET_SIZE,
                                       WAIT_FAILED_OTA_CHUNKS);
 
+// ---------------------------------------------------------------------------
+// Estado real del enlace WiFi.
+//
+// WiFi.status() NO sirve para esto. En arduino-esp32 2.0.14 (el core que fija
+// espressif32@6.6.0) el manejador de STA_DISCONNECTED tiene una rama vacía
+// para reason=2 (AUTH_EXPIRE, WiFiGeneric.cpp:1068): a diferencia del resto de
+// motivos, no llama a _setStatus(), así que _sta_status se queda en
+// WL_CONNECTED aunque la STA ya esté desasociada y sin IP. WL_CONNECTED solo
+// se vuelve a escribir en STA_GOT_IP (WiFiGeneric.cpp:1104), y el
+// auto-reconnect del core —único camino que lo corregiría— está desactivado a
+// propósito en wifiInit() por el event storm de ASSOC_TOOMANY.
+//
+// Resultado observado en banco: WiFi.status() miente para siempre,
+// WifiOTAHandler() nunca reintenta wifiInit() (su guarda cree que hay enlace)
+// y WIFI_TB_OTA() sigue llamando a tb_wifi.connect() cada
+// THINGSBOARD_RECONNECT_DELAY, que falla en hostByName() por no haber IP. La
+// placa queda sin WiFi indefinidamente y solo se recupera metiendo
+// credenciales a mano.
+//
+// No se arregla subiendo el core: la misma rama vacía sigue en 2.0.16
+// (WiFiGeneric.cpp:1069) y en 3.3.7 (STA.cpp:144). Por eso la comprobación se
+// apoya en eventos, que son estables entre versiones.
+//
+// s_staHasIp lo mantienen los propios manejadores de eventos: es la única
+// fuente que refleja DISCONNECTED/GOT_IP sin pasar por el estado corrupto.
+static volatile bool s_staHasIp = false;
+
+// Registro idempotente de los manejadores de eventos. Vive aparte de
+// wifiInit() porque applyWifiCredentials() también depende de s_staHasIp y
+// puede ejecutarse antes (RPC setWifi): sin los manejadores puestos, la espera
+// de 15 s expiraría siempre y revertiría unas credenciales válidas.
+static void wifiRegisterEvents(void) {
+  static bool s_wifiEventsRegistered = false;
+  if (s_wifiEventsRegistered)
+    return;
+
+  WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t info) {
+    s_staHasIp = false;
+    ESP_LOGW(TAG, "STA_DISCONNECTED reason=%d",
+             info.wifi_sta_disconnected.reason);
+  }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+
+  WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t) {
+    s_staHasIp = true;
+    ESP_LOGI(TAG, "STA_GOT_IP: %s", WiFi.localIP().toString().c_str());
+  }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
+
+  s_wifiEventsRegistered = true;
+}
+
 void applyWifiCredentials(const char* ssid, const char* pass) {
+  wifiRegisterEvents();
+
   Preferences prefs;
   char prevSSID[64] = "";
   char prevPass[64] = "";
@@ -93,11 +145,11 @@ void applyWifiCredentials(const char* ssid, const char* pass) {
   WiFi.begin(ssid, pass);
 
   uint32_t start = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - start < 15000) {
+  while (!WIFIIsConnected() && millis() - start < 15000) {
     vTaskDelay(pdMS_TO_TICKS(500));
   }
 
-  if (WiFi.status() == WL_CONNECTED) {
+  if (WIFIIsConnected()) {
     sendWifiToHMI(ssid, pass);
   } else {
     prefs.begin("mb_wifi", false);
@@ -307,18 +359,9 @@ void wifiInit(void) {
     WiFi.mode(WIFI_STA);
   }
 
-  // Register disconnect/got-IP handlers once so reason codes land in the log.
-  static bool s_wifiEventsRegistered = false;
-  if (!s_wifiEventsRegistered) {
-    WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t info) {
-      ESP_LOGW(TAG, "STA_DISCONNECTED reason=%d",
-               info.wifi_sta_disconnected.reason);
-    }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
-    WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t) {
-      ESP_LOGI(TAG, "STA_GOT_IP: %s", WiFi.localIP().toString().c_str());
-    }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
-    s_wifiEventsRegistered = true;
-  }
+  // Register disconnect/got-IP handlers once so reason codes land in the log
+  // and s_staHasIp refleje el enlace real (ver wifiRegisterEvents()).
+  wifiRegisterEvents();
 
   WiFi.persistent(true);
   // Manual reconnect via WifiOTAHandler() at WIFI_RECONNECT_INTERVAL.
@@ -536,7 +579,7 @@ void WIFI_UpdatedCallback(const bool &success) {
 
 bool WIFICheckNewEvent() {
   bool retVal = false;
-  bool WifiStatus = (WiFi.status() == WL_CONNECTED);
+  bool WifiStatus = WIFIIsConnected();
   bool serverConnectionStatus = WIFIIsConnectedToServer();
   if (serverConnectionStatus != Wifi_TB.lastServerConnectionStatus ||
       WifiStatus != Wifi_TB.lastWIFIConnectionStatus) {
@@ -547,7 +590,14 @@ bool WIFICheckNewEvent() {
   return (retVal);
 }
 
-bool WIFIIsConnected() { return (WiFi.status() == WL_CONNECTED); }
+// Enlace WiFi real: los tres criterios deben coincidir. s_staHasIp es el que
+// sobrevive al bug de AUTH_EXPIRE del core (ver su declaración); WiFi.status()
+// se mantiene para no ser nunca menos estricto que antes, y localIP() es el
+// mismo criterio que ya usa driveHostReachable() en DriveUpload.cpp.
+bool WIFIIsConnected() {
+  return (s_staHasIp && WiFi.status() == WL_CONNECTED &&
+          WiFi.localIP() != IPAddress(0, 0, 0, 0));
+}
 
 bool WIFIIsConnectedToServer() {
   return (Wifi_TB.serverConnectionStatus && WIFIIsConnected());
@@ -993,7 +1043,7 @@ static void publishBabyCloudDataWIFI() {
 }
 
 void WEB_OTA() {
-  if (WiFi.status() == WL_CONNECTED) {
+  if (WIFIIsConnected()) {
     if (strlen(pendingSSID) > 0 && WiFi.SSID() == String(pendingSSID)) {
       logI("[WIFI] -> Connection successful, persisting credentials to Preferences");
       { Preferences p; p.begin(NS_WIFI, false);
@@ -1097,7 +1147,7 @@ static constexpr size_t WIFI_RPC_CB_COUNT =
 // ─────────────────────────────────────────────────────────────────────────────
 
 void WIFI_TB_OTA() {
-  if (WiFi.status() == WL_CONNECTED) {
+  if (WIFIIsConnected()) {
     if (!Wifi_TB.provisioned) {
       if (in3.serialNumber == 0) {
         logI("[WIFI] -> Waiting for serial number before provisioning");
@@ -1188,7 +1238,7 @@ void WIFI_TB_OTA() {
 }
 
 void WifiOTAHandler(void) {
-  if (WIFI_EN && WiFi.status() != WL_CONNECTED) {
+  if (WIFI_EN && !WIFIIsConnected()) {
     if (millis() - Wifi_TB.lastWifiReconnectAttempt > WIFI_RECONNECT_INTERVAL) {
       logI("[WIFI] -> Connection lost, re-init WiFi");
       wifiInit();   // updates lastWifiReconnectAttempt

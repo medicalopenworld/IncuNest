@@ -255,7 +255,7 @@ static bool uploadToGoogleDrive(const DriveUploadRequest &req) {
 static void ensureTimeSynced() {
   if (s_time_synced)
     return;
-  while (WiFi.status() != WL_CONNECTED) {
+  while (!WIFIIsConnected()) {
     vTaskDelay(pdMS_TO_TICKS(500));
   }
   configTime(0, 0, "pool.ntp.org", "time.nist.gov");
@@ -388,9 +388,9 @@ static void driveWriteTask(void *pv) {
 // DNS preflight: skip TLS entirely if the host is not resolvable quickly.
 // Broken/partial handshakes are the path that corrupts heap.
 static bool driveHostReachable() {
-  if (WiFi.status() != WL_CONNECTED)
-    return false;
-  if (WiFi.localIP() == IPAddress(0, 0, 0, 0))
+  // WIFIIsConnected() ya incluye la comprobación de localIP() != 0.0.0.0 que
+  // aquí estaba suelta, más el flag de evento que sobrevive a AUTH_EXPIRE.
+  if (!WIFIIsConnected())
     return false;
   IPAddress ip;
   if (!WiFi.hostByName(DRIVE_GAS_HOST, ip)) {
