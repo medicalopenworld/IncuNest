@@ -155,9 +155,19 @@ lv_obj_t *makeBtn(lv_obj_t *parent, const char *text, lv_event_cb_t cb,
 lv_obj_t *makeAudioPausedIcon(lv_obj_t *parent, lv_color_t color) {
   lv_obj_t *img = lv_img_create(parent);
   lv_img_set_src(img, &ui_img_audio_paused_sym);
-  lv_obj_set_size(img, 28, 28);
-  lv_img_set_zoom(img, (28 * 256) / 48);  // la lamina es de 48 px
-  lv_img_set_antialias(img, true);
+  // A TAMAÑO NATIVO: ni lv_obj_set_size() ni lv_img_set_zoom().
+  //
+  // Estaba escalado de 48 a 28 px con zoom, y no se veia. El motivo es que
+  // lv_img transforma alrededor de un PIVOTE que por defecto es el centro de
+  // la imagen FUENTE (24,24); con el objeto forzado a 28x28, ese punto cae
+  // casi en su esquina y la imagen escalada se dibujaba fuera de su propia
+  // caja, donde el recorte se la comia. El icono existia y estaba bien
+  // coloreado: simplemente se pintaba donde no se ve.
+  //
+  // Reducir la lamina a 32 px tampoco vale: las aspas DISCONTINUAS son trazos
+  // finos y al bajar de 48 se rompen hasta confundirse con la X continua, que
+  // significa justo lo contrario (AUDIO OFF). 48 px es el tamaño al que el
+  // simbolo sigue siendo legible.
   // ALPHA_1BIT solo lleva forma: el color sale del estilo, que es lo que
   // permite tenirlo con el de la prioridad de la fila.
   lv_obj_set_style_img_recolor(img, color, 0);
@@ -443,7 +453,8 @@ void showList() {
     // la unica forma de distinguir cual de varias esta callada.
     if (r.silenced) {
       lv_obj_t *icon = makeAudioPausedIcon(card, cardBorder(r.priority));
-      lv_obj_align(icon, LV_ALIGN_RIGHT_MID, -198, 0);
+      // 48 px de icono: se corre a la izquierda del boton (190 + 4 de margen).
+      lv_obj_align(icon, LV_ALIGN_RIGHT_MID, -200, 0);
     }
 
     // 6.8.4: "means to terminate any ALARM SIGNAL inactivation state". El

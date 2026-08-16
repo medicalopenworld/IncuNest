@@ -2187,11 +2187,12 @@ void audio_paused_icon_init(void) {
   // La lamina de la norma (IEC 60417-5576, variante de X DISCONTINUA =
   // AUDIO PAUSED), convertida a mascara de 1 bit. La X continua significaria
   // AUDIO OFF, inactivacion permanente, que este equipo no ofrece.
+  // A tamaño natural (48 px), sin zoom ni set_size: escalado con
+  // lv_img_set_zoom() el pivote de la transformacion es el centro de la
+  // imagen FUENTE, cae fuera del objeto reducido y la imagen se recortaba
+  // entera. Mismo fallo que tenia el icono de la fila.
   s_audioPausedIcon = lv_img_create(lv_layer_top());
   lv_img_set_src(s_audioPausedIcon, &ui_img_audio_paused_sym);
-  lv_obj_set_size(s_audioPausedIcon, 36, 36);
-  lv_img_set_zoom(s_audioPausedIcon, (36 * 256) / 48);
-  lv_img_set_antialias(s_audioPausedIcon, true);
   lv_obj_set_style_img_recolor(s_audioPausedIcon, lv_color_hex(0xFFB436), 0);
   lv_obj_set_style_img_recolor_opa(s_audioPausedIcon, LV_OPA_COVER, 0);
   lv_obj_align(s_audioPausedIcon, LV_ALIGN_TOP_RIGHT, -8, 8);
@@ -2206,7 +2207,8 @@ void audio_paused_icon_init(void) {
   lv_label_set_text(s_audioPausedTimer, "");
   lv_obj_set_style_text_color(s_audioPausedTimer, lv_color_hex(0xFFB436), 0);
   lv_obj_set_style_text_font(s_audioPausedTimer, &lv_font_montserrat_20, 0);
-  lv_obj_align(s_audioPausedTimer, LV_ALIGN_TOP_RIGHT, -48, 14);
+  // A la izquierda del icono, que ahora mide 48 px y esta a -8 del borde.
+  lv_obj_align(s_audioPausedTimer, LV_ALIGN_TOP_RIGHT, -60, 20);
   lv_obj_add_flag(s_audioPausedTimer, LV_OBJ_FLAG_HIDDEN);
 }
 
