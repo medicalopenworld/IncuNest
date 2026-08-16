@@ -32,6 +32,23 @@ BabyProfileRangeMsg g_profileRange = {0, false, 0, -1.0f, -1.0f, -1.0f, true};
 // --- Registro de alarmas ---
 volatile bool   g_pendingAlarmHistory = false;
 AlarmHistoryMsg g_alarmHistory = {0, {}};
+// Latido de la placa. El display tiene que detectar el silencio por su cuenta:
+// cuando el enlace cae, la alarma que declara la motherBoard no puede llegar
+// —es justamente lo que se ha perdido—, asi que si el display no lo mira solo,
+// se queda enseñando "todo OK" y unas cifras congeladas que el operador lee
+// como si fueran actuales. Ese es el peligro real, mas que el aviso en si.
+volatile uint32_t g_lastCtrlLineMs = 0;
+volatile bool     g_ctrlEverSeen = false;
+
+bool Display_IsBoardLinkLost(void) {
+  // Antes de la primera linea no hay enlace que perder: el display arranca
+  // antes de que la placa empiece a emitir.
+  if (!g_ctrlEverSeen) {
+    return false;
+  }
+  return (uint32_t)(millis() - g_lastCtrlLineMs) > BOARD_LINK_TIMEOUT_MS;
+}
+
 volatile bool   g_pendingAlarmDesc = false;
 AlarmDescMsg    g_alarmDesc = {0, {0}, {0}};
 
@@ -758,6 +775,11 @@ static bool ReceiveMessageFromOtherESP() {
       rxBuffer[rxIndex] = '\0'; // Null-terminate
       if (rxIndex > 0) {
         if (strncmp(rxBuffer, EXPECTED_PREFIX, strlen(EXPECTED_PREFIX)) == 0) {
+          // Latido de la placa, simetrico al que el display le manda a ella.
+          // Se marca con el prefijo ya validado y antes de parsear: lo que se
+          // vigila es que la placa siga hablando, no lo que diga.
+          g_lastCtrlLineMs = millis();
+          g_ctrlEverSeen = true;
           parse_message(rxBuffer);
           msgReceived = true;
         }

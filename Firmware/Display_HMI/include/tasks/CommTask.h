@@ -22,6 +22,17 @@
 // entre ambos (5 tramas) evita declararlo por un hueco puntual de la UART.
 #define HMI_KEEPALIVE_PERIOD_MS 1000u
 
+// Y al reves: silencio de la PLACA visto desde el display. La motherBoard
+// emite CTRL,STATE y CTRL,TEL cada 1 s, asi que 5 s son cinco tramas — la
+// misma ventana que usa ella para declarar ALARM_HMI_LINK_LOST. Simetrica a
+// proposito: un solo numero que recordar y los dos extremos cuentan igual.
+#define BOARD_LINK_TIMEOUT_MS 5000u
+
+// true si la placa lleva BOARD_LINK_TIMEOUT_MS sin decir nada. Mientras lo
+// sea, las cifras en pantalla estan MUERTAS y no deben mostrarse como si
+// fueran medidas actuales.
+bool Display_IsBoardLinkLost(void);
+
 // Expected prefix of incoming messages
 #if IS_HMI
 #define EXPECTED_PREFIX "CTRL"

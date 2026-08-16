@@ -392,14 +392,63 @@ static void skin_mode_force_off() {
   }
 }
 
+// Ultimo valor pintado de cada MEDIDA. A nivel de fichero y no dentro de
+// update_labels() porque link_lost_blank_update() tiene que invalidarlos: al
+// recuperar el enlace, la primera lectura debe volver a pintarse aunque
+// coincida con la ultima buena, o los "--" se quedarian puestos.
+static double l_airDet = -1.0, l_skinDet = -1.0;
+static int l_humDet = -1;
+
+// Borra las MEDIDAS mientras la placa este callada, y las barras con ellas.
+//
+// Es la parte de seguridad del asunto: una cifra congelada no se ve
+// congelada. El operador lee 36,5 °C y entiende que el bebe esta a 36,5 °C
+// AHORA, cuando es lo ultimo que llego antes de caerse el enlace. Un "--" no
+// se puede malinterpretar.
+//
+// Las CONSIGNAS no se tocan: son lo que el operador pidio, no una medida, y
+// siguen siendo ciertas. Lo que ha dejado de saberse es si se cumplen.
+//
+// Corre en CADA pasada del bucle de UI, no desde update_labels(): a esa solo
+// se la llama cuando llega telemetria, que es exactamente lo que deja de
+// pasar cuando el enlace cae.
+void link_lost_blank_update(void) {
+  static bool wasLost = false;
+  const bool lost = Display_IsBoardLinkLost();
+  if (!lost) {
+    wasLost = false;
+    return;
+  }
+  if (wasLost) {
+    return;  // ya estan en blanco; no hay que reescribir en cada pasada
+  }
+  wasLost = true;
+
+  l_airDet = l_skinDet = -1.0;
+  l_humDet = -1;
+
+  const char *DEAD = "--";
+  lv_label_set_text(ui_TempAirDetected, DEAD);
+  lv_label_set_text(ui_TempAirDetectedRight, DEAD);
+  lv_label_set_text(ui_Label18, DEAD);
+  lv_label_set_text(ui_TempSkinDetected, DEAD);
+  lv_label_set_text(ui_TempSkinDetectedRight, DEAD);
+  lv_label_set_text(ui_Label14, DEAD);
+  lv_label_set_text(ui_HumDetected, DEAD);
+  lv_label_set_text(ui_HumDetectedRight, DEAD);
+  lv_label_set_text(ui_Label20, DEAD);
+
+  lv_bar_set_value(ui_AirTempBar, 0, LV_ANIM_OFF);
+  lv_bar_set_value(ui_SkinTempBar, 0, LV_ANIM_OFF);
+  lv_bar_set_value(ui_HumBar, 0, LV_ANIM_OFF);
+}
+
 void update_labels() {
   if (!g_ui_initialized)
     return;
 
   static double l_airDesired = -1.0, l_skinDesired = -1.0;
   static int l_humDesired = -1;
-  static double l_airDet = -1.0, l_skinDet = -1.0;
-  static int l_humDet = -1;
   static int l_photoMins = -1;
 
   char buffer[BUFFER_SIZE];
@@ -2250,6 +2299,18 @@ void alarm_banner_update(void) {
   const bool testing = (topIdx < 0) && (ctrl_state_msg.alarmTestPriority !=
                                         ALARM_TEST_IDLE_HMI);
 
+  // Enlace con la placa perdido, visto desde este lado.
+  //
+  // Tiene que verse SIEMPRE y por delante de todo lo demas: cuando la placa
+  // calla, lo que hay en pantalla ya no son medidas, son las ultimas que
+  // llegaron. El operador las lee como actuales. Por eso este caso gana al
+  // banner de cualquier alarma: esas alarmas tambien son informacion vieja.
+  //
+  // La placa declara ALARM_HMI_LINK_LOST por su cuenta y hace sonar SU
+  // zumbador; lo de aqui es la mitad visual, que por definicion no puede
+  // llegar por el enlace caido.
+  const bool linkLost = Display_IsBoardLinkLost();
+
   // Con el centro de alarmas abierto el banner sobra: ese overlay ya lista
   // cada alarma activa con su titulo y su marca de prioridad delante, asi que
   // la senal de 1 m que pide 6.3.2.2.2 sigue presente de forma nativa. Y
@@ -2259,7 +2320,7 @@ void alarm_banner_update(void) {
       AlarmCenter_IsOpen() ||
       (ui_ScreenAlarms && lv_scr_act() == ui_ScreenAlarms);
 
-  if ((topIdx < 0 && !testing) || onAlarmsScreen) {
+  if ((topIdx < 0 && !testing && !linkLost) || onAlarmsScreen) {
     lv_anim_del(s_alarmBanner, banner_blink_cb);
     lv_obj_add_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN);
     s_bannerPriority = -1;
@@ -2282,7 +2343,7 @@ void alarm_banner_update(void) {
   // que la senal visual responde; obligarle a bloquear la pantalla para
   // comprobarlo haria inservible la prueba.
   const bool onLockScreen = (ui_ScreenLock && lv_scr_act() == ui_ScreenLock);
-  if (!onLockScreen && !testing) {
+  if (!onLockScreen && !testing && !linkLost) {
     lv_anim_del(s_alarmBanner, banner_blink_cb);
     lv_obj_add_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN);
     s_bannerPriority = -1;
@@ -2290,7 +2351,16 @@ void alarm_banner_update(void) {
   }
   lv_obj_set_align(s_alarmBanner, LV_ALIGN_TOP_MID);
 
-  if (testing) {
+  if (linkLost) {
+    // Por delante de cualquier alarma: si la placa calla, lo que se ve de
+    // ella es viejo, incluidas sus alarmas. MEDIA para contar lo mismo que
+    // ALARM_HMI_LINK_LOST al otro lado — un unico relato para el operador.
+    topPrio = ALARM_PRIORITY_MEDIUM;
+    lv_label_set_text(s_alarmBannerLabel,
+                      TXT_UI("!! SIN ENLACE CON LA PLACA",
+                             "!! BOARD LINK LOST",
+                             "!! LIAISON CARTE PERDUE"));
+  } else if (testing) {
     topPrio = ctrl_state_msg.alarmTestPriority;
     lv_label_set_text(s_alarmBannerLabel,
                       TXT_UI("PRUEBA DE ALARMA", "ALARM TEST",
@@ -4070,6 +4140,8 @@ void UI_Task(void *pvParameters) {
     // Se reevalua en cada pasada por lo mismo, y ademas depende de
     // silencedBitmask, que llega con CTRL,STATE y caduca solo en la placa.
     audio_paused_icon_update();
+    // Y este por el motivo opuesto: depende de que NO llegue nada.
+    link_lost_blank_update();
     // Apaga el chasquido de la ultima pulsacion cuando le toca. Va aqui, y no
     // con un delay() dentro del callback, para no congelar LVGL.
     click_beep_service();
