@@ -1000,7 +1000,15 @@ static void publishBabyCloudDataGPRS() {
 void GPRSPost() {
   if (!GPRS.provisioned) {
     if (in3.serialNumber == 0) {
-      logModemData("[GPRS] -> Waiting for serial number before provisioning");
+      // GPRSPost() se llama cada pocos ms: sin limitar la cadencia, esta traza
+      // inunda el log mientras el número de serie sigue sin conocerse.
+      static uint32_t lastSerialWaitLog = 0;
+      uint32_t now = millis();
+      if (lastSerialWaitLog == 0 ||
+          now - lastSerialWaitLog >= GPRS_SERIAL_WAIT_LOG_PERIOD) {
+        lastSerialWaitLog = now;
+        logModemData("[GPRS] -> Waiting for serial number before provisioning");
+      }
       return;
     }
     if (!GPRS.provision_request_sent) {
