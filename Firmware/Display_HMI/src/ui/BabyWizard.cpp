@@ -501,13 +501,14 @@ void showWeightScreen() {
           "Poids actuel (grammes)"),
       "400 - 5000 g", true, onWeightSkip, onWeightContinue,
       TXT("SIN PESO", "NO WEIGHT", "SANS POIDS"));
-  // Only a real last-known weight (existing baby) is offered back; a new
-  // baby starts empty rather than with an invented figure.
-  if (s_weightGrams > 0) {
-    char buf[8];
-    snprintf(buf, sizeof(buf), "%u", (unsigned)s_weightGrams);
-    lv_textarea_set_text(s_inputTa, buf);
-  }
+  // Deliberately empty, aunque exista un ultimo peso conocido (s_weightGrams).
+  //
+  // Prefijarlo invitaba a confirmar sin pesar: al reactivar el control de un
+  // bebe ya existente, el cuadro aparecia con el peso de la ULTIMA vez —a
+  // veces del dia anterior— y bastaba con pulsar "continuar" sin tocarlo para
+  // que quedase registrado como si fuera la medida de hoy. Un peso vacio
+  // obliga a teclear uno real o a pulsar "SIN PESO" explicitamente; ninguna
+  // de las dos deja un dato de ayer pasando por el de hoy.
 }
 
 // ---------------- Step: age in days (numeric keypad) ----------------
