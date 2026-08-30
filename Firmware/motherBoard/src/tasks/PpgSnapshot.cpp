@@ -2,7 +2,9 @@
 
 namespace {
 
-int32_t  s_buf[PPG_SNAPSHOT_SAMPLES];
+// float desde la v0.69 de la libreria: ppg_disp paso al dominio OT (A/A,
+// ~1e-5..1e-6) y como int32_t se truncaba a 0 en todas las muestras.
+float    s_buf[PPG_SNAPSHOT_SAMPLES];
 uint16_t s_count      = 0;     // muestras (ya diezmadas) recogidas
 uint16_t s_decimCount = 0;     // muestras crudas a 500 Hz desde la última guardada
 bool     s_capturing  = false;
@@ -70,7 +72,7 @@ bool ppgSnapshotIsReady() { return s_ready; }
 
 uint16_t ppgSnapshotSampleCount() { return s_count; }
 
-const int32_t *ppgSnapshotSamples() { return s_buf; }
+const float *ppgSnapshotSamples() { return s_buf; }
 
 void ppgSnapshotClear() {
   s_ready = false;

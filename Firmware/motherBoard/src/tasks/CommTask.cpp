@@ -44,12 +44,21 @@ static SemaphoreHandle_t hmi_state_req_sem;
 
 static HardwareSerial &hmiSerial = Serial1;
 
-// PPG transport scale: ADC counts of ppg_disp per LSB of the 0-255 display range.
-// ppg_disp is zero-mean (library BPF output), so 128 is the baseline and this divisor
-// sets the half-range to 127 x 16 = ~2030 counts. Measured on the bench 2026-08-13
-// with HGAC active: peaks up to ~1350 counts at PI ~10%, so ~50% headroom.
+// PPG transport scale: ppg_disp units (A/A, OT domain) per LSB of the 0-255 display
+// range. ppg_disp is zero-mean (library BPF output), so 128 is the baseline and this
+// divisor sets the half-range to 127 x 1.6e-8 = ~2.0e-6 A/A.
+//
+// Library v0.69 moved ppg_disp to the OT domain: int32_t (ADC counts) -> float (A/A,
+// magnitude ~1e-5..1e-6), so it is gain-invariant and no longer jumps when HGAC
+// changes RF. The previous scale (16 ADC counts/LSB, measured on the bench
+// 2026-08-13) no longer applies to these units.
+//
+// This value is DERIVED from the library spec, not measured: typical OT DC is
+// ~1.4e-5 A/A and AC/DC = PI/100, so at PI ~10% (the operating point of the original
+// bench measurement) ppg_disp peaks at ~1.4e-6 — same ~50% headroom the old counts
+// scale had. TODO: re-validate on the bench with a real probe.
 // Fixed on purpose — no adaptive scaling outside the library.
-static constexpr int32_t PPG_DISP_COUNTS_PER_LSB = 16;
+static constexpr float PPG_DISP_UNITS_PER_LSB = 1.6e-8f;
 
 // ---- Phototherapy Timer (Motherboard is source of truth) ----
 static bool photoTimerActive = false;
@@ -993,7 +1002,14 @@ void Communication_Task(void *pvParameters) {
       // application (_spo2_update: EMAs reset while not APPLIED), while ppg_disp is
       // valid within ~1 s. Gating the trace on SpO2 validity flat-lined it for 19 s.
       if (g_spo2_data.probe_state == ProbeState::PROBE_APPLIED) {
-        long ppg_scaled = 128L + (long)(g_spo2_data.ppg_disp / PPG_DISP_COUNTS_PER_LSB);
+        // ppg_disp is a float since library v0.69: a non-finite value would make
+        // lroundf() undefined, so it collapses to the baseline instead of emitting
+        // a garbage byte. Keeping the line flowing (rather than skipping the send)
+        // preserves the 25 Hz cadence the HMI trace expects.
+        float ppg = g_spo2_data.ppg_disp;
+        long ppg_scaled = isfinite(ppg)
+                              ? 128L + lroundf(ppg / PPG_DISP_UNITS_PER_LSB)
+                              : 128L;
         uint8_t ppg_byte = (uint8_t)constrain(ppg_scaled, 0L, 255L);
         char ppg_msg[16];
         snprintf(ppg_msg, sizeof(ppg_msg), "CTRL,PPG,%u\n", ppg_byte);
