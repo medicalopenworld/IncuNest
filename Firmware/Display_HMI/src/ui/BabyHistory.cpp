@@ -511,11 +511,12 @@ void showChart() {
   }
 
   // Below the chart's own bottom edge (56 + 300 = 356), clear of the tick
-  // labels now living in the chart's bottom padding.
+  // labels now living in the chart's bottom padding. Centrada bajo el eje X,
+  // no pegada a la derecha: es el titulo del eje entero, no una nota al margen.
   lv_obj_t *xlbl = lv_label_create(s_content);
   lv_label_set_text(xlbl, TXT("dia de vida", "day of life", "jour de vie"));
   lv_obj_set_style_text_font(xlbl, &lv_font_montserrat_14, 0);
-  lv_obj_align(xlbl, LV_ALIGN_TOP_RIGHT, -14, 366);
+  lv_obj_align(xlbl, LV_ALIGN_BOTTOM_MID, 0, -44);
 
   s_step = HistStep::ShowingChart;
 }
