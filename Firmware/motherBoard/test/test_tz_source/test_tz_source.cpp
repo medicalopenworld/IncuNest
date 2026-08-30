@@ -149,6 +149,43 @@ void test_does_not_match_similar_field_names(void) {
       tz_parse_ipapi_offset("{\"gmt_offset_hours\":2}", &q));
 }
 
+// --- Reloj puesto a mano ---------------------------------------------------
+// El ajuste manual de /config guarda LO QUE TECLEA EL OPERADOR como epoch, sin
+// zona (civil_to_unix_utc con offset 0). Ese epoch YA es hora local, asi que
+// sumarle luego un offset de NITZ o de IP lo desplazaria: en Espana, dos horas
+// de error en la hora que fecha el historial de alarmas.
+//
+// Por eso el ajuste manual fija offset 0 y gana a todo: coincide con lo que
+// ya decia system_clock.h — las fuentes automaticas no deben desplazar bajo
+// los pies del operador una hora que ha puesto el a mano.
+
+void test_manual_overrides_ip_and_nitz(void) {
+  TEST_ASSERT_TRUE(tz_source_set(8, TZ_SOURCE_IP));
+  TEST_ASSERT_TRUE(tz_source_set(0, TZ_SOURCE_MANUAL));
+  TEST_ASSERT_EQUAL_INT(TZ_SOURCE_MANUAL, tz_source_origin());
+
+  tz_source_reset();
+  TEST_ASSERT_TRUE(tz_source_set(4, TZ_SOURCE_NITZ));
+  TEST_ASSERT_TRUE(tz_source_set(0, TZ_SOURCE_MANUAL));
+  TEST_ASSERT_EQUAL_INT(TZ_SOURCE_MANUAL, tz_source_origin());
+  TEST_ASSERT_EQUAL_INT(0, tz_source_quarters());
+}
+
+// Lo critico: puesta la hora a mano, que NADA la desplace despues.
+void test_nothing_overrides_manual(void) {
+  TEST_ASSERT_TRUE(tz_source_set(0, TZ_SOURCE_MANUAL));
+  TEST_ASSERT_FALSE(tz_source_set(8, TZ_SOURCE_NITZ));
+  TEST_ASSERT_FALSE(tz_source_set(-20, TZ_SOURCE_IP));
+  TEST_ASSERT_EQUAL_INT(0, tz_source_quarters());
+  TEST_ASSERT_EQUAL_INT(TZ_SOURCE_MANUAL, tz_source_origin());
+}
+
+// Con hora manual el display SI tiene hora que pintar: el epoch ya es local.
+void test_manual_counts_as_known(void) {
+  TEST_ASSERT_TRUE(tz_source_set(0, TZ_SOURCE_MANUAL));
+  TEST_ASSERT_TRUE(tz_source_known());
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_starts_unknown);
@@ -169,5 +206,8 @@ int main(int, char **) {
   RUN_TEST(test_rejects_offset_out_of_physical_range);
   RUN_TEST(test_rejects_garbage);
   RUN_TEST(test_does_not_match_similar_field_names);
+  RUN_TEST(test_manual_overrides_ip_and_nitz);
+  RUN_TEST(test_nothing_overrides_manual);
+  RUN_TEST(test_manual_counts_as_known);
   return UNITY_END();
 }

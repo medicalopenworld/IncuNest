@@ -137,7 +137,11 @@ Enviado cada 10 segundos (y una vez al arrancar la tarea de comunicación).
 - `tzq`: offset de zona horaria en **cuartos de hora** (`-48`..`+56`, o sea
   UTC-12:00..UTC+14:00). Cuartos y no horas porque existen husos no enteros
   (Nepal, UTC+5:45), y es la unidad que ya usa `civil_to_unix_utc()`.
-- `tzsrc`: origen del offset. `0`=desconocido, `1`=NITZ (red móvil), `2`=IP.
+- `tzsrc`: origen del offset. `0`=desconocido, `1`=NITZ (red móvil), `2`=IP,
+  `3`=reloj puesto a mano desde `/config`. Con `3` el offset es siempre `0`
+  **por diseño**: ese epoch ya es la hora local que tecleó el operador, así que
+  sumarle el offset de la red la desplazaría. `3` gana a `1` y a `2`, y nada lo
+  desplaza hasta el siguiente reinicio.
   **No es redundante con `tzq`**: sin él, «offset 0 porque estamos en Togo» y
   «offset 0 porque no lo sabemos» son indistinguibles, y el HMI no puede
   decidir si pintar la hora o el aviso «Sin hora».

@@ -1,5 +1,7 @@
 #include "system_clock.h"
 
+#include "tz_source.h"
+
 #include <esp_sntp.h>
 #include <sys/time.h>
 #include <time.h>
@@ -27,6 +29,10 @@ bool systemClockSetManual(uint32_t epoch) {
   if (esp_sntp_enabled()) {
     esp_sntp_stop();
   }
+  // El epoch que se acaba de guardar YA es hora local: es lo que tecleo el
+  // operador, sin zona. Se declara offset CERO para que el display lo pinte
+  // verbatim y ninguna fuente automatica le sume nada encima.
+  tz_source_set(0, TZ_SOURCE_MANUAL);
   s_manual = true;
   return true;
 }

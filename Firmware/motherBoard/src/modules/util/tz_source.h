@@ -24,6 +24,12 @@ typedef enum {
   TZ_SOURCE_NONE = 0, // no se sabe; NO es lo mismo que UTC+0
   TZ_SOURCE_NITZ = 1, // el operador movil, junto a la hora de red
   TZ_SOURCE_IP = 2,   // geolocalizacion por IP sobre WiFi
+  // El operador tecleo la hora en /config. Ese epoch YA es hora local: se
+  // guarda tal cual, sin zona, asi que el offset correcto es CERO y no el de
+  // la red. Sumarle el de NITZ o el de IP desplazaria la hora que el operador
+  // acaba de poner — dos horas de error en Espana, y en la fecha que sella el
+  // historial de alarmas.
+  TZ_SOURCE_MANUAL = 3,
 } TzSource;
 
 // Husos civiles reales, en cuartos de hora: UTC-12:00 .. UTC+14:00.
@@ -38,7 +44,8 @@ void tz_source_reset(void);
 // Aplica el offset si la politica de prioridad lo permite y el valor es
 // valido. Devuelve true solo si el estado ha cambiado.
 //
-// Politica: NITZ gana a IP, siempre. La antena esta fisicamente donde esta el
+// Politica: MANUAL gana a todo y nada lo desplaza hasta el reinicio, que es
+// lo que ya prometia system_clock.h. Por debajo, NITZ gana a IP, siempre. La antena esta fisicamente donde esta el
 // equipo; una IP puede ser de una VPN, un enlace satelital o la sede del
 // operador en otro pais. Dentro de la misma fuente el valor se refresca, o
 // cruzar una frontera dejaria el primer offset congelado de por vida.

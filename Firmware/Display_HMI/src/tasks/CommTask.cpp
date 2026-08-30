@@ -575,7 +575,7 @@ static void parse_message(const char *line) {
     if (n >= 1) {
       s_mbEpoch = (uint32_t)epoch;
       s_mbEpochAtMs = millis();
-      if (n == 3 && tzsrc >= 0 && tzsrc <= 2 && tzq >= -48 && tzq <= 56) {
+      if (n == 3 && tzsrc >= 0 && tzsrc <= 3 && tzq >= -48 && tzq <= 56) {
         s_tzQuarters = (int8_t)tzq;
         s_tzSource   = (uint8_t)tzsrc;
       } else if (n != 3) {

@@ -22,6 +22,12 @@ bool tz_source_set(int quarterHours, TzSource src) {
   if (quarterHours < TZ_QUARTER_MIN || quarterHours > TZ_QUARTER_MAX) {
     return false;
   }
+  // Nada desplaza una hora puesta a mano: el operador la tecleo mirando el
+  // reloj de la pared y las fuentes automaticas no deben moverla bajo sus
+  // pies. Misma promesa que hace systemClockIsManual() con el instante.
+  if (s_source == TZ_SOURCE_MANUAL && src != TZ_SOURCE_MANUAL) {
+    return false;
+  }
   // La IP no pisa a NITZ. Al reves si.
   if (src == TZ_SOURCE_IP && s_source == TZ_SOURCE_NITZ) {
     return false;
