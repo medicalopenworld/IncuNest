@@ -22,6 +22,10 @@ uint32_t s_seq = 0;
 lv_obj_t *s_overlay = nullptr;
 lv_obj_t *s_card = nullptr;
 lv_obj_t *s_content = nullptr;
+// Child of the card, never of s_content, so the step rebuilds don't destroy
+// it: the outcome screen has no way back, and without this X the only exits
+// from it would be recording an outcome the nurse may not know yet.
+lv_obj_t *s_closeBtn = nullptr;
 
 const char *TXT(const char *es, const char *en, const char *fr) {
   return (g_lang == LANG_ES) ? es : (g_lang == LANG_FR) ? fr : en;
@@ -58,6 +62,15 @@ void showAskReason();
 void showAskOutcome();
 
 void onDismiss(lv_event_t *) { closeDialog(); }
+
+// Same semantics as "NOT NOW": nothing is recorded, and the dialog will be
+// offered again on the next active -> idle edge.
+void buildCloseButton() {
+  if (!s_card || s_closeBtn) return;
+  s_closeBtn = makeBtn(s_card, "X", onDismiss, lv_color_hex(0xAA3333));
+  lv_obj_set_size(s_closeBtn, 46, 46);
+  lv_obj_align(s_closeBtn, LV_ALIGN_TOP_RIGHT, 0, 0);
+}
 
 void onWithMother(lv_event_t *) {
   if (s_seq != 0) Communication_SendProfileKangaroo(s_seq);
@@ -174,6 +187,9 @@ void BabyExitDialog_Init(lv_obj_t *parent) {
   lv_obj_set_size(s_content, 480, 360);
   lv_obj_center(s_content);
   lv_obj_clear_flag(s_content, LV_OBJ_FLAG_SCROLLABLE);
+
+  // After s_content on purpose: last child = drawn on top of both screens.
+  buildCloseButton();
 }
 
 void BabyExitDialog_Tick(bool anyControlActive) {

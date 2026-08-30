@@ -36,6 +36,8 @@
 #include "modules/util/tz_source.h"
 #include "modules/baby_profile/baby_cloud.h"
 #include "modules/baby_profile/baby_profile_store.h"
+#include "modules/util/civil_time.h"
+#include "modules/util/system_clock.h"
 #include "alarm_policy.h"
 
 extern GPRSstruct GPRS;
@@ -306,6 +308,18 @@ const char *configIndex =
     "<input type='number' step='0.01' name='fine_tune' id='fine_tune' readonly><br><br>"
     "<button type='button' onclick='saveSection([\"reference_temp\"])'>Save Calibration</button>"
     "<br><br>"
+    "<h3>Date &amp; Time</h3>"
+    "<p>Incubator clock: <b><span id='dev_time'>--</span></b> <span id='dev_time_src'></span></p>"
+    "<label>Set clock:</label><br>"
+    "<input type='datetime-local' step='1' name='set_time' id='set_time'><br><br>"
+    "<button type='button' onclick='fillBrowserTime()'>Use this device's time</button> "
+    "<button type='button' onclick='setDeviceTime()'>Set Date &amp; Time</button>"
+    "<p><small>The incubator keeps a single clock with no time zone: what you"
+    " enter here is exactly what the screen, the baby's age and the alarm log"
+    " will show. A manual entry overrides WiFi/GPRS time sync until the next"
+    " reboot; after a power cycle the clock is lost and sync takes over"
+    " again.</small></p>"
+    "<br>"
     "<div id='msg'></div>"
     "<script>"
     "$(document).ready(function() {"
@@ -322,6 +336,9 @@ const char *configIndex =
     "    $('#gprs_stby').val(data.gprs_stby);"
     "    $('#reference_temp').val(data.skin_temp_val);"
     "    $('#fine_tune').val(data.fine_tune);"
+    "    showDeviceTime(data);"
+    "    if (data.time_epoch > 0) { $('#set_time').val(stamp(data.time_epoch)); }"
+    "    else { fillBrowserTime(); }"
     "  });"
     "});"
     "function saveSection(fields) {"
@@ -330,6 +347,35 @@ const char *configIndex =
     "  $.post('/config', data, function(resp) {"
     "    $('#msg').text(resp);"
     "  });"
+    "}"
+    "function pad(n) { return (n < 10 ? '0' : '') + n; }"
+    // The board clock has no time zone, so render the epoch as-is (UTC fields)
+    // instead of shifting it into the browser's zone: what is shown here must
+    // be what the incubator screen shows.
+    "function stamp(epoch) {"
+    "  var d = new Date(epoch * 1000);"
+    "  return d.getUTCFullYear() + '-' + pad(d.getUTCMonth()+1) + '-' + pad(d.getUTCDate())"
+    "    + 'T' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ':' + pad(d.getUTCSeconds());"
+    "}"
+    "function showDeviceTime(data) {"
+    "  if (data.time_epoch > 0) {"
+    "    $('#dev_time').text(stamp(data.time_epoch).replace('T', ' '));"
+    "    $('#dev_time_src').text(data.time_manual == 1 ? '(set manually)' : '(synced from WiFi/GPRS)');"
+    "  } else {"
+    "    $('#dev_time').text('not set');"
+    "    $('#dev_time_src').text('(no WiFi/GPRS time sync yet)');"
+    "  }"
+    "}"
+    "function fillBrowserTime() {"
+    "  var d = new Date();"
+    "  $('#set_time').val(d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate())"
+    "    + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()));"
+    "}"
+    "function setDeviceTime() {"
+    "  $.post('/config', { set_time: $('#set_time').val() }, function(resp) {"
+    "    $('#msg').text(resp);"
+    "    $.get('/get_config', showDeviceTime);"
+    "  }).fail(function(x) { $('#msg').text(x.responseText || 'Error setting the clock'); });"
     "}"
     "</script>";
 
@@ -464,7 +510,11 @@ void configWifiServer() {
     // Return current displayed temperature so user can see what it is or use it
     // as base
     json += "\"skin_temp_val\":" + String(in3.temperature[SKIN_SENSOR]) + ",";
-    json += "\"fine_tune\":" + String(in3.fineTuneSkinTemperature);
+    json += "\"fine_tune\":" + String(in3.fineTuneSkinTemperature) + ",";
+    // Wall clock. 0 means "never synced and never set" — same floor the rest
+    // of the firmware uses to decide the date cannot be trusted.
+    json += "\"time_epoch\":" + String((unsigned long)babyStore_nowEpoch()) + ",";
+    json += "\"time_manual\":" + String(systemClockIsManual() ? 1 : 0);
     json += "}";
     wifiServer.sendHeader("Connection", "close");
     wifiServer.send(200, "application/json", json);
@@ -524,6 +574,33 @@ void configWifiServer() {
           in3.fineTuneSkinTemperature +
           (referenceTemp - in3.temperature[SKIN_SENSOR]);
       { Preferences p; p.begin(NS_CAL, false); p.putFloat(KEY_FT_SKIN, in3.fineTuneSkinTemperature); p.end(); }
+    }
+    if (wifiServer.hasArg("set_time")) {
+      // "YYYY-MM-DDTHH:MM[:SS]" — what <input type='datetime-local'> posts.
+      // Taken as the board clock verbatim (tz offset 0): the firmware keeps a
+      // single timezone-less clock, so what the operator types is what the
+      // screen, the baby's age and the alarm log show. Deployments with
+      // neither WiFi nor a NITZ-capable operator had no other way in.
+      String v = wifiServer.arg("set_time");
+      int y = 0, mo = 0, d = 0, h = 0, mi = 0, s = 0;
+      uint32_t epoch = 0;
+      // %*c swallows the 'T' (or a space, for a hand-crafted curl POST).
+      int n = sscanf(v.c_str(), "%d-%d-%d%*c%d:%d:%d", &y, &mo, &d, &h, &mi, &s);
+      if (n < 5 ||
+          !civil_to_unix_utc(y, (unsigned)mo, (unsigned)d, (unsigned)h,
+                             (unsigned)mi, (unsigned)s, 0, &epoch) ||
+          !systemClockSetManual(epoch)) {
+        wifiServer.sendHeader("Connection", "close");
+        wifiServer.send(400, "text/plain",
+                        "Invalid date/time. Expected YYYY-MM-DDTHH:MM[:SS], "
+                        "year 2021 or later.");
+        return;
+      }
+      logI("[WIFI] -> clock set manually to epoch " + String(epoch));
+      wifiServer.sendHeader("Connection", "close");
+      wifiServer.send(200, "text/plain",
+                      "Clock set. The display picks it up within 10 s.");
+      return;
     }
     /* Preferences commits on p.end() — no explicit commit needed */
     wifiServer.sendHeader("Connection", "close");

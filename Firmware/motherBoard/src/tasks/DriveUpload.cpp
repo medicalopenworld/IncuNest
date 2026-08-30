@@ -1,5 +1,6 @@
 #include "DriveUpload.h"
 #include "main.h"
+#include "modules/util/system_clock.h"
 
 #include <LittleFS.h>
 #include <WiFi.h>
@@ -255,6 +256,13 @@ static bool uploadToGoogleDrive(const DriveUploadRequest &req) {
 static void ensureTimeSynced() {
   if (s_time_synced)
     return;
+  // Una hora puesta a mano desde /config manda: arrancar SNTP aquí la
+  // desplazaría en silencio en cuanto apareciese el AP.
+  if (systemClockIsManual()) {
+    s_time_synced = true;
+    logDrive("clock set manually, skipping NTP");
+    return;
+  }
   while (!WIFIIsConnected()) {
     vTaskDelay(pdMS_TO_TICKS(500));
   }

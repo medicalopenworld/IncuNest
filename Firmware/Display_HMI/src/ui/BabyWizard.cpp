@@ -76,6 +76,10 @@ uint16_t s_sessionWeight = 0;
 lv_obj_t *s_overlay = nullptr;
 lv_obj_t *s_card = nullptr;
 lv_obj_t *s_content = nullptr;
+// Always-visible cancel affordance. Deliberately a child of s_card and not of
+// s_content, so clearContent() between steps never destroys it: every screen
+// of the wizard, including the ones with no BACK, can always be abandoned.
+lv_obj_t *s_closeBtn = nullptr;
 lv_obj_t *s_keyboard = nullptr;
 lv_obj_t *s_nameTa = nullptr;
 // Single numeric textarea reused by the gest-weeks / weight / age-days steps
@@ -298,15 +302,22 @@ void cancelWizard() {
 
 void onCancelClicked(lv_event_t *) { cancelWizard(); }
 
+// Built once, in BabyWizard_Init, right after s_content: being the card's last
+// child it always draws over the step's own widgets, and it survives every
+// clearContent(). setCardSize() re-lays out the card, and LVGL re-applies the
+// stored alignment, so the X follows the small/big card without extra work.
+void buildCloseButton() {
+  if (!s_card || s_closeBtn) return;
+  s_closeBtn = makeBtn(s_card, "X", onCancelClicked, lv_color_hex(0xAA3333));
+  lv_obj_set_size(s_closeBtn, 46, 46);
+  lv_obj_align(s_closeBtn, LV_ALIGN_TOP_RIGHT, 0, 0);
+}
+
 void showLoadingScreen() {
   clearContent();
   setCardSize(false);
   makeTitle(TXT("Cargando bebes...", "Loading babies...",
                 "Chargement des bebes..."));
-  lv_obj_t *cancel = makeBtn(s_content, "X", onCancelClicked,
-                            lv_color_hex(0xAA3333));
-  lv_obj_set_size(cancel, 44, 44);
-  lv_obj_align(cancel, LV_ALIGN_TOP_RIGHT, 0, 0);
 }
 
 void selectExisting(uint32_t seq, uint8_t gest, uint16_t lastWeight) {
@@ -330,11 +341,6 @@ void showChooseBabyScreen() {
   setCardSize(false);
   makeTitle(TXT("Bebe nuevo o existente", "New or existing baby",
                 "Bebe nouveau ou existant"));
-
-  lv_obj_t *cancel =
-      makeBtn(s_content, "X", onCancelClicked, lv_color_hex(0xAA3333));
-  lv_obj_set_size(cancel, 44, 44);
-  lv_obj_align(cancel, LV_ALIGN_TOP_RIGHT, 0, 0);
 
   int y = 60;
   for (int i = 0; i < s_list.count; i++) {
@@ -725,6 +731,9 @@ void BabyWizard_Init(lv_obj_t *parent) {
   lv_obj_set_size(s_content, 620, 400);
   lv_obj_center(s_content);
   lv_obj_clear_flag(s_content, LV_OBJ_FLAG_SCROLLABLE);
+
+  // After s_content on purpose: last child = drawn on top of every step.
+  buildCloseButton();
 }
 
 static void openForTarget(WizTarget target) {
