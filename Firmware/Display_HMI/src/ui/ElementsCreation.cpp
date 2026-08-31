@@ -3007,7 +3007,13 @@ void ui_ScreenSettings_screen_init(void) {
   ui_WifiBoardStatus = lv_label_create(ui_WifiConfigCont);
   lv_obj_set_width(ui_WifiBoardStatus, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_WifiBoardStatus, LV_SIZE_CONTENT);
-  lv_obj_align(ui_WifiBoardStatus, LV_ALIGN_BOTTOM_LEFT, 20, -12);
+  // BOTTOM_LEFT quedaba debajo de ui_Keyboard1 (750x185, centrado en el
+  // contenedor de 770x361): el teclado ocupa casi todo el ancho y su borde
+  // inferior sobresale del propio contenedor, asi que cualquier cosa
+  // anclada abajo queda tapada en cuanto el teclado se muestra. Confirmado
+  // en banco. La unica esquina libre —SSID/Pass/botones viven todos en la
+  // mitad derecha— es la superior izquierda.
+  lv_obj_align(ui_WifiBoardStatus, LV_ALIGN_TOP_LEFT, 20, 10);
   lv_label_set_text(ui_WifiBoardStatus, "");
   lv_obj_set_style_text_font(ui_WifiBoardStatus, &lv_font_montserrat_16,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
