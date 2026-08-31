@@ -63,6 +63,11 @@ typedef struct {
   int      photoSecondsRemaining;
   uint32_t alarmBitmask;
   int      skinProbeState;
+  // Barras de cobertura (0-4) del transporte activo indicado por
+  // serverCommStatus, derivadas de RSSI (WiFi) o CSQ (GPRS). -1 = sin dato
+  // fiable: serverCommStatus == COMM_STATUS_NONE (no hay transporte del que
+  // medir cobertura) o una placa antigua que no manda este campo todavia.
+  int      linkBars;
 } Proto_CtrlState;
 
 typedef struct {

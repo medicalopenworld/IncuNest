@@ -299,6 +299,34 @@ double getRemainingPhotoTime() {
 }
 
 // ======================================================
+//  LINK COVERAGE (heading connectivity indicator)
+// ======================================================
+// Umbrales de RSSI vistos en banco (ESP32 WiFi tipico): >=-55 dBm excelente,
+// <=-85 dBm apenas hay enlace. No hay estandar universal para esta escala
+// (a diferencia de CSQ, que si lo define 3GPP), asi que son un reparto lineal
+// razonable en 4 tramos, igual que la barra de senal de un movil.
+static int LinkBarsFromWifiRssi(long rssiDbm) {
+  if (rssiDbm >= -55) return 4;
+  if (rssiDbm >= -65) return 3;
+  if (rssiDbm >= -75) return 2;
+  if (rssiDbm >= -85) return 1;
+  return 0;
+}
+
+// AT+CSQ (3GPP TS 27.007): 0-31 escala real, 99 = no se puede medir. GPRS.CSQ
+// ya lo actualiza GPRSUpdateCSQ() periodicamente; aqui solo se traduce a
+// barras. -1 (no 0) para "no se sabe": 0 barras es una lectura real de
+// cobertura pesima, no lo mismo que "el modem no ha contestado".
+static int LinkBarsFromGprsCsq(int csq) {
+  if (csq < 0 || csq == 99) return -1;
+  if (csq >= 20) return 4;
+  if (csq >= 15) return 3;
+  if (csq >= 10) return 2;
+  if (csq >= 1) return 1;
+  return 0;
+}
+
+// ======================================================
 //  SEND STATE TO HMI
 // ======================================================
 static void send_state_to_hmi() {
@@ -349,7 +377,7 @@ static void send_state_to_hmi() {
                                                               : SKIN_PROBE_NOT_CONNECTED;
 
   snprintf(msg, sizeof(msg),
-           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d,%d,0x%X,0x%X,%d,%d\n",
+           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d,%d,0x%X,0x%X,%d,%d,%d\n",
            (int)g_last_cmd.actuation, (int)g_last_cmd.controlMode,
            (double)g_last_cmd.desiredAirTemperature,
            (double)g_last_cmd.desiredSkinTemperature,
@@ -358,7 +386,7 @@ static void send_state_to_hmi() {
            HW_REVISION, FWversion, alarmCount, (int)g_last_cmd.skinModeEnabled,
            (int)ctrl_tel_msg.serverCommStatus, remainingTime, in3.language,
            skinProbeState, alarmBitmask, silencedBitmask, almTest,
-           silenceLeftS);
+           silenceLeftS, (int)ctrl_tel_msg.linkBars);
 
 
   ESP_LOGI(TAG, "Sending state to HMI: %s", msg);
@@ -1078,14 +1106,18 @@ void Communication_Task(void *pvParameters) {
     // --- Periodic telemetry + vitals (every 1 s) ---
     if (millis() - last_tel_time > 1000) {
       int status = COMM_STATUS_NONE;
+      int linkBars = -1;
       if (WIFIIsConnected()) {
         status = WIFIIsConnectedToServer() ? COMM_STATUS_WIFI_SERVER
                                            : COMM_STATUS_WIFI_ONLY;
+        linkBars = LinkBarsFromWifiRssi(WiFi.RSSI());
       } else if (GPRSIsAttached()) {
         status = GPRSIsConnectedToServer() ? COMM_STATUS_GPRS_SERVER
                                            : COMM_STATUS_GPRS_ONLY;
+        linkBars = LinkBarsFromGprsCsq(GPRS.CSQ);
       }
       ctrl_tel_msg.serverCommStatus = status;
+      ctrl_tel_msg.linkBars = linkBars;
 
       // Una medida que la placa ya no esta consiguiendo leer NO se manda como
       // 0: se manda como centinela de "no disponible" y el display la pinta

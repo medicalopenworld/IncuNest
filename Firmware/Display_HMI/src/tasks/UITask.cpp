@@ -494,6 +494,71 @@ void wifi_board_status_update(void) {
                               LV_PART_MAIN);
 }
 
+// Indicador de conectividad del heading, visible en TODAS las pantallas (a
+// diferencia de wifi_board_status_update, que solo vive en Ajustes/WiFi): un
+// icono WIFI/2G/sin enlace mas 4 barras de cobertura, para que el operador
+// vea de un vistazo si el equipo puede subir telemetria sin tener que entrar
+// a Ajustes.
+//
+// Con el enlace HMI-placa caido (Display_IsBoardLinkLost()) no hay dato
+// fresco del que fiarse: se pinta como "sin datos", igual criterio que
+// link_lost_blank_update() aplica a las medidas.
+void connectivity_heading_update(void) {
+  if (!ui_ConnCont || !ui_ConnIcon) return;
+
+  const bool linkLost = Display_IsBoardLinkLost();
+  const int status = linkLost ? COMM_STATUS_NONE : ctrl_state_msg.serverCommStatus;
+  const int linkBars = linkLost ? -1 : ctrl_state_msg.linkBars;
+
+  // (icono, colorEstado, barrasVisibles) empaquetados en un entero para saltar
+  // el resto de la funcion cuando nada ha cambiado desde la ultima pasada.
+  const int signature = status * 100 + (linkBars + 1);
+  static int lastSignature = -999;
+  if (signature == lastSignature) return;
+  lastSignature = signature;
+
+  const bool onServer =
+      (status == COMM_STATUS_WIFI_SERVER || status == COMM_STATUS_GPRS_SERVER);
+  const bool hasTransport = (status != COMM_STATUS_NONE);
+  const lv_color_t color = !hasTransport  ? lv_color_hex(0x888888)
+                            : onServer    ? lv_color_hex(0x2E9E4F)
+                                          : lv_color_hex(0xCC7A00);
+
+  const char *icon;
+  switch (status) {
+  case COMM_STATUS_WIFI_ONLY:
+  case COMM_STATUS_WIFI_SERVER:
+    icon = LV_SYMBOL_WIFI;
+    break;
+  case COMM_STATUS_GPRS_ONLY:
+  case COMM_STATUS_GPRS_SERVER:
+    icon = "2G";
+    break;
+  default:
+    icon = LV_SYMBOL_CLOSE;
+    break;
+  }
+  lv_label_set_text(ui_ConnIcon, icon);
+  lv_obj_set_style_text_color(ui_ConnIcon, color, LV_PART_MAIN);
+
+  // Sin transporte no hay cobertura que mostrar; con transporte pero sin dato
+  // fiable (linkBars<0: placa antigua o lectura de RSSI/CSQ aun no llegada)
+  // se pintan las 4 en gris, nunca se inventa un nivel.
+  const int fillCount =
+      (!hasTransport) ? 0 : (linkBars < 0) ? 0 : (linkBars > 4 ? 4 : linkBars);
+  for (int i = 0; i < 4; i++) {
+    if (!ui_ConnBar[i]) continue;
+    if (!hasTransport) {
+      lv_obj_add_flag(ui_ConnBar[i], LV_OBJ_FLAG_HIDDEN);
+      continue;
+    }
+    lv_obj_clear_flag(ui_ConnBar[i], LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_style_bg_color(
+        ui_ConnBar[i], (i < fillCount) ? color : lv_color_hex(0x404040),
+        LV_PART_MAIN);
+  }
+}
+
 void link_lost_blank_update(void) {
   static bool wasLost = false;
   const bool lost = Display_IsBoardLinkLost();
@@ -4527,6 +4592,7 @@ void UI_Task(void *pvParameters) {
     link_lost_blank_update();
     clock_update();
     wifi_board_status_update();
+    connectivity_heading_update();
     link_audio_mute_button_update();
     // Apaga el chasquido de la ultima pulsacion cuando le toca. Va aqui, y no
     // con un delay() dentro del callback, para no congelar LVGL.

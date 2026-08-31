@@ -128,6 +128,11 @@ extern lv_obj_t * ui_ScreenMain;
 extern lv_obj_t * ui_Incunest;
 extern lv_obj_t * ui_ClockTime;
 extern lv_obj_t * ui_ClockDate;
+// Indicador de conectividad del heading (WIFI/GPRS/ninguna + cobertura).
+// Ver connectivity_heading_update() en UITask.cpp.
+extern lv_obj_t * ui_ConnCont;
+extern lv_obj_t * ui_ConnIcon;
+extern lv_obj_t * ui_ConnBar[4];
 extern lv_obj_t * ui_Settings;
 extern lv_obj_t * ui_AlarmButton;
 extern lv_obj_t * ui_BabiesButton;

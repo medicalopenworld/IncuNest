@@ -117,6 +117,11 @@ typedef struct {
   // junto al icono de AUDIO PAUSED.
   int      silenceRemainingS;
   int      skinProbeState;
+  // Barras de cobertura (0-4) del transporte activo en serverCommStatus, o
+  // -1 si no hay transporte, el dato de senal no es fiable, o la placa es
+  // antigua y no manda este campo. Alimenta el indicador de cobertura del
+  // heading (ver connectivity_heading_update() en UITask.cpp).
+  int      linkBars;
   // HMI-internal flag (not part of the protocol)
   bool     newState;
 } ControlBoard_Message_State;
