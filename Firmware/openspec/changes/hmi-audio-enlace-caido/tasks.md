@@ -26,10 +26,9 @@ y `feat(shared): función pura de temporización del patrón de alarma`.
       `shared/src` para ese entorno.
 - [x] 1.6 Verificar que `motherBoard/src/drivers/Buzzer.cpp` compila sin cambios
       de comportamiento y que sus `static_assert` de las Tablas 3 y 4 siguen
-      pasando: `pio run -e IncuNest_V17` en verde. `IncuNest_V18` tiene un
-      `lib_deps` recortado en `platformio.ini` (solo `symlink://../shared`, sin
-      heredar la lista de `[common]`) que ya no resuelve en una copia limpia
-      del repo — preexistente y ajeno a este cambio, no verificado aquí.
+      pasando: `pio run -e IncuNest_V18` en verde (ver la nota de entorno en la
+      tarea 4.2). `IncuNest_V18` no tiene `lib_deps` propio: hace
+      `extends = common` y hereda la lista entera, como el resto de entornos.
 
 ## 2. Display_HMI — señal acústica de enlace perdido
 
