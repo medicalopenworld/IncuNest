@@ -2461,6 +2461,13 @@ void alarm_banner_update(void) {
 }
 
 void update_alarm_panels() {
+  // Con el enlace caido, el check "OK" no puede decir la verdad: no sabemos
+  // si hay una alarma real en curso, solo que hemos dejado de escuchar a la
+  // placa. El banner de "LINK LOST" ya lo comunica (alarm_banner_update() SI
+  // consulta Display_IsBoardLinkLost()); este check viejo no lo hacia, y por
+  // eso se quedaba en verde justo cuando menos hay que fiarse de la pantalla.
+  const bool linkLost = Display_IsBoardLinkLost();
+
   // Determine fan/heater alarm state first — used in multiple sections below
   bool fanHeaterAlarm = false;
   for (int i = 0; i < MAX_ALARMS; i++) {
@@ -2554,17 +2561,19 @@ void update_alarm_panels() {
     lv_label_set_text(ui_AlarmLockNumLabel, buf);
     lv_obj_add_flag(ui_CheckImg, LV_OBJ_FLAG_HIDDEN);
   } else {
-    // Main screen — hide alarm button; OK only if no fan/heater alarm either
+    // Main screen — hide alarm button; OK only if no fan/heater alarm either,
+    // y solo si la placa sigue hablando: "OK" es una afirmacion, no un valor
+    // por defecto.
     lv_obj_add_flag(ui_Panel10, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_NumAlarm, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_AlarmButton, LV_OBJ_FLAG_HIDDEN);
-    if (fanHeaterAlarm)
+    if (fanHeaterAlarm || linkLost)
       lv_obj_add_flag(ui_CheckImgMain, LV_OBJ_FLAG_HIDDEN);
     else
       lv_obj_clear_flag(ui_CheckImgMain, LV_OBJ_FLAG_HIDDEN);
     // Lock screen
     lv_obj_add_flag(ui_AlarmLockCont, LV_OBJ_FLAG_HIDDEN);
-    if (fanHeaterAlarm)
+    if (fanHeaterAlarm || linkLost)
       lv_obj_add_flag(ui_CheckImg, LV_OBJ_FLAG_HIDDEN);
     else
       lv_obj_clear_flag(ui_CheckImg, LV_OBJ_FLAG_HIDDEN);
