@@ -748,8 +748,15 @@ uint32_t babyStore_readWeightHistory(uint32_t seq, BabyWeightPoint *out,
     uint32_t ts;
     uint16_t grams;
     baby_weight_point_decode(buf, &ts, &grams);
-    if (written == 0 && baseEpoch == 0) baseEpoch = ts;
-    uint32_t dayOff = (ts >= baseEpoch) ? (ts - baseEpoch) / 86400u : 0;
+    // El primer punto CON HORA fija la base, no el primero a secas: un punto
+    // registrado sin reloj llega con ts=0, y tomarlo como base dejaba baseEpoch
+    // en 0, con lo que cualquier punto posterior ya sincronizado se convertia
+    // en un offset de ~20.000 dias y reventaba la escala del eje.
+    if (baseEpoch == 0 && ts != 0) baseEpoch = ts;
+    // Sin base o sin hora en el punto no hay dia que calcular: 0 es "dia
+    // desconocido", y el display ya trata un eje entero a 0 como "sin dias".
+    uint32_t dayOff =
+        (baseEpoch != 0 && ts >= baseEpoch) ? (ts - baseEpoch) / 86400u : 0;
     if (dayOff > 0xFFFFu) dayOff = 0xFFFFu;
     out[written].dayOffset = (uint16_t)dayOff;
     out[written].weightGrams = grams;

@@ -37,6 +37,9 @@
 // round-trip (and possibly an NTP one), so back off hard: the clock only has
 // to be found once per power cycle.
 #define GPRS_TIME_SYNC_RETRY_INTERVAL 120000 // 2 minutes in milliseconds
+// Cadencia de la traza "esperando número de serie": GPRSPost() se ejecuta cada
+// pocos ms, así que sin límite la traza ahoga el resto del log.
+#define GPRS_SERIAL_WAIT_LOG_PERIOD 30000 // 30 seconds in milliseconds
 
 #define SIMCOM800_AT "AT\n"
 #define SIMCOM800_ASK_CPIN "AT+CPIN?\n"

@@ -1,5 +1,6 @@
 #include "CommTask.h"
 #include "main.h"
+#include "modules/util/tz_source.h"
 #include "tasks/PID.h"
 #include "DriveUpload.h"
 #include <LittleFS.h>
@@ -44,12 +45,21 @@ static SemaphoreHandle_t hmi_state_req_sem;
 
 static HardwareSerial &hmiSerial = Serial1;
 
-// PPG transport scale: ADC counts of ppg_disp per LSB of the 0-255 display range.
-// ppg_disp is zero-mean (library BPF output), so 128 is the baseline and this divisor
-// sets the half-range to 127 x 16 = ~2030 counts. Measured on the bench 2026-08-13
-// with HGAC active: peaks up to ~1350 counts at PI ~10%, so ~50% headroom.
+// PPG transport scale: ppg_disp units (A/A, OT domain) per LSB of the 0-255 display
+// range. ppg_disp is zero-mean (library BPF output), so 128 is the baseline and this
+// divisor sets the half-range to 127 x 1.6e-8 = ~2.0e-6 A/A.
+//
+// Library v0.69 moved ppg_disp to the OT domain: int32_t (ADC counts) -> float (A/A,
+// magnitude ~1e-5..1e-6), so it is gain-invariant and no longer jumps when HGAC
+// changes RF. The previous scale (16 ADC counts/LSB, measured on the bench
+// 2026-08-13) no longer applies to these units.
+//
+// This value is DERIVED from the library spec, not measured: typical OT DC is
+// ~1.4e-5 A/A and AC/DC = PI/100, so at PI ~10% (the operating point of the original
+// bench measurement) ppg_disp peaks at ~1.4e-6 — same ~50% headroom the old counts
+// scale had. TODO: re-validate on the bench with a real probe.
 // Fixed on purpose — no adaptive scaling outside the library.
-static constexpr int32_t PPG_DISP_COUNTS_PER_LSB = 16;
+static constexpr float PPG_DISP_UNITS_PER_LSB = 1.6e-8f;
 
 // ---- Phototherapy Timer (Motherboard is source of truth) ----
 static bool photoTimerActive = false;
@@ -895,6 +905,24 @@ void parse_line(const char *line) {
   }
 }
 
+// ¿Se sigue leyendo este sensor?
+//
+// Misma fuente y misma ventana que checkStatusOfSensor() (security.cpp) usa
+// para levantar las alarmas de fallo de sensor: si se separasen, el display
+// podria pintar una cifra mientras la alarma dice que ese sensor no responde.
+//
+// lastSuccesfullSensorUpdate == 0 es "no se ha leido NUNCA" (el centinela que
+// usa applyNTCResult), y cuenta como no disponible: es el caso de la sonda de
+// piel ausente en modo aire, donde lo honesto es un "--" y no un 0.0.
+static const uint32_t TEL_SENSOR_STALE_MS = 5000u;
+
+static bool sensorReadingFresh(byte sensor) {
+  extern long lastSuccesfullSensorUpdate[SENSOR_TEMP_QTY];
+  if (lastSuccesfullSensorUpdate[sensor] == 0) return false;
+  return (uint32_t)(millis() - (uint32_t)lastSuccesfullSensorUpdate[sensor]) <=
+         TEL_SENSOR_STALE_MS;
+}
+
 // ======================================================
 //  SEND DATA TO HMI
 // ======================================================
@@ -924,6 +952,10 @@ void Communication_Task(void *pvParameters) {
   uint32_t last_time_bcast = (uint32_t)(0 - 10001);
   uint32_t last_ppg_time = 0;
   uint32_t ppg_time      = 0;
+  // Clipping tally for the 1 Hz bench log below (see the PPG waveform block).
+  uint16_t ppg_clip_count    = 0;
+  uint16_t ppg_sent_count    = 0;
+  uint32_t last_ppg_clip_log = 0;
   static unsigned long last_probe_status_time = 0;
   static ProbeState    prev_probe_state       = ProbeState::PROBE_DISCONNECTED;
   // HR hysteresis: show after 2 consecutive valid samples, hide after 3 bad ones
@@ -993,11 +1025,36 @@ void Communication_Task(void *pvParameters) {
       // application (_spo2_update: EMAs reset while not APPLIED), while ppg_disp is
       // valid within ~1 s. Gating the trace on SpO2 validity flat-lined it for 19 s.
       if (g_spo2_data.probe_state == ProbeState::PROBE_APPLIED) {
-        long ppg_scaled = 128L + (long)(g_spo2_data.ppg_disp / PPG_DISP_COUNTS_PER_LSB);
+        // ppg_disp is a float since library v0.69: a non-finite value would make
+        // lroundf() undefined, so it collapses to the baseline instead of emitting
+        // a garbage byte. Keeping the line flowing (rather than skipping the send)
+        // preserves the 25 Hz cadence the HMI trace expects.
+        float ppg = g_spo2_data.ppg_disp;
+        long ppg_scaled = isfinite(ppg)
+                              ? 128L + lroundf(ppg / PPG_DISP_UNITS_PER_LSB)
+                              : 128L;
         uint8_t ppg_byte = (uint8_t)constrain(ppg_scaled, 0L, 255L);
         char ppg_msg[16];
         snprintf(ppg_msg, sizeof(ppg_msg), "CTRL,PPG,%u\n", ppg_byte);
         hmiSerial.print(ppg_msg);
+
+        // Bench aid for re-validating PPG_DISP_UNITS_PER_LSB, which is derived
+        // from the library spec rather than measured. Sustained clipping means
+        // the divisor is too small (the trace squares off at the rails); never
+        // clipping while the trace looks flat means it is too large. Silent by
+        // design when the scale is right, so it costs nothing in normal use.
+        ppg_sent_count++;
+        if (ppg_scaled < 0L || ppg_scaled > 255L)
+          ppg_clip_count++;
+      }
+      if (ppg_time - last_ppg_clip_log >= 1000) {
+        if (ppg_clip_count)
+          logSPO2("[PPG] recorte " + String(ppg_clip_count) + "/" +
+                  String(ppg_sent_count) + " muestras en 1 s: revisar " +
+                  "PPG_DISP_UNITS_PER_LSB");
+        ppg_clip_count    = 0;
+        ppg_sent_count    = 0;
+        last_ppg_clip_log = ppg_time;
       }
       last_ppg_time = ppg_time;
     }
@@ -1030,12 +1087,49 @@ void Communication_Task(void *pvParameters) {
       }
       ctrl_tel_msg.serverCommStatus = status;
 
+      // Una medida que la placa ya no esta consiguiendo leer NO se manda como
+      // 0: se manda como centinela de "no disponible" y el display la pinta
+      // "--". Se decide aqui, en la via de presentacion, y NO tocando
+      // in3.temperature[]: ese array alimenta el PID y las alarmas, y cambiar
+      // su convencion para arreglar una etiqueta de pantalla seria meter mano
+      // en el control de un actuador por un motivo cosmetico.
+      //
+      // Misma ventana de silencio que usa checkStatusOfSensor() para levantar
+      // las alarmas de fallo de sensor, para que el "--" y la alarma aparezcan
+      // a la vez y no se contradigan en pantalla.
+      // sensorReadingFresh() sola no bastaba: mide cuanto ha pasado desde la
+      // ULTIMA lectura buena, pero sensors_module.cpp pone in3.temperature[]/
+      // in3.humidity[] a 0 en el mismo ciclo (~200 ms) en que falla la
+      // lectura, mucho antes de que expiren los 5 s de esa ventana. Resultado
+      // observado en banco: la cifra se veia en "0.0°C" varios segundos antes
+      // de pasar a "--" — exactamente el valor plausible-y-alarmante que este
+      // centinela existe para evitar.
+      //
+      // 0.0 nunca es una lectura real aqui (ambas magnitudes se clampan a el
+      // SOLO en fallo, sensors_module.cpp), asi que un raw > 0 se exige
+      // ademas de la frescura: lo primero en fallar de las dos condiciones
+      // dispara el "--", sin esperar a la mas lenta.
+      const bool airFresh = sensorReadingFresh(ROOM_DIGITAL_TEMP_SENSOR) &&
+                            ctrl_tel_msg.detectedAirTemperature > 0.0;
+      const bool skinFresh = sensorReadingFresh(SKIN_SENSOR) &&
+                             ctrl_tel_msg.detectedSkinTemperature > 0.0;
+      // La humedad y la temperatura de aire vienen del MISMO sensor digital de
+      // camara, asi que su frescura es la misma medida.
+      const bool humFresh = sensorReadingFresh(ROOM_DIGITAL_TEMP_SENSOR) &&
+                            ctrl_tel_msg.detectedHumidity > 0.0;
+
+      const double telAir =
+          airFresh ? ctrl_tel_msg.detectedAirTemperature
+                   : PROTO_TEL_TEMP_UNAVAILABLE;
+      const double telSkin =
+          skinFresh ? ctrl_tel_msg.detectedSkinTemperature
+                    : PROTO_TEL_TEMP_UNAVAILABLE;
+      const int telHum = humFresh ? (int)ctrl_tel_msg.detectedHumidity
+                                  : PROTO_TEL_HUM_UNAVAILABLE;
+
       char msg[64];
-      snprintf(msg, sizeof(msg), "CTRL,TEL,%.1f,%.1f,%d,%d\n",
-               ctrl_tel_msg.detectedAirTemperature,
-               ctrl_tel_msg.detectedSkinTemperature,
-               (int)ctrl_tel_msg.detectedHumidity,
-               ctrl_tel_msg.serverCommStatus);
+      snprintf(msg, sizeof(msg), "CTRL,TEL,%.1f,%.1f,%d,%d\n", telAir, telSkin,
+               telHum, ctrl_tel_msg.serverCommStatus);
       hmiSerial.print(msg);
 
       {
@@ -1106,9 +1200,17 @@ void Communication_Task(void *pvParameters) {
     // avoidable periodic UART traffic. epoch 0 means "not synced yet".
     if (millis() - last_time_bcast > 10000) {
       last_time_bcast = millis();
-      char tmsg[32];
-      snprintf(tmsg, sizeof(tmsg), "CTRL,TIME,%lu\n",
-               (unsigned long)babyStore_nowEpoch());
+      // El epoch sigue siendo UTC. La zona viaja aparte porque son dos datos
+      // distintos: el instante es medible, la hora local es una convencion que
+      // alguien de fuera (NITZ o la consulta por IP) tiene que comunicarnos.
+      //
+      // tzsrc no es redundante con tzq: sin el, "offset 0 porque estamos en
+      // Togo" y "offset 0 porque no lo sabemos" son indistinguibles, y el
+      // display no puede decidir si pintar la hora o el aviso.
+      char tmsg[48];
+      snprintf(tmsg, sizeof(tmsg), "CTRL,TIME,%lu,%d,%d\n",
+               (unsigned long)babyStore_nowEpoch(),
+               (int)tz_source_quarters(), (int)tz_source_origin());
       hmiSerial.print(tmsg);
     }
 

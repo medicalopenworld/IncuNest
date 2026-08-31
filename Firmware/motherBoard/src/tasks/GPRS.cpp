@@ -31,6 +31,7 @@
 #include "modules/baby_profile/baby_cloud.h"
 #include "modules/baby_profile/baby_profile_store.h"
 #include "modules/util/civil_time.h"
+#include "modules/util/tz_source.h"
 #include <sys/time.h>
 
 #include "CommTask.h"
@@ -382,6 +383,58 @@ void GPRSEnsureTimeSynced() {
   settimeofday(&tv, nullptr);
   s_synced = true;
   logModemData("[GPRS] -> clock synced from cellular, epoch " + String(epoch));
+}
+
+// Zona horaria desde la red movil (NITZ), separada de la puesta en hora.
+//
+// Son dos cosas distintas y estaban en la misma funcion: el RELOJ lo puede
+// poner el NTP por WiFi, pero la ZONA solo la sabe el modem. Como
+// GPRSEnsureTimeSynced() sale antes cuando el reloj ya esta puesto, en toda
+// unidad donde el WiFi ganase la carrera nunca se llegaba a preguntar por la
+// zona, y su latch impedia una segunda oportunidad: se quedaba en UTC de por
+// vida. Con latch propio, la zona se busca aunque la hora ya este resuelta.
+//
+// getNetworkTime() entrega la hora LOCAL de la antena junto a su offset; aqui
+// solo interesa el offset, porque el instante ya lo tiene el sistema.
+void GPRSEnsureTimeZoneSynced() {
+  static bool s_tzSynced = false;
+  static uint32_t s_lastTzAttemptMs = 0;
+  if (s_tzSynced) return;
+
+  if (s_lastTzAttemptMs != 0 &&
+      millis() - s_lastTzAttemptMs < GPRS_TIME_SYNC_RETRY_INTERVAL) {
+    return;
+  }
+  s_lastTzAttemptMs = millis();
+
+  int year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0;
+  float tz = 0.0f;
+  if (!modem.getNetworkTime(&year, &month, &day, &hour, &minute, &second,
+                            &tz)) {
+    // Sin esto, un AT+CCLK? que nunca contesta y un operador que si contesta
+    // pero sin NITZ eran INDISTINGUIBLES en el log: los dos se veian como
+    // silencio total. Round de banco (2026-08-31): "Attached" en el log pero
+    // ni una linea de zona, en ningun sentido — este era el hueco que lo
+    // ocultaba.
+    logModemData("[GPRS] -> NITZ: getNetworkTime() failed (modem not "
+                 "answering AT+CCLK?)");
+    return;
+  }
+  // Sin NITZ el SIM800 contesta con su fecha por defecto de 2004 y un tz que
+  // no significa nada. Se valida la FECHA para decidir si creerse el offset.
+  uint32_t epochProbe = 0;
+  if (!civil_to_unix_utc(year, (unsigned)month, (unsigned)day, (unsigned)hour,
+                         (unsigned)minute, (unsigned)second, (int)tz,
+                         &epochProbe)) {
+    logModemData("[GPRS] -> NITZ timezone not valid yet");
+    return;
+  }
+
+  if (tz_source_set((int)tz, TZ_SOURCE_NITZ)) {
+    s_tzSynced = true;
+    logModemData("[GPRS] -> timezone from NITZ: " + String((int)tz) +
+                 " quarter-hours");
+  }
 }
 
 void GPRS_get_SIM_info() {
@@ -1000,7 +1053,15 @@ static void publishBabyCloudDataGPRS() {
 void GPRSPost() {
   if (!GPRS.provisioned) {
     if (in3.serialNumber == 0) {
-      logModemData("[GPRS] -> Waiting for serial number before provisioning");
+      // GPRSPost() se llama cada pocos ms: sin limitar la cadencia, esta traza
+      // inunda el log mientras el número de serie sigue sin conocerse.
+      static uint32_t lastSerialWaitLog = 0;
+      uint32_t now = millis();
+      if (lastSerialWaitLog == 0 ||
+          now - lastSerialWaitLog >= GPRS_SERIAL_WAIT_LOG_PERIOD) {
+        lastSerialWaitLog = now;
+        logModemData("[GPRS] -> Waiting for serial number before provisioning");
+      }
       return;
     }
     if (!GPRS.provision_request_sent) {
@@ -1053,6 +1114,7 @@ void GPRSPost() {
         }
         GPRSUpdateLocationIfDue();
         GPRSEnsureTimeSynced();
+        GPRSEnsureTimeZoneSynced();
         GPRSUpdateCSQ();
         addTelemetriesToGPRSJSON();
         if (tb.sendTelemetryJson(addVariableToTelemetryGPRSJSON,
@@ -1114,6 +1176,7 @@ void GPRS_Handler() {
     // it over cellular, just keep location fresh off the existing attach.
     GPRSUpdateLocationIfDue();
     GPRSEnsureTimeSynced();
+    GPRSEnsureTimeZoneSynced();
   } else if (GPRS.post) {
     GPRSSetPostPeriod();
     GPRSPost();

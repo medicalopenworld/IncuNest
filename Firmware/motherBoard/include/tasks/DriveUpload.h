@@ -33,11 +33,13 @@
 // the AFE4490 library's own probe-attached/raw-signal-valid flags, not a
 // derived HR quality metric. Filename gets a "DH_" prefix (driveWriteTask)
 // when any sample in the window sets this.
+// ppg_disp is float since library v0.69 (OT domain, A/A, ~1e-5..1e-6): as an
+// int32_t it truncated to 0 for every sample.
 struct DrivePpgSample {
   uint32_t t_ms;
   int32_t  led1_sub;
   int32_t  led2_sub;
-  int32_t  ppg_disp;
+  float    ppg_disp;
   bool     valid_signal;
 };
 

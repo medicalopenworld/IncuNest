@@ -29,6 +29,8 @@ lv_obj_t *ui_ImageIntroFlag = NULL;
 // Screen Main
 lv_obj_t *ui_ScreenMain = NULL;
 lv_obj_t *ui_Incunest = NULL;
+lv_obj_t *ui_ClockTime = NULL;
+lv_obj_t *ui_ClockDate = NULL;
 lv_obj_t *ui_Settings = NULL;
 lv_obj_t *ui_AlarmButton = NULL;
 lv_obj_t *ui_BabiesButton = NULL;
@@ -188,6 +190,7 @@ lv_obj_t *ui_WifiDisconnectButton = NULL;
 lv_obj_t *ui_DisconnectLabel = NULL;
 lv_obj_t *ui_LanguagesDropDown = NULL;
 lv_obj_t *ui_WifiConnectedCont = NULL;
+lv_obj_t *ui_WifiBoardStatus = NULL;
 lv_obj_t *ui_WifiConnectedPanel = NULL;
 lv_obj_t *ui_ArrowWifiConnected = NULL;
 lv_obj_t *ui_WifiSSIDLabel = NULL;
@@ -821,6 +824,32 @@ void ui_ScreenMain_screen_init(void) {
   lv_label_set_text(ui_Incunest, "IncuNest");
   lv_obj_set_style_text_font(ui_Incunest, &lv_font_montserrat_26,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  // Reloj de pared, a la derecha del titulo. Hora en grande y fecha debajo en
+  // cuerpo menor: son dos labels porque LVGL no admite dos tamanos de fuente
+  // dentro de uno solo. En el hueco entre el final de "IncuNest" (~x=140) y el
+  // boton de bebes (~x=500). El contenido lo refresca clock_update() (UITask).
+  ui_ClockTime = lv_label_create(ui_ScreenMain);
+  lv_obj_set_width(ui_ClockTime, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_ClockTime, LV_SIZE_CONTENT);
+  lv_obj_set_x(ui_ClockTime, 190);
+  lv_obj_set_y(ui_ClockTime, -222);
+  lv_obj_set_align(ui_ClockTime, LV_ALIGN_LEFT_MID);
+  lv_label_set_text(ui_ClockTime, "");
+  lv_obj_set_style_text_font(ui_ClockTime, &lv_font_montserrat_26,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  ui_ClockDate = lv_label_create(ui_ScreenMain);
+  lv_obj_set_width(ui_ClockDate, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_ClockDate, LV_SIZE_CONTENT);
+  lv_obj_set_x(ui_ClockDate, 190);
+  lv_obj_set_y(ui_ClockDate, -200);
+  lv_obj_set_align(ui_ClockDate, LV_ALIGN_LEFT_MID);
+  lv_label_set_text(ui_ClockDate, "");
+  lv_obj_set_style_text_font(ui_ClockDate, &lv_font_montserrat_14,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_text_color(ui_ClockDate, lv_color_hex(0x888888),
+                              LV_PART_MAIN);
 
   ui_Settings = lv_imgbtn_create(ui_ScreenMain);
   lv_imgbtn_set_src(ui_Settings, LV_IMGBTN_STATE_RELEASED, NULL,
@@ -2964,6 +2993,30 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_align(ui_LanguagesDropDown, LV_ALIGN_CENTER);
   lv_obj_add_flag(ui_LanguagesDropDown,
                   LV_OBJ_FLAG_HIDDEN | LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+
+  // Estado del enlace de la PLACA, no el del display.
+  //
+  // El boton de conectar y el "Conectado a" de esta pantalla hablan solo del
+  // radio del propio HMI (WiFi.status()), que unicamente sirve para su OTA.
+  // Quien sube telemetria a ThingsBoard es la motherBoard, y su conexion —la
+  // que de verdad importa— no aparecia por ninguna parte: se podia estar
+  // mirando un "conectado" mientras el equipo no mandaba un solo dato.
+  //
+  // El dato ya viajaba en CTRL,STATE (serverCommStatus); lo que faltaba era
+  // ensenarlo. Por eso esto no toca el protocolo.
+  ui_WifiBoardStatus = lv_label_create(ui_WifiConfigCont);
+  lv_obj_set_width(ui_WifiBoardStatus, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_WifiBoardStatus, LV_SIZE_CONTENT);
+  // BOTTOM_LEFT quedaba debajo de ui_Keyboard1 (750x185, centrado en el
+  // contenedor de 770x361): el teclado ocupa casi todo el ancho y su borde
+  // inferior sobresale del propio contenedor, asi que cualquier cosa
+  // anclada abajo queda tapada en cuanto el teclado se muestra. Confirmado
+  // en banco. La unica esquina libre —SSID/Pass/botones viven todos en la
+  // mitad derecha— es la superior izquierda.
+  lv_obj_align(ui_WifiBoardStatus, LV_ALIGN_TOP_LEFT, 20, 10);
+  lv_label_set_text(ui_WifiBoardStatus, "");
+  lv_obj_set_style_text_font(ui_WifiBoardStatus, &lv_font_montserrat_16,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
 
   ui_WifiConnectedCont = lv_obj_create(ui_ScreenSettings);
   lv_obj_remove_style_all(ui_WifiConnectedCont);

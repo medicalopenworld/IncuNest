@@ -92,13 +92,17 @@ lv_color_t cardBorder(uint8_t prio) {
   }
 }
 
-// epoch (UTC) -> "YYYY-MM-DD HH:MM", o "--" si la placa no tenia hora.
+// epoch (UTC) -> "YYYY-MM-DD HH:MM" en HORA LOCAL, o "--" si no hay hora.
+//
+// Local y no UTC para no contradecir al reloj de la cabecera: la misma alarma
+// fechada a dos horas distintas en dos pantallas del mismo equipo es peor que
+// no tener reloj. El epoch guardado no cambia — sigue siendo UTC.
 void fmtStamp(uint32_t epoch, char *out, size_t len) {
   if (epoch == 0) {
     snprintf(out, len, "--");
     return;
   }
-  time_t t = (time_t)epoch;
+  time_t t = (time_t)(HMI_HasLocalTime() ? HMI_ToLocal(epoch) : epoch);
   struct tm tmv;
   gmtime_r(&t, &tmv);
   snprintf(out, len, "%04d-%02d-%02d %02d:%02d", tmv.tm_year + 1900,

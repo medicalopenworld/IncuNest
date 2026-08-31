@@ -1,5 +1,6 @@
 #include "DriveUpload.h"
 #include "main.h"
+#include "modules/util/system_clock.h"
 
 #include <LittleFS.h>
 #include <WiFi.h>
@@ -255,6 +256,13 @@ static bool uploadToGoogleDrive(const DriveUploadRequest &req) {
 static void ensureTimeSynced() {
   if (s_time_synced)
     return;
+  // Una hora puesta a mano desde /config manda: arrancar SNTP aquí la
+  // desplazaría en silencio en cuanto apareciese el AP.
+  if (systemClockIsManual()) {
+    s_time_synced = true;
+    logDrive("clock set manually, skipping NTP");
+    return;
+  }
   while (!WIFIIsConnected()) {
     vTaskDelay(pdMS_TO_TICKS(500));
   }
@@ -363,9 +371,12 @@ static void driveWriteTask(void *pv) {
       }
 
       uint32_t rel_ms = s.t_ms - window_start_ms;
-      char line[48];
-      int  n = snprintf(line, sizeof(line), "%u,%d,%d,%d\n", (unsigned)rel_ms,
-                        (int)s.led1_sub, (int)s.led2_sub, (int)s.ppg_disp);
+      // ppg_disp goes out as %.4e (A/A, OT domain) — the same wire format the
+      // library's own PulseNest frames adopted in v0.69. "%d" truncated every
+      // sample to 0. The buffer grew from 48 to 64: "-1.2345e-06" is 11 chars.
+      char line[64];
+      int  n = snprintf(line, sizeof(line), "%u,%d,%d,%.4e\n", (unsigned)rel_ms,
+                        (int)s.led1_sub, (int)s.led2_sub, s.ppg_disp);
       if (n > 0)
         ::write(csv_fd, line, n);
 

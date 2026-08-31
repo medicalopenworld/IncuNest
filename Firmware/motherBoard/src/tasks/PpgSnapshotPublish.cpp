@@ -22,7 +22,7 @@ bool ppgSnapshotPublish(ThingsBoard &client, const char *tag) {
   }
 
   uint16_t const n = ppgSnapshotSampleCount();
-  int32_t const *samples = ppgSnapshotSamples();
+  float const *samples = ppgSnapshotSamples();
   if (!n || samples == nullptr) {
     ppgSnapshotRelease();
     return false;

@@ -126,6 +126,8 @@ void ui_ScreenIntro_screen_destroy(void);
 // --- SCREEN: Main ---
 extern lv_obj_t * ui_ScreenMain;
 extern lv_obj_t * ui_Incunest;
+extern lv_obj_t * ui_ClockTime;
+extern lv_obj_t * ui_ClockDate;
 extern lv_obj_t * ui_Settings;
 extern lv_obj_t * ui_AlarmButton;
 extern lv_obj_t * ui_BabiesButton;
@@ -302,6 +304,7 @@ extern lv_obj_t * ui_WifiDisconnectButton;
 extern lv_obj_t * ui_DisconnectLabel;
 extern lv_obj_t * ui_LanguagesDropDown;
 extern lv_obj_t * ui_WifiConnectedCont;
+extern lv_obj_t * ui_WifiBoardStatus;
 extern lv_obj_t * ui_WifiConnectedPanel;
 extern lv_obj_t * ui_ArrowWifiConnected;
 extern lv_obj_t * ui_WifiSSIDLabel;

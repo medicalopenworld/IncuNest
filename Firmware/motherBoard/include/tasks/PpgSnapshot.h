@@ -63,8 +63,10 @@ void ppgSnapshotRelease();
 // sea true; el módulo no sabe nada de ThingsBoard/JSON — el llamador decide
 // cómo serializarlo (Wifi_OTA.cpp lo manda como serie temporal real, un
 // punto por muestra, para poder usar un chart estándar en el dashboard).
+// Las muestras son ppg_disp tal cual lo entrega la libreria: float en dominio
+// OT (A/A, ~1e-5..1e-6) desde la v0.69. Sin escalar ni normalizar aqui.
 uint16_t ppgSnapshotSampleCount();
-const int32_t *ppgSnapshotSamples();
+const float *ppgSnapshotSamples();
 
 // Libera el slot para la siguiente captura (llamar tras leer el buffer).
 void ppgSnapshotClear();

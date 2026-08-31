@@ -997,6 +997,12 @@ static void alarmMagnitudes(int id, int16_t *limitCenti, int16_t *valueCenti)
 // deja al operador sin lectura y sin la unica via para silenciar.
 #define HMI_LINK_TIMEOUT_MS 5000u
 
+// Margen desde el arranque antes de dar por ausente un display que no ha
+// hablado NUNCA. Mismo valor y misma razon que BOARD_LINK_BOOT_GRACE_MS en el
+// display: los dos extremos cuentan igual, que es el criterio que ya seguian
+// las ventanas de silencio.
+#define HMI_LINK_BOOT_GRACE_MS 10000u
+
 static void checkHmiLink()
 {
   extern uint32_t g_lastHmiLineMs;
@@ -1004,7 +1010,14 @@ static void checkHmiLink()
 
   // Antes de la primera trama no hay enlace que perder: la placa arranca antes
   // que el display. Declararlo aqui seria una alarma en cada encendido.
+  //
+  // Pero esa espera TERMINA. Salir sin declarar nada mientras el display no
+  // hubiera hablado nunca dejaba a la placa encendida sin pantalla conectada
+  // sin decir una palabra — justo la condicion que esta alarma existe para
+  // avisar. Pasado el margen de arranque, el display no viene de camino.
   if (!g_hmiEverSeen) {
+    alarm_machine_condition(ALARM_HMI_LINK_LOST,
+                            millis() > HMI_LINK_BOOT_GRACE_MS, millis());
     return;
   }
   const bool lost =

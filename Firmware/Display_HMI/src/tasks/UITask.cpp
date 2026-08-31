@@ -412,6 +412,85 @@ static int l_humDet = -1;
 // Corre en CADA pasada del bucle de UI, no desde update_labels(): a esa solo
 // se la llama cuando llega telemetria, que es exactamente lo que deja de
 // pasar cuando el enlace cae.
+// Reloj de pared de la cabecera.
+//
+// La cadena se recalcula en cada pasada pero SOLO se escribe cuando cambia:
+// repintar dos labels a 20 Hz para que cambien una vez por minuto es trabajo
+// tirado, y el repintado innecesario ya dio problemas de fluidez aqui.
+//
+// Sin hora o sin zona se muestra "Sin hora" y no una hora UTC disfrazada de
+// local: en un equipo clinico, una hora equivocada es peor que ninguna.
+void clock_update(void) {
+  if (!ui_ClockTime || !ui_ClockDate) return;
+
+  static char lastTime[8] = {0};
+  static char lastDate[12] = {0};
+  char nowTime[8];
+  char nowDate[12];
+
+  if (!HMI_HasLocalTime()) {
+    // Orden ES/EN/FR, como ui_lang_t en main.h.
+    static const char *const TXT_NO_TIME[] = {"Sin hora", "No time",
+                                              "Sans heure"};
+    snprintf(nowTime, sizeof(nowTime), "%s", TXT_NO_TIME[g_lang]);
+    nowDate[0] = '\0';
+  } else {
+    const time_t t = (time_t)HMI_ToLocal(HMI_GetEpochNow());
+    struct tm tmv;
+    gmtime_r(&t, &tmv);
+    snprintf(nowTime, sizeof(nowTime), "%02d:%02d", tmv.tm_hour, tmv.tm_min);
+    snprintf(nowDate, sizeof(nowDate), "%02d/%02d/%04d", tmv.tm_mday,
+             tmv.tm_mon + 1, tmv.tm_year + 1900);
+  }
+
+  if (strcmp(nowTime, lastTime) != 0) {
+    strncpy(lastTime, nowTime, sizeof(lastTime) - 1);
+    lastTime[sizeof(lastTime) - 1] = '\0';
+    lv_label_set_text(ui_ClockTime, nowTime);
+  }
+  if (strcmp(nowDate, lastDate) != 0) {
+    strncpy(lastDate, nowDate, sizeof(lastDate) - 1);
+    lastDate[sizeof(lastDate) - 1] = '\0';
+    lv_label_set_text(ui_ClockDate, nowDate);
+  }
+}
+
+// Estado del enlace de la PLACA en la pantalla de WiFi.
+//
+// El resto de esa pantalla habla del radio del propio display, que solo sirve
+// para su OTA. La motherBoard es quien sube telemetria, y su conexion no
+// aparecia: se podia leer "conectado" mientras el equipo no mandaba un dato.
+// Etiquetado explicitamente para que no se confunda con lo de al lado.
+//
+// Se refresca solo con la pantalla visible, y solo escribe cuando cambia.
+void wifi_board_status_update(void) {
+  if (!ui_WifiBoardStatus) return;
+  if (!wifiVisible) return;
+
+  // Orden ES/EN/FR, como ui_lang_t en main.h.
+  static const char *const TXT_BOARD[] = {"Placa: ", "Board: ", "Carte : "};
+
+  char now[64];
+  snprintf(now, sizeof(now), "%s%s", TXT_BOARD[g_lang],
+           getConnectivityString(ctrl_state_msg.serverCommStatus, g_lang));
+
+  static char last[64] = {0};
+  if (strcmp(now, last) == 0) return;
+  strncpy(last, now, sizeof(last) - 1);
+  last[sizeof(last) - 1] = '\0';
+  lv_label_set_text(ui_WifiBoardStatus, now);
+
+  // Verde solo con servidor: tener WiFi pero no llegar a ThingsBoard es
+  // exactamente el caso que esta pantalla tenia que dejar de ocultar.
+  const bool onServer =
+      (ctrl_state_msg.serverCommStatus == COMM_STATUS_WIFI_SERVER ||
+       ctrl_state_msg.serverCommStatus == COMM_STATUS_GPRS_SERVER);
+  lv_obj_set_style_text_color(ui_WifiBoardStatus,
+                              onServer ? lv_color_hex(0x2E9E4F)
+                                       : lv_color_hex(0xCC7A00),
+                              LV_PART_MAIN);
+}
+
 void link_lost_blank_update(void) {
   static bool wasLost = false;
   const bool lost = Display_IsBoardLinkLost();
@@ -486,7 +565,24 @@ void update_labels() {
   // unica medida que se puede pintar es "no la hay".
   const bool linkLost = Display_IsBoardLinkLost();
 
-  if (!linkLost) {
+  // Cada medida se juzga POR SEPARADO. El enlace puede estar perfectamente
+  // vivo y faltar un solo sensor, y hasta ahora solo la caida del enlace tenia
+  // derecho a "--": un sensor retirado pintaba el 0 que mandaba la placa, que
+  // es un numero plausible y alarmante en vez de la ausencia de dato que es.
+  // Mismo criterio para las dos causas — lo que se ha perdido es saberlo.
+  const bool airOk =
+      !linkLost && !PROTO_TEL_TEMP_IS_UNAVAILABLE(airTempValueDetected);
+  const bool skinOk =
+      !linkLost && !PROTO_TEL_TEMP_IS_UNAVAILABLE(skinTempValueDetected);
+  const bool humOk = !linkLost && humValueDetected != PROTO_TEL_HUM_UNAVAILABLE;
+
+  // Para no reescribir los mismos "--" en cada pasada, igual que hacen los
+  // ultimos valores pintados con las medidas buenas.
+  static bool airDead = false, skinDead = false, humDead = false;
+  const char *NO_DATA = "--";
+
+  if (airOk) {
+    airDead = false;
     if (abs(airTempValueDetected - l_airDet) > TEMP_LABEL_UPDATE_THRESHOLD) {
       l_airDet = airTempValueDetected;
       snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValueDetected);
@@ -494,7 +590,16 @@ void update_labels() {
       lv_label_set_text(ui_TempAirDetectedRight, buffer);
       lv_label_set_text(ui_Label18, buffer);
     }
+  } else if (!airDead) {
+    airDead = true;
+    l_airDet = -1.0;  // fuerza repintado cuando el sensor vuelva
+    lv_label_set_text(ui_TempAirDetected, NO_DATA);
+    lv_label_set_text(ui_TempAirDetectedRight, NO_DATA);
+    lv_label_set_text(ui_Label18, NO_DATA);
+  }
 
+  if (skinOk) {
+    skinDead = false;
     if (abs(skinTempValueDetected - l_skinDet) > TEMP_LABEL_UPDATE_THRESHOLD) {
       l_skinDet = skinTempValueDetected;
       snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValueDetected);
@@ -502,7 +607,16 @@ void update_labels() {
       lv_label_set_text(ui_TempSkinDetectedRight, buffer);
       lv_label_set_text(ui_Label14, buffer);
     }
+  } else if (!skinDead) {
+    skinDead = true;
+    l_skinDet = -1.0;
+    lv_label_set_text(ui_TempSkinDetected, NO_DATA);
+    lv_label_set_text(ui_TempSkinDetectedRight, NO_DATA);
+    lv_label_set_text(ui_Label14, NO_DATA);
+  }
 
+  if (humOk) {
+    humDead = false;
     if (humValueDetected != l_humDet) {
       l_humDet = humValueDetected;
       snprintf(buffer, sizeof(buffer), "%d%%", humValueDetected);
@@ -510,6 +624,12 @@ void update_labels() {
       lv_label_set_text(ui_HumDetectedRight, buffer);
       lv_label_set_text(ui_Label20, buffer);
     }
+  } else if (!humDead) {
+    humDead = true;
+    l_humDet = -1;
+    lv_label_set_text(ui_HumDetected, NO_DATA);
+    lv_label_set_text(ui_HumDetectedRight, NO_DATA);
+    lv_label_set_text(ui_Label20, NO_DATA);
   }
 
   int airBar =
@@ -526,11 +646,13 @@ void update_labels() {
                  : (int)round(skinTempValueDetected - TEMP_BAR_DISPLAY_MIN));
   int humBar = constrain(humValueDetected, HUM_BAR_MIN, HUM_BAR_MAX);
 
-  // Las barras salen de las mismas medidas muertas: a cero mientras no haya
-  // enlace, o dibujarian un nivel que ya nadie esta midiendo.
-  lv_bar_set_value(ui_AirTempBar, linkLost ? 0 : airBar, LV_ANIM_OFF);
-  lv_bar_set_value(ui_SkinTempBar, linkLost ? 0 : skinBar, LV_ANIM_OFF);
-  lv_bar_set_value(ui_HumBar, linkLost ? 0 : humBar, LV_ANIM_OFF);
+  // Las barras salen de las mismas medidas muertas: a cero cuando la medida no
+  // esta disponible, o dibujarian un nivel que ya nadie esta midiendo. Se juzga
+  // por medida y no por enlace, por lo mismo que las cifras: con la sonda
+  // retirada, una barra de piel a media altura seria igual de mentirosa.
+  lv_bar_set_value(ui_AirTempBar, airOk ? airBar : 0, LV_ANIM_OFF);
+  lv_bar_set_value(ui_SkinTempBar, skinOk ? skinBar : 0, LV_ANIM_OFF);
+  lv_bar_set_value(ui_HumBar, humOk ? humBar : 0, LV_ANIM_OFF);
 
   // Update photo timer label if not active
   if (!photoTimerActive) {
@@ -541,18 +663,31 @@ void update_labels() {
     lv_label_set_text(ui_PhotoTimeValueLabel, buf);
   }
 
-  // Update History Screen Values
+  // Update History Screen Values — mismo criterio que la pantalla principal:
+  // una medida no disponible no se pinta como cifra en ninguna pantalla.
   if (ui_HistoryValueAire) {
-    snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValueDetected);
-    lv_label_set_text(ui_HistoryValueAire, buffer);
+    if (airOk) {
+      snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValueDetected);
+      lv_label_set_text(ui_HistoryValueAire, buffer);
+    } else {
+      lv_label_set_text(ui_HistoryValueAire, NO_DATA);
+    }
   }
   if (ui_HistoryValueSkin) {
-    snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValueDetected);
-    lv_label_set_text(ui_HistoryValueSkin, buffer);
+    if (skinOk) {
+      snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValueDetected);
+      lv_label_set_text(ui_HistoryValueSkin, buffer);
+    } else {
+      lv_label_set_text(ui_HistoryValueSkin, NO_DATA);
+    }
   }
   if (ui_HistoryValueHum) {
-    snprintf(buffer, sizeof(buffer), "%d%%", humValueDetected);
-    lv_label_set_text(ui_HistoryValueHum, buffer);
+    if (humOk) {
+      snprintf(buffer, sizeof(buffer), "%d%%", humValueDetected);
+      lv_label_set_text(ui_HistoryValueHum, buffer);
+    } else {
+      lv_label_set_text(ui_HistoryValueHum, NO_DATA);
+    }
   }
 
   // Derive skin probe presence from detected temperature and update switch
@@ -2461,6 +2596,13 @@ void alarm_banner_update(void) {
 }
 
 void update_alarm_panels() {
+  // Con el enlace caido, el check "OK" no puede decir la verdad: no sabemos
+  // si hay una alarma real en curso, solo que hemos dejado de escuchar a la
+  // placa. El banner de "LINK LOST" ya lo comunica (alarm_banner_update() SI
+  // consulta Display_IsBoardLinkLost()); este check viejo no lo hacia, y por
+  // eso se quedaba en verde justo cuando menos hay que fiarse de la pantalla.
+  const bool linkLost = Display_IsBoardLinkLost();
+
   // Determine fan/heater alarm state first — used in multiple sections below
   bool fanHeaterAlarm = false;
   for (int i = 0; i < MAX_ALARMS; i++) {
@@ -2554,17 +2696,19 @@ void update_alarm_panels() {
     lv_label_set_text(ui_AlarmLockNumLabel, buf);
     lv_obj_add_flag(ui_CheckImg, LV_OBJ_FLAG_HIDDEN);
   } else {
-    // Main screen — hide alarm button; OK only if no fan/heater alarm either
+    // Main screen — hide alarm button; OK only if no fan/heater alarm either,
+    // y solo si la placa sigue hablando: "OK" es una afirmacion, no un valor
+    // por defecto.
     lv_obj_add_flag(ui_Panel10, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_NumAlarm, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_AlarmButton, LV_OBJ_FLAG_HIDDEN);
-    if (fanHeaterAlarm)
+    if (fanHeaterAlarm || linkLost)
       lv_obj_add_flag(ui_CheckImgMain, LV_OBJ_FLAG_HIDDEN);
     else
       lv_obj_clear_flag(ui_CheckImgMain, LV_OBJ_FLAG_HIDDEN);
     // Lock screen
     lv_obj_add_flag(ui_AlarmLockCont, LV_OBJ_FLAG_HIDDEN);
-    if (fanHeaterAlarm)
+    if (fanHeaterAlarm || linkLost)
       lv_obj_add_flag(ui_CheckImg, LV_OBJ_FLAG_HIDDEN);
     else
       lv_obj_clear_flag(ui_CheckImg, LV_OBJ_FLAG_HIDDEN);
@@ -4190,6 +4334,8 @@ void UI_Task(void *pvParameters) {
     audio_paused_icon_update();
     // Y este por el motivo opuesto: depende de que NO llegue nada.
     link_lost_blank_update();
+    clock_update();
+    wifi_board_status_update();
     // Apaga el chasquido de la ultima pulsacion cuando le toca. Va aqui, y no
     // con un delay() dentro del callback, para no congelar LVGL.
     click_beep_service();
