@@ -13,6 +13,9 @@
 // alarm_priority(): la prioridad del banner sale de la misma tabla de shared/
 // que usa la motherboard, no de una copia local.
 #include "alarm_policy.h"
+// Y el RITMO de la senal acustica sale del mismo sitio, por lo mismo: los dos
+// zumbadores del equipo tienen que emitir el patron identico.
+#include "alarm_audio_pattern.h"
 #include "main.h"
 #include "ui.h"
 #include <PCA9557.h>
@@ -2097,14 +2100,153 @@ void alarm_banner_init(void) {
 #define CLICK_BEEP_MS 12u
 static uint32_t s_clickBeepUntilMs = 0;
 
+// --- Senal acustica del enlace perdido -----------------------------------
+//
+// La UNICA alarma que suena en el display. El resto llegan por el enlace desde
+// la placa, que ya las esta sonando en su zumbador; esta no puede llegar por
+// definicion, porque lo que se ha perdido es el enlace.
+//
+// Antes, la mitad audible de esta condicion se delegaba entera en la
+// motherBoard, que declara ALARM_HMI_LINK_LOST por su cuenta. Funciona cuando
+// lo roto es el cable, pero no cuando la que calla es la placa: con su firmware
+// colgado o reiniciandose, securityCheck() deja de correr, driveAlarmBuzzer()
+// con el, y no sonaba NADA — mientras el display seguia ensenando las ultimas
+// cifras recibidas, que el operador lee como actuales.
+//
+// Suena aunque la placa tambien este sonando. El display no puede saber si
+// sigue viva —averiguarlo pide justo el enlace que falta—, asi que con el cable
+// roto se oiran los dos. Es redundancia, no la inconsistencia que prohibe
+// 6.3.3.1: misma condicion, misma prioridad, mismo patron, porque las dos
+// mitades salen de alarm_priority(ALARM_HMI_LINK_LOST) y de las constantes de
+// shared/alarm_audio_pattern.h.
+//
+// Y por eso el patron es el de MEDIA sin retocar: su rafaga ocupa 850 ms de
+// cada 25 s, un 3,4 % del tiempo. Ese silencio es lo que impide que este
+// zumbador —que en este equipo se oye MAS que el de la placa— tape una alarma
+// ALTA real, cuyas rafagas se repiten cada 10 s. Hacer el patron mas denso se
+// cargaria la mitigacion.
+static uint32_t s_linkAudioBurstStartMs = 0;
+static bool     s_linkAudioActive = false;   // la condicion esta anunciandose
+static bool     s_linkAudioPinOn = false;    // ultimo estado escrito al zumbador
+// Pausa de audio local (AUDIO PAUSED). Estado del display, no del protocolo:
+// con el enlace caido el boton de silenciar no llega a la placa, asi que una
+// pausa que dependiera de ella seria inservible justo cuando hace falta.
+static uint32_t s_linkAudioPauseUntilMs = 0;
+
+static bool link_audio_paused(void) {
+  return s_linkAudioPauseUntilMs != 0 &&
+         (int32_t)(millis() - s_linkAudioPauseUntilMs) < 0;
+}
+
+// true mientras se esta emitiendo una rafaga — incluidos los huecos ENTRE sus
+// pulsos. El chasquido de pulsacion tiene que callarse en todo ese tramo, no
+// solo cuando el zumbador esta encendido: un tic de 12 ms metido en un hueco
+// anade un cuarto pulso a una rafaga de tres.
+static bool link_audio_burst_in_progress(void) {
+  if (!s_linkAudioActive || link_audio_paused()) {
+    return false;
+  }
+  const uint32_t elapsed =
+      (millis() - s_linkAudioBurstStartMs) % ALARM_BURST_PERIOD_MS_MEDIUM;
+  return elapsed < ALARM_BURST_LEN_MS_MEDIUM;
+}
+
+static void LinkAudio_Pause(void) {
+  s_linkAudioPauseUntilMs = millis() + ALARM_AUDIO_PAUSE_MS;
+  if (s_linkAudioPinOn) {
+    buzzerOff();
+    s_linkAudioPinOn = false;
+  }
+}
+
+static bool LinkAudio_IsPaused(void) { return link_audio_paused(); }
+
+static int LinkAudio_PauseRemainingS(void) {
+  if (!link_audio_paused()) {
+    return 0;
+  }
+  return (int)((s_linkAudioPauseUntilMs - millis()) / 1000u);
+}
+
+// Sirve el patron desde el bucle de UI. NO BLOQUEANTE por el mismo motivo que
+// el chasquido, y ademas FUERA de LVGL_Lock: cada transicion es una
+// transaccion I2C y bloquear ahi el mutex del renderer es el fallo
+// ARQ-LOCK-001 que ya se corrigio para AlarmSound_Update().
+static void link_audio_service(void) {
+  const bool lost = Display_IsBoardLinkLost();
+
+  if (!lost) {
+    // La condicion se ha ido: callar y olvidar la pausa. Cesar aqui no
+    // contradice 6.10 —que prohibe que el audio se agote por haber sonado
+    // suficiente—: cesa porque la condicion ha desaparecido, que es la otra
+    // via legitima. Y la pausa no sobrevive, para que una perdida posterior
+    // suene desde el primer instante.
+    if (s_linkAudioPinOn) {
+      buzzerOff();
+      s_linkAudioPinOn = false;
+    }
+    s_linkAudioActive = false;
+    s_linkAudioPauseUntilMs = 0;
+    return;
+  }
+
+  const uint32_t now = millis();
+
+  if (!s_linkAudioActive) {
+    // La primera rafaga arranca en este mismo instante y no espera al periodo.
+    // Es el mismo freshStart del motor de la placa: sin el, el aviso llegaria
+    // hasta 25 s tarde.
+    s_linkAudioActive = true;
+    s_linkAudioBurstStartMs = now;
+  }
+
+  if (link_audio_paused()) {
+    if (s_linkAudioPinOn) {
+      buzzerOff();
+      s_linkAudioPinOn = false;
+    }
+    return;
+  }
+  if (s_linkAudioPauseUntilMs) {
+    // Pausa expirada con la condicion aun presente: el audio se reanuda solo
+    // (201.12.3.104), y lo hace con una rafaga entera desde su principio.
+    s_linkAudioPauseUntilMs = 0;
+    s_linkAudioBurstStartMs = now;
+  }
+
+  const uint32_t elapsed =
+      (now - s_linkAudioBurstStartMs) % ALARM_BURST_PERIOD_MS_MEDIUM;
+  const bool on = alarm_audio_pulse_on(elapsed, ALARM_PRIORITY_MEDIUM);
+
+  // Solo en los CAMBIOS: llamar a buzzerOn()/buzzerOff() en cada pasada seria
+  // una transaccion I2C por vuelta del bucle de UI.
+  if (on != s_linkAudioPinOn) {
+    s_linkAudioPinOn = on;
+    if (on) {
+      buzzerOn();
+    } else {
+      buzzerOff();
+    }
+  }
+}
+
 static void click_beep_start(void) {
+  // El chasquido cede: comparten el unico zumbador del display, y lo cosmetico
+  // no interrumpe a lo normativo.
+  if (link_audio_burst_in_progress()) {
+    return;
+  }
   buzzerOn();
   s_clickBeepUntilMs = millis() + CLICK_BEEP_MS;
 }
 
 static void click_beep_service(void) {
   if (s_clickBeepUntilMs && (int32_t)(millis() - s_clickBeepUntilMs) >= 0) {
-    buzzerOff();
+    // Si la rafaga ha arrancado durante estos 12 ms, el zumbador ya no es
+    // nuestro: apagarlo aqui truncaria su primer pulso.
+    if (!link_audio_burst_in_progress()) {
+      buzzerOff();
+    }
     s_clickBeepUntilMs = 0;
   }
 }
@@ -2243,8 +2385,13 @@ void audio_paused_icon_update(void) {
   static bool s_wasVisible = false;
   static int s_lastLeft = -1;
 
-  const bool visible = (ctrl_state_msg.silencedBitmask != 0u);
-  const int left = visible ? ctrl_state_msg.silenceRemainingS : 0;
+  // La pausa LOCAL manda sobre la que cuenta la placa. Cuando esta armada, el
+  // enlace esta caido y todo lo que venga en ctrl_state_msg es informacion
+  // vieja: su silencedBitmask y su cuenta atras son de antes del corte.
+  const bool localPause = LinkAudio_IsPaused();
+  const bool visible = localPause || (ctrl_state_msg.silencedBitmask != 0u);
+  const int left = localPause ? LinkAudio_PauseRemainingS()
+                              : (visible ? ctrl_state_msg.silenceRemainingS : 0);
 
   if (visible != s_wasVisible) {
     s_wasVisible = visible;
@@ -2277,6 +2424,34 @@ void audio_paused_icon_update(void) {
     } else {
       lv_obj_add_flag(s_audioPausedTimer, LV_OBJ_FLAG_HIDDEN);
     }
+  }
+}
+
+// Boton de SILENCIAR mientras el enlace esta caido.
+//
+// Quien decide normalmente si se ve es update_alarm_panels(), y esa corre solo
+// cuando llega un CTRL,ALM. Con el enlace caido no llega ninguno, asi que la
+// unica alarma que el display anuncia por su cuenta era tambien la unica que no
+// se podia callar. Va aparte y en cada pasada, por el mismo motivo que el
+// banner: depende de que NO llegue nada.
+static void link_audio_mute_button_update(void) {
+  if (!ui_MuteAlarm) {
+    return;
+  }
+  static bool s_shownByLink = false;
+  const bool want = Display_IsBoardLinkLost() && !LinkAudio_IsPaused();
+  if (want == s_shownByLink) {
+    return; // idempotente: no se toca LVGL si nada ha cambiado
+  }
+  s_shownByLink = want;
+  if (want) {
+    lv_obj_clear_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_add_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN);
+    // Devolver la decision a la ruta normal en vez de dejar el boton como lo
+    // hayamos dejado nosotros: si al volver el enlace hay una alarma real sin
+    // silenciar, tiene que reaparecer sin esperar al siguiente CTRL,ALM.
+    g_pendingAlarmUpdate = true;
   }
 }
 
@@ -2796,11 +2971,17 @@ void ScreenCharts_load_cb(lv_event_t *e) { update_history_charts(); }
 void HistoryDropdown_cb(lv_event_t *e) { update_history_charts(); }
 
 void AlarmSound_Update() {
-  // if (alarmActive && !alarmsMuted)
-  //   buzzerOn();
-  // else
-  //  El display ya no emite sonido por alarmas, solo la motherboard.
-  buzzerOff();
+  // El display no emite sonido por las alarmas que le LLEGAN: esas las anuncia
+  // la placa, que ya las esta sonando. La unica excepcion es la perdida de
+  // enlace, que no puede llegar por el enlace y tiene su propio servicio
+  // (link_audio_service).
+  //
+  // Por eso el apagado es condicional: esta funcion corre al final del bucle y
+  // desde MuteAlarm_cb(), y un buzzerOff() a secas truncaria un pulso de esa
+  // rafaga.
+  if (!link_audio_burst_in_progress()) {
+    buzzerOff();
+  }
 }
 
 void MuteAlarm_cb(lv_event_t *e) {
@@ -2809,6 +2990,13 @@ void MuteAlarm_cb(lv_event_t *e) {
   g_muteHoldUntilMs = millis() + MUTE_HOLD_MS;
   hmi_msg.muteAlarm = 1;
   hmi_msg.shouldSendData = true;
+  // Con el enlace caido, esta peticion NO llega a la placa — es justo lo que
+  // se ha perdido. Se manda igualmente (no estorba, y si el enlace vuelve
+  // dentro de la ventana el silencio se aplica), pero la senal del display la
+  // calla su propia pausa, que se cuenta aqui.
+  if (Display_IsBoardLinkLost()) {
+    LinkAudio_Pause();
+  }
   lv_obj_add_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN);
   AlarmSound_Update();
 }
@@ -4188,8 +4376,9 @@ void UI_Task(void *pvParameters) {
     // Se reevalua en cada pasada por lo mismo, y ademas depende de
     // silencedBitmask, que llega con CTRL,STATE y caduca solo en la placa.
     audio_paused_icon_update();
-    // Y este por el motivo opuesto: depende de que NO llegue nada.
+    // Y estos dos por el motivo opuesto: dependen de que NO llegue nada.
     link_lost_blank_update();
+    link_audio_mute_button_update();
     // Apaga el chasquido de la ultima pulsacion cuando le toca. Va aqui, y no
     // con un delay() dentro del callback, para no congelar LVGL.
     click_beep_service();
@@ -4203,6 +4392,12 @@ void UI_Task(void *pvParameters) {
       doNVSWrite = true;
     }
     LVGL_Unlock();
+
+    // Senal acustica del enlace perdido. Fuera de LVGL_Lock porque cada
+    // transicion del patron es una transaccion I2C (ARQ-LOCK-001), y ANTES de
+    // la escritura en NVS porque esa puede tardar ~30 ms y desplazaria los
+    // bordes de los pulsos.
+    link_audio_service();
 
     // NVS writes run outside LVGL_Lock — avoids blocking the renderer during
     // wear-leveling erasure (~30ms worst case). Same pattern as AlarmSound_Update.
