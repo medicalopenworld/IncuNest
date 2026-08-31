@@ -1097,19 +1097,35 @@ void Communication_Task(void *pvParameters) {
       // Misma ventana de silencio que usa checkStatusOfSensor() para levantar
       // las alarmas de fallo de sensor, para que el "--" y la alarma aparezcan
       // a la vez y no se contradigan en pantalla.
-      const double telAir =
-          sensorReadingFresh(ROOM_DIGITAL_TEMP_SENSOR)
-              ? ctrl_tel_msg.detectedAirTemperature
-              : PROTO_TEL_TEMP_UNAVAILABLE;
-      const double telSkin =
-          sensorReadingFresh(SKIN_SENSOR)
-              ? ctrl_tel_msg.detectedSkinTemperature
-              : PROTO_TEL_TEMP_UNAVAILABLE;
+      // sensorReadingFresh() sola no bastaba: mide cuanto ha pasado desde la
+      // ULTIMA lectura buena, pero sensors_module.cpp pone in3.temperature[]/
+      // in3.humidity[] a 0 en el mismo ciclo (~200 ms) en que falla la
+      // lectura, mucho antes de que expiren los 5 s de esa ventana. Resultado
+      // observado en banco: la cifra se veia en "0.0°C" varios segundos antes
+      // de pasar a "--" — exactamente el valor plausible-y-alarmante que este
+      // centinela existe para evitar.
+      //
+      // 0.0 nunca es una lectura real aqui (ambas magnitudes se clampan a el
+      // SOLO en fallo, sensors_module.cpp), asi que un raw > 0 se exige
+      // ademas de la frescura: lo primero en fallar de las dos condiciones
+      // dispara el "--", sin esperar a la mas lenta.
+      const bool airFresh = sensorReadingFresh(ROOM_DIGITAL_TEMP_SENSOR) &&
+                            ctrl_tel_msg.detectedAirTemperature > 0.0;
+      const bool skinFresh = sensorReadingFresh(SKIN_SENSOR) &&
+                             ctrl_tel_msg.detectedSkinTemperature > 0.0;
       // La humedad y la temperatura de aire vienen del MISMO sensor digital de
       // camara, asi que su frescura es la misma medida.
-      const int telHum = sensorReadingFresh(ROOM_DIGITAL_TEMP_SENSOR)
-                             ? (int)ctrl_tel_msg.detectedHumidity
-                             : PROTO_TEL_HUM_UNAVAILABLE;
+      const bool humFresh = sensorReadingFresh(ROOM_DIGITAL_TEMP_SENSOR) &&
+                            ctrl_tel_msg.detectedHumidity > 0.0;
+
+      const double telAir =
+          airFresh ? ctrl_tel_msg.detectedAirTemperature
+                   : PROTO_TEL_TEMP_UNAVAILABLE;
+      const double telSkin =
+          skinFresh ? ctrl_tel_msg.detectedSkinTemperature
+                    : PROTO_TEL_TEMP_UNAVAILABLE;
+      const int telHum = humFresh ? (int)ctrl_tel_msg.detectedHumidity
+                                  : PROTO_TEL_HUM_UNAVAILABLE;
 
       char msg[64];
       snprintf(msg, sizeof(msg), "CTRL,TEL,%.1f,%.1f,%d,%d\n", telAir, telSkin,
