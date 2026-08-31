@@ -36,7 +36,13 @@
 // numero nuevo, se deriva de los dos que ya rigen el arranque y el silencio.
 // Nota: el splash se estira hasta 15 s cuando no llega CTRL,STATE (intro_timer_cb),
 // asi que sin cable el aviso ya esta puesto cuando la pantalla principal aparece.
-#define BOARD_LINK_BOOT_GRACE_MS (5000u + BOARD_LINK_TIMEOUT_MS)
+//
+// +5000 extra: en banco se ha visto que un arranque normal (con placa
+// presente) a veces tarda algo mas de lo habitual en emitir su primera linea,
+// y el margen justo disparaba un "LINK LOST" fantasma que se autocorregia
+// segundos despues. Solo afecta a este primer margen de arranque, no al
+// timeout de silencio en marcha (BOARD_LINK_TIMEOUT_MS).
+#define BOARD_LINK_BOOT_GRACE_MS (5000u + 5000u + BOARD_LINK_TIMEOUT_MS)
 
 // true si la placa lleva BOARD_LINK_TIMEOUT_MS sin decir nada, o si no ha dicho
 // nada en absoluto pasado BOARD_LINK_BOOT_GRACE_MS desde el arranque. Mientras
