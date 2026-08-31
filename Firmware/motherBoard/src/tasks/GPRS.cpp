@@ -411,6 +411,13 @@ void GPRSEnsureTimeZoneSynced() {
   float tz = 0.0f;
   if (!modem.getNetworkTime(&year, &month, &day, &hour, &minute, &second,
                             &tz)) {
+    // Sin esto, un AT+CCLK? que nunca contesta y un operador que si contesta
+    // pero sin NITZ eran INDISTINGUIBLES en el log: los dos se veian como
+    // silencio total. Round de banco (2026-08-31): "Attached" en el log pero
+    // ni una linea de zona, en ningun sentido — este era el hueco que lo
+    // ocultaba.
+    logModemData("[GPRS] -> NITZ: getNetworkTime() failed (modem not "
+                 "answering AT+CCLK?)");
     return;
   }
   // Sin NITZ el SIM800 contesta con su fecha por defecto de 2004 y un tz que
