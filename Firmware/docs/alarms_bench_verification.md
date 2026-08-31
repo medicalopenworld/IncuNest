@@ -400,6 +400,11 @@ de la placa a la vista.
 2. Observa la pantalla del display.
 3. Reconecta.
 4. Aparte: enciende **solo la placa**, sin display, y espera un minuto.
+5. Con el cable desconectado y el zumbador del display sonando, pulsa
+   **SILENCIAR** y cronometra 10 minutos completos.
+6. Reconecta durante una pausa de SILENCIAR activa, y luego vuelve a
+   desconectar el cable.
+7. Toca la pantalla durante una ráfaga de 3 pulsos del zumbador del display.
 
 **Debe ocurrir.**
 - A los **5 s** la placa declara `SIN ENLACE PANTALLA`, prioridad MEDIA: 3
@@ -413,6 +418,26 @@ de la placa a la vista.
 - Arrancando sin display, la placa **no debe declarar la alarma nunca**. Un
   enlace que jamás existió no es un enlace caído; si esto falla, tendrás la
   alarma en cada encendido.
+- **Con el display encendido y la placa muerta** (apaga solo la alimentación
+  de la motherBoard, o desconecta el cable): el zumbador del **display**
+  debe empezar a sonar el patrón MEDIA (3 pulsos de 150 ms, ráfaga cada 25 s)
+  dentro de los 5 s siguientes al último `CTRL,STATE`/`CTRL,TEL` recibido. Es
+  la comprobación clave de este caso: antes de este cambio, este escenario
+  concreto no sonaba nada — solo el banner visual.
+- **Con el cable desconectado y la placa viva** (el caso anterior, el
+  habitual): los dos zumbadores suenan el mismo patrón, desfasados entre sí.
+  Es lo esperado (`docs/alarms.md` §8) — el display no puede distinguir este
+  caso del anterior, así que no lo intenta.
+- **Paso 5 (SILENCIAR con el enlace caído)**: pulsarlo calla el zumbador del
+  display y muestra el indicador AUDIO PAUSED con su cuenta atrás de 10 min.
+  Pasados los 10 min sin que vuelva el enlace, el patrón se reanuda solo.
+- **Paso 6 (reconectar durante una pausa activa)**: al reconectar el cable,
+  el indicador AUDIO PAUSED del display desaparece. Si el enlace se pierde de
+  nuevo después, la señal debe sonar desde el primer instante — la pausa
+  anterior no debe arrastrarse a la nueva pérdida.
+- **Paso 7 (pulsar la pantalla durante una ráfaga)**: el chasquido de
+  confirmación debe omitirse sin alterar el ritmo de los 3 pulsos de la ráfaga
+  en curso.
 
 **Si falla.** Que las cifras vuelvan a su valor viejo un segundo después de
 borrarse significa que alguno de los ocho llamantes de `update_labels()` está

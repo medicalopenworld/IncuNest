@@ -231,83 +231,18 @@ extern int g_restore_photo_minutes;
 #define buzzerSwitchDuration 10      // in micros, tone freq
 #define buzzerStandbyToneTimes 1     // in micros, tone freq
 
-// Patron de rafaga y de pulso segun las Tablas 3 y 4 de IEC 60601-1-8.
-//
-// Tabla 3, numero de pulsos e intervalo ENTRE rafagas:
-//   ALTA  10 pulsos, 2,5 s a 15 s
-//   MEDIA  3 pulsos, 2,5 s a 30 s
-//   BAJA   1 o 2 pulsos, > 15 s o sin repeticion
-//
-// Tabla 3, espaciado ENTRE pulsos dentro de la rafaga:
-//   x entre 50 y 125 ms, y entre 125 y 250 ms, con variacion <= 20 % dentro
-//   de la misma rafaga. En ALTA el hueco entre el 5o y el 6o pulso vale
-//   2x + y: eso parte los diez pulsos en DOS GRUPOS DE CINCO, que es lo que
-//   hace reconocible el patron de prioridad ALTA frente a otro equipo de la
-//   misma sala. No es adorno: sin ese hueco la rafaga suena como un tren
-//   monotono de diez y deja de ser el patron de la norma.
-//   En MEDIA el espaciado es y.
-//
-// Tabla 4, duracion efectiva del pulso:
-//   ALTA 75 a 200 ms; MEDIA y BAJA 125 a 250 ms. 150 ms cumple las dos, por
-//   eso hay un unico valor.
-//   RISE TIME entre el 10 % y el 40 % de la duracion del pulso; FALL TIME lo
-//   bastante corto para que dos pulsos no se solapen.
-//
-// Las ventanas de la norma se comprueban con static_assert en Buzzer.cpp, que
-// es el unico sitio que ve a la vez estas constantes y las de alarm_machine.h.
-// ATADAS a ALARM_MIN_BURST_MS_HIGH/_MEDIUM (alarm_machine.h): esas dos fijan
-// cuanto audio exige 6.10 completar aunque la condicion se haya ido, y esa
-// duracion sale de los pulsos de aqui. Ya divergieron una vez.
-#define ALARM_PULSE_MS            150u
-#define ALARM_PULSE_RISE_MS        30u  // 20 % de 150: dentro de 10..40 %
-#define ALARM_PULSE_FALL_MS        30u
-#define ALARM_PULSE_SPACING_X_MS  100u  // x, ventana 50..125 ms
-#define ALARM_PULSE_SPACING_Y_MS  200u  // y, ventana 125..250 ms
-// Hueco entre el 5o y el 6o pulso de ALTA (2x + y).
-#define ALARM_GROUP_GAP_MS   (2u * ALARM_PULSE_SPACING_X_MS + ALARM_PULSE_SPACING_Y_MS)
-#define ALARM_BURST_PULSES_HIGH   10u
-#define ALARM_BURST_PULSES_MEDIUM 3u
-#define ALARM_BURST_PULSES_LOW    1u
-#define ALARM_BURST_PERIOD_MS_HIGH   10000u
-#define ALARM_BURST_PERIOD_MS_MEDIUM 25000u
-#define ALARM_BURST_PERIOD_MS_LOW    30000u
+// El patron de rafaga y de pulso de las Tablas 3 y 4 vivia aqui. Se mudo a
+// shared/ cuando el display dejo de ser mudo: emite ese mismo patron por su
+// propio zumbador para la unica alarma que detecta el solo, la perdida de
+// enlace con esta placa. Dos copias de una tabla normativa divergen en el
+// primer ajuste, y la divergencia no la delata nadie hasta que suenan los dos
+// a la vez con ritmos distintos.
+#include "alarm_audio_pattern.h"
 
-// Duracion de cada rafaga completa, derivada de lo de arriba. El intervalo
-// ENTRE rafagas que ve el oyente es periodo - duracion:
-//   ALTA  10*150 + 8*100 + 400 = 2700 ms -> 7300 ms de silencio
-//   MEDIA  3*150 + 2*200       =  850 ms -> 24150 ms
-//   BAJA   1*150               =  150 ms -> 29850 ms
-// Se cumple ademas el orden que pide la Tabla 3: el intervalo entre rafagas
-// de MEDIA es >= el de ALTA, y el de BAJA >= el de MEDIA.
-#define ALARM_BURST_LEN_MS_HIGH                                      (ALARM_BURST_PULSES_HIGH * ALARM_PULSE_MS +                         (ALARM_BURST_PULSES_HIGH - 2u) * ALARM_PULSE_SPACING_X_MS +        ALARM_GROUP_GAP_MS)
-#define ALARM_BURST_LEN_MS_MEDIUM                                    (ALARM_BURST_PULSES_MEDIUM * ALARM_PULSE_MS +                       (ALARM_BURST_PULSES_MEDIUM - 1u) * ALARM_PULSE_SPACING_Y_MS)
-
-// Duracion del AUDIO PAUSED que pide el operador con el boton de silencio del
-// display HMI (unica interaccion de operador que existe: el encoder fisico es
-// de una revision de hardware anterior y ya no se monta).
-//
-// La clausula aplicable es 60601-2-19 201.12.3.104, NO 60601-1-8 6.8.3: 6.8.3
-// trata de los estados globales INDEFINIDOS (ALARM OFF / AUDIO OFF) y no fija
-// duracion alguna. 201.12.3.104 exige que las alarmas silenciadas
-// deliberadamente "reanuden automaticamente su funcion normal dentro de un
-// tiempo especificado POR EL FABRICANTE" - el limite no lo pone la norma, lo
-// ponemos nosotros.
-//
-// VALOR ACTUAL: 10 min. 6.8.5 obliga a declararlo en las instrucciones de
-// uso; esta en docs/alarms.md.
-//
-// Consecuencia que hay que tener presente: 201.12.3.103 exige que el aviso de
-// interrupcion de alimentacion se mantenga un minimo de 10 min, justo lo que
-// dura esta pausa. Silenciar esa alarma se come practicamente toda su
-// duracion obligatoria. Se acepta porque 6.8.4 permite al operador terminar
-// el silencio cuando quiera y la senal VISUAL nunca se inactiva (6.8.1), pero
-// si el analisis de riesgos lo revisa, el candidato natural es excluir
-// ALARM_MAINS_INTERRUPTION del silencio, no acortar esto.
-//
-// La excepcion de hasta 30 min de 201.12.3.104 es solo para el calentamiento
-// desde COLD CONDITION, y se gestiona aparte con el retardo de anuncio
-// (alarm_machine_set_announce_delay), no alargando esta pausa.
-#define ALARM_AUDIO_PAUSE_MS 600000u
+// La duracion del AUDIO PAUSED (ALARM_AUDIO_PAUSE_MS) se mudo a
+// shared/alarm_policy.h: desde que el display tiene senal acustica propia
+// para la perdida de enlace, la pausa de esa senal la cuenta EL.
+#include "alarm_policy.h"
 
 #include "preferences_keys.h"
 
