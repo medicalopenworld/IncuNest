@@ -1001,7 +1001,13 @@ static void alarmMagnitudes(int id, int16_t *limitCenti, int16_t *valueCenti)
 // hablado NUNCA. Mismo valor y misma razon que BOARD_LINK_BOOT_GRACE_MS en el
 // display: los dos extremos cuentan igual, que es el criterio que ya seguian
 // las ventanas de silencio.
-#define HMI_LINK_BOOT_GRACE_MS 10000u
+//
+// +5000 extra: en banco se ha visto que un arranque normal (con display
+// presente) a veces tarda algo mas de lo habitual en emitir su primera trama,
+// y el margen justo disparaba un ALARM_HMI_LINK_LOST fantasma que se
+// autocorregia segundos despues. Solo afecta a este primer margen de
+// arranque, no al timeout de silencio en marcha (HMI_LINK_TIMEOUT_MS).
+#define HMI_LINK_BOOT_GRACE_MS 15000u
 
 static void checkHmiLink()
 {
