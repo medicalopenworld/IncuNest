@@ -274,6 +274,25 @@ Las tres se provocan desconectando algo, sin calentar nada.
 - **Enciende solo la placa, sin display**: no debe declararla nunca. Un enlace
   que jamás existió no es un enlace caído, y si esto falla tendrás la alarma en
   cada arranque.
+- **Con el display encendido y la placa muerta** (apaga solo la alimentación de
+  la motherBoard, o desconecta el cable): el zumbador del **display** debe
+  empezar a sonar el patrón MEDIA (3 pulsos de 150 ms, ráfaga cada 25 s) dentro
+  de los 5 s siguientes al último `CTRL,STATE`/`CTRL,TEL` recibido. Es la
+  comprobación clave de este caso: antes de este cambio, este escenario
+  concreto no sonaba nada — solo el banner visual.
+- **Con el cable desconectado y la placa viva** (el caso anterior, el habitual):
+  los dos zumbadores suenan el mismo patrón, desfasados entre sí. Es lo
+  esperado (docs/alarms.md §8) — el display no puede distinguir este caso del
+  anterior, así que no lo intenta.
+- **Botón de SILENCIAR con el enlace caído**: pulsarlo calla el zumbador del
+  display y muestra el indicador AUDIO PAUSED con su cuenta atrás de 10 min.
+  Pasados los 10 min sin que vuelva el enlace, el patrón se reanuda solo.
+- **Reconectar durante una pausa activa**: al reconectar el cable, el
+  indicador AUDIO PAUSED del display desaparece. Si el enlace se pierde de
+  nuevo después, la señal debe sonar desde el primer instante — la pausa
+  anterior no debe arrastrarse a la nueva pérdida.
+- **Pulsar la pantalla durante una ráfaga**: el chasquido de confirmación debe
+  omitirse sin alterar el ritmo de los 3 pulsos de la ráfaga en curso.
 
 ### 18. ⬜ Que nada de lo anterior rompió lo de antes
 

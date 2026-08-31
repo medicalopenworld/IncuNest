@@ -2501,8 +2501,11 @@ void alarm_banner_update(void) {
   // banner de cualquier alarma: esas alarmas tambien son informacion vieja.
   //
   // La placa declara ALARM_HMI_LINK_LOST por su cuenta y hace sonar SU
-  // zumbador; lo de aqui es la mitad visual, que por definicion no puede
-  // llegar por el enlace caido.
+  // zumbador; lo de aqui es la mitad visual. La mitad audible ya NO depende
+  // solo de ella: el display tiene la suya propia (link_audio_service(),
+  // mas abajo en este fichero), precisamente porque esta es la unica
+  // condicion cuyo aviso puede tener que salir cuando la placa ya no puede
+  // emitir nada.
   const bool linkLost = Display_IsBoardLinkLost();
 
   // Con el centro de alarmas abierto el banner sobra: ese overlay ya lista

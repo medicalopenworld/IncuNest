@@ -553,6 +553,61 @@ entera. Si el patrón cambia y deja de cuadrar, la compilación falla.
 > puntos exige medirlos con micrófono; los niveles de presión sonora siguen
 > igualmente pendientes (§9).
 
+### 8.1 El display tiene su propio zumbador, y ahora también emite alarma
+
+Hay **dos** transductores en el equipo: el zumbador pasivo de la motherBoard
+(el descrito arriba, PWM) y el zumbador I2C del display (STC8H1K28 @ 0x30,
+`Display_HMI/src/drivers/buzzer.cpp`). Este último es on/off puro, sin control
+de frecuencia ni de amplitud — todo lo que se puede modelar en él es el
+**ritmo**.
+
+Reparto de qué transductor anuncia qué:
+
+- **Todas las condiciones salvo la pérdida de enlace**: las anuncia solo la
+  motherBoard, con el motor descrito arriba. El display recibe estas alarmas
+  por el enlace y no las repite en su zumbador — solo pinta el banner y el
+  centro de alarmas.
+- **`ALARM_HMI_LINK_LOST` / pérdida de enlace vista desde el display**: la
+  anuncian **los dos**, cada uno por su cuenta. La motherBoard la declara y la
+  suena como cualquier otra condición MEDIA. El display, independientemente,
+  detecta el mismo silencio (`Display_IsBoardLinkLost()`,
+  `Display_HMI/src/tasks/CommTask.cpp`) y emite el **mismo patrón MEDIA** de
+  esta sección por su zumbador (`link_audio_service()`,
+  `Display_HMI/src/tasks/UITask.cpp`), leyendo las constantes de
+  `shared/include/alarm_audio_pattern.h` — la misma tabla que usa la placa, no
+  una copia.
+
+Es la única condición del sistema cuyo detector vive en el display, y por eso
+es la única cuya mitad audible no puede depender por entero de la
+motherBoard: si su firmware se cuelga o entra en reset loop, `securityCheck()`
+deja de correr y con él `driveAlarmBuzzer()` — no suena nada, y antes de este
+cambio el display se limitaba a un banner mudo con las últimas cifras
+recibidas en pantalla, leídas por el operador como actuales.
+
+**Doble anuncio, aceptado.** Con el cable roto y la placa viva, los dos
+zumbadores suenan el mismo patrón MEDIA, desfasados. Se acepta: el display no
+puede saber si la placa sigue viva sin el enlace que precisamente ha perdido,
+así que no lo intenta. No es la inconsistencia de señales que prohíbe 6.3.3.1
+— las dos anuncian la misma condición, con la misma prioridad y el mismo
+patrón, porque ambas derivan de `alarm_priority(ALARM_HMI_LINK_LOST)`.
+
+**Enmascaramiento acotado, no eliminado.** Si la placa sigue viva y anuncia una
+condición ALTA real mientras el display suena su MEDIA, el zumbador del
+display — que en este equipo se oye más que el de la placa (medida pendiente,
+más abajo) — podría tapar una ráfaga. El patrón MEDIA lo acota por
+construcción: su ráfaga ocupa 850 ms de cada 25 000 ms, un 3,4 % del tiempo,
+así que aunque una ráfaga ALTA quede tapada, la siguiente llega 10 s después
+con el display en silencio. Un patrón más denso se comería esta mitigación,
+por eso las constantes viven en un único sitio compartido y no se retocan sin
+rehacer esta cuenta.
+
+**Pausa de audio local.** Con el enlace caído, el botón de SILENCIAR del
+display no llega a la placa — es justo lo que se ha perdido —, así que la
+señal del display tiene su propia pausa de `ALARM_AUDIO_PAUSE_MS` (10 min,
+`shared/include/alarm_policy.h`), independiente de la de la placa, con su
+propio indicador AUDIO PAUSED. No sobrevive a una reconexión: una pérdida de
+enlace posterior suena desde el primer instante.
+
 ## 9. Qué NO está implementado todavía
 
 Esta sección es tan relevante como el resto: enumera lo que el sistema no
@@ -565,6 +620,11 @@ hace hoy, para no inducir a confiar en protecciones que no existen.
   que sobreviva 10 minutos de corte de red — es un requisito de hardware, no
   solo de firmware.
 - ~~`ALARM_HMI_LINK_LOST` no tiene detector~~ — **implementado**. El display manda un latido cada 1 s (`HMI_KEEPALIVE_PERIOD_MS`) y la placa declara la condición tras 5 s sin recibir nada (`HMI_LINK_TIMEOUT_MS`, `checkHmiLink()`). Antes no era detectable: el display solo transmitía al cambiar algo, así que el silencio no significaba nada. No se declara antes de la primera trama — la placa arranca antes que el display y un enlace que nunca existió no es un enlace caído.
+- ~~El display no tenía señal audible propia si la placa se colgaba~~ —
+  **implementado**. El detector de esta misma condición vive en el display
+  (`Display_IsBoardLinkLost()`), pero hasta ahora su mitad audible se delegaba
+  entera en la motherBoard — precisamente el extremo que puede estar muerto.
+  Ver §8.1.
 - **No hay reset manual accesible al operador para los cortes térmicos
   latching.** `alarm_machine_reset()` solo se invoca desde
   `test_alarm_machine.cpp`. No existe botón del display, comando USB ni
@@ -599,6 +659,15 @@ hace hoy, para no inducir a confiar en protecciones que no existen.
 - **Lo que sí queda pendiente del audio es acústico, no de firmware**: el
   tiempo de subida real, la relación de 15 dB entre las cuatro componentes
   mayores y los niveles de presión sonora. Los tres exigen micrófono.
+  **Desde que el display emite su propia señal (§8.1), esta medida abarca DOS
+  transductores y no uno**, y añade una pregunta que antes no existía: el
+  **nivel relativo** entre ellos. El zumbador del display es on/off puro, sin
+  control de amplitud, así que si la medida confirma lo que hoy solo se observa
+  a oído —que se oye más que el de la placa— no hay palanca de firmware para
+  corregirlo; el margen quedaría en el patrón (§8.1 acota el solapamiento al
+  3,4 % del tiempo) o en un cambio de hardware. Nada de esto bloquea la señal,
+  que hoy cubre un caso que antes quedaba mudo del todo, pero es lo que hay que
+  medir antes de afirmar conformidad de la Tabla 4 en el display.
 - ~~Detección de cortocircuito en la sonda de piel~~ — **implementada**. `skinProbeFault()` clasifica por RESISTENCIA: por debajo de 800 Ω es cortocircuito, por encima de 6000 Ω circuito abierto, y se distinguen en el log porque la acción de servicio es distinta. Cierra además un agujero real: los límites anteriores estaban en milivoltios y venían de cuando la excitación eran 3,3 V, así que el superior quedaba por encima del raíl y no filtraba nada. Un cortocircuito PARCIAL se leía como piel plausiblemente caliente y, en modo piel, hacía que el control dejase de calentar sin ninguna alarma. La **urgencia**
   sigue dependiendo del modo, que es lo correcto: en modo piel la avería es
   ALTA y corta calefactor, en modo aire es BAJA. Lo que cambia con el corto no
