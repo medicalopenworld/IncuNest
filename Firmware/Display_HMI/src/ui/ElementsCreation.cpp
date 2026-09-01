@@ -1005,12 +1005,12 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_width(ui_Switch1, 100);
   lv_obj_set_height(ui_Switch1, 39);
   lv_obj_set_x(ui_Switch1, 95);
-  // Bajado 4px respecto a Panel4/Label2 (que se quedan en -176): en banco el
-  // switch se veia mas alto que el de Phototherapy pese a estar calculado a
-  // la misma altura absoluta (ver comentario junto a ui_Panel4). No hay una
-  // segunda causa geometrica identificada en el codigo -- ajuste empirico
-  // verificado en banco, no deducido.
-  lv_obj_set_y(ui_Switch1, -172);
+  // Bajado 14px en total respecto a Panel4/Label2 (que se quedan en -176):
+  // 4px del ajuste anterior + 10px mas, pedidos tras seguir viendose mas
+  // alto que ui_Switch3 en banco. Ajuste empirico verificado en banco, sin
+  // causa geometrica identificada en el codigo (ver comentario junto a
+  // ui_Panel4: por coordenadas ambos switches ya deberian coincidir).
+  lv_obj_set_y(ui_Switch1, -162);
   lv_obj_set_align(ui_Switch1, LV_ALIGN_CENTER);
 
   // Header layout: TURN ON button on the left, title on the right.
@@ -1307,7 +1307,7 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_width(ui_Label9, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_Label9, LV_SIZE_CONTENT);
   lv_obj_set_x(ui_Label9, 165);
-  lv_obj_set_y(ui_Label9, -172);
+  lv_obj_set_y(ui_Label9, -162);
   lv_obj_set_align(ui_Label9, LV_ALIGN_CENTER);
   lv_label_set_text(ui_Label9, "ON");
 
@@ -1315,7 +1315,7 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_width(ui_Label15, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_Label15, LV_SIZE_CONTENT);
   lv_obj_set_x(ui_Label15, 17);
-  lv_obj_set_y(ui_Label15, -172);
+  lv_obj_set_y(ui_Label15, -162);
   lv_obj_set_align(ui_Label15, LV_ALIGN_CENTER);
   lv_label_set_text(ui_Label15, "OFF");
 
