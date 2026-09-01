@@ -29,6 +29,7 @@
 
 #include "main.h"
 #include "state/state.h"
+#include "modules/sensorboard_comm/sensorboard_comm.h"
 #include "DriveUpload.h"
 #include "CrashReporter.h"
 #include <Preferences.h>
@@ -635,6 +636,15 @@ void setup() {
                           CORE_ID_FREERTOS // o 0/1 según tu placa
   );
   logI("Communication task successfully created!\n");
+
+  // Enlace USB con el SensorBoard (la motherboard es el host). Va aquí y no
+  // antes por el mismo motivo que initSPO2(): levantar el host USB reclama
+  // GPIO19, que en V15 es el MISO del AFE.
+  logI("Initializing SensorBoard USB link ...");
+  sensorboard_comm_init();
+  xTaskCreatePinnedToCore(sensorboard_comm_task, "SB_COMM", 4096, NULL,
+                          SENSORBOARD_TASK_PRIORITY, NULL, CORE_ID_FREERTOS);
+  logI("SensorBoard task successfully created!\n");
 #endif
   if (WIFI_EN) {
     wifiInit();

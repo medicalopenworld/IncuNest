@@ -7,6 +7,9 @@
 // Tasks priorities
 #define POWER_MANAGEMENT_TASK_PRIORITY 1
 #define TIME_TRACK_TASK_PRIORITY 2
+// Telemetria auxiliar: por debajo de GPRS y del enlace con la HMI a
+// proposito, nada de lo que trae el SensorBoard entra en el lazo de control.
+#define SENSORBOARD_TASK_PRIORITY 3
 #define OTA_TASK_PRIORITY 4
 #define GPRS_TAST_PRIORITY 5
 #define BUZZER_TASK_PRIORITY 6
@@ -39,6 +42,8 @@
 #define BUZZER_TASK_PERIOD_MS 10
 #define SECURITY_TASK_PERIOD_MS 1
 #define COMMUNICATION_TASK_PERIOD_MS 1
+// 1 s basta: el heartbeat del SensorBoard es de 30 s y su margen de 90 s.
+#define SENSORBOARD_TASK_PERIOD_MS 1000
 #define TIME_TRACK_TASK_PERIOD_MS 100
 #define FAN_TASK_PERIOD_MS 10
 #define LOOP_TASK_PERIOD_MS 1000
