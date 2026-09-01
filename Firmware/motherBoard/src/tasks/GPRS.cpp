@@ -469,28 +469,58 @@ void readGPRSData() {
   }
 }
 
+// Apaga el modulo y devuelve la maquina de estados a powerUp, para que el
+// siguiente ciclo reintente el adjunto desde cero. Comun a dos disparadores:
+// el timeout de arranque/conexion de mas abajo, y GPRSVerifyStillAttached()
+// cuando el adjunto se pierde ya en estado estable (SIM retirada, sin
+// cobertura). Un solo sitio para esta secuencia evita que ambos disparadores
+// diverjan con el tiempo.
+void GPRSForceReset(const String &reason) {
+  logE("[GPRS] -> reset: " + reason);
+  GPRS.timeOut = false;
+  GPRS.process = false;
+  GPRS.post = false;
+  GPRS.connect = false;
+  GPRS.powerUp = true;
+  GPRS.serverConnectionStatus = false;
+  logModemData("[GPRS] -> powering module down...");
+  Serial2.print("AT+CPOWD=1\n");
+  GPRS.packetSentenceTime = millis();
+  GPRS.processTime = millis();
+}
+
 void GPRSStatusHandler() {
   if (GPRS.process) {
     if (GPRS.powerUp || GPRS.connect) {
       readGPRSData();
       if (millis() - GPRS.processTime > GPRS_TIMEOUT) {
-        logE("[GPRS] -> timeOut: " + String(GPRS.powerUp) +
-             String(GPRS.connect) + String(GPRS.post) + String(GPRS.process));
-        GPRS.timeOut = false;
-        GPRS.process = false;
-        GPRS.post = false;
-        GPRS.connect = false;
-        GPRS.powerUp = true;
-        GPRS.serverConnectionStatus = false;
-        logModemData("[GPRS] -> powering module down...");
-        Serial2.print("AT+CPOWD=1\n");
-        GPRS.packetSentenceTime = millis();
-        GPRS.processTime = millis();
+        GPRSForceReset("timeOut " + String(GPRS.powerUp) +
+                        String(GPRS.connect) + String(GPRS.post) +
+                        String(GPRS.process));
       }
     }
   }
   if (!GPRS.powerUp && !GPRS.connect && !GPRS.post) {
     GPRS.powerUp = true;
+  }
+}
+
+// Reverifica el adjunto de red (AT+CREG?) mientras GPRS.post ya esta en
+// estado estable. GPRS.post se fija a true una sola vez, en GPRSPowerUp()
+// caso 2, y nada lo volvia a comprobar despues: retirar la SIM o perder
+// cobertura del todo con el modem ya enganchado se quedaba sin deteccion
+// para siempre, y el heading del HMI (commStatus/linkBars, ver CommTask.cpp)
+// se quedaba pegado en "2G" en vez de caer a "sin enlace".
+void GPRSVerifyStillAttached() {
+  if (!GPRS.post) return; // solo aplica en estado estable
+  static uint32_t s_lastCheckMs = 0;
+  uint32_t now = millis();
+  if (s_lastCheckMs != 0 && now - s_lastCheckMs < GPRS_ATTACH_RECHECK_INTERVAL)
+    return;
+  s_lastCheckMs = now;
+
+  if (!modem.isNetworkConnected()) {
+    GPRSForceReset("network attach lost (SIM retirada o sin cobertura)");
   }
 }
 
@@ -1070,6 +1100,13 @@ void GPRSPost() {
     tb.loop();
   } else {
     if (!tb.connected()) {
+      // GPRS.serverConnectionStatus solo se ponia a true al reconectar y
+      // nunca se bajaba aqui: si tb.connected() pasaba a false en marcha (el
+      // enlace se cae pero el modem sigue adjunto), el commStatus enviado al
+      // HMI se quedaba pegado en "+SERVIDOR" indefinidamente. Se pone a false
+      // en cuanto se detecta, no solo cuando GPRSForceReset() apaga el modulo
+      // entero.
+      GPRS.serverConnectionStatus = false;
       if (millis() - GPRS.lastReconnectAttempt < THINGSBOARD_RECONNECT_DELAY) {
         return;
       }
@@ -1178,8 +1215,14 @@ void GPRS_Handler() {
     GPRSEnsureTimeSynced();
     GPRSEnsureTimeZoneSynced();
   } else if (GPRS.post) {
-    GPRSSetPostPeriod();
-    GPRSPost();
-    tb.loop();
+    GPRSVerifyStillAttached();
+    // GPRSVerifyStillAttached() puede haber devuelto GPRS.post a false en
+    // esta misma pasada (adjunto perdido): no seguir con un GPRSPost() sobre
+    // un modem que se acaba de apagar.
+    if (GPRS.post) {
+      GPRSSetPostPeriod();
+      GPRSPost();
+      tb.loop();
+    }
   }
 }
