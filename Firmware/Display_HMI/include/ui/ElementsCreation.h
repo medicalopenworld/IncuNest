@@ -394,6 +394,15 @@ void ui_ScreenPulseOxi_screen_destroy(void);
 // --- SCREEN: Lock ---
 extern lv_obj_t * ui_ScreenLock;
 extern lv_obj_t * ui_LockButton;
+// Replicas del titulo/reloj/conectividad del heading de ui_ScreenMain: se
+// mantienen visibles tambien en la pantalla de bloqueo. Actualizadas por las
+// mismas clock_update()/connectivity_heading_update() (UITask.cpp).
+extern lv_obj_t * ui_LockHeadingTitle;
+extern lv_obj_t * ui_LockHeadingClockTime;
+extern lv_obj_t * ui_LockHeadingClockDate;
+extern lv_obj_t * ui_LockHeadingConnCont;
+extern lv_obj_t * ui_LockHeadingConnIcon;
+extern lv_obj_t * ui_LockHeadingConnBar[4];
 extern lv_obj_t * ui_Container1;
 extern lv_obj_t * ui_AirTempLockCont;
 extern lv_obj_t * ui_Label11;

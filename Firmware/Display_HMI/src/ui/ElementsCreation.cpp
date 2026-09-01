@@ -269,6 +269,12 @@ lv_obj_t *ui_OxiButton2 = NULL;
 // Screen Lock
 lv_obj_t *ui_ScreenLock = NULL;
 lv_obj_t *ui_LockButton = NULL;
+lv_obj_t *ui_LockHeadingTitle = NULL;
+lv_obj_t *ui_LockHeadingClockTime = NULL;
+lv_obj_t *ui_LockHeadingClockDate = NULL;
+lv_obj_t *ui_LockHeadingConnCont = NULL;
+lv_obj_t *ui_LockHeadingConnIcon = NULL;
+lv_obj_t *ui_LockHeadingConnBar[4] = {NULL, NULL, NULL, NULL};
 lv_obj_t *ui_Container1 = NULL;
 lv_obj_t *ui_AirTempLockCont = NULL;
 lv_obj_t *ui_Label11 = NULL;
@@ -812,6 +818,70 @@ void ui_ScreenIntro_screen_init(void) {
                               LV_PART_MAIN);
 }
 
+// Slots horizontales del heading (ui_ScreenMain y su replica en
+// ui_ScreenLock), distribuidos a paso fijo entre los margenes de la
+// pantalla (800 px de ancho), con el boton de bloqueo en el slot central
+// exacto (HEADING_SLOT3_CENTER == centro de pantalla). El resto se reparte
+// a ambos lados a la misma distancia entre si.
+#define HEADING_SLOT_STEP 123
+#define HEADING_SLOT0_TITLE 31        // ui_Incunest / ui_LockHeadingTitle
+#define HEADING_SLOT1_CLOCK 154       // ui_ClockTime+Date / replica en Lock
+#define HEADING_SLOT2_CONN 257        // ui_ConnCont / ui_LockHeadingConnCont
+#define HEADING_SLOT4_BABIES 123      // offset desde el centro (solo Main)
+#define HEADING_SLOT5_ALARM 246       // offset desde el centro (solo Main)
+#define HEADING_SLOT6_SETTINGS 369    // offset desde el centro (solo Main)
+
+// Crea el indicador de conectividad del heading (texto WIFI/2G/sin-enlace
+// ENCIMA de 4 barras de cobertura, apiladas en vertical para caber en un
+// hueco angosto) en `parent`, anclado LEFT_MID en (x, y). Compartido entre
+// ui_ScreenMain y su replica en ui_ScreenLock (ver
+// "mantener IncuNest/reloj/conectividad en la pantalla de bloqueo"): ambas
+// instancias las refresca connectivity_heading_update() (UITask.cpp).
+static void create_heading_conn_indicator(lv_obj_t *parent, lv_coord_t x,
+                                          lv_coord_t y, lv_obj_t **outCont,
+                                          lv_obj_t **outIcon,
+                                          lv_obj_t *outBars[4]) {
+  lv_obj_t *cont = lv_obj_create(parent);
+  lv_obj_remove_style_all(cont);
+  lv_obj_set_width(cont, 40);
+  lv_obj_set_height(cont, 44);
+  lv_obj_set_x(cont, x);
+  lv_obj_set_y(cont, y);
+  lv_obj_set_align(cont, LV_ALIGN_LEFT_MID);
+  lv_obj_clear_flag(cont, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+  *outCont = cont;
+
+  lv_obj_t *icon = lv_label_create(cont);
+  lv_obj_set_width(icon, LV_SIZE_CONTENT);
+  lv_obj_set_height(icon, LV_SIZE_CONTENT);
+  lv_obj_set_align(icon, LV_ALIGN_TOP_MID);
+  lv_obj_set_y(icon, 0);
+  lv_label_set_text(icon, "");
+  lv_obj_set_style_text_font(icon, &lv_font_montserrat_14,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_text_color(icon, lv_color_hex(0x888888), LV_PART_MAIN);
+  *outIcon = icon;
+
+  // 4 barras estilo "senal de movil", altura creciente, apoyadas en la misma
+  // base, centradas bajo el texto/icono de arriba. Sin fill = gris (igual
+  // que las power bars de PID); con fill = verde (igual que "conectado" en
+  // el resto del HMI). El nivel a colorear (linkBars) llega en CTRL,STATE.
+  static const lv_coord_t BAR_H[4] = {8, 13, 18, 23};
+  for (int i = 0; i < 4; i++) {
+    lv_obj_t *bar = lv_obj_create(cont);
+    lv_obj_remove_style_all(bar);
+    lv_obj_set_width(bar, 6);
+    lv_obj_set_height(bar, BAR_H[i]);
+    lv_obj_set_align(bar, LV_ALIGN_BOTTOM_LEFT);
+    lv_obj_set_x(bar, 4 + i * 9);
+    lv_obj_set_y(bar, -2);
+    lv_obj_set_style_radius(bar, 1, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(bar, lv_color_hex(0x404040), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_MAIN);
+    outBars[i] = bar;
+  }
+}
+
 void ui_ScreenMain_screen_init(void) {
   ui_ScreenMain = lv_obj_create(NULL);
   lv_obj_clear_flag(ui_ScreenMain, LV_OBJ_FLAG_SCROLLABLE);
@@ -819,9 +889,7 @@ void ui_ScreenMain_screen_init(void) {
   ui_Incunest = lv_label_create(ui_ScreenMain);
   lv_obj_set_width(ui_Incunest, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_Incunest, LV_SIZE_CONTENT);
-  // Anchored to the left edge of the screen (20 px margin) instead of a
-  // centre-relative offset, so the title stays put whatever its width.
-  lv_obj_set_x(ui_Incunest, 20);
+  lv_obj_set_x(ui_Incunest, HEADING_SLOT0_TITLE);
   lv_obj_set_y(ui_Incunest, -213);
   lv_obj_set_align(ui_Incunest, LV_ALIGN_LEFT_MID);
   lv_label_set_text(ui_Incunest, "IncuNest");
@@ -830,12 +898,11 @@ void ui_ScreenMain_screen_init(void) {
 
   // Reloj de pared, a la derecha del titulo. Hora en grande y fecha debajo en
   // cuerpo menor: son dos labels porque LVGL no admite dos tamanos de fuente
-  // dentro de uno solo. En el hueco entre el final de "IncuNest" (~x=140) y el
-  // boton de bebes (~x=500). El contenido lo refresca clock_update() (UITask).
+  // dentro de uno solo. El contenido lo refresca clock_update() (UITask).
   ui_ClockTime = lv_label_create(ui_ScreenMain);
   lv_obj_set_width(ui_ClockTime, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_ClockTime, LV_SIZE_CONTENT);
-  lv_obj_set_x(ui_ClockTime, 190);
+  lv_obj_set_x(ui_ClockTime, HEADING_SLOT1_CLOCK);
   lv_obj_set_y(ui_ClockTime, -222);
   lv_obj_set_align(ui_ClockTime, LV_ALIGN_LEFT_MID);
   lv_label_set_text(ui_ClockTime, "");
@@ -845,7 +912,7 @@ void ui_ScreenMain_screen_init(void) {
   ui_ClockDate = lv_label_create(ui_ScreenMain);
   lv_obj_set_width(ui_ClockDate, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_ClockDate, LV_SIZE_CONTENT);
-  lv_obj_set_x(ui_ClockDate, 190);
+  lv_obj_set_x(ui_ClockDate, HEADING_SLOT1_CLOCK);
   lv_obj_set_y(ui_ClockDate, -200);
   lv_obj_set_align(ui_ClockDate, LV_ALIGN_LEFT_MID);
   lv_label_set_text(ui_ClockDate, "");
@@ -854,55 +921,12 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_style_text_color(ui_ClockDate, lv_color_hex(0x888888),
                               LV_PART_MAIN);
 
-  // Indicador de conectividad del heading: texto WIFI/2G/sin-enlace ENCIMA de
-  // 4 barras de cobertura, apiladas en vertical (no en horizontal) para caber
-  // angosto: el boton de bloqueo (ui_ImgButton1, alineado al CENTRO de la
-  // pantalla con TOUCH_EXT_SMALL=40 de zona tactil) ocupa el centro exacto
-  // del heading y no se puede tapar ni solapar su zona tactil. Este widget
-  // vive en el hueco a su izquierda, justo despues del reloj. El contenido lo
-  // refresca connectivity_heading_update() (UITask), igual que clock_update()
-  // hace con el reloj de al lado.
-  ui_ConnCont = lv_obj_create(ui_ScreenMain);
-  lv_obj_remove_style_all(ui_ConnCont);
-  lv_obj_set_width(ui_ConnCont, 40);
-  lv_obj_set_height(ui_ConnCont, 44);
-  lv_obj_set_x(ui_ConnCont, 290);
-  lv_obj_set_y(ui_ConnCont, -213);
-  lv_obj_set_align(ui_ConnCont, LV_ALIGN_LEFT_MID);
-  lv_obj_clear_flag(ui_ConnCont,
-                    LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-
-  ui_ConnIcon = lv_label_create(ui_ConnCont);
-  lv_obj_set_width(ui_ConnIcon, LV_SIZE_CONTENT);
-  lv_obj_set_height(ui_ConnIcon, LV_SIZE_CONTENT);
-  lv_obj_set_align(ui_ConnIcon, LV_ALIGN_TOP_MID);
-  lv_obj_set_y(ui_ConnIcon, 0);
-  lv_label_set_text(ui_ConnIcon, "");
-  lv_obj_set_style_text_font(ui_ConnIcon, &lv_font_montserrat_14,
-                             LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_text_color(ui_ConnIcon, lv_color_hex(0x888888),
-                              LV_PART_MAIN);
-
-  // 4 barras estilo "senal de movil", altura creciente, apoyadas en la misma
-  // base, centradas bajo el texto/icono de arriba. Sin fill = gris (igual que
-  // las power bars de PID); con fill = verde (igual que "conectado" en el
-  // resto del HMI). El nivel a colorear (linkBars) llega en CTRL,STATE.
-  {
-    static const lv_coord_t BAR_H[4] = {8, 13, 18, 23};
-    for (int i = 0; i < 4; i++) {
-      ui_ConnBar[i] = lv_obj_create(ui_ConnCont);
-      lv_obj_remove_style_all(ui_ConnBar[i]);
-      lv_obj_set_width(ui_ConnBar[i], 6);
-      lv_obj_set_height(ui_ConnBar[i], BAR_H[i]);
-      lv_obj_set_align(ui_ConnBar[i], LV_ALIGN_BOTTOM_LEFT);
-      lv_obj_set_x(ui_ConnBar[i], 4 + i * 9);
-      lv_obj_set_y(ui_ConnBar[i], -2);
-      lv_obj_set_style_radius(ui_ConnBar[i], 1, LV_PART_MAIN);
-      lv_obj_set_style_bg_color(ui_ConnBar[i], lv_color_hex(0x404040),
-                                LV_PART_MAIN);
-      lv_obj_set_style_bg_opa(ui_ConnBar[i], LV_OPA_COVER, LV_PART_MAIN);
-    }
-  }
+  // Indicador de conectividad: boton de bloqueo (ui_ImgButton1, alineado al
+  // CENTRO de la pantalla con TOUCH_EXT_SMALL=40 de zona tactil) ocupa el
+  // centro exacto del heading; este widget vive en el hueco a su izquierda,
+  // justo despues del reloj, sin invadir su zona tactil ni su area visual.
+  create_heading_conn_indicator(ui_ScreenMain, HEADING_SLOT2_CONN, -213,
+                                &ui_ConnCont, &ui_ConnIcon, ui_ConnBar);
 
   ui_Settings = lv_imgbtn_create(ui_ScreenMain);
   lv_imgbtn_set_src(ui_Settings, LV_IMGBTN_STATE_RELEASED, NULL,
@@ -911,7 +935,7 @@ void ui_ScreenMain_screen_init(void) {
                     &ui_img_296721678, NULL);
   lv_obj_set_width(ui_Settings, 50);
   lv_obj_set_height(ui_Settings, 48);
-  lv_obj_set_x(ui_Settings, 343);
+  lv_obj_set_x(ui_Settings, HEADING_SLOT6_SETTINGS);
   lv_obj_set_y(ui_Settings, -215);
   lv_obj_set_align(ui_Settings, LV_ALIGN_CENTER);
 
@@ -920,7 +944,7 @@ void ui_ScreenMain_screen_init(void) {
                     &ui_img_1007688293, NULL);
   lv_obj_set_width(ui_AlarmButton, 48);
   lv_obj_set_height(ui_AlarmButton, 47);
-  lv_obj_set_x(ui_AlarmButton, 258);
+  lv_obj_set_x(ui_AlarmButton, HEADING_SLOT5_ALARM);
   lv_obj_set_y(ui_AlarmButton, -212);
   lv_obj_set_align(ui_AlarmButton, LV_ALIGN_CENTER);
 
@@ -930,7 +954,7 @@ void ui_ScreenMain_screen_init(void) {
   ui_BabiesButton = lv_btn_create(ui_ScreenMain);
   lv_obj_set_width(ui_BabiesButton, 110);
   lv_obj_set_height(ui_BabiesButton, 44);
-  lv_obj_set_x(ui_BabiesButton, 155);
+  lv_obj_set_x(ui_BabiesButton, HEADING_SLOT4_BABIES);
   lv_obj_set_y(ui_BabiesButton, -213);
   lv_obj_set_align(ui_BabiesButton, LV_ALIGN_CENTER);
   lv_obj_set_style_radius(ui_BabiesButton, 8, LV_PART_MAIN);
@@ -1772,7 +1796,7 @@ void ui_ScreenMain_screen_init(void) {
                     &ui_img_candado_png, NULL);
   lv_obj_set_width(ui_ImgButton1, 38);
   lv_obj_set_height(ui_ImgButton1, 46);
-  lv_obj_set_x(ui_ImgButton1, -4);
+  lv_obj_set_x(ui_ImgButton1, 0); // slot central exacto del heading
   // 4 px lower than the rest of the top bar so the 60x60 auto-lock ring below
   // fits inside the screen while staying concentric with the padlock.
   lv_obj_set_y(ui_ImgButton1, -210);
@@ -1784,7 +1808,7 @@ void ui_ScreenMain_screen_init(void) {
   // so presses fall through to ui_ImgButton1 underneath.
   ui_LockAutoArc = lv_arc_create(ui_ScreenMain);
   lv_obj_set_size(ui_LockAutoArc, 60, 60);
-  lv_obj_set_x(ui_LockAutoArc, -4);
+  lv_obj_set_x(ui_LockAutoArc, 0); // concentrico con ui_ImgButton1
   lv_obj_set_y(ui_LockAutoArc, -210);
   lv_obj_set_align(ui_LockAutoArc, LV_ALIGN_CENTER);
   lv_arc_set_rotation(ui_LockAutoArc, 270);
@@ -3164,6 +3188,47 @@ void ui_ScreenLock_screen_init(void) {
   lv_obj_set_y(ui_LockButton, -213);
   lv_obj_set_align(ui_LockButton, LV_ALIGN_CENTER);
   lv_obj_add_flag(ui_LockButton, LV_OBJ_FLAG_HIDDEN);
+
+  // Replica del titulo/reloj/conectividad del heading de ui_ScreenMain, en
+  // los mismos slots horizontales: se mantienen visibles con la pantalla
+  // bloqueada. Actualizadas por clock_update()/connectivity_heading_update()
+  // (UITask.cpp) igual que sus gemelas de ui_ScreenMain.
+  ui_LockHeadingTitle = lv_label_create(ui_ScreenLock);
+  lv_obj_set_width(ui_LockHeadingTitle, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_LockHeadingTitle, LV_SIZE_CONTENT);
+  lv_obj_set_x(ui_LockHeadingTitle, HEADING_SLOT0_TITLE);
+  lv_obj_set_y(ui_LockHeadingTitle, -213);
+  lv_obj_set_align(ui_LockHeadingTitle, LV_ALIGN_LEFT_MID);
+  lv_label_set_text(ui_LockHeadingTitle, "IncuNest");
+  lv_obj_set_style_text_font(ui_LockHeadingTitle, &lv_font_montserrat_26,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  ui_LockHeadingClockTime = lv_label_create(ui_ScreenLock);
+  lv_obj_set_width(ui_LockHeadingClockTime, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_LockHeadingClockTime, LV_SIZE_CONTENT);
+  lv_obj_set_x(ui_LockHeadingClockTime, HEADING_SLOT1_CLOCK);
+  lv_obj_set_y(ui_LockHeadingClockTime, -222);
+  lv_obj_set_align(ui_LockHeadingClockTime, LV_ALIGN_LEFT_MID);
+  lv_label_set_text(ui_LockHeadingClockTime, "");
+  lv_obj_set_style_text_font(ui_LockHeadingClockTime, &lv_font_montserrat_26,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  ui_LockHeadingClockDate = lv_label_create(ui_ScreenLock);
+  lv_obj_set_width(ui_LockHeadingClockDate, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_LockHeadingClockDate, LV_SIZE_CONTENT);
+  lv_obj_set_x(ui_LockHeadingClockDate, HEADING_SLOT1_CLOCK);
+  lv_obj_set_y(ui_LockHeadingClockDate, -200);
+  lv_obj_set_align(ui_LockHeadingClockDate, LV_ALIGN_LEFT_MID);
+  lv_label_set_text(ui_LockHeadingClockDate, "");
+  lv_obj_set_style_text_font(ui_LockHeadingClockDate, &lv_font_montserrat_14,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_text_color(ui_LockHeadingClockDate, lv_color_hex(0x888888),
+                              LV_PART_MAIN);
+
+  create_heading_conn_indicator(ui_ScreenLock, HEADING_SLOT2_CONN, -213,
+                                &ui_LockHeadingConnCont,
+                                &ui_LockHeadingConnIcon,
+                                ui_LockHeadingConnBar);
 
   ui_Container1 = lv_obj_create(ui_ScreenLock);
   lv_obj_remove_style_all(ui_Container1);

@@ -450,11 +450,15 @@ void clock_update(void) {
     strncpy(lastTime, nowTime, sizeof(lastTime) - 1);
     lastTime[sizeof(lastTime) - 1] = '\0';
     lv_label_set_text(ui_ClockTime, nowTime);
+    // Replica del reloj en el heading de ui_ScreenLock (ver "mantener
+    // IncuNest/reloj/conectividad en la pantalla de bloqueo").
+    if (ui_LockHeadingClockTime) lv_label_set_text(ui_LockHeadingClockTime, nowTime);
   }
   if (strcmp(nowDate, lastDate) != 0) {
     strncpy(lastDate, nowDate, sizeof(lastDate) - 1);
     lastDate[sizeof(lastDate) - 1] = '\0';
     lv_label_set_text(ui_ClockDate, nowDate);
+    if (ui_LockHeadingClockDate) lv_label_set_text(ui_LockHeadingClockDate, nowDate);
   }
 }
 
@@ -494,28 +498,21 @@ void wifi_board_status_update(void) {
                               LV_PART_MAIN);
 }
 
-// Indicador de conectividad del heading, visible en TODAS las pantallas (a
-// diferencia de wifi_board_status_update, que solo vive en Ajustes/WiFi): un
-// icono WIFI/2G/sin enlace mas 4 barras de cobertura, para que el operador
-// vea de un vistazo si el equipo puede subir telemetria sin tener que entrar
-// a Ajustes.
-//
-// Con el enlace HMI-placa caido (Display_IsBoardLinkLost()) no hay dato
-// fresco del que fiarse: se pinta como "sin datos", igual criterio que
-// link_lost_blank_update() aplica a las medidas.
-void connectivity_heading_update(void) {
-  if (!ui_ConnCont || !ui_ConnIcon) return;
+// Aplica el estado de conectividad a UNA instancia del indicador (icono +
+// 4 barras). Factorizado para que ui_ScreenMain y su replica en
+// ui_ScreenLock (ver "mantener IncuNest/reloj/conectividad en la pantalla de
+// bloqueo") pinten exactamente igual sin duplicar la logica. `lastSignature`
+// es el cache de "no cambio nada desde la ultima pasada" de ESA instancia:
+// cada llamador pasa su propia estatica, para que la primera pintura de una
+// instancia no se salte solo porque la otra ya estaba al dia.
+static void apply_connectivity_indicator(lv_obj_t *icon, lv_obj_t *bars[4],
+                                          int status, int linkBars,
+                                          int *lastSignature) {
+  if (!icon) return;
 
-  const bool linkLost = Display_IsBoardLinkLost();
-  const int status = linkLost ? COMM_STATUS_NONE : ctrl_state_msg.serverCommStatus;
-  const int linkBars = linkLost ? -1 : ctrl_state_msg.linkBars;
-
-  // (icono, colorEstado, barrasVisibles) empaquetados en un entero para saltar
-  // el resto de la funcion cuando nada ha cambiado desde la ultima pasada.
   const int signature = status * 100 + (linkBars + 1);
-  static int lastSignature = -999;
-  if (signature == lastSignature) return;
-  lastSignature = signature;
+  if (signature == *lastSignature) return;
+  *lastSignature = signature;
 
   const bool onServer =
       (status == COMM_STATUS_WIFI_SERVER || status == COMM_STATUS_GPRS_SERVER);
@@ -524,22 +521,22 @@ void connectivity_heading_update(void) {
                             : onServer    ? lv_color_hex(0x2E9E4F)
                                           : lv_color_hex(0xCC7A00);
 
-  const char *icon;
+  const char *iconTxt;
   switch (status) {
   case COMM_STATUS_WIFI_ONLY:
   case COMM_STATUS_WIFI_SERVER:
-    icon = LV_SYMBOL_WIFI;
+    iconTxt = LV_SYMBOL_WIFI;
     break;
   case COMM_STATUS_GPRS_ONLY:
   case COMM_STATUS_GPRS_SERVER:
-    icon = "2G";
+    iconTxt = "2G";
     break;
   default:
-    icon = LV_SYMBOL_CLOSE;
+    iconTxt = LV_SYMBOL_CLOSE;
     break;
   }
-  lv_label_set_text(ui_ConnIcon, icon);
-  lv_obj_set_style_text_color(ui_ConnIcon, color, LV_PART_MAIN);
+  lv_label_set_text(icon, iconTxt);
+  lv_obj_set_style_text_color(icon, color, LV_PART_MAIN);
 
   // Sin transporte no hay cobertura que mostrar; con transporte pero sin dato
   // fiable (linkBars<0: placa antigua o lectura de RSSI/CSQ aun no llegada)
@@ -547,16 +544,40 @@ void connectivity_heading_update(void) {
   const int fillCount =
       (!hasTransport) ? 0 : (linkBars < 0) ? 0 : (linkBars > 4 ? 4 : linkBars);
   for (int i = 0; i < 4; i++) {
-    if (!ui_ConnBar[i]) continue;
+    if (!bars[i]) continue;
     if (!hasTransport) {
-      lv_obj_add_flag(ui_ConnBar[i], LV_OBJ_FLAG_HIDDEN);
+      lv_obj_add_flag(bars[i], LV_OBJ_FLAG_HIDDEN);
       continue;
     }
-    lv_obj_clear_flag(ui_ConnBar[i], LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(bars[i], LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_style_bg_color(
-        ui_ConnBar[i], (i < fillCount) ? color : lv_color_hex(0x404040),
+        bars[i], (i < fillCount) ? color : lv_color_hex(0x404040),
         LV_PART_MAIN);
   }
+}
+
+// Indicador de conectividad del heading, visible en TODAS las pantallas (a
+// diferencia de wifi_board_status_update, que solo vive en Ajustes/WiFi): un
+// icono WIFI/2G/sin enlace mas 4 barras de cobertura, para que el operador
+// vea de un vistazo si el equipo puede subir telemetria sin tener que entrar
+// a Ajustes. Se pinta tanto en ui_ScreenMain como en su replica de
+// ui_ScreenLock, cada una con su propio cache de "sin cambios".
+//
+// Con el enlace HMI-placa caido (Display_IsBoardLinkLost()) no hay dato
+// fresco del que fiarse: se pinta como "sin datos", igual criterio que
+// link_lost_blank_update() aplica a las medidas.
+void connectivity_heading_update(void) {
+  const bool linkLost = Display_IsBoardLinkLost();
+  const int status = linkLost ? COMM_STATUS_NONE : ctrl_state_msg.serverCommStatus;
+  const int linkBars = linkLost ? -1 : ctrl_state_msg.linkBars;
+
+  static int lastSignatureMain = -999;
+  apply_connectivity_indicator(ui_ConnIcon, ui_ConnBar, status, linkBars,
+                                &lastSignatureMain);
+
+  static int lastSignatureLock = -999;
+  apply_connectivity_indicator(ui_LockHeadingConnIcon, ui_LockHeadingConnBar,
+                                status, linkBars, &lastSignatureLock);
 }
 
 void link_lost_blank_update(void) {
