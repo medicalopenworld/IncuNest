@@ -45,6 +45,17 @@ typedef enum {
   // Va al final del enum, no junto a la 12, porque el valor numerico es el
   // indice de bit del protocolo y renumerar romperia la compatibilidad.
   ALARM_HEATER_SENSOR_FAULT = 17,
+  // Enlace USB con el SensorBoard perdido: sin heartbeat >90 s (3 periodos
+  // de 30 s), o el dispositivo nunca ha llegado a enumerar. Mismo criterio
+  // que ALARM_HMI_LINK_LOST: perder una placa periferica completa se trata
+  // igual con independencia de que placa sea.
+  ALARM_SENSORBOARD_LINK_LOST = 18,
+  // Sensor de puerta (hall DRV5032) implausible: con una sola linea digital
+  // el SensorBoard no puede distinguir "puerta abierta" de "hall
+  // desconectado/averiado" (ver SensorBoard_v2/README.md #Puerta). Aqui solo
+  // se declara el sensor sospechoso, nunca se usa como entrada de control
+  // termico.
+  ALARM_SENSORBOARD_DOOR_FAULT = 19,
   ALARM_COUNT
 } AlarmId;
 

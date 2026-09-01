@@ -81,6 +81,14 @@ const char *alarm_title_text(AlarmId id, Language lang) {
       ES("FALLO SENSOR CALENTADOR");
       FR("PANNE CAPTEUR CHAUFFAGE");
       return "HEATER SENSOR FAULT";
+    case ALARM_SENSORBOARD_LINK_LOST:
+      ES("SIN ENLACE SENSORBOARD");
+      FR("LIAISON SENSORBOARD PERDUE");
+      return "SENSORBOARD LINK LOST";
+    case ALARM_SENSORBOARD_DOOR_FAULT:
+      ES("SENSOR PUERTA SOSPECHOSO");
+      FR("CAPTEUR PORTE SUSPECT");
+      return "DOOR SENSOR SUSPECT";
     default:
       return "ALARM";
   }
@@ -161,6 +169,17 @@ const char *alarm_action_text(AlarmId id, Language lang) {
       ES("CALEFACTOR CORTADO - SIN MEDIDA DE CONSUMO - REVISAR SENSOR DE CORRIENTE");
       FR("CHAUFFAGE COUPE - PAS DE MESURE DE COURANT - VERIFIER LE CAPTEUR");
       return "HEATER CUT - NO CURRENT READING - SERVICE THE CURRENT SENSOR";
+    // El SensorBoard solo lleva telemetria auxiliar (ambiente, puerta,
+    // sonido, camara bajo demanda): ninguna de sus dos alarmas corta el
+    // calefactor ni entra en el lazo de control, a diferencia de HMI_LINK_LOST.
+    case ALARM_SENSORBOARD_LINK_LOST:
+      ES("TELEMETRIA AUXILIAR NO DISPONIBLE - NO AFECTA AL CONTROL TERMICO");
+      FR("TELEMETRIE AUXILIAIRE INDISPONIBLE - SANS EFFET SUR LE CONTROLE");
+      return "AUXILIARY TELEMETRY UNAVAILABLE - DOES NOT AFFECT THERMAL CONTROL";
+    case ALARM_SENSORBOARD_DOOR_FAULT:
+      ES("SENSOR HALL POSIBLE AVERIA - NO USAR COMO ENTRADA DE CONTROL");
+      FR("CAPTEUR HALL PANNE POSSIBLE - NE PAS UTILISER COMME ENTREE");
+      return "HALL SENSOR POSSIBLE FAULT - DO NOT USE AS A CONTROL INPUT";
     default:
       return "alarm";
   }

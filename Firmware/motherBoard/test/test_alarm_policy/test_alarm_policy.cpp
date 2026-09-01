@@ -23,7 +23,7 @@ void test_medium_priority_set(void) {
       ALARM_AIR_TEMP_DEVIATION_HIGH,  ALARM_AIR_TEMP_DEVIATION_LOW,
       ALARM_SKIN_TEMP_DEVIATION_HIGH, ALARM_SKIN_TEMP_DEVIATION_LOW,
       ALARM_HEATER_FAULT,             ALARM_SUPPLY_UNDERVOLTAGE,
-      ALARM_HMI_LINK_LOST};
+      ALARM_HMI_LINK_LOST,            ALARM_SENSORBOARD_LINK_LOST};
   for (unsigned i = 0; i < sizeof(medium) / sizeof(medium[0]); ++i) {
     TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_MEDIUM, alarm_priority(medium[i]));
   }
@@ -35,20 +35,27 @@ void test_low_priority_set(void) {
                         alarm_priority(ALARM_SKIN_SENSOR_FAULT_AIR_MODE));
   TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_LOW,
                         alarm_priority(ALARM_HUMIDITY_DEVIATION));
+  TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_LOW,
+                        alarm_priority(ALARM_SENSORBOARD_DOOR_FAULT));
 }
 
-// El reparto declarado en la spec: 7 ALTA / 8 MEDIA / 2 BAJA.
+// El reparto declarado en la spec: 7 ALTA / 9 MEDIA / 3 BAJA.
 //
 // La MEDIA subio de 7 a 8 al separar ALARM_HEATER_SENSOR_FAULT de
 // ALARM_HEATER_FAULT: son averias distintas (calefactor frente a su sensor de
 // corriente) con acciones distintas para el operador, pero la misma urgencia.
+//
+// El SensorBoard anadio una a cada extremo: perder su enlace USB es MEDIA por
+// el mismo criterio que ALARM_HMI_LINK_LOST (se cae una placa periferica
+// entera), y su hall de puerta sospechoso es BAJA, como el resto de sensores
+// auxiliares averiados que no tocan el control termico.
 void test_priority_distribution(void) {
   int counts[3] = {0, 0, 0};
   for (int id = ALARM_NONE + 1; id < ALARM_COUNT; ++id) {
     counts[alarm_priority((AlarmId)id)]++;
   }
-  TEST_ASSERT_EQUAL_INT(2, counts[ALARM_PRIORITY_LOW]);
-  TEST_ASSERT_EQUAL_INT(8, counts[ALARM_PRIORITY_MEDIUM]);
+  TEST_ASSERT_EQUAL_INT(3, counts[ALARM_PRIORITY_LOW]);
+  TEST_ASSERT_EQUAL_INT(9, counts[ALARM_PRIORITY_MEDIUM]);
   TEST_ASSERT_EQUAL_INT(7, counts[ALARM_PRIORITY_HIGH]);
 }
 
@@ -130,6 +137,10 @@ void test_notify_only_conditions_do_not_cut_the_heater(void) {
   TEST_ASSERT_FALSE(alarm_cuts_heater(ALARM_HMI_LINK_LOST));
   TEST_ASSERT_FALSE(alarm_cuts_heater(ALARM_HUMIDITY_DEVIATION));
   TEST_ASSERT_FALSE(alarm_cuts_heater(ALARM_SKIN_SENSOR_FAULT_AIR_MODE));
+  // Nada de lo que trae el SensorBoard gobierna el calefactor: ni perder su
+  // enlace ni sospechar de su hall de puerta puede tocar la calefaccion.
+  TEST_ASSERT_FALSE(alarm_cuts_heater(ALARM_SENSORBOARD_LINK_LOST));
+  TEST_ASSERT_FALSE(alarm_cuts_heater(ALARM_SENSORBOARD_DOOR_FAULT));
 }
 
 // 201.15.4.2.1 aa): el corte por aire no puede exceder 38 C.
