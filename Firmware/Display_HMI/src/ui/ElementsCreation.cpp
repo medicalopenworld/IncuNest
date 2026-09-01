@@ -981,8 +981,8 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_style_bg_color(ui_Panel1, COLOR_PANEL_GRAY,
                             LV_PART_MAIN); // Default Gray
 
-  // Fila de cabecera (Panel4+Switch1+Label2/9/15) bajada 9px (de y=-186/-187 a
-  // y=-177/-178): con el heading nuevo, el anillo de auto-bloqueo
+  // Fila de cabecera (Panel4+Switch1+Label2/9/15), toda a y=-178: bajada 9px
+  // (de y=-186/-187 originales) porque el anillo de auto-bloqueo
   // (ui_LockAutoArc, termina en y=60 absoluto) invadia 2.5px el borde
   // superior de esta fila (empezaba en y=53). 9px es el maximo que cabe sin
   // tocar ui_AirPanelCont (empieza en y=113 absoluto; con este desplazamiento
@@ -990,11 +990,16 @@ void ui_ScreenMain_screen_init(void) {
   // emergentes de ajuste de consigna (fijas en coordenadas de ui_TempCont, no
   // se mueven con esta fila). Resultado: 2px de separacion limpia con el
   // anillo en vez de solapar.
+  //
+  // Panel4/Label2 vivian en -177 y Switch1/Label9/Label15 en -178 (1px de
+  // diferencia ya en el original -186/-187, de antes de este cambio): el
+  // boton "TURN ON" quedaba descuadrado un pixel respecto al texto
+  // "Temperature control". Unificados los cinco en -178.
   ui_Panel4 = lv_obj_create(ui_TempCont);
   lv_obj_set_width(ui_Panel4, 376);
   lv_obj_set_height(ui_Panel4, 50);
   lv_obj_set_x(ui_Panel4, 0);
-  lv_obj_set_y(ui_Panel4, -177);
+  lv_obj_set_y(ui_Panel4, -178);
   lv_obj_set_align(ui_Panel4, LV_ALIGN_CENTER);
   lv_obj_clear_flag(ui_Panel4, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -1012,7 +1017,7 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_width(ui_Label2, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_Label2, LV_SIZE_CONTENT);
   lv_obj_set_x(ui_Label2, -20);
-  lv_obj_set_y(ui_Label2, -177);
+  lv_obj_set_y(ui_Label2, -178);
   lv_obj_set_align(ui_Label2, LV_ALIGN_RIGHT_MID);
   lv_label_set_text(ui_Label2, "Temperature control");
 
@@ -1607,7 +1612,9 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_width(ui_PhotoTimerCont, 384);
   lv_obj_set_height(ui_PhotoTimerCont, 120);
   lv_obj_set_x(ui_PhotoTimerCont, 191);
-  lv_obj_set_y(ui_PhotoTimerCont, -88);
+  // +9px, igual que ui_PhotoCont de arriba: preserva la posicion relativa
+  // entre cabecera y temporizador (se mueven juntos como bloque).
+  lv_obj_set_y(ui_PhotoTimerCont, -79);
   lv_obj_set_align(ui_PhotoTimerCont, LV_ALIGN_CENTER);
   lv_obj_add_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_clear_flag(ui_PhotoTimerCont,
@@ -1705,12 +1712,20 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_style_text_font(ui_PhotoCancelLabel, &lv_font_montserrat_18,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
 
+  // Bajada 9px (de y=-160 a y=-151), el mismo desplazamiento que la cabecera
+  // de "Temperature control": con el mismo criterio (despejar el anillo de
+  // auto-bloqueo, que termina en y=60 absoluto) ambas cabeceras quedan al
+  // mismo borde superior (~y=61-62 absoluto), a la misma altura visual.
+  // ui_PhotoTimerCont se desplaza el mismo tanto para no descuadrar su
+  // posicion relativa (ver mas abajo). No hace falta tocar ui_HumCont: el
+  // hueco libre entre ui_PhotoTimerCont y ui_HumCont (15px) absorbe de sobra
+  // estos 9px sin que lleguen a solaparse (queda en 6px).
   ui_PhotoCont = lv_obj_create(ui_ScreenMain);
   lv_obj_remove_style_all(ui_PhotoCont);
   lv_obj_set_width(ui_PhotoCont, 384);
   lv_obj_set_height(ui_PhotoCont, 54);
   lv_obj_set_x(ui_PhotoCont, 193);
-  lv_obj_set_y(ui_PhotoCont, -160);
+  lv_obj_set_y(ui_PhotoCont, -151);
   lv_obj_set_align(ui_PhotoCont, LV_ALIGN_CENTER);
   lv_obj_clear_flag(ui_PhotoCont,
                     LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
