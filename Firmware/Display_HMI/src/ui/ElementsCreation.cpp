@@ -1012,6 +1012,10 @@ void ui_ScreenMain_screen_init(void) {
   // ui_Panel4: por coordenadas ambos switches ya deberian coincidir).
   lv_obj_set_y(ui_Switch1, -162);
   lv_obj_set_align(ui_Switch1, LV_ALIGN_CENTER);
+  // DIAGNOSTICO TEMPORAL: ocultar por completo para confirmar en banco que
+  // este es el widget correcto y que el .bin subido refleja el codigo
+  // actual. Quitar este flag en cuanto se confirme.
+  lv_obj_add_flag(ui_Switch1, LV_OBJ_FLAG_HIDDEN);
 
   // Header layout: TURN ON button on the left, title on the right.
   // Right-aligned so longer translations of TXT_CONTROLTEMP grow towards the
