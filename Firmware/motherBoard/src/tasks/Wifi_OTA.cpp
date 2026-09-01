@@ -38,6 +38,7 @@
 #include "modules/baby_profile/baby_profile_store.h"
 #include "modules/util/civil_time.h"
 #include "modules/util/system_clock.h"
+#include "modules/sensorboard_comm/sensorboard_comm.h"
 #include "alarm_policy.h"
 
 extern GPRSstruct GPRS;
@@ -1088,6 +1089,9 @@ void addTelemetriesToWIFIJSON() {
     }
   }
 
+#if TX_GROUP_SENSORBOARD_WIFI // grupo SENSORBOARD — config/transport_policy.h
+  sensorboard_add_telemetry(addVariableToTelemetryWIFIJSON);
+#endif
 }
 
 

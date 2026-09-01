@@ -66,6 +66,28 @@
 #define TX_GROUP_CALIBRATION_GPRS 1
 #define TX_GROUP_CALIBRATION_WIFI 0
 
+// SENSORBOARD: hasta 11 claves sb_* de la placa auxiliar por USB (enlace,
+//              3 temperaturas, 3 humedades, luz, sonido, puerta).
+//
+// Apagado en GPRS a proposito, y no por el coste de datos: el presupuesto ya
+// esta al limite POR ARRIBA en ese transporte. check_transport_matrix.py
+// avisa de que el maximo posible (87 claves con CELLULAR+DIAG+CALIBRATION
+// encendidos) supera THINGSBOARD_FIELDS_AMOUNT = 64, y ArduinoJson descarta
+// campos EN SILENCIO al llenarse; ademas MAX_MESSAGE_SIZE son 1024 B de
+// buffer MQTT. Anadir 11 claves auxiliares a esa publicacion puede tirar
+// campos CLINICOS sin avisar, que es peor que no publicar el SensorBoard.
+//
+// Por WiFi los grupos pesados (CELLULAR, DIAG, CALIBRATION) estan apagados,
+// asi que ahi caben. Para subir el GPRS a 1: medir primero con
+// tools/check_transport_matrix.py y comprobar en banco el tamano real de una
+// publicacion, o subir THINGSBOARD_FIELDS_AMOUNT y MAX_MESSAGE_SIZE.
+//
+// OJO con el conteo del script: las claves sb_* no se escriben literalmente
+// en GPRS.cpp/Wifi_OTA.cpp sino dentro de sensorboard_add_telemetry(), asi
+// que el script cuenta 0 en este grupo. Suma 11 a mano al leer su maximo.
+#define TX_GROUP_SENSORBOARD_GPRS 0
+#define TX_GROUP_SENSORBOARD_WIFI 1
+
 // -----------------------------------------------------------------------------
 // 3. FUNCIONALIDADES POR TRANSPORTE
 // -----------------------------------------------------------------------------

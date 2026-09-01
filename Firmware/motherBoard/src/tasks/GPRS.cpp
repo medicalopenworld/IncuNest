@@ -35,6 +35,7 @@
 #include <sys/time.h>
 
 #include "CommTask.h"
+#include "modules/sensorboard_comm/sensorboard_comm.h"
 #include "PpgSnapshot.h"
 #include "PpgSnapshotPublish.h"
 #include "SPO2.h"
@@ -1018,6 +1019,9 @@ void addTelemetriesToGPRSJSON() {
     }
   }
 
+#if TX_GROUP_SENSORBOARD_GPRS // grupo SENSORBOARD — config/transport_policy.h
+  sensorboard_add_telemetry(addVariableToTelemetryGPRSJSON);
+#endif
 }
 
 
