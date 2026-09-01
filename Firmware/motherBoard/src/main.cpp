@@ -497,7 +497,16 @@ void Communication_Receiver(void *pvParameters) {
 }
 
 #if (HW_NUM >= 16)
+// Apagado por pulsación larga del ON_OFF_SWITCH deshabilitado hasta nuevo
+// aviso: mientras sea false, el equipo solo se apaga cortando alimentación
+// externa (PWR_EN se mantiene latcheado por el arranque en setup()).
+constexpr bool ON_OFF_SWITCH_POWEROFF_ENABLED = false;
+
 void PowerManagement_Task(void *pvParameters) {
+  if (!ON_OFF_SWITCH_POWEROFF_ENABLED) {
+    vTaskDelete(NULL);
+  }
+
   while (GPIORead(ON_OFF_SWITCH)) {
     vTaskDelay(pdMS_TO_TICKS(10));
   }
