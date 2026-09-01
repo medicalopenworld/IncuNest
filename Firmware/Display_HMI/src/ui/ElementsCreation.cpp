@@ -28,7 +28,6 @@ lv_obj_t *ui_ImageIntroFlag = NULL;
 
 // Screen Main
 lv_obj_t *ui_ScreenMain = NULL;
-lv_obj_t *ui_Incunest = NULL;
 lv_obj_t *ui_ClockTime = NULL;
 lv_obj_t *ui_ClockDate = NULL;
 lv_obj_t *ui_ConnCont = NULL;
@@ -269,7 +268,6 @@ lv_obj_t *ui_OxiButton2 = NULL;
 // Screen Lock
 lv_obj_t *ui_ScreenLock = NULL;
 lv_obj_t *ui_LockButton = NULL;
-lv_obj_t *ui_LockHeadingTitle = NULL;
 lv_obj_t *ui_LockHeadingClockTime = NULL;
 lv_obj_t *ui_LockHeadingClockDate = NULL;
 lv_obj_t *ui_LockHeadingConnCont = NULL;
@@ -819,14 +817,15 @@ void ui_ScreenIntro_screen_init(void) {
 }
 
 // Slots horizontales del heading (ui_ScreenMain y su replica en
-// ui_ScreenLock), distribuidos a paso fijo entre los margenes de la
-// pantalla (800 px de ancho), con el boton de bloqueo en el slot central
-// exacto (HEADING_SLOT3_CENTER == centro de pantalla). El resto se reparte
-// a ambos lados a la misma distancia entre si.
-#define HEADING_SLOT_STEP 123
-#define HEADING_SLOT0_TITLE 31        // ui_Incunest / ui_LockHeadingTitle
-#define HEADING_SLOT1_CLOCK 154       // ui_ClockTime+Date / replica en Lock
-#define HEADING_SLOT2_CONN 257        // ui_ConnCont / ui_LockHeadingConnCont
+// ui_ScreenLock), con el boton de bloqueo en el centro exacto de pantalla
+// (offset 0) y el resto repartido a ambos lados. Sin "IncuNest" quedan 2
+// widgets a la izquierda del bloqueo y 3 a la derecha, asi que cada lado usa
+// su propio paso: izquierda con margen 20 y 3 huecos iguales hasta el
+// centro (reloj, conectividad, centro); derecha sin tocar (123 px de paso),
+// porque ya estaba al minimo que permite la zona tactil ampliada del
+// bloqueo (TOUCH_EXT_SMALL=40) sin solapar con "Bebes".
+#define HEADING_SLOT1_CLOCK 147       // ui_ClockTime+Date / replica en Lock
+#define HEADING_SLOT2_CONN 254        // ui_ConnCont / ui_LockHeadingConnCont
 #define HEADING_SLOT4_BABIES 123      // offset desde el centro (solo Main)
 #define HEADING_SLOT5_ALARM 246       // offset desde el centro (solo Main)
 #define HEADING_SLOT6_SETTINGS 369    // offset desde el centro (solo Main)
@@ -886,17 +885,8 @@ void ui_ScreenMain_screen_init(void) {
   ui_ScreenMain = lv_obj_create(NULL);
   lv_obj_clear_flag(ui_ScreenMain, LV_OBJ_FLAG_SCROLLABLE);
 
-  ui_Incunest = lv_label_create(ui_ScreenMain);
-  lv_obj_set_width(ui_Incunest, LV_SIZE_CONTENT);
-  lv_obj_set_height(ui_Incunest, LV_SIZE_CONTENT);
-  lv_obj_set_x(ui_Incunest, HEADING_SLOT0_TITLE);
-  lv_obj_set_y(ui_Incunest, -213);
-  lv_obj_set_align(ui_Incunest, LV_ALIGN_LEFT_MID);
-  lv_label_set_text(ui_Incunest, "IncuNest");
-  lv_obj_set_style_text_font(ui_Incunest, &lv_font_montserrat_26,
-                             LV_PART_MAIN | LV_STATE_DEFAULT);
-
-  // Reloj de pared, a la derecha del titulo. Hora en grande y fecha debajo en
+  // Reloj de pared, primer elemento del heading (sin titulo "IncuNest": se
+  // quito para dejar mas hueco al resto). Hora en grande y fecha debajo en
   // cuerpo menor: son dos labels porque LVGL no admite dos tamanos de fuente
   // dentro de uno solo. El contenido lo refresca clock_update() (UITask).
   ui_ClockTime = lv_label_create(ui_ScreenMain);
@@ -3189,20 +3179,10 @@ void ui_ScreenLock_screen_init(void) {
   lv_obj_set_align(ui_LockButton, LV_ALIGN_CENTER);
   lv_obj_add_flag(ui_LockButton, LV_OBJ_FLAG_HIDDEN);
 
-  // Replica del titulo/reloj/conectividad del heading de ui_ScreenMain, en
-  // los mismos slots horizontales: se mantienen visibles con la pantalla
+  // Replica del reloj/conectividad del heading de ui_ScreenMain, en los
+  // mismos slots horizontales: se mantienen visibles con la pantalla
   // bloqueada. Actualizadas por clock_update()/connectivity_heading_update()
   // (UITask.cpp) igual que sus gemelas de ui_ScreenMain.
-  ui_LockHeadingTitle = lv_label_create(ui_ScreenLock);
-  lv_obj_set_width(ui_LockHeadingTitle, LV_SIZE_CONTENT);
-  lv_obj_set_height(ui_LockHeadingTitle, LV_SIZE_CONTENT);
-  lv_obj_set_x(ui_LockHeadingTitle, HEADING_SLOT0_TITLE);
-  lv_obj_set_y(ui_LockHeadingTitle, -213);
-  lv_obj_set_align(ui_LockHeadingTitle, LV_ALIGN_LEFT_MID);
-  lv_label_set_text(ui_LockHeadingTitle, "IncuNest");
-  lv_obj_set_style_text_font(ui_LockHeadingTitle, &lv_font_montserrat_26,
-                             LV_PART_MAIN | LV_STATE_DEFAULT);
-
   ui_LockHeadingClockTime = lv_label_create(ui_ScreenLock);
   lv_obj_set_width(ui_LockHeadingClockTime, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_LockHeadingClockTime, LV_SIZE_CONTENT);
