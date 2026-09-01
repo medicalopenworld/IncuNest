@@ -824,8 +824,15 @@ void ui_ScreenIntro_screen_init(void) {
 // centro (reloj, conectividad, centro); derecha sin tocar (123 px de paso),
 // porque ya estaba al minimo que permite la zona tactil ampliada del
 // bloqueo (TOUCH_EXT_SMALL=40) sin solapar con "Bebes".
-#define HEADING_SLOT1_CLOCK 147       // ui_ClockTime+Date / replica en Lock
-#define HEADING_SLOT2_CONN 254        // ui_ConnCont / ui_LockHeadingConnCont
+//
+// El reloj se centra con LV_ALIGN_CENTER (offset desde x=400) en vez de
+// anclarse por el borde izquierdo: su texto tiene ancho variable ("9:05" vs
+// "23:59"), y anclar por el borde izquierdo dejaba su CENTRO visual mas
+// cerca de la conectividad que del margen, descuadrando el reparto aunque
+// los tres huecos midieran lo mismo sobre el papel. ui_ConnCont sigue en
+// LEFT_MID porque su ancho (40px) es fijo y conocido, no hace falta.
+#define HEADING_SLOT1_CLOCK (147 - 400)  // offset centro; ui_ClockTime+Date / replica en Lock
+#define HEADING_SLOT2_CONN 254        // borde izq.; ui_ConnCont / ui_LockHeadingConnCont
 #define HEADING_SLOT4_BABIES 123      // offset desde el centro (solo Main)
 #define HEADING_SLOT5_ALARM 246       // offset desde el centro (solo Main)
 #define HEADING_SLOT6_SETTINGS 369    // offset desde el centro (solo Main)
@@ -894,7 +901,7 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_height(ui_ClockTime, LV_SIZE_CONTENT);
   lv_obj_set_x(ui_ClockTime, HEADING_SLOT1_CLOCK);
   lv_obj_set_y(ui_ClockTime, -222);
-  lv_obj_set_align(ui_ClockTime, LV_ALIGN_LEFT_MID);
+  lv_obj_set_align(ui_ClockTime, LV_ALIGN_CENTER);
   lv_label_set_text(ui_ClockTime, "");
   lv_obj_set_style_text_font(ui_ClockTime, &lv_font_montserrat_26,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -904,7 +911,7 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_height(ui_ClockDate, LV_SIZE_CONTENT);
   lv_obj_set_x(ui_ClockDate, HEADING_SLOT1_CLOCK);
   lv_obj_set_y(ui_ClockDate, -200);
-  lv_obj_set_align(ui_ClockDate, LV_ALIGN_LEFT_MID);
+  lv_obj_set_align(ui_ClockDate, LV_ALIGN_CENTER);
   lv_label_set_text(ui_ClockDate, "");
   lv_obj_set_style_text_font(ui_ClockDate, &lv_font_montserrat_14,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -3197,7 +3204,7 @@ void ui_ScreenLock_screen_init(void) {
   lv_obj_set_height(ui_LockHeadingClockTime, LV_SIZE_CONTENT);
   lv_obj_set_x(ui_LockHeadingClockTime, HEADING_SLOT1_CLOCK);
   lv_obj_set_y(ui_LockHeadingClockTime, -222);
-  lv_obj_set_align(ui_LockHeadingClockTime, LV_ALIGN_LEFT_MID);
+  lv_obj_set_align(ui_LockHeadingClockTime, LV_ALIGN_CENTER);
   lv_label_set_text(ui_LockHeadingClockTime, "");
   lv_obj_set_style_text_font(ui_LockHeadingClockTime, &lv_font_montserrat_26,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -3207,7 +3214,7 @@ void ui_ScreenLock_screen_init(void) {
   lv_obj_set_height(ui_LockHeadingClockDate, LV_SIZE_CONTENT);
   lv_obj_set_x(ui_LockHeadingClockDate, HEADING_SLOT1_CLOCK);
   lv_obj_set_y(ui_LockHeadingClockDate, -200);
-  lv_obj_set_align(ui_LockHeadingClockDate, LV_ALIGN_LEFT_MID);
+  lv_obj_set_align(ui_LockHeadingClockDate, LV_ALIGN_CENTER);
   lv_label_set_text(ui_LockHeadingClockDate, "");
   lv_obj_set_style_text_font(ui_LockHeadingClockDate, &lv_font_montserrat_14,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
