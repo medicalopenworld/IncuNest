@@ -854,16 +854,19 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_style_text_color(ui_ClockDate, lv_color_hex(0x888888),
                               LV_PART_MAIN);
 
-  // Indicador de conectividad del heading: icono WIFI/2G/sin enlace + barras
-  // de cobertura. En el hueco libre entre el reloj (termina hacia x~280) y el
-  // boton de bebes (empieza en x~500). Misma fila que el titulo (y=-213). El
-  // contenido lo refresca connectivity_heading_update() (UITask), igual que
-  // clock_update() hace con el reloj de al lado.
+  // Indicador de conectividad del heading: texto WIFI/2G/sin-enlace ENCIMA de
+  // 4 barras de cobertura, apiladas en vertical (no en horizontal) para caber
+  // angosto: el boton de bloqueo (ui_ImgButton1, alineado al CENTRO de la
+  // pantalla con TOUCH_EXT_SMALL=40 de zona tactil) ocupa el centro exacto
+  // del heading y no se puede tapar ni solapar su zona tactil. Este widget
+  // vive en el hueco a su izquierda, justo despues del reloj. El contenido lo
+  // refresca connectivity_heading_update() (UITask), igual que clock_update()
+  // hace con el reloj de al lado.
   ui_ConnCont = lv_obj_create(ui_ScreenMain);
   lv_obj_remove_style_all(ui_ConnCont);
-  lv_obj_set_width(ui_ConnCont, 160);
-  lv_obj_set_height(ui_ConnCont, 30);
-  lv_obj_set_x(ui_ConnCont, 300);
+  lv_obj_set_width(ui_ConnCont, 40);
+  lv_obj_set_height(ui_ConnCont, 44);
+  lv_obj_set_x(ui_ConnCont, 290);
   lv_obj_set_y(ui_ConnCont, -213);
   lv_obj_set_align(ui_ConnCont, LV_ALIGN_LEFT_MID);
   lv_obj_clear_flag(ui_ConnCont,
@@ -872,18 +875,18 @@ void ui_ScreenMain_screen_init(void) {
   ui_ConnIcon = lv_label_create(ui_ConnCont);
   lv_obj_set_width(ui_ConnIcon, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_ConnIcon, LV_SIZE_CONTENT);
-  lv_obj_set_align(ui_ConnIcon, LV_ALIGN_LEFT_MID);
-  lv_obj_set_x(ui_ConnIcon, 0);
+  lv_obj_set_align(ui_ConnIcon, LV_ALIGN_TOP_MID);
+  lv_obj_set_y(ui_ConnIcon, 0);
   lv_label_set_text(ui_ConnIcon, "");
-  lv_obj_set_style_text_font(ui_ConnIcon, &lv_font_montserrat_18,
+  lv_obj_set_style_text_font(ui_ConnIcon, &lv_font_montserrat_14,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_text_color(ui_ConnIcon, lv_color_hex(0x888888),
                               LV_PART_MAIN);
 
   // 4 barras estilo "senal de movil", altura creciente, apoyadas en la misma
-  // base. Sin fill = gris (igual que las power bars de PID); con fill =
-  // verde (igual que "conectado" en el resto del HMI). El nivel a colorear
-  // (linkBars) llega en CTRL,STATE.
+  // base, centradas bajo el texto/icono de arriba. Sin fill = gris (igual que
+  // las power bars de PID); con fill = verde (igual que "conectado" en el
+  // resto del HMI). El nivel a colorear (linkBars) llega en CTRL,STATE.
   {
     static const lv_coord_t BAR_H[4] = {8, 13, 18, 23};
     for (int i = 0; i < 4; i++) {
@@ -892,7 +895,7 @@ void ui_ScreenMain_screen_init(void) {
       lv_obj_set_width(ui_ConnBar[i], 6);
       lv_obj_set_height(ui_ConnBar[i], BAR_H[i]);
       lv_obj_set_align(ui_ConnBar[i], LV_ALIGN_BOTTOM_LEFT);
-      lv_obj_set_x(ui_ConnBar[i], 34 + i * 9);
+      lv_obj_set_x(ui_ConnBar[i], 4 + i * 9);
       lv_obj_set_y(ui_ConnBar[i], -2);
       lv_obj_set_style_radius(ui_ConnBar[i], 1, LV_PART_MAIN);
       lv_obj_set_style_bg_color(ui_ConnBar[i], lv_color_hex(0x404040),
