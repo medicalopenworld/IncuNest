@@ -974,11 +974,20 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_style_bg_color(ui_Panel1, COLOR_PANEL_GRAY,
                             LV_PART_MAIN); // Default Gray
 
+  // Fila de cabecera (Panel4+Switch1+Label2/9/15) bajada 9px (de y=-186/-187 a
+  // y=-177/-178): con el heading nuevo, el anillo de auto-bloqueo
+  // (ui_LockAutoArc, termina en y=60 absoluto) invadia 2.5px el borde
+  // superior de esta fila (empezaba en y=53). 9px es el maximo que cabe sin
+  // tocar ui_AirPanelCont (empieza en y=113 absoluto; con este desplazamiento
+  // la fila termina en y=112, dejando 1px de margen) ni el sistema de flechas
+  // emergentes de ajuste de consigna (fijas en coordenadas de ui_TempCont, no
+  // se mueven con esta fila). Resultado: 2px de separacion limpia con el
+  // anillo en vez de solapar.
   ui_Panel4 = lv_obj_create(ui_TempCont);
   lv_obj_set_width(ui_Panel4, 376);
   lv_obj_set_height(ui_Panel4, 50);
   lv_obj_set_x(ui_Panel4, 0);
-  lv_obj_set_y(ui_Panel4, -186);
+  lv_obj_set_y(ui_Panel4, -177);
   lv_obj_set_align(ui_Panel4, LV_ALIGN_CENTER);
   lv_obj_clear_flag(ui_Panel4, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -986,7 +995,7 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_width(ui_Switch1, 100);
   lv_obj_set_height(ui_Switch1, 39);
   lv_obj_set_x(ui_Switch1, 95);
-  lv_obj_set_y(ui_Switch1, -187);
+  lv_obj_set_y(ui_Switch1, -178);
   lv_obj_set_align(ui_Switch1, LV_ALIGN_CENTER);
 
   // Header layout: TURN ON button on the left, title on the right.
@@ -996,7 +1005,7 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_width(ui_Label2, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_Label2, LV_SIZE_CONTENT);
   lv_obj_set_x(ui_Label2, -20);
-  lv_obj_set_y(ui_Label2, -186);
+  lv_obj_set_y(ui_Label2, -177);
   lv_obj_set_align(ui_Label2, LV_ALIGN_RIGHT_MID);
   lv_label_set_text(ui_Label2, "Temperature control");
 
@@ -1281,7 +1290,7 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_width(ui_Label9, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_Label9, LV_SIZE_CONTENT);
   lv_obj_set_x(ui_Label9, 165);
-  lv_obj_set_y(ui_Label9, -187);
+  lv_obj_set_y(ui_Label9, -178);
   lv_obj_set_align(ui_Label9, LV_ALIGN_CENTER);
   lv_label_set_text(ui_Label9, "ON");
 
@@ -1289,7 +1298,7 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_width(ui_Label15, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_Label15, LV_SIZE_CONTENT);
   lv_obj_set_x(ui_Label15, 17);
-  lv_obj_set_y(ui_Label15, -187);
+  lv_obj_set_y(ui_Label15, -178);
   lv_obj_set_align(ui_Label15, LV_ALIGN_CENTER);
   lv_label_set_text(ui_Label15, "OFF");
 
