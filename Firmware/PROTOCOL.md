@@ -375,3 +375,39 @@ Para garantizar que el sistema siempre muestre el estado correcto, se siguen est
 1.  **Handshake**: Tras un reinicio o reconexión del HMI, este debe enviar `HMI,UI_READY`. La Board no disparará el reenvío de alarmas hasta recibir este comando o detectar tráfico válido.
 2.  **Auto-Corrección vía Bitmask**: Si el HMI recibe un mensaje de `CTRL,STATE` con un `alarmBitmask` que no coincide con su lista interna de alarmas pintadas en pantalla, el HMI limpiará visualmente las alarmas que no figuren en el bitmask.
 3.  **Filtrado de Etiquetas**: El HMI implementa un filtro de cambios en `update_labels()` para ignorar actualizaciones de texto idénticas, mejorando la respuesta táctil.
+
+---
+
+## Enlace con el SensorBoard (Motherboard ↔ SensorBoard, USB)
+
+Enlace **distinto** al de la HMI: aquí la motherboard actúa de **USB host** y el
+SensorBoard es un dispositivo **CDC-ACM nativo** (TinyUSB, VID `0x303A` / PID
+`0x4001`), con framing binario propio en vez de las líneas `CTRL,...`/`HMI,...`.
+
+**El wire format lo define el SensorBoard** — fuente de verdad:
+`SensorBoard_v2/README.md` y su `sensorBoard_comm_protocol.h`. Aquí solo se
+documenta lo que la motherboard hace con él.
+
+- **Trama**: `Magic(0xAB 0xCD) + Type(1B) + Length(4B LE) + Payload + CRC16(2B BE)`,
+  CRC16-CCITT FALSE sobre `Type+Length+Payload`. `Type 0x00` = JSON (≤256 B),
+  `Type 0x01` = JPEG. Los comandos salientes viajan enmarcados igual.
+- **Consumido** (`modules/sensorboard_comm/`): `heartbeat`, `sensor_data`
+  (3 temperaturas + 3 humedades + lux, con `null` por sensor caído),
+  `door_open`/`door_closed`, `sound_level`, `log`, y las respuestas de
+  `status`/`capture`. **Emitido**: `status` y `capture` bajo demanda.
+- **Fail-safe del enlace**: sin `heartbeat` durante 90 s (3 periodos de 30 s) se
+  declara `ALARM_SENSORBOARD_LINK_LOST` (prioridad MEDIA, mismo criterio que
+  `ALARM_HMI_LINK_LOST`). Antes del primer heartbeat el enlace cuenta como
+  caído, aunque el USB haya enumerado.
+- **Fail-safe de la puerta**: 4 transiciones `open`/`closed` dentro de 60 s se
+  tratan como hall sospechoso (`ALARM_SENSORBOARD_DOOR_FAULT`, prioridad BAJA).
+  Las re-aserciones periódicas del mismo estado no cuentan como transición.
+- **Ninguna de las dos alarmas corta el calefactor**: la telemetría del
+  SensorBoard es auxiliar y **no entra en el lazo de control térmico ni en la
+  UI**. Se publica a ThingsBoard como claves `sb_*` (grupo `SENSORBOARD` de
+  `config/transport_policy.h`: activo por WiFi, apagado por GPRS mientras el
+  presupuesto de campos de esa publicación siga al límite).
+- **Captura JPEG**: `sensorboard_capture_request()` la pide y el JPEG queda
+  disponible vía `sensorboard_capture_result()`. El buffer se reserva del
+  montón solo mientras la captura está en vuelo (esta placa no tiene PSRAM) y
+  hoy **no se sube a ningún sitio**.
