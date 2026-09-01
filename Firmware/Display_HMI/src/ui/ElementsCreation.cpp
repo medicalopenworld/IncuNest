@@ -1005,17 +1005,15 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_width(ui_Switch1, 100);
   lv_obj_set_height(ui_Switch1, 39);
   lv_obj_set_x(ui_Switch1, 95);
-  // Bajado 14px en total respecto a Panel4/Label2 (que se quedan en -176):
-  // 4px del ajuste anterior + 10px mas, pedidos tras seguir viendose mas
-  // alto que ui_Switch3 en banco. Ajuste empirico verificado en banco, sin
-  // causa geometrica identificada en el codigo (ver comentario junto a
-  // ui_Panel4: por coordenadas ambos switches ya deberian coincidir).
-  lv_obj_set_y(ui_Switch1, -162);
+  lv_obj_set_y(ui_Switch1, -176);
   lv_obj_set_align(ui_Switch1, LV_ALIGN_CENTER);
-  // DIAGNOSTICO TEMPORAL: ocultar por completo para confirmar en banco que
-  // este es el widget correcto y que el .bin subido refleja el codigo
-  // actual. Quitar este flag en cuanto se confirme.
-  lv_obj_add_flag(ui_Switch1, LV_OBJ_FLAG_HIDDEN);
+  // ui_Switch1 (y sus etiquetas ON/OFF Label9/Label15) es un widget legacy:
+  // mas abajo en esta funcion se oculta con LV_OBJ_FLAG_HIDDEN y se
+  // reemplaza por ui_TempToggleBtn (boton con label dinamico "TURN ON"/
+  // "TURN OFF"), que es el que de verdad se ve en pantalla. Varios commits
+  // de esta rama ajustaron la posicion de este switch sin ningun efecto
+  // visible porque nunca fue el widget renderizado -- el fix real esta en
+  // ui_TempToggleBtn, ver mas abajo en ui_ScreenMain_screen_init.
 
   // Header layout: TURN ON button on the left, title on the right.
   // Right-aligned so longer translations of TXT_CONTROLTEMP grow towards the
@@ -1305,13 +1303,13 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_align(ui_Label6, LV_ALIGN_CENTER);
   lv_label_set_text(ui_Label6, "Set");
 
-  // Bajados con ui_Switch1 (ver su comentario): viajan pegados al switch, no
-  // al texto "Temperature control".
+  // Legacy junto con ui_Switch1 (ver su comentario): oculto mas abajo,
+  // reemplazado por el label dinamico dentro de ui_TempToggleBtn.
   ui_Label9 = lv_label_create(ui_TempCont);
   lv_obj_set_width(ui_Label9, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_Label9, LV_SIZE_CONTENT);
   lv_obj_set_x(ui_Label9, 165);
-  lv_obj_set_y(ui_Label9, -162);
+  lv_obj_set_y(ui_Label9, -176);
   lv_obj_set_align(ui_Label9, LV_ALIGN_CENTER);
   lv_label_set_text(ui_Label9, "ON");
 
@@ -1319,7 +1317,7 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_width(ui_Label15, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_Label15, LV_SIZE_CONTENT);
   lv_obj_set_x(ui_Label15, 17);
-  lv_obj_set_y(ui_Label15, -162);
+  lv_obj_set_y(ui_Label15, -176);
   lv_obj_set_align(ui_Label15, LV_ALIGN_CENTER);
   lv_label_set_text(ui_Label15, "OFF");
 
@@ -4004,7 +4002,15 @@ void create_main_toggle_buttons() {
   ui_TempToggleBtn = lv_btn_create(ui_TempCont);
   lv_obj_set_size(ui_TempToggleBtn, 160, 39);
   lv_obj_set_x(ui_TempToggleBtn, -91);
-  lv_obj_set_y(ui_TempToggleBtn, -187);
+  // -187 -> -176: este es el boton "TURN ON" que de verdad se ve en
+  // pantalla (ui_Switch1 esta oculto, ver su comentario). -176 coloca su
+  // centro en el absoluto 88, igual que ui_PhotoToggleBtn (dentro de
+  // ui_PhotoCont, y=1, con ui_PhotoCont ya puesta en -153 para caer ahi) y
+  // que Panel4/Label2 de esta misma cabecera. Ver el analisis de margenes
+  // (arco de auto-bloqueo arriba, ui_AirPanelCont abajo) en el comentario
+  // junto a ui_Panel4, valido igual para este boton (misma altura, 39px,
+  // que ui_Switch1 al que sustituye).
+  lv_obj_set_y(ui_TempToggleBtn, -176);
   lv_obj_set_align(ui_TempToggleBtn, LV_ALIGN_CENTER);
   lv_obj_set_style_bg_color(ui_TempToggleBtn, lv_color_hex(0x4EC7FF), LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_bg_opa(ui_TempToggleBtn, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
