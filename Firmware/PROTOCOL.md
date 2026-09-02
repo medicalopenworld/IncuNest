@@ -162,6 +162,23 @@ Enviado cada 10 segundos (y una vez al arrancar la tarea de comunicación).
   formatear fechas, y `known_issues.md` #2 desaconseja añadir tráfico UART
   periódico evitable.
 
+#### HMI,SET_TIME
+Ajuste manual del reloj desde la pantalla táctil de la HMI: se toca la propia
+hora de cabecera (pantalla principal) para abrir el panel. Llega por el UART
+motherBoard↔HMI, así que funciona sin WiFi — a diferencia del formulario
+`/config` (campo `set_time`), que necesita que el navegador llegue al
+webserver del motherBoard por WiFi. Pensado para el caso GPRS puro sin NITZ
+fiable, donde `/config` es inalcanzable.
+
+**Formato**: `HMI,SET_TIME,YYYY,MM,DD,HH,MM` → `CTRL,TIME_ACK,0|1`
+- Mismo contrato que `/config,set_time`: los campos son la hora LOCAL tal
+  cual la ve el operador en el reloj de pared, sin zona — la motherBoard la
+  aplica con offset `0` vía `systemClockSetManual()`, exactamente la misma
+  función que usa el formulario web. Una vez fijada así, ninguna fuente
+  automática (NITZ, NTP, IP) la desplaza hasta el siguiente reinicio.
+- `CTRL,TIME_ACK,0` = aceptada. `CTRL,TIME_ACK,1` = rechazada (fecha/hora
+  fuera de rango, año anterior a 2021).
+
 #### CTRL,PROFILE_LIST (Respuesta a HMI,PROFILE_LIST_REQ)
 Lista de los perfiles de bebé activos (0–3 slots).
 **Formato**: `CTRL,PROFILE_LIST,n{,seq,name,gestWeeks,weightGrams,kangarooCount,phototherapyMin,thermoMin,humidityMin}×n`

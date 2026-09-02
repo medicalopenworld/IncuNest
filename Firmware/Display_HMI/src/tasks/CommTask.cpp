@@ -29,6 +29,10 @@ uint32_t            g_profileAck = 0;
 volatile bool       g_pendingProfileRange = false;
 BabyProfileRangeMsg g_profileRange = {0, false, 0, -1.0f, -1.0f, -1.0f, true};
 
+// --- Ajuste manual de hora (Settings) ---
+volatile bool g_pendingTimeAck = false;
+uint32_t      g_timeAckResult  = 0;
+
 // --- Registro de alarmas ---
 volatile bool   g_pendingAlarmHistory = false;
 AlarmHistoryMsg g_alarmHistory = {0, {}};
@@ -196,6 +200,14 @@ void Communication_SendProfileNew(const char *name, uint8_t gestWeeks) {
 void Communication_SendProfileSelect(uint32_t seq) {
 #if IS_HMI
   COMM_SERIAL.printf("HMI,PROFILE_SELECT,%u\n", (unsigned)seq);
+#endif
+}
+
+void Communication_SendSetTime(int year, int month, int day, int hour,
+                               int minute) {
+#if IS_HMI
+  COMM_SERIAL.printf("HMI,SET_TIME,%04d,%02d,%02d,%02d,%02d\n", year, month,
+                     day, hour, minute);
 #endif
 }
 
@@ -659,6 +671,14 @@ static void parse_message(const char *line) {
       g_pendingProfileAck = true;
     } else {
       COMM_LOG("[COMM] PROFILE_ACK parse error: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,TIME_ACK", 13) == 0) {
+    unsigned result = 0;
+    if (sscanf(line, "CTRL,TIME_ACK,%u", &result) == 1) {
+      g_timeAckResult = (uint32_t)result;
+      g_pendingTimeAck = true;
+    } else {
+      COMM_LOG("[COMM] TIME_ACK parse error: %s\n", line);
     }
   } else if (strncmp(line, "CTRL,PROFILE_RANGE", 18) == 0) {
     unsigned seq = 0;

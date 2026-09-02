@@ -1238,14 +1238,18 @@ static void ensureWifiTimeStarted() {
 static void ensureWifiTimeZoneSynced() {
   static uint32_t s_lastAttemptMs = 0;
   // Si NITZ ya la resolvió no hay nada que preguntar: la antena está donde
-  // está el equipo y una IP puede ser de una VPN o de otro país.
+  // está el equipo y una IP puede ser de una VPN o de otro país. Además
+  // tz_source_set() nunca deja que IP pise a NITZ, así que consultar aquí
+  // sería tirar peticiones HTTP sin ningún efecto.
   if (tz_source_origin() == TZ_SOURCE_NITZ)
     return;
-  if (tz_source_known())
-    return;
-  // 45 peticiones/minuto es el límite del servicio; con un intento cada
-  // 5 minutos no se roza ni compartiendo IP con toda una clínica.
-  if (s_lastAttemptMs != 0 && millis() - s_lastAttemptMs < 300000u)
+  // Mientras no haya zona resuelta se reintenta cada 5 min (45
+  // peticiones/minuto es el límite del servicio, de sobra incluso
+  // compartiendo IP con toda una clínica); una vez resuelta se refresca una
+  // vez al día para que un cambio de horario de verano/invierno no se quede
+  // pillado en un equipo que lleve semanas sin reiniciar.
+  uint32_t interval = tz_source_known() ? TX_TIMEZONE_REFRESH_MS : 300000u;
+  if (s_lastAttemptMs != 0 && millis() - s_lastAttemptMs < interval)
     return;
   s_lastAttemptMs = millis();
   if (WiFi.status() != WL_CONNECTED)
@@ -1297,6 +1301,13 @@ static constexpr size_t WIFI_RPC_CB_COUNT =
 
 void WIFI_TB_OTA() {
   if (WIFIIsConnected()) {
+    // Independiente del aprovisionamiento en ThingsBoard a propósito: mismo
+    // fallo que en GPRSPost() (ver GPRS.cpp) — una unidad sin número de serie
+    // se queda esperando el provisioning para siempre y, si esto viviera más
+    // abajo, jamás llegaría a poner en hora ni a resolver la zona horaria.
+    ensureWifiTimeStarted();
+    ensureWifiTimeZoneSynced();
+
     if (!Wifi_TB.provisioned) {
       if (in3.serialNumber == 0) {
         logI("[WIFI] -> Waiting for serial number before provisioning");
@@ -1374,8 +1385,6 @@ void WIFI_TB_OTA() {
               g_spo2_data.rsqi, millis());
         }
 #endif
-        ensureWifiTimeStarted();
-        ensureWifiTimeZoneSynced();
         // El montaje del JSON es idéntico por GPRS: vive en
         // PpgSnapshotPublish.cpp para no tener dos copias que diverjan.
         ppgSnapshotPublish(tb_wifi, "WIFI");

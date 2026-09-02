@@ -1,6 +1,8 @@
 #include "CommTask.h"
 #include "main.h"
 #include "modules/util/tz_source.h"
+#include "modules/util/civil_time.h"
+#include "modules/util/system_clock.h"
 #include "tasks/PID.h"
 #include "DriveUpload.h"
 #include <LittleFS.h>
@@ -595,6 +597,32 @@ void parse_line(const char *line) {
         ESP_LOGE(TAG, "WIFI parse error");
         xSemaphoreGiveRecursive(log_mutex);
       }
+    }
+    return;
+  }
+
+  if (strncmp(line, "HMI,SET_TIME,", 13) == 0) {
+    // Mismo contrato que /config,set_time (Wifi_OTA.cpp): lo que llega es la
+    // hora LOCAL vista por el operador, sin zona -> offset 0 y
+    // systemClockSetManual(), para que ninguna fuente automatica la desplace
+    // hasta el siguiente reinicio. Unica diferencia: esto llega por UART, no
+    // por WiFi, asi que funciona en un equipo GPRS puro sin NITZ fiable.
+    int y = 0, mo = 0, d = 0, h = 0, mi = 0;
+    uint32_t epoch = 0;
+    bool ok = sscanf(line, "HMI,SET_TIME,%d,%d,%d,%d,%d", &y, &mo, &d, &h,
+                     &mi) == 5 &&
+              civil_to_unix_utc(y, (unsigned)mo, (unsigned)d, (unsigned)h,
+                                (unsigned)mi, 0, 0, &epoch) &&
+              systemClockSetManual(epoch);
+    hmiSerial.print(ok ? "CTRL,TIME_ACK,0\n" : "CTRL,TIME_ACK,1\n");
+    if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      if (ok) {
+        ESP_LOGI(TAG, "Clock set manually from HMI, epoch %u",
+                (unsigned)epoch);
+      } else {
+        ESP_LOGE(TAG, "HMI,SET_TIME rejected: %s", line);
+      }
+      xSemaphoreGiveRecursive(log_mutex);
     }
     return;
   }

@@ -877,6 +877,11 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   const char *TXT_PASSWORD[] = {"CONTRASENA", "PASSWORD", "MOT DE PASSE"};
   const char *TXT_SKINMODE[] = {"MODO PIEL", "SKIN MODE", "MODE PEAU"};
   const char *TXT_INFO[] = {"INFO", "INFO", "INFO"};
+  const char *TXT_MODES[] = {"Modos", "Modes", "Modes"};
+  const char *TXT_MODES_TITLE[] = {"MODOS", "MODES", "MODES"};
+  const char *TXT_ADJUSTTIME_TITLE[] = {"AJUSTAR HORA", "ADJUST TIME",
+                                        "AJUSTER L'HEURE"};
+  const char *TXT_APPLY[] = {"APLICAR", "APPLY", "APPLIQUER"};
   const char *TXT_HMI_VERSION[] = {
       "VERSION PANTALLA:", "DISPLAY VERSION:", "VERSION ECRAN:"};
   const char *TXT_MB_VERSION[] = {
@@ -964,6 +969,10 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   lv_label_set_text(ui_SkinOptionLabel, TXT_SKINMODE[lang]);
   lv_label_set_text(ui_InfoLabel, TXT_INFO[lang]);
   lv_label_set_text(ui_DarkModeLabel, TXT_DARKMODE[lang]);
+  lv_label_set_text(ui_ModesLabel, TXT_MODES[lang]);
+  lv_label_set_text(ui_ModesTitleLabel, TXT_MODES_TITLE[lang]);
+  lv_label_set_text(ui_TimeTitleLabel, TXT_ADJUSTTIME_TITLE[lang]);
+  lv_label_set_text(ui_TimeConfirmLabel, TXT_APPLY[lang]);
   {
     const char *TXT_HUMIDITY_MODE[] = {"CONTROL HUMEDAD", "HUMIDITY CONTROL",
                                        "CONTROLE HUMIDITE"};
@@ -1165,6 +1174,7 @@ void WifiButton_cb(lv_event_t *e) {
   lv_obj_add_flag(ui_InfoDetailsCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_ModesConfigCont, LV_OBJ_FLAG_HIDDEN);
   isConnected = (WiFi.status() == WL_CONNECTED);
 
   // Pre-fill TextAreas with saved credentials so the user only needs to
@@ -1221,6 +1231,7 @@ void InfoButton_cb(lv_event_t *e) {
   LanguagesVisible = false;
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_ModesConfigCont, LV_OBJ_FLAG_HIDDEN);
 
   lv_obj_clear_flag(ui_InfoDetailsCont, LV_OBJ_FLAG_HIDDEN);
 
@@ -1252,10 +1263,70 @@ void InfoButton_cb(lv_event_t *e) {
   wifiVisible = false;
 }
 
+void ModesButton_cb(lv_event_t *e) {
+  lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
+  LanguagesVisible = false;
+  lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_InfoDetailsCont, LV_OBJ_FLAG_HIDDEN);
+
+  lv_obj_clear_flag(ui_ModesConfigCont, LV_OBJ_FLAG_HIDDEN);
+
+  wifiVisible = false;
+}
+
+// Disparado al tocar la hora de cabecera (ui_ClockButton, ui_ScreenMain), no
+// desde Settings: el reloj vive ahi, asi que no hace falta ocultar ningun
+// panel de la pantalla de ajustes (son pantallas distintas, LVGL no las
+// muestra a la vez).
+void ClockButton_cb(lv_event_t *e) {
+  // Prefill con la hora que ya conoce el HMI, si la tiene: mejor partir de un
+  // valor cercano que forzar a teclear los 5 campos desde cero cada vez.
+  if (HMI_HasLocalTime()) {
+    const time_t t = (time_t)HMI_ToLocal(HMI_GetEpochNow());
+    struct tm tmv;
+    gmtime_r(&t, &tmv);
+    lv_spinbox_set_value(ui_TimeSpinDay, tmv.tm_mday);
+    lv_spinbox_set_value(ui_TimeSpinMonth, tmv.tm_mon + 1);
+    lv_spinbox_set_value(ui_TimeSpinYear, tmv.tm_year + 1900);
+    lv_spinbox_set_value(ui_TimeSpinHour, tmv.tm_hour);
+    lv_spinbox_set_value(ui_TimeSpinMinute, tmv.tm_min);
+  }
+  lv_label_set_text(ui_TimeResultLabel, "");
+
+  lv_obj_clear_flag(ui_TimeConfigCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_move_foreground(ui_TimeConfigCont);
+}
+
+void TimeConfirmButton_cb(lv_event_t *e) {
+  const int day    = (int)lv_spinbox_get_value(ui_TimeSpinDay);
+  const int month  = (int)lv_spinbox_get_value(ui_TimeSpinMonth);
+  const int year   = (int)lv_spinbox_get_value(ui_TimeSpinYear);
+  const int hour   = (int)lv_spinbox_get_value(ui_TimeSpinHour);
+  const int minute = (int)lv_spinbox_get_value(ui_TimeSpinMinute);
+  Communication_SendSetTime(year, month, day, hour, minute);
+  const char *TXT_SENDING[] = {"Enviando...", "Sending...", "Envoi..."};
+  lv_label_set_text(ui_TimeResultLabel, TXT_SENDING[g_lang]);
+}
+
+// Compartidos por los 10 botones -/+ de los 5 spinboxes de la hora: el
+// spinbox al que afecta cada uno viaja como user_data (ver
+// ElementsCreation.cpp, donde se registran).
+void TimeSpinboxInc_cb(lv_event_t *e) {
+  lv_obj_t *spin = (lv_obj_t *)lv_event_get_user_data(e);
+  if (spin) _ui_spinbox_step(spin, 1);
+}
+
+void TimeSpinboxDec_cb(lv_event_t *e) {
+  lv_obj_t *spin = (lv_obj_t *)lv_event_get_user_data(e);
+  if (spin) _ui_spinbox_step(spin, -1);
+}
+
 void LanguageButton_cb(lv_event_t *e) {
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_InfoDetailsCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_ModesConfigCont, LV_OBJ_FLAG_HIDDEN);
   wifiVisible = false;
   lv_obj_clear_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
   LanguagesVisible = true;
@@ -4064,6 +4135,8 @@ void UI_Task(void *pvParameters) {
   lv_obj_add_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_ModesConfigCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_TimeConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
   lv_keyboard_set_textarea(ui_Keyboard1, NULL);
@@ -4511,6 +4584,32 @@ void UI_Task(void *pvParameters) {
     // timeouts. A diferencia del resto, este NO se cierra con una alarma
     // critica — es precisamente la pantalla donde se atiende.
     AlarmCenter_Poll();
+
+    // Ajuste manual de hora (se abre tocando la hora de cabecera,
+    // ClockButton_cb): una alarma critica se lleva la pantalla por delante,
+    // igual que hace BabyWizard_Poll() con su wizard.
+    if (!lv_obj_has_flag(ui_TimeConfigCont, LV_OBJ_FLAG_HIDDEN) &&
+        UI_IsCriticalAlarmActive()) {
+      lv_obj_add_flag(ui_TimeConfigCont, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    // Consume el CTRL,TIME_ACK de CommTask.cpp. Si se acepto, se cierra el
+    // panel solo; si se rechazo, se deja abierto para que el operador
+    // corrija los campos.
+    if (g_pendingTimeAck) {
+      g_pendingTimeAck = false;
+      const char *TXT_TIME_OK[] = {"Hora ajustada", "Time set",
+                                   "Heure ajustee"};
+      const char *TXT_TIME_FAIL[] = {"Hora rechazada", "Time rejected",
+                                     "Heure rejetee"};
+      const char *msg =
+          (g_timeAckResult == 0) ? TXT_TIME_OK[g_lang] : TXT_TIME_FAIL[g_lang];
+      lv_label_set_text(ui_TimeResultLabel, msg);
+      UI_ShowToast(msg, 3000);
+      if (g_timeAckResult == 0) {
+        lv_obj_add_flag(ui_TimeConfigCont, LV_OBJ_FLAG_HIDDEN);
+      }
+    }
 
     // El banner se reevalua en CADA pasada, no solo cuando cambia el conjunto
     // de alarmas. Su visibilidad depende de la pantalla activa y el banner
