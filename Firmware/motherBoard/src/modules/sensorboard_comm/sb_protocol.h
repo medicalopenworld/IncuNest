@@ -65,8 +65,18 @@
 // Con la cadencia de 5 s que traia el SensorBoard originalmente, una sola
 // publicacion perdida (las descarta sin reintento bajo backpressure) cortaba
 // el calefactor: de ahi que la cadencia tenga que ser 1 s.
-#define SB_ENV_PUBLISH_PERIOD_MS 1000u
-#define SB_ENV_STALE_MS (3u * SB_ENV_PUBLISH_PERIOD_MS)
+// Periodo MEDIDO en banco (2026-09-02, SensorBoard fw 1.0.0): 1034 ms de
+// media, min 1034 / max 1036 sobre 20 muestras. No son 1000 clavados: el
+// polling arrastra el tiempo de conversion de los tres SHT40.
+#define SB_ENV_PUBLISH_PERIOD_MS 1034u
+// 3.5 periodos reales. Con los 3000 ms de "3 x 1000" que habia antes, perder
+// DOS publicaciones seguidas (3 x 1034 = 3102 ms) ya declaraba el dato rancio
+// y acababa cortando el calefactor; con 3600 hacen falta tres. La cuenta
+// completa hasta el corte es: ultimo dato bueno -> 3.6 s rancio -> deja de
+// refrescarse el sello -> +5 s (MINIMUM_SUCCESSFULL_AIR_SENSOR_UPDATE) ->
+// ALARM_AIR_SENSOR_FAULT. Unos 8.6 s, muy por debajo de la constante termica
+// de la incubadora.
+#define SB_ENV_STALE_MS 3600u
 
 #define SB_SOUND_PUBLISH_PERIOD_MS 5000u
 #define SB_SOUND_STALE_MS (3u * SB_SOUND_PUBLISH_PERIOD_MS)
