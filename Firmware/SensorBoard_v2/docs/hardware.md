@@ -1,6 +1,6 @@
 # SensorBoard — Hardware y pinout (referencia)
 
-**Fecha:** 2026-07-03
+**Fecha:** 2026-09-02 (corrección de pinout de cámara respecto a la versión del 2026-07-03)
 **Fuente:** esquema de hardware, transcrito por Pablo Sánchez Bergasa.
 **MCU:** ESP32-S3-WROOM-1-N16R8 (16MB Flash, 8MB PSRAM Octal)
 
@@ -24,21 +24,21 @@ Referencia de configuración para todas las fases del roadmap (`Firmware/docs/su
 | IO1 | ALS (salida analógica del fototransistor) | Luz ambiental |
 | IO4 | I2C_SDA | I2C principal (cámara SCCB + SHT40) |
 | IO5 | I2C_SCL | I2C principal (cámara SCCB + SHT40) |
-| IO6 | DVP_VSYNC | Cámara |
-| IO7 | DVP_HREF | Cámara |
-| IO8 | DVP_Y4 | Cámara |
-| IO9 | DVP_Y3 | Cámara |
-| IO10 | DVP_Y5 | Cámara |
-| IO11 | DVP_Y2 | Cámara |
-| IO12 | DVP_Y6 | Cámara |
-| IO13 | DVP_PCLK | Cámara |
-| IO15 | XMCLK | Cámara (reloj maestro) |
-| IO16 | DVP_Y9 | Cámara |
+| IO6 | DVP_Y6 | Cámara |
+| IO7 | DVP_Y7 | Cámara |
+| IO8 | DVP_Y2 | Cámara |
+| IO9 | DVP_Y5 | Cámara |
+| IO10 | DVP_Y3 | Cámara |
+| IO11 | DVP_Y4 | Cámara |
+| IO12 | DVP_VSYNC | Cámara |
+| IO13 | CAM_PWDN | Cámara (power down) |
+| IO15 | DVP_Y9 | Cámara |
+| IO16 | XMCLK | Cámara (reloj maestro) |
 | IO17 | DVP_Y8 | Cámara |
-| IO18 | DVP_Y7 | Cámara |
+| IO18 | DVP_HREF | Cámara |
 | IO19 | USB_N / D_N | USB nativo |
 | IO20 | USB_P / D_P | USB nativo |
-| IO21 | CAM_PWDN | Cámara (power down) |
+| IO21 | DVP_PCLK | Cámara |
 | IO39 | MIC_DATA | Micrófono |
 | IO40 | MIC_SCK | Micrófono |
 | IO41 | I2C_TEMP_SENSORS_SDA | I2C sensores temperatura |
@@ -54,5 +54,5 @@ Referencia de configuración para todas las fases del roadmap (`Firmware/docs/su
 - **ALS-PT19 es un fototransistor analógico**, no un sensor I2C: se lee por ADC en IO1 (ADC1_CH0). Esto resuelve el "I2C o ADC a confirmar" de la Fase 2 del roadmap. La conversión a lux depende de la resistencia de carga del esquema — calibración pendiente de diseño de fase.
 - **El ICS-41350 es un micrófono PDM**, no I2S estándar: IO40 = clock PDM, IO39 = data. En ESP32-S3 se lee con el periférico I2S en modo PDM RX. Afecta al diseño de la Fase 3 (el roadmap asumía "MEMS I2S").
 - **DRV5032FB**: salida digital push-pull, versión de muy bajo consumo a 5 Hz de muestreo interno — el debounce de la Fase 4 debe considerar esa latencia propia del sensor.
-- **OV2640 sin pin RESET dedicado** en el pinout (solo PWDN en IO21): asumir RESET fijado por hardware; confirmar al diseñar la Fase 5.
+- **OV2640 sin pin RESET dedicado** en el pinout (solo PWDN en IO13): asumir RESET fijado por hardware; confirmar al diseñar la Fase 5.
 - **USB nativo** en IO19/IO20: la Fase 1 (USB CDC) usa el periférico USB-OTG del S3, no un puente UART.
