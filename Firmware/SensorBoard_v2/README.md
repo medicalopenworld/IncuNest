@@ -25,7 +25,16 @@ La API para las fases de sensores es `sensorBoard_comm_send_json()` (y `send_bin
 
 ## Telemetría (Fase 2)
 
-Cada `CONFIG_SB_ENV_POLL_PERIOD_S` (5 s por defecto) se publica:
+> **Esto no es telemetría auxiliar.** En un equipo con SensorBoard, estas
+> temperaturas y humedades **son** el sensor de aire y de humedad de la
+> incubadora: la variable del PID y la fuente de los cortes térmicos. La
+> motherboard las inyecta en `in3.temperature[ROOM_DIGITAL_TEMP_SENSOR]` y
+> refresca con ellas su sello de frescura; si dejan de llegar, su
+> `ALARM_AIR_SENSOR_FAULT` (ALTA) corta el calefactor a los 5 s. De ahí que la
+> cadencia sea de **1 s** y no de 5: con 5 s, una sola publicación perdida
+> (se descartan sin reintento cuando el host no drena) cortaba la calefacción.
+
+Cada `CONFIG_SB_ENV_POLL_PERIOD_S` (1 s por defecto) se publica:
 
 ```json
 {"type":"event","cmd":"sensor_data","data":{"temp":[36.5,37.0,36.8],"hum":[55.0,54.5,60.1],"lux":320.5},"ts":5200}
