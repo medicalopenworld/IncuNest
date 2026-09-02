@@ -450,11 +450,15 @@ void clock_update(void) {
     strncpy(lastTime, nowTime, sizeof(lastTime) - 1);
     lastTime[sizeof(lastTime) - 1] = '\0';
     lv_label_set_text(ui_ClockTime, nowTime);
+    // Replica del reloj en el heading de ui_ScreenLock (ver "mantener
+    // IncuNest/reloj/conectividad en la pantalla de bloqueo").
+    if (ui_LockHeadingClockTime) lv_label_set_text(ui_LockHeadingClockTime, nowTime);
   }
   if (strcmp(nowDate, lastDate) != 0) {
     strncpy(lastDate, nowDate, sizeof(lastDate) - 1);
     lastDate[sizeof(lastDate) - 1] = '\0';
     lv_label_set_text(ui_ClockDate, nowDate);
+    if (ui_LockHeadingClockDate) lv_label_set_text(ui_LockHeadingClockDate, nowDate);
   }
 }
 
@@ -492,6 +496,88 @@ void wifi_board_status_update(void) {
                               onServer ? lv_color_hex(0x2E9E4F)
                                        : lv_color_hex(0xCC7A00),
                               LV_PART_MAIN);
+}
+
+// Aplica el estado de conectividad a UNA instancia del indicador (icono +
+// 4 barras). Factorizado para que ui_ScreenMain y su replica en
+// ui_ScreenLock (ver "mantener IncuNest/reloj/conectividad en la pantalla de
+// bloqueo") pinten exactamente igual sin duplicar la logica. `lastSignature`
+// es el cache de "no cambio nada desde la ultima pasada" de ESA instancia:
+// cada llamador pasa su propia estatica, para que la primera pintura de una
+// instancia no se salte solo porque la otra ya estaba al dia.
+static void apply_connectivity_indicator(lv_obj_t *icon, lv_obj_t *bars[4],
+                                          int status, int linkBars,
+                                          int *lastSignature) {
+  if (!icon) return;
+
+  const int signature = status * 100 + (linkBars + 1);
+  if (signature == *lastSignature) return;
+  *lastSignature = signature;
+
+  const bool onServer =
+      (status == COMM_STATUS_WIFI_SERVER || status == COMM_STATUS_GPRS_SERVER);
+  const bool hasTransport = (status != COMM_STATUS_NONE);
+  const lv_color_t color = !hasTransport  ? lv_color_hex(0x888888)
+                            : onServer    ? lv_color_hex(0x2E9E4F)
+                                          : lv_color_hex(0xCC7A00);
+
+  const char *iconTxt;
+  switch (status) {
+  case COMM_STATUS_WIFI_ONLY:
+  case COMM_STATUS_WIFI_SERVER:
+    iconTxt = LV_SYMBOL_WIFI;
+    break;
+  case COMM_STATUS_GPRS_ONLY:
+  case COMM_STATUS_GPRS_SERVER:
+    iconTxt = "2G";
+    break;
+  default:
+    iconTxt = LV_SYMBOL_CLOSE;
+    break;
+  }
+  lv_label_set_text(icon, iconTxt);
+  lv_obj_set_style_text_color(icon, color, LV_PART_MAIN);
+
+  // Sin transporte no hay cobertura que mostrar; con transporte pero sin dato
+  // fiable (linkBars<0: placa antigua o lectura de RSSI/CSQ aun no llegada)
+  // se pintan las 4 en gris, nunca se inventa un nivel.
+  const int fillCount =
+      (!hasTransport) ? 0 : (linkBars < 0) ? 0 : (linkBars > 4 ? 4 : linkBars);
+  for (int i = 0; i < 4; i++) {
+    if (!bars[i]) continue;
+    if (!hasTransport) {
+      lv_obj_add_flag(bars[i], LV_OBJ_FLAG_HIDDEN);
+      continue;
+    }
+    lv_obj_clear_flag(bars[i], LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_style_bg_color(
+        bars[i], (i < fillCount) ? color : lv_color_hex(0x404040),
+        LV_PART_MAIN);
+  }
+}
+
+// Indicador de conectividad del heading, visible en TODAS las pantallas (a
+// diferencia de wifi_board_status_update, que solo vive en Ajustes/WiFi): un
+// icono WIFI/2G/sin enlace mas 4 barras de cobertura, para que el operador
+// vea de un vistazo si el equipo puede subir telemetria sin tener que entrar
+// a Ajustes. Se pinta tanto en ui_ScreenMain como en su replica de
+// ui_ScreenLock, cada una con su propio cache de "sin cambios".
+//
+// Con el enlace HMI-placa caido (Display_IsBoardLinkLost()) no hay dato
+// fresco del que fiarse: se pinta como "sin datos", igual criterio que
+// link_lost_blank_update() aplica a las medidas.
+void connectivity_heading_update(void) {
+  const bool linkLost = Display_IsBoardLinkLost();
+  const int status = linkLost ? COMM_STATUS_NONE : ctrl_state_msg.serverCommStatus;
+  const int linkBars = linkLost ? -1 : ctrl_state_msg.linkBars;
+
+  static int lastSignatureMain = -999;
+  apply_connectivity_indicator(ui_ConnIcon, ui_ConnBar, status, linkBars,
+                                &lastSignatureMain);
+
+  static int lastSignatureLock = -999;
+  apply_connectivity_indicator(ui_LockHeadingConnIcon, ui_LockHeadingConnBar,
+                                status, linkBars, &lastSignatureLock);
 }
 
 void link_lost_blank_update(void) {
@@ -877,6 +963,11 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   const char *TXT_PASSWORD[] = {"CONTRASENA", "PASSWORD", "MOT DE PASSE"};
   const char *TXT_SKINMODE[] = {"MODO PIEL", "SKIN MODE", "MODE PEAU"};
   const char *TXT_INFO[] = {"INFO", "INFO", "INFO"};
+  const char *TXT_MODES[] = {"Modos", "Modes", "Modes"};
+  const char *TXT_MODES_TITLE[] = {"MODOS", "MODES", "MODES"};
+  const char *TXT_ADJUSTTIME_TITLE[] = {"AJUSTAR HORA", "ADJUST TIME",
+                                        "AJUSTER L'HEURE"};
+  const char *TXT_APPLY[] = {"APLICAR", "APPLY", "APPLIQUER"};
   const char *TXT_HMI_VERSION[] = {
       "VERSION PANTALLA:", "DISPLAY VERSION:", "VERSION ECRAN:"};
   const char *TXT_MB_VERSION[] = {
@@ -964,6 +1055,10 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   lv_label_set_text(ui_SkinOptionLabel, TXT_SKINMODE[lang]);
   lv_label_set_text(ui_InfoLabel, TXT_INFO[lang]);
   lv_label_set_text(ui_DarkModeLabel, TXT_DARKMODE[lang]);
+  lv_label_set_text(ui_ModesLabel, TXT_MODES[lang]);
+  lv_label_set_text(ui_ModesTitleLabel, TXT_MODES_TITLE[lang]);
+  lv_label_set_text(ui_TimeTitleLabel, TXT_ADJUSTTIME_TITLE[lang]);
+  lv_label_set_text(ui_TimeConfirmLabel, TXT_APPLY[lang]);
   {
     const char *TXT_HUMIDITY_MODE[] = {"CONTROL HUMEDAD", "HUMIDITY CONTROL",
                                        "CONTROLE HUMIDITE"};
@@ -1165,6 +1260,7 @@ void WifiButton_cb(lv_event_t *e) {
   lv_obj_add_flag(ui_InfoDetailsCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_ModesConfigCont, LV_OBJ_FLAG_HIDDEN);
   isConnected = (WiFi.status() == WL_CONNECTED);
 
   // Pre-fill TextAreas with saved credentials so the user only needs to
@@ -1221,6 +1317,7 @@ void InfoButton_cb(lv_event_t *e) {
   LanguagesVisible = false;
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_ModesConfigCont, LV_OBJ_FLAG_HIDDEN);
 
   lv_obj_clear_flag(ui_InfoDetailsCont, LV_OBJ_FLAG_HIDDEN);
 
@@ -1252,10 +1349,70 @@ void InfoButton_cb(lv_event_t *e) {
   wifiVisible = false;
 }
 
+void ModesButton_cb(lv_event_t *e) {
+  lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
+  LanguagesVisible = false;
+  lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_InfoDetailsCont, LV_OBJ_FLAG_HIDDEN);
+
+  lv_obj_clear_flag(ui_ModesConfigCont, LV_OBJ_FLAG_HIDDEN);
+
+  wifiVisible = false;
+}
+
+// Disparado al tocar la hora de cabecera (ui_ClockButton, ui_ScreenMain), no
+// desde Settings: el reloj vive ahi, asi que no hace falta ocultar ningun
+// panel de la pantalla de ajustes (son pantallas distintas, LVGL no las
+// muestra a la vez).
+void ClockButton_cb(lv_event_t *e) {
+  // Prefill con la hora que ya conoce el HMI, si la tiene: mejor partir de un
+  // valor cercano que forzar a teclear los 5 campos desde cero cada vez.
+  if (HMI_HasLocalTime()) {
+    const time_t t = (time_t)HMI_ToLocal(HMI_GetEpochNow());
+    struct tm tmv;
+    gmtime_r(&t, &tmv);
+    lv_spinbox_set_value(ui_TimeSpinDay, tmv.tm_mday);
+    lv_spinbox_set_value(ui_TimeSpinMonth, tmv.tm_mon + 1);
+    lv_spinbox_set_value(ui_TimeSpinYear, tmv.tm_year + 1900);
+    lv_spinbox_set_value(ui_TimeSpinHour, tmv.tm_hour);
+    lv_spinbox_set_value(ui_TimeSpinMinute, tmv.tm_min);
+  }
+  lv_label_set_text(ui_TimeResultLabel, "");
+
+  lv_obj_clear_flag(ui_TimeConfigCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_move_foreground(ui_TimeConfigCont);
+}
+
+void TimeConfirmButton_cb(lv_event_t *e) {
+  const int day    = (int)lv_spinbox_get_value(ui_TimeSpinDay);
+  const int month  = (int)lv_spinbox_get_value(ui_TimeSpinMonth);
+  const int year   = (int)lv_spinbox_get_value(ui_TimeSpinYear);
+  const int hour   = (int)lv_spinbox_get_value(ui_TimeSpinHour);
+  const int minute = (int)lv_spinbox_get_value(ui_TimeSpinMinute);
+  Communication_SendSetTime(year, month, day, hour, minute);
+  const char *TXT_SENDING[] = {"Enviando...", "Sending...", "Envoi..."};
+  lv_label_set_text(ui_TimeResultLabel, TXT_SENDING[g_lang]);
+}
+
+// Compartidos por los 10 botones -/+ de los 5 spinboxes de la hora: el
+// spinbox al que afecta cada uno viaja como user_data (ver
+// ElementsCreation.cpp, donde se registran).
+void TimeSpinboxInc_cb(lv_event_t *e) {
+  lv_obj_t *spin = (lv_obj_t *)lv_event_get_user_data(e);
+  if (spin) _ui_spinbox_step(spin, 1);
+}
+
+void TimeSpinboxDec_cb(lv_event_t *e) {
+  lv_obj_t *spin = (lv_obj_t *)lv_event_get_user_data(e);
+  if (spin) _ui_spinbox_step(spin, -1);
+}
+
 void LanguageButton_cb(lv_event_t *e) {
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_InfoDetailsCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_ModesConfigCont, LV_OBJ_FLAG_HIDDEN);
   wifiVisible = false;
   lv_obj_clear_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
   LanguagesVisible = true;
@@ -4064,6 +4221,8 @@ void UI_Task(void *pvParameters) {
   lv_obj_add_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_ModesConfigCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_TimeConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
   lv_keyboard_set_textarea(ui_Keyboard1, NULL);
@@ -4512,6 +4671,32 @@ void UI_Task(void *pvParameters) {
     // critica — es precisamente la pantalla donde se atiende.
     AlarmCenter_Poll();
 
+    // Ajuste manual de hora (se abre tocando la hora de cabecera,
+    // ClockButton_cb): una alarma critica se lleva la pantalla por delante,
+    // igual que hace BabyWizard_Poll() con su wizard.
+    if (!lv_obj_has_flag(ui_TimeConfigCont, LV_OBJ_FLAG_HIDDEN) &&
+        UI_IsCriticalAlarmActive()) {
+      lv_obj_add_flag(ui_TimeConfigCont, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    // Consume el CTRL,TIME_ACK de CommTask.cpp. Si se acepto, se cierra el
+    // panel solo; si se rechazo, se deja abierto para que el operador
+    // corrija los campos.
+    if (g_pendingTimeAck) {
+      g_pendingTimeAck = false;
+      const char *TXT_TIME_OK[] = {"Hora ajustada", "Time set",
+                                   "Heure ajustee"};
+      const char *TXT_TIME_FAIL[] = {"Hora rechazada", "Time rejected",
+                                     "Heure rejetee"};
+      const char *msg =
+          (g_timeAckResult == 0) ? TXT_TIME_OK[g_lang] : TXT_TIME_FAIL[g_lang];
+      lv_label_set_text(ui_TimeResultLabel, msg);
+      UI_ShowToast(msg, 3000);
+      if (g_timeAckResult == 0) {
+        lv_obj_add_flag(ui_TimeConfigCont, LV_OBJ_FLAG_HIDDEN);
+      }
+    }
+
     // El banner se reevalua en CADA pasada, no solo cuando cambia el conjunto
     // de alarmas. Su visibilidad depende de la pantalla activa y el banner
     // cuelga de lv_layer_top(), que no se entera de los lv_scr_load(): si solo
@@ -4527,6 +4712,7 @@ void UI_Task(void *pvParameters) {
     link_lost_blank_update();
     clock_update();
     wifi_board_status_update();
+    connectivity_heading_update();
     link_audio_mute_button_update();
     // Apaga el chasquido de la ultima pulsacion cuando le toca. Va aqui, y no
     // con un delay() dentro del callback, para no congelar LVGL.

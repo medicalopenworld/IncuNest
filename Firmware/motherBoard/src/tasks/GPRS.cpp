@@ -329,6 +329,13 @@ void GPRSUpdateLocationIfDue() {
 // Success sets the ESP32 system clock, which is the single integration
 // point: babyStore_nowEpoch() and the CTRL,TIME broadcast both read
 // time(nullptr), so age derivation starts working with no further changes.
+// Puesto a true cuando el reloj se sincroniza por el fallback NTP-sobre-PDP
+// de mas abajo, que fuerza AT+CNTP="...",0: ese comando reescribe el
+// registro de zona horaria del propio modem con UTC+0, asi que una lectura
+// posterior de AT+CCLK? (GPRSEnsureTimeZoneSynced) se encontraria ese mismo
+// 0 puesto por nosotros y lo confundiria con un dato NITZ real de la red.
+static bool s_timeSyncedViaNtpFallback = false;
+
 void GPRSEnsureTimeSynced() {
   static bool s_synced = false;
   static uint32_t s_lastAttemptMs = 0;
@@ -372,6 +379,14 @@ void GPRSEnsureTimeSynced() {
       got = civil_to_unix_utc(year, (unsigned)month, (unsigned)day,
                               (unsigned)hour, (unsigned)minute,
                               (unsigned)second, (int)tz, &epoch);
+      if (got) {
+        // El sync solo se da por bueno si esta linea se alcanza: un intento
+        // fallido (CCLK/CNTP con error, timeout de red...) no debe dejar la
+        // zona marcada como contaminada para siempre — sin esto un fallo
+        // puntual del modem paraba los reintentos de zona de por vida, sin
+        // que el reloj llegara a sincronizarse nunca.
+        s_timeSyncedViaNtpFallback = true;
+      }
     }
     if (!got) logModemData("[GPRS] -> NTP over PDP failed");
   }
@@ -391,21 +406,44 @@ void GPRSEnsureTimeSynced() {
 // poner el NTP por WiFi, pero la ZONA solo la sabe el modem. Como
 // GPRSEnsureTimeSynced() sale antes cuando el reloj ya esta puesto, en toda
 // unidad donde el WiFi ganase la carrera nunca se llegaba a preguntar por la
-// zona, y su latch impedia una segunda oportunidad: se quedaba en UTC de por
-// vida. Con latch propio, la zona se busca aunque la hora ya este resuelta.
+// zona, asi que esta funcion tiene su propio ritmo de reintento y se ejecuta
+// aunque la hora ya este resuelta.
+//
+// No hay latch permanente: una vez resuelta la zona se sigue revisando cada
+// GPRS_TZ_REFRESH_INTERVAL (ver esa constante) para que un cambio de horario
+// de verano/invierno no se quede pillado en un equipo que lleve semanas sin
+// reiniciar.
 //
 // getNetworkTime() entrega la hora LOCAL de la antena junto a su offset; aqui
 // solo interesa el offset, porque el instante ya lo tiene el sistema.
 void GPRSEnsureTimeZoneSynced() {
-  static bool s_tzSynced = false;
   static uint32_t s_lastTzAttemptMs = 0;
-  if (s_tzSynced) return;
 
-  if (s_lastTzAttemptMs != 0 &&
-      millis() - s_lastTzAttemptMs < GPRS_TIME_SYNC_RETRY_INTERVAL) {
+  // Mientras no haya ninguna zona resuelta se reintenta cada poco (2 min);
+  // una vez resuelta (por esta vía o por IP) se refresca una vez al dia para
+  // que un cambio de horario de verano/invierno no se quede pillado en un
+  // equipo que lleve semanas sin reiniciar.
+  uint32_t interval =
+      tz_source_known() ? GPRS_TZ_REFRESH_INTERVAL : GPRS_TIME_SYNC_RETRY_INTERVAL;
+  if (s_lastTzAttemptMs != 0 && millis() - s_lastTzAttemptMs < interval) {
     return;
   }
   s_lastTzAttemptMs = millis();
+
+  if (s_timeSyncedViaNtpFallback) {
+    // El reloj se puso en hora vía AT+CNTP, que ya dejó el registro de zona
+    // del módem en 0: una lectura de AT+CCLK? aquí solo devolvería ese eco,
+    // no un dato NITZ real. GPRSEnsureTimeSynced() no vuelve a intentar la
+    // vía directa una vez sincronizado, así que esto no va a cambiar sin
+    // reiniciar — se cede el paso a la geolocalización por IP en vez de fijar
+    // una zona falsa que la bloquearía para siempre (tz_source_set() nunca
+    // deja que IP pise a NITZ). Se sigue registrando cada vez que toca (según
+    // el intervalo de arriba) por si un día empieza a llegar IP y conviene
+    // verlo en el log, no porque se espere que esto cambie solo.
+    logModemData("[GPRS] -> NITZ timezone unavailable: cellular clock came "
+                 "from NTP fallback (forces UTC)");
+    return;
+  }
 
   int year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0;
   float tz = 0.0f;
@@ -430,8 +468,21 @@ void GPRSEnsureTimeZoneSynced() {
     return;
   }
 
+  if ((int)tz == 0) {
+    // Visto en banco con Movistar (2026-08-31): fecha/hora validas, pero el
+    // campo de zona llega en 0. No es un dato de zona fiable, es lo que
+    // mandan varios operadores cuando no rellenan ese campo — aceptarlo como
+    // NITZ bloquearia IP para siempre (tz_source_set() nunca deja que IP
+    // pise a NITZ) y dejaria la hora local mal en cualquier huso distinto de
+    // UTC+0 mientras dure la sesion. Se descarta explicitamente y se deja el
+    // paso libre a la geolocalizacion por IP; un NITZ con cualquier otro
+    // valor sigue aceptandose tal cual.
+    logModemData("[GPRS] -> NITZ timezone ignored: operator reports UTC+0, "
+                 "usually means no real zone data");
+    return;
+  }
+
   if (tz_source_set((int)tz, TZ_SOURCE_NITZ)) {
-    s_tzSynced = true;
     logModemData("[GPRS] -> timezone from NITZ: " + String((int)tz) +
                  " quarter-hours");
   }
@@ -469,28 +520,58 @@ void readGPRSData() {
   }
 }
 
+// Apaga el modulo y devuelve la maquina de estados a powerUp, para que el
+// siguiente ciclo reintente el adjunto desde cero. Comun a dos disparadores:
+// el timeout de arranque/conexion de mas abajo, y GPRSVerifyStillAttached()
+// cuando el adjunto se pierde ya en estado estable (SIM retirada, sin
+// cobertura). Un solo sitio para esta secuencia evita que ambos disparadores
+// diverjan con el tiempo.
+void GPRSForceReset(const String &reason) {
+  logE("[GPRS] -> reset: " + reason);
+  GPRS.timeOut = false;
+  GPRS.process = false;
+  GPRS.post = false;
+  GPRS.connect = false;
+  GPRS.powerUp = true;
+  GPRS.serverConnectionStatus = false;
+  logModemData("[GPRS] -> powering module down...");
+  Serial2.print("AT+CPOWD=1\n");
+  GPRS.packetSentenceTime = millis();
+  GPRS.processTime = millis();
+}
+
 void GPRSStatusHandler() {
   if (GPRS.process) {
     if (GPRS.powerUp || GPRS.connect) {
       readGPRSData();
       if (millis() - GPRS.processTime > GPRS_TIMEOUT) {
-        logE("[GPRS] -> timeOut: " + String(GPRS.powerUp) +
-             String(GPRS.connect) + String(GPRS.post) + String(GPRS.process));
-        GPRS.timeOut = false;
-        GPRS.process = false;
-        GPRS.post = false;
-        GPRS.connect = false;
-        GPRS.powerUp = true;
-        GPRS.serverConnectionStatus = false;
-        logModemData("[GPRS] -> powering module down...");
-        Serial2.print("AT+CPOWD=1\n");
-        GPRS.packetSentenceTime = millis();
-        GPRS.processTime = millis();
+        GPRSForceReset("timeOut " + String(GPRS.powerUp) +
+                        String(GPRS.connect) + String(GPRS.post) +
+                        String(GPRS.process));
       }
     }
   }
   if (!GPRS.powerUp && !GPRS.connect && !GPRS.post) {
     GPRS.powerUp = true;
+  }
+}
+
+// Reverifica el adjunto de red (AT+CREG?) mientras GPRS.post ya esta en
+// estado estable. GPRS.post se fija a true una sola vez, en GPRSPowerUp()
+// caso 2, y nada lo volvia a comprobar despues: retirar la SIM o perder
+// cobertura del todo con el modem ya enganchado se quedaba sin deteccion
+// para siempre, y el heading del HMI (commStatus/linkBars, ver CommTask.cpp)
+// se quedaba pegado en "2G" en vez de caer a "sin enlace".
+void GPRSVerifyStillAttached() {
+  if (!GPRS.post) return; // solo aplica en estado estable
+  static uint32_t s_lastCheckMs = 0;
+  uint32_t now = millis();
+  if (s_lastCheckMs != 0 && now - s_lastCheckMs < GPRS_ATTACH_RECHECK_INTERVAL)
+    return;
+  s_lastCheckMs = now;
+
+  if (!modem.isNetworkConnected()) {
+    GPRSForceReset("network attach lost (SIM retirada o sin cobertura)");
   }
 }
 
@@ -1051,6 +1132,14 @@ static void publishBabyCloudDataGPRS() {
 }
 
 void GPRSPost() {
+  // Independiente de ThingsBoard a proposito: sin esto, una unidad sin
+  // numero de serie (in3.serialNumber == 0) nunca sale del "Waiting for
+  // serial number" de mas abajo y jamas llegaba a intentar NITZ, aunque el
+  // modem llevara horas enganchado a la red. La hora/zona no le debe nada
+  // al aprovisionamiento en la nube.
+  GPRSEnsureTimeSynced();
+  GPRSEnsureTimeZoneSynced();
+
   if (!GPRS.provisioned) {
     if (in3.serialNumber == 0) {
       // GPRSPost() se llama cada pocos ms: sin limitar la cadencia, esta traza
@@ -1070,6 +1159,13 @@ void GPRSPost() {
     tb.loop();
   } else {
     if (!tb.connected()) {
+      // GPRS.serverConnectionStatus solo se ponia a true al reconectar y
+      // nunca se bajaba aqui: si tb.connected() pasaba a false en marcha (el
+      // enlace se cae pero el modem sigue adjunto), el commStatus enviado al
+      // HMI se quedaba pegado en "+SERVIDOR" indefinidamente. Se pone a false
+      // en cuanto se detecta, no solo cuando GPRSForceReset() apaga el modulo
+      // entero.
+      GPRS.serverConnectionStatus = false;
       if (millis() - GPRS.lastReconnectAttempt < THINGSBOARD_RECONNECT_DELAY) {
         return;
       }
@@ -1113,8 +1209,6 @@ void GPRSPost() {
           GPRS_JSON.clear();
         }
         GPRSUpdateLocationIfDue();
-        GPRSEnsureTimeSynced();
-        GPRSEnsureTimeZoneSynced();
         GPRSUpdateCSQ();
         addTelemetriesToGPRSJSON();
         if (tb.sendTelemetryJson(addVariableToTelemetryGPRSJSON,
@@ -1178,8 +1272,14 @@ void GPRS_Handler() {
     GPRSEnsureTimeSynced();
     GPRSEnsureTimeZoneSynced();
   } else if (GPRS.post) {
-    GPRSSetPostPeriod();
-    GPRSPost();
-    tb.loop();
+    GPRSVerifyStillAttached();
+    // GPRSVerifyStillAttached() puede haber devuelto GPRS.post a false en
+    // esta misma pasada (adjunto perdido): no seguir con un GPRSPost() sobre
+    // un modem que se acaba de apagar.
+    if (GPRS.post) {
+      GPRSSetPostPeriod();
+      GPRSPost();
+      tb.loop();
+    }
   }
 }

@@ -125,9 +125,14 @@ void ui_ScreenIntro_screen_destroy(void);
 
 // --- SCREEN: Main ---
 extern lv_obj_t * ui_ScreenMain;
-extern lv_obj_t * ui_Incunest;
 extern lv_obj_t * ui_ClockTime;
 extern lv_obj_t * ui_ClockDate;
+extern lv_obj_t * ui_ClockButton;
+// Indicador de conectividad del heading (WIFI/GPRS/ninguna + cobertura).
+// Ver connectivity_heading_update() en UITask.cpp.
+extern lv_obj_t * ui_ConnCont;
+extern lv_obj_t * ui_ConnIcon;
+extern lv_obj_t * ui_ConnBar[4];
 extern lv_obj_t * ui_Settings;
 extern lv_obj_t * ui_AlarmButton;
 extern lv_obj_t * ui_BabiesButton;
@@ -263,6 +268,13 @@ extern lv_obj_t * ui_Panel8;
 extern lv_obj_t * ui_LanguagesLabel;
 extern lv_obj_t * ui_LanguagesButton;
 extern lv_obj_t * ui_Label1;
+extern lv_obj_t * ui_ModesCont;
+extern lv_obj_t * ui_ModesPanel;
+extern lv_obj_t * ui_ModesLabel;
+extern lv_obj_t * ui_ModesButton;
+extern lv_obj_t * ui_ModesArrow;
+extern lv_obj_t * ui_ModesConfigCont;
+extern lv_obj_t * ui_ModesTitleLabel;
 extern lv_obj_t * ui_SkinModeCont;
 extern lv_obj_t * ui_Panel9;
 extern lv_obj_t * ui_SkinOptionLabel;
@@ -290,6 +302,30 @@ extern lv_obj_t * ui_SNTitle;
 extern lv_obj_t * ui_SNValue;
 extern lv_obj_t * ui_ConnTitle;
 extern lv_obj_t * ui_ConnValue;
+extern lv_obj_t * ui_TimeConfigCont;
+extern lv_obj_t * ui_TimeTitleLabel;
+extern lv_obj_t * ui_TimeDayDec;
+extern lv_obj_t * ui_TimeSpinDay;
+extern lv_obj_t * ui_TimeDayInc;
+extern lv_obj_t * ui_TimeSlash1;
+extern lv_obj_t * ui_TimeMonthDec;
+extern lv_obj_t * ui_TimeSpinMonth;
+extern lv_obj_t * ui_TimeMonthInc;
+extern lv_obj_t * ui_TimeSlash2;
+extern lv_obj_t * ui_TimeYearDec;
+extern lv_obj_t * ui_TimeSpinYear;
+extern lv_obj_t * ui_TimeYearInc;
+extern lv_obj_t * ui_TimeHourDec;
+extern lv_obj_t * ui_TimeSpinHour;
+extern lv_obj_t * ui_TimeHourInc;
+extern lv_obj_t * ui_TimeColon;
+extern lv_obj_t * ui_TimeMinuteDec;
+extern lv_obj_t * ui_TimeSpinMinute;
+extern lv_obj_t * ui_TimeMinuteInc;
+extern lv_obj_t * ui_TimeConfirmButton;
+extern lv_obj_t * ui_TimeConfirmLabel;
+extern lv_obj_t * ui_TimeResultLabel;
+
 extern lv_obj_t * ui_WifiConfigCont;
 extern lv_obj_t * ui_Keyboard1;
 extern lv_obj_t * ui_SSIDPanel;
@@ -389,6 +425,14 @@ void ui_ScreenPulseOxi_screen_destroy(void);
 // --- SCREEN: Lock ---
 extern lv_obj_t * ui_ScreenLock;
 extern lv_obj_t * ui_LockButton;
+// Replicas del reloj/conectividad del heading de ui_ScreenMain: se
+// mantienen visibles tambien en la pantalla de bloqueo. Actualizadas por las
+// mismas clock_update()/connectivity_heading_update() (UITask.cpp).
+extern lv_obj_t * ui_LockHeadingClockTime;
+extern lv_obj_t * ui_LockHeadingClockDate;
+extern lv_obj_t * ui_LockHeadingConnCont;
+extern lv_obj_t * ui_LockHeadingConnIcon;
+extern lv_obj_t * ui_LockHeadingConnBar[4];
 extern lv_obj_t * ui_Container1;
 extern lv_obj_t * ui_AirTempLockCont;
 extern lv_obj_t * ui_Label11;

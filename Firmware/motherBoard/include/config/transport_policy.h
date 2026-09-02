@@ -34,6 +34,13 @@
 // Común a ambos transportes.
 #define TX_THINGSBOARD_RECONNECT_MS 30000UL
 
+// Zona horaria: una vez resuelta (por NITZ o por IP) se refresca cada 24 h en
+// vez de darse por buena para siempre, para que un cambio de horario de
+// verano/invierno se corrija solo en un equipo que lleve semanas sin
+// reiniciar. Mientras no haya ninguna zona resuelta, cada ruta usa su propio
+// intervalo corto de reintento (GPRS_TIME_SYNC_RETRY_INTERVAL / el de IP).
+#define TX_TIMEZONE_REFRESH_MS 86400000UL // 24 h
+
 // -----------------------------------------------------------------------------
 // 2. GRUPOS DE TELEMETRÍA        1 = se publica por ese transporte, 0 = no
 // -----------------------------------------------------------------------------

@@ -27,8 +27,18 @@ Enviado **cada 1 segundo** (intercalado con `CTRL,TEL`) y además bajo petición
 > quedaba congelado con el valor del arranque. **Los campos de este mensaje son
 > estado vivo, no una instantánea de sincronización** — cualquier campo nuevo
 > debe poder asumir la cadencia de 1 Hz.
-**Formato**: `CTRL,STATE,act,mode,airSet,skinSet,humSet,photo,mute,sn,hwNum,hwRev,fwVer,numAlarms,skinE,commStatus,photoTimeRem,lang,probeState,alarmBitmask,silencedBitmask,almTest,silenceLeftS`
+**Formato**: `CTRL,STATE,act,mode,airSet,skinSet,humSet,photo,mute,sn,hwNum,hwRev,fwVer,numAlarms,skinE,commStatus,photoTimeRem,lang,probeState,alarmBitmask,silencedBitmask,almTest,silenceLeftS,linkBars`
 
+- `commStatus`: transporte activo y si llega a servidor (`CommStatus` enum: `0`=ninguno,
+  `1`=GPRS sin servidor, `2`=GPRS+servidor, `3`=WiFi sin servidor, `4`=WiFi+servidor).
+  Alimenta el icono WIFI/2G/sin enlace del heading del display, además de la
+  etiqueta "Placa:" de la pantalla de WiFi.
+- `linkBars`: cobertura del transporte activo indicado por `commStatus`, en barras
+  de `0` a `4` (como el icono de señal de un móvil), o `-1` si no hay transporte
+  activo o el dato de señal (RSSI de WiFi / CSQ de GPRS) no es fiable todavía. Una
+  placa antigua que no mande el campo se interpreta como `-1`: el display no
+  pinta ningún nivel en vez de inventarse uno. Campo añadido después de
+  `silenceLeftS`.
 - `alarmBitmask`: (Hexadecimal, ej: `0x60`) Indica qué IDs de alarma están activos. Requerido para sincronización robusta.
 - `mute`: estado **real** del audio en la placa, no el eco del comando del HMI.
   `1` = no queda ninguna condición que el operador pueda silenciar (todas las
@@ -161,6 +171,23 @@ Enviado cada 10 segundos (y una vez al arrancar la tarea de comunicación).
 - Cadencia de 10 s a propósito, no 1 Hz: el HMI solo la necesita para
   formatear fechas, y `known_issues.md` #2 desaconseja añadir tráfico UART
   periódico evitable.
+
+#### HMI,SET_TIME
+Ajuste manual del reloj desde la pantalla táctil de la HMI: se toca la propia
+hora de cabecera (pantalla principal) para abrir el panel. Llega por el UART
+motherBoard↔HMI, así que funciona sin WiFi — a diferencia del formulario
+`/config` (campo `set_time`), que necesita que el navegador llegue al
+webserver del motherBoard por WiFi. Pensado para el caso GPRS puro sin NITZ
+fiable, donde `/config` es inalcanzable.
+
+**Formato**: `HMI,SET_TIME,YYYY,MM,DD,HH,MM` → `CTRL,TIME_ACK,0|1`
+- Mismo contrato que `/config,set_time`: los campos son la hora LOCAL tal
+  cual la ve el operador en el reloj de pared, sin zona — la motherBoard la
+  aplica con offset `0` vía `systemClockSetManual()`, exactamente la misma
+  función que usa el formulario web. Una vez fijada así, ninguna fuente
+  automática (NITZ, NTP, IP) la desplaza hasta el siguiente reinicio.
+- `CTRL,TIME_ACK,0` = aceptada. `CTRL,TIME_ACK,1` = rechazada (fecha/hora
+  fuera de rango, año anterior a 2021).
 
 #### CTRL,PROFILE_LIST (Respuesta a HMI,PROFILE_LIST_REQ)
 Lista de los perfiles de bebé activos (0–3 slots).

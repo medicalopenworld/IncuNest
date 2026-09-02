@@ -37,6 +37,17 @@
 // round-trip (and possibly an NTP one), so back off hard: the clock only has
 // to be found once per power cycle.
 #define GPRS_TIME_SYNC_RETRY_INTERVAL 120000 // 2 minutes in milliseconds
+// Una vez resuelta la zona horaria (por NITZ o porque IP la haya rellenado
+// mientras tanto) se refresca a este ritmo en vez de darse por buena para
+// siempre; ver TX_TIMEZONE_REFRESH_MS en transport_policy.h.
+#define GPRS_TZ_REFRESH_INTERVAL TX_TIMEZONE_REFRESH_MS
+// Cada cuanto se reverifica el adjunto de red (AT+CREG?) mientras GPRS.post
+// ya esta en estado estable. Sin esto, GPRS.post se fija a true una vez (ver
+// GPRSPowerUp() caso 2) y nunca se vuelve a comprobar: retirar la SIM o
+// perder cobertura del todo con el modem ya enganchado no se detectaba jamas.
+// 30 s: mismo orden de magnitud que otros sondeos periodicos del modem
+// (GPRSUpdateCSQ()), sin generar trafico AT excesivo.
+#define GPRS_ATTACH_RECHECK_INTERVAL 30000 // 30 seconds in milliseconds
 // Cadencia de la traza "esperando número de serie": GPRSPost() se ejecuta cada
 // pocos ms, así que sin límite la traza ahoga el resto del log.
 #define GPRS_SERIAL_WAIT_LOG_PERIOD 30000 // 30 seconds in milliseconds
