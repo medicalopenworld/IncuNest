@@ -401,6 +401,14 @@ void sensorboard_comm_init(void) {
   gpio_reset_pin(GPIO_NUM_19);
   gpio_reset_pin(GPIO_NUM_20);
 
+  // El driver CDC-ACM emite un ESP_LOGE por CADA intento de apertura fallido
+  // ("USB device with VID:... not found"), es decir ~30 lineas de ERROR por
+  // minuto, para siempre, en cuanto el SensorBoard no este presente o su
+  // conector falle. Verificado en banco (2026-09-02). Se silencia su tag: la
+  // misma informacion la da try_open() cada SB_OPEN_LOG_EVERY intentos, y los
+  // errores del enlace ya abierto llegan por on_cdc_event().
+  esp_log_level_set("cdc_acm", ESP_LOG_NONE);
+
   const usb_host_config_t host_config = {
       .skip_phy_setup = false,
       .intr_flags = ESP_INTR_FLAG_LEVEL1,

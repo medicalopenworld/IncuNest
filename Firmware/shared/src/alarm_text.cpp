@@ -169,13 +169,19 @@ const char *alarm_action_text(AlarmId id, Language lang) {
       ES("CALEFACTOR CORTADO - SIN MEDIDA DE CONSUMO - REVISAR SENSOR DE CORRIENTE");
       FR("CHAUFFAGE COUPE - PAS DE MESURE DE COURANT - VERIFIER LE CAPTEUR");
       return "HEATER CUT - NO CURRENT READING - SERVICE THE CURRENT SENSOR";
-    // El SensorBoard solo lleva telemetria auxiliar (ambiente, puerta,
-    // sonido, camara bajo demanda): ninguna de sus dos alarmas corta el
-    // calefactor ni entra en el lazo de control, a diferencia de HMI_LINK_LOST.
+    // En un equipo con SensorBoard, sus SHT40 SON el sensor de aire de la
+    // incubadora: perder el enlace deja al PID sin variable de control y
+    // dispara ALARM_AIR_SENSOR_FAULT, que corta el calefactor. El texto tiene
+    // que decir eso.
+    //
+    // Decia justo lo contrario ("no afecta al control termico"), heredado de
+    // cuando esto se diseno como telemetria auxiliar. Se vio en banco
+    // (2026-09-02) leyendo la linea CTRL,ALM real: el operador habria leido
+    // que no afecta al control mientras el calefactor estaba cortado.
     case ALARM_SENSORBOARD_LINK_LOST:
-      ES("TELEMETRIA AUXILIAR NO DISPONIBLE - NO AFECTA AL CONTROL TERMICO");
-      FR("TELEMETRIE AUXILIAIRE INDISPONIBLE - SANS EFFET SUR LE CONTROLE");
-      return "AUXILIARY TELEMETRY UNAVAILABLE - DOES NOT AFFECT THERMAL CONTROL";
+      ES("SIN TEMPERATURA DE AIRE - REVISAR CONEXION DEL SENSORBOARD");
+      FR("PAS DE TEMPERATURE D AIR - VERIFIER LA CONNEXION SENSORBOARD");
+      return "NO AIR TEMPERATURE - CHECK THE SENSORBOARD CONNECTION";
     case ALARM_SENSORBOARD_DOOR_FAULT:
       ES("SENSOR HALL POSIBLE AVERIA - NO USAR COMO ENTRADA DE CONTROL");
       FR("CAPTEUR HALL PANNE POSSIBLE - NE PAS UTILISER COMME ENTREE");
