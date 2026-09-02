@@ -19,20 +19,20 @@ static const char *TAG = "CAM";
 
 /* Pinout DVP (OV2640/OV5640, autodetección por SCCB): docs/hardware.md.
  * d0..d7 = Y2..Y9. RESET no cableado. */
-#define SB_CAM_PIN_PWDN 21
+#define SB_CAM_PIN_PWDN 13
 #define SB_CAM_PIN_RESET (-1)
-#define SB_CAM_PIN_XCLK 15
-#define SB_CAM_PIN_D0 11 /* Y2 */
-#define SB_CAM_PIN_D1 9  /* Y3 */
-#define SB_CAM_PIN_D2 8  /* Y4 */
-#define SB_CAM_PIN_D3 10 /* Y5 */
-#define SB_CAM_PIN_D4 12 /* Y6 */
-#define SB_CAM_PIN_D5 18 /* Y7 */
+#define SB_CAM_PIN_XCLK 16
+#define SB_CAM_PIN_D0 8  /* Y2 */
+#define SB_CAM_PIN_D1 10 /* Y3 */
+#define SB_CAM_PIN_D2 11 /* Y4 */
+#define SB_CAM_PIN_D3 9  /* Y5 */
+#define SB_CAM_PIN_D4 6  /* Y6 */
+#define SB_CAM_PIN_D5 7  /* Y7 */
 #define SB_CAM_PIN_D6 17 /* Y8 */
-#define SB_CAM_PIN_D7 16 /* Y9 */
-#define SB_CAM_PIN_VSYNC 6
-#define SB_CAM_PIN_HREF 7
-#define SB_CAM_PIN_PCLK 13
+#define SB_CAM_PIN_D7 15 /* Y9 */
+#define SB_CAM_PIN_VSYNC 12
+#define SB_CAM_PIN_HREF 18
+#define SB_CAM_PIN_PCLK 21
 
 /* SCCB: comparte el bus I2C principal (IO4/IO5) creado por env_sensors —
  * sccb-ng lo obtiene por número de puerto (I2C_NUM_1) */
