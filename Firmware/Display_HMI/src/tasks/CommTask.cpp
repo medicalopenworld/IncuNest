@@ -217,10 +217,11 @@ void Communication_SendProfileAgeManual(uint32_t seq, uint16_t ageDays) {
 #endif
 }
 
-void Communication_SendProfileDischarge(uint32_t seq, uint8_t outcome) {
+void Communication_SendProfileDischarge(uint32_t seq, uint8_t outcome,
+                                        uint8_t cause) {
 #if IS_HMI
-  COMM_SERIAL.printf("HMI,PROFILE_DISCHARGE,%u,%u\n", (unsigned)seq,
-                     (unsigned)outcome);
+  COMM_SERIAL.printf("HMI,PROFILE_DISCHARGE,%u,%u,%u\n", (unsigned)seq,
+                     (unsigned)outcome, (unsigned)cause);
 #endif
 }
 
@@ -681,7 +682,7 @@ static void parse_message(const char *line) {
   } else if (strncmp(line, "CTRL,PROFILE_HISTORY", 20) == 0) {
     // CTRL,PROFILE_HISTORY,<page>,<totalCount>,<n>{,<seq>,<name>,<gestWeeks>,
     //   <lastWeightGrams>,<admissionEpoch>,<dischargeEpoch>,<outcome>,
-    //   <kangarooCount>,<phototherapyMin>,<thermoMin>,<humidityMin>}xn
+    //   <cause>,<kangarooCount>,<phototherapyMin>,<thermoMin>,<humidityMin>}xn
     // Same manual comma-split pattern as PROFILE_LIST: every field validated
     // before use, malformed line = silent discard (security.md).
     char buf[COMM_RX_BUFFER_SIZE];
@@ -711,30 +712,32 @@ static void parse_message(const char *line) {
       char *admTok = strtok_r(nullptr, ",", &save);
       char *disTok = strtok_r(nullptr, ",", &save);
       char *ocTok = strtok_r(nullptr, ",", &save);
+      char *cauTok = strtok_r(nullptr, ",", &save);
       char *kTok = strtok_r(nullptr, ",", &save);
       char *ptTok = strtok_r(nullptr, ",", &save);
       char *thTok = strtok_r(nullptr, ",", &save);
       char *huTok = strtok_r(nullptr, ",", &save);
       if (!seqTok || !nameTok || !gestTok || !wTok || !admTok || !disTok ||
-          !ocTok || !kTok || !ptTok || !thTok || !huTok) {
+          !ocTok || !cauTok || !kTok || !ptTok || !thTok || !huTok) {
         ok = false;
         break;
       }
-      char *p1, *p2, *p3, *p4, *p5, *p6, *p7, *p8, *p9, *p10;
+      char *p1, *p2, *p3, *p4, *p5, *p6, *p6b, *p7, *p8, *p9, *p10;
       long seq = strtol(seqTok, &p1, 10);
       long gest = strtol(gestTok, &p2, 10);
       long w = strtol(wTok, &p3, 10);
       unsigned long adm = strtoul(admTok, &p4, 10);
       unsigned long dis = strtoul(disTok, &p5, 10);
       long oc = strtol(ocTok, &p6, 10);
+      long cause = strtol(cauTok, &p6b, 10);
       long kang = strtol(kTok, &p7, 10);
       unsigned long photoMin = strtoul(ptTok, &p8, 10);
       unsigned long thermoMin = strtoul(thTok, &p9, 10);
       unsigned long humMin = strtoul(huTok, &p10, 10);
-      if (*p1 || *p2 || *p3 || *p4 || *p5 || *p6 || *p7 || *p8 || *p9 ||
-          *p10 || seq < 0 ||
+      if (*p1 || *p2 || *p3 || *p4 || *p5 || *p6 || *p6b || *p7 || *p8 ||
+          *p9 || *p10 || seq < 0 ||
           gest < 0 || gest > 255 || w < 0 || w > 65535 || oc < 0 || oc > 3 ||
-          kang < 0 || kang > 65535) {
+          cause < 0 || cause > 6 || kang < 0 || kang > 65535) {
         ok = false;
         break;
       }
@@ -745,6 +748,7 @@ static void parse_message(const char *line) {
       msg.items[i].admissionEpoch = (uint32_t)adm;
       msg.items[i].dischargeEpoch = (uint32_t)dis;
       msg.items[i].outcome = (uint8_t)oc;
+      msg.items[i].cause = (uint8_t)cause;
       msg.items[i].kangarooCount = (uint16_t)kang;
       msg.items[i].phototherapyMinutes = (uint32_t)photoMin;
       // Was parsed but never stored, so the archived cards showed an
