@@ -117,6 +117,11 @@ typedef struct {
   // junto al icono de AUDIO PAUSED.
   int      silenceRemainingS;
   int      skinProbeState;
+  // Barras de cobertura (0-4) del transporte activo en serverCommStatus, o
+  // -1 si no hay transporte, el dato de senal no es fiable, o la placa es
+  // antigua y no manda este campo. Alimenta el indicador de cobertura del
+  // heading (ver connectivity_heading_update() en UITask.cpp).
+  int      linkBars;
   // HMI-internal flag (not part of the protocol)
   bool     newState;
 } ControlBoard_Message_State;
@@ -237,6 +242,14 @@ int8_t   HMI_GetTzQuarterHours();
 bool     HMI_HasLocalTime();
 // Epoch UTC -> segundos en hora local, solo para formatear.
 uint32_t HMI_ToLocal(uint32_t utcEpoch);
+
+// Ajuste manual del reloj desde la pantalla de Settings (ver HMI,SET_TIME en
+// PROTOCOL.md). Llega por UART, no por WiFi, asi que funciona sin conexion.
+void Communication_SendSetTime(int year, int month, int day, int hour,
+                               int minute);
+extern volatile bool g_pendingTimeAck;
+extern uint32_t      g_timeAckResult; // 0 = aceptada, 1 = rechazada
+
 extern volatile bool     g_pendingProfileRange;
 extern BabyProfileRangeMsg g_profileRange;
 

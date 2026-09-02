@@ -26,6 +26,11 @@ typedef struct {
   double detectedHumidity;
   int    serverCommStatus;
   int    serialNumber;
+  // Barras de cobertura (0-4) del transporte activo en serverCommStatus, o
+  // -1 si no hay transporte o el dato de senal (RSSI/CSQ) no es fiable
+  // todavia. Se computa junto a serverCommStatus y viaja al HMI por
+  // CTRL,STATE (no por CTRL,TEL: ver send_state_to_hmi()).
+  int    linkBars;
 } TelemetryMessage;
 
 typedef struct {
