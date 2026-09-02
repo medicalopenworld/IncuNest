@@ -85,6 +85,45 @@ bool error = false;
 static char rxBuffer[COMM_RX_BUFFER_SIZE];
 static int rxIndex = 0;
 
+// ---- Local-command echo race guard ------------------------------------
+// Display_ApplyCtrlState() resyncs actuation/controlMode/phototherapyMode/
+// muteAlarm/skinModeEnabled from the motherBoard's own echoed CTRL,STATE on
+// every frame (needed so an HMI reboot inherits the motherBoard's real
+// state — docs/known_issues.md #4). Real bug this caused: toggle
+// phototherapy, and a CTRL,STATE already in flight (still carrying the OLD
+// value, from before the motherBoard had processed the toggle) resyncs
+// hmi_msg straight back to it; the HMI's next frame re-sends that old value
+// and the motherBoard genuinely turns the lamp back off — visibly, within
+// about a second of switching it on.
+//
+// Fix: give a field that just changed locally a grace window before an
+// echo is trusted to overwrite it again, long enough for a full round trip
+// (HMI keepalive + motherBoard CTRL,STATE, ~1s each way) to settle.
+constexpr uint32_t LOCAL_CMD_ECHO_GRACE_MS = 2500u;
+
+struct LocalCmdGuard {
+  int lastSeen = -1;  // sentinel: none of the guarded fields are ever -1
+  uint32_t changedAtMs = 0;
+};
+static LocalCmdGuard s_actuationGuard;
+static LocalCmdGuard s_controlModeGuard;
+static LocalCmdGuard s_photoModeGuard;
+static LocalCmdGuard s_muteAlarmGuard;
+static LocalCmdGuard s_skinModeGuard;
+
+// Called once per Comm_Task tick (10ms) for each guarded field: catches a
+// local UI change well within the multi-second window it then protects.
+static void trackLocalCmdGuard(LocalCmdGuard *g, int current) {
+  if (g->lastSeen != current) {
+    g->lastSeen = current;
+    g->changedAtMs = millis();
+  }
+}
+
+static bool localCmdRecentlyChanged(const LocalCmdGuard &g) {
+  return (millis() - g.changedAtMs) < LOCAL_CMD_ECHO_GRACE_MS;
+}
+
 // Formato de parseo de `CTRL,ALM,<id>,<titulo>,<descripcion>,<0|1>`.
 //
 // Los anchos NO se escriben a mano: se derivan de las macros de capacidad del
@@ -852,11 +891,25 @@ bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
   if (!g_ui_initialized)
     return false;
   LVGL_Lock();
-  bool tempOn = st.actuation & 0x01;
+  // Effective values: within LOCAL_CMD_ECHO_GRACE_MS of a local change, trust
+  // the pending local value instead of this frame's echo (see the guard
+  // comment above hmi_msg's declaration for why).
+  int effActuation = localCmdRecentlyChanged(s_actuationGuard)
+                         ? hmi_msg.actuation : st.actuation;
+  int effControlMode = localCmdRecentlyChanged(s_controlModeGuard)
+                           ? hmi_msg.controlMode : st.controlMode;
+  int effPhotoMode = localCmdRecentlyChanged(s_photoModeGuard)
+                         ? hmi_msg.phototherapyMode : st.phototherapyMode;
+  bool effMuteAlarm = localCmdRecentlyChanged(s_muteAlarmGuard)
+                          ? hmi_msg.muteAlarm : st.muteAlarm;
+  bool effSkinWanted = localCmdRecentlyChanged(s_skinModeGuard)
+                           ? hmi_msg.skinModeEnabled : st.skinModeEnabled;
+
+  bool tempOn = effActuation & 0x01;
   ui_set_switch_state_silent(ui_Switch1, tempOn);
   temp_content_set_visible(tempOn);
-  ui_set_switch_state_silent(ui_Switch2, (st.actuation >> 1) & 0x01);
-  bool photoOn = st.phototherapyMode;
+  ui_set_switch_state_silent(ui_Switch2, (effActuation >> 1) & 0x01);
+  bool photoOn = effPhotoMode;
   ui_set_switch_state_silent(ui_Switch3, photoOn);
   if (ui_PhotoTimerCont) {
     if (photoOn) lv_obj_clear_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN);
@@ -865,7 +918,7 @@ bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
   // Restore skin: only activate if saved state says ON *and* probe is present.
   // If saved ON but no probe → fall back to Air and force switch OFF.
   bool probeAvailable = (st.skinProbeState == SKIN_PROBE_VALID);
-  bool restoreSkin = (st.skinModeEnabled && probeAvailable);
+  bool restoreSkin = (effSkinWanted && probeAvailable);
 
   ui_set_switch_state_silent(ui_Switch4, restoreSkin);
 
@@ -897,13 +950,13 @@ bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
   }
 
   // Sync internal hmi_msg to avoid sending "all OFF" on next user action
-  hmi_msg.actuation = st.actuation;
-  hmi_msg.controlMode = st.controlMode;
+  hmi_msg.actuation = effActuation;
+  hmi_msg.controlMode = effControlMode;
   hmi_msg.desiredAirTemperature = airTempValue;
   hmi_msg.desiredSkinTemperature = skinTempValue;
   hmi_msg.desiredHumidity = humValue;
-  hmi_msg.phototherapyMode = st.phototherapyMode;
-  hmi_msg.muteAlarm = st.muteAlarm;
+  hmi_msg.phototherapyMode = effPhotoMode;
+  hmi_msg.muteAlarm = effMuteAlarm;
   // hmi_msg.language = st.language; // REMOVIDO: No sobrescribir idioma local
   hmi_msg.skinModeEnabled = restoreSkin;
   hmi_msg.photoMinutesRemaining = st.photoMinutesRemaining;
@@ -1060,6 +1113,17 @@ void Comm_Task(void *pvParameters) {
 
   for (;;) {
     Display_StateSync_Service();
+
+#if IS_HMI
+    // Catch a local UI change (switch tap, wizard step, ...) within 10ms of
+    // it happening — well inside the multi-second window it then protects
+    // against a stale CTRL,STATE echo in Display_ApplyCtrlState().
+    trackLocalCmdGuard(&s_actuationGuard, hmi_msg.actuation);
+    trackLocalCmdGuard(&s_controlModeGuard, hmi_msg.controlMode);
+    trackLocalCmdGuard(&s_photoModeGuard, hmi_msg.phototherapyMode);
+    trackLocalCmdGuard(&s_muteAlarmGuard, hmi_msg.muteAlarm ? 1 : 0);
+    trackLocalCmdGuard(&s_skinModeGuard, hmi_msg.skinModeEnabled ? 1 : 0);
+#endif
 
     if (ReceiveMessageFromOtherESP()) {
       if (ctrl_msg_alarm.id != 0) {
