@@ -24,6 +24,12 @@ typedef struct {
   SbMsgKind kind;
   uint32_t ts;
 
+  // SB_MSG_HEARTBEAT: el heartbeat lleva "uptime" y no "ts". Sirve para
+  // detectar un reinicio del SensorBoard con el USB enumerado (uptime que
+  // retrocede), caso en el que las lecturas anteriores dejan de valer.
+  bool uptime_valid;
+  uint32_t uptime;
+
   // SB_MSG_SENSOR_DATA: sensores.env_sensors reporta null por posicion
   // caida (ADR-0002 del SensorBoard) -- *_valid distingue "0.0" de "sin
   // lectura", la fusion/votacion queda fuera de este codec.

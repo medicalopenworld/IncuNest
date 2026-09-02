@@ -27,6 +27,30 @@ static void reset_to_hunt(SbFrameParser *p) {
   p->crc_idx = 0;
 }
 
+void sb_frame_parser_reset(SbFrameParser *p) { reset_to_hunt(p); }
+
+void sb_frame_parser_set_buffer(SbFrameParser *p, uint8_t *payload_buf,
+                                size_t payload_cap) {
+  p->payload_buf = payload_buf;
+  p->payload_cap = payload_cap;
+  reset_to_hunt(p);
+}
+
+// Tope por TIPO, ademas del que impone el buffer: mientras hay una captura
+// armada payload_cap vale decenas de KB, y sin este limite una cabecera JSON
+// con el Length corrupto se aceptaba como frame de 100 KB y el parser se
+// quedaba tragando bytes durante minutos.
+static bool length_fits_type(uint8_t type, uint32_t length) {
+  switch (type) {
+    case SB_PROTO_TYPE_JSON:
+      return length <= SB_PROTO_MAX_JSON_PAYLOAD;
+    case SB_PROTO_TYPE_JPEG:
+      return length <= SB_PROTO_MAX_BINARY_PAYLOAD;
+    default:
+      return false;  // tipo desconocido: no se espera su payload
+  }
+}
+
 static void feed_one(SbFrameParser *p, uint8_t byte) {
   switch (p->state) {
     case SB_FRAME_WAIT_MAGIC0:
@@ -55,7 +79,8 @@ static void feed_one(SbFrameParser *p, uint8_t byte) {
         p->length = (uint32_t)p->header[1] | ((uint32_t)p->header[2] << 8) |
                     ((uint32_t)p->header[3] << 16) |
                     ((uint32_t)p->header[4] << 24);
-        if (p->length > p->payload_cap) {
+        if (p->length > p->payload_cap ||
+            !length_fits_type(p->type, p->length)) {
           if (p->on_error) p->on_error(p->ctx);
           reset_to_hunt(p);
           break;
@@ -67,6 +92,16 @@ static void feed_one(SbFrameParser *p, uint8_t byte) {
       break;
 
     case SB_FRAME_PAYLOAD:
+      // Defensa en profundidad: si el buffer se encogio a mitad de payload
+      // (captura liberada por una desconexion), aqui se corta en vez de
+      // escribir fuera. sb_frame_parser_set_buffer() ya resincroniza, pero
+      // esta guarda hace el desbordamiento imposible sea cual sea la
+      // secuencia de cambios.
+      if (p->payload_idx >= p->payload_cap) {
+        if (p->on_error) p->on_error(p->ctx);
+        reset_to_hunt(p);
+        break;
+      }
       p->payload_buf[p->payload_idx++] = byte;
       p->crc_running = sb_crc16_byte(p->crc_running, byte);
       if (p->payload_idx == p->length) {
@@ -101,6 +136,10 @@ void sb_frame_parser_feed(SbFrameParser *p, const uint8_t *data, size_t len) {
 
 size_t sb_frame_encode(uint8_t type, const uint8_t *payload, uint32_t len,
                        uint8_t *out, size_t out_cap) {
+  // Rechazo antes de sumar: con size_t de 32 bits en el ESP32, un len cercano
+  // a 0xFFFFFFFF hacia que el total diera la vuelta y la comprobacion de
+  // capacidad pasara con un buffer de 8 bytes.
+  if (len > SB_PROTO_MAX_BINARY_PAYLOAD) return 0;
   const size_t total = SB_PROTO_FRAME_HEADER_SIZE + len + SB_PROTO_FRAME_CRC_SIZE;
   if (out_cap < total) return 0;
 

@@ -59,8 +59,44 @@ void test_survives_millis_rollover(void) {
       sb_link_state_is_connected(&s, before_wrap + SB_LINK_TIMEOUT_MS + 1));
 }
 
+// Evidencia definitiva (el dispositivo se fue del bus USB): no hay que
+// esperar los 90 s del timeout inferencial para declararlo caido.
+void test_mark_down_is_immediate(void) {
+  SbLinkState s;
+  sb_link_state_init(&s);
+  sb_link_state_note_heartbeat(&s, 1000);
+  TEST_ASSERT_TRUE(sb_link_state_evaluate(&s, 1000));
+
+  sb_link_state_mark_down(&s);
+  TEST_ASSERT_FALSE(sb_link_state_evaluate(&s, 1000));
+
+  // Y solo un heartbeat real lo levanta.
+  sb_link_state_note_heartbeat(&s, 2000);
+  TEST_ASSERT_TRUE(sb_link_state_evaluate(&s, 2000));
+}
+
+// Un enlace roto hace semanas volvia a declararse VIVO durante 90 s cuando
+// millis() daba la vuelta y caia otra vez dentro de la ventana del ultimo
+// heartbeat: eso borraba la alarma y publicaba lecturas rancias como frescas.
+void test_expired_link_does_not_resurrect_after_rollover(void) {
+  SbLinkState s;
+  sb_link_state_init(&s);
+  const uint32_t before_wrap = 0xFFFFFF00u;
+  sb_link_state_note_heartbeat(&s, before_wrap);
+
+  // Caduca: a partir de aqui el estado queda caido de forma permanente.
+  TEST_ASSERT_FALSE(
+      sb_link_state_evaluate(&s, before_wrap + SB_LINK_TIMEOUT_MS + 1));
+
+  // Tras el vuelco, now_ms vuelve a recorrer la ventana del heartbeat viejo.
+  TEST_ASSERT_FALSE(sb_link_state_evaluate(&s, before_wrap + 1000u));
+  TEST_ASSERT_FALSE(sb_link_state_evaluate(&s, before_wrap));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_mark_down_is_immediate);
+  RUN_TEST(test_expired_link_does_not_resurrect_after_rollover);
   RUN_TEST(test_starts_disconnected);
   RUN_TEST(test_heartbeat_marks_connected);
   RUN_TEST(test_link_lost_after_three_missed_periods);

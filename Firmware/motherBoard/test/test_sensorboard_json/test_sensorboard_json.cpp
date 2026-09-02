@@ -15,6 +15,67 @@ void test_heartbeat_event(void) {
   TEST_ASSERT_TRUE(
       decode_str("{\"type\":\"event\",\"cmd\":\"heartbeat\",\"uptime\":5200}", &m));
   TEST_ASSERT_EQUAL(SB_MSG_HEARTBEAT, m.kind);
+  // El heartbeat trae "uptime", no "ts": es la unica pista de un reinicio del
+  // SensorBoard con el USB todavia enumerado.
+  TEST_ASSERT_TRUE(m.uptime_valid);
+  TEST_ASSERT_EQUAL_UINT32(5200, m.uptime);
+}
+
+// as<float>() no falla nunca: parsea cadenas y convierte booleanos, asi que
+// sin comprobacion de tipo un "ERR" entraba como lectura valida de 0.0 grados
+// -- y estas lecturas gobiernan el PID de aire.
+void test_non_numeric_readings_are_not_valid(void) {
+  SbMessage m;
+  TEST_ASSERT_TRUE(decode_str(
+      "{\"type\":\"event\",\"cmd\":\"sensor_data\","
+      "\"data\":{\"temp\":[\"ERR\",true,36.8],\"hum\":[{},\"55\",54.5],"
+      "\"lux\":\"320\"},\"ts\":1}",
+      &m));
+  TEST_ASSERT_EQUAL(SB_MSG_SENSOR_DATA, m.kind);
+  TEST_ASSERT_FALSE(m.temp_valid[0]);  // "ERR"
+  TEST_ASSERT_FALSE(m.temp_valid[1]);  // true
+  TEST_ASSERT_TRUE(m.temp_valid[2]);   // 36.8
+  TEST_ASSERT_FALSE(m.hum_valid[0]);   // {}
+  TEST_ASSERT_FALSE(m.hum_valid[1]);   // "55"
+  TEST_ASSERT_TRUE(m.hum_valid[2]);    // 54.5
+  TEST_ASSERT_FALSE(m.lux_valid);      // "320"
+}
+
+void test_non_numeric_sound_level_is_not_valid(void) {
+  SbMessage m;
+  TEST_ASSERT_TRUE(decode_str(
+      "{\"type\":\"event\",\"cmd\":\"sound_level\",\"data\":{\"dba\":\"nan\"}}",
+      &m));
+  TEST_ASSERT_EQUAL(SB_MSG_SOUND_LEVEL, m.kind);
+  TEST_ASSERT_FALSE(m.dba_valid);
+}
+
+// Los enteros sin decimales tambien son lecturas validas.
+void test_integer_readings_are_valid(void) {
+  SbMessage m;
+  TEST_ASSERT_TRUE(decode_str(
+      "{\"type\":\"event\",\"cmd\":\"sensor_data\","
+      "\"data\":{\"temp\":[36,37,36],\"hum\":[55,54,60],\"lux\":320},\"ts\":1}",
+      &m));
+  TEST_ASSERT_TRUE(m.temp_valid[0]);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 36.0f, m.temp[0]);
+  TEST_ASSERT_TRUE(m.lux_valid);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 320.0f, m.lux);
+}
+
+// El decoder recibe (puntero, longitud), no una cadena C: un payload de 256 B
+// llena el buffer del parser sin terminador y nada debe leer mas alla.
+void test_decoder_respects_the_length_and_not_a_terminator(void) {
+  const char *json = "{\"type\":\"event\",\"cmd\":\"door_open\",\"ts\":7}";
+  uint8_t buf[128];
+  memset(buf, 0xFF, sizeof(buf));  // sin terminador nulo detras
+  const size_t n = strlen(json);
+  memcpy(buf, json, n);
+
+  SbMessage m;
+  TEST_ASSERT_TRUE(sb_json_decode(buf, n, &m));
+  TEST_ASSERT_EQUAL(SB_MSG_DOOR_OPEN, m.kind);
+  TEST_ASSERT_EQUAL_UINT32(7, m.ts);
 }
 
 // Ejemplo literal de SensorBoard_v2/README.md #Telemetria.
@@ -140,6 +201,10 @@ void test_encode_returns_zero_when_buffer_too_small(void) {
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_heartbeat_event);
+  RUN_TEST(test_non_numeric_readings_are_not_valid);
+  RUN_TEST(test_non_numeric_sound_level_is_not_valid);
+  RUN_TEST(test_integer_readings_are_valid);
+  RUN_TEST(test_decoder_respects_the_length_and_not_a_terminator);
   RUN_TEST(test_sensor_data_with_dead_sensor);
   RUN_TEST(test_door_open_and_closed);
   RUN_TEST(test_sound_level_event);

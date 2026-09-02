@@ -205,8 +205,151 @@ void test_encode_refuses_a_buffer_that_is_too_small(void) {
       0, sb_frame_encode(SB_PROTO_TYPE_JSON, payload, 3, frame, sizeof(frame)));
 }
 
+// El defecto que motiva el bound-check por byte: el dueno del parser encoge el
+// buffer a mitad de un payload grande (una captura liberada al desconectar el
+// USB) y, sin comprobacion, los bytes siguientes se escribian fuera del
+// buffer nuevo -- decenas de KB sobre un array de 256 B en .bss.
+void test_shrinking_the_buffer_mid_payload_does_not_overflow(void) {
+  Capture cap;
+  uint8_t big[4096];
+  // Arena unica: los primeros 64 B hacen de buffer pequeno y los 64
+  // siguientes de centinela. Dos arrays locales distintos no estan
+  // garantizados adyacentes, asi que no detectarian el desbordamiento.
+  uint8_t arena[128];
+  uint8_t *small = arena;
+  const size_t kSmallCap = 64;
+  uint8_t *guard = arena + kSmallCap;
+  const size_t kGuardLen = sizeof(arena) - kSmallCap;
+  memset(arena, 0xA5, sizeof(arena));
+
+  SbFrameParser p;
+  sb_frame_parser_init(&p, big, sizeof(big), on_complete_cb, on_error_cb, &cap);
+
+  // Frame binario grande a medias.
+  std::vector<uint8_t> payload(2000, 0x5A);
+  auto frame = build_frame(SB_PROTO_TYPE_JPEG, payload);
+  sb_frame_parser_feed(&p, frame.data(), 500);  // cabecera + parte del payload
+
+  // Se encoge el buffer, como al liberar la captura.
+  sb_frame_parser_set_buffer(&p, small, kSmallCap);
+
+  // El resto del frame viejo ya no debe escribirse en ningun sitio.
+  sb_frame_parser_feed(&p, frame.data() + 500, frame.size() - 500);
+
+  for (size_t i = 0; i < kGuardLen; i++) {
+    TEST_ASSERT_EQUAL_UINT8_MESSAGE(0xA5, guard[i], "escritura fuera de rango");
+  }
+  TEST_ASSERT_EQUAL_INT(0, cap.complete_count);
+
+  // Y el parser sigue vivo: un frame nuevo se entrega con normalidad.
+  auto good = build_frame(SB_PROTO_TYPE_JSON, {'o', 'k'});
+  sb_frame_parser_feed(&p, good.data(), good.size());
+  TEST_ASSERT_EQUAL_INT(1, cap.complete_count);
+}
+
+// Un Length corrupto en una cabecera JSON no puede aprovechar la capacidad
+// grande de una captura en vuelo para tragarse 100 KB de stream.
+void test_json_length_beyond_type_maximum_is_rejected(void) {
+  Capture cap;
+  uint8_t buf[4096];
+  SbFrameParser p;
+  sb_frame_parser_init(&p, buf, sizeof(buf), on_complete_cb, on_error_cb, &cap);
+
+  std::vector<uint8_t> payload(1000, 0x42);  // > SB_PROTO_MAX_JSON_PAYLOAD
+  auto frame = build_frame(SB_PROTO_TYPE_JSON, payload);
+  sb_frame_parser_feed(&p, frame.data(), frame.size());
+
+  TEST_ASSERT_EQUAL_INT(0, cap.complete_count);
+  TEST_ASSERT_TRUE(cap.error_count >= 1);
+
+  auto good = build_frame(SB_PROTO_TYPE_JSON, {'y'});
+  sb_frame_parser_feed(&p, good.data(), good.size());
+  TEST_ASSERT_EQUAL_INT(1, cap.complete_count);
+}
+
+void test_unknown_type_is_rejected_without_consuming_its_payload(void) {
+  Capture cap;
+  uint8_t buf[512];
+  SbFrameParser p;
+  sb_frame_parser_init(&p, buf, sizeof(buf), on_complete_cb, on_error_cb, &cap);
+
+  auto bad = build_frame(0x7Fu, {1, 2, 3});
+  sb_frame_parser_feed(&p, bad.data(), bad.size());
+  TEST_ASSERT_EQUAL_INT(0, cap.complete_count);
+  TEST_ASSERT_TRUE(cap.error_count >= 1);
+
+  auto good = build_frame(SB_PROTO_TYPE_JSON, {'z'});
+  sb_frame_parser_feed(&p, good.data(), good.size());
+  TEST_ASSERT_EQUAL_INT(1, cap.complete_count);
+}
+
+// Al perder el dispositivo hay que descartar el frame a medias: si no, el
+// primer byte del stream nuevo continuaba el frame del anterior.
+void test_reset_discards_a_half_received_frame(void) {
+  Capture cap;
+  uint8_t buf[512];
+  SbFrameParser p;
+  sb_frame_parser_init(&p, buf, sizeof(buf), on_complete_cb, on_error_cb, &cap);
+
+  auto frame = build_frame(SB_PROTO_TYPE_JSON, {'a', 'b', 'c', 'd'});
+  sb_frame_parser_feed(&p, frame.data(), 9);  // cabecera + 2 bytes de payload
+  sb_frame_parser_reset(&p);
+
+  sb_frame_parser_feed(&p, frame.data() + 9, frame.size() - 9);
+  TEST_ASSERT_EQUAL_INT(0, cap.complete_count);  // la cola no completa nada
+
+  sb_frame_parser_feed(&p, frame.data(), frame.size());
+  TEST_ASSERT_EQUAL_INT(1, cap.complete_count);
+}
+
+// Un frame valido cuyo payload contiene el propio magic: obligatorio, un JPEG
+// de 30 KB lo contiene con alta probabilidad.
+void test_magic_inside_payload_does_not_break_framing(void) {
+  Capture cap;
+  uint8_t buf[512];
+  SbFrameParser p;
+  sb_frame_parser_init(&p, buf, sizeof(buf), on_complete_cb, on_error_cb, &cap);
+
+  auto frame = build_frame(SB_PROTO_TYPE_JSON,
+                           {SB_PROTO_MAGIC_0, SB_PROTO_MAGIC_1, 0x00, 0x10});
+  sb_frame_parser_feed(&p, frame.data(), frame.size());
+  TEST_ASSERT_EQUAL_INT(1, cap.complete_count);
+  TEST_ASSERT_EQUAL_INT(0, cap.error_count);
+}
+
+void test_double_magic_prefix_resyncs(void) {
+  Capture cap;
+  uint8_t buf[512];
+  SbFrameParser p;
+  sb_frame_parser_init(&p, buf, sizeof(buf), on_complete_cb, on_error_cb, &cap);
+
+  std::vector<uint8_t> stream = {SB_PROTO_MAGIC_0};  // magic a medias
+  auto frame = build_frame(SB_PROTO_TYPE_JSON, {'q'});
+  for (uint8_t b : frame) stream.push_back(b);
+
+  sb_frame_parser_feed(&p, stream.data(), stream.size());
+  TEST_ASSERT_EQUAL_INT(1, cap.complete_count);
+}
+
+void test_encode_rejects_an_impossible_length(void) {
+  const uint8_t payload[] = {1, 2, 3};
+  uint8_t frame[64];
+  // Sin el rechazo previo, el total daba la vuelta y la guarda de capacidad
+  // pasaba: el bucle de copia intentaba escribir 4 GB.
+  TEST_ASSERT_EQUAL_UINT32(0, sb_frame_encode(SB_PROTO_TYPE_JSON, payload,
+                                              0xFFFFFFFFu, frame,
+                                              sizeof(frame)));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_shrinking_the_buffer_mid_payload_does_not_overflow);
+  RUN_TEST(test_json_length_beyond_type_maximum_is_rejected);
+  RUN_TEST(test_unknown_type_is_rejected_without_consuming_its_payload);
+  RUN_TEST(test_reset_discards_a_half_received_frame);
+  RUN_TEST(test_magic_inside_payload_does_not_break_framing);
+  RUN_TEST(test_double_magic_prefix_resyncs);
+  RUN_TEST(test_encode_rejects_an_impossible_length);
   RUN_TEST(test_encoded_frame_round_trips);
   RUN_TEST(test_encode_refuses_a_buffer_that_is_too_small);
   RUN_TEST(test_whole_frame_in_one_feed);

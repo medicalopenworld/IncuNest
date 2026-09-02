@@ -14,6 +14,13 @@ static void copy_msg(SbMessage *out, JsonVariantConst v) {
 // Rellena temp[3]/hum[3] desde un JsonArray; una posicion null (sensor
 // caido, ADR-0002 del SensorBoard) queda en *_valid=false sin tocar el
 // valor.
+//
+// Exige tipo NUMERICO, no solo "no null": as<float>() sobre una cadena la
+// parsea sin fallar ("ERR" -> 0.0) y sobre un bool devuelve 0.0/1.0, asi que
+// un campo emitido como texto se colaba como lectura valida de 0.0 grados.
+// Estos valores gobiernan el PID de aire, no son telemetria decorativa.
+static bool is_number(JsonVariantConst v) { return v.is<float>(); }
+
 static void copy_optional_array3(JsonVariantConst arr, bool valid[3],
                                  float value[3]) {
   for (int i = 0; i < 3; i++) {
@@ -24,7 +31,7 @@ static void copy_optional_array3(JsonVariantConst arr, bool valid[3],
   int i = 0;
   for (JsonVariantConst v : a) {
     if (i >= 3) break;
-    if (!v.isNull()) {
+    if (is_number(v)) {
       valid[i] = true;
       value[i] = v.as<float>();
     }
@@ -50,13 +57,21 @@ bool sb_json_decode(const uint8_t *payload, size_t len, SbMessage *out) {
   if (strcmp(type, SB_JSON_TYPE_EVENT) == 0) {
     if (strcmp(cmd, SB_CMD_HEARTBEAT) == 0) {
       out->kind = SB_MSG_HEARTBEAT;
+      // El heartbeat no lleva "ts" sino "uptime" (main.c del SensorBoard):
+      // es el unico dato que permite detectar que la placa se ha reiniciado
+      // sin que el USB llegue a caerse.
+      JsonVariantConst up = doc[SB_JSON_UPTIME];
+      if (is_number(up)) {
+        out->uptime_valid = true;
+        out->uptime = up.as<uint32_t>();
+      }
     } else if (strcmp(cmd, SB_CMD_SENSOR_DATA) == 0) {
       out->kind = SB_MSG_SENSOR_DATA;
       JsonVariantConst data = doc[SB_JSON_DATA];
       copy_optional_array3(data["temp"], out->temp_valid, out->temp);
       copy_optional_array3(data["hum"], out->hum_valid, out->hum);
       JsonVariantConst lux = data["lux"];
-      if (!lux.isNull()) {
+      if (is_number(lux)) {
         out->lux_valid = true;
         out->lux = lux.as<float>();
       }
@@ -67,7 +82,7 @@ bool sb_json_decode(const uint8_t *payload, size_t len, SbMessage *out) {
     } else if (strcmp(cmd, SB_CMD_SOUND_LEVEL) == 0) {
       out->kind = SB_MSG_SOUND_LEVEL;
       JsonVariantConst dba = doc[SB_JSON_DATA]["dba"];
-      if (!dba.isNull()) {
+      if (is_number(dba)) {
         out->dba_valid = true;
         out->dba = dba.as<float>();
       }

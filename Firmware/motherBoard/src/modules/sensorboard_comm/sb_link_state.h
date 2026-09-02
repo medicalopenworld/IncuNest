@@ -9,6 +9,13 @@
 // Antes del primer heartbeat el enlace se considera NO disponible: no hay
 // canal de diagnostico que distinga "todavia no ha enumerado" de "esta
 // averiado", asi que el arranque falla-seguro igual que un timeout.
+//
+// Solo el heartbeat refresca el enlace, no cualquier trafico: es el unico
+// mensaje periodico e incondicional (lo emite el app_main del SensorBoard),
+// mientras que sensor_data o sound_level los emiten tareas de sensor que
+// pueden seguir vivas con el resto del firmware degradado. Aceptar
+// "cualquier trafico" convertiria esto en un detector de "el cable esta
+// enchufado", que ya lo da el evento del driver USB.
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -23,6 +30,20 @@ void sb_link_state_init(SbLinkState *s);
 // la motherboard en el instante de recepcion.
 void sb_link_state_note_heartbeat(SbLinkState *s, uint32_t now_ms);
 
-// Llamar periodicamente (p.ej. desde el tick de la tarea de comunicacion).
-// Devuelve true si el enlace sigue vivo segun el margen de 90 s.
+// Declara el enlace caido sin esperar el timeout. Para cuando hay evidencia
+// definitiva -- el dispositivo se ha ido del bus USB --: inferir durante 90 s
+// algo que ya se sabe con certeza es perder senal gratis.
+void sb_link_state_mark_down(SbLinkState *s);
+
+// Evalua el enlace y, si el hueco supera el timeout, DEJA EL ESTADO CAIDO de
+// forma permanente hasta el siguiente heartbeat real.
+//
+// NO ES UNA CONSULTA PURA, y de ahi el nombre: sin ese olvido, un enlace roto
+// hace semanas volvia a declararse vivo durante 90 s cuando millis() daba la
+// vuelta (~49.7 dias, uptime normal en una incubadora que no se apaga) y
+// volvia a caer dentro de la ventana del ultimo heartbeat. Eso borraba la
+// alarma de enlace perdido y publicaba lecturas de hace semanas como frescas.
+bool sb_link_state_evaluate(SbLinkState *s, uint32_t now_ms);
+
+// Consulta pura, para quien solo quiera leer el estado ya evaluado.
 bool sb_link_state_is_connected(const SbLinkState *s, uint32_t now_ms);

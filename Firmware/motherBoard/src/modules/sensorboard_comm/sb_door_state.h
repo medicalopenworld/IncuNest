@@ -13,9 +13,7 @@
 
 // Umbral de implausibilidad: 4 transiciones reales dentro de 60 s. Con el
 // debounce del SensorBoard por debajo, esa cadencia ya no es una puerta que
-// alguien abre y cierra, es una senal inestable. Se auto-limpia: cuando la
-// mas vieja de las 4 sale de la ventana, la condicion desaparece sola (la
-// alarma no es latching, ver alarm_policy.cpp).
+// alguien abre y cierra, es una senal inestable.
 #define SB_DOOR_FLAP_WINDOW_MS 60000u
 #define SB_DOOR_FLAP_TRANSITIONS_FOR_FAULT 4u
 
@@ -35,5 +33,12 @@ void sb_door_state_note_event(SbDoorState *s, bool event_open,
 // false mientras no haya llegado ningun evento (arranque sin estado).
 bool sb_door_state_get(const SbDoorState *s, bool *open_out);
 
-// true mientras la ventana de flapping siga llena de transiciones.
-bool sb_door_state_is_faulty(const SbDoorState *s, uint32_t now_ms);
+// Purga las transiciones que ya han salido de la ventana y devuelve si el
+// hall sigue siendo sospechoso.
+//
+// NO ES UNA CONSULTA PURA, a proposito: el vaciado es lo que hace que la
+// condicion se limpie de forma ESTRUCTURAL. Con el criterio puramente
+// aritmetico anterior, cuatro transiciones fosilizadas (p. ej. de la
+// instalacion) resucitaban la alarma 49.7 dias despues, al dar la vuelta
+// millis(), sin que la puerta se hubiera movido.
+bool sb_door_state_evaluate(SbDoorState *s, uint32_t now_ms);
