@@ -79,6 +79,8 @@
 // see openspec design decision 14; not an accidental leak.
 #define BABY_NAME_KEY "baby_name"
 #define BABY_OUTCOME_KEY "baby_outcome"
+// Only meaningful when baby_outcome==2 (Deceased); sent as 0 otherwise.
+#define BABY_CAUSE_KEY "baby_discharge_cause"
 #define BABY_DISCHARGE_EPOCH_KEY "baby_discharge_epoch"
 #define BABY_KANGAROO_COUNT_KEY "baby_kangaroo_count"
 #define BABY_KANGAROO_LAST_KEY "baby_kangaroo_last_epoch"

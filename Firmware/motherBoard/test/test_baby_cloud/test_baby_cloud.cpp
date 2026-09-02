@@ -79,11 +79,23 @@ void test_discharge_is_self_contained_with_stay_days(void) {
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_name\":\"ANA\""));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_gest_weeks\":31"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_outcome\":1"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_discharge_cause\":0"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_kangaroo_count\":4"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_phototherapy_min\":90"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_thermo_min\":300"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_humidity_min\":240"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_stay_days\":5"));
+}
+
+void test_discharge_cause_only_meaningful_for_deceased(void) {
+  BabyProfile p = mk();
+  p.outcome = BABY_OUTCOME_DECEASED;
+  p.cause = BABY_CAUSE_HYPOTHERMIA;
+  BabyCloudEvent d = {BABY_EVT_DISCHARGE, 1700000700u, 0, p};
+  char buf[512];
+  TEST_ASSERT_GREATER_THAN_INT(0, babyCloud_buildEventJson(&d, buf, sizeof(buf)));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_outcome\":2"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_discharge_cause\":5"));
 }
 
 void test_stay_days_omitted_when_dates_unusable(void) {
@@ -143,6 +155,7 @@ void test_widest_discharge_payload_fits_transport_buffer(void) {
   p.admissionEpoch = 1700000000u;
   p.dischargeEpoch = 4294967295u;
   p.outcome = 3;
+  p.cause = 255;
   p.kangarooCount = 65535;
   p.phototherapyMinutes = 4294967295u;
   p.thermoMinutes = 4294967295u;
@@ -175,6 +188,7 @@ int main(void) {
   RUN_TEST(test_known_timestamp_uses_ts_envelope_in_millis);
   RUN_TEST(test_unsynced_clock_omits_ts_so_server_stamps_it);
   RUN_TEST(test_discharge_is_self_contained_with_stay_days);
+  RUN_TEST(test_discharge_cause_only_meaningful_for_deceased);
   RUN_TEST(test_stay_days_omitted_when_dates_unusable);
   RUN_TEST(test_name_with_quotes_cannot_break_the_json);
   RUN_TEST(test_empty_attributes_clear_every_occupancy_key);

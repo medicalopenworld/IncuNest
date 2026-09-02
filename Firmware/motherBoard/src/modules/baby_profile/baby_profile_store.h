@@ -47,9 +47,12 @@ bool babyStore_addThermoMinutes(uint32_t seq, uint32_t minutes);
 bool babyStore_addHumidityMinutes(uint32_t seq, uint32_t minutes);
 
 // Explicit discharge (design decision 9, second entry point): stamps
-// dischargeEpoch (now if synced, else 0) + outcome, archives immediately,
-// frees the slot. Returns false for unknown seq.
-bool babyStore_discharge(uint32_t seq, uint8_t outcome);
+// dischargeEpoch (now if synced, else 0) + outcome + cause, archives
+// immediately, frees the slot. cause is only meaningful for
+// outcome==BABY_OUTCOME_DECEASED (validated 0-6 by the caller); store it
+// as given for every outcome, don't reinterpret it. Returns false for
+// unknown seq.
+bool babyStore_discharge(uint32_t seq, uint8_t outcome, uint8_t cause);
 
 // ---------------- Active-control protection ----------------
 uint32_t babyStore_getActiveSeq();
@@ -100,7 +103,11 @@ uint32_t babyStore_nowEpoch();
 // The published profile: the active-control baby when set, else the most
 // recently created used slot, else nullptr. name/outcome/dischargeEpoch are
 // intentionally included in cloud telemetry (Ministry of Health access via
-// ThingsBoard) — do not strip them on privacy-minimization grounds.
+// ThingsBoard) — do not strip them on privacy-minimization grounds. `cause`
+// (added alongside this comment) rides the same BABY_EVT_DISCHARGE JSON
+// payload as outcome (see baby_cloud.cpp, BABY_CAUSE_KEY) but nothing drains
+// this cloud-event queue over the wire yet — that GPRS/WiFi transport wiring
+// was still in flight on another branch at the time this was written.
 const BabyProfile *babyStore_telemetryProfile();
 // One-shot dirty flag, set by create/weight/discharge (same consume-once
 // semantics the legacy newBabyDataForTelemetry flag had).

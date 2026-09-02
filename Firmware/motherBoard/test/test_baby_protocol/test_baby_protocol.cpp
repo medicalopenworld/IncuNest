@@ -53,9 +53,20 @@ void test_parse_discharge_all_outcomes(void) {
   BabyProtoMsg m;
   for (int oc = 0; oc <= 3; oc++) {
     char line[48];
-    snprintf(line, sizeof(line), "HMI,PROFILE_DISCHARGE,42,%d", oc);
+    snprintf(line, sizeof(line), "HMI,PROFILE_DISCHARGE,42,%d,0", oc);
     TEST_ASSERT_EQUAL(BABY_MSG_DISCHARGE, baby_proto_parse(line, &m));
     TEST_ASSERT_EQUAL_UINT8(oc, m.outcome);
+    TEST_ASSERT_EQUAL_UINT8(0, m.cause);
+  }
+}
+
+void test_parse_discharge_all_causes(void) {
+  BabyProtoMsg m;
+  for (int cause = 0; cause <= 6; cause++) {
+    char line[48];
+    snprintf(line, sizeof(line), "HMI,PROFILE_DISCHARGE,42,2,%d", cause);
+    TEST_ASSERT_EQUAL(BABY_MSG_DISCHARGE, baby_proto_parse(line, &m));
+    TEST_ASSERT_EQUAL_UINT8(cause, m.cause);
   }
 }
 
@@ -101,6 +112,9 @@ void test_parse_rejects_short_field_count(void) {
                     baby_proto_parse("HMI,PROFILE_WEIGHT,42", &m));
   TEST_ASSERT_EQUAL(BABY_MSG_NONE,
                     baby_proto_parse("HMI,PROFILE_DISCHARGE,42", &m));
+  // Pre-v2.2.0 3-field form (no cause) is now short by exactly one field.
+  TEST_ASSERT_EQUAL(BABY_MSG_NONE,
+                    baby_proto_parse("HMI,PROFILE_DISCHARGE,42,1", &m));
 }
 
 void test_parse_rejects_non_numeric_fields(void) {
@@ -118,9 +132,17 @@ void test_parse_rejects_non_numeric_fields(void) {
 void test_parse_rejects_out_of_range_outcome(void) {
   BabyProtoMsg m;
   TEST_ASSERT_EQUAL(BABY_MSG_NONE,
-                    baby_proto_parse("HMI,PROFILE_DISCHARGE,42,4", &m));
+                    baby_proto_parse("HMI,PROFILE_DISCHARGE,42,4,0", &m));
   TEST_ASSERT_EQUAL(BABY_MSG_NONE,
-                    baby_proto_parse("HMI,PROFILE_DISCHARGE,42,-1", &m));
+                    baby_proto_parse("HMI,PROFILE_DISCHARGE,42,-1,0", &m));
+}
+
+void test_parse_rejects_out_of_range_cause(void) {
+  BabyProtoMsg m;
+  TEST_ASSERT_EQUAL(BABY_MSG_NONE,
+                    baby_proto_parse("HMI,PROFILE_DISCHARGE,42,2,7", &m));
+  TEST_ASSERT_EQUAL(BABY_MSG_NONE,
+                    baby_proto_parse("HMI,PROFILE_DISCHARGE,42,2,-1", &m));
 }
 
 void test_parse_rejects_empty_name(void) {
@@ -206,8 +228,8 @@ void test_build_history_page(void) {
   char buf[256];
   baby_proto_build_history(buf, sizeof(buf), 0, 12, recs, 2);
   TEST_ASSERT_EQUAL_STRING(
-      "CTRL,PROFILE_HISTORY,0,12,2,9,Luca,33,1800,1000,2000,1,4,90,300,240,"
-      "7,Ana,30,1200,0,0,0,0,0,0,0\n",
+      "CTRL,PROFILE_HISTORY,0,12,2,9,Luca,33,1800,1000,2000,1,0,4,90,300,240,"
+      "7,Ana,30,1200,0,0,0,0,0,0,0,0\n",
       buf);
 }
 
@@ -255,6 +277,7 @@ void test_build_history_worst_case_fits_response_buffer(void) {
     recs[i].admissionEpoch = 4294967295u;
     recs[i].dischargeEpoch = 4294967295u;
     recs[i].outcome = 3;
+    recs[i].cause = 255;
     recs[i].kangarooCount = 65535;
     recs[i].phototherapyMinutes = 4294967295u;
     recs[i].thermoMinutes = 4294967295u;
@@ -275,6 +298,7 @@ int main(void) {
   RUN_TEST(test_parse_weight_value_and_skip);
   RUN_TEST(test_parse_age_manual);
   RUN_TEST(test_parse_discharge_all_outcomes);
+  RUN_TEST(test_parse_discharge_all_causes);
   RUN_TEST(test_parse_kangaroo);
   RUN_TEST(test_parse_kangaroo_rejects_malformed);
   RUN_TEST(test_parse_history_req);
@@ -282,6 +306,7 @@ int main(void) {
   RUN_TEST(test_parse_rejects_short_field_count);
   RUN_TEST(test_parse_rejects_non_numeric_fields);
   RUN_TEST(test_parse_rejects_out_of_range_outcome);
+  RUN_TEST(test_parse_rejects_out_of_range_cause);
   RUN_TEST(test_parse_rejects_empty_name);
   RUN_TEST(test_parse_rejects_unknown_and_non_profile_lines);
   RUN_TEST(test_build_list_with_two_profiles);

@@ -16,7 +16,7 @@ enum BabyProtoMsgType : uint8_t {
   BABY_MSG_SELECT,              // HMI,PROFILE_SELECT,<seq>
   BABY_MSG_WEIGHT,              // HMI,PROFILE_WEIGHT,<seq>,<grams|SKIP>
   BABY_MSG_AGE_MANUAL,          // HMI,PROFILE_AGE_MANUAL,<seq>,<ageDays>
-  BABY_MSG_DISCHARGE,           // HMI,PROFILE_DISCHARGE,<seq>,<outcome>
+  BABY_MSG_DISCHARGE,           // HMI,PROFILE_DISCHARGE,<seq>,<outcome>,<cause>
   BABY_MSG_KANGAROO,            // HMI,PROFILE_KANGAROO,<seq>
   BABY_MSG_HISTORY_REQ,         // HMI,PROFILE_HISTORY_REQ,<page>
   BABY_MSG_WEIGHT_HISTORY_REQ,  // HMI,WEIGHT_HISTORY_REQ,<seq>
@@ -28,6 +28,7 @@ struct BabyProtoMsg {
   uint16_t grams;      // 0 = SKIP for BABY_MSG_WEIGHT
   uint16_t ageDays;
   uint8_t outcome;     // validated 0-3
+  uint8_t cause;       // validated 0-6; only meaningful for outcome==2
   uint32_t page;
   uint8_t gestWeeks;
   char name[BABY_NAME_LEN];
@@ -50,7 +51,7 @@ int baby_proto_build_range(char *buf, size_t len, uint32_t seq, bool ageKnown,
                            uint16_t ageDays, const NteRange *range);
 
 // CTRL,PROFILE_HISTORY,<page>,<totalCount>,<n>,{<seq>,<name>,<gestWeeks>,
-// <lastWeightGrams>,<admissionEpoch>,<dischargeEpoch>,<outcome>}xn
+// <lastWeightGrams>,<admissionEpoch>,<dischargeEpoch>,<outcome>,<cause>}xn
 int baby_proto_build_history(char *buf, size_t len, uint32_t page,
                              uint32_t totalCount, const BabyProfile *records,
                              uint32_t n);

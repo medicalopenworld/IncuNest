@@ -83,6 +83,7 @@ void baby_history_encode(const BabyProfile *p, bool valid,
   put_u32(out + 47, p->phototherapyMinutes);
   put_u32(out + 51, p->thermoMinutes);
   put_u32(out + 55, p->humidityMinutes);
+  out[59] = p->cause;
 }
 
 bool baby_history_decode(const uint8_t rec[BABY_HISTORY_RECORD_SIZE],
@@ -101,6 +102,7 @@ bool baby_history_decode(const uint8_t rec[BABY_HISTORY_RECORD_SIZE],
   out->phototherapyMinutes = get_u32(rec + 47);
   out->thermoMinutes = get_u32(rec + 51);
   out->humidityMinutes = get_u32(rec + 55);
+  out->cause = rec[59];
   return rec[0] != 0;
 }
 

@@ -108,12 +108,14 @@ BabyProtoMsgType baby_proto_parse(const char *line, BabyProtoMsg *out) {
   }
 
   if (fieldEquals(cmd, cmdLen, "PROFILE_DISCHARGE")) {
-    uint32_t oc;
-    if (n != 4 || !parseU32(f[2], fl[2], &out->seq) ||
-        !parseU32(f[3], fl[3], &oc) || oc > BABY_OUTCOME_TRANSFERRED) {
+    uint32_t oc, cau;
+    if (n != 5 || !parseU32(f[2], fl[2], &out->seq) ||
+        !parseU32(f[3], fl[3], &oc) || oc > BABY_OUTCOME_TRANSFERRED ||
+        !parseU32(f[4], fl[4], &cau) || cau > BABY_CAUSE_OTHER) {
       return BABY_MSG_NONE;
     }
     out->outcome = (uint8_t)oc;
+    out->cause = (uint8_t)cau;
     out->type = BABY_MSG_DISCHARGE;
     return out->type;
   }
@@ -203,12 +205,12 @@ int baby_proto_build_history(char *buf, size_t len, uint32_t page,
   appendf(buf, len, &pos, &ovf, "CTRL,PROFILE_HISTORY,%u,%u,%u",
           (unsigned)page, (unsigned)totalCount, (unsigned)n);
   for (uint32_t i = 0; i < n; i++) {
-    appendf(buf, len, &pos, &ovf, ",%u,%s,%u,%u,%u,%u,%u,%u,%u,%u,%u",
+    appendf(buf, len, &pos, &ovf, ",%u,%s,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u",
             (unsigned)records[i].seq, records[i].name,
             (unsigned)records[i].gestWeeks, (unsigned)records[i].weightGrams,
             (unsigned)records[i].admissionEpoch,
             (unsigned)records[i].dischargeEpoch,
-            (unsigned)records[i].outcome,
+            (unsigned)records[i].outcome, (unsigned)records[i].cause,
             (unsigned)records[i].kangarooCount,
             (unsigned)records[i].phototherapyMinutes,
             (unsigned)records[i].thermoMinutes,

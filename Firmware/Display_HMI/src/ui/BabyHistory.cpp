@@ -59,6 +59,24 @@ const char *outcomeText(uint8_t oc) {
   }
 }
 
+// Only meaningful for outcome==2 (Deceased) — see PROTOCOL.md BabyCause.
+const char *causeText(uint8_t cause) {
+  switch (cause) {
+    case 1: return TXT("Prematuridad", "Prematurity", "Prematurite");
+    case 2:
+      return TXT("Asfixia perinatal", "Perinatal asphyxia",
+                 "Asphyxie perinatale");
+    case 3:
+      return TXT("Sepsis/infeccion", "Sepsis/infection", "Sepsis/infection");
+    case 4:
+      return TXT("Malformacion congenita", "Congenital malformation",
+                 "Malformation congenitale");
+    case 5: return TXT("Hipotermia", "Hypothermia", "Hypothermie");
+    case 6: return TXT("Otra", "Other", "Autre");
+    default: return TXT("Desconocida", "Unknown", "Inconnue");
+  }
+}
+
 // epoch (UTC) -> "YYYY-MM-DD" en HORA LOCAL, o "--" cuando epoch == 0.
 // Mismo criterio que fmtStamp en AlarmCenter: todas las pantallas fechan en la
 // misma referencia. Lo almacenado sigue en UTC.
@@ -131,6 +149,7 @@ void showLoading();
 void showList();
 void showChart();
 void openDischargeDialog(uint32_t seq);
+void openCauseDialog();
 void requestActive();
 void requestArchived(uint32_t page);
 void closeScreen();
@@ -319,6 +338,15 @@ void showList() {
 
     char date[16];
     fmtDate(it.dischargeEpoch, date, sizeof(date));
+    char outcomeBuf[48];
+    if (it.outcome == 2) {
+      // Cause only adds information for the Deceased outcome; every other
+      // outcome shows outcomeText() alone, unchanged from before this field.
+      snprintf(outcomeBuf, sizeof(outcomeBuf), "%s (%s)",
+               outcomeText(it.outcome), causeText(it.cause));
+    } else {
+      snprintf(outcomeBuf, sizeof(outcomeBuf), "%s", outcomeText(it.outcome));
+    }
     char buf[224];
     char photoTxt[16], thermoTxt[16], humTxt[16];
     fmtMinutes(it.phototherapyMinutes, photoTxt, sizeof(photoTxt));
@@ -328,7 +356,7 @@ void showList() {
              TXT("%s  -  EG %u  -  %s  -  %s\nCanguro %u\nFoto %s  -  Termo %s  -  Hum %s",
                  "%s  -  GA %u  -  %s  -  %s\nKangaroo %u\nPhoto %s  -  Thermo %s  -  Hum %s",
                  "%s  -  AG %u  -  %s  -  %s\nKangourou %u\nPhoto %s  -  Thermo %s  -  Hum %s"),
-             it.name, (unsigned)it.gestWeeks, outcomeText(it.outcome), date,
+             it.name, (unsigned)it.gestWeeks, outcomeBuf, date,
              (unsigned)it.kangarooCount, photoTxt, thermoTxt, humTxt);
     makeCardLabel(card, buf, 580);
   }
@@ -370,9 +398,27 @@ void showList() {
 
 // ---------------- Discharge dialog ----------------
 
+// Deceased (2) needs a cause before anything is sent; every other outcome
+// goes straight to the ACK wait like before this field existed.
 void onOutcomePick(lv_event_t *e) {
   s_dischargeOutcome = (uint8_t)(uintptr_t)lv_event_get_user_data(e);
-  Communication_SendProfileDischarge(s_dischargeSeq, s_dischargeOutcome);
+  if (s_dischargeOutcome == 2) {
+    openCauseDialog();
+    return;
+  }
+  Communication_SendProfileDischarge(s_dischargeSeq, s_dischargeOutcome, 0);
+  if (s_dlg) {
+    lv_obj_del(s_dlg);
+    s_dlg = nullptr;
+  }
+  s_step = HistStep::WaitingDischargeAck;
+  s_deadlineMs = millis() + RESP_TIMEOUT_MS;
+  showLoading();
+}
+
+void onCausePick(lv_event_t *e) {
+  uint8_t cause = (uint8_t)(uintptr_t)lv_event_get_user_data(e);
+  Communication_SendProfileDischarge(s_dischargeSeq, s_dischargeOutcome, cause);
   if (s_dlg) {
     lv_obj_del(s_dlg);
     s_dlg = nullptr;
@@ -426,6 +472,60 @@ void openDischargeDialog(uint32_t seq) {
                             lv_color_hex(0x0075EE),
                             (void *)(uintptr_t)OUTCOMES[i]);
     lv_obj_set_size(btn, 300, 46);
+  }
+
+  lv_obj_t *cancel = makeBtn(s_dlg, TXT("CANCELAR", "CANCEL", "ANNULER"),
+                             onDialogCancel, lv_color_hex(0x888888));
+  lv_obj_set_size(cancel, 160, 44);
+}
+
+// Replaces the outcome dialog with the cause picker, still inside s_overlay.
+// CANCELAR here (via onDialogCancel) aborts the whole discharge, same as
+// from the outcome dialog — there is no way back to re-pick the outcome,
+// matching BabyExitDialog's "X" semantics: nothing is recorded.
+void openCauseDialog() {
+  if (s_dlg) {
+    lv_obj_del(s_dlg);
+    s_dlg = nullptr;
+  }
+  s_dlg = lv_obj_create(s_overlay);
+  lv_obj_set_size(s_dlg, 480, 400);
+  lv_obj_center(s_dlg);
+  lv_obj_set_style_radius(s_dlg, 12, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(s_dlg, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+  lv_obj_move_foreground(s_dlg);
+  lv_obj_set_style_pad_all(s_dlg, 12, LV_PART_MAIN);
+  lv_obj_set_flex_flow(s_dlg, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(s_dlg, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                        LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_row(s_dlg, 6, LV_PART_MAIN);
+  // 6 causes + title + cancel don't fit at the outcome dialog's button
+  // height without overflowing 400px, so this one scrolls instead.
+  lv_obj_add_flag(s_dlg, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(s_dlg, LV_DIR_VER);
+
+  lv_obj_t *title = lv_label_create(s_dlg);
+  lv_label_set_text(title, TXT("Causa del fallecimiento", "Cause of death",
+                               "Cause du deces"));
+  lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
+
+  // Same 1-6 mapping as PROTOCOL.md / BabyCause on the motherBoard, and as
+  // BabyExitDialog's cause screen (the auto-triggered exit flow) — kept in
+  // sync by hand since neither file shares headers with the other's UI.
+  struct CauseOption { const char *es, *en, *fr; uint8_t code; };
+  static const CauseOption CAUSES[] = {
+      {"PREMATURIDAD", "PREMATURITY", "PREMATURITE", 1},
+      {"ASFIXIA PERINATAL", "PERINATAL ASPHYXIA", "ASPHYXIE PERINATALE", 2},
+      {"SEPSIS / INFECCION", "SEPSIS / INFECTION", "SEPSIS / INFECTION", 3},
+      {"MALFORMACION CONGENITA", "CONGENITAL MALFORMATION",
+       "MALFORMATION CONGENITALE", 4},
+      {"HIPOTERMIA", "HYPOTHERMIA", "HYPOTHERMIE", 5},
+      {"OTRA / DESCONOCIDA", "OTHER / UNKNOWN", "AUTRE / INCONNUE", 6},
+  };
+  for (const CauseOption &c : CAUSES) {
+    lv_obj_t *btn = makeBtn(s_dlg, TXT(c.es, c.en, c.fr), onCausePick,
+                            lv_color_hex(0x0075EE), (void *)(uintptr_t)c.code);
+    lv_obj_set_size(btn, 300, 40);
   }
 
   lv_obj_t *cancel = makeBtn(s_dlg, TXT("CANCELAR", "CANCEL", "ANNULER"),

@@ -284,12 +284,15 @@ static void historyResetIfIncompatible() {
   size_t expected = sizeof(FileHeader) + (size_t)stored * BABY_HISTORY_RECORD_SIZE;
   if (headerOk && h.count <= BABY_HISTORY_CAP && actual == expected) return;
 
-  size_t legacy =
+  size_t legacyV1 =
       sizeof(FileHeader) + (size_t)stored * BABY_HISTORY_RECORD_SIZE_LEGACY_V1;
+  size_t legacyV2 =
+      sizeof(FileHeader) + (size_t)stored * BABY_HISTORY_RECORD_SIZE_LEGACY_V2;
   ESP_LOGW(TAG,
-           "audit log layout mismatch (size=%u, expected=%u, legacy=%u) — "
-           "resetting baby history",
-           (unsigned)actual, (unsigned)expected, (unsigned)legacy);
+           "audit log layout mismatch (size=%u, expected=%u, legacyV1=%u, "
+           "legacyV2=%u) — resetting baby history",
+           (unsigned)actual, (unsigned)expected, (unsigned)legacyV1,
+           (unsigned)legacyV2);
   LittleFS.remove(HISTORY_PATH);
   int removed = wipeDir(WEIGHT_ARCHIVE_DIR);
   if (removed > 0) {
@@ -573,11 +576,12 @@ bool babyStore_addHumidityMinutes(uint32_t seq, uint32_t minutes) {
                            "humidity");
 }
 
-bool babyStore_discharge(uint32_t seq, uint8_t outcome) {
+bool babyStore_discharge(uint32_t seq, uint8_t outcome, uint8_t cause) {
   int i = baby_find_slot_by_seq(s_slots, seq);
   if (i < 0) return false;
   s_slots[i].dischargeEpoch = babyStore_nowEpoch();
   s_slots[i].outcome = outcome;
+  s_slots[i].cause = cause;
   // Snapshot for telemetry before the slot is freed by archiveProfile().
   s_telemetryProfile = s_slots[i];
   s_telemetryHasSnapshot = true;

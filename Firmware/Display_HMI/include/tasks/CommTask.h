@@ -264,6 +264,9 @@ struct BabyHistoryItem {
   uint32_t admissionEpoch;  // 0 = unknown
   uint32_t dischargeEpoch;  // 0 = never explicitly discharged
   uint8_t  outcome;         // 0=Unknown 1=Survived 2=Deceased 3=Transferred
+  // Only meaningful when outcome==2 (Deceased); 0 otherwise. See PROTOCOL.md
+  // BabyCause for the 1-6 mapping.
+  uint8_t  cause;
   uint16_t kangarooCount;
   uint32_t phototherapyMinutes;
   uint32_t thermoMinutes;
@@ -342,7 +345,8 @@ void Communication_SendProfileNew(const char *name, uint8_t gestWeeks);
 void Communication_SendProfileSelect(uint32_t seq);
 void Communication_SendProfileWeight(uint32_t seq, uint16_t grams); // 0 = SKIP
 void Communication_SendProfileAgeManual(uint32_t seq, uint16_t ageDays);
-void Communication_SendProfileDischarge(uint32_t seq, uint8_t outcome);
+void Communication_SendProfileDischarge(uint32_t seq, uint8_t outcome,
+                                        uint8_t cause);
 void Communication_SendProfileKangaroo(uint32_t seq);
 void Communication_SendProfileHistoryReq(uint32_t page);
 void Communication_SendWeightHistoryReq(uint32_t seq);
