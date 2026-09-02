@@ -12,7 +12,10 @@ from tkinter import ttk, scrolledtext
 import serial.tools.list_ports
 from PIL import Image, ImageTk
 
-from detector import Board, find_all_board_ports, board_from_vid_pid
+from detector import (
+    Board, find_all_board_ports, board_from_vid_pid,
+    is_ambiguous_native_usb, detect_board_ambiguous, BoardDetectionError,
+)
 from flasher import flash_board, has_firmware_flashed
 from updater import check_update_available, download_latest
 
@@ -672,10 +675,20 @@ class FlasherApp:
     # Hotplug monitor
     # ------------------------------------------------------------------ #
 
+    @staticmethod
+    def _is_flasher_port(vid: Optional[int], pid: Optional[int]) -> bool:
+        """True for any port this tool might care about, resolved or not.
+
+        Includes the ambiguous native-USB PID (motherBoard in any state, or a
+        virgin motherBoard/SensorBoard) — that still needs a flash-size probe
+        to know which board it actually is, done in _hotplug_loop.
+        """
+        return board_from_vid_pid(vid, pid) is not None or is_ambiguous_native_usb(vid, pid)
+
     def _init_hotplug(self) -> None:
         self._known_ports = {
             p.device for p in serial.tools.list_ports.comports()
-            if board_from_vid_pid(p.vid, p.pid) is not None
+            if self._is_flasher_port(p.vid, p.pid)
         }
         threading.Thread(target=self._hotplug_loop, daemon=True).start()
 
@@ -685,7 +698,7 @@ class FlasherApp:
             try:
                 current: dict[str, object] = {
                     p.device: p for p in serial.tools.list_ports.comports()
-                    if board_from_vid_pid(p.vid, p.pid) is not None
+                    if self._is_flasher_port(p.vid, p.pid)
                 }
             except Exception:
                 continue
@@ -693,6 +706,19 @@ class FlasherApp:
             self._known_ports = set(current.keys())
             for device, port_info in sorted(new_devices.items()):
                 board = board_from_vid_pid(port_info.vid, port_info.pid)
+                if board is None and is_ambiguous_native_usb(port_info.vid, port_info.pid):
+                    # Blocking flash-size probe (~1-2s) — safe here, this loop
+                    # already runs off the Tk main thread.
+                    try:
+                        board = detect_board_ambiguous(device)
+                    except BoardDetectionError as exc:
+                        self.root.after(
+                            0, self._log_line,
+                            f"No se pudo identificar el dispositivo en {device}: {exc}", 'error',
+                        )
+                        continue
+                if board is None:
+                    continue
                 self.root.after(0, self._on_hotplug_detected, device, board)
 
     def _on_hotplug_detected(self, port: str, board: Board) -> None:
@@ -891,8 +917,13 @@ class FlasherApp:
     # Local firmware update
     # ------------------------------------------------------------------ #
 
-    def _get_build_sources(self) -> dict[str, Path]:
-        """Return {board_folder → firmware.bin} for locally built PlatformIO outputs."""
+    def _get_build_sources(self) -> dict[str, dict[str, Path]]:
+        """Return {board_folder → {dest_filename → local build output}}.
+
+        Covers both build layouts in this repo: PlatformIO (per-env dirs,
+        already-generic filenames) for motherBoard/Display HMI, and plain
+        ESP-IDF (single build/ dir, project-named app binary) for SensorBoard.
+        """
         def _env_sort_key(p: Path) -> tuple:
             # Prefer higher version number (e.g. V17 > V16); mtime as tiebreaker.
             m = re.search(r'[Vv](\d+)', p.parent.name)
@@ -901,7 +932,8 @@ class FlasherApp:
         try:
             firmware_base = get_firmware_base()
             repo_root = firmware_base.parents[2]
-            sources: dict[str, Path] = {}
+            sources: dict[str, dict[str, Path]] = {}
+
             for board_folder, pio_dir in [
                 ('display_hmi', repo_root / 'Display_HMI' / '.pio' / 'build'),
                 ('motherboard', repo_root / 'motherBoard' / '.pio' / 'build'),
@@ -914,7 +946,18 @@ class FlasherApp:
                     reverse=True,
                 )
                 if candidates:
-                    sources[board_folder] = candidates[0]
+                    sources[board_folder] = {'firmware.bin': candidates[0]}
+
+            sb_build = repo_root / 'SensorBoard_v2' / 'build'
+            sb_files = {
+                'firmware.bin': sb_build / 'SensorBoard.bin',
+                'bootloader.bin': sb_build / 'bootloader' / 'bootloader.bin',
+                'partitions.bin': sb_build / 'partition_table' / 'partition-table.bin',
+            }
+            sb_present = {name: p for name, p in sb_files.items() if p.is_file()}
+            if 'firmware.bin' in sb_present:
+                sources['sensorboard'] = sb_present
+
             return sources
         except Exception:
             return {}
@@ -931,11 +974,12 @@ class FlasherApp:
             return
         firmware_base = get_firmware_base()
         copied: list[str] = []
-        for board_folder, src in sources.items():
-            dst = firmware_base / board_folder / 'firmware.bin'
-            shutil.copy2(src, dst)
+        for board_folder, files in sources.items():
+            for dest_name, src in files.items():
+                dst = firmware_base / board_folder / dest_name
+                shutil.copy2(src, dst)
+                self._log_line(f"Copiado: {src.name} → {dst}", 'info')
             copied.append(board_folder)
-            self._log_line(f"Copiado: {src.name} → {dst}", 'info')
         if self._upd_status:
             self._upd_status.configure(text=f"✓ {', '.join(copied)}", fg='#2E7D32')
         if self._upd_btn:
