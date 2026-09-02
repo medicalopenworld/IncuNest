@@ -186,30 +186,6 @@ lv_obj_t *ui_SNValue = NULL;
 lv_obj_t *ui_ConnTitle = NULL;
 lv_obj_t *ui_ConnValue = NULL;
 
-lv_obj_t *ui_TimeConfigCont = NULL;
-lv_obj_t *ui_TimeTitleLabel = NULL;
-lv_obj_t *ui_TimeDayDec = NULL;
-lv_obj_t *ui_TimeSpinDay = NULL;
-lv_obj_t *ui_TimeDayInc = NULL;
-lv_obj_t *ui_TimeSlash1 = NULL;
-lv_obj_t *ui_TimeMonthDec = NULL;
-lv_obj_t *ui_TimeSpinMonth = NULL;
-lv_obj_t *ui_TimeMonthInc = NULL;
-lv_obj_t *ui_TimeSlash2 = NULL;
-lv_obj_t *ui_TimeYearDec = NULL;
-lv_obj_t *ui_TimeSpinYear = NULL;
-lv_obj_t *ui_TimeYearInc = NULL;
-lv_obj_t *ui_TimeHourDec = NULL;
-lv_obj_t *ui_TimeSpinHour = NULL;
-lv_obj_t *ui_TimeHourInc = NULL;
-lv_obj_t *ui_TimeColon = NULL;
-lv_obj_t *ui_TimeMinuteDec = NULL;
-lv_obj_t *ui_TimeSpinMinute = NULL;
-lv_obj_t *ui_TimeMinuteInc = NULL;
-lv_obj_t *ui_TimeConfirmButton = NULL;
-lv_obj_t *ui_TimeConfirmLabel = NULL;
-lv_obj_t *ui_TimeResultLabel = NULL;
-
 lv_obj_t *ui_WifiConfigCont = NULL;
 lv_obj_t *ui_Keyboard1 = NULL;
 lv_obj_t *ui_SSIDPanel = NULL;
@@ -255,21 +231,7 @@ lv_obj_t *ui_MuteAlarm = NULL;
 // Screen Charts
 lv_obj_t *ui_ScreenCharts = NULL;
 lv_obj_t *ui_TabViewMainCharts = NULL;
-lv_obj_t *ui_HistoryDropdown = NULL;
-lv_obj_t *ui_HistoryChartAire = NULL;
-lv_obj_t *ui_HistoryChartSkin = NULL;
-lv_obj_t *ui_HistoryChartHum = NULL;
-lv_obj_t *ui_HistoryTimeLabel = NULL;
-lv_obj_t *ui_HistoryChartAireLabel = NULL;
-lv_obj_t *ui_HistoryChartSkinLabel = NULL;
-lv_obj_t *ui_HistoryChartHumLabel = NULL;
-lv_obj_t *ui_HistoryValueAire = NULL;
-lv_obj_t *ui_HistoryValueSkin = NULL;
-lv_obj_t *ui_HistoryValueHum = NULL;
 lv_obj_t *ui_TabView1 = NULL;
-extern lv_chart_series_t *historySeriesAire;
-extern lv_chart_series_t *historySeriesSkin;
-extern lv_chart_series_t *historySeriesHum;
 lv_obj_t *ui_TempChartPage1 = NULL;
 lv_obj_t *ui_AirTempChartCont = NULL;
 lv_obj_t *ui_AirTempChart = NULL;
@@ -285,7 +247,6 @@ lv_obj_t *ui_OxChartCont = NULL;
 lv_obj_t *ui_OxChart = NULL;
 lv_obj_t *ui_Label35 = NULL;
 lv_obj_t *ui_ImgButton8 = NULL;
-void TabViewHistory_cb(lv_event_t *e);
 
 // Screen PulseOxi
 lv_obj_t *ui_ScreenPulseOxi = NULL;
@@ -347,6 +308,9 @@ lv_obj_t *ui_AlarmLockCont = NULL;
 lv_obj_t *ui_AlarmLockImg = NULL;
 lv_obj_t *ui_PanelLockAlarm = NULL;
 lv_obj_t *ui_AlarmLockNumLabel = NULL;
+lv_obj_t *ui_ChartLockCont = NULL;
+lv_obj_t *ui_ChartLockImg = NULL;
+lv_obj_t *ui_ChartLockLabel = NULL;
 lv_obj_t *ui_CheckImg = NULL;
 lv_obj_t *ui_LockPPGChart = NULL;
 lv_obj_t *ui_LockHRCont = NULL;
@@ -386,9 +350,6 @@ extern void InfoButton_cb(lv_event_t *e);
 void LanguageButton_cb(lv_event_t *e);
 extern void ModesButton_cb(lv_event_t *e);
 extern void ClockButton_cb(lv_event_t *e);
-extern void TimeConfirmButton_cb(lv_event_t *e);
-extern void TimeSpinboxInc_cb(lv_event_t *e);
-extern void TimeSpinboxDec_cb(lv_event_t *e);
 extern void TextArea_focus_cb(lv_event_t *e);
 extern void TextArea_Change_cb(lv_event_t *e);
 extern void Keyboard_cb(lv_event_t *e);
@@ -520,6 +481,22 @@ void ui_event_AlarmLockImg(lv_event_t *e) {
   }
 }
 
+void ui_event_ChartLockImg(lv_event_t *e) {
+  lv_event_code_t event_code = lv_event_get_code(e);
+  if (event_code == LV_EVENT_CLICKED) {
+    extern void TelemetryHistory_Open(void);
+    TelemetryHistory_Open();
+  }
+}
+
+void ui_event_ChartLockCont(lv_event_t *e) {
+  lv_event_code_t event_code = lv_event_get_code(e);
+  if (event_code == LV_EVENT_CLICKED) {
+    extern void TelemetryHistory_Open(void);
+    TelemetryHistory_Open();
+  }
+}
+
 void ui_event_MuteAlarm(lv_event_t *e) {
   lv_event_code_t event_code = lv_event_get_code(e);
   if (event_code == LV_EVENT_CLICKED) {
@@ -618,12 +595,6 @@ void ui_event_ModesButton(lv_event_t *e) {
 void ui_event_ClockButton(lv_event_t *e) {
   if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
     ClockButton_cb(e);
-  }
-}
-
-void ui_event_TimeConfirmButton(lv_event_t *e) {
-  if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
-    TimeConfirmButton_cb(e);
   }
 }
 
@@ -998,232 +969,6 @@ void ui_ScreenMain_screen_init(void) {
                              LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_text_color(ui_ClockDate, lv_color_hex(0x888888),
                               LV_PART_MAIN);
-
-  // --- ADJUST TIME OVERLAY ---
-  // Ajuste manual del reloj (HMI,SET_TIME, PROTOCOL.md), abierto al tocar
-  // ui_ClockButton (ClockButton_cb, UITask.cpp). Mismo patron
-  // oculto-por-defecto que ui_WifiConfigCont. Vive en ui_ScreenMain, no en
-  // Settings, porque el disparador es la propia hora de cabecera. Spinboxes
-  // en vez de teclado: no hay texto que parsear ni validar, el rango valido
-  // lo impone el propio widget.
-  ui_TimeConfigCont = lv_obj_create(ui_ScreenMain);
-  lv_obj_remove_style_all(ui_TimeConfigCont);
-  lv_obj_set_width(ui_TimeConfigCont, 770);
-  lv_obj_set_height(ui_TimeConfigCont, 361);
-  lv_obj_set_x(ui_TimeConfigCont, 0);
-  lv_obj_set_y(ui_TimeConfigCont, 20);
-  lv_obj_set_align(ui_TimeConfigCont, LV_ALIGN_CENTER);
-  lv_obj_add_flag(ui_TimeConfigCont, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_clear_flag(ui_TimeConfigCont,
-                    LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-
-  ui_TimeTitleLabel = lv_label_create(ui_TimeConfigCont);
-  lv_obj_set_width(ui_TimeTitleLabel, LV_SIZE_CONTENT);
-  lv_obj_set_height(ui_TimeTitleLabel, LV_SIZE_CONTENT);
-  lv_obj_set_x(ui_TimeTitleLabel, 0);
-  lv_obj_set_y(ui_TimeTitleLabel, -140);
-  lv_obj_set_align(ui_TimeTitleLabel, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_TimeTitleLabel, "ADJUST TIME");
-  lv_obj_set_style_text_font(ui_TimeTitleLabel, &lv_font_montserrat_24,
-                             LV_PART_MAIN | LV_STATE_DEFAULT);
-
-  // -- Date row: Day / Month / Year --
-  ui_TimeDayDec = lv_btn_create(ui_TimeConfigCont);
-  lv_obj_set_size(ui_TimeDayDec, 40, 45);
-  lv_obj_set_x(ui_TimeDayDec, -260);
-  lv_obj_set_y(ui_TimeDayDec, -50);
-  lv_obj_set_align(ui_TimeDayDec, LV_ALIGN_CENTER);
-  lv_obj_t *ui_TimeDayDecLabel = lv_label_create(ui_TimeDayDec);
-  lv_obj_set_align(ui_TimeDayDecLabel, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_TimeDayDecLabel, "-");
-
-  ui_TimeSpinDay = lv_spinbox_create(ui_TimeConfigCont);
-  lv_obj_set_size(ui_TimeSpinDay, 70, 45);
-  lv_obj_set_x(ui_TimeSpinDay, -205);
-  lv_obj_set_y(ui_TimeSpinDay, -50);
-  lv_obj_set_align(ui_TimeSpinDay, LV_ALIGN_CENTER);
-  lv_spinbox_set_range(ui_TimeSpinDay, 1, 31);
-  lv_spinbox_set_digit_format(ui_TimeSpinDay, 2, 0);
-  lv_spinbox_set_value(ui_TimeSpinDay, 1);
-  lv_spinbox_set_step(ui_TimeSpinDay, 1);
-
-  ui_TimeDayInc = lv_btn_create(ui_TimeConfigCont);
-  lv_obj_set_size(ui_TimeDayInc, 40, 45);
-  lv_obj_set_x(ui_TimeDayInc, -150);
-  lv_obj_set_y(ui_TimeDayInc, -50);
-  lv_obj_set_align(ui_TimeDayInc, LV_ALIGN_CENTER);
-  lv_obj_t *ui_TimeDayIncLabel = lv_label_create(ui_TimeDayInc);
-  lv_obj_set_align(ui_TimeDayIncLabel, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_TimeDayIncLabel, "+");
-
-  ui_TimeSlash1 = lv_label_create(ui_TimeConfigCont);
-  lv_obj_set_width(ui_TimeSlash1, LV_SIZE_CONTENT);
-  lv_obj_set_height(ui_TimeSlash1, LV_SIZE_CONTENT);
-  lv_obj_set_x(ui_TimeSlash1, -130);
-  lv_obj_set_y(ui_TimeSlash1, -50);
-  lv_obj_set_align(ui_TimeSlash1, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_TimeSlash1, "/");
-  lv_obj_set_style_text_font(ui_TimeSlash1, &lv_font_montserrat_24,
-                             LV_PART_MAIN | LV_STATE_DEFAULT);
-
-  ui_TimeMonthDec = lv_btn_create(ui_TimeConfigCont);
-  lv_obj_set_size(ui_TimeMonthDec, 40, 45);
-  lv_obj_set_x(ui_TimeMonthDec, -95);
-  lv_obj_set_y(ui_TimeMonthDec, -50);
-  lv_obj_set_align(ui_TimeMonthDec, LV_ALIGN_CENTER);
-  lv_obj_t *ui_TimeMonthDecLabel = lv_label_create(ui_TimeMonthDec);
-  lv_obj_set_align(ui_TimeMonthDecLabel, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_TimeMonthDecLabel, "-");
-
-  ui_TimeSpinMonth = lv_spinbox_create(ui_TimeConfigCont);
-  lv_obj_set_size(ui_TimeSpinMonth, 70, 45);
-  lv_obj_set_x(ui_TimeSpinMonth, -40);
-  lv_obj_set_y(ui_TimeSpinMonth, -50);
-  lv_obj_set_align(ui_TimeSpinMonth, LV_ALIGN_CENTER);
-  lv_spinbox_set_range(ui_TimeSpinMonth, 1, 12);
-  lv_spinbox_set_digit_format(ui_TimeSpinMonth, 2, 0);
-  lv_spinbox_set_value(ui_TimeSpinMonth, 1);
-  lv_spinbox_set_step(ui_TimeSpinMonth, 1);
-
-  ui_TimeMonthInc = lv_btn_create(ui_TimeConfigCont);
-  lv_obj_set_size(ui_TimeMonthInc, 40, 45);
-  lv_obj_set_x(ui_TimeMonthInc, 15);
-  lv_obj_set_y(ui_TimeMonthInc, -50);
-  lv_obj_set_align(ui_TimeMonthInc, LV_ALIGN_CENTER);
-  lv_obj_t *ui_TimeMonthIncLabel = lv_label_create(ui_TimeMonthInc);
-  lv_obj_set_align(ui_TimeMonthIncLabel, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_TimeMonthIncLabel, "+");
-
-  ui_TimeSlash2 = lv_label_create(ui_TimeConfigCont);
-  lv_obj_set_width(ui_TimeSlash2, LV_SIZE_CONTENT);
-  lv_obj_set_height(ui_TimeSlash2, LV_SIZE_CONTENT);
-  lv_obj_set_x(ui_TimeSlash2, 55);
-  lv_obj_set_y(ui_TimeSlash2, -50);
-  lv_obj_set_align(ui_TimeSlash2, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_TimeSlash2, "/");
-  lv_obj_set_style_text_font(ui_TimeSlash2, &lv_font_montserrat_24,
-                             LV_PART_MAIN | LV_STATE_DEFAULT);
-
-  ui_TimeYearDec = lv_btn_create(ui_TimeConfigCont);
-  lv_obj_set_size(ui_TimeYearDec, 40, 45);
-  lv_obj_set_x(ui_TimeYearDec, 90);
-  lv_obj_set_y(ui_TimeYearDec, -50);
-  lv_obj_set_align(ui_TimeYearDec, LV_ALIGN_CENTER);
-  lv_obj_t *ui_TimeYearDecLabel = lv_label_create(ui_TimeYearDec);
-  lv_obj_set_align(ui_TimeYearDecLabel, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_TimeYearDecLabel, "-");
-
-  ui_TimeSpinYear = lv_spinbox_create(ui_TimeConfigCont);
-  lv_obj_set_size(ui_TimeSpinYear, 90, 45);
-  lv_obj_set_x(ui_TimeSpinYear, 165);
-  lv_obj_set_y(ui_TimeSpinYear, -50);
-  lv_obj_set_align(ui_TimeSpinYear, LV_ALIGN_CENTER);
-  lv_spinbox_set_range(ui_TimeSpinYear, 2021, 2099);
-  lv_spinbox_set_digit_format(ui_TimeSpinYear, 4, 0);
-  lv_spinbox_set_value(ui_TimeSpinYear, 2026);
-  lv_spinbox_set_step(ui_TimeSpinYear, 1);
-
-  ui_TimeYearInc = lv_btn_create(ui_TimeConfigCont);
-  lv_obj_set_size(ui_TimeYearInc, 40, 45);
-  lv_obj_set_x(ui_TimeYearInc, 240);
-  lv_obj_set_y(ui_TimeYearInc, -50);
-  lv_obj_set_align(ui_TimeYearInc, LV_ALIGN_CENTER);
-  lv_obj_t *ui_TimeYearIncLabel = lv_label_create(ui_TimeYearInc);
-  lv_obj_set_align(ui_TimeYearIncLabel, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_TimeYearIncLabel, "+");
-
-  // -- Time row: Hour / Minute --
-  ui_TimeHourDec = lv_btn_create(ui_TimeConfigCont);
-  lv_obj_set_size(ui_TimeHourDec, 40, 45);
-  lv_obj_set_x(ui_TimeHourDec, -150);
-  lv_obj_set_y(ui_TimeHourDec, 40);
-  lv_obj_set_align(ui_TimeHourDec, LV_ALIGN_CENTER);
-  lv_obj_t *ui_TimeHourDecLabel = lv_label_create(ui_TimeHourDec);
-  lv_obj_set_align(ui_TimeHourDecLabel, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_TimeHourDecLabel, "-");
-
-  ui_TimeSpinHour = lv_spinbox_create(ui_TimeConfigCont);
-  lv_obj_set_size(ui_TimeSpinHour, 70, 45);
-  lv_obj_set_x(ui_TimeSpinHour, -95);
-  lv_obj_set_y(ui_TimeSpinHour, 40);
-  lv_obj_set_align(ui_TimeSpinHour, LV_ALIGN_CENTER);
-  lv_spinbox_set_range(ui_TimeSpinHour, 0, 23);
-  lv_spinbox_set_digit_format(ui_TimeSpinHour, 2, 0);
-  lv_spinbox_set_value(ui_TimeSpinHour, 0);
-  lv_spinbox_set_step(ui_TimeSpinHour, 1);
-
-  ui_TimeHourInc = lv_btn_create(ui_TimeConfigCont);
-  lv_obj_set_size(ui_TimeHourInc, 40, 45);
-  lv_obj_set_x(ui_TimeHourInc, -40);
-  lv_obj_set_y(ui_TimeHourInc, 40);
-  lv_obj_set_align(ui_TimeHourInc, LV_ALIGN_CENTER);
-  lv_obj_t *ui_TimeHourIncLabel = lv_label_create(ui_TimeHourInc);
-  lv_obj_set_align(ui_TimeHourIncLabel, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_TimeHourIncLabel, "+");
-
-  ui_TimeColon = lv_label_create(ui_TimeConfigCont);
-  lv_obj_set_width(ui_TimeColon, LV_SIZE_CONTENT);
-  lv_obj_set_height(ui_TimeColon, LV_SIZE_CONTENT);
-  lv_obj_set_x(ui_TimeColon, 0);
-  lv_obj_set_y(ui_TimeColon, 40);
-  lv_obj_set_align(ui_TimeColon, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_TimeColon, ":");
-  lv_obj_set_style_text_font(ui_TimeColon, &lv_font_montserrat_24,
-                             LV_PART_MAIN | LV_STATE_DEFAULT);
-
-  ui_TimeMinuteDec = lv_btn_create(ui_TimeConfigCont);
-  lv_obj_set_size(ui_TimeMinuteDec, 40, 45);
-  lv_obj_set_x(ui_TimeMinuteDec, 35);
-  lv_obj_set_y(ui_TimeMinuteDec, 40);
-  lv_obj_set_align(ui_TimeMinuteDec, LV_ALIGN_CENTER);
-  lv_obj_t *ui_TimeMinuteDecLabel = lv_label_create(ui_TimeMinuteDec);
-  lv_obj_set_align(ui_TimeMinuteDecLabel, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_TimeMinuteDecLabel, "-");
-
-  ui_TimeSpinMinute = lv_spinbox_create(ui_TimeConfigCont);
-  lv_obj_set_size(ui_TimeSpinMinute, 70, 45);
-  lv_obj_set_x(ui_TimeSpinMinute, 90);
-  lv_obj_set_y(ui_TimeSpinMinute, 40);
-  lv_obj_set_align(ui_TimeSpinMinute, LV_ALIGN_CENTER);
-  lv_spinbox_set_range(ui_TimeSpinMinute, 0, 59);
-  lv_spinbox_set_digit_format(ui_TimeSpinMinute, 2, 0);
-  lv_spinbox_set_value(ui_TimeSpinMinute, 0);
-  lv_spinbox_set_step(ui_TimeSpinMinute, 1);
-
-  ui_TimeMinuteInc = lv_btn_create(ui_TimeConfigCont);
-  lv_obj_set_size(ui_TimeMinuteInc, 40, 45);
-  lv_obj_set_x(ui_TimeMinuteInc, 145);
-  lv_obj_set_y(ui_TimeMinuteInc, 40);
-  lv_obj_set_align(ui_TimeMinuteInc, LV_ALIGN_CENTER);
-  lv_obj_t *ui_TimeMinuteIncLabel = lv_label_create(ui_TimeMinuteInc);
-  lv_obj_set_align(ui_TimeMinuteIncLabel, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_TimeMinuteIncLabel, "+");
-
-  ui_TimeConfirmButton = lv_btn_create(ui_TimeConfigCont);
-  lv_obj_set_size(ui_TimeConfirmButton, 180, 50);
-  lv_obj_set_x(ui_TimeConfirmButton, 0);
-  lv_obj_set_y(ui_TimeConfirmButton, 140);
-  lv_obj_set_align(ui_TimeConfirmButton, LV_ALIGN_CENTER);
-  lv_obj_set_style_bg_color(ui_TimeConfirmButton, lv_color_hex(0x2196F3),
-                            LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_radius(ui_TimeConfirmButton, 10,
-                          LV_PART_MAIN | LV_STATE_DEFAULT);
-
-  ui_TimeConfirmLabel = lv_label_create(ui_TimeConfirmButton);
-  lv_obj_set_width(ui_TimeConfirmLabel, LV_SIZE_CONTENT);
-  lv_obj_set_height(ui_TimeConfirmLabel, LV_SIZE_CONTENT);
-  lv_obj_set_align(ui_TimeConfirmLabel, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_TimeConfirmLabel, "APPLY");
-  lv_obj_set_style_text_color(ui_TimeConfirmLabel, lv_color_hex(0xFFFFFF),
-                              LV_PART_MAIN | LV_STATE_DEFAULT);
-
-  ui_TimeResultLabel = lv_label_create(ui_TimeConfigCont);
-  lv_obj_set_width(ui_TimeResultLabel, LV_SIZE_CONTENT);
-  lv_obj_set_height(ui_TimeResultLabel, LV_SIZE_CONTENT);
-  lv_obj_set_x(ui_TimeResultLabel, 0);
-  lv_obj_set_y(ui_TimeResultLabel, 195);
-  lv_obj_set_align(ui_TimeResultLabel, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_TimeResultLabel, "");
 
   // Indicador de conectividad: boton de bloqueo (ui_ImgButton1, alineado al
   // CENTRO de la pantalla con TOUCH_EXT_SMALL=40 de zona tactil) ocupa el
@@ -2500,10 +2245,12 @@ void ui_add_chart_safe_zone(lv_obj_t *chart, float min_val, float max_val,
 void ui_ScreenCharts_screen_init(void) {
   ui_ScreenCharts = lv_obj_create(NULL);
   lv_obj_clear_flag(ui_ScreenCharts, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_add_event_cb(ui_ScreenCharts, ScreenCharts_load_cb,
-                      LV_EVENT_SCREEN_LOADED, NULL);
 
-  // TabView Principal: Tiempo Real vs Historial
+  // TabView Principal: hoy solo Tiempo Real (el Historial se retiro para
+  // reconstruirse como overlay de ui_ScreenLock). Barra de pestañas oculta:
+  // con una sola pestaña no hay nada que seleccionar (mismo criterio que el
+  // ocultado condicional de ui_TabView1 mas abajo cuando solo hay un modo
+  // activo).
   ui_TabViewMainCharts = lv_tabview_create(ui_ScreenCharts, LV_DIR_TOP, 40);
   lv_obj_set_width(ui_TabViewMainCharts, 800);
   lv_obj_set_height(ui_TabViewMainCharts,
@@ -2513,7 +2260,8 @@ void ui_ScreenCharts_screen_init(void) {
 
   lv_obj_t *ui_TabRealTime =
       lv_tabview_add_tab(ui_TabViewMainCharts, "REAL TIME");
-  lv_obj_t *ui_TabHistory = lv_tabview_add_tab(ui_TabViewMainCharts, "HISTORY");
+  lv_obj_add_flag(lv_tabview_get_tab_btns(ui_TabViewMainCharts),
+                  LV_OBJ_FLAG_HIDDEN);
 
   // --- SECCIÓN TIEMPO REAL ---
   ui_TabView1 = lv_tabview_create(ui_TabRealTime, LV_DIR_TOP, 30);
@@ -2641,100 +2389,6 @@ void ui_ScreenCharts_screen_init(void) {
   lv_obj_set_align(ui_Label36, LV_ALIGN_CENTER);
   lv_obj_set_style_text_font(ui_Label36, &lv_font_montserrat_26,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
-
-  // --- SECCIÓN HISTORIAL ---
-  ui_HistoryDropdown = lv_dropdown_create(ui_TabHistory);
-  lv_dropdown_set_options(ui_HistoryDropdown, "5 min\n30 min\n1 h\n2 h");
-  lv_obj_set_width(ui_HistoryDropdown, 120);
-  lv_obj_set_align(ui_HistoryDropdown, LV_ALIGN_TOP_RIGHT);
-  lv_obj_set_x(ui_HistoryDropdown, -10);
-  lv_obj_set_y(ui_HistoryDropdown, -12);
-  lv_obj_add_event_cb(ui_HistoryDropdown, HistoryDropdown_cb,
-                      LV_EVENT_VALUE_CHANGED, NULL);
-
-  ui_HistoryTimeLabel = lv_label_create(ui_TabHistory);
-  lv_label_set_text(ui_HistoryTimeLabel, "RANGE:");
-  lv_obj_set_align(ui_HistoryTimeLabel, LV_ALIGN_TOP_RIGHT);
-  lv_obj_set_x(ui_HistoryTimeLabel, -140);
-  lv_obj_set_y(ui_HistoryTimeLabel, 0);
-
-  // Gráfica Historial Aire (Slot Superior)
-  ui_HistoryChartAireLabel = lv_label_create(ui_TabHistory);
-  lv_label_set_text(ui_HistoryChartAireLabel, "AIR TEMP");
-  lv_obj_set_style_text_font(ui_HistoryChartAireLabel, &lv_font_montserrat_18,
-                             0);
-  lv_obj_set_pos(ui_HistoryChartAireLabel, 40, 10);
-
-  ui_HistoryValueAire = lv_label_create(ui_TabHistory);
-  lv_label_set_text(ui_HistoryValueAire, "---.-°C");
-  lv_obj_set_style_text_font(ui_HistoryValueAire, &lv_font_montserrat_20, 0);
-  lv_obj_set_pos(ui_HistoryValueAire, 200, 8);
-
-  ui_HistoryChartAire = lv_chart_create(ui_TabHistory);
-  lv_obj_set_size(ui_HistoryChartAire, 720, 140);
-  lv_obj_set_pos(ui_HistoryChartAire, 10, 35);
-  lv_chart_set_type(ui_HistoryChartAire, LV_CHART_TYPE_LINE);
-  lv_chart_set_range(ui_HistoryChartAire, LV_CHART_AXIS_PRIMARY_Y,
-                     TEMP_CHART_MIN, TEMP_CHART_MAX);
-  ui_apply_sparkline_style(ui_HistoryChartAire, lv_color_hex(0x00FF00));
-  ui_add_chart_safe_zone(ui_HistoryChartAire, AIR_SAFE_ZONE_MIN,
-                         AIR_SAFE_ZONE_MAX, TEMP_BAR_DISPLAY_MIN,
-                         TEMP_BAR_DISPLAY_MAX);
-  historySeriesAire = lv_chart_add_series(
-      ui_HistoryChartAire, lv_color_hex(0x00FF00), LV_CHART_AXIS_PRIMARY_Y);
-
-  // Gráfica Historial Piel (Slot Superior - Superpuesta o oculta según modo)
-  ui_HistoryChartSkinLabel = lv_label_create(ui_TabHistory);
-  lv_label_set_text(ui_HistoryChartSkinLabel, "SKIN TEMP");
-  lv_obj_set_style_text_font(ui_HistoryChartSkinLabel, &lv_font_montserrat_18,
-                             0);
-  lv_obj_set_pos(ui_HistoryChartSkinLabel, 40, 10);
-  lv_obj_add_flag(ui_HistoryChartSkinLabel, LV_OBJ_FLAG_HIDDEN);
-
-  ui_HistoryValueSkin = lv_label_create(ui_TabHistory);
-  lv_label_set_text(ui_HistoryValueSkin, "---.-°C");
-  lv_obj_set_style_text_font(ui_HistoryValueSkin, &lv_font_montserrat_20, 0);
-  lv_obj_set_pos(ui_HistoryValueSkin, 200, 8);
-  lv_obj_add_flag(ui_HistoryValueSkin, LV_OBJ_FLAG_HIDDEN);
-
-  ui_HistoryChartSkin = lv_chart_create(ui_TabHistory);
-  lv_obj_set_size(ui_HistoryChartSkin, 720, 140);
-  lv_obj_set_pos(ui_HistoryChartSkin, 10, 35);
-  lv_chart_set_type(ui_HistoryChartSkin, LV_CHART_TYPE_LINE);
-  lv_chart_set_range(ui_HistoryChartSkin, LV_CHART_AXIS_PRIMARY_Y,
-                     TEMP_CHART_MIN, TEMP_CHART_MAX);
-  ui_apply_sparkline_style(ui_HistoryChartSkin, lv_color_hex(0x00E0E0));
-  ui_add_chart_safe_zone(ui_HistoryChartSkin, SKIN_SAFE_ZONE_MIN,
-                         SKIN_SAFE_ZONE_MAX, TEMP_BAR_DISPLAY_MIN,
-                         TEMP_BAR_DISPLAY_MAX);
-  historySeriesSkin = lv_chart_add_series(
-      ui_HistoryChartSkin, lv_color_hex(0x00E0E0), LV_CHART_AXIS_PRIMARY_Y);
-  lv_obj_add_flag(ui_HistoryChartSkin, LV_OBJ_FLAG_HIDDEN);
-
-  // Gráfica Historial Humedad (Slot Inferior)
-  ui_HistoryChartHumLabel = lv_label_create(ui_TabHistory);
-  lv_label_set_text(ui_HistoryChartHumLabel, "HUMIDITY");
-  lv_obj_set_style_text_font(ui_HistoryChartHumLabel, &lv_font_montserrat_18,
-                             0);
-  lv_obj_set_pos(ui_HistoryChartHumLabel, 40, 190);
-
-  ui_HistoryValueHum = lv_label_create(ui_TabHistory);
-  lv_label_set_text(ui_HistoryValueHum, "--%");
-  lv_obj_set_style_text_font(ui_HistoryValueHum, &lv_font_montserrat_20, 0);
-  lv_obj_set_pos(ui_HistoryValueHum, 200, 188);
-
-  ui_HistoryChartHum = lv_chart_create(ui_TabHistory);
-  lv_obj_set_size(ui_HistoryChartHum, 720, 140);
-  lv_obj_set_pos(ui_HistoryChartHum, 10, 215);
-  lv_chart_set_type(ui_HistoryChartHum, LV_CHART_TYPE_LINE);
-  lv_chart_set_range(ui_HistoryChartHum, LV_CHART_AXIS_PRIMARY_Y, HUM_CHART_MIN,
-                     HUM_CHART_MAX);
-  ui_apply_sparkline_style(ui_HistoryChartHum, lv_color_hex(0x3B82F6));
-  ui_add_chart_safe_zone(ui_HistoryChartHum, HUM_SAFE_ZONE_MIN,
-                         HUM_SAFE_ZONE_MAX, (double)HUM_CHART_MIN,
-                         (double)HUM_CHART_MAX);
-  historySeriesHum = lv_chart_add_series(
-      ui_HistoryChartHum, lv_color_hex(0x3B82F6), LV_CHART_AXIS_PRIMARY_Y);
 
   ui_OxChartCont = lv_obj_create(ui_ScreenCharts);
   lv_obj_remove_style_all(ui_OxChartCont);
@@ -3082,7 +2736,7 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_x(ui_ModesLabel, 20);
   lv_obj_set_y(ui_ModesLabel, 0);
   lv_obj_set_align(ui_ModesLabel, LV_ALIGN_LEFT_MID);
-  lv_label_set_text(ui_ModesLabel, "Modes");
+  lv_label_set_text(ui_ModesLabel, "MODES");
   lv_obj_set_style_text_font(ui_ModesLabel, &lv_font_montserrat_18,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
 
@@ -3108,7 +2762,15 @@ void ui_ScreenSettings_screen_init(void) {
 
   // --- MODES OVERLAY (Skin Mode / Dark Mode / Humidity Control) ---
   // Mismo patron que ui_WifiConfigCont: oculto por defecto, se muestra al
-  // tocar la fila "Modes" (ModesButton_cb, UITask.cpp).
+  // tocar la fila "MODES" (ModesButton_cb, UITask.cpp).
+  //
+  // El contenedor ocupa los 770 px de ancho, pero su CONTENIDO va todo a
+  // x=185, no centrado: la columna de menu de Settings (ui_Container3, 331 de
+  // ancho en x=-200 -> -365..-35) se queda siempre visible debajo, y unas
+  // filas de 331 centradas en x=0 (-165..165) se le pintaban encima. En
+  // x=185 caen en 20..350, que es el mismo hueco derecho que ya usan
+  // ui_WifiConfigCont y ui_InfoDetailsCont, libre de la columna y dentro del
+  // contenedor.
   ui_ModesConfigCont = lv_obj_create(ui_ScreenSettings);
   LVGL_INIT_GUARD_CHILD(ui_ModesConfigCont, "ui_ModesConfigCont");
   lv_obj_remove_style_all(ui_ModesConfigCont);
@@ -3124,7 +2786,7 @@ void ui_ScreenSettings_screen_init(void) {
   ui_ModesTitleLabel = lv_label_create(ui_ModesConfigCont);
   lv_obj_set_width(ui_ModesTitleLabel, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_ModesTitleLabel, LV_SIZE_CONTENT);
-  lv_obj_set_x(ui_ModesTitleLabel, 0);
+  lv_obj_set_x(ui_ModesTitleLabel, 185);
   lv_obj_set_y(ui_ModesTitleLabel, -140);
   lv_obj_set_align(ui_ModesTitleLabel, LV_ALIGN_CENTER);
   lv_label_set_text(ui_ModesTitleLabel, "MODES");
@@ -3135,7 +2797,7 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_remove_style_all(ui_SkinModeCont);
   lv_obj_set_width(ui_SkinModeCont, 331);
   lv_obj_set_height(ui_SkinModeCont, 45);
-  lv_obj_set_x(ui_SkinModeCont, 0);
+  lv_obj_set_x(ui_SkinModeCont, 185);
   lv_obj_set_y(ui_SkinModeCont, -60);
   lv_obj_set_align(ui_SkinModeCont, LV_ALIGN_CENTER);
   lv_obj_clear_flag(ui_SkinModeCont,
@@ -3168,7 +2830,7 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_remove_style_all(ui_DarkModeCont);
   lv_obj_set_width(ui_DarkModeCont, 331);
   lv_obj_set_height(ui_DarkModeCont, 45);
-  lv_obj_set_x(ui_DarkModeCont, 0);
+  lv_obj_set_x(ui_DarkModeCont, 185);
   lv_obj_set_y(ui_DarkModeCont, 0);
   lv_obj_set_align(ui_DarkModeCont, LV_ALIGN_CENTER);
   lv_obj_clear_flag(ui_DarkModeCont,
@@ -3202,7 +2864,7 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_remove_style_all(ui_HumidityModeCont);
   lv_obj_set_width(ui_HumidityModeCont, 331);
   lv_obj_set_height(ui_HumidityModeCont, 45);
-  lv_obj_set_x(ui_HumidityModeCont, 0);
+  lv_obj_set_x(ui_HumidityModeCont, 185);
   lv_obj_set_y(ui_HumidityModeCont, 60);
   lv_obj_set_align(ui_HumidityModeCont, LV_ALIGN_CENTER);
   lv_obj_clear_flag(ui_HumidityModeCont,
@@ -3561,31 +3223,6 @@ void ui_ScreenSettings_screen_init(void) {
                       NULL);
   lv_obj_add_event_cb(ui_ClockButton, ui_event_ClockButton, LV_EVENT_ALL,
                       NULL);
-  lv_obj_add_event_cb(ui_TimeConfirmButton, ui_event_TimeConfirmButton,
-                      LV_EVENT_ALL, NULL);
-  // Botones -/+ de los 5 spinboxes: dos callbacks compartidos, el spinbox al
-  // que afectan viaja como user_data (ver TimeSpinboxInc_cb/Dec_cb,
-  // UITask.cpp).
-  lv_obj_add_event_cb(ui_TimeDayDec, TimeSpinboxDec_cb, LV_EVENT_CLICKED,
-                      ui_TimeSpinDay);
-  lv_obj_add_event_cb(ui_TimeDayInc, TimeSpinboxInc_cb, LV_EVENT_CLICKED,
-                      ui_TimeSpinDay);
-  lv_obj_add_event_cb(ui_TimeMonthDec, TimeSpinboxDec_cb, LV_EVENT_CLICKED,
-                      ui_TimeSpinMonth);
-  lv_obj_add_event_cb(ui_TimeMonthInc, TimeSpinboxInc_cb, LV_EVENT_CLICKED,
-                      ui_TimeSpinMonth);
-  lv_obj_add_event_cb(ui_TimeYearDec, TimeSpinboxDec_cb, LV_EVENT_CLICKED,
-                      ui_TimeSpinYear);
-  lv_obj_add_event_cb(ui_TimeYearInc, TimeSpinboxInc_cb, LV_EVENT_CLICKED,
-                      ui_TimeSpinYear);
-  lv_obj_add_event_cb(ui_TimeHourDec, TimeSpinboxDec_cb, LV_EVENT_CLICKED,
-                      ui_TimeSpinHour);
-  lv_obj_add_event_cb(ui_TimeHourInc, TimeSpinboxInc_cb, LV_EVENT_CLICKED,
-                      ui_TimeSpinHour);
-  lv_obj_add_event_cb(ui_TimeMinuteDec, TimeSpinboxDec_cb, LV_EVENT_CLICKED,
-                      ui_TimeSpinMinute);
-  lv_obj_add_event_cb(ui_TimeMinuteInc, TimeSpinboxInc_cb, LV_EVENT_CLICKED,
-                      ui_TimeSpinMinute);
   lv_obj_add_event_cb(ui_Switch4, ui_event_Switch4, LV_EVENT_ALL, NULL);
   lv_obj_add_event_cb(ui_SwitchDarkMode, ui_event_SwitchDarkMode, LV_EVENT_ALL,
                       NULL);
@@ -4084,6 +3721,41 @@ void ui_ScreenLock_screen_init(void) {
   lv_obj_set_style_text_font(ui_AlarmLockNumLabel, &lv_font_montserrat_18,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
 
+  // Boton de tendencia de telemetria (TelemetryHistory): abre el overlay sin
+  // desbloquear, mismo criterio que ui_AlarmLockImg/AlarmCenter. Hueco libre
+  // de la pantalla de bloqueo: por debajo de Status/Photo (y<=210 absoluto),
+  // a la derecha de la columna de medidas (x<=300 absoluto), y por encima de
+  // ui_LockPPGChart (BOTTOM_LEFT, y>=370 absoluto) / ui_LockHRCont
+  // (BOTTOM_RIGHT, ambos ocultos salvo con sonda SpO2 aplicada, pero hay que
+  // dejarles el hueco libre para cuando se muestran).
+  ui_ChartLockCont = lv_obj_create(ui_ScreenLock);
+  lv_obj_remove_style_all(ui_ChartLockCont);
+  lv_obj_set_width(ui_ChartLockCont, 100);
+  lv_obj_set_height(ui_ChartLockCont, 100);
+  lv_obj_set_x(ui_ChartLockCont, 180);
+  lv_obj_set_y(ui_ChartLockCont, 70);
+  lv_obj_set_align(ui_ChartLockCont, LV_ALIGN_CENTER);
+  lv_obj_clear_flag(ui_ChartLockCont, LV_OBJ_FLAG_SCROLLABLE);
+
+  ui_ChartLockImg = lv_imgbtn_create(ui_ChartLockCont);
+  lv_imgbtn_set_src(ui_ChartLockImg, LV_IMGBTN_STATE_RELEASED, NULL,
+                    &ui_img_chart_png, NULL);
+  lv_obj_set_width(ui_ChartLockImg, 48);
+  lv_obj_set_height(ui_ChartLockImg, 48);
+  lv_obj_set_y(ui_ChartLockImg, -12);
+  lv_obj_set_align(ui_ChartLockImg, LV_ALIGN_CENTER);
+
+  ui_ChartLockLabel = lv_label_create(ui_ChartLockCont);
+  lv_obj_set_width(ui_ChartLockLabel, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_ChartLockLabel, LV_SIZE_CONTENT);
+  lv_obj_set_y(ui_ChartLockLabel, 28);
+  lv_obj_set_align(ui_ChartLockLabel, LV_ALIGN_CENTER);
+  lv_label_set_text(ui_ChartLockLabel, "TREND");
+  lv_obj_set_style_text_color(ui_ChartLockLabel, lv_color_hex(0xFFFFFF),
+                              LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_text_font(ui_ChartLockLabel, &lv_font_montserrat_14,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+
   ui_CheckImg = lv_img_create(ui_ScreenLock);
   lv_img_set_src(ui_CheckImg, &ui_img_check_png);
   lv_obj_set_width(ui_CheckImg, LV_SIZE_CONTENT);
@@ -4282,11 +3954,17 @@ void ui_ScreenLock_screen_init(void) {
                       NULL);
   lv_obj_add_event_cb(ui_AlarmLockCont, ui_event_AlarmLockCont, LV_EVENT_ALL,
                       NULL);
+  lv_obj_add_event_cb(ui_ChartLockImg, ui_event_ChartLockImg, LV_EVENT_ALL,
+                      NULL);
+  lv_obj_add_event_cb(ui_ChartLockCont, ui_event_ChartLockCont, LV_EVENT_ALL,
+                      NULL);
   lv_obj_add_event_cb(ui_ScreenLock, ui_event_ScreenLock, LV_EVENT_ALL, NULL);
 
   lv_obj_set_ext_click_area(ui_LockButton, TOUCH_EXT_SMALL);
   lv_obj_set_ext_click_area(ui_AlarmLockImg, TOUCH_EXT_MEDIUM);
   lv_obj_set_ext_click_area(ui_AlarmLockCont, TOUCH_EXT_NARROW);
+  lv_obj_set_ext_click_area(ui_ChartLockImg, TOUCH_EXT_MEDIUM);
+  lv_obj_set_ext_click_area(ui_ChartLockCont, TOUCH_EXT_NARROW);
 }
 
 // ============================================================================

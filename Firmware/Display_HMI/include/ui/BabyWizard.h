@@ -34,9 +34,11 @@ void BabyWizard_OpenForHumidity(void);
 void BabyWizard_Poll(void);
 
 // True once the current activation session has a usable (non-SKIP,
-// non-estimated) NTE range — gates SKIN mode entry via ui_Switch4 without
-// re-running the whole wizard for a mode toggle mid-session. Resets to
-// false at the start of every BabyWizard_Open().
+// non-estimated) NTE range, i.e. whether the proposed AIR temperature this
+// session is running with came from a real weight or from an estimate.
+// Deliberately NOT a gate on anything: SKIN mode used to require it, and no
+// longer does (only a connected probe does). Resets to false at the start of
+// every BabyWizard_Open().
 bool BabyWizard_HasUsableRange(void);
 
 // The profile this HMI last put in charge of the incubator (0 = none/SKIP).

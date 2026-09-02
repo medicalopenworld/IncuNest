@@ -551,9 +551,11 @@ void showAgeScreen() {
 // Apply is pressed on a summary that actually has a range.
 //
 // Factored out so the five SKIP buttons, the list-screen SKIP and Apply all
-// share one implementation of the SKIN-without-range guardrail: SKIN has no
-// manual fallback (its 36.5 degC setpoint is meaningless without the air
-// bounds), so there it must refuse and leave the switch OFF.
+// reach control activation through one place. A missing range no longer stops
+// SKIN: its 36.5 degC setpoint is fixed by the clinical standard and does not
+// come from the NTE bounds, so what SKIP costs there is the proposed AIR
+// temperature, not the therapy. The only precondition SKIN really has is a
+// connected probe, and that one is checked (and reported) by ui_Switch4.
 void finishWizard(bool useRange) {
   bool haveRange = useRange && !s_rangeEstimated && s_rangeLo >= 0.0f;
 
@@ -571,15 +573,16 @@ void finishWizard(bool useRange) {
   }
 
   if (s_target == WizTarget::Skin) {
+    s_hasUsableRange = haveRange;
     if (!haveRange) {
-      UI_ShowToast(TXT("Modo piel no disponible sin peso",
-                       "Skin mode unavailable without weight",
-                       "Mode peau indisponible sans poids"),
-                  4000);
-      cancelWizard();
-      return;
+      // Se activa igual: 36.5 degC de consigna de piel no salen del rango NTE,
+      // asi que sin peso lo unico que falta es la propuesta de temperatura de
+      // AIRE. Se avisa de lo que no hay, pero no se bloquea la terapia.
+      UI_ShowToast(TXT("Modo piel activo sin rango automatico (sin peso)",
+                       "Skin mode active, no automatic range (no weight)",
+                       "Mode peau actif, sans plage automatique (sans poids)"),
+                   4000);
     }
-    s_hasUsableRange = true;
     ActivateTempControlUI(false);
     ui_set_switch_state_silent(ui_Switch4, true);
     lv_event_send(ui_Switch4, LV_EVENT_VALUE_CHANGED, nullptr);

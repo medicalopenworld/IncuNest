@@ -1093,8 +1093,8 @@ static void applyHMIData() {
   humValueDetected        = (int)ctrl_tel_msg.detectedHumidity;
   g_pendingTelemetryApply = true;
   taskEXIT_CRITICAL(&g_telemetry_mux);
-  // LVGL calls (update_labels, chart_add_*, chart_save_history) have been
-  // moved to UITask — it consumes g_pendingTelemetryApply inside LVGL_Lock().
+  // LVGL calls (update_labels, chart_add_*) have been moved to UITask — it
+  // consumes g_pendingTelemetryApply inside LVGL_Lock().
 }
 
 static void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {

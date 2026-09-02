@@ -3,8 +3,10 @@
 #include "CommTask.h"
 #include "buzzer.h"
 #include "ui/AlarmCenter.h"
+#include "ui/TelemetryHistory.h"
 #include "ui/BabyHistory.h"
 #include "ui/BabyExitDialog.h"
+#include "ui/TimeDialog.h"
 #include "ui/BabyWizard.h"
 #include "display_config.h"
 #include "esp_lcd_panel_ops.h"
@@ -51,25 +53,9 @@ static lv_obj_t *ui_VolumeUpBtn;
 static lv_obj_t *ui_VolumeDownBtn;
 
 // Novedades para Gráficas Históricas (Declaradas en ElementsCreation.cpp)
-extern lv_obj_t *ui_HistoryChartAire;
-extern lv_obj_t *ui_HistoryChartSkin;
-extern lv_obj_t *ui_HistoryChartHum;
-extern lv_obj_t *ui_HistoryValueAire;
-extern lv_obj_t *ui_HistoryValueSkin;
-extern lv_obj_t *ui_HistoryValueHum;
 
 // Series de datos (Se definen aquí para ser usadas por UITask)
-lv_chart_series_t *historySeriesAire = NULL;
-lv_chart_series_t *historySeriesSkin = NULL;
-lv_chart_series_t *historySeriesHum = NULL;
 
-#define HISTORY_BUFFER_SIZE 720 // 2 horas a 10s/punto
-float historyBufferAir[HISTORY_BUFFER_SIZE];
-float historyBufferSkin[HISTORY_BUFFER_SIZE];
-float historyBufferHum[HISTORY_BUFFER_SIZE];
-int historyWriteIdx = 0;
-int historySampleCount = 0;
-static int decimationCounter = 0;
 
 // ==========================================
 // Globals
@@ -421,8 +407,12 @@ static int l_humDet = -1;
 // repintar dos labels a 20 Hz para que cambien una vez por minuto es trabajo
 // tirado, y el repintado innecesario ya dio problemas de fluidez aqui.
 //
-// Sin hora o sin zona se muestra "Sin hora" y no una hora UTC disfrazada de
-// local: en un equipo clinico, una hora equivocada es peor que ninguna.
+// "Sin hora" solo cuando no hay ni epoch: sin eso no hay nada que pintar. Con
+// epoch pero sin zona resuelta se pinta igual, sin aplicar offset (el epoch
+// tal cual, probablemente UTC) — mismo criterio que ya usan AlarmCenter.cpp y
+// BabyHistory.cpp (HMI_HasLocalTime() ? HMI_ToLocal(epoch) : epoch). Decision
+// de producto 2026-09-02: una hora aproximada es mas util que ninguna, y el
+// operador la corrige a mano si hace falta (tocar el reloj -> Adjust Time).
 void clock_update(void) {
   if (!ui_ClockTime || !ui_ClockDate) return;
 
@@ -431,14 +421,16 @@ void clock_update(void) {
   char nowTime[8];
   char nowDate[12];
 
-  if (!HMI_HasLocalTime()) {
+  const uint32_t epochNow = HMI_GetEpochNow();
+  if (epochNow == 0) {
     // Orden ES/EN/FR, como ui_lang_t en main.h.
     static const char *const TXT_NO_TIME[] = {"Sin hora", "No time",
                                               "Sans heure"};
     snprintf(nowTime, sizeof(nowTime), "%s", TXT_NO_TIME[g_lang]);
     nowDate[0] = '\0';
   } else {
-    const time_t t = (time_t)HMI_ToLocal(HMI_GetEpochNow());
+    const time_t t =
+        (time_t)(HMI_HasLocalTime() ? HMI_ToLocal(epochNow) : epochNow);
     struct tm tmv;
     gmtime_r(&t, &tmv);
     snprintf(nowTime, sizeof(nowTime), "%02d:%02d", tmv.tm_hour, tmv.tm_min);
@@ -752,33 +744,6 @@ void update_labels() {
     lv_label_set_text(ui_PhotoTimeValueLabel, buf);
   }
 
-  // Update History Screen Values — mismo criterio que la pantalla principal:
-  // una medida no disponible no se pinta como cifra en ninguna pantalla.
-  if (ui_HistoryValueAire) {
-    if (airOk) {
-      snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValueDetected);
-      lv_label_set_text(ui_HistoryValueAire, buffer);
-    } else {
-      lv_label_set_text(ui_HistoryValueAire, NO_DATA);
-    }
-  }
-  if (ui_HistoryValueSkin) {
-    if (skinOk) {
-      snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValueDetected);
-      lv_label_set_text(ui_HistoryValueSkin, buffer);
-    } else {
-      lv_label_set_text(ui_HistoryValueSkin, NO_DATA);
-    }
-  }
-  if (ui_HistoryValueHum) {
-    if (humOk) {
-      snprintf(buffer, sizeof(buffer), "%d%%", humValueDetected);
-      lv_label_set_text(ui_HistoryValueHum, buffer);
-    } else {
-      lv_label_set_text(ui_HistoryValueHum, NO_DATA);
-    }
-  }
-
   // Derive skin probe presence from detected temperature and update switch
   // visibility. lastProbePresent starts as false so the first call with
   // skinTempValueDetected=0 (no TEL received yet) does NOT trigger a spurious
@@ -963,11 +928,8 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   const char *TXT_PASSWORD[] = {"CONTRASENA", "PASSWORD", "MOT DE PASSE"};
   const char *TXT_SKINMODE[] = {"MODO PIEL", "SKIN MODE", "MODE PEAU"};
   const char *TXT_INFO[] = {"INFO", "INFO", "INFO"};
-  const char *TXT_MODES[] = {"Modos", "Modes", "Modes"};
+  const char *TXT_MODES[] = {"MODOS", "MODES", "MODES"};
   const char *TXT_MODES_TITLE[] = {"MODOS", "MODES", "MODES"};
-  const char *TXT_ADJUSTTIME_TITLE[] = {"AJUSTAR HORA", "ADJUST TIME",
-                                        "AJUSTER L'HEURE"};
-  const char *TXT_APPLY[] = {"APLICAR", "APPLY", "APPLIQUER"};
   const char *TXT_HMI_VERSION[] = {
       "VERSION PANTALLA:", "DISPLAY VERSION:", "VERSION ECRAN:"};
   const char *TXT_MB_VERSION[] = {
@@ -1022,19 +984,6 @@ void UI_ApplyLanguage(ui_lang_t lang) {
       "CONECTIVIDAD:", "CONNECTIVITY:", "CONNECTIVITE:"};
   const char *TXT_PHOTOSTART[] = {"EMPEZAR", "START", "DEMARRER"};
   const char *TXT_DARKMODE[] = {"MODO OSCURO", "DARK MODE", "MODE SOMBRE"};
-  const char *TXT_REALTIME[] = {"TIEMPO REAL", "REAL TIME", "TEMPS REEL"};
-  const char *TXT_HISTORY[] = {"HISTORIAL", "HISTORY", "HISTORIQUE"};
-  const char *TXT_HISTORY_OPTIONS[] = {"5 min\n30 min\n1 h\n2 h",
-                                       "5 min\n30 min\n1 h\n2 h",
-                                       "5 min\n30 min\n1 h\n2 h"};
-  const char *TXT_RANGE[] = {"RANGO:", "RANGE:", "PLAGE:"};
-  const char *TXT_HIST_AIR[] = {"HISTORIAL TEMP AIRE", "AIR TEMP HISTORY",
-                                "HIST. TEMP AIR"};
-  const char *TXT_HIST_SKIN[] = {"HISTORIAL TEMP PIEL", "SKIN TEMP HISTORY",
-                                 "HIST. TEMP PEAU"};
-  const char *TXT_HIST_HUM[] = {"HISTORIAL TEMP HUM", "HUMIDITY HISTORY",
-                                "HIST. HUMIDITÉ"};
-
   lv_label_set_text(ui_Label2, TXT_CONTROLTEMP[lang]);
   lv_label_set_text(ui_HumidityLabel, TXT_CONTROLHUM[lang]);
   lv_label_set_text(ui_PhototherapyLabel, TXT_PHOTO[lang]);
@@ -1057,8 +1006,6 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   lv_label_set_text(ui_DarkModeLabel, TXT_DARKMODE[lang]);
   lv_label_set_text(ui_ModesLabel, TXT_MODES[lang]);
   lv_label_set_text(ui_ModesTitleLabel, TXT_MODES_TITLE[lang]);
-  lv_label_set_text(ui_TimeTitleLabel, TXT_ADJUSTTIME_TITLE[lang]);
-  lv_label_set_text(ui_TimeConfirmLabel, TXT_APPLY[lang]);
   {
     const char *TXT_HUMIDITY_MODE[] = {"CONTROL HUMEDAD", "HUMIDITY CONTROL",
                                        "CONTROLE HUMIDITE"};
@@ -1110,28 +1057,6 @@ void UI_ApplyLanguage(ui_lang_t lang) {
     }
   }
 
-  // Traducción del TabView Principal de Gráficas
-  if (ui_TabViewMainCharts) {
-    lv_obj_t *btnm = lv_tabview_get_tab_btns(ui_TabViewMainCharts);
-    if (btnm && lv_obj_check_type(btnm, &lv_btnmatrix_class)) {
-      static const char *map_main_chart[3];
-      map_main_chart[0] = TXT_REALTIME[lang];
-      map_main_chart[1] = TXT_HISTORY[lang];
-      map_main_chart[2] = "";
-      lv_btnmatrix_set_map(btnm, map_main_chart);
-    }
-  }
-  if (ui_HistoryDropdown) {
-    lv_dropdown_set_options(ui_HistoryDropdown, TXT_HISTORY_OPTIONS[lang]);
-  }
-  if (ui_HistoryTimeLabel)
-    lv_label_set_text(ui_HistoryTimeLabel, TXT_RANGE[lang]);
-  if (ui_HistoryChartAireLabel)
-    lv_label_set_text(ui_HistoryChartAireLabel, TXT_AIR[lang]);
-  if (ui_HistoryChartSkinLabel)
-    lv_label_set_text(ui_HistoryChartSkinLabel, TXT_SKIN[lang]);
-  if (ui_HistoryChartHumLabel)
-    lv_label_set_text(ui_HistoryChartHumLabel, TXT_CONTROLHUM[lang]);
 
   lv_label_set_text(ui_Label11, TXT_AIRTEMP[lang]);
   lv_label_set_text(ui_Label12, TXT_BABYTEMP[lang]);
@@ -1149,6 +1074,12 @@ void UI_ApplyLanguage(ui_lang_t lang) {
     lv_label_set_text(ui_PhotoLockLabel, TXT_PHOTO_LOCK[lang]);
   }
 
+  // Boton de tendencia de telemetria (pantalla de bloqueo)
+  if (ui_ChartLockLabel) {
+    const char *TXT_TREND[] = {"TENDENCIA", "TREND", "TENDANCE"};
+    lv_label_set_text(ui_ChartLockLabel, TXT_TREND[lang]);
+  }
+
   // Babies history button (baby-history-viewer)
   if (ui_BabiesButtonLabel) {
     const char *TXT_BABIES[] = {"Bebes", "Babies", "Bebes"};
@@ -1156,6 +1087,7 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   }
 
   photo_safety_apply_language(lang);
+  TelemetryHistory_ApplyLanguage();
 
   update_labels();
   UI_SyncAll();
@@ -1365,48 +1297,11 @@ void ModesButton_cb(lv_event_t *e) {
 // desde Settings: el reloj vive ahi, asi que no hace falta ocultar ningun
 // panel de la pantalla de ajustes (son pantallas distintas, LVGL no las
 // muestra a la vez).
-void ClockButton_cb(lv_event_t *e) {
-  // Prefill con la hora que ya conoce el HMI, si la tiene: mejor partir de un
-  // valor cercano que forzar a teclear los 5 campos desde cero cada vez.
-  if (HMI_HasLocalTime()) {
-    const time_t t = (time_t)HMI_ToLocal(HMI_GetEpochNow());
-    struct tm tmv;
-    gmtime_r(&t, &tmv);
-    lv_spinbox_set_value(ui_TimeSpinDay, tmv.tm_mday);
-    lv_spinbox_set_value(ui_TimeSpinMonth, tmv.tm_mon + 1);
-    lv_spinbox_set_value(ui_TimeSpinYear, tmv.tm_year + 1900);
-    lv_spinbox_set_value(ui_TimeSpinHour, tmv.tm_hour);
-    lv_spinbox_set_value(ui_TimeSpinMinute, tmv.tm_min);
-  }
-  lv_label_set_text(ui_TimeResultLabel, "");
-
-  lv_obj_clear_flag(ui_TimeConfigCont, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_move_foreground(ui_TimeConfigCont);
-}
-
-void TimeConfirmButton_cb(lv_event_t *e) {
-  const int day    = (int)lv_spinbox_get_value(ui_TimeSpinDay);
-  const int month  = (int)lv_spinbox_get_value(ui_TimeSpinMonth);
-  const int year   = (int)lv_spinbox_get_value(ui_TimeSpinYear);
-  const int hour   = (int)lv_spinbox_get_value(ui_TimeSpinHour);
-  const int minute = (int)lv_spinbox_get_value(ui_TimeSpinMinute);
-  Communication_SendSetTime(year, month, day, hour, minute);
-  const char *TXT_SENDING[] = {"Enviando...", "Sending...", "Envoi..."};
-  lv_label_set_text(ui_TimeResultLabel, TXT_SENDING[g_lang]);
-}
-
-// Compartidos por los 10 botones -/+ de los 5 spinboxes de la hora: el
-// spinbox al que afecta cada uno viaja como user_data (ver
-// ElementsCreation.cpp, donde se registran).
-void TimeSpinboxInc_cb(lv_event_t *e) {
-  lv_obj_t *spin = (lv_obj_t *)lv_event_get_user_data(e);
-  if (spin) _ui_spinbox_step(spin, 1);
-}
-
-void TimeSpinboxDec_cb(lv_event_t *e) {
-  lv_obj_t *spin = (lv_obj_t *)lv_event_get_user_data(e);
-  if (spin) _ui_spinbox_step(spin, -1);
-}
+//
+// Todo el dialogo vive en TimeDialog.cpp: es un pop-up modal con teclado
+// numerico y la mascara en blanco, no los 5 spinboxes prefijados que habia
+// aqui antes.
+void ClockButton_cb(lv_event_t *e) { TimeDialog_Open(); }
 
 void LanguageButton_cb(lv_event_t *e) {
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
@@ -1643,6 +1538,17 @@ bool UI_IsCriticalAlarmActive() {
   return false;
 }
 
+// Cualquier alarma activa, no solo las criticas de UI_IsCriticalAlarmActive.
+// La usa TelemetryHistory para decidir si debe cederle la pantalla al banner
+// de alarma: ese overlay no tiene informacion de alarma propia que compense
+// taparlo, a diferencia de AlarmCenter (que si es donde se atiende).
+bool UI_IsAnyAlarmActive() {
+  for (int i = 0; i < MAX_ALARMS; i++) {
+    if (alarmList[i].state) return true;
+  }
+  return false;
+}
+
 // "Is the incubator doing something to a baby right now?" — the single
 // definition of a live care session, shared by the baby-exit dialog (which
 // only asks paperwork when this goes false) and by BabyWizard's
@@ -1658,8 +1564,8 @@ bool UI_AnyControlActive() {
 // now invoked from BabyWizard's "Apply" step once the mandatory baby-data
 // wizard completes (temp-control-activation-wizard spec) instead of
 // immediately on the switch toggle. isAirMode selects which panel becomes
-// active; the caller has already validated the SKIN-mode guardrail
-// (usable range required) before calling this with isAirMode=false.
+// active; for isAirMode=false the probe check lives in the ui_Switch4 handler
+// this ends up firing, which is the only precondition SKIN has.
 void ActivateTempControlUI(bool isAirMode) {
   lv_color_t active_col = darkMode ? COLOR_PANEL_GRAY : COLOR_PANEL_WHITE;
 
@@ -1965,21 +1871,14 @@ void Switch_cb(lv_event_t *e) {
       return;
     }
 
-    // Design Section 3/4: SKIN requires a usable NTE range from the
-    // baby-data wizard (weight was not SKIPped). Only gates while control
-    // is actually running — switching the panel preference before
-    // activating temperature control is unaffected.
-    if (checked && tempSwitched && !BabyWizard_HasUsableRange()) {
-      ui_set_switch_state_silent(ui_Switch4, false);
-      const char *msg =
-          (g_lang == LANG_ES)
-              ? "Modo piel no disponible:\nsin peso no hay rango automatico"
-          : (g_lang == LANG_FR)
-              ? "Mode peau indisponible:\npoids requis pour la plage automatique"
-              : "Skin mode unavailable:\nno weight, no automatic range";
-      UI_ShowToast(msg, 4000);
-      return;
-    }
+    // La sonda es el UNICO requisito para entrar en modo piel, y por eso
+    // el bloque de arriba es el unico que puede rechazar la activacion.
+    // Antes hacia falta ademas un rango NTE utilizable del wizard (o sea,
+    // haber dado el peso), lo que dejaba el modo piel inaccesible durante
+    // toda una sesion por haber saltado ese paso al encenderla. El punto
+    // de consigna de piel son 36.5 degC fijos y no se derivan del rango
+    // de aire, asi que el rango nunca fue condicion para controlar por
+    // piel: solo lo era para PROPONER una temperatura de aire.
 
     skinPanelEnabled = checked;
     hmi_msg.skinModeEnabled = checked;
@@ -3173,107 +3072,6 @@ void chart_add_hum_value(float hum) {
   lv_chart_set_next_value(ui_HumChart, humSeries, (lv_coord_t)hum);
 }
 
-void chart_save_history() {
-  decimationCounter++;
-  if (decimationCounter >= 10) { // 1 cada 10 muestras (~10 segundos)
-    decimationCounter = 0;
-    historyBufferAir[historyWriteIdx] = (float)airTempValueDetected;
-    historyBufferSkin[historyWriteIdx] = (float)skinTempValueDetected;
-    historyBufferHum[historyWriteIdx] = (float)humValueDetected;
-
-    historyWriteIdx = (historyWriteIdx + 1) % HISTORY_BUFFER_SIZE;
-    if (historySampleCount < HISTORY_BUFFER_SIZE)
-      historySampleCount++;
-
-    // Si la pantalla de gráficas está activa, refrescar el historial
-    if (lv_scr_act() == ui_ScreenCharts) {
-      update_history_charts();
-    }
-  }
-}
-
-void update_history_charts() {
-  if (!ui_HistoryChartAire || !historySeriesAire)
-    return;
-  if (!ui_HistoryChartHum || !historySeriesHum)
-    return;
-
-  uint16_t interval_idx = lv_dropdown_get_selected(ui_HistoryDropdown);
-  int point_count = 0;
-  switch (interval_idx) {
-  case 0:
-    point_count = HISTORY_POINTS_5MIN;
-    break; // 5 min (~5 min @ 10s/sample)
-  case 1:
-    point_count = HISTORY_POINTS_30MIN;
-    break; // 30 min
-  case 2:
-    point_count = HISTORY_POINTS_1H;
-    break; // 1 h
-  case 3:
-    point_count = HISTORY_POINTS_2H;
-    break; // 2 h
-  default:
-    point_count = HISTORY_POINTS_5MIN;
-  }
-
-  // Si hay menos datos que los pedidos, mostrar solo los disponibles
-  if (point_count > historySampleCount)
-    point_count = historySampleCount;
-
-  // Si no hay datos aún, no dibujar nada
-  if (point_count == 0)
-    return;
-
-  // ---- Temperatura Aire ----
-  // Reset de la serie: poner todos los puntos como NONE
-  lv_chart_set_point_count(ui_HistoryChartAire, point_count);
-  for (int i = 0; i < point_count; i++)
-    historySeriesAire->y_points[i] = LV_CHART_POINT_NONE;
-  historySeriesAire->start_point = 0;
-
-  // ---- Temperatura Piel ----
-  lv_chart_set_point_count(ui_HistoryChartSkin, point_count);
-  for (int i = 0; i < point_count; i++)
-    historySeriesSkin->y_points[i] = LV_CHART_POINT_NONE;
-  historySeriesSkin->start_point = 0;
-
-  // ---- Humedad ----
-  lv_chart_set_point_count(ui_HistoryChartHum, point_count);
-  for (int i = 0; i < point_count; i++)
-    historySeriesHum->y_points[i] = LV_CHART_POINT_NONE;
-  historySeriesHum->start_point = 0;
-
-  // Calcular índice de inicio en el búfer circular
-  int start_idx = (historyWriteIdx - point_count + HISTORY_BUFFER_SIZE) %
-                  HISTORY_BUFFER_SIZE;
-
-  // Cargar datos del búfer secuencialmente en las series
-  for (int i = 0; i < point_count; i++) {
-    int buf_idx = (start_idx + i) % HISTORY_BUFFER_SIZE;
-    lv_chart_set_next_value(ui_HistoryChartAire, historySeriesAire,
-                            (lv_coord_t)historyBufferAir[buf_idx]);
-    lv_chart_set_next_value(ui_HistoryChartSkin, historySeriesSkin,
-                            (lv_coord_t)historyBufferSkin[buf_idx]);
-    lv_chart_set_next_value(ui_HistoryChartHum, historySeriesHum,
-                            (lv_coord_t)historyBufferHum[buf_idx]);
-  }
-
-  lv_chart_refresh(ui_HistoryChartAire);
-  lv_chart_refresh(ui_HistoryChartSkin);
-  lv_chart_refresh(ui_HistoryChartHum);
-
-  // Los valores individuales (Aire/Piel/Hum) se actualizan en update_labels()
-}
-
-void update_history_charts();
-
-void TabViewHistory_cb(lv_event_t *e) { update_history_charts(); }
-
-void ScreenCharts_load_cb(lv_event_t *e) { update_history_charts(); }
-
-void HistoryDropdown_cb(lv_event_t *e) { update_history_charts(); }
-
 void AlarmSound_Update() {
   // El display no emite sonido por las alarmas que le LLEGAN: esas las anuncia
   // la placa, que ya las esta sonando. La unica excepcion es la perdida de
@@ -3697,7 +3495,6 @@ void ChartButton_cb(lv_event_t *e) {
     } else if (humSwitched) {
       lv_tabview_set_act(ui_TabView1, 1, LV_ANIM_OFF); // Forzar Hum
     }
-    update_history_charts();
   }
 }
 
@@ -4178,10 +3975,15 @@ void UI_Task(void *pvParameters) {
   // --- Babies history screen (baby-history-viewer spec) ---
   BabyHistory_Init(ui_ScreenMain);
   BabyExitDialog_Init(ui_ScreenMain);
+  // Ajuste manual de la hora, abierto desde ui_ClockButton.
+  TimeDialog_Init(ui_ScreenMain);
   // --- Centro de alarmas (activas + registro) ---
   // Sin parent: cuelga de lv_layer_top() para abrirse desde cualquier pantalla,
   // el bloqueo incluido.
   AlarmCenter_Init();
+  // --- Tendencia de telemetria (aire/piel/humedad), accesible desde el
+  // bloqueo (ui_ChartLockImg). Mismo criterio de parent que AlarmCenter. ---
+  TelemetryHistory_Init();
   // El check de "todo OK" es lo unico visible en el sitio de las alarmas
   // cuando no hay ninguna; hacerlo pulsable es lo que deja el registro
   // accesible en estado normal. Las imagenes de LVGL no son pulsables por
@@ -4222,7 +4024,6 @@ void UI_Task(void *pvParameters) {
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_ModesConfigCont, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_TimeConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
   lv_keyboard_set_textarea(ui_Keyboard1, NULL);
@@ -4646,7 +4447,21 @@ void UI_Task(void *pvParameters) {
         chart_add_skin_temp((float)snapSkin);
       }
       chart_add_hum_value((float)snapHum);
-      chart_save_history();
+      // Mismo criterio de validez que update_labels() (airOk/skinOk/humOk
+      // ahi arriba): un centinela PROTO_TEL_*_UNAVAILABLE o el enlace caido
+      // nunca deben guardarse como si fueran una lectura real.
+      {
+        const bool linkLost = Display_IsBoardLinkLost();
+        const bool airOkHist =
+            !linkLost && !PROTO_TEL_TEMP_IS_UNAVAILABLE(snapAir);
+        const bool skinOkHist =
+            !linkLost && !PROTO_TEL_TEMP_IS_UNAVAILABLE(snapSkin);
+        const bool humOkHist =
+            !linkLost && snapHum != PROTO_TEL_HUM_UNAVAILABLE;
+        TelemetryHistory_RecordSample((float)snapAir, airOkHist,
+                                       (float)snapSkin, skinOkHist,
+                                       (float)snapHum, humOkHist);
+      }
     }
 
     if (g_pendingDutyApply) {
@@ -4670,32 +4485,15 @@ void UI_Task(void *pvParameters) {
     // timeouts. A diferencia del resto, este NO se cierra con una alarma
     // critica — es precisamente la pantalla donde se atiende.
     AlarmCenter_Poll();
+    // Tendencia de telemetria: sin peticiones a la motherBoard, solo cierra
+    // si hay una alarma critica (mismo contrato que BabyHistory_Poll).
+    TelemetryHistory_Poll();
 
     // Ajuste manual de hora (se abre tocando la hora de cabecera,
-    // ClockButton_cb): una alarma critica se lleva la pantalla por delante,
-    // igual que hace BabyWizard_Poll() con su wizard.
-    if (!lv_obj_has_flag(ui_TimeConfigCont, LV_OBJ_FLAG_HIDDEN) &&
-        UI_IsCriticalAlarmActive()) {
-      lv_obj_add_flag(ui_TimeConfigCont, LV_OBJ_FLAG_HIDDEN);
-    }
-
-    // Consume el CTRL,TIME_ACK de CommTask.cpp. Si se acepto, se cierra el
-    // panel solo; si se rechazo, se deja abierto para que el operador
-    // corrija los campos.
-    if (g_pendingTimeAck) {
-      g_pendingTimeAck = false;
-      const char *TXT_TIME_OK[] = {"Hora ajustada", "Time set",
-                                   "Heure ajustee"};
-      const char *TXT_TIME_FAIL[] = {"Hora rechazada", "Time rejected",
-                                     "Heure rejetee"};
-      const char *msg =
-          (g_timeAckResult == 0) ? TXT_TIME_OK[g_lang] : TXT_TIME_FAIL[g_lang];
-      lv_label_set_text(ui_TimeResultLabel, msg);
-      UI_ShowToast(msg, 3000);
-      if (g_timeAckResult == 0) {
-        lv_obj_add_flag(ui_TimeConfigCont, LV_OBJ_FLAG_HIDDEN);
-      }
-    }
+    // ClockButton_cb): mismo contrato de polling que el wizard — consume el
+    // CTRL,TIME_ACK y aplica la regla de "una alarma critica se lleva la
+    // pantalla por delante".
+    TimeDialog_Poll();
 
     // El banner se reevalua en CADA pasada, no solo cuando cambia el conjunto
     // de alarmas. Su visibilidad depende de la pantalla activa y el banner
@@ -5065,47 +4863,6 @@ void UI_SyncAll() {
       lv_tabview_set_act(ui_TabView1, 0, LV_ANIM_OFF);
     else if (!switchTemp && switchHum)
       lv_tabview_set_act(ui_TabView1, 1, LV_ANIM_OFF);
-
-    // --- Sincronización de la pantalla de Historial ---
-    // Gráfica de Temperatura: Aire o Piel según el modo activo
-    if (switchTemp) {
-      if (selectedPanel == SKIN_PANEL_SELECTED) {
-        lv_obj_add_flag(ui_HistoryChartAire, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(ui_HistoryChartAireLabel, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(ui_HistoryValueAire, LV_OBJ_FLAG_HIDDEN);
-
-        lv_obj_clear_flag(ui_HistoryChartSkin, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_clear_flag(ui_HistoryChartSkinLabel, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_clear_flag(ui_HistoryValueSkin, LV_OBJ_FLAG_HIDDEN);
-      } else {
-        lv_obj_clear_flag(ui_HistoryChartAire, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_clear_flag(ui_HistoryChartAireLabel, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_clear_flag(ui_HistoryValueAire, LV_OBJ_FLAG_HIDDEN);
-
-        lv_obj_add_flag(ui_HistoryChartSkin, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(ui_HistoryChartSkinLabel, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(ui_HistoryValueSkin, LV_OBJ_FLAG_HIDDEN);
-      }
-    } else {
-      // Ambas ocultas si temperatura está OFF
-      lv_obj_add_flag(ui_HistoryChartAire, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_add_flag(ui_HistoryChartAireLabel, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_add_flag(ui_HistoryValueAire, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_add_flag(ui_HistoryChartSkin, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_add_flag(ui_HistoryChartSkinLabel, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_add_flag(ui_HistoryValueSkin, LV_OBJ_FLAG_HIDDEN);
-    }
-
-    // Gráfica de Humedad
-    if (switchHum) {
-      lv_obj_clear_flag(ui_HistoryChartHum, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_clear_flag(ui_HistoryChartHumLabel, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_clear_flag(ui_HistoryValueHum, LV_OBJ_FLAG_HIDDEN);
-    } else {
-      lv_obj_add_flag(ui_HistoryChartHum, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_add_flag(ui_HistoryChartHumLabel, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_add_flag(ui_HistoryValueHum, LV_OBJ_FLAG_HIDDEN);
-    }
   }
 
   hmi_msg.language = (int)g_lang;
@@ -5246,11 +5003,10 @@ void UI_ApplyTheme() {
   lv_color_t chart_grid_col =
       darkMode ? lv_color_hex(0x222222) : lv_color_hex(0xEEEEEE);
 
-  lv_obj_t *charts[] = {
-      ui_AirTempChart,     ui_SkinTempChart,   ui_HumChart, ui_HistoryChartAire,
-      ui_HistoryChartSkin, ui_HistoryChartHum, ui_OxChart};
+  lv_obj_t *charts[] = {ui_AirTempChart, ui_SkinTempChart, ui_HumChart,
+                        ui_OxChart};
 
-  for (int i = 0; i < 7; i++) {
+  for (int i = 0; i < 4; i++) {
     if (charts[i] != NULL) {
       // Fondo del chart
       lv_obj_set_style_bg_color(charts[i], chart_bg_col, LV_PART_MAIN);
@@ -5314,9 +5070,9 @@ void UI_ApplyTheme() {
   lv_color_t dd_list_sel =
       darkMode ? lv_color_hex(0x555555) : lv_palette_main(LV_PALETTE_BLUE);
 
-  lv_obj_t *dropdowns[] = {ui_HistoryDropdown, ui_LanguagesDropDown};
+  lv_obj_t *dropdowns[] = {ui_LanguagesDropDown};
 
-  for (int i = 0; i < 2; i++) {
+  for (int i = 0; i < 1; i++) {
     if (dropdowns[i] != NULL) {
       // Estilo del botón principal del dropdown
       lv_obj_set_style_bg_color(dropdowns[i], dd_bg_col, LV_PART_MAIN);

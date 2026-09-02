@@ -194,14 +194,6 @@ constexpr double HUM_SAFE_ZONE_MIN = 40.0;  // %
 constexpr double HUM_SAFE_ZONE_MAX = 70.0;  // %
 
 // -----------------------------
-// History chart
-// -----------------------------
-constexpr int HISTORY_POINTS_5MIN = 30;
-constexpr int HISTORY_POINTS_30MIN = 180;
-constexpr int HISTORY_POINTS_1H = 360;
-constexpr int HISTORY_POINTS_2H = 720;
-
-// -----------------------------
 // Communication
 // -----------------------------
 constexpr int COMM_BAUD_RATE = 115200;

@@ -28,10 +28,6 @@ void AlarmSound_Update();
 void chart_add_air_temp(float v);
 void chart_add_skin_temp(float v);
 void chart_add_hum_value(float hum);
-void chart_save_history();
-void update_history_charts();
-void HistoryDropdown_cb(lv_event_t *e);
-void ScreenCharts_load_cb(lv_event_t *e);
 void ui_set_switch_state_silent(lv_obj_t *sw, bool on);
 void temp_content_set_visible(bool visible);
 void UI_ShowToast(const char *msg, uint32_t ms);
@@ -42,6 +38,7 @@ void ActivatePhototherapyFromWizard();
 void ActivateHumidityFromWizard();
 void computeAndSendActuation(void);
 bool UI_IsCriticalAlarmActive(void);
+bool UI_IsAnyAlarmActive(void);
 // True while any therapy is running (temperature, humidity or phototherapy),
 // i.e. while a baby is under care. Gates both the baby-exit dialog and
 // BabyWizard's already-identified-baby shortcut.

@@ -302,29 +302,6 @@ extern lv_obj_t * ui_SNTitle;
 extern lv_obj_t * ui_SNValue;
 extern lv_obj_t * ui_ConnTitle;
 extern lv_obj_t * ui_ConnValue;
-extern lv_obj_t * ui_TimeConfigCont;
-extern lv_obj_t * ui_TimeTitleLabel;
-extern lv_obj_t * ui_TimeDayDec;
-extern lv_obj_t * ui_TimeSpinDay;
-extern lv_obj_t * ui_TimeDayInc;
-extern lv_obj_t * ui_TimeSlash1;
-extern lv_obj_t * ui_TimeMonthDec;
-extern lv_obj_t * ui_TimeSpinMonth;
-extern lv_obj_t * ui_TimeMonthInc;
-extern lv_obj_t * ui_TimeSlash2;
-extern lv_obj_t * ui_TimeYearDec;
-extern lv_obj_t * ui_TimeSpinYear;
-extern lv_obj_t * ui_TimeYearInc;
-extern lv_obj_t * ui_TimeHourDec;
-extern lv_obj_t * ui_TimeSpinHour;
-extern lv_obj_t * ui_TimeHourInc;
-extern lv_obj_t * ui_TimeColon;
-extern lv_obj_t * ui_TimeMinuteDec;
-extern lv_obj_t * ui_TimeSpinMinute;
-extern lv_obj_t * ui_TimeMinuteInc;
-extern lv_obj_t * ui_TimeConfirmButton;
-extern lv_obj_t * ui_TimeConfirmLabel;
-extern lv_obj_t * ui_TimeResultLabel;
 
 extern lv_obj_t * ui_WifiConfigCont;
 extern lv_obj_t * ui_Keyboard1;
@@ -375,7 +352,6 @@ void ui_ScreenAlarms_screen_destroy(void);
 // --- SCREEN: Charts ---
 extern lv_obj_t * ui_ScreenCharts;
 extern lv_obj_t * ui_TabViewMainCharts;
-extern lv_obj_t * ui_HistoryDropdown;
 extern lv_obj_t * ui_TabView1;
 extern lv_obj_t * ui_TempChartPage1;
 extern lv_obj_t * ui_AirTempChartCont;
@@ -392,20 +368,6 @@ extern lv_obj_t * ui_OxChartCont;
 extern lv_obj_t * ui_OxChart;
 extern lv_obj_t * ui_Label35;
 extern lv_obj_t * ui_ImgButton8;
-
-extern lv_obj_t * ui_HistoryChartAire;
-extern lv_obj_t * ui_HistoryChartSkin;
-extern lv_obj_t * ui_HistoryChartHum;
-
-extern lv_obj_t * ui_HistoryTimeLabel;
-extern lv_obj_t * ui_HistoryChartAireLabel;
-extern lv_obj_t * ui_HistoryChartSkinLabel;
-extern lv_obj_t * ui_HistoryChartHumLabel;
-
-extern lv_obj_t * ui_HistoryValueAire;
-extern lv_obj_t * ui_HistoryValueSkin;
-extern lv_obj_t * ui_HistoryValueHum;
-
 
 void ui_ScreenCharts_screen_init(void);
 void ui_ScreenCharts_screen_destroy(void);
@@ -475,6 +437,9 @@ extern lv_obj_t * ui_AlarmLockCont;
 extern lv_obj_t * ui_AlarmLockImg;
 extern lv_obj_t * ui_PanelLockAlarm;
 extern lv_obj_t * ui_AlarmLockNumLabel;
+extern lv_obj_t * ui_ChartLockCont;
+extern lv_obj_t * ui_ChartLockImg;
+extern lv_obj_t * ui_ChartLockLabel;
 extern lv_obj_t * ui_CheckImg;
 // Grafica PPG de la pantalla de bloqueo. A 25 Hz (CTRL,PPG cada 40 ms),
 // 128 puntos = 5,1 s de ventana. LOCK_PPG_GAP es el hueco de borrado que se
