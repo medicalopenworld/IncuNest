@@ -27,8 +27,18 @@ Enviado **cada 1 segundo** (intercalado con `CTRL,TEL`) y además bajo petición
 > quedaba congelado con el valor del arranque. **Los campos de este mensaje son
 > estado vivo, no una instantánea de sincronización** — cualquier campo nuevo
 > debe poder asumir la cadencia de 1 Hz.
-**Formato**: `CTRL,STATE,act,mode,airSet,skinSet,humSet,photo,mute,sn,hwNum,hwRev,fwVer,numAlarms,skinE,commStatus,photoTimeRem,lang,probeState,alarmBitmask,silencedBitmask,almTest,silenceLeftS`
+**Formato**: `CTRL,STATE,act,mode,airSet,skinSet,humSet,photo,mute,sn,hwNum,hwRev,fwVer,numAlarms,skinE,commStatus,photoTimeRem,lang,probeState,alarmBitmask,silencedBitmask,almTest,silenceLeftS,linkBars`
 
+- `commStatus`: transporte activo y si llega a servidor (`CommStatus` enum: `0`=ninguno,
+  `1`=GPRS sin servidor, `2`=GPRS+servidor, `3`=WiFi sin servidor, `4`=WiFi+servidor).
+  Alimenta el icono WIFI/2G/sin enlace del heading del display, además de la
+  etiqueta "Placa:" de la pantalla de WiFi.
+- `linkBars`: cobertura del transporte activo indicado por `commStatus`, en barras
+  de `0` a `4` (como el icono de señal de un móvil), o `-1` si no hay transporte
+  activo o el dato de señal (RSSI de WiFi / CSQ de GPRS) no es fiable todavía. Una
+  placa antigua que no mande el campo se interpreta como `-1`: el display no
+  pinta ningún nivel en vez de inventarse uno. Campo añadido después de
+  `silenceLeftS`.
 - `alarmBitmask`: (Hexadecimal, ej: `0x60`) Indica qué IDs de alarma están activos. Requerido para sincronización robusta.
 - `mute`: estado **real** del audio en la placa, no el eco del comando del HMI.
   `1` = no queda ninguna condición que el operador pueda silenciar (todas las

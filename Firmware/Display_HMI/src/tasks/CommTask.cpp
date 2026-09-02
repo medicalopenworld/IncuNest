@@ -336,16 +336,17 @@ static void parse_message(const char *line) {
     uint32_t silencedBitmask = 0;
     int almTest = ALARM_TEST_IDLE_HMI;
     int silenceLeftS = 0;
+    int linkBars = -1;
     double photoTimeRemaining;  // Formato MM.SS (ej: 18.33 = 18 min 33 seg)
     char hwRev;
     char fwVer[20];
     double airSet, skinSet, humSet;
     int result =
-        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d,%lf,%d,%d,0x%X,0x%X,%d,%d",
+        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d,%lf,%d,%d,0x%X,0x%X,%d,%d,%d",
                &act, &mode, &airSet, &skinSet, &humSet, &photo, &mute,
-               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus, &photoTimeRemaining, &lang, &probeState, &alarmBitmask, &silencedBitmask, &almTest, &silenceLeftS);
+               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus, &photoTimeRemaining, &lang, &probeState, &alarmBitmask, &silencedBitmask, &almTest, &silenceLeftS, &linkBars);
 
-    // Accept 12 (old), 13 (with alarms), 14+skinModeEnabled, 15+photoTime, 16+lang, 17+probeState, 18+bitmask, 19+silenced
+    // Accept 12 (old), 13 (with alarms), 14+skinModeEnabled, 15+photoTime, 16+lang, 17+probeState, 18+bitmask, 19+silenced, 22+linkBars
     if (result >= 12) {
       ctrl_state_msg.actuation = act;
       ctrl_state_msg.controlMode = mode;
@@ -369,6 +370,12 @@ static void parse_message(const char *line) {
         alarmsMuted = (mute != 0);
       }
       if (result >= 13) ctrl_state_msg.skinModeEnabled = skinE;
+      // Conectividad de la placa (WiFi/GPRS/ninguna, con o sin servidor). Este
+      // campo ya viajaba en el formato pero nunca se copiaba a ctrl_state_msg:
+      // wifi_board_status_update() y el heading (connectivity_heading_update)
+      // se quedaban leyendo siempre el COMM_STATUS_NONE del zero-init.
+      ctrl_state_msg.serverCommStatus =
+          (result >= 14) ? commStatus : COMM_STATUS_NONE;
       if (result >= 16) ctrl_state_msg.language = lang;
       if (result >= 17) {
         ctrl_state_msg.skinProbeState = probeState;
@@ -392,6 +399,10 @@ static void parse_message(const char *line) {
       // es tambien lo que se asume con una placa antigua que no mande el
       // campo: como mucho no se pinta la cuenta atras, nunca se inventa una.
       ctrl_state_msg.silenceRemainingS = (result >= 21) ? silenceLeftS : 0;
+      // Barras de cobertura del transporte activo. -1 (no 0) con una placa
+      // antigua que no mande el campo: "no se sabe" no es lo mismo que "0
+      // barras", que es una lectura real de cobertura pesima.
+      ctrl_state_msg.linkBars = (result >= 22) ? linkBars : -1;
       ctrl_state_msg.serialNumber = sn;
 
       strncpy(ctrl_state_msg.fwVer, fwVer, sizeof(ctrl_state_msg.fwVer));

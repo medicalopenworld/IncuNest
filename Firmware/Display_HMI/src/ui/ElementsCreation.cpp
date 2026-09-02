@@ -28,10 +28,12 @@ lv_obj_t *ui_ImageIntroFlag = NULL;
 
 // Screen Main
 lv_obj_t *ui_ScreenMain = NULL;
-lv_obj_t *ui_Incunest = NULL;
 lv_obj_t *ui_ClockTime = NULL;
 lv_obj_t *ui_ClockDate = NULL;
 lv_obj_t *ui_ClockButton = NULL;
+lv_obj_t *ui_ConnCont = NULL;
+lv_obj_t *ui_ConnIcon = NULL;
+lv_obj_t *ui_ConnBar[4] = {NULL, NULL, NULL, NULL};
 lv_obj_t *ui_Settings = NULL;
 lv_obj_t *ui_AlarmButton = NULL;
 lv_obj_t *ui_BabiesButton = NULL;
@@ -298,6 +300,11 @@ lv_obj_t *ui_OxiButton2 = NULL;
 // Screen Lock
 lv_obj_t *ui_ScreenLock = NULL;
 lv_obj_t *ui_LockButton = NULL;
+lv_obj_t *ui_LockHeadingClockTime = NULL;
+lv_obj_t *ui_LockHeadingClockDate = NULL;
+lv_obj_t *ui_LockHeadingConnCont = NULL;
+lv_obj_t *ui_LockHeadingConnIcon = NULL;
+lv_obj_t *ui_LockHeadingConnBar[4] = {NULL, NULL, NULL, NULL};
 lv_obj_t *ui_Container1 = NULL;
 lv_obj_t *ui_AirTempLockCont = NULL;
 lv_obj_t *ui_Label11 = NULL;
@@ -864,36 +871,102 @@ void ui_ScreenIntro_screen_init(void) {
                               LV_PART_MAIN);
 }
 
+// Slots horizontales del heading (ui_ScreenMain y su replica en
+// ui_ScreenLock), con el boton de bloqueo en el centro exacto de pantalla
+// (offset 0) y el resto repartido a ambos lados. Sin "IncuNest" quedan 2
+// widgets a la izquierda del bloqueo y 3 a la derecha, asi que cada lado usa
+// su propio paso: izquierda con margen 20 y 3 huecos iguales hasta el
+// centro (reloj, conectividad, centro); derecha sin tocar (123 px de paso),
+// porque ya estaba al minimo que permite la zona tactil ampliada del
+// bloqueo (TOUCH_EXT_SMALL=40) sin solapar con "Bebes".
+//
+// El reloj se centra con LV_ALIGN_CENTER (offset desde x=400) en vez de
+// anclarse por el borde izquierdo: su texto tiene ancho variable ("9:05" vs
+// "23:59"), y anclar por el borde izquierdo dejaba su CENTRO visual mas
+// cerca de la conectividad que del margen, descuadrando el reparto aunque
+// los tres huecos midieran lo mismo sobre el papel. ui_ConnCont sigue en
+// LEFT_MID porque su ancho (40px) es fijo y conocido, no hace falta.
+#define HEADING_SLOT1_CLOCK (147 - 400)  // offset centro; ui_ClockTime+Date / replica en Lock
+#define HEADING_SLOT2_CONN 254        // borde izq.; ui_ConnCont / ui_LockHeadingConnCont
+#define HEADING_SLOT4_BABIES 123      // offset desde el centro (solo Main)
+#define HEADING_SLOT5_ALARM 246       // offset desde el centro (solo Main)
+#define HEADING_SLOT6_SETTINGS 369    // offset desde el centro (solo Main)
+
+// Crea el indicador de conectividad del heading (texto WIFI/2G/sin-enlace
+// ENCIMA de 4 barras de cobertura, apiladas en vertical para caber en un
+// hueco angosto) en `parent`, anclado LEFT_MID en (x, y). Compartido entre
+// ui_ScreenMain y su replica en ui_ScreenLock (ver
+// "mantener IncuNest/reloj/conectividad en la pantalla de bloqueo"): ambas
+// instancias las refresca connectivity_heading_update() (UITask.cpp).
+static void create_heading_conn_indicator(lv_obj_t *parent, lv_coord_t x,
+                                          lv_coord_t y, lv_obj_t **outCont,
+                                          lv_obj_t **outIcon,
+                                          lv_obj_t *outBars[4]) {
+  lv_obj_t *cont = lv_obj_create(parent);
+  lv_obj_remove_style_all(cont);
+  lv_obj_set_width(cont, 40);
+  lv_obj_set_height(cont, 44);
+  lv_obj_set_x(cont, x);
+  lv_obj_set_y(cont, y);
+  lv_obj_set_align(cont, LV_ALIGN_LEFT_MID);
+  lv_obj_clear_flag(cont, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+  *outCont = cont;
+
+  lv_obj_t *icon = lv_label_create(cont);
+  lv_obj_set_width(icon, LV_SIZE_CONTENT);
+  lv_obj_set_height(icon, LV_SIZE_CONTENT);
+  lv_obj_set_align(icon, LV_ALIGN_TOP_MID);
+  lv_obj_set_y(icon, 0);
+  lv_label_set_text(icon, "");
+  lv_obj_set_style_text_font(icon, &lv_font_montserrat_14,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_text_color(icon, lv_color_hex(0x888888), LV_PART_MAIN);
+  *outIcon = icon;
+
+  // 4 barras estilo "senal de movil", altura creciente, apoyadas en la misma
+  // base, centradas bajo el texto/icono de arriba. Sin fill = gris (igual
+  // que las power bars de PID); con fill = verde (igual que "conectado" en
+  // el resto del HMI). El nivel a colorear (linkBars) llega en CTRL,STATE.
+  static const lv_coord_t BAR_H[4] = {8, 13, 18, 23};
+  for (int i = 0; i < 4; i++) {
+    lv_obj_t *bar = lv_obj_create(cont);
+    lv_obj_remove_style_all(bar);
+    lv_obj_set_width(bar, 6);
+    lv_obj_set_height(bar, BAR_H[i]);
+    lv_obj_set_align(bar, LV_ALIGN_BOTTOM_LEFT);
+    lv_obj_set_x(bar, 4 + i * 9);
+    lv_obj_set_y(bar, -2);
+    lv_obj_set_style_radius(bar, 1, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(bar, lv_color_hex(0x404040), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_MAIN);
+    outBars[i] = bar;
+  }
+}
+
 void ui_ScreenMain_screen_init(void) {
   ui_ScreenMain = lv_obj_create(NULL);
   lv_obj_clear_flag(ui_ScreenMain, LV_OBJ_FLAG_SCROLLABLE);
 
-  ui_Incunest = lv_label_create(ui_ScreenMain);
-  lv_obj_set_width(ui_Incunest, LV_SIZE_CONTENT);
-  lv_obj_set_height(ui_Incunest, LV_SIZE_CONTENT);
-  // Anchored to the left edge of the screen (20 px margin) instead of a
-  // centre-relative offset, so the title stays put whatever its width.
-  lv_obj_set_x(ui_Incunest, 20);
-  lv_obj_set_y(ui_Incunest, -213);
-  lv_obj_set_align(ui_Incunest, LV_ALIGN_LEFT_MID);
-  lv_label_set_text(ui_Incunest, "IncuNest");
-  lv_obj_set_style_text_font(ui_Incunest, &lv_font_montserrat_26,
-                             LV_PART_MAIN | LV_STATE_DEFAULT);
-
-  // Reloj de pared, a la derecha del titulo. Hora en grande y fecha debajo en
+  // Reloj de pared, primer elemento del heading (sin titulo "IncuNest": se
+  // quito para dejar mas hueco al resto). Hora en grande y fecha debajo en
   // cuerpo menor: son dos labels porque LVGL no admite dos tamanos de fuente
-  // dentro de uno solo. En el hueco entre el final de "IncuNest" (~x=140) y el
-  // boton de bebes (~x=500). El contenido lo refresca clock_update() (UITask).
+  // dentro de uno solo. El contenido lo refresca clock_update() (UITask).
   // Pildora visible en vez de zona tactil invisible: sin ningun indicio, el
   // reloj se veia como texto suelto y nadie descubria que se puede tocar
   // para ajustar la hora. Mismo estilo de tarjeta que ui_SSIDPanel/
   // ui_PassPanel (radius 10, borde gris claro) para que se lea como "esto se
   // pulsa" sin gritar. El btn de LVGL ya oscurece solo al pulsarlo.
+  //
+  // x/align en HEADING_SLOT1_CLOCK con CENTER (no LEFT_MID x=182 fijo): es
+  // el mismo slot horizontal del reloj en el heading redistribuido (ver las
+  // constantes HEADING_SLOT* mas abajo en este fichero) — necesario porque
+  // aqui SI importa donde cae el CENTRO del boton, ancho fijo (180px), no
+  // solo que quepa.
   ui_ClockButton = lv_btn_create(ui_ScreenMain);
   lv_obj_set_size(ui_ClockButton, 180, 55);
-  lv_obj_set_x(ui_ClockButton, 182);
+  lv_obj_set_x(ui_ClockButton, HEADING_SLOT1_CLOCK);
   lv_obj_set_y(ui_ClockButton, -211);
-  lv_obj_set_align(ui_ClockButton, LV_ALIGN_LEFT_MID);
+  lv_obj_set_align(ui_ClockButton, LV_ALIGN_CENTER);
   lv_obj_add_flag(ui_ClockButton, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
   lv_obj_clear_flag(ui_ClockButton, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_bg_color(ui_ClockButton, lv_color_hex(0xF0F0F0),
@@ -1152,6 +1225,13 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_align(ui_TimeResultLabel, LV_ALIGN_CENTER);
   lv_label_set_text(ui_TimeResultLabel, "");
 
+  // Indicador de conectividad: boton de bloqueo (ui_ImgButton1, alineado al
+  // CENTRO de la pantalla con TOUCH_EXT_SMALL=40 de zona tactil) ocupa el
+  // centro exacto del heading; este widget vive en el hueco a su izquierda,
+  // justo despues del reloj, sin invadir su zona tactil ni su area visual.
+  create_heading_conn_indicator(ui_ScreenMain, HEADING_SLOT2_CONN, -213,
+                                &ui_ConnCont, &ui_ConnIcon, ui_ConnBar);
+
   ui_Settings = lv_imgbtn_create(ui_ScreenMain);
   lv_imgbtn_set_src(ui_Settings, LV_IMGBTN_STATE_RELEASED, NULL,
                     &ui_img_296721678, NULL);
@@ -1159,7 +1239,7 @@ void ui_ScreenMain_screen_init(void) {
                     &ui_img_296721678, NULL);
   lv_obj_set_width(ui_Settings, 50);
   lv_obj_set_height(ui_Settings, 48);
-  lv_obj_set_x(ui_Settings, 343);
+  lv_obj_set_x(ui_Settings, HEADING_SLOT6_SETTINGS);
   lv_obj_set_y(ui_Settings, -215);
   lv_obj_set_align(ui_Settings, LV_ALIGN_CENTER);
 
@@ -1168,7 +1248,7 @@ void ui_ScreenMain_screen_init(void) {
                     &ui_img_1007688293, NULL);
   lv_obj_set_width(ui_AlarmButton, 48);
   lv_obj_set_height(ui_AlarmButton, 47);
-  lv_obj_set_x(ui_AlarmButton, 258);
+  lv_obj_set_x(ui_AlarmButton, HEADING_SLOT5_ALARM);
   lv_obj_set_y(ui_AlarmButton, -212);
   lv_obj_set_align(ui_AlarmButton, LV_ALIGN_CENTER);
 
@@ -1178,7 +1258,7 @@ void ui_ScreenMain_screen_init(void) {
   ui_BabiesButton = lv_btn_create(ui_ScreenMain);
   lv_obj_set_width(ui_BabiesButton, 110);
   lv_obj_set_height(ui_BabiesButton, 44);
-  lv_obj_set_x(ui_BabiesButton, 155);
+  lv_obj_set_x(ui_BabiesButton, HEADING_SLOT4_BABIES);
   lv_obj_set_y(ui_BabiesButton, -213);
   lv_obj_set_align(ui_BabiesButton, LV_ALIGN_CENTER);
   lv_obj_set_style_radius(ui_BabiesButton, 8, LV_PART_MAIN);
@@ -1208,11 +1288,23 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_style_bg_color(ui_Panel1, COLOR_PANEL_GRAY,
                             LV_PART_MAIN); // Default Gray
 
+  // Fila de cabecera (Panel4+Switch1+Label2/9/15), toda a y=-176. Calculado
+  // para que su contenido (texto+switch, que aqui viven directamente en este
+  // y) caiga en el mismo absoluto que el de "Phototherapy" (ui_PhotoCont,
+  // ver mas abajo): con T = coordenada absoluta comun deseada, TempCont
+  // exige T<=88 para no tocar ui_AirPanelCont (empieza en y=113 absoluto) y
+  // PhotoCont exige T>=88 para no tocar el anillo de auto-bloqueo (termina
+  // en y=60 absoluto) -- su contenedor es 4px mas alto que este Panel4, asi
+  // que a igual contenido su borde superior asoma mas. T=88 es el UNICO
+  // valor que cumple ambas al mismo tiempo, y lo hace con margen exactamente
+  // cero en las dos: cabecera y ui_AirPanelCont quedan tocandose (0px), igual
+  // que ui_PhotoCont y el anillo. No hay holgura para separarlas mas sin
+  // tocar ui_AirPanelCont, ui_SkinPanelCont o el propio anillo.
   ui_Panel4 = lv_obj_create(ui_TempCont);
   lv_obj_set_width(ui_Panel4, 376);
   lv_obj_set_height(ui_Panel4, 50);
   lv_obj_set_x(ui_Panel4, 0);
-  lv_obj_set_y(ui_Panel4, -186);
+  lv_obj_set_y(ui_Panel4, -176);
   lv_obj_set_align(ui_Panel4, LV_ALIGN_CENTER);
   lv_obj_clear_flag(ui_Panel4, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -1220,8 +1312,15 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_width(ui_Switch1, 100);
   lv_obj_set_height(ui_Switch1, 39);
   lv_obj_set_x(ui_Switch1, 95);
-  lv_obj_set_y(ui_Switch1, -187);
+  lv_obj_set_y(ui_Switch1, -176);
   lv_obj_set_align(ui_Switch1, LV_ALIGN_CENTER);
+  // ui_Switch1 (y sus etiquetas ON/OFF Label9/Label15) es un widget legacy:
+  // mas abajo en esta funcion se oculta con LV_OBJ_FLAG_HIDDEN y se
+  // reemplaza por ui_TempToggleBtn (boton con label dinamico "TURN ON"/
+  // "TURN OFF"), que es el que de verdad se ve en pantalla. Varios commits
+  // de esta rama ajustaron la posicion de este switch sin ningun efecto
+  // visible porque nunca fue el widget renderizado -- el fix real esta en
+  // ui_TempToggleBtn, ver mas abajo en ui_ScreenMain_screen_init.
 
   // Header layout: TURN ON button on the left, title on the right.
   // Right-aligned so longer translations of TXT_CONTROLTEMP grow towards the
@@ -1230,7 +1329,7 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_width(ui_Label2, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_Label2, LV_SIZE_CONTENT);
   lv_obj_set_x(ui_Label2, -20);
-  lv_obj_set_y(ui_Label2, -186);
+  lv_obj_set_y(ui_Label2, -176);
   lv_obj_set_align(ui_Label2, LV_ALIGN_RIGHT_MID);
   lv_label_set_text(ui_Label2, "Temperature control");
 
@@ -1511,11 +1610,13 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_align(ui_Label6, LV_ALIGN_CENTER);
   lv_label_set_text(ui_Label6, "Set");
 
+  // Legacy junto con ui_Switch1 (ver su comentario): oculto mas abajo,
+  // reemplazado por el label dinamico dentro de ui_TempToggleBtn.
   ui_Label9 = lv_label_create(ui_TempCont);
   lv_obj_set_width(ui_Label9, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_Label9, LV_SIZE_CONTENT);
   lv_obj_set_x(ui_Label9, 165);
-  lv_obj_set_y(ui_Label9, -187);
+  lv_obj_set_y(ui_Label9, -176);
   lv_obj_set_align(ui_Label9, LV_ALIGN_CENTER);
   lv_label_set_text(ui_Label9, "ON");
 
@@ -1523,7 +1624,7 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_width(ui_Label15, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_Label15, LV_SIZE_CONTENT);
   lv_obj_set_x(ui_Label15, 17);
-  lv_obj_set_y(ui_Label15, -187);
+  lv_obj_set_y(ui_Label15, -176);
   lv_obj_set_align(ui_Label15, LV_ALIGN_CENTER);
   lv_label_set_text(ui_Label15, "OFF");
 
@@ -1825,7 +1926,10 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_width(ui_PhotoTimerCont, 384);
   lv_obj_set_height(ui_PhotoTimerCont, 120);
   lv_obj_set_x(ui_PhotoTimerCont, 191);
-  lv_obj_set_y(ui_PhotoTimerCont, -88);
+  // +7px sobre el original (-88), igual que ui_PhotoCont de mas abajo:
+  // preserva la posicion relativa entre cabecera y temporizador (se mueven
+  // juntos como bloque).
+  lv_obj_set_y(ui_PhotoTimerCont, -81);
   lv_obj_set_align(ui_PhotoTimerCont, LV_ALIGN_CENTER);
   lv_obj_add_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_clear_flag(ui_PhotoTimerCont,
@@ -1923,12 +2027,21 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_style_text_font(ui_PhotoCancelLabel, &lv_font_montserrat_18,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
 
+  // Bajada 7px (de y=-160 a y=-153): calculado para que Switch3/
+  // PhototherapyLabel/Label17 (todos a y=1 dentro de este contenedor, abs =
+  // this_y+241) caigan en el mismo absoluto (T=88) que Switch1/Label2 de
+  // "Temperature control" (ver el comentario junto a ui_Panel4 con la
+  // deduccion completa de T=88 como unico punto sin solape posible por
+  // ambos lados). ui_PhotoTimerCont se desplaza el mismo tanto para no
+  // descuadrar su posicion relativa. No hace falta tocar ui_HumCont: el
+  // hueco libre entre ui_PhotoTimerCont y ui_HumCont (15px) absorbe de sobra
+  // estos 7px sin llegar a solaparse (queda en 8px).
   ui_PhotoCont = lv_obj_create(ui_ScreenMain);
   lv_obj_remove_style_all(ui_PhotoCont);
   lv_obj_set_width(ui_PhotoCont, 384);
   lv_obj_set_height(ui_PhotoCont, 54);
   lv_obj_set_x(ui_PhotoCont, 193);
-  lv_obj_set_y(ui_PhotoCont, -160);
+  lv_obj_set_y(ui_PhotoCont, -153);
   lv_obj_set_align(ui_PhotoCont, LV_ALIGN_CENTER);
   lv_obj_clear_flag(ui_PhotoCont,
                     LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
@@ -2020,7 +2133,7 @@ void ui_ScreenMain_screen_init(void) {
                     &ui_img_candado_png, NULL);
   lv_obj_set_width(ui_ImgButton1, 38);
   lv_obj_set_height(ui_ImgButton1, 46);
-  lv_obj_set_x(ui_ImgButton1, -4);
+  lv_obj_set_x(ui_ImgButton1, 0); // slot central exacto del heading
   // 4 px lower than the rest of the top bar so the 60x60 auto-lock ring below
   // fits inside the screen while staying concentric with the padlock.
   lv_obj_set_y(ui_ImgButton1, -210);
@@ -2032,7 +2145,7 @@ void ui_ScreenMain_screen_init(void) {
   // so presses fall through to ui_ImgButton1 underneath.
   ui_LockAutoArc = lv_arc_create(ui_ScreenMain);
   lv_obj_set_size(ui_LockAutoArc, 60, 60);
-  lv_obj_set_x(ui_LockAutoArc, -4);
+  lv_obj_set_x(ui_LockAutoArc, 0); // concentrico con ui_ImgButton1
   lv_obj_set_y(ui_LockAutoArc, -210);
   lv_obj_set_align(ui_LockAutoArc, LV_ALIGN_CENTER);
   lv_arc_set_rotation(ui_LockAutoArc, 270);
@@ -3515,6 +3628,37 @@ void ui_ScreenLock_screen_init(void) {
   lv_obj_set_align(ui_LockButton, LV_ALIGN_CENTER);
   lv_obj_add_flag(ui_LockButton, LV_OBJ_FLAG_HIDDEN);
 
+  // Replica del reloj/conectividad del heading de ui_ScreenMain, en los
+  // mismos slots horizontales: se mantienen visibles con la pantalla
+  // bloqueada. Actualizadas por clock_update()/connectivity_heading_update()
+  // (UITask.cpp) igual que sus gemelas de ui_ScreenMain.
+  ui_LockHeadingClockTime = lv_label_create(ui_ScreenLock);
+  lv_obj_set_width(ui_LockHeadingClockTime, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_LockHeadingClockTime, LV_SIZE_CONTENT);
+  lv_obj_set_x(ui_LockHeadingClockTime, HEADING_SLOT1_CLOCK);
+  lv_obj_set_y(ui_LockHeadingClockTime, -222);
+  lv_obj_set_align(ui_LockHeadingClockTime, LV_ALIGN_CENTER);
+  lv_label_set_text(ui_LockHeadingClockTime, "");
+  lv_obj_set_style_text_font(ui_LockHeadingClockTime, &lv_font_montserrat_26,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  ui_LockHeadingClockDate = lv_label_create(ui_ScreenLock);
+  lv_obj_set_width(ui_LockHeadingClockDate, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_LockHeadingClockDate, LV_SIZE_CONTENT);
+  lv_obj_set_x(ui_LockHeadingClockDate, HEADING_SLOT1_CLOCK);
+  lv_obj_set_y(ui_LockHeadingClockDate, -200);
+  lv_obj_set_align(ui_LockHeadingClockDate, LV_ALIGN_CENTER);
+  lv_label_set_text(ui_LockHeadingClockDate, "");
+  lv_obj_set_style_text_font(ui_LockHeadingClockDate, &lv_font_montserrat_14,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_text_color(ui_LockHeadingClockDate, lv_color_hex(0x888888),
+                              LV_PART_MAIN);
+
+  create_heading_conn_indicator(ui_ScreenLock, HEADING_SLOT2_CONN, -213,
+                                &ui_LockHeadingConnCont,
+                                &ui_LockHeadingConnIcon,
+                                ui_LockHeadingConnBar);
+
   ui_Container1 = lv_obj_create(ui_ScreenLock);
   lv_obj_remove_style_all(ui_Container1);
   lv_obj_set_width(ui_Container1, 790);
@@ -4267,7 +4411,15 @@ void create_main_toggle_buttons() {
   ui_TempToggleBtn = lv_btn_create(ui_TempCont);
   lv_obj_set_size(ui_TempToggleBtn, 160, 39);
   lv_obj_set_x(ui_TempToggleBtn, -91);
-  lv_obj_set_y(ui_TempToggleBtn, -187);
+  // -187 -> -176: este es el boton "TURN ON" que de verdad se ve en
+  // pantalla (ui_Switch1 esta oculto, ver su comentario). -176 coloca su
+  // centro en el absoluto 88, igual que ui_PhotoToggleBtn (dentro de
+  // ui_PhotoCont, y=1, con ui_PhotoCont ya puesta en -153 para caer ahi) y
+  // que Panel4/Label2 de esta misma cabecera. Ver el analisis de margenes
+  // (arco de auto-bloqueo arriba, ui_AirPanelCont abajo) en el comentario
+  // junto a ui_Panel4, valido igual para este boton (misma altura, 39px,
+  // que ui_Switch1 al que sustituye).
+  lv_obj_set_y(ui_TempToggleBtn, -176);
   lv_obj_set_align(ui_TempToggleBtn, LV_ALIGN_CENTER);
   lv_obj_set_style_bg_color(ui_TempToggleBtn, lv_color_hex(0x4EC7FF), LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_bg_opa(ui_TempToggleBtn, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
