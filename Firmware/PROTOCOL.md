@@ -1,4 +1,11 @@
-# Protocolo de Comunicación IncuNest (v2.1.0)
+# Protocolo de Comunicación IncuNest (v2.2.0)
+
+> Nota (v2.2.0): `HMI,PROFILE_DISCHARGE` y `CTRL,PROFILE_HISTORY` añaden un
+> campo `cause` (causa de fallecimiento, solo relevante cuando `outcome=2`).
+> Ambas placas deben actualizarse juntas: un HMI v2.2.0 espera ese campo en
+> el eco/historial, y una motherBoard v2.2.0 exige exactamente 5 campos en
+> `HMI,PROFILE_DISCHARGE` (antes 4) — un HMI v2.1.0 verá sus líneas
+> descartadas como malformadas hasta actualizar ambos.
 
 > Nota (v2.1.0): `CTRL,PROFILE_LIST` y `CTRL,PROFILE_HISTORY` añaden un campo
 > `humidityMin` al final de cada entrada. Ambas placas deben actualizarse
@@ -196,11 +203,17 @@ Rango NTE calculado por la motherboard (tabla clínica en `shared/nte_table`).
 
 #### CTRL,PROFILE_HISTORY (Respuesta a HMI,PROFILE_HISTORY_REQ)
 Página del historial de bebés archivados, más recientes primero.
-**Formato**: `CTRL,PROFILE_HISTORY,page,totalCount,n{,seq,name,gestWeeks,lastWeightGrams,admissionEpoch,dischargeEpoch,outcome,kangarooCount,phototherapyMin,thermoMin,humidityMin}×n`
+**Formato**: `CTRL,PROFILE_HISTORY,page,totalCount,n{,seq,name,gestWeeks,lastWeightGrams,admissionEpoch,dischargeEpoch,outcome,cause,kangarooCount,phototherapyMin,thermoMin,humidityMin}×n`
 - `outcome`: `0`=Desconocido, `1`=Sobrevivió, `2`=Fallecido, `3`=Trasladado.
+- `cause` (BabyCause): solo relevante cuando `outcome=2`; para el resto de
+  outcomes se guarda y se envía tal cual llegó (normalmente `0`), sin
+  reinterpretarlo. `0`=Desconocida, `1`=Prematuridad, `2`=Asfixia perinatal,
+  `3`=Sepsis/infección, `4`=Malformación congénita, `5`=Hipotermia,
+  `6`=Otra. Orden por frecuencia de causas de mortalidad neonatal en
+  entornos de bajos recursos (OMS/UNICEF), no alfabético.
 - `dischargeEpoch=0`: nunca se dio de alta explícitamente (desalojo FIFO).
 - Longitud máxima de línea (10 entradas, todos los campos al ancho máximo):
-  ~1110 caracteres. Buffers dimensionados a 1280 en ambas placas — cualquier
+  ~1130 caracteres. Buffers dimensionados a 1280 en ambas placas — cualquier
   campo nuevo obliga a recalcular este margen.
 
 #### CTRL,WEIGHT_HISTORY (Respuesta a HMI,WEIGHT_HISTORY_REQ)
@@ -295,8 +308,17 @@ Edad en días introducida a mano (solo cuando `CTRL,PROFILE_RANGE` llegó con
 
 #### HMI,PROFILE_DISCHARGE
 Alta explícita del bebé con su resultado clínico.
-**Formato**: `HMI,PROFILE_DISCHARGE,seq,outcome` → `CTRL,PROFILE_ACK,seq|0`
+**Formato**: `HMI,PROFILE_DISCHARGE,seq,outcome,cause` → `CTRL,PROFILE_ACK,seq|0`
 - `outcome`: `0`=Desconocido, `1`=Sobrevivió, `2`=Fallecido, `3`=Trasladado.
+- `cause` (BabyCause, `0`-`6`): solo tiene sentido clínico cuando
+  `outcome=2` (Fallecido); para el resto de outcomes el HMI envía `0` y la
+  motherBoard lo almacena igual, sin exigir ni interpretar nada especial.
+  `0`=Desconocida, `1`=Prematuridad, `2`=Asfixia perinatal,
+  `3`=Sepsis/infección, `4`=Malformación congénita, `5`=Hipotermia,
+  `6`=Otra.
+- Línea con 4 campos (formato anterior a v2.2.0) o `cause` fuera de `0-6` se
+  descarta entera como malformada (security.md) — no se archiva el alta a
+  medias.
 - Archiva inmediatamente (historial + curva de peso) y libera el slot. No
   apaga el control AIR/SKIN si estaba activo (acciones independientes).
 
@@ -362,8 +384,8 @@ Lanza la prueba de funcionamiento de las señales de alarma
 
 ### Validación (ambos sentidos)
 Toda línea `PROFILE_*`/`WEIGHT_HISTORY_*`/`ALM_*` malformada (número de campos
-incorrecto, campo numérico no parseable, `outcome` fuera de 0–3, nombre
-vacío) se descarta en silencio con log de error — nunca se actúa sobre
+incorrecto, campo numérico no parseable, `outcome` fuera de 0–3, `cause`
+fuera de 0–6, nombre vacío) se descarta en silencio con log de error — nunca se actúa sobre
 datos parciales (regla general del protocolo, `.claude/rules/security.md`).
 
 ---

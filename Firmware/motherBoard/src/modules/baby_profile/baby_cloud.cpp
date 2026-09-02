@@ -107,6 +107,8 @@ int babyCloud_buildEventJson(const BabyCloudEvent *e, char *buf, size_t len) {
               (unsigned)e->profile.dischargeEpoch);
       appendf(buf, len, &pos, &ovf, ",\"" BABY_OUTCOME_KEY "\":%u",
               (unsigned)e->profile.outcome);
+      appendf(buf, len, &pos, &ovf, ",\"" BABY_CAUSE_KEY "\":%u",
+              (unsigned)e->profile.cause);
       if (e->profile.admissionEpoch != 0 && e->profile.dischargeEpoch != 0 &&
           e->profile.dischargeEpoch >= e->profile.admissionEpoch) {
         appendf(buf, len, &pos, &ovf, ",\"" BABY_STAY_DAYS_KEY "\":%u",

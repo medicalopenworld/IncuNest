@@ -16,13 +16,18 @@
 // valid(1) + seq(4) + name(24) + gestWeeks(1) + weightGrams(2) +
 // admissionEpoch(4) + dischargeEpoch(4) + outcome(1) + kangarooCount(2) +
 // lastKangarooEpoch(4) + phototherapyMinutes(4) + thermoMinutes(4) +
-// humidityMinutes(4)
-#define BABY_HISTORY_RECORD_SIZE 59u
+// humidityMinutes(4) + cause(1)
+#define BABY_HISTORY_RECORD_SIZE 60u
 // The layout before humidityMinutes existed. Kept only so babyStore_init()
 // can recognise an audit log written by an older firmware and reset it
 // instead of reading it with the wrong stride (which would decode garbage
 // into a clinical record).
 #define BABY_HISTORY_RECORD_SIZE_LEGACY_V1 55u
+// The layout before `cause` existed (humidityMinutes added, cause not yet).
+// Same rationale as LEGACY_V1 above — historyResetIfIncompatible() only
+// needs the *current* size to detect any mismatch, but this constant is
+// kept for the same diagnostic purpose the V1 one already serves.
+#define BABY_HISTORY_RECORD_SIZE_LEGACY_V2 59u
 // timestamp(4) + weightGrams(2)
 #define BABY_WEIGHT_POINT_SIZE 6u
 #define BABY_WEIGHT_HISTORY_MAX_OUT 50u
@@ -34,6 +39,19 @@ enum BabyOutcome : uint8_t {
   BABY_OUTCOME_TRANSFERRED = 3,
 };
 
+// Cause of death, only meaningful when outcome == BABY_OUTCOME_DECEASED.
+// Ordered by frequency of neonatal mortality causes in low-resource settings
+// (WHO/UNICEF) — see PROTOCOL.md HMI,PROFILE_DISCHARGE / CTRL,PROFILE_HISTORY.
+enum BabyCause : uint8_t {
+  BABY_CAUSE_UNKNOWN = 0,
+  BABY_CAUSE_PREMATURITY = 1,
+  BABY_CAUSE_PERINATAL_ASPHYXIA = 2,
+  BABY_CAUSE_SEPSIS_INFECTION = 3,
+  BABY_CAUSE_CONGENITAL_MALFORMATION = 4,
+  BABY_CAUSE_HYPOTHERMIA = 5,
+  BABY_CAUSE_OTHER = 6,
+};
+
 struct BabyProfile {
   bool slotUsed;
   uint32_t seq;
@@ -43,6 +61,7 @@ struct BabyProfile {
   uint32_t admissionEpoch;   // 0 = unknown (no synced time at creation)
   uint32_t dischargeEpoch;   // 0 = not explicitly discharged
   uint8_t outcome;           // BabyOutcome
+  uint8_t cause;             // BabyCause; only meaningful for outcome==DECEASED
   // Kangaroo care: the baby leaving the incubator to be with the mother is a
   // normal, repeatable event — explicitly NOT a discharge, so the profile
   // stays in its active slot. Tracked for skin-to-skin traceability.

@@ -128,6 +128,24 @@ void test_history_record_roundtrip_including_discharge_outcome(void) {
   TEST_ASSERT_EQUAL_UINT8(BABY_OUTCOME_SURVIVED, out.outcome);
 }
 
+void test_history_record_roundtrips_cause(void) {
+  BabyProfile p = mkProfile(43, "Perez", 28, 900, 1723200000u);
+  p.dischargeEpoch = 1723900000u;
+  p.outcome = BABY_OUTCOME_DECEASED;
+  p.cause = BABY_CAUSE_SEPSIS_INFECTION;
+
+  uint8_t rec[BABY_HISTORY_RECORD_SIZE];
+  baby_history_encode(&p, true, rec);
+  BabyProfile out;
+  memset(&out, 0, sizeof(out));
+  TEST_ASSERT_TRUE(baby_history_decode(rec, &out));
+  TEST_ASSERT_EQUAL_UINT8(BABY_OUTCOME_DECEASED, out.outcome);
+  TEST_ASSERT_EQUAL_UINT8(BABY_CAUSE_SEPSIS_INFECTION, out.cause);
+  // Everything that precedes cause must stay unshifted (appended field).
+  TEST_ASSERT_EQUAL_UINT32(43, out.seq);
+  TEST_ASSERT_EQUAL_STRING("Perez", out.name);
+}
+
 void test_history_record_defaults_unknown_outcome(void) {
   BabyProfile p = mkProfile(7, "X", 29, 0, 0);
   uint8_t rec[BABY_HISTORY_RECORD_SIZE];
@@ -136,6 +154,7 @@ void test_history_record_defaults_unknown_outcome(void) {
   baby_history_decode(rec, &out);
   TEST_ASSERT_EQUAL_UINT32(0, out.dischargeEpoch);
   TEST_ASSERT_EQUAL_UINT8(BABY_OUTCOME_UNKNOWN, out.outcome);
+  TEST_ASSERT_EQUAL_UINT8(BABY_CAUSE_UNKNOWN, out.cause);
 }
 
 void test_history_record_roundtrips_kangaroo_fields(void) {
@@ -193,8 +212,10 @@ void test_history_record_roundtrips_therapy_minutes(void) {
 // strictly larger than the layout it replaced; if they ever match again, an
 // old log would be read at the wrong stride without anyone noticing.
 void test_history_record_size_differs_from_legacy_layout(void) {
-  TEST_ASSERT_EQUAL_UINT32(59u, BABY_HISTORY_RECORD_SIZE);
+  TEST_ASSERT_EQUAL_UINT32(60u, BABY_HISTORY_RECORD_SIZE);
   TEST_ASSERT_NOT_EQUAL_UINT32(BABY_HISTORY_RECORD_SIZE_LEGACY_V1,
+                               BABY_HISTORY_RECORD_SIZE);
+  TEST_ASSERT_NOT_EQUAL_UINT32(BABY_HISTORY_RECORD_SIZE_LEGACY_V2,
                                BABY_HISTORY_RECORD_SIZE);
 }
 
@@ -245,6 +266,7 @@ int main(void) {
   RUN_TEST(test_age_unknown_when_admission_epoch_zero);
   RUN_TEST(test_age_unknown_when_clock_behind_admission);
   RUN_TEST(test_history_record_roundtrip_including_discharge_outcome);
+  RUN_TEST(test_history_record_roundtrips_cause);
   RUN_TEST(test_history_record_defaults_unknown_outcome);
   RUN_TEST(test_history_record_roundtrips_kangaroo_fields);
   RUN_TEST(test_new_profile_has_no_kangaroo_events);

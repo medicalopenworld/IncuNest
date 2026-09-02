@@ -209,7 +209,7 @@ static void handleBabyLine(const char *line) {
       break;
     }
     case BABY_MSG_DISCHARGE: {
-      bool ok = babyStore_discharge(m.seq, m.outcome);
+      bool ok = babyStore_discharge(m.seq, m.outcome, m.cause);
       snprintf(buf, bufLen, "CTRL,PROFILE_ACK,%u\n",
                ok ? (unsigned)m.seq : 0u);
       hmiSerial.print(buf);
