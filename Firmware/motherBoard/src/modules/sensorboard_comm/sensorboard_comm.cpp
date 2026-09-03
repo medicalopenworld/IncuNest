@@ -89,6 +89,7 @@ static uint32_t s_next_cmd_id = 1;
 static bool s_capture_wanted = false;
 static bool s_capture_in_flight = false;
 static uint32_t s_capture_armed_ms = 0;
+static bool s_status_wanted = false;
 
 static uint8_t *s_incoming_buf = NULL;  // captura anunciada, aun llegando
 static size_t s_incoming_cap = 0;
@@ -153,12 +154,14 @@ static void invalidate_after_reboot(void) {
   s_snapshot.env_seen = false;
   s_snapshot.sound_seen = false;
   s_snapshot.door_known = false;
+  s_snapshot.status_seen = false;
   s_snapshot.last_env_ms = 0;
   s_snapshot.last_door_ms = 0;
   s_snapshot.last_sound_ms = 0;
   sb_door_state_init(&s_door);
   release_incoming_capture();
   s_capture_in_flight = false;
+  s_status_wanted = false;
 }
 
 static void handle_message(const SbMessage *m, uint32_t now_ms) {
@@ -215,6 +218,9 @@ static void handle_message(const SbMessage *m, uint32_t now_ms) {
       break;
 
     case SB_MSG_STATUS_RESP:
+      // La resp basica (ok/id) no trae fw ni disponibilidad de sensores: eso
+      // lo decodifica sb_json_decode_status_resp() sobre el payload crudo,
+      // ver on_frame(). Aqui no hay nada que hacer con el "ok" a secas.
       break;
 
     case SB_MSG_UNKNOWN:
@@ -261,6 +267,34 @@ static void on_frame(uint8_t type, const uint8_t *payload, uint32_t len,
     ESP_LOGW(TAG, "payload JSON invalido (%u B)", (unsigned)len);
     return;
   }
+
+  // La resp de status trae "sensors"/"fw", que el decoder generico no
+  // expone (unico consumidor: el test de fabrica). Se decodifica aparte,
+  // sobre el mismo payload, y se aplica aqui mismo -- on_frame() ya corre con
+  // el mutex tomado (lo toma on_cdc_data() antes de alimentar el parser), asi
+  // que escribir en s_snapshot directamente es seguro sin lock()/unlock()
+  // anidado (el mutex no es recursivo).
+  if (msg.kind == SB_MSG_STATUS_RESP) {
+    if (!msg.resp_ok) {
+      ESP_LOGW(TAG, "status rechazado: %s", msg.msg);
+      return;
+    }
+    SbStatusResp status;
+    if (!sb_json_decode_status_resp(payload, len, &status)) {
+      ESP_LOGW(TAG, "status resp incompleta, se ignora");
+      return;
+    }
+    s_snapshot.status_seen = true;
+    strncpy(s_snapshot.sb_fw, status.fw, sizeof(s_snapshot.sb_fw) - 1);
+    s_snapshot.sb_fw[sizeof(s_snapshot.sb_fw) - 1] = '\0';
+    memcpy(s_snapshot.avail_sht, status.avail_sht, sizeof(s_snapshot.avail_sht));
+    s_snapshot.avail_als = status.avail_als;
+    s_snapshot.avail_door = status.avail_door;
+    s_snapshot.avail_cam = status.avail_cam;
+    s_snapshot.usb_swap = status.usb_swap;
+    return;
+  }
+
   handle_message(&msg, now);
 }
 
@@ -292,12 +326,14 @@ static void on_cdc_event(const cdc_acm_host_dev_event_data_t *event,
       release_incoming_capture();
       s_capture_in_flight = false;
       s_capture_wanted = false;
+      s_status_wanted = false;
       // Hay evidencia DEFINITIVA de que la placa se ha ido: no tiene sentido
       // esperar los 90 s del timeout inferencial para decirlo.
       sb_link_state_mark_down(&s_link);
       s_snapshot.env_seen = false;
       s_snapshot.sound_seen = false;
       s_snapshot.door_known = false;
+      s_snapshot.status_seen = false;
       s_have_uptime = false;
       unlock();
       break;
@@ -406,6 +442,27 @@ static void send_capture_cmd(cdc_acm_dev_hdl_t hdl, uint32_t id) {
   }
 }
 
+static void send_status_cmd(cdc_acm_dev_hdl_t hdl, uint32_t id) {
+  uint8_t json[SB_PROTO_MAX_JSON_PAYLOAD];
+  const size_t json_len = sb_json_encode_status_cmd(id, json, sizeof(json));
+  if (json_len == 0) return;
+
+  uint8_t frame[SB_PROTO_FRAME_HEADER_SIZE + SB_PROTO_MAX_JSON_PAYLOAD +
+                SB_PROTO_FRAME_CRC_SIZE];
+  const size_t frame_len = sb_frame_encode(SB_PROTO_TYPE_JSON, json,
+                                           (uint32_t)json_len, frame,
+                                           sizeof(frame));
+  if (frame_len == 0) return;
+
+  // Sin estado "in-flight": a diferencia de capture no hay buffer que
+  // reservar ni frame binario que esperar, asi que un envio perdido (link
+  // ocupado, timeout) no deja nada que desarmar -- sensorboard_status_request()
+  // simplemente puede volver a pedirse.
+  if (cdc_acm_host_data_tx_blocking(hdl, frame, frame_len, 200) != ESP_OK) {
+    ESP_LOGW(TAG, "no se pudo enviar el comando status");
+  }
+}
+
 // ── API publica ──────────────────────────────────────────────────
 
 void sensorboard_comm_init(void) {
@@ -479,8 +536,10 @@ void sensorboard_comm_task(void *pv) {
     cdc_acm_dev_hdl_t hdl = NULL;
     bool need_open = false;
     bool send_capture = false;
+    bool send_status = false;
     bool capture_expired = false;
     uint32_t capture_id = 0;
+    uint32_t status_id = 0;
     bool link_ok = false;
     bool door_faulty = false;
     bool ever_seen_heartbeat = false;
@@ -507,6 +566,13 @@ void sensorboard_comm_task(void *pv) {
       s_capture_armed_ms = now;
       capture_id = s_next_cmd_id++;
       send_capture = true;
+    } else if (!need_open && s_status_wanted) {
+      // Un solo comando saliente por vuelta (igual que capture, mas arriba):
+      // si hay una captura pendiente este tick, el status espera al
+      // siguiente, sin perderse -- el flag sigue puesto.
+      s_status_wanted = false;
+      status_id = s_next_cmd_id++;
+      send_status = true;
     }
 
     // evaluate() y no is_connected(): al caducar deja el estado caido de
@@ -531,6 +597,8 @@ void sensorboard_comm_task(void *pv) {
       try_open();
     } else if (send_capture) {
       send_capture_cmd(hdl, capture_id);
+    } else if (send_status) {
+      send_status_cmd(hdl, status_id);
     }
 
     const bool in_boot_grace =
@@ -617,6 +685,17 @@ bool sensorboard_capture_take(uint8_t **jpeg, size_t *len) {
 
 void sensorboard_capture_free(uint8_t *jpeg) {
   if (jpeg) free(jpeg);
+}
+
+bool sensorboard_status_request(void) {
+  bool queued = false;
+  lock();
+  if (s_snapshot.link_ok && !s_status_wanted) {
+    s_status_wanted = true;
+    queued = true;
+  }
+  unlock();
+  return queued;
 }
 
 void sensorboard_add_telemetry(JsonObject &json) {
