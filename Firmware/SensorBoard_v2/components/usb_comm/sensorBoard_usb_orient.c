@@ -9,37 +9,49 @@ static bool deadline_reached(uint32_t now_ms, uint32_t deadline_ms)
     return (int32_t)(now_ms - deadline_ms) >= 0;
 }
 
-void sb_usb_orient_init(sb_usb_orient_t *st, uint32_t timeout_ms, uint32_t now_ms)
+void sb_usb_orient_init(sb_usb_orient_t *st, uint32_t timeout_ms)
 {
     if (st == NULL) {
         return;
     }
     st->timeout_ms = timeout_ms;
-    st->deadline_ms = now_ms + timeout_ms;
+    st->deadline_ms = 0;
     st->swap_count = 0;
+    st->armed = false;
     st->swapped = false;
 }
 
-sb_orient_action_t sb_usb_orient_tick(sb_usb_orient_t *st, bool link_up, uint32_t now_ms)
+sb_orient_action_t sb_usb_orient_tick(sb_usb_orient_t *st, bool host_active, bool bus_reset_seen,
+                                      uint32_t now_ms)
 {
     if (st == NULL || st->timeout_ms == 0) {
         return SB_ORIENT_NONE; /* desactivada: la orientación queda como esté */
     }
 
-    if (link_up) {
-        /* Enlace montado: la orientación actual es la correcta. Se rearma el
-         * plazo para que una caída posterior cuente desde la caída. */
+    if (host_active) {
+        /* El host nos habla: la orientación actual es la correcta. */
+        st->armed = false;
+        return SB_ORIENT_NONE;
+    }
+
+    /* Evidencia de host: solo el PRIMER reset arma el plazo. Los siguientes
+     * no lo extienden — un host que reintenta varios resets seguidos sobre un
+     * dispositivo que no le responde no debe posponer el intercambio. */
+    if (bus_reset_seen && !st->armed) {
+        st->armed = true;
         st->deadline_ms = now_ms + st->timeout_ms;
+    }
+
+    if (!st->armed || !deadline_reached(now_ms, st->deadline_ms)) {
         return SB_ORIENT_NONE;
     }
 
-    if (!deadline_reached(now_ms, st->deadline_ms)) {
-        return SB_ORIENT_NONE;
-    }
-
+    /* Plazo vencido sin que el host nos haya hablado: intercambiar UNA vez y
+     * quedarse quieto hasta la siguiente evidencia. La orientación nueva se
+     * mantiene el tiempo que el host tarde en recuperar su puerto. */
     st->swapped = !st->swapped;
     st->swap_count++;
-    st->deadline_ms = now_ms + st->timeout_ms;
+    st->armed = false;
     return SB_ORIENT_SWAP;
 }
 

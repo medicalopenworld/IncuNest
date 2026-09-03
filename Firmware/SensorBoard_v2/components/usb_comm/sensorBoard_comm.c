@@ -18,6 +18,7 @@
 #include "tinyusb.h"
 #include "tinyusb_cdc_acm.h"
 #include "tinyusb_default_config.h"
+#include "device/dcd.h" /* DCD_EVENT_BUS_RESET para el hook de eventos */
 #include "tusb.h"
 #include <stdarg.h>
 #include <stdio.h>
@@ -107,6 +108,30 @@ static bool usb_host_active(void)
     return tud_mounted() || tud_connected();
 }
 
+/* Evidencia de host: bus resets contados desde el hook de eventos de TinyUSB
+ * (contexto de la tarea TinyUSB, no ISR; el hook no debe bloquear). Contador
+ * y no flag porque productor (tarea TinyUSB) y consumidor (usb_tx_task) son
+ * tareas distintas: un flag "leer y borrar" perdería resets. */
+static volatile uint32_t s_bus_resets = 0;
+static uint32_t s_bus_resets_seen = 0;
+
+void tud_event_hook_cb(uint8_t rhport, uint32_t eventid, bool in_isr)
+{
+    (void)rhport;
+    (void)in_isr;
+    if (eventid == DCD_EVENT_BUS_RESET) {
+        s_bus_resets++;
+    }
+}
+
+static bool bus_reset_seen_since_last_tick(void)
+{
+    uint32_t now = s_bus_resets;
+    bool seen = (now != s_bus_resets_seen);
+    s_bus_resets_seen = now;
+    return seen;
+}
+
 /* Contexto de tarea (usb_tx_task), nunca ISR.
  * - Solo se ejecuta sin host activo (invariante de la política): la tarea
  *   TinyUSB no tiene actividad de endpoints, así que los read-modify-write
@@ -117,7 +142,8 @@ static bool usb_host_active(void)
  *   desde la propia usb_tx_task no puede bloquearla. */
 static void orient_service(void)
 {
-    if (sb_usb_orient_tick(&s_orient, usb_host_active(), orient_now_ms()) != SB_ORIENT_SWAP) {
+    if (sb_usb_orient_tick(&s_orient, usb_host_active(), bus_reset_seen_since_last_tick(),
+                           orient_now_ms()) != SB_ORIENT_SWAP) {
         return;
     }
     if (usb_host_active()) {
@@ -135,7 +161,7 @@ static void orient_service(void)
     sensorBoard_status_set_sensor(SB_USB_SWAP_STATUS_KEY, swapped);
     /* Queda en la retención de arranque y sale al conectar: la motherboard
      * ve que el conector está invertido (o que no hubo host). */
-    ESP_LOGW(TAG, "USB not enumerated in %u ms: D+/D- %s (swap #%lu)",
+    ESP_LOGW(TAG, "USB host reset seen but no SETUP in %u ms: D+/D- %s (swap #%lu)",
              (unsigned)SB_USB_AUTOSWAP_TIMEOUT_MS, swapped ? "swapped" : "normal",
              (unsigned long)sb_usb_orient_swap_count(&s_orient));
 }
@@ -523,7 +549,7 @@ esp_err_t sensorBoard_comm_init(void)
 
     /* El plazo de enumeración se arma justo antes de que exista quien lo
      * evalúa (usb_tx_task): así no depende del tiempo de init del CDC. */
-    sb_usb_orient_init(&s_orient, SB_USB_AUTOSWAP_TIMEOUT_MS, orient_now_ms());
+    sb_usb_orient_init(&s_orient, SB_USB_AUTOSWAP_TIMEOUT_MS);
     sensorBoard_status_set_sensor(SB_USB_SWAP_STATUS_KEY, false);
 
     if (xTaskCreate(usb_tx_task, "usb_tx", SB_COMM_TASK_STACK, NULL, SB_COMM_TASK_PRIO,
@@ -537,8 +563,7 @@ esp_err_t sensorBoard_comm_init(void)
         goto fail;
     }
     /* Pila mínima: sólo compara dos enteros una vez por segundo. */
-    if (xTaskCreate(host_watchdog_task, "host_wd", 2560, NULL, SB_COMM_TASK_PRIO, NULL) !=
-        pdPASS) {
+    if (xTaskCreate(host_watchdog_task, "host_wd", 2560, NULL, SB_COMM_TASK_PRIO, NULL) != pdPASS) {
         err = ESP_ERR_NO_MEM;
         goto fail;
     }
