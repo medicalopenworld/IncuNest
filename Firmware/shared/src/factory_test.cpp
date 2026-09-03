@@ -51,6 +51,14 @@ void sanitize_detail(const char *detail, char *out, size_t out_size) {
 // `delim`. Rechaza cadenas vacias, signos y cualquier caracter no numerico
 // antes del delimitador (strtoul por si solo acepta espacios/signos que aqui
 // no son validos).
+// Maximo de digitos aceptado en cualquier campo numerico del protocolo: todos
+// los valores (ids, status, reject, contadores de DONE) caben en 0..255, que
+// son a lo sumo 3 digitos. Limitarlo aqui, antes de mirar el valor, evita
+// depender del comportamiento de desbordamiento/ERANGE de strtoul() para
+// entradas como "4294967296" (que en unsigned long de 32 bits da la vuelta a
+// un numero pequeno en vez de fallar) — hallazgo del review de seguridad.
+#define FTEST_NUM_FIELD_MAX_DIGITS 3
+
 bool parse_uint_field(const char *p, char delim, unsigned *out,
                        const char **after_delim) {
   if (p == nullptr || p[0] < '0' || p[0] > '9') {
@@ -59,6 +67,9 @@ bool parse_uint_field(const char *p, char delim, unsigned *out,
   char *end = nullptr;
   const unsigned long v = strtoul(p, &end, 10);
   if (end == p || *end != delim) {
+    return false;
+  }
+  if ((end - p) > FTEST_NUM_FIELD_MAX_DIGITS) {
     return false;
   }
   *out = static_cast<unsigned>(v);
@@ -75,6 +86,9 @@ bool parse_uint_last(const char *p, unsigned *out) {
   char *end = nullptr;
   const unsigned long v = strtoul(p, &end, 10);
   if (end == p) {
+    return false;
+  }
+  if ((end - p) > FTEST_NUM_FIELD_MAX_DIGITS) {
     return false;
   }
   while (*end == '\r' || *end == '\n') {

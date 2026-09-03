@@ -132,6 +132,19 @@ void test_parse_result_discards_malformed_lines(void) {
   TEST_ASSERT_EQUAL_UINT8(sentinel.id, out.id);
 }
 
+// Hallazgo de seguridad: un campo numerico de mas de 3 digitos (todo el
+// protocolo cabe en 0..255) se rechaza ANTES de mirar el valor, en vez de
+// confiar en el desbordamiento/ERANGE de strtoul() para un numero como
+// "4294967296" (2^32, da la vuelta a 0 en unsigned long de 32 bits).
+void test_parse_rejects_oversized_numeric_fields(void) {
+  FtestResult out;
+  memset(&out, 0, sizeof(out));
+  TEST_ASSERT_FALSE(ftest_parse_result("4294967296,1,", &out));
+
+  FtestHmiCmd cmd;
+  TEST_ASSERT_FALSE(ftest_parse_hmi_cmd("RUN,4294967296", &cmd));
+}
+
 // ---------------------------------------------------------------------------
 // Cierre y rechazo de la bateria.
 // ---------------------------------------------------------------------------
@@ -310,6 +323,7 @@ int main(void) {
   RUN_TEST(test_format_result_sanitizes_and_truncates_detail);
   RUN_TEST(test_parse_result_valid_with_empty_detail);
   RUN_TEST(test_parse_result_discards_malformed_lines);
+  RUN_TEST(test_parse_rejects_oversized_numeric_fields);
 
   RUN_TEST(test_format_and_parse_done_roundtrip);
   RUN_TEST(test_parse_done_malformed);
