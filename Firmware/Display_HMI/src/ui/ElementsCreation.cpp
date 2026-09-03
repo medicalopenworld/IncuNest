@@ -3736,6 +3736,10 @@ void ui_ScreenLock_screen_init(void) {
   lv_obj_set_y(ui_ChartLockCont, 70);
   lv_obj_set_align(ui_ChartLockCont, LV_ALIGN_CENTER);
   lv_obj_clear_flag(ui_ChartLockCont, LV_OBJ_FLAG_SCROLLABLE);
+  // Oculto de momento: la tendencia sigue construida y accesible por
+  // TelemetryHistory_Open(), solo se retira el acceso desde el bloqueo.
+  // HIDDEN tambien lo saca del hit-test, asi que no deja zona muerta.
+  lv_obj_add_flag(ui_ChartLockCont, LV_OBJ_FLAG_HIDDEN);
 
   ui_ChartLockImg = lv_imgbtn_create(ui_ChartLockCont);
   lv_imgbtn_set_src(ui_ChartLockImg, LV_IMGBTN_STATE_RELEASED, NULL,
