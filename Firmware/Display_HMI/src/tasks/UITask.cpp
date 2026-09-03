@@ -7,6 +7,8 @@
 #include "ui/BabyHistory.h"
 #include "ui/BabyExitDialog.h"
 #include "ui/TimeDialog.h"
+#include "ui/HelpDialog.h"
+#include "ui/HelpTour.h"
 #include "ui/BabyWizard.h"
 #include "display_config.h"
 #include "esp_lcd_panel_ops.h"
@@ -1302,6 +1304,11 @@ void ModesButton_cb(lv_event_t *e) {
 // numerico y la mascara en blanco, no los 5 spinboxes prefijados que habia
 // aqui antes.
 void ClockButton_cb(lv_event_t *e) { TimeDialog_Open(); }
+
+// Boton "?" del heading (ui_HelpButton). Todo el menu vive en HelpDialog.cpp
+// (spec hmi-help-center): tutorial guiado, QR del video tutorial y contacto
+// con soporte.
+void HelpButton_cb(lv_event_t *e) { HelpDialog_Open(); }
 
 void LanguageButton_cb(lv_event_t *e) {
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
@@ -3352,7 +3359,11 @@ static void update_autolock_ring(uint32_t inactive_ms) {
 }
 
 void inactivity_timer_cb(lv_timer_t *timer) {
-  if (lv_scr_act() == ui_ScreenAlarms) {
+  // Exentos del auto-bloqueo: la pantalla de alarmas, y la ayuda (menu con
+  // QR o tutorial guiado): leer un QR o seguir un paso lleva mas de
+  // INACTIVITY_TIMEOUT_MS sin tocar, y bloquear a mitad lo tiraria todo.
+  if (lv_scr_act() == ui_ScreenAlarms || HelpDialog_IsOpen() ||
+      HelpTour_IsOpen()) {
     lv_disp_trig_activity(NULL);
     update_autolock_ring(0);
     return;
@@ -3977,6 +3988,10 @@ void UI_Task(void *pvParameters) {
   BabyExitDialog_Init(ui_ScreenMain);
   // Ajuste manual de la hora, abierto desde ui_ClockButton.
   TimeDialog_Init(ui_ScreenMain);
+  // Menu de ayuda, abierto desde ui_HelpButton (mismo criterio de parent).
+  HelpDialog_Init(ui_ScreenMain);
+  // Tutorial guiado: en lv_layer_top() porque recorre Main y Ajustes.
+  HelpTour_Init();
   // --- Centro de alarmas (activas + registro) ---
   // Sin parent: cuelga de lv_layer_top() para abrirse desde cualquier pantalla,
   // el bloqueo incluido.
@@ -4494,6 +4509,10 @@ void UI_Task(void *pvParameters) {
     // CTRL,TIME_ACK y aplica la regla de "una alarma critica se lleva la
     // pantalla por delante".
     TimeDialog_Poll();
+    // Ayuda: resultado del envio a soporte (lo deja la tarea WiFi/OTA) y la
+    // misma regla de alarma critica, para el menu y para el tutorial.
+    HelpDialog_Poll();
+    HelpTour_Poll();
 
     // El banner se reevalua en CADA pasada, no solo cuando cambia el conjunto
     // de alarmas. Su visibilidad depende de la pantalla activa y el banner

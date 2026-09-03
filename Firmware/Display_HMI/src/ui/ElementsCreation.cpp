@@ -31,6 +31,8 @@ lv_obj_t *ui_ScreenMain = NULL;
 lv_obj_t *ui_ClockTime = NULL;
 lv_obj_t *ui_ClockDate = NULL;
 lv_obj_t *ui_ClockButton = NULL;
+lv_obj_t *ui_HelpButton = NULL;
+lv_obj_t *ui_HelpButtonLabel = NULL;
 lv_obj_t *ui_ConnCont = NULL;
 lv_obj_t *ui_ConnIcon = NULL;
 lv_obj_t *ui_ConnBar[4] = {NULL, NULL, NULL, NULL};
@@ -350,6 +352,7 @@ extern void InfoButton_cb(lv_event_t *e);
 void LanguageButton_cb(lv_event_t *e);
 extern void ModesButton_cb(lv_event_t *e);
 extern void ClockButton_cb(lv_event_t *e);
+extern void HelpButton_cb(lv_event_t *e);
 extern void TextArea_focus_cb(lv_event_t *e);
 extern void TextArea_Change_cb(lv_event_t *e);
 extern void Keyboard_cb(lv_event_t *e);
@@ -595,6 +598,12 @@ void ui_event_ModesButton(lv_event_t *e) {
 void ui_event_ClockButton(lv_event_t *e) {
   if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
     ClockButton_cb(e);
+  }
+}
+
+void ui_event_HelpButton(lv_event_t *e) {
+  if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+    HelpButton_cb(e);
   }
 }
 
@@ -844,12 +853,17 @@ void ui_ScreenIntro_screen_init(void) {
 
 // Slots horizontales del heading (ui_ScreenMain y su replica en
 // ui_ScreenLock), con el boton de bloqueo en el centro exacto de pantalla
-// (offset 0) y el resto repartido a ambos lados. Sin "IncuNest" quedan 2
-// widgets a la izquierda del bloqueo y 3 a la derecha, asi que cada lado usa
-// su propio paso: izquierda con margen 20 y 3 huecos iguales hasta el
-// centro (reloj, conectividad, centro); derecha sin tocar (123 px de paso),
-// porque ya estaba al minimo que permite la zona tactil ampliada del
-// bloqueo (TOUCH_EXT_SMALL=40) sin solapar con "Bebes".
+// (offset 0) y el resto repartido a ambos lados. Sin "IncuNest" quedan 3
+// widgets a la izquierda del bloqueo (ayuda, reloj, conectividad) y 3 a la
+// derecha, asi que cada lado usa su propio paso: izquierda con margen 20 y
+// 3 huecos iguales hasta la zona tactil del candado; derecha sin tocar (123
+// px de paso), porque ya estaba al minimo que permite la zona tactil
+// ampliada del bloqueo (TOUCH_EXT_SMALL=40) sin solapar con "Bebes".
+//
+// Reparto de la izquierda (spec hmi-help-center): la zona tactil del candado
+// empieza en 400 - 19 - 40 = 341, asi que
+//   20 + 44 (ayuda) + g + 180 (reloj) + g + 40 (conectividad) + g = 341
+// da g = 19. Ayuda en 20, reloj centrado en 173, conectividad en 282.
 //
 // El reloj se centra con LV_ALIGN_CENTER (offset desde x=400) en vez de
 // anclarse por el borde izquierdo: su texto tiene ancho variable ("9:05" vs
@@ -857,8 +871,13 @@ void ui_ScreenIntro_screen_init(void) {
 // cerca de la conectividad que del margen, descuadrando el reparto aunque
 // los tres huecos midieran lo mismo sobre el papel. ui_ConnCont sigue en
 // LEFT_MID porque su ancho (40px) es fijo y conocido, no hace falta.
-#define HEADING_SLOT1_CLOCK (147 - 400)  // offset centro; ui_ClockTime+Date / replica en Lock
-#define HEADING_SLOT2_CONN 254        // borde izq.; ui_ConnCont / ui_LockHeadingConnCont
+//
+// La replica de ui_ScreenLock usa los mismos slots de reloj y conectividad
+// (para que no salten al bloquear) pero NO lleva boton de ayuda: la pantalla
+// de bloqueo existe para no reaccionar a toques. Su slot queda vacio ahi.
+#define HEADING_SLOT0_HELP 20         // borde izq.; ui_HelpButton (solo Main)
+#define HEADING_SLOT1_CLOCK (173 - 400)  // offset centro; ui_ClockTime+Date / replica en Lock
+#define HEADING_SLOT2_CONN 282        // borde izq.; ui_ConnCont / ui_LockHeadingConnCont
 #define HEADING_SLOT4_BABIES 123      // offset desde el centro (solo Main)
 #define HEADING_SLOT5_ALARM 246       // offset desde el centro (solo Main)
 #define HEADING_SLOT6_SETTINGS 369    // offset desde el centro (solo Main)
@@ -969,6 +988,30 @@ void ui_ScreenMain_screen_init(void) {
                              LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_text_color(ui_ClockDate, lv_color_hex(0x888888),
                               LV_PART_MAIN);
+
+  // Boton de ayuda (spec hmi-help-center): "?" redondo en el primer slot del
+  // heading, solo en ui_ScreenMain. Es texto sobre un lv_btn, no un asset:
+  // no hace falta imagen nueva y se recolorea con el tema como el resto. Sin
+  // ext_click_area: el hueco hasta el reloj son 19 px y ampliarla acabaria
+  // disparando la ayuda al tocar el borde del reloj.
+  ui_HelpButton = lv_btn_create(ui_ScreenMain);
+  lv_obj_set_size(ui_HelpButton, 44, 44);
+  lv_obj_set_x(ui_HelpButton, HEADING_SLOT0_HELP);
+  lv_obj_set_y(ui_HelpButton, -213);
+  lv_obj_set_align(ui_HelpButton, LV_ALIGN_LEFT_MID);
+  lv_obj_clear_flag(ui_HelpButton, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_radius(ui_HelpButton, 22, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_color(ui_HelpButton, lv_color_hex(0x0075EE),
+                            LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_shadow_width(ui_HelpButton, 0,
+                                LV_PART_MAIN | LV_STATE_DEFAULT);
+  ui_HelpButtonLabel = lv_label_create(ui_HelpButton);
+  lv_label_set_text(ui_HelpButtonLabel, "?");
+  lv_obj_set_style_text_font(ui_HelpButtonLabel, &lv_font_montserrat_28,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_text_color(ui_HelpButtonLabel, lv_color_hex(0xFFFFFF),
+                              LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_center(ui_HelpButtonLabel);
 
   // Indicador de conectividad: boton de bloqueo (ui_ImgButton1, alineado al
   // CENTRO de la pantalla con TOUCH_EXT_SMALL=40 de zona tactil) ocupa el
@@ -1926,6 +1969,7 @@ void ui_ScreenMain_screen_init(void) {
   lv_img_set_zoom(ui_CheckImgMain, 200);
 
   lv_obj_add_event_cb(ui_Settings, ui_event_Settings, LV_EVENT_ALL, NULL);
+  lv_obj_add_event_cb(ui_HelpButton, ui_event_HelpButton, LV_EVENT_ALL, NULL);
   lv_obj_add_event_cb(ui_AlarmButton, ui_event_AlarmButton, LV_EVENT_ALL, NULL);
   lv_obj_add_event_cb(ui_BabiesButton, ui_event_BabiesButton, LV_EVENT_ALL,
                       NULL);
