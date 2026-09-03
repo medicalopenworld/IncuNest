@@ -325,6 +325,21 @@ static void usb_host_daemon_task(void *pv) {
   }
 }
 
+// Cada dispositivo que el host llega a enumerar, con VID/PID/velocidad.
+// Diagnostico de campo del enlace: distingue "no enumera nada" (cable,
+// alimentacion, orientacion D+/D- del SensorBoard HW4) de "enumera pero no es
+// el SensorBoard" (VID/PID distinto) sin necesidad de un analizador USB. La
+// pila host de Arduino (ESP-IDF 4.4.6) solo loguea sus propios errores.
+static void on_new_usb_device(usb_device_handle_t usb_dev) {
+  const usb_device_desc_t *desc = NULL;
+  usb_device_info_t info = {};
+  usb_host_get_device_descriptor(usb_dev, &desc);
+  usb_host_device_info(usb_dev, &info);
+  ESP_LOGI(TAG, "dispositivo USB enumerado: VID 0x%04X PID 0x%04X speed=%d addr=%u",
+           desc ? desc->idVendor : 0, desc ? desc->idProduct : 0, (int)info.speed,
+           (unsigned)info.dev_addr);
+}
+
 // ── Apertura y transmision (solo desde la tarea del modulo) ──────
 
 static void try_open(void) {
@@ -434,7 +449,7 @@ void sensorboard_comm_init(void) {
       .driver_task_stack_size = 6144,
       .driver_task_priority = SENSORBOARD_TASK_PRIORITY,
       .xCoreID = CORE_ID_FREERTOS,
-      .new_dev_cb = NULL,
+      .new_dev_cb = on_new_usb_device,
   };
   err = cdc_acm_host_install(&driver_config);
   if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
