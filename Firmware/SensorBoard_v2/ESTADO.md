@@ -30,11 +30,21 @@ arrancar (sin NVS, una decisión por arranque).
 
 ## Próximo paso (requiere a Pablo)
 
-1. **Flashear y verificar el watchdog de host del SensorBoard** (implementado y
+1. **Flashear y verificar el vigilante de host del SensorBoard** (implementado y
    compilado, *sin probar en placa*): al perder el host >15 s habiéndolo tenido,
    se reinicia para forzar la re-enumeración. Sin esto, un reinicio de la
    motherboard deja la incubadora sin sensor de aire hasta que alguien
    desenchufa el conector a mano. Es el pendiente **bloqueante**.
+   **Corregido el 2026-09-03 (commits `cbb3faf`/`d563483`):** la primera versión
+   miraba solo el DTR y no se disparaba nunca en el caso real — desenchufar el
+   cable o reiniciar la motherboard no cambia el DTR (TinyUSB solo lo notifica
+   ante `SET_CONTROL_LINE_STATE`) y sin sensado de VBUS el bus solo reporta
+   `SUSPEND`. Ahora la señal es `DTR && tud_ready()` y, además, se emite un
+   heartbeat inmediato al volver el host. **Prueba de banco:** con el SensorBoard
+   alimentado, desenchufar el cable a la motherboard, esperar ≥15 s, volver a
+   enchufar; la motherboard debe loguear "SensorBoard conectado por USB" y el
+   enlace levantarse en ~1 s. Tests Unity: `idf.py -C test_apps/comm_test`
+   (`[hostwatch]`).
 2. Aprobar el merge de `feat/sensorboard-usb-comm` a `dev`. Al tocar `shared/`
    (`ALARM_COUNT` 18 → 20), **motherboard y display deben flashearse juntos**: un
    HMI viejo descarta las alarmas 18/19 por id fuera de rango.

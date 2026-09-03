@@ -6,6 +6,10 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Unreleased]
 
+### Fixed
+
+- **Reconexión USB tras perder el host sin cortar VBUS** (`usb_comm`): el vigilante de host se disparaba solo con el DTR, que no cambia al desenchufar el cable ni al reiniciarse la motherboard (TinyUSB solo lo notifica ante `SET_CONTROL_LINE_STATE`; sin sensado de VBUS el bus solo reporta `SUSPEND`). Ahora "host presente" = `DTR && tud_ready()`, con la política en `sb_host_watch` (función pura con tests Unity `[hostwatch]`) y callbacks de suspend/resume de TinyUSB que limpian el flag de transmisión para que los frames vuelvan a la retención. Además se emite un heartbeat inmediato al volver el host, para que la motherboard levante el enlace en ~1 s y no en ≤30 s.
+
 ### Added
 
 - **Fase 5 — Cámara (`camera_sensor`)**: OV2640 (esp32-camera, QVGA JPEG) con SCCB compartiendo el bus I2C principal, comando `capture` bajo demanda (registro de comandos por componente en `usb_comm`), `sensorBoard_comm_send_binary()` real con frames `TYPE=0x01` en PSRAM y ownership en la cola TX, y `sensors.cam` en `status`.
