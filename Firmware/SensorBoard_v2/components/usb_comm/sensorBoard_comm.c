@@ -1,6 +1,7 @@
 #include "sensorBoard_comm.h"
 #include "sensorBoard_comm_protocol.h"
 #include "sensorBoard_frame.h"
+#include "sensorBoard_host_watch.h"
 #include "sensorBoard_json.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -92,22 +93,53 @@ static void cdc_rx_callback(int itf, cdcacm_event_t *event)
     xSemaphoreGive(s_rx_sem);
 }
 
-/* Instante (ms) en que se perdió el host teniéndolo antes, o 0 si no aplica.
- * Lo vigila host_watchdog_task: ver el porqué en su comentario. */
-static volatile uint32_t s_host_lost_ms = 0;
-static volatile bool s_host_ever_seen = false;
+/* Semáforo binario: se da en cada transición ausente→presente del host.
+ * Lo consume sensorBoard_comm_wait_host_ready() (heartbeat inmediato). */
+static SemaphoreHandle_t s_host_ready_sem = NULL;
+
+/* Único punto que escribe s_cdc_ready. Contexto: tarea TinyUSB. */
+static void set_host_ready(bool ready)
+{
+    const bool was_ready = s_cdc_ready;
+    s_cdc_ready = ready;
+    if (ready && !was_ready && s_host_ready_sem != NULL) {
+        xSemaphoreGive(s_host_ready_sem);
+    }
+}
 
 static void cdc_line_state_callback(int itf, cdcacm_event_t *event)
 {
     (void)itf;
-    const bool ready = event->line_state_changed_data.dtr;
-    if (ready) {
-        s_host_ever_seen = true;
-        s_host_lost_ms = 0;
-    } else if (s_host_ever_seen && s_host_lost_ms == 0) {
-        s_host_lost_ms = (uint32_t)(esp_timer_get_time() / 1000);
+    set_host_ready(event->line_state_changed_data.dtr);
+}
+
+/* Eventos de bus de TinyUSB. El DTR sólo cambia cuando el host envía
+ * SET_CONTROL_LINE_STATE: al desenchufar el cable o reiniciarse la
+ * motherboard NO llega nada por ese camino — sin sensado de VBUS el DCD solo
+ * reporta SUSPEND (cesan los SOF). Sin este callback, s_cdc_ready se quedaba
+ * en true con el host ausente, los frames iban a un FIFO que nunca drena y
+ * la retención de arranque no se usaba. */
+static void tinyusb_event_callback(tinyusb_event_t *event, void *arg)
+{
+    (void)arg;
+    switch (event->id) {
+    case TINYUSB_EVENT_DETACHED:
+#ifdef CONFIG_TINYUSB_SUSPEND_CALLBACK
+    case TINYUSB_EVENT_SUSPENDED:
+#endif
+        set_host_ready(false);
+        break;
+#ifdef CONFIG_TINYUSB_RESUME_CALLBACK
+    case TINYUSB_EVENT_RESUMED:
+        /* Un host que suspende y reanuda sin re-abrir el puerto (PC en
+         * reposo) conserva el DTR: se recupera del estado de TinyUSB. */
+        set_host_ready((tud_cdc_n_get_line_state(TINYUSB_CDC_ACM_0) & 0x01) != 0);
+        break;
+#endif
+    case TINYUSB_EVENT_ATTACHED: /* el DTR llegará después, por line-state */
+    default:
+        break;
     }
-    s_cdc_ready = ready;
 }
 
 /* Reinicio tras perder el host: sin esto, la incubadora se queda sin sensor
@@ -125,23 +157,20 @@ static void cdc_line_state_callback(int itf, cdcacm_event_t *event)
  * Reiniciarse es lo que fuerza la re-enumeración desde este lado, que es el
  * único que puede actuar sin cambiar el hardware.
  *
- * Sólo se reinicia si ANTES hubo host: una placa que arranca antes que la
- * motherboard, o que vive sin ella, espera indefinidamente como hasta ahora.
- * Y tras el reinicio s_host_ever_seen vuelve a false, así que no puede
- * encadenar reinicios: como mucho uno por pérdida. */
-#define SB_HOST_LOST_RESTART_MS 15000u
-
+ * La señal de "host presente" es dtr && tud_ready() (montado y no
+ * suspendido), no sólo el DTR: ver tinyusb_event_callback. La política (sólo
+ * si antes hubo host, 15 s, rearme al recuperar) vive en sb_host_watch, que
+ * es función pura y tiene tests Unity. Tras el reinicio el estado vuelve a
+ * cero, así que no puede encadenar reinicios: como mucho uno por pérdida. */
 static void host_watchdog_task(void *arg)
 {
     (void)arg;
+    sb_host_watch_t watch;
+    sb_host_watch_init(&watch);
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(1000));
-        const uint32_t lost_at = s_host_lost_ms;
-        if (lost_at == 0) {
-            continue;
-        }
         const uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
-        if ((uint32_t)(now - lost_at) >= SB_HOST_LOST_RESTART_MS) {
+        if (sb_host_watch_update(&watch, s_cdc_ready, tud_ready(), now)) {
             /* El log no llegará a ninguna parte (no hay host), pero queda en
              * el buffer de retención por si alguien conecta después. */
             ESP_LOGW(TAG, "host perdido %u ms: reinicio para re-enumerar",
@@ -355,6 +384,11 @@ esp_err_t sensorBoard_comm_init(void)
     if (s_rx_sem == NULL) {
         return ESP_ERR_NO_MEM;
     }
+    s_host_ready_sem = xSemaphoreCreateBinary();
+    if (s_host_ready_sem == NULL) {
+        err = ESP_ERR_NO_MEM;
+        goto fail;
+    }
 
     /* Las colas se publican ANTES de crear las tareas: usb_tx_task tiene
      * prio 5 (> main, prio 1) y puede ejecutar xQueueReceive de inmediato
@@ -375,7 +409,7 @@ esp_err_t sensorBoard_comm_init(void)
      * usb_tx_task exista, la cola (depth 8) conserva los primeros frames. */
     esp_log_set_vprintf(sb_log_vprintf);
 
-    const tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+    const tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(tinyusb_event_callback);
     err = tinyusb_driver_install(&tusb_cfg);
     if (err != ESP_OK) {
         goto fail;
@@ -434,6 +468,10 @@ fail:
     if (driver_installed) {
         tinyusb_driver_uninstall();
     }
+    if (s_host_ready_sem != NULL) {
+        vSemaphoreDelete(s_host_ready_sem);
+        s_host_ready_sem = NULL;
+    }
     vSemaphoreDelete(s_rx_sem);
     s_rx_sem = NULL;
     return err;
@@ -479,8 +517,10 @@ esp_err_t sensorBoard_comm_send_binary(uint8_t type, uint8_t *buf, size_t len)
 
 bool sensorBoard_comm_wait_host_ready(uint32_t timeout_ms)
 {
-    (void)timeout_ms;
-    return true; /* stub (red) */
+    if (s_host_ready_sem == NULL) {
+        return false; /* sin init no hay host que esperar */
+    }
+    return xSemaphoreTake(s_host_ready_sem, pdMS_TO_TICKS(timeout_ms)) == pdTRUE;
 }
 
 esp_err_t sensorBoard_comm_send_json_noblock(const char *json_str)
