@@ -2,39 +2,43 @@
 
 Commit: `feat(shared): tabla y codec del test de fábrica (FTEST)`.
 
-- [ ] 1.1 Crear `shared/include/factory_test.h` (`extern "C"`): `FtestId`
+- [x] 1.1 Crear `shared/include/factory_test.h` (`extern "C"`): `FtestId`
       (30 IDs de motherBoard en el orden de design.md D10, `FTEST_MB_COUNT`,
       `FTEST_HMI_BASE = 64` con los 9 IDs del display), `FtestStatus`
       (RUNNING..CONFIRM), `FtestReject`, `FtestHmiCmd`, constantes
       `FTEST_DETAIL_MAX 40`, `FTEST_TX_LINE_MAX 64`, `FTEST_TX_QUEUE_LEN 16`,
       `FTEST_MB_RESPONSE_TIMEOUT_MS 10000`, `FTEST_STIMULUS_TIMEOUT_MS 30000`,
       `FTEST_CONFIRM_TIMEOUT_MS 60000`.
-- [ ] 1.2 Declarar `ftest_id_is_mb()`, `ftest_id_is_optional()`,
+- [x] 1.2 Declarar `ftest_id_is_mb()`, `ftest_id_is_optional()`,
       `ftest_id_key()`, `ftest_format_result()`, `ftest_parse_result()`,
       `ftest_format_done()`, `ftest_parse_done()`, `ftest_format_reject()`,
       `ftest_parse_hmi_cmd()`.
-- [ ] 1.3 **RED** — `motherBoard/test/test_factory_test/test_factory_test.cpp`
+- [x] 1.3 **RED** — `motherBoard/test/test_factory_test/test_factory_test.cpp`
       con los escenarios de `factory-test-protocol`: tabla (flags, claves, id
       fuera de tabla), codificar resultado, saneado y truncado de detail,
       parseo válido, cuatro descartes malformados, cierre codificar/parsear y
       malformado, cuatro comandos HMI válidos y cinco inválidos.
-- [ ] 1.4 **GREEN** — `shared/src/factory_test.cpp` sin Arduino ni `String`.
+- [x] 1.4 **GREEN** — `shared/src/factory_test.cpp` sin Arduino ni `String`.
       `pio test -e native -f test_factory_test` en verde.
 
 ## 2. motherBoard — acumulador de resultado (lógica pura)
 
 Commit: `feat(motherboard): acumulador puro de resultados del test de fábrica`.
 
-- [ ] 2.1 `src/modules/factory_test/ftest_summary.h/.cpp`: `ftest_summary_init()`,
-      `ftest_summary_note(id, status)` (ignora RUNNING/WAIT/CONFIRM),
-      `ftest_summary_counts(&pass,&fail,&skip)`, máscaras `pass/fail/run`, y
-      `ftest_summary_merge_single(prev_masks, id, status)` para el reintento.
-- [ ] 2.2 Añadir `+<modules/factory_test/ftest_summary.cpp>` al
+- [x] 2.1 `src/modules/factory_test/ftest_summary.h/.cpp`: `ftest_summary_init()`,
+      `ftest_summary_note(id, status)` (ignora RUNNING/WAIT/CONFIRM), máscaras
+      `pass/fail/run` embebidas en `FtestSummary` (contadores `pass/fail/skip`
+      leídos directamente de la struct), y `ftest_summary_merge_single(...)`
+      para el reintento. Nota: no se añadió `ftest_summary_counts()` — el
+      contrato exacto de la tarea de implementación (shared-factory-test,
+      literal) solo pide `init/note/merge_single`; los contadores ya son
+      campos públicos de `FtestSummary`, así que la función sería redundante.
+- [x] 2.2 Añadir `+<modules/factory_test/ftest_summary.cpp>` al
       `build_src_filter` de `[env:native]`.
-- [ ] 2.3 **RED** — tests en `test_factory_test` para los escenarios
+- [x] 2.3 **RED** — tests en `test_factory_test` para los escenarios
       "Acumulación de resultados", "RUNNING, WAIT y CONFIRM no cuentan" y
       "Reintento de un test fallido" (máscaras).
-- [ ] 2.4 **GREEN** — `pio test -e native` en verde.
+- [x] 2.4 **GREEN** — `pio test -e native` en verde.
 
 ## 3. motherBoard — `status` de la SensorBoard
 
