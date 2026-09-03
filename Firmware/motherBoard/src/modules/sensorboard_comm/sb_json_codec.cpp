@@ -128,3 +128,39 @@ size_t sb_json_encode_status_cmd(uint32_t id, uint8_t *out, size_t out_cap) {
 size_t sb_json_encode_capture_cmd(uint32_t id, uint8_t *out, size_t out_cap) {
   return encode_id_cmd(SB_CMD_CAPTURE, id, out, out_cap);
 }
+
+bool sb_json_decode_status_resp(const uint8_t *payload, size_t len,
+                                SbStatusResp *out) {
+  // Documento propio, separado del de sb_json_decode(): este parsea el mismo
+  // payload una segunda vez para llegar a "sensors", que el decoder generico
+  // no expone (solo lo usa el test de fabrica).
+  StaticJsonDocument<512> doc;
+  if (deserializeJson(doc, payload, len)) return false;
+
+  const char *type = doc[SB_JSON_TYPE] | "";
+  const char *cmd = doc[SB_JSON_CMD] | "";
+  const char *status = doc[SB_JSON_STATUS] | "";
+  if (strcmp(type, SB_JSON_TYPE_RESP) != 0 || strcmp(cmd, SB_CMD_STATUS) != 0 ||
+      strcmp(status, SB_JSON_STATUS_OK) != 0) {
+    return false;
+  }
+
+  JsonVariantConst sensors = doc[SB_JSON_SENSORS];
+  if (!sensors.is<JsonObjectConst>()) return false;
+
+  SbStatusResp result;
+  memset(&result, 0, sizeof(result));
+  const char *fw = doc[SB_JSON_FW] | "";
+  strncpy(result.fw, fw, SB_STATUS_FW_MAX_CHARS);
+  result.fw[SB_STATUS_FW_MAX_CHARS] = '\0';
+  result.avail_sht[0] = sensors[SB_JSON_SHT0] | false;
+  result.avail_sht[1] = sensors[SB_JSON_SHT1] | false;
+  result.avail_sht[2] = sensors[SB_JSON_SHT2] | false;
+  result.avail_als = sensors[SB_JSON_ALS] | false;
+  result.avail_door = sensors[SB_JSON_DOOR] | false;
+  result.avail_cam = sensors[SB_JSON_CAM] | false;
+  result.usb_swap = sensors[SB_JSON_USB_SWAP] | false;
+
+  *out = result;
+  return true;
+}

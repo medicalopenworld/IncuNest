@@ -64,3 +64,27 @@ size_t sb_json_encode_status_cmd(uint32_t id, uint8_t *out, size_t out_cap);
 
 // Codifica {"type":"cmd","cmd":"capture","id":N}.
 size_t sb_json_encode_capture_cmd(uint32_t id, uint8_t *out, size_t out_cap);
+
+#define SB_STATUS_FW_MAX_CHARS 15
+
+// Disponibilidad por recurso de la respuesta extendida de "status"
+// (design.md D6, shared-factory-test). El test de fabrica (SB_STATUS) es el
+// unico consumidor: el resto del firmware no necesita saber que sensores
+// tiene la SensorBoard, solo si esta viva (sb_link_state.h).
+typedef struct {
+  char fw[SB_STATUS_FW_MAX_CHARS + 1];
+  bool avail_sht[3];
+  bool avail_als;
+  bool avail_door;
+  bool avail_cam;
+  bool usb_swap;
+} SbStatusResp;
+
+// Decodifica {"type":"resp","cmd":"status","status":"ok","fw":"...",
+// "sensors":{"sht0":bool,"sht1":bool,"sht2":bool,"als":bool,"door":bool,
+// "cam":bool,"usb_swap":bool}}. false (sin tocar *out) si el payload no es
+// JSON valido, si type/cmd no son resp/status, si "status" no es "ok" o si
+// falta el objeto "sensors" completo -- una SHT40 mal soldada no debe poder
+// colarse como "disponible" por un campo a medio inicializar.
+bool sb_json_decode_status_resp(const uint8_t *payload, size_t len,
+                                SbStatusResp *out);
