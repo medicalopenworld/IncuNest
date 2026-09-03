@@ -89,16 +89,41 @@ class _Slot:
     def is_free(self) -> bool:
         return self.port is None
 
-    def assign(self, port: str, board: Board) -> None:
+    @property
+    def is_identifying(self) -> bool:
+        """Reserved for a port whose board type is still being probed."""
+        return self.port is not None and self.board is None
+
+    def assign_pending(self, port: str) -> None:
+        """Reserve the slot for `port` while the flash-size probe decides which board it is.
+
+        Shows activity right away — the probe blocks for several seconds and
+        before this the UI stayed completely silent during that window.
+        """
         self.port = port
-        self.board = board
+        self.board = None
         self._start_time = time.time()
-        self._title.configure(text=f"{board.value}  ·  {port}", fg='#000000')
+        self._title.configure(text=f"Identificando placa…  ·  {port}", fg='#000000')
         self._progress_var.set(0)
         self._bar.configure(mode='indeterminate')
         self._bar.start(12)
         self._indeterminate = True
-        self._status.configure(text="⚡  Iniciando…  0s", fg='#E65100')
+        self.set_status('🔍  Leyendo tamaño de flash (motherBoard / SensorBoard)…')
+
+    def assign(self, port: str, board: Board) -> None:
+        self.port = port
+        self.board = board
+        self._status_override = None
+        if self._start_time is None:
+            # Fresh assignment; a promotion from assign_pending() keeps its clock.
+            self._start_time = time.time()
+        self._title.configure(text=f"{board.value}  ·  {port}", fg='#000000')
+        self._progress_var.set(0)
+        if not self._indeterminate:
+            self._bar.configure(mode='indeterminate')
+            self._bar.start(12)
+            self._indeterminate = True
+        self._status.configure(text=f"⚡  Iniciando…  {self._elapsed()}", fg='#E65100')
 
     def set_status(self, text: str) -> None:
         """Set a persistent status override shown by tick() instead of 'Iniciando…'."""
@@ -110,7 +135,9 @@ class _Slot:
         if self._start_time is None or not self._indeterminate:
             return False
         if self._status_override:
-            self._status.configure(text=self._status_override, fg='#E65100')
+            self._status.configure(
+                text=f"{self._status_override}  {self._elapsed()}", fg='#E65100',
+            )
         else:
             self._status.configure(
                 text=f"⚡  Iniciando…  {self._elapsed()}",
@@ -729,48 +756,73 @@ class FlasherApp:
                     continue
                 board = board_from_vid_pid(port_info.vid, port_info.pid)
                 if board is None and is_ambiguous_native_usb(port_info.vid, port_info.pid):
-                    # Blocking flash-size probe (~1-2s) — safe here, this loop
-                    # already runs off the Tk main thread.
+                    # Blocking flash-size probe (several seconds) — safe here,
+                    # this loop already runs off the Tk main thread. Reserve a
+                    # slot first so the user sees what is going on meanwhile.
+                    self.root.after(0, self._on_identify_start, device)
                     try:
                         board = detect_board_ambiguous(device)
                     except BoardDetectionError as exc:
-                        self.root.after(
-                            0, self._log_line,
-                            f"No se pudo identificar el dispositivo en {device}: {exc}", 'error',
-                        )
+                        self.root.after(0, self._on_identify_failed, device, str(exc))
                         continue
                 if board is None:
                     continue
                 self.root.after(0, self._on_hotplug_detected, device, board)
 
-    def _on_hotplug_detected(self, port: str, board: Board) -> None:
+    def _reserve_slot(self, port: str, label: str) -> Optional[int]:
+        """Claim a free slot for `port`, or return None (with a log line) if it must be ignored."""
         if time.time() < self._cooldown_until.get(port, 0.0):
-            self._log_line(
-                f"{board.value} en {port} ignorado (enfriamiento post-flash).", 'info'
-            )
-            return
+            self._log_line(f"{label} en {port} ignorado (enfriamiento post-flash).", 'info')
+            return None
         if port in self._port_to_slot:
-            return  # already being processed
-
+            return None  # already being processed
         if self._downloading:
             self._log_line(
-                f"{board.value} en {port} ignorado — descarga de firmware en curso.", 'info'
+                f"{label} en {port} ignorado — descarga de firmware en curso.", 'info'
             )
-            return
-
+            return None
         slot_idx = next((i for i, s in enumerate(self._slots) if s.is_free), None)
         if slot_idx is None:
-            self._log_line(
-                f"{board.value} en {port} ignorado — todos los slots ocupados.", 'info'
-            )
-            return
-
-        # Reserve slot and show immediately so the user sees activity
+            self._log_line(f"{label} en {port} ignorado — todos los slots ocupados.", 'info')
+            return None
         self._port_to_slot[port] = slot_idx
-        self._slots[slot_idx].assign(port, board)
-        self._log_line(f"{board.value} detectado en {port} → slot {slot_idx + 1}", 'info')
+        return slot_idx
+
+    def _on_identify_start(self, port: str) -> None:
+        """Ambiguous native-USB port seen: occupy a slot while the flash-size probe runs."""
+        slot_idx = self._reserve_slot(port, "Dispositivo")
+        if slot_idx is None:
+            return
+        self._slots[slot_idx].assign_pending(port)
+        self._log_line(
+            f"Dispositivo en {port} → slot {slot_idx + 1}: identificando placa "
+            "(motherBoard o SensorBoard) por tamaño de flash…", 'info',
+        )
         self._update_status_banner()
         self._tick_slot(slot_idx)
+
+    def _on_identify_failed(self, port: str, msg: str) -> None:
+        self._log_line(f"No se pudo identificar el dispositivo en {port}: {msg}", 'error')
+        slot_idx = self._port_to_slot.get(port)
+        if slot_idx is not None and self._slots[slot_idx].is_identifying:
+            self._slots[slot_idx].set_error()
+            self._update_status_banner()
+            self.root.after(SLOT_CLEAR_DELAY_S * 1000, self._clear_slot, slot_idx, port)
+
+    def _on_hotplug_detected(self, port: str, board: Board) -> None:
+        slot_idx = self._port_to_slot.get(port)
+        if slot_idx is not None and self._slots[slot_idx].is_identifying:
+            # Promote the slot reserved by _on_identify_start (keeps its clock
+            # and its already-running tick loop).
+            self._slots[slot_idx].assign(port, board)
+        else:
+            slot_idx = self._reserve_slot(port, board.value)
+            if slot_idx is None:
+                return
+            self._slots[slot_idx].assign(port, board)
+            self._tick_slot(slot_idx)
+        self._log_line(f"{board.value} detectado en {port} → slot {slot_idx + 1}", 'info')
+        self._update_status_banner()
 
         if board == Board.MOTHERBOARD and self._force_serial_number_entry:
             # Always ask for serial number regardless of existing firmware
