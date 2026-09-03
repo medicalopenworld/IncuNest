@@ -14,7 +14,8 @@ from PIL import Image, ImageTk
 
 from detector import (
     Board, find_all_board_ports, board_from_vid_pid,
-    is_ambiguous_native_usb, detect_board_ambiguous, BoardDetectionError,
+    is_ambiguous_native_usb, is_sensorboard_app_port,
+    detect_board_ambiguous, BoardDetectionError,
 )
 from flasher import flash_board, has_firmware_flashed
 from updater import check_update_available, download_latest
@@ -582,6 +583,7 @@ class FlasherApp:
         self._slots: list[_Slot] = []
         self._port_to_slot: dict[str, int] = {}
         self._cooldown_until: dict[str, float] = {}
+        self._sb_hint_mute_until: float = 0.0
         self._known_ports: set = set()
 
         cfg = load_config()
@@ -681,9 +683,14 @@ class FlasherApp:
 
         Includes the ambiguous native-USB PID (motherBoard in any state, or a
         virgin motherBoard/SensorBoard) — that still needs a flash-size probe
-        to know which board it actually is, done in _hotplug_loop.
+        to know which board it actually is, done in _hotplug_loop — and the
+        running-SensorBoard CDC PID, which is only tracked to advise the user.
         """
-        return board_from_vid_pid(vid, pid) is not None or is_ambiguous_native_usb(vid, pid)
+        return (
+            board_from_vid_pid(vid, pid) is not None
+            or is_ambiguous_native_usb(vid, pid)
+            or is_sensorboard_app_port(vid, pid)
+        )
 
     def _init_hotplug(self) -> None:
         self._known_ports = {
@@ -705,6 +712,21 @@ class FlasherApp:
             new_devices = {d: p for d, p in current.items() if d not in self._known_ports}
             self._known_ports = set(current.keys())
             for device, port_info in sorted(new_devices.items()):
+                if is_sensorboard_app_port(port_info.vid, port_info.pid):
+                    # SensorBoard firmware running (TinyUSB CDC): esptool can't
+                    # reset it into download mode, so don't even try — tell the
+                    # user how to get there. Muted right after a successful
+                    # SensorBoard flash, when the freshly written app boots
+                    # and enumerates on exactly this PID.
+                    if time.time() >= self._sb_hint_mute_until:
+                        self.root.after(
+                            0, self._log_line,
+                            f"SensorBoard con firmware en ejecución en {device} — no se "
+                            "puede flashear así. Para reflashearla: desconecta, mantén "
+                            "pulsado BOOT (IO0) mientras la conectas y no lo sueltes "
+                            "hasta que el slot empiece a escribir.", 'info',
+                        )
+                    continue
                 board = board_from_vid_pid(port_info.vid, port_info.pid)
                 if board is None and is_ambiguous_native_usb(port_info.vid, port_info.pid):
                     # Blocking flash-size probe (~1-2s) — safe here, this loop
@@ -835,6 +857,8 @@ class FlasherApp:
         self._log_line(f"¡{board.value} flasheado con éxito!", 'success')
         self._slots[slot_idx].set_done()
         self._cooldown_until[port] = time.time() + POST_FLASH_COOLDOWN_S
+        if board == Board.SENSORBOARD:
+            self._sb_hint_mute_until = time.time() + POST_FLASH_COOLDOWN_S
         self._update_status_banner()
         self.root.after(SLOT_CLEAR_DELAY_S * 1000, self._clear_slot, slot_idx, port)
 

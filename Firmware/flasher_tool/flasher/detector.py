@@ -33,17 +33,26 @@ ESPRESSIF_VID = 0x303A
 # resolves it with an esptool flash-id probe instead.
 NATIVE_USB_JTAG_PID = 0x1001
 
-# Unambiguous USB fingerprints only. motherBoard is deliberately absent here
-# — see NATIVE_USB_JTAG_PID above. board_from_vid_pid() returns None for
+# Unambiguous, directly-flashable USB fingerprints only. motherBoard is
+# deliberately absent here — see NATIVE_USB_JTAG_PID above. SensorBoard too
+# — see SENSORBOARD_APP_CDC_PID below. board_from_vid_pid() returns None for
 # that PID; callers must resolve it via is_ambiguous_native_usb() +
 # detect_board_ambiguous().
 BOARD_VID_PID: dict[Board, dict] = {
-    # ESP-IDF esp_tinyusb, auto PID for a CDC-only device
-    # (0x4000 | CDC bit, CONFIG_TINYUSB_DESC_USE_DEFAULT_PID) — only shows up
-    # once SensorBoard's own firmware is running.
-    Board.SENSORBOARD: {'vid': ESPRESSIF_VID, 'pid': 0x4001},
     Board.DISPLAY_HMI: {'vid': 0x1A86, 'pid': 0x7522},  # CH340K
 }
+
+# ESP-IDF esp_tinyusb, auto PID for a CDC-only device
+# (0x4000 | CDC bit, CONFIG_TINYUSB_DESC_USE_DEFAULT_PID) — only shows up
+# once SensorBoard's own firmware is running. Deliberately NOT a flashable
+# fingerprint: the app drives the USB OTG controller via TinyUSB, so the
+# ROM's USB-Serial/JTAG download path is gone and esptool's DTR/RTS reset
+# dance (`--before default-reset`) is silently ignored by esp_tinyusb —
+# every write attempt ends in "Failed to connect". A running SensorBoard
+# must be re-entered into download mode by hand (IO0 low at reset), at
+# which point it shows up as NATIVE_USB_JTAG_PID and takes the ambiguous
+# path. is_sensorboard_app_port() exists so the UI can tell the user that.
+SENSORBOARD_APP_CDC_PID = 0x4001
 
 # Disambiguates NATIVE_USB_JTAG_PID by hardware flash size (a real BOM
 # difference, not a firmware artifact): motherBoard's WROOM-1-N8 = 8MB,
@@ -83,6 +92,11 @@ def is_ambiguous_native_usb(vid: Optional[int], pid: Optional[int]) -> bool:
     return vid == ESPRESSIF_VID and pid == NATIVE_USB_JTAG_PID
 
 
+def is_sensorboard_app_port(vid: Optional[int], pid: Optional[int]) -> bool:
+    """True for a SensorBoard whose own firmware is running (TinyUSB CDC) — not flashable as-is."""
+    return vid == ESPRESSIF_VID and pid == SENSORBOARD_APP_CDC_PID
+
+
 def detect_board_ambiguous(port: str) -> Board:
     """Resolve a device on NATIVE_USB_JTAG_PID (motherBoard vs. virgin SensorBoard) by flash size."""
     flash_size = _read_flash_size(port)
@@ -97,7 +111,16 @@ def detect_board_ambiguous(port: str) -> Board:
 def _read_flash_size(port: str) -> str:
     with esptool_io.capture() as cap:
         try:
-            esptool.main(['--port', port, '--no-stub', 'flash-id'])
+            # `--after no-reset` is essential: esptool's default post-command
+            # hard reset would boot whatever app is in flash. On a SensorBoard
+            # that already carries firmware that means TinyUSB takes over the
+            # USB PHY, this USB-Serial/JTAG port vanishes and the follow-up
+            # write-flash fails with "could not open port". A virgin chip
+            # didn't care (no app → ROM falls back to download mode), which is
+            # why the very first flash worked and every re-flash didn't.
+            # Staying in download mode is harmless: write-flash's own
+            # `--before default-reset` re-syncs via USB-Serial/JTAG anyway.
+            esptool.main(['--port', port, '--no-stub', '--after', 'no-reset', 'flash-id'])
         except SystemExit as e:
             if e.code != 0:
                 raise BoardDetectionError(
