@@ -33,7 +33,7 @@ arrancar (sin NVS, una decisión por arranque).
 - **`feat/sb-usb-pin-autoswap` — cerrado el 2026-09-03.** Tolerancia al conector USB
   invertido: autoswap de D+/D- en el PHY del S3 si no hay enumeración en 2 s
   (ADR-0003, change archivado `2026-09-03-sb-usb-pin-autoswap`, retro
-  `docs/retro/2026-09-03-usb-pin-autoswap.md`). Worktree:
+  `docs/retro/2026-09-03-usb-pin-autoswap.md`). Rama en el **checkout principal** desde el 2026-09-03 (worktree `sb-usb-autoswap` retirado). Antes worktree:
   `Firmware/.worktrees/sb-usb-autoswap`. **Integra `feat/sensorboard-usb-comm`
   por merge (2026-09-03)**, así que esta rama contiene el enlace completo más el
   autoswap y el vigilante de host; es la candidata a merge a `dev`. Verificación
