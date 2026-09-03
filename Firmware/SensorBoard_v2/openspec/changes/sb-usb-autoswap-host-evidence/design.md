@@ -29,7 +29,7 @@ Secuencia con cable invertido y la motherboard: SB normal → host enciende puer
 
 ## Integración en `usb_comm`
 
-- `tud_event_hook_cb(rhport, eventid, in_isr)` (weak en TinyUSB, se define fuerte en `sensorBoard_comm.c`): si `eventid == DCD_EVENT_BUS_RESET` incrementa un contador `volatile uint32_t s_bus_resets` (contexto de tarea TinyUSB, no ISR; el hook no debe bloquear).
+- `tud_event_hook_cb(rhport, eventid, in_isr)` (weak en TinyUSB, se define fuerte en `sensorBoard_comm.c`): si `eventid == DCD_EVENT_BUS_RESET` incrementa un contador `volatile uint32_t s_bus_resets`. **En el port DWC2/ESP32-S3 este hook se ejecuta dentro de la ISR real del controlador USB** para el bus reset (`handle_enum_done` → `dcd_event_bus_reset(..., in_isr=true)` → `queue_event` → hook), no en la tarea de TinyUSB: el cuerpo es un hand-off puro (incremento de un `uint32_t`), sin logging, bloqueo ni asignación.
 - `usb_tx_task` → `orient_service()`: `bus_reset_seen = (s_bus_resets != s_bus_resets_seen)`; actualiza `s_bus_resets_seen`. Contador en vez de flag: el productor y el consumidor son tareas distintas y un flag "leer y borrar" perdería resets.
 - El resto (detach 250 ms, `usb_wrap_ll_phy_enable_pin_exchg`, `s_cdc_ready=false`, `sensors.usb_swap`, `ESP_LOGW`) no cambia.
 - `sb_usb_orient_init` ya no necesita `now_ms` (no arma nada al arrancar).

@@ -26,6 +26,11 @@
 - **WHEN** ve un bus reset en `t0` y host activo antes de `t0 + T`
 - **THEN** no devuelve ninguna acción en `t0 + T` ni después, y una caída posterior del host sin nuevo reset tampoco provoca intercambio
 
+#### Scenario: Reset y host activo en el mismo tick
+
+- **WHEN** en un mismo tick se observa un bus reset y el host ya está activo
+- **THEN** no se arma ningún plazo: los ticks posteriores sin host ni reset no provocan intercambio
+
 #### Scenario: Nueva evidencia tras intercambiar
 
 - **WHEN** tras un intercambio ve otro bus reset sin host activo

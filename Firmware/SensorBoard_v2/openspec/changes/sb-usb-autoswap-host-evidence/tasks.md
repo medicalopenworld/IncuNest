@@ -15,7 +15,7 @@
 
 ## 4. Review
 
-- [ ] 4.1 Revisión (code + security) de la política v2
+- [x] 4.1 Revisión (code + security) de la política v2
 
 ## 5. Docs / cierre
 

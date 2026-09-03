@@ -85,6 +85,20 @@ TEST_CASE("orient: host activo desarma y una caida sin reset no intercambia", "[
     TEST_ASSERT_EQUAL_UINT32(0, sb_usb_orient_swap_count(&st));
 }
 
+TEST_CASE("orient: reset y host activo en el mismo tick no arma", "[orient]")
+{
+    sb_usb_orient_t st;
+    sb_usb_orient_init(&st, T_MS);
+
+    /* El host ya habló en este mismo tick: no tiene sentido armar */
+    TEST_ASSERT_EQUAL(SB_ORIENT_NONE, sb_usb_orient_tick(&st, true, true, 100));
+    for (uint32_t t = 100; t <= 100 + 5 * T_MS; t += 250u) {
+        TEST_ASSERT_EQUAL(SB_ORIENT_NONE, TICK_IDLE(&st, t));
+    }
+    TEST_ASSERT_FALSE(sb_usb_orient_is_swapped(&st));
+    TEST_ASSERT_EQUAL_UINT32(0, sb_usb_orient_swap_count(&st));
+}
+
 TEST_CASE("orient: nueva evidencia tras intercambiar vuelve a intercambiar", "[orient]")
 {
     sb_usb_orient_t st;

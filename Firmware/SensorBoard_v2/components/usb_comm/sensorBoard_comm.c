@@ -108,17 +108,22 @@ static bool usb_host_active(void)
     return tud_mounted() || tud_connected();
 }
 
-/* Evidencia de host: bus resets contados desde el hook de eventos de TinyUSB
- * (contexto de la tarea TinyUSB, no ISR; el hook no debe bloquear). Contador
- * y no flag porque productor (tarea TinyUSB) y consumidor (usb_tx_task) son
- * tareas distintas: un flag "leer y borrar" perdería resets. */
+/* Evidencia de host: bus resets contados desde el hook de eventos de TinyUSB.
+ * OJO: en el port DWC2/ESP32-S3 este hook se invoca para DCD_EVENT_BUS_RESET
+ * SIEMPRE desde la ISR real del controlador USB (dcd_dwc2.c: handle_enum_done
+ * -> dcd_event_bus_reset(..., in_isr=true) -> queue_event -> hook), no desde
+ * la tarea de TinyUSB. El cuerpo debe seguir siendo un hand-off puro: nada de
+ * logging, bloqueo ni asignación (regla ISR del proyecto). Contador y no flag
+ * porque un flag "leer y borrar" desde usb_tx_task perdería resets; el
+ * incremento de un uint32_t alineado es una sola instrucción y el consumidor
+ * solo detecta cambio (!=), no cuenta exacta. */
 static volatile uint32_t s_bus_resets = 0;
 static uint32_t s_bus_resets_seen = 0;
 
 void tud_event_hook_cb(uint8_t rhport, uint32_t eventid, bool in_isr)
 {
     (void)rhport;
-    (void)in_isr;
+    (void)in_isr; /* se ignora a propósito: el cuerpo es ISR-safe en ambos contextos */
     if (eventid == DCD_EVENT_BUS_RESET) {
         s_bus_resets++;
     }
@@ -142,8 +147,12 @@ static bool bus_reset_seen_since_last_tick(void)
  *   desde la propia usb_tx_task no puede bloquearla. */
 static void orient_service(void)
 {
-    if (sb_usb_orient_tick(&s_orient, usb_host_active(), bus_reset_seen_since_last_tick(),
-                           orient_now_ms()) != SB_ORIENT_SWAP) {
+    /* Locales a propósito: bus_reset_seen_since_last_tick() tiene efecto
+     * lateral y el orden de evaluación de argumentos en C no está definido. */
+    bool host_active = usb_host_active();
+    bool reset_seen = bus_reset_seen_since_last_tick();
+    uint32_t now_ms = orient_now_ms();
+    if (sb_usb_orient_tick(&s_orient, host_active, reset_seen, now_ms) != SB_ORIENT_SWAP) {
         return;
     }
     if (usb_host_active()) {
