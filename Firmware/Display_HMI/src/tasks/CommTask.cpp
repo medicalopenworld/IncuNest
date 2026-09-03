@@ -153,12 +153,7 @@ static uint32_t s_mbEpochAtMs = 0;
 // Zona horaria, tambien propiedad de la placa. El epoch de arriba es UTC
 // SIEMPRE; esto solo se aplica al formatear para una persona.
 static int8_t  s_tzQuarters = 0;
-// 0=desconocido, 1=NITZ, 2=IP, 3=manual, 4=zona por defecto de la placa
-// (suposicion de fabrica cuando el reloj lo pone el modem y nadie ha
-// comunicado la zona). Para el HMI el 4 es una zona como cualquier otra: hay
-// offset que aplicar y hora local que pintar. Quien decide si esa suposicion
-// vale es la placa, no el display.
-static uint8_t s_tzSource   = 0;
+static uint8_t s_tzSource   = 0;  // 0=desconocido, 1=NITZ, 2=IP
 
 uint32_t HMI_GetEpochNow() {
   if (s_mbEpoch == 0) return 0;
@@ -643,7 +638,7 @@ static void parse_message(const char *line) {
     if (n >= 1) {
       s_mbEpoch = (uint32_t)epoch;
       s_mbEpochAtMs = millis();
-      if (n == 3 && tzsrc >= 0 && tzsrc <= 4 && tzq >= -48 && tzq <= 56) {
+      if (n == 3 && tzsrc >= 0 && tzsrc <= 3 && tzq >= -48 && tzq <= 56) {
         s_tzQuarters = (int8_t)tzq;
         s_tzSource   = (uint8_t)tzsrc;
       } else if (n != 3) {

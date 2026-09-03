@@ -186,104 +186,6 @@ void test_manual_counts_as_known(void) {
   TEST_ASSERT_TRUE(tz_source_known());
 }
 
-// --- Zona por defecto ------------------------------------------------------
-// Una unidad que solo tiene GPRS y un operador que no manda NITZ se quedaba
-// sin zona de por vida: la hora se pintaba en UTC, dos horas por debajo de la
-// del reloj de la pared en Espana. El equipo se despliega con una zona de
-// fabrica (+2) para que ese caso muestre algo razonable.
-//
-// Es la fuente de MENOR prioridad de todas, a proposito: es una suposicion,
-// no un dato, y cualquiera que de verdad SEPA la zona tiene que poder
-// corregirla sin esperar a un reinicio.
-
-void test_default_sets_offset_when_nothing_known(void) {
-  TEST_ASSERT_TRUE(tz_source_set(8, TZ_SOURCE_DEFAULT));
-  TEST_ASSERT_TRUE(tz_source_known());
-  TEST_ASSERT_EQUAL_INT(8, tz_source_quarters());
-  TEST_ASSERT_EQUAL_INT(TZ_SOURCE_DEFAULT, tz_source_origin());
-}
-
-// Lo critico: la suposicion no puede bloquear al dato real, ni el de la
-// antena, ni el de la IP, ni el que teclea el operador.
-void test_every_real_source_overrides_default(void) {
-  TEST_ASSERT_TRUE(tz_source_set(8, TZ_SOURCE_DEFAULT));
-  TEST_ASSERT_TRUE(tz_source_set(4, TZ_SOURCE_NITZ));
-  TEST_ASSERT_EQUAL_INT(4, tz_source_quarters());
-  TEST_ASSERT_EQUAL_INT(TZ_SOURCE_NITZ, tz_source_origin());
-
-  tz_source_reset();
-  TEST_ASSERT_TRUE(tz_source_set(8, TZ_SOURCE_DEFAULT));
-  TEST_ASSERT_TRUE(tz_source_set(-20, TZ_SOURCE_IP));
-  TEST_ASSERT_EQUAL_INT(-20, tz_source_quarters());
-  TEST_ASSERT_EQUAL_INT(TZ_SOURCE_IP, tz_source_origin());
-
-  tz_source_reset();
-  TEST_ASSERT_TRUE(tz_source_set(8, TZ_SOURCE_DEFAULT));
-  TEST_ASSERT_TRUE(tz_source_set(0, TZ_SOURCE_MANUAL));
-  TEST_ASSERT_EQUAL_INT(0, tz_source_quarters());
-  TEST_ASSERT_EQUAL_INT(TZ_SOURCE_MANUAL, tz_source_origin());
-}
-
-// Y al reves: una vez hay dato real, la suposicion no vuelve a pisarlo. Sin
-// esto, el refresco periodico de zona del GPRS reintroduciria el +2 encima
-// del offset bueno cada vez que pasara por ahi.
-void test_default_never_overrides_a_known_source(void) {
-  TEST_ASSERT_TRUE(tz_source_set(4, TZ_SOURCE_NITZ));
-  TEST_ASSERT_FALSE(tz_source_set(8, TZ_SOURCE_DEFAULT));
-  TEST_ASSERT_EQUAL_INT(4, tz_source_quarters());
-  TEST_ASSERT_EQUAL_INT(TZ_SOURCE_NITZ, tz_source_origin());
-
-  tz_source_reset();
-  TEST_ASSERT_TRUE(tz_source_set(-20, TZ_SOURCE_IP));
-  TEST_ASSERT_FALSE(tz_source_set(8, TZ_SOURCE_DEFAULT));
-  TEST_ASSERT_EQUAL_INT(-20, tz_source_quarters());
-
-  tz_source_reset();
-  TEST_ASSERT_TRUE(tz_source_set(0, TZ_SOURCE_MANUAL));
-  TEST_ASSERT_FALSE(tz_source_set(8, TZ_SOURCE_DEFAULT));
-  TEST_ASSERT_EQUAL_INT(TZ_SOURCE_MANUAL, tz_source_origin());
-}
-
-// Idempotente: aplicar el defecto dos veces no es un cambio de estado, asi
-// que no debe reportarse como tal (quien llama lo usa para loguear una sola
-// vez).
-void test_default_over_default_is_not_a_change(void) {
-  TEST_ASSERT_TRUE(tz_source_set(8, TZ_SOURCE_DEFAULT));
-  TEST_ASSERT_FALSE(tz_source_set(8, TZ_SOURCE_DEFAULT));
-  TEST_ASSERT_EQUAL_INT(8, tz_source_quarters());
-}
-
-// "Hay offset que aplicar" y "alguien nos ha dicho la zona de verdad" son dos
-// preguntas distintas: la primera decide si el display pinta hora local, la
-// segunda decide con que ritmo se sigue buscando la zona real. Con solo el
-// defecto puesto, hay que seguir buscando deprisa.
-void test_default_is_known_but_not_resolved(void) {
-  TEST_ASSERT_TRUE(tz_source_set(8, TZ_SOURCE_DEFAULT));
-  TEST_ASSERT_TRUE(tz_source_known());
-  TEST_ASSERT_FALSE(tz_source_is_resolved());
-}
-
-void test_real_sources_are_resolved(void) {
-  TEST_ASSERT_FALSE(tz_source_is_resolved()); // sin nada, tampoco
-
-  TEST_ASSERT_TRUE(tz_source_set(4, TZ_SOURCE_NITZ));
-  TEST_ASSERT_TRUE(tz_source_is_resolved());
-
-  tz_source_reset();
-  TEST_ASSERT_TRUE(tz_source_set(8, TZ_SOURCE_IP));
-  TEST_ASSERT_TRUE(tz_source_is_resolved());
-
-  tz_source_reset();
-  TEST_ASSERT_TRUE(tz_source_set(0, TZ_SOURCE_MANUAL));
-  TEST_ASSERT_TRUE(tz_source_is_resolved());
-}
-
-// El rango se valida igual que para cualquier otra fuente.
-void test_default_respects_range(void) {
-  TEST_ASSERT_FALSE(tz_source_set(TZ_QUARTER_MAX + 1, TZ_SOURCE_DEFAULT));
-  TEST_ASSERT_FALSE(tz_source_known());
-}
-
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_starts_unknown);
@@ -307,12 +209,5 @@ int main(int, char **) {
   RUN_TEST(test_manual_overrides_ip_and_nitz);
   RUN_TEST(test_nothing_overrides_manual);
   RUN_TEST(test_manual_counts_as_known);
-  RUN_TEST(test_default_sets_offset_when_nothing_known);
-  RUN_TEST(test_every_real_source_overrides_default);
-  RUN_TEST(test_default_never_overrides_a_known_source);
-  RUN_TEST(test_default_over_default_is_not_a_change);
-  RUN_TEST(test_default_is_known_but_not_resolved);
-  RUN_TEST(test_real_sources_are_resolved);
-  RUN_TEST(test_default_respects_range);
   return UNITY_END();
 }

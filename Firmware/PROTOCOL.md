@@ -155,18 +155,10 @@ Enviado cada 10 segundos (y una vez al arrancar la tarea de comunicación).
   UTC-12:00..UTC+14:00). Cuartos y no horas porque existen husos no enteros
   (Nepal, UTC+5:45), y es la unidad que ya usa `civil_to_unix_utc()`.
 - `tzsrc`: origen del offset. `0`=desconocido, `1`=NITZ (red móvil), `2`=IP,
-  `3`=reloj puesto a mano desde `/config`, `4`=zona por defecto de la placa.
-  Con `3` el offset es siempre `0` **por diseño**: ese epoch ya es la hora
-  local que tecleó el operador, así que sumarle el offset de la red la
-  desplazaría. `3` gana a `1` y a `2`, y nada lo desplaza hasta el siguiente
-  reinicio.
-  `4` es la zona de fábrica (`GPRS_DEFAULT_TZ_QUARTERS`, hoy `8` = UTC+2) que
-  la placa aplica cuando el reloj lo pone el módem GPRS y **nadie** ha
-  comunicado la zona — el operador no manda NITZ (o lo manda a `0`, que se
-  descarta) y no hay WiFi para la consulta por IP. Es una suposición, no un
-  dato, así que es la fuente de **menor** prioridad: `1`, `2` y `3` la pisan en
-  cuanto aparecen, y ella no pisa a ninguna. Para el HMI es una zona más: hay
-  offset que aplicar y hora local que pintar.
+  `3`=reloj puesto a mano desde `/config`. Con `3` el offset es siempre `0`
+  **por diseño**: ese epoch ya es la hora local que tecleó el operador, así que
+  sumarle el offset de la red la desplazaría. `3` gana a `1` y a `2`, y nada lo
+  desplaza hasta el siguiente reinicio.
   **No es redundante con `tzq`**: sin él, «offset 0 porque estamos en Togo» y
   «offset 0 porque no lo sabemos» son indistinguibles, y el HMI no puede
   decidir si pintar la hora o el aviso «Sin hora».

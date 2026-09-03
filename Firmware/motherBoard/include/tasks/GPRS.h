@@ -41,18 +41,6 @@
 // mientras tanto) se refresca a este ritmo en vez de darse por buena para
 // siempre; ver TX_TIMEZONE_REFRESH_MS en transport_policy.h.
 #define GPRS_TZ_REFRESH_INTERVAL TX_TIMEZONE_REFRESH_MS
-// Zona horaria que se aplica cuando el reloj lo pone el modem y NADIE ha
-// comunicado ninguna zona: ni NITZ (muchos operadores no lo mandan, y
-// Movistar lo manda a 0, que se descarta a proposito mas abajo) ni la
-// geolocalizacion por IP (necesita WiFi, que una unidad solo-GPRS no tiene).
-// Antes de esto ese caso se quedaba sin zona de por vida y el display pintaba
-// UTC — dos horas por debajo del reloj de la pared en el sitio donde se
-// despliega el equipo.
-//
-// En cuartos de hora, como todo en tz_source.h: 8 = UTC+2. Es una suposicion
-// de fabrica, no un dato, asi que entra como TZ_SOURCE_DEFAULT y cualquier
-// fuente real la corrige en cuanto aparece.
-#define GPRS_DEFAULT_TZ_QUARTERS 8
 // Cada cuanto se reverifica el adjunto de red (AT+CREG?) mientras GPRS.post
 // ya esta en estado estable. Sin esto, GPRS.post se fija a true una vez (ver
 // GPRSPowerUp() caso 2) y nunca se vuelve a comprobar: retirar la SIM o
