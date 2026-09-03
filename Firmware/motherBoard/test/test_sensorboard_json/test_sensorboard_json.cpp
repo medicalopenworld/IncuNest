@@ -198,6 +198,50 @@ void test_encode_returns_zero_when_buffer_too_small(void) {
   TEST_ASSERT_EQUAL_UINT32(0, sb_json_encode_status_cmd(5, buf, sizeof(buf)));
 }
 
+// mb-factory-test "Decodificar la respuesta status" (D6, shared-factory-test).
+void test_decode_status_resp_full(void) {
+  const char *json =
+      "{\"type\":\"resp\",\"cmd\":\"status\",\"id\":7,\"status\":\"ok\","
+      "\"fw\":\"1.0.0\",\"sensors\":{\"sht0\":true,\"sht1\":true,"
+      "\"sht2\":false,\"als\":true,\"door\":true,\"cam\":true,"
+      "\"usb_swap\":false}}";
+  SbStatusResp r;
+  memset(&r, 0xAA, sizeof(r));
+  TEST_ASSERT_TRUE(sb_json_decode_status_resp((const uint8_t *)json,
+                                              strlen(json), &r));
+  TEST_ASSERT_EQUAL_STRING("1.0.0", r.fw);
+  TEST_ASSERT_TRUE(r.avail_sht[0]);
+  TEST_ASSERT_TRUE(r.avail_sht[1]);
+  TEST_ASSERT_FALSE(r.avail_sht[2]);
+  TEST_ASSERT_TRUE(r.avail_als);
+  TEST_ASSERT_TRUE(r.avail_door);
+  TEST_ASSERT_TRUE(r.avail_cam);
+  TEST_ASSERT_FALSE(r.usb_swap);
+}
+
+// mb-factory-test "Respuesta status incompleta": sin el objeto "sensors" el
+// decodificador no debe tocar *out (una SHT40 mal soldada no puede colarse
+// como "disponible" por un valor a medio inicializar).
+void test_decode_status_resp_missing_sensors_object(void) {
+  const char *json = "{\"type\":\"resp\",\"cmd\":\"status\",\"id\":3,"
+                     "\"status\":\"ok\",\"fw\":\"1.0.0\"}";
+  SbStatusResp r;
+  memset(&r, 0, sizeof(r));
+  strcpy(r.fw, "centinela");
+  TEST_ASSERT_FALSE(
+      sb_json_decode_status_resp((const uint8_t *)json, strlen(json), &r));
+  TEST_ASSERT_EQUAL_STRING("centinela", r.fw);
+}
+
+// mb-factory-test "Respuesta status incompleta": status != "ok".
+void test_decode_status_resp_status_not_ok(void) {
+  const char *json = "{\"type\":\"resp\",\"cmd\":\"status\",\"id\":3,"
+                     "\"status\":\"error\",\"msg\":\"busy\"}";
+  SbStatusResp r;
+  TEST_ASSERT_FALSE(
+      sb_json_decode_status_resp((const uint8_t *)json, strlen(json), &r));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_heartbeat_event);
@@ -217,5 +261,8 @@ int main(void) {
   RUN_TEST(test_encode_status_cmd);
   RUN_TEST(test_encode_capture_cmd);
   RUN_TEST(test_encode_returns_zero_when_buffer_too_small);
+  RUN_TEST(test_decode_status_resp_full);
+  RUN_TEST(test_decode_status_resp_missing_sensors_object);
+  RUN_TEST(test_decode_status_resp_status_not_ok);
   return UNITY_END();
 }
