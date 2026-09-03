@@ -472,6 +472,81 @@ TEST_CASE("cmd_handle: NULL/oversize payload ignored", "[cmd]")
     TEST_PASS();
 }
 
+/* ── Vigilante de host (reinicio para re-enumerar) ─────────── */
+/* Escenarios del fix "reconexión tras perder el host sin cortar VBUS":
+ * la señal de pérdida es dtr && bus_ready, no solo el DTR — desenchufar el
+ * cable o reiniciar la motherboard no cambia el DTR, solo suspende el bus. */
+
+#include "sensorBoard_host_watch.h"
+
+TEST_CASE("host_watch: never had host -> never restarts", "[hostwatch]")
+{
+    sb_host_watch_t w;
+    sb_host_watch_init(&w);
+    for (uint32_t t = 0; t <= 120000; t += 1000) {
+        TEST_ASSERT_FALSE(sb_host_watch_update(&w, false, false, t));
+    }
+    /* DTR sin bus tampoco cuenta como host (línea vieja tras un reset) */
+    for (uint32_t t = 0; t <= 120000; t += 1000) {
+        TEST_ASSERT_FALSE(sb_host_watch_update(&w, true, false, t));
+    }
+}
+
+TEST_CASE("host_watch: cable out with stale DTR -> restart at 15 s", "[hostwatch]")
+{
+    sb_host_watch_t w;
+    sb_host_watch_init(&w);
+    TEST_ASSERT_FALSE(sb_host_watch_update(&w, true, true, 1000)); /* host presente */
+    /* Se desenchufa: el DTR se queda en true (nadie lo baja), el bus suspende */
+    TEST_ASSERT_FALSE(sb_host_watch_update(&w, true, false, 2000));
+    TEST_ASSERT_FALSE(sb_host_watch_update(&w, true, false, 2000 + SB_HOST_LOST_RESTART_MS - 1));
+    TEST_ASSERT_TRUE(sb_host_watch_update(&w, true, false, 2000 + SB_HOST_LOST_RESTART_MS));
+}
+
+TEST_CASE("host_watch: host closes port (DTR low, bus up) -> restart at 15 s", "[hostwatch]")
+{
+    sb_host_watch_t w;
+    sb_host_watch_init(&w);
+    TEST_ASSERT_FALSE(sb_host_watch_update(&w, true, true, 500));
+    TEST_ASSERT_FALSE(sb_host_watch_update(&w, false, true, 1000));
+    TEST_ASSERT_FALSE(sb_host_watch_update(&w, false, true, 1000 + SB_HOST_LOST_RESTART_MS - 1));
+    TEST_ASSERT_TRUE(sb_host_watch_update(&w, false, true, 1000 + SB_HOST_LOST_RESTART_MS));
+}
+
+TEST_CASE("host_watch: host back before deadline disarms; next loss counts from zero",
+          "[hostwatch]")
+{
+    sb_host_watch_t w;
+    sb_host_watch_init(&w);
+    TEST_ASSERT_FALSE(sb_host_watch_update(&w, true, true, 0));
+    TEST_ASSERT_FALSE(sb_host_watch_update(&w, true, false, 1000));  /* pérdida 1 */
+    TEST_ASSERT_FALSE(sb_host_watch_update(&w, true, true, 11000));  /* vuelve a los 10 s */
+    TEST_ASSERT_FALSE(sb_host_watch_update(&w, true, false, 12000)); /* pérdida 2 */
+    /* 15 s desde la pérdida 1 ya pasaron: NO debe reiniciar */
+    TEST_ASSERT_FALSE(sb_host_watch_update(&w, true, false, 16000));
+    TEST_ASSERT_FALSE(sb_host_watch_update(&w, true, false, 12000 + SB_HOST_LOST_RESTART_MS - 1));
+    TEST_ASSERT_TRUE(sb_host_watch_update(&w, true, false, 12000 + SB_HOST_LOST_RESTART_MS));
+}
+
+TEST_CASE("host_watch: survives uint32 wrap of now_ms", "[hostwatch]")
+{
+    sb_host_watch_t w;
+    sb_host_watch_init(&w);
+    const uint32_t t0 = UINT32_MAX - 5000;
+    TEST_ASSERT_FALSE(sb_host_watch_update(&w, true, true, t0));
+    TEST_ASSERT_FALSE(sb_host_watch_update(&w, true, false, t0 + 1000)); /* pérdida */
+    /* 15 s después el reloj ya ha dado la vuelta */
+    const uint32_t t_fire = (uint32_t)(t0 + 1000 + SB_HOST_LOST_RESTART_MS);
+    TEST_ASSERT_TRUE(t_fire < t0); /* precondición: hubo vuelco */
+    TEST_ASSERT_FALSE(sb_host_watch_update(&w, true, false, t_fire - 1));
+    TEST_ASSERT_TRUE(sb_host_watch_update(&w, true, false, t_fire));
+}
+
+TEST_CASE("wait_host_ready: without init returns false immediately", "[comm]")
+{
+    TEST_ASSERT_FALSE(sensorBoard_comm_wait_host_ready(0));
+}
+
 void app_main(void)
 {
     UNITY_BEGIN();

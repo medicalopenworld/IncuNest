@@ -477,6 +477,12 @@ esp_err_t sensorBoard_comm_send_binary(uint8_t type, uint8_t *buf, size_t len)
     return ESP_OK;
 }
 
+bool sensorBoard_comm_wait_host_ready(uint32_t timeout_ms)
+{
+    (void)timeout_ms;
+    return true; /* stub (red) */
+}
+
 esp_err_t sensorBoard_comm_send_json_noblock(const char *json_str)
 {
     /* Para contextos que no deben bloquear jamás (dispatcher en usb_rx):
