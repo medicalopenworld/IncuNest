@@ -16,7 +16,7 @@
 
 ## 4. Review
 
-- [ ] 4.1 code-reviewer + security-reviewer; hallazgos resueltos
+- [x] 4.1 code-reviewer + security-reviewer; hallazgos resueltos
 
 ## 5. Docs / cierre
 

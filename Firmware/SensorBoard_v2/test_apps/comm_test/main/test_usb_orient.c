@@ -48,12 +48,13 @@ TEST_CASE("orient: alterna normal/cruzado en vencimientos sucesivos", "[orient]"
     }
 }
 
-TEST_CASE("orient: con enlace montado nunca intercambia y rearma desde la caida", "[orient]")
+TEST_CASE("orient: con host activo nunca intercambia y rearma desde la caida", "[orient]")
 {
     sb_usb_orient_t st;
     sb_usb_orient_init(&st, T_MS, 0);
 
-    /* Enlace montado mucho después del plazo original: nada */
+    /* Host activo (SETUP recibido o configurado) mucho después del plazo
+     * original: nada — un host lento en configurar no provoca intercambios */
     TEST_ASSERT_EQUAL(SB_ORIENT_NONE, sb_usb_orient_tick(&st, true, 5 * T_MS));
     TEST_ASSERT_EQUAL(SB_ORIENT_NONE, sb_usb_orient_tick(&st, true, 6 * T_MS));
     TEST_ASSERT_FALSE(sb_usb_orient_is_swapped(&st));

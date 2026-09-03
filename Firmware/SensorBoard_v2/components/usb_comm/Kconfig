@@ -4,22 +4,27 @@ menu "SensorBoard usb_comm"
         bool "Intercambiar D+/D- automaticamente si el host no enumera"
         default y
         help
-            El conector USB admite dos orientaciones y en una de ellas
-            D+/D- (IO20/IO19) llegan cruzados. Si el dispositivo no llega a
-            estar montado (SET_CONFIGURATION) en el plazo configurado,
-            usb_comm intercambia los pines en el PHY del ESP32-S3
-            (exchg_pins), fuerza detach/attach y sigue alternando hasta
-            enumerar. Con el enlace montado nunca intercambia. Desactivar
-            solo en placas con el conector corregido (ADR-0003).
+            SensorBoard HW_NUM 4: el conector USB admite dos orientaciones
+            y en una de ellas D+/D- (IO20/IO19) llegan cruzados. Si el host
+            no habla al dispositivo (ni SETUP recibido ni SET_CONFIGURATION)
+            en el plazo configurado, usb_comm intercambia los pines en el
+            PHY del ESP32-S3 (exchg_pins), fuerza detach/attach y sigue
+            alternando hasta enumerar. Con host activo nunca intercambia,
+            asi que dejarlo activo en la V5 (conector corregido en
+            hardware) es inocuo: solo actua cuando nadie enumera. Se expone
+            como sensors.usb_swap en la resp de status (ADR-0003).
 
     config SB_USB_AUTOSWAP_TIMEOUT_MS
-        int "Plazo sin enumeracion antes de intercambiar D+/D- (ms)"
+        int "Plazo sin host activo antes de intercambiar D+/D- (ms)"
         depends on SB_USB_AUTOSWAP
         default 2000
-        range 500 10000
+        range 1500 10000
         help
-            Debe superar con margen el tiempo normal de enumeracion
-            (<1 s). En la orientacion invertida el arranque enumera
-            aproximadamente este tiempo mas tarde.
+            Cota inferior 1500 ms: debe superar debounce de conexion del
+            host (~100 ms) + bus reset + primer SETUP + debounce de
+            enumeracion de pilas host como la de ESP-IDF (~250 ms) con
+            margen; un valor menor convertiria el autoswap en un oscilador
+            que impide enumerar. En la orientacion invertida el arranque
+            enumera aproximadamente este tiempo mas tarde.
 
 endmenu

@@ -4,7 +4,7 @@
 
 ### Requirement: Tolerancia a la inversión de D+/D-
 
-`usb_comm` SHALL tolerar que el conector USB llegue con D+ y D- cruzados: si el dispositivo no alcanza el estado montado (`SET_CONFIGURATION`) en `CONFIG_SB_USB_AUTOSWAP_TIMEOUT_MS` (2000 ms por defecto), SHALL intercambiar D+/D- en el PHY USB del ESP32-S3 (`exchg_pins`), forzar un detach/attach y seguir alternando la orientación en cada plazo vencido mientras no haya enumeración. Con el enlace montado NUNCA intercambia. La decisión SHALL residir en una política pura (`sb_usb_orient_*`) sin dependencia de hardware, alimentada con el estado del enlace y el instante actual. Cada intercambio SHALL registrarse con `ESP_LOGW` (visible en la retención de arranque al conectar).
+`usb_comm` SHALL tolerar que el conector USB (SensorBoard HW_NUM 4) llegue con D+ y D- cruzados: si no hay **host activo** — ni primer paquete SETUP recibido (`tud_connected`) ni `SET_CONFIGURATION` (`tud_mounted`) — en `CONFIG_SB_USB_AUTOSWAP_TIMEOUT_MS` (2000 ms por defecto, mínimo 1500), SHALL intercambiar D+/D- en el PHY USB del ESP32-S3 (`exchg_pins`), forzar un detach/attach visible para el host y seguir alternando la orientación en cada plazo vencido mientras no haya host activo. Con host activo NUNCA intercambia. La decisión SHALL residir en una política pura (`sb_usb_orient_*`) sin dependencia de hardware, alimentada con el estado del enlace y el instante actual. Cada intercambio SHALL registrarse con `ESP_LOGW` (visible en la retención de arranque al conectar) y el estado SHALL exponerse en la resp de `status` como `sensors.usb_swap` (`false` desde el arranque, `true` con los pines intercambiados). Antes de intercambiar, `usb_comm` SHALL re-armar la retención de arranque (el flag DTR es pegajoso sin VBUS sensing), y toda escritura al CDC SHALL exigir DTR visto **y** `tud_cdc_n_connected()`.
 
 #### Scenario: Sin enumeración antes del plazo
 
@@ -21,10 +21,10 @@
 - **WHEN** siguen venciendo plazos sin enlace
 - **THEN** la orientación alterna normal → intercambiada → normal en cada vencimiento y el contador de intercambios crece en uno por vencimiento
 
-#### Scenario: Enlace montado
+#### Scenario: Host activo
 
-- **WHEN** recibe ticks con enlace montado, incluso pasado el plazo original
-- **THEN** no devuelve ninguna acción y el plazo se rearma desde el último tick con enlace, de modo que una caída posterior del enlace cuenta `T` ms desde la caída
+- **WHEN** recibe ticks con host activo (SETUP recibido o configurado), incluso pasado el plazo original
+- **THEN** no devuelve ninguna acción y el plazo se rearma desde el último tick con host activo, de modo que una caída posterior cuenta `T` ms desde la caída
 
 #### Scenario: Desbordamiento del reloj
 

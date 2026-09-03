@@ -2,6 +2,7 @@
 #include "sensorBoard_comm_protocol.h"
 #include "sensorBoard_frame.h"
 #include "sensorBoard_json.h"
+#include "sensorBoard_status.h"
 #include "sensorBoard_usb_orient.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -74,9 +75,18 @@ static volatile bool s_cdc_ready = false;
 #define SB_USB_AUTOSWAP_TIMEOUT_MS 0 /* 0 = política desactivada */
 #endif
 
-/* Detach visible para el host antes de re-attach con la otra orientación:
- * la spec USB exige >2.5 µs de SE0 y los hosts aplican debounce ~100 ms. */
-#define SB_USB_SWAP_DETACH_MS 50
+/* Detach visible para el host antes de re-attach con la otra orientación.
+ * Los controladores host latchean el cambio de conexión (>2.5 µs de SE0
+ * basta), pero un hub intermedio o una pila host que sondea el estado del
+ * puerto puede muestrear más despacio: 250 ms garantiza que el detach se ve
+ * y el host reinicia la enumeración. Sin host no hay tráfico, así que
+ * bloquear usb_tx_task este tiempo no retrasa nada. */
+#define SB_USB_SWAP_DETACH_MS 250
+
+/* Clave en la resp de `status` (sensors{}): true = D+/D- intercambiados.
+ * Diagnóstico determinista para la motherboard y el flasher (el ROM no aplica
+ * el intercambio: con usb_swap=true hay que girar el cable para flashear). */
+#define SB_USB_SWAP_STATUS_KEY "usb_swap"
 
 static sb_usb_orient_t s_orient;
 
@@ -85,24 +95,57 @@ static uint32_t orient_now_ms(void)
     return (uint32_t)(esp_timer_get_time() / 1000);
 }
 
-/* Contexto de tarea (usb_tx_task), nunca ISR. dcd_connect/dcd_disconnect del
- * port DWC2 hacen read-modify-write de USB_WRAP.otg_conf solo sobre los
- * campos de pull, así que preservan exchg_pins/exchg_pins_override. */
+/* "Host activo" = orientación demostrada correcta. tud_connected() se pone
+ * al recibir el PRIMER paquete SETUP (usbd.c: "Mark as connected after
+ * receiving 1st setup packet") y se borra con bus reset/unplug; un SETUP
+ * válido (NRZI + CRC) es imposible con D+/D- cruzados. Así un host lento en
+ * llegar a SET_CONFIGURATION (reintentos, pila arrancando, hub) NUNCA
+ * provoca un intercambio: solo se alterna cuando el host no nos habla. */
+static bool usb_host_active(void)
+{
+    return tud_mounted() || tud_connected();
+}
+
+/* Contexto de tarea (usb_tx_task), nunca ISR.
+ * - Solo se ejecuta sin host activo (invariante de la política): la tarea
+ *   TinyUSB no tiene actividad de endpoints, así que los read-modify-write
+ *   de USB_WRAP.otg_conf / dctl aquí y en dcd_connect/dcd_disconnect no
+ *   compiten con nadie (dcd_connect/disconnect solo los llama además
+ *   dcd_init/tud_deinit). dcd_* preservan exchg_pins/exchg_pins_override.
+ * - El ESP_LOGW encola en s_tx_queue con timeout 0 (interceptor): loguear
+ *   desde la propia usb_tx_task no puede bloquearla. */
 static void orient_service(void)
 {
-    if (sb_usb_orient_tick(&s_orient, tud_mounted(), orient_now_ms()) != SB_ORIENT_SWAP) {
+    if (sb_usb_orient_tick(&s_orient, usb_host_active(), orient_now_ms()) != SB_ORIENT_SWAP) {
         return;
     }
+    if (usb_host_active()) {
+        return; /* el host habló entre el tick y ahora: no interrumpirle */
+    }
     bool swapped = sb_usb_orient_is_swapped(&s_orient);
+    /* DTR es pegajoso (TinyUSB no invoca line_state_cb en reset/unplug y no
+     * hay VBUS sensing): sin host no hay CDC escribible, re-armar la
+     * retención de arranque para que el log de abajo no muera en el FIFO. */
+    s_cdc_ready = false;
     tud_disconnect();
     usb_wrap_ll_phy_enable_pin_exchg(&USB_WRAP, swapped);
     vTaskDelay(pdMS_TO_TICKS(SB_USB_SWAP_DETACH_MS));
     tud_connect();
+    sensorBoard_status_set_sensor(SB_USB_SWAP_STATUS_KEY, swapped);
     /* Queda en la retención de arranque y sale al conectar: la motherboard
      * ve que el conector está invertido (o que no hubo host). */
     ESP_LOGW(TAG, "USB not enumerated in %u ms: D+/D- %s (swap #%lu)",
              (unsigned)SB_USB_AUTOSWAP_TIMEOUT_MS, swapped ? "swapped" : "normal",
              (unsigned long)sb_usb_orient_swap_count(&s_orient));
+}
+
+/* CDC escribible = DTR visto (s_cdc_ready) Y enlace listo ahora mismo
+ * (tud_cdc_n_connected = montado && !suspendido && DTR). Solo el flag de DTR
+ * es pegajoso ante un host que desaparece sin cerrar el puerto; con esta
+ * conjunción los frames vuelven a la retención en vez de morir en el FIFO. */
+static bool cdc_writable(void)
+{
+    return s_cdc_ready && tud_cdc_n_connected(TINYUSB_CDC_ACM_0);
 }
 
 /* ── envío interno (timeout parametrizado) ─────────────────── */
@@ -240,7 +283,7 @@ static void tx_write_large(const uint8_t *data, size_t len)
     size_t off = 0;
     int stalls = 0;
 
-    while (off < len && stalls < 10 && s_cdc_ready) {
+    while (off < len && stalls < 10 && cdc_writable()) {
         size_t queued = tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, data + off, len - off);
         off += queued;
         esp_err_t err = tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0, pdMS_TO_TICKS(50));
@@ -276,7 +319,7 @@ static void boot_ring_push(const sb_tx_item_t *item)
 
 static void boot_ring_flush(void)
 {
-    for (size_t i = 0; i < s_boot_count && s_cdc_ready; i++) {
+    for (size_t i = 0; i < s_boot_count && cdc_writable(); i++) {
         tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, s_boot_ring[i].frame, s_boot_ring[i].len);
         tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0, pdMS_TO_TICKS(50));
     }
@@ -286,7 +329,7 @@ static void boot_ring_flush(void)
 /* ── TX task: único escritor del endpoint CDC ──────────────── */
 static void tx_send_or_retain(const sb_tx_item_t *item)
 {
-    if (s_cdc_ready) {
+    if (cdc_writable()) {
         if (s_boot_count > 0) {
             boot_ring_flush(); /* lo retenido sale primero, en orden */
         }
@@ -307,7 +350,7 @@ static void usb_tx_task(void *arg)
         /* Sin enumeración en plazo: alternar D+/D- (conector invertido) */
         orient_service();
         /* Host recién conectado sin tráfico nuevo: volcar lo retenido */
-        if (s_cdc_ready && s_boot_count > 0) {
+        if (cdc_writable() && s_boot_count > 0) {
             boot_ring_flush();
         }
         /* El JSON (telemetría/heartbeat/resp) SIEMPRE drena primero */
@@ -317,7 +360,7 @@ static void usb_tx_task(void *arg)
         }
         /* Sin JSON pendiente: un binario como mucho */
         if (xQueueReceive(s_tx_bin_queue, &bin, 0) == pdTRUE) {
-            if (s_cdc_ready && bin.frame != NULL) {
+            if (cdc_writable() && bin.frame != NULL) {
                 tx_write_large(bin.frame, bin.len);
             }
             free(bin.frame); /* ownership: SIEMPRE se libera aquí */
@@ -377,9 +420,6 @@ esp_err_t sensorBoard_comm_init(void)
     }
     driver_installed = true;
 
-    /* El plazo de enumeración arranca con el attach que hace el driver */
-    sb_usb_orient_init(&s_orient, SB_USB_AUTOSWAP_TIMEOUT_MS, orient_now_ms());
-
     const tinyusb_config_cdcacm_t acm_cfg = {
         .cdc_port = TINYUSB_CDC_ACM_0,
         .callback_rx = cdc_rx_callback,
@@ -392,6 +432,11 @@ esp_err_t sensorBoard_comm_init(void)
         goto fail;
     }
     cdc_initialized = true;
+
+    /* El plazo de enumeración se arma justo antes de que exista quien lo
+     * evalúa (usb_tx_task): así no depende del tiempo de init del CDC. */
+    sb_usb_orient_init(&s_orient, SB_USB_AUTOSWAP_TIMEOUT_MS, orient_now_ms());
+    sensorBoard_status_set_sensor(SB_USB_SWAP_STATUS_KEY, false);
 
     if (xTaskCreate(usb_tx_task, "usb_tx", SB_COMM_TASK_STACK, NULL, SB_COMM_TASK_PRIO,
                     &tx_task_handle) != pdPASS) {
