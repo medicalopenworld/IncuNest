@@ -89,9 +89,14 @@ void sensorboard_capture_free(uint8_t *jpeg);
 
 #ifdef ARDUINO
 #include <ArduinoJson.h>
-// Anade las claves sb_* al JSON de telemetria: solo lo que es genuinamente
-// nuevo (luz, sonido, puerta, estado del enlace). La temperatura y la humedad
-// NO viajan aqui -- en modo SensorBoard salen por las claves clinicas de
-// siempre (Air_temp, Amb_humidity...), porque son las de la incubadora.
+// Anade las claves sb_* al JSON de telemetria: luz, sonido, puerta, estado del
+// enlace y LAS TRES POSICIONES CRUDAS de temperatura y humedad
+// (sb_temp0/1/2, sb_hum0/1/2), cada una solo si llego valida.
+//
+// Las tres crudas no duplican a Air_temp: Air_temp es el valor que gobierna el
+// lazo (la mediana, ver sb_env_fusion.h) y estas son las lecturas de las que
+// sale. Viajan para poder ver en remoto que una posicion se desvia de sus
+// companeras -- sb_env_used avisa de que se pierde redundancia, pero no de
+// cual ni de cuanto -- y para disenar el cribado con datos reales de flota.
 void sensorboard_add_telemetry(JsonObject &json);
 #endif
