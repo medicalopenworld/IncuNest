@@ -7,6 +7,7 @@
 #include "protocol.h"
 #include "control_types.h"
 #include "alarm_ids.h"
+#include "factory_test.h"
 
 #define COMMUNICATION_DEBUG true
 #if COMMUNICATION_DEBUG
@@ -339,6 +340,42 @@ extern volatile bool        g_pendingBabyHistory;
 extern BabyHistoryMsg       g_babyHistory;
 extern volatile bool        g_pendingWeightHistory;
 extern BabyWeightHistoryMsg g_weightHistory;
+
+// --- Test de fabrica (CTRL,FTEST* / HMI,FTEST,*, shared-factory-test) ---
+//
+// La motherBoard manda una linea por CADA cambio de estado de un test
+// (design.md D2/D9): CommTask escribe en un anillo con el mutex tomado y
+// FactoryTest_Poll() lo drena entero cada pasada (patron g_pendingAlarmHistory,
+// pero con cola en vez de un unico buffer porque aqui SI puede llegar mas de
+// una linea entre dos pasadas de UI_Task).
+#define FTEST_RING_LEN 8
+struct FtestRing {
+  FtestResult buf[FTEST_RING_LEN];
+  uint8_t     head;   // siguiente a leer
+  uint8_t     count;  // pendientes de leer
+};
+extern portMUX_TYPE  g_ftestMux;
+extern volatile bool g_pendingFtest;
+extern FtestRing     g_ftestRing;
+
+// Saca el resultado mas antiguo del anillo a `*out`. false si no hay ninguno
+// pendiente (no toca `*out`). Llamar solo desde FactoryTest_Poll().
+bool FactoryTest_TakeEvent(FtestResult *out);
+
+// CTRL,FTEST_DONE — cierre de bateria o de un test unico (design.md D2).
+extern volatile bool     g_pendingFtestDone;
+extern volatile unsigned g_ftestDonePass;
+extern volatile unsigned g_ftestDoneFail;
+extern volatile unsigned g_ftestDoneSkip;
+
+// CTRL,FTEST_REJECT — no se pudo arrancar la bateria (o el test unico).
+extern volatile bool g_pendingFtestReject;
+extern volatile int  g_ftestRejectReason;  // FtestReject
+
+void Communication_SendFtestStart(void);
+void Communication_SendFtestRun(uint8_t id);
+void Communication_SendFtestAbort(void);
+void Communication_SendFtestConfirm(uint8_t id, bool ok);
 
 void Communication_SendProfileListReq(void);
 void Communication_SendProfileNew(const char *name, uint8_t gestWeeks);

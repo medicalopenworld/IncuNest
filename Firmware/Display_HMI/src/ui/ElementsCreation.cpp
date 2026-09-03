@@ -1,6 +1,7 @@
 #include "ElementsCreation.h"
 #include "CommTask.h"
 #include "UITask.h"
+#include "ui/FactoryTest.h"
 #include "ui_helpers.h"
 #include "main.h"
 #include <Arduino.h>
@@ -25,6 +26,7 @@ lv_obj_t *ui_ImageFlagTogo = NULL;
 #if INTRO_FLAG != INTRO_FLAG_NONE
 lv_obj_t *ui_ImageIntroFlag = NULL;
 #endif
+lv_obj_t *ui_FactoryTestBtnLabel = NULL;
 
 // Screen Main
 lv_obj_t *ui_ScreenMain = NULL;
@@ -762,6 +764,16 @@ void ui_event_PhotoCancelBtn(lv_event_t *e) {
   }
 }
 
+// Entrada al test de fabrica (shared-factory-test, design.md D9). Solo existe
+// aqui, en el splash: ninguna otra pantalla ofrece el atajo. El flag detiene
+// intro_timer_cb() (no navegar a ui_ScreenMain mientras el operario esta
+// dentro) y FactoryTest_Open() ya se encarga de abrir el overlay.
+static void FactoryTestBtn_cb(lv_event_t *e) {
+  (void)e;
+  g_factoryTestRequested = true;
+  FactoryTest_Open();
+}
+
 // ============================================================================
 // SCREEN INITIALIZATION
 // ============================================================================
@@ -840,6 +852,27 @@ void ui_ScreenIntro_screen_init(void) {
   lv_obj_set_style_text_font(ui_IntroFWLabel, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(ui_IntroFWLabel, lv_color_hex(0x555555),
                               LV_PART_MAIN);
+
+  // Boton de test de fabrica — abajo a la izquierda (shared-factory-test,
+  // design.md D9). Discreto (gris, no la paleta de accion), a proposito: no
+  // es un control de uso clinico, es una herramienta de montaje.
+  lv_obj_t *ui_FactoryTestBtn = lv_btn_create(ui_ScreenIntro);
+  lv_obj_set_size(ui_FactoryTestBtn, 170, 44);
+  lv_obj_align(ui_FactoryTestBtn, LV_ALIGN_BOTTOM_LEFT, 10, -8);
+  lv_obj_set_style_bg_color(ui_FactoryTestBtn, lv_color_hex(0x555555),
+                            LV_PART_MAIN);
+  lv_obj_set_style_radius(ui_FactoryTestBtn, 8, LV_PART_MAIN);
+  lv_obj_set_ext_click_area(ui_FactoryTestBtn, TOUCH_EXT_MEDIUM);
+  lv_obj_add_event_cb(ui_FactoryTestBtn, FactoryTestBtn_cb, LV_EVENT_CLICKED,
+                      NULL);
+
+  ui_FactoryTestBtnLabel = lv_label_create(ui_FactoryTestBtn);
+  const char *TXT_FACTORY_TEST[] = {"TEST FABRICA", "FACTORY TEST",
+                                    "TEST USINE"};
+  lv_label_set_text(ui_FactoryTestBtnLabel, TXT_FACTORY_TEST[g_lang]);
+  lv_obj_set_style_text_font(ui_FactoryTestBtnLabel, &lv_font_montserrat_16,
+                             0);
+  lv_obj_center(ui_FactoryTestBtnLabel);
 }
 
 // Slots horizontales del heading (ui_ScreenMain y su replica en

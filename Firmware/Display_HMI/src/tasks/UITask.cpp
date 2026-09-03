@@ -3,6 +3,7 @@
 #include "CommTask.h"
 #include "buzzer.h"
 #include "ui/AlarmCenter.h"
+#include "ui/FactoryTest.h"
 #include "ui/TelemetryHistory.h"
 #include "ui/BabyHistory.h"
 #include "ui/BabyExitDialog.h"
@@ -282,6 +283,10 @@ void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area,
 }
 
 static void intro_timer_cb(lv_timer_t *t) {
+  // El operario ha pulsado "TEST FABRICA": el splash se queda quieto hasta
+  // que salga del overlay (FactoryTest_Close() vuelve a poner el flag a
+  // false), sin importar cuanto tiempo lleve esperando CTRL,STATE.
+  if (g_factoryTestRequested) return;
   uint32_t elapsed = millis() - intro_start_ms;
   bool synced      = g_stateSynced;
   bool min_elapsed = (elapsed >= 5000);
@@ -1088,6 +1093,16 @@ void UI_ApplyLanguage(ui_lang_t lang) {
 
   photo_safety_apply_language(lang);
   TelemetryHistory_ApplyLanguage();
+  FactoryTest_ApplyLanguage();
+
+  // Boton de test de fabrica (splash). Vive en ElementsCreation.cpp, no en un
+  // modulo con su propio _ApplyLanguage: es un unico label, sin estado que
+  // reconstruir.
+  if (ui_FactoryTestBtnLabel) {
+    const char *TXT_FACTORY_TEST[] = {"TEST FABRICA", "FACTORY TEST",
+                                      "TEST USINE"};
+    lv_label_set_text(ui_FactoryTestBtnLabel, TXT_FACTORY_TEST[lang]);
+  }
 
   update_labels();
   UI_SyncAll();
@@ -2364,6 +2379,11 @@ static int LinkAudio_PauseRemainingS(void) {
 // transaccion I2C y bloquear ahi el mutex del renderer es el fallo
 // ARQ-LOCK-001 que ya se corrigio para AlarmSound_Update().
 static void link_audio_service(void) {
+  // El test de fabrica HMI_BUZZER tiene el zumbador tomado a proposito
+  // (300 ms de tono): se cede entero, igual que ya se cede ante
+  // link_audio_burst_in_progress() en sentido contrario.
+  if (FactoryTest_AudioBusy()) return;
+
   const bool lost = Display_IsBoardLinkLost();
 
   if (!lost) {
@@ -2423,8 +2443,10 @@ static void link_audio_service(void) {
 
 static void click_beep_start(void) {
   // El chasquido cede: comparten el unico zumbador del display, y lo cosmetico
-  // no interrumpe a lo normativo.
-  if (link_audio_burst_in_progress()) {
+  // no interrumpe a lo normativo. Cede tambien al test de fabrica del
+  // zumbador, por el mismo motivo: un chasquido de confirmacion no debe
+  // truncar los 300 ms de tono que el operario tiene que oir.
+  if (link_audio_burst_in_progress() || FactoryTest_AudioBusy()) {
     return;
   }
   buzzerOn();
@@ -3352,7 +3374,7 @@ static void update_autolock_ring(uint32_t inactive_ms) {
 }
 
 void inactivity_timer_cb(lv_timer_t *timer) {
-  if (lv_scr_act() == ui_ScreenAlarms) {
+  if (lv_scr_act() == ui_ScreenAlarms || FactoryTest_IsOpen()) {
     lv_disp_trig_activity(NULL);
     update_autolock_ring(0);
     return;
@@ -3981,6 +4003,10 @@ void UI_Task(void *pvParameters) {
   // Sin parent: cuelga de lv_layer_top() para abrirse desde cualquier pantalla,
   // el bloqueo incluido.
   AlarmCenter_Init();
+  // --- Test de fabrica (shared-factory-test) ---
+  // Igual que AlarmCenter: cuelga de lv_layer_top(), pero solo se abre desde
+  // el boton del splash (ElementsCreation.cpp).
+  FactoryTest_Init();
   // --- Tendencia de telemetria (aire/piel/humedad), accesible desde el
   // bloqueo (ui_ChartLockImg). Mismo criterio de parent que AlarmCenter. ---
   TelemetryHistory_Init();
@@ -4488,6 +4514,10 @@ void UI_Task(void *pvParameters) {
     // Tendencia de telemetria: sin peticiones a la motherBoard, solo cierra
     // si hay una alarma critica (mismo contrato que BabyHistory_Poll).
     TelemetryHistory_Poll();
+    // Test de fabrica: secuencia local + orquestacion remota con la
+    // motherBoard. Mismo contrato de polling, sin peticion de cierre por
+    // alarma critica: es la pantalla de montaje, se usa con el equipo vacio.
+    FactoryTest_Poll();
 
     // Ajuste manual de hora (se abre tocando la hora de cabecera,
     // ClockButton_cb): mismo contrato de polling que el wizard — consume el

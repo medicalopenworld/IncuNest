@@ -64,6 +64,35 @@ bool Display_IsBoardLinkLost(void) {
 volatile bool   g_pendingAlarmDesc = false;
 AlarmDescMsg    g_alarmDesc = {0, {0}, {0}};
 
+// --- Test de fabrica (CTRL,FTEST*, shared-factory-test) ---
+portMUX_TYPE  g_ftestMux = portMUX_INITIALIZER_UNLOCKED;
+volatile bool g_pendingFtest = false;
+FtestRing     g_ftestRing = {{}, 0, 0};
+
+volatile bool     g_pendingFtestDone = false;
+volatile unsigned g_ftestDonePass = 0;
+volatile unsigned g_ftestDoneFail = 0;
+volatile unsigned g_ftestDoneSkip = 0;
+
+volatile bool g_pendingFtestReject = false;
+volatile int  g_ftestRejectReason = 0;
+
+bool FactoryTest_TakeEvent(FtestResult *out) {
+  bool got = false;
+  taskENTER_CRITICAL(&g_ftestMux);
+  if (g_ftestRing.count > 0) {
+    *out = g_ftestRing.buf[g_ftestRing.head];
+    g_ftestRing.head = (uint8_t)((g_ftestRing.head + 1) % FTEST_RING_LEN);
+    g_ftestRing.count--;
+    got = true;
+  }
+  if (g_ftestRing.count == 0) {
+    g_pendingFtest = false;
+  }
+  taskEXIT_CRITICAL(&g_ftestMux);
+  return got;
+}
+
 // --- Baby history viewer protocol state ---
 volatile bool        g_pendingBabyHistory = false;
 BabyHistoryMsg       g_babyHistory = {0, 0, 0, {}};
@@ -305,6 +334,30 @@ void Communication_SendAlarmSilence(uint8_t id, bool on) {
 void Communication_SendAlarmDescReq(uint8_t id) {
 #if IS_HMI
   COMM_SERIAL.printf("HMI,ALM_DESC_REQ,%u\n", (unsigned)id);
+#endif
+}
+
+void Communication_SendFtestStart(void) {
+#if IS_HMI
+  COMM_SERIAL.print("HMI,FTEST,START\n");
+#endif
+}
+
+void Communication_SendFtestRun(uint8_t id) {
+#if IS_HMI
+  COMM_SERIAL.printf("HMI,FTEST,RUN,%u\n", (unsigned)id);
+#endif
+}
+
+void Communication_SendFtestAbort(void) {
+#if IS_HMI
+  COMM_SERIAL.print("HMI,FTEST,ABORT\n");
+#endif
+}
+
+void Communication_SendFtestConfirm(uint8_t id, bool ok) {
+#if IS_HMI
+  COMM_SERIAL.printf("HMI,FTEST,CONFIRM,%u,%d\n", (unsigned)id, ok ? 1 : 0);
 #endif
 }
 
@@ -869,6 +922,46 @@ static void parse_message(const char *line) {
       g_pendingWeightHistory = true;
     } else {
       COMM_LOG("[COMM] WEIGHT_HISTORY malformed: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,FTEST_DONE,", 17) == 0) {
+    unsigned p = 0, f = 0, s = 0;
+    if (ftest_parse_done(line + 17, &p, &f, &s)) {
+      g_ftestDonePass = p;
+      g_ftestDoneFail = f;
+      g_ftestDoneSkip = s;
+      g_pendingFtestDone = true;
+    } else {
+      COMM_LOG("[COMM] CTRL,FTEST_DONE malformado: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,FTEST_REJECT,", 19) == 0) {
+    FtestReject r;
+    if (ftest_parse_reject(line + 19, &r)) {
+      g_ftestRejectReason = (int)r;
+      g_pendingFtestReject = true;
+    } else {
+      COMM_LOG("[COMM] CTRL,FTEST_REJECT malformado: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,FTEST,", 11) == 0) {
+    FtestResult res;
+    if (ftest_parse_result(line + 11, &res)) {
+      taskENTER_CRITICAL(&g_ftestMux);
+      const uint8_t idx =
+          (uint8_t)((g_ftestRing.head + g_ftestRing.count) % FTEST_RING_LEN);
+      if (g_ftestRing.count < FTEST_RING_LEN) {
+        g_ftestRing.buf[idx] = res;
+        g_ftestRing.count++;
+      } else {
+        // Anillo lleno (deberian bastar 8: la MB emite una linea por cambio de
+        // estado y FactoryTest_Poll() lo drena entero cada pasada de UI_Task).
+        // Se descarta la mas antigua en vez de bloquear o crecer sin limite.
+        g_ftestRing.buf[g_ftestRing.head] = res;
+        g_ftestRing.head = (uint8_t)((g_ftestRing.head + 1) % FTEST_RING_LEN);
+        COMM_LOG("[COMM] anillo FTEST lleno, se descarta el mas antiguo\n");
+      }
+      g_pendingFtest = true;
+      taskEXIT_CRITICAL(&g_ftestMux);
+    } else {
+      COMM_LOG("[COMM] CTRL,FTEST malformado: %s\n", line);
     }
   }
 #endif

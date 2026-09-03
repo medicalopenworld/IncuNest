@@ -120,6 +120,10 @@ extern lv_obj_t * ui_ImageFlagTogo;
 #if INTRO_FLAG != INTRO_FLAG_NONE
 extern lv_obj_t * ui_ImageIntroFlag;
 #endif
+// Boton de entrada al test de fabrica (shared-factory-test). El label se
+// expone para que UI_ApplyLanguage() (UITask.cpp) pueda retextearlo si el
+// idioma cambia con el splash todavia en pantalla.
+extern lv_obj_t * ui_FactoryTestBtnLabel;
 void ui_ScreenIntro_screen_init(void);
 void ui_ScreenIntro_screen_destroy(void);
 
