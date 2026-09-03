@@ -35,9 +35,11 @@ arrancar (sin NVS, una decisión por arranque).
   del S3 **solo con evidencia de host** — tras un bus reset sin SETUP en 2 s,
   una vez por reset, quieto después (ADR-0003 + enmienda, changes archivados
   `2026-09-03-sb-usb-pin-autoswap` y `2026-09-03-sb-usb-autoswap-host-evidence`,
-  retro `docs/retro/2026-09-03-usb-pin-autoswap.md`). La primera versión
-  alternaba a ciegas cada 2 s y enganchaba en fase con la pila host de la
-  motherboard (banco 2026-09-03): funcionaba con el PC y fallaba con la MB. Rama en el **checkout principal** desde el 2026-09-03 (worktree `sb-usb-autoswap` retirado). Antes worktree:
+  retro `docs/retro/2026-09-03-usb-pin-autoswap.md`). **Verificado en banco con la
+  motherboard V18 en ambas orientaciones y re-enchufe en caliente (2026-09-03).**
+  La primera versión alternaba a ciegas cada 2 s; la causa raíz de que fallara con
+  la MB y no con el PC era `gpio_reset_pin(19/20)` en la motherboard dejando el
+  pull-up interno sobre las líneas USB (fix `5b8af22` en `sensorboard_comm.cpp`). Rama en el **checkout principal** desde el 2026-09-03 (worktree `sb-usb-autoswap` retirado). Antes worktree:
   `Firmware/.worktrees/sb-usb-autoswap`. **Integra `feat/sensorboard-usb-comm`
   por merge (2026-09-03)**, así que esta rama contiene el enlace completo más el
   autoswap y el vigilante de host; es la candidata a merge a `dev`. Verificación
