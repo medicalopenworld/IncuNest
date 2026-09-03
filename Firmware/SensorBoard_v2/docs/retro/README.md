@@ -12,4 +12,4 @@ No se sistematiza una regla por un fallo de primera vez (puede ser casualidad). 
 
 ## Índice
 
-Ningún retro registrado todavía.
+- [2026-09-03 · Vigilante de host: reconexión USB sin cortar VBUS](2026-09-03-host-watch-reconexion-usb.md)
