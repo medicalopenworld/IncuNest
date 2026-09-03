@@ -164,6 +164,35 @@ falla, `CTRL,FTEST_REJECT`. Alternativa descartada: apagar el control desde el
 test. Un test de fábrica no debe tener autoridad para apagar un control que
 alguien encendió.
 
+La revisión de seguridad amplió la lista de escritores de PWM: además de
+`PIDHandler()` y `turnFans()`, el bloque `newCommand` de `main.cpp` (que en
+cada trama del HMI, a 1 Hz, escribe calefactor, humidificador y fototerapia),
+la regulación de intensidad de fototerapia en `sensors_module.cpp` y
+`buzzerHandler()`. Todos consultan `g_factoryTestActive`. Sin ese gate el
+keepalive del display ponía el calefactor a 0 una vez por segundo durante
+`actuatorsTest()`, el test fallaba siempre y dejaba `ALARM_HEATER_FAULT`
+latcheada.
+
+**Cotas del estado inhibido** (la batería apaga los cortes térmicos y las
+alarmas; no puede quedar así indefinidamente):
+
+| Cota | Valor | Efecto |
+|---|---|---|
+| Task WDT | la tarea `FTEST` se suscribe a `esp_task_wdt` y lo alimenta en cada iteración y cada paso de espera de 250 ms | un cuelgue en I2C/SPI/USB reinicia la placa en vez de dejar `g_factoryTestActive` y `alarmsEnabled=false` para siempre |
+| Duración máxima | `FTEST_BATTERY_MAX_MS` = 6 min | aborto con `detail=max time` |
+| Dead-man del HMI | `FTEST_HMI_DEADMAN_MS` = 5 s sin ninguna línea `HMI,` | aborto con `detail=hmi lost`: cubre reinicio del display o cable suelto |
+| Precondición viva | `actuation == OFF && !phototherapy` re-evaluada entre tests y en cada paso de espera | aborto con `detail=control on` si alguien enciende terapia a mitad |
+
+Todas terminan en `restore()` + `FTEST_DONE`. La reconciliación de
+`in3.phototherapy` con el PWM real no la hace `restore()`: la hace el
+siguiente `newCommand` del HMI (1 Hz) en cuanto `g_factoryTestActive` baja,
+igual que tras un arranque.
+
+**Barrera de entrada** (display): el botón del splash abre primero un aviso
+"el equipo debe estar VACÍO, sin paciente; los actuadores se encenderán en
+lazo abierto" con Sí / No. Es una confirmación, no una autenticación: un PIN
+de servicio queda como mejora futura y se anota como riesgo residual.
+
 `actuatorsTest()` escribe NVS (`KEY_HEATER_TEST`, `KEY_FAN_RPM_FEEDBACK`) y
 `in3.phototherapy_intensity` / `photoFirstRun`: en fábrica eso es exactamente
 lo deseado (deja la calibración de baseline hecha), así que se acepta y se
@@ -302,9 +331,20 @@ Ventajas: cero comandos AT desde una segunda tarea, cero riesgo de
   → es lo mismo que hace en cada arranque; el estado seguro deja PWM a 0 antes
   y después, y `restore()` corre también en ABORT.
 - [El operario lanza el test con un bebé dentro] → precondición
-  `actuation == OFF && !phototherapy` y REJECT explícito. No cubre el caso de
-  bebé sin control activo, que es indistinguible por software; se documenta en
-  `docs/hmi.md` que el botón solo aparece en el splash.
+  `actuation == OFF && !phototherapy` y REJECT explícito, más el aviso de
+  confirmación "equipo vacío" en el display y el acceso solo desde el splash.
+  No cubre el caso de bebé sin control activo y operario que confirma, que es
+  indistinguible por software. **Riesgo residual aceptado**, anotar en la
+  gestión de riesgos; un PIN de servicio lo cerraría.
+- [`actuatorsTest()` declara `ALARM_HEATER_FAULT` / `ALARM_FAN_FAILURE` con
+  las alarmas inhibidas] → es el mismo comportamiento que el autotest de
+  arranque: si el calefactor falla de verdad, la condición queda latcheada y
+  suena al restaurar. Con el gate del keepalive (D4) desaparece el fallo
+  espurio que la hacía saltar en cada batería.
+- [El display se queda en "en curso" si la placa muere a mitad] → 120 s sin
+  ningún `CTRL,FTEST*` cierran la sección como "enlace perdido" y muestran el
+  resumen; el resumen se cierra solo a los 10 min sin actividad para no
+  eximir del auto-bloqueo indefinidamente.
 - [La cola TX se llena bajo `CTRL,PPG` a 25 Hz] → 16 slots para ≤ 3 líneas
   por test; se pierde con log y el display marca FAIL por plazo. Nunca bloquea.
 - [Los tests GSM dependen del ritmo de `GPRS_Task`] → plazos generosos (D7); en

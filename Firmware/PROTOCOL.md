@@ -441,8 +441,14 @@ no pueden pisar un control real; el test no tiene autoridad para apagarlo.
 Con una batería ya en curso responde `CTRL,FTEST_REJECT,0`.
 
 Mientras dura la batería la placa pone `in3.alarmsEnabled = false`, levanta
-`g_factoryTestActive` (que inhibe `PIDHandler()` y `turnFans()`) y deja todos
-los PWM a 0; lo restaura siempre al terminar, abortar o fallar.
+`g_factoryTestActive` (que inhibe todos los escritores de PWM: `PIDHandler()`,
+`turnFans()`, el bloque `newCommand` de la trama HMI, la regulación de
+fototerapia y `buzzerHandler()`) y deja todos los PWM a 0; lo restaura siempre
+al terminar, abortar o fallar. Ese estado tiene cotas: la tarea está en el
+task WDT, la batería aborta a los 6 min (`detail=max time`), si el HMI deja de
+enviar líneas durante 5 s (`detail=hmi lost`) o si alguien enciende control o
+fototerapia a mitad (`detail=control on`). Por eso el display debe seguir
+emitiendo su trama periódica mientras la pantalla de test está abierta.
 
 #### CTRL,FTEST (resultado de un test)
 **Formato**: `CTRL,FTEST,<id>,<status>,<detail>`

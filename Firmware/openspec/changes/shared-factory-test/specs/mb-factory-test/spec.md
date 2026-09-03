@@ -43,6 +43,32 @@ SHALL restaurar `in3.alarmsEnabled` a su valor previo, bajar
   `ALARM_AIR_OUTLET_BLOCKED`, y `checkUsbFault()` no apaga el humidificador
 - *(Verificación manual en banco.)*
 
+### Requirement: El estado inhibido está acotado
+
+La tarea SHALL estar suscrita al task WDT y alimentarlo en cada iteración y en
+cada paso de espera. La batería SHALL abortar, con `restore()` y `FTEST_DONE`,
+si supera `FTEST_BATTERY_MAX_MS` (6 min, `detail = max time`), si no llega
+ninguna línea `HMI,` durante `FTEST_HMI_DEADMAN_MS` (5 s, `detail = hmi lost`)
+o si `in3.actuation != ACTUATION_OFF || in3.phototherapy` pasa a ser cierto a
+mitad (`detail = control on`). Ningún escritor de PWM (`PIDHandler()`,
+`turnFans()`, bloque `newCommand`, regulación de fototerapia,
+`buzzerHandler()`) SHALL escribir mientras `g_factoryTestActive`.
+
+#### Scenario: El display se reinicia a mitad de la batería
+- **WHEN** el HMI deja de enviar tramas durante más de 5 s con `ACTUATORS` en
+  curso
+- **THEN** el test termina como SKIP con `detail = hmi lost`, se emite
+  `FTEST_DONE`, los PWM quedan a 0 y las alarmas se restauran
+- *(Verificación manual en banco: desconectar el cable del HMI.)*
+
+#### Scenario: Keepalive del HMI durante el test de actuadores
+- **WHEN** la trama periódica `HMI,...` llega a 1 Hz mientras `actuatorsTest()`
+  mide el calefactor al 100 %
+- **THEN** el PWM del calefactor no cambia y la corriente medida se estabiliza
+  igual que en el autotest de arranque
+- *(Verificación manual en banco comparando el log `[HW] -> Heater:` con el
+  del arranque.)*
+
 ### Requirement: Batería completa en orden fijo, un resultado por test
 
 La tarea SHALL recorrer los `FTEST_MB_COUNT` tests en el orden de la tabla,

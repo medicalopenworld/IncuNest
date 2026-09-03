@@ -59,6 +59,9 @@ The test screen is a full-screen overlay (`src/ui/FactoryTest.cpp`, same
 pattern as `AlarmCenter`) with one row per test. Rows are colour-coded: blue
 PASS, red FAIL, amber for waiting / skipped. The flow is:
 
+0. **Entry gate**: a warning that the unit must be EMPTY (no patient) because
+   actuators will be driven open-loop, with Yes / No. "No" returns to the normal
+   splash flow. This is a confirmation, not an authentication.
 1. **Local tests**, run inside `UI_Task` by polling: flash/PSRAM/heap, I2C
    presence of the GT911 touch (0x14) and the STC8H1K28 backlight/buzzer
    controller (0x30), five solid-colour panel patterns (red, green, blue,
@@ -80,4 +83,8 @@ PASS, red FAIL, amber for waiting / skipped. The flow is:
 
 The result is persisted in NVS namespace `hmi_ftest` (epoch, local PASS/FAIL
 masks, board counters, firmware version) for traceability. Operator questions
-time out after 60 s as FAIL, so an unattended unit never hangs on the screen.
+time out after 60 s as FAIL, 120 s without any `CTRL,FTEST*` line closes the
+board section as "link lost", and the summary closes itself after 10 min of
+inactivity, so an unattended unit never stays exempt from the inactivity lock.
+The display keeps sending its 1 Hz keepalive while the screen is open: the
+motherBoard aborts the battery if the display goes silent for 5 s.

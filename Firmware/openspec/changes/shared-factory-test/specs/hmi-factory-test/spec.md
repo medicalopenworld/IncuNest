@@ -21,6 +21,27 @@ ninguna otra pantalla ofrece la entrada.
   máximo 15 s esperando `CTRL,STATE`)
 - *(Verificación manual.)*
 
+### Requirement: Barrera de entrada de seguridad
+
+Antes de ejecutar cualquier test, local o remoto, la pantalla SHALL mostrar en
+la propia zona de acción del overlay un aviso: "el equipo debe estar VACÍO,
+sin paciente; los actuadores se encenderán en lazo abierto" (traducido según
+`g_lang`) con botones Sí / No. Sí SHALL iniciar la secuencia de tests locales.
+No SHALL cerrar el overlay sin ejecutar ningún test y devolver el flujo al
+comportamiento normal del splash (`g_factoryTestRequested` vuelve a `false` y
+la transición automática a `ui_ScreenMain` puede continuar).
+
+#### Scenario: Aceptar la barrera
+- **WHEN** el operario pulsa "TEST FÁBRICA" y luego Sí en el aviso de seguridad
+- **THEN** arranca `HMI_SYSINFO`, el primer test de la secuencia local
+- *(Verificación manual en el CrowPanel: Display_HMI no tiene entorno de test.)*
+
+#### Scenario: Rechazar la barrera
+- **WHEN** el operario pulsa No en el aviso de seguridad
+- **THEN** el overlay se cierra sin haber ejecutado ningún test y el splash
+  retoma su temporizador normal
+- *(Verificación manual.)*
+
 ### Requirement: Tests locales del display
 
 La pantalla SHALL ejecutar en orden, en `UI_Task`, sin `delay()` y por
@@ -62,9 +83,15 @@ puerta", `SB_LIGHT`: "Tapa el sensor de luz"); en `CONFIRM` SHALL mostrar la
 pregunta del ID y los botones Sí / No, cuyo resultado envía
 `HMI,FTEST,CONFIRM,id,ok`. Un `CTRL,FTEST_REJECT` SHALL mostrarse con su
 motivo traducido. Si no llega ningún `CTRL,FTEST*` en 10 s SHALL marcarse "MB
-sin soporte". Las líneas SHALL parsearse en `CommTask.cpp` con
-`ftest_parse_result()` a un anillo de 8 entradas protegido con `portMUX_TYPE`,
-drenado por `FactoryTest_Poll()`; ninguna llamada a LVGL desde `Comm_Task`.
+sin soporte". Si tras el primer `CTRL,FTEST` la motherBoard deja de emitir
+durante 120 s sin llegar `CTRL,FTEST_DONE` ni `CTRL,FTEST_REJECT`, la pantalla
+SHALL marcar como FALLA con detalle "sin respuesta" todas las filas de
+motherBoard que no hayan llegado a un estado terminal, mostrar "Placa: enlace
+perdido durante el test" en el resumen y pasar a él. Cualquier `CTRL,FTEST*`
+recibido SHALL reiniciar ese plazo de 120 s. Las líneas SHALL parsearse en
+`CommTask.cpp` con `ftest_parse_result()` a un anillo de 8 entradas protegido
+con `portMUX_TYPE`, drenado por `FactoryTest_Poll()`; ninguna llamada a LVGL
+desde `Comm_Task`.
 
 #### Scenario: Estímulo de puerta
 - **WHEN** llega `CTRL,FTEST,11,4,`
@@ -85,6 +112,14 @@ drenado por `FactoryTest_Poll()`; ninguna llamada a LVGL desde `Comm_Task`.
   antes del test" y el resumen se muestra solo con los tests locales
 - *(Verificación manual.)*
 
+#### Scenario: Enlace perdido a mitad de batería
+- **WHEN** llega `CTRL,FTEST,11,4,` y no llega ningún otro `CTRL,FTEST*`
+  durante 120 s
+- **THEN** las filas de motherBoard que seguían pendientes pasan a FALLA con
+  detalle "sin respuesta" y el resumen muestra "Placa: enlace perdido durante
+  el test"
+- *(Verificación manual.)*
+
 ### Requirement: Resumen, reintento y salida
 
 Al recibir `CTRL,FTEST_DONE` (o agotar los plazos) la pantalla SHALL mostrar
@@ -92,7 +127,10 @@ el resumen PASA / FALLA / omitidos de ambas placas. Cada fila en FALLA SHALL
 ofrecer Reintentar: para un ID de motherBoard envía `HMI,FTEST,RUN,id`; para
 uno local repite ese test. El botón Salir SHALL cerrar el overlay, restaurar
 el bloqueo por inactividad y cargar `ui_ScreenMain`. Si hay una batería de
-motherBoard en curso, Salir SHALL enviar `HMI,FTEST,ABORT` antes.
+motherBoard en curso, Salir SHALL enviar `HMI,FTEST,ABORT` antes. Si el
+resumen queda abierto 10 min sin que el operario pulse Reintentar ni Salir, la
+pantalla SHALL cerrarlo automáticamente por el mismo camino que Salir (mismo
+precedente que `HELP_IDLE_TIMEOUT_MS`).
 
 #### Scenario: Reintentar un test de la motherBoard
 - **WHEN** el operario pulsa Reintentar en la fila `SB_CAMERA`
@@ -104,6 +142,12 @@ motherBoard en curso, Salir SHALL enviar `HMI,FTEST,ABORT` antes.
 - **WHEN** el operario pulsa Salir mientras la motherBoard ejecuta tests
 - **THEN** el display envía `HMI,FTEST,ABORT`, cierra el overlay y carga
   `ui_ScreenMain`
+- *(Verificación manual.)*
+
+#### Scenario: Inactividad en el resumen
+- **WHEN** el resumen queda abierto 10 min sin que el operario pulse
+  Reintentar ni Salir
+- **THEN** el overlay se cierra automáticamente y carga `ui_ScreenMain`
 - *(Verificación manual.)*
 
 ### Requirement: Persistencia del resultado en el display
