@@ -23,11 +23,11 @@ from updater import check_update_available, download_latest
 HOTPLUG_POLL_S = 0.5
 POST_FLASH_COOLDOWN_S = 8
 SLOT_CLEAR_DELAY_S = 5
-SLOT_CONSOLE_LINES = 5
+SLOT_CONSOLE_LINES = 4
 LEFT_COLUMN_W = 300     # logo, estado, binarios locales y registro general
 LOG_LINES = 10          # alto fijo del registro general
 WINDOW_W = 820
-WINDOW_H = 640
+WINDOW_H = 576
 NUM_SLOTS = 3
 WIFI_SLOTS = 8
 WIFI_SCAN_INTERVAL_S = 5
@@ -640,7 +640,7 @@ class FlasherApp:
         # resize; the shared log absorbs any extra height.
         height = min(WINDOW_H, self.root.winfo_screenheight() - 80)
         self.root.geometry(f"{WINDOW_W}x{height}")
-        self.root.minsize(WINDOW_W, 600)
+        self.root.minsize(WINDOW_W, 540)
         self.root.resizable(True, True)
 
         self._slots: list[_Slot] = []
@@ -708,39 +708,35 @@ class FlasherApp:
 
         ttk.Separator(left, orient='horizontal').pack(fill='x')
 
-        # --- "Actualizar binarios locales" — anchored at the very bottom of
-        #     the column (packed side='bottom' before the log so nothing can
-        #     push it around). ---
-        self._upd_btn: Optional[tk.Button] = None
-        self._upd_status: Optional[tk.Label] = None
-        if self._get_build_sources():
-            upd_frame = tk.Frame(left)
-            upd_frame.pack(side='bottom', fill='x', pady=(8, 0))
-            self._upd_btn = tk.Button(
-                upd_frame, text="📂  Actualizar binarios locales",
-                font=('', 10, 'bold'), bg='#37474F', fg='white',
-                padx=12, pady=6,
-                command=self._on_update_locals_clicked,
-            )
-            self._upd_btn.pack(anchor='w')
-            self._upd_status = tk.Label(
-                upd_frame, text='', anchor='w', justify='left', wraplength=wrap,
-                fg='#757575', font=('', 9),
-            )
-            self._upd_status.pack(fill='x', pady=(4, 0))
-            ttk.Separator(left, orient='horizontal').pack(side='bottom', fill='x')
-
         # --- Shared timeline log: one summary line per slot event plus
         #     everything that has no slot (hints, ignored devices, firmware
         #     updates, WiFi tab). Per-device detail lives in each slot's
-        #     own console on the right. Fixed height; spare room stays empty
-        #     between the log and the bottom button. ---
+        #     own console on the right. Fixed height. ---
         tk.Label(left, text="Registro general", anchor='w',
                  font=('', 9, 'bold'), fg='#616161').pack(fill='x', pady=(8, 2))
         self._log = scrolledtext.ScrolledText(
             left, height=LOG_LINES, state='disabled', font=('Courier', 8), wrap='word',
         )
         self._log.pack(fill='x')
+
+        # --- "Actualizar binarios locales" — centred right under the log. ---
+        self._upd_btn: Optional[tk.Button] = None
+        self._upd_status: Optional[tk.Label] = None
+        if self._get_build_sources():
+            upd_frame = tk.Frame(left)
+            upd_frame.pack(fill='x', pady=(12, 0))
+            self._upd_btn = tk.Button(
+                upd_frame, text="📂  Actualizar binarios locales",
+                font=('', 10, 'bold'), bg='#37474F', fg='white',
+                padx=12, pady=6,
+                command=self._on_update_locals_clicked,
+            )
+            self._upd_btn.pack(anchor='center')
+            self._upd_status = tk.Label(
+                upd_frame, text='', anchor='center', justify='center', wraplength=wrap,
+                fg='#757575', font=('', 9),
+            )
+            self._upd_status.pack(fill='x', pady=(4, 0))
         self._log.tag_config('success', foreground='#2E7D32')
         self._log.tag_config('error',   foreground='#C62828')
         self._log.tag_config('info',    foreground='#1565C0')
