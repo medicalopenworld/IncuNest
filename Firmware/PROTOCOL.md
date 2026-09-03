@@ -1,4 +1,10 @@
-# Protocolo de Comunicación IncuNest (v2.2.0)
+# Protocolo de Comunicación IncuNest (v2.3.0)
+
+> Nota (v2.3.0): se añade la familia `FTEST` (test de fábrica lanzado desde el
+> splash del display). **No es breaking**: son mensajes nuevos con prefijo
+> propio que una placa anterior descarta como desconocidos. Un display v2.3.0
+> con una motherBoard anterior marca la sección de placa como "sin soporte" a
+> los 10 s y sigue con sus tests locales.
 
 > Nota (v2.2.0): `HMI,PROFILE_DISCHARGE` y `CTRL,PROFILE_HISTORY` añaden un
 > campo `cause` (causa de fallecimiento, solo relevante cuando `outcome=2`).
@@ -408,6 +414,102 @@ Lanza la prueba de funcionamiento de las señales de alarma
   patrón de una alarma real: el operador dejaría de poder identificar qué suena
   (6.3.2.2.2).
 - No toca actuadores ni declara condición alguna.
+
+### 3. Test de fábrica (`FTEST`)
+
+Batería de comprobaciones de hardware para el montaje en fábrica. La lanza el
+operario desde el botón "TEST FÁBRICA" del splash del display; el display
+ejecuta primero sus tests locales y después ordena a la motherBoard los suyos.
+Identificadores, estados y codec viven en `shared/include/factory_test.h`
+(`ftest_format_*` / `ftest_parse_*`): **ninguna de las dos placas tiene una
+copia propia de la tabla**.
+
+#### HMI,FTEST,START / HMI,FTEST,RUN / HMI,FTEST,ABORT / HMI,FTEST,CONFIRM
+- `HMI,FTEST,START` — batería completa (los `FTEST_MB_COUNT` = 30 tests, en el
+  orden de la tabla).
+- `HMI,FTEST,RUN,<id>` — un solo test (reintento). `id` debe ser de motherBoard
+  (`0..29`); si no, `CTRL,FTEST_REJECT,2`.
+- `HMI,FTEST,ABORT` — cancela la batería en curso. El test que estuviera
+  corriendo termina como `SKIP` con `detail=abort` y se emite `FTEST_DONE`.
+- `HMI,FTEST,CONFIRM,<id>,<0|1>` — respuesta del operario a un `CONFIRM`.
+  Un `id` distinto del que la placa está esperando se descarta con log.
+
+**Precondición**: la motherBoard rechaza `START` y `RUN` con
+`CTRL,FTEST_REJECT,1` si `in3.actuation != OFF` o hay fototerapia activa. Los
+tests de actuadores encienden el calefactor y la fototerapia en lazo abierto y
+no pueden pisar un control real; el test no tiene autoridad para apagarlo.
+Con una batería ya en curso responde `CTRL,FTEST_REJECT,0`.
+
+Mientras dura la batería la placa pone `in3.alarmsEnabled = false`, levanta
+`g_factoryTestActive` (que inhibe `PIDHandler()` y `turnFans()`) y deja todos
+los PWM a 0; lo restaura siempre al terminar, abortar o fallar.
+
+#### CTRL,FTEST (resultado de un test)
+**Formato**: `CTRL,FTEST,<id>,<status>,<detail>`
+- `status`: `0` RUNNING (empieza), `1` PASS, `2` FAIL, `3` SKIP (opcional sin
+  entorno, o en cascada tras un fallo previo), `4` WAIT (espera un estímulo del
+  operario: abrir la puerta, tapar el sensor de luz), `5` CONFIRM (pregunta al
+  operario; espera `HMI,FTEST,CONFIRM`).
+- `detail`: último campo, hasta `FTEST_DETAIL_MAX` (40) caracteres, sin comas
+  (el codec sustituye `,`/`\r`/`\n` por `;`). Lleva la medida o el motivo
+  (`timeout`, `sin sim`, `sin sonda`, `i2c2 responde`…). Puede ir vacío.
+- Cada test emite exactamente un `RUNNING` y un resultado final; los estados
+  `WAIT`/`CONFIRM` pueden repetirse y no cuentan en los totales.
+- El receptor descarta la línea si faltan campos, si `id`/`status` no son
+  numéricos, si `id` no es de motherBoard o `status` > 5.
+- Las líneas salen por una **cola** drenada por la tarea de comunicación
+  (`CommunicationHost_Enqueue()`), nunca desde la tarea de test: el `CTRL,PPG`
+  a 25 Hz comparte el mismo UART y dos escritores entrelazarían caracteres.
+  Cola llena = línea perdida con log; el display la da por FAIL por plazo.
+
+| id | clave | qué verifica | opcional |
+|---|---|---|---|
+| 0 | sysinfo | flash, heap libre, reset reason, MAC | |
+| 1 | ina3221 | ambos INA3221 presentes (0x40/0x41) | |
+| 2 | standby | `testStandByCurrent()` sin bits nuevos en `HW_error` | |
+| 3 | charger | BQ25730 responde; VBAT/VSYS/VBUS/ICHG en detail | |
+| 4 | power_src | red o batería (informativo) | |
+| 5 | skin_adc | ADS1110 responde; NTC en rango o `sin sonda` | |
+| 6 | ext_sht4x | SHT4x exterior presente y en rango | |
+| 7 | sensor_src | la placa se clasificó como SensorBoard (no I2C2) | |
+| 8 | sb_link | SensorBoard enumerada por USB y `link_ok` | |
+| 9 | sb_status | `status`: sht0/sht1/sht2/als/door/cam disponibles; `fw` y `usb_swap` en detail | |
+| 10 | sb_env | 3×SHT40 válidas, dispersión ≤ 1.0 °C, vs exterior ≤ 3.0 °C | |
+| 11 | sb_door | WAIT: puerta abierta y cerrada (30 s) | |
+| 12 | sb_light | WAIT: lux cae < 50 % de la base (20 s); base < 20 lux → SKIP | |
+| 13 | sb_camera | `capture` devuelve JPEG ≥ 1000 B en 10 s | |
+| 14 | actuators | `actuatorsTest()` sin bits nuevos de calefactor/foto/ventilador | |
+| 15 | fan_rpm | tacómetro con feedback y RPM ≥ `FAN_MIN_RPM` | |
+| 16 | humid_usb | USB_EN → sin USB_FAULT y corriente > 20 mA | |
+| 17 | buzzer | ΔdBA ≥ 6 dB con el micrófono de la SensorBoard; sin micrófono → CONFIRM | |
+| 18 | afe_spi | registros de timing del AFE4490 releídos por SPI; DIAG en detail | |
+| 19 | afe_probe | sonda SpO2 conectada | ✓ |
+| 20 | hmi_link | enlace con el display vivo | |
+| 21 | gsm_at | módem arrancado (`GPRS.powerUp`, ≤ 45 s) | |
+| 22 | gsm_sim | CCID leído (≤ 15 s) | |
+| 23 | gsm_signal | CSQ 1..31 | |
+| 24 | gsm_net | adjunto a red (≤ 60 s) | ✓ |
+| 25 | wifi | conectado al AP por defecto (≤ 30 s), RSSI en detail | ✓ |
+| 26 | tb_provision | sesión ThingsBoard aceptada con el token provisionado; `sin serie` → SKIP | ✓ |
+| 27 | time | hora sincronizada; fuente en detail | ✓ |
+| 28 | nvs | escribir y releer `mb_ftest/probe` | |
+| 29 | littlefs | partición montada | |
+
+Los tests GSM/WiFi/ThingsBoard son **pasivos**: leen el estado que ya
+recogen `GPRS_Task` y la tarea WiFi, no envían comandos AT ni tocan
+credenciales. El módem no tiene PWRKEY cableado y un reset por software lo
+dejaría apagado hasta ciclo de alimentación.
+
+#### CTRL,FTEST_DONE
+**Formato**: `CTRL,FTEST_DONE,<pass>,<fail>,<skip>` — cierre de la batería o
+del test único. Los contadores coinciden con la secuencia de resultados
+emitida. Tras una batería completa la placa persiste en NVS `mb_ftest` el
+epoch, las máscaras PASA/FALLA/EJECUTADO, `FWversion` y el `fw` de la
+SensorBoard; un `RUN` actualiza solo los bits de su `id`.
+
+#### CTRL,FTEST_REJECT
+**Formato**: `CTRL,FTEST_REJECT,<reason>` — `0` batería ya en curso, `1`
+control o fototerapia activos, `2` `id` desconocido.
 
 ### Validación (ambos sentidos)
 Toda línea `PROFILE_*`/`WEIGHT_HISTORY_*`/`ALM_*` malformada (número de campos

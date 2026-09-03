@@ -76,3 +76,34 @@ Most real-time buses are operated discretely:
 *   **General I2C Bus**: Routes typical addresses for TCA9555 expanders, Backlight at 0x30, INA3221 Voltage Sensors (0x40 and 0x41), and capacitive interface.
 *   **CH34x Chip**: This special controller manages a key USB-to-Serial transition acting as an umbilical cord from the Motherboard to the HMI Display on the 115200 8N1 interface. To deal with intrinsic communication hangs, DTR/RTS pins are used precisely.
 *   **Flash and OTA:** Physical firmware update is enabled as well as via GPRS or WiFi, partitioning the hardware to host full banks of fail-safe copies.
+
+## 5. Factory Test Coverage (motherBoard)
+
+Besides the boot self-test in `initHardware()` (standby current, buzzer,
+sensors, actuators), the motherBoard runs a 30-step factory battery on request
+from the display (`HMI,FTEST,START`, see `Firmware/PROTOCOL.md` § 3). It lives
+in `src/modules/factory_test/` and reuses `actuatorsTest()` and
+`testStandByCurrent()` inside an explicit safe state (alarms inhibited, PIDs
+in MANUAL, `PIDHandler()`/`turnFans()` gated by `g_factoryTestActive`, all PWM
+at 0), restored unconditionally afterwards. It refuses to start while thermal
+control or phototherapy is active.
+
+| Area | Tests | Evidence |
+|---|---|---|
+| Power | INA3221 ×2 presence, standby current, BQ25730 readings, mains/battery | I2C ACK, `HW_error` bits, `charge_status()` |
+| On-board sensors | ADS1110 + skin NTC, external SHT4x | I2C ACK, plausible ranges, `skinProbeLastReading()` |
+| Hardware generation | sensor source must be SensorBoard | `sensorSourceGet()`; a shorted IO19/IO20 pad shows up here |
+| SensorBoard (USB) | link, `status` availability of sht0/1/2, ALS, Hall, camera; 3×SHT40 coherence (≤ 1.0 °C spread, ≤ 3.0 °C vs external); door open/close; light drop; JPEG capture | `sensorboard_comm` snapshot and `status`/`capture` requests |
+| Actuators | heater, phototherapy, fan currents; fan RPM; humidifier USB switch (`USB_EN`/`USB_FAULT`, current) | `actuatorsTest()`, INA3221 channels |
+| Buzzer | dBA rise measured by the SensorBoard microphone; operator confirmation if no microphone | `sound_level` events |
+| SpO2 | AFE4490 timing registers read back over SPI; probe attached (optional) | `getTimingConfig()`, `runAfeDiagnostics()`, `probe_state` |
+| Communications | HMI link; GSM modem up, SIM CCID, CSQ, network attach (optional); WiFi to the default AP (optional); ThingsBoard session with provisioned token (optional); wall clock (optional) | state already collected by `GPRS_Task` and the WiFi task, read passively |
+| Storage | NVS write/read, LittleFS mount | `Preferences`, `LittleFS.begin()` |
+
+Deliberately **not** tested: the TCA9535 expander and the rotary encoder
+(vestigial code with no hardware behind it on this board), buzzer current
+(only measurable on HW ≤ 16), `HW_NUM` and the ON/OFF latch (if the board
+booted and runs the test, both worked), and the display backlight cycle.
+
+Results are persisted in NVS namespace `mb_ftest` (epoch, PASS/FAIL/RUN
+masks, firmware versions of the motherBoard and the SensorBoard).

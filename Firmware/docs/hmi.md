@@ -46,3 +46,38 @@ Unlike basic thermal parameters, Phototherapy adds a temporal dimension (Countdo
 ## 5. Language
 
 The HMI loads and manages logical bidimensional arrays pointing the LCD strings dependent on variables. The baseboard also needs to know which language the user is reading in order to re-send the batch of alarm strings. Both converge through the initial UART packet sent from the display.
+
+## 6. Factory Test (splash button)
+
+The boot splash (`ui_ScreenIntro`) carries a single extra control, the
+**FACTORY TEST** button (bottom-left). It is the only entry point: no other
+screen offers it, so the test can only be started right after power-up, before
+the unit is in clinical use. Pressing it cancels the automatic jump to the main
+screen and suspends the 20 s inactivity lock while the test screen is open.
+
+The test screen is a full-screen overlay (`src/ui/FactoryTest.cpp`, same
+pattern as `AlarmCenter`) with one row per test. Rows are colour-coded: blue
+PASS, red FAIL, amber for waiting / skipped. The flow is:
+
+1. **Local tests**, run inside `UI_Task` by polling: flash/PSRAM/heap, I2C
+   presence of the GT911 touch (0x14) and the STC8H1K28 backlight/buzzer
+   controller (0x30), five solid-colour panel patterns (red, green, blue,
+   white, black) followed by a Yes/No question, five touch targets (corners and
+   centre, hit within 40 px), buzzer and speaker with Yes/No, WiFi MAC and
+   connection or scan, NVS write/read, and the UART link with the motherBoard.
+2. **Remote tests**: the display sends `HMI,FTEST,START` and adds a row for
+   each `CTRL,FTEST` result (see `Firmware/PROTOCOL.md` § 3). When the board
+   reports `WAIT` the row shows the operator instruction for that test
+   ("Open and close the door", "Cover the light sensor"); when it reports
+   `CONFIRM` the row shows the question and Yes/No buttons, whose answer goes
+   back as `HMI,FTEST,CONFIRM`. If the board rejects the test (control active,
+   test already running) the reason is displayed. If nothing arrives within
+   10 s the section is marked "board without support".
+3. **Summary** with PASS/FAIL/skipped counts for both boards. Each failed row
+   offers **Retry** (a local test re-runs; a board test sends
+   `HMI,FTEST,RUN,<id>`). **Exit** aborts a running board battery, closes the
+   overlay and loads the main screen.
+
+The result is persisted in NVS namespace `hmi_ftest` (epoch, local PASS/FAIL
+masks, board counters, firmware version) for traceability. Operator questions
+time out after 60 s as FAIL, so an unattended unit never hangs on the screen.
