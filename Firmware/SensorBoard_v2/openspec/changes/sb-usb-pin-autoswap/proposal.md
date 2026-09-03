@@ -2,7 +2,7 @@
 
 ## Why
 
-El conector USB SensorBoard↔motherboard admite dos orientaciones y, en una de ellas, D+ y D- (IO20/IO19) llegan cruzados: el host ve un dispositivo low-speed que no responde y la enumeración falla. El SensorBoard queda mudo (sin heartbeat) y la motherboard lo declara "no disponible" aunque el hardware esté sano. El origen es de hardware (cableado del conector) y se corregirá en la siguiente revisión de PCB, pero el equipo puede montarse o reconectarse en campo con el cable al revés: el firmware debe ser tolerante a la orientación.
+En el **SensorBoard HW_NUM 4** el conector USB SensorBoard↔motherboard admite dos orientaciones y, en una de ellas, D+ y D- (IO20/IO19) llegan cruzados: el host ve un dispositivo low-speed que no responde y la enumeración falla. El SensorBoard queda mudo (sin heartbeat) y la motherboard lo declara "no disponible" aunque el hardware esté sano. El origen es de hardware (cableado del conector); la **V5 ya está enviada a fabricar con el fix en hardware**, pero las unidades HW4 pueden montarse o reconectarse en campo con el cable al revés: el firmware debe ser tolerante a la orientación. En la V5 el mecanismo queda activo e inocuo (solo actúa si nadie enumera).
 
 Descartado el fallback UART/I2C por los mismos pines: duplica la pila de transporte en ambas placas, no es simétrico ante el cruce (TX/RX y SDA/SCL también se invierten) y pierde el canal binario de la cámara. Ver ADR-0003.
 
