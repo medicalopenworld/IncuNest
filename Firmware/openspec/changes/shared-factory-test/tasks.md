@@ -169,3 +169,23 @@ Commit: `docs: protocolo FTEST y test de fabrica`.
 - [ ] 8.4 **Manual** — HMI con motherBoard antigua: "MB sin soporte" a los 10 s.
 - [ ] 8.5 **Manual** — resultados durante `CTRL,PPG` a 25 Hz sin líneas
       corruptas.
+
+## 9. Evidencia del stage Verify (2026-09-03, sin hardware conectado)
+
+Ejecutado por el orquestador sobre HEAD `6ed12f2` + docs, en el worktree
+`Firmware/.worktrees/factory-test`, con PowerShell:
+
+| Comando | Resultado |
+|---|---|
+| `motherBoard: pio run -e IncuNest_V18` | SUCCESS, RAM 26.3 % (86040 B), Flash 54.4 % (1496253 B), 0 warnings |
+| `motherBoard: pio test -e native` | 20 suites PASSED (287 casos), incl. `test_factory_test` (18) y los 3 escenarios nuevos de `test_sensorboard_json` |
+| `Display_HMI: pio run -e main` | SUCCESS, RAM 38.6 % (126420 B), Flash 78.5 % (2470152 B), 0 warnings |
+
+`test_sensorboard_frame` sale **ERRORED** (código 0xC0000139, el proceso no
+arranca por una DLL) tanto aquí como en `dev` sin este cambio: es un problema
+del entorno de esta máquina, no de la feature. Queda fuera de este change.
+
+Cobertura de escenarios: todos los marcados `[env:native]` en las tres specs
+tienen `TEST_CASE` (protocolo: tabla, codec, descartes; mb: acumulación,
+no-finales, reintento, `status` de la SensorBoard). Los marcados como manuales
+son la sección 8, pendiente de banco.
