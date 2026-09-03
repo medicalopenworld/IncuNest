@@ -23,6 +23,7 @@ from updater import check_update_available, download_latest
 HOTPLUG_POLL_S = 0.5
 POST_FLASH_COOLDOWN_S = 8
 SLOT_CLEAR_DELAY_S = 5
+SLOT_CONSOLE_LINES = 5
 NUM_SLOTS = 3
 WIFI_SLOTS = 8
 WIFI_SCAN_INTERVAL_S = 5
@@ -85,9 +86,32 @@ class _Slot:
         self._status = tk.Label(self._frame, text="", anchor='w', fg='#9E9E9E')
         self._status.pack(fill='x')
 
+        # Per-slot console: esptool output and this device's lifecycle
+        # messages land here, so parallel flashes don't interleave in the
+        # shared timeline log at the bottom of the window.
+        self._console = scrolledtext.ScrolledText(
+            self._frame, height=SLOT_CONSOLE_LINES, state='disabled',
+            font=('Courier', 8), wrap='word', bg='#FAFAFA',
+        )
+        self._console.pack(fill='x', pady=(4, 0))
+        self._console.tag_config('success', foreground='#2E7D32')
+        self._console.tag_config('error',   foreground='#C62828')
+        self._console.tag_config('info',    foreground='#1565C0')
+
     @property
     def is_free(self) -> bool:
         return self.port is None
+
+    def log(self, msg: str, tag: str = '') -> None:
+        self._console.configure(state='normal')
+        self._console.insert('end', msg.strip() + '\n', tag)
+        self._console.see('end')
+        self._console.configure(state='disabled')
+
+    def clear_log(self) -> None:
+        self._console.configure(state='normal')
+        self._console.delete('1.0', 'end')
+        self._console.configure(state='disabled')
 
     @property
     def is_identifying(self) -> bool:
@@ -103,6 +127,7 @@ class _Slot:
         self.port = port
         self.board = None
         self._start_time = time.time()
+        self.clear_log()
         self._title.configure(text=f"Identificando placa…  ·  {port}", fg='#000000')
         self._progress_var.set(0)
         self._bar.configure(mode='indeterminate')
@@ -115,8 +140,10 @@ class _Slot:
         self.board = board
         self._status_override = None
         if self._start_time is None:
-            # Fresh assignment; a promotion from assign_pending() keeps its clock.
+            # Fresh assignment; a promotion from assign_pending() keeps its
+            # clock and its console.
             self._start_time = time.time()
+            self.clear_log()
         self._title.configure(text=f"{board.value}  ·  {port}", fg='#000000')
         self._progress_var.set(0)
         if not self._indeterminate:
@@ -604,8 +631,13 @@ class FlasherApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("IncuNest Firmware Flasher")
-        self.root.geometry("480x820")
-        self.root.resizable(False, False)
+        # Three slots with their own consoles need more height than the old
+        # 820 px; clamp to the screen so the update button and shared log
+        # never fall off the bottom, and let the user stretch it vertically.
+        height = min(1000, self.root.winfo_screenheight() - 80)
+        self.root.geometry(f"480x{height}")
+        self.root.minsize(480, 700)
+        self.root.resizable(False, True)
 
         self._slots: list[_Slot] = []
         self._port_to_slot: dict[str, int] = {}
@@ -691,7 +723,12 @@ class FlasherApp:
                                         fg='#757575', font=('', 10))
             self._upd_status.pack(side='left', padx=10)
 
-        # --- Log area (shared, outside notebook) ---
+        # --- Timeline log (shared, outside notebook): one summary line per
+        #     slot event plus everything that has no slot (hints, ignored
+        #     devices, firmware updates, WiFi tab). Per-device detail lives in
+        #     each slot's own console. ---
+        tk.Label(self.root, text="Registro general", anchor='w',
+                 font=('', 9, 'bold'), fg='#616161').pack(fill='x', padx=12, pady=(4, 0))
         self._log = scrolledtext.ScrolledText(
             self.root, height=5, state='disabled', font=('Courier', 9),
         )
@@ -794,20 +831,26 @@ class FlasherApp:
         if slot_idx is None:
             return
         self._slots[slot_idx].assign_pending(port)
-        self._log_line(
-            f"Dispositivo en {port} → slot {slot_idx + 1}: identificando placa "
-            "(motherBoard o SensorBoard) por tamaño de flash…", 'info',
+        self._slots[slot_idx].log(
+            f"Dispositivo en {port}. Identificando placa (motherBoard o SensorBoard) "
+            "por tamaño de flash…", 'info',
         )
+        self._log_line(f"Dispositivo en {port} → slot {slot_idx + 1} (identificando)", 'info')
         self._update_status_banner()
         self._tick_slot(slot_idx)
 
     def _on_identify_failed(self, port: str, msg: str) -> None:
-        self._log_line(f"No se pudo identificar el dispositivo en {port}: {msg}", 'error')
         slot_idx = self._port_to_slot.get(port)
         if slot_idx is not None and self._slots[slot_idx].is_identifying:
+            self._slots[slot_idx].log(f"No se pudo identificar la placa: {msg}", 'error')
+            self._log_line(
+                f"Slot {slot_idx + 1}: no se pudo identificar el dispositivo en {port}.", 'error'
+            )
             self._slots[slot_idx].set_error()
             self._update_status_banner()
             self.root.after(SLOT_CLEAR_DELAY_S * 1000, self._clear_slot, slot_idx, port)
+        else:
+            self._log_line(f"No se pudo identificar el dispositivo en {port}: {msg}", 'error')
 
     def _on_hotplug_detected(self, port: str, board: Board) -> None:
         slot_idx = self._port_to_slot.get(port)
@@ -821,6 +864,7 @@ class FlasherApp:
                 return
             self._slots[slot_idx].assign(port, board)
             self._tick_slot(slot_idx)
+        self._slots[slot_idx].log(f"{board.value} detectado en {port}.", 'info')
         self._log_line(f"{board.value} detectado en {port} → slot {slot_idx + 1}", 'info')
         self._update_status_banner()
 
@@ -830,9 +874,12 @@ class FlasherApp:
             dlg = _SerialNumberDialog(self.root, port)
             self._slots[slot_idx].set_status('')
             if dlg.result is None:
+                self._slots[slot_idx].log("Flasheo cancelado por el usuario.", 'info')
                 self._slots[slot_idx].reset()
                 del self._port_to_slot[port]
-                self._log_line(f"Flasheo de {board.value} cancelado.", 'info')
+                self._log_line(
+                    f"Slot {slot_idx + 1}: flasheo de {board.value} cancelado.", 'info'
+                )
                 self._update_status_banner()
                 return
             self._run_flash(port, board, slot_idx, dlg.result)
@@ -855,7 +902,7 @@ class FlasherApp:
                                 firmware_present: bool) -> None:
         self._slots[slot_idx].set_status('')
         if firmware_present:
-            self._log_line("Firmware existente — serial conservado.", 'info')
+            self._slots[slot_idx].log("Firmware existente — serial conservado.", 'info')
             self._run_flash(port, board, slot_idx, None)
         else:
             # Virgin board — ask for serial number before flashing
@@ -863,9 +910,12 @@ class FlasherApp:
             dlg = _SerialNumberDialog(self.root, port)
             self._slots[slot_idx].set_status('')
             if dlg.result is None:
+                self._slots[slot_idx].log("Flasheo cancelado por el usuario.", 'info')
                 self._slots[slot_idx].reset()
                 del self._port_to_slot[port]
-                self._log_line(f"Flasheo de {board.value} cancelado.", 'info')
+                self._log_line(
+                    f"Slot {slot_idx + 1}: flasheo de {board.value} cancelado.", 'info'
+                )
                 self._update_status_banner()
                 return
             self._run_flash(port, board, slot_idx, dlg.result)
@@ -902,11 +952,14 @@ class FlasherApp:
 
     def _update_slot_progress(self, slot_idx: int, msg: str, pct: Optional[int]) -> None:
         if msg.strip():
-            self._log_line(msg)
+            self._slots[slot_idx].log(msg)  # raw esptool output stays in its slot
         self._slots[slot_idx].update_progress(pct)
 
     def _on_flash_ok(self, port: str, board: Board, slot_idx: int) -> None:
-        self._log_line(f"¡{board.value} flasheado con éxito!", 'success')
+        self._slots[slot_idx].log(f"¡{board.value} flasheado con éxito!", 'success')
+        self._log_line(
+            f"Slot {slot_idx + 1}: ¡{board.value} en {port} flasheado con éxito!", 'success'
+        )
         self._slots[slot_idx].set_done()
         self._cooldown_until[port] = time.time() + POST_FLASH_COOLDOWN_S
         if board == Board.SENSORBOARD:
@@ -915,7 +968,11 @@ class FlasherApp:
         self.root.after(SLOT_CLEAR_DELAY_S * 1000, self._clear_slot, slot_idx, port)
 
     def _on_flash_err(self, msg: str, port: str, board: Board, slot_idx: int) -> None:
-        self._log_line(f"Flasheo de {board.value} fallido.\n{msg}", 'error')
+        self._slots[slot_idx].log(f"Flasheo fallido.\n{msg}", 'error')
+        self._log_line(
+            f"Slot {slot_idx + 1}: flasheo de {board.value} en {port} fallido — "
+            "detalle en la consola del slot.", 'error'
+        )
         self._slots[slot_idx].set_error()
         self._update_status_banner()
         self.root.after(SLOT_CLEAR_DELAY_S * 1000, self._clear_slot, slot_idx, port)
