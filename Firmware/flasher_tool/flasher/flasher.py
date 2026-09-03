@@ -1,72 +1,27 @@
 import io
 import os
 import re
-import sys
 import tempfile
-import threading
 from pathlib import Path
 from typing import Callable, Optional
 
 import esptool
 
+import esptool_io
 import nvs_gen
 from detector import Board
-
-
-# Force plain-text esptool output for all threads (no ANSI / rich).
-os.environ.setdefault('NO_COLOR', '1')
-
-_tl = threading.local()          # per-thread writer slot
-_proxy_lock = threading.Lock()
-_proxy_installed = False
-
-
-class _EsptoolProxy(io.TextIOBase):
-    """Thread-local stdout/stderr proxy for concurrent esptool calls.
-
-    Installed once as sys.stdout and sys.stderr so that parallel flash
-    threads each route output only to their own per-slot writer.
-    """
-
-    @property
-    def encoding(self) -> str:
-        return 'utf-8'
-
-    def write(self, s: str) -> int:
-        w = getattr(_tl, 'writer', None)
-        if w is not None:
-            return w.write(s)
-        return len(s)  # discard; don't block esptool callers
-
-    def flush(self) -> None:
-        w = getattr(_tl, 'writer', None)
-        if w is not None:
-            try:
-                w.flush()
-            except Exception:
-                pass
-
-
-def _install_proxy() -> None:
-    global _proxy_installed
-    if _proxy_installed:
-        return
-    with _proxy_lock:
-        if not _proxy_installed:
-            proxy = _EsptoolProxy()
-            sys.stdout = proxy
-            sys.stderr = proxy
-            _proxy_installed = True
 
 
 _BOARD_FOLDER = {
     Board.MOTHERBOARD: 'motherboard',
     Board.DISPLAY_HMI: 'display_hmi',
+    Board.SENSORBOARD: 'sensorboard',
 }
 
 _BOARD_BEFORE_RESET = {
     Board.MOTHERBOARD: 'default-reset',
     Board.DISPLAY_HMI: 'default-reset',
+    Board.SENSORBOARD: 'default-reset',
 }
 
 _BOARD_FILES = {
@@ -79,6 +34,14 @@ _BOARD_FILES = {
         ('0x0000', 'bootloader.bin'),
         ('0x8000', 'partitions.bin'),
         ('0xE000', 'ota_data_initial.bin'),
+        ('0x10000', 'firmware.bin'),
+    ],
+    # ESP-IDF native layout (bootloader offset 0x0, partition table at
+    # 0x8000, factory app at 0x10000 — see SensorBoard_v2/partitions.csv).
+    # No otadata partition in that table, so no ota_data_initial.bin.
+    Board.SENSORBOARD: [
+        ('0x0000', 'bootloader.bin'),
+        ('0x8000', 'partitions.bin'),
         ('0x10000', 'firmware.bin'),
     ],
 }
@@ -129,28 +92,25 @@ class _ProgressTracker:
 
 def has_firmware_flashed(port: str) -> bool:
     """Return True if the app partition (0x10000) contains firmware."""
-    _install_proxy()
-
     fd, tmp = tempfile.mkstemp(suffix='.bin')
     os.close(fd)
 
-    _tl.writer = io.StringIO()  # discard all esptool output
     try:
-        esptool.main([
-            '--port', port,
-            '--chip', 'esp32s3',
-            '--no-stub',
-            '--before', 'no-reset',
-            '--after', 'no-reset',
-            'read_flash',
-            '0x10000', '4', tmp,
-        ])
+        with esptool_io.capture():  # discard all esptool output
+            esptool.main([
+                '--port', port,
+                '--chip', 'esp32s3',
+                '--no-stub',
+                '--before', 'no-reset',
+                '--after', 'no-reset',
+                'read_flash',
+                '0x10000', '4', tmp,
+            ])
         data = open(tmp, 'rb').read()
         return len(data) == 4 and data != b'\xff\xff\xff\xff'
     except Exception:
         return True  # conservative: assume firmware present, preserve NVS
     finally:
-        _tl.writer = None
         try:
             os.unlink(tmp)
         except OSError:
@@ -164,8 +124,6 @@ def flash_board(
     progress_callback: Callable[[str, Optional[int]], None],
     serial_number: Optional[int] = None,
 ) -> None:
-    _install_proxy()
-
     folder = firmware_base / _BOARD_FOLDER[board]
     file_pairs = list(_BOARD_FILES[board])
 
@@ -215,7 +173,7 @@ def flash_board(
                 progress_callback(text.rstrip(), tracker.parse(text))
             return result
 
-    _tl.writer = _Writer()
+    esptool_io.set_thread_writer(_Writer())
     try:
         esptool.main(args)
     except SystemExit as e:
@@ -228,7 +186,7 @@ def flash_board(
         if not reset_seen:
             raise RuntimeError(str(e))
     finally:
-        _tl.writer = None
+        esptool_io.set_thread_writer(None)
         if nvs_tmp:
             try:
                 os.unlink(nvs_tmp)

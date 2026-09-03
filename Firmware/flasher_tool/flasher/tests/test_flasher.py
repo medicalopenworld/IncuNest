@@ -2,7 +2,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch
 
-from flasher import flash_board, _parse_percent
+from flasher import flash_board, _ProgressTracker
 from detector import Board
 
 
@@ -11,6 +11,7 @@ def firmware_dir(tmp_path):
     for folder, files in [
         ('motherboard', ['bootloader.bin', 'partitions.bin', 'firmware.bin']),
         ('display_hmi', ['bootloader.bin', 'partitions.bin', 'ota_data_initial.bin', 'firmware.bin']),
+        ('sensorboard', ['bootloader.bin', 'partitions.bin', 'firmware.bin']),
     ]:
         d = tmp_path / folder
         d.mkdir()
@@ -69,11 +70,26 @@ def test_raises_file_not_found_for_missing_binary(tmp_path):
         flash_board('COM3', Board.MOTHERBOARD, tmp_path, lambda m, p: None)
 
 
-def test_parse_percent_extracts_integer():
-    assert _parse_percent("Writing at 0x00010000... (67 %)") == 67
-    assert _parse_percent("Writing at 0x00010000... (100 %)") == 100
+def test_sensorboard_flash_includes_correct_addresses_no_ota_data(firmware_dir):
+    captured = []
+    with patch('flasher.esptool.main', lambda args: captured.extend(args)):
+        flash_board('COM3', Board.SENSORBOARD, firmware_dir, lambda m, p: None)
+
+    assert '0x0000' in captured
+    assert '0x8000' in captured
+    assert '0x10000' in captured
+    assert '0xE000' not in captured
 
 
-def test_parse_percent_returns_none_for_non_progress_line():
-    assert _parse_percent("Uploading stub...") is None
-    assert _parse_percent("") is None
+def test_progress_tracker_parses_percent():
+    tracker = _ProgressTracker.__new__(_ProgressTracker)
+    tracker._segs, tracker._total, tracker._last = [], 0, 0
+    assert tracker.parse("Writing at 0x00010000... (67 %)") == 67
+    assert tracker.parse("Writing at 0x00010000... (100 %)") == 100
+
+
+def test_progress_tracker_returns_none_for_non_progress_line():
+    tracker = _ProgressTracker.__new__(_ProgressTracker)
+    tracker._segs, tracker._total, tracker._last = [], 0, 0
+    assert tracker.parse("Uploading stub...") is None
+    assert tracker.parse("") is None

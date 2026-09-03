@@ -12,13 +12,22 @@ from tkinter import ttk, scrolledtext
 import serial.tools.list_ports
 from PIL import Image, ImageTk
 
-from detector import Board, find_all_board_ports, board_from_vid_pid
+from detector import (
+    Board, find_all_board_ports, board_from_vid_pid,
+    is_ambiguous_native_usb, is_sensorboard_app_port,
+    detect_board_ambiguous, BoardDetectionError,
+)
 from flasher import flash_board, has_firmware_flashed
 from updater import check_update_available, download_latest
 
 HOTPLUG_POLL_S = 0.5
 POST_FLASH_COOLDOWN_S = 8
 SLOT_CLEAR_DELAY_S = 5
+SLOT_CONSOLE_LINES = 4
+LEFT_COLUMN_W = 300     # logo, estado, binarios locales y registro general
+LOG_LINES = 10          # alto fijo del registro general
+WINDOW_W = 820
+WINDOW_H = 576
 NUM_SLOTS = 3
 WIFI_SLOTS = 8
 WIFI_SCAN_INTERVAL_S = 5
@@ -63,7 +72,7 @@ class _Slot:
             parent, text=f"Slot {index + 1}",
             padx=8, pady=4, font=('', 9, 'bold'),
         )
-        self._frame.pack(fill='x', padx=12, pady=4)
+        self._frame.pack(fill='x', padx=4, pady=4)
 
         self._title = tk.Label(
             self._frame, text="—  Esperando dispositivo…",
@@ -81,20 +90,71 @@ class _Slot:
         self._status = tk.Label(self._frame, text="", anchor='w', fg='#9E9E9E')
         self._status.pack(fill='x')
 
+        # Per-slot console: esptool output and this device's lifecycle
+        # messages land here, so parallel flashes don't interleave in the
+        # shared timeline log at the bottom of the window.
+        self._console = scrolledtext.ScrolledText(
+            self._frame, height=SLOT_CONSOLE_LINES, state='disabled',
+            font=('Courier', 8), wrap='word', bg='#FAFAFA',
+        )
+        self._console.pack(fill='x', pady=(4, 0))
+        self._console.tag_config('success', foreground='#2E7D32')
+        self._console.tag_config('error',   foreground='#C62828')
+        self._console.tag_config('info',    foreground='#1565C0')
+
     @property
     def is_free(self) -> bool:
         return self.port is None
 
-    def assign(self, port: str, board: Board) -> None:
+    def log(self, msg: str, tag: str = '') -> None:
+        self._console.configure(state='normal')
+        self._console.insert('end', msg.strip() + '\n', tag)
+        self._console.see('end')
+        self._console.configure(state='disabled')
+
+    def clear_log(self) -> None:
+        self._console.configure(state='normal')
+        self._console.delete('1.0', 'end')
+        self._console.configure(state='disabled')
+
+    @property
+    def is_identifying(self) -> bool:
+        """Reserved for a port whose board type is still being probed."""
+        return self.port is not None and self.board is None
+
+    def assign_pending(self, port: str) -> None:
+        """Reserve the slot for `port` while the flash-size probe decides which board it is.
+
+        Shows activity right away — the probe blocks for several seconds and
+        before this the UI stayed completely silent during that window.
+        """
         self.port = port
-        self.board = board
+        self.board = None
         self._start_time = time.time()
-        self._title.configure(text=f"{board.value}  ·  {port}", fg='#000000')
+        self.clear_log()
+        self._title.configure(text=f"Identificando placa…  ·  {port}", fg='#000000')
         self._progress_var.set(0)
         self._bar.configure(mode='indeterminate')
         self._bar.start(12)
         self._indeterminate = True
-        self._status.configure(text="⚡  Iniciando…  0s", fg='#E65100')
+        self.set_status('🔍  Leyendo tamaño de flash (motherBoard / SensorBoard)…')
+
+    def assign(self, port: str, board: Board) -> None:
+        self.port = port
+        self.board = board
+        self._status_override = None
+        if self._start_time is None:
+            # Fresh assignment; a promotion from assign_pending() keeps its
+            # clock and its console.
+            self._start_time = time.time()
+            self.clear_log()
+        self._title.configure(text=f"{board.value}  ·  {port}", fg='#000000')
+        self._progress_var.set(0)
+        if not self._indeterminate:
+            self._bar.configure(mode='indeterminate')
+            self._bar.start(12)
+            self._indeterminate = True
+        self._status.configure(text=f"⚡  Iniciando…  {self._elapsed()}", fg='#E65100')
 
     def set_status(self, text: str) -> None:
         """Set a persistent status override shown by tick() instead of 'Iniciando…'."""
@@ -106,7 +166,9 @@ class _Slot:
         if self._start_time is None or not self._indeterminate:
             return False
         if self._status_override:
-            self._status.configure(text=self._status_override, fg='#E65100')
+            self._status.configure(
+                text=f"{self._status_override}  {self._elapsed()}", fg='#E65100',
+            )
         else:
             self._status.configure(
                 text=f"⚡  Iniciando…  {self._elapsed()}",
@@ -133,7 +195,7 @@ class _Slot:
     def set_error(self) -> None:
         self._stop_indeterminate()
         self._title.configure(fg='#C62828')
-        self._status.configure(text=f"❌  Error ({self._elapsed()}) — revisa el log", fg='#C62828')
+        self._status.configure(text=f"❌  Error ({self._elapsed()}) — revisa la consola", fg='#C62828')
 
     def reset(self) -> None:
         self._stop_indeterminate()
@@ -573,12 +635,18 @@ class FlasherApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("IncuNest Firmware Flasher")
-        self.root.geometry("480x820")
-        self.root.resizable(False, False)
+        # Two columns: left = logo / status / local binaries / shared log,
+        # right = USB-WiFi notebook. Clamp to the screen and let the user
+        # resize; the shared log absorbs any extra height.
+        height = min(WINDOW_H, self.root.winfo_screenheight() - 80)
+        self.root.geometry(f"{WINDOW_W}x{height}")
+        self.root.minsize(WINDOW_W, 540)
+        self.root.resizable(True, True)
 
         self._slots: list[_Slot] = []
         self._port_to_slot: dict[str, int] = {}
         self._cooldown_until: dict[str, float] = {}
+        self._sb_hint_mute_until: float = 0.0
         self._known_ports: set = set()
 
         cfg = load_config()
@@ -596,36 +664,91 @@ class FlasherApp:
     # ------------------------------------------------------------------ #
 
     def _build_ui(self) -> None:
+        style = ttk.Style()
+        style.configure('Flash.Horizontal.TProgressbar', thickness=18)
+
+        body = tk.Frame(self.root)
+        body.pack(fill='both', expand=True)
+
+        # ================= Left column ================= #
+        left = tk.Frame(body, width=LEFT_COLUMN_W)
+        left.pack(side='left', fill='y', padx=(12, 6), pady=(10, 10))
+        left.pack_propagate(False)  # keep the fixed width regardless of content
+
         # --- Logo ---
         logo_path = get_logo_path()
         if logo_path.exists():
             img = Image.open(logo_path)
-            target_h = 90
+            target_h = 180
             target_w = int(img.width * target_h / img.height)
             img = img.resize((target_w, target_h), Image.LANCZOS)
             self._logo_img = ImageTk.PhotoImage(img)
-            tk.Label(self.root, image=self._logo_img).pack(pady=(10, 4))
+            tk.Label(left, image=self._logo_img).pack(pady=(0, 6))
         else:
-            tk.Label(self.root, text="IncuNest", font=('', 16, 'bold'),
-                     fg='#1565C0').pack(pady=(10, 4))
+            tk.Label(left, text="IncuNest", font=('', 16, 'bold'),
+                     fg='#1565C0').pack(pady=(0, 6))
 
-        ttk.Separator(self.root, orient='horizontal').pack(fill='x', padx=12)
+        ttk.Separator(left, orient='horizontal').pack(fill='x')
 
-        # --- Status banner (shared) ---
+        # --- Status banner + standing hint ---
+        wrap = LEFT_COLUMN_W - 8
         self._status_label = tk.Label(
-            self.root, text="⏳  Conecta un dispositivo para comenzar…",
-            anchor='w', font=('', 10), fg='#757575',
+            left, text="⏳  Conecta un dispositivo para comenzar…",
+            anchor='w', justify='left', wraplength=wrap,
+            font=('', 10), fg='#757575',
         )
-        self._status_label.pack(fill='x', padx=12, pady=(6, 2))
+        self._status_label.pack(fill='x', pady=(8, 2))
+        tk.Label(
+            left,
+            text="Para motherBoard y SensorBoard, conecta la placa mientras "
+                 "mantienes pulsado el botón de programación (BOOT / IO0).",
+            anchor='w', justify='left', wraplength=wrap,
+            font=('', 9), fg='#9E9E9E',
+        ).pack(fill='x', pady=(0, 8))
 
-        ttk.Separator(self.root, orient='horizontal').pack(fill='x', padx=12, pady=2)
+        ttk.Separator(left, orient='horizontal').pack(fill='x')
 
-        # --- Notebook ---
-        style = ttk.Style()
-        style.configure('Flash.Horizontal.TProgressbar', thickness=18)
+        # --- Shared timeline log: one summary line per slot event plus
+        #     everything that has no slot (hints, ignored devices, firmware
+        #     updates, WiFi tab). Per-device detail lives in each slot's
+        #     own console on the right. Fixed height. ---
+        tk.Label(left, text="Registro general", anchor='w',
+                 font=('', 9, 'bold'), fg='#616161').pack(fill='x', pady=(8, 2))
+        self._log = scrolledtext.ScrolledText(
+            left, height=LOG_LINES, state='disabled', font=('Courier', 8), wrap='word',
+        )
+        self._log.pack(fill='x')
 
-        notebook = ttk.Notebook(self.root)
-        notebook.pack(fill='x', padx=0, pady=0)
+        # --- "Actualizar binarios locales" — centred right under the log. ---
+        self._upd_btn: Optional[tk.Button] = None
+        self._upd_status: Optional[tk.Label] = None
+        if self._get_build_sources():
+            upd_frame = tk.Frame(left)
+            upd_frame.pack(fill='x', pady=(12, 0))
+            self._upd_btn = tk.Button(
+                upd_frame, text="📂  Actualizar binarios locales",
+                font=('', 10, 'bold'), bg='#37474F', fg='white',
+                padx=12, pady=6,
+                command=self._on_update_locals_clicked,
+            )
+            self._upd_btn.pack(anchor='center')
+            self._upd_status = tk.Label(
+                upd_frame, text='', anchor='center', justify='center', wraplength=wrap,
+                fg='#757575', font=('', 9),
+            )
+            self._upd_status.pack(fill='x', pady=(4, 0))
+        self._log.tag_config('success', foreground='#2E7D32')
+        self._log.tag_config('error',   foreground='#C62828')
+        self._log.tag_config('info',    foreground='#1565C0')
+
+        ttk.Separator(body, orient='vertical').pack(side='left', fill='y', pady=10)
+
+        # ================= Right column ================= #
+        right = tk.Frame(body)
+        right.pack(side='left', fill='both', expand=True, padx=(6, 12), pady=(10, 10))
+
+        notebook = ttk.Notebook(right)
+        notebook.pack(fill='both', expand=True)
 
         # USB tab
         usb_frame = tk.Frame(notebook)
@@ -638,44 +761,29 @@ class FlasherApp:
         notebook.add(wifi_frame, text='  WiFi  ')
         self._wifi_tab = _WifiTab(wifi_frame, self.root, self._log_line, get_firmware_base())
 
-        # --- "Actualizar binarios locales" — packed at bottom BEFORE log so it
-        #     isn't swallowed by the log's expand=True fill. ---
-        self._upd_btn: Optional[tk.Button] = None
-        self._upd_status: Optional[tk.Label] = None
-        if self._get_build_sources():
-            ttk.Separator(self.root, orient='horizontal').pack(
-                side='bottom', fill='x', padx=12,
-            )
-            upd_frame = tk.Frame(self.root)
-            upd_frame.pack(side='bottom', fill='x', padx=12, pady=(6, 8))
-            self._upd_btn = tk.Button(
-                upd_frame, text="📂  Actualizar binarios locales",
-                font=('', 10, 'bold'), bg='#37474F', fg='white',
-                padx=12, pady=6,
-                command=self._on_update_locals_clicked,
-            )
-            self._upd_btn.pack(side='left')
-            self._upd_status = tk.Label(upd_frame, text='', anchor='w',
-                                        fg='#757575', font=('', 10))
-            self._upd_status.pack(side='left', padx=10)
-
-        # --- Log area (shared, outside notebook) ---
-        self._log = scrolledtext.ScrolledText(
-            self.root, height=5, state='disabled', font=('Courier', 9),
-        )
-        self._log.pack(fill='both', expand=True, padx=12, pady=6)
-        self._log.tag_config('success', foreground='#2E7D32')
-        self._log.tag_config('error',   foreground='#C62828')
-        self._log.tag_config('info',    foreground='#1565C0')
-
     # ------------------------------------------------------------------ #
     # Hotplug monitor
     # ------------------------------------------------------------------ #
 
+    @staticmethod
+    def _is_flasher_port(vid: Optional[int], pid: Optional[int]) -> bool:
+        """True for any port this tool might care about, resolved or not.
+
+        Includes the ambiguous native-USB PID (motherBoard in any state, or a
+        virgin motherBoard/SensorBoard) — that still needs a flash-size probe
+        to know which board it actually is, done in _hotplug_loop — and the
+        running-SensorBoard CDC PID, which is only tracked to advise the user.
+        """
+        return (
+            board_from_vid_pid(vid, pid) is not None
+            or is_ambiguous_native_usb(vid, pid)
+            or is_sensorboard_app_port(vid, pid)
+        )
+
     def _init_hotplug(self) -> None:
         self._known_ports = {
             p.device for p in serial.tools.list_ports.comports()
-            if board_from_vid_pid(p.vid, p.pid) is not None
+            if self._is_flasher_port(p.vid, p.pid)
         }
         threading.Thread(target=self._hotplug_loop, daemon=True).start()
 
@@ -685,44 +793,104 @@ class FlasherApp:
             try:
                 current: dict[str, object] = {
                     p.device: p for p in serial.tools.list_ports.comports()
-                    if board_from_vid_pid(p.vid, p.pid) is not None
+                    if self._is_flasher_port(p.vid, p.pid)
                 }
             except Exception:
                 continue
             new_devices = {d: p for d, p in current.items() if d not in self._known_ports}
             self._known_ports = set(current.keys())
             for device, port_info in sorted(new_devices.items()):
+                if is_sensorboard_app_port(port_info.vid, port_info.pid):
+                    # SensorBoard firmware running (TinyUSB CDC): esptool can't
+                    # reset it into download mode, so don't even try — tell the
+                    # user how to get there. Muted right after a successful
+                    # SensorBoard flash, when the freshly written app boots
+                    # and enumerates on exactly this PID.
+                    if time.time() >= self._sb_hint_mute_until:
+                        self.root.after(
+                            0, self._log_line,
+                            f"SensorBoard con firmware en ejecución en {device} — no se "
+                            "puede flashear así. Para reflashearla: desconecta, mantén "
+                            "pulsado BOOT (IO0) mientras la conectas y no lo sueltes "
+                            "hasta que el slot empiece a escribir.", 'info',
+                        )
+                    continue
                 board = board_from_vid_pid(port_info.vid, port_info.pid)
+                if board is None and is_ambiguous_native_usb(port_info.vid, port_info.pid):
+                    # Blocking flash-size probe (several seconds) — safe here,
+                    # this loop already runs off the Tk main thread. Reserve a
+                    # slot first so the user sees what is going on meanwhile.
+                    self.root.after(0, self._on_identify_start, device)
+                    try:
+                        board = detect_board_ambiguous(device)
+                    except BoardDetectionError as exc:
+                        self.root.after(0, self._on_identify_failed, device, str(exc))
+                        continue
+                if board is None:
+                    continue
                 self.root.after(0, self._on_hotplug_detected, device, board)
 
-    def _on_hotplug_detected(self, port: str, board: Board) -> None:
+    def _reserve_slot(self, port: str, label: str) -> Optional[int]:
+        """Claim a free slot for `port`, or return None (with a log line) if it must be ignored."""
         if time.time() < self._cooldown_until.get(port, 0.0):
-            self._log_line(
-                f"{board.value} en {port} ignorado (enfriamiento post-flash).", 'info'
-            )
-            return
+            self._log_line(f"{label} en {port} ignorado (enfriamiento post-flash).", 'info')
+            return None
         if port in self._port_to_slot:
-            return  # already being processed
-
+            return None  # already being processed
         if self._downloading:
             self._log_line(
-                f"{board.value} en {port} ignorado — descarga de firmware en curso.", 'info'
+                f"{label} en {port} ignorado — descarga de firmware en curso.", 'info'
             )
-            return
-
+            return None
         slot_idx = next((i for i, s in enumerate(self._slots) if s.is_free), None)
         if slot_idx is None:
-            self._log_line(
-                f"{board.value} en {port} ignorado — todos los slots ocupados.", 'info'
-            )
-            return
-
-        # Reserve slot and show immediately so the user sees activity
+            self._log_line(f"{label} en {port} ignorado — todos los slots ocupados.", 'info')
+            return None
         self._port_to_slot[port] = slot_idx
-        self._slots[slot_idx].assign(port, board)
-        self._log_line(f"{board.value} detectado en {port} → slot {slot_idx + 1}", 'info')
+        return slot_idx
+
+    def _on_identify_start(self, port: str) -> None:
+        """Ambiguous native-USB port seen: occupy a slot while the flash-size probe runs."""
+        slot_idx = self._reserve_slot(port, "Dispositivo")
+        if slot_idx is None:
+            return
+        self._slots[slot_idx].assign_pending(port)
+        self._slots[slot_idx].log(
+            f"Dispositivo en {port}. Identificando placa (motherBoard o SensorBoard) "
+            "por tamaño de flash…", 'info',
+        )
+        self._log_line(f"Dispositivo en {port} → slot {slot_idx + 1} (identificando)", 'info')
         self._update_status_banner()
         self._tick_slot(slot_idx)
+
+    def _on_identify_failed(self, port: str, msg: str) -> None:
+        slot_idx = self._port_to_slot.get(port)
+        if slot_idx is not None and self._slots[slot_idx].is_identifying:
+            self._slots[slot_idx].log(f"No se pudo identificar la placa: {msg}", 'error')
+            self._log_line(
+                f"Slot {slot_idx + 1}: no se pudo identificar el dispositivo en {port}.", 'error'
+            )
+            self._slots[slot_idx].set_error()
+            self._update_status_banner()
+            self.root.after(SLOT_CLEAR_DELAY_S * 1000, self._clear_slot, slot_idx, port)
+        else:
+            self._log_line(f"No se pudo identificar el dispositivo en {port}: {msg}", 'error')
+
+    def _on_hotplug_detected(self, port: str, board: Board) -> None:
+        slot_idx = self._port_to_slot.get(port)
+        if slot_idx is not None and self._slots[slot_idx].is_identifying:
+            # Promote the slot reserved by _on_identify_start (keeps its clock
+            # and its already-running tick loop).
+            self._slots[slot_idx].assign(port, board)
+        else:
+            slot_idx = self._reserve_slot(port, board.value)
+            if slot_idx is None:
+                return
+            self._slots[slot_idx].assign(port, board)
+            self._tick_slot(slot_idx)
+        self._slots[slot_idx].log(f"{board.value} detectado en {port}.", 'info')
+        self._log_line(f"{board.value} detectado en {port} → slot {slot_idx + 1}", 'info')
+        self._update_status_banner()
 
         if board == Board.MOTHERBOARD and self._force_serial_number_entry:
             # Always ask for serial number regardless of existing firmware
@@ -730,9 +898,12 @@ class FlasherApp:
             dlg = _SerialNumberDialog(self.root, port)
             self._slots[slot_idx].set_status('')
             if dlg.result is None:
+                self._slots[slot_idx].log("Flasheo cancelado por el usuario.", 'info')
                 self._slots[slot_idx].reset()
                 del self._port_to_slot[port]
-                self._log_line(f"Flasheo de {board.value} cancelado.", 'info')
+                self._log_line(
+                    f"Slot {slot_idx + 1}: flasheo de {board.value} cancelado.", 'info'
+                )
                 self._update_status_banner()
                 return
             self._run_flash(port, board, slot_idx, dlg.result)
@@ -755,7 +926,7 @@ class FlasherApp:
                                 firmware_present: bool) -> None:
         self._slots[slot_idx].set_status('')
         if firmware_present:
-            self._log_line("Firmware existente — serial conservado.", 'info')
+            self._slots[slot_idx].log("Firmware existente — serial conservado.", 'info')
             self._run_flash(port, board, slot_idx, None)
         else:
             # Virgin board — ask for serial number before flashing
@@ -763,9 +934,12 @@ class FlasherApp:
             dlg = _SerialNumberDialog(self.root, port)
             self._slots[slot_idx].set_status('')
             if dlg.result is None:
+                self._slots[slot_idx].log("Flasheo cancelado por el usuario.", 'info')
                 self._slots[slot_idx].reset()
                 del self._port_to_slot[port]
-                self._log_line(f"Flasheo de {board.value} cancelado.", 'info')
+                self._log_line(
+                    f"Slot {slot_idx + 1}: flasheo de {board.value} cancelado.", 'info'
+                )
                 self._update_status_banner()
                 return
             self._run_flash(port, board, slot_idx, dlg.result)
@@ -802,18 +976,27 @@ class FlasherApp:
 
     def _update_slot_progress(self, slot_idx: int, msg: str, pct: Optional[int]) -> None:
         if msg.strip():
-            self._log_line(msg)
+            self._slots[slot_idx].log(msg)  # raw esptool output stays in its slot
         self._slots[slot_idx].update_progress(pct)
 
     def _on_flash_ok(self, port: str, board: Board, slot_idx: int) -> None:
-        self._log_line(f"¡{board.value} flasheado con éxito!", 'success')
+        self._slots[slot_idx].log(f"¡{board.value} flasheado con éxito!", 'success')
+        self._log_line(
+            f"Slot {slot_idx + 1}: ¡{board.value} en {port} flasheado con éxito!", 'success'
+        )
         self._slots[slot_idx].set_done()
         self._cooldown_until[port] = time.time() + POST_FLASH_COOLDOWN_S
+        if board == Board.SENSORBOARD:
+            self._sb_hint_mute_until = time.time() + POST_FLASH_COOLDOWN_S
         self._update_status_banner()
         self.root.after(SLOT_CLEAR_DELAY_S * 1000, self._clear_slot, slot_idx, port)
 
     def _on_flash_err(self, msg: str, port: str, board: Board, slot_idx: int) -> None:
-        self._log_line(f"Flasheo de {board.value} fallido.\n{msg}", 'error')
+        self._slots[slot_idx].log(f"Flasheo fallido.\n{msg}", 'error')
+        self._log_line(
+            f"Slot {slot_idx + 1}: flasheo de {board.value} en {port} fallido — "
+            "detalle en la consola del slot.", 'error'
+        )
         self._slots[slot_idx].set_error()
         self._update_status_banner()
         self.root.after(SLOT_CLEAR_DELAY_S * 1000, self._clear_slot, slot_idx, port)
@@ -891,8 +1074,13 @@ class FlasherApp:
     # Local firmware update
     # ------------------------------------------------------------------ #
 
-    def _get_build_sources(self) -> dict[str, Path]:
-        """Return {board_folder → firmware.bin} for locally built PlatformIO outputs."""
+    def _get_build_sources(self) -> dict[str, dict[str, Path]]:
+        """Return {board_folder → {dest_filename → local build output}}.
+
+        Covers both build layouts in this repo: PlatformIO (per-env dirs,
+        already-generic filenames) for motherBoard/Display HMI, and plain
+        ESP-IDF (single build/ dir, project-named app binary) for SensorBoard.
+        """
         def _env_sort_key(p: Path) -> tuple:
             # Prefer higher version number (e.g. V17 > V16); mtime as tiebreaker.
             m = re.search(r'[Vv](\d+)', p.parent.name)
@@ -901,7 +1089,8 @@ class FlasherApp:
         try:
             firmware_base = get_firmware_base()
             repo_root = firmware_base.parents[2]
-            sources: dict[str, Path] = {}
+            sources: dict[str, dict[str, Path]] = {}
+
             for board_folder, pio_dir in [
                 ('display_hmi', repo_root / 'Display_HMI' / '.pio' / 'build'),
                 ('motherboard', repo_root / 'motherBoard' / '.pio' / 'build'),
@@ -914,7 +1103,18 @@ class FlasherApp:
                     reverse=True,
                 )
                 if candidates:
-                    sources[board_folder] = candidates[0]
+                    sources[board_folder] = {'firmware.bin': candidates[0]}
+
+            sb_build = repo_root / 'SensorBoard_v2' / 'build'
+            sb_files = {
+                'firmware.bin': sb_build / 'SensorBoard.bin',
+                'bootloader.bin': sb_build / 'bootloader' / 'bootloader.bin',
+                'partitions.bin': sb_build / 'partition_table' / 'partition-table.bin',
+            }
+            sb_present = {name: p for name, p in sb_files.items() if p.is_file()}
+            if 'firmware.bin' in sb_present:
+                sources['sensorboard'] = sb_present
+
             return sources
         except Exception:
             return {}
@@ -931,11 +1131,12 @@ class FlasherApp:
             return
         firmware_base = get_firmware_base()
         copied: list[str] = []
-        for board_folder, src in sources.items():
-            dst = firmware_base / board_folder / 'firmware.bin'
-            shutil.copy2(src, dst)
+        for board_folder, files in sources.items():
+            for dest_name, src in files.items():
+                dst = firmware_base / board_folder / dest_name
+                shutil.copy2(src, dst)
+                self._log_line(f"Copiado: {src.name} → {dst}", 'info')
             copied.append(board_folder)
-            self._log_line(f"Copiado: {src.name} → {dst}", 'info')
         if self._upd_status:
             self._upd_status.configure(text=f"✓ {', '.join(copied)}", fg='#2E7D32')
         if self._upd_btn:
