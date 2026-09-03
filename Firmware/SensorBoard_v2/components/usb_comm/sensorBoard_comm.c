@@ -2,6 +2,7 @@
 #include "sensorBoard_comm_protocol.h"
 #include "sensorBoard_frame.h"
 #include "sensorBoard_json.h"
+#include "sensorBoard_usb_orient.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -9,9 +10,13 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "hal/usb_wrap_ll.h"
+#include "sdkconfig.h"
+#include "soc/usb_wrap_struct.h"
 #include "tinyusb.h"
 #include "tinyusb_cdc_acm.h"
 #include "tinyusb_default_config.h"
+#include "tusb.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -58,6 +63,47 @@ static SemaphoreHandle_t s_rx_sem = NULL;
  * leído por usb_tx_task. volatile bool basta para un flag de un solo bit en
  * este idiom ESP-IDF (sin ordering C11 estricto — elección deliberada). */
 static volatile bool s_cdc_ready = false;
+
+/* ── Orientación del conector (autoswap D+/D-, ADR-0003) ───── */
+/* Política pura (sb_usb_orient) + ejecución aquí. Solo usb_tx_task la toca:
+ * sin host no hay tráfico y la tarea itera cada SB_TX_IDLE_POLL_MS, así que
+ * el plazo se evalúa con resolución ~20 ms sin tarea ni timer adicionales. */
+#if CONFIG_SB_USB_AUTOSWAP
+#define SB_USB_AUTOSWAP_TIMEOUT_MS CONFIG_SB_USB_AUTOSWAP_TIMEOUT_MS
+#else
+#define SB_USB_AUTOSWAP_TIMEOUT_MS 0 /* 0 = política desactivada */
+#endif
+
+/* Detach visible para el host antes de re-attach con la otra orientación:
+ * la spec USB exige >2.5 µs de SE0 y los hosts aplican debounce ~100 ms. */
+#define SB_USB_SWAP_DETACH_MS 50
+
+static sb_usb_orient_t s_orient;
+
+static uint32_t orient_now_ms(void)
+{
+    return (uint32_t)(esp_timer_get_time() / 1000);
+}
+
+/* Contexto de tarea (usb_tx_task), nunca ISR. dcd_connect/dcd_disconnect del
+ * port DWC2 hacen read-modify-write de USB_WRAP.otg_conf solo sobre los
+ * campos de pull, así que preservan exchg_pins/exchg_pins_override. */
+static void orient_service(void)
+{
+    if (sb_usb_orient_tick(&s_orient, tud_mounted(), orient_now_ms()) != SB_ORIENT_SWAP) {
+        return;
+    }
+    bool swapped = sb_usb_orient_is_swapped(&s_orient);
+    tud_disconnect();
+    usb_wrap_ll_phy_enable_pin_exchg(&USB_WRAP, swapped);
+    vTaskDelay(pdMS_TO_TICKS(SB_USB_SWAP_DETACH_MS));
+    tud_connect();
+    /* Queda en la retención de arranque y sale al conectar: la motherboard
+     * ve que el conector está invertido (o que no hubo host). */
+    ESP_LOGW(TAG, "USB not enumerated in %u ms: D+/D- %s (swap #%lu)",
+             (unsigned)SB_USB_AUTOSWAP_TIMEOUT_MS, swapped ? "swapped" : "normal",
+             (unsigned long)sb_usb_orient_swap_count(&s_orient));
+}
 
 /* ── envío interno (timeout parametrizado) ─────────────────── */
 static esp_err_t send_json_timeout(const char *json_str, TickType_t wait_ticks)
@@ -170,7 +216,8 @@ static void usb_rx_task(void *arg)
         size_t rx_size = 0;
         do {
             rx_size = 0;
-            esp_err_t ret = tinyusb_cdcacm_read(TINYUSB_CDC_ACM_0, rx_buf, sizeof(rx_buf), &rx_size);
+            esp_err_t ret =
+                tinyusb_cdcacm_read(TINYUSB_CDC_ACM_0, rx_buf, sizeof(rx_buf), &rx_size);
             if (ret != ESP_OK) {
                 break;
             }
@@ -257,6 +304,8 @@ static void usb_tx_task(void *arg)
     sb_tx_bin_item_t bin;
 
     for (;;) {
+        /* Sin enumeración en plazo: alternar D+/D- (conector invertido) */
+        orient_service();
         /* Host recién conectado sin tráfico nuevo: volcar lo retenido */
         if (s_cdc_ready && s_boot_count > 0) {
             boot_ring_flush();
@@ -327,6 +376,9 @@ esp_err_t sensorBoard_comm_init(void)
         goto fail;
     }
     driver_installed = true;
+
+    /* El plazo de enumeración arranca con el attach que hace el driver */
+    sb_usb_orient_init(&s_orient, SB_USB_AUTOSWAP_TIMEOUT_MS, orient_now_ms());
 
     const tinyusb_config_cdcacm_t acm_cfg = {
         .cdc_port = TINYUSB_CDC_ACM_0,
@@ -409,7 +461,7 @@ esp_err_t sensorBoard_comm_send_binary(uint8_t type, uint8_t *buf, size_t len)
 
     /* Cola de profundidad 1 y sin espera: si hay un binario en vuelo, este
      * se rechaza (cota dura de PSRAM y de latencia del JSON) */
-    sb_tx_bin_item_t item = { .frame = frame, .len = encoded };
+    sb_tx_bin_item_t item = {.frame = frame, .len = encoded};
     if (xQueueSend(s_tx_bin_queue, &item, 0) != pdTRUE) {
         free(frame);
         return ESP_ERR_TIMEOUT; /* binario anterior aún sin drenar */

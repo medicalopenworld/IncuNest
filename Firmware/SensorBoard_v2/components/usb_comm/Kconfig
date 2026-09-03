@@ -1,0 +1,25 @@
+menu "SensorBoard usb_comm"
+
+    config SB_USB_AUTOSWAP
+        bool "Intercambiar D+/D- automaticamente si el host no enumera"
+        default y
+        help
+            El conector USB admite dos orientaciones y en una de ellas
+            D+/D- (IO20/IO19) llegan cruzados. Si el dispositivo no llega a
+            estar montado (SET_CONFIGURATION) en el plazo configurado,
+            usb_comm intercambia los pines en el PHY del ESP32-S3
+            (exchg_pins), fuerza detach/attach y sigue alternando hasta
+            enumerar. Con el enlace montado nunca intercambia. Desactivar
+            solo en placas con el conector corregido (ADR-0003).
+
+    config SB_USB_AUTOSWAP_TIMEOUT_MS
+        int "Plazo sin enumeracion antes de intercambiar D+/D- (ms)"
+        depends on SB_USB_AUTOSWAP
+        default 2000
+        range 500 10000
+        help
+            Debe superar con margen el tiempo normal de enumeracion
+            (<1 s). En la orientacion invertida el arranque enumera
+            aproximadamente este tiempo mas tarde.
+
+endmenu
