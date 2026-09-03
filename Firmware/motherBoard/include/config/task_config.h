@@ -13,6 +13,13 @@
 #define COMMUNICATION_TASK_PRIORITY 7
 #define COMMUNICATION_RECEIVER_PRIORITY 7
 #define SENSORS_TASK_PRIORITY 8
+// Al nivel de SENSORS y no por debajo: en un equipo con SensorBoard, lo que
+// llega por este enlace ES el sensor de aire de la incubadora (la variable
+// del PID), no telemetria accesoria. Con una prioridad baja, el demonio USB y
+// la tarea del driver CDC se quedaban por debajo de siete tareas de periodo
+// 1 ms en el mismo core y podian perder datos de la propia variable de
+// control.
+#define SENSORBOARD_TASK_PRIORITY 8
 #define SPO2_TASK_PRIORITY 8
 #define SECURITY_TASK_PRIORITY 9
 #define GPRS_MONITOR_TASK_PRIORITY 10
@@ -39,6 +46,8 @@
 #define BUZZER_TASK_PERIOD_MS 10
 #define SECURITY_TASK_PERIOD_MS 1
 #define COMMUNICATION_TASK_PERIOD_MS 1
+// 1 s basta: el heartbeat del SensorBoard es de 30 s y su margen de 90 s.
+#define SENSORBOARD_TASK_PERIOD_MS 1000
 #define TIME_TRACK_TASK_PERIOD_MS 100
 #define FAN_TASK_PERIOD_MS 10
 #define LOOP_TASK_PERIOD_MS 1000

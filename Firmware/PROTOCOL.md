@@ -424,3 +424,84 @@ Para garantizar que el sistema siempre muestre el estado correcto, se siguen est
 1.  **Handshake**: Tras un reinicio o reconexión del HMI, este debe enviar `HMI,UI_READY`. La Board no disparará el reenvío de alarmas hasta recibir este comando o detectar tráfico válido.
 2.  **Auto-Corrección vía Bitmask**: Si el HMI recibe un mensaje de `CTRL,STATE` con un `alarmBitmask` que no coincide con su lista interna de alarmas pintadas en pantalla, el HMI limpiará visualmente las alarmas que no figuren en el bitmask.
 3.  **Filtrado de Etiquetas**: El HMI implementa un filtro de cambios en `update_labels()` para ignorar actualizaciones de texto idénticas, mejorando la respuesta táctil.
+
+---
+
+## Enlace con el SensorBoard (Motherboard ↔ SensorBoard, USB)
+
+Enlace **distinto** al de la HMI: aquí la motherboard actúa de **USB host** y el
+SensorBoard es un dispositivo **CDC-ACM nativo** (TinyUSB, VID `0x303A` / PID
+`0x4001`), con framing binario propio en vez de las líneas `CTRL,...`/`HMI,...`.
+
+**Los pines 19/20 tienen dos funciones según la generación del equipo.** En los
+antiguos son el bus **I2C2** hacia una PCBA con SHTC3 + STS35 principal y
+redundante; en los nuevos son el **USB** hacia el SensorBoard, que lleva esos
+sensores a bordo (3× SHT40). No es un conflicto de pines: es un multiplexado
+por generación, y la fuente se decide **una vez por arranque** sondeando el bus
+I2C2 (`initRoomSensor()` ya lo sondea en 10 ms por dirección). Si responde
+alguien → equipo antiguo, y el host USB **no se levanta**. Si el bus está mudo
+→ equipo nuevo: se sueltan los pads y se abre el enlace USB. No se persiste en
+NVS: un solo cambio de modo por arranque. Ver
+`modules/sensors/sensor_source.h`.
+
+**En modo SensorBoard, sus lecturas NO son telemetría auxiliar: son el sensor
+de aire y de humedad de la incubadora.** `sensorboard_apply_room_sensor()`
+—llamada desde la tarea de sensores, la misma que escribe esas variables en el
+camino I2C— funde las posiciones válidas, aplica el mismo gate de
+plausibilidad y alimenta `in3.temperature[ROOM_DIGITAL_TEMP_SENSOR]`,
+`in3.airTemperatureRedundantSensor`, `in3.humidity[ROOM_DIGITAL_HUM_SENSOR]` y
+`lastSuccesfullSensorUpdate[]`. Cadena de seguridad:
+
+```
+SensorBoard publica cada 1 s -> rancio a los 3 s -> deja de refrescarse el
+sello -> ALARM_AIR_SENSOR_FAULT (ALTA, corta calefactor) a los 5 s
+```
+
+Esa es la protección real: `ALARM_SENSORBOARD_LINK_LOST` es el aviso que
+explica **por qué**, no la única señal. Con la cadencia de 5 s original, una
+sola publicación perdida cortaba el calefactor.
+
+**El wire format lo define el SensorBoard** — fuente de verdad:
+`SensorBoard_v2/README.md` y su `sensorBoard_comm_protocol.h`. Aquí solo se
+documenta lo que la motherboard hace con él.
+
+- **Trama**: `Magic(0xAB 0xCD) + Type(1B) + Length(4B LE) + Payload + CRC16(2B BE)`,
+  CRC16-CCITT FALSE sobre `Type+Length+Payload`. `Type 0x00` = JSON (≤256 B),
+  `Type 0x01` = JPEG. Los comandos salientes viajan enmarcados igual.
+- **Consumido** (`modules/sensorboard_comm/`): `heartbeat`, `sensor_data`
+  (3 temperaturas + 3 humedades + lux, con `null` por sensor caído),
+  `door_open`/`door_closed`, `sound_level`, `log`, y las respuestas de
+  `status`/`capture`. **Emitido**: `status` y `capture` bajo demanda.
+- **DTR es obligatorio**: el SensorBoard guarda *toda* su transmisión con la
+  señal de line state (`s_cdc_ready`), así que el host debe asertar DTR/RTS
+  tras abrir el dispositivo. Sin eso el enlace enumera, abre y no llega ni un
+  byte, y el único síntoma sería la alarma de enlace perdido.
+- **Fail-safe del enlace**: sin `heartbeat` durante 90 s (3 periodos de 30 s) se
+  declara `ALARM_SENSORBOARD_LINK_LOST` (prioridad MEDIA, mismo criterio que
+  `ALARM_HMI_LINK_LOST`). Antes del primer heartbeat el enlace cuenta como
+  caído, aunque el USB haya enumerado, pero la alarma tiene **60 s de margen de
+  arranque** mientras no se haya visto ningún heartbeat: el primero llega a los
+  30 s y sin margen sonaba una alarma audible en cada encendido. Una
+  desconexión física del USB tumba el enlace **de inmediato**, sin esperar el
+  timeout. Un `uptime` que retrocede delata un reinicio del SensorBoard con el
+  USB enumerado e invalida las lecturas anteriores.
+- **Fail-safe de la puerta**: 4 transiciones `open`/`closed` dentro de 60 s se
+  tratan como hall sospechoso (`ALARM_SENSORBOARD_DOOR_FAULT`, prioridad BAJA).
+  Las re-aserciones periódicas del mismo estado no cuentan como transición.
+- **Ninguna de las dos alarmas corta el calefactor por sí misma**: quien corta
+  es `ALARM_AIR_SENSOR_FAULT`, por caducidad del dato, igual que con un STS35
+  averiado. La puerta y el nivel sonoro **no entran en el lazo de control ni en
+  la UI**.
+- **Telemetría**: la temperatura y la humedad salen por las claves clínicas de
+  siempre (`Air_temp`, `Amb_humidity`…), porque son las de la incubadora. Solo
+  lo genuinamente nuevo viaja como `sb_*` (luz, sonido, puerta, estado del
+  enlace), cada clave omitida si su magnitud está rancia. Grupo `SENSORBOARD`
+  de `config/transport_policy.h`: activo por WiFi, apagado por GPRS mientras el
+  presupuesto de esa publicación siga al límite.
+- **Captura JPEG**: `sensorboard_capture_request()` la encola y la transmite la
+  tarea del módulo (único dueño del handle). El JPEG se recoge con
+  `sensorboard_capture_take()`, que **transfiere la propiedad** del buffer; hay
+  que devolverlo con `sensorboard_capture_free()`. Se reserva del montón solo
+  mientras la captura está en vuelo (esta placa no tiene PSRAM), con tope de
+  48 KB y caducidad de 10 s si el binario no llega. Hoy **no se sube a ningún
+  sitio**.

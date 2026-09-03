@@ -12,6 +12,7 @@ No se sistematiza una regla por un fallo de primera vez (puede ser casualidad). 
 
 ## Índice
 
+- [2026-09-03 · Vigilante de host: reconexión USB sin cortar VBUS](2026-09-03-host-watch-reconexion-usb.md)
 - [2026-09-03 · Autoswap D+/D- del PHY USB (conector invertido)](2026-09-03-usb-pin-autoswap.md)
 - [2026-07-03 · Fase 5 · Cámara](2026-07-03-fase5-camera.md)
 - [2026-07-03 · Fase 3 · Micrófono](2026-07-03-fase3-mic.md)

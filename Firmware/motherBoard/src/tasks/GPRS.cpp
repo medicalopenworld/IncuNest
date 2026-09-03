@@ -35,6 +35,7 @@
 #include <sys/time.h>
 
 #include "CommTask.h"
+#include "modules/sensorboard_comm/sensorboard_comm.h"
 #include "PpgSnapshot.h"
 #include "PpgSnapshotPublish.h"
 #include "SPO2.h"
@@ -59,6 +60,18 @@ ThingsBoard tb(mqttClientGPRS, MAX_MESSAGE_SIZE);
 
 StaticJsonDocument<JSON_OBJECT_SIZE(THINGSBOARD_FIELDS_AMOUNT)> GPRS_JSON;
 JsonObject addVariableToTelemetryGPRSJSON = GPRS_JSON.to<JsonObject>();
+
+// Cuando el pool se llena, ArduinoJson deja de anadir claves SIN error y
+// sendTelemetryJson() sigue devolviendo true: la publicacion sale truncada y
+// nadie se entera. Asi se estuvieron perdiendo SpO2 y HR en el ciclo en que se
+// barren las 17 alarmas. Esta comprobacion es la unica forma de verlo.
+static void warnIfGprsTelemetryTruncated(const char *what) {
+  if (GPRS_JSON.overflowed()) {
+    logModemData(String("[GPRS] -> TELEMETRIA TRUNCADA en ") + what +
+                 ": el JSON no cabe en THINGSBOARD_FIELDS_AMOUNT y se han "
+                 "descartado campos");
+  }
+}
 
 unsigned long previous_processing_time;
 extern bool ambientSensorPresent;
@@ -796,7 +809,11 @@ void GPRSCheckOTA() {
 }
 
 void switchAlarmTelemetryGPRS(int alarm, bool value) {
-  String alarmKey;
+  // const char*, no String: ArduinoJson COPIA la clave al pool cuando es un
+  // String (274 B las 17 alarmas juntas) y solo la ENLAZA cuando es un
+  // literal. Esa copia dejaba el pool en 46 claves utiles y descartaba en
+  // silencio las ultimas insertadas, que son SpO2 y HR.
+  const char *alarmKey = nullptr;
   switch (alarm) {
   case ALARM_AIR_THERMAL_CUTOUT:
     alarmKey = ALARM_AIR_THERMAL_CUTOUT_KEY;
@@ -848,6 +865,12 @@ void switchAlarmTelemetryGPRS(int alarm, bool value) {
     break;
   case ALARM_HEATER_SENSOR_FAULT:
     alarmKey = ALARM_HEATER_SENSOR_FAULT_KEY;
+    break;
+  case ALARM_SENSORBOARD_LINK_LOST:
+    alarmKey = ALARM_SENSORBOARD_LINK_LOST_KEY;
+    break;
+  case ALARM_SENSORBOARD_DOOR_FAULT:
+    alarmKey = ALARM_SENSORBOARD_DOOR_FAULT_KEY;
     break;
   default:
     return;
@@ -1099,6 +1122,9 @@ void addTelemetriesToGPRSJSON() {
     }
   }
 
+#if TX_GROUP_SENSORBOARD_GPRS // grupo SENSORBOARD — config/transport_policy.h
+  sensorboard_add_telemetry(addVariableToTelemetryGPRSJSON);
+#endif
 }
 
 
@@ -1199,6 +1225,7 @@ void GPRSPost() {
         if (!GPRS.firstPublish) {
           GPRS.firstPublish = true;
           addConfigTelemetriesToGPRSJSON();
+          warnIfGprsTelemetryTruncated("telemetria");
           if (tb.sendTelemetryJson(addVariableToTelemetryGPRSJSON,
                                    JSON_STRING_SIZE(measureJson(
                                        addVariableToTelemetryGPRSJSON)))) {
@@ -1211,6 +1238,7 @@ void GPRSPost() {
         GPRSUpdateLocationIfDue();
         GPRSUpdateCSQ();
         addTelemetriesToGPRSJSON();
+        warnIfGprsTelemetryTruncated("telemetria");
         if (tb.sendTelemetryJson(addVariableToTelemetryGPRSJSON,
                                  JSON_STRING_SIZE(measureJson(
                                      addVariableToTelemetryGPRSJSON)))) {

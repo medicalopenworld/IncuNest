@@ -29,6 +29,8 @@
 
 #include "main.h"
 #include "state/state.h"
+#include "modules/sensorboard_comm/sensorboard_comm.h"
+#include "modules/sensors/sensor_source.h"
 #include "DriveUpload.h"
 #include "CrashReporter.h"
 #include <Preferences.h>
@@ -635,6 +637,27 @@ void setup() {
                           CORE_ID_FREERTOS // o 0/1 según tu placa
   );
   logI("Communication task successfully created!\n");
+
+  // ¿De dónde vienen la temperatura y la humedad de cabina en ESTE equipo?
+  // Los pines 19/20 son el bus I2C2 hacia la PCBA de sensores en los equipos
+  // antiguos y el USB hacia el SensorBoard en los nuevos. El sondeo del bus ya
+  // lo hizo initRoomSensor() dentro de initHardware(): si respondió alguien,
+  // este equipo lleva los sensores por I2C y NO se levanta el host USB —
+  // hacerlo reclamaría esos pads y dejaría al PID sin variable de control.
+  //
+  // Va aquí, después de initSPO2(), para no cambiar el orden de arranque que
+  // ya estaba validado.
+  if (roomSensorI2CDetected()) {
+    sensorSourceSet(SENSOR_SOURCE_I2C);
+    logI("Air sensors found on I2C2: SensorBoard USB link not started");
+  } else {
+    sensorSourceSet(SENSOR_SOURCE_SENSORBOARD);
+    logI("No air sensor on I2C2: starting SensorBoard USB link ...");
+    sensorboard_comm_init();
+    xTaskCreatePinnedToCore(sensorboard_comm_task, "SB_COMM", 4096, NULL,
+                            SENSORBOARD_TASK_PRIORITY, NULL, CORE_ID_FREERTOS);
+    logI("SensorBoard task successfully created!\n");
+  }
 #endif
   if (WIFI_EN) {
     wifiInit();

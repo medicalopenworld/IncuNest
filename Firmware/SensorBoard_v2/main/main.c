@@ -28,9 +28,12 @@ void app_main(void)
     ESP_ERROR_CHECK_WITHOUT_ABORT(sb_camera_sensor_init());
     ESP_LOGI(TAG, "SensorBoard ready — USB CDC active");
 
-    /* Heartbeat: señal de vida hacia la motherboard */
+    /* Heartbeat: señal de vida hacia la motherboard. Cada 30 s y, además, en
+     * cuanto vuelve el host: la motherboard sólo levanta el enlace con un
+     * heartbeat, así que tras una reconexión esperar al siguiente periodo
+     * dejaba la alarma de enlace hasta 30 s más de lo necesario. */
     for (;;) {
-        vTaskDelay(pdMS_TO_TICKS(SB_HEARTBEAT_PERIOD_MS));
+        sensorBoard_comm_wait_host_ready(SB_HEARTBEAT_PERIOD_MS);
         char buf[96];
         uint32_t uptime = (uint32_t)(esp_timer_get_time() / 1000);
         snprintf(buf, sizeof(buf), "{\"type\":\"event\",\"cmd\":\"heartbeat\",\"uptime\":%lu}",

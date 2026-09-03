@@ -26,6 +26,7 @@
 
 #include "main.h"
 #include "modules/control/alarm_machine.h"
+#include "modules/sensors/sensor_source.h"
 
 extern TwoWire *wire;
 extern TwoWire *wire2;
@@ -476,9 +477,18 @@ void testSensors() {
       logE("[HW] -> Fail -> Room humidity is higher than expected");
       addErrorToVar(HW_error, DIG_HUM_ROOM_MAX_ERROR);
     }
-  } else {
+  } else if (roomSensorI2CDetected()) {
+    // Respondio al sondeo pero no da lectura: averia real.
     addErrorToVar(HW_error, DIGITAL_SENSOR_NOTFOUND);
     logE("[HW] -> Fail -> No room sensor found");
+  } else {
+    // Nadie en el bus I2C2: este equipo lleva los sensores de cabina en el
+    // SensorBoard, por USB. Su enlace todavia no esta levantado a esta altura
+    // del arranque (se hace tras initSPO2), asi que aqui no hay nada que
+    // medir: la vigilancia real es la caducidad de sensor_data, que dispara
+    // ALARM_AIR_SENSOR_FAULT en marcha. Fallar el autotest aqui marcaria un
+    // error de hardware inexistente en cada arranque.
+    logI("[HW] -> Room sensor test deferred: expecting SensorBoard over USB");
   }
   if (error == HW_error) {
     logI("[HW] -> OK -> Sensors are working as expected");

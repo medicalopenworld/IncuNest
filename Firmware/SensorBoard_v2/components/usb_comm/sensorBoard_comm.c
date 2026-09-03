@@ -1,6 +1,7 @@
 #include "sensorBoard_comm.h"
 #include "sensorBoard_comm_protocol.h"
 #include "sensorBoard_frame.h"
+#include "sensorBoard_host_watch.h"
 #include "sensorBoard_json.h"
 #include "sensorBoard_status.h"
 #include "sensorBoard_usb_orient.h"
@@ -181,10 +182,92 @@ static void cdc_rx_callback(int itf, cdcacm_event_t *event)
     xSemaphoreGive(s_rx_sem);
 }
 
+/* Semáforo binario: se da en cada transición ausente→presente del host.
+ * Lo consume sensorBoard_comm_wait_host_ready() (heartbeat inmediato). */
+static SemaphoreHandle_t s_host_ready_sem = NULL;
+
+/* Único punto que escribe s_cdc_ready. Contexto: tarea TinyUSB. */
+static void set_host_ready(bool ready)
+{
+    const bool was_ready = s_cdc_ready;
+    s_cdc_ready = ready;
+    if (ready && !was_ready && s_host_ready_sem != NULL) {
+        xSemaphoreGive(s_host_ready_sem);
+    }
+}
+
 static void cdc_line_state_callback(int itf, cdcacm_event_t *event)
 {
     (void)itf;
-    s_cdc_ready = event->line_state_changed_data.dtr;
+    set_host_ready(event->line_state_changed_data.dtr);
+}
+
+/* Eventos de bus de TinyUSB. El DTR sólo cambia cuando el host envía
+ * SET_CONTROL_LINE_STATE: al desenchufar el cable o reiniciarse la
+ * motherboard NO llega nada por ese camino — sin sensado de VBUS el DCD solo
+ * reporta SUSPEND (cesan los SOF). Sin este callback, s_cdc_ready se quedaba
+ * en true con el host ausente, los frames iban a un FIFO que nunca drena y
+ * la retención de arranque no se usaba. */
+static void tinyusb_event_callback(tinyusb_event_t *event, void *arg)
+{
+    (void)arg;
+    switch (event->id) {
+    case TINYUSB_EVENT_DETACHED:
+#ifdef CONFIG_TINYUSB_SUSPEND_CALLBACK
+    case TINYUSB_EVENT_SUSPENDED:
+#endif
+        set_host_ready(false);
+        break;
+#ifdef CONFIG_TINYUSB_RESUME_CALLBACK
+    case TINYUSB_EVENT_RESUMED:
+        /* Un host que suspende y reanuda sin re-abrir el puerto (PC en
+         * reposo) conserva el DTR: se recupera del estado de TinyUSB. */
+        set_host_ready((tud_cdc_n_get_line_state(TINYUSB_CDC_ACM_0) & 0x01) != 0);
+        break;
+#endif
+    case TINYUSB_EVENT_ATTACHED: /* el DTR llegará después, por line-state */
+    default:
+        break;
+    }
+}
+
+/* Reinicio tras perder el host: sin esto, la incubadora se queda sin sensor
+ * de aire hasta que alguien desenchufa un cable.
+ *
+ * Comprobado en banco (2026-09-03): cuando la motherboard se reinicia con el
+ * SensorBoard ya conectado, el SensorBoard NO vuelve a enumerar — la
+ * motherboard no controla el VBUS, así que el dispositivo nunca ve una
+ * desconexión y se queda con la configuración anterior mientras el host
+ * arranca de cero creyendo el puerto vacío. Hacía falta ciclar la
+ * alimentación a mano. En campo eso significa que un watchdog, una OTA o un
+ * brown-out de la motherboard dejan la incubadora sin la variable de control
+ * del PID y con el calefactor cortado hasta que alguien vaya físicamente.
+ *
+ * Reiniciarse es lo que fuerza la re-enumeración desde este lado, que es el
+ * único que puede actuar sin cambiar el hardware.
+ *
+ * La señal de "host presente" es dtr && tud_ready() (montado y no
+ * suspendido), no sólo el DTR: ver tinyusb_event_callback. La política (sólo
+ * si antes hubo host, 15 s, rearme al recuperar) vive en sb_host_watch, que
+ * es función pura y tiene tests Unity. Tras el reinicio el estado vuelve a
+ * cero, así que no puede encadenar reinicios: como mucho uno por pérdida. */
+static void host_watchdog_task(void *arg)
+{
+    (void)arg;
+    sb_host_watch_t watch;
+    sb_host_watch_init(&watch);
+    for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        const uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+        if (sb_host_watch_update(&watch, s_cdc_ready, tud_ready(), now)) {
+            /* El log no llegará a ninguna parte (no hay host), pero queda en
+             * el buffer de retención por si alguien conecta después. */
+            ESP_LOGW(TAG, "host perdido %u ms: reinicio para re-enumerar",
+                     (unsigned)SB_HOST_LOST_RESTART_MS);
+            vTaskDelay(pdMS_TO_TICKS(50));
+            esp_restart();
+        }
+    }
 }
 
 /* ── Log interceptor ───────────────────────────────────────── */
@@ -393,6 +476,11 @@ esp_err_t sensorBoard_comm_init(void)
     if (s_rx_sem == NULL) {
         return ESP_ERR_NO_MEM;
     }
+    s_host_ready_sem = xSemaphoreCreateBinary();
+    if (s_host_ready_sem == NULL) {
+        err = ESP_ERR_NO_MEM;
+        goto fail;
+    }
 
     /* Las colas se publican ANTES de crear las tareas: usb_tx_task tiene
      * prio 5 (> main, prio 1) y puede ejecutar xQueueReceive de inmediato
@@ -413,7 +501,7 @@ esp_err_t sensorBoard_comm_init(void)
      * usb_tx_task exista, la cola (depth 8) conserva los primeros frames. */
     esp_log_set_vprintf(sb_log_vprintf);
 
-    const tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+    const tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(tinyusb_event_callback);
     err = tinyusb_driver_install(&tusb_cfg);
     if (err != ESP_OK) {
         goto fail;
@@ -448,6 +536,12 @@ esp_err_t sensorBoard_comm_init(void)
         err = ESP_ERR_NO_MEM;
         goto fail;
     }
+    /* Pila mínima: sólo compara dos enteros una vez por segundo. */
+    if (xTaskCreate(host_watchdog_task, "host_wd", 2560, NULL, SB_COMM_TASK_PRIO, NULL) !=
+        pdPASS) {
+        err = ESP_ERR_NO_MEM;
+        goto fail;
+    }
 
     ESP_LOGI(TAG, "USB CDC ready");
     return ESP_OK;
@@ -470,6 +564,10 @@ fail:
     }
     if (driver_installed) {
         tinyusb_driver_uninstall();
+    }
+    if (s_host_ready_sem != NULL) {
+        vSemaphoreDelete(s_host_ready_sem);
+        s_host_ready_sem = NULL;
     }
     vSemaphoreDelete(s_rx_sem);
     s_rx_sem = NULL;
@@ -512,6 +610,14 @@ esp_err_t sensorBoard_comm_send_binary(uint8_t type, uint8_t *buf, size_t len)
         return ESP_ERR_TIMEOUT; /* binario anterior aún sin drenar */
     }
     return ESP_OK;
+}
+
+bool sensorBoard_comm_wait_host_ready(uint32_t timeout_ms)
+{
+    if (s_host_ready_sem == NULL) {
+        return false; /* sin init no hay host que esperar */
+    }
+    return xSemaphoreTake(s_host_ready_sem, pdMS_TO_TICKS(timeout_ms)) == pdTRUE;
 }
 
 esp_err_t sensorBoard_comm_send_json_noblock(const char *json_str)

@@ -28,3 +28,27 @@ CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 
 # FreeRTOS tick 1kHz
 CONFIG_FREERTOS_HZ=1000
+
+# Cadencia de sensor_data: 1 s. Estas lecturas son la variable de control del
+# PID de aire de la motherboard; alli el sensor se declara averiado a los 5 s
+# sin dato fresco y esa alarma corta el calefactor. Fijado aqui y no solo en
+# el Kconfig porque sdkconfig esta gitignored: sin esta linea, un clon nuevo
+# hereda lo que diga el menuconfig de cada uno.
+CONFIG_SB_ENV_POLL_PERIOD_S=1
+
+# El descriptor USB es un CONTRATO con la motherboard: abre el dispositivo por
+# VID 0x303A / PID 0x4001, y ese PID lo calcula TinyUSB a partir de las clases
+# habilitadas (0x4000 | CDC<<0). Habilitar MSC lo movería a 0x4003 y el enlace
+# dejaría de encontrarse, sin ningún error de compilación. Se fija aquí para
+# que no dependa del menuconfig local de nadie.
+CONFIG_TINYUSB_DESC_USE_ESPRESSIF_VID=y
+CONFIG_TINYUSB_DESC_USE_DEFAULT_PID=y
+CONFIG_TINYUSB_CDC_COUNT=1
+
+# Eventos de bus para el vigilante de host: al desenchufar el cable o
+# reiniciarse la motherboard no cambia el DTR (nadie envía
+# SET_CONTROL_LINE_STATE) y sin sensado de VBUS no hay evento de desconexión;
+# lo único que llega es SUSPEND/RESUME. Sin estos callbacks el firmware cree
+# que sigue teniendo host y nunca se reinicia para re-enumerar.
+CONFIG_TINYUSB_SUSPEND_CALLBACK=y
+CONFIG_TINYUSB_RESUME_CALLBACK=y

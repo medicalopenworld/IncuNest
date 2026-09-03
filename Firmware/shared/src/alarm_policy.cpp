@@ -19,10 +19,12 @@ AlarmPriority alarm_priority(AlarmId id) {
     case ALARM_HEATER_SENSOR_FAULT:
     case ALARM_SUPPLY_UNDERVOLTAGE:
     case ALARM_HMI_LINK_LOST:
+    case ALARM_SENSORBOARD_LINK_LOST:
       return ALARM_PRIORITY_MEDIUM;
 
     case ALARM_SKIN_SENSOR_FAULT_AIR_MODE:
     case ALARM_HUMIDITY_DEVIATION:
+    case ALARM_SENSORBOARD_DOOR_FAULT:
       return ALARM_PRIORITY_LOW;
 
     default:
