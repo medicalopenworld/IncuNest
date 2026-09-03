@@ -140,19 +140,25 @@
 #define ENABLE_GPRS_OTA true // enable GPRS OTA
 #define THINGSBOARD_BUFFER_SIZE 4096
 // Dimensiona los dos StaticJsonDocument de telemetria (GPRS_JSON y WIFI_JSON),
-// a 16 B por slot en ESP32: 96 campos = 1536 B por documento, 3072 B de .bss
-// entre los dos (+1024 B respecto a los 64 de antes).
+// a 16 B por slot en ESP32: 112 campos = 1792 B por documento, 3584 B de .bss
+// entre los dos.
 //
-// Subido de 64 a 96 porque 64 NO llegaba y el desbordamiento era SILENCIOSO:
-// ArduinoJson deja de anadir claves sin error y sendTelemetryJson() sigue
-// devolviendo true. Medido: el peor caso realista pide 66 claves por GPRS y
-// ~70 por WiFi, y las que se perdian eran las ultimas insertadas -- SpO2,
-// PI y HR1-3 con sus SQI, es decir constantes vitales. En el cuadro de mando
-// no se veia un hueco: se veia el ultimo valor recibido, congelado.
+// Subido de 64 a 96 (commit fb3a535) porque 64 NO llegaba y el desbordamiento
+// era SILENCIOSO: ArduinoJson deja de anadir claves sin error y
+// sendTelemetryJson() sigue devolviendo true. Las que se perdian eran las
+// ultimas insertadas -- SpO2, PI y HR1-3 con sus SQI, es decir constantes
+// vitales. En el cuadro de mando no se veia un hueco: se veia el ultimo valor
+// recibido, congelado.
+//
+// Subido de 96 a 112 al encender TX_GROUP_SENSORBOARD_GPRS: por GPRS el peor
+// caso son 87 claves (CORE 69 + CELLULAR 4 + DIAG 8 + CALIBRATION 6) y el
+// bloque sb_* son 12, o sea 99 -- no cabian en 96. Con 112 quedan 13 de
+// margen. Cuesta 512 B de .bss. Medir con tools/check_transport_matrix.py
+// antes de encender cualquier otro grupo.
 //
 // Al pasar las claves de alarma de String a const char* (switchAlarmTelemetry*)
 // se recuperaron ademas 274 B de pool que se iban en copiar los nombres.
-#define THINGSBOARD_FIELDS_AMOUNT 96
+#define THINGSBOARD_FIELDS_AMOUNT 112
 #define MAX_MESSAGE_SIZE 1024
 #define THINGSBOARD_QOS false
 #define TELEMETRIES_DECIMALS 2
