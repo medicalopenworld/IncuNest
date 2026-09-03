@@ -185,6 +185,12 @@ Ejecutado por el orquestador sobre HEAD `6ed12f2` + docs, en el worktree
 arranca por una DLL) tanto aquí como en `dev` sin este cambio: es un problema
 del entorno de esta máquina, no de la feature. Queda fuera de este change.
 
+**Tras el review** (HEAD `25c4ceb`, misma máquina): `IncuNest_V18` SUCCESS,
+RAM 26.3 %, Flash 54.4 % (1497601 B), 0 warnings; `main` SUCCESS, RAM 38.6 %,
+Flash 78.6 % (2471324 B), 0 warnings; `native` 20 suites PASSED (288 casos, uno
+más por la cota de dígitos del codec), `test_sensorboard_frame` ERRORED por el
+mismo problema de DLL preexistente.
+
 Cobertura de escenarios: todos los marcados `[env:native]` en las tres specs
 tienen `TEST_CASE` (protocolo: tabla, codec, descartes; mb: acumulación,
 no-finales, reintento, `status` de la SensorBoard). Los marcados como manuales
