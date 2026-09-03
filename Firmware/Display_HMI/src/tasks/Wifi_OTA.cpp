@@ -29,6 +29,7 @@
 #include "main.h"
 #include "UITask.h"
 #include "CommTask.h"
+#include "modules/support/support_report.h"
 
 static const char *TAG = "WiFi";
 
@@ -427,6 +428,33 @@ void addTelemetriesToWIFIJSON() {
   addVariableToTelemetryWIFIJSON["hmi_stack_comm_b"] = comm_h ? (uint32_t)uxTaskGetStackHighWaterMark(comm_h) * sizeof(StackType_t) : 0;
 }
 
+// Peticion de soporte (spec hmi-help-center). La UI la deja encolada en
+// support_report.cpp y aqui, ya en la tarea WiFi/OTA y con el broker
+// conectado, se publica como telemetria. Cuatro claves de texto: el asunto
+// (support_request) sirve de disparador a la regla de ThingsBoard que la
+// reenvia por correo a support_to (ver docs/thingsboard_dashboards.md).
+// El documento referencia los buffers (ArduinoJson no copia const char*),
+// asi que son estaticos y solo los toca esta tarea.
+static void supportRequestService() {
+  static char subject[SUPPORT_SUBJECT_MAX];
+  static char message[SUPPORT_MESSAGE_MAX + 1];
+  static char report[SUPPORT_REPORT_MAX];
+  if (!SupportRequest_TakePending(subject, sizeof(subject), message,
+                                  sizeof(message), report, sizeof(report))) {
+    return;
+  }
+  StaticJsonDocument<JSON_OBJECT_SIZE(4)> doc;
+  doc["support_request"] = subject;
+  doc["support_message"] = message;
+  doc["support_report"] = report;
+  doc["support_to"] = SUPPORT_EMAIL;
+  const size_t jsonSize = JSON_STRING_SIZE(measureJson(doc));
+  const bool ok = tb_wifi.sendTelemetryJson(doc, jsonSize);
+  ESP_LOGI(TAG, "TB support request (%u B): %s", (unsigned)jsonSize,
+           ok ? "OK" : "FAIL");
+  SupportRequest_SetResult(ok);
+}
+
 void WIFI_TB_OTA() {
   if (WiFi.status() != WL_CONNECTED) {
     Wifi_TB.serverConnectionStatus = false;
@@ -458,6 +486,9 @@ void WIFI_TB_OTA() {
     WIFICheckOTA();
     Wifi_TB.lastOTACheck = millis();
   } else {
+    // Antes que la telemetria periodica: es una accion explicita del
+    // operador y la UI esta esperando el resultado.
+    supportRequestService();
     if (millis() - Wifi_TB.lastMQTTPublish > WIFI_PUBLISH_INTERVAL) {
       addTelemetriesToWIFIJSON();
       bool ok = tb_wifi.sendTelemetryJson(
