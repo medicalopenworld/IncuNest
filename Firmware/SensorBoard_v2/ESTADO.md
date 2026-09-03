@@ -31,9 +31,13 @@ arrancar (sin NVS, una decisión por arranque).
 ## Trabajo puntual (fuera de épica)
 
 - **`feat/sb-usb-pin-autoswap` — cerrado el 2026-09-03.** Tolerancia al conector USB
-  invertido: autoswap de D+/D- en el PHY del S3 si no hay enumeración en 2 s
-  (ADR-0003, change archivado `2026-09-03-sb-usb-pin-autoswap`, retro
-  `docs/retro/2026-09-03-usb-pin-autoswap.md`). Rama en el **checkout principal** desde el 2026-09-03 (worktree `sb-usb-autoswap` retirado). Antes worktree:
+  invertido (HW_NUM 4; la V5 lo corrige en hardware): autoswap de D+/D- en el PHY
+  del S3 **solo con evidencia de host** — tras un bus reset sin SETUP en 2 s,
+  una vez por reset, quieto después (ADR-0003 + enmienda, changes archivados
+  `2026-09-03-sb-usb-pin-autoswap` y `2026-09-03-sb-usb-autoswap-host-evidence`,
+  retro `docs/retro/2026-09-03-usb-pin-autoswap.md`). La primera versión
+  alternaba a ciegas cada 2 s y enganchaba en fase con la pila host de la
+  motherboard (banco 2026-09-03): funcionaba con el PC y fallaba con la MB. Rama en el **checkout principal** desde el 2026-09-03 (worktree `sb-usb-autoswap` retirado). Antes worktree:
   `Firmware/.worktrees/sb-usb-autoswap`. **Integra `feat/sensorboard-usb-comm`
   por merge (2026-09-03)**, así que esta rama contiene el enlace completo más el
   autoswap y el vigilante de host; es la candidata a merge a `dev`. Verificación
@@ -82,7 +86,7 @@ arrancar (sin NVS, una decisión por arranque).
 - Enlace USB = canal de confianza intra-dispositivo (riesgo documentado en README).
 - Gates de plausibilidad en todos los sensores (temp, dB, señal viva PDM) — CRC/lectura OK ≠ dato válido.
 - La verificación automática (Stop hook) es solo `idf.py build`; flash/Unity on-target siempre manual. En Windows, `idf.py` debe lanzarse desde PowerShell: desde Git Bash (MSYS) sale con código 0 sin compilar.
-- Enlace sano = `tud_mounted()`, no `tud_connected()`; autoswap D+/D- en el PHY antes que cualquier fallback UART/I2C (ADR-0003).
+- Host activo = `tud_mounted() || tud_connected()` (`connected` = primer SETUP, imposible con D+/D- cruzados); autoswap D+/D- en el PHY antes que cualquier fallback UART/I2C, y **solo con evidencia de host** (bus reset), nunca alternando a ciegas: la pila host ESP-IDF 4.4.6 de la MB se recupera solo con una desconexión y una alternancia periódica engancha en fase (ADR-0003). El hook `tud_event_hook_cb` corre en ISR en el port DWC2/S3.
 - Los `TEST_CASE` Unity en ficheros sin `app_main` exigen `WHOLE_ARCHIVE` en el test app.
 - La cadencia de `sensor_data` es **1 s**, no 5: era igual al umbral de caducidad
   del sensor de aire de la motherboard (5 s), así que una sola publicación
