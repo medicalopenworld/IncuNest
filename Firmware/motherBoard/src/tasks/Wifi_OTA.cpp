@@ -1270,7 +1270,14 @@ static void ensureWifiTimeZoneSynced() {
   // compartiendo IP con toda una clínica); una vez resuelta se refresca una
   // vez al día para que un cambio de horario de verano/invierno no se quede
   // pillado en un equipo que lleve semanas sin reiniciar.
-  uint32_t interval = tz_source_known() ? TX_TIMEZONE_REFRESH_MS : 300000u;
+  //
+  // tz_source_is_resolved() y no tz_source_known(): la zona de fabrica que
+  // aplica el sync del modem (TZ_SOURCE_DEFAULT) es una suposicion, no una
+  // zona resuelta. Con known() aqui, un equipo que hubiera puesto ese defecto
+  // habria pasado directamente al refresco diario sin haber preguntado por IP
+  // ni una sola vez a ritmo normal.
+  uint32_t interval =
+      tz_source_is_resolved() ? TX_TIMEZONE_REFRESH_MS : 300000u;
   if (s_lastAttemptMs != 0 && millis() - s_lastAttemptMs < interval)
     return;
   s_lastAttemptMs = millis();

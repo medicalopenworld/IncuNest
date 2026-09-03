@@ -411,6 +411,21 @@ void GPRSEnsureTimeSynced() {
   settimeofday(&tv, nullptr);
   s_synced = true;
   logModemData("[GPRS] -> clock synced from cellular, epoch " + String(epoch));
+
+  // El instante ya esta puesto, pero eso no dice en que huso estamos. En una
+  // unidad solo-GPRS las dos vias que SI lo saben pueden no llegar nunca: el
+  // operador puede no mandar NITZ (o mandarlo a 0, que se descarta mas
+  // abajo), y la geolocalizacion por IP necesita WiFi. Sin zona el display
+  // pintaba UTC, dos horas por debajo del reloj de la pared.
+  //
+  // Se deja la zona de fabrica como suelo. Entra como TZ_SOURCE_DEFAULT, que
+  // es la fuente de menor prioridad: no pisa nada de lo que ya hubiera, y
+  // cualquier NITZ/IP/manual posterior la corrige sin esperar a un reinicio.
+  if (tz_source_set(GPRS_DEFAULT_TZ_QUARTERS, TZ_SOURCE_DEFAULT)) {
+    logModemData("[GPRS] -> no timezone known, applying default " +
+                 String(GPRS_DEFAULT_TZ_QUARTERS) + " quarter-hours (UTC+" +
+                 String(GPRS_DEFAULT_TZ_QUARTERS / 4) + ")");
+  }
 }
 
 // Zona horaria desde la red movil (NITZ), separada de la puesta en hora.
@@ -436,8 +451,14 @@ void GPRSEnsureTimeZoneSynced() {
   // una vez resuelta (por esta vía o por IP) se refresca una vez al dia para
   // que un cambio de horario de verano/invierno no se quede pillado en un
   // equipo que lleve semanas sin reiniciar.
-  uint32_t interval =
-      tz_source_known() ? GPRS_TZ_REFRESH_INTERVAL : GPRS_TIME_SYNC_RETRY_INTERVAL;
+  //
+  // tz_source_is_resolved() y no tz_source_known(): la zona de fabrica que
+  // pone GPRSEnsureTimeSynced() cuenta como "hay offset que aplicar" pero NO
+  // como zona sabida. Con known() aqui, poner el defecto habria bajado el
+  // ritmo de busqueda de 2 minutos a una vez al dia — justo en la unidad que
+  // mas necesita seguir buscando la zona de verdad.
+  uint32_t interval = tz_source_is_resolved() ? GPRS_TZ_REFRESH_INTERVAL
+                                              : GPRS_TIME_SYNC_RETRY_INTERVAL;
   if (s_lastTzAttemptMs != 0 && millis() - s_lastTzAttemptMs < interval) {
     return;
   }

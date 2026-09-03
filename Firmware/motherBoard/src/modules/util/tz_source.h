@@ -30,6 +30,15 @@ typedef enum {
   // acaba de poner — dos horas de error en Espana, y en la fecha que sella el
   // historial de alarmas.
   TZ_SOURCE_MANUAL = 3,
+  // Zona de fabrica, la que se aplica cuando el reloj lo pone el modem GPRS y
+  // nadie ha comunicado ninguna zona. NO es un dato: es una suposicion, y por
+  // eso es la fuente de MENOR prioridad de todas — cualquiera que de verdad
+  // sepa la zona la corrige sin esperar a un reinicio.
+  //
+  // Existe porque una unidad solo-GPRS con un operador que no manda NITZ se
+  // quedaba sin zona de por vida y pintaba UTC, dos horas por debajo del
+  // reloj de la pared en Espana.
+  TZ_SOURCE_DEFAULT = 4,
 } TzSource;
 
 // Husos civiles reales, en cuartos de hora: UTC-12:00 .. UTC+14:00.
@@ -47,15 +56,26 @@ void tz_source_reset(void);
 // Politica: MANUAL gana a todo y nada lo desplaza hasta el reinicio, que es
 // lo que ya prometia system_clock.h. Por debajo, NITZ gana a IP, siempre. La antena esta fisicamente donde esta el
 // equipo; una IP puede ser de una VPN, un enlace satelital o la sede del
-// operador en otro pais. Dentro de la misma fuente el valor se refresca, o
-// cruzar una frontera dejaria el primer offset congelado de por vida.
+// operador en otro pais. Y por debajo de todas, DEFAULT: solo entra cuando no
+// hay ninguna otra, y nunca pisa a ninguna. Dentro de la misma fuente el
+// valor se refresca, o cruzar una frontera dejaria el primer offset congelado
+// de por vida.
 //
 // Un valor invalido nunca degrada un offset bueno ya obtenido.
 bool tz_source_set(int quarterHours, TzSource src);
 
 int8_t tz_source_quarters(void);
 TzSource tz_source_origin(void);
+
+// "Hay un offset que aplicar", DEFAULT incluido: es lo que decide si se pinta
+// hora local o el aviso de "sin hora".
 bool tz_source_known(void);
+
+// "Alguien de fuera nos ha dicho la zona de verdad" — DEFAULT no cuenta. Es
+// lo que decide con que ritmo se sigue buscando la zona real: mientras lo
+// unico que haya sea la suposicion de fabrica, hay que seguir buscando
+// deprisa en vez de pasar al refresco de una vez al dia.
+bool tz_source_is_resolved(void);
 
 // Extrae el offset de la respuesta de ip-api.com, donde el campo "offset"
 // llega en SEGUNDOS, y lo convierte a cuartos de hora.

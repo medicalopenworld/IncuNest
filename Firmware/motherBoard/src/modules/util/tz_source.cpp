@@ -15,6 +15,10 @@ int8_t tz_source_quarters(void) { return s_quarters; }
 TzSource tz_source_origin(void) { return s_source; }
 bool tz_source_known(void) { return s_source != TZ_SOURCE_NONE; }
 
+bool tz_source_is_resolved(void) {
+  return s_source != TZ_SOURCE_NONE && s_source != TZ_SOURCE_DEFAULT;
+}
+
 bool tz_source_set(int quarterHours, TzSource src) {
   if (src == TZ_SOURCE_NONE) return false;
   // Rango primero: un valor imposible no entra ni aunque venga de la fuente
@@ -30,6 +34,13 @@ bool tz_source_set(int quarterHours, TzSource src) {
   }
   // La IP no pisa a NITZ. Al reves si.
   if (src == TZ_SOURCE_IP && s_source == TZ_SOURCE_NITZ) {
+    return false;
+  }
+  // La zona de fabrica es lo ultimo: solo rellena el hueco cuando no hay
+  // nada, y no pisa a nadie —ni siquiera a si misma, para que el refresco
+  // periodico del GPRS no la reporte como cambio de estado una y otra vez.
+  // Sin esto, ese refresco reintroduciria el +2 encima de un offset bueno.
+  if (src == TZ_SOURCE_DEFAULT && s_source != TZ_SOURCE_NONE) {
     return false;
   }
   s_quarters = (int8_t)quarterHours;
