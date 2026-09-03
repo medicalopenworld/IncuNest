@@ -30,6 +30,8 @@ La versión inicial alternaba la orientación cada 2 s mientras no hubiera host 
 
 Aprendizaje: "el host se recupera de una enumeración fallida" era una suposición sobre una pila concreta que solo el banco podía refutar; la política pura permitió cambiar la regla sin tocar la ejecución sobre el PHY.
 
+**Causa raíz final (banco con UART0 del SensorBoard, 2026-09-03):** con la política v2 el SensorBoard intercambiaba correctamente, pero la motherboard **no detectaba la conexión en modo intercambiado** (ningún reset nuevo en el SensorBoard, ningún intento en el host), mientras que un PC sí. La motherboard hace `gpio_reset_pin(19/20)` para soltar el bus I2C2 antes de arrancar el host y esa llamada deja el **pull-up interno (~45 kΩ) habilitado** sobre las líneas USB: con la pull-down de 15 kΩ del host la línea "baja" queda a ~0,8 V, en el umbral del receptor single-ended del PHY, y la detección de conexión fallaba en una de las orientaciones. Fix en la motherboard: `gpio_pullup_dis`/`gpio_pulldown_dis` en 19/20 antes de `usb_host_install`. Con ese fix, cable invertido → un intercambio → enlace en ~1 s tras arrancar el host. El detach del intercambio pasa a 1 s (`CONFIG_SB_USB_SWAP_DETACH_MS`) para dar margen a la recuperación del puerto del host, y el enganche de fase de la v1 queda explicado: las ventanas "intercambiadas" eran invisibles para la motherboard.
+
 ## Alternativas consideradas
 
 - **Fallback a UART/I2C por IO19/IO20** — duplica la pila de transporte en ambas placas (y el parser de la motherboard) en un dispositivo médico; no es simétrico ante el cruce (TX/RX y SDA/SCL también se invierten, exigiría autodetección igual); pierde ancho de banda para la cámara y la enumeración/desconexión que da USB.
