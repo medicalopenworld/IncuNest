@@ -4,10 +4,16 @@
 
 ## Épica activa
 
-**Enlace motherboard ↔ SensorBoard por USB** — rama `feat/sensorboard-usb-comm`
-(worktree `Firmware/.worktrees/sensorboard-usb-comm`). Implementado y **validado
-en banco con las tres placas reales** el 2026-09-02/03. Pendiente de merge a `dev`
-(gate `guard-merge`, siempre humano).
+**Enlace motherboard ↔ SensorBoard por USB** — **integrado en `dev` el 2026-09-03**
+(merge `24600af` de `feat/sb-usb-pin-autoswap`, que ya contenía
+`feat/sensorboard-usb-comm`), y empujado a `origin/dev`. Validado en banco con las
+tres placas reales el 2026-09-02/03. Sigue activa por la verificación on-target
+pendiente (vigilante de host, autoswap, cámara — ver "Próximo paso").
+
+> El worktree `Firmware/.worktrees/sensorboard-usb-comm` está **obsoleto**: su rama
+> ya está en `dev` y quedaron ahí ficheros modificados sin commitear que son copia
+> de lo que ya se subió. Descártalos o retira el worktree antes de volver a tocarlo,
+> y trabaja desde el checkout principal.
 
 **Lo que cambió respecto a lo que decía este archivo:** el SensorBoard **no es
 telemetría auxiliar**. En los equipos nuevos, sus 3× SHT40 son el sensor de aire y
@@ -40,10 +46,26 @@ arrancar (sin NVS, una decisión por arranque).
   La primera versión alternaba a ciegas cada 2 s; la causa raíz de que fallara con
   la MB y no con el PC era `gpio_reset_pin(19/20)` en la motherboard dejando el
   pull-up interno sobre las líneas USB (fix `5b8af22` en `sensorboard_comm.cpp`). Rama en el **checkout principal** desde el 2026-09-03 (worktree `sb-usb-autoswap` retirado). Antes worktree:
-  `Firmware/.worktrees/sb-usb-autoswap`. **Integra `feat/sensorboard-usb-comm`
-  por merge (2026-09-03)**, así que esta rama contiene el enlace completo más el
-  autoswap y el vigilante de host; es la candidata a merge a `dev`. Verificación
+  `Firmware/.worktrees/sb-usb-autoswap`. **Integraba `feat/sensorboard-usb-comm`
+  por merge (2026-09-03)**, así que llevó a `dev` el enlace completo más el
+  autoswap y el vigilante de host. **Mergeada a `dev` en `24600af`.** Verificación
   on-target pendiente (checklist en el `design.md` del change).
+
+- **Telemetría posicional de los 3 SHT40 + GPRS — 2026-09-03.** Commits `0000711`
+  (refactor), `485e35a` (11 tests en host), `26c01e9` (docs) y `12b2584` (GPRS),
+  directos en `dev` y ya en `origin/dev`.
+  - Las tres lecturas crudas viajan a ThingsBoard como `sb_temp0/1/2_C` y
+    `sb_hum0/1/2_pct`, omitiendo la clave de la posición caída en vez de mandar un
+    0 (un 0 en la nube es indistinguible de una medida). `Air_temp` sigue siendo la
+    mediana, que es la variable del PID y del corte térmico.
+  - El mapeo se extrajo a `sb_telemetry.{h,cpp}` (puro, en el `build_src_filter` de
+    `native`) para poder probarlo en host: `test/test_sensorboard_telemetry/`.
+  - `TX_GROUP_SENSORBOARD_GPRS` a 1 y `THINGSBOARD_FIELDS_AMOUNT` 96 → 112
+    (+512 B de `.bss` medidos). Antes no cabía: 87 claves de peor caso GPRS + 12
+    del bloque = 99 > 96.
+  - Verificado sobre `dev`: `check_transport_matrix.py` OK, **293/293** tests
+    nativos, `pio run -e IncuNest_V18` SUCCESS (RAM 86 504 B). **Sin probar en
+    placa** — nadie ha visto todavía estas claves en ThingsBoard.
 
 ## Próximo paso (requiere a Pablo)
 
@@ -64,10 +86,16 @@ arrancar (sin NVS, una decisión por arranque).
    (`[hostwatch]`).
 2. **Verificación on-target del autoswap USB** (4 casos del checklist en el
    `design.md` del change archivado).
-3. Aprobar el merge de `feat/sb-usb-pin-autoswap` (que ya incluye
-   `feat/sensorboard-usb-comm`) a `dev` con `merge --no-ff`. Al tocar `shared/`
-   (`ALARM_COUNT` 18 → 20), **motherboard y display deben flashearse juntos**: un
-   HMI viejo descarta las alarmas 18/19 por id fuera de rango.
+3. **Ver las claves nuevas en ThingsBoard.** Flashear desde el checkout principal
+   (`cd Firmware/motherBoard && pio run -e IncuNest_V18 -t upload`). Requisitos para
+   que aparezca cualquier `sb_*`: el I2C2 vacío (log `No air sensor on I2C2:
+   starting SensorBoard USB link ...`) y el enlace arriba. Cadencia WiFi 5 s;
+   por GPRS, según `TX_GPRS_PERIOD_*`.
+   **La prueba que importa:** desconectar un SHT40 → su clave debe **desaparecer**
+   del payload (no salir a 0), `sb_env_used` bajar a 2 y `Air_temp` quedarse plano.
+   Y que no aparezca `TELEMETRIA TRUNCADA` en el log.
+   Al tocar `shared/` (`ALARM_COUNT` 18 → 20), **motherboard y display deben
+   flashearse juntos**: un HMI viejo descarta las alarmas 18/19 por id fuera de rango.
 4. **Flasher (`Firmware/flasher_tool`):** indicar "gira el cable USB" si no detecta
    el SensorBoard — el bootloader ROM no aplica el intercambio de pines.
 5. Verificación on-target de la cámara: la unidad de pruebas **no lleva cámara**
@@ -94,9 +122,28 @@ arrancar (sin NVS, una decisión por arranque).
   del sensor de aire de la motherboard (5 s), así que una sola publicación
   perdida cortaba el calefactor. Cadena viva: publica 1 s → rancio a 3.6 s → deja
   de refrescarse el sello → `AIR_SENSOR_FAULT` a los 5 s.
-- **Votación, no media**, al fusionar las 3 posiciones: con una media simple un
+- **Mediana, no media**, al fusionar las 3 posiciones: con una media simple un
   solo SHT40 sesgado engañaba a la vez al PID, al corte térmico y a la alarma de
-  desviación (todos leen la misma variable). Mediana + descarte por dispersión.
+  desviación (todos leen la misma variable). La media es la única opción que puede
+  devolver un valor que **ningún** sensor está midiendo. Con 2 plausibles se
+  promedia (no hay tercero que arbitre), con 1 se acepta, con 0 no hay medida y
+  salta `AIR_SENSOR_FAULT`.
+- **Sin cribado por dispersión** (se quitó el `max_spread` de la primera versión):
+  descartar por desviarse de los compañeros se diseñará con datos reales de flota,
+  y para eso las tres crudas viajan a la nube. El único filtro que queda es el gate
+  de plausibilidad de cabina (15-50 °C).
+- **Los tres SHT40 comparten ubicación física**, y eso es lo que hace válida la
+  mediana: si estuvieran repartidos por la cabina estaría mezclando un gradiente
+  real. Mapeo índice → sensor en `docs/hardware.md`.
+- **Las crudas se llaman `sb_temp0/1/2_C`, no `Air_temp_0/1/2`**, y a propósito: la
+  magnitud clínica es `Air_temp` (la que lee el PID); las tres crudas son datos de
+  mantenimiento. Nombrarlas en la familia `Air_temp_*` invitaría a promediarlas en
+  un widget de dashboard, que es justo el peligro que evita la mediana.
+- **`MAX_MESSAGE_SIZE` (1024 B) no limita la telemetría**: `main.h` define
+  `THINGSBOARD_ENABLE_STREAM_UTILS`, y con eso el SDK publica en streaming
+  (`begin_publish` + `BufferingPrint`) rodeando el buffer MQTT. El único techo real
+  es `THINGSBOARD_FIELDS_AMOUNT` (el pool de ArduinoJson), y desbordarlo **descarta
+  las claves últimas insertadas** — que son las `sb_*`, por ir al final.
 - El SensorBoard **no transmite nada sin DTR asertado** por el host.
 - Su PID USB es un contrato entre placas: lo calcula TinyUSB desde las clases
   habilitadas, así que activar MSC lo movería y rompería el enlace en silencio.
@@ -105,6 +152,14 @@ arrancar (sin NVS, una decisión por arranque).
 
 ## Seguimientos diferidos
 
+- **Los hooks de gitflow no protegen las sesiones abiertas desde `SensorBoard_v2`.**
+  Detectado el 2026-09-03: un `git push origin dev` pasó sin que `guard-push` lo
+  bloqueara. Están registrados solo en `Firmware/.claude/settings.json`, y
+  `SensorBoard_v2/.claude/` únicamente tiene `settings.local.json` y `logs`. El
+  agujero afecta igual a **`guard-merge`**, que es el gate humano obligatorio del
+  dispositivo médico: un merge a `main` desde esta carpeta pasaría sin aprobación.
+  `CLAUDE.md` describe ambos como activos. Arreglo: registrarlos también en
+  `SensorBoard_v2/.claude/settings.json`, o abrir las sesiones desde `Firmware/`.
 - **Contrato de puerta a medias**: se detecta el flapping pero no el `door_open`
   sostenido implausible (hall desconectado), que el README exige igual.
 - **Micrófono descalibrado**: ~60 dB en reposo medidos en banco; deberían ser
