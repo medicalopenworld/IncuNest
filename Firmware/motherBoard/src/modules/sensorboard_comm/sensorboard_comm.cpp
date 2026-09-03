@@ -538,33 +538,27 @@ bool sensorboard_apply_room_sensor(void) {
   const uint32_t age = (uint32_t)(millis() - s.last_env_ms);
   if (age > SB_ENV_STALE_MS) return false;
 
-  // Votacion, no media: el valor que sale de aqui gobierna a la vez el PID de
-  // aire, el corte termico y la alarma de desviacion, asi que una media simple
-  // dejaba que UN sensor sesgado enganara a las tres barreras al mismo tiempo
-  // (ver sb_env_fusion.h). Si no hay medida arbitrable, NO se refresca el
-  // sello: que salte ALARM_AIR_SENSOR_FAULT es la respuesta correcta.
-  const SbFusion temp = sb_fuse(s.temp.valid, s.temp.value, SB_ENV_TEMP_MIN_C,
-                                SB_ENV_TEMP_MAX_C, SB_ENV_MAX_SPREAD_C);
+  // Sin cribado: las tres lecturas viajan crudas a la nube y el cribado lo
+  // hara la motherboard mas adelante. Aqui solo se elige CUAL gobierna el
+  // lazo, y se elige la mediana porque de esta variable comen el PID, el
+  // corte termico y la alarma de desviacion -- ver sb_env_fusion.h.
+  const SbFusion temp =
+      sb_fuse(s.temp.valid, s.temp.value, SB_ENV_TEMP_MIN_C, SB_ENV_TEMP_MAX_C);
   if (!temp.valid) {
-    ESP_LOGW(TAG, "sin temperatura de aire arbitrable (%u descartadas)",
-             (unsigned)temp.discarded);
+    ESP_LOGW(TAG, "ninguna temperatura de aire plausible");
     return false;
   }
-  const SbFusion hum =
-      sb_fuse(s.hum.valid, s.hum.value, 0.0f, 100.0f, SB_ENV_MAX_SPREAD_RH);
+  const SbFusion hum = sb_fuse(s.hum.valid, s.hum.value, 0.0f, 100.0f);
 
   // Escrituras hechas desde la tarea de sensores, la misma que las hace en el
   // camino I2C: el enlace USB no introduce escrituras concurrentes sobre
   // variables clinicas.
   in3.temperature[ROOM_DIGITAL_TEMP_SENSOR] = temp.value;
-  if (temp.has_redundant) {
-    in3.airTemperatureRedundantSensor = temp.redundant;
-  }
   if (hum.valid) {
     in3.humidity[ROOM_DIGITAL_HUM_SENSOR] = hum.value;
   }
-  // Cuantas posiciones sostienen realmente la medida: perder redundancia en
-  // silencio es lo que hace que una averia progresiva no se vea venir.
+  // Cuantas posiciones sostienen la medida: perder redundancia en silencio es
+  // lo que hace que una averia progresiva no se vea venir en remoto.
   s_env_used = temp.used;
   lastSuccesfullSensorUpdate[ROOM_DIGITAL_TEMP_SENSOR] = millis();
   return true;
@@ -607,9 +601,27 @@ void sensorboard_add_telemetry(JsonObject &json) {
   json[SB_LINK_OK_KEY] = s.link_ok;
   if (!s.link_ok) return;  // con el enlace caido los ultimos valores son viejos
 
-  // La temperatura y la humedad NO se publican aqui: en modo SensorBoard son
-  // las magnitudes clinicas de la incubadora y salen por Air_temp /
-  // Amb_humidity como en cualquier otro equipo.
+  // Las TRES posiciones crudas, tal como llegan. El valor que gobierna el lazo
+  // sale por Air_temp como en cualquier equipo; estas son la materia prima con
+  // la que disenar el cribado que hara la motherboard mas adelante, y la unica
+  // forma de ver en remoto que un sensor se esta desviando de sus companeros.
+  if (s.env_seen && (uint32_t)(now - s.last_env_ms) <= SB_ENV_STALE_MS) {
+    static const char *const kTempKeys[3] = {SB_TEMP0_KEY, SB_TEMP1_KEY,
+                                             SB_TEMP2_KEY};
+    static const char *const kHumKeys[3] = {SB_HUM0_KEY, SB_HUM1_KEY,
+                                            SB_HUM2_KEY};
+    for (int i = 0; i < 3; i++) {
+      if (s.temp.valid[i]) {
+        json[kTempKeys[i]] =
+            roundSignificantDigits(s.temp.value[i], TELEMETRIES_DECIMALS);
+      }
+      if (s.hum.valid[i]) {
+        json[kHumKeys[i]] =
+            roundSignificantDigits(s.hum.value[i], TELEMETRIES_DECIMALS);
+      }
+    }
+  }
+
   if (s.env_seen && (uint32_t)(now - s.last_env_ms) <= SB_ENV_STALE_MS &&
       s.lux_valid) {
     json[SB_LUX_KEY] = roundSignificantDigits(s.lux, TELEMETRIES_DECIMALS);
