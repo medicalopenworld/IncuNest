@@ -25,6 +25,7 @@ POST_FLASH_COOLDOWN_S = 8
 SLOT_CLEAR_DELAY_S = 5
 SLOT_CONSOLE_LINES = 5
 LEFT_COLUMN_W = 300     # logo, estado, binarios locales y registro general
+LOG_LINES = 10          # alto fijo del registro general
 WINDOW_W = 820
 WINDOW_H = 640
 NUM_SLOTS = 3
@@ -678,7 +679,7 @@ class FlasherApp:
         logo_path = get_logo_path()
         if logo_path.exists():
             img = Image.open(logo_path)
-            target_h = 90
+            target_h = 180
             target_w = int(img.width * target_h / img.height)
             img = img.resize((target_w, target_h), Image.LANCZOS)
             self._logo_img = ImageTk.PhotoImage(img)
@@ -707,12 +708,14 @@ class FlasherApp:
 
         ttk.Separator(left, orient='horizontal').pack(fill='x')
 
-        # --- "Actualizar binarios locales" ---
+        # --- "Actualizar binarios locales" — anchored at the very bottom of
+        #     the column (packed side='bottom' before the log so nothing can
+        #     push it around). ---
         self._upd_btn: Optional[tk.Button] = None
         self._upd_status: Optional[tk.Label] = None
         if self._get_build_sources():
             upd_frame = tk.Frame(left)
-            upd_frame.pack(fill='x', pady=(8, 8))
+            upd_frame.pack(side='bottom', fill='x', pady=(8, 0))
             self._upd_btn = tk.Button(
                 upd_frame, text="📂  Actualizar binarios locales",
                 font=('', 10, 'bold'), bg='#37474F', fg='white',
@@ -725,18 +728,19 @@ class FlasherApp:
                 fg='#757575', font=('', 9),
             )
             self._upd_status.pack(fill='x', pady=(4, 0))
-            ttk.Separator(left, orient='horizontal').pack(fill='x')
+            ttk.Separator(left, orient='horizontal').pack(side='bottom', fill='x')
 
         # --- Shared timeline log: one summary line per slot event plus
         #     everything that has no slot (hints, ignored devices, firmware
         #     updates, WiFi tab). Per-device detail lives in each slot's
-        #     own console on the right. ---
+        #     own console on the right. Fixed height; spare room stays empty
+        #     between the log and the bottom button. ---
         tk.Label(left, text="Registro general", anchor='w',
                  font=('', 9, 'bold'), fg='#616161').pack(fill='x', pady=(8, 2))
         self._log = scrolledtext.ScrolledText(
-            left, height=5, state='disabled', font=('Courier', 8), wrap='word',
+            left, height=LOG_LINES, state='disabled', font=('Courier', 8), wrap='word',
         )
-        self._log.pack(fill='both', expand=True)
+        self._log.pack(fill='x')
         self._log.tag_config('success', foreground='#2E7D32')
         self._log.tag_config('error',   foreground='#C62828')
         self._log.tag_config('info',    foreground='#1565C0')
