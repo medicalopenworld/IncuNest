@@ -12,4 +12,10 @@ No se sistematiza una regla por un fallo de primera vez (puede ser casualidad). 
 
 ## Índice
 
-Ningún retro registrado todavía.
+- [2026-09-03 · Autoswap D+/D- del PHY USB (conector invertido)](2026-09-03-usb-pin-autoswap.md)
+- [2026-07-03 · Fase 5 · Cámara](2026-07-03-fase5-camera.md)
+- [2026-07-03 · Fase 3 · Micrófono](2026-07-03-fase3-mic.md)
+- [2026-07-03 · Fase 4 · Sensor de puerta](2026-07-03-fase4-door.md)
+- [2026-07-03 · Fase 2 · Sensores ambientales](2026-07-03-fase2-env-sensors.md)
+- [2026-07-03 · Fase 1 · Transporte USB CDC](2026-07-03-fase1-usb-cdc.md)
+- [2026-07-03 · EPIC-000 · Adaptación del framework Genesis a ESP-IDF](2026-07-03-epic-000-adapt-genesis-esp-idf.md)
