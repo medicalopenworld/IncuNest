@@ -92,10 +92,64 @@ static void cdc_rx_callback(int itf, cdcacm_event_t *event)
     xSemaphoreGive(s_rx_sem);
 }
 
+/* Instante (ms) en que se perdió el host teniéndolo antes, o 0 si no aplica.
+ * Lo vigila host_watchdog_task: ver el porqué en su comentario. */
+static volatile uint32_t s_host_lost_ms = 0;
+static volatile bool s_host_ever_seen = false;
+
 static void cdc_line_state_callback(int itf, cdcacm_event_t *event)
 {
     (void)itf;
-    s_cdc_ready = event->line_state_changed_data.dtr;
+    const bool ready = event->line_state_changed_data.dtr;
+    if (ready) {
+        s_host_ever_seen = true;
+        s_host_lost_ms = 0;
+    } else if (s_host_ever_seen && s_host_lost_ms == 0) {
+        s_host_lost_ms = (uint32_t)(esp_timer_get_time() / 1000);
+    }
+    s_cdc_ready = ready;
+}
+
+/* Reinicio tras perder el host: sin esto, la incubadora se queda sin sensor
+ * de aire hasta que alguien desenchufa un cable.
+ *
+ * Comprobado en banco (2026-09-03): cuando la motherboard se reinicia con el
+ * SensorBoard ya conectado, el SensorBoard NO vuelve a enumerar — la
+ * motherboard no controla el VBUS, así que el dispositivo nunca ve una
+ * desconexión y se queda con la configuración anterior mientras el host
+ * arranca de cero creyendo el puerto vacío. Hacía falta ciclar la
+ * alimentación a mano. En campo eso significa que un watchdog, una OTA o un
+ * brown-out de la motherboard dejan la incubadora sin la variable de control
+ * del PID y con el calefactor cortado hasta que alguien vaya físicamente.
+ *
+ * Reiniciarse es lo que fuerza la re-enumeración desde este lado, que es el
+ * único que puede actuar sin cambiar el hardware.
+ *
+ * Sólo se reinicia si ANTES hubo host: una placa que arranca antes que la
+ * motherboard, o que vive sin ella, espera indefinidamente como hasta ahora.
+ * Y tras el reinicio s_host_ever_seen vuelve a false, así que no puede
+ * encadenar reinicios: como mucho uno por pérdida. */
+#define SB_HOST_LOST_RESTART_MS 15000u
+
+static void host_watchdog_task(void *arg)
+{
+    (void)arg;
+    for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        const uint32_t lost_at = s_host_lost_ms;
+        if (lost_at == 0) {
+            continue;
+        }
+        const uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+        if ((uint32_t)(now - lost_at) >= SB_HOST_LOST_RESTART_MS) {
+            /* El log no llegará a ninguna parte (no hay host), pero queda en
+             * el buffer de retención por si alguien conecta después. */
+            ESP_LOGW(TAG, "host perdido %u ms: reinicio para re-enumerar",
+                     (unsigned)SB_HOST_LOST_RESTART_MS);
+            vTaskDelay(pdMS_TO_TICKS(50));
+            esp_restart();
+        }
+    }
 }
 
 /* ── Log interceptor ───────────────────────────────────────── */
@@ -347,6 +401,12 @@ esp_err_t sensorBoard_comm_init(void)
         goto fail;
     }
     if (xTaskCreate(usb_rx_task, "usb_rx", SB_COMM_TASK_STACK, NULL, SB_COMM_TASK_PRIO, NULL) !=
+        pdPASS) {
+        err = ESP_ERR_NO_MEM;
+        goto fail;
+    }
+    /* Pila mínima: sólo compara dos enteros una vez por segundo. */
+    if (xTaskCreate(host_watchdog_task, "host_wd", 2560, NULL, SB_COMM_TASK_PRIO, NULL) !=
         pdPASS) {
         err = ESP_ERR_NO_MEM;
         goto fail;
