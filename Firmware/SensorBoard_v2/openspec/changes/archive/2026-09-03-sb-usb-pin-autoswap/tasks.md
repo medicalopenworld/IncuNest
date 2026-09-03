@@ -20,6 +20,6 @@
 
 ## 5. Docs / cierre
 
-- [ ] 5.1 README (tolerancia a orientación + limitación del bootloader), CHANGELOG, architecture.md, hardware.md; ADR-0003; archivar; retro; ESTADO.md
+- [x] 5.1 README (tolerancia a orientación + limitación del bootloader), CHANGELOG, architecture.md, hardware.md; ADR-0003; archivar; retro; ESTADO.md
 
 > Verificación manual on-target pendiente (checklist en `design.md`): orientación correcta, invertida, re-enchufe en caliente y arranque sin host.
