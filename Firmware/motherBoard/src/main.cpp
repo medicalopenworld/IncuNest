@@ -31,6 +31,7 @@
 #include "state/state.h"
 #include "modules/sensorboard_comm/sensorboard_comm.h"
 #include "modules/sensors/sensor_source.h"
+#include "system/hw_selftest.h"
 #include "DriveUpload.h"
 #include "CrashReporter.h"
 #include <Preferences.h>
@@ -430,7 +431,11 @@ void Communication_Receiver(void *pvParameters) {
       } else {
         stopPID(CONTROL_AIR);
         stopPID(!CONTROL_AIR);
-        ledcWrite(HEATER_PWM_CHANNEL, false);
+        // El test de fabrica tiene el canal del calefactor en estado seguro
+        // (design.md D4, shared-factory-test): no pisarlo con este keepalive
+        // del HMI, que se repite en cada trama aunque actuation ya este OFF.
+        if (!g_factoryTestActive)
+          ledcWrite(HEATER_PWM_CHANNEL, false);
       }
       if (in3.humidityControl) {
         if (hmi_cmd_msg.desiredHumidity != in3.desiredControlHumidity) {
@@ -444,7 +449,10 @@ void Communication_Receiver(void *pvParameters) {
         startPID(humidityPID);
       } else {
         stopPID(humidityPID);
-        in3_hum.turn(OFF);
+        // Idem HEATER_PWM_CHANNEL arriba: el humidificador tambien es parte
+        // del estado seguro del test de fabrica (design.md D4).
+        if (!g_factoryTestActive)
+          in3_hum.turn(OFF);
       }
 
       in3.phototherapy = hmi_cmd_msg.phototherapyMode;
@@ -460,8 +468,15 @@ void Communication_Receiver(void *pvParameters) {
         }
         in3.photoTurnOnTime = millis();
       }
-      ledcWrite(PHOTOTHERAPY_PWM_CHANNEL,
-                in3.phototherapy * in3.phototherapy_intensity);
+      // Idem: el canal de fototerapia tambien lo posee el test de fabrica
+      // mientras dura la bateria. La reconciliacion con in3.phototherapy
+      // (actualizado arriba, sin gate: eso SI debe seguir reflejando la
+      // trama) la hace este mismo newCommand en su siguiente vuelta, en
+      // cuanto g_factoryTestActive baje (ver cabecera de
+      // factory_test_task.cpp).
+      if (!g_factoryTestActive)
+        ledcWrite(PHOTOTHERAPY_PWM_CHANNEL,
+                  in3.phototherapy * in3.phototherapy_intensity);
       turnFans(bool(in3.phototherapy || in3.actuation));
 
       // AQUI NO SE PITA AL RECIBIR UNA TRAMA DEL DISPLAY.

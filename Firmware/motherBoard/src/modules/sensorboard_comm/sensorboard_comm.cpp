@@ -287,6 +287,18 @@ static void on_frame(uint8_t type, const uint8_t *payload, uint32_t len,
     s_snapshot.status_seen = true;
     strncpy(s_snapshot.sb_fw, status.fw, sizeof(s_snapshot.sb_fw) - 1);
     s_snapshot.sb_fw[sizeof(s_snapshot.sb_fw) - 1] = '\0';
+    // Bloqueante #11 del review de seguridad: `fw` viene de un JSON de un
+    // dispositivo USB externo sin verificar. sb_fw acaba en el detail de
+    // CTRL,FTEST (id 9, SB_STATUS) y de ahi a un log/pantalla; sustituir todo
+    // lo que no sea ASCII imprimible evita que un firmware malicioso o
+    // corrupto inyecte control characters (incluidas comas/CR/LF que ya
+    // sanea el codec, pero tambien secuencias de terminal, etc.).
+    for (char *p = s_snapshot.sb_fw; *p != '\0'; ++p) {
+      const unsigned char c = static_cast<unsigned char>(*p);
+      if (c < 0x20 || c > 0x7E) {
+        *p = '?';
+      }
+    }
     memcpy(s_snapshot.avail_sht, status.avail_sht, sizeof(s_snapshot.avail_sht));
     s_snapshot.avail_als = status.avail_als;
     s_snapshot.avail_door = status.avail_door;

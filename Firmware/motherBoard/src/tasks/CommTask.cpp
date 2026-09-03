@@ -1047,6 +1047,11 @@ void CommunicationHost_Enqueue(const char *line) {
   }
 }
 
+bool CommunicationHost_HmiAlive(uint32_t max_silence_ms) {
+  if (!g_hmiEverSeen) return true;
+  return (uint32_t)(millis() - g_lastHmiLineMs) <= max_silence_ms;
+}
+
 // ======================================================
 //  INITIALIZATION
 // ======================================================

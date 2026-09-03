@@ -29,6 +29,7 @@
 // minima que exige 6.10 (ALARM_MIN_BURST_MS_*).
 #include "modules/control/alarm_machine.h"
 #include "modules/control/alarm_test.h"
+#include "system/hw_selftest.h"
 
 #define BUZZER_DISABLED false
 #define BUZZER_ENABLED true
@@ -39,6 +40,12 @@ bool buzzerBuzzing;
 
 void buzzerHandler()
 {
+  // El test de fabrica (id BUZZER) tiene el canal del zumbador en estado
+  // seguro y lo excita el mismo desde su tarea (design.md D4,
+  // shared-factory-test): este confirmador de comandos HMI es un tercer
+  // escritor del mismo canal PWM que debe respetar el gate.
+  if (g_factoryTestActive)
+    return;
   if (millis() - buzzerTime > buzzerToneTime && buzzerBeeps)
   {
     buzzerBeeps -= buzzerBuzzing;

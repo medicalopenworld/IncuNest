@@ -66,3 +66,12 @@ void   sendWifiToHMI(const char *ssid, const char *pass);
 // devuelve enseguida; con la cola llena, la linea se descarta con log de
 // error y NUNCA bloquea a quien llama.
 void CommunicationHost_Enqueue(const char *line);
+
+// true si se ha visto alguna vez una linea del HMI y la ultima llego hace
+// como mucho `max_silence_ms` (encapsula g_lastHmiLineMs/g_hmiEverSeen,
+// parse_line() en CommTask.cpp, para quien necesite un dead-man sin tocar
+// esos globales directamente). Devuelve true tambien si nunca se ha visto
+// ninguna linea: "nunca conectado" no es lo mismo que "se dejo de hablar",
+// mismo criterio que checkHmiLink() (security.cpp). Usada por el dead-man
+// del test de fabrica (design.md D4, shared-factory-test).
+bool CommunicationHost_HmiAlive(uint32_t max_silence_ms);

@@ -48,8 +48,30 @@ void ftest_emit(unsigned id, FtestStatus st, const char *detail);
 // CUALQUIER bucle de espera, en pasos de <= 250 ms (design.md D5).
 bool ftest_abort_requested(void);
 
+// Arma la espera de un CONFIRM: drena cualquier "give" residual del
+// semaforo y DESPUES fija `id` como el esperado. El cuerpo del test debe
+// llamarla ANTES de encolar su linea CTRL,FTEST,id,5 con ftest_emit()
+// (bloqueante #8 del review de seguridad, "carrera del CONFIRM"): al reves,
+// un CONFIRM que llegase justo entre encolar la linea y armar la espera se
+// perderia.
+void ftest_arm_confirm(unsigned id);
+
 // Espera hasta timeout_ms la respuesta del operario a un CONFIRM. El cuerpo
-// del test es quien emite CTRL,FTEST,id,5 con ftest_emit() ANTES de llamar
-// aqui (con su propio texto de instruccion); esta funcion solo bloquea al
-// semaforo. 1 = confirmo, 0 = nego, -1 = timeout o ABORT.
+// del test debe haber llamado ftest_arm_confirm(id) ANTES de emitir
+// CTRL,FTEST,id,5 con ftest_emit(); esta funcion ya no arma nada, solo
+// bloquea al semaforo. 1 = confirmo, 0 = nego, -1 = timeout o ABORT.
 int ftest_wait_confirm(unsigned id, uint32_t timeout_ms);
+
+// Motivo del ultimo ftest_abort_requested() == true ("abort"/"control on"/
+// "hmi lost"/"max time"). Los cuerpos de test la usan para el detail del
+// SKIP en vez de un "abort" fijo (bloqueantes #2/#3 del review de
+// seguridad). Nunca NULL: si no hay motivo activo devuelve "abort" (no
+// deberia llamarse en ese caso, pero es un valor seguro).
+const char *ftest_abort_reason(void);
+
+// Alimenta el Task WDT (esp_task_wdt_reset()) desde dentro de un cuerpo de
+// test. Cada paso de <= 250 ms de un bucle de espera debe llamarla
+// (bloqueante #2 del review de seguridad): sin esto, una espera de varios
+// segundos entre pasos de un WHILE de sondeo dispara el panic del WDT a los
+// 75 s (watchdogInit(), initHardware.cpp).
+void ftest_wdt_feed(void);

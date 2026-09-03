@@ -6,6 +6,7 @@
 #include "modules/control/alarm_machine.h"
 #include "modules/sensorboard_comm/sensorboard_comm.h"
 #include "sensor_source.h"
+#include "system/hw_selftest.h"
 
 extern TwoWire *wire;
 extern SHTC3 mySHTC3; // Declare an instance of the SHTC3 class
@@ -121,7 +122,12 @@ void currentMonitor() {
     lastCurrentMeasurement = millis();
   }
 
-  if (in3.phototherapy &&
+  // g_factoryTestActive: el canal de fototerapia esta en estado seguro
+  // durante la bateria de fabrica (design.md D4, shared-factory-test); esta
+  // regulacion de intensidad es un tercer escritor de PWM que sobrevive con
+  // el control apagado y debe respetar el mismo gate que PIDHandler()/
+  // turnFans().
+  if (!g_factoryTestActive && in3.phototherapy &&
       (millis() - in3.photoTurnOnTime  > PHOTO_SETTLE_MS) &&
       (millis() - lastPhotoControl     > PHOTO_CONTROL_PERIOD_MS) &&
       in3.phototherapy_current > 0.0f) {

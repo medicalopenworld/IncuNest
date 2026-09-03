@@ -7,6 +7,7 @@
 // banco documentada en el commit de este cambio.
 #include <Preferences.h>
 #include <LittleFS.h>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <time.h>
@@ -86,11 +87,19 @@ static FtestStatus ftest_standby(char *detail, FtestCascade *) {
 // ---------------------------------------------------------------------------
 // 3: CHARGER
 static FtestStatus ftest_charger(char *detail, FtestCascade *) {
-  BQ25730_Status st;
+  // Bloqueante #5 del review de seguridad: `st` sin inicializar formateaba
+  // memoria basura en el detail si charge_status() devolvia false (nunca
+  // toca `st` en ese caso). `= {}` deja un valor conocido y, ademas, ya no
+  // se formatea nada de `st` salvo que la llamada haya tenido exito.
+  BQ25730_Status st = {};
   const bool ok = charge_status(&st);
+  if (!ok) {
+    D("sin respuesta");
+    return FTEST_FAIL;
+  }
   D("vb=%dmV vs=%dmV vu=%dmV i=%dmA", (int)st.vbat_mv, (int)st.vsys_mv,
     (int)st.vbus_mv, (int)st.ichg_ma);
-  return ok ? FTEST_PASS : FTEST_FAIL;
+  return FTEST_PASS;
 }
 
 // ---------------------------------------------------------------------------
@@ -115,7 +124,12 @@ static FtestStatus ftest_skin_adc(char *detail, FtestCascade *) {
   }
   const float t = in3.temperature[SKIN_SENSOR];
   D("t=%.1f", t);
-  return (t < 1.0f || t > 60.0f) ? FTEST_FAIL : FTEST_PASS;
+  // Bloqueante #4 del review de seguridad: NaN no debe colar como PASS. Con
+  // la comparacion en negativo original (t < 1 || t > 60) un NaN hace las dos
+  // false y cae en PASS; en positivo, un NaN hace la conjuncion false y cae
+  // en FAIL, que es lo correcto. isfinite() ademas rechaza +-inf.
+  if (!std::isfinite(t)) return FTEST_FAIL;
+  return (t >= 1.0f && t <= 60.0f) ? FTEST_PASS : FTEST_FAIL;
 }
 
 // ---------------------------------------------------------------------------
@@ -132,8 +146,11 @@ static FtestStatus ftest_ext_sht4x(char *detail, FtestCascade *) {
   const float t = in3.temperature[AMBIENT_DIGITAL_TEMP_SENSOR];
   const float h = in3.humidity[AMBIENT_DIGITAL_HUM_SENSOR];
   D("t=%.1f h=%.0f", t, h);
-  if (t < -10.0f || t > 60.0f) return FTEST_FAIL;
-  if (h < 0.0f || h > 100.0f) return FTEST_FAIL;
+  // Bloqueante #4: mismo motivo que SKIN_ADC arriba -- rechazar NaN antes y
+  // comparar el rango en positivo.
+  if (!std::isfinite(t) || !std::isfinite(h)) return FTEST_FAIL;
+  if (!(t >= -10.0f && t <= 60.0f)) return FTEST_FAIL;
+  if (!(h >= 0.0f && h <= 100.0f)) return FTEST_FAIL;
   return FTEST_PASS;
 }
 
@@ -172,9 +189,10 @@ static FtestStatus ftest_sb_link(char *detail, FtestCascade *cascade) {
       return FTEST_PASS;
     }
     if (ftest_abort_requested()) {
-      D("abort");
+      D("%s", ftest_abort_reason());
       return FTEST_SKIP;
     }
+    ftest_wdt_feed();
     vTaskDelay(pdMS_TO_TICKS(250));
   }
   D("timeout");
@@ -186,7 +204,14 @@ static FtestStatus ftest_sb_link(char *detail, FtestCascade *cascade) {
 static FtestStatus ftest_sb_status(char *detail, FtestCascade *cascade) {
   if (sb_skip_if_no_sensorboard(cascade, detail)) return FTEST_SKIP;
 
-  sensorboard_status_request();
+  // Bloqueante #10 del review de seguridad: si la peticion ni siquiera se
+  // pudo encolar, eso no es "falta un recurso concreto" (avail_*) sino
+  // "la SensorBoard no respondio en absoluto" -- detail distinto para no
+  // confundir al operario sobre que revisar.
+  if (!sensorboard_status_request()) {
+    D("sin respuesta");
+    return FTEST_FAIL;
+  }
   const uint32_t start = millis();
   while ((uint32_t)(millis() - start) < 5000) {
     SbSnapshot s;
@@ -197,14 +222,21 @@ static FtestStatus ftest_sb_status(char *detail, FtestCascade *cascade) {
       return FTEST_PASS;
     }
     if (ftest_abort_requested()) {
-      D("abort");
+      D("%s", ftest_abort_reason());
       return FTEST_SKIP;
     }
+    ftest_wdt_feed();
     vTaskDelay(pdMS_TO_TICKS(250));
   }
 
   SbSnapshot s;
   sensorboard_get_snapshot(&s);
+  if (!s.status_seen) {
+    // La peticion se encolo bien pero no llego ninguna respuesta en el
+    // plazo: distinto de "llego la respuesta pero falta un recurso".
+    D("sin respuesta");
+    return FTEST_FAIL;
+  }
   static const char *const kNames[6] = {"sht0", "sht1", "sht2",
                                         "als",  "door", "cam"};
   const bool avail[6] = {s.avail_sht[0], s.avail_sht[1], s.avail_sht[2],
@@ -236,11 +268,21 @@ static FtestStatus ftest_sb_env(char *detail, FtestCascade *cascade) {
     return FTEST_FAIL;
   }
 
+  // Bloqueante #4 del review de seguridad: `valid[i]` solo dice que la
+  // SensorBoard marco la posicion como leida, no que el valor sea finito.
+  // Un NaN colado aqui volveria FTEST_FAIL/spread/diff tambien NaN, y las
+  // comparaciones en negativo de abajo (`> MAX`) dan false con NaN -> PASS.
+  bool allFinite = true;
   float mn = s.temp.value[0], mx = s.temp.value[0], sum = 0.0f;
   for (int i = 0; i < 3; i++) {
+    if (!std::isfinite(s.temp.value[i])) allFinite = false;
     if (s.temp.value[i] < mn) mn = s.temp.value[i];
     if (s.temp.value[i] > mx) mx = s.temp.value[i];
     sum += s.temp.value[i];
+  }
+  if (!allFinite) {
+    D("valor no finito");
+    return FTEST_FAIL;
   }
   const float spread = mx - mn;
   const float mean = sum / 3.0f;
@@ -248,13 +290,18 @@ static FtestStatus ftest_sb_env(char *detail, FtestCascade *cascade) {
   bool haveExt = false;
   float diff = 0.0f;
   if (ambientSensorPresent && updateAmbientSensor()) {
-    haveExt = true;
-    diff = fabsf(mean - in3.temperature[AMBIENT_DIGITAL_TEMP_SENSOR]);
+    const float ext = in3.temperature[AMBIENT_DIGITAL_TEMP_SENSOR];
+    if (std::isfinite(ext)) {
+      haveExt = true;
+      diff = fabsf(mean - ext);
+    }
   }
 
   D("sp=%.1f df=%.1f", spread, diff);
-  if (spread > FTEST_SB_SPREAD_MAX_C) return FTEST_FAIL;
-  if (haveExt && diff > FTEST_SB_VS_EXT_MAX_C) return FTEST_FAIL;
+  // Comparaciones en positivo (bloqueante #4): con allFinite ya garantizado
+  // arriba esto es cinturon y tirantes, no defensa unica.
+  if (!(spread <= FTEST_SB_SPREAD_MAX_C)) return FTEST_FAIL;
+  if (haveExt && !(diff <= FTEST_SB_VS_EXT_MAX_C)) return FTEST_FAIL;
   return FTEST_PASS;
 }
 
@@ -283,9 +330,10 @@ static FtestStatus ftest_sb_door(char *detail, FtestCascade *cascade) {
       return FTEST_PASS;
     }
     if (ftest_abort_requested()) {
-      D("abort");
+      D("%s", ftest_abort_reason());
       return FTEST_SKIP;
     }
+    ftest_wdt_feed();
     vTaskDelay(pdMS_TO_TICKS(250));
   }
   D("timeout");
@@ -305,9 +353,10 @@ static FtestStatus ftest_sb_light(char *detail, FtestCascade *cascade) {
       sensorboard_get_snapshot(&s);
       if (s.lux_valid) base = s.lux;
       if (ftest_abort_requested()) {
-        D("abort");
+        D("%s", ftest_abort_reason());
         return FTEST_SKIP;
       }
+      ftest_wdt_feed();
       vTaskDelay(pdMS_TO_TICKS(250));
     }
   }
@@ -331,9 +380,10 @@ static FtestStatus ftest_sb_light(char *detail, FtestCascade *cascade) {
       return FTEST_PASS;
     }
     if (ftest_abort_requested()) {
-      D("abort");
+      D("%s", ftest_abort_reason());
       return FTEST_SKIP;
     }
+    ftest_wdt_feed();
     vTaskDelay(pdMS_TO_TICKS(250));
   }
   D("timeout b=%.0f", base);
@@ -360,9 +410,10 @@ static FtestStatus ftest_sb_camera(char *detail, FtestCascade *cascade) {
       return ok ? FTEST_PASS : FTEST_FAIL;
     }
     if (ftest_abort_requested()) {
-      D("abort");
+      D("%s", ftest_abort_reason());
       return FTEST_SKIP;
     }
+    ftest_wdt_feed();
     vTaskDelay(pdMS_TO_TICKS(250));
   }
   D("timeout");
@@ -394,7 +445,11 @@ static FtestStatus ftest_fan_rpm(char *detail, FtestCascade *cascade) {
     return FTEST_FAIL;
   }
   D("rpm=%.0f", in3.fan_rpm);
-  return (in3.fan_rpm < FAN_MIN_RPM) ? FTEST_FAIL : FTEST_PASS;
+  // Bloqueante #4: comparacion en negativo original (< MIN -> FAIL) deja
+  // pasar un NaN (ninguna comparacion con NaN es true); en positivo un NaN
+  // cae en FAIL.
+  if (!std::isfinite(in3.fan_rpm)) return FTEST_FAIL;
+  return (in3.fan_rpm >= FAN_MIN_RPM) ? FTEST_PASS : FTEST_FAIL;
 }
 
 // ---------------------------------------------------------------------------
@@ -410,7 +465,9 @@ static FtestStatus ftest_humid_usb(char *detail, FtestCascade *) {
 
   D("fault=%d i=%.1fmA", faultOk, mA);
   if (!faultOk) return FTEST_FAIL;
-  return (mA <= FTEST_HUMID_MIN_MA) ? FTEST_FAIL : FTEST_PASS;
+  // Bloqueante #4: idem FAN_RPM -- positivo, y NaN explicito antes.
+  if (!std::isfinite(mA)) return FTEST_FAIL;
+  return (mA > FTEST_HUMID_MIN_MA) ? FTEST_PASS : FTEST_FAIL;
 }
 
 // ---------------------------------------------------------------------------
@@ -435,6 +492,7 @@ static FtestStatus ftest_buzzer(char *detail, FtestCascade *) {
         break;
       }
       if (ftest_abort_requested()) break;
+      ftest_wdt_feed();
       vTaskDelay(pdMS_TO_TICKS(250));
     }
     ledcWrite(BUZZER_PWM_CHANNEL, 0);
@@ -443,7 +501,11 @@ static FtestStatus ftest_buzzer(char *detail, FtestCascade *) {
     return ((peak - base) >= FTEST_BUZZER_DBA_DELTA) ? FTEST_PASS : FTEST_FAIL;
   }
 
-  // Sin microfono: zumba y pregunta al operario.
+  // Sin microfono: arma el CONFIRM ANTES de encolar la linea (bloqueante #8
+  // del review de seguridad, "carrera del CONFIRM"): si el operario
+  // contestara entre encolar CTRL,FTEST,17,5 y que ftest_wait_confirm()
+  // fijara el id esperado, ese "give" se habria perdido.
+  ftest_arm_confirm(FTEST_MB_BUZZER);
   ftest_emit(FTEST_MB_BUZZER, FTEST_CONFIRM, "sonido del zumbador?");
   ledcWrite(BUZZER_PWM_CHANNEL, BUZZER_HALF_PWM);
   vTaskDelay(pdMS_TO_TICKS(500));
@@ -494,9 +556,10 @@ static FtestStatus ftest_gsm_at(char *detail, FtestCascade *) {
       return FTEST_PASS;
     }
     if (ftest_abort_requested()) {
-      D("abort");
+      D("%s", ftest_abort_reason());
       return FTEST_SKIP;
     }
+    ftest_wdt_feed();
     vTaskDelay(pdMS_TO_TICKS(250));
   }
   D("timeout");
@@ -513,9 +576,10 @@ static FtestStatus ftest_gsm_sim(char *detail, FtestCascade *cascade) {
     }
     if (ftest_abort_requested()) {
       cascade->gsm_sim = FTEST_DEP_FAILED;
-      D("abort");
+      D("%s", ftest_abort_reason());
       return FTEST_SKIP;
     }
+    ftest_wdt_feed();
     vTaskDelay(pdMS_TO_TICKS(250));
   }
   cascade->gsm_sim = FTEST_DEP_FAILED;
@@ -535,9 +599,10 @@ static FtestStatus ftest_gsm_signal(char *detail, FtestCascade *cascade) {
       return FTEST_PASS;
     }
     if (ftest_abort_requested()) {
-      D("abort");
+      D("%s", ftest_abort_reason());
       return FTEST_SKIP;
     }
+    ftest_wdt_feed();
     vTaskDelay(pdMS_TO_TICKS(250));
   }
   D("csq=%d", GPRS.CSQ);
@@ -556,9 +621,10 @@ static FtestStatus ftest_gsm_net(char *detail, FtestCascade *cascade) {
       return FTEST_PASS;
     }
     if (ftest_abort_requested()) {
-      D("abort");
+      D("%s", ftest_abort_reason());
       return FTEST_SKIP;
     }
+    ftest_wdt_feed();
     vTaskDelay(pdMS_TO_TICKS(250));
   }
   D("sin red");
@@ -575,9 +641,10 @@ static FtestStatus ftest_wifi(char *detail, FtestCascade *) {
       return FTEST_PASS;
     }
     if (ftest_abort_requested()) {
-      D("abort");
+      D("%s", ftest_abort_reason());
       return FTEST_SKIP;
     }
+    ftest_wdt_feed();
     vTaskDelay(pdMS_TO_TICKS(250));
   }
   D("sin AP");
@@ -602,9 +669,10 @@ static FtestStatus ftest_tb_provision(char *detail, FtestCascade *) {
       return FTEST_PASS;
     }
     if (ftest_abort_requested()) {
-      D("abort");
+      D("%s", ftest_abort_reason());
       return FTEST_SKIP;
     }
+    ftest_wdt_feed();
     vTaskDelay(pdMS_TO_TICKS(250));
   }
   if (WIFIIsConnected() || GPRSIsAttached()) {
@@ -649,10 +717,18 @@ static FtestStatus ftest_nvs(char *detail, FtestCascade *) {
 // ---------------------------------------------------------------------------
 // 29: LITTLEFS
 static FtestStatus ftest_littlefs(char *detail, FtestCascade *) {
-  const bool mounted = LittleFS.begin(true);
-  const size_t total = mounted ? LittleFS.totalBytes() : 0;
+  // Bloqueante #6 del review de seguridad: `begin(true)` formatea la
+  // particion si el montaje falla, lo que destruiria cualquier dato ya
+  // guardado ahi. Un test de fabrica solo debe VERIFICAR que la particion
+  // existente monta, nunca reformatearla.
+  const bool mounted = LittleFS.begin(false);
+  if (!mounted) {
+    D("no monta");
+    return FTEST_FAIL;
+  }
+  const size_t total = LittleFS.totalBytes();
   D("total=%uB", (unsigned)total);
-  return (mounted && total > 0) ? FTEST_PASS : FTEST_FAIL;
+  return (total > 0) ? FTEST_PASS : FTEST_FAIL;
 }
 
 #undef D
