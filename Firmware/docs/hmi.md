@@ -8,6 +8,7 @@ The main screen is partitioned into informational quadrants and side plus ceilin
 
 ### Permanent HUD (Top Zone)
 It continuously witnesses key and constant states on whichever screen the doctor navigates to:
+*   Help button (`?`, `ui_HelpButton`) at the leftmost slot, to the left of the clock. Opens the help menu (see §6). Shown only on `ui_ScreenMain`; the `ui_ScreenLock` heading replica keeps clock and connectivity at the same x position but has no help button.
 *   Connectivity icons (Server, WiFi, or Null state).
 *   Realistic icon indicators about hardware resource usage in background ("Heater", "Wind/Cooling", etc).
 *   Section reserved for sliding priority alarms like marquees if they warrant overflow due to severity.
@@ -46,3 +47,52 @@ Unlike basic thermal parameters, Phototherapy adds a temporal dimension (Countdo
 ## 5. Language
 
 The HMI loads and manages logical bidimensional arrays pointing the LCD strings dependent on variables. The baseboard also needs to know which language the user is reading in order to re-send the batch of alarm strings. Both converge through the initial UART packet sent from the display.
+
+## 6. Help
+
+The heading `?` button (see §1) opens a modal help menu (`HelpDialog`,
+`Display_HMI/src/ui/HelpDialog.cpp`) with three entries:
+
+1. **Guided tour** (`HelpTour`, `HelpTour.cpp`): a full-screen overlay drawn
+   on `lv_layer_top()` — so it survives screen changes — that highlights each
+   real control with a 4 px amber frame plus an explanatory bubble
+   (PREVIOUS/NEXT/EXIT). It walks 19 steps across `ui_ScreenMain` and
+   `ui_ScreenSettings` (help button, clock, connectivity, lock, Babies,
+   alarms, temperature, humidity, phototherapy, then the Settings rows Info,
+   WiFi, Languages, Modes), switching screens with `lv_scr_load()` when a step
+   needs it. Steps whose target control is currently hidden (e.g. humidity
+   disabled) are skipped. The overlay is clickable and swallows every touch,
+   so nothing gets actioned during the tour — it always returns to
+   `ui_ScreenMain` on exit or at the last step.
+2. **Video tutorial**: a QR code (`lv_qrcode`) built from
+   `SUPPORT_TUTORIAL_URL` (`include/protocol/Credentials_public.h`), plus the
+   same URL as plain text underneath.
+3. **Contact support**: an on-screen keyboard (`lv_btnmatrix`) for a message
+   of up to 160 ASCII characters. The subject is composed automatically as
+   `IncuNest SN <serial> - Solicitud de soporte`, and the body carries the
+   message plus a debug report built by `support_report_build()`
+   (`Display_HMI/src/modules/support/support_report.cpp`), in this order:
+   identity/versions (`sn`, `hmi`, `mb`, `hw`), boot count and last reset
+   reason, uptime, WiFi/IP/ThingsBoard connection status, serial link state
+   and language, control mode/actuation/setpoints, current air/skin/humidity
+   readings and probe state, phototherapy mode, active/silenced alarm
+   bitmasks, the titles of the active alarms, and free internal heap / PSRAM.
+
+   Two send paths, always offered together on the result view:
+   - **From the device**: if `WIFIIsConnectedToServer()`, the request is
+     queued (`SupportRequest_Submit()`) and the WiFi/OTA task
+     (`supportRequestService()` in `Wifi_OTA.cpp`) publishes it as
+     ThingsBoard telemetry — `support_request`, `support_message`,
+     `support_report`, `support_to` — see
+     [`thingsboard_dashboards.md`](thingsboard_dashboards.md). Without a
+     server, nothing is queued.
+   - **From the operator's phone**: a `mailto:` QR with recipient, subject
+     and body already filled in, always available (works offline, no
+     server needed). If the encoded content doesn't fit the QR, it is
+     regenerated first without the free-text message, then without the
+     report, and the screen states what was dropped.
+
+Common rules: the help menu and the guided tour are exempt from the 20 s
+auto-lock timeout while open (the inactivity timer resumes from zero once
+they close); a critical alarm closes both and returns to `ui_ScreenMain`;
+every text is available in ES/EN/FR (`g_lang`).

@@ -85,6 +85,26 @@ El archivo `include/display_config.h` es la **única fuente de verdad** para la 
 
 ---
 
+## Configuración de Credenciales
+
+Los secretos de despliegue (WiFi, ThingsBoard, panel web) viven en
+`include/protocol/Credentials.h`, que **no está versionado** (`.gitignore`)
+y está protegido por un hook. `include/protocol/Credentials_public.h` es el
+fichero versionado: si `Credentials.h` no existe (clon nuevo), aporta
+valores dummy para que el firmware compile; si existe, sus `#define` tienen
+prioridad.
+
+Además de los secretos de conexión, `Credentials_public.h` trae valores por
+defecto **no secretos** para el menú de ayuda del heading (`docs/hmi.md`,
+§6), redefinibles igual desde `Credentials.h` sin recompilar nada más:
+
+| Define | Valor por defecto | Uso |
+|---|---|---|
+| `SUPPORT_EMAIL` | `support@medicalopenworld.org` | Destinatario del formulario "Contactar soporte" (telemetría ThingsBoard y QR `mailto:`) |
+| `SUPPORT_TUTORIAL_URL` | `https://medicalopenworld.org/incunest/tutorial` | URL codificada en el QR de "Vídeo tutorial" |
+
+---
+
 ## Compilación y Flash
 
 ### Prerequisitos

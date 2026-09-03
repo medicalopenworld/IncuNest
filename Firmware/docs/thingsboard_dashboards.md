@@ -265,3 +265,53 @@ TB compara el firmware que reporta el equipo contra el paquete asignado al
 dispositivo o a su perfil. Sin paquete asignado no hay nada con lo que
 sincronizar, así que la columna se queda en *Not synced*. Deja de estarlo al
 asignar un paquete y completarse la descarga.
+
+---
+
+## 9. Peticiones de soporte
+
+Botón de ayuda del HMI (`docs/hmi.md`, §6; spec `hmi-help-center`,
+`Display_HMI/src/ui/HelpDialog.cpp`). Cuando el operador pulsa ENVIAR con
+conexión al servidor, la tarea WiFi/OTA (`supportRequestService()`,
+`Display_HMI/src/tasks/Wifi_OTA.cpp`) publica **cuatro claves de texto**
+como telemetría normal (mismo mecanismo que el resto de esta página, sin
+`ts` propio: las sella el servidor):
+
+| Clave | Contenido |
+|---|---|
+| `support_request` | Asunto: `IncuNest SN <serie a 4 cifras> - Solicitud de soporte` |
+| `support_message` | Mensaje libre del operador (≤ 160 caracteres ASCII, puede venir vacío) |
+| `support_report` | Informe de depuración ASCII (≤ 400 B), líneas `clave=valor` separadas por `\n` |
+| `support_to` | Destinatario (`SUPPORT_EMAIL`, por defecto `support@medicalopenworld.org`) |
+
+Ejemplo de payload (formato real de `support_report_build()`, un envío sin
+mensaje libre):
+
+```json
+{
+  "support_request": "IncuNest SN 0042 - Solicitud de soporte",
+  "support_message": "",
+  "support_report": "sn=0042 hmi=4.0.0 mb=3.2.1 hw=18A\nboots=57 rst=sw up=1h23m\nwifi=1 rssi=-61 ip=192.168.1.20 tb=1\nlink=ok bars=4 srv=1 lang=es\nmode=air act=1 setA=36.5 setS=36.0 setH=60\nair=36.4 skin=36.1 hum=58 probe=1\nphoto=0 alarms=0x0000 sil=0x0000\nactive=none\nheap=123456/98765 psram=7654321",
+  "support_to": "support@medicalopenworld.org"
+}
+```
+
+### Regla de correo pendiente (deuda del servidor)
+
+Todavía no hay ninguna regla en `mon.medicalopenworld.org` que reenvíe esto
+por correo. La recomendada (documentada también en ADR-0001,
+`docs/adr/0001-contacto-soporte-via-thingsboard-y-mailto.md`):
+
+1. **Filtro** (script): deja pasar el mensaje solo si trae la clave
+   `support_request` (evita que cada punto de telemetría periódica dispare
+   un correo).
+2. **To email**: `to` = `${support_to}`, `subject` = `${support_request}`,
+   `body` = `${support_message}` + `${support_report}`.
+3. **Send email**: al SMTP configurado en TB.
+
+Hasta que esa regla exista, la petición **queda registrada en el
+dispositivo de ThingsBoard** (consultable como cualquier otra telemetría) y
+la pantalla del HMI dice **"Peticion registrada"**, nunca "correo enviado":
+el envío por correo depende de que la regla exista. La vía del QR
+`mailto:` (móvil del operador) funciona igual en ambos casos, con o sin
+regla y con o sin red.

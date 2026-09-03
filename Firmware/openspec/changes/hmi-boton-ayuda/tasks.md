@@ -149,12 +149,12 @@ queda documentado como pendiente en ese mismo commit.
 
 Commit: `docs: update for hmi-boton-ayuda`.
 
-- [ ] 7.1 `docs/hmi.md`: sección del heading (nuevo `?`) y sección "Ayuda"
+- [x] 7.1 `docs/hmi.md`: sección del heading (nuevo `?`) y sección "Ayuda"
       (tutorial, vídeo, contacto, vías de envío).
-- [ ] 7.2 `docs/thingsboard_dashboards.md`: apartado "Peticiones de soporte"
+- [x] 7.2 `docs/thingsboard_dashboards.md`: apartado "Peticiones de soporte"
       con las cuatro claves de telemetría y la regla recomendada (filtro
       `support_request` → *to email* con `support_to` → *send email*).
-- [ ] 7.3 `Display_HMI/README.md`: mención a `SUPPORT_EMAIL` /
+- [x] 7.3 `Display_HMI/README.md`: mención a `SUPPORT_EMAIL` /
       `SUPPORT_TUTORIAL_URL` en la sección de credenciales.
-- [ ] 7.4 ADR `docs/adr/0001-contacto-soporte-via-thingsboard-y-mailto.md`
+- [x] 7.4 ADR `docs/adr/0001-contacto-soporte-via-thingsboard-y-mailto.md`
       (decisión 1 del design.md) a partir de `docs/adr/0000-template.md`.
