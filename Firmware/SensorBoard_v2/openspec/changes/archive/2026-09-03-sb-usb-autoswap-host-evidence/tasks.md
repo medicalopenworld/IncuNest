@@ -19,7 +19,7 @@
 
 ## 5. Docs / cierre
 
-- [ ] 5.1 README, ADR-0003 (enmienda), architecture.md, CHANGELOG; archivar; retro; ESTADO.md
-- [ ] 5.2 Motherboard: dejar el log de dispositivo enumerado como permanente (INFO) y retirar la instrumentación temporal
+- [x] 5.1 README, ADR-0003 (enmienda), architecture.md, CHANGELOG; archivar; retro; ESTADO.md
+- [x] 5.2 Motherboard: dejar el log de dispositivo enumerado como permanente (INFO) y retirar la instrumentación temporal
 
 > Verificación on-target (checklist en `design.md`): banco con motherboard V18 y PC, ambas orientaciones, arranque conjunto y re-enchufe en caliente.
