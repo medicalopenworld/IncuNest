@@ -114,11 +114,15 @@ heap=123456/98765 psram=7654321
 
 Presupuesto del QR: `mailto:` + destinatario (30) + asunto (~45) + cuerpo
 (mensaje ≤ 160 + informe ≤ 400) ≈ 640 bytes antes de percent-encoding, ≈ 900
-después. `lv_qrcode` con ECC MEDIUM lo cubre hasta la versión ~24 (113×113
-módulos). Con un canvas de 360 px salen ~3 px/módulo, legible por un móvil
-actual a 15-20 cm. Si el texto no cabe (`lv_qrcode_update()` devuelve
-`LV_RES_INV`), se reintenta sin el mensaje libre y luego sin informe, y se
-avisa en pantalla de qué se ha recortado.
+después (hasta ~1140 en el peor caso de 160 espacios). `lv_qrcode` usa ECC
+MEDIUM fijo y cubre hasta la versión 24 (113×113 módulos, 914 B); por
+encima degrada. El canvas es de **340 px** (`QR_SIZE_MAILTO`): `lv_qrcode`
+escala a píxeles enteros por módulo, y 340/113 = 3 px/módulo, el mínimo que
+lee con soltura la cámara de un móvil a 15-20 cm (con 300 px se quedaría en
+2). Si el texto no cabe (`lv_qrcode_update()` devuelve `LV_RES_INV`), se
+reintenta sin el mensaje libre y luego sin informe, y se avisa en pantalla
+de qué se ha recortado. El QR de la URL del vídeo es corto y se queda en
+300 px.
 
 Presupuesto MQTT: mismo cuerpo dentro de un JSON de 4 claves ≈ 700 bytes <
 `MAX_MESSAGE_SIZE` 1024.
@@ -168,13 +172,33 @@ toca. Los mismos slots valen para la réplica de `ui_ScreenLock` (sin botón).
 El `?` es un `lv_btn` redondo azul `0x0075EE` (mismo azul que Bebés) con
 label `?` en `montserrat_28`: sin asset nuevo.
 
-### 7. Auto-bloqueo y alarma crítica
+### 7. Auto-bloqueo con tope, y cesión ante cualquier alarma
 
 `inactivity_timer_cb` añade a la exención de `ui_ScreenAlarms` la
-condición `HelpDialog_IsOpen() || HelpTour_IsOpen()`. Ambos `_Poll()`
-cierran ante `UI_IsCriticalAlarmActive()`, igual que `TimeDialog_Poll()`:
-una alarma crítica se lleva la pantalla por delante y el tutorial devuelve
-la pantalla principal.
+condición `HelpDialog_IsOpen() || HelpTour_IsOpen()`, pero la exención tiene
+tope: los dos `_Poll()` cierran la ayuda si `lv_disp_get_inactive_time()`
+supera `HELP_IDLE_TIMEOUT_MS` (3 min). Sin ese tope una ayuda olvidada (la
+vista del QR invita a dejarla puesta mientras se busca el móvil) podría
+tapar horas la pantalla principal e impedir llegar a `ui_ScreenLock`, que
+es donde se pinta el banner de alarma.
+
+Criterio de cesión: el de `TelemetryHistory::mustYield()`, no el de
+`TimeDialog`. `UI_IsCriticalAlarmActive()` es una lista fija de siete ids
+que deja fuera cuatro condiciones de prioridad ALTA (fallo de sensor de
+aire, fallo de sonda en modo piel, salida de aire obstruida, corte de red).
+La ayuda es una vista sin información de alarma propia y su overlay se traga
+los toques, así que cede ante **cualquier** alarma activa
+(`UI_IsAnyAlarmActive()`) y ante `Display_IsBoardLinkLost()`, devolviendo
+la pantalla principal y descartando cualquier petición de soporte aún no
+publicada. Coste asumido: con una alarma activa no se puede abrir la ayuda;
+el centro de alarmas ya muestra la acción recomendada, que es lo que hay
+que leer en ese momento.
+
+Orden z en `lv_layer_top()`: el overlay del tutorial se crea en
+`HelpTour_Init()` **antes** que el banner de alarma y el icono de AUDIO
+PAUSED, y nunca se sube con `lv_obj_move_foreground()`: así el banner (que
+solo vuelve a primer plano cuando cambia su texto) y el símbolo de audio
+pausado siguen visibles encima del recorrido.
 
 ## Risks / Trade-offs
 

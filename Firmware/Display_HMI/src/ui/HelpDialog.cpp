@@ -32,7 +32,15 @@ enum SendState {
 
 // Misma tarjeta que TimeDialog/BabyWizard: el operador ya conoce ese cuadro.
 constexpr lv_coord_t CARD_W = 780, CARD_H = 460;
+// El QR de la URL es corto (version ~4) y con 300 px sobra. El del mailto:
+// puede llegar a la version 24 (113 modulos) antes de degradar: con 340 px
+// lv_qrcode escala a 3 px/modulo enteros (con 300 se quedaria en 2), que es
+// el minimo que lee con soltura la camara de un movil a 15-20 cm.
 constexpr lv_coord_t QR_SIZE = 300;
+constexpr lv_coord_t QR_SIZE_MAILTO = 340;
+// Columna de texto a la derecha del QR del mailto:.
+constexpr lv_coord_t RESULT_COL_X = 20 + QR_SIZE_MAILTO + 20;
+constexpr lv_coord_t RESULT_COL_W = (CARD_W - 20) - RESULT_COL_X - 6;
 
 bool s_open = false;
 View s_view = VIEW_MENU;
@@ -82,8 +90,10 @@ const char *TXT(const char *es, const char *en, const char *fr) {
   return (g_lang == LANG_ES) ? es : (g_lang == LANG_FR) ? fr : en;
 }
 
+// `lblOut` devuelve el label para los botones cuyo texto cambia en runtime
+// (mismo patron que HelpTour.cpp), en vez de buscarlo luego por indice de hijo.
 lv_obj_t *makeBtn(lv_obj_t *parent, const char *text, lv_event_cb_t cb,
-                  lv_color_t bg) {
+                  lv_color_t bg, lv_obj_t **lblOut = nullptr) {
   lv_obj_t *btn = lv_btn_create(parent);
   lv_obj_set_style_bg_color(btn, bg, LV_PART_MAIN);
   lv_obj_set_style_radius(btn, 8, LV_PART_MAIN);
@@ -91,6 +101,7 @@ lv_obj_t *makeBtn(lv_obj_t *parent, const char *text, lv_event_cb_t cb,
   lv_label_set_text(lbl, text);
   lv_obj_center(lbl);
   lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, nullptr);
+  if (lblOut) *lblOut = lbl;
   return btn;
 }
 
@@ -128,10 +139,20 @@ void closeDialog() {
   if (s_content) lv_obj_clean(s_content);
   forgetContent();
   s_open = false;
+  // Cerrar es abandonar la conversacion: una peticion aun no publicada no
+  // debe salir mas tarde sin que nadie vea el resultado.
+  SupportRequest_Reset();
   // El temporizador de auto-bloqueo estuvo en pausa mientras la ayuda estaba
   // abierta: que vuelva a contar desde cero, no desde el ultimo toque.
   lv_disp_trig_activity(NULL);
 }
+
+// Mismo criterio que TelemetryHistory::mustYield(): este dialogo es una vista
+// sin informacion de alarma propia que compense tapar la pantalla, asi que
+// cede ante CUALQUIER alarma activa (no solo las de UI_IsCriticalAlarmActive,
+// que es una lista fija de ids y deja fuera varias de prioridad ALTA) y ante
+// la perdida del enlace con la placa.
+bool mustYield() { return UI_IsAnyAlarmActive() || Display_IsBoardLinkLost(); }
 
 void showView(View v);
 
@@ -325,10 +346,13 @@ void buildContact() {
   lv_textarea_set_one_line(s_msgTa, true);
   lv_textarea_set_max_length(s_msgTa, SUPPORT_MESSAGE_MAX);
   lv_obj_set_style_text_font(s_msgTa, &lv_font_montserrat_20, 0);
+  // El aviso de privacidad va en el propio campo: este texto sale del equipo
+  // por MQTT en claro y queda a la vista en el QR, asi que nunca debe llevar
+  // datos del paciente (el informe tecnico ya va aparte y no los contiene).
   lv_textarea_set_placeholder_text(
-      s_msgTa, TXT("Describe el problema (opcional)",
-                   "Describe the problem (optional)",
-                   "Decrivez le probleme (facultatif)"));
+      s_msgTa, TXT("Describe el problema (opcional). Sin datos del paciente.",
+                   "Describe the problem (optional). No patient data.",
+                   "Decrivez le probleme (facultatif). Sans donnees patient."));
   if (s_msg[0]) lv_textarea_set_text(s_msgTa, s_msg);
 
   lv_obj_t *back = makeBtn(s_content, TXT("VOLVER", "BACK", "RETOUR"),
@@ -472,14 +496,16 @@ void buildResult() {
   makeTitle(TXT("ENVIAR DESDE EL MOVIL", "SEND FROM YOUR PHONE",
                 "ENVOYER DEPUIS LE TELEPHONE"));
 
-  s_qr = lv_qrcode_create(s_content, QR_SIZE, lv_color_hex(0x000000),
+  // QR a la izquierda (y 50..390); todo lo demas, botones incluidos, en la
+  // columna de la derecha para no pisarlo.
+  s_qr = lv_qrcode_create(s_content, QR_SIZE_MAILTO, lv_color_hex(0x000000),
                           lv_color_hex(0xFFFFFF));
   lv_obj_align(s_qr, LV_ALIGN_TOP_LEFT, 20, 50);
   lv_obj_set_style_border_color(s_qr, lv_color_hex(0xFFFFFF), 0);
   lv_obj_set_style_border_width(s_qr, 8, 0);
 
-  s_statusLbl = makeWrapLabel("", 350, 56, 400, &lv_font_montserrat_18,
-                              lv_color_hex(0x0B2E4F));
+  s_statusLbl = makeWrapLabel("", RESULT_COL_X, 56, RESULT_COL_W,
+                              &lv_font_montserrat_18, lv_color_hex(0x0B2E4F));
   refreshStatus();
 
   char subject[SUPPORT_SUBJECT_MAX];
@@ -487,18 +513,17 @@ void buildResult() {
   char info[200];
   snprintf(info, sizeof(info), "%s %s\n%s %s", TXT("Para:", "To:", "A :"),
            SUPPORT_EMAIL, TXT("Asunto:", "Subject:", "Objet :"), subject);
-  makeWrapLabel(info, 350, 176, 400, &lv_font_montserrat_14,
+  makeWrapLabel(info, RESULT_COL_X, 186, RESULT_COL_W, &lv_font_montserrat_14,
                 lv_color_hex(0x666666));
 
-  s_qrNoteLbl = makeWrapLabel("", 350, 236, 400, &lv_font_montserrat_14,
-                              lv_color_hex(0x0B2E4F));
+  s_qrNoteLbl = makeWrapLabel("", RESULT_COL_X, 250, RESULT_COL_W,
+                              &lv_font_montserrat_14, lv_color_hex(0x0B2E4F));
 
   // El texto del boton lo fija refreshQr() segun el estado del informe.
   lv_obj_t *toggle = makeBtn(s_content, "", onToggleReport,
-                             lv_color_hex(0x888888));
+                             lv_color_hex(0x888888), &s_qrToggleLbl);
   lv_obj_set_size(toggle, 200, 46);
-  lv_obj_align(toggle, LV_ALIGN_BOTTOM_LEFT, 6, -6);
-  s_qrToggleLbl = lv_obj_get_child(toggle, 0);
+  lv_obj_align(toggle, LV_ALIGN_BOTTOM_RIGHT, -166, -6);
 
   lv_obj_t *close = makeBtn(s_content, TXT("CERRAR", "CLOSE", "FERMER"),
                             onClose, lv_color_hex(0x0075EE));
@@ -568,17 +593,13 @@ void HelpDialog_Open(void) {
   lv_obj_move_foreground(s_overlay);
 }
 
-void HelpDialog_Close(void) {
-  if (s_open) closeDialog();
-}
-
 bool HelpDialog_IsOpen(void) { return s_open; }
 
 void HelpDialog_Poll(void) {
   if (!s_open) return;
-  // Una alarma critica se lleva la pantalla por delante, igual que hace
-  // TimeDialog_Poll() con su dialogo.
-  if (UI_IsCriticalAlarmActive()) {
+  // Una alarma o el enlace perdido se llevan la pantalla por delante; y una
+  // ayuda olvidada se cierra sola para devolverle el control al auto-bloqueo.
+  if (mustYield() || lv_disp_get_inactive_time(NULL) > HELP_IDLE_TIMEOUT_MS) {
     closeDialog();
     return;
   }

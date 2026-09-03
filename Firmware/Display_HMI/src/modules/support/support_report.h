@@ -57,7 +57,11 @@ SupportRequestState SupportRequest_GetState(void);
 void SupportRequest_Reset(void);
 
 // Tarea WiFi/OTA: copia la peticion pendiente (si la hay) a los buffers del
-// llamador y devuelve true. El estado sigue en PENDING hasta SetResult().
+// llamador, devuelve true y deja en `seq` el numero de esa peticion. El estado
+// sigue en PENDING hasta SetResult(). SetResult() solo se aplica si `seq` es
+// aun la peticion vigente: un resultado tardio de una peticion que la UI ya
+// descarto (timeout) o sustituyo (reenvio) no debe marcar la nueva.
 bool SupportRequest_TakePending(char *subject, size_t subjectCap, char *msg,
-                                size_t msgCap, char *report, size_t reportCap);
-void SupportRequest_SetResult(bool ok);
+                                size_t msgCap, char *report, size_t reportCap,
+                                uint32_t *seq);
+void SupportRequest_SetResult(bool ok, uint32_t seq);

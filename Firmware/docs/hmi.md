@@ -93,6 +93,15 @@ The heading `?` button (see §1) opens a modal help menu (`HelpDialog`,
      report, and the screen states what was dropped.
 
 Common rules: the help menu and the guided tour are exempt from the 20 s
-auto-lock timeout while open (the inactivity timer resumes from zero once
-they close); a critical alarm closes both and returns to `ui_ScreenMain`;
-every text is available in ES/EN/FR (`g_lang`).
+auto-lock timeout while open, but only up to `HELP_IDLE_TIMEOUT_MS` (3 min
+without any touch): past that they close themselves and the normal auto-lock
+resumes from zero (the alarm banner is only drawn on `ui_ScreenLock`, so a
+forgotten help view must never block the way to it). Any active alarm
+(`UI_IsAnyAlarmActive()`, regardless of priority) or a lost board link
+(`Display_IsBoardLinkLost()`) closes both and returns to `ui_ScreenMain`,
+discarding any support request not yet published — the same yield rule as
+`TelemetryHistory`. The tour overlay is created before the alarm banner and
+the AUDIO PAUSED icon in `lv_layer_top()` and is never raised above them.
+Every text is available in ES/EN/FR (`g_lang`). The free-text field of the
+contact form asks for no patient data: it leaves the device over plain MQTT
+and is visible in the `mailto:` QR.

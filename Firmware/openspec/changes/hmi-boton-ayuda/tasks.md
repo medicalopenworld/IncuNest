@@ -47,7 +47,8 @@ tres compilen por separado sin stubs).
       patrón de `TimeDialog.cpp` (overlay reutilizado, `s_closeBtn` hijo de la
       tarjeta, `buildContent()` por vista, `TXT(es,en,fr)`, `makeBtn`). API:
       `HelpDialog_Init(lv_obj_t *parent)`, `HelpDialog_Open()`,
-      `HelpDialog_Close()`, `HelpDialog_IsOpen()`, `HelpDialog_Poll()`.
+      `HelpDialog_IsOpen()`, `HelpDialog_Poll()` (sin `_Close()` público: no
+      tenía llamador; se cierra desde dentro o por alarma crítica).
 - [x] 3.2 Vista MENÚ: tres botones grandes (TUTORIAL GUIADO / VIDEO TUTORIAL /
       CONTACTAR SOPORTE) con símbolo LVGL y subtítulo de una línea. El primero
       cierra el diálogo y llama a `HelpTour_Start()`.
@@ -138,10 +139,13 @@ queda documentado como pendiente en ese mismo commit.
       deshabilitada, entra en Ajustes y vuelve a Main al salir; ANTERIOR
       funciona; no se acciona ningún control durante el recorrido.
 - [ ] 6.8 Auto-bloqueo: con el menú o el tutorial abiertos, 30 s sin tocar no
-      llevan a la pantalla de bloqueo; al cerrarlos el temporizador vuelve a
-      contar.
-- [ ] 6.9 Alarma crítica (prueba de alarmas de la motherBoard) cierra menú y
-      tutorial y deja la pantalla principal.
+      llevan a la pantalla de bloqueo; a los 3 min sin tocar la ayuda se
+      cierra sola y 20 s después la pantalla se bloquea; al cerrarlos a mano
+      el temporizador vuelve a contar desde cero.
+- [ ] 6.9 Cualquier alarma (prueba de alarmas de la motherBoard, incluida una
+      de prioridad BAJA) o desconectar la placa cierra menú y tutorial y deja
+      la pantalla principal. Con el banner "SIN ENLACE" visible, comprobar
+      que el tutorial, si se abre antes de que salte, nunca lo tapa.
 - [ ] 6.10 Cambiar de idioma y reabrir: menú, vistas y tutorial en el idioma
       nuevo.
 

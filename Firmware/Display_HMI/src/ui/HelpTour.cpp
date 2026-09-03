@@ -2,9 +2,11 @@
 
 #include <cstdio>
 
+#include "CommTask.h"
 #include "UITask.h"
 #include "main.h"
 #include "ui.h"
+#include "ui/HelpDialog.h"  // HELP_IDLE_TIMEOUT_MS
 
 // --- Shared state owned by UITask.cpp (same pattern TimeDialog.cpp uses) ---
 extern ui_lang_t g_lang;
@@ -335,7 +337,11 @@ void showStep(int idx, int dir) {
   }
 
   layoutFor(target);
-  lv_obj_move_foreground(s_overlay);
+  // Sin lv_obj_move_foreground(): el overlay se crea en HelpTour_Init() ANTES
+  // que el banner de alarma y el icono de AUDIO PAUSED (UITask.cpp), asi que
+  // por orden de creacion queda debajo de ellos en lv_layer_top(). Subirlo
+  // aqui los taparia, y el banner solo vuelve a primer plano cuando cambia
+  // su texto.
 }
 
 }  // namespace
@@ -402,6 +408,11 @@ void HelpTour_Init(void) {
 
 void HelpTour_Start(void) {
   if (!s_overlay) return;
+  // Los pasos de Ajustes necesitan la pantalla creada; ui_init() la crea al
+  // arrancar, pero si algun dia pasa a ser diferida (como hace
+  // _ui_screen_change con su target_init), el tutorial no perderia esos
+  // pasos en silencio.
+  if (!ui_ScreenSettings) ui_ScreenSettings_screen_init();
   s_open = true;
   lv_obj_clear_flag(s_overlay, LV_OBJ_FLAG_HIDDEN);
   showStep(0, +1);
@@ -412,7 +423,15 @@ void HelpTour_Stop(void) { stopTour(); }
 bool HelpTour_IsOpen(void) { return s_open; }
 
 void HelpTour_Poll(void) {
-  // Una alarma critica se lleva la pantalla por delante, igual que hace
-  // TimeDialog_Poll() con su dialogo: el recorrido devuelve la principal.
-  if (s_open && UI_IsCriticalAlarmActive()) stopTour();
+  if (!s_open) return;
+  // Mismo criterio que TelemetryHistory::mustYield() y que HelpDialog: el
+  // recorrido no tiene informacion de alarma propia y su overlay se traga los
+  // toques, asi que cede ante CUALQUIER alarma activa o enlace perdido (no
+  // solo la lista fija de UI_IsCriticalAlarmActive) y devuelve la principal.
+  // Y un recorrido olvidado se cierra solo para devolverle el control al
+  // auto-bloqueo.
+  if (UI_IsAnyAlarmActive() || Display_IsBoardLinkLost() ||
+      lv_disp_get_inactive_time(NULL) > HELP_IDLE_TIMEOUT_MS) {
+    stopTour();
+  }
 }

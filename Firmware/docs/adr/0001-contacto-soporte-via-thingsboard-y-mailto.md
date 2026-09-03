@@ -68,6 +68,16 @@ HTTP por no existir ni backend ni cliente.
 - El destinatario viaja en cada petición (`support_to`) para que la regla no
   tenga que conocerlo: si cambia el buzón, cambia en `Credentials.h` y nada
   más.
+- **Superficie de datos en claro**: la telemetría periódica solo publica
+  versión, serie, heap y stacks. La petición de soporte añade, por MQTT sin
+  TLS, IP local y RSSI, consignas y actuación, temperaturas de aire y piel
+  medidas, humedad, estado de sonda, fototerapia, bitmasks y títulos de
+  alarmas, arranques y motivo de reset. Ligado al número de serie, es el
+  estado clínico de un puesto concreto en ese instante; no incluye nombre
+  del bebé ni ningún dato del perfil, ni SSID, contraseña o token. El campo
+  libre del operador es el único hueco: por eso el propio campo pide "sin
+  datos del paciente", y el texto queda además a la vista en el QR. Si el
+  HMI gana TLS por otro motivo, esta vía debe migrar a él.
 - **Revisar este ADR si**: el HMI gana un transporte TLS por otro motivo
   (OTA firmada, HTTPS), o si la motherBoard expone GPRS a la pantalla como
   canal de datos; en ambos casos `supportRequestService()` (`Wifi_OTA.cpp`)

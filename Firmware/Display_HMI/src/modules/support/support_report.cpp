@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <esp_heap_caps.h>
+#include <esp_log.h>
 #include <esp_system.h>
 
 #include <cstdarg>
@@ -28,13 +29,26 @@ namespace {
 // bajo el mutex de LVGL.
 portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 volatile SupportRequestState s_state = SUPPORT_IDLE;
+// Numero de la peticion vigente; cada Submit() lo incrementa.
+uint32_t s_seq = 0;
 char s_subject[SUPPORT_SUBJECT_MAX];
 char s_msg[SUPPORT_MESSAGE_MAX + 1];
 char s_report[SUPPORT_REPORT_MAX];
 
+// Solo ASCII imprimible (mas '\n' como separador de lineas). Varios valores
+// del informe vienen del protocolo serie (fwVer, hwRev, titulos de alarma),
+// ASCII sin CRC: una linea corrupta puede colar un byte de control que
+// ArduinoJson no escapa y que romperia el JSON publicado.
+char sanitize(char c) {
+  if (c == '\n') return c;
+  if (c < 0x20 || c > 0x7E) return '?';
+  return c;
+}
+
 // Escritor acotado: acumula printf() en un buffer y recuerda si se quedo sin
 // sitio. Si desborda, el texto queda truncado en el ultimo campo completo y
-// terminado en '\0'; nunca escribe fuera de `cap`.
+// terminado en '\0'; nunca escribe fuera de `cap`. Todo lo escrito pasa por
+// sanitize().
 struct Writer {
   char *out;
   size_t cap;
@@ -58,6 +72,7 @@ struct Writer {
       out[len] = '\0';
       return;
     }
+    for (size_t i = len; i < len + (size_t)n; i++) out[i] = sanitize(out[i]);
     len += (size_t)n;
   }
 
@@ -66,7 +81,7 @@ struct Writer {
       overflow = true;
       return;
     }
-    out[len++] = c;
+    out[len++] = sanitize(c);
     out[len] = '\0';
   }
 };
@@ -106,15 +121,19 @@ void activeAlarmTitles(char *out, size_t cap) {
     if (!alarmList[i].state) continue;
     const char *title = alarmList[i].type;
     if (!title || !title[0]) continue;
-    const size_t need = strlen(title) + (len ? 1 : 0);
+    // strnlen y no strlen: CommTask escribe alarmList[].type desde el otro
+    // core sin lock, y entre su strncpy y el terminador hay una ventana en la
+    // que el array puede no estar terminado.
+    const size_t tlen = strnlen(title, ALARM_TYPE_LEN - 1);
+    const size_t need = tlen + (len ? 1 : 0);
     // Reserva 3 bytes para "..." si hubiera que cortar despues.
     if (len + need + 4 > cap) {
       truncated = true;
       break;
     }
     if (len) out[len++] = '|';
-    memcpy(out + len, title, strlen(title));
-    len += strlen(title);
+    memcpy(out + len, title, tlen);
+    len += tlen;
     out[len] = '\0';
   }
   if (truncated && len + 4 <= cap) {
@@ -203,6 +222,13 @@ size_t support_report_build(char *out, size_t cap) {
         (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
         (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
 
+  // No deberia pasar con SUPPORT_REPORT_MAX (peor caso estimado ~380 B), pero
+  // si pasa, que quede en el log: un informe sin la linea de memoria se
+  // leeria como completo.
+  if (w.overflow) {
+    ESP_LOGW("Support", "informe truncado en %u B (cap %u)", (unsigned)w.len,
+             (unsigned)cap);
+  }
   return w.len;
 }
 
@@ -261,14 +287,17 @@ void SupportRequest_Submit(const char *msg) {
   support_report_build(report, sizeof(report));
 
   portENTER_CRITICAL(&s_mux);
-  memcpy(s_subject, subject, sizeof(s_subject));
-  memcpy(s_report, report, sizeof(s_report));
+  strncpy(s_subject, subject, sizeof(s_subject) - 1);
+  s_subject[sizeof(s_subject) - 1] = '\0';
+  strncpy(s_report, report, sizeof(s_report) - 1);
+  s_report[sizeof(s_report) - 1] = '\0';
   if (msg) {
     strncpy(s_msg, msg, SUPPORT_MESSAGE_MAX);
     s_msg[SUPPORT_MESSAGE_MAX] = '\0';
   } else {
     s_msg[0] = '\0';
   }
+  s_seq++;
   s_state = SUPPORT_PENDING;
   portEXIT_CRITICAL(&s_mux);
 }
@@ -282,10 +311,12 @@ void SupportRequest_Reset(void) {
 }
 
 bool SupportRequest_TakePending(char *subject, size_t subjectCap, char *msg,
-                                size_t msgCap, char *report, size_t reportCap) {
+                                size_t msgCap, char *report, size_t reportCap,
+                                uint32_t *seq) {
   bool taken = false;
   portENTER_CRITICAL(&s_mux);
   if (s_state == SUPPORT_PENDING) {
+    if (seq) *seq = s_seq;
     if (subject && subjectCap) {
       strncpy(subject, s_subject, subjectCap - 1);
       subject[subjectCap - 1] = '\0';
@@ -304,10 +335,13 @@ bool SupportRequest_TakePending(char *subject, size_t subjectCap, char *msg,
   return taken;
 }
 
-void SupportRequest_SetResult(bool ok) {
+void SupportRequest_SetResult(bool ok, uint32_t seq) {
   portENTER_CRITICAL(&s_mux);
-  // Solo si nadie ha reseteado entre medias: un resultado tardio no debe
-  // resucitar una peticion que la UI ya dio por cerrada.
-  if (s_state == SUPPORT_PENDING) s_state = ok ? SUPPORT_SENT : SUPPORT_FAILED;
+  // Solo si sigue siendo LA MISMA peticion pendiente: un resultado tardio no
+  // debe resucitar una que la UI ya dio por cerrada (Reset) ni marcar como
+  // enviada una nueva (Submit) que aun no ha salido.
+  if (s_state == SUPPORT_PENDING && s_seq == seq) {
+    s_state = ok ? SUPPORT_SENT : SUPPORT_FAILED;
+  }
   portEXIT_CRITICAL(&s_mux);
 }

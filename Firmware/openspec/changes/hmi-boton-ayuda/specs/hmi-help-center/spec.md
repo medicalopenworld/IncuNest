@@ -33,29 +33,46 @@ ayuda.
 
 ### Requirement: El menú de ayuda es modal y respeta las reglas de los diálogos
 
-El menú de ayuda SHALL comportarse como el resto de diálogos modales del
-display: bloquea los toques al resto de la pantalla, se cierra con su botón
-X desde cualquier vista, y se cierra solo cuando `UI_IsCriticalAlarmActive()`
-pasa a verdadero.
+El menú de ayuda SHALL comportarse como los overlays de solo lectura del
+display (`TelemetryHistory`): bloquea los toques al resto de la pantalla, se
+cierra con su botón X desde cualquier vista, y cede la pantalla en cuanto
+haya **cualquier** alarma activa (`UI_IsAnyAlarmActive()`, sin filtrar por
+prioridad ni por lista de ids) o se pierda el enlace con la placa
+(`Display_IsBoardLinkLost()`). Ni el menú ni el tutorial tienen información
+de alarma propia que compense tapar la pantalla.
 
 Mientras el menú o el tutorial guiado estén abiertos, la inactividad NO
-SHALL llevar la pantalla a `ui_ScreenLock`.
+SHALL llevar la pantalla a `ui_ScreenLock` durante `HELP_IDLE_TIMEOUT_MS`
+(3 min). Pasado ese tiempo sin ningún toque, la ayuda SHALL cerrarse sola y
+el auto-bloqueo normal (`INACTIVITY_TIMEOUT_MS`) vuelve a contar desde cero.
+La exención nunca es indefinida: el banner de alarma solo se pinta en la
+pantalla de bloqueo y una ayuda olvidada no debe impedir llegar a él.
 
-#### Scenario: Cierre por alarma crítica
+#### Scenario: Cierre por alarma o enlace perdido
 - **WHEN** el menú de ayuda (en cualquiera de sus vistas) o el tutorial
   guiado están abiertos
-- **AND** la motherBoard anuncia una alarma de prioridad ALTA
+- **AND** la motherBoard anuncia una alarma de cualquier prioridad, o el
+  enlace con la placa se pierde
 - **THEN** el menú o el tutorial se cierran en la siguiente pasada del bucle
-  de UI
+  de UI, y cualquier petición de soporte aún no publicada se descarta
 - **AND** la pantalla activa vuelve a ser `ui_ScreenMain`
 - *(Verificación manual en banco con la prueba de alarmas, tarea 6.9.)*
 
-#### Scenario: Sin auto-bloqueo con la ayuda abierta
+#### Scenario: Sin auto-bloqueo con la ayuda abierta, con tope
 - **WHEN** el menú de ayuda o el tutorial llevan más de
-  `INACTIVITY_TIMEOUT_MS` abiertos sin ningún toque
+  `INACTIVITY_TIMEOUT_MS` (20 s) pero menos de `HELP_IDLE_TIMEOUT_MS` (3 min)
+  abiertos sin ningún toque
 - **THEN** la pantalla no cambia a `ui_ScreenLock`
 - **AND** al cerrarlos el temporizador de inactividad vuelve a contar desde
   cero
+- *(Verificación manual en banco, tarea 6.8.)*
+
+#### Scenario: Una ayuda olvidada se cierra sola
+- **WHEN** el menú de ayuda o el tutorial llevan más de
+  `HELP_IDLE_TIMEOUT_MS` abiertos sin ningún toque
+- **THEN** se cierran solos y la pantalla vuelve a `ui_ScreenMain`
+- **AND** 20 s después sin tocar, la pantalla pasa a `ui_ScreenLock` como
+  siempre
 - *(Verificación manual en banco, tarea 6.8.)*
 
 #### Scenario: Textos en el idioma activo
