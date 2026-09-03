@@ -3,6 +3,7 @@
 #include "protocol.h"
 #include "control_types.h"
 #include "alarm_ids.h"
+#include "factory_test.h"
 
 #if IS_HMI
 #define EXPECTED_PREFIX "CTRL"
@@ -57,3 +58,11 @@ void   CommunicationHost_Send(const char *);
 void   setHMIConnected(bool connected);
 double getRemainingPhotoTime();
 void   sendWifiToHMI(const char *ssid, const char *pass);
+
+// Cola de lineas hacia el HMI para tareas que no son Communication_Task
+// (design.md D3, shared-factory-test): solo Communication_Task escribe en
+// hmiSerial, para no entrelazar bytes con CTRL,PPG/CTRL,TEL a 25/1 Hz. Copia
+// `line` (debe caber en FTEST_TX_LINE_MAX, incluido el terminador nulo) y
+// devuelve enseguida; con la cola llena, la linea se descarta con log de
+// error y NUNCA bloquea a quien llama.
+void CommunicationHost_Enqueue(const char *line);

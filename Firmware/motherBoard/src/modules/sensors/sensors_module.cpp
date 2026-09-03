@@ -311,11 +311,9 @@ float adcToCelsius(float adcReading_mV) {
 // caliente. En modo piel eso hace que el control deje de calentar, sin ninguna
 // alarma. Hipotermia silenciosa, con el corte térmico de 40 °C como único
 // backstop. Acotar por fisiología en vez de por raíles lo cierra.
-typedef enum {
-  SKIN_PROBE_READING_OK = 0,
-  SKIN_PROBE_READING_SHORT,  // R muy baja: sonda en corto o conector puenteado
-  SKIN_PROBE_READING_OPEN,   // R muy alta: sonda desconectada o hilo partido
-} SkinProbeReading;
+//
+// SkinProbeReading vive en sensors_module.h: factory_test_hw.cpp (SKIN_ADC)
+// tambien la usa.
 
 // ~45 °C y ~5 °C en la YSI 400. Ni la piel de un neonato baja de 5 °C ni sube
 // de 45 °C con la sonda puesta: cualquier cosa fuera de ahí es avería, no
