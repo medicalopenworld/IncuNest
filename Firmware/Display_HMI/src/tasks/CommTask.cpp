@@ -923,9 +923,9 @@ static void parse_message(const char *line) {
     } else {
       COMM_LOG("[COMM] WEIGHT_HISTORY malformed: %s\n", line);
     }
-  } else if (strncmp(line, "CTRL,FTEST_DONE,", 17) == 0) {
+  } else if (strncmp(line, "CTRL,FTEST_DONE,", sizeof("CTRL,FTEST_DONE,") - 1) == 0) {
     unsigned p = 0, f = 0, s = 0;
-    if (ftest_parse_done(line + 17, &p, &f, &s)) {
+    if (ftest_parse_done(line + sizeof("CTRL,FTEST_DONE,") - 1, &p, &f, &s)) {
       g_ftestDonePass = p;
       g_ftestDoneFail = f;
       g_ftestDoneSkip = s;
@@ -933,17 +933,17 @@ static void parse_message(const char *line) {
     } else {
       COMM_LOG("[COMM] CTRL,FTEST_DONE malformado: %s\n", line);
     }
-  } else if (strncmp(line, "CTRL,FTEST_REJECT,", 19) == 0) {
+  } else if (strncmp(line, "CTRL,FTEST_REJECT,", sizeof("CTRL,FTEST_REJECT,") - 1) == 0) {
     FtestReject r;
-    if (ftest_parse_reject(line + 19, &r)) {
+    if (ftest_parse_reject(line + sizeof("CTRL,FTEST_REJECT,") - 1, &r)) {
       g_ftestRejectReason = (int)r;
       g_pendingFtestReject = true;
     } else {
       COMM_LOG("[COMM] CTRL,FTEST_REJECT malformado: %s\n", line);
     }
-  } else if (strncmp(line, "CTRL,FTEST,", 11) == 0) {
+  } else if (strncmp(line, "CTRL,FTEST,", sizeof("CTRL,FTEST,") - 1) == 0) {
     FtestResult res;
-    if (ftest_parse_result(line + 11, &res)) {
+    if (ftest_parse_result(line + sizeof("CTRL,FTEST,") - 1, &res)) {
       taskENTER_CRITICAL(&g_ftestMux);
       const uint8_t idx =
           (uint8_t)((g_ftestRing.head + g_ftestRing.count) % FTEST_RING_LEN);

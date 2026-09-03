@@ -54,6 +54,7 @@ int     s_lastTouchedRow = -1;  // para lv_obj_scroll_to_view()
 
 enum class Step {
   Closed,
+  Gate,
   LocalSeq,
   RemoteAwaitFirst,
   RemoteRunning,
@@ -62,6 +63,12 @@ enum class Step {
 
 enum class LocalPhase { None, Panel, Touch, Buzzer, Speaker, Wifi };
 enum class AskKind { None, Panel, Buzzer, Speaker };
+
+// Respuesta si/no pendiente de resolver en FactoryTest_Poll(). Los callbacks
+// de LVGL (dispatch de evento) solo escriben aqui: nunca resuelven en el
+// mismo callback, para no soltar LVGL_Lock() / destruir objetos (incluido el
+// boton que esta despachando su propio click) desde dentro del despacho.
+enum class Answer { None, Yes, No };
 
 Step       s_step = Step::Closed;
 LocalPhase s_localPhase = LocalPhase::None;
@@ -75,8 +82,20 @@ bool     s_mbUnsupported = false;
 bool     s_mbRejected = false;
 FtestReject s_mbRejectReason = FTEST_REJECT_BUSY;
 bool     s_mbDone = false;
+bool     s_mbLinkLost = false;
 unsigned s_mbPass = 0, s_mbFail = 0, s_mbSkip = 0;
 unsigned s_remoteConfirmAnsweredRowId = FTEST_ID_NONE;
+
+// Hand-off de UI (hallazgo 4): todo boton (Si/No local, Si/No confirmacion
+// remota, Reintentar, Salir, Si/No de la barrera de entrada) solo marca aqui
+// su intencion. Poll() la consume en la siguiente pasada, fuera de cualquier
+// despacho de evento LVGL.
+Answer    s_pendingLocalAsk = Answer::None;
+Answer    s_pendingRemoteConfirm = Answer::None;
+RowData  *s_pendingRemoteConfirmRow = nullptr;
+RowData  *s_pendingRetryRow = nullptr;
+bool      s_exitRequested = false;
+Answer    s_pendingGateAnswer = Answer::None;
 
 constexpr uint32_t TONE_MS = 300;
 constexpr uint32_t LOCAL_ASK_TIMEOUT_MS = 60000;
@@ -85,6 +104,12 @@ constexpr uint32_t PANEL_STEP_MS = 800;
 constexpr int       TOUCH_MARGIN = 60;
 constexpr int       TOUCH_HIT_PX = 40;
 constexpr uint32_t TOUCH_TARGET_TIMEOUT_MS = 20000;
+// Hallazgo 5: sin ningun CTRL,FTEST* durante este tiempo en RemoteRunning se
+// asume enlace perdido. Hallazgo 6: tope de inactividad en Summary, mismo
+// precedente que HELP_IDLE_TIMEOUT_MS (3 min) pero mas largo porque aqui el
+// usuario puede estar leyendo una lista larga de resultados.
+constexpr uint32_t REMOTE_SILENCE_TIMEOUT_MS = 120000;
+constexpr uint32_t SUMMARY_IDLE_TIMEOUT_MS = 600000;
 
 lv_obj_t *s_overlay = nullptr;
 lv_obj_t *s_card = nullptr;
@@ -121,11 +146,13 @@ const lv_color_t kPanelColors[5] = {
 // Forward declarations (la maquina de estados es mutuamente recursiva:
 // finishLocal() encadena con beginLocalTest() del siguiente test).
 void beginLocalTest();
+void beginLocalSequence();
 void finishLocal(FtestStatus st, const char *detail);
 void renderAll();
 void resolveAsk(bool yes);
 void goSummary();
 void startRemote();
+void markMbPendingAsLinkLost();
 void onRetryClicked(lv_event_t *e);
 void onExitClicked(lv_event_t *e);
 
@@ -254,6 +281,18 @@ const char *rejectReasonText(FtestReject r) {
   }
 }
 
+// Barrera de entrada (hallazgo 7): se muestra en Step::Gate antes de arrancar
+// ningun test, local o remoto.
+const char *gateWarningText() {
+  return TXT(
+      "ATENCION: el equipo debe estar VACIO, sin paciente. Los actuadores se "
+      "encenderan en lazo abierto. Continuar?",
+      "WARNING: the unit must be EMPTY, no patient inside. Actuators will be "
+      "switched on in open loop. Continue?",
+      "ATTENTION : l'appareil doit etre VIDE, sans patient. Les actionneurs "
+      "seront allumes en boucle ouverte. Continuer ?");
+}
+
 const char *currentAskQuestion() {
   switch (s_askKind) {
     case AskKind::Panel:
@@ -353,23 +392,30 @@ void renderCenteredText(const char *text) {
   lv_obj_center(lbl);
 }
 
-void onAskYesCb(lv_event_t *) { resolveAsk(true); }
-void onAskNoCb(lv_event_t *) { resolveAsk(false); }
+// Hand-off puro (hallazgo 4): resolveAsk() encadena con finishLocal(), que
+// puede llegar a runI2c()/runNvs()/persistResults() (sueltan LVGL_Lock()) y a
+// renderAll() -> lv_obj_clean(s_action), que destruiria el boton que esta
+// despachando este mismo evento. Poll() es quien llama a resolveAsk().
+void onAskYesCb(lv_event_t *) { s_pendingLocalAsk = Answer::Yes; }
+void onAskNoCb(lv_event_t *) { s_pendingLocalAsk = Answer::No; }
 
+// Idem: Communication_SendFtestConfirm() + renderAll() se difieren a Poll().
 void onRemoteConfirmYes(lv_event_t *e) {
   auto *row = (RowData *)lv_event_get_user_data(e);
   if (!row) return;
-  Communication_SendFtestConfirm((uint8_t)row->id, true);
-  s_remoteConfirmAnsweredRowId = row->id;
-  renderAll();
+  s_pendingRemoteConfirmRow = row;
+  s_pendingRemoteConfirm = Answer::Yes;
 }
 void onRemoteConfirmNo(lv_event_t *e) {
   auto *row = (RowData *)lv_event_get_user_data(e);
   if (!row) return;
-  Communication_SendFtestConfirm((uint8_t)row->id, false);
-  s_remoteConfirmAnsweredRowId = row->id;
-  renderAll();
+  s_pendingRemoteConfirmRow = row;
+  s_pendingRemoteConfirm = Answer::No;
 }
+
+// Barrera de entrada (hallazgo 7): mismo hand-off.
+void onGateYesCb(lv_event_t *) { s_pendingGateAnswer = Answer::Yes; }
+void onGateNoCb(lv_event_t *) { s_pendingGateAnswer = Answer::No; }
 
 void renderAskUi(const char *question, lv_event_cb_t yesCb, lv_event_cb_t noCb,
                  void *userData) {
@@ -391,6 +437,10 @@ void renderAskUi(const char *question, lv_event_cb_t yesCb, lv_event_cb_t noCb,
                          lv_color_hex(0xAA3333), userData);
   lv_obj_set_size(no, 140, 44);
   lv_obj_align(no, LV_ALIGN_BOTTOM_MID, 80, 0);
+}
+
+void renderGateAction() {
+  renderAskUi(gateWarningText(), onGateYesCb, onGateNoCb, nullptr);
 }
 
 void renderLocalAction() {
@@ -448,7 +498,16 @@ void renderSummary() {
     else if (s_rows[i].status == FTEST_SKIP) localSkip++;
   }
   char buf[192];
-  if (s_mbUnsupported) {
+  if (s_mbLinkLost) {
+    snprintf(buf, sizeof(buf),
+            TXT("Pantalla: %d PASA / %d FALLA / %d OMIT.\nPlaca: enlace "
+                "perdido durante el test",
+                "Display: %d PASS / %d FAIL / %d SKIP\nBoard: link lost "
+                "during test",
+                "Ecran : %d REUSSI / %d ECHEC / %d OMIS\nCarte : liaison "
+                "perdue pendant le test"),
+            localPass, localFail, localSkip);
+  } else if (s_mbUnsupported) {
     snprintf(buf, sizeof(buf),
             TXT("Pantalla: %d PASA / %d FALLA / %d OMIT.\nPlaca: sin soporte",
                 "Display: %d PASS / %d FAIL / %d SKIP\nBoard: no support",
@@ -531,6 +590,9 @@ void renderAll() {
 
   lv_obj_clean(s_action);
   switch (s_step) {
+    case Step::Gate:
+      renderGateAction();
+      break;
     case Step::LocalSeq:
       renderLocalAction();
       break;
@@ -855,6 +917,15 @@ void resolveAsk(bool yes) {
   finishLocal(yes ? FTEST_PASS : FTEST_FAIL, "");
 }
 
+// Arranca la secuencia local tras la barrera de entrada (Step::Gate ->
+// Step::LocalSeq). Solo se llama desde FactoryTest_Poll(), nunca desde el
+// callback del boton SI (hallazgo 4: beginLocalTest() puede llegar a
+// runI2c()/runNvs(), que sueltan LVGL_Lock()).
+void beginLocalSequence() {
+  s_step = Step::LocalSeq;
+  beginLocalTest();
+}
+
 void retryLocalTest(unsigned id) {
   for (int i = 0; i < kLocalCount; i++) {
     if ((unsigned)kLocalOrder[i] == id) {
@@ -887,10 +958,43 @@ int drainFtestEvents() {
       s_remoteConfirmAnsweredRowId = FTEST_ID_NONE;
     }
   }
+  // Hallazgo 5: cada CTRL,FTEST recibido reinicia el reloj de silencio de
+  // RemoteRunning.
+  if (n > 0 && s_step == Step::RemoteRunning) {
+    s_deadlineMs = millis() + REMOTE_SILENCE_TIMEOUT_MS;
+  }
   return n;
 }
 
+// Hallazgo 5: sin ningun CTRL,FTEST* durante REMOTE_SILENCE_TIMEOUT_MS se
+// asume enlace perdido. Las filas de motherBoard que aun no llegaron a un
+// estado terminal se marcan FALLA "sin respuesta"; las que ya terminaron
+// (PASS/FAIL/SKIP) conservan su resultado real.
+void markMbPendingAsLinkLost() {
+  for (int i = kLocalCount; i < s_rowCount; i++) {
+    RowData &r = s_rows[i];
+    if (r.status == FTEST_PASS || r.status == FTEST_FAIL ||
+        r.status == FTEST_SKIP) {
+      continue;
+    }
+    r.started = true;
+    r.status = FTEST_FAIL;
+    snprintf(r.detail, sizeof(r.detail), "%s", "sin respuesta");
+  }
+  s_mbLinkLost = true;
+}
+
 void startRemote() {
+  // Hallazgo 2: purga eventos y flags de una sesion anterior. La motherBoard
+  // puede seguir emitiendo CTRL,FTEST* hasta 16s tras un aborto (Salir con
+  // test remoto en curso), ventana que se solapa con toda la secuencia local
+  // (varios segundos) que acaba de correr. Sin este drenaje esos eventos
+  // "viejos" se pintarian como si fueran de esta sesion.
+  FtestResult tmp;
+  while (FactoryTest_TakeEvent(&tmp)) {}
+  g_pendingFtestDone = false;
+  g_pendingFtestReject = false;
+
   Communication_SendFtestStart();
   s_step = Step::RemoteAwaitFirst;
   s_deadlineMs = millis() + FTEST_MB_RESPONSE_TIMEOUT_MS;
@@ -904,19 +1008,25 @@ void retryRemote(unsigned id) {
   r.status = FTEST_RUNNING;
   r.detail[0] = '\0';
   s_lastTouchedRow = idx;
+  // Intento nuevo: si el anterior habia terminado en "enlace perdido"
+  // (hallazgo 5), no arrastrar ese rotulo al resumen de este reintento.
+  s_mbLinkLost = false;
   Communication_SendFtestRun((uint8_t)id);
   s_step = Step::RemoteRunning;
+  // Hallazgo 5: reinicia el reloj de silencio; sin esto heredaria el
+  // s_deadlineMs de SUMMARY_IDLE_TIMEOUT_MS (10 min) que dejo Step::Summary.
+  s_deadlineMs = millis() + REMOTE_SILENCE_TIMEOUT_MS;
   renderAll();
 }
 
+// Hand-off puro (hallazgo 4): retryLocalTest()/retryRemote() encadenan con
+// beginLocalTest() (runI2c()/runNvs() sueltan LVGL_Lock()) y con renderAll()
+// -> lv_obj_clean(s_action), que destruiria este mismo boton REINTENTAR
+// mientras despacha su click. Poll() resuelve en la siguiente pasada.
 void onRetryClicked(lv_event_t *e) {
   auto *row = (RowData *)lv_event_get_user_data(e);
   if (!row) return;
-  if (row->isMb) {
-    retryRemote(row->id);
-  } else {
-    retryLocalTest(row->id);
-  }
+  s_pendingRetryRow = row;
 }
 
 void persistResults() {
@@ -954,6 +1064,9 @@ void goSummary() {
   s_askKind = AskKind::None;
   s_localPhase = LocalPhase::None;
   s_step = Step::Summary;
+  // Hallazgo 6: tope de inactividad en Summary. Cualquier pulsacion de
+  // REINTENTAR cambia de step antes de que esto importe.
+  s_deadlineMs = millis() + SUMMARY_IDLE_TIMEOUT_MS;
   persistResults();
   renderAll();
 }
@@ -995,6 +1108,12 @@ void serviceRemoteRunning() {
     goSummary();
     return;
   }
+  // Hallazgo 5: silencio de la motherBoard durante REMOTE_SILENCE_TIMEOUT_MS.
+  if ((int32_t)(millis() - s_deadlineMs) >= 0) {
+    markMbPendingAsLinkLost();
+    goSummary();
+    return;
+  }
   if (n > 0) renderAll();
 }
 
@@ -1020,12 +1139,23 @@ void resetState() {
   s_mbUnsupported = false;
   s_mbRejected = false;
   s_mbDone = false;
+  s_mbLinkLost = false;
   s_mbPass = s_mbFail = s_mbSkip = 0;
   s_remoteConfirmAnsweredRowId = FTEST_ID_NONE;
+  // Estado de UI pendiente de una sesion anterior (hallazgo 4): ningun flag
+  // de hand-off debe sobrevivir a un cierre y reapertura de la pantalla.
+  s_pendingLocalAsk = Answer::None;
+  s_pendingRemoteConfirm = Answer::None;
+  s_pendingRemoteConfirmRow = nullptr;
+  s_pendingRetryRow = nullptr;
+  s_pendingGateAnswer = Answer::None;
   destroyTransientOverlayObjects();
 }
 
-void onExitClicked(lv_event_t *) { FactoryTest_Close(); }
+// Hand-off puro (hallazgo 4): FactoryTest_Close() suelta LVGL_Lock() (para
+// buzzerOff()/speakerOff()) y llama a lv_scr_load(); Poll() lo hace fuera del
+// despacho de este click.
+void onExitClicked(lv_event_t *) { s_exitRequested = true; }
 
 }  // namespace
 
@@ -1082,11 +1212,26 @@ void FactoryTest_Init(void) {
 
 void FactoryTest_Open(void) {
   if (!s_overlay || s_step != Step::Closed) return;
+
+  // Hallazgo 2: purga estado de una sesion anterior. Si se salio con el test
+  // remoto en curso, la motherBoard puede seguir emitiendo CTRL,FTEST* hasta
+  // 16s despues del aborto; sin este drenaje esos eventos se pintarian o
+  // persistirian en esta sesion nueva.
+  FtestResult tmp;
+  while (FactoryTest_TakeEvent(&tmp)) {}
+  g_pendingFtestDone = false;
+  g_pendingFtestReject = false;
+
   resetState();
-  s_step = Step::LocalSeq;
+  // Hallazgo 7: barrera de entrada antes de tocar nada (local o remoto).
+  s_step = Step::Gate;
   lv_obj_clear_flag(s_overlay, LV_OBJ_FLAG_HIDDEN);
   lv_obj_move_foreground(s_overlay);
-  beginLocalTest();
+  // Hallazgo 3: este overlay vive en lv_layer_top(), igual que el banner de
+  // alarma y el icono AUDIO PAUSED; move_foreground() los deja detras si
+  // estaban visibles.
+  UI_ReassertAlarmOverlays();
+  renderAll();
 }
 
 void FactoryTest_Close(void) {
@@ -1115,9 +1260,64 @@ bool FactoryTest_IsOpen(void) { return s_step != Step::Closed; }
 void FactoryTest_Poll(void) {
   if (s_step == Step::Closed) return;
 
+  // Hallazgo 4: Salir tiene prioridad sobre cualquier otro hand-off pendiente.
+  if (s_exitRequested) {
+    s_exitRequested = false;
+    FactoryTest_Close();
+    return;
+  }
+
+  // Hallazgo 7: barrera de entrada.
+  if (s_step == Step::Gate) {
+    if (s_pendingGateAnswer != Answer::None) {
+      const bool yes = s_pendingGateAnswer == Answer::Yes;
+      s_pendingGateAnswer = Answer::None;
+      if (yes) {
+        beginLocalSequence();
+      } else {
+        FactoryTest_Close();
+      }
+    }
+    return;
+  }
+
+  // Hallazgo 4: REINTENTAR (local o remoto), resuelto fuera del despacho del
+  // click que lo pidio.
+  if (s_pendingRetryRow) {
+    RowData *row = s_pendingRetryRow;
+    s_pendingRetryRow = nullptr;
+    if (row->isMb) {
+      retryRemote(row->id);
+    } else {
+      retryLocalTest(row->id);
+    }
+    return;
+  }
+
   if (s_askKind != AskKind::None) {
+    // Hallazgo 4: SI/NO de la pregunta local (panel/zumbador/altavoz).
+    if (s_pendingLocalAsk != Answer::None) {
+      const bool yes = s_pendingLocalAsk == Answer::Yes;
+      s_pendingLocalAsk = Answer::None;
+      resolveAsk(yes);
+      return;
+    }
     if ((int32_t)(millis() - s_deadlineMs) >= 0) {
       resolveAsk(false);  // Las preguntas expiran a los 60s como FALLA.
+    }
+    return;
+  }
+
+  // Hallazgo 4: SI/NO de la confirmacion de un test remoto.
+  if (s_pendingRemoteConfirm != Answer::None) {
+    const bool yes = s_pendingRemoteConfirm == Answer::Yes;
+    RowData *row = s_pendingRemoteConfirmRow;
+    s_pendingRemoteConfirm = Answer::None;
+    s_pendingRemoteConfirmRow = nullptr;
+    if (row) {
+      Communication_SendFtestConfirm((uint8_t)row->id, yes);
+      s_remoteConfirmAnsweredRowId = row->id;
+      renderAll();
     }
     return;
   }
@@ -1135,6 +1335,12 @@ void FactoryTest_Poll(void) {
       break;
     case Step::RemoteAwaitFirst: serviceRemoteAwaitFirst(); break;
     case Step::RemoteRunning:    serviceRemoteRunning();    break;
+    case Step::Summary:
+      // Hallazgo 6: tope de inactividad, misma ruta que Salir.
+      if ((int32_t)(millis() - s_deadlineMs) >= 0) {
+        FactoryTest_Close();
+      }
+      break;
     default: break;
   }
 }

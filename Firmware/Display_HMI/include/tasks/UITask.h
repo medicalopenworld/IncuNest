@@ -39,6 +39,10 @@ void ActivateHumidityFromWizard();
 void computeAndSendActuation(void);
 bool UI_IsCriticalAlarmActive(void);
 bool UI_IsAnyAlarmActive(void);
+// Reafirma el banner de alarma y el icono AUDIO PAUSED en primer plano por
+// encima de un overlay que se acaba de mover al frente (p.ej. FactoryTest).
+// No-op si ninguno de los dos esta visible en ese momento.
+void UI_ReassertAlarmOverlays(void);
 // True while any therapy is running (temperature, humidity or phototherapy),
 // i.e. while a baby is under care. Gates both the baby-exit dialog and
 // BabyWizard's already-identified-baby shortcut.

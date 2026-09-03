@@ -2640,6 +2640,25 @@ void audio_paused_icon_update(void) {
   }
 }
 
+// Reafirma en primer plano el banner de alarma y el icono/temporizador de
+// AUDIO PAUSED por encima de cualquier overlay que se acabe de traer al
+// frente con lv_obj_move_foreground() (p.ej. FactoryTest_Open()). Solo toca
+// los que ya estaban visibles: no los crea ni cambia su flag HIDDEN, asi que
+// es seguro llamarla aunque ninguno de los dos este activo en ese momento.
+void UI_ReassertAlarmOverlays(void) {
+  if (s_alarmBanner && !lv_obj_has_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN)) {
+    lv_obj_move_foreground(s_alarmBanner);
+  }
+  if (s_audioPausedIcon &&
+      !lv_obj_has_flag(s_audioPausedIcon, LV_OBJ_FLAG_HIDDEN)) {
+    lv_obj_move_foreground(s_audioPausedIcon);
+  }
+  if (s_audioPausedTimer &&
+      !lv_obj_has_flag(s_audioPausedTimer, LV_OBJ_FLAG_HIDDEN)) {
+    lv_obj_move_foreground(s_audioPausedTimer);
+  }
+}
+
 // Boton de SILENCIAR mientras el enlace esta caido.
 //
 // Quien decide normalmente si se ve es update_alarm_panels(), y esa corre solo
