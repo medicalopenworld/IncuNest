@@ -56,3 +56,4 @@ Referencia de configuración para todas las fases del roadmap (`Firmware/docs/su
 - **DRV5032FB**: salida digital push-pull, versión de muy bajo consumo a 5 Hz de muestreo interno — el debounce de la Fase 4 debe considerar esa latencia propia del sensor.
 - **OV2640 sin pin RESET dedicado** en el pinout (solo PWDN en IO13): asumir RESET fijado por hardware; confirmar al diseñar la Fase 5.
 - **USB nativo** en IO19/IO20: la Fase 1 (USB CDC) usa el periférico USB-OTG del S3, no un puente UART.
+- **HW_NUM 4: conector USB reversible con D+/D- cruzados en una orientación** (defecto de cableado). Corregido en hardware en la **V5** (enviada a fabricar 2026-09). Mitigado en firmware para las HW4 con el autoswap de `exchg_pins` del PHY (ADR-0003); el mecanismo se deja activo en V5 por inocuo. Al recibir la V5 comprobar que la alimentación (VBUS/GND) sea simétrica en ambas orientaciones: un cruce de alimentación no lo arregla ningún firmware.

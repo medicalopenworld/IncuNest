@@ -4,6 +4,8 @@
 
 #include "main.h"
 #include "modules/control/alarm_machine.h"
+#include "modules/sensorboard_comm/sensorboard_comm.h"
+#include "sensor_source.h"
 
 extern TwoWire *wire;
 extern SHTC3 mySHTC3; // Declare an instance of the SHTC3 class
@@ -512,6 +514,18 @@ bool measureSkinSensor() {
 }
 
 bool updateRoomSensor() {
+  // En un equipo con SensorBoard la temperatura y la humedad de cabina llegan
+  // por USB, no por I2C2: esos pines son ahora D-/D+. Se delega y se sale
+  // ANTES de tocar el bus, porque el camino de abajo pondria las magnitudes a
+  // 0 y volveria a sondear un bus que ya no existe.
+  //
+  // La escritura de in3.temperature[]/in3.humidity[] la hace
+  // sensorboard_apply_room_sensor(), pero desde ESTA tarea: son las mismas
+  // variables clinicas que escribe el camino I2C y no conviene que las toquen
+  // dos tareas distintas.
+  if (sensorSourceGet() == SENSOR_SOURCE_SENSORBOARD) {
+    return sensorboard_apply_room_sensor();
+  }
   static char errorMessage[64];
 
   // Lecturas aisladas para decidir primario/redundante tras el loop.

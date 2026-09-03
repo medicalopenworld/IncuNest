@@ -19,13 +19,24 @@ Magic(0xAB 0xCD) + Type(1B) + Length(4B LE) + Payload(N) + CRC16(2B BE)
 - `Type 0x00` = payload JSON (≤256 B). `Type 0x01` = reservado para JPEG (Fase 5).
 - Todo `ESP_LOG` sale como frames `{"type":"log","ts":…,"msg":"…"}` — no hay consola de texto.
 - Comandos entrantes: `{"type":"cmd","cmd":"status","id":N}` → resp con `device`/`fw`/`uptime`. Comando desconocido → `status:"error"`.
-- Heartbeat `{"type":"event","cmd":"heartbeat","uptime":…}` cada 30 s. **Contrato de fail-safe:** si la motherboard deja de recibir heartbeat durante >90 s (3 periodos), debe tratar al SensorBoard como no disponible y sus lecturas como inválidas — un fallo de arranque aquí produce reboot (sin canal de diagnóstico) y la única señal externa es ese silencio. `uptime`/`ts` (uint32, ms) dan la vuelta a los ~49.7 días: no son monótonos indefinidamente.
+- Heartbeat `{"type":"event","cmd":"heartbeat","uptime":…}` cada 30 s y, además, uno inmediato cada vez que el host pasa de ausente a presente (DTR asertado con el bus activo), para que la motherboard levante el enlace en ~1 s tras una reconexión. **Contrato de fail-safe:** si la motherboard deja de recibir heartbeat durante >90 s (3 periodos), debe tratar al SensorBoard como no disponible y sus lecturas como inválidas — un fallo de arranque aquí produce reboot (sin canal de diagnóstico) y la única señal externa es ese silencio. `uptime`/`ts` (uint32, ms) dan la vuelta a los ~49.7 días: no son monótonos indefinidamente. Sin host, los primeros 32 frames JSON (heartbeats y telemetría incluidos) se **retienen** y se vuelcan de golpe al conectar: la motherboard debe validar `ts`/`uptime` frente a su propio reloj antes de rearmar el watchdog de 90 s o de tratar una lectura como vigente — un replay de frames antiguos no es señal de vida.
+
+- **Vigilante de host (re-enumeración):** "host presente" = DTR asertado **y** bus USB montado y no suspendido (`tud_ready()`). Si el host se pierde durante 15 s habiéndolo tenido antes, el SensorBoard se reinicia para forzar la re-enumeración — la motherboard no controla el VBUS, así que un reinicio suyo o un cable desenchufado y vuelto a enchufar no generan ninguna desconexión que el dispositivo vea. El DTR solo no sirve como señal: TinyUSB únicamente lo notifica ante `SET_CONTROL_LINE_STATE`, y sin sensado de VBUS el bus solo reporta `SUSPEND`. Una placa que nunca tuvo host espera sin reiniciar. Política en `sb_host_watch` (función pura, con tests Unity).
 
 La API para las fases de sensores es `sensorBoard_comm_send_json()` (y `send_binary()` a partir de la Fase 5); ninguna fase reabre el framing.
 
 ## Telemetría (Fase 2)
 
-Cada `CONFIG_SB_ENV_POLL_PERIOD_S` (5 s por defecto) se publica:
+> **Esto no es telemetría auxiliar.** En un equipo con SensorBoard, estas
+> temperaturas y humedades **son** el sensor de aire y de humedad de la
+> incubadora: la variable del PID y la fuente de los cortes térmicos. La
+> motherboard las inyecta en `in3.temperature[ROOM_DIGITAL_TEMP_SENSOR]` y
+> refresca con ellas su sello de frescura; si dejan de llegar, su
+> `ALARM_AIR_SENSOR_FAULT` (ALTA) corta el calefactor a los 5 s. De ahí que la
+> cadencia sea de **1 s** y no de 5: con 5 s, una sola publicación perdida
+> (se descartan sin reintento cuando el host no drena) cortaba la calefacción.
+
+Cada `CONFIG_SB_ENV_POLL_PERIOD_S` (1 s por defecto) se publica:
 
 ```json
 {"type":"event","cmd":"sensor_data","data":{"temp":[36.5,37.0,36.8],"hum":[55.0,54.5,60.1],"lux":320.5},"ts":5200}
@@ -52,6 +63,8 @@ Cada `CONFIG_SB_MIC_PUBLISH_PERIOD_S` (5 s): `{"type":"event","cmd":"sound_level
 **Prioridad de TX:** el JSON (telemetría/heartbeat/resp) siempre drena antes que los binarios; hay como máximo **un JPEG en vuelo** (PSRAM acotada) y, por el framing contiguo, un JSON urgente puede esperar como mucho la transmisión de ese único frame (~600 ms en el peor caso con host atascado, típicamente <100 ms).
 
 **Modelo de amenaza del enlace (decisión registrada):** el USB SensorBoard↔motherboard se trata como **canal de confianza intra-dispositivo** (conector interno del equipo). No hay autenticación en el protocolo: cualquier host físico en ese USB puede pedir `capture` (imagen del interior de la incubadora). Riesgo aceptado mientras el conector no sea accesible externamente; re-evaluar si el enlace sale del chasis.
+
+**Tolerancia a la orientación del conector — SensorBoard HW_NUM 4 (ADR-0003):** en la revisión HW4 el conector USB admite dos orientaciones y en una de ellas D+/D- (IO20/IO19) llegan cruzados; la **V5** (en fabricación) lo corrige en hardware. `usb_comm` intercambia D+/D- en el PHY del ESP32-S3 **solo con evidencia de host**: cuando ve un bus reset y el host no le habla (ni SETUP ni `SET_CONFIGURATION`) en `CONFIG_SB_USB_AUTOSWAP_TIMEOUT_MS` (2 s), intercambia una vez con detach/attach y se queda quieto hasta el siguiente reset. Sin host no alterna nunca (arranca y espera en orientación normal), y con host activo nunca intercambia, así que un host lento no provoca cambios y en la V5 el mecanismo es inocuo (se deja activo). *Por qué no alternar a ciegas:* una alternancia periódica hace que el host re-descubra el dispositivo cada 2 s y, con la pila host de la motherboard (ESP-IDF 4.4.6), enganchaba en fase con la recuperación de su puerto (banco 2026-09-03). *Requisito del lado motherboard:* las líneas USB del host deben quedar **sin pull-ups de GPIO** antes de `usb_host_install` (`gpio_reset_pin()` deja el pull-up interno activo y la línea baja queda a ~0,8 V, en el umbral del PHY: el SensorBoard en modo intercambiado no se detectaba). El detach del intercambio dura `CONFIG_SB_USB_SWAP_DETACH_MS` (1 s) para dar margen a la recuperación del puerto del host. En la orientación invertida el arranque enumera ~2–3 s más tarde; cada intercambio deja un log `USB not enumerated ... D+/D- swapped` retenido y el estado es consultable en la resp de `status` como `sensors.usb_swap` (`true` = pines intercambiados; en una unidad recién ensamblada indica defecto de cableado). **Limitación:** el bootloader ROM no aplica el intercambio, así que flashear por USB (modo download) con el cable al revés falla: el flasher debe consultar `usb_swap` o pedir girar el cable antes de forzar el reset. Si el host desaparece sin bus reset (sin VBUS sensing) la política no actúa hasta el siguiente reset del host: el silencio que detecta la motherboard no siempre va acompañado de intercambios.
 
 ## Compilar y flashear
 

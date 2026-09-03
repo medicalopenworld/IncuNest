@@ -115,6 +115,11 @@
 #define ALARM_HMI_LINK_LOST_KEY "hmi_link_alarm"
 #define ALARM_SKIN_SENSOR_FAULT_AIR_MODE_KEY "skin_sensor_air_alarm"
 #define ALARM_HUMIDITY_DEVIATION_KEY "hum_alarm"
+// Sin estas dos, las alarmas 18 y 19 caian en el `default: return` del switch
+// y NUNCA llegaban a la nube: un equipo con el enlace del SensorBoard caido
+// -- y por tanto sin sensor de aire -- era invisible en monitorizacion remota.
+#define ALARM_SENSORBOARD_LINK_LOST_KEY "sb_link_alarm"
+#define ALARM_SENSORBOARD_DOOR_FAULT_KEY "sb_door_alarm"
 
 #define CALIBRATION_RAW_TEMPERATURE_RANGE_SKIN_KEY "Cal_raw_range_skin_temp"
 #define CALIBRATION_RAW_TEMPERATURE_LOW_SKIN_KEY "Cal_raw_low_skin_temp"
@@ -142,3 +147,23 @@
 #define HMI_LAST_RST_KEY "hmi_last_rst"
 // 0-100 while an OTA is downloading; absent otherwise.
 #define OTA_PROGRESS_KEY "ota_progress"
+
+// SensorBoard (placa auxiliar por USB). Cada magnitud se publica SOLO si
+// llego valida: una posicion caida viaja como null desde el SensorBoard y
+// aqui se omite la clave, en vez de mandar un cero que parece una medida.
+#define SB_LINK_OK_KEY "sb_link_ok"
+#define SB_TEMP0_KEY "sb_temp0_C"
+#define SB_TEMP1_KEY "sb_temp1_C"
+#define SB_TEMP2_KEY "sb_temp2_C"
+#define SB_HUM0_KEY "sb_hum0_pct"
+#define SB_HUM1_KEY "sb_hum1_pct"
+#define SB_HUM2_KEY "sb_hum2_pct"
+#define SB_LUX_KEY "sb_lux"
+// Sin ponderacion A ni calibrar contra sonometro: SPL estimado, no dBA
+// clinicos (ver SensorBoard_v2/README.md #Nivel-sonoro).
+#define SB_DB_KEY "sb_db"
+#define SB_DOOR_OPEN_KEY "sb_door_open"
+#define SB_DOOR_FAULT_KEY "sb_door_fault"
+// Posiciones de sensor que sostienen la temperatura de aire (3, 2 o 1). Si
+// baja, la redundancia se esta perdiendo aunque la incubadora siga midiendo.
+#define SB_ENV_USED_KEY "sb_env_used"

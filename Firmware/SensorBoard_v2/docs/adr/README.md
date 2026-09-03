@@ -14,3 +14,4 @@ Las escribe el agente `scribe`, típicamente en el stage `design` del loop, cuan
 |---|---|---|
 | [0001](0001-tinyusb-cdc-framing-binario.md) | Transporte USB: TinyUSB CDC-ACM con framing binario propio | Aceptada |
 | [0002](0002-redundancia-sht40-posicional.md) | Redundancia SHT40 expuesta como arrays posicionales; fusión en la motherboard | Aceptada |
+| [0003](0003-autoswap-dp-dm-phy-usb.md) | Autoswap de D+/D- en el PHY USB ante conector invertido (descarta fallback UART/I2C) | Aceptada |

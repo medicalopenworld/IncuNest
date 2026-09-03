@@ -81,6 +81,14 @@ const char *alarm_title_text(AlarmId id, Language lang) {
       ES("FALLO SENSOR CALENTADOR");
       FR("PANNE CAPTEUR CHAUFFAGE");
       return "HEATER SENSOR FAULT";
+    case ALARM_SENSORBOARD_LINK_LOST:
+      ES("SIN ENLACE SENSORBOARD");
+      FR("LIAISON SENSORBOARD PERDUE");
+      return "SENSORBOARD LINK LOST";
+    case ALARM_SENSORBOARD_DOOR_FAULT:
+      ES("SENSOR PUERTA SOSPECHOSO");
+      FR("CAPTEUR PORTE SUSPECT");
+      return "DOOR SENSOR SUSPECT";
     default:
       return "ALARM";
   }
@@ -161,6 +169,23 @@ const char *alarm_action_text(AlarmId id, Language lang) {
       ES("CALEFACTOR CORTADO - SIN MEDIDA DE CONSUMO - REVISAR SENSOR DE CORRIENTE");
       FR("CHAUFFAGE COUPE - PAS DE MESURE DE COURANT - VERIFIER LE CAPTEUR");
       return "HEATER CUT - NO CURRENT READING - SERVICE THE CURRENT SENSOR";
+    // En un equipo con SensorBoard, sus SHT40 SON el sensor de aire de la
+    // incubadora: perder el enlace deja al PID sin variable de control y
+    // dispara ALARM_AIR_SENSOR_FAULT, que corta el calefactor. El texto tiene
+    // que decir eso.
+    //
+    // Decia justo lo contrario ("no afecta al control termico"), heredado de
+    // cuando esto se diseno como telemetria auxiliar. Se vio en banco
+    // (2026-09-02) leyendo la linea CTRL,ALM real: el operador habria leido
+    // que no afecta al control mientras el calefactor estaba cortado.
+    case ALARM_SENSORBOARD_LINK_LOST:
+      ES("SIN TEMPERATURA DE AIRE - REVISAR CONEXION DEL SENSORBOARD");
+      FR("PAS DE TEMPERATURE D AIR - VERIFIER LA CONNEXION SENSORBOARD");
+      return "NO AIR TEMPERATURE - CHECK THE SENSORBOARD CONNECTION";
+    case ALARM_SENSORBOARD_DOOR_FAULT:
+      ES("SENSOR HALL POSIBLE AVERIA - NO USAR COMO ENTRADA DE CONTROL");
+      FR("CAPTEUR HALL PANNE POSSIBLE - NE PAS UTILISER COMME ENTREE");
+      return "HALL SENSOR POSSIBLE FAULT - DO NOT USE AS A CONTROL INPUT";
     default:
       return "alarm";
   }

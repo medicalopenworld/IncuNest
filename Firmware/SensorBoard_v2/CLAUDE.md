@@ -38,7 +38,7 @@ Detalle en el skill `loop-engineering`. Skills de acción: `/loop-run`, `/git-fe
 ## Reglas siempre activas
 
 - **TDD estricto**: test Unity en rojo antes de implementar. No hay lógica de protocolo/sensor sin test. Verificación automatizable = `idf.py build` (compila); el flasheo/monitor en hardware real queda siempre manual (nunca se automatiza en un hook — no hay garantía de que haya un dispositivo conectado).
-- **Límites de componente**: `usb_comm` es agnóstico al payload — ninguna fase después de la 1 debería tocar su framing/CRC/tareas RX-TX, solo llamar a `sensorBoard_comm_send_json()`/`send_binary()`. Cada fase vive en su propio componente ESP-IDF con header público limpio. Detalle en el skill `arch-embedded-layering` y `.claude/rules/embedded.md`.
+- **Límites de componente**: `usb_comm` es agnóstico al payload — ninguna fase después de la 1 debería tocar su framing/CRC/tareas RX-TX, solo llamar a `sensorBoard_comm_send_json()`/`send_binary()`. Cada fase vive en su propio componente ESP-IDF con header público limpio. Detalle en el skill `arch-embedded-layering` y en las reglas `embedded-*` de `Firmware/.claude/rules/`.
 - **Spec antes que código**: los escenarios de OpenSpec (`#### Scenario:` WHEN/THEN) son la fuente de los `TEST_CASE` de Unity.
 - **Gitflow**: `feat/*` (producto) y `meta/*` (capa agéntica) → `dev` (merge --no-ff); `release/*` → `main` (tag semver, versión leída de `SB_PROTO_FW_VERSION`). Nunca push directo a `main`/`dev` (hook `guard-push`). **El gate de merge/tag (`guard-merge`) exige aprobación humana explícita en las tres modalidades del loop, incluida `auto`** — dispositivo médico, la integración irreversible siempre se confirma. Estándar de nombres en el skill `git-flow`.
 - **Modalidad y velocidad**: el trabajo corre en una modalidad — `auto` (desatendido, salvo el gate de merge/release que siempre para), `human` (gates también en plan/épica) u `oneshot` (tarea puntual) — fijada con `/loop-mode` (skill `loop-modes`; SessionStart la pregunta). El proceso escala al tamaño del cambio (skill `loop-engineering`); las specs no siempre son necesarias para cambios triviales.
@@ -47,15 +47,17 @@ Detalle en el skill `loop-engineering`. Skills de acción: `/loop-run`, `/git-fe
 
 ## Convenciones por zona
 
-Las reglas detalladas se cargan automáticamente según la zona del repo que toques (`.claude/rules/`): `embedded` (límites de componente, ISR, allocation), `testing` (Unity/idf.py), `commits` (autoría, Conventional Commits, ramas), `security` (framing/CRC, fail-safe de sensores/actuadores).
+**La capa agéntica vive un nivel arriba, en `Firmware/.claude/`** (compartida por las tres placas desde la generalización del framework), no en `SensorBoard_v2/.claude/`. En esta carpeta solo queda lo personal: `.claude/settings.local.json` (gitignored), `.loop-mode` y `logs/`. Ojo: el `.gitignore` de la raíz ignora `.claude` completo, así que `Firmware/.claude/` **no está versionado** y solo existe en el checkout principal — un worktree nuevo no lo trae.
+
+Las reglas detalladas se cargan automáticamente según la zona del repo que toques (`Firmware/.claude/rules/`): `embedded-motherboard`, `embedded-display-hmi`, `embedded-shared` (límites de módulo, ISR, allocation — no hay aún una regla `embedded-*` específica del SensorBoard), `testing` (Unity/idf.py), `commits` (autoría, Conventional Commits, ramas), `security` (framing/CRC, fail-safe de sensores/actuadores), `tooling` (escritura de ficheros, worktrees, PlatformIO).
 
 ## Enforcement (hooks)
 
-`.claude/settings.json` activa: bloqueo de edición de `.env*`/`dependencies.lock`/`managed_components/**`/specs archivadas (PreToolUse `protect-files`), bloqueo de push a `main`/`dev` (`guard-push`) y de merge/tag sin aprobación **en cualquier modalidad** (`guard-merge`); `clang-format` automático al editar `.c`/`.h` (PostToolUse), recordatorio TDD si un archivo nuevo bajo `components/` no aparece referenciado en ningún `test_apps/**/test_main.c`; al cerrar turno (Stop): `idf.py build` como gate de compilación (`run-affected-tests` — nunca flashea ni monitorea) y **gate de learnings** que exige el paso 7 antes de cerrar una sub-tarea de épica (`require-retro`); contexto de sesión + pregunta de modalidad (SessionStart `session-context`).
+`Firmware/.claude/settings.json` activa: bloqueo de edición de `.env*`/`dependencies.lock`/`managed_components/**`/specs archivadas (PreToolUse `protect-files`), bloqueo de push a `main`/`dev` (`guard-push`) y de merge/tag sin aprobación **en cualquier modalidad** (`guard-merge`); `clang-format` automático al editar `.c`/`.h` (PostToolUse `format-file`); al cerrar turno (Stop): `idf.py build` como gate de compilación (`run-affected-tests` — nunca flashea ni monitorea) y **gate de learnings** que exige el paso 7 antes de cerrar una sub-tarea de épica (`require-retro`); contexto de sesión + pregunta de modalidad (SessionStart `session-context`); registro de subagentes (SubagentStop `subagent-log`).
 
-### Modo desatendido (opcional, personal)
+### Modo desatendido (retirado)
 
-Para ejecución continua sin supervisión, `.claude/hooks/unattended-loop.sh` es un **Stop hook** que re-despierta al agente mientras queden checkboxes `[ ]` en `docs/epics` (loop planificar→ejecutar), con el gate de merge/release igualmente activo. Para cuando el backlog se agota o tras 3 ciclos sin progreso (salvaguarda anti-bucle). Se **activa solo en `settings.local.json`** (personal, gitignored) — el script está versionado pero inerte hasta registrarlo. Combinar con `permissions.defaultMode: "bypassPermissions"` para autonomía total; la red de seguridad sigue siendo los hooks (`guard-push`, `guard-merge`, `protect-files`). Pararlo: `Esc`.
+El antiguo Stop hook `unattended-loop.sh` (re-despertaba al agente mientras quedaran checkboxes `[ ]` en `docs/epics`) **ya no existe en disco ni en ninguna rama**: se perdió al mover el framework a `Firmware/.claude/`. Si en el futuro hace falta, se recupera con `git show 234cac8:Firmware/SensorBoard_v2/.claude/hooks/unattended-loop.sh`, se coloca en `Firmware/.claude/hooks/` y se registra **solo en `settings.local.json`**. No lo registres sin el script presente: cada Stop fallará con "No such file or directory".
 
 ## Roles (subagentes)
 
@@ -65,7 +67,7 @@ Para ejecución continua sin supervisión, `.claude/hooks/unattended-loop.sh` es
 
 | Necesitas saber…               | Mira en…                                                                                       |
 | ------------------------------ | ---------------------------------------------------------------------------------------------- |
-| **Cómo actúan los agentes**    | `.claude/` — `rules/` (convenciones por zona), `skills/`, `agents/`, `hooks/`                  |
+| **Cómo actúan los agentes**    | `Firmware/.claude/` (un nivel arriba, no versionado) — `rules/`, `skills/`, `agents/`, `hooks/` |
 | **Por qué** (decisiones)       | [`docs/adr/`](docs/adr/README.md) — índice de ADRs vigentes                                    |
 | **Qué hemos aprendido**        | [`docs/retro/`](docs/retro/README.md) — destilado de aprendizajes aplicados                    |
 | **Cómo es el sistema**         | [`docs/architecture.md`](docs/architecture.md) + [`docs/blueprint/`](docs/blueprint/README.md) |
@@ -84,7 +86,7 @@ Al **cerrar una tarea**, el conocimiento nuevo se enruta a su capa (paso 7, skil
 
 ## No hacer
 
-- **Atribución: el único autor es Pablo Sánchez Bergasa** (GitHub: `pablo18393`). NUNCA añadas `Co-Authored-By: Claude` (ni Anthropic) ni el trailer `Claude-Session` a commits, merges, releases o PRs. Configurado en `.claude/settings.json` (`includeCoAuthoredBy: false`, `attribution` vacía).
+- **Atribución: el único autor es Pablo Sánchez Bergasa** (GitHub: `pablo18393`). NUNCA añadas `Co-Authored-By: Claude` (ni Anthropic) ni el trailer `Claude-Session` a commits, merges, releases o PRs. Configurado en `Firmware/.claude/settings.json` (`includeCoAuthoredBy: false`, `attribution` vacía).
 - No edites `openspec/specs/**` a mano (fuente de verdad; usa deltas + `openspec archive`).
 - No reabras el framing/CRC/tareas RX-TX de `usb_comm` desde un componente de fase — es la señal de que el diseño se está saliendo de su capa (skill `arch-embedded-layering`).
 - No automatices `idf.py flash`/`idf.py monitor` en ningún hook — requieren hardware real conectado y no son seguros de disparar sin supervisión.
