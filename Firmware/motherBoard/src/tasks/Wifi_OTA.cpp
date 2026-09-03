@@ -59,6 +59,16 @@ ThingsBoard tb_wifi(mqttClientWIFI, MAX_MESSAGE_SIZE);
 StaticJsonDocument<JSON_OBJECT_SIZE(THINGSBOARD_FIELDS_AMOUNT)> WIFI_JSON;
 JsonObject addVariableToTelemetryWIFIJSON = WIFI_JSON.to<JsonObject>();
 
+// Gemelo del de GPRS.cpp: ArduinoJson descarta claves en silencio al llenarse
+// el pool y sendTelemetryJson() sigue devolviendo true.
+static void warnIfWifiTelemetryTruncated(const char *what) {
+  if (WIFI_JSON.overflowed()) {
+    logE(String("[WiFi] -> TELEMETRIA TRUNCADA en ") + what +
+         ": el JSON no cabe en THINGSBOARD_FIELDS_AMOUNT y se han descartado "
+         "campos");
+  }
+}
+
 // WIFI
 bool WIFI_connection_status = false;
 
@@ -782,7 +792,9 @@ void WIFITBProvision() {
 }
 
 void switchAlarmTelemetryWIFI(int alarm, bool value) {
-  String alarmKey;
+  // Ver el comentario gemelo en GPRS.cpp: como String, ArduinoJson copiaba
+  // la clave al pool y se perdian claves clinicas al final del JSON.
+  const char *alarmKey = nullptr;
   switch (alarm) {
   case ALARM_AIR_THERMAL_CUTOUT:
     alarmKey = ALARM_AIR_THERMAL_CUTOUT_KEY;
@@ -834,6 +846,12 @@ void switchAlarmTelemetryWIFI(int alarm, bool value) {
     break;
   case ALARM_HEATER_SENSOR_FAULT:
     alarmKey = ALARM_HEATER_SENSOR_FAULT_KEY;
+    break;
+  case ALARM_SENSORBOARD_LINK_LOST:
+    alarmKey = ALARM_SENSORBOARD_LINK_LOST_KEY;
+    break;
+  case ALARM_SENSORBOARD_DOOR_FAULT:
+    alarmKey = ALARM_SENSORBOARD_DOOR_FAULT_KEY;
     break;
   default:
     return;
@@ -1348,6 +1366,7 @@ void WIFI_TB_OTA() {
       } else {
         if (millis() - Wifi_TB.lastMQTTPublish > WIFI_PUBLISH_INTERVAL) {
           addTelemetriesToWIFIJSON();
+          warnIfWifiTelemetryTruncated("telemetria");
           if (tb_wifi.sendTelemetryJson(addVariableToTelemetryWIFIJSON,
                                         JSON_STRING_SIZE(measureJson(
                                             addVariableToTelemetryWIFIJSON)))) {

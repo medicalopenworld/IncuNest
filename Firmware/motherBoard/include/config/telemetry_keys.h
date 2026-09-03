@@ -113,6 +113,11 @@
 #define ALARM_HMI_LINK_LOST_KEY "hmi_link_alarm"
 #define ALARM_SKIN_SENSOR_FAULT_AIR_MODE_KEY "skin_sensor_air_alarm"
 #define ALARM_HUMIDITY_DEVIATION_KEY "hum_alarm"
+// Sin estas dos, las alarmas 18 y 19 caian en el `default: return` del switch
+// y NUNCA llegaban a la nube: un equipo con el enlace del SensorBoard caido
+// -- y por tanto sin sensor de aire -- era invisible en monitorizacion remota.
+#define ALARM_SENSORBOARD_LINK_LOST_KEY "sb_link_alarm"
+#define ALARM_SENSORBOARD_DOOR_FAULT_KEY "sb_door_alarm"
 
 #define CALIBRATION_RAW_TEMPERATURE_RANGE_SKIN_KEY "Cal_raw_range_skin_temp"
 #define CALIBRATION_RAW_TEMPERATURE_LOW_SKIN_KEY "Cal_raw_low_skin_temp"
@@ -157,3 +162,6 @@
 #define SB_DB_KEY "sb_db"
 #define SB_DOOR_OPEN_KEY "sb_door_open"
 #define SB_DOOR_FAULT_KEY "sb_door_fault"
+// Posiciones de sensor que sostienen la temperatura de aire (3, 2 o 1). Si
+// baja, la redundancia se esta perdiendo aunque la incubadora siga midiendo.
+#define SB_ENV_USED_KEY "sb_env_used"
