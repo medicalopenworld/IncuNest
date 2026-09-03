@@ -421,6 +421,17 @@ void sensorboard_comm_init(void) {
   Wire1.end();
   gpio_reset_pin(GPIO_NUM_19);
   gpio_reset_pin(GPIO_NUM_20);
+  // gpio_reset_pin() deja el pull-up interno (~45k) HABILITADO. Sobre las
+  // lineas USB del host eso se suma a su pull-down de 15k y deja la linea
+  // "baja" a ~0,8 V, en el umbral del receptor single-ended del PHY: la
+  // deteccion de conexion queda al borde y el SensorBoard HW4 en modo D+/D-
+  // intercambiado no llegaba a verse como conectado (banco 2026-09-03; con
+  // un PC como host, sin ese pull-up, si). Lineas USB flotantes: el PHY pone
+  // sus propios pulls.
+  gpio_pullup_dis(GPIO_NUM_19);
+  gpio_pulldown_dis(GPIO_NUM_19);
+  gpio_pullup_dis(GPIO_NUM_20);
+  gpio_pulldown_dis(GPIO_NUM_20);
 
   // El driver CDC-ACM emite un ESP_LOGE por CADA intento de apertura fallido
   // ("USB device with VID:... not found"), es decir ~30 lineas de ERROR por
