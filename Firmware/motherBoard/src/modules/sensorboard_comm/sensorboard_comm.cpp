@@ -14,6 +14,7 @@
 #include "main.h"
 #include "modules/control/alarm_machine.h"
 #include "sb_door_state.h"
+#include "sb_env_fusion.h"
 #include "sb_frame_parser.h"
 #include "sb_json_codec.h"
 #include "sb_link_state.h"
@@ -74,6 +75,11 @@ static uint8_t s_json_buf[SB_PROTO_MAX_JSON_PAYLOAD];
 static SbLinkState s_link;
 static SbDoorState s_door;
 static SbSnapshot s_snapshot;
+
+// Posiciones que sostienen la ultima medida de aire aceptada. Sale por
+// telemetria: una perdida progresiva de redundancia debe verse en remoto
+// antes de quedarse sin medida.
+static uint8_t s_env_used = 0;
 
 static uint32_t s_task_start_ms = 0;
 static bool s_have_uptime = false;
@@ -532,45 +538,34 @@ bool sensorboard_apply_room_sensor(void) {
   const uint32_t age = (uint32_t)(millis() - s.last_env_ms);
   if (age > SB_ENV_STALE_MS) return false;
 
-  // Mismo gate de plausibilidad que el camino I2C (updateRoomSensor): una
-  // lectura fuera de rango no es una lectura, aunque el CRC fuera bueno.
-  double temp_sum = 0.0;
-  int temp_count = 0;
-  double redundant = 0.0;
-  bool have_redundant = false;
-  for (int i = 0; i < 3; i++) {
-    if (!s.temp.valid[i]) continue;
-    const float t = s.temp.value[i];
-    if (t <= DIG_TEMP_TO_DISCARD_MIN || t >= DIG_TEMP_TO_DISCARD_MAX) continue;
-    temp_sum += t;
-    temp_count++;
-    if (temp_count == 2) {
-      redundant = t;
-      have_redundant = true;
-    }
+  // Votacion, no media: el valor que sale de aqui gobierna a la vez el PID de
+  // aire, el corte termico y la alarma de desviacion, asi que una media simple
+  // dejaba que UN sensor sesgado enganara a las tres barreras al mismo tiempo
+  // (ver sb_env_fusion.h). Si no hay medida arbitrable, NO se refresca el
+  // sello: que salte ALARM_AIR_SENSOR_FAULT es la respuesta correcta.
+  const SbFusion temp = sb_fuse(s.temp.valid, s.temp.value, SB_ENV_TEMP_MIN_C,
+                                SB_ENV_TEMP_MAX_C, SB_ENV_MAX_SPREAD_C);
+  if (!temp.valid) {
+    ESP_LOGW(TAG, "sin temperatura de aire arbitrable (%u descartadas)",
+             (unsigned)temp.discarded);
+    return false;
   }
-  if (temp_count == 0) return false;
-
-  double hum_sum = 0.0;
-  int hum_count = 0;
-  for (int i = 0; i < 3; i++) {
-    if (!s.hum.valid[i]) continue;
-    const float h = s.hum.value[i];
-    if (h < 0.0f || h > 100.0f) continue;
-    hum_sum += h;
-    hum_count++;
-  }
+  const SbFusion hum =
+      sb_fuse(s.hum.valid, s.hum.value, 0.0f, 100.0f, SB_ENV_MAX_SPREAD_RH);
 
   // Escrituras hechas desde la tarea de sensores, la misma que las hace en el
   // camino I2C: el enlace USB no introduce escrituras concurrentes sobre
   // variables clinicas.
-  in3.temperature[ROOM_DIGITAL_TEMP_SENSOR] = temp_sum / temp_count;
-  if (have_redundant) {
-    in3.airTemperatureRedundantSensor = redundant;
+  in3.temperature[ROOM_DIGITAL_TEMP_SENSOR] = temp.value;
+  if (temp.has_redundant) {
+    in3.airTemperatureRedundantSensor = temp.redundant;
   }
-  if (hum_count > 0) {
-    in3.humidity[ROOM_DIGITAL_HUM_SENSOR] = hum_sum / hum_count;
+  if (hum.valid) {
+    in3.humidity[ROOM_DIGITAL_HUM_SENSOR] = hum.value;
   }
+  // Cuantas posiciones sostienen realmente la medida: perder redundancia en
+  // silencio es lo que hace que una averia progresiva no se vea venir.
+  s_env_used = temp.used;
   lastSuccesfullSensorUpdate[ROOM_DIGITAL_TEMP_SENSOR] = millis();
   return true;
 }
@@ -626,5 +621,6 @@ void sensorboard_add_telemetry(JsonObject &json) {
   if (s.door_known && (uint32_t)(now - s.last_door_ms) <= SB_DOOR_STALE_MS) {
     json[SB_DOOR_OPEN_KEY] = s.door_open;
   }
+  json[SB_ENV_USED_KEY] = s_env_used;
   json[SB_DOOR_FAULT_KEY] = s.door_faulty;
 }
