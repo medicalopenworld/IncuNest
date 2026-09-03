@@ -5,11 +5,12 @@ menu "SensorBoard usb_comm"
         default y
         help
             SensorBoard HW_NUM 4: el conector USB admite dos orientaciones
-            y en una de ellas D+/D- (IO20/IO19) llegan cruzados. Si el host
-            no habla al dispositivo (ni SETUP recibido ni SET_CONFIGURATION)
-            en el plazo configurado, usb_comm intercambia los pines en el
-            PHY del ESP32-S3 (exchg_pins), fuerza detach/attach y sigue
-            alternando hasta enumerar. Con host activo nunca intercambia,
+            y en una de ellas D+/D- (IO20/IO19) llegan cruzados. Si tras un
+            bus reset del host este no habla al dispositivo (ni SETUP ni
+            SET_CONFIGURATION) en el plazo configurado, usb_comm intercambia
+            los pines en el PHY del ESP32-S3 (exchg_pins) con detach/attach,
+            una vez por reset visto; sin host no alterna. Con host activo
+            nunca intercambia,
             asi que dejarlo activo en la V5 (conector corregido en
             hardware) es inocuo: solo actua cuando nadie enumera. Se expone
             como sensors.usb_swap en la resp de status (ADR-0003).

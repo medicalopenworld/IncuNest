@@ -12,7 +12,7 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ### Added
 
-- **Tolerancia a la orientación del conector USB — HW_NUM 4 (`usb_comm`)**: si no hay host activo (ni SETUP ni `SET_CONFIGURATION`) en `CONFIG_SB_USB_AUTOSWAP_TIMEOUT_MS` (2 s, mín. 1,5 s), se intercambian D+/D- en el PHY del ESP32-S3 (`exchg_pins`) con detach/attach de 250 ms y se sigue alternando hasta enumerar; política pura `sb_usb_orient_*` con 6 `TEST_CASE` en `comm_test`, Kconfig `SB_USB_AUTOSWAP`, log retenido por intercambio y estado `sensors.usb_swap` en `status` (ADR-0003). La V5 corrige el conector en hardware; el mecanismo queda activo e inocuo. El bootloader ROM no aplica el intercambio: flashear con el cable invertido sigue requiriendo girarlo.
+- **Tolerancia a la orientación del conector USB — HW_NUM 4 (`usb_comm`)**: tras ver un bus reset del host sin que llegue SETUP ni `SET_CONFIGURATION` en `CONFIG_SB_USB_AUTOSWAP_TIMEOUT_MS` (2 s, mín. 1,5 s), se intercambian D+/D- en el PHY del ESP32-S3 (`exchg_pins`) con detach/attach de 250 ms, una vez por evidencia (sin host no se alterna: la alternancia ciega enganchaba en fase con la pila host de la motherboard, banco 2026-09-03); política pura `sb_usb_orient_*` con 6 `TEST_CASE` en `comm_test`, Kconfig `SB_USB_AUTOSWAP`, log retenido por intercambio y estado `sensors.usb_swap` en `status` (ADR-0003). La V5 corrige el conector en hardware; el mecanismo queda activo e inocuo. El bootloader ROM no aplica el intercambio: flashear con el cable invertido sigue requiriendo girarlo.
 
 ### Fixed
 

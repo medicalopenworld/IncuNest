@@ -22,6 +22,14 @@ El ESP32-S3 permite intercambiar D+/D- por software en el PHY (`USB_WRAP.otg_con
 - Convención derivada: **"host activo" = `tud_mounted() || tud_connected()`**. `connected` lo pone TinyUSB al recibir el primer paquete SETUP (`usbd.c`) y lo borra el bus reset/unplug; un SETUP válido es imposible con D+/D- cruzados, así que es prueba de orientación correcta y un host lento en configurar nunca dispara intercambios (sin necesidad de backoff/jitter). `mounted` se mantiene en suspend, así que un host dormido tampoco. *Corrección registrada:* el diseño inicial descartaba `tud_connected()` asumiendo que se ponía con el bus reset (SE0, simétrico ante el cruce); la revisión de seguridad lo contrastó con el fuente de TinyUSB y era falso.
 - Convención derivada: DTR es pegajoso (TinyUSB no invoca `line_state_cb` en reset/unplug y el S3 no tiene VBUS sensing): la condición para escribir al CDC es `DTR && tud_cdc_n_connected()`, nunca DTR solo.
 
+## Enmienda 2026-09-03 (banco HW4 + motherboard V18): solo con evidencia de host
+
+La versión inicial alternaba la orientación cada 2 s mientras no hubiera host activo, también sin host. En banco funcionó con un PC pero no con la motherboard: su pila host (ESP-IDF 4.4.6 en Arduino) solo recupera el puerto raíz tras una desconexión y tarda más que la ventana buena (1,75 s) pero menos que el ciclo (4 s), así que cada reintento caía en la orientación mala (`HUB: Bad transfer status 1: CHECK_SHORT_DEV_DESC` cada 4,01 s, `devices=0` durante minutos). Si al encender el puerto encontraba la ventana buena, enumeraba en <1 s: una moneda al aire por arranque.
+
+**Decisión enmendada:** la política intercambia únicamente tras ver un **bus reset** (`DCD_EVENT_BUS_RESET`, evidencia de host, simétrico ante el cruce) sin que el host hable en `T`, **una sola vez por evidencia**, y permanece en la nueva orientación hasta el siguiente reset. Sin host no se mueve. Resets adicionales no extienden el plazo (Windows hace 3 seguidos). Así el host, tarde lo que tarde en recuperarse, encuentra siempre la orientación correcta, y con el cable correcto nunca ve una ventana low-speed. La motherboard no necesita recuperación adicional; se le añade un log INFO de cada dispositivo enumerado (VID/PID/velocidad) para diagnóstico. Change `2026-09-03-sb-usb-autoswap-host-evidence`.
+
+Aprendizaje: "el host se recupera de una enumeración fallida" era una suposición sobre una pila concreta que solo el banco podía refutar; la política pura permitió cambiar la regla sin tocar la ejecución sobre el PHY.
+
 ## Alternativas consideradas
 
 - **Fallback a UART/I2C por IO19/IO20** — duplica la pila de transporte en ambas placas (y el parser de la motherboard) en un dispositivo médico; no es simétrico ante el cruce (TX/RX y SDA/SCL también se invierten, exigiría autodetección igual); pierde ancho de banda para la cámara y la enumeración/desconexión que da USB.
