@@ -42,17 +42,30 @@ constexpr int kMaxRows = kLocalCount + (int)FTEST_MB_COUNT;
 // dure la pantalla abierta: los locales viven en s_rows[0..kLocalCount-1] en
 // el orden de kLocalOrder y no se mueven; los de motherBoard se anaden a
 // partir de s_rows[kLocalCount] segun van llegando sus CTRL,FTEST.
+// btn/titleLbl/wordLbl: objetos LVGL de la fila, creados UNA vez
+// (createRowButton()) y actualizados in-place (updateRowButton()) — design.md
+// D4, hallazgo de code review: reconstruir 36 filas x 3 objetos en cada
+// renderAll() era exactamente el churn que D4 queria evitar. nullptr hasta
+// que createRowButton() la pinta por primera vez. dirty se pone en los mismos
+// puntos que antes ponian s_rowsDirty (una mutacion de estado real) y
+// updateRowButton() lo consume: sin el, cada renderAll() reescribiria texto y
+// color aunque nada hubiera cambiado.
 struct RowData {
   unsigned    id;
   bool        isMb;
   bool        started;
   FtestStatus status;
   char        detail[FTEST_DETAIL_MAX + 1];
+  lv_obj_t   *btn;
+  lv_obj_t   *titleLbl;
+  lv_obj_t   *wordLbl;
+  bool        dirty;
 };
 
 RowData s_rows[kMaxRows];
 int     s_rowCount = 0;
 int     s_lastTouchedRow = -1;  // para lv_obj_scroll_to_view()
+int     s_prevTouchedRow = -1;  // fila ya centrada: evita re-scrollear igual
 
 // Orden de pintado de la cuadricula (indices en s_rows), recalculado SOLO
 // cuando algun estado cambia (feedback de banco: reordenar en cada pasada
@@ -61,6 +74,10 @@ int     s_lastTouchedRow = -1;  // para lv_obj_scroll_to_view()
 // orden (fila oculta, tampoco cuenta en el resumen visible).
 int  s_order[kMaxRows];
 int  s_orderCount = 0;
+// Ultimo orden efectivamente aplicado a los objetos LVGL (lv_obj_move_to_index()):
+// permite reordenar solo cuando computeOrder() cambia algo de verdad.
+int  s_prevOrder[kMaxRows];
+int  s_prevOrderCount = 0;
 bool s_rowsDirty = true;
 
 enum class Step {
@@ -482,7 +499,28 @@ int mbRowIndex(unsigned id) {
   s_rows[i].started = false;
   s_rows[i].status = FTEST_RUNNING;
   s_rows[i].detail[0] = '\0';
+  s_rows[i].btn = nullptr;
+  s_rows[i].titleLbl = nullptr;
+  s_rows[i].wordLbl = nullptr;
+  // Fila nueva: createRowButton() la crea desde renderAll() con su primer
+  // evento (hallazgo de code review: "se anaden dinamicamente").
+  s_rows[i].dirty = true;
   return i;
+}
+
+// Destruye los botones de fila (local + motherBoard) de la sesion en curso.
+// Idempotente (cada fila pone su btn a nullptr tras borrarlo): FactoryTest_
+// Close() y resetState() (siguiente Open()) pueden llamarla sin doble-borrado.
+void destroyRowButtons() {
+  for (int i = 0; i < s_rowCount; i++) {
+    RowData &r = s_rows[i];
+    if (r.btn) {
+      lv_obj_del(r.btn);
+      r.btn = nullptr;
+      r.titleLbl = nullptr;
+      r.wordLbl = nullptr;
+    }
+  }
 }
 
 // Cierra el panel de detalle si estaba abierto. Se llama al cerrar el
@@ -677,25 +715,52 @@ void onRowBtnClicked(lv_event_t *e) {
   s_pendingDetailRow = row;
 }
 
-void buildRowButton(int idx) {
+// Actualiza texto/color/visibilidad de una fila YA creada, solo si cambio su
+// estado/detail desde la ultima pasada (r.dirty, puesto en los mismos sitios
+// que antes ponian s_rowsDirty). SKIP se oculta con LV_OBJ_FLAG_HIDDEN en vez
+// de no crearse (no participa en computeOrder(), pero conserva su objeto).
+void updateRowButton(int idx) {
   RowData &r = s_rows[idx];
-  const char *name = r.isMb ? mbTestName(r.id) : localTestName(r.id);
+  if (!r.btn || !r.dirty) return;
+  r.dirty = false;
+
+  if (r.started && r.status == FTEST_SKIP) {
+    lv_obj_add_flag(r.btn, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_clear_flag(r.btn, LV_OBJ_FLAG_HIDDEN);
+  }
+
+  // El nombre solo cambia con el idioma; FactoryTest_ApplyLanguage() fuerza
+  // r.dirty = true en todas las filas para refrescarlo.
+  lv_label_set_text(r.titleLbl, r.isMb ? mbTestName(r.id) : localTestName(r.id));
+
+  lv_color_t fill, border;
+  gridColors(r, &fill, &border);
+  lv_obj_set_style_bg_color(r.btn, fill, LV_PART_MAIN);
+  lv_obj_set_style_border_color(r.btn, border, LV_PART_MAIN);
+
+  lv_label_set_text(r.wordLbl, statusText(r.status, r.started));
+  lv_obj_set_style_text_color(r.wordLbl, border, 0);
+}
+
+// Crea los objetos de una fila (boton + 2 labels) UNA vez; renderAll() los
+// actualiza in-place despues via updateRowButton() (design.md D4, hallazgo de
+// code review: reconstruir la cuadricula entera en cada repintado era
+// exactamente el churn que D4 queria evitar).
+void createRowButton(int idx) {
+  RowData &r = s_rows[idx];
+  if (r.btn) return;
 
   lv_obj_t *btn = lv_btn_create(s_body);
   lv_obj_remove_style_all(btn);
   lv_obj_set_size(btn, kGridBtnW, kGridBtnH);
-  lv_color_t fill, border;
-  gridColors(r, &fill, &border);
-  lv_obj_set_style_bg_color(btn, fill, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_border_color(btn, border, LV_PART_MAIN);
   lv_obj_set_style_border_width(btn, 2, LV_PART_MAIN);
   lv_obj_set_style_radius(btn, 6, LV_PART_MAIN);
   lv_obj_clear_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_event_cb(btn, onRowBtnClicked, LV_EVENT_CLICKED, &r);
 
   lv_obj_t *title = lv_label_create(btn);
-  lv_label_set_text(title, name);
   lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(title, lv_color_hex(0x0B2E4F), 0);
   lv_label_set_long_mode(title, LV_LABEL_LONG_WRAP);
@@ -704,14 +769,46 @@ void buildRowButton(int idx) {
   lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 4);
 
   lv_obj_t *word = lv_label_create(btn);
-  lv_label_set_text(word, statusText(r.status, r.started));
   lv_obj_set_style_text_font(word, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(word, border, 0);
   lv_obj_align(word, LV_ALIGN_BOTTOM_MID, 0, -4);
 
-  if (idx == s_lastTouchedRow) {
-    lv_obj_scroll_to_view(btn, LV_ANIM_OFF);
+  r.btn = btn;
+  r.titleLbl = title;
+  r.wordLbl = word;
+  r.dirty = true;
+  updateRowButton(idx);
+}
+
+// true si el orden de pintado (post computeOrder()) difiere del ultimo
+// aplicado a los objetos LVGL: gatea lv_obj_move_to_index() para no reordenar
+// en cada pasada (hallazgo de code review, design.md D4).
+bool orderChanged(const int *a, int aCount, const int *b, int bCount) {
+  if (aCount != bCount) return true;
+  for (int i = 0; i < aCount; i++) {
+    if (a[i] != b[i]) return true;
   }
+  return false;
+}
+
+// true si alguna fila de motherBoard esta en WAIT (instruccion) o en CONFIRM
+// sin responder (pregunta Si/No): en ambos casos hay algo que el operario
+// debe atender YA en la zona de accion.
+bool remoteNeedsAttention() {
+  if (!s_mbSupported) return false;
+  for (int i = kLocalCount; i < s_rowCount; i++) {
+    if (s_rows[i].status == FTEST_WAIT) return true;
+    if (s_rows[i].status == FTEST_CONFIRM &&
+        s_remoteConfirmAnsweredRowId != s_rows[i].id) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Hallazgo de code review: el panel de detalle no debe abrirse si ya hay una
+// pregunta Si/No pendiente de resolver (local o remota) — la taparia.
+bool hasPendingYesNoQuestion() {
+  return s_askKind != AskKind::None || remoteNeedsAttention();
 }
 
 // ============================================================================
@@ -822,8 +919,39 @@ void renderAll() {
     computeOrder();
     s_rowsDirty = false;
   }
-  lv_obj_clean(s_body);
-  for (int k = 0; k < s_orderCount; k++) buildRowButton(s_order[k]);
+
+  // Hallazgo de code review (design.md D4): crear/actualizar in-place en vez
+  // de lv_obj_clean(s_body) + reconstruir todo. Las filas de motherBoard se
+  // crean aqui la primera vez que aparecen (createRowButton() es idempotente
+  // si r.btn ya existe).
+  for (int i = 0; i < s_rowCount; i++) {
+    if (!s_rows[i].btn) {
+      createRowButton(i);
+    } else {
+      updateRowButton(i);
+    }
+  }
+  if (orderChanged(s_order, s_orderCount, s_prevOrder, s_prevOrderCount)) {
+    for (int k = 0; k < s_orderCount; k++) {
+      lv_obj_move_to_index(s_rows[s_order[k]].btn, k);
+    }
+    memcpy(s_prevOrder, s_order, sizeof(int) * (size_t)s_orderCount);
+    s_prevOrderCount = s_orderCount;
+  }
+  if (s_lastTouchedRow != s_prevTouchedRow) {
+    s_prevTouchedRow = s_lastTouchedRow;
+    if (s_lastTouchedRow >= 0 && s_rows[s_lastTouchedRow].btn) {
+      lv_obj_scroll_to_view(s_rows[s_lastTouchedRow].btn, LV_ANIM_OFF);
+    }
+  }
+
+  // Hallazgo de code review: si una fila remota pasa a WAIT/CONFIRM mientras
+  // el panel de detalle esta abierto, se cierra antes de pintar la pregunta o
+  // instruccion (REJECT ya lo cierra via goSummary() ->
+  // destroyTransientOverlayObjects()).
+  if (s_detailRow && s_step == Step::RemoteRunning && remoteNeedsAttention()) {
+    s_detailRow = nullptr;
+  }
 
   lv_obj_clean(s_action);
   switch (s_step) {
@@ -986,6 +1114,7 @@ void beginLocalTest() {
   r.started = true;
   r.status = FTEST_RUNNING;
   r.detail[0] = '\0';
+  r.dirty = true;
   s_rowsDirty = true;
   s_localPhase = LocalPhase::None;
   s_lastTouchedRow = s_localIdx;
@@ -1017,6 +1146,7 @@ void beginLocalTest() {
 void finishLocal(FtestStatus st, const char *detail) {
   RowData &r = s_rows[s_localIdx];
   r.status = st;
+  r.dirty = true;
   s_rowsDirty = true;
   snprintf(r.detail, sizeof(r.detail), "%s", detail ? detail : "");
   s_localPhase = LocalPhase::None;
@@ -1073,6 +1203,7 @@ int drainFtestEvents() {
     RowData &r = s_rows[idx];
     r.started = true;
     r.status = res.status;
+    r.dirty = true;
     s_rowsDirty = true;
     snprintf(r.detail, sizeof(r.detail), "%s", res.detail);
     s_lastTouchedRow = idx;
@@ -1103,6 +1234,7 @@ void markMbPendingAsLinkLost() {
     }
     r.started = true;
     r.status = FTEST_FAIL;
+    r.dirty = true;
     s_rowsDirty = true;
     snprintf(r.detail, sizeof(r.detail), "%s", "sin respuesta");
   }
@@ -1131,6 +1263,7 @@ void retryRemote(unsigned id) {
   RowData &r = s_rows[idx];
   r.started = true;
   r.status = FTEST_RUNNING;
+  r.dirty = true;
   s_rowsDirty = true;
   r.detail[0] = '\0';
   s_lastTouchedRow = idx;
@@ -1240,6 +1373,11 @@ void serviceRemoteRunning() {
 // Ciclo de vida
 // ============================================================================
 void resetState() {
+  // Destruye los botones (local + motherBoard) de la sesion anterior antes de
+  // reindexar s_rows: FactoryTest_Close() ya los destruye, pero esta llamada
+  // es idempotente (hallazgo de code review: "limpiar los punteros y
+  // destruir los objetos una sola vez").
+  destroyRowButtons();
   s_rowCount = 0;
   for (int i = 0; i < kLocalCount; i++) {
     RowData &r = s_rows[s_rowCount++];
@@ -1248,8 +1386,15 @@ void resetState() {
     r.started = false;
     r.status = FTEST_RUNNING;
     r.detail[0] = '\0';
+    r.btn = nullptr;
+    r.titleLbl = nullptr;
+    r.wordLbl = nullptr;
+    r.dirty = true;
   }
   s_lastTouchedRow = -1;
+  s_prevTouchedRow = -1;
+  s_orderCount = 0;
+  s_prevOrderCount = 0;
   s_rowsDirty = true;
   s_askKind = AskKind::None;
   s_retryMode = false;
@@ -1366,6 +1511,10 @@ void FactoryTest_Close(void) {
     Communication_SendFtestAbort();
   }
   destroyTransientOverlayObjects();
+  // Hallazgo de code review: no dejar los botones de fila vivos tras cerrar
+  // la pantalla (resetState() los destruiria igualmente en el proximo Open(),
+  // pero destroyRowButtons() es idempotente y aqui libera los objetos antes).
+  destroyRowButtons();
   LVGL_Unlock();
   buzzerOff();
   speakerOff();
@@ -1403,11 +1552,16 @@ void FactoryTest_Poll(void) {
   }
 
   // Panel de detalle: abrir/cerrar se resuelve aqui, fuera del despacho del
-  // click que lo pidio (mismo hand-off que Reintentar, hallazgo 4).
+  // click que lo pidio (mismo hand-off que Reintentar, hallazgo 4). Hallazgo
+  // de code review: no abrirlo si ya hay una pregunta Si/No pendiente (local
+  // o remota) — la taparia.
   if (s_pendingDetailRow) {
-    s_detailRow = s_pendingDetailRow;
+    RowData *row = s_pendingDetailRow;
     s_pendingDetailRow = nullptr;
-    renderAll();
+    if (!hasPendingYesNoQuestion()) {
+      s_detailRow = row;
+      renderAll();
+    }
     return;
   }
   if (s_pendingDetailClose) {
@@ -1483,7 +1637,13 @@ void FactoryTest_ApplyLanguage(void) {
   if (s_exitBtnLabel) {
     lv_label_set_text(s_exitBtnLabel, TXT("SALIR", "EXIT", "QUITTER"));
   }
-  if (s_step != Step::Closed) renderAll();
+  if (s_step != Step::Closed) {
+    // Los botones de fila ya creados solo se refrescan si r.dirty (hallazgo
+    // de code review); el nombre traducido de la fila necesita ese empujon
+    // explicito aqui, no lo pone ninguna mutacion de estado.
+    for (int i = 0; i < s_rowCount; i++) s_rows[i].dirty = true;
+    renderAll();
+  }
 }
 
 bool FactoryTest_AudioBusy(void) {
