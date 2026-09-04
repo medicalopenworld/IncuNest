@@ -41,5 +41,10 @@
 #ifndef SUPPORT_TUTORIAL_URL
 #define SUPPORT_TUTORIAL_URL "https://medicalopenworld.org/incunest/tutorial"
 #endif
+// Destinatario del certificado de los cursos de formacion (spec
+// hmi-training-courses). Por defecto el mismo buzon de soporte.
+#ifndef TRAINING_EMAIL
+#define TRAINING_EMAIL SUPPORT_EMAIL
+#endif
 
 #endif // _CREDENTIALS_PUBLIC_H_

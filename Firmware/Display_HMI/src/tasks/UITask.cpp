@@ -9,7 +9,8 @@
 #include "ui/BabyExitDialog.h"
 #include "ui/TimeDialog.h"
 #include "ui/HelpDialog.h"
-#include "ui/HelpTour.h"
+#include "ui/training/training.h"
+#include "ui/training/training_progress.h"
 #include "ui/BabyWizard.h"
 #include "display_config.h"
 #include "esp_lcd_panel_ops.h"
@@ -3371,7 +3372,7 @@ void inactivity_timer_cb(lv_timer_t *timer) {
   // QR o tutorial guiado): leer un QR o seguir un paso lleva mas de
   // INACTIVITY_TIMEOUT_MS sin tocar, y bloquear a mitad lo tiraria todo.
   if (lv_scr_act() == ui_ScreenAlarms || HelpDialog_IsOpen() ||
-      HelpTour_IsOpen()) {
+      Training_IsOpen()) {
     lv_disp_trig_activity(NULL);
     update_autolock_ring(0);
     return;
@@ -4075,8 +4076,12 @@ void UI_Task(void *pvParameters) {
   TimeDialog_Init(ui_ScreenMain);
   // Menu de ayuda, abierto desde ui_HelpButton (mismo criterio de parent).
   HelpDialog_Init(ui_ScreenMain);
-  // Tutorial guiado: en lv_layer_top() porque recorre Main y Ajustes.
-  HelpTour_Init();
+  // Cursos de formacion: selector (modal sobre Main) y motor de lecciones (en
+  // lv_layer_top() porque recorre Main y Ajustes; ANTES del banner de alarma
+  // para quedar por debajo). El progreso se lee de NVS aqui, en el arranque.
+  TrainingProgress_Load();
+  TrainingSelector_Init(ui_ScreenMain);
+  Training_Init();
   // --- Centro de alarmas (activas + registro) ---
   // Sin parent: cuelga de lv_layer_top() para abrirse desde cualquier pantalla,
   // el bloqueo incluido.
@@ -4600,7 +4605,7 @@ void UI_Task(void *pvParameters) {
     // Ayuda: resultado del envio a soporte (lo deja la tarea WiFi/OTA) y la
     // misma regla de alarma critica, para el menu y para el tutorial.
     HelpDialog_Poll();
-    HelpTour_Poll();
+    Training_Poll();
 
     // El banner se reevalua en CADA pasada, no solo cuando cambia el conjunto
     // de alarmas. Su visibilidad depende de la pantalla activa y el banner
@@ -4633,6 +4638,8 @@ void UI_Task(void *pvParameters) {
       // no se persisten (ADR-0002).
       doNVSWrite = !Training_IsActive();
     }
+    // Progreso de los cursos: mismo patron (decidir dentro, escribir fuera).
+    const bool doTrainingWrite = TrainingProgress_TakeDirty();
     LVGL_Unlock();
 
     // Senal acustica del enlace perdido. Fuera de LVGL_Lock porque cada
@@ -4654,6 +4661,12 @@ void UI_Task(void *pvParameters) {
       p.end();
       ESP_LOGI(TAG, "Preferences write cycle complete");
       ESP_LOGW(TAG, "LCD_DIAG: periodic Preferences write tomó %lu ms",
+               (unsigned long)(millis() - t0));
+    }
+    if (doTrainingWrite) {
+      uint32_t t0 = millis();
+      TrainingProgress_Flush();
+      ESP_LOGW(TAG, "LCD_DIAG: training Preferences write tomó %lu ms",
                (unsigned long)(millis() - t0));
     }
 

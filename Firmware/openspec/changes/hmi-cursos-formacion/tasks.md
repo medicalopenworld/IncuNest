@@ -52,53 +52,65 @@ Commit: `refactor(hmi): exponer IsOpen/Cancel en asistentes y dialogos`.
 
 Commit: `feat(hmi): motor de lecciones interactivas (explicar, hacer, pregunta)`.
 
-- [ ] 3.1 `src/ui/training/training_engine.{h,cpp}`: absorbe `HelpTour.cpp`
-      (sombras, marco, bocadillo, salto de pasos ocultos, navegación de
-      pantallas). Tipos `Step`/`Lesson`/`Course`. Overlay raíz **no
-      clicable**; sombras clicables; hueco a coords exactos del control en
-      `STEP_DO`; bocadillo plegado en `STEP_FREE`; pregunta con tres
-      opciones y reintento en `STEP_QUIZ`.
-- [ ] 3.2 `Training_Poll()`: evaluar `goal()` cada vuelta; salto de objetivos
-      ya cumplidos; aborto por alarma / enlace / apagado / inactividad
-      (`HELP_IDLE_TIMEOUT_MS`); al abortar o terminar, `Training_Exit()` +
-      restaurar instantánea + cancelar asistentes abiertos.
-- [ ] 3.3 Gate clínico al arrancar una lección; modo demostración si falla
-      (pasos "hacer" → "explicar" con prefijo); aviso previo.
-- [ ] 3.4 Franja "MODO FORMACION" (20 px, borde inferior, `lv_layer_top()`,
-      creada tras el banner de alarma).
-- [ ] 3.5 Exención de auto-bloqueo en `inactivity_timer_cb` con
-      `Training_IsOpen()`; `HelpTour_*` desaparece o queda como alias.
-- [ ] 3.6 `pio run -e main` en verde.
+- [x] 3.1 `src/ui/training/training_engine.cpp` + `include/ui/training/
+      {training,lesson_types}.h`: absorbe y retira `HelpTour.cpp` (sombras,
+      marco, bocadillo, salto de pasos ocultos, navegación de pantallas).
+      Tipos `Step`/`Lesson`/`Course` con macros `EXPLAIN/DO/DO_ENTER/FREE/
+      QUIZ`. Raíz clicable en explicar/pregunta y **no clicable** en hacer;
+      sombras clicables; hueco = `lv_obj_get_click_area()` del control (zona
+      táctil ampliada incluida) en `STEP_DO`; bocadillo oculto y franja con
+      la instrucción en `STEP_FREE`; tres opciones y reintento en `STEP_QUIZ`.
+- [x] 3.2 `Training_Poll()`: `goal()` cada vuelta; objetivos ya cumplidos se
+      saltan al entrar; aborto por alarma / enlace / apagado / inactividad;
+      en paso libre sube el overlay por encima de AlarmCenter/TelemetryHistory
+      y lo devuelve a su índice al cerrarse. `endLesson()`: cancelar
+      asistentes → `UI_RestoreControlSnapshot` → `hmi_msg` = instantánea →
+      `Training_Exit` → `BabyWizard_ClearActiveProfile` → `ui_ScreenMain`.
+- [x] 3.3 Gate clínico (`gateOk()`); modo demostración con prefijo y toast;
+      la demostración no cuenta como superada.
+- [x] 3.4 Franja inferior de 32 px (no 20: cabe `montserrat_14` y el botón
+      SALIR de los pasos libres), hija del overlay, con MODO FORMACION /
+      DEMOSTRACION / TUTORIAL o la instrucción del paso libre.
+- [x] 3.5 Exención de auto-bloqueo con `Training_IsOpen()` (selector o
+      lección); `HelpTour.{cpp,h}` eliminados; `HelpDialog` abre el selector.
+- [x] 3.6 `pio run -e main` en verde.
 
 ### 4. Selector, identidad, progreso y certificado
 
 Commit: `feat(hmi): selector de cursos, alumno, progreso NVS y certificado QR`.
 
-- [ ] 4.1 `training_selector.cpp`: pantalla de cursos → lista de lecciones
-      con estado → pantalla de alumno (teclado de letras de `BabyWizard`,
-      24 chars) → "Continuar como X" / "Nuevo alumno".
-- [ ] 4.2 `training_progress.{h,cpp}`: namespace `hmi_train` en
-      `EEPROM_defines.h`; claves por curso (`n_name`, `n_done`, `n_att`) y
-      anillo `cert_N`/`cert_cnt`; escritura desde el bucle de UI fuera del
-      lock (flag `g_trainingDirty` junto a `eepromDirty`).
-- [ ] 4.3 Certificado: pantalla con resumen y QR `mailto:` a
-      `TRAINING_EMAIL` (default `SUPPORT_EMAIL` en `Credentials_public.h`),
-      reutilizando el percent-encoding de `support_report.cpp`
-      (`support_report_build_mailto_custom(to, subject, body)` o similar).
-      Lista de certificados en el selector.
-- [ ] 4.4 `HelpDialog`: TUTORIAL GUIADO abre `Training_OpenSelector()`.
-- [ ] 4.5 `pio run -e main` en verde.
+- [x] 4.1 `training_selector.cpp`: cursos (dos tarjetas con progreso) →
+      "Continuar como X (n/N)" / "Nuevo alumno" → nombre (teclado de letras
+      de `BabyWizard`, 24 chars, mínimo dos letras) → lecciones con estado
+      (OK verde / flecha) → arranque; `TrainingSelector_OnLessonEnd()`
+      marca progreso, certifica al completar y reabre en lecciones o en el
+      certificado.
+- [x] 4.2 `training_progress.{h,cpp}`: namespace `hmi_train` en
+      `EEPROM_defines.h`; claves `c<N>_name/done/att`, anillo `cert_<slot>`
+      + `cert_cnt`/`cert_next`; `TakeDirty()` bajo lock y `Flush()` fuera,
+      junto al bloque `doNVSWrite` de `UITask.cpp`.
+- [x] 4.3 Certificado: QR `mailto:` a `TRAINING_EMAIL` (default
+      `SUPPORT_EMAIL`, `Credentials_public.h`) con `mailto_build()` genérico
+      añadido a `support_report.cpp`; asunto `IncuNest SN 0042 - Certificado
+      <curso> - <nombre>`; lista de certificados desde el selector.
+- [x] 4.4 `HelpDialog`: TUTORIAL GUIADO abre `Training_OpenSelector()`;
+      subtítulo de la tarjeta actualizado.
+- [x] 4.5 `pio run -e main` en verde.
 
 ### 5. Lecciones de validación
 
 Commit: `feat(hmi): lecciones E0 intro, E1 temperatura por aire y E5 alarmas`.
 
-- [ ] 5.1 `lessons_nurse.cpp`: E0 (tabla actual de `HelpTour` como
-      `STEP_EXPLAIN`), E1 temperatura por aire (objetivos del design §6),
-      E5 atender una alarma. Textos ASCII ES/EN/FR.
-- [ ] 5.2 Curso Técnico con solo T0 intro, para que el selector muestre los
-      dos cursos.
-- [ ] 5.3 `pio run -e main` en verde; delta de flash anotado.
+- [x] 5.1 `lessons_intro.cpp` (E0 = tabla de `HelpTour` como `EXPLAIN`,
+      compartida por ambos cursos), `lessons_nurse.cpp`: E1 temperatura por
+      aire (toggle → asistente en paso libre → AIRE → dos flechas → explicar
+      → apagar → pregunta) y E5 atender una alarma (icono → centro en paso
+      libre → pausa de audio → check → registro → pregunta). El orden de E1
+      cambia respecto al design: AIRE solo es seleccionable con el control
+      encendido (`AirPanel_cb` retorna si `!tempSwitched`).
+- [x] 5.2 `lessons_tech.cpp`: curso Técnico con solo T0 intro.
+- [x] 5.3 `pio run -e main` en verde. Flash 2 540 812 B (+25 020 B sobre dev
+      en `6819108`, 80,8 %); RAM 127 588 B (+2 600 B).
 
 ### 6. Verificación manual en banco — **manual**
 

@@ -9,7 +9,7 @@
 #include "main.h"
 #include "modules/support/support_report.h"
 #include "ui.h"
-#include "ui/HelpTour.h"
+#include "ui/training/training.h"
 
 // --- Shared state owned by UITask.cpp (same pattern TimeDialog.cpp uses) ---
 extern ui_lang_t g_lang;
@@ -136,7 +136,7 @@ void onContact(lv_event_t *) {
 
 void onTour(lv_event_t *) {
   closeDialog();
-  HelpTour_Start();
+  Training_OpenSelector();
 }
 
 void onToggleReport(lv_event_t *) {
@@ -188,12 +188,12 @@ void buildMenu() {
   // dentro de los 760 del contenido.
   makeOption(6, LV_SYMBOL_LIST,
              TXT("TUTORIAL GUIADO", "GUIDED TUTORIAL", "TUTORIEL GUIDE"),
-             TXT("Recorre la pantalla paso a paso: que hace cada boton y "
-                 "como usar cada funcion.",
-                 "Walk through the screen step by step: what each button "
-                 "does and how to use each function.",
-                 "Parcourez l'ecran pas a pas : le role de chaque bouton et "
-                 "comment utiliser chaque fonction."),
+             TXT("Cursos de formacion para enfermeria y tecnicos: lecciones "
+                 "practicas sobre la pantalla real, con certificado.",
+                 "Training courses for nurses and technicians: hands-on "
+                 "lessons on the real screen, with a certificate.",
+                 "Cours de formation pour infirmiers et techniciens : lecons "
+                 "pratiques sur l'ecran reel, avec certificat."),
              onTour, lv_color_hex(0x0075EE));
   makeOption(258, LV_SYMBOL_VIDEO,
              TXT("VIDEO TUTORIAL", "VIDEO TUTORIAL", "TUTORIEL VIDEO"),

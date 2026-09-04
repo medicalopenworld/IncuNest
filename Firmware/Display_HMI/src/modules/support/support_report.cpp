@@ -258,3 +258,20 @@ size_t support_report_build_mailto(char *out, size_t cap, bool withReport) {
   }
   return w.len;
 }
+
+size_t mailto_build(char *out, size_t cap, const char *to, const char *subject,
+                    const char *body) {
+  if (!out || cap == 0 || !to) return 0;
+  Writer w(out, cap);
+  w.add("mailto:%s?subject=", to);
+  if (subject) addEncoded(w, subject);
+  if (body && body[0]) {
+    w.add("&body=");
+    addEncoded(w, body);
+  }
+  if (w.overflow) {
+    out[0] = '\0';
+    return 0;
+  }
+  return w.len;
+}
