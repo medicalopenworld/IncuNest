@@ -12,8 +12,6 @@
 #include "ui/HelpTour.h"
 
 // --- Shared state owned by UITask.cpp (same pattern TimeDialog.cpp uses) ---
-extern ui_lang_t g_lang;
-
 namespace {
 
 enum View { VIEW_MENU, VIEW_VIDEO, VIEW_CONTACT };
@@ -46,10 +44,6 @@ lv_obj_t *s_closeBtn = nullptr;
 lv_obj_t *s_qr = nullptr;
 lv_obj_t *s_qrNoteLbl = nullptr;
 lv_obj_t *s_qrToggleLbl = nullptr;
-
-const char *TXT(const char *es, const char *en, const char *fr) {
-  return (g_lang == LANG_ES) ? es : (g_lang == LANG_FR) ? fr : en;
-}
 
 // `lblOut` devuelve el label para los botones cuyo texto cambia en runtime
 // (mismo patron que HelpTour.cpp), en vez de buscarlo luego por indice de hijo.
@@ -182,63 +176,35 @@ lv_obj_t *makeOption(lv_coord_t x, const char *symbol, const char *title,
 }
 
 void buildMenu() {
-  makeTitle(TXT("AYUDA", "HELP", "AIDE"));
+  makeTitle(TR(STR_HELP_UC));
 
   // 3 tarjetas de 236 con 16 de hueco: 6 + 236 + 16 + 236 + 16 + 236 = 746,
   // dentro de los 760 del contenido.
-  makeOption(6, LV_SYMBOL_LIST,
-             TXT("TUTORIAL GUIADO", "GUIDED TUTORIAL", "TUTORIEL GUIDE"),
-             TXT("Recorre la pantalla paso a paso: que hace cada boton y "
-                 "como usar cada funcion.",
-                 "Walk through the screen step by step: what each button "
-                 "does and how to use each function.",
-                 "Parcourez l'ecran pas a pas : le role de chaque bouton et "
-                 "comment utiliser chaque fonction."),
-             onTour, lv_color_hex(0x0075EE));
-  makeOption(258, LV_SYMBOL_VIDEO,
-             TXT("VIDEO TUTORIAL", "VIDEO TUTORIAL", "TUTORIEL VIDEO"),
-             TXT("Escanea un codigo QR con tu movil para ver el video en "
-                 "nuestra web.",
-                 "Scan a QR code with your phone to watch the video on our "
-                 "website.",
-                 "Scannez un code QR avec votre telephone pour voir la video "
-                 "sur notre site."),
-             onVideo, lv_color_hex(0x7B1FA2));
-  makeOption(510, LV_SYMBOL_ENVELOPE,
-             TXT("CONTACTAR SOPORTE", "CONTACT SUPPORT", "CONTACTER LE SUPPORT"),
-             TXT("Escanea un QR y se abre un correo a soporte con el numero "
-                 "de serie y el estado del equipo ya rellenos.",
-                 "Scan a QR and an email to support opens with the serial "
-                 "number and device status already filled in.",
-                 "Scannez un QR : un e-mail au support s'ouvre avec le numero "
-                 "de serie et l'etat de l'appareil deja remplis."),
-             onContact, lv_color_hex(0x00897B));
+  makeOption(6, LV_SYMBOL_LIST, TR(STR_HELP_TOUR_TITLE),
+             TR(STR_HELP_TOUR_SUB), onTour, lv_color_hex(0x0075EE));
+  makeOption(258, LV_SYMBOL_VIDEO, TR(STR_HELP_VIDEO_TITLE),
+             TR(STR_HELP_VIDEO_SUB), onVideo, lv_color_hex(0x7B1FA2));
+  makeOption(510, LV_SYMBOL_ENVELOPE, TR(STR_HELP_CONTACT_TITLE),
+             TR(STR_HELP_CONTACT_SUB), onContact, lv_color_hex(0x00897B));
 }
 
 void buildVideo() {
-  makeTitle(TXT("VIDEO TUTORIAL", "VIDEO TUTORIAL", "TUTORIEL VIDEO"));
+  makeTitle(TR(STR_HELP_VIDEO_TITLE));
 
   const char *url = SUPPORT_TUTORIAL_URL;
   lv_obj_t *qr = makeQr(QR_SIZE, 20, 56);
   lv_qrcode_update(qr, url, strlen(url));
 
-  makeWrapLabel(TXT("Escanea el codigo con la camara de tu movil para abrir "
-                    "el video tutorial en la web de Medical Open World.",
-                    "Scan the code with your phone camera to open the video "
-                    "tutorial on the Medical Open World website.",
-                    "Scannez le code avec l'appareil photo de votre telephone "
-                    "pour ouvrir le tutoriel video sur le site de Medical "
-                    "Open World."),
-                360, 90, 380, &lv_font_montserrat_18, lv_color_hex(0x0B2E4F));
+  makeWrapLabel(TR(STR_HELP_VIDEO_HINT), 360, 90, 380, &lv_font_montserrat_18,
+                lv_color_hex(0x0B2E4F));
 
-  makeWrapLabel(TXT("O escribe esta direccion:", "Or type this address:",
-                    "Ou saisissez cette adresse :"),
-                360, 236, 380, &lv_font_montserrat_14, lv_color_hex(0x666666));
+  makeWrapLabel(TR(STR_HELP_OR_TYPE_URL), 360, 236, 380,
+                &lv_font_montserrat_14, lv_color_hex(0x666666));
   makeWrapLabel(url, 360, 258, 380, &lv_font_montserrat_16,
                 lv_color_hex(0x0075EE));
 
-  lv_obj_t *back = makeBtn(s_content, TXT("VOLVER", "BACK", "RETOUR"),
-                           onBackToMenu, lv_color_hex(0x888888));
+  lv_obj_t *back = makeBtn(s_content, TR(STR_BACK_UC), onBackToMenu,
+                           lv_color_hex(0x888888));
   lv_obj_set_size(back, 150, 46);
   lv_obj_align(back, LV_ALIGN_BOTTOM_RIGHT, -6, -6);
 }
@@ -262,53 +228,30 @@ void refreshQr() {
   s_qrWithReport = withRep;
 
   if (s_qrNoteLbl) {
-    lv_label_set_text(
-        s_qrNoteLbl,
-        withRep ? TXT("El correo lleva el numero de serie en el asunto y el "
-                      "estado tecnico del equipo en el cuerpo. Escribe tu "
-                      "consulta encima y envialo.",
-                      "The email carries the serial number in the subject "
-                      "and the device technical status in the body. Type "
-                      "your question above it and send.",
-                      "L'e-mail porte le numero de serie en objet et l'etat "
-                      "technique de l'appareil dans le corps. Ecrivez votre "
-                      "question au-dessus et envoyez.")
-                : TXT("QR reducido: solo destinatario y asunto con el numero "
-                      "de serie. Describe el problema en el correo.",
-                      "Reduced QR: recipient and subject with the serial "
-                      "number only. Describe the problem in the email.",
-                      "QR reduit : destinataire et objet avec le numero de "
-                      "serie seulement. Decrivez le probleme dans l'e-mail."));
+    lv_label_set_text(s_qrNoteLbl, withRep ? TR(STR_HELP_QR_NOTE_FULL)
+                                           : TR(STR_HELP_QR_NOTE_SHORT));
   }
   if (s_qrToggleLbl) {
-    lv_label_set_text(s_qrToggleLbl,
-                      withRep ? TXT("SIN INFORME", "NO REPORT", "SANS RAPPORT")
-                              : TXT("CON INFORME", "WITH REPORT", "AVEC RAPPORT"));
+    lv_label_set_text(s_qrToggleLbl, withRep ? TR(STR_HELP_NO_REPORT)
+                                             : TR(STR_HELP_WITH_REPORT));
   }
 }
 
 void buildContact() {
-  makeTitle(TXT("CONTACTAR CON SOPORTE", "CONTACT SUPPORT",
-                "CONTACTER LE SUPPORT"));
+  makeTitle(TR(STR_HELP_CONTACT_HEAD));
 
   // QR a la izquierda (y 50..390); todo lo demas, botones incluidos, en la
   // columna de la derecha para no pisarlo.
   s_qr = makeQr(QR_SIZE_MAILTO, 20, 50);
 
-  makeWrapLabel(TXT("Escanea el QR con la camara de tu movil: se abrira un "
-                    "correo a soporte tecnico listo para enviar.",
-                    "Scan the QR with your phone camera: an email to "
-                    "technical support opens, ready to send.",
-                    "Scannez le QR avec l'appareil photo de votre telephone : "
-                    "un e-mail au support technique s'ouvre, pret a envoyer."),
-                CONTACT_COL_X, 56, CONTACT_COL_W, &lv_font_montserrat_18,
-                lv_color_hex(0x0B2E4F));
+  makeWrapLabel(TR(STR_HELP_CONTACT_HINT), CONTACT_COL_X, 56, CONTACT_COL_W,
+                &lv_font_montserrat_18, lv_color_hex(0x0B2E4F));
 
   char subject[SUPPORT_SUBJECT_MAX];
   support_report_subject(subject, sizeof(subject));
   char info[200];
-  snprintf(info, sizeof(info), "%s %s\n%s %s", TXT("Para:", "To:", "A :"),
-           SUPPORT_EMAIL, TXT("Asunto:", "Subject:", "Objet :"), subject);
+  snprintf(info, sizeof(info), "%s %s\n%s %s", TR(STR_HELP_TO), SUPPORT_EMAIL,
+           TR(STR_HELP_SUBJECT), subject);
   makeWrapLabel(info, CONTACT_COL_X, 170, CONTACT_COL_W, &lv_font_montserrat_14,
                 lv_color_hex(0x666666));
 
@@ -321,8 +264,8 @@ void buildContact() {
   lv_obj_set_size(toggle, 200, 46);
   lv_obj_align(toggle, LV_ALIGN_BOTTOM_RIGHT, -166, -6);
 
-  lv_obj_t *back = makeBtn(s_content, TXT("VOLVER", "BACK", "RETOUR"),
-                           onBackToMenu, lv_color_hex(0x888888));
+  lv_obj_t *back = makeBtn(s_content, TR(STR_BACK_UC), onBackToMenu,
+                           lv_color_hex(0x888888));
   lv_obj_set_size(back, 150, 46);
   lv_obj_align(back, LV_ALIGN_BOTTOM_RIGHT, -6, -6);
 

@@ -9,8 +9,6 @@
 #include "ui/HelpDialog.h"  // HELP_IDLE_TIMEOUT_MS
 
 // --- Shared state owned by UITask.cpp (same pattern TimeDialog.cpp uses) ---
-extern ui_lang_t g_lang;
-
 namespace {
 
 // Un paso del recorrido. `target` y `screen` son punteros a los globales
@@ -20,158 +18,34 @@ namespace {
 struct TourStep {
   lv_obj_t **target;
   lv_obj_t **screen;
-  const char *es;
-  const char *en;
-  const char *fr;
+  ui_str_id_t text;
 };
 
-// Textos ASCII sin acentos (las fuentes compiladas no tienen esos glifos).
-// Cada texto cabe en el bocadillo de su modo (design.md, decision 5): ~200
-// caracteres en el bocadillo ancho, ~180 en el estrecho de los contenedores.
+// El texto de cada paso vive en el catalogo (`ui/i18n_strings.def`, seccion
+// "tutorial guiado"), no aqui: esta tabla solo dice a que control apunta cada
+// paso y en que pantalla esta. Al traducir un paso hay que comprobar que cabe
+// en el bocadillo de su modo (~200 caracteres en el ancho, ~180 en el
+// estrecho de los contenedores).
 const TourStep STEPS[] = {
-    {nullptr, &ui_ScreenMain,
-     "Bienvenido al tutorial de IncuNest. Te mostraremos cada control de la "
-     "pantalla paso a paso. Pulsa SIGUIENTE para avanzar o SALIR en cualquier "
-     "momento. Durante el recorrido no se acciona nada.",
-     "Welcome to the IncuNest tutorial. We will show you each control on the "
-     "screen step by step. Press NEXT to move on or EXIT at any time. Nothing "
-     "is operated during the tour.",
-     "Bienvenue dans le tutoriel IncuNest. Nous allons vous montrer chaque "
-     "commande de l'ecran pas a pas. Appuyez sur SUIVANT pour avancer ou "
-     "QUITTER a tout moment. Rien n'est actionne pendant la visite."},
-    {&ui_HelpButton, &ui_ScreenMain,
-     "Boton de ayuda. Desde aqui abres este tutorial, el codigo QR del video "
-     "tutorial y el formulario para contactar con soporte tecnico.",
-     "Help button. From here you open this tutorial, the video tutorial QR "
-     "code and the form to contact technical support.",
-     "Bouton d'aide. D'ici vous ouvrez ce tutoriel, le code QR du tutoriel "
-     "video et le formulaire pour contacter le support technique."},
-    {&ui_ClockButton, &ui_ScreenMain,
-     "Hora y fecha del equipo. Tocalo para ajustar la hora a mano: de ella "
-     "dependen las marcas de tiempo del historial clinico.",
-     "Device time and date. Tap it to set the time manually: the clinical "
-     "history timestamps depend on it.",
-     "Heure et date de l'appareil. Touchez pour regler l'heure a la main : "
-     "les horodatages de l'historique clinique en dependent."},
-    {&ui_ConnCont, &ui_ScreenMain,
-     "Indicador de conectividad: WIFI o 2G y las barras de cobertura con el "
-     "servidor de monitorizacion. Si se pierde el enlace con la placa de "
-     "control, aparece tachado.",
-     "Connectivity indicator: WIFI or 2G and the signal bars to the "
-     "monitoring server. If the link with the control board is lost, it shows "
-     "crossed out.",
-     "Indicateur de connectivite : WIFI ou 2G et les barres de couverture "
-     "vers le serveur de suivi. Si la liaison avec la carte de controle est "
-     "perdue, il apparait barre."},
-    {&ui_ImgButton1, &ui_ScreenMain,
-     "Candado. Un toque bloquea la pantalla para evitar toques accidentales. "
-     "Tras 20 segundos sin tocar se bloquea sola; el anillo muestra el tiempo "
-     "que falta.",
-     "Padlock. One tap locks the screen to avoid accidental touches. After 20 "
-     "seconds without touching it locks by itself; the ring shows the time "
-     "left.",
-     "Cadenas. Un appui verrouille l'ecran pour eviter les touches "
-     "accidentelles. Apres 20 secondes sans contact il se verrouille seul ; "
-     "l'anneau montre le temps restant."},
-    {&ui_BabiesButton, &ui_ScreenMain,
-     "Bebes: alta de un nuevo paciente (nombre, semanas de gestacion, peso), "
-     "historial de estancias y curva de peso de cada bebe.",
-     "Babies: admit a new patient (name, gestational weeks, weight), stay "
-     "history and weight curve of each baby.",
-     "Bebes : admission d'un nouveau patient (nom, semaines de gestation, "
-     "poids), historique des sejours et courbe de poids de chaque bebe."},
-    {&ui_AlarmButton, &ui_ScreenMain,
-     "Alarmas: lista de las alarmas activas con la accion recomendada, y "
-     "registro de las pasadas. El numero rojo indica cuantas hay activas.",
-     "Alarms: list of active alarms with the recommended action, and log of "
-     "past ones. The red number shows how many are active.",
-     "Alarmes : liste des alarmes actives avec l'action recommandee, et "
-     "journal des precedentes. Le chiffre rouge indique combien sont actives."},
-    {&ui_CheckImgMain, &ui_ScreenMain,
-     "Este check significa que no hay ninguna alarma activa. Tocarlo tambien "
-     "abre el registro de alarmas.",
-     "This check mark means there is no active alarm. Tapping it also opens "
-     "the alarm log.",
-     "Cette coche signifie qu'aucune alarme n'est active. La toucher ouvre "
-     "aussi le journal des alarmes."},
-    {&ui_TempCont, &ui_ScreenMain,
-     "Control de temperatura. Elige AIRE (cabina) o PIEL (sonda en el bebe). "
-     "Las flechas ajustan la consigna; las cifras grandes son la medida "
-     "actual.",
-     "Temperature control. Choose AIR (cabin) or SKIN (probe on the baby). "
-     "The arrows adjust the setpoint; the big figures are the current "
-     "reading.",
-     "Controle de temperature. Choisissez AIR (habitacle) ou PEAU (sonde sur "
-     "le bebe). Les fleches reglent la consigne ; les grands chiffres sont la "
-     "mesure actuelle."},
-    {&ui_TempToggleBtn, &ui_ScreenMain,
-     "Con este boton activas o desactivas el control de temperatura. Al "
-     "activarlo se te pediran los datos del bebe si aun no estan.",
-     "This button turns temperature control on or off. When turning it on "
-     "you will be asked for the baby data if not yet entered.",
-     "Ce bouton active ou desactive le controle de temperature. A "
-     "l'activation, les donnees du bebe vous seront demandees si elles "
-     "manquent."},
-    {&ui_HumCont, &ui_ScreenMain,
-     "Control de humedad: la consigna con las flechas y el boton inferior "
-     "para activarlo. Se puede ocultar desde Ajustes > Modos.",
-     "Humidity control: setpoint with the arrows and the lower button to "
-     "turn it on. It can be hidden from Settings > Modes.",
-     "Controle d'humidite : la consigne avec les fleches et le bouton du bas "
-     "pour l'activer. Il peut etre masque depuis Reglages > Modes."},
-    {&ui_PhotoCont, &ui_ScreenMain,
-     "Fototerapia: fija los minutos con + y - e INICIAR arranca la cuenta "
-     "atras. Cubre siempre los ojos del bebe antes de encender la luz.",
-     "Phototherapy: set the minutes with + and -, START begins the "
-     "countdown. Always cover the baby's eyes before switching the light on.",
-     "Phototherapie : reglez les minutes avec + et -, DEMARRER lance le "
-     "compte a rebours. Couvrez toujours les yeux du bebe avant d'allumer."},
-    {&ui_Settings, &ui_ScreenMain,
-     "Ajustes: informacion del equipo, WiFi, idioma y modos de funcionamiento. "
-     "Vamos a verlo.",
-     "Settings: device information, WiFi, language and operating modes. "
-     "Let's have a look.",
-     "Reglages : informations sur l'appareil, WiFi, langue et modes de "
-     "fonctionnement. Allons voir."},
-    {&ui_InfoCont, &ui_ScreenSettings,
-     "Informacion: numero de serie y versiones de firmware de la pantalla y de "
-     "la placa. Tenlo a mano al contactar con soporte.",
-     "Information: serial number and firmware versions of the display and the "
-     "board. Keep it handy when contacting support.",
-     "Informations : numero de serie et versions du firmware de l'ecran et de "
-     "la carte. Gardez-les a portee de main pour contacter le support."},
-    {&ui_WifiCont, &ui_ScreenSettings,
-     "WiFi: red y contrasena para conectar el equipo al servidor de "
-     "monitorizacion y recibir actualizaciones de firmware.",
-     "WiFi: network and password to connect the device to the monitoring "
-     "server and receive firmware updates.",
-     "WiFi : reseau et mot de passe pour connecter l'appareil au serveur de "
-     "suivi et recevoir les mises a jour du firmware."},
-    {&ui_LanguagesCont, &ui_ScreenSettings,
-     "Idioma: espanol, ingles o frances. Se aplica al instante a toda la "
-     "pantalla y a la placa de control.",
-     "Language: Spanish, English or French. It applies at once to the whole "
-     "screen and to the control board.",
-     "Langue : espagnol, anglais ou francais. Elle s'applique aussitot a tout "
-     "l'ecran et a la carte de controle."},
-    {&ui_ModesCont, &ui_ScreenSettings,
-     "Modos: control por piel, modo oscuro y control de humedad. Lo que "
-     "desactives aqui desaparece de la pantalla principal.",
-     "Modes: skin control, dark mode and humidity control. Whatever you "
-     "disable here disappears from the main screen.",
-     "Modes : controle par la peau, mode sombre et controle d'humidite. Ce "
-     "que vous desactivez ici disparait de l'ecran principal."},
-    {&ui_ImgButton2, &ui_ScreenSettings,
-     "Con esta flecha vuelves a la pantalla principal.",
-     "This arrow takes you back to the main screen.",
-     "Cette fleche vous ramene a l'ecran principal."},
-    {nullptr, &ui_ScreenMain,
-     "Fin del tutorial. Puedes repetirlo cuando quieras desde el boton de "
-     "ayuda. Si tienes dudas, usa CONTACTAR SOPORTE en ese mismo menu.",
-     "End of the tutorial. You can repeat it any time from the help button. "
-     "If in doubt, use CONTACT SUPPORT in that same menu.",
-     "Fin du tutoriel. Vous pouvez le refaire a tout moment depuis le bouton "
-     "d'aide. En cas de doute, utilisez CONTACTER LE SUPPORT dans ce menu."},
+    {nullptr, &ui_ScreenMain, STR_TOUR_WELCOME},
+    {&ui_HelpButton, &ui_ScreenMain, STR_TOUR_HELP_BTN},
+    {&ui_ClockButton, &ui_ScreenMain, STR_TOUR_CLOCK},
+    {&ui_ConnCont, &ui_ScreenMain, STR_TOUR_CONN},
+    {&ui_ImgButton1, &ui_ScreenMain, STR_TOUR_LOCK},
+    {&ui_BabiesButton, &ui_ScreenMain, STR_TOUR_BABIES},
+    {&ui_AlarmButton, &ui_ScreenMain, STR_TOUR_ALARMS},
+    {&ui_CheckImgMain, &ui_ScreenMain, STR_TOUR_CHECK},
+    {&ui_TempCont, &ui_ScreenMain, STR_TOUR_TEMP},
+    {&ui_TempToggleBtn, &ui_ScreenMain, STR_TOUR_TEMP_TOGGLE},
+    {&ui_HumCont, &ui_ScreenMain, STR_TOUR_HUM},
+    {&ui_PhotoCont, &ui_ScreenMain, STR_TOUR_PHOTO},
+    {&ui_Settings, &ui_ScreenMain, STR_TOUR_SETTINGS},
+    {&ui_InfoCont, &ui_ScreenSettings, STR_TOUR_INFO},
+    {&ui_WifiCont, &ui_ScreenSettings, STR_TOUR_WIFI},
+    {&ui_LanguagesCont, &ui_ScreenSettings, STR_TOUR_LANG},
+    {&ui_ModesCont, &ui_ScreenSettings, STR_TOUR_MODES},
+    {&ui_ImgButton2, &ui_ScreenSettings, STR_TOUR_BACK_ARROW},
+    {nullptr, &ui_ScreenMain, STR_TOUR_END},
 };
 constexpr int STEP_COUNT = sizeof(STEPS) / sizeof(STEPS[0]);
 
@@ -204,9 +78,6 @@ lv_obj_t *s_nextLbl = nullptr;
 lv_obj_t *s_exitLbl = nullptr;
 lv_obj_t *s_prevLbl = nullptr;
 
-const char *TXT(const char *es, const char *en, const char *fr) {
-  return (g_lang == LANG_ES) ? es : (g_lang == LANG_FR) ? fr : en;
-}
 
 lv_obj_t *makeBtn(lv_obj_t *parent, lv_event_cb_t cb, lv_color_t bg,
                   lv_obj_t **lblOut) {
@@ -349,16 +220,16 @@ void showStep(int idx, int dir) {
   s_idx = idx;
 
   const TourStep &st = STEPS[idx];
-  lv_label_set_text(s_text, TXT(st.es, st.en, st.fr));
+  lv_label_set_text(s_text, TR(st.text));
   char cnt[16];
   snprintf(cnt, sizeof(cnt), "%d/%d", idx + 1, STEP_COUNT);
   lv_label_set_text(s_counter, cnt);
 
-  lv_label_set_text(s_exitLbl, TXT("SALIR", "EXIT", "QUITTER"));
-  lv_label_set_text(s_prevLbl, TXT("ANTERIOR", "BACK", "PRECEDENT"));
+  lv_label_set_text(s_exitLbl, TR(STR_TOUR_EXIT));
+  lv_label_set_text(s_prevLbl, TR(STR_TOUR_PREV));
   const bool last = (idx == STEP_COUNT - 1);
-  lv_label_set_text(s_nextLbl, last ? TXT("TERMINAR", "FINISH", "TERMINER")
-                                    : TXT("SIGUIENTE", "NEXT", "SUIVANT"));
+  lv_label_set_text(s_nextLbl,
+                    last ? TR(STR_TOUR_FINISH) : TR(STR_TOUR_NEXT));
   if (idx == 0) {
     lv_obj_add_flag(s_prevBtn, LV_OBJ_FLAG_HIDDEN);
   } else {
