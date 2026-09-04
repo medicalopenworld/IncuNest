@@ -50,24 +50,32 @@ The HMI loads and manages logical bidimensional arrays pointing the LCD strings 
 ## 6. Factory Test (splash button)
 
 The boot splash (`ui_ScreenIntro`) carries a single extra control, the
-**FACTORY TEST** button (bottom-left). It is the only entry point: no other
+**HW test** button (bottom centre). It is the only entry point: no other
 screen offers it, so the test can only be started right after power-up, before
 the unit is in clinical use. Pressing it cancels the automatic jump to the main
 screen and suspends the 20 s inactivity lock while the test screen is open.
+The button ignores taps during the first 1.5 s of the splash and has no
+extended click area: the GT911 can report a phantom corner touch while it
+initialises, and on the bench that opened the test by itself.
 
 The test screen is a full-screen overlay (`src/ui/FactoryTest.cpp`, same
-pattern as `AlarmCenter`) with one row per test. Rows are colour-coded: blue
-PASS, red FAIL, amber for waiting / skipped. The flow is:
+pattern as `AlarmCenter`) showing a **3-column grid of buttons**, one per
+test, sorted FAIL → WARNING → running → PASS; skipped tests are not shown.
+Colours: red FAIL, amber WARNING (the test could not be completed for lack of
+environment: no AP, no coverage, no server, no network time), blue PASS.
+Tapping a button opens a detail panel with a one-line description of what the
+test checks, its status, the measured value and Retry when it applies. The
+flow is:
 
 0. **Entry gate**: a warning that the unit must be EMPTY (no patient) because
    actuators will be driven open-loop, with Yes / No. "No" returns to the normal
    splash flow. This is a confirmation, not an authentication.
 1. **Local tests**, run inside `UI_Task` by polling: flash/PSRAM/heap, I2C
    presence of the GT911 touch (0x14) and the STC8H1K28 backlight/buzzer
-   controller (0x30), five solid-colour panel patterns (red, green, blue,
-   white, black) followed by a Yes/No question, five touch targets (corners and
-   centre, hit within 40 px), buzzer and speaker with Yes/No, WiFi MAC and
-   connection or scan, NVS write/read, and the UART link with the motherBoard.
+   controller (0x30), buzzer and speaker with Yes/No, WiFi MAC and connection
+   or scan, NVS write/read, and the UART link with the motherBoard. The panel
+   colour and touch-target tests were removed after the first bench run: they
+   lengthened the battery without adding value on the current assembly line.
 2. **Remote tests**: the display sends `HMI,FTEST,START` and adds a row for
    each `CTRL,FTEST` result (see `Firmware/PROTOCOL.md` § 3). When the board
    reports `WAIT` the row shows the operator instruction for that test
@@ -76,8 +84,9 @@ PASS, red FAIL, amber for waiting / skipped. The flow is:
    back as `HMI,FTEST,CONFIRM`. If the board rejects the test (control active,
    test already running) the reason is displayed. If nothing arrives within
    10 s the section is marked "board without support".
-3. **Summary** with PASS/FAIL/skipped counts for both boards. Each failed row
-   offers **Retry** (a local test re-runs; a board test sends
+3. **Summary** header with error, warning and OK counts for both boards
+   (skipped tests are not counted). Retry lives in the detail panel of each
+   failed or warned button (a local test re-runs; a board test sends
    `HMI,FTEST,RUN,<id>`). **Exit** aborts a running board battery, closes the
    overlay and loads the main screen.
 

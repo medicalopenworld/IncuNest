@@ -92,12 +92,12 @@ control or phototherapy is active.
 |---|---|---|
 | Power | INA3221 ×2 presence, standby current, BQ25730 readings, mains/battery | I2C ACK, `HW_error` bits, `charge_status()` |
 | On-board sensors | ADS1110 + skin NTC, external SHT4x | I2C ACK, plausible ranges, `skinProbeLastReading()` |
-| Hardware generation | sensor source must be SensorBoard | `sensorSourceGet()`; a shorted IO19/IO20 pad shows up here |
-| SensorBoard (USB) | link, `status` availability of sht0/1/2, ALS, Hall, camera; 3×SHT40 coherence (≤ 1.0 °C spread, ≤ 3.0 °C vs external); door open/close; light drop; JPEG capture | `sensorboard_comm` snapshot and `status`/`capture` requests |
+| Cabin sensor | fresh, valid cabin temperature by either path: SensorBoard over USB (`usb`) or STS35/SHTC3 over I2C2 (`i2c`) | `sensorSourceGet()`, `sensorboard_comm` snapshot, `updateRoomSensor()`. A false ACK from the I2C2 probe on the USB lines shows up as `i2c sin datos` |
+| SensorBoard (USB) | `status` availability of sht0/1/2, ALS, Hall, camera; 3×SHT40 coherence (≤ 1.0 °C spread, ≤ 3.0 °C vs external); door open/close; light drop; JPEG capture | `sensorboard_comm` snapshot and `status`/`capture` requests; skipped (hidden) when the cabin sensor came over I2C2 |
 | Actuators | heater, phototherapy, fan currents; fan RPM; humidifier USB switch (`USB_EN`/`USB_FAULT`, current) | `actuatorsTest()`, INA3221 channels |
 | Buzzer | dBA rise measured by the SensorBoard microphone; operator confirmation if no microphone | `sound_level` events |
 | SpO2 | AFE4490 timing registers read back over SPI; probe attached (optional) | `getTimingConfig()`, `runAfeDiagnostics()`, `probe_state` |
-| Communications | HMI link; GSM modem up, SIM CCID, CSQ, network attach (optional); WiFi to the default AP (optional); ThingsBoard session with provisioned token (optional); wall clock (optional) | state already collected by `GPRS_Task` and the WiFi task, read passively |
+| Communications | HMI link; GSM modem answering AT, SIM `+CPIN: READY`, CSQ, network attach; WiFi to the default AP; ThingsBoard session with provisioned token; wall clock | state already collected by `GPRS_Task` and the WiFi task, read passively. Attach, WiFi, ThingsBoard and clock end as **WARNING** (amber, not a board fault) after 30 s without environment |
 | Storage | NVS write/read, LittleFS mount | `Preferences`, `LittleFS.begin()` |
 
 Deliberately **not** tested: the TCA9535 expander and the rotary encoder

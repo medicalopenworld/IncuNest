@@ -1,4 +1,18 @@
-# Protocolo de Comunicación IncuNest (v2.3.0)
+# Protocolo de Comunicación IncuNest (v2.3.1)
+
+> Nota (v2.3.1): segunda vuelta del test de fábrica tras la primera prueba en
+> banco (motherBoard V18 + SensorBoard + HMI reales). **BREAKING dentro de la
+> familia `FTEST`**: se renumeran los ids de la tabla de motherBoard
+> (`sensor_src` id 7 y `sb_link` id 8 se fusionan en un único `sensorboard`
+> id 7; todo lo que iba de id 9 en adelante baja una posición). Aceptable
+> porque ninguna placa en campo lleva todavía la versión anterior de `FTEST`
+> — es la propia primera prueba en banco la que encontró los problemas que
+> motivan este cambio. El resto de la familia `FTEST` (fuera de la tabla de
+> ids) sigue sin ser breaking para una placa que no la conozca en absoluto,
+> igual que en v2.3.0. Además: nuevo estado `WARN` (6, final, cuenta en un
+> cuarto campo de `CTRL,FTEST_DONE`, opcional al parsear), criterios nuevos
+> de `gsm_at`/`gsm_sim`, y `gsm_net`/`wifi`/`tb_provision`/`time` pasan a
+> plazo de 30 s con `WARN` en vez de `SKIP`/`FAIL` al agotarlo.
 
 > Nota (v2.3.0): se añade la familia `FTEST` (test de fábrica lanzado desde el
 > splash del display). **No es breaking**: son mensajes nuevos con prefijo
@@ -425,10 +439,10 @@ Identificadores, estados y codec viven en `shared/include/factory_test.h`
 copia propia de la tabla**.
 
 #### HMI,FTEST,START / HMI,FTEST,RUN / HMI,FTEST,ABORT / HMI,FTEST,CONFIRM
-- `HMI,FTEST,START` — batería completa (los `FTEST_MB_COUNT` = 30 tests, en el
+- `HMI,FTEST,START` — batería completa (los `FTEST_MB_COUNT` = 29 tests, en el
   orden de la tabla).
 - `HMI,FTEST,RUN,<id>` — un solo test (reintento). `id` debe ser de motherBoard
-  (`0..29`); si no, `CTRL,FTEST_REJECT,2`.
+  (`0..28`); si no, `CTRL,FTEST_REJECT,2`.
 - `HMI,FTEST,ABORT` — cancela la batería en curso. El test que estuviera
   corriendo termina como `SKIP` con `detail=abort` y se emite `FTEST_DONE`.
 - `HMI,FTEST,CONFIRM,<id>,<0|1>` — respuesta del operario a un `CONFIRM`.
@@ -455,14 +469,17 @@ emitiendo su trama periódica mientras la pantalla de test está abierta.
 - `status`: `0` RUNNING (empieza), `1` PASS, `2` FAIL, `3` SKIP (opcional sin
   entorno, o en cascada tras un fallo previo), `4` WAIT (espera un estímulo del
   operario: abrir la puerta, tapar el sensor de luz), `5` CONFIRM (pregunta al
-  operario; espera `HMI,FTEST,CONFIRM`).
+  operario; espera `HMI,FTEST,CONFIRM`), `6` WARN (no pudo completarse por
+  falta de entorno — sin cobertura, sin AP, sin servidor, sin hora — dentro de
+  su plazo; no es un fallo de la placa, pero es un estado FINAL: cuenta en
+  `FTEST_DONE` y debe verse en ámbar, no ocultarse como SKIP).
 - `detail`: último campo, hasta `FTEST_DETAIL_MAX` (40) caracteres, sin comas
   (el codec sustituye `,`/`\r`/`\n` por `;`). Lleva la medida o el motivo
-  (`timeout`, `sin sim`, `sin sonda`, `i2c2 responde`…). Puede ir vacío.
+  (`timeout`, `sin sim`, `sin sonda`, `sin usb`…). Puede ir vacío.
 - Cada test emite exactamente un `RUNNING` y un resultado final; los estados
   `WAIT`/`CONFIRM` pueden repetirse y no cuentan en los totales.
 - El receptor descarta la línea si faltan campos, si `id`/`status` no son
-  numéricos, si `id` no es de motherBoard o `status` > 5.
+  numéricos, si `id` no es de motherBoard o `status` > 6.
 - Las líneas salen por una **cola** drenada por la tarea de comunicación
   (`CommunicationHost_Enqueue()`), nunca desde la tarea de test: el `CTRL,PPG`
   a 25 Hz comparte el mismo UART y dos escritores entrelazarían caracteres.
@@ -477,41 +494,56 @@ emitiendo su trama periódica mientras la pantalla de test está abierta.
 | 4 | power_src | red o batería (informativo) | |
 | 5 | skin_adc | ADS1110 responde; NTC en rango o `sin sonda` | |
 | 6 | ext_sht4x | SHT4x exterior presente y en rango | |
-| 7 | sensor_src | la placa se clasificó como SensorBoard (no I2C2) | |
-| 8 | sb_link | SensorBoard enumerada por USB y `link_ok` | |
-| 9 | sb_status | `status`: sht0/sht1/sht2/als/door/cam disponibles; `fw` y `usb_swap` en detail | |
-| 10 | sb_env | 3×SHT40 válidas, dispersión ≤ 1.0 °C, vs exterior ≤ 3.0 °C | |
-| 11 | sb_door | WAIT: puerta abierta y cerrada (30 s) | |
-| 12 | sb_light | WAIT: lux cae < 50 % de la base (20 s); base < 20 lux → SKIP | |
-| 13 | sb_camera | `capture` devuelve JPEG ≥ 1000 B en 10 s | |
-| 14 | actuators | `actuatorsTest()` sin bits nuevos de calefactor/foto/ventilador | |
-| 15 | fan_rpm | tacómetro con feedback y RPM ≥ `FAN_MIN_RPM` | |
-| 16 | humid_usb | USB_EN → sin USB_FAULT y corriente > 20 mA | |
-| 17 | buzzer | ΔdBA ≥ 6 dB con el micrófono de la SensorBoard; sin micrófono → CONFIRM | |
-| 18 | afe_spi | registros de timing del AFE4490 releídos por SPI; DIAG en detail | |
-| 19 | afe_probe | sonda SpO2 conectada | ✓ |
-| 20 | hmi_link | enlace con el display vivo | |
-| 21 | gsm_at | módem arrancado (`GPRS.powerUp`, ≤ 45 s) | |
-| 22 | gsm_sim | CCID leído (≤ 15 s) | |
-| 23 | gsm_signal | CSQ 1..31 | |
-| 24 | gsm_net | adjunto a red (≤ 60 s) | ✓ |
-| 25 | wifi | conectado al AP por defecto (≤ 30 s), RSSI en detail | ✓ |
-| 26 | tb_provision | sesión ThingsBoard aceptada con el token provisionado; `sin serie` → SKIP | ✓ |
-| 27 | time | hora sincronizada; fuente en detail | ✓ |
-| 28 | nvs | escribir y releer `mb_ftest/probe` | |
-| 29 | littlefs | partición montada | |
+| 7 | sensorboard | sensor de cabina por USB (SensorBoard, detail `usb`) o por I2C2 (equipo antiguo, detail `i2c`); FAIL `usb sin datos`/`i2c sin datos` a los 10 s | |
+| 8 | sb_status | `status`: sht0/sht1/sht2/als/door/cam disponibles; `fw` y `usb_swap` en detail; SKIP `sin usb` si 7 no fue por USB | |
+| 9 | sb_env | 3×SHT40 válidas, dispersión ≤ 1.0 °C, vs exterior ≤ 3.0 °C; SKIP `sin usb` | |
+| 10 | sb_door | WAIT: puerta abierta y cerrada (30 s); SKIP `sin usb` | |
+| 11 | sb_light | WAIT: lux cae < 50 % de la base (20 s); base < 20 lux → SKIP; SKIP `sin usb` | |
+| 12 | sb_camera | `capture` devuelve JPEG ≥ 1000 B en 10 s; SKIP `sin usb` | |
+| 13 | actuators | `actuatorsTest()` sin bits nuevos de calefactor/foto/ventilador | |
+| 14 | fan_rpm | tacómetro con feedback y RPM ≥ `FAN_MIN_RPM` | |
+| 15 | humid_usb | USB_EN → sin USB_FAULT y corriente > 20 mA | |
+| 16 | buzzer | ΔdBA ≥ 6 dB con el micrófono de la SensorBoard; sin micrófono → CONFIRM | |
+| 17 | afe_spi | registros de timing del AFE4490 releídos por SPI; DIAG en detail | |
+| 18 | afe_probe | sonda SpO2 conectada | ✓ |
+| 19 | hmi_link | enlace con el display vivo | |
+| 20 | gsm_at | módem ha respondido a algún AT o ya está más adelante en la secuencia (`GPRS.modemResponded`/`simReady`/`connect`/`post`, ≤ 45 s) | |
+| 21 | gsm_sim | SIM lista (`GPRS.simReady`, `+CPIN: READY`, ≤ 15 s); CCID en detail si ya se leyó | |
+| 22 | gsm_signal | CSQ 1..31 | |
+| 23 | gsm_net | adjunto a red (≤ 30 s); agotado el plazo → **WARN** `sin red` | ✓ |
+| 24 | wifi | conectado al AP por defecto (≤ 30 s), RSSI en detail; agotado el plazo → **WARN** `sin AP` | ✓ |
+| 25 | tb_provision | sesión ThingsBoard aceptada con el token provisionado (≤ 30 s); `sin serie` → **WARN** inmediato; agotado el plazo → **WARN** `sin servidor` | ✓ |
+| 26 | time | hora sincronizada dentro de 30 s; fuente en detail; agotado el plazo → **WARN** `sin hora` | ✓ |
+| 27 | nvs | escribir y releer `mb_ftest/probe` | |
+| 28 | littlefs | partición montada | |
+
+El test `sensorboard` (id 7) sustituye a los antiguos `sensor_src` (7) y
+`sb_link` (8): en banco, con una SensorBoard conectada, el sondeo I2C2 de
+clasificación de generación se hacía sobre las mismas líneas que son D+/D− del
+USB y devolvía un ACK falso, así que separar "origen" de "enlace" convertía esa
+peculiaridad del sondeo en un FAIL de fábrica con una SensorBoard enlazada y
+funcionando. Lo que importa en fábrica es que la cabina tenga sensor, no por
+qué bus llega. Los tests `sb_status`/`sb_env`/`sb_door`/`sb_light`/`sb_camera`
+solo tienen datos que leer si `sensorboard` pasó por el camino USB; si pasó
+por I2C, o si no llegó a correr (un `RUN` aislado de uno de ellos sin haber
+corrido antes el 7), salen `SKIP` con detail `sin usb`.
 
 Los tests GSM/WiFi/ThingsBoard son **pasivos**: leen el estado que ya
 recogen `GPRS_Task` y la tarea WiFi, no envían comandos AT ni tocan
 credenciales. El módem no tiene PWRKEY cableado y un reset por software lo
-dejaría apagado hasta ciclo de alimentación.
+dejaría apagado hasta ciclo de alimentación. `gsm_signal` y `gsm_net` siguen
+en cascada: `SKIP` con detail `sin sim` si `gsm_sim` falló, en vez de esperar
+un plazo entero sin SIM.
 
 #### CTRL,FTEST_DONE
-**Formato**: `CTRL,FTEST_DONE,<pass>,<fail>,<skip>` — cierre de la batería o
-del test único. Los contadores coinciden con la secuencia de resultados
-emitida. Tras una batería completa la placa persiste en NVS `mb_ftest` el
-epoch, las máscaras PASA/FALLA/EJECUTADO, `FWversion` y el `fw` de la
-SensorBoard; un `RUN` actualiza solo los bits de su `id`.
+**Formato**: `CTRL,FTEST_DONE,<pass>,<fail>,<skip>,<warn>` — cierre de la
+batería o del test único. `warn` es el cuarto campo (avisos, estado `WARN`);
+al **parsear**, una línea de 3 campos (placa anterior a esta versión) se
+acepta con `warn = 0`, y una de 5 o más se rechaza. Los contadores coinciden
+con la secuencia de resultados emitida. Tras una batería completa la placa
+persiste en NVS `mb_ftest` el epoch, las máscaras PASA/FALLA/AVISO/EJECUTADO,
+`FWversion` y el `fw` de la SensorBoard; un `RUN` actualiza solo los bits de
+su `id`.
 
 #### CTRL,FTEST_REJECT
 **Formato**: `CTRL,FTEST_REJECT,<reason>` — `0` batería ya en curso, `1`
