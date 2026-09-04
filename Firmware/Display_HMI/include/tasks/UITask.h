@@ -72,6 +72,10 @@ void UI_GetControlSnapshot(UiControlSnapshot *out);
 void UI_RestoreControlSnapshot(const UiControlSnapshot *s);
 // Verdadero mientras la pantalla esta bloqueada (ui_ScreenLock).
 bool UI_IsScreenLocked(void);
+// Vuelve a poner el banner de alarma y el icono de AUDIO PAUSED en primer
+// plano de lv_layer_top(). Llamar tras subir cualquier otro overlay de esa
+// capa (el banner solo se reafirma solo cuando cambia su texto).
+void UI_RaiseAlarmIndicators(void);
 
 // Globals exported for ElementsCreation.cpp
 extern ui_lang_t g_lang;

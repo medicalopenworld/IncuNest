@@ -42,7 +42,8 @@ void schedule(SimKind kind) {
 void Training_Enter(void) {
   if (s_active) return;
   // Copia ANTES de levantar el flag: CommTask (otro core) lee la copia solo
-  // cuando ve el flag.
+  // cuando ve el flag. La barrera impide que compilador o CPU reordenen la
+  // copia por detras del flag.
   memcpy(&s_frozen, &hmi_msg, sizeof(s_frozen));
   s_frozen.shouldSendData = false;
   s_gestWeeks = 0;
@@ -50,12 +51,21 @@ void Training_Enter(void) {
   s_ageDays = 0;
   s_ageKnown = false;
   s_simKind = SIM_NONE;
+  __sync_synchronize();
   s_active = true;
   ESP_LOGW(TAG, "MODO FORMACION activado: la placa no recibe ordenes");
 }
 
 void Training_Exit(void) {
   if (!s_active) return;
+  // La restauracion de hmi_msg vive AQUI, junto al flag, y no en el llamador:
+  // asi ningun camino de salida puede dejar en hmi_msg lo que toco el alumno
+  // (seria la unica ruta posible del sandbox a un actuador). Mientras
+  // s_active siga en alto, CommTask sigue leyendo s_frozen, asi que la copia
+  // es segura; despues de bajarlo lee hmi_msg, que ya es identica.
+  memcpy(&hmi_msg, &s_frozen, sizeof(hmi_msg));
+  hmi_msg.shouldSendData = false;
+  __sync_synchronize();
   s_active = false;
   s_simKind = SIM_NONE;
   ESP_LOGW(TAG, "MODO FORMACION desactivado");

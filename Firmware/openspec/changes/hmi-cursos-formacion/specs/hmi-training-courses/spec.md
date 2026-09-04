@@ -25,10 +25,13 @@ la interfaz (el recorrido pasivo existente).
 
 Mientras una lección interactiva esté en curso, la HMI SHALL estar en modo
 formación: `CommTask` NO SHALL enviar a la motherBoard ningún cambio de
-estado ni petición de perfil, hora, prueba o silencio de alarma; SHALL
-seguir enviando el keepalive con la instantánea de `hmi_msg` tomada al
-entrar; y NO SHALL aplicar a la UI ni a `hmi_msg` el `CTRL,STATE` recibido
-(sí a `ctrl_state_msg`). Las respuestas que esperan los asistentes
+estado ni petición de perfil ni de hora; SHALL seguir enviando el keepalive
+con la instantánea de `hmi_msg` tomada al entrar; y NO SHALL aplicar a la
+UI ni a `hmi_msg` el `CTRL,STATE` recibido (sí a `ctrl_state_msg`, y sí la
+identidad, las etiquetas y el bitmask de alarmas). Las órdenes al sistema
+de alarmas (`ALM_SILENCE`, `ALM_TEST`) SHALL seguir saliendo: no son
+terapia y no deben quedar mudas. Los botones de conexión WiFi SHALL
+rechazarse con un aviso durante la lección. Las respuestas que esperan los asistentes
 (`BabyWizard`, `BabyExitDialog`, `TimeDialog`) SHALL simularse localmente
 con los mismos flags que pone el parser. Nada cambiado durante la lección
 SHALL persistirse en NVS. Al salir, la HMI SHALL restaurar el estado local
@@ -83,7 +86,15 @@ franja fija "MODO FORMACION" SHALL ser visible mientras dure.
 - **THEN** la lección se cierra, el estado local se restaura, se sale del
   modo formación y la pantalla vuelve a `ui_ScreenMain` con la alarma
   visible
+- **AND** el selector de cursos NO se reabre: no queda ningún overlay de
+  formación sobre la pantalla clínica
 - *(Verificación manual en banco con la prueba de alarmas.)*
+
+#### Scenario: El selector también cede
+- **WHEN** el selector de cursos está abierto y llega una alarma, se pierde
+  el enlace o pasan 3 min sin tocar
+- **THEN** el selector se cierra solo y la pantalla vuelve a ser la principal
+- *(Verificación manual en banco.)*
 
 ### Requirement: Pasos "hacer" con toque real y objetivo por estado
 
@@ -155,11 +166,11 @@ salida del bebé; 8 bloqueo de pantalla; 9 tendencia; 10 ajustar la hora;
 
 #### Scenario: Lección 1, temperatura por aire (fase 1)
 - **WHEN** el alumno sigue la lección
-- **THEN** los pasos son: tocar AIRE; subir la consigna dos pasos; activar
-  con el toggle (aparece el asistente del bebé en paso libre; SALTAR o
-  completarlo lo cierra y activa); leer medida frente a consigna
-  (explicar); apagar con el toggle; pregunta sobre qué significa la cifra
-  grande
+- **THEN** los pasos son: activar con el toggle (aparece el asistente del
+  bebé en paso libre; SALTAR o completarlo lo cierra y activa); leer que el
+  control ha quedado en AIRE (explicar); subir la consigna dos pasos con la
+  flecha; leer medida frente a consigna (explicar); apagar con el toggle;
+  pregunta sobre qué significa la cifra grande
 - *(Verificación manual en banco.)*
 
 #### Scenario: Lección 5, atender una alarma (fase 1)

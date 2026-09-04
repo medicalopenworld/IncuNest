@@ -55,9 +55,8 @@ bool s_open = false;
 uint16_t s_attempts = 0;
 bool s_quizSolved = false;
 UiControlSnapshot s_snap;
-// Orden z original del overlay en lv_layer_top(), para volver a el tras
-// subirlo por encima de un modal de la capa superior en un paso libre.
-uint32_t s_zIndex = 0;
+// Verdadero mientras el overlay este subido por encima de un modal de la capa
+// superior (paso libre); restoreZ() lo devuelve al fondo.
 bool s_raised = false;
 char s_textBuf[640];
 
@@ -122,9 +121,12 @@ bool mustYield() {
 
 const Step &curStep() { return s_lesson->steps[s_idx]; }
 
-// STEP_DO se muestra como EXPLAIN en demostracion.
+// STEP_DO se muestra como EXPLAIN siempre que NO haya sandbox: en demostracion
+// y tambien si una leccion sin LESSON_INTERACTIVE trae pasos "hacer" por error.
+// Asi la unica forma de que el alumno toque un control real es con la placa
+// aislada, por construccion y no por un flag en una tabla.
 StepKind effectiveKind(const Step &st) {
-  if (st.kind == STEP_DO && s_mode == MODE_DEMO) return STEP_EXPLAIN;
+  if (st.kind == STEP_DO && !Training_IsActive()) return STEP_EXPLAIN;
   return st.kind;
 }
 
@@ -246,14 +248,20 @@ void closeAllDialogs() {
   if (AlarmCenter_IsOpen()) AlarmCenter_Close();
 }
 
+// Devuelve el overlay al fondo de lv_layer_top(): por debajo del banner de
+// alarma, del icono AUDIO PAUSED y de los modales. Por identidad, no por
+// indice guardado (la capa se reordena en caliente con los toasts).
 void restoreZ() {
   if (s_raised && s_overlay) {
-    lv_obj_move_to_index(s_overlay, (int32_t)s_zIndex);
+    lv_obj_move_background(s_overlay);
     s_raised = false;
   }
 }
 
-void endLesson(bool passed) {
+// `aborted`: cierre por alarma, enlace, apagado o inactividad. Entonces NO se
+// reabre el selector ni se muestra nada: la pantalla clinica tiene que quedar
+// limpia en el instante en que hace falta.
+void endLesson(bool passed, bool aborted) {
   if (!s_open) return;
   const Course *course = s_course;
   const uint8_t lessonIdx = s_lessonIdx;
@@ -262,12 +270,10 @@ void endLesson(bool passed) {
 
   closeAllDialogs();
   if (mode == MODE_INTERACTIVE) {
-    // Orden: UI (switches en silencio + UI_SyncAll) -> hmi_msg (la
-    // instantanea que la placa ha estado recibiendo todo el rato) -> salir
-    // del sandbox. A partir de aqui el siguiente CTRL,STATE vuelve a mandar.
+    // Orden: UI (switches en silencio + UI_SyncAll) -> Training_Exit, que
+    // restaura hmi_msg desde la instantanea y baja el flag. A partir de aqui
+    // el siguiente CTRL,STATE vuelve a mandar.
     UI_RestoreControlSnapshot(&s_snap);
-    memcpy(&hmi_msg, &Training_FrozenHmiMsg(), sizeof(hmi_msg));
-    hmi_msg.shouldSendData = false;
     Training_Exit();
     // El seq de formacion (0xFFFF) no debe sobrevivir a la leccion.
     BabyWizard_ClearActiveProfile();
@@ -283,12 +289,16 @@ void endLesson(bool passed) {
   if (ui_ScreenMain && lv_scr_act() != ui_ScreenMain) lv_scr_load(ui_ScreenMain);
   lv_disp_trig_activity(NULL);
 
+  if (aborted) {
+    TrainingSelector_Close();
+    return;
+  }
   TrainingSelector_OnLessonEnd(course, lessonIdx, passed, attempts);
 }
 
 void enterStep(int idx, int dir);
 
-void onExit(lv_event_t *) { endLesson(false); }
+void onExit(lv_event_t *) { endLesson(false, false); }
 void onPrev(lv_event_t *) { enterStep(s_idx - 1, -1); }
 void onNext(lv_event_t *) { enterStep(s_idx + 1, +1); }
 
@@ -344,6 +354,9 @@ void render(const Step &st, StepKind kind, lv_obj_t *target) {
   for (int i = 0; i < 3; i++) show(s_quizBtn[i], false);
   setStripText(modeStripText());
   show(s_stripExit, false);
+  // Franja opaca y clicable salvo en los pasos libres (ver mas abajo).
+  lv_obj_set_style_bg_opa(s_strip, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_add_flag(s_strip, LV_OBJ_FLAG_CLICKABLE);
 
   // Texto del paso (con prefijo en demostracion cuando el original era "hacer").
   if (st.kind == STEP_DO && s_mode == MODE_DEMO) {
@@ -359,13 +372,18 @@ void render(const Step &st, StepKind kind, lv_obj_t *target) {
   const lv_area_t *bubbleRef = nullptr;
 
   if (kind == STEP_DO && (st.flags & STEP_FREE)) {
-    // Paso libre: sin sombras ni recuadro, instruccion en la franja.
+    // Paso libre: sin sombras ni recuadro, instruccion en la franja. La
+    // franja se hace translucida y NO clicable (solo su boton SALIR lo es):
+    // el teclado del asistente del bebe llega hasta y=466 y no debe quedar
+    // tapado ni bloqueado por ella.
     hideShades();
     show(s_frame, false);
     show(s_bubble, false);
     setRootClickable(false);
     setStripText(TrainingTxt(st.text));
     show(s_stripExit, true);
+    lv_obj_set_style_bg_opa(s_strip, LV_OPA_80, LV_PART_MAIN);
+    lv_obj_clear_flag(s_strip, LV_OBJ_FLAG_CLICKABLE);
     return;
   }
 
@@ -421,10 +439,22 @@ void enterStep(int idx, int dir) {
   lv_obj_t *target = nullptr;
   StepKind kind = STEP_EXPLAIN;
 
+  // Cota de iteraciones: el bucle salta pasos ocultos o ya cumplidos, y nunca
+  // debe poder girar indefinidamente bajo LVGL_Lock() (colgaria la UI).
+  int budget = 2 * (int)s_lesson->stepCount + 2;
   while (true) {
-    if (idx < 0) idx = 0;
+    if (--budget < 0) {
+      endLesson(false, false);
+      return;
+    }
+    if (idx < 0) {
+      // Retrocediendo, el paso 0 no se puede mostrar (control oculto): se
+      // sigue hacia delante desde el principio en vez de insistir.
+      idx = 0;
+      dir = +1;
+    }
     if (idx >= s_lesson->stepCount) {
-      endLesson(true);
+      endLesson(true, false);
       return;
     }
     const Step &st = s_lesson->steps[idx];
@@ -437,6 +467,13 @@ void enterStep(int idx, int dir) {
       target = *st.target;
       // Control oculto (p. ej. humedad deshabilitada): el paso se salta.
       if (!target || !lv_obj_is_visible(target)) {
+        idx += dir;
+        continue;
+      }
+      // Control enteramente bajo la franja inferior: no se podria tocar.
+      lv_area_t ca;
+      lv_obj_get_click_area(target, &ca);
+      if (kind == STEP_DO && ca.y1 >= STRIP_Y) {
         idx += dir;
         continue;
       }
@@ -612,19 +649,19 @@ void Training_StartLesson(const Course *course, uint8_t lessonIdx) {
   enterStep(0, +1);
 }
 
-void Training_AbortLesson(void) { endLesson(false); }
+void Training_AbortLesson(void) { endLesson(false, true); }
 
-bool Training_IsOpen(void) {
-  extern bool TrainingSelector_IsOpen(void);
-  return s_open || TrainingSelector_IsOpen();
-}
+bool Training_IsOpen(void) { return s_open || TrainingSelector_IsOpen(); }
 
 void Training_Poll(void) {
+  // El selector tiene su propia cesion e inactividad (no depende de que haya
+  // una leccion abierta).
+  TrainingSelector_Poll();
   if (!s_open) return;
 
   if (mustYield() ||
       lv_disp_get_inactive_time(NULL) > HELP_IDLE_TIMEOUT_MS) {
-    endLesson(false);
+    endLesson(false, true);
     return;
   }
 
@@ -633,13 +670,14 @@ void Training_Poll(void) {
 
   // En un paso libre, si se abre un modal de lv_layer_top() (centro de
   // alarmas, tendencia) el overlay sube por encima para que la franja con la
-  // instruccion siga visible; al cerrarse vuelve a su sitio, por debajo del
-  // banner de alarma.
+  // instruccion siga visible, y a continuacion el banner de alarma y el icono
+  // AUDIO PAUSED se reafirman por encima de todo; al cerrarse el modal el
+  // overlay vuelve al fondo de la capa.
   if (kind == STEP_DO && (st.flags & STEP_FREE)) {
     const bool modalTop = AlarmCenter_IsOpen() || TelemetryHistory_IsOpen();
     if (modalTop && !s_raised) {
-      s_zIndex = lv_obj_get_index(s_overlay);
       lv_obj_move_foreground(s_overlay);
+      UI_RaiseAlarmIndicators();
       s_raised = true;
     } else if (!modalTop && s_raised) {
       restoreZ();

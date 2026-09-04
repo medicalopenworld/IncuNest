@@ -48,6 +48,11 @@ void Training_AbortLesson(void);
 void TrainingSelector_OnLessonEnd(const Course *course, uint8_t lessonIdx,
                                   bool passed, uint16_t attempts);
 bool TrainingSelector_IsOpen(void);
+// Cierra el selector sin mas (aborto por alarma / enlace / apagado).
+void TrainingSelector_Close(void);
+// Cesion ante alarma / enlace / apagado y tope de inactividad del selector
+// (HELP_IDLE_TIMEOUT_MS). La llama Training_Poll().
+void TrainingSelector_Poll(void);
 
 // Helper de texto compartido por los ficheros de training/.
 const char *TrainingTxt(const Txt3 &t);

@@ -42,15 +42,27 @@ crear un paciente.
 1. El envío periódico a la placa sigue (keepalive y detección de enlace)
    pero con la **instantánea de `hmi_msg` tomada al entrar**: la placa
    recibe exactamente lo que ya tenía.
-2. `Communication_Send*` de perfil, hora, prueba y silencio de alarma no
-   envían; encolan una respuesta simulada que pone los mismos flags
-   `g_pending*` que pondría el parser (`seq` de formación `0xFFFF`, rango
-   NTE calculado con `shared/include/nte_table.h`, `TIME_ACK` aceptado).
+2. `Communication_Send*` de perfil y de hora no envían; encolan una
+   respuesta simulada que pone los mismos flags `g_pending*` que pondría el
+   parser (`seq` de formación `0xFFFF`, rango NTE calculado con
+   `shared/include/nte_table.h`, `TIME_ACK` aceptado). Alta, salida, canguro
+   y credenciales WiFi se tragan. **Excepción deliberada**: `ALM_SILENCE` y
+   `ALM_TEST` siguen saliendo, porque son interacciones con el sistema de
+   alarmas (60601-1-8), no con la terapia, no persisten nada, y un botón
+   muerto justo cuando suena algo es peor que una orden inocua (una alarma
+   real aborta la lección en la siguiente pasada de UI de todas formas).
 3. `Display_ApplyCtrlState()` actualiza `ctrl_state_msg` (alarmas, enlace,
-   barras) y retorna antes de tocar la UI o `hmi_msg`.
-4. No se persiste en NVS nada cambiado durante la lección.
-5. `Training_Exit()` restaura la instantánea local, anula la gracia de eco y
-   deja que el siguiente `CTRL,STATE` vuelva a mandar.
+   barras) y aplica identidad, etiquetas y bitmask de alarmas; retorna antes
+   de tocar el estado de control de la UI o `hmi_msg`.
+4. No se persiste en NVS nada cambiado durante la lección, y los controles
+   de red (CONECTAR / DESCONECTAR WiFi) se rechazan con un aviso: cambiarían
+   el equipo de verdad y no viajan por el protocolo.
+5. `Training_Exit()` **restaura `hmi_msg` desde la instantánea** y baja el
+   flag en la misma función (el invariante lo garantiza el módulo dueño del
+   flag, no el llamador); el estado de la UI lo restaura antes el motor con
+   `UI_RestoreControlSnapshot()`. La gracia de eco de `CommTask` no se toca:
+   al detectar la restauración protege 2,5 s unos valores que son
+   exactamente los que tiene la placa.
 
 Se combina con un **gate clínico** (sin terapia activa, sin alarma, con
 enlace, sin perfil activo, sin apagado en curso) y una franja fija

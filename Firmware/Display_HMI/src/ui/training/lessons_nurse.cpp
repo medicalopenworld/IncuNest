@@ -24,7 +24,6 @@ UiControlSnapshot snap() {
 bool goalWizardOpen() { return BabyWizard_IsOpen(); }
 bool goalTempOn() { return snap().switchTemp && !BabyWizard_IsOpen(); }
 bool goalTempOff() { return !snap().switchTemp && !BabyWizard_IsOpen(); }
-bool goalAirSelected() { return snap().selectedPanel == AIR_PANEL_SELECTED; }
 
 // Consigna de partida del paso "sube dos pasos": se captura al entrar.
 double s_airBase = 0.0;
@@ -84,10 +83,19 @@ const Step E1_STEPS[] = {
          "Assistant bebe : appuyez sur NOUVEAU BEBE et remplissez nom, "
          "semaines, poids et age, ou SAUTER pour demarrer en manuel. A la "
          "fin, le controle est allume."),
-    DO(&ui_AirPanel, &ui_ScreenMain, goalAirSelected,
-       "Toca AIRE para controlar por la temperatura de la cabina.",
-       "Touch AIR to control by cabin temperature.",
-       "Touchez AIR pour reguler sur la temperature de l'habitacle."),
+    // El asistente deja AIRE seleccionado (ActivateTempControlUI(true)), asi
+    // que un paso "toca AIRE" se saltaria siempre por objetivo ya cumplido:
+    // se explica en vez de pedirlo.
+    EXPLAIN(&ui_AirPanel, &ui_ScreenMain,
+            "El control ha quedado en AIRE: regula por la temperatura de la "
+            "cabina. PIEL usa la sonda sobre el bebe y solo esta disponible "
+            "con la sonda conectada.",
+            "Control is now in AIR: it regulates on cabin temperature. SKIN "
+            "uses the probe on the baby and is only available with the probe "
+            "connected.",
+            "Le controle est en AIR : il regule sur la temperature de "
+            "l'habitacle. PEAU utilise la sonde sur le bebe et n'est "
+            "disponible que sonde branchee."),
     DO_ENTER(&ui_ImgArrowUpTemp, &ui_ScreenMain, goalAirUpTwo, enterAirBase,
              "Sube la consigna dos pasos con la flecha de arriba (0,2 grados "
              "cada toque).",
@@ -146,10 +154,9 @@ const Step E5_STEPS[] = {
             "Quand une alarme sonne, lisez d'abord CE QUI se passe et QUE "
             "faire. Tout est dans le centre d'alarmes."),
     DO(&ui_AlarmButton, &ui_ScreenMain, goalAlarmCenterOpen,
-       "Toca el icono de alarmas para abrir el centro de alarmas. Dentro, "
-       "cada alarma muestra su titulo y la accion recomendada; el boton de "
-       "pausa silencia el sonido un tiempo. Cuando lo hayas visto, cierra "
-       "con la X.",
+       "Toca el icono de alarmas. Dentro, cada alarma muestra su titulo y la "
+       "accion recomendada; el boton de pausa silencia el sonido un tiempo. "
+       "Cuando lo hayas visto, cierra con la X.",
        "Touch the alarm icon to open the alarm center. Inside, each alarm "
        "shows its title and the recommended action; the pause button mutes "
        "the sound for a while. When done, close with the X.",

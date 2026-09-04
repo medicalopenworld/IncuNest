@@ -20,10 +20,12 @@ Commit: `feat(hmi): modo formacion que congela las ordenes a la placa`.
       vacía, ACK con `seq 0xFFFF`, rango NTE de `shared/include/nte_table.h`
       con edad desconocida hasta `AgeManual`, `TIME_ACK` aceptado) que
       entrega `Training_ServiceReplies()` en el bucle de UI con 250 ms de
-      retardo; `Discharge`, `Kangaroo`, `AlarmTest`, `AlarmSilence` y
-      `WiFiCredentials` se tragan. Las peticiones de solo lectura (historiales,
-      descripción de alarma) siguen yendo a la placa. Comentario cruzado con
-      el parser.
+      retardo; `Discharge`, `Kangaroo` y `WiFiCredentials` se tragan.
+      `AlarmTest` y `AlarmSilence` **no** se gatean (review de seguridad: son
+      órdenes al sistema de alarmas, no a la terapia, y un botón mudo es
+      peor). Las peticiones de solo lectura (historiales, descripción de
+      alarma) siguen yendo a la placa. Comentario cruzado con el parser.
+      `Training_Exit()` restaura `hmi_msg` desde la instantánea (review R1).
 - [x] 1.3 `Display_ApplyCtrlState()`: la parte de identidad, etiquetas y
       bitmask de alarmas se extrae a `applyCtrlStateInfoAndAlarms()` y es lo
       único que se aplica en formación; el estado de control retorna antes.
@@ -122,8 +124,10 @@ Commit: `feat(hmi): lecciones E0 intro, E1 temperatura por aire y E5 alarmas`.
 - [ ] 6.3 Salir a mitad con el asistente abierto: se cierra, consigna y
       toggles vuelven, la franja desaparece, en <2 s la pantalla refleja el
       `CTRL,STATE` real; NVS sin cambios (reiniciar y comprobar consigna).
-- [ ] 6.4 Hueco permeable: en "toca AIRE" solo responde AIRE; PIEL, candado
-      y Ajustes no.
+- [ ] 6.4 Hueco permeable: en "toca el boton de encendido" (E1) solo
+      responde el toggle de temperatura; candado, Ajustes, flechas y PIEL no.
+      (El paso "toca AIRE" se convirtió en explicar: el asistente deja AIRE
+      seleccionado y el objetivo se cumpliría siempre al entrar.)
 - [ ] 6.5 Objetivo por estado: dos pulsaciones de flecha, avanza en la
       segunda.
 - [ ] 6.6 Gate: con control activo, E3 se ofrece en demostración y no marca
@@ -136,19 +140,33 @@ Commit: `feat(hmi): lecciones E0 intro, E1 temperatura por aire y E5 alarmas`.
       del alumno; "Nuevo alumno" las borra.
 - [ ] 6.10 Certificado (curso Técnico con solo T0 para probar el final):
       QR abre el correo con asunto y cuerpo correctos.
-- [ ] 6.11 Auto-bloqueo: 3 min sin tocar en una lección → cierra y restaura;
-      20 s después bloquea.
+- [ ] 6.11 Auto-bloqueo: 3 min sin tocar en una lección → cierra y restaura
+      sin reabrir el selector; 20 s después bloquea. Lo mismo con el selector
+      abierto y con el menú de ayuda (el defecto de `inactivity_timer_cb` que
+      reiniciaba el contador cada 200 ms afectaba también a la ayuda).
+- [ ] 6.12 Aborto por alarma con el selector abierto: se cierra solo y no
+      queda nada de formación sobre la pantalla.
+- [ ] 6.13 En un paso libre (asistente abierto), tocar CONECTAR en Ajustes >
+      WiFi muestra "No disponible en modo formacion" y no cambia la red.
 
 ### 7. Documentación y archive de la fase 1
 
 Commit: `docs: update for hmi-cursos-formacion (fase 1)`.
 
-- [ ] 7.1 `docs/hmi.md` §6: cursos, modo formación, gate, progreso.
-- [ ] 7.2 ADR-0002 (ya escrito en propose) revisado contra el código.
-- [ ] 7.3 `docs/communication.md` o `PROTOCOL.md` **no** cambian; anotar en
-      `docs/hmi.md` que el modo formación es solo HMI.
+- [x] 7.1 `docs/hmi.md` §6: cursos, modo formación, gate, progreso.
+- [x] 7.2 ADR-0002 (ya escrito en propose) revisado contra el código: sin
+      discrepancias (gate, simulaciones, `applyCtrlStateInfoAndAlarms`,
+      restauración e instantánea coinciden con `training_mode.{h,cpp}`,
+      `CommTask.cpp` y `UITask.cpp`); no ha hecho falta corregirlo.
+- [x] 7.3 `PROTOCOL.md` no cambia; se añadió un párrafo corto en
+      `docs/communication.md` (§A.3) explicando el modo formación desde el
+      lado HMI, con referencia a ADR-0002; `docs/hmi.md` §6 deja explícito
+      que es solo HMI.
 - [ ] 7.4 Textos: anotar en la retro que al integrar `feat/hmi-i18n-catalogo`
       los `TXT(es,en,fr)` de la ayuda y los cursos deben migrar al catálogo.
+      **Pendiente**: la anotación en `docs/retro/` no está hecha; no es un
+      fichero de docs cruzados/README de placa, queda fuera del alcance de
+      esta pasada (stage DOCS).
 
 ## Fase 2 — curso de Enfermería completo
 

@@ -3371,9 +3371,16 @@ void inactivity_timer_cb(lv_timer_t *timer) {
   // Exentos del auto-bloqueo: la pantalla de alarmas, y la ayuda (menu con
   // QR o tutorial guiado): leer un QR o seguir un paso lleva mas de
   // INACTIVITY_TIMEOUT_MS sin tocar, y bloquear a mitad lo tiraria todo.
-  if (lv_scr_act() == ui_ScreenAlarms || HelpDialog_IsOpen() ||
-      Training_IsOpen()) {
+  if (lv_scr_act() == ui_ScreenAlarms) {
     lv_disp_trig_activity(NULL);
+    update_autolock_ring(0);
+    return;
+  }
+  // Ayuda y formacion: exentas del bloqueo, pero SIN reiniciar el contador de
+  // inactividad de LVGL. Sus _Poll() lo leen para cerrarse solas a los
+  // HELP_IDLE_TIMEOUT_MS; si aqui se hiciera lv_disp_trig_activity() cada
+  // 200 ms, ese tope no llegaria nunca (defecto real detectado en review).
+  if (HelpDialog_IsOpen() || Training_IsOpen()) {
     update_autolock_ring(0);
     return;
   }
@@ -3390,6 +3397,15 @@ void inactivity_timer_cb(lv_timer_t *timer) {
 }
 
 void WifiConnectButton_cb(lv_event_t *e) {
+  // En modo formacion la red no se toca: cambiaria el equipo de verdad y se
+  // persistiria en NVS, justo lo que la franja "no recibe ordenes" niega.
+  if (Training_IsActive()) {
+    UI_ShowToast(TXT_UI("No disponible en modo formacion",
+                        "Not available in training mode",
+                        "Indisponible en mode formation"),
+                 2500);
+    return;
+  }
   hmi_msg.shouldSendData = true;
   extern char pendingSSID[64];
   extern char pendingPass[64];
@@ -3408,6 +3424,13 @@ void WifiConnectButton_cb(lv_event_t *e) {
 }
 
 void WifiDisconnectButton_cb(lv_event_t *e) {
+  if (Training_IsActive()) {
+    UI_ShowToast(TXT_UI("No disponible en modo formacion",
+                        "Not available in training mode",
+                        "Indisponible en mode formation"),
+                 2500);
+    return;
+  }
   WiFi.disconnect();
   pendingReconnect = true;
   disconnectTimestampMs = millis();
@@ -3559,6 +3582,15 @@ void UI_RestoreControlSnapshot(const UiControlSnapshot *s) {
 }
 
 bool UI_IsScreenLocked(void) { return locked; }
+
+void UI_RaiseAlarmIndicators(void) {
+  // El banner solo se sube solo cuando cambia su texto; tras subir otro
+  // overlay de lv_layer_top() hay que reafirmar que la senal de alarma queda
+  // encima de todo.
+  if (s_alarmBanner) lv_obj_move_foreground(s_alarmBanner);
+  if (s_audioPausedIcon) lv_obj_move_foreground(s_audioPausedIcon);
+  if (s_audioPausedTimer) lv_obj_move_foreground(s_audioPausedTimer);
+}
 
 void Settings_cb(lv_event_t *e) {
   reset_alarm_detail_state();
@@ -4630,7 +4662,9 @@ void UI_Task(void *pvParameters) {
     // Baby-exit dialog: only the transition to a fully idle incubator
     // (no temperature, no humidity, no phototherapy) means the baby
     // actually came out; dropping one therapy among several does not.
-    BabyExitDialog_Tick(UI_AnyControlActive());
+    // En formacion no hay bebe real que dar de alta: apagar el control en una
+    // leccion no debe abrir el dialogo de salida (seq de formacion 0xFFFF).
+    BabyExitDialog_Tick(Training_IsActive() ? false : UI_AnyControlActive());
 
     if (eepromDirty && (millis() - lastVarChangeTime > EEPROM_COMMIT_DELAY)) {
       eepromDirty = false;

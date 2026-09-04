@@ -20,9 +20,13 @@
 #define TRAINING_BABY_SEQ 0xFFFFu
 
 // Entra/sale. Solo desde la tarea UI, bajo LVGL_Lock(). Enter toma la
-// instantanea de hmi_msg; Exit descarta las respuestas simuladas pendientes,
-// limpia el perfil de formacion y anula la gracia de eco de CommTask para
-// que el siguiente CTRL,STATE vuelva a mandar.
+// instantanea de hmi_msg; Exit RESTAURA hmi_msg desde esa instantanea (el
+// invariante "al salir la placa recibe lo que tenia" lo garantiza este modulo,
+// no el llamador) y descarta las respuestas simuladas pendientes. El estado de
+// la UI (consignas, switches, idioma) lo restaura el llamador con
+// UI_RestoreControlSnapshot() ANTES de llamar a Exit. La gracia de eco de
+// CommTask no se toca: al detectar la restauracion protege 2,5 s unos valores
+// que son exactamente los que tiene la placa.
 void Training_Enter(void);
 void Training_Exit(void);
 bool Training_IsActive(void);

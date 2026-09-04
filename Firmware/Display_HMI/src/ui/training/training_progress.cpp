@@ -55,6 +55,8 @@ void TrainingProgress_Load(void) {
     keyCert(k, sizeof(k), i);
     if (p.getBytesLength(k) == sizeof(TrainingCert)) {
       p.getBytes(k, &s_cert[i], sizeof(TrainingCert));
+      // Un blob corrupto del tamano correcto no debe leerse mas alla del campo.
+      s_cert[i].name[TRAINING_NAME_LEN - 1] = '\0';
     }
   }
   p.end();
@@ -92,6 +94,7 @@ void TrainingProgress_Certify(uint8_t course, uint8_t lessonCount) {
   if (course >= TRAINING_COURSES) return;
   TrainingCert &c = s_cert[s_certNext];
   memcpy(c.name, s_course[course].name, TRAINING_NAME_LEN);
+  c.name[TRAINING_NAME_LEN - 1] = '\0';
   c.course = course;
   c.lessons = lessonCount;
   c.attempts = s_course[course].attempts;

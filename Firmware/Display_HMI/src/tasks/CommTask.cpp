@@ -305,16 +305,19 @@ void Communication_SendAlarmHistoryReq(void) {
 #endif
 }
 
+// ALM_TEST y ALM_SILENCE NO se gatean en formacion: son interacciones con el
+// sistema de alarmas (60601-1-8), no con la terapia, no persisten nada, y
+// tragarlas en silencio dejaria un boton muerto justo cuando suena algo.
+// (Una alarma real aborta la leccion en la siguiente pasada de UI de todas
+// formas.)
 void Communication_SendAlarmTest(void) {
 #if IS_HMI
-  if (Training_IsActive()) return;  // la prueba real de alarmas no es materia de formacion
   COMM_SERIAL.print("HMI,ALM_TEST\n");
 #endif
 }
 
 void Communication_SendAlarmSilence(uint8_t id, bool on) {
 #if IS_HMI
-  if (Training_IsActive()) return;
   COMM_SERIAL.printf("HMI,ALM_SILENCE,%u,%d\n", (unsigned)id, on ? 1 : 0);
 #endif
 }

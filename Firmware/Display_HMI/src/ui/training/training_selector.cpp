@@ -13,6 +13,7 @@
 #include "main.h"
 #include "modules/support/support_report.h"
 #include "ui.h"
+#include "ui/HelpDialog.h"  // HELP_IDLE_TIMEOUT_MS
 #include "ui/training/lessons.h"
 #include "ui/training/training_progress.h"
 
@@ -547,6 +548,22 @@ void Training_OpenSelector(void) {
 }
 
 bool TrainingSelector_IsOpen(void) { return s_open; }
+
+void TrainingSelector_Close(void) {
+  if (s_open) closeDialog();
+}
+
+void TrainingSelector_Poll(void) {
+  if (!s_open) return;
+  // Mismo criterio que HelpDialog_Poll(): el selector tapa la pantalla
+  // principal (y su icono de alarmas) y esta exento del auto-bloqueo, asi que
+  // cede ante cualquier alarma, enlace perdido o apagado, y se cierra solo
+  // tras HELP_IDLE_TIMEOUT_MS sin tocar.
+  if (UI_IsAnyAlarmActive() || Display_IsBoardLinkLost() || g_pwrOffActive ||
+      lv_disp_get_inactive_time(NULL) > HELP_IDLE_TIMEOUT_MS) {
+    closeDialog();
+  }
+}
 
 void TrainingSelector_OnLessonEnd(const Course *course, uint8_t lessonIdx,
                                   bool passed, uint16_t attempts) {

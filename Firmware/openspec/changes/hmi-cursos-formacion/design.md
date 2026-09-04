@@ -68,24 +68,35 @@ cambios ni peticiones de perfil y no aplica el estado de la placa a la UI.
 - `CommTask`: el keepalive/estado periódico sigue saliendo (para no perder
   el enlace ni disparar `ALARM_HMI_LINK_LOST`) pero con la **instantánea de
   `hmi_msg` tomada al entrar**, no con el `hmi_msg` vivo. Las funciones
-  `Communication_Send*` de perfil, hora, prueba y silencio de alarma
-  **no envían** y en su lugar encolan una **respuesta simulada** local que
-  pone los mismos flags `g_pending*` que pondría el parser: lista de
-  perfiles vacía, ACK de perfil nuevo con `seq` de formación (`0xFFFF`),
-  rango NTE calculado con `shared/include/nte_table.h`, `TIME_ACK`
-  aceptado. Así `BabyWizard`, `BabyExitDialog` y `TimeDialog` funcionan
-  exactamente igual y la placa no se entera.
+  `Communication_Send*` de perfil y hora **no envían** y en su lugar encolan
+  una **respuesta simulada** local que pone los mismos flags `g_pending*`
+  que pondría el parser: lista de perfiles vacía, ACK de perfil nuevo con
+  `seq` de formación (`0xFFFF`), rango NTE calculado con
+  `shared/include/nte_table.h`, `TIME_ACK` aceptado. Alta, salida, canguro y
+  credenciales WiFi se tragan. `ALM_SILENCE` y `ALM_TEST` **sí salen**: son
+  interacciones con el sistema de alarmas, no con la terapia, y tragarlas
+  dejaría un botón muerto justo cuando suena algo. Así `BabyWizard`,
+  `BabyExitDialog` y `TimeDialog` funcionan exactamente igual y la placa no
+  se entera.
+- `UITask`: los botones CONECTAR / DESCONECTAR WiFi se rechazan con un aviso
+  en formación (cambiarían el equipo de verdad y persistirían en NVS sin
+  pasar por el protocolo), y el diálogo de salida del bebé no se abre al
+  apagar un control durante la lección (no hay bebé real).
 - `Display_ApplyCtrlState()`: actualiza `ctrl_state_msg` (alarmas, enlace,
   `linkBars`) y **retorna antes de tocar la UI o `hmi_msg`**.
 - `UITask`: no persiste en NVS nada cambiado durante la formación
   (`eepromDirty` se descarta al salir; las escrituras inmediatas de idioma,
   modo oscuro y humedad se saltan con `Training_IsActive()`).
-- `Training_Exit()`: restaura la instantánea local (consignas, panel,
-  switches vía `ui_set_switch_state_silent`, `darkMode`, `humidityEnabled`,
-  `skinPanelEnabled`, `g_lang`, fototerapia), pone a cero los sellos de la
-  gracia de eco para que el siguiente `CTRL,STATE` mande, `UI_SyncAll()`,
-  `UI_ApplyLanguage(g_lang)` si cambió, y `computeAndSendActuation()` **no**
-  se llama (nada que mandar: la placa nunca cambió).
+- Salida: el motor restaura primero el estado de la UI con
+  `UI_RestoreControlSnapshot()` (consignas, panel, switches vía
+  `ui_set_switch_state_silent`, `darkMode`, `humidityEnabled`,
+  `skinPanelEnabled`, `g_lang`, fototerapia, `UI_SyncAll()`) y después
+  `Training_Exit()` **restaura `hmi_msg` desde la instantánea y baja el
+  flag en la misma función**: el invariante "la placa recibe lo que tenía"
+  lo garantiza el módulo dueño del flag, no cada llamador.
+  `computeAndSendActuation()` **no** se llama (nada que mandar: la placa
+  nunca cambió). La gracia de eco de `CommTask` no se toca: al detectar la
+  restauración protege 2,5 s unos valores idénticos a los de la placa.
 
 **Por qué no (a)**: la lección de temperatura encendería el calefactor de
 verdad; aunque se restaure, es inaceptable como mecanismo en un dispositivo
@@ -108,8 +119,18 @@ interactiva solo arranca si:
 Si falla, la lección se ofrece en **modo demostración**: los pasos "hacer"
 se muestran como "explicar" (con el prefijo "Demostracion:") y no se entra
 en modo formación. Una lección en demostración **no cuenta como superada**.
+Regla por construcción: un paso "hacer" solo deja tocar el control real si
+`Training_IsActive()`; si una lección sin `LESSON_INTERACTIVE` trae pasos
+"hacer" por error, se muestran como "explicar".
+
 Durante una lección interactiva, `Training_Poll()` aborta y restaura ante
-cualquier alarma, enlace perdido o `g_pwrOffActive`.
+cualquier alarma, enlace perdido o `g_pwrOffActive`, y **no reabre el
+selector**: la pantalla clínica queda limpia. El selector tiene su propio
+`TrainingSelector_Poll()` con la misma cesión y el mismo tope de
+inactividad. El temporizador de auto-bloqueo exime a ayuda y formación
+**sin reiniciar el contador de inactividad de LVGL** (el defecto original
+lo reiniciaba cada 200 ms y el tope de 3 min no llegaba nunca; afectaba
+también al menú de ayuda).
 
 Rótulo fijo: franja ámbar de 20 px en el borde inferior (`lv_layer_top()`,
 y 460-480, zona libre en todas las pantallas) con "MODO FORMACION: la
@@ -193,11 +214,14 @@ Fase 1 (validación del motor):
   (`AlarmCenter_IsOpen()`), leer título y acción (explicar), pausar el audio
   (`hmi_msg.muteAlarm` local; en formación no sale), volver, consultar el
   registro, pregunta: "¿qué hace la pausa de audio?".
-- **E1 Temperatura por aire**: tocar AIRE (`selectedPanel == AIR`), subir
-  la consigna dos pasos (`airTempValue >= inicial + 0.4`), activar con el
-  toggle (aparece el asistente: STEP_FREE hasta `switchTemp` verdadero por
-  SALTAR o por completar), leer el valor grande frente a la consigna,
-  apagar (`!switchTemp`), pregunta.
+- **E1 Temperatura por aire**: activar con el toggle (aparece el asistente:
+  STEP_FREE hasta `switchTemp` verdadero por SALTAR o por completar),
+  explicar que el control queda en AIRE (el asistente lo selecciona solo,
+  así que un "toca AIRE" se saltaría siempre), subir la consigna dos pasos
+  (`airTempValue >= inicial + 0.39`), leer el valor grande frente a la
+  consigna, apagar (`!switchTemp`), pregunta. AIRE/PIEL solo son
+  seleccionables con el control encendido (`AirPanel_cb` retorna si
+  `!tempSwitched`), de ahí el orden.
 
 Fase 2, enfermería: E0 intro (tabla actual), E2 piel y sonda, E3 humedad,
 E4 fototerapia (incluye el pop-up de seguridad ocular: STEP_DO sobre
