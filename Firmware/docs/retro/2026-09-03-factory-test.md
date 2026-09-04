@@ -68,6 +68,36 @@ dos en paralelo y frescos siguen mereciendo la pena; lo que hay que revisar es
 que el diseño llegue con las cotas del estado inhibido ya pensadas, no que las
 aporte el revisor.
 
+## Segunda vuelta tras el banco (2026-09-05, change `shared-factory-test-bench`)
+
+### 7. El sondeo I2C2 da ACK falso con el SensorBoard conectado
+
+`sensor_src` dio FAIL en una unidad sana: `roomSensorI2CDetected()` lee ACK
+para cualquier dirección si una de las líneas USB está a nivel bajo. El test
+se rehizo para exigir **datos** (temperatura real y fresca por USB o por
+I2C2), no una clasificación. El sondeo en sí queda para su propia rama.
+**Regla**: un test de fábrica comprueba que la función existe (llegan
+lecturas), no cómo cree la placa que está cableada.
+
+### 8. `GPRS.powerUp` no significa "el módem responde"
+
+Es true solo durante la secuencia de arranque. Un test que lo espera falla si
+el módem arrancó antes de pulsar el botón. Flags `modemResponded`/`simReady`
+pegajosos en `GPRSstruct`. **Regla**: antes de usar un flag ajeno como
+evidencia, leer dónde se pone Y dónde se quita.
+
+### 9. Toque fantasma del GT911 al arrancar
+
+El test se abrió solo. Botón en la esquina con área extendida + toque fantasma
+del init del GT911 estirado por el debounce. Botón centrado, sin área
+extendida, armado a 1,5 s y comprobación del punto del indev.
+
+### 10. Los agentes sin commit funcionan
+
+La ronda de fixes y toda la segunda vuelta se hicieron con agentes que editan
+y compilan pero no commitean; el orquestador commiteó por ámbito. Cero
+incidentes de índice compartido. Queda como regla en `tooling.md`.
+
 ## Deuda que queda
 
 - Verificación en banco (sección 8 de `tasks.md`): sin hardware conectado en

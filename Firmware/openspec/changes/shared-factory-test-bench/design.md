@@ -86,3 +86,15 @@ splash y se exige que el punto del indev caiga dentro del botón.
   qué faltó (`sin AP`, `sin red`…) y el resumen los cuenta aparte.
 - [El armado de 1,5 s puede comerse una pulsación legítima muy rápida] → el
   splash dura ≥ 5 s; el operario vuelve a pulsar.
+- [`modemResponded` / `simReady` son pegajosos] → solo se reinician cuando
+  `GPRSMonitorTask` recrea la tarea (`GPRS = GPRSstruct()`). Un módem que
+  respondió una vez y luego enmudece sin llegar a "colgar" la tarea seguiría
+  dando PASS en un `RUN` aislado de `gsm_at`/`gsm_sim`. Aceptado: en fábrica
+  el test corre minutos después del arranque y lo que se comprueba es que el
+  módem y la SIM existen y responden, no su disponibilidad continua (para eso
+  está `commStatus` en `CTRL,STATE`).
+- [La cuadrícula se reconstruía entera en cada repintado] → corregido tras el
+  review: los botones se crean una vez por fila, se actualizan in-place y se
+  reordenan con `lv_obj_move_to_index()` solo si cambió el orden; el panel de
+  detalle se cierra solo si llega un WAIT/CONFIRM para que la pregunta Sí/No
+  nunca quede tapada.
