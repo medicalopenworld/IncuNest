@@ -31,4 +31,15 @@
 #define WEB_SERVER_PASSWORD "changeme"
 #endif
 
+// -------- Soporte (menu de ayuda, spec hmi-help-center) --------
+// No son secretos: viven aqui porque este es el fichero de configuracion de
+// despliegue, y con guardas #ifndef para que un Credentials.h local pueda
+// redefinirlos (otro buzon, otra URL) sin tocar codigo versionado.
+#ifndef SUPPORT_EMAIL
+#define SUPPORT_EMAIL "support@medicalopenworld.org"
+#endif
+#ifndef SUPPORT_TUTORIAL_URL
+#define SUPPORT_TUTORIAL_URL "https://medicalopenworld.org/incunest/tutorial"
+#endif
+
 #endif // _CREDENTIALS_PUBLIC_H_

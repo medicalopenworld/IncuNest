@@ -8,6 +8,7 @@ The main screen is partitioned into informational quadrants and side plus ceilin
 
 ### Permanent HUD (Top Zone)
 It continuously witnesses key and constant states on whichever screen the doctor navigates to:
+*   Help button (`?`, `ui_HelpButton`) at the leftmost slot, to the left of the clock. Opens the help menu (see §6). Shown only on `ui_ScreenMain`; the `ui_ScreenLock` heading replica keeps clock and connectivity at the same x position but has no help button.
 *   Connectivity icons (Server, WiFi, or Null state).
 *   Realistic icon indicators about hardware resource usage in background ("Heater", "Wind/Cooling", etc).
 *   Section reserved for sliding priority alarms like marquees if they warrant overflow due to severity.
@@ -46,3 +47,55 @@ Unlike basic thermal parameters, Phototherapy adds a temporal dimension (Countdo
 ## 5. Language
 
 The HMI loads and manages logical bidimensional arrays pointing the LCD strings dependent on variables. The baseboard also needs to know which language the user is reading in order to re-send the batch of alarm strings. Both converge through the initial UART packet sent from the display.
+
+## 6. Help
+
+The heading `?` button (see §1) opens a modal help menu (`HelpDialog`,
+`Display_HMI/src/ui/HelpDialog.cpp`) with three entries:
+
+1. **Guided tour** (`HelpTour`, `HelpTour.cpp`): a full-screen overlay drawn
+   on `lv_layer_top()` — so it survives screen changes — that highlights each
+   real control with a 4 px amber frame with a glow, keeps the inside of the
+   frame at normal brightness while four shades dim everything else
+   (spotlight), plus an explanatory bubble (PREVIOUS/NEXT/EXIT) placed on
+   the opposite half of the screen. It walks 19 steps across `ui_ScreenMain` and
+   `ui_ScreenSettings` (help button, clock, connectivity, lock, Babies,
+   alarms, temperature, humidity, phototherapy, then the Settings rows Info,
+   WiFi, Languages, Modes), switching screens with `lv_scr_load()` when a step
+   needs it. Steps whose target control is currently hidden (e.g. humidity
+   disabled) are skipped. The overlay is clickable and swallows every touch,
+   so nothing gets actioned during the tour — it always returns to
+   `ui_ScreenMain` on exit or at the last step.
+2. **Video tutorial**: a QR code (`lv_qrcode`) built from
+   `SUPPORT_TUTORIAL_URL` (`include/protocol/Credentials_public.h`), plus the
+   same URL as plain text underneath.
+3. **Contact support**: a 340 px `mailto:` QR the operator scans with their
+   phone. The email opens in the phone's mail app addressed to
+   `SUPPORT_EMAIL`, with subject `IncuNest SN <serial> - Solicitud de
+   soporte` and a debug report in the body built by
+   `support_report_build()`
+   (`Display_HMI/src/modules/support/support_report.cpp`), in this order:
+   identity/versions (`sn`, `hmi`, `mb`, `hw`), boot count and last reset
+   reason, uptime, WiFi/IP/ThingsBoard connection status, serial link state
+   and language, control mode/actuation/setpoints, current air/skin/humidity
+   readings and probe state, phototherapy mode, active/silenced alarm
+   bitmasks, the titles of the active alarms, and free internal heap / PSRAM.
+   The operator types their question above the report and sends it from
+   their own account: **the device sends nothing over the network**, so it
+   works the same with or without WiFi. A NO REPORT / WITH REPORT button
+   regenerates the QR without or with the report (a denser QR may not be
+   readable by every phone). If the content with the report does not fit
+   the QR, it falls back to recipient + subject and says so on screen.
+
+Common rules: the help menu and the guided tour are exempt from the 20 s
+auto-lock timeout while open, but only up to `HELP_IDLE_TIMEOUT_MS` (3 min
+without any touch): past that they close themselves and the normal auto-lock
+resumes from zero (the alarm banner is only drawn on `ui_ScreenLock`, so a
+forgotten help view must never block the way to it). Any active alarm
+(`UI_IsAnyAlarmActive()`, regardless of priority) or a lost board link
+(`Display_IsBoardLinkLost()`) closes both and returns to `ui_ScreenMain` —
+the same yield rule as `TelemetryHistory`. The tour overlay is created
+before the alarm banner and the AUDIO PAUSED icon in `lv_layer_top()` and is
+never raised above them. Every text is available in ES/EN/FR (`g_lang`). The
+debug report contains no patient data (no baby name or profile, no SSID,
+password or token).
