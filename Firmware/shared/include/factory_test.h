@@ -27,8 +27,12 @@ typedef enum {
   FTEST_MB_POWER_SRC,
   FTEST_MB_SKIN_ADC,
   FTEST_MB_EXT_SHT4X,
-  FTEST_MB_SENSOR_SRC,
-  FTEST_MB_SB_LINK,
+  // Sensor de cabina por CUALQUIERA de los dos caminos: SHT40 del SensorBoard
+  // por USB o STS35/SHTC3 por I2C2 (equipo antiguo). Antes eran dos tests
+  // ("origen" + "enlace") y en banco daban FAIL con un SensorBoard conectado
+  // porque el sondeo I2C2 sobre las lineas USB devolvia un ACK falso; lo que
+  // importa en fabrica es que la cabina tenga sensor, no por que bus llega.
+  FTEST_MB_SENSORBOARD,
   FTEST_MB_SB_STATUS,
   FTEST_MB_SB_ENV,
   FTEST_MB_SB_DOOR,
@@ -50,7 +54,7 @@ typedef enum {
   FTEST_MB_TIME,
   FTEST_MB_NVS,
   FTEST_MB_LITTLEFS,
-  FTEST_MB_COUNT, // = 30
+  FTEST_MB_COUNT, // = 29
   FTEST_HMI_BASE = 64,
   FTEST_HMI_SYSINFO = FTEST_HMI_BASE,
   FTEST_HMI_I2C,
@@ -71,7 +75,12 @@ typedef enum {
   FTEST_FAIL = 2,
   FTEST_SKIP = 3,
   FTEST_WAIT = 4,
-  FTEST_CONFIRM = 5
+  FTEST_CONFIRM = 5,
+  // Aviso: el test no pudo completarse por falta de entorno (sin cobertura,
+  // sin AP, sin servidor, sin hora de red) dentro de su plazo. No es un fallo
+  // de la placa y no cuenta como FAIL, pero tampoco se oculta como SKIP: el
+  // operario debe verlo en ambar. Es un estado FINAL (cuenta en FTEST_DONE).
+  FTEST_WARN = 6
 } FtestStatus;
 
 typedef enum {
@@ -128,9 +137,9 @@ ftest_id_key(unsigned id); // clave ASCII corta (<= 12 chars, p.ej. "sb_env",
 // eso es lo que garantiza que la linea siempre cabe en FTEST_TX_LINE_MAX.
 int ftest_format_result(char *buf, size_t n, unsigned id, FtestStatus st,
                          const char *detail);
-// "CTRL,FTEST_DONE,p,f,s\n"
+// "CTRL,FTEST_DONE,p,f,s,w\n" (w = avisos, FTEST_WARN)
 int ftest_format_done(char *buf, size_t n, unsigned pass, unsigned fail,
-                       unsigned skip);
+                       unsigned skip, unsigned warn);
 // "CTRL,FTEST_REJECT,<r>\n"
 int ftest_format_reject(char *buf, size_t n, FtestReject r);
 
@@ -141,10 +150,11 @@ int ftest_format_reject(char *buf, size_t n, FtestReject r);
 // asumir que una respuesta false deja su estado intacto.
 bool ftest_parse_result(
     const char *after_prefix,
-    FtestResult *out); // solo ids ftest_id_is_mb; status 0..5; detail = resto
+    FtestResult *out); // solo ids ftest_id_is_mb; status 0..6; detail = resto
                         // de la linea (puede ser vacio)
+// Acepta 3 campos (placa anterior, warn = 0) o 4. `warn` puede ser NULL.
 bool ftest_parse_done(const char *after_prefix, unsigned *pass, unsigned *fail,
-                      unsigned *skip);
+                      unsigned *skip, unsigned *warn);
 bool ftest_parse_reject(const char *after_prefix, FtestReject *out);
 bool ftest_parse_hmi_cmd(
     const char *after_prefix,

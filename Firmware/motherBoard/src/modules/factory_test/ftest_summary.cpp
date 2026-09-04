@@ -14,10 +14,12 @@ void ftest_summary_init(FtestSummary *s) {
   }
   s->pass_mask = 0u;
   s->fail_mask = 0u;
+  s->warn_mask = 0u;
   s->run_mask = 0u;
   s->pass = 0u;
   s->fail = 0u;
   s->skip = 0u;
+  s->warn = 0u;
 }
 
 void ftest_summary_note(FtestSummary *s, unsigned id, FtestStatus st) {
@@ -46,16 +48,20 @@ void ftest_summary_note(FtestSummary *s, unsigned id, FtestStatus st) {
   case FTEST_SKIP:
     s->skip++;
     break;
+  case FTEST_WARN:
+    s->warn_mask |= bit;
+    s->warn++;
+    break;
   default:
     break; // inalcanzable: los estados transitorios ya se filtraron arriba
   }
 }
 
 void ftest_summary_merge_single(uint32_t *pass_mask, uint32_t *fail_mask,
-                                 uint32_t *run_mask, unsigned id,
-                                 FtestStatus st) {
-  if (pass_mask == nullptr || fail_mask == nullptr || run_mask == nullptr ||
-      !ftest_id_is_mb(id)) {
+                                 uint32_t *warn_mask, uint32_t *run_mask,
+                                 unsigned id, FtestStatus st) {
+  if (pass_mask == nullptr || fail_mask == nullptr || warn_mask == nullptr ||
+      run_mask == nullptr || !ftest_id_is_mb(id)) {
     return;
   }
 
@@ -63,12 +69,15 @@ void ftest_summary_merge_single(uint32_t *pass_mask, uint32_t *fail_mask,
   // Reintento: el resultado anterior de este id, sea cual sea, se olvida.
   *pass_mask &= ~bit;
   *fail_mask &= ~bit;
+  *warn_mask &= ~bit;
   *run_mask |= bit;
 
   if (st == FTEST_PASS) {
     *pass_mask |= bit;
   } else if (st == FTEST_FAIL) {
     *fail_mask |= bit;
+  } else if (st == FTEST_WARN) {
+    *warn_mask |= bit;
   }
   // SKIP (u otro estado): el bit queda solo en run_mask.
 }

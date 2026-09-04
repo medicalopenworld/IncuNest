@@ -11,12 +11,12 @@ namespace {
 // `static_assert` de abajo detecte tanto una clave de mas como una de menos
 // si alguien toca el enum sin tocar aqui.
 const char *const kMbKeys[] = {
-    "sysinfo",  "ina3221",   "standby",  "charger",    "power_src",
-    "skin_adc", "ext_sht4x", "sensor_src", "sb_link",  "sb_status",
-    "sb_env",   "sb_door",   "sb_light", "sb_camera",  "actuators",
-    "fan_rpm",  "humid_usb", "buzzer",   "afe_spi",    "afe_probe",
-    "hmi_link", "gsm_at",    "gsm_sim",  "gsm_signal", "gsm_net",
-    "wifi",     "tb_provision", "time",  "nvs",        "littlefs",
+    "sysinfo",  "ina3221",   "standby",     "charger",    "power_src",
+    "skin_adc", "ext_sht4x", "sensorboard", "sb_status",  "sb_env",
+    "sb_door",  "sb_light",  "sb_camera",   "actuators",  "fan_rpm",
+    "humid_usb", "buzzer",   "afe_spi",     "afe_probe",  "hmi_link",
+    "gsm_at",   "gsm_sim",   "gsm_signal",  "gsm_net",    "wifi",
+    "tb_provision", "time",  "nvs",         "littlefs",
 };
 static_assert(sizeof(kMbKeys) / sizeof(kMbKeys[0]) ==
                   static_cast<unsigned>(FTEST_MB_COUNT),
@@ -148,7 +148,7 @@ const char *ftest_id_key(unsigned id) {
 
 int ftest_format_result(char *buf, size_t n, unsigned id, FtestStatus st,
                          const char *detail) {
-  if (buf == nullptr || n == 0 || !ftest_id_is_mb(id) || st > FTEST_CONFIRM) {
+  if (buf == nullptr || n == 0 || !ftest_id_is_mb(id) || st > FTEST_WARN) {
     return -1;
   }
   char safe[FTEST_DETAIL_MAX + 1];
@@ -162,12 +162,12 @@ int ftest_format_result(char *buf, size_t n, unsigned id, FtestStatus st,
 }
 
 int ftest_format_done(char *buf, size_t n, unsigned pass, unsigned fail,
-                       unsigned skip) {
+                       unsigned skip, unsigned warn) {
   if (buf == nullptr || n == 0) {
     return -1;
   }
-  const int written =
-      snprintf(buf, n, "CTRL,FTEST_DONE,%u,%u,%u\n", pass, fail, skip);
+  const int written = snprintf(buf, n, "CTRL,FTEST_DONE,%u,%u,%u,%u\n", pass,
+                                fail, skip, warn);
   if (written < 0 || static_cast<size_t>(written) >= n) {
     return -1;
   }
@@ -203,7 +203,7 @@ bool ftest_parse_result(const char *after_prefix, FtestResult *out) {
     return false;
   }
 
-  if (!ftest_id_is_mb(id) || status > static_cast<unsigned>(FTEST_CONFIRM)) {
+  if (!ftest_id_is_mb(id) || status > static_cast<unsigned>(FTEST_WARN)) {
     return false;
   }
 
@@ -226,13 +226,13 @@ bool ftest_parse_result(const char *after_prefix, FtestResult *out) {
 }
 
 bool ftest_parse_done(const char *after_prefix, unsigned *pass, unsigned *fail,
-                       unsigned *skip) {
+                       unsigned *skip, unsigned *warn) {
   if (after_prefix == nullptr || pass == nullptr || fail == nullptr ||
       skip == nullptr) {
     return false;
   }
 
-  unsigned p = 0, f = 0, s = 0;
+  unsigned p = 0, f = 0, s = 0, w = 0;
   const char *afterPass = nullptr;
   if (!parse_uint_field(after_prefix, ',', &p, &afterPass)) {
     return false;
@@ -241,13 +241,28 @@ bool ftest_parse_done(const char *after_prefix, unsigned *pass, unsigned *fail,
   if (!parse_uint_field(afterPass, ',', &f, &afterFail)) {
     return false;
   }
-  if (!parse_uint_last(afterFail, &s)) {
+
+  // `skip` puede ser el ultimo campo (3 campos, placa anterior a
+  // shared-factory-test-bench) o ir seguido de una coma y el campo `warn` (4
+  // campos). Se intenta primero como campo intermedio: si no hay coma tras
+  // el numero, se reintenta como ultimo campo de la linea.
+  const char *afterSkip = nullptr;
+  if (parse_uint_field(afterFail, ',', &s, &afterSkip)) {
+    if (!parse_uint_last(afterSkip, &w)) {
+      return false; // coma de mas sin un warn numerico detras: 5o campo, etc.
+    }
+  } else if (parse_uint_last(afterFail, &s)) {
+    w = 0; // formato de 3 campos: sin aviso, compatibilidad hacia atras.
+  } else {
     return false;
   }
 
   *pass = p;
   *fail = f;
   *skip = s;
+  if (warn != nullptr) {
+    *warn = w;
+  }
   return true;
 }
 

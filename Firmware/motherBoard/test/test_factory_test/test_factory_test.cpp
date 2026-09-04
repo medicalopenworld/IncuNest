@@ -30,8 +30,7 @@ void test_table_ranges_and_optional_flags(void) {
   TEST_ASSERT_TRUE(ftest_id_is_optional(FTEST_MB_AFE_PROBE));
 
   TEST_ASSERT_FALSE(ftest_id_is_optional(FTEST_MB_ACTUATORS));
-  TEST_ASSERT_FALSE(ftest_id_is_optional(FTEST_MB_SENSOR_SRC));
-  TEST_ASSERT_FALSE(ftest_id_is_optional(FTEST_MB_SB_LINK));
+  TEST_ASSERT_FALSE(ftest_id_is_optional(FTEST_MB_SENSORBOARD));
 }
 
 void test_table_keys_are_short_and_present(void) {
@@ -60,6 +59,13 @@ void test_id_out_of_table(void) {
   TEST_ASSERT_EQUAL_STRING("?", ftest_id_key(200));
 }
 
+// El test de cabina fusionado (design.md, sensorboard_hw2) sustituye a
+// sensor_src (7) + sb_link (8): una sola clave "sensorboard" en el id 7.
+void test_sensorboard_key(void) {
+  TEST_ASSERT_EQUAL_STRING("sensorboard", ftest_id_key(FTEST_MB_SENSORBOARD));
+  TEST_ASSERT_EQUAL_UINT(7, FTEST_MB_SENSORBOARD);
+}
+
 // ---------------------------------------------------------------------------
 // Codificar/parsear CTRL,FTEST (factory-test-protocol, "Linea de resultado").
 // ---------------------------------------------------------------------------
@@ -68,7 +74,7 @@ void test_format_result_basic(void) {
   char buf[FTEST_TX_LINE_MAX];
   const int written = ftest_format_result(buf, sizeof(buf), FTEST_MB_SB_ENV,
                                            FTEST_PASS, "36.1/36.2/36.0");
-  TEST_ASSERT_EQUAL_STRING("CTRL,FTEST,10,1,36.1/36.2/36.0\n", buf);
+  TEST_ASSERT_EQUAL_STRING("CTRL,FTEST,9,1,36.1/36.2/36.0\n", buf);
   TEST_ASSERT_EQUAL_INT((int)strlen(buf), written);
 }
 
@@ -87,7 +93,7 @@ void test_format_result_sanitizes_and_truncates_detail(void) {
                                            FTEST_FAIL, longDetail);
   TEST_ASSERT_TRUE(written > 0);
   TEST_ASSERT_TRUE(strlen(buf) <= FTEST_TX_LINE_MAX);
-  TEST_ASSERT_EQUAL_INT(0, strncmp(buf, "CTRL,FTEST,17,2,", 16));
+  TEST_ASSERT_EQUAL_INT(0, strncmp(buf, "CTRL,FTEST,16,2,", 16));
 
   // El campo detail no debe contener comas (las originales se sanearon).
   const char *detailStart = strrchr(buf, ',') + 1;
@@ -145,31 +151,93 @@ void test_parse_rejects_oversized_numeric_fields(void) {
   TEST_ASSERT_FALSE(ftest_parse_hmi_cmd("RUN,4294967296", &cmd));
 }
 
+// WARN (6) es un estado FINAL valido, no un estado transitorio mas
+// (factory-test-protocol, "Linea de resultado" tras shared-factory-test-bench).
+void test_format_and_parse_result_warn_status(void) {
+  char buf[FTEST_TX_LINE_MAX];
+  const int written = ftest_format_result(buf, sizeof(buf), FTEST_MB_WIFI,
+                                           FTEST_WARN, "sin AP");
+  TEST_ASSERT_EQUAL_STRING("CTRL,FTEST,24,6,sin AP\n", buf);
+  TEST_ASSERT_EQUAL_INT((int)strlen(buf), written);
+
+  FtestResult out;
+  memset(&out, 0, sizeof(out));
+  TEST_ASSERT_TRUE(ftest_parse_result("24,6,sin AP\n", &out));
+  TEST_ASSERT_EQUAL_UINT8(24, out.id);
+  TEST_ASSERT_EQUAL(FTEST_WARN, out.status);
+  TEST_ASSERT_EQUAL_STRING("sin AP", out.detail);
+}
+
+// Un status de 7 en adelante sigue sin tener significado: ni el codificador
+// ni el parser deben aceptarlo solo porque WARN ensancho el rango a 0..6.
+void test_status_above_warn_is_rejected(void) {
+  char buf[FTEST_TX_LINE_MAX];
+  TEST_ASSERT_EQUAL_INT(
+      -1, ftest_format_result(buf, sizeof(buf), FTEST_MB_WIFI,
+                               (FtestStatus)7, "x"));
+
+  FtestResult sentinel;
+  sentinel.id = 123;
+  sentinel.status = (FtestStatus)55;
+  strcpy(sentinel.detail, "untouched");
+  FtestResult out = sentinel;
+  TEST_ASSERT_FALSE(ftest_parse_result("24,7,\n", &out));
+  TEST_ASSERT_EQUAL_UINT8(sentinel.id, out.id);
+}
+
 // ---------------------------------------------------------------------------
 // Cierre y rechazo de la bateria.
 // ---------------------------------------------------------------------------
 
-void test_format_and_parse_done_roundtrip(void) {
+void test_format_done_has_four_fields(void) {
   char buf[FTEST_TX_LINE_MAX];
-  const int written = ftest_format_done(buf, sizeof(buf), 25, 2, 3);
-  TEST_ASSERT_EQUAL_STRING("CTRL,FTEST_DONE,25,2,3\n", buf);
+  const int written = ftest_format_done(buf, sizeof(buf), 20, 2, 3, 4);
+  TEST_ASSERT_EQUAL_STRING("CTRL,FTEST_DONE,20,2,3,4\n", buf);
   TEST_ASSERT_EQUAL_INT((int)strlen(buf), written);
+}
 
-  unsigned pass = 0, fail = 0, skip = 0;
-  TEST_ASSERT_TRUE(ftest_parse_done("25,2,3\n", &pass, &fail, &skip));
+// Placa anterior (sin campo warn): el parser sigue aceptando 3 campos y
+// devuelve warn = 0.
+void test_parse_done_accepts_three_fields(void) {
+  unsigned pass = 0, fail = 0, skip = 0, warn = 111;
+  TEST_ASSERT_TRUE(ftest_parse_done("25,2,3\n", &pass, &fail, &skip, &warn));
   TEST_ASSERT_EQUAL_UINT(25, pass);
+  TEST_ASSERT_EQUAL_UINT(2, fail);
+  TEST_ASSERT_EQUAL_UINT(3, skip);
+  TEST_ASSERT_EQUAL_UINT(0, warn);
+}
+
+void test_parse_done_accepts_four_fields(void) {
+  unsigned pass = 0, fail = 0, skip = 0, warn = 0;
+  TEST_ASSERT_TRUE(ftest_parse_done("20,2,3,4\n", &pass, &fail, &skip, &warn));
+  TEST_ASSERT_EQUAL_UINT(20, pass);
+  TEST_ASSERT_EQUAL_UINT(2, fail);
+  TEST_ASSERT_EQUAL_UINT(3, skip);
+  TEST_ASSERT_EQUAL_UINT(4, warn);
+}
+
+void test_parse_done_warn_out_may_be_null(void) {
+  unsigned pass = 0, fail = 0, skip = 0;
+  TEST_ASSERT_TRUE(
+      ftest_parse_done("20,2,3,4\n", &pass, &fail, &skip, nullptr));
+  TEST_ASSERT_EQUAL_UINT(20, pass);
   TEST_ASSERT_EQUAL_UINT(2, fail);
   TEST_ASSERT_EQUAL_UINT(3, skip);
 }
 
 void test_parse_done_malformed(void) {
-  unsigned pass = 111, fail = 111, skip = 111;
-  TEST_ASSERT_FALSE(ftest_parse_done("25,2", &pass, &fail, &skip));
+  unsigned pass = 111, fail = 111, skip = 111, warn = 111;
+  TEST_ASSERT_FALSE(ftest_parse_done("25,2", &pass, &fail, &skip, &warn));
   TEST_ASSERT_EQUAL_UINT(111, pass);
   TEST_ASSERT_EQUAL_UINT(111, fail);
   TEST_ASSERT_EQUAL_UINT(111, skip);
 
-  TEST_ASSERT_FALSE(ftest_parse_done("a,b,c", &pass, &fail, &skip));
+  TEST_ASSERT_FALSE(ftest_parse_done("a,b,c", &pass, &fail, &skip, &warn));
+  TEST_ASSERT_EQUAL_UINT(111, pass);
+
+  // Cinco campos: ni se cuela el quinto en silencio ni se acepta como valido.
+  TEST_ASSERT_FALSE(
+      ftest_parse_done("25,2,3,1,9\n", &pass, &fail, &skip, &warn));
   TEST_ASSERT_EQUAL_UINT(111, pass);
 }
 
@@ -283,6 +351,22 @@ void test_summary_second_final_notification_is_ignored(void) {
   TEST_ASSERT_EQUAL_UINT32(0u, s.pass_mask);
 }
 
+// WARN es un estado FINAL: cuenta en su propio contador/mascara, igual que
+// PASA/FALLA (shared-factory-test-bench, "Estado nuevo WARN").
+void test_summary_counts_warn_as_final(void) {
+  FtestSummary s;
+  ftest_summary_init(&s);
+
+  ftest_summary_note(&s, 24, FTEST_WARN);
+
+  TEST_ASSERT_EQUAL_UINT8(0, s.pass);
+  TEST_ASSERT_EQUAL_UINT8(0, s.fail);
+  TEST_ASSERT_EQUAL_UINT8(0, s.skip);
+  TEST_ASSERT_EQUAL_UINT8(1, s.warn);
+  TEST_ASSERT_EQUAL_UINT32((1u << 24), s.warn_mask);
+  TEST_ASSERT_EQUAL_UINT32((1u << 24), s.run_mask);
+}
+
 // ---------------------------------------------------------------------------
 // ftest_summary_merge_single: reintento (mb-factory-test, "Persistencia del
 // resultado" / "Reintento de un test fallido").
@@ -291,25 +375,65 @@ void test_summary_second_final_notification_is_ignored(void) {
 void test_summary_merge_single_moves_bit_from_fail_to_pass(void) {
   uint32_t passMask = (1u << 2);              // otro test ya en PASA
   uint32_t failMask = (1u << 13);             // el 13 fallo en la bateria
+  uint32_t warnMask = 0u;
   uint32_t runMask = (1u << 2) | (1u << 13);
 
-  ftest_summary_merge_single(&passMask, &failMask, &runMask, 13, FTEST_PASS);
+  ftest_summary_merge_single(&passMask, &failMask, &warnMask, &runMask, 13,
+                              FTEST_PASS);
 
   TEST_ASSERT_EQUAL_UINT32((1u << 2) | (1u << 13), passMask);
   TEST_ASSERT_EQUAL_UINT32(0u, failMask);
+  TEST_ASSERT_EQUAL_UINT32(0u, warnMask);
   TEST_ASSERT_EQUAL_UINT32((1u << 2) | (1u << 13), runMask);
 }
 
 void test_summary_merge_single_skip_only_marks_run(void) {
   uint32_t passMask = (1u << 3);
   uint32_t failMask = 0u;
+  uint32_t warnMask = 0u;
   uint32_t runMask = (1u << 3);
 
-  ftest_summary_merge_single(&passMask, &failMask, &runMask, 3, FTEST_SKIP);
+  ftest_summary_merge_single(&passMask, &failMask, &warnMask, &runMask, 3,
+                              FTEST_SKIP);
 
   TEST_ASSERT_EQUAL_UINT32(0u, passMask);
   TEST_ASSERT_EQUAL_UINT32(0u, failMask);
+  TEST_ASSERT_EQUAL_UINT32(0u, warnMask);
   TEST_ASSERT_EQUAL_UINT32((1u << 3), runMask);
+}
+
+// Reintento de un test que antes quedo en WARN y ahora pasa: el bit debe
+// salir de warn_mask igual que saldria de fail_mask (bloqueante simetrico al
+// caso FAIL->PASS de arriba; sin esto un reintento de gsm_net que antes dio
+// WARN se quedaria contando dos veces).
+void test_summary_merge_single_moves_bit_from_warn_to_pass(void) {
+  uint32_t passMask = 0u;
+  uint32_t failMask = 0u;
+  uint32_t warnMask = (1u << 24); // wifi quedo en WARN en la bateria anterior
+  uint32_t runMask = (1u << 24);
+
+  ftest_summary_merge_single(&passMask, &failMask, &warnMask, &runMask, 24,
+                              FTEST_PASS);
+
+  TEST_ASSERT_EQUAL_UINT32((1u << 24), passMask);
+  TEST_ASSERT_EQUAL_UINT32(0u, failMask);
+  TEST_ASSERT_EQUAL_UINT32(0u, warnMask);
+  TEST_ASSERT_EQUAL_UINT32((1u << 24), runMask);
+}
+
+void test_summary_merge_single_moves_bit_from_fail_to_warn(void) {
+  uint32_t passMask = 0u;
+  uint32_t failMask = (1u << 24); // wifi fallo en la bateria anterior
+  uint32_t warnMask = 0u;
+  uint32_t runMask = (1u << 24);
+
+  ftest_summary_merge_single(&passMask, &failMask, &warnMask, &runMask, 24,
+                              FTEST_WARN);
+
+  TEST_ASSERT_EQUAL_UINT32(0u, passMask);
+  TEST_ASSERT_EQUAL_UINT32(0u, failMask);
+  TEST_ASSERT_EQUAL_UINT32((1u << 24), warnMask);
+  TEST_ASSERT_EQUAL_UINT32((1u << 24), runMask);
 }
 
 int main(void) {
@@ -318,14 +442,20 @@ int main(void) {
   RUN_TEST(test_table_ranges_and_optional_flags);
   RUN_TEST(test_table_keys_are_short_and_present);
   RUN_TEST(test_id_out_of_table);
+  RUN_TEST(test_sensorboard_key);
 
   RUN_TEST(test_format_result_basic);
   RUN_TEST(test_format_result_sanitizes_and_truncates_detail);
   RUN_TEST(test_parse_result_valid_with_empty_detail);
   RUN_TEST(test_parse_result_discards_malformed_lines);
   RUN_TEST(test_parse_rejects_oversized_numeric_fields);
+  RUN_TEST(test_format_and_parse_result_warn_status);
+  RUN_TEST(test_status_above_warn_is_rejected);
 
-  RUN_TEST(test_format_and_parse_done_roundtrip);
+  RUN_TEST(test_format_done_has_four_fields);
+  RUN_TEST(test_parse_done_accepts_three_fields);
+  RUN_TEST(test_parse_done_accepts_four_fields);
+  RUN_TEST(test_parse_done_warn_out_may_be_null);
   RUN_TEST(test_parse_done_malformed);
   RUN_TEST(test_format_and_parse_reject_roundtrip);
 
@@ -336,8 +466,11 @@ int main(void) {
   RUN_TEST(test_summary_running_wait_confirm_do_not_count);
   RUN_TEST(test_summary_ignores_non_mb_ids);
   RUN_TEST(test_summary_second_final_notification_is_ignored);
+  RUN_TEST(test_summary_counts_warn_as_final);
   RUN_TEST(test_summary_merge_single_moves_bit_from_fail_to_pass);
   RUN_TEST(test_summary_merge_single_skip_only_marks_run);
+  RUN_TEST(test_summary_merge_single_moves_bit_from_warn_to_pass);
+  RUN_TEST(test_summary_merge_single_moves_bit_from_fail_to_warn);
 
   return UNITY_END();
 }
