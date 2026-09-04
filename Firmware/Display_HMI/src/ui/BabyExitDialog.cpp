@@ -266,6 +266,12 @@ void BabyExitDialog_Init(lv_obj_t *parent) {
   buildCloseButton();
 }
 
+bool BabyExitDialog_IsOpen(void) { return s_step != ExitStep::Closed; }
+
+void BabyExitDialog_Cancel(void) {
+  if (s_step != ExitStep::Closed) closeDialog();
+}
+
 void BabyExitDialog_Tick(bool anyControlActive) {
   // Edge detection only: active -> idle. Staying idle must not re-open the
   // dialog every tick, and idle -> active is not interesting.

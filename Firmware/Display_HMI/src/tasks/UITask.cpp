@@ -3482,6 +3482,83 @@ void ui_set_switch_state_silent(lv_obj_t *sw, bool on) {
     lv_obj_clear_state(sw, LV_STATE_CHECKED);
 }
 
+// --- Instantanea de estado para el modo formacion (hmi-training-courses) ---
+static bool switchChecked(lv_obj_t *sw) {
+  return sw && lv_obj_has_state(sw, LV_STATE_CHECKED);
+}
+
+void UI_GetControlSnapshot(UiControlSnapshot *out) {
+  if (!out) return;
+  out->airTempValue = airTempValue;
+  out->skinTempValue = skinTempValue;
+  out->humValue = humValue;
+  out->selectedPanel = selectedPanel;
+  out->lastSelectedPanel = lastSelectedPanel;
+  out->switchTemp = switchTemp;
+  out->switchHum = switchHum;
+  out->tempSwitched = tempSwitched;
+  out->humSwitched = humSwitched;
+  out->arrowsActive = arrowsActive;
+  out->skinPanelEnabled = skinPanelEnabled;
+  out->darkMode = darkMode;
+  out->humidityEnabled = humidityEnabled;
+  out->photoTimerMinutes = photoTimerMinutes;
+  out->photoTimerActive = photoTimerActive;
+  out->photoTimerStartMs = photoTimerStartMs;
+  out->lang = g_lang;
+  out->sw1 = switchChecked(ui_Switch1);
+  out->sw2 = switchChecked(ui_Switch2);
+  out->sw3 = switchChecked(ui_Switch3);
+  out->sw4 = switchChecked(ui_Switch4);
+  out->swDark = switchChecked(ui_SwitchDarkMode);
+  out->swHum = switchChecked(ui_SwitchHumidityMode);
+}
+
+void UI_RestoreControlSnapshot(const UiControlSnapshot *s) {
+  if (!s) return;
+  // Primero los switches, en silencio: UI_SyncAll() deriva de ellos
+  // switchTemp/tempSwitched/switchHum/humSwitched/skinPanelEnabled y
+  // reconstruye paneles, flechas y fototerapia.
+  ui_set_switch_state_silent(ui_Switch1, s->sw1);
+  ui_set_switch_state_silent(ui_Switch2, s->sw2);
+  ui_set_switch_state_silent(ui_Switch3, s->sw3);
+  ui_set_switch_state_silent(ui_Switch4, s->sw4);
+  ui_set_switch_state_silent(ui_SwitchDarkMode, s->swDark);
+  ui_set_switch_state_silent(ui_SwitchHumidityMode, s->swHum);
+
+  const bool themeChanged = (darkMode != s->darkMode);
+  const bool langChanged = (g_lang != s->lang);
+  const bool humEnChanged = (humidityEnabled != s->humidityEnabled);
+
+  airTempValue = s->airTempValue;
+  skinTempValue = s->skinTempValue;
+  humValue = s->humValue;
+  selectedPanel = s->selectedPanel;
+  lastSelectedPanel = s->lastSelectedPanel;
+  switchTemp = s->switchTemp;
+  switchHum = s->switchHum;
+  tempSwitched = s->tempSwitched;
+  humSwitched = s->humSwitched;
+  arrowsActive = s->arrowsActive;
+  skinPanelEnabled = s->skinPanelEnabled;
+  darkMode = s->darkMode;
+  humidityEnabled = s->humidityEnabled;
+  photoTimerMinutes = s->photoTimerMinutes;
+  photoTimerActive = s->photoTimerActive;
+  photoTimerStartMs = s->photoTimerStartMs;
+
+  if (humEnChanged && ui_HumCont) {
+    if (humidityEnabled) lv_obj_clear_flag(ui_HumCont, LV_OBJ_FLAG_HIDDEN);
+    else                 lv_obj_add_flag(ui_HumCont, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (langChanged) UI_ApplyLanguage(s->lang);
+  if (themeChanged) UI_ApplyTheme();
+  UI_SyncAll();
+  update_labels();
+}
+
+bool UI_IsScreenLocked(void) { return locked; }
+
 void Settings_cb(lv_event_t *e) {
   reset_alarm_detail_state();
   _ui_screen_change(&ui_ScreenSettings, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0,

@@ -678,6 +678,12 @@ void BabyHistory_Init(lv_obj_t *parent) {
   lv_obj_clear_flag(s_content, LV_OBJ_FLAG_SCROLLABLE);
 }
 
+bool BabyHistory_IsOpen(void) { return s_step != HistStep::Closed; }
+
+void BabyHistory_Close(void) {
+  if (s_step != HistStep::Closed) closeScreen();
+}
+
 void BabyHistory_Open(void) {
   if (s_step != HistStep::Closed) return;
   s_activeLoaded = false;

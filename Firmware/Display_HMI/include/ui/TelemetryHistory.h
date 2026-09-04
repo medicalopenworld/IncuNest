@@ -37,4 +37,8 @@ void TelemetryHistory_RecordSample(float airTempC, bool airOk,
 // UI_ApplyLanguage() (UITask.cpp), como ya hace photo_safety_apply_language.
 void TelemetryHistory_ApplyLanguage(void);
 
+// Para el motor de lecciones (hmi-training-courses).
+bool TelemetryHistory_IsOpen(void);
+void TelemetryHistory_Close(void);
+
 #endif  // UI_TELEMETRY_HISTORY_H

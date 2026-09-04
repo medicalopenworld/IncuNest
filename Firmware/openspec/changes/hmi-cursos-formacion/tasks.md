@@ -35,17 +35,18 @@ Commit: `feat(hmi): modo formacion que congela las ordenes a la placa`.
 
 Commit: `refactor(hmi): exponer IsOpen/Cancel en asistentes y dialogos`.
 
-- [ ] 2.1 `BabyWizard_IsOpen()`, `BabyWizard_Cancel()`,
-      `BabyWizard_GetStep()` (enum público mínimo: Closed / Identity /
-      Weight / Age / Summary).
-- [ ] 2.2 `BabyExitDialog_IsOpen()`/`_Cancel()`, `TimeDialog_IsOpen()`/
+- [x] 2.1 `BabyWizard_IsOpen()`, `BabyWizard_Cancel()`,
+      `BabyWizard_GetStep()` (enum público `BabyWizardStep`: CLOSED / PICKER /
+      IDENTITY / WEIGHT / AGE / SUMMARY).
+- [x] 2.2 `BabyExitDialog_IsOpen()`/`_Cancel()`, `TimeDialog_IsOpen()`/
       `_Close()`, `BabyHistory_IsOpen()`/`_Close()`,
       `TelemetryHistory_IsOpen()`/`_Close()`.
-- [ ] 2.3 `UI_GetControlSnapshot(UiControlSnapshot*)` y
-      `UI_RestoreControlSnapshot(const UiControlSnapshot*)` en `UITask.h`
-      (consignas, panel, switches vía `ui_set_switch_state_silent`, modos,
-      fototerapia, idioma) + `UI_SyncAll()`.
-- [ ] 2.4 `pio run -e main` en verde.
+- [x] 2.3 `UI_GetControlSnapshot(UiControlSnapshot*)`,
+      `UI_RestoreControlSnapshot(const UiControlSnapshot*)` y
+      `UI_IsScreenLocked()` en `UITask.h` (consignas, panel, switches vía
+      `ui_set_switch_state_silent`, modos, fototerapia, idioma) +
+      `UI_SyncAll()`. `hmi_msg` lo guarda y restaura `training_mode.cpp`.
+- [x] 2.4 `pio run -e main` en verde.
 
 ### 3. Motor de lecciones
 

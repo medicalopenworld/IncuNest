@@ -804,6 +804,30 @@ void BabyWizard_ClearActiveProfile() {
   s_hasUsableRange = false;
 }
 
+BabyWizardStep BabyWizard_GetStep() {
+  switch (s_step) {
+    case WizStep::Closed: return BW_CLOSED;
+    case WizStep::RequestingList:
+    case WizStep::ChooseBaby: return BW_PICKER;
+    case WizStep::EnterName:
+    case WizStep::EnterGest:
+    case WizStep::WaitingNewAck:
+    case WizStep::WaitingSelectAck: return BW_IDENTITY;
+    case WizStep::EnterWeight:
+    case WizStep::WaitingRange: return BW_WEIGHT;
+    case WizStep::EnterAge:
+    case WizStep::WaitingRange2: return BW_AGE;
+    case WizStep::Summary: return BW_SUMMARY;
+  }
+  return BW_CLOSED;
+}
+
+bool BabyWizard_IsOpen() { return s_step != WizStep::Closed; }
+
+void BabyWizard_Cancel() {
+  if (s_step != WizStep::Closed) cancelWizard();
+}
+
 void BabyWizard_Poll() {
   if (s_step == WizStep::Closed) return;
 

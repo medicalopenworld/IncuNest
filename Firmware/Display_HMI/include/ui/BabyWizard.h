@@ -59,3 +59,20 @@ const char *BabyWizard_GetActiveName(void);
 bool BabyWizard_HasLiveSession(void);
 // Cleared when a baby is discharged so the exit dialog stops offering it.
 void BabyWizard_ClearActiveProfile(void);
+
+// --- Para el motor de lecciones (hmi-training-courses) -------------------
+// Fase del asistente, agrupada: lo que una leccion necesita para saber "por
+// donde va" el alumno sin exponer el enum interno.
+typedef enum {
+  BW_CLOSED = 0,
+  BW_PICKER,    // cargando lista / elegir bebe
+  BW_IDENTITY,  // nombre o semanas de gestacion
+  BW_WEIGHT,    // peso (o esperando el rango)
+  BW_AGE,       // dias de vida (o esperando el rango)
+  BW_SUMMARY,   // resumen, APLICAR / SALTAR
+} BabyWizardStep;
+BabyWizardStep BabyWizard_GetStep(void);
+bool BabyWizard_IsOpen(void);
+// Cierra el asistente como si el operador hubiera pulsado SALIR: revierte el
+// switch que lo abrio y deja el estado Closed. No toca el perfil activo.
+void BabyWizard_Cancel(void);
