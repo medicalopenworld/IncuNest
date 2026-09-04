@@ -53,19 +53,85 @@ The HMI loads and manages logical bidimensional arrays pointing the LCD strings 
 The heading `?` button (see §1) opens a modal help menu (`HelpDialog`,
 `Display_HMI/src/ui/HelpDialog.cpp`) with three entries:
 
-1. **Guided tour** (`HelpTour`, `HelpTour.cpp`): a full-screen overlay drawn
-   on `lv_layer_top()` — so it survives screen changes — that highlights each
-   real control with a 4 px amber frame with a glow, keeps the inside of the
-   frame at normal brightness while four shades dim everything else
-   (spotlight), plus an explanatory bubble (PREVIOUS/NEXT/EXIT) placed on
-   the opposite half of the screen. It walks 19 steps across `ui_ScreenMain` and
-   `ui_ScreenSettings` (help button, clock, connectivity, lock, Babies,
-   alarms, temperature, humidity, phototherapy, then the Settings rows Info,
-   WiFi, Languages, Modes), switching screens with `lv_scr_load()` when a step
-   needs it. Steps whose target control is currently hidden (e.g. humidity
-   disabled) are skipped. The overlay is clickable and swallows every touch,
-   so nothing gets actioned during the tour — it always returns to
-   `ui_ScreenMain` on exit or at the last step.
+1. **Training courses** (`Training_OpenSelector()`,
+   `Display_HMI/src/ui/training/*.cpp`, spec `hmi-training-courses`,
+   `docs/adr/0002-modo-formacion-en-el-lado-hmi-del-protocolo.md`): a
+   selector (`training_selector.cpp`, modal over `ui_ScreenMain`) offers two
+   courses, **Nursing** and **Technician**. Picking a course asks for the
+   student's name/initials (letters keyboard, up to 24 chars) or offers
+   "Continue as X (n/N)" / "New student" if there is saved progress; it then
+   lists the course's lessons with their state (done / pending /
+   demonstration).
+   - **Lesson engine** (`training_engine.cpp`, declarative `Step`/`Lesson`/
+     `Course` tables, one table per lesson in `lessons_*.cpp`): a full-screen
+     overlay on `lv_layer_top()` with the same spotlight (4 px amber frame,
+     four dimming shades) and bubble as the old guided tour, plus a 32 px
+     amber strip pinned to the bottom of the screen. Three kinds of step:
+     **explain** (read and press NEXT), **do** (the student touches the real
+     control through a gap in the shades sized to its actual touch area —
+     the rest of the screen stays locked and dimmed; the step is marked done
+     when its goal is true on the *next* UI loop pass, not on the click
+     event, so an objective already met when the step starts is skipped
+     automatically), and **question** with three options: a wrong answer
+     shows the explanation, counts an attempt and repeats the question; a
+     right one lets the student continue. A **free** step (used when a full
+     assistant like `BabyWizard` must run to completion) hides the shades
+     and frame and folds the bubble into the bottom strip with just the
+     instruction and EXIT.
+   - **Training mode** (`training_mode.{h,cpp}`, `src/state/`): while an
+     *interactive* lesson runs, `CommTask` freezes the motherBoard link —
+     the periodic keepalive keeps going out so the link isn't declared lost,
+     but with the `hmi_msg` snapshot taken when the lesson started, not the
+     live one the student is changing on screen; it stops sending any baby
+     profile or time-set request (alarm silence and alarm test still go out:
+     they act on the alarm system, not on therapy, and must never be muted),
+     and instead answers the waiting assistants (`BabyWizard`, `BabyExitDialog`,
+     `TimeDialog`) with **simulated responses** built locally (empty profile
+     list, a fake ACK with `seq 0xFFFF`, the NTE range computed with the
+     same `shared/include/nte_table.h` the board uses, a `TIME_ACK`) after a
+     short delay, so the assistants behave exactly as with a real board.
+     `Display_ApplyCtrlState()` keeps updating identity, firmware-version
+     labels and the alarm bitmask from the board's `CTRL,STATE`, but does
+     **not** apply the rest of it (setpoints, switches, modes) to the UI.
+     Nothing changed during the lesson is written to NVS, and the WiFi
+     CONNECT / DISCONNECT buttons are refused with a toast while training.
+     Leaving the lesson (SALIR, an abort, or finishing it) restores the local
+     snapshot (setpoints, panel, switches, dark mode, humidity, language,
+     phototherapy), then `Training_Exit()` restores `hmi_msg` from the frozen
+     snapshot and lets the next real `CTRL,STATE` take over again.
+   - **Clinical gate and demonstration**: an interactive lesson only starts
+     in training mode if there is no therapy currently active
+     (`UI_AnyControlActive()`), no active alarm, the board link is up, no
+     baby profile is active and no shutdown is in progress. If the gate
+     fails, the lesson runs as a **demonstration**: its "do" steps are shown
+     as "explain" instead, nothing reaches the board (training mode is not
+     entered) and it does **not** count as passed.
+   - While training mode is active, the bottom strip reads "MODO FORMACION:
+     la incubadora no recibe ordenes" (or "DEMOSTRACION..." in demo mode).
+     The lesson **aborts** and restores the real state on any active alarm,
+     a lost board link, a shutdown in progress, or 3 minutes without a touch
+     (`HELP_IDLE_TIMEOUT_MS`, same cap as the help menu below). An abort
+     leaves the clinical screen clean: the course selector is not reopened.
+     The selector itself yields on the same conditions and has the same idle
+     cap (`TrainingSelector_Poll()`).
+   - **Progress and certificate**: passed lessons, the student name and the
+     accumulated wrong-answer count are kept in NVS (`hmi_train` namespace,
+     `training_progress.cpp`), written from the UI task outside
+     `LVGL_Lock()` like the rest of the settings. A course counts as passed
+     once every interactive lesson in it is passed (a demonstration never
+     counts). Passing a course shows a certificate screen with a `mailto:`
+     QR addressed to `TRAINING_EMAIL` (`Credentials_public.h`, default
+     `SUPPORT_EMAIL`), subject `IncuNest SN <serial> - Certificado <curso> -
+     <nombre>` and a body with date, lessons and attempts; past certificates
+     (a 16-slot ring) can be listed from the selector.
+   - **Phase 1 content** (`openspec/changes/hmi-cursos-formacion`): Nursing
+     has E0 (interface introduction, the old guided-tour steps, passive) and
+     the interactive E1 (air temperature) and E5 (handling an alarm);
+     Technician only has T0 (same intro). The rest of both courses (E2–E11,
+     T1–T8) ships in later phases.
+   - **HMI-only**: training mode is a pure display-side sandbox. It does not
+     add or change any `CTRL,`/`HMI,` message — `Firmware/PROTOCOL.md` and
+     the motherBoard firmware are untouched (see ADR-0002).
 2. **Video tutorial**: a QR code (`lv_qrcode`) built from
    `SUPPORT_TUTORIAL_URL` (`include/protocol/Credentials_public.h`), plus the
    same URL as plain text underneath.
@@ -87,15 +153,19 @@ The heading `?` button (see §1) opens a modal help menu (`HelpDialog`,
    readable by every phone). If the content with the report does not fit
    the QR, it falls back to recipient + subject and says so on screen.
 
-Common rules: the help menu and the guided tour are exempt from the 20 s
-auto-lock timeout while open, but only up to `HELP_IDLE_TIMEOUT_MS` (3 min
-without any touch): past that they close themselves and the normal auto-lock
-resumes from zero (the alarm banner is only drawn on `ui_ScreenLock`, so a
-forgotten help view must never block the way to it). Any active alarm
-(`UI_IsAnyAlarmActive()`, regardless of priority) or a lost board link
-(`Display_IsBoardLinkLost()`) closes both and returns to `ui_ScreenMain` —
-the same yield rule as `TelemetryHistory`. The tour overlay is created
-before the alarm banner and the AUDIO PAUSED icon in `lv_layer_top()` and is
-never raised above them. Every text is available in ES/EN/FR (`g_lang`). The
-debug report contains no patient data (no baby name or profile, no SSID,
-password or token).
+Common rules: the help menu and the training courses (selector or a lesson,
+`Training_IsOpen()`) are exempt from the 20 s auto-lock timeout while open,
+but only up to `HELP_IDLE_TIMEOUT_MS` (3 min without any touch): past that
+they close themselves and the normal auto-lock resumes from zero (the alarm
+banner is only drawn on `ui_ScreenLock`, so a forgotten help view must never
+block the way to it). Any active alarm (`UI_IsAnyAlarmActive()`, regardless
+of priority) or a lost board link (`Display_IsBoardLinkLost()`) closes both
+and returns to `ui_ScreenMain` — the same yield rule as `TelemetryHistory`;
+an interactive lesson also aborts on a shutdown in progress. The lesson
+overlay is created before the alarm banner and the AUDIO PAUSED icon in
+`lv_layer_top()` and stays below them, except that during a free step it
+temporarily raises above `AlarmCenter`/`TelemetryHistory` if the lesson
+opens one of them, so its bottom strip stays visible; it drops back to its
+original place once that modal closes. Every text is available in ES/EN/FR
+(`g_lang`). The debug report contains no patient data (no baby name or
+profile, no SSID, password or token).

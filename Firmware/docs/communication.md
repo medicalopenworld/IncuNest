@@ -65,6 +65,19 @@ v2.0.0 breaking change (the 3 undocumented baby fields formerly appended to
 the recurring `HMI,` line were removed — both boards must be flashed
 together).
 
+### A.3 Training mode (HMI only)
+While an interactive lesson of the HMI's training courses is running
+(`Display_HMI/src/state/training_mode.{h,cpp}`, ADR-0002 in
+`docs/adr/0002-modo-formacion-en-el-lado-hmi-del-protocolo.md`), the HMI
+freezes the recurring `HMI,...` line above to the `hmi_msg` snapshot taken
+when the lesson started — the Motherboard keeps seeing a steady state and
+never loses the link — and does not emit `PROFILE_*` or `SET_TIME` requests
+(`ALM_TEST` and `ALM_SILENCE` still go out: they address the alarm system,
+not therapy); the assistants waiting for those replies get a simulated one
+built locally on the HMI instead. This is a
+pure display-side sandbox: no message format changes and the Motherboard
+firmware is unaware of it.
+
 ### B. Logical Initialization and Handshake (`HMI,UI_READY` & `HMI,REQ,STATE`)
 *   **The Problem**: Upon energizing the combined machine, both boards take different times to be functional. The Motherboard (pure RTOS) usually boots in milliseconds and dispatches early initial alarms. LVGL/TFT usually takes 2 to 6 seconds loading the *assets* into the Display's dynamic RAM.
 *   **The Solution**: The Motherboard will save any alarm "silently". When the graphics framework draws the first actual HMI frame successfully, it issues a single universal proof: `HMI,UI_READY`.
