@@ -67,8 +67,9 @@ Commit: el mismo de la fase 3.
 - [x] 4.1 Crear `include/ui/HelpTour.h` + `src/ui/HelpTour.cpp`: overlay en
       `lv_layer_top()` (transparente, intercepta toques) con cuatro sombras
       negras al 50 % alrededor del recuadro (el control queda sin atenuar),
-      marco ámbar con halo sobre `lv_obj_get_coords()` del control, flecha
-      `lv_line` con punta del bocadillo al marco, bocadillo con texto
+      marco ámbar con halo sobre `lv_obj_get_coords()` del control (se
+      probó una flecha del bocadillo al marco y se quitó: no quedaba bien),
+      bocadillo con texto
       (`montserrat_18`, ancho 520) y botones ANTERIOR / SIGUIENTE / SALIR
       colocado en la mitad opuesta al control. API: `HelpTour_Init()`,
       `HelpTour_Start()`, `HelpTour_Stop()`, `HelpTour_IsOpen()`,

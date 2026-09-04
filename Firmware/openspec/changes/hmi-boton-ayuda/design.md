@@ -132,9 +132,7 @@ transparente pero clickable, con **cuatro sombras** negras al 50 % (arriba,
 abajo, izquierda, derecha del recuadro) en vez de una capa única, para que
 el control resaltado conserve su brillo normal y todo lo demás quede
 oscuro (efecto foco). Encima, un marco ámbar (`0xFFC107`, 4 px) con halo
-del mismo color posicionado sobre `lv_obj_get_coords()` del control, una
-**flecha** `lv_line` (polilínea astil + punta, coordenadas de pantalla) que
-va del borde del bocadillo más cercano al borde del marco más cercano, y el
+del mismo color posicionado sobre `lv_obj_get_coords()` del control, y el
 bocadillo con el texto y los botones ANTERIOR / SIGUIENTE / SALIR colocado
 en la mitad de pantalla opuesta al control (o al lado, si el control es más
 alto que media pantalla).

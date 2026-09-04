@@ -1,6 +1,5 @@
 #include "ui/HelpTour.h"
 
-#include <cmath>
 #include <cstdio>
 
 #include "CommTask.h"
@@ -187,11 +186,6 @@ constexpr lv_coord_t BTN_H = 44;
 // Un control mas alto que esto no deja sitio ni arriba ni abajo.
 constexpr lv_coord_t TALL_TARGET = 240;
 
-// Flecha del bocadillo al recuadro: longitud y semiancho de la punta.
-constexpr lv_coord_t ARROW_HEAD_LEN = 18;
-constexpr lv_coord_t ARROW_HEAD_HALF = 11;
-constexpr lv_coord_t ARROW_GAP = 6;
-
 bool s_open = false;
 int s_idx = 0;
 
@@ -201,8 +195,6 @@ lv_obj_t *s_overlay = nullptr;
 // atenuar, con su brillo normal, y todo lo demas oscurecido.
 lv_obj_t *s_shade[4] = {nullptr, nullptr, nullptr, nullptr};
 lv_obj_t *s_frame = nullptr;
-lv_obj_t *s_arrow = nullptr;
-lv_point_t s_arrowPts[5];
 lv_obj_t *s_bubble = nullptr;
 lv_obj_t *s_text = nullptr;
 lv_obj_t *s_counter = nullptr;
@@ -273,76 +265,12 @@ void shadeAll() {
   for (int i = 1; i < 4; i++) lv_obj_add_flag(s_shade[i], LV_OBJ_FLAG_HIDDEN);
 }
 
-// Flecha desde el borde del bocadillo mas cercano al recuadro hasta el borde
-// del recuadro mas cercano al bocadillo, con punta. lv_line dibuja la
-// polilinea P0->P1 (astil), P1->P2, P2->P3, P3->P4 (punta) en coordenadas de
-// pantalla porque el objeto vive en (0,0) del overlay.
-void drawArrow(lv_coord_t fx, lv_coord_t fy, lv_coord_t fx2, lv_coord_t fy2) {
-  lv_obj_update_layout(s_bubble);
-  lv_area_t b;
-  lv_obj_get_coords(s_bubble, &b);
-
-  // Centros de recuadro y bocadillo.
-  const lv_coord_t fcx = (fx + fx2) / 2, fcy = (fy + fy2) / 2;
-  const lv_coord_t bcx = (b.x1 + b.x2) / 2, bcy = (b.y1 + b.y2) / 2;
-
-  lv_coord_t sx, sy, ex, ey;
-  const bool horizontal = (fx > b.x2) || (fx2 < b.x1);
-  if (horizontal) {
-    // Recuadro a un lado del bocadillo: flecha horizontal.
-    sy = bcy;
-    ey = clampCoord(bcy, fy + FRAME_PAD, fy2 - FRAME_PAD);
-    if (fx > b.x2) {
-      sx = b.x2;
-      ex = fx - ARROW_GAP;
-    } else {
-      sx = b.x1;
-      ex = fx2 + ARROW_GAP;
-    }
-    (void)fcy;
-  } else {
-    // Recuadro encima o debajo: flecha vertical hacia el centro del recuadro.
-    sx = clampCoord(fcx, b.x1 + MARGIN, b.x2 - MARGIN);
-    ex = fcx;
-    if (fy > b.y2) {
-      sy = b.y2;
-      ey = fy - ARROW_GAP;
-    } else {
-      sy = b.y1;
-      ey = fy2 + ARROW_GAP;
-    }
-    (void)bcx;
-  }
-
-  // Direccion unitaria (astil) y normal, para la punta.
-  const float dx = (float)(ex - sx), dy = (float)(ey - sy);
-  const float len = sqrtf(dx * dx + dy * dy);
-  if (len < (float)(ARROW_HEAD_LEN + ARROW_GAP)) {
-    // Demasiado corta para que se lea como flecha: no se pinta.
-    lv_obj_add_flag(s_arrow, LV_OBJ_FLAG_HIDDEN);
-    return;
-  }
-  const float ux = dx / len, uy = dy / len;
-  const float nx = -uy, ny = ux;
-
-  s_arrowPts[0] = {sx, sy};
-  s_arrowPts[1] = {ex, ey};
-  s_arrowPts[2] = {(lv_coord_t)(ex - ux * ARROW_HEAD_LEN + nx * ARROW_HEAD_HALF),
-                   (lv_coord_t)(ey - uy * ARROW_HEAD_LEN + ny * ARROW_HEAD_HALF)};
-  s_arrowPts[3] = {ex, ey};
-  s_arrowPts[4] = {(lv_coord_t)(ex - ux * ARROW_HEAD_LEN - nx * ARROW_HEAD_HALF),
-                   (lv_coord_t)(ey - uy * ARROW_HEAD_LEN - ny * ARROW_HEAD_HALF)};
-  lv_line_set_points(s_arrow, s_arrowPts, 5);
-  lv_obj_clear_flag(s_arrow, LV_OBJ_FLAG_HIDDEN);
-}
-
-// Coloca sombras, marco, flecha y bocadillo para el control `target` (o solo
-// el bocadillo, centrado sobre la pantalla atenuada, si no hay control).
+// Coloca sombras, marco y bocadillo para el control `target` (o solo el
+// bocadillo, centrado sobre la pantalla atenuada, si no hay control).
 void layoutFor(lv_obj_t *target) {
   if (!target) {
     shadeAll();
     lv_obj_add_flag(s_frame, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(s_arrow, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_size(s_bubble, BUBBLE_W, BUBBLE_H);
     lv_obj_set_width(s_text, BUBBLE_W - 2 * MARGIN);
     lv_obj_align(s_bubble, LV_ALIGN_CENTER, 0, 0);
@@ -386,8 +314,6 @@ void layoutFor(lv_obj_t *target) {
     lv_obj_align(s_bubble, LV_ALIGN_TOP_LEFT, (DISPLAY_WIDTH - BUBBLE_W) / 2,
                  by);
   }
-
-  drawArrow(fx, fy, fx2, fy2);
 }
 
 void showStep(int idx, int dir) {
@@ -490,15 +416,6 @@ void HelpTour_Init(void) {
   lv_obj_set_style_shadow_opa(s_frame, LV_OPA_70, LV_PART_MAIN);
   lv_obj_clear_flag(s_frame, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_clear_flag(s_frame, LV_OBJ_FLAG_SCROLLABLE);
-
-  // Flecha del bocadillo al recuadro (puntos en coordenadas de pantalla).
-  s_arrow = lv_line_create(s_overlay);
-  lv_obj_set_pos(s_arrow, 0, 0);
-  lv_obj_set_style_line_color(s_arrow, lv_color_hex(0xFFC107), LV_PART_MAIN);
-  lv_obj_set_style_line_width(s_arrow, 5, LV_PART_MAIN);
-  lv_obj_set_style_line_rounded(s_arrow, true, LV_PART_MAIN);
-  lv_obj_clear_flag(s_arrow, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_flag(s_arrow, LV_OBJ_FLAG_HIDDEN);
 
   s_bubble = lv_obj_create(s_overlay);
   lv_obj_set_size(s_bubble, BUBBLE_W, BUBBLE_H);
