@@ -55,8 +55,10 @@ The heading `?` button (see §1) opens a modal help menu (`HelpDialog`,
 
 1. **Guided tour** (`HelpTour`, `HelpTour.cpp`): a full-screen overlay drawn
    on `lv_layer_top()` — so it survives screen changes — that highlights each
-   real control with a 4 px amber frame plus an explanatory bubble
-   (PREVIOUS/NEXT/EXIT). It walks 19 steps across `ui_ScreenMain` and
+   real control with a 4 px amber frame with a glow, keeps the inside of the
+   frame at normal brightness while four shades dim everything else
+   (spotlight), and draws an amber arrow from the explanatory bubble
+   (PREVIOUS/NEXT/EXIT) to the frame. It walks 19 steps across `ui_ScreenMain` and
    `ui_ScreenSettings` (help button, clock, connectivity, lock, Babies,
    alarms, temperature, humidity, phototherapy, then the Settings rows Info,
    WiFi, Languages, Modes), switching screens with `lv_scr_load()` when a step

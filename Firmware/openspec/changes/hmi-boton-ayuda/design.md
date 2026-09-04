@@ -127,11 +127,17 @@ operador, siempre está disponible en la pantalla y es único por equipo.
 
 Alternativas: capturas dibujadas (no hay decoders ni memoria de sobra) o
 pantallas de texto. Se elige **resaltar la UI real**: el tutorial es un
-overlay en `lv_layer_top()` (para sobrevivir al cambio de pantalla) con
-fondo negro al 45 %, un marco ámbar (`0xFFC107`, 4 px) posicionado sobre
-`lv_obj_get_coords()` del control del paso, y un bocadillo con el texto y
-los botones ANTERIOR / SIGUIENTE / SALIR colocado en la mitad de pantalla
-opuesta al control.
+overlay en `lv_layer_top()` (para sobrevivir al cambio de pantalla),
+transparente pero clickable, con **cuatro sombras** negras al 50 % (arriba,
+abajo, izquierda, derecha del recuadro) en vez de una capa única, para que
+el control resaltado conserve su brillo normal y todo lo demás quede
+oscuro (efecto foco). Encima, un marco ámbar (`0xFFC107`, 4 px) con halo
+del mismo color posicionado sobre `lv_obj_get_coords()` del control, una
+**flecha** `lv_line` (polilínea astil + punta, coordenadas de pantalla) que
+va del borde del bocadillo más cercano al borde del marco más cercano, y el
+bocadillo con el texto y los botones ANTERIOR / SIGUIENTE / SALIR colocado
+en la mitad de pantalla opuesta al control (o al lado, si el control es más
+alto que media pantalla).
 
 La tabla de pasos es estática: `{ lv_obj_t **target; lv_obj_t **screen;
 const char *es, *en, *fr; }`. Se guarda el **puntero al global** (`&ui_X`),

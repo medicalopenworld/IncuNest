@@ -85,7 +85,10 @@ pantalla de bloqueo y una ayuda olvidada no debe impedir llegar a él.
 
 El tutorial SHALL resaltar, paso a paso y sobre la interfaz real, cada
 control principal con un marco visible y un texto explicativo, con botones
-ANTERIOR, SIGUIENTE y SALIR. SHALL navegar a la pantalla de Ajustes cuando
+ANTERIOR, SIGUIENTE y SALIR. El resto de la pantalla SHALL quedar atenuado
+mientras el interior del marco conserva su brillo normal (foco), y una
+flecha SHALL unir el bocadillo con el marco para que no haya duda de qué
+control se está explicando. SHALL navegar a la pantalla de Ajustes cuando
 un paso lo requiera y SHALL devolver `ui_ScreenMain` al salir o terminar.
 Durante el recorrido ningún toque SHALL accionar el control resaltado.
 
@@ -97,6 +100,14 @@ Los pasos cuyo control no esté visible en ese momento SHALL saltarse.
   alarmas, Ajustes, temperatura, humedad, fototerapia, y las filas Info,
   WiFi, Idiomas y Modos de la pantalla de Ajustes, y se termina en la
   pantalla principal
+- *(Verificación manual en banco, tarea 6.7.)*
+
+#### Scenario: Foco y flecha
+- **WHEN** el tutorial está en un paso con control
+- **THEN** el control se ve con su brillo normal dentro del marco ámbar y el
+  resto de la pantalla atenuado
+- **AND** una flecha ámbar sale del borde del bocadillo más cercano y apunta
+  al marco
 - *(Verificación manual en banco, tarea 6.7.)*
 
 #### Scenario: Control oculto
