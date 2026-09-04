@@ -35,6 +35,7 @@ typedef enum {
   LANG_ES = 0,
   LANG_EN = 1,
   LANG_FR = 2,
+  LANG_PT = 3,
   UI_LANG_COUNT
 } ui_lang_t;
 
@@ -47,6 +48,7 @@ typedef enum {
 static_assert((int)LANG_ES == (int)SPANISH, "ui_lang_t desalineado con Language");
 static_assert((int)LANG_EN == (int)ENGLISH, "ui_lang_t desalineado con Language");
 static_assert((int)LANG_FR == (int)FRENCH, "ui_lang_t desalineado con Language");
+static_assert((int)LANG_PT == (int)PORTUGUESE, "ui_lang_t desalineado con Language");
 static_assert((int)UI_LANG_COUNT <= (int)NUM_LANGUAGES,
               "el HMI declara mas idiomas que shared/control_types.h");
 

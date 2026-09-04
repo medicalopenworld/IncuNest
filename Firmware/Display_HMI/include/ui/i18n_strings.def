@@ -5,7 +5,7 @@
 // lleva guarda de inclusion y no debe contener nada mas que invocaciones de
 // UI_STR().
 //
-//   UI_STR(id, es, en, fr)
+//   UI_STR(id, es, en, fr, pt)
 //
 // ANADIR UN IDIOMA = anadir una columna a TODAS las filas de este fichero, mas
 // la entrada correspondiente en el enum `ui_lang_t` de `i18n.h`. Ningun punto
@@ -14,150 +14,178 @@
 // El ingles es el idioma de reserva: si una celda queda vacia ("") o a NULL,
 // `UI_Str()` devuelve la columna inglesa en su lugar.
 //
+// El portugues es de Portugal (pt-PT), no de Brasil: "Humidade", "Definicoes",
+// "bebe", "Registo". El despliegue previsto comparte contexto con el frances.
+//
 // IMPORTANTE - juego de caracteres: las fuentes Montserrat integradas de LVGL
 // solo traen ASCII 32-126 (mas el grado y los iconos de FontAwesome). Cualquier
 // letra acentuada se pinta como caja vacia. Por eso todas las traducciones se
-// escriben SIN TILDES ni enes ("CONTRASENA", "Prematurite", "PORTUGUES"). Para
-// usar acentos de verdad hay que generar una fuente propia que incluya los
-// rangos Latin-1 Supplement / Latin Extended-A.
+// escriben SIN TILDES, enes ni cedillas ("CONTRASENA", "Prematurite",
+// "DEFINICOES"). Para usar acentos de verdad hay que generar una fuente propia
+// que incluya los rangos Latin-1 Supplement / Latin Extended-A; el portugues es
+// el idioma que peor lo lleva, porque pierde c-cedilla y las nasales.
 
 // ------------------------------------------------------- pantalla principal
-UI_STR(STR_TEMPERATURE,        "TEMPERATURA",  "TEMPERATURE", "TEMPERATURE")
-UI_STR(STR_HUMIDITY,           "HUMEDAD",      "HUMIDITY",    "HUMIDITE")
-UI_STR(STR_PHOTOTHERAPY,       "FOTOTERAPIA",  "PHOTOTHERAPY","PHOTOTHERAPIE")
-UI_STR(STR_AIR,                "AIRE",         "AIR",         "AIR")
-UI_STR(STR_SKIN,               "PIEL",         "SKIN",        "PEAU")
-UI_STR(STR_ON,                 "ON",           "ON",          "ON")
-UI_STR(STR_OFF,                "OFF",          "OFF",         "OFF")
-UI_STR(STR_SET,                "AJUSTAR",      "SET",         "REGLER")
-// (STR_INCUNEST retirado: el rotulo de marca no se traduce y nadie lo pedia)
+UI_STR(STR_TEMPERATURE,        "TEMPERATURA",  "TEMPERATURE", "TEMPERATURE", "TEMPERATURA")
+UI_STR(STR_HUMIDITY,           "HUMEDAD",      "HUMIDITY",    "HUMIDITE",    "HUMIDADE")
+UI_STR(STR_PHOTOTHERAPY,       "FOTOTERAPIA",  "PHOTOTHERAPY","PHOTOTHERAPIE","FOTOTERAPIA")
+UI_STR(STR_AIR,                "AIRE",         "AIR",         "AIR",         "AR")
+UI_STR(STR_SKIN,               "PIEL",         "SKIN",        "PEAU",        "PELE")
+UI_STR(STR_ON,                 "ON",           "ON",          "ON",          "ON")
+UI_STR(STR_OFF,                "OFF",          "OFF",         "OFF",         "OFF")
+UI_STR(STR_SET,                "AJUSTAR",      "SET",         "REGLER",      "DEFINIR")
 
 // ------------------------------------------------------- ajustes
-UI_STR(STR_SETTINGS,           "AJUSTES",      "SETTINGS",    "PARAMETRES")
-UI_STR(STR_LANGUAGE,           "IDIOMA",       "LANGUAGE",    "LANGUE")
-UI_STR(STR_LANG_OPTIONS,       "ESPANOL\nINGLES\nFRANCES",
-                               "SPANISH\nENGLISH\nFRENCH",
-                               "ESPAGNOL\nANGLAIS\nFRANCAIS")
-UI_STR(STR_WIFI,               "WIFI",         "WIFI",        "WIFI")
-UI_STR(STR_CONNECT,            "CONECTAR",     "CONNECT",     "CONNEXION")
-UI_STR(STR_SSID,               "SSID",         "SSID",        "SSID")
-UI_STR(STR_PASSWORD,           "CONTRASENA",   "PASSWORD",    "MOT DE PASSE")
-UI_STR(STR_SKIN_MODE,          "MODO PIEL",    "SKIN MODE",   "MODE PEAU")
+UI_STR(STR_SETTINGS,           "AJUSTES",      "SETTINGS",    "PARAMETRES",  "DEFINICOES")
+UI_STR(STR_LANGUAGE,           "IDIOMA",       "LANGUAGE",    "LANGUE",      "IDIOMA")
+UI_STR(STR_LANG_OPTIONS,       "ESPANOL\nINGLES\nFRANCES\nPORTUGUES",
+                               "SPANISH\nENGLISH\nFRENCH\nPORTUGUESE",
+                               "ESPAGNOL\nANGLAIS\nFRANCAIS\nPORTUGAIS",
+                               "ESPANHOL\nINGLES\nFRANCES\nPORTUGUES")
+UI_STR(STR_WIFI,               "WIFI",         "WIFI",        "WIFI",        "WIFI")
+UI_STR(STR_CONNECT,            "CONECTAR",     "CONNECT",     "CONNEXION",   "LIGAR")
+UI_STR(STR_SSID,               "SSID",         "SSID",        "SSID",        "SSID")
+UI_STR(STR_PASSWORD,           "CONTRASENA",   "PASSWORD",    "MOT DE PASSE","PALAVRA-PASSE")
+UI_STR(STR_SKIN_MODE,          "MODO PIEL",    "SKIN MODE",   "MODE PEAU",   "MODO PELE")
 UI_STR(STR_NO_SKIN_PROBE,      "SIN SONDA DE PIEL",
                                "NO SKIN PROBE DETECTED",
-                               "SONDE PEAU ABSENTE")
-UI_STR(STR_INFO,               "INFO",         "INFO",        "INFO")
-UI_STR(STR_DARK_MODE,          "MODO OSCURO",  "DARK MODE",   "MODE SOMBRE")
-UI_STR(STR_MODES,              "MODOS",        "MODES",       "MODES")
+                               "SONDE PEAU ABSENTE",
+                               "SONDA DE PELE AUSENTE")
+UI_STR(STR_INFO,               "INFO",         "INFO",        "INFO",        "INFO")
+UI_STR(STR_DARK_MODE,          "MODO OSCURO",  "DARK MODE",   "MODE SOMBRE", "MODO ESCURO")
+UI_STR(STR_MODES,              "MODOS",        "MODES",       "MODES",       "MODOS")
 UI_STR(STR_HUMIDITY_CONTROL,   "CONTROL HUMEDAD",
                                "HUMIDITY CONTROL",
-                               "CONTROLE HUMIDITE")
+                               "CONTROLE HUMIDITE",
+                               "CONTROLO HUMIDADE")
 
 // ------------------------------------------------------- info / version
 UI_STR(STR_HMI_VERSION,        "VERSION PANTALLA:",
                                "DISPLAY VERSION:",
-                               "VERSION ECRAN:")
+                               "VERSION ECRAN:",
+                               "VERSAO ECRA:")
 UI_STR(STR_MB_VERSION,         "VERSION PLACA:",
                                "MOTHERBOARD VERSION:",
-                               "VERSION CARTE:")
-UI_STR(STR_SERIAL_NUMBER,      "S/N:",         "S/N:",        "S/N:")
-UI_STR(STR_CONNECTIVITY,       "CONECTIVIDAD:","CONNECTIVITY:","CONNECTIVITE:")
+                               "VERSION CARTE:",
+                               "VERSAO PLACA:")
+UI_STR(STR_SERIAL_NUMBER,      "S/N:",         "S/N:",        "S/N:",        "S/N:")
+UI_STR(STR_CONNECTIVITY,       "CONECTIVIDAD:","CONNECTIVITY:","CONNECTIVITE:","CONECTIVIDADE:")
 
 // ------------------------------------------------------- conectividad
-UI_STR(STR_CONN_DISCONNECTED,  "DESCONECTADO", "DISCONNECTED","DECONNECTE")
+UI_STR(STR_CONN_DISCONNECTED,  "DESCONECTADO", "DISCONNECTED","DECONNECTE",  "SEM LIGACAO")
 UI_STR(STR_CONN_GPRS_ONLY,     "2G (SIN SERVER)",
                                "2G (NO SERVER)",
-                               "2G (SANS SERVEUR)")
-UI_STR(STR_CONN_GPRS_SERVER,   "2G + SERVIDOR","2G + SERVER", "2G + SERVEUR")
+                               "2G (SANS SERVEUR)",
+                               "2G (SEM SERVIDOR)")
+UI_STR(STR_CONN_GPRS_SERVER,   "2G + SERVIDOR","2G + SERVER", "2G + SERVEUR","2G + SERVIDOR")
 UI_STR(STR_CONN_WIFI_ONLY,     "WIFI (SIN SERVER)",
                                "WIFI (NO SERVER)",
-                               "WIFI (SANS SERVEUR)")
+                               "WIFI (SANS SERVEUR)",
+                               "WIFI (SEM SERVIDOR)")
 UI_STR(STR_CONN_WIFI_SERVER,   "WIFI + SERVIDOR",
                                "WIFI + SERVER",
-                               "WIFI + SERVEUR")
-UI_STR(STR_CONN_UNKNOWN,       "-",            "-",           "-")
-UI_STR(STR_BOARD_PREFIX,       "Placa: ",      "Board: ",     "Carte : ")
-UI_STR(STR_NO_TIME,            "Sin hora",     "No time",     "Sans heure")
+                               "WIFI + SERVEUR",
+                               "WIFI + SERVIDOR")
+UI_STR(STR_CONN_UNKNOWN,       "-",            "-",           "-",           "-")
+UI_STR(STR_BOARD_PREFIX,       "Placa: ",      "Board: ",     "Carte : ",    "Placa: ")
+UI_STR(STR_NO_TIME,            "Sin hora",     "No time",     "Sans heure",  "Sem hora")
 
 // ------------------------------------------------------- wifi
-UI_STR(STR_WIFI_SSID,          "WIFISSID",     "WIFISSID",    "WIFISSID")
+UI_STR(STR_WIFI_SSID,          "WIFISSID",     "WIFISSID",    "WIFISSID",    "WIFISSID")
 UI_STR(STR_WIFI_CONNECTED_TO,  "WIFI CONECTADO A",
                                "WIFI CONNECTED TO",
-                               "WIFI CONNECTE A")
+                               "WIFI CONNECTE A",
+                               "WIFI LIGADO A")
 
 // ------------------------------------------------------- graficas
 UI_STR(STR_HUM_CHART,          "GRAFICO HUMEDAD",
                                "HUMIDITY CHART",
-                               "GRAPHIQUE HUMIDITE")
+                               "GRAPHIQUE HUMIDITE",
+                               "GRAFICO HUMIDADE")
 UI_STR(STR_AIR_TEMP_CHART,     "GRAFICO TEMPERATURA AIRE",
                                "AIR TEMPERATURE CHART",
-                               "GRAPHIQUE TEMPERATURE AIR")
+                               "GRAPHIQUE TEMPERATURE AIR",
+                               "GRAFICO TEMPERATURA AR")
 UI_STR(STR_SKIN_TEMP_CHART,    "GRAFICO TEMPERATURA PIEL",
                                "SKIN TEMPERATURE CHART",
-                               "GRAPHIQUE TEMPERATURE PEAU")
+                               "GRAPHIQUE TEMPERATURE PEAU",
+                               "GRAFICO TEMPERATURA PELE")
 UI_STR(STR_OXI_CHART,          "GRAFICO OXIMETRIA",
                                "OXIMETRY CHART",
-                               "GRAPHIQUE OXIMETRIE")
+                               "GRAPHIQUE OXIMETRIE",
+                               "GRAFICO OXIMETRIA")
 UI_STR(STR_PULSE_OXIMETRY,     "PULSIOXIMETRIA",
                                "PULSE OXIMETRY",
-                               "PULSIOXYMETRIE")
+                               "PULSIOXYMETRIE",
+                               "OXIMETRIA DE PULSO")
 
 // ------------------------------------------------------- lecturas
 UI_STR(STR_AIR_TEMP_COLON,     "TEMPERATURA AIRE:",
                                "AIR TEMPERATURE:",
-                               "TEMPERATURE AIR:")
+                               "TEMPERATURE AIR:",
+                               "TEMPERATURA AR:")
 UI_STR(STR_BABY_TEMP_COLON,    "TEMPERATURA BEBE:",
                                "BABY TEMPERATURE:",
-                               "TEMPERATURE BEBE:")
-UI_STR(STR_HUM_COLON,          "HUMEDAD:",     "HUMIDITY:",   "HUMIDITE:")
+                               "TEMPERATURE BEBE:",
+                               "TEMPERATURA BEBE:")
+UI_STR(STR_HUM_COLON,          "HUMEDAD:",     "HUMIDITY:",   "HUMIDITE:",   "HUMIDADE:")
 UI_STR(STR_TARGET_TEMP,        "TEMP. OBJETIVO:",
                                "TARGET TEMP:",
-                               "TEMP. OBJECTIF:")
+                               "TEMP. OBJECTIF:",
+                               "TEMP. ALVO:")
 UI_STR(STR_TARGET_HUM,         "HUMEDAD OBJETIVO:",
                                "TARGET HUMIDITY:",
-                               "HUMIDITE OBJECTIF:")
-UI_STR(STR_STATUS_COLON,       "ESTADO:",      "STATUS:",     "ETAT:")
+                               "HUMIDITE OBJECTIF:",
+                               "HUMIDADE ALVO:")
+UI_STR(STR_STATUS_COLON,       "ESTADO:",      "STATUS:",     "ETAT:",       "ESTADO:")
 
 // ------------------------------------------------------- pantalla de bloqueo
 UI_STR(STR_UNLOCK_HINT,        "PRESIONA 2 SEG\nPARA DESBLOQUEAR",
                                "PRESS 2 SEC \nTO UNLOCK",
-                               "APPUYEZ 2 SEG\nPOUR DEVERROUILLER")
-UI_STR(STR_PHOTO_LOCK,         "FOTOTERAPIA:", "PHOTOTHERAPY:","PHOTOTHERAPIE:")
-UI_STR(STR_TREND_UC,           "TENDENCIA",    "TREND",       "TENDANCE")
-UI_STR(STR_BABIES,             "Bebes",        "Babies",      "Bebes")
+                               "APPUYEZ 2 SEG\nPOUR DEVERROUILLER",
+                               "PRIMA 2 SEG\nPARA DESBLOQUEAR")
+UI_STR(STR_PHOTO_LOCK,         "FOTOTERAPIA:", "PHOTOTHERAPY:","PHOTOTHERAPIE:","FOTOTERAPIA:")
+UI_STR(STR_TREND_UC,           "TENDENCIA",    "TREND",       "TENDANCE",    "TENDENCIA")
+UI_STR(STR_BABIES,             "Bebes",        "Babies",      "Bebes",       "Bebes")
 
 // ------------------------------------------------------- fototerapia
-UI_STR(STR_PHOTO_START,        "EMPEZAR",      "START",       "DEMARRER")
-UI_STR(STR_PHOTO_RUNNING,      "EJECUTANDO",   "RUNNING",     "EN COURS")
+UI_STR(STR_PHOTO_START,        "EMPEZAR",      "START",       "DEMARRER",    "INICIAR")
+UI_STR(STR_PHOTO_RUNNING,      "EJECUTANDO",   "RUNNING",     "EN COURS",    "A DECORRER")
 UI_STR(STR_PHOTO_SAFETY_TITLE, "PROTECCION OCULAR OBLIGATORIA",
                                "EYE PROTECTION REQUIRED",
-                               "PROTECTION OCULAIRE OBLIGATOIRE")
+                               "PROTECTION OCULAIRE OBLIGATOIRE",
+                               "PROTECAO OCULAR OBRIGATORIA")
 UI_STR(STR_PHOTO_SAFETY_BODY,
        "Coloque proteccion ocular al paciente\nantes de activar la fototerapia.",
        "Protect the patient's eyes with eye\nshields before activating phototherapy.",
-       "Protegez les yeux du patient avec des\nlunettes adaptees avant d'activer\nla phototherapie.")
-UI_STR(STR_PHOTO_SAFETY_TURN_ON, "ENCENDER",   "TURN ON",     "ACTIVER")
+       "Protegez les yeux du patient avec des\nlunettes adaptees avant d'activer\nla phototherapie.",
+       "Coloque protecao ocular no paciente\nantes de ativar a fototerapia.")
+UI_STR(STR_PHOTO_SAFETY_TURN_ON, "ENCENDER",   "TURN ON",     "ACTIVER",     "LIGAR")
 
 // ------------------------------------------------------- modo piel
 UI_STR(STR_SKIN_MODE_UNAVAILABLE,
        "Modo piel no disponible:\nConecte la sonda de temperatura",
        "Skin mode unavailable:\nConnect the skin temperature probe",
-       "Mode peau indisponible:\nConnectez la sonde de temperature")
+       "Mode peau indisponible:\nConnectez la sonde de temperature",
+       "Modo pele indisponivel:\nLigue a sonda de temperatura")
 UI_STR(STR_SKIN_NO_AUTO_RANGE_TOAST,
        "Modo piel activo sin rango automatico (sin peso)",
        "Skin mode active, no automatic range (no weight)",
-       "Mode peau actif, sans plage automatique (sans poids)")
+       "Mode peau actif, sans plage automatique (sans poids)",
+       "Modo pele ativo sem intervalo automatico (sem peso)")
 
 // ------------------------------------------------------- alarmas (pantallas)
-UI_STR(STR_ALARMS_UC,          "ALARMAS",      "ALARMS",      "ALARMES")
-UI_STR(STR_VIEW_DETAILS,       "VER DETALLES", "VIEW DETAILS","VOIR DETAILS")
+UI_STR(STR_ALARMS_UC,          "ALARMAS",      "ALARMS",      "ALARMES",     "ALARMES")
+UI_STR(STR_VIEW_DETAILS,       "VER DETALLES", "VIEW DETAILS","VOIR DETAILS","VER DETALHES")
 UI_STR(STR_ALARMS_DESC,        "DESCRIPCION DE ALARMAS",
                                "ALARMS DESCRIPTION",
-                               "DESCRIPTION DES ALARMES")
+                               "DESCRIPTION DES ALARMES",
+                               "DESCRICAO DOS ALARMES")
 UI_STR(STR_HEATER_ERROR_RESTART,
        "Error calentador\nToque para mas informacion",
        "Heater error\nTouch for more information",
-       "Erreur chauffage\nToucher pour plus d'infos")
+       "Erreur chauffage\nToucher pour plus d'infos",
+       "Erro do aquecedor\nToque para mais informacao")
 UI_STR(STR_HEATER_ERROR_DESC,
        "Hay un problema con el ventilador / calefactor: \n\n 1. Pruebe a "
        "desconectar y conectar el calefactor y posteriormente reinicie "
@@ -167,234 +195,286 @@ UI_STR(STR_HEATER_ERROR_DESC,
        "doesn't work, fix the heater.",
        "Il y a un probleme avec le ventilateur / chauffage :\n\n 1. Essayez de "
        "debrancher et de brancher le chauffage et redemarrez l'incubateur\n\n "
-       "2. Si le pas 1 ne fonctionne pas, reparez le chauffage.")
+       "2. Si le pas 1 ne fonctionne pas, reparez le chauffage.",
+       "Ha um problema com a ventoinha / aquecedor:\n\n 1. Experimente "
+       "desligar e ligar o aquecedor e depois reinicie a incubadora\n\n "
+       "2. Se o passo 1 nao resultar, repare o aquecedor.")
 
 // Banner de la pantalla de bloqueo
 UI_STR(STR_BOARD_LINK_LOST,    "!! SIN ENLACE CON LA PLACA",
                                "!! BOARD LINK LOST",
-                               "!! LIAISON CARTE PERDUE")
-UI_STR(STR_ALARM_TEST,         "PRUEBA DE ALARMA","ALARM TEST","TEST D'ALARME")
+                               "!! LIAISON CARTE PERDUE",
+                               "!! SEM LIGACAO A PLACA")
+UI_STR(STR_ALARM_TEST,         "PRUEBA DE ALARMA","ALARM TEST","TEST D'ALARME","TESTE DE ALARME")
 
 // ------------------------------------------------------- centro de alarmas
-UI_STR(STR_PRIO_HIGH,          "ALTA",         "HIGH",        "HAUTE")
-UI_STR(STR_PRIO_MEDIUM,        "MEDIA",        "MEDIUM",      "MOYENNE")
-UI_STR(STR_PRIO_LOW,           "BAJA",         "LOW",         "BASSE")
+UI_STR(STR_PRIO_HIGH,          "ALTA",         "HIGH",        "HAUTE",       "ALTA")
+UI_STR(STR_PRIO_MEDIUM,        "MEDIA",        "MEDIUM",      "MOYENNE",     "MEDIA")
+UI_STR(STR_PRIO_LOW,           "BAJA",         "LOW",         "BASSE",       "BAIXA")
 UI_STR(STR_ALARM_ACTIVE_NO_TEST,
        "Hay una alarma activa:\nno se puede probar ahora",
        "An alarm is active:\ncannot test now",
-       "Une alarme est active:\ntest impossible")
+       "Une alarme est active:\ntest impossible",
+       "Ha um alarme ativo:\nnao e possivel testar agora")
 UI_STR(STR_TESTING_ALARM_SIGNALS,
        "Probando senales de alarma...",
        "Testing alarm signals...",
-       "Test des signaux d'alarme...")
+       "Test des signaux d'alarme...",
+       "A testar sinais de alarme...")
 UI_STR(STR_ALARM_SILENCED,     "Alarma silenciada",
                                "Alarm silenced",
-                               "Alarme silencee")
-UI_STR(STR_LOADING,            "Cargando...",  "Loading...",  "Chargement...")
-UI_STR(STR_ALARMS,             "Alarmas",      "Alarms",      "Alarmes")
-UI_STR(STR_TEST_UC,            "PROBAR",       "TEST",        "TESTER")
-UI_STR(STR_ACTIVE_F,           "Activas",      "Active",      "Actives")
-UI_STR(STR_AUDIO_PAUSED,       "AUDIO EN PAUSA","AUDIO PAUSED","AUDIO EN PAUSE")
-UI_STR(STR_ONGOING,            "en curso",     "ongoing",     "en cours")
-UI_STR(STR_CANNOT_SILENCE,     "NO SILENCIABLE","CANNOT SILENCE","NON SILENCABLE")
-UI_STR(STR_RESUME_UC,          "REANUDAR",     "RESUME",      "REPRENDRE")
-UI_STR(STR_SILENCE_UC,         "SILENCIAR",    "SILENCE",     "SILENCE")
+                               "Alarme silencee",
+                               "Alarme silenciado")
+UI_STR(STR_LOADING,            "Cargando...",  "Loading...",  "Chargement...","A carregar...")
+UI_STR(STR_ALARMS,             "Alarmas",      "Alarms",      "Alarmes",     "Alarmes")
+UI_STR(STR_TEST_UC,            "PROBAR",       "TEST",        "TESTER",      "TESTAR")
+UI_STR(STR_ACTIVE_F,           "Activas",      "Active",      "Actives",     "Ativos")
+UI_STR(STR_AUDIO_PAUSED,       "AUDIO EN PAUSA","AUDIO PAUSED","AUDIO EN PAUSE","AUDIO EM PAUSA")
+UI_STR(STR_ONGOING,            "en curso",     "ongoing",     "en cours",    "em curso")
+UI_STR(STR_CANNOT_SILENCE,     "NO SILENCIABLE","CANNOT SILENCE","NON SILENCABLE","NAO SILENCIAVEL")
+UI_STR(STR_RESUME_UC,          "REANUDAR",     "RESUME",      "REPRENDRE",   "RETOMAR")
+UI_STR(STR_SILENCE_UC,         "SILENCIAR",    "SILENCE",     "SILENCE",     "SILENCIAR")
 UI_STR(STR_NO_ACTIVE_ALARMS,   "Sin alarmas activas",
                                "No active alarms",
-                               "Aucune alarme active")
-UI_STR(STR_LOG,                "Registro",     "Log",         "Journal")
+                               "Aucune alarme active",
+                               "Sem alarmes ativos")
+UI_STR(STR_LOG,                "Registro",     "Log",         "Journal",     "Registo")
 UI_STR(STR_NO_ALARMS_RECORDED, "Todavia no ha saltado ninguna alarma",
                                "No alarms recorded yet",
-                               "Aucune alarme enregistree")
-UI_STR(STR_UNRESOLVED,         "sin resolver", "unresolved",  "non resolue")
-UI_STR(STR_RESOLVED,           "resuelta",     "resolved",    "resolue")
-UI_STR(STR_CLOSE_UC,           "CERRAR",       "CLOSE",       "FERMER")
+                               "Aucune alarme enregistree",
+                               "Ainda nao ocorreu nenhum alarme")
+UI_STR(STR_UNRESOLVED,         "sin resolver", "unresolved",  "non resolue", "por resolver")
+UI_STR(STR_RESOLVED,           "resuelta",     "resolved",    "resolue",     "resolvido")
+UI_STR(STR_CLOSE_UC,           "CERRAR",       "CLOSE",       "FERMER",      "FECHAR")
 UI_STR(STR_COULD_NOT_READ_LOG, "No se pudo leer el registro",
                                "Could not read the log",
-                               "Impossible de lire le journal")
+                               "Impossible de lire le journal",
+                               "Nao foi possivel ler o registo")
 UI_STR(STR_DESC_UNAVAILABLE,   "Descripcion no disponible",
                                "Description unavailable",
-                               "Description indisponible")
+                               "Description indisponible",
+                               "Descricao indisponivel")
 
 // ------------------------------------------------------- salida del bebe
 UI_STR(STR_EXIT_IDLE_NAMED_FMT,"Incubadora en reposo\n%s ha salido:",
                                "Incubator idle\n%s has come out:",
-                               "Incubateur au repos\n%s est sorti:")
+                               "Incubateur au repos\n%s est sorti:",
+                               "Incubadora em repouso\n%s saiu:")
 UI_STR(STR_EXIT_IDLE_ANON,     "Incubadora en reposo\nEl bebe ha salido:",
                                "Incubator idle\nThe baby has come out:",
-                               "Incubateur au repos\nLe bebe est sorti:")
-UI_STR(STR_WITH_THE_MOTHER,    "CON LA MADRE", "WITH THE MOTHER","AVEC LA MERE")
-UI_STR(STR_DISCHARGE_UC,       "ALTA",         "DISCHARGE",   "SORTIE")
+                               "Incubateur au repos\nLe bebe est sorti:",
+                               "Incubadora em repouso\nO bebe saiu:")
+UI_STR(STR_WITH_THE_MOTHER,    "CON LA MADRE", "WITH THE MOTHER","AVEC LA MERE","COM A MAE")
+UI_STR(STR_DISCHARGE_UC,       "ALTA",         "DISCHARGE",   "SORTIE",      "ALTA")
 UI_STR(STR_REASON_FOR_DISCHARGE,"Motivo del alta",
                                "Reason for discharge",
-                               "Motif de la sortie")
-UI_STR(STR_OUTCOME_SURVIVED_UC,"SOBREVIVIO",   "SURVIVED",    "A SURVECU")
-UI_STR(STR_OUTCOME_DIED_UC,    "NO SOBREVIVIO","DID NOT SURVIVE","N'A PAS SURVECU")
-UI_STR(STR_OUTCOME_TRANSFER_UC,"TRASLADADO",   "TRANSFERRED", "TRANSFERE")
-UI_STR(STR_OUTCOME_UNKNOWN_UC, "DESCONOCIDO",  "UNKNOWN",     "INCONNU")
+                               "Motif de la sortie",
+                               "Motivo da alta")
+UI_STR(STR_OUTCOME_SURVIVED_UC,"SOBREVIVIO",   "SURVIVED",    "A SURVECU",   "SOBREVIVEU")
+UI_STR(STR_OUTCOME_DIED_UC,    "NO SOBREVIVIO","DID NOT SURVIVE","N'A PAS SURVECU","NAO SOBREVIVEU")
+UI_STR(STR_OUTCOME_TRANSFER_UC,"TRASLADADO",   "TRANSFERRED", "TRANSFERE",   "TRANSFERIDO")
+UI_STR(STR_OUTCOME_UNKNOWN_UC, "DESCONOCIDO",  "UNKNOWN",     "INCONNU",     "DESCONHECIDO")
 UI_STR(STR_CAUSE_OF_DEATH,     "Causa del fallecimiento",
                                "Cause of death",
-                               "Cause du deces")
+                               "Cause du deces",
+                               "Causa da morte")
 
 // Causas de fallecimiento, version de boton (mayusculas)
-UI_STR(STR_CAUSE_PREMATURITY_UC,"PREMATURIDAD","PREMATURITY", "PREMATURITE")
+UI_STR(STR_CAUSE_PREMATURITY_UC,"PREMATURIDAD","PREMATURITY", "PREMATURITE", "PREMATURIDADE")
 UI_STR(STR_CAUSE_ASPHYXIA_UC,  "ASFIXIA PERINATAL",
                                "PERINATAL ASPHYXIA",
-                               "ASPHYXIE PERINATALE")
+                               "ASPHYXIE PERINATALE",
+                               "ASFIXIA PERINATAL")
 UI_STR(STR_CAUSE_SEPSIS_UC,    "SEPSIS / INFECCION",
                                "SEPSIS / INFECTION",
-                               "SEPSIS / INFECTION")
+                               "SEPSIS / INFECTION",
+                               "SEPSE / INFECAO")
 UI_STR(STR_CAUSE_MALFORMATION_UC,"MALFORMACION CONGENITA",
                                "CONGENITAL MALFORMATION",
-                               "MALFORMATION CONGENITALE")
-UI_STR(STR_CAUSE_HYPOTHERMIA_UC,"HIPOTERMIA",  "HYPOTHERMIA", "HYPOTHERMIE")
+                               "MALFORMATION CONGENITALE",
+                               "MALFORMACAO CONGENITA")
+UI_STR(STR_CAUSE_HYPOTHERMIA_UC,"HIPOTERMIA",  "HYPOTHERMIA", "HYPOTHERMIE", "HIPOTERMIA")
 UI_STR(STR_CAUSE_OTHER_UC,     "OTRA / DESCONOCIDA",
                                "OTHER / UNKNOWN",
-                               "AUTRE / INCONNUE")
+                               "AUTRE / INCONNUE",
+                               "OUTRA / DESCONHECIDA")
 
 // ------------------------------------------------------- historial de bebes
-UI_STR(STR_OUTCOME_SURVIVED,   "Sobrevivio",   "Survived",    "A survecu")
-UI_STR(STR_OUTCOME_DIED,       "No sobrevivio","Deceased",    "Decede")
-UI_STR(STR_OUTCOME_TRANSFER,   "Trasladado",   "Transferred", "Transfere")
-UI_STR(STR_OUTCOME_UNKNOWN,    "Desconocido",  "Unknown",     "Inconnu")
-UI_STR(STR_CAUSE_PREMATURITY,  "Prematuridad", "Prematurity", "Prematurite")
+UI_STR(STR_OUTCOME_SURVIVED,   "Sobrevivio",   "Survived",    "A survecu",   "Sobreviveu")
+UI_STR(STR_OUTCOME_DIED,       "No sobrevivio","Deceased",    "Decede",      "Falecido")
+UI_STR(STR_OUTCOME_TRANSFER,   "Trasladado",   "Transferred", "Transfere",   "Transferido")
+UI_STR(STR_OUTCOME_UNKNOWN,    "Desconocido",  "Unknown",     "Inconnu",     "Desconhecido")
+UI_STR(STR_CAUSE_PREMATURITY,  "Prematuridad", "Prematurity", "Prematurite", "Prematuridade")
 UI_STR(STR_CAUSE_ASPHYXIA,     "Asfixia perinatal",
                                "Perinatal asphyxia",
-                               "Asphyxie perinatale")
+                               "Asphyxie perinatale",
+                               "Asfixia perinatal")
 UI_STR(STR_CAUSE_SEPSIS,       "Sepsis/infeccion",
                                "Sepsis/infection",
-                               "Sepsis/infection")
+                               "Sepsis/infection",
+                               "Sepse/infecao")
 UI_STR(STR_CAUSE_MALFORMATION, "Malformacion congenita",
                                "Congenital malformation",
-                               "Malformation congenitale")
-UI_STR(STR_CAUSE_HYPOTHERMIA,  "Hipotermia",   "Hypothermia", "Hypothermie")
-UI_STR(STR_CAUSE_OTHER,        "Otra",         "Other",       "Autre")
-UI_STR(STR_CAUSE_UNKNOWN_F,    "Desconocida",  "Unknown",     "Inconnue")
-UI_STR(STR_ACTIVE_M,           "Activos",      "Active",      "Actifs")
+                               "Malformation congenitale",
+                               "Malformacao congenita")
+UI_STR(STR_CAUSE_HYPOTHERMIA,  "Hipotermia",   "Hypothermia", "Hypothermie", "Hipotermia")
+UI_STR(STR_CAUSE_OTHER,        "Otra",         "Other",       "Autre",       "Outra")
+UI_STR(STR_CAUSE_UNKNOWN_F,    "Desconocida",  "Unknown",     "Inconnue",    "Desconhecida")
+UI_STR(STR_ACTIVE_M,           "Activos",      "Active",      "Actifs",      "Ativos")
 UI_STR(STR_NO_ACTIVE_BABIES,   "Sin bebes activos",
                                "No active babies",
-                               "Aucun bebe actif")
+                               "Aucun bebe actif",
+                               "Sem bebes ativos")
 UI_STR(STR_BABY_ROW_ACTIVE_FMT,
        "%s  -  EG %u  -  %s\nCanguro %u\nFoto %s  -  Termo %s  -  Hum %s",
        "%s  -  GA %u  -  %s\nKangaroo %u\nPhoto %s  -  Thermo %s  -  Hum %s",
-       "%s  -  AG %u  -  %s\nKangourou %u\nPhoto %s  -  Thermo %s  -  Hum %s")
-UI_STR(STR_HISTORY,            "Historial",    "History",     "Historique")
+       "%s  -  AG %u  -  %s\nKangourou %u\nPhoto %s  -  Thermo %s  -  Hum %s",
+       "%s  -  IG %u  -  %s\nCanguru %u\nFoto %s  -  Termo %s  -  Hum %s")
+UI_STR(STR_HISTORY,            "Historial",    "History",     "Historique",  "Historico")
 UI_STR(STR_NO_BABIES_DISCHARGED,"Aun no se ha dado de alta a ningun bebe",
                                "No babies discharged yet",
-                               "Aucun bebe encore sorti")
+                               "Aucun bebe encore sorti",
+                               "Ainda nao foi dada alta a nenhum bebe")
 UI_STR(STR_BABY_ROW_ARCHIVED_FMT,
        "%s  -  EG %u  -  %s  -  %s\nCanguro %u\nFoto %s  -  Termo %s  -  Hum %s",
        "%s  -  GA %u  -  %s  -  %s\nKangaroo %u\nPhoto %s  -  Thermo %s  -  Hum %s",
-       "%s  -  AG %u  -  %s  -  %s\nKangourou %u\nPhoto %s  -  Thermo %s  -  Hum %s")
+       "%s  -  AG %u  -  %s  -  %s\nKangourou %u\nPhoto %s  -  Thermo %s  -  Hum %s",
+       "%s  -  IG %u  -  %s  -  %s\nCanguru %u\nFoto %s  -  Termo %s  -  Hum %s")
 UI_STR(STR_DISCHARGE_OUTCOME,  "Dar de alta - resultado:",
                                "Discharge - outcome:",
-                               "Sortie - resultat:")
-UI_STR(STR_CANCEL_UC,          "CANCELAR",     "CANCEL",      "ANNULER")
+                               "Sortie - resultat:",
+                               "Dar alta - resultado:")
+UI_STR(STR_CANCEL_UC,          "CANCELAR",     "CANCEL",      "ANNULER",     "CANCELAR")
 UI_STR(STR_WEIGHT_EVOLUTION,   "Evolucion de peso",
                                "Weight evolution",
-                               "Evolution du poids")
-UI_STR(STR_BACK_UC,            "ATRAS",        "BACK",        "RETOUR")
+                               "Evolution du poids",
+                               "Evolucao do peso")
+UI_STR(STR_BACK_UC,            "ATRAS",        "BACK",        "RETOUR",      "VOLTAR")
 UI_STR(STR_NO_WEIGHT_DATA,     "Sin datos de peso",
                                "No weight data",
-                               "Pas de donnees de poids")
-UI_STR(STR_DAY_OF_LIFE,        "dia de vida",  "day of life", "jour de vie")
-UI_STR(STR_MEASUREMENT,        "medida",       "measurement", "mesure")
+                               "Pas de donnees de poids",
+                               "Sem dados de peso")
+UI_STR(STR_DAY_OF_LIFE,        "dia de vida",  "day of life", "jour de vie", "dia de vida")
+UI_STR(STR_MEASUREMENT,        "medida",       "measurement", "mesure",      "medicao")
 UI_STR(STR_NO_BOARD_RESPONSE,  "Sin respuesta de la placa",
                                "No response from board",
-                               "Pas de reponse de la carte")
+                               "Pas de reponse de la carte",
+                               "Sem resposta da placa")
 UI_STR(STR_COULD_NOT_FETCH_HISTORY,
                                "No se pudo consultar el historial",
                                "Could not fetch history",
-                               "Impossible de recuperer l'historique")
-UI_STR(STR_DISCHARGE_REFUSED,  "Alta rechazada","Discharge refused","Sortie refusee")
-UI_STR(STR_BABY_DISCHARGED,    "Bebe dado de alta","Baby discharged","Bebe sorti")
+                               "Impossible de recuperer l'historique",
+                               "Nao foi possivel consultar o historico")
+UI_STR(STR_DISCHARGE_REFUSED,  "Alta rechazada","Discharge refused","Sortie refusee","Alta recusada")
+UI_STR(STR_BABY_DISCHARGED,    "Bebe dado de alta","Baby discharged","Bebe sorti","Bebe com alta")
 
 // ------------------------------------------------------- asistente de bebe
-UI_STR(STR_CONTINUE_UC,        "CONTINUAR",    "CONTINUE",    "CONTINUER")
-UI_STR(STR_SKIP_UC,            "SALTAR",       "SKIP",        "PASSER")
-UI_STR(STR_APPLY_UC,           "APLICAR",      "APPLY",       "APPLIQUER")
+UI_STR(STR_CONTINUE_UC,        "CONTINUAR",    "CONTINUE",    "CONTINUER",   "CONTINUAR")
+UI_STR(STR_SKIP_UC,            "SALTAR",       "SKIP",        "PASSER",      "IGNORAR")
+UI_STR(STR_APPLY_UC,           "APLICAR",      "APPLY",       "APPLIQUER",   "APLICAR")
 UI_STR(STR_VALUE_BETWEEN_FMT,  "Introduce un valor entre %u y %u",
                                "Enter a value between %u and %u",
-                               "Entrez une valeur entre %u et %u")
+                               "Entrez une valeur entre %u et %u",
+                               "Introduza um valor entre %u e %u")
 UI_STR(STR_LOADING_BABIES,     "Cargando bebes...",
                                "Loading babies...",
-                               "Chargement des bebes...")
+                               "Chargement des bebes...",
+                               "A carregar bebes...")
 UI_STR(STR_NEW_OR_EXISTING,    "Bebe nuevo o existente",
                                "New or existing baby",
-                               "Bebe nouveau ou existant")
-UI_STR(STR_NEW_BABY_UC,        "BEBE NUEVO",   "NEW BABY",    "NOUVEAU BEBE")
+                               "Bebe nouveau ou existant",
+                               "Bebe novo ou existente")
+UI_STR(STR_NEW_BABY_UC,        "BEBE NUEVO",   "NEW BABY",    "NOUVEAU BEBE","BEBE NOVO")
 UI_STR(STR_ENTER_A_NAME,       "Introduce un nombre",
                                "Enter a name",
-                               "Entrez un nom")
-UI_STR(STR_BABY_NAME,          "Nombre del bebe","Baby name", "Nom du bebe")
-UI_STR(STR_LETTERS_ONLY,       "Solo letras",  "Letters only","Lettres uniquement")
+                               "Entrez un nom",
+                               "Introduza um nome")
+UI_STR(STR_BABY_NAME,          "Nombre del bebe","Baby name", "Nom du bebe", "Nome do bebe")
+UI_STR(STR_LETTERS_ONLY,       "Solo letras",  "Letters only","Lettres uniquement","Apenas letras")
 UI_STR(STR_GEST_AGE_WEEKS,     "Edad gestacional (semanas)",
                                "Gestational age (weeks)",
-                               "Age gestationnel (semaines)")
+                               "Age gestationnel (semaines)",
+                               "Idade gestacional (semanas)")
 UI_STR(STR_CURRENT_WEIGHT_G,   "Peso actual (gramos)",
                                "Current weight (grams)",
-                               "Poids actuel (grammes)")
-UI_STR(STR_NO_WEIGHT_UC,       "SIN PESO",     "NO WEIGHT",   "SANS POIDS")
+                               "Poids actuel (grammes)",
+                               "Peso atual (gramas)")
+UI_STR(STR_NO_WEIGHT_UC,       "SIN PESO",     "NO WEIGHT",   "SANS POIDS",  "SEM PESO")
 UI_STR(STR_AGE_IN_DAYS,        "Edad en dias (sin hora sincronizada)",
                                "Age in days (no synced time)",
-                               "Age en jours (heure non sync.)")
-UI_STR(STR_SUMMARY,            "Resumen",      "Summary",     "Resume")
+                               "Age en jours (heure non sync.)",
+                               "Idade em dias (hora nao sincronizada)")
+UI_STR(STR_SUMMARY,            "Resumen",      "Summary",     "Resume",      "Resumo")
 UI_STR(STR_PLACE_SKIN_SENSOR,  "Coloca el sensor de piel asi",
                                "Place the skin sensor like this",
-                               "Placez le capteur cutane ainsi")
+                               "Placez le capteur cutane ainsi",
+                               "Coloque o sensor de pele assim")
 UI_STR(STR_PROPOSED_AIR_TEMP,  "Temperatura de aire propuesta",
                                "Proposed air temperature",
-                               "Temperature d'air proposee")
+                               "Temperature d'air proposee",
+                               "Temperatura de ar proposta")
 UI_STR(STR_RANGE_FMT,          "rango %.1f - %.1f C",
                                "range %.1f - %.1f C",
-                               "plage %.1f - %.1f C")
+                               "plage %.1f - %.1f C",
+                               "intervalo %.1f - %.1f C")
 UI_STR(STR_NO_RANGE_SKIN_BLOCKED,
        "Sin rango automatico: el modo PIEL no se puede activar.",
        "No automatic range: SKIN mode cannot be activated.",
-       "Pas de plage automatique : le mode PEAU ne peut pas etre active.")
+       "Pas de plage automatique : le mode PEAU ne peut pas etre active.",
+       "Sem intervalo automatico: o modo PELE nao pode ser ativado.")
 UI_STR(STR_NO_RANGE_AIR_MANUAL,
        "Sin rango automatico (peso no informado).\nEl modo AIRE arrancara en manual.",
        "No automatic range (weight not provided).\nAIR mode will start in manual.",
-       "Pas de plage automatique (poids non fourni).\nLe mode AIR demarrera en manuel.")
+       "Pas de plage automatique (poids non fourni).\nLe mode AIR demarrera en manuel.",
+       "Sem intervalo automatico (peso nao indicado).\nO modo AR arranca em manual.")
 // El asistente y el historial dan mensajes distintos en ingles para el mismo
 // fallo de consulta ("baby history" vs "history"): se conservan tal cual.
 UI_STR(STR_COULD_NOT_FETCH_BABY_HISTORY,
        "No se pudo consultar el historial",
        "Could not fetch baby history",
-       "Impossible de recuperer l'historique")
+       "Impossible de recuperer l'historique",
+       "Nao foi possivel consultar o historico do bebe")
 UI_STR(STR_OPERATION_REFUSED,  "Operacion rechazada, intentelo de nuevo",
                                "Operation refused, try again",
-                               "Operation refusee, reessayez")
+                               "Operation refusee, reessayez",
+                               "Operacao recusada, tente novamente")
 
 // ------------------------------------------------------- ajuste de hora
-UI_STR(STR_ADJUST_TIME_UC,     "AJUSTAR HORA", "ADJUST TIME", "AJUSTER L'HEURE")
+UI_STR(STR_ADJUST_TIME_UC,     "AJUSTAR HORA", "ADJUST TIME", "AJUSTER L'HEURE","ACERTAR HORA")
 UI_STR(STR_DATE_TIME_HINT,     "DD/MM/AA  HH:MM",
                                "DD/MM/YY  HH:MM",
-                               "JJ/MM/AA  HH:MM")
-UI_STR(STR_CLEAR_UC,           "BORRAR",       "CLEAR",       "EFFACER")
+                               "JJ/MM/AA  HH:MM",
+                               "DD/MM/AA  HH:MM")
+UI_STR(STR_CLEAR_UC,           "BORRAR",       "CLEAR",       "EFFACER",     "LIMPAR")
 UI_STR(STR_FILL_DATE_TIME,     "Completa la fecha y la hora",
                                "Fill in the whole date and time",
-                               "Completez la date et l'heure")
+                               "Completez la date et l'heure",
+                               "Preencha a data e a hora")
 UI_STR(STR_MONTH_OUT_OF_RANGE, "Mes fuera de rango (01-12)",
                                "Month out of range (01-12)",
-                               "Mois hors plage (01-12)")
+                               "Mois hors plage (01-12)",
+                               "Mes fora do intervalo (01-12)")
 UI_STR(STR_YEAR_OUT_OF_RANGE_FMT,
                                "Ano fuera de rango (%02d-%02d)",
                                "Year out of range (%02d-%02d)",
-                               "Annee hors plage (%02d-%02d)")
+                               "Annee hors plage (%02d-%02d)",
+                               "Ano fora do intervalo (%02d-%02d)")
 UI_STR(STR_DAY_OUT_OF_RANGE_FMT,
                                "Dia fuera de rango (01-%02u)",
                                "Day out of range (01-%02u)",
-                               "Jour hors plage (01-%02u)")
+                               "Jour hors plage (01-%02u)",
+                               "Dia fora do intervalo (01-%02u)")
 UI_STR(STR_HOUR_OUT_OF_RANGE,  "Hora fuera de rango (00-23)",
                                "Hour out of range (00-23)",
-                               "Heure hors plage (00-23)")
+                               "Heure hors plage (00-23)",
+                               "Hora fora do intervalo (00-23)")
 UI_STR(STR_MINUTE_OUT_OF_RANGE,"Minuto fuera de rango (00-59)",
                                "Minute out of range (00-59)",
-                               "Minute hors plage (00-59)")
-UI_STR(STR_SENDING,            "Enviando...",  "Sending...",  "Envoi...")
-UI_STR(STR_TIME_SET,           "Hora ajustada","Time set",    "Heure ajustee")
-UI_STR(STR_TIME_REJECTED,      "Hora rechazada","Time rejected","Heure rejetee")
+                               "Minute hors plage (00-59)",
+                               "Minuto fora do intervalo (00-59)")
+UI_STR(STR_SENDING,            "Enviando...",  "Sending...",  "Envoi...",    "A enviar...")
+UI_STR(STR_TIME_SET,           "Hora ajustada","Time set",    "Heure ajustee","Hora acertada")
+UI_STR(STR_TIME_REJECTED,      "Hora rechazada","Time rejected","Heure rejetee","Hora recusada")
 
 // ------------------------------------------------------- tendencia
-UI_STR(STR_TREND,              "Tendencia",    "Trend",       "Tendance")
+UI_STR(STR_TREND,              "Tendencia",    "Trend",       "Tendance",    "Tendencia")
