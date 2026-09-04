@@ -504,9 +504,18 @@ static void apply_connectivity_indicator(lv_obj_t *icon, lv_obj_t *bars[4],
   const bool onServer =
       (status == COMM_STATUS_WIFI_SERVER || status == COMM_STATUS_GPRS_SERVER);
   const bool hasTransport = (status != COMM_STATUS_NONE);
-  const lv_color_t color = !hasTransport  ? lv_color_hex(0x888888)
-                            : onServer    ? lv_color_hex(0x2E9E4F)
-                                          : lv_color_hex(0xCC7A00);
+
+  // Azul (el acento de marca, 0x0075EE) SOLO cuando la placa esta hablando
+  // con ThingsBoard; en cuanto no hay servidor el indicador se queda
+  // acromatico (negro con transporte, gris sin transporte ni dato fresco).
+  // Antes era verde/naranja: el naranja se leia como aviso cuando "WiFi sin
+  // servidor" no es una alarma, y el verde competia con los verdes de estado
+  // del resto del HMI. Lo unico que hace falta distinguir de un vistazo es
+  // "sube telemetria" / "no sube", y un color unico para el caso bueno lo
+  // dice sin gastar la semantica de alarma.
+  const lv_color_t color = !hasTransport ? lv_color_hex(0x888888)
+                            : onServer   ? lv_color_hex(0x0075EE)
+                                         : lv_color_hex(0x000000);
 
   const char *iconTxt;
   switch (status) {
@@ -537,8 +546,11 @@ static void apply_connectivity_indicator(lv_obj_t *icon, lv_obj_t *bars[4],
       continue;
     }
     lv_obj_clear_flag(bars[i], LV_OBJ_FLAG_HIDDEN);
+    // Las barras vacias van en gris CLARO, no oscuro: con el indicador
+    // acromatico (sin servidor) las llenas son negras, y un vacio 0x404040
+    // era casi el mismo tono, con lo que no se distinguia el nivel.
     lv_obj_set_style_bg_color(
-        bars[i], (i < fillCount) ? color : lv_color_hex(0x404040),
+        bars[i], (i < fillCount) ? color : lv_color_hex(0xDDDDDD),
         LV_PART_MAIN);
   }
 }

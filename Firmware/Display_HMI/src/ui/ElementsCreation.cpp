@@ -914,9 +914,10 @@ static void create_heading_conn_indicator(lv_obj_t *parent, lv_coord_t x,
   *outIcon = icon;
 
   // 4 barras estilo "senal de movil", altura creciente, apoyadas en la misma
-  // base, centradas bajo el texto/icono de arriba. Sin fill = gris (igual
-  // que las power bars de PID); con fill = verde (igual que "conectado" en
-  // el resto del HMI). El nivel a colorear (linkBars) llega en CTRL,STATE.
+  // base, centradas bajo el texto/icono de arriba. Sin fill = gris claro; con
+  // fill = azul si la placa esta en ThingsBoard y negro si no (ver
+  // apply_connectivity_indicator() en UITask.cpp). El nivel a colorear
+  // (linkBars) llega en CTRL,STATE.
   static const lv_coord_t BAR_H[4] = {8, 13, 18, 23};
   for (int i = 0; i < 4; i++) {
     lv_obj_t *bar = lv_obj_create(cont);
@@ -927,7 +928,7 @@ static void create_heading_conn_indicator(lv_obj_t *parent, lv_coord_t x,
     lv_obj_set_x(bar, 4 + i * 9);
     lv_obj_set_y(bar, -2);
     lv_obj_set_style_radius(bar, 1, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(bar, lv_color_hex(0x404040), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(bar, lv_color_hex(0xDDDDDD), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_MAIN);
     outBars[i] = bar;
   }
