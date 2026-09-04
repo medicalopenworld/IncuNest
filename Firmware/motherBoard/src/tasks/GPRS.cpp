@@ -616,6 +616,9 @@ void GPRSPowerUp() {
       GPRS.packetSentenceTime = millis();
     }
     if (strstr(GPRS.buffer, AT_CPIN_SIM_PIN)) {
+      // El modem ha contestado algo a un AT, aunque sea "pideme el PIN": es
+      // respuesta valida para el factory test (ftest_gsm_at).
+      GPRS.modemResponded = true;
       if (!GPRS.pinAttempted) {
         logModemData("[GPRS] -> SIM PIN required, unlocking...");
         Serial2.print(SIMCOM800_ENTER_PIN);
@@ -630,12 +633,27 @@ void GPRSPowerUp() {
       clearGPRSBuffer();
       GPRS.packetSentenceTime = 0; // force re-query after 1 s
     }
-    if (checkSerial(AT_CPIN_READY, AT_ERROR) == -1) {
-      logE("[GPRS] -> CPIN query failed, SIM may be missing or damaged");
+    // checkSerial() ya hace process++ y limpia el buffer en cuanto encuentra
+    // un match: se captura el retorno ANTES de decidir nada con el, porque
+    // llamarlo dos veces (una para el flag, otra para el log) consultaria un
+    // buffer ya vaciado por la primera llamada.
+    {
+      const int cpinResult = checkSerial(AT_CPIN_READY, AT_ERROR);
+      if (cpinResult != 0) {
+        // true (READY) o -1 (ERROR) son ambos "el modem ha respondido a un
+        // AT" para el factory test -- un ERROR de CPIN es tan valido como un
+        // OK a la hora de saber si hay modem al otro lado del UART.
+        GPRS.modemResponded = true;
+      }
+      if (cpinResult == -1) {
+        logE("[GPRS] -> CPIN query failed, SIM may be missing or damaged");
+      }
     }
     break;
   case 3:
     logModemData("[GPRS] -> Power up success");
+    GPRS.modemResponded = true;
+    GPRS.simReady = true;
     GPRS.CCID = modem.getSimCCID();
     GPRS.CCID.remove(GPRS.CCID.length() - 1);
     GPRS.IMEI = modem.getIMEI();

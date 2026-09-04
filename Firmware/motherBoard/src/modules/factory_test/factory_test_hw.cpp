@@ -1,4 +1,4 @@
-// Cuerpos de los 30 tests de la motherBoard (design.md D10, mb-factory-test).
+// Cuerpos de los 29 tests de la motherBoard (design.md D10, mb-factory-test).
 // Una funcion estatica por id, tabla {id, fn} al final, ftest_hw_run() como
 // unico punto de entrada. Fail-safe por diseno: ninguna lectura invalida
 // levanta una excepcion, siempre se traduce a FAIL con detail.
@@ -28,6 +28,7 @@ extern bool ambientSensorPresent;
 extern bool digitalCurrentSensorPresent[2];
 extern uint32_t g_lastHmiLineMs;
 extern bool g_hmiEverSeen;
+extern long lastSuccesfullSensorUpdate[SENSOR_TEMP_QTY];
 
 #define D(...) snprintf(detail, FTEST_DETAIL_MAX + 1, __VA_ARGS__)
 
@@ -155,54 +156,85 @@ static FtestStatus ftest_ext_sht4x(char *detail, FtestCascade *) {
 }
 
 // ---------------------------------------------------------------------------
-// 7: SENSOR_SRC -- decide la cascada SKIP de los SB_* (design.md D10).
-static FtestStatus ftest_sensor_src(char *detail, FtestCascade *cascade) {
-  const bool ok = (sensorSourceGet() == SENSOR_SOURCE_SENSORBOARD);
-  cascade->sensor_src = ok ? FTEST_DEP_OK : FTEST_DEP_FAILED;
-  if (!ok) {
-    D("i2c2 responde");
-    return FTEST_FAIL;
-  }
-  detail[0] = '\0';
-  return FTEST_PASS;
-}
-
-static bool sb_skip_if_no_sensorboard(const FtestCascade *cascade, char *detail) {
-  if (cascade->sensor_src == FTEST_DEP_FAILED) {
-    D("sin sensorboard");
-    return true;
-  }
-  return false;
-}
-
-// ---------------------------------------------------------------------------
-// 8: SB_LINK
-static FtestStatus ftest_sb_link(char *detail, FtestCascade *cascade) {
-  if (sb_skip_if_no_sensorboard(cascade, detail)) return FTEST_SKIP;
-
+// 7: SENSORBOARD -- sensor de cabina por CUALQUIERA de los dos caminos: SHT40
+// de la SensorBoard por USB o STS35/SHTC3 por I2C2 (equipo antiguo). Sustituye
+// a los antiguos SENSOR_SRC + SB_LINK (design.md D10, shared-factory-test-
+// bench): en banco, con una SensorBoard conectada, el sondeo I2C2 de
+// clasificacion de generacion se hace sobre las mismas lineas que son D+/D-
+// del USB y devuelve un ACK falso -- separar "origen" de "enlace" convertia
+// esa peculiaridad del sondeo en un FAIL de fabrica con una SensorBoard
+// enlazada y funcionando. Lo que importa es que la cabina tenga sensor, no
+// por que bus llega.
+//
+// cascade->sb_usb se deja en OK solo si el camino que dio PASA fue USB: los
+// tests sb_status/sb_env/sb_door/sb_light/sb_camera siguen exigiendo ese
+// camino y SKIP en I2C (no tienen forma de leer nada por ese bus).
+#define FTEST_SENSORBOARD_TIMEOUT_MS 10000u
+#define FTEST_SENSORBOARD_ENV_FRESH_MS 3000u
+#define FTEST_SENSORBOARD_I2C_FRESH_MS 5000u
+// Mismo rango que DIG_TEMP_ROOM_MIN/MAX (initHardware.cpp): duplicado a
+// proposito, igual que ya hacen SKIN_ADC/EXT_SHT4X con sus propios rangos --
+// esos #define son locales a ese .cpp y no se exponen en ningun header.
+#define FTEST_ROOM_TEMP_MIN_C 1.0f
+#define FTEST_ROOM_TEMP_MAX_C 60.0f
+static FtestStatus ftest_sensorboard(char *detail, FtestCascade *cascade) {
+  const bool viaUsb = (sensorSourceGet() == SENSOR_SOURCE_SENSORBOARD);
   const uint32_t start = millis();
-  while ((uint32_t)(millis() - start) < FTEST_MB_RESPONSE_TIMEOUT_MS) {
-    SbSnapshot s;
-    sensorboard_get_snapshot(&s);
-    if (sensorboard_comm_connected() && s.link_ok) {
-      D("ok");
-      return FTEST_PASS;
+  while ((uint32_t)(millis() - start) < FTEST_SENSORBOARD_TIMEOUT_MS) {
+    if (viaUsb) {
+      SbSnapshot s;
+      sensorboard_get_snapshot(&s);
+      const uint32_t envAge = (uint32_t)(millis() - s.last_env_ms);
+      const bool anyValid =
+          s.temp.valid[0] || s.temp.valid[1] || s.temp.valid[2];
+      if (sensorboard_comm_connected() && s.link_ok && s.env_seen &&
+          envAge < FTEST_SENSORBOARD_ENV_FRESH_MS && anyValid) {
+        cascade->sb_usb = FTEST_DEP_OK;
+        D("usb");
+        return FTEST_PASS;
+      }
+    } else {
+      const uint32_t age = (uint32_t)(
+          millis() - (uint32_t)lastSuccesfullSensorUpdate[ROOM_DIGITAL_TEMP_SENSOR]);
+      const float t = in3.temperature[ROOM_DIGITAL_TEMP_SENSOR];
+      if (roomSensorI2CDetected() && age < FTEST_SENSORBOARD_I2C_FRESH_MS &&
+          std::isfinite(t) && t >= FTEST_ROOM_TEMP_MIN_C &&
+          t <= FTEST_ROOM_TEMP_MAX_C) {
+        // Paso por I2C, no por USB: los tests SB_* de abajo seguiran SKIP.
+        cascade->sb_usb = FTEST_DEP_FAILED;
+        D("i2c");
+        return FTEST_PASS;
+      }
     }
     if (ftest_abort_requested()) {
+      cascade->sb_usb = FTEST_DEP_FAILED;
       D("%s", ftest_abort_reason());
       return FTEST_SKIP;
     }
     ftest_wdt_feed();
     vTaskDelay(pdMS_TO_TICKS(250));
   }
-  D("timeout");
+  cascade->sb_usb = FTEST_DEP_FAILED;
+  D("%s sin datos", viaUsb ? "usb" : "i2c");
   return FTEST_FAIL;
 }
 
+// Los tests sb_status/sb_env/sb_door/sb_light/sb_camera solo tienen datos que
+// leer si SENSORBOARD (id 7) paso por el camino USB -- si paso por I2C, o si
+// no llego a pasar (RUN de un solo test sin haber corrido antes el 7), no hay
+// enlace con la SensorBoard del que tirar.
+static bool sb_skip_if_no_usb(const FtestCascade *cascade, char *detail) {
+  if (cascade->sb_usb != FTEST_DEP_OK) {
+    D("sin usb");
+    return true;
+  }
+  return false;
+}
+
 // ---------------------------------------------------------------------------
-// 9: SB_STATUS
+// 8: SB_STATUS
 static FtestStatus ftest_sb_status(char *detail, FtestCascade *cascade) {
-  if (sb_skip_if_no_sensorboard(cascade, detail)) return FTEST_SKIP;
+  if (sb_skip_if_no_usb(cascade, detail)) return FTEST_SKIP;
 
   // Bloqueante #10 del review de seguridad: si la peticion ni siquiera se
   // pudo encolar, eso no es "falta un recurso concreto" (avail_*) sino
@@ -253,9 +285,9 @@ static FtestStatus ftest_sb_status(char *detail, FtestCascade *cascade) {
 }
 
 // ---------------------------------------------------------------------------
-// 10: SB_ENV
+// 9: SB_ENV
 static FtestStatus ftest_sb_env(char *detail, FtestCascade *cascade) {
-  if (sb_skip_if_no_sensorboard(cascade, detail)) return FTEST_SKIP;
+  if (sb_skip_if_no_usb(cascade, detail)) return FTEST_SKIP;
 
   SbSnapshot s;
   sensorboard_get_snapshot(&s);
@@ -306,9 +338,9 @@ static FtestStatus ftest_sb_env(char *detail, FtestCascade *cascade) {
 }
 
 // ---------------------------------------------------------------------------
-// 11: SB_DOOR (WAIT)
+// 10: SB_DOOR (WAIT)
 static FtestStatus ftest_sb_door(char *detail, FtestCascade *cascade) {
-  if (sb_skip_if_no_sensorboard(cascade, detail)) return FTEST_SKIP;
+  if (sb_skip_if_no_usb(cascade, detail)) return FTEST_SKIP;
 
   ftest_emit(FTEST_MB_SB_DOOR, FTEST_WAIT, "abra y cierre la puerta");
 
@@ -341,9 +373,9 @@ static FtestStatus ftest_sb_door(char *detail, FtestCascade *cascade) {
 }
 
 // ---------------------------------------------------------------------------
-// 12: SB_LIGHT (WAIT)
+// 11: SB_LIGHT (WAIT)
 static FtestStatus ftest_sb_light(char *detail, FtestCascade *cascade) {
-  if (sb_skip_if_no_sensorboard(cascade, detail)) return FTEST_SKIP;
+  if (sb_skip_if_no_usb(cascade, detail)) return FTEST_SKIP;
 
   float base = -1.0f;
   {
@@ -391,9 +423,9 @@ static FtestStatus ftest_sb_light(char *detail, FtestCascade *cascade) {
 }
 
 // ---------------------------------------------------------------------------
-// 13: SB_CAMERA
+// 12: SB_CAMERA
 static FtestStatus ftest_sb_camera(char *detail, FtestCascade *cascade) {
-  if (sb_skip_if_no_sensorboard(cascade, detail)) return FTEST_SKIP;
+  if (sb_skip_if_no_usb(cascade, detail)) return FTEST_SKIP;
 
   if (!sensorboard_capture_request()) {
     D("no se pudo pedir");
@@ -421,7 +453,7 @@ static FtestStatus ftest_sb_camera(char *detail, FtestCascade *cascade) {
 }
 
 // ---------------------------------------------------------------------------
-// 14: ACTUATORS -- reusa actuatorsTest() tal cual (design.md, Non-Goals).
+// 13: ACTUATORS -- reusa actuatorsTest() tal cual (design.md, Non-Goals).
 static FtestStatus ftest_actuators(char *detail, FtestCascade *cascade) {
   const long before = HW_error;
   const bool critical = actuatorsTest();
@@ -434,7 +466,7 @@ static FtestStatus ftest_actuators(char *detail, FtestCascade *cascade) {
 }
 
 // ---------------------------------------------------------------------------
-// 15: FAN_RPM -- depende del resultado de ACTUATORS (cascada).
+// 14: FAN_RPM -- depende del resultado de ACTUATORS (cascada).
 static FtestStatus ftest_fan_rpm(char *detail, FtestCascade *cascade) {
   if (cascade->actuators == FTEST_DEP_FAILED) {
     D("actuators fallo");
@@ -453,7 +485,7 @@ static FtestStatus ftest_fan_rpm(char *detail, FtestCascade *cascade) {
 }
 
 // ---------------------------------------------------------------------------
-// 16: HUMID_USB -- acceso directo a USB_EN/USB_FAULT, no reusa
+// 15: HUMID_USB -- acceso directo a USB_EN/USB_FAULT, no reusa
 // actuatorsTest()/in3_hum (design.md D10, texto literal del requisito).
 #define FTEST_USB_FAULT_SETTLE_MS 100
 static FtestStatus ftest_humid_usb(char *detail, FtestCascade *) {
@@ -471,7 +503,7 @@ static FtestStatus ftest_humid_usb(char *detail, FtestCascade *) {
 }
 
 // ---------------------------------------------------------------------------
-// 17: BUZZER -- con microfono (SensorBoard) o CONFIRM del operario.
+// 16: BUZZER -- con microfono (SensorBoard) o CONFIRM del operario.
 static FtestStatus ftest_buzzer(char *detail, FtestCascade *) {
   SbSnapshot before;
   sensorboard_get_snapshot(&before);
@@ -503,7 +535,7 @@ static FtestStatus ftest_buzzer(char *detail, FtestCascade *) {
 
   // Sin microfono: arma el CONFIRM ANTES de encolar la linea (bloqueante #8
   // del review de seguridad, "carrera del CONFIRM"): si el operario
-  // contestara entre encolar CTRL,FTEST,17,5 y que ftest_wait_confirm()
+  // contestara entre encolar CTRL,FTEST,16,5 y que ftest_wait_confirm()
   // fijara el id esperado, ese "give" se habria perdido.
   ftest_arm_confirm(FTEST_MB_BUZZER);
   ftest_emit(FTEST_MB_BUZZER, FTEST_CONFIRM, "sonido del zumbador?");
@@ -521,7 +553,7 @@ static FtestStatus ftest_buzzer(char *detail, FtestCascade *) {
 }
 
 // ---------------------------------------------------------------------------
-// 18: AFE_SPI
+// 17: AFE_SPI
 static FtestStatus ftest_afe_spi(char *detail, FtestCascade *) {
   const AFE4490TimingConfig tc = afe.getTimingConfig();
   const uint32_t diag = afe.runAfeDiagnostics();
@@ -531,7 +563,7 @@ static FtestStatus ftest_afe_spi(char *detail, FtestCascade *) {
 }
 
 // ---------------------------------------------------------------------------
-// 19: AFE_PROBE (opcional)
+// 18: AFE_PROBE (opcional)
 static FtestStatus ftest_afe_probe(char *detail, FtestCascade *) {
   const ProbeState st = g_spo2_data.probe_state;
   D("state=%d", (int)st);
@@ -539,7 +571,7 @@ static FtestStatus ftest_afe_probe(char *detail, FtestCascade *) {
 }
 
 // ---------------------------------------------------------------------------
-// 20: HMI_LINK
+// 19: HMI_LINK
 static FtestStatus ftest_hmi_link(char *detail, FtestCascade *) {
   const uint32_t age = (uint32_t)(millis() - g_lastHmiLineMs);
   D("seen=%d age=%ums", g_hmiEverSeen, (unsigned)age);
@@ -547,12 +579,19 @@ static FtestStatus ftest_hmi_link(char *detail, FtestCascade *) {
 }
 
 // ---------------------------------------------------------------------------
-// 21-24: GSM, pasivos sobre el estado de GPRS_Task (design.md D7).
+// 20-23: GSM, pasivos sobre el estado de GPRS_Task (design.md D7).
+//
+// gsm_at PASA en cuanto el modem ha dado CUALQUIER senal de vida por AT
+// (GPRS.modemResponded/simReady, puestos en GPRSPowerUp()) o ya esta mas
+// adelante en la secuencia (connect/post). `GPRS.powerUp` NO basta por si
+// solo: solo es true DURANTE la secuencia de arranque del modem, asi que en
+// banco fallaba si el modem ya habia arrancado antes de pulsar el boton de
+// fabrica.
 static FtestStatus ftest_gsm_at(char *detail, FtestCascade *) {
   const uint32_t start = millis();
   while ((uint32_t)(millis() - start) < 45000) {
-    if (GPRS.powerUp) {
-      D("powerUp");
+    if (GPRS.modemResponded || GPRS.simReady || GPRS.connect || GPRS.post) {
+      D("ok");
       return FTEST_PASS;
     }
     if (ftest_abort_requested()) {
@@ -566,12 +605,20 @@ static FtestStatus ftest_gsm_at(char *detail, FtestCascade *) {
   return FTEST_FAIL;
 }
 
+// gsm_sim PASA con "+CPIN: READY" (GPRS.simReady); ya no exige el CCID (leer
+// la ICCID es un paso posterior de la secuencia que puede tardar mas y no es
+// lo que este test dice comprobar). Si el CCID ya esta disponible se informa
+// en el detail, sin condicionar el resultado.
 static FtestStatus ftest_gsm_sim(char *detail, FtestCascade *cascade) {
   const uint32_t start = millis();
   while ((uint32_t)(millis() - start) < 15000) {
-    if (GPRS.CCID.length() > 0) {
+    if (GPRS.simReady) {
       cascade->gsm_sim = FTEST_DEP_OK;
-      D("ok");
+      if (GPRS.CCID.length() > 0) {
+        D("ready ccid=%s", GPRS.CCID.c_str());
+      } else {
+        D("ready");
+      }
       return FTEST_PASS;
     }
     if (ftest_abort_requested()) {
@@ -583,7 +630,7 @@ static FtestStatus ftest_gsm_sim(char *detail, FtestCascade *cascade) {
     vTaskDelay(pdMS_TO_TICKS(250));
   }
   cascade->gsm_sim = FTEST_DEP_FAILED;
-  D("sin ccid");
+  D("sin sim");
   return FTEST_FAIL;
 }
 
@@ -609,13 +656,17 @@ static FtestStatus ftest_gsm_signal(char *detail, FtestCascade *cascade) {
   return FTEST_FAIL;
 }
 
+// gsm_net SKIP en cascada si no hay SIM (no tiene sentido esperar adjunto de
+// red sin SIM); si hay SIM pero se agota el plazo, es un AVISO -- fabrica
+// puede no tener cobertura celular en la nave, y eso no es un fallo de la
+// placa (shared-factory-test-bench, "Estado nuevo WARN").
 static FtestStatus ftest_gsm_net(char *detail, FtestCascade *cascade) {
   if (cascade->gsm_sim == FTEST_DEP_FAILED) {
     D("sin sim");
     return FTEST_SKIP;
   }
   const uint32_t start = millis();
-  while ((uint32_t)(millis() - start) < 60000) {
+  while ((uint32_t)(millis() - start) < FTEST_CONN_TIMEOUT_MS) {
     if (GPRS.post) {
       D("ok");
       return FTEST_PASS;
@@ -628,14 +679,15 @@ static FtestStatus ftest_gsm_net(char *detail, FtestCascade *cascade) {
     vTaskDelay(pdMS_TO_TICKS(250));
   }
   D("sin red");
-  return FTEST_SKIP;
+  return FTEST_WARN;
 }
 
 // ---------------------------------------------------------------------------
-// 25: WIFI (opcional)
+// 24: WIFI (opcional) -- sin AP por defecto en fabrica es un AVISO, no un
+// FAIL ni un SKIP silencioso: el operario debe verlo en ambar.
 static FtestStatus ftest_wifi(char *detail, FtestCascade *) {
   const uint32_t start = millis();
-  while ((uint32_t)(millis() - start) < 30000) {
+  while ((uint32_t)(millis() - start) < FTEST_CONN_TIMEOUT_MS) {
     if (WIFIIsConnected()) {
       D("rssi=%d", (int)WiFi.RSSI());
       return FTEST_PASS;
@@ -648,18 +700,18 @@ static FtestStatus ftest_wifi(char *detail, FtestCascade *) {
     vTaskDelay(pdMS_TO_TICKS(250));
   }
   D("sin AP");
-  return FTEST_SKIP;
+  return FTEST_WARN;
 }
 
 // ---------------------------------------------------------------------------
-// 26: TB_PROVISION (opcional, design.md D8)
+// 25: TB_PROVISION (opcional, design.md D8)
 static FtestStatus ftest_tb_provision(char *detail, FtestCascade *) {
   if (in3.serialNumber == 0) {
     D("sin serie");
-    return FTEST_SKIP;
+    return FTEST_WARN;
   }
   const uint32_t start = millis();
-  while ((uint32_t)(millis() - start) < 30000) {
+  while ((uint32_t)(millis() - start) < FTEST_CONN_TIMEOUT_MS) {
     if (WIFIIsConnectedToServer()) {
       D("wifi");
       return FTEST_PASS;
@@ -675,34 +727,43 @@ static FtestStatus ftest_tb_provision(char *detail, FtestCascade *) {
     ftest_wdt_feed();
     vTaskDelay(pdMS_TO_TICKS(250));
   }
-  if (WIFIIsConnected() || GPRSIsAttached()) {
-    D("sin servidor");
-    return FTEST_FAIL;
-  }
-  D("sin transporte");
-  return FTEST_SKIP;
+  D("sin servidor");
+  return FTEST_WARN;
 }
 
 // ---------------------------------------------------------------------------
-// 27: TIME (opcional)
+// 26: TIME (opcional) -- espera hasta FTEST_CONN_TIMEOUT_MS a que el reloj
+// se ponga en hora (NTP por WiFi o cellular, ver GPRSEnsureTimeSynced()); sin
+// eso no hay forma de distinguir "todavia no le ha dado tiempo" de "no va a
+// llegar", asi que antes de shared-factory-test-bench este test decidia con
+// una unica lectura instantanea que casi siempre caia en SKIP.
 static FtestStatus ftest_time(char *detail, FtestCascade *) {
-  if (time(nullptr) < 1609459200) {
-    D("sin hora");
-    return FTEST_SKIP;
+  const uint32_t start = millis();
+  while ((uint32_t)(millis() - start) < FTEST_CONN_TIMEOUT_MS) {
+    if (time(nullptr) >= 1609459200) {
+      const char *src = "none";
+      switch (tz_source_origin()) {
+        case TZ_SOURCE_NITZ: src = "nitz"; break;
+        case TZ_SOURCE_IP: src = "ip"; break;
+        case TZ_SOURCE_MANUAL: src = "manual"; break;
+        default: src = "none"; break;
+      }
+      D("src=%s", src);
+      return FTEST_PASS;
+    }
+    if (ftest_abort_requested()) {
+      D("%s", ftest_abort_reason());
+      return FTEST_SKIP;
+    }
+    ftest_wdt_feed();
+    vTaskDelay(pdMS_TO_TICKS(250));
   }
-  const char *src = "none";
-  switch (tz_source_origin()) {
-    case TZ_SOURCE_NITZ: src = "nitz"; break;
-    case TZ_SOURCE_IP: src = "ip"; break;
-    case TZ_SOURCE_MANUAL: src = "manual"; break;
-    default: src = "none"; break;
-  }
-  D("src=%s", src);
-  return FTEST_PASS;
+  D("sin hora");
+  return FTEST_WARN;
 }
 
 // ---------------------------------------------------------------------------
-// 28: NVS
+// 27: NVS
 static FtestStatus ftest_nvs(char *detail, FtestCascade *) {
   Preferences p;
   p.begin(NS_FTEST, false);
@@ -715,7 +776,7 @@ static FtestStatus ftest_nvs(char *detail, FtestCascade *) {
 }
 
 // ---------------------------------------------------------------------------
-// 29: LITTLEFS
+// 28: LITTLEFS
 static FtestStatus ftest_littlefs(char *detail, FtestCascade *) {
   // Bloqueante #6 del review de seguridad: `begin(true)` formatea la
   // particion si el montaje falla, lo que destruiria cualquier dato ya
@@ -749,8 +810,7 @@ static const FtestEntry kFtestTable[] = {
     {FTEST_MB_POWER_SRC, ftest_power_src},
     {FTEST_MB_SKIN_ADC, ftest_skin_adc},
     {FTEST_MB_EXT_SHT4X, ftest_ext_sht4x},
-    {FTEST_MB_SENSOR_SRC, ftest_sensor_src},
-    {FTEST_MB_SB_LINK, ftest_sb_link},
+    {FTEST_MB_SENSORBOARD, ftest_sensorboard},
     {FTEST_MB_SB_STATUS, ftest_sb_status},
     {FTEST_MB_SB_ENV, ftest_sb_env},
     {FTEST_MB_SB_DOOR, ftest_sb_door},

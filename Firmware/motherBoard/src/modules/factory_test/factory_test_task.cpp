@@ -282,6 +282,7 @@ static void persist_full(const FtestSummary *sum) {
   p.putUInt(KEY_FTEST_EPOCH, current_epoch_or_zero());
   p.putUInt(KEY_FTEST_PASS, sum->pass_mask);
   p.putUInt(KEY_FTEST_FAIL, sum->fail_mask);
+  p.putUInt(KEY_FTEST_WARN, sum->warn_mask);
   p.putUInt(KEY_FTEST_RUN, sum->run_mask);
   p.putString(KEY_FTEST_FW, FWversion);
   p.putString(KEY_FTEST_SB_FW, sb.sb_fw);
@@ -293,10 +294,13 @@ static void persist_single(unsigned id, FtestStatus st) {
   p.begin(NS_FTEST, false);
   uint32_t passMask = p.getUInt(KEY_FTEST_PASS, 0);
   uint32_t failMask = p.getUInt(KEY_FTEST_FAIL, 0);
+  uint32_t warnMask = p.getUInt(KEY_FTEST_WARN, 0);
   uint32_t runMask = p.getUInt(KEY_FTEST_RUN, 0);
-  ftest_summary_merge_single(&passMask, &failMask, &runMask, id, st);
+  ftest_summary_merge_single(&passMask, &failMask, &warnMask, &runMask, id,
+                              st);
   p.putUInt(KEY_FTEST_PASS, passMask);
   p.putUInt(KEY_FTEST_FAIL, failMask);
+  p.putUInt(KEY_FTEST_WARN, warnMask);
   p.putUInt(KEY_FTEST_RUN, runMask);
   p.putUInt(KEY_FTEST_EPOCH, current_epoch_or_zero());
   p.putString(KEY_FTEST_FW, FWversion);
@@ -360,7 +364,7 @@ static void factory_test_task_body(void *pv) {
 
   char doneLine[FTEST_TX_LINE_MAX];
   if (ftest_format_done(doneLine, sizeof(doneLine), sum.pass, sum.fail,
-                        sum.skip) >= 0) {
+                        sum.skip, sum.warn) >= 0) {
     CommunicationHost_Enqueue(doneLine);
   }
 

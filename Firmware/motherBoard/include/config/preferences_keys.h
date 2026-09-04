@@ -60,6 +60,7 @@ constexpr char KEY_ACTUATION[]    = "actuation";
 constexpr char KEY_FTEST_EPOCH[] = "epoch";
 constexpr char KEY_FTEST_PASS[]  = "pass";
 constexpr char KEY_FTEST_FAIL[]  = "fail";
+constexpr char KEY_FTEST_WARN[]  = "warn";
 constexpr char KEY_FTEST_RUN[]   = "run";
 constexpr char KEY_FTEST_FW[]    = "fw";
 constexpr char KEY_FTEST_SB_FW[] = "sb_fw";

@@ -19,6 +19,10 @@
 #define FTEST_BUZZER_DBA_DELTA 6.0f
 #define FTEST_HUMID_MIN_MA 20.0f
 #define FTEST_HEAP_MIN_BYTES (40u * 1024u)
+// Plazo de los tests de conectividad opcionales (gsm_net/wifi/tb_provision/
+// time): fabrica puede no tener cobertura celular ni AP en la nave, asi que
+// agotarlo es un AVISO (FTEST_WARN), no un FAIL (shared-factory-test-bench).
+#define FTEST_CONN_TIMEOUT_MS 30000u
 
 // Arranca la bateria completa (HMI,FTEST,START). false si ya hay una tarea
 // FTEST en marcha (no debería llegar aqui: factoryTestPrecheck() ya lo
