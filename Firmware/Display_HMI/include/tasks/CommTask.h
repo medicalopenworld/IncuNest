@@ -367,6 +367,7 @@ extern volatile bool     g_pendingFtestDone;
 extern volatile unsigned g_ftestDonePass;
 extern volatile unsigned g_ftestDoneFail;
 extern volatile unsigned g_ftestDoneSkip;
+extern volatile unsigned g_ftestDoneWarn;
 
 // CTRL,FTEST_REJECT — no se pudo arrancar la bateria (o el test unico).
 extern volatile bool g_pendingFtestReject;

@@ -1095,14 +1095,8 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   TelemetryHistory_ApplyLanguage();
   FactoryTest_ApplyLanguage();
 
-  // Boton de test de fabrica (splash). Vive en ElementsCreation.cpp, no en un
-  // modulo con su propio _ApplyLanguage: es un unico label, sin estado que
-  // reconstruir.
-  if (ui_FactoryTestBtnLabel) {
-    const char *TXT_FACTORY_TEST[] = {"TEST FABRICA", "FACTORY TEST",
-                                      "TEST USINE"};
-    lv_label_set_text(ui_FactoryTestBtnLabel, TXT_FACTORY_TEST[lang]);
-  }
+  // El boton "HW test" del splash (ElementsCreation.cpp) usa el mismo
+  // literal en los tres idiomas: no necesita retextearse aqui.
 
   update_labels();
   UI_SyncAll();

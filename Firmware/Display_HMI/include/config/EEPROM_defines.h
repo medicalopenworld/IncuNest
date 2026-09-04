@@ -42,6 +42,8 @@ constexpr char HMI_KEY_FTEST_FAILMASK[] = "fail_mask";
 constexpr char HMI_KEY_FTEST_MBPASS[]   = "mb_pass";
 constexpr char HMI_KEY_FTEST_MBFAIL[]   = "mb_fail";
 constexpr char HMI_KEY_FTEST_MBSKIP[]   = "mb_skip";
+// Avisos (FTEST_WARN) de la motherBoard, shared-factory-test-bench.
+constexpr char HMI_KEY_FTEST_MBWARN[]   = "mb_warn";
 constexpr char HMI_KEY_FTEST_FWVER[]    = "fwver";
 
 void initEEPROM();

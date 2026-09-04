@@ -73,6 +73,7 @@ volatile bool     g_pendingFtestDone = false;
 volatile unsigned g_ftestDonePass = 0;
 volatile unsigned g_ftestDoneFail = 0;
 volatile unsigned g_ftestDoneSkip = 0;
+volatile unsigned g_ftestDoneWarn = 0;
 
 volatile bool g_pendingFtestReject = false;
 volatile int  g_ftestRejectReason = 0;
@@ -924,11 +925,13 @@ static void parse_message(const char *line) {
       COMM_LOG("[COMM] WEIGHT_HISTORY malformed: %s\n", line);
     }
   } else if (strncmp(line, "CTRL,FTEST_DONE,", sizeof("CTRL,FTEST_DONE,") - 1) == 0) {
-    unsigned p = 0, f = 0, s = 0;
-    if (ftest_parse_done(line + sizeof("CTRL,FTEST_DONE,") - 1, &p, &f, &s)) {
+    unsigned p = 0, f = 0, s = 0, w = 0;
+    if (ftest_parse_done(line + sizeof("CTRL,FTEST_DONE,") - 1, &p, &f, &s,
+                         &w)) {
       g_ftestDonePass = p;
       g_ftestDoneFail = f;
       g_ftestDoneSkip = s;
+      g_ftestDoneWarn = w;
       g_pendingFtestDone = true;
     } else {
       COMM_LOG("[COMM] CTRL,FTEST_DONE malformado: %s\n", line);
