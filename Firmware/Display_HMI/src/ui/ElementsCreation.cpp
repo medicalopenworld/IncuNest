@@ -944,9 +944,9 @@ void ui_ScreenMain_screen_init(void) {
   // dentro de uno solo. El contenido lo refresca clock_update() (UITask).
   // Pildora visible en vez de zona tactil invisible: sin ningun indicio, el
   // reloj se veia como texto suelto y nadie descubria que se puede tocar
-  // para ajustar la hora. Mismo estilo de tarjeta que ui_SSIDPanel/
-  // ui_PassPanel (radius 10, borde gris claro) para que se lea como "esto se
-  // pulsa" sin gritar. El btn de LVGL ya oscurece solo al pulsarlo.
+  // para ajustar la hora. Azul de accion (0x0075EE, el mismo de
+  // ui_BabiesButton) y sin borde, para que los dos botones tactiles del
+  // heading se lean igual. El btn de LVGL ya oscurece solo al pulsarlo.
   //
   // x/align en HEADING_SLOT1_CLOCK con CENTER (no LEFT_MID x=182 fijo): es
   // el mismo slot horizontal del reloj en el heading redistribuido (ver las
@@ -960,12 +960,10 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_align(ui_ClockButton, LV_ALIGN_CENTER);
   lv_obj_add_flag(ui_ClockButton, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
   lv_obj_clear_flag(ui_ClockButton, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_color(ui_ClockButton, lv_color_hex(0xF0F0F0),
+  lv_obj_set_style_bg_color(ui_ClockButton, lv_color_hex(0x0075EE),
                             LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_radius(ui_ClockButton, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_border_color(ui_ClockButton, lv_color_hex(0xDDDDDD),
-                                LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_border_width(ui_ClockButton, 1,
+  lv_obj_set_style_radius(ui_ClockButton, 8, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_border_width(ui_ClockButton, 0,
                                 LV_PART_MAIN | LV_STATE_DEFAULT);
 
   ui_ClockTime = lv_label_create(ui_ClockButton);
@@ -977,6 +975,8 @@ void ui_ScreenMain_screen_init(void) {
   lv_label_set_text(ui_ClockTime, "");
   lv_obj_set_style_text_font(ui_ClockTime, &lv_font_montserrat_26,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_text_color(ui_ClockTime, lv_color_hex(0xFFFFFF),
+                              LV_PART_MAIN);
 
   ui_ClockDate = lv_label_create(ui_ClockButton);
   lv_obj_set_width(ui_ClockDate, LV_SIZE_CONTENT);
@@ -987,7 +987,7 @@ void ui_ScreenMain_screen_init(void) {
   lv_label_set_text(ui_ClockDate, "");
   lv_obj_set_style_text_font(ui_ClockDate, &lv_font_montserrat_14,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_text_color(ui_ClockDate, lv_color_hex(0x888888),
+  lv_obj_set_style_text_color(ui_ClockDate, lv_color_hex(0xD6E6FF),
                               LV_PART_MAIN);
 
   // Boton de ayuda (spec hmi-help-center): "?" redondo en el primer slot del
