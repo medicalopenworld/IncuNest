@@ -195,13 +195,26 @@ void progressLine(char *out, size_t cap, uint8_t courseIdx) {
 void buildCourses() {
   makeTitle(TXT("CURSOS DE FORMACION", "TRAINING COURSES", "COURS DE FORMATION"));
 
+  // Fila de certificados ENCIMA de las tarjetas (y=40..80); el boton X de la
+  // tarjeta ocupa la esquina superior derecha (0..46), asi que nada empieza
+  // antes de y=56 en la banda derecha.
+  const uint8_t certs = TrainingProgress_CertCount();
+  if (certs > 0) {
+    char t[40];
+    snprintf(t, sizeof(t), "%s (%u)",
+             TXT("CERTIFICADOS", "CERTIFICATES", "CERTIFICATS"), (unsigned)certs);
+    lv_obj_t *b = makeBtn(s_content, t, onCerts, lv_color_hex(0x888888));
+    lv_obj_set_size(b, 300, 40);
+    lv_obj_align(b, LV_ALIGN_TOP_MID, 0, 42);
+  }
+
   // Dos tarjetas de 360 con 16 de hueco: 6 + 360 + 16 + 360 = 742 de 760.
   for (uint8_t i = 0; i < TRAINING_COURSES; i++) {
     const Course *c = Training_CourseByIndex(i);
     if (!c) continue;
     lv_obj_t *btn = lv_btn_create(s_content);
-    lv_obj_set_size(btn, 360, 290);
-    lv_obj_align(btn, LV_ALIGN_TOP_LEFT, 6 + i * 376, 44);
+    lv_obj_set_size(btn, 360, 270);
+    lv_obj_align(btn, LV_ALIGN_TOP_LEFT, 6 + i * 376, 92);
     lv_obj_set_style_bg_color(btn, i == 0 ? lv_color_hex(0x0075EE)
                                           : lv_color_hex(0x00897B),
                               LV_PART_MAIN);
@@ -212,13 +225,13 @@ void buildCourses() {
     lv_obj_set_style_text_font(ttl, &lv_font_montserrat_26, 0);
     lv_obj_set_style_text_color(ttl, lv_color_hex(0xFFFFFF), 0);
     lv_label_set_text(ttl, TrainingTxt(c->title));
-    lv_obj_align(ttl, LV_ALIGN_TOP_MID, 0, 30);
+    lv_obj_align(ttl, LV_ALIGN_TOP_MID, 0, 24);
 
-    lv_obj_t *sub = makeWrapLabel(btn, TrainingTxt(c->subtitle), 0, 90, 320,
+    lv_obj_t *sub = makeWrapLabel(btn, TrainingTxt(c->subtitle), 0, 80, 320,
                                   &lv_font_montserrat_14,
                                   lv_color_hex(0xF0F0F0));
     lv_obj_set_style_text_align(sub, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(sub, LV_ALIGN_TOP_MID, 0, 90);
+    lv_obj_align(sub, LV_ALIGN_TOP_MID, 0, 80);
 
     char line[48];
     progressLine(line, sizeof(line), i);
@@ -236,16 +249,6 @@ void buildCourses() {
     lv_obj_set_style_text_color(lessons, lv_color_hex(0xF0F0F0), 0);
     lv_label_set_text(lessons, n);
     lv_obj_align(lessons, LV_ALIGN_BOTTOM_MID, 0, -14);
-  }
-
-  const uint8_t certs = TrainingProgress_CertCount();
-  if (certs > 0) {
-    char t[40];
-    snprintf(t, sizeof(t), "%s (%u)",
-             TXT("CERTIFICADOS", "CERTIFICATES", "CERTIFICATS"), (unsigned)certs);
-    lv_obj_t *b = makeBtn(s_content, t, onCerts, lv_color_hex(0x888888));
-    lv_obj_set_size(b, 260, 46);
-    lv_obj_align(b, LV_ALIGN_BOTTOM_LEFT, 6, -6);
   }
 }
 
@@ -289,7 +292,7 @@ void buildName() {
 
   s_nameTa = lv_textarea_create(s_content);
   lv_obj_set_size(s_nameTa, 520, 52);
-  lv_obj_align(s_nameTa, LV_ALIGN_TOP_MID, 0, 40);
+  lv_obj_align(s_nameTa, LV_ALIGN_TOP_MID, 0, 56);
   lv_textarea_set_one_line(s_nameTa, true);
   lv_textarea_set_max_length(s_nameTa, TRAINING_NAME_LEN - 1);
   lv_obj_set_style_text_font(s_nameTa, &lv_font_montserrat_20, 0);
@@ -302,23 +305,23 @@ void buildName() {
           "Your progress and certificate will be saved under this name.",
           "Votre progression et votre certificat seront enregistres sous ce "
           "nom."),
-      0, 98, CARD_W - 20, &lv_font_montserrat_14, lv_color_hex(0x666666));
+      0, 114, CARD_W - 20, &lv_font_montserrat_14, lv_color_hex(0x666666));
   lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
 
   lv_obj_t *back = makeBtn(s_content, TXT("VOLVER", "BACK", "RETOUR"),
                            onBackCourses, lv_color_hex(0x888888));
   lv_obj_set_size(back, 150, 46);
-  lv_obj_align(back, LV_ALIGN_TOP_LEFT, 6, 126);
+  lv_obj_align(back, LV_ALIGN_TOP_LEFT, 6, 140);
 
   lv_obj_t *cont = makeBtn(s_content, TXT("CONTINUAR", "CONTINUE", "CONTINUER"),
                            onNameContinue, lv_color_hex(0x00AA00));
   lv_obj_set_size(cont, 190, 46);
-  lv_obj_align(cont, LV_ALIGN_TOP_RIGHT, -6, 126);
+  lv_obj_align(cont, LV_ALIGN_TOP_RIGHT, -6, 140);
 
   lv_obj_t *kb = lv_btnmatrix_create(s_content);
   lv_btnmatrix_set_map(kb, KB_LETTERS_MAP);
   lv_btnmatrix_set_ctrl_map(kb, KB_LETTERS_CTRL);
-  lv_obj_set_size(kb, 750, 250);
+  lv_obj_set_size(kb, 750, 236);
   lv_obj_align(kb, LV_ALIGN_BOTTOM_MID, 0, -4);
   lv_obj_set_style_text_font(kb, &lv_font_montserrat_20, LV_PART_ITEMS);
   lv_obj_add_event_cb(kb, onKeyPress, LV_EVENT_VALUE_CHANGED, s_nameTa);
@@ -333,8 +336,8 @@ void buildLessons() {
 
   lv_obj_t *list = lv_obj_create(s_content);
   lv_obj_remove_style_all(list);
-  lv_obj_set_size(list, CARD_W - 32, 340);
-  lv_obj_align(list, LV_ALIGN_TOP_MID, 0, 40);
+  lv_obj_set_size(list, CARD_W - 32, 324);
+  lv_obj_align(list, LV_ALIGN_TOP_MID, 0, 56);
   lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_row(list, 6, LV_PART_MAIN);
   lv_obj_set_scroll_dir(list, LV_DIR_VER);
@@ -399,8 +402,8 @@ void buildCerts() {
   makeTitle(TXT("CERTIFICADOS", "CERTIFICATES", "CERTIFICATS"));
   lv_obj_t *list = lv_obj_create(s_content);
   lv_obj_remove_style_all(list);
-  lv_obj_set_size(list, CARD_W - 32, 340);
-  lv_obj_align(list, LV_ALIGN_TOP_MID, 0, 40);
+  lv_obj_set_size(list, CARD_W - 32, 324);
+  lv_obj_align(list, LV_ALIGN_TOP_MID, 0, 56);
   lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_row(list, 6, LV_PART_MAIN);
   lv_obj_set_scroll_dir(list, LV_DIR_VER);
@@ -467,7 +470,7 @@ void buildCert() {
 
   lv_obj_t *qr = lv_qrcode_create(s_content, QR_SIZE, lv_color_hex(0x000000),
                                   lv_color_hex(0xFFFFFF));
-  lv_obj_align(qr, LV_ALIGN_TOP_LEFT, 20, 50);
+  lv_obj_align(qr, LV_ALIGN_TOP_LEFT, 20, 56);
   lv_obj_set_style_border_color(qr, lv_color_hex(0xFFFFFF), 0);
   lv_obj_set_style_border_width(qr, 8, 0);
   const size_t n = mailto_build(s_mailto, sizeof(s_mailto), TRAINING_EMAIL,
@@ -484,7 +487,7 @@ void buildCert() {
                "Scannez le QR avec votre telephone : un e-mail avec le "
                "certificat s'ouvre, adresse au responsable de formation."),
            TXT("Para:", "To:", "A :"), TRAINING_EMAIL);
-  makeWrapLabel(s_content, info, 350, 50, CARD_W - 20 - 356,
+  makeWrapLabel(s_content, info, 350, 56, CARD_W - 20 - 356,
                 &lv_font_montserrat_14, lv_color_hex(0x0B2E4F));
 
   lv_obj_t *back = makeBtn(s_content, TXT("VOLVER", "BACK", "RETOUR"),
