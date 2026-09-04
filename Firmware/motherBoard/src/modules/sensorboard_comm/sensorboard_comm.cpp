@@ -19,6 +19,7 @@
 #include "sb_json_codec.h"
 #include "sb_link_state.h"
 #include "sb_protocol.h"
+#include "sb_telemetry.h"
 #include "usb/cdc_acm_host.h"
 #include "usb/usb_host.h"
 
@@ -711,45 +712,10 @@ bool sensorboard_status_request(void) {
 }
 
 void sensorboard_add_telemetry(JsonObject &json) {
+  // El mapeo a claves sb_* es puro y vive en sb_telemetry.cpp, con test en
+  // host (test_sensorboard_telemetry). Aqui queda solo lo que no puede serlo:
+  // el snapshot bajo mutex y el reloj.
   SbSnapshot s;
   sensorboard_get_snapshot(&s);
-  const uint32_t now = millis();
-
-  json[SB_LINK_OK_KEY] = s.link_ok;
-  if (!s.link_ok) return;  // con el enlace caido los ultimos valores son viejos
-
-  // Las TRES posiciones crudas, tal como llegan. El valor que gobierna el lazo
-  // sale por Air_temp como en cualquier equipo; estas son la materia prima con
-  // la que disenar el cribado que hara la motherboard mas adelante, y la unica
-  // forma de ver en remoto que un sensor se esta desviando de sus companeros.
-  if (s.env_seen && (uint32_t)(now - s.last_env_ms) <= SB_ENV_STALE_MS) {
-    static const char *const kTempKeys[3] = {SB_TEMP0_KEY, SB_TEMP1_KEY,
-                                             SB_TEMP2_KEY};
-    static const char *const kHumKeys[3] = {SB_HUM0_KEY, SB_HUM1_KEY,
-                                            SB_HUM2_KEY};
-    for (int i = 0; i < 3; i++) {
-      if (s.temp.valid[i]) {
-        json[kTempKeys[i]] =
-            roundSignificantDigits(s.temp.value[i], TELEMETRIES_DECIMALS);
-      }
-      if (s.hum.valid[i]) {
-        json[kHumKeys[i]] =
-            roundSignificantDigits(s.hum.value[i], TELEMETRIES_DECIMALS);
-      }
-    }
-  }
-
-  if (s.env_seen && (uint32_t)(now - s.last_env_ms) <= SB_ENV_STALE_MS &&
-      s.lux_valid) {
-    json[SB_LUX_KEY] = roundSignificantDigits(s.lux, TELEMETRIES_DECIMALS);
-  }
-  if (s.sound_seen && (uint32_t)(now - s.last_sound_ms) <= SB_SOUND_STALE_MS &&
-      s.dba_valid) {
-    json[SB_DB_KEY] = roundSignificantDigits(s.dba, TELEMETRIES_DECIMALS);
-  }
-  if (s.door_known && (uint32_t)(now - s.last_door_ms) <= SB_DOOR_STALE_MS) {
-    json[SB_DOOR_OPEN_KEY] = s.door_open;
-  }
-  json[SB_ENV_USED_KEY] = s_env_used;
-  json[SB_DOOR_FAULT_KEY] = s.door_faulty;
+  sb_build_telemetry(json, s, millis(), s_env_used);
 }

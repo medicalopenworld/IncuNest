@@ -16,6 +16,7 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ### Fixed
 
+- **Autoswap con la motherboard como host (banco 2026-09-03).** El detach del intercambio pasa a `CONFIG_SB_USB_SWAP_DETACH_MS` (1 s) y el enlace queda trazado con `USB bus reset seen` / `USB host active|inactive` (INFO, un evento por conexión). La causa raíz estaba en la motherboard: `gpio_reset_pin(19/20)` dejaba el pull-up interno en las líneas USB y el SensorBoard en modo intercambiado no se detectaba (fix en `sensorboard_comm.cpp` de la motherboard). Nueva opción `CONFIG_SB_LOG_MIRROR_CONSOLE` (por defecto off) para duplicar los logs a UART0 en banco.
 - **`usb_comm`: DTR pegajoso.** Las escrituras al CDC exigen ahora DTR **y** `tud_cdc_n_connected()`: si el host desaparece sin cerrar el puerto (sin VBUS sensing), los frames vuelven a la retención de arranque en vez de perderse en un FIFO muerto.
 - **Fase 5 — Cámara (`camera_sensor`)**: OV2640 (esp32-camera, QVGA JPEG) con SCCB compartiendo el bus I2C principal, comando `capture` bajo demanda (registro de comandos por componente en `usb_comm`), `sensorBoard_comm_send_binary()` real con frames `TYPE=0x01` en PSRAM y ownership en la cola TX, y `sensors.cam` en `status`.
 - **Fase 3 — Micrófono (`mic_sensor`)**: ICS-41350 por I2S en modo PDM RX (16 kHz/16 bit), RMS→dB con offset de calibración Kconfig y gate de plausibilidad [0,140] dB, evento `sound_level` periódico y `sensors.mic` en `status`. El valor `dba` aún no lleva ponderación A (diferido hasta calibrar con sonómetro).

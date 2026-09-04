@@ -128,6 +128,9 @@ extern lv_obj_t * ui_ScreenMain;
 extern lv_obj_t * ui_ClockTime;
 extern lv_obj_t * ui_ClockDate;
 extern lv_obj_t * ui_ClockButton;
+// Boton de ayuda "?" del heading (spec hmi-help-center). Abre HelpDialog.
+extern lv_obj_t * ui_HelpButton;
+extern lv_obj_t * ui_HelpButtonLabel;
 // Indicador de conectividad del heading (WIFI/GPRS/ninguna + cobertura).
 // Ver connectivity_heading_update() en UITask.cpp.
 extern lv_obj_t * ui_ConnCont;
@@ -457,6 +460,7 @@ void ui_ScreenLock_screen_destroy(void);
 void ui_event_Settings(lv_event_t * e);
 void ui_event_BabiesButton(lv_event_t * e);
 void ui_event_AlarmButton(lv_event_t * e);
+void ui_event_HelpButton(lv_event_t * e);
 void ui_event_SPO2Button(lv_event_t * e);
 void ui_event_ChartButton(lv_event_t * e);
 void ui_event_ImgButton1(lv_event_t * e);

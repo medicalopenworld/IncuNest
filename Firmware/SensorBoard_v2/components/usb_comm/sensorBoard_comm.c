@@ -78,12 +78,18 @@ static volatile bool s_cdc_ready = false;
 #endif
 
 /* Detach visible para el host antes de re-attach con la otra orientación.
- * Los controladores host latchean el cambio de conexión (>2.5 µs de SE0
- * basta), pero un hub intermedio o una pila host que sondea el estado del
- * puerto puede muestrear más despacio: 250 ms garantiza que el detach se ve
- * y el host reinicia la enumeración. Sin host no hay tráfico, así que
- * bloquear usb_tx_task este tiempo no retrasa nada. */
-#define SB_USB_SWAP_DETACH_MS 250
+ * No basta con que el host latchee el SE0: tras un fallo de enumeración la
+ * pila host ESP-IDF 4.4.6 de la motherboard deshabilita el puerto y solo lo
+ * recupera (apagar/encender) al ver la desconexión; si el dispositivo se
+ * re-conecta antes de que el puerto esté listo no hay transición que detectar
+ * y ambos extremos se quedan esperando (banco 2026-09-03 con 250 ms). Sin
+ * host activo no hay tráfico, así que bloquear usb_tx_task este tiempo no
+ * retrasa nada. */
+#if CONFIG_SB_USB_AUTOSWAP
+#define SB_USB_SWAP_DETACH_MS CONFIG_SB_USB_SWAP_DETACH_MS
+#else
+#define SB_USB_SWAP_DETACH_MS 1000
+#endif
 
 /* Clave en la resp de `status` (sensors{}): true = D+/D- intercambiados.
  * Diagnóstico determinista para la motherboard y el flasher (el ROM no aplica
@@ -152,6 +158,19 @@ static void orient_service(void)
     bool host_active = usb_host_active();
     bool reset_seen = bus_reset_seen_since_last_tick();
     uint32_t now_ms = orient_now_ms();
+    if (reset_seen) {
+        /* Un reset por conexión: trazable sin ruido. Diagnóstico de campo del
+         * emparejamiento con el host (queda retenido si aún no hay enlace). */
+        ESP_LOGI(TAG, "USB bus reset seen (#%lu), host_active=%d, swapped=%d",
+                 (unsigned long)s_bus_resets_seen, (int)host_active,
+                 (int)sb_usb_orient_is_swapped(&s_orient));
+    }
+    static bool s_host_active_prev = false;
+    if (host_active != s_host_active_prev) {
+        s_host_active_prev = host_active;
+        ESP_LOGI(TAG, "USB host %s (mounted=%d, swapped=%d)", host_active ? "active" : "inactive",
+                 (int)tud_mounted(), (int)sb_usb_orient_is_swapped(&s_orient));
+    }
     if (sb_usb_orient_tick(&s_orient, host_active, reset_seen, now_ms) != SB_ORIENT_SWAP) {
         return;
     }
@@ -310,6 +329,15 @@ static void host_watchdog_task(void *arg)
  * encola (no bloqueante) y eso es ilegal en contexto de interrupción. */
 static int sb_log_vprintf(const char *fmt, va_list args)
 {
+#if CONFIG_SB_LOG_MIRROR_CONSOLE
+    /* Depuración en banco: copia a la consola (UART0) ANTES de encolar, para
+     * ver al SensorBoard mientras el USB lo tiene la motherboard. va_copy:
+     * args se consume dos veces. */
+    va_list console_args;
+    va_copy(console_args, args);
+    vprintf(fmt, console_args);
+    va_end(console_args);
+#endif
     if (s_tx_queue == NULL) {
         return 0; /* cola no lista: descartar sin bloquear */
     }

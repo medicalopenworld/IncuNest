@@ -28,4 +28,31 @@ menu "SensorBoard usb_comm"
             que impide enumerar. En la orientacion invertida el arranque
             enumera aproximadamente este tiempo mas tarde.
 
+    config SB_USB_SWAP_DETACH_MS
+        int "Duracion del detach al intercambiar D+/D- (ms)"
+        depends on SB_USB_AUTOSWAP
+        default 1000
+        range 250 5000
+        help
+            Tiempo que el dispositivo permanece desconectado (pull-ups
+            retirados) entre el intercambio de pines y el re-attach. Debe
+            superar la recuperacion del puerto raiz de la pila host de la
+            motherboard (ESP-IDF 4.4.6): tras un fallo de enumeracion el
+            puerto queda deshabilitado, la desconexion lo hace apagar y
+            encender, y si el dispositivo se re-conecta antes de que el
+            puerto este listo, el host no ve ninguna transicion y ambos se
+            quedan esperando (banco 2026-09-03 con 250 ms). Windows recupera
+            en ~100 ms; 1000 ms cubre ambos con margen.
+
+    config SB_LOG_MIRROR_CONSOLE
+        bool "Duplicar los logs a la consola (UART0) para depuracion en banco"
+        default n
+        help
+            Ademas de emitirlos como frames JSON por USB, escribe cada ESP_LOG
+            en la consola estandar. Solo tiene efecto si la consola no es
+            NONE (CONFIG_ESP_CONSOLE_UART_DEFAULT). Util para ver que hace el
+            SensorBoard mientras esta conectado a la motherboard, cuando el
+            enlace USB no esta disponible para leerlo. Desactivado en
+            produccion: la consola es NONE y UART0 no va a ningun sitio.
+
 endmenu

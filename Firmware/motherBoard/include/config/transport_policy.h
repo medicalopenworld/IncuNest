@@ -46,11 +46,15 @@
 // -----------------------------------------------------------------------------
 // ANTES DE PONER UN 0 A 1, MIRA EL PRESUPUESTO:
 // GPRS_JSON y WIFI_JSON son StaticJsonDocument<JSON_OBJECT_SIZE(
-// THINGSBOARD_FIELDS_AMOUNT)>, con THINGSBOARD_FIELDS_AMOUNT = 64 (main.h).
-// Al llenarse, ArduinoJson descarta campos EN SILENCIO: no hay ninguna llamada
-// a overflowed() en el código. Encender un grupo añade claves a una publicación
-// que ya puede rondar el límite.  python tools/check_transport_matrix.py
-// imprime el máximo posible de cada transporte.
+// THINGSBOARD_FIELDS_AMOUNT)>, con THINGSBOARD_FIELDS_AMOUNT = 112 (main.h;
+// eran 64 hasta el commit fb3a535, y 96 hasta que se encendió el grupo
+// SENSORBOARD en GPRS).
+// Al llenarse, ArduinoJson descarta campos EN SILENCIO. Desde fb3a535 sí hay
+// llamadas a overflowed() antes de publicar, así que el truncamiento se
+// registra en el log en vez de pasar inadvertido — pero se registra, no se
+// evita. Encender un grupo añade claves a una publicación que ya puede rondar
+// el límite.  python tools/check_transport_matrix.py imprime el máximo
+// posible de cada transporte.
 // CORE: constantes vitales, alarmas, actuadores, datos de bebé. Lo clínico.
 //       Nunca debería desactivarse; está aquí para que la tabla esté completa.
 #define TX_GROUP_CORE_GPRS 1
@@ -73,26 +77,35 @@
 #define TX_GROUP_CALIBRATION_GPRS 1
 #define TX_GROUP_CALIBRATION_WIFI 0
 
-// SENSORBOARD: hasta 11 claves sb_* de la placa auxiliar por USB (enlace,
-//              3 temperaturas, 3 humedades, luz, sonido, puerta).
+// SENSORBOARD: 12 claves sb_* de la placa por USB (enlace, 3 temperaturas,
+//              3 humedades, luz, sonido, puerta, posiciones en uso, averia
+//              del hall). Las emite sensorboard_add_telemetry() -> sb_telemetry.cpp,
+//              y el test test_el_bloque_sb_no_pasa_de_doce_claves las fija en 12
+//              para que crecer el bloque sea una decision y no un descuido.
 //
-// Apagado en GPRS a proposito, y no por el coste de datos: el presupuesto ya
-// esta al limite POR ARRIBA en ese transporte. check_transport_matrix.py
-// avisa de que el maximo posible (87 claves con CELLULAR+DIAG+CALIBRATION
-// encendidos) supera THINGSBOARD_FIELDS_AMOUNT = 64, y ArduinoJson descarta
-// campos EN SILENCIO al llenarse; ademas MAX_MESSAGE_SIZE son 1024 B de
-// buffer MQTT. Anadir 11 claves auxiliares a esa publicacion puede tirar
-// campos CLINICOS sin avisar, que es peor que no publicar el SensorBoard.
+// Encendido en LOS DOS transportes. Estuvo apagado en GPRS por presupuesto de
+// campos, no por coste de datos: el peor caso por GPRS son 87 claves
+// (CORE 69 + CELLULAR 4 + DIAG 8 + CALIBRATION 6) y el bloque son 12, o sea
+// 99 -- no cabian en los 96 de entonces. Se subio
+// THINGSBOARD_FIELDS_AMOUNT a 112 (512 B de .bss) y ahora quedan 13 de
+// margen. Por WiFi, con los grupos pesados apagados, son 69 + 12 = 81.
 //
-// Por WiFi los grupos pesados (CELLULAR, DIAG, CALIBRATION) estan apagados,
-// asi que ahi caben. Para subir el GPRS a 1: medir primero con
-// tools/check_transport_matrix.py y comprobar en banco el tamano real de una
-// publicacion, o subir THINGSBOARD_FIELDS_AMOUNT y MAX_MESSAGE_SIZE.
+// MAX_MESSAGE_SIZE (1024 B) NO es un limite aqui, al contrario de lo que
+// decia este comentario antes: main.h define THINGSBOARD_ENABLE_STREAM_UTILS
+// a 1, y con eso sendTelemetryJson() usa Serialize_Json()
+// (begin_publish + BufferingPrint + end_publish, ThingsBoard.h:1100), que
+// publica en streaming y rodea el buffer del cliente MQTT. Un payload de mas
+// de 1024 B se envia igual, troceado.
+//
+// Lo que si cuesta dinero: por GPRS cada publicacion son datos de pago, y son
+// ~200 B mas por publicacion. Con TX_GPRS_PERIOD_ACTUATING_S = 60 eso es
+// ~12 KB/h mientras la incubadora este controlando. En reposo (3600 s) es
+// despreciable.
 //
 // OJO con el conteo del script: las claves sb_* no se escriben literalmente
 // en GPRS.cpp/Wifi_OTA.cpp sino dentro de sensorboard_add_telemetry(), asi
-// que el script cuenta 0 en este grupo. Suma 11 a mano al leer su maximo.
-#define TX_GROUP_SENSORBOARD_GPRS 0
+// que el script cuenta 0 en este grupo. Suma 12 a mano al leer su maximo.
+#define TX_GROUP_SENSORBOARD_GPRS 1
 #define TX_GROUP_SENSORBOARD_WIFI 1
 
 // -----------------------------------------------------------------------------
