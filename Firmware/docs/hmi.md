@@ -124,11 +124,24 @@ The heading `?` button (see §1) opens a modal help menu (`HelpDialog`,
      `SUPPORT_EMAIL`), subject `IncuNest SN <serial> - Certificado <curso> -
      <nombre>` and a body with date, lessons and attempts; past certificates
      (a 16-slot ring) can be listed from the selector.
-   - **Phase 1 content** (`openspec/changes/hmi-cursos-formacion`): Nursing
-     has E0 (interface introduction, the old guided-tour steps, passive) and
-     the interactive E1 (air temperature) and E5 (handling an alarm);
-     Technician only has T0 (same intro). The rest of both courses (E2–E11,
-     T1–T8) ships in later phases.
+   - **Content** (`openspec/changes/hmi-cursos-formacion`, tables in
+     `src/ui/training/lessons_*.cpp`). Nursing, 12 lessons: E0 interface
+     introduction (the old guided-tour steps, passive), E1 air temperature,
+     E2 skin control and probe (needs the real probe; without it the
+     enable step is skipped and explained), E3 humidity, E4 safe
+     phototherapy (eye-protection pop-up in a free step), E5 handling an
+     alarm, E6 admitting and following a baby (full assistant with the
+     training baby `seq 0xFFFF`), E7 baby exit (the exit dialog is allowed
+     only in that step), E8 screen lock (real padlock, tap, long press), E9
+     trend from the lock screen, E10 setting the time (simulated `TIME_ACK`),
+     E11 contacting support. Technician, 9 lessons: T0 intro, T1 information
+     and versions, T2 WiFi and server (network buttons disabled in training),
+     T3 language and modes (real language change, restored on exit), T4 time,
+     T5 technical alarms and what to check, T6 firmware update via the local
+     web server, T7 support report, T8 safe shutdown. Every lesson except the
+     intro runs in training mode; a lesson that ends with the screen really
+     locked leaves it locked and the selector reopens once back on the main
+     screen.
    - **HMI-only**: training mode is a pure display-side sandbox. It does not
      add or change any `CTRL,`/`HMI,` message — `Firmware/PROTOCOL.md` and
      the motherBoard firmware are untouched (see ADR-0002).

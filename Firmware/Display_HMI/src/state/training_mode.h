@@ -34,6 +34,12 @@ bool Training_IsActive(void);
 // Lo que CommTask manda como keepalive mientras dura la formacion.
 const HMI_Message &Training_FrozenHmiMsg(void);
 
+// El dialogo de salida del bebe (BabyExitDialog) no se abre en formacion
+// salvo que la leccion lo pida expresamente (leccion de salida del bebe).
+// Se resetea a falso en Enter/Exit.
+void Training_SetExitDialogAllowed(bool allowed);
+bool Training_ExitDialogAllowed(void);
+
 // ---- Respuestas simuladas (las llama CommTask en lugar de enviar) ---------
 // Cada una programa una respuesta local con un pequeno retardo (como la placa
 // real) que Training_ServiceReplies() entrega poniendo los g_pending*.

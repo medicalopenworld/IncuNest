@@ -43,6 +43,8 @@ void Training_StartLesson(const Course *course, uint8_t lessonIdx);
 // Cierra la leccion en curso (SALIR, alarma, inactividad): restaura estado,
 // sale del modo formacion, vuelve a ui_ScreenMain.
 void Training_AbortLesson(void);
+// Verdadero solo mientras hay una leccion en pantalla (sin contar el selector).
+bool Training_LessonIsOpen(void);
 
 // Callback del motor hacia el selector. passed=false en aborto o demostracion.
 void TrainingSelector_OnLessonEnd(const Course *course, uint8_t lessonIdx,

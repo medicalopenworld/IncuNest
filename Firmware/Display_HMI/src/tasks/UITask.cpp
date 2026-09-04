@@ -4663,8 +4663,11 @@ void UI_Task(void *pvParameters) {
     // (no temperature, no humidity, no phototherapy) means the baby
     // actually came out; dropping one therapy among several does not.
     // En formacion no hay bebe real que dar de alta: apagar el control en una
-    // leccion no debe abrir el dialogo de salida (seq de formacion 0xFFFF).
-    BabyExitDialog_Tick(Training_IsActive() ? false : UI_AnyControlActive());
+    // leccion no abre el dialogo de salida (seq de formacion 0xFFFF), salvo
+    // que la leccion sea justo la de salida del bebe y lo pida.
+    BabyExitDialog_Tick((Training_IsActive() && !Training_ExitDialogAllowed())
+                            ? false
+                            : UI_AnyControlActive());
 
     if (eepromDirty && (millis() - lastVarChangeTime > EEPROM_COMMIT_DELAY)) {
       eepromDirty = false;

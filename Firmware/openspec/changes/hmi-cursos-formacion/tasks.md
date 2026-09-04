@@ -172,19 +172,47 @@ Commit: `docs: update for hmi-cursos-formacion (fase 1)`.
 
 Commit por lección o por pares: `feat(hmi): leccion E2 piel y sonda`, …
 
-- [ ] 8.1 E2 piel y sonda (Ajustes > Modos > piel; PIEL; sonda).
-- [ ] 8.2 E3 humedad.
-- [ ] 8.3 E4 fototerapia segura (pop-up de seguridad ocular como `STEP_DO`).
-- [ ] 8.4 E6 alta y seguimiento (asistente completo, peso, canguro).
-- [ ] 8.5 E7 salida del bebé.
-- [ ] 8.6 E8 bloqueo, E9 tendencia, E10 hora (ACK simulado), E11 soporte.
+Commit real: `feat(hmi): cursos completos de Enfermeria y Tecnico (fases 2 y 3)`
+(una sola tabla por curso; separar por lección no aportaba nada).
+
+- [x] 8.1 E2 piel y sonda: Ajustes > Modos > interruptor de piel (con la
+      sonda real de la placa: sin sonda el paso se da por cumplido y se
+      explica), volver, encender temperatura, PIEL, explicar colocación de la
+      sonda, apagar, pregunta.
+- [x] 8.2 E3 humedad: toggle (asistente en paso libre), flecha +5 %, explicar
+      depósito, apagar, pregunta.
+- [x] 8.3 E4 fototerapia: toggle → asistente y pop-up de seguridad ocular en
+      **paso libre** (el pop-up cuelga de `ui_ScreenMain`, bajo el overlay:
+      con sombras no se podría tocar), +minutos, INICIAR, cancelar, apagar,
+      pregunta.
+- [x] 8.4 E6 alta y seguimiento: Bebés (historial real, solo lectura),
+      asistente completo con bebé de formación (`seq 0xFFFF`), explicar
+      consigna propuesta y curva de peso, pregunta.
+- [x] 8.5 E7 salida del bebé: asistente, apagar en paso libre con el diálogo
+      de salida permitido solo en ese paso (`Training_SetExitDialogAllowed`),
+      objetivo = diálogo visto y cerrado con el control apagado; pregunta
+      canguro vs alta.
+- [x] 8.6 E8 bloqueo (candado real, toque en la pantalla, pulsación larga),
+      E9 tendencia desde el bloqueo (overlay subido sobre TelemetryHistory),
+      E10 hora (`TIME_ACK` simulado), E11 soporte (menú de ayuda en paso
+      libre; `Training_OpenSelector` no anida con lección abierta). Si una
+      lección termina con la pantalla bloqueada de verdad, se respeta y el
+      selector no se reabre hasta volver a la principal.
 - [ ] 8.7 Banco: cada lección de principio a fin; certificado de Enfermería.
 
 ## Fase 3 — curso Técnico completo
 
-- [ ] 9.1 T1 información y versiones; T2 WiFi y servidor (sin aplicar
-      credenciales en formación); T3 idioma y modos (restaurar idioma).
-- [ ] 9.2 T4 hora; T5 alarmas técnicas; T6 actualización por servidor web
-      (decidir si se muestra la IP en Información: tarea aparte); T7
-      informe de soporte; T8 apagado seguro.
+- [x] 9.1 T1 información y versiones (SN, firmware HMI y MB); T2 WiFi y
+      servidor (los botones de red están desactivados en formación; se
+      explica); T3 idioma y modos (cambio real de idioma en paso libre y
+      modo oscuro, ambos restaurados al salir).
+- [x] 9.2 T4 hora; T5 alarmas técnicas (sensor, ventilador/salida, calefactor,
+      red, enlace; pregunta); T6 actualización por servidor web (explicar; la
+      IP se lee en el informe de soporte, mostrarla en Información queda como
+      tarea aparte); T7 informe de soporte; T8 apagado seguro.
 - [ ] 9.3 Banco y certificado Técnico.
+- [x] 9.4 `pio run -e main` en verde con los dos cursos completos (12 + 9
+      lecciones): Flash 2 590 792 B (82,4 %; +49 KB de textos respecto a la
+      fase 1), RAM 128 012 B. Sin caracteres fuera de ASCII; ningún texto de
+      bocadillo supera 200 (ancho) / 180 (estrecho) caracteres
+      (`scratchpad/lesson_text_len.py`).

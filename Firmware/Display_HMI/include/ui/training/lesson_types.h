@@ -82,5 +82,7 @@ struct Course {
   Step{STEP_DO, target, screen, T3(es, en, fr), goal, onEnter, 0, nullptr}
 #define FREE(screen, goal, es, en, fr) \
   Step{STEP_DO, nullptr, screen, T3(es, en, fr), goal, nullptr, STEP_FREE, nullptr}
+#define FREE_ENTER(screen, goal, onEnter, es, en, fr) \
+  Step{STEP_DO, nullptr, screen, T3(es, en, fr), goal, onEnter, STEP_FREE, nullptr}
 #define QUIZ(screen, quizPtr, es, en, fr) \
   Step{STEP_QUIZ, nullptr, screen, T3(es, en, fr), nullptr, nullptr, 0, quizPtr}

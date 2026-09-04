@@ -546,6 +546,9 @@ void TrainingSelector_Init(lv_obj_t *parent) {
 }
 
 void Training_OpenSelector(void) {
+  // Con una leccion en curso (p. ej. la de soporte abre el menu de ayuda en
+  // un paso libre) no se anida otro selector.
+  if (Training_LessonIsOpen()) return;
   s_course = nullptr;
   openAt(V_COURSES);
 }
@@ -596,5 +599,8 @@ void TrainingSelector_OnLessonEnd(const Course *course, uint8_t lessonIdx,
                      "Lecon non terminee"),
                  3000);
   }
-  openAt(V_LESSONS);
+  // El selector cuelga de ui_ScreenMain: si la leccion termino con la
+  // pantalla bloqueada (candado real), se reabre al volver a la principal
+  // desde el menu de ayuda, no aqui.
+  if (lv_scr_act() == ui_ScreenMain) openAt(V_LESSONS);
 }

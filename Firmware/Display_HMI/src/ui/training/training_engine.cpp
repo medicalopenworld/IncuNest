@@ -286,7 +286,12 @@ void endLesson(bool passed, bool aborted) {
   s_mode = MODE_NONE;
   s_course = nullptr;
   s_lesson = nullptr;
-  if (ui_ScreenMain && lv_scr_act() != ui_ScreenMain) lv_scr_load(ui_ScreenMain);
+  // Si la leccion dejo la pantalla bloqueada de verdad (leccion de bloqueo o
+  // tendencia, via el candado real), se respeta: forzar la principal con
+  // `locked` en alto dejaria el estado del bloqueo incoherente.
+  if (ui_ScreenMain && lv_scr_act() != ui_ScreenMain && !UI_IsScreenLocked()) {
+    lv_scr_load(ui_ScreenMain);
+  }
   lv_disp_trig_activity(NULL);
 
   if (aborted) {
@@ -650,6 +655,8 @@ void Training_StartLesson(const Course *course, uint8_t lessonIdx) {
 }
 
 void Training_AbortLesson(void) { endLesson(false, true); }
+
+bool Training_LessonIsOpen(void) { return s_open; }
 
 bool Training_IsOpen(void) { return s_open || TrainingSelector_IsOpen(); }
 

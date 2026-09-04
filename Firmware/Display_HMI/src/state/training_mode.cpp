@@ -20,6 +20,7 @@ constexpr uint32_t SIM_REPLY_DELAY_MS = 250;
 enum SimKind { SIM_NONE = 0, SIM_LIST, SIM_ACK, SIM_RANGE, SIM_TIME_ACK };
 
 volatile bool s_active = false;
+bool s_exitDialogAllowed = false;
 HMI_Message s_frozen;
 
 // Bebe de formacion: lo que el asistente ha ido contando, para calcular el
@@ -51,10 +52,14 @@ void Training_Enter(void) {
   s_ageDays = 0;
   s_ageKnown = false;
   s_simKind = SIM_NONE;
+  s_exitDialogAllowed = false;
   __sync_synchronize();
   s_active = true;
   ESP_LOGW(TAG, "MODO FORMACION activado: la placa no recibe ordenes");
 }
+
+void Training_SetExitDialogAllowed(bool allowed) { s_exitDialogAllowed = allowed; }
+bool Training_ExitDialogAllowed(void) { return s_exitDialogAllowed; }
 
 void Training_Exit(void) {
   if (!s_active) return;
@@ -68,6 +73,7 @@ void Training_Exit(void) {
   __sync_synchronize();
   s_active = false;
   s_simKind = SIM_NONE;
+  s_exitDialogAllowed = false;
   ESP_LOGW(TAG, "MODO FORMACION desactivado");
 }
 
