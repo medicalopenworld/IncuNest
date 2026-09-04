@@ -49,10 +49,6 @@ lv_obj_t *s_content = nullptr;
 lv_obj_t *s_dlg = nullptr;      // pop-up de descripcion (hijo del overlay)
 lv_obj_t *s_dlgBody = nullptr;  // etiqueta de la descripcion dentro del pop-up
 
-const char *TXT(const char *es, const char *en, const char *fr) {
-  return (g_lang == LANG_ES) ? es : (g_lang == LANG_FR) ? fr : en;
-}
-
 // Marca de prioridad de 6.3.2.2.2. No es politica: es formatear el numero que
 // manda la motherBoard en CTRL,ALM. La placa sigue siendo la dueña de decidir
 // que prioridad tiene cada alarma; aqui solo se pinta.
@@ -66,9 +62,9 @@ const char *prioMark(uint8_t prio) {
 
 const char *prioName(uint8_t prio) {
   switch (prio) {
-    case ALARM_PRIORITY_HIGH:   return TXT("ALTA", "HIGH", "HAUTE");
-    case ALARM_PRIORITY_MEDIUM: return TXT("MEDIA", "MEDIUM", "MOYENNE");
-    default:                    return TXT("BAJA", "LOW", "BASSE");
+    case ALARM_PRIORITY_HIGH:   return TR(STR_PRIO_HIGH);
+    case ALARM_PRIORITY_MEDIUM: return TR(STR_PRIO_MEDIUM);
+    default:                    return TR(STR_PRIO_LOW);
   }
 }
 
@@ -264,16 +260,11 @@ void onAlarmTestClicked(lv_event_t *) {
   // display estuviera escuchando — el autotest de arranque, por ejemplo.
   if (ctrl_state_msg.alarmBitmask != 0 &&
       ctrl_state_msg.alarmBitmask != (uint32_t)-1) {
-    UI_ShowToast(TXT("Hay una alarma activa:\nno se puede probar ahora",
-                     "An alarm is active:\ncannot test now",
-                     "Une alarme est active:\ntest impossible"),
-                 4000);
+    UI_ShowToast(TR(STR_ALARM_ACTIVE_NO_TEST), 4000);
     return;
   }
   Communication_SendAlarmTest();
-  UI_ShowToast(TXT("Probando senales de alarma...", "Testing alarm signals...",
-                   "Test des signaux d'alarme..."),
-               3000);
+  UI_ShowToast(TR(STR_TESTING_ALARM_SIGNALS), 3000);
 }
 
 void onMuteClicked(lv_event_t *) {
@@ -284,8 +275,7 @@ void onMuteClicked(lv_event_t *) {
   // puede callar una alarma (IEC 60601-1-8 6.10): tiene que haber un solo
   // camino y que ese este probado.
   MuteAlarm_cb(nullptr);
-  UI_ShowToast(TXT("Alarma silenciada", "Alarm silenced", "Alarme silencee"),
-               2500);
+  UI_ShowToast(TR(STR_ALARM_SILENCED), 2500);
   // La lista NO se reconstruye aqui a proposito: hacerlo destruiria, desde
   // dentro de su propio callback, el boton que acaba de recibir el toque.
   // alarmsMuted entra en la firma, asi que AlarmCenter_Poll() la reconstruye
@@ -294,7 +284,7 @@ void onMuteClicked(lv_event_t *) {
 
 void showLoading() {
   clearContent();
-  makeTitle(TXT("Cargando...", "Loading...", "Chargement..."));
+  makeTitle(TR(STR_LOADING));
   lv_obj_t *close =
       makeBtn(s_content, "X", onCloseClicked, lv_color_hex(0xAA3333));
   lv_obj_set_size(close, 44, 44);
@@ -362,7 +352,7 @@ void onRowTap(lv_event_t *e) {
     // cabe), se pide a la placa.
     s_detailId = r->id;
     openDetail(r->id, r->title,
-               TXT("Cargando...", "Loading...", "Chargement..."));
+               TR(STR_LOADING));
     Communication_SendAlarmDescReq(r->id);
     s_step = Step::LoadingDetail;
     s_deadlineMs = millis() + RESP_TIMEOUT_MS;
@@ -372,7 +362,7 @@ void onRowTap(lv_event_t *e) {
 
 void showList() {
   clearContent();
-  makeTitle(TXT("Alarmas", "Alarms", "Alarmes"));
+  makeTitle(TR(STR_ALARMS));
 
   lv_obj_t *close =
       makeBtn(s_content, "X", onCloseClicked, lv_color_hex(0xAA3333));
@@ -383,7 +373,7 @@ void showList() {
   // funcionamiento (201.12.3.105). Estuvo en ajustes y se movio aqui: es
   // donde el operador ya esta cuando piensa en alarmas.
   lv_obj_t *test = makeBtn(s_content,
-                           TXT("PROBAR", "TEST", "TESTER"),
+                           TR(STR_TEST_UC),
                            onAlarmTestClicked, lv_color_hex(0x0075EE));
   lv_obj_set_size(test, 130, 44);
   lv_obj_align(test, LV_ALIGN_TOP_LEFT, 0, 0);
@@ -409,7 +399,7 @@ void showList() {
 
   // --- Activas ---
   lv_obj_t *secA = lv_label_create(body);
-  lv_label_set_text(secA, TXT("Activas", "Active", "Actives"));
+  lv_label_set_text(secA, TR(STR_ACTIVE_F));
   lv_obj_set_style_text_font(secA, &lv_font_montserrat_16, 0);
   lv_obj_set_style_text_color(secA, lv_color_hex(0x0B2E4F), 0);
 
@@ -446,8 +436,8 @@ void showList() {
     char buf[192];
     snprintf(buf, sizeof(buf), "%s %s\n%s  -  %s", prioMark(r.priority),
              r.title, prioName(r.priority),
-             r.silenced ? TXT("AUDIO EN PAUSA", "AUDIO PAUSED", "AUDIO EN PAUSE")
-                        : TXT("en curso", "ongoing", "en cours"));
+             r.silenced ? TR(STR_AUDIO_PAUSED)
+                        : TR(STR_ONGOING));
     // 600 de tarjeta - 190 de boton - 34 del icono: deja sitio a ambos.
     makeCardLabel(card, buf, 366);
 
@@ -472,10 +462,9 @@ void showList() {
     const bool canSilence = alarm_is_silenceable((AlarmId)r.id);
     lv_obj_t *btn = makeBtn(
         card,
-        !canSilence ? TXT("NO SILENCIABLE", "CANNOT SILENCE", "NON SILENCABLE")
-        : r.silenced ? TXT("REANUDAR", "RESUME", "REPRENDRE")
-                     : TXT("SILENCIAR", "SILENCE", "SILENCE"),
-        onRowSilenceTap,
+        !canSilence ? TR(STR_CANNOT_SILENCE)
+        : r.silenced ? TR(STR_RESUME_UC)
+                     : TR(STR_SILENCE_UC), onRowSilenceTap,
         !canSilence  ? lv_color_hex(0x9E9E9E)
         : r.silenced ? lv_color_hex(0x2E7D32)
                      : lv_color_hex(0xE08800),
@@ -489,8 +478,7 @@ void showList() {
 
   if (nActive == 0) {
     lv_obj_t *none = lv_label_create(body);
-    lv_label_set_text(none, TXT("Sin alarmas activas", "No active alarms",
-                                "Aucune alarme active"));
+    lv_label_set_text(none, TR(STR_NO_ACTIVE_ALARMS));
     lv_obj_set_style_text_color(none, lv_color_hex(0x0B2E4F), 0);
   }
 
@@ -498,16 +486,14 @@ void showList() {
   lv_obj_t *secH = lv_label_create(body);
   char hdr[64];
   snprintf(hdr, sizeof(hdr), "%s (%d)",
-           TXT("Registro", "Log", "Journal"), s_hist.count);
+           TR(STR_LOG), s_hist.count);
   lv_label_set_text(secH, hdr);
   lv_obj_set_style_text_font(secH, &lv_font_montserrat_16, 0);
   lv_obj_set_style_text_color(secH, lv_color_hex(0x0B2E4F), 0);
 
   if (s_hist.count == 0) {
     lv_obj_t *none = lv_label_create(body);
-    lv_label_set_text(none, TXT("Todavia no ha saltado ninguna alarma",
-                                "No alarms recorded yet",
-                                "Aucune alarme enregistree"));
+    lv_label_set_text(none, TR(STR_NO_ALARMS_RECORDED));
     lv_obj_set_style_text_color(none, lv_color_hex(0x0B2E4F), 0);
   }
 
@@ -544,7 +530,7 @@ void showList() {
     char buf[192];
     if (!it.resolved) {
       snprintf(buf, sizeof(buf), "%s %s\n%s  -  %s", prioMark(r.priority),
-               r.title, raised, TXT("sin resolver", "unresolved", "non resolue"));
+               r.title, raised, TR(STR_UNRESOLVED));
     } else {
       // Resuelta con hora conocida: inicio -> fin. Resuelta pero sin reloj
       // sincronizado: se dice que se resolvio y no se inventa una hora.
@@ -553,7 +539,7 @@ void showList() {
       snprintf(buf, sizeof(buf), "%s %s\n%s  ->  %s", prioMark(r.priority),
                r.title, raised,
                it.clearedEpoch ? cleared
-                               : TXT("resuelta", "resolved", "resolue"));
+                               : TR(STR_RESOLVED));
     }
     makeCardLabel(card, buf, 580);
   }
@@ -615,7 +601,7 @@ void openDetail(uint8_t id, const char *title, const char *desc) {
   lv_label_set_long_mode(s_dlgBody, LV_LABEL_LONG_WRAP);
   lv_obj_set_style_text_align(s_dlgBody, LV_TEXT_ALIGN_CENTER, 0);
 
-  lv_obj_t *ok = makeBtn(s_dlg, TXT("CERRAR", "CLOSE", "FERMER"),
+  lv_obj_t *ok = makeBtn(s_dlg, TR(STR_CLOSE_UC),
                          onDetailClose, lv_color_hex(0x0075EE));
   lv_obj_set_size(ok, 160, 44);
 
@@ -686,10 +672,7 @@ void AlarmCenter_Poll(void) {
         } else {
           // Sin registro no se bloquea la pantalla: las alarmas activas son lo
           // urgente y esas ya estan en alarmList, sin depender de la placa.
-          UI_ShowToast(TXT("No se pudo leer el registro",
-                           "Could not read the log",
-                           "Impossible de lire le journal"),
-                       3000);
+          UI_ShowToast(TR(STR_COULD_NOT_READ_LOG), 3000);
           s_hist.count = 0;
           s_retries = 0;
           showList();
@@ -714,9 +697,7 @@ void AlarmCenter_Poll(void) {
           s_deadlineMs = millis() + RESP_TIMEOUT_MS;
         } else if (s_dlgBody) {
           lv_label_set_text(s_dlgBody,
-                            TXT("Descripcion no disponible",
-                                "Description unavailable",
-                                "Description indisponible"));
+                            TR(STR_DESC_UNAVAILABLE));
           s_step = Step::Detail;
         }
       }

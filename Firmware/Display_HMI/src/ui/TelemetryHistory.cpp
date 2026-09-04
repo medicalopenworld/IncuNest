@@ -7,8 +7,6 @@
 #include "main.h"
 #include "ui.h"
 
-extern ui_lang_t g_lang;
-
 // Definidas en ElementsCreation.cpp (sin header propio: hasta ahora solo las
 // usaban las gráficas de esa misma unidad de compilación). Mismo patrón que
 // AlarmCenter_Open en ui_event_AlarmLockImg: extern local en vez de un
@@ -72,10 +70,6 @@ lv_chart_series_t *s_serHum = nullptr;
 lv_obj_t *s_lblAir = nullptr;
 lv_obj_t *s_lblSkin = nullptr;
 lv_obj_t *s_lblHum = nullptr;
-
-const char *TXT(const char *es, const char *en, const char *fr) {
-  return (g_lang == LANG_ES) ? es : (g_lang == LANG_FR) ? fr : en;
-}
 
 // true si algo con mas prioridad debe llevarse la pantalla por delante: una
 // alarma activa (el banner y el icono de AUDIO PAUSED, ambos en
@@ -216,7 +210,7 @@ void TelemetryHistory_Init(void) {
   lv_obj_clear_flag(s_content, LV_OBJ_FLAG_SCROLLABLE);
 
   s_title = lv_label_create(s_content);
-  lv_label_set_text(s_title, TXT("Tendencia", "Trend", "Tendance"));
+  lv_label_set_text(s_title, TR(STR_TREND));
   lv_obj_set_style_text_font(s_title, &lv_font_montserrat_20, 0);
   lv_obj_align(s_title, LV_ALIGN_TOP_LEFT, 4, 6);
 
@@ -240,17 +234,17 @@ void TelemetryHistory_Init(void) {
   // Mismos colores que las graficas de ui_ScreenCharts (Tiempo Real): aire
   // verde, piel cian, humedad azul — un lenguaje visual ya establecido en
   // este HMI, no uno nuevo por pantalla.
-  s_lblAir = makeChartLabel(40, TXT("AIRE", "AIR", "AIR"));
+  s_lblAir = makeChartLabel(40, TR(STR_AIR));
   s_chartAir = makeChart(58, TEMP_CHART_MIN, TEMP_CHART_MAX, AIR_SAFE_ZONE_MIN,
                          AIR_SAFE_ZONE_MAX, lv_color_hex(0x00FF00),
                          &s_serAir);
 
-  s_lblSkin = makeChartLabel(160, TXT("PIEL", "SKIN", "PEAU"));
+  s_lblSkin = makeChartLabel(160, TR(STR_SKIN));
   s_chartSkin =
       makeChart(178, TEMP_CHART_MIN, TEMP_CHART_MAX, SKIN_SAFE_ZONE_MIN,
                 SKIN_SAFE_ZONE_MAX, lv_color_hex(0x00E0E0), &s_serSkin);
 
-  s_lblHum = makeChartLabel(280, TXT("HUMEDAD", "HUMIDITY", "HUMIDITE"));
+  s_lblHum = makeChartLabel(280, TR(STR_HUMIDITY));
   s_chartHum = makeChart(298, HUM_CHART_MIN, HUM_CHART_MAX, HUM_SAFE_ZONE_MIN,
                          HUM_SAFE_ZONE_MAX, lv_color_hex(0x3B82F6),
                          &s_serHum);
@@ -258,13 +252,13 @@ void TelemetryHistory_Init(void) {
 
 void TelemetryHistory_ApplyLanguage(void) {
   // Se llama despues de que UI_ApplyLanguage() ya actualizo g_lang, asi que
-  // TXT() aqui lee el idioma nuevo.
+  // TR() aqui lee el idioma nuevo.
   if (s_title)
-    lv_label_set_text(s_title, TXT("Tendencia", "Trend", "Tendance"));
-  if (s_lblAir) lv_label_set_text(s_lblAir, TXT("AIRE", "AIR", "AIR"));
-  if (s_lblSkin) lv_label_set_text(s_lblSkin, TXT("PIEL", "SKIN", "PEAU"));
+    lv_label_set_text(s_title, TR(STR_TREND));
+  if (s_lblAir) lv_label_set_text(s_lblAir, TR(STR_AIR));
+  if (s_lblSkin) lv_label_set_text(s_lblSkin, TR(STR_SKIN));
   if (s_lblHum)
-    lv_label_set_text(s_lblHum, TXT("HUMEDAD", "HUMIDITY", "HUMIDITE"));
+    lv_label_set_text(s_lblHum, TR(STR_HUMIDITY));
 }
 
 void TelemetryHistory_Open(void) {

@@ -114,7 +114,6 @@ bool g_ui_initialized = false;
 static bool eepromDirty = false;
 static unsigned long lastVarChangeTime = 0;
 
-ui_lang_t g_lang = LANG_EN;
 
 // Phototherapy Timer
 int photoTimerMinutes = PHOTO_TIMER_DEFAULT_MINUTES;
@@ -423,10 +422,7 @@ void clock_update(void) {
 
   const uint32_t epochNow = HMI_GetEpochNow();
   if (epochNow == 0) {
-    // Orden ES/EN/FR, como ui_lang_t en main.h.
-    static const char *const TXT_NO_TIME[] = {"Sin hora", "No time",
-                                              "Sans heure"};
-    snprintf(nowTime, sizeof(nowTime), "%s", TXT_NO_TIME[g_lang]);
+    snprintf(nowTime, sizeof(nowTime), "%s", TR(STR_NO_TIME));
     nowDate[0] = '\0';
   } else {
     const time_t t =
@@ -466,11 +462,8 @@ void wifi_board_status_update(void) {
   if (!ui_WifiBoardStatus) return;
   if (!wifiVisible) return;
 
-  // Orden ES/EN/FR, como ui_lang_t en main.h.
-  static const char *const TXT_BOARD[] = {"Placa: ", "Board: ", "Carte : "};
-
   char now[64];
-  snprintf(now, sizeof(now), "%s%s", TXT_BOARD[g_lang],
+  snprintf(now, sizeof(now), "%s%s", TR(STR_BOARD_PREFIX),
            getConnectivityString(ctrl_state_msg.serverCommStatus, g_lang));
 
   static char last[64] = {0};
@@ -758,17 +751,13 @@ void update_labels() {
     if (probePresent) {
       if (ui_Switch4)
         lv_obj_clear_flag(ui_Switch4, LV_OBJ_FLAG_HIDDEN);
-      const char *text = (g_lang == LANG_ES)   ? "MODO PIEL"
-                         : (g_lang == LANG_FR) ? "MODE PEAU"
-                                               : "SKIN MODE";
+      const char *text = TR(STR_SKIN_MODE);
       if (ui_SkinOptionLabel)
         lv_label_set_text(ui_SkinOptionLabel, text);
     } else {
       if (ui_Switch4)
         lv_obj_add_flag(ui_Switch4, LV_OBJ_FLAG_HIDDEN);
-      const char *text = (g_lang == LANG_ES)   ? "SIN SONDA DE PIEL"
-                         : (g_lang == LANG_FR) ? "SONDE PEAU ABSENTE"
-                                               : "NO SKIN PROBE DETECTED";
+      const char *text = TR(STR_NO_SKIN_PROBE);
       if (ui_SkinOptionLabel)
         lv_label_set_text(ui_SkinOptionLabel, text);
       if (skinPanelEnabled) {
@@ -782,38 +771,12 @@ void update_labels() {
 
 const char *getConnectivityString(int status, ui_lang_t lang) {
   switch (status) {
-  case COMM_STATUS_NONE:
-    if (lang == LANG_ES)
-      return "DESCONECTADO";
-    if (lang == LANG_FR)
-      return "DECONNECTE";
-    return "DISCONNECTED";
-  case COMM_STATUS_GPRS_ONLY:
-    if (lang == LANG_ES)
-      return "2G (SIN SERVER)";
-    if (lang == LANG_FR)
-      return "2G (SANS SERVEUR)";
-    return "2G (NO SERVER)";
-  case COMM_STATUS_GPRS_SERVER:
-    if (lang == LANG_ES)
-      return "2G + SERVIDOR";
-    if (lang == LANG_FR)
-      return "2G + SERVEUR";
-    return "2G + SERVER";
-  case COMM_STATUS_WIFI_ONLY:
-    if (lang == LANG_ES)
-      return "WIFI (SIN SERVER)";
-    if (lang == LANG_FR)
-      return "WIFI (SANS SERVEUR)";
-    return "WIFI (NO SERVER)";
-  case COMM_STATUS_WIFI_SERVER:
-    if (lang == LANG_ES)
-      return "WIFI + SERVIDOR";
-    if (lang == LANG_FR)
-      return "WIFI + SERVEUR";
-    return "WIFI + SERVER";
-  default:
-    return "-";
+  case COMM_STATUS_NONE:        return UI_StrIn(STR_CONN_DISCONNECTED, lang);
+  case COMM_STATUS_GPRS_ONLY:   return UI_StrIn(STR_CONN_GPRS_ONLY, lang);
+  case COMM_STATUS_GPRS_SERVER: return UI_StrIn(STR_CONN_GPRS_SERVER, lang);
+  case COMM_STATUS_WIFI_ONLY:   return UI_StrIn(STR_CONN_WIFI_ONLY, lang);
+  case COMM_STATUS_WIFI_SERVER: return UI_StrIn(STR_CONN_WIFI_SERVER, lang);
+  default:                      return UI_StrIn(STR_CONN_UNKNOWN, lang);
   }
 }
 
@@ -821,19 +784,11 @@ static void photo_safety_apply_language(ui_lang_t lang) {
   if (!ui_PhotoSafetyModal)
     return;
   lv_label_set_text(ui_PhotoSafetyTitleLabel,
-      (lang == LANG_ES)   ? "PROTECCION OCULAR OBLIGATORIA"
-      : (lang == LANG_FR) ? "PROTECTION OCULAIRE OBLIGATOIRE"
-                          : "EYE PROTECTION REQUIRED");
+                    UI_StrIn(STR_PHOTO_SAFETY_TITLE, lang));
   lv_label_set_text(ui_PhotoSafetyBodyLabel,
-      (lang == LANG_ES)
-          ? "Coloque proteccion ocular al paciente\nantes de activar la fototerapia."
-      : (lang == LANG_FR)
-          ? "Protegez les yeux du patient avec des\nlunettes adaptees avant d'activer\nla phototherapie."
-          : "Protect the patient's eyes with eye\nshields before activating phototherapy.");
+                    UI_StrIn(STR_PHOTO_SAFETY_BODY, lang));
   lv_label_set_text(ui_PhotoSafetyTurnOnLabel,
-      (lang == LANG_ES)   ? "ENCENDER"
-      : (lang == LANG_FR) ? "ACTIVER"
-                          : "TURN ON");
+                    UI_StrIn(STR_PHOTO_SAFETY_TURN_ON, lang));
 }
 
 static void photo_safety_popup_show(bool show) {
@@ -913,178 +868,105 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   eepromDirty = true;
   lastVarChangeTime = millis();
 
-  const char *TXT_CONTROLTEMP[] = {"TEMPERATURA", "TEMPERATURE", "TEMPERATURE"};
-  const char *TXT_CONTROLHUM[] = {"HUMEDAD", "HUMIDITY", "HUMIDITY"};
-  const char *TXT_PHOTO[] = {"FOTOTERAPIA", "PHOTOTHERAPY", "PHOTOTHERAPIE"};
-  const char *TXT_AIR[] = {"AIRE", "AIR", "AIR"};
-  const char *TXT_SKIN[] = {"PIEL", "SKIN", "PEAU"};
-  const char *TXT_ON[] = {"ON", "ON", "ON"};
-  const char *TXT_OFF[] = {"OFF", "OFF", "OFF"};
-  const char *TXT_SETTINGS[] = {"AJUSTES", "SETTINGS", "PARAMETRES"};
-  const char *TXT_LANG[] = {"IDIOMA", "LANGUAGE", "LANGUE"};
-  const char *TXT_WIFI[] = {"WIFI", "WIFI", "WIFI"};
-  const char *TXT_CONNECT[] = {"CONECTAR", "CONNECT", "CONNEXION"};
-  const char *TXT_SSID[] = {"SSID", "SSID", "SSID"};
-  const char *TXT_PASSWORD[] = {"CONTRASENA", "PASSWORD", "MOT DE PASSE"};
-  const char *TXT_SKINMODE[] = {"MODO PIEL", "SKIN MODE", "MODE PEAU"};
-  const char *TXT_INFO[] = {"INFO", "INFO", "INFO"};
-  const char *TXT_MODES[] = {"MODOS", "MODES", "MODES"};
-  const char *TXT_MODES_TITLE[] = {"MODOS", "MODES", "MODES"};
-  const char *TXT_HMI_VERSION[] = {
-      "VERSION PANTALLA:", "DISPLAY VERSION:", "VERSION ECRAN:"};
-  const char *TXT_MB_VERSION[] = {
-      "VERSION PLACA:", "MOTHERBOARD VERSION:", "VERSION CARTE:"};
-  const char *TXT_SN[] = {"S/N:", "S/N:", "S/N:"};
-  const char *TXT_HEATER_ERROR_RESTART[] = {
-      "Error calentador\nToque para mas informacion",
-      "Heater error\nTouch for more information",
-      "Erreur chauffage\nToucher pour plus d'infos"};
-  const char *TXT_ALARMS[] = {"ALARMAS", "ALARMS", "ALARMES"};
-  const char *TXT_VIEWDETAIL[] = {"VER DETALLES", "VIEW DETAILS",
-                                  "VOIR DETAILS"};
-  const char *TXT_HUMCHART[] = {"GRAFICO HUMEDAD", "HUMIDITY CHART",
-                                "GRAPHIQUE HUMIDITE"};
-  const char *TXT_AIRTEMPCHART[] = {"GRAFICO TEMPERATURA AIRE",
-                                    "AIR TEMPERATURE CHART",
-                                    "GRAPHIQUE TEMPERATURE AIR"};
-  const char *TXT_SKINTEMPCHART[] = {"GRAFICO TEMPERATURA PIEL",
-                                     "SKIN TEMPERATURE CHART",
-                                     "GRAPHIQUE TEMPERATURE PEAU"};
-  const char *TXT_TABTEMP[] = {"TEMPERATURA", "TEMPERATURE", "TEMPERATURE"};
-  const char *TXT_TABHUM[] = {"HUMEDAD", "HUMIDITY", "HUMIDITE"};
-  const char *TXT_AIRTEMP[] = {
-      "TEMPERATURA AIRE:", "AIR TEMPERATURE:", "AIR TEMPERATURE:"};
-  const char *TXT_BABYTEMP[] = {
-      "TEMPERATURA BEBE:", "BABY TEMPERATURE:", "TEMPERATURE BEBE:"};
-  const char *TXT_HUM[] = {"HUMEDAD:", "HUMIDITY:", "HUMIDITE:"};
-  const char *TXT_TARGETTEMP[] = {
-      "TEMP. OBJETIVO:", "TARGET TEMP:", "TEMP. OBJECTIF:"};
-  const char *TXT_TARGETHUM[] = {
-      "HUMEDAD OBJETIVO:", "TARGET HUMIDITY:", "HUMIDITE OBJECTIF:"};
-  const char *TXT_STATUS[] = {"ESTADO:", "STATUS:", "ETAT:"};
-  const char *TXT_UNLOCK[] = {"PRESIONA 2 SEG\nPARA DESBLOQUEAR",
-                              "PRESS 2 SEC \nTO UNLOCK",
-                              "APPUYEZ 2 SEG\nPOUR DEVERROUILLER"};
-  const char *TXT_INCUNEST[] = {"INCUNEST", "INCUNEST", "INCUNEST"};
-  const char *TXT_SET[] = {"AJUSTAR", "SET", "REGLER"};
-  const char *TXT_WIFISSID[] = {"WIFISSID", "WIFISSID", "WIFISSID"};
-  const char *TXT_WIFICONNECTEDTO[] = {"WIFI CONECTADO A", "WIFI CONNECTED TO",
-                                       "WIFI CONNECTE A"};
-  const char *TXT_ALARMSDESC[] = {"DESCRIPCION DE ALARMAS",
-                                  "ALARMS DESCRIPTION",
-                                  "DESCRIPTION DES ALARMES"};
-  const char *TXT_OXICHART[] = {"GRAFICO OXIMETRIA", "OXIMETRY CHART",
-                                "GRAPHIQUE OXIMETRIE"};
-  const char *TXT_PULSEOXIMETRY[] = {"PULSIOXIMETRIA", "PULSE OXIMETRY",
-                                     "PULSIOXYMETRIE"};
-  const char *TXT_LANG_OPTIONS[] = {"ESPANOL\nINGLES\nFRANCES",
-                                    "SPANISH\nENGLISH\nFRENCH",
-                                    "ESPAGNOL\nANGLAIS\nFRANCAIS"};
-  const char *TXT_CONNECTIVITY[] = {
-      "CONECTIVIDAD:", "CONNECTIVITY:", "CONNECTIVITE:"};
-  const char *TXT_PHOTOSTART[] = {"EMPEZAR", "START", "DEMARRER"};
-  const char *TXT_DARKMODE[] = {"MODO OSCURO", "DARK MODE", "MODE SOMBRE"};
-  lv_label_set_text(ui_Label2, TXT_CONTROLTEMP[lang]);
-  lv_label_set_text(ui_HumidityLabel, TXT_CONTROLHUM[lang]);
-  lv_label_set_text(ui_PhototherapyLabel, TXT_PHOTO[lang]);
-  lv_label_set_text(ui_Label30, TXT_AIR[lang]);
-  lv_label_set_text(ui_Label31, TXT_SKIN[lang]);
-  lv_label_set_text(ui_Label9, TXT_ON[lang]);
-  lv_label_set_text(ui_Label15, TXT_OFF[lang]);
-  lv_label_set_text(ui_Label13, TXT_ON[lang]);
-  lv_label_set_text(ui_Label16, TXT_OFF[lang]);
-  lv_label_set_text(ui_Label10, TXT_ON[lang]);
-  lv_label_set_text(ui_Label17, TXT_OFF[lang]);
-  lv_label_set_text(ui_Label8, TXT_SETTINGS[lang]);
-  lv_label_set_text(ui_LanguagesLabel, TXT_LANG[lang]);
-  lv_label_set_text(ui_WifiLabel, TXT_WIFI[lang]);
-  lv_label_set_text(ui_ConnectLabel, TXT_CONNECT[lang]);
-  lv_label_set_text(ui_SSIDLabel, TXT_SSID[lang]);
-  lv_label_set_text(ui_PassLabel, TXT_PASSWORD[lang]);
-  lv_label_set_text(ui_SkinOptionLabel, TXT_SKINMODE[lang]);
-  lv_label_set_text(ui_InfoLabel, TXT_INFO[lang]);
-  lv_label_set_text(ui_DarkModeLabel, TXT_DARKMODE[lang]);
-  lv_label_set_text(ui_ModesLabel, TXT_MODES[lang]);
-  lv_label_set_text(ui_ModesTitleLabel, TXT_MODES_TITLE[lang]);
-  {
-    const char *TXT_HUMIDITY_MODE[] = {"CONTROL HUMEDAD", "HUMIDITY CONTROL",
-                                       "CONTROLE HUMIDITE"};
-    lv_label_set_text(ui_HumidityModeLabel, TXT_HUMIDITY_MODE[lang]);
-  }
-  lv_label_set_text(ui_HMIVerTitle, TXT_HMI_VERSION[lang]);
-  lv_label_set_text(ui_MBVerTitle, TXT_MB_VERSION[lang]);
-  lv_label_set_text(ui_SNTitle, TXT_SN[lang]);
+  // Todas las cadenas salen del catalogo (`ui/i18n_strings.def`) en el idioma
+  // que se acaba de fijar. `L()` ahorra repetir el parametro en cada linea.
+  //
+  // Antes esta funcion abria con 57 arrays de tres literales declarados en
+  // local; anadir un idioma obligaba a tocarlos uno a uno y era facil dejarse
+  // alguno a medias.
+  auto L = [lang](ui_str_id_t id) { return UI_StrIn(id, lang); };
+
+  lv_label_set_text(ui_Label2, L(STR_TEMPERATURE));
+  lv_label_set_text(ui_HumidityLabel, L(STR_HUMIDITY));
+  lv_label_set_text(ui_PhototherapyLabel, L(STR_PHOTOTHERAPY));
+  lv_label_set_text(ui_Label30, L(STR_AIR));
+  lv_label_set_text(ui_Label31, L(STR_SKIN));
+  lv_label_set_text(ui_Label9, L(STR_ON));
+  lv_label_set_text(ui_Label15, L(STR_OFF));
+  lv_label_set_text(ui_Label13, L(STR_ON));
+  lv_label_set_text(ui_Label16, L(STR_OFF));
+  lv_label_set_text(ui_Label10, L(STR_ON));
+  lv_label_set_text(ui_Label17, L(STR_OFF));
+  lv_label_set_text(ui_Label8, L(STR_SETTINGS));
+  lv_label_set_text(ui_LanguagesLabel, L(STR_LANGUAGE));
+  lv_label_set_text(ui_WifiLabel, L(STR_WIFI));
+  lv_label_set_text(ui_ConnectLabel, L(STR_CONNECT));
+  lv_label_set_text(ui_SSIDLabel, L(STR_SSID));
+  lv_label_set_text(ui_PassLabel, L(STR_PASSWORD));
+  lv_label_set_text(ui_SkinOptionLabel, L(STR_SKIN_MODE));
+  lv_label_set_text(ui_InfoLabel, L(STR_INFO));
+  lv_label_set_text(ui_DarkModeLabel, L(STR_DARK_MODE));
+  lv_label_set_text(ui_ModesLabel, L(STR_MODES));
+  lv_label_set_text(ui_ModesTitleLabel, L(STR_MODES));
+  lv_label_set_text(ui_HumidityModeLabel, L(STR_HUMIDITY_CONTROL));
+  lv_label_set_text(ui_HMIVerTitle, L(STR_HMI_VERSION));
+  lv_label_set_text(ui_MBVerTitle, L(STR_MB_VERSION));
+  lv_label_set_text(ui_SNTitle, L(STR_SERIAL_NUMBER));
   if (ui_ConnTitle)
-    lv_label_set_text(ui_ConnTitle, TXT_CONNECTIVITY[lang]);
+    lv_label_set_text(ui_ConnTitle, L(STR_CONNECTIVITY));
 
   if (ui_HeaterErrorTempLabel)
-    lv_label_set_text(ui_HeaterErrorTempLabel, TXT_HEATER_ERROR_RESTART[lang]);
+    lv_label_set_text(ui_HeaterErrorTempLabel, L(STR_HEATER_ERROR_RESTART));
   if (ui_HeaterErrorHumLabel)
-    lv_label_set_text(ui_HeaterErrorHumLabel, TXT_HEATER_ERROR_RESTART[lang]);
+    lv_label_set_text(ui_HeaterErrorHumLabel, L(STR_HEATER_ERROR_RESTART));
 
-  lv_label_set_text(ui_Label6, TXT_SET[lang]);
-  lv_label_set_text(ui_Label7, TXT_SET[lang]);
-  lv_label_set_text(ui_WifiSSIDLabel, TXT_WIFISSID[lang]);
-  lv_label_set_text(ui_WifiConnectedToLabel, TXT_WIFICONNECTEDTO[lang]);
-  lv_label_set_text(ui_AlarmDetailLabel, TXT_ALARMSDESC[lang]);
-  lv_label_set_text(ui_Label35, TXT_OXICHART[lang]);
-  lv_label_set_text(ui_Label39, TXT_PULSEOXIMETRY[lang]);
-  lv_dropdown_set_options(ui_LanguagesDropDown, TXT_LANG_OPTIONS[lang]);
+  lv_label_set_text(ui_Label6, L(STR_SET));
+  lv_label_set_text(ui_Label7, L(STR_SET));
+  lv_label_set_text(ui_WifiSSIDLabel, L(STR_WIFI_SSID));
+  lv_label_set_text(ui_WifiConnectedToLabel, L(STR_WIFI_CONNECTED_TO));
+  lv_label_set_text(ui_AlarmDetailLabel, L(STR_ALARMS_DESC));
+  lv_label_set_text(ui_Label35, L(STR_OXI_CHART));
+  lv_label_set_text(ui_Label39, L(STR_PULSE_OXIMETRY));
+  lv_dropdown_set_options(ui_LanguagesDropDown, L(STR_LANG_OPTIONS));
   lv_dropdown_set_selected(ui_LanguagesDropDown, lang);
 
+  // lv_btnmatrix NO copia el mapa: se queda con el puntero. Por eso el array
+  // es `static` y las cadenas vienen del catalogo, que es memoria estatica.
   {
     lv_obj_t *btnm = lv_tabview_get_tab_btns(ui_AlarmsTabview);
     if (btnm && lv_obj_check_type(btnm, &lv_btnmatrix_class)) {
       static const char *map_alarm[3];
-      map_alarm[0] = TXT_ALARMS[lang];
-      map_alarm[1] = TXT_VIEWDETAIL[lang];
+      map_alarm[0] = L(STR_ALARMS_UC);
+      map_alarm[1] = L(STR_VIEW_DETAILS);
       map_alarm[2] = "";
       lv_btnmatrix_set_map(btnm, map_alarm);
     }
   }
 
-  lv_label_set_text(ui_Label36, TXT_HUMCHART[lang]);
-  lv_label_set_text(ui_Label37, TXT_AIRTEMPCHART[lang]);
-  lv_label_set_text(ui_Label38, TXT_SKINTEMPCHART[lang]);
+  lv_label_set_text(ui_Label36, L(STR_HUM_CHART));
+  lv_label_set_text(ui_Label37, L(STR_AIR_TEMP_CHART));
+  lv_label_set_text(ui_Label38, L(STR_SKIN_TEMP_CHART));
   {
     lv_obj_t *btnm = lv_tabview_get_tab_btns(ui_TabView1);
     if (btnm && lv_obj_check_type(btnm, &lv_btnmatrix_class)) {
       static const char *map_chart[3];
-      map_chart[0] = TXT_TABTEMP[lang];
-      map_chart[1] = TXT_TABHUM[lang];
+      map_chart[0] = L(STR_TEMPERATURE);
+      map_chart[1] = L(STR_HUMIDITY);
       map_chart[2] = "";
       lv_btnmatrix_set_map(btnm, map_chart);
     }
   }
 
-
-  lv_label_set_text(ui_Label11, TXT_AIRTEMP[lang]);
-  lv_label_set_text(ui_Label12, TXT_BABYTEMP[lang]);
-  lv_label_set_text(ui_Label19, TXT_HUM[lang]);
-  lv_label_set_text(ui_TargetAirTempLabel, TXT_TARGETTEMP[lang]);
-  lv_label_set_text(ui_TargetSkinTempLabel, TXT_TARGETTEMP[lang]);
-  lv_label_set_text(ui_Label23, TXT_TARGETHUM[lang]);
-  lv_label_set_text(ui_StatusLabel, TXT_STATUS[lang]);
-  lv_label_set_text(ui_Label4, TXT_UNLOCK[lang]);
+  lv_label_set_text(ui_Label11, L(STR_AIR_TEMP_COLON));
+  lv_label_set_text(ui_Label12, L(STR_BABY_TEMP_COLON));
+  lv_label_set_text(ui_Label19, L(STR_HUM_COLON));
+  lv_label_set_text(ui_TargetAirTempLabel, L(STR_TARGET_TEMP));
+  lv_label_set_text(ui_TargetSkinTempLabel, L(STR_TARGET_TEMP));
+  lv_label_set_text(ui_Label23, L(STR_TARGET_HUM));
+  lv_label_set_text(ui_StatusLabel, L(STR_STATUS_COLON));
+  lv_label_set_text(ui_Label4, L(STR_UNLOCK_HINT));
 
   // Phototherapy Timer
-  if (ui_PhotoLockLabel) {
-    const char *TXT_PHOTO_LOCK[] = {
-        "FOTOTERAPIA:", "PHOTOTHERAPY:", "PHOTOTHERAPIE:"};
-    lv_label_set_text(ui_PhotoLockLabel, TXT_PHOTO_LOCK[lang]);
-  }
+  if (ui_PhotoLockLabel)
+    lv_label_set_text(ui_PhotoLockLabel, L(STR_PHOTO_LOCK));
 
   // Boton de tendencia de telemetria (pantalla de bloqueo)
-  if (ui_ChartLockLabel) {
-    const char *TXT_TREND[] = {"TENDENCIA", "TREND", "TENDANCE"};
-    lv_label_set_text(ui_ChartLockLabel, TXT_TREND[lang]);
-  }
+  if (ui_ChartLockLabel)
+    lv_label_set_text(ui_ChartLockLabel, L(STR_TREND_UC));
 
   // Babies history button (baby-history-viewer)
-  if (ui_BabiesButtonLabel) {
-    const char *TXT_BABIES[] = {"Bebes", "Babies", "Bebes"};
-    lv_label_set_text(ui_BabiesButtonLabel, TXT_BABIES[lang]);
-  }
+  if (ui_BabiesButtonLabel)
+    lv_label_set_text(ui_BabiesButtonLabel, L(STR_BABIES));
 
   photo_safety_apply_language(lang);
   TelemetryHistory_ApplyLanguage();
@@ -1096,13 +978,16 @@ void UI_ApplyLanguage(ui_lang_t lang) {
 void LanguagesDropDown_cb(lv_event_t *e) {
   lv_obj_t *dd = lv_event_get_target(e);
   uint16_t sel = lv_dropdown_get_selected(dd);
-  if (sel == 0)
-    UI_ApplyLanguage(LANG_ES);
-  else if (sel == 1)
-    UI_ApplyLanguage(LANG_EN);
-  else if (sel == 2)
-    UI_ApplyLanguage(LANG_FR);
 
+  // El desplegable se rellena con STR_LANG_OPTIONS, cuyo orden es el de
+  // `ui_lang_t`, asi que el indice seleccionado ES el idioma. Antes habia una
+  // cadena de `if (sel == N)` que habia que ampliar con cada idioma nuevo, y
+  // un indice fuera de rango no cambiaba el idioma pero SI se enviaba a la
+  // placa. Ahora se descarta antes de tocar nada.
+  if (!UI_LangIsValid(sel))
+    return;
+
+  UI_ApplyLanguage((ui_lang_t)sel);
   hmi_msg.language = sel;
   hmi_msg.shouldSendData = true;
 }
@@ -1800,9 +1685,7 @@ void Switch_cb(lv_event_t *e) {
                  photoTimerMinutes % SECONDS_PER_MINUTE);
         lv_label_set_text(ui_PhotoTimeValueLabel, buf);
 
-        // Use localized text
-        const char *TXT_PHOTOSTART[] = {"EMPEZAR", "START", "DEMARRER"};
-        lv_label_set_text(ui_PhotoStartLabel, TXT_PHOTOSTART[g_lang]);
+        lv_label_set_text(ui_PhotoStartLabel, TR(STR_PHOTO_START));
         lv_obj_set_style_bg_color(ui_PhotoStartBtn, lv_color_hex(0x00AA00),
                                   LV_PART_MAIN | LV_STATE_DEFAULT);
 
@@ -1839,8 +1722,7 @@ void Switch_cb(lv_event_t *e) {
       snprintf(buf, sizeof(buf), "%d min", photoTimerMinutes);
       lv_label_set_text(ui_PhotoTimeValueLabel, buf);
 
-      const char *TXT_PHOTOSTART[] = {"EMPEZAR", "START", "DEMARRER"};
-      lv_label_set_text(ui_PhotoStartLabel, TXT_PHOTOSTART[g_lang]);
+      lv_label_set_text(ui_PhotoStartLabel, TR(STR_PHOTO_START));
 
       if (ui_PhotoCancelBtn)
         lv_obj_add_flag(ui_PhotoCancelBtn, LV_OBJ_FLAG_HIDDEN);
@@ -1858,13 +1740,7 @@ void Switch_cb(lv_event_t *e) {
       // Revert the switch visually without triggering callback again
       ui_set_switch_state_silent(ui_Switch4, false);
       // RF-SKIN-010/UI-SKIN-004: Show clear message to user
-      const char *msg =
-          (g_lang == LANG_ES)
-              ? "Modo piel no disponible:\nConecte la sonda de temperatura"
-          : (g_lang == LANG_FR)
-              ? "Mode peau indisponible:\nConnectez la sonde de temperature"
-              : "Skin mode unavailable:\nConnect the skin temperature probe";
-      UI_ShowToast(msg, 4000);
+      UI_ShowToast(TR(STR_SKIN_MODE_UNAVAILABLE), 4000);
       ESP_LOGW(TAG,
                "[SKIN-PROBE] Blocked skin mode activation - probe state=%d",
                g_skinProbeState);
@@ -2511,12 +2387,6 @@ static void ui_click_feedback_cb(lv_indev_drv_t *drv, uint8_t event) {
   click_beep_start();
 }
 
-// Resuelve el idioma con un helper local en vez de repetir el indexado de
-// g_lang en cada cadena. Lo usan el banner y los avisos de esta tarea.
-static const char *TXT_UI(const char *es, const char *en, const char *fr) {
-  return (g_lang == LANG_ES) ? es : (g_lang == LANG_FR) ? fr : en;
-}
-
 // Indicador permanente de AUDIO PAUSED, en lv_layer_top() para que sobreviva a
 // los lv_scr_load() y se vea en TODAS las pantallas.
 //
@@ -2759,11 +2629,10 @@ void alarm_banner_update(void) {
     // ella es viejo, incluidas sus alarmas. MEDIA para contar lo mismo que
     // ALARM_HMI_LINK_LOST al otro lado — un unico relato para el operador.
     topPrio = ALARM_PRIORITY_MEDIUM;
-    wantText = TXT_UI("!! SIN ENLACE CON LA PLACA", "!! BOARD LINK LOST",
-                      "!! LIAISON CARTE PERDUE");
+    wantText = TR(STR_BOARD_LINK_LOST);
   } else if (testing) {
     topPrio = ctrl_state_msg.alarmTestPriority;
-    wantText = TXT_UI("PRUEBA DE ALARMA", "ALARM TEST", "TEST D'ALARME");
+    wantText = TR(STR_ALARM_TEST);
   } else {
     wantText = alarmList[topIdx].type;
   }
@@ -2999,18 +2868,8 @@ static void HeaterError_event_handler(lv_event_t *e) {
                      LV_ANIM_OFF); // Go to Description Tab (Page 1)
 
   // Set specific description
-  const char *TXT_HEATER_ERROR_DESC[] = {
-      "Hay un problema con el ventilador / calefactor: \n\n 1. Pruebe a "
-      "desconectar y conectar el calefactor y posteriormente reinicie "
-      "incubadora\n\n 2. Si no funciona el paso 1, arregle el calefactor.",
-      "There is a problem with the fan / heater:\n\n 1. Try unplugging and "
-      "plugging in the heater and then restart the incubator\n\n 2. If step 1 "
-      "doesn't work, fix the heater.",
-      "Il y a un probleme avec le ventilateur / chauffage :\n\n 1. Essayez de "
-      "debrancher et de brancher le chauffage et redemarrez l'incubateur\n\n "
-      "2. Si le pas 1 ne fonctionne pas, reparez le chauffage."};
   if (ui_AlarmDetailLabel) {
-    lv_label_set_text(ui_AlarmDetailLabel, TXT_HEATER_ERROR_DESC[g_lang]);
+    lv_label_set_text(ui_AlarmDetailLabel, TR(STR_HEATER_ERROR_DESC));
     g_selectedAlarmId = ALARM_HEATER_FAULT;
   }
 }
@@ -4737,9 +4596,8 @@ void UI_SyncAll() {
 
     if (photoTimerActive) {
       // Update visual running state
-      const char *TXT_RUNNING[] = {"EJECUTANDO", "RUNNING", "EN COURS"};
       if (ui_PhotoStartLabel)
-        lv_label_set_text(ui_PhotoStartLabel, TXT_RUNNING[g_lang]);
+        lv_label_set_text(ui_PhotoStartLabel, TR(STR_PHOTO_RUNNING));
       if (ui_PhotoStartBtn)
         lv_obj_set_style_bg_color(ui_PhotoStartBtn, lv_color_hex(0x888888),
                                   LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -4753,9 +4611,8 @@ void UI_SyncAll() {
         lv_obj_clear_flag(ui_PhotoLockCont, LV_OBJ_FLAG_HIDDEN);
     } else {
       // Setup state
-      const char *TXT_PHOTOSTART[] = {"EMPEZAR", "START", "DEMARRER"};
       if (ui_PhotoStartLabel)
-        lv_label_set_text(ui_PhotoStartLabel, TXT_PHOTOSTART[g_lang]);
+        lv_label_set_text(ui_PhotoStartLabel, TR(STR_PHOTO_START));
       if (ui_PhotoStartBtn)
         lv_obj_set_style_bg_color(ui_PhotoStartBtn, lv_color_hex(0x00AA00),
                                   LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -4796,9 +4653,8 @@ void UI_SyncAll() {
       if (ui_PhotoTimeValueLabel)
         lv_label_set_text(ui_PhotoTimeValueLabel, buf);
 
-      const char *TXT_PHOTOSTART[] = {"EMPEZAR", "START", "DEMARRER"};
       if (ui_PhotoStartLabel)
-        lv_label_set_text(ui_PhotoStartLabel, TXT_PHOTOSTART[g_lang]);
+        lv_label_set_text(ui_PhotoStartLabel, TR(STR_PHOTO_START));
     }
 
     if (ui_PhotoCancelBtn)

@@ -3132,9 +3132,12 @@ void ui_ScreenSettings_screen_init(void) {
                              LV_PART_MAIN | LV_STATE_DEFAULT);
 
   ui_LanguagesDropDown = lv_dropdown_create(ui_ScreenSettings);
-  lv_dropdown_set_options(ui_LanguagesDropDown,
-                          "English\nEspañol\nPortuguês\nItaliano\nDeutsch\nРусс"
-                          "кий\nTürkçe\nاردو\nMelayu\n中文");
+  // La lista sale del catalogo, igual que en UI_ApplyLanguage(). Antes habia
+  // aqui diez idiomas escritos a mano (chino, urdu, ruso...) que ni existian
+  // en `ui_lang_t` ni se podian pintar con las fuentes cargadas: el primer
+  // UI_ApplyLanguage() del arranque los machacaba, asi que nunca llegaban a
+  // verse, pero cualquiera que leyera este fichero pensaba que estaban.
+  lv_dropdown_set_options(ui_LanguagesDropDown, TR(STR_LANG_OPTIONS));
   lv_obj_set_width(ui_LanguagesDropDown, 221);
   lv_obj_set_height(ui_LanguagesDropDown, LV_SIZE_CONTENT);
   lv_obj_set_x(ui_LanguagesDropDown, 110);

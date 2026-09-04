@@ -50,5 +50,4 @@ void UI_ApplyTheme();
 const char* getConnectivityString(int status, ui_lang_t lang);
 
 // Globals exported for ElementsCreation.cpp
-extern ui_lang_t g_lang;
 extern lv_chart_series_t *lockPPGSeries;

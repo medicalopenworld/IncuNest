@@ -40,7 +40,7 @@ void resetFlash() {
 void loaddefaultValues() {
   Preferences p;
   p.begin(HMI_NS_CFG, false);
-  p.putUChar (HMI_KEY_LANG,      LANG_EN);
+  p.putUChar (HMI_KEY_LANG,      UI_LANG_FALLBACK);
   p.putFloat (HMI_KEY_AIR_TEMP,  DEFAULT_AIR_TEMP);
   p.putFloat (HMI_KEY_SKIN_TEMP, DEFAULT_SKIN_TEMP);
   p.putUChar (HMI_KEY_HUMIDITY,  DEFAULT_HUMIDITY);
@@ -136,8 +136,11 @@ void initEEPROM() {
 
 void recapVariables() {
   { Preferences p; p.begin(HMI_NS_CFG, true);
-    g_lang            = (ui_lang_t)p.getUChar(HMI_KEY_LANG, LANG_EN);
-    if (g_lang >= LANG_FR + 1) g_lang = LANG_EN;
+    // Un equipo que venga de un firmware con mas idiomas (o de NVS corrupta)
+    // puede traer un indice que esta version no soporta: se cae al idioma de
+    // reserva en vez de indexar fuera del catalogo.
+    const uint8_t savedLang = p.getUChar(HMI_KEY_LANG, UI_LANG_FALLBACK);
+    g_lang = UI_LangIsValid(savedLang) ? (ui_lang_t)savedLang : UI_LANG_FALLBACK;
     airTempValue      = p.getFloat (HMI_KEY_AIR_TEMP,  DEFAULT_AIR_TEMP);
     if (isnan(airTempValue) || airTempValue < AIR_TEMP_MIN || airTempValue > AIR_TEMP_MAX)
       airTempValue = DEFAULT_AIR_TEMP;
