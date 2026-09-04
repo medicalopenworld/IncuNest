@@ -1,6 +1,7 @@
 #include "UITask.h"
 // #include "AudioManager.h"  // Deshabilitado para migración Arduino 3.x
 #include "CommTask.h"
+#include "state/training_mode.h"
 #include "buzzer.h"
 #include "ui/AlarmCenter.h"
 #include "ui/TelemetryHistory.h"
@@ -911,7 +912,10 @@ static void update_main_toggle_buttons() {
 
 void UI_ApplyLanguage(ui_lang_t lang) {
   g_lang = lang;
-  { Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_LANG, (uint8_t)g_lang); p.end(); }
+  // En modo formacion nada se persiste: el idioma se restaura al salir.
+  if (!Training_IsActive()) {
+    Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_LANG, (uint8_t)g_lang); p.end();
+  }
   eepromDirty = true;
   lastVarChangeTime = millis();
 
@@ -1917,14 +1921,18 @@ void Switch_cb(lv_event_t *e) {
   } else if (obj == ui_SwitchDarkMode) { // DARK MODE SWITCH
     bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
     darkMode = checked;
-    { Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_DARK_MODE, darkMode ? 1 : 0); p.end(); }
+    if (!Training_IsActive()) {
+      Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_DARK_MODE, darkMode ? 1 : 0); p.end();
+    }
     eepromDirty = true;
     lastVarChangeTime = millis();
     UI_ApplyTheme();
   } else if (obj == ui_SwitchHumidityMode) { // HUMIDITY ENABLE SWITCH
     bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
     humidityEnabled = checked;
-    { Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_HUM_EN, humidityEnabled ? 1 : 0); p.end(); }
+    if (!Training_IsActive()) {
+      Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_HUM_EN, humidityEnabled ? 1 : 0); p.end();
+    }
     eepromDirty = true;
     lastVarChangeTime = millis();
     if (humidityEnabled) {
@@ -4492,6 +4500,9 @@ void UI_Task(void *pvParameters) {
 
     // Baby-data wizard: consumes CommTask's pending PROFILE_* messages,
     // timeouts, and the critical-alarm-interrupts-wizard rule (Section 4).
+    // Modo formacion: entrega las respuestas simuladas de la placa ANTES de
+    // que los asistentes las consuman en sus _Poll().
+    Training_ServiceReplies();
     BabyWizard_Poll();
     // Babies history screen: same polling contract (list/history/chart
     // responses, timeouts, critical-alarm-closes-screen).
@@ -4541,7 +4552,9 @@ void UI_Task(void *pvParameters) {
 
     if (eepromDirty && (millis() - lastVarChangeTime > EEPROM_COMMIT_DELAY)) {
       eepromDirty = false;
-      doNVSWrite = true;
+      // En modo formacion los cambios son simulados y se restauran al salir:
+      // no se persisten (ADR-0002).
+      doNVSWrite = !Training_IsActive();
     }
     LVGL_Unlock();
 

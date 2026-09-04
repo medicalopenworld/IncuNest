@@ -9,22 +9,27 @@ automatizada.
 
 Commit: `feat(hmi): modo formacion que congela las ordenes a la placa`.
 
-- [ ] 1.1 `src/state/training_mode.{h,cpp}`: `Training_Enter()`,
+- [x] 1.1 `src/state/training_mode.{h,cpp}`: `Training_Enter()`,
       `Training_Exit()`, `Training_IsActive()`, instantánea de `hmi_msg` al
-      entrar (`Training_FrozenHmiMsg()`), sellos de gracia de eco a cero al
-      salir.
-- [ ] 1.2 `CommTask.cpp`: el envío periódico usa la instantánea cuando
+      entrar (`Training_FrozenHmiMsg()`). No hace falta tocar la gracia de
+      eco de `CommTask`: al restaurar `hmi_msg` a la instantánea, los valores
+      protegidos 2,5 s son los mismos que tiene la placa.
+- [x] 1.2 `CommTask.cpp`: el envío periódico usa la instantánea cuando
       `Training_IsActive()`; `Communication_SendProfile{ListReq,New,Select,
-      Weight,AgeManual,Discharge,Kangaroo}`, `SendSetTime`, `SendAlarmTest`,
-      `SendAlarmSilence` no envían y encolan respuesta simulada (lista vacía,
-      ACK con `seq 0xFFFF`, rango NTE de `shared/include/nte_table.h`,
-      `TIME_ACK` aceptado). Comentario cruzado con el parser.
-- [ ] 1.3 `Display_ApplyCtrlState()`: retornar tras actualizar
-      `ctrl_state_msg` si `Training_IsActive()`.
-- [ ] 1.4 `UITask.cpp`: no escribir NVS en formación (`doNVSWrite`,
-      `UI_ApplyLanguage`, `Switch_cb` de modo oscuro y humedad); descartar
-      `eepromDirty` al salir.
-- [ ] 1.5 `pio run -e main` en verde.
+      Weight,AgeManual}` y `SendSetTime` encolan respuesta simulada (lista
+      vacía, ACK con `seq 0xFFFF`, rango NTE de `shared/include/nte_table.h`
+      con edad desconocida hasta `AgeManual`, `TIME_ACK` aceptado) que
+      entrega `Training_ServiceReplies()` en el bucle de UI con 250 ms de
+      retardo; `Discharge`, `Kangaroo`, `AlarmTest`, `AlarmSilence` y
+      `WiFiCredentials` se tragan. Las peticiones de solo lectura (historiales,
+      descripción de alarma) siguen yendo a la placa. Comentario cruzado con
+      el parser.
+- [x] 1.3 `Display_ApplyCtrlState()`: la parte de identidad, etiquetas y
+      bitmask de alarmas se extrae a `applyCtrlStateInfoAndAlarms()` y es lo
+      único que se aplica en formación; el estado de control retorna antes.
+- [x] 1.4 `UITask.cpp`: no escribir NVS en formación (`doNVSWrite`,
+      `UI_ApplyLanguage`, `Switch_cb` de modo oscuro y humedad).
+- [x] 1.5 `pio run -e main` en verde (Flash 2 517 704 B, +1 912 B sobre dev).
 
 ### 2. APIs que faltan en los diálogos
 

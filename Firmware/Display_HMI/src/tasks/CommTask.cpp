@@ -3,6 +3,7 @@
 #include "Wifi_OTA.h"
 #include "esp_log.h"
 #include "main.h"
+#include "state/training_mode.h"
 #include "ui.h"
 #include <cstdio>
 #include <cstdlib>
@@ -219,6 +220,10 @@ void Communication_SendBootInfo(void) {
 
 void Communication_SendWiFiCredentials(const char *ssid, const char *password) {
 #if IS_HMI
+  // Modo formacion (ADR-0002): la placa no recibe nada que cambie su estado.
+  // Las funciones que siguen, hasta SendMessageToOtherESP(), o se tragan la
+  // orden o la sustituyen por una respuesta simulada de training_mode.cpp.
+  if (Training_IsActive()) return;
   COMM_SERIAL.printf("HMI,WIFI,%s,%s\n", ssid, password);
 #endif
 }
@@ -226,18 +231,23 @@ void Communication_SendWiFiCredentials(const char *ssid, const char *password) {
 // --- Baby profile wizard protocol (PROTOCOL.md v1.6.0) ---
 void Communication_SendProfileListReq(void) {
 #if IS_HMI
+  if (Training_IsActive()) { Training_SimProfileListReq(); return; }
   COMM_SERIAL.print("HMI,PROFILE_LIST_REQ\n");
 #endif
 }
 
 void Communication_SendProfileNew(const char *name, uint8_t gestWeeks) {
 #if IS_HMI
+  if (Training_IsActive()) { Training_SimProfileNew(name, gestWeeks); return; }
   COMM_SERIAL.printf("HMI,PROFILE_NEW,%s,%u\n", name, (unsigned)gestWeeks);
 #endif
 }
 
 void Communication_SendProfileSelect(uint32_t seq) {
 #if IS_HMI
+  // En formacion la lista llega vacia, asi que no deberia pedirse; si pasa
+  // (atajo de sesion viva), se contesta como a un bebe nuevo.
+  if (Training_IsActive()) { Training_SimProfileNew("", 0); return; }
   COMM_SERIAL.printf("HMI,PROFILE_SELECT,%u\n", (unsigned)seq);
 #endif
 }
@@ -245,6 +255,7 @@ void Communication_SendProfileSelect(uint32_t seq) {
 void Communication_SendSetTime(int year, int month, int day, int hour,
                                int minute) {
 #if IS_HMI
+  if (Training_IsActive()) { Training_SimSetTime(); return; }
   COMM_SERIAL.printf("HMI,SET_TIME,%04d,%02d,%02d,%02d,%02d\n", year, month,
                      day, hour, minute);
 #endif
@@ -252,6 +263,7 @@ void Communication_SendSetTime(int year, int month, int day, int hour,
 
 void Communication_SendProfileWeight(uint32_t seq, uint16_t grams) {
 #if IS_HMI
+  if (Training_IsActive()) { Training_SimProfileWeight(seq, grams); return; }
   if (grams == 0) {
     COMM_SERIAL.printf("HMI,PROFILE_WEIGHT,%u,SKIP\n", (unsigned)seq);
   } else {
@@ -263,6 +275,7 @@ void Communication_SendProfileWeight(uint32_t seq, uint16_t grams) {
 
 void Communication_SendProfileAgeManual(uint32_t seq, uint16_t ageDays) {
 #if IS_HMI
+  if (Training_IsActive()) { Training_SimProfileAgeManual(seq, ageDays); return; }
   COMM_SERIAL.printf("HMI,PROFILE_AGE_MANUAL,%u,%u\n", (unsigned)seq,
                      (unsigned)ageDays);
 #endif
@@ -271,6 +284,7 @@ void Communication_SendProfileAgeManual(uint32_t seq, uint16_t ageDays) {
 void Communication_SendProfileDischarge(uint32_t seq, uint8_t outcome,
                                         uint8_t cause) {
 #if IS_HMI
+  if (Training_IsActive()) return;  // ni alta ni salida reales en formacion
   COMM_SERIAL.printf("HMI,PROFILE_DISCHARGE,%u,%u,%u\n", (unsigned)seq,
                      (unsigned)outcome, (unsigned)cause);
 #endif
@@ -280,6 +294,7 @@ void Communication_SendProfileDischarge(uint32_t seq, uint8_t outcome,
 // the motherBoard keeps the profile in its active slot.
 void Communication_SendProfileKangaroo(uint32_t seq) {
 #if IS_HMI
+  if (Training_IsActive()) return;
   COMM_SERIAL.printf("HMI,PROFILE_KANGAROO,%u\n", (unsigned)seq);
 #endif
 }
@@ -292,12 +307,14 @@ void Communication_SendAlarmHistoryReq(void) {
 
 void Communication_SendAlarmTest(void) {
 #if IS_HMI
+  if (Training_IsActive()) return;  // la prueba real de alarmas no es materia de formacion
   COMM_SERIAL.print("HMI,ALM_TEST\n");
 #endif
 }
 
 void Communication_SendAlarmSilence(uint8_t id, bool on) {
 #if IS_HMI
+  if (Training_IsActive()) return;
   COMM_SERIAL.printf("HMI,ALM_SILENCE,%u,%d\n", (unsigned)id, on ? 1 : 0);
 #endif
 }
@@ -322,12 +339,16 @@ void Communication_SendWeightHistoryReq(uint32_t seq) {
 
 static void SendMessageToOtherESP() {
 #if IS_HMI
+  // Modo formacion (ADR-0002): el keepalive sigue saliendo (si no, la placa
+  // declararia ALARM_HMI_LINK_LOST) pero con la instantanea tomada al entrar,
+  // no con el hmi_msg vivo que el alumno esta cambiando en pantalla.
+  const HMI_Message &m = Training_IsActive() ? Training_FrozenHmiMsg() : hmi_msg;
   COMM_SERIAL.printf(
-      "HMI,%d,%d,%d,%0.2f,%0.2f,%0.0f,%d,%d,%d,%d\n", hmi_msg.actuation,
-      (int)hmi_msg.skinModeEnabled, hmi_msg.controlMode,
-      hmi_msg.desiredAirTemperature, hmi_msg.desiredSkinTemperature,
-      hmi_msg.desiredHumidity, hmi_msg.phototherapyMode, hmi_msg.muteAlarm,
-      hmi_msg.language, hmi_msg.photoMinutesRemaining);
+      "HMI,%d,%d,%d,%0.2f,%0.2f,%0.0f,%d,%d,%d,%d\n", m.actuation,
+      (int)m.skinModeEnabled, m.controlMode,
+      m.desiredAirTemperature, m.desiredSkinTemperature,
+      m.desiredHumidity, m.phototherapyMode, m.muteAlarm,
+      m.language, m.photoMinutesRemaining);
 #else
   COMM_SERIAL.printf("CTRL,%0.2f,%0.2f,%0.2f,%0.2f,%0.2f\n",
                      ctrl_msg.temperature[0], ctrl_msg.temperature[1],
@@ -922,10 +943,68 @@ static bool ReceiveMessageFromOtherESP() {
 //  HIGH-LEVEL LOGIC
 // ======================
 
+// Parte de CTRL,STATE que NO es estado de control: identidad de la placa,
+// etiquetas de Informacion y sincronizacion del bitmask de alarmas. Va aparte
+// porque en modo formacion (ADR-0002) es lo unico que se sigue aplicando: las
+// alarmas tienen que verse y abortar la leccion aunque la UI este simulando.
+// Llamar bajo LVGL_Lock().
+static void applyCtrlStateInfoAndAlarms(const ControlBoard_Message_State &st) {
+  if (st.serialNumber != 0 && st.serialNumber != in3.serialNumber) {
+    in3.serialNumber = st.serialNumber;
+    { Preferences p; p.begin(HMI_NS_CFG, false); p.putInt(HMI_KEY_SERIAL, in3.serialNumber); p.end(); }
+    ESP_LOGI(TAG, "Serial Number updated from motherboard: %d",
+             in3.serialNumber);
+  }
+
+  // Actualizar labels de información si están disponibles
+  if (ui_MBVerValue) lv_label_set_text(ui_MBVerValue, st.fwVer);
+  if (ui_SNValue) {
+      char sn_buf[16];
+      snprintf(sn_buf, sizeof(sn_buf), "%d", st.serialNumber);
+      lv_label_set_text(ui_SNValue, sn_buf);
+  }
+  if (ui_ConnValue) {
+      lv_label_set_text(ui_ConnValue, getConnectivityString(st.serverCommStatus, g_lang));
+  }
+
+  // --- Sincronización de Alarmas via Bitmask (CORRECCIÓN: usa ID como bit, igual que la Board) ---
+  // La Board calcula: bitmask |= (1 << alarmID). El HMI debe descodificarlo igual.
+  // El slot en alarmList es: alarmList[alarmID] (mapeo directo ID->índice).
+  if (st.alarmBitmask != (uint32_t)-1) {
+      extern Alarm alarmList[];
+      extern volatile bool g_pendingAlarmUpdate;
+      bool changed = false;
+      // Iterar por IDs válidos (1..MAX_ALARMS-1), igual que el enum ALARMS_ID
+      for (int id = 1; id < MAX_ALARMS; id++) {
+          // El bit del ID corresponde a la posición 'id' en el bitmask
+          bool boardActive = (st.alarmBitmask >> id) & 1;
+          if (alarmList[id].state && !boardActive) {
+              // La alarma está pintada en el HMI pero la Board dice que ya no está activa
+              COMM_LOG("[COMM] Bitmask sync: limpiando alarma ID %d (%s)\n", id, alarmList[id].type);
+              alarmList[id].state = false;
+              changed = true;
+          }
+      }
+      if (changed) {
+          g_pendingAlarmUpdate = true;
+          // AlarmSound_Update() moved to UITask — consumed in g_pendingAlarmUpdate handler
+      }
+  }
+}
+
 bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
   if (!g_ui_initialized)
     return false;
   LVGL_Lock();
+
+  // Modo formacion (ADR-0002): el estado de control de la placa NO se aplica a
+  // la UI ni a hmi_msg (la pantalla esta simulando); si se aplican identidad,
+  // etiquetas y alarmas. ctrl_state_msg ya lo actualizo el llamador.
+  if (Training_IsActive()) {
+    applyCtrlStateInfoAndAlarms(st);
+    LVGL_Unlock();
+    return true;
+  }
   // Effective values: within LOCAL_CMD_ECHO_GRACE_MS of a local change, trust
   // the pending local value instead of this frame's echo (see the guard
   // comment above hmi_msg's declaration for why).
@@ -1026,47 +1105,7 @@ bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
     lastSelectedPanel = AIR_PANEL_SELECTED;
   }
 
-  if (st.serialNumber != 0 && st.serialNumber != in3.serialNumber) {
-    in3.serialNumber = st.serialNumber;
-    { Preferences p; p.begin(HMI_NS_CFG, false); p.putInt(HMI_KEY_SERIAL, in3.serialNumber); p.end(); }
-    ESP_LOGI(TAG, "Serial Number updated from motherboard: %d",
-             in3.serialNumber);
-  }
-
-  // Actualizar labels de información si están disponibles
-  if (ui_MBVerValue) lv_label_set_text(ui_MBVerValue, st.fwVer);
-  if (ui_SNValue) {
-      char sn_buf[16];
-      snprintf(sn_buf, sizeof(sn_buf), "%d", st.serialNumber);
-      lv_label_set_text(ui_SNValue, sn_buf);
-  }
-  if (ui_ConnValue) {
-      lv_label_set_text(ui_ConnValue, getConnectivityString(st.serverCommStatus, g_lang));
-  }
-
-  // --- Sincronización de Alarmas via Bitmask (CORRECCIÓN: usa ID como bit, igual que la Board) ---
-  // La Board calcula: bitmask |= (1 << alarmID). El HMI debe descodificarlo igual.
-  // El slot en alarmList es: alarmList[alarmID] (mapeo directo ID->índice).
-  if (st.alarmBitmask != (uint32_t)-1) {
-      extern Alarm alarmList[];
-      extern volatile bool g_pendingAlarmUpdate;
-      bool changed = false;
-      // Iterar por IDs válidos (1..MAX_ALARMS-1), igual que el enum ALARMS_ID
-      for (int id = 1; id < MAX_ALARMS; id++) {
-          // El bit del ID corresponde a la posición 'id' en el bitmask
-          bool boardActive = (st.alarmBitmask >> id) & 1;
-          if (alarmList[id].state && !boardActive) {
-              // La alarma está pintada en el HMI pero la Board dice que ya no está activa
-              COMM_LOG("[COMM] Bitmask sync: limpiando alarma ID %d (%s)\n", id, alarmList[id].type);
-              alarmList[id].state = false;
-              changed = true;
-          }
-      }
-      if (changed) {
-          g_pendingAlarmUpdate = true;
-          // AlarmSound_Update() moved to UITask — consumed in g_pendingAlarmUpdate handler
-      }
-  }
+  applyCtrlStateInfoAndAlarms(st);
 
   UI_SyncAll();
   LVGL_Unlock();
