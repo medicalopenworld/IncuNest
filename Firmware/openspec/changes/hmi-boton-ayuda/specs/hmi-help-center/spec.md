@@ -54,7 +54,7 @@ pantalla de bloqueo y una ayuda olvidada no debe impedir llegar a él.
 - **AND** la motherBoard anuncia una alarma de cualquier prioridad, o el
   enlace con la placa se pierde
 - **THEN** el menú o el tutorial se cierran en la siguiente pasada del bucle
-  de UI, y cualquier petición de soporte aún no publicada se descarta
+  de UI
 - **AND** la pantalla activa vuelve a ser `ui_ScreenMain`
 - *(Verificación manual en banco con la prueba de alarmas, tarea 6.9.)*
 
@@ -123,64 +123,46 @@ instrucción de escaneo.
 - **THEN** el móvil ofrece abrir exactamente `SUPPORT_TUTORIAL_URL`
 - *(Verificación manual en banco, tarea 6.4.)*
 
-### Requirement: El contacto con soporte compone asunto e informe automáticamente
+### Requirement: El contacto con soporte es un QR `mailto:` con el número de serie en el asunto
 
-La vista de contacto SHALL permitir escribir un mensaje breve (≤ 160
-caracteres ASCII) con un teclado en pantalla. El asunto SHALL ser
-`IncuNest SN <serie a 4 cifras> - Solicitud de soporte` y el cuerpo SHALL
-contener el mensaje seguido de un informe de depuración ASCII de ≤ 400
-bytes con, al menos: número de serie, versión de firmware de HMI y de
-motherBoard, hardware, contador de arranques y motivo del último reset,
-tiempo encendido, estado WiFi (RSSI, IP), estado de conexión con
+La vista de contacto SHALL mostrar un código QR generado en el dispositivo
+con un URI `mailto:` cuyo destinatario es `SUPPORT_EMAIL` (valor por
+defecto en `Credentials_public.h`, redefinible desde `Credentials.h`) y
+cuyo asunto es `IncuNest SN <serie a 4 cifras> - Solicitud de soporte`. El
+operador escanea el QR con su móvil y el correo sale de su propia cuenta:
+el equipo no envía nada por red. La vista SHALL mostrar además, en texto,
+el destinatario y el asunto.
+
+El cuerpo del correo SHALL llevar, por defecto, un informe de depuración
+ASCII de ≤ 400 bytes con, al menos: número de serie, versión de firmware de
+HMI y de motherBoard, hardware, contador de arranques y motivo del último
+reset, tiempo encendido, estado WiFi (RSSI, IP) y de conexión con
 ThingsBoard, estado del enlace serie, idioma, modo y actuación de control,
 consignas, telemetría actual, estado de la sonda, fototerapia, bitmask de
 alarmas activas y silenciadas, títulos de las alarmas activas, y memoria
-libre interna y PSRAM.
+libre interna y PSRAM. El informe NO SHALL contener datos del paciente. El
+operador SHALL poder quitar el informe del QR (botón SIN INFORME) si su
+móvil no lo lee.
 
-El destinatario SHALL ser `SUPPORT_EMAIL`, definido con valor por defecto
-en `Credentials_public.h` y redefinible desde `Credentials.h`.
+#### Scenario: El QR abre un correo a soporte con el asunto correcto
+- **WHEN** el operador entra en CONTACTAR SOPORTE y escanea el QR con la
+  cámara de un móvil
+- **THEN** el móvil ofrece abrir su app de correo con destinatario
+  `SUPPORT_EMAIL`, asunto `IncuNest SN 0042 - Solicitud de soporte` (con el
+  número de serie del equipo) y el informe de depuración en el cuerpo
+- *(Verificación manual en banco, tarea 6.5.)*
 
-#### Scenario: El operador siempre puede enviar desde su móvil
-- **WHEN** el operador pulsa QR MOVIL, o pulsa ENVIAR sin conexión con el
-  servidor
-- **THEN** se muestra un QR `mailto:` con destinatario `SUPPORT_EMAIL`,
-  el asunto con el número de serie y el cuerpo con mensaje e informe
-- **AND** si no había servidor se indica "Sin conexion con el servidor"
+#### Scenario: QR reducido sin informe
+- **WHEN** el operador pulsa SIN INFORME
+- **THEN** el QR se regenera solo con destinatario y asunto, y la pantalla
+  lo indica
+- **AND** CON INFORME lo devuelve al contenido completo
 - *(Verificación manual en banco, tarea 6.5.)*
 
 #### Scenario: El QR degrada antes de fallar
-- **WHEN** el contenido `mailto:` no cabe en el QR del tamaño elegido
-- **THEN** se regenera sin el mensaje libre, y si aún no cabe, sin el informe
-- **AND** la pantalla indica qué se ha omitido
-- *(Verificación manual: forzar un mensaje de 160 caracteres, tarea 6.5.)*
-
-### Requirement: El envío desde el equipo usa el canal ThingsBoard y nunca bloquea la UI
-
-Cuando `WIFIIsConnectedToServer()` sea verdadero, ENVIAR SHALL publicar la
-petición como telemetría con las claves `support_request` (asunto),
-`support_message`, `support_report` y `support_to`, desde la tarea WiFi/OTA
-y nunca desde un callback de LVGL. La UI SHALL mostrar el resultado
-(registrada / fallida) y SHALL darlo por fallido si no hay respuesta en 15 s.
-En ambos casos SHALL ofrecer el QR `mailto:` como vía alternativa.
-
-Sin conexión con el servidor NO SHALL encolarse ninguna petición.
-
-#### Scenario: Envío con servidor
-- **WHEN** hay conexión con ThingsBoard y el operador pulsa ENVIAR
-- **THEN** la UI muestra "Enviando..." y, tras la publicación, "Peticion
-  registrada"
-- **AND** el dispositivo de ThingsBoard recibe la telemetría con las cuatro
-  claves y `support_to` igual a `SUPPORT_EMAIL`
-- *(Verificación manual en banco con la consola de ThingsBoard, tarea 6.6.)*
-
-#### Scenario: Fallo de publicación
-- **WHEN** la publicación falla o no se confirma en 15 s
-- **THEN** la UI muestra el fallo y el QR `mailto:` con el mismo contenido
-- *(Verificación manual: cortar la red tras pulsar ENVIAR, tarea 6.6.)*
-
-#### Scenario: Sin servidor no se encola nada
-- **WHEN** no hay conexión con el servidor y el operador pulsa ENVIAR
-- **THEN** no se publica nada más tarde al recuperar la conexión
-- **AND** la UI pasa directamente a la vista del QR
-- *(Verificación manual en banco: reconectar tras el intento y comprobar
-  que no aparece telemetría de soporte, tarea 6.5.)*
+- **WHEN** el contenido `mailto:` con informe no cabe en el QR del tamaño
+  elegido
+- **THEN** se regenera sin el informe y la pantalla indica que se ha omitido
+- *(No alcanzable con los presupuestos actuales, ~650 B frente a 914 B de
+  capacidad; queda como red de seguridad. Verificación manual: revisar en
+  banco que el QR con informe se lee, tarea 6.5.)*

@@ -13,28 +13,23 @@ Commit: `feat(hmi): defaults de SUPPORT_EMAIL y SUPPORT_TUTORIAL_URL`.
       `Credentials.h` local pueda redefinirlos. Comentar que no son secretos:
       viven ahí porque es el fichero de configuración de despliegue.
 
-## 2. Display_HMI — informe de depuración y petición de soporte
+## 2. Display_HMI — informe de depuración y `mailto:`
 
-Commit: `feat(hmi): informe de depuracion y peticion de soporte via ThingsBoard`.
+Commit: `feat(hmi): informe de depuracion y peticion de soporte via ThingsBoard`
+(la vía ThingsBoard se retiró después en
+`refactor(hmi): contacto con soporte solo por QR mailto`).
 
 - [x] 2.1 Crear `src/modules/support/support_report.h/.cpp` con
       `support_report_build(char*, size_t)` (texto ASCII `clave=valor`,
       ≤ 400 B, orden del design.md), `support_report_subject(char*, size_t)`
       (`IncuNest SN %04d - Solicitud de soporte`) y
-      `support_report_build_mailto(char*, size_t, const char *msg, bool
-      withReport)` (percent-encoding RFC 3986 de asunto y cuerpo).
-- [x] 2.2 Estado de la petición en el mismo módulo: `SupportRequest_Submit(const
-      char *msg)` (toma la instantánea del informe y copia bajo `portMUX`,
-      marca `PENDING`), `SupportRequest_GetState()`
-      (`IDLE/PENDING/SENT/FAILED`), `SupportRequest_Reset()`, y el par
-      `SupportRequest_TakePending()` / `SupportRequest_SetResult()` para la
-      tarea WiFi/OTA. El módulo no conoce ThingsBoard: el JSON y la
-      publicación viven en `Wifi_OTA.cpp` (`supportRequestService()`), que es
-      quien tiene `tb_wifi`.
-- [x] 2.3 Llamar a `supportRequestService()` desde `WIFI_TB_OTA()`
-      (`Wifi_OTA.cpp`) en la rama `tb_wifi.connected()`, antes de la
-      telemetría periódica. Sin tocar el intervalo de esa telemetría.
-- [x] 2.4 `pio run -e main` en verde.
+      `support_report_build_mailto(char*, size_t, bool withReport)`
+      (percent-encoding RFC 3986 del asunto y del cuerpo).
+- [x] 2.2 ~~Petición pendiente UI → tarea WiFi/OTA y publicación en
+      ThingsBoard~~ Implementado y retirado: por decisión de producto el
+      contacto es solo el QR `mailto:`. `Wifi_OTA.cpp` vuelve a estar
+      intacto.
+- [x] 2.3 `pio run -e main` en verde.
 
 ## 3. Display_HMI — menú de ayuda, vídeo tutorial y contacto
 
@@ -54,23 +49,16 @@ tres compilen por separado sin stubs).
       cierra el diálogo y llama a `HelpTour_Start()`.
 - [x] 3.3 Vista VÍDEO: `lv_qrcode` (≥ 300 px) con `SUPPORT_TUTORIAL_URL`, la
       URL en texto debajo, instrucción de escaneo y botón VOLVER.
-- [x] 3.4 Vista CONTACTO: `lv_textarea` (una línea, `max_length` 160) +
-      `lv_btnmatrix` de letras y dígitos en un solo mapa (sin `123`/`ABC`:
-      cinco filas caben en 250 px y se ahorra el cambio de modo), asunto
-      mostrado como texto fijo, botones VOLVER / ENVIAR / QR MOVIL. ENVIAR:
-      si `!WIFIIsConnectedToServer()` va a la vista QR con el aviso "Sin
-      conexion con el servidor"; si hay servidor, `SupportRequest_Submit()` y
-      etiqueta "Enviando...".
-- [x] 3.5 Vista RESULTADO/QR: QR `mailto:` (destinatario + asunto + mensaje +
-      informe), texto del estado del envío desde el equipo (registrada /
-      fallida / sin conexión), botón SIN INFORME (regenera el QR sin informe
-      si el móvil no lo lee) y CERRAR. Si `lv_qrcode_update()` falla por
-      tamaño, degradar automáticamente (sin mensaje → sin informe) y
-      avisarlo en pantalla.
-- [x] 3.6 `HelpDialog_Poll()`: consume `SupportRequest_GetState()` (timeout
-      `SUPPORT_SEND_TIMEOUT_MS` = 15 s → FAILED) y cierra con
-      `UI_IsCriticalAlarmActive()`.
-- [x] 3.7 `pio run -e main` en verde.
+- [x] 3.4 Vista CONTACTO: QR `mailto:` de 340 px (destinatario `SUPPORT_EMAIL`,
+      asunto con el SN, informe en el cuerpo), instrucción de escaneo, texto
+      con destinatario y asunto, botón SIN INFORME / CON INFORME (regenera el
+      QR sin o con el informe) y VOLVER. Si `lv_qrcode_update()` falla por
+      tamaño con informe, degradar a sin informe y avisarlo en pantalla.
+      (La primera versión tenía formulario con teclado y envío por
+      ThingsBoard; retirados en el `refactor(hmi)` de simplificación.)
+- [x] 3.5 `HelpDialog_Poll()`: cierra ante cualquier alarma activa o enlace
+      perdido y tras `HELP_IDLE_TIMEOUT_MS` sin tocar.
+- [x] 3.6 `pio run -e main` en verde.
 
 ## 4. Display_HMI — tutorial guiado
 
@@ -129,12 +117,12 @@ queda documentado como pendiente en ese mismo commit.
       que en Main (no saltan al bloquear) y no hay `?`.
 - [ ] 6.3 Menú: los tres botones abren su vista; X cierra desde cualquiera.
 - [ ] 6.4 Vídeo: el QR se lee con un móvil y abre `SUPPORT_TUTORIAL_URL`.
-- [ ] 6.5 Contacto sin servidor: ENVIAR lleva al QR con "Sin conexion"; el QR
-      `mailto:` abre el correo del móvil con destinatario, asunto con el SN y
-      cuerpo con mensaje + informe.
-- [ ] 6.6 Contacto con servidor: ENVIAR muestra "Enviando..." y después
-      "Peticion registrada"; la telemetría aparece en el dispositivo de
-      ThingsBoard con las cuatro claves.
+- [ ] 6.5 Contacto: el QR `mailto:` se lee con un móvil (iOS y Android) y
+      abre el correo con destinatario `SUPPORT_EMAIL`, asunto
+      `IncuNest SN <serie> - Solicitud de soporte` y el informe en el cuerpo;
+      SIN INFORME reduce el QR y CON INFORME lo devuelve.
+- [ ] 6.6 Contacto sin WiFi: idéntico al 6.5 (el equipo no envía nada); el
+      informe muestra `wifi=0 tb=0`.
 - [ ] 6.7 Tutorial: recorre todos los pasos, salta humedad si está
       deshabilitada, entra en Ajustes y vuelve a Main al salir; ANTERIOR
       funciona; no se acciona ningún control durante el recorrido.
@@ -155,9 +143,9 @@ Commit: `docs: update for hmi-boton-ayuda`.
 
 - [x] 7.1 `docs/hmi.md`: sección del heading (nuevo `?`) y sección "Ayuda"
       (tutorial, vídeo, contacto, vías de envío).
-- [x] 7.2 `docs/thingsboard_dashboards.md`: apartado "Peticiones de soporte"
-      con las cuatro claves de telemetría y la regla recomendada (filtro
-      `support_request` → *to email* con `support_to` → *send email*).
+- [x] 7.2 ~~`docs/thingsboard_dashboards.md`: apartado "Peticiones de
+      soporte"~~ Escrito y retirado con la vía ThingsBoard: el contacto no
+      toca el servidor.
 - [x] 7.3 `Display_HMI/README.md`: mención a `SUPPORT_EMAIL` /
       `SUPPORT_TUTORIAL_URL` en la sección de credenciales.
 - [x] 7.4 ADR `docs/adr/0001-contacto-soporte-via-thingsboard-y-mailto.md`

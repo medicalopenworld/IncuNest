@@ -22,23 +22,10 @@ extern int g_hmiLastRst;
 
 namespace {
 
-// ---- Peticion pendiente -------------------------------------------------
-// El mutex es un spinlock de FreeRTOS porque los dos lados (UI y tarea
-// WiFi/OTA) corren en cores distintos y las copias son de unos cientos de
-// bytes: mas barato que un semaforo y sin riesgo de inversion de prioridad
-// bajo el mutex de LVGL.
-portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
-volatile SupportRequestState s_state = SUPPORT_IDLE;
-// Numero de la peticion vigente; cada Submit() lo incrementa.
-uint32_t s_seq = 0;
-char s_subject[SUPPORT_SUBJECT_MAX];
-char s_msg[SUPPORT_MESSAGE_MAX + 1];
-char s_report[SUPPORT_REPORT_MAX];
-
 // Solo ASCII imprimible (mas '\n' como separador de lineas). Varios valores
 // del informe vienen del protocolo serie (fwVer, hwRev, titulos de alarma),
 // ASCII sin CRC: una linea corrupta puede colar un byte de control que
-// ArduinoJson no escapa y que romperia el JSON publicado.
+// acabaria dentro del mailto:.
 char sanitize(char c) {
   if (c == '\n') return c;
   if (c < 0x20 || c > 0x7E) return '?';
@@ -243,8 +230,7 @@ size_t support_report_subject(char *out, size_t cap) {
   return ((size_t)n >= cap) ? cap - 1 : (size_t)n;
 }
 
-size_t support_report_build_mailto(char *out, size_t cap, const char *msg,
-                                   bool withMessage, bool withReport) {
+size_t support_report_build_mailto(char *out, size_t cap, bool withReport) {
   if (!out || cap == 0) return 0;
   Writer w(out, cap);
 
@@ -256,15 +242,13 @@ size_t support_report_build_mailto(char *out, size_t cap, const char *msg,
   support_report_subject(subject, sizeof(subject));
   addEncoded(w, subject);
 
-  w.add("&body=");
-  if (withMessage && msg && msg[0]) {
-    addEncoded(w, msg);
-    addEncoded(w, "\n\n");
-  }
   if (withReport) {
+    // Dos lineas en blanco arriba: ahi escribe el operador su consulta, y el
+    // informe queda debajo como pie tecnico.
+    w.add("&body=");
+    addEncoded(w, "\n\n-- IncuNest HMI --\n");
     char report[SUPPORT_REPORT_MAX];
     support_report_build(report, sizeof(report));
-    addEncoded(w, "-- IncuNest HMI --\n");
     addEncoded(w, report);
   }
 
@@ -273,75 +257,4 @@ size_t support_report_build_mailto(char *out, size_t cap, const char *msg,
     return 0;
   }
   return w.len;
-}
-
-// ---- Peticion pendiente ----------------------------------------------------
-
-void SupportRequest_Submit(const char *msg) {
-  // La instantanea se toma aqui, en el momento en que el operador pulsa
-  // ENVIAR: es el estado que el quiere contar, no el de cuando la tarea WiFi
-  // llegue a publicarlo.
-  char subject[SUPPORT_SUBJECT_MAX];
-  char report[SUPPORT_REPORT_MAX];
-  support_report_subject(subject, sizeof(subject));
-  support_report_build(report, sizeof(report));
-
-  portENTER_CRITICAL(&s_mux);
-  strncpy(s_subject, subject, sizeof(s_subject) - 1);
-  s_subject[sizeof(s_subject) - 1] = '\0';
-  strncpy(s_report, report, sizeof(s_report) - 1);
-  s_report[sizeof(s_report) - 1] = '\0';
-  if (msg) {
-    strncpy(s_msg, msg, SUPPORT_MESSAGE_MAX);
-    s_msg[SUPPORT_MESSAGE_MAX] = '\0';
-  } else {
-    s_msg[0] = '\0';
-  }
-  s_seq++;
-  s_state = SUPPORT_PENDING;
-  portEXIT_CRITICAL(&s_mux);
-}
-
-SupportRequestState SupportRequest_GetState(void) { return s_state; }
-
-void SupportRequest_Reset(void) {
-  portENTER_CRITICAL(&s_mux);
-  s_state = SUPPORT_IDLE;
-  portEXIT_CRITICAL(&s_mux);
-}
-
-bool SupportRequest_TakePending(char *subject, size_t subjectCap, char *msg,
-                                size_t msgCap, char *report, size_t reportCap,
-                                uint32_t *seq) {
-  bool taken = false;
-  portENTER_CRITICAL(&s_mux);
-  if (s_state == SUPPORT_PENDING) {
-    if (seq) *seq = s_seq;
-    if (subject && subjectCap) {
-      strncpy(subject, s_subject, subjectCap - 1);
-      subject[subjectCap - 1] = '\0';
-    }
-    if (msg && msgCap) {
-      strncpy(msg, s_msg, msgCap - 1);
-      msg[msgCap - 1] = '\0';
-    }
-    if (report && reportCap) {
-      strncpy(report, s_report, reportCap - 1);
-      report[reportCap - 1] = '\0';
-    }
-    taken = true;
-  }
-  portEXIT_CRITICAL(&s_mux);
-  return taken;
-}
-
-void SupportRequest_SetResult(bool ok, uint32_t seq) {
-  portENTER_CRITICAL(&s_mux);
-  // Solo si sigue siendo LA MISMA peticion pendiente: un resultado tardio no
-  // debe resucitar una que la UI ya dio por cerrada (Reset) ni marcar como
-  // enviada una nueva (Submit) que aun no ha salido.
-  if (s_state == SUPPORT_PENDING && s_seq == seq) {
-    s_state = ok ? SUPPORT_SENT : SUPPORT_FAILED;
-  }
-  portEXIT_CRITICAL(&s_mux);
 }

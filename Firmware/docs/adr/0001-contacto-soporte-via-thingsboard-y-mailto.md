@@ -1,6 +1,7 @@
-# ADR-0001: El contacto con soporte sale por ThingsBoard y por QR `mailto:`, no por SMTP
+# ADR-0001: El contacto con soporte es un QR `mailto:` para el móvil del operador, no SMTP ni ThingsBoard
 
-- **Estado**: aceptado
+- **Estado**: aceptado (revisado 2026-09-04: se retira la vía ThingsBoard, ver
+  "Decisión")
 - **Fecha**: 2026-09-03
 - **Placas afectadas**: Display_HMI
 - **Cambio OpenSpec**: `openspec/changes/hmi-boton-ayuda`
@@ -35,51 +36,43 @@ el cuerpo. Hay que elegir cómo sale ese correo de una pantalla que:
 
 ## Decisión
 
-Se implementan las dos últimas opciones, combinadas:
+**Solo el QR `mailto:`.** La vista de contacto muestra un QR con destinatario
+`SUPPORT_EMAIL`, asunto `IncuNest SN <serie> - Solicitud de soporte` y el
+informe de depuración en el cuerpo; el operador lo escanea, escribe su
+consulta encima del informe y lo envía desde su propia cuenta. El equipo no
+envía nada por red.
 
-1. **Con servidor**: ENVIAR publica la petición como telemetría con cuatro
-   claves (`support_request` = asunto, `support_message`, `support_report`,
-   `support_to` = `SUPPORT_EMAIL`). La publica la tarea WiFi/OTA a partir de
-   una petición pendiente que deja la UI (`support_report.cpp`); el callback
-   de LVGL no toca la red. Una regla de ThingsBoard reenvía por correo a
-   `support_to`.
-2. **Siempre**: la vista de resultado muestra un QR `mailto:` con
-   destinatario, asunto y cuerpo (mensaje + informe) ya rellenos, degradando
-   el contenido si no cabe.
-
-Un único formateador produce el informe para las dos vías, así soporte ve lo
-mismo llegue por donde llegue. Sin servidor no se encola nada: una petición
-que saliera horas más tarde ya no contaría lo que el operador quiso contar.
+La primera versión (2026-09-03) combinaba esto con la telemetría ThingsBoard
+más una regla de correo en el servidor. Se implementó, pasó revisión y se
+**retiró al día siguiente por decisión de producto**: exigía una regla en el
+servidor que no existía, un formulario con teclado en pantalla y un puente
+UI ↔ tarea WiFi con su propia casuística (timeout, reintentos, resultado
+tardío), y en campo la vía que iba a usarse era el QR de todas formas. La
+simplicidad ganó al "también desde el equipo".
 
 Se descarta SMTP por los secretos en firmware y el coste de TLS; se descarta
-HTTP por no existir ni backend ni cliente.
+HTTP por no existir ni backend ni cliente; se descarta ThingsBoard por la
+complejidad que añadía frente al valor que aportaba.
 
 ## Consecuencias
 
 - El firmware no gana dependencias ni secretos; el cambio queda contenido en
-  Display_HMI.
-- La vía sin red es de primera clase, no un plan B: es la que va a usarse
-  más en campo.
-- **Deuda explícita**: la regla de ThingsBoard (filtro por `support_request`
-  → *to email* con `support_to` → *send email*) hay que crearla en
-  `mon.medicalopenworld.org`. Hasta entonces las peticiones quedan
-  registradas en el dispositivo de TB y la pantalla dice "registrada", no
-  "correo enviado". Documentada en `docs/thingsboard_dashboards.md`.
-- El destinatario viaja en cada petición (`support_to`) para que la regla no
-  tenga que conocerlo: si cambia el buzón, cambia en `Credentials.h` y nada
-  más.
-- **Superficie de datos en claro**: la telemetría periódica solo publica
-  versión, serie, heap y stacks. La petición de soporte añade, por MQTT sin
-  TLS, IP local y RSSI, consignas y actuación, temperaturas de aire y piel
-  medidas, humedad, estado de sonda, fototerapia, bitmasks y títulos de
-  alarmas, arranques y motivo de reset. Ligado al número de serie, es el
-  estado clínico de un puesto concreto en ese instante; no incluye nombre
-  del bebé ni ningún dato del perfil, ni SSID, contraseña o token. El campo
-  libre del operador es el único hueco: por eso el propio campo pide "sin
-  datos del paciente", y el texto queda además a la vista en el QR. Si el
-  HMI gana TLS por otro motivo, esta vía debe migrar a él.
-- **Revisar este ADR si**: el HMI gana un transporte TLS por otro motivo
-  (OTA firmada, HTTPS), o si la motherBoard expone GPRS a la pantalla como
-  canal de datos; en ambos casos `supportRequestService()` (`Wifi_OTA.cpp`)
-  es el único punto a duplicar: el módulo `support_report.cpp` no conoce el
-  transporte.
+  Display_HMI y `Wifi_OTA.cpp` no se toca.
+- Funciona igual con o sin red: el equipo solo dibuja un QR.
+- Soporte recibe el correo desde la cuenta del operador, así que puede
+  responderle directamente; el número de serie del asunto cruza con
+  inventario y con el dispositivo de ThingsBoard (`IncuNest-Display-<sn>`).
+- **Datos en el QR**: el informe lleva IP local y RSSI, consignas y
+  actuación, temperaturas de aire y piel medidas, humedad, estado de sonda,
+  fototerapia, bitmasks y títulos de alarmas, arranques y motivo de reset.
+  No incluye nombre del bebé ni ningún dato del perfil, ni SSID, contraseña
+  o token. Queda a la vista de quien mire la pantalla mientras el QR está
+  abierto, igual que el resto de la pantalla principal; la ayuda se cierra
+  sola a los 3 min sin tocar.
+- **Límite**: un QR de ~650 B (versión ~20) a 340 px son 3 px por módulo;
+  el botón SIN INFORME lo reduce a destinatario + asunto (versión ~5) para
+  móviles que no lo lean.
+- **Revisar este ADR si**: se quiere trazabilidad de las peticiones en el
+  servidor, o si el HMI gana un transporte TLS por otro motivo. El módulo
+  `support_report.cpp` produce el informe sin conocer el transporte, así que
+  añadir una vía de red después no toca el formateador.

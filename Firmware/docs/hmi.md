@@ -67,30 +67,23 @@ The heading `?` button (see §1) opens a modal help menu (`HelpDialog`,
 2. **Video tutorial**: a QR code (`lv_qrcode`) built from
    `SUPPORT_TUTORIAL_URL` (`include/protocol/Credentials_public.h`), plus the
    same URL as plain text underneath.
-3. **Contact support**: an on-screen keyboard (`lv_btnmatrix`) for a message
-   of up to 160 ASCII characters. The subject is composed automatically as
-   `IncuNest SN <serial> - Solicitud de soporte`, and the body carries the
-   message plus a debug report built by `support_report_build()`
+3. **Contact support**: a 340 px `mailto:` QR the operator scans with their
+   phone. The email opens in the phone's mail app addressed to
+   `SUPPORT_EMAIL`, with subject `IncuNest SN <serial> - Solicitud de
+   soporte` and a debug report in the body built by
+   `support_report_build()`
    (`Display_HMI/src/modules/support/support_report.cpp`), in this order:
    identity/versions (`sn`, `hmi`, `mb`, `hw`), boot count and last reset
    reason, uptime, WiFi/IP/ThingsBoard connection status, serial link state
    and language, control mode/actuation/setpoints, current air/skin/humidity
    readings and probe state, phototherapy mode, active/silenced alarm
    bitmasks, the titles of the active alarms, and free internal heap / PSRAM.
-
-   Two send paths, always offered together on the result view:
-   - **From the device**: if `WIFIIsConnectedToServer()`, the request is
-     queued (`SupportRequest_Submit()`) and the WiFi/OTA task
-     (`supportRequestService()` in `Wifi_OTA.cpp`) publishes it as
-     ThingsBoard telemetry — `support_request`, `support_message`,
-     `support_report`, `support_to` — see
-     [`thingsboard_dashboards.md`](thingsboard_dashboards.md). Without a
-     server, nothing is queued.
-   - **From the operator's phone**: a `mailto:` QR with recipient, subject
-     and body already filled in, always available (works offline, no
-     server needed). If the encoded content doesn't fit the QR, it is
-     regenerated first without the free-text message, then without the
-     report, and the screen states what was dropped.
+   The operator types their question above the report and sends it from
+   their own account: **the device sends nothing over the network**, so it
+   works the same with or without WiFi. A NO REPORT / WITH REPORT button
+   regenerates the QR without or with the report (a denser QR may not be
+   readable by every phone). If the content with the report does not fit
+   the QR, it falls back to recipient + subject and says so on screen.
 
 Common rules: the help menu and the guided tour are exempt from the 20 s
 auto-lock timeout while open, but only up to `HELP_IDLE_TIMEOUT_MS` (3 min
@@ -98,10 +91,9 @@ without any touch): past that they close themselves and the normal auto-lock
 resumes from zero (the alarm banner is only drawn on `ui_ScreenLock`, so a
 forgotten help view must never block the way to it). Any active alarm
 (`UI_IsAnyAlarmActive()`, regardless of priority) or a lost board link
-(`Display_IsBoardLinkLost()`) closes both and returns to `ui_ScreenMain`,
-discarding any support request not yet published — the same yield rule as
-`TelemetryHistory`. The tour overlay is created before the alarm banner and
-the AUDIO PAUSED icon in `lv_layer_top()` and is never raised above them.
-Every text is available in ES/EN/FR (`g_lang`). The free-text field of the
-contact form asks for no patient data: it leaves the device over plain MQTT
-and is visible in the `mailto:` QR.
+(`Display_IsBoardLinkLost()`) closes both and returns to `ui_ScreenMain` —
+the same yield rule as `TelemetryHistory`. The tour overlay is created
+before the alarm banner and the AUDIO PAUSED icon in `lv_layer_top()` and is
+never raised above them. Every text is available in ES/EN/FR (`g_lang`). The
+debug report contains no patient data (no baby name or profile, no SSID,
+password or token).

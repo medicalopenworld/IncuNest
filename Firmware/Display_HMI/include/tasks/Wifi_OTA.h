@@ -57,9 +57,7 @@ struct WIFIstruct {
   int provisioned = false;
   bool provision_request_sent = false;
   bool provision_request_processed = false;
-  // Lo escribe la tarea WiFi/OTA y lo lee la de UI (WIFIIsConnectedToServer()
-  // desde HelpDialog): volatile como el resto de flags cruzados de Wifi_OTA.cpp.
-  volatile bool serverConnectionStatus = false;
+  bool serverConnectionStatus = false;
   String device_token;
   long lastReconnectAttempt = 0;
   long lastMQTTPublish = 0;

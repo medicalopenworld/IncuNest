@@ -1,14 +1,11 @@
 #include "ui/HelpDialog.h"
 
-#include <Arduino.h>
-
 #include <cstdio>
 #include <cstring>
 
 #include "CommTask.h"
 #include "Credentials_public.h"
 #include "UITask.h"
-#include "Wifi_OTA.h"
 #include "main.h"
 #include "modules/support/support_report.h"
 #include "ui.h"
@@ -19,39 +16,25 @@ extern ui_lang_t g_lang;
 
 namespace {
 
-enum View { VIEW_MENU, VIEW_VIDEO, VIEW_CONTACT, VIEW_RESULT };
-
-// Estado del envio desde el equipo que se pinta en la vista de resultado.
-enum SendState {
-  SEND_NONE,     // el operador eligio directamente el QR del movil
-  SEND_OFFLINE,  // sin servidor: no se encolo nada
-  SEND_SENDING,  // encolado, esperando a la tarea WiFi/OTA
-  SEND_OK,
-  SEND_FAIL,
-};
+enum View { VIEW_MENU, VIEW_VIDEO, VIEW_CONTACT };
 
 // Misma tarjeta que TimeDialog/BabyWizard: el operador ya conoce ese cuadro.
 constexpr lv_coord_t CARD_W = 780, CARD_H = 460;
 // El QR de la URL es corto (version ~4) y con 300 px sobra. El del mailto:
-// puede llegar a la version 24 (113 modulos) antes de degradar: con 340 px
-// lv_qrcode escala a 3 px/modulo enteros (con 300 se quedaria en 2), que es
-// el minimo que lee con soltura la camara de un movil a 15-20 cm.
+// llega a la version ~20 (97 modulos) con el informe: con 340 px lv_qrcode
+// escala a 3 px/modulo enteros, el minimo que lee con soltura la camara de
+// un movil a 15-20 cm.
 constexpr lv_coord_t QR_SIZE = 300;
 constexpr lv_coord_t QR_SIZE_MAILTO = 340;
 // Columna de texto a la derecha del QR del mailto:.
-constexpr lv_coord_t RESULT_COL_X = 20 + QR_SIZE_MAILTO + 20;
-constexpr lv_coord_t RESULT_COL_W = (CARD_W - 20) - RESULT_COL_X - 6;
+constexpr lv_coord_t CONTACT_COL_X = 20 + QR_SIZE_MAILTO + 20;
+constexpr lv_coord_t CONTACT_COL_W = (CARD_W - 20) - CONTACT_COL_X - 6;
 
 bool s_open = false;
 View s_view = VIEW_MENU;
-SendState s_send = SEND_NONE;
-uint32_t s_sendT0 = 0;
-// Contenido del QR mailto:. El informe lo puede quitar el operador (boton
-// SIN INFORME) si su movil no lee un QR tan denso; el mensaje solo se quita
-// automaticamente cuando ni asi cabe.
+// El informe se puede quitar del QR (boton SIN INFORME) si el movil no lee
+// uno tan denso; con solo destinatario y asunto queda en la version ~5.
 bool s_qrWithReport = true;
-bool s_qrWithMessage = true;
-char s_msg[SUPPORT_MESSAGE_MAX + 1];
 char s_mailto[SUPPORT_MAILTO_MAX];
 
 lv_obj_t *s_overlay = nullptr;
@@ -60,31 +43,9 @@ lv_obj_t *s_content = nullptr;
 // Hijo de la tarjeta y no del contenido, para que sobreviva al lv_obj_clean()
 // de cada vista: es la unica salida del dialogo sin tocar nada.
 lv_obj_t *s_closeBtn = nullptr;
-lv_obj_t *s_msgTa = nullptr;
-lv_obj_t *s_statusLbl = nullptr;
 lv_obj_t *s_qr = nullptr;
 lv_obj_t *s_qrNoteLbl = nullptr;
 lv_obj_t *s_qrToggleLbl = nullptr;
-
-// lv_btnmatrix y no lv_keyboard, por el mismo motivo que en BabyWizard.cpp:
-// en LVGL 8.3 el keymap de lv_keyboard vive en un global de fichero, asi que
-// lv_keyboard_set_map() se lo cambiaria tambien al teclado permanente de
-// credenciales WiFi (ui_Keyboard1). Letras y cifras en un solo mapa para no
-// necesitar boton de cambio de modo.
-const char *KB_MAP[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "\n",
-                        "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "\n",
-                        "A", "S", "D", "F", "G", "H", "J", "K", "L", "-", "\n",
-                        "Z", "X", "C", "V", "B", "N", "M", ".",
-                        LV_SYMBOL_BACKSPACE, "\n",
-                        " ", ""};
-// 40 botones: 10 + 10 + 10 + 9 + 1. Debe cuadrar con KB_MAP. La tecla de
-// borrar ocupa dos anchos para que la fila cuadre con las de arriba.
-const lv_btnmatrix_ctrl_t KB_CTRL[40] = {
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 2,
-    1};
 
 const char *TXT(const char *es, const char *en, const char *fr) {
   return (g_lang == LANG_ES) ? es : (g_lang == LANG_FR) ? fr : en;
@@ -126,9 +87,17 @@ lv_obj_t *makeWrapLabel(const char *text, lv_coord_t x, lv_coord_t y,
   return lbl;
 }
 
+// QR con zona de silencio: borde blanco para que la camara lo aisle del fondo.
+lv_obj_t *makeQr(lv_coord_t size, lv_coord_t x, lv_coord_t y) {
+  lv_obj_t *qr = lv_qrcode_create(s_content, size, lv_color_hex(0x000000),
+                                  lv_color_hex(0xFFFFFF));
+  lv_obj_align(qr, LV_ALIGN_TOP_LEFT, x, y);
+  lv_obj_set_style_border_color(qr, lv_color_hex(0xFFFFFF), 0);
+  lv_obj_set_style_border_width(qr, 8, 0);
+  return qr;
+}
+
 void forgetContent() {
-  s_msgTa = nullptr;
-  s_statusLbl = nullptr;
   s_qr = nullptr;
   s_qrNoteLbl = nullptr;
   s_qrToggleLbl = nullptr;
@@ -139,9 +108,6 @@ void closeDialog() {
   if (s_content) lv_obj_clean(s_content);
   forgetContent();
   s_open = false;
-  // Cerrar es abandonar la conversacion: una peticion aun no publicada no
-  // debe salir mas tarde sin que nadie vea el resultado.
-  SupportRequest_Reset();
   // El temporizador de auto-bloqueo estuvo en pausa mientras la ayuda estaba
   // abierta: que vuelva a contar desde cero, no desde el ultimo toque.
   lv_disp_trig_activity(NULL);
@@ -155,69 +121,26 @@ void closeDialog() {
 bool mustYield() { return UI_IsAnyAlarmActive() || Display_IsBoardLinkLost(); }
 
 void showView(View v);
+void refreshQr();
 
 // ---- Callbacks --------------------------------------------------------------
 
 void onClose(lv_event_t *) { closeDialog(); }
 void onBackToMenu(lv_event_t *) { showView(VIEW_MENU); }
 void onVideo(lv_event_t *) { showView(VIEW_VIDEO); }
-void onContact(lv_event_t *) { showView(VIEW_CONTACT); }
+
+void onContact(lv_event_t *) {
+  s_qrWithReport = true;
+  showView(VIEW_CONTACT);
+}
 
 void onTour(lv_event_t *) {
   closeDialog();
   HelpTour_Start();
 }
 
-void onKeyPress(lv_event_t *e) {
-  lv_obj_t *bm = lv_event_get_target(e);
-  lv_obj_t *ta = (lv_obj_t *)lv_event_get_user_data(e);
-  if (!bm || !ta) return;
-  const char *txt =
-      lv_btnmatrix_get_btn_text(bm, lv_btnmatrix_get_selected_btn(bm));
-  if (!txt) return;
-  if (strcmp(txt, LV_SYMBOL_BACKSPACE) == 0) {
-    lv_textarea_del_char(ta);
-  } else {
-    lv_textarea_add_text(ta, txt);
-  }
-}
-
-void captureMessage() {
-  if (!s_msgTa) return;
-  const char *t = lv_textarea_get_text(s_msgTa);
-  strncpy(s_msg, t ? t : "", SUPPORT_MESSAGE_MAX);
-  s_msg[SUPPORT_MESSAGE_MAX] = '\0';
-}
-
-void onSend(lv_event_t *) {
-  captureMessage();
-  s_qrWithReport = true;
-  s_qrWithMessage = true;
-  if (!WIFIIsConnectedToServer()) {
-    // Sin servidor no se encola nada: una peticion que saliera horas despues
-    // ya no tendria relacion con lo que el operador quiso contar.
-    s_send = SEND_OFFLINE;
-  } else {
-    SupportRequest_Submit(s_msg);
-    s_send = SEND_SENDING;
-    s_sendT0 = millis();
-  }
-  showView(VIEW_RESULT);
-}
-
-void onQrMobile(lv_event_t *) {
-  captureMessage();
-  s_qrWithReport = true;
-  s_qrWithMessage = true;
-  s_send = SEND_NONE;
-  showView(VIEW_RESULT);
-}
-
-void refreshQr();
-
 void onToggleReport(lv_event_t *) {
   s_qrWithReport = !s_qrWithReport;
-  s_qrWithMessage = true;
   refreshQr();
 }
 
@@ -283,12 +206,12 @@ void buildMenu() {
              onVideo, lv_color_hex(0x7B1FA2));
   makeOption(510, LV_SYMBOL_ENVELOPE,
              TXT("CONTACTAR SOPORTE", "CONTACT SUPPORT", "CONTACTER LE SUPPORT"),
-             TXT("Escribe a soporte tecnico. El numero de serie y el estado "
-                 "del equipo se adjuntan solos.",
-                 "Write to technical support. Serial number and device "
-                 "status are attached automatically.",
-                 "Ecrivez au support technique. Le numero de serie et l'etat "
-                 "de l'appareil sont joints automatiquement."),
+             TXT("Escanea un QR y se abre un correo a soporte con el numero "
+                 "de serie y el estado del equipo ya rellenos.",
+                 "Scan a QR and an email to support opens with the serial "
+                 "number and device status already filled in.",
+                 "Scannez un QR : un e-mail au support s'ouvre avec le numero "
+                 "de serie et l'etat de l'appareil deja remplis."),
              onContact, lv_color_hex(0x00897B));
 }
 
@@ -296,14 +219,8 @@ void buildVideo() {
   makeTitle(TXT("VIDEO TUTORIAL", "VIDEO TUTORIAL", "TUTORIEL VIDEO"));
 
   const char *url = SUPPORT_TUTORIAL_URL;
-  lv_obj_t *qr = lv_qrcode_create(s_content, QR_SIZE, lv_color_hex(0x000000),
-                                  lv_color_hex(0xFFFFFF));
+  lv_obj_t *qr = makeQr(QR_SIZE, 20, 56);
   lv_qrcode_update(qr, url, strlen(url));
-  lv_obj_align(qr, LV_ALIGN_TOP_LEFT, 20, 56);
-  // Zona de silencio del QR: borde blanco para que la camara lo aisle del
-  // fondo de la tarjeta.
-  lv_obj_set_style_border_color(qr, lv_color_hex(0xFFFFFF), 0);
-  lv_obj_set_style_border_width(qr, 8, 0);
 
   makeWrapLabel(TXT("Escanea el codigo con la camara de tu movil para abrir "
                     "el video tutorial en la web de Medical Open World.",
@@ -326,197 +243,76 @@ void buildVideo() {
   lv_obj_align(back, LV_ALIGN_BOTTOM_RIGHT, -6, -6);
 }
 
+// Genera el mailto: y lo vuelca al QR. Si con informe no cabe
+// (lv_qrcode_update devuelve LV_RES_INV), cae a solo destinatario + asunto y
+// lo dice en pantalla.
+void refreshQr() {
+  if (!s_qr) return;
+  bool withRep = s_qrWithReport;
+  lv_res_t res = LV_RES_INV;
+  for (int attempt = 0; attempt < 2 && res != LV_RES_OK; attempt++) {
+    const size_t n =
+        support_report_build_mailto(s_mailto, sizeof(s_mailto), withRep);
+    if (n > 0) res = lv_qrcode_update(s_qr, s_mailto, (uint32_t)n);
+    if (res != LV_RES_OK) {
+      if (!withRep) break;
+      withRep = false;
+    }
+  }
+  s_qrWithReport = withRep;
+
+  if (s_qrNoteLbl) {
+    lv_label_set_text(
+        s_qrNoteLbl,
+        withRep ? TXT("El correo lleva el numero de serie en el asunto y el "
+                      "estado tecnico del equipo en el cuerpo. Escribe tu "
+                      "consulta encima y envialo.",
+                      "The email carries the serial number in the subject "
+                      "and the device technical status in the body. Type "
+                      "your question above it and send.",
+                      "L'e-mail porte le numero de serie en objet et l'etat "
+                      "technique de l'appareil dans le corps. Ecrivez votre "
+                      "question au-dessus et envoyez.")
+                : TXT("QR reducido: solo destinatario y asunto con el numero "
+                      "de serie. Describe el problema en el correo.",
+                      "Reduced QR: recipient and subject with the serial "
+                      "number only. Describe the problem in the email.",
+                      "QR reduit : destinataire et objet avec le numero de "
+                      "serie seulement. Decrivez le probleme dans l'e-mail."));
+  }
+  if (s_qrToggleLbl) {
+    lv_label_set_text(s_qrToggleLbl,
+                      withRep ? TXT("SIN INFORME", "NO REPORT", "SANS RAPPORT")
+                              : TXT("CON INFORME", "WITH REPORT", "AVEC RAPPORT"));
+  }
+}
+
 void buildContact() {
   makeTitle(TXT("CONTACTAR CON SOPORTE", "CONTACT SUPPORT",
                 "CONTACTER LE SUPPORT"));
 
-  char subject[SUPPORT_SUBJECT_MAX];
-  support_report_subject(subject, sizeof(subject));
-  char hdr[160];
-  snprintf(hdr, sizeof(hdr), "%s %s   |   %s %s",
-           TXT("Para:", "To:", "A :"), SUPPORT_EMAIL,
-           TXT("Asunto:", "Subject:", "Objet :"), subject);
-  lv_obj_t *hdrLbl = makeWrapLabel(hdr, 6, 32, 748, &lv_font_montserrat_14,
-                                   lv_color_hex(0x666666));
-  lv_label_set_long_mode(hdrLbl, LV_LABEL_LONG_DOT);
-
-  s_msgTa = lv_textarea_create(s_content);
-  lv_obj_set_size(s_msgTa, 748, 48);
-  lv_obj_align(s_msgTa, LV_ALIGN_TOP_LEFT, 6, 54);
-  lv_textarea_set_one_line(s_msgTa, true);
-  lv_textarea_set_max_length(s_msgTa, SUPPORT_MESSAGE_MAX);
-  lv_obj_set_style_text_font(s_msgTa, &lv_font_montserrat_20, 0);
-  // El aviso de privacidad va en el propio campo: este texto sale del equipo
-  // por MQTT en claro y queda a la vista en el QR, asi que nunca debe llevar
-  // datos del paciente (el informe tecnico ya va aparte y no los contiene).
-  lv_textarea_set_placeholder_text(
-      s_msgTa, TXT("Describe el problema (opcional). Sin datos del paciente.",
-                   "Describe the problem (optional). No patient data.",
-                   "Decrivez le probleme (facultatif). Sans donnees patient."));
-  if (s_msg[0]) lv_textarea_set_text(s_msgTa, s_msg);
-
-  lv_obj_t *back = makeBtn(s_content, TXT("VOLVER", "BACK", "RETOUR"),
-                           onBackToMenu, lv_color_hex(0x888888));
-  lv_obj_set_size(back, 150, 46);
-  lv_obj_align(back, LV_ALIGN_TOP_LEFT, 6, 110);
-
-  lv_obj_t *qr = makeBtn(s_content, TXT("QR MOVIL", "PHONE QR", "QR MOBILE"),
-                         onQrMobile, lv_color_hex(0x7B1FA2));
-  lv_obj_set_size(qr, 200, 46);
-  lv_obj_align(qr, LV_ALIGN_TOP_MID, 0, 110);
-
-  lv_obj_t *send = makeBtn(s_content, TXT("ENVIAR", "SEND", "ENVOYER"),
-                           onSend, lv_color_hex(0x00AA00));
-  lv_obj_set_size(send, 200, 46);
-  lv_obj_align(send, LV_ALIGN_TOP_RIGHT, -6, 110);
-
-  lv_obj_t *kb = lv_btnmatrix_create(s_content);
-  lv_btnmatrix_set_map(kb, KB_MAP);
-  lv_btnmatrix_set_ctrl_map(kb, KB_CTRL);
-  lv_obj_set_size(kb, 750, 250);
-  lv_obj_align(kb, LV_ALIGN_BOTTOM_MID, 0, -4);
-  lv_obj_set_style_text_font(kb, &lv_font_montserrat_20, LV_PART_ITEMS);
-  lv_obj_add_event_cb(kb, onKeyPress, LV_EVENT_VALUE_CHANGED, s_msgTa);
-}
-
-const char *sendStatusText(lv_color_t *color) {
-  switch (s_send) {
-    case SEND_OFFLINE:
-      *color = lv_color_hex(0xE08800);
-      return TXT("Sin conexion con el servidor. Envia el correo desde tu "
-                 "movil con el QR.",
-                 "No connection to the server. Send the email from your phone "
-                 "with the QR.",
-                 "Pas de connexion au serveur. Envoyez l'e-mail depuis votre "
-                 "telephone avec le QR.");
-    case SEND_SENDING:
-      *color = lv_color_hex(0x0B2E4F);
-      return TXT("Enviando desde el equipo...", "Sending from the device...",
-                 "Envoi depuis l'appareil...");
-    case SEND_OK:
-      *color = lv_color_hex(0x00AA00);
-      return TXT("Peticion registrada en el servidor. Puedes ademas enviar "
-                 "el correo desde tu movil.",
-                 "Request logged on the server. You can also send the email "
-                 "from your phone.",
-                 "Demande enregistree sur le serveur. Vous pouvez aussi "
-                 "envoyer l'e-mail depuis votre telephone.");
-    case SEND_FAIL:
-      *color = lv_color_hex(0xAA3333);
-      return TXT("No se pudo enviar desde el equipo. Usa el QR con tu movil.",
-                 "Could not send from the device. Use the QR with your phone.",
-                 "Envoi impossible depuis l'appareil. Utilisez le QR avec "
-                 "votre telephone.");
-    case SEND_NONE:
-    default:
-      *color = lv_color_hex(0x0B2E4F);
-      return TXT("Escanea el QR con tu movil: se abrira un correo con todo "
-                 "relleno, solo tienes que enviarlo.",
-                 "Scan the QR with your phone: an email opens with everything "
-                 "filled in, just send it.",
-                 "Scannez le QR avec votre telephone : un e-mail s'ouvre "
-                 "deja rempli, il suffit de l'envoyer.");
-  }
-}
-
-void refreshStatus() {
-  if (!s_statusLbl) return;
-  lv_color_t color;
-  const char *txt = sendStatusText(&color);
-  lv_label_set_text(s_statusLbl, txt);
-  lv_obj_set_style_text_color(s_statusLbl, color, 0);
-}
-
-// Genera el mailto: y lo vuelca al QR, degradando el contenido si no cabe:
-// primero cae el mensaje libre, despues el informe. Lo que quede fuera se
-// dice en pantalla para que el operador sepa que tendra que escribirlo.
-void refreshQr() {
-  if (!s_qr) return;
-  bool withMsg = s_qrWithMessage && s_msg[0] != '\0';
-  bool withRep = s_qrWithReport;
-  lv_res_t res = LV_RES_INV;
-  for (int attempt = 0; attempt < 3 && res != LV_RES_OK; attempt++) {
-    const size_t n = support_report_build_mailto(s_mailto, sizeof(s_mailto),
-                                                 s_msg, withMsg, withRep);
-    if (n > 0) res = lv_qrcode_update(s_qr, s_mailto, (uint32_t)n);
-    if (res != LV_RES_OK) {
-      if (withMsg) {
-        withMsg = false;
-      } else if (withRep) {
-        withRep = false;
-      } else {
-        break;
-      }
-    }
-  }
-  s_qrWithMessage = withMsg;
-  s_qrWithReport = withRep;
-
-  if (s_qrNoteLbl) {
-    const char *note;
-    if (withMsg && withRep) {
-      note = TXT("El QR incluye tu mensaje y el informe tecnico del equipo.",
-                 "The QR includes your message and the device technical "
-                 "report.",
-                 "Le QR inclut votre message et le rapport technique de "
-                 "l'appareil.");
-    } else if (withRep) {
-      note = s_msg[0] ? TXT("El QR incluye el informe tecnico. Tu mensaje no "
-                            "cabia: escribelo en el correo.",
-                            "The QR includes the technical report. Your "
-                            "message did not fit: type it in the email.",
-                            "Le QR inclut le rapport technique. Votre message "
-                            "ne tenait pas : saisissez-le dans l'e-mail.")
-                      : TXT("El QR incluye el informe tecnico del equipo.",
-                            "The QR includes the device technical report.",
-                            "Le QR inclut le rapport technique de l'appareil.");
-    } else if (withMsg) {
-      note = TXT("QR sin informe tecnico: solo destinatario, asunto y tu "
-                 "mensaje.",
-                 "QR without technical report: recipient, subject and your "
-                 "message only.",
-                 "QR sans rapport technique : destinataire, objet et votre "
-                 "message seulement.");
-    } else {
-      note = TXT("QR minimo: solo destinatario y asunto.",
-                 "Minimal QR: recipient and subject only.",
-                 "QR minimal : destinataire et objet seulement.");
-    }
-    lv_label_set_text(s_qrNoteLbl, note);
-  }
-  if (s_qrToggleLbl) {
-    lv_label_set_text(s_qrToggleLbl,
-                      s_qrWithReport
-                          ? TXT("SIN INFORME", "NO REPORT", "SANS RAPPORT")
-                          : TXT("CON INFORME", "WITH REPORT", "AVEC RAPPORT"));
-  }
-}
-
-void buildResult() {
-  makeTitle(TXT("ENVIAR DESDE EL MOVIL", "SEND FROM YOUR PHONE",
-                "ENVOYER DEPUIS LE TELEPHONE"));
-
   // QR a la izquierda (y 50..390); todo lo demas, botones incluidos, en la
   // columna de la derecha para no pisarlo.
-  s_qr = lv_qrcode_create(s_content, QR_SIZE_MAILTO, lv_color_hex(0x000000),
-                          lv_color_hex(0xFFFFFF));
-  lv_obj_align(s_qr, LV_ALIGN_TOP_LEFT, 20, 50);
-  lv_obj_set_style_border_color(s_qr, lv_color_hex(0xFFFFFF), 0);
-  lv_obj_set_style_border_width(s_qr, 8, 0);
+  s_qr = makeQr(QR_SIZE_MAILTO, 20, 50);
 
-  s_statusLbl = makeWrapLabel("", RESULT_COL_X, 56, RESULT_COL_W,
-                              &lv_font_montserrat_18, lv_color_hex(0x0B2E4F));
-  refreshStatus();
+  makeWrapLabel(TXT("Escanea el QR con la camara de tu movil: se abrira un "
+                    "correo a soporte tecnico listo para enviar.",
+                    "Scan the QR with your phone camera: an email to "
+                    "technical support opens, ready to send.",
+                    "Scannez le QR avec l'appareil photo de votre telephone : "
+                    "un e-mail au support technique s'ouvre, pret a envoyer."),
+                CONTACT_COL_X, 56, CONTACT_COL_W, &lv_font_montserrat_18,
+                lv_color_hex(0x0B2E4F));
 
   char subject[SUPPORT_SUBJECT_MAX];
   support_report_subject(subject, sizeof(subject));
   char info[200];
   snprintf(info, sizeof(info), "%s %s\n%s %s", TXT("Para:", "To:", "A :"),
            SUPPORT_EMAIL, TXT("Asunto:", "Subject:", "Objet :"), subject);
-  makeWrapLabel(info, RESULT_COL_X, 186, RESULT_COL_W, &lv_font_montserrat_14,
+  makeWrapLabel(info, CONTACT_COL_X, 170, CONTACT_COL_W, &lv_font_montserrat_14,
                 lv_color_hex(0x666666));
 
-  s_qrNoteLbl = makeWrapLabel("", RESULT_COL_X, 250, RESULT_COL_W,
+  s_qrNoteLbl = makeWrapLabel("", CONTACT_COL_X, 236, CONTACT_COL_W,
                               &lv_font_montserrat_14, lv_color_hex(0x0B2E4F));
 
   // El texto del boton lo fija refreshQr() segun el estado del informe.
@@ -525,10 +321,10 @@ void buildResult() {
   lv_obj_set_size(toggle, 200, 46);
   lv_obj_align(toggle, LV_ALIGN_BOTTOM_RIGHT, -166, -6);
 
-  lv_obj_t *close = makeBtn(s_content, TXT("CERRAR", "CLOSE", "FERMER"),
-                            onClose, lv_color_hex(0x0075EE));
-  lv_obj_set_size(close, 150, 46);
-  lv_obj_align(close, LV_ALIGN_BOTTOM_RIGHT, -6, -6);
+  lv_obj_t *back = makeBtn(s_content, TXT("VOLVER", "BACK", "RETOUR"),
+                           onBackToMenu, lv_color_hex(0x888888));
+  lv_obj_set_size(back, 150, 46);
+  lv_obj_align(back, LV_ALIGN_BOTTOM_RIGHT, -6, -6);
 
   refreshQr();
 }
@@ -542,7 +338,6 @@ void showView(View v) {
     case VIEW_MENU: buildMenu(); break;
     case VIEW_VIDEO: buildVideo(); break;
     case VIEW_CONTACT: buildContact(); break;
-    case VIEW_RESULT: buildResult(); break;
   }
 }
 
@@ -581,12 +376,7 @@ void HelpDialog_Init(lv_obj_t *parent) {
 
 void HelpDialog_Open(void) {
   if (!s_overlay) return;
-  // Cualquier resultado de una peticion anterior es de otra conversacion.
-  SupportRequest_Reset();
-  s_msg[0] = '\0';
-  s_send = SEND_NONE;
   s_qrWithReport = true;
-  s_qrWithMessage = true;
   showView(VIEW_MENU);
   s_open = true;
   lv_obj_clear_flag(s_overlay, LV_OBJ_FLAG_HIDDEN);
@@ -601,20 +391,5 @@ void HelpDialog_Poll(void) {
   // ayuda olvidada se cierra sola para devolverle el control al auto-bloqueo.
   if (mustYield() || lv_disp_get_inactive_time(NULL) > HELP_IDLE_TIMEOUT_MS) {
     closeDialog();
-    return;
   }
-  if (s_view != VIEW_RESULT || s_send != SEND_SENDING) return;
-
-  const SupportRequestState st = SupportRequest_GetState();
-  if (st == SUPPORT_SENT) {
-    s_send = SEND_OK;
-  } else if (st == SUPPORT_FAILED) {
-    s_send = SEND_FAIL;
-  } else if (millis() - s_sendT0 > SUPPORT_SEND_TIMEOUT_MS) {
-    // Sin respuesta de la tarea WiFi: se descarta la peticion para que no
-    // salga mas tarde sin que el operador lo sepa.
-    SupportRequest_Reset();
-    s_send = SEND_FAIL;
-  }
-  if (s_send != SEND_SENDING) refreshStatus();
 }

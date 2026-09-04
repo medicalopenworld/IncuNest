@@ -80,6 +80,23 @@ ni el directorio ni la plantilla existían (la única serie estaba en
 `SensorBoard_v2/docs/adr/`). Se crearon en este cambio junto con ADR-0001.
 Sin más acción: ya está resuelto en el repo.
 
+### 6. La vía ThingsBoard se implementó y se retiró (alcance, no defecto)
+
+Tras la revisión, el usuario simplificó el contacto a "un QR que lleve al
+correo con el SN en el asunto". La vía ThingsBoard (petición pendiente,
+publicación en la tarea WiFi, regla de correo en el servidor) y el formulario
+con teclado se retiraron en un `refactor(hmi)`. Coste: dos fases de
+implementación y su documentación, más los hallazgos de review que se
+gastaron en esa vía (B3, R5). El diseño ya la señalaba como la que exigía
+trabajo en el servidor.
+
+**Descartado como regla**: en modo `auto` no hay gate de plan; la decisión
+de transporte estaba explícita en proposal/design y el usuario la vio al
+cerrar el loop, que es el momento previsto. Si se repite (una decisión de
+alcance en el design que el usuario recorta al final), valdría la pena un
+gate ligero de "confirmar decisiones de arquitectura del design.md" incluso
+en `auto`. Primera ocurrencia: se anota, no se sistematiza.
+
 ## Descartado con motivo
 
 - **`design.md` nombró una función que no existió en el código final**

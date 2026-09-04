@@ -41,20 +41,18 @@ cada 5 s (`Wifi_OTA.cpp:461-469`).
   2. **Vídeo tutorial**: código QR (`lv_qrcode`) con la URL de la web de
      Medical Open World, más la URL en texto por si el QR no se puede
      escanear.
-  3. **Contacto con soporte**: formulario con teclado en pantalla para un
-     mensaje breve. El asunto se compone automáticamente como
-     `IncuNest SN 0042 - Solicitud de soporte` y el cuerpo lleva el mensaje
-     más un informe de depuración (identidad, versiones, arranque, red,
-     enlace, control, telemetría, alarmas, memoria). Dos vías de envío:
-     - **Desde el equipo**: si hay conexión con ThingsBoard, se publica como
-       telemetría (`support_request`, `support_message`, `support_report`,
-       `support_to`) y una regla del servidor la reenvía por correo a
-       `SUPPORT_EMAIL`. La publicación la hace la tarea WiFi/OTA, nunca el
-       callback de LVGL (regla ARQ-LOCK-001: nada de red bajo el mutex de
-       LVGL).
-     - **Desde el móvil**: siempre disponible, con o sin red. Un QR
-       `mailto:` con destinatario, asunto y cuerpo ya rellenos; el operador
-       lo escanea y envía desde su propio correo.
+  3. **Contacto con soporte**: un QR `mailto:` que el operador escanea con
+     su móvil. Se abre un correo a `SUPPORT_EMAIL` con el asunto
+     `IncuNest SN 0042 - Solicitud de soporte` y, en el cuerpo, un informe
+     de depuración (identidad, versiones, arranque, red, enlace, control,
+     telemetría, alarmas, memoria) bajo el que el operador escribe su
+     consulta. El correo sale de la cuenta del operador: el equipo no envía
+     nada por red, así que funciona igual con o sin WiFi. Un botón quita el
+     informe del QR si el móvil no lo lee. (Una primera versión publicaba
+     además la petición como telemetría ThingsBoard para que el servidor la
+     reenviara por correo; se retiró por decisión de producto para
+     simplificar: exigía una regla en el servidor y un formulario con
+     teclado en pantalla.)
 - **Configuración**: `SUPPORT_EMAIL` y `SUPPORT_TUTORIAL_URL` con valores
   por defecto en `Credentials_public.h` (fichero versionado), redefinibles
   desde `Credentials.h` (no versionado). El correo por defecto es
@@ -66,9 +64,8 @@ cada 5 s (`Wifi_OTA.cpp:461-469`).
 - **Alarma crítica**: cierra menú y tutorial, con el mismo contrato que
   `TimeDialog_Poll()`.
 
-No se añade ninguna librería nueva (`lib_deps` intacto): el QR lo dibuja
-LVGL, el teclado es un `lv_btnmatrix` como en `BabyWizard`, y el envío usa el
-SDK de ThingsBoard ya presente.
+No se añade ninguna librería nueva (`lib_deps` intacto): los QR los dibuja
+LVGL (`lv_qrcode`, ya habilitado).
 
 ## Capabilities
 
@@ -87,13 +84,10 @@ pero mantiene todos sus widgets y comportamientos.
 - **Código**: `Display_HMI/src/ui/HelpDialog.cpp`, `HelpTour.cpp` (nuevos),
   `src/modules/support/support_report.cpp` (nuevo),
   `src/ui/ElementsCreation.cpp` (heading), `src/tasks/UITask.cpp` (init,
-  poll, callback, auto-bloqueo), `src/tasks/Wifi_OTA.cpp` (publicación),
-  `include/protocol/Credentials_public.h` (defaults).
-- **Servidor**: hace falta una regla en ThingsBoard (`mon.medicalopenworld.org`)
-  que, al recibir telemetría con `support_request`, envíe un correo a
-  `support_to`. Se documenta en `docs/thingsboard_dashboards.md`. Hasta que
-  exista, la telemetría queda registrada en el dispositivo de ThingsBoard
-  (consultable) y la vía del móvil funciona igual.
+  poll, callback, auto-bloqueo), `include/protocol/Credentials_public.h`
+  (defaults). `Wifi_OTA.cpp` no cambia.
+- **Servidor**: sin cambios. El contacto no usa ThingsBoard ni ningún otro
+  canal del equipo.
 - **Flash**: build de referencia al 78 % (2 454 400 B de 3 145 728 B). El
   cambio añade código y una tabla de textos en 3 idiomas; no añade assets de
   imagen (el `?` es texto).

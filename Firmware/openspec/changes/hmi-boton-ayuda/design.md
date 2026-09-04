@@ -61,42 +61,31 @@ que fijan el diseño:
 | **Telemetría ThingsBoard + regla de correo en el servidor** | Canal ya conectado y probado, cero librerías, sin secretos nuevos, la petición queda además registrada en el dispositivo de TB | Hace falta una regla en el servidor; no funciona sin red |
 | **QR `mailto:` para el móvil del operador** | Funciona **sin red**, sin librerías (`lv_qrcode`), el correo sale de una cuenta real del hospital | Depende de que el operador tenga móvil con correo; el cuerpo debe ser compacto |
 
-**Decisión**: las dos últimas, combinadas. Cuando hay conexión con el
-servidor, "ENVIAR" publica la petición como telemetría y el servidor la
-reenvía a `SUPPORT_EMAIL`. En todos los casos el diálogo ofrece el QR
-`mailto:` como vía alternativa. El correo destino viaja también en la
-telemetría (`support_to`) para que la regla del servidor no tenga que
-conocerlo: la fuente de verdad del destinatario sigue siendo el firmware,
-como pedía el requisito.
+**Decisión (revisada 2026-09-04)**: **solo el QR `mailto:`**. El operador lo
+escanea, se abre un correo a `SUPPORT_EMAIL` con el número de serie en el
+asunto y el informe en el cuerpo, escribe su consulta encima y lo envía desde
+su cuenta. El equipo no envía nada por red.
 
-**Consecuencia**: la regla de ThingsBoard (nodo *to email* + *send email*
-filtrando `support_request`) es un entregable del servidor, documentado en
-`docs/thingsboard_dashboards.md`. Hasta que exista, la telemetría queda
-almacenada en TB y la vía del móvil cubre el caso.
+La primera versión combinaba el QR con la publicación en ThingsBoard más una
+regla de correo en el servidor. Se implementó y se retiró por decisión de
+producto: exigía una regla en el servidor, un formulario con teclado y un
+puente UI ↔ tarea WiFi con timeout y resultado tardío, y en campo la vía del
+QR era la que iba a usarse. Ver ADR-0001.
 
-### 2. La publicación la hace la tarea WiFi/OTA, el diálogo solo deja una petición pendiente
+### 2. Sin formulario: la consulta se escribe en el móvil
 
-Mismo patrón que `g_pendingTimeAck` pero en sentido inverso: la UI llama a
-`SupportRequest_Submit(msg)`, que copia el mensaje a un buffer estático bajo
-`portMUX` y marca `PENDING`. `SupportRequest_Service()` corre en
-`WIFI_TB_OTA()` (tarea OTA, core 1) cuando `tb_wifi.connected()`: compone
-el JSON con `support_report_build()`, llama a `tb_wifi.sendTelemetryJson()`
-y deja `SENT` o `FAILED`. `HelpDialog_Poll()` lee el estado y pinta el
-resultado; si no llega nada en `SUPPORT_SEND_TIMEOUT_MS` (15 s) lo da por
-fallido y ofrece el QR.
+Sin envío desde el equipo no hace falta teclado en pantalla: el cuerpo del
+`mailto:` empieza con dos líneas en blanco y luego el informe como pie
+técnico, para que el operador escriba su consulta en el propio correo, con
+el teclado de su móvil, que es mejor que cualquier `lv_btnmatrix`.
 
-Antes de enviar, la UI comprueba `WIFIIsConnectedToServer()`: si no hay
-servidor no se encola nada y se va directo a la vista del QR con el motivo
-("Sin conexion con el servidor"). Así nunca queda una petición huérfana que
-salga horas después sin relación con lo que el operador quiso decir.
-
-### 3. Informe de depuración: un solo formateador, dos salidas
+### 3. Informe de depuración: un solo formateador
 
 `support_report_build(char *out, size_t cap)` produce texto ASCII plano en
-líneas `clave=valor`, separadas por `\n`, **≤ 400 bytes**. Es el mismo texto
-que va en `support_report` (telemetría) y en el `body` del `mailto:`
-(percent-encoded por `support_report_build_mailto()`). Un único formateador
-garantiza que soporte vea lo mismo por las dos vías.
+líneas `clave=valor`, separadas por `\n`, **≤ 400 bytes**, que
+`support_report_build_mailto()` percent-codifica dentro del `body`. Está
+separado del transporte a propósito: si algún día se añade una vía de red,
+el formateador no cambia.
 
 Contenido, en este orden (lo que más ayuda a triar primero):
 
@@ -112,20 +101,18 @@ active=Temp. aire alta|Sonda piel
 heap=123456/98765 psram=7654321
 ```
 
-Presupuesto del QR: `mailto:` + destinatario (30) + asunto (~45) + cuerpo
-(mensaje ≤ 160 + informe ≤ 400) ≈ 640 bytes antes de percent-encoding, ≈ 900
-después (hasta ~1140 en el peor caso de 160 espacios). `lv_qrcode` usa ECC
-MEDIUM fijo y cubre hasta la versión 24 (113×113 módulos, 914 B); por
-encima degrada. El canvas es de **340 px** (`QR_SIZE_MAILTO`): `lv_qrcode`
-escala a píxeles enteros por módulo, y 340/113 = 3 px/módulo, el mínimo que
-lee con soltura la cámara de un móvil a 15-20 cm (con 300 px se quedaría en
-2). Si el texto no cabe (`lv_qrcode_update()` devuelve `LV_RES_INV`), se
-reintenta sin el mensaje libre y luego sin informe, y se avisa en pantalla
-de qué se ha recortado. El QR de la URL del vídeo es corto y se queda en
-300 px.
-
-Presupuesto MQTT: mismo cuerpo dentro de un JSON de 4 claves ≈ 700 bytes <
-`MAX_MESSAGE_SIZE` 1024.
+Presupuesto del QR: `mailto:` + destinatario (30) + asunto (~45) + informe
+(≤ 400) ≈ 480 bytes antes de percent-encoding, ≈ 650 después (los `=`, `\n`
+y `|` del informe se codifican a tres bytes). `lv_qrcode` usa ECC MEDIUM
+fijo: ~650 B es la versión 20 (97×97 módulos, 669 B); la capacidad máxima
+antes de degradar es la versión 24 (914 B). El canvas es de **340 px**
+(`QR_SIZE_MAILTO`): `lv_qrcode` escala a píxeles enteros por módulo, y
+340/97 = 3 px/módulo, el mínimo que lee con soltura la cámara de un móvil a
+15-20 cm (con 300 px se quedaría en 2 en el peor caso). Si aun así no
+cupiera (`lv_qrcode_update()` devuelve `LV_RES_INV`), se regenera sin
+informe y se avisa; y el operador puede pedirlo sin informe (versión ~5)
+con el botón SIN INFORME si su móvil no lee el denso. El QR de la URL del
+vídeo es corto y se queda en 300 px.
 
 ### 4. Asunto del correo
 
@@ -189,8 +176,7 @@ aire, fallo de sonda en modo piel, salida de aire obstruida, corte de red).
 La ayuda es una vista sin información de alarma propia y su overlay se traga
 los toques, así que cede ante **cualquier** alarma activa
 (`UI_IsAnyAlarmActive()`) y ante `Display_IsBoardLinkLost()`, devolviendo
-la pantalla principal y descartando cualquier petición de soporte aún no
-publicada. Coste asumido: con una alarma activa no se puede abrir la ayuda;
+la pantalla principal. Coste asumido: con una alarma activa no se puede abrir la ayuda;
 el centro de alarmas ya muestra la acción recomendada, que es lo que hay
 que leer en ese momento.
 
@@ -202,12 +188,13 @@ pausado siguen visibles encima del recorrido.
 
 ## Risks / Trade-offs
 
-- **La regla de ThingsBoard no existe aún** → hasta entonces "ENVIAR" solo
-  registra la petición en TB. Mitigación: la vista de resultado siempre
-  muestra el QR `mailto:` como segunda vía, y el texto de éxito dice
-  "registrada" y no "correo enviado".
+- **Sin trazabilidad en el servidor**: las peticiones no quedan registradas
+  en ThingsBoard. Asumido: el correo llega a soporte con el número de serie
+  en el asunto, que es lo que hace falta para triar.
 - **QR denso** → si el móvil no lo lee, el operador puede pulsar "SIN
-  INFORME" para un QR con solo destinatario, asunto y mensaje.
+  INFORME" para un QR con solo destinatario y asunto.
+- **Hace falta un móvil con correo**: es la única vía. En el contexto de
+  destino es más probable tener un móvil a mano que WiFi funcionando.
 - **Redistribuir el heading** mueve reloj y conectividad ~26 px a la
   derecha. Riesgo visual, no funcional; se comprueba en banco que el `?` no
   invade la zona táctil ampliada del candado (341 px) ni del reloj.
@@ -222,13 +209,10 @@ pausado siguen visibles encima del recorrido.
 Sin migración: no hay datos persistidos nuevos, no cambia el protocolo ni
 NVS. El firmware anterior y el nuevo son intercambiables por OTA.
 
-Servidor: crear la regla de correo en ThingsBoard (documentada en
-`docs/thingsboard_dashboards.md`) cuando convenga; no bloquea el despliegue.
+Servidor: sin cambios.
 
 ## Open Questions
 
 - URL definitiva del vídeo tutorial (`SUPPORT_TUTORIAL_URL`). Se deja
   `https://medicalopenworld.org/incunest/tutorial` como valor por defecto
   y se puede fijar en `Credentials.h` sin recompilar nada más.
-- Si en el futuro la motherBoard ofrece GPRS a la HMI como transporte,
-  `SupportRequest_Service()` es el único punto que habría que duplicar.
