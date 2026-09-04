@@ -479,6 +479,79 @@ UI_STR(STR_TIME_REJECTED,      "Hora rechazada","Time rejected","Heure rejetee",
 // ------------------------------------------------------- tendencia
 UI_STR(STR_TREND,              "Tendencia",    "Trend",       "Tendance",    "Tendencia")
 
+// ------------------------------------------------- recordatorio de mantenimiento
+UI_STR(STR_MAINT_UC,           "MANTENIMIENTO","MAINTENANCE", "ENTRETIEN",   "MANUTENCAO")
+UI_STR(STR_MAINT_TITLE,        "LIMPIEZA Y MANTENIMIENTO",
+                               "CLEANING AND MAINTENANCE",
+                               "NETTOYAGE ET ENTRETIEN",
+                               "LIMPEZA E MANUTENCAO")
+UI_STR(STR_MAINT_DUE_FMT,      "Han pasado %ld dias desde el ultimo "
+                               "mantenimiento registrado. Limpia y desinfecta "
+                               "la incubadora siguiendo el protocolo del "
+                               "centro.",
+                               "It has been %ld days since the last recorded "
+                               "maintenance. Clean and disinfect the incubator "
+                               "following your unit protocol.",
+                               "Cela fait %ld jours depuis le dernier "
+                               "entretien enregistre. Nettoyez et desinfectez "
+                               "la couveuse selon le protocole du service.",
+                               "Passaram %ld dias desde a ultima manutencao "
+                               "registada. Limpa e desinfeta a incubadora "
+                               "seguindo o protocolo do servico.")
+UI_STR(STR_MAINT_NEW_BABY,     "Hay un bebe nuevo en la incubadora. Limpia y "
+                               "desinfecta la incubadora antes de empezar, "
+                               "siguiendo el protocolo del centro.",
+                               "There is a new baby in the incubator. Clean and "
+                               "disinfect the incubator before starting, "
+                               "following your unit protocol.",
+                               "Il y a un nouveau bebe dans la couveuse. "
+                               "Nettoyez et desinfectez la couveuse avant de "
+                               "commencer, selon le protocole du service.",
+                               "Ha um bebe novo na incubadora. Limpa e "
+                               "desinfeta a incubadora antes de comecar, "
+                               "seguindo o protocolo do servico.")
+UI_STR(STR_MAINT_QR_HINT,      "Escanea el QR con la camara de tu movil para "
+                               "ver los tutoriales de limpieza y "
+                               "mantenimiento.",
+                               "Scan the QR with your phone camera to watch the "
+                               "cleaning and maintenance tutorials.",
+                               "Scannez le QR avec l'appareil photo de votre "
+                               "telephone pour voir les tutoriels de nettoyage "
+                               "et d'entretien.",
+                               "Digitaliza o QR com a camara do telemovel para "
+                               "ver os tutoriais de limpeza e manutencao.")
+UI_STR(STR_MAINT_LAST_FMT,     "Ultimo mantenimiento: %s",
+                               "Last maintenance: %s",
+                               "Dernier entretien : %s",
+                               "Ultima manutencao: %s")
+UI_STR(STR_MAINT_NEVER,        "sin registrar", "not recorded","non enregistre","sem registo")
+UI_STR(STR_MAINT_DONE_UC,      "MANTENIMIENTO HECHO",
+                               "MAINTENANCE DONE",
+                               "ENTRETIEN FAIT",
+                               "MANUTENCAO FEITA")
+UI_STR(STR_MAINT_LATER_UC,     "MAS TARDE",    "LATER",       "PLUS TARD",   "MAIS TARDE")
+UI_STR(STR_MAINT_LOGGED,       "Mantenimiento registrado",
+                               "Maintenance recorded",
+                               "Entretien enregistre",
+                               "Manutencao registada")
+UI_STR(STR_MAINT_REMIND_EVERY, "Recordar cada", "Remind every","Rappeler tous les","Recordar a cada")
+UI_STR(STR_MAINT_OPTIONS,      "DESACTIVADO\n7 DIAS\n15 DIAS\n30 DIAS\n90 DIAS",
+                               "DISABLED\n7 DAYS\n15 DAYS\n30 DAYS\n90 DAYS",
+                               "DESACTIVE\n7 JOURS\n15 JOURS\n30 JOURS\n90 JOURS",
+                               "DESATIVADO\n7 DIAS\n15 DIAS\n30 DIAS\n90 DIAS")
+UI_STR(STR_MAINT_SETTINGS_HINT,"Al cumplirse el plazo, y cada vez que entra un "
+                               "bebe nuevo, sale un aviso con el QR de los "
+                               "tutoriales de limpieza.",
+                               "When the interval is up, and every time a new "
+                               "baby comes in, a notice appears with the QR of "
+                               "the cleaning tutorials.",
+                               "A l'echeance, et chaque fois qu'un nouveau bebe "
+                               "arrive, un avis apparait avec le QR des "
+                               "tutoriels de nettoyage.",
+                               "Ao cumprir-se o prazo, e cada vez que entra um "
+                               "bebe novo, aparece um aviso com o QR dos "
+                               "tutoriais de limpeza.")
+
 // ------------------------------------------------------- menu de ayuda
 UI_STR(STR_HELP_UC,            "AYUDA",        "HELP",        "AIDE",        "AJUDA")
 UI_STR(STR_HELP_TOUR_TITLE,    "TUTORIAL GUIADO",

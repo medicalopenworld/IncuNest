@@ -118,3 +118,59 @@ never raised above them. Every text comes from the catalogue in the four
 shipped languages (§5). The debug report contains no patient data (no baby
 name or profile, no SSID, password or token).
 
+## 7. Maintenance reminder
+
+The incubator reminds the staff to clean and disinfect it. The decision of
+*when* lives in `src/modules/maintenance/maintenance.cpp` (no LVGL); the
+pop-up that tells it, in `src/ui/MaintenanceDialog.cpp`.
+
+Two independent reasons fire the reminder:
+
+1. **Interval elapsed** — calendar days since the last recorded maintenance,
+   measured with the motherBoard's epoch (`HMI_GetEpochNow()`), not with
+   power-on hours: an incubator that spent a month switched off still needs
+   cleaning before the next patient. The interval is chosen per unit in
+   **Settings > MAINTENANCE** (disabled / 7 / 15 / 30 / 90 days, default 30).
+2. **New baby** — `BabyWizard_GetActiveSeq()` reports a profile different
+   from the last one already reminded about, i.e. a new patient was admitted
+   or the incubator changed from one baby to another. This is the
+   between-patients cleaning and does not wait for the interval.
+
+Setting the interval to *disabled* switches off both reasons: whoever turns
+the reminder off does not want some reminders and not others.
+
+The pop-up is the same card as `HelpDialog` (780x460 over `ui_ScreenMain`),
+with the **`SUPPORT_TUTORIAL_URL` QR on the left** — the very code the help
+menu's "Video tutorial" view shows, because the cleaning tutorials live on
+that same page — the reason for the notice on the right, the date of the last
+recorded maintenance, and two exits and no X:
+
+- **MAINTENANCE DONE** records today's date, clears the snooze and resets the
+  interval. Reachable also without waiting for the notice, from the button in
+  Settings > MAINTENANCE.
+- **LATER** silences the reminder for 24 h.
+
+When it appears: only armed by **unlocking the screen** (and once at UI init,
+because whoever powers the incubator up is standing in front of it), never in
+the middle of a manoeuvre. `MaintenanceDialog_Poll()` then opens it only on
+`ui_ScreenMain`, with no other modal dialog open (help, tour, alarm centre,
+baby wizard, exit dialog or time dialog) and no reason to yield.
+
+Common rules, the same as the help menu: it yields to any active alarm
+(`UI_IsAnyAlarmActive()`) or a lost board link (`Display_IsBoardLinkLost()`),
+and it is exempt from the 20 s auto-lock with its own `MNT_IDLE_TIMEOUT_MS`
+cap (3 min). That cap is measured with `lv_tick_elaps()` from the moment it
+opened and **not** with `lv_disp_get_inactive_time()`: the auto-lock exemption
+itself resets that counter every 200 ms, so a cap reading it would never fire.
+Closing by the cap does not count as an answer — the notice comes back on the
+next unlock, since only pressing a button silences it.
+
+State persists in NVS (`hmi_cfg`): `mnt_last` (epoch of the last recorded
+maintenance), `mnt_days` (interval), `mnt_snooze` (epoch when LATER expires)
+and `mnt_seq` (the last baby already reminded about, so a reboot with the same
+patient inside does not nag again). Edge cases handled in `Maintenance_Tick()`:
+with no clock yet nothing is due; the first boot *with* a valid clock seeds
+`mnt_last` with today (otherwise a factory-fresh unit would read as "overdue
+since 1970"); and a clock moved backwards re-anchors `mnt_last` to today
+instead of leaving the record in the future, where the interval would never
+elapse again.

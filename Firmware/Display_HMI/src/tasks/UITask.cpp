@@ -9,7 +9,9 @@
 #include "ui/TimeDialog.h"
 #include "ui/HelpDialog.h"
 #include "ui/HelpTour.h"
+#include "ui/MaintenanceDialog.h"
 #include "ui/BabyWizard.h"
+#include "modules/maintenance/maintenance.h"
 #include "display_config.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_rgb.h"
@@ -934,6 +936,27 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   lv_dropdown_set_options(ui_LanguagesDropDown, L(STR_LANG_OPTIONS));
   lv_dropdown_set_selected(ui_LanguagesDropDown, lang);
 
+  // Fila y panel de MANTENIMIENTO. La linea del ultimo registro no se traduce
+  // aqui: la reconstruye maintenance_panel_refresh() al abrir el panel, que es
+  // donde se lee, y lleva dentro una fecha que hay que volver a formatear.
+  lv_label_set_text(ui_MaintLabel, L(STR_MAINT_UC));
+  lv_label_set_text(ui_MaintTitleLabel, L(STR_MAINT_UC));
+  lv_label_set_text(ui_MaintEveryLabel, L(STR_MAINT_REMIND_EVERY));
+  lv_label_set_text(ui_MaintDoneLabel, L(STR_MAINT_DONE_UC));
+  lv_label_set_text(ui_MaintHintLabel, L(STR_MAINT_SETTINGS_HINT));
+  {
+    // lv_dropdown_set_options() copia la cadena y deja la seleccion en 0, asi
+    // que hay que reponerla despues (igual que arriba con el de idiomas).
+    const uint16_t days = Maintenance_IntervalDays();
+    lv_dropdown_set_options(ui_MaintIntervalDropDown, L(STR_MAINT_OPTIONS));
+    for (int i = 0; i < MNT_INTERVAL_COUNT; i++) {
+      if (MNT_INTERVAL_DAYS[i] == days) {
+        lv_dropdown_set_selected(ui_MaintIntervalDropDown, i);
+        break;
+      }
+    }
+  }
+
   // lv_btnmatrix NO copia el mapa: se queda con el puntero. Por eso el array
   // es `static` y las cadenas vienen del catalogo, que es memoria estatica.
   {
@@ -1092,6 +1115,7 @@ void WifiButton_cb(lv_event_t *e) {
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_ModesConfigCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_MaintConfigCont, LV_OBJ_FLAG_HIDDEN);
   isConnected = (WiFi.status() == WL_CONNECTED);
 
   // Pre-fill TextAreas with saved credentials so the user only needs to
@@ -1149,6 +1173,7 @@ void InfoButton_cb(lv_event_t *e) {
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_ModesConfigCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_MaintConfigCont, LV_OBJ_FLAG_HIDDEN);
 
   lv_obj_clear_flag(ui_InfoDetailsCont, LV_OBJ_FLAG_HIDDEN);
 
@@ -1186,10 +1211,64 @@ void ModesButton_cb(lv_event_t *e) {
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_InfoDetailsCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_MaintConfigCont, LV_OBJ_FLAG_HIDDEN);
 
   lv_obj_clear_flag(ui_ModesConfigCont, LV_OBJ_FLAG_HIDDEN);
 
   wifiVisible = false;
+}
+
+// Refresca lo que cambia en runtime del panel de MANTENIMIENTO: el intervalo
+// guardado y la fecha del ultimo registro. Se llama al abrir el panel y tras
+// registrar un mantenimiento a mano.
+static void maintenance_panel_refresh(void) {
+  if (ui_MaintIntervalDropDown) {
+    const uint16_t days = Maintenance_IntervalDays();
+    for (int i = 0; i < MNT_INTERVAL_COUNT; i++) {
+      if (MNT_INTERVAL_DAYS[i] == days) {
+        lv_dropdown_set_selected(ui_MaintIntervalDropDown, i);
+        break;
+      }
+    }
+  }
+  if (ui_MaintLastLabel) {
+    char line[96];
+    Maintenance_FormatLastLine(line, sizeof(line));
+    lv_label_set_text(ui_MaintLastLabel, line);
+  }
+}
+
+// Fila MANTENIMIENTO de Ajustes: cada cuanto recordar la limpieza y cuando se
+// registro la ultima. El aviso con el QR de los tutoriales lo saca
+// MaintenanceDialog; aqui solo se configura y se registra a mano.
+void MaintButton_cb(lv_event_t *e) {
+  (void)e;
+  lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
+  LanguagesVisible = false;
+  lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_InfoDetailsCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_ModesConfigCont, LV_OBJ_FLAG_HIDDEN);
+
+  maintenance_panel_refresh();
+  lv_obj_clear_flag(ui_MaintConfigCont, LV_OBJ_FLAG_HIDDEN);
+
+  wifiVisible = false;
+}
+
+void MaintIntervalDropDown_cb(lv_event_t *e) {
+  const uint16_t idx = lv_dropdown_get_selected(lv_event_get_target(e));
+  if (idx >= MNT_INTERVAL_COUNT) return;
+  Maintenance_SetIntervalDays(MNT_INTERVAL_DAYS[idx]);
+}
+
+// Registrar el mantenimiento sin esperar al aviso: es lo que hace quien acaba
+// de limpiar la incubadora por su cuenta.
+void MaintDoneButton_cb(lv_event_t *e) {
+  (void)e;
+  Maintenance_MarkDone();
+  maintenance_panel_refresh();
+  UI_ShowToast(TR(STR_MAINT_LOGGED), 2500);
 }
 
 // Disparado al tocar la hora de cabecera (ui_ClockButton, ui_ScreenMain), no
@@ -1212,6 +1291,7 @@ void LanguageButton_cb(lv_event_t *e) {
   lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_InfoDetailsCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_ModesConfigCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_MaintConfigCont, LV_OBJ_FLAG_HIDDEN);
   wifiVisible = false;
   lv_obj_clear_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
   LanguagesVisible = true;
@@ -3102,6 +3182,10 @@ static void lock_progress_timer_cb(lv_timer_t *t) {
     locked = false;
     lv_scr_load(ui_ScreenMain);
     lv_obj_add_flag(ui_UnlockCont, LV_OBJ_FLAG_HIDDEN);
+    // Alguien acaba de coger el equipo: es el momento de recordarle el
+    // mantenimiento si toca. Solo se arma aqui; el pop-up lo abre
+    // MaintenanceDialog_Poll() cuando no haya nada mas en pantalla.
+    MaintenanceDialog_NoteUnlocked();
   }
 }
 
@@ -3230,11 +3314,13 @@ static void update_autolock_ring(uint32_t inactive_ms) {
 }
 
 void inactivity_timer_cb(lv_timer_t *timer) {
-  // Exentos del auto-bloqueo: la pantalla de alarmas, y la ayuda (menu con
-  // QR o tutorial guiado): leer un QR o seguir un paso lleva mas de
-  // INACTIVITY_TIMEOUT_MS sin tocar, y bloquear a mitad lo tiraria todo.
+  // Exentos del auto-bloqueo: la pantalla de alarmas, la ayuda (menu con QR o
+  // tutorial guiado) y el aviso de mantenimiento (tambien lleva un QR que hay
+  // que escanear): leer un QR o seguir un paso lleva mas de
+  // INACTIVITY_TIMEOUT_MS sin tocar, y bloquear a mitad lo tiraria todo. Cada
+  // uno tiene su propio tope para no tapar la pantalla indefinidamente.
   if (lv_scr_act() == ui_ScreenAlarms || HelpDialog_IsOpen() ||
-      HelpTour_IsOpen()) {
+      HelpTour_IsOpen() || MaintenanceDialog_IsOpen()) {
     lv_disp_trig_activity(NULL);
     update_autolock_ring(0);
     return;
@@ -3748,6 +3834,11 @@ void UI_Task(void *pvParameters) {
   ledcWrite(PWM_CHANNEL, BRIGHTNESS_MAX);
   */
 
+  // Antes de UI_ApplyLanguage(): es quien rellena el desplegable del
+  // intervalo, y necesita el valor ya leido de NVS para marcar la opcion
+  // correcta. Solo toca NVS, no LVGL, asi que puede ir aqui.
+  Maintenance_Init();
+
   UI_ApplyLanguage(g_lang);
   ui_set_switch_state_silent(ui_SwitchDarkMode, darkMode);
   ui_set_switch_state_silent(ui_SwitchHumidityMode, humidityEnabled);
@@ -3861,6 +3952,11 @@ void UI_Task(void *pvParameters) {
   TimeDialog_Init(ui_ScreenMain);
   // Menu de ayuda, abierto desde ui_HelpButton (mismo criterio de parent).
   HelpDialog_Init(ui_ScreenMain);
+  // Recordatorio de limpieza y mantenimiento (el estado ya se cargo de NVS
+  // mas arriba, en Maintenance_Init()). El aviso queda armado para la primera
+  // vuelta, porque quien enciende el equipo esta delante de la pantalla.
+  MaintenanceDialog_Init(ui_ScreenMain);
+  MaintenanceDialog_NoteUnlocked();
   // Tutorial guiado: en lv_layer_top() porque recorre Main y Ajustes.
   HelpTour_Init();
   // --- Centro de alarmas (activas + registro) ---
@@ -3910,6 +4006,7 @@ void UI_Task(void *pvParameters) {
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_ModesConfigCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_MaintConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_Keyboard1, LV_OBJ_FLAG_HIDDEN);
   lv_keyboard_set_textarea(ui_Keyboard1, NULL);
@@ -4384,6 +4481,10 @@ void UI_Task(void *pvParameters) {
     // misma regla de alarma critica, para el menu y para el tutorial.
     HelpDialog_Poll();
     HelpTour_Poll();
+    // Recordatorio de mantenimiento: vigila el cambio de bebe y abre el aviso
+    // cuando esta armado (desbloqueo) y hay motivo. Va detras del resto a
+    // proposito: solo sale si ningun otro dialogo esta abierto.
+    MaintenanceDialog_Poll();
 
     // El banner se reevalua en CADA pasada, no solo cuando cambia el conjunto
     // de alarmas. Su visibilidad depende de la pantalla activa y el banner

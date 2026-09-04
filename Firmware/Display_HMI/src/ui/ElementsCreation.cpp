@@ -159,6 +159,19 @@ lv_obj_t *ui_ModesLabel = NULL;
 lv_obj_t *ui_ModesButton = NULL;
 lv_obj_t *ui_ModesArrow = NULL;
 lv_obj_t *ui_ModesConfigCont = NULL;
+lv_obj_t *ui_MaintCont = NULL;
+lv_obj_t *ui_MaintPanel = NULL;
+lv_obj_t *ui_MaintLabel = NULL;
+lv_obj_t *ui_MaintButton = NULL;
+lv_obj_t *ui_MaintArrow = NULL;
+lv_obj_t *ui_MaintConfigCont = NULL;
+lv_obj_t *ui_MaintTitleLabel = NULL;
+lv_obj_t *ui_MaintEveryLabel = NULL;
+lv_obj_t *ui_MaintIntervalDropDown = NULL;
+lv_obj_t *ui_MaintLastLabel = NULL;
+lv_obj_t *ui_MaintHintLabel = NULL;
+lv_obj_t *ui_MaintDoneButton = NULL;
+lv_obj_t *ui_MaintDoneLabel = NULL;
 lv_obj_t *ui_ModesTitleLabel = NULL;
 lv_obj_t *ui_SkinModeCont = NULL;
 lv_obj_t *ui_Panel9 = NULL;
@@ -351,6 +364,9 @@ extern void WifiButton_cb(lv_event_t *e);
 extern void InfoButton_cb(lv_event_t *e);
 void LanguageButton_cb(lv_event_t *e);
 extern void ModesButton_cb(lv_event_t *e);
+extern void MaintButton_cb(lv_event_t *e);
+extern void MaintIntervalDropDown_cb(lv_event_t *e);
+extern void MaintDoneButton_cb(lv_event_t *e);
 extern void ClockButton_cb(lv_event_t *e);
 extern void HelpButton_cb(lv_event_t *e);
 extern void TextArea_focus_cb(lv_event_t *e);
@@ -592,6 +608,24 @@ void ui_event_InfoButton(lv_event_t *e) {
 void ui_event_ModesButton(lv_event_t *e) {
   if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
     ModesButton_cb(e);
+  }
+}
+
+void ui_event_MaintButton(lv_event_t *e) {
+  if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+    MaintButton_cb(e);
+  }
+}
+
+void ui_event_MaintIntervalDropDown(lv_event_t *e) {
+  if (lv_event_get_code(e) == LV_EVENT_VALUE_CHANGED) {
+    MaintIntervalDropDown_cb(e);
+  }
+}
+
+void ui_event_MaintDoneButton(lv_event_t *e) {
+  if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+    MaintDoneButton_cb(e);
   }
 }
 
@@ -2938,6 +2972,140 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_y(ui_SwitchHumidityMode, 0);
   lv_obj_set_align(ui_SwitchHumidityMode, LV_ALIGN_CENTER);
 
+  // --- MAINTENANCE ROW (quinta fila, debajo de MODES) ---
+  // Las filas de ui_Container3 van cada 55 px desde y=-100 (Info, WiFi,
+  // Idioma, Modos): esta cae en y=120, dentro de los 420 de alto del
+  // contenedor.
+  ui_MaintCont = lv_obj_create(ui_Container3);
+  lv_obj_remove_style_all(ui_MaintCont);
+  lv_obj_set_width(ui_MaintCont, 331);
+  lv_obj_set_height(ui_MaintCont, 45);
+  lv_obj_set_x(ui_MaintCont, 0);
+  lv_obj_set_y(ui_MaintCont, 120);
+  lv_obj_set_align(ui_MaintCont, LV_ALIGN_CENTER);
+  lv_obj_clear_flag(ui_MaintCont,
+                    LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+
+  ui_MaintPanel = lv_obj_create(ui_MaintCont);
+  lv_obj_set_width(ui_MaintPanel, 331);
+  lv_obj_set_height(ui_MaintPanel, 45);
+  lv_obj_set_align(ui_MaintPanel, LV_ALIGN_CENTER);
+  lv_obj_clear_flag(ui_MaintPanel, LV_OBJ_FLAG_SCROLLABLE);
+
+  ui_MaintLabel = lv_label_create(ui_MaintCont);
+  lv_obj_set_width(ui_MaintLabel, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_MaintLabel, LV_SIZE_CONTENT);
+  lv_obj_set_x(ui_MaintLabel, 20);
+  lv_obj_set_y(ui_MaintLabel, 0);
+  lv_obj_set_align(ui_MaintLabel, LV_ALIGN_LEFT_MID);
+  lv_label_set_text(ui_MaintLabel, TR(STR_MAINT_UC));
+  lv_obj_set_style_text_font(ui_MaintLabel, &lv_font_montserrat_18,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  ui_MaintButton = lv_btn_create(ui_MaintCont);
+  lv_obj_set_width(ui_MaintButton, 321);
+  lv_obj_set_height(ui_MaintButton, 40);
+  lv_obj_set_align(ui_MaintButton, LV_ALIGN_CENTER);
+  lv_obj_add_flag(ui_MaintButton, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+  lv_obj_clear_flag(ui_MaintButton, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_bg_img_opa(ui_MaintButton, 0,
+                              LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_opa(ui_MaintButton, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  ui_MaintArrow = lv_label_create(ui_MaintCont);
+  lv_obj_set_width(ui_MaintArrow, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_MaintArrow, LV_SIZE_CONTENT);
+  lv_obj_set_x(ui_MaintArrow, 114);
+  lv_obj_set_y(ui_MaintArrow, 0);
+  lv_obj_set_align(ui_MaintArrow, LV_ALIGN_CENTER);
+  lv_label_set_text(ui_MaintArrow, ">");
+  lv_obj_set_style_text_font(ui_MaintArrow, &lv_font_montserrat_30,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  // --- MAINTENANCE OVERLAY (intervalo + ultimo registro) ---
+  // Mismo patron y misma columna x=185 que ui_ModesConfigCont: la lista de
+  // Ajustes se queda visible a la izquierda.
+  ui_MaintConfigCont = lv_obj_create(ui_ScreenSettings);
+  LVGL_INIT_GUARD_CHILD(ui_MaintConfigCont, "ui_MaintConfigCont");
+  lv_obj_remove_style_all(ui_MaintConfigCont);
+  lv_obj_set_width(ui_MaintConfigCont, 770);
+  lv_obj_set_height(ui_MaintConfigCont, 361);
+  lv_obj_set_x(ui_MaintConfigCont, 0);
+  lv_obj_set_y(ui_MaintConfigCont, 20);
+  lv_obj_set_align(ui_MaintConfigCont, LV_ALIGN_CENTER);
+  lv_obj_add_flag(ui_MaintConfigCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_clear_flag(ui_MaintConfigCont,
+                    LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+
+  ui_MaintTitleLabel = lv_label_create(ui_MaintConfigCont);
+  lv_obj_set_width(ui_MaintTitleLabel, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_MaintTitleLabel, LV_SIZE_CONTENT);
+  lv_obj_set_x(ui_MaintTitleLabel, 185);
+  lv_obj_set_y(ui_MaintTitleLabel, -140);
+  lv_obj_set_align(ui_MaintTitleLabel, LV_ALIGN_CENTER);
+  lv_label_set_text(ui_MaintTitleLabel, TR(STR_MAINT_UC));
+  lv_obj_set_style_text_font(ui_MaintTitleLabel, &lv_font_montserrat_24,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  ui_MaintEveryLabel = lv_label_create(ui_MaintConfigCont);
+  lv_obj_set_width(ui_MaintEveryLabel, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_MaintEveryLabel, LV_SIZE_CONTENT);
+  lv_obj_set_x(ui_MaintEveryLabel, 40);
+  lv_obj_set_y(ui_MaintEveryLabel, -70);
+  lv_obj_set_align(ui_MaintEveryLabel, LV_ALIGN_CENTER);
+  lv_label_set_text(ui_MaintEveryLabel, TR(STR_MAINT_REMIND_EVERY));
+  lv_obj_set_style_text_font(ui_MaintEveryLabel, &lv_font_montserrat_18,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  ui_MaintIntervalDropDown = lv_dropdown_create(ui_MaintConfigCont);
+  lv_dropdown_set_options(ui_MaintIntervalDropDown, TR(STR_MAINT_OPTIONS));
+  lv_obj_set_width(ui_MaintIntervalDropDown, 221);
+  lv_obj_set_height(ui_MaintIntervalDropDown, LV_SIZE_CONTENT);
+  lv_obj_set_x(ui_MaintIntervalDropDown, 240);
+  lv_obj_set_y(ui_MaintIntervalDropDown, -70);
+  lv_obj_set_align(ui_MaintIntervalDropDown, LV_ALIGN_CENTER);
+  lv_obj_add_flag(ui_MaintIntervalDropDown, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+
+  ui_MaintLastLabel = lv_label_create(ui_MaintConfigCont);
+  lv_label_set_long_mode(ui_MaintLastLabel, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(ui_MaintLastLabel, 400);
+  lv_obj_set_height(ui_MaintLastLabel, LV_SIZE_CONTENT);
+  lv_obj_set_x(ui_MaintLastLabel, 185);
+  lv_obj_set_y(ui_MaintLastLabel, 0);
+  lv_obj_set_align(ui_MaintLastLabel, LV_ALIGN_CENTER);
+  lv_label_set_text(ui_MaintLastLabel, "");
+  lv_obj_set_style_text_font(ui_MaintLastLabel, &lv_font_montserrat_18,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  ui_MaintDoneButton = lv_btn_create(ui_MaintConfigCont);
+  lv_obj_set_width(ui_MaintDoneButton, 300);
+  lv_obj_set_height(ui_MaintDoneButton, 46);
+  lv_obj_set_x(ui_MaintDoneButton, 185);
+  lv_obj_set_y(ui_MaintDoneButton, 60);
+  lv_obj_set_align(ui_MaintDoneButton, LV_ALIGN_CENTER);
+  lv_obj_clear_flag(ui_MaintDoneButton, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_bg_color(ui_MaintDoneButton, lv_color_hex(0x2E7D32),
+                            LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_radius(ui_MaintDoneButton, 8,
+                          LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  ui_MaintDoneLabel = lv_label_create(ui_MaintDoneButton);
+  lv_label_set_text(ui_MaintDoneLabel, TR(STR_MAINT_DONE_UC));
+  lv_obj_center(ui_MaintDoneLabel);
+
+  ui_MaintHintLabel = lv_label_create(ui_MaintConfigCont);
+  lv_label_set_long_mode(ui_MaintHintLabel, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(ui_MaintHintLabel, 400);
+  lv_obj_set_height(ui_MaintHintLabel, LV_SIZE_CONTENT);
+  lv_obj_set_x(ui_MaintHintLabel, 185);
+  lv_obj_set_y(ui_MaintHintLabel, 130);
+  lv_obj_set_align(ui_MaintHintLabel, LV_ALIGN_CENTER);
+  lv_label_set_text(ui_MaintHintLabel, TR(STR_MAINT_SETTINGS_HINT));
+  lv_obj_set_style_text_font(ui_MaintHintLabel, &lv_font_montserrat_14,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_text_color(ui_MaintHintLabel, lv_color_hex(0x666666),
+                              LV_PART_MAIN | LV_STATE_DEFAULT);
+
   ui_WifiConfigCont = lv_obj_create(ui_ScreenSettings);
   LVGL_INIT_GUARD_CHILD(ui_WifiConfigCont, "ui_WifiConfigCont");
   lv_obj_remove_style_all(ui_WifiConfigCont);
@@ -3284,6 +3452,12 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_add_event_cb(ui_WifiDisconnectButton, ui_event_WifiDisconnectButton,
                       LV_EVENT_ALL, NULL);
   lv_obj_add_event_cb(ui_LanguagesDropDown, ui_event_LanguagesDropDown,
+                      LV_EVENT_ALL, NULL);
+  lv_obj_add_event_cb(ui_MaintButton, ui_event_MaintButton, LV_EVENT_ALL,
+                      NULL);
+  lv_obj_add_event_cb(ui_MaintIntervalDropDown,
+                      ui_event_MaintIntervalDropDown, LV_EVENT_ALL, NULL);
+  lv_obj_add_event_cb(ui_MaintDoneButton, ui_event_MaintDoneButton,
                       LV_EVENT_ALL, NULL);
 
   lv_obj_set_ext_click_area(ui_ImgButton2, TOUCH_EXT_MEDIUM);
@@ -3770,24 +3944,26 @@ void ui_ScreenLock_screen_init(void) {
                              LV_PART_MAIN | LV_STATE_DEFAULT);
 
   // Boton de tendencia de telemetria (TelemetryHistory): abre el overlay sin
-  // desbloquear, mismo criterio que ui_AlarmLockImg/AlarmCenter. Hueco libre
-  // de la pantalla de bloqueo: por debajo de Status/Photo (y<=210 absoluto),
-  // a la derecha de la columna de medidas (x<=300 absoluto), y por encima de
-  // ui_LockPPGChart (BOTTOM_LEFT, y>=370 absoluto) / ui_LockHRCont
-  // (BOTTOM_RIGHT, ambos ocultos salvo con sonda SpO2 aplicada, pero hay que
-  // dejarles el hueco libre para cuando se muestran).
+  // desbloquear, mismo criterio que ui_AlarmLockImg/AlarmCenter. Reactivado
+  // (ver 3215bc2, que lo oculto porque no se notaba que era pulsable) con
+  // el mismo azul de ui_BabiesButton para que se lea como boton de verdad.
+  // Posicion: pegado a la derecha de la columna de medidas (x<=300
+  // absoluto) sin invadirla, por debajo de Status/Photo (y<=210 absoluto) y
+  // por encima de ui_LockPPGChart (BOTTOM_LEFT, y>=370 absoluto) /
+  // ui_LockHRCont (BOTTOM_RIGHT, ambos ocultos salvo con sonda SpO2
+  // aplicada, pero hay que dejarles el hueco libre para cuando se muestran).
   ui_ChartLockCont = lv_obj_create(ui_ScreenLock);
   lv_obj_remove_style_all(ui_ChartLockCont);
   lv_obj_set_width(ui_ChartLockCont, 100);
   lv_obj_set_height(ui_ChartLockCont, 100);
-  lv_obj_set_x(ui_ChartLockCont, 180);
+  lv_obj_set_x(ui_ChartLockCont, -20);
   lv_obj_set_y(ui_ChartLockCont, 70);
   lv_obj_set_align(ui_ChartLockCont, LV_ALIGN_CENTER);
   lv_obj_clear_flag(ui_ChartLockCont, LV_OBJ_FLAG_SCROLLABLE);
-  // Oculto de momento: la tendencia sigue construida y accesible por
-  // TelemetryHistory_Open(), solo se retira el acceso desde el bloqueo.
-  // HIDDEN tambien lo saca del hit-test, asi que no deja zona muerta.
-  lv_obj_add_flag(ui_ChartLockCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_set_style_bg_color(ui_ChartLockCont, lv_color_hex(0x0075EE),
+                            LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(ui_ChartLockCont, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_radius(ui_ChartLockCont, 8, LV_PART_MAIN);
 
   ui_ChartLockImg = lv_imgbtn_create(ui_ChartLockCont);
   lv_imgbtn_set_src(ui_ChartLockImg, LV_IMGBTN_STATE_RELEASED, NULL,
@@ -3796,6 +3972,12 @@ void ui_ScreenLock_screen_init(void) {
   lv_obj_set_height(ui_ChartLockImg, 48);
   lv_obj_set_y(ui_ChartLockImg, -12);
   lv_obj_set_align(ui_ChartLockImg, LV_ALIGN_CENTER);
+  // Blanco sobre el azul del boton, igual que el texto de ui_BabiesButton:
+  // el icono trae sus propios colores pensados para fondo claro.
+  lv_obj_set_style_img_recolor(ui_ChartLockImg, lv_color_hex(0xFFFFFF),
+                                LV_PART_MAIN);
+  lv_obj_set_style_img_recolor_opa(ui_ChartLockImg, LV_OPA_COVER,
+                                    LV_PART_MAIN);
 
   ui_ChartLockLabel = lv_label_create(ui_ChartLockCont);
   lv_obj_set_width(ui_ChartLockLabel, LV_SIZE_CONTENT);

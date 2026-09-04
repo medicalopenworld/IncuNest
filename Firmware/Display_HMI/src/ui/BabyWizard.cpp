@@ -754,6 +754,8 @@ void BabyWizard_OpenForHumidity() { openForTarget(WizTarget::Humidity); }
 
 bool BabyWizard_HasUsableRange() { return s_hasUsableRange; }
 
+bool BabyWizard_IsOpen() { return s_step != WizStep::Closed; }
+
 uint32_t BabyWizard_GetActiveSeq() { return s_sessionSeq; }
 bool BabyWizard_HasLiveSession() {
   return s_sessionSeq != 0 && UI_AnyControlActive();

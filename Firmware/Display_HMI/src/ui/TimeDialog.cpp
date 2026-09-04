@@ -279,6 +279,8 @@ void TimeDialog_Open(void) {
   lv_obj_move_foreground(s_overlay);
 }
 
+bool TimeDialog_IsOpen(void) { return s_open; }
+
 void TimeDialog_Poll(void) {
   // Una alarma critica se lleva la pantalla por delante, igual que hace
   // BabyWizard_Poll() con su wizard.

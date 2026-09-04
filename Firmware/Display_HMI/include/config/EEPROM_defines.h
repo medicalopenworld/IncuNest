@@ -22,6 +22,13 @@ constexpr char HMI_KEY_HUM_EN[]      = "hum_en";
 constexpr char HMI_KEY_SKIN_EN[]     = "skin_en";
 constexpr char HMI_KEY_VOLUME[]      = "volume";
 constexpr char HMI_KEY_DISP_FREQ[]   = "disp_freq";
+// Recordatorio de mantenimiento (modules/maintenance). Las cuatro son epoch
+// UTC o dias, nunca hora local: la zona puede cambiar y el plazo no debe
+// moverse con ella.
+constexpr char HMI_KEY_MNT_LAST[]    = "mnt_last";    // epoch del ultimo hecho
+constexpr char HMI_KEY_MNT_DAYS[]    = "mnt_days";    // intervalo, 0 = apagado
+constexpr char HMI_KEY_MNT_SNOOZE[]  = "mnt_snooze";  // epoch fin del "mas tarde"
+constexpr char HMI_KEY_MNT_SEQ[]     = "mnt_seq";     // ultimo bebe ya avisado
 
 // --------------- Keys: hmi_wifi ---------------
 constexpr char HMI_KEY_SSID[]     = "ssid";

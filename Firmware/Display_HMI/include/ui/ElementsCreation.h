@@ -290,6 +290,21 @@ extern lv_obj_t * ui_HumidityModeCont;
 extern lv_obj_t * ui_PanelHumidityMode;
 extern lv_obj_t * ui_HumidityModeLabel;
 extern lv_obj_t * ui_SwitchHumidityMode;
+// Fila MANTENIMIENTO de Ajustes y su panel: cada cuanto recordar la limpieza,
+// cuando se registro la ultima y un boton para registrarla a mano.
+extern lv_obj_t * ui_MaintCont;
+extern lv_obj_t * ui_MaintPanel;
+extern lv_obj_t * ui_MaintLabel;
+extern lv_obj_t * ui_MaintButton;
+extern lv_obj_t * ui_MaintArrow;
+extern lv_obj_t * ui_MaintConfigCont;
+extern lv_obj_t * ui_MaintTitleLabel;
+extern lv_obj_t * ui_MaintEveryLabel;
+extern lv_obj_t * ui_MaintIntervalDropDown;
+extern lv_obj_t * ui_MaintLastLabel;
+extern lv_obj_t * ui_MaintHintLabel;
+extern lv_obj_t * ui_MaintDoneButton;
+extern lv_obj_t * ui_MaintDoneLabel;
 extern lv_obj_t * ui_InfoCont;
 extern lv_obj_t * ui_InfoPanel;
 extern lv_obj_t * ui_InfoLabel;
