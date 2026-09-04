@@ -46,7 +46,25 @@ Unlike basic thermal parameters, Phototherapy adds a temporal dimension (Countdo
 
 ## 5. Language
 
-The HMI loads and manages logical bidimensional arrays pointing the LCD strings dependent on variables. The baseboard also needs to know which language the user is reading in order to re-send the batch of alarm strings. Both converge through the initial UART packet sent from the display.
+Every visible string lives in a single catalogue, `ui/i18n_strings.def`, one
+`UI_STR(id, es, en, fr, pt)` line per text. The file is expanded twice with
+the same macro (X-macro): once in `ui/i18n.h` for the `ui_str_id_t` enum, once
+in `ui/i18n.cpp` for the table — so id and row can never drift apart. Call
+sites read `TR(STR_X)` for the active language (`g_lang`) or
+`UI_StrIn(id, lang)` when the language arrives as a parameter, as in
+`UI_ApplyLanguage()`. Adding a language is one extra column in the `.def` plus
+one entry in `ui_lang_t`; no call site changes. Four are shipped: Spanish,
+English, French and Portuguese (pt-PT), with English as the fallback when a
+cell is empty.
+
+The bundled LVGL Montserrat fonts only carry ASCII 32-126, so every
+translation is written **without accents** and a `static_assert` in
+`i18n.cpp` turns any non-ASCII cell into a compile error rather than an empty
+box on screen.
+
+The baseboard also needs to know which language the user is reading in order
+to re-send the batch of alarm strings. Both converge through the initial UART
+packet sent from the display.
 
 ## 6. Help
 
@@ -96,6 +114,7 @@ forgotten help view must never block the way to it). Any active alarm
 (`Display_IsBoardLinkLost()`) closes both and returns to `ui_ScreenMain` —
 the same yield rule as `TelemetryHistory`. The tour overlay is created
 before the alarm banner and the AUDIO PAUSED icon in `lv_layer_top()` and is
-never raised above them. Every text is available in ES/EN/FR (`g_lang`). The
-debug report contains no patient data (no baby name or profile, no SSID,
-password or token).
+never raised above them. Every text comes from the catalogue in the four
+shipped languages (§5). The debug report contains no patient data (no baby
+name or profile, no SSID, password or token).
+
