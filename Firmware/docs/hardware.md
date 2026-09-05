@@ -90,14 +90,21 @@ control or phototherapy is active.
 
 | Area | Tests | Evidence |
 |---|---|---|
-| Power | INA3221 ×2 presence, standby current, BQ25730 readings, mains/battery | I2C ACK, `HW_error` bits, `charge_status()` |
-| On-board sensors | ADS1110 + skin NTC, external SHT4x | I2C ACK, plausible ranges, `skinProbeLastReading()` |
-| Cabin sensor | fresh, valid cabin temperature by either path: SensorBoard over USB (`usb`) or STS35/SHTC3 over I2C2 (`i2c`) | `sensorSourceGet()`, `sensorboard_comm` snapshot, `updateRoomSensor()`. A false ACK from the I2C2 probe on the USB lines shows up as `i2c sin datos` |
-| SensorBoard (USB) | `status` availability of sht0/1/2, ALS, Hall, camera; 3×SHT40 coherence (≤ 1.0 °C spread, ≤ 3.0 °C vs external); door open/close; light drop; JPEG capture | `sensorboard_comm` snapshot and `status`/`capture` requests; skipped (hidden) when the cabin sensor came over I2C2 |
-| Actuators | heater, phototherapy, fan currents; fan RPM; humidifier USB switch (`USB_EN`/`USB_FAULT`, current) | `actuatorsTest()`, INA3221 channels |
+| Power | INA3221 ×2 presence, standby current, BQ25730 answering (cached `g_bq_status_valid`, with or without mains), mains/battery | presence flags, `HW_error` bits, state refreshed by `PowerManagement_Task` |
+| Skin probe | ADS1110 + skin NTC | `skinProbeLastReading()` and the freshness stamp kept by `sensors_Task` |
+| Ambient sensor | one fresh, valid reading by **any** of the three paths: SensorBoard over USB (`usb`), STS35/SHTC3 over I2C2 (`i2c`) or external SHT4x (`sht4x`). A unit carries a SensorBoard **or** an SHT4x, never both | `sensorSourceGet()`, `sensorboard_comm` snapshot, `in3.temperature[]` + freshness stamps |
+| SensorBoard (USB) | `status` availability of sht0/1/2, ALS, Hall, camera; 3×SHT40 coherence (≤ 1.0 °C spread; ≤ 3.0 °C vs external only if an SHT4x exists); door open/close; light drop; JPEG capture | `sensorboard_comm` snapshot and `status`/`capture` requests; skipped (hidden) when the ambient reading did not come over USB |
+| Actuators | heater, phototherapy, fan currents; fan RPM. The humidifier USB switch test is **omitted for now** (SKIP) until the jig can measure the humidifier | `actuatorsTest()`, INA3221 channels |
 | Buzzer | dBA rise measured by the SensorBoard microphone; operator confirmation if no microphone | `sound_level` events |
 | SpO2 | AFE4490 timing registers read back over SPI; probe attached (optional) | `getTimingConfig()`, `runAfeDiagnostics()`, `probe_state` |
-| Communications | HMI link; GSM modem answering AT, SIM `+CPIN: READY`, CSQ, network attach; WiFi to the default AP; ThingsBoard session with provisioned token; wall clock | state already collected by `GPRS_Task` and the WiFi task, read passively. Attach, WiFi, ThingsBoard and clock end as **WARNING** (amber, not a board fault) after 30 s without environment |
+| Communications | HMI link; GSM modem answering AT, SIM `+CPIN: READY`, CSQ, network attach; WiFi to the default AP; ThingsBoard session with provisioned token; wall clock | state already collected by `GPRS_Task` and the WiFi task, read passively. Only "modem answers" and "SIM ready" can fail; signal, attach, WiFi, ThingsBoard and clock end as **WARNING** (amber, not a board fault) when the environment is missing |
+
+Two rules came out of the bench: **test bodies issue no I2C of their own**
+(the motherBoard has no bus mutex and `sensors_Task` / `PowerManagement_Task`
+own the bus; the only exceptions are `actuatorsTest()` and
+`testStandByCurrent()`), and **every test has a cooperative 90 s timeout**
+(FAIL `timeout`, battery continues); a body blocked in a non-cooperative call
+is only covered by the task WDT.
 | Storage | NVS write/read, LittleFS mount | `Preferences`, `LittleFS.begin()` |
 
 Deliberately **not** tested: the TCA9535 expander and the rotary encoder
