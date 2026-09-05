@@ -26,13 +26,14 @@ typedef enum {
   FTEST_MB_CHARGER,
   FTEST_MB_POWER_SRC,
   FTEST_MB_SKIN_ADC,
-  FTEST_MB_EXT_SHT4X,
-  // Sensor de cabina por CUALQUIERA de los dos caminos: SHT40 del SensorBoard
-  // por USB o STS35/SHTC3 por I2C2 (equipo antiguo). Antes eran dos tests
-  // ("origen" + "enlace") y en banco daban FAIL con un SensorBoard conectado
-  // porque el sondeo I2C2 sobre las lineas USB devolvia un ACK falso; lo que
-  // importa en fabrica es que la cabina tenga sensor, no por que bus llega.
-  FTEST_MB_SENSORBOARD,
+  // Sensor ambiental por CUALQUIERA de los tres caminos que existen segun la
+  // generacion: SHT40 del SensorBoard por USB, STS35/SHTC3 por I2C2 (equipo
+  // antiguo) o SHT4x exterior en I2C1. Un equipo lleva SensorBoard O sensor
+  // ambiental, no ambos; con uno que lea bien el test PASA. Antes eran tres
+  // tests ("origen", "enlace", "exterior") y en banco daban FAIL con hardware
+  // sano: ACK falso del sondeo I2C2 sobre las lineas USB, y SHT4x ausente en
+  // las unidades con SensorBoard.
+  FTEST_MB_ENV_SENSOR,
   FTEST_MB_SB_STATUS,
   FTEST_MB_SB_ENV,
   FTEST_MB_SB_DOOR,
@@ -54,7 +55,7 @@ typedef enum {
   FTEST_MB_TIME,
   FTEST_MB_NVS,
   FTEST_MB_LITTLEFS,
-  FTEST_MB_COUNT, // = 29
+  FTEST_MB_COUNT, // = 28
   FTEST_HMI_BASE = 64,
   FTEST_HMI_SYSINFO = FTEST_HMI_BASE,
   FTEST_HMI_I2C,

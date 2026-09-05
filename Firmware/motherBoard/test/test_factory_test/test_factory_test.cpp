@@ -30,7 +30,7 @@ void test_table_ranges_and_optional_flags(void) {
   TEST_ASSERT_TRUE(ftest_id_is_optional(FTEST_MB_AFE_PROBE));
 
   TEST_ASSERT_FALSE(ftest_id_is_optional(FTEST_MB_ACTUATORS));
-  TEST_ASSERT_FALSE(ftest_id_is_optional(FTEST_MB_SENSORBOARD));
+  TEST_ASSERT_FALSE(ftest_id_is_optional(FTEST_MB_ENV_SENSOR));
 }
 
 void test_table_keys_are_short_and_present(void) {
@@ -59,11 +59,12 @@ void test_id_out_of_table(void) {
   TEST_ASSERT_EQUAL_STRING("?", ftest_id_key(200));
 }
 
-// El test de cabina fusionado (design.md, sensorboard_hw2) sustituye a
-// sensor_src (7) + sb_link (8): una sola clave "sensorboard" en el id 7.
-void test_sensorboard_key(void) {
-  TEST_ASSERT_EQUAL_STRING("sensorboard", ftest_id_key(FTEST_MB_SENSORBOARD));
-  TEST_ASSERT_EQUAL_UINT(7, FTEST_MB_SENSORBOARD);
+// El test de sensor ambiental fusionado (design.md, bench2) sustituye a
+// ext_sht4x (6) + sensorboard (7): una sola clave "env_sensor" en el id 6
+// que cubre los tres caminos (USB, I2C2, SHT4x exterior).
+void test_env_sensor_key(void) {
+  TEST_ASSERT_EQUAL_STRING("env_sensor", ftest_id_key(FTEST_MB_ENV_SENSOR));
+  TEST_ASSERT_EQUAL_UINT(6, FTEST_MB_ENV_SENSOR);
 }
 
 // ---------------------------------------------------------------------------
@@ -74,7 +75,7 @@ void test_format_result_basic(void) {
   char buf[FTEST_TX_LINE_MAX];
   const int written = ftest_format_result(buf, sizeof(buf), FTEST_MB_SB_ENV,
                                            FTEST_PASS, "36.1/36.2/36.0");
-  TEST_ASSERT_EQUAL_STRING("CTRL,FTEST,9,1,36.1/36.2/36.0\n", buf);
+  TEST_ASSERT_EQUAL_STRING("CTRL,FTEST,8,1,36.1/36.2/36.0\n", buf);
   TEST_ASSERT_EQUAL_INT((int)strlen(buf), written);
 }
 
@@ -93,7 +94,7 @@ void test_format_result_sanitizes_and_truncates_detail(void) {
                                            FTEST_FAIL, longDetail);
   TEST_ASSERT_TRUE(written > 0);
   TEST_ASSERT_TRUE(strlen(buf) <= FTEST_TX_LINE_MAX);
-  TEST_ASSERT_EQUAL_INT(0, strncmp(buf, "CTRL,FTEST,16,2,", 16));
+  TEST_ASSERT_EQUAL_INT(0, strncmp(buf, "CTRL,FTEST,15,2,", 16));
 
   // El campo detail no debe contener comas (las originales se sanearon).
   const char *detailStart = strrchr(buf, ',') + 1;
@@ -157,13 +158,13 @@ void test_format_and_parse_result_warn_status(void) {
   char buf[FTEST_TX_LINE_MAX];
   const int written = ftest_format_result(buf, sizeof(buf), FTEST_MB_WIFI,
                                            FTEST_WARN, "sin AP");
-  TEST_ASSERT_EQUAL_STRING("CTRL,FTEST,24,6,sin AP\n", buf);
+  TEST_ASSERT_EQUAL_STRING("CTRL,FTEST,23,6,sin AP\n", buf);
   TEST_ASSERT_EQUAL_INT((int)strlen(buf), written);
 
   FtestResult out;
   memset(&out, 0, sizeof(out));
-  TEST_ASSERT_TRUE(ftest_parse_result("24,6,sin AP\n", &out));
-  TEST_ASSERT_EQUAL_UINT8(24, out.id);
+  TEST_ASSERT_TRUE(ftest_parse_result("23,6,sin AP\n", &out));
+  TEST_ASSERT_EQUAL_UINT8(23, out.id);
   TEST_ASSERT_EQUAL(FTEST_WARN, out.status);
   TEST_ASSERT_EQUAL_STRING("sin AP", out.detail);
 }
@@ -442,7 +443,7 @@ int main(void) {
   RUN_TEST(test_table_ranges_and_optional_flags);
   RUN_TEST(test_table_keys_are_short_and_present);
   RUN_TEST(test_id_out_of_table);
-  RUN_TEST(test_sensorboard_key);
+  RUN_TEST(test_env_sensor_key);
 
   RUN_TEST(test_format_result_basic);
   RUN_TEST(test_format_result_sanitizes_and_truncates_detail);

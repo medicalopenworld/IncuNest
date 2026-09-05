@@ -12,7 +12,7 @@ namespace {
 // si alguien toca el enum sin tocar aqui.
 const char *const kMbKeys[] = {
     "sysinfo",  "ina3221",   "standby",     "charger",    "power_src",
-    "skin_adc", "ext_sht4x", "sensorboard", "sb_status",  "sb_env",
+    "skin_adc", "env_sensor", "sb_status",  "sb_env",
     "sb_door",  "sb_light",  "sb_camera",   "actuators",  "fan_rpm",
     "humid_usb", "buzzer",   "afe_spi",     "afe_probe",  "hmi_link",
     "gsm_at",   "gsm_sim",   "gsm_signal",  "gsm_net",    "wifi",
