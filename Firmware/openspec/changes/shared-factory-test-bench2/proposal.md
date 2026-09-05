@@ -8,7 +8,7 @@ Lo que se vio:
 
 - `charger` se quedaba en "en curso". La tarea FTEST llamaba a
   `charge_status()` (varias transacciones I2C encadenadas) mientras
-  `PowerManagement_Task` y `sensors_Task` usan el mismo `Wire` sin ningún
+  `sensors_Task` (que también refresca el BQ25730 cada 5 s) usan el mismo `Wire` sin ningún
   mutex de bus: las transacciones se entrelazan. El mismo riesgo afectaba a
   `skin_adc` y a la comparación con el exterior de `sb_env`.
 - `ext_sht4x` daba FAIL porque la unidad no lleva SHT4x: el hardware monta
@@ -32,7 +32,7 @@ Lo que se vio:
 - **Regla nueva: los tests de la MB no hacen I2C directo** salvo dentro de
   `actuatorsTest()` / `testStandByCurrent()`. `charger`, `skin_adc`,
   `ina3221`, `env_sensor` y `sb_env` leen el estado que ya mantienen
-  `PowerManagement_Task` y `sensors_Task` (`g_bq_status_valid`,
+  `sensors_Task` (que también refresca el BQ25730 cada 5 s) (`g_bq_status_valid`,
   `lastSuccesfullSensorUpdate[]`, `in3.temperature[]`, flags de presencia).
   `charger` PASA si el BQ25730 responde, con o sin alimentación externa.
 - `humid_usb` devuelve SKIP `omitido` sin tocar `USB_EN`. `gsm_signal` termina

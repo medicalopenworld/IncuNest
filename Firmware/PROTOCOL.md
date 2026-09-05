@@ -10,8 +10,8 @@
 > que en v2.3.1: ninguna placa en campo lleva todavía la versión anterior de
 > `FTEST`, es la propia prueba en banco la que encontró los problemas. Además:
 > no hay mutex de bus I2C en la motherBoard, así que **ningún test hace ya
-> I2C directo** (leen el estado que ya mantienen `sensors_Task`/
-> `PowerManagement_Task`; únicas excepciones `actuators`/`standby`, que
+> I2C directo** (leen, con sello de frescura, el estado que ya mantiene
+> `sensors_Task`; únicas excepciones `actuators`/`standby`, que
 > reusan `actuatorsTest()`/`testStandByCurrent()` sin tocar); `charger` pasó
 > de RUNNING infinito con la placa a batería a esperar hasta 12 s el estado
 > cacheado del BQ25730; `humid_usb` se omite por ahora (`SKIP`, detail
@@ -527,7 +527,7 @@ ningún test de la tabla hace ya I2C directo salvo `actuators`/`standby`
 | 0 | sysinfo | flash, heap libre, reset reason, MAC | |
 | 1 | ina3221 | ambos INA3221 presentes (0x40/0x41), solo flags cacheados | |
 | 2 | standby | `testStandByCurrent()` sin bits nuevos en `HW_error` | |
-| 3 | charger | el BQ25730 responde (estado cacheado por `PowerManagement_Task`, ≤ 12 s); VBAT/VSYS y red/batería en detail, sin exigir VBUS ni carga activa | |
+| 3 | charger | el BQ25730 responde (estado cacheado por `sensors_Task`, ≤ 12 s); VBAT/VSYS y red/batería en detail, sin exigir VBUS ni carga activa | |
 | 4 | power_src | red o batería (informativo) | |
 | 5 | skin_adc | NTC en rango con lectura de `sensors_Task` reciente (≤ 5 s) o `sin sonda` | |
 | 6 | env_sensor | sensor ambiental por CUALQUIERA de los tres caminos (un equipo lleva SensorBoard O sensor ambiental, no ambos): SHT40 de la SensorBoard por USB (detail `usb`), STS35/SHTC3 por I2C2 (equipo antiguo, detail `i2c`) o SHT4x exterior por I2C1 (detail `sht4x`); FAIL `sin sensor ambiental` a los 10 s | |
@@ -567,8 +567,8 @@ corrido antes el 6), salen `SKIP` con detail `sin usb`.
 
 **Ningún test hace ya I2C directo** (banco 2026-09-06): no hay mutex de bus
 I2C en la motherBoard, así que una transacción I2C lanzada desde el cuerpo de
-un test se entrelaza con las de `sensors_Task` (cada 1 ms) y
-`PowerManagement_Task` (cada 5 s), y puede ver un ACK falso o quedarse
+un test se entrelaza con las de `sensors_Task` (bucle de 1 ms, con el
+refresco del BQ25730 cada 5 s), y puede ver un ACK falso o quedarse
 esperando una respuesta que nunca llega — es lo que dejaba `charger` en
 RUNNING para siempre con la placa a batería, y lo que hacía FALLAR
 `skin_adc`/`ext_sht4x`/el antiguo sondeo de generación de `sensorboard` con

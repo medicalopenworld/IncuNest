@@ -4,7 +4,7 @@ Tercera vuelta tras el banco del 2026-09-06 (ver `proposal.md`). El hallazgo
 estructural es que **la motherBoard no tiene mutex de bus I2C**: `Wire`
 serializa cada `beginTransmission/endTransmission` o `requestFrom`, pero no
 una secuencia "escribir registro, leer respuesta". `sensors_Task` corre cada
-1 ms y `PowerManagement_Task` cada 5 s sobre el mismo bus; una tarea nueva
+1 ms (y dentro de ella el BQ25730 cada 5 s) sobre el mismo bus; una tarea nueva
 que lea el BQ25730 o el ADS1110 por su cuenta se entrelaza con ellas. En el
 autotest de arranque esto no pasaba porque no existía ninguna tarea todavía.
 
@@ -16,15 +16,15 @@ de producción; que el test ambiental refleje la topología real (SensorBoard
 operario vea el progreso y un veredicto único.
 
 **Non-Goals**: añadir un mutex de I2C a la motherBoard (cambio transversal a
-`sensors_Task`, `PowerManagement_Task`, `initHardware`; rama propia); tests
+`sensors_Task`, `initHardware`; rama propia); tests
 de humidificador y de audio del display (vuelven cuando el jig pueda medirlos).
 
 ## Decisions
 
 ### D1. Los tests leen estado cacheado, no el bus
 
-`charger` espera `g_bq_status_valid` (lo refresca `PowerManagement_Task` cada
-5 s; plazo 12 s); `skin_adc` usa `skinProbeLastReading()` y
+`charger` espera `g_bq_status_valid` con sello `g_bq_status_ms` de menos de
+12 s (lo refresca `sensors_Task` cada 5 s; plazo 12 s); `skin_adc` usa `skinProbeLastReading()` y
 `lastSuccesfullSensorUpdate[SKIN_SENSOR]`; `ina3221` usa los flags de
 presencia; `env_sensor` y `sb_env` usan `in3.temperature[]` y los sellos de
 frescura. Las únicas excepciones son `testStandByCurrent()` y

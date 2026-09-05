@@ -38,14 +38,14 @@ comparar con el exterior solo si hay SHT4x con lectura fresca.
 
 Ningún cuerpo de test SHALL emitir transacciones I2C propias, salvo dentro de
 `actuatorsTest()` y `testStandByCurrent()`. `CHARGER` SHALL esperar ≤ 12 s a
-`g_bq_status_valid` (que refresca `PowerManagement_Task` cada 5 s) y dar PASS
+`g_bq_status_valid` (que refresca `sensors_Task` cada 5 s) y dar PASS
 si el BQ25730 respondió, con o sin alimentación externa, informando VBAT, VSYS
 y `ac`/`bat` en `detail`; si no, FAIL `sin respuesta`. `SKIN_ADC` SHALL usar
 `skinProbeLastReading()` y el sello `lastSuccesfullSensorUpdate[SKIN_SENSOR]`;
 `INA3221` SHALL usar los flags de presencia.
 
 #### Scenario: Placa alimentada solo con batería
-- **WHEN** no hay VBUS y `PowerManagement_Task` refresca `g_bq_status`
+- **WHEN** no hay VBUS y `sensors_Task` refresca `g_bq_status`
 - **THEN** `CHARGER` da PASS con `detail` que termina en `bat` en menos de 12 s
   y nunca se queda en RUNNING
 - *(Verificación manual en banco.)*
