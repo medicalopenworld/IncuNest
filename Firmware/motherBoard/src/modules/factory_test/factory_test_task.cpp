@@ -18,7 +18,7 @@
 //     currentMonitor()) no recalcula ni escribe PHOTOTHERAPY_PWM_CHANNEL.
 //   - buzzerHandler() (Buzzer.cpp, confirmacion sonora de comandos HMI) no
 //     escribe BUZZER_PWM_CHANNEL; el unico dueno del zumbador es el cuerpo
-//     del test BUZZER (id 17), que lo usa directamente.
+//     del test BUZZER (id 15), que lo usa directamente.
 // Cotas duras de la tarea FTEST (comprobadas en `ftest_abort_requested()`,
 // compuesta, evaluada en cada punto de comprobacion, nunca una sola vez):
 //   - ABORT explicito del operario (`s_abortRequested`).
@@ -33,6 +33,20 @@
 // SKIP (el motivo exacto va en el detail y en un logE), `restore()` corre
 // SIEMPRE al final (nunca hay un `return` que se lo salte) y `CTRL,FTEST_DONE`
 // se emite igual que en una bateria completa.
+//
+// ---- Cota por test (distinta de las cuatro de arriba) ----
+// `FTEST_TEST_TIMEOUT_MS` (90 s, factory_test_api.h) es POR TEST, no de toda
+// la bateria: `run_one()` refresca `s_testStartMs` al arrancar cada cuerpo, y
+// si `compute_abort_reason()` devuelve "timeout" el resultado es FAIL, no
+// SKIP, y la bateria CONTINUA con el siguiente test (el proximo `run_one()`
+// arranca con cota fresca). Se apoya en `ftest_abort_requested()`, ya
+// consultada en todos los bucles de <= 250 ms de factory_test_hw.cpp, asi que
+// ningun cuerpo necesita tocarse para quedar cubierto. Un cuerpo bloqueado en
+// una llamada I2C/USB NO cooperativa (sin bucle de sondeo) no lo detecta
+// esta cota -- solo lo cubre el Task WDT global (75 s, `watchdogInit()`),
+// que reinicia la placa; es exactamente el motivo por el que ningun cuerpo
+// de este modulo hace I2C directo salvo dentro de
+// `actuatorsTest()`/`testStandByCurrent()` (factory_test_hw.cpp).
 // La tarea se suscribe al Task WDT (`esp_task_wdt_add`) al entrar y se
 // desuscribe (`esp_task_wdt_delete`) antes de `vTaskDelete`; se alimenta en
 // cada iteracion del bucle de tests y en cada paso de <= 250 ms de todos los
@@ -93,6 +107,10 @@ static bool s_paramsSingle = false;
 static unsigned s_paramsSingleId = 0;
 static bool s_prevAlarmsEnabled = true;
 static uint32_t s_batteryStartMs = 0;
+// Cota por test (FTEST_TEST_TIMEOUT_MS, factory_test_api.h): run_one() la
+// refresca al arrancar CADA cuerpo, no solo al arrancar la bateria -- a
+// diferencia de s_batteryStartMs, que cubre toda la bateria y persiste.
+static uint32_t s_testStartMs = 0;
 // Evita repetir el mismo logE en cada poll de ftest_abort_requested() (hasta
 // varias veces por segundo mientras un cuerpo de test espera): se loguea una
 // sola vez por bateria, en el primer poll que detecta el motivo.
@@ -140,6 +158,16 @@ static const char *compute_abort_reason(void) {
   // vigilando la pantalla no hay quien confirme CONFIRM ni quien detenga un
   // ABORT manual si algo va mal.
   if (!CommunicationHost_HmiAlive(FTEST_HMI_DEADMAN_MS)) return "hmi lost";
+  // Cota POR TEST (bloqueante nuevo, "cota cooperativa por test"): distinta
+  // de la cota de bateria de abajo. run_one() refresca s_testStartMs al
+  // arrancar cada cuerpo, asi que esto solo dispara si ESE cuerpo concreto
+  // lleva mas de FTEST_TEST_TIMEOUT_MS corriendo -- run_one() traduce este
+  // motivo especifico a FAIL/"timeout" (no SKIP) y NO detiene el resto de la
+  // bateria, a diferencia de los motivos de arriba y de abajo.
+  if (s_testStartMs != 0 &&
+      (uint32_t)(millis() - s_testStartMs) > FTEST_TEST_TIMEOUT_MS) {
+    return "timeout";
+  }
   // Cota temporal dura de toda la bateria.
   if (s_batteryStartMs != 0 &&
       (uint32_t)(millis() - s_batteryStartMs) > FTEST_BATTERY_MAX_MS) {
@@ -311,15 +339,29 @@ static void persist_single(unsigned id, FtestStatus st) {
 // no cooperativos como ACTUATORS, que bloquean 11-16 s sin comprobar el
 // flag), fuerza el resultado a SKIP/"abort" -- design.md D5 y el escenario
 // "Abort a mitad del test de actuadores" de mb-factory-test.
+//
+// Cota por test (FTEST_TEST_TIMEOUT_MS): s_testStartMs se refresca AQUI, al
+// arrancar cada cuerpo, asi que el proximo test siempre arranca con cota
+// fresca aunque el anterior la haya agotado. Si compute_abort_reason()
+// devuelve "timeout" (via ftest_abort_requested(), ya consultada en todos
+// los bucles de espera de <= 250 ms de los cuerpos), NO se trata como el
+// resto de motivos de ABORT: se traduce a FAIL/"timeout", y la bateria
+// continua con el siguiente test.
 static FtestStatus run_one(unsigned id, char detail[FTEST_DETAIL_MAX + 1],
                            FtestCascade *cascade) {
+  s_testStartMs = millis();
   if (ftest_abort_requested()) {
     snprintf(detail, FTEST_DETAIL_MAX + 1, "%s", ftest_abort_reason());
     return FTEST_SKIP;
   }
   const FtestStatus st = ftest_hw_run(id, detail, cascade);
   if (ftest_abort_requested()) {
-    snprintf(detail, FTEST_DETAIL_MAX + 1, "%s", ftest_abort_reason());
+    const char *reason = ftest_abort_reason();
+    if (strcmp(reason, "timeout") == 0) {
+      snprintf(detail, FTEST_DETAIL_MAX + 1, "timeout");
+      return FTEST_FAIL;
+    }
+    snprintf(detail, FTEST_DETAIL_MAX + 1, "%s", reason);
     return FTEST_SKIP;
   }
   return st;

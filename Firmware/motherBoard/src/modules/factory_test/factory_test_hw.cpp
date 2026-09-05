@@ -1,7 +1,25 @@
-// Cuerpos de los 29 tests de la motherBoard (design.md D10, mb-factory-test).
+// Cuerpos de los 28 tests de la motherBoard (design.md D10, mb-factory-test).
 // Una funcion estatica por id, tabla {id, fn} al final, ftest_hw_run() como
 // unico punto de entrada. Fail-safe por diseno: ninguna lectura invalida
 // levanta una excepcion, siempre se traduce a FAIL con detail.
+//
+// ---- Regla: FTEST no hace I2C directo (banco 2026-09-06, tercera ronda) ----
+// No hay mutex de bus I2C en la motherBoard: las transacciones multi-paso de
+// un dispositivo (p.ej. charge_status() sobre el BQ25730) se entrelazan con
+// las de PowerManagement_Task (main.cpp, cada 5 s) y sensors_Task (cada 1
+// ms), que usan el mismo `Wire`. Un cuerpo de test que llame directamente a
+// esas funciones puede ver un ACK falso o quedarse esperando una respuesta
+// que nunca llega -- exactamente lo que le pasaba a CHARGER con la placa a
+// bateria (se quedaba en RUNNING para siempre) y lo que hacia FALLAR
+// SKIN_ADC/EXT_SHT4X/el sondeo de generacion de SENSORBOARD con hardware
+// sano. La regla: los cuerpos de esta bateria leen el estado que YA
+// mantienen las tareas duenas del bus (sensors_Task, PowerManagement_Task),
+// nunca hacen su propia transaccion I2C. Las UNICAS excepciones son
+// `actuatorsTest()` y `testStandByCurrent()` (ya eran asi antes de esta
+// ronda y funcionaron en banco -- no se tocan). Un cuerpo bloqueado dentro de
+// una de esas dos llamadas no cooperativas no lo cubre la cota por test
+// (FTEST_TEST_TIMEOUT_MS, factory_test_task.cpp): solo lo cubre el Task WDT
+// global (75 s, watchdogInit()), que reinicia la placa.
 //
 // Sin entorno de test (hardware real, USB, I2C, PWM): verificacion manual en
 // banco documentada en el commit de este cambio.
@@ -23,7 +41,6 @@
 #include "system/hw_selftest.h"
 
 extern IncuNest_parameters in3;
-extern TwoWire *wire;
 extern bool ambientSensorPresent;
 extern bool digitalCurrentSensorPresent[2];
 extern uint32_t g_lastHmiLineMs;
@@ -32,11 +49,11 @@ extern long lastSuccesfullSensorUpdate[SENSOR_TEMP_QTY];
 
 #define D(...) snprintf(detail, FTEST_DETAIL_MAX + 1, __VA_ARGS__)
 
-// Los unicos bits que ACTUATORS (id 14) debe mirar en HW_error: calefactor,
+// Los unicos bits que ACTUATORS (id 12) debe mirar en HW_error: calefactor,
 // fototerapia y ventilador (mb-factory-test, "Tests de actuadores y
 // humidificador reutilizan el autotest"). El bit de humidificador que
-// actuatorsTest() tambien puede levantar internamente NO cuenta aqui -- lo
-// prueba HUMID_USB (id 16) por su cuenta, con su propio acceso a hardware.
+// actuatorsTest() tambien puede levantar internamente NO cuenta aqui --
+// HUMID_USB (id 14) esta omitido por ahora (ver su cuerpo mas abajo).
 static const long kFtestActuatorBitsMask =
     (1L << HEATER_CONSUMPTION_MIN_ERROR) | (1L << HEATER_CONSUMPTION_MAX_ERROR) |
     (1L << FAN_CONSUMPTION_MIN_ERROR) | (1L << FAN_CONSUMPTION_MAX_ERROR) |
@@ -86,21 +103,31 @@ static FtestStatus ftest_standby(char *detail, FtestCascade *) {
 }
 
 // ---------------------------------------------------------------------------
-// 3: CHARGER
+// 3: CHARGER -- NO hace I2C (regla de cabecera). Con la placa a bateria,
+// llamar aqui a charge_status() competia con PowerManagement_Task
+// (main.cpp:284, cada 5 s) sobre el mismo Wire y el test se quedaba en
+// RUNNING para siempre. En su lugar espera a que PowerManagement_Task
+// refresque g_bq_status_valid (hasta 12 s); que el BQ25730 conteste ya
+// demuestra que el bus I2C1 y el chip estan bien -- no exige VBUS ni carga
+// activa, que con la placa a bateria nunca los habria.
+#define FTEST_CHARGER_TIMEOUT_MS 12000u
 static FtestStatus ftest_charger(char *detail, FtestCascade *) {
-  // Bloqueante #5 del review de seguridad: `st` sin inicializar formateaba
-  // memoria basura en el detail si charge_status() devolvia false (nunca
-  // toca `st` en ese caso). `= {}` deja un valor conocido y, ademas, ya no
-  // se formatea nada de `st` salvo que la llamada haya tenido exito.
-  BQ25730_Status st = {};
-  const bool ok = charge_status(&st);
-  if (!ok) {
-    D("sin respuesta");
-    return FTEST_FAIL;
+  const uint32_t start = millis();
+  while ((uint32_t)(millis() - start) < FTEST_CHARGER_TIMEOUT_MS) {
+    if (g_bq_status_valid) {
+      D("vb=%dmV vs=%dmV %s", (int)g_bq_status.vbat_mv,
+        (int)g_bq_status.vsys_mv, g_bq_status.ac_present ? "ac" : "bat");
+      return FTEST_PASS;
+    }
+    if (ftest_abort_requested()) {
+      D("%s", ftest_abort_reason());
+      return FTEST_SKIP;
+    }
+    ftest_wdt_feed();
+    vTaskDelay(pdMS_TO_TICKS(250));
   }
-  D("vb=%dmV vs=%dmV vu=%dmV i=%dmA", (int)st.vbat_mv, (int)st.vsys_mv,
-    (int)st.vbus_mv, (int)st.ichg_ma);
-  return FTEST_PASS;
+  D("sin respuesta");
+  return FTEST_FAIL;
 }
 
 // ---------------------------------------------------------------------------
@@ -111,20 +138,22 @@ static FtestStatus ftest_power_src(char *detail, FtestCascade *) {
 }
 
 // ---------------------------------------------------------------------------
-// 5: SKIN_ADC
+// 5: SKIN_ADC -- NO hace I2C (regla de cabecera): el ACK a 0x48 y
+// measureSkinSensor() competian con sensors_Task (cada 1 ms) sobre el mismo
+// Wire. En su lugar usa el estado que sensors_Task ya mantiene:
+// skinProbeLastReading() (sonda OPEN -> PASS, no hay nada que medir) y, si
+// hay sonda, que haya habido una lectura en los ultimos 5 s.
+#define FTEST_SKIN_FRESH_MS 5000u
 static FtestStatus ftest_skin_adc(char *detail, FtestCascade *) {
-  wire->beginTransmission(ADS1110_I2C_ADDRESS);
-  if (wire->endTransmission() != 0) {
-    D("sin ack 0x48");
-    return FTEST_FAIL;
-  }
-  measureSkinSensor();
   if (skinProbeLastReading() == SKIN_PROBE_READING_OPEN) {
     D("sin sonda");
     return FTEST_PASS;
   }
+  const uint32_t age = (uint32_t)(
+      millis() - (uint32_t)lastSuccesfullSensorUpdate[SKIN_SENSOR]);
   const float t = in3.temperature[SKIN_SENSOR];
-  D("t=%.1f", t);
+  D("t=%.1f age=%ums", t, (unsigned)age);
+  if (age >= FTEST_SKIN_FRESH_MS) return FTEST_FAIL;
   // Bloqueante #4 del review de seguridad: NaN no debe colar como PASS. Con
   // la comparacion en negativo original (t < 1 || t > 60) un NaN hace las dos
   // false y cae en PASS; en positivo, un NaN hace la conjuncion false y cae
@@ -134,53 +163,41 @@ static FtestStatus ftest_skin_adc(char *detail, FtestCascade *) {
 }
 
 // ---------------------------------------------------------------------------
-// 6: EXT_SHT4X
-static FtestStatus ftest_ext_sht4x(char *detail, FtestCascade *) {
-  if (!ambientSensorPresent) {
-    D("no detectado");
-    return FTEST_FAIL;
-  }
-  if (!updateAmbientSensor()) {
-    D("lectura fallo");
-    return FTEST_FAIL;
-  }
-  const float t = in3.temperature[AMBIENT_DIGITAL_TEMP_SENSOR];
-  const float h = in3.humidity[AMBIENT_DIGITAL_HUM_SENSOR];
-  D("t=%.1f h=%.0f", t, h);
-  // Bloqueante #4: mismo motivo que SKIN_ADC arriba -- rechazar NaN antes y
-  // comparar el rango en positivo.
-  if (!std::isfinite(t) || !std::isfinite(h)) return FTEST_FAIL;
-  if (!(t >= -10.0f && t <= 60.0f)) return FTEST_FAIL;
-  if (!(h >= 0.0f && h <= 100.0f)) return FTEST_FAIL;
-  return FTEST_PASS;
-}
-
-// ---------------------------------------------------------------------------
-// 7: SENSORBOARD -- sensor de cabina por CUALQUIERA de los dos caminos: SHT40
-// de la SensorBoard por USB o STS35/SHTC3 por I2C2 (equipo antiguo). Sustituye
-// a los antiguos SENSOR_SRC + SB_LINK (design.md D10, shared-factory-test-
-// bench): en banco, con una SensorBoard conectada, el sondeo I2C2 de
-// clasificacion de generacion se hace sobre las mismas lineas que son D+/D-
-// del USB y devuelve un ACK falso -- separar "origen" de "enlace" convertia
-// esa peculiaridad del sondeo en un FAIL de fabrica con una SensorBoard
-// enlazada y funcionando. Lo que importa es que la cabina tenga sensor, no
-// por que bus llega.
+// 6: ENV_SENSOR -- sensor ambiental por CUALQUIERA de los tres caminos que
+// existen segun la generacion de equipo: SHT40 de la SensorBoard por USB,
+// STS35/SHTC3 por I2C2 (equipo antiguo) o SHT4x exterior en I2C1. Fusiona a
+// los antiguos EXT_SHT4X + SENSORBOARD (design.md D10, bench2, banco
+// 2026-09-06): un equipo lleva SensorBoard O sensor ambiental, no ambos, y
+// exigir los dos por separado convertia la ausencia del que ese equipo no
+// lleva en un FAIL de fabrica con hardware sano -- ademas, con una
+// SensorBoard conectada, el sondeo I2C2 de clasificacion de generacion se
+// hace sobre las mismas lineas que son D+/D- del USB y devuelve un ACK falso.
+// Lo que importa es que la cabina tenga sensor ambiental de alguna fuente, no
+// por que camino llega.
+//
+// NO hace I2C directo (regla de cabecera): ni measureSkinSensor()-like ni
+// updateAmbientSensor() se llaman aqui -- el camino SHT4x lee el estado que
+// sensors_Task ya mantiene (ambientSensorPresent + lastSuccesfullSensorUpdate
+// + in3.temperature), igual que los otros dos caminos ya hacian.
 //
 // cascade->sb_usb se deja en OK solo si el camino que dio PASA fue USB: los
 // tests sb_status/sb_env/sb_door/sb_light/sb_camera siguen exigiendo ese
-// camino y SKIP en I2C (no tienen forma de leer nada por ese bus).
-#define FTEST_SENSORBOARD_TIMEOUT_MS 10000u
-#define FTEST_SENSORBOARD_ENV_FRESH_MS 3000u
-#define FTEST_SENSORBOARD_I2C_FRESH_MS 5000u
+// camino y SKIP en I2C2/SHT4x (no tienen forma de leer nada por esos buses).
+#define FTEST_ENV_SENSOR_TIMEOUT_MS 10000u
+#define FTEST_ENV_SENSOR_ENV_FRESH_MS 3000u
+#define FTEST_ENV_SENSOR_I2C_FRESH_MS 5000u
+#define FTEST_ENV_SENSOR_SHT4X_FRESH_MS 5000u
 // Mismo rango que DIG_TEMP_ROOM_MIN/MAX (initHardware.cpp): duplicado a
-// proposito, igual que ya hacen SKIN_ADC/EXT_SHT4X con sus propios rangos --
-// esos #define son locales a ese .cpp y no se exponen en ningun header.
+// proposito, igual que ya hacia SKIN_ADC con el suyo -- esos #define son
+// locales a ese .cpp y no se exponen en ningun header.
 #define FTEST_ROOM_TEMP_MIN_C 1.0f
 #define FTEST_ROOM_TEMP_MAX_C 60.0f
-static FtestStatus ftest_sensorboard(char *detail, FtestCascade *cascade) {
+#define FTEST_SHT4X_TEMP_MIN_C -10.0f
+#define FTEST_SHT4X_TEMP_MAX_C 60.0f
+static FtestStatus ftest_env_sensor(char *detail, FtestCascade *cascade) {
   const bool viaUsb = (sensorSourceGet() == SENSOR_SOURCE_SENSORBOARD);
   const uint32_t start = millis();
-  while ((uint32_t)(millis() - start) < FTEST_SENSORBOARD_TIMEOUT_MS) {
+  while ((uint32_t)(millis() - start) < FTEST_ENV_SENSOR_TIMEOUT_MS) {
     if (viaUsb) {
       SbSnapshot s;
       sensorboard_get_snapshot(&s);
@@ -188,7 +205,7 @@ static FtestStatus ftest_sensorboard(char *detail, FtestCascade *cascade) {
       const bool anyValid =
           s.temp.valid[0] || s.temp.valid[1] || s.temp.valid[2];
       if (sensorboard_comm_connected() && s.link_ok && s.env_seen &&
-          envAge < FTEST_SENSORBOARD_ENV_FRESH_MS && anyValid) {
+          envAge < FTEST_ENV_SENSOR_ENV_FRESH_MS && anyValid) {
         cascade->sb_usb = FTEST_DEP_OK;
         D("usb");
         return FTEST_PASS;
@@ -197,15 +214,31 @@ static FtestStatus ftest_sensorboard(char *detail, FtestCascade *cascade) {
       const uint32_t age = (uint32_t)(
           millis() - (uint32_t)lastSuccesfullSensorUpdate[ROOM_DIGITAL_TEMP_SENSOR]);
       const float t = in3.temperature[ROOM_DIGITAL_TEMP_SENSOR];
-      if (roomSensorI2CDetected() && age < FTEST_SENSORBOARD_I2C_FRESH_MS &&
+      if (roomSensorI2CDetected() && age < FTEST_ENV_SENSOR_I2C_FRESH_MS &&
           std::isfinite(t) && t >= FTEST_ROOM_TEMP_MIN_C &&
           t <= FTEST_ROOM_TEMP_MAX_C) {
-        // Paso por I2C, no por USB: los tests SB_* de abajo seguiran SKIP.
+        // Paso por I2C2, no por USB: los tests SB_* de abajo seguiran SKIP.
         cascade->sb_usb = FTEST_DEP_FAILED;
         D("i2c");
         return FTEST_PASS;
       }
     }
+
+    // Tercer camino, independiente de los dos anteriores: SHT4x exterior en
+    // I2C1. Tampoco paso por USB: los tests SB_* de abajo seguiran SKIP.
+    if (ambientSensorPresent) {
+      const uint32_t age = (uint32_t)(
+          millis() -
+          (uint32_t)lastSuccesfullSensorUpdate[AMBIENT_DIGITAL_TEMP_SENSOR]);
+      const float t = in3.temperature[AMBIENT_DIGITAL_TEMP_SENSOR];
+      if (age < FTEST_ENV_SENSOR_SHT4X_FRESH_MS && std::isfinite(t) &&
+          t >= FTEST_SHT4X_TEMP_MIN_C && t <= FTEST_SHT4X_TEMP_MAX_C) {
+        cascade->sb_usb = FTEST_DEP_FAILED;
+        D("sht4x");
+        return FTEST_PASS;
+      }
+    }
+
     if (ftest_abort_requested()) {
       cascade->sb_usb = FTEST_DEP_FAILED;
       D("%s", ftest_abort_reason());
@@ -215,14 +248,14 @@ static FtestStatus ftest_sensorboard(char *detail, FtestCascade *cascade) {
     vTaskDelay(pdMS_TO_TICKS(250));
   }
   cascade->sb_usb = FTEST_DEP_FAILED;
-  D("%s sin datos", viaUsb ? "usb" : "i2c");
+  D("sin sensor ambiental");
   return FTEST_FAIL;
 }
 
 // Los tests sb_status/sb_env/sb_door/sb_light/sb_camera solo tienen datos que
-// leer si SENSORBOARD (id 7) paso por el camino USB -- si paso por I2C, o si
-// no llego a pasar (RUN de un solo test sin haber corrido antes el 7), no hay
-// enlace con la SensorBoard del que tirar.
+// leer si ENV_SENSOR (id 6) paso por el camino USB -- si paso por I2C2/SHT4x,
+// o si no llego a pasar (RUN de un solo test sin haber corrido antes el 6),
+// no hay enlace con la SensorBoard del que tirar.
 static bool sb_skip_if_no_usb(const FtestCascade *cascade, char *detail) {
   if (cascade->sb_usb != FTEST_DEP_OK) {
     D("sin usb");
@@ -232,7 +265,7 @@ static bool sb_skip_if_no_usb(const FtestCascade *cascade, char *detail) {
 }
 
 // ---------------------------------------------------------------------------
-// 8: SB_STATUS
+// 7: SB_STATUS
 static FtestStatus ftest_sb_status(char *detail, FtestCascade *cascade) {
   if (sb_skip_if_no_usb(cascade, detail)) return FTEST_SKIP;
 
@@ -285,7 +318,7 @@ static FtestStatus ftest_sb_status(char *detail, FtestCascade *cascade) {
 }
 
 // ---------------------------------------------------------------------------
-// 9: SB_ENV
+// 8: SB_ENV
 static FtestStatus ftest_sb_env(char *detail, FtestCascade *cascade) {
   if (sb_skip_if_no_usb(cascade, detail)) return FTEST_SKIP;
 
@@ -319,17 +352,31 @@ static FtestStatus ftest_sb_env(char *detail, FtestCascade *cascade) {
   const float spread = mx - mn;
   const float mean = sum / 3.0f;
 
+  // Comparacion con el exterior SOLO si hay SHT4x y su lectura esta fresca
+  // (estado que ya mantiene sensors_Task): NO llama a updateAmbientSensor()
+  // aqui (regla de cabecera, "FTEST no hace I2C directo") -- competiria con
+  // sensors_Task por el mismo bus I2C1 sin mutex. Sin SHT4x (equipo con
+  // SensorBoard y sin sensor exterior, banco 2026-09-06) el test PASA solo
+  // con la dispersion entre las 3 SHT40, sin el termino exterior en el
+  // detail.
   bool haveExt = false;
   float diff = 0.0f;
-  if (ambientSensorPresent && updateAmbientSensor()) {
+  if (ambientSensorPresent) {
+    const uint32_t age = (uint32_t)(
+        millis() -
+        (uint32_t)lastSuccesfullSensorUpdate[AMBIENT_DIGITAL_TEMP_SENSOR]);
     const float ext = in3.temperature[AMBIENT_DIGITAL_TEMP_SENSOR];
-    if (std::isfinite(ext)) {
+    if (age < FTEST_ENV_SENSOR_SHT4X_FRESH_MS && std::isfinite(ext)) {
       haveExt = true;
       diff = fabsf(mean - ext);
     }
   }
 
-  D("sp=%.1f df=%.1f", spread, diff);
+  if (haveExt) {
+    D("sp=%.1f df=%.1f", spread, diff);
+  } else {
+    D("sp=%.1f", spread);
+  }
   // Comparaciones en positivo (bloqueante #4): con allFinite ya garantizado
   // arriba esto es cinturon y tirantes, no defensa unica.
   if (!(spread <= FTEST_SB_SPREAD_MAX_C)) return FTEST_FAIL;
@@ -338,7 +385,7 @@ static FtestStatus ftest_sb_env(char *detail, FtestCascade *cascade) {
 }
 
 // ---------------------------------------------------------------------------
-// 10: SB_DOOR (WAIT)
+// 9: SB_DOOR (WAIT)
 static FtestStatus ftest_sb_door(char *detail, FtestCascade *cascade) {
   if (sb_skip_if_no_usb(cascade, detail)) return FTEST_SKIP;
 
@@ -373,7 +420,7 @@ static FtestStatus ftest_sb_door(char *detail, FtestCascade *cascade) {
 }
 
 // ---------------------------------------------------------------------------
-// 11: SB_LIGHT (WAIT)
+// 10: SB_LIGHT (WAIT)
 static FtestStatus ftest_sb_light(char *detail, FtestCascade *cascade) {
   if (sb_skip_if_no_usb(cascade, detail)) return FTEST_SKIP;
 
@@ -423,7 +470,7 @@ static FtestStatus ftest_sb_light(char *detail, FtestCascade *cascade) {
 }
 
 // ---------------------------------------------------------------------------
-// 12: SB_CAMERA
+// 11: SB_CAMERA
 static FtestStatus ftest_sb_camera(char *detail, FtestCascade *cascade) {
   if (sb_skip_if_no_usb(cascade, detail)) return FTEST_SKIP;
 
@@ -453,7 +500,7 @@ static FtestStatus ftest_sb_camera(char *detail, FtestCascade *cascade) {
 }
 
 // ---------------------------------------------------------------------------
-// 13: ACTUATORS -- reusa actuatorsTest() tal cual (design.md, Non-Goals).
+// 12: ACTUATORS -- reusa actuatorsTest() tal cual (design.md, Non-Goals).
 static FtestStatus ftest_actuators(char *detail, FtestCascade *cascade) {
   const long before = HW_error;
   const bool critical = actuatorsTest();
@@ -466,7 +513,7 @@ static FtestStatus ftest_actuators(char *detail, FtestCascade *cascade) {
 }
 
 // ---------------------------------------------------------------------------
-// 14: FAN_RPM -- depende del resultado de ACTUATORS (cascada).
+// 13: FAN_RPM -- depende del resultado de ACTUATORS (cascada).
 static FtestStatus ftest_fan_rpm(char *detail, FtestCascade *cascade) {
   if (cascade->actuators == FTEST_DEP_FAILED) {
     D("actuators fallo");
@@ -485,25 +532,19 @@ static FtestStatus ftest_fan_rpm(char *detail, FtestCascade *cascade) {
 }
 
 // ---------------------------------------------------------------------------
-// 15: HUMID_USB -- acceso directo a USB_EN/USB_FAULT, no reusa
-// actuatorsTest()/in3_hum (design.md D10, texto literal del requisito).
-#define FTEST_USB_FAULT_SETTLE_MS 100
+// 14: HUMID_USB -- omitido en banco 2026-09-06: el jig de fabrica no tiene
+// todavia forma de medir el consumo del humidificador por USB_EN/USB_FAULT.
+// FTEST_SKIP explicito (no toca USB_EN) en vez de convertir en FAIL un
+// hardware sano; el HMI oculta los SKIP. Reactivar cuando el jig pueda
+// medirlo (design.md D10, bench2). El cuerpo anterior (acceso directo a
+// USB_EN/USB_FAULT/measureMeanConsumption) sigue en el historial de git.
 static FtestStatus ftest_humid_usb(char *detail, FtestCascade *) {
-  digitalWrite(USB_EN, HIGH);
-  vTaskDelay(pdMS_TO_TICKS(FTEST_USB_FAULT_SETTLE_MS));
-  const bool faultOk = GPIORead(USB_FAULT);
-  const float mA = measureMeanConsumption(SECUNDARY, USB_SHUNT_CHANNEL) * 1000.0f;
-  digitalWrite(USB_EN, LOW);
-
-  D("fault=%d i=%.1fmA", faultOk, mA);
-  if (!faultOk) return FTEST_FAIL;
-  // Bloqueante #4: idem FAN_RPM -- positivo, y NaN explicito antes.
-  if (!std::isfinite(mA)) return FTEST_FAIL;
-  return (mA > FTEST_HUMID_MIN_MA) ? FTEST_PASS : FTEST_FAIL;
+  D("omitido");
+  return FTEST_SKIP;
 }
 
 // ---------------------------------------------------------------------------
-// 16: BUZZER -- con microfono (SensorBoard) o CONFIRM del operario.
+// 15: BUZZER -- con microfono (SensorBoard) o CONFIRM del operario.
 static FtestStatus ftest_buzzer(char *detail, FtestCascade *) {
   SbSnapshot before;
   sensorboard_get_snapshot(&before);
@@ -535,7 +576,7 @@ static FtestStatus ftest_buzzer(char *detail, FtestCascade *) {
 
   // Sin microfono: arma el CONFIRM ANTES de encolar la linea (bloqueante #8
   // del review de seguridad, "carrera del CONFIRM"): si el operario
-  // contestara entre encolar CTRL,FTEST,16,5 y que ftest_wait_confirm()
+  // contestara entre encolar CTRL,FTEST,15,5 y que ftest_wait_confirm()
   // fijara el id esperado, ese "give" se habria perdido.
   ftest_arm_confirm(FTEST_MB_BUZZER);
   ftest_emit(FTEST_MB_BUZZER, FTEST_CONFIRM, "sonido del zumbador?");
@@ -553,7 +594,7 @@ static FtestStatus ftest_buzzer(char *detail, FtestCascade *) {
 }
 
 // ---------------------------------------------------------------------------
-// 17: AFE_SPI
+// 16: AFE_SPI
 static FtestStatus ftest_afe_spi(char *detail, FtestCascade *) {
   const AFE4490TimingConfig tc = afe.getTimingConfig();
   const uint32_t diag = afe.runAfeDiagnostics();
@@ -563,7 +604,7 @@ static FtestStatus ftest_afe_spi(char *detail, FtestCascade *) {
 }
 
 // ---------------------------------------------------------------------------
-// 18: AFE_PROBE (opcional)
+// 17: AFE_PROBE (opcional)
 static FtestStatus ftest_afe_probe(char *detail, FtestCascade *) {
   const ProbeState st = g_spo2_data.probe_state;
   D("state=%d", (int)st);
@@ -571,7 +612,7 @@ static FtestStatus ftest_afe_probe(char *detail, FtestCascade *) {
 }
 
 // ---------------------------------------------------------------------------
-// 19: HMI_LINK
+// 18: HMI_LINK
 static FtestStatus ftest_hmi_link(char *detail, FtestCascade *) {
   const uint32_t age = (uint32_t)(millis() - g_lastHmiLineMs);
   D("seen=%d age=%ums", g_hmiEverSeen, (unsigned)age);
@@ -579,7 +620,7 @@ static FtestStatus ftest_hmi_link(char *detail, FtestCascade *) {
 }
 
 // ---------------------------------------------------------------------------
-// 20-23: GSM, pasivos sobre el estado de GPRS_Task (design.md D7).
+// 19-22: GSM, pasivos sobre el estado de GPRS_Task (design.md D7).
 //
 // gsm_at PASA en cuanto el modem ha dado CUALQUIER senal de vida por AT
 // (GPRS.modemResponded/simReady, puestos en GPRSPowerUp()) o ya esta mas
@@ -634,6 +675,11 @@ static FtestStatus ftest_gsm_sim(char *detail, FtestCascade *cascade) {
   return FTEST_FAIL;
 }
 
+// gsm_signal ya no FALLA al agotar el plazo (banco 2026-09-06): conectarse a
+// la red celular es opcional (fabrica puede no tener cobertura en la nave),
+// asi que sin CSQ valido en 15 s es un AVISO, no un fallo de la placa --
+// simetrico con gsm_net/wifi. gsm_at y gsm_sim SI siguen siendo FAIL: que el
+// modem responda y que la SIM este lista no depende de cobertura externa.
 static FtestStatus ftest_gsm_signal(char *detail, FtestCascade *cascade) {
   if (cascade->gsm_sim == FTEST_DEP_FAILED) {
     D("sin sim");
@@ -652,8 +698,8 @@ static FtestStatus ftest_gsm_signal(char *detail, FtestCascade *cascade) {
     ftest_wdt_feed();
     vTaskDelay(pdMS_TO_TICKS(250));
   }
-  D("csq=%d", GPRS.CSQ);
-  return FTEST_FAIL;
+  D("sin senal");
+  return FTEST_WARN;
 }
 
 // gsm_net SKIP en cascada si no hay SIM (no tiene sentido esperar adjunto de
@@ -683,7 +729,7 @@ static FtestStatus ftest_gsm_net(char *detail, FtestCascade *cascade) {
 }
 
 // ---------------------------------------------------------------------------
-// 24: WIFI (opcional) -- sin AP por defecto en fabrica es un AVISO, no un
+// 23: WIFI (opcional) -- sin AP por defecto en fabrica es un AVISO, no un
 // FAIL ni un SKIP silencioso: el operario debe verlo en ambar.
 static FtestStatus ftest_wifi(char *detail, FtestCascade *) {
   const uint32_t start = millis();
@@ -704,7 +750,7 @@ static FtestStatus ftest_wifi(char *detail, FtestCascade *) {
 }
 
 // ---------------------------------------------------------------------------
-// 25: TB_PROVISION (opcional, design.md D8)
+// 24: TB_PROVISION (opcional, design.md D8)
 static FtestStatus ftest_tb_provision(char *detail, FtestCascade *) {
   if (in3.serialNumber == 0) {
     D("sin serie");
@@ -732,7 +778,7 @@ static FtestStatus ftest_tb_provision(char *detail, FtestCascade *) {
 }
 
 // ---------------------------------------------------------------------------
-// 26: TIME (opcional) -- espera hasta FTEST_CONN_TIMEOUT_MS a que el reloj
+// 25: TIME (opcional) -- espera hasta FTEST_CONN_TIMEOUT_MS a que el reloj
 // se ponga en hora (NTP por WiFi o cellular, ver GPRSEnsureTimeSynced()); sin
 // eso no hay forma de distinguir "todavia no le ha dado tiempo" de "no va a
 // llegar", asi que antes de shared-factory-test-bench este test decidia con
@@ -763,7 +809,7 @@ static FtestStatus ftest_time(char *detail, FtestCascade *) {
 }
 
 // ---------------------------------------------------------------------------
-// 27: NVS
+// 26: NVS
 static FtestStatus ftest_nvs(char *detail, FtestCascade *) {
   Preferences p;
   p.begin(NS_FTEST, false);
@@ -776,7 +822,7 @@ static FtestStatus ftest_nvs(char *detail, FtestCascade *) {
 }
 
 // ---------------------------------------------------------------------------
-// 28: LITTLEFS
+// 27: LITTLEFS
 static FtestStatus ftest_littlefs(char *detail, FtestCascade *) {
   // Bloqueante #6 del review de seguridad: `begin(true)` formatea la
   // particion si el montaje falla, lo que destruiria cualquier dato ya
@@ -809,8 +855,7 @@ static const FtestEntry kFtestTable[] = {
     {FTEST_MB_CHARGER, ftest_charger},
     {FTEST_MB_POWER_SRC, ftest_power_src},
     {FTEST_MB_SKIN_ADC, ftest_skin_adc},
-    {FTEST_MB_EXT_SHT4X, ftest_ext_sht4x},
-    {FTEST_MB_SENSORBOARD, ftest_sensorboard},
+    {FTEST_MB_ENV_SENSOR, ftest_env_sensor},
     {FTEST_MB_SB_STATUS, ftest_sb_status},
     {FTEST_MB_SB_ENV, ftest_sb_env},
     {FTEST_MB_SB_DOOR, ftest_sb_door},

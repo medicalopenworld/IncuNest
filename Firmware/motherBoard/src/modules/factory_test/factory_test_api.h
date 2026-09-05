@@ -23,6 +23,20 @@
 // time): fabrica puede no tener cobertura celular ni AP en la nave, asi que
 // agotarlo es un AVISO (FTEST_WARN), no un FAIL (shared-factory-test-bench).
 #define FTEST_CONN_TIMEOUT_MS 30000u
+// Cota cooperativa POR TEST (distinta de FTEST_BATTERY_MAX_MS, que es para
+// toda la bateria): ningun cuerpo individual tiene un plazo propio mayor que
+// esto (el mas largo, gsm_at, agota a los 45 s; el CONFIRM del buzzer a los
+// 60 s), asi que superarlo solo puede significar un cuerpo colgado. El
+// runner (factory_test_task.cpp) lo detecta reutilizando
+// ftest_abort_requested()/ftest_abort_reason() -- ya consultada en TODOS los
+// bucles de espera de <= 250 ms de factory_test_hw.cpp, sin tocar un solo
+// cuerpo -- y traduce el motivo "timeout" a FAIL en vez de SKIP, sin abortar
+// el resto de la bateria. Un cuerpo bloqueado en una llamada I2C/USB NO
+// cooperativa (sin bucle de sondeo que consulte nada) no lo cubre esta cota:
+// solo lo cubre el Task WDT (75 s, watchdogInit()), que reinicia la placa.
+// Por eso los cuerpos de esta bateria no hacen I2C directo salvo dentro de
+// actuatorsTest()/testStandByCurrent() (ver cabecera de factory_test_hw.cpp).
+#define FTEST_TEST_TIMEOUT_MS 90000u
 
 // Arranca la bateria completa (HMI,FTEST,START). false si ya hay una tarea
 // FTEST en marcha (no debería llegar aqui: factoryTestPrecheck() ya lo

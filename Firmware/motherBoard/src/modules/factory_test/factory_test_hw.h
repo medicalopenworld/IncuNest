@@ -1,19 +1,19 @@
 #pragma once
 // Frontera interna entre la tarea FTEST (factory_test_task.cpp) y los
-// cuerpos de los 29 tests de la motherBoard (factory_test_hw.cpp). Nada de
+// cuerpos de los 28 tests de la motherBoard (factory_test_hw.cpp). Nada de
 // esto es publico fuera del modulo factory_test.
 #include <stdint.h>
 
 #include "factory_test_api.h"
 
 // Resultado de un test que otro test posterior necesita conocer para la
-// cascada de SKIP de D10/mb-factory-test (SB_* si SENSORBOARD no paso por el
+// cascada de SKIP de D10/mb-factory-test (SB_* si ENV_SENSOR no paso por el
 // camino USB, GSM_SIGNAL/GSM_NET si GSM_SIM fallo, FAN_RPM si ACTUATORS
 // fallo).
 //
 // Tri-estado y no bool: UNKNOWN distingue "esta dependencia no se ha
 // ejecutado en esta tanda" (RUN de un solo test, p.ej. RUN,9 sin haber
-// corrido antes SENSORBOARD) de "se ejecuto y fallo". Con un bool a secas,
+// corrido antes ENV_SENSOR) de "se ejecuto y fallo". Con un bool a secas,
 // UNKNOWN y FAILED serian el mismo valor y un RUN aislado de un test
 // dependiente saltaria a SKIP sin motivo real.
 typedef enum {
@@ -23,10 +23,11 @@ typedef enum {
 } FtestDepState;
 
 typedef struct {
-  // OK solo si SENSORBOARD (id 7) paso por el camino USB (SensorBoard
-  // enlazada); FAILED tanto si paso por I2C como si no paso en absoluto --
-  // en los dos casos los tests SB_* (status/env/door/light/camera) no tienen
-  // de donde leer y SKIP con detail "sin usb" (shared-factory-test-bench).
+  // OK solo si ENV_SENSOR (id 6) paso por el camino USB (SensorBoard
+  // enlazada); FAILED tanto si paso por I2C2/SHT4x como si no paso en
+  // absoluto -- en los tres casos los tests SB_* (status/env/door/light/
+  // camera) no tienen de donde leer y SKIP con detail "sin usb"
+  // (shared-factory-test-bench, bench2).
   FtestDepState sb_usb;
   FtestDepState actuators;
   FtestDepState gsm_sim;
