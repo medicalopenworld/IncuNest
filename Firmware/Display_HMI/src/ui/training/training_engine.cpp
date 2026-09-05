@@ -268,6 +268,10 @@ void endLesson(bool passed, bool aborted) {
   const uint16_t attempts = s_attempts;
   const Mode mode = s_mode;
 
+  // Incondicional: el permiso del dialogo de salida no puede sobrevivir a
+  // ninguna leccion, tampoco a una en demostracion (donde Training_Exit no
+  // se llama).
+  Training_SetExitDialogAllowed(false);
   closeAllDialogs();
   if (mode == MODE_INTERACTIVE) {
     // Orden: UI (switches en silencio + UI_SyncAll) -> Training_Exit, que
@@ -286,10 +290,14 @@ void endLesson(bool passed, bool aborted) {
   s_mode = MODE_NONE;
   s_course = nullptr;
   s_lesson = nullptr;
-  // Si la leccion dejo la pantalla bloqueada de verdad (leccion de bloqueo o
-  // tendencia, via el candado real), se respeta: forzar la principal con
-  // `locked` en alto dejaria el estado del bloqueo incoherente.
-  if (ui_ScreenMain && lv_scr_act() != ui_ScreenMain && !UI_IsScreenLocked()) {
+  // Si la leccion dejo cargada la pantalla de bloqueo de verdad (candado
+  // real en E8/E9), se respeta: ahi si se pinta el banner de alarma. Desde
+  // cualquier otra pantalla (Ajustes) se vuelve a la principal, que es donde
+  // estan el icono de alarmas y los controles. Se mira la pantalla activa, no
+  // la global `locked`, que vale true en la principal casi siempre (la fija
+  // unlock_timeout_cb 5 s despues de desbloquear).
+  const bool onLock = (ui_ScreenLock && lv_scr_act() == ui_ScreenLock);
+  if (ui_ScreenMain && lv_scr_act() != ui_ScreenMain && !onLock) {
     lv_scr_load(ui_ScreenMain);
   }
   lv_disp_trig_activity(NULL);
@@ -494,7 +502,9 @@ void enterStep(int idx, int dir) {
   s_idx = idx;
   s_quizSolved = false;
   const Step &st = curStep();
-  if (st.onEnter) st.onEnter();
+  // onEnter solo si el paso se va a HACER: en demostracion (degradado a
+  // explicar) no debe armar nada (p. ej. el permiso del dialogo de salida).
+  if (st.onEnter && kind == st.kind) st.onEnter();
   render(st, kind, target);
 }
 
@@ -625,6 +635,7 @@ void Training_StartLesson(const Course *course, uint8_t lessonIdx) {
   s_lessonIdx = lessonIdx;
   s_attempts = 0;
   s_raised = false;
+  Training_SetExitDialogAllowed(false);
 
   if (s_lesson->flags & LESSON_INTERACTIVE) {
     if (gateOk()) {
@@ -681,6 +692,15 @@ void Training_Poll(void) {
   // AUDIO PAUSED se reafirman por encima de todo; al cerrarse el modal el
   // overlay vuelve al fondo de la capa.
   if (kind == STEP_DO && (st.flags & STEP_FREE)) {
+    // El SALIR de la franja se esconde mientras haya un dialogo de la
+    // pantalla principal abierto: el teclado del asistente llega hasta y=456
+    // y su barra de espacio quedaba debajo del boton (abortaria la leccion
+    // con un toque bajo). Siguen valiendo el aborto por alarma e inactividad
+    // y la X del propio dialogo.
+    const bool mainDialog = BabyWizard_IsOpen() || BabyExitDialog_IsOpen() ||
+                            TimeDialog_IsOpen() || HelpDialog_IsOpen();
+    show(s_stripExit, !mainDialog);
+
     const bool modalTop = AlarmCenter_IsOpen() || TelemetryHistory_IsOpen();
     if (modalTop && !s_raised) {
       lv_obj_move_foreground(s_overlay);

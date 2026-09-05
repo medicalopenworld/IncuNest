@@ -39,16 +39,26 @@ bool visible(lv_obj_t *o) { return o && lv_obj_is_visible(o); }
 bool goalWizardOpen() { return BabyWizard_IsOpen(); }
 bool goalTempOn() { return snap().switchTemp && !BabyWizard_IsOpen(); }
 bool goalTempOff() { return !snap().switchTemp && !BabyWizard_IsOpen(); }
+// Los objetivos "sube la consigna" aceptan tambien el tope del rango: si el
+// equipo ya estaba al maximo, el paso no puede quedarse sin salida.
 double s_airBase = 0.0;
 void enterAirBase() { s_airBase = snap().airTempValue; }
-bool goalAirUpTwo() { return snap().airTempValue >= s_airBase + 0.39; }
+bool goalAirUpTwo() {
+  const double a = snap().airTempValue;
+  return a >= s_airBase + 0.39 || a >= AIR_TEMP_MAX - 0.01;
+}
 
 // Piel. La sonda es real (la placa la detecta): sin sonda el paso de activar
 // el modo piel se da por cumplido para que la leccion no se quede colgada.
 bool probeOk() { return g_skinProbeState == SKIN_PROBE_VALID; }
 bool goalSettingsScreen() { return lv_scr_act() == ui_ScreenSettings; }
 bool goalMainScreen() { return lv_scr_act() == ui_ScreenMain; }
-bool goalModesVisible() { return visible(ui_ModesConfigCont); }
+// Visibilidad SIEMPRE junto a la pantalla activa: lv_obj_is_visible() no mira
+// si el objeto pertenece a la pantalla cargada, y un panel destapado en una
+// sesion anterior daria el paso por hecho antes de tocarlo.
+bool goalModesVisible() {
+  return goalSettingsScreen() && visible(ui_ModesConfigCont);
+}
 bool goalSkinEnabledOrNoProbe() { return snap().skinPanelEnabled || !probeOk(); }
 bool goalSkinSelectedOrNoProbe() {
   return snap().selectedPanel == SKIN_PANEL_SELECTED || !probeOk() ||
@@ -56,17 +66,24 @@ bool goalSkinSelectedOrNoProbe() {
 }
 
 // Humedad
+bool goalHumPanelVisible() { return goalMainScreen() && visible(ui_HumCont); }
 bool goalHumOnOrWizard() { return snap().switchHum || BabyWizard_IsOpen(); }
 bool goalHumOn() { return snap().switchHum && !BabyWizard_IsOpen(); }
 bool goalHumOff() { return !snap().switchHum; }
 int s_humBase = 0;
 void enterHumBase() { s_humBase = snap().humValue; }
-bool goalHumUp() { return snap().humValue >= s_humBase + 5; }
+bool goalHumUp() {
+  const int h = snap().humValue;
+  return h >= s_humBase + 5 || h >= HUM_MAX;
+}
 
 // Fototerapia
 int s_photoMinBase = 0;
 void enterPhotoBase() { s_photoMinBase = snap().photoTimerMinutes; }
-bool goalPhotoMinUp() { return snap().photoTimerMinutes > s_photoMinBase; }
+bool goalPhotoMinUp() {
+  const int m = snap().photoTimerMinutes;
+  return m > s_photoMinBase || m >= PHOTO_TIMER_MAX_MINUTES;
+}
 bool goalPhotoOnOrDialog() {
   return hmi_msg.phototherapyMode == PHOTOTHERAPY_ON || BabyWizard_IsOpen() ||
          visible(ui_PhotoSafetyOverlay);
@@ -86,9 +103,13 @@ bool goalAlarmCenterClosed() { return !AlarmCenter_IsOpen(); }
 // Bebes
 bool goalBabyHistoryOpen() { return BabyHistory_IsOpen(); }
 bool goalBabyHistoryClosed() { return !BabyHistory_IsOpen(); }
+// Se acepta tambien SALTAR (seq 0): si no, un alumno que repite el gesto que
+// acaba de aprender en E1 dejaria el paso sin objetivo alcanzable. El texto
+// del paso le pide expresamente NUEVO BEBE.
 bool goalTrainingBabyAdmitted() {
+  const uint32_t seq = BabyWizard_GetActiveSeq();
   return snap().switchTemp && !BabyWizard_IsOpen() &&
-         BabyWizard_GetActiveSeq() == TRAINING_BABY_SEQ;
+         (seq == TRAINING_BABY_SEQ || seq == 0);
 }
 // Salida: el dialogo se permite solo en este paso, y el objetivo es haberlo
 // visto abierto y despues cerrado con el control apagado.
@@ -102,10 +123,17 @@ bool goalExitDone() {
   return s_exitSeen && !BabyExitDialog_IsOpen() && !snap().switchTemp;
 }
 
-// Bloqueo
-bool goalLocked() { return UI_IsScreenLocked(); }
-bool goalUnlockPopup() { return visible(ui_UnlockCont); }
-bool goalUnlocked() { return !UI_IsScreenLocked(); }
+// Bloqueo. Por pantalla activa, nunca por la global `locked`: esa vale true en
+// la principal casi siempre (unlock_timeout_cb la rearma 5 s despues de
+// desbloquear) y false en cuanto aparece el pop-up de desbloqueo, asi que
+// como objetivo daria los dos gestos por hechos sin hacerlos.
+bool goalLocked() {
+  return lv_scr_act() == ui_ScreenLock && !visible(ui_UnlockCont);
+}
+bool goalUnlockPopup() {
+  return lv_scr_act() == ui_ScreenLock && visible(ui_UnlockCont);
+}
+bool goalUnlocked() { return lv_scr_act() == ui_ScreenMain; }
 
 // Tendencia, hora, soporte
 bool goalTrendOpen() { return TelemetryHistory_IsOpen(); }
@@ -318,16 +346,25 @@ const Quiz QUIZ_E3 = {
 };
 
 const Step E3_STEPS[] = {
+    // Sin target: si el panel esta oculto, un EXPLAIN sobre ui_HumCont se
+    // saltaria y el alumno llegaria al paso libre sin saber que hacer.
+    FREE(&ui_ScreenMain, goalHumPanelVisible,
+         "Si no ves el panel de humedad en la pantalla principal, ve a "
+         "Ajustes > Modos, activa el control de humedad y vuelve. Si ya lo "
+         "ves, este paso se salta solo.",
+         "If you do not see the humidity panel on the main screen, go to "
+         "Settings > Modes, enable humidity control and come back. If you "
+         "already see it, this step skips itself.",
+         "Si le panneau d'humidite n'apparait pas sur l'ecran principal, "
+         "allez dans Reglages > Modes, activez le controle d'humidite et "
+         "revenez. S'il est visible, cette etape se saute."),
     EXPLAIN(&ui_HumCont, &ui_ScreenMain,
             "Control de humedad. La cifra grande es la humedad medida en la "
-            "cabina; la pequena, tu consigna. Si no ves este panel, esta "
-            "oculto en Ajustes > Modos.",
+            "cabina; la pequena, tu consigna.",
             "Humidity control. The big figure is the humidity measured in the "
-            "cabin; the small one, your setpoint. If you do not see this "
-            "panel, it is hidden in Settings > Modes.",
+            "cabin; the small one, your setpoint.",
             "Controle d'humidite. Le grand chiffre est l'humidite mesuree ; "
-            "le petit, votre consigne. Si ce panneau n'apparait pas, il est "
-            "masque dans Reglages > Modes."),
+            "le petit, votre consigne."),
     DO(&ui_HumToggleBtn, &ui_ScreenMain, goalHumOnOrWizard,
        "Toca el boton de encendido de la humedad. Si no hay bebe "
        "identificado, se abrira el asistente.",
@@ -570,13 +607,13 @@ const Step E6_STEPS[] = {
        "Admettons maintenant un bebe d'exercice. Allumez le controle de "
        "temperature pour ouvrir l'assistant."),
     FREE(&ui_ScreenMain, goalTrainingBabyAdmitted,
-         "Pulsa NUEVO BEBE. Rellena nombre, semanas de gestacion, peso en "
+         "Pulsa NUEVO BEBE (no SALTAR). Rellena nombre, semanas, peso en "
          "gramos y dias de vida. Lee la temperatura propuesta y pulsa "
          "APLICAR. En formacion no se guarda nada.",
-         "Press NEW BABY. Fill in name, gestational weeks, weight in grams and "
+         "Press NEW BABY (not SKIP). Fill in name, weeks, weight in grams and "
          "days of life. Read the proposed temperature and press APPLY. In "
          "training nothing is saved.",
-         "Appuyez sur NOUVEAU BEBE. Remplissez nom, semaines de gestation, "
+         "Appuyez sur NOUVEAU BEBE (pas SAUTER). Remplissez nom, semaines, "
          "poids en grammes et jours de vie. Lisez la temperature proposee et "
          "APPLIQUER. En formation rien n'est enregistre."),
     EXPLAIN(&ui_AirPanel, &ui_ScreenMain,
@@ -647,9 +684,9 @@ const Step E7_STEPS[] = {
        "Il nous faut d'abord un bebe d'exercice : allumez le controle de "
        "temperature et completez l'assistant."),
     FREE(&ui_ScreenMain, goalTrainingBabyAdmitted,
-         "NUEVO BEBE, nombre, semanas, peso, edad, APLICAR.",
-         "NEW BABY, name, weeks, weight, age, APPLY.",
-         "NOUVEAU BEBE, nom, semaines, poids, age, APPLIQUER."),
+         "NUEVO BEBE (no SALTAR), nombre, semanas, peso, edad, APLICAR.",
+         "NEW BABY (not SKIP), name, weeks, weight, age, APPLY.",
+         "NOUVEAU BEBE (pas SAUTER), nom, semaines, poids, age, APPLIQUER."),
     // Paso libre y no "hacer" sobre el toggle: el dialogo de salida cuelga de
     // ui_ScreenMain, por debajo del overlay, y con sombras no se podria tocar.
     FREE_ENTER(&ui_ScreenMain, goalExitDone, enterExitStep,

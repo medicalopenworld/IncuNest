@@ -3581,7 +3581,10 @@ void UI_RestoreControlSnapshot(const UiControlSnapshot *s) {
   update_labels();
 }
 
-bool UI_IsScreenLocked(void) { return locked; }
+// (No hay UI_IsScreenLocked(): la global `locked` no significa "ui_ScreenLock
+// esta cargada" — unlock_timeout_cb la rearma en la principal 5 s despues de
+// desbloquear — y exportarla invitaba a usarla como si lo significara. Quien
+// necesite saberlo mira lv_scr_act() == ui_ScreenLock.)
 
 void UI_RaiseAlarmIndicators(void) {
   // El banner solo se sube solo cuando cambia su texto; tras subir otro

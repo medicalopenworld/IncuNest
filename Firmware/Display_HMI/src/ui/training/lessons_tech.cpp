@@ -23,12 +23,20 @@ bool visible(lv_obj_t *o) { return o && lv_obj_is_visible(o); }
 
 bool goalSettingsScreen() { return lv_scr_act() == ui_ScreenSettings; }
 bool goalMainScreen() { return lv_scr_act() == ui_ScreenMain; }
-bool goalInfoVisible() { return visible(ui_InfoDetailsCont); }
-bool goalWifiVisible() {
-  return visible(ui_WifiConfigCont) || visible(ui_WifiConnectedCont);
+// Visibilidad siempre junto a la pantalla activa (ver lessons_nurse.cpp).
+bool goalInfoVisible() {
+  return goalSettingsScreen() && visible(ui_InfoDetailsCont);
 }
-bool goalLangVisible() { return visible(ui_LanguagesDropDown); }
-bool goalModesVisible() { return visible(ui_ModesConfigCont); }
+bool goalWifiVisible() {
+  return goalSettingsScreen() &&
+         (visible(ui_WifiConfigCont) || visible(ui_WifiConnectedCont));
+}
+bool goalLangVisible() {
+  return goalSettingsScreen() && visible(ui_LanguagesDropDown);
+}
+bool goalModesVisible() {
+  return goalSettingsScreen() && visible(ui_ModesConfigCont);
+}
 
 ui_lang_t s_langBase = LANG_EN;
 void enterLangBase() { s_langBase = g_lang; }
@@ -547,6 +555,10 @@ const Step T8_STEPS[] = {
 #define LESSON(id, es, en, fr, steps)                                          \
   { id, T3(es, en, fr), steps, (uint8_t)(sizeof(steps) / sizeof(steps[0])), \
     LESSON_INTERACTIVE }
+// Solo explicar y preguntar: sin sandbox ni gate clinico, como la intro. Asi
+// un tecnico puede completarlas aunque haya una terapia en marcha.
+#define LESSON_PASSIVE(id, es, en, fr, steps)                                  \
+  { id, T3(es, en, fr), steps, (uint8_t)(sizeof(steps) / sizeof(steps[0])), 0 }
 
 const Lesson TECH_LESSONS[] = {
     LESSON_INTRO,
@@ -558,13 +570,14 @@ const Lesson TECH_LESSONS[] = {
            T3_STEPS),
     LESSON(4, "Ajustar la hora", "Setting the time", "Regler l'heure",
            T4_STEPS),
-    LESSON(5, "Alarmas tecnicas", "Technical alarms", "Alarmes techniques",
-           T5_STEPS),
-    LESSON(6, "Actualizar el firmware", "Updating the firmware",
-           "Mettre a jour le firmware", T6_STEPS),
+    LESSON_PASSIVE(5, "Alarmas tecnicas", "Technical alarms",
+                   "Alarmes techniques", T5_STEPS),
+    LESSON_PASSIVE(6, "Actualizar el firmware", "Updating the firmware",
+                   "Mettre a jour le firmware", T6_STEPS),
     LESSON(7, "Informe de soporte", "Support report", "Rapport de support",
            T7_STEPS),
-    LESSON(8, "Apagado seguro", "Safe shutdown", "Arret sur", T8_STEPS),
+    LESSON_PASSIVE(8, "Apagado seguro", "Safe shutdown", "Arret sur",
+                   T8_STEPS),
 };
 
 }  // namespace

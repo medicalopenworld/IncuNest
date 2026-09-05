@@ -70,8 +70,6 @@ void UI_GetControlSnapshot(UiControlSnapshot *out);
 // Restaura la instantanea sin disparar callbacks (ui_set_switch_state_silent)
 // y reconstruye la UI con UI_SyncAll(). Bajo LVGL_Lock().
 void UI_RestoreControlSnapshot(const UiControlSnapshot *s);
-// Verdadero mientras la pantalla esta bloqueada (ui_ScreenLock).
-bool UI_IsScreenLocked(void);
 // Vuelve a poner el banner de alarma y el icono de AUDIO PAUSED en primer
 // plano de lv_layer_top(). Llamar tras subir cualquier otro overlay de esa
 // capa (el banner solo se reafirma solo cuando cambia su texto).

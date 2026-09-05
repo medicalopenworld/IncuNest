@@ -548,7 +548,12 @@ void TrainingSelector_Init(lv_obj_t *parent) {
 void Training_OpenSelector(void) {
   // Con una leccion en curso (p. ej. la de soporte abre el menu de ayuda en
   // un paso libre) no se anida otro selector.
-  if (Training_LessonIsOpen()) return;
+  if (Training_LessonIsOpen()) {
+    UI_ShowToast(TXT("Ya hay una leccion en curso", "A lesson is already running",
+                     "Une lecon est deja en cours"),
+                 2500);
+    return;
+  }
   s_course = nullptr;
   openAt(V_COURSES);
 }
