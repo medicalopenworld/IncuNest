@@ -7,6 +7,7 @@
 #include "CommTask.h"
 #include "UITask.h"
 #include "main.h"
+#include "state/training_mode.h"
 #include "ui.h"
 
 extern ui_lang_t g_lang;
@@ -212,6 +213,15 @@ void onArchCardTap(lv_event_t *e) {
   requestChart(r->seq, r->name);
 }
 void onDischargeTap(lv_event_t *e) {
+  // En formacion el historial es el REAL y de solo lectura: el alta de un bebe
+  // real no se manda (CommTask la traga) y este boton no debe fingir que si.
+  if (Training_IsActive()) {
+    UI_ShowToast(TXT("No disponible en modo formacion",
+                     "Not available in training mode",
+                     "Indisponible en mode formation"),
+                 2500);
+    return;
+  }
   auto *r = (ActiveRow *)lv_event_get_user_data(e);
   // Stop the tap from also opening the chart (button sits inside the card).
   openDischargeDialog(r->seq);

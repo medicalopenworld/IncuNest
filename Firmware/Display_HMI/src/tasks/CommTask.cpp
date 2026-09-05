@@ -351,12 +351,18 @@ static void SendMessageToOtherESP() {
   // leccion, Training_Exit() restaura hmi_msg y fuerza un envio para que la
   // placa vuelva al estado previo.
   const HMI_Message &m = hmi_msg;
+  // Watchdog de la lampara en formacion (ver TRAINING_PHOTO_TIMER_MIN): la
+  // placa nunca recibe "fototerapia ON sin temporizador" durante una leccion.
+  int photoMin = m.photoMinutesRemaining;
+  if (Training_IsActive() && m.phototherapyMode && photoMin <= 0) {
+    photoMin = TRAINING_PHOTO_TIMER_MIN;
+  }
   COMM_SERIAL.printf(
       "HMI,%d,%d,%d,%0.2f,%0.2f,%0.0f,%d,%d,%d,%d\n", m.actuation,
       (int)m.skinModeEnabled, m.controlMode,
       m.desiredAirTemperature, m.desiredSkinTemperature,
       m.desiredHumidity, m.phototherapyMode, m.muteAlarm,
-      m.language, m.photoMinutesRemaining);
+      m.language, photoMin);
 #else
   COMM_SERIAL.printf("CTRL,%0.2f,%0.2f,%0.2f,%0.2f,%0.2f\n",
                      ctrl_msg.temperature[0], ctrl_msg.temperature[1],
@@ -1007,7 +1013,15 @@ bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
 
   // Modo formacion (ADR-0002, revisado): la actuacion es real, asi que el
   // CTRL,STATE se aplica igual que en operacion normal. Solo el perfil del
-  // bebe (ZOE) es virtual, y eso no viaja en esta trama.
+  // bebe (ZOE) es virtual, y eso no viaja en esta trama. Excepcion: justo
+  // tras salir de una leccion, un CTRL,STATE en vuelo aun trae el estado de la
+  // leccion y las consignas no tienen gracia de eco; durante
+  // TRAINING_RESTORE_GUARD_MS solo se aplican identidad y alarmas.
+  if (Training_RestoreGuardActive()) {
+    applyCtrlStateInfoAndAlarms(st);
+    LVGL_Unlock();
+    return true;
+  }
   // Effective values: within LOCAL_CMD_ECHO_GRACE_MS of a local change, trust
   // the pending local value instead of this frame's echo (see the guard
   // comment above hmi_msg's declaration for why).
@@ -1229,6 +1243,10 @@ void Comm_Task(void *pvParameters) {
     if ((uint32_t)(nowMs - lastKeepaliveMs) >= HMI_KEEPALIVE_PERIOD_MS) {
       hmi_msg.shouldSendData = true;
     }
+    // Fin de una leccion de formacion: el estado restaurado sale ya, no en el
+    // siguiente keepalive. El flag lo pone la UI y lo consume esta tarea, asi
+    // que shouldSendData solo se toca aqui.
+    if (Training_TakeForceSend()) hmi_msg.shouldSendData = true;
     if (hmi_msg.shouldSendData) {
       SendMessageToOtherESP();
       hmi_msg.shouldSendData = false;

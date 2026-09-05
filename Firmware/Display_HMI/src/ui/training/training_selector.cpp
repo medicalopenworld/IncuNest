@@ -10,6 +10,7 @@
 #include "CommTask.h"
 #include "Credentials_public.h"
 #include "UITask.h"
+#include "esp_log.h"
 #include "main.h"
 #include "modules/support/support_report.h"
 #include "ui.h"
@@ -21,7 +22,21 @@ extern ui_lang_t g_lang;
 
 namespace {
 
-enum View { V_COURSES, V_CONTINUE, V_NAME, V_LESSONS, V_CERTS, V_CERT };
+enum View { V_COURSES, V_CONTINUE, V_NAME, V_LESSONS, V_CONFIRM, V_CERTS, V_CERT };
+
+// Confirmacion previa a una leccion interactiva (ADR-0002 revisado): la
+// incubadora va a actuar de verdad, asi que (1) se pide a la placa su lista
+// REAL de bebes activos y se rechaza la leccion si hay alguno (la placa
+// atribuiria los minutos de terapia a ese bebe), y (2) el alumno confirma
+// expresamente que la cabina esta vacia. El gate de la HMI no puede saber si
+// hay un bebe dentro sin terapia: esta confirmacion es la unica defensa.
+enum CheckState { CHECK_IDLE, CHECK_WAITING, CHECK_OK, CHECK_FAIL };
+constexpr uint32_t CHECK_TIMEOUT_MS = 2500;
+CheckState s_check = CHECK_IDLE;
+uint32_t s_checkDeadlineMs = 0;
+uint8_t s_pendingLesson = 0;
+lv_obj_t *s_confirmStatus = nullptr;
+lv_obj_t *s_confirmBtn = nullptr;
 
 constexpr lv_coord_t CARD_W = 780, CARD_H = 460;
 constexpr lv_coord_t QR_SIZE = 300;
@@ -165,9 +180,35 @@ void onNameContinue(lv_event_t *) {
 void onLesson(lv_event_t *e) {
   const uint8_t idx = (uint8_t)(intptr_t)lv_event_get_user_data(e);
   if (!s_course || idx >= s_course->lessonCount) return;
+  if (s_course->lessons[idx].flags & LESSON_INTERACTIVE) {
+    // Peticion REAL a la placa (el modo formacion aun no esta activo, asi
+    // que Communication_SendProfileListReq() sale por la UART).
+    s_pendingLesson = idx;
+    s_check = CHECK_WAITING;
+    s_checkDeadlineMs = millis() + CHECK_TIMEOUT_MS;
+    g_pendingProfileList = false;
+    Communication_SendProfileListReq();
+    showView(V_CONFIRM);
+    return;
+  }
   const Course *course = s_course;
   closeDialog();
   Training_StartLesson(course, idx);
+}
+
+void onConfirmStart(lv_event_t *) {
+  if (!s_course || s_check != CHECK_OK) return;
+  const Course *course = s_course;
+  const uint8_t idx = s_pendingLesson;
+  ESP_LOGW("Training", "Cabina vacia confirmada por el alumno; leccion %u/%u",
+           (unsigned)course->id, (unsigned)idx);
+  closeDialog();
+  Training_StartLesson(course, idx);
+}
+
+void onConfirmCancel(lv_event_t *) {
+  s_check = CHECK_IDLE;
+  showView(V_LESSONS);
 }
 
 void onCert(lv_event_t *e) {
@@ -386,6 +427,92 @@ void buildLessons() {
   lv_obj_align(prog, LV_ALIGN_BOTTOM_RIGHT, -10, -16);
 }
 
+void buildConfirm() {
+  makeTitle(TXT("ANTES DE EMPEZAR", "BEFORE YOU START", "AVANT DE COMMENCER"));
+
+  lv_obj_t *warn = makeWrapLabel(
+      s_content,
+      TXT("En esta leccion la incubadora CALIENTA y/o ENCIENDE LA LAMPARA de "
+          "verdad. Solo se puede hacer con la CABINA VACIA: sin ningun bebe "
+          "dentro, aunque no tenga terapia.",
+          "In this lesson the incubator REALLY HEATS and/or SWITCHES THE LAMP "
+          "ON. It can only be done with an EMPTY CABIN: no baby inside, even "
+          "without therapy.",
+          "Dans cette lecon l'incubateur CHAUFFE et/ou ALLUME LA LAMPE "
+          "vraiment. Uniquement avec l'HABITACLE VIDE : aucun bebe dedans, "
+          "meme sans therapie."),
+      0, 56, CARD_W - 20, &lv_font_montserrat_20, lv_color_hex(0xAA3333));
+  lv_obj_set_style_text_align(warn, LV_TEXT_ALIGN_CENTER, 0);
+
+  s_confirmStatus = makeWrapLabel(
+      s_content,
+      TXT("Comprobando en la placa que no hay bebes activos...",
+          "Checking the board for active babies...",
+          "Verification des bebes actifs sur la carte..."),
+      0, 190, CARD_W - 20, &lv_font_montserrat_16, lv_color_hex(0x666666));
+  lv_obj_set_style_text_align(s_confirmStatus, LV_TEXT_ALIGN_CENTER, 0);
+
+  s_confirmBtn = makeBtn(s_content,
+                         TXT("SI, LA CABINA ESTA VACIA. EMPEZAR",
+                             "YES, THE CABIN IS EMPTY. START",
+                             "OUI, L'HABITACLE EST VIDE. COMMENCER"),
+                         onConfirmStart, lv_color_hex(0x00AA00));
+  lv_obj_set_size(s_confirmBtn, 520, 60);
+  lv_obj_align(s_confirmBtn, LV_ALIGN_CENTER, 0, 60);
+  lv_obj_add_flag(s_confirmBtn, LV_OBJ_FLAG_HIDDEN);  // hasta CHECK_OK
+
+  lv_obj_t *cancel = makeBtn(s_content, TXT("CANCELAR", "CANCEL", "ANNULER"),
+                             onConfirmCancel, lv_color_hex(0x888888));
+  lv_obj_set_size(cancel, 200, 46);
+  lv_obj_align(cancel, LV_ALIGN_BOTTOM_LEFT, 6, -6);
+}
+
+void confirmCheckPoll() {
+  if (s_view != V_CONFIRM || s_check != CHECK_WAITING) return;
+  if (g_pendingProfileList) {
+    g_pendingProfileList = false;
+    if (g_profileList.count == 0) {
+      s_check = CHECK_OK;
+      if (s_confirmStatus) {
+        lv_label_set_text(
+            s_confirmStatus,
+            TXT("La placa no tiene bebes activos. Confirma que la cabina esta "
+                "vacia para empezar.",
+                "The board has no active babies. Confirm the cabin is empty to "
+                "start.",
+                "La carte n'a aucun bebe actif. Confirmez que l'habitacle est "
+                "vide pour commencer."));
+        lv_obj_set_style_text_color(s_confirmStatus, lv_color_hex(0x0B2E4F), 0);
+      }
+      if (s_confirmBtn) lv_obj_clear_flag(s_confirmBtn, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      s_check = CHECK_FAIL;
+      if (s_confirmStatus) {
+        lv_label_set_text(
+            s_confirmStatus,
+            TXT("La placa tiene bebes activos: no se puede formar. Da de alta "
+                "o comprueba la incubadora antes.",
+                "The board has active babies: training is not possible. "
+                "Discharge or check the incubator first.",
+                "La carte a des bebes actifs : formation impossible. Faites "
+                "sortir ou verifiez l'incubateur d'abord."));
+        lv_obj_set_style_text_color(s_confirmStatus, lv_color_hex(0xAA3333), 0);
+      }
+    }
+  } else if ((int32_t)(millis() - s_checkDeadlineMs) > 0) {
+    s_check = CHECK_FAIL;
+    if (s_confirmStatus) {
+      lv_label_set_text(s_confirmStatus,
+                        TXT("Sin respuesta de la placa: no se puede formar.",
+                            "No response from the board: training is not "
+                            "possible.",
+                            "Pas de reponse de la carte : formation "
+                            "impossible."));
+      lv_obj_set_style_text_color(s_confirmStatus, lv_color_hex(0xAA3333), 0);
+    }
+  }
+}
+
 void formatDate(char *out, size_t cap, uint32_t epoch) {
   if (epoch == 0) {
     snprintf(out, cap, "%s", TXT("sin hora", "no time", "sans heure"));
@@ -500,13 +627,20 @@ void showView(View v) {
   if (!s_content) return;
   lv_obj_clean(s_content);
   s_nameTa = nullptr;
+  s_confirmStatus = nullptr;
+  s_confirmBtn = nullptr;
+  if (v != V_CONFIRM) s_check = CHECK_IDLE;
   s_view = v;
-  if ((v == V_CONTINUE || v == V_NAME || v == V_LESSONS) && !s_course) v = V_COURSES;
+  if ((v == V_CONTINUE || v == V_NAME || v == V_LESSONS || v == V_CONFIRM) &&
+      !s_course) {
+    v = V_COURSES;
+  }
   switch (v) {
     case V_COURSES: buildCourses(); break;
     case V_CONTINUE: buildContinue(); break;
     case V_NAME: buildName(); break;
     case V_LESSONS: buildLessons(); break;
+    case V_CONFIRM: buildConfirm(); break;
     case V_CERTS: buildCerts(); break;
     case V_CERT: buildCert(); break;
   }
@@ -566,6 +700,7 @@ void TrainingSelector_Close(void) {
 
 void TrainingSelector_Poll(void) {
   if (!s_open) return;
+  confirmCheckPoll();
   // Mismo criterio que HelpDialog_Poll(): el selector tapa la pantalla
   // principal (y su icono de alarmas) y esta exento del auto-bloqueo, asi que
   // cede ante cualquier alarma, enlace perdido o apagado, y se cierra solo

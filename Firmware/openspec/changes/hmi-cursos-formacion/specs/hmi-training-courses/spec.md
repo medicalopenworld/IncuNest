@@ -40,6 +40,25 @@ persistirse en NVS. Al salir, la HMI SHALL restaurar el estado local previo
 y enviarlo de inmediato a la placa, que SHALL volver al estado que tenía
 (todo apagado si así estaba); ZOE SHALL desaparecer.
 
+#### Scenario: Confirmación de cabina vacía antes de actuar
+- **WHEN** el alumno elige una lección interactiva
+- **THEN** el selector pide a la placa su lista real de bebés activos y
+  muestra un aviso de que la incubadora va a calentar y/o encender la
+  lámpara de verdad
+- **AND** solo si la placa responde sin bebés activos aparece el botón "SI,
+  LA CABINA ESTA VACIA. EMPEZAR"; con bebés activos o sin respuesta en 2,5 s
+  la lección no puede empezar
+- *(Verificación manual en banco: con y sin un bebé real activo en la
+  placa.)*
+
+#### Scenario: Watchdog de la lámpara en formación
+- **WHEN** durante la lección de fototerapia el alumno cancela el
+  temporizador con la lámpara encendida
+- **THEN** la placa recibe igualmente un temporizador de 5 minutos
+  (monitor serie: último campo de la línea `HMI,...` = 5), de modo que un
+  reinicio de la pantalla no dejaría la lámpara encendida sin límite
+- *(Verificación manual en banco con el monitor de la placa.)*
+
 #### Scenario: La consigna llega a la placa y el calefactor actúa
 - **WHEN** el alumno sube la consigna de aire dos pasos en la lección de
   temperatura, con el control encendido

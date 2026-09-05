@@ -96,11 +96,46 @@ que nunca quede en el historial. Eso reparte el sandbox en dos mitades:
   rechazan, `ALM_SILENCE`/`ALM_TEST` salen, cualquier alarma o enlace
   perdido aborta y restaura.
 
-La franja pasa a decir "MODO FORMACION: bebe de practica ZOE, nada se
-registra. La incubadora si actua." El riesgo que se asume es calentar una
-cabina vacía y encender la lámpara sin bebé durante unos minutos, con los
-límites de seguridad de la propia placa vigentes; a cambio el alumno ve la
-incubadora responder de verdad, que es lo que el curso quiere enseñar.
+La franja pasa a decir "FORMACION: LA INCUBADORA CALIENTA E ILUMINA DE
+VERDAD. CABINA VACIA. Bebe de practica ZOE." El riesgo que se asume es
+calentar una cabina vacía y encender la lámpara sin bebé durante unos
+minutos, con los límites de seguridad de la propia placa vigentes; a cambio
+el alumno ve la incubadora responder de verdad, que es lo que el curso
+quiere enseñar.
+
+**Salvaguardas añadidas tras la revisión de seguridad de esta revisión:**
+
+- **El gate de la HMI no puede ver un bebé sin terapia.** Antes de cada
+  lección interactiva el selector pide a la placa su lista **real** de
+  bebés activos (`HMI,PROFILE_LIST_REQ`, con el modo formación aún
+  inactivo) y rechaza la lección si hay alguno o si la placa no contesta en
+  2,5 s; y el alumno tiene que confirmar expresamente "SI, LA CABINA ESTA
+  VACIA" en un diálogo que nombra lo que va a pasar (calentar, encender la
+  lámpara). La confirmación queda en el log.
+- **Watchdog de la lámpara.** Si la HMI se reinicia con la lámpara
+  encendida, la placa mantiene la terapia (`ALARM_HMI_LINK_LOST` no la
+  corta) y solo el temporizador la apaga. En formación la trama de estado
+  nunca sale con fototerapia ON y 0 minutos: se sustituye por
+  `TRAINING_PHOTO_TIMER_MIN` (5 min).
+- **Guarda de restauración.** Las consignas no tienen gracia de eco en
+  `CommTask`; durante `TRAINING_RESTORE_GUARD_MS` (2,5 s) tras salir, un
+  `CTRL,STATE` en vuelo con el estado de la lección no se aplica a la UI.
+  El envío del estado restaurado lo fuerza `CommTask` desde su propia tarea
+  (`Training_TakeForceSend`), sin tocar `shouldSendData` desde la UI.
+- El alta de un bebé real desde Bebés, SIN PESO y SALTAR/BEBE NUEVO del
+  asistente se rechazan con aviso en formación.
+
+**Deuda que este ADR deja explícita en la motherBoard** (fuera de este
+cambio, hay que abrir su propia rama): `CommTask.cpp` de la placa conserva
+`s_wizardSeq` tras un alta (`BABY_MSG_DISCHARGE` solo limpia
+`s_activeSeq`), y en el flanco de terapia ON hace
+`babyStore_setActiveSeq(s_wizardSeq)`: una terapia posterior sin asistente,
+formación incluida, **reactiva y acredita minutos al último bebé dado de
+alta**. La comprobación de "sin bebés activos" mitiga el caso frecuente
+pero no ese. También conviene registrar que las lecciones consumen horas
+reales de lámpara (`KEY_RT_PHOTO`) y que la placa persiste en su NVS la
+consigna de la lección si el control termina apagado (`KEY_CTRL_TEMP` solo
+se reescribe con el control encendido); ambas son notas, no bloqueantes.
 
 ## Consecuencias
 

@@ -4672,11 +4672,13 @@ void UI_Task(void *pvParameters) {
                             ? false
                             : UI_AnyControlActive());
 
-    if (eepromDirty && (millis() - lastVarChangeTime > EEPROM_COMMIT_DELAY)) {
+    // En modo formacion no se persiste nada (ADR-0002): el commit se POSPONE,
+    // no se descarta, para que un cambio real hecho justo antes de la leccion
+    // no se pierda; al salir, los valores restaurados son los que se escriben.
+    if (eepromDirty && !Training_IsActive() &&
+        (millis() - lastVarChangeTime > EEPROM_COMMIT_DELAY)) {
       eepromDirty = false;
-      // En modo formacion los cambios son simulados y se restauran al salir:
-      // no se persisten (ADR-0002).
-      doNVSWrite = !Training_IsActive();
+      doNVSWrite = true;
     }
     // Progreso de los cursos: mismo patron (decidir dentro, escribir fuera).
     const bool doTrainingWrite = TrainingProgress_TakeDirty();

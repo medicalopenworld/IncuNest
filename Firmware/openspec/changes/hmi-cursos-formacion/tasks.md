@@ -203,12 +203,29 @@ Commit real: `feat(hmi): cursos completos de Enfermeria y Tecnico (fases 2 y 3)`
       **ZOE** único en la lista y obligatorio (BEBE NUEVO y SALTAR rechazados
       con aviso), `Training_Exit()` fuerza el envío del estado previo.
       Textos de E1/E2/E3/E4/E6/E7 adaptados. ADR-0002 y spec revisados.
+- [x] 8.9 Review de seguridad de la revisión: confirmación previa de cabina
+      vacía con lista real de bebés activos de la placa (rechazo si hay
+      alguno o no responde), watchdog de lámpara (`TRAINING_PHOTO_TIMER_MIN`),
+      guarda de restauración de 2,5 s en `Display_ApplyCtrlState`, envío
+      forzado desde `CommTask` (`Training_TakeForceSend`), `eepromDirty`
+      pospuesto en vez de descartado, SIN PESO y alta desde Bebés rechazados,
+      nombre de ZOE copiado al seleccionarla, franja con lo peligroso delante.
+      Deuda anotada en la motherBoard (`s_wizardSeq` no se limpia al dar de
+      alta): rama aparte.
 - [ ] 8.7 Banco: cada lección de principio a fin; certificado de Enfermería.
-      Además: la lista del asistente muestra solo a ZOE; BEBE NUEVO y SALTAR
-      dan el aviso; la lámpara se enciende en E4 y se apaga al salir; el
-      calefactor arranca en E1 y se apaga al salir (monitor serie:
-      `actuation` vuelve al valor previo en <1 s); ZOE no aparece en Bebés ni
-      en ThingsBoard.
+      Además: la lista del asistente muestra solo a ZOE; BEBE NUEVO, SALTAR y
+      SIN PESO dan el aviso; el diálogo de confirmación aparece antes de cada
+      lección interactiva y no deja empezar con un bebé activo en la placa;
+      la lámpara se enciende en E4 y se apaga al salir; el calefactor arranca
+      en E1 y se apaga al salir (monitor serie: `actuation` vuelve al valor
+      previo en <1 s, y la consigna restaurada no se revierte en los 2,5 s
+      siguientes); con la lámpara ON y el temporizador cancelado la línea
+      `HMI,...` lleva 5 en el último campo; ZOE no aparece en Bebés ni en
+      ThingsBoard; el diálogo de salida de E7 dice "ZOE".
+- [ ] 8.10 Banco: resetear solo la HMI con fototerapia real activa (fuera de
+      formación) y mirar en el log de la placa si el primer keepalive de la
+      HMI (hmi_msg a ceros) apaga la terapia; si es así, es un bug
+      preexistente de `known_issues.md #4` que hay que abrir aparte.
 
 ## Fase 3 — curso Técnico completo
 

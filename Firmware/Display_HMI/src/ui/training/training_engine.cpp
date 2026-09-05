@@ -225,12 +225,13 @@ void setStripText(const char *txt) {
 const char *modeStripText() {
   switch (s_mode) {
     case MODE_INTERACTIVE:
-      return TXT("MODO FORMACION: bebe de practica ZOE, nada se registra. La "
-                 "incubadora si actua.",
-                 "TRAINING MODE: practice baby ZOE, nothing is recorded. The "
-                 "incubator does act.",
-                 "MODE FORMATION : bebe d'exercice ZOE, rien n'est enregistre. "
-                 "L'incubateur agit.");
+      // Lo peligroso delante y corto, para que quepa sin scroll.
+      return TXT("FORMACION: LA INCUBADORA CALIENTA E ILUMINA DE VERDAD. "
+                 "CABINA VACIA. Bebe de practica ZOE.",
+                 "TRAINING: THE INCUBATOR REALLY HEATS AND LIGHTS UP. EMPTY "
+                 "CABIN. Practice baby ZOE.",
+                 "FORMATION : L'INCUBATEUR CHAUFFE ET ECLAIRE VRAIMENT. "
+                 "HABITACLE VIDE. Bebe d'exercice ZOE.");
     case MODE_DEMO:
       return TXT("DEMOSTRACION: hay terapia o alarma activa, sin cambios en el equipo",
                  "DEMO: therapy or alarm active, nothing changes on the device",

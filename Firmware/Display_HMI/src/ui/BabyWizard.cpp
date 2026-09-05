@@ -325,6 +325,15 @@ void selectExisting(uint32_t seq, uint8_t gest, uint16_t lastWeight) {
   s_seq = seq;
   s_gestWeeks = gest;
   s_weightGrams = lastWeight; // 0 = never recorded -> weight step starts empty
+  // El nombre de la sesion sale de s_name al llegar el ACK; si no se copia
+  // aqui, un bebe existente heredaria el nombre tecleado en un asistente
+  // anterior cancelado (o ninguno).
+  for (int i = 0; i < s_list.count; i++) {
+    if (s_list.items[i].seq == seq) {
+      snprintf(s_name, sizeof(s_name), "%s", s_list.items[i].name);
+      break;
+    }
+  }
   Communication_SendProfileSelect(seq);
   s_step = WizStep::WaitingSelectAck;
   s_deadlineMs = millis() + ACK_TIMEOUT_MS;
@@ -495,7 +504,11 @@ void sendWeightAndWait(uint16_t grams) {
   showLoadingScreen();
 }
 
-void onWeightSkip(lv_event_t *) { sendWeightAndWait(0); }
+void onWeightSkip(lv_event_t *) {
+  // En formacion el peso es parte de la practica (y del rango de ZOE).
+  if (trainingRefuse()) return;
+  sendWeightAndWait(0);
+}
 
 void onWeightContinue(lv_event_t *) {
   uint32_t v = 0;

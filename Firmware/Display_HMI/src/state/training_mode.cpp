@@ -22,6 +22,8 @@ enum SimKind { SIM_NONE = 0, SIM_LIST, SIM_ACK, SIM_RANGE, SIM_TIME_ACK };
 volatile bool s_active = false;
 bool s_exitDialogAllowed = false;
 HMI_Message s_frozen;
+uint32_t s_restoreUntilMs = 0;
+volatile bool s_forceSend = false;
 
 // Bebe de formacion: lo que el asistente ha ido contando, para calcular el
 // rango NTE local igual que haria la placa.
@@ -68,12 +70,25 @@ void Training_Exit(void) {
   // encendio. Con shouldSendData la placa recibe el estado previo en la
   // siguiente vuelta de CommTask (<= 10 ms), no en el siguiente keepalive.
   memcpy(&hmi_msg, &s_frozen, sizeof(hmi_msg));
-  hmi_msg.shouldSendData = true;
+  hmi_msg.shouldSendData = false;
+  s_restoreUntilMs = millis() + TRAINING_RESTORE_GUARD_MS;
   __sync_synchronize();
   s_active = false;
+  s_forceSend = true;  // CommTask lo consume y envia en su siguiente vuelta
   s_simKind = SIM_NONE;
   s_exitDialogAllowed = false;
-  ESP_LOGW(TAG, "MODO FORMACION desactivado");
+  ESP_LOGW(TAG, "MODO FORMACION desactivado: estado previo reenviado a la placa");
+}
+
+bool Training_RestoreGuardActive(void) {
+  return s_restoreUntilMs != 0 &&
+         (int32_t)(millis() - s_restoreUntilMs) < 0;
+}
+
+bool Training_TakeForceSend(void) {
+  if (!s_forceSend) return false;
+  s_forceSend = false;
+  return true;
 }
 
 bool Training_IsActive(void) { return s_active; }

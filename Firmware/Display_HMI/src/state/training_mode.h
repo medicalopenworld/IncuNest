@@ -30,6 +30,24 @@
 #define TRAINING_BABY_GEST_WEEKS 32
 #define TRAINING_BABY_WEIGHT_G 1500
 
+// Watchdog de la lampara en formacion: si la HMI se reinicia o se cuelga con
+// la fototerapia encendida, la placa mantiene la terapia (ALARM_HMI_LINK_LOST
+// no la corta) y solo la apaga el temporizador. En formacion la trama de
+// estado nunca sale con la lampara ON y 0 minutos: se sustituye por este tope.
+#define TRAINING_PHOTO_TIMER_MIN 5
+
+// Tras Exit(), CTRL,STATE de la placa puede llegar todavia con el estado de la
+// leccion (esta en vuelo) y sobrescribir las consignas restauradas, que no
+// tienen gracia de eco en CommTask. Durante esta ventana Display_ApplyCtrlState
+// solo aplica identidad y alarmas.
+#define TRAINING_RESTORE_GUARD_MS 2500u
+bool Training_RestoreGuardActive(void);
+
+// CommTask (su propia tarea): verdadero una sola vez tras Exit(), para forzar
+// el envio del estado restaurado sin tocar hmi_msg.shouldSendData desde la UI
+// (carrera con el envio en curso).
+bool Training_TakeForceSend(void);
+
 // Entra/sale. Solo desde la tarea UI, bajo LVGL_Lock(). Enter toma la
 // instantanea de hmi_msg; Exit la RESTAURA en hmi_msg con shouldSendData para
 // que la placa reciba de inmediato el estado previo (el invariante lo
