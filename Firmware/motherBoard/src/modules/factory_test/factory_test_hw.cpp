@@ -6,15 +6,15 @@
 // ---- Regla: FTEST no hace I2C directo (banco 2026-09-06, tercera ronda) ----
 // No hay mutex de bus I2C en la motherBoard: las transacciones multi-paso de
 // un dispositivo (p.ej. charge_status() sobre el BQ25730) se entrelazan con
-// las de PowerManagement_Task (main.cpp, cada 5 s) y sensors_Task (cada 1
-// ms), que usan el mismo `Wire`. Un cuerpo de test que llame directamente a
+// las de sensors_Task (main.cpp: bucle de 1 ms que ademas refresca el BQ25730
+// cada 5 s), que usa el mismo `Wire`. Un cuerpo de test que llame directamente a
 // esas funciones puede ver un ACK falso o quedarse esperando una respuesta
 // que nunca llega -- exactamente lo que le pasaba a CHARGER con la placa a
 // bateria (se quedaba en RUNNING para siempre) y lo que hacia FALLAR
 // SKIN_ADC/EXT_SHT4X/el sondeo de generacion de SENSORBOARD con hardware
 // sano. La regla: los cuerpos de esta bateria leen el estado que YA
-// mantienen las tareas duenas del bus (sensors_Task, PowerManagement_Task),
-// nunca hacen su propia transaccion I2C. Las UNICAS excepciones son
+// mantiene la tarea duena del bus (sensors_Task), siempre con un sello de
+// frescura ademas del valor, y nunca hacen su propia transaccion I2C. Las UNICAS excepciones son
 // `actuatorsTest()` y `testStandByCurrent()` (ya eran asi antes de esta
 // ronda y funcionaron en banco -- no se tocan). Un cuerpo bloqueado dentro de
 // una de esas dos llamadas no cooperativas no lo cubre la cota por test
@@ -104,17 +104,20 @@ static FtestStatus ftest_standby(char *detail, FtestCascade *) {
 
 // ---------------------------------------------------------------------------
 // 3: CHARGER -- NO hace I2C (regla de cabecera). Con la placa a bateria,
-// llamar aqui a charge_status() competia con PowerManagement_Task
-// (main.cpp:284, cada 5 s) sobre el mismo Wire y el test se quedaba en
-// RUNNING para siempre. En su lugar espera a que PowerManagement_Task
-// refresque g_bq_status_valid (hasta 12 s); que el BQ25730 conteste ya
-// demuestra que el bus I2C1 y el chip estan bien -- no exige VBUS ni carga
-// activa, que con la placa a bateria nunca los habria.
+// llamar aqui a charge_status() competia con sensors_Task (main.cpp, refresco
+// del BQ25730 cada 5 s) sobre el mismo Wire y el test se quedaba en RUNNING
+// para siempre. En su lugar espera a que sensors_Task refresque
+// g_bq_status_valid con un sello g_bq_status_ms de menos de 12 s (un `true`
+// rancio de una tarea parada no vale); que el BQ25730 conteste ya demuestra
+// que el bus I2C1 y el chip estan bien -- no exige VBUS ni carga activa, que
+// con la placa a bateria nunca los habria.
 #define FTEST_CHARGER_TIMEOUT_MS 12000u
 static FtestStatus ftest_charger(char *detail, FtestCascade *) {
   const uint32_t start = millis();
   while ((uint32_t)(millis() - start) < FTEST_CHARGER_TIMEOUT_MS) {
-    if (g_bq_status_valid) {
+    const bool fresh =
+        (uint32_t)(millis() - g_bq_status_ms) < FTEST_CHARGER_TIMEOUT_MS;
+    if (g_bq_status_valid && fresh) {
       D("vb=%dmV vs=%dmV %s", (int)g_bq_status.vbat_mv,
         (int)g_bq_status.vsys_mv, g_bq_status.ac_present ? "ac" : "bat");
       return FTEST_PASS;

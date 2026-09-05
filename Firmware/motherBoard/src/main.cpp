@@ -254,6 +254,9 @@ void GPRS_Task(void *pvParameters) {
 
 BQ25730_Status g_bq_status      = {};
 bool           g_bq_status_valid = false;
+// millis() del ultimo refresco con exito: el test de fabrica exige frescura
+// ademas del flag, porque un `true` sin sello sobreviviria a una tarea parada.
+uint32_t       g_bq_status_ms    = 0;
 void sensors_Task(void *pvParameters) {
   for (;;) {
     fanSpeedHandler();
@@ -282,6 +285,7 @@ void sensors_Task(void *pvParameters) {
       static long ichg_low_since    = 0;
       if (chargerPresent && millis() - lastChargerUpdate > 5000) {
         g_bq_status_valid = charge_status(&g_bq_status);
+        if (g_bq_status_valid) g_bq_status_ms = millis();
         lastChargerUpdate = millis();
         // Detecta transición ausente→presente del adaptador y reinicializa el
         // chip: algunos BQ25xxx pierden VINDPM/IIN al re-detectar VBUS, así que
