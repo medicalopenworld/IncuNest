@@ -159,8 +159,8 @@ desde `Comm_Task`.
 
 ### Requirement: Resumen, reintento y salida
 
-Mientras la batería avanza (tests locales o de motherBoard, sin haber
-terminado aún) la pantalla SHALL mostrar, abajo del todo de la tarjeta, una
+La pantalla SHALL mostrar, abajo del todo de la tarjeta y mientras la batería
+avanza (tests locales o de motherBoard, sin haber terminado aún), una
 barra de progreso horizontal (`lv_bar`) con el cociente de tests terminales
 (PASA, FALLA, AVISO o SKIP — SKIP cuenta como terminado) sobre los tests
 esperados (tests locales activos + `FTEST_MB_COUNT`), y junto a ella el
