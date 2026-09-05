@@ -21,45 +21,62 @@ la interfaz (el recorrido pasivo existente).
 - **AND** "Nuevo alumno" borra el progreso de ese curso tras confirmar
 - *(Verificación manual en banco.)*
 
-### Requirement: Modo formación — la incubadora no recibe órdenes durante una lección interactiva
+### Requirement: Modo formación — la incubadora actúa de verdad, el bebé es virtual
 
 Mientras una lección interactiva esté en curso, la HMI SHALL estar en modo
-formación: `CommTask` NO SHALL enviar a la motherBoard ningún cambio de
-estado ni petición de perfil ni de hora; SHALL seguir enviando el keepalive
-con la instantánea de `hmi_msg` tomada al entrar; y NO SHALL aplicar a la
-UI ni a `hmi_msg` el `CTRL,STATE` recibido (sí a `ctrl_state_msg`, y sí la
-identidad, las etiquetas y el bitmask de alarmas). Las órdenes al sistema
-de alarmas (`ALM_SILENCE`, `ALM_TEST`) SHALL seguir saliendo: no son
-terapia y no deben quedar mudas. Los botones de conexión WiFi SHALL
-rechazarse con un aviso durante la lección. Las respuestas que esperan los asistentes
-(`BabyWizard`, `BabyExitDialog`, `TimeDialog`) SHALL simularse localmente
-con los mismos flags que pone el parser. Nada cambiado durante la lección
-SHALL persistirse en NVS. Al salir, la HMI SHALL restaurar el estado local
-previo y volver a aplicar el estado de la placa.
+formación. La **actuación SHALL ser real**: consignas, toggles y fototerapia
+se envían a la motherBoard como en operación normal y el `CTRL,STATE` se
+aplica a la UI (calefactor y lámpara se encienden de verdad, con la cabina
+vacía por el gate clínico). El **bebé SHALL ser virtual**: la lista de
+perfiles del asistente SHALL contener un único bebé de prácticas, ZOE
+(`seq 0xFFFF`), el asistente SHALL rechazar BEBE NUEVO y SALTAR con un
+aviso, y selección, peso y edad SHALL contestarse en local con los mismos
+flags que pone el parser. `CommTask` NO SHALL enviar a la motherBoard
+ninguna trama de perfil (nuevo, selección, peso, edad, alta, canguro) ni de
+hora ni de credenciales WiFi. Las órdenes al sistema de alarmas
+(`ALM_SILENCE`, `ALM_TEST`) SHALL seguir saliendo. Los botones de conexión
+WiFi SHALL rechazarse con un aviso. Nada cambiado durante la lección SHALL
+persistirse en NVS. Al salir, la HMI SHALL restaurar el estado local previo
+y enviarlo de inmediato a la placa, que SHALL volver al estado que tenía
+(todo apagado si así estaba); ZOE SHALL desaparecer.
 
-#### Scenario: Subir la consigna en una lección no toca la placa
+#### Scenario: La consigna llega a la placa y el calefactor actúa
 - **WHEN** el alumno sube la consigna de aire dos pasos en la lección de
-  temperatura
+  temperatura, con el control encendido
 - **THEN** la pantalla muestra la consigna nueva
-- **AND** la motherBoard sigue recibiendo la consigna anterior (monitor
-  serie de la placa: `desiredAirTemperature` sin cambios) y su calefactor no
-  se activa
+- **AND** la motherBoard recibe la consigna nueva (monitor serie:
+  `desiredAirTemperature` cambia) y el calefactor arranca sobre la cabina
+  vacía
 - *(Verificación manual en banco con la placa conectada, sin bebé.)*
 
-#### Scenario: Dar de alta a un bebé en formación no crea registro
-- **WHEN** el alumno completa el asistente de alta (nombre, semanas, peso,
-  edad, APLICAR) dentro de la lección
-- **THEN** el asistente avanza con normalidad y termina
-- **AND** la motherBoard no recibe `HMI,PROFILE_NEW` ni ninguna trama de
-  perfil, y en ThingsBoard no aparece ningún `baby_seq` nuevo
+#### Scenario: La fototerapia se enciende de verdad
+- **WHEN** el alumno confirma la protección ocular en la lección de
+  fototerapia
+- **THEN** la lámpara se enciende y la cuenta atrás corre en pantalla
+- **AND** al terminar la lección la lámpara se apaga sola
+- *(Verificación manual en banco.)*
+
+#### Scenario: Solo se puede practicar con ZOE
+- **WHEN** el asistente del bebé se abre durante una lección
+- **THEN** la lista muestra únicamente "ZOE - EG 32 sem - 1500 g"
+- **AND** BEBE NUEVO y SALTAR responden con el aviso "En formacion,
+  selecciona a ZOE" sin avanzar
+- **AND** seleccionar ZOE lleva al peso, la edad, el rango propuesto y
+  APLICAR como con un bebé real
+- *(Verificación manual en banco.)*
+
+#### Scenario: ZOE no queda en ningún registro
+- **WHEN** el alumno completa el asistente con ZOE y termina la lección
+- **THEN** la motherBoard no recibe `HMI,PROFILE_*` (monitor serie), Bebés
+  no muestra a ZOE y en ThingsBoard no aparece ningún `baby_seq` nuevo
 - *(Verificación manual en banco con la consola de ThingsBoard.)*
 
 #### Scenario: Al salir todo vuelve a como estaba
-- **WHEN** el alumno sale de una lección a mitad, con la consigna cambiada y
-  el asistente de alta abierto
-- **THEN** el asistente se cierra, la consigna vuelve al valor previo, los
-  toggles vuelven a su estado previo y ningún valor cambiado queda en NVS
-- **AND** en menos de 2 s la pantalla vuelve a reflejar el `CTRL,STATE` real
+- **WHEN** el alumno sale de una lección a mitad, con el control encendido,
+  la consigna cambiada y el asistente abierto
+- **THEN** el asistente se cierra, consigna y toggles vuelven a su estado
+  previo, la placa recibe ese estado en menos de 1 s y apaga lo que la
+  lección encendió, y ningún valor cambiado queda en NVS
 - *(Verificación manual en banco.)*
 
 ### Requirement: Gate clínico y aborto

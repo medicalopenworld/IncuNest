@@ -220,9 +220,11 @@ void Communication_SendBootInfo(void) {
 
 void Communication_SendWiFiCredentials(const char *ssid, const char *password) {
 #if IS_HMI
-  // Modo formacion (ADR-0002): la placa no recibe nada que cambie su estado.
-  // Las funciones que siguen, hasta SendMessageToOtherESP(), o se tragan la
-  // orden o la sustituyen por una respuesta simulada de training_mode.cpp.
+  // Modo formacion (ADR-0002): el bebe y todo lo que se REGISTRA (perfil,
+  // hora, credenciales) se virtualiza: las funciones que siguen, hasta
+  // SendMessageToOtherESP(), o se tragan la orden o la sustituyen por una
+  // respuesta simulada de training_mode.cpp. La actuacion (linea de estado)
+  // si es real.
   if (Training_IsActive()) return;
   COMM_SERIAL.printf("HMI,WIFI,%s,%s\n", ssid, password);
 #endif
@@ -245,9 +247,9 @@ void Communication_SendProfileNew(const char *name, uint8_t gestWeeks) {
 
 void Communication_SendProfileSelect(uint32_t seq) {
 #if IS_HMI
-  // En formacion la lista llega vacia, asi que no deberia pedirse; si pasa
-  // (atajo de sesion viva), se contesta como a un bebe nuevo.
-  if (Training_IsActive()) { Training_SimProfileNew("", 0); return; }
+  // En formacion la lista trae solo a ZOE (TRAINING_BABY_SEQ): seleccionarla
+  // se contesta en local con su ACK.
+  if (Training_IsActive()) { Training_SimProfileSelect(seq); return; }
   COMM_SERIAL.printf("HMI,PROFILE_SELECT,%u\n", (unsigned)seq);
 #endif
 }
@@ -342,10 +344,13 @@ void Communication_SendWeightHistoryReq(uint32_t seq) {
 
 static void SendMessageToOtherESP() {
 #if IS_HMI
-  // Modo formacion (ADR-0002): el keepalive sigue saliendo (si no, la placa
-  // declararia ALARM_HMI_LINK_LOST) pero con la instantanea tomada al entrar,
-  // no con el hmi_msg vivo que el alumno esta cambiando en pantalla.
-  const HMI_Message &m = Training_IsActive() ? Training_FrozenHmiMsg() : hmi_msg;
+  // Modo formacion (ADR-0002, revisado 2026-09-05): la ACTUACION es real
+  // tambien en formacion (la lampara y el calefactor se encienden de verdad,
+  // con la incubadora vacia por el gate clinico); lo que se virtualiza es el
+  // bebe (ZOE) y su registro. Por eso aqui va el hmi_msg vivo. Al salir de la
+  // leccion, Training_Exit() restaura hmi_msg y fuerza un envio para que la
+  // placa vuelva al estado previo.
+  const HMI_Message &m = hmi_msg;
   COMM_SERIAL.printf(
       "HMI,%d,%d,%d,%0.2f,%0.2f,%0.0f,%d,%d,%d,%d\n", m.actuation,
       (int)m.skinModeEnabled, m.controlMode,
@@ -1000,14 +1005,9 @@ bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
     return false;
   LVGL_Lock();
 
-  // Modo formacion (ADR-0002): el estado de control de la placa NO se aplica a
-  // la UI ni a hmi_msg (la pantalla esta simulando); si se aplican identidad,
-  // etiquetas y alarmas. ctrl_state_msg ya lo actualizo el llamador.
-  if (Training_IsActive()) {
-    applyCtrlStateInfoAndAlarms(st);
-    LVGL_Unlock();
-    return true;
-  }
+  // Modo formacion (ADR-0002, revisado): la actuacion es real, asi que el
+  // CTRL,STATE se aplica igual que en operacion normal. Solo el perfil del
+  // bebe (ZOE) es virtual, y eso no viaja en esta trama.
   // Effective values: within LOCAL_CMD_ECHO_GRACE_MS of a local change, trust
   // the pending local value instead of this frame's echo (see the guard
   // comment above hmi_msg's declaration for why).

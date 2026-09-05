@@ -1,37 +1,46 @@
 #pragma once
-// Modo formacion (spec hmi-training-courses, ADR-0002).
+// Modo formacion (spec hmi-training-courses, ADR-0002 revisado 2026-09-05).
 //
-// Mientras esta activo, la HMI se comporta con normalidad pero la incubadora
-// no se entera: CommTask sigue mandando el keepalive con la instantanea de
-// hmi_msg tomada al entrar, no envia ningun cambio de estado ni peticion que
-// modifique algo en la placa, y no aplica el CTRL,STATE recibido a la UI. Los
-// asistentes que esperan respuesta de la placa la reciben simulada aqui, con
-// los mismos flags g_pending* que pondria el parser.
+// Mientras esta activo, la HMI se comporta con normalidad y la ACTUACION es
+// real: la lampara de fototerapia y el calefactor se encienden de verdad
+// (con la incubadora vacia: el gate clinico exige que no haya terapia ni bebe
+// real). Lo que se virtualiza es el bebe y todo lo que se REGISTRA:
+//   - El asistente ve un unico bebe de practica, ZOE (TRAINING_BABY_SEQ), y
+//     obliga a elegirla (BEBE NUEVO y SALTAR se rechazan). Sus peticiones de
+//     perfil (lista, seleccion, peso, edad) y la hora se contestan en local
+//     con los mismos flags g_pending* que pondria el parser; alta, salida,
+//     canguro y credenciales WiFi se tragan. ZOE nunca llega a la placa ni al
+//     historial ni a ThingsBoard.
+//   - Nada cambiado en formacion se persiste en NVS.
+//   - Al salir, Training_Exit() restaura hmi_msg desde la instantanea tomada
+//     al entrar y fuerza un envio: la placa vuelve al estado previo (todo
+//     apagado si asi estaba).
 //
-// Es el interruptor unico del sandbox: si algun dia la motherBoard debe saber
-// que hay formacion (opcion B del ADR), se anade desde aqui.
+// Es el interruptor unico del modo: si algun dia la motherBoard debe saber que
+// hay formacion, se anade desde aqui.
 #include <stdbool.h>
 #include <stdint.h>
 
 #include "CommTask.h"
 
-// seq del bebe de formacion en las respuestas simuladas. No coincide con
-// ningun seq real (la placa numera desde 1) y se limpia al salir.
+// Bebe de practica. seq fuera del rango real (la placa numera desde 1); se
+// limpia al salir con BabyWizard_ClearActiveProfile().
 #define TRAINING_BABY_SEQ 0xFFFFu
+#define TRAINING_BABY_NAME "ZOE"
+#define TRAINING_BABY_GEST_WEEKS 32
+#define TRAINING_BABY_WEIGHT_G 1500
 
 // Entra/sale. Solo desde la tarea UI, bajo LVGL_Lock(). Enter toma la
-// instantanea de hmi_msg; Exit RESTAURA hmi_msg desde esa instantanea (el
-// invariante "al salir la placa recibe lo que tenia" lo garantiza este modulo,
-// no el llamador) y descarta las respuestas simuladas pendientes. El estado de
-// la UI (consignas, switches, idioma) lo restaura el llamador con
-// UI_RestoreControlSnapshot() ANTES de llamar a Exit. La gracia de eco de
-// CommTask no se toca: al detectar la restauracion protege 2,5 s unos valores
-// que son exactamente los que tiene la placa.
+// instantanea de hmi_msg; Exit la RESTAURA en hmi_msg con shouldSendData para
+// que la placa reciba de inmediato el estado previo (el invariante lo
+// garantiza este modulo, no el llamador). El estado de la UI (consignas,
+// switches, idioma) lo restaura el llamador con UI_RestoreControlSnapshot()
+// ANTES de llamar a Exit.
 void Training_Enter(void);
 void Training_Exit(void);
 bool Training_IsActive(void);
 
-// Lo que CommTask manda como keepalive mientras dura la formacion.
+// Instantanea de hmi_msg tomada al entrar (lo que la placa tenia).
 const HMI_Message &Training_FrozenHmiMsg(void);
 
 // El dialogo de salida del bebe (BabyExitDialog) no se abre en formacion
@@ -44,6 +53,7 @@ bool Training_ExitDialogAllowed(void);
 // Cada una programa una respuesta local con un pequeno retardo (como la placa
 // real) que Training_ServiceReplies() entrega poniendo los g_pending*.
 void Training_SimProfileListReq(void);
+void Training_SimProfileSelect(uint32_t seq);
 void Training_SimProfileNew(const char *name, uint8_t gestWeeks);
 void Training_SimProfileWeight(uint32_t seq, uint16_t grams);
 void Training_SimProfileAgeManual(uint32_t seq, uint16_t ageDays);

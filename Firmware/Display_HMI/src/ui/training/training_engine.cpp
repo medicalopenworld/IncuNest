@@ -225,9 +225,12 @@ void setStripText(const char *txt) {
 const char *modeStripText() {
   switch (s_mode) {
     case MODE_INTERACTIVE:
-      return TXT("MODO FORMACION: la incubadora no recibe ordenes",
-                 "TRAINING MODE: the incubator receives no commands",
-                 "MODE FORMATION : l'incubateur ne recoit aucun ordre");
+      return TXT("MODO FORMACION: bebe de practica ZOE, nada se registra. La "
+                 "incubadora si actua.",
+                 "TRAINING MODE: practice baby ZOE, nothing is recorded. The "
+                 "incubator does act.",
+                 "MODE FORMATION : bebe d'exercice ZOE, rien n'est enregistre. "
+                 "L'incubateur agit.");
     case MODE_DEMO:
       return TXT("DEMOSTRACION: hay terapia o alarma activa, sin cambios en el equipo",
                  "DEMO: therapy or alarm active, nothing changes on the device",
@@ -275,8 +278,8 @@ void endLesson(bool passed, bool aborted) {
   closeAllDialogs();
   if (mode == MODE_INTERACTIVE) {
     // Orden: UI (switches en silencio + UI_SyncAll) -> Training_Exit, que
-    // restaura hmi_msg desde la instantanea y baja el flag. A partir de aqui
-    // el siguiente CTRL,STATE vuelve a mandar.
+    // restaura hmi_msg desde la instantanea, fuerza su envio (la placa apaga
+    // lo que la leccion encendio) y baja el flag.
     UI_RestoreControlSnapshot(&s_snap);
     Training_Exit();
     // El seq de formacion (0xFFFF) no debe sobrevivir a la leccion.

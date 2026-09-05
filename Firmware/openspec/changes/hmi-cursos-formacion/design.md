@@ -56,6 +56,18 @@ fijan el diseño (mapa del 2026-09-04):
 
 ### 1. Modo formación en el lado HMI del protocolo (ADR-0002)
 
+> **Revisado 2026-09-05** (petición del usuario: lecciones funcionales con
+> un bebé de prácticas). La actuación es **real**: `SendMessageToOtherESP()`
+> envía el `hmi_msg` vivo y `Display_ApplyCtrlState()` se aplica entero; la
+> lámpara y el calefactor se encienden con la cabina vacía (gate clínico).
+> El **bebé es virtual**: la lista trae solo a **ZOE** (`0xFFFF`, 32 sem,
+> 1500 g), el asistente rechaza BEBE NUEVO y SALTAR (`trainingRefuse()` en
+> `BabyWizard.cpp`), y selección / peso / edad se contestan en local. Alta,
+> salida, canguro, hora y WiFi siguen sin salir. Al salir, `Training_Exit()`
+> restaura `hmi_msg` **y fuerza su envío** para que la placa apague lo que
+> la lección encendió. Los párrafos siguientes describen la primera versión
+> (sin actuación) y se conservan como historia de la decisión.
+
 **Opciones**: (a) actuar de verdad y restaurar al salir; (b) flag de
 formación en el protocolo para que la motherBoard no actúe (toca `shared/`
 y ambas placas); (c) demostración pasiva para todo lo que toque actuadores;

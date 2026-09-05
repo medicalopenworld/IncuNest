@@ -6,6 +6,7 @@
 #include "CommTask.h"
 #include "UITask.h"
 #include "main.h"
+#include "state/training_mode.h"
 #include "ui.h"
 
 // --- Shared state owned by UITask.cpp (same pattern CommTask.cpp uses) ---
@@ -330,7 +331,19 @@ void selectExisting(uint32_t seq, uint8_t gest, uint16_t lastWeight) {
   showLoadingScreen();
 }
 
+// En formacion (hmi-training-courses) el unico bebe es ZOE, de practica: ni
+// BEBE NUEVO ni SALTAR. Asi el alumno practica siempre la seleccion y nunca
+// se crea un perfil (aunque en formacion tampoco llegaria a la placa).
+bool trainingRefuse() {
+  if (!Training_IsActive()) return false;
+  UI_ShowToast(TXT("En formacion, selecciona a ZOE",
+                   "In training, select ZOE", "En formation, selectionnez ZOE"),
+               2500);
+  return true;
+}
+
 void onNewBabyClicked(lv_event_t *) {
+  if (trainingRefuse()) return;
   s_name[0] = '\0';
   showNameScreen();
   s_step = WizStep::EnterName;
@@ -598,7 +611,10 @@ void onApplyClicked(lv_event_t *) { finishWizard(true); }
 
 // SKIP, available on every step: abandon data collection and go straight to
 // manual control.
-void onSkipClicked(lv_event_t *) { finishWizard(false); }
+void onSkipClicked(lv_event_t *) {
+  if (trainingRefuse()) return;
+  finishWizard(false);
+}
 
 void showSummaryScreen() {
   clearContent();

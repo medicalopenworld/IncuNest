@@ -1,6 +1,7 @@
 # ADR-0002: El modo formación se implementa en el lado HMI del protocolo, sin que la motherBoard lo sepa
 
-- **Estado**: aceptado
+- **Estado**: aceptado (revisado 2026-09-05: la actuación pasa a ser real y
+  el bebé se virtualiza como ZOE, ver "Revisión")
 - **Fecha**: 2026-09-04
 - **Placas afectadas**: Display_HMI
 - **Cambio OpenSpec**: `openspec/changes/hmi-cursos-formacion`
@@ -68,6 +69,38 @@ Se combina con un **gate clínico** (sin terapia activa, sin alarma, con
 enlace, sin perfil activo, sin apagado en curso) y una franja fija
 "MODO FORMACION" en pantalla: el sandbox evita que la incubadora cambie; el
 gate evita que se tape el estado real con un bebé dentro.
+
+## Revisión 2026-09-05: actuación real, bebé virtual
+
+El usuario pidió que las lecciones de temperatura y fototerapia sean
+**funcionales**: que la lámpara y el calefactor se enciendan de verdad, y
+que el alumno practique siempre con un bebé de prácticas llamado **ZOE**
+que nunca quede en el historial. Eso reparte el sandbox en dos mitades:
+
+- **Actuación real.** `SendMessageToOtherESP()` vuelve a enviar el
+  `hmi_msg` vivo y `Display_ApplyCtrlState()` se aplica entero también en
+  formación. La incubadora responde a consignas, toggles y fototerapia como
+  en operación normal. Lo hace posible el gate clínico (sin terapia activa,
+  sin alarma, con enlace, sin perfil real, sin apagado): la cabina está
+  vacía. Al salir, `Training_Exit()` restaura `hmi_msg` desde la
+  instantánea y fuerza el envío: la placa vuelve al estado previo (todo
+  apagado si así estaba) en la siguiente vuelta de `CommTask`.
+- **Bebé virtual.** La lista de perfiles en formación trae un único bebé,
+  ZOE (`TRAINING_BABY_SEQ = 0xFFFF`, 32 semanas, 1500 g), y el asistente
+  rechaza BEBE NUEVO y SALTAR con un aviso: el alumno tiene que
+  seleccionarla. Selección, peso y edad se contestan en local (rango NTE con
+  la misma función pura que la placa); alta, salida, canguro, hora y
+  credenciales siguen sin salir. ZOE nunca llega a la placa, al historial ni
+  a ThingsBoard; `BabyWizard_ClearActiveProfile()` la borra al salir.
+- **Lo que no cambia**: nada persiste en NVS, los botones de red se
+  rechazan, `ALM_SILENCE`/`ALM_TEST` salen, cualquier alarma o enlace
+  perdido aborta y restaura.
+
+La franja pasa a decir "MODO FORMACION: bebe de practica ZOE, nada se
+registra. La incubadora si actua." El riesgo que se asume es calentar una
+cabina vacía y encender la lámpara sin bebé durante unos minutos, con los
+límites de seguridad de la propia placa vigentes; a cambio el alumno ve la
+incubadora responder de verdad, que es lo que el curso quiere enseñar.
 
 ## Consecuencias
 

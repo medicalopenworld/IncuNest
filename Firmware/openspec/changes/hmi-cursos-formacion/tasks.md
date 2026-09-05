@@ -198,7 +198,17 @@ Commit real: `feat(hmi): cursos completos de Enfermeria y Tecnico (fases 2 y 3)`
       libre; `Training_OpenSelector` no anida con lección abierta). Si una
       lección termina con la pantalla bloqueada de verdad, se respeta y el
       selector no se reabre hasta volver a la principal.
+- [x] 8.8 Revisión 2026-09-05 (petición del usuario): actuación real en
+      formación (la lámpara y el calefactor se encienden), bebé de prácticas
+      **ZOE** único en la lista y obligatorio (BEBE NUEVO y SALTAR rechazados
+      con aviso), `Training_Exit()` fuerza el envío del estado previo.
+      Textos de E1/E2/E3/E4/E6/E7 adaptados. ADR-0002 y spec revisados.
 - [ ] 8.7 Banco: cada lección de principio a fin; certificado de Enfermería.
+      Además: la lista del asistente muestra solo a ZOE; BEBE NUEVO y SALTAR
+      dan el aviso; la lámpara se enciende en E4 y se apaga al salir; el
+      calefactor arranca en E1 y se apaga al salir (monitor serie:
+      `actuation` vuelve al valor previo en <1 s); ZOE no aparece en Bebés ni
+      en ThingsBoard.
 
 ## Fase 3 — curso Técnico completo
 

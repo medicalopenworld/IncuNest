@@ -64,12 +64,11 @@ bool Training_ExitDialogAllowed(void) { return s_exitDialogAllowed; }
 void Training_Exit(void) {
   if (!s_active) return;
   // La restauracion de hmi_msg vive AQUI, junto al flag, y no en el llamador:
-  // asi ningun camino de salida puede dejar en hmi_msg lo que toco el alumno
-  // (seria la unica ruta posible del sandbox a un actuador). Mientras
-  // s_active siga en alto, CommTask sigue leyendo s_frozen, asi que la copia
-  // es segura; despues de bajarlo lee hmi_msg, que ya es identica.
+  // asi ningun camino de salida puede dejar encendido lo que el alumno
+  // encendio. Con shouldSendData la placa recibe el estado previo en la
+  // siguiente vuelta de CommTask (<= 10 ms), no en el siguiente keepalive.
   memcpy(&hmi_msg, &s_frozen, sizeof(hmi_msg));
-  hmi_msg.shouldSendData = false;
+  hmi_msg.shouldSendData = true;
   __sync_synchronize();
   s_active = false;
   s_simKind = SIM_NONE;
@@ -87,9 +86,18 @@ const HMI_Message &Training_FrozenHmiMsg(void) { return s_frozen; }
 // alguna de esas respuestas, cambiar aqui tambien.
 
 void Training_SimProfileListReq(void) {
-  // Lista vacia: en formacion nunca se selecciona un bebe real, y asi el
-  // asistente va directo a "nuevo bebe".
+  // Lista con un unico bebe: ZOE. Asi el alumno practica la seleccion de un
+  // bebe existente y nunca ve ni toca uno real.
   schedule(SIM_LIST);
+}
+
+void Training_SimProfileSelect(uint32_t seq) {
+  (void)seq;
+  s_gestWeeks = TRAINING_BABY_GEST_WEEKS;
+  s_weightGrams = TRAINING_BABY_WEIGHT_G;
+  s_ageDays = 0;
+  s_ageKnown = false;
+  schedule(SIM_ACK);
 }
 
 void Training_SimProfileNew(const char *name, uint8_t gestWeeks) {
@@ -126,10 +134,17 @@ void Training_ServiceReplies(void) {
   s_simKind = SIM_NONE;
 
   switch (kind) {
-    case SIM_LIST:
-      g_profileList.count = 0;
+    case SIM_LIST: {
+      BabyProfileListItem &z = g_profileList.items[0];
+      memset(&z, 0, sizeof(z));
+      z.seq = TRAINING_BABY_SEQ;
+      strncpy(z.name, TRAINING_BABY_NAME, sizeof(z.name) - 1);
+      z.gestWeeks = TRAINING_BABY_GEST_WEEKS;
+      z.weightGrams = TRAINING_BABY_WEIGHT_G;
+      g_profileList.count = 1;
       g_pendingProfileList = true;
       break;
+    }
     case SIM_ACK:
       g_profileAck = TRAINING_BABY_SEQ;
       g_pendingProfileAck = true;

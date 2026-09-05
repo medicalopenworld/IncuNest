@@ -103,13 +103,12 @@ bool goalAlarmCenterClosed() { return !AlarmCenter_IsOpen(); }
 // Bebes
 bool goalBabyHistoryOpen() { return BabyHistory_IsOpen(); }
 bool goalBabyHistoryClosed() { return !BabyHistory_IsOpen(); }
-// Se acepta tambien SALTAR (seq 0): si no, un alumno que repite el gesto que
-// acaba de aprender en E1 dejaria el paso sin objetivo alcanzable. El texto
-// del paso le pide expresamente NUEVO BEBE.
+// En formacion el asistente solo ofrece a ZOE y rechaza BEBE NUEVO y SALTAR
+// (BabyWizard::trainingRefuse), asi que el unico camino que enciende el
+// control deja seq = TRAINING_BABY_SEQ.
 bool goalTrainingBabyAdmitted() {
-  const uint32_t seq = BabyWizard_GetActiveSeq();
   return snap().switchTemp && !BabyWizard_IsOpen() &&
-         (seq == TRAINING_BABY_SEQ || seq == 0);
+         BabyWizard_GetActiveSeq() == TRAINING_BABY_SEQ;
 }
 // Salida: el dialogo se permite solo en este paso, y el objetivo es haberlo
 // visto abierto y despues cerrado con el control apagado.
@@ -167,15 +166,15 @@ const Quiz QUIZ_E1 = {
 
 const Step E1_STEPS[] = {
     EXPLAIN(&ui_TempCont, &ui_ScreenMain,
-            "Vamos a encender el control de temperatura por aire. La "
-            "incubadora esta en modo formacion: lo que hagas no llega a la "
-            "placa. Las medidas que ves si son reales.",
-            "Let's turn on air temperature control. The incubator is in "
-            "training mode: nothing you do reaches the board. The readings "
-            "you see are real.",
-            "Allumons le controle de temperature par air. L'incubateur est en "
-            "mode formation : rien n'atteint la carte. Les mesures affichees "
-            "sont reelles."),
+            "Vamos a encender el control de temperatura por aire. Estamos en "
+            "modo formacion: la incubadora actua de verdad, pero el bebe ZOE "
+            "es de practica y nada queda registrado.",
+            "Let's turn on air temperature control. We are in training mode: "
+            "the incubator really acts, but baby ZOE is a practice baby and "
+            "nothing is recorded.",
+            "Allumons le controle de temperature par air. Nous sommes en mode "
+            "formation : l'incubateur agit vraiment, mais le bebe ZOE est un "
+            "bebe d'exercice et rien n'est enregistre."),
     DO(&ui_TempToggleBtn, &ui_ScreenMain, goalWizardOpen,
        "Toca el boton de encendido del control de temperatura. Se abrira el "
        "asistente de datos del bebe.",
@@ -184,15 +183,15 @@ const Step E1_STEPS[] = {
        "Touchez le bouton de mise en marche du controle de temperature. "
        "L'assistant des donnees du bebe va s'ouvrir."),
     FREE(&ui_ScreenMain, goalTempOn,
-         "Asistente del bebe: pulsa NUEVO BEBE y rellena nombre, semanas, "
-         "peso y edad, o pulsa SALTAR para arrancar en manual. Al terminar, "
-         "el control queda encendido.",
-         "Baby assistant: press NEW BABY and fill in name, weeks, weight and "
-         "age, or press SKIP to start in manual. When done, the control is "
-         "on.",
-         "Assistant bebe : appuyez sur NOUVEAU BEBE et remplissez nom, "
-         "semaines, poids et age, ou SAUTER pour demarrer en manuel. A la "
-         "fin, le controle est allume."),
+         "Asistente del bebe: selecciona a ZOE en la lista, introduce su "
+         "peso en gramos y sus dias de vida, lee la temperatura propuesta y "
+         "pulsa APLICAR. El control queda encendido.",
+         "Baby assistant: select ZOE in the list, enter her weight in grams "
+         "and days of life, read the proposed temperature and press APPLY. "
+         "The control turns on.",
+         "Assistant bebe : selectionnez ZOE dans la liste, saisissez son poids "
+         "en grammes et ses jours de vie, lisez la temperature proposee et "
+         "APPLIQUER. Le controle s'allume."),
     EXPLAIN(&ui_AirPanel, &ui_ScreenMain,
             "El control ha quedado en AIRE: regula por la temperatura de la "
             "cabina. PIEL usa la sonda sobre el bebe y solo esta disponible "
@@ -213,13 +212,13 @@ const Step E1_STEPS[] = {
     EXPLAIN(&ui_AirPanel, &ui_ScreenMain,
             "La cifra grande es la temperatura medida ahora; la pequena junto "
             "a las flechas es tu consigna. La incubadora calienta hasta "
-            "igualarlas. Aqui nada cambia porque estamos en formacion.",
+            "igualarlas: fijate en la barra de potencia del calefactor.",
             "The big figure is the temperature measured now; the small one "
             "next to the arrows is your setpoint. The incubator heats until "
-            "they match. Nothing changes here because we are in training.",
+            "they match: watch the heater power bar.",
             "Le grand chiffre est la temperature mesuree ; le petit pres des "
             "fleches est votre consigne. L'incubateur chauffe jusqu'a les "
-            "egaler. Ici rien ne change : nous sommes en formation."),
+            "egaler : observez la barre de puissance du chauffage."),
     DO(&ui_TempToggleBtn, &ui_ScreenMain, goalTempOff,
        "Apaga el control de temperatura con el mismo boton.",
        "Turn temperature control off with the same button.",
@@ -283,9 +282,9 @@ const Step E2_STEPS[] = {
        "Turn temperature control on.",
        "Allumez le controle de temperature."),
     FREE(&ui_ScreenMain, goalTempOn,
-         "Completa el asistente del bebe o pulsa SALTAR.",
-         "Complete the baby assistant or press SKIP.",
-         "Completez l'assistant bebe ou appuyez sur SAUTER."),
+         "Selecciona a ZOE, introduce peso y dias de vida y pulsa APLICAR.",
+         "Select ZOE, enter weight and days of life and press APPLY.",
+         "Selectionnez ZOE, saisissez poids et jours de vie et APPLIQUER."),
     DO(&ui_SkinPanel, &ui_ScreenMain, goalSkinSelectedOrNoProbe,
        "Toca PIEL para regular por la temperatura del bebe. Sin sonda este "
        "paso se salta.",
@@ -366,19 +365,17 @@ const Step E3_STEPS[] = {
             "Controle d'humidite. Le grand chiffre est l'humidite mesuree ; "
             "le petit, votre consigne."),
     DO(&ui_HumToggleBtn, &ui_ScreenMain, goalHumOnOrWizard,
-       "Toca el boton de encendido de la humedad. Si no hay bebe "
-       "identificado, se abrira el asistente.",
-       "Touch the humidity power button. If no baby is identified, the "
-       "assistant will open.",
-       "Touchez le bouton de mise en marche de l'humidite. Sans bebe "
-       "identifie, l'assistant s'ouvre."),
+       "Toca el boton de encendido de la humedad. Se abrira el asistente "
+       "para identificar al bebe.",
+       "Touch the humidity power button. The assistant opens to identify the "
+       "baby.",
+       "Touchez le bouton de mise en marche de l'humidite. L'assistant "
+       "s'ouvre pour identifier le bebe."),
     FREE(&ui_ScreenMain, goalHumOn,
-         "Completa el asistente del bebe (nombre y semanas) o pulsa SALTAR. "
-         "Al terminar, la humedad queda encendida.",
-         "Complete the baby assistant (name and weeks) or press SKIP. When "
-         "done, humidity is on.",
-         "Completez l'assistant bebe (nom et semaines) ou SAUTER. A la fin, "
-         "l'humidite est allumee."),
+         "Selecciona a ZOE en la lista. Al terminar, la humedad queda "
+         "encendida.",
+         "Select ZOE in the list. When done, humidity is on.",
+         "Selectionnez ZOE dans la liste. A la fin, l'humidite est allumee."),
     DO_ENTER(&ui_ArrowUpHum, &ui_ScreenMain, goalHumUp, enterHumBase,
              "Sube la consigna de humedad un paso con la flecha (5 % cada "
              "toque).",
@@ -440,12 +437,14 @@ const Step E4_STEPS[] = {
        "Touch the phototherapy power button.",
        "Touchez le bouton de mise en marche de la phototherapie."),
     FREE(&ui_ScreenMain, goalPhotoOn,
-         "Completa el asistente del bebe o pulsa SALTAR. Despues, en el aviso "
-         "de proteccion ocular, confirma que los ojos estan cubiertos.",
-         "Complete the baby assistant or press SKIP. Then, in the eye "
-         "protection notice, confirm the eyes are covered.",
-         "Completez l'assistant bebe ou SAUTER. Puis, dans l'avis de "
-         "protection oculaire, confirmez que les yeux sont couverts."),
+         "Selecciona a ZOE en la lista. Despues, en el aviso de proteccion "
+         "ocular, confirma que los ojos estan cubiertos: la lampara se "
+         "encendera de verdad.",
+         "Select ZOE in the list. Then, in the eye protection notice, confirm "
+         "the eyes are covered: the lamp will really switch on.",
+         "Selectionnez ZOE dans la liste. Puis, dans l'avis de protection "
+         "oculaire, confirmez que les yeux sont couverts : la lampe "
+         "s'allumera vraiment."),
     DO_ENTER(&ui_PhotoTimePlusBtn, &ui_ScreenMain, goalPhotoMinUp,
              enterPhotoBase,
              "Sube los minutos del temporizador con el +.",
@@ -579,14 +578,14 @@ const Quiz QUIZ_E6 = {
 const Step E6_STEPS[] = {
     EXPLAIN(&ui_BabiesButton, &ui_ScreenMain,
             "Cada bebe tiene su registro: nombre, semanas, pesos, horas de "
-            "terapia y salidas. Se crea al encender una terapia por primera "
-            "vez, con el asistente.",
+            "terapia y salidas. Se crea con BEBE NUEVO al encender una terapia "
+            "por primera vez. En formacion practicaras con ZOE, ya creada.",
             "Each baby has a record: name, weeks, weights, therapy hours and "
-            "exits. It is created when a therapy is first switched on, with "
-            "the assistant.",
+            "exits. It is created with NEW BABY when a therapy is first "
+            "switched on. In training you practise with ZOE, already created.",
             "Chaque bebe a son dossier : nom, semaines, poids, heures de "
-            "therapie et sorties. Il se cree a la premiere mise en marche "
-            "d'une therapie, avec l'assistant."),
+            "therapie et sorties. Il se cree avec NOUVEAU BEBE a la premiere "
+            "therapie. En formation vous pratiquez avec ZOE, deja creee."),
     DO(&ui_BabiesButton, &ui_ScreenMain, goalBabyHistoryOpen,
        "Toca Bebes para ver los registros. Dentro veras el bebe activo, los "
        "ya dados de alta y la curva de peso de cada uno. Cierra con la X al "
@@ -607,15 +606,15 @@ const Step E6_STEPS[] = {
        "Admettons maintenant un bebe d'exercice. Allumez le controle de "
        "temperature pour ouvrir l'assistant."),
     FREE(&ui_ScreenMain, goalTrainingBabyAdmitted,
-         "Pulsa NUEVO BEBE (no SALTAR). Rellena nombre, semanas, peso en "
-         "gramos y dias de vida. Lee la temperatura propuesta y pulsa "
-         "APLICAR. En formacion no se guarda nada.",
-         "Press NEW BABY (not SKIP). Fill in name, weeks, weight in grams and "
-         "days of life. Read the proposed temperature and press APPLY. In "
-         "training nothing is saved.",
-         "Appuyez sur NOUVEAU BEBE (pas SAUTER). Remplissez nom, semaines, "
-         "poids en grammes et jours de vie. Lisez la temperature proposee et "
-         "APPLIQUER. En formation rien n'est enregistre."),
+         "Selecciona a ZOE. Introduce su peso de hoy en gramos y sus dias de "
+         "vida: asi se registra un peso nuevo. Lee la temperatura propuesta y "
+         "pulsa APLICAR. ZOE no se guarda en el historial.",
+         "Select ZOE. Enter today's weight in grams and her days of life: "
+         "that is how a new weight is recorded. Read the proposed temperature "
+         "and press APPLY. ZOE is not saved to the history.",
+         "Selectionnez ZOE. Saisissez son poids du jour en grammes et ses "
+         "jours de vie : c'est ainsi qu'un poids s'enregistre. Lisez la "
+         "temperature proposee et APPLIQUER. ZOE n'est pas gardee."),
     EXPLAIN(&ui_AirPanel, &ui_ScreenMain,
             "La consigna propuesta sale del rango de temperatura neutra para "
             "ese peso y edad. Puedes ajustarla con las flechas si el medico "
@@ -684,9 +683,9 @@ const Step E7_STEPS[] = {
        "Il nous faut d'abord un bebe d'exercice : allumez le controle de "
        "temperature et completez l'assistant."),
     FREE(&ui_ScreenMain, goalTrainingBabyAdmitted,
-         "NUEVO BEBE (no SALTAR), nombre, semanas, peso, edad, APLICAR.",
-         "NEW BABY (not SKIP), name, weeks, weight, age, APPLY.",
-         "NOUVEAU BEBE (pas SAUTER), nom, semaines, poids, age, APPLIQUER."),
+         "Selecciona a ZOE, introduce peso y dias de vida y pulsa APLICAR.",
+         "Select ZOE, enter weight and days of life and press APPLY.",
+         "Selectionnez ZOE, saisissez poids et jours de vie et APPLIQUER."),
     // Paso libre y no "hacer" sobre el toggle: el dialogo de salida cuelga de
     // ui_ScreenMain, por debajo del overlay, y con sombras no se podria tocar.
     FREE_ENTER(&ui_ScreenMain, goalExitDone, enterExitStep,

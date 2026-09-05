@@ -114,6 +114,27 @@ el tope, un paso previo que lo habilite, o aceptar la alternativa y pedir
 la buena en el texto. Dos revisores distintos lo encontraron por caminos
 distintos; vale como criterio de revisión de lecciones (añadido a la regla).
 
+### 7. El sandbox total no era lo que el usuario quería (decisión de producto, 2026-09-05)
+
+Con los cursos completos, el usuario pidió lecciones **funcionales**: que
+la lámpara y el calefactor se enciendan de verdad, y un bebé de prácticas
+fijo (ZOE) obligatorio en el asistente que nunca quede en el historial. El
+ADR-0002 original virtualizaba la actuación; la revisión la hace real y
+virtualiza solo el bebé y los registros. El cambio fue pequeño porque el
+interruptor estaba centralizado (`training_mode.cpp` + gates en
+`CommTask`): quitar dos gates, forzar el envío al salir y rellenar la lista
+con ZOE.
+
+**Descartado como regla**: es la segunda vez en este proyecto que una
+decisión de alcance del design se recorta o gira al final (la primera fue
+el contacto por ThingsBoard). La regla que saldría ("confirmar las
+decisiones de arquitectura del design con el usuario antes de implementar,
+incluso en `auto`") ya se anotó en la retro anterior como candidata a la
+segunda ocurrencia. **Ahora es la segunda**: se propone en
+`Firmware/.claude/skills/loop-modes` un gate ligero en `auto` para las
+decisiones marcadas como "Decisions" en el design.md. No se aplica en esta
+retro porque tocar el skill de modalidades merece revisión humana.
+
 ## Pendiente que hereda la fase 2
 
 - Migrar los `TXT(es,en,fr)` / `Txt3` de la ayuda y los cursos al catálogo

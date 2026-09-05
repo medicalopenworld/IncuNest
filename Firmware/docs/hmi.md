@@ -79,26 +79,26 @@ The heading `?` button (see §1) opens a modal help menu (`HelpDialog`,
      and frame and folds the bubble into the bottom strip with just the
      instruction and EXIT.
    - **Training mode** (`training_mode.{h,cpp}`, `src/state/`): while an
-     *interactive* lesson runs, `CommTask` freezes the motherBoard link —
-     the periodic keepalive keeps going out so the link isn't declared lost,
-     but with the `hmi_msg` snapshot taken when the lesson started, not the
-     live one the student is changing on screen; it stops sending any baby
-     profile or time-set request (alarm silence and alarm test still go out:
-     they act on the alarm system, not on therapy, and must never be muted),
-     and instead answers the waiting assistants (`BabyWizard`, `BabyExitDialog`,
-     `TimeDialog`) with **simulated responses** built locally (empty profile
-     list, a fake ACK with `seq 0xFFFF`, the NTE range computed with the
-     same `shared/include/nte_table.h` the board uses, a `TIME_ACK`) after a
-     short delay, so the assistants behave exactly as with a real board.
-     `Display_ApplyCtrlState()` keeps updating identity, firmware-version
-     labels and the alarm bitmask from the board's `CTRL,STATE`, but does
-     **not** apply the rest of it (setpoints, switches, modes) to the UI.
-     Nothing changed during the lesson is written to NVS, and the WiFi
-     CONNECT / DISCONNECT buttons are refused with a toast while training.
-     Leaving the lesson (SALIR, an abort, or finishing it) restores the local
-     snapshot (setpoints, panel, switches, dark mode, humidity, language,
-     phototherapy), then `Training_Exit()` restores `hmi_msg` from the frozen
-     snapshot and lets the next real `CTRL,STATE` take over again.
+     *interactive* lesson runs, **actuation is real** — setpoints, toggles and
+     phototherapy go to the motherBoard as in normal operation and the
+     heater and lamp really switch on (the cabin is empty: the clinical gate
+     requires no active therapy and no real baby) — but the **baby is
+     virtual**: the assistant's profile list contains a single practice baby,
+     **ZOE** (`seq 0xFFFF`, 32 weeks, 1500 g), NEW BABY and SKIP are refused
+     with a toast so the student must select her, and selection / weight /
+     age are answered locally (the NTE range uses the same
+     `shared/include/nte_table.h` the board uses). `CommTask` never sends any
+     profile frame (new, select, weight, age, discharge, kangaroo), time-set
+     or WiFi credentials during a lesson, so ZOE never reaches the board, the
+     history or ThingsBoard; alarm silence and alarm test still go out (they
+     act on the alarm system, not on therapy). Nothing changed during the
+     lesson is written to NVS, and the WiFi CONNECT / DISCONNECT buttons are
+     refused with a toast. Leaving the lesson (SALIR, an abort, or finishing
+     it) restores the local snapshot (setpoints, panel, switches, dark mode,
+     humidity, language, phototherapy), then `Training_Exit()` restores
+     `hmi_msg` from the snapshot taken on entry **and forces its send**, so
+     the board switches off whatever the lesson switched on within one
+     `CommTask` tick; `BabyWizard_ClearActiveProfile()` drops ZOE.
    - **Clinical gate and demonstration**: an interactive lesson only starts
      in training mode if there is no therapy currently active
      (`UI_AnyControlActive()`), no active alarm, the board link is up, no
