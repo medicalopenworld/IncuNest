@@ -6,7 +6,6 @@
 
 #include "CommTask.h"
 #include "UITask.h"
-#include "buzzer.h"
 #include "factory_test.h"
 #include "main.h"
 #include "ui.h"
@@ -25,17 +24,34 @@ const char *TXT(const char *es, const char *en, const char *fr) {
 // Tabla de tests locales (design.md D9 / spec hmi-factory-test), en el orden
 // exacto en el que se ejecutan. shared-factory-test-bench retira PANEL y
 // TOUCH de esta secuencia (feedback de banco: alargaban la bateria sin
-// aportar en la linea de montaje). Sus IDs siguen vivos en factory_test.h,
-// esta placa simplemente ya no los usa. kLocalCount YA NO coincide con
-// FTEST_HMI_END - FTEST_HMI_BASE (esa cuenta, de la tabla compartida, sigue
-// siendo 9).
+// aportar en la linea de montaje); shared-factory-test-bench2 retira BUZZER
+// y SPEAKER (el jig actual no puede verificarlos). Sus IDs siguen vivos en
+// factory_test.h, esta placa simplemente ya no los usa. kLocalCount YA NO
+// coincide con FTEST_HMI_END - FTEST_HMI_BASE (esa cuenta, de la tabla
+// compartida, sigue siendo 9).
 constexpr FtestId kLocalOrder[] = {
-    FTEST_HMI_SYSINFO, FTEST_HMI_I2C,     FTEST_HMI_BUZZER,
-    FTEST_HMI_SPEAKER, FTEST_HMI_WIFI,    FTEST_HMI_NVS,
-    FTEST_HMI_LINK,
+    FTEST_HMI_SYSINFO, FTEST_HMI_I2C, FTEST_HMI_WIFI,
+    FTEST_HMI_NVS,      FTEST_HMI_LINK,
 };
 constexpr int kLocalCount = sizeof(kLocalOrder) / sizeof(kLocalOrder[0]);
 constexpr int kMaxRows = kLocalCount + (int)FTEST_MB_COUNT;
+// Tests esperados en la bateria completa (barra de progreso, D5): los
+// locales activos (kLocalCount) mas la tabla de motherBoard entera. SKIP
+// cuenta como terminado, igual que PASA/FALLA/AVISO.
+constexpr int kExpectedTotal = kLocalCount + (int)FTEST_MB_COUNT;
+// Vigilancia por fila (hallazgo del banco 2026-09-06): si una fila de
+// motherBoard lleva mas de esto en RUNNING/WAIT/CONFIRM sin cambiar de
+// estado, el display la marca FALLA "timeout". La motherBoard ya tiene su
+// propia cota de 90 s por test y deberia emitir FAIL "timeout" antes; esta
+// es la red de seguridad del display si la placa se cuelga en ese test.
+constexpr uint32_t FTEST_ROW_TIMEOUT_MS = 100000;
+// Paginacion de la cuadricula (feedback de banco: el scroll no se maneja
+// bien con guantes). 3 columnas x 3 filas por pagina: con la barra de
+// progreso y el veredicto abajo del todo, es lo que cabe en la tarjeta sin
+// scroll (ver FactoryTest_Init()).
+constexpr int kPageCols = 3;
+constexpr int kPageRowsPerPage = 3;
+constexpr int kPageCapacity = kPageCols * kPageRowsPerPage;
 
 // ---------------------------------------------------------------------------
 // Estado de una fila (local o de motherBoard). Direccion estable mientras
@@ -60,12 +76,16 @@ struct RowData {
   lv_obj_t   *titleLbl;
   lv_obj_t   *wordLbl;
   bool        dirty;
+  // Ultima vez (millis()) que status cambio de verdad. Solo lo consulta
+  // checkRowTimeouts() para las filas de motherBoard en RUNNING/WAIT/CONFIRM
+  // (vigilancia por fila, FTEST_ROW_TIMEOUT_MS).
+  uint32_t    lastChangeMs;
 };
 
 RowData s_rows[kMaxRows];
 int     s_rowCount = 0;
-int     s_lastTouchedRow = -1;  // para lv_obj_scroll_to_view()
-int     s_prevTouchedRow = -1;  // fila ya centrada: evita re-scrollear igual
+int     s_lastTouchedRow = -1;  // fila "en curso" a seguir con la paginacion
+int     s_prevTouchedRow = -1;  // ultima fila en curso ya seguida
 
 // Orden de pintado de la cuadricula (indices en s_rows), recalculado SOLO
 // cuando algun estado cambia (feedback de banco: reordenar en cada pasada
@@ -80,6 +100,16 @@ int  s_prevOrder[kMaxRows];
 int  s_prevOrderCount = 0;
 bool s_rowsDirty = true;
 
+// Paginacion de la cuadricula (feedback de banco 2026-09-06): sin scroll,
+// paginas de kPageCapacity botones. s_currentPage indexa sobre s_order (solo
+// filas visibles, ya ordenadas). s_pageFollowsTest sigue la fila en curso
+// (s_lastTouchedRow) salvo que el operario haya paginado a mano con < / >;
+// vuelve a seguir en el siguiente cambio de test (ver renderAll()).
+int  s_currentPage = 0;
+int  s_prevAppliedPage = -1;
+bool s_pageFollowsTest = true;
+int  s_pendingPageDelta = 0;  // hand-off de los botones < / > (hallazgo 4)
+
 enum class Step {
   Closed,
   Gate,
@@ -89,8 +119,10 @@ enum class Step {
   Summary,
 };
 
-enum class LocalPhase { None, Buzzer, Speaker, Wifi };
-enum class AskKind { None, Buzzer, Speaker };
+// Buzzer/Speaker retirados de la secuencia local (shared-factory-test-bench2:
+// el jig actual no puede verificarlos): la unica fase con contenido propio en
+// la zona de accion es Wifi (escaneo).
+enum class LocalPhase { None, Wifi };
 
 // Respuesta si/no pendiente de resolver en FactoryTest_Poll(). Los callbacks
 // de LVGL (dispatch de evento) solo escriben aqui: nunca resuelven en el
@@ -100,7 +132,6 @@ enum class Answer { None, Yes, No };
 
 Step       s_step = Step::Closed;
 LocalPhase s_localPhase = LocalPhase::None;
-AskKind    s_askKind = AskKind::None;
 int        s_localIdx = 0;
 bool       s_retryMode = false;
 uint32_t   s_deadlineMs = 0;
@@ -114,11 +145,10 @@ bool     s_mbLinkLost = false;
 unsigned s_mbPass = 0, s_mbFail = 0, s_mbSkip = 0, s_mbWarn = 0;
 unsigned s_remoteConfirmAnsweredRowId = FTEST_ID_NONE;
 
-// Hand-off de UI (hallazgo 4): todo boton (Si/No local, Si/No confirmacion
-// remota, Reintentar, Salir, Si/No de la barrera de entrada, abrir/cerrar el
-// panel de detalle) solo marca aqui su intencion. Poll() la consume en la
+// Hand-off de UI (hallazgo 4): todo boton (Si/No confirmacion remota,
+// Reintentar, Salir, Si/No de la barrera de entrada, abrir/cerrar el panel
+// de detalle, paginar) solo marca aqui su intencion. Poll() la consume en la
 // siguiente pasada, fuera de cualquier despacho de evento LVGL.
-Answer    s_pendingLocalAsk = Answer::None;
 Answer    s_pendingRemoteConfirm = Answer::None;
 RowData  *s_pendingRemoteConfirmRow = nullptr;
 RowData  *s_pendingRetryRow = nullptr;
@@ -127,8 +157,6 @@ Answer    s_pendingGateAnswer = Answer::None;
 RowData  *s_pendingDetailRow = nullptr;  // fila cuyo detalle se pide abrir
 bool      s_pendingDetailClose = false;
 
-constexpr uint32_t TONE_MS = 300;
-constexpr uint32_t LOCAL_ASK_TIMEOUT_MS = 60000;
 constexpr uint32_t WIFI_SCAN_TIMEOUT_MS = 15000;
 // Hallazgo 5: sin ningun CTRL,FTEST* durante este tiempo en RemoteRunning se
 // asume enlace perdido. Hallazgo 6: tope de inactividad en Summary, mismo
@@ -141,8 +169,18 @@ lv_obj_t *s_overlay = nullptr;
 lv_obj_t *s_card = nullptr;
 lv_obj_t *s_titleLbl = nullptr;
 lv_obj_t *s_exitBtnLabel = nullptr;
-lv_obj_t *s_body = nullptr;    // cuadricula de botones, scroll vertical
+lv_obj_t *s_body = nullptr;    // cuadricula de botones, paginada (sin scroll)
 lv_obj_t *s_action = nullptr;  // instruccion / pregunta / resumen
+
+// Paginacion (D5): fila de navegacion bajo la cuadricula.
+lv_obj_t *s_pageBackBtn = nullptr;
+lv_obj_t *s_pageNextBtn = nullptr;
+lv_obj_t *s_pageLabel = nullptr;
+
+// Barra de progreso y veredicto (D5), abajo del todo de la tarjeta.
+lv_obj_t *s_progressBar = nullptr;
+lv_obj_t *s_verdictBox = nullptr;
+lv_obj_t *s_verdictLabel = nullptr;
 
 lv_obj_t *s_detailPanel = nullptr;  // panel de detalle modal, o nullptr
 RowData  *s_detailRow = nullptr;    // fila cuyo detalle esta abierto
@@ -154,7 +192,6 @@ void beginLocalTest();
 void beginLocalSequence();
 void finishLocal(FtestStatus st, const char *detail);
 void renderAll();
-void resolveAsk(bool yes);
 void goSummary();
 void startRemote();
 void markMbPendingAsLinkLost();
@@ -173,21 +210,6 @@ lv_obj_t *makeBtn(lv_obj_t *parent, const char *text, lv_event_cb_t cb,
   return btn;
 }
 
-// Zumbador del display: STC8H1K28 @ I2C_ADDR_BACKLIGHT (buzzer.h ya expone
-// buzzerOn()/buzzerOff() con el mismo comando). El altavoz es el MISMO chip,
-// comando distinto (I2C_CMD_SPEAKER_*): no hay driver propio, se manda aqui
-// igual que lo hace AudioManager.cpp.
-void speakerOn() {
-  Wire.beginTransmission((uint8_t)I2C_ADDR_BACKLIGHT);
-  Wire.write(I2C_CMD_SPEAKER_ON);
-  Wire.endTransmission();
-}
-void speakerOff() {
-  Wire.beginTransmission((uint8_t)I2C_ADDR_BACKLIGHT);
-  Wire.write(I2C_CMD_SPEAKER_OFF);
-  Wire.endTransmission();
-}
-
 // ---------------------------------------------------------------------------
 // Nombres, descripciones e instrucciones traducidos. ftest_id_key() (shared/)
 // es el fallback para un id de motherBoard que esta version del display
@@ -197,8 +219,6 @@ const char *localTestName(unsigned id) {
   switch (id) {
     case FTEST_HMI_SYSINFO: return TXT("Info sistema", "System info", "Info systeme");
     case FTEST_HMI_I2C:     return TXT("Bus I2C", "I2C bus", "Bus I2C");
-    case FTEST_HMI_BUZZER:  return TXT("Zumbador", "Buzzer", "Buzzer");
-    case FTEST_HMI_SPEAKER: return TXT("Altavoz", "Speaker", "Haut-parleur");
     case FTEST_HMI_WIFI:    return TXT("WiFi", "WiFi", "WiFi");
     case FTEST_HMI_NVS:     return TXT("Memoria NVS", "NVS memory", "Memoire NVS");
     case FTEST_HMI_LINK:    return TXT("Enlace placa", "Board link", "Liaison carte");
@@ -218,12 +238,6 @@ const char *localTestDesc(unsigned id) {
       return TXT("Bus I2C del display (tactil y retroiluminacion)",
                  "Display I2C bus (touch and backlight)",
                  "Bus I2C de l'ecran (tactile et retroeclairage)");
-    case FTEST_HMI_BUZZER:
-      return TXT("Zumbador del display", "Display buzzer",
-                 "Buzzer de l'ecran");
-    case FTEST_HMI_SPEAKER:
-      return TXT("Altavoz del display", "Display speaker",
-                 "Haut-parleur de l'ecran");
     case FTEST_HMI_WIFI:
       return TXT("Conexion WiFi del display", "Display WiFi connection",
                  "Connexion WiFi de l'ecran");
@@ -245,8 +259,7 @@ const char *mbTestName(unsigned id) {
     case FTEST_MB_CHARGER:     return TXT("Cargador", "Charger", "Chargeur");
     case FTEST_MB_POWER_SRC:   return TXT("Fuente alimentacion", "Power source", "Source alimentation");
     case FTEST_MB_SKIN_ADC:    return TXT("Sonda piel", "Skin probe", "Sonde peau");
-    case FTEST_MB_EXT_SHT4X:   return TXT("Sensor ambiente", "Ambient sensor", "Capteur ambiant");
-    case FTEST_MB_SENSORBOARD: return TXT("Sensor cabina", "Cabin sensor", "Capteur cabine");
+    case FTEST_MB_ENV_SENSOR:  return TXT("Sensor ambiental", "Ambient sensor", "Capteur ambiant");
     case FTEST_MB_SB_STATUS:   return TXT("Estado SensorBoard", "SensorBoard status", "Etat SensorBoard");
     case FTEST_MB_SB_ENV:      return TXT("Ambiente SensorBoard", "SensorBoard env", "Environnement SensorBoard");
     case FTEST_MB_SB_DOOR:     return TXT("Puerta", "Door", "Porte");
@@ -296,14 +309,12 @@ const char *mbTestDesc(unsigned id) {
     case FTEST_MB_SKIN_ADC:
       return TXT("Lectura de la sonda de piel", "Skin probe reading",
                  "Lecture de la sonde de peau");
-    case FTEST_MB_EXT_SHT4X:
-      return TXT("Sensor de temperatura y humedad ambiente",
-                 "Ambient temperature and humidity sensor",
-                 "Capteur de temperature et humidite ambiante");
-    case FTEST_MB_SENSORBOARD:
-      return TXT("Sensor de cabina por USB o I2C",
-                 "Cabin sensor over USB or I2C",
-                 "Capteur de cabine par USB ou I2C");
+    case FTEST_MB_ENV_SENSOR:
+      return TXT(
+          "SensorBoard por USB, sensores I2C2 o SHT4x exterior: cualquiera vale",
+          "SensorBoard over USB, I2C2 sensors or external SHT4x: either works",
+          "SensorBoard par USB, capteurs I2C2 ou SHT4x exterieur : l'un des "
+          "deux suffit");
     case FTEST_MB_SB_STATUS:
       return TXT("Estado general del SensorBoard",
                  "SensorBoard overall status",
@@ -428,19 +439,9 @@ const char *gateWarningText() {
       "seront allumes en boucle ouverte. Continuer ?");
 }
 
-const char *currentAskQuestion() {
-  switch (s_askKind) {
-    case AskKind::Buzzer:
-      return TXT("Se ha oido el zumbador del display?",
-                 "Did you hear the display buzzer?",
-                 "Avez-vous entendu le buzzer de l'ecran ?");
-    case AskKind::Speaker:
-      return TXT("Se ha oido el altavoz del display?",
-                 "Did you hear the display speaker?",
-                 "Avez-vous entendu le haut-parleur de l'ecran ?");
-    default:
-      return "";
-  }
+// Indicador de paginacion (D5): "Pagina i/n".
+const char *pageIndicatorFmt() {
+  return TXT("Pagina %d/%d", "Page %d/%d", "Page %d/%d");
 }
 
 // ---------------------------------------------------------------------------
@@ -471,13 +472,33 @@ int bucketOf(const RowData &r) {
   }
 }
 
-void gridColors(const RowData &r, lv_color_t *fill, lv_color_t *border) {
-  switch (bucketOf(r)) {
-    case 0: *fill = lv_color_hex(0xFFE0E4); *border = lv_color_hex(0xD5283C); break;
-    case 1: *fill = lv_color_hex(0xFFF0D6); *border = lv_color_hex(0xC98A00); break;
-    case 3: *fill = lv_color_hex(0xDFF3FF); *border = lv_color_hex(0x2196C4); break;
-    default: *fill = lv_color_hex(0xFFFFFF); *border = lv_color_hex(0x0B2E4F); break;
+// Codigo de color unico de la pantalla (feedback de banco): blanco = en
+// curso/testeando, verde = OK, amarillo = aviso, rojo = error. Lo comparten
+// los botones de la cuadricula (gridColors()), el panel de detalle
+// (buildDetailPanel()) y el veredicto (renderVerdictAndProgress()).
+void colorsForBucket(int bucket, lv_color_t *fill, lv_color_t *border) {
+  switch (bucket) {
+    case 0: *fill = lv_color_hex(0xFFE0E4); *border = lv_color_hex(0xD5283C); break;  // rojo/error
+    case 1: *fill = lv_color_hex(0xFFF0D6); *border = lv_color_hex(0xC98A00); break;  // amarillo/aviso
+    case 3: *fill = lv_color_hex(0xDFF3E4); *border = lv_color_hex(0x1B7F3B); break;  // verde/OK
+    default: *fill = lv_color_hex(0xFFFFFF); *border = lv_color_hex(0x0B2E4F); break; // blanco/en curso
   }
+}
+
+void gridColors(const RowData &r, lv_color_t *fill, lv_color_t *border) {
+  colorsForBucket(bucketOf(r), fill, border);
+}
+
+// Veredicto de la bateria (D5): HW ERROR si hay al menos un FALLA (local o de
+// motherBoard) o si la placa quedo sin soporte, fue rechazada o perdio el
+// enlace a mitad de bateria; HW OK en cualquier otro caso. Los AVISOS no
+// cuentan. Mismo criterio para el veredicto en pantalla
+// (renderVerdictAndProgress()) y su persistencia (persistResults()).
+bool computeHwError() {
+  for (int i = 0; i < s_rowCount; i++) {
+    if (s_rows[i].started && s_rows[i].status == FTEST_FAIL) return true;
+  }
+  return s_mbUnsupported || s_mbRejected || s_mbLinkLost;
 }
 
 // ---------------------------------------------------------------------------
@@ -502,6 +523,7 @@ int mbRowIndex(unsigned id) {
   s_rows[i].btn = nullptr;
   s_rows[i].titleLbl = nullptr;
   s_rows[i].wordLbl = nullptr;
+  s_rows[i].lastChangeMs = millis();
   // Fila nueva: createRowButton() la crea desde renderAll() con su primer
   // evento (hallazgo de code review: "se anaden dinamicamente").
   s_rows[i].dirty = true;
@@ -548,14 +570,8 @@ void renderCenteredText(const char *text) {
   lv_obj_center(lbl);
 }
 
-// Hand-off puro (hallazgo 4): resolveAsk() encadena con finishLocal(), que
-// puede llegar a runI2c()/runNvs()/persistResults() (sueltan LVGL_Lock()) y a
-// renderAll() -> lv_obj_clean(s_action), que destruiria el boton que esta
-// despachando este mismo evento. Poll() es quien llama a resolveAsk().
-void onAskYesCb(lv_event_t *) { s_pendingLocalAsk = Answer::Yes; }
-void onAskNoCb(lv_event_t *) { s_pendingLocalAsk = Answer::No; }
-
-// Idem: Communication_SendFtestConfirm() + renderAll() se difieren a Poll().
+// Hand-off puro (hallazgo 4): Communication_SendFtestConfirm() + renderAll()
+// se difieren a Poll().
 void onRemoteConfirmYes(lv_event_t *e) {
   auto *row = (RowData *)lv_event_get_user_data(e);
   if (!row) return;
@@ -600,10 +616,6 @@ void renderGateAction() {
 }
 
 void renderLocalAction() {
-  if (s_askKind != AskKind::None) {
-    renderAskUi(currentAskQuestion(), onAskYesCb, onAskNoCb, nullptr);
-    return;
-  }
   switch (s_localPhase) {
     case LocalPhase::Wifi:
       renderCenteredText(TXT("Buscando redes WiFi...",
@@ -611,8 +623,7 @@ void renderLocalAction() {
                              "Recherche de reseaux WiFi..."));
       break;
     default:
-      break;  // Buzzer/Speaker (tono) y tests instantaneos: sin contenido en
-              // la zona de accion mientras corren.
+      break;  // Tests instantaneos: sin contenido en la zona de accion.
   }
 }
 
@@ -706,6 +717,41 @@ void computeOrder() {
     }
   }
 }
+
+// Numero de paginas de la cuadricula (D5): al menos 1 aunque s_orderCount
+// sea 0 (recien abierta la pantalla, antes de computeOrder()).
+int pageCount() {
+  if (s_orderCount <= 0) return 1;
+  return (s_orderCount + kPageCapacity - 1) / kPageCapacity;
+}
+
+// Aplica al conjunto de botones YA creados el hidden/visible que corresponde
+// a s_currentPage, sin tocar el orden. Se llama solo cuando el orden o la
+// pagina cambiaron de verdad (mismo gateo anti-churn que orderChanged(),
+// design.md D4): togglear LV_OBJ_FLAG_HIDDEN en cada pasada invalidaria el
+// layout sin necesidad. Las filas en SKIP no estan en s_order: su hidden lo
+// pone updateRowButton(), esta funcion no las toca.
+void applyPageVisibility() {
+  const int pages = pageCount();
+  if (s_currentPage >= pages) s_currentPage = pages - 1;
+  if (s_currentPage < 0) s_currentPage = 0;
+  const int start = s_currentPage * kPageCapacity;
+  const int end = start + kPageCapacity;
+  for (int k = 0; k < s_orderCount; k++) {
+    lv_obj_t *btn = s_rows[s_order[k]].btn;
+    if (!btn) continue;
+    if (k >= start && k < end) {
+      lv_obj_clear_flag(btn, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(btn, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+}
+
+// Hand-off de los botones < / > (hallazgo 4): paginar es una mutacion de
+// estado de UI, se resuelve en Poll() como el resto.
+void onPageBackCb(lv_event_t *) { s_pendingPageDelta = -1; }
+void onPageNextCb(lv_event_t *) { s_pendingPageDelta = 1; }
 
 // Hand-off puro (hallazgo 4): abrir el panel de detalle se resuelve en
 // Poll(), nunca en el despacho de este click.
@@ -806,9 +852,9 @@ bool remoteNeedsAttention() {
 }
 
 // Hallazgo de code review: el panel de detalle no debe abrirse si ya hay una
-// pregunta Si/No pendiente de resolver (local o remota) — la taparia.
+// pregunta Si/No remota pendiente de resolver — la taparia.
 bool hasPendingYesNoQuestion() {
-  return s_askKind != AskKind::None || remoteNeedsAttention();
+  return remoteNeedsAttention();
 }
 
 // ============================================================================
@@ -866,12 +912,18 @@ void buildDetailPanel(RowData &r) {
     snprintf(statusLine, sizeof(statusLine), "%s",
             statusText(r.status, r.started));
   }
+  // Mismo codigo de color que la cuadricula (blanco/verde/amarillo/rojo):
+  // fondo del chip = fill, texto = border.
   lv_obj_t *statusLbl = lv_label_create(s_detailPanel);
   lv_label_set_text(statusLbl, statusLine);
   lv_obj_set_style_text_font(statusLbl, &lv_font_montserrat_16, 0);
   lv_color_t fill, border;
   gridColors(r, &fill, &border);
   lv_obj_set_style_text_color(statusLbl, border, 0);
+  lv_obj_set_style_bg_color(statusLbl, fill, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(statusLbl, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_radius(statusLbl, 6, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(statusLbl, 6, LV_PART_MAIN);
   lv_obj_set_width(statusLbl, 500);
   lv_label_set_long_mode(statusLbl, LV_LABEL_LONG_WRAP);
   lv_obj_set_style_text_align(statusLbl, LV_TEXT_ALIGN_CENTER, 0);
@@ -912,6 +964,43 @@ void renderDetail() {
   if (s_detailRow) buildDetailPanel(*s_detailRow);
 }
 
+// Barra de progreso y veredicto (D5), abajo del todo de la tarjeta.
+// Terminales/esperados: los esperados son kExpectedTotal (constante); los
+// terminales cuentan PASA/FALLA/AVISO/SKIP de TODAS las filas ya empezadas
+// (local + motherBoard) — SKIP cuenta como terminado para que la barra
+// llegue al 100 % aunque el equipo no lleve ese hardware. El veredicto es
+// "EN CURSO..." (blanco) hasta Step::Summary; ahi es HW OK (verde) si ningun
+// FALLA, o HW ERROR (rojo) si hay alguno, o si la placa no respondio,
+// rechazo el test o se perdio el enlace a mitad — mismo codigo de color que
+// la cuadricula (colorsForBucket()).
+void renderVerdictAndProgress() {
+  if (!s_progressBar || !s_verdictBox || !s_verdictLabel) return;
+
+  int terminal = 0;
+  for (int i = 0; i < s_rowCount; i++) {
+    const RowData &r = s_rows[i];
+    if (!r.started) continue;
+    if (r.status == FTEST_PASS || r.status == FTEST_FAIL ||
+        r.status == FTEST_SKIP || r.status == FTEST_WARN) {
+      terminal++;
+    }
+  }
+  lv_bar_set_value(s_progressBar, terminal, LV_ANIM_OFF);
+
+  int bucket = 2;  // blanco: en curso
+  const char *text = TXT("EN CURSO...", "RUNNING...", "EN COURS...");
+  if (s_step == Step::Summary) {
+    const bool hwError = computeHwError();
+    bucket = hwError ? 0 : 3;
+    text = hwError ? "HW ERROR" : "HW OK";
+  }
+  lv_color_t fill, border;
+  colorsForBucket(bucket, &fill, &border);
+  lv_obj_set_style_bg_color(s_verdictBox, fill, LV_PART_MAIN);
+  lv_obj_set_style_text_color(s_verdictLabel, border, 0);
+  lv_label_set_text(s_verdictLabel, text);
+}
+
 void renderAll() {
   if (!s_body || !s_action) return;
 
@@ -931,18 +1020,50 @@ void renderAll() {
       updateRowButton(i);
     }
   }
-  if (orderChanged(s_order, s_orderCount, s_prevOrder, s_prevOrderCount)) {
+  const bool orderJustChanged =
+      orderChanged(s_order, s_orderCount, s_prevOrder, s_prevOrderCount);
+  if (orderJustChanged) {
     for (int k = 0; k < s_orderCount; k++) {
       lv_obj_move_to_index(s_rows[s_order[k]].btn, k);
     }
     memcpy(s_prevOrder, s_order, sizeof(int) * (size_t)s_orderCount);
     s_prevOrderCount = s_orderCount;
   }
+
+  // Paginacion (D5): la pagina sigue a la fila en curso (s_lastTouchedRow)
+  // salvo que el operario haya paginado a mano con < / >; un cambio de test
+  // reactiva el seguimiento (mismo criterio que antes usaba el scroll).
   if (s_lastTouchedRow != s_prevTouchedRow) {
     s_prevTouchedRow = s_lastTouchedRow;
-    if (s_lastTouchedRow >= 0 && s_rows[s_lastTouchedRow].btn) {
-      lv_obj_scroll_to_view(s_rows[s_lastTouchedRow].btn, LV_ANIM_OFF);
+    s_pageFollowsTest = true;
+  }
+  if (s_pageFollowsTest && s_lastTouchedRow >= 0) {
+    for (int k = 0; k < s_orderCount; k++) {
+      if (s_order[k] == s_lastTouchedRow) {
+        s_currentPage = k / kPageCapacity;
+        break;
+      }
     }
+  }
+  if (orderJustChanged || s_currentPage != s_prevAppliedPage) {
+    applyPageVisibility();
+    s_prevAppliedPage = s_currentPage;
+  }
+  if (s_pageLabel) {
+    char buf[24];
+    snprintf(buf, sizeof(buf), pageIndicatorFmt(), s_currentPage + 1,
+            pageCount());
+    lv_label_set_text(s_pageLabel, buf);
+  }
+  if (s_pageBackBtn) {
+    if (s_currentPage <= 0) lv_obj_add_state(s_pageBackBtn, LV_STATE_DISABLED);
+    else lv_obj_clear_state(s_pageBackBtn, LV_STATE_DISABLED);
+  }
+  if (s_pageNextBtn) {
+    if (s_currentPage >= pageCount() - 1)
+      lv_obj_add_state(s_pageNextBtn, LV_STATE_DISABLED);
+    else
+      lv_obj_clear_state(s_pageNextBtn, LV_STATE_DISABLED);
   }
 
   // Hallazgo de code review: si una fila remota pasa a WAIT/CONFIRM mientras
@@ -983,6 +1104,7 @@ void renderAll() {
                                              "FACTORY TEST", "TEST USINE"));
   }
 
+  renderVerdictAndProgress();
   renderDetail();
 }
 
@@ -1004,6 +1126,12 @@ void runSysInfo() {
   finishLocal(ok ? FTEST_PASS : FTEST_FAIL, detail);
 }
 
+// D4 (shared-factory-test-bench2, banco 2026-09-06): un endTransmission()
+// vacio no prueba nada frente al STC8H1K28 ni al GT911 — ambos pueden
+// NACKear una escritura vacia con hardware sano. El veredicto real usa la
+// evidencia de que sus inits del arranque funcionaron (UI_TouchInitOk()/
+// UI_BacklightInitOk(), UITask.cpp); el sondeo de direcciones queda solo en
+// el detalle, informativo.
 void runI2c() {
   // Fuera de LVGL_Lock(): son transacciones I2C (convencion de la placa).
   LVGL_Unlock();
@@ -1012,14 +1140,16 @@ void runI2c() {
   Wire.beginTransmission((uint8_t)I2C_ADDR_BACKLIGHT);
   const uint8_t blErr = Wire.endTransmission();
   // PCA9557 @ 0x18: no poblado en esta revision de hardware (ver
-  // embedded-display-hmi.md). Informativo, nunca hace fallar el test.
+  // embedded-display-hmi.md).
   Wire.beginTransmission((uint8_t)0x18);
   const uint8_t pcaErr = Wire.endTransmission();
   LVGL_Lock();
 
   char detail[FTEST_DETAIL_MAX + 1];
-  snprintf(detail, sizeof(detail), "0x18:%s", pcaErr == 0 ? "si" : "no");
-  const bool ok = (touchErr == 0) && (blErr == 0);
+  snprintf(detail, sizeof(detail), "0x14:%s 0x30:%s 0x18:%s",
+          touchErr == 0 ? "si" : "no", blErr == 0 ? "si" : "no",
+          pcaErr == 0 ? "si" : "no");
+  const bool ok = UI_TouchInitOk() && UI_BacklightInitOk();
   finishLocal(ok ? FTEST_PASS : FTEST_FAIL, detail);
 }
 
@@ -1042,35 +1172,6 @@ void runLink() {
   snprintf(detail, sizeof(detail), "%s", ctrl_state_msg.fwVer);
   const bool ok = Display_BoardEverSeen() && !Display_IsBoardLinkLost();
   finishLocal(ok ? FTEST_PASS : FTEST_FAIL, detail);
-}
-
-// ============================================================================
-// BUZZER / SPEAKER
-// ============================================================================
-void beginBuzzer() {
-  buzzerOn();
-  s_deadlineMs = millis() + TONE_MS;
-}
-void serviceBuzzer() {
-  if ((int32_t)(millis() - s_deadlineMs) < 0) return;
-  buzzerOff();
-  s_localPhase = LocalPhase::None;
-  s_askKind = AskKind::Buzzer;
-  s_deadlineMs = millis() + LOCAL_ASK_TIMEOUT_MS;
-  renderAll();
-}
-
-void beginSpeaker() {
-  speakerOn();
-  s_deadlineMs = millis() + TONE_MS;
-}
-void serviceSpeaker() {
-  if ((int32_t)(millis() - s_deadlineMs) < 0) return;
-  speakerOff();
-  s_localPhase = LocalPhase::None;
-  s_askKind = AskKind::Speaker;
-  s_deadlineMs = millis() + LOCAL_ASK_TIMEOUT_MS;
-  renderAll();
 }
 
 // ============================================================================
@@ -1124,14 +1225,6 @@ void beginLocalTest() {
     case FTEST_HMI_I2C:     runI2c();     return;
     case FTEST_HMI_NVS:     runNvs();     return;
     case FTEST_HMI_LINK:    runLink();    return;
-    case FTEST_HMI_BUZZER:
-      beginBuzzer();
-      s_localPhase = LocalPhase::Buzzer;
-      break;
-    case FTEST_HMI_SPEAKER:
-      beginSpeaker();
-      s_localPhase = LocalPhase::Speaker;
-      break;
     case FTEST_HMI_WIFI:
       beginWifi();
       s_localPhase = LocalPhase::Wifi;
@@ -1162,11 +1255,6 @@ void finishLocal(FtestStatus st, const char *detail) {
     return;
   }
   beginLocalTest();
-}
-
-void resolveAsk(bool yes) {
-  s_askKind = AskKind::None;
-  finishLocal(yes ? FTEST_PASS : FTEST_FAIL, "");
 }
 
 // Arranca la secuencia local tras la barrera de entrada (Step::Gate ->
@@ -1204,6 +1292,7 @@ int drainFtestEvents() {
     r.started = true;
     r.status = res.status;
     r.dirty = true;
+    r.lastChangeMs = millis();
     s_rowsDirty = true;
     snprintf(r.detail, sizeof(r.detail), "%s", res.detail);
     s_lastTouchedRow = idx;
@@ -1241,6 +1330,37 @@ void markMbPendingAsLinkLost() {
   s_mbLinkLost = true;
 }
 
+// Vigilancia por fila (banco 2026-09-06): si una fila de motherBoard lleva
+// mas de FTEST_ROW_TIMEOUT_MS en RUNNING/WAIT/CONFIRM sin cambiar de estado,
+// se marca FALLA "timeout". La motherBoard tiene su propia cota de 90 s por
+// test y deberia haber emitido FAIL "timeout" antes; esto es solo la red de
+// seguridad del display si la placa se cuelga en ese test — no decide el
+// resumen por si sola, eso lo sigue haciendo el silencio de 120 s
+// (markMbPendingAsLinkLost()) si la placa deja de responder del todo.
+int checkRowTimeouts() {
+  int n = 0;
+  const uint32_t now = millis();
+  for (int i = kLocalCount; i < s_rowCount; i++) {
+    RowData &r = s_rows[i];
+    if (!r.started) continue;
+    if (r.status != FTEST_RUNNING && r.status != FTEST_WAIT &&
+        r.status != FTEST_CONFIRM) {
+      continue;
+    }
+    if ((int32_t)(now - r.lastChangeMs) < (int32_t)FTEST_ROW_TIMEOUT_MS) continue;
+    r.status = FTEST_FAIL;
+    r.dirty = true;
+    s_rowsDirty = true;
+    r.lastChangeMs = now;
+    snprintf(r.detail, sizeof(r.detail), "%s", "timeout");
+    if (s_remoteConfirmAnsweredRowId == r.id) {
+      s_remoteConfirmAnsweredRowId = FTEST_ID_NONE;
+    }
+    n++;
+  }
+  return n;
+}
+
 void startRemote() {
   // Hallazgo 2: purga eventos y flags de una sesion anterior. La motherBoard
   // puede seguir emitiendo CTRL,FTEST* hasta 16s tras un aborto (Salir con
@@ -1266,6 +1386,7 @@ void retryRemote(unsigned id) {
   r.dirty = true;
   s_rowsDirty = true;
   r.detail[0] = '\0';
+  r.lastChangeMs = millis();
   s_lastTouchedRow = idx;
   // Intento nuevo: si el anterior habia terminado en "enlace perdido"
   // (hallazgo 5), no arrastrar ese rotulo al resumen de este reintento.
@@ -1292,6 +1413,9 @@ void persistResults() {
   const unsigned mbWarn = s_mbDone ? s_mbWarn : 0u;
   char fwVer[sizeof(ctrl_state_msg.fwVer)];
   snprintf(fwVer, sizeof(fwVer), "%s", ctrl_state_msg.fwVer);
+  // Veredicto unico de la bateria (D5): 1 = HW OK, 2 = HW ERROR. Mismo
+  // criterio que renderVerdictAndProgress() (computeHwError()).
+  const uint32_t verdict = computeHwError() ? 2u : 1u;
 
   // Fuera de LVGL_Lock(): escritura de Preferences (mismo motivo que el resto
   // de escrituras periodicas de NVS de UITask.cpp).
@@ -1306,13 +1430,13 @@ void persistResults() {
   p.putUInt(HMI_KEY_FTEST_MBSKIP, mbSkip);
   p.putUInt(HMI_KEY_FTEST_MBWARN, mbWarn);
   p.putString(HMI_KEY_FTEST_FWVER, fwVer);
+  p.putUInt(HMI_KEY_FTEST_VERDICT, verdict);
   p.end();
   LVGL_Lock();
 }
 
 void goSummary() {
   destroyTransientOverlayObjects();
-  s_askKind = AskKind::None;
   s_localPhase = LocalPhase::None;
   s_step = Step::Summary;
   // Hallazgo 6: tope de inactividad en Summary. Cualquier pulsacion de
@@ -1342,6 +1466,7 @@ void serviceRemoteAwaitFirst() {
 
 void serviceRemoteRunning() {
   const int n = drainFtestEvents();
+  const int nTimeout = checkRowTimeouts();
 
   if (g_pendingFtestReject) {
     g_pendingFtestReject = false;
@@ -1366,7 +1491,7 @@ void serviceRemoteRunning() {
     goSummary();
     return;
   }
-  if (n > 0) renderAll();
+  if (n > 0 || nTimeout > 0) renderAll();
 }
 
 // ============================================================================
@@ -1389,6 +1514,7 @@ void resetState() {
     r.btn = nullptr;
     r.titleLbl = nullptr;
     r.wordLbl = nullptr;
+    r.lastChangeMs = millis();
     r.dirty = true;
   }
   s_lastTouchedRow = -1;
@@ -1396,7 +1522,10 @@ void resetState() {
   s_orderCount = 0;
   s_prevOrderCount = 0;
   s_rowsDirty = true;
-  s_askKind = AskKind::None;
+  s_currentPage = 0;
+  s_prevAppliedPage = -1;
+  s_pageFollowsTest = true;
+  s_pendingPageDelta = 0;
   s_retryMode = false;
   s_localPhase = LocalPhase::None;
   s_localIdx = 0;
@@ -1409,7 +1538,6 @@ void resetState() {
   s_remoteConfirmAnsweredRowId = FTEST_ID_NONE;
   // Estado de UI pendiente de una sesion anterior (hallazgo 4): ningun flag
   // de hand-off debe sobrevivir a un cierre y reapertura de la pantalla.
-  s_pendingLocalAsk = Answer::None;
   s_pendingRemoteConfirm = Answer::None;
   s_pendingRemoteConfirmRow = nullptr;
   s_pendingRetryRow = nullptr;
@@ -1417,9 +1545,8 @@ void resetState() {
   destroyTransientOverlayObjects();
 }
 
-// Hand-off puro (hallazgo 4): FactoryTest_Close() suelta LVGL_Lock() (para
-// buzzerOff()/speakerOff()) y llama a lv_scr_load(); Poll() lo hace fuera del
-// despacho de este click.
+// Hand-off puro (hallazgo 4): FactoryTest_Close() llama a lv_scr_load(); Poll()
+// lo hace fuera del despacho de este click.
 void onExitClicked(lv_event_t *) { s_exitRequested = true; }
 
 }  // namespace
@@ -1439,8 +1566,11 @@ void FactoryTest_Init(void) {
   lv_obj_clear_flag(s_overlay, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(s_overlay, LV_OBJ_FLAG_HIDDEN);
 
+  // 760x466 (screen 800x480, ~7 px de margen arriba y abajo): D5 necesita
+  // sitio para la navegacion de paginas y la barra de progreso + veredicto
+  // abajo del todo, que no cabian en los 440 px originales.
   s_card = lv_obj_create(s_overlay);
-  lv_obj_set_size(s_card, 760, 440);
+  lv_obj_set_size(s_card, 760, 466);
   lv_obj_center(s_card);
   lv_obj_set_style_radius(s_card, 12, LV_PART_MAIN);
   lv_obj_set_style_bg_color(s_card, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
@@ -1458,22 +1588,73 @@ void FactoryTest_Init(void) {
   lv_obj_align(exitBtn, LV_ALIGN_TOP_RIGHT, -8, 6);
   s_exitBtnLabel = lv_obj_get_child(exitBtn, 0);
 
-  // Cuadricula de resultados: flex fila-con-wrap de 3 columnas, SIN limpiar
-  // LV_OBJ_FLAG_SCROLLABLE (lo trae por defecto lv_obj_create) para que
-  // quepan los 7 locales + hasta 29 de motherBoard sin rediseñar el layout.
+  // Cuadricula de resultados: flex fila-con-wrap de 3 columnas, paginada (D5:
+  // el scroll no se maneja bien con guantes). kPageRowsPerPage filas de
+  // kGridBtnH + su espaciado caben exactas en los 214 px de alto; el resto de
+  // filas quedan ocultas por applyPageVisibility() hasta que se pasa pagina.
   s_body = lv_obj_create(s_card);
   lv_obj_remove_style_all(s_body);
-  lv_obj_set_size(s_body, 720, 250);
-  lv_obj_align(s_body, LV_ALIGN_TOP_MID, 0, 48);
+  lv_obj_set_size(s_body, 720, 214);
+  lv_obj_align(s_body, LV_ALIGN_TOP_MID, 0, 52);
   lv_obj_set_flex_flow(s_body, LV_FLEX_FLOW_ROW_WRAP);
+  lv_obj_clear_flag(s_body, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_pad_row(s_body, 8, 0);
   lv_obj_set_style_pad_column(s_body, 8, 0);
 
+  // Navegacion de paginas (D5): < / > deshabilitados en los extremos
+  // (renderAll()), indicador "Pagina i/n" en medio.
+  lv_obj_t *pageNavRow = lv_obj_create(s_card);
+  lv_obj_remove_style_all(pageNavRow);
+  lv_obj_set_size(pageNavRow, 300, 34);
+  lv_obj_align(pageNavRow, LV_ALIGN_TOP_MID, 0, 272);
+  lv_obj_clear_flag(pageNavRow, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_flex_flow(pageNavRow, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(pageNavRow, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
+                        LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(pageNavRow, 12, LV_PART_MAIN);
+
+  s_pageBackBtn = makeBtn(pageNavRow, "<", onPageBackCb, lv_color_hex(0x0075EE));
+  lv_obj_set_size(s_pageBackBtn, 50, 34);
+
+  s_pageLabel = lv_label_create(pageNavRow);
+  lv_obj_set_style_text_font(s_pageLabel, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(s_pageLabel, lv_color_hex(0x0B2E4F), 0);
+  lv_label_set_text(s_pageLabel, "Pagina 1/1");
+
+  s_pageNextBtn = makeBtn(pageNavRow, ">", onPageNextCb, lv_color_hex(0x0075EE));
+  lv_obj_set_size(s_pageNextBtn, 50, 34);
+
   s_action = lv_obj_create(s_card);
   lv_obj_remove_style_all(s_action);
-  lv_obj_set_size(s_action, 720, 110);
-  lv_obj_align(s_action, LV_ALIGN_BOTTOM_MID, 0, -10);
+  lv_obj_set_size(s_action, 720, 96);
+  lv_obj_align(s_action, LV_ALIGN_TOP_MID, 0, 312);
   lv_obj_clear_flag(s_action, LV_OBJ_FLAG_SCROLLABLE);
+
+  // Barra de progreso y veredicto (D5), abajo del todo de la tarjeta.
+  lv_obj_t *bottomRow = lv_obj_create(s_card);
+  lv_obj_remove_style_all(bottomRow);
+  lv_obj_set_size(bottomRow, 720, 46);
+  lv_obj_align(bottomRow, LV_ALIGN_BOTTOM_MID, 0, -6);
+  lv_obj_clear_flag(bottomRow, LV_OBJ_FLAG_SCROLLABLE);
+
+  s_progressBar = lv_bar_create(bottomRow);
+  lv_obj_set_size(s_progressBar, 480, 18);
+  lv_obj_align(s_progressBar, LV_ALIGN_LEFT_MID, 0, 0);
+  lv_bar_set_range(s_progressBar, 0, kExpectedTotal);
+  lv_obj_set_style_bg_color(s_progressBar, lv_color_hex(0xE0E0E0), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(s_progressBar, lv_color_hex(0x0075EE), LV_PART_INDICATOR);
+
+  s_verdictBox = lv_obj_create(bottomRow);
+  lv_obj_remove_style_all(s_verdictBox);
+  lv_obj_set_size(s_verdictBox, 216, 46);
+  lv_obj_align(s_verdictBox, LV_ALIGN_RIGHT_MID, 0, 0);
+  lv_obj_set_style_radius(s_verdictBox, 8, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(s_verdictBox, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_clear_flag(s_verdictBox, LV_OBJ_FLAG_SCROLLABLE);
+
+  s_verdictLabel = lv_label_create(s_verdictBox);
+  lv_obj_set_style_text_font(s_verdictLabel, &lv_font_montserrat_20, 0);
+  lv_obj_center(s_verdictLabel);
 }
 
 void FactoryTest_Open(void) {
@@ -1515,10 +1696,6 @@ void FactoryTest_Close(void) {
   // la pantalla (resetState() los destruiria igualmente en el proximo Open(),
   // pero destroyRowButtons() es idempotente y aqui libera los objetos antes).
   destroyRowButtons();
-  LVGL_Unlock();
-  buzzerOff();
-  speakerOff();
-  LVGL_Lock();
   if (s_overlay) lv_obj_add_flag(s_overlay, LV_OBJ_FLAG_HIDDEN);
   s_step = Step::Closed;
   g_factoryTestRequested = false;
@@ -1551,10 +1728,23 @@ void FactoryTest_Poll(void) {
     return;
   }
 
+  // Hand-off de los botones < / > (hallazgo 4): paginar es una mutacion de
+  // estado de UI, no una lectura pura, se resuelve aqui como el resto.
+  if (s_pendingPageDelta != 0) {
+    const int delta = s_pendingPageDelta;
+    s_pendingPageDelta = 0;
+    s_currentPage += delta;
+    // D5: el operario pagino a mano, no se le mueve hasta el siguiente
+    // cambio de test (renderAll() reactiva s_pageFollowsTest ahi).
+    s_pageFollowsTest = false;
+    renderAll();
+    return;
+  }
+
   // Panel de detalle: abrir/cerrar se resuelve aqui, fuera del despacho del
   // click que lo pidio (mismo hand-off que Reintentar, hallazgo 4). Hallazgo
-  // de code review: no abrirlo si ya hay una pregunta Si/No pendiente (local
-  // o remota) — la taparia.
+  // de code review: no abrirlo si ya hay una pregunta Si/No remota
+  // pendiente — la taparia.
   if (s_pendingDetailRow) {
     RowData *row = s_pendingDetailRow;
     s_pendingDetailRow = nullptr;
@@ -1584,20 +1774,6 @@ void FactoryTest_Poll(void) {
     return;
   }
 
-  if (s_askKind != AskKind::None) {
-    // Hallazgo 4: SI/NO de la pregunta local (zumbador/altavoz).
-    if (s_pendingLocalAsk != Answer::None) {
-      const bool yes = s_pendingLocalAsk == Answer::Yes;
-      s_pendingLocalAsk = Answer::None;
-      resolveAsk(yes);
-      return;
-    }
-    if ((int32_t)(millis() - s_deadlineMs) >= 0) {
-      resolveAsk(false);  // Las preguntas expiran a los 60s como FALLA.
-    }
-    return;
-  }
-
   // Hallazgo 4: SI/NO de la confirmacion de un test remoto.
   if (s_pendingRemoteConfirm != Answer::None) {
     const bool yes = s_pendingRemoteConfirm == Answer::Yes;
@@ -1615,9 +1791,7 @@ void FactoryTest_Poll(void) {
   switch (s_step) {
     case Step::LocalSeq:
       switch (s_localPhase) {
-        case LocalPhase::Buzzer:  serviceBuzzer();  break;
-        case LocalPhase::Speaker: serviceSpeaker(); break;
-        case LocalPhase::Wifi:    serviceWifi();    break;
+        case LocalPhase::Wifi: serviceWifi(); break;
         default: break;
       }
       break;
@@ -1646,6 +1820,3 @@ void FactoryTest_ApplyLanguage(void) {
   }
 }
 
-bool FactoryTest_AudioBusy(void) {
-  return s_step == Step::LocalSeq && s_localPhase == LocalPhase::Buzzer;
-}

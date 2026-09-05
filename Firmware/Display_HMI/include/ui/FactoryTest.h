@@ -34,12 +34,6 @@ void FactoryTest_Poll(void);
 // UI_ApplyLanguage() (UITask.cpp), como TelemetryHistory_ApplyLanguage().
 void FactoryTest_ApplyLanguage(void);
 
-// true mientras el test local HMI_BUZZER tiene el zumbador del display
-// encendido a proposito. click_beep_start() y link_audio_service()
-// (UITask.cpp) lo consultan para ceder el unico zumbador del display, el
-// mismo arbitraje que ya usan entre si (link_audio_burst_in_progress()).
-bool FactoryTest_AudioBusy(void);
-
 // Puesto por el callback del boton del splash; leido por intro_timer_cb()
 // para no navegar a ui_ScreenMain mientras el operario esta en el test de
 // fabrica. FactoryTest_Close() lo vuelve a poner a false.

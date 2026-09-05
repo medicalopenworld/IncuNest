@@ -29,6 +29,13 @@
 
 static const char *TAG = "UI";
 
+// Test de fabrica HMI_I2C (shared-factory-test-bench2 D4): guardan si el
+// init del touch (con reintentos) y la secuencia de backlight (5 reintentos)
+// tuvieron exito en UI_Task(). UI_TouchInitOk()/UI_BacklightInitOk() los
+// exponen; el sondeo de direcciones I2C queda solo informativo.
+static bool s_touchInitOk = false;
+static bool s_backlightInitOk = false;
+
 SemaphoreHandle_t g_lvgl_mutex = NULL;
 
 void LVGL_Mutex_Init(void) {
@@ -1576,6 +1583,9 @@ bool UI_AnyControlActive() {
          hmi_msg.phototherapyMode != PHOTOTHERAPY_OFF;
 }
 
+bool UI_TouchInitOk(void) { return s_touchInitOk; }
+bool UI_BacklightInitOk(void) { return s_backlightInitOk; }
+
 // Runs everything the temperature switch's ON branch used to do inline,
 // now invoked from BabyWizard's "Apply" step once the mandatory baby-data
 // wizard completes (temp-control-activation-wizard spec) instead of
@@ -2380,11 +2390,6 @@ static int LinkAudio_PauseRemainingS(void) {
 // transaccion I2C y bloquear ahi el mutex del renderer es el fallo
 // ARQ-LOCK-001 que ya se corrigio para AlarmSound_Update().
 static void link_audio_service(void) {
-  // El test de fabrica HMI_BUZZER tiene el zumbador tomado a proposito
-  // (300 ms de tono): se cede entero, igual que ya se cede ante
-  // link_audio_burst_in_progress() en sentido contrario.
-  if (FactoryTest_AudioBusy()) return;
-
   const bool lost = Display_IsBoardLinkLost();
 
   if (!lost) {
@@ -2444,10 +2449,8 @@ static void link_audio_service(void) {
 
 static void click_beep_start(void) {
   // El chasquido cede: comparten el unico zumbador del display, y lo cosmetico
-  // no interrumpe a lo normativo. Cede tambien al test de fabrica del
-  // zumbador, por el mismo motivo: un chasquido de confirmacion no debe
-  // truncar los 300 ms de tono que el operario tiene que oir.
-  if (link_audio_burst_in_progress() || FactoryTest_AudioBusy()) {
+  // no interrumpe a lo normativo.
+  if (link_audio_burst_in_progress()) {
     return;
   }
   buzzerOn();
@@ -3756,6 +3759,7 @@ void UI_Task(void *pvParameters) {
     }
     if (!bl_ok)
       ESP_LOGE(TAG, "Backlight ON: FAILED after all retries — screen will be black");
+    s_backlightInitOk = bl_ok;
 
     vTaskDelay(pdMS_TO_TICKS(100));
   }
@@ -3877,6 +3881,7 @@ void UI_Task(void *pvParameters) {
     ESP_LOGE(TAG, "Touch controller FAILED to init after retries. Touch may "
                   "trigger ghost clicks or not work.");
   }
+  s_touchInitOk = touch_ok;
 
   // ts.reset();
   ts.setRotation(TOUCH_ROTATION);

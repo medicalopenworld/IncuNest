@@ -45,6 +45,9 @@ constexpr char HMI_KEY_FTEST_MBSKIP[]   = "mb_skip";
 // Avisos (FTEST_WARN) de la motherBoard, shared-factory-test-bench.
 constexpr char HMI_KEY_FTEST_MBWARN[]   = "mb_warn";
 constexpr char HMI_KEY_FTEST_FWVER[]    = "fwver";
+// Veredicto unico de la bateria (shared-factory-test-bench2 D5): 0 = nunca
+// persistido con un valor valido (clave ausente), 1 = HW OK, 2 = HW ERROR.
+constexpr char HMI_KEY_FTEST_VERDICT[]  = "verdict";
 
 void initEEPROM();
 void loaddefaultValues();
