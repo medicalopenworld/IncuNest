@@ -78,6 +78,42 @@ y darle cesión y tope (añadido a la entrada "Overlays y alarmas" de la regla).
   acortó. Cuando haya 21 lecciones valdrá la pena un `static_assert`
   de longitud o un script; hoy un solo caso no lo justifica.
 
+## Fases 2 y 3 (2026-09-05): cursos completos
+
+### 4. La global `locked` no significa "pantalla bloqueada"
+
+`locked` arranca en `true` con la principal cargada y `unlock_timeout_cb` la
+rearma a `true` 5 s después de cada desbloqueo, ya en la principal; además
+`LockScreenAnyTouch_cb` la pone a `false` con solo mostrar el pop-up. Se
+exportó como `UI_IsScreenLocked()` y se usó en dos sitios con el significado
+intuitivo: el motor no volvía a la principal tras un aborto (dejaba Ajustes
+sin señal de alarma) y las lecciones de bloqueo se daban por hechas sin
+tocar nada. Lo cazó la revisión de seguridad trazando los escritores de la
+variable.
+
+**Aplicado**: objetivos y decisión de pantalla por `lv_scr_act()`, función
+retirada, comentario en `UITask.cpp` explicando qué significa `locked`.
+Regla en `embedded-display-hmi.md`. El ciclo de vida de `unlockTimeoutTimer`
+(que hace mentir a `locked`) queda como deuda anotada, fuera de este cambio.
+
+### 5. Objetivos por visibilidad sin pantalla activa
+
+`lv_obj_is_visible()` no comprueba que el objeto pertenezca a la pantalla
+cargada: un panel de Ajustes destapado en una sesión anterior daba el paso
+por hecho antes de tocarlo. Todos los objetivos de visibilidad llevan ahora
+`lv_scr_act() == <pantalla>`. Mismo tipo de error que el punto 4: un
+predicado que parece decir una cosa y dice otra.
+
+### 6. Objetivos inalcanzables por el estado inicial
+
+"Sube la consigna" con la consigna ya al máximo, "toca el panel de humedad"
+con el panel oculto, "NUEVO BEBE" cuando el alumno pulsa SALTAR (gesto que
+acababa de aprender como válido en la lección anterior). Cada objetivo
+necesita una salida para el estado inicial que lo hace imposible: aceptar
+el tope, un paso previo que lo habilite, o aceptar la alternativa y pedir
+la buena en el texto. Dos revisores distintos lo encontraron por caminos
+distintos; vale como criterio de revisión de lecciones (añadido a la regla).
+
 ## Pendiente que hereda la fase 2
 
 - Migrar los `TXT(es,en,fr)` / `Txt3` de la ayuda y los cursos al catálogo
