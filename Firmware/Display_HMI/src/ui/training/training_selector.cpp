@@ -25,18 +25,25 @@ namespace {
 enum View { V_COURSES, V_CONTINUE, V_NAME, V_LESSONS, V_CONFIRM, V_CERTS, V_CERT };
 
 // Confirmacion previa a una leccion interactiva (ADR-0002 revisado): la
-// incubadora va a actuar de verdad, asi que (1) se pide a la placa su lista
-// REAL de bebes activos y se rechaza la leccion si hay alguno (la placa
-// atribuiria los minutos de terapia a ese bebe), y (2) el alumno confirma
-// expresamente que la cabina esta vacia. El gate de la HMI no puede saber si
-// hay un bebe dentro sin terapia: esta confirmacion es la unica defensa.
-enum CheckState { CHECK_IDLE, CHECK_WAITING, CHECK_OK, CHECK_FAIL };
+// incubadora va a actuar de verdad y el gate de la HMI no puede saber si hay
+// un bebe dentro sin terapia, asi que el alumno confirma expresamente que la
+// cabina esta vacia. Ademas se pide a la placa su lista REAL de bebes activos
+// para AVISAR si hay un paciente registrado (sus contadores de terapia
+// podrian verse afectados, ver ADR); por peticion del usuario no bloquea: la
+// formacion tiene que poder hacerse con un paciente registrado.
+enum CheckState { CHECK_IDLE, CHECK_WAITING, CHECK_DONE };
 constexpr uint32_t CHECK_TIMEOUT_MS = 2500;
 CheckState s_check = CHECK_IDLE;
 uint32_t s_checkDeadlineMs = 0;
 uint8_t s_pendingLesson = 0;
 lv_obj_t *s_confirmStatus = nullptr;
 lv_obj_t *s_confirmBtn = nullptr;
+
+// Paginacion de las listas (lecciones, certificados): paginas que se pasan
+// con < y >, no scroll.
+constexpr uint8_t ROWS_PER_PAGE = 6;
+uint8_t s_lessonPage = 0;
+uint8_t s_certPage = 0;
 
 constexpr lv_coord_t CARD_W = 780, CARD_H = 460;
 constexpr lv_coord_t QR_SIZE = 300;
@@ -132,12 +139,16 @@ void openAt(View v) {
 
 void onClose(lv_event_t *) { closeDialog(); }
 void onBackCourses(lv_event_t *) { showView(V_COURSES); }
-void onCerts(lv_event_t *) { showView(V_CERTS); }
+void onCerts(lv_event_t *) {
+  s_certPage = 0;
+  showView(V_CERTS);
+}
 
 void onCourse(lv_event_t *e) {
   const uint8_t idx = (uint8_t)(intptr_t)lv_event_get_user_data(e);
   s_course = Training_CourseByIndex(idx);
   if (!s_course) return;
+  s_lessonPage = 0;
   const TrainingCourseProgress *p = TrainingProgress_Get(idx);
   showView((p && p->name[0]) ? V_CONTINUE : V_NAME);
 }
@@ -197,7 +208,7 @@ void onLesson(lv_event_t *e) {
 }
 
 void onConfirmStart(lv_event_t *) {
-  if (!s_course || s_check != CHECK_OK) return;
+  if (!s_course) return;
   const Course *course = s_course;
   const uint8_t idx = s_pendingLesson;
   ESP_LOGW("Training", "Cabina vacia confirmada por el alumno; leccion %u/%u",
@@ -214,6 +225,53 @@ void onConfirmCancel(lv_event_t *) {
 void onCert(lv_event_t *e) {
   s_certIdx = (uint8_t)(intptr_t)lv_event_get_user_data(e);
   showView(V_CERT);
+}
+
+uint8_t pageCount(uint8_t items) {
+  return items == 0 ? 1 : (uint8_t)((items + ROWS_PER_PAGE - 1) / ROWS_PER_PAGE);
+}
+
+void onLessonPage(lv_event_t *e) {
+  if (!s_course) return;
+  const int dir = (int)(intptr_t)lv_event_get_user_data(e);
+  const int pages = pageCount(s_course->lessonCount);
+  int p = (int)s_lessonPage + dir;
+  if (p < 0 || p >= pages) return;
+  s_lessonPage = (uint8_t)p;
+  showView(V_LESSONS);
+}
+
+void onCertPage(lv_event_t *e) {
+  const int dir = (int)(intptr_t)lv_event_get_user_data(e);
+  const int pages = pageCount(TrainingProgress_CertCount());
+  int p = (int)s_certPage + dir;
+  if (p < 0 || p >= pages) return;
+  s_certPage = (uint8_t)p;
+  showView(V_CERTS);
+}
+
+// Fila de paginacion "<  n/N  >" centrada abajo. Los botones se ocultan en los
+// extremos para que no haya nada que pulsar sin efecto.
+void makePager(uint8_t page, uint8_t pages, lv_event_cb_t cb) {
+  char t[16];
+  snprintf(t, sizeof(t), "%u/%u", (unsigned)(page + 1), (unsigned)pages);
+  lv_obj_t *lbl = lv_label_create(s_content);
+  lv_obj_set_style_text_font(lbl, &lv_font_montserrat_18, 0);
+  lv_obj_set_style_text_color(lbl, lv_color_hex(0x0B2E4F), 0);
+  lv_label_set_text(lbl, t);
+  lv_obj_align(lbl, LV_ALIGN_BOTTOM_MID, 0, -18);
+
+  lv_obj_t *prev = makeBtn(s_content, LV_SYMBOL_LEFT, cb, lv_color_hex(0x0075EE),
+                           (void *)(intptr_t)-1);
+  lv_obj_set_size(prev, 60, 46);
+  lv_obj_align(prev, LV_ALIGN_BOTTOM_MID, -80, -6);
+  if (page == 0) lv_obj_add_flag(prev, LV_OBJ_FLAG_HIDDEN);
+
+  lv_obj_t *next = makeBtn(s_content, LV_SYMBOL_RIGHT, cb, lv_color_hex(0x0075EE),
+                           (void *)(intptr_t)+1);
+  lv_obj_set_size(next, 60, 46);
+  lv_obj_align(next, LV_ALIGN_BOTTOM_MID, 80, -6);
+  if (page + 1 >= pages) lv_obj_add_flag(next, LV_OBJ_FLAG_HIDDEN);
 }
 
 // ---- Vistas -------------------------------------------------------------------
@@ -375,19 +433,19 @@ void buildLessons() {
            (p && p->name[0]) ? p->name : "");
   makeTitle(t);
 
-  lv_obj_t *list = lv_obj_create(s_content);
-  lv_obj_remove_style_all(list);
-  lv_obj_set_size(list, CARD_W - 32, 324);
-  lv_obj_align(list, LV_ALIGN_TOP_MID, 0, 56);
-  lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_row(list, 6, LV_PART_MAIN);
-  lv_obj_set_scroll_dir(list, LV_DIR_VER);
+  // Paginas de ROWS_PER_PAGE filas (48 px + 6 de hueco = 324 px), sin scroll.
+  const uint8_t pages = pageCount(s_course->lessonCount);
+  if (s_lessonPage >= pages) s_lessonPage = pages - 1;
+  const uint8_t first = s_lessonPage * ROWS_PER_PAGE;
+  uint8_t last = first + ROWS_PER_PAGE;
+  if (last > s_course->lessonCount) last = s_course->lessonCount;
 
-  for (uint8_t i = 0; i < s_course->lessonCount; i++) {
+  for (uint8_t i = first; i < last; i++) {
     const Lesson &l = s_course->lessons[i];
     const bool done = TrainingProgress_IsLessonDone(s_course->id, i);
-    lv_obj_t *row = lv_btn_create(list);
+    lv_obj_t *row = lv_btn_create(s_content);
     lv_obj_set_size(row, CARD_W - 52, 48);
+    lv_obj_align(row, LV_ALIGN_TOP_MID, 0, 56 + (i - first) * 54);
     lv_obj_set_style_bg_color(row, done ? lv_color_hex(0x2E7D32)
                                         : lv_color_hex(0x0075EE),
                               LV_PART_MAIN);
@@ -418,6 +476,8 @@ void buildLessons() {
   lv_obj_set_size(back, 150, 46);
   lv_obj_align(back, LV_ALIGN_BOTTOM_LEFT, 6, -6);
 
+  if (pages > 1) makePager(s_lessonPage, pages, onLessonPage);
+
   char line[48];
   progressLine(line, sizeof(line), s_course->id);
   lv_obj_t *prog = lv_label_create(s_content);
@@ -446,9 +506,9 @@ void buildConfirm() {
 
   s_confirmStatus = makeWrapLabel(
       s_content,
-      TXT("Comprobando en la placa que no hay bebes activos...",
-          "Checking the board for active babies...",
-          "Verification des bebes actifs sur la carte..."),
+      TXT("Comprobando en la placa si hay pacientes registrados...",
+          "Checking the board for registered patients...",
+          "Verification des patients enregistres sur la carte..."),
       0, 190, CARD_W - 20, &lv_font_montserrat_16, lv_color_hex(0x666666));
   lv_obj_set_style_text_align(s_confirmStatus, LV_TEXT_ALIGN_CENTER, 0);
 
@@ -459,7 +519,6 @@ void buildConfirm() {
                          onConfirmStart, lv_color_hex(0x00AA00));
   lv_obj_set_size(s_confirmBtn, 520, 60);
   lv_obj_align(s_confirmBtn, LV_ALIGN_CENTER, 0, 60);
-  lv_obj_add_flag(s_confirmBtn, LV_OBJ_FLAG_HIDDEN);  // hasta CHECK_OK
 
   lv_obj_t *cancel = makeBtn(s_content, TXT("CANCELAR", "CANCEL", "ANNULER"),
                              onConfirmCancel, lv_color_hex(0x888888));
@@ -471,44 +530,41 @@ void confirmCheckPoll() {
   if (s_view != V_CONFIRM || s_check != CHECK_WAITING) return;
   if (g_pendingProfileList) {
     g_pendingProfileList = false;
+    s_check = CHECK_DONE;
+    if (!s_confirmStatus) return;
     if (g_profileList.count == 0) {
-      s_check = CHECK_OK;
-      if (s_confirmStatus) {
-        lv_label_set_text(
-            s_confirmStatus,
-            TXT("La placa no tiene bebes activos. Confirma que la cabina esta "
-                "vacia para empezar.",
-                "The board has no active babies. Confirm the cabin is empty to "
-                "start.",
-                "La carte n'a aucun bebe actif. Confirmez que l'habitacle est "
-                "vide pour commencer."));
-        lv_obj_set_style_text_color(s_confirmStatus, lv_color_hex(0x0B2E4F), 0);
-      }
-      if (s_confirmBtn) lv_obj_clear_flag(s_confirmBtn, LV_OBJ_FLAG_HIDDEN);
+      lv_label_set_text(
+          s_confirmStatus,
+          TXT("La placa no tiene pacientes registrados.",
+              "The board has no registered patients.",
+              "La carte n'a aucun patient enregistre."));
+      lv_obj_set_style_text_color(s_confirmStatus, lv_color_hex(0x0B2E4F), 0);
     } else {
-      s_check = CHECK_FAIL;
-      if (s_confirmStatus) {
-        lv_label_set_text(
-            s_confirmStatus,
-            TXT("La placa tiene bebes activos: no se puede formar. Da de alta "
-                "o comprueba la incubadora antes.",
-                "The board has active babies: training is not possible. "
-                "Discharge or check the incubator first.",
-                "La carte a des bebes actifs : formation impossible. Faites "
-                "sortir ou verifiez l'incubateur d'abord."));
-        lv_obj_set_style_text_color(s_confirmStatus, lv_color_hex(0xAA3333), 0);
-      }
+      char msg[240];
+      snprintf(msg, sizeof(msg), "%s (%s). %s",
+               TXT("Hay un paciente registrado en la placa",
+                   "There is a registered patient on the board",
+                   "Un patient est enregistre sur la carte"),
+               g_profileList.items[0].name,
+               TXT("La formacion es posible, pero sus contadores de terapia "
+                   "podrian recibir los minutos de la practica.",
+                   "Training is possible, but their therapy counters may "
+                   "receive the practice minutes.",
+                   "La formation est possible, mais ses compteurs de therapie "
+                   "peuvent recevoir les minutes d'exercice."));
+      lv_label_set_text(s_confirmStatus, msg);
+      lv_obj_set_style_text_color(s_confirmStatus, lv_color_hex(0xE08800), 0);
     }
   } else if ((int32_t)(millis() - s_checkDeadlineMs) > 0) {
-    s_check = CHECK_FAIL;
+    s_check = CHECK_DONE;
     if (s_confirmStatus) {
       lv_label_set_text(s_confirmStatus,
-                        TXT("Sin respuesta de la placa: no se puede formar.",
-                            "No response from the board: training is not "
-                            "possible.",
-                            "Pas de reponse de la carte : formation "
-                            "impossible."));
-      lv_obj_set_style_text_color(s_confirmStatus, lv_color_hex(0xAA3333), 0);
+                        TXT("La placa no ha contestado a la consulta de "
+                            "pacientes.",
+                            "The board did not answer the patient query.",
+                            "La carte n'a pas repondu a la consultation des "
+                            "patients."));
+      lv_obj_set_style_text_color(s_confirmStatus, lv_color_hex(0xE08800), 0);
     }
   }
 }
@@ -527,16 +583,15 @@ void formatDate(char *out, size_t cap, uint32_t epoch) {
 
 void buildCerts() {
   makeTitle(TXT("CERTIFICADOS", "CERTIFICATES", "CERTIFICATS"));
-  lv_obj_t *list = lv_obj_create(s_content);
-  lv_obj_remove_style_all(list);
-  lv_obj_set_size(list, CARD_W - 32, 324);
-  lv_obj_align(list, LV_ALIGN_TOP_MID, 0, 56);
-  lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_row(list, 6, LV_PART_MAIN);
-  lv_obj_set_scroll_dir(list, LV_DIR_VER);
 
   const uint8_t n = TrainingProgress_CertCount();
-  for (uint8_t i = 0; i < n; i++) {
+  const uint8_t pages = pageCount(n);
+  if (s_certPage >= pages) s_certPage = pages - 1;
+  const uint8_t first = s_certPage * ROWS_PER_PAGE;
+  uint8_t last = first + ROWS_PER_PAGE;
+  if (last > n) last = n;
+
+  for (uint8_t i = first; i < last; i++) {
     const TrainingCert *c = TrainingProgress_CertAt(i);
     if (!c) continue;
     const Course *course = Training_CourseByIndex(c->course);
@@ -545,8 +600,9 @@ void buildCerts() {
     char label[96];
     snprintf(label, sizeof(label), "%s - %s - %s", c->name,
              course ? TrainingTxt(course->title) : "?", date);
-    lv_obj_t *row = lv_btn_create(list);
+    lv_obj_t *row = lv_btn_create(s_content);
     lv_obj_set_size(row, CARD_W - 52, 48);
+    lv_obj_align(row, LV_ALIGN_TOP_MID, 0, 56 + (i - first) * 54);
     lv_obj_set_style_bg_color(row, lv_color_hex(0x2E7D32), LV_PART_MAIN);
     lv_obj_set_style_radius(row, 8, LV_PART_MAIN);
     lv_obj_add_event_cb(row, onCert, LV_EVENT_CLICKED, (void *)(intptr_t)i);
@@ -561,6 +617,8 @@ void buildCerts() {
                            onBackCourses, lv_color_hex(0x888888));
   lv_obj_set_size(back, 150, 46);
   lv_obj_align(back, LV_ALIGN_BOTTOM_LEFT, 6, -6);
+
+  if (pages > 1) makePager(s_certPage, pages, onCertPage);
 }
 
 void buildCert() {
@@ -715,6 +773,8 @@ void TrainingSelector_OnLessonEnd(const Course *course, uint8_t lessonIdx,
                                   bool passed, uint16_t attempts) {
   if (!course) return;
   s_course = course;
+  // Reabrir en la pagina de la leccion que se acaba de hacer.
+  s_lessonPage = lessonIdx / ROWS_PER_PAGE;
   if (passed) {
     TrainingProgress_MarkLesson(course->id, lessonIdx, attempts);
     bool all = true;

@@ -107,10 +107,13 @@ lv_coord_t clampCoord(lv_coord_t v, lv_coord_t lo, lv_coord_t hi) {
 
 // ---- Gate clinico y cesion -------------------------------------------------
 
+// Sin terapia activa, sin alarma, con enlace y sin apagado. Un paciente
+// REGISTRADO (perfil activo en la placa o recordado por la HMI) no impide la
+// formacion: la confirmacion de cabina vacia del selector es lo que cubre al
+// bebe, y el registro real se avisa alli.
 bool gateOk() {
   return !UI_AnyControlActive() && !UI_IsAnyAlarmActive() &&
-         !Display_IsBoardLinkLost() && BabyWizard_GetActiveSeq() == 0 &&
-         !g_pwrOffActive;
+         !Display_IsBoardLinkLost() && !g_pwrOffActive;
 }
 
 // Mismo criterio que TelemetryHistory::mustYield() mas el apagado: una
@@ -283,8 +286,12 @@ void endLesson(bool passed, bool aborted) {
     // lo que la leccion encendio) y baja el flag.
     UI_RestoreControlSnapshot(&s_snap);
     Training_Exit();
-    // El seq de formacion (0xFFFF) no debe sobrevivir a la leccion.
-    BabyWizard_ClearActiveProfile();
+    // El seq de formacion (0xFFFF) no debe sobrevivir a la leccion. Solo se
+    // borra si es el de ZOE: si la leccion no llego a seleccionarla, el
+    // perfil recordado (un paciente registrado) se queda como estaba.
+    if (BabyWizard_GetActiveSeq() == TRAINING_BABY_SEQ) {
+      BabyWizard_ClearActiveProfile();
+    }
   }
   if (mode == MODE_DEMO) passed = false;
 

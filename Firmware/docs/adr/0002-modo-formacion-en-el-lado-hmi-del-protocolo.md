@@ -106,12 +106,18 @@ quiere enseñar.
 **Salvaguardas añadidas tras la revisión de seguridad de esta revisión:**
 
 - **El gate de la HMI no puede ver un bebé sin terapia.** Antes de cada
-  lección interactiva el selector pide a la placa su lista **real** de
-  bebés activos (`HMI,PROFILE_LIST_REQ`, con el modo formación aún
-  inactivo) y rechaza la lección si hay alguno o si la placa no contesta en
-  2,5 s; y el alumno tiene que confirmar expresamente "SI, LA CABINA ESTA
-  VACIA" en un diálogo que nombra lo que va a pasar (calentar, encender la
-  lámpara). La confirmación queda en el log.
+  lección interactiva el alumno tiene que confirmar expresamente "SI, LA
+  CABINA ESTA VACIA" en un diálogo que nombra lo que va a pasar (calentar,
+  encender la lámpara); la confirmación queda en el log. El selector pide
+  además a la placa su lista **real** de pacientes (`HMI,PROFILE_LIST_REQ`,
+  con el modo formación aún inactivo) y, si hay uno registrado, lo dice con
+  su nombre y avisa de que sus contadores podrían recibir los minutos de la
+  práctica. **Por decisión del usuario (2026-09-06) esto avisa pero no
+  bloquea**: la formación debe poder hacerse con un paciente registrado
+  mientras no haya terapia activa. El riesgo de acreditar minutos al
+  paciente registrado queda asumido y depende del arreglo pendiente en la
+  motherBoard descrito más abajo. La HMI conserva el perfil recordado al
+  salir si la lección no llegó a seleccionar a ZOE.
 - **Watchdog de la lámpara.** Si la HMI se reinicia con la lámpara
   encendida, la placa mantiene la terapia (`ALARM_HMI_LINK_LOST` no la
   corta) y solo el temporizador la apaga. En formación la trama de estado

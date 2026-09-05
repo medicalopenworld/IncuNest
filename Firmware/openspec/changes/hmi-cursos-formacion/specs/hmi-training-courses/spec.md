@@ -5,7 +5,9 @@
 La opción TUTORIAL GUIADO del menú de ayuda SHALL abrir un selector con dos
 cursos, **Enfermería** y **Técnico**. Cada curso SHALL listar sus lecciones
 con su estado (superada / pendiente / demostración) y el nombre del alumno
-en curso si lo hay. La lección 0 de ambos cursos SHALL ser la introducción a
+en curso si lo hay. Las listas de lecciones y de certificados SHALL
+presentarse en páginas de seis filas que se pasan con botones anterior /
+siguiente e indicador "n/N", no con scroll. La lección 0 de ambos cursos SHALL ser la introducción a
 la interfaz (el recorrido pasivo existente).
 
 #### Scenario: Elegir curso y alumno
@@ -42,13 +44,15 @@ y enviarlo de inmediato a la placa, que SHALL volver al estado que tenía
 
 #### Scenario: Confirmación de cabina vacía antes de actuar
 - **WHEN** el alumno elige una lección interactiva
-- **THEN** el selector pide a la placa su lista real de bebés activos y
-  muestra un aviso de que la incubadora va a calentar y/o encender la
-  lámpara de verdad
-- **AND** solo si la placa responde sin bebés activos aparece el botón "SI,
-  LA CABINA ESTA VACIA. EMPEZAR"; con bebés activos o sin respuesta en 2,5 s
-  la lección no puede empezar
-- *(Verificación manual en banco: con y sin un bebé real activo en la
+- **THEN** el selector muestra un aviso de que la incubadora va a calentar
+  y/o encender la lámpara de verdad, con el botón "SI, LA CABINA ESTA VACIA.
+  EMPEZAR" y CANCELAR
+- **AND** pide a la placa su lista real de pacientes y, si hay alguno
+  registrado, lo dice con su nombre y avisa de que sus contadores de terapia
+  podrían recibir los minutos de la práctica; la formación SHALL poder
+  hacerse igualmente con un paciente registrado (decisión del usuario), pero
+  nunca con una terapia activa
+- *(Verificación manual en banco: con y sin un paciente registrado en la
   placa.)*
 
 #### Scenario: Watchdog de la lámpara en formación
@@ -69,10 +73,14 @@ y enviarlo de inmediato a la placa, que SHALL volver al estado que tenía
 - *(Verificación manual en banco con la placa conectada, sin bebé.)*
 
 #### Scenario: La fototerapia se enciende de verdad
-- **WHEN** el alumno confirma la protección ocular en la lección de
-  fototerapia
-- **THEN** la lámpara se enciende y la cuenta atrás corre en pantalla
-- **AND** al terminar la lección la lámpara se apaga sola
+- **WHEN** el alumno enciende la fototerapia (selecciona a ZOE y confirma la
+  protección ocular), pulsa INICIAR con los minutos por defecto y después
+  apaga con el botón de encendido sin cancelar el temporizador
+- **THEN** la lámpara se enciende de verdad, la cuenta atrás corre en
+  pantalla y al apagar la lámpara se apaga aunque el temporizador siguiera
+  en marcha
+- **AND** al terminar o abandonar la lección la lámpara queda como estaba
+  antes
 - *(Verificación manual en banco.)*
 
 #### Scenario: Solo se puede practicar con ZOE
@@ -102,7 +110,10 @@ y enviarlo de inmediato a la placa, que SHALL volver al estado que tenía
 
 Una lección interactiva SHALL arrancar solo si no hay terapia activa
 (`UI_AnyControlActive()` falso), no hay alarma activa, el enlace con la
-placa está vivo, no hay perfil de bebé activo y no hay apagado en curso. Si
+placa está vivo y no hay apagado en curso. Un paciente registrado (perfil
+activo en la placa o recordado por la HMI) NO SHALL impedirla: se avisa en
+la confirmación y el perfil recordado se conserva al salir si la lección no
+llegó a seleccionar a ZOE. Si
 alguna condición falla, la lección SHALL ofrecerse en modo demostración
 (pasos "hacer" mostrados como "explicar", sin modo formación) y NO SHALL
 contar como superada. Durante una lección interactiva, cualquier alarma,

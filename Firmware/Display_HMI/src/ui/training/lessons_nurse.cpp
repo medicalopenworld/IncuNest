@@ -78,12 +78,6 @@ bool goalHumUp() {
 }
 
 // Fototerapia
-int s_photoMinBase = 0;
-void enterPhotoBase() { s_photoMinBase = snap().photoTimerMinutes; }
-bool goalPhotoMinUp() {
-  const int m = snap().photoTimerMinutes;
-  return m > s_photoMinBase || m >= PHOTO_TIMER_MAX_MINUTES;
-}
 bool goalPhotoOnOrDialog() {
   return hmi_msg.phototherapyMode == PHOTOTHERAPY_ON || BabyWizard_IsOpen() ||
          visible(ui_PhotoSafetyOverlay);
@@ -93,7 +87,6 @@ bool goalPhotoOn() {
          !visible(ui_PhotoSafetyOverlay);
 }
 bool goalPhotoTimerRunning() { return snap().photoTimerActive; }
-bool goalPhotoTimerStopped() { return !snap().photoTimerActive; }
 bool goalPhotoOff() { return hmi_msg.phototherapyMode == PHOTOTHERAPY_OFF; }
 
 // Alarmas
@@ -445,11 +438,13 @@ const Step E4_STEPS[] = {
          "Selectionnez ZOE dans la liste. Puis, dans l'avis de protection "
          "oculaire, confirmez que les yeux sont couverts : la lampe "
          "s'allumera vraiment."),
-    DO_ENTER(&ui_PhotoTimePlusBtn, &ui_ScreenMain, goalPhotoMinUp,
-             enterPhotoBase,
-             "Sube los minutos del temporizador con el +.",
-             "Raise the timer minutes with +.",
-             "Augmentez les minutes du minuteur avec +."),
+    EXPLAIN(&ui_PhotoTimerCont, &ui_ScreenMain,
+            "La lampara esta encendida. Los minutos del temporizador se "
+            "ajustan con + y -; deja el valor por defecto para esta practica.",
+            "The lamp is on. The timer minutes are set with + and -; keep the "
+            "default value for this exercise.",
+            "La lampe est allumee. Les minutes du minuteur se reglent avec + "
+            "et - ; gardez la valeur par defaut pour cet exercice."),
     DO(&ui_PhotoStartBtn, &ui_ScreenMain, goalPhotoTimerRunning,
        "Pulsa INICIAR: arranca la cuenta atras y la lampara se apagara sola "
        "al terminar.",
@@ -457,16 +452,13 @@ const Step E4_STEPS[] = {
        "itself at the end.",
        "Appuyez sur DEMARRER : le compte a rebours commence et la lampe "
        "s'eteindra seule a la fin."),
-    DO(&ui_PhotoCancelBtn, &ui_ScreenMain, goalPhotoTimerStopped,
-       "Cancela la cuenta atras. Sin temporizador la lampara sigue encendida "
-       "hasta que la apagues tu.",
-       "Cancel the countdown. Without a timer the lamp stays on until you "
-       "switch it off.",
-       "Annulez le compte a rebours. Sans minuteur la lampe reste allumee "
-       "jusqu'a ce que vous l'eteigniez."),
     DO(&ui_PhotoToggleBtn, &ui_ScreenMain, goalPhotoOff,
-       "Apaga la fototerapia.", "Turn phototherapy off.",
-       "Eteignez la phototherapie."),
+       "Apaga la fototerapia con el boton de encendido, sin esperar al "
+       "temporizador: apagar siempre manda.",
+       "Turn phototherapy off with the power button, without waiting for the "
+       "timer: switching off always wins.",
+       "Eteignez la phototherapie avec le bouton marche/arret, sans attendre "
+       "le minuteur : eteindre a toujours priorite."),
     QUIZ(&ui_ScreenMain, &QUIZ_E4,
          "Pregunta: que hay que hacer SIEMPRE antes de encender la "
          "fototerapia?",

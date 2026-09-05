@@ -212,10 +212,17 @@ Commit real: `feat(hmi): cursos completos de Enfermeria y Tecnico (fases 2 y 3)`
       nombre de ZOE copiado al seleccionarla, franja con lo peligroso delante.
       Deuda anotada en la motherBoard (`s_wizardSeq` no se limpia al dar de
       alta): rama aparte.
+- [x] 8.11 Petición del usuario (2026-09-06): listas de lecciones y
+      certificados en páginas de 6 con < > y "n/N" (sin scroll); el gate ya
+      no exige ausencia de paciente registrado (la confirmación avisa con el
+      nombre en vez de bloquear; el perfil recordado se conserva si la lección
+      no seleccionó a ZOE); E4 simplificada: encender, INICIAR con los minutos
+      por defecto y apagar con el botón sin cancelar el temporizador.
 - [ ] 8.7 Banco: cada lección de principio a fin; certificado de Enfermería.
       Además: la lista del asistente muestra solo a ZOE; BEBE NUEVO, SALTAR y
       SIN PESO dan el aviso; el diálogo de confirmación aparece antes de cada
-      lección interactiva y no deja empezar con un bebé activo en la placa;
+      lección interactiva y, con un paciente registrado, avisa con su nombre
+      pero deja empezar; las listas se pasan por páginas;
       la lámpara se enciende en E4 y se apaga al salir; el calefactor arranca
       en E1 y se apaga al salir (monitor serie: `actuation` vuelve al valor
       previo en <1 s, y la consigna restaurada no se revierte en los 2,5 s
