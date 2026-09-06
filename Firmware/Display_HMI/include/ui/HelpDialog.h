@@ -4,7 +4,8 @@
 //
 // Pop-up modal con el patron de TimeDialog: overlay reutilizado, tarjeta con
 // boton X y contenido reconstruible por vista. Tres vias:
-//   - Tutorial guiado: cierra el dialogo y arranca HelpTour.
+//   - Tutorial guiado: cierra el dialogo y abre el selector de cursos de
+//     formacion (Training_OpenSelector, spec hmi-training-courses).
 //   - Video tutorial: QR con SUPPORT_TUTORIAL_URL.
 //   - Contacto: mensaje breve con teclado en pantalla; envio desde el equipo
 //     (telemetria ThingsBoard, via tarea WiFi/OTA) y/o QR mailto: para el

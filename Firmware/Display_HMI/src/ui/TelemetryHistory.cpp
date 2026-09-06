@@ -267,6 +267,12 @@ void TelemetryHistory_ApplyLanguage(void) {
     lv_label_set_text(s_lblHum, TXT("HUMEDAD", "HUMIDITY", "HUMIDITE"));
 }
 
+bool TelemetryHistory_IsOpen(void) { return s_isOpen; }
+
+void TelemetryHistory_Close(void) {
+  if (s_isOpen) closeScreen();
+}
+
 void TelemetryHistory_Open(void) {
   if (!s_overlay || s_isOpen) return;
   // Evita el parpadeo de abrir y cerrar en el mismo tick: si ya hay algo con

@@ -17,3 +17,8 @@ void BabyExitDialog_Init(lv_obj_t *parent);
 // state. Handles the idle-edge detection itself and opens the dialog when
 // warranted; cheap no-op otherwise.
 void BabyExitDialog_Tick(bool anyControlActive);
+
+// Para el motor de lecciones (hmi-training-courses): saber si esta abierto y
+// cerrarlo sin registrar nada (como el boton X).
+bool BabyExitDialog_IsOpen(void);
+void BabyExitDialog_Cancel(void);

@@ -291,6 +291,12 @@ void TimeDialog_Init(lv_obj_t *parent) {
   lv_obj_align(s_closeBtn, LV_ALIGN_TOP_RIGHT, 0, 0);
 }
 
+bool TimeDialog_IsOpen(void) { return s_open; }
+
+void TimeDialog_Close(void) {
+  if (s_open) closeDialog();
+}
+
 void TimeDialog_Open(void) {
   if (!s_overlay) return;
   s_count = 0;

@@ -17,22 +17,22 @@ ayuda.
 #### Scenario: El botón está en el heading y abre el menú
 - **WHEN** el operador toca el `?` del heading en `ui_ScreenMain`
 - **THEN** se abre el menú de ayuda como diálogo modal sobre la pantalla
-  principal, con tres opciones: tutorial guiado, vídeo tutorial y contacto
-- *(Verificación manual: Display_HMI no tiene entorno de test. Banco, tarea
-  6.1 y 6.3.)*
+  principal, con tres opciones: tutorial guiado (que abre el selector de
+  cursos de `hmi-training-courses`), vídeo tutorial y contacto
+- *(Verificación manual en banco.)*
 
 #### Scenario: El heading redistribuido no rompe las zonas táctiles
 - **WHEN** el operador toca el borde izquierdo del reloj o cualquier punto
   de la zona táctil ampliada del candado
 - **THEN** responde el reloj o el candado, no el botón de ayuda
-- *(Verificación manual en banco, tarea 6.1.)*
+- *(Verificación manual en banco.)*
 
 #### Scenario: La pantalla de bloqueo no cambia de reparto
 - **WHEN** la pantalla pasa a `ui_ScreenLock`
 - **THEN** reloj y conectividad aparecen en la misma posición horizontal
   que tenían en `ui_ScreenMain`
 - **AND** no hay botón de ayuda
-- *(Verificación manual en banco, tarea 6.2.)*
+- *(Verificación manual en banco.)*
 
 ### Requirement: El menú de ayuda es modal y respeta las reglas de los diálogos
 
