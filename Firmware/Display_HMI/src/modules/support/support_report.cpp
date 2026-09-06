@@ -89,8 +89,20 @@ const char *resetName(int rst) {
   }
 }
 
+// Codigo del idioma en el informe de soporte. No es texto traducible: es el
+// dato que le dice a soporte en que idioma esta viendo el equipo quien
+// escribe. Un idioma que falte aqui se reporta como "en" y manda a soporte a
+// mirar la pantalla equivocada, asi que va con switch y no con ternarios: al
+// anadir un idioma a `ui_lang_t`, el -Wswitch avisa.
 const char *langCode() {
-  return (g_lang == LANG_ES) ? "es" : (g_lang == LANG_FR) ? "fr" : "en";
+  switch (g_lang) {
+    case LANG_ES: return "es";
+    case LANG_FR: return "fr";
+    case LANG_PT: return "pt";
+    case LANG_EN: return "en";
+    case UI_LANG_COUNT: break;
+  }
+  return "en";
 }
 
 const char *linkState() {
