@@ -231,10 +231,27 @@ uint8_t pageCount(uint8_t items) {
   return items == 0 ? 1 : (uint8_t)((items + ROWS_PER_PAGE - 1) / ROWS_PER_PAGE);
 }
 
+// Lecciones disponibles ahora (Lesson_IsAvailable): rellena `out` con sus
+// indices reales en course->lessons y devuelve cuantas hay. Las ligadas a una
+// opcion de Ajustes desactivada (humedad, modo piel) no se listan, no cuentan
+// en el progreso ni hacen falta para el certificado.
+uint8_t availableLessons(const Course *c, uint8_t *out, uint8_t cap) {
+  uint8_t n = 0;
+  for (uint8_t i = 0; i < c->lessonCount && n < cap; i++) {
+    if (!Lesson_IsAvailable(c->lessons[i])) continue;
+    if (out) out[n] = i;
+    n++;
+  }
+  return n;
+}
+uint8_t availableCount(const Course *c) {
+  return availableLessons(c, nullptr, 255);
+}
+
 void onLessonPage(lv_event_t *e) {
   if (!s_course) return;
   const int dir = (int)(intptr_t)lv_event_get_user_data(e);
-  const int pages = pageCount(s_course->lessonCount);
+  const int pages = pageCount(availableCount(s_course));
   int p = (int)s_lessonPage + dir;
   if (p < 0 || p >= pages) return;
   s_lessonPage = (uint8_t)p;
@@ -286,9 +303,11 @@ void progressLine(char *out, size_t cap, uint8_t courseIdx) {
   }
   uint8_t done = 0;
   for (uint8_t i = 0; i < c->lessonCount; i++)
-    if (TrainingProgress_IsLessonDone(courseIdx, i)) done++;
+    if (Lesson_IsAvailable(c->lessons[i]) &&
+        TrainingProgress_IsLessonDone(courseIdx, i))
+      done++;
   snprintf(out, cap, "%s: %u/%u", p->name, (unsigned)done,
-           (unsigned)c->lessonCount);
+           (unsigned)availableCount(c));
 }
 
 void buildCourses() {
@@ -342,7 +361,7 @@ void buildCourses() {
 
     lv_obj_t *lessons = lv_label_create(btn);
     char n[40];
-    snprintf(n, sizeof(n), "%u %s", (unsigned)c->lessonCount,
+    snprintf(n, sizeof(n), "%u %s", (unsigned)availableCount(c),
              TXT("lecciones", "lessons", "lecons"));
     lv_obj_set_style_text_font(lessons, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(lessons, lv_color_hex(0xF0F0F0), 0);
@@ -433,19 +452,24 @@ void buildLessons() {
            (p && p->name[0]) ? p->name : "");
   makeTitle(t);
 
+  // Solo las lecciones disponibles, numeradas por su posicion visible.
+  uint8_t vis[32];
+  const uint8_t n = availableLessons(s_course, vis, sizeof(vis));
+
   // Paginas de ROWS_PER_PAGE filas (48 px + 6 de hueco = 324 px), sin scroll.
-  const uint8_t pages = pageCount(s_course->lessonCount);
+  const uint8_t pages = pageCount(n);
   if (s_lessonPage >= pages) s_lessonPage = pages - 1;
   const uint8_t first = s_lessonPage * ROWS_PER_PAGE;
   uint8_t last = first + ROWS_PER_PAGE;
-  if (last > s_course->lessonCount) last = s_course->lessonCount;
+  if (last > n) last = n;
 
-  for (uint8_t i = first; i < last; i++) {
+  for (uint8_t v = first; v < last; v++) {
+    const uint8_t i = vis[v];
     const Lesson &l = s_course->lessons[i];
     const bool done = TrainingProgress_IsLessonDone(s_course->id, i);
     lv_obj_t *row = lv_btn_create(s_content);
     lv_obj_set_size(row, CARD_W - 52, 48);
-    lv_obj_align(row, LV_ALIGN_TOP_MID, 0, 56 + (i - first) * 54);
+    lv_obj_align(row, LV_ALIGN_TOP_MID, 0, 56 + (v - first) * 54);
     lv_obj_set_style_bg_color(row, done ? lv_color_hex(0x2E7D32)
                                         : lv_color_hex(0x0075EE),
                               LV_PART_MAIN);
@@ -453,7 +477,7 @@ void buildLessons() {
     lv_obj_add_event_cb(row, onLesson, LV_EVENT_CLICKED, (void *)(intptr_t)i);
 
     char label[96];
-    snprintf(label, sizeof(label), "%u. %s%s", (unsigned)(i + 1),
+    snprintf(label, sizeof(label), "%u. %s%s", (unsigned)(v + 1),
              TrainingTxt(l.title),
              (l.flags & LESSON_INTERACTIVE)
                  ? TXT("  (practica)", "  (hands-on)", "  (pratique)")
@@ -773,19 +797,26 @@ void TrainingSelector_OnLessonEnd(const Course *course, uint8_t lessonIdx,
                                   bool passed, uint16_t attempts) {
   if (!course) return;
   s_course = course;
-  // Reabrir en la pagina de la leccion que se acaba de hacer.
-  s_lessonPage = lessonIdx / ROWS_PER_PAGE;
+  // Reabrir en la pagina de la leccion que se acaba de hacer (posicion
+  // entre las disponibles, que es como se lista).
+  uint8_t vis[32];
+  const uint8_t n = availableLessons(course, vis, sizeof(vis));
+  s_lessonPage = 0;
+  for (uint8_t v = 0; v < n; v++)
+    if (vis[v] == lessonIdx) s_lessonPage = v / ROWS_PER_PAGE;
   if (passed) {
     TrainingProgress_MarkLesson(course->id, lessonIdx, attempts);
+    // El certificado exige las lecciones disponibles en este equipo: las
+    // ocultas por Ajustes no se pueden hacer y no se exigen.
     bool all = true;
-    for (uint8_t i = 0; i < course->lessonCount; i++) {
-      if (!TrainingProgress_IsLessonDone(course->id, i)) {
+    for (uint8_t v = 0; v < n; v++) {
+      if (!TrainingProgress_IsLessonDone(course->id, vis[v])) {
         all = false;
         break;
       }
     }
     if (all) {
-      TrainingProgress_Certify(course->id, course->lessonCount);
+      TrainingProgress_Certify(course->id, n);
       s_certIdx = 0;
       UI_ShowToast(TXT("Curso superado. Enhorabuena!", "Course passed. Well done!",
                        "Cours reussi. Felicitations !"),

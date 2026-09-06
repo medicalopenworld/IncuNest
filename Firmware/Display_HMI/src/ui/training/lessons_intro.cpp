@@ -166,4 +166,5 @@ const Lesson LESSON_INTRO = {
     INTRO_STEPS,
     (uint8_t)(sizeof(INTRO_STEPS) / sizeof(INTRO_STEPS[0])),
     0,
+    nullptr,
 };

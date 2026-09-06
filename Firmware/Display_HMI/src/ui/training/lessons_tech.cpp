@@ -554,11 +554,12 @@ const Step T8_STEPS[] = {
 
 #define LESSON(id, es, en, fr, steps)                                          \
   { id, T3(es, en, fr), steps, (uint8_t)(sizeof(steps) / sizeof(steps[0])), \
-    LESSON_INTERACTIVE }
+    LESSON_INTERACTIVE, nullptr }
 // Solo explicar y preguntar: sin sandbox ni gate clinico, como la intro. Asi
 // un tecnico puede completarlas aunque haya una terapia en marcha.
 #define LESSON_PASSIVE(id, es, en, fr, steps)                                  \
-  { id, T3(es, en, fr), steps, (uint8_t)(sizeof(steps) / sizeof(steps[0])), 0 }
+  { id, T3(es, en, fr), steps, (uint8_t)(sizeof(steps) / sizeof(steps[0])), 0, \
+    nullptr }
 
 const Lesson TECH_LESSONS[] = {
     LESSON_INTRO,

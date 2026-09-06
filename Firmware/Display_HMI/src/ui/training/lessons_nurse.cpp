@@ -1,7 +1,9 @@
-// Curso de Enfermeria (spec hmi-training-courses). E0 intro (compartida), E1
-// temperatura por aire, E2 piel y sonda, E3 humedad, E4 fototerapia, E5
-// atender una alarma, E6 alta y seguimiento, E7 salida del bebe, E8 bloqueo,
-// E9 tendencia, E10 hora, E11 soporte.
+// Curso de Enfermeria (spec hmi-training-courses). Orden pedido por el
+// usuario: E0 intro, E1 alta y seguimiento del bebe, E2 temperatura por aire,
+// E3 piel y sonda (solo si el modo piel esta habilitado en Ajustes), E4
+// humedad (solo si el control de humedad esta habilitado), E5 fototerapia, E6
+// atender una alarma, E7 salida del bebe, E8 bloqueo, E9 tendencia, E10 hora,
+// E11 soporte.
 //
 // Todas las lecciones salvo la intro son LESSON_INTERACTIVE: aunque bloquear
 // la pantalla o abrir la ayuda no cambie nada en la placa, el sandbox activo
@@ -35,10 +37,20 @@ UiControlSnapshot snap() {
 
 bool visible(lv_obj_t *o) { return o && lv_obj_is_visible(o); }
 
-// Temperatura
+// Disponibilidad de lecciones ligadas a opciones de Ajustes > Modos.
+bool availSkin() { return snap().skinPanelEnabled; }
+bool availHum() { return snap().humidityEnabled; }
+
+// Temperatura y asistente
 bool goalWizardOpen() { return BabyWizard_IsOpen(); }
 bool goalTempOn() { return snap().switchTemp && !BabyWizard_IsOpen(); }
 bool goalTempOff() { return !snap().switchTemp && !BabyWizard_IsOpen(); }
+// Fases del asistente, para explicar cada pantalla mientras el alumno la
+// tiene delante (pasos libres encadenados).
+bool goalWizardAtWeight() { return BabyWizard_GetStep() == BW_WEIGHT; }
+bool goalWizardAtAge() { return BabyWizard_GetStep() == BW_AGE; }
+bool goalWizardAtSummary() { return BabyWizard_GetStep() == BW_SUMMARY; }
+
 // Los objetivos "sube la consigna" aceptan tambien el tope del rango: si el
 // equipo ya estaba al maximo, el paso no puede quedarse sin salida.
 double s_airBase = 0.0;
@@ -48,25 +60,14 @@ bool goalAirUpTwo() {
   return a >= s_airBase + 0.39 || a >= AIR_TEMP_MAX - 0.01;
 }
 
-// Piel. La sonda es real (la placa la detecta): sin sonda el paso de activar
-// el modo piel se da por cumplido para que la leccion no se quede colgada.
+// Piel. La sonda es real (la placa la detecta): sin sonda el paso de
+// seleccionar PIEL se da por cumplido para que la leccion no se quede colgada.
 bool probeOk() { return g_skinProbeState == SKIN_PROBE_VALID; }
-bool goalSettingsScreen() { return lv_scr_act() == ui_ScreenSettings; }
-bool goalMainScreen() { return lv_scr_act() == ui_ScreenMain; }
-// Visibilidad SIEMPRE junto a la pantalla activa: lv_obj_is_visible() no mira
-// si el objeto pertenece a la pantalla cargada, y un panel destapado en una
-// sesion anterior daria el paso por hecho antes de tocarlo.
-bool goalModesVisible() {
-  return goalSettingsScreen() && visible(ui_ModesConfigCont);
-}
-bool goalSkinEnabledOrNoProbe() { return snap().skinPanelEnabled || !probeOk(); }
 bool goalSkinSelectedOrNoProbe() {
-  return snap().selectedPanel == SKIN_PANEL_SELECTED || !probeOk() ||
-         !snap().skinPanelEnabled;
+  return snap().selectedPanel == SKIN_PANEL_SELECTED || !probeOk();
 }
 
 // Humedad
-bool goalHumPanelVisible() { return goalMainScreen() && visible(ui_HumCont); }
 bool goalHumOnOrWizard() { return snap().switchHum || BabyWizard_IsOpen(); }
 bool goalHumOn() { return snap().switchHum && !BabyWizard_IsOpen(); }
 bool goalHumOff() { return !snap().switchHum; }
@@ -86,19 +87,17 @@ bool goalPhotoOn() {
   return hmi_msg.phototherapyMode == PHOTOTHERAPY_ON && !BabyWizard_IsOpen() &&
          !visible(ui_PhotoSafetyOverlay);
 }
-bool goalPhotoTimerRunning() { return snap().photoTimerActive; }
 bool goalPhotoOff() { return hmi_msg.phototherapyMode == PHOTOTHERAPY_OFF; }
 
 // Alarmas
 bool goalAlarmCenterOpen() { return AlarmCenter_IsOpen(); }
 bool goalAlarmCenterClosed() { return !AlarmCenter_IsOpen(); }
 
-// Bebes
+// Bebes. En formacion el asistente solo ofrece a ZOE y rechaza BEBE NUEVO y
+// SALTAR (BabyWizard::trainingRefuse), asi que el unico camino que enciende
+// el control deja seq = TRAINING_BABY_SEQ.
 bool goalBabyHistoryOpen() { return BabyHistory_IsOpen(); }
 bool goalBabyHistoryClosed() { return !BabyHistory_IsOpen(); }
-// En formacion el asistente solo ofrece a ZOE y rechaza BEBE NUEVO y SALTAR
-// (BabyWizard::trainingRefuse), asi que el unico camino que enciende el
-// control deja seq = TRAINING_BABY_SEQ.
 bool goalTrainingBabyAdmitted() {
   return snap().switchTemp && !BabyWizard_IsOpen() &&
          BabyWizard_GetActiveSeq() == TRAINING_BABY_SEQ;
@@ -135,9 +134,92 @@ bool goalTimeClosed() { return !TimeDialog_IsOpen(); }
 bool goalHelpOpen() { return HelpDialog_IsOpen(); }
 bool goalHelpClosed() { return !HelpDialog_IsOpen(); }
 
-// ---- E1: temperatura por aire ----------------------------------------------
+// ---- E1: alta y seguimiento del bebe ------------------------------------------
 
-const Quiz QUIZ_E1 = {
+const Quiz QUIZ_BABY = {
+    {T3("Solo para mostrar el nombre en pantalla",
+        "Only to show the name on screen",
+        "Seulement pour afficher le nom a l'ecran"),
+     T3("Para proponer la temperatura de aire y registrar la estancia",
+        "To propose the air temperature and record the stay",
+        "Pour proposer la temperature d'air et enregistrer le sejour"),
+     T3("Para conectarse a la red WiFi", "To connect to the WiFi network",
+        "Pour se connecter au reseau WiFi")},
+    1,
+    T3("Con peso, semanas y edad el equipo calcula el rango de temperatura "
+       "neutra y propone una consigna. Ademas cada bebe tiene su registro: "
+       "pesos, horas de terapia, salidas.",
+       "With weight, weeks and age the device computes the neutral "
+       "temperature range and proposes a setpoint. Each baby also has a "
+       "record: weights, therapy hours, exits.",
+       "Avec poids, semaines et age, l'appareil calcule la plage de "
+       "temperature neutre et propose une consigne. Chaque bebe a aussi son "
+       "dossier : poids, heures de therapie, sorties."),
+};
+
+const Step BABY_STEPS[] = {
+    EXPLAIN(&ui_BabiesButton, &ui_ScreenMain,
+            "Cada bebe tiene su registro: nombre, semanas, pesos, horas de "
+            "terapia y salidas. Se crea con BEBE NUEVO al encender una terapia "
+            "por primera vez. En formacion practicaras con ZOE, ya creada.",
+            "Each baby has a record: name, weeks, weights, therapy hours and "
+            "exits. It is created with NEW BABY when a therapy is first "
+            "switched on. In training you practise with ZOE, already created.",
+            "Chaque bebe a son dossier : nom, semaines, poids, heures de "
+            "therapie et sorties. Il se cree avec NOUVEAU BEBE a la premiere "
+            "therapie. En formation vous pratiquez avec ZOE, deja creee."),
+    DO(&ui_BabiesButton, &ui_ScreenMain, goalBabyHistoryOpen,
+       "Toca Bebes para ver los registros. Dentro veras el bebe activo, los "
+       "ya dados de alta y la curva de peso de cada uno. Cierra con la X al "
+       "terminar.",
+       "Touch Babies to see the records. Inside you see the active baby, the "
+       "discharged ones and each weight curve. Close with the X when done.",
+       "Touchez Bebes pour voir les dossiers : le bebe actif, ceux sortis et "
+       "la courbe de poids de chacun. Fermez avec la X a la fin."),
+    FREE(&ui_ScreenMain, goalBabyHistoryClosed,
+         "Explora los registros de bebes. Cierra con la X para continuar.",
+         "Explore the baby records. Close with the X to continue.",
+         "Explorez les dossiers des bebes. Fermez avec la X pour continuer."),
+    DO(&ui_TempToggleBtn, &ui_ScreenMain, goalWizardOpen,
+       "El registro se abre desde cualquier terapia. Enciende el control de "
+       "temperatura para abrir el asistente del bebe.",
+       "The record is opened from any therapy. Turn temperature control on to "
+       "open the baby assistant.",
+       "Le dossier s'ouvre depuis n'importe quelle therapie. Allumez le "
+       "controle de temperature pour ouvrir l'assistant bebe."),
+    FREE(&ui_ScreenMain, goalTrainingBabyAdmitted,
+         "Selecciona a ZOE. Introduce su peso de hoy en gramos y sus dias de "
+         "vida: asi se registra un peso nuevo. Lee la temperatura propuesta y "
+         "pulsa APLICAR. ZOE no se guarda en el historial.",
+         "Select ZOE. Enter today's weight in grams and her days of life: "
+         "that is how a new weight is recorded. Read the proposed temperature "
+         "and press APPLY. ZOE is not saved to the history.",
+         "Selectionnez ZOE. Saisissez son poids du jour en grammes et ses "
+         "jours de vie : c'est ainsi qu'un poids s'enregistre. Lisez la "
+         "temperature proposee et APPLIQUER. ZOE n'est pas gardee."),
+    EXPLAIN(&ui_BabiesButton, &ui_ScreenMain,
+            "Cada nuevo peso se registra desde el asistente y dibuja la curva "
+            "de crecimiento en Bebes. Registra el peso a diario a la misma "
+            "hora.",
+            "Each new weight is recorded from the assistant and draws the "
+            "growth curve in Babies. Record the weight daily at the same "
+            "time.",
+            "Chaque nouveau poids s'enregistre depuis l'assistant et trace la "
+            "courbe de croissance dans Bebes. Pesez chaque jour a la meme "
+            "heure."),
+    DO(&ui_TempToggleBtn, &ui_ScreenMain, goalTempOff,
+       "Apaga el control de temperatura para terminar.",
+       "Turn temperature control off to finish.",
+       "Eteignez le controle de temperature pour terminer."),
+    QUIZ(&ui_ScreenMain, &QUIZ_BABY,
+         "Pregunta: para que pide el equipo los datos del bebe?",
+         "Question: why does the device ask for the baby data?",
+         "Question : pourquoi l'appareil demande-t-il les donnees du bebe ?"),
+};
+
+// ---- E2: temperatura por aire ----------------------------------------------
+
+const Quiz QUIZ_AIR = {
     {T3("La temperatura medida ahora en la cabina",
         "The temperature measured now in the cabin",
         "La temperature mesuree maintenant dans l'habitacle"),
@@ -157,7 +239,7 @@ const Quiz QUIZ_E1 = {
        "avec la sonde."),
 };
 
-const Step E1_STEPS[] = {
+const Step AIR_STEPS[] = {
     EXPLAIN(&ui_TempCont, &ui_ScreenMain,
             "Vamos a encender el control de temperatura por aire. Estamos en "
             "modo formacion: la incubadora actua de verdad, pero el bebe ZOE "
@@ -170,38 +252,65 @@ const Step E1_STEPS[] = {
             "bebe d'exercice et rien n'est enregistre."),
     DO(&ui_TempToggleBtn, &ui_ScreenMain, goalWizardOpen,
        "Toca el boton de encendido del control de temperatura. Se abrira el "
-       "asistente de datos del bebe.",
-       "Touch the temperature control power button. The baby data assistant "
-       "will open.",
+       "asistente del bebe: antes de calentar, el equipo necesita saber a "
+       "quien esta cuidando.",
+       "Touch the temperature control power button. The baby assistant will "
+       "open: before heating, the device needs to know who it is caring for.",
        "Touchez le bouton de mise en marche du controle de temperature. "
-       "L'assistant des donnees du bebe va s'ouvrir."),
+       "L'assistant bebe s'ouvre : avant de chauffer, l'appareil doit savoir "
+       "de qui il s'occupe."),
+    // Un paso libre por pantalla del asistente: la explicacion se lee con la
+    // pantalla delante y avanza cuando el alumno pasa a la siguiente.
+    FREE(&ui_ScreenMain, goalWizardAtWeight,
+         "1/4 Bebe: la lista muestra los bebes registrados. Selecciona a ZOE. "
+         "Con un bebe real nuevo usarias BEBE NUEVO (nombre y semanas de "
+         "gestacion).",
+         "1/4 Baby: the list shows the registered babies. Select ZOE. With a "
+         "real new baby you would use NEW BABY (name and gestational weeks).",
+         "1/4 Bebe : la liste montre les bebes enregistres. Selectionnez ZOE. "
+         "Pour un vrai nouveau bebe : NOUVEAU BEBE (nom et semaines de "
+         "gestation)."),
+    FREE(&ui_ScreenMain, goalWizardAtAge,
+         "2/4 Peso: introduce el peso de hoy en gramos. El peso y las semanas "
+         "de gestacion definen cuanto calor necesita el bebe para no gastar "
+         "energia en calentarse.",
+         "2/4 Weight: enter today's weight in grams. Weight and gestational "
+         "weeks define how much warmth the baby needs to avoid spending energy "
+         "on keeping warm.",
+         "2/4 Poids : saisissez le poids du jour en grammes. Poids et semaines "
+         "de gestation definissent la chaleur dont le bebe a besoin pour ne "
+         "pas depenser d'energie."),
+    FREE(&ui_ScreenMain, goalWizardAtSummary,
+         "3/4 Dias de vida: la temperatura neutra baja a medida que el bebe "
+         "crece. Introduce los dias desde el nacimiento y pulsa CONTINUAR.",
+         "3/4 Days of life: the neutral temperature falls as the baby grows. "
+         "Enter the days since birth and press CONTINUE.",
+         "3/4 Jours de vie : la temperature neutre baisse a mesure que le bebe "
+         "grandit. Saisissez les jours depuis la naissance et CONTINUER."),
     FREE(&ui_ScreenMain, goalTempOn,
-         "Asistente del bebe: selecciona a ZOE en la lista, introduce su "
-         "peso en gramos y sus dias de vida, lee la temperatura propuesta y "
-         "pulsa APLICAR. El control queda encendido.",
-         "Baby assistant: select ZOE in the list, enter her weight in grams "
-         "and days of life, read the proposed temperature and press APPLY. "
-         "The control turns on.",
-         "Assistant bebe : selectionnez ZOE dans la liste, saisissez son poids "
-         "en grammes et ses jours de vie, lisez la temperature proposee et "
-         "APPLIQUER. Le controle s'allume."),
+         "4/4 Resumen: con peso, semanas y dias el equipo calcula el rango de "
+         "temperatura neutra y propone una consigna de aire. APLICAR la fija y "
+         "enciende el control.",
+         "4/4 Summary: with weight, weeks and days the device computes the "
+         "neutral temperature range and proposes an air setpoint. APPLY sets "
+         "it and turns the control on.",
+         "4/4 Resume : avec poids, semaines et jours l'appareil calcule la "
+         "plage de temperature neutre et propose une consigne d'air. APPLIQUER "
+         "la fixe et allume le controle."),
     EXPLAIN(&ui_AirPanel, &ui_ScreenMain,
-            "El control ha quedado en AIRE: regula por la temperatura de la "
-            "cabina. PIEL usa la sonda sobre el bebe y solo esta disponible "
-            "con la sonda conectada.",
-            "Control is now in AIR: it regulates on cabin temperature. SKIN "
-            "uses the probe on the baby and is only available with the probe "
-            "connected.",
-            "Le controle est en AIR : il regule sur la temperature de "
-            "l'habitacle. PEAU utilise la sonde sur le bebe et n'est "
-            "disponible que sonde branchee."),
+            "El control ha quedado en AIRE con la consigna propuesta: regula "
+            "por la temperatura de la cabina. PIEL usa la sonda sobre el bebe.",
+            "Control is now in AIR with the proposed setpoint: it regulates on "
+            "cabin temperature. SKIN uses the probe on the baby.",
+            "Le controle est en AIR avec la consigne proposee : il regule sur "
+            "la temperature de l'habitacle. PEAU utilise la sonde sur le bebe."),
     DO_ENTER(&ui_ImgArrowUpTemp, &ui_ScreenMain, goalAirUpTwo, enterAirBase,
-             "Sube la consigna dos pasos con la flecha de arriba (0,2 grados "
-             "cada toque).",
-             "Raise the setpoint two steps with the up arrow (0.2 degrees per "
-             "touch).",
-             "Montez la consigne de deux pas avec la fleche haut (0,2 degre "
-             "par appui)."),
+             "Si el medico indica otra consigna, se ajusta con las flechas. "
+             "Subela dos pasos (0,2 grados cada toque).",
+             "If the doctor indicates another setpoint, adjust it with the "
+             "arrows. Raise it two steps (0.2 degrees per touch).",
+             "Si le medecin indique une autre consigne, reglez-la avec les "
+             "fleches. Montez-la de deux pas (0,2 degre par appui)."),
     EXPLAIN(&ui_AirPanel, &ui_ScreenMain,
             "La cifra grande es la temperatura medida ahora; la pequena junto "
             "a las flechas es tu consigna. La incubadora calienta hasta "
@@ -216,15 +325,15 @@ const Step E1_STEPS[] = {
        "Apaga el control de temperatura con el mismo boton.",
        "Turn temperature control off with the same button.",
        "Eteignez le controle de temperature avec le meme bouton."),
-    QUIZ(&ui_ScreenMain, &QUIZ_E1,
+    QUIZ(&ui_ScreenMain, &QUIZ_AIR,
          "Pregunta: en el panel AIRE, la cifra grande es...",
          "Question: in the AIR panel, the big figure is...",
          "Question : dans le panneau AIR, le grand chiffre est..."),
 };
 
-// ---- E2: control por piel y sonda ----------------------------------------------
+// ---- E3: control por piel y sonda (solo con el modo piel habilitado) -----------
 
-const Quiz QUIZ_E2 = {
+const Quiz QUIZ_SKIN = {
     {T3("Que el bebe tenga menos de 1500 g", "The baby weighing under 1500 g",
         "Que le bebe pese moins de 1500 g"),
      T3("Que la sonda de piel este conectada y bien colocada",
@@ -244,32 +353,17 @@ const Quiz QUIZ_E2 = {
        "degres."),
 };
 
-const Step E2_STEPS[] = {
+const Step SKIN_STEPS[] = {
     EXPLAIN(&ui_TempCont, &ui_ScreenMain,
             "El modo PIEL regula por la temperatura del bebe, medida con la "
-            "sonda pegada a su piel. Antes hay que habilitarlo en Ajustes y "
-            "tener la sonda conectada.",
+            "sonda pegada a su piel. Esta habilitado en Ajustes > Modos; hace "
+            "falta la sonda conectada.",
             "SKIN mode regulates on the baby's temperature, measured by the "
-            "probe stuck to the skin. First enable it in Settings and have the "
-            "probe connected.",
+            "probe stuck to the skin. It is enabled in Settings > Modes; the "
+            "probe must be connected.",
             "Le mode PEAU regule sur la temperature du bebe, mesuree par la "
-            "sonde collee a la peau. Activez-le d'abord dans Reglages, sonde "
-            "branchee."),
-    DO(&ui_Settings, &ui_ScreenMain, goalSettingsScreen,
-       "Toca Ajustes.", "Touch Settings.", "Touchez Reglages."),
-    DO(&ui_ModesButton, &ui_ScreenSettings, goalModesVisible,
-       "Toca la fila Modos.", "Touch the Modes row.", "Touchez la ligne Modes."),
-    DO(&ui_Switch4, &ui_ScreenSettings, goalSkinEnabledOrNoProbe,
-       "Activa el interruptor de modo piel. Si la sonda no esta conectada, el "
-       "equipo lo rechaza con un aviso y este paso se salta.",
-       "Turn on the skin mode switch. If the probe is not connected, the "
-       "device refuses with a warning and this step is skipped.",
-       "Activez l'interrupteur mode peau. Sans sonde branchee, l'appareil "
-       "refuse avec un avertissement et cette etape est sautee."),
-    DO(&ui_ImgButton2, &ui_ScreenSettings, goalMainScreen,
-       "Vuelve a la pantalla principal con la flecha.",
-       "Go back to the main screen with the arrow.",
-       "Revenez a l'ecran principal avec la fleche."),
+            "sonde collee a la peau. Il est active dans Reglages > Modes ; la "
+            "sonde doit etre branchee."),
     DO(&ui_TempToggleBtn, &ui_ScreenMain, goalWizardOpen,
        "Enciende el control de temperatura.",
        "Turn temperature control on.",
@@ -279,12 +373,12 @@ const Step E2_STEPS[] = {
          "Select ZOE, enter weight and days of life and press APPLY.",
          "Selectionnez ZOE, saisissez poids et jours de vie et APPLIQUER."),
     DO(&ui_SkinPanel, &ui_ScreenMain, goalSkinSelectedOrNoProbe,
-       "Toca PIEL para regular por la temperatura del bebe. Sin sonda este "
-       "paso se salta.",
-       "Touch SKIN to regulate on the baby's temperature. Without a probe "
-       "this step is skipped.",
+       "Toca PIEL para regular por la temperatura del bebe. Sin sonda "
+       "conectada este paso se salta.",
+       "Touch SKIN to regulate on the baby's temperature. Without a connected "
+       "probe this step is skipped.",
        "Touchez PEAU pour reguler sur la temperature du bebe. Sans sonde "
-       "cette etape est sautee."),
+       "branchee cette etape est sautee."),
     EXPLAIN(&ui_SkinPanel, &ui_ScreenMain,
             "En PIEL la consigna es fija: 36,5 grados sobre la piel del bebe, "
             "sin flechas. Coloca la sonda en el abdomen, lejos del higado, y "
@@ -309,15 +403,15 @@ const Step E2_STEPS[] = {
        "Apaga el control de temperatura.",
        "Turn temperature control off.",
        "Eteignez le controle de temperature."),
-    QUIZ(&ui_ScreenMain, &QUIZ_E2,
+    QUIZ(&ui_ScreenMain, &QUIZ_SKIN,
          "Pregunta: que hace falta para usar el modo PIEL?",
          "Question: what is needed to use SKIN mode?",
          "Question : que faut-il pour utiliser le mode PEAU ?"),
 };
 
-// ---- E3: humedad ---------------------------------------------------------------
+// ---- E4: humedad (solo con el control de humedad habilitado) ---------------------
 
-const Quiz QUIZ_E3 = {
+const Quiz QUIZ_HUM = {
     {T3("Sube la temperatura del aire", "It raises the air temperature",
         "Elle augmente la temperature de l'air"),
      T3("Reduce la perdida de agua y calor por la piel del bebe",
@@ -337,19 +431,7 @@ const Quiz QUIZ_E3 = {
        "regle selon poids et age."),
 };
 
-const Step E3_STEPS[] = {
-    // Sin target: si el panel esta oculto, un EXPLAIN sobre ui_HumCont se
-    // saltaria y el alumno llegaria al paso libre sin saber que hacer.
-    FREE(&ui_ScreenMain, goalHumPanelVisible,
-         "Si no ves el panel de humedad en la pantalla principal, ve a "
-         "Ajustes > Modos, activa el control de humedad y vuelve. Si ya lo "
-         "ves, este paso se salta solo.",
-         "If you do not see the humidity panel on the main screen, go to "
-         "Settings > Modes, enable humidity control and come back. If you "
-         "already see it, this step skips itself.",
-         "Si le panneau d'humidite n'apparait pas sur l'ecran principal, "
-         "allez dans Reglages > Modes, activez le controle d'humidite et "
-         "revenez. S'il est visible, cette etape se saute."),
+const Step HUM_STEPS[] = {
     EXPLAIN(&ui_HumCont, &ui_ScreenMain,
             "Control de humedad. La cifra grande es la humedad medida en la "
             "cabina; la pequena, tu consigna.",
@@ -388,15 +470,15 @@ const Step E3_STEPS[] = {
        "Apaga la humedad con el mismo boton.",
        "Turn humidity off with the same button.",
        "Eteignez l'humidite avec le meme bouton."),
-    QUIZ(&ui_ScreenMain, &QUIZ_E3,
+    QUIZ(&ui_ScreenMain, &QUIZ_HUM,
          "Pregunta: para que sirve la humedad en la incubadora?",
          "Question: what is humidity for in the incubator?",
          "Question : a quoi sert l'humidite dans l'incubateur ?"),
 };
 
-// ---- E4: fototerapia segura -----------------------------------------------------
+// ---- E5: fototerapia segura -----------------------------------------------------
 
-const Quiz QUIZ_E4 = {
+const Quiz QUIZ_PHOTO = {
     {T3("Cubrir los ojos del bebe", "Covering the baby's eyes",
         "Couvrir les yeux du bebe"),
      T3("Subir la temperatura del aire", "Raising the air temperature",
@@ -415,16 +497,17 @@ const Quiz QUIZ_E4 = {
        "le demande chaque fois."),
 };
 
-const Step E4_STEPS[] = {
+const Step PHOTO_STEPS[] = {
     EXPLAIN(&ui_PhotoCont, &ui_ScreenMain,
-            "Fototerapia. Aqui fijas los minutos de tratamiento y la "
-            "enciendes. Recuerda: la luz es perjudicial para los ojos, hay "
-            "que cubrirlos siempre antes.",
-            "Phototherapy. Here you set the treatment minutes and switch it "
-            "on. Remember: the light harms the eyes, always cover them first.",
-            "Phototherapie. Ici vous fixez les minutes de traitement et "
-            "l'allumez. Rappel : la lumiere abime les yeux, couvrez-les "
-            "toujours avant."),
+            "Fototerapia. Aqui la enciendes y, si quieres, programas los "
+            "minutos de tratamiento. Recuerda: la luz es perjudicial para los "
+            "ojos, hay que cubrirlos siempre antes.",
+            "Phototherapy. Here you switch it on and, if you want, set the "
+            "treatment minutes. Remember: the light harms the eyes, always "
+            "cover them first.",
+            "Phototherapie. Ici vous l'allumez et, si vous voulez, programmez "
+            "les minutes de traitement. Rappel : la lumiere abime les yeux, "
+            "couvrez-les toujours avant."),
     DO(&ui_PhotoToggleBtn, &ui_ScreenMain, goalPhotoOnOrDialog,
        "Toca el boton de encendido de la fototerapia.",
        "Touch the phototherapy power button.",
@@ -439,27 +522,20 @@ const Step E4_STEPS[] = {
          "oculaire, confirmez que les yeux sont couverts : la lampe "
          "s'allumera vraiment."),
     EXPLAIN(&ui_PhotoTimerCont, &ui_ScreenMain,
-            "La lampara esta encendida. Los minutos del temporizador se "
-            "ajustan con + y -; deja el valor por defecto para esta practica.",
-            "The lamp is on. The timer minutes are set with + and -; keep the "
-            "default value for this exercise.",
-            "La lampe est allumee. Les minutes du minuteur se reglent avec + "
-            "et - ; gardez la valeur par defaut pour cet exercice."),
-    DO(&ui_PhotoStartBtn, &ui_ScreenMain, goalPhotoTimerRunning,
-       "Pulsa INICIAR: arranca la cuenta atras y la lampara se apagara sola "
-       "al terminar.",
-       "Press START: the countdown begins and the lamp will switch off by "
-       "itself at the end.",
-       "Appuyez sur DEMARRER : le compte a rebours commence et la lampe "
-       "s'eteindra seule a la fin."),
+            "La lampara esta encendida. Si quieres, programa un temporizador: "
+            "minutos con + y -, INICIAR, y la lampara se apaga sola al "
+            "terminar. Sin temporizador sigue encendida hasta que la apagues.",
+            "The lamp is on. If you want, set a timer: minutes with + and -, "
+            "START, and the lamp switches off by itself at the end. Without a "
+            "timer it stays on until you switch it off.",
+            "La lampe est allumee. Si vous voulez, programmez un minuteur : "
+            "minutes avec + et -, DEMARRER, et la lampe s'eteint seule a la "
+            "fin. Sans minuteur elle reste allumee jusqu'a l'arret."),
     DO(&ui_PhotoToggleBtn, &ui_ScreenMain, goalPhotoOff,
-       "Apaga la fototerapia con el boton de encendido, sin esperar al "
-       "temporizador: apagar siempre manda.",
-       "Turn phototherapy off with the power button, without waiting for the "
-       "timer: switching off always wins.",
-       "Eteignez la phototherapie avec le bouton marche/arret, sans attendre "
-       "le minuteur : eteindre a toujours priorite."),
-    QUIZ(&ui_ScreenMain, &QUIZ_E4,
+       "Apaga la fototerapia con el boton de encendido.",
+       "Turn phototherapy off with the power button.",
+       "Eteignez la phototherapie avec le bouton marche/arret."),
+    QUIZ(&ui_ScreenMain, &QUIZ_PHOTO,
          "Pregunta: que hay que hacer SIEMPRE antes de encender la "
          "fototerapia?",
          "Question: what must ALWAYS be done before switching phototherapy "
@@ -468,9 +544,9 @@ const Step E4_STEPS[] = {
          "phototherapie ?"),
 };
 
-// ---- E5: atender una alarma -------------------------------------------------
+// ---- E6: atender una alarma -------------------------------------------------
 
-const Quiz QUIZ_E5 = {
+const Quiz QUIZ_ALARM = {
     {T3("Apaga la alarma para siempre", "Turns the alarm off for good",
         "Eteint l'alarme definitivement"),
      T3("Silencia el sonido un tiempo; la alarma sigue activa y vuelve a "
@@ -490,7 +566,7 @@ const Quiz QUIZ_E5 = {
        "reste active et le son revient seul si elle n'est pas resolue."),
 };
 
-const Step E5_STEPS[] = {
+const Step ALARM_STEPS[] = {
     EXPLAIN(&ui_AlarmButton, &ui_ScreenMain,
             "Cuando suena una alarma, lo primero es leer QUE pasa y QUE hacer. "
             "Todo esta en el centro de alarmas.",
@@ -538,104 +614,15 @@ const Step E5_STEPS[] = {
          "This is the log of past alarms. Close with the X to continue.",
          "Voici le journal des alarmes passees. Fermez avec la X pour "
          "continuer."),
-    QUIZ(&ui_ScreenMain, &QUIZ_E5,
+    QUIZ(&ui_ScreenMain, &QUIZ_ALARM,
          "Pregunta: que hace el boton de pausa de audio?",
          "Question: what does the audio pause button do?",
          "Question : que fait le bouton de pause audio ?"),
 };
 
-// ---- E6: alta y seguimiento del bebe -------------------------------------------
-
-const Quiz QUIZ_E6 = {
-    {T3("Solo para mostrar el nombre en pantalla",
-        "Only to show the name on screen",
-        "Seulement pour afficher le nom a l'ecran"),
-     T3("Para proponer la temperatura de aire y registrar la estancia",
-        "To propose the air temperature and record the stay",
-        "Pour proposer la temperature d'air et enregistrer le sejour"),
-     T3("Para conectarse a la red WiFi", "To connect to the WiFi network",
-        "Pour se connecter au reseau WiFi")},
-    1,
-    T3("Con peso, semanas y edad el equipo calcula el rango de temperatura "
-       "neutra y propone una consigna. Ademas cada bebe tiene su registro: "
-       "pesos, horas de terapia, salidas.",
-       "With weight, weeks and age the device computes the neutral "
-       "temperature range and proposes a setpoint. Each baby also has a "
-       "record: weights, therapy hours, exits.",
-       "Avec poids, semaines et age, l'appareil calcule la plage de "
-       "temperature neutre et propose une consigne. Chaque bebe a aussi son "
-       "dossier : poids, heures de therapie, sorties."),
-};
-
-const Step E6_STEPS[] = {
-    EXPLAIN(&ui_BabiesButton, &ui_ScreenMain,
-            "Cada bebe tiene su registro: nombre, semanas, pesos, horas de "
-            "terapia y salidas. Se crea con BEBE NUEVO al encender una terapia "
-            "por primera vez. En formacion practicaras con ZOE, ya creada.",
-            "Each baby has a record: name, weeks, weights, therapy hours and "
-            "exits. It is created with NEW BABY when a therapy is first "
-            "switched on. In training you practise with ZOE, already created.",
-            "Chaque bebe a son dossier : nom, semaines, poids, heures de "
-            "therapie et sorties. Il se cree avec NOUVEAU BEBE a la premiere "
-            "therapie. En formation vous pratiquez avec ZOE, deja creee."),
-    DO(&ui_BabiesButton, &ui_ScreenMain, goalBabyHistoryOpen,
-       "Toca Bebes para ver los registros. Dentro veras el bebe activo, los "
-       "ya dados de alta y la curva de peso de cada uno. Cierra con la X al "
-       "terminar.",
-       "Touch Babies to see the records. Inside you see the active baby, the "
-       "discharged ones and each weight curve. Close with the X when done.",
-       "Touchez Bebes pour voir les dossiers : le bebe actif, ceux sortis et "
-       "la courbe de poids de chacun. Fermez avec la X a la fin."),
-    FREE(&ui_ScreenMain, goalBabyHistoryClosed,
-         "Explora los registros de bebes. Cierra con la X para continuar.",
-         "Explore the baby records. Close with the X to continue.",
-         "Explorez les dossiers des bebes. Fermez avec la X pour continuer."),
-    DO(&ui_TempToggleBtn, &ui_ScreenMain, goalWizardOpen,
-       "Ahora vamos a dar de alta a un bebe de practica. Enciende el control "
-       "de temperatura para abrir el asistente.",
-       "Now let's admit a practice baby. Turn temperature control on to open "
-       "the assistant.",
-       "Admettons maintenant un bebe d'exercice. Allumez le controle de "
-       "temperature pour ouvrir l'assistant."),
-    FREE(&ui_ScreenMain, goalTrainingBabyAdmitted,
-         "Selecciona a ZOE. Introduce su peso de hoy en gramos y sus dias de "
-         "vida: asi se registra un peso nuevo. Lee la temperatura propuesta y "
-         "pulsa APLICAR. ZOE no se guarda en el historial.",
-         "Select ZOE. Enter today's weight in grams and her days of life: "
-         "that is how a new weight is recorded. Read the proposed temperature "
-         "and press APPLY. ZOE is not saved to the history.",
-         "Selectionnez ZOE. Saisissez son poids du jour en grammes et ses "
-         "jours de vie : c'est ainsi qu'un poids s'enregistre. Lisez la "
-         "temperature proposee et APPLIQUER. ZOE n'est pas gardee."),
-    EXPLAIN(&ui_AirPanel, &ui_ScreenMain,
-            "La consigna propuesta sale del rango de temperatura neutra para "
-            "ese peso y edad. Puedes ajustarla con las flechas si el medico "
-            "indica otra.",
-            "The proposed setpoint comes from the neutral temperature range "
-            "for that weight and age. You can adjust it with the arrows if the "
-            "doctor indicates otherwise.",
-            "La consigne proposee vient de la plage de temperature neutre "
-            "pour ce poids et cet age. Ajustez-la avec les fleches si le "
-            "medecin l'indique."),
-    EXPLAIN(&ui_BabiesButton, &ui_ScreenMain,
-            "Cada nuevo peso se registra desde el asistente y dibuja la curva "
-            "de crecimiento en Bebes. Registra el peso a diario a la misma "
-            "hora.",
-            "Each new weight is recorded from the assistant and draws the "
-            "growth curve in Babies. Record the weight daily at the same "
-            "time.",
-            "Chaque nouveau poids s'enregistre depuis l'assistant et trace la "
-            "courbe de croissance dans Bebes. Pesez chaque jour a la meme "
-            "heure."),
-    QUIZ(&ui_ScreenMain, &QUIZ_E6,
-         "Pregunta: para que pide el equipo los datos del bebe?",
-         "Question: why does the device ask for the baby data?",
-         "Question : pourquoi l'appareil demande-t-il les donnees du bebe ?"),
-};
-
 // ---- E7: salida del bebe ---------------------------------------------------------
 
-const Quiz QUIZ_E7 = {
+const Quiz QUIZ_EXIT = {
     {T3("Es lo mismo que el alta", "It is the same as discharge",
         "C'est la meme chose que la sortie"),
      T3("El bebe sale un rato con la madre y su registro sigue activo",
@@ -656,7 +643,7 @@ const Quiz QUIZ_E7 = {
        "dossier avec son resultat."),
 };
 
-const Step E7_STEPS[] = {
+const Step EXIT_STEPS[] = {
     EXPLAIN(&ui_TempToggleBtn, &ui_ScreenMain,
             "Cuando apagas la ultima terapia activa, el equipo entiende que el "
             "bebe sale y te pregunta por que: con la madre (canguro) o alta "
@@ -700,7 +687,7 @@ const Step E7_STEPS[] = {
             "La sortie clot le dossier : jours de sejour, poids, heures de "
             "therapie et resultat vont dans l'historique et au serveur. Un "
             "nouveau bebe repart de zero."),
-    QUIZ(&ui_ScreenMain, &QUIZ_E7,
+    QUIZ(&ui_ScreenMain, &QUIZ_EXIT,
          "Pregunta: que significa la salida CON LA MADRE?",
          "Question: what does exit WITH THE MOTHER mean?",
          "Question : que signifie la sortie AVEC LA MERE ?"),
@@ -708,7 +695,7 @@ const Step E7_STEPS[] = {
 
 // ---- E8: bloqueo de pantalla -------------------------------------------------------
 
-const Quiz QUIZ_E8 = {
+const Quiz QUIZ_LOCK = {
     {T3("Deja de medir y de regular", "It stops measuring and regulating",
         "Il cesse de mesurer et de reguler"),
      T3("Solo ignora toques; todo sigue funcionando y las alarmas se ven",
@@ -729,7 +716,7 @@ const Quiz QUIZ_E8 = {
        "alarmes s'affichent et sonnent."),
 };
 
-const Step E8_STEPS[] = {
+const Step LOCK_STEPS[] = {
     EXPLAIN(&ui_ImgButton1, &ui_ScreenMain,
             "El candado bloquea la pantalla para que un roce no cambie nada. "
             "Tras 20 segundos sin tocar se bloquea sola; el anillo muestra el "
@@ -762,7 +749,7 @@ const Step E8_STEPS[] = {
        "Hold the unlock button until the circle completes (1.5 seconds).",
        "Maintenez le bouton de deverrouillage jusqu'a ce que le cercle se "
        "complete (1,5 seconde)."),
-    QUIZ(&ui_ScreenMain, &QUIZ_E8,
+    QUIZ(&ui_ScreenMain, &QUIZ_LOCK,
          "Pregunta: que hace la incubadora mientras la pantalla esta "
          "bloqueada?",
          "Question: what does the incubator do while the screen is locked?",
@@ -772,7 +759,7 @@ const Step E8_STEPS[] = {
 
 // ---- E9: tendencia -----------------------------------------------------------------
 
-const Quiz QUIZ_E9 = {
+const Quiz QUIZ_TREND = {
     {T3("Solo el ultimo valor medido", "Only the last measured value",
         "Seulement la derniere valeur mesuree"),
      T3("La evolucion de temperatura y humedad en las ultimas horas",
@@ -792,7 +779,7 @@ const Quiz QUIZ_E9 = {
        "oscille."),
 };
 
-const Step E9_STEPS[] = {
+const Step TREND_STEPS[] = {
     EXPLAIN(&ui_ImgButton1, &ui_ScreenMain,
             "La grafica de tendencia esta en la pantalla de bloqueo, para "
             "consultarla sin riesgo de tocar nada.",
@@ -820,7 +807,7 @@ const Step E9_STEPS[] = {
     DO(&ui_UnlockCont, &ui_ScreenLock, goalUnlocked,
        "Manten pulsado para desbloquear.", "Hold to unlock.",
        "Maintenez pour deverrouiller."),
-    QUIZ(&ui_ScreenMain, &QUIZ_E9,
+    QUIZ(&ui_ScreenMain, &QUIZ_TREND,
          "Pregunta: que muestra la grafica de tendencia?",
          "Question: what does the trend chart show?",
          "Question : que montre le graphique de tendance ?"),
@@ -828,7 +815,7 @@ const Step E9_STEPS[] = {
 
 // ---- E10: ajustar la hora ----------------------------------------------------------
 
-const Quiz QUIZ_E10 = {
+const Quiz QUIZ_TIME = {
     {T3("Solo para mostrarla en el heading", "Only to show it in the heading",
         "Seulement pour l'afficher dans l'en-tete"),
      T3("Porque marca la hora de pesos, altas y alarmas en el historial",
@@ -846,7 +833,7 @@ const Quiz QUIZ_E10 = {
        "date."),
 };
 
-const Step E10_STEPS[] = {
+const Step TIME_STEPS[] = {
     DO(&ui_ClockButton, &ui_ScreenMain, goalTimeOpen,
        "Toca la hora del heading para ajustarla.",
        "Touch the time in the heading to set it.",
@@ -869,7 +856,7 @@ const Step E10_STEPS[] = {
             "Avec un reseau l'heure se synchronise seule. Sans reseau, "
             "verifiez-la a l'allumage : les dates de l'historique en "
             "dependent."),
-    QUIZ(&ui_ScreenMain, &QUIZ_E10,
+    QUIZ(&ui_ScreenMain, &QUIZ_TIME,
          "Pregunta: por que importa que la hora sea correcta?",
          "Question: why does a correct time matter?",
          "Question : pourquoi l'heure correcte est-elle importante ?"),
@@ -877,7 +864,7 @@ const Step E10_STEPS[] = {
 
 // ---- E11: contactar con soporte ------------------------------------------------------
 
-const Step E11_STEPS[] = {
+const Step SUPPORT_STEPS[] = {
     DO(&ui_HelpButton, &ui_ScreenMain, goalHelpOpen,
        "Toca el boton de ayuda.", "Touch the help button.",
        "Touchez le bouton d'aide."),
@@ -902,29 +889,33 @@ const Step E11_STEPS[] = {
 
 #define LESSON(id, es, en, fr, steps)                                          \
   { id, T3(es, en, fr), steps, (uint8_t)(sizeof(steps) / sizeof(steps[0])), \
-    LESSON_INTERACTIVE }
+    LESSON_INTERACTIVE, nullptr }
+// Igual, pero solo se lista si `avail()` es verdadero (opcion de Ajustes).
+#define LESSON_IF(id, es, en, fr, steps, avail)                                \
+  { id, T3(es, en, fr), steps, (uint8_t)(sizeof(steps) / sizeof(steps[0])), \
+    LESSON_INTERACTIVE, avail }
 
 const Lesson NURSE_LESSONS[] = {
     LESSON_INTRO,
-    LESSON(1, "Temperatura por aire", "Air temperature", "Temperature par air",
-           E1_STEPS),
-    LESSON(2, "Control por piel y sonda", "Skin control and probe",
-           "Controle peau et sonde", E2_STEPS),
-    LESSON(3, "Humedad", "Humidity", "Humidite", E3_STEPS),
-    LESSON(4, "Fototerapia segura", "Safe phototherapy",
-           "Phototherapie sure", E4_STEPS),
-    LESSON(5, "Atender una alarma", "Handling an alarm", "Gerer une alarme",
-           E5_STEPS),
-    LESSON(6, "Alta y seguimiento del bebe", "Admitting and following a baby",
-           "Admission et suivi du bebe", E6_STEPS),
-    LESSON(7, "Salida del bebe", "Baby exit", "Sortie du bebe", E7_STEPS),
+    LESSON(1, "Registrar y seguir a un bebe", "Registering and following a baby",
+           "Enregistrer et suivre un bebe", BABY_STEPS),
+    LESSON(2, "Temperatura por aire", "Air temperature", "Temperature par air",
+           AIR_STEPS),
+    LESSON_IF(3, "Control por piel y sonda", "Skin control and probe",
+              "Controle peau et sonde", SKIN_STEPS, availSkin),
+    LESSON_IF(4, "Humedad", "Humidity", "Humidite", HUM_STEPS, availHum),
+    LESSON(5, "Fototerapia segura", "Safe phototherapy",
+           "Phototherapie sure", PHOTO_STEPS),
+    LESSON(6, "Atender una alarma", "Handling an alarm", "Gerer une alarme",
+           ALARM_STEPS),
+    LESSON(7, "Salida del bebe", "Baby exit", "Sortie du bebe", EXIT_STEPS),
     LESSON(8, "Bloqueo de pantalla", "Screen lock", "Verrouillage de l'ecran",
-           E8_STEPS),
-    LESSON(9, "Tendencia", "Trend", "Tendance", E9_STEPS),
+           LOCK_STEPS),
+    LESSON(9, "Tendencia", "Trend", "Tendance", TREND_STEPS),
     LESSON(10, "Ajustar la hora", "Setting the time", "Regler l'heure",
-           E10_STEPS),
+           TIME_STEPS),
     LESSON(11, "Contactar con soporte", "Contacting support",
-           "Contacter le support", E11_STEPS),
+           "Contacter le support", SUPPORT_STEPS),
 };
 
 }  // namespace
@@ -932,9 +923,9 @@ const Lesson NURSE_LESSONS[] = {
 const Course COURSE_NURSE = {
     TRAINING_COURSE_NURSE,
     T3("Enfermeria", "Nursing", "Soins infirmiers"),
-    T3("Uso clinico: temperatura, humedad, fototerapia, alarmas y bebes.",
-       "Clinical use: temperature, humidity, phototherapy, alarms and babies.",
-       "Usage clinique : temperature, humidite, phototherapie, alarmes et bebes."),
+    T3("Uso clinico: bebes, temperatura, humedad, fototerapia y alarmas.",
+       "Clinical use: babies, temperature, humidity, phototherapy and alarms.",
+       "Usage clinique : bebes, temperature, humidite, phototherapie et alarmes."),
     NURSE_LESSONS,
     (uint8_t)(sizeof(NURSE_LESSONS) / sizeof(NURSE_LESSONS[0])),
 };

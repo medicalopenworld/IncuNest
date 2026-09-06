@@ -74,11 +74,9 @@ y enviarlo de inmediato a la placa, que SHALL volver al estado que tenía
 
 #### Scenario: La fototerapia se enciende de verdad
 - **WHEN** el alumno enciende la fototerapia (selecciona a ZOE y confirma la
-  protección ocular), pulsa INICIAR con los minutos por defecto y después
-  apaga con el botón de encendido sin cancelar el temporizador
-- **THEN** la lámpara se enciende de verdad, la cuenta atrás corre en
-  pantalla y al apagar la lámpara se apaga aunque el temporizador siguiera
-  en marcha
+  protección ocular), lee la explicación del temporizador (opcional, no se
+  exige arrancarlo) y apaga con el botón de encendido
+- **THEN** la lámpara se enciende de verdad y se apaga al pulsar el botón
 - **AND** al terminar o abandonar la lección la lámpara queda como estaba
   antes
 - *(Verificación manual en banco.)*
@@ -205,22 +203,37 @@ consultarse desde el selector.
 ### Requirement: Lecciones del curso de Enfermería
 
 El curso de Enfermería SHALL contener, en este orden: 0 introducción a la
-interfaz; 1 temperatura por aire; 2 control por piel y sonda; 3 humedad; 4
-fototerapia segura; 5 atender una alarma; 6 alta y seguimiento del bebé; 7
+interfaz; 1 registrar y seguir a un bebé; 2 temperatura por aire; 3 control
+por piel y sonda; 4 humedad; 5 fototerapia segura; 6 atender una alarma; 7
 salida del bebé; 8 bloqueo de pantalla; 9 tendencia; 10 ajustar la hora;
-11 contactar con soporte. Las lecciones 1 a 7 y 10 SHALL ser interactivas
-(modo formación); 0, 8, 9 y 11 no cambian estado y no lo requieren.
+11 contactar con soporte. Todas salvo la introducción SHALL ser interactivas
+(modo formación). Las lecciones 3 (piel) y 4 (humedad) SHALL listarse solo
+si la opción correspondiente está habilitada en Ajustes > Modos; ocultas no
+cuentan en el progreso ni se exigen para el certificado, y la numeración
+visible SHALL ser consecutiva.
 
-#### Scenario: Lección 1, temperatura por aire (fase 1)
-- **WHEN** el alumno sigue la lección
-- **THEN** los pasos son: activar con el toggle (aparece el asistente del
-  bebé en paso libre; SALTAR o completarlo lo cierra y activa); leer que el
-  control ha quedado en AIRE (explicar); subir la consigna dos pasos con la
-  flecha; leer medida frente a consigna (explicar); apagar con el toggle;
-  pregunta sobre qué significa la cifra grande
+#### Scenario: Humedad deshabilitada en Ajustes
+- **WHEN** el control de humedad está deshabilitado en Ajustes > Modos y el
+  alumno abre la lista de lecciones de Enfermería
+- **THEN** la lección de humedad no aparece, la lista se numera sin hueco y
+  el certificado se emite al superar las lecciones visibles
+- **AND** al habilitar la humedad la lección vuelve a aparecer como pendiente
 - *(Verificación manual en banco.)*
 
-#### Scenario: Lección 5, atender una alarma (fase 1)
+#### Scenario: Lección 2, temperatura por aire
+- **WHEN** el alumno sigue la lección
+- **THEN** los pasos son: activar con el toggle (aparece el asistente del
+  bebé); un paso libre por pantalla del asistente que explica qué se pide y
+  por qué (lista de bebés → seleccionar a ZOE; peso y semanas de gestación
+  → cuánto calor necesita; días de vida → la temperatura neutra baja al
+  crecer; resumen → el rango neutro y la consigna propuesta, APLICAR
+  enciende); leer que el control ha quedado en AIRE (explicar); subir la
+  consigna dos pasos con la flecha; leer medida frente a consigna
+  (explicar); apagar con el toggle; pregunta sobre qué significa la cifra
+  grande
+- *(Verificación manual en banco.)*
+
+#### Scenario: Lección 6, atender una alarma
 - **WHEN** el alumno sigue la lección
 - **THEN** los pasos son: abrir el centro de alarmas desde el icono; leer
   título y acción recomendada (explicar); localizar el botón de pausa de

@@ -56,13 +56,24 @@ enum : uint8_t {
   LESSON_INTERACTIVE = 1 << 0,
 };
 
+typedef bool (*AvailFn)(void);
+
 struct Lesson {
   uint8_t id;
   Txt3 title;
   const Step *steps;
   uint8_t stepCount;
   uint8_t flags;
+  // Opcional: la leccion solo se lista (y solo cuenta para el certificado)
+  // si devuelve verdadero. Para funciones que se habilitan en Ajustes
+  // (humedad, modo piel): si el equipo no las usa, no se ensenan.
+  AvailFn available;
 };
+
+// Verdadero si la leccion esta disponible ahora.
+static inline bool Lesson_IsAvailable(const Lesson &l) {
+  return l.available == nullptr || l.available();
+}
 
 struct Course {
   uint8_t id;          // indice en NVS (0 = enfermeria, 1 = tecnico)

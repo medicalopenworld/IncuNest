@@ -218,6 +218,16 @@ Commit real: `feat(hmi): cursos completos de Enfermeria y Tecnico (fases 2 y 3)`
       nombre en vez de bloquear; el perfil recordado se conserva si la lección
       no seleccionó a ZOE); E4 simplificada: encender, INICIAR con los minutos
       por defecto y apagar con el botón sin cancelar el temporizador.
+- [x] 8.12 Petición del usuario (2026-09-06, segunda): `Lesson.available`
+      (`Lesson_IsAvailable`) y el selector lista, numera, cuenta el progreso
+      y certifica solo las lecciones disponibles; piel y humedad ligadas a
+      su opción de Ajustes > Modos (sin los pasos de Ajustes dentro de la
+      lección). Fototerapia: el temporizador se explica, no se arranca
+      (`goalPhotoTimerRunning` eliminado). "Registrar y seguir a un bebé"
+      pasa a ser la lección 1, temperatura la 2. Temperatura: un paso libre
+      por pantalla del asistente (`BabyWizard_GetStep`) explicando por qué se
+      piden peso, semanas y días de vida y que de ahí sale la consigna
+      propuesta. Spec y docs/hmi.md actualizados.
 - [ ] 8.7 Banco: cada lección de principio a fin; certificado de Enfermería.
       Además: la lista del asistente muestra solo a ZOE; BEBE NUEVO, SALTAR y
       SIN PESO dan el aviso; el diálogo de confirmación aparece antes de cada
