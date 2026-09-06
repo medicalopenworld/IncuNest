@@ -3947,16 +3947,16 @@ void ui_ScreenLock_screen_init(void) {
   // desbloquear, mismo criterio que ui_AlarmLockImg/AlarmCenter. Reactivado
   // (ver 3215bc2, que lo oculto porque no se notaba que era pulsable) con
   // el mismo azul de ui_BabiesButton para que se lea como boton de verdad.
-  // Posicion: pegado a la derecha de la columna de medidas (x<=300
-  // absoluto) sin invadirla, por debajo de Status/Photo (y<=210 absoluto) y
-  // por encima de ui_LockPPGChart (BOTTOM_LEFT, y>=370 absoluto) /
-  // ui_LockHRCont (BOTTOM_RIGHT, ambos ocultos salvo con sonda SpO2
-  // aplicada, pero hay que dejarles el hueco libre para cuando se muestran).
+  // Posicion: centrado en la columna derecha (misma x que Status/Photo,
+  // x=240), por debajo de esa columna (y<=210 absoluto) y por encima de
+  // ui_LockPPGChart (BOTTOM_LEFT, y>=370 absoluto) / ui_LockHRCont
+  // (BOTTOM_RIGHT, ambos ocultos salvo con sonda SpO2 aplicada, pero hay
+  // que dejarles el hueco libre para cuando se muestran).
   ui_ChartLockCont = lv_obj_create(ui_ScreenLock);
   lv_obj_remove_style_all(ui_ChartLockCont);
   lv_obj_set_width(ui_ChartLockCont, 100);
   lv_obj_set_height(ui_ChartLockCont, 100);
-  lv_obj_set_x(ui_ChartLockCont, -20);
+  lv_obj_set_x(ui_ChartLockCont, 240);
   lv_obj_set_y(ui_ChartLockCont, 70);
   lv_obj_set_align(ui_ChartLockCont, LV_ALIGN_CENTER);
   lv_obj_clear_flag(ui_ChartLockCont, LV_OBJ_FLAG_SCROLLABLE);
