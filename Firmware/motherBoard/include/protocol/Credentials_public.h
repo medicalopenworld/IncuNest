@@ -26,4 +26,19 @@
 #define WEB_SERVER_PASSWORD "changeme"
 #endif
 
+// Clave de la API de Onomondo, usada SOLO por el test de fabrica para activar
+// la SIM de la unidad (FTEST_MB_SIM_ACT). El valor real va en Credentials.h:
+//
+//     #define ONOMONDO_API_KEY "onok_xxxxxxxx.xxxxxxxxxxxxxxxxxxxxxxxx"
+//
+// El fallback va con #ifndef y FUERA del #if __has_include de arriba a
+// proposito: asi un Credentials.h ya existente que todavia no declare esta
+// clave sigue compilando. Con el valor dummy el test da FAIL con detail
+// "sin key", que es exactamente lo que debe pasar fuera de fabrica -- nunca
+// un PASS silencioso.
+#ifndef ONOMONDO_API_KEY
+#define ONOMONDO_API_KEY "myonomondokey"
+#endif
+#define ONOMONDO_API_KEY_DUMMY "myonomondokey"
+
 #endif // _CREDENTIALS_PUBLIC_H_

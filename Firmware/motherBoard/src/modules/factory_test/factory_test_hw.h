@@ -57,7 +57,7 @@ FtestStatus ftest_hw_run(unsigned id, char detail[FTEST_DETAIL_MAX + 1],
 // arranca la bateria, comun a todos) y NUNCA bloquea ni hace su propio
 // vTaskDelay.
 #define FTEST_ACTIVE_COUNT 7
-#define FTEST_PASSIVE_COUNT 21
+#define FTEST_PASSIVE_COUNT 22
 
 // true si `id` es un pasivo (fila de la tabla con passive=true). false para
 // cualquier id que no sea de motherBoard.
