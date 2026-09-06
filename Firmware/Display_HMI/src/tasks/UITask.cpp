@@ -292,10 +292,6 @@ void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area,
 }
 
 static void intro_timer_cb(lv_timer_t *t) {
-  // El operario ha pulsado "TEST FABRICA": el splash se queda quieto hasta
-  // que salga del overlay (FactoryTest_Close() vuelve a poner el flag a
-  // false), sin importar cuanto tiempo lleve esperando CTRL,STATE.
-  if (g_factoryTestRequested) return;
   uint32_t elapsed = millis() - intro_start_ms;
   bool synced      = g_stateSynced;
   bool min_elapsed = (elapsed >= 5000);
@@ -1111,9 +1107,6 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   photo_safety_apply_language(lang);
   TelemetryHistory_ApplyLanguage();
   FactoryTest_ApplyLanguage();
-
-  // El boton "HW test" del splash (ElementsCreation.cpp) usa el mismo
-  // literal en los tres idiomas: no necesita retextearse aqui.
 
   update_labels();
   UI_SyncAll();
@@ -4049,7 +4042,8 @@ void UI_Task(void *pvParameters) {
   AlarmCenter_Init();
   // --- Test de fabrica (shared-factory-test) ---
   // Igual que AlarmCenter: cuelga de lv_layer_top(), pero solo se abre desde
-  // el boton del splash (ElementsCreation.cpp).
+  // la fila "Test de hardware" de ui_ScreenSettings
+  // (hmi-factory-test-settings-only).
   FactoryTest_Init();
   // --- Tendencia de telemetria (aire/piel/humedad), accesible desde el
   // bloqueo (ui_ChartLockImg). Mismo criterio de parent que AlarmCenter. ---

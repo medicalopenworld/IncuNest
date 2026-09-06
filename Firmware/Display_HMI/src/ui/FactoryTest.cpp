@@ -10,10 +10,6 @@
 #include "main.h"
 #include "ui.h"
 
-// Puesto por el callback del boton del splash (ElementsCreation.cpp). Leido
-// por intro_timer_cb() (UITask.cpp).
-bool g_factoryTestRequested = false;
-
 namespace {
 
 const char *TXT(const char *es, const char *en, const char *fr) {
@@ -136,11 +132,6 @@ int        s_localIdx = 0;
 bool       s_retryMode = false;
 uint32_t   s_deadlineMs = 0;
 
-// hmi-factory-test-settings-entry: true si esta apertura vino de la fila
-// "Test de hardware" de ui_ScreenSettings, en vez del boton del splash. Solo
-// lo consulta FactoryTest_Close() para decidir si vuelve a ui_ScreenMain o se
-// queda en Settings (ver comentario de FactoryTest_Open() en el header).
-bool     s_openedFromSettings = false;
 // Hand-off puro de la fila de Settings (hallazgo 4, mismo criterio que el
 // resto de FactoryTest.cpp): FactoryTest_Poll() lo consume incluso con el
 // overlay cerrado, porque el resto de Poll() bail-outea en Step::Closed.
@@ -1704,7 +1695,8 @@ void onExitClicked(lv_event_t *) { s_exitRequested = true; }
 void FactoryTest_Init(void) {
   // lv_layer_top(): mismo criterio que AlarmCenter — accesible sin depender
   // de que ninguna pantalla concreta lo tenga instanciado. Solo se abre desde
-  // el splash, pero vivir en la capa superior evita tener que reparentarlo.
+  // la fila "Test de hardware" de ui_ScreenSettings, pero vivir en la capa
+  // superior evita tener que reparentarlo.
   s_overlay = lv_obj_create(lv_layer_top());
   lv_obj_remove_style_all(s_overlay);
   lv_obj_set_size(s_overlay, DISPLAY_WIDTH, DISPLAY_HEIGHT);
@@ -1807,7 +1799,7 @@ void FactoryTest_Init(void) {
   lv_obj_center(s_verdictLabel);
 }
 
-void FactoryTest_Open(bool fromSettings) {
+void FactoryTest_Open(void) {
   if (!s_overlay || s_step != Step::Closed) return;
 
   // Hallazgo 2: purga estado de una sesion anterior. Si se salio con el test
@@ -1820,7 +1812,6 @@ void FactoryTest_Open(bool fromSettings) {
   g_pendingFtestReject = false;
 
   resetState();
-  s_openedFromSettings = fromSettings;
   // Hallazgo 7: barrera de entrada antes de tocar nada (local o remoto).
   s_step = Step::Gate;
   lv_obj_clear_flag(s_overlay, LV_OBJ_FLAG_HIDDEN);
@@ -1833,21 +1824,18 @@ void FactoryTest_Open(bool fromSettings) {
 }
 
 void FactoryTest_Close(void) {
-  if (s_step == Step::Closed) {
-    g_factoryTestRequested = false;
-    return;
-  }
+  if (s_step == Step::Closed) return;
   const bool remoteBusy =
       (s_step == Step::RemoteAwaitFirst || s_step == Step::RemoteRunning);
   if (remoteBusy) {
     Communication_SendFtestAbort();
   }
-  // hmi-factory-test-settings-entry: "No" en la barrera de entrada (o Salir
-  // sin haberla contestado) todavia no arranco ningun test — si se entro
-  // desde la fila de Settings, se queda ahi en vez de navegar a
-  // ui_ScreenMain. Cualquier cierre posterior (bateria completa o abortada a
-  // mitad) conserva el comportamiento de siempre.
-  const bool stayInSettings = s_openedFromSettings && s_step == Step::Gate;
+  // hmi-factory-test-settings-only: la entrada es siempre la fila de
+  // Settings. "No" en la barrera de entrada (o Salir sin haberla contestado)
+  // todavia no arranco ningun test: se queda en Settings, de donde vino, en
+  // vez de navegar a ui_ScreenMain. Cualquier cierre posterior (bateria
+  // completa o abortada a mitad) conserva el comportamiento de siempre.
+  const bool stayInSettings = s_step == Step::Gate;
   destroyTransientOverlayObjects();
   // Hallazgo de code review: no dejar los botones de fila vivos tras cerrar
   // la pantalla (resetState() los destruiria igualmente en el proximo Open(),
@@ -1855,7 +1843,6 @@ void FactoryTest_Close(void) {
   destroyRowButtons();
   if (s_overlay) lv_obj_add_flag(s_overlay, LV_OBJ_FLAG_HIDDEN);
   s_step = Step::Closed;
-  g_factoryTestRequested = false;
   if (!stayInSettings) {
     lv_scr_load(ui_ScreenMain);
   }
@@ -1874,7 +1861,7 @@ void FactoryTest_Poll(void) {
     // bail-outea antes de llegar a este punto en Step::Closed).
     if (s_pendingOpenFromSettings) {
       s_pendingOpenFromSettings = false;
-      FactoryTest_Open(true);
+      FactoryTest_Open();
     }
     return;
   }

@@ -790,43 +790,6 @@ void ui_event_PhotoCancelBtn(lv_event_t *e) {
   }
 }
 
-// Entrada al test de fabrica (shared-factory-test-bench). Solo existe aqui,
-// en el splash: ninguna otra pantalla ofrece el atajo. El flag detiene
-// intro_timer_cb() (no navegar a ui_ScreenMain mientras el operario esta
-// dentro) y FactoryTest_Open() ya se encarga de abrir el overlay.
-//
-// Hallazgo de banco: el GT911 puede emitir un toque fantasma de un solo frame
-// en una esquina fija mientras se inicializa (ver ts.begin() en UITask.cpp).
-// El debounce de my_touchpad_read() (3 frames de "seguir pulsado" antes de
-// soltar) estira ese frame fantasma a un PRESS+RELEASE completo en el mismo
-// punto, que LVGL despacha como un LV_EVENT_CLICKED valido si cae dentro de
-// un objeto clicable. Dos barreras independientes evitan que abra el test
-// solo: (a) armado por tiempo, ignora clicks en los primeros
-// FTEST_BTN_ARM_MS tras crear la pantalla (el fantasma ocurre durante el
-// arranque del tactil, antes de que la UI tenga esta edad); (b) el punto del
-// evento debe caer dentro del rectangulo del boton (el fantasma reportado en
-// banco caia en una esquina; sin ext_click_area el margen para acertar "por
-// error" es el tamano real del boton, no una zona ampliada).
-constexpr uint32_t FTEST_BTN_ARM_MS = 1500;
-static uint32_t s_hwTestBtnArmedAtMs = 0;
-
-static void HwTestBtn_cb(lv_event_t *e) {
-  if ((int32_t)(millis() - s_hwTestBtnArmedAtMs) < (int32_t)FTEST_BTN_ARM_MS) {
-    return;
-  }
-  lv_indev_t *indev = lv_indev_get_act();
-  if (!indev) return;
-  lv_point_t p;
-  lv_indev_get_point(indev, &p);
-  lv_area_t area;
-  lv_obj_get_coords(lv_event_get_target(e), &area);
-  if (p.x < area.x1 || p.x > area.x2 || p.y < area.y1 || p.y > area.y2) {
-    return;
-  }
-  g_factoryTestRequested = true;
-  FactoryTest_Open();
-}
-
 // ============================================================================
 // SCREEN INITIALIZATION
 // ============================================================================
@@ -905,29 +868,6 @@ void ui_ScreenIntro_screen_init(void) {
   lv_obj_set_style_text_font(ui_IntroFWLabel, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(ui_IntroFWLabel, lv_color_hex(0x555555),
                               LV_PART_MAIN);
-
-  // Boton de test de fabrica — abajo, centrado (shared-factory-test-bench,
-  // feedback de banco: en la esquina inferior izquierda con ext_click_area
-  // coincidia con el toque fantasma del GT911 al inicializarse). Discreto
-  // (gris, no la paleta de accion), a proposito: no es un control de uso
-  // clinico, es una herramienta de montaje. Texto "HW test" igual en los tres
-  // idiomas: no necesita FactoryTest_ApplyLanguage() ni retextearse.
-  lv_obj_t *ui_HwTestBtn = lv_btn_create(ui_ScreenIntro);
-  lv_obj_set_size(ui_HwTestBtn, 180, 48);
-  lv_obj_align(ui_HwTestBtn, LV_ALIGN_BOTTOM_MID, 0, -12);
-  lv_obj_set_style_bg_color(ui_HwTestBtn, lv_color_hex(0x555555),
-                            LV_PART_MAIN);
-  lv_obj_set_style_radius(ui_HwTestBtn, 8, LV_PART_MAIN);
-  lv_obj_add_event_cb(ui_HwTestBtn, HwTestBtn_cb, LV_EVENT_CLICKED, NULL);
-
-  lv_obj_t *ui_HwTestBtnLabel = lv_label_create(ui_HwTestBtn);
-  lv_label_set_text(ui_HwTestBtnLabel, "HW test");
-  lv_obj_set_style_text_font(ui_HwTestBtnLabel, &lv_font_montserrat_16, 0);
-  lv_obj_center(ui_HwTestBtnLabel);
-
-  // Hallazgo de banco (ver HwTestBtn_cb): arma el boton FTEST_BTN_ARM_MS
-  // despues de crear esta pantalla, no antes.
-  s_hwTestBtnArmedAtMs = millis();
 }
 
 // Slots horizontales del heading (ui_ScreenMain y su replica en
