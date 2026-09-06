@@ -22,6 +22,20 @@
 > superarla da `FAIL` con detail `timeout` para ESE test y la batería
 > continúa con el siguiente (a diferencia de las cotas de batería completa,
 > que sí la abortan entera).
+>
+> Cuarta vuelta (mismo banco, misma versión de protocolo — no cambia ningún
+> campo ni formato de línea, solo el criterio interno de algunos tests):
+> `buzzer` elimina el camino `CONFIRM` (preguntarle al operario "¿sonido del
+> zumbador?"); sin micrófono de la SensorBoard el test sale directo `SKIP`
+> `sin microfono`, sin hacer sonar el zumbador. `power_src` y `sb_door` se
+> omiten por ahora (`SKIP` `omitido`): a batería el BQ25730 no está
+> alimentado y el jig todavía no tiene la puerta montada. `charger` pasa a
+> **WARN** `sin vbus` al agotar su plazo de 12 s (antes `FAIL`): sin VBUS es
+> normal que el BQ25730 no responda, no es un fallo de la placa. La
+> motherBoard además espera 60 ms entre el resultado final de un test y el
+> `RUNNING` del siguiente — con varios tests omitidos seguidos la ráfaga de
+> líneas casi instantáneas podía desbordar el anillo de recepción del
+> display.
 
 > Nota (v2.3.1): segunda vuelta del test de fábrica tras la primera prueba en
 > banco (motherBoard V18 + SensorBoard + HMI reales). **BREAKING dentro de la
@@ -469,7 +483,10 @@ copia propia de la tabla**.
 - `HMI,FTEST,ABORT` — cancela la batería en curso. El test que estuviera
   corriendo termina como `SKIP` con `detail=abort` y se emite `FTEST_DONE`.
 - `HMI,FTEST,CONFIRM,<id>,<0|1>` — respuesta del operario a un `CONFIRM`.
-  Un `id` distinto del que la placa está esperando se descarta con log.
+  Desde la cuarta vuelta ningún test de motherBoard usa ya este camino
+  (`buzzer`, el único que preguntaba, SKIP directo sin micrófono): la placa
+  sigue aceptando el comando para no romper a un display que lo mande, pero
+  lo descarta con log "sin uso".
 
 **Precondición**: la motherBoard rechaza `START` y `RUN` con
 `CTRL,FTEST_REJECT,1` si `in3.actuation != OFF` o hay fototerapia activa. Los
@@ -527,19 +544,19 @@ ningún test de la tabla hace ya I2C directo salvo `actuators`/`standby`
 | 0 | sysinfo | flash, heap libre, reset reason, MAC | |
 | 1 | ina3221 | ambos INA3221 presentes (0x40/0x41), solo flags cacheados | |
 | 2 | standby | `testStandByCurrent()` sin bits nuevos en `HW_error` | |
-| 3 | charger | el BQ25730 responde (estado cacheado por `sensors_Task`, ≤ 12 s); VBAT/VSYS y red/batería en detail, sin exigir VBUS ni carga activa | |
-| 4 | power_src | red o batería (informativo) | |
+| 3 | charger | el BQ25730 responde (estado cacheado por `sensors_Task`, ≤ 12 s); VBAT/VSYS y red/batería en detail, sin exigir VBUS ni carga activa; agotado el plazo → **WARN** `sin vbus` (sin VBUS es normal que no responda, no un fallo de placa) | |
+| 4 | power_src | **omitido por ahora** (`SKIP`, detail `omitido`): a batería el BQ25730 no está alimentado (sin VBUS); reactivar cuando el jig alimente por VBUS | |
 | 5 | skin_adc | NTC en rango con lectura de `sensors_Task` reciente (≤ 5 s) o `sin sonda` | |
 | 6 | env_sensor | sensor ambiental por CUALQUIERA de los tres caminos (un equipo lleva SensorBoard O sensor ambiental, no ambos): SHT40 de la SensorBoard por USB (detail `usb`), STS35/SHTC3 por I2C2 (equipo antiguo, detail `i2c`) o SHT4x exterior por I2C1 (detail `sht4x`); FAIL `sin sensor ambiental` a los 10 s | |
 | 7 | sb_status | `status`: sht0/sht1/sht2/als/door/cam disponibles; `fw` y `usb_swap` en detail; SKIP `sin usb` si 6 no fue por USB | |
 | 8 | sb_env | 3×SHT40 válidas, dispersión ≤ 1.0 °C; vs SHT4x exterior ≤ 3.0 °C solo si hay uno con lectura fresca (si no, PASA solo con la dispersión); SKIP `sin usb` | |
-| 9 | sb_door | WAIT: puerta abierta y cerrada (30 s); SKIP `sin usb` | |
+| 9 | sb_door | **omitido por ahora** (`SKIP`, detail `omitido`, sin emitir WAIT): el jig de fábrica todavía no tiene la puerta montada; reactivar cuando la tenga | |
 | 10 | sb_light | WAIT: lux cae < 50 % de la base (20 s); base < 20 lux → SKIP; SKIP `sin usb` | |
 | 11 | sb_camera | `capture` devuelve JPEG ≥ 1000 B en 10 s; SKIP `sin usb` | |
 | 12 | actuators | `actuatorsTest()` sin bits nuevos de calefactor/foto/ventilador | |
 | 13 | fan_rpm | tacómetro con feedback y RPM ≥ `FAN_MIN_RPM` | |
 | 14 | humid_usb | **omitido por ahora** (`SKIP`, detail `omitido`): el jig de fábrica todavía no puede medir el humidificador; no toca `USB_EN` | |
-| 15 | buzzer | ΔdBA ≥ 6 dB con el micrófono de la SensorBoard; sin micrófono → CONFIRM | |
+| 15 | buzzer | ΔdBA ≥ 6 dB con el micrófono de la SensorBoard; sin micrófono → **SKIP** `sin microfono` (ya no pregunta al operario, camino CONFIRM retirado) | |
 | 16 | afe_spi | registros de timing del AFE4490 releídos por SPI; DIAG en detail | |
 | 17 | afe_probe | sonda SpO2 conectada | ✓ |
 | 18 | hmi_link | enlace con el display vivo | |

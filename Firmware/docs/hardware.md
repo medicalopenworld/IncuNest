@@ -107,6 +107,14 @@ the 5 s refresh of the BQ25730 status; the only exceptions are
 cooperative 90 s timeout** (FAIL `timeout`, battery continues); a body blocked
 in a non-cooperative call is only covered by the task WDT.
 
+**Omitted for now, to be re-enabled** (bench 2026-09-06, battery-only rig):
+`power_src` and a real `charger` check need the jig to power the unit over
+VBUS (the BQ25730 is unpowered on battery; `charger` reports a WARNING
+instead); `sb_door` needs the door mounted on the jig; `humid_usb` needs a
+way to measure the humidifier; the motherBoard `buzzer` check needs the
+SensorBoard microphone (without it the test is skipped, it never asks the
+operator); the display's own buzzer and speaker tests were removed.
+
 Deliberately **not** tested: the TCA9535 expander and the rotary encoder
 (vestigial code with no hardware behind it on this board), buzzer current
 (only measurable on HW ≤ 16), `HW_NUM` and the ON/OFF latch (if the board
