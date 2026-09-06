@@ -13,6 +13,10 @@
 
 void BabyExitDialog_Init(lv_obj_t *parent);
 
+// True mientras alguna de las preguntas este en pantalla. Lo consultan los
+// overlays que esperan turno (MaintenanceDialog) para no pintarse encima.
+bool BabyExitDialog_IsOpen(void);
+
 // Call once per UI_Task tick, inside LVGL_Lock(), with the current control
 // state. Handles the idle-edge detection itself and opens the dialog when
 // warranted; cheap no-op otherwise.

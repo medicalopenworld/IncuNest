@@ -6,9 +6,11 @@
 #include "alarm_policy.h"
 #include "alarm_text.h"
 
-// Los idiomas con traduccion propia. PORTUGUESE existe en el enum pero cae en
-// el texto ingles, asi que no aporta cadenas nuevas que medir.
-static const Language kLanguages[] = {SPANISH, ENGLISH, FRENCH};
+// Todos los idiomas que soporta el equipo. Cada uno que entra aqui somete sus
+// cadenas a los limites de ancho del protocolo, que es donde duele: el
+// portugues es mas largo que el ingles palabra por palabra ("AQUECEDOR" por
+// "HEATER") y el titulo compite con la marca de prioridad por 29 caracteres.
+static const Language kLanguages[] = {SPANISH, ENGLISH, FRENCH, PORTUGUESE};
 static const unsigned kNumLanguages =
     sizeof(kLanguages) / sizeof(kLanguages[0]);
 
@@ -154,12 +156,47 @@ void test_title_with_priority_mark_still_fits_the_protocol_field(void) {
   }
 }
 
-// Un idioma sin traduccion propia cae en ingles, no en cadena vacia.
-void test_untranslated_language_falls_back_to_english(void) {
+// Cada idioma soportado tiene que traer texto PROPIO para cada condicion, no
+// el ingles de reserva.
+//
+// El fallback existe para que un idioma a medio traducir no deje la pantalla
+// en blanco, pero no puede ser el estado final: un operador que ha puesto el
+// equipo en portugues y lee la alarma en ingles esta en el mismo sitio que si
+// no hubiera texto. Y el fallback es SILENCIOSO — compila, cabe, es ASCII y no
+// esta vacio, asi que ninguno de los otros tests de este fichero lo detecta.
+// Este es el unico que distingue "traducido" de "cae en ingles".
+void test_every_language_has_its_own_text_for_every_alarm(void) {
+  for (int id = ALARM_NONE + 1; id < ALARM_COUNT; ++id) {
+    for (unsigned l = 0; l < kNumLanguages; ++l) {
+      if (kLanguages[l] == ENGLISH) {
+        continue;
+      }
+      char msg[192];
+      const char *title = alarm_title_text((AlarmId)id, kLanguages[l]);
+      snprintf(msg, sizeof(msg), "id=%d lang=%d titulo sin traducir: %s", id,
+               (int)kLanguages[l], title);
+      TEST_ASSERT_TRUE_MESSAGE(
+          strcmp(title, alarm_title_text((AlarmId)id, ENGLISH)) != 0, msg);
+
+      const char *action = alarm_action_text((AlarmId)id, kLanguages[l]);
+      snprintf(msg, sizeof(msg), "id=%d lang=%d accion sin traducir: %s", id,
+               (int)kLanguages[l], action);
+      TEST_ASSERT_TRUE_MESSAGE(
+          strcmp(action, alarm_action_text((AlarmId)id, ENGLISH)) != 0, msg);
+    }
+  }
+}
+
+// El fallback sigue existiendo, y lo que protege de verdad es un valor de
+// idioma que no corresponde a ningun idioma soportado: `in3.language` viene de
+// NVS y del protocolo serie, asi que puede llegar cualquier numero. Se
+// comprueba con NUM_LANGUAGES, que nunca sera un idioma.
+void test_unknown_language_falls_back_to_english(void) {
+  const Language bogus = (Language)NUM_LANGUAGES;
   TEST_ASSERT_EQUAL_STRING(alarm_title_text(ALARM_FAN_FAILURE, ENGLISH),
-                           alarm_title_text(ALARM_FAN_FAILURE, PORTUGUESE));
+                           alarm_title_text(ALARM_FAN_FAILURE, bogus));
   TEST_ASSERT_EQUAL_STRING(alarm_action_text(ALARM_FAN_FAILURE, ENGLISH),
-                           alarm_action_text(ALARM_FAN_FAILURE, PORTUGUESE));
+                           alarm_action_text(ALARM_FAN_FAILURE, bogus));
 }
 
 int main(void) {
@@ -173,6 +210,7 @@ int main(void) {
   RUN_TEST(test_out_of_range_ids_still_return_a_text);
   RUN_TEST(test_priority_mark_matches_the_assigned_priority);
   RUN_TEST(test_title_with_priority_mark_still_fits_the_protocol_field);
-  RUN_TEST(test_untranslated_language_falls_back_to_english);
+  RUN_TEST(test_every_language_has_its_own_text_for_every_alarm);
+  RUN_TEST(test_unknown_language_falls_back_to_english);
   return UNITY_END();
 }

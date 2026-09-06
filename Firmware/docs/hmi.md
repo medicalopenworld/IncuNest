@@ -46,7 +46,25 @@ Unlike basic thermal parameters, Phototherapy adds a temporal dimension (Countdo
 
 ## 5. Language
 
-The HMI loads and manages logical bidimensional arrays pointing the LCD strings dependent on variables. The baseboard also needs to know which language the user is reading in order to re-send the batch of alarm strings. Both converge through the initial UART packet sent from the display.
+Every visible string lives in a single catalogue, `ui/i18n_strings.def`, one
+`UI_STR(id, es, en, fr, pt)` line per text. The file is expanded twice with
+the same macro (X-macro): once in `ui/i18n.h` for the `ui_str_id_t` enum, once
+in `ui/i18n.cpp` for the table — so id and row can never drift apart. Call
+sites read `TR(STR_X)` for the active language (`g_lang`) or
+`UI_StrIn(id, lang)` when the language arrives as a parameter, as in
+`UI_ApplyLanguage()`. Adding a language is one extra column in the `.def` plus
+one entry in `ui_lang_t`; no call site changes. Four are shipped: Spanish,
+English, French and Portuguese (pt-PT), with English as the fallback when a
+cell is empty.
+
+The bundled LVGL Montserrat fonts only carry ASCII 32-126, so every
+translation is written **without accents** and a `static_assert` in
+`i18n.cpp` turns any non-ASCII cell into a compile error rather than an empty
+box on screen.
+
+The baseboard also needs to know which language the user is reading in order
+to re-send the batch of alarm strings. Both converge through the initial UART
+packet sent from the display.
 
 ## 6. Help
 
@@ -266,3 +284,83 @@ after 10 min of inactivity, so an unattended unit never stays exempt from the
 inactivity lock.
 The display keeps sending its 1 Hz keepalive while the screen is open: the
 motherBoard aborts the battery if the display goes silent for 5 s.
+
+## 8. Maintenance reminder
+
+The incubator reminds the staff to clean and disinfect it. The decision of
+*when* lives in `src/modules/maintenance/maintenance.cpp` (no LVGL); the
+pop-up that tells it, in `src/ui/MaintenanceDialog.cpp`.
+
+The protocol has **three levels**, each with its own cadence. They are not
+configurable — they are the device's cleaning protocol, not a preference. The
+only thing chosen in Settings is whether the device warns at all.
+
+| Level | Due when | Firmware condition |
+|---|---|---|
+| **Daily** | with a patient inside | `BabyWizard_HasLiveSession()` and 1 day since the last daily record |
+| **Weekly** | every 7 days, or sooner if visibly dirty | 7 days since the last weekly record |
+| **Terminal** | at patient discharge, or every 7 days for a prolonged stay | a discharge is pending, or 7 days since the last terminal record |
+
+The levels **contain each other**: a terminal clean is deeper than a weekly
+one, and a weekly deeper than a daily. So recording one level also brings the
+shallower ones up to date — if you have just done the terminal clean, having
+the device still ask for the daily would be noise.
+
+"Sooner if visibly dirty" is operator judgement, not something firmware can
+detect: it is guidance printed on the notice, and the DONE button is always
+available so a clean done early can be recorded.
+
+Discharge is detected from `BabyWizard_GetActiveSeq()`, the profile this HMI
+put in charge: it drops to 0 when the exit dialog discharges the baby
+(`BabyWizard_ClearActiveProfile()`), and changes from one seq to another when
+the incubator swaps babies without going through a discharge. Both leave a
+terminal clean pending, persisted in NVS so the device can be switched off in
+between. Starting with the very first patient (0 → seq) does not: nobody came
+out there.
+
+The pop-up is the same card as `HelpDialog` (780x460 over `ui_ScreenMain`),
+with the **`SUPPORT_TUTORIAL_URL` QR on the left** — the very code the help
+menu's "Video tutorial" view shows, because the cleaning tutorials live on
+that same page. On the right, one row per level with its cadence, the date of
+its last record, whether it is `DUE NOW` (amber) or `up to date`, and its own
+**DONE** button. Recording a level does not close the notice: it repaints with
+the new dates, because the daily and the weekly fall due together every 7 days
+and the operator may have done both.
+
+The single button at the bottom right covers the two situations: **LATER**
+(silences every level for 24 h) when something is due, and **CLOSE** when
+nothing is — opened by hand from Settings, or everything already recorded.
+There is no X: a reminder that can be dismissed without answering records
+nothing.
+
+**Settings > MAINTENANCE** holds the reminders on/off switch, the three levels
+read-only with their dates, and an **OPEN REMINDER** button that raises the
+pop-up itself — that is how a clean done on the operator's own initiative gets
+recorded, without a second place to register the same thing. Switching the
+reminders off silences all three levels: whoever turns it off does not want
+some reminders and not others. The dates keep being recorded either way.
+
+When it appears: only armed by **unlocking the screen** (and once at UI init,
+because whoever powers the incubator up is standing in front of it), never in
+the middle of a manoeuvre. `MaintenanceDialog_Poll()` then opens it only on
+`ui_ScreenMain`, with no other modal dialog open (help, tour, alarm centre,
+baby wizard, exit dialog or time dialog) and no reason to yield.
+
+Common rules, the same as the help menu: it yields to any active alarm
+(`UI_IsAnyAlarmActive()`) or a lost board link (`Display_IsBoardLinkLost()`),
+and it is exempt from the 20 s auto-lock with its own `MNT_IDLE_TIMEOUT_MS`
+cap (3 min). That cap is measured with `lv_tick_elaps()` from the moment it
+opened and **not** with `lv_disp_get_inactive_time()`: the auto-lock exemption
+itself resets that counter every 200 ms, so a cap reading it would never fire.
+Closing by the cap does not count as an answer — the notice comes back on the
+next unlock, since only pressing a button silences it.
+
+State persists in NVS (`hmi_cfg`): `mnt_daily`, `mnt_weekly`, `mnt_term` (the
+epoch of each level's last record), `mnt_en` (warn on/off), `mnt_snooze`
+(epoch when LATER expires), `mnt_seq` (the last baby seen in charge) and
+`mnt_tpend` (a discharge with no terminal clean recorded yet). Edge cases
+handled in `Maintenance_Tick()`: with no clock yet nothing is due; the first
+boot *with* a valid clock seeds the three dates with today (otherwise a
+factory-fresh unit would read as "overdue since 1970"); and a clock moved
+backwards re-anchors any date left in the future to today, where the interval
+would otherwise never elapse again.
