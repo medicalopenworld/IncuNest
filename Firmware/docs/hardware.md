@@ -100,6 +100,18 @@ control or phototherapy is active.
 | Communications | HMI link; GSM modem answering AT, SIM `+CPIN: READY`, CSQ, network attach; WiFi to the default AP; ThingsBoard session with provisioned token; wall clock | state already collected by `GPRS_Task` and the WiFi task, read passively. Only "modem answers" and "SIM ready" can fail; signal, attach, WiFi, ThingsBoard and clock end as **WARNING** (amber, not a board fault) when the environment is missing |
 | Storage | NVS write/read, LittleFS mount | `Preferences`, `LittleFS.begin()` |
 
+**Execution order.** The battery runs in the single `FTEST` task with
+cooperative overlap: every *passive* test (it only watches cached state or an
+asynchronous request: connectivity, charger, ambient sensor, SensorBoard
+status and camera, and the instantaneous checks) starts at once when the
+battery begins and is polled every 250 ms, including inside the wait loops of
+the *active* tests (standby current, actuators, fan RPM, buzzer, AFE, SHT40
+coherence, light with the operator), which stay strictly sequential and never
+overlap each other. Worst case in a factory with no coverage and no AP drops
+from four or five minutes to about 45 s, and the GSM/WiFi checks get the whole
+battery to connect. Results reach the display out of id order; the display
+follows the test that most recently reported RUNNING.
+
 Two rules came out of the bench: **test bodies issue no I2C of their own**
 (the motherBoard has no bus mutex and `sensors_Task` owns the bus, including
 the 5 s refresh of the BQ25730 status; the only exceptions are

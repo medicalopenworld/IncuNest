@@ -478,8 +478,7 @@ Identificadores, estados y codec viven en `shared/include/factory_test.h`
 copia propia de la tabla**.
 
 #### HMI,FTEST,START / HMI,FTEST,RUN / HMI,FTEST,ABORT / HMI,FTEST,CONFIRM
-- `HMI,FTEST,START` — batería completa (los `FTEST_MB_COUNT` = 28 tests, en el
-  orden de la tabla).
+- `HMI,FTEST,START` — batería completa (los `FTEST_MB_COUNT` = 28 tests).
 - `HMI,FTEST,RUN,<id>` — un solo test (reintento). `id` debe ser de motherBoard
   (`0..27`); si no, `CTRL,FTEST_REJECT,2`.
 - `HMI,FTEST,ABORT` — cancela la batería en curso. El test que estuviera
@@ -489,6 +488,31 @@ copia propia de la tabla**.
   (`buzzer`, el único que preguntaba, SKIP directo sin micrófono): la placa
   sigue aceptando el comando para no romper a un display que lo mande, pero
   lo descarta con log "sin uso".
+
+##### Orden de ejecución (quinta ronda, banco 2026-09-06: solape cooperativo)
+Sin esto, `START` tardaba 4-5 min en fábrica sin cobertura celular ni AP: cada
+test de conectividad (`gsm_at` 45 s, `gsm_sim` 15 s, `gsm_signal` 15 s,
+`gsm_net`/`wifi`/`tb_provision`/`time` 30 s cada uno) agotaba su plazo
+secuencialmente uno detrás de otro. La tabla se divide en **PASIVOS** (solo
+observan un estado ya cacheado por otra tarea o una petición asíncrona ya en
+vuelo: `charger`, `env_sensor`, `sb_status`, `sb_camera`, `gsm_at`, `gsm_sim`,
+`gsm_signal`, `gsm_net`, `wifi`, `tb_provision`, `time` y los instantáneos
+`sysinfo`, `ina3221`, `skin_adc`, `hmi_link`, `nvs`, `littlefs`, `power_src`,
+`humid_usb`, `sb_door`, `afe_probe`) y **ACTIVOS** (`standby`, `actuators`,
+`fan_rpm`, `buzzer`, `afe_spi`, `sb_env`, `sb_light`, en ese orden — no el
+ascendente de id: `sb_env`/`sb_light` van al final para dar tiempo a que
+`env_sensor` resuelva la cascada `sb_usb` en paralelo). Al arrancar `START`,
+la motherBoard emite `RUNNING` de **todos** los pasivos a la vez y arranca un
+único plazo común para ellos; los activos corren secuenciales, un turno cada
+uno, como siempre, pero los pasivos siguen resolviéndose por debajo mientras
+tanto. El HMI puede ver **varios `RUNNING` simultáneos** y los resultados
+**no llegan en orden de id**: el test que "manda" en cada momento (el que
+tiene el foco de la UI de fábrica) es el último que emitió `RUNNING`. Un
+`ABORT`/dead-man del HMI/control reactivado/tope de batería corta de golpe a
+los pasivos que sigan pendientes (`SKIP` con el motivo), igual que al activo
+en curso. Peor caso: **~45 s** (el plazo más largo, `gsm_at`) en vez de
+4-5 min. `HMI,FTEST,RUN,<id>` de un solo test no cambia: si `id` es pasivo se
+sondea igual, sin el resto de la batería corriendo debajo.
 
 **Precondición**: la motherBoard rechaza `START` y `RUN` con
 `CTRL,FTEST_REJECT,1` si `in3.actuation != OFF` o hay fototerapia activa. Los
