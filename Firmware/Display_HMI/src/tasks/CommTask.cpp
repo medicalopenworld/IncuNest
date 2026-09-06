@@ -68,6 +68,7 @@ AlarmDescMsg    g_alarmDesc = {0, {0}, {0}};
 portMUX_TYPE  g_ftestMux = portMUX_INITIALIZER_UNLOCKED;
 volatile bool g_pendingFtest = false;
 FtestRing     g_ftestRing = {{}, 0, 0};
+volatile unsigned g_ftestRingDrops = 0;
 
 volatile bool     g_pendingFtestDone = false;
 volatile unsigned g_ftestDonePass = 0;
@@ -947,6 +948,14 @@ static void parse_message(const char *line) {
   } else if (strncmp(line, "CTRL,FTEST,", sizeof("CTRL,FTEST,") - 1) == 0) {
     FtestResult res;
     if (ftest_parse_result(line + sizeof("CTRL,FTEST,") - 1, &res)) {
+      // Banco 2026-09-06: el COMM_LOG de "anillo lleno" vivia DENTRO de esta
+      // seccion critica. Serial.printf() con las interrupciones deshabilitadas
+      // (taskENTER_CRITICAL) disparaba el Interrupt WDT tras varios descartes
+      // seguidos (rafaga de RUNNING+SKIP de la MB) y el HMI se reiniciaba. La
+      // seccion critica ahora SOLO copia datos/indices y marca `ringFull`; el
+      // log (y el contador, que es informativo y puede leerse sin lock) salen
+      // fuera.
+      bool ringFull = false;
       taskENTER_CRITICAL(&g_ftestMux);
       const uint8_t idx =
           (uint8_t)((g_ftestRing.head + g_ftestRing.count) % FTEST_RING_LEN);
@@ -954,15 +963,19 @@ static void parse_message(const char *line) {
         g_ftestRing.buf[idx] = res;
         g_ftestRing.count++;
       } else {
-        // Anillo lleno (deberian bastar 8: la MB emite una linea por cambio de
-        // estado y FactoryTest_Poll() lo drena entero cada pasada de UI_Task).
-        // Se descarta la mas antigua en vez de bloquear o crecer sin limite.
+        // Anillo lleno: se descarta la mas antigua en vez de bloquear o
+        // crecer sin limite.
         g_ftestRing.buf[g_ftestRing.head] = res;
         g_ftestRing.head = (uint8_t)((g_ftestRing.head + 1) % FTEST_RING_LEN);
-        COMM_LOG("[COMM] anillo FTEST lleno, se descarta el mas antiguo\n");
+        g_ftestRingDrops++;
+        ringFull = true;
       }
       g_pendingFtest = true;
       taskEXIT_CRITICAL(&g_ftestMux);
+      if (ringFull) {
+        COMM_LOG("[COMM] anillo FTEST lleno, se descarta el mas antiguo (total=%u)\n",
+                 (unsigned)g_ftestRingDrops);
+      }
     } else {
       COMM_LOG("[COMM] CTRL,FTEST malformado: %s\n", line);
     }

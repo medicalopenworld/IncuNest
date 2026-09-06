@@ -183,17 +183,25 @@ lv_obj_t *s_body = nullptr;    // cuadricula de botones, paginada (sin scroll)
 lv_obj_t *s_action = nullptr;  // instruccion / pregunta / resumen
 
 // Paginacion (D5): fila de navegacion bajo la cuadricula.
+lv_obj_t *s_pageNavRow = nullptr;
 lv_obj_t *s_pageBackBtn = nullptr;
 lv_obj_t *s_pageNextBtn = nullptr;
 lv_obj_t *s_pageLabel = nullptr;
 
 // Barra de progreso y veredicto (D5), abajo del todo de la tarjeta.
+lv_obj_t *s_bottomRow = nullptr;
 lv_obj_t *s_progressBar = nullptr;
 lv_obj_t *s_verdictBox = nullptr;
 lv_obj_t *s_verdictLabel = nullptr;
 
 lv_obj_t *s_detailPanel = nullptr;  // panel de detalle modal, o nullptr
 RowData  *s_detailRow = nullptr;    // fila cuyo detalle esta abierto
+
+// Pop-up modal de la barrera de entrada (banco 2026-09-06, hallazgo del
+// operario: dos botones en rojo con "0 errores"). Mismo patron que
+// s_detailPanel: se destruye/reconstruye en cada renderAll(), solo existe
+// mientras s_step == Step::Gate.
+lv_obj_t *s_gatePopup = nullptr;
 
 // ---------------------------------------------------------------------------
 // Forward declarations (la maquina de estados es mutuamente recursiva:
@@ -437,16 +445,21 @@ const char *rejectReasonText(FtestReject r) {
   }
 }
 
-// Barrera de entrada (hallazgo 7): se muestra en Step::Gate antes de arrancar
-// ningun test, local o remoto.
-const char *gateWarningText() {
+// Barrera de entrada (hallazgo 7): pop-up modal en Step::Gate antes de
+// arrancar ningun test, local o remoto (banco 2026-09-06: ya no se pinta en
+// la zona de accion — buildGatePopup()).
+const char *gateTitleText() {
+  return TXT("ATENCION", "WARNING", "ATTENTION");
+}
+
+const char *gateBodyText() {
   return TXT(
-      "ATENCION: el equipo debe estar VACIO, sin paciente. Los actuadores se "
+      "El equipo debe estar VACIO, sin paciente. Los actuadores se "
       "encenderan en lazo abierto. Continuar?",
-      "WARNING: the unit must be EMPTY, no patient inside. Actuators will be "
+      "The unit must be EMPTY, no patient inside. Actuators will be "
       "switched on in open loop. Continue?",
-      "ATTENTION : l'appareil doit etre VIDE, sans patient. Les actionneurs "
-      "seront allumes en boucle ouverte. Continuer ?");
+      "L'appareil doit etre VIDE, sans patient. Les actionneurs seront "
+      "allumes en boucle ouverte. Continuer ?");
 }
 
 // Indicador de paginacion (D5): "Pagina i/n".
@@ -511,6 +524,24 @@ bool computeHwError() {
   return s_mbUnsupported || s_mbRejected || s_mbLinkLost;
 }
 
+// Cuenta PASA/FALLA/AVISO/OMITIDO de las filas [startIdx, s_rowCount) ya
+// empezadas (banco 2026-09-06: la cabecera y la persistencia SIEMPRE se
+// calculan de aqui, nunca de los contadores sueltos de CTRL,FTEST_DONE — ver
+// comentario de renderSummary()).
+void countRows(int startIdx, int *pass, int *fail, int *warn, int *skip) {
+  *pass = *fail = *warn = *skip = 0;
+  for (int i = startIdx; i < s_rowCount; i++) {
+    if (!s_rows[i].started) continue;
+    switch (s_rows[i].status) {
+      case FTEST_PASS: (*pass)++; break;
+      case FTEST_FAIL: (*fail)++; break;
+      case FTEST_WARN: (*warn)++; break;
+      case FTEST_SKIP: (*skip)++; break;
+      default: break;
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Filas de motherBoard: se anaden bajo demanda segun llegan sus CTRL,FTEST
 // (spec: "anadir una fila por cada CTRL,FTEST recibido"). Los locales ya
@@ -564,6 +595,7 @@ void destroyTransientOverlayObjects() {
   s_detailRow = nullptr;
   s_pendingDetailRow = nullptr;
   s_pendingDetailClose = false;
+  if (s_gatePopup) { lv_obj_del(s_gatePopup); s_gatePopup = nullptr; }
 }
 
 // ============================================================================
@@ -621,8 +653,59 @@ void renderAskUi(const char *question, lv_event_cb_t yesCb, lv_event_cb_t noCb,
   lv_obj_align(no, LV_ALIGN_BOTTOM_MID, 80, 0);
 }
 
-void renderGateAction() {
-  renderAskUi(gateWarningText(), onGateYesCb, onGateNoCb, nullptr);
+// Pop-up modal de la barrera de entrada (banco 2026-09-06: dejo de pintarse
+// en s_action — un texto ahi se confundia con el resto de la pantalla y el
+// operario podia perderselo; ahora tapa la cuadricula y la barra, igual que
+// el panel de detalle). Se destruye/reconstruye en cada renderAll() (mismo
+// patron que renderDetail()): solo existe mientras s_step == Step::Gate.
+void buildGatePopup() {
+  s_gatePopup = lv_obj_create(s_overlay);
+  lv_obj_set_size(s_gatePopup, 560, 260);
+  lv_obj_center(s_gatePopup);
+  lv_obj_set_style_radius(s_gatePopup, 12, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(s_gatePopup, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+  lv_obj_clear_flag(s_gatePopup, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_move_foreground(s_gatePopup);
+  lv_obj_set_style_pad_all(s_gatePopup, 18, LV_PART_MAIN);
+  lv_obj_set_flex_flow(s_gatePopup, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(s_gatePopup, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
+                        LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_row(s_gatePopup, 16, LV_PART_MAIN);
+
+  lv_obj_t *title = lv_label_create(s_gatePopup);
+  lv_label_set_text(title, gateTitleText());
+  lv_obj_set_style_text_font(title, &lv_font_montserrat_24, 0);
+  lv_obj_set_style_text_color(title, lv_color_hex(0xAA3333), 0);
+
+  lv_obj_t *body = lv_label_create(s_gatePopup);
+  lv_label_set_text(body, gateBodyText());
+  lv_obj_set_style_text_font(body, &lv_font_montserrat_16, 0);
+  lv_obj_set_style_text_color(body, lv_color_hex(0x0B2E4F), 0);
+  lv_obj_set_width(body, 500);
+  lv_label_set_long_mode(body, LV_LABEL_LONG_WRAP);
+  lv_obj_set_style_text_align(body, LV_TEXT_ALIGN_CENTER, 0);
+
+  lv_obj_t *btnRow = lv_obj_create(s_gatePopup);
+  lv_obj_remove_style_all(btnRow);
+  lv_obj_set_size(btnRow, 500, 60);
+  lv_obj_clear_flag(btnRow, LV_OBJ_FLAG_SCROLLABLE);
+
+  lv_obj_t *yes = makeBtn(btnRow, TXT("SI", "YES", "OUI"), onGateYesCb,
+                          lv_color_hex(0x2E7D32));
+  lv_obj_set_size(yes, 200, 56);
+  lv_obj_align(yes, LV_ALIGN_LEFT_MID, 10, 0);
+
+  lv_obj_t *no = makeBtn(btnRow, TXT("NO", "NO", "NON"), onGateNoCb,
+                         lv_color_hex(0xAA3333));
+  lv_obj_set_size(no, 200, 56);
+  lv_obj_align(no, LV_ALIGN_RIGHT_MID, -10, 0);
+}
+
+// Llamada en cada renderAll() (mismo patron que renderDetail()): destruye el
+// pop-up anterior y lo reconstruye solo si sigue en Step::Gate.
+void renderGatePopup() {
+  if (s_gatePopup) { lv_obj_del(s_gatePopup); s_gatePopup = nullptr; }
+  if (s_step == Step::Gate) buildGatePopup();
 }
 
 void renderLocalAction() {
@@ -659,20 +742,17 @@ void renderRemoteAction() {
 }
 
 // Cabecera de resumen (spec hmi-factory-test: "N errores / M avisos / K OK",
-// sin omitidos). Cuenta local + motherBoard juntos; los tests locales nunca
-// producen AVISO (solo el estimulo/conectividad de la motherBoard lo hace).
+// sin omitidos). Cuenta SIEMPRE de las filas (s_rows[], local + motherBoard),
+// nunca de s_mbPass/s_mbFail/s_mbWarn sueltos (esos solo alimentan
+// countRows() cuando drainFtestEvents() los vuelca en una fila): banco
+// 2026-09-06, la cabecera usaba esos contadores y SOLO si s_mbDone, mientras
+// el veredicto (computeHwError()) ya miraba las filas — un timeout o un
+// enlace perdido a mitad de bateria (que SI marcan filas FALLA) pintaba
+// botones en rojo con la cabecera en "0 errores" y el veredicto en HW ERROR,
+// incoherentes entre si.
 void renderSummary() {
-  int localPass = 0, localFail = 0;
-  for (int i = 0; i < kLocalCount; i++) {
-    if (s_rows[i].status == FTEST_PASS) localPass++;
-    else if (s_rows[i].status == FTEST_FAIL) localFail++;
-  }
-  const unsigned mbPass = s_mbDone ? s_mbPass : 0u;
-  const unsigned mbFail = s_mbDone ? s_mbFail : 0u;
-  const unsigned mbWarn = s_mbDone ? s_mbWarn : 0u;
-  const int totalFail = localFail + (int)mbFail;
-  const int totalWarn = (int)mbWarn;
-  const int totalPass = localPass + (int)mbPass;
+  int totalPass, totalFail, totalWarn, totalSkip;
+  countRows(0, &totalPass, &totalFail, &totalWarn, &totalSkip);
 
   char header[80];
   snprintf(header, sizeof(header),
@@ -938,6 +1018,25 @@ void buildDetailPanel(RowData &r) {
   lv_label_set_long_mode(statusLbl, LV_LABEL_LONG_WRAP);
   lv_obj_set_style_text_align(statusLbl, LV_TEXT_ALIGN_CENTER, 0);
 
+  // Descartes del anillo FTEST (banco 2026-09-06): visibles solo en el
+  // detalle de "Enlace" (el test local que mas de cerca vigila el enlace
+  // serie con la MB) y solo si > 0 — g_ftestRingDrops es un contador global
+  // de Comm_Task, no de esta fila.
+  if (!r.isMb && r.id == (unsigned)FTEST_HMI_LINK && g_ftestRingDrops > 0) {
+    char dropLine[64];
+    snprintf(dropLine, sizeof(dropLine),
+            TXT("Anillo FTEST: %u descartes", "FTEST ring: %u drops",
+                "Anneau FTEST : %u pertes"),
+            (unsigned)g_ftestRingDrops);
+    lv_obj_t *dropLbl = lv_label_create(s_detailPanel);
+    lv_label_set_text(dropLbl, dropLine);
+    lv_obj_set_style_text_font(dropLbl, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(dropLbl, lv_color_hex(0xC98A00), 0);
+    lv_obj_set_width(dropLbl, 500);
+    lv_label_set_long_mode(dropLbl, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_align(dropLbl, LV_TEXT_ALIGN_CENTER, 0);
+  }
+
   // Reintentar SOLO en FALLA/AVISO, y solo con la bateria terminada
   // (Step::Summary): reintentar a mitad de la secuencia local o remota
   // interferiria con s_localIdx / el test en curso de esa fila.
@@ -1014,6 +1113,23 @@ void renderVerdictAndProgress() {
 void renderAll() {
   if (!s_body || !s_action) return;
 
+  // Barrera de entrada (banco 2026-09-06): mientras el pop-up de Step::Gate
+  // esta abierto, la cuadricula y la barra de progreso/veredicto NO se
+  // pintan (nada que testear todavia, el operario aun no ha contestado si
+  // el equipo esta vacio). Se ocultan los contenedores enteros en vez de
+  // saltarse su logica de abajo, que es idempotente y mas simple de dejar
+  // corriendo siempre.
+  const bool gateOpen = (s_step == Step::Gate);
+  if (gateOpen) {
+    lv_obj_add_flag(s_body, LV_OBJ_FLAG_HIDDEN);
+    if (s_pageNavRow) lv_obj_add_flag(s_pageNavRow, LV_OBJ_FLAG_HIDDEN);
+    if (s_bottomRow) lv_obj_add_flag(s_bottomRow, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_clear_flag(s_body, LV_OBJ_FLAG_HIDDEN);
+    if (s_pageNavRow) lv_obj_clear_flag(s_pageNavRow, LV_OBJ_FLAG_HIDDEN);
+    if (s_bottomRow) lv_obj_clear_flag(s_bottomRow, LV_OBJ_FLAG_HIDDEN);
+  }
+
   if (s_rowsDirty) {
     computeOrder();
     s_rowsDirty = false;
@@ -1087,7 +1203,8 @@ void renderAll() {
   lv_obj_clean(s_action);
   switch (s_step) {
     case Step::Gate:
-      renderGateAction();
+      // Banco 2026-09-06: el aviso ya no se pinta aqui, es un pop-up modal
+      // (renderGatePopup(), mas abajo).
       break;
     case Step::LocalSeq:
       renderLocalAction();
@@ -1116,6 +1233,7 @@ void renderAll() {
 
   renderVerdictAndProgress();
   renderDetail();
+  renderGatePopup();
 }
 
 // ============================================================================
@@ -1417,10 +1535,13 @@ void persistResults() {
     else if (s_rows[i].status == FTEST_FAIL) failMask |= (1u << bit);
   }
   const uint32_t epoch = HMI_GetEpochNow();
-  const unsigned mbPass = s_mbDone ? s_mbPass : 0u;
-  const unsigned mbFail = s_mbDone ? s_mbFail : 0u;
-  const unsigned mbSkip = s_mbDone ? s_mbSkip : 0u;
-  const unsigned mbWarn = s_mbDone ? s_mbWarn : 0u;
+  // Contadores de motherBoard SIEMPRE de las filas (mismo criterio que
+  // renderSummary()), no de s_mbPass/s_mbFail/s_mbSkip/s_mbWarn sueltos:
+  // incluye timeout/enlace perdido, que ya marcaron sus filas FALLA aunque
+  // CTRL,FTEST_DONE nunca llegara (s_mbDone false) o llegara con otros
+  // numeros.
+  int mbPass, mbFail, mbWarn, mbSkip;
+  countRows(kLocalCount, &mbPass, &mbFail, &mbWarn, &mbSkip);
   char fwVer[sizeof(ctrl_state_msg.fwVer)];
   snprintf(fwVer, sizeof(fwVer), "%s", ctrl_state_msg.fwVer);
   // Veredicto unico de la bateria (D5): 1 = HW OK, 2 = HW ERROR. Mismo
@@ -1435,10 +1556,10 @@ void persistResults() {
   p.putUInt(HMI_KEY_FTEST_EPOCH, epoch);
   p.putUInt(HMI_KEY_FTEST_PASSMASK, passMask);
   p.putUInt(HMI_KEY_FTEST_FAILMASK, failMask);
-  p.putUInt(HMI_KEY_FTEST_MBPASS, mbPass);
-  p.putUInt(HMI_KEY_FTEST_MBFAIL, mbFail);
-  p.putUInt(HMI_KEY_FTEST_MBSKIP, mbSkip);
-  p.putUInt(HMI_KEY_FTEST_MBWARN, mbWarn);
+  p.putUInt(HMI_KEY_FTEST_MBPASS, (uint32_t)mbPass);
+  p.putUInt(HMI_KEY_FTEST_MBFAIL, (uint32_t)mbFail);
+  p.putUInt(HMI_KEY_FTEST_MBSKIP, (uint32_t)mbSkip);
+  p.putUInt(HMI_KEY_FTEST_MBWARN, (uint32_t)mbWarn);
   p.putString(HMI_KEY_FTEST_FWVER, fwVer);
   p.putUInt(HMI_KEY_FTEST_VERDICT, verdict);
   p.end();
@@ -1492,6 +1613,22 @@ void serviceRemoteRunning() {
     s_mbSkip = g_ftestDoneSkip;
     s_mbWarn = g_ftestDoneWarn;
     s_mbDone = true;
+    // Banco 2026-09-06: CTRL,FTEST_DONE solo cierra la bateria (design.md D2)
+    // — ya NO alimenta la cabecera ni la persistencia, que salen siempre de
+    // las filas (countRows(), renderSummary(), persistResults()). Si sus
+    // contadores no cuadran con lo que las filas realmente muestran (p.ej.
+    // una fila que este display ya habia marcado FALLA por timeout de fila
+    // antes de que llegara FTEST_DONE), se deja constancia en el log sin
+    // tocar lo que ve el operario.
+    int rowPass, rowFail, rowWarn, rowSkip;
+    countRows(kLocalCount, &rowPass, &rowFail, &rowWarn, &rowSkip);
+    if (rowPass != (int)s_mbPass || rowFail != (int)s_mbFail ||
+        rowWarn != (int)s_mbWarn || rowSkip != (int)s_mbSkip) {
+      COMM_LOG("[FTEST] FTEST_DONE (p%u f%u w%u s%u) no cuadra con filas "
+               "(p%d f%d w%d s%d)\n",
+               (unsigned)s_mbPass, (unsigned)s_mbFail, (unsigned)s_mbWarn,
+               (unsigned)s_mbSkip, rowPass, rowFail, rowWarn, rowSkip);
+    }
     goSummary();
     return;
   }
@@ -1545,6 +1682,9 @@ void resetState() {
   s_mbDone = false;
   s_mbLinkLost = false;
   s_mbPass = s_mbFail = s_mbSkip = s_mbWarn = 0;
+  // Descartes de una sesion anterior no deben arrastrarse a esta (banco
+  // 2026-09-06): es un contador global de Comm_Task, se limpia al abrir.
+  g_ftestRingDrops = 0;
   s_remoteConfirmAnsweredRowId = FTEST_ID_NONE;
   // Estado de UI pendiente de una sesion anterior (hallazgo 4): ningun flag
   // de hand-off debe sobrevivir a un cierre y reapertura de la pantalla.
@@ -1613,25 +1753,25 @@ void FactoryTest_Init(void) {
 
   // Navegacion de paginas (D5): < / > deshabilitados en los extremos
   // (renderAll()), indicador "Pagina i/n" en medio.
-  lv_obj_t *pageNavRow = lv_obj_create(s_card);
-  lv_obj_remove_style_all(pageNavRow);
-  lv_obj_set_size(pageNavRow, 300, 34);
-  lv_obj_align(pageNavRow, LV_ALIGN_TOP_MID, 0, 272);
-  lv_obj_clear_flag(pageNavRow, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_flex_flow(pageNavRow, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(pageNavRow, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
+  s_pageNavRow = lv_obj_create(s_card);
+  lv_obj_remove_style_all(s_pageNavRow);
+  lv_obj_set_size(s_pageNavRow, 300, 34);
+  lv_obj_align(s_pageNavRow, LV_ALIGN_TOP_MID, 0, 272);
+  lv_obj_clear_flag(s_pageNavRow, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_flex_flow(s_pageNavRow, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(s_pageNavRow, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
                         LV_FLEX_ALIGN_CENTER);
-  lv_obj_set_style_pad_column(pageNavRow, 12, LV_PART_MAIN);
+  lv_obj_set_style_pad_column(s_pageNavRow, 12, LV_PART_MAIN);
 
-  s_pageBackBtn = makeBtn(pageNavRow, "<", onPageBackCb, lv_color_hex(0x0075EE));
+  s_pageBackBtn = makeBtn(s_pageNavRow, "<", onPageBackCb, lv_color_hex(0x0075EE));
   lv_obj_set_size(s_pageBackBtn, 50, 34);
 
-  s_pageLabel = lv_label_create(pageNavRow);
+  s_pageLabel = lv_label_create(s_pageNavRow);
   lv_obj_set_style_text_font(s_pageLabel, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(s_pageLabel, lv_color_hex(0x0B2E4F), 0);
   lv_label_set_text(s_pageLabel, "Pagina 1/1");
 
-  s_pageNextBtn = makeBtn(pageNavRow, ">", onPageNextCb, lv_color_hex(0x0075EE));
+  s_pageNextBtn = makeBtn(s_pageNavRow, ">", onPageNextCb, lv_color_hex(0x0075EE));
   lv_obj_set_size(s_pageNextBtn, 50, 34);
 
   s_action = lv_obj_create(s_card);
@@ -1641,20 +1781,20 @@ void FactoryTest_Init(void) {
   lv_obj_clear_flag(s_action, LV_OBJ_FLAG_SCROLLABLE);
 
   // Barra de progreso y veredicto (D5), abajo del todo de la tarjeta.
-  lv_obj_t *bottomRow = lv_obj_create(s_card);
-  lv_obj_remove_style_all(bottomRow);
-  lv_obj_set_size(bottomRow, 720, 46);
-  lv_obj_align(bottomRow, LV_ALIGN_BOTTOM_MID, 0, -6);
-  lv_obj_clear_flag(bottomRow, LV_OBJ_FLAG_SCROLLABLE);
+  s_bottomRow = lv_obj_create(s_card);
+  lv_obj_remove_style_all(s_bottomRow);
+  lv_obj_set_size(s_bottomRow, 720, 46);
+  lv_obj_align(s_bottomRow, LV_ALIGN_BOTTOM_MID, 0, -6);
+  lv_obj_clear_flag(s_bottomRow, LV_OBJ_FLAG_SCROLLABLE);
 
-  s_progressBar = lv_bar_create(bottomRow);
+  s_progressBar = lv_bar_create(s_bottomRow);
   lv_obj_set_size(s_progressBar, 480, 18);
   lv_obj_align(s_progressBar, LV_ALIGN_LEFT_MID, 0, 0);
   lv_bar_set_range(s_progressBar, 0, kExpectedTotal);
   lv_obj_set_style_bg_color(s_progressBar, lv_color_hex(0xE0E0E0), LV_PART_MAIN);
   lv_obj_set_style_bg_color(s_progressBar, lv_color_hex(0x0075EE), LV_PART_INDICATOR);
 
-  s_verdictBox = lv_obj_create(bottomRow);
+  s_verdictBox = lv_obj_create(s_bottomRow);
   lv_obj_remove_style_all(s_verdictBox);
   lv_obj_set_size(s_verdictBox, 216, 46);
   lv_obj_align(s_verdictBox, LV_ALIGN_RIGHT_MID, 0, 0);

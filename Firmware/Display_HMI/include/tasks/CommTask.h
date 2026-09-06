@@ -348,7 +348,11 @@ extern BabyWeightHistoryMsg g_weightHistory;
 // FactoryTest_Poll() lo drena entero cada pasada (patron g_pendingAlarmHistory,
 // pero con cola en vez de un unico buffer porque aqui SI puede llegar mas de
 // una linea entre dos pasadas de UI_Task).
-#define FTEST_RING_LEN 8
+//
+// 32 (no 8, banco 2026-09-06): la motherBoard puede emitir una rafaga de
+// RUNNING+SKIP casi instantanea al omitir varios tests seguidos, y 8 se
+// desbordaba. FtestResult son ~44 B: 32 entradas son ~1.4 KB, asumibles.
+#define FTEST_RING_LEN 32
 struct FtestRing {
   FtestResult buf[FTEST_RING_LEN];
   uint8_t     head;   // siguiente a leer
@@ -357,6 +361,11 @@ struct FtestRing {
 extern portMUX_TYPE  g_ftestMux;
 extern volatile bool g_pendingFtest;
 extern FtestRing     g_ftestRing;
+
+// Contador de descartes por anillo lleno (banco 2026-09-06). Incrementado
+// dentro de la seccion critica de Comm_Task, leido fuera de ella por
+// FactoryTest.cpp para mostrarlo en el detalle de la fila "Enlace" si > 0.
+extern volatile unsigned g_ftestRingDrops;
 
 // Saca el resultado mas antiguo del anillo a `*out`. false si no hay ninguno
 // pendiente (no toca `*out`). Llamar solo desde FactoryTest_Poll().
