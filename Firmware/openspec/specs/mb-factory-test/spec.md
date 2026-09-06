@@ -131,21 +131,20 @@ cinco tests `SB_*` dependen de que `SENSORBOARD` haya pasado por USB.
 
 ### Requirement: Tests con estímulo del operario
 
-`SB_DOOR` SHALL emitir `CTRL,FTEST,11,4` y dar PASS si observa `door_open`
-pasar a true y después a false dentro de `FTEST_STIMULUS_TIMEOUT_MS` (30 s);
-si no, FAIL con `detail = timeout`. `SB_LIGHT` SHALL medir la base de lux
-durante 2 s, emitir WAIT y dar PASS si el lux cae por debajo del 50 % de la
-base dentro de 20 s; con base < 20 lux SHALL dar SKIP con `detail = poca luz`.
+`SB_DOOR` SHALL devolver SKIP con `detail = omitido` sin emitir WAIT mientras el
+jig de fábrica no monte la puerta (pendiente de reactivar). `SB_LIGHT` SHALL
+medir la base de lux durante 2 s, emitir WAIT y dar PASS si el lux cae por
+debajo del 50 % de la base dentro de 20 s; con base < 20 lux SHALL dar SKIP con
+`detail = poca luz`.
 
-#### Scenario: Puerta abierta y cerrada
-- **WHEN** el operario abre y cierra la puerta tras ver la instrucción
-- **THEN** `SB_DOOR` da PASS y el siguiente test arranca de inmediato, sin
-  esperar el resto del plazo
+#### Scenario: Puerta omitida
+- **WHEN** la batería llega a `SB_DOOR`
+- **THEN** emite SKIP `omitido` de inmediato, sin instrucción al operario
 - *(Verificación manual en banco.)*
 
-#### Scenario: Operario no actúa
-- **WHEN** pasan 30 s sin transición de puerta
-- **THEN** `SB_DOOR` da FAIL con `detail = timeout` y la batería continúa
+#### Scenario: Operario no tapa el sensor de luz
+- **WHEN** pasan 20 s sin caída de lux tras el WAIT de `SB_LIGHT`
+- **THEN** `SB_LIGHT` da FAIL con `detail = timeout` y la batería continúa
 - *(Verificación manual en banco.)*
 
 ### Requirement: Zumbador verificado con el micrófono, con confirmación de respaldo
@@ -154,19 +153,17 @@ base dentro de 20 s; con base < 20 lux SHALL dar SKIP con `detail = poca luz`.
 (`ledcWrite(BUZZER_PWM_CHANNEL, BUZZER_HALF_PWM)`) hasta recibir una nueva
 muestra de `sound_level` (≤ 7 s), apagarlo y dar PASS si la subida es ≥
 `FTEST_BUZZER_DBA_DELTA` (6 dB). Si el snapshot no tiene `sound_seen`, SHALL
-emitir `CTRL,FTEST,17,5`, hacer sonar el zumbador 500 ms y dar PASS o FAIL
-según `HMI,FTEST,CONFIRM,17,ok`; sin respuesta en `FTEST_CONFIRM_TIMEOUT_MS`
-(60 s), FAIL con `detail = timeout`.
+dar SKIP con `detail = sin microfono` sin hacer sonar el zumbador ni preguntar
+al operario: el test de fábrica no hace preguntas de audio.
 
-#### Scenario: Con SensorBoard presente
+#### Scenario: Con SensorBoard con micrófono
 - **WHEN** hay `sound_seen` y el zumbador suena
-- **THEN** `BUZZER` da PASS con `detail` con la base y el pico en dBA, sin
-  preguntar al operario
+- **THEN** `BUZZER` da PASS con `detail` con la base y el pico en dBA
 - *(Verificación manual en banco.)*
 
-#### Scenario: CONFIRM con id distinto
-- **WHEN** la tarea espera `CONFIRM,17` y llega `HMI,FTEST,CONFIRM,11,1`
-- **THEN** se descarta con log y la espera de 17 continúa
+#### Scenario: Sin micrófono
+- **WHEN** el snapshot no tiene `sound_seen`
+- **THEN** `BUZZER` da SKIP `sin microfono` y no se emite ningún CONFIRM
 - *(Verificación manual en banco.)*
 
 ### Requirement: Tests de actuadores y humidificador reutilizan el autotest
@@ -288,17 +285,26 @@ comparar con el exterior solo si hay SHT4x con lectura fresca.
 
 Ningún cuerpo de test SHALL emitir transacciones I2C propias, salvo dentro de
 `actuatorsTest()` y `testStandByCurrent()`. `CHARGER` SHALL esperar ≤ 12 s a
-`g_bq_status_valid` (que refresca `sensors_Task` cada 5 s) y dar PASS
-si el BQ25730 respondió, con o sin alimentación externa, informando VBAT, VSYS
-y `ac`/`bat` en `detail`; si no, FAIL `sin respuesta`. `SKIN_ADC` SHALL usar
-`skinProbeLastReading()` y el sello `lastSuccesfullSensorUpdate[SKIN_SENSOR]`;
-`INA3221` SHALL usar los flags de presencia.
+`g_bq_status_valid` con sello `g_bq_status_ms` fresco (que refresca
+`sensors_Task` cada 5 s) y dar PASS si el BQ25730 respondió, informando VBAT,
+VSYS y `ac`/`bat` en `detail`; si no responde SHALL dar WARN `sin vbus`: sin
+alimentación externa el BQ25730 no está alimentado y no es un fallo de placa.
+`POWER_SRC` SHALL devolver SKIP `omitido` mientras el jig no alimente por
+VBUS. `SKIN_ADC` SHALL usar `skinProbeLastReading()` y el sello
+`lastSuccesfullSensorUpdate[SKIN_SENSOR]`; `INA3221` SHALL usar los flags de
+presencia. El runner SHALL esperar 60 ms entre el resultado final de un test y
+el RUNNING del siguiente para no desbordar el anillo del display.
 
 #### Scenario: Placa alimentada solo con batería
-- **WHEN** no hay VBUS y `sensors_Task` refresca `g_bq_status`
-- **THEN** `CHARGER` da PASS con `detail` que termina en `bat` en menos de 12 s
-  y nunca se queda en RUNNING
+- **WHEN** no hay VBUS y el BQ25730 no responde
+- **THEN** `CHARGER` da WARN `sin vbus` en ≤ 12 s y `POWER_SRC` da SKIP
+  `omitido`; ningún test queda en RUNNING
 - *(Verificación manual en banco.)*
+
+#### Scenario: Ráfaga de tests omitidos
+- **WHEN** varios tests consecutivos terminan en SKIP de inmediato
+- **THEN** entre cada resultado y el RUNNING siguiente pasan al menos 60 ms
+- *(Verificación manual en banco con el monitor serie.)*
 
 ### Requirement: Timeout cooperativo por test
 
