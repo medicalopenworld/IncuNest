@@ -182,6 +182,7 @@ lv_obj_t *s_pageLabel = nullptr;
 // Barra de progreso y veredicto (D5), abajo del todo de la tarjeta.
 lv_obj_t *s_bottomRow = nullptr;
 lv_obj_t *s_progressBar = nullptr;
+lv_obj_t *s_progressLabel = nullptr;  // "10/30 tests", a la derecha de la barra
 lv_obj_t *s_verdictBox = nullptr;
 lv_obj_t *s_verdictLabel = nullptr;
 
@@ -1086,6 +1087,17 @@ void renderVerdictAndProgress() {
     }
   }
   lv_bar_set_value(s_progressBar, terminal, LV_ANIM_OFF);
+  if (s_progressLabel) {
+    // Solo se repinta si cambia el numero: lv_label_set_text() invalida y
+    // redibuja aunque el texto sea identico (known_issues.md #2).
+    static int s_lastShown = -1;
+    if (terminal != s_lastShown) {
+      s_lastShown = terminal;
+      char buf[24];
+      snprintf(buf, sizeof(buf), "%d/%d tests", terminal, kExpectedTotal);
+      lv_label_set_text(s_progressLabel, buf);
+    }
+  }
 
   int bucket = 2;  // blanco: en curso
   const char *text = TXT("EN CURSO...", "RUNNING...", "EN COURS...");
@@ -1780,11 +1792,22 @@ void FactoryTest_Init(void) {
   lv_obj_clear_flag(s_bottomRow, LV_OBJ_FLAG_SCROLLABLE);
 
   s_progressBar = lv_bar_create(s_bottomRow);
-  lv_obj_set_size(s_progressBar, 480, 18);
+  lv_obj_set_size(s_progressBar, 380, 18);
   lv_obj_align(s_progressBar, LV_ALIGN_LEFT_MID, 0, 0);
   lv_bar_set_range(s_progressBar, 0, kExpectedTotal);
   lv_obj_set_style_bg_color(s_progressBar, lv_color_hex(0xE0E0E0), LV_PART_MAIN);
   lv_obj_set_style_bg_color(s_progressBar, lv_color_hex(0x0075EE), LV_PART_INDICATOR);
+
+  // Contador "hechos/total" entre la barra y el veredicto (peticion de banco:
+  // la barra sola no dice cuantos quedan).
+  s_progressLabel = lv_label_create(s_bottomRow);
+  lv_obj_set_style_text_font(s_progressLabel, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(s_progressLabel, lv_color_hex(0x0B2E4F), 0);
+  lv_obj_set_width(s_progressLabel, 110);
+  lv_label_set_long_mode(s_progressLabel, LV_LABEL_LONG_CLIP);
+  lv_obj_set_style_text_align(s_progressLabel, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_align(s_progressLabel, LV_ALIGN_LEFT_MID, 390, 0);
+  lv_label_set_text_fmt(s_progressLabel, "0/%d tests", kExpectedTotal);
 
   s_verdictBox = lv_obj_create(s_bottomRow);
   lv_obj_remove_style_all(s_verdictBox);
