@@ -65,6 +65,64 @@ typedef enum {
   UI_STR_COUNT
 } ui_str_id_t;
 
+// -----------------------------------------------------------------
+// Tamano de los buffers que alojan texto traducido
+// -----------------------------------------------------------------
+//
+// Un buffer de pila dimensionado a ojo para el texto en un idioma se queda
+// corto en cuanto otro es mas largo, y snprintf trunca EN SILENCIO: no hay
+// error, no hay aviso, solo una etiqueta cortada que unicamente se ve abriendo
+// esa pantalla en ese idioma.
+//
+// Paso de verdad: el reloj de la cabecera tenia `char nowTime[8]`, medido para
+// "HH:MM", y ahi dentro cae tambien el texto de STR_NO_TIME. En espanol
+// "Sin hora" (8) salia como "Sin hor" y en frances "Sans heure" (10) como
+// "Sans he"; solo el ingles cabia, y de casualidad. Con amarico seria peor: en
+// UTF-8 cada silaba etiope ocupa 3 bytes, asi que el corte caeria a mitad de
+// secuencia y pintaria basura en vez de una palabra incompleta.
+//
+// `UI_StrBufBytes(id)` da el tamano correcto sacado del propio catalogo, asi
+// que un idioma nuevo lo actualiza solo, sin que nadie tenga que acordarse.
+namespace ui_i18n_detail {
+
+constexpr unsigned len(const char *s) {
+  unsigned n = 0;
+  while (s[n]) {
+    ++n;
+  }
+  return n;
+}
+
+// Un parametro por idioma, igual que la macro de la tabla en i18n.cpp: asi
+// anadir un idioma sin tocar esto es un error de compilacion, no un tamano
+// calculado de menos.
+constexpr unsigned longest(const char *es, const char *en, const char *fr,
+                           const char *pt) {
+  unsigned m = len(es);
+  if (len(en) > m) m = len(en);
+  if (len(fr) > m) m = len(fr);
+  if (len(pt) > m) m = len(pt);
+  return m;
+}
+
+// Bytes de la traduccion mas larga de cada cadena, sin contar el terminador.
+// Se calcula entero en compilacion; los literales no se emiten por esto.
+inline constexpr unsigned kMaxLen[] = {
+#define UI_STR(id, es, en, fr, pt) longest(es, en, fr, pt),
+#include "ui/i18n_strings.def"
+#undef UI_STR
+};
+
+} // namespace ui_i18n_detail
+
+// Bytes minimos de un buffer capaz de alojar cualquier traduccion de `id`,
+// terminador incluido. Sirve para dimensionar el array directamente:
+//
+//   char buf[UI_StrBufBytes(STR_NO_TIME)];
+constexpr unsigned UI_StrBufBytes(ui_str_id_t id) {
+  return ui_i18n_detail::kMaxLen[(unsigned)id] + 1u;
+}
+
 // Texto en el idioma activo. Nunca devuelve NULL: si falta la traduccion cae
 // al ingles, y si tambien falta, a cadena vacia.
 //
