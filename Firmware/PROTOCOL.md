@@ -468,9 +468,11 @@ Lanza la prueba de funcionamiento de las señales de alarma
 
 ### 3. Test de fábrica (`FTEST`)
 
-Batería de comprobaciones de hardware para el montaje en fábrica. La lanza el
-operario desde el botón "TEST FÁBRICA" del splash del display; el display
-ejecuta primero sus tests locales y después ordena a la motherBoard los suyos.
+Batería de comprobaciones de hardware para el montaje en fábrica y el servicio
+en campo. La lanza el operario desde la fila "Test de hardware" de la pantalla
+de ajustes del display (zona técnica, tras el candado con pulsación larga;
+solo con control y fototerapia apagados); el display ejecuta primero sus tests
+locales y después ordena a la motherBoard los suyos.
 Identificadores, estados y codec viven en `shared/include/factory_test.h`
 (`ftest_format_*` / `ftest_parse_*`): **ninguna de las dos placas tiene una
 copia propia de la tabla**.

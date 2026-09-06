@@ -100,26 +100,22 @@ never raised above them. Every text is available in ES/EN/FR (`g_lang`). The
 debug report contains no patient data (no baby name or profile, no SSID,
 password or token).
 
-## 7. Hardware Test (splash button and Settings row)
+## 7. Hardware Test (Settings row)
 
-There are two entry points, both leading to the same test screen:
+The only entry point is the **Hardware test** row at the bottom of
+`ui_ScreenSettings` (below Info), reachable only through the long-press lock
+icon like the rest of Settings. The row is enabled only while thermal control
+and phototherapy are off; otherwise it is greyed out with "Turn control off to
+test". "No" on the empty-unit warning returns to Settings. While the test
+screen is open the 20 s inactivity lock is suspended.
 
-- **Factory**: the boot splash (`ui_ScreenIntro`) carries a **HW test**
-  button (bottom centre). Pressing it cancels the automatic jump to the main
-  screen and suspends the 20 s inactivity lock while the test screen is open.
-  The button ignores taps during the first 1.5 s of the splash and has no
-  extended click area: the GT911 can report a phantom corner touch while it
-  initialises, and on the bench that opened the test by itself.
-- **Field service**: a **Hardware test** row at the bottom of
-  `ui_ScreenSettings` (below Info), reachable only through the long-press lock
-  icon like the rest of Settings. The row is enabled only while thermal
-  control and phototherapy are off; otherwise it is greyed out with "Turn
-  control off to test". "No" on the empty-unit warning returns to Settings.
-  It was placed in Settings rather than in the help menu on purpose: the help
-  overlays are for clinical staff and yield to any alarm, whereas the test
-  inhibits alarms and drives actuators open-loop. Without a service PIN the
-  field barrier is long-press + control off + explicit confirmation (residual
-  risk noted in the design).
+It lives in Settings rather than in the help menu or the boot splash on
+purpose: the help overlays are for clinical staff and yield to any alarm,
+whereas the test inhibits alarms and drives actuators open-loop; and a splash
+button (tried first) was one tap away from anyone rebooting the unit and got
+triggered by the GT911's phantom corner touch during init. Without a service
+PIN the barrier is long-press + control off + explicit confirmation (residual
+risk noted in the design).
 
 The test screen is a full-screen overlay (`src/ui/FactoryTest.cpp`, same
 pattern as `AlarmCenter`) showing a **paged 3-column grid of buttons**, one
