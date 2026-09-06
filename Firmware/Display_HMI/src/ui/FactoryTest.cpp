@@ -38,9 +38,14 @@ constexpr int kExpectedTotal = kLocalCount + (int)FTEST_MB_COUNT;
 // Vigilancia por fila (hallazgo del banco 2026-09-06): si una fila de
 // motherBoard lleva mas de esto en RUNNING/WAIT/CONFIRM sin cambiar de
 // estado, el display la marca FALLA "timeout". La motherBoard ya tiene su
-// propia cota de 90 s por test y deberia emitir FAIL "timeout" antes; esta
-// es la red de seguridad del display si la placa se cuelga en ese test.
-constexpr uint32_t FTEST_ROW_TIMEOUT_MS = 100000;
+// propia cota de 90 s por test activo y deberia emitir FAIL "timeout" antes;
+// esta es la red de seguridad del display si la placa se cuelga en ese test.
+// 150 s (banco 2026-09-06, bateria de tests pasivos en paralelo): los tests
+// pasivos pueden quedar legitimamente en RUNNING hasta 45 s (su propio plazo
+// maximo en la motherBoard) MAS lo que tarde la parte activa en curso (hasta
+// 90 s); 150 s cubre ambos con margen sin disparar un falso timeout local
+// mientras la MB sigue trabajando dentro de sus propias cotas.
+constexpr uint32_t FTEST_ROW_TIMEOUT_MS = 150000;
 // Paginacion de la cuadricula (feedback de banco: el scroll no se maneja
 // bien con guantes). 3 columnas x 3 filas por pagina: con la barra de
 // progreso y el veredicto abajo del todo, es lo que cabe en la tarjeta sin
@@ -712,6 +717,13 @@ void renderLocalAction() {
   }
 }
 
+// Se para en la PRIMERA fila de motherBoard en WAIT/CONFIRM: por diseno solo
+// el test ACTIVO (secuencial) pide instruccion o confirmacion al operario,
+// nunca uno de los ~20 tests PASIVOS que pueden estar en RUNNING a la vez
+// (banco 2026-09-06) — esos se resuelven solos, sin pasar por WAIT/CONFIRM.
+// Si esta invariante cambiara alguna vez (mas de una fila en WAIT/CONFIRM a
+// la vez), esta funcion solo mostraria la primera encontrada por orden de
+// llegada y habria que revisarla junto con remoteNeedsAttention().
 void renderRemoteAction() {
   if (!s_mbSupported) return;
   for (int i = kLocalCount; i < s_rowCount; i++) {
@@ -779,11 +791,44 @@ void renderSummary() {
 constexpr int kGridBtnW = 232;
 constexpr int kGridBtnH = 66;
 
+// Orden dentro del bucket "en curso" (bucket 2: pendiente/RUNNING/WAIT/
+// CONFIRM). Banco 2026-09-06, bateria con ~20 tests pasivos en RUNNING a la
+// vez: sin esto el bucket quedaba en orden de llegada de la primera
+// CTRL,FTEST de cada fila, enterrando una fila en ESPERA (necesita al
+// operario YA) entre RUNNING pasivos, y sin destacar cual es el test activo
+// del momento. Regla: WAIT/CONFIRM siempre por delante de RUNNING/pendiente
+// (una espera al operario nunca queda enterrada en otra pagina); dentro de
+// cada mitad, la fila con lastChangeMs mas reciente primero (el activo del
+// momento encabeza su mitad). Insertion sort simple: el bucket no pasa de
+// kMaxRows filas y evita tirar de <algorithm> (mismo criterio que
+// computeOrder()).
+bool inProgressBefore(int aIdx, int bIdx) {
+  const RowData &a = s_rows[aIdx];
+  const RowData &b = s_rows[bIdx];
+  const bool aWaiting = a.status == FTEST_WAIT || a.status == FTEST_CONFIRM;
+  const bool bWaiting = b.status == FTEST_WAIT || b.status == FTEST_CONFIRM;
+  if (aWaiting != bWaiting) return aWaiting;
+  return a.lastChangeMs > b.lastChangeMs;
+}
+
+void sortInProgressBucket(int *arr, int count) {
+  for (int i = 1; i < count; i++) {
+    const int key = arr[i];
+    int j = i - 1;
+    while (j >= 0 && inProgressBefore(key, arr[j])) {
+      arr[j + 1] = arr[j];
+      j--;
+    }
+    arr[j + 1] = key;
+  }
+}
+
 // computeOrder() recalcula el orden de pintado (FALLA -> AVISO -> en curso ->
 // PASA, SKIP oculto) SOLO cuando s_rowsDirty esta marcado por una mutacion de
 // estado real (ver beginLocalTest/finishLocal/drainFtestEvents/
 // markMbPendingAsLinkLost/retryRemote). Recorre por grupo en vez de ordenar
-// para evitar tirar de <algorithm> por un caso tan simple.
+// para evitar tirar de <algorithm> por un caso tan simple; el bucket "en
+// curso" (2) se reordena aparte con sortInProgressBucket().
 void computeOrder() {
   int buckets[4][kMaxRows];
   int counts[4] = {0, 0, 0, 0};
@@ -792,6 +837,7 @@ void computeOrder() {
     const int b = bucketOf(s_rows[i]);
     buckets[b][counts[b]++] = i;
   }
+  sortInProgressBucket(buckets[2], counts[2]);
   s_orderCount = 0;
   for (int b = 0; b < 4; b++) {
     for (int k = 0; k < counts[b]; k++) {
@@ -1426,7 +1472,13 @@ int drainFtestEvents() {
     r.lastChangeMs = millis();
     s_rowsDirty = true;
     snprintf(r.detail, sizeof(r.detail), "%s", res.detail);
-    s_lastTouchedRow = idx;
+    // Fila "en curso" a seguir con la paginacion (banco 2026-09-06, bateria
+    // con ~20 tests pasivos arrancando casi a la vez y resolviendo fuera de
+    // orden de id): debe ser la fila que recibio RUNNING mas recientemente
+    // (la ultima linea CTRL,FTEST,<id>,0 en llegar), no cualquier evento. Un
+    // PASA/FALLA de un pasivo que ya termino no puede robarle la pagina al
+    // test activo del momento.
+    if (res.status == FTEST_RUNNING) s_lastTouchedRow = idx;
     if (s_step == Step::RemoteAwaitFirst) s_step = Step::RemoteRunning;
     if (res.status != FTEST_CONFIRM && s_remoteConfirmAnsweredRowId == res.id) {
       s_remoteConfirmAnsweredRowId = FTEST_ID_NONE;
