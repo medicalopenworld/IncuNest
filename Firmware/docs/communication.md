@@ -65,6 +65,21 @@ v2.0.0 breaking change (the 3 undocumented baby fields formerly appended to
 the recurring `HMI,` line were removed — both boards must be flashed
 together).
 
+### A.3 Training mode (HMI only)
+While an interactive lesson of the HMI's training courses is running
+(`Display_HMI/src/state/training_mode.{h,cpp}`, ADR-0002 in
+`docs/adr/0002-modo-formacion-en-el-lado-hmi-del-protocolo.md`), the
+recurring `HMI,...` state line above keeps carrying the live state — the
+incubator really acts on what the student does, with an empty cabin — but
+the HMI does not emit any `PROFILE_*`, `SET_TIME` or `WIFI` request
+(`ALM_TEST` and `ALM_SILENCE` still go out: they address the alarm system,
+not therapy); the assistants waiting for those replies get a simulated one
+built locally on the HMI instead, for a single practice baby (ZOE,
+`seq 0xFFFF`) that never reaches the Motherboard. When the lesson ends the
+HMI restores the state line it had on entry and sends it at once. This is a
+pure display-side sandbox: no message format changes and the Motherboard
+firmware is unaware of it.
+
 ### B. Logical Initialization and Handshake (`HMI,UI_READY` & `HMI,REQ,STATE`)
 *   **The Problem**: Upon energizing the combined machine, both boards take different times to be functional. The Motherboard (pure RTOS) usually boots in milliseconds and dispatches early initial alarms. LVGL/TFT usually takes 2 to 6 seconds loading the *assets* into the Display's dynamic RAM.
 *   **The Solution**: The Motherboard will save any alarm "silently". When the graphics framework draws the first actual HMI frame successfully, it issues a single universal proof: `HMI,UI_READY`.

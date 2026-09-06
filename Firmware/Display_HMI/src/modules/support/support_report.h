@@ -31,3 +31,9 @@ size_t support_report_subject(char *out, size_t cap);
 // asunto, para cuando el movil no lee el QR denso. Devuelve los bytes
 // escritos, o 0 si no cabe en `cap`.
 size_t support_report_build_mailto(char *out, size_t cap, bool withReport);
+
+// URI mailto: generico: "mailto:<to>?subject=<asunto>&body=<cuerpo>" con
+// asunto y cuerpo percent-encoded (`to` va tal cual). Lo usa el certificado
+// de los cursos de formacion. Devuelve los bytes escritos, o 0 si no cabe.
+size_t mailto_build(char *out, size_t cap, const char *to, const char *subject,
+                    const char *body);

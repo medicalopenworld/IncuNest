@@ -9,7 +9,7 @@
 #include "main.h"
 #include "modules/support/support_report.h"
 #include "ui.h"
-#include "ui/HelpTour.h"
+#include "ui/training/training.h"
 
 // --- Shared state owned by UITask.cpp (same pattern TimeDialog.cpp uses) ---
 extern ui_lang_t g_lang;
@@ -136,7 +136,7 @@ void onContact(lv_event_t *) {
 
 void onTour(lv_event_t *) {
   closeDialog();
-  HelpTour_Start();
+  Training_OpenSelector();
 }
 
 void onToggleReport(lv_event_t *) {
@@ -148,9 +148,11 @@ void onToggleReport(lv_event_t *) {
 
 lv_obj_t *makeOption(lv_coord_t x, const char *symbol, const char *title,
                      const char *subtitle, lv_event_cb_t cb, lv_color_t bg) {
+  // Desde y=56: el boton X de la tarjeta ocupa la esquina superior derecha
+  // (0..46) y pisaba la tercera tarjeta.
   lv_obj_t *btn = lv_btn_create(s_content);
-  lv_obj_set_size(btn, 236, 330);
-  lv_obj_align(btn, LV_ALIGN_TOP_LEFT, x, 44);
+  lv_obj_set_size(btn, 236, 318);
+  lv_obj_align(btn, LV_ALIGN_TOP_LEFT, x, 56);
   lv_obj_set_style_bg_color(btn, bg, LV_PART_MAIN);
   lv_obj_set_style_radius(btn, 14, LV_PART_MAIN);
   lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, nullptr);
@@ -159,7 +161,7 @@ lv_obj_t *makeOption(lv_coord_t x, const char *symbol, const char *title,
   lv_label_set_text(sym, symbol);
   lv_obj_set_style_text_font(sym, &lv_font_montserrat_48, 0);
   lv_obj_set_style_text_color(sym, lv_color_hex(0xFFFFFF), 0);
-  lv_obj_align(sym, LV_ALIGN_TOP_MID, 0, 34);
+  lv_obj_align(sym, LV_ALIGN_TOP_MID, 0, 28);
 
   lv_obj_t *ttl = lv_label_create(btn);
   lv_label_set_long_mode(ttl, LV_LABEL_LONG_WRAP);
@@ -168,7 +170,7 @@ lv_obj_t *makeOption(lv_coord_t x, const char *symbol, const char *title,
   lv_obj_set_style_text_font(ttl, &lv_font_montserrat_20, 0);
   lv_obj_set_style_text_color(ttl, lv_color_hex(0xFFFFFF), 0);
   lv_label_set_text(ttl, title);
-  lv_obj_align(ttl, LV_ALIGN_TOP_MID, 0, 122);
+  lv_obj_align(ttl, LV_ALIGN_TOP_MID, 0, 112);
 
   lv_obj_t *sub = lv_label_create(btn);
   lv_label_set_long_mode(sub, LV_LABEL_LONG_WRAP);
@@ -177,7 +179,7 @@ lv_obj_t *makeOption(lv_coord_t x, const char *symbol, const char *title,
   lv_obj_set_style_text_font(sub, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(sub, lv_color_hex(0xF0F0F0), 0);
   lv_label_set_text(sub, subtitle);
-  lv_obj_align(sub, LV_ALIGN_TOP_MID, 0, 196);
+  lv_obj_align(sub, LV_ALIGN_TOP_MID, 0, 186);
   return btn;
 }
 
@@ -188,12 +190,12 @@ void buildMenu() {
   // dentro de los 760 del contenido.
   makeOption(6, LV_SYMBOL_LIST,
              TXT("TUTORIAL GUIADO", "GUIDED TUTORIAL", "TUTORIEL GUIDE"),
-             TXT("Recorre la pantalla paso a paso: que hace cada boton y "
-                 "como usar cada funcion.",
-                 "Walk through the screen step by step: what each button "
-                 "does and how to use each function.",
-                 "Parcourez l'ecran pas a pas : le role de chaque bouton et "
-                 "comment utiliser chaque fonction."),
+             TXT("Cursos de formacion para enfermeria y tecnicos: lecciones "
+                 "practicas sobre la pantalla real, con certificado.",
+                 "Training courses for nurses and technicians: hands-on "
+                 "lessons on the real screen, with a certificate.",
+                 "Cours de formation pour infirmiers et techniciens : lecons "
+                 "pratiques sur l'ecran reel, avec certificat."),
              onTour, lv_color_hex(0x0075EE));
   makeOption(258, LV_SYMBOL_VIDEO,
              TXT("VIDEO TUTORIAL", "VIDEO TUTORIAL", "TUTORIEL VIDEO"),

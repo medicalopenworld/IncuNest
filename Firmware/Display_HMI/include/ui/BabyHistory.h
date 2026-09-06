@@ -14,3 +14,7 @@ void BabyHistory_Open(void);
 // Drives timeouts/response handling. Call from the UI task loop (LVGL locked),
 // same contract as BabyWizard_Poll().
 void BabyHistory_Poll(void);
+
+// Para el motor de lecciones (hmi-training-courses).
+bool BabyHistory_IsOpen(void);
+void BabyHistory_Close(void);

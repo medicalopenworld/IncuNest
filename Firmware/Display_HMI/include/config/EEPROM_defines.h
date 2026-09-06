@@ -10,6 +10,14 @@ constexpr char HMI_NS_CFG[]   = "hmi_cfg";
 constexpr char HMI_NS_WIFI[]  = "hmi_wifi";
 constexpr char HMI_NS_GPRS[]  = "hmi_gprs";
 constexpr char HMI_NS_FTEST[] = "hmi_ftest";
+// Cursos de formacion (hmi-training-courses): progreso por curso y anillo de
+// certificados. Claves por curso "c<N>_name" / "c<N>_done" / "c<N>_att" y
+// "cert_<slot>" se componen en training_progress.cpp.
+constexpr char HMI_NS_TRAIN[] = "hmi_train";
+
+// --------------- Keys: hmi_train ---------------
+constexpr char HMI_KEY_TRAIN_CERT_CNT[]  = "cert_cnt";
+constexpr char HMI_KEY_TRAIN_CERT_NEXT[] = "cert_next";
 
 // --------------- Keys: hmi_cfg ---------------
 constexpr char HMI_KEY_LANG[]        = "lang";

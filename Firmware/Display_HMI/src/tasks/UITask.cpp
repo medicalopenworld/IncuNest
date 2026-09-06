@@ -1,6 +1,7 @@
 #include "UITask.h"
 // #include "AudioManager.h"  // Deshabilitado para migración Arduino 3.x
 #include "CommTask.h"
+#include "state/training_mode.h"
 #include "buzzer.h"
 #include "ui/AlarmCenter.h"
 #include "ui/FactoryTest.h"
@@ -9,7 +10,8 @@
 #include "ui/BabyExitDialog.h"
 #include "ui/TimeDialog.h"
 #include "ui/HelpDialog.h"
-#include "ui/HelpTour.h"
+#include "ui/training/training.h"
+#include "ui/training/training_progress.h"
 #include "ui/BabyWizard.h"
 #include "display_config.h"
 #include "esp_lcd_panel_ops.h"
@@ -919,7 +921,10 @@ static void update_main_toggle_buttons() {
 
 void UI_ApplyLanguage(ui_lang_t lang) {
   g_lang = lang;
-  { Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_LANG, (uint8_t)g_lang); p.end(); }
+  // En modo formacion nada se persiste: el idioma se restaura al salir.
+  if (!Training_IsActive()) {
+    Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_LANG, (uint8_t)g_lang); p.end();
+  }
   eepromDirty = true;
   lastVarChangeTime = millis();
 
@@ -1937,14 +1942,18 @@ void Switch_cb(lv_event_t *e) {
   } else if (obj == ui_SwitchDarkMode) { // DARK MODE SWITCH
     bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
     darkMode = checked;
-    { Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_DARK_MODE, darkMode ? 1 : 0); p.end(); }
+    if (!Training_IsActive()) {
+      Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_DARK_MODE, darkMode ? 1 : 0); p.end();
+    }
     eepromDirty = true;
     lastVarChangeTime = millis();
     UI_ApplyTheme();
   } else if (obj == ui_SwitchHumidityMode) { // HUMIDITY ENABLE SWITCH
     bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
     humidityEnabled = checked;
-    { Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_HUM_EN, humidityEnabled ? 1 : 0); p.end(); }
+    if (!Training_IsActive()) {
+      Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_HUM_EN, humidityEnabled ? 1 : 0); p.end();
+    }
     eepromDirty = true;
     lastVarChangeTime = millis();
     if (humidityEnabled) {
@@ -3398,15 +3407,21 @@ static void update_autolock_ring(uint32_t inactive_ms) {
 }
 
 void inactivity_timer_cb(lv_timer_t *timer) {
-  // Exentos del auto-bloqueo: la pantalla de alarmas, la ayuda (menu con
-  // QR o tutorial guiado) y la pantalla de test de fabrica: leer un QR,
-  // seguir un paso o esperar una bateria lleva mas de INACTIVITY_TIMEOUT_MS
-  // sin tocar, y bloquear a mitad lo tiraria todo. Cada exencion lleva su
-  // propio tope (HELP_IDLE_TIMEOUT_MS; el resumen del test se cierra solo a
-  // los 10 min) para no dejar el banner de alarma inalcanzable.
-  if (lv_scr_act() == ui_ScreenAlarms || HelpDialog_IsOpen() ||
-      HelpTour_IsOpen() || FactoryTest_IsOpen()) {
+  // Exentos del auto-bloqueo: la pantalla de alarmas y la pantalla de test de
+  // hardware (esperar una bateria lleva mas de INACTIVITY_TIMEOUT_MS sin
+  // tocar). La ayuda y la formacion gestionan su propia exencion con tope
+  // (HELP_IDLE_TIMEOUT_MS); el resumen del test se cierra solo a los 10 min
+  // para no dejar el banner de alarma inalcanzable.
+  if (lv_scr_act() == ui_ScreenAlarms || FactoryTest_IsOpen()) {
     lv_disp_trig_activity(NULL);
+    update_autolock_ring(0);
+    return;
+  }
+  // Ayuda y formacion: exentas del bloqueo, pero SIN reiniciar el contador de
+  // inactividad de LVGL. Sus _Poll() lo leen para cerrarse solas a los
+  // HELP_IDLE_TIMEOUT_MS; si aqui se hiciera lv_disp_trig_activity() cada
+  // 200 ms, ese tope no llegaria nunca (defecto real detectado en review).
+  if (HelpDialog_IsOpen() || Training_IsOpen()) {
     update_autolock_ring(0);
     return;
   }
@@ -3423,6 +3438,15 @@ void inactivity_timer_cb(lv_timer_t *timer) {
 }
 
 void WifiConnectButton_cb(lv_event_t *e) {
+  // En modo formacion la red no se toca: cambiaria el equipo de verdad y se
+  // persistiria en NVS, justo lo que la franja "no recibe ordenes" niega.
+  if (Training_IsActive()) {
+    UI_ShowToast(TXT_UI("No disponible en modo formacion",
+                        "Not available in training mode",
+                        "Indisponible en mode formation"),
+                 2500);
+    return;
+  }
   hmi_msg.shouldSendData = true;
   extern char pendingSSID[64];
   extern char pendingPass[64];
@@ -3441,6 +3465,13 @@ void WifiConnectButton_cb(lv_event_t *e) {
 }
 
 void WifiDisconnectButton_cb(lv_event_t *e) {
+  if (Training_IsActive()) {
+    UI_ShowToast(TXT_UI("No disponible en modo formacion",
+                        "Not available in training mode",
+                        "Indisponible en mode formation"),
+                 2500);
+    return;
+  }
   WiFi.disconnect();
   pendingReconnect = true;
   disconnectTimestampMs = millis();
@@ -3514,6 +3545,95 @@ void ui_set_switch_state_silent(lv_obj_t *sw, bool on) {
     lv_obj_add_state(sw, LV_STATE_CHECKED);
   else
     lv_obj_clear_state(sw, LV_STATE_CHECKED);
+}
+
+// --- Instantanea de estado para el modo formacion (hmi-training-courses) ---
+static bool switchChecked(lv_obj_t *sw) {
+  return sw && lv_obj_has_state(sw, LV_STATE_CHECKED);
+}
+
+void UI_GetControlSnapshot(UiControlSnapshot *out) {
+  if (!out) return;
+  out->airTempValue = airTempValue;
+  out->skinTempValue = skinTempValue;
+  out->humValue = humValue;
+  out->selectedPanel = selectedPanel;
+  out->lastSelectedPanel = lastSelectedPanel;
+  out->switchTemp = switchTemp;
+  out->switchHum = switchHum;
+  out->tempSwitched = tempSwitched;
+  out->humSwitched = humSwitched;
+  out->arrowsActive = arrowsActive;
+  out->skinPanelEnabled = skinPanelEnabled;
+  out->darkMode = darkMode;
+  out->humidityEnabled = humidityEnabled;
+  out->photoTimerMinutes = photoTimerMinutes;
+  out->photoTimerActive = photoTimerActive;
+  out->photoTimerStartMs = photoTimerStartMs;
+  out->lang = g_lang;
+  out->sw1 = switchChecked(ui_Switch1);
+  out->sw2 = switchChecked(ui_Switch2);
+  out->sw3 = switchChecked(ui_Switch3);
+  out->sw4 = switchChecked(ui_Switch4);
+  out->swDark = switchChecked(ui_SwitchDarkMode);
+  out->swHum = switchChecked(ui_SwitchHumidityMode);
+}
+
+void UI_RestoreControlSnapshot(const UiControlSnapshot *s) {
+  if (!s) return;
+  // Primero los switches, en silencio: UI_SyncAll() deriva de ellos
+  // switchTemp/tempSwitched/switchHum/humSwitched/skinPanelEnabled y
+  // reconstruye paneles, flechas y fototerapia.
+  ui_set_switch_state_silent(ui_Switch1, s->sw1);
+  ui_set_switch_state_silent(ui_Switch2, s->sw2);
+  ui_set_switch_state_silent(ui_Switch3, s->sw3);
+  ui_set_switch_state_silent(ui_Switch4, s->sw4);
+  ui_set_switch_state_silent(ui_SwitchDarkMode, s->swDark);
+  ui_set_switch_state_silent(ui_SwitchHumidityMode, s->swHum);
+
+  const bool themeChanged = (darkMode != s->darkMode);
+  const bool langChanged = (g_lang != s->lang);
+  const bool humEnChanged = (humidityEnabled != s->humidityEnabled);
+
+  airTempValue = s->airTempValue;
+  skinTempValue = s->skinTempValue;
+  humValue = s->humValue;
+  selectedPanel = s->selectedPanel;
+  lastSelectedPanel = s->lastSelectedPanel;
+  switchTemp = s->switchTemp;
+  switchHum = s->switchHum;
+  tempSwitched = s->tempSwitched;
+  humSwitched = s->humSwitched;
+  arrowsActive = s->arrowsActive;
+  skinPanelEnabled = s->skinPanelEnabled;
+  darkMode = s->darkMode;
+  humidityEnabled = s->humidityEnabled;
+  photoTimerMinutes = s->photoTimerMinutes;
+  photoTimerActive = s->photoTimerActive;
+  photoTimerStartMs = s->photoTimerStartMs;
+
+  if (humEnChanged && ui_HumCont) {
+    if (humidityEnabled) lv_obj_clear_flag(ui_HumCont, LV_OBJ_FLAG_HIDDEN);
+    else                 lv_obj_add_flag(ui_HumCont, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (langChanged) UI_ApplyLanguage(s->lang);
+  if (themeChanged) UI_ApplyTheme();
+  UI_SyncAll();
+  update_labels();
+}
+
+// (No hay UI_IsScreenLocked(): la global `locked` no significa "ui_ScreenLock
+// esta cargada" — unlock_timeout_cb la rearma en la principal 5 s despues de
+// desbloquear — y exportarla invitaba a usarla como si lo significara. Quien
+// necesite saberlo mira lv_scr_act() == ui_ScreenLock.)
+
+void UI_RaiseAlarmIndicators(void) {
+  // El banner solo se sube solo cuando cambia su texto; tras subir otro
+  // overlay de lv_layer_top() hay que reafirmar que la senal de alarma queda
+  // encima de todo.
+  if (s_alarmBanner) lv_obj_move_foreground(s_alarmBanner);
+  if (s_audioPausedIcon) lv_obj_move_foreground(s_audioPausedIcon);
+  if (s_audioPausedTimer) lv_obj_move_foreground(s_audioPausedTimer);
 }
 
 void Settings_cb(lv_event_t *e) {
@@ -4034,8 +4154,12 @@ void UI_Task(void *pvParameters) {
   TimeDialog_Init(ui_ScreenMain);
   // Menu de ayuda, abierto desde ui_HelpButton (mismo criterio de parent).
   HelpDialog_Init(ui_ScreenMain);
-  // Tutorial guiado: en lv_layer_top() porque recorre Main y Ajustes.
-  HelpTour_Init();
+  // Cursos de formacion: selector (modal sobre Main) y motor de lecciones (en
+  // lv_layer_top() porque recorre Main y Ajustes; ANTES del banner de alarma
+  // para quedar por debajo). El progreso se lee de NVS aqui, en el arranque.
+  TrainingProgress_Load();
+  TrainingSelector_Init(ui_ScreenMain);
+  Training_Init();
   // --- Centro de alarmas (activas + registro) ---
   // Sin parent: cuelga de lv_layer_top() para abrirse desde cualquier pantalla,
   // el bloqueo incluido.
@@ -4541,6 +4665,9 @@ void UI_Task(void *pvParameters) {
 
     // Baby-data wizard: consumes CommTask's pending PROFILE_* messages,
     // timeouts, and the critical-alarm-interrupts-wizard rule (Section 4).
+    // Modo formacion: entrega las respuestas simuladas de la placa ANTES de
+    // que los asistentes las consuman en sus _Poll().
+    Training_ServiceReplies();
     BabyWizard_Poll();
     // Babies history screen: same polling contract (list/history/chart
     // responses, timeouts, critical-alarm-closes-screen).
@@ -4573,7 +4700,7 @@ void UI_Task(void *pvParameters) {
     // Ayuda: resultado del envio a soporte (lo deja la tarea WiFi/OTA) y la
     // misma regla de alarma critica, para el menu y para el tutorial.
     HelpDialog_Poll();
-    HelpTour_Poll();
+    Training_Poll();
 
     // El banner se reevalua en CADA pasada, no solo cuando cambia el conjunto
     // de alarmas. Su visibilidad depende de la pantalla activa y el banner
@@ -4598,12 +4725,23 @@ void UI_Task(void *pvParameters) {
     // Baby-exit dialog: only the transition to a fully idle incubator
     // (no temperature, no humidity, no phototherapy) means the baby
     // actually came out; dropping one therapy among several does not.
-    BabyExitDialog_Tick(UI_AnyControlActive());
+    // En formacion no hay bebe real que dar de alta: apagar el control en una
+    // leccion no abre el dialogo de salida (seq de formacion 0xFFFF), salvo
+    // que la leccion sea justo la de salida del bebe y lo pida.
+    BabyExitDialog_Tick((Training_IsActive() && !Training_ExitDialogAllowed())
+                            ? false
+                            : UI_AnyControlActive());
 
-    if (eepromDirty && (millis() - lastVarChangeTime > EEPROM_COMMIT_DELAY)) {
+    // En modo formacion no se persiste nada (ADR-0002): el commit se POSPONE,
+    // no se descarta, para que un cambio real hecho justo antes de la leccion
+    // no se pierda; al salir, los valores restaurados son los que se escriben.
+    if (eepromDirty && !Training_IsActive() &&
+        (millis() - lastVarChangeTime > EEPROM_COMMIT_DELAY)) {
       eepromDirty = false;
       doNVSWrite = true;
     }
+    // Progreso de los cursos: mismo patron (decidir dentro, escribir fuera).
+    const bool doTrainingWrite = TrainingProgress_TakeDirty();
     LVGL_Unlock();
 
     // Senal acustica del enlace perdido. Fuera de LVGL_Lock porque cada
@@ -4625,6 +4763,12 @@ void UI_Task(void *pvParameters) {
       p.end();
       ESP_LOGI(TAG, "Preferences write cycle complete");
       ESP_LOGW(TAG, "LCD_DIAG: periodic Preferences write tomó %lu ms",
+               (unsigned long)(millis() - t0));
+    }
+    if (doTrainingWrite) {
+      uint32_t t0 = millis();
+      TrainingProgress_Flush();
+      ESP_LOGW(TAG, "LCD_DIAG: training Preferences write tomó %lu ms",
                (unsigned long)(millis() - t0));
     }
 

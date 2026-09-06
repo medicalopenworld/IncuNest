@@ -6,6 +6,7 @@
 #include "CommTask.h"
 #include "UITask.h"
 #include "main.h"
+#include "state/training_mode.h"
 #include "ui.h"
 
 // --- Shared state owned by UITask.cpp (same pattern CommTask.cpp uses) ---
@@ -324,13 +325,34 @@ void selectExisting(uint32_t seq, uint8_t gest, uint16_t lastWeight) {
   s_seq = seq;
   s_gestWeeks = gest;
   s_weightGrams = lastWeight; // 0 = never recorded -> weight step starts empty
+  // El nombre de la sesion sale de s_name al llegar el ACK; si no se copia
+  // aqui, un bebe existente heredaria el nombre tecleado en un asistente
+  // anterior cancelado (o ninguno).
+  for (int i = 0; i < s_list.count; i++) {
+    if (s_list.items[i].seq == seq) {
+      snprintf(s_name, sizeof(s_name), "%s", s_list.items[i].name);
+      break;
+    }
+  }
   Communication_SendProfileSelect(seq);
   s_step = WizStep::WaitingSelectAck;
   s_deadlineMs = millis() + ACK_TIMEOUT_MS;
   showLoadingScreen();
 }
 
+// En formacion (hmi-training-courses) el unico bebe es ZOE, de practica: ni
+// BEBE NUEVO ni SALTAR. Asi el alumno practica siempre la seleccion y nunca
+// se crea un perfil (aunque en formacion tampoco llegaria a la placa).
+bool trainingRefuse() {
+  if (!Training_IsActive()) return false;
+  UI_ShowToast(TXT("En formacion, selecciona a ZOE",
+                   "In training, select ZOE", "En formation, selectionnez ZOE"),
+               2500);
+  return true;
+}
+
 void onNewBabyClicked(lv_event_t *) {
+  if (trainingRefuse()) return;
   s_name[0] = '\0';
   showNameScreen();
   s_step = WizStep::EnterName;
@@ -482,7 +504,11 @@ void sendWeightAndWait(uint16_t grams) {
   showLoadingScreen();
 }
 
-void onWeightSkip(lv_event_t *) { sendWeightAndWait(0); }
+void onWeightSkip(lv_event_t *) {
+  // En formacion el peso es parte de la practica (y del rango de ZOE).
+  if (trainingRefuse()) return;
+  sendWeightAndWait(0);
+}
 
 void onWeightContinue(lv_event_t *) {
   uint32_t v = 0;
@@ -598,7 +624,10 @@ void onApplyClicked(lv_event_t *) { finishWizard(true); }
 
 // SKIP, available on every step: abandon data collection and go straight to
 // manual control.
-void onSkipClicked(lv_event_t *) { finishWizard(false); }
+void onSkipClicked(lv_event_t *) {
+  if (trainingRefuse()) return;
+  finishWizard(false);
+}
 
 void showSummaryScreen() {
   clearContent();
@@ -802,6 +831,30 @@ void BabyWizard_ClearActiveProfile() {
   s_seq = 0;
   s_name[0] = '\0';
   s_hasUsableRange = false;
+}
+
+BabyWizardStep BabyWizard_GetStep() {
+  switch (s_step) {
+    case WizStep::Closed: return BW_CLOSED;
+    case WizStep::RequestingList:
+    case WizStep::ChooseBaby: return BW_PICKER;
+    case WizStep::EnterName:
+    case WizStep::EnterGest:
+    case WizStep::WaitingNewAck:
+    case WizStep::WaitingSelectAck: return BW_IDENTITY;
+    case WizStep::EnterWeight:
+    case WizStep::WaitingRange: return BW_WEIGHT;
+    case WizStep::EnterAge:
+    case WizStep::WaitingRange2: return BW_AGE;
+    case WizStep::Summary: return BW_SUMMARY;
+  }
+  return BW_CLOSED;
+}
+
+bool BabyWizard_IsOpen() { return s_step != WizStep::Closed; }
+
+void BabyWizard_Cancel() {
+  if (s_step != WizStep::Closed) cancelWizard();
 }
 
 void BabyWizard_Poll() {

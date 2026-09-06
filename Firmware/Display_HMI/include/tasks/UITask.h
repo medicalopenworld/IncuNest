@@ -60,6 +60,32 @@ void UI_SyncAll();
 void UI_ApplyTheme();
 const char* getConnectivityString(int status, ui_lang_t lang);
 
+// --- Instantanea del estado de control de la UI (hmi-training-courses) ----
+// Lo que una leccion interactiva puede cambiar en pantalla y hay que dejar
+// como estaba al salir. Solo estado local de UITask: hmi_msg lo guarda y
+// restaura training_mode.cpp por su cuenta.
+struct UiControlSnapshot {
+  double airTempValue, skinTempValue;
+  int humValue;
+  int selectedPanel, lastSelectedPanel;
+  bool switchTemp, switchHum, tempSwitched, humSwitched, arrowsActive;
+  bool skinPanelEnabled, darkMode, humidityEnabled;
+  int photoTimerMinutes;
+  bool photoTimerActive;
+  unsigned long photoTimerStartMs;
+  ui_lang_t lang;
+  // Estado LV_STATE_CHECKED de los switches ocultos que gobiernan UI_SyncAll.
+  bool sw1, sw2, sw3, sw4, swDark, swHum;
+};
+void UI_GetControlSnapshot(UiControlSnapshot *out);
+// Restaura la instantanea sin disparar callbacks (ui_set_switch_state_silent)
+// y reconstruye la UI con UI_SyncAll(). Bajo LVGL_Lock().
+void UI_RestoreControlSnapshot(const UiControlSnapshot *s);
+// Vuelve a poner el banner de alarma y el icono de AUDIO PAUSED en primer
+// plano de lv_layer_top(). Llamar tras subir cualquier otro overlay de esa
+// capa (el banner solo se reafirma solo cuando cambia su texto).
+void UI_RaiseAlarmIndicators(void);
+
 // Globals exported for ElementsCreation.cpp
 extern ui_lang_t g_lang;
 extern lv_chart_series_t *lockPPGSeries;
