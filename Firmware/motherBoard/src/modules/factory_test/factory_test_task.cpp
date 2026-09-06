@@ -74,8 +74,9 @@
 // (gsm_at 45s + gsm_sim 15s + gsm_signal 15s + gsm_net/wifi/tb_provision/time
 // 30s c/u). Los PASIVOS (factory_test_hw.h/.cpp: charger, env_sensor,
 // sb_status, sb_camera, gsm_*, wifi, tb_provision, time y los instantaneos)
-// arrancan TODOS a la vez, en RUNNING, nada mas entrar en estado seguro, con
-// un cronometro comun (s_passiveT0); poll_passives() los sondea sin bloquear
+// arrancan TODOS a la vez, en RUNNING, nada mas entrar en estado seguro; cada
+// uno mide su plazo desde que es elegible (los dependientes, desde que su
+// dependencia resuelve); poll_passives() los sondea sin bloquear
 // (ftest_hw_poll_passive(), <= 250 ms de granularidad) desde tres sitios:
 //   - el propio bucle de los ACTIVOS (entre cada uno y el siguiente),
 //   - ftest_yield() (factory_test_hw.h), llamada desde DENTRO de los bucles
@@ -236,10 +237,16 @@ void factoryTestAbort(void) { s_abortRequested = true; }
 struct FtestPassiveSlot {
   unsigned id;
   bool resolved;
+  // millis() de la primera vez que el sondeo fue elegible (su dependencia ya
+  // resuelta). 0 = todavia no. El plazo propio de cada pasivo se mide desde
+  // AQUI y no desde s_passiveT0: si env_sensor tarda 9 s de sus 10 en
+  // resolver, sb_status (5 s) debe disponer de sus 5 s enteros a partir de
+  // ese momento, no vencer en el primer barrido con "sin respuesta" y hardware
+  // sano (hallazgo del review de mb-factory-test-passive-overlap).
+  uint32_t startMs;
 };
 static FtestPassiveSlot s_passiveSlots[FTEST_PASSIVE_COUNT];
 static unsigned s_passiveSlotCount = 0;
-static uint32_t s_passiveT0 = 0;
 static FtestCascade *s_passiveCascade = nullptr;
 static FtestSummary *s_passiveSum = nullptr;
 
@@ -279,7 +286,7 @@ static void poll_passives(void) {
     return;
   }
 
-  const uint32_t elapsed = (uint32_t)(millis() - s_passiveT0);
+  const uint32_t now = millis();
   unsigned emittedThisSweep = 0;
   for (unsigned i = 0; i < s_passiveSlotCount; i++) {
     if (s_passiveSlots[i].resolved) continue;
@@ -288,6 +295,11 @@ static void poll_passives(void) {
     // gsm_sim: mientras la dependencia siga UNKNOWN no se les llama todavia
     // (se quedarian en SKIP prematuro, ver factory_test_hw.h).
     if (ftest_hw_passive_dependency_pending(id, s_passiveCascade)) continue;
+    // El reloj de cada pasivo arranca la primera vez que es elegible: para
+    // los independientes coincide con s_passiveT0; para los dependientes,
+    // con la resolucion de su dependencia (ver FtestPassiveSlot::startMs).
+    if (s_passiveSlots[i].startMs == 0) s_passiveSlots[i].startMs = now;
+    const uint32_t elapsed = (uint32_t)(now - s_passiveSlots[i].startMs);
     char detail[FTEST_DETAIL_MAX + 1] = {0};
     const FtestStatus st =
         ftest_hw_poll_passive(id, detail, s_passiveCascade, elapsed);
@@ -504,10 +516,12 @@ static void factory_test_task_body(void *pv) {
     for (unsigned i = 0; i < FTEST_PASSIVE_COUNT; i++) {
       s_passiveSlots[i].id = ftest_hw_passive_id_at(i);
       s_passiveSlots[i].resolved = false;
+      s_passiveSlots[i].startMs = 0;
     }
     s_passiveCascade = &cascade;
     s_passiveSum = &sum;
-    s_passiveT0 = millis();
+    // El plazo de cada pasivo se mide desde su propio startMs, que fija
+    // poll_passives() la primera vez que el sondeo es elegible.
     for (unsigned i = 0; i < FTEST_PASSIVE_COUNT; i++) {
       esp_task_wdt_reset();
       ftest_emit(s_passiveSlots[i].id, FTEST_RUNNING, NULL);
@@ -548,8 +562,9 @@ static void factory_test_task_body(void *pv) {
     }
 
     // 4) Tras los ACTIVOS, seguir sondeando lo que quede pendiente hasta que
-    // se resuelva: todos los pasivos tienen plazo propio (<= 45 s desde
-    // s_passiveT0), asi que este bucle siempre termina.
+    // se resuelva: todos los pasivos tienen plazo propio (<= 45 s desde que
+    // son elegibles, y las dependencias tambien vencen), asi que este bucle
+    // siempre termina; el tope de bateria es la red de seguridad.
     for (;;) {
       bool anyPending = false;
       for (unsigned i = 0; i < s_passiveSlotCount; i++) {
