@@ -306,6 +306,20 @@ extern lv_obj_t * ui_SNValue;
 extern lv_obj_t * ui_ConnTitle;
 extern lv_obj_t * ui_ConnValue;
 
+// Fila "Test de hardware" (hmi-factory-test-settings-entry): segunda entrada
+// al overlay de FactoryTest, para servicio en campo. Mismo patron que
+// ui_InfoCont/ui_InfoButton (Cont/Panel/Label/Button/Arrow), sin panel de
+// detalle propio: el click pide FactoryTest_RequestOpenFromSettings() en vez
+// de desplegar un panel dentro de Settings.
+extern lv_obj_t * ui_HwTestCont;
+extern lv_obj_t * ui_HwTestPanel;
+extern lv_obj_t * ui_HwTestLabel;
+extern lv_obj_t * ui_HwTestButton;
+extern lv_obj_t * ui_HwTestArrow;
+// Subtexto de aviso ("Apaga el control para testear"): oculto salvo que haya
+// control o fototerapia activos (FactoryTest_RefreshSettingsRow()).
+extern lv_obj_t * ui_HwTestSubLabel;
+
 extern lv_obj_t * ui_WifiConfigCont;
 extern lv_obj_t * ui_Keyboard1;
 extern lv_obj_t * ui_SSIDPanel;

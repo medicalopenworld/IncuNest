@@ -14,7 +14,21 @@ void FactoryTest_Init(void);
 
 // Abre la pantalla y arranca la secuencia de tests locales. Reentrante: si ya
 // esta abierto no hace nada.
-void FactoryTest_Open(void);
+//
+// fromSettings (hmi-factory-test-settings-entry): true cuando la entrada es
+// la fila "Test de hardware" de ui_ScreenSettings, en vez del boton del
+// splash. Solo cambia el destino de FactoryTest_Close(): si el operario
+// contesta "No" en la barrera de entrada (Step::Gate) sin haber arrancado
+// ningun test, el overlay se cierra sin navegar a ui_ScreenMain — se queda en
+// Settings, de donde vino. Cualquier cierre posterior a esa barrera (batalla
+// completa o abortada) sigue cargando ui_ScreenMain como siempre.
+void FactoryTest_Open(bool fromSettings = false);
+
+// Hand-off puro (mismo patron que el resto de FactoryTest.cpp): la fila
+// "Test de hardware" de ui_ScreenSettings solo marca aqui su intencion;
+// FactoryTest_Poll() la resuelve llamando a FactoryTest_Open(true) en la
+// siguiente pasada, incluso con el overlay cerrado.
+void FactoryTest_RequestOpenFromSettings(void);
 
 // Cierra el overlay. Si hay una bateria de motherBoard en curso, envia
 // HMI,FTEST,ABORT antes. Idempotente.
@@ -33,6 +47,12 @@ void FactoryTest_Poll(void);
 // Vuelve a fijar los textos visibles leyendo g_lang. Llamar desde
 // UI_ApplyLanguage() (UITask.cpp), como TelemetryHistory_ApplyLanguage().
 void FactoryTest_ApplyLanguage(void);
+
+// Habilita/deshabilita y muestra/oculta el subtexto de aviso de la fila
+// "Test de hardware" de ui_ScreenSettings segun UI_AnyControlActive().
+// Llamar desde el bucle de UI_Task cuando lv_scr_act() == ui_ScreenSettings;
+// no repinta si el estado no cambio desde la ultima pasada.
+void FactoryTest_RefreshSettingsRow(void);
 
 // Puesto por el callback del boton del splash; leido por intro_timer_cb()
 // para no navegar a ui_ScreenMain mientras el operario esta en el test de

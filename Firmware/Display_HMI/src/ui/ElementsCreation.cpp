@@ -188,6 +188,12 @@ lv_obj_t *ui_SNTitle = NULL;
 lv_obj_t *ui_SNValue = NULL;
 lv_obj_t *ui_ConnTitle = NULL;
 lv_obj_t *ui_ConnValue = NULL;
+lv_obj_t *ui_HwTestCont = NULL;
+lv_obj_t *ui_HwTestPanel = NULL;
+lv_obj_t *ui_HwTestLabel = NULL;
+lv_obj_t *ui_HwTestButton = NULL;
+lv_obj_t *ui_HwTestArrow = NULL;
+lv_obj_t *ui_HwTestSubLabel = NULL;
 
 lv_obj_t *ui_WifiConfigCont = NULL;
 lv_obj_t *ui_Keyboard1 = NULL;
@@ -594,6 +600,18 @@ void ui_event_ModesButton(lv_event_t *e) {
   if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
     ModesButton_cb(e);
   }
+}
+
+// Fila "Test de hardware" (hmi-factory-test-settings-entry): hand-off puro,
+// como el resto de FactoryTest.cpp — nunca llama a FactoryTest_Open() desde
+// aqui. LV_OBJ_FLAG_CLICKABLE ya se retira del boton mientras esta
+// deshabilitado (FactoryTest_RefreshSettingsRow()), pero el chequeo de
+// LV_STATE_DISABLED se mantiene por si el estado cambia justo entre el toque
+// y el despacho del evento.
+void ui_event_HwTestButton(lv_event_t *e) {
+  if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+  if (lv_obj_has_state(ui_HwTestButton, LV_STATE_DISABLED)) return;
+  FactoryTest_RequestOpenFromSettings();
 }
 
 void ui_event_ClockButton(lv_event_t *e) {
@@ -2865,6 +2883,76 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_style_text_font(ui_ModesArrow, &lv_font_montserrat_30,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
 
+  // --- HW TEST ROW (hmi-factory-test-settings-entry: al final de la lista,
+  // debajo de Modes) ---
+  // Mismo patron Cont/Panel/Label/Button/Arrow que ui_InfoCont, pero sin
+  // panel de detalle propio: ui_event_HwTestButton pide
+  // FactoryTest_RequestOpenFromSettings() en vez de desplegar un panel.
+  ui_HwTestCont = lv_obj_create(ui_Container3);
+  lv_obj_remove_style_all(ui_HwTestCont);
+  lv_obj_set_width(ui_HwTestCont, 331);
+  lv_obj_set_height(ui_HwTestCont, 45);
+  lv_obj_set_x(ui_HwTestCont, 0);
+  lv_obj_set_y(ui_HwTestCont, 120);
+  lv_obj_set_align(ui_HwTestCont, LV_ALIGN_CENTER);
+  lv_obj_clear_flag(ui_HwTestCont,
+                    LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+
+  ui_HwTestPanel = lv_obj_create(ui_HwTestCont);
+  lv_obj_set_width(ui_HwTestPanel, 331);
+  lv_obj_set_height(ui_HwTestPanel, 45);
+  lv_obj_set_align(ui_HwTestPanel, LV_ALIGN_CENTER);
+  lv_obj_clear_flag(ui_HwTestPanel, LV_OBJ_FLAG_SCROLLABLE);
+
+  ui_HwTestLabel = lv_label_create(ui_HwTestCont);
+  lv_obj_set_width(ui_HwTestLabel, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_HwTestLabel, LV_SIZE_CONTENT);
+  lv_obj_set_x(ui_HwTestLabel, 20);
+  lv_obj_set_y(ui_HwTestLabel, 0);
+  lv_obj_set_align(ui_HwTestLabel, LV_ALIGN_LEFT_MID);
+  lv_label_set_text(ui_HwTestLabel, "Test de hardware");
+  lv_obj_set_style_text_font(ui_HwTestLabel, &lv_font_montserrat_18,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  ui_HwTestButton = lv_btn_create(ui_HwTestCont);
+  lv_obj_set_width(ui_HwTestButton, 321);
+  lv_obj_set_height(ui_HwTestButton, 40);
+  lv_obj_set_align(ui_HwTestButton, LV_ALIGN_CENTER);
+  lv_obj_add_flag(ui_HwTestButton, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+  lv_obj_clear_flag(ui_HwTestButton, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_bg_img_opa(ui_HwTestButton, 0,
+                              LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_opa(ui_HwTestButton, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  ui_HwTestArrow = lv_label_create(ui_HwTestCont);
+  lv_obj_set_width(ui_HwTestArrow, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_HwTestArrow, LV_SIZE_CONTENT);
+  lv_obj_set_x(ui_HwTestArrow, 114);
+  lv_obj_set_y(ui_HwTestArrow, 0);
+  lv_obj_set_align(ui_HwTestArrow, LV_ALIGN_CENTER);
+  lv_label_set_text(ui_HwTestArrow, ">");
+  lv_obj_set_style_text_font(ui_HwTestArrow, &lv_font_montserrat_30,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  // Subtexto de aviso, oculto por defecto: solo visible con control o
+  // fototerapia activos (FactoryTest_RefreshSettingsRow(), gateado para no
+  // repintar si el estado no cambia). Hijo de ui_Container3, no de
+  // ui_HwTestCont: cae justo debajo de la fila, que es la ultima de la lista
+  // y tiene sitio libre hasta el borde del contenedor (420 de alto).
+  ui_HwTestSubLabel = lv_label_create(ui_Container3);
+  lv_obj_set_width(ui_HwTestSubLabel, 291);
+  lv_obj_set_height(ui_HwTestSubLabel, LV_SIZE_CONTENT);
+  lv_obj_set_x(ui_HwTestSubLabel, 20);
+  lv_obj_set_y(ui_HwTestSubLabel, 160);
+  lv_obj_set_align(ui_HwTestSubLabel, LV_ALIGN_LEFT_MID);
+  lv_label_set_text(ui_HwTestSubLabel, "Apaga el control para testear");
+  lv_obj_set_style_text_font(ui_HwTestSubLabel, &lv_font_montserrat_12,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_text_color(ui_HwTestSubLabel, lv_color_hex(0xC98A00),
+                              LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_label_set_long_mode(ui_HwTestSubLabel, LV_LABEL_LONG_WRAP);
+  lv_obj_add_flag(ui_HwTestSubLabel, LV_OBJ_FLAG_HIDDEN);
+
   // --- MODES OVERLAY (Skin Mode / Dark Mode / Humidity Control) ---
   // Mismo patron que ui_WifiConfigCont: oculto por defecto, se muestra al
   // tocar la fila "MODES" (ModesButton_cb, UITask.cpp).
@@ -3325,6 +3413,8 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_add_event_cb(ui_LanguagesButton, ui_event_LanguagesButton,
                       LV_EVENT_ALL, NULL);
   lv_obj_add_event_cb(ui_ModesButton, ui_event_ModesButton, LV_EVENT_ALL,
+                      NULL);
+  lv_obj_add_event_cb(ui_HwTestButton, ui_event_HwTestButton, LV_EVENT_ALL,
                       NULL);
   lv_obj_add_event_cb(ui_ClockButton, ui_event_ClockButton, LV_EVENT_ALL,
                       NULL);

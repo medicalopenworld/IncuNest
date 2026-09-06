@@ -998,6 +998,11 @@ void UI_ApplyLanguage(ui_lang_t lang) {
       "CONECTIVIDAD:", "CONNECTIVITY:", "CONNECTIVITE:"};
   const char *TXT_PHOTOSTART[] = {"EMPEZAR", "START", "DEMARRER"};
   const char *TXT_DARKMODE[] = {"MODO OSCURO", "DARK MODE", "MODE SOMBRE"};
+  const char *TXT_HWTEST[] = {"TEST DE HARDWARE", "HARDWARE TEST",
+                              "TEST MATERIEL"};
+  const char *TXT_HWTEST_SUB[] = {
+      "Apaga el control para testear", "Turn control off to test",
+      "Arreter le controle pour tester"};
   lv_label_set_text(ui_Label2, TXT_CONTROLTEMP[lang]);
   lv_label_set_text(ui_HumidityLabel, TXT_CONTROLHUM[lang]);
   lv_label_set_text(ui_PhototherapyLabel, TXT_PHOTO[lang]);
@@ -1020,6 +1025,9 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   lv_label_set_text(ui_DarkModeLabel, TXT_DARKMODE[lang]);
   lv_label_set_text(ui_ModesLabel, TXT_MODES[lang]);
   lv_label_set_text(ui_ModesTitleLabel, TXT_MODES_TITLE[lang]);
+  if (ui_HwTestLabel) lv_label_set_text(ui_HwTestLabel, TXT_HWTEST[lang]);
+  if (ui_HwTestSubLabel)
+    lv_label_set_text(ui_HwTestSubLabel, TXT_HWTEST_SUB[lang]);
   {
     const char *TXT_HUMIDITY_MODE[] = {"CONTROL HUMEDAD", "HUMIDITY CONTROL",
                                        "CONTROLE HUMIDITE"};
@@ -4554,6 +4562,14 @@ void UI_Task(void *pvParameters) {
     // motherBoard. Mismo contrato de polling, sin peticion de cierre por
     // alarma critica: es la pantalla de montaje, se usa con el equipo vacio.
     FactoryTest_Poll();
+    // hmi-factory-test-settings-entry: fila "Test de hardware" de
+    // ui_ScreenSettings. Gateada internamente para no repintar si el estado
+    // no cambio; se llama en cada pasada mientras esa pantalla esta activa
+    // para reflejar tanto la entrada a Settings como cualquier CTRL,STATE que
+    // active/desactive el control mientras el operario sigue ahi.
+    if (lv_scr_act() == ui_ScreenSettings) {
+      FactoryTest_RefreshSettingsRow();
+    }
 
     // Ajuste manual de hora (se abre tocando la hora de cabecera,
     // ClockButton_cb): mismo contrato de polling que el wizard — consume el

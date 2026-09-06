@@ -136,6 +136,16 @@ int        s_localIdx = 0;
 bool       s_retryMode = false;
 uint32_t   s_deadlineMs = 0;
 
+// hmi-factory-test-settings-entry: true si esta apertura vino de la fila
+// "Test de hardware" de ui_ScreenSettings, en vez del boton del splash. Solo
+// lo consulta FactoryTest_Close() para decidir si vuelve a ui_ScreenMain o se
+// queda en Settings (ver comentario de FactoryTest_Open() en el header).
+bool     s_openedFromSettings = false;
+// Hand-off puro de la fila de Settings (hallazgo 4, mismo criterio que el
+// resto de FactoryTest.cpp): FactoryTest_Poll() lo consume incluso con el
+// overlay cerrado, porque el resto de Poll() bail-outea en Step::Closed.
+bool     s_pendingOpenFromSettings = false;
+
 bool     s_mbSupported = false;
 bool     s_mbUnsupported = false;
 bool     s_mbRejected = false;
@@ -1657,7 +1667,7 @@ void FactoryTest_Init(void) {
   lv_obj_center(s_verdictLabel);
 }
 
-void FactoryTest_Open(void) {
+void FactoryTest_Open(bool fromSettings) {
   if (!s_overlay || s_step != Step::Closed) return;
 
   // Hallazgo 2: purga estado de una sesion anterior. Si se salio con el test
@@ -1670,6 +1680,7 @@ void FactoryTest_Open(void) {
   g_pendingFtestReject = false;
 
   resetState();
+  s_openedFromSettings = fromSettings;
   // Hallazgo 7: barrera de entrada antes de tocar nada (local o remoto).
   s_step = Step::Gate;
   lv_obj_clear_flag(s_overlay, LV_OBJ_FLAG_HIDDEN);
@@ -1691,6 +1702,12 @@ void FactoryTest_Close(void) {
   if (remoteBusy) {
     Communication_SendFtestAbort();
   }
+  // hmi-factory-test-settings-entry: "No" en la barrera de entrada (o Salir
+  // sin haberla contestado) todavia no arranco ningun test — si se entro
+  // desde la fila de Settings, se queda ahi en vez de navegar a
+  // ui_ScreenMain. Cualquier cierre posterior (bateria completa o abortada a
+  // mitad) conserva el comportamiento de siempre.
+  const bool stayInSettings = s_openedFromSettings && s_step == Step::Gate;
   destroyTransientOverlayObjects();
   // Hallazgo de code review: no dejar los botones de fila vivos tras cerrar
   // la pantalla (resetState() los destruiria igualmente en el proximo Open(),
@@ -1699,13 +1716,28 @@ void FactoryTest_Close(void) {
   if (s_overlay) lv_obj_add_flag(s_overlay, LV_OBJ_FLAG_HIDDEN);
   s_step = Step::Closed;
   g_factoryTestRequested = false;
-  lv_scr_load(ui_ScreenMain);
+  if (!stayInSettings) {
+    lv_scr_load(ui_ScreenMain);
+  }
+}
+
+void FactoryTest_RequestOpenFromSettings(void) {
+  s_pendingOpenFromSettings = true;
 }
 
 bool FactoryTest_IsOpen(void) { return s_step != Step::Closed; }
 
 void FactoryTest_Poll(void) {
-  if (s_step == Step::Closed) return;
+  if (s_step == Step::Closed) {
+    // hmi-factory-test-settings-entry: hand-off de la fila de Settings,
+    // resuelto aqui incluso con el overlay cerrado (el resto de esta funcion
+    // bail-outea antes de llegar a este punto en Step::Closed).
+    if (s_pendingOpenFromSettings) {
+      s_pendingOpenFromSettings = false;
+      FactoryTest_Open(true);
+    }
+    return;
+  }
 
   // Hallazgo 4: Salir tiene prioridad sobre cualquier otro hand-off pendiente.
   if (s_exitRequested) {
@@ -1817,6 +1849,41 @@ void FactoryTest_ApplyLanguage(void) {
     // explicito aqui, no lo pone ninguna mutacion de estado.
     for (int i = 0; i < s_rowCount; i++) s_rows[i].dirty = true;
     renderAll();
+  }
+}
+
+// hmi-factory-test-settings-entry: fila "Test de hardware" de
+// ui_ScreenSettings. Consulta directamente el estado real del boton
+// (LV_STATE_DISABLED) en vez de una cache propia: asi se autocorrige si
+// ui_ScreenSettings se llegara a recrear (_ui_screen_delete()) con los
+// objetos en su apariencia por defecto.
+void FactoryTest_RefreshSettingsRow(void) {
+  if (!ui_HwTestButton || !ui_HwTestLabel || !ui_HwTestArrow ||
+      !ui_HwTestSubLabel) {
+    return;
+  }
+
+  const bool enabled = !UI_AnyControlActive();
+  const bool wasEnabled =
+      !lv_obj_has_state(ui_HwTestButton, LV_STATE_DISABLED);
+  if (enabled == wasEnabled) return;  // sin cambios: no repintar
+
+  if (enabled) {
+    lv_obj_clear_state(ui_HwTestButton, LV_STATE_DISABLED);
+    lv_obj_add_flag(ui_HwTestButton, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_text_color(ui_HwTestLabel, lv_color_hex(0x0B2E4F),
+                                LV_PART_MAIN);
+    lv_obj_set_style_text_color(ui_HwTestArrow, lv_color_hex(0x0B2E4F),
+                                LV_PART_MAIN);
+    lv_obj_add_flag(ui_HwTestSubLabel, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_add_state(ui_HwTestButton, LV_STATE_DISABLED);
+    lv_obj_clear_flag(ui_HwTestButton, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_text_color(ui_HwTestLabel, lv_color_hex(0x9AA0A6),
+                                LV_PART_MAIN);
+    lv_obj_set_style_text_color(ui_HwTestArrow, lv_color_hex(0x9AA0A6),
+                                LV_PART_MAIN);
+    lv_obj_clear_flag(ui_HwTestSubLabel, LV_OBJ_FLAG_HIDDEN);
   }
 }
 
