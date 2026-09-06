@@ -68,6 +68,29 @@
 // que esa reconciliacion llega sola en <= 1 periodo de trama, sin que este
 // modulo tenga que conocer el keepalive del HMI.
 //
+// ---- Solape cooperativo de los PASIVOS (banco 2026-09-06, quinta ronda) ----
+// La bateria en fabrica sin cobertura celular ni AP tardaba 4-5 min porque
+// cada test de conectividad agotaba su plazo secuencialmente uno tras otro
+// (gsm_at 45s + gsm_sim 15s + gsm_signal 15s + gsm_net/wifi/tb_provision/time
+// 30s c/u). Los PASIVOS (factory_test_hw.h/.cpp: charger, env_sensor,
+// sb_status, sb_camera, gsm_*, wifi, tb_provision, time y los instantaneos)
+// arrancan TODOS a la vez, en RUNNING, nada mas entrar en estado seguro, con
+// un cronometro comun (s_passiveT0); poll_passives() los sondea sin bloquear
+// (ftest_hw_poll_passive(), <= 250 ms de granularidad) desde tres sitios:
+//   - el propio bucle de los ACTIVOS (entre cada uno y el siguiente),
+//   - ftest_yield() (factory_test_hw.h), llamada desde DENTRO de los bucles
+//     de espera de buzzer/sb_light/sb_env en vez de (o ademas de)
+//     ftest_wdt_feed(), para que los pasivos avancen tambien MIENTRAS un
+//     activo ocupa su turno varios segundos,
+//   - un bucle final tras el ultimo activo, hasta que no quede ninguno
+//     pendiente (todos tienen plazo propio, asi que siempre termina).
+// El peor caso pasa de 4-5 min a ~45 s (el plazo mas largo, gsm_at). Un
+// ABORT/dead-man del HMI/control reactivado/tope de bateria fuerza SKIP
+// inmediato de los pasivos que sigan pendientes, igual que al activo en
+// curso -- pero NO la cota por test (90 s) de un activo concreto: esa es
+// suya, no de los pasivos, que ya tienen su propio plazo (<=45 s, siempre
+// menor). Ver PROTOCOL.md, seccion FTEST, "Orden de ejecucion".
+//
 // Sin entorno de test (motherBoard/[env:native] solo cubre
 // modules/control/{alarm_machine,pid_wrapper}.cpp y la logica pura de este
 // modulo, ya cubierta en ftest_summary.cpp/test_factory_test): verificacion
@@ -138,11 +161,14 @@ int factoryTestPrecheck(unsigned id) {
   return -1;
 }
 
-// Precondicion compuesta del bloqueante #3: evaluada en CADA punto de
-// comprobacion (los cuerpos de test la consultan en pasos de <= 250 ms), no
-// una sola vez al arrancar. Devuelve el motivo ("abort"/"control on"/
-// "hmi lost"/"max time") o NULL si esta permitido seguir.
-static const char *compute_abort_reason(void) {
+// Las CUATRO cotas que abortan el resto de la bateria (abort explicito,
+// control reactivado, HMI perdido, tope de bateria) -- SIN la cota por test
+// (90 s, mas abajo). poll_passives() la usa TAL CUAL, sin pasar por
+// compute_abort_reason(): un activo concreto llevando > 90 s NO debe cortar
+// de golpe a los pasivos que corren en paralelo con su propio plazo (siempre
+// <= 45 s, ver cabecera del fichero) -- esa cota es del activo en curso, no
+// de la bateria entera.
+static const char *compute_abort_reason_common(void) {
   if (s_abortRequested) return "abort";
   // Alguien reactivo el control (u otra fototerapia) por otra via mientras
   // la bateria estaba en curso: la precondicion de arranque no basta, hay
@@ -155,20 +181,32 @@ static const char *compute_abort_reason(void) {
   // "tape el sensor de luz") ni quien detenga un ABORT manual si algo va
   // mal.
   if (!CommunicationHost_HmiAlive(FTEST_HMI_DEADMAN_MS)) return "hmi lost";
-  // Cota POR TEST (bloqueante nuevo, "cota cooperativa por test"): distinta
-  // de la cota de bateria de abajo. run_one() refresca s_testStartMs al
-  // arrancar cada cuerpo, asi que esto solo dispara si ESE cuerpo concreto
-  // lleva mas de FTEST_TEST_TIMEOUT_MS corriendo -- run_one() traduce este
-  // motivo especifico a FAIL/"timeout" (no SKIP) y NO detiene el resto de la
-  // bateria, a diferencia de los motivos de arriba y de abajo.
-  if (s_testStartMs != 0 &&
-      (uint32_t)(millis() - s_testStartMs) > FTEST_TEST_TIMEOUT_MS) {
-    return "timeout";
-  }
   // Cota temporal dura de toda la bateria.
   if (s_batteryStartMs != 0 &&
       (uint32_t)(millis() - s_batteryStartMs) > FTEST_BATTERY_MAX_MS) {
     return "max time";
+  }
+  return nullptr;
+}
+
+// Precondicion compuesta del bloqueante #3: evaluada en CADA punto de
+// comprobacion (los cuerpos de test la consultan en pasos de <= 250 ms), no
+// una sola vez al arrancar. Devuelve el motivo ("abort"/"control on"/
+// "hmi lost"/"max time"/"timeout") o NULL si esta permitido seguir.
+static const char *compute_abort_reason(void) {
+  const char *common = compute_abort_reason_common();
+  if (common != nullptr) return common;
+  // Cota POR TEST (bloqueante nuevo, "cota cooperativa por test"): distinta
+  // de las cuatro de arriba. run_one() refresca s_testStartMs al arrancar
+  // cada cuerpo ACTIVO, asi que esto solo dispara si ESE cuerpo concreto
+  // lleva mas de FTEST_TEST_TIMEOUT_MS corriendo -- run_one() traduce este
+  // motivo especifico a FAIL/"timeout" (no SKIP) y NO detiene el resto de la
+  // bateria, a diferencia de los motivos de compute_abort_reason_common().
+  // Los PASIVOS no pasan por aqui (poll_passives() usa la version _common):
+  // les basta su propio plazo, siempre bastante menor que 90 s.
+  if (s_testStartMs != 0 &&
+      (uint32_t)(millis() - s_testStartMs) > FTEST_TEST_TIMEOUT_MS) {
+    return "timeout";
   }
   return nullptr;
 }
@@ -190,6 +228,87 @@ const char *ftest_abort_reason(void) {
 void ftest_wdt_feed(void) { esp_task_wdt_reset(); }
 
 void factoryTestAbort(void) { s_abortRequested = true; }
+
+// ---- Solape cooperativo de los PASIVOS (ver cabecera del fichero) ----
+// Estado de la bateria completa en curso; queda todo a 0/nullptr fuera de
+// ella (RUN de un solo test, o battery ya terminada) para que poll_passives()
+// sea un no-op seguro si algo la llamase fuera de sitio.
+struct FtestPassiveSlot {
+  unsigned id;
+  bool resolved;
+};
+static FtestPassiveSlot s_passiveSlots[FTEST_PASSIVE_COUNT];
+static unsigned s_passiveSlotCount = 0;
+static uint32_t s_passiveT0 = 0;
+static FtestCascade *s_passiveCascade = nullptr;
+static FtestSummary *s_passiveSum = nullptr;
+
+// Emite SKIP con `reason` para todo pasivo que siga sin resolver (bloqueante
+// #2/#3: mismo trato que el activo en curso cuando la bateria aborta).
+// Respeta la misma pausa anti-desborde de 60 ms cada 4 lineas que la rafaga
+// de resultados de los activos (mb-factory-test, "Rafaga de tests omitidos").
+static void force_skip_pending_passives(const char *reason) {
+  unsigned emitted = 0;
+  for (unsigned i = 0; i < s_passiveSlotCount; i++) {
+    if (s_passiveSlots[i].resolved) continue;
+    char detail[FTEST_DETAIL_MAX + 1];
+    snprintf(detail, sizeof(detail), "%s", reason);
+    const unsigned id = s_passiveSlots[i].id;
+    ftest_emit(id, FTEST_SKIP, detail);
+    if (s_passiveSum != nullptr) ftest_summary_note(s_passiveSum, id, FTEST_SKIP);
+    s_passiveSlots[i].resolved = true;
+    emitted++;
+    if ((emitted % 4) == 0) vTaskDelay(pdMS_TO_TICKS(60));
+  }
+}
+
+// Un paso, sin bloquear: sondea todos los pasivos que sigan pendientes y
+// emite el resultado final de los que se resuelvan. No-op si no hay bateria
+// completa en curso (s_passiveSlotCount == 0, p.ej. durante un RUN de un solo
+// test ACTIVO -- ftest_yield() sigue siendo seguro de llamar ahi, solo
+// alimenta el WDT).
+static void poll_passives(void) {
+  if (s_passiveSlotCount == 0 || s_passiveCascade == nullptr) return;
+
+  // Las cuatro cotas de bateria (SIN la de 90 s por test, que es del activo
+  // en curso, no de estos pasivos): si dispara alguna, el resto de pasivos
+  // pendientes termina en SKIP de una vez, igual que el activo en curso.
+  const char *commonAbort = compute_abort_reason_common();
+  if (commonAbort != nullptr) {
+    force_skip_pending_passives(commonAbort);
+    return;
+  }
+
+  const uint32_t elapsed = (uint32_t)(millis() - s_passiveT0);
+  unsigned emittedThisSweep = 0;
+  for (unsigned i = 0; i < s_passiveSlotCount; i++) {
+    if (s_passiveSlots[i].resolved) continue;
+    const unsigned id = s_passiveSlots[i].id;
+    // sb_status/sb_camera esperan a env_sensor; gsm_signal/gsm_net esperan a
+    // gsm_sim: mientras la dependencia siga UNKNOWN no se les llama todavia
+    // (se quedarian en SKIP prematuro, ver factory_test_hw.h).
+    if (ftest_hw_passive_dependency_pending(id, s_passiveCascade)) continue;
+    char detail[FTEST_DETAIL_MAX + 1] = {0};
+    const FtestStatus st =
+        ftest_hw_poll_passive(id, detail, s_passiveCascade, elapsed);
+    if (st == FTEST_RUNNING) continue;
+    ftest_emit(id, st, detail);
+    if (s_passiveSum != nullptr) ftest_summary_note(s_passiveSum, id, st);
+    s_passiveSlots[i].resolved = true;
+    emittedThisSweep++;
+    // Varios pasivos instantaneos (sysinfo, ina3221, skin_adc...) suelen
+    // resolverse en el mismo barrido: misma regla anti-desborde que la
+    // rafaga inicial de RUNNING y que la de resultados de los activos.
+    if ((emittedThisSweep % 4) == 0) vTaskDelay(pdMS_TO_TICKS(60));
+  }
+}
+
+void ftest_yield(void) {
+  ftest_wdt_feed();
+  poll_passives();
+}
+
+bool ftest_passives_running(void) { return s_passiveSlotCount > 0; }
 
 void ftest_emit(unsigned id, FtestStatus st, const char *detail) {
   char line[FTEST_TX_LINE_MAX];
@@ -335,31 +454,120 @@ static void factory_test_task_body(void *pv) {
   FtestSummary sum;
   ftest_summary_init(&sum);
 
+  // Limpia el flag de "peticion ya enviada" de sb_status/sb_camera (quinta
+  // ronda, banco 2026-09-06): sin esto, una bateria o un RUN posterior
+  // heredaria el flag de la tanda anterior y no volveria a pedir nada.
+  ftest_hw_reset_passive_state();
+
   if (s_paramsSingle) {
     const unsigned id = s_paramsSingleId;
     char detail[FTEST_DETAIL_MAX + 1] = {0};
     esp_task_wdt_reset();
     ftest_emit(id, FTEST_RUNNING, NULL);
-    const FtestStatus st = run_one(id, detail, &cascade);
+    FtestStatus st;
+    if (ftest_id_is_passive(id)) {
+      // RUN unico de un pasivo (PROTOCOL.md, "Orden de ejecucion"): se
+      // sondea el solo, sin el resto de la bateria corriendo debajo (no hay
+      // s_passiveSlots que poblar aqui). Las CUATRO cotas de bateria siguen
+      // aplicando (compute_abort_reason_common(), via ftest_abort_requested()
+      // de mas abajo) -- la cota de 90 s POR TEST no: es de los ACTIVOS
+      // (run_one() la refresca en s_testStartMs); un pasivo se basta con su
+      // propio plazo (<= 45 s), asi que se deja s_testStartMs a 0 para que
+      // compute_abort_reason() no la evalue con un valor rancio de una
+      // ejecucion anterior de esta misma tarea (modulo, no de instancia).
+      s_testStartMs = 0;
+      const uint32_t t0 = millis();
+      for (;;) {
+        if (ftest_abort_requested()) {
+          snprintf(detail, sizeof(detail), "%s", ftest_abort_reason());
+          st = FTEST_SKIP;
+          break;
+        }
+        st = ftest_hw_poll_passive(id, detail, &cascade,
+                                    (uint32_t)(millis() - t0));
+        if (st != FTEST_RUNNING) break;
+        ftest_wdt_feed();
+        vTaskDelay(pdMS_TO_TICKS(250));
+      }
+    } else {
+      st = run_one(id, detail, &cascade);
+    }
     ftest_emit(id, st, detail);
     ftest_summary_note(&sum, id, st);
     persist_single(id, st);
   } else {
-    for (unsigned id = 0; id < FTEST_MB_COUNT; id++) {
+    // ---- Bateria completa: solape cooperativo (ver cabecera del fichero,
+    // banco 2026-09-06, quinta ronda) ----
+    // 1) Todos los PASIVOS arrancan en paralelo, en RUNNING, con un
+    // cronometro comun.
+    s_passiveSlotCount = FTEST_PASSIVE_COUNT;
+    for (unsigned i = 0; i < FTEST_PASSIVE_COUNT; i++) {
+      s_passiveSlots[i].id = ftest_hw_passive_id_at(i);
+      s_passiveSlots[i].resolved = false;
+    }
+    s_passiveCascade = &cascade;
+    s_passiveSum = &sum;
+    s_passiveT0 = millis();
+    for (unsigned i = 0; i < FTEST_PASSIVE_COUNT; i++) {
+      esp_task_wdt_reset();
+      ftest_emit(s_passiveSlots[i].id, FTEST_RUNNING, NULL);
+      // Misma regla anti-desborde que la rafaga de resultados de abajo (el
+      // HMI drena su anillo de recepcion una sola vez por pasada de UI):
+      // ~20 RUNNING de golpe la desbordarian igual que una rafaga de
+      // resultados.
+      if ((i % 4) == 3) vTaskDelay(pdMS_TO_TICKS(60));
+    }
+
+    // 2) Un primer sondeo antes de arrancar los ACTIVOS: los pasivos
+    // instantaneos (sysinfo, ina3221, skin_adc...) ya resuelven aqui.
+    poll_passives();
+
+    // 3) ACTIVOS, en el orden nuevo de kFtestActiveOrder (standby,
+    // actuators, fan_rpm, buzzer, afe_spi, sb_env, sb_light) -- NO el orden
+    // ascendente de id: sb_env/sb_light van al final para dar tiempo a que
+    // env_sensor (pasivo) resuelva la cascada sb_usb en paralelo.
+    for (unsigned i = 0; i < FTEST_ACTIVE_COUNT; i++) {
+      const unsigned id = ftest_hw_active_id_at(i);
       char detail[FTEST_DETAIL_MAX + 1] = {0};
       esp_task_wdt_reset();
       ftest_emit(id, FTEST_RUNNING, NULL);
       const FtestStatus st = run_one(id, detail, &cascade);
       ftest_emit(id, st, detail);
       ftest_summary_note(&sum, id, st);
+      // Deja avanzar los pasivos que se hayan resuelto mientras corria este
+      // activo: standby/fan_rpm/afe_spi no tienen bucle de espera propio (no
+      // llaman a ftest_yield()), asi que sin este sondeo explicito no se
+      // comprobarian hasta el paso 4.
+      poll_passives();
       // Pausa entre el resultado final de este test y el RUNNING del
       // siguiente (cuarta ronda, banco 2026-09-06): con varios tests
-      // omitidos seguidos (power_src, sb_door, humid_usb...) el cuerpo
-      // vuelve casi al instante y la MB emite ~10 lineas en rafaga. El HMI
-      // drena su anillo de recepcion una sola vez por pasada de UI (10 ms) y
-      // se desbordaba con la rafaga sin dar tiempo a pintar cada linea.
+      // omitidos seguidos el cuerpo vuelve casi al instante y la MB emite
+      // varias lineas en rafaga; el HMI drena su anillo de recepcion una
+      // sola vez por pasada de UI (10 ms) y se desbordaba sin esta pausa.
       vTaskDelay(pdMS_TO_TICKS(60));
     }
+
+    // 4) Tras los ACTIVOS, seguir sondeando lo que quede pendiente hasta que
+    // se resuelva: todos los pasivos tienen plazo propio (<= 45 s desde
+    // s_passiveT0), asi que este bucle siempre termina.
+    for (;;) {
+      bool anyPending = false;
+      for (unsigned i = 0; i < s_passiveSlotCount; i++) {
+        if (!s_passiveSlots[i].resolved) {
+          anyPending = true;
+          break;
+        }
+      }
+      if (!anyPending) break;
+      esp_task_wdt_reset();
+      poll_passives();
+      vTaskDelay(pdMS_TO_TICKS(250));
+    }
+
+    s_passiveSlotCount = 0;
+    s_passiveCascade = nullptr;
+    s_passiveSum = nullptr;
+
     persist_full(&sum);
   }
 

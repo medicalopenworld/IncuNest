@@ -33,12 +33,68 @@ typedef struct {
   FtestDepState gsm_sim;
 } FtestCascade;
 
-// Ejecuta el cuerpo del test `id` (0..FTEST_MB_COUNT-1). Escribe una cadena
+// Ejecuta el cuerpo ACTIVO del test `id` (0..FTEST_MB_COUNT-1) hasta que
+// resuelve (bucles internos, bloqueante para el runner). Escribe una cadena
 // terminada en NUL en detail (cadena vacia si no hay nada que informar;
 // FTEST_DETAIL_MAX+1 bytes de capacidad, el codec ya sanea y trunca). id
-// fuera de la tabla de motherBoard -> FTEST_FAIL con detail="id".
+// fuera de la tabla de motherBoard -> FTEST_FAIL con detail="id"; id pasivo
+// (defensivo, no deberia llegar aqui: el runner los sondea con
+// ftest_hw_poll_passive()) -> FTEST_FAIL con detail="passive".
 FtestStatus ftest_hw_run(unsigned id, char detail[FTEST_DETAIL_MAX + 1],
                          FtestCascade *cascade);
+
+// ---- Solape cooperativo de los PASIVOS (banco 2026-09-06, quinta ronda) ----
+// Los pasivos (charger, env_sensor, sb_status/sb_camera, gsm_*, wifi,
+// tb_provision, time y los instantaneos sysinfo/ina3221/skin_adc/hmi_link/
+// nvs/littlefs/power_src/humid_usb/sb_door/afe_probe) solo OBSERVAN estado ya
+// cacheado por otra tarea o una peticion asincrona ya en vuelo: no tienen
+// autoridad ninguna sobre el hardware que otro pasivo o un activo no tenga
+// tambien, asi que pueden correr todos en paralelo desde el arranque de la
+// bateria sin el riesgo de entrelazado que si tienen los ACTIVOS
+// (actuadores/zumbador/calefactor en lazo abierto). El runner
+// (factory_test_task.cpp) los sondea con ftest_hw_poll_passive() en pasos de
+// <= 250 ms; cada uno lleva su propio plazo (elapsed_ms lo mide desde que
+// arranca la bateria, comun a todos) y NUNCA bloquea ni hace su propio
+// vTaskDelay.
+#define FTEST_ACTIVE_COUNT 7
+#define FTEST_PASSIVE_COUNT 21
+
+// true si `id` es un pasivo (fila de la tabla con passive=true). false para
+// cualquier id que no sea de motherBoard.
+bool ftest_id_is_passive(unsigned id);
+
+// Id del activo/pasivo en la posicion `idx` (< FTEST_ACTIVE_COUNT /
+// FTEST_PASSIVE_COUNT) de su orden de ejecucion. El activo NO sigue el orden
+// ascendente de id: sb_env/sb_light van al final para dar tiempo a que
+// env_sensor (pasivo) resuelva la cascada `sb_usb` antes de que les toque el
+// turno. FTEST_ID_NONE si idx esta fuera de rango.
+unsigned ftest_hw_active_id_at(unsigned idx);
+unsigned ftest_hw_passive_id_at(unsigned idx);
+
+// Sondea un pasivo sin bloquear: FTEST_RUNNING mientras su condicion no se
+// cumpla y no se haya agotado `elapsed_ms` (comun a todos los pasivos, no
+// propio de este); un estado final en otro caso. `id` fuera de la tabla de
+// motherBoard o de un activo (defensivo) -> FTEST_FAIL con detail="id"/
+// "active".
+FtestStatus ftest_hw_poll_passive(unsigned id, char detail[FTEST_DETAIL_MAX + 1],
+                                   FtestCascade *cascade, uint32_t elapsed_ms);
+
+// true si `id` depende de la cascada de otro pasivo que TODAVIA no se ha
+// resuelto (sb_status/sb_camera de env_sensor via cascade->sb_usb;
+// gsm_signal/gsm_net de gsm_sim via cascade->gsm_sim): el runner NO debe
+// llamar a ftest_hw_poll_passive() para ese id todavia (se quedaria en
+// FTEST_SKIP prematuro, confundiendo "no ha corrido" con "ya fallo"). Una vez
+// la dependencia resuelve (OK o FAILED), esta funcion devuelve false y el
+// propio cuerpo decide SKIP o seguir segun el valor de la cascada, igual que
+// antes.
+bool ftest_hw_passive_dependency_pending(unsigned id, const FtestCascade *cascade);
+
+// Reinicia el estado propio de los pasivos que disparan una unica peticion
+// asincrona (sb_status/sb_camera: `sensorboard_status_request()`/
+// `sensorboard_capture_request()`, una sola vez por resolucion, no en cada
+// sondeo). SHALL llamarse al arrancar cada bateria/RUN, antes del primer
+// sondeo.
+void ftest_hw_reset_passive_state(void);
 
 // ---- Primitivas que factory_test_task.cpp ofrece a los cuerpos de test ----
 // (implementadas alli: son las que conocen la cola TX y el flag de ABORT).
@@ -72,3 +128,22 @@ const char *ftest_abort_reason(void);
 // segundos entre pasos de un WHILE de sondeo dispara el panic del WDT a los
 // 75 s (watchdogInit(), initHardware.cpp).
 void ftest_wdt_feed(void);
+
+// Solape cooperativo (banco 2026-09-06, quinta ronda): alimenta el WDT
+// (igual que ftest_wdt_feed()) y ademas hace avanzar un paso a los pasivos
+// que sigan pendientes (charger, env_sensor, gsm_*, wifi...) mientras un
+// ACTIVO (buzzer, sb_light, sb_env) ocupa su turno en un bucle de espera de
+// <= 250 ms propio -- sin esto los pasivos solo progresarian entre un activo
+// y el siguiente, no MIENTRAS uno de ellos lleva varios segundos corriendo.
+// Los cuerpos ACTIVOS la llaman en los mismos sitios donde antes llamaban a
+// ftest_wdt_feed(); fuera de una bateria completa (RUN de un solo id) es un
+// no-op salvo la alimentacion del WDT.
+void ftest_yield(void);
+
+// true si hay una bateria completa en curso con los pasivos corriendo en
+// paralelo (poblados en factory_test_task.cpp al arrancar la bateria).
+// SB_ENV la usa para distinguir "ENV_SENSOR esta corriendo en paralelo y
+// puede resolver de un momento a otro" (bateria completa: espera) de "esto es
+// un RUN,8 aislado, nadie mas va a tocar la cascada sb_usb" (RUN unico:
+// SKIP inmediato "sin usb", igual que antes de esta ronda).
+bool ftest_passives_running(void);
