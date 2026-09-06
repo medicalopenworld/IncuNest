@@ -224,6 +224,7 @@ void showAskCause() {
 
 bool BabyExitDialog_IsOpen(void) { return s_step != ExitStep::Closed; }
 
+
 void BabyExitDialog_Init(lv_obj_t *parent) {
   // Parent to ui_ScreenMain explicitly, never lv_scr_act(): at UI-init time
   // the active screen is still the splash, and an overlay parented there is

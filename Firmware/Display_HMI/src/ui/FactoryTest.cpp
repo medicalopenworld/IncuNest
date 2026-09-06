@@ -13,10 +13,6 @@
 
 namespace {
 
-const char *TXT(const char *es, const char *en, const char *fr) {
-  return (g_lang == LANG_ES) ? es : (g_lang == LANG_FR) ? fr : en;
-}
-
 // ---------------------------------------------------------------------------
 // Tabla de tests locales (design.md D9 / spec hmi-factory-test), en el orden
 // exacto en el que se ejecutan. shared-factory-test-bench retira PANEL y
@@ -233,11 +229,11 @@ lv_obj_t *makeBtn(lv_obj_t *parent, const char *text, lv_event_cb_t cb,
 // compatibilidad).
 const char *localTestName(unsigned id) {
   switch (id) {
-    case FTEST_HMI_SYSINFO: return TXT("Info sistema", "System info", "Info systeme");
-    case FTEST_HMI_I2C:     return TXT("Bus I2C", "I2C bus", "Bus I2C");
-    case FTEST_HMI_WIFI:    return TXT("WiFi", "WiFi", "WiFi");
-    case FTEST_HMI_NVS:     return TXT("Memoria NVS", "NVS memory", "Memoire NVS");
-    case FTEST_HMI_LINK:    return TXT("Enlace placa", "Board link", "Liaison carte");
+    case FTEST_HMI_SYSINFO: return TR(STR_FT_SYSINFO);
+    case FTEST_HMI_I2C:     return TR(STR_FT_I2C);
+    case FTEST_HMI_WIFI:    return TR(STR_FT_WIFI);
+    case FTEST_HMI_NVS:     return TR(STR_FT_NVS);
+    case FTEST_HMI_LINK:    return TR(STR_FT_BOARDLINK);
     default: return ftest_id_key(id);
   }
 }
@@ -247,56 +243,49 @@ const char *localTestName(unsigned id) {
 const char *localTestDesc(unsigned id) {
   switch (id) {
     case FTEST_HMI_SYSINFO:
-      return TXT("Flash, PSRAM y memoria libre del display",
-                 "Display flash, PSRAM and free heap",
-                 "Flash, PSRAM et memoire libre de l'ecran");
+      return TR(STR_FT_SYSINFO_D);
     case FTEST_HMI_I2C:
-      return TXT("Bus I2C del display (tactil y retroiluminacion)",
-                 "Display I2C bus (touch and backlight)",
-                 "Bus I2C de l'ecran (tactile et retroeclairage)");
+      return TR(STR_FT_I2C_D);
     case FTEST_HMI_WIFI:
-      return TXT("Conexion WiFi del display", "Display WiFi connection",
-                 "Connexion WiFi de l'ecran");
+      return TR(STR_FT_WIFI_D);
     case FTEST_HMI_NVS:
-      return TXT("Memoria NVS del display", "Display NVS memory",
-                 "Memoire NVS de l'ecran");
+      return TR(STR_FT_NVS_D);
     case FTEST_HMI_LINK:
-      return TXT("Enlace serie con la placa", "Serial link to the board",
-                 "Liaison serie avec la carte");
+      return TR(STR_FT_BOARDLINK_D);
     default: return "?";
   }
 }
 
 const char *mbTestName(unsigned id) {
   switch (id) {
-    case FTEST_MB_SYSINFO:     return TXT("Info sistema", "System info", "Info systeme");
-    case FTEST_MB_INA3221:     return TXT("Sensor corriente", "Current sensor", "Capteur courant");
-    case FTEST_MB_STANDBY:     return TXT("Consumo reposo", "Standby current", "Consommation veille");
-    case FTEST_MB_CHARGER:     return TXT("Cargador", "Charger", "Chargeur");
-    case FTEST_MB_POWER_SRC:   return TXT("Fuente alimentacion", "Power source", "Source alimentation");
-    case FTEST_MB_SKIN_ADC:    return TXT("Sonda piel", "Skin probe", "Sonde peau");
-    case FTEST_MB_ENV_SENSOR:  return TXT("Sensor ambiental", "Ambient sensor", "Capteur ambiant");
-    case FTEST_MB_SB_STATUS:   return TXT("Estado SensorBoard", "SensorBoard status", "Etat SensorBoard");
-    case FTEST_MB_SB_ENV:      return TXT("Ambiente SensorBoard", "SensorBoard env", "Environnement SensorBoard");
-    case FTEST_MB_SB_DOOR:     return TXT("Puerta", "Door", "Porte");
-    case FTEST_MB_SB_LIGHT:    return TXT("Sensor luz", "Light sensor", "Capteur lumiere");
-    case FTEST_MB_SB_CAMERA:   return TXT("Camara", "Camera", "Camera");
-    case FTEST_MB_ACTUATORS:   return TXT("Actuadores", "Actuators", "Actionneurs");
-    case FTEST_MB_FAN_RPM:     return TXT("RPM ventilador", "Fan RPM", "RPM ventilateur");
-    case FTEST_MB_HUMID_USB:   return TXT("Humidificador USB", "Humidifier USB", "Humidificateur USB");
-    case FTEST_MB_BUZZER:      return TXT("Zumbador placa", "Board buzzer", "Buzzer carte");
-    case FTEST_MB_AFE_SPI:     return TXT("AFE SPI", "AFE SPI", "AFE SPI");
-    case FTEST_MB_AFE_PROBE:   return TXT("Sonda SpO2", "SpO2 probe", "Sonde SpO2");
-    case FTEST_MB_HMI_LINK:    return TXT("Enlace HMI", "HMI link", "Liaison HMI");
-    case FTEST_MB_GSM_AT:      return TXT("Modem GSM", "GSM modem", "Modem GSM");
-    case FTEST_MB_GSM_SIM:     return TXT("SIM", "SIM", "SIM");
-    case FTEST_MB_GSM_SIGNAL:  return TXT("Senal GSM", "GSM signal", "Signal GSM");
-    case FTEST_MB_GSM_NET:     return TXT("Red GSM", "GSM network", "Reseau GSM");
-    case FTEST_MB_WIFI:        return TXT("WiFi placa", "Board WiFi", "WiFi carte");
-    case FTEST_MB_TB_PROVISION: return TXT("ThingsBoard", "ThingsBoard", "ThingsBoard");
-    case FTEST_MB_TIME:        return TXT("Hora", "Time", "Heure");
-    case FTEST_MB_NVS:         return TXT("NVS placa", "Board NVS", "NVS carte");
-    case FTEST_MB_LITTLEFS:    return TXT("LittleFS", "LittleFS", "LittleFS");
+    case FTEST_MB_SYSINFO:     return TR(STR_FT_SYSINFO);
+    case FTEST_MB_INA3221:     return TR(STR_FT_CURRENT);
+    case FTEST_MB_STANDBY:     return TR(STR_FT_STANDBY);
+    case FTEST_MB_CHARGER:     return TR(STR_FT_CHARGER);
+    case FTEST_MB_POWER_SRC:   return TR(STR_FT_PWRSRC);
+    case FTEST_MB_SKIN_ADC:    return TR(STR_FT_SKINPROBE);
+    case FTEST_MB_ENV_SENSOR:  return TR(STR_FT_AMBIENT);
+    case FTEST_MB_SB_STATUS:   return TR(STR_FT_SB_STATUS);
+    case FTEST_MB_SB_ENV:      return TR(STR_FT_SB_ENV);
+    case FTEST_MB_SB_DOOR:     return TR(STR_FT_DOOR);
+    case FTEST_MB_SB_LIGHT:    return TR(STR_FT_LIGHT);
+    case FTEST_MB_SB_CAMERA:   return TR(STR_FT_CAMERA);
+    case FTEST_MB_ACTUATORS:   return TR(STR_FT_ACTUATORS);
+    case FTEST_MB_FAN_RPM:     return TR(STR_FT_FANRPM);
+    case FTEST_MB_HUMID_USB:   return TR(STR_FT_HUMUSB);
+    case FTEST_MB_BUZZER:      return TR(STR_FT_BUZZER);
+    case FTEST_MB_AFE_SPI:     return TR(STR_FT_AFESPI);
+    case FTEST_MB_AFE_PROBE:   return TR(STR_FT_SPO2);
+    case FTEST_MB_HMI_LINK:    return TR(STR_FT_HMILINK);
+    case FTEST_MB_GSM_AT:      return TR(STR_FT_GSMMODEM);
+    case FTEST_MB_GSM_SIM:     return TR(STR_FT_SIM);
+    case FTEST_MB_GSM_SIGNAL:  return TR(STR_FT_GSMSIGNAL);
+    case FTEST_MB_GSM_NET:     return TR(STR_FT_GSMNET);
+    case FTEST_MB_WIFI:        return TR(STR_FT_BOARDWIFI);
+    case FTEST_MB_TB_PROVISION: return TR(STR_FT_THINGSBOARD);
+    case FTEST_MB_TIME:        return TR(STR_FT_TIME);
+    case FTEST_MB_NVS:         return TR(STR_FT_BOARDNVS);
+    case FTEST_MB_LITTLEFS:    return TR(STR_FT_LITTLEFS);
     default: return ftest_id_key(id);
   }
 }
@@ -306,97 +295,61 @@ const char *mbTestName(unsigned id) {
 const char *mbTestDesc(unsigned id) {
   switch (id) {
     case FTEST_MB_SYSINFO:
-      return TXT("Version y memoria de la placa", "Board firmware and memory",
-                 "Version et memoire de la carte");
+      return TR(STR_FT_BOARDINFO_D);
     case FTEST_MB_INA3221:
-      return TXT("Lee las corrientes del sensor INA3221",
-                 "Reads currents from the INA3221 sensor",
-                 "Lit les courants du capteur INA3221");
+      return TR(STR_FT_CURRENT_D);
     case FTEST_MB_STANDBY:
-      return TXT("Consumo electrico en reposo", "Standby power consumption",
-                 "Consommation electrique en veille");
+      return TR(STR_FT_STANDBY_D);
     case FTEST_MB_CHARGER:
-      return TXT("Estado del cargador de bateria", "Battery charger status",
-                 "Etat du chargeur de batterie");
+      return TR(STR_FT_CHARGER_D);
     case FTEST_MB_POWER_SRC:
-      return TXT("Fuente de alimentacion activa (red o bateria)",
-                 "Active power source (mains or battery)",
-                 "Source d'alimentation active (secteur ou batterie)");
+      return TR(STR_FT_PWRSRC_D);
     case FTEST_MB_SKIN_ADC:
-      return TXT("Lectura de la sonda de piel", "Skin probe reading",
-                 "Lecture de la sonde de peau");
+      return TR(STR_FT_SKINPROBE_D);
     case FTEST_MB_ENV_SENSOR:
-      return TXT(
-          "SensorBoard por USB, sensores I2C2 o SHT4x exterior: cualquiera vale",
-          "SensorBoard over USB, I2C2 sensors or external SHT4x: either works",
-          "SensorBoard par USB, capteurs I2C2 ou SHT4x exterieur : l'un des "
-          "deux suffit");
+      return TR(STR_FT_AMBIENT_D);
     case FTEST_MB_SB_STATUS:
-      return TXT("Estado general del SensorBoard",
-                 "SensorBoard overall status",
-                 "Etat general de la carte SensorBoard");
+      return TR(STR_FT_SB_STATUS_D);
     case FTEST_MB_SB_ENV:
-      return TXT("Ambiente de cabina del SensorBoard",
-                 "SensorBoard cabin environment",
-                 "Environnement de cabine du SensorBoard");
+      return TR(STR_FT_SB_ENV_D);
     case FTEST_MB_SB_DOOR:
-      return TXT("Sensor de puerta abierta/cerrada",
-                 "Open/closed door sensor",
-                 "Capteur de porte ouverte/fermee");
+      return TR(STR_FT_DOOR_D);
     case FTEST_MB_SB_LIGHT:
-      return TXT("Sensor de luz ambiente", "Ambient light sensor",
-                 "Capteur de lumiere ambiante");
+      return TR(STR_FT_LIGHT_D);
     case FTEST_MB_SB_CAMERA:
-      return TXT("Camara del SensorBoard", "SensorBoard camera",
-                 "Camera du SensorBoard");
+      return TR(STR_FT_CAMERA_D);
     case FTEST_MB_ACTUATORS:
-      return TXT("Actuadores en lazo abierto", "Actuators in open loop",
-                 "Actionneurs en boucle ouverte");
+      return TR(STR_FT_ACTUATORS_D);
     case FTEST_MB_FAN_RPM:
-      return TXT("Revoluciones del ventilador", "Fan RPM",
-                 "Tours du ventilateur");
+      return TR(STR_FT_FANRPM_D);
     case FTEST_MB_HUMID_USB:
-      return TXT("Humidificador por USB", "USB humidifier",
-                 "Humidificateur USB");
+      return TR(STR_FT_HUMUSB_D);
     case FTEST_MB_BUZZER:
-      return TXT("Zumbador de la placa", "Board buzzer",
-                 "Buzzer de la carte");
+      return TR(STR_FT_BUZZER_D);
     case FTEST_MB_AFE_SPI:
-      return TXT("Enlace SPI con el AFE", "SPI link to the AFE",
-                 "Liaison SPI avec l'AFE");
+      return TR(STR_FT_AFESPI_D);
     case FTEST_MB_AFE_PROBE:
-      return TXT("Sonda de SpO2 conectada", "SpO2 probe connected",
-                 "Sonde SpO2 connectee");
+      return TR(STR_FT_SPO2_D);
     case FTEST_MB_HMI_LINK:
-      return TXT("Enlace serie con el display", "Serial link to the display",
-                 "Liaison serie avec l'ecran");
+      return TR(STR_FT_HMILINK_D);
     case FTEST_MB_GSM_AT:
-      return TXT("El modem GSM responde a comandos AT",
-                 "GSM modem responds to AT commands",
-                 "Le modem GSM repond aux commandes AT");
+      return TR(STR_FT_GSMMODEM_D);
     case FTEST_MB_GSM_SIM:
-      return TXT("Tarjeta SIM lista", "SIM card ready", "Carte SIM prete");
+      return TR(STR_FT_SIM_D);
     case FTEST_MB_GSM_SIGNAL:
-      return TXT("Nivel de senal GSM", "GSM signal level",
-                 "Niveau de signal GSM");
+      return TR(STR_FT_GSMSIGNAL_D);
     case FTEST_MB_GSM_NET:
-      return TXT("Registro en la red movil", "Mobile network registration",
-                 "Enregistrement sur le reseau mobile");
+      return TR(STR_FT_GSMNET_D);
     case FTEST_MB_WIFI:
-      return TXT("Conexion WiFi de la placa", "Board WiFi connection",
-                 "Connexion WiFi de la carte");
+      return TR(STR_FT_BOARDWIFI_D);
     case FTEST_MB_TB_PROVISION:
-      return TXT("Aprovisionamiento en ThingsBoard",
-                 "ThingsBoard provisioning", "Provisionnement ThingsBoard");
+      return TR(STR_FT_THINGSBOARD_D);
     case FTEST_MB_TIME:
-      return TXT("Hora sincronizada por red", "Time synced from network",
-                 "Heure synchronisee par le reseau");
+      return TR(STR_FT_TIME_D);
     case FTEST_MB_NVS:
-      return TXT("Memoria NVS de la placa", "Board NVS memory",
-                 "Memoire NVS de la carte");
+      return TR(STR_FT_BOARDNVS_D);
     case FTEST_MB_LITTLEFS:
-      return TXT("Sistema de archivos LittleFS", "LittleFS filesystem",
-                 "Systeme de fichiers LittleFS");
+      return TR(STR_FT_LITTLEFS_D);
     default: return "?";
   }
 }
@@ -404,40 +357,31 @@ const char *mbTestDesc(unsigned id) {
 const char *mbWaitInstruction(unsigned id) {
   switch (id) {
     case FTEST_MB_SB_DOOR:
-      return TXT("Abre y cierra la puerta", "Open and close the door",
-                 "Ouvrez et fermez la porte");
+      return TR(STR_FT_ASK_DOOR);
     case FTEST_MB_SB_LIGHT:
-      return TXT("Tapa el sensor de luz", "Cover the light sensor",
-                 "Couvrez le capteur de lumiere");
+      return TR(STR_FT_ASK_LIGHT);
     default:
-      return TXT("Sigue las instrucciones", "Follow the instructions",
-                 "Suivez les instructions");
+      return TR(STR_FT_ASK_GENERIC);
   }
 }
 
 const char *mbConfirmQuestion(unsigned id) {
   switch (id) {
     case FTEST_MB_BUZZER:
-      return TXT("Suena el zumbador de la placa?",
-                 "Does the board buzzer sound?",
-                 "Le buzzer de la carte sonne-t-il ?");
+      return TR(STR_FT_ASK_BUZZER);
     default:
-      return TXT("Confirma el resultado", "Confirm the result",
-                 "Confirmez le resultat");
+      return TR(STR_FT_ASK_CONFIRM);
   }
 }
 
 const char *rejectReasonText(FtestReject r) {
   switch (r) {
     case FTEST_REJECT_BUSY:
-      return TXT("Ya hay un test en curso", "A test is already running",
-                 "Un test est deja en cours");
+      return TR(STR_FT_ALREADY_RUNNING);
     case FTEST_REJECT_CONTROL_ACTIVE:
-      return TXT("Control activo: apaga el control antes del test",
-                 "Control active: turn off control before testing",
-                 "Controle actif : eteignez le controle avant le test");
+      return TR(STR_FT_CONTROL_ACTIVE);
     case FTEST_REJECT_UNKNOWN_ID:
-      return TXT("Test desconocido", "Unknown test", "Test inconnu");
+      return TR(STR_FT_UNKNOWN_TEST);
     default:
       return "?";
   }
@@ -447,35 +391,29 @@ const char *rejectReasonText(FtestReject r) {
 // arrancar ningun test, local o remoto (banco 2026-09-06: ya no se pinta en
 // la zona de accion — buildGatePopup()).
 const char *gateTitleText() {
-  return TXT("ATENCION", "WARNING", "ATTENTION");
+  return TR(STR_FT_WARNING_UC);
 }
 
 const char *gateBodyText() {
-  return TXT(
-      "El equipo debe estar VACIO, sin paciente. Los actuadores se "
-      "encenderan en lazo abierto. Continuar?",
-      "The unit must be EMPTY, no patient inside. Actuators will be "
-      "switched on in open loop. Continue?",
-      "L'appareil doit etre VIDE, sans patient. Les actionneurs seront "
-      "allumes en boucle ouverte. Continuer ?");
+  return TR(STR_FT_EMPTY_WARNING);
 }
 
 // Indicador de paginacion (D5): "Pagina i/n".
 const char *pageIndicatorFmt() {
-  return TXT("Pagina %d/%d", "Page %d/%d", "Page %d/%d");
+  return TR(STR_FT_PAGE_FMT);
 }
 
 // ---------------------------------------------------------------------------
 const char *statusText(FtestStatus st, bool started) {
-  if (!started) return TXT("Pendiente", "Pending", "En attente");
+  if (!started) return TR(STR_FT_PENDING);
   switch (st) {
-    case FTEST_RUNNING: return TXT("En curso", "Running", "En cours");
-    case FTEST_PASS:    return TXT("PASA", "PASS", "REUSSI");
-    case FTEST_FAIL:    return TXT("FALLA", "FAIL", "ECHEC");
-    case FTEST_SKIP:    return TXT("OMITIDO", "SKIPPED", "OMIS");
-    case FTEST_WAIT:    return TXT("ESPERA", "WAIT", "ATTENTE");
-    case FTEST_CONFIRM: return TXT("CONFIRMAR", "CONFIRM", "CONFIRMER");
-    case FTEST_WARN:    return TXT("AVISO", "WARN", "AVIS");
+    case FTEST_RUNNING: return TR(STR_FT_RUNNING);
+    case FTEST_PASS:    return TR(STR_FT_PASS);
+    case FTEST_FAIL:    return TR(STR_FT_FAIL);
+    case FTEST_SKIP:    return TR(STR_FT_SKIPPED);
+    case FTEST_WAIT:    return TR(STR_FT_WAIT);
+    case FTEST_CONFIRM: return TR(STR_FT_CONFIRM);
+    case FTEST_WARN:    return TR(STR_FT_WARN);
     default: return "?";
   }
 }
@@ -640,12 +578,12 @@ void renderAskUi(const char *question, lv_event_cb_t yesCb, lv_event_cb_t noCb,
   lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_align(lbl, LV_ALIGN_TOP_MID, 0, 0);
 
-  lv_obj_t *yes = makeBtn(s_action, TXT("SI", "YES", "OUI"), yesCb,
+  lv_obj_t *yes = makeBtn(s_action, TR(STR_FT_YES), yesCb,
                           lv_color_hex(0x2E7D32), userData);
   lv_obj_set_size(yes, 140, 44);
   lv_obj_align(yes, LV_ALIGN_BOTTOM_MID, -80, 0);
 
-  lv_obj_t *no = makeBtn(s_action, TXT("NO", "NO", "NON"), noCb,
+  lv_obj_t *no = makeBtn(s_action, TR(STR_FT_NO), noCb,
                          lv_color_hex(0xAA3333), userData);
   lv_obj_set_size(no, 140, 44);
   lv_obj_align(no, LV_ALIGN_BOTTOM_MID, 80, 0);
@@ -688,12 +626,12 @@ void buildGatePopup() {
   lv_obj_set_size(btnRow, 500, 60);
   lv_obj_clear_flag(btnRow, LV_OBJ_FLAG_SCROLLABLE);
 
-  lv_obj_t *yes = makeBtn(btnRow, TXT("SI", "YES", "OUI"), onGateYesCb,
+  lv_obj_t *yes = makeBtn(btnRow, TR(STR_FT_YES), onGateYesCb,
                           lv_color_hex(0x2E7D32));
   lv_obj_set_size(yes, 200, 56);
   lv_obj_align(yes, LV_ALIGN_LEFT_MID, 10, 0);
 
-  lv_obj_t *no = makeBtn(btnRow, TXT("NO", "NO", "NON"), onGateNoCb,
+  lv_obj_t *no = makeBtn(btnRow, TR(STR_FT_NO), onGateNoCb,
                          lv_color_hex(0xAA3333));
   lv_obj_set_size(no, 200, 56);
   lv_obj_align(no, LV_ALIGN_RIGHT_MID, -10, 0);
@@ -709,9 +647,7 @@ void renderGatePopup() {
 void renderLocalAction() {
   switch (s_localPhase) {
     case LocalPhase::Wifi:
-      renderCenteredText(TXT("Buscando redes WiFi...",
-                             "Scanning WiFi networks...",
-                             "Recherche de reseaux WiFi..."));
+      renderCenteredText(TR(STR_FT_SCANNING_WIFI));
       break;
     default:
       break;  // Tests instantaneos: sin contenido en la zona de accion.
@@ -734,9 +670,7 @@ void renderRemoteAction() {
     }
     if (s_rows[i].status == FTEST_CONFIRM) {
       if (s_remoteConfirmAnsweredRowId == s_rows[i].id) {
-        renderCenteredText(TXT("Esperando a la motherBoard...",
-                               "Waiting for the motherBoard...",
-                               "En attente de la carte..."));
+        renderCenteredText(TR(STR_FT_WAITING_MB));
       } else {
         renderAskUi(mbConfirmQuestion(s_rows[i].id), onRemoteConfirmYes,
                     onRemoteConfirmNo, &s_rows[i]);
@@ -761,24 +695,19 @@ void renderSummary() {
 
   char header[80];
   snprintf(header, sizeof(header),
-          TXT("%d errores - %d avisos - %d OK",
-              "%d errors - %d warnings - %d OK",
-              "%d erreurs - %d avis - %d OK"),
+          TR(STR_FT_TALLY_FMT),
           totalFail, totalWarn, totalPass);
 
   char buf[192];
   if (s_mbLinkLost) {
     snprintf(buf, sizeof(buf), "%s\n%s", header,
-            TXT("Placa: enlace perdido durante el test",
-                "Board: link lost during test",
-                "Carte : liaison perdue pendant le test"));
+            TR(STR_FT_LINK_LOST));
   } else if (s_mbUnsupported) {
     snprintf(buf, sizeof(buf), "%s\n%s", header,
-            TXT("Placa: sin soporte", "Board: no support",
-                "Carte : non supportee"));
+            TR(STR_FT_NO_SUPPORT));
   } else if (s_mbRejected) {
     snprintf(buf, sizeof(buf), "%s\n%s: %s", header,
-            TXT("Placa", "Board", "Carte"),
+            TR(STR_FT_BOARD),
             rejectReasonText(s_mbRejectReason));
   } else {
     snprintf(buf, sizeof(buf), "%s", header);
@@ -1064,8 +993,7 @@ void buildDetailPanel(RowData &r) {
   if (!r.isMb && r.id == (unsigned)FTEST_HMI_LINK && g_ftestRingDrops > 0) {
     char dropLine[64];
     snprintf(dropLine, sizeof(dropLine),
-            TXT("Anillo FTEST: %u descartes", "FTEST ring: %u drops",
-                "Anneau FTEST : %u pertes"),
+            TR(STR_FT_RING_DROPS_FMT),
             (unsigned)g_ftestRingDrops);
     lv_obj_t *dropLbl = lv_label_create(s_detailPanel);
     lv_label_set_text(dropLbl, dropLine);
@@ -1088,13 +1016,13 @@ void buildDetailPanel(RowData &r) {
   lv_obj_clear_flag(btnRow, LV_OBJ_FLAG_SCROLLABLE);
 
   if (canRetry) {
-    lv_obj_t *retryBtn = makeBtn(btnRow, TXT("REINTENTAR", "RETRY", "RESSAYER"),
+    lv_obj_t *retryBtn = makeBtn(btnRow, TR(STR_FT_RETRY),
                                  onDetailRetryClicked, lv_color_hex(0x0075EE),
                                  &r);
     lv_obj_set_size(retryBtn, 160, 44);
     lv_obj_align(retryBtn, LV_ALIGN_LEFT_MID, 20, 0);
   }
-  lv_obj_t *closeBtn = makeBtn(btnRow, TXT("CERRAR", "CLOSE", "FERMER"),
+  lv_obj_t *closeBtn = makeBtn(btnRow, TR(STR_CLOSE_UC),
                                onDetailCloseClicked, lv_color_hex(0xAA3333));
   lv_obj_set_size(closeBtn, 160, 44);
   if (canRetry) {
@@ -1147,7 +1075,7 @@ void renderVerdictAndProgress() {
   }
 
   int bucket = 2;  // blanco: en curso
-  const char *text = TXT("EN CURSO...", "RUNNING...", "EN COURS...");
+  const char *text = TR(STR_FT_IN_PROGRESS_UC);
   if (s_step == Step::Summary) {
     const bool hwError = computeHwError();
     bucket = hwError ? 0 : 3;
@@ -1260,9 +1188,7 @@ void renderAll() {
       renderLocalAction();
       break;
     case Step::RemoteAwaitFirst:
-      renderCenteredText(TXT("Esperando a la motherBoard...",
-                             "Waiting for the motherBoard...",
-                             "En attente de la carte..."));
+      renderCenteredText(TR(STR_FT_WAITING_MB));
       break;
     case Step::RemoteRunning:
       renderRemoteAction();
@@ -1276,9 +1202,8 @@ void renderAll() {
 
   if (s_titleLbl) {
     lv_label_set_text(s_titleLbl, s_step == Step::Summary
-                                       ? TXT("RESUMEN", "SUMMARY", "RESUME")
-                                       : TXT("TEST DE FABRICA",
-                                             "FACTORY TEST", "TEST USINE"));
+                                       ? TR(STR_FT_SUMMARY)
+                                       : TR(STR_FT_TITLE));
   }
 
   renderVerdictAndProgress();
@@ -1789,7 +1714,7 @@ void FactoryTest_Init(void) {
   lv_obj_set_style_text_color(s_titleLbl, lv_color_hex(0x0B2E4F), 0);
   lv_obj_align(s_titleLbl, LV_ALIGN_TOP_MID, 0, 8);
 
-  lv_obj_t *exitBtn = makeBtn(s_card, TXT("SALIR", "EXIT", "QUITTER"),
+  lv_obj_t *exitBtn = makeBtn(s_card, TR(STR_TOUR_EXIT),
                               onExitClicked, lv_color_hex(0xAA3333));
   lv_obj_set_size(exitBtn, 110, 40);
   lv_obj_align(exitBtn, LV_ALIGN_TOP_RIGHT, -8, 6);
@@ -2044,7 +1969,7 @@ void FactoryTest_Poll(void) {
 
 void FactoryTest_ApplyLanguage(void) {
   if (s_exitBtnLabel) {
-    lv_label_set_text(s_exitBtnLabel, TXT("SALIR", "EXIT", "QUITTER"));
+    lv_label_set_text(s_exitBtnLabel, TR(STR_TOUR_EXIT));
   }
   if (s_step != Step::Closed) {
     // Los botones de fila ya creados solo se refrescan si r.dirty (hallazgo
@@ -2081,12 +2006,8 @@ void FactoryTest_RefreshSettingsRow(void) {
   s_lastTraining = training;
   if (!enabled) {
     lv_label_set_text(ui_HwTestSubLabel,
-                      training ? TXT("No disponible en formacion",
-                                     "Not available during training",
-                                     "Indisponible en formation")
-                               : TXT("Apaga el control para testear",
-                                     "Turn control off to test",
-                                     "Arreter le controle pour tester"));
+                      training ? TR(STR_FT_NOT_IN_TRAINING)
+                               : TR(STR_HW_TEST_SUB));
   }
 
   if (enabled) {

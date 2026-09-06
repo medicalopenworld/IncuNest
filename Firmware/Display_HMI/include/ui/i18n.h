@@ -16,6 +16,14 @@
 // Anadir un idioma = una columna nueva en el `.def` + una entrada en
 // `ui_lang_t`. Ningun punto de llamada cambia.
 //
+// SALVO UN SITIO, y conviene saberlo antes de contarlo: el contenido de los
+// cursos de formacion NO esta aqui. Son 218 parrafos que lee un unico modulo y
+// que solo tienen sentido junto al paso que explican, asi que viven en tablas
+// `LessonTxt` en `src/ui/training/lessons_*.cpp`, con sus propias columnas y
+// su propia guarda ASCII (`LESSON_TABLE_IS_ASCII`). El porque esta en
+// `ui/training/lesson_types.h`. Anadir un idioma son, por tanto, DOS sitios:
+// este `.def` y esas tablas.
+//
 // Solo lo consume codigo C++ (todo `src/ui/` y `src/tasks/` salvo el
 // `ui_helpers.c` generado por SquareLine, que no pinta texto propio), asi que
 // no lleva envoltorio `extern "C"`.

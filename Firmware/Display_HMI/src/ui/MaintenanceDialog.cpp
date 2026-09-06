@@ -8,11 +8,13 @@
 #include "UITask.h"
 #include "main.h"
 #include "modules/maintenance/maintenance.h"
+#include "state/training_mode.h"  // Training_IsActive()
 #include "ui.h"
 // Los otros dialogos modales: el aviso espera su turno y no se pinta encima.
 #include "ui/AlarmCenter.h"
 #include "ui/BabyExitDialog.h"
 #include "ui/BabyWizard.h"
+#include "ui/FactoryTest.h"
 #include "ui/HelpDialog.h"
 #include "ui/TimeDialog.h"
 #include "ui/training/training.h"
@@ -41,7 +43,6 @@ constexpr uint32_t COLOR_SUB = 0x666666;
 bool s_open = false;
 // Armado por el desbloqueo de pantalla. Se consume al abrir el pop-up.
 bool s_armed = false;
-uint32_t s_openedTick = 0;
 
 lv_obj_t *s_overlay = nullptr;
 lv_obj_t *s_content = nullptr;
@@ -92,6 +93,12 @@ void buildContent();
 // fechas nuevas y el boton de abajo pasa de MAS TARDE a CERRAR cuando ya no
 // queda nada por hacer.
 void onLevelDone(lv_event_t *e) {
+  // En formacion no se registra nada: escribiria NVS del equipo de verdad,
+  // justo lo que la franja "no recibe ordenes" niega (ADR-0002).
+  if (Training_IsActive()) {
+    UI_ShowToast(TR(STR_NOT_IN_TRAINING), 2500);
+    return;
+  }
   const mnt_level_t lvl =
       (mnt_level_t)(uintptr_t)lv_event_get_user_data(e);
   Maintenance_MarkDone(lvl);
@@ -184,7 +191,9 @@ void openDialog() {
   buildContent();
   s_open = true;
   s_armed = false;
-  s_openedTick = lv_tick_get();
+  // Que el tope de inactividad cuente desde ahora y no desde el ultimo toque
+  // de antes de abrirse.
+  lv_disp_trig_activity(NULL);
   lv_obj_clear_flag(s_overlay, LV_OBJ_FLAG_HIDDEN);
   lv_obj_move_foreground(s_overlay);
 }
@@ -233,7 +242,8 @@ void MaintenanceDialog_Poll(void) {
     // tope cierra un aviso olvidado para devolverle el control al
     // auto-bloqueo: se cierra SIN contestar, asi que volvera a salir en el
     // siguiente desbloqueo si sigue habiendo algo vencido.
-    if (mustYield() || lv_tick_elaps(s_openedTick) > MNT_IDLE_TIMEOUT_MS) {
+    if (mustYield() ||
+        lv_disp_get_inactive_time(NULL) > MNT_IDLE_TIMEOUT_MS) {
       closeDialog();
     }
     return;
@@ -246,9 +256,13 @@ void MaintenanceDialog_Poll(void) {
   if (mustYield()) return;
   if (lv_scr_act() != ui_ScreenMain) return;
   if (HelpDialog_IsOpen() || Training_IsOpen() || AlarmCenter_IsOpen() ||
-      BabyWizard_IsOpen() || BabyExitDialog_IsOpen() || TimeDialog_IsOpen()) {
+      BabyWizard_IsOpen() || BabyExitDialog_IsOpen() || TimeDialog_IsOpen() ||
+      FactoryTest_IsOpen()) {
     return;
   }
+  // En formacion la pantalla es del alumno: un aviso real encima de una
+  // leccion la aborta y confunde lo que es de verdad con lo que es practica.
+  if (Training_IsActive()) return;
 
   if (!Maintenance_ShouldWarn()) return;
   openDialog();

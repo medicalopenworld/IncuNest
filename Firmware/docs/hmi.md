@@ -62,6 +62,14 @@ translation is written **without accents** and a `static_assert` in
 `i18n.cpp` turns any non-ASCII cell into a compile error rather than an empty
 box on screen.
 
+One exception, worth knowing before trusting the sentence above: the training
+courses' **content** is not in the catalogue. Those 218 paragraphs are read by
+a single module and only make sense next to the step they explain, so they
+live in `LessonTxt` tables inside `src/ui/training/lessons_*.cpp`, with their
+own language columns and their own ASCII guard
+(`LESSON_TABLE_IS_ASCII`, `ui/training/lesson_types.h`). Adding a language is
+therefore *two* places: the `.def` and those tables.
+
 The baseboard also needs to know which language the user is reading in order
 to re-send the batch of alarm strings. Both converge through the initial UART
 packet sent from the display.
