@@ -2,10 +2,10 @@
 
 ## Purpose
 
-Que la incubadora recuerde al personal cada cuánto hay que hacerle
-mantenimiento (limpieza y desinfección) y se lo diga con un aviso en pantalla
-que lleve el QR de los tutoriales, en vez de depender de que alguien lleve la
-cuenta por su cuenta.
+Que la incubadora recuerde al personal el protocolo de limpieza y
+desinfección — sus tres niveles y sus plazos — y se lo diga con un aviso en
+pantalla que lleve el QR de los tutoriales, en vez de depender de que alguien
+lleve la cuenta por su cuenta.
 
 Afecta solo a `Display_HMI`. No toca el protocolo serie ni la `motherBoard`:
 el HMI ya recibe de la placa el epoch (`CTRL,TIME`) y ya sabe qué bebé está al
@@ -13,120 +13,132 @@ mando (`BabyWizard_GetActiveSeq()`), que es todo lo que hace falta.
 
 ## Requirements
 
-### Requirement: El recordatorio se dispara por plazo de calendario
+### Requirement: El protocolo tiene tres niveles con cadencia fija
 
-El HMI SHALL registrar en NVS (`hmi_cfg`, clave `mnt_last`) el epoch UTC del
-último mantenimiento registrado, y SHALL considerar que el plazo se ha
-cumplido cuando hayan pasado `mnt_days` días de CALENDARIO desde esa fecha.
+El recordatorio SHALL manejar tres niveles, con estas cadencias, que NO son
+configurables — son el protocolo de limpieza del equipo, no una preferencia:
 
-El plazo se mide con el reloj de la placa (`HMI_GetEpochNow()`) y NO con horas
-de funcionamiento: una incubadora que ha estado un mes apagada necesita
-limpieza igual antes de volver a usarse.
+| Nivel | Vence cuando |
+|---|---|
+| **DIARIA** | hay paciente dentro y ha pasado 1 día desde el último registro diario |
+| **SEMANAL** | han pasado 7 días desde el último registro semanal |
+| **TERMINAL** | hay un alta de paciente pendiente, o han pasado 7 días desde el último registro terminal |
 
-Mientras el HMI no tenga hora válida (`HMI_GetEpochNow()` devuelve 0) NO SHALL
-haber aviso por plazo: sin reloj no hay nada que medir.
+"Paciente dentro" SHALL ser el criterio de `BabyWizard_HasLiveSession()`
+(identidad conocida Y terapia en marcha ahora mismo), no un perfil recordado:
+una incubadora vacía no se ensucia a diario.
 
-En el primer arranque con hora válida, si no hay ningún mantenimiento
-registrado, el HMI SHALL sembrar `mnt_last` con la fecha de ese momento. Un
-equipo recién fabricado tendría `mnt_last = 0`, es decir "vencido desde 1970",
-y el aviso saldría en la primera pantalla que viese el operador.
+El "o antes si hay suciedad visible" de la semanal es criterio del operador y
+no algo que el firmware pueda detectar: SHALL aparecer como texto en el aviso,
+y el botón de registrar SHALL estar disponible siempre, para poder anotar una
+limpieza adelantada.
 
-Si el reloj se mueve hacia atrás y `mnt_last` queda en el futuro, el HMI SHALL
-reanclar `mnt_last` a la fecha actual. Un registro en el futuro dejaría el
-plazo sin cumplirse nunca.
+Los niveles se contienen: registrar un nivel SHALL poner al día también los
+menos profundos (terminal ⊃ semanal ⊃ diaria). Si acaba de hacerse la
+terminal, seguir pidiendo la diaria sería ruido.
 
-#### Scenario: Se cumple el plazo y sale el aviso
-- **WHEN** el intervalo configurado es de 30 días
-- **AND** han pasado 31 días desde el último mantenimiento registrado
-- **AND** el operador desbloquea la pantalla
-- **THEN** sale el aviso de mantenimiento, con los días transcurridos y la
-  fecha del último registro
-- *(Verificación manual: Display_HMI no tiene entorno de test. En banco se
-  provoca ajustando la hora del equipo con el diálogo del reloj.)*
+Cada nivel SHALL persistir en NVS la fecha de su último registro
+(`mnt_daily`, `mnt_weekly`, `mnt_term`), en epoch UTC.
 
-#### Scenario: Sin hora válida no hay aviso por plazo
-- **WHEN** la placa todavía no ha difundido un epoch sincronizado
-- **THEN** no sale ningún aviso por plazo, y en cuanto llegue la hora el plazo
-  empieza a contar desde ese momento si no había registro previo
-- *(Verificación manual: arranque con la placa sin hora.)*
+#### Scenario: La diaria solo con paciente dentro
+- **WHEN** ha pasado más de un día desde el último registro diario
+- **AND** no hay terapia en marcha para ningún bebé
+- **THEN** la diaria no aparece como vencida
+- **AND** en cuanto se activa la terapia para un bebé, sí
+- *(Verificación manual: Display_HMI no tiene entorno de test. Banco.)*
 
-#### Scenario: Reloj movido hacia atrás
-- **WHEN** el operador ajusta la fecha a un año anterior por error
-- **AND** el último mantenimiento registrado queda en el futuro
-- **THEN** el registro se reancla a la fecha actual y el plazo vuelve a contar
-  desde ahí, en vez de quedarse sin vencer nunca
-- *(Verificación manual: ajustar la hora hacia atrás y mirar el log `MNT`.)*
-
-### Requirement: El recordatorio se dispara también con un bebé nuevo
-
-El HMI SHALL avisar además cada vez que ponga al mando un perfil de bebé
-distinto del último por el que ya avisó — alta de un paciente nuevo o cambio
-de un bebé a otro — con independencia del plazo. Es la limpieza entre
-pacientes.
-
-El perfil por el que ya se avisó SHALL persistirse en NVS (`mnt_seq`), para
-que un reinicio con el MISMO bebé dentro no vuelva a avisar.
-
-Con el recordatorio desactivado (`mnt_days == 0`) NO SHALL avisar por ningún
-motivo, tampoco por bebé nuevo: quien lo apaga no quiere unos avisos y no
-otros.
-
-#### Scenario: Alta de un bebé nuevo
-- **WHEN** el operador activa el control de temperatura y el asistente da de
-  alta un bebé distinto del anterior
-- **AND** la pantalla se desbloquea después
-- **THEN** sale el aviso de limpieza entre pacientes (texto propio, distinto
-  del de plazo cumplido)
-- *(Verificación manual en banco: alta de un bebé nuevo con el asistente.)*
-
-#### Scenario: Reinicio con el mismo bebé dentro
-- **WHEN** el equipo se reinicia y el operador vuelve a seleccionar el MISMO
-  bebé que ya estaba
-- **THEN** no sale ningún aviso por bebé nuevo
-- *(Verificación manual en banco: reinicio y reselección del mismo perfil.)*
-
-#### Scenario: Recordatorio desactivado
-- **WHEN** el intervalo está en DESACTIVADO en Ajustes
-- **THEN** no sale el aviso ni por plazo cumplido ni por bebé nuevo
+#### Scenario: Registrar la terminal pone al día las otras dos
+- **WHEN** las tres están vencidas y el operador pulsa HECHO en la terminal
+- **THEN** las tres pasan a estar al día con la fecha de hoy
 - *(Verificación manual en banco.)*
 
-### Requirement: El aviso lleva el QR de los tutoriales y dos respuestas
+#### Scenario: Registrar la diaria no toca las otras dos
+- **WHEN** las tres están vencidas y el operador pulsa HECHO en la diaria
+- **THEN** solo la diaria queda al día; semanal y terminal siguen vencidas
+- *(Verificación manual en banco.)*
+
+### Requirement: El alta del paciente deja pendiente una limpieza terminal
+
+El HMI SHALL dar por vencida la limpieza terminal cuando el perfil que tiene
+al mando (`BabyWizard_GetActiveSeq()`) pase de un bebé a ninguno — el alta que
+da el diálogo de salida, vía `BabyWizard_ClearActiveProfile()` — o de un bebé
+a otro distinto, que es cambiar de paciente sin pasar por el alta.
+
+Empezar con el primer paciente (de ninguno a un bebé) NO SHALL dejar nada
+pendiente: ahí no ha salido nadie.
+
+Ese "terminal pendiente" SHALL persistirse en NVS (`mnt_tpend`): el equipo
+puede apagarse entre el alta y la limpieza, y no depende de que haya reloj.
+
+#### Scenario: Alta del paciente
+- **WHEN** el diálogo de salida da el alta al bebé que estaba dentro
+- **AND** la pantalla se desbloquea después
+- **THEN** el aviso sale con la terminal marcada como TOCA AHORA
+- *(Verificación manual en banco: apagar los controles y dar el alta.)*
+
+#### Scenario: Cambio de un bebé a otro
+- **WHEN** el asistente pone al mando un bebé distinto del que estaba
+- **THEN** queda pendiente una limpieza terminal
+- *(Verificación manual en banco.)*
+
+#### Scenario: El pendiente sobrevive al reinicio
+- **WHEN** se da el alta y el equipo se reinicia antes de registrar la
+  limpieza
+- **THEN** al arrancar la terminal sigue pendiente
+- *(Verificación manual en banco: alta, reinicio y desbloqueo.)*
+
+### Requirement: El aviso muestra los tres niveles, con el QR y su registro
 
 El aviso SHALL ser un diálogo modal sobre `ui_ScreenMain` con la misma tarjeta
 que el menú de ayuda (780x460), y SHALL mostrar un QR de
 `SUPPORT_TUTORIAL_URL` — el MISMO código que la vista "Vídeo tutorial" del
 menú de ayuda, porque los tutoriales de limpieza viven en esa página.
 
-El aviso SHALL ofrecer exactamente dos salidas y ninguna X:
+SHALL mostrar SIEMPRE los tres niveles, vencidos o no, cada uno con su
+cadencia, la fecha de su último registro, su estado (TOCA AHORA / al día) y su
+propio botón HECHO. El operador tiene que poder ver el protocolo completo, no
+solo lo que le toca hoy.
 
-- **MANTENIMIENTO HECHO**: registra la fecha de hoy en `mnt_last`, borra el
-  "más tarde" y da por avisado al bebé actual.
-- **MÁS TARDE**: calla los avisos durante 24 h (`mnt_snooze`).
+Registrar un nivel NO SHALL cerrar el aviso: SHALL repintarlo con las fechas
+nuevas. La diaria y la semanal vencen juntas cada 7 días y el operador puede
+haber hecho las dos.
 
-Sin hora válida, MANTENIMIENTO HECHO SHALL callar el aviso pero NO SHALL
-fechar nada: el registro sigue vacío y se muestra como "sin registrar".
-Inventar una fecha sería peor que no tener ninguna.
+El aviso SHALL ofrecer un único botón de salida y ninguna X: **MÁS TARDE**
+(calla los tres niveles 24 h) cuando hay algo vencido, y **CERRAR** cuando no
+lo hay — abierto a mano, o con todo ya registrado. Un recordatorio que se
+puede cerrar sin contestar no deja constancia de nada.
+
+Sin hora válida, HECHO SHALL callar el aviso pero NO SHALL fechar nada: el
+registro sigue mostrándose como "sin registrar". Inventar una fecha sería peor
+que no tener ninguna.
 
 Todos los textos SHALL salir del catálogo (`ui/i18n_strings.def`) en los
 cuatro idiomas del equipo.
 
-#### Scenario: Registrar el mantenimiento desde el aviso
-- **WHEN** el operador pulsa MANTENIMIENTO HECHO
-- **THEN** el aviso se cierra, sale un toast de confirmación, y la fecha de
-  hoy queda registrada — el siguiente aviso por plazo no llega hasta que
-  vuelvan a pasar `mnt_days` días
+#### Scenario: El aviso enseña el protocolo completo
+- **WHEN** sale el aviso porque vence la semanal
+- **THEN** se ven las tres líneas —diaria, semanal y terminal— con su cadencia
+  y su fecha, y solo la semanal marcada como TOCA AHORA
+- *(Verificación manual en banco.)*
+
+#### Scenario: Registrar dos niveles seguidos
+- **WHEN** la diaria y la semanal están vencidas y el operador pulsa HECHO en
+  las dos, una detrás de otra
+- **THEN** el aviso sigue abierto y se repinta tras cada registro
+- **AND** al no quedar nada vencido, el botón de abajo pasa de MÁS TARDE a
+  CERRAR
 - *(Verificación manual en banco.)*
 
 #### Scenario: Aplazar el aviso
 - **WHEN** el operador pulsa MÁS TARDE
-- **THEN** el aviso se cierra y no vuelve a salir durante 24 h, ni por plazo
-  ni por el bebé que lo provocó
+- **THEN** el aviso se cierra y no vuelve a salir durante 24 h, por ningún
+  nivel
 - *(Verificación manual en banco: aplazar y desbloquear varias veces.)*
 
 #### Scenario: Registrar sin reloj
-- **WHEN** el operador pulsa MANTENIMIENTO HECHO sin hora válida en el equipo
-- **THEN** el aviso se calla pero la fecha del último mantenimiento sigue
-  siendo "sin registrar"
+- **WHEN** el operador pulsa HECHO sin hora válida en el equipo
+- **THEN** el aviso se calla pero la fecha de ese nivel sigue siendo "sin
+  registrar"
 - *(Verificación manual: arranque sin hora de la placa.)*
 
 ### Requirement: El aviso espera su turno y cede la pantalla
@@ -151,7 +163,8 @@ Mientras el aviso esté abierto, la inactividad NO SHALL llevar la pantalla a
 `ui_ScreenLock` durante `MNT_IDLE_TIMEOUT_MS` (3 min): leer el QR con el móvil
 lleva más de los 20 s del auto-bloqueo. Pasado ese tope el aviso SHALL
 cerrarse solo, SIN contar como respuesta — volverá a salir en el siguiente
-desbloqueo, porque solo pulsar un botón lo calla.
+desbloqueo si sigue habiendo algo vencido, porque solo pulsar un botón lo
+calla.
 
 El tope SHALL medirse desde el instante de apertura (`lv_tick_elaps()`) y NO
 con `lv_disp_get_inactive_time()`: la propia exención del auto-bloqueo
@@ -159,7 +172,7 @@ reinicia ese contador cada 200 ms, así que un tope que lo leyera no llegaría
 nunca.
 
 #### Scenario: No se cuela encima de otro diálogo
-- **WHEN** hay motivo de aviso pendiente y el operador desbloquea la pantalla
+- **WHEN** hay algo vencido y el operador desbloquea la pantalla
 - **AND** el asistente de bebé o el diálogo de salida está abierto
 - **THEN** el aviso espera, y sale cuando ese diálogo se cierra
 - *(Verificación manual en banco.)*
@@ -180,38 +193,44 @@ nunca.
   contar, y el aviso vuelve a salir en el siguiente desbloqueo
 - *(Verificación manual en banco, cronómetro en mano.)*
 
-### Requirement: El intervalo se configura por equipo desde Ajustes
+### Requirement: En Ajustes solo se activan o desactivan los avisos
 
 `ui_ScreenSettings` SHALL ofrecer una fila **MANTENIMIENTO**, debajo de MODOS,
 con un panel propio en la misma columna que los demás (x=185). El panel SHALL
-permitir elegir el intervalo entre DESACTIVADO, 7, 15, 30 y 90 días, SHALL
-mostrar la fecha del último mantenimiento registrado, y SHALL ofrecer un botón
-para registrar un mantenimiento sin esperar al aviso.
+contener:
 
-El intervalo SHALL persistirse en NVS (`mnt_days`) y el valor de fábrica SHALL
-ser de 30 días. Un valor guardado que ya no esté en la lista SHALL caer al de
-fábrica en vez de dejar el desplegable sin ninguna opción marcada.
+- un **interruptor** único de avisos, y nada más de configuración: los plazos
+  no se eligen;
+- los tres niveles en **solo lectura**, con su cadencia y la fecha de su
+  último registro;
+- un botón **VER RECORDATORIO** que abre el propio pop-up, que es donde están
+  los tres botones HECHO. No SHALL haber un segundo sitio donde registrar lo
+  mismo.
 
-Cambiar el intervalo SHALL borrar el "más tarde" vigente: el operador acaba de
-decidir cada cuánto quiere el aviso, y la respuesta a la pregunta anterior ya
-no vale.
+Con los avisos desactivados NO SHALL salir el aviso por ningún nivel: quien lo
+apaga no quiere unos avisos y no otros. Las fechas SHALL seguir registrándose
+igual.
+
+El estado del interruptor SHALL persistirse en NVS (`mnt_en`) y el valor de
+fábrica SHALL ser activado. Volver a activarlo SHALL borrar un "más tarde"
+vigente: no tiene sentido arrastrar el aplazamiento de hace tres semanas.
 
 Abrir la fila MANTENIMIENTO SHALL ocultar los paneles de las otras filas, y
 abrir cualquier otra fila SHALL ocultar el de mantenimiento — misma regla que
 ya cumplen Info, WiFi, Idioma y Modos entre ellas.
 
-#### Scenario: Cambiar el intervalo
-- **WHEN** el operador elige 7 DÍAS en el desplegable de la fila
-  MANTENIMIENTO
-- **THEN** el intervalo queda guardado y sobrevive a un reinicio
-- **AND** un "más tarde" que estuviera vigente deja de aplicarse
-- *(Verificación manual en banco: cambiar, reiniciar y volver a mirar.)*
+#### Scenario: Desactivar los avisos
+- **WHEN** el operador desactiva el interruptor
+- **AND** hay niveles vencidos
+- **THEN** no sale ningún aviso al desbloquear
+- **AND** el ajuste sobrevive a un reinicio
+- *(Verificación manual en banco: desactivar, reiniciar y desbloquear.)*
 
-#### Scenario: Registrar el mantenimiento a mano
-- **WHEN** el operador acaba de limpiar la incubadora y pulsa el botón de
-  registrar en la fila MANTENIMIENTO
-- **THEN** la fecha del último mantenimiento pasa a ser la de hoy y el plazo
-  vuelve a contar desde ahí
+#### Scenario: Registrar a mano desde Ajustes
+- **WHEN** el operador acaba de limpiar la incubadora y pulsa VER
+  RECORDATORIO
+- **THEN** se abre el pop-up con los tres niveles y sus botones HECHO
+- **AND** el botón de abajo es CERRAR, no MÁS TARDE, si no hay nada vencido
 - *(Verificación manual en banco.)*
 
 #### Scenario: Las filas de Ajustes no se pisan

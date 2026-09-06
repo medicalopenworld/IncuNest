@@ -299,12 +299,15 @@ extern lv_obj_t * ui_MaintButton;
 extern lv_obj_t * ui_MaintArrow;
 extern lv_obj_t * ui_MaintConfigCont;
 extern lv_obj_t * ui_MaintTitleLabel;
-extern lv_obj_t * ui_MaintEveryLabel;
-extern lv_obj_t * ui_MaintIntervalDropDown;
-extern lv_obj_t * ui_MaintLastLabel;
+extern lv_obj_t * ui_MaintEnableLabel;
+extern lv_obj_t * ui_MaintEnableSwitch;
+// Una linea por nivel del protocolo (diaria / semanal / terminal) con su
+// cadencia y la fecha del ultimo registro. Solo lectura: registrar se hace en
+// el pop-up, que es donde estan los tres botones.
+extern lv_obj_t * ui_MaintLevelLabel[3];
 extern lv_obj_t * ui_MaintHintLabel;
-extern lv_obj_t * ui_MaintDoneButton;
-extern lv_obj_t * ui_MaintDoneLabel;
+extern lv_obj_t * ui_MaintOpenButton;
+extern lv_obj_t * ui_MaintOpenLabel;
 extern lv_obj_t * ui_InfoCont;
 extern lv_obj_t * ui_InfoPanel;
 extern lv_obj_t * ui_InfoLabel;

@@ -166,12 +166,12 @@ lv_obj_t *ui_MaintButton = NULL;
 lv_obj_t *ui_MaintArrow = NULL;
 lv_obj_t *ui_MaintConfigCont = NULL;
 lv_obj_t *ui_MaintTitleLabel = NULL;
-lv_obj_t *ui_MaintEveryLabel = NULL;
-lv_obj_t *ui_MaintIntervalDropDown = NULL;
-lv_obj_t *ui_MaintLastLabel = NULL;
+lv_obj_t *ui_MaintEnableLabel = NULL;
+lv_obj_t *ui_MaintEnableSwitch = NULL;
+lv_obj_t *ui_MaintLevelLabel[3] = {NULL, NULL, NULL};
 lv_obj_t *ui_MaintHintLabel = NULL;
-lv_obj_t *ui_MaintDoneButton = NULL;
-lv_obj_t *ui_MaintDoneLabel = NULL;
+lv_obj_t *ui_MaintOpenButton = NULL;
+lv_obj_t *ui_MaintOpenLabel = NULL;
 lv_obj_t *ui_ModesTitleLabel = NULL;
 lv_obj_t *ui_SkinModeCont = NULL;
 lv_obj_t *ui_Panel9 = NULL;
@@ -365,8 +365,8 @@ extern void InfoButton_cb(lv_event_t *e);
 void LanguageButton_cb(lv_event_t *e);
 extern void ModesButton_cb(lv_event_t *e);
 extern void MaintButton_cb(lv_event_t *e);
-extern void MaintIntervalDropDown_cb(lv_event_t *e);
-extern void MaintDoneButton_cb(lv_event_t *e);
+extern void MaintEnableSwitch_cb(lv_event_t *e);
+extern void MaintOpenButton_cb(lv_event_t *e);
 extern void ClockButton_cb(lv_event_t *e);
 extern void HelpButton_cb(lv_event_t *e);
 extern void TextArea_focus_cb(lv_event_t *e);
@@ -617,15 +617,15 @@ void ui_event_MaintButton(lv_event_t *e) {
   }
 }
 
-void ui_event_MaintIntervalDropDown(lv_event_t *e) {
+void ui_event_MaintEnableSwitch(lv_event_t *e) {
   if (lv_event_get_code(e) == LV_EVENT_VALUE_CHANGED) {
-    MaintIntervalDropDown_cb(e);
+    MaintEnableSwitch_cb(e);
   }
 }
 
-void ui_event_MaintDoneButton(lv_event_t *e) {
+void ui_event_MaintOpenButton(lv_event_t *e) {
   if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
-    MaintDoneButton_cb(e);
+    MaintOpenButton_cb(e);
   }
 }
 
@@ -3047,58 +3047,62 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_style_text_font(ui_MaintTitleLabel, &lv_font_montserrat_24,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
 
-  ui_MaintEveryLabel = lv_label_create(ui_MaintConfigCont);
-  lv_obj_set_width(ui_MaintEveryLabel, LV_SIZE_CONTENT);
-  lv_obj_set_height(ui_MaintEveryLabel, LV_SIZE_CONTENT);
-  lv_obj_set_x(ui_MaintEveryLabel, 40);
-  lv_obj_set_y(ui_MaintEveryLabel, -70);
-  lv_obj_set_align(ui_MaintEveryLabel, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_MaintEveryLabel, TR(STR_MAINT_REMIND_EVERY));
-  lv_obj_set_style_text_font(ui_MaintEveryLabel, &lv_font_montserrat_18,
+  // Interruptor unico: los tres niveles y sus plazos son el protocolo de
+  // limpieza, no una preferencia. Lo unico que se elige es si el equipo avisa.
+  ui_MaintEnableLabel = lv_label_create(ui_MaintConfigCont);
+  lv_obj_set_width(ui_MaintEnableLabel, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_MaintEnableLabel, LV_SIZE_CONTENT);
+  lv_obj_set_x(ui_MaintEnableLabel, 60);
+  lv_obj_set_y(ui_MaintEnableLabel, -95);
+  lv_obj_set_align(ui_MaintEnableLabel, LV_ALIGN_CENTER);
+  lv_label_set_text(ui_MaintEnableLabel, TR(STR_MAINT_REMINDER));
+  lv_obj_set_style_text_font(ui_MaintEnableLabel, &lv_font_montserrat_18,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
 
-  ui_MaintIntervalDropDown = lv_dropdown_create(ui_MaintConfigCont);
-  lv_dropdown_set_options(ui_MaintIntervalDropDown, TR(STR_MAINT_OPTIONS));
-  lv_obj_set_width(ui_MaintIntervalDropDown, 221);
-  lv_obj_set_height(ui_MaintIntervalDropDown, LV_SIZE_CONTENT);
-  lv_obj_set_x(ui_MaintIntervalDropDown, 240);
-  lv_obj_set_y(ui_MaintIntervalDropDown, -70);
-  lv_obj_set_align(ui_MaintIntervalDropDown, LV_ALIGN_CENTER);
-  lv_obj_add_flag(ui_MaintIntervalDropDown, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+  ui_MaintEnableSwitch = lv_switch_create(ui_MaintConfigCont);
+  lv_obj_set_width(ui_MaintEnableSwitch, 90);
+  lv_obj_set_height(ui_MaintEnableSwitch, 35);
+  lv_obj_set_x(ui_MaintEnableSwitch, 296);
+  lv_obj_set_y(ui_MaintEnableSwitch, -95);
+  lv_obj_set_align(ui_MaintEnableSwitch, LV_ALIGN_CENTER);
 
-  ui_MaintLastLabel = lv_label_create(ui_MaintConfigCont);
-  lv_label_set_long_mode(ui_MaintLastLabel, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(ui_MaintLastLabel, 400);
-  lv_obj_set_height(ui_MaintLastLabel, LV_SIZE_CONTENT);
-  lv_obj_set_x(ui_MaintLastLabel, 185);
-  lv_obj_set_y(ui_MaintLastLabel, 0);
-  lv_obj_set_align(ui_MaintLastLabel, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_MaintLastLabel, "");
-  lv_obj_set_style_text_font(ui_MaintLastLabel, &lv_font_montserrat_18,
-                             LV_PART_MAIN | LV_STATE_DEFAULT);
+  // Los tres niveles, solo lectura. El texto lo rellena
+  // maintenance_panel_refresh() (UITask.cpp) con la cadencia y la fecha.
+  for (int i = 0; i < 3; i++) {
+    ui_MaintLevelLabel[i] = lv_label_create(ui_MaintConfigCont);
+    lv_label_set_long_mode(ui_MaintLevelLabel[i], LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(ui_MaintLevelLabel[i], 400);
+    lv_obj_set_height(ui_MaintLevelLabel[i], LV_SIZE_CONTENT);
+    lv_obj_set_x(ui_MaintLevelLabel[i], 185);
+    lv_obj_set_y(ui_MaintLevelLabel[i], -40 + 42 * i);
+    lv_obj_set_align(ui_MaintLevelLabel[i], LV_ALIGN_CENTER);
+    lv_label_set_text(ui_MaintLevelLabel[i], "");
+    lv_obj_set_style_text_font(ui_MaintLevelLabel[i], &lv_font_montserrat_14,
+                               LV_PART_MAIN | LV_STATE_DEFAULT);
+  }
 
-  ui_MaintDoneButton = lv_btn_create(ui_MaintConfigCont);
-  lv_obj_set_width(ui_MaintDoneButton, 300);
-  lv_obj_set_height(ui_MaintDoneButton, 46);
-  lv_obj_set_x(ui_MaintDoneButton, 185);
-  lv_obj_set_y(ui_MaintDoneButton, 60);
-  lv_obj_set_align(ui_MaintDoneButton, LV_ALIGN_CENTER);
-  lv_obj_clear_flag(ui_MaintDoneButton, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_color(ui_MaintDoneButton, lv_color_hex(0x2E7D32),
+  ui_MaintOpenButton = lv_btn_create(ui_MaintConfigCont);
+  lv_obj_set_width(ui_MaintOpenButton, 300);
+  lv_obj_set_height(ui_MaintOpenButton, 46);
+  lv_obj_set_x(ui_MaintOpenButton, 185);
+  lv_obj_set_y(ui_MaintOpenButton, 105);
+  lv_obj_set_align(ui_MaintOpenButton, LV_ALIGN_CENTER);
+  lv_obj_clear_flag(ui_MaintOpenButton, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_bg_color(ui_MaintOpenButton, lv_color_hex(0x0075EE),
                             LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_radius(ui_MaintDoneButton, 8,
+  lv_obj_set_style_radius(ui_MaintOpenButton, 8,
                           LV_PART_MAIN | LV_STATE_DEFAULT);
 
-  ui_MaintDoneLabel = lv_label_create(ui_MaintDoneButton);
-  lv_label_set_text(ui_MaintDoneLabel, TR(STR_MAINT_DONE_UC));
-  lv_obj_center(ui_MaintDoneLabel);
+  ui_MaintOpenLabel = lv_label_create(ui_MaintOpenButton);
+  lv_label_set_text(ui_MaintOpenLabel, TR(STR_MAINT_OPEN_UC));
+  lv_obj_center(ui_MaintOpenLabel);
 
   ui_MaintHintLabel = lv_label_create(ui_MaintConfigCont);
   lv_label_set_long_mode(ui_MaintHintLabel, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(ui_MaintHintLabel, 400);
   lv_obj_set_height(ui_MaintHintLabel, LV_SIZE_CONTENT);
   lv_obj_set_x(ui_MaintHintLabel, 185);
-  lv_obj_set_y(ui_MaintHintLabel, 130);
+  lv_obj_set_y(ui_MaintHintLabel, 152);
   lv_obj_set_align(ui_MaintHintLabel, LV_ALIGN_CENTER);
   lv_label_set_text(ui_MaintHintLabel, TR(STR_MAINT_SETTINGS_HINT));
   lv_obj_set_style_text_font(ui_MaintHintLabel, &lv_font_montserrat_14,
@@ -3455,10 +3459,11 @@ void ui_ScreenSettings_screen_init(void) {
                       LV_EVENT_ALL, NULL);
   lv_obj_add_event_cb(ui_MaintButton, ui_event_MaintButton, LV_EVENT_ALL,
                       NULL);
-  lv_obj_add_event_cb(ui_MaintIntervalDropDown,
-                      ui_event_MaintIntervalDropDown, LV_EVENT_ALL, NULL);
-  lv_obj_add_event_cb(ui_MaintDoneButton, ui_event_MaintDoneButton,
+  lv_obj_add_event_cb(ui_MaintEnableSwitch, ui_event_MaintEnableSwitch,
                       LV_EVENT_ALL, NULL);
+  lv_obj_add_event_cb(ui_MaintOpenButton, ui_event_MaintOpenButton,
+                      LV_EVENT_ALL, NULL);
+  lv_obj_set_ext_click_area(ui_MaintEnableSwitch, TOUCH_EXT_NARROW);
 
   lv_obj_set_ext_click_area(ui_ImgButton2, TOUCH_EXT_MEDIUM);
   lv_obj_set_ext_click_area(ui_Switch4, TOUCH_EXT_NARROW);

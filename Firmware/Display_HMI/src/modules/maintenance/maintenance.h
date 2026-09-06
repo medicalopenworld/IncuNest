@@ -1,83 +1,74 @@
 #pragma once
-// Recordatorio de mantenimiento (limpieza y desinfeccion) de la incubadora.
+// Recordatorio de limpieza y mantenimiento de la incubadora.
 //
-// Aqui vive solo la decision de CUANDO hay que recordar; el pop-up que lo
+// Aqui vive solo la decision de CUANDO toca cada nivel; el pop-up que lo
 // cuenta y el QR de los tutoriales estan en `ui/MaintenanceDialog.cpp`. Sin
 // LVGL a proposito, igual que `modules/support/support_report.cpp`.
 //
-// Dos motivos independientes para recordar, los dos que pidio el usuario:
+// El protocolo tiene TRES niveles, cada uno con su cadencia propia. No son
+// configurables: son el protocolo de limpieza del equipo, no una preferencia.
+// Lo unico que se elige en Ajustes es si el equipo avisa o no.
 //
-//   - PLAZO: han pasado `Maintenance_IntervalDays()` dias desde el ultimo
-//     mantenimiento registrado. Es tiempo de CALENDARIO (epoch de la placa,
-//     `HMI_GetEpochNow()`), no horas de funcionamiento: una incubadora
-//     apagada un mes tambien necesita limpieza antes de volver a usarse.
-//   - BEBE NUEVO: el HMI ha puesto al mando un perfil distinto del ultimo
-//     por el que se aviso (`BabyWizard_GetActiveSeq()`), o sea alta de un
-//     paciente nuevo o cambio de un bebe a otro. Es la limpieza entre
-//     pacientes y no depende del plazo.
+//   DIARIA    con paciente dentro
+//   SEMANAL   cada 7 dias, o antes si hay suciedad visible
+//   TERMINAL  al alta del paciente, o cada 7 dias si la estancia es prolongada
 //
-// Todo el estado se persiste en NVS (`HMI_NS_CFG`, claves `mnt_*`), asi que
-// un reinicio no pierde el plazo ni repite el aviso del mismo bebe.
+// Los niveles se contienen: una limpieza terminal es mas profunda que una
+// semanal, y esta que una diaria. Por eso registrar un nivel pone tambien al
+// dia los de debajo — si acabas de hacer la terminal, que el equipo siga
+// pidiendo la diaria seria ruido.
+//
+// Todo el estado se persiste en NVS (`HMI_NS_CFG`, claves `mnt_*`), asi que un
+// reinicio no pierde ninguna fecha ni repite el aviso del mismo paciente.
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
-// Motivo por el que toca avisar. NONE = no toca.
+// Niveles, de menos a mas profundo. El orden importa: registrar uno pone al
+// dia todos los de indice menor.
 typedef enum {
-  MNT_REASON_NONE = 0,
-  MNT_REASON_DUE,       // se cumplio el plazo
-  MNT_REASON_NEW_BABY,  // bebe nuevo o cambio de bebe
-} mnt_reason_t;
-
-// Intervalos ofrecidos en Ajustes, en dias. El 0 apaga el recordatorio por
-// completo (ningun motivo dispara, tampoco el del bebe: si alguien lo apaga
-// es que no quiere avisos, no que quiera unos y no otros).
-#define MNT_INTERVAL_OFF 0
-extern const uint16_t MNT_INTERVAL_DAYS[];
-#define MNT_INTERVAL_COUNT 5
-// Valor de fabrica: un mes. Es el plazo con el que se desplego el equipo y el
-// que se puede cambiar por centro desde Ajustes > MANTENIMIENTO.
-#define MNT_INTERVAL_DEFAULT_DAYS 30
+  MNT_LEVEL_DAILY = 0,
+  MNT_LEVEL_WEEKLY,
+  MNT_LEVEL_TERMINAL,
+  MNT_LEVEL_COUNT,
+} mnt_level_t;
 
 // Carga el estado de NVS. Llamar una vez en el arranque de UI_Task, antes del
-// primer `Maintenance_Tick()`.
+// primer `Maintenance_Tick()` y antes de `UI_ApplyLanguage()` (que pinta el
+// estado del interruptor de Ajustes).
 void Maintenance_Init(void);
 
-// Una vez por vuelta de UI_Task. Vigila el cambio de bebe, siembra el plazo
-// en el primer arranque con hora valida y corrige el reloj hacia atras. No
-// pinta nada.
+// Una vez por vuelta de UI_Task. Vigila el alta del paciente, siembra las
+// fechas en el primer arranque con hora valida y corrige el reloj hacia
+// atras. No pinta nada.
 void Maintenance_Tick(void);
 
-// Motivo pendiente ahora mismo, ya con el "mas tarde" aplicado. El pop-up
-// pregunta esto en cada vuelta.
-mnt_reason_t Maintenance_PendingReason(void);
+// Interruptor unico de Ajustes. Desactivado, NO avisa de ningun nivel: quien
+// lo apaga no quiere unos avisos y no otros. Las fechas se siguen guardando.
+bool Maintenance_IsEnabled(void);
+void Maintenance_SetEnabled(bool on);
 
-// El operador ha registrado el mantenimiento (boton MANTENIMIENTO HECHO).
-// Guarda la fecha de hoy, borra el "mas tarde" y da por avisado al bebe
-// actual. Sin hora valida no puede fechar nada: entonces solo calla el aviso
-// (y se vera "sin registrar" hasta que haya reloj y se vuelva a registrar).
-void Maintenance_MarkDone(void);
+// True si a ese nivel le toca ya, mire quien mire (sin aplicar el interruptor
+// ni el "mas tarde"): es lo que el pop-up marca como TOCA AHORA.
+bool Maintenance_IsDue(mnt_level_t lvl);
 
-// Boton MAS TARDE: calla los avisos 24 h (o hasta el proximo bebe distinto).
+// True si hay que sacar el aviso ahora mismo: algun nivel vencido, con el
+// recordatorio activado y sin un "mas tarde" vigente.
+bool Maintenance_ShouldWarn(void);
+
+// El operador ha registrado ese nivel. Guarda la fecha de hoy en el y en los
+// menos profundos, borra el "mas tarde" y, si es el terminal, da por atendida
+// el alta pendiente. Sin hora valida no puede fechar nada: entonces solo
+// calla el aviso (y se vera "sin registrar" hasta que haya reloj).
+void Maintenance_MarkDone(mnt_level_t lvl);
+
+// Boton MAS TARDE: calla el aviso 24 h, sea del nivel que sea.
 void Maintenance_Snooze(void);
 
-// Epoch UTC del ultimo mantenimiento registrado, 0 si no hay ninguno.
-uint32_t Maintenance_LastEpoch(void);
+// Epoch UTC del ultimo registro de ese nivel, 0 si no hay ninguno.
+uint32_t Maintenance_LastEpoch(mnt_level_t lvl);
 
-// Dias enteros transcurridos desde el ultimo mantenimiento. -1 cuando no se
-// puede saber (sin registro previo o sin hora).
-int32_t Maintenance_DaysSince(void);
-
-// "Ultimo mantenimiento: 2026-08-01" en el idioma activo, o "... sin
-// registrar" cuando no hay ninguno. La fecha se formatea en hora local (lo
-// almacenado sigue siendo UTC). Lo pintan igual el pop-up y la fila de
-// Ajustes, asi que vive aqui y no en cada uno.
-void Maintenance_FormatLastLine(char *out, size_t cap);
-
-// Intervalo vigente en dias (0 = apagado).
-uint16_t Maintenance_IntervalDays(void);
-
-// Cambia el intervalo y lo persiste. Un cambio de intervalo borra el "mas
-// tarde": el operador acaba de decidir cada cuanto quiere el aviso, y la
-// respuesta a la pregunta anterior ya no vale.
-void Maintenance_SetIntervalDays(uint16_t days);
+// "Ultima: 2026-08-01" en el idioma activo, o "Ultima: sin registrar". La
+// fecha se formatea en hora local (lo almacenado sigue siendo UTC). Lo pintan
+// igual el pop-up y el panel de Ajustes, asi que vive aqui.
+void Maintenance_FormatLastLine(mnt_level_t lvl, char *out, size_t cap);

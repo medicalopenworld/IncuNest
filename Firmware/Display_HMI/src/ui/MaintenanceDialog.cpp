@@ -24,9 +24,19 @@ constexpr lv_coord_t CARD_W = 780, CARD_H = 460;
 // El QR de la URL de tutoriales es corto (version ~4); con 300 px sobra, es
 // la misma medida que usa la vista "Video tutorial" de la ayuda.
 constexpr lv_coord_t QR_SIZE = 300;
-// Columna de texto a la derecha del QR.
+// Columna de los tres niveles, a la derecha del QR.
 constexpr lv_coord_t COL_X = 20 + QR_SIZE + 40;
 constexpr lv_coord_t COL_W = (CARD_W - 20) - COL_X - 6;
+// Dentro de cada fila: el texto no llega hasta el borde, que ahi va el boton.
+constexpr lv_coord_t BTN_W = 110, BTN_H = 36;
+constexpr lv_coord_t ROW_TEXT_W = COL_W - BTN_W - 10;
+constexpr lv_coord_t ROW_Y0 = 52, ROW_DY = 90;
+
+// Ambar de "esto te toca a ti" (el mismo del recuadro del tutorial guiado) y
+// azul del texto normal de los dialogos.
+constexpr uint32_t COLOR_DUE = 0xB26A00;
+constexpr uint32_t COLOR_TEXT = 0x0B2E4F;
+constexpr uint32_t COLOR_SUB = 0x666666;
 
 bool s_open = false;
 // Armado por el desbloqueo de pantalla. Se consume al abrir el pop-up.
@@ -37,14 +47,14 @@ lv_obj_t *s_overlay = nullptr;
 lv_obj_t *s_content = nullptr;
 
 lv_obj_t *makeBtn(lv_obj_t *parent, const char *text, lv_event_cb_t cb,
-                  lv_color_t bg) {
+                  lv_color_t bg, void *userData = nullptr) {
   lv_obj_t *btn = lv_btn_create(parent);
   lv_obj_set_style_bg_color(btn, bg, LV_PART_MAIN);
   lv_obj_set_style_radius(btn, 8, LV_PART_MAIN);
   lv_obj_t *lbl = lv_label_create(btn);
   lv_label_set_text(lbl, text);
   lv_obj_center(lbl);
-  lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, nullptr);
+  lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, userData);
   return btn;
 }
 
@@ -70,20 +80,75 @@ void closeDialog() {
   if (s_overlay) lv_obj_add_flag(s_overlay, LV_OBJ_FLAG_HIDDEN);
   if (s_content) lv_obj_clean(s_content);
   s_open = false;
+  // Que el auto-bloqueo vuelva a contar desde cero y no desde el ultimo toque
+  // de antes de abrirse: mientras el aviso estuvo abierto estuvo exento.
+  lv_disp_trig_activity(NULL);
 }
 
-void onDone(lv_event_t *) {
-  Maintenance_MarkDone();
-  closeDialog();
+void buildContent();
+
+// Registrar un nivel no cierra el aviso: el operador puede haber hecho dos
+// (la diaria y la semanal caen juntas cada 7 dias), asi que se repinta con las
+// fechas nuevas y el boton de abajo pasa de MAS TARDE a CERRAR cuando ya no
+// queda nada por hacer.
+void onLevelDone(lv_event_t *e) {
+  const mnt_level_t lvl =
+      (mnt_level_t)(uintptr_t)lv_event_get_user_data(e);
+  Maintenance_MarkDone(lvl);
+  buildContent();
   UI_ShowToast(TR(STR_MAINT_LOGGED), 2500);
 }
 
-void onLater(lv_event_t *) {
-  Maintenance_Snooze();
+// Un solo boton para las dos situaciones: si algo esta vencido es MAS TARDE
+// (calla 24 h), y si no —abierto a mano desde Ajustes, o todo ya registrado—
+// es CERRAR, que no tiene nada que aplazar.
+void onDismiss(lv_event_t *) {
+  if (Maintenance_ShouldWarn()) Maintenance_Snooze();
   closeDialog();
 }
 
-void buildContent(mnt_reason_t reason) {
+struct LevelText {
+  ui_str_id_t name;
+  ui_str_id_t when;
+};
+constexpr LevelText LEVELS[MNT_LEVEL_COUNT] = {
+    {STR_MAINT_DAILY, STR_MAINT_DAILY_WHEN},
+    {STR_MAINT_WEEKLY, STR_MAINT_WEEKLY_WHEN},
+    {STR_MAINT_TERMINAL, STR_MAINT_TERMINAL_WHEN},
+};
+
+void buildRow(mnt_level_t lvl) {
+  const lv_coord_t y = ROW_Y0 + ROW_DY * (lv_coord_t)lvl;
+  const bool due = Maintenance_IsDue(lvl);
+
+  // "DIARIA - TOCA AHORA" / "DIARIA - al dia". El separador es ASCII a
+  // proposito: las Montserrat cargadas no tienen el punto medio, y el
+  // static_assert del catalogo no vigila lo que se compone en runtime.
+  char head[64];
+  snprintf(head, sizeof(head), "%s - %s", TR(LEVELS[lvl].name),
+           due ? TR(STR_MAINT_DUE_NOW) : TR(STR_MAINT_UP_TO_DATE));
+  makeWrapLabel(head, COL_X, y, ROW_TEXT_W, &lv_font_montserrat_18,
+                lv_color_hex(due ? COLOR_DUE : COLOR_TEXT));
+
+  char last[64];
+  Maintenance_FormatLastLine(lvl, last, sizeof(last));
+  char sub[220];
+  snprintf(sub, sizeof(sub), "%s  %s", TR(LEVELS[lvl].when), last);
+  makeWrapLabel(sub, COL_X, y + 24, ROW_TEXT_W, &lv_font_montserrat_14,
+                lv_color_hex(COLOR_SUB));
+
+  lv_obj_t *btn =
+      makeBtn(s_content, TR(STR_MAINT_DONE_UC), onLevelDone,
+              lv_color_hex(due ? 0x2E7D32 : 0x9E9E9E),
+              (void *)(uintptr_t)lvl);
+  lv_obj_set_size(btn, BTN_W, BTN_H);
+  lv_obj_align(btn, LV_ALIGN_TOP_LEFT, COL_X + ROW_TEXT_W + 10, y + 2);
+}
+
+void buildContent() {
+  if (!s_content) return;
+  lv_obj_clean(s_content);
+
   lv_obj_t *title = lv_label_create(s_content);
   lv_label_set_text(title, TR(STR_MAINT_TITLE));
   lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
@@ -99,39 +164,24 @@ void buildContent(mnt_reason_t reason) {
   lv_obj_set_style_border_width(qr, 8, 0);
   lv_qrcode_update(qr, url, strlen(url));
 
-  char msg[260];
-  if (reason == MNT_REASON_NEW_BABY) {
-    snprintf(msg, sizeof(msg), "%s", TR(STR_MAINT_NEW_BABY));
-  } else {
-    const int32_t days = Maintenance_DaysSince();
-    snprintf(msg, sizeof(msg), TR(STR_MAINT_DUE_FMT), (long)(days < 0 ? 0 : days));
+  makeWrapLabel(TR(STR_MAINT_QR_HINT), 20, 384, QR_SIZE + 20,
+                &lv_font_montserrat_14, lv_color_hex(COLOR_SUB));
+
+  for (int i = 0; i < MNT_LEVEL_COUNT; i++) {
+    buildRow((mnt_level_t)i);
   }
-  makeWrapLabel(msg, COL_X, 56, COL_W, &lv_font_montserrat_18,
-                lv_color_hex(0x0B2E4F));
 
-  makeWrapLabel(TR(STR_MAINT_QR_HINT), COL_X, 210, COL_W,
-                &lv_font_montserrat_14, lv_color_hex(0x666666));
-
-  char lastLine[96];
-  Maintenance_FormatLastLine(lastLine, sizeof(lastLine));
-  makeWrapLabel(lastLine, COL_X, 286, COL_W, &lv_font_montserrat_14,
-                lv_color_hex(0x666666));
-
-  lv_obj_t *later = makeBtn(s_content, TR(STR_MAINT_LATER_UC), onLater,
-                            lv_color_hex(0x888888));
-  lv_obj_set_size(later, 170, 46);
-  lv_obj_align(later, LV_ALIGN_BOTTOM_RIGHT, -6, -6);
-
-  lv_obj_t *done = makeBtn(s_content, TR(STR_MAINT_DONE_UC), onDone,
-                           lv_color_hex(0x2E7D32));
-  lv_obj_set_size(done, 260, 46);
-  lv_obj_align(done, LV_ALIGN_BOTTOM_RIGHT, -186, -6);
+  lv_obj_t *dismiss = makeBtn(
+      s_content,
+      Maintenance_ShouldWarn() ? TR(STR_MAINT_LATER_UC) : TR(STR_CLOSE_UC),
+      onDismiss, lv_color_hex(0x888888));
+  lv_obj_set_size(dismiss, 170, 46);
+  lv_obj_align(dismiss, LV_ALIGN_BOTTOM_RIGHT, -6, -6);
 }
 
-void openWith(mnt_reason_t reason) {
+void openDialog() {
   if (!s_overlay) return;
-  lv_obj_clean(s_content);
-  buildContent(reason);
+  buildContent();
   s_open = true;
   s_armed = false;
   s_openedTick = lv_tick_get();
@@ -173,6 +223,8 @@ void MaintenanceDialog_NoteUnlocked(void) { s_armed = true; }
 
 bool MaintenanceDialog_IsOpen(void) { return s_open; }
 
+void MaintenanceDialog_Open(void) { openDialog(); }
+
 void MaintenanceDialog_Poll(void) {
   Maintenance_Tick();
 
@@ -180,9 +232,8 @@ void MaintenanceDialog_Poll(void) {
     // Una alarma o el enlace perdido se llevan la pantalla por delante. El
     // tope cierra un aviso olvidado para devolverle el control al
     // auto-bloqueo: se cierra SIN contestar, asi que volvera a salir en el
-    // siguiente desbloqueo (contestar es lo unico que lo calla).
-    if (mustYield() || lv_tick_elaps(s_openedTick) > MNT_IDLE_TIMEOUT_MS ||
-        Maintenance_PendingReason() == MNT_REASON_NONE) {
+    // siguiente desbloqueo si sigue habiendo algo vencido.
+    if (mustYield() || lv_tick_elaps(s_openedTick) > MNT_IDLE_TIMEOUT_MS) {
       closeDialog();
     }
     return;
@@ -199,7 +250,6 @@ void MaintenanceDialog_Poll(void) {
     return;
   }
 
-  const mnt_reason_t reason = Maintenance_PendingReason();
-  if (reason == MNT_REASON_NONE) return;
-  openWith(reason);
+  if (!Maintenance_ShouldWarn()) return;
+  openDialog();
 }

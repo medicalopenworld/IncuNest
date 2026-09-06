@@ -39,6 +39,13 @@ void MaintenanceDialog_NoteUnlocked(void);
 // inactividad para no mandar la pantalla al bloqueo con el aviso abierto.
 bool MaintenanceDialog_IsOpen(void);
 
+// Abre el pop-up sin esperar a que toque nada. Lo llama el boton VER
+// RECORDATORIO de Ajustes > MANTENIMIENTO: es la via para registrar una
+// limpieza hecha por iniciativa propia, sin duplicar aqui los tres botones.
+// Abierto asi, el boton de abajo es CERRAR y no MAS TARDE (no hay nada que
+// aplazar).
+void MaintenanceDialog_Open(void);
+
 // Una vez por vuelta de UI_Task, dentro de LVGL_Lock(): vigila el cambio de
 // bebe, abre el aviso cuando esta armado y toca, y lo cierra por alarma,
 // enlace perdido o tope de inactividad.

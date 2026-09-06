@@ -936,26 +936,16 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   lv_dropdown_set_options(ui_LanguagesDropDown, L(STR_LANG_OPTIONS));
   lv_dropdown_set_selected(ui_LanguagesDropDown, lang);
 
-  // Fila y panel de MANTENIMIENTO. La linea del ultimo registro no se traduce
-  // aqui: la reconstruye maintenance_panel_refresh() al abrir el panel, que es
-  // donde se lee, y lleva dentro una fecha que hay que volver a formatear.
+  // Fila y panel de MANTENIMIENTO. Las tres lineas de nivel no se traducen
+  // aqui: las reconstruye maintenance_panel_refresh() al abrir el panel, que
+  // es donde se leen, y llevan dentro una fecha que hay que volver a
+  // formatear.
   lv_label_set_text(ui_MaintLabel, L(STR_MAINT_UC));
   lv_label_set_text(ui_MaintTitleLabel, L(STR_MAINT_UC));
-  lv_label_set_text(ui_MaintEveryLabel, L(STR_MAINT_REMIND_EVERY));
-  lv_label_set_text(ui_MaintDoneLabel, L(STR_MAINT_DONE_UC));
+  lv_label_set_text(ui_MaintEnableLabel, L(STR_MAINT_REMINDER));
+  lv_label_set_text(ui_MaintOpenLabel, L(STR_MAINT_OPEN_UC));
   lv_label_set_text(ui_MaintHintLabel, L(STR_MAINT_SETTINGS_HINT));
-  {
-    // lv_dropdown_set_options() copia la cadena y deja la seleccion en 0, asi
-    // que hay que reponerla despues (igual que arriba con el de idiomas).
-    const uint16_t days = Maintenance_IntervalDays();
-    lv_dropdown_set_options(ui_MaintIntervalDropDown, L(STR_MAINT_OPTIONS));
-    for (int i = 0; i < MNT_INTERVAL_COUNT; i++) {
-      if (MNT_INTERVAL_DAYS[i] == days) {
-        lv_dropdown_set_selected(ui_MaintIntervalDropDown, i);
-        break;
-      }
-    }
-  }
+  ui_set_switch_state_silent(ui_MaintEnableSwitch, Maintenance_IsEnabled());
 
   // lv_btnmatrix NO copia el mapa: se queda con el puntero. Por eso el array
   // es `static` y las cadenas vienen del catalogo, que es memoria estatica.
@@ -1218,29 +1208,32 @@ void ModesButton_cb(lv_event_t *e) {
   wifiVisible = false;
 }
 
-// Refresca lo que cambia en runtime del panel de MANTENIMIENTO: el intervalo
-// guardado y la fecha del ultimo registro. Se llama al abrir el panel y tras
-// registrar un mantenimiento a mano.
+// Refresca lo que cambia en runtime del panel de MANTENIMIENTO: el estado del
+// interruptor y la linea de cada nivel (cadencia + fecha del ultimo registro).
+// Se llama al abrir el panel y al cambiar el interruptor.
 static void maintenance_panel_refresh(void) {
-  if (ui_MaintIntervalDropDown) {
-    const uint16_t days = Maintenance_IntervalDays();
-    for (int i = 0; i < MNT_INTERVAL_COUNT; i++) {
-      if (MNT_INTERVAL_DAYS[i] == days) {
-        lv_dropdown_set_selected(ui_MaintIntervalDropDown, i);
-        break;
-      }
-    }
+  static const ui_str_id_t kLevelName[MNT_LEVEL_COUNT] = {
+      STR_MAINT_DAILY, STR_MAINT_WEEKLY, STR_MAINT_TERMINAL};
+  static const ui_str_id_t kLevelWhen[MNT_LEVEL_COUNT] = {
+      STR_MAINT_DAILY_WHEN, STR_MAINT_WEEKLY_WHEN, STR_MAINT_TERMINAL_WHEN};
+
+  if (ui_MaintEnableSwitch) {
+    ui_set_switch_state_silent(ui_MaintEnableSwitch, Maintenance_IsEnabled());
   }
-  if (ui_MaintLastLabel) {
-    char line[96];
-    Maintenance_FormatLastLine(line, sizeof(line));
-    lv_label_set_text(ui_MaintLastLabel, line);
+  for (int i = 0; i < MNT_LEVEL_COUNT; i++) {
+    if (!ui_MaintLevelLabel[i]) continue;
+    char last[64];
+    Maintenance_FormatLastLine((mnt_level_t)i, last, sizeof(last));
+    char line[220];
+    snprintf(line, sizeof(line), "%s - %s  %s", TR(kLevelName[i]),
+             TR(kLevelWhen[i]), last);
+    lv_label_set_text(ui_MaintLevelLabel[i], line);
   }
 }
 
-// Fila MANTENIMIENTO de Ajustes: cada cuanto recordar la limpieza y cuando se
-// registro la ultima. El aviso con el QR de los tutoriales lo saca
-// MaintenanceDialog; aqui solo se configura y se registra a mano.
+// Fila MANTENIMIENTO de Ajustes: el interruptor de los avisos y las fechas de
+// los tres niveles. Registrar una limpieza se hace en el pop-up (boton VER
+// RECORDATORIO), que es donde estan los tres botones y el QR.
 void MaintButton_cb(lv_event_t *e) {
   (void)e;
   lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
@@ -1256,19 +1249,17 @@ void MaintButton_cb(lv_event_t *e) {
   wifiVisible = false;
 }
 
-void MaintIntervalDropDown_cb(lv_event_t *e) {
-  const uint16_t idx = lv_dropdown_get_selected(lv_event_get_target(e));
-  if (idx >= MNT_INTERVAL_COUNT) return;
-  Maintenance_SetIntervalDays(MNT_INTERVAL_DAYS[idx]);
+void MaintEnableSwitch_cb(lv_event_t *e) {
+  Maintenance_SetEnabled(lv_obj_has_state(lv_event_get_target(e),
+                                          LV_STATE_CHECKED));
 }
 
-// Registrar el mantenimiento sin esperar al aviso: es lo que hace quien acaba
-// de limpiar la incubadora por su cuenta.
-void MaintDoneButton_cb(lv_event_t *e) {
+// Abrir el recordatorio sin esperar a que toque: es la via para registrar una
+// limpieza hecha por iniciativa propia. Los tres botones HECHO viven en el
+// pop-up, no aqui, para no tener dos sitios donde registrar lo mismo.
+void MaintOpenButton_cb(lv_event_t *e) {
   (void)e;
-  Maintenance_MarkDone();
-  maintenance_panel_refresh();
-  UI_ShowToast(TR(STR_MAINT_LOGGED), 2500);
+  MaintenanceDialog_Open();
 }
 
 // Disparado al tocar la hora de cabecera (ui_ClockButton, ui_ScreenMain), no

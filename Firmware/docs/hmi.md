@@ -124,31 +124,54 @@ The incubator reminds the staff to clean and disinfect it. The decision of
 *when* lives in `src/modules/maintenance/maintenance.cpp` (no LVGL); the
 pop-up that tells it, in `src/ui/MaintenanceDialog.cpp`.
 
-Two independent reasons fire the reminder:
+The protocol has **three levels**, each with its own cadence. They are not
+configurable — they are the device's cleaning protocol, not a preference. The
+only thing chosen in Settings is whether the device warns at all.
 
-1. **Interval elapsed** — calendar days since the last recorded maintenance,
-   measured with the motherBoard's epoch (`HMI_GetEpochNow()`), not with
-   power-on hours: an incubator that spent a month switched off still needs
-   cleaning before the next patient. The interval is chosen per unit in
-   **Settings > MAINTENANCE** (disabled / 7 / 15 / 30 / 90 days, default 30).
-2. **New baby** — `BabyWizard_GetActiveSeq()` reports a profile different
-   from the last one already reminded about, i.e. a new patient was admitted
-   or the incubator changed from one baby to another. This is the
-   between-patients cleaning and does not wait for the interval.
+| Level | Due when | Firmware condition |
+|---|---|---|
+| **Daily** | with a patient inside | `BabyWizard_HasLiveSession()` and 1 day since the last daily record |
+| **Weekly** | every 7 days, or sooner if visibly dirty | 7 days since the last weekly record |
+| **Terminal** | at patient discharge, or every 7 days for a prolonged stay | a discharge is pending, or 7 days since the last terminal record |
 
-Setting the interval to *disabled* switches off both reasons: whoever turns
-the reminder off does not want some reminders and not others.
+The levels **contain each other**: a terminal clean is deeper than a weekly
+one, and a weekly deeper than a daily. So recording one level also brings the
+shallower ones up to date — if you have just done the terminal clean, having
+the device still ask for the daily would be noise.
+
+"Sooner if visibly dirty" is operator judgement, not something firmware can
+detect: it is guidance printed on the notice, and the DONE button is always
+available so a clean done early can be recorded.
+
+Discharge is detected from `BabyWizard_GetActiveSeq()`, the profile this HMI
+put in charge: it drops to 0 when the exit dialog discharges the baby
+(`BabyWizard_ClearActiveProfile()`), and changes from one seq to another when
+the incubator swaps babies without going through a discharge. Both leave a
+terminal clean pending, persisted in NVS so the device can be switched off in
+between. Starting with the very first patient (0 → seq) does not: nobody came
+out there.
 
 The pop-up is the same card as `HelpDialog` (780x460 over `ui_ScreenMain`),
 with the **`SUPPORT_TUTORIAL_URL` QR on the left** — the very code the help
 menu's "Video tutorial" view shows, because the cleaning tutorials live on
-that same page — the reason for the notice on the right, the date of the last
-recorded maintenance, and two exits and no X:
+that same page. On the right, one row per level with its cadence, the date of
+its last record, whether it is `DUE NOW` (amber) or `up to date`, and its own
+**DONE** button. Recording a level does not close the notice: it repaints with
+the new dates, because the daily and the weekly fall due together every 7 days
+and the operator may have done both.
 
-- **MAINTENANCE DONE** records today's date, clears the snooze and resets the
-  interval. Reachable also without waiting for the notice, from the button in
-  Settings > MAINTENANCE.
-- **LATER** silences the reminder for 24 h.
+The single button at the bottom right covers the two situations: **LATER**
+(silences every level for 24 h) when something is due, and **CLOSE** when
+nothing is — opened by hand from Settings, or everything already recorded.
+There is no X: a reminder that can be dismissed without answering records
+nothing.
+
+**Settings > MAINTENANCE** holds the reminders on/off switch, the three levels
+read-only with their dates, and an **OPEN REMINDER** button that raises the
+pop-up itself — that is how a clean done on the operator's own initiative gets
+recorded, without a second place to register the same thing. Switching the
+reminders off silences all three levels: whoever turns it off does not want
+some reminders and not others. The dates keep being recorded either way.
 
 When it appears: only armed by **unlocking the screen** (and once at UI init,
 because whoever powers the incubator up is standing in front of it), never in
@@ -165,12 +188,12 @@ itself resets that counter every 200 ms, so a cap reading it would never fire.
 Closing by the cap does not count as an answer — the notice comes back on the
 next unlock, since only pressing a button silences it.
 
-State persists in NVS (`hmi_cfg`): `mnt_last` (epoch of the last recorded
-maintenance), `mnt_days` (interval), `mnt_snooze` (epoch when LATER expires)
-and `mnt_seq` (the last baby already reminded about, so a reboot with the same
-patient inside does not nag again). Edge cases handled in `Maintenance_Tick()`:
-with no clock yet nothing is due; the first boot *with* a valid clock seeds
-`mnt_last` with today (otherwise a factory-fresh unit would read as "overdue
-since 1970"); and a clock moved backwards re-anchors `mnt_last` to today
-instead of leaving the record in the future, where the interval would never
-elapse again.
+State persists in NVS (`hmi_cfg`): `mnt_daily`, `mnt_weekly`, `mnt_term` (the
+epoch of each level's last record), `mnt_en` (warn on/off), `mnt_snooze`
+(epoch when LATER expires), `mnt_seq` (the last baby seen in charge) and
+`mnt_tpend` (a discharge with no terminal clean recorded yet). Edge cases
+handled in `Maintenance_Tick()`: with no clock yet nothing is due; the first
+boot *with* a valid clock seeds the three dates with today (otherwise a
+factory-fresh unit would read as "overdue since 1970"); and a clock moved
+backwards re-anchors any date left in the future to today, where the interval
+would otherwise never elapse again.
