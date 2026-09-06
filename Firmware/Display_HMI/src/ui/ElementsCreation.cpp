@@ -221,12 +221,8 @@ lv_obj_t *ui_ConnectLabel = NULL;
 lv_obj_t *ui_WifiDisconnectButton = NULL;
 lv_obj_t *ui_DisconnectLabel = NULL;
 lv_obj_t *ui_LanguagesDropDown = NULL;
-lv_obj_t *ui_WifiConnectedCont = NULL;
 lv_obj_t *ui_WifiBoardStatus = NULL;
-lv_obj_t *ui_WifiConnectedPanel = NULL;
-lv_obj_t *ui_ArrowWifiConnected = NULL;
-lv_obj_t *ui_WifiSSIDLabel = NULL;
-lv_obj_t *ui_WifiConnectedToLabel = NULL;
+lv_obj_t *ui_WifiHmiStatus = NULL;
 
 // Screen Alarms
 lv_obj_t *ui_ScreenAlarms = NULL;
@@ -2660,7 +2656,12 @@ void ui_ScreenSettings_screen_init(void) {
   ui_Container3 = lv_obj_create(ui_ScreenSettings);
   lv_obj_remove_style_all(ui_Container3);
   lv_obj_set_width(ui_Container3, 331);
-  lv_obj_set_height(ui_Container3, 420);
+  // 450 y no 420: la lista tiene seis filas (Info, WiFi, Idioma, Modos,
+  // Mantenimiento, Test de hardware) cada 55 px desde y=-100, y la ultima
+  // (y=175) mas su subtexto (y=208) se salian del contenedor, que recorta a
+  // sus hijos. Con 450 el borde inferior cae en y=+215 de pantalla, dentro de
+  // los 480 del panel.
+  lv_obj_set_height(ui_Container3, 450);
   lv_obj_set_x(ui_Container3, -200);
   lv_obj_set_y(ui_Container3, -10);
   lv_obj_set_align(ui_Container3, LV_ALIGN_CENTER);
@@ -2868,7 +2869,10 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_width(ui_HwTestCont, 331);
   lv_obj_set_height(ui_HwTestCont, 45);
   lv_obj_set_x(ui_HwTestCont, 0);
-  lv_obj_set_y(ui_HwTestCont, 120);
+  // y=175, la sexta ranura de la lista: en y=120 caia exactamente sobre
+  // ui_MaintCont (que se crea despues y por tanto se pintaba encima), y la
+  // fila del test de hardware no llegaba a verse.
+  lv_obj_set_y(ui_HwTestCont, 175);
   lv_obj_set_align(ui_HwTestCont, LV_ALIGN_CENTER);
   lv_obj_clear_flag(ui_HwTestCont,
                     LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
@@ -2918,7 +2922,7 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_width(ui_HwTestSubLabel, 291);
   lv_obj_set_height(ui_HwTestSubLabel, LV_SIZE_CONTENT);
   lv_obj_set_x(ui_HwTestSubLabel, 20);
-  lv_obj_set_y(ui_HwTestSubLabel, 160);
+  lv_obj_set_y(ui_HwTestSubLabel, 208);
   lv_obj_set_align(ui_HwTestSubLabel, LV_ALIGN_LEFT_MID);
   lv_label_set_text(ui_HwTestSubLabel, "Apaga el control para testear");
   lv_obj_set_style_text_font(ui_HwTestSubLabel, &lv_font_montserrat_12,
@@ -3063,8 +3067,8 @@ void ui_ScreenSettings_screen_init(void) {
 
   // --- MAINTENANCE ROW (quinta fila, debajo de MODES) ---
   // Las filas de ui_Container3 van cada 55 px desde y=-100 (Info, WiFi,
-  // Idioma, Modos): esta cae en y=120, dentro de los 420 de alto del
-  // contenedor.
+  // Idioma, Modos): esta cae en y=120 y la de Test de hardware, la ultima,
+  // en y=175.
   ui_MaintCont = lv_obj_create(ui_Container3);
   lv_obj_remove_style_all(ui_MaintCont);
   lv_obj_set_width(ui_MaintCont, 331);
@@ -3287,13 +3291,16 @@ void ui_ScreenSettings_screen_init(void) {
   lv_textarea_set_one_line(ui_TextArea2, true);
   lv_textarea_set_password_mode(ui_TextArea2, true);
 
+  // CONECTAR / DESCONECTAR arriba del todo, a la derecha de los dos status de
+  // enlace y a plomo con el borde derecho de SSID/PASSWORD. Antes estaba en
+  // el centro del contenedor (y=+45), que cae dentro del area del teclado:
+  // quedaba pintado encima de las teclas y estorbaba al escribir la
+  // contrasena.
   ui_WifiConnectButton = lv_btn_create(ui_WifiConfigCont);
   LVGL_INIT_GUARD_CHILD(ui_WifiConnectButton, "ui_WifiConnectButton");
   lv_obj_set_width(ui_WifiConnectButton, 130);
   lv_obj_set_height(ui_WifiConnectButton, 45);
-  lv_obj_set_x(ui_WifiConnectButton, 320);
-  lv_obj_set_y(ui_WifiConnectButton, 45);
-  lv_obj_set_align(ui_WifiConnectButton, LV_ALIGN_CENTER);
+  lv_obj_align(ui_WifiConnectButton, LV_ALIGN_TOP_LEFT, 640, 6);
   lv_obj_add_flag(ui_WifiConnectButton, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
   lv_obj_clear_flag(ui_WifiConnectButton, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_bg_color(ui_WifiConnectButton, lv_color_hex(0x2196F3),
@@ -3309,13 +3316,12 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_style_text_color(ui_ConnectLabel, lv_color_hex(0xFFFFFF),
                               LV_PART_MAIN | LV_STATE_DEFAULT);
 
+  // Mismo sitio que CONECTAR: son excluyentes, solo uno esta visible.
   ui_WifiDisconnectButton = lv_btn_create(ui_WifiConfigCont);
   LVGL_INIT_GUARD_CHILD(ui_WifiDisconnectButton, "ui_WifiDisconnectButton");
   lv_obj_set_width(ui_WifiDisconnectButton, 130);
   lv_obj_set_height(ui_WifiDisconnectButton, 45);
-  lv_obj_set_x(ui_WifiDisconnectButton, 320);
-  lv_obj_set_y(ui_WifiDisconnectButton, 45);
-  lv_obj_set_align(ui_WifiDisconnectButton, LV_ALIGN_CENTER);
+  lv_obj_align(ui_WifiDisconnectButton, LV_ALIGN_TOP_LEFT, 640, 6);
   lv_obj_add_flag(ui_WifiDisconnectButton,
                   LV_OBJ_FLAG_SCROLL_ON_FOCUS | LV_OBJ_FLAG_HIDDEN);
   lv_obj_clear_flag(ui_WifiDisconnectButton, LV_OBJ_FLAG_SCROLLABLE);
@@ -3452,76 +3458,49 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_add_flag(ui_LanguagesDropDown,
                   LV_OBJ_FLAG_HIDDEN | LV_OBJ_FLAG_SCROLL_ON_FOCUS);
 
-  // Estado del enlace de la PLACA, no el del display.
+  // Los dos enlaces de la maquina, uno al lado del otro y encima de SSID.
   //
-  // El boton de conectar y el "Conectado a" de esta pantalla hablan solo del
-  // radio del propio HMI (WiFi.status()), que unicamente sirve para su OTA.
-  // Quien sube telemetria a ThingsBoard es la motherBoard, y su conexion —la
-  // que de verdad importa— no aparecia por ninguna parte: se podia estar
-  // mirando un "conectado" mientras el equipo no mandaba un solo dato.
+  // Antes solo se veia el del display (el boton de conectar y el "Conectado
+  // a" hablan de WiFi.status(), el radio del propio HMI, que unicamente sirve
+  // para su OTA) y, en una esquina, un "Placa: DESCONECTADO" suelto que no
+  // decia de que placa hablaba. Quien sube telemetria a ThingsBoard es la
+  // motherBoard: su enlace es el que de verdad importa y ahora se lee al lado
+  // del otro, con la misma forma y las mismas palabras.
   //
-  // El dato ya viajaba en CTRL,STATE (serverCommStatus); lo que faltaba era
-  // ensenarlo. Por eso esto no toca el protocolo.
+  // MB: sale de serverCommStatus (CTRL,STATE), asi que esto no toca el
+  // protocolo. DISPLAY: sale de WiFi.status()/WiFi.SSID() y absorbe lo que
+  // antes era la fila "WIFI CONECTADO A <SSID>" (ui_WifiConnectedCont), que
+  // ocupaba justo esta banda diciendo lo mismo.
+  //
+  // Los dos, apilados, en la banda superior de la COLUMNA DERECHA (x=370, el
+  // borde izquierdo del panel de SSID, para que todo quede a plomo).
+  //
+  // La mitad izquierda de este contenedor no esta libre aunque lo parezca:
+  // ui_WifiConfigCont mide 770 de ancho y arranca en x=15 de pantalla, asi
+  // que cualquier cosa colocada ahi cae encima de la lista de Ajustes
+  // (ui_Container3, que se queda visible debajo). Es la misma razon por la
+  // que ui_ModesConfigCont y ui_InfoDetailsCont ponen su contenido en x=185.
+  // El "Placa: ..." anterior estaba justo ahi, superpuesto al menu.
+  //
+  // Anchura hasta x=625: a partir de 640 esta el boton de conectar. Con
+  // LONG_DOT, un SSID largo se corta con puntos en vez de meterse debajo.
   ui_WifiBoardStatus = lv_label_create(ui_WifiConfigCont);
-  lv_obj_set_width(ui_WifiBoardStatus, LV_SIZE_CONTENT);
+  lv_obj_set_width(ui_WifiBoardStatus, 255);
   lv_obj_set_height(ui_WifiBoardStatus, LV_SIZE_CONTENT);
-  // BOTTOM_LEFT quedaba debajo de ui_Keyboard1 (750x185, centrado en el
-  // contenedor de 770x361): el teclado ocupa casi todo el ancho y su borde
-  // inferior sobresale del propio contenedor, asi que cualquier cosa
-  // anclada abajo queda tapada en cuanto el teclado se muestra. Confirmado
-  // en banco. La unica esquina libre —SSID/Pass/botones viven todos en la
-  // mitad derecha— es la superior izquierda.
-  lv_obj_align(ui_WifiBoardStatus, LV_ALIGN_TOP_LEFT, 20, 10);
+  lv_label_set_long_mode(ui_WifiBoardStatus, LV_LABEL_LONG_DOT);
+  lv_obj_align(ui_WifiBoardStatus, LV_ALIGN_TOP_LEFT, 370, 6);
   lv_label_set_text(ui_WifiBoardStatus, "");
   lv_obj_set_style_text_font(ui_WifiBoardStatus, &lv_font_montserrat_16,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
 
-  ui_WifiConnectedCont = lv_obj_create(ui_ScreenSettings);
-  lv_obj_remove_style_all(ui_WifiConnectedCont);
-  lv_obj_set_width(ui_WifiConnectedCont, 411);
-  lv_obj_set_height(ui_WifiConnectedCont, 45);
-  lv_obj_set_x(ui_WifiConnectedCont, 185);
-  lv_obj_set_y(ui_WifiConnectedCont, -110);
-  lv_obj_set_align(ui_WifiConnectedCont, LV_ALIGN_CENTER);
-  lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_clear_flag(ui_WifiConnectedCont,
-                    LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-
-  ui_WifiConnectedPanel = lv_obj_create(ui_WifiConnectedCont);
-  lv_obj_set_width(ui_WifiConnectedPanel, 411);
-  lv_obj_set_height(ui_WifiConnectedPanel, 45);
-  lv_obj_set_align(ui_WifiConnectedPanel, LV_ALIGN_CENTER);
-  lv_obj_clear_flag(ui_WifiConnectedPanel, LV_OBJ_FLAG_SCROLLABLE);
-
-  ui_ArrowWifiConnected = lv_label_create(ui_WifiConnectedCont);
-  lv_obj_set_width(ui_ArrowWifiConnected, LV_SIZE_CONTENT);
-  lv_obj_set_height(ui_ArrowWifiConnected, LV_SIZE_CONTENT);
-  lv_obj_set_x(ui_ArrowWifiConnected, 155);
-  lv_obj_set_y(ui_ArrowWifiConnected, 0);
-  lv_obj_set_align(ui_ArrowWifiConnected, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_ArrowWifiConnected, ">");
-  lv_obj_set_style_text_font(ui_ArrowWifiConnected, &lv_font_montserrat_30,
+  ui_WifiHmiStatus = lv_label_create(ui_WifiConfigCont);
+  lv_obj_set_width(ui_WifiHmiStatus, 255);
+  lv_obj_set_height(ui_WifiHmiStatus, LV_SIZE_CONTENT);
+  lv_label_set_long_mode(ui_WifiHmiStatus, LV_LABEL_LONG_DOT);
+  lv_obj_align(ui_WifiHmiStatus, LV_ALIGN_TOP_LEFT, 370, 32);
+  lv_label_set_text(ui_WifiHmiStatus, "");
+  lv_obj_set_style_text_font(ui_WifiHmiStatus, &lv_font_montserrat_16,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
-
-  ui_WifiSSIDLabel = lv_label_create(ui_WifiConnectedCont);
-  lv_obj_set_width(ui_WifiSSIDLabel, LV_SIZE_CONTENT);
-  lv_obj_set_height(ui_WifiSSIDLabel, LV_SIZE_CONTENT);
-  lv_obj_set_x(ui_WifiSSIDLabel, 29);
-  lv_obj_set_y(ui_WifiSSIDLabel, 0);
-  lv_obj_set_align(ui_WifiSSIDLabel, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_WifiSSIDLabel, "SSID NAME");
-  lv_obj_set_style_text_color(ui_WifiSSIDLabel, lv_color_hex(0x27D331),
-                              LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_text_opa(ui_WifiSSIDLabel, 255,
-                            LV_PART_MAIN | LV_STATE_DEFAULT);
-
-  ui_WifiConnectedToLabel = lv_label_create(ui_WifiConnectedCont);
-  lv_obj_set_width(ui_WifiConnectedToLabel, LV_SIZE_CONTENT);
-  lv_obj_set_height(ui_WifiConnectedToLabel, LV_SIZE_CONTENT);
-  lv_obj_set_x(ui_WifiConnectedToLabel, -111);
-  lv_obj_set_y(ui_WifiConnectedToLabel, 0);
-  lv_obj_set_align(ui_WifiConnectedToLabel, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_WifiConnectedToLabel, "Connected to: ");
 
   lv_obj_add_event_cb(ui_ImgButton2, ui_event_ImgButton2, LV_EVENT_ALL, NULL);
   lv_obj_add_event_cb(ui_InfoButton, ui_event_InfoButton, LV_EVENT_ALL, NULL);

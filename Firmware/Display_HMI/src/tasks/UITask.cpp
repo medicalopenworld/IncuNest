@@ -481,37 +481,75 @@ void clock_update(void) {
   }
 }
 
-// Estado del enlace de la PLACA en la pantalla de WiFi.
+static char s_lastMbStatus[80] = {0};
+static char s_lastHmiStatus[80] = {0};
+
+// Los dos enlaces de la maquina, encima de SSID en la pantalla de WiFi.
 //
-// El resto de esa pantalla habla del radio del propio display, que solo sirve
-// para su OTA. La motherBoard es quien sube telemetria, y su conexion no
-// aparecia: se podia leer "conectado" mientras el equipo no mandaba un dato.
-// Etiquetado explicitamente para que no se confunda con lo de al lado.
+// MB: es la motherBoard, la unica que sube telemetria a ThingsBoard
+// (serverCommStatus, que llega en CTRL,STATE). DISPLAY: es el radio del
+// propio HMI, que solo sirve para su OTA; conectado muestra el SSID, que es
+// lo que decia la fila "WIFI CONECTADO A ..." que este par sustituye.
 //
-// Se refresca solo con la pantalla visible, y solo escribe cuando cambia.
-void wifi_board_status_update(void) {
-  if (!ui_WifiBoardStatus) return;
+// Antes solo se veia el del display, y el de la placa era un "Placa: ..."
+// suelto en una esquina: se podia leer "conectado" mientras el equipo no
+// mandaba un solo dato. Juntos y con las mismas palabras no se confunden.
+//
+// Se refrescan solo con la pantalla visible, y solo escriben cuando cambian:
+// el cache de lo ultimo escrito es s_lastMbStatus/s_lastHmiStatus.
+static void wifi_link_status_update(void) {
   if (!wifiVisible) return;
-
-  char now[64];
-  snprintf(now, sizeof(now), "%s%s", TR(STR_BOARD_PREFIX),
-           getConnectivityString(ctrl_state_msg.serverCommStatus, g_lang));
-
-  static char last[64] = {0};
-  if (strcmp(now, last) == 0) return;
-  strncpy(last, now, sizeof(last) - 1);
-  last[sizeof(last) - 1] = '\0';
-  lv_label_set_text(ui_WifiBoardStatus, now);
 
   // Verde solo con servidor: tener WiFi pero no llegar a ThingsBoard es
   // exactamente el caso que esta pantalla tenia que dejar de ocultar.
-  const bool onServer =
-      (ctrl_state_msg.serverCommStatus == COMM_STATUS_WIFI_SERVER ||
-       ctrl_state_msg.serverCommStatus == COMM_STATUS_GPRS_SERVER);
-  lv_obj_set_style_text_color(ui_WifiBoardStatus,
-                              onServer ? lv_color_hex(0x2E9E4F)
-                                       : lv_color_hex(0xCC7A00),
-                              LV_PART_MAIN);
+  static const lv_color_t COLOR_UP = lv_color_hex(0x2E9E4F);
+  static const lv_color_t COLOR_DOWN = lv_color_hex(0xCC7A00);
+
+  if (ui_WifiBoardStatus) {
+    char now[80];
+    snprintf(now, sizeof(now), "MB: %s",
+             getConnectivityString(ctrl_state_msg.serverCommStatus, g_lang));
+
+    if (strcmp(now, s_lastMbStatus) != 0) {
+      strncpy(s_lastMbStatus, now, sizeof(s_lastMbStatus) - 1);
+      s_lastMbStatus[sizeof(s_lastMbStatus) - 1] = '\0';
+      lv_label_set_text(ui_WifiBoardStatus, now);
+
+      const bool onServer =
+          (ctrl_state_msg.serverCommStatus == COMM_STATUS_WIFI_SERVER ||
+           ctrl_state_msg.serverCommStatus == COMM_STATUS_GPRS_SERVER);
+      lv_obj_set_style_text_color(ui_WifiBoardStatus,
+                                  onServer ? COLOR_UP : COLOR_DOWN,
+                                  LV_PART_MAIN);
+    }
+  }
+
+  if (ui_WifiHmiStatus) {
+    // El SSID puede tener hasta 32 caracteres; el label esta en LONG_DOT, asi
+    // que si no cabe se corta con puntos suspensivos en vez de invadir el
+    // boton de conectar que tiene al lado.
+    const bool linkUp = (WiFi.status() == WL_CONNECTED);
+    char now[80];
+    snprintf(now, sizeof(now), "DISPLAY: %s",
+             linkUp ? WiFi.SSID().c_str() : TR(STR_CONN_DISCONNECTED));
+
+    if (strcmp(now, s_lastHmiStatus) != 0) {
+      strncpy(s_lastHmiStatus, now, sizeof(s_lastHmiStatus) - 1);
+      s_lastHmiStatus[sizeof(s_lastHmiStatus) - 1] = '\0';
+      lv_label_set_text(ui_WifiHmiStatus, now);
+      lv_obj_set_style_text_color(ui_WifiHmiStatus,
+                                  linkUp ? COLOR_UP : COLOR_DOWN,
+                                  LV_PART_MAIN);
+    }
+  }
+}
+
+// El repintado global de labels del modo oscuro deja estos dos en negro, y el
+// cache de "no ha cambiado nada" impediria devolverles su color. Se llama
+// desde ahi para que la siguiente pasada los vuelva a escribir.
+static void wifi_link_status_invalidate(void) {
+  s_lastMbStatus[0] = '\0';
+  s_lastHmiStatus[0] = '\0';
 }
 
 // Aplica el estado de conectividad a UNA instancia del indicador (icono +
@@ -585,7 +623,7 @@ static void apply_connectivity_indicator(lv_obj_t *icon, lv_obj_t *bars[4],
 }
 
 // Indicador de conectividad del heading, visible en TODAS las pantallas (a
-// diferencia de wifi_board_status_update, que solo vive en Ajustes/WiFi): un
+// diferencia de wifi_link_status_update, que solo vive en Ajustes/WiFi): un
 // icono WIFI/2G/sin enlace mas 4 barras de cobertura, para que el operador
 // vea de un vistazo si el equipo puede subir telemetria sin tener que entrar
 // a Ajustes. Se pinta tanto en ui_ScreenMain como en su replica de
@@ -973,8 +1011,6 @@ void UI_ApplyLanguage(ui_lang_t lang) {
 
   lv_label_set_text(ui_Label6, L(STR_SET));
   lv_label_set_text(ui_Label7, L(STR_SET));
-  lv_label_set_text(ui_WifiSSIDLabel, L(STR_WIFI_SSID));
-  lv_label_set_text(ui_WifiConnectedToLabel, L(STR_WIFI_CONNECTED_TO));
   lv_label_set_text(ui_AlarmDetailLabel, L(STR_ALARMS_DESC));
   lv_label_set_text(ui_Label35, L(STR_OXI_CHART));
   lv_label_set_text(ui_Label39, L(STR_PULSE_OXIMETRY));
@@ -1149,7 +1185,6 @@ void WifiButton_cb(lv_event_t *e) {
   LanguagesVisible = false;
   lv_obj_add_flag(ui_InfoDetailsCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_ModesConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_MaintConfigCont, LV_OBJ_FLAG_HIDDEN);
   isConnected = (WiFi.status() == WL_CONNECTED);
@@ -1195,19 +1230,18 @@ void WifiButton_cb(lv_event_t *e) {
 
   // Config form is always visible when WiFi panel is open
   lv_obj_clear_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
-  if (isConnected) {
-    lv_obj_clear_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
-    lv_label_set_text(ui_WifiSSIDLabel, WiFi.SSID().c_str());
-  }
   updateButtonVisibility();
   wifiVisible = true;
+  // Los dos status se pintan en la siguiente vuelta de UI_Task; el cache se
+  // limpia para que la primera sea inmediata aunque nada haya cambiado desde
+  // la ultima vez que se abrio esta pantalla.
+  wifi_link_status_invalidate();
 }
 
 void InfoButton_cb(lv_event_t *e) {
   lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
   LanguagesVisible = false;
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_ModesConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_MaintConfigCont, LV_OBJ_FLAG_HIDDEN);
 
@@ -1245,7 +1279,6 @@ void ModesButton_cb(lv_event_t *e) {
   lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
   LanguagesVisible = false;
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_InfoDetailsCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_MaintConfigCont, LV_OBJ_FLAG_HIDDEN);
 
@@ -1285,7 +1318,6 @@ void MaintButton_cb(lv_event_t *e) {
   lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
   LanguagesVisible = false;
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_InfoDetailsCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_ModesConfigCont, LV_OBJ_FLAG_HIDDEN);
 
@@ -1325,7 +1357,6 @@ void HelpButton_cb(lv_event_t *e) { HelpDialog_Open(); }
 
 void LanguageButton_cb(lv_event_t *e) {
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_InfoDetailsCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_ModesConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_MaintConfigCont, LV_OBJ_FLAG_HIDDEN);
@@ -3457,7 +3488,6 @@ void WifiDisconnectButton_cb(lv_event_t *e) {
   // Show the config form immediately for responsiveness. The loop will update
   // isConnected and button visibility once WiFi.status() confirms the disconnect.
   lv_obj_clear_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
 }
 
 void Label9_cb(lv_event_t *e) {
@@ -4238,7 +4268,6 @@ void UI_Task(void *pvParameters) {
   lv_obj_add_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_ModesConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_MaintConfigCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_LanguagesDropDown, LV_OBJ_FLAG_HIDDEN);
@@ -4576,12 +4605,6 @@ void UI_Task(void *pvParameters) {
       if (actuallyConnected != isConnected) {
         isConnected = actuallyConnected;
         updateButtonVisibility();
-        if (isConnected) {
-          lv_obj_clear_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
-          lv_label_set_text(ui_WifiSSIDLabel, WiFi.SSID().c_str());
-        } else {
-          lv_obj_add_flag(ui_WifiConnectedCont, LV_OBJ_FLAG_HIDDEN);
-        }
       }
     }
 
@@ -4749,7 +4772,7 @@ void UI_Task(void *pvParameters) {
     // Y estos dos por el motivo opuesto: dependen de que NO llegue nada.
     link_lost_blank_update();
     clock_update();
-    wifi_board_status_update();
+    wifi_link_status_update();
     connectivity_heading_update();
     link_audio_mute_button_update();
     // Apaga el chasquido de la ultima pulsacion cuando le toca. Va aqui, y no
@@ -5215,11 +5238,12 @@ void UI_ApplyTheme() {
   // are white
   if (ui_InfoDetailsCont)
     UI_ApplyStyleToLabelsRecursive(ui_InfoDetailsCont, lv_color_hex(0x000000));
-  if (ui_WifiConfigCont)
+  if (ui_WifiConfigCont) {
     UI_ApplyStyleToLabelsRecursive(ui_WifiConfigCont, lv_color_hex(0x000000));
-  if (ui_WifiConnectedCont)
-    UI_ApplyStyleToLabelsRecursive(ui_WifiConnectedCont,
-                                   lv_color_hex(0x000000));
+    // Los dos status de enlace llevan color propio (verde/ambar): el barrido
+    // de arriba se los acaba de llevar por delante.
+    wifi_link_status_invalidate();
+  }
 
   // Images recoloring for Dark Mode (Originals are black, we want white)
   lv_color_t img_recolor =

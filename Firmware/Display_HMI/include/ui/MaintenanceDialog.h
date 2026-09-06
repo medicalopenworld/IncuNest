@@ -44,6 +44,10 @@ bool MaintenanceDialog_IsOpen(void);
 // limpieza hecha por iniciativa propia, sin duplicar aqui los tres botones.
 // Abierto asi, el boton de abajo es CERRAR y no MAS TARDE (no hay nada que
 // aplazar).
+//
+// El overlay se muda a la pantalla activa mientras esta abierto y vuelve a
+// ui_ScreenMain al cerrarse: pulsado desde Ajustes, un overlay que se quedara
+// colgando de la pantalla principal no se veria hasta darle a ATRAS.
 void MaintenanceDialog_Open(void);
 
 // Una vez por vuelta de UI_Task, dentro de LVGL_Lock(): vigila el cambio de

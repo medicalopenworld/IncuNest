@@ -87,15 +87,7 @@ UI_STR(STR_CONN_WIFI_SERVER,   "WIFI + SERVIDOR",
                                "WIFI + SERVEUR",
                                "WIFI + SERVIDOR")
 UI_STR(STR_CONN_UNKNOWN,       "-",            "-",           "-",           "-")
-UI_STR(STR_BOARD_PREFIX,       "Placa: ",      "Board: ",     "Carte : ",    "Placa: ")
 UI_STR(STR_NO_TIME,            "Sin hora",     "No time",     "Sans heure",  "Sem hora")
-
-// ------------------------------------------------------- wifi
-UI_STR(STR_WIFI_SSID,          "WIFISSID",     "WIFISSID",    "WIFISSID",    "WIFISSID")
-UI_STR(STR_WIFI_CONNECTED_TO,  "WIFI CONECTADO A",
-                               "WIFI CONNECTED TO",
-                               "WIFI CONNECTE A",
-                               "WIFI LIGADO A")
 
 // ------------------------------------------------------- graficas
 UI_STR(STR_HUM_CHART,          "GRAFICO HUMEDAD",

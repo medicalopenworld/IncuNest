@@ -351,12 +351,11 @@ extern lv_obj_t * ui_ConnectLabel;
 extern lv_obj_t * ui_WifiDisconnectButton;
 extern lv_obj_t * ui_DisconnectLabel;
 extern lv_obj_t * ui_LanguagesDropDown;
-extern lv_obj_t * ui_WifiConnectedCont;
+// Los dos enlaces de la maquina, encima de SSID en Ajustes > WiFi:
+// ui_WifiBoardStatus es el de la motherBoard (serverCommStatus) y
+// ui_WifiHmiStatus el del propio display (WiFi.status()/SSID).
 extern lv_obj_t * ui_WifiBoardStatus;
-extern lv_obj_t * ui_WifiConnectedPanel;
-extern lv_obj_t * ui_ArrowWifiConnected;
-extern lv_obj_t * ui_WifiSSIDLabel;
-extern lv_obj_t * ui_WifiConnectedToLabel;
+extern lv_obj_t * ui_WifiHmiStatus;
 void ui_ScreenSettings_screen_init(void);
 void ui_ScreenSettings_screen_destroy(void);
 
