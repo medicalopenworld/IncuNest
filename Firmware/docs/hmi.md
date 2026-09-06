@@ -136,9 +136,11 @@ and the **verdict**: `HW OK` in green when no test failed, `HW ERROR` in red
 when any did or when the board did not answer, rejected the test or was lost
 mid-battery. Warnings never turn the verdict red. The flow is:
 
-0. **Entry gate**: a warning that the unit must be EMPTY (no patient) because
-   actuators will be driven open-loop, with Yes / No. "No" returns to the normal
-   splash flow. This is a confirmation, not an authentication.
+0. **Entry gate**: a centred modal pop-up warning that the unit must be EMPTY
+   (no patient) because actuators will be driven open-loop, with big Yes / No
+   buttons; the grid and progress bar stay hidden behind it. "No" returns to
+   the normal splash flow (or to Settings when opened from there). This is a
+   confirmation, not an authentication.
 1. **Local tests**, run inside `UI_Task` by polling: flash/PSRAM/heap, I2C
    (decided by the boot-time init results of the GT911 touch and of the
    STC8H1K28 backlight controller; the address probe of 0x14/0x30/0x18 is
@@ -153,9 +155,17 @@ mid-battery. Warnings never turn the verdict red. The flow is:
    reports `WAIT` the row shows the operator instruction for that test
    ("Open and close the door", "Cover the light sensor"); when it reports
    `CONFIRM` the row shows the question and Yes/No buttons, whose answer goes
-   back as `HMI,FTEST,CONFIRM`. If the board rejects the test (control active,
-   test already running) the reason is displayed. If nothing arrives within
-   10 s the section is marked "board without support".
+   back as `HMI,FTEST,CONFIRM` (no current test uses it: the board buzzer
+   check skips itself when there is no SensorBoard microphone instead of
+   asking). If the board rejects the test (control active, test already
+   running) the reason is displayed. If nothing arrives within 10 s the
+   section is marked "board without support". Results arrive through a
+   32-entry ring drained every UI pass regardless of what is on screen; the
+   ring's critical section only copies data (a log inside it once tripped the
+   interrupt watchdog and rebooted the display), and any dropped result is
+   counted and shown in the "Link" detail. The error / warning / OK header and
+   the persisted result are always computed from the rows themselves, so they
+   can never disagree with the red buttons or the verdict.
 3. **Summary** header with error, warning and OK counts for both boards
    (skipped tests are not counted). Retry lives in the detail panel of each
    failed or warned button (a local test re-runs; a board test sends
