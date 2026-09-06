@@ -100,16 +100,26 @@ never raised above them. Every text is available in ES/EN/FR (`g_lang`). The
 debug report contains no patient data (no baby name or profile, no SSID,
 password or token).
 
-## 7. Factory Test (splash button)
+## 7. Hardware Test (splash button and Settings row)
 
-The boot splash (`ui_ScreenIntro`) carries a single extra control, the
-**HW test** button (bottom centre). It is the only entry point: no other
-screen offers it, so the test can only be started right after power-up, before
-the unit is in clinical use. Pressing it cancels the automatic jump to the main
-screen and suspends the 20 s inactivity lock while the test screen is open.
-The button ignores taps during the first 1.5 s of the splash and has no
-extended click area: the GT911 can report a phantom corner touch while it
-initialises, and on the bench that opened the test by itself.
+There are two entry points, both leading to the same test screen:
+
+- **Factory**: the boot splash (`ui_ScreenIntro`) carries a **HW test**
+  button (bottom centre). Pressing it cancels the automatic jump to the main
+  screen and suspends the 20 s inactivity lock while the test screen is open.
+  The button ignores taps during the first 1.5 s of the splash and has no
+  extended click area: the GT911 can report a phantom corner touch while it
+  initialises, and on the bench that opened the test by itself.
+- **Field service**: a **Hardware test** row at the bottom of
+  `ui_ScreenSettings` (below Info), reachable only through the long-press lock
+  icon like the rest of Settings. The row is enabled only while thermal
+  control and phototherapy are off; otherwise it is greyed out with "Turn
+  control off to test". "No" on the empty-unit warning returns to Settings.
+  It was placed in Settings rather than in the help menu on purpose: the help
+  overlays are for clinical staff and yield to any alarm, whereas the test
+  inhibits alarms and drives actuators open-loop. Without a service PIN the
+  field barrier is long-press + control off + explicit confirmation (residual
+  risk noted in the design).
 
 The test screen is a full-screen overlay (`src/ui/FactoryTest.cpp`, same
 pattern as `AlarmCenter`) showing a **paged 3-column grid of buttons**, one
