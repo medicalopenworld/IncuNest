@@ -18,16 +18,14 @@ extern void ui_add_chart_safe_zone(lv_obj_t *chart, float min_val,
 
 namespace {
 
-// 2 h de techo a 10 s/muestra = 720 puntos por canal. Numeros ya probados —
-// implementacion anterior de este mismo panel (retirada para reconstruirse
-// aqui, ver git log) — 720*3*4 bytes = ~8.6 KB, sin apuro frente a los
-// 320 KB de SRAM del ESP32-S3.
+// 4 h de techo a 10 s/muestra = 1440 puntos por canal — 1440*3*4 bytes =
+// ~16.9 KB, sin apuro frente a los 320 KB de SRAM del ESP32-S3.
 // Nombre especifico y no "BUFFER_SIZE": main.h ya declara una constante
 // global con ese nombre (buffers de texto de labels) y, aunque esta vive en
 // un namespace anonimo, ambas quedan visibles sin cualificar en este mismo
 // TU — el nombre generico resultaba en "reference to BUFFER_SIZE is
 // ambiguous" al compilar.
-constexpr int HIST_BUF_SIZE = 720;
+constexpr int HIST_BUF_SIZE = 1440;
 // Por tiempo transcurrido (millis()), no por cuenta de llamadas: RecordSample
 // solo se invoca cuando llega telemetria real (g_pendingTelemetryApply), asi
 // que un contador de llamadas se estira si el bucle de UI coalesce mas de una
@@ -36,10 +34,11 @@ constexpr uint32_t DECIMATE_MS = 10000;  // ~10 s/muestra
 // Un hueco > 2x el intervalo esperado es un corte real (EMI, reinicio de la
 // placa — known_issues.md #1/#5), no jitter del bucle de UI.
 constexpr uint32_t GAP_THRESHOLD_MS = 2 * DECIMATE_MS;
-// 5m/30m/1h/2h a razon de 1 punto/10s. El ultimo coincide con HIST_BUF_SIZE
-// (el techo del buffer es tambien la ventana mas ancha ofrecida) — referencia
-// la constante en vez de repetir 720 para que no puedan divergir.
-constexpr int WINDOW_POINTS[4] = {30, 180, 360, HIST_BUF_SIZE};
+// 1h/2h/4h a razon de 1 punto/10s. El ultimo coincide con HIST_BUF_SIZE (el
+// techo del buffer es tambien la ventana mas ancha ofrecida) — referencia la
+// constante en vez de repetir 1440 para que no puedan divergir. 1h primero:
+// es la ventana por defecto (indice 0 del dropdown, sin seleccion explicita).
+constexpr int WINDOW_POINTS[3] = {360, 720, HIST_BUF_SIZE};
 
 // NAN marca "sin dato valido en este instante": medida no disponible
 // (PROTO_TEL_*_UNAVAILABLE), enlace HMI<->motherBoard caido, o hueco de
@@ -105,7 +104,7 @@ void redraw() {
   if (!s_chartAir || !s_serAir || !s_serSkin || !s_serHum) return;
 
   uint16_t idx = lv_dropdown_get_selected(s_windowDd);
-  if (idx > 3) idx = 0;
+  if (idx > 2) idx = 0;
   int point_count = WINDOW_POINTS[idx];
   if (point_count > s_sampleCount) point_count = s_sampleCount;
 
@@ -174,6 +173,12 @@ lv_obj_t *makeChart(lv_coord_t y, int rangeLo, int rangeHi, double safeLo,
   lv_chart_set_type(chart, LV_CHART_TYPE_LINE);
   lv_chart_set_range(chart, LV_CHART_AXIS_PRIMARY_Y, rangeLo, rangeHi);
   ui_apply_sparkline_style(chart, color);
+  // ui_apply_sparkline_style() reserva el eje Y pensando en los charts de
+  // 280 px de alto de Tiempo Real; en estos, de 96 px, 4 marcas con solo
+  // 25 px de hueco salian apiñadas. Menos marcas y mas hueco horizontal
+  // para el numero, solo para estos charts compactos.
+  lv_obj_set_style_pad_left(chart, 40, LV_PART_MAIN);
+  lv_chart_set_axis_tick(chart, LV_CHART_AXIS_PRIMARY_Y, 2, 1, 3, 1, true, 34);
   ui_add_chart_safe_zone(chart, (float)safeLo, (float)safeHi,
                           (float)rangeLo, (float)rangeHi);
   *outSeries = lv_chart_add_series(chart, color, LV_CHART_AXIS_PRIMARY_Y);
@@ -225,7 +230,9 @@ void TelemetryHistory_Init(void) {
   lv_obj_center(closeLbl);
 
   s_windowDd = lv_dropdown_create(s_content);
-  lv_dropdown_set_options(s_windowDd, "5 min\n30 min\n1 h\n2 h");
+  // "1 h" primero: indice 0 es la seleccion por defecto de un dropdown sin
+  // lv_dropdown_set_selected() explicito.
+  lv_dropdown_set_options(s_windowDd, "1 h\n2 h\n4 h");
   lv_obj_set_width(s_windowDd, 110);
   lv_obj_align(s_windowDd, LV_ALIGN_TOP_RIGHT, -54, 2);
   lv_obj_add_event_cb(s_windowDd, onWindowChanged, LV_EVENT_VALUE_CHANGED,

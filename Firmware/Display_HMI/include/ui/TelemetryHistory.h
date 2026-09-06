@@ -2,7 +2,7 @@
 #define UI_TELEMETRY_HISTORY_H
 
 // Tendencia de temperatura de aire/piel y humedad, con ventana de tiempo
-// seleccionable (5 min / 30 min / 1 h / 2 h). Mismo criterio que
+// seleccionable (1 h por defecto / 2 h / 4 h). Mismo criterio que
 // AlarmCenter.h: cuelga de lv_layer_top(), no de una pantalla concreta, para
 // ser accesible desde ui_ScreenLock sin desbloquear el equipo.
 void TelemetryHistory_Init(void);
@@ -21,7 +21,7 @@ void TelemetryHistory_Open(void);
 void TelemetryHistory_Poll(void);
 
 // Anade una muestra al buffer circular (submuestreado internamente por
-// tiempo real, ~1 cada 10 s, 2 h de techo). Llamar cada vez que llega
+// tiempo real, ~1 cada 10 s, 4 h de techo). Llamar cada vez que llega
 // telemetria nueva, este la vista abierta o no: el buffer sigue lleno para
 // cuando se abra. airOk/skinOk/humOk: false si esa medida es el centinela
 // PROTO_TEL_*_UNAVAILABLE de PROTOCOL.md o si el enlace esta caido — nunca
