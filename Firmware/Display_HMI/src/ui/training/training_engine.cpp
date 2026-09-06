@@ -78,10 +78,6 @@ lv_obj_t *s_strip = nullptr;
 lv_obj_t *s_stripLbl = nullptr;
 lv_obj_t *s_stripExit = nullptr, *s_stripExitLbl = nullptr;
 
-const char *TXT(const char *es, const char *en, const char *fr) {
-  return (g_lang == LANG_ES) ? es : (g_lang == LANG_FR) ? fr : en;
-}
-
 lv_obj_t *makeBtn(lv_obj_t *parent, lv_event_cb_t cb, lv_color_t bg,
                   lv_obj_t **lblOut, void *user = nullptr) {
   lv_obj_t *btn = lv_btn_create(parent);
@@ -229,18 +225,11 @@ const char *modeStripText() {
   switch (s_mode) {
     case MODE_INTERACTIVE:
       // Lo peligroso delante y corto, para que quepa sin scroll.
-      return TXT("FORMACION: LA INCUBADORA CALIENTA E ILUMINA DE VERDAD. "
-                 "CABINA VACIA. Bebe de practica ZOE.",
-                 "TRAINING: THE INCUBATOR REALLY HEATS AND LIGHTS UP. EMPTY "
-                 "CABIN. Practice baby ZOE.",
-                 "FORMATION : L'INCUBATEUR CHAUFFE ET ECLAIRE VRAIMENT. "
-                 "HABITACLE VIDE. Bebe d'exercice ZOE.");
+      return TR(STR_TRAIN_BANNER_REAL);
     case MODE_DEMO:
-      return TXT("DEMOSTRACION: hay terapia o alarma activa, sin cambios en el equipo",
-                 "DEMO: therapy or alarm active, nothing changes on the device",
-                 "DEMONSTRATION : therapie ou alarme active, rien ne change");
+      return TR(STR_TRAIN_BANNER_DEMO);
     default:
-      return TXT("TUTORIAL", "TUTORIAL", "TUTORIEL");
+      return TR(STR_TRAIN_BANNER_PLAIN);
   }
 }
 
@@ -333,7 +322,7 @@ void onQuizOption(lv_event_t *e) {
   if (!st.quiz) return;
   if (pick == st.quiz->correct) {
     s_quizSolved = true;
-    lv_label_set_text(s_feedback, TXT("Correcto.", "Correct.", "Correct."));
+    lv_label_set_text(s_feedback, TR(STR_TRAIN_CORRECT));
     lv_obj_set_style_text_color(s_feedback, lv_color_hex(0x00AA00), 0);
     for (int i = 0; i < 3; i++) {
       lv_obj_set_style_bg_color(s_quizBtn[i],
@@ -346,7 +335,7 @@ void onQuizOption(lv_event_t *e) {
     s_attempts++;
     // Explicar y repetir: la pregunta sigue en pantalla con las tres opciones.
     snprintf(s_textBuf, sizeof(s_textBuf), "%s %s",
-             TXT("No es eso.", "Not quite.", "Pas tout a fait."),
+             TR(STR_TRAIN_WRONG),
              TrainingTxt(st.quiz->explain));
     lv_label_set_text(s_feedback, s_textBuf);
     lv_obj_set_style_text_color(s_feedback, lv_color_hex(0xAA3333), 0);
@@ -368,11 +357,11 @@ void render(const Step &st, StepKind kind, lv_obj_t *target) {
   snprintf(cnt, sizeof(cnt), "%d/%d", s_idx + 1, s_lesson->stepCount);
   lv_label_set_text(s_counter, cnt);
   lv_label_set_text(s_title, TrainingTxt(s_lesson->title));
-  lv_label_set_text(s_exitLbl, TXT("SALIR", "EXIT", "QUITTER"));
-  lv_label_set_text(s_prevLbl, TXT("ANTERIOR", "BACK", "PRECEDENT"));
-  lv_label_set_text(s_nextLbl, last ? TXT("TERMINAR", "FINISH", "TERMINER")
-                                    : TXT("SIGUIENTE", "NEXT", "SUIVANT"));
-  lv_label_set_text(s_stripExitLbl, TXT("SALIR", "EXIT", "QUITTER"));
+  lv_label_set_text(s_exitLbl, TR(STR_TOUR_EXIT));
+  lv_label_set_text(s_prevLbl, TR(STR_TOUR_PREV));
+  lv_label_set_text(s_nextLbl, last ? TR(STR_TOUR_FINISH)
+                                    : TR(STR_TOUR_NEXT));
+  lv_label_set_text(s_stripExitLbl, TR(STR_TOUR_EXIT));
   show(s_feedback, false);
   show(s_hint, false);
   for (int i = 0; i < 3; i++) show(s_quizBtn[i], false);
@@ -385,7 +374,7 @@ void render(const Step &st, StepKind kind, lv_obj_t *target) {
   // Texto del paso (con prefijo en demostracion cuando el original era "hacer").
   if (st.kind == STEP_DO && s_mode == MODE_DEMO) {
     snprintf(s_textBuf, sizeof(s_textBuf), "%s %s",
-             TXT("Demostracion:", "Demo:", "Demonstration :"),
+             TR(STR_TRAIN_DEMO_PREFIX),
              TrainingTxt(st.text));
     lv_label_set_text(s_text, s_textBuf);
   } else {
@@ -447,9 +436,7 @@ void render(const Step &st, StepKind kind, lv_obj_t *target) {
     show(s_nextBtn, false);
     show(s_hint, true);
     lv_label_set_text(s_hint,
-                      TXT("Hazlo tu: toca el control resaltado.",
-                          "Your turn: touch the highlighted control.",
-                          "A vous : touchez la commande en surbrillance."));
+                      TR(STR_TRAIN_YOUR_TURN));
   } else {
     setRootClickable(true);
     show(s_prevBtn, prevAllowed(s_idx));
@@ -655,12 +642,7 @@ void Training_StartLesson(const Course *course, uint8_t lessonIdx) {
       s_mode = MODE_INTERACTIVE;
     } else {
       s_mode = MODE_DEMO;
-      UI_ShowToast(TXT("Hay terapia o alarma activa: leccion en demostracion, "
-                       "no cuenta como superada",
-                       "Therapy or alarm active: demo lesson, does not count "
-                       "as passed",
-                       "Therapie ou alarme active : lecon en demonstration, "
-                       "ne compte pas"),
+      UI_ShowToast(TR(STR_TRAIN_DEMO_TOAST),
                    4000);
     }
   } else {
