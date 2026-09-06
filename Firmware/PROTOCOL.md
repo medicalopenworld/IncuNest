@@ -1,4 +1,15 @@
-# Protocolo de Comunicación IncuNest (v2.3.2)
+# Protocolo de Comunicación IncuNest (v2.3.3)
+
+> Nota (v2.3.3): se añade el test de fábrica `sim_act` (id 28), que activa la
+> SIM Onomondo de la unidad contra la API de Onomondo por WiFi.
+> `FTEST_MB_COUNT` pasa de 28 a 29. **NO es breaking**: el id nuevo va al
+> final de la tabla, así que todos los ids anteriores conservan su valor y una
+> máscara ya persistida en NVS sigue siendo válida. Un display antiguo que no
+> conozca el id lo pinta con su clave ASCII (`sim_act`) y sigue funcionando.
+> A diferencia de `gsm_net`/`wifi`/`tb_provision`/`time`, este test **no es
+> opcional**: agotar su plazo es `FAIL`, no `WARN` — una incubadora no puede
+> salir de fábrica con la SIM sin activar sin que quede registrado. Solo hace
+> `SKIP` si no hay SIM (sin ICCID no hay nada que activar).
 
 > Nota (v2.3.2): tercera vuelta del test de fábrica tras la segunda prueba en
 > banco (motherBoard SOLO a batería, SensorBoard conectada, sin SHT4x
@@ -478,9 +489,9 @@ Identificadores, estados y codec viven en `shared/include/factory_test.h`
 copia propia de la tabla**.
 
 #### HMI,FTEST,START / HMI,FTEST,RUN / HMI,FTEST,ABORT / HMI,FTEST,CONFIRM
-- `HMI,FTEST,START` — batería completa (los `FTEST_MB_COUNT` = 28 tests).
+- `HMI,FTEST,START` — batería completa (los `FTEST_MB_COUNT` = 29 tests).
 - `HMI,FTEST,RUN,<id>` — un solo test (reintento). `id` debe ser de motherBoard
-  (`0..27`); si no, `CTRL,FTEST_REJECT,2`.
+  (`0..28`); si no, `CTRL,FTEST_REJECT,2`.
 - `HMI,FTEST,ABORT` — cancela la batería en curso. El test que estuviera
   corriendo termina como `SKIP` con `detail=abort` y se emite `FTEST_DONE`.
 - `HMI,FTEST,CONFIRM,<id>,<0|1>` — respuesta del operario a un `CONFIRM`.
@@ -498,7 +509,7 @@ observan un estado ya cacheado por otra tarea o una petición asíncrona ya en
 vuelo: `charger`, `env_sensor`, `sb_status`, `sb_camera`, `gsm_at`, `gsm_sim`,
 `gsm_signal`, `gsm_net`, `wifi`, `tb_provision`, `time` y los instantáneos
 `sysinfo`, `ina3221`, `skin_adc`, `hmi_link`, `nvs`, `littlefs`, `power_src`,
-`humid_usb`, `sb_door`, `afe_probe`) y **ACTIVOS** (`standby`, `actuators`,
+`humid_usb`, `sb_door`, `afe_probe`, `sim_act`) y **ACTIVOS** (`standby`, `actuators`,
 `fan_rpm`, `buzzer`, `afe_spi`, `sb_env`, `sb_light`, en ese orden — no el
 ascendente de id: `sb_env`/`sb_light` van al final para dar tiempo a que
 `env_sensor` resuelva la cascada `sb_usb` en paralelo). Al arrancar `START`,

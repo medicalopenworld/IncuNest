@@ -55,7 +55,16 @@ typedef enum {
   FTEST_MB_TIME,
   FTEST_MB_NVS,
   FTEST_MB_LITTLEFS,
-  FTEST_MB_COUNT, // = 28
+  // Activacion de la SIM Onomondo contra su API (solo fabrica). Va al
+  // FINAL del enum y NO junto a los GSM_*: los ids viajan por el cable y
+  // se persisten en la mascara de 32 bits en NVS, asi que insertarlo en
+  // medio renumeraria todos los tests posteriores y desincronizaria una
+  // motherBoard nueva con un display antiguo (y con las mascaras ya
+  // guardadas de una tanda anterior). El ORDEN DE EJECUCION si lo pone
+  // justo detras de gsm_sim, y eso lo decide kFtestPassiveOrder
+  // (factory_test_hw.cpp), no el valor del id.
+  FTEST_MB_SIM_ACT,
+  FTEST_MB_COUNT, // = 29
   FTEST_HMI_BASE = 64,
   FTEST_HMI_SYSINFO = FTEST_HMI_BASE,
   FTEST_HMI_I2C,

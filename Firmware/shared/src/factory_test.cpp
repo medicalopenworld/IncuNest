@@ -16,7 +16,7 @@ const char *const kMbKeys[] = {
     "sb_door",  "sb_light",  "sb_camera",   "actuators",  "fan_rpm",
     "humid_usb", "buzzer",   "afe_spi",     "afe_probe",  "hmi_link",
     "gsm_at",   "gsm_sim",   "gsm_signal",  "gsm_net",    "wifi",
-    "tb_provision", "time",  "nvs",         "littlefs",
+    "tb_provision", "time",  "nvs",         "littlefs",   "sim_act",
 };
 static_assert(sizeof(kMbKeys) / sizeof(kMbKeys[0]) ==
                   static_cast<unsigned>(FTEST_MB_COUNT),

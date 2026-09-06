@@ -23,6 +23,13 @@
 // time): fabrica puede no tener cobertura celular ni AP en la nave, asi que
 // agotarlo es un AVISO (FTEST_WARN), no un FAIL (shared-factory-test-bench).
 #define FTEST_CONN_TIMEOUT_MS 30000u
+// Plazo de sim_act. Mas largo que FTEST_CONN_TIMEOUT_MS porque tiene que
+// cubrir DOS cosas en serie: esperar a que la WiFi de la nave levante y,
+// solo despues, las dos peticiones HTTPS (cada una con un reintento).
+// Por debajo de FTEST_TEST_TIMEOUT_MS (90 s) con margen: pasarse de ahi
+// haria que el runner lo cortara con detail "timeout" en vez de con el
+// motivo real. A diferencia de los opcionales, agotarlo es FAIL.
+#define FTEST_SIM_ACT_TIMEOUT_MS 80000u
 // Cota cooperativa POR TEST (distinta de FTEST_BATTERY_MAX_MS, que es para
 // toda la bateria): ningun cuerpo individual tiene un plazo propio mayor que
 // esto (el mas largo, gsm_at, agota a los 45 s; el CONFIRM del buzzer a los

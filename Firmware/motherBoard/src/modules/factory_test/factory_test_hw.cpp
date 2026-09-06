@@ -58,6 +58,7 @@
 #include "esp_mac.h"
 
 #include "factory_test_hw.h"
+#include "ftest_sim_activation.h"
 #include "main.h"
 #include "modules/sensorboard_comm/sensorboard_comm.h"
 #include "modules/sensors/sensor_source.h"
@@ -97,6 +98,7 @@ static bool s_sbCameraRequested = false;
 void ftest_hw_reset_passive_state(void) {
   s_sbStatusRequested = false;
   s_sbCameraRequested = false;
+  ftest_sim_activation_reset();
 }
 
 // ---------------------------------------------------------------------------
@@ -831,6 +833,59 @@ static FtestStatus ftest_littlefs(char *detail, FtestCascade *, uint32_t) {
   return (total > 0) ? FTEST_PASS : FTEST_FAIL;
 }
 
+// ---------------------------------------------------------------------------
+// 28: SIM_ACT (pasivo) -- activacion de la SIM Onomondo de la unidad contra la
+// API de Onomondo, paso de fabrica.
+//
+// A diferencia de gsm_net/wifi/tb_provision/time, este test NO es opcional y
+// agotar su plazo es FAIL, no WARN: una incubadora no puede salir de fabrica
+// con la SIM sin activar sin que quede registrado. Solo SKIP si no hay SIM
+// (sin ICCID no hay nada que activar, misma cascada que gsm_signal/gsm_net).
+//
+// El trabajo real (TLS + dos peticiones) lo hace una tarea aparte
+// (ftest_sim_activation.cpp): este cuerpo la arranca UNA vez, cuando ya tiene
+// las dos cosas que necesita -- ICCID leido del modem y WiFi levantada -- y a
+// partir de ahi solo observa. Es el mismo patron de sb_status/sb_camera, y es
+// obligatorio aqui: un pasivo no puede bloquear ni hacer vTaskDelay.
+static FtestStatus ftest_sim_act(char *detail, FtestCascade *cascade,
+                                  uint32_t elapsed_ms) {
+  if (cascade->gsm_sim == FTEST_DEP_FAILED) {
+    D("sin sim");
+    return FTEST_SKIP;
+  }
+
+  switch (ftest_sim_activation_state()) {
+    case FTEST_SIM_ALREADY_ACTIVE:
+    case FTEST_SIM_ACTIVATED:
+      D("%s", ftest_sim_activation_detail());
+      return FTEST_PASS;
+    case FTEST_SIM_ERROR:
+      D("%s", ftest_sim_activation_detail());
+      return FTEST_FAIL;
+    case FTEST_SIM_RUNNING:
+      break; // peticion en vuelo: seguimos esperando
+    case FTEST_SIM_IDLE:
+      if (GPRS.CCID.length() > 0 && WIFIIsConnected()) {
+        ftest_sim_activation_start(GPRS.CCID.c_str());
+      }
+      break;
+  }
+
+  if (elapsed_ms >= FTEST_SIM_ACT_TIMEOUT_MS) {
+    // Distinguir el motivo importa en banco: "sin wifi" es un problema de la
+    // nave, "sin respuesta" es de la API o de la clave.
+    if (GPRS.CCID.length() == 0) {
+      D("sin iccid");
+    } else if (!WIFIIsConnected()) {
+      D("sin wifi");
+    } else {
+      D("sin respuesta");
+    }
+    return FTEST_FAIL;
+  }
+  return FTEST_RUNNING;
+}
+
 #undef D
 
 // ---------------------------------------------------------------------------
@@ -874,6 +929,7 @@ static const FtestEntry kFtestTable[] = {
     {FTEST_MB_TIME, true, nullptr, ftest_time},
     {FTEST_MB_NVS, true, nullptr, ftest_nvs},
     {FTEST_MB_LITTLEFS, true, nullptr, ftest_littlefs},
+    {FTEST_MB_SIM_ACT, true, nullptr, ftest_sim_act},
 };
 static_assert(sizeof(kFtestTable) / sizeof(kFtestTable[0]) == FTEST_MB_COUNT,
               "kFtestTable desincronizado con FTEST_MB_COUNT");
@@ -895,7 +951,8 @@ static const unsigned kFtestPassiveOrder[FTEST_PASSIVE_COUNT] = {
     FTEST_MB_POWER_SRC, FTEST_MB_SKIN_ADC,    FTEST_MB_ENV_SENSOR,
     FTEST_MB_SB_STATUS, FTEST_MB_SB_DOOR,     FTEST_MB_SB_CAMERA,
     FTEST_MB_HUMID_USB, FTEST_MB_AFE_PROBE,   FTEST_MB_HMI_LINK,
-    FTEST_MB_GSM_AT,    FTEST_MB_GSM_SIM,     FTEST_MB_GSM_SIGNAL,
+    FTEST_MB_GSM_AT,    FTEST_MB_GSM_SIM,     FTEST_MB_SIM_ACT,
+    FTEST_MB_GSM_SIGNAL,
     FTEST_MB_GSM_NET,   FTEST_MB_WIFI,        FTEST_MB_TB_PROVISION,
     FTEST_MB_TIME,      FTEST_MB_NVS,         FTEST_MB_LITTLEFS,
 };
