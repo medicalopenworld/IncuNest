@@ -18,6 +18,7 @@
 #include <stdint.h>
 #include "control_types.h"
 #include "alarm_ids.h"
+#include "ui/i18n.h"
 
 #define FWversion "4.0.0"
 #define ENABLE_WIFI_OTA true // enable wifi OTA
@@ -37,9 +38,10 @@ extern bool OTA_inprogress;
 // -----------------------------
 // LANGUAGES
 // -----------------------------
+//
+// `ui_lang_t`, `g_lang` y el catalogo de cadenas viven en `ui/i18n.h`
+// (incluido arriba).
 
-typedef enum { LANG_ES = 0, LANG_EN = 1, LANG_FR = 2 } ui_lang_t;
-extern ui_lang_t g_lang;
 extern bool darkMode;        // Global Dark Mode state
 extern bool humidityEnabled;   // Humidity control enabled from Settings
 extern bool skinPanelEnabled;  // Skin mode control enabled from Settings

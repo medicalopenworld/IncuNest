@@ -9,8 +9,6 @@
 #include "ui.h"
 #include "ui/BabyWizard.h"
 
-extern ui_lang_t g_lang;
-
 namespace {
 
 enum class ExitStep : uint8_t { Closed, AskReason, AskOutcome, AskCause };
@@ -29,10 +27,6 @@ lv_obj_t *s_content = nullptr;
 // it: the outcome screen has no way back, and without this X the only exits
 // from it would be recording an outcome the nurse may not know yet.
 lv_obj_t *s_closeBtn = nullptr;
-
-const char *TXT(const char *es, const char *en, const char *fr) {
-  return (g_lang == LANG_ES) ? es : (g_lang == LANG_FR) ? fr : en;
-}
 
 void clearContent() {
   if (s_content) lv_obj_clean(s_content);
@@ -145,15 +139,10 @@ void showAskReason() {
   const char *name = BabyWizard_GetActiveName();
   if (name && name[0]) {
     snprintf(buf, sizeof(buf),
-             TXT("Incubadora en reposo\n%s ha salido:",
-                 "Incubator idle\n%s has come out:",
-                 "Incubateur au repos\n%s est sorti:"),
-             name);
+             TR(STR_EXIT_IDLE_NAMED_FMT), name);
   } else {
     snprintf(buf, sizeof(buf), "%s",
-             TXT("Incubadora en reposo\nEl bebe ha salido:",
-                 "Incubator idle\nThe baby has come out:",
-                 "Incubateur au repos\nLe bebe est sorti:"));
+             TR(STR_EXIT_IDLE_ANON));
   }
   lv_label_set_text(title, buf);
   lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
@@ -166,11 +155,11 @@ void showAskReason() {
   // the next active -> idle edge). With only two buttons left, they grow to
   // fill the freed-up space instead of leaving it empty.
   lv_obj_t *withMotherBtn =
-      makeBtn(col, TXT("CON LA MADRE", "WITH THE MOTHER", "AVEC LA MERE"),
+      makeBtn(col, TR(STR_WITH_THE_MOTHER),
               onWithMother, lv_color_hex(0x0075EE));
   lv_obj_set_height(withMotherBtn, 90);
   lv_obj_t *dischargeBtn = makeBtn(
-      col, TXT("ALTA", "DISCHARGE", "SORTIE"), onDischargeChosen,
+      col, TR(STR_DISCHARGE_UC), onDischargeChosen,
       lv_color_hex(0xE08800));
   lv_obj_set_height(dischargeBtn, 90);
 
@@ -181,21 +170,20 @@ void showAskOutcome() {
   lv_obj_t *col = makeColumn();
 
   lv_obj_t *title = lv_label_create(col);
-  lv_label_set_text(title, TXT("Motivo del alta", "Reason for discharge",
-                               "Motif de la sortie"));
+  lv_label_set_text(title, TR(STR_REASON_FOR_DISCHARGE));
   lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
   lv_obj_set_style_text_color(title, lv_color_hex(0x0B2E4F), 0);
   lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_width(title, LV_PCT(100));
 
   // Same 0-3 mapping as PROTOCOL.md / BabyOutcome on the motherBoard.
-  makeBtn(col, TXT("SOBREVIVIO", "SURVIVED", "A SURVECU"), onOutcomePicked,
+  makeBtn(col, TR(STR_OUTCOME_SURVIVED_UC), onOutcomePicked,
           lv_color_hex(0x00AA00), (void *)(uintptr_t)1);
-  makeBtn(col, TXT("NO SOBREVIVIO", "DID NOT SURVIVE", "N'A PAS SURVECU"),
+  makeBtn(col, TR(STR_OUTCOME_DIED_UC),
           onOutcomePicked, lv_color_hex(0xAA3333), (void *)(uintptr_t)2);
-  makeBtn(col, TXT("TRASLADADO", "TRANSFERRED", "TRANSFERE"), onOutcomePicked,
+  makeBtn(col, TR(STR_OUTCOME_TRANSFER_UC), onOutcomePicked,
           lv_color_hex(0x0075EE), (void *)(uintptr_t)3);
-  makeBtn(col, TXT("DESCONOCIDO", "UNKNOWN", "INCONNU"), onOutcomePicked,
+  makeBtn(col, TR(STR_OUTCOME_UNKNOWN_UC), onOutcomePicked,
           lv_color_hex(0x888888), (void *)(uintptr_t)0);
 
   s_step = ExitStep::AskOutcome;
@@ -205,8 +193,7 @@ void showAskCause() {
   lv_obj_t *col = makeColumn(/*scrollable=*/true);
 
   lv_obj_t *title = lv_label_create(col);
-  lv_label_set_text(title, TXT("Causa del fallecimiento", "Cause of death",
-                               "Cause du deces"));
+  lv_label_set_text(title, TR(STR_CAUSE_OF_DEATH));
   lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
   lv_obj_set_style_text_color(title, lv_color_hex(0x0B2E4F), 0);
   lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
@@ -215,18 +202,17 @@ void showAskCause() {
   // Same 0-6 mapping as PROTOCOL.md / BabyCause on the motherBoard. Ordered
   // by frequency of neonatal mortality causes in low-resource settings
   // (WHO/UNICEF), not alphabetically; 0 (unspecified) has no button here.
-  struct CauseOption { const char *es, *en, *fr; uint8_t code; };
+  struct CauseOption { ui_str_id_t text; uint8_t code; };
   static const CauseOption CAUSES[] = {
-      {"PREMATURIDAD", "PREMATURITY", "PREMATURITE", 1},
-      {"ASFIXIA PERINATAL", "PERINATAL ASPHYXIA", "ASPHYXIE PERINATALE", 2},
-      {"SEPSIS / INFECCION", "SEPSIS / INFECTION", "SEPSIS / INFECTION", 3},
-      {"MALFORMACION CONGENITA", "CONGENITAL MALFORMATION",
-       "MALFORMATION CONGENITALE", 4},
-      {"HIPOTERMIA", "HYPOTHERMIA", "HYPOTHERMIE", 5},
-      {"OTRA / DESCONOCIDA", "OTHER / UNKNOWN", "AUTRE / INCONNUE", 6},
+      {STR_CAUSE_PREMATURITY_UC, 1},
+      {STR_CAUSE_ASPHYXIA_UC, 2},
+      {STR_CAUSE_SEPSIS_UC, 3},
+      {STR_CAUSE_MALFORMATION_UC, 4},
+      {STR_CAUSE_HYPOTHERMIA_UC, 5},
+      {STR_CAUSE_OTHER_UC, 6},
   };
   for (const CauseOption &c : CAUSES) {
-    lv_obj_t *btn = makeBtn(col, TXT(c.es, c.en, c.fr), onCausePicked,
+    lv_obj_t *btn = makeBtn(col, TR(c.text), onCausePicked,
                             lv_color_hex(0x0075EE), (void *)(uintptr_t)c.code);
     lv_obj_set_height(btn, 44);
   }
@@ -235,6 +221,8 @@ void showAskCause() {
 }
 
 }  // namespace
+
+bool BabyExitDialog_IsOpen(void) { return s_step != ExitStep::Closed; }
 
 void BabyExitDialog_Init(lv_obj_t *parent) {
   // Parent to ui_ScreenMain explicitly, never lv_scr_act(): at UI-init time
@@ -265,8 +253,6 @@ void BabyExitDialog_Init(lv_obj_t *parent) {
   // After s_content on purpose: last child = drawn on top of both screens.
   buildCloseButton();
 }
-
-bool BabyExitDialog_IsOpen(void) { return s_step != ExitStep::Closed; }
 
 void BabyExitDialog_Cancel(void) {
   if (s_step != ExitStep::Closed) closeDialog();

@@ -41,6 +41,11 @@ void BabyWizard_Poll(void);
 // every BabyWizard_Open().
 bool BabyWizard_HasUsableRange(void);
 
+// True mientras alguno de los pasos del asistente este en pantalla. Lo
+// consultan los overlays que esperan turno (MaintenanceDialog) para no
+// pintarse encima de un dialogo modal que ya esta abierto.
+bool BabyWizard_IsOpen(void);
+
 // The profile this HMI last put in charge of the incubator (0 = none/SKIP).
 // Used by the exit dialog to know which baby just came out. Name is "" when
 // unknown.

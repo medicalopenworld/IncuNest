@@ -20,7 +20,9 @@ void TimeDialog_Init(lv_obj_t *parent);
 // Abre el dialogo con la mascara vacia. Lo llama ClockButton_cb.
 void TimeDialog_Open(void);
 
-// Para el motor de lecciones (hmi-training-courses).
+// True mientras el dialogo este visible. Lo consultan los overlays que
+// esperan turno (MaintenanceDialog) para no pintarse encima, y tambien el
+// motor de lecciones (hmi-training-courses), junto con TimeDialog_Close().
 bool TimeDialog_IsOpen(void);
 void TimeDialog_Close(void);
 

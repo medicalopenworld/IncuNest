@@ -10,8 +10,6 @@
 #include "state/training_mode.h"
 #include "ui.h"
 
-extern ui_lang_t g_lang;
-
 namespace {
 
 enum class HistStep {
@@ -53,28 +51,26 @@ const char *TXT(const char *es, const char *en, const char *fr) {
 
 const char *outcomeText(uint8_t oc) {
   switch (oc) {
-    case 1: return TXT("Sobrevivio", "Survived", "A survecu");
-    case 2: return TXT("No sobrevivio", "Deceased", "Decede");
-    case 3: return TXT("Trasladado", "Transferred", "Transfere");
-    default: return TXT("Desconocido", "Unknown", "Inconnu");
+    case 1: return TR(STR_OUTCOME_SURVIVED);
+    case 2: return TR(STR_OUTCOME_DIED);
+    case 3: return TR(STR_OUTCOME_TRANSFER);
+    default: return TR(STR_OUTCOME_UNKNOWN);
   }
 }
 
 // Only meaningful for outcome==2 (Deceased) — see PROTOCOL.md BabyCause.
 const char *causeText(uint8_t cause) {
   switch (cause) {
-    case 1: return TXT("Prematuridad", "Prematurity", "Prematurite");
+    case 1: return TR(STR_CAUSE_PREMATURITY);
     case 2:
-      return TXT("Asfixia perinatal", "Perinatal asphyxia",
-                 "Asphyxie perinatale");
+      return TR(STR_CAUSE_ASPHYXIA);
     case 3:
-      return TXT("Sepsis/infeccion", "Sepsis/infection", "Sepsis/infection");
+      return TR(STR_CAUSE_SEPSIS);
     case 4:
-      return TXT("Malformacion congenita", "Congenital malformation",
-                 "Malformation congenitale");
-    case 5: return TXT("Hipotermia", "Hypothermia", "Hypothermie");
-    case 6: return TXT("Otra", "Other", "Autre");
-    default: return TXT("Desconocida", "Unknown", "Inconnue");
+      return TR(STR_CAUSE_MALFORMATION);
+    case 5: return TR(STR_CAUSE_HYPOTHERMIA);
+    case 6: return TR(STR_CAUSE_OTHER);
+    default: return TR(STR_CAUSE_UNKNOWN_F);
   }
 }
 
@@ -166,7 +162,7 @@ void onCloseClicked(lv_event_t *) { closeScreen(); }
 
 void showLoading() {
   clearContent();
-  makeTitle(TXT("Cargando...", "Loading...", "Chargement..."));
+  makeTitle(TR(STR_LOADING));
   lv_obj_t *close =
       makeBtn(s_content, "X", onCloseClicked, lv_color_hex(0xAA3333));
   lv_obj_set_size(close, 44, 44);
@@ -254,7 +250,7 @@ static void fmtMinutes(uint32_t minutes, char *out, size_t len) {
 
 void showList() {
   clearContent();
-  makeTitle(TXT("Bebes", "Babies", "Bebes"));
+  makeTitle(TR(STR_BABIES));
 
   lv_obj_t *close =
       makeBtn(s_content, "X", onCloseClicked, lv_color_hex(0xAA3333));
@@ -271,13 +267,12 @@ void showList() {
 
   // --- Active section ---
   lv_obj_t *secA = lv_label_create(body);
-  lv_label_set_text(secA, TXT("Activos", "Active", "Actifs"));
+  lv_label_set_text(secA, TR(STR_ACTIVE_M));
   lv_obj_set_style_text_font(secA, &lv_font_montserrat_16, 0);
 
   if (s_active.count == 0) {
     lv_obj_t *none = lv_label_create(body);
-    lv_label_set_text(none, TXT("Sin bebes activos", "No active babies",
-                                "Aucun bebe actif"));
+    lv_label_set_text(none, TR(STR_NO_ACTIVE_BABIES));
   }
   for (int i = 0; i < s_active.count; i++) {
     const BabyProfileListItem &it = s_active.items[i];
@@ -305,15 +300,12 @@ void showList() {
     fmtMinutes(it.thermoMinutes, thermoTxt, sizeof(thermoTxt));
     fmtMinutes(it.humidityMinutes, humTxt, sizeof(humTxt));
     snprintf(buf, sizeof(buf),
-             TXT("%s  -  EG %u  -  %s\nCanguro %u\nFoto %s  -  Termo %s  -  Hum %s",
-                 "%s  -  GA %u  -  %s\nKangaroo %u\nPhoto %s  -  Thermo %s  -  Hum %s",
-                 "%s  -  AG %u  -  %s\nKangourou %u\nPhoto %s  -  Thermo %s  -  Hum %s"),
-             it.name, (unsigned)it.gestWeeks, wtxt,
+             TR(STR_BABY_ROW_ACTIVE_FMT), it.name, (unsigned)it.gestWeeks, wtxt,
              (unsigned)it.kangarooCount, photoTxt, thermoTxt, humTxt);
     // 600 card - 150 button - margins: leave the ALTA button clear.
     makeCardLabel(card, buf, 420);
 
-    lv_obj_t *dis = makeBtn(card, TXT("ALTA", "DISCHARGE", "SORTIE"),
+    lv_obj_t *dis = makeBtn(card, TR(STR_DISCHARGE_UC),
                             onDischargeTap, lv_color_hex(0xE08800),
                             &s_activeRows[i]);
     lv_obj_set_size(dis, 150, 44);
@@ -324,8 +316,7 @@ void showList() {
   lv_obj_t *secH = lv_label_create(body);
   char hdr[64];
   snprintf(hdr, sizeof(hdr), "%s (%u)",
-           TXT("Historial", "History", "Historique"),
-           (unsigned)s_archived.totalCount);
+           TR(STR_HISTORY), (unsigned)s_archived.totalCount);
   lv_label_set_text(secH, hdr);
   lv_obj_set_style_text_font(secH, &lv_font_montserrat_16, 0);
 
@@ -333,9 +324,7 @@ void showList() {
     // An empty archive is the normal state until someone is discharged —
     // say so, instead of a bare "no records" that reads like a failure.
     lv_obj_t *none = lv_label_create(body);
-    lv_label_set_text(none, TXT("Aun no se ha dado de alta a ningun bebe",
-                                "No babies discharged yet",
-                                "Aucun bebe encore sorti"));
+    lv_label_set_text(none, TR(STR_NO_BABIES_DISCHARGED));
   }
   for (int i = 0; i < s_archived.count; i++) {
     s_archRows[i] = s_archived.items[i];
@@ -363,9 +352,7 @@ void showList() {
     fmtMinutes(it.thermoMinutes, thermoTxt, sizeof(thermoTxt));
     fmtMinutes(it.humidityMinutes, humTxt, sizeof(humTxt));
     snprintf(buf, sizeof(buf),
-             TXT("%s  -  EG %u  -  %s  -  %s\nCanguro %u\nFoto %s  -  Termo %s  -  Hum %s",
-                 "%s  -  GA %u  -  %s  -  %s\nKangaroo %u\nPhoto %s  -  Thermo %s  -  Hum %s",
-                 "%s  -  AG %u  -  %s  -  %s\nKangourou %u\nPhoto %s  -  Thermo %s  -  Hum %s"),
+             TR(STR_BABY_ROW_ARCHIVED_FMT),
              it.name, (unsigned)it.gestWeeks, outcomeBuf, date,
              (unsigned)it.kangarooCount, photoTxt, thermoTxt, humTxt);
     makeCardLabel(card, buf, 580);
@@ -471,9 +458,7 @@ void openDischargeDialog(uint32_t seq) {
   lv_obj_set_style_pad_row(s_dlg, 8, LV_PART_MAIN);
 
   lv_obj_t *title = lv_label_create(s_dlg);
-  lv_label_set_text(title, TXT("Dar de alta - resultado:",
-                               "Discharge - outcome:",
-                               "Sortie - resultat:"));
+  lv_label_set_text(title, TR(STR_DISCHARGE_OUTCOME));
   lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
 
   static const uint8_t OUTCOMES[4] = {1, 2, 3, 0};
@@ -484,7 +469,7 @@ void openDischargeDialog(uint32_t seq) {
     lv_obj_set_size(btn, 300, 46);
   }
 
-  lv_obj_t *cancel = makeBtn(s_dlg, TXT("CANCELAR", "CANCEL", "ANNULER"),
+  lv_obj_t *cancel = makeBtn(s_dlg, TR(STR_CANCEL_UC),
                              onDialogCancel, lv_color_hex(0x888888));
   lv_obj_set_size(cancel, 160, 44);
 }
@@ -515,30 +500,29 @@ void openCauseDialog() {
   lv_obj_set_scroll_dir(s_dlg, LV_DIR_VER);
 
   lv_obj_t *title = lv_label_create(s_dlg);
-  lv_label_set_text(title, TXT("Causa del fallecimiento", "Cause of death",
-                               "Cause du deces"));
+  lv_label_set_text(title, TR(STR_CAUSE_OF_DEATH));
   lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
 
   // Same 1-6 mapping as PROTOCOL.md / BabyCause on the motherBoard, and as
-  // BabyExitDialog's cause screen (the auto-triggered exit flow) — kept in
-  // sync by hand since neither file shares headers with the other's UI.
-  struct CauseOption { const char *es, *en, *fr; uint8_t code; };
+  // BabyExitDialog's cause screen (the auto-triggered exit flow). Los textos
+  // ya no se duplican: ambas pantallas apuntan a los mismos ids del catalogo,
+  // asi que solo hay que mantener en sincronia el orden y los codigos.
+  struct CauseOption { ui_str_id_t text; uint8_t code; };
   static const CauseOption CAUSES[] = {
-      {"PREMATURIDAD", "PREMATURITY", "PREMATURITE", 1},
-      {"ASFIXIA PERINATAL", "PERINATAL ASPHYXIA", "ASPHYXIE PERINATALE", 2},
-      {"SEPSIS / INFECCION", "SEPSIS / INFECTION", "SEPSIS / INFECTION", 3},
-      {"MALFORMACION CONGENITA", "CONGENITAL MALFORMATION",
-       "MALFORMATION CONGENITALE", 4},
-      {"HIPOTERMIA", "HYPOTHERMIA", "HYPOTHERMIE", 5},
-      {"OTRA / DESCONOCIDA", "OTHER / UNKNOWN", "AUTRE / INCONNUE", 6},
+      {STR_CAUSE_PREMATURITY_UC, 1},
+      {STR_CAUSE_ASPHYXIA_UC, 2},
+      {STR_CAUSE_SEPSIS_UC, 3},
+      {STR_CAUSE_MALFORMATION_UC, 4},
+      {STR_CAUSE_HYPOTHERMIA_UC, 5},
+      {STR_CAUSE_OTHER_UC, 6},
   };
   for (const CauseOption &c : CAUSES) {
-    lv_obj_t *btn = makeBtn(s_dlg, TXT(c.es, c.en, c.fr), onCausePick,
+    lv_obj_t *btn = makeBtn(s_dlg, TR(c.text), onCausePick,
                             lv_color_hex(0x0075EE), (void *)(uintptr_t)c.code);
     lv_obj_set_size(btn, 300, 40);
   }
 
-  lv_obj_t *cancel = makeBtn(s_dlg, TXT("CANCELAR", "CANCEL", "ANNULER"),
+  lv_obj_t *cancel = makeBtn(s_dlg, TR(STR_CANCEL_UC),
                              onDialogCancel, lv_color_hex(0x888888));
   lv_obj_set_size(cancel, 160, 44);
 }
@@ -556,10 +540,10 @@ void showChart() {
 
   char title[64];
   snprintf(title, sizeof(title), "%s - %s", s_chartName,
-           TXT("Evolucion de peso", "Weight evolution", "Evolution du poids"));
+           TR(STR_WEIGHT_EVOLUTION));
   makeTitle(title);
 
-  lv_obj_t *back = makeBtn(s_content, TXT("ATRAS", "BACK", "RETOUR"),
+  lv_obj_t *back = makeBtn(s_content, TR(STR_BACK_UC),
                            onChartBack, lv_color_hex(0x888888));
   lv_obj_set_size(back, 120, 44);
   lv_obj_align(back, LV_ALIGN_TOP_LEFT, 0, 0);
@@ -571,8 +555,7 @@ void showChart() {
 
   if (weightHistoryEmpty()) {
     lv_obj_t *none = lv_label_create(s_content);
-    lv_label_set_text(none, TXT("Sin datos de peso", "No weight data",
-                                "Pas de donnees de poids"));
+    lv_label_set_text(none, TR(STR_NO_WEIGHT_DATA));
     lv_obj_align(none, LV_ALIGN_CENTER, 0, 0);
     s_step = HistStep::ShowingChart;
     return;
@@ -648,8 +631,8 @@ void showChart() {
   // La etiqueta sigue a lo que se esta pintando de verdad: llamar "dia de vida"
   // a un eje que cuenta muestras seria mentir sobre un dato clinico.
   lv_label_set_text(xlbl,
-                    byDay ? TXT("dia de vida", "day of life", "jour de vie")
-                          : TXT("medida", "measurement", "mesure"));
+                    byDay ? TR(STR_DAY_OF_LIFE)
+                          : TR(STR_MEASUREMENT));
   lv_obj_set_style_text_font(xlbl, &lv_font_montserrat_14, 0);
   lv_obj_align(xlbl, LV_ALIGN_BOTTOM_MID, 0, -44);
 
@@ -732,10 +715,7 @@ void BabyHistory_Poll(void) {
           s_retries++;
           requestActive();
         } else {
-          UI_ShowToast(TXT("Sin respuesta de la placa",
-                           "No response from board",
-                           "Pas de reponse de la carte"),
-                       3000);
+          UI_ShowToast(TR(STR_NO_BOARD_RESPONSE), 3000);
           s_active.count = 0;
           s_activeLoaded = true;
           s_retries = 0;
@@ -754,10 +734,7 @@ void BabyHistory_Poll(void) {
           s_retries++;
           requestArchived(s_page);
         } else {
-          UI_ShowToast(TXT("No se pudo consultar el historial",
-                           "Could not fetch history",
-                           "Impossible de recuperer l'historique"),
-                       3000);
+          UI_ShowToast(TR(STR_COULD_NOT_FETCH_HISTORY), 3000);
           s_archived = {s_page, 0, 0, {}};
           s_retries = 0;
           showList();
@@ -769,22 +746,16 @@ void BabyHistory_Poll(void) {
       if (g_pendingProfileAck) {
         g_pendingProfileAck = false;
         if (g_profileAck == 0) {
-          UI_ShowToast(TXT("Alta rechazada", "Discharge refused",
-                           "Sortie refusee"),
-                       3000);
+          UI_ShowToast(TR(STR_DISCHARGE_REFUSED), 3000);
         } else {
-          UI_ShowToast(TXT("Bebe dado de alta", "Baby discharged",
-                           "Bebe sorti"),
-                       2500);
+          UI_ShowToast(TR(STR_BABY_DISCHARGED), 2500);
         }
         // Refresh both sections (discharged baby moved active -> archived).
         s_retries = 0;
         showLoading();
         requestActive();
       } else if (millis() > s_deadlineMs) {
-        UI_ShowToast(TXT("Sin respuesta de la placa", "No response from board",
-                         "Pas de reponse de la carte"),
-                     3000);
+        UI_ShowToast(TR(STR_NO_BOARD_RESPONSE), 3000);
         s_retries = 0;
         showLoading();
         requestActive();

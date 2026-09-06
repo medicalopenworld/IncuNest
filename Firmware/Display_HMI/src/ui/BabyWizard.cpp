@@ -10,8 +10,6 @@
 #include "ui.h"
 
 // --- Shared state owned by UITask.cpp (same pattern CommTask.cpp uses) ---
-extern ui_lang_t g_lang;
-
 namespace {
 
 enum class WizStep {
@@ -222,19 +220,19 @@ lv_obj_t *buildInputStep(const char *title, const char *hint, bool digits,
   lv_obj_align(hintLbl, LV_ALIGN_TOP_MID, 0, 98);
 
   lv_obj_t *back = makeBtn(s_content, backTxt ? backTxt
-                                              : TXT("ATRAS", "BACK", "RETOUR"),
+                                              : TR(STR_BACK_UC),
                           onBack, lv_color_hex(0x888888));
   lv_obj_set_size(back, 150, 46);
   lv_obj_align(back, LV_ALIGN_TOP_LEFT, 6, 126);
 
-  lv_obj_t *cont = makeBtn(s_content, TXT("CONTINUAR", "CONTINUE", "CONTINUER"),
+  lv_obj_t *cont = makeBtn(s_content, TR(STR_CONTINUE_UC),
                           onContinue, lv_color_hex(0x00AA00));
   lv_obj_set_size(cont, 190, 46);
   lv_obj_align(cont, LV_ALIGN_TOP_RIGHT, -6, 126);
 
   // SKIP on every step: abandon the wizard and run in manual (amber, so it
   // reads as "escape hatch" rather than as the normal green path).
-  lv_obj_t *skip = makeBtn(s_content, TXT("SALTAR", "SKIP", "PASSER"),
+  lv_obj_t *skip = makeBtn(s_content, TR(STR_SKIP_UC),
                           onSkipClicked, lv_color_hex(0xE08800));
   lv_obj_set_size(skip, 160, 46);
   lv_obj_align(skip, LV_ALIGN_TOP_MID, 0, 126);
@@ -273,14 +271,12 @@ bool readNumericInput(uint32_t lo, uint32_t hi, uint32_t *out) {
 }
 
 void showRangeError(uint32_t lo, uint32_t hi) {
-  char es[64], en[64], fr[64];
-  snprintf(es, sizeof(es), "Introduce un valor entre %u y %u", (unsigned)lo,
+  // Antes se formateaban las tres variantes y se descartaban dos. Ahora se
+  // elige la plantilla y se formatea una sola vez.
+  char msg[64];
+  snprintf(msg, sizeof(msg), TR(STR_VALUE_BETWEEN_FMT), (unsigned)lo,
            (unsigned)hi);
-  snprintf(en, sizeof(en), "Enter a value between %u and %u", (unsigned)lo,
-           (unsigned)hi);
-  snprintf(fr, sizeof(fr), "Entrez une valeur entre %u et %u", (unsigned)lo,
-           (unsigned)hi);
-  UI_ShowToast(TXT(es, en, fr), 2500);
+  UI_ShowToast(msg, 2500);
 }
 
 void closeOverlay() {
@@ -317,8 +313,7 @@ void buildCloseButton() {
 void showLoadingScreen() {
   clearContent();
   setCardSize(false);
-  makeTitle(TXT("Cargando bebes...", "Loading babies...",
-                "Chargement des bebes..."));
+  makeTitle(TR(STR_LOADING_BABIES));
 }
 
 void selectExisting(uint32_t seq, uint8_t gest, uint16_t lastWeight) {
@@ -361,8 +356,7 @@ void onNewBabyClicked(lv_event_t *) {
 void showChooseBabyScreen() {
   clearContent();
   setCardSize(false);
-  makeTitle(TXT("Bebe nuevo o existente", "New or existing baby",
-                "Bebe nouveau ou existant"));
+  makeTitle(TR(STR_NEW_OR_EXISTING));
 
   int y = 60;
   for (int i = 0; i < s_list.count; i++) {
@@ -410,13 +404,13 @@ void showChooseBabyScreen() {
     y += 70;
   }
 
-  lv_obj_t *newBtn = makeBtn(s_content, TXT("BEBE NUEVO", "NEW BABY", "NOUVEAU BEBE"),
+  lv_obj_t *newBtn = makeBtn(s_content, TR(STR_NEW_BABY_UC),
                             onNewBabyClicked, lv_color_hex(0x0075EE));
   lv_obj_set_size(newBtn, 300, 56);
   lv_obj_align(newBtn, LV_ALIGN_BOTTOM_RIGHT, -10, -10);
 
   // Same escape hatch as the input steps: skip all baby data, run manual.
-  lv_obj_t *skip = makeBtn(s_content, TXT("SALTAR", "SKIP", "PASSER"),
+  lv_obj_t *skip = makeBtn(s_content, TR(STR_SKIP_UC),
                           onSkipClicked, lv_color_hex(0xE08800));
   lv_obj_set_size(skip, 180, 56);
   lv_obj_align(skip, LV_ALIGN_BOTTOM_LEFT, 10, -10);
@@ -447,8 +441,7 @@ void onNameBack(lv_event_t *) {
 void onNameContinue(lv_event_t *) {
   const char *txt = s_nameTa ? lv_textarea_get_text(s_nameTa) : "";
   if (!txt || txt[0] == '\0') {
-    UI_ShowToast(TXT("Introduce un nombre", "Enter a name", "Entrez un nom"),
-                2500);
+    UI_ShowToast(TR(STR_ENTER_A_NAME), 2500);
     return;
   }
   snprintf(s_name, sizeof(s_name), "%s", txt);
@@ -458,8 +451,7 @@ void onNameContinue(lv_event_t *) {
 
 void showNameScreen() {
   s_nameTa = buildInputStep(
-      TXT("Nombre del bebe", "Baby name", "Nom du bebe"),
-      TXT("Solo letras", "Letters only", "Lettres uniquement"), false,
+      TR(STR_BABY_NAME), TR(STR_LETTERS_ONLY), false,
       onNameBack, onNameContinue);
   lv_obj_add_event_cb(s_nameTa, onNameChanged, LV_EVENT_VALUE_CHANGED,
                       nullptr);
@@ -488,9 +480,7 @@ void onGestContinue(lv_event_t *) {
 
 void showGestScreen() {
   s_inputTa = buildInputStep(
-      TXT("Edad gestacional (semanas)", "Gestational age (weeks)",
-          "Age gestationnel (semaines)"),
-      "20 - 40", true, onGestBack, onGestContinue);
+      TR(STR_GEST_AGE_WEEKS), "20 - 40", true, onGestBack, onGestContinue);
   // Left empty on purpose: a prefilled number invites confirming someone
   // else's value by reflex. The nurse must type the real one.
 }
@@ -529,10 +519,9 @@ void showWeightScreen() {
   // The step is reached right after the board accepted the profile, so there
   // is no earlier screen to go back to and the slot is free for this.
   s_inputTa = buildInputStep(
-      TXT("Peso actual (gramos)", "Current weight (grams)",
-          "Poids actuel (grammes)"),
+      TR(STR_CURRENT_WEIGHT_G),
       "400 - 5000 g", true, onWeightSkip, onWeightContinue,
-      TXT("SIN PESO", "NO WEIGHT", "SANS POIDS"));
+      TR(STR_NO_WEIGHT_UC));
   // Deliberately empty, aunque exista un ultimo peso conocido (s_weightGrams).
   //
   // Prefijarlo invitaba a confirmar sin pesar: al reactivar el control de un
@@ -565,9 +554,7 @@ void onAgeBack(lv_event_t *) {
 
 void showAgeScreen() {
   s_inputTa = buildInputStep(
-      TXT("Edad en dias (sin hora sincronizada)",
-          "Age in days (no synced time)", "Age en jours (heure non sync.)"),
-      "0 - 365", true, onAgeBack, onAgeContinue);
+      TR(STR_AGE_IN_DAYS), "0 - 365", true, onAgeBack, onAgeContinue);
   // No prefill: an age of 0 days is a real, clinically meaningful value,
   // so it must be typed rather than accepted by default.
 }
@@ -604,10 +591,7 @@ void finishWizard(bool useRange) {
       // Se activa igual: 36.5 degC de consigna de piel no salen del rango NTE,
       // asi que sin peso lo unico que falta es la propuesta de temperatura de
       // AIRE. Se avisa de lo que no hay, pero no se bloquea la terapia.
-      UI_ShowToast(TXT("Modo piel activo sin rango automatico (sin peso)",
-                       "Skin mode active, no automatic range (no weight)",
-                       "Mode peau actif, sans plage automatique (sans poids)"),
-                   4000);
+      UI_ShowToast(TR(STR_SKIN_NO_AUTO_RANGE_TOAST), 4000);
     }
     ActivateTempControlUI(false);
     ui_set_switch_state_silent(ui_Switch4, true);
@@ -632,7 +616,7 @@ void onSkipClicked(lv_event_t *) {
 void showSummaryScreen() {
   clearContent();
   setCardSize(true);
-  makeTitle(TXT("Resumen", "Summary", "Resume"));
+  makeTitle(TR(STR_SUMMARY));
 
   bool haveRange = !s_rangeEstimated && s_rangeLo >= 0.0f;
   // Only worth showing the placement guide when there is actually a probe to
@@ -650,9 +634,7 @@ void showSummaryScreen() {
     lv_obj_align(img, LV_ALIGN_TOP_MID, 0, 40);
 
     lv_obj_t *imgCap = lv_label_create(s_content);
-    lv_label_set_text(imgCap, TXT("Coloca el sensor de piel asi",
-                                  "Place the skin sensor like this",
-                                  "Placez le capteur cutane ainsi"));
+    lv_label_set_text(imgCap, TR(STR_PLACE_SKIN_SENSOR));
     lv_obj_set_style_text_color(imgCap, lv_color_hex(0x666666), 0);
     lv_obj_align(imgCap, LV_ALIGN_TOP_MID, 0, 274);
     infoTop = 296;  // below the 230 px image + its caption
@@ -680,15 +662,11 @@ void showSummaryScreen() {
     lv_obj_align(mid, LV_ALIGN_LEFT_MID, 12, 0);
 
     lv_obj_t *cap = lv_label_create(panel);
-    lv_label_set_text(cap, TXT("Temperatura de aire propuesta",
-                               "Proposed air temperature",
-                               "Temperature d'air proposee"));
+    lv_label_set_text(cap, TR(STR_PROPOSED_AIR_TEMP));
     lv_obj_set_style_text_color(cap, lv_color_hex(0x0B2E4F), 0);
     lv_obj_align(cap, LV_ALIGN_RIGHT_MID, -12, -14);
 
-    snprintf(buf, sizeof(buf), TXT("rango %.1f - %.1f C",
-                                   "range %.1f - %.1f C",
-                                   "plage %.1f - %.1f C"),
+    snprintf(buf, sizeof(buf), TR(STR_RANGE_FMT),
              (double)s_rangeLo, (double)s_rangeHi);
     lv_obj_t *rng = lv_label_create(panel);
     lv_label_set_text(rng, buf);
@@ -703,33 +681,24 @@ void showSummaryScreen() {
     lv_label_set_text(
         info,
         s_target == WizTarget::Skin
-            ? TXT("Sin rango automatico: el modo PIEL no se puede "
-                  "activar.",
-                  "No automatic range: SKIN mode cannot be activated.",
-                  "Pas de plage automatique : le mode PEAU ne peut pas "
-                  "etre active.")
-            : TXT("Sin rango automatico (peso no informado).\nEl modo "
-                  "AIRE arrancara en manual.",
-                  "No automatic range (weight not provided).\nAIR mode "
-                  "will start in manual.",
-                  "Pas de plage automatique (poids non fourni).\nLe "
-                  "mode AIR demarrera en manuel."));
+            ? TR(STR_NO_RANGE_SKIN_BLOCKED)
+            : TR(STR_NO_RANGE_AIR_MANUAL));
   }
 
   lv_obj_t *cancel =
-      makeBtn(s_content, TXT("CANCELAR", "CANCEL", "ANNULER"), onCancelClicked,
+      makeBtn(s_content, TR(STR_CANCEL_UC), onCancelClicked,
              lv_color_hex(0x888888));
   lv_obj_set_size(cancel, 180, 48);
   lv_obj_align(cancel, LV_ALIGN_BOTTOM_LEFT, 10, -10);
 
-  lv_obj_t *skip = makeBtn(s_content, TXT("SALTAR", "SKIP", "PASSER"),
+  lv_obj_t *skip = makeBtn(s_content, TR(STR_SKIP_UC),
                           onSkipClicked, lv_color_hex(0xE08800));
   lv_obj_set_size(skip, 160, 48);
   lv_obj_align(skip, LV_ALIGN_BOTTOM_MID, 0, -10);
 
   bool applyDisabled = (s_target == WizTarget::Skin) && !haveRange;
   lv_obj_t *apply =
-      makeBtn(s_content, TXT("APLICAR", "APPLY", "APPLIQUER"), onApplyClicked,
+      makeBtn(s_content, TR(STR_APPLY_UC), onApplyClicked,
              applyDisabled ? lv_color_hex(0xAAAAAA) : lv_color_hex(0x00AA00));
   lv_obj_set_size(apply, 180, 48);
   lv_obj_align(apply, LV_ALIGN_BOTTOM_RIGHT, -10, -10);
@@ -818,6 +787,8 @@ void BabyWizard_OpenForHumidity() { openForTarget(WizTarget::Humidity); }
 
 bool BabyWizard_HasUsableRange() { return s_hasUsableRange; }
 
+bool BabyWizard_IsOpen() { return s_step != WizStep::Closed; }
+
 uint32_t BabyWizard_GetActiveSeq() { return s_sessionSeq; }
 bool BabyWizard_HasLiveSession() {
   return s_sessionSeq != 0 && UI_AnyControlActive();
@@ -851,8 +822,6 @@ BabyWizardStep BabyWizard_GetStep() {
   return BW_CLOSED;
 }
 
-bool BabyWizard_IsOpen() { return s_step != WizStep::Closed; }
-
 void BabyWizard_Cancel() {
   if (s_step != WizStep::Closed) cancelWizard();
 }
@@ -878,10 +847,7 @@ void BabyWizard_Poll() {
           Communication_SendProfileListReq();
           s_deadlineMs = millis() + LIST_TIMEOUT_MS;
         } else {
-          UI_ShowToast(TXT("No se pudo consultar el historial",
-                           "Could not fetch baby history",
-                           "Impossible de recuperer l'historique"),
-                      3000);
+          UI_ShowToast(TR(STR_COULD_NOT_FETCH_BABY_HISTORY), 3000);
           s_list.count = 0;
           showChooseBabyScreen();
           s_step = WizStep::ChooseBaby;
@@ -899,10 +865,7 @@ void BabyWizard_Poll() {
           // so the picker takes over instead of retrying a dead seq forever.
           s_sessionSeq = 0;
           s_sessionName[0] = '\0';
-          UI_ShowToast(TXT("Operacion rechazada, intentelo de nuevo",
-                           "Operation refused, try again",
-                           "Operation refusee, reessayez"),
-                      3000);
+          UI_ShowToast(TR(STR_OPERATION_REFUSED), 3000);
           // Re-request the list: we may have arrived here bypassing it.
           Communication_SendProfileListReq();
           s_listRetries = 0;
@@ -926,9 +889,7 @@ void BabyWizard_Poll() {
           }
         }
       } else if (millis() > s_deadlineMs) {
-        UI_ShowToast(TXT("Sin respuesta de la placa", "No response from board",
-                         "Pas de reponse de la carte"),
-                    3000);
+        UI_ShowToast(TR(STR_NO_BOARD_RESPONSE), 3000);
         showChooseBabyScreen();
         s_step = WizStep::ChooseBaby;
       }
@@ -953,9 +914,7 @@ void BabyWizard_Poll() {
           s_step = WizStep::Summary;
         }
       } else if (millis() > s_deadlineMs) {
-        UI_ShowToast(TXT("Sin respuesta de la placa", "No response from board",
-                         "Pas de reponse de la carte"),
-                    3000);
+        UI_ShowToast(TR(STR_NO_BOARD_RESPONSE), 3000);
         showWeightScreen();
         s_step = WizStep::EnterWeight;
       }

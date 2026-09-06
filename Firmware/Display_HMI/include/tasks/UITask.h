@@ -87,5 +87,4 @@ void UI_RestoreControlSnapshot(const UiControlSnapshot *s);
 void UI_RaiseAlarmIndicators(void);
 
 // Globals exported for ElementsCreation.cpp
-extern ui_lang_t g_lang;
 extern lv_chart_series_t *lockPPGSeries;

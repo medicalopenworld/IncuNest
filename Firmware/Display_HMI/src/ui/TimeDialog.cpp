@@ -9,8 +9,6 @@
 #include "ui.h"
 
 // --- Shared state owned by UITask.cpp (same pattern BabyWizard.cpp uses) ---
-extern ui_lang_t g_lang;
-
 namespace {
 
 // La mascara que ve el operador. Los huecos se rellenan de izquierda a
@@ -58,10 +56,6 @@ const char *KB_DIGITS_MAP[] = {"1", "2", "3", "\n",
 // 11 botones: 3 + 3 + 3 + 2. Debe cuadrar con KB_DIGITS_MAP.
 const lv_btnmatrix_ctrl_t KB_DIGITS_CTRL[11] = {1, 1, 1, 1, 1, 1,
                                                 1, 1, 1, 1, 1};
-
-const char *TXT(const char *es, const char *en, const char *fr) {
-  return (g_lang == LANG_ES) ? es : (g_lang == LANG_FR) ? fr : en;
-}
 
 lv_obj_t *makeBtn(lv_obj_t *parent, const char *text, lv_event_cb_t cb,
                   lv_color_t bg) {
@@ -138,10 +132,7 @@ uint8_t daysInMonth(int year, int month) {
 // clinico.
 void onApply(lv_event_t *) {
   if (s_count < DIGIT_COUNT) {
-    UI_ShowToast(TXT("Completa la fecha y la hora",
-                     "Fill in the whole date and time",
-                     "Completez la date et l'heure"),
-                 2500);
+    UI_ShowToast(TR(STR_FILL_DATE_TIME), 2500);
     return;
   }
 
@@ -152,49 +143,36 @@ void onApply(lv_event_t *) {
   const int minute = (s_digits[8] - '0') * 10 + (s_digits[9] - '0');
 
   if (month < 1 || month > 12) {
-    UI_ShowToast(TXT("Mes fuera de rango (01-12)",
-                     "Month out of range (01-12)", "Mois hors plage (01-12)"),
-                 2500);
+    UI_ShowToast(TR(STR_MONTH_OUT_OF_RANGE), 2500);
     return;
   }
   if (year < YEAR_MIN || year > YEAR_MAX) {
-    char es[64], en[64], fr[64];
-    snprintf(es, sizeof(es), "Ano fuera de rango (%02d-%02d)",
+    char msg[64];
+    snprintf(msg, sizeof(msg), TR(STR_YEAR_OUT_OF_RANGE_FMT),
              YEAR_MIN - YEAR_BASE, YEAR_MAX - YEAR_BASE);
-    snprintf(en, sizeof(en), "Year out of range (%02d-%02d)",
-             YEAR_MIN - YEAR_BASE, YEAR_MAX - YEAR_BASE);
-    snprintf(fr, sizeof(fr), "Annee hors plage (%02d-%02d)",
-             YEAR_MIN - YEAR_BASE, YEAR_MAX - YEAR_BASE);
-    UI_ShowToast(TXT(es, en, fr), 2500);
+    UI_ShowToast(msg, 2500);
     return;
   }
   const uint8_t maxDay = daysInMonth(year, month);
   if (day < 1 || day > maxDay) {
-    char es[64], en[64], fr[64];
-    snprintf(es, sizeof(es), "Dia fuera de rango (01-%02u)", (unsigned)maxDay);
-    snprintf(en, sizeof(en), "Day out of range (01-%02u)", (unsigned)maxDay);
-    snprintf(fr, sizeof(fr), "Jour hors plage (01-%02u)", (unsigned)maxDay);
-    UI_ShowToast(TXT(es, en, fr), 2500);
+    char msg[64];
+    snprintf(msg, sizeof(msg), TR(STR_DAY_OUT_OF_RANGE_FMT), (unsigned)maxDay);
+    UI_ShowToast(msg, 2500);
     return;
   }
   if (hour > 23) {
-    UI_ShowToast(TXT("Hora fuera de rango (00-23)",
-                     "Hour out of range (00-23)", "Heure hors plage (00-23)"),
-                 2500);
+    UI_ShowToast(TR(STR_HOUR_OUT_OF_RANGE), 2500);
     return;
   }
   if (minute > 59) {
-    UI_ShowToast(TXT("Minuto fuera de rango (00-59)",
-                     "Minute out of range (00-59)",
-                     "Minute hors plage (00-59)"),
-                 2500);
+    UI_ShowToast(TR(STR_MINUTE_OUT_OF_RANGE), 2500);
     return;
   }
 
   Communication_SendSetTime(year, month, day, hour, minute);
   if (s_resultLbl)
     lv_label_set_text(s_resultLbl,
-                      TXT("Enviando...", "Sending...", "Envoi..."));
+                      TR(STR_SENDING));
 }
 
 void buildContent() {
@@ -205,7 +183,7 @@ void buildContent() {
 
   lv_obj_t *title = lv_label_create(s_content);
   lv_label_set_text(title,
-                    TXT("AJUSTAR HORA", "ADJUST TIME", "AJUSTER L'HEURE"));
+                    TR(STR_ADJUST_TIME_UC));
   lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
   lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
 
@@ -227,16 +205,16 @@ void buildContent() {
 
   lv_obj_t *hint = lv_label_create(s_content);
   lv_label_set_text(
-      hint, TXT("DD/MM/AA  HH:MM", "DD/MM/YY  HH:MM", "JJ/MM/AA  HH:MM"));
+      hint, TR(STR_DATE_TIME_HINT));
   lv_obj_set_style_text_color(hint, lv_color_hex(0x666666), 0);
   lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 98);
 
-  lv_obj_t *clear = makeBtn(s_content, TXT("BORRAR", "CLEAR", "EFFACER"),
+  lv_obj_t *clear = makeBtn(s_content, TR(STR_CLEAR_UC),
                             onClear, lv_color_hex(0x888888));
   lv_obj_set_size(clear, 150, 46);
   lv_obj_align(clear, LV_ALIGN_TOP_LEFT, 6, 126);
 
-  lv_obj_t *apply = makeBtn(s_content, TXT("APLICAR", "APPLY", "APPLIQUER"),
+  lv_obj_t *apply = makeBtn(s_content, TR(STR_APPLY_UC),
                             onApply, lv_color_hex(0x00AA00));
   lv_obj_set_size(apply, 190, 46);
   lv_obj_align(apply, LV_ALIGN_TOP_RIGHT, -6, 126);
@@ -320,8 +298,8 @@ void TimeDialog_Poll(void) {
 
   const bool accepted = (g_timeAckResult == 0);
   const char *msg =
-      accepted ? TXT("Hora ajustada", "Time set", "Heure ajustee")
-               : TXT("Hora rechazada", "Time rejected", "Heure rejetee");
+      accepted ? TR(STR_TIME_SET)
+               : TR(STR_TIME_REJECTED);
   UI_ShowToast(msg, 3000);
 
   if (!s_open) return;

@@ -101,7 +101,7 @@ defecto **no secretos** para el menú de ayuda del heading (`docs/hmi.md`,
 | Define | Valor por defecto | Uso |
 |---|---|---|
 | `SUPPORT_EMAIL` | `support@medicalopenworld.org` | Destinatario del formulario "Contactar soporte" (telemetría ThingsBoard y QR `mailto:`) |
-| `SUPPORT_TUTORIAL_URL` | `https://medicalopenworld.org/incunest/tutorial` | URL codificada en el QR de "Vídeo tutorial" |
+| `SUPPORT_TUTORIAL_URL` | `https://medicalopenworld.org/incunest/tutorial` | URL codificada en el QR de "Vídeo tutorial" y en el del aviso de mantenimiento |
 | `TRAINING_EMAIL` | `SUPPORT_EMAIL` | Destinatario del QR `mailto:` del certificado de los cursos de formación (`docs/hmi.md`, §6) |
 
 ---
