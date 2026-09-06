@@ -19,8 +19,18 @@
 // --- Shared state owned by UITask.cpp (same pattern TimeDialog.cpp uses) ---
 extern ui_lang_t g_lang;
 
-const char *TrainingTxt(const Txt3 &t) {
-  return (g_lang == LANG_ES) ? t.es : (g_lang == LANG_FR) ? t.fr : t.en;
+// Mismo criterio de reserva que UI_Str() con el catalogo: si falta la
+// traduccion de un idioma, ingles antes que una pantalla en blanco.
+const char *TrainingTxt(const LessonTxt &t) {
+  const char *s = nullptr;
+  switch (g_lang) {
+    case LANG_ES: s = t.es; break;
+    case LANG_FR: s = t.fr; break;
+    case LANG_PT: s = t.pt; break;
+    default:      s = t.en; break;
+  }
+  if (s == nullptr || s[0] == '\0') s = t.en;
+  return (s != nullptr) ? s : "";
 }
 
 namespace {
