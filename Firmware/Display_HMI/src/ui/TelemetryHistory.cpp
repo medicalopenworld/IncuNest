@@ -2,6 +2,8 @@
 
 #include <cmath>
 
+#include "esp_heap_caps.h"
+
 #include "CommTask.h"
 #include "UITask.h"
 #include "main.h"
@@ -19,7 +21,13 @@ extern void ui_add_chart_safe_zone(lv_obj_t *chart, float min_val,
 namespace {
 
 // 4 h de techo a 10 s/muestra = 1440 puntos por canal — 1440*3*4 bytes =
-// ~16.9 KB, sin apuro frente a los 320 KB de SRAM del ESP32-S3.
+// ~16.9 KB. Viven en PSRAM, no en .bss: la SRAM interna es el recurso escaso
+// del HMI. Los dos bounce buffers del panel RGB necesitan 38,4 KB contiguos
+// y DMA-capaces CADA UNO, y el driver los pide en UI_Task, despues de que
+// WiFi se haya llevado su parte del heap interno; 17 KB de .bss aqui eran
+// parte de lo que dejaba esa reserva sin sitio (ESP_ERR_NO_MEM en
+// esp_lcd_new_rgb_panel → abort en el arranque). Estos buffers solo los lee
+// y escribe la CPU, nunca DMA, asi que PSRAM les vale de sobra.
 // Nombre especifico y no "BUFFER_SIZE": main.h ya declara una constante
 // global con ese nombre (buffers de texto de labels) y, aunque esta vive en
 // un namespace anonimo, ambas quedan visibles sin cualificar en este mismo
@@ -45,9 +53,32 @@ constexpr int WINDOW_POINTS[3] = {360, 720, HIST_BUF_SIZE};
 // tiempo detectado. Nunca se guarda ni se pinta el centinela crudo de la
 // placa (-999.0/-1) como si fuera una lectura real — PROTOCOL.md es
 // explicito sobre por que eso es un problema de seguridad, no cosmetico.
-float s_bufAir[HIST_BUF_SIZE];
-float s_bufSkin[HIST_BUF_SIZE];
-float s_bufHum[HIST_BUF_SIZE];
+float *s_bufAir = nullptr;
+float *s_bufSkin = nullptr;
+float *s_bufHum = nullptr;
+bool s_allocFailed = false;
+
+// Reserva unica y perpetua de los 3 canales en un solo bloque de PSRAM: un
+// fallo parcial con tres mallocs sueltos dejaria el historico a medias. Si no
+// hay PSRAM (o falla), la tendencia se queda sin datos pero el equipo arranca
+// y monitoriza igual — es una vista de consulta, no una funcion de seguridad.
+bool ensureBuffers() {
+  if (s_bufAir) return true;
+  if (s_allocFailed) return false;
+  float *block = (float *)heap_caps_malloc(sizeof(float) * HIST_BUF_SIZE * 3,
+                                           MALLOC_CAP_SPIRAM);
+  if (!block) {
+    s_allocFailed = true;
+    ESP_LOGE("TelHist", "sin PSRAM para el historico (%u B) — tendencia vacia",
+             (unsigned)(sizeof(float) * HIST_BUF_SIZE * 3));
+    return false;
+  }
+  s_bufAir = block;
+  s_bufSkin = block + HIST_BUF_SIZE;
+  s_bufHum = block + HIST_BUF_SIZE * 2;
+  return true;
+}
+
 int s_writeIdx = 0;
 int s_sampleCount = 0;
 uint32_t s_lastSampleMs = 0;
@@ -122,9 +153,10 @@ void redraw() {
   s_serSkin->start_point = 0;
   s_serHum->start_point = 0;
 
-  // Sin datos aun (equipo recien encendido): dejar los ejes vacios en vez de
-  // dibujar una linea plana en 0, que se leeria como una medida real.
-  if (point_count > 0) {
+  // Sin datos aun (equipo recien encendido) o sin buffer: dejar los ejes
+  // vacios en vez de dibujar una linea plana en 0, que se leeria como una
+  // medida real.
+  if (point_count > 0 && s_bufAir) {
     int start_idx = (s_writeIdx - point_count + HIST_BUF_SIZE) % HIST_BUF_SIZE;
     for (int i = 0; i < point_count; i++) {
       int b = (start_idx + i) % HIST_BUF_SIZE;
@@ -305,6 +337,8 @@ void TelemetryHistory_Poll(void) {
 void TelemetryHistory_RecordSample(float airTempC, bool airOk,
                                     float skinTempC, bool skinOk,
                                     float humPct, bool humOk) {
+  if (!ensureBuffers()) return;
+
   const uint32_t now = millis();
   if (s_haveLastSample && (now - s_lastSampleMs) < DECIMATE_MS) return;
 

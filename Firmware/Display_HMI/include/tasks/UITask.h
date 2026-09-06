@@ -17,6 +17,10 @@ static inline void LVGL_Unlock(void) {
   if (g_lvgl_mutex) xSemaphoreGiveRecursive(g_lvgl_mutex);
 }
 
+// true cuando UI_Task ya ha reservado los bounce buffers del panel RGB.
+// setup() lo espera antes de arrancar WiFi (ver main.cpp).
+bool UI_IsLcdPanelReady();
+
 // Cambiar freq_write del bus RGB en runtime (reinicia el display)
 void lcd_set_freq_write(uint32_t freq_hz);
 uint32_t lcd_get_freq_write();

@@ -170,6 +170,16 @@ static esp_lcd_panel_handle_t lcd_panel = NULL;
 // Frame interval > este umbral se considera frame lento (glitch potencial)
 #define LCD_VSYNC_SLOW_THRESHOLD_US 25000 // 25 ms → <40 fps
 
+// Lineas de bounce buffer con las que se logro crear el panel: puede ser
+// menor que BOUNCE_BUF_LINES si no habia SRAM interna contigua (ver la
+// escalera de reintentos en UI_Task).
+static int g_lcd_bounce_lines = 0;
+
+// true en cuanto los bounce buffers estan reservados. setup() espera a esta
+// senal antes de arrancar WiFi para que el panel coja SRAM interna sin
+// fragmentar; ver UI_IsLcdPanelReady() y main.cpp.
+static volatile bool s_lcdPanelReady = false;
+
 static volatile uint32_t g_lcd_bounce_empty_count = 0; // underruns DMA (solo aplica con num_fbs=0; con num_fbs=1 este callback no se invoca — ver g_lcd_bounce_frame_finish_count)
 static volatile uint32_t g_lcd_vsync_slow_count = 0;   // frames lentos
 static volatile uint32_t g_lcd_vsync_total = 0;        // frames totales
@@ -429,9 +439,16 @@ static int l_humDet = -1;
 void clock_update(void) {
   if (!ui_ClockTime || !ui_ClockDate) return;
 
-  static char lastTime[8] = {0};
+  // El buffer de la hora aloja dos cosas distintas: "HH:MM" cuando hay reloj y
+  // el texto de STR_NO_TIME cuando no lo hay. Se dimensiona por el mayor de
+  // los dos, y del segundo manda el catalogo — estaba fijado en 8 bytes,
+  // medido solo para "HH:MM", y por eso "Sin hora" salia como "Sin hor".
+  static constexpr size_t kTimeBuf = UI_StrBufBytes(STR_NO_TIME) > sizeof("HH:MM")
+                                         ? UI_StrBufBytes(STR_NO_TIME)
+                                         : sizeof("HH:MM");
+  static char lastTime[kTimeBuf] = {0};
   static char lastDate[12] = {0};
-  char nowTime[8];
+  char nowTime[kTimeBuf];
   char nowDate[12];
 
   const uint32_t epochNow = HMI_GetEpochNow();
@@ -3916,11 +3933,46 @@ void UI_Task(void *pvParameters) {
     panel_cfg.pclk_gpio_num = DISPLAY_PIN_PCLK;
     panel_cfg.disp_gpio_num = -1; // No separate enable pin
 
-    ESP_LOGI("LCD", "Creating RGB panel: %lux%lu @ %lu Hz, bounce=%d px",
-             (uint32_t)DISPLAY_WIDTH, (uint32_t)DISPLAY_HEIGHT,
-             g_currentFreqWrite, BOUNCE_BUF_SIZE_PX);
+    // El driver pide los DOS bounce buffers en SRAM interna DMA-capaz
+    // (38,4 KB contiguos cada uno con 24 lineas). Aqui ya han arrancado WiFi
+    // (buffers TX estaticos internos) y el resto de tareas, asi que la SRAM
+    // libre esta fragmentada: pedir el tamano ideal y abortar con
+    // ESP_ERROR_CHECK si no cabe deja el equipo en bucle de reinicio con la
+    // pantalla negra — inaceptable en una incubadora, que debe monitorizar
+    // aunque la imagen sea peor. Se baja escalonadamente hasta el primero que
+    // entre; menos lineas = menos margen de drenaje del DMA = mas riesgo de
+    // parpadeo, pero eso es cosmetico. 0 = sin bounce buffer (DMA leyendo
+    // directamente de PSRAM), ultimo recurso.
+    static const int kBounceLadder[] = {BOUNCE_BUF_LINES, 16, 12, 8, 0};
 
-    ESP_ERROR_CHECK(esp_lcd_new_rgb_panel(&panel_cfg, &lcd_panel));
+    ESP_LOGI("LCD", "Creating RGB panel: %lux%lu @ %lu Hz, bounce=%d px  "
+                    "[SRAM DMA] libre=%u mayor_bloque=%u",
+             (uint32_t)DISPLAY_WIDTH, (uint32_t)DISPLAY_HEIGHT,
+             g_currentFreqWrite, BOUNCE_BUF_SIZE_PX,
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL |
+                                               MALLOC_CAP_DMA),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL |
+                                                        MALLOC_CAP_DMA));
+
+    esp_err_t panel_err = ESP_ERR_NO_MEM;
+    for (size_t i = 0; i < sizeof(kBounceLadder) / sizeof(kBounceLadder[0]);
+         i++) {
+      panel_cfg.bounce_buffer_size_px = DISPLAY_WIDTH * kBounceLadder[i];
+      panel_err = esp_lcd_new_rgb_panel(&panel_cfg, &lcd_panel);
+      if (panel_err == ESP_OK) {
+        g_lcd_bounce_lines = kBounceLadder[i];
+        if (kBounceLadder[i] != BOUNCE_BUF_LINES)
+          ESP_LOGE("LCD",
+                   "bounce degradado a %d lineas (%d KB) — no habia SRAM "
+                   "contigua para las %d de diseno; esperar mas parpadeo",
+                   kBounceLadder[i], (DISPLAY_WIDTH * kBounceLadder[i] * 2) / 1024,
+                   BOUNCE_BUF_LINES);
+        break;
+      }
+      ESP_LOGW("LCD", "bounce de %d lineas rechazado (%s) — probando menos",
+               kBounceLadder[i], esp_err_to_name(panel_err));
+    }
+    ESP_ERROR_CHECK(panel_err);
     ESP_ERROR_CHECK(esp_lcd_panel_reset(lcd_panel));
     ESP_ERROR_CHECK(esp_lcd_panel_init(lcd_panel));
 
@@ -3939,9 +3991,13 @@ void UI_Task(void *pvParameters) {
     ESP_ERROR_CHECK(esp_lcd_panel_mirror(lcd_panel, false, false));
 #endif
 
-    ESP_LOGW("LCD", "RGB panel initialized OK  [HEAP] internal=%u PSRAM=%u",
+    ESP_LOGW("LCD",
+             "RGB panel initialized OK  bounce=%d lineas  [HEAP] internal=%u "
+             "PSRAM=%u",
+             g_lcd_bounce_lines,
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+    s_lcdPanelReady = true;
   }
 
   lv_init();
@@ -4756,6 +4812,8 @@ void UI_Task(void *pvParameters) {
     }
   }
 }
+
+bool UI_IsLcdPanelReady() { return s_lcdPanelReady; }
 
 void CreateUITask() {
   xTaskCreatePinnedToCore(UI_Task, "UI", UI_TASK_STACK_SIZE, NULL,

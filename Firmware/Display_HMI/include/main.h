@@ -275,6 +275,12 @@ constexpr int MS_PER_SECOND = 1000;
 // -----------------------------
 constexpr int STARTUP_DELAY_MS = 0;
 
+// Tope de la barrera de setup() que espera al panel RGB antes de arrancar
+// WiFi. En banco el panel esta listo en ~250 ms (el grueso es la espera al
+// STC8 del backlight); 3 s es margen de sobra sin dejar al equipo sin
+// conectividad si el panel nunca llega a crearse.
+constexpr uint32_t LCD_READY_TIMEOUT_MS = 3000;
+
 // -----------------------------
 // Misc sizes / lengths
 // -----------------------------
