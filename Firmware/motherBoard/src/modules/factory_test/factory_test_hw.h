@@ -41,12 +41,11 @@ FtestStatus ftest_hw_run(unsigned id, char detail[FTEST_DETAIL_MAX + 1],
                          FtestCascade *cascade);
 
 // ---- Primitivas que factory_test_task.cpp ofrece a los cuerpos de test ----
-// (implementadas alli: son las que conocen la cola TX, el semaforo de
-// CONFIRM y el flag de ABORT).
+// (implementadas alli: son las que conocen la cola TX y el flag de ABORT).
 
 // Encola "CTRL,FTEST,id,st,detail" (design.md D2/D3). Usada por los cuerpos
 // para RUNNING (ya la emite la tarea antes de llamar a ftest_hw_run(), no
-// hace falta duplicarlo) y para los estados intermedios WAIT/CONFIRM.
+// hace falta duplicarlo) y para el estado intermedio WAIT.
 void ftest_emit(unsigned id, FtestStatus st, const char *detail);
 
 // true si HMI,FTEST,ABORT ha llegado desde el ultimo factoryTestStart() /
@@ -54,19 +53,11 @@ void ftest_emit(unsigned id, FtestStatus st, const char *detail);
 // CUALQUIER bucle de espera, en pasos de <= 250 ms (design.md D5).
 bool ftest_abort_requested(void);
 
-// Arma la espera de un CONFIRM: drena cualquier "give" residual del
-// semaforo y DESPUES fija `id` como el esperado. El cuerpo del test debe
-// llamarla ANTES de encolar su linea CTRL,FTEST,id,5 con ftest_emit()
-// (bloqueante #8 del review de seguridad, "carrera del CONFIRM"): al reves,
-// un CONFIRM que llegase justo entre encolar la linea y armar la espera se
-// perderia.
-void ftest_arm_confirm(unsigned id);
-
-// Espera hasta timeout_ms la respuesta del operario a un CONFIRM. El cuerpo
-// del test debe haber llamado ftest_arm_confirm(id) ANTES de emitir
-// CTRL,FTEST,id,5 con ftest_emit(); esta funcion ya no arma nada, solo
-// bloquea al semaforo. 1 = confirmo, 0 = nego, -1 = timeout o ABORT.
-int ftest_wait_confirm(unsigned id, uint32_t timeout_ms);
+// NOTA (cuarta ronda, banco 2026-09-06): ftest_arm_confirm()/ftest_wait_
+// confirm() se retiraron de aqui y de factory_test_task.cpp junto con su
+// semaforo -- BUZZER (unico llamante) ya no usa el camino CONFIRM (ver su
+// cuerpo en factory_test_hw.cpp). El comando HMI,FTEST,CONFIRM lo sigue
+// aceptando el parser (CommTask.cpp) pero se descarta con log "sin uso".
 
 // Motivo del ultimo ftest_abort_requested() == true ("abort"/"control on"/
 // "hmi lost"/"max time"). Los cuerpos de test la usan para el detail del

@@ -883,7 +883,11 @@ void parse_line(const char *line) {
         factoryTestAbort();
         break;
       case FTEST_CMD_CONFIRM:
-        factoryTestConfirm(cmd.id, cmd.ok);
+        // Cuarta ronda (banco 2026-09-06): ningun test de motherBoard usa ya
+        // el camino CONFIRM (BUZZER, el unico que lo hacia, SKIP directo sin
+        // microfono -- factory_test_hw.cpp). Se acepta para no romper a un
+        // HMI que todavia lo mande, pero se descarta sin efecto.
+        logE("[FTEST] CONFIRM sin uso, descartado");
         break;
     }
     return;

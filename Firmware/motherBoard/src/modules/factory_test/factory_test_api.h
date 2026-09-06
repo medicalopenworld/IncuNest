@@ -53,9 +53,10 @@ bool factoryTestRunSingle(unsigned id);
 // <= 250 ms) y termina en SKIP con detail="abort".
 void factoryTestAbort(void);
 
-// Respuesta del operario a un CTRL,FTEST,id,5 (CONFIRM). Un id que no
-// coincide con el CONFIRM que la tarea esta esperando se descarta con log.
-void factoryTestConfirm(unsigned id, bool ok);
+// NOTA (cuarta ronda, banco 2026-09-06): factoryTestConfirm() se elimino --
+// BUZZER (unico test que preguntaba al operario) ya no usa el camino
+// CONFIRM (factory_test_hw.cpp). El comando HMI,FTEST,CONFIRM lo sigue
+// aceptando el parser (CommTask.cpp) pero se descarta con log "sin uso".
 
 bool factoryTestRunning(void);
 

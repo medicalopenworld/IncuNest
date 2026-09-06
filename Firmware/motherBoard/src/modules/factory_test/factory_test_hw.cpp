@@ -111,6 +111,11 @@ static FtestStatus ftest_standby(char *detail, FtestCascade *) {
 // rancio de una tarea parada no vale); que el BQ25730 conteste ya demuestra
 // que el bus I2C1 y el chip estan bien -- no exige VBUS ni carga activa, que
 // con la placa a bateria nunca los habria.
+//
+// Cuarta ronda (banco 2026-09-06, placa SOLO a bateria): agotar el plazo ya
+// no es FAIL sino WARN "sin vbus" -- sin VBUS el BQ25730 NO se alimenta y por
+// tanto no puede responder por I2C1; eso no es un fallo de la placa, es la
+// ausencia de la alimentacion externa que el jig todavia no da.
 #define FTEST_CHARGER_TIMEOUT_MS 12000u
 static FtestStatus ftest_charger(char *detail, FtestCascade *) {
   const uint32_t start = millis();
@@ -129,15 +134,19 @@ static FtestStatus ftest_charger(char *detail, FtestCascade *) {
     ftest_wdt_feed();
     vTaskDelay(pdMS_TO_TICKS(250));
   }
-  D("sin respuesta");
-  return FTEST_FAIL;
+  D("sin vbus");
+  return FTEST_WARN;
 }
 
 // ---------------------------------------------------------------------------
-// 4: POWER_SRC -- siempre PASA, informativo (design.md D10).
+// 4: POWER_SRC -- omitido en banco 2026-09-06 (cuarta ronda, placa SOLO a
+// bateria): a bateria el BQ25730 no esta alimentado (no hay VBUS), asi que no
+// hay ningun estado fiable que leer aqui -- ni siquiera el "bat" informativo
+// anterior es de fiar sin el chip respondiendo. FTEST_SKIP explicito.
+// Reactivar cuando el jig alimente por VBUS (design.md D10).
 static FtestStatus ftest_power_src(char *detail, FtestCascade *) {
-  D("%s", (g_bq_status_valid && g_bq_status.ac_present) ? "ac" : "bat");
-  return FTEST_PASS;
+  D("omitido");
+  return FTEST_SKIP;
 }
 
 // ---------------------------------------------------------------------------
@@ -388,38 +397,16 @@ static FtestStatus ftest_sb_env(char *detail, FtestCascade *cascade) {
 }
 
 // ---------------------------------------------------------------------------
-// 9: SB_DOOR (WAIT)
-static FtestStatus ftest_sb_door(char *detail, FtestCascade *cascade) {
-  if (sb_skip_if_no_usb(cascade, detail)) return FTEST_SKIP;
-
-  ftest_emit(FTEST_MB_SB_DOOR, FTEST_WAIT, "abra y cierre la puerta");
-
-  bool sawOpen = false;
-  bool sawClose = false;
-  const uint32_t start = millis();
-  while ((uint32_t)(millis() - start) < FTEST_STIMULUS_TIMEOUT_MS) {
-    SbSnapshot s;
-    sensorboard_get_snapshot(&s);
-    if (s.door_known) {
-      if (s.door_open) {
-        sawOpen = true;
-      } else if (sawOpen) {
-        sawClose = true;
-      }
-    }
-    if (sawOpen && sawClose) {
-      D("ok");
-      return FTEST_PASS;
-    }
-    if (ftest_abort_requested()) {
-      D("%s", ftest_abort_reason());
-      return FTEST_SKIP;
-    }
-    ftest_wdt_feed();
-    vTaskDelay(pdMS_TO_TICKS(250));
-  }
-  D("timeout");
-  return FTEST_FAIL;
+// 9: SB_DOOR -- omitido en banco 2026-09-06 (cuarta ronda): el jig de
+// fabrica todavia no tiene la puerta montada, asi que no hay forma de que el
+// operario produzca el ciclo abrir/cerrar que este test necesita. FTEST_SKIP
+// explicito SIN emitir WAIT (pedir un gesto que el jig no puede dar solo
+// bloquearia al operario 30 s para nada). El cuerpo anterior (sondeo de
+// door_known/door_open con WAIT) sigue en el historial de git. Reactivar
+// cuando el jig tenga la puerta montada (design.md D10).
+static FtestStatus ftest_sb_door(char *detail, FtestCascade *) {
+  D("omitido");
+  return FTEST_SKIP;
 }
 
 // ---------------------------------------------------------------------------
@@ -547,53 +534,44 @@ static FtestStatus ftest_humid_usb(char *detail, FtestCascade *) {
 }
 
 // ---------------------------------------------------------------------------
-// 15: BUZZER -- con microfono (SensorBoard) o CONFIRM del operario.
+// 15: BUZZER -- SOLO con microfono (SensorBoard). Cuarta ronda (banco
+// 2026-09-06): se elimina el camino CONFIRM (preguntar al operario "sonido
+// del zumbador?") -- sin microfono no hay forma objetiva de medir el
+// zumbador, y un CONFIRM humano en una bateria pensada para correr sin
+// supervision constante no aporta nada que un SKIP no diga ya. Sin
+// sound_seen el test SKIP con detail "sin microfono" (el HMI oculta los
+// SKIP) sin hacer sonar el zumbador ni preguntar nada.
 static FtestStatus ftest_buzzer(char *detail, FtestCascade *) {
   SbSnapshot before;
   sensorboard_get_snapshot(&before);
 
-  if (before.sound_seen) {
-    const float base = before.dba;
-    const uint32_t baseMs = before.last_sound_ms;
-    ledcWrite(BUZZER_PWM_CHANNEL, BUZZER_HALF_PWM);
-    float peak = base;
-    bool gotNew = false;
-    const uint32_t start = millis();
-    while ((uint32_t)(millis() - start) < 7000) {
-      SbSnapshot s;
-      sensorboard_get_snapshot(&s);
-      if (s.sound_seen && s.last_sound_ms != baseMs) {
-        peak = s.dba;
-        gotNew = true;
-        break;
-      }
-      if (ftest_abort_requested()) break;
-      ftest_wdt_feed();
-      vTaskDelay(pdMS_TO_TICKS(250));
-    }
-    ledcWrite(BUZZER_PWM_CHANNEL, 0);
-    D("base=%.0f pico=%.0f", base, peak);
-    if (!gotNew) return FTEST_FAIL;
-    return ((peak - base) >= FTEST_BUZZER_DBA_DELTA) ? FTEST_PASS : FTEST_FAIL;
+  if (!before.sound_seen) {
+    D("sin microfono");
+    return FTEST_SKIP;
   }
 
-  // Sin microfono: arma el CONFIRM ANTES de encolar la linea (bloqueante #8
-  // del review de seguridad, "carrera del CONFIRM"): si el operario
-  // contestara entre encolar CTRL,FTEST,15,5 y que ftest_wait_confirm()
-  // fijara el id esperado, ese "give" se habria perdido.
-  ftest_arm_confirm(FTEST_MB_BUZZER);
-  ftest_emit(FTEST_MB_BUZZER, FTEST_CONFIRM, "sonido del zumbador?");
+  const float base = before.dba;
+  const uint32_t baseMs = before.last_sound_ms;
   ledcWrite(BUZZER_PWM_CHANNEL, BUZZER_HALF_PWM);
-  vTaskDelay(pdMS_TO_TICKS(500));
-  ledcWrite(BUZZER_PWM_CHANNEL, 0);
-  const int confirmResult =
-      ftest_wait_confirm(FTEST_MB_BUZZER, FTEST_CONFIRM_TIMEOUT_MS);
-  if (confirmResult < 0) {
-    D("timeout");
-    return FTEST_FAIL;
+  float peak = base;
+  bool gotNew = false;
+  const uint32_t start = millis();
+  while ((uint32_t)(millis() - start) < 7000) {
+    SbSnapshot s;
+    sensorboard_get_snapshot(&s);
+    if (s.sound_seen && s.last_sound_ms != baseMs) {
+      peak = s.dba;
+      gotNew = true;
+      break;
+    }
+    if (ftest_abort_requested()) break;
+    ftest_wdt_feed();
+    vTaskDelay(pdMS_TO_TICKS(250));
   }
-  D("confirm=%d", confirmResult);
-  return confirmResult ? FTEST_PASS : FTEST_FAIL;
+  ledcWrite(BUZZER_PWM_CHANNEL, 0);
+  D("base=%.0f pico=%.0f", base, peak);
+  if (!gotNew) return FTEST_FAIL;
+  return ((peak - base) >= FTEST_BUZZER_DBA_DELTA) ? FTEST_PASS : FTEST_FAIL;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,8 +1,16 @@
 // Orquestacion del test de fabrica (design.md D4/D5, shared-factory-test):
 // crea la tarea FTEST bajo demanda, entra/sale de estado seguro, recorre la
 // tabla de tests (factory_test_hw.cpp) o uno solo, persiste el resultado en
-// NVS y ofrece a los cuerpos de test las primitivas de CONFIRM/ABORT/emision
-// de linea que necesitan sin que cada uno conozca el mecanismo real.
+// NVS y ofrece a los cuerpos de test las primitivas de ABORT/emision de
+// linea que necesitan sin que cada uno conozca el mecanismo real.
+//
+// ---- CONFIRM retirado (banco 2026-09-06, cuarta ronda) ----
+// factoryTestConfirm()/ftest_arm_confirm()/ftest_wait_confirm() y el
+// semaforo binario que los respaldaba se eliminaron: BUZZER (id 15), unico
+// llamante, ya no pregunta al operario -- sin microfono de la SensorBoard
+// SKIP directo (factory_test_hw.cpp). El comando HMI,FTEST,CONFIRM sigue
+// aceptandolo el parser (CommTask.cpp parse_line) pero se descarta con log
+// "sin uso": no queda ningun consumidor al que reenviarlo.
 //
 // ---- Estado seguro completo (respuesta al review de seguridad) ----
 // Mientras `g_factoryTestActive` este a true (puesto en start_task() ANTES de
@@ -81,7 +89,6 @@
 #include "system/hw_selftest.h"
 
 #include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
 #include "freertos/task.h"
 
 extern IncuNest_parameters in3;
@@ -118,17 +125,6 @@ static bool s_abortReasonLogged = false;
 
 volatile bool g_factoryTestActive = false;
 
-// ---- CONFIRM: semaforo binario + id esperado (design.md D5) ----
-static SemaphoreHandle_t s_confirmSem = NULL;
-static volatile int s_confirmExpectedId = -1;
-static volatile bool s_confirmOk = false;
-
-static void ensure_confirm_sem(void) {
-  if (s_confirmSem == NULL) {
-    s_confirmSem = xSemaphoreCreateBinary();
-  }
-}
-
 bool factoryTestRunning(void) { return s_running; }
 
 int factoryTestPrecheck(unsigned id) {
@@ -155,8 +151,9 @@ static const char *compute_abort_reason(void) {
   // reves: no debe seguir corriendo con un control ya encendido).
   if (in3.actuation != ACTUATION_OFF || in3.phototherapy) return "control on";
   // El HMI dejo de hablar (reinicio o cable desconectado): sin operario
-  // vigilando la pantalla no hay quien confirme CONFIRM ni quien detenga un
-  // ABORT manual si algo va mal.
+  // vigilando la pantalla no hay quien atienda un WAIT (p.ej. sb_light,
+  // "tape el sensor de luz") ni quien detenga un ABORT manual si algo va
+  // mal.
   if (!CommunicationHost_HmiAlive(FTEST_HMI_DEADMAN_MS)) return "hmi lost";
   // Cota POR TEST (bloqueante nuevo, "cota cooperativa por test"): distinta
   // de la cota de bateria de abajo. run_one() refresca s_testStartMs al
@@ -193,50 +190,6 @@ const char *ftest_abort_reason(void) {
 void ftest_wdt_feed(void) { esp_task_wdt_reset(); }
 
 void factoryTestAbort(void) { s_abortRequested = true; }
-
-void factoryTestConfirm(unsigned id, bool ok) {
-  if ((int)id != s_confirmExpectedId) {
-    logE("[FTEST] CONFIRM id=" + String(id) + " inesperado, descartado");
-    return;
-  }
-  s_confirmOk = ok;
-  xSemaphoreGive(s_confirmSem);
-}
-
-// Bloqueante #8 (carrera del CONFIRM): arma la espera ANTES de encolar la
-// linea CTRL,FTEST,id,5 que se lo pide al operario. Orden correcto: primero
-// drenar cualquier "give" residual de un CONFIRM anterior, DESPUES fijar el
-// id esperado -- al reves dejaria una ventana en la que un CONFIRM que
-// llegase justo entre fijar el id y drenar se perderia.
-void ftest_arm_confirm(unsigned id) {
-  ensure_confirm_sem();
-  while (xSemaphoreTake(s_confirmSem, 0) == pdTRUE) {
-  }
-  s_confirmExpectedId = (int)id;
-}
-
-// El cuerpo del test debe haber llamado ftest_arm_confirm(id) ANTES de
-// encolar su linea CONFIRM; esta funcion ya no rearma nada, solo espera.
-int ftest_wait_confirm(unsigned id, uint32_t timeout_ms) {
-  // id ya no se usa aqui (lo fija ftest_arm_confirm()); se conserva en la
-  // firma porque es parte de la API publica declarada en factory_test_api.h.
-  (void)id;
-  ensure_confirm_sem();
-  int result = -1;
-  const uint32_t start = millis();
-  while ((uint32_t)(millis() - start) < timeout_ms) {
-    if (ftest_abort_requested()) break;
-    esp_task_wdt_reset();
-    // Paso <= 250 ms (design.md D5): el ABORT y un CONFIRM que llegue justo
-    // se atienden con ese margen como mucho.
-    if (xSemaphoreTake(s_confirmSem, pdMS_TO_TICKS(250)) == pdTRUE) {
-      result = s_confirmOk ? 1 : 0;
-      break;
-    }
-  }
-  s_confirmExpectedId = -1;
-  return result;
-}
 
 void ftest_emit(unsigned id, FtestStatus st, const char *detail) {
   char line[FTEST_TX_LINE_MAX];
@@ -371,9 +324,8 @@ static void factory_test_task_body(void *pv) {
   (void)pv;
   // Bloqueante #2: suscribe esta tarea al Task WDT global (75 s,
   // watchdogInit() en initHardware.cpp) ANTES de tocar ningun hardware. Sin
-  // esto una espera larga sin resets (GSM, CONFIRM, estimulos de
-  // SensorBoard) dispara el panic del WDT y reinicia la placa a mitad de
-  // bateria.
+  // esto una espera larga sin resets (GSM, estimulos de SensorBoard) dispara
+  // el panic del WDT y reinicia la placa a mitad de bateria.
   esp_task_wdt_add(NULL);
   enter_safe_state();
 
@@ -400,6 +352,13 @@ static void factory_test_task_body(void *pv) {
       const FtestStatus st = run_one(id, detail, &cascade);
       ftest_emit(id, st, detail);
       ftest_summary_note(&sum, id, st);
+      // Pausa entre el resultado final de este test y el RUNNING del
+      // siguiente (cuarta ronda, banco 2026-09-06): con varios tests
+      // omitidos seguidos (power_src, sb_door, humid_usb...) el cuerpo
+      // vuelve casi al instante y la MB emite ~10 lineas en rafaga. El HMI
+      // drena su anillo de recepcion una sola vez por pasada de UI (10 ms) y
+      // se desbordaba con la rafaga sin dar tiempo a pintar cada linea.
+      vTaskDelay(pdMS_TO_TICKS(60));
     }
     persist_full(&sum);
   }
@@ -422,7 +381,6 @@ static void factory_test_task_body(void *pv) {
 }
 
 static bool start_task(void) {
-  ensure_confirm_sem();
   s_abortRequested = false;
   s_abortReasonLogged = false;
   s_batteryStartMs = millis();
