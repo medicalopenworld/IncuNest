@@ -8,6 +8,7 @@ constexpr char NS_WIFI[]  = "mb_wifi";
 constexpr char NS_GPRS[]  = "mb_gprs";
 constexpr char NS_RT[]    = "mb_rt";
 constexpr char NS_STATE[] = "mb_state";
+constexpr char NS_FTEST[]  = "mb_ftest";
 
 // --------------- Key names: mb_cfg ---------------
 constexpr char KEY_LANG[]        = "lang";
@@ -54,3 +55,13 @@ constexpr char KEY_RT_HUM[]      = "hum_t";
 // --------------- Key names: mb_state ---------------
 constexpr char KEY_PHOTO_ACTIVE[] = "photo_active";
 constexpr char KEY_ACTUATION[]    = "actuation";
+
+// --------------- Key names: mb_ftest ---------------
+constexpr char KEY_FTEST_EPOCH[] = "epoch";
+constexpr char KEY_FTEST_PASS[]  = "pass";
+constexpr char KEY_FTEST_FAIL[]  = "fail";
+constexpr char KEY_FTEST_WARN[]  = "warn";
+constexpr char KEY_FTEST_RUN[]   = "run";
+constexpr char KEY_FTEST_FW[]    = "fw";
+constexpr char KEY_FTEST_SB_FW[] = "sb_fw";
+constexpr char KEY_FTEST_PROBE[] = "probe";

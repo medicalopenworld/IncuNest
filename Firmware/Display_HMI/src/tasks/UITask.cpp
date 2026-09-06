@@ -4,6 +4,7 @@
 #include "state/training_mode.h"
 #include "buzzer.h"
 #include "ui/AlarmCenter.h"
+#include "ui/FactoryTest.h"
 #include "ui/TelemetryHistory.h"
 #include "ui/BabyHistory.h"
 #include "ui/BabyExitDialog.h"
@@ -29,6 +30,13 @@
 #include <TAMC_GT911.h>
 
 static const char *TAG = "UI";
+
+// Test de fabrica HMI_I2C (shared-factory-test-bench2 D4): guardan si el
+// init del touch (con reintentos) y la secuencia de backlight (5 reintentos)
+// tuvieron exito en UI_Task(). UI_TouchInitOk()/UI_BacklightInitOk() los
+// exponen; el sondeo de direcciones I2C queda solo informativo.
+static bool s_touchInitOk = false;
+static bool s_backlightInitOk = false;
 
 SemaphoreHandle_t g_lvgl_mutex = NULL;
 
@@ -991,6 +999,11 @@ void UI_ApplyLanguage(ui_lang_t lang) {
       "CONECTIVIDAD:", "CONNECTIVITY:", "CONNECTIVITE:"};
   const char *TXT_PHOTOSTART[] = {"EMPEZAR", "START", "DEMARRER"};
   const char *TXT_DARKMODE[] = {"MODO OSCURO", "DARK MODE", "MODE SOMBRE"};
+  const char *TXT_HWTEST[] = {"TEST DE HARDWARE", "HARDWARE TEST",
+                              "TEST MATERIEL"};
+  const char *TXT_HWTEST_SUB[] = {
+      "Apaga el control para testear", "Turn control off to test",
+      "Arreter le controle pour tester"};
   lv_label_set_text(ui_Label2, TXT_CONTROLTEMP[lang]);
   lv_label_set_text(ui_HumidityLabel, TXT_CONTROLHUM[lang]);
   lv_label_set_text(ui_PhototherapyLabel, TXT_PHOTO[lang]);
@@ -1013,6 +1026,9 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   lv_label_set_text(ui_DarkModeLabel, TXT_DARKMODE[lang]);
   lv_label_set_text(ui_ModesLabel, TXT_MODES[lang]);
   lv_label_set_text(ui_ModesTitleLabel, TXT_MODES_TITLE[lang]);
+  if (ui_HwTestLabel) lv_label_set_text(ui_HwTestLabel, TXT_HWTEST[lang]);
+  if (ui_HwTestSubLabel)
+    lv_label_set_text(ui_HwTestSubLabel, TXT_HWTEST_SUB[lang]);
   {
     const char *TXT_HUMIDITY_MODE[] = {"CONTROL HUMEDAD", "HUMIDITY CONTROL",
                                        "CONTROLE HUMIDITE"};
@@ -1095,6 +1111,7 @@ void UI_ApplyLanguage(ui_lang_t lang) {
 
   photo_safety_apply_language(lang);
   TelemetryHistory_ApplyLanguage();
+  FactoryTest_ApplyLanguage();
 
   update_labels();
   UI_SyncAll();
@@ -1571,6 +1588,9 @@ bool UI_AnyControlActive() {
   return switchTemp || switchHum ||
          hmi_msg.phototherapyMode != PHOTOTHERAPY_OFF;
 }
+
+bool UI_TouchInitOk(void) { return s_touchInitOk; }
+bool UI_BacklightInitOk(void) { return s_backlightInitOk; }
 
 // Runs everything the temperature switch's ON branch used to do inline,
 // now invoked from BabyWizard's "Apply" step once the mandatory baby-data
@@ -2634,6 +2654,25 @@ void audio_paused_icon_update(void) {
   }
 }
 
+// Reafirma en primer plano el banner de alarma y el icono/temporizador de
+// AUDIO PAUSED por encima de cualquier overlay que se acabe de traer al
+// frente con lv_obj_move_foreground() (p.ej. FactoryTest_Open()). Solo toca
+// los que ya estaban visibles: no los crea ni cambia su flag HIDDEN, asi que
+// es seguro llamarla aunque ninguno de los dos este activo en ese momento.
+void UI_ReassertAlarmOverlays(void) {
+  if (s_alarmBanner && !lv_obj_has_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN)) {
+    lv_obj_move_foreground(s_alarmBanner);
+  }
+  if (s_audioPausedIcon &&
+      !lv_obj_has_flag(s_audioPausedIcon, LV_OBJ_FLAG_HIDDEN)) {
+    lv_obj_move_foreground(s_audioPausedIcon);
+  }
+  if (s_audioPausedTimer &&
+      !lv_obj_has_flag(s_audioPausedTimer, LV_OBJ_FLAG_HIDDEN)) {
+    lv_obj_move_foreground(s_audioPausedTimer);
+  }
+}
+
 // Boton de SILENCIAR mientras el enlace esta caido.
 //
 // Quien decide normalmente si se ve es update_alarm_panels(), y esa corre solo
@@ -3368,10 +3407,12 @@ static void update_autolock_ring(uint32_t inactive_ms) {
 }
 
 void inactivity_timer_cb(lv_timer_t *timer) {
-  // Exentos del auto-bloqueo: la pantalla de alarmas, y la ayuda (menu con
-  // QR o tutorial guiado): leer un QR o seguir un paso lleva mas de
-  // INACTIVITY_TIMEOUT_MS sin tocar, y bloquear a mitad lo tiraria todo.
-  if (lv_scr_act() == ui_ScreenAlarms) {
+  // Exentos del auto-bloqueo: la pantalla de alarmas y la pantalla de test de
+  // hardware (esperar una bateria lleva mas de INACTIVITY_TIMEOUT_MS sin
+  // tocar). La ayuda y la formacion gestionan su propia exencion con tope
+  // (HELP_IDLE_TIMEOUT_MS); el resumen del test se cierra solo a los 10 min
+  // para no dejar el banner de alarma inalcanzable.
+  if (lv_scr_act() == ui_ScreenAlarms || FactoryTest_IsOpen()) {
     lv_disp_trig_activity(NULL);
     update_autolock_ring(0);
     return;
@@ -3839,6 +3880,7 @@ void UI_Task(void *pvParameters) {
     }
     if (!bl_ok)
       ESP_LOGE(TAG, "Backlight ON: FAILED after all retries — screen will be black");
+    s_backlightInitOk = bl_ok;
 
     vTaskDelay(pdMS_TO_TICKS(100));
   }
@@ -3960,6 +4002,7 @@ void UI_Task(void *pvParameters) {
     ESP_LOGE(TAG, "Touch controller FAILED to init after retries. Touch may "
                   "trigger ghost clicks or not work.");
   }
+  s_touchInitOk = touch_ok;
 
   // ts.reset();
   ts.setRotation(TOUCH_ROTATION);
@@ -4121,6 +4164,11 @@ void UI_Task(void *pvParameters) {
   // Sin parent: cuelga de lv_layer_top() para abrirse desde cualquier pantalla,
   // el bloqueo incluido.
   AlarmCenter_Init();
+  // --- Test de fabrica (shared-factory-test) ---
+  // Igual que AlarmCenter: cuelga de lv_layer_top(), pero solo se abre desde
+  // la fila "Test de hardware" de ui_ScreenSettings
+  // (hmi-factory-test-settings-only).
+  FactoryTest_Init();
   // --- Tendencia de telemetria (aire/piel/humedad), accesible desde el
   // bloqueo (ui_ChartLockImg). Mismo criterio de parent que AlarmCenter. ---
   TelemetryHistory_Init();
@@ -4631,6 +4679,18 @@ void UI_Task(void *pvParameters) {
     // Tendencia de telemetria: sin peticiones a la motherBoard, solo cierra
     // si hay una alarma critica (mismo contrato que BabyHistory_Poll).
     TelemetryHistory_Poll();
+    // Test de fabrica: secuencia local + orquestacion remota con la
+    // motherBoard. Mismo contrato de polling, sin peticion de cierre por
+    // alarma critica: es la pantalla de montaje, se usa con el equipo vacio.
+    FactoryTest_Poll();
+    // hmi-factory-test-settings-entry: fila "Test de hardware" de
+    // ui_ScreenSettings. Gateada internamente para no repintar si el estado
+    // no cambio; se llama en cada pasada mientras esa pantalla esta activa
+    // para reflejar tanto la entrada a Settings como cualquier CTRL,STATE que
+    // active/desactive el control mientras el operario sigue ahi.
+    if (lv_scr_act() == ui_ScreenSettings) {
+      FactoryTest_RefreshSettingsRow();
+    }
 
     // Ajuste manual de hora (se abre tocando la hora de cabecera,
     // ClockButton_cb): mismo contrato de polling que el wizard — consume el

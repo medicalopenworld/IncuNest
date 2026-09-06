@@ -1,4 +1,61 @@
-# Protocolo de Comunicación IncuNest (v2.2.0)
+# Protocolo de Comunicación IncuNest (v2.3.2)
+
+> Nota (v2.3.2): tercera vuelta del test de fábrica tras la segunda prueba en
+> banco (motherBoard SOLO a batería, SensorBoard conectada, sin SHT4x
+> exterior). **BREAKING dentro de la familia `FTEST`**: se renumeran los ids
+> de la tabla de motherBoard (`ext_sht4x` id 6 y `sensorboard` id 7 se
+> fusionan en un único `env_sensor` id 6 — un equipo lleva SensorBoard O
+> sensor ambiental, no ambos; todo lo que iba de id 8 en adelante baja una
+> posición, `FTEST_MB_COUNT` pasa de 29 a 28). Aceptable por el mismo motivo
+> que en v2.3.1: ninguna placa en campo lleva todavía la versión anterior de
+> `FTEST`, es la propia prueba en banco la que encontró los problemas. Además:
+> no hay mutex de bus I2C en la motherBoard, así que **ningún test hace ya
+> I2C directo** (leen, con sello de frescura, el estado que ya mantiene
+> `sensors_Task`; únicas excepciones `actuators`/`standby`, que
+> reusan `actuatorsTest()`/`testStandByCurrent()` sin tocar); `charger` pasó
+> de RUNNING infinito con la placa a batería a esperar hasta 12 s el estado
+> cacheado del BQ25730; `humid_usb` se omite por ahora (`SKIP`, detail
+> `omitido`) hasta que el jig de fábrica pueda medir el humidificador;
+> `gsm_signal` pasa a **WARN** `sin señal` al agotar su plazo (antes `FAIL`) —
+> conectarse a la red celular es opcional, igual que `gsm_net`/`wifi`. Nueva
+> cota **por test** (no de toda la batería): `FTEST_TEST_TIMEOUT_MS` = 90 s;
+> superarla da `FAIL` con detail `timeout` para ESE test y la batería
+> continúa con el siguiente (a diferencia de las cotas de batería completa,
+> que sí la abortan entera).
+>
+> Cuarta vuelta (mismo banco, misma versión de protocolo — no cambia ningún
+> campo ni formato de línea, solo el criterio interno de algunos tests):
+> `buzzer` elimina el camino `CONFIRM` (preguntarle al operario "¿sonido del
+> zumbador?"); sin micrófono de la SensorBoard el test sale directo `SKIP`
+> `sin microfono`, sin hacer sonar el zumbador. `power_src` y `sb_door` se
+> omiten por ahora (`SKIP` `omitido`): a batería el BQ25730 no está
+> alimentado y el jig todavía no tiene la puerta montada. `charger` pasa a
+> **WARN** `sin vbus` al agotar su plazo de 12 s (antes `FAIL`): sin VBUS es
+> normal que el BQ25730 no responda, no es un fallo de la placa. La
+> motherBoard además espera 60 ms entre el resultado final de un test y el
+> `RUNNING` del siguiente — con varios tests omitidos seguidos la ráfaga de
+> líneas casi instantáneas podía desbordar el anillo de recepción del
+> display.
+
+> Nota (v2.3.1): segunda vuelta del test de fábrica tras la primera prueba en
+> banco (motherBoard V18 + SensorBoard + HMI reales). **BREAKING dentro de la
+> familia `FTEST`**: se renumeran los ids de la tabla de motherBoard
+> (`sensor_src` id 7 y `sb_link` id 8 se fusionan en un único `sensorboard`
+> id 7; todo lo que iba de id 9 en adelante baja una posición). Aceptable
+> porque ninguna placa en campo lleva todavía la versión anterior de `FTEST`
+> — es la propia primera prueba en banco la que encontró los problemas que
+> motivan este cambio. El resto de la familia `FTEST` (fuera de la tabla de
+> ids) sigue sin ser breaking para una placa que no la conozca en absoluto,
+> igual que en v2.3.0. Además: nuevo estado `WARN` (6, final, cuenta en un
+> cuarto campo de `CTRL,FTEST_DONE`, opcional al parsear), criterios nuevos
+> de `gsm_at`/`gsm_sim`, y `gsm_net`/`wifi`/`tb_provision`/`time` pasan a
+> plazo de 30 s con `WARN` en vez de `SKIP`/`FAIL` al agotarlo.
+
+> Nota (v2.3.0): se añade la familia `FTEST` (test de fábrica lanzado desde el
+> splash del display). **No es breaking**: son mensajes nuevos con prefijo
+> propio que una placa anterior descarta como desconocidos. Un display v2.3.0
+> con una motherBoard anterior marca la sección de placa como "sin soporte" a
+> los 10 s y sigue con sus tests locales.
 
 > Nota (v2.2.0): `HMI,PROFILE_DISCHARGE` y `CTRL,PROFILE_HISTORY` añaden un
 > campo `cause` (causa de fallecimiento, solo relevante cuando `outcome=2`).
@@ -408,6 +465,181 @@ Lanza la prueba de funcionamiento de las señales de alarma
   patrón de una alarma real: el operador dejaría de poder identificar qué suena
   (6.3.2.2.2).
 - No toca actuadores ni declara condición alguna.
+
+### 3. Test de fábrica (`FTEST`)
+
+Batería de comprobaciones de hardware para el montaje en fábrica y el servicio
+en campo. La lanza el operario desde la fila "Test de hardware" de la pantalla
+de ajustes del display (zona técnica, tras el candado con pulsación larga;
+solo con control y fototerapia apagados); el display ejecuta primero sus tests
+locales y después ordena a la motherBoard los suyos.
+Identificadores, estados y codec viven en `shared/include/factory_test.h`
+(`ftest_format_*` / `ftest_parse_*`): **ninguna de las dos placas tiene una
+copia propia de la tabla**.
+
+#### HMI,FTEST,START / HMI,FTEST,RUN / HMI,FTEST,ABORT / HMI,FTEST,CONFIRM
+- `HMI,FTEST,START` — batería completa (los `FTEST_MB_COUNT` = 28 tests).
+- `HMI,FTEST,RUN,<id>` — un solo test (reintento). `id` debe ser de motherBoard
+  (`0..27`); si no, `CTRL,FTEST_REJECT,2`.
+- `HMI,FTEST,ABORT` — cancela la batería en curso. El test que estuviera
+  corriendo termina como `SKIP` con `detail=abort` y se emite `FTEST_DONE`.
+- `HMI,FTEST,CONFIRM,<id>,<0|1>` — respuesta del operario a un `CONFIRM`.
+  Desde la cuarta vuelta ningún test de motherBoard usa ya este camino
+  (`buzzer`, el único que preguntaba, SKIP directo sin micrófono): la placa
+  sigue aceptando el comando para no romper a un display que lo mande, pero
+  lo descarta con log "sin uso".
+
+##### Orden de ejecución (quinta ronda, banco 2026-09-06: solape cooperativo)
+Sin esto, `START` tardaba 4-5 min en fábrica sin cobertura celular ni AP: cada
+test de conectividad (`gsm_at` 45 s, `gsm_sim` 15 s, `gsm_signal` 15 s,
+`gsm_net`/`wifi`/`tb_provision`/`time` 30 s cada uno) agotaba su plazo
+secuencialmente uno detrás de otro. La tabla se divide en **PASIVOS** (solo
+observan un estado ya cacheado por otra tarea o una petición asíncrona ya en
+vuelo: `charger`, `env_sensor`, `sb_status`, `sb_camera`, `gsm_at`, `gsm_sim`,
+`gsm_signal`, `gsm_net`, `wifi`, `tb_provision`, `time` y los instantáneos
+`sysinfo`, `ina3221`, `skin_adc`, `hmi_link`, `nvs`, `littlefs`, `power_src`,
+`humid_usb`, `sb_door`, `afe_probe`) y **ACTIVOS** (`standby`, `actuators`,
+`fan_rpm`, `buzzer`, `afe_spi`, `sb_env`, `sb_light`, en ese orden — no el
+ascendente de id: `sb_env`/`sb_light` van al final para dar tiempo a que
+`env_sensor` resuelva la cascada `sb_usb` en paralelo). Al arrancar `START`,
+la motherBoard emite `RUNNING` de **todos** los pasivos a la vez y arranca un
+único plazo común para ellos; los activos corren secuenciales, un turno cada
+uno, como siempre, pero los pasivos siguen resolviéndose por debajo mientras
+tanto. El HMI puede ver **varios `RUNNING` simultáneos** y los resultados
+**no llegan en orden de id**: el test que "manda" en cada momento (el que
+tiene el foco de la UI de fábrica) es el último que emitió `RUNNING`. Un
+`ABORT`/dead-man del HMI/control reactivado/tope de batería corta de golpe a
+los pasivos que sigan pendientes (`SKIP` con el motivo), igual que al activo
+en curso. Peor caso: **~45 s** (el plazo más largo, `gsm_at`) en vez de
+4-5 min. `HMI,FTEST,RUN,<id>` de un solo test no cambia: si `id` es pasivo se
+sondea igual, sin el resto de la batería corriendo debajo.
+
+**Precondición**: la motherBoard rechaza `START` y `RUN` con
+`CTRL,FTEST_REJECT,1` si `in3.actuation != OFF` o hay fototerapia activa. Los
+tests de actuadores encienden el calefactor y la fototerapia en lazo abierto y
+no pueden pisar un control real; el test no tiene autoridad para apagarlo.
+Con una batería ya en curso responde `CTRL,FTEST_REJECT,0`.
+
+Mientras dura la batería la placa pone `in3.alarmsEnabled = false`, levanta
+`g_factoryTestActive` (que inhibe todos los escritores de PWM: `PIDHandler()`,
+`turnFans()`, el bloque `newCommand` de la trama HMI, la regulación de
+fototerapia y `buzzerHandler()`) y deja todos los PWM a 0; lo restaura siempre
+al terminar, abortar o fallar. Ese estado tiene cotas DE TODA LA BATERÍA: la
+tarea está en el task WDT, la batería aborta a los 6 min (`detail=max time`),
+si el HMI deja de enviar líneas durante 5 s (`detail=hmi lost`) o si alguien
+enciende control o fototerapia a mitad (`detail=control on`); cualquiera de
+estas cuatro hace que el resto de tests pendientes salga `SKIP`. Por eso el
+display debe seguir emitiendo su trama periódica mientras la pantalla de test
+está abierta.
+
+Además hay una cota **por test** (`FTEST_TEST_TIMEOUT_MS` = 90 s), distinta de
+las cuatro de arriba: si un cuerpo concreto tarda más de eso (ninguno de los
+plazos propios de la tabla de abajo pasa de 60 s, así que superarlo solo
+puede ser un cuerpo colgado), ESE test sale `FAIL` con `detail=timeout` y la
+batería **continúa** con el siguiente — no se trata como las cotas de arriba,
+que abortan el resto de la batería entera. Un cuerpo bloqueado dentro de una
+llamada I2C/USB no cooperativa (sin bucle de sondeo que compruebe nada) no lo
+detecta ni esta cota ni las de arriba: solo lo cubre el task WDT global
+(75 s), que reinicia la placa — es el motivo por el que, desde esta versión,
+ningún test de la tabla hace ya I2C directo salvo `actuators`/`standby`
+(reusan `actuatorsTest()`/`testStandByCurrent()` tal cual, sin tocarlos).
+
+#### CTRL,FTEST (resultado de un test)
+**Formato**: `CTRL,FTEST,<id>,<status>,<detail>`
+- `status`: `0` RUNNING (empieza), `1` PASS, `2` FAIL, `3` SKIP (opcional sin
+  entorno, o en cascada tras un fallo previo), `4` WAIT (espera un estímulo del
+  operario: abrir la puerta, tapar el sensor de luz), `5` CONFIRM (pregunta al
+  operario; espera `HMI,FTEST,CONFIRM`), `6` WARN (no pudo completarse por
+  falta de entorno — sin cobertura, sin AP, sin servidor, sin hora — dentro de
+  su plazo; no es un fallo de la placa, pero es un estado FINAL: cuenta en
+  `FTEST_DONE` y debe verse en ámbar, no ocultarse como SKIP).
+- `detail`: último campo, hasta `FTEST_DETAIL_MAX` (40) caracteres, sin comas
+  (el codec sustituye `,`/`\r`/`\n` por `;`). Lleva la medida o el motivo
+  (`timeout`, `sin sim`, `sin sonda`, `sin usb`…). Puede ir vacío.
+- Cada test emite exactamente un `RUNNING` y un resultado final; los estados
+  `WAIT`/`CONFIRM` pueden repetirse y no cuentan en los totales.
+- El receptor descarta la línea si faltan campos, si `id`/`status` no son
+  numéricos, si `id` no es de motherBoard o `status` > 6.
+- Las líneas salen por una **cola** drenada por la tarea de comunicación
+  (`CommunicationHost_Enqueue()`), nunca desde la tarea de test: el `CTRL,PPG`
+  a 25 Hz comparte el mismo UART y dos escritores entrelazarían caracteres.
+  Cola llena = línea perdida con log; el display la da por FAIL por plazo.
+
+| id | clave | qué verifica | opcional |
+|---|---|---|---|
+| 0 | sysinfo | flash, heap libre, reset reason, MAC | |
+| 1 | ina3221 | ambos INA3221 presentes (0x40/0x41), solo flags cacheados | |
+| 2 | standby | `testStandByCurrent()` sin bits nuevos en `HW_error` | |
+| 3 | charger | el BQ25730 responde (estado cacheado por `sensors_Task`, ≤ 12 s); VBAT/VSYS y red/batería en detail, sin exigir VBUS ni carga activa; agotado el plazo → **WARN** `sin vbus` (sin VBUS es normal que no responda, no un fallo de placa) | |
+| 4 | power_src | **omitido por ahora** (`SKIP`, detail `omitido`): a batería el BQ25730 no está alimentado (sin VBUS); reactivar cuando el jig alimente por VBUS | |
+| 5 | skin_adc | NTC en rango con lectura de `sensors_Task` reciente (≤ 5 s) o `sin sonda` | |
+| 6 | env_sensor | sensor ambiental por CUALQUIERA de los tres caminos (un equipo lleva SensorBoard O sensor ambiental, no ambos): SHT40 de la SensorBoard por USB (detail `usb`), STS35/SHTC3 por I2C2 (equipo antiguo, detail `i2c`) o SHT4x exterior por I2C1 (detail `sht4x`); FAIL `sin sensor ambiental` a los 10 s | |
+| 7 | sb_status | `status`: sht0/sht1/sht2/als/door/cam disponibles; `fw` y `usb_swap` en detail; SKIP `sin usb` si 6 no fue por USB | |
+| 8 | sb_env | 3×SHT40 válidas, dispersión ≤ 1.0 °C; vs SHT4x exterior ≤ 3.0 °C solo si hay uno con lectura fresca (si no, PASA solo con la dispersión); SKIP `sin usb` | |
+| 9 | sb_door | **omitido por ahora** (`SKIP`, detail `omitido`, sin emitir WAIT): el jig de fábrica todavía no tiene la puerta montada; reactivar cuando la tenga | |
+| 10 | sb_light | WAIT: lux cae < 50 % de la base (20 s); base < 20 lux → SKIP; SKIP `sin usb` | |
+| 11 | sb_camera | `capture` devuelve JPEG ≥ 1000 B en 10 s; SKIP `sin usb` | |
+| 12 | actuators | `actuatorsTest()` sin bits nuevos de calefactor/foto/ventilador | |
+| 13 | fan_rpm | tacómetro con feedback y RPM ≥ `FAN_MIN_RPM` | |
+| 14 | humid_usb | **omitido por ahora** (`SKIP`, detail `omitido`): el jig de fábrica todavía no puede medir el humidificador; no toca `USB_EN` | |
+| 15 | buzzer | ΔdBA ≥ 6 dB con el micrófono de la SensorBoard; sin micrófono → **SKIP** `sin microfono` (ya no pregunta al operario, camino CONFIRM retirado) | |
+| 16 | afe_spi | registros de timing del AFE4490 releídos por SPI; DIAG en detail | |
+| 17 | afe_probe | sonda SpO2 conectada | ✓ |
+| 18 | hmi_link | enlace con el display vivo | |
+| 19 | gsm_at | módem ha respondido a algún AT o ya está más adelante en la secuencia (`GPRS.modemResponded`/`simReady`/`connect`/`post`, ≤ 45 s) | |
+| 20 | gsm_sim | SIM lista (`GPRS.simReady`, `+CPIN: READY`, ≤ 15 s); CCID en detail si ya se leyó | |
+| 21 | gsm_signal | CSQ 1..31 (≤ 15 s); agotado el plazo → **WARN** `sin señal` (conectarse a la red celular es opcional) | |
+| 22 | gsm_net | adjunto a red (≤ 30 s); agotado el plazo → **WARN** `sin red` | ✓ |
+| 23 | wifi | conectado al AP por defecto (≤ 30 s), RSSI en detail; agotado el plazo → **WARN** `sin AP` | ✓ |
+| 24 | tb_provision | sesión ThingsBoard aceptada con el token provisionado (≤ 30 s); `sin serie` → **WARN** inmediato; agotado el plazo → **WARN** `sin servidor` | ✓ |
+| 25 | time | hora sincronizada dentro de 30 s; fuente en detail; agotado el plazo → **WARN** `sin hora` | ✓ |
+| 26 | nvs | escribir y releer `mb_ftest/probe` | |
+| 27 | littlefs | partición montada | |
+
+El test `env_sensor` (id 6) fusiona a los antiguos `ext_sht4x` (6) y
+`sensorboard` (7): un equipo lleva SensorBoard O sensor ambiental, no ambos, y
+exigir los dos por separado convertía la ausencia del que ese equipo no lleva
+en un FAIL de fábrica con hardware sano. Con una SensorBoard conectada, el
+sondeo I2C2 de clasificación de generación se hace además sobre las mismas
+líneas que son D+/D− del USB y devuelve un ACK falso. Lo que importa en
+fábrica es que la cabina tenga sensor ambiental de alguna fuente, no por qué
+camino llega. Los tests `sb_status`/`sb_env`/`sb_door`/`sb_light`/`sb_camera`
+solo tienen datos que leer si `env_sensor` pasó por el camino USB; si pasó por
+I2C2/SHT4x, o si no llegó a correr (un `RUN` aislado de uno de ellos sin haber
+corrido antes el 6), salen `SKIP` con detail `sin usb`.
+
+**Ningún test hace ya I2C directo** (banco 2026-09-06): no hay mutex de bus
+I2C en la motherBoard, así que una transacción I2C lanzada desde el cuerpo de
+un test se entrelaza con las de `sensors_Task` (bucle de 1 ms, con el
+refresco del BQ25730 cada 5 s), y puede ver un ACK falso o quedarse
+esperando una respuesta que nunca llega — es lo que dejaba `charger` en
+RUNNING para siempre con la placa a batería, y lo que hacía FALLAR
+`skin_adc`/`ext_sht4x`/el antiguo sondeo de generación de `sensorboard` con
+hardware sano. Los tests leen ahora el estado que ya mantienen esas tareas;
+las únicas excepciones son `actuators`/`standby`, que reusan
+`actuatorsTest()`/`testStandByCurrent()` sin tocarlos (ya funcionaban así en
+banco).
+
+Los tests GSM/WiFi/ThingsBoard son **pasivos**: leen el estado que ya
+recogen `GPRS_Task` y la tarea WiFi, no envían comandos AT ni tocan
+credenciales. El módem no tiene PWRKEY cableado y un reset por software lo
+dejaría apagado hasta ciclo de alimentación. `gsm_signal` y `gsm_net` siguen
+en cascada: `SKIP` con detail `sin sim` si `gsm_sim` falló, en vez de esperar
+un plazo entero sin SIM.
+
+#### CTRL,FTEST_DONE
+**Formato**: `CTRL,FTEST_DONE,<pass>,<fail>,<skip>,<warn>` — cierre de la
+batería o del test único. `warn` es el cuarto campo (avisos, estado `WARN`);
+al **parsear**, una línea de 3 campos (placa anterior a esta versión) se
+acepta con `warn = 0`, y una de 5 o más se rechaza. Los contadores coinciden
+con la secuencia de resultados emitida. Tras una batería completa la placa
+persiste en NVS `mb_ftest` el epoch, las máscaras PASA/FALLA/AVISO/EJECUTADO,
+`FWversion` y el `fw` de la SensorBoard; un `RUN` actualiza solo los bits de
+su `id`.
+
+#### CTRL,FTEST_REJECT
+**Formato**: `CTRL,FTEST_REJECT,<reason>` — `0` batería ya en curso, `1`
+control o fototerapia activos, `2` `id` desconocido.
 
 ### Validación (ambos sentidos)
 Toda línea `PROFILE_*`/`WEIGHT_HISTORY_*`/`ALM_*` malformada (número de campos

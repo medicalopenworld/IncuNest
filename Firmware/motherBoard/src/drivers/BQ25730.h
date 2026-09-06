@@ -184,9 +184,11 @@ typedef struct {
 // ─── Variable de presencia (definida en BQ25730.cpp) ─────────────────────────
 extern bool chargerPresent;
 
-// ─── Estado cacheado (definido en main.cpp, actualizado cada 5 s) ────────────
+// ─── Estado cacheado (definido en main.cpp, actualizado cada 5 s por
+// sensors_Task; g_bq_status_ms = millis() del ultimo refresco con exito) ─────
 extern BQ25730_Status g_bq_status;
 extern bool           g_bq_status_valid;
+extern uint32_t       g_bq_status_ms;
 
 // ─── Funciones públicas
 // ───────────────────────────────────────────────────────

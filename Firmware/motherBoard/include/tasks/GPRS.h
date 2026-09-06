@@ -108,6 +108,14 @@ struct GPRSstruct {
   bool firstConfigPost = false;
   bool firstPowerUp = true;
   bool pinAttempted = false; // only ever auto-enter the SIM PIN once (PUK-lock risk)
+  // Factory test (ftest_gsm_at/ftest_gsm_sim): el modem ha respondido a
+  // algun AT (aunque sea con ERROR) y la SIM ha llegado a reportar
+  // "+CPIN: READY". Distintos de `powerUp`, que solo es true DURANTE la
+  // secuencia de arranque: si el modem ya habia arrancado antes de pulsar el
+  // boton de fabrica, `powerUp` nunca vuelve a ponerse a true y el test
+  // fallaria aunque el modem lleve horas funcionando.
+  bool modemResponded = false;
+  bool simReady = false;
 
   String CCID;
   String IMEI;

@@ -39,10 +39,21 @@ void ActivateHumidityFromWizard();
 void computeAndSendActuation(void);
 bool UI_IsCriticalAlarmActive(void);
 bool UI_IsAnyAlarmActive(void);
+// Reafirma el banner de alarma y el icono AUDIO PAUSED en primer plano por
+// encima de un overlay que se acaba de mover al frente (p.ej. FactoryTest).
+// No-op si ninguno de los dos esta visible en ese momento.
+void UI_ReassertAlarmOverlays(void);
 // True while any therapy is running (temperature, humidity or phototherapy),
 // i.e. while a baby is under care. Gates both the baby-exit dialog and
 // BabyWizard's already-identified-baby shortcut.
 bool UI_AnyControlActive(void);
+// Evidencia del arranque para el test de fabrica HMI_I2C
+// (shared-factory-test-bench2 D4): true si el init del touch (con
+// reintentos) / de la secuencia de backlight (5 reintentos) tuvo exito. Un
+// endTransmission() vacio no prueba nada frente al STC8H1K28 ni al GT911,
+// que pueden NACKear una escritura vacia con hardware sano.
+bool UI_TouchInitOk(void);
+bool UI_BacklightInitOk(void);
 void UI_UpdatePowerBars(int tempPwm, int humPwm);
 void UI_ApplyLanguage(ui_lang_t lang);
 void UI_SyncAll();

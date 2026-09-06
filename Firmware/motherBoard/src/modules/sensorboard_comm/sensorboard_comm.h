@@ -40,6 +40,16 @@ typedef struct {
   bool door_open;
   bool door_faulty;  // hall sospechoso (flapping)
 
+  // Respuesta extendida de "status" (design.md D6, mb-factory-test). Solo la
+  // rellena sensorboard_status_request(); el resto del firmware no la toca.
+  bool status_seen;
+  char sb_fw[16];
+  bool avail_sht[3];
+  bool avail_als;
+  bool avail_door;
+  bool avail_cam;
+  bool usb_swap;
+
   // Instante local (millis) del ultimo mensaje de cada clase. Un heartbeat
   // vivo no prueba que las tareas de sensor del SensorBoard sigan
   // publicando: el heartbeat lo emite su app_main, independiente de ellas.
@@ -86,6 +96,12 @@ bool sensorboard_capture_request(void);
 // siguiente -- use-after-free de decenas de KB en mitad de una subida.
 bool sensorboard_capture_take(uint8_t **jpeg, size_t *len);
 void sensorboard_capture_free(uint8_t *jpeg);
+
+// Pide un "status" extendido (fw + disponibilidad por recurso). Mismo patron
+// que sensorboard_capture_request(): deja un flag que la tarea del modulo
+// consume y envia en su siguiente tick (<= 1 s). false si el enlace esta
+// caido. Solo lo usa el test de fabrica (SB_STATUS).
+bool sensorboard_status_request(void);
 
 #ifdef ARDUINO
 #include <ArduinoJson.h>

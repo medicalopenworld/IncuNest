@@ -26,6 +26,7 @@
 #include <Preferences.h>
 
 #include "main.h"
+#include "system/hw_selftest.h"
 
 extern IncuNest_parameters in3;
 extern PID fanControlPID;
@@ -36,6 +37,11 @@ extern double fanControlPIDOutput;
 // HMI-driven path (main.cpp), CommTask.cpp, calibrateSensors.cpp and
 // initHardware.cpp, not from any UI code.
 void turnFans(bool mode) {
+  // Mismo motivo que el retorno temprano de PIDHandler(): con la bateria de
+  // fabrica en curso, esta funcion es el otro escritor de PWM que sobrevive
+  // con el control apagado (se llama en cada trama HMI).
+  if (g_factoryTestActive)
+    return;
   in3.fanCommandedOn = mode || in3.phototherapy;
   digitalWrite(ACTUATORS_EN, mode || in3.phototherapy);
 #if (HW_NUM >= 8)

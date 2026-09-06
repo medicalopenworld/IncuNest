@@ -19,8 +19,10 @@
 
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "modules/factory_test/factory_test_api.h"
 #include <cstdio>
 #include <cstring>
 #include <time.h>
@@ -46,6 +48,11 @@ static int rxIndex = 0;
 static SemaphoreHandle_t hmi_state_req_sem;
 
 static HardwareSerial &hmiSerial = Serial1;
+
+// Cola de TX hacia el HMI para la tarea FTEST (design.md D3). Items de
+// tamano fijo FTEST_TX_LINE_MAX; solo Communication_Task la drena y escribe
+// en hmiSerial, para no entrelazar bytes con la telemetria periodica.
+static QueueHandle_t s_ftestTxQueue = NULL;
 
 // PPG transport scale: ppg_disp units (A/A, OT domain) per LSB of the 0-255 display
 // range. ppg_disp is zero-mean (library BPF output), so 128 is the baseline and this
@@ -841,6 +848,51 @@ void parse_line(const char *line) {
     return;
   }
 
+  // Test de fabrica (design.md D2/D4, mb-factory-test). ANTES del catch-all
+  // de mas abajo: "HMI,FTEST,..." tambien empieza por "HMI,".
+  if (strncmp(line, "HMI,FTEST,", 10) == 0) {
+    FtestHmiCmd cmd;
+    if (!ftest_parse_hmi_cmd(line + 10, &cmd)) {
+      logE("[FTEST] comando FTEST malformado, descartado");
+      return;
+    }
+
+    const unsigned checkId =
+        (cmd.type == FTEST_CMD_RUN) ? (unsigned)cmd.id : (unsigned)FTEST_ID_NONE;
+    switch (cmd.type) {
+      case FTEST_CMD_START:
+      case FTEST_CMD_RUN: {
+        const int reject = factoryTestPrecheck(checkId);
+        bool started = false;
+        if (reject < 0) {
+          started = (cmd.type == FTEST_CMD_START)
+                        ? factoryTestStart()
+                        : factoryTestRunSingle(cmd.id);
+        }
+        if (reject >= 0 || !started) {
+          const FtestReject r =
+              (reject >= 0) ? (FtestReject)reject : FTEST_REJECT_BUSY;
+          char rline[FTEST_TX_LINE_MAX];
+          if (ftest_format_reject(rline, sizeof(rline), r) > 0) {
+            CommunicationHost_Enqueue(rline);
+          }
+        }
+        break;
+      }
+      case FTEST_CMD_ABORT:
+        factoryTestAbort();
+        break;
+      case FTEST_CMD_CONFIRM:
+        // Cuarta ronda (banco 2026-09-06): ningun test de motherBoard usa ya
+        // el camino CONFIRM (BUZZER, el unico que lo hacia, SKIP directo sin
+        // microfono -- factory_test_hw.cpp). Se acepta para no romper a un
+        // HMI que todavia lo mande, pero se descarta sin efecto.
+        logE("[FTEST] CONFIRM sin uso, descartado");
+        break;
+    }
+    return;
+  }
+
   if (strncmp(line, "HMI,", 4) == 0) {
     int act, skinE, mode, photo, mute, lang, photoMin;
     double air, skin, hum;
@@ -986,11 +1038,30 @@ void CommunicationHost_Send(const char *msg) {
   hmiSerial.print(msg);
 }
 
+void CommunicationHost_Enqueue(const char *line) {
+  if (s_ftestTxQueue == NULL || line == NULL) return;
+  char buf[FTEST_TX_LINE_MAX];
+  strncpy(buf, line, sizeof(buf) - 1);
+  buf[sizeof(buf) - 1] = '\0';
+  if (xQueueSend(s_ftestTxQueue, buf, 0) != pdTRUE) {
+    // Nunca se bloquea a quien llama (design.md D3): una linea de FTEST
+    // perdida hace que el display marque ese test como FAIL por plazo, no
+    // que la tarea FTEST se quede colgada escribiendo en una cola llena.
+    logE("[FTEST] cola TX llena, linea descartada");
+  }
+}
+
+bool CommunicationHost_HmiAlive(uint32_t max_silence_ms) {
+  if (!g_hmiEverSeen) return true;
+  return (uint32_t)(millis() - g_lastHmiLineMs) <= max_silence_ms;
+}
+
 // ======================================================
 //  INITIALIZATION
 // ======================================================
 void CommunicationHost_Init() {
   hmi_state_req_sem = xSemaphoreCreateBinary();
+  s_ftestTxQueue = xQueueCreate(FTEST_TX_QUEUE_LEN, FTEST_TX_LINE_MAX);
   babyStore_init();
 
   hmiSerial.begin(115200, SERIAL_8N1, UART_MB_RX_PIN, UART_MB_TX_PIN);
@@ -1128,6 +1199,19 @@ void Communication_Task(void *pvParameters) {
         p.putInt("mins", remaining_mins);
         p.end();
         last_photo_save = millis();
+      }
+    }
+
+    // --- FTEST: drena la cola de lineas hacia el HMI (design.md D3) ---
+    // Justo antes de la telemetria periodica y a cada vuelta del bucle
+    // (1 ms): la tarea FTEST encola, nunca escribe en hmiSerial ella misma.
+    {
+      char line[FTEST_TX_LINE_MAX];
+      int drained = 0;
+      while (drained < FTEST_TX_QUEUE_LEN &&
+             xQueueReceive(s_ftestTxQueue, line, 0) == pdTRUE) {
+        hmiSerial.print(line);
+        drained++;
       }
     }
 

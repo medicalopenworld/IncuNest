@@ -27,6 +27,7 @@
 #include <Arduino.h>
 
 #include "main.h"
+#include "system/hw_selftest.h"
 
 double HeaterPIDOutput;
 double skinControlPIDInput;
@@ -166,6 +167,11 @@ void heaterPowerConsumptionCheck()
 
 void PIDHandler()
 {
+  // El test de fabrica ha entrado en estado seguro y tiene el control de los
+  // canales PWM (design.md D4, shared-factory-test): retornar sin tocar nada
+  // es lo unico que evita que este escritor de 1 ms pise ese estado.
+  if (g_factoryTestActive)
+    return;
   heaterPowerConsumptionCheck();
   {
     static bool prevHeaterGateBlocked = false;

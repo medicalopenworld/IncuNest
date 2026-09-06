@@ -187,3 +187,82 @@ opens one of them, so its bottom strip stays visible; it drops back to its
 original place once that modal closes. Every text is available in ES/EN/FR
 (`g_lang`). The debug report contains no patient data (no baby name or
 profile, no SSID, password or token).
+
+## 7. Hardware Test (Settings row)
+
+The only entry point is the **Hardware test** row at the bottom of
+`ui_ScreenSettings` (below Info), reachable only through the long-press lock
+icon like the rest of Settings. The row is enabled only while thermal control
+and phototherapy are off; otherwise it is greyed out with "Turn control off to
+test". "No" on the empty-unit warning returns to Settings. While the test
+screen is open the 20 s inactivity lock is suspended.
+
+It lives in Settings rather than in the help menu or the boot splash on
+purpose: the help overlays are for clinical staff and yield to any alarm,
+whereas the test inhibits alarms and drives actuators open-loop; and a splash
+button (tried first) was one tap away from anyone rebooting the unit and got
+triggered by the GT911's phantom corner touch during init. Without a service
+PIN the barrier is long-press + control off + explicit confirmation (residual
+risk noted in the design).
+
+The test screen is a full-screen overlay (`src/ui/FactoryTest.cpp`, same
+pattern as `AlarmCenter`) showing a **paged 3-column grid of buttons**, one
+per test, sorted FAIL → WARNING → running → PASS; skipped tests are not shown.
+Pages are turned with `<` / `>` (with an `i/n` indicator) instead of
+scrolling, and the page follows the running test unless the operator paged
+by hand. Colour code everywhere (buttons, detail panel, verdict): **white**
+running, **green** OK, **yellow** WARNING (the test could not be completed for
+lack of environment: no AP, no coverage, no signal, no server, no network
+time), **red** FAIL. Tapping a button opens a detail panel with a one-line
+description of what the test checks, its status, the measured value and Retry
+when it applies. At the bottom a **progress bar** (finished / expected tests)
+and the **verdict**: `HW OK` in green when no test failed, `HW ERROR` in red
+when any did or when the board did not answer, rejected the test or was lost
+mid-battery. Warnings never turn the verdict red. The flow is:
+
+0. **Entry gate**: a centred modal pop-up warning that the unit must be EMPTY
+   (no patient) because actuators will be driven open-loop, with big Yes / No
+   buttons; the grid and progress bar stay hidden behind it. "No" returns to
+   the normal splash flow (or to Settings when opened from there). This is a
+   confirmation, not an authentication.
+1. **Local tests**, run inside `UI_Task` by polling: flash/PSRAM/heap, I2C
+   (decided by the boot-time init results of the GT911 touch and of the
+   STC8H1K28 backlight controller; the address probe of 0x14/0x30/0x18 is
+   informative only, an empty `endTransmission()` is not reliable evidence
+   with those chips), WiFi MAC and connection or scan, NVS write/read, and the
+   UART link with the motherBoard. The panel colour, touch-target, buzzer and
+   speaker tests were removed after the bench runs: they lengthened the
+   battery without adding value on the current assembly line, and the audio
+   ones cannot be verified without a microphone in the jig.
+2. **Remote tests**: the display sends `HMI,FTEST,START` and adds a row for
+   each `CTRL,FTEST` result (see `Firmware/PROTOCOL.md` § 3). When the board
+   reports `WAIT` the row shows the operator instruction for that test
+   ("Open and close the door", "Cover the light sensor"); when it reports
+   `CONFIRM` the row shows the question and Yes/No buttons, whose answer goes
+   back as `HMI,FTEST,CONFIRM` (no current test uses it: the board buzzer
+   check skips itself when there is no SensorBoard microphone instead of
+   asking). If the board rejects the test (control active, test already
+   running) the reason is displayed. If nothing arrives within 10 s the
+   section is marked "board without support". Results arrive through a
+   32-entry ring drained every UI pass regardless of what is on screen; the
+   ring's critical section only copies data (a log inside it once tripped the
+   interrupt watchdog and rebooted the display), and any dropped result is
+   counted and shown in the "Link" detail. The error / warning / OK header and
+   the persisted result are always computed from the rows themselves, so they
+   can never disagree with the red buttons or the verdict.
+3. **Summary** header with error, warning and OK counts for both boards
+   (skipped tests are not counted). Retry lives in the detail panel of each
+   failed or warned button (a local test re-runs; a board test sends
+   `HMI,FTEST,RUN,<id>`). **Exit** aborts a running board battery, closes the
+   overlay and loads the main screen.
+
+The result is persisted in NVS namespace `hmi_ftest` (epoch, local PASS/FAIL
+masks, board counters, verdict, firmware version) for traceability. Operator
+questions time out after 60 s as FAIL, a board row that does not change state
+for 100 s is marked FAIL `timeout` (the board has its own cooperative 90 s
+per-test timeout and should report first), 120 s without any `CTRL,FTEST*`
+line closes the board section as "link lost", and the summary closes itself
+after 10 min of inactivity, so an unattended unit never stays exempt from the
+inactivity lock.
+The display keeps sending its 1 Hz keepalive while the screen is open: the
+motherBoard aborts the battery if the display goes silent for 5 s.

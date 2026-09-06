@@ -76,3 +76,61 @@ Most real-time buses are operated discretely:
 *   **General I2C Bus**: Routes typical addresses for TCA9555 expanders, Backlight at 0x30, INA3221 Voltage Sensors (0x40 and 0x41), and capacitive interface.
 *   **CH34x Chip**: This special controller manages a key USB-to-Serial transition acting as an umbilical cord from the Motherboard to the HMI Display on the 115200 8N1 interface. To deal with intrinsic communication hangs, DTR/RTS pins are used precisely.
 *   **Flash and OTA:** Physical firmware update is enabled as well as via GPRS or WiFi, partitioning the hardware to host full banks of fail-safe copies.
+
+## 5. Factory Test Coverage (motherBoard)
+
+Besides the boot self-test in `initHardware()` (standby current, buzzer,
+sensors, actuators), the motherBoard runs a 30-step factory battery on request
+from the display (`HMI,FTEST,START`, see `Firmware/PROTOCOL.md` § 3). It lives
+in `src/modules/factory_test/` and reuses `actuatorsTest()` and
+`testStandByCurrent()` inside an explicit safe state (alarms inhibited, PIDs
+in MANUAL, `PIDHandler()`/`turnFans()` gated by `g_factoryTestActive`, all PWM
+at 0), restored unconditionally afterwards. It refuses to start while thermal
+control or phototherapy is active.
+
+| Area | Tests | Evidence |
+|---|---|---|
+| Power | INA3221 ×2 presence, standby current, BQ25730 answering (cached `g_bq_status_valid`, with or without mains), mains/battery | presence flags, `HW_error` bits, state refreshed every 5 s by `sensors_Task`, checked with a freshness stamp |
+| Skin probe | ADS1110 + skin NTC | `skinProbeLastReading()` and the freshness stamp kept by `sensors_Task` |
+| Ambient sensor | one fresh, valid reading by **any** of the three paths: SensorBoard over USB (`usb`), STS35/SHTC3 over I2C2 (`i2c`) or external SHT4x (`sht4x`). A unit carries a SensorBoard **or** an SHT4x, never both | `sensorSourceGet()`, `sensorboard_comm` snapshot, `in3.temperature[]` + freshness stamps |
+| SensorBoard (USB) | `status` availability of sht0/1/2, ALS, Hall, camera; 3×SHT40 coherence (≤ 1.0 °C spread; ≤ 3.0 °C vs external only if an SHT4x exists); door open/close; light drop; JPEG capture | `sensorboard_comm` snapshot and `status`/`capture` requests; skipped (hidden) when the ambient reading did not come over USB |
+| Actuators | heater, phototherapy, fan currents; fan RPM. The humidifier USB switch test is **omitted for now** (SKIP) until the jig can measure the humidifier | `actuatorsTest()`, INA3221 channels |
+| Buzzer | dBA rise measured by the SensorBoard microphone; operator confirmation if no microphone | `sound_level` events |
+| SpO2 | AFE4490 timing registers read back over SPI; probe attached (optional) | `getTimingConfig()`, `runAfeDiagnostics()`, `probe_state` |
+| Communications | HMI link; GSM modem answering AT, SIM `+CPIN: READY`, CSQ, network attach; WiFi to the default AP; ThingsBoard session with provisioned token; wall clock | state already collected by `GPRS_Task` and the WiFi task, read passively. Only "modem answers" and "SIM ready" can fail; signal, attach, WiFi, ThingsBoard and clock end as **WARNING** (amber, not a board fault) when the environment is missing |
+| Storage | NVS write/read, LittleFS mount | `Preferences`, `LittleFS.begin()` |
+
+**Execution order.** The battery runs in the single `FTEST` task with
+cooperative overlap: every *passive* test (it only watches cached state or an
+asynchronous request: connectivity, charger, ambient sensor, SensorBoard
+status and camera, and the instantaneous checks) starts at once when the
+battery begins and is polled every 250 ms, including inside the wait loops of
+the *active* tests (standby current, actuators, fan RPM, buzzer, AFE, SHT40
+coherence, light with the operator), which stay strictly sequential and never
+overlap each other. Worst case in a factory with no coverage and no AP drops
+from four or five minutes to about 45 s, and the GSM/WiFi checks get the whole
+battery to connect. Results reach the display out of id order; the display
+follows the test that most recently reported RUNNING.
+
+Two rules came out of the bench: **test bodies issue no I2C of their own**
+(the motherBoard has no bus mutex and `sensors_Task` owns the bus, including
+the 5 s refresh of the BQ25730 status; the only exceptions are
+`actuatorsTest()` and `testStandByCurrent()`), and **every test has a
+cooperative 90 s timeout** (FAIL `timeout`, battery continues); a body blocked
+in a non-cooperative call is only covered by the task WDT.
+
+**Omitted for now, to be re-enabled** (bench 2026-09-06, battery-only rig):
+`power_src` and a real `charger` check need the jig to power the unit over
+VBUS (the BQ25730 is unpowered on battery; `charger` reports a WARNING
+instead); `sb_door` needs the door mounted on the jig; `humid_usb` needs a
+way to measure the humidifier; the motherBoard `buzzer` check needs the
+SensorBoard microphone (without it the test is skipped, it never asks the
+operator); the display's own buzzer and speaker tests were removed.
+
+Deliberately **not** tested: the TCA9535 expander and the rotary encoder
+(vestigial code with no hardware behind it on this board), buzzer current
+(only measurable on HW ≤ 16), `HW_NUM` and the ON/OFF latch (if the board
+booted and runs the test, both worked), and the display backlight cycle.
+
+Results are persisted in NVS namespace `mb_ftest` (epoch, PASS/FAIL/RUN
+masks, firmware versions of the motherBoard and the SensorBoard).

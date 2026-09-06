@@ -6,6 +6,7 @@
 #include "modules/control/alarm_machine.h"
 #include "modules/sensorboard_comm/sensorboard_comm.h"
 #include "sensor_source.h"
+#include "system/hw_selftest.h"
 
 extern TwoWire *wire;
 extern SHTC3 mySHTC3; // Declare an instance of the SHTC3 class
@@ -121,7 +122,12 @@ void currentMonitor() {
     lastCurrentMeasurement = millis();
   }
 
-  if (in3.phototherapy &&
+  // g_factoryTestActive: el canal de fototerapia esta en estado seguro
+  // durante la bateria de fabrica (design.md D4, shared-factory-test); esta
+  // regulacion de intensidad es un tercer escritor de PWM que sobrevive con
+  // el control apagado y debe respetar el mismo gate que PIDHandler()/
+  // turnFans().
+  if (!g_factoryTestActive && in3.phototherapy &&
       (millis() - in3.photoTurnOnTime  > PHOTO_SETTLE_MS) &&
       (millis() - lastPhotoControl     > PHOTO_CONTROL_PERIOD_MS) &&
       in3.phototherapy_current > 0.0f) {
@@ -311,11 +317,9 @@ float adcToCelsius(float adcReading_mV) {
 // caliente. En modo piel eso hace que el control deje de calentar, sin ninguna
 // alarma. Hipotermia silenciosa, con el corte térmico de 40 °C como único
 // backstop. Acotar por fisiología en vez de por raíles lo cierra.
-typedef enum {
-  SKIN_PROBE_READING_OK = 0,
-  SKIN_PROBE_READING_SHORT,  // R muy baja: sonda en corto o conector puenteado
-  SKIN_PROBE_READING_OPEN,   // R muy alta: sonda desconectada o hilo partido
-} SkinProbeReading;
+//
+// SkinProbeReading vive en sensors_module.h: factory_test_hw.cpp (SKIN_ADC)
+// tambien la usa.
 
 // ~45 °C y ~5 °C en la YSI 400. Ni la piel de un neonato baja de 5 °C ni sube
 // de 45 °C con la sonda puesta: cualquier cosa fuera de ahí es avería, no
