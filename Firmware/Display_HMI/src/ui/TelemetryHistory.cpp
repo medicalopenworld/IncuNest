@@ -168,16 +168,28 @@ lv_obj_t *makeChart(lv_coord_t y, int rangeLo, int rangeHi, double safeLo,
                      double safeHi, lv_color_t color,
                      lv_chart_series_t **outSeries) {
   lv_obj_t *chart = lv_chart_create(s_content);
-  lv_obj_set_size(chart, 716, 96);
-  lv_obj_set_pos(chart, 14, y);
+  // Las etiquetas del eje Y se dibujan A LA IZQUIERDA DEL PROPIO BORDE del
+  // chart (lv_chart.c: draw_y_ticks, p2.x = obj->coords.x1 - major_len,
+  // label a la izquierda de ahi), no dentro de su padding interno — asi que
+  // lo que de verdad importa es el hueco fisico hasta el borde de s_content,
+  // no pad_left/LV_PART_MAIN (ese no es el "part" que lee label_gap). Con
+  // x=14 solo habia 14 px antes de topar con s_content y "40"/"100" se
+  // recortaban por la izquierda, dejando visible solo el ultimo digito (de
+  // ahi el "todo 0": 20/30/40/10/100 acaban todos en 0). Los charts de
+  // Tiempo Real no lo sufren porque quedan centrados con ~35 px de margen
+  // (771 px de contenedor - 700 px de chart) / 2; aqui se replica ese mismo
+  // margen con numeros, no con centrado, porque el ancho es fijo.
+  lv_obj_set_size(chart, 686, 96);
+  lv_obj_set_pos(chart, 44, y);
   lv_chart_set_type(chart, LV_CHART_TYPE_LINE);
   lv_chart_set_range(chart, LV_CHART_AXIS_PRIMARY_Y, rangeLo, rangeHi);
   ui_apply_sparkline_style(chart, color);
-  // ui_apply_sparkline_style() reserva el eje Y pensando en los charts de
-  // 280 px de alto de Tiempo Real; en estos, de 96 px, 4 marcas con solo
-  // 25 px de hueco salian apiñadas. Menos marcas y mas hueco horizontal
-  // para el numero, solo para estos charts compactos.
-  lv_obj_set_style_pad_left(chart, 40, LV_PART_MAIN);
+  // Menos marcas que las 4 de ui_apply_sparkline_style() (pensada para los
+  // charts de 280 px de Tiempo Real): con solo 96 px de alto, 4 marcas
+  // quedaban muy juntas verticalmente. pad_left aqui SI es el "part"
+  // correcto (LV_PART_TICKS, no MAIN): separacion entre la marca y el
+  // numero, no el margen fisico (ese lo da el x=44 de arriba).
+  lv_obj_set_style_pad_left(chart, 6, LV_PART_TICKS);
   lv_chart_set_axis_tick(chart, LV_CHART_AXIS_PRIMARY_Y, 2, 1, 3, 1, true, 34);
   ui_add_chart_safe_zone(chart, (float)safeLo, (float)safeHi,
                           (float)rangeLo, (float)rangeHi);
