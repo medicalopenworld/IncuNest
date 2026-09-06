@@ -199,7 +199,22 @@ constexpr double HUM_SAFE_ZONE_MAX = 70.0;  // %
 // Communication
 // -----------------------------
 constexpr int COMM_BAUD_RATE = 115200;
-constexpr int COMM_RX_TIMEOUT_MS = 50;
+// Descarte de una linea a medias (ReceiveMessageFromOtherESP()): solo esta
+// para resincronizar tras una linea truncada, NO para medir el hueco real
+// entre bytes -- ese reloj se mira una vez por pasada de la tarea Comm, asi
+// que lo que mide de verdad es "cuanto ha tardado esta tarea en volver".
+// Con 50 ms cualquier pasada que se retrasara mas de eso (esperar
+// LVGL_Lock() en Display_ApplyCtrlState(), repintado de la cuadricula del
+// test de fabrica) tiraba a la basura la linea a medias que habia en el
+// buffer, aunque estuviera intacta: una linea perdida por cada retraso, y en
+// el test de fabrica una linea perdida es un test que se queda "en curso"
+// para siempre (banco 2026-09-07). 500 ms sigue resincronizando de sobra
+// (el protocolo va a 1-10 lineas/s) sin castigar los retrasos normales.
+constexpr int COMM_RX_TIMEOUT_MS = 500;
+// Anillo de RX del driver de UART0 (el enlace con la motherBoard), en bytes.
+// Se aplica en setup() ANTES del primer Serial.begin(); ver el comentario
+// largo alli. El defecto de Arduino son 256 B = ~22 ms de linea a 115200.
+constexpr int COMM_RX_RING_BYTES = 1024;
 constexpr int COMM_STATE_SYNC_MS = 500;
 constexpr double COMM_TEMP_VALID_THRESHOLD =
     0.1; // received temp > this = valid

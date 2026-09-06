@@ -1022,8 +1022,33 @@ static bool ReceiveMessageFromOtherESP() {
   bool msgReceived = false;
   static uint32_t lastRxTime = 0;
 
+  // Vigilancia del anillo de RX del driver (banco 2026-09-07). Lo que se
+  // pierde cuando ese anillo se llena son bytes, y con ellos LINEAS ENTERAS,
+  // sin que nadie se entere: no hay error ni hueco visible, la linea
+  // simplemente no llega nunca. Es la explicacion de los tests del test de
+  // fabrica que se quedan "en curso" para siempre (su unica linea de
+  // resultado se perdio). Se avisa al acercarse al tope -- no al desbordar,
+  // que ya seria tarde -- y como mucho una vez por segundo, para no
+  // realimentar el problema con el propio log.
+  {
+    const int pending = COMM_SERIAL.available();
+    if (pending > (COMM_RX_RING_BYTES * 3) / 4) {
+      static uint32_t lastRingWarnMs = 0;
+      const uint32_t nowRing = millis();
+      if ((uint32_t)(nowRing - lastRingWarnMs) > 1000u) {
+        lastRingWarnMs = nowRing;
+        COMM_LOG("[COMM] anillo RX %d/%d B: la tarea Comm no esta drenando\n",
+                 pending, COMM_RX_RING_BYTES);
+      }
+    }
+  }
+
   while (COMM_SERIAL.available()) {
-    // Timeout check: if buffer has data but no new char for >50ms, clear it
+    // Resincronizacion tras una linea truncada. OJO: este reloj NO mide el
+    // hueco entre bytes en el cable, mide cuanto ha tardado ESTA tarea en
+    // volver a ejecutarse (ver COMM_RX_TIMEOUT_MS en main.h) -- por eso el
+    // plazo es amplio: una linea a medias que sigue intacta no debe tirarse
+    // solo porque la UI haya tenido a la tarea esperando LVGL_Lock().
     if (rxIndex > 0 && (millis() - lastRxTime > COMM_RX_TIMEOUT_MS)) {
       rxIndex = 0;
       COMM_LOG("[COMM] RX Timeout, buffer cleared\n");
@@ -1305,6 +1330,10 @@ static void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
 
 void Comm_Task(void *pvParameters) {
   ESP_LOGI(TAG, "Communication Task Started");
+  // Segundo begin() sobre el mismo puerto: reutiliza el tamano de anillo de
+  // RX que setup() fijo con setRxBufferSize(COMM_RX_RING_BYTES) antes del
+  // PRIMER begin(). Cambiarlo aqui no serviria de nada (el driver ya esta
+  // instalado y setRxBufferSize() lo rechaza); ver el comentario en setup().
   COMM_SERIAL.begin(COMM_BAUD_RATE);
 
   Communication_SendBootInfo();
