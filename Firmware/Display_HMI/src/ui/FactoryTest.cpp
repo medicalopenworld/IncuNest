@@ -8,6 +8,7 @@
 #include "UITask.h"
 #include "factory_test.h"
 #include "main.h"
+#include "state/training_mode.h"
 #include "ui.h"
 
 namespace {
@@ -2065,10 +2066,28 @@ void FactoryTest_RefreshSettingsRow(void) {
     return;
   }
 
-  const bool enabled = !UI_AnyControlActive();
+  // En modo formacion (leccion interactiva en curso) la fila tambien se
+  // deshabilita: el test inhibe alarmas y PID en la placa, un efecto real que
+  // no debe poder disparar un alumno (regla de embedded-display-hmi.md sobre
+  // callbacks con efecto fuera de la UART).
+  const bool training = Training_IsActive();
+  const bool enabled = !UI_AnyControlActive() && !training;
   const bool wasEnabled =
       !lv_obj_has_state(ui_HwTestButton, LV_STATE_DISABLED);
-  if (enabled == wasEnabled) return;  // sin cambios: no repintar
+  static bool s_lastTraining = false;
+  if (enabled == wasEnabled && training == s_lastTraining) {
+    return;  // sin cambios: no repintar
+  }
+  s_lastTraining = training;
+  if (!enabled) {
+    lv_label_set_text(ui_HwTestSubLabel,
+                      training ? TXT("No disponible en formacion",
+                                     "Not available during training",
+                                     "Indisponible en formation")
+                               : TXT("Apaga el control para testear",
+                                     "Turn control off to test",
+                                     "Arreter le controle pour tester"));
+  }
 
   if (enabled) {
     lv_obj_clear_state(ui_HwTestButton, LV_STATE_DISABLED);
