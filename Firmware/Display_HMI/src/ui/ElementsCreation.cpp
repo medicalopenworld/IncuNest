@@ -2660,7 +2660,12 @@ void ui_ScreenSettings_screen_init(void) {
   ui_Container3 = lv_obj_create(ui_ScreenSettings);
   lv_obj_remove_style_all(ui_Container3);
   lv_obj_set_width(ui_Container3, 331);
-  lv_obj_set_height(ui_Container3, 420);
+  // 450 y no 420: la lista tiene seis filas (Info, WiFi, Idioma, Modos,
+  // Mantenimiento, Test de hardware) cada 55 px desde y=-100, y la ultima
+  // (y=175) mas su subtexto (y=208) se salian del contenedor, que recorta a
+  // sus hijos. Con 450 el borde inferior cae en y=+215 de pantalla, dentro de
+  // los 480 del panel.
+  lv_obj_set_height(ui_Container3, 450);
   lv_obj_set_x(ui_Container3, -200);
   lv_obj_set_y(ui_Container3, -10);
   lv_obj_set_align(ui_Container3, LV_ALIGN_CENTER);
@@ -2868,7 +2873,10 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_width(ui_HwTestCont, 331);
   lv_obj_set_height(ui_HwTestCont, 45);
   lv_obj_set_x(ui_HwTestCont, 0);
-  lv_obj_set_y(ui_HwTestCont, 120);
+  // y=175, la sexta ranura de la lista: en y=120 caia exactamente sobre
+  // ui_MaintCont (que se crea despues y por tanto se pintaba encima), y la
+  // fila del test de hardware no llegaba a verse.
+  lv_obj_set_y(ui_HwTestCont, 175);
   lv_obj_set_align(ui_HwTestCont, LV_ALIGN_CENTER);
   lv_obj_clear_flag(ui_HwTestCont,
                     LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
@@ -2918,7 +2926,7 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_width(ui_HwTestSubLabel, 291);
   lv_obj_set_height(ui_HwTestSubLabel, LV_SIZE_CONTENT);
   lv_obj_set_x(ui_HwTestSubLabel, 20);
-  lv_obj_set_y(ui_HwTestSubLabel, 160);
+  lv_obj_set_y(ui_HwTestSubLabel, 208);
   lv_obj_set_align(ui_HwTestSubLabel, LV_ALIGN_LEFT_MID);
   lv_label_set_text(ui_HwTestSubLabel, "Apaga el control para testear");
   lv_obj_set_style_text_font(ui_HwTestSubLabel, &lv_font_montserrat_12,
@@ -3063,8 +3071,8 @@ void ui_ScreenSettings_screen_init(void) {
 
   // --- MAINTENANCE ROW (quinta fila, debajo de MODES) ---
   // Las filas de ui_Container3 van cada 55 px desde y=-100 (Info, WiFi,
-  // Idioma, Modos): esta cae en y=120, dentro de los 420 de alto del
-  // contenedor.
+  // Idioma, Modos): esta cae en y=120 y la de Test de hardware, la ultima,
+  // en y=175.
   ui_MaintCont = lv_obj_create(ui_Container3);
   lv_obj_remove_style_all(ui_MaintCont);
   lv_obj_set_width(ui_MaintCont, 331);
