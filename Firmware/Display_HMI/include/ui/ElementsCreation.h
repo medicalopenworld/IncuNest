@@ -79,8 +79,8 @@ LV_IMG_DECLARE(ui_img_bebe_icon_png);    // assets/bebe icon.png
 LV_IMG_DECLARE(ui_img_triangulo_abajo_png);    // assets/triangulo_abajo.png
 LV_IMG_DECLARE(ui_img_triangulo_arriba_png);    // assets/triangulo_arriba.png
 LV_IMG_DECLARE(ui_img_gota_png);    // assets/gota.png
-LV_IMG_DECLARE(ui_img_auto_air_png);    // data/Auto_Air.png
-LV_IMG_DECLARE(ui_img_baby_place_sensor_png); // data/Baby_place_sensor.png
+LV_IMG_DECLARE(ui_img_auto_air_png);    // assets_src/Auto_Air.png
+LV_IMG_DECLARE(ui_img_baby_place_sensor_png); // assets_src/Baby_place_sensor.png
 LV_IMG_DECLARE(ui_img_pulse_png);    // assets/pulse.png
 LV_IMG_DECLARE(ui_img_heart_red_png);  // assets/heart_red 30x30
 LV_IMG_DECLARE(ui_img_chart_png);    // assets/chart.png
@@ -92,20 +92,20 @@ LV_IMG_DECLARE(ui_img_windvector_png);    // assets/windVector.png
 LV_IMG_DECLARE(ui_img_check_png);    // assets/check.png
 LV_IMG_DECLARE(ui_img_flecha_png);    // assets/Flecha.png
 LV_IMG_DECLARE(ui_img_incunest2_png);          // assets/INCUNEST2.png
-LV_IMG_DECLARE(ui_img_incunest_baby_logo_png); // data/IncuNest_baby_logo.png
-LV_IMG_DECLARE(ui_img_sjd_png);          // data/SJD.png
-LV_IMG_DECLARE(ui_img_iso7010_m025_png); // data/ISO_7010_M025.png
+LV_IMG_DECLARE(ui_img_incunest_baby_logo_png); // assets_src/IncuNest_baby_logo.png
+LV_IMG_DECLARE(ui_img_sjd_png);          // assets_src/SJD.png
+LV_IMG_DECLARE(ui_img_iso7010_m025_png); // assets_src/ISO_7010_M025.png
 // IEC 60417-5576 con X DISCONTINUA = AUDIO PAUSED (IEC 60601-1-8 Tabla 5).
 // Mascara de 1 bit: se tine con el color del estilo segun la prioridad.
-LV_IMG_DECLARE(ui_img_audio_paused_sym); // data/IEC 60417-5576-2.png
+LV_IMG_DECLARE(ui_img_audio_paused_sym); // assets_src/IEC 60417-5576-2.png
 #if INTRO_FLAG == INTRO_FLAG_TOGO
-LV_IMG_DECLARE(ui_img_flag_togo_png);      // data/Flag_Togo.png
+LV_IMG_DECLARE(ui_img_flag_togo_png);      // assets_src/Flag_Togo.png
 #elif INTRO_FLAG == INTRO_FLAG_RASD
 LV_IMG_DECLARE(ui_img_flag_rasd_jpg);      // flags/RASD.jpg
 #elif INTRO_FLAG == INTRO_FLAG_SENEGAL
 LV_IMG_DECLARE(ui_img_flag_senegal_png);   // flags/senegal-flag.png
 #elif INTRO_FLAG == INTRO_FLAG_GHANA
-LV_IMG_DECLARE(ui_img_flag_ghana_png);     // data/Flag_Ghana.png
+LV_IMG_DECLARE(ui_img_flag_ghana_png);     // assets_src/Flag_Ghana.png
 #endif
 
 // --- GLOBAL VARIABLES ---
@@ -351,12 +351,11 @@ extern lv_obj_t * ui_ConnectLabel;
 extern lv_obj_t * ui_WifiDisconnectButton;
 extern lv_obj_t * ui_DisconnectLabel;
 extern lv_obj_t * ui_LanguagesDropDown;
-extern lv_obj_t * ui_WifiConnectedCont;
+// Los dos enlaces de la maquina, encima de SSID en Ajustes > WiFi:
+// ui_WifiBoardStatus es el de la motherBoard (serverCommStatus) y
+// ui_WifiHmiStatus el del propio display (WiFi.status()/SSID).
 extern lv_obj_t * ui_WifiBoardStatus;
-extern lv_obj_t * ui_WifiConnectedPanel;
-extern lv_obj_t * ui_ArrowWifiConnected;
-extern lv_obj_t * ui_WifiSSIDLabel;
-extern lv_obj_t * ui_WifiConnectedToLabel;
+extern lv_obj_t * ui_WifiHmiStatus;
 void ui_ScreenSettings_screen_init(void);
 void ui_ScreenSettings_screen_destroy(void);
 

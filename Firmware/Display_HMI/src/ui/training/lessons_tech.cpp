@@ -28,8 +28,7 @@ bool goalInfoVisible() {
   return goalSettingsScreen() && visible(ui_InfoDetailsCont);
 }
 bool goalWifiVisible() {
-  return goalSettingsScreen() &&
-         (visible(ui_WifiConfigCont) || visible(ui_WifiConnectedCont));
+  return goalSettingsScreen() && visible(ui_WifiConfigCont);
 }
 bool goalLangVisible() {
   return goalSettingsScreen() && visible(ui_LanguagesDropDown);
