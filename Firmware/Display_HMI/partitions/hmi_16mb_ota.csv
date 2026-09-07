@@ -1,7 +1,27 @@
+# Tabla de particiones del Display HMI — ESP32-S3 con 16 MB de flash (QIO).
+#
+# Reparto: 5 MB por slot de app, ~5,9 MB de SPIFFS y 64 KB de coredump.
+# La suma es exactamente 0x1000000 (16 MB), sin hueco al final.
+#
+# NOTA (2026-09-06): el reparto anterior daba 3 MB por slot y 8 MB a SPIFFS.
+# Estaba al reves de lo que consume el firmware: los PNG de Display_HMI/data/
+# NO se leen del filesystem en runtime — son las fuentes que se convierten a
+# arrays C en src/ui/assets/ui_img_*.c y se compilan DENTRO de la app. La unica
+# lectura de SPIFFS en todo el codigo es /heartbeat.mp3 (543 KB) desde
+# src/tasks/AudioManager.cpp. Con app0 al 78 % (2,45 MB de 3 MB) cada icono o
+# fuente nueva — el amarico pendiente, por ejemplo — competia por 675 KB
+# mientras 8 MB de SPIFFS y 1,9 MB sin asignar estaban parados.
+#
+# NOTA: la tabla de particiones NO viaja en una actualizacion OTA. Cambiar
+# estos offsets solo surte efecto en unidades reflasheadas por USB; una unidad
+# ya desplegada se queda con su tabla antigua para siempre. Este cambio se hizo
+# cuando aun no habia ninguna unidad en campo. A partir de aqui, cualquier
+# retoque de tamanos exige reflasheo por USB de la flota.
+#
 # Name,   Type, SubType, Offset,  Size, Flags
 nvs,      data, nvs,     0x9000,  0x5000,
 otadata,  data, ota,     0xe000,  0x2000,
-app0,     app,  ota_0,   0x10000, 0x300000,
-app1,     app,  ota_1,   0x310000,0x300000,
-spiffs,   data, spiffs,  0x610000,0x800000,
-coredump, data, coredump,0xE10000,0x10000,
+app0,     app,  ota_0,   0x10000, 0x500000,
+app1,     app,  ota_1,   0x510000,0x500000,
+spiffs,   data, spiffs,  0xA10000,0x5E0000,
+coredump, data, coredump,0xFF0000,0x10000,

@@ -1,7 +1,39 @@
+# Tabla de particiones de la SensorBoard — ESP32-S3-WROOM-1-N16R8 (16 MB).
+#
+# Reparto: 2 MB por slot de app, 64 KB de coredump y ~11,9 MB de storage.
+# La suma es exactamente 0x1000000 (16 MB).
+#
+# NOTA (2026-09-06): la tabla anterior (copiada de
+# 2026-06-08-sensorboard-phase1.md) declaraba factory + ota_0 + ota_1 de 3 MB
+# cada una, 9 MB de app, PERO SIN PARTICION otadata. Sin otadata,
+# esp_ota_set_boot_partition() no tiene donde escribir y el bootloader arranca
+# siempre factory: los 6 MB de slots OTA prometian una capacidad de
+# actualizacion que no existia. Tampoco hay ninguna llamada esp_ota_* en el
+# codigo. Ahora la tabla dice la verdad: dos slots OTA reales con su otadata,
+# dimensionados sobre una app de 356 KB.
+#
+# ota_0 arranca en 0x10000, el mismo offset donde flasher_tool/flasher/
+# flasher.py escribe firmware.bin, asi que el flasheo de fabrica no cambia. Con
+# otadata en blanco (flash virgen) el bootloader arranca ota_0. Se elimino la
+# particion factory: con dos slots OTA no aporta nada y ocupaba 3 MB.
+#
+# NOTA — coredump: requiere CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y, que se anade
+# en sdkconfig.defaults (en ESP-IDF viene desactivado por defecto, al contrario
+# que en Arduino-ESP32).
+#
+# NOTA — phy_init queda sin usar mientras CONFIG_ESP_PHY_INIT_DATA_IN_PARTITION
+# no este activo (hoy no lo esta y la radio esta apagada). Son 4 KB y se
+# mantiene por si algun dia se enciende WiFi/BT.
+#
+# NOTA — storage no lo monta nadie todavia. Se dimensiona a ~11,9 MB pensando
+# en la fase 5 del roadmap (buffer de JPEG de la camara, ver
+# 2026-07-03-sensorboard-roadmap.md).
+#
 # Name,   Type, SubType,  Offset,   Size,     Flags
-nvs,      data, nvs,      0x9000,   0x6000,
+nvs,      data, nvs,      0x9000,   0x4000,
+otadata,  data, ota,      0xD000,   0x2000,
 phy_init, data, phy,      0xF000,   0x1000,
-factory,  app,  factory,  0x10000,  0x300000,
-ota_0,    app,  ota_0,    0x310000, 0x300000,
-ota_1,    app,  ota_1,    0x610000, 0x300000,
-storage,  data, spiffs,   0x910000, 0x6F0000,
+ota_0,    app,  ota_0,    0x10000,  0x200000,
+ota_1,    app,  ota_1,    0x210000, 0x200000,
+coredump, data, coredump, 0x410000, 0x10000,
+storage,  data, spiffs,   0x420000, 0xBE0000,

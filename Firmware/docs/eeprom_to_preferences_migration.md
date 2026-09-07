@@ -246,7 +246,7 @@ NVS limita las claves a **15 caracteres**. Todas las claves del mapa anterior cu
 
 ## Consideraciones de espacio NVS
 
-Cada entrada NVS ocupa ~70 bytes (overhead de página). Con ~35 claves en `"config"` + las existentes en `"diag"` y `"photo"`, el uso estimado es ~3 KB. La partición NVS por defecto en ESP32 es 24 KB. No hay problema de espacio.
+Cada entrada NVS ocupa ~70 bytes (overhead de página). Con ~35 claves en `"config"` + las existentes en `"diag"` y `"photo"`, el uso estimado es ~3 KB. La partición NVS de este proyecto es de 20 KB (`0x5000`, igual en motherboard y HMI; 24 KB es el valor de la tabla por defecto de ESP-IDF, que aquí no se usa). No hay problema de espacio.
 
 ---
 

@@ -1,6 +1,35 @@
+# Tabla de particiones de la motherboard — ESP32-S3 con 8 MB de flash.
+#
+# Reparto: 2,625 MB por slot de app, 2,625 MB de filesystem y 64 KB de
+# coredump. La suma es exactamente 0x800000 (8 MB), sin hueco al final.
+#
+# NOTA (2026-09-06) — coredump: el sdkconfig del framework Arduino-ESP32
+# (packages/framework-arduinoespressif32/tools/sdk/esp32s3/sdkconfig) trae
+# CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y. Sin una particion de subtipo coredump
+# el volcado falla en cada panic ("No core dump partition found!") y se pierde
+# el post-mortem de la placa que gobierna calefactor y humidificador. El HMI ya
+# tenia la suya; esta faltaba. 64 KB es el tamano que usa el HMI y sobra para
+# CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF con las tareas de este firmware.
+#
+# NOTA — la particion se llama "spiffs" pero monta LittleFS. No es un error:
+# LittleFS.begin() de Arduino-ESP32 busca por defecto la etiqueta "spiffs" con
+# subtipo ESP_PARTITION_SUBTYPE_DATA_SPIFFS. Renombrarla obligaria a pasar la
+# etiqueta explicita en cada LittleFS.begin() y a reformatear, perdiendo los
+# perfiles de bebe y el archivo de pesos de src/modules/baby_profile/. Se deja
+# el nombre historico a proposito.
+#
+# NOTA — tamano de flash: platformio.ini no declara board_build.flash_size, asi
+# que hereda los 8 MB del manifest de esp32-s3-devkitc-1. Si el modulo real es
+# un WROOM-1 N16R8 (como el HMI y la SensorBoard), sobra media flash sin usar:
+# comprobar con `esptool.py --port COMx flash_id` y, si son 16 MB, cambiar a
+# partitions/ESP32S3_16MB.csv y anadir board_build.flash_size = 16MB. Declarar
+# 16 MB sobre un modulo de 8 impide el arranque, asi que hay que verificarlo
+# antes, no asumirlo.
+#
 # Name,   Type, SubType, Offset,   Size,      Flags
-nvs,      data, nvs,      0x9000,   0x5000,   
-otadata,  data, ota,      0xE000,   0x2000,   
-app0,     app,  ota_0,    0x10000,  0x2A0000, 
-app1,     app,  ota_1,    0x2B0000, 0x2A0000, 
-spiffs,   data, spiffs,   0x550000, 0x200000,
+nvs,      data, nvs,      0x9000,   0x5000,
+otadata,  data, ota,      0xE000,   0x2000,
+app0,     app,  ota_0,    0x10000,  0x2A0000,
+app1,     app,  ota_1,    0x2B0000, 0x2A0000,
+spiffs,   data, spiffs,   0x550000, 0x2A0000,
+coredump, data, coredump, 0x7F0000, 0x10000,

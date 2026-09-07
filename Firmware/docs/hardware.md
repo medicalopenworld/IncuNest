@@ -2,6 +2,8 @@
 
 This document details the main physical components, sensors, and actuators managed by the IncuNest system firmware. The system is built on standard components and medical-grade sensors, coordinated by two main boards.
 
+> How each board's flash is divided up (app slots, filesystem, core dump) lives in [`partitions.md`](partitions.md).
+
 ## 1. Processing Modules
 
 ### Motherboard (Main Control Board)

@@ -75,6 +75,7 @@ El antiguo Stop hook `unattended-loop.sh` (re-despertaba al agente mientras qued
 | **Roadmap de fases 2-5**       | `Firmware/docs/superpowers/specs/2026-07-03-sensorboard-roadmap.md` |
 | **Dónde estamos ahora**        | [`@ESTADO.md`](ESTADO.md) (testigo) + [`docs/epics/`](docs/epics/README.md) (backlog)          |
 | **Qué cambió y versión**       | [`CHANGELOG.md`](CHANGELOG.md) (Keep a Changelog + SemVer, versión desde `SB_PROTO_FW_VERSION`) |
+| **Reparto de la flash**        | `partitions.csv` + `Firmware/docs/partitions.md` (las tres placas juntas) |
 
 Al **cerrar una tarea**, el conocimiento nuevo se enruta a su capa (paso 7, skill `meta-self-improvement`): comportamiento→`.claude`, decisión→ADR, aprendizaje→retro, hecho de toda sesión→este archivo.
 

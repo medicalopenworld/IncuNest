@@ -17,6 +17,18 @@ CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y
 
+# Core dump a flash (particion "coredump" de partitions.csv). En ESP-IDF viene
+# desactivado por defecto, al contrario que en Arduino-ESP32. Aqui importa mas
+# que en las otras dos placas: con CONFIG_ESP_CONSOLE_NONE=y no hay consola,
+# asi que el backtrace de un panic no sale por ningun sitio y la flash es el
+# unico post-mortem posible. Leerlo con:
+#     idf.py -p COMx coredump-info      (resumen)
+#     idf.py -p COMx coredump-debug     (gdb sobre el volcado)
+# En IDF v6 ESP_COREDUMP_ENABLE ya selecciona formato ELF y checksum SHA256,
+# no hace falta declararlos.
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+CONFIG_ESP_COREDUMP_CHECK_BOOT=y
+
 # Cámara: sensores soportados (esp32-camera autodetecta por SCCB:
 # OV2640 en 0x30, OV5640 en 0x3C)
 CONFIG_OV2640_SUPPORT=y
