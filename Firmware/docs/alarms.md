@@ -14,7 +14,7 @@ El sistema tiene tres capas, cada una en su propio fichero:
   *latching* y si corta el calefactor. No tienen estado ni dependen de
   Arduino, así que se comparten entre motherBoard y el análisis normativo.
 - **Máquina de estados** (`motherBoard/src/modules/control/alarm_machine.{h,cpp}`):
-  mantiene, para cada una de las 17 condiciones, si está físicamente presente
+  mantiene, para cada una de las 19 condiciones, si está físicamente presente
   y en qué estado de señalización se encuentra. Es el único sitio con
   temporizadores.
 - **Detección y actuación** (`motherBoard/src/system/security.cpp`,
@@ -22,9 +22,9 @@ El sistema tiene tres capas, cada una en su propio fichero:
   está presente, llama a la máquina de estados y aplica los cortes de
   actuador.
 
-## 1. Las 17 condiciones
+## 1. Las 19 condiciones
 
-El enum `AlarmId` (`shared/include/alarm_ids.h`) define 17 condiciones más el
+El enum `AlarmId` (`shared/include/alarm_ids.h`) define 19 condiciones más el
 centinela `ALARM_NONE = 0`. El valor numérico es el índice de bit del
 protocolo serie, así que el orden es significativo y las condiciones nuevas
 se añaden al final.
@@ -48,6 +48,8 @@ se añaden al final.
 | 15 | `ALARM_SKIN_SENSOR_FAULT_AIR_MODE` | staleness de la sonda de piel en modo aire, solo si la sonda llegó a leer alguna vez en este ciclo de encendido (`skinProbeEverRead`) | BAJA | no |
 | 16 | `ALARM_HUMIDITY_DEVIATION` | `|humedad − consigna| > 10 %RH` (`HUMIDITY_ERROR`), solo con `in3.humidityControl` activo y tras cerrar la ventana de estabilización | BAJA | no |
 | 17 | `ALARM_HEATER_SENSOR_FAULT` | `HEATER_SENSOR_DROPOUT_ALARM_CYCLES` = 10 fallos consecutivos de sondeo I2C del sensor de corriente SECUNDARY en marcha (`sensors_module.cpp`). El calefactor puede estar bien; lo perdido es la medida de su consumo | MEDIA | sí |
+| 18 | `ALARM_SENSORBOARD_LINK_LOST` | sin heartbeat USB durante `SB_LINK_TIMEOUT_MS` = 90 000 ms (3 × `SB_LINK_HEARTBEAT_PERIOD_MS` de 30 s), o el dispositivo nunca ha llegado a enumerar, evaluado en `sensorboard_comm.cpp:539`. No se declara durante el margen de arranque `SB_LINK_BOOT_GRACE_MS` mientras no se haya visto ningún heartbeat | MEDIA | no directamente — pero en un equipo con SensorBoard sus SHT40 **son** el sensor de aire, así que la caída del enlace arrastra la condición 3, que sí corta |
+| 19 | `ALARM_SENSORBOARD_DOOR_FAULT` | sensor de puerta (hall DRV5032) implausible: `sb_door_state_evaluate()` lo declara por aleteo (`SB_DOOR_FLAP_TRANSITIONS_FOR_FAULT` = 4 transiciones en `SB_DOOR_FLAP_WINDOW_MS` = 60 000 ms) o por dato rancio (`SB_DOOR_STALE_MS` = 90 000 ms). Con una sola línea digital no se puede distinguir «puerta abierta» de «hall averiado», así que la puerta **nunca** se usa como entrada de control térmico | BAJA | no |
 
 Que el autotest de arranque declare las condiciones 5 y 6 importa: son
 declaraciones vivas que sobreviven al arranque y que ningún detector de marcha
@@ -69,15 +71,26 @@ código es:
 - **ALTA (7)**: `AIR_THERMAL_CUTOUT`, `SKIN_THERMAL_CUTOUT`, `AIR_SENSOR_FAULT`,
   `SKIN_SENSOR_FAULT_SKIN_MODE`, `FAN_FAILURE`, `AIR_OUTLET_BLOCKED`,
   `MAINS_INTERRUPTION`.
-- **MEDIA (8)**: `AIR_TEMP_DEVIATION_HIGH`, `AIR_TEMP_DEVIATION_LOW`,
+- **MEDIA (9)**: `AIR_TEMP_DEVIATION_HIGH`, `AIR_TEMP_DEVIATION_LOW`,
   `SKIN_TEMP_DEVIATION_HIGH`, `SKIN_TEMP_DEVIATION_LOW`, `HEATER_FAULT`,
-  `HEATER_SENSOR_FAULT`, `SUPPLY_UNDERVOLTAGE`, `HMI_LINK_LOST`.
-- **BAJA (2)**: `SKIN_SENSOR_FAULT_AIR_MODE`, `HUMIDITY_DEVIATION`.
+  `HEATER_SENSOR_FAULT`, `SUPPLY_UNDERVOLTAGE`, `HMI_LINK_LOST`,
+  `SENSORBOARD_LINK_LOST`.
+- **BAJA (3)**: `SKIN_SENSOR_FAULT_AIR_MODE`, `HUMIDITY_DEVIATION`,
+  `SENSORBOARD_DOOR_FAULT`.
 
-Este 7/8/2 coincide con el reparto que propone
+El reparto de las 17 primeras (7/8/2) coincide con el que propone
 `alarms_normative_analysis.md` §5 a partir de la Tabla 1 (resultado de no
-responder × tiempo de aparición), así que el código ya refleja esa derivación,
-condición por condición.
+responder × tiempo de aparición), así que para ellas el código refleja esa
+derivación condición por condición.
+
+**Las dos del SensorBoard (18 y 19) no están en ese análisis.** Se añadieron
+después y su prioridad se asignó por analogía, no por derivación: la 18 copia a
+`HMI_LINK_LOST` porque perder una placa periférica completa se trata igual con
+independencia de qué placa sea, y la 19 va a BAJA porque el sensor de puerta no
+alimenta ninguna decisión de control. Es una laguna conocida de
+`alarms_normative_analysis.md`, no un desacuerdo entre documentos: si el
+análisis de riesgos revisa el reparto, esas dos son las que hay que derivar
+formalmente.
 
 Un `AlarmId` fuera de rango (el `default` del `switch`) devuelve ALTA
 deliberadamente — sobreestimar la urgencia de algo no reconocido es la opción
@@ -123,7 +136,7 @@ física, así que "presente" y "señalizando" entran y salen a la vez. La
 equivalencia no es estructural, es una coincidencia del conjunto actual, y se
 rompería en dos supuestos concretos:
 
-1. Si alguna de esas tres condiciones pasara a ser *latching* (`alarm_policy.cpp:32-34`),
+1. Si alguna de esas tres condiciones pasara a ser *latching* (`alarm_policy.cpp:35-37`),
    su señal sobreviviría a la condición y la puerta del ventilador se quedaría
    cerrada hasta un reset manual, con el ventilador parado sin causa física.
 2. Si apareciera un estado de señalización que no implique condición presente
@@ -134,7 +147,7 @@ inactivar el audio nunca abre ninguna de las tres puertas.
 
 | Puerta | Función | Efecto | Condiciones | Recuperación |
 |---|---|---|---|---|
-| Calefactor | `ongoingCriticalAlarm()` → `alarm_machine_heater_must_cut()` | `HeaterPIDOutput * !ongoingCriticalAlarm()` escrito en `ledcWrite(HEATER_PWM_CHANNEL, ...)`, tanto en la rama de control por aire como por piel (`PID.cpp:201,211`) | `alarm_cuts_heater()` (`alarm_policy.cpp:36`): IDs 1, 2, 3, 4, 5, 6, 8, 10, 12 (9 condiciones) | automática, en cuanto la condición física deja de estar presente |
+| Calefactor | `ongoingCriticalAlarm()` → `alarm_machine_heater_must_cut()` | `HeaterPIDOutput * !ongoingCriticalAlarm()` escrito en `ledcWrite(HEATER_PWM_CHANNEL, ...)`, tanto en la rama de control por aire como por piel (`PID.cpp:201,211`) | `alarm_cuts_heater()` (`alarm_policy.cpp:43`): IDs 1, 2, 3, 4, 5, 6, 8, 10, 12, 17 (10 condiciones) | automática, en cuanto la condición física deja de estar presente |
 | Ventilador | `ongoingFanCriticalAlarm()` | `fanControlPIDOutput * !ongoingFanCriticalAlarm()` (`PID.cpp:267`) y el PWM abierto de `turnFans()` (`Actuators.cpp:46,70`) | ID 5 (`FAN_FAILURE`), ID 13 (`SUPPLY_UNDERVOLTAGE`), e ID 12 (`HEATER_FAULT`) **solo si `!in3.fanHasSpeedFeedback`** (`security.cpp:455-460`) | automática, al volver el estado a INACTIVE |
 | Lazo de control (`in3.temperatureControl`) | `ongoingCriticalWiringAlarm()` | bloquea únicamente el **intento de volver a encender** el control de temperatura desde un comando HMI entrante (`main.cpp:393,397,405`); si la condición aparece con el control ya encendido, esta puerta no lo apaga por sí sola — solo lo hacen las puertas de calefactor/ventilador arriba | IDs 12, 5, 13 (`HEATER_FAULT`, `FAN_FAILURE`, `SUPPLY_UNDERVOLTAGE`) (`security.cpp:445-450`) | manual: el operador debe reintentar activar el control una vez la condición ya no esté señalizando |
 
@@ -444,8 +457,8 @@ condición actualmente señalizando) cuando `alarmCount > 0`.
 Si el HMI no está conectado (`hmi_connected == false`), los eventos de cambio
 se encolan en `pending_alarms[PENDING_ALARM_QUEUE_LEN]` (`security.cpp:35-60`),
 con `PENDING_ALARM_QUEUE_LEN` = `ALARM_COUNT`. `resendActiveAlarms()` puede
-empujar una línea por cada una de las 16 condiciones de una sola vez, y con la
-capacidad fija de 10 que tenía antes las 6 últimas se perdían en silencio: una
+empujar una línea por cada una de las 19 condiciones de una sola vez, y con la
+capacidad fija de 10 que tenía antes las 9 últimas se perdían en silencio: una
 instantánea incompleta, y arbitraria en qué condiciones se caían.
 
 **El descarte silencioso sigue existiendo**, y el guardián que lo produce
@@ -474,7 +487,7 @@ los pedidos— la línea entera se descartaba. La línea completa tiene además 
 segundo límite en el emisor, `ALARM_LINE_BUF_SIZE` = 128, que `snprintf`
 recortaría en silencio.
 
-Los 48 textos (16 condiciones × 3 idiomas) viven en
+Los textos —título y acción, en tres idiomas, para las 19 condiciones— viven en
 `shared/src/alarm_text.cpp`, y no en `security.cpp`, precisamente para que el
 test nativo `test/test_alarm_text/` pueda comprobar en cada ejecución que
 todos caben en su campo, que la línea compuesta cabe en el buffer del emisor,
