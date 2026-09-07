@@ -17,6 +17,46 @@ Referencia de configuración para todas las fases del roadmap (`Firmware/docs/su
 | Sensor de puerta (efecto Hall) | DRV5032FBDBZR | GPIO digital (IO47) |
 | Cámara | OV2640 u OV5640 (autodetección por SCCB: 0x30 / 0x3C) | DVP + SCCB (I2C principal) |
 
+## Mapeo de posiciones de los tres SHT40
+
+**Los tres comparten ubicación física** (confirmado por Pablo, 2026-09-03): son
+redundancia del mismo punto de medida, no sensores de zonas distintas. Es la
+premisa que hace válida la votación por mediana de la motherboard — si
+estuvieran repartidos por la cabina, la mediana estaría mezclando un gradiente
+real en vez de arbitrar entre tres medidas del mismo sitio.
+
+El índice de posición es un **contrato de protocolo**, no un detalle de
+implementación: viaja en los arrays del evento `sensor_data` y termina en una
+serie distinta de ThingsBoard por sensor. Reordenar el array remapearía en
+silencio las series históricas de toda la flota.
+
+| Índice | Dirección I2C | Bus | Pines | Referencia |
+|---|---|---|---|---|
+| 0 | 0x44 | I2C sensores temp | IO41 / IO42 | SHT40-AD1B-R3 |
+| 1 | 0x46 | I2C sensores temp | IO41 / IO42 | SHT40-CD1B-R3 |
+| 2 | 0x44 | I2C principal (compartido con SCCB de cámara) | IO4 / IO5 | SHT40-AD1B-R3 |
+
+Los dos del bus de temperatura no colisionan porque el sufijo de la variante
+codifica la dirección (AD1B = 0x44, CD1B = 0x46); el del bus principal tampoco
+colisiona con la cámara (0x30 / 0x3C).
+
+**Dónde está fijado el contrato y quién lo consume:**
+
+- `docs/adr/0002-redundancia-sht40-posicional.md` — la decisión: publicar las
+  tres sin fusionar, con `null` en la posición caída.
+- `openspec/specs/env-sensors/spec.md` — el requisito del evento
+  `sensor_data` con `"temp":[t0,t1,t2]`.
+- `components/env_sensors/sb_env_sensors.c` — el array `s_sht[]`, que es donde
+  el índice se ata a una dirección de bus.
+- En la motherboard: `sb_env_fusion.cpp` vota la mediana para `Air_temp` (la
+  variable del PID y del corte térmico) y `sb_telemetry.cpp` publica las tres
+  crudas como `sb_temp0/1/2_C` y `sb_hum0/1/2_pct`.
+
+**Para qué sirve saber esto:** cuando en un dashboard se vea `sb_temp2_C`
+derivando de sus compañeras, esta tabla dice qué sensor hay que desmontar — el
+del bus principal, IO4/IO5, 0x44. Sin ella, la serie identifica el problema
+pero no el componente.
+
 ## Pinout
 
 | Pin | Función | Módulo |
@@ -50,7 +90,7 @@ Referencia de configuración para todas las fases del roadmap (`Firmware/docs/su
 ## Derivado (interpretación de firmware — confirmar en diseño de cada fase)
 
 - **Dos buses I2C**: principal (IO4/IO5: SCCB de la OV2640, addr 7-bit 0x30, + un SHT40-AD1B) y de sensores de temperatura (IO41/IO42: SHT40-AD1B + SHT40-CD1B).
-- **Direcciones SHT4x**: la letra del sufijo codifica la dirección I2C — AD1B = 0x44, CD1B = 0x46. Por eso los dos sensores del bus IO41/IO42 no colisionan. El AD1B del bus principal (0x44) tampoco colisiona con la cámara (0x30).
+- **Direcciones SHT4x**: ya no es una derivación pendiente de confirmar — está implementada y verificada en banco. Ver "Mapeo de posiciones de los tres SHT40" arriba, que es la fuente única (índice de posición, dirección y bus de cada uno).
 - **ALS-PT19 es un fototransistor analógico**, no un sensor I2C: se lee por ADC en IO1 (ADC1_CH0). Esto resuelve el "I2C o ADC a confirmar" de la Fase 2 del roadmap. La conversión a lux depende de la resistencia de carga del esquema — calibración pendiente de diseño de fase.
 - **El ICS-41350 es un micrófono PDM**, no I2S estándar: IO40 = clock PDM, IO39 = data. En ESP32-S3 se lee con el periférico I2S en modo PDM RX. Afecta al diseño de la Fase 3 (el roadmap asumía "MEMS I2S").
 - **DRV5032FB**: salida digital push-pull, versión de muy bajo consumo a 5 Hz de muestreo interno — el debounce de la Fase 4 debe considerar esa latencia propia del sensor.
