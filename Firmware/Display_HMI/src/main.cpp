@@ -129,14 +129,6 @@ void setup() {
 
   LVGL_Mutex_Init();
 
-#ifndef DISABLE_WIFI_TEST
-  ESP_LOGI(TAG, "Creating OTA task ...");
-  CreateOTATask();
-  ESP_LOGI(TAG, "OTA task successfully created!");
-#else
-  ESP_LOGW(TAG, "[DISABLE_WIFI_TEST] WiFi/OTA task NOT created — bench test build");
-#endif
-
   ESP_LOGI(TAG, "Creating Communication task ...");
   CreateCommTask();
   ESP_LOGI(TAG, "Communication task successfully created!");
@@ -144,6 +136,37 @@ void setup() {
   ESP_LOGI(TAG, "Creating UI task ...");
   CreateUITask();
   ESP_LOGI(TAG, "UI task successfully created!");
+
+  // La tarea OTA/WiFi se crea la ULTIMA y solo cuando el panel RGB ya tiene
+  // sus bounce buffers (RAM interna DMA, dos bloques contiguos de ~38 KB).
+  // Con SSID guardado en NVS el WiFi conectaba a los ~300 ms y la pila
+  // WiFi/lwIP fragmentaba la RAM interna antes de que UI_Task creara el
+  // panel: esp_lcd_new_rgb_panel() fallaba con ESP_ERR_NO_MEM y el Display
+  // entraba en bucle de arranque (~1,2 s por vuelta, pantalla en blanco).
+  // El timeout es una red de seguridad: si el LCD no llega a inicializarse,
+  // el WiFi/OTA arranca igual para no perder la via de recuperacion remota.
+  {
+    uint32_t waited_ms = 0;
+    while (!UI_LcdPanelReady() && waited_ms < LCD_READY_TIMEOUT_MS) {
+      vTaskDelay(pdMS_TO_TICKS(10));
+      waited_ms += 10;
+    }
+    if (UI_LcdPanelReady()) {
+      ESP_LOGI(TAG, "LCD panel ready after %lu ms — starting WiFi/OTA",
+               (unsigned long)waited_ms);
+    } else {
+      ESP_LOGE(TAG, "LCD panel NOT ready after %lu ms — starting WiFi/OTA anyway",
+               (unsigned long)waited_ms);
+    }
+  }
+
+#ifndef DISABLE_WIFI_TEST
+  ESP_LOGI(TAG, "Creating OTA task ...");
+  CreateOTATask();
+  ESP_LOGI(TAG, "OTA task successfully created!");
+#else
+  ESP_LOGW(TAG, "[DISABLE_WIFI_TEST] WiFi/OTA task NOT created — bench test build");
+#endif
 
 #ifdef CRASH_TEST
   xTaskCreatePinnedToCore(CrashTestTask, "CRASH_TEST", 2048, NULL, 1, NULL, 1);

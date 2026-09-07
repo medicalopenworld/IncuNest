@@ -274,6 +274,10 @@ constexpr int MS_PER_SECOND = 1000;
 // Startup
 // -----------------------------
 constexpr int STARTUP_DELAY_MS = 0;
+// Tope de espera en setup() a que UI_Task haya creado el panel RGB antes de
+// arrancar la tarea OTA/WiFi (ver comentario en main.cpp). En condiciones
+// normales el panel esta listo en ~400 ms; 5 s solo se agotan si el LCD falla.
+constexpr uint32_t LCD_READY_TIMEOUT_MS = 5000;
 
 // -----------------------------
 // Misc sizes / lengths

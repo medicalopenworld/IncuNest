@@ -54,6 +54,11 @@ bool UI_AnyControlActive(void);
 // que pueden NACKear una escritura vacia con hardware sano.
 bool UI_TouchInitOk(void);
 bool UI_BacklightInitOk(void);
+// True una vez esp_lcd_new_rgb_panel() ha reservado los bounce buffers (RAM
+// interna DMA). setup() espera a esto antes de crear la tarea OTA/WiFi: si el
+// WiFi conecta antes (SSID en NVS), fragmenta la RAM interna y el panel falla
+// con ESP_ERR_NO_MEM en bucle de arranque.
+bool UI_LcdPanelReady(void);
 void UI_UpdatePowerBars(int tempPwm, int humPwm);
 void UI_ApplyLanguage(ui_lang_t lang);
 void UI_SyncAll();

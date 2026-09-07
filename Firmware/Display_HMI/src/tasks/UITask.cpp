@@ -40,6 +40,15 @@ static const char *TAG = "UI";
 static bool s_touchInitOk = false;
 static bool s_backlightInitOk = false;
 
+// Se levanta en UI_Task() justo despues de esp_lcd_new_rgb_panel(): a partir
+// de ahi los bounce buffers (RAM interna con DMA, dos bloques contiguos) ya
+// estan reservados. setup() lo consulta para no arrancar el WiFi antes: la
+// pila WiFi/lwIP fragmenta la RAM interna y, en un Display con SSID guardado
+// en NVS, GOT_IP llegaba ~40 ms antes que la creacion del panel y este moria
+// con ESP_ERR_NO_MEM en bucle de arranque. Volatile: lo escribe UI_Task y lo
+// lee setup() desde la tarea principal.
+static volatile bool s_lcdPanelReady = false;
+
 SemaphoreHandle_t g_lvgl_mutex = NULL;
 
 void LVGL_Mutex_Init(void) {
@@ -1566,6 +1575,7 @@ bool UI_AnyControlActive() {
 
 bool UI_TouchInitOk(void) { return s_touchInitOk; }
 bool UI_BacklightInitOk(void) { return s_backlightInitOk; }
+bool UI_LcdPanelReady(void) { return s_lcdPanelReady; }
 
 // Runs everything the temperature switch's ON branch used to do inline,
 // now invoked from BabyWizard's "Apply" step once the mandatory baby-data
@@ -3942,6 +3952,7 @@ void UI_Task(void *pvParameters) {
     ESP_LOGW("LCD", "RGB panel initialized OK  [HEAP] internal=%u PSRAM=%u",
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+    s_lcdPanelReady = true;  // setup() puede arrancar ya la tarea OTA/WiFi
   }
 
   lv_init();
