@@ -841,10 +841,14 @@ static FtestStatus ftest_littlefs(char *detail, FtestCascade *, uint32_t) {
 // (894573, la misma regex que valida el propio endpoint /sims/{id}). Con otra
 // SIM el test es SKIP "sim no onomondo": no hay nada que activar.
 //
-// Banco 2026-09-07: no poder activar es WARN, no FAIL. Necesita WiFi en la
-// nave y una API externa viva; que falten no es un fallo de la placa, igual
-// que wifi/tb_provision. El detail dice el motivo (sin wifi / sin respuesta /
-// el error de la API) para que quede registrado y se repita con red.
+// Banco 2026-09-07, dos resultados distintos segun lo que se sepa de la SIM:
+//  - La API contesto y la SIM queda sin activar (FTEST_SIM_ERROR): FAIL. Una
+//    SIM Onomondo que no se ha podido activar no puede salir de fabrica sin
+//    que quede en rojo.
+//  - No se pudo consultar la API (sin WiFi en la nave, sin respuesta, sin
+//    clave en el build; FTEST_SIM_UNREACHABLE o plazo agotado): WARN con el
+//    motivo. No sabemos el estado de la SIM y no es un fallo de la placa;
+//    se repite con red.
 //
 // El trabajo real (TLS + dos peticiones) lo hace una tarea aparte
 // (ftest_sim_activation.cpp): este cuerpo la arranca UNA vez, cuando ya tiene
@@ -872,6 +876,9 @@ static FtestStatus ftest_sim_act(char *detail, FtestCascade *cascade,
       D("%s", ftest_sim_activation_detail());
       return FTEST_PASS;
     case FTEST_SIM_ERROR:
+      D("%s", ftest_sim_activation_detail());
+      return FTEST_FAIL;
+    case FTEST_SIM_UNREACHABLE:
       D("%s", ftest_sim_activation_detail());
       return FTEST_WARN;
     case FTEST_SIM_RUNNING:

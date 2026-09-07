@@ -27,7 +27,14 @@ typedef enum {
   FTEST_SIM_RUNNING,         // peticion en vuelo
   FTEST_SIM_ALREADY_ACTIVE,  // ya estaba activada: no se toco nada
   FTEST_SIM_ACTIVATED,       // activada en esta pasada
-  FTEST_SIM_ERROR,           // no se pudo activar -> el test es FAIL
+  // La API contesto y la SIM NO queda activada (404/4xx en el GET, cuerpo sin
+  // "activated", PATCH rechazado): la SIM de esta unidad sale de fabrica sin
+  // activar y eso es FAIL.
+  FTEST_SIM_ERROR,
+  // No se pudo hablar con la API (sin TLS/HTTP, 5xx/429 persistentes, sin
+  // clave en el build, sin tarea): no sabemos el estado de la SIM. No es un
+  // fallo de la placa -> el test es WARN con el motivo, para repetirlo con red.
+  FTEST_SIM_UNREACHABLE,
 } FtestSimState;
 
 // Arranca la tarea de activacion para `iccid`. Idempotente: si ya hay una en

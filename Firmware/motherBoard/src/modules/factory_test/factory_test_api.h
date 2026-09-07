@@ -29,7 +29,9 @@
 // Por debajo de FTEST_TEST_TIMEOUT_MS (90 s) con margen: pasarse de ahi
 // haria que el runner lo cortara con detail "timeout" en vez de con el
 // motivo real. Agotarlo es WARN (banco 2026-09-07): sin WiFi en la nave o
-// sin respuesta de la API no hay fallo de placa; el detail deja el motivo.
+// sin respuesta de la API no se sabe el estado de la SIM y no hay fallo de
+// placa; el detail deja el motivo. FAIL solo si la API contesta y la SIM
+// queda sin activar (ver FtestSimState).
 #define FTEST_SIM_ACT_TIMEOUT_MS 80000u
 // Prefijo de ICCID de las SIM de Onomondo (89 = telecom, 45 = Dinamarca,
 // 73 = Onomondo). Es el mismo que valida el endpoint /sims/{id}
