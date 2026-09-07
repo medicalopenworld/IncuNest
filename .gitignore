@@ -32,6 +32,13 @@ build/
 **/.cache/
 # Credentials (nunca versionar)
 **/Credentials.h
+Firmware/tools/.gemini_key
+
+# Taller de imágenes de alarma: originales de ~1.4 MB por intento, con el
+# historial completo de iteraciones. Es material de trabajo local — lo que se
+# versiona son las imágenes ya elegidas y reescaladas que `--publish` deja en
+# Display_HMI/assets_src/.
+Firmware/docs/alarm_images_wip/
 
 # Hardware history folders (backups automáticos de Altium, no se versionan)
 Hardware/**/[Hh]istory/
@@ -52,3 +59,6 @@ Firmware/.worktrees/
 
 # Documentacion regulatoria local (no versionar)
 Regulatory/
+# Python bytecode
+**/__pycache__/
+*.pyc
