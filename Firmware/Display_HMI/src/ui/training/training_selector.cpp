@@ -18,7 +18,6 @@
 #include "ui/training/lessons.h"
 #include "ui/training/training_progress.h"
 
-extern ui_lang_t g_lang;
 
 namespace {
 
@@ -76,10 +75,6 @@ const lv_btnmatrix_ctrl_t KB_LETTERS_CTRL[28] = {
     1, 1, 1, 1, 1, 1, 1, 1, 1,
     1, 1, 1, 1, 1, 1, 1, 1,
     1};
-
-const char *TXT(const char *es, const char *en, const char *fr) {
-  return (g_lang == LANG_ES) ? es : (g_lang == LANG_FR) ? fr : en;
-}
 
 lv_obj_t *makeBtn(lv_obj_t *parent, const char *text, lv_event_cb_t cb,
                   lv_color_t bg, void *user = nullptr) {
@@ -177,8 +172,7 @@ void onNameContinue(lv_event_t *) {
   size_t letters = 0;
   for (const char *p = t; p && *p; p++) if (*p != ' ') letters++;
   if (letters < 2) {
-    UI_ShowToast(TXT("Escribe al menos dos letras", "Type at least two letters",
-                     "Saisissez au moins deux lettres"),
+    UI_ShowToast(TR(STR_TRSEL_MIN_LETTERS),
                  2500);
     return;
   }
@@ -297,8 +291,7 @@ void progressLine(char *out, size_t cap, uint8_t courseIdx) {
   const Course *c = Training_CourseByIndex(courseIdx);
   const TrainingCourseProgress *p = TrainingProgress_Get(courseIdx);
   if (!c || !p || !p->name[0]) {
-    snprintf(out, cap, "%s", TXT("Sin alumno en curso", "No student in progress",
-                                 "Aucun eleve en cours"));
+    snprintf(out, cap, "%s", TR(STR_TRSEL_NO_STUDENT));
     return;
   }
   uint8_t done = 0;
@@ -311,7 +304,7 @@ void progressLine(char *out, size_t cap, uint8_t courseIdx) {
 }
 
 void buildCourses() {
-  makeTitle(TXT("CURSOS DE FORMACION", "TRAINING COURSES", "COURS DE FORMATION"));
+  makeTitle(TR(STR_TRSEL_TITLE));
 
   // Fila de certificados ENCIMA de las tarjetas (y=40..80); el boton X de la
   // tarjeta ocupa la esquina superior derecha (0..46), asi que nada empieza
@@ -320,7 +313,7 @@ void buildCourses() {
   if (certs > 0) {
     char t[40];
     snprintf(t, sizeof(t), "%s (%u)",
-             TXT("CERTIFICADOS", "CERTIFICATES", "CERTIFICATS"), (unsigned)certs);
+             TR(STR_TRSEL_CERTS), (unsigned)certs);
     lv_obj_t *b = makeBtn(s_content, t, onCerts, lv_color_hex(0x888888));
     lv_obj_set_size(b, 300, 40);
     lv_obj_align(b, LV_ALIGN_TOP_MID, 0, 42);
@@ -362,7 +355,7 @@ void buildCourses() {
     lv_obj_t *lessons = lv_label_create(btn);
     char n[40];
     snprintf(n, sizeof(n), "%u %s", (unsigned)availableCount(c),
-             TXT("lecciones", "lessons", "lecons"));
+             TR(STR_TRSEL_LESSONS));
     lv_obj_set_style_text_font(lessons, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(lessons, lv_color_hex(0xF0F0F0), 0);
     lv_label_set_text(lessons, n);
@@ -377,36 +370,32 @@ void buildContinue() {
   progressLine(line, sizeof(line), s_course->id);
   char msg[240];
   snprintf(msg, sizeof(msg), "%s\n\n%s",
-           TXT("Hay un curso empezado:", "There is a course in progress:",
-               "Un cours est deja commence :"),
+           TR(STR_TRSEL_IN_PROGRESS),
            line);
   (void)p;
   lv_obj_t *lbl = makeWrapLabel(s_content, msg, 0, 70, CARD_W - 20,
                                 &lv_font_montserrat_20, lv_color_hex(0x0B2E4F));
   lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
 
-  lv_obj_t *cont = makeBtn(s_content, TXT("CONTINUAR", "CONTINUE", "CONTINUER"),
+  lv_obj_t *cont = makeBtn(s_content, TR(STR_TRSEL_CONTINUE),
                            onContinue, lv_color_hex(0x00AA00));
   lv_obj_set_size(cont, 300, 60);
   lv_obj_align(cont, LV_ALIGN_CENTER, 0, 10);
 
   lv_obj_t *nw = makeBtn(s_content,
-                         TXT("NUEVO ALUMNO (borra el progreso)",
-                             "NEW STUDENT (clears progress)",
-                             "NOUVEL ELEVE (efface la progression)"),
+                         TR(STR_TRSEL_NEW_STUDENT),
                          onNewStudent, lv_color_hex(0xE08800));
   lv_obj_set_size(nw, 420, 50);
   lv_obj_align(nw, LV_ALIGN_CENTER, 0, 90);
 
-  lv_obj_t *back = makeBtn(s_content, TXT("VOLVER", "BACK", "RETOUR"),
+  lv_obj_t *back = makeBtn(s_content, TR(STR_BACK_UC),
                            onBackCourses, lv_color_hex(0x888888));
   lv_obj_set_size(back, 150, 46);
   lv_obj_align(back, LV_ALIGN_BOTTOM_LEFT, 6, -6);
 }
 
 void buildName() {
-  makeTitle(TXT("TU NOMBRE O INICIALES", "YOUR NAME OR INITIALS",
-                "VOTRE NOM OU VOS INITIALES"));
+  makeTitle(TR(STR_TRSEL_YOUR_NAME));
 
   s_nameTa = lv_textarea_create(s_content);
   lv_obj_set_size(s_nameTa, 520, 52);
@@ -419,19 +408,16 @@ void buildName() {
 
   lv_obj_t *hint = makeWrapLabel(
       s_content,
-      TXT("Con este nombre se guardara tu progreso y tu certificado.",
-          "Your progress and certificate will be saved under this name.",
-          "Votre progression et votre certificat seront enregistres sous ce "
-          "nom."),
+      TR(STR_TRSEL_NAME_HINT),
       0, 114, CARD_W - 20, &lv_font_montserrat_14, lv_color_hex(0x666666));
   lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
 
-  lv_obj_t *back = makeBtn(s_content, TXT("VOLVER", "BACK", "RETOUR"),
+  lv_obj_t *back = makeBtn(s_content, TR(STR_BACK_UC),
                            onBackCourses, lv_color_hex(0x888888));
   lv_obj_set_size(back, 150, 46);
   lv_obj_align(back, LV_ALIGN_TOP_LEFT, 6, 140);
 
-  lv_obj_t *cont = makeBtn(s_content, TXT("CONTINUAR", "CONTINUE", "CONTINUER"),
+  lv_obj_t *cont = makeBtn(s_content, TR(STR_TRSEL_CONTINUE),
                            onNameContinue, lv_color_hex(0x00AA00));
   lv_obj_set_size(cont, 190, 46);
   lv_obj_align(cont, LV_ALIGN_TOP_RIGHT, -6, 140);
@@ -480,7 +466,7 @@ void buildLessons() {
     snprintf(label, sizeof(label), "%u. %s%s", (unsigned)(v + 1),
              TrainingTxt(l.title),
              (l.flags & LESSON_INTERACTIVE)
-                 ? TXT("  (practica)", "  (hands-on)", "  (pratique)")
+                 ? TR(STR_TRSEL_HANDS_ON)
                  : "");
     lv_obj_t *lbl = lv_label_create(row);
     lv_obj_set_style_text_font(lbl, &lv_font_montserrat_18, 0);
@@ -495,7 +481,7 @@ void buildLessons() {
     lv_obj_align(st, LV_ALIGN_RIGHT_MID, -10, 0);
   }
 
-  lv_obj_t *back = makeBtn(s_content, TXT("VOLVER", "BACK", "RETOUR"),
+  lv_obj_t *back = makeBtn(s_content, TR(STR_BACK_UC),
                            onBackCourses, lv_color_hex(0x888888));
   lv_obj_set_size(back, 150, 46);
   lv_obj_align(back, LV_ALIGN_BOTTOM_LEFT, 6, -6);
@@ -512,39 +498,27 @@ void buildLessons() {
 }
 
 void buildConfirm() {
-  makeTitle(TXT("ANTES DE EMPEZAR", "BEFORE YOU START", "AVANT DE COMMENCER"));
+  makeTitle(TR(STR_TRSEL_BEFORE_START));
 
   lv_obj_t *warn = makeWrapLabel(
       s_content,
-      TXT("En esta leccion la incubadora CALIENTA y/o ENCIENDE LA LAMPARA de "
-          "verdad. Solo se puede hacer con la CABINA VACIA: sin ningun bebe "
-          "dentro, aunque no tenga terapia.",
-          "In this lesson the incubator REALLY HEATS and/or SWITCHES THE LAMP "
-          "ON. It can only be done with an EMPTY CABIN: no baby inside, even "
-          "without therapy.",
-          "Dans cette lecon l'incubateur CHAUFFE et/ou ALLUME LA LAMPE "
-          "vraiment. Uniquement avec l'HABITACLE VIDE : aucun bebe dedans, "
-          "meme sans therapie."),
+      TR(STR_TRSEL_REAL_WARNING),
       0, 56, CARD_W - 20, &lv_font_montserrat_20, lv_color_hex(0xAA3333));
   lv_obj_set_style_text_align(warn, LV_TEXT_ALIGN_CENTER, 0);
 
   s_confirmStatus = makeWrapLabel(
       s_content,
-      TXT("Comprobando en la placa si hay pacientes registrados...",
-          "Checking the board for registered patients...",
-          "Verification des patients enregistres sur la carte..."),
+      TR(STR_TRSEL_CHECKING),
       0, 190, CARD_W - 20, &lv_font_montserrat_16, lv_color_hex(0x666666));
   lv_obj_set_style_text_align(s_confirmStatus, LV_TEXT_ALIGN_CENTER, 0);
 
   s_confirmBtn = makeBtn(s_content,
-                         TXT("SI, LA CABINA ESTA VACIA. EMPEZAR",
-                             "YES, THE CABIN IS EMPTY. START",
-                             "OUI, L'HABITACLE EST VIDE. COMMENCER"),
+                         TR(STR_TRSEL_CABIN_EMPTY),
                          onConfirmStart, lv_color_hex(0x00AA00));
   lv_obj_set_size(s_confirmBtn, 520, 60);
   lv_obj_align(s_confirmBtn, LV_ALIGN_CENTER, 0, 60);
 
-  lv_obj_t *cancel = makeBtn(s_content, TXT("CANCELAR", "CANCEL", "ANNULER"),
+  lv_obj_t *cancel = makeBtn(s_content, TR(STR_TRSEL_CANCEL),
                              onConfirmCancel, lv_color_hex(0x888888));
   lv_obj_set_size(cancel, 200, 46);
   lv_obj_align(cancel, LV_ALIGN_BOTTOM_LEFT, 6, -6);
@@ -559,23 +533,14 @@ void confirmCheckPoll() {
     if (g_profileList.count == 0) {
       lv_label_set_text(
           s_confirmStatus,
-          TXT("La placa no tiene pacientes registrados.",
-              "The board has no registered patients.",
-              "La carte n'a aucun patient enregistre."));
+          TR(STR_TRSEL_NO_PATIENTS));
       lv_obj_set_style_text_color(s_confirmStatus, lv_color_hex(0x0B2E4F), 0);
     } else {
       char msg[240];
       snprintf(msg, sizeof(msg), "%s (%s). %s",
-               TXT("Hay un paciente registrado en la placa",
-                   "There is a registered patient on the board",
-                   "Un patient est enregistre sur la carte"),
+               TR(STR_TRSEL_ONE_PATIENT),
                g_profileList.items[0].name,
-               TXT("La formacion es posible, pero sus contadores de terapia "
-                   "podrian recibir los minutos de la practica.",
-                   "Training is possible, but their therapy counters may "
-                   "receive the practice minutes.",
-                   "La formation est possible, mais ses compteurs de therapie "
-                   "peuvent recevoir les minutes d'exercice."));
+               TR(STR_TRSEL_COUNTERS));
       lv_label_set_text(s_confirmStatus, msg);
       lv_obj_set_style_text_color(s_confirmStatus, lv_color_hex(0xE08800), 0);
     }
@@ -583,11 +548,7 @@ void confirmCheckPoll() {
     s_check = CHECK_DONE;
     if (s_confirmStatus) {
       lv_label_set_text(s_confirmStatus,
-                        TXT("La placa no ha contestado a la consulta de "
-                            "pacientes.",
-                            "The board did not answer the patient query.",
-                            "La carte n'a pas repondu a la consultation des "
-                            "patients."));
+                        TR(STR_TRSEL_NO_ANSWER));
       lv_obj_set_style_text_color(s_confirmStatus, lv_color_hex(0xE08800), 0);
     }
   }
@@ -595,7 +556,7 @@ void confirmCheckPoll() {
 
 void formatDate(char *out, size_t cap, uint32_t epoch) {
   if (epoch == 0) {
-    snprintf(out, cap, "%s", TXT("sin hora", "no time", "sans heure"));
+    snprintf(out, cap, "%s", TR(STR_TRSEL_NO_TIME));
     return;
   }
   const time_t t = (time_t)(HMI_HasLocalTime() ? HMI_ToLocal(epoch) : epoch);
@@ -606,7 +567,7 @@ void formatDate(char *out, size_t cap, uint32_t epoch) {
 }
 
 void buildCerts() {
-  makeTitle(TXT("CERTIFICADOS", "CERTIFICATES", "CERTIFICATS"));
+  makeTitle(TR(STR_TRSEL_CERTS));
 
   const uint8_t n = TrainingProgress_CertCount();
   const uint8_t pages = pageCount(n);
@@ -637,7 +598,7 @@ void buildCerts() {
     lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 10, 0);
   }
 
-  lv_obj_t *back = makeBtn(s_content, TXT("VOLVER", "BACK", "RETOUR"),
+  lv_obj_t *back = makeBtn(s_content, TR(STR_BACK_UC),
                            onBackCourses, lv_color_hex(0x888888));
   lv_obj_set_size(back, 150, 46);
   lv_obj_align(back, LV_ALIGN_BOTTOM_LEFT, 6, -6);
@@ -653,28 +614,25 @@ void buildCert() {
   }
   const Course *course = Training_CourseByIndex(c->course);
   const char *courseTitle = course ? TrainingTxt(course->title) : "?";
-  makeTitle(TXT("CERTIFICADO", "CERTIFICATE", "CERTIFICAT"));
+  makeTitle(TR(STR_TRSEL_CERT_UC));
 
   char date[16];
   formatDate(date, sizeof(date), c->epoch);
   char subject[96];
   snprintf(subject, sizeof(subject), "IncuNest SN %04d - %s %s - %s",
            in3.serialNumber,
-           TXT("Certificado", "Certificate", "Certificat"), courseTitle,
+           TR(STR_TRSEL_CERT), courseTitle,
            c->name);
   char body[360];
   snprintf(body, sizeof(body),
            "%s\n%s: %s\n%s: %s\n%s: %u/%u\n%s: %u\n%s: %s\nIncuNest SN %04d, HMI %s\n",
-           TXT("Certificado de formacion IncuNest",
-               "IncuNest training certificate",
-               "Certificat de formation IncuNest"),
-           TXT("Alumno", "Student", "Eleve"), c->name,
-           TXT("Curso", "Course", "Cours"), courseTitle,
-           TXT("Lecciones superadas", "Lessons passed", "Lecons reussies"),
+           TR(STR_TRSEL_CERT_SUBJECT),
+           TR(STR_TRSEL_STUDENT), c->name,
+           TR(STR_TRSEL_COURSE), courseTitle,
+           TR(STR_TRSEL_PASSED_CNT),
            (unsigned)c->lessons, (unsigned)c->lessons,
-           TXT("Intentos fallidos en preguntas", "Failed quiz attempts",
-               "Tentatives ratees aux questions"),
-           (unsigned)c->attempts, TXT("Fecha", "Date", "Date"), date,
+           TR(STR_TRSEL_FAILED_CNT),
+           (unsigned)c->attempts, TR(STR_TRSEL_DATE), date,
            in3.serialNumber, FWversion);
 
   lv_obj_t *qr = lv_qrcode_create(s_content, QR_SIZE, lv_color_hex(0x000000),
@@ -689,17 +647,12 @@ void buildCert() {
   char info[420];
   snprintf(info, sizeof(info), "%s\n\n%s\n\n%s %s",
            body,
-           TXT("Escanea el QR con tu movil: se abre un correo con el "
-               "certificado para el responsable de formacion.",
-               "Scan the QR with your phone: an email with the certificate "
-               "opens, addressed to the training lead.",
-               "Scannez le QR avec votre telephone : un e-mail avec le "
-               "certificat s'ouvre, adresse au responsable de formation."),
-           TXT("Para:", "To:", "A :"), TRAINING_EMAIL);
+           TR(STR_TRSEL_CERT_QR_HINT),
+           TR(STR_HELP_TO), TRAINING_EMAIL);
   makeWrapLabel(s_content, info, 350, 56, CARD_W - 20 - 356,
                 &lv_font_montserrat_14, lv_color_hex(0x0B2E4F));
 
-  lv_obj_t *back = makeBtn(s_content, TXT("VOLVER", "BACK", "RETOUR"),
+  lv_obj_t *back = makeBtn(s_content, TR(STR_BACK_UC),
                            onBackCourses, lv_color_hex(0x888888));
   lv_obj_set_size(back, 150, 46);
   lv_obj_align(back, LV_ALIGN_BOTTOM_RIGHT, -6, -6);
@@ -765,8 +718,7 @@ void Training_OpenSelector(void) {
   // Con una leccion en curso (p. ej. la de soporte abre el menu de ayuda en
   // un paso libre) no se anida otro selector.
   if (Training_LessonIsOpen()) {
-    UI_ShowToast(TXT("Ya hay una leccion en curso", "A lesson is already running",
-                     "Une lecon est deja en cours"),
+    UI_ShowToast(TR(STR_TRSEL_ALREADY_OPEN),
                  2500);
     return;
   }
@@ -818,16 +770,14 @@ void TrainingSelector_OnLessonEnd(const Course *course, uint8_t lessonIdx,
     if (all) {
       TrainingProgress_Certify(course->id, n);
       s_certIdx = 0;
-      UI_ShowToast(TXT("Curso superado. Enhorabuena!", "Course passed. Well done!",
-                       "Cours reussi. Felicitations !"),
+      UI_ShowToast(TR(STR_TRSEL_COURSE_DONE),
                    4000);
       openAt(V_CERT);
       return;
     }
-    UI_ShowToast(TXT("Leccion superada", "Lesson passed", "Lecon reussie"), 3000);
+    UI_ShowToast(TR(STR_TRSEL_LESSON_DONE), 3000);
   } else {
-    UI_ShowToast(TXT("Leccion no completada", "Lesson not completed",
-                     "Lecon non terminee"),
+    UI_ShowToast(TR(STR_TRSEL_LESSON_FAIL),
                  3000);
   }
   // El selector cuelga de ui_ScreenMain: si la leccion termino con la

@@ -944,21 +944,9 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   lv_label_set_text(ui_DarkModeLabel, L(STR_DARK_MODE));
   lv_label_set_text(ui_ModesLabel, L(STR_MODES));
   lv_label_set_text(ui_ModesTitleLabel, L(STR_MODES));
-  // TXT_HWTEST/TXT_HWTEST_SUB (hmi-factory-test-settings-entry) todavia no
-  // tienen entrada en el catalogo: se migraran aparte, no como efecto
-  // colateral de este merge. 4 entradas, no 3: `lang` puede ser LANG_PT (3)
-  // desde que el catalogo sumo portugues — un array de 3 se leeria fuera de
-  // rango.
-  {
-    const char *TXT_HWTEST[] = {"TEST DE HARDWARE", "HARDWARE TEST",
-                                "TEST MATERIEL", "TESTE DE HARDWARE"};
-    const char *TXT_HWTEST_SUB[] = {
-        "Apaga el control para testear", "Turn control off to test",
-        "Arreter le controle pour tester", "Desligue o controlo para testar"};
-    if (ui_HwTestLabel) lv_label_set_text(ui_HwTestLabel, TXT_HWTEST[lang]);
-    if (ui_HwTestSubLabel)
-      lv_label_set_text(ui_HwTestSubLabel, TXT_HWTEST_SUB[lang]);
-  }
+  if (ui_HwTestLabel) lv_label_set_text(ui_HwTestLabel, L(STR_HW_TEST));
+  if (ui_HwTestSubLabel)
+    lv_label_set_text(ui_HwTestSubLabel, L(STR_HW_TEST_SUB));
   lv_label_set_text(ui_HumidityModeLabel, L(STR_HUMIDITY_CONTROL));
   lv_label_set_text(ui_HMIVerTitle, L(STR_HMI_VERSION));
   lv_label_set_text(ui_MBVerTitle, L(STR_MB_VERSION));
@@ -3420,10 +3408,7 @@ void WifiConnectButton_cb(lv_event_t *e) {
   // En modo formacion la red no se toca: cambiaria el equipo de verdad y se
   // persistiria en NVS, justo lo que la franja "no recibe ordenes" niega.
   if (Training_IsActive()) {
-    UI_ShowToast(TXT_UI("No disponible en modo formacion",
-                        "Not available in training mode",
-                        "Indisponible en mode formation"),
-                 2500);
+    UI_ShowToast(TR(STR_NOT_IN_TRAINING), 2500);
     return;
   }
   hmi_msg.shouldSendData = true;
@@ -3445,10 +3430,7 @@ void WifiConnectButton_cb(lv_event_t *e) {
 
 void WifiDisconnectButton_cb(lv_event_t *e) {
   if (Training_IsActive()) {
-    UI_ShowToast(TXT_UI("No disponible en modo formacion",
-                        "Not available in training mode",
-                        "Indisponible en mode formation"),
-                 2500);
+    UI_ShowToast(TR(STR_NOT_IN_TRAINING), 2500);
     return;
   }
   WiFi.disconnect();
@@ -4730,9 +4712,10 @@ void UI_Task(void *pvParameters) {
     // misma regla de alarma critica, para el menu y para el tutorial.
     HelpDialog_Poll();
     Training_Poll();
-    // Recordatorio de mantenimiento: vigila el cambio de bebe y abre el aviso
-    // cuando esta armado (desbloqueo) y hay motivo. Va detras del resto a
-    // proposito: solo sale si ningun otro dialogo esta abierto.
+    // Recordatorio de mantenimiento: vigila el alta del paciente y abre el
+    // aviso cuando esta armado (desbloqueo) y hay algun nivel vencido. Va
+    // detras del resto a proposito: solo sale si ningun otro dialogo esta
+    // abierto.
     MaintenanceDialog_Poll();
 
     // El banner se reevalua en CADA pasada, no solo cuando cambia el conjunto

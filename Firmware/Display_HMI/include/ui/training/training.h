@@ -56,5 +56,6 @@ void TrainingSelector_Close(void);
 // (HELP_IDLE_TIMEOUT_MS). La llama Training_Poll().
 void TrainingSelector_Poll(void);
 
-// Helper de texto compartido por los ficheros de training/.
-const char *TrainingTxt(const Txt3 &t);
+// Helper de texto compartido por los ficheros de training/. Cae al ingles si
+// falta la traduccion, igual que UI_Str() con el catalogo.
+const char *TrainingTxt(const LessonTxt &t);

@@ -340,9 +340,7 @@ void selectExisting(uint32_t seq, uint8_t gest, uint16_t lastWeight) {
 // se crea un perfil (aunque en formacion tampoco llegaria a la placa).
 bool trainingRefuse() {
   if (!Training_IsActive()) return false;
-  UI_ShowToast(TXT("En formacion, selecciona a ZOE",
-                   "In training, select ZOE", "En formation, selectionnez ZOE"),
-               2500);
+  UI_ShowToast(TR(STR_TRAINING_SELECT_ZOE), 2500);
   return true;
 }
 
@@ -788,6 +786,7 @@ void BabyWizard_OpenForHumidity() { openForTarget(WizTarget::Humidity); }
 bool BabyWizard_HasUsableRange() { return s_hasUsableRange; }
 
 bool BabyWizard_IsOpen() { return s_step != WizStep::Closed; }
+
 
 uint32_t BabyWizard_GetActiveSeq() { return s_sessionSeq; }
 bool BabyWizard_HasLiveSession() {

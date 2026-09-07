@@ -14,14 +14,15 @@
 // cerrar sin contestar no deja constancia de nada.
 #include <lvgl.h>
 
-// Igual que la ayuda, el pop-up esta exento del auto-bloqueo de 20 s mientras
-// esta abierto, con el mismo tope de 3 min: leer el QR con el movil lleva mas
-// de 20 s, pero un aviso olvidado no puede quedarse horas tapando la pantalla
-// (el banner de alarma solo se pinta en ui_ScreenLock).
+// Igual que la ayuda y la formacion, el pop-up esta exento del auto-bloqueo de
+// 20 s mientras esta abierto, con el mismo tope de 3 min sin ningun toque:
+// leer el QR con el movil lleva mas de 20 s, pero un aviso olvidado no puede
+// quedarse horas tapando la pantalla (el banner de alarma solo se pinta en
+// ui_ScreenLock).
 //
-// El tope se mide con `lv_tick_elaps()` desde la apertura y NO con
-// `lv_disp_get_inactive_time()`: la propia exencion del auto-bloqueo reinicia
-// ese contador cada 200 ms, asi que un tope que lo leyera no llegaria nunca.
+// El tope se mide con `lv_disp_get_inactive_time()`, que es fiable porque la
+// exencion de `inactivity_timer_cb()` NO llama a `lv_disp_trig_activity()`
+// para estos overlays — si lo hiciera cada 200 ms, el tope no llegaria nunca.
 #define MNT_IDLE_TIMEOUT_MS (3UL * 60UL * 1000UL)
 
 // Crea overlay/tarjeta (ocultos). Llamar una vez durante la init de UI, con
