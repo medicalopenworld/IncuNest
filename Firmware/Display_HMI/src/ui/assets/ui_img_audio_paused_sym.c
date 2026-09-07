@@ -1,5 +1,5 @@
 // IEC 60417-5576, variante de X DISCONTINUA = AUDIO PAUSED.
-// Generado desde data/IEC 60417-5576-2.png. No editar a mano.
+// Generado desde assets_src/IEC 60417-5576-2.png. No editar a mano.
 //
 // La X continua es AUDIO OFF (inactivacion permanente), estado
 // que este equipo no ofrece: la pausa caduca sola a los 10 min.

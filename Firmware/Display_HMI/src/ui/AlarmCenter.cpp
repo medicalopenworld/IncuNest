@@ -148,7 +148,7 @@ lv_obj_t *makeBtn(lv_obj_t *parent, const char *text, lv_event_cb_t cb,
 // reservada a AUDIO OFF, que este equipo no ofrece.
 //
 // Es la LAMINA de la norma, no un dibujo aproximado: se convierte desde
-// data/IEC 60417-5576-2.png a una mascara de 1 bit. Antes se dibujaba a mano
+// assets_src/IEC 60417-5576-2.png a una mascara de 1 bit. Antes se dibujaba a mano
 // con la campana de la fuente y dos lv_line discontinuas, con la salvedad
 // anotada de que las proporciones no estaban contrastadas contra el documento.
 // Ya lo estan.

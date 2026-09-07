@@ -1,4 +1,4 @@
-// ISO 7010 M025 -- converted from data/ISO_7010_M025.png
+// ISO 7010 M025 -- converted from assets_src/ISO_7010_M025.png
 // LVGL 8.x, LV_IMG_CF_TRUE_COLOR_ALPHA (RGB565 + alpha, 3 bytes/pixel)
 // Resolution: 120x120
 

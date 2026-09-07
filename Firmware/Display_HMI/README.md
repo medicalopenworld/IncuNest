@@ -37,7 +37,11 @@ Display_HMI/
 │   └── ...
 ├── lib/
 │   └── TAMC_GT911_Fixed/     ← Driver GT911 local (version parcheada)
-├── data/                     ← Archivos SPIFFS (audio .mp3)
+├── data/                     ← Contenido de la imagen SPIFFS. SOLO lo que el
+│                                firmware lee en runtime: hoy heartbeat.mp3
+├── assets_src/               ← Fuentes PNG/JPG de los arrays de src/ui/assets/.
+│                                No se flashean (ver su README)
+├── partitions/               ← Tabla de particiones activa (+ legacy/)
 └── platformio.ini
 ```
 

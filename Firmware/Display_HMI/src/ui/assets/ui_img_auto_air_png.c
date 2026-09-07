@@ -1,4 +1,4 @@
-// Auto_Air button image -- converted from data/Auto_Air.png
+// Auto_Air button image -- converted from assets_src/Auto_Air.png
 // LVGL 8.x, LV_IMG_CF_TRUE_COLOR_ALPHA (RGB565 + alpha, 3 bytes/pixel)
 // Resolution: 130x60
 

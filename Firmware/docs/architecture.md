@@ -101,7 +101,7 @@ The system uses 256 bytes of emulated EEPROM in flash memory to store persistent
 ### Display_HMI
 *   **LVGL 8.3.11**: Vector UI framework (uses 8MB PSRAM OPI).
 *   **LovyanGFX ^1.1.12**: Low-level high-speed parallel RGB DMA LCD driver.
-*   **ESP32-audioI2S ^2.0.7**: I2S audio library for decoding MP3s from SPIFFS partition (`/sapphire.mp3`).
+*   **ESP32-audioI2S ^2.0.7**: I2S audio library for decoding MP3s from the SPIFFS partition (`/heartbeat.mp3`, see `src/tasks/AudioManager.cpp`). This is the *only* runtime read from SPIFFS: every image is a C array compiled into the app, since LVGL's FS drivers are all disabled in `include/config/lv_conf.h`.
 *   **PCA9557-arduino**: IO touch expander.
 
 ### Motherboard

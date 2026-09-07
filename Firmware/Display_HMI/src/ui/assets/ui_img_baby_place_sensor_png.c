@@ -1,4 +1,4 @@
-// Skin-sensor placement guide -- converted from data/Baby_place_sensor.png
+// Skin-sensor placement guide -- converted from assets_src/Baby_place_sensor.png
 // LVGL 8.x, LV_COLOR_DEPTH=16, LV_COLOR_16_SWAP=0, LV_IMG_CF_TRUE_COLOR
 // Source is fully opaque, so 2 bytes/pixel (no alpha plane) is enough.
 // Resolution: 420x230  (downscaled from 1408x768)
