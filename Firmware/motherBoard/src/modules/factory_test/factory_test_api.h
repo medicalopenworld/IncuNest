@@ -28,8 +28,13 @@
 // solo despues, las dos peticiones HTTPS (cada una con un reintento).
 // Por debajo de FTEST_TEST_TIMEOUT_MS (90 s) con margen: pasarse de ahi
 // haria que el runner lo cortara con detail "timeout" en vez de con el
-// motivo real. A diferencia de los opcionales, agotarlo es FAIL.
+// motivo real. Agotarlo es WARN (banco 2026-09-07): sin WiFi en la nave o
+// sin respuesta de la API no hay fallo de placa; el detail deja el motivo.
 #define FTEST_SIM_ACT_TIMEOUT_MS 80000u
+// Prefijo de ICCID de las SIM de Onomondo (89 = telecom, 45 = Dinamarca,
+// 73 = Onomondo). Es el mismo que valida el endpoint /sims/{id}
+// (^894573[0-9]{13,14}$); con otra SIM sim_act hace SKIP "sim no onomondo".
+#define ONOMONDO_ICCID_PREFIX "894573"
 // Cota cooperativa POR TEST (distinta de FTEST_BATTERY_MAX_MS, que es para
 // toda la bateria): ningun cuerpo individual tiene un plazo propio mayor que
 // esto (el mas largo, gsm_at, agota a los 45 s; el CONFIRM del buzzer a los
