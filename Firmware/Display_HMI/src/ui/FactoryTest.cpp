@@ -1125,26 +1125,44 @@ void renderDetail() {
 void renderVerdictAndProgress() {
   if (!s_progressBar || !s_verdictBox || !s_verdictLabel) return;
 
-  int terminal = 0;
+  // Los SKIP no se muestran en la cuadricula ni se cuentan en la cabecera
+  // (errores/avisos/OK), asi que tampoco cuentan aqui: "hechos" son los
+  // terminales que no son SKIP y "total" es lo esperado menos los omitidos
+  // conocidos hasta ahora. Banco 2026-09-07: con 8 omitidos la barra decia
+  // 34 tests y la cabecera sumaba 26; ahora las dos cifras cuadran.
+  int done = 0;
+  int skipped = 0;
   for (int i = 0; i < s_rowCount; i++) {
     const RowData &r = s_rows[i];
     if (!r.started) continue;
-    if (r.status == FTEST_PASS || r.status == FTEST_FAIL ||
-        r.status == FTEST_SKIP || r.status == FTEST_WARN) {
-      terminal++;
+    if (r.status == FTEST_SKIP) {
+      skipped++;
+    } else if (r.status == FTEST_PASS || r.status == FTEST_FAIL ||
+               r.status == FTEST_WARN) {
+      done++;
     }
   }
-  lv_bar_set_value(s_progressBar, terminal, LV_ANIM_OFF);
+  int total = kExpectedTotal - skipped;
+  if (total < 1) total = 1;
+  if (done > total) done = total;
   if (s_progressLabel) {
-    // Solo se repinta si cambia el numero: lv_label_set_text() invalida y
-    // redibuja aunque el texto sea identico (known_issues.md #2).
-    static int s_lastShown = -1;
-    if (terminal != s_lastShown) {
-      s_lastShown = terminal;
+    // Solo se repinta si cambia algun numero: lv_label_set_text() y
+    // lv_bar_set_range() invalidan y redibujan aunque el valor sea identico
+    // (known_issues.md #2).
+    static int s_lastDone = -1;
+    static int s_lastTotal = -1;
+    if (done != s_lastDone || total != s_lastTotal) {
+      s_lastDone = done;
+      s_lastTotal = total;
+      lv_bar_set_range(s_progressBar, 0, total);
+      lv_bar_set_value(s_progressBar, done, LV_ANIM_OFF);
       char buf[24];
-      snprintf(buf, sizeof(buf), "%d/%d tests", terminal, kExpectedTotal);
+      snprintf(buf, sizeof(buf), "%d/%d tests", done, total);
       lv_label_set_text(s_progressLabel, buf);
     }
+  } else {
+    lv_bar_set_range(s_progressBar, 0, total);
+    lv_bar_set_value(s_progressBar, done, LV_ANIM_OFF);
   }
 
   int bucket = 2;  // blanco: en curso
