@@ -24,27 +24,101 @@ _BOARD_BEFORE_RESET = {
     Board.SENSORBOARD: 'default-reset',
 }
 
+# OJO: estos offsets estan duplicados a mano y tienen que seguir a las tablas
+# de particiones de cada placa. Si se mueve una particion en el CSV y no aqui,
+# el flasheo no falla — escribe en el sitio equivocado y la placa arranca mal.
+# Fuentes de verdad:
+#   motherboard   -> motherBoard/partitions/ESP32S3_8MB.csv
+#   display_hmi   -> Display_HMI/partitions/hmi_16mb_ota.csv
+#   sensorboard   -> SensorBoard_v2/partitions.csv
 _BOARD_FILES = {
+    # otadata en 0xE000, igual que el HMI (ESP32S3_8MB.csv). Reponerlo no es
+    # cosmetico: motherBoard/src/tasks/Wifi_OTA.cpp hace OTA de verdad, asi que
+    # una placa que haya recibido una actualizacion tiene el puntero de arranque
+    # en app1. Si se reflashea por USB sin tocar otadata, firmware.bin cae en
+    # app0 y la placa sigue arrancando la app vieja de app1 — parece un flasheo
+    # correcto y no lo es. 8 KB de 0xFF significan "ninguna OTA todavia, arranca
+    # el primer slot".
     Board.MOTHERBOARD: [
-        ('0x0000', 'bootloader.bin'),
-        ('0x8000', 'partitions.bin'),
-        ('0x10000', 'firmware.bin'),
-    ],
-    Board.DISPLAY_HMI: [
         ('0x0000', 'bootloader.bin'),
         ('0x8000', 'partitions.bin'),
         ('0xE000', 'ota_data_initial.bin'),
         ('0x10000', 'firmware.bin'),
     ],
+    # spiffs.bin lleva /heartbeat.mp3, el unico fichero que el firmware lee del
+    # filesystem (src/tasks/AudioManager.cpp). Hasta 2026-09 no se flasheaba
+    # ninguna imagen SPIFFS: una unidad recien salida de fabrica arrancaba con
+    # la particion vacia y sin sonido de latido, y el aviso quedaba en un
+    # Serial.println que nadie lee en produccion ("NOT FOUND. Run 'Upload File
+    # System Image'"). La imagen ocupa toda la particion pero va casi entera a
+    # 0xFF, asi que con --compress el coste real de escribirla es despreciable.
+    Board.DISPLAY_HMI: [
+        ('0x0000', 'bootloader.bin'),
+        ('0x8000', 'partitions.bin'),
+        ('0xE000', 'ota_data_initial.bin'),
+        ('0x10000', 'firmware.bin'),
+        ('0xA10000', 'spiffs.bin'),
+    ],
     # ESP-IDF native layout (bootloader offset 0x0, partition table at
-    # 0x8000, factory app at 0x10000 — see SensorBoard_v2/partitions.csv).
-    # No otadata partition in that table, so no ota_data_initial.bin.
+    # 0x8000, primera app en 0x10000 — see SensorBoard_v2/partitions.csv).
+    # otadata va en 0xD000, no en 0xE000 como en las placas Arduino: la tabla de
+    # la SensorBoard usa el reparto estandar de IDF (nvs de 16K en 0x9000).
     Board.SENSORBOARD: [
         ('0x0000', 'bootloader.bin'),
         ('0x8000', 'partitions.bin'),
+        ('0xD000', 'ota_data_initial.bin'),
         ('0x10000', 'firmware.bin'),
     ],
 }
+
+
+# Una imagen de otadata "virgen" son 8 KB de 0xFF: ninguna OTA todavia, el
+# bootloader arranca el primer slot de app.
+_OTA_DATA_SIZE = 0x2000
+_OTA_DATA_NAME = 'ota_data_initial.bin'
+
+
+def required_files(board: Board) -> list[str]:
+    """Ficheros que flash_board espera en la carpeta de la placa."""
+    return [fname for _, fname in _BOARD_FILES[board]]
+
+
+def missing_files(firmware_base: Path) -> dict[str, list[str]]:
+    """Devuelve {carpeta → ficheros que faltan} para las tres placas.
+
+    Sirve para que un hueco salga en el registro al refrescar los binarios y no
+    en un FileNotFoundError delante de la placa, en fabrica.
+    """
+    out: dict[str, list[str]] = {}
+    for board, folder in _BOARD_FOLDER.items():
+        absent = [
+            fname for fname in required_files(board)
+            if not (firmware_base / folder / fname).is_file()
+        ]
+        if absent:
+            out[folder] = absent
+    return out
+
+
+def write_initial_ota_data(firmware_base: Path) -> list[str]:
+    """Escribe los ota_data_initial.bin que la secuencia de flasheo espera.
+
+    ESP-IDF genera el suyo en build/, pero PlatformIO no genera ninguno, asi que
+    en el HMI el fichero se venia copiando a mano. Como el contenido es una
+    constante, se escribe aqui en vez de depender de que alguien lo copie o de
+    que venga en la release de GitHub.
+
+    Devuelve las carpetas escritas.
+    """
+    written: list[str] = []
+    for board, folder in _BOARD_FOLDER.items():
+        if _OTA_DATA_NAME not in required_files(board):
+            continue
+        dest = firmware_base / folder / _OTA_DATA_NAME
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b'\xff' * _OTA_DATA_SIZE)
+        written.append(folder)
+    return written
 
 
 class _ProgressTracker:

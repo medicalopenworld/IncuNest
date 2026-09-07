@@ -8,7 +8,14 @@ _REPO = "medicalopenworld/IncuNest"
 _API_URL = f"https://api.github.com/repos/{_REPO}/releases/latest"
 _HEADERS = {"User-Agent": "IncuNest-Flasher/1.0"}
 
-# GitHub release asset name → local path relative to firmware_base
+# GitHub release asset name → local path relative to firmware_base.
+#
+# Tiene que cubrir todo lo que flasher.py::_BOARD_FILES espera, menos los
+# ota_data_initial.bin, que se generan en local (flasher.write_initial_ota_data)
+# y por eso no hacen falta como asset. Un fichero que falte aqui NO da error de
+# flasheo: se queda la copia vieja en data/firmware/ y la placa sale de fabrica
+# con una mezcla de versiones. Hasta 2026-09 faltaba la SensorBoard entera y la
+# imagen SPIFFS del HMI.
 _ASSET_MAP = {
     "motherboard_bootloader.bin":       "motherboard/bootloader.bin",
     "motherboard_partitions.bin":       "motherboard/partitions.bin",
@@ -17,6 +24,11 @@ _ASSET_MAP = {
     "display_hmi_partitions.bin":       "display_hmi/partitions.bin",
     "display_hmi_firmware.bin":         "display_hmi/firmware.bin",
     "display_hmi_ota_data_initial.bin": "display_hmi/ota_data_initial.bin",
+    "display_hmi_spiffs.bin":           "display_hmi/spiffs.bin",
+    "sensorboard_bootloader.bin":       "sensorboard/bootloader.bin",
+    "sensorboard_partitions.bin":       "sensorboard/partitions.bin",
+    "sensorboard_firmware.bin":         "sensorboard/firmware.bin",
+    "sensorboard_ota_data_initial.bin": "sensorboard/ota_data_initial.bin",
 }
 
 
@@ -76,12 +88,20 @@ def check_update_available(firmware_base: Path) -> tuple[bool, Optional[str]]:
 
 
 def download_latest(firmware_base: Path,
-                    progress_cb: Optional[Callable[[str, int, int], None]] = None) -> bool:
+                    progress_cb: Optional[Callable[[str, int, int], None]] = None,
+                    log_cb: Optional[Callable[[str, str], None]] = None) -> bool:
     """Download all firmware assets from the latest GitHub release.
 
     progress_cb(asset_name, downloaded_bytes, total_bytes)
+    log_cb(mensaje, nivel) — para que un asset ausente o con hash malo salga en
+    el registro. Antes se saltaba en silencio, que es como el hueco de la
+    SensorBoard aguanto sin que nadie lo viera.
     Returns True on success.
     """
+    def _log(msg: str, level: str = 'info') -> None:
+        if log_cb:
+            log_cb(msg, level)
+
     info = _fetch_json(_API_URL)
     if not info:
         return False
@@ -101,19 +121,31 @@ def download_latest(firmware_base: Path,
 
     checksums: dict[str, str] = manifest.get("files", {})
 
+    skipped: list[str] = []
+
     for asset_name, local_rel in _ASSET_MAP.items():
         url = assets_by_name.get(asset_name)
         if not url:
+            skipped.append(asset_name)
             continue
         data = _fetch_bytes(url, progress_cb, asset_name)
         if data is None:
+            _log(f"Error al descargar {asset_name}.", 'error')
             return False
         expected = checksums.get(asset_name)
         if expected and _sha256(data) != expected:
+            _log(f"Checksum incorrecto en {asset_name}.", 'error')
             return False
         dest = firmware_base / Path(local_rel)
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(data)
+
+    if skipped:
+        _log(
+            "La release no trae " + ", ".join(skipped)
+            + " — se mantiene la copia local de esos ficheros.",
+            'error',
+        )
 
     (firmware_base / "manifest.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"

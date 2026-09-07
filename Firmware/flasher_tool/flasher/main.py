@@ -17,7 +17,9 @@ from detector import (
     is_ambiguous_native_usb, is_sensorboard_app_port,
     detect_board_ambiguous, BoardDetectionError,
 )
-from flasher import flash_board, has_firmware_flashed
+from flasher import (
+    flash_board, has_firmware_flashed, missing_files, write_initial_ota_data,
+)
 from updater import check_update_available, download_latest
 
 HOTPLUG_POLL_S = 0.5
@@ -31,6 +33,14 @@ WINDOW_H = 576
 NUM_SLOTS = 3
 WIFI_SLOTS = 8
 WIFI_SCAN_INTERVAL_S = 5
+
+# Artefactos que PlatformIO deja en .pio/build/<env>/ con nombre ya generico.
+# spiffs.bin solo aparece si alguien ha corrido `pio run -t buildfs`, asi que
+# es opcional y se avisa cuando falta. ota_data_initial.bin no lo genera
+# PlatformIO en ninguno de los dos proyectos: se escribe aparte, ver
+# _write_initial_ota_data.
+PIO_ARTIFACTS = ('firmware.bin', 'bootloader.bin', 'partitions.bin', 'spiffs.bin')
+
 
 
 def get_firmware_base() -> Path:
@@ -1032,7 +1042,10 @@ class FlasherApp:
         def progress_cb(asset_name: str, downloaded: int, total: int) -> None:
             self.root.after(0, self._on_download_progress, asset_name, downloaded, total)
 
-        success = download_latest(get_firmware_base(), progress_cb)
+        def log_cb(msg: str, level: str) -> None:
+            self.root.after(0, self._log_line, msg, level)
+
+        success = download_latest(get_firmware_base(), progress_cb, log_cb)
         self.root.after(0, self._on_download_done, success, latest)
 
     def _on_download_progress(self, asset_name: str, downloaded: int, total: int) -> None:
@@ -1047,6 +1060,11 @@ class FlasherApp:
             self._log_line(f"Firmware {latest} descargado correctamente.", 'success')
         else:
             self._log_line("Error al descargar — usando binarios locales.", 'error')
+        # Los ota_data_initial.bin no viajan en la release: se generan aqui, con
+        # descarga o sin ella, porque flash_board los exige.
+        firmware_base = get_firmware_base()
+        write_initial_ota_data(firmware_base)
+        self._report_missing_binaries(firmware_base)
         self._update_status_banner()
 
     # ------------------------------------------------------------------ #
@@ -1080,6 +1098,14 @@ class FlasherApp:
         Covers both build layouts in this repo: PlatformIO (per-env dirs,
         already-generic filenames) for motherBoard/Display HMI, and plain
         ESP-IDF (single build/ dir, project-named app binary) for SensorBoard.
+
+        Copia TODOS los artefactos del build, no solo firmware.bin. Hasta
+        2026-09 solo copiaba la app: bootloader, tabla de particiones e imagen
+        SPIFFS habia que moverlos a mano, y por eso el reparto nuevo de
+        particiones del 2026-09-06 no llego solo. La combinacion peligrosa es un
+        partitions.bin viejo con un firmware.bin nuevo: flasher.py escribe
+        spiffs.bin en el offset del CSV nuevo mientras la placa arranca con la
+        tabla vieja, y el flasheo no da ningun error.
         """
         def _env_sort_key(p: Path) -> tuple:
             # Prefer higher version number (e.g. V17 > V16); mtime as tiebreaker.
@@ -1102,14 +1128,21 @@ class FlasherApp:
                     key=_env_sort_key,
                     reverse=True,
                 )
-                if candidates:
-                    sources[board_folder] = {'firmware.bin': candidates[0]}
+                if not candidates:
+                    continue
+                env_dir = candidates[0].parent
+                sources[board_folder] = {
+                    name: env_dir / name
+                    for name in PIO_ARTIFACTS
+                    if (env_dir / name).is_file()
+                }
 
             sb_build = repo_root / 'SensorBoard_v2' / 'build'
             sb_files = {
                 'firmware.bin': sb_build / 'SensorBoard.bin',
                 'bootloader.bin': sb_build / 'bootloader' / 'bootloader.bin',
                 'partitions.bin': sb_build / 'partition_table' / 'partition-table.bin',
+                'ota_data_initial.bin': sb_build / 'ota_data_initial.bin',
             }
             sb_present = {name: p for name, p in sb_files.items() if p.is_file()}
             if 'firmware.bin' in sb_present:
@@ -1132,15 +1165,38 @@ class FlasherApp:
         firmware_base = get_firmware_base()
         copied: list[str] = []
         for board_folder, files in sources.items():
+            dest_dir = firmware_base / board_folder
+            dest_dir.mkdir(parents=True, exist_ok=True)
             for dest_name, src in files.items():
-                dst = firmware_base / board_folder / dest_name
+                dst = dest_dir / dest_name
                 shutil.copy2(src, dst)
-                self._log_line(f"Copiado: {src.name} → {dst}", 'info')
-            copied.append(board_folder)
+                self._log_line(f"Copiado: {src.name} → {dst.name} ({board_folder})", 'info')
+            copied.append(f"{board_folder} ({len(files)})")
+
+        write_initial_ota_data(firmware_base)
+        self._report_missing_binaries(firmware_base)
+
         if self._upd_status:
             self._upd_status.configure(text=f"✓ {', '.join(copied)}", fg='#2E7D32')
         if self._upd_btn:
             self._upd_btn.configure(state='normal')
+
+    def _report_missing_binaries(self, firmware_base: Path) -> None:
+        """Avisa en el registro de lo que la secuencia de flasheo espera y no hay.
+
+        El caso habitual es display_hmi/spiffs.bin: PlatformIO solo lo genera si
+        se corre `pio run -t buildfs`, asi que un build normal no lo deja en
+        .pio/build/ y no hay nada que copiar.
+        """
+        gaps = missing_files(firmware_base)
+        if not gaps:
+            return
+        for folder, names in gaps.items():
+            self._log_line(f"Faltan en {folder}: {', '.join(names)}", 'error')
+        if any('spiffs.bin' in names for names in gaps.values()):
+            self._log_line(
+                "spiffs.bin se genera con `pio run -t buildfs` en Display_HMI.", 'info',
+            )
 
 
 if __name__ == '__main__':
