@@ -195,7 +195,19 @@ static void simActivationTask(void *) {
   String body;
   char msg[FTEST_DETAIL_MAX + 1];
 
-  if (!requestWithRetry("GET", path, nullptr, &status, &body) || status != 200) {
+  // Dos familias de fallo (ver FtestSimState): si la API no contesta (status
+  // 0: sin TLS/HTTP) o solo devuelve transitorios (429/5xx tras el reintento)
+  // no sabemos nada de la SIM -> UNREACHABLE (el test lo pinta como WARN). Si
+  // contesta con un 4xx, con un cuerpo raro o rechaza el PATCH, la SIM queda
+  // sin activar -> ERROR (FAIL).
+  if (!requestWithRetry("GET", path, nullptr, &status, &body)) {
+    if (status == 0) {
+      finish(FTEST_SIM_UNREACHABLE, "sin respuesta");
+    } else {
+      snprintf(msg, sizeof(msg), "api %d", status);
+      finish(FTEST_SIM_UNREACHABLE, msg);
+    }
+  } else if (status != 200) {
     snprintf(msg, sizeof(msg), "get %d", status);
     finish(FTEST_SIM_ERROR, msg);
   } else {
@@ -205,8 +217,14 @@ static void simActivationTask(void *) {
     } else if (activated) {
       finish(FTEST_SIM_ALREADY_ACTIVE, "ya activada");
     } else if (!requestWithRetry("PATCH", path, "{\"activated\":true}", &status,
-                                 &body) ||
-               status < 200 || status > 299) {
+                                 &body)) {
+      if (status == 0) {
+        finish(FTEST_SIM_UNREACHABLE, "sin respuesta");
+      } else {
+        snprintf(msg, sizeof(msg), "api %d", status);
+        finish(FTEST_SIM_UNREACHABLE, msg);
+      }
+    } else if (status < 200 || status > 299) {
       snprintf(msg, sizeof(msg), "patch %d", status);
       finish(FTEST_SIM_ERROR, msg);
     } else {
@@ -218,11 +236,12 @@ static void simActivationTask(void *) {
   // tiempo. La clave NO aparece.
   const char *outcome = (s_state == FTEST_SIM_ALREADY_ACTIVE) ? "ya activada"
                         : (s_state == FTEST_SIM_ACTIVATED)    ? "activada"
+                        : (s_state == FTEST_SIM_UNREACHABLE)  ? "SIN RESPUESTA"
                                                               : "ERROR";
   const String line = String("[FTEST] sim_act iccid=") + s_iccid +
                       " resultado=" + outcome + " (" + s_detail + ") ts=" +
                       utcStamp();
-  if (s_state == FTEST_SIM_ERROR) {
+  if (s_state == FTEST_SIM_ERROR || s_state == FTEST_SIM_UNREACHABLE) {
     logE(line);
   } else {
     logI(line);
@@ -238,11 +257,12 @@ bool ftest_sim_activation_start(const char *iccid) {
   if (s_state != FTEST_SIM_IDLE || s_task != nullptr) return false;
   if (iccid == nullptr || iccid[0] == '\0') return false;
 
-  // Sin clave real no se intenta siquiera el TLS: FAIL inmediato con un motivo
-  // legible. Es lo que pasa en cualquier build hecho fuera de fabrica, donde
-  // Credentials.h no existe y Credentials_public.h da el valor dummy.
+  // Sin clave real no se intenta siquiera el TLS: no se puede consultar la
+  // API, asi que UNREACHABLE (WARN) con un motivo legible. Es lo que pasa en
+  // cualquier build hecho fuera de fabrica, donde Credentials.h no existe y
+  // Credentials_public.h da el valor dummy.
   if (strcmp(ONOMONDO_API_KEY, ONOMONDO_API_KEY_DUMMY) == 0) {
-    finish(FTEST_SIM_ERROR, "sin key");
+    finish(FTEST_SIM_UNREACHABLE, "sin key");
     logE("[FTEST] sim_act: ONOMONDO_API_KEY sin definir en Credentials.h");
     return false;
   }
@@ -254,7 +274,7 @@ bool ftest_sim_activation_start(const char *iccid) {
   if (xTaskCreatePinnedToCore(simActivationTask, "FTEST_SIM", SIM_TASK_STACK,
                               nullptr, 1, &s_task, 1) != pdPASS) {
     s_task = nullptr;
-    finish(FTEST_SIM_ERROR, "sin tarea");
+    finish(FTEST_SIM_UNREACHABLE, "sin tarea");
     logE("[FTEST] sim_act: no se pudo crear la tarea");
     return false;
   }

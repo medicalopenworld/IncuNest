@@ -837,20 +837,36 @@ static FtestStatus ftest_littlefs(char *detail, FtestCascade *, uint32_t) {
 // 28: SIM_ACT (pasivo) -- activacion de la SIM Onomondo de la unidad contra la
 // API de Onomondo, paso de fabrica.
 //
-// A diferencia de gsm_net/wifi/tb_provision/time, este test NO es opcional y
-// agotar su plazo es FAIL, no WARN: una incubadora no puede salir de fabrica
-// con la SIM sin activar sin que quede registrado. Solo SKIP si no hay SIM
-// (sin ICCID no hay nada que activar, misma cascada que gsm_signal/gsm_net).
+// Solo aplica a SIMs de Onomondo: su ICCID empieza por ONOMONDO_ICCID_PREFIX
+// (894573, la misma regex que valida el propio endpoint /sims/{id}). Con otra
+// SIM el test es SKIP "sim no onomondo": no hay nada que activar.
+//
+// Banco 2026-09-07, dos resultados distintos segun lo que se sepa de la SIM:
+//  - La API contesto y la SIM queda sin activar (FTEST_SIM_ERROR): FAIL. Una
+//    SIM Onomondo que no se ha podido activar no puede salir de fabrica sin
+//    que quede en rojo.
+//  - No se pudo consultar la API (sin WiFi en la nave, sin respuesta, sin
+//    clave en el build; FTEST_SIM_UNREACHABLE o plazo agotado): WARN con el
+//    motivo. No sabemos el estado de la SIM y no es un fallo de la placa;
+//    se repite con red.
 //
 // El trabajo real (TLS + dos peticiones) lo hace una tarea aparte
 // (ftest_sim_activation.cpp): este cuerpo la arranca UNA vez, cuando ya tiene
 // las dos cosas que necesita -- ICCID leido del modem y WiFi levantada -- y a
 // partir de ahi solo observa. Es el mismo patron de sb_status/sb_camera, y es
 // obligatorio aqui: un pasivo no puede bloquear ni hacer vTaskDelay.
+static bool sim_is_onomondo(void) {
+  return GPRS.CCID.startsWith(ONOMONDO_ICCID_PREFIX);
+}
+
 static FtestStatus ftest_sim_act(char *detail, FtestCascade *cascade,
                                   uint32_t elapsed_ms) {
   if (cascade->gsm_sim == FTEST_DEP_FAILED) {
     D("sin sim");
+    return FTEST_SKIP;
+  }
+  if (GPRS.CCID.length() > 0 && !sim_is_onomondo()) {
+    D("sim no onomondo");
     return FTEST_SKIP;
   }
 
@@ -862,6 +878,9 @@ static FtestStatus ftest_sim_act(char *detail, FtestCascade *cascade,
     case FTEST_SIM_ERROR:
       D("%s", ftest_sim_activation_detail());
       return FTEST_FAIL;
+    case FTEST_SIM_UNREACHABLE:
+      D("%s", ftest_sim_activation_detail());
+      return FTEST_WARN;
     case FTEST_SIM_RUNNING:
       break; // peticion en vuelo: seguimos esperando
     case FTEST_SIM_IDLE:
@@ -881,7 +900,7 @@ static FtestStatus ftest_sim_act(char *detail, FtestCascade *cascade,
     } else {
       D("sin respuesta");
     }
-    return FTEST_FAIL;
+    return FTEST_WARN;
   }
   return FTEST_RUNNING;
 }

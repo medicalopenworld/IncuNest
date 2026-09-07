@@ -6,10 +6,16 @@
 > final de la tabla, así que todos los ids anteriores conservan su valor y una
 > máscara ya persistida en NVS sigue siendo válida. Un display antiguo que no
 > conozca el id lo pinta con su clave ASCII (`sim_act`) y sigue funcionando.
-> A diferencia de `gsm_net`/`wifi`/`tb_provision`/`time`, este test **no es
-> opcional**: agotar su plazo es `FAIL`, no `WARN` — una incubadora no puede
-> salir de fábrica con la SIM sin activar sin que quede registrado. Solo hace
-> `SKIP` si no hay SIM (sin ICCID no hay nada que activar).
+> Solo corre con una SIM de Onomondo (ICCID que empieza por `894573`, el
+> prefijo que valida el propio endpoint); con otra SIM hace `SKIP`
+> `sim no onomondo`, y `SKIP` `sin sim` si no hay ICCID. Dos desenlaces
+> distintos según lo que se sepa de la SIM: si la API contesta y la SIM queda
+> **sin activar** (404, PATCH rechazado, respuesta sin `activated`) es `FAIL`
+> — una SIM Onomondo no sale de fábrica sin activar sin que quede en rojo;
+> si **no se pudo consultar** la API (sin WiFi en la nave, sin respuesta,
+> 5xx persistente, build sin clave) es `WARN` con el motivo, porque no se sabe
+> el estado de la SIM y no es un fallo de la placa. Ya activada = `PASS`.
+> Banco 2026-09-07: la primera versión daba `FAIL` sin WiFi.
 
 > Nota (v2.3.2): tercera vuelta del test de fábrica tras la segunda prueba en
 > banco (motherBoard SOLO a batería, SensorBoard conectada, sin SHT4x
@@ -606,6 +612,7 @@ ningún test de la tabla hace ya I2C directo salvo `actuators`/`standby`
 | 25 | time | hora sincronizada dentro de 30 s; fuente en detail; agotado el plazo → **WARN** `sin hora` | ✓ |
 | 26 | nvs | escribir y releer `mb_ftest/probe` | |
 | 27 | littlefs | partición montada | |
+| 28 | sim_act | activación de la SIM en la API de Onomondo por WiFi (≤ 80 s). Solo con ICCID `894573…`; otra SIM → SKIP `sim no onomondo`. Ya activada o activada ahora → PASS; la API contesta y queda sin activar → **FAIL**; sin WiFi / sin respuesta → **WARN** con el motivo | |
 
 El test `env_sensor` (id 6) fusiona a los antiguos `ext_sht4x` (6) y
 `sensorboard` (7): un equipo lleva SensorBoard O sensor ambiental, no ambos, y
