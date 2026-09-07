@@ -46,6 +46,9 @@ bool s_armed = false;
 
 lv_obj_t *s_overlay = nullptr;
 lv_obj_t *s_content = nullptr;
+// Sitio de reposo del overlay (ui_ScreenMain, el que se pasa a _Init). El
+// aviso se muda a la pantalla activa al abrirse y vuelve aqui al cerrarse.
+lv_obj_t *s_homeParent = nullptr;
 
 lv_obj_t *makeBtn(lv_obj_t *parent, const char *text, lv_event_cb_t cb,
                   lv_color_t bg, void *userData = nullptr) {
@@ -80,6 +83,12 @@ bool mustYield() { return UI_IsAnyAlarmActive() || Display_IsBoardLinkLost(); }
 void closeDialog() {
   if (s_overlay) lv_obj_add_flag(s_overlay, LV_OBJ_FLAG_HIDDEN);
   if (s_content) lv_obj_clean(s_content);
+  // Devolver el overlay a ui_ScreenMain: ahi es donde lo espera el camino
+  // normal (_Poll() solo lo abre en la pantalla principal).
+  if (s_overlay && s_homeParent &&
+      lv_obj_get_parent(s_overlay) != s_homeParent) {
+    lv_obj_set_parent(s_overlay, s_homeParent);
+  }
   s_open = false;
   // Que el auto-bloqueo vuelva a contar desde cero y no desde el ultimo toque
   // de antes de abrirse: mientras el aviso estuvo abierto estuvo exento.
@@ -188,6 +197,14 @@ void buildContent() {
 
 void openDialog() {
   if (!s_overlay) return;
+  // El overlay cuelga de ui_ScreenMain, pero VER RECORDATORIO se pulsa desde
+  // Ajustes: sin esto el aviso se pintaba en una pantalla que no estaba a la
+  // vista y solo aparecia al volver atras. Se lleva a la pantalla activa y
+  // closeDialog() lo devuelve a su sitio.
+  lv_obj_t *scr = lv_scr_act();
+  if (scr && lv_obj_get_parent(s_overlay) != scr) {
+    lv_obj_set_parent(s_overlay, scr);
+  }
   buildContent();
   s_open = true;
   s_armed = false;
@@ -201,6 +218,7 @@ void openDialog() {
 }  // namespace
 
 void MaintenanceDialog_Init(lv_obj_t *parent) {
+  s_homeParent = parent;
   s_overlay = lv_obj_create(parent);
   lv_obj_remove_style_all(s_overlay);
   lv_obj_set_size(s_overlay, DISPLAY_WIDTH, DISPLAY_HEIGHT);
@@ -242,8 +260,12 @@ void MaintenanceDialog_Poll(void) {
     // tope cierra un aviso olvidado para devolverle el control al
     // auto-bloqueo: se cierra SIN contestar, asi que volvera a salir en el
     // siguiente desbloqueo si sigue habiendo algo vencido.
+    // Tambien se cierra si la pantalla cambia debajo (el aviso puede haberse
+    // abierto sobre Ajustes): un overlay huerfano en una pantalla que ya no
+    // se ve dejaria s_open a true y bloquearia el auto-bloqueo.
     if (mustYield() ||
-        lv_disp_get_inactive_time(NULL) > MNT_IDLE_TIMEOUT_MS) {
+        lv_disp_get_inactive_time(NULL) > MNT_IDLE_TIMEOUT_MS ||
+        (s_overlay && lv_obj_get_parent(s_overlay) != lv_scr_act())) {
       closeDialog();
     }
     return;
