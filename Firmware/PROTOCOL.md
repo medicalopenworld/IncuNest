@@ -6,10 +6,13 @@
 > final de la tabla, así que todos los ids anteriores conservan su valor y una
 > máscara ya persistida en NVS sigue siendo válida. Un display antiguo que no
 > conozca el id lo pinta con su clave ASCII (`sim_act`) y sigue funcionando.
-> A diferencia de `gsm_net`/`wifi`/`tb_provision`/`time`, este test **no es
-> opcional**: agotar su plazo es `FAIL`, no `WARN` — una incubadora no puede
-> salir de fábrica con la SIM sin activar sin que quede registrado. Solo hace
-> `SKIP` si no hay SIM (sin ICCID no hay nada que activar).
+> Solo corre con una SIM de Onomondo (ICCID que empieza por `894573`, el
+> prefijo que valida el propio endpoint); con otra SIM hace `SKIP`
+> `sim no onomondo`, y `SKIP` `sin sim` si no hay ICCID. Es **opcional** como
+> `gsm_net`/`wifi`/`tb_provision`/`time`: si no puede activar (sin WiFi en la
+> nave, sin respuesta o error de la API) termina en `WARN` con el motivo, no
+> en `FAIL` — que falte red externa no es un fallo de la placa. Banco
+> 2026-09-07: la primera versión lo daba como `FAIL` sin WiFi.
 
 > Nota (v2.3.2): tercera vuelta del test de fábrica tras la segunda prueba en
 > banco (motherBoard SOLO a batería, SensorBoard conectada, sin SHT4x
@@ -606,6 +609,7 @@ ningún test de la tabla hace ya I2C directo salvo `actuators`/`standby`
 | 25 | time | hora sincronizada dentro de 30 s; fuente en detail; agotado el plazo → **WARN** `sin hora` | ✓ |
 | 26 | nvs | escribir y releer `mb_ftest/probe` | |
 | 27 | littlefs | partición montada | |
+| 28 | sim_act | activación de la SIM en la API de Onomondo por WiFi (≤ 80 s). Solo con ICCID `894573…`; otra SIM → SKIP `sim no onomondo`; sin WiFi / sin respuesta / error de API → **WARN** con el motivo | ✓ |
 
 El test `env_sensor` (id 6) fusiona a los antiguos `ext_sht4x` (6) y
 `sensorboard` (7): un equipo lleva SensorBoard O sensor ambiental, no ambos, y
