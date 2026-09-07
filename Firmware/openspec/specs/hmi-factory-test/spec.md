@@ -235,6 +235,29 @@ aviso, sin alterar la cabecera ni la persistencia que ve el operario.
   detalle "sin respuesta" y el resumen lo refleja en el contador de errores
 - *(Verificación manual.)*
 
+#### Scenario: Batería cerrada con filas sin resultado
+
+- **WHEN** llega `CTRL,FTEST_DONE` y alguna fila de motherBoard sigue en EN
+  CURSO / ESPERA (su única línea de resultado se perdió por el camino)
+- **THEN** esas filas pasan a FALLA con detalle "sin resultado" ANTES de
+  contar el resumen, se registra en el log cuántas eran, y ninguna fila queda
+  "en curso" en la pantalla de resumen — donde ya no se drenan eventos ni se
+  vigilan plazos, así que se quedaría así para siempre
+- *(Verificación manual en el CrowPanel — banco 2026-09-07: el operario vio
+  3 tests "en curso" para siempre por WiFi y 13 por GPRS.)*
+
+#### Scenario: Test del que no llegó ninguna línea
+
+- **WHEN** `CTRL,FTEST_DONE` declara tantos tests como `FTEST_MB_COUNT` (la
+  batería entera) y de algún id no hay ni fila en la cuadrícula, porque se
+  perdieron todas sus líneas incluida la de RUNNING
+- **THEN** el display crea esa fila y la marca FALLA "sin resultado", en vez
+  de dejar el test invisible y el resumen cuadrando con menos tests de los que
+  la placa dice haber corrido
+- **AND** con un `DONE` de otro tamaño (RUN de un solo test, o motherBoard con
+  otra tabla) NO se inventa ninguna fila
+- *(Verificación manual.)*
+
 #### Scenario: Ráfaga de descartes sin reiniciar el HMI
 
 - **WHEN** la motherBoard emite más de 32 líneas `CTRL,FTEST` sin que

@@ -1038,17 +1038,37 @@ void CommunicationHost_Send(const char *msg) {
   hmiSerial.print(msg);
 }
 
-void CommunicationHost_Enqueue(const char *line) {
-  if (s_ftestTxQueue == NULL || line == NULL) return;
+// Contador de lineas perdidas por cola llena. No es solo diagnostico: es lo
+// unico que distingue "la placa no emitio el resultado" de "lo emitio y se
+// perdio antes de llegar al cable" cuando en banco un test se queda sin
+// cerrar en el display (banco 2026-09-07).
+static volatile unsigned s_ftestTxDrops = 0;
+
+unsigned CommunicationHost_TxDrops(void) { return s_ftestTxDrops; }
+
+static bool ftest_tx_enqueue(const char *line, uint32_t timeout_ms) {
+  if (s_ftestTxQueue == NULL || line == NULL) return false;
   char buf[FTEST_TX_LINE_MAX];
   strncpy(buf, line, sizeof(buf) - 1);
   buf[sizeof(buf) - 1] = '\0';
-  if (xQueueSend(s_ftestTxQueue, buf, 0) != pdTRUE) {
-    // Nunca se bloquea a quien llama (design.md D3): una linea de FTEST
-    // perdida hace que el display marque ese test como FAIL por plazo, no
-    // que la tarea FTEST se quede colgada escribiendo en una cola llena.
-    logE("[FTEST] cola TX llena, linea descartada");
+  if (xQueueSend(s_ftestTxQueue, buf, pdMS_TO_TICKS(timeout_ms)) == pdTRUE) {
+    return true;
   }
+  s_ftestTxDrops++;
+  logE("[FTEST] cola TX llena, linea descartada (total " +
+       String(s_ftestTxDrops) + "): " + String(line));
+  return false;
+}
+
+void CommunicationHost_Enqueue(const char *line) {
+  // Nunca se bloquea a quien llama (design.md D3): esta version la usa
+  // parse_line(), que corre DENTRO de Communication_Task -- la tarea que
+  // drena esta misma cola. Esperar aqui seria esperarse a si mismo.
+  (void)ftest_tx_enqueue(line, 0);
+}
+
+bool CommunicationHost_EnqueueWait(const char *line, uint32_t timeout_ms) {
+  return ftest_tx_enqueue(line, timeout_ms);
 }
 
 bool CommunicationHost_HmiAlive(uint32_t max_silence_ms) {

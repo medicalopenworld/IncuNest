@@ -87,6 +87,22 @@ extern "C" void vApplicationStackOverflowHook(TaskHandle_t xTask,
 
 void setup() {
   hmi_state_init();
+  // Anillo de RX del enlace con la motherBoard (banco 2026-09-07): el
+  // driver de UART reserva 256 B por defecto, ~22 ms de linea a 115200. La
+  // tarea Comm no drena durante ese tiempo siempre que se queda esperando
+  // LVGL_Lock() dentro de Display_ApplyCtrlState() (1 Hz, y ademas hace
+  // UI_SyncAll() con el lock cogido): mientras la UI repinta, los bytes que
+  // llegan por encima de esos 256 B se pierden EN SILENCIO y con ellos
+  // lineas enteras del protocolo. En el test de fabrica eso deja tests
+  // "en curso" para siempre, porque su unica linea de resultado es la que se
+  // perdio. 1 KB da ~89 ms de margen, que cubre un repintado de la
+  // cuadricula; el coste es 768 B de DRAM interna (ver la nota de los bounce
+  // buffers del panel: hay margen de sobra para esto).
+  // SHALL ir antes del PRIMER begin(): setRxBufferSize() no hace nada una vez
+  // el driver esta instalado (HardwareSerial.cpp, "RX Buffer can't be resized
+  // when Serial is already running"), y Comm_Task() vuelve a hacer begin()
+  // sobre este mismo puerto reutilizando ya este tamano.
+  Serial.setRxBufferSize(COMM_RX_RING_BYTES);
   Serial.begin(SERIAL_BAUD);
 
   // Suppress ESP-IDF gpio error logs (caused by GT911 using pin -1)

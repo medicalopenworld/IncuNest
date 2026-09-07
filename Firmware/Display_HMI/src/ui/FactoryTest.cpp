@@ -211,6 +211,7 @@ void renderAll();
 void goSummary();
 void startRemote();
 void markMbPendingAsLinkLost();
+int  markMbPendingAsNoResult();
 void onExitClicked(lv_event_t *e);
 
 // ---------------------------------------------------------------------------
@@ -1514,6 +1515,45 @@ void markMbPendingAsLinkLost() {
   s_mbLinkLost = true;
 }
 
+// Cierre de la bateria con filas sin resultado (banco 2026-09-07). La
+// motherBoard emite exactamente UNA linea de resultado por test y luego
+// CTRL,FTEST_DONE; drainFtestEvents() ya ha corrido antes de mirar el DONE,
+// asi que una fila que siga en EN CURSO/ESPERA cuando llega el DONE solo
+// puede significar una cosa: su linea se perdio por el camino (anillo de RX
+// del display desbordado mientras la UI repintaba, o cola TX de la placa
+// llena). Antes esas filas se quedaban "en curso" PARA SIEMPRE, porque
+// Step::Summary ya no drena eventos ni vigila plazos: el operario veia una
+// bateria terminada con tres o trece tests eternamente en curso y sin forma
+// de saber si habian pasado o fallado.
+//
+// Se marcan FALLA y no PASA/AVISO a proposito: en un banco de fabrica un
+// resultado desconocido no puede colarse como bueno. El detalle lo dice
+// ("sin resultado", no "sin respuesta", que es el rotulo del enlace perdido)
+// y el operario tiene REINTENTAR en esa celda para volver a pedir ese test
+// solo. Devuelve cuantas filas ha tenido que marcar: es la medida directa de
+// cuantas lineas se perdieron en esta bateria.
+int markMbPendingAsNoResult() {
+  int n = 0;
+  for (int i = kLocalCount; i < s_rowCount; i++) {
+    RowData &r = s_rows[i];
+    if (!r.started) continue;
+    if (r.status != FTEST_RUNNING && r.status != FTEST_WAIT &&
+        r.status != FTEST_CONFIRM) {
+      continue;
+    }
+    r.status = FTEST_FAIL;
+    r.dirty = true;
+    r.lastChangeMs = millis();
+    s_rowsDirty = true;
+    snprintf(r.detail, sizeof(r.detail), "%s", "sin resultado");
+    if (s_remoteConfirmAnsweredRowId == r.id) {
+      s_remoteConfirmAnsweredRowId = FTEST_ID_NONE;
+    }
+    n++;
+  }
+  return n;
+}
+
 // Vigilancia por fila (banco 2026-09-06): si una fila de motherBoard lleva
 // mas de FTEST_ROW_TIMEOUT_MS en RUNNING/WAIT/CONFIRM sin cambiar de estado,
 // se marca FALLA "timeout". La motherBoard tiene su propia cota de 90 s por
@@ -1669,6 +1709,37 @@ void serviceRemoteRunning() {
     s_mbSkip = g_ftestDoneSkip;
     s_mbWarn = g_ftestDoneWarn;
     s_mbDone = true;
+    // Tests de los que aqui no hay ni fila: se perdieron TODAS sus lineas,
+    // el RUNNING inicial incluido, asi que ni siquiera aparecian en la
+    // cuadricula. Es peor que quedarse "en curso": el operario no tiene forma
+    // de notar que faltan, y el resumen cuadraria con menos tests de los que
+    // la placa dice haber corrido. Solo se rellenan cuando el DONE dice que
+    // se ejecuto la tabla ENTERA (bateria completa con la misma tabla que
+    // conoce este display): entonces se sabe con certeza que corrieron los
+    // ids 0..FTEST_MB_COUNT-1 y cuales faltan. En un RUN de un solo test, o
+    // contra una motherBoard con otra tabla, no se inventa ninguna fila.
+    const int doneTotal = (int)(s_mbPass + s_mbFail + s_mbSkip + s_mbWarn);
+    if (doneTotal == (int)FTEST_MB_COUNT) {
+      for (unsigned id = 0; id < (unsigned)FTEST_MB_COUNT; id++) {
+        bool present = false;
+        for (int i = kLocalCount; i < s_rowCount; i++) {
+          if (s_rows[i].id == id) { present = true; break; }
+        }
+        if (present) continue;
+        const int idx = mbRowIndex(id);  // la crea en RUNNING
+        // started la deja markMbPendingAsNoResult() en su estado final: sin
+        // esto la fila se quedaria "no ejecutado" en vez de FALLA.
+        s_rows[idx].started = true;
+      }
+    }
+    // Filas cuya linea de resultado se perdio por el camino: se cierran aqui
+    // (ver markMbPendingAsNoResult()) ANTES de contar, para que el resumen y
+    // la persistencia cuadren con lo que el operario ve en la cuadricula.
+    const int lost = markMbPendingAsNoResult();
+    if (lost > 0) {
+      COMM_LOG("[FTEST] %d test(s) sin linea de resultado al llegar "
+               "FTEST_DONE: marcados FALLA 'sin resultado'\n", lost);
+    }
     // Banco 2026-09-06: CTRL,FTEST_DONE solo cierra la bateria (design.md D2)
     // — ya NO alimenta la cabecera ni la persistencia, que salen siempre de
     // las filas (countRows(), renderSummary(), persistResults()). Si sus

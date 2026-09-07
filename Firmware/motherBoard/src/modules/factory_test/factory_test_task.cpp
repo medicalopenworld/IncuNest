@@ -322,13 +322,24 @@ void ftest_yield(void) {
 
 bool ftest_passives_running(void) { return s_passiveSlotCount > 0; }
 
+// Emision de una linea de resultado. Se espera a que haya hueco en la cola
+// (banco 2026-09-07): esta funcion corre en la tarea FTEST (prioridad 3),
+// por debajo de Communication_Task (7), que drena la cola entera cada 1 ms;
+// si la cola esta llena es porque esa tarea lleva un momento sin correr, y lo
+// correcto es esperarla, no tirar la linea. Cada linea tirada aqui es un test
+// que el display no puede cerrar NUNCA -- se queda "en curso" hasta que el
+// operario cierra la pantalla. El plazo es holgado en tiempo de tarea pero
+// despreciable frente al plazo de cualquier test (>= 5 s), y el Task WDT
+// (75 s) no se resiente: la tarea esta bloqueada en la cola, no girando.
+#define FTEST_EMIT_WAIT_MS 500u
+
 void ftest_emit(unsigned id, FtestStatus st, const char *detail) {
   char line[FTEST_TX_LINE_MAX];
   if (ftest_format_result(line, sizeof(line), id, st, detail) < 0) {
     logE("[FTEST] resultado id=" + String(id) + " no cabe en la linea");
     return;
   }
-  CommunicationHost_Enqueue(line);
+  CommunicationHost_EnqueueWait(line, FTEST_EMIT_WAIT_MS);
 }
 
 // ---- Estado seguro (design.md D4) ----
@@ -586,11 +597,22 @@ static void factory_test_task_body(void *pv) {
     persist_full(&sum);
   }
 
+  // Cierre de la bateria. Sale por el mismo camino con espera que los
+  // resultados: si el DONE se pierde, el display se queda esperando hasta el
+  // silencio de 120 s y cierra la bateria con "enlace perdido", que no es lo
+  // que ha pasado.
   char doneLine[FTEST_TX_LINE_MAX];
   if (ftest_format_done(doneLine, sizeof(doneLine), sum.pass, sum.fail,
                         sum.skip, sum.warn) >= 0) {
-    CommunicationHost_Enqueue(doneLine);
+    CommunicationHost_EnqueueWait(doneLine, FTEST_EMIT_WAIT_MS);
   }
+  // Balance de la bateria en el log de la placa: si el display muestra tests
+  // sin cerrar y este contador esta a 0, la linea se perdio DESPUES de salir
+  // de aqui (anillo de RX del display), no en esta cola.
+  logE("[FTEST] bateria terminada: p" + String(sum.pass) + " f" +
+       String(sum.fail) + " s" + String(sum.skip) + " w" + String(sum.warn) +
+       ", lineas descartadas por cola llena: " +
+       String(CommunicationHost_TxDrops()));
 
   // restore() SIEMPRE, tambien si el bucle de arriba termino por ABORT: no
   // hay ningun "return" antes de este punto.

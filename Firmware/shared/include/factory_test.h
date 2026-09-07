@@ -108,7 +108,15 @@ typedef enum {
 
 #define FTEST_DETAIL_MAX 40
 #define FTEST_TX_LINE_MAX 64
-#define FTEST_TX_QUEUE_LEN 16
+// 32 y no 16 (banco 2026-09-07): la bateria completa emite 22 lineas RUNNING
+// casi seguidas al arrancar los pasivos, mas la rafaga de resultados de los
+// instantaneos que resuelven en el primer barrido. Con 16 huecos bastaba con
+// que Communication_Task perdiera un par de vueltas (esperando sitio en el
+// FIFO de TX de la UART, o en un ESP_LOG con el puerto de log saturado por el
+// modem) para que la cola se llenara y se descartara una linea de resultado.
+// Cada linea perdida es un test que el display no puede cerrar nunca.
+// Cuesta 16 * FTEST_TX_LINE_MAX = 1 KB de RAM, solo en la motherBoard.
+#define FTEST_TX_QUEUE_LEN 32
 #define FTEST_MB_RESPONSE_TIMEOUT_MS 10000
 #define FTEST_STIMULUS_TIMEOUT_MS 30000
 #define FTEST_CONFIRM_TIMEOUT_MS 60000

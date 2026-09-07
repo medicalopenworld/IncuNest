@@ -67,6 +67,20 @@ void   sendWifiToHMI(const char *ssid, const char *pass);
 // error y NUNCA bloquea a quien llama.
 void CommunicationHost_Enqueue(const char *line);
 
+// Igual que CommunicationHost_Enqueue() pero esperando hasta `timeout_ms` a
+// que haya hueco, y devolviendo si la linea entro o no. Para quien puede
+// permitirse bloquear un momento y NO puede permitirse perder la linea: la
+// tarea FTEST (prioridad 3, por debajo de Communication_Task, que drena la
+// cola cada 1 ms) emite un unico resultado por test, y si ese resultado se
+// pierde el display deja ese test "en curso" para siempre. NO la use nadie
+// que corra dentro de Communication_Task: se esperaria a si mismo.
+bool CommunicationHost_EnqueueWait(const char *line, uint32_t timeout_ms);
+
+// Numero de lineas descartadas por cola TX llena desde el arranque. Es la
+// medida directa de "la placa si emitio el resultado pero no salio al cable"
+// cuando en banco un test se queda sin cerrar (banco 2026-09-07).
+unsigned CommunicationHost_TxDrops(void);
+
 // true si se ha visto alguna vez una linea del HMI y la ultima llego hace
 // como mucho `max_silence_ms` (encapsula g_lastHmiLineMs/g_hmiEverSeen,
 // parse_line() en CommTask.cpp, para quien necesite un dead-man sin tocar

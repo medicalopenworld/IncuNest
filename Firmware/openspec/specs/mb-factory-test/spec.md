@@ -246,10 +246,26 @@ los bits de su ID en las cuatro máscaras.
 
 ### Requirement: El TX hacia el display se serializa en una cola
 
-Toda línea `CTRL,FTEST*` SHALL entregarse con `CommunicationHost_Enqueue()`,
-una cola de `FTEST_TX_QUEUE_LEN` (16) líneas de `FTEST_TX_LINE_MAX` (64)
-bytes que solo `Communication_Task` drena y escribe en `hmiSerial`. Con la
-cola llena la línea SHALL descartarse con log de error, sin bloquear.
+Toda línea `CTRL,FTEST*` SHALL entregarse por una cola de
+`FTEST_TX_QUEUE_LEN` (32) líneas de `FTEST_TX_LINE_MAX` (64) bytes que solo
+`Communication_Task` drena y escribe en `hmiSerial`.
+
+Los resultados y el `CTRL,FTEST_DONE` que emite la tarea FTEST SHALL usar
+`CommunicationHost_EnqueueWait()`, esperando hasta 500 ms a que haya hueco:
+la motherBoard emite UNA sola línea de resultado por test, y perderla deja
+ese test sin cerrar en el display. La tarea FTEST corre a prioridad 3, por
+debajo de `Communication_Task` (7), que drena la cola entera cada 1 ms, así
+que esa espera es siempre corta.
+
+Las líneas que emite `parse_line()` (eco de `RUN`, `CTRL,FTEST_REJECT`) SHALL
+seguir usando `CommunicationHost_Enqueue()` sin espera: corren DENTRO de
+`Communication_Task`, y esperar ahí sería esperarse a sí misma.
+
+Agotado el plazo — o sin hueco, en la versión sin espera — la línea SHALL
+descartarse con log de error y SHALL incrementar `CommunicationHost_TxDrops()`.
+Al terminar cada batería la tarea FTEST SHALL registrar en el log el balance
+(`p/f/s/w`) y ese contador: con el contador a 0 y tests sin cerrar en el
+display, la pérdida NO fue en esta cola (banco 2026-09-07).
 
 #### Scenario: Resultados durante la traza PPG
 - **WHEN** la batería emite resultados mientras `CTRL,PPG` sale a 25 Hz
