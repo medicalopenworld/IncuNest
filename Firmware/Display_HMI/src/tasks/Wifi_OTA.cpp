@@ -26,11 +26,31 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "fw_guarded_updater.h"
+#include "fw_image_tag.h"
 #include "main.h"
 #include "UITask.h"
 #include "CommTask.h"
 
 static const char *TAG = "WiFi";
+
+// Marca de placa que viaja DENTRO de este binario y que otra unidad busca en
+// el flujo OTA antes de dar por buena una imagen (ver fw_image_tag.h). No es
+// static ni const-plegable a proposito: tiene que existir como cadena en
+// .rodata aunque el compilador vea que solo se usa como patron.
+extern "C" const char kFwBoardTag[] __attribute__((used)) =
+    FW_TAG_PREFIX FW_BOARD_ID_DISPLAY_HMI;
+
+// Cabecera con la que el flasher declara a que placa CREE que esta hablando.
+// Sirve para cortar en el primer callback, antes de tocar la flash; la
+// comprobacion que de verdad protege es la del contenido, mas abajo.
+static const char *const OTA_BOARD_HEADER = "X-IncuNest-Board";
+
+// Estado del escaneo de la imagen que se esta recibiendo por /update.
+static FwStreamMatcher s_otaSelfTag(kFwBoardTag);
+static FwStreamMatcher s_otaAnyTag(FW_TAG_PREFIX);
+static bool s_otaRejected = false;
+static const char *s_otaRejectReason = "";
 
 char wifiHost[32] = "in3ator";
 
@@ -45,7 +65,9 @@ JsonObject addVariableToTelemetryWIFIJSON = WIFI_JSON.to<JsonObject>();
 
 WIFIstruct Wifi_TB;
 Credentials credentials;
-Espressif_Updater updater_WIFI;
+// Ver fw_guarded_updater.h: la OTA de ThingsBoard pasa por la misma
+// comprobacion de marca de placa que la subida por /update.
+FwGuardedUpdater updater_WIFI(kFwBoardTag);
 
 const OTA_Update_Callback OTAcallback(&progressCallback, &updatedCallback,
                                       CURRENT_FIRMWARE_TITLE, FWversion,
@@ -260,7 +282,11 @@ void configWifiServer() {
     wifiServer.send(200, "text/html", serverIndex);
   });
   wifiServer.on("/get_fw_version", HTTP_GET, []() {
-    String json = "{\"version\":\"" + String(FWversion) + "\",\"sn\":" + String(in3.serialNumber) + "}";
+    // "board" es la identidad que declara el propio dispositivo: es lo que el
+    // flasher debe creerse, en vez de deducir la placa del hostname mDNS.
+    String json = "{\"version\":\"" + String(FWversion) +
+                  "\",\"sn\":" + String(in3.serialNumber) +
+                  ",\"board\":\"" FW_BOARD_ID_DISPLAY_HMI "\"}";
     wifiServer.sendHeader("Connection", "close");
     wifiServer.send(200, "application/json", json);
   });
@@ -287,26 +313,77 @@ void configWifiServer() {
         if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
           return wifiServer.requestAuthentication();
         }
+        const bool ok = !s_otaRejected && !Update.hasError();
         wifiServer.sendHeader("Connection", "close");
-        wifiServer.send(200, "text/plain", Update.hasError() ? "FAIL" : "OK");
-        delay(500); // let TCP stack flush the response before hardware reset
-        ESP.restart();
+        if (ok) {
+          wifiServer.send(200, "text/plain", "OK");
+          delay(500); // let TCP stack flush the response before hardware reset
+          ESP.restart();
+          return;
+        }
+        // Reiniciar tras una OTA fallida no sirve de nada: otadata sigue
+        // apuntando al firmware bueno y lo unico que se consigue es tirar la
+        // pantalla y el enlace con la placa un par de segundos.
+        wifiServer.send(400, "text/plain",
+                        String("FAIL: ") + (s_otaRejected ? s_otaRejectReason
+                                                          : "error de escritura"));
+        ESP_LOGE(TAG, "OTA rechazada: %s",
+                 s_otaRejected ? s_otaRejectReason : "error de escritura");
       },
       []() {
         if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) return;
         HTTPUpload &upload = wifiServer.upload();
         if (upload.status == UPLOAD_FILE_START) {
+          s_otaRejected = false;
+          s_otaRejectReason = "";
+          s_otaSelfTag.reset();
+          s_otaAnyTag.reset();
+
+          // Barrera 1 (barata): la herramienta dice a que placa cree que
+          // habla. Si se equivoca, se corta aqui, sin abrir Update siquiera.
+          String declared = wifiServer.header(OTA_BOARD_HEADER);
+          if (declared.length() == 0) declared = wifiServer.arg("board");
+          if (declared.length() != 0 && declared != FW_BOARD_ID_DISPLAY_HMI) {
+            s_otaRejected = true;
+            s_otaRejectReason = "esto es un " FW_BOARD_ID_DISPLAY_HMI;
+            ESP_LOGE(TAG, "OTA rechazada: la herramienta envia firmware de '%s'",
+                     declared.c_str());
+            return;
+          }
+
           OTA_inprogress = true;
           if (!Update.begin(UPDATE_SIZE_UNKNOWN)) Update.printError(Serial);
         } else if (upload.status == UPLOAD_FILE_WRITE) {
+          if (s_otaRejected) return;
+          // Barrera 2 (la que de verdad protege): la marca de placa va dentro
+          // del binario, asi que no depende de que la herramienta sea honesta
+          // ni de que este actualizada.
+          s_otaSelfTag.feed(upload.buf, upload.currentSize);
+          s_otaAnyTag.feed(upload.buf, upload.currentSize);
           if (Update.write(upload.buf, upload.currentSize) != upload.currentSize)
             Update.printError(Serial);
         } else if (upload.status == UPLOAD_FILE_END) {
+          if (s_otaRejected) return;
+          if (fw_image_is_foreign(s_otaSelfTag.found(), s_otaAnyTag.found())) {
+            s_otaRejected = true;
+            s_otaRejectReason = "el binario es de otra placa";
+            OTA_inprogress = false;
+            Update.abort(); // otadata intacto: seguimos con el firmware actual
+            ESP_LOGE(TAG, "OTA rechazada: la imagen no lleva la marca de esta "
+                          "placa (%s)", kFwBoardTag);
+            return;
+          }
           if (!Update.end(true)) Update.printError(Serial);
+        } else if (upload.status == UPLOAD_FILE_ABORTED) {
+          OTA_inprogress = false;
+          Update.abort();
         }
       });
+  // header() solo devuelve las cabeceras declaradas antes de begin().
+  const char *otaHeaders[] = {OTA_BOARD_HEADER};
+  wifiServer.collectHeaders(otaHeaders, 1);
   wifiServer.begin();
-  ESP_LOGI(TAG, "Web server started on port 80");
+  ESP_LOGI(TAG, "Web server started on port 80 (placa %s)", kFwBoardTag);
 }
 
 // ---------------------------------------------------------------------------
@@ -323,7 +400,13 @@ void updatedCallback(const bool &success) {
   } else {
     // No update available — clear the flag so the periodic check can run again.
     OTA_inprogress = false;
-    ESP_LOGI(TAG, "OTA: no new firmware");
+    if (updater_WIFI.rejectedForeignImage()) {
+      ESP_LOGE(TAG, "OTA rechazada: el binario de ThingsBoard no es de esta "
+                    "placa (%s) — revisa el slot de firmware del dispositivo",
+               kFwBoardTag);
+    } else {
+      ESP_LOGI(TAG, "OTA: no new firmware");
+    }
   }
 }
 

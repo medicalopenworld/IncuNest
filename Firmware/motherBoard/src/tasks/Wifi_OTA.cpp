@@ -40,9 +40,27 @@
 #include "modules/util/system_clock.h"
 #include "modules/sensorboard_comm/sensorboard_comm.h"
 #include "alarm_policy.h"
+#include "fw_guarded_updater.h"
+#include "fw_image_tag.h"
 
 extern GPRSstruct GPRS;
 static const char *TAG __attribute__((unused)) = "WiFi";
+
+// Marca de placa que viaja DENTRO de este binario y que otra unidad busca en
+// el flujo OTA antes de dar por buena una imagen (ver fw_image_tag.h). No es
+// static ni const-plegable a proposito: tiene que existir como cadena en
+// .rodata aunque el compilador vea que solo se usa como patron.
+extern "C" const char kFwBoardTag[] __attribute__((used)) =
+    FW_TAG_PREFIX FW_BOARD_ID_MOTHERBOARD;
+
+// Cabecera con la que el flasher declara a que placa CREE que esta hablando.
+static const char *const OTA_BOARD_HEADER = "X-IncuNest-Board";
+
+// Estado del escaneo de la imagen que se esta recibiendo por /update.
+static FwStreamMatcher s_otaSelfTag(kFwBoardTag);
+static FwStreamMatcher s_otaAnyTag(FW_TAG_PREFIX);
+static bool s_otaRejected = false;
+static const char *s_otaRejectReason = "";
 char wifiHost[32];
 
 WebServer wifiServer(80);
@@ -81,7 +99,9 @@ extern char pendingPass[64];
 
 WIFIstruct Wifi_TB;
 Credentials wifi_credentials;
-Espressif_Updater updater_WIFI;
+// Ver fw_guarded_updater.h: la OTA de ThingsBoard pasa por la misma
+// comprobacion de marca de placa que la subida por /update.
+FwGuardedUpdater updater_WIFI(kFwBoardTag);
 
 const OTA_Update_Callback OTAcallback(&progressCallback, &updatedCallback,
                                       CURRENT_FIRMWARE_TITLE, FWversion,
@@ -487,6 +507,9 @@ void configWifiServer() {
     String json = "{";
     json += "\"version\":\"" + String(FWversion) + "\"";
     json += ",\"sn\":" + String(in3.serialNumber);
+    // "board" es la identidad que declara el propio dispositivo: es lo que el
+    // flasher debe creerse, en vez de deducir la placa del hostname mDNS.
+    json += ",\"board\":\"" FW_BOARD_ID_MOTHERBOARD "\"";
     json += "}";
     wifiServer.sendHeader("Connection", "close");
     wifiServer.send(200, "application/json", json);
@@ -624,35 +647,83 @@ void configWifiServer() {
         if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
           return wifiServer.requestAuthentication();
         }
+        const bool ok = !s_otaRejected && !Update.hasError();
         wifiServer.sendHeader("Connection", "close");
-        wifiServer.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
-        delay(500); // let TCP stack flush the response before hardware reset
-        ESP.restart();
+        if (ok) {
+          wifiServer.send(200, "text/plain", "OK");
+          delay(500); // let TCP stack flush the response before hardware reset
+          ESP.restart();
+          return;
+        }
+        // Reiniciar tras una OTA fallida no sirve de nada: otadata sigue
+        // apuntando al firmware bueno y lo unico que se consigue es un corte
+        // de control y de telemetria de varios segundos.
+        wifiServer.send(400, "text/plain",
+                        String("FAIL: ") + (s_otaRejected ? s_otaRejectReason
+                                                          : "error de escritura"));
+        logI("[WIFI] OTA rechazada: " +
+             String(s_otaRejected ? s_otaRejectReason : "error de escritura"));
       },
       []() {
         if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) return;
         HTTPUpload &upload = wifiServer.upload();
         if (upload.status == UPLOAD_FILE_START) {
-          // debugSerial.printf("Update: %s\n", upload.filename.c_str());
+          s_otaRejected = false;
+          s_otaRejectReason = "";
+          s_otaSelfTag.reset();
+          s_otaAnyTag.reset();
+
+          // Barrera 1 (barata): la herramienta dice a que placa cree que
+          // habla. Si se equivoca, se corta aqui, sin abrir Update siquiera.
+          String declared = wifiServer.header(OTA_BOARD_HEADER);
+          if (declared.length() == 0) declared = wifiServer.arg("board");
+          if (declared.length() != 0 && declared != FW_BOARD_ID_MOTHERBOARD) {
+            s_otaRejected = true;
+            s_otaRejectReason = "esto es una " FW_BOARD_ID_MOTHERBOARD;
+            logI("[WIFI] OTA rechazada: firmware de otra placa (" + declared +
+                 ")");
+            return;
+          }
+
           if (!Update.begin(
                   UPDATE_SIZE_UNKNOWN)) { // start with max available size
             Update.printError(Serial);
           }
         } else if (upload.status == UPLOAD_FILE_WRITE) {
+          if (s_otaRejected) return;
+          // Barrera 2 (la que de verdad protege): la marca de placa va dentro
+          // del binario, asi que no depende de que la herramienta sea honesta
+          // ni de que este actualizada.
+          s_otaSelfTag.feed(upload.buf, upload.currentSize);
+          s_otaAnyTag.feed(upload.buf, upload.currentSize);
           /* flashing firmware to ESP*/
           if (Update.write(upload.buf, upload.currentSize) !=
               upload.currentSize) {
             Update.printError(Serial);
           }
         } else if (upload.status == UPLOAD_FILE_END) {
+          if (s_otaRejected) return;
+          if (fw_image_is_foreign(s_otaSelfTag.found(), s_otaAnyTag.found())) {
+            s_otaRejected = true;
+            s_otaRejectReason = "el binario es de otra placa";
+            Update.abort(); // otadata intacto: seguimos con el firmware actual
+            logI("[WIFI] OTA rechazada: la imagen no lleva la marca de esta "
+                 "placa (" + String(kFwBoardTag) + ")");
+            return;
+          }
           if (Update.end(
                   true)) { // true to set the size to the current progress
             logI("Update Success: " + String(upload.totalSize) + " bytes");
           } else {
             Update.printError(Serial);
           }
+        } else if (upload.status == UPLOAD_FILE_ABORTED) {
+          Update.abort();
         }
       });
+  // header() solo devuelve las cabeceras declaradas antes de begin().
+  const char *otaHeaders[] = {OTA_BOARD_HEADER};
+  wifiServer.collectHeaders(otaHeaders, 1);
   wifiServer.begin();
 }
 

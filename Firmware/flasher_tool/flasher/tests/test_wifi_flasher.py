@@ -103,9 +103,36 @@ class TestFlashBoardWifi:
     def test_fail_response_raises_runtime_error(self, firmware_base):
         r = MagicMock(); r.status_code = 200; r.text = 'FAIL'
         with patch('wifi_flasher.requests.post', return_value=r):
-            with pytest.raises(RuntimeError, match='FAIL'):
+            with pytest.raises(RuntimeError, match='rechaz'):
                 flash_board_wifi('192.168.1.1', Board.MOTHERBOARD, firmware_base,
                                  lambda m, p: None)
+
+    def test_fail_reason_from_device_reaches_the_operator(self, firmware_base):
+        # El firmware con la guarda de placa contesta 400 y explica el motivo:
+        # ese texto es lo unico que el operario va a ver en el log.
+        r = MagicMock()
+        r.status_code = 400
+        r.text = 'FAIL: el binario es de otra placa'
+        with patch('wifi_flasher.requests.post', return_value=r):
+            with pytest.raises(RuntimeError, match='otra placa'):
+                flash_board_wifi('192.168.1.1', Board.MOTHERBOARD, firmware_base,
+                                 lambda m, p: None)
+
+    def test_declares_target_board_to_the_device(self, firmware_base):
+        # El dispositivo compara esto con su propia identidad y corta antes de
+        # escribir en la flash si no coincide.
+        with patch('wifi_flasher.requests.post', return_value=self._ok_response()) as mp:
+            flash_board_wifi('192.168.1.1', Board.DISPLAY_HMI, firmware_base,
+                             lambda m, p: None)
+        kwargs = mp.call_args.kwargs
+        assert kwargs['headers']['X-IncuNest-Board'] == 'display_hmi'
+        assert kwargs['params'] == {'board': 'display_hmi'}
+
+    def test_declares_motherboard_when_flashing_a_motherboard(self, firmware_base):
+        with patch('wifi_flasher.requests.post', return_value=self._ok_response()) as mp:
+            flash_board_wifi('192.168.1.1', Board.MOTHERBOARD, firmware_base,
+                             lambda m, p: None)
+        assert mp.call_args.kwargs['headers']['X-IncuNest-Board'] == 'motherboard'
 
     def test_unexpected_response_raises_runtime_error(self, firmware_base):
         r = MagicMock(); r.status_code = 200; r.text = 'UNEXPECTED'
@@ -160,6 +187,7 @@ class TestSnFromHostname:
 from wifi_flasher import (
     discover_boards, _discover_mdns, _discover_subnet,
     _identify_board_type, _get_fw_version, _resolve_board,
+    _board_from_declaration,
 )
 
 
@@ -193,6 +221,47 @@ class TestIdentifyBoardType:
     def test_returns_none_on_connection_error(self):
         with patch('wifi_flasher.requests.get', side_effect=Exception('refused')):
             assert _identify_board_type('192.168.1.7') is None
+
+
+class TestBoardFromDeclaration:
+    def test_display_hmi(self):
+        assert _board_from_declaration({'board': 'display_hmi'}) == Board.DISPLAY_HMI
+
+    def test_motherboard(self):
+        assert _board_from_declaration({'board': 'motherboard'}) == Board.MOTHERBOARD
+
+    def test_case_and_whitespace_tolerated(self):
+        assert _board_from_declaration({'board': ' Display_HMI '}) == Board.DISPLAY_HMI
+
+    def test_missing_field_is_none(self):
+        # Firmware anterior a 2026-09-08: no declara nada.
+        assert _board_from_declaration({'version': '4.0.0', 'sn': 7}) is None
+
+    def test_unknown_value_is_none(self):
+        assert _board_from_declaration({'board': 'sensorboard_v9'}) is None
+
+    def test_non_dict_is_none(self):
+        assert _board_from_declaration(['display_hmi']) is None
+
+
+class TestIdentifyBoardTypePrefersDeclaration:
+    def test_declaration_wins_over_endpoint_probe(self):
+        # /get_fw_version dice HMI; nadie deberia llegar a sondear /get_freq.
+        r = MagicMock()
+        r.status_code = 200
+        r.json.return_value = {'version': '4.0.0', 'board': 'display_hmi'}
+        with patch('wifi_flasher.requests.get', return_value=r) as mg:
+            assert _identify_board_type('192.168.1.5') == Board.DISPLAY_HMI
+        assert mg.call_count == 1
+
+    def test_falls_back_to_probe_on_old_firmware(self):
+        old_fw = MagicMock()
+        old_fw.status_code = 200
+        old_fw.json.return_value = {'version': '3.9.0', 'sn': 7}  # sin "board"
+        freq = MagicMock()
+        freq.status_code = 404  # no sirve /get_freq -> motherBoard
+        with patch('wifi_flasher.requests.get', side_effect=[old_fw, freq]):
+            assert _identify_board_type('192.168.1.5') == Board.MOTHERBOARD
 
 
 class TestResolveBoard:

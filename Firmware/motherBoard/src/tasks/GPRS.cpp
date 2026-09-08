@@ -35,6 +35,7 @@
 #include <sys/time.h>
 
 #include "CommTask.h"
+#include "fw_guarded_updater.h"
 #include "modules/sensorboard_comm/sensorboard_comm.h"
 #include "PpgSnapshot.h"
 #include "PpgSnapshotPublish.h"
@@ -82,7 +83,10 @@ extern double fanControlPIDOutput;
 
 GPRSstruct GPRS;
 Credentials credentials;
-Espressif_Updater updater_GPRS;
+// Ver fw_guarded_updater.h. Este es el camino de actualizacion de las
+// unidades desplegadas: si el binario que llega no lleva la marca de la
+// motherBoard, no se confirma la particion.
+FwGuardedUpdater updater_GPRS(kFwBoardTag);
 
 // Tried in order on each attach failure; onomondo first.
 static const char *const GPRS_APN_LIST[] = {APN_ONOMONDO, APN_TM,

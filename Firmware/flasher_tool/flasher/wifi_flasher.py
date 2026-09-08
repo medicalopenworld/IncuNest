@@ -18,6 +18,17 @@ _BOARD_FOLDER: dict[Board, str] = {
     Board.DISPLAY_HMI: 'display_hmi',
 }
 
+# Mismos identificadores que FW_BOARD_ID_* en shared/include/fw_image_tag.h:
+# el firmware los publica en /get_fw_version y los compara con la cabecera de
+# abajo antes de escribir un solo byte en la flash.
+_BOARD_ID: dict[Board, str] = dict(_BOARD_FOLDER)
+_BOARD_BY_ID: dict[str, Board] = {v: k for k, v in _BOARD_ID.items()}
+
+# Con esta cabecera la herramienta declara a que placa CREE que esta hablando.
+# El dispositivo la contrasta con su propia identidad y corta la subida si no
+# coincide, que es exactamente lo que faltaba el 2026-09-08.
+_BOARD_HEADER = 'X-IncuNest-Board'
+
 # Credentials are intentionally embedded: this is a factory-floor tool used on a
 # local network. The same credentials are compiled into the ESP32 firmware.
 _AUTH_SEQUENCES: dict[Board, list] = {
@@ -120,8 +131,12 @@ def flash_board_wifi(
             )
             resp = requests.post(
                 f'http://{ip}/update',
+                params={'board': _BOARD_ID[board]},
                 data=monitor,
-                headers={'Content-Type': monitor.content_type},
+                headers={
+                    'Content-Type': monitor.content_type,
+                    _BOARD_HEADER: _BOARD_ID[board],
+                },
                 auth=auth,
                 timeout=timeout_s,
             )
@@ -131,8 +146,14 @@ def flash_board_wifi(
             body = resp.text.strip()
         except Exception:
             body = ''  # ESP32 reset TCP mid-response after restart — treat 200 as success
-        if body == 'FAIL':
-            raise RuntimeError(f'El dispositivo reportó FAIL ({ip})')
+        if body.startswith('FAIL'):
+            # El firmware nuevo explica por que: la causa mas probable es que
+            # este binario no sea de esta placa (ver fw_image_tag.h).
+            reason = body[len('FAIL'):].lstrip(': ').strip()
+            raise RuntimeError(
+                f'El dispositivo rechazó la actualización ({ip})'
+                + (f': {reason[:80]}' if reason else '')
+            )
         if body not in ('OK', ''):
             raise RuntimeError(f'Respuesta inesperada ({ip}): {body[:50]}')
         progress_cb('', 99)
@@ -152,12 +173,37 @@ def _get_fw_version(ip: str, timeout: float = 2.0) -> str:
     return '?'
 
 
-def _identify_board_type(ip: str, timeout: float = 0.5) -> Optional[Board]:
-    """Return board type by probing /get_freq (Display HMI only).
+def _board_from_declaration(data: dict) -> Optional[Board]:
+    """Board type as declared by the device itself in /get_fw_version.
 
-    Returns None when the response is ambiguous (connection error or unexpected
-    status), so _probe_ip can skip the host rather than risk flashing wrong firmware.
+    This is the only non-guess in the whole file: the firmware answers with its
+    own FW_BOARD_ID_* constant. Everything else here infers the board from a
+    naming convention or from which endpoints happen to answer.
     """
+    if not isinstance(data, dict):
+        return None
+    return _BOARD_BY_ID.get(str(data.get('board', '')).strip().lower())
+
+
+def _identify_board_type(ip: str, timeout: float = 0.5) -> Optional[Board]:
+    """Return the board type of the device at ip, or None if inconclusive.
+
+    Asks the device first ("board" in /get_fw_version, firmware from 2026-09-08
+    on). Older firmware does not answer that, so it falls back to probing
+    /get_freq, which only the Display HMI serves.
+
+    Returns None when the answer is ambiguous (connection error or unexpected
+    status), so _probe_ip can skip the host rather than risk flashing the wrong
+    firmware onto it.
+    """
+    try:
+        resp = requests.get(f'http://{ip}/get_fw_version', timeout=timeout)
+        if resp.status_code == 200:
+            declared = _board_from_declaration(resp.json())
+            if declared is not None:
+                return declared
+    except Exception:
+        pass
     try:
         resp = requests.get(f'http://{ip}/get_freq', timeout=timeout)
         if resp.status_code == 200:
@@ -170,12 +216,14 @@ def _identify_board_type(ip: str, timeout: float = 0.5) -> Optional[Board]:
 
 
 def _resolve_board(ip: str, hostname_board: Board) -> Board:
-    """Board type for an mDNS hit: the /get_freq probe wins over the hostname.
+    """Board type for an mDNS hit: what the device says wins over the hostname.
 
     The hostname only tells us the device is an IncuNest one; deriving the board
     from it is a guess about a naming convention, and guessing wrong means
-    pushing motherBoard firmware onto an HMI. The probe is authoritative, so it
-    takes precedence; the hostname is the fallback when the probe is unreachable.
+    pushing motherBoard firmware onto an HMI — which is what happened on
+    2026-09-08, because the HMI advertises "IncuNest-Display-<sn>" and the
+    parser here only knew "IncuNest_Display". The device is authoritative; the
+    hostname is only the fallback when it cannot be reached.
     """
     return _identify_board_type(ip) or hostname_board
 
@@ -268,7 +316,9 @@ def _probe_ip(ip: str) -> Optional[WifiBoard]:
         data = resp.json()
         fw_version = data.get('version', '?')
         sn: Optional[int] = data.get('sn', None)
-        board = _identify_board_type(ip)
+        # Lo que declara el dispositivo va primero; si es firmware antiguo que
+        # no lo declara, se cae al sondeo de endpoints.
+        board = _board_from_declaration(data) or _identify_board_type(ip)
         if board is None:
             return None
         if sn is None:

@@ -70,3 +70,46 @@ the symptom survived both. The remaining suspects, in order:
 on a board that had not been reflashed. The HMI's information screen now shows
 the compiler's `__DATE__`/`__TIME__` next to its version — check it matches the
 build before trusting any observation.
+
+## 7. Wrong board's firmware pushed over WiFi OTA (violet screen, link lost)
+
+*   **Symptom** (2026-09-08): a Display HMI flashed over USB with the flasher
+    tool works. The same unit flashed over **WiFi** comes back with a violet
+    screen, no touch, no protocol link — and the motherBoard raising its
+    display-link alarm. Only a USB reflash recovers it.
+*   **Cause**: the flasher's WiFi tab derived the board type from the mDNS
+    hostname. The HMI advertises `IncuNest-Display-<sn>` (`WIFI_NAME` in
+    `Display_HMI/include/main.h`), but the parser only knew the underscore
+    spelling `IncuNest_Display`, so every HMI fell through to the generic
+    `IncuNest` branch and was labelled — and flashed — as a motherBoard.
+    Nothing downstream objected: both boards are ESP32-S3, the motherBoard
+    image (1.5 MB) fits in the HMI's 5 MB app slot, and `esp_ota` only checks
+    the chip and the size. The HMI then boots motherBoard firmware, which never
+    creates the RGB panel.
+*   **Why the app descriptor cannot catch it**: in Arduino/PlatformIO builds
+    `esp_app_desc_t.project_name` is `arduino-lib-builder` on *both* boards
+    (inherited from the precompiled core), so it distinguishes nothing.
+*   **Mitigation (implemented)**, in three layers:
+    1.  *Tool*: the board type now comes from the device itself
+        (`"board"` in `/get_fw_version`), not from its hostname; the hostname
+        is only a fallback when the device cannot be reached.
+    2.  *Declared intent*: the tool sends `X-IncuNest-Board` (and `?board=`)
+        with every `/update`. The device compares it with its own identity and
+        refuses before opening `Update` — nothing is written to flash.
+    3.  *Content check (the one that survives a stale tool)*: every image
+        carries a board marker in `.rodata`
+        (`IncuNestFW:display_hmi` / `IncuNestFW:motherboard`, see
+        `shared/include/fw_image_tag.h`). Both the HTTP `/update` handler and
+        the ThingsBoard updater (`shared/include/fw_guarded_updater.h`, used on
+        the HMI's WiFi OTA and on the motherBoard's WiFi *and* GPRS OTA) scan
+        the incoming stream and abort the write if the image carries another
+        board's marker. `otadata` is left untouched, so the unit keeps running
+        the firmware it already had.
+*   **Deliberate gap**: an image with **no** marker is accepted. Every build
+    before this change is unmarked, and rejecting them would leave the fleet
+    with no way back over the air. Both sides therefore only protect each other
+    once both carry a marked build — until then, the tool fix is the only
+    barrier.
+*   **Recovery**: reflash over USB. A unit running the wrong firmware will not
+    reconnect to WiFi with the other board's credential layout, so there is no
+    over-the-air way back.
