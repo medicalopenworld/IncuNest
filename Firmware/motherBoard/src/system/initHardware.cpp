@@ -161,9 +161,6 @@ extern PID humidityControlPID;
 #define INA3221_ONE_CYCLE_SETTLE_MS 200
 // USB_FAULT GPIO latches within ~50ms of USB_EN assertion; 100ms gives 2x margin.
 #define USB_FAULT_SETTLE_MS 100
-// Startup beep duration: clearly audible but not drawn out.
-#define BUZZER_BEEP_DURATION_MS 300
-
 #define NTC_BABY_MIN 1
 #define NTC_BABY_MAX 60
 #define DIG_TEMP_ROOM_MIN 1
@@ -532,9 +529,12 @@ void testBuzzer() {
   ledcWrite(BUZZER_PWM_CHANNEL, 0);
   vTaskDelay(pdMS_TO_TICKS(CURRENT_STABILIZE_TIME_DEFAULT));
   #else
-    ledcWrite(BUZZER_PWM_CHANNEL, BUZZER_HALF_PWM);
-    vTaskDelay(pdMS_TO_TICKS(BUZZER_BEEP_DURATION_MS));
-    ledcWrite(BUZZER_PWM_CHANNEL, 0);
+  // A partir de la HW17 el zumbador NO comparte shunt con SYSTEM_SHUNT_CHANNEL,
+  // asi que aqui no habia medida que hacer: lo que quedaba era un pitido de
+  // 300 ms sin valor diagnostico (testCurrent seguia a 0.0 y la comparacion de
+  // abajo con BUZZER_CONSUMPTION_MIN == 0 nunca fallaba). Se retira por
+  // peticion: el arranque debe ser silencioso.
+  ledcWrite(BUZZER_PWM_CHANNEL, 0);
   #endif
   if (testCurrent < BUZZER_CONSUMPTION_MIN) {
     addErrorToVar(HW_error, DEFECTIVE_BUZZER);
@@ -942,9 +942,11 @@ void initHardware(bool printOutputTest) {
   if (printOutputTest || in3.HW_critical_error || in3.calibrationError) {
     logE("[HW] -> PRINTING ERROR TO USER");
   }
-  if (!in3.restoreState) {
-    buzzerTone(2, buzzerStandbyToneDuration, buzzerStandbyTone);
-  }
+  // Aqui habia un buzzerTone(2, ...) que anunciaba "autotest terminado" con dos
+  // pitidos cortos en cada arranque en frio. Se retira por peticion: el
+  // encendido no emite ninguna senal acustica. El zumbador sigue verificable a
+  // demanda desde el test de fabrica (id BUZZER, factory_test_hw.cpp), que es
+  // donde se comprueba que suena.
   if (in3.phototherapy) {
     // in3.phototherapy was just restored from NVS (EEPROM.cpp restoreState())
     // regardless of whether actuatorsTest() ran. On a restoreState boot
