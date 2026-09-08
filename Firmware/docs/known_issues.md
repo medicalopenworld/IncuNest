@@ -168,3 +168,17 @@ build before trusting any observation.
     log. After: only the `wifiInit()` retries with their backoff, and at most
     the new `[COMM] N ms sin drenar el cable` line. `-e wifi_off_test` builds
     without the WiFi/OTA task at all, as the A/B control.
+*   **Measured (bench, 2026-09-08, 13 min)**: the instrument is the HMI's own
+    1 Hz keepalive, which the same Comm task emits — its cadence *is* the
+    measurement, and it comes out of the HMI's USB port. 850 keepalives, median
+    **1000 ms**, p99 1191 ms, worst **1239 ms**, **zero** gaps >= 1500 ms and
+    zero >= the 5 s window. The decisive stretch is 23:20-23:24, associated
+    with an IP but unable to reach ThingsBoard: seven consecutive
+    `TB disconnected, reconnecting...`, i.e. seven runs of the busy-wait in
+    `PubSubClient::connect()`, with no effect on the cadence at all. The link
+    was verifiably alive throughout: `HMI,REQ,STATE` appears 3 times in the
+    first 2 s and never again, so `Display_StateSync_Service()` got its answer
+    from the board. Residual jitter is ~200 ms and correlates with `wifiInit()`
+    and the 5 s telemetry publish, not with the OTA task (which can no longer
+    preempt Comm) — the LVGL mutex and the `arduino_events` task at priority 19
+    on core 1 are the remaining coupling, 4x under the alarm window.
