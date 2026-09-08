@@ -11,10 +11,10 @@ Run `pio` from PowerShell, never from MSYS/Git Bash — a run under MSYS reports
 
 ## 2. IP geolocation parser (host-tested, red first)
 
-- [ ] 2.1 Write the failing Unity tests for `ip_geoloc_parse()`: a successful body, `"status":"fail"` with coordinates present, latitude 91.0, longitude -200.0, longitude missing, and a body truncated at every offset of a known-good response.
-- [ ] 2.2 Add `motherBoard/src/modules/util/ip_geoloc.{h,cpp}` implementing `ip_geoloc_parse()`, requiring `"status":"success"`, range-checking both values, never reading past the terminating NUL, and leaving the caller's outputs untouched on any rejection.
-- [ ] 2.3 Extend `[env:native]`'s `build_src_filter` for `modules/util/ip_geoloc.cpp` and get `pio test -e native` green.
-- [ ] 2.4 Add a regression test asserting that a body carrying the offset but no coordinates still parses the timezone through the existing `tz_parse_ipapi_offset()`, so phase 4 cannot silently break the timezone.
+- [x] 2.1 Write the failing Unity tests for `ip_geoloc_parse()`: a successful body, `"status":"fail"` with coordinates present, latitude 91.0, longitude -200.0, longitude missing, and a body truncated at every offset of a known-good response.
+- [x] 2.2 Add `motherBoard/src/modules/util/ip_geoloc.{h,cpp}` implementing `ip_geoloc_parse()`, requiring `"status":"success"`, range-checking both values, never reading past the terminating NUL, and leaving the caller's outputs untouched on any rejection.
+- [x] 2.3 Extend `[env:native]`'s `build_src_filter` for `modules/util/ip_geoloc.cpp` and get `pio test -e native` green.
+- [x] 2.4 Add a regression test asserting that a body carrying the offset but no coordinates still parses the timezone through the existing `tz_parse_ipapi_offset()`, so phase 4 cannot silently break the timezone.
 
 ## 3. NVS persistence and the association hook
 
