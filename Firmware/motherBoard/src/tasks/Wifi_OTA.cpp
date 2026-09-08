@@ -1177,6 +1177,17 @@ static void dwellSave() {
 }
 
 static void wifiDwellPoll() {
+  // Una vez por minuto y no en cada pasada: la tarea de OTA corre a 20 Hz
+  // (OTA_TASK_PERIOD_MS = 50) y WiFi.SSID() devuelve un String, o sean veinte
+  // asignaciones de heap por segundo para vigilar algo cuya resolucion util es
+  // el DIA. La primera pasada tras arrancar si es inmediata, para que los
+  // atributos aparezcan en cuanto haya broker. El precio es que un cambio de
+  // red tarda hasta un minuto en verse, lo cual no significa nada frente a un
+  // criterio de catorce dias.
+  static uint32_t s_lastPollMs = 0;
+  if (s_lastPollMs != 0 && millis() - s_lastPollMs < 60000u) return;
+  s_lastPollMs = millis();
+
   if (!s_dwellLoaded) dwellLoad();
   const String ssid = WiFi.SSID();
   // Asociado pero sin SSID legible: no es una asociación que apuntar.
