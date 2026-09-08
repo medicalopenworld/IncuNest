@@ -90,8 +90,71 @@ documento) o registrar `overflowed()` para saber si está pasando.
 | Eventos de paciente (cola) | ✅ | ✅ | Peso, canguro, alta |
 | Sincronización de hora | ✅ | ✅ | NITZ + `AT+CNTP` / SNTP |
 | Triangulación por torre | ✅ | ❌ | No existe equivalente por WiFi |
+| Posición aproximada por IP | ❌ | ✅ | Suple a la de torre cuando no hay fix |
+| Permanencia en la red WiFi | ❌ | ✅ | Cinco atributos de cliente; una unidad en GPRS no tiene nada que contar |
 | Snapshot PPG (RPC `capturePPG`) | ✅ | ✅ | Bajo demanda, ~23 KB por captura |
 | Snapshot PPG, captura automática | ❌ | ✅ | Cada 15 min ≈ 2,2 MB/día: por GPRS va apagado |
+
+### La posición tiene dos fuentes y una sola pareja de claves
+
+`tri_latitud`, `tri_longitud` y `tri_accuracy` **no siempre vienen del módem**.
+Desde `mb-sim-auto-deactivation`, la clave `loc_source` dice cuál de las dos
+fuentes produjo el valor:
+
+| `loc_source` | Fuente | `tri_accuracy` | Cuándo |
+|---|---|---|---|
+| `gsm` | Triangulación por torres del módem | Lo que reporte el módem | Siempre que haya fix; **manda sobre la otra** |
+| `ip` | IP pública, vía ip-api.com | `25000` (25 km, "en esta ciudad") | Solo por WiFi, y solo si no hay fix de torre |
+
+Se reutilizan las mismas claves **a propósito**: así una unidad a la que se le
+ha dado de baja la SIM sigue apareciendo en los widgets de mapa que ya existen,
+sin editar el cuadro de mando. Lo que cambia es la calidad del dato, y va
+declarada en `tri_accuracy` — 25 km no se puede confundir con un fix de torre,
+y menos con un GPS.
+
+Por qué existe: al dar de baja la SIM desaparece la **única** fuente de posición
+de la flota. El dato sale de la consulta que `ensureWifiTimeZoneSynced()` ya
+hacía a diario para la zona horaria, con un `fields=` más largo: ni una petición
+nueva, ni un host nuevo, ni otra cadencia. Esa consulta va en **HTTP en claro**
+(el nivel gratuito del servicio no tiene TLS), así que la respuesta es
+manipulable y se parsea como dato hostil (`modules/util/ip_geoloc.h`): el
+resultado llega a esas claves y a nada más — ni al PID, ni a las alarmas, ni a
+ningún actuador, ni al reloj. Lo peor que consigue quien la manipule es un punto
+mal puesto en un mapa.
+
+Una trampa del guard: la consulta se hace también cuando NITZ ya resolvió la
+zona, si además **no hay fix de torre**. Sin eso, una unidad con la SIM recién
+dada de baja no tendría posición hasta el siguiente reinicio, porque
+`tz_source` conserva el NITZ que ya tenía en RAM.
+
+### Permanencia en la red WiFi: atributos, no telemetría
+
+| Atributo | Qué es |
+|---|---|
+| `wifi_ssid` | La red asociada, saneada a ASCII imprimible |
+| `wifi_is_default` | `true` mientras sea la `WIFI_SSID` compilada, es decir: nadie ha aprovisionado el equipo |
+| `wifi_dwell_days` | Días UTC **distintos** con esa red |
+| `wifi_dwell_since` | Epoch de la primera asociación con reloj válido; `0` si aún no lo hubo |
+| `wifi_dwell_span_d` | Días transcurridos desde ese epoch |
+
+Son **atributos de cliente**: al servidor le interesa el valor actual y no una
+serie temporal, y así no consumen del presupuesto de
+`THINGSBOARD_FIELDS_AMOUNT` que acota la telemetría. Se publican cuando el
+estado cambia y en cada reconexión al broker.
+
+Días **distintos** y no tiempo transcurrido: un equipo embalado y desenchufado
+dos semanas tras una sola asociación no acumula nada, y uno enchufado catorce
+días sí. Se publican las dos cifras de todas formas, para que el servidor pueda
+exigir un recuento *y* un intervalo.
+
+No se publica la contraseña, ni el BSSID, ni un escaneo de las redes vecinas. El
+SSID va en claro y no en hash porque la lista de redes propias que mantiene el
+operador es una lista de **nombres**, y un SSID lo emite el propio AP en abierto.
+
+Para qué sirven: para que el **servidor** pueda dar de baja la SIM de una unidad
+que ya se ha asentado en la red de su hospital. El firmware publica hechos y no
+lleva ni el umbral ni la lista de redes — ver la nota operativa en
+`thingsboard_dashboards.md` §9.
 
 ---
 

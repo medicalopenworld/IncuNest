@@ -43,9 +43,9 @@ Run `pio` from PowerShell, never from MSYS/Git Bash — a run under MSYS reports
 
 ## 6. Documentation
 
-- [ ] 6.1 Document the five attributes, the `loc_source` key and the two-source location channel in `Firmware/docs/transport_matrix.md`.
-- [ ] 6.2 Add an operational runbook to `Firmware/docs/thingsboard_dashboards.md`: what the attributes mean, the ≥14-day and non-default criteria, the operator-maintained list of the organization's own networks, the mandatory 72-hour re-activation net and why it cannot be dropped, and the Onomondo API details (raw `authorization` header with no `Bearer`, ICCID usable directly as `{id}`).
-- [ ] 6.3 State explicitly in that runbook that already-deployed units need 14 more days from the moment they take this firmware, and that the rule chain must not be armed until the attributes are visibly arriving and plausible across the fleet.
+- [x] 6.1 Document the five attributes, the `loc_source` key and the two-source location channel in `Firmware/docs/transport_matrix.md`.
+- [x] 6.2 Add an operational runbook to `Firmware/docs/thingsboard_dashboards.md`: what the attributes mean, the ≥14-day and non-default criteria, the operator-maintained list of the organization's own networks, the mandatory 72-hour re-activation net and why it cannot be dropped, and the Onomondo API details (raw `authorization` header with no `Bearer`, ICCID usable directly as `{id}`).
+- [x] 6.3 State explicitly in that runbook that already-deployed units need 14 more days from the moment they take this firmware, and that the rule chain must not be armed until the attributes are visibly arriving and plausible across the fleet.
 
 ## 7. Server side (outside this OpenSpec root — tracked here so it is not forgotten)
 
