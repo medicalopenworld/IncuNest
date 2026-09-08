@@ -34,6 +34,8 @@
 #include "PpgSnapshotPublish.h"
 #include "main.h"
 #include "modules/util/tz_source.h"
+#include "modules/util/ip_geoloc.h"
+#include "modules/util/wifi_dwell.h"
 #include "modules/baby_profile/baby_cloud.h"
 #include "modules/baby_profile/baby_profile_store.h"
 #include "modules/util/civil_time.h"
@@ -135,6 +137,15 @@ const OTA_Update_Callback OTAcallback(&progressCallback, &updatedCallback,
 // s_staHasIp lo mantienen los propios manejadores de eventos: es la única
 // fuente que refleja DISCONNECTED/GOT_IP sin pasar por el estado corrupto.
 static volatile bool s_staHasIp = false;
+
+// Posición aproximada por IP, del mismo cuerpo de respuesta que la zona
+// horaria (ensureWifiTimeZoneSynced, más abajo). Vive aquí arriba porque la
+// consume el montaje de telemetría, que va antes en el fichero. Una consulta
+// fallida NO la borra: un fallo transitorio no debe dejar la unidad fuera del
+// mapa hasta el día siguiente.
+static float s_ipLat = 0.0f;
+static float s_ipLon = 0.0f;
+static bool s_ipLocValid = false;
 
 // Registro idempotente de los manejadores de eventos. Vive aparte de
 // wifiInit() porque applyWifiCredentials() también depende de s_staHasIp y
@@ -1037,7 +1048,21 @@ void addTelemetriesToWIFIJSON() {
     addVariableToTelemetryWIFIJSON[LOCATION_LONGTITUD_KEY] = GPRS.longitud;
     addVariableToTelemetryWIFIJSON[LOCATION_LATITUD_KEY] = GPRS.latitud;
     addVariableToTelemetryWIFIJSON[TRI_ACCURACY_KEY] = GPRS.accuracy;
+    addVariableToTelemetryWIFIJSON[LOCATION_SOURCE_KEY] = "gsm";
   }
+#if TX_FEATURE_IP_GEOLOC_WIFI
+  // Sin fix de torre —SIM dada de baja, o el AT que no contesta— se publica el
+  // aproximado por IP bajo LAS MISMAS claves, para que los widgets de mapa que
+  // ya existen sigan mostrando la unidad sin tocar el cuadro de mando. Lo que
+  // cambia es la calidad, y va declarada: tri_accuracy = 25 km y loc_source
+  // "ip". El fix de torre manda siempre; esto solo lo suple.
+  else if (s_ipLocValid) {
+    addVariableToTelemetryWIFIJSON[LOCATION_LONGTITUD_KEY] = s_ipLon;
+    addVariableToTelemetryWIFIJSON[LOCATION_LATITUD_KEY] = s_ipLat;
+    addVariableToTelemetryWIFIJSON[TRI_ACCURACY_KEY] = IP_GEOLOC_ACCURACY_M;
+    addVariableToTelemetryWIFIJSON[LOCATION_SOURCE_KEY] = "ip";
+  }
+#endif
   addVariableToTelemetryWIFIJSON[SKIN_TEMPERATURE_KEY] = roundSignificantDigits(
       in3.temperature[SKIN_SENSOR], TELEMETRIES_DECIMALS);
   addVariableToTelemetryWIFIJSON[AIR_TEMPERATURE_KEY] = roundSignificantDigits(
@@ -1183,6 +1208,99 @@ void addTelemetriesToWIFIJSON() {
 #endif
 }
 
+
+// ── Permanencia en la red WiFi ──────────────────────────────────────────────
+//
+// Por qué se evalúa aquí y no en el manejador de ARDUINO_EVENT_WIFI_STA_GOT_IP:
+// ese callback corre en la tarea de eventos del core, con su propia pila y sin
+// margen para bloquearse, y una escritura en NVS no es gratis. El manejador se
+// queda con lo mínimo —poner s_staHasIp— y el trabajo se hace desde el lazo de
+// la tarea de WiFi, que es donde ya vive todo lo que puede tardar.
+//
+// Reasociarse no cuesta nada: wifi_dwell_update() solo devuelve true cuando el
+// estado cambia de verdad, así que un enlace que parpadea no produce ni una
+// escritura en NVS ni una publicación.
+static WifiDwell s_dwell;
+static bool s_dwellLoaded = false;
+static bool s_wifiAttrsDirty = true; // publicar una vez en cuanto haya broker
+
+static void dwellLoad() {
+  Preferences p;
+  p.begin(NS_WIFI, true);
+  const String s = p.getString(KEY_DWELL_SSID, "");
+  wifi_dwell_clear(&s_dwell); // deja el buffer a cero: garantiza el NUL
+  strncpy(s_dwell.ssid, s.c_str(), WIFI_DWELL_SSID_MAX);
+  s_dwell.firstEpoch = (uint32_t)p.getULong(KEY_DWELL_FIRST, 0);
+  s_dwell.lastDayIndex = (uint32_t)p.getULong(KEY_DWELL_DAY, 0);
+  s_dwell.days = (uint16_t)p.getUShort(KEY_DWELL_DAYS, 0);
+  p.end();
+  s_dwellLoaded = true;
+}
+
+static void dwellSave() {
+  Preferences p;
+  p.begin(NS_WIFI, false);
+  p.putString(KEY_DWELL_SSID, s_dwell.ssid);
+  p.putULong(KEY_DWELL_FIRST, s_dwell.firstEpoch);
+  p.putULong(KEY_DWELL_DAY, s_dwell.lastDayIndex);
+  p.putUShort(KEY_DWELL_DAYS, s_dwell.days);
+  p.end();
+}
+
+static void wifiDwellPoll() {
+  // Una vez por minuto y no en cada pasada: la tarea de OTA corre a 20 Hz
+  // (OTA_TASK_PERIOD_MS = 50) y WiFi.SSID() devuelve un String, o sean veinte
+  // asignaciones de heap por segundo para vigilar algo cuya resolucion util es
+  // el DIA. La primera pasada tras arrancar si es inmediata, para que los
+  // atributos aparezcan en cuanto haya broker. El precio es que un cambio de
+  // red tarda hasta un minuto en verse, lo cual no significa nada frente a un
+  // criterio de catorce dias.
+  static uint32_t s_lastPollMs = 0;
+  if (s_lastPollMs != 0 && millis() - s_lastPollMs < 60000u) return;
+  s_lastPollMs = millis();
+
+  if (!s_dwellLoaded) dwellLoad();
+  const String ssid = WiFi.SSID();
+  // Asociado pero sin SSID legible: no es una asociación que apuntar.
+  if (ssid.length() == 0) return;
+  if (wifi_dwell_update(&s_dwell, ssid.c_str(), (uint32_t)time(nullptr))) {
+    dwellSave();
+    s_wifiAttrsDirty = true;
+    ESP_LOGI(TAG, "WiFi dwell on '%s': %u distinct UTC days", s_dwell.ssid,
+             (unsigned)s_dwell.days);
+  }
+}
+
+// Atributos de cliente, no telemetría: al servidor le interesa el valor actual
+// y no una serie temporal, y así no consumen del presupuesto de
+// THINGSBOARD_FIELDS_AMOUNT.
+//
+// Se publica el nombre de la red y NADA más: ni la contraseña, ni el BSSID, ni
+// un escaneo de las redes vecinas. En claro y no en hash porque la lista de
+// redes propias de la organización que mantiene el operador es una lista de
+// NOMBRES, y un SSID lo emite el propio AP en abierto de todas formas.
+static void publishWifiDwellAttributes() {
+  if (!s_wifiAttrsDirty) return;
+
+  char ssid[WIFI_DWELL_SSID_MAX + 1];
+  wifi_dwell_sanitize_ssid(s_dwell.ssid, ssid, sizeof(ssid));
+
+  StaticJsonDocument<256> doc;
+  doc[WIFI_SSID_KEY] = ssid;
+  // La SSID compilada es la de fábrica: mientras sea esa, nadie ha
+  // aprovisionado el equipo y no puede estar en su destino.
+  doc[WIFI_IS_DEFAULT_KEY] = (strcmp(s_dwell.ssid, WIFI_SSID) == 0);
+  doc[WIFI_DWELL_DAYS_KEY] = s_dwell.days;
+  doc[WIFI_DWELL_SINCE_KEY] = s_dwell.firstEpoch;
+  doc[WIFI_DWELL_SPAN_KEY] =
+      wifi_dwell_span_days(&s_dwell, (uint32_t)time(nullptr));
+
+  char json[256];
+  if (serializeJson(doc, json, sizeof(json)) == 0) return;
+  // La marca se limpia SOLO si el broker lo aceptó, igual que hace
+  // publishBabyCloudDataWIFI(): si falla, se reintenta en el siguiente ciclo.
+  if (tb_wifi.sendAttributeJson(json)) s_wifiAttrsDirty = false;
+}
 
 // Publishes queued baby lifecycle events and the current-occupant attributes.
 // Peek -> send -> pop: an event is only dropped once the broker accepted it,
@@ -1330,18 +1448,30 @@ static void ensureWifiTimeStarted() {
 // manipulase la respuesta es un reloj de pantalla desplazado.
 static void ensureWifiTimeZoneSynced() {
   static uint32_t s_lastAttemptMs = 0;
-  // Si NITZ ya la resolvió no hay nada que preguntar: la antena está donde
-  // está el equipo y una IP puede ser de una VPN o de otro país. Además
-  // tz_source_set() nunca deja que IP pise a NITZ, así que consultar aquí
-  // sería tirar peticiones HTTP sin ningún efecto.
-  if (tz_source_origin() == TZ_SOURCE_NITZ)
+  // Si NITZ ya resolvió la zona no hay nada que preguntar sobre ella: la
+  // antena está donde está el equipo y una IP puede ser de una VPN o de otro
+  // país. Además tz_source_set() nunca deja que IP pise a NITZ.
+  const bool tzNeeded = (tz_source_origin() != TZ_SOURCE_NITZ);
+  // Pero la misma consulta puede seguir haciendo falta para la POSICIÓN: sin fix
+  // de torre —SIM dada de baja, o un AT+CIPGSMLOC que no contesta— es la única
+  // fuente que queda, y TX_FEATURE_TRIANGULATION_WIFI está a 0 porque el WiFi
+  // no puede producir un fix de torre. Ver modules/util/ip_geoloc.h.
+#if TX_FEATURE_IP_GEOLOC_WIFI
+  const bool posNeeded = (GPRS.latitud == 0.0f && GPRS.longitud == 0.0f);
+#else
+  const bool posNeeded = false;
+#endif
+  if (!tzNeeded && !posNeeded)
     return;
-  // Mientras no haya zona resuelta se reintenta cada 5 min (45
+  // Mientras no haya nada resuelto se reintenta cada 5 min (45
   // peticiones/minuto es el límite del servicio, de sobra incluso
-  // compartiendo IP con toda una clínica); una vez resuelta se refresca una
+  // compartiendo IP con toda una clínica); una vez resuelto se refresca una
   // vez al día para que un cambio de horario de verano/invierno no se quede
-  // pillado en un equipo que lleve semanas sin reiniciar.
-  uint32_t interval = tz_source_known() ? TX_TIMEZONE_REFRESH_MS : 300000u;
+  // pillado en un equipo que lleve semanas sin reiniciar. Una incubadora de
+  // hospital se mueve muchísimo menos que eso.
+  uint32_t interval = (tz_source_known() || s_ipLocValid)
+                          ? TX_TIMEZONE_REFRESH_MS
+                          : 300000u;
   if (s_lastAttemptMs != 0 && millis() - s_lastAttemptMs < interval)
     return;
   s_lastAttemptMs = millis();
@@ -1352,12 +1482,14 @@ static void ensureWifiTimeZoneSynced() {
   client.setTimeout(5);
   if (!client.connect("ip-api.com", 80))
     return;
-  client.print("GET /json/?fields=status,offset HTTP/1.1\r\n"
+  client.print("GET /json/?fields=status,offset,lat,lon HTTP/1.1\r\n"
                "Host: ip-api.com\r\nConnection: close\r\n\r\n");
 
   // Respuesta minúscula (fields= recorta todo lo demás). Buffer fijo y con
   // tope de tiempo: esto corre en la tarea de OTA y no puede quedarse colgado.
-  char buf[256];
+  // 384 y no 256 desde que el fields= pide también lat/lon: el cuerpo sigue
+  // siendo diminuto, pero el margen se mantiene.
+  char buf[384];
   size_t len = 0;
   uint32_t deadline = millis() + 5000;
   while ((client.connected() || client.available()) && millis() < deadline &&
@@ -1381,6 +1513,21 @@ static void ensureWifiTimeZoneSynced() {
     return;
   body += 4;
 
+  // La posición se saca ANTES del return de la zona: un cuerpo sin offset no
+  // debe tirar también las coordenadas. Un parseo fallido no borra las que ya
+  // hubiera (ver s_ipLocValid).
+#if TX_FEATURE_IP_GEOLOC_WIFI
+  float ipLat = 0.0f;
+  float ipLon = 0.0f;
+  if (ip_geoloc_parse(body, &ipLat, &ipLon)) {
+    s_ipLat = ipLat;
+    s_ipLon = ipLon;
+    s_ipLocValid = true;
+    ESP_LOGI("WiFi", "Position from IP lookup: %.4f, %.4f (+/- %d m)",
+             (double)ipLat, (double)ipLon, IP_GEOLOC_ACCURACY_M);
+  }
+#endif
+
   int quarters = 0;
   if (!tz_parse_ipapi_offset(body, &quarters))
     return;
@@ -1400,6 +1547,12 @@ void WIFI_TB_OTA() {
     // abajo, jamás llegaría a poner en hora ni a resolver la zona horaria.
     ensureWifiTimeStarted();
     ensureWifiTimeZoneSynced();
+#if TX_FEATURE_WIFI_DWELL_WIFI
+    // Fuera del aprovisionamiento a propósito, igual que las dos de arriba: la
+    // permanencia hay que contarla desde el primer día, tenga el equipo token
+    // de ThingsBoard o no. Lo que espera al broker es la publicación.
+    wifiDwellPoll();
+#endif
 
     if (!Wifi_TB.provisioned) {
       if (in3.serialNumber == 0) {
@@ -1436,6 +1589,9 @@ void WIFI_TB_OTA() {
             WIFI_JSON.clear();
           }
           Wifi_TB.serverConnectionStatus = true;
+          // Los atributos son valor-actual: tras una reconexión hay que
+          // reponerlos, aunque la permanencia no haya cambiado.
+          s_wifiAttrsDirty = true;
           for (size_t i = 0; i < WIFI_RPC_CB_COUNT; i++) {
             tb_wifi.RPC_Subscribe(wifi_rpc_callbacks[i]);
           }
@@ -1458,6 +1614,9 @@ void WIFI_TB_OTA() {
           }
           WIFI_JSON.clear();
           publishBabyCloudDataWIFI();
+#if TX_FEATURE_WIFI_DWELL_WIFI
+          publishWifiDwellAttributes();
+#endif
           Wifi_TB.lastMQTTPublish = millis();
         }
         if (millis() - Wifi_TB.lastOTACheck > WIFI_OTA_CHECK_INTERVAL &&

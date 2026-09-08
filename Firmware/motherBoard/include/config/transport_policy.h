@@ -123,6 +123,21 @@
 #define TX_FEATURE_TIME_SYNC_WIFI 1       // SNTP
 #define TX_FEATURE_TRIANGULATION_GPRS 1   // posición por torre; no existe en WiFi
 #define TX_FEATURE_TRIANGULATION_WIFI 0
+// Posición aproximada por IP pública, solo por WiFi. NO es lo mismo que la de
+// arriba y por eso es su propia bandera: TRIANGULATION_WIFI sigue a 0 porque
+// el WiFi no puede producir un fix de torre. Existe porque al dar de baja la
+// SIM de una unidad instalada en un hospital con WiFi propia desaparece la
+// ÚNICA fuente de posición que tiene la flota; esto la mantiene en el mapa con
+// precisión de ciudad. Sale de la consulta a ip-api.com que ya se hace a
+// diario para la zona horaria: ni una petición más. Ver modules/util/ip_geoloc.h.
+#define TX_FEATURE_IP_GEOLOC_GPRS 0
+#define TX_FEATURE_IP_GEOLOC_WIFI 1
+// Permanencia en la red WiFi como atributos de cliente (wifi_ssid,
+// wifi_dwell_days y compañía). Solo por WiFi: una unidad en GPRS no tiene nada
+// que contar aquí. Son ATRIBUTOS y no telemetría, así que no consumen del
+// presupuesto de THINGSBOARD_FIELDS_AMOUNT. Ver modules/util/wifi_dwell.h.
+#define TX_FEATURE_WIFI_DWELL_GPRS 0
+#define TX_FEATURE_WIFI_DWELL_WIFI 1
 // Snapshot PPG. Un snapshot son 400 muestras ≈ 23 KB de JSON.
 // El RPC capturePPG (captura bajo demanda) está en los dos transportes.
 #define TX_FEATURE_PPG_SNAPSHOT_GPRS 1

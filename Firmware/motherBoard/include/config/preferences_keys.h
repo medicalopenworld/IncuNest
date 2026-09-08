@@ -36,6 +36,14 @@ constexpr char KEY_FT_AIR[]      = "ft_air";
 // --------------- Key names: mb_wifi ---------------
 constexpr char KEY_SSID[]     = "ssid";
 constexpr char KEY_PASSWORD[] = "password";
+// Permanencia en la red WiFi (modules/util/wifi_dwell.h). Se escribe SOLO
+// cuando wifi_dwell_update() dice que el estado ha cambiado: como maximo una
+// vez por dia UTC y red, mas una por cambio de red. Un enlace que parpadea no
+// produce ninguna escritura.
+constexpr char KEY_DWELL_SSID[]  = "dw_ssid";
+constexpr char KEY_DWELL_FIRST[] = "dw_first";
+constexpr char KEY_DWELL_DAY[]   = "dw_day";
+constexpr char KEY_DWELL_DAYS[]  = "dw_days";
 
 // --------------- Key names: mb_gprs ---------------
 constexpr char KEY_PROVISIONED[]  = "provisioned";

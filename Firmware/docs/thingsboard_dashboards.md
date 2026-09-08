@@ -265,3 +265,83 @@ TB compara el firmware que reporta el equipo contra el paquete asignado al
 dispositivo o a su perfil. Sin paquete asignado no hay nada con lo que
 sincronizar, así que la columna se queda en *Not synced*. Deja de estarlo al
 asignar un paquete y completarse la descarga.
+
+---
+
+## 9. Baja automática de la SIM de una unidad instalada
+
+Una unidad instalada en un hospital con WiFi propia **ya no usa la SIM para
+nada**: `GPRS_Handler()` deja de publicar telemetría en cuanto hay WiFi
+(`motherBoard/src/tasks/GPRS.cpp`), y el módem solo sigue atado a la red móvil
+para la posición y el reloj. La cuota, en cambio, se sigue pagando. Esta nota
+es el lado servidor de `mb-sim-auto-deactivation`.
+
+### El firmware no decide nada
+
+El equipo publica cinco atributos de cliente y se detiene ahí:
+
+| Atributo | Qué es |
+|---|---|
+| `wifi_ssid` | La red asociada, saneada a ASCII imprimible |
+| `wifi_is_default` | `true` mientras sea la `WIFI_SSID` compilada: nadie ha aprovisionado el equipo |
+| `wifi_dwell_days` | Días UTC **distintos** con esa red |
+| `wifi_dwell_since` | Epoch de la primera asociación con reloj válido; `0` si aún no lo hubo |
+| `wifi_dwell_span_d` | Días transcurridos desde ese epoch |
+
+No lleva el umbral, ni la lista de redes propias, ni la clave de Onomondo, y no
+habla con `api.onomondo.com` fuera del test de fábrica `sim_act`. **La razón es
+que `ONOMONDO_API_KEY` controla TODA la flota y los `firmware.bin` de release
+están publicados en un repo público**: ponerla en el firmware de campo sería
+publicar el control de cada SIM de la organización. La otra razón es que un
+equipo que no puede dar de baja su propia SIM no puede equivocarse al hacerlo.
+
+### La política, y por qué la red de seguridad no es opcional
+
+Dar de baja la SIM cuando la unidad reporte:
+
+- `wifi_is_default` en `false`, **y**
+- `wifi_dwell_days` ≥ **14**, **y**
+- un `wifi_ssid` que **no** esté en la lista de redes propias de la
+  organización (el taller, el aula de formación) que mantiene el operador.
+
+La llamada es `PATCH /sims/{iccid}` con `{"activated":false}`. Detalles de la
+API, comprobados en vivo: la cabecera es `authorization: <clave>` **cruda, sin
+`Bearer`** — con `Bearer` devuelve 401, aunque la spec OpenAPI la etiquete
+`bearerAuth` — y el ICCID vale directamente como `{id}`, sin traducirlo al SIM
+ID de 9 dígitos del portal. Ver la cabecera de
+`motherBoard/src/modules/factory_test/ftest_sim_activation.cpp`.
+
+Y **obligatoriamente**: si tras la baja la unidad no reporta nada durante más de
+**72 h**, reactivar la SIM automáticamente. Una unidad a la que se le ha quitado
+la SIM **no tiene ningún transporte con el que recuperarla**: si el WiFi del
+hospital se cae, se queda sin telemetría, sin posición GSM y sin fuente de
+reloj en el siguiente arranque. El deshacer tiene que vivir donde vive la
+clave. No armes la mitad que da de baja antes de que funcione la que reactiva.
+
+Un atributo **rancio** no es evidencia: si `wifi_dwell_days` lleva sin
+refrescarse más que la ventana de frescura de la política — por ejemplo tras
+bajar de versión el firmware — no se toca la SIM.
+
+### Riesgo aceptado
+
+El único criterio es la permanencia en una red, así que **un montaje o un curso
+que se alargue más de 14 días en la misma red daría de baja la SIM antes de
+tiempo**. Lo que acota el daño son las otras dos piezas: la lista de redes
+propias, que se lleva por delante el caso habitual, y la reactivación a las
+72 h. La posición y las horas de uso (`Control_active_time`) también llegan al
+servidor, así que se pueden añadir al criterio más adelante sin tocar el
+firmware.
+
+### Orden de despliegue
+
+1. El firmware en campo, y los cinco atributos **llegando y con valores
+   plausibles** en toda la flota.
+2. La política en modo solo-informe durante al menos una ventana completa de
+   14 días, revisando unidad por unidad si el sitio que reporta es el que
+   realmente es.
+3. Solo entonces, armar la baja — con la reactivación ya funcionando.
+
+**Toda unidad ya desplegada necesita 14 días más** desde el momento en que toma
+este firmware: las claves de NVS no existían antes, así que el contador arranca
+en la primera asociación posterior a la actualización. Es el comportamiento
+correcto — el firmware no tiene forma de saber cuánto llevaba en esa red.
