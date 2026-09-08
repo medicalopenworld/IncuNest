@@ -24,7 +24,23 @@
 #define ENABLE_WIFI_OTA true // enable wifi OTA
 extern bool OTA_inprogress;
 
-#define OTA_TASK_PRIORITY 4
+// POR DEBAJO de COMM_TASK_PRIORITY (3), la tarea del enlace con la
+// motherBoard. Es el orden que ya sigue la placa (su Communication_Task va a 7
+// y su OTA a 4): el cable no puede ceder ante mantenimiento de red.
+//
+// PubSubClient espera bytes con espera ACTIVA de hasta MQTT_SOCKET_TIMEOUT
+// segundos: readByte() gira en `while(!available()) yield();` y connect() ni
+// eso, gira sin ceder. yield() en Arduino-ESP32 es taskYIELD(), que NO cede a
+// tareas de MENOR prioridad, y WiFiClient::available() es un ioctl que nunca
+// bloquea: no hay ningun punto de espera real donde soltar la CPU. Con esta
+// tarea por encima de Comm y las dos en el mismo core, una caida de la senal
+// WiFi (socket medio abierto, paquete MQTT a medias) dejaba a la tarea Comm
+// sin ejecutar hasta 15 s. Consecuencias, todas vistas en campo: se desborda
+// el anillo de RX y se pierden lineas enteras del protocolo —alarmas
+// incluidas—; aparece BOARD LINK LOST con la placa hablando perfectamente; y
+// como el latido hacia la placa lo manda esa misma tarea, la placa declara
+// ALARM_HMI_LINK_LOST y lo deja escrito en su registro de alarmas.
+#define OTA_TASK_PRIORITY 2
 #define OTA_TASK_PERIOD_MS 50
 #define OTA_TASK_STACK_SIZE 8192
 #define CORE_MONITOR_FREERTOS 0

@@ -45,6 +45,12 @@ AlarmHistoryMsg g_alarmHistory = {0, {}};
 volatile uint32_t g_lastCtrlLineMs = 0;
 volatile bool     g_ctrlEverSeen = false;
 
+// Ultima pasada de Comm_Task. Sin esto, el detector de mas abajo no distingue
+// "la placa lleva 5 s callada" de "llevamos 5 s sin escuchar el cable": mide
+// cuando ESTA tarea vio la ultima linea, no cuando hablo la placa, y cualquier
+// cosa que la deje sin ejecutar 5 s produce un LINK LOST que no existe.
+static volatile uint32_t s_lastCommPassMs = 0;
+
 bool Display_BoardEverSeen(void) { return g_ctrlEverSeen; }
 
 bool Display_IsBoardLinkLost(void) {
@@ -56,10 +62,28 @@ bool Display_IsBoardLinkLost(void) {
   // siempre: sin banner, sin borrar cifras y sin nada que delatase que al otro
   // lado no hay placa. Pasado el margen de arranque, no haber hablado nunca ya
   // no es que venga de camino — es que no esta.
+  const uint32_t now = millis();
   if (!g_ctrlEverSeen) {
-    return millis() > BOARD_LINK_BOOT_GRACE_MS;
+    return now > BOARD_LINK_BOOT_GRACE_MS;
   }
-  return (uint32_t)(millis() - g_lastCtrlLineMs) > BOARD_LINK_TIMEOUT_MS;
+
+  // El silencio que NADIE ha escuchado no es del cable, es nuestro: mientras
+  // la tarea Comm no da una pasada, el anillo de RX puede estar lleno de
+  // lineas sin leer, asi que se descuenta esa ventana en vez de afirmar que la
+  // placa ha enmudecido. Con la tarea corriendo con normalidad `unheard` vale
+  // ~10 ms (COMM_TASK_LOOP_MS) y el plazo sigue siendo BOARD_LINK_TIMEOUT_MS.
+  //
+  // Pero el descuento SE PARA en esa misma ventana: si llevamos mas de
+  // BOARD_LINK_TIMEOUT_MS sin leer el cable, las cifras de la pantalla estan
+  // igual de muertas —sea culpa de la placa o nuestra— y perdonarlo dejaria un
+  // display ciego jurando que todo va bien, que es exactamente el peligro que
+  // este detector existe para evitar. Con la tarea Comm colgada o muerta el
+  // aviso sale, como antes; lo que ya no sale es por un hipo de medio segundo.
+  const uint32_t sinceLine = (uint32_t)(now - g_lastCtrlLineMs);
+  const uint32_t unheard   = (uint32_t)(now - s_lastCommPassMs);
+  if (unheard > BOARD_LINK_TIMEOUT_MS) return true;
+  if (unheard >= sinceLine) return false; // no hemos escuchado nada en absoluto
+  return (sinceLine - unheard) > BOARD_LINK_TIMEOUT_MS;
 }
 
 volatile bool   g_pendingAlarmDesc = false;
@@ -1339,8 +1363,30 @@ void Comm_Task(void *pvParameters) {
   Communication_SendBootInfo();
   Communication_RequestState();
   g_lastStateReqMs = millis();
+  s_lastCommPassMs = millis();
 
   for (;;) {
+    // Contabilidad del enlace, antes de cualquier otra cosa: esta tarea es el
+    // unico oyente del cable, asi que su propia puntualidad es parte del dato.
+    // El descuento de Display_IsBoardLinkLost() cubre el paron MIENTRAS dura;
+    // este desplazamiento cubre el residuo de DESPUES, cuando el anillo de RX
+    // desbordo y no queda ninguna linea completa que estampar. Se reutiliza
+    // COMM_RX_TIMEOUT_MS porque ya significa exactamente esto — "cuanto ha
+    // tardado esta tarea en volver" — y no hace falta un numero nuevo.
+    {
+      const uint32_t nowPass = millis();
+      const uint32_t gap = (uint32_t)(nowPass - s_lastCommPassMs);
+      if (g_ctrlEverSeen && gap > (uint32_t)COMM_RX_TIMEOUT_MS) {
+        // Desplaza el plazo por la ventana no escuchada; como gap se mide
+        // contra la pasada anterior, g_lastCtrlLineMs nunca adelanta a
+        // nowPass. Solo se perdona una ceguera MENOR que la ventana de
+        // silencio, por el mismo motivo que en Display_IsBoardLinkLost().
+        if (gap <= (uint32_t)BOARD_LINK_TIMEOUT_MS) g_lastCtrlLineMs += gap;
+        COMM_LOG("[COMM] %u ms sin drenar el cable\n", (unsigned)gap);
+      }
+      s_lastCommPassMs = nowPass;
+    }
+
     Display_StateSync_Service();
 
 #if IS_HMI
