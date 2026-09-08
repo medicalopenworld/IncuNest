@@ -1,8 +1,11 @@
 #include "ui/TelemetryHistory.h"
 
 #include <cmath>
+#include <cstdio>
+#include <ctime>
 
 #include "esp_heap_caps.h"
+#include "esp_timer.h"
 
 #include "CommTask.h"
 #include "UITask.h"
@@ -20,7 +23,10 @@ extern void ui_add_chart_safe_zone(lv_obj_t *chart, float min_val,
 
 namespace {
 
-// 4 h de techo a 10 s/muestra = 1440 puntos por canal — 1440*3*4 bytes =
+// ---------------------------------------------------------------------------
+// Modelo de datos: una ranura de 10 s por muestra, indice == tiempo.
+//
+// 4 h de techo a 10 s/ranura = 1440 ranuras por canal — 1440*3*4 bytes =
 // ~16.9 KB. Viven en PSRAM, no en .bss: la SRAM interna es el recurso escaso
 // del HMI. Los dos bounce buffers del panel RGB necesitan 38,4 KB contiguos
 // y DMA-capaces CADA UNO, y el driver los pide en UI_Task, despues de que
@@ -34,25 +40,54 @@ namespace {
 // TU — el nombre generico resultaba en "reference to BUFFER_SIZE is
 // ambiguous" al compilar.
 constexpr int HIST_BUF_SIZE = 1440;
-// Por tiempo transcurrido (millis()), no por cuenta de llamadas: RecordSample
-// solo se invoca cuando llega telemetria real (g_pendingTelemetryApply), asi
-// que un contador de llamadas se estira si el bucle de UI coalesce mas de una
-// linea CTRL,TEL entre pasadas. La base de tiempo real evita ese arrastre.
-constexpr uint32_t DECIMATE_MS = 10000;  // ~10 s/muestra
-// Un hueco > 2x el intervalo esperado es un corte real (EMI, reinicio de la
-// placa — known_issues.md #1/#5), no jitter del bucle de UI.
-constexpr uint32_t GAP_THRESHOLD_MS = 2 * DECIMATE_MS;
-// 1h/2h/4h a razon de 1 punto/10s. El ultimo coincide con HIST_BUF_SIZE (el
-// techo del buffer es tambien la ventana mas ancha ofrecida) — referencia la
-// constante en vez de repetir 1440 para que no puedan divergir. 1h primero:
-// es la ventana por defecto (indice 0 del dropdown, sin seleccion explicita).
+// Ranuras de tiempo absolutas (esp_timer / SLOT_MS), no "10 s desde la
+// ultima muestra": con el criterio relativo cada muestra caia 10 s + el
+// periodo de la telemetria despues de la anterior, y ese medio segundo de
+// media acumulado sobre 1440 muestras desplazaba el eje X hasta 12 min. Con
+// ranuras absolutas el indice del buffer ES el tiempo (±10 s), que es lo que
+// hace fiables las lineas de rejilla y las horas del eje.
+constexpr int64_t SLOT_MS = 10000;  // 10 s/ranura
+// 1h/2h/4h en ranuras. El ultimo coincide con HIST_BUF_SIZE (el techo del
+// buffer es tambien la ventana mas ancha ofrecida) — referencia la constante
+// en vez de repetir 1440 para que no puedan divergir. 1h primero: es la
+// ventana por defecto (indice 0 del dropdown, sin seleccion explicita).
 constexpr int WINDOW_POINTS[3] = {360, 720, HIST_BUF_SIZE};
+// Eje X: rejilla vertical cada 15 min en las tres ventanas (90 ranuras) y
+// siempre 5 etiquetas de hora (4 tramos): cada 15 min en 1 h, cada 30 min
+// en 2 h, cada hora en 4 h. Las lineas que coinciden con una etiqueta se
+// pintan mas marcadas que las intermedias (ver onChartDrawPart).
+constexpr int GRID_STEP_SLOTS = 90;
+constexpr int LABEL_SEGMENTS = 4;
+// Lineas horizontales: alineadas con las 3 etiquetas del eje Y (la
+// ui_apply_sparkline_style pone 4, que no cuadran con 3 numeros).
+constexpr uint16_t HDIV_LINES = 3;
 
-// NAN marca "sin dato valido en este instante": medida no disponible
-// (PROTO_TEL_*_UNAVAILABLE), enlace HMI<->motherBoard caido, o hueco de
-// tiempo detectado. Nunca se guarda ni se pinta el centinela crudo de la
-// placa (-999.0/-1) como si fuera una lectura real — PROTOCOL.md es
-// explicito sobre por que eso es un problema de seguridad, no cosmetico.
+// Valores en decimas (36.7 C → 367) para que la traza se mueva con 0.1 C:
+// lv_coord_t es entero y con el rango en grados enteros una variacion de
+// medio grado no se veia hasta cruzar el entero. Las etiquetas del eje Y
+// deshacen la escala en onChartDrawPart.
+constexpr int Y_SCALE = 10;
+
+// Geometria. Las etiquetas del eje Y se dibujan A LA IZQUIERDA DEL PROPIO
+// BORDE del chart (lv_chart.c: draw_y_ticks), asi que lo que importa es el
+// hueco fisico hasta el borde de s_content: con x=14 "40"/"100" se
+// recortaban por la izquierda (822132e). Ancho 672 y no 686: la ultima
+// etiqueta del eje X va centrada en el borde derecho del area de datos y
+// necesita ~16 px mas alla del chart antes de topar con s_content (740).
+constexpr lv_coord_t CHART_X = 44;
+constexpr lv_coord_t CHART_W = 672;
+constexpr lv_coord_t CHART_H = 96;
+// Solo el chart de abajo (humedad) lleva las marcas y horas del eje X: entre
+// un chart y la etiqueta del siguiente hay 6 px, no cabe un eje por chart.
+// Las tres rejillas verticales comparten geometria, asi que la hora leida
+// abajo vale para las tres trazas.
+constexpr lv_coord_t X_TICK_DRAW_SIZE = 24;
+
+// NAN marca "sin dato valido en ese instante": medida no disponible
+// (PROTO_TEL_*_UNAVAILABLE), enlace HMI<->motherBoard caido, ranura sin
+// telemetria. Nunca se guarda ni se pinta el centinela crudo de la placa
+// (-999.0/-1) como si fuera una lectura real — PROTOCOL.md es explicito
+// sobre por que eso es un problema de seguridad, no cosmetico.
 float *s_bufAir = nullptr;
 float *s_bufSkin = nullptr;
 float *s_bufHum = nullptr;
@@ -79,10 +114,12 @@ bool ensureBuffers() {
   return true;
 }
 
-int s_writeIdx = 0;
-int s_sampleCount = 0;
-uint32_t s_lastSampleMs = 0;
+int s_writeIdx = 0;      // siguiente posicion a escribir
+int s_sampleCount = 0;   // ranuras validas en el anillo (incluidas las NAN)
+int64_t s_lastSlot = 0;  // ranura de la ultima muestra escrita (writeIdx-1)
 bool s_haveLastSample = false;
+int64_t s_drawnSlot = -1;  // ranura "ahora" del ultimo repintado
+int s_axisIdx = -1;        // ventana a la que estan configurados los ejes
 
 bool s_isOpen = false;
 
@@ -100,6 +137,13 @@ lv_chart_series_t *s_serHum = nullptr;
 lv_obj_t *s_lblAir = nullptr;
 lv_obj_t *s_lblSkin = nullptr;
 lv_obj_t *s_lblHum = nullptr;
+
+int64_t nowSlot() { return (esp_timer_get_time() / 1000) / SLOT_MS; }
+
+int windowIdx() {
+  uint16_t idx = s_windowDd ? lv_dropdown_get_selected(s_windowDd) : 0;
+  return idx > 2 ? 0 : (int)idx;
+}
 
 // true si algo con mas prioridad debe llevarse la pantalla por delante: una
 // alarma activa (el banner y el icono de AUDIO PAUSED, ambos en
@@ -128,59 +172,154 @@ void onClose(lv_event_t *e) {
   closeScreen();
 }
 
-// Repinta las 3 series desde el buffer circular segun la ventana elegida en
-// el dropdown. Mismo algoritmo que el panel retirado: rango de ejes fijo,
-// solo cambia cuantos puntos recientes se muestran.
+void pushSample(float air, float skin, float hum) {
+  s_bufAir[s_writeIdx] = air;
+  s_bufSkin[s_writeIdx] = skin;
+  s_bufHum[s_writeIdx] = hum;
+  s_writeIdx = (s_writeIdx + 1) % HIST_BUF_SIZE;
+  if (s_sampleCount < HIST_BUF_SIZE) s_sampleCount++;
+}
+
+// Texto de la etiqueta k (0..LABEL_SEGMENTS) del eje X para la ventana idx.
+// Hora local si la placa ya ha mandado la hora (mismo criterio que el reloj
+// del heading: HMI_GetEpochNow + HMI_ToLocal); si no, tiempo hacia atras
+// "-h:mm" ("-0:45", "-2:00") con "0:00" en el borde derecho, que es "ahora".
+void xLabelText(int idx, int k, char *out, size_t outLen) {
+  const int n = WINDOW_POINTS[idx];
+  const int64_t backSec =
+      (int64_t)(n - (n * k) / LABEL_SEGMENTS) * (SLOT_MS / 1000);
+  const uint32_t epoch = HMI_GetEpochNow();
+  if (epoch != 0) {
+    const uint32_t local = HMI_HasLocalTime() ? HMI_ToLocal(epoch) : epoch;
+    const time_t t = (time_t)((int64_t)local - backSec);
+    struct tm tmv;
+    gmtime_r(&t, &tmv);
+    snprintf(out, outLen, "%02d:%02d", tmv.tm_hour, tmv.tm_min);
+    return;
+  }
+  const int mins = (int)(backSec / 60);
+  if (mins == 0)
+    snprintf(out, outLen, "0:00");
+  else
+    snprintf(out, outLen, "-%d:%02d", mins / 60, mins % 60);
+}
+
+// Un solo hook de dibujo para los tres charts:
+//  - etiquetas del eje Y: deshacer Y_SCALE (367 → "36"; LVGL solo sabe
+//    imprimir el entero del rango).
+//  - etiquetas del eje X (solo el chart de humedad las tiene): hora.
+//  - lineas verticales de la rejilla: las que caen en una etiqueta de hora
+//    mas marcadas que las intermedias de 15 min, para que en 4 h (17 lineas)
+//    la hora entera se distinga de un vistazo.
+void onChartDrawPart(lv_event_t *e) {
+  lv_obj_draw_part_dsc_t *dsc = lv_event_get_draw_part_dsc(e);
+  if (!dsc || dsc->class_p != &lv_chart_class) return;
+
+  if (dsc->type == LV_CHART_DRAW_PART_TICK_LABEL && dsc->text) {
+    if (dsc->id == LV_CHART_AXIS_PRIMARY_Y) {
+      lv_snprintf(dsc->text, dsc->text_length, "%d",
+                  (int)(dsc->value / Y_SCALE));
+    } else if (dsc->id == LV_CHART_AXIS_PRIMARY_X) {
+      xLabelText(windowIdx(), (int)dsc->value, dsc->text, dsc->text_length);
+    }
+    return;
+  }
+
+  if (dsc->type == LV_CHART_DRAW_PART_DIV_LINE_VER && dsc->line_dsc) {
+    const int n = WINDOW_POINTS[windowIdx()];
+    const int linesPerLabel = (n / LABEL_SEGMENTS) / GRID_STEP_SLOTS;  // 1/2/4
+    const bool major = (dsc->id % linesPerLabel) == 0;
+    dsc->line_dsc->opa = major ? LV_OPA_40 : LV_OPA_20;
+  }
+}
+
+// Ejes y rejilla para la ventana idx. Solo hace trabajo cuando cambia la
+// ventana: lv_chart_set_point_count realoja las series (y antes se llamaba
+// en cada muestra) y set_axis_tick/set_div_line_count invalidan el chart.
+void applyAxis(int idx) {
+  if (idx == s_axisIdx) return;
+  s_axisIdx = idx;
+  const int n = WINDOW_POINTS[idx];
+  const uint16_t vdiv = (uint16_t)(n / GRID_STEP_SLOTS + 1);  // 5/9/17
+  const uint16_t minor =
+      (uint16_t)((n / LABEL_SEGMENTS) / GRID_STEP_SLOTS);  // 1/2/4
+  lv_obj_t *charts[3] = {s_chartAir, s_chartSkin, s_chartHum};
+  for (lv_obj_t *c : charts) {
+    lv_chart_set_point_count(c, (uint16_t)n);
+    lv_chart_set_div_line_count(c, HDIV_LINES, vdiv);
+  }
+  lv_chart_set_axis_tick(s_chartHum, LV_CHART_AXIS_PRIMARY_X, 6, 3,
+                         LABEL_SEGMENTS + 1, minor, true, X_TICK_DRAW_SIZE);
+}
+
+// Repinta las 3 series desde el anillo. El punto j (0..N-1) del chart es la
+// ranura now-(N-1)+j: el eje X es siempre la ventana completa y los datos
+// quedan pegados al borde derecho ("ahora"). Con el equipo recien encendido
+// se ve la ventana vacia con 10 min de traza a la derecha, no 10 min
+// estirados a todo el ancho como si fueran 4 h. Y si el enlace lleva un
+// rato caido, la traza se va desplazando a la izquierda con el tiempo
+// (TelemetryHistory_Poll repinta al cambiar de ranura) en vez de quedarse
+// pegada al borde fingiendo ser actual.
+//
+// Escribe y_points[] directamente y refresca una vez por chart: la version
+// anterior encadenaba lv_chart_set_next_value, que en modo SHIFT invalida el
+// chart ENTERO dos veces por punto — 8640 invalidaciones por repintado con
+// la ventana de 4 h, cada una con consultas de estilo en PSRAM. Eso era el
+// "va lenta" con la vista abierta, y de paso tenia bloqueada LVGL_Lock (y
+// con ella la tarea Comm) durante el repintado.
 void redraw() {
   if (!s_chartAir || !s_serAir || !s_serSkin || !s_serHum) return;
+  const int64_t t0 = esp_timer_get_time();
 
-  uint16_t idx = lv_dropdown_get_selected(s_windowDd);
-  if (idx > 2) idx = 0;
-  int point_count = WINDOW_POINTS[idx];
-  if (point_count > s_sampleCount) point_count = s_sampleCount;
+  const int idx = windowIdx();
+  const int n = WINDOW_POINTS[idx];
+  const int64_t now = nowSlot();
+  s_drawnSlot = now;
+  applyAxis(idx);
 
-  int drawCount = point_count > 0 ? point_count : 1;
-  lv_chart_set_point_count(s_chartAir, drawCount);
-  lv_chart_set_point_count(s_chartSkin, drawCount);
-  lv_chart_set_point_count(s_chartHum, drawCount);
-
-  for (int i = 0; i < drawCount; i++) {
-    s_serAir->y_points[i] = LV_CHART_POINT_NONE;
-    s_serSkin->y_points[i] = LV_CHART_POINT_NONE;
-    s_serHum->y_points[i] = LV_CHART_POINT_NONE;
-  }
+  lv_coord_t *yAir = s_serAir->y_points;
+  lv_coord_t *ySkin = s_serSkin->y_points;
+  lv_coord_t *yHum = s_serHum->y_points;
   s_serAir->start_point = 0;
   s_serSkin->start_point = 0;
   s_serHum->start_point = 0;
 
-  // Sin datos aun (equipo recien encendido) o sin buffer: dejar los ejes
-  // vacios en vez de dibujar una linea plana en 0, que se leeria como una
-  // medida real.
-  if (point_count > 0 && s_bufAir) {
-    int start_idx = (s_writeIdx - point_count + HIST_BUF_SIZE) % HIST_BUF_SIZE;
-    for (int i = 0; i < point_count; i++) {
-      int b = (start_idx + i) % HIST_BUF_SIZE;
-      // NAN (medida no disponible / hueco de tiempo) se pinta como
-      // LV_CHART_POINT_NONE: LVGL corta la linea ahi en vez de unir con una
-      // recta que implicaria una medida o continuidad que no hubo.
-      lv_coord_t vAir = std::isnan(s_bufAir[b])
-                            ? LV_CHART_POINT_NONE
-                            : (lv_coord_t)s_bufAir[b];
-      lv_coord_t vSkin = std::isnan(s_bufSkin[b])
-                             ? LV_CHART_POINT_NONE
-                             : (lv_coord_t)s_bufSkin[b];
-      lv_coord_t vHum = std::isnan(s_bufHum[b])
-                             ? LV_CHART_POINT_NONE
-                             : (lv_coord_t)s_bufHum[b];
-      lv_chart_set_next_value(s_chartAir, s_serAir, vAir);
-      lv_chart_set_next_value(s_chartSkin, s_serSkin, vSkin);
-      lv_chart_set_next_value(s_chartHum, s_serHum, vHum);
+  const bool haveData = s_haveLastSample && s_bufAir != nullptr;
+  for (int j = 0; j < n; j++) {
+    lv_coord_t vAir = LV_CHART_POINT_NONE;
+    lv_coord_t vSkin = LV_CHART_POINT_NONE;
+    lv_coord_t vHum = LV_CHART_POINT_NONE;
+    if (haveData) {
+      const int64_t slot = now - (n - 1) + j;
+      const int64_t back = s_lastSlot - slot;  // 0 = ultima muestra escrita
+      if (back >= 0 && back < s_sampleCount) {
+        const int b =
+            (s_writeIdx - 1 - (int)back + 2 * HIST_BUF_SIZE) % HIST_BUF_SIZE;
+        // NAN (medida no disponible / ranura sin telemetria) se pinta como
+        // LV_CHART_POINT_NONE: LVGL corta la linea ahi en vez de unir con
+        // una recta que implicaria una medida o continuidad que no hubo.
+        if (!std::isnan(s_bufAir[b]))
+          vAir = (lv_coord_t)lroundf(s_bufAir[b] * Y_SCALE);
+        if (!std::isnan(s_bufSkin[b]))
+          vSkin = (lv_coord_t)lroundf(s_bufSkin[b] * Y_SCALE);
+        if (!std::isnan(s_bufHum[b]))
+          vHum = (lv_coord_t)lroundf(s_bufHum[b] * Y_SCALE);
+      }
     }
+    yAir[j] = vAir;
+    ySkin[j] = vSkin;
+    yHum[j] = vHum;
   }
 
   lv_chart_refresh(s_chartAir);
   lv_chart_refresh(s_chartSkin);
   lv_chart_refresh(s_chartHum);
+
+  // Medida para el banco: solo se emite con la vista abierta (una linea
+  // cada 10 s). Es el coste de preparar el frame, no de pintarlo — el pintado
+  // lo hace lv_timer_handler y se ve en lcd_diagnostics_log (slow_frames).
+  ESP_LOGI("TelHist", "redraw %d pts, %d muestras, %lld us", n, s_sampleCount,
+           (long long)(esp_timer_get_time() - t0));
 }
 
 void onWindowChanged(lv_event_t *e) {
@@ -200,31 +339,29 @@ lv_obj_t *makeChart(lv_coord_t y, int rangeLo, int rangeHi, double safeLo,
                      double safeHi, lv_color_t color,
                      lv_chart_series_t **outSeries) {
   lv_obj_t *chart = lv_chart_create(s_content);
-  // Las etiquetas del eje Y se dibujan A LA IZQUIERDA DEL PROPIO BORDE del
-  // chart (lv_chart.c: draw_y_ticks, p2.x = obj->coords.x1 - major_len,
-  // label a la izquierda de ahi), no dentro de su padding interno — asi que
-  // lo que de verdad importa es el hueco fisico hasta el borde de s_content,
-  // no pad_left/LV_PART_MAIN (ese no es el "part" que lee label_gap). Con
-  // x=14 solo habia 14 px antes de topar con s_content y "40"/"100" se
-  // recortaban por la izquierda, dejando visible solo el ultimo digito (de
-  // ahi el "todo 0": 20/30/40/10/100 acaban todos en 0). Los charts de
-  // Tiempo Real no lo sufren porque quedan centrados con ~35 px de margen
-  // (771 px de contenedor - 700 px de chart) / 2; aqui se replica ese mismo
-  // margen con numeros, no con centrado, porque el ancho es fijo.
-  lv_obj_set_size(chart, 686, 96);
-  lv_obj_set_pos(chart, 44, y);
+  lv_obj_set_size(chart, CHART_W, CHART_H);
+  lv_obj_set_pos(chart, CHART_X, y);
   lv_chart_set_type(chart, LV_CHART_TYPE_LINE);
-  lv_chart_set_range(chart, LV_CHART_AXIS_PRIMARY_Y, rangeLo, rangeHi);
+  lv_chart_set_range(chart, LV_CHART_AXIS_PRIMARY_Y, rangeLo * Y_SCALE,
+                     rangeHi * Y_SCALE);
   ui_apply_sparkline_style(chart, color);
   // Menos marcas que las 4 de ui_apply_sparkline_style() (pensada para los
   // charts de 280 px de Tiempo Real): con solo 96 px de alto, 4 marcas
   // quedaban muy juntas verticalmente. pad_left aqui SI es el "part"
   // correcto (LV_PART_TICKS, no MAIN): separacion entre la marca y el
-  // numero, no el margen fisico (ese lo da el x=44 de arriba).
+  // numero, no el margen fisico (ese lo da CHART_X).
   lv_obj_set_style_pad_left(chart, 6, LV_PART_TICKS);
+  lv_obj_set_style_pad_bottom(chart, 3, LV_PART_TICKS);  // hueco marca→hora
   lv_chart_set_axis_tick(chart, LV_CHART_AXIS_PRIMARY_Y, 2, 1, 3, 1, true, 34);
-  ui_add_chart_safe_zone(chart, (float)safeLo, (float)safeHi,
-                          (float)rangeLo, (float)rangeHi);
+  // Rejilla visible sobre la tarjeta blanca: los 15/255 de la sparkline
+  // (pensados para el fondo oscuro de Tiempo Real) no se ven aqui. Las
+  // verticales ajustan su opacidad por linea en onChartDrawPart.
+  lv_obj_set_style_line_opa(chart, LV_OPA_30, LV_PART_MAIN);
+  lv_obj_add_event_cb(chart, onChartDrawPart, LV_EVENT_DRAW_PART_BEGIN, NULL);
+  ui_add_chart_safe_zone(chart, (float)(safeLo * Y_SCALE),
+                          (float)(safeHi * Y_SCALE),
+                          (float)(rangeLo * Y_SCALE),
+                          (float)(rangeHi * Y_SCALE));
   *outSeries = lv_chart_add_series(chart, color, LV_CHART_AXIS_PRIMARY_Y);
   return chart;
 }
@@ -299,6 +436,11 @@ void TelemetryHistory_Init(void) {
   s_chartHum = makeChart(298, HUM_CHART_MIN, HUM_CHART_MAX, HUM_SAFE_ZONE_MIN,
                          HUM_SAFE_ZONE_MAX, lv_color_hex(0x3B82F6),
                          &s_serHum);
+
+  // Ejes de la ventana por defecto ya en Init: asi la rejilla y las horas
+  // estan listas en la primera apertura sin depender de que redraw() corra
+  // antes del primer frame.
+  applyAxis(windowIdx());
 }
 
 void TelemetryHistory_ApplyLanguage(void) {
@@ -331,7 +473,13 @@ void TelemetryHistory_Open(void) {
 
 void TelemetryHistory_Poll(void) {
   if (!s_isOpen) return;
-  if (mustYield()) closeScreen();
+  if (mustYield()) {
+    closeScreen();
+    return;
+  }
+  // El eje avanza con el reloj aunque no llegue telemetria: un repintado
+  // por ranura (10 s), que con y_points[] directo es barato.
+  if (nowSlot() != s_drawnSlot) redraw();
 }
 
 void TelemetryHistory_RecordSample(float airTempC, bool airOk,
@@ -339,23 +487,21 @@ void TelemetryHistory_RecordSample(float airTempC, bool airOk,
                                     float humPct, bool humOk) {
   if (!ensureBuffers()) return;
 
-  const uint32_t now = millis();
-  if (s_haveLastSample && (now - s_lastSampleMs) < DECIMATE_MS) return;
-
-  // Hueco real detectado (enlace caido varias muestras, reinicio de la
-  // placa — known_issues.md #1/#5): no unir con una linea recta que
-  // implicaria continuidad falsa. Se sacrifica esta muestra como marca de
-  // corte (NAN en los 3 canales); la siguiente ya retoma con normalidad.
-  const bool gap =
-      s_haveLastSample && (now - s_lastSampleMs) > GAP_THRESHOLD_MS;
-  s_lastSampleMs = now;
+  const int64_t slot = nowSlot();
+  if (s_haveLastSample) {
+    // Una muestra por ranura: la primera telemetria de cada 10 s manda.
+    if (slot <= s_lastSlot) return;
+    // Ranuras sin telemetria (enlace caido, reinicio de la placa —
+    // known_issues.md #1/#5): NAN en cada una, para que el hueco ocupe en el
+    // eje X el tiempo que duro de verdad y la traza no lo una con una recta.
+    int64_t missing = slot - s_lastSlot - 1;
+    if (missing > HIST_BUF_SIZE) missing = HIST_BUF_SIZE;
+    for (int64_t i = 0; i < missing; i++) pushSample(NAN, NAN, NAN);
+  }
+  pushSample(airOk ? airTempC : NAN, skinOk ? skinTempC : NAN,
+             humOk ? humPct : NAN);
+  s_lastSlot = slot;
   s_haveLastSample = true;
-
-  s_bufAir[s_writeIdx] = (gap || !airOk) ? NAN : airTempC;
-  s_bufSkin[s_writeIdx] = (gap || !skinOk) ? NAN : skinTempC;
-  s_bufHum[s_writeIdx] = (gap || !humOk) ? NAN : humPct;
-  s_writeIdx = (s_writeIdx + 1) % HIST_BUF_SIZE;
-  if (s_sampleCount < HIST_BUF_SIZE) s_sampleCount++;
 
   // Redibujar solo si esta visible: el mismo ahorro que ya hacia el panel
   // retirado (evitar repintar un chart que nadie esta mirando).
