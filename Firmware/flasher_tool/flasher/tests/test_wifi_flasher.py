@@ -24,11 +24,21 @@ class TestBoardFromHostname:
     def test_motherboard_with_local_suffix(self):
         assert _board_from_hostname('IncuNest-42.local') == Board.MOTHERBOARD
 
-    def test_display_hmi(self):
+    def test_display_hmi_underscore(self):
         assert _board_from_hostname('IncuNest_Display-7') == Board.DISPLAY_HMI
 
     def test_display_hmi_with_local_suffix(self):
         assert _board_from_hostname('IncuNest_Display-7.local') == Board.DISPLAY_HMI
+
+    def test_display_hmi_dash(self):
+        # The spelling the HMI firmware actually advertises (WIFI_NAME).
+        assert _board_from_hostname('IncuNest-Display-7') == Board.DISPLAY_HMI
+
+    def test_display_hmi_dash_with_local_suffix(self):
+        assert _board_from_hostname('IncuNest-Display-7.local') == Board.DISPLAY_HMI
+
+    def test_display_hmi_is_case_insensitive(self):
+        assert _board_from_hostname('incunest-display-7.local') == Board.DISPLAY_HMI
 
     def test_unknown_returns_none(self):
         assert _board_from_hostname('SomeOtherDevice') is None
@@ -129,6 +139,9 @@ class TestSnFromHostname:
     def test_display_hmi_with_local_suffix(self):
         assert _sn_from_hostname('IncuNest_Display-0.local') == 0
 
+    def test_display_hmi_serial_dash(self):
+        assert _sn_from_hostname('IncuNest-Display-7') == 7
+
     def test_motherboard_serial(self):
         assert _sn_from_hostname('IncuNest-42') == 42
 
@@ -146,7 +159,7 @@ class TestSnFromHostname:
 
 from wifi_flasher import (
     discover_boards, _discover_mdns, _discover_subnet,
-    _identify_board_type, _get_fw_version,
+    _identify_board_type, _get_fw_version, _resolve_board,
 )
 
 
@@ -180,6 +193,17 @@ class TestIdentifyBoardType:
     def test_returns_none_on_connection_error(self):
         with patch('wifi_flasher.requests.get', side_effect=Exception('refused')):
             assert _identify_board_type('192.168.1.7') is None
+
+
+class TestResolveBoard:
+    def test_probe_overrides_hostname_guess(self):
+        r = MagicMock(); r.status_code = 200  # /get_freq → HMI
+        with patch('wifi_flasher.requests.get', return_value=r):
+            assert _resolve_board('192.168.1.5', Board.MOTHERBOARD) == Board.DISPLAY_HMI
+
+    def test_hostname_used_when_probe_inconclusive(self):
+        with patch('wifi_flasher.requests.get', side_effect=Exception('refused')):
+            assert _resolve_board('192.168.1.5', Board.DISPLAY_HMI) == Board.DISPLAY_HMI
 
 
 class TestDiscoverBoards:

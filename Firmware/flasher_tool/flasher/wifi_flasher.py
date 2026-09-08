@@ -44,12 +44,20 @@ class WifiBoard:
     sn: Optional[int] = None
 
 
+# The HMI firmware builds its hostname from WIFI_NAME "IncuNest-Display"
+# (Display_HMI/include/main.h) — with a hyphen. Older builds and some field
+# units used an underscore, so both spellings are accepted; matching only the
+# underscore made every HMI fall through to the bare "IncuNest" prefix and be
+# labelled (and flashed!) as a motherBoard.
+_HMI_HOSTNAME_PREFIXES = ('incunest-display', 'incunest_display')
+
+
 def _board_from_hostname(hostname: str) -> Optional[Board]:
     """Parse an mDNS hostname (with or without .local) into a Board type."""
-    name = hostname.split('.')[0]
-    if name.startswith('IncuNest_Display'):
+    name = hostname.split('.')[0].lower()  # mDNS names are case-insensitive
+    if name.startswith(_HMI_HOSTNAME_PREFIXES):
         return Board.DISPLAY_HMI
-    if name.startswith('IncuNest'):
+    if name.startswith('incunest'):
         return Board.MOTHERBOARD
     return None
 
@@ -161,6 +169,17 @@ def _identify_board_type(ip: str, timeout: float = 0.5) -> Optional[Board]:
     return None
 
 
+def _resolve_board(ip: str, hostname_board: Board) -> Board:
+    """Board type for an mDNS hit: the /get_freq probe wins over the hostname.
+
+    The hostname only tells us the device is an IncuNest one; deriving the board
+    from it is a guess about a naming convention, and guessing wrong means
+    pushing motherBoard firmware onto an HMI. The probe is authoritative, so it
+    takes precedence; the hostname is the fallback when the probe is unreachable.
+    """
+    return _identify_board_type(ip) or hostname_board
+
+
 def _discover_mdns(timeout_s: float) -> list[WifiBoard]:
     """Browse mDNS _http._tcp.local for IncuNest services."""
     from zeroconf import Zeroconf, ServiceBrowser, ServiceStateChange
@@ -192,7 +211,7 @@ def _discover_mdns(timeout_s: float) -> list[WifiBoard]:
 
     return [
         WifiBoard(
-            ip=ip, board=board,
+            ip=ip, board=_resolve_board(ip, board),
             fw_version=_get_fw_version(ip),
             hostname=hostname,
             sn=_sn_from_hostname(hostname),
