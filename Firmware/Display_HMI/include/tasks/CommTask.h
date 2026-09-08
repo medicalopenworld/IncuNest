@@ -49,6 +49,13 @@
 // nada en absoluto pasado BOARD_LINK_BOOT_GRACE_MS desde el arranque. Mientras
 // lo sea, las cifras en pantalla estan MUERTAS y no deben mostrarse como si
 // fueran medidas actuales.
+//
+// Del silencio medido se DESCUENTA el tiempo en el que la tarea Comm no ha
+// dado ninguna pasada: ahi nadie estaba leyendo la UART, asi que ese silencio
+// es del display y no de la placa. Afirmar lo contrario producia un LINK LOST
+// fantasma cada vez que algo dejaba a esa tarea sin CPU unos segundos (ver
+// OTA_TASK_PRIORITY en main.h). El descuento se para en BOARD_LINK_TIMEOUT_MS:
+// mas alla de eso las cifras estan muertas de todas formas y el aviso sale.
 bool Display_IsBoardLinkLost(void);
 
 // true en cuanto ha llegado una sola linea valida de la placa. Distinto de
