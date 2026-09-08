@@ -4,10 +4,10 @@ Run `pio` from PowerShell, never from MSYS/Git Bash — a run under MSYS reports
 
 ## 1. Dwell state machine (host-tested, red first)
 
-- [ ] 1.1 Write the failing Unity tests for `wifi_dwell_update()` in motherBoard's native test tree: first association, same-day reassociation reporting no change, later-day increment, non-contiguous days, SSID change reset, 32-byte SSID stored whole, epoch 0 counting nothing, clock arriving after the association, SSID change with an unset clock still resetting and still reporting a change, and twenty same-day associations producing at most one change.
-- [ ] 1.2 Add `motherBoard/src/modules/util/wifi_dwell.{h,cpp}` with the `WifiDwell` struct and `wifi_dwell_update()`, freestanding (`stdint.h`, `string.h` only — no `Arduino.h`, no `Preferences`).
-- [ ] 1.3 Add the SSID sanitizer (bytes outside 0x20–0x7E become `?`) to the same module, with its own failing tests first: control bytes, high bytes, quote and backslash preserved as data, empty SSID, full 32-byte SSID.
-- [ ] 1.4 Extend `build_src_filter` in `[env:native]` (`motherBoard/platformio.ini`) to include `modules/util/wifi_dwell.cpp`, and get `pio test -e native` green.
+- [x] 1.1 Write the failing Unity tests for `wifi_dwell_update()` in motherBoard's native test tree: first association, same-day reassociation reporting no change, later-day increment, non-contiguous days, SSID change reset, 32-byte SSID stored whole, epoch 0 counting nothing, clock arriving after the association, SSID change with an unset clock still resetting and still reporting a change, and twenty same-day associations producing at most one change.
+- [x] 1.2 Add `motherBoard/src/modules/util/wifi_dwell.{h,cpp}` with the `WifiDwell` struct and `wifi_dwell_update()`, freestanding (`stdint.h`, `string.h` only — no `Arduino.h`, no `Preferences`).
+- [x] 1.3 Add the SSID sanitizer (bytes outside 0x20–0x7E become `?`) to the same module, with its own failing tests first: control bytes, high bytes, quote and backslash preserved as data, empty SSID, full 32-byte SSID.
+- [x] 1.4 Extend `build_src_filter` in `[env:native]` (`motherBoard/platformio.ini`) to include `modules/util/wifi_dwell.cpp`, and get `pio test -e native` green.
 
 ## 2. IP geolocation parser (host-tested, red first)
 
