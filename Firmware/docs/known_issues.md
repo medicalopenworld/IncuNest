@@ -113,3 +113,58 @@ build before trusting any observation.
 *   **Recovery**: reflash over USB. A unit running the wrong firmware will not
     reconnect to WiFi with the other board's credential layout, so there is no
     over-the-air way back.
+
+
+## 8. Phantom `BOARD LINK LOST` when the WiFi signal drops
+
+*   **Problem Description**: occasionally — and always correlated with losing
+    WiFi coverage — the HMI painted the `BOARD LINK LOST` banner, blanked every
+    reading and sounded the link-lost pattern, for a few seconds, then
+    recovered on its own. The motherBoard had never stopped talking. The same
+    window also produced phantom `ALARM_HMI_LINK_LOST` entries in the
+    motherBoard's alarm log, because the HMI's 1 Hz keepalive stopped too.
+*   **Reason**: a priority inversion, not a communication fault.
+    `Display_IsBoardLinkLost()` measures *when the Comm task last saw a line*,
+    not when the board last spoke, and the Comm task was the lowest-priority of
+    the three tasks pinned to core 1 (UI 5, OTA/WiFi 4, **Comm 3**).
+    PubSubClient waits for bytes with **busy loops**: `readByte()` spins on
+    `while(!available()) yield();` and `connect()` spins without yielding at
+    all, both for up to `MQTT_SOCKET_TIMEOUT` (15 s by default). `yield()` on
+    Arduino-ESP32 is `taskYIELD()`, which does **not** yield to lower-priority
+    tasks, and `WiFiClient::available()` is a non-blocking `ioctl`, so there is
+    no real blocking point where the CPU is released. A radio drop leaves the
+    TCP socket half-open with a half-received MQTT packet — exactly the input
+    that makes those loops spin — so the OTA task (called every 50 ms from
+    `WifiOTAHandler()`) starved the Comm task for seconds at a time. UART0's
+    1 KB RX ring fills in ~1.5 s, so whole protocol lines were lost as well,
+    alarm lines included (same sink as the factory-test lines, but with a new
+    trigger). No reset: `CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1` is off in
+    the framework's sdkconfig, so a long core-1 stall is benign for the TWDT.
+*   **Mitigation (implemented)**, in three layers:
+    1.  *Order of priorities*: `OTA_TASK_PRIORITY` 4 -> **2**, below
+        `COMM_TASK_PRIORITY` (3). The link with the board cannot yield to
+        network housekeeping; this is the order the motherBoard already used
+        (its `Communication_Task` at 7, its OTA at 4). Cost: a web OTA upload
+        is somewhat slower while the UI is busy.
+    2.  *Bounded busy-wait*: `-D MQTT_SOCKET_TIMEOUT=2` in the three
+        `build_flags` blocks, so a single wait can no longer outlast the 5 s
+        `BOARD_LINK_TIMEOUT_MS` window even if the ordering regresses.
+    3.  *Honest detector*: `Display_IsBoardLinkLost()` now **discounts** the
+        time in which the Comm task did not run at all — nobody was reading the
+        UART then, so that silence belongs to the display, not to the board.
+        The Comm task stamps every pass, and after a stall longer than
+        `COMM_RX_TIMEOUT_MS` it pushes `g_lastCtrlLineMs` forward by the gap
+        (the residue case, where the ring overflowed and no complete line is
+        left to stamp). The discount **stops at `BOARD_LINK_TIMEOUT_MS`**: past
+        that the readings are equally dead whoever is to blame, and forgiving it
+        would leave a blind display swearing everything is fine — the very
+        danger the detector exists to prevent. So a hung or dead Comm task
+        still raises the banner; what no longer does is a half-second hiccup,
+        and a real silence with a healthy Comm task is still declared at
+        `BOARD_LINK_TIMEOUT_MS` exactly as before.
+*   **Bench verification**: with the board connected, power the AP off. Before
+    the fix: `[COMM] anillo RX 7xx/1024 B: la tarea Comm no esta drenando`, a
+    gap of >5 s with no lines, the banner, and an entry in the board's alarm
+    log. After: only the `wifiInit()` retries with their backoff, and at most
+    the new `[COMM] N ms sin drenar el cable` line. `-e wifi_off_test` builds
+    without the WiFi/OTA task at all, as the A/B control.
