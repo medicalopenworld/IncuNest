@@ -988,6 +988,11 @@ void addTelemetriesToGPRSJSON() {
     addVariableToTelemetryGPRSJSON[LOCATION_LONGTITUD_KEY] = GPRS.longitud;
     addVariableToTelemetryGPRSJSON[LOCATION_LATITUD_KEY] = GPRS.latitud;
     addVariableToTelemetryGPRSJSON[TRI_ACCURACY_KEY] = GPRS.accuracy;
+    // Siempre "gsm" por este transporte: por GPRS no hay otra fuente. Se
+    // publica igualmente para que la clave no dependa del transporte —el
+    // aproximado por IP solo existe por WiFi, TX_FEATURE_IP_GEOLOC_*— y una
+    // consulta que la lea no tenga que tratar su ausencia como un caso mas.
+    addVariableToTelemetryGPRSJSON[LOCATION_SOURCE_KEY] = "gsm";
   }
   addVariableToTelemetryGPRSJSON[SKIN_TEMPERATURE_KEY] = roundSignificantDigits(
       in3.temperature[SKIN_SENSOR], TELEMETRIES_DECIMALS);

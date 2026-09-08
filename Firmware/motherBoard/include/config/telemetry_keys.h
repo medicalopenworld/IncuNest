@@ -20,6 +20,12 @@
 #define LOCATION_LONGTITUD_KEY "tri_longitud"
 #define LOCATION_LATITUD_KEY "tri_latitud"
 #define TRI_ACCURACY_KEY "tri_accuracy"
+// Origen del valor publicado en las tres claves de arriba: "gsm" para el fix
+// de torre del modem, "ip" para el aproximado por IP publica. Las claves de
+// posicion se reutilizan a proposito para que los widgets de mapa sigan
+// funcionando cuando una unidad se queda sin SIM; esta dice de que calidad es
+// el dato, junto con tri_accuracy. Ver modules/util/ip_geoloc.h.
+#define LOCATION_SOURCE_KEY "loc_source"
 #define UI_LANGUAGE_KEY "UI_language"
 // Skin_CAP retired: raw capacitance was a bring-up diagnostic, not
 // clinical data. The probe state already travels in CTRL,TEL.
@@ -167,3 +173,18 @@
 // Posiciones de sensor que sostienen la temperatura de aire (3, 2 o 1). Si
 // baja, la redundancia se esta perdiendo aunque la incubadora siga midiendo.
 #define SB_ENV_USED_KEY "sb_env_used"
+
+// Permanencia en la red WiFi. ATRIBUTOS de cliente, no telemetria: al
+// servidor le interesa el valor actual y no una serie temporal, y asi no
+// consumen del presupuesto de THINGSBOARD_FIELDS_AMOUNT. Solo por WiFi: una
+// unidad en GPRS no tiene nada que contar aqui.
+//
+// Existen para que el SERVIDOR pueda decidir por su cuenta que una unidad se
+// ha asentado en la red de su hospital y dar de baja su SIM. El firmware
+// publica hechos y no lleva ni el umbral ni la lista de redes propias: ver
+// modules/util/wifi_dwell.h y la nota operativa de docs/thingsboard_dashboards.md.
+#define WIFI_SSID_KEY "wifi_ssid"
+#define WIFI_IS_DEFAULT_KEY "wifi_is_default"
+#define WIFI_DWELL_DAYS_KEY "wifi_dwell_days"
+#define WIFI_DWELL_SINCE_KEY "wifi_dwell_since"
+#define WIFI_DWELL_SPAN_KEY "wifi_dwell_span_d"
