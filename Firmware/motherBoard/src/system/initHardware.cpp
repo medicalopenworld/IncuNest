@@ -161,6 +161,9 @@ extern PID humidityControlPID;
 #define INA3221_ONE_CYCLE_SETTLE_MS 200
 // USB_FAULT GPIO latches within ~50ms of USB_EN assertion; 100ms gives 2x margin.
 #define USB_FAULT_SETTLE_MS 100
+// Startup beep duration: clearly audible but not drawn out.
+#define BUZZER_BEEP_DURATION_MS 300
+
 #define NTC_BABY_MIN 1
 #define NTC_BABY_MAX 60
 #define DIG_TEMP_ROOM_MIN 1
@@ -529,12 +532,15 @@ void testBuzzer() {
   ledcWrite(BUZZER_PWM_CHANNEL, 0);
   vTaskDelay(pdMS_TO_TICKS(CURRENT_STABILIZE_TIME_DEFAULT));
   #else
-  // A partir de la HW17 el zumbador NO comparte shunt con SYSTEM_SHUNT_CHANNEL,
-  // asi que aqui no habia medida que hacer: lo que quedaba era un pitido de
-  // 300 ms sin valor diagnostico (testCurrent seguia a 0.0 y la comparacion de
-  // abajo con BUZZER_CONSUMPTION_MIN == 0 nunca fallaba). Se retira por
-  // peticion: el arranque debe ser silencioso.
-  ledcWrite(BUZZER_PWM_CHANNEL, 0);
+  // En HW>=17 el zumbador no comparte shunt con SYSTEM_SHUNT_CHANNEL, asi que
+  // aqui no hay corriente que medir: testCurrent se queda en 0.0 y la
+  // comparacion de abajo con BUZZER_CONSUMPTION_MIN == 0 no puede declarar
+  // DEFECTIVE_BUZZER. El pitido se mantiene a proposito: es la unica
+  // comprobacion audible que recibe el operador de que el zumbador de alarmas
+  // funciona antes de usar la incubadora. No lo retires por ruido.
+    ledcWrite(BUZZER_PWM_CHANNEL, BUZZER_HALF_PWM);
+    vTaskDelay(pdMS_TO_TICKS(BUZZER_BEEP_DURATION_MS));
+    ledcWrite(BUZZER_PWM_CHANNEL, 0);
   #endif
   if (testCurrent < BUZZER_CONSUMPTION_MIN) {
     addErrorToVar(HW_error, DEFECTIVE_BUZZER);
