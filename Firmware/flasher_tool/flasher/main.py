@@ -49,10 +49,53 @@ def get_firmware_base() -> Path:
     return Path(__file__).parent.parent / 'data' / 'firmware'
 
 
-def get_logo_path() -> Path:
+def get_asset_path(*parts: str) -> Path:
+    """Ruta de un asset empaquetado, tanto congelado (PyInstaller) como en fuente."""
     if getattr(sys, 'frozen', False):
-        return Path(getattr(sys, '_MEIPASS', '')) / 'logo' / 'IncuNest_logo.png'
-    return Path(__file__).parent / 'logo' / 'IncuNest_logo.png'
+        return Path(getattr(sys, '_MEIPASS', '')).joinpath(*parts)
+    return Path(__file__).parent.joinpath(*parts)
+
+
+def get_logo_path() -> Path:
+    return get_asset_path('logo', 'IncuNest_logo.png')
+
+
+def get_icon_path() -> Path:
+    """Icono de ventana/barra de tareas. El .ico lleva 16..256 px; ver logo/make_icon.py."""
+    return get_asset_path('logo', 'IncuNest_icon.ico')
+
+
+def apply_window_icon(root: tk.Tk) -> None:
+    """Pone el icono de IncuNest en la ventana, la barra de tareas y los dialogos.
+
+    En Windows el .ico multiresolucion es el que da un icono nitido en la barra
+    de tareas; en el resto de plataformas Tk solo acepta el PNG via iconphoto.
+    `default=True` hace que lo hereden los Toplevel (dialogo de numero de serie,
+    updater), asi que no hay que repetirlo en cada uno.
+    """
+    ico = get_icon_path()
+    if sys.platform.startswith('win') and not getattr(sys, 'frozen', False):
+        # Sin esto, ejecutando desde fuente la barra de tareas agrupa la ventana
+        # bajo python.exe y pinta su icono. El .exe congelado ya trae el suyo.
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                'medicalopenworld.incunest.flasher')
+        except Exception:
+            pass
+    if sys.platform.startswith('win') and ico.exists():
+        try:
+            root.iconbitmap(default=str(ico))
+            return
+        except tk.TclError:
+            pass  # Tk sin soporte de .ico: cae al PNG
+    png = get_asset_path('logo', 'IncuNest_icon.png')
+    if png.exists():
+        try:
+            root._icon_img = ImageTk.PhotoImage(Image.open(png))  # evita el GC
+            root.iconphoto(True, root._icon_img)
+        except Exception:
+            pass  # sin icono no se rompe nada; el logo de la columna sigue ahi
 
 
 def load_config() -> dict:
@@ -645,6 +688,7 @@ class FlasherApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("IncuNest Firmware Flasher")
+        apply_window_icon(self.root)
         # Two columns: left = logo / status / local binaries / shared log,
         # right = USB-WiFi notebook. Clamp to the screen and let the user
         # resize; the shared log absorbs any extra height.

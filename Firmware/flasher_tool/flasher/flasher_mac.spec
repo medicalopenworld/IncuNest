@@ -8,6 +8,8 @@ a = Analysis(
     binaries=[],
     datas=[
         ('logo/IncuNest_logo.png', 'logo'),
+        ('logo/IncuNest_icon.ico', 'logo'),
+        ('logo/IncuNest_icon.png', 'logo'),
     ] + collect_data_files('esptool'),
     hiddenimports=[
         'esptool',
@@ -71,12 +73,12 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,
+    icon='logo/IncuNest_icon.png',
 )
 
 app = BUNDLE(
     exe,
     name='IncuNest_Flasher.app',
-    icon=None,
+    icon='logo/IncuNest_icon.png',
     bundle_identifier='com.medicalopenworld.incunestflasher',
 )
