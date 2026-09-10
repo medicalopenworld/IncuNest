@@ -1,8 +1,7 @@
-# Display HMI — proyecto de ESP-IDF.
+# motherBoard — proyecto de ESP-IDF.
 #
-# El arbol de fuentes NO se ha movido: src/ e include/ siguen donde estaban
-# para que el historial de git de 36k lineas se mantenga legible (git log
-# --follow, git blame). Es main/CMakeLists.txt quien los recoge.
+# Igual que en el HMI, src/ e include/ NO se mueven: los recoge
+# main/CMakeLists.txt donde estan, para no romper el historial de git.
 cmake_minimum_required(VERSION 3.16)
 
 set(EXTRA_COMPONENT_DIRS
@@ -12,4 +11,4 @@ set(EXTRA_COMPONENT_DIRS
 )
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-project(display_hmi)
+project(motherboard)

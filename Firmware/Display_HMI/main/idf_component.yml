@@ -22,22 +22,12 @@ dependencies:
     version: "^1.1.0"
     require: public
 
-  ## SDK de ThingsBoard. NO ES UN VENDORIZADO: el proyecto upstream ya trae
-  ## CMakeLists.txt e idf_component.yml, y publica en el registro. Lo unico
-  ## que cambia frente a PlatformIO es que el transporte pasa a ser
-  ## Espressif_MQTT_Client (esp-mqtt) en vez de Arduino_MQTT_Client
-  ## (PubSubClient). Los ficheros Arduino_*.cpp del SDK se compilan igual pero
-  ## su contenido esta bajo #ifdef ARDUINO, asi que quedan vacios.
-  ##
-  ## PINEADO EN =0.13.0, NO "^". El motivo esta documentado en el
-  ## platformio.ini original y sigue vigente: v0.15.0 no compila con NINGUN
-  ## IMQTT_Client porque su propio ThingsBoard.h llama a get_buffer_size(),
-  ## un metodo que la interfaz ya no declara (se partio en
-  ## get_receive_buffer_size()/get_send_buffer_size()). Es un bug del SDK, no
-  ## de nuestra eleccion de version. v0.14.0 compila pero sigue con la API de
-  ## un solo bufer, igual que 0.13.0: no aporta nada.
-  thingsboard/thingsboard:
-    version: "=0.13.0"
+  ## SDK de ThingsBoard: NO se coge del registro, hay copia local parcheada en
+  ## Firmware/components/thingsboard. Motivo, resumido: v0.13.0 no compila
+  ## contra ESP-IDF 6 (mbedtls 4) y no hay ninguna version publicada que si lo
+  ## haga — v0.15.0 esta rota de otra forma y el proyecto no publica desde
+  ## diciembre de 2024. El delta frente a upstream son dos parches, descritos
+  ## en components/thingsboard/PATCHES.md.
 
   ## ArduinoJson 6.x. El SDK de ThingsBoard pide ^6.21.4 y el firmware pinea
   ## 6.21.5. Se queda en la serie 6 a proposito: la 7 cambia la API entera

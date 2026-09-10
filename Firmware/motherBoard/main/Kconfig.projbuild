@@ -1,0 +1,16 @@
+menu "IncuNest motherBoard"
+
+    config INCUNEST_HW_NUM
+        int "Revision de hardware (HW_NUM)"
+        default 17
+        range 16 18
+        help
+            Revision de la placa. Sustituye a los entornos IncuNest_V17 e
+            IncuNest_V18 de platformio.ini, que solo se diferenciaban en el
+            -DHW_NUM. board.h exige que este definido y cambia pines y
+            periferico segun el valor (ver los bloques #if (HW_NUM >= 17)).
+
+            Se elige con `idf.py menuconfig`, o de una vez con
+            `idf.py -DCONFIG_INCUNEST_HW_NUM=18 build`.
+
+endmenu

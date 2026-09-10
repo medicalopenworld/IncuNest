@@ -74,10 +74,16 @@ CONFIG_COMPILER_OPTIMIZATION_SIZE=y
 # necesita mas de lo que traia Arduino.
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=4096
 
-# --- Volcado de fallo a la particion "coredump", que ya existe en la tabla.
-# Con PlatformIO estaba sin usar: los 64 KB reservados no los escribia nadie.
-# Es de las cosas que motivaron el porte, y no cambia el comportamiento normal
-# del equipo: solo entra en juego cuando ya hay un panic.
+# --- Volcado de fallo a la particion "coredump" de la tabla.
+# Esto YA funcionaba con PlatformIO: el sdkconfig de arduino-esp32 traia
+# COREDUMP_ENABLE_TO_FLASH=y (por eso la nota del CSV de particiones de la
+# motherBoard dice que al HMI ya no le faltaba la particion). Se replican
+# tambien los valores accesorios para no cambiar el formato del volcado ni el
+# consumo de pila del propio volcador.
 CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
 CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
 CONFIG_ESP_COREDUMP_CHECKSUM_CRC32=y
+CONFIG_ESP_COREDUMP_CHECK_BOOT=y
+CONFIG_ESP_COREDUMP_MAX_TASKS_NUM=64
+CONFIG_ESP_COREDUMP_USE_STACK_SIZE=y
+CONFIG_ESP_COREDUMP_STACK_SIZE=1792

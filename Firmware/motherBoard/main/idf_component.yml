@@ -1,0 +1,52 @@
+## Dependencias gestionadas de la motherBoard.
+##
+## Sustituyen a lib_deps de platformio.ini. Las librerias de Arduino que no
+## aparecen aqui es porque el porte las reescribe sobre
+## components/incunest_platform o las elimina.
+##
+## Caso aparte, y anotado para que no se busque: TFT_eSPI NO esta porque era
+## codigo muerto. main.cpp declaraba `TFT_eSPI tft`, tres ficheros la
+## declaraban extern y NADIE la usaba (cero llamadas). La motherBoard ya no
+## tiene pantalla propia: la pantalla es el HMI.
+dependencies:
+  idf:
+    version: ">=5.3"
+
+  ## SDK de ThingsBoard: NO se coge del registro, hay copia local parcheada en
+  ## Firmware/components/thingsboard. Motivo, resumido: v0.13.0 no compila
+  ## contra ESP-IDF 6 (mbedtls 4) y no hay ninguna version publicada que si lo
+  ## haga — v0.15.0 esta rota de otra forma y el proyecto no publica desde
+  ## diciembre de 2024. El delta frente a upstream son dos parches, descritos
+  ## en components/thingsboard/PATCHES.md.
+
+  ## ArduinoJson 6.x, pineada igual que antes. La usan el SDK de ThingsBoard,
+  ## GPRS.cpp y el codec JSON del enlace con la SensorBoard (que ademas es lo
+  ## que permite probarlo en host).
+  bblanchon/arduinojson:
+    version: "~6.21.5"
+
+  ## esp-mqtt: en ESP-IDF 6 dejo de venir dentro del arbol de IDF.
+  espressif/mqtt:
+    version: "^1.1.0"
+    require: public
+
+  ## mDNS, que sustituye a ESPmDNS de Arduino.
+  espressif/mdns:
+    version: "^1.8.0"
+
+  ## LittleFS. Sustituye a la LittleFS de arduino-esp32 y monta LA MISMA
+  ## particion, la etiquetada "spiffs", sin reformatear: ahi viven los
+  ## perfiles de bebe y el archivo de pesos de una unidad ya desplegada.
+  joltwallet/littlefs:
+    version: "^1.16.0"
+
+  ## Pila de USB Host. Tambien salio del arbol de IDF en la version 6.
+  ## La usa el enlace con la SensorBoard: src/system/cdc_acm_host.c y
+  ## usb_host_ch34x_vcp.cpp son copias vendorizadas de los componentes de
+  ## Espressif que ya estaban en el repo y ya eran IDF nativo (no Arduino).
+  ## Candidato a sustituir por los componentes gestionados
+  ## espressif/usb_host_cdc_acm y espressif/usb_host_ch34x_vcp, pero eso es
+  ## un cambio aparte: aqui solo se le da a esas copias la dependencia que
+  ## antes ponia el framework.
+  espressif/usb:
+    version: "^1.0.0"

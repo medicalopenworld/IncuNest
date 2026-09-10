@@ -1,0 +1,78 @@
+# motherBoard (ESP32-S3) — ESP-IDF nativo.
+#
+# ORIGEN: igual que en el HMI, esto no son preferencias sino la traduccion de
+# lo que regia antes en la placa — platformio.ini mas el sdkconfig con el que
+# venian compiladas las libs de arduino-esp32. OJO: la motherBoard iba con
+# arduino-esp32 2.0.16 (ESP-IDF 4.4), no con la 3.1.0 del HMI. Las dos placas
+# quedan ahora sobre la misma ESP-IDF, que es parte del objetivo del porte.
+
+CONFIG_IDF_TARGET="esp32s3"
+
+# --- Flash: 8 MB DIO a 80 MHz (platformio.ini: flash_mode=dio, f_flash=80M).
+#
+# SIN CONFIRMAR EN HARDWARE: platformio.ini no declaraba board_build.flash_size
+# y heredaba los 8 MB del manifest de esp32-s3-devkitc-1. Si el modulo real es
+# un WROOM-1 N16R8 (como el HMI y la SensorBoard), sobra media flash. Ver la
+# nota de partitions/ESP32S3_8MB.csv: hay que comprobarlo con `esptool.py
+# flash_id` antes de cambiarlo, porque declarar 16 MB sobre un modulo de 8
+# impide el arranque. Se mantiene 8 MB, que es lo que corre hoy.
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+
+# --- CPU a 240 MHz (platformio.ini: f_cpu = 240000000L).
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+
+# --- Sin PSRAM. Este modulo no la lleva; el codigo cuenta con ello
+# (sensorboard_comm.cpp: "esta placa no tiene PSRAM y el buffer sale de la
+# heap interna").
+# CONFIG_SPIRAM is not set
+
+# --- Tabla de particiones existente, sin tocar un offset.
+# La particion se llama "spiffs" pero monta LittleFS, y ahi viven los perfiles
+# de bebe y el archivo de pesos. Ver la nota del propio CSV: renombrarla
+# obligaria a reformatear y se perderian esos datos.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions/ESP32S3_8MB.csv"
+
+# --- FreeRTOS: 1000 Hz.
+# CRITICO, mismo motivo que en el HMI: arduino-esp32 compilaba a 1 kHz y el
+# defecto de ESP-IDF es 100 Hz. Aqui pesa aun mas, porque de este tick cuelgan
+# los lazos de control del calefactor y los plazos de la maquina de alarmas.
+CONFIG_FREERTOS_HZ=1000
+
+# --- Watchdog de tarea: 5 s con panic, igual que traia Arduino.
+# El firmware ademas lo maneja explicitamente (esp_task_wdt en src/).
+CONFIG_ESP_TASK_WDT_EN=y
+CONFIG_ESP_TASK_WDT_INIT=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=5
+CONFIG_ESP_TASK_WDT_PANIC=y
+
+# --- Consola y logs (CORE_DEBUG_LEVEL=3 equivale a INFO).
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_UART_NUM=0
+CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# --- Optimizacion: -Os para ESP-IDF.
+#
+# platformio.ini compilaba el proyecto con `-g3 -O0`, pero eso NO significa que
+# la placa entera fuese sin optimizar: el framework de Arduino venia
+# precompilado con -Os y solo las fuentes del proyecto iban a -O0. Aqui se
+# reproduce ese mismo reparto: la IDF a -Os (esta linea) y las fuentes de
+# main/ a -O0 -g3 (ver main/CMakeLists.txt). Poner -O0 global multiplicaria el
+# tamano del binario contra un slot de app de 2,625 MB.
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+
+# --- Pila de la tarea principal.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=4096
+
+# --- Volcado de fallo a la particion "coredump".
+# Ya funcionaba con PlatformIO (el sdkconfig de arduino-esp32 lo traia
+# activado); la particion se anadio el 2026-09-06 justo por eso.
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
+CONFIG_ESP_COREDUMP_CHECKSUM_CRC32=y
+CONFIG_ESP_COREDUMP_CHECK_BOOT=y
+CONFIG_ESP_COREDUMP_MAX_TASKS_NUM=64
+CONFIG_ESP_COREDUMP_STACK_SIZE=1024
