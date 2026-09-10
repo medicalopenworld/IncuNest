@@ -33,17 +33,26 @@ formación. La **actuación SHALL ser real**: consignas, toggles y fototerapia
 se envían a la motherBoard como en operación normal y el `CTRL,STATE` se
 aplica a la UI (calefactor y lámpara se encienden de verdad, con la cabina
 vacía por el gate clínico). El **bebé SHALL ser virtual**: la lista de
-perfiles del asistente SHALL contener un único bebé de prácticas, ZOE
-(`seq 0xFFFF`), el asistente SHALL rechazar BEBE NUEVO y SALTAR con un
-aviso, y selección, peso y edad SHALL contestarse en local con los mismos
-flags que pone el parser. `CommTask` NO SHALL enviar a la motherBoard
-ninguna trama de perfil (nuevo, selección, peso, edad, alta, canguro) ni de
-hora ni de credenciales WiFi. Las órdenes al sistema de alarmas
+perfiles SHALL contener el bebé de prácticas ZOE (`seq 0xFFFF`) y, si el
+alumno registró uno desde Bebes durante la lección, ese bebé de prácticas
+(`seq 0xFFFE`, con el nombre y las semanas tecleados; un segundo registro en
+la misma lección lo sustituye). El registro desde Bebes SHALL contestarse en
+local con ese `seq` sin enviar nada a la placa; el asistente SHALL rechazar
+BEBE NUEVO y SALTAR con un aviso, y selección, peso y edad SHALL contestarse
+en local con los mismos flags que pone el parser, para ZOE y para el bebé
+registrado. `CommTask` NO SHALL enviar a la motherBoard ninguna trama de
+perfil (nuevo, selección, peso, edad, alta, canguro) ni de hora ni de
+credenciales WiFi, ni la consulta de curva de peso de un bebé de prácticas
+(que SHALL contestarse en local); un `seq` de prácticas NO SHALL salir a la
+placa tampoco con la formación ya apagada. Las órdenes al sistema de alarmas
 (`ALM_SILENCE`, `ALM_TEST`) SHALL seguir saliendo. Los botones de conexión
 WiFi SHALL rechazarse con un aviso. Nada cambiado durante la lección SHALL
-persistirse en NVS. Al salir, la HMI SHALL restaurar el estado local previo
-y enviarlo de inmediato a la placa, que SHALL volver al estado que tenía
-(todo apagado si así estaba); ZOE SHALL desaparecer.
+persistirse en NVS, tampoco el seguimiento del paciente al mando del
+recordatorio de mantenimiento. Al salir, la HMI SHALL restaurar el estado
+local previo y enviarlo de inmediato a la placa, que SHALL volver al estado
+que tenía (todo apagado si así estaba); ZOE y el bebé de prácticas
+registrado SHALL desaparecer, y el perfil recordado por la HMI SHALL volver
+al que había antes de la lección (un paciente registrado, o ninguno).
 
 #### Scenario: Confirmación de cabina vacía antes de actuar
 - **WHEN** el alumno elige una lección interactiva
@@ -84,13 +93,28 @@ y enviarlo de inmediato a la placa, que SHALL volver al estado que tenía
   antes
 - *(Verificación manual en banco.)*
 
-#### Scenario: Solo se puede practicar con ZOE
-- **WHEN** el asistente del bebé se abre durante una lección
+#### Scenario: Solo se puede practicar con bebés de prácticas
+- **WHEN** el asistente del bebé se abre durante una lección en la que no se
+  ha registrado ningún bebé desde Bebes
 - **THEN** la lista muestra únicamente "ZOE - EG 32 sem - 1500 g"
 - **AND** BEBE NUEVO y SALTAR responden con el aviso "En formacion,
   selecciona a ZOE" sin avanzar
 - **AND** seleccionar ZOE lleva al peso, la edad, el rango propuesto y
   APLICAR como con un bebé real
+- *(Verificación manual en banco.)*
+
+#### Scenario: El bebé registrado en la lección es virtual
+- **WHEN** durante la lección 1 el alumno registra a "ANA", 30 semanas, desde
+  Bebes y después enciende el control de temperatura
+- **THEN** Bebes muestra a ANA entre los activos junto a ZOE, el asistente
+  lista a las dos y seleccionar a ANA lleva al peso, la edad, el rango
+  (calculado con 30 semanas) y APLICAR
+- **AND** la motherBoard no recibe `HMI,PROFILE_*` ni
+  `HMI,WEIGHT_HISTORY_REQ,65534` (monitor serie); tocar la tarjeta de ANA en
+  Bebes muestra su curva con un punto (o vacía si no se dio peso)
+- **AND** al terminar la lección, Bebes real no contiene a ANA y el perfil
+  recordado por la HMI es el que había antes de la lección (0 si no había
+  paciente registrado)
 - *(Verificación manual en banco.)*
 
 #### Scenario: ZOE no queda en ningún registro
@@ -213,7 +237,10 @@ salida del bebé; 8 bloqueo de pantalla; 9 tendencia; 10 ajustar la hora;
 (modo formación). Las lecciones 3 (piel) y 4 (humedad) SHALL listarse solo
 si la opción correspondiente está habilitada en Ajustes > Modos; ocultas no
 cuentan en el progreso ni se exigen para el certificado, y la numeración
-visible SHALL ser consecutiva.
+visible SHALL ser consecutiva. La lección 1 SHALL enseñar el registro desde
+la pantalla Bebes (BEBE NUEVO: nombre, semanas, peso o SIN PESO, REGISTRAR)
+y a continuación la selección de ese bebé en el asistente al encender la
+temperatura.
 
 #### Scenario: Humedad deshabilitada en Ajustes
 - **WHEN** el control de humedad está deshabilitado en Ajustes > Modos y el
@@ -221,6 +248,19 @@ visible SHALL ser consecutiva.
 - **THEN** la lección de humedad no aparece, la lista se numera sin hueco y
   el certificado se emite al superar las lecciones visibles
 - **AND** al habilitar la humedad la lección vuelve a aparecer como pendiente
+- *(Verificación manual en banco.)*
+
+#### Scenario: Lección 1, registrar y seguir a un bebé
+- **WHEN** el alumno sigue la lección
+- **THEN** los pasos son: leer qué es el registro (explicar); tocar Bebes;
+  un paso libre por pantalla del flujo de registro (BEBE NUEVO → nombre →
+  semanas de gestación y por qué importan → peso o SIN PESO y REGISTRAR: el
+  bebé aparece en Activos); explorar y cerrar Bebes; encender la temperatura
+  (aparece el asistente); seleccionar al bebé recién registrado, peso, días
+  de vida, APLICAR (paso libre); leer que cada peso nuevo se registra desde
+  el asistente y dibuja la curva en Bebes (explicar); apagar con el toggle;
+  pregunta sobre para qué pide el equipo los datos del bebé
+- **AND** durante toda la lección la motherBoard no recibe `HMI,PROFILE_*`
 - *(Verificación manual en banco.)*
 
 #### Scenario: Lección 2, temperatura por aire
