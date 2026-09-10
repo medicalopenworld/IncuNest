@@ -23,6 +23,13 @@ set(EXTRA_COMPONENT_DIRS
 # tiene que ir ANTES de project(), que es cuando se procesan los componentes.)
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
+# lv_conf.h saca el tick de LVGL de platform/plat_time.h, asi que el propio
+# componente de LVGL tiene que poder encontrar esa cabecera. Va como include
+# global porque LVGL no declara (ni debe declarar) una dependencia de un
+# componente nuestro.
+idf_build_set_property(INCLUDE_DIRECTORIES
+  "${CMAKE_CURRENT_LIST_DIR}/../components/incunest_platform/include" APPEND)
+
 idf_build_set_property(COMPILE_DEFINITIONS "LV_KCONFIG_IGNORE" APPEND)
 idf_build_set_property(COMPILE_DEFINITIONS
   "LV_CONF_PATH=${CMAKE_CURRENT_LIST_DIR}/include/config/lv_conf.h" APPEND)

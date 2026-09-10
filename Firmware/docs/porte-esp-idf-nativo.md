@@ -22,7 +22,7 @@ Objetivo: quitar el framework Arduino de las dos placas y construir con
 | `components/incunest_platform` | 5 | 0 | ✅ |
 | `shared/` | 6 | 0 | ✅ |
 | `components/thingsboard` (parcheado) | 44 | 0 | ✅ |
-| **Display_HMI** | ~100 | **16** | configura y enlaza dependencias |
+| **Display_HMI** | ~100 | **15** | configura y enlaza dependencias |
 | **motherBoard** | ~85 | **37** | configura y enlaza dependencias |
 
 Gate barato para la capa base, sin construir una placa entera:
