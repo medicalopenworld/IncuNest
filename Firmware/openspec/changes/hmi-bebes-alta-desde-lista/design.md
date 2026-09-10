@@ -83,6 +83,24 @@ rango; sin reintento del `PROFILE_NEW` (reintentarlo crearía dos perfiles si
 el primero llegó y el ACK se perdió). Al vencer: toast "Sin respuesta de la
 placa" y recarga de la lista, que es la verdad.
 
+**Respuestas compartidas** (hallazgo de la revisión de seguridad):
+`g_pendingProfileAck` / `g_pendingProfileRange` son las mismas variables que
+consume el asistente, y `CTRL,PROFILE_ACK` no lleva nada con lo que
+comprobar a qué petición responde. Un ACK del registro que llegase tarde
+(espera vencida por un enlace degradado) quedaría puesto y el asistente lo
+adoptaría como el ACK de su `PROFILE_SELECT`: `s_seq` pasaría a ser el bebé
+recién registrado y el rango, el peso y los minutos irían a él. Regla
+aplicada en los dos módulos: **descartar lo pendiente justo antes de cada
+envío** (`submitNew`, `afterRegistered`, el alta, y en el asistente
+`selectExisting` y el `PROFILE_NEW` de las semanas) **y al abandonar una
+espera** (timeout, alarma crítica, cierre: `discardPendingReplies()`).
+
+**Enlace caído**: REGISTRAR con `Display_IsBoardLinkLost()` no envía nada y
+deja al operador en la pantalla de peso con lo tecleado; BEBE NUEVO tampoco
+abre el flujo sin enlace. Con el enlace vivo el resto de la pantalla sigue
+cediendo solo ante alarma crítica, como antes de este cambio (pasar toda la
+pantalla a `mustYield()` es una decisión aparte, anotada en la retro).
+
 ### 2. Guarda de tres activos en la HMI
 
 `s_active.count >= 3` → el botón avisa ("Ya hay 3 bebes activos: da de alta
@@ -91,6 +109,13 @@ desaloje por FIFO como hace con el asistente. En el asistente el desalojo es
 el mal menor (hay una terapia que arrancar); en Bebes el alta con resultado
 clínico está en la misma pantalla y perder un paciente activo con resultado
 "Desconocido" sería un fallo de registro clínico, no una comodidad.
+
+La guarda es **positiva**: solo vale si la lista de activos la contestó la
+placa (`s_activeFromBoard`). Cuando la carga vence, la pantalla pinta "sin
+bebés activos" con `count = 0` por defecto, y una guarda negativa sobre ese
+cero habría dejado pasar el `PROFILE_NEW` con los tres slots llenos de
+verdad (revisión de seguridad). Sin lista real, BEBE NUEVO avisa "Sin
+respuesta de la placa" y no abre.
 
 ### 3. Teclado compartido: `ui/InputKeypad.{h,cpp}`
 
@@ -147,11 +172,28 @@ rellena; `SIM_LIST` devuelve ZOE y, si existe, ese bebé;
 los dos de prácticas (y carga sus semanas y peso para el rango), ZOE en
 cualquier otro caso. `Training_Enter()` lo borra: vive lo que dura la
 lección. `Training_IsPracticeSeq(seq)` sustituye a las comparaciones con
-`TRAINING_BABY_SEQ` en el motor (borrado del perfil recordado al salir) y
-en la lección 1 (objetivo "bebé admitido").
+`TRAINING_BABY_SEQ` en el motor y en la lección 1 (objetivo "bebé
+admitido").
 
 Un segundo registro en la misma lección sobrescribe al primero: la lista de
 prácticas nunca pasa de dos, y la lección solo pide uno.
+
+**Estanqueidad** (revisión de seguridad): la curva de peso de un bebé de
+prácticas también se contesta en local (`Training_SimWeightHistoryReq`: un
+punto con su peso, o ninguno) en vez de mandar `WEIGHT_HISTORY_REQ,65534` a
+la placa; y `CommTask` corta `PROFILE_SELECT` / `PROFILE_WEIGHT` /
+`PROFILE_AGE_MANUAL` con un seq de prácticas aunque la formación ya esté
+apagada, para que el invariante no dependa del orden de `endLesson()`. Lo
+único que sigue saliendo a la placa en formación son las consultas de solo
+lectura del historial archivado (bebés reales dados de alta), que la
+pantalla muestra igual que en operación normal.
+
+**Perfil recordado**: al salir de la lección el motor **restaura** el perfil
+que el asistente recordaba antes de entrar (`BabyWizard_GetSession` /
+`SetSession`) en vez de borrarlo. Borrarlo dejaba, con un paciente
+registrado sin terapia, un flanco `seq → 0` que `Maintenance_Tick()`
+anotaba en NVS como alta falsa (limpieza terminal pendiente) en el primer
+tick tras la lección; ya pasaba con ZOE.
 
 Alternativas descartadas: (a) interceptar REGISTRAR en formación con un
 aviso "no se crea nada" — el alumno no ve el resultado del flujo, que es lo
@@ -184,21 +226,37 @@ Pasos libres por pantalla, como hace la lección 2 con el asistente:
 11. Hacer: apagar la temperatura.
 12. Pregunta (sin cambios).
 
-El SALIR de la franja se esconde también con Bebes abierto en pantalla de
+El SALIR de la franja se esconde también con Bebes en una pantalla de
 teclado (mismo motivo que con el asistente: la barra de espacio queda
-debajo). `mainDialog` incorpora `BabyHistory_IsOpen()`.
+debajo). `mainDialog` incorpora `BabyHistory_GetStep()` en `BH_NEW_NAME` /
+`BH_NEW_GEST` / `BH_NEW_WEIGHT`; con la lista o la gráfica abiertas (tarjeta
+pequeña) el SALIR sigue visible.
 
-### 8. La motherBoard no cambia
+### 8. La motherBoard no cambia; la HMI devuelve el "bebé del asistente"
 
-`PROFILE_NEW` desde Bebes deja `s_wizardSeq = nuevo` en la placa. Efecto:
-si después alguien enciende una terapia y pulsa SALTAR en el asistente, la
-placa sella como activo al último registrado. Hoy ya sella al último
-creado/seleccionado, que puede ser un bebé dado de alta hace días (deuda
-"`s_wizardSeq` no se limpia al dar de alta", ADR-0002). Con selección
-explícita —el camino normal, que el asistente fuerza salvo SALTAR— el sello
-es correcto. No se toca la placa en este cambio; la deuda sigue anotada con
-la misma solución pendiente: limpiar `s_wizardSeq` al dar de alta y no
-sellar con SALTAR.
+`PROFILE_NEW` desde Bebes deja `s_wizardSeq = nuevo` en la placa, y la
+placa sella `s_wizardSeq` como `activeSeq` en el flanco "ninguna terapia →
+alguna" (`CommTask.cpp` de la motherBoard). Hasta ahora el único emisor de
+`PROFILE_NEW` / `PROFILE_SELECT` era el asistente, que corre justo antes de
+encender la terapia, así que `s_wizardSeq` era casi siempre el paciente
+correcto. El registro desde Bebes introduce un emisor que puede correr **con
+terapia en marcha sobre otro bebé** (el caso de uso que la feature promueve:
+ingresar al siguiente mientras el actual sigue bajo terapia). Escenario
+concreto señalado por la revisión de seguridad: terapia sobre A; se registra
+B desde Bebes (`s_wizardSeq = B`); canguro o limpieza apagan todo
+(`activeSeq = 0`); al volver a encender, SALTAR en el asistente sella B: A
+pierde la protección FIFO y los minutos van a B.
+
+Mitigación en la HMI, sin tocar la placa: cuando el registro termina con
+éxito y `BabyWizard_HasLiveSession()` es cierto, Bebes reenvía
+`HMI,PROFILE_SELECT,<seq del bebé en terapia>` (`afterRegistered()`,
+estado `WaitingReselectAck`) y consume su ACK antes de dar el registro por
+hecho. Así `s_wizardSeq` vuelve al bebé de la incubadora. Queda fuera el
+caso en que la HMI no recuerda al bebé en terapia (reinicio de la pantalla
+con la terapia en marcha): entonces `s_wizardSeq` queda en el registrado,
+como hoy quedaría en cualquier seq viejo. La deuda de la placa sigue
+anotada en ADR-0002 con la misma solución pendiente: limpiar `s_wizardSeq`
+al dar de alta y no sellar con SALTAR.
 
 ## Risks / Trade-offs
 
@@ -215,9 +273,20 @@ sellar con SALTAR.
   depende del arreglo pendiente en la motherBoard, sin cambios aquí.
 - **NVS en formación**: `Maintenance_Tick()` sigue `BabyWizard_GetActiveSeq()`
   y anota un cambio de paciente en NVS; con ZOE ya podía ocurrir y con el
-  bebé de prácticas también. Se comprueba en la implementación si el tick
-  corre en formación y, si lo hace, se salta con `Training_IsActive()`
-  (regla de `embedded-display-hmi.md`: efectos fuera del protocolo).
+  bebé de prácticas también. El tick sí corre en formación
+  (`MaintenanceDialog_Poll()` lo llama antes de su propio
+  `Training_IsActive()`), así que se salta con `Training_IsActive()` (regla
+  de `embedded-display-hmi.md`: efectos fuera del protocolo) y, para el
+  flanco posterior a la lección, el motor restaura el perfil recordado
+  (decisión 6).
+- **Historial real en formación**: la sección Archivados de Bebes durante
+  una lección es el historial real (nombres y resultados de pacientes dados
+  de alta), en solo lectura y bajo la franja "FORMACION". Preexistente;
+  queda anotado como riesgo de confusión / privacidad para una decisión
+  aparte (ocultar el archivado en formación sería una línea).
+- **Nombre en blanco**: `InputKeypad_ReadName` recorta espacios y rechaza un
+  nombre vacío o de solo espacios en los dos sitios (registro y asistente):
+  un registro en blanco no se puede editar después.
 
 ## Migration Plan
 

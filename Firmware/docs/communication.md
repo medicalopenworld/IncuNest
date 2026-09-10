@@ -53,8 +53,11 @@ When the interface receives tactile validation of changes (PID slider modified, 
 
 ### A.2 Baby-Profile Wizard & History (`HMI,PROFILE_*`, `HMI,WEIGHT_HISTORY_REQ`)
 Activating AIR or SKIN control launches a mandatory baby-data wizard on the
-HMI; a top-bar "Babies" screen provides discharge (with clinical outcome)
-and per-baby weight-evolution charts. The Motherboard owns all profile
+HMI; a top-bar "Babies" screen registers a new baby on admission (NEW BABY:
+name, gestational weeks, optional admission weight, one REGISTER button that
+sends `PROFILE_NEW` and, with a weight, `PROFILE_WEIGHT`; refused locally
+with three active babies), provides discharge (with clinical outcome) and
+per-baby weight-evolution charts. The Motherboard owns all profile
 persistence (3 active NVS slots + LittleFS audit/weight history) and the
 NTE range calculation (`shared/nte_table`); the HMI only drives screens.
 See `Firmware/PROTOCOL.md` (v2.0.0) for the full message set

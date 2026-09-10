@@ -17,9 +17,22 @@ los activos. Un `CTRL,PROFILE_ACK,0` SHALL mostrarse como registro rechazado
 y volver a la lista. La falta de respuesta durante 3 s SHALL avisar y
 recargar la lista sin reenviar `PROFILE_NEW` (un reenvío podría crear dos
 perfiles). Con tres bebés activos el botón SHALL avisar de que hay que dar de
-alta a uno antes y NO SHALL abrir el flujo. El registro NO SHALL fijar el
-bebé recordado por la HMI como paciente en tratamiento: la identidad del
-bebé bajo terapia la sigue decidiendo el asistente al encender el control.
+alta a uno antes y NO SHALL abrir el flujo; esa guarda SHALL apoyarse solo
+en una lista de activos recibida de la placa: si la carga de la lista venció
+o el enlace con la placa está perdido, BEBE NUEVO SHALL avisar "Sin respuesta
+de la placa" y NO SHALL abrir el flujo, y REGISTRAR con el enlace perdido NO
+SHALL enviar nada y SHALL dejar al operador en la pantalla de peso. Al
+abandonar una espera de respuesta (timeout, alarma crítica, cierre) y justo
+antes de cada envío, la pantalla SHALL descartar cualquier
+`CTRL,PROFILE_ACK` / `CTRL,PROFILE_RANGE` pendiente, para que una respuesta
+tardía no se atribuya a otra petición (del asistente o de esta pantalla). El
+registro NO SHALL fijar el bebé recordado por la HMI como paciente en
+tratamiento: la identidad del bebé bajo terapia la sigue decidiendo el
+asistente al encender el control. Si al registrar hay un bebé bajo terapia
+(`BabyWizard_HasLiveSession()`), la HMI SHALL reenviar
+`HMI,PROFILE_SELECT,<seq del bebé en terapia>` tras el registro y esperar su
+ACK (3 s) antes de dar el registro por hecho, para que la placa vuelva a
+tener al bebé de la incubadora como "bebé del asistente".
 
 #### Scenario: Registro completo con peso
 - **WHEN** el operador toca Bebes, BEBE NUEVO, escribe "ANA", CONTINUAR, 32,
@@ -51,9 +64,30 @@ bebé bajo terapia la sigue decidiendo el asistente al encender el control.
 - *(Verificación manual en banco.)*
 
 #### Scenario: La placa no responde
-- **WHEN** la motherBoard está desconectada y el operador pulsa REGISTRAR
+- **WHEN** la motherBoard deja de responder justo después de pulsar
+  REGISTRAR (enlace aún no declarado perdido)
 - **THEN** a los 3 s aparece "Sin respuesta de la placa", no se reenvía
   `PROFILE_NEW` y la pantalla vuelve a la lista
+- *(Verificación manual en banco.)*
+
+#### Scenario: Sin lista real no se registra
+- **WHEN** la carga de la lista de activos venció (la pantalla muestra "Sin
+  bebes activos" por defecto) o el enlace con la placa está perdido, y el
+  operador toca BEBE NUEVO
+- **THEN** aparece "Sin respuesta de la placa" y el flujo no se abre
+- **AND** con el enlace perdido en la pantalla de peso, REGISTRAR muestra el
+  mismo aviso, no envía nada y el operador sigue en esa pantalla con lo
+  tecleado
+- *(Verificación manual en banco: desconectar la placa antes de abrir Bebes,
+  y desconectarla con la pantalla de peso abierta.)*
+
+#### Scenario: Registro con otro bebé bajo terapia
+- **WHEN** el control de temperatura está activo con el bebé A y el operador
+  registra a B desde Bebes
+- **THEN** la motherBoard recibe `HMI,PROFILE_NEW,B,...` y, tras el ACK,
+  `HMI,PROFILE_SELECT,<seqA>` (monitor serie)
+- **AND** la terapia sigue acreditándose a A; si después se apaga todo y se
+  vuelve a encender con SALTAR, la placa sella a A, no a B (log `baby`)
 - *(Verificación manual en banco.)*
 
 #### Scenario: El bebé registrado se selecciona después en el asistente

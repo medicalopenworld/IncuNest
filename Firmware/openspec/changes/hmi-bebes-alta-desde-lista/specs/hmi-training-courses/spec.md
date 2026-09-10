@@ -16,13 +16,17 @@ BEBE NUEVO y SALTAR con un aviso, y selección, peso y edad SHALL contestarse
 en local con los mismos flags que pone el parser, para ZOE y para el bebé
 registrado. `CommTask` NO SHALL enviar a la motherBoard ninguna trama de
 perfil (nuevo, selección, peso, edad, alta, canguro) ni de hora ni de
-credenciales WiFi. Las órdenes al sistema de alarmas (`ALM_SILENCE`,
-`ALM_TEST`) SHALL seguir saliendo. Los botones de conexión WiFi SHALL
-rechazarse con un aviso. Nada cambiado durante la lección SHALL persistirse
-en NVS. Al salir, la HMI SHALL restaurar el estado local previo y enviarlo de
-inmediato a la placa, que SHALL volver al estado que tenía (todo apagado si
-así estaba); ZOE y el bebé de prácticas registrado SHALL desaparecer, y el
-perfil recordado por la HMI SHALL limpiarse solo si era uno de los dos.
+credenciales WiFi, ni la consulta de curva de peso de un bebé de prácticas
+(que SHALL contestarse en local); un `seq` de prácticas NO SHALL salir a la
+placa tampoco con la formación ya apagada. Las órdenes al sistema de alarmas
+(`ALM_SILENCE`, `ALM_TEST`) SHALL seguir saliendo. Los botones de conexión
+WiFi SHALL rechazarse con un aviso. Nada cambiado durante la lección SHALL
+persistirse en NVS, tampoco el seguimiento del paciente al mando del
+recordatorio de mantenimiento. Al salir, la HMI SHALL restaurar el estado
+local previo y enviarlo de inmediato a la placa, que SHALL volver al estado
+que tenía (todo apagado si así estaba); ZOE y el bebé de prácticas
+registrado SHALL desaparecer, y el perfil recordado por la HMI SHALL volver
+al que había antes de la lección (un paciente registrado, o ninguno).
 
 #### Scenario: Confirmación de cabina vacía antes de actuar
 - **WHEN** el alumno elige una lección interactiva
@@ -79,9 +83,12 @@ perfil recordado por la HMI SHALL limpiarse solo si era uno de los dos.
 - **THEN** Bebes muestra a ANA entre los activos junto a ZOE, el asistente
   lista a las dos y seleccionar a ANA lleva al peso, la edad, el rango
   (calculado con 30 semanas) y APLICAR
-- **AND** la motherBoard no recibe `HMI,PROFILE_*` (monitor serie)
+- **AND** la motherBoard no recibe `HMI,PROFILE_*` ni
+  `HMI,WEIGHT_HISTORY_REQ,65534` (monitor serie); tocar la tarjeta de ANA en
+  Bebes muestra su curva con un punto (o vacía si no se dio peso)
 - **AND** al terminar la lección, Bebes real no contiene a ANA y el perfil
-  recordado por la HMI queda a 0
+  recordado por la HMI es el que había antes de la lección (0 si no había
+  paciente registrado)
 - *(Verificación manual en banco.)*
 
 #### Scenario: ZOE no queda en ningún registro
