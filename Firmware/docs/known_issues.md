@@ -182,3 +182,58 @@ build before trusting any observation.
     and the 5 s telemetry publish, not with the OTA task (which can no longer
     preempt Comm) — the LVGL mutex and the `arduino_events` task at priority 19
     on core 1 are the remaining coupling, 4x under the alarm window.
+
+
+## 9. HMI boot loop on units with saved WiFi credentials (the "OTA server that was never there")
+
+*   **Problem Description**: a deployed Display comes up with a blank screen and
+    reboots roughly every 1.2 s (49 reboots/min measured over serial on unit
+    sn 317). WiFi appears intermittent and the OTA web server is unreachable.
+    Reported from the field; never reproduced on the bench.
+*   **Reason**: startup order. `setup()` used to create the OTA/WiFi task
+    before the UI. With an SSID stored in NVS, WiFi associates at ~300 ms and
+    the WiFi/lwIP stack fragments internal RAM. When `UI_Task` then calls
+    `esp_lcd_new_rgb_panel()` at ~340 ms there is no longer a contiguous
+    internal DMA block for the bounce buffers (two of 38.4 KB), so it returns
+    `ESP_ERR_NO_MEM`, `ESP_ERROR_CHECK` aborts, and the unit loops.
+    Log line: `lcd_rgb_panel_alloc_frame_buffers(185): no mem for bounce buffer`.
+    The largest contiguous internal DMA block drops from ~164 KB at the top of
+    `setup()` to ~86 KB once WiFi is up; the 76.8 KB the panel needs fit by
+    9 KB, so any new static buffer tipped it over. **Free total says nothing
+    here** — there were 133 KB free on a unit that would not boot. Always read
+    `heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA)`.
+*   **Why the bench never saw it**: with no WiFi configured, `GOT_IP` does not
+    arrive before the panel is created and the unit boots fine. It only fires
+    on Displays with saved credentials — that is, on deployed units.
+*   **This is what the Display's "OTA failures" since June 2026 actually were**
+    (diagnosis by @acuesta-mow on PR #28). The update server was not at fault:
+    the Display died before it could serve anything. Any future report of "the
+    Display does not answer over the network" should check the boot loop
+    first — the symptom looks like a connectivity problem and is not one.
+*   **Fix** (`50293a0`, on `dev` since 2026-09-07): `setup()` creates
+    `CreateUITask()` first, then `CreateCommTask()` (its rings are static, so
+    it asks for no large blocks, and starting it early avoids losing the
+    `CTRL,*` lines the board emits while the panel is built), then waits on
+    `UI_IsLcdPanelReady()` up to `LCD_READY_TIMEOUT_MS` (3000 ms; worst real
+    case before the panel is ~740 ms because of the STC8 backlight I2C
+    retries) before `CreateOTATask()`. The timeout is a safety net: a panel
+    that never initialises must not leave the unit without communication to
+    the board. `TelemetryHistory` also moved to PSRAM (-17.3 KB of internal
+    `.bss`), and panel creation stopped aborting outright — it now walks a
+    ladder of 24 -> 16 -> 12 -> 8 -> 0 bounce lines. Margin: 9 KB -> ~87 KB.
+*   **What is verified, and what is not**: on COM62, `50293a0` boots with the
+    full 24 bounce lines, `LCD_DIAG` steady at 43.5 fps and touch working —
+    that is the PSRAM move and the ladder doing the work. The `setup()`
+    barrier itself was **compiled but never flashed**; its own commit message
+    records that the port was absent at the time. The field figures (49
+    reboots/min before, 0 reboots and panel ready at 240 ms after, on
+    CrowPanel 7.0 sn 317) come from @acuesta-mow's equivalent variant on the
+    branch of PR #28, **not** from the build now on `dev`.
+*   **Still open**:
+    *   `dev`'s ordering barrier is pending a flash on a unit with saved
+        credentials, which is the only configuration that reproduces the loop.
+        @acuesta-mow has that unit (sn 317) and is verifying it.
+    *   The bounce ladder is only visible over UART
+        (`RGB panel initialized OK bounce=N lineas`). `g_lcd_bounce_lines` is
+        exposed neither in Settings nor in the factory test, so a deployed
+        unit running with degraded bounce buffers goes unnoticed.
