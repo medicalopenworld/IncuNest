@@ -1,0 +1,23 @@
+## Dependencias gestionadas del HMI.
+##
+## Sustituyen a lib_deps de platformio.ini. Las que no aparecen aqui es porque
+## el porte las elimina (eran envoltorios de Arduino) o las reescribe sobre
+## components/incunest_platform.
+dependencies:
+  idf:
+    version: ">=5.3"
+
+  ## LVGL 8.3. Se mantiene la serie 8.x a proposito: el arbol de src/ui son
+  ## ~14.700 lineas escritas contra la API 8 (lv_disp_drv_t, lv_indev_drv_t...),
+  ## que LVGL 9 rompe entera. Subir de mayor es un proyecto aparte, no parte de
+  ## un cambio de toolchain.
+  lvgl/lvgl:
+    version: "~8.3.11"
+
+  ## esp-mqtt. En ESP-IDF 6 dejo de venir dentro del arbol de IDF y pasa al
+  ## registro de componentes como espressif/mqtt (components/mqtt en la
+  ## instalacion local solo conserva un test_apps vacio, de ahi el aviso
+  ## "does not contain a CMakeLists.txt" al configurar).
+  espressif/mqtt:
+    version: "^1.1.0"
+    require: public

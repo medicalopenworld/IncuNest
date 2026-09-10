@@ -1,0 +1,83 @@
+# Display HMI (CrowPanel Advance 7", ESP32-S3-WROOM-1 N16R8) — ESP-IDF nativo.
+#
+# ORIGEN DE ESTOS VALORES: no son preferencias, son la traduccion de lo que el
+# firmware tenia antes. Cada bloque dice de donde sale, porque varios de ellos
+# deciden si la placa arranca o no.
+#   - platformio.ini del proyecto (flash, PSRAM, particiones)
+#   - el sdkconfig con el que venian compiladas las libs de arduino-esp32
+#     3.1.0, que es el que de verdad regia en la placa
+#
+# Un cambio aqui NO es cosmetico: la reserva de memoria del panel RGB depende
+# de estos valores. Ver el bloque de PSRAM.
+
+CONFIG_IDF_TARGET="esp32s3"
+
+# --- Flash: 16 MB QIO a 80 MHz (platformio.ini: flash_mode=qio, f_flash=80M)
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+
+# --- Tabla de particiones: la que ya usa la flota, sin tocar un offset.
+# La tabla NO viaja en un OTA (ver la cabecera del propio CSV): si estos
+# offsets no coinciden con los de las unidades reflasheadas, el OTA aterriza
+# en la particion equivocada.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions/hmi_16mb_ota.csv"
+
+# --- PSRAM: 8 MB OPI (octal) a 80 MHz.
+# platformio.ini pedia memory_type=qio_opi y psram_type=opi.
+#
+# LOS CUATRO DE ABAJO SON LOS DELICADOS. Salen del sdkconfig de arduino-esp32
+# y gobiernan que acaba en SRAM interna y que en PSRAM. El panel RGB necesita
+# DOS bounce buffers de 38,4 KB CONTIGUOS en SRAM interna DMA-capaz, y el
+# margen medido en banco es de solo ~87 KB (ver la nota de UITask.cpp y
+# src/main.cpp). En particular TRY_ALLOCATE_WIFI_LWIP es lo que saca los
+# buffers de WiFi/LWIP de la SRAM interna; sin el, WiFi se lleva ~85 KB, parte
+# el mayor bloque libre y el panel deja de caber: arranque en bucle con la
+# pantalla negra. No los toques sin volver a medir en banco el mayor bloque
+# contiguo (no el libre total).
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=0
+CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY=y
+
+# --- FreeRTOS: 1000 Hz.
+# CRITICO. arduino-esp32 compilaba con CONFIG_FREERTOS_HZ=1000; el defecto de
+# ESP-IDF es 100. Todo el firmware esta escrito contra un tick de 1 ms: los
+# pdMS_TO_TICKS, los plazos de las tareas de alarma y el ritmo del enlace con
+# la motherBoard. Dejarlo en 100 multiplicaria por 10 la granularidad de cada
+# espera del sistema.
+CONFIG_FREERTOS_HZ=1000
+
+# --- Watchdog de tarea: 5 s con panic, igual que traia Arduino.
+CONFIG_ESP_TASK_WDT_EN=y
+CONFIG_ESP_TASK_WDT_INIT=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=5
+CONFIG_ESP_TASK_WDT_PANIC=y
+
+# --- Consola y logs.
+# CORE_DEBUG_LEVEL=3 de platformio.ini equivale al nivel INFO de ESP-IDF.
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_UART_NUM=0
+CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# --- Optimizacion: -Os, como compilaba Arduino.
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+
+# --- Pila de la tarea principal.
+# app_main solo crea tareas y se queda dormida (antes era loop()), asi que no
+# necesita mas de lo que traia Arduino.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=4096
+
+# --- Volcado de fallo a la particion "coredump", que ya existe en la tabla.
+# Con PlatformIO estaba sin usar: los 64 KB reservados no los escribia nadie.
+# Es de las cosas que motivaron el porte, y no cambia el comportamiento normal
+# del equipo: solo entra en juego cuando ya hay un panic.
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
+CONFIG_ESP_COREDUMP_CHECKSUM_CRC32=y

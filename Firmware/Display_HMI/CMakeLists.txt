@@ -1,11 +1,14 @@
-SET(SOURCES ui_ScreenMain.c
-    ui_ScreenSettings.c
-    ui.c
-    ui_comp_hook.c
-    ui_helpers.c
-    ui_img_bebe_icon_png.c
-    ui_img_1084506651.c
-    ui_img_296721678.c
-    ui_img_1508956403.c)
+# Display HMI — proyecto de ESP-IDF.
+#
+# El arbol de fuentes NO se ha movido: src/ e include/ siguen donde estaban
+# para que el historial de git de 36k lineas se mantenga legible (git log
+# --follow, git blame). Es main/CMakeLists.txt quien los recoge.
+cmake_minimum_required(VERSION 3.16)
 
-add_library(ui ${SOURCES})
+set(EXTRA_COMPONENT_DIRS
+  "${CMAKE_CURRENT_LIST_DIR}/../components/incunest_platform"
+  "${CMAKE_CURRENT_LIST_DIR}/../shared"
+)
+
+include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+project(display_hmi)
