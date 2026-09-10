@@ -182,3 +182,56 @@ build before trusting any observation.
     and the 5 s telemetry publish, not with the OTA task (which can no longer
     preempt Comm) — the LVGL mutex and the `arduino_events` task at priority 19
     on core 1 are the remaining coupling, 4x under the alarm window.
+
+## 9. Phantom `BOARD LINK LOST` of a few ms on every unlock (regression of #8)
+
+*   **Problem Description**: on the bench (2026-09-10), **every** screen unlock
+    produced the same sequence: the maintenance pop-up opened, the link-lost
+    banner appeared with its audible pattern for a few milliseconds, the pop-up
+    closed itself, and everything went back to normal. The motherBoard's alarm
+    log held **no** `ALARM_HMI_LINK_LOST` entry, so unlike #8 the HMI's
+    keepalive never stopped: the board could still hear the display, and the
+    display was the only one claiming the link was gone.
+*   **Reason**: an unsigned underflow in the very discount added as layer 3 of
+    #8's mitigation. The accounting block at the top of `Comm_Task()` measures
+    `gap` from the **header of the previous pass**, but incoming lines are
+    stamped into `g_lastCtrlLineMs` **inside** that pass, by
+    `ReceiveMessageFromOtherESP()`. When the UI task (priority 5) preempts Comm
+    (priority 3) mid-pass and does not hand the CPU back for hundreds of ms,
+    the stamp ends up *later* than the header it will be compared against, so
+    `g_lastCtrlLineMs += gap` double-counts a window already contained in the
+    stamp and pushes it into the **future**. The old code asserted the opposite
+    in a comment ("gap se mide contra la pasada anterior, `g_lastCtrlLineMs`
+    nunca adelanta a `nowPass`"), which is true only if nothing is stamped
+    during the pass. With a future stamp, `now - g_lastCtrlLineMs` wraps around
+    in `Display_IsBoardLinkLost()` and reads as ~49 days of silence, so the
+    detector fires instantly — and clears again as soon as the next `CTRL,TEL`
+    or `CTRL,STATE` (1 Hz each) re-stamps a sane value. Hence "a few ms".
+    The unlock is what makes it reproducible rather than random: repainting the
+    screen and then building the maintenance pop-up (QR render included) are
+    two long UI passes back to back, which is exactly the preemption shape
+    required. The pop-up then closed itself correctly — `mustYield()` in
+    `MaintenanceDialog.cpp` cedes to any active alarm or to a lost link — so
+    the closing pop-up was a symptom, never a second bug.
+*   **Mitigation (implemented)**, in two layers:
+    1.  *Root cause*: the shifted stamp is clamped to `nowPass`, so
+        `g_lastCtrlLineMs` can never move ahead of the pass doing the shifting.
+        The discount still forgives blindness shorter than
+        `BOARD_LINK_TIMEOUT_MS`, exactly as #8 intended.
+    2.  *Defence in depth*: `Display_IsBoardLinkLost()` computes both ages with
+        **signed** arithmetic saturated at 0, so a stamp ahead of `millis()`
+        reads as "just seen" rather than as a wrap-around silence. This
+        detector decides whether a medical device declares its readings dead;
+        it must not depend on every other site in the file being right to the
+        millisecond.
+*   **What did NOT change**: a genuinely silent board is still declared at
+    `BOARD_LINK_TIMEOUT_MS`, and a hung or dead Comm task still raises the
+    banner through the `unheard > BOARD_LINK_TIMEOUT_MS` branch, which the
+    clamp does not touch.
+*   **Bench verification**: with the reminder due (or `Maintenance_SetEnabled`
+    left on with the daily level overdue), lock and unlock the screen several
+    times. Expected after the fix: the pop-up opens and **stays** open, no
+    banner, no beep, no blanked readings. `[COMM] N ms sin drenar el cable` may
+    still appear with N between `COMM_RX_TIMEOUT_MS` and `BOARD_LINK_TIMEOUT_MS`
+    — that line reports the UI stall, which is real and unchanged; what it must
+    no longer do is trigger the alarm.
