@@ -388,9 +388,20 @@ void showList() {
 
   // Registro de un ingreso sin encender ninguna terapia. Mismo azul que el
   // BEBE NUEVO del asistente: es la misma accion vista desde la otra puerta.
-  lv_obj_t *newBtn = makeBtn(body, TR(STR_NEW_BABY_UC), onNewBabyClicked,
+  //
+  // En una fila propia para poder centrarlo: `body` es un flex en columna con
+  // la alineacion por defecto (LV_FLEX_ALIGN_START), asi que un boton mas
+  // estrecho que las tarjetas queda pegado al margen izquierdo. Centrar el
+  // flex entero moveria tambien los rotulos de seccion y las tarjetas. Mismo
+  // patron que la fila de paginacion de mas abajo.
+  lv_obj_t *newRow = lv_obj_create(body);
+  lv_obj_remove_style_all(newRow);
+  lv_obj_set_size(newRow, 600, 50);
+
+  lv_obj_t *newBtn = makeBtn(newRow, TR(STR_NEW_BABY_UC), onNewBabyClicked,
                              lv_color_hex(0x0075EE));
   lv_obj_set_size(newBtn, 300, 50);
+  lv_obj_center(newBtn);
 
   // --- Archived section ---
   lv_obj_t *secH = lv_label_create(body);
