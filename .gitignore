@@ -62,3 +62,4 @@ Regulatory/
 # Python bytecode
 **/__pycache__/
 *.pyc
+Firmware/tools/platform_smoke/build/
