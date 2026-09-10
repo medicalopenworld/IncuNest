@@ -79,8 +79,20 @@ bool Display_IsBoardLinkLost(void) {
   // display ciego jurando que todo va bien, que es exactamente el peligro que
   // este detector existe para evitar. Con la tarea Comm colgada o muerta el
   // aviso sale, como antes; lo que ya no sale es por un hipo de medio segundo.
-  const uint32_t sinceLine = (uint32_t)(now - g_lastCtrlLineMs);
-  const uint32_t unheard   = (uint32_t)(now - s_lastCommPassMs);
+  // Las dos edades se calculan CON SIGNO y se saturan a 0. Un sello por
+  // delante de `now` significa "recien visto", no 49 dias: la resta sin signo
+  // daba la vuelta y convertia un sello adelantado en un silencio enorme, o
+  // sea un BOARD LINK LOST instantaneo con la placa hablando. El
+  // desplazamiento de la contabilidad ya no puede producir ese sello (se topa
+  // en nowPass, ver Comm_Task), pero la guarda se queda aqui: este detector
+  // decide si las cifras de un equipo medico se declaran muertas, y no debe
+  // depender de que ningun otro punto del fichero se equivoque de un ms.
+  const int32_t sinceLineSigned = (int32_t)(now - g_lastCtrlLineMs);
+  const int32_t unheardSigned   = (int32_t)(now - s_lastCommPassMs);
+  const uint32_t sinceLine =
+      sinceLineSigned > 0 ? (uint32_t)sinceLineSigned : 0u;
+  const uint32_t unheard =
+      unheardSigned > 0 ? (uint32_t)unheardSigned : 0u;
   if (unheard > BOARD_LINK_TIMEOUT_MS) return true;
   if (unheard >= sinceLine) return false; // no hemos escuchado nada en absoluto
   return (sinceLine - unheard) > BOARD_LINK_TIMEOUT_MS;
@@ -1392,11 +1404,29 @@ void Comm_Task(void *pvParameters) {
       const uint32_t nowPass = millis();
       const uint32_t gap = (uint32_t)(nowPass - s_lastCommPassMs);
       if (g_ctrlEverSeen && gap > (uint32_t)COMM_RX_TIMEOUT_MS) {
-        // Desplaza el plazo por la ventana no escuchada; como gap se mide
-        // contra la pasada anterior, g_lastCtrlLineMs nunca adelanta a
-        // nowPass. Solo se perdona una ceguera MENOR que la ventana de
-        // silencio, por el mismo motivo que en Display_IsBoardLinkLost().
-        if (gap <= (uint32_t)BOARD_LINK_TIMEOUT_MS) g_lastCtrlLineMs += gap;
+        // Desplaza el plazo por la ventana no escuchada. Solo se perdona una
+        // ceguera MENOR que la ventana de silencio, por el mismo motivo que en
+        // Display_IsBoardLinkLost().
+        //
+        // Y el resultado se topa en nowPass. Aqui estaba el fallo: `gap` se
+        // mide desde la CABECERA de la pasada anterior, pero las lineas se
+        // estampan DENTRO de la pasada, asi que el sello puede ser posterior a
+        // esa cabecera y sumarle el hueco entero lo mandaba al FUTURO. Pasa
+        // siempre que la UI (prioridad 5) desaloja a esta tarea (3) a mitad de
+        // pasada y no le devuelve la CPU hasta pasados cientos de ms: la tarea
+        // arranca su pasada, se queda a medias, drena el cable al final y en la
+        // vuelta siguiente ve un hueco > COMM_RX_TIMEOUT_MS que ya estaba
+        // contado en el propio sello. Con el sello adelantado, la resta sin
+        // signo del detector daba la vuelta y salia un BOARD LINK LOST de unos
+        // ms —banner, cifras en blanco y pitido— con la placa hablando
+        // perfectamente. Banco 2026-09-10: reproducible en CADA desbloqueo,
+        // porque el repintado de la pantalla mas la construccion del pop-up de
+        // mantenimiento (QR incluido) son dos pasadas largas de UI seguidas.
+        if (gap <= (uint32_t)BOARD_LINK_TIMEOUT_MS) {
+          g_lastCtrlLineMs += gap;
+          if ((int32_t)(g_lastCtrlLineMs - nowPass) > 0)
+            g_lastCtrlLineMs = nowPass;
+        }
         COMM_LOG("[COMM] %u ms sin drenar el cable\n", (unsigned)gap);
       }
       s_lastCommPassMs = nowPass;
