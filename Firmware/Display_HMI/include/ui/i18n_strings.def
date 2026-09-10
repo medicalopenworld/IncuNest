@@ -377,6 +377,25 @@ UI_STR(STR_COULD_NOT_FETCH_HISTORY,
                                "Nao foi possivel consultar o historico")
 UI_STR(STR_DISCHARGE_REFUSED,  "Alta rechazada","Discharge refused","Sortie refusee","Alta recusada")
 UI_STR(STR_BABY_DISCHARGED,    "Bebe dado de alta","Baby discharged","Bebe sorti","Bebe com alta")
+// Registro de un bebe nuevo desde la pantalla Bebes (BEBE NUEVO).
+UI_STR(STR_REGISTER_UC,        "REGISTRAR",    "REGISTER",    "ENREGISTRER", "REGISTAR")
+UI_STR(STR_ADMISSION_WEIGHT_G, "Peso al ingreso (gramos)",
+                               "Admission weight (grams)",
+                               "Poids a l'admission (grammes)",
+                               "Peso na admissao (gramas)")
+UI_STR(STR_BABY_REGISTERED,    "Bebe registrado",
+                               "Baby registered",
+                               "Bebe enregistre",
+                               "Bebe registado")
+UI_STR(STR_REGISTER_REFUSED,   "Registro rechazado por la placa",
+                               "Registration refused by the board",
+                               "Enregistrement refuse par la carte",
+                               "Registo recusado pela placa")
+UI_STR(STR_THREE_ACTIVE_DISCHARGE_FIRST,
+       "Ya hay 3 bebes activos: da de alta a uno antes",
+       "3 babies already active: discharge one first",
+       "Deja 3 bebes actifs : faites-en sortir un d'abord",
+       "Ja ha 3 bebes ativos: da alta a um primeiro")
 
 // ------------------------------------------------------- asistente de bebe
 UI_STR(STR_CONTINUE_UC,        "CONTINUAR",    "CONTINUE",    "CONTINUER",   "CONTINUAR")

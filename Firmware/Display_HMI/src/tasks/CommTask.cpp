@@ -314,9 +314,15 @@ void Communication_SendProfileNew(const char *name, uint8_t gestWeeks) {
 
 void Communication_SendProfileSelect(uint32_t seq) {
 #if IS_HMI
-  // En formacion la lista trae solo a ZOE (TRAINING_BABY_SEQ): seleccionarla
-  // se contesta en local con su ACK.
+  // En formacion la lista trae a ZOE (TRAINING_BABY_SEQ) y, si el alumno lo
+  // registro desde Bebes, al segundo bebe de practica: seleccionarlos se
+  // contesta en local con su ACK.
   if (Training_IsActive()) { Training_SimProfileSelect(seq); return; }
+  // Un seq de practica nunca sale a la placa, tampoco con la formacion ya
+  // apagada: si una leccion acabase con una respuesta simulada en vuelo, la
+  // trama que la seguiria se corta aqui en vez de llegar con un seq que la
+  // placa no tiene. Hoy el orden de endLesson() lo impide; esto lo garantiza.
+  if (Training_IsPracticeSeq(seq)) return;
   COMM_SERIAL.printf("HMI,PROFILE_SELECT,%u\n", (unsigned)seq);
 #endif
 }
@@ -333,6 +339,7 @@ void Communication_SendSetTime(int year, int month, int day, int hour,
 void Communication_SendProfileWeight(uint32_t seq, uint16_t grams) {
 #if IS_HMI
   if (Training_IsActive()) { Training_SimProfileWeight(seq, grams); return; }
+  if (Training_IsPracticeSeq(seq)) return;  // ver SendProfileSelect
   if (grams == 0) {
     COMM_SERIAL.printf("HMI,PROFILE_WEIGHT,%u,SKIP\n", (unsigned)seq);
   } else {
@@ -345,6 +352,7 @@ void Communication_SendProfileWeight(uint32_t seq, uint16_t grams) {
 void Communication_SendProfileAgeManual(uint32_t seq, uint16_t ageDays) {
 #if IS_HMI
   if (Training_IsActive()) { Training_SimProfileAgeManual(seq, ageDays); return; }
+  if (Training_IsPracticeSeq(seq)) return;  // ver SendProfileSelect
   COMM_SERIAL.printf("HMI,PROFILE_AGE_MANUAL,%u,%u\n", (unsigned)seq,
                      (unsigned)ageDays);
 #endif
@@ -429,6 +437,13 @@ void Communication_SendProfileHistoryReq(uint32_t page) {
 
 void Communication_SendWeightHistoryReq(uint32_t seq) {
 #if IS_HMI
+  // La curva de un bebe de practica se contesta en local: su seq no existe en
+  // la placa y no debe salir ni como consulta. Las curvas de bebes reales
+  // (historial archivado, visible tambien en formacion) si se piden.
+  if (Training_IsPracticeSeq(seq)) {
+    if (Training_IsActive()) Training_SimWeightHistoryReq(seq);
+    return;
+  }
   COMM_SERIAL.printf("HMI,WEIGHT_HISTORY_REQ,%u\n", (unsigned)seq);
 #endif
 }

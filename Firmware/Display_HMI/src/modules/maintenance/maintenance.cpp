@@ -7,6 +7,7 @@
 #include "CommTask.h"          // HMI_GetEpochNow(), HMI_HasLocalTime()
 #include "EEPROM_defines.h"    // HMI_NS_CFG, HMI_KEY_MNT_*
 #include "esp_log.h"
+#include "state/training_mode.h"  // Training_IsActive()
 #include "ui/BabyWizard.h"     // BabyWizard_GetActiveSeq(), HasLiveSession()
 #include "ui/i18n.h"           // TR() para la linea de "ultima"
 
@@ -118,6 +119,13 @@ void Maintenance_Tick(void) {
   // se cambia de bebe sin pasar por el alta. Las dos cosas dejan pendiente una
   // limpieza terminal; empezar con el primer paciente (0 -> seq) no, que ahi
   // no ha salido nadie.
+  //
+  // En formacion el seq al mando es un bebe de practica (ZOE o el registrado
+  // en la leccion): ni es un cambio de paciente real ni debe escribirse en
+  // NVS (nada cambiado en formacion persiste, ADR-0002). Al salir de la
+  // leccion el motor limpia el perfil de practica y el seq vuelve al que
+  // habia, asi que aqui no hay flanco que anotar.
+  if (Training_IsActive()) return;
   const uint32_t seq = BabyWizard_GetActiveSeq();
   if (seq != s_lastSeq) {
     if (s_lastSeq != 0) {

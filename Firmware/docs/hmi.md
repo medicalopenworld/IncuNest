@@ -109,22 +109,33 @@ The heading `?` button (see §1) opens a modal help menu (`HelpDialog`,
      phototherapy go to the motherBoard as in normal operation and the
      heater and lamp really switch on (the cabin is empty: the clinical gate
      requires no active therapy and no real baby) — but the **baby is
-     virtual**: the assistant's profile list contains a single practice baby,
-     **ZOE** (`seq 0xFFFF`, 32 weeks, 1500 g), NEW BABY and SKIP are refused
-     with a toast so the student must select her, and selection / weight /
-     age are answered locally (the NTE range uses the same
-     `shared/include/nte_table.h` the board uses). `CommTask` never sends any
-     profile frame (new, select, weight, age, discharge, kangaroo), time-set
-     or WiFi credentials during a lesson, so ZOE never reaches the board, the
-     history or ThingsBoard; alarm silence and alarm test still go out (they
-     act on the alarm system, not on therapy). Nothing changed during the
-     lesson is written to NVS, and the WiFi CONNECT / DISCONNECT buttons are
-     refused with a toast. Leaving the lesson (SALIR, an abort, or finishing
-     it) restores the local snapshot (setpoints, panel, switches, dark mode,
-     humidity, language, phototherapy), then `Training_Exit()` restores
-     `hmi_msg` from the snapshot taken on entry **and forces its send**, so
-     the board switches off whatever the lesson switched on within one
-     `CommTask` tick; `BabyWizard_ClearActiveProfile()` drops ZOE.
+     virtual**: the profile list contains the practice baby **ZOE**
+     (`seq 0xFFFF`, 32 weeks, 1500 g) and, once the student has registered a
+     baby from the Babies screen during the lesson, that second practice baby
+     (`seq 0xFFFE`, with the typed name and weeks; a second registration in
+     the same lesson replaces it). The registration from Babies is answered
+     locally with that seq; in the assistant NEW BABY and SKIP are refused
+     with a toast so the student must select one of the two (registration is
+     taught from Babies), and selection / weight / age are answered locally
+     for both (the NTE range uses the same `shared/include/nte_table.h` the
+     board uses), and so is the weight curve of a practice baby. `CommTask`
+     never sends any profile frame (new, select, weight, age, discharge,
+     kangaroo), time-set or WiFi credentials during a lesson, and never lets
+     a practice seq out even after training ends, so neither practice baby
+     reaches the board, the history or ThingsBoard (only the read-only
+     archived-history queries still go out); alarm silence and alarm test
+     still go out (they act on the alarm system, not on therapy). Nothing
+     changed during the lesson is written to NVS (the maintenance module
+     also skips its patient-swap tracking while training), and the WiFi
+     CONNECT / DISCONNECT buttons are refused with a toast. Leaving the
+     lesson (SALIR, an abort, or finishing it) restores the local snapshot
+     (setpoints, panel, switches, dark mode, humidity, language,
+     phototherapy), then `Training_Exit()` restores `hmi_msg` from the
+     snapshot taken on entry **and forces its send**, so the board switches
+     off whatever the lesson switched on within one `CommTask` tick; if a
+     practice baby was selected (`Training_IsPracticeSeq()`) the profile the
+     assistant remembered before the lesson is put back
+     (`BabyWizard_SetSession()`).
    - **Clinical gate and demonstration**: an interactive lesson only starts
      in training mode if there is no therapy currently active
      (`UI_AnyControlActive()`), no active alarm, the board link is up, no

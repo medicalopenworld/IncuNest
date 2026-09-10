@@ -64,15 +64,18 @@ static constexpr Step INTRO_STEPS[] = {
             "Apos 20 segundos sem toque bloqueia sozinho; o anel mostra o "
             "tempo que falta."),
     EXPLAIN(&ui_BabiesButton, &ui_ScreenMain,
-            "Bebes: alta de un nuevo paciente (nombre, semanas de gestacion, "
-            "peso), historial de estancias y curva de peso de cada bebe.",
-            "Babies: admit a new patient (name, gestational weeks, weight), "
-            "stay history and weight curve of each baby.",
-            "Bebes : admission d'un nouveau patient (nom, semaines de "
-            "gestation, poids), historique des sejours et courbe de poids de "
-            "chaque bebe.",
-            "Bebes: admissao de um novo doente (nome, semanas de gestacao, "
-            "peso), historico de estadias e curva de peso de cada bebe."),
+            "Bebes: registro de un nuevo paciente con BEBE NUEVO (nombre, "
+            "semanas de gestacion, peso), alta con su resultado, historial de "
+            "estancias y curva de peso de cada bebe.",
+            "Babies: register a new patient with NEW BABY (name, gestational "
+            "weeks, weight), discharge with outcome, stay history and weight "
+            "curve of each baby.",
+            "Bebes : enregistrement d'un nouveau patient avec NOUVEAU BEBE "
+            "(nom, semaines de gestation, poids), sortie avec son issue, "
+            "historique des sejours et courbe de poids de chaque bebe.",
+            "Bebes: registo de um novo doente com BEBE NOVO (nome, semanas de "
+            "gestacao, peso), alta com o resultado, historico de estadias e "
+            "curva de peso de cada bebe."),
     EXPLAIN(&ui_AlarmButton, &ui_ScreenMain,
             "Alarmas: lista de las alarmas activas con la accion recomendada, y "
             "registro de las pasadas. El numero rojo indica cuantas hay "
