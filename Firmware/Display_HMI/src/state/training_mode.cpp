@@ -18,7 +18,14 @@ namespace {
 // "cargando" se vea, como en real.
 constexpr uint32_t SIM_REPLY_DELAY_MS = 250;
 
-enum SimKind { SIM_NONE = 0, SIM_LIST, SIM_ACK, SIM_RANGE, SIM_TIME_ACK };
+enum SimKind {
+  SIM_NONE = 0,
+  SIM_LIST,
+  SIM_ACK,
+  SIM_RANGE,
+  SIM_WEIGHT_HIST,
+  SIM_TIME_ACK
+};
 
 volatile bool s_active = false;
 bool s_exitDialogAllowed = false;
@@ -43,6 +50,9 @@ bool s_newUsed = false;
 char s_newName[24] = "";
 uint8_t s_newGest = 0;
 uint16_t s_newWeight = 0;
+
+// seq cuya curva de peso se ha pedido (SIM_WEIGHT_HIST).
+uint32_t s_histSeq = 0;
 
 SimKind s_simKind = SIM_NONE;
 uint32_t s_simDueMs = 0;
@@ -181,6 +191,11 @@ void Training_SimProfileAgeManual(uint32_t seq, uint16_t ageDays) {
   schedule(SIM_RANGE);
 }
 
+void Training_SimWeightHistoryReq(uint32_t seq) {
+  s_histSeq = seq;
+  schedule(SIM_WEIGHT_HIST);
+}
+
 void Training_SimSetTime(void) { schedule(SIM_TIME_ACK); }
 
 void Training_ServiceReplies(void) {
@@ -227,6 +242,26 @@ void Training_ServiceReplies(void) {
       g_profileRange.mid = r.mid;
       g_profileRange.estimated = r.estimated;
       g_pendingProfileRange = true;
+      break;
+    }
+    case SIM_WEIGHT_HIST: {
+      // Un solo punto, el peso que muestra la lista (dia 0), o ninguno si no
+      // lo tiene: lo mismo que la placa devolveria para un bebe recien
+      // registrado con o sin peso.
+      uint16_t w = 0;
+      if (s_histSeq == TRAINING_BABY_SEQ) {
+        w = TRAINING_BABY_WEIGHT_G;
+      } else if (s_histSeq == TRAINING_NEW_BABY_SEQ && s_newUsed) {
+        w = s_newWeight;
+      }
+      g_weightHistory.seq = s_histSeq;
+      g_weightHistory.count = 0;
+      if (w > 0) {
+        g_weightHistory.dayOffset[0] = 0;
+        g_weightHistory.weightGrams[0] = w;
+        g_weightHistory.count = 1;
+      }
+      g_pendingWeightHistory = true;
       break;
     }
     case SIM_TIME_ACK:

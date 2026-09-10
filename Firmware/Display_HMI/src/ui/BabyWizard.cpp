@@ -1,7 +1,6 @@
 #include "ui/BabyWizard.h"
 
 #include <cstdio>
-#include <cstring>
 
 #include "CommTask.h"
 #include "UITask.h"
@@ -270,6 +269,10 @@ void selectExisting(uint32_t seq, uint8_t gest, uint16_t lastWeight) {
       break;
     }
   }
+  // Un ACK huerfano (una espera anterior que vencio y contesto tarde, aqui o
+  // en la pantalla Bebes) no debe leerse como el de esta seleccion: el
+  // asistente entero trabajaria sobre otro bebe (rango, peso, minutos).
+  g_pendingProfileAck = false;
   Communication_SendProfileSelect(seq);
   s_step = WizStep::WaitingSelectAck;
   s_deadlineMs = millis() + ACK_TIMEOUT_MS;
@@ -363,12 +366,12 @@ void onNameBack(lv_event_t *) {
 }
 
 void onNameContinue(lv_event_t *) {
-  const char *txt = s_nameTa ? lv_textarea_get_text(s_nameTa) : "";
-  if (!txt || txt[0] == '\0') {
+  // Sin espacios sobrantes y nunca vacio (tampoco solo espacios): el nombre
+  // queda en NVS y en ThingsBoard sin forma de editarlo despues.
+  if (!InputKeypad_ReadName(s_nameTa, s_name, sizeof(s_name))) {
     UI_ShowToast(TR(STR_ENTER_A_NAME), 2500);
     return;
   }
-  snprintf(s_name, sizeof(s_name), "%s", txt);
   showGestScreen();
   s_step = WizStep::EnterGest;
 }
@@ -396,6 +399,7 @@ void onGestContinue(lv_event_t *) {
     return;
   }
   s_gestWeeks = (uint8_t)v;
+  g_pendingProfileAck = false;  // ver selectExisting(): nada huerfano
   Communication_SendProfileNew(s_name, s_gestWeeks);
   s_step = WizStep::WaitingNewAck;
   s_deadlineMs = millis() + ACK_TIMEOUT_MS;
@@ -727,6 +731,25 @@ void BabyWizard_ClearActiveProfile() {
   s_seq = 0;
   s_name[0] = '\0';
   s_hasUsableRange = false;
+}
+
+void BabyWizard_GetSession(BabyWizardSession *out) {
+  if (!out) return;
+  out->seq = s_sessionSeq;
+  snprintf(out->name, sizeof(out->name), "%s", s_sessionName);
+  out->gest = s_sessionGest;
+  out->weight = s_sessionWeight;
+}
+
+void BabyWizard_SetSession(const BabyWizardSession *s) {
+  if (!s || s->seq == 0) {
+    BabyWizard_ClearActiveProfile();
+    return;
+  }
+  s_sessionSeq = s->seq;
+  snprintf(s_sessionName, sizeof(s_sessionName), "%s", s->name);
+  s_sessionGest = s->gest;
+  s_sessionWeight = s->weight;
 }
 
 BabyWizardStep BabyWizard_GetStep() {

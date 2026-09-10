@@ -91,3 +91,20 @@ bool InputKeypad_ReadNumber(lv_obj_t *ta, uint32_t lo, uint32_t hi,
   *out = v;
   return true;
 }
+
+bool InputKeypad_ReadName(lv_obj_t *ta, char *out, size_t len) {
+  if (!ta || !out || len == 0) return false;
+  const char *txt = lv_textarea_get_text(ta);
+  if (!txt) return false;
+  while (*txt == ' ') txt++;
+  size_t n = strlen(txt);
+  while (n > 0 && txt[n - 1] == ' ') n--;
+  if (n == 0) {
+    out[0] = '\0';
+    return false;
+  }
+  if (n > len - 1) n = len - 1;
+  memcpy(out, txt, n);
+  out[n] = '\0';
+  return true;
+}

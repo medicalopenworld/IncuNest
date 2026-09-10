@@ -9,6 +9,7 @@
 #include "main.h"
 #include "state/training_mode.h"
 #include "ui.h"
+#include "ui/BabyWizard.h"  // BabyWizard_HasLiveSession(), GetActiveSeq()
 #include "ui/InputKeypad.h"
 
 namespace {
@@ -30,6 +31,10 @@ enum class HistStep {
   NewWeight,
   WaitingNewAck,    // waiting CTRL,PROFILE_ACK to HMI,PROFILE_NEW
   WaitingNewRange,  // waiting CTRL,PROFILE_RANGE to HMI,PROFILE_WEIGHT (ignored)
+  // Tras registrar con un bebe bajo terapia: PROFILE_SELECT de ese bebe para
+  // que la placa vuelva a tenerlo como "bebe del asistente" (ver
+  // afterRegistered()).
+  WaitingReselectAck,
 };
 
 constexpr uint32_t RESP_TIMEOUT_MS = 2000;
@@ -52,6 +57,10 @@ uint32_t s_page = 0;
 BabyProfileListMsg s_active = {0, {}};
 BabyHistoryMsg s_archived = {0, 0, 0, {}};
 bool s_activeLoaded = false;
+// Verdadero solo si s_active la contesto la placa (o la simulacion de
+// formacion); falso cuando la carga vencio y la lista quedo vacia por
+// defecto. La guarda de tres activos solo vale con una lista real.
+bool s_activeFromBoard = false;
 
 uint32_t s_dischargeSeq = 0;
 uint8_t s_dischargeOutcome = 0;
@@ -197,7 +206,27 @@ void closeScreen();
 bool weightHistoryEmpty();
 void onNewBabyClicked(lv_event_t *e);
 
+// Las esperas de esta pantalla comparten g_pendingProfileAck / Range con el
+// asistente. Al abandonar una espera (timeout, alarma critica, cierre) se
+// descarta lo que haya llegado: si quedara puesto, el asistente lo adoptaria
+// como el ACK de SU seleccion y trabajaria sobre otro bebe (rango NTE, peso y
+// minutos al seq equivocado). Lo que llegue mas tarde todavia lo descarta el
+// propio emisor justo antes de enviar (submitNew, afterRegistered,
+// BabyWizard::selectExisting).
+bool inReplyWait() {
+  return s_step == HistStep::WaitingDischargeAck ||
+         s_step == HistStep::WaitingNewAck ||
+         s_step == HistStep::WaitingNewRange ||
+         s_step == HistStep::WaitingReselectAck;
+}
+
+void discardPendingReplies() {
+  g_pendingProfileAck = false;
+  g_pendingProfileRange = false;
+}
+
 void closeScreen() {
+  if (inReplyWait()) discardPendingReplies();
   if (s_overlay) lv_obj_add_flag(s_overlay, LV_OBJ_FLAG_HIDDEN);
   clearContent();
   setCardSize(false);
@@ -528,12 +557,12 @@ lv_obj_t *buildNewStep(const char *title, const char *hint, bool digits,
 
 // Paso 1: nombre.
 void onNewNameContinue(lv_event_t *) {
-  const char *txt = s_inputTa ? lv_textarea_get_text(s_inputTa) : "";
-  if (!txt || txt[0] == '\0') {
+  // Sin espacios sobrantes y nunca vacio (tampoco solo espacios): el nombre
+  // queda en NVS y en ThingsBoard sin forma de editarlo despues.
+  if (!InputKeypad_ReadName(s_inputTa, s_newName, sizeof(s_newName))) {
     UI_ShowToast(TR(STR_ENTER_A_NAME), 2500);
     return;
   }
-  snprintf(s_newName, sizeof(s_newName), "%s", txt);
   showNewGestScreen();
   s_step = HistStep::NewGest;
 }
@@ -581,6 +610,12 @@ void showNewGestScreen() {
 
 // Paso 3: peso al ingreso (opcional) y REGISTRAR.
 void submitNew() {
+  if (Display_IsBoardLinkLost()) {
+    // Nada sale al vacio. El operador se queda en la pantalla de peso con lo
+    // tecleado y puede volver a pulsar cuando el enlace regrese.
+    UI_ShowToast(TR(STR_NO_BOARD_RESPONSE), 3000);
+    return;
+  }
   // Un ACK huerfano (un alta que vencio y contesto tarde) no debe leerse como
   // el seq del bebe nuevo: se descarta lo pendiente justo antes de pedir.
   g_pendingProfileAck = false;
@@ -622,6 +657,14 @@ void showNewWeightScreen() {
 
 void onNewBabyClicked(lv_event_t *) {
   if (s_step != HistStep::Showing) return;
+  // La guarda de tres activos solo vale con una lista venida de la placa: si
+  // la carga vencio, s_active esta vacia por defecto y un PROFILE_NEW haria
+  // que la placa desalojase por FIFO a un paciente activo sin que nadie lo
+  // viera. Sin enlace tampoco se abre: REGISTRAR mandaria al vacio.
+  if (!s_activeFromBoard || Display_IsBoardLinkLost()) {
+    UI_ShowToast(TR(STR_NO_BOARD_RESPONSE), 3000);
+    return;
+  }
   if (s_active.count >= 3) {
     // La placa desalojaria por FIFO a un activo (y lo archivaria con
     // resultado Desconocido). En la pantalla cuyo objeto es el registro eso
@@ -646,6 +689,26 @@ void finishNewAndReload() {
   requestActive();
 }
 
+// Cierre de un registro que la placa acepto. Si ahora mismo hay un bebe bajo
+// terapia, se reenvia su PROFILE_SELECT antes de dar el registro por hecho:
+// la motherBoard guarda como "bebe del asistente" el ultimo seq creado o
+// seleccionado (s_wizardSeq en su CommTask.cpp) y lo sella como activo en el
+// siguiente arranque de terapia. Sin esto, el registro dejaria ahi al recien
+// llegado, y un SALTAR en el asistente tras un canguro o una limpieza
+// acreditaria la terapia al bebe equivocado y quitaria al de la incubadora
+// su proteccion frente al desalojo FIFO.
+void afterRegistered() {
+  if (BabyWizard_HasLiveSession()) {
+    g_pendingProfileAck = false;
+    Communication_SendProfileSelect(BabyWizard_GetActiveSeq());
+    s_step = HistStep::WaitingReselectAck;
+    s_deadlineMs = millis() + NEW_TIMEOUT_MS;
+    return;
+  }
+  UI_ShowToast(TR(STR_BABY_REGISTERED), 2500);
+  finishNewAndReload();
+}
+
 // ---------------- Discharge dialog ----------------
 
 // Deceased (2) needs a cause before anything is sent; every other outcome
@@ -656,6 +719,7 @@ void onOutcomePick(lv_event_t *e) {
     openCauseDialog();
     return;
   }
+  g_pendingProfileAck = false;  // ver discardPendingReplies()
   Communication_SendProfileDischarge(s_dischargeSeq, s_dischargeOutcome, 0);
   if (s_dlg) {
     lv_obj_del(s_dlg);
@@ -668,6 +732,7 @@ void onOutcomePick(lv_event_t *e) {
 
 void onCausePick(lv_event_t *e) {
   uint8_t cause = (uint8_t)(uintptr_t)lv_event_get_user_data(e);
+  g_pendingProfileAck = false;  // ver discardPendingReplies()
   Communication_SendProfileDischarge(s_dischargeSeq, s_dischargeOutcome, cause);
   if (s_dlg) {
     lv_obj_del(s_dlg);
@@ -943,7 +1008,8 @@ BabyHistoryStep BabyHistory_GetStep(void) {
     case HistStep::NewGest: return BH_NEW_GEST;
     case HistStep::NewWeight: return BH_NEW_WEIGHT;
     case HistStep::WaitingNewAck:
-    case HistStep::WaitingNewRange: return BH_NEW_WAITING;
+    case HistStep::WaitingNewRange:
+    case HistStep::WaitingReselectAck: return BH_NEW_WAITING;
     case HistStep::LoadingChart:
     case HistStep::ShowingChart: return BH_CHART;
   }
@@ -959,6 +1025,7 @@ void BabyHistory_Open(void) {
   s_archived = {0, 0, 0, {}};
   s_retries = 0;
   s_lastRegisteredSeq = 0;
+  s_activeFromBoard = false;
 
   showLoading();
   requestActive();
@@ -984,6 +1051,7 @@ void BabyHistory_Poll(void) {
         g_pendingProfileList = false;
         s_active = g_profileList;
         s_activeLoaded = true;
+        s_activeFromBoard = true;
         s_retries = 0;
         requestArchived(0);
       } else if (millis() > s_deadlineMs) {
@@ -994,6 +1062,7 @@ void BabyHistory_Poll(void) {
           UI_ShowToast(TR(STR_NO_BOARD_RESPONSE), 3000);
           s_active.count = 0;
           s_activeLoaded = true;
+          s_activeFromBoard = false;  // lista vacia por defecto, no real
           s_retries = 0;
           requestArchived(0);
         }
@@ -1031,6 +1100,7 @@ void BabyHistory_Poll(void) {
         showLoading();
         requestActive();
       } else if (millis() > s_deadlineMs) {
+        discardPendingReplies();
         UI_ShowToast(TR(STR_NO_BOARD_RESPONSE), 3000);
         s_retries = 0;
         showLoading();
@@ -1060,12 +1130,12 @@ void BabyHistory_Poll(void) {
             s_step = HistStep::WaitingNewRange;
             s_deadlineMs = millis() + NEW_TIMEOUT_MS;
           } else {
-            UI_ShowToast(TR(STR_BABY_REGISTERED), 2500);
-            finishNewAndReload();
+            afterRegistered();
           }
         }
       } else if (millis() > s_deadlineMs) {
         // Sin reintento: el PROFILE_NEW pudo llegar. La lista dira si existe.
+        discardPendingReplies();
         UI_ShowToast(TR(STR_NO_BOARD_RESPONSE), 3000);
         finishNewAndReload();
       }
@@ -1074,12 +1144,26 @@ void BabyHistory_Poll(void) {
     case HistStep::WaitingNewRange:
       if (g_pendingProfileRange) {
         g_pendingProfileRange = false;
-        UI_ShowToast(TR(STR_BABY_REGISTERED), 2500);
-        finishNewAndReload();
+        afterRegistered();
       } else if (millis() > s_deadlineMs) {
         // El perfil ya existe; el peso puede o no haberse anotado. La lista
         // recargada lo muestra.
+        discardPendingReplies();
         UI_ShowToast(TR(STR_NO_BOARD_RESPONSE), 3000);
+        finishNewAndReload();
+      }
+      break;
+
+    case HistStep::WaitingReselectAck:
+      // El registro ya esta hecho; esto solo devuelve a la placa el bebe en
+      // terapia como "bebe del asistente". Con o sin respuesta, se termina.
+      if (g_pendingProfileAck) {
+        g_pendingProfileAck = false;
+        UI_ShowToast(TR(STR_BABY_REGISTERED), 2500);
+        finishNewAndReload();
+      } else if (millis() > s_deadlineMs) {
+        discardPendingReplies();
+        UI_ShowToast(TR(STR_BABY_REGISTERED), 2500);
         finishNewAndReload();
       }
       break;

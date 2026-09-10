@@ -7,6 +7,7 @@
 // entrar viven aqui y no en cada pantalla.
 #include <lvgl.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 // Crea un teclado que escribe en `ta` y lo devuelve ya dimensionado (letras
@@ -24,3 +25,9 @@ void InputKeypad_StripCommasCb(lv_event_t *e);
 // fuera de [lo, hi]. En exito deja el valor en *out.
 bool InputKeypad_ReadNumber(lv_obj_t *ta, uint32_t lo, uint32_t hi,
                             uint32_t *out);
+
+// Lee el textarea de nombre `ta` en `out` (len bytes, truncando) sin espacios
+// al principio ni al final. Falso si queda vacio, tambien con un nombre de
+// solo espacios: un registro en blanco no se puede editar despues y saldria
+// como fila vacia en la lista y en ThingsBoard.
+bool InputKeypad_ReadName(lv_obj_t *ta, char *out, size_t len);

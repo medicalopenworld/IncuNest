@@ -87,6 +87,9 @@ void Training_SimProfileSelect(uint32_t seq);
 void Training_SimProfileNew(const char *name, uint8_t gestWeeks);
 void Training_SimProfileWeight(uint32_t seq, uint16_t grams);
 void Training_SimProfileAgeManual(uint32_t seq, uint16_t ageDays);
+// Curva de peso de un bebe de practica: su seq no existe en la placa, asi
+// que ni la consulta sale. Un punto (su peso de la lista) o ninguno.
+void Training_SimWeightHistoryReq(uint32_t seq);
 void Training_SimSetTime(void);
 
 // Entrega las respuestas simuladas vencidas. Llamar una vez por vuelta de
