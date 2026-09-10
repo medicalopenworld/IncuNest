@@ -48,4 +48,6 @@ idf_component_register(
     nvs_flash
     spiffs
     mqtt
+    thingsboard
+    espressif__mdns
 )

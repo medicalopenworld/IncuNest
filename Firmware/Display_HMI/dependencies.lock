@@ -1,4 +1,21 @@
 dependencies:
+  bblanchon/arduinojson:
+    component_hash: 05d4e1f42ff990f476997964f976f5afd5eead397cce442488c282e070c22739
+    dependencies: []
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 6.21.6
+  espressif/mdns:
+    component_hash: 3ba256ac95e07c274be53cbd73f06cb846c403b61e8fbdf1be57bdb79db7a63e
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.12.0
   espressif/mqtt:
     component_hash: fb18bc3b65aa8c94693a9811ffc322cca8a65d92d5ec84983d3e385080e3969c
     dependencies:
@@ -20,10 +37,27 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 8.3.11
+  thingsboard/thingsboard:
+    component_hash: 3c7e6d6951be72b622216e2fc4d0c6639596639b85d701040986d407acad484f
+    dependencies:
+    - name: idf
+      require: private
+      version: '*'
+    - name: bblanchon/arduinojson
+      registry_url: https://components.espressif.com
+      require: private
+      version: ^6.21.4
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.13.0
 direct_dependencies:
+- bblanchon/arduinojson
+- espressif/mdns
 - espressif/mqtt
 - idf
 - lvgl/lvgl
-manifest_hash: 173ed61450fe16c13c7e2802d86bac1de16d2285c89fdf2c62ea7c3f3860593f
+- thingsboard/thingsboard
+manifest_hash: b636a1809baab60abda54200cfc047b440b6a6b1d882cbb0866eb27674a54bfc
 target: esp32s3
 version: 3.0.0

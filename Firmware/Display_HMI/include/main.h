@@ -8,14 +8,23 @@
 #include "Credentials_public.h"
 #include "Wifi_OTA.h"
 #include "display_config.h"
-#include <Preferences.h>
 #include "EEPROM_defines.h"
-#include <ESPmDNS.h>
-#include <Update.h>
-#include <WebServer.h>
-#include <WiFi.h>
 #include <lvgl.h>
 #include <stdint.h>
+
+// Las cabeceras de red de Arduino (WiFi.h, WebServer.h, Update.h, ESPmDNS.h)
+// se han quitado de aqui: main.h no usaba ninguno de esos tipos, solo los
+// reexportaba a medio firmware. Ahora cada consumidor incluye lo que necesita
+// de ESP-IDF, que es lo que evita que un cambio en la capa de red obligue a
+// recompilar las 14.700 lineas de src/ui.
+#include "platform/plat_i2c.h"
+#include "platform/plat_nvs.h"
+#include "platform/plat_time.h"
+
+// Unico bus I2C del display: pantalla tactil GT911, expansor PCA9557 y el
+// STC8H1K28 del backlight/zumbador (0x30). Sustituye al objeto global Wire.
+// Se abre en setup(), antes de crear ninguna tarea.
+extern I2cBus g_i2c;
 #include "control_types.h"
 #include "alarm_ids.h"
 #include "ui/i18n.h"
