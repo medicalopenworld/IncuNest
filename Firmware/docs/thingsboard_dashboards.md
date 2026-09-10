@@ -322,6 +322,38 @@ Un atributo **rancio** no es evidencia: si `wifi_dwell_days` lleva sin
 refrescarse más que la ventana de frescura de la política — por ejemplo tras
 bajar de versión el firmware — no se toca la SIM.
 
+### La clave de Onomondo no viaja en el firmware que se distribuye
+
+Desde 2026-09-10 la activación de SIM del test `sim_act` **solo se compila en
+los entornos `IncuNest_V18_factory` / `IncuNest_V17_factory`**
+(`FTEST_SIM_ACT_ENABLED`). El motivo: `Credentials_public.h` hace
+`#if __has_include("Credentials.h")`, así que en la máquina de quien tenga el
+`Credentials.h` real **todos** los builds llevaban `ONOMONDO_API_KEY` dentro —
+incluido el `IncuNest_V18` que alimenta `flasher_tool/data/firmware/` y los
+assets de GitHub Releases, en un repo público. Y esa clave no es la credencial
+de una unidad: controla todas las SIM de la organización.
+
+Se apaga la **funcionalidad**, no se sobrescribe la clave: con el flag a 0 el
+código no nombra la macro en ningún sitio, así que no puede acabar en el
+binario. Verificado sobre los binarios reales:
+
+| Entorno | `strings firmware.bin \| Select-String onok_` |
+|---|---|
+| `IncuNest_V18` (se distribuye) | 0 coincidencias |
+| `IncuNest_V18_factory` (se queda en el taller) | 1 coincidencia |
+
+**Regla operativa:** el binario de fábrica nunca va a
+`flasher_tool/data/firmware/` ni como asset de release. Lo que se distribuye
+es el entorno sin sufijo. En un build de campo `sim_act` da WARN
+`solo fabrica`, que es lo correcto: ese firmware no tiene por qué activar
+SIMs.
+
+Pendiente aparte: el binario de fábrica sigue llevando la clave y llega al
+portátil de quien monte. Con una tirada de 200 unidades eso son varias
+máquinas con una credencial de flota. Las salidas son mover la activación al
+flasher del PC, provisionar la clave en NVS al flashear, o aceptarlo y acotar
+por proceso quién tiene ese binario.
+
 ### Riesgo aceptado
 
 El único criterio es la permanencia en una red, así que **un montaje o un curso
