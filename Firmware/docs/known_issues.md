@@ -235,3 +235,52 @@ build before trusting any observation.
     still appear with N between `COMM_RX_TIMEOUT_MS` and `BOARD_LINK_TIMEOUT_MS`
     — that line reports the UI stall, which is real and unchanged; what it must
     no longer do is trigger the alarm.
+
+## 10. Temperature control (or phototherapy) switches itself back OFF right after the baby wizard
+
+*   **Symptom**: select a baby, enter the weight, press APLICAR on the proposed
+    air temperature. Temperature control goes ON and, a second or two later,
+    goes back OFF on its own. The same shape was reported for phototherapy.
+*   **Why it is a regression of the phototherapy echo race (`a77bd1b`)**: the
+    HMI is the only place that can turn these switches off spontaneously.
+    `Display_ApplyCtrlState()` resyncs `actuation` / `controlMode` /
+    `phototherapyMode` / `muteAlarm` / `skinModeEnabled` from the
+    motherBoard's echoed `CTRL,STATE` on every frame — needed so a rebooted
+    HMI inherits the board's real state (#4). A frame that was already in
+    flight still carries the value from *before* the board processed the
+    command; adopting it does not just repaint the switch, it writes
+    `hmi_msg`, and the HMI's next 1 Hz heartbeat then genuinely commands the
+    board OFF.
+*   **Why the old fix was not enough**: `a77bd1b` protected a just-changed
+    field for a fixed 2.5 s grace window. That is a bet that the round trip
+    fits inside it, and this link does not guarantee that — the HMI Comm task
+    can lose the CPU for whole seconds (#7, #9) and the UART RX ring drops the
+    *newest* bytes when it fills, so what gets parsed after a stall is
+    precisely the stale line. Once the window expires without confirmation the
+    stale echo wins, and the resulting OFF is irreversible. The baby wizard
+    makes the shape easy to hit: activation now happens at the end of a long
+    modal, in a single heavy UI pass, right after a burst of `HMI,PROFILE_*`
+    traffic.
+*   **Fix (implemented)**: the guard is no longer a timer but a
+    **confirmation**. A locally changed field stays authoritative until the
+    board echoes back that same value; the 1 Hz heartbeat keeps resending the
+    intent meanwhile, so lost frames and multi-second stalls no longer matter.
+    `LOCAL_CMD_CONFIRM_TIMEOUT_MS` (10 s) survives only as a safety net for a
+    board that never confirms, and logs `<campo> sin confirmar en N ms` when it
+    fires — that log line is the discriminator between "stale echo" and "the
+    board is refusing the command".
+*   **Also fixed here**: the setpoints (`desiredAirTemperature`,
+    `desiredSkinTemperature`) had **no** guard at all — they were overwritten
+    from every echo. Applying the wizard's proposed temperature could therefore
+    be silently undone by the next `CTRL,STATE`, which still carried the
+    previous setpoint. They now use the same confirmation guard.
+*   **What did NOT change**: recovery after an HMI reboot (#4). No guard arms
+    before the first `CTRL,STATE` has been applied (`g_stateSynced`), nor on
+    the first value observed for a field, so a freshly booted display never
+    imposes its start-up "everything off" on a board that is actually
+    regulating.
+*   **Bench verification**: select a baby, enter a weight, press APLICAR.
+    Expected: temperature control stays ON and the target temperature stays at
+    the proposed value (not the previous setpoint) for at least 30 s. Repeat
+    for SKIN and for phototherapy. Unplug the HMI↔MB cable for ~5 s while
+    control is ON and reconnect: control must still be ON afterwards.
