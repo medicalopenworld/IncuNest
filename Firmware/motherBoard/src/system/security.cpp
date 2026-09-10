@@ -176,7 +176,30 @@ extern PID humidityControlPID;
 // alarma a +-3 C. ee): en control por PIEL, a +-1 C. Son cuatro condiciones
 // distintas (modo x sentido) porque el calefactor solo se corta por el lado
 // caliente: por el frio tiene que seguir calentando.
-#define AIR_TEMP_DEVIATION_LIMIT_C 3.0f
+//
+// En AIRE los dos lados NO llevan el mismo umbral, y la asimetria es
+// deliberada. La norma fija un MAXIMO, no un minimo: ser mas estricto esta
+// permitido, y de hecho hasta 912029d este firmware alarmaba a +-1 C en los
+// dos modos.
+//
+// - Lado CALIENTE a 1 C. Con 3 C el aviso llega demasiado tarde para servir de
+//   nada en la mitad alta del rango de consigna, porque el corte termico del
+//   aire esta topado a 38 C (ALARM_AIR_CUTOUT_MAX_C): con consigna de 35 C la
+//   desviacion alarmaria a 38 C — el MISMO punto que el corte, que ademas es
+//   ALTA y latching — y con 36 C o mas no alarmaria nunca. Entre la consigna y
+//   38 C no quedaba ningun aviso intermedio. Eso es lo que dejo callada a una
+//   unidad en campo con consigna de 35 C que la fototerapia subio a 37 C
+//   (2026-09-10): +2 C sobre la consigna, con el bebe dentro, y sin que el
+//   equipo pudiera corregir — el calor lo metia una fuente externa, el lazo ya
+//   estaba saturado a 0 y la incubadora no refrigera. Justo el escenario en el
+//   que la accion correctiva es del operador y por tanto hay que avisarle.
+// - Lado FRIO en 3 C. Bajarlo no compra seguridad y si compra fatiga de
+//   alarma: abrir la puerta para atender al bebe hunde la temperatura del aire
+//   mas de 1 C en segundos, y la ventana de estabilizacion solo se rearma al
+//   activar la actuacion o al reiniciar (alarmTimerStart()), nunca al abrir la
+//   puerta. Cada manipulacion levantaria una MEDIA.
+#define AIR_TEMP_DEVIATION_HOT_LIMIT_C 1.0f
+#define AIR_TEMP_DEVIATION_COLD_LIMIT_C 3.0f
 #define SKIN_TEMP_DEVIATION_LIMIT_C 1.0f
 #define HUMIDITY_ERROR 10   // 10 %RH to trigger alarm
 
@@ -234,6 +257,12 @@ long lastPowerSupplyCheck;
 // fabrica (modo aire, sin sonda) levantaria una alarma BAJA permanente a los
 // 5 s de arrancar: fatiga de alarma pura. Una sonda ausente no es un fallo.
 static bool skinProbeEverRead = false;
+
+// Monitor de frescura de sensores: si ya corrio alguna vez e instante de esa
+// primera pasada. Declarados aqui, y no junto a sensorMonitorWarmingUp(),
+// porque initAlarms() esta por encima y tiene que poder rearmar el margen.
+static bool sensorMonitorStarted = false;
+static uint32_t sensorMonitorStartMs = 0;
 
 // Bitmask de condiciones senalizando en el ciclo anterior. Comparar contra el
 // actual es lo que produce los eventos que van al display (sendAlarmUSB): la
@@ -300,6 +329,9 @@ void initAlarms()
   alarm_machine_init();
   previousAlarmBitmask = 0;
   skinProbeEverRead = false;
+  // Se llama al principio de initHardware(), antes de que exista la tarea de
+  // seguridad: el margen arranca con la primera pasada real del monitor.
+  sensorMonitorStarted = false;
   for (int i = 0; i < NUM_ALARMS; i++)
   {
     in3.alarmToReport[i] = false;
@@ -333,14 +365,55 @@ void checkThermalCutOuts()
   alarm_machine_condition(ALARM_SKIN_THERMAL_CUTOUT, skinCutoutPresent, now);
 }
 
+// Margen de arranque del monitor de frescura, contado desde su PRIMERA pasada.
+//
+// El sello lastSuccesfullSensorUpdate[] que hay al empezar lo dejo
+// testSensors(), dentro del autotest, y despues initActuators() se lleva mas de
+// MINIMUM_SUCCESSFULL_*_SENSOR_UPDATE midiendo corrientes y RPM
+// (initHardware.cpp). La tarea de seguridad no existe hasta que initHardware()
+// vuelve, asi que en la primera pasada el sello SIEMPRE esta caducado sin que
+// haya nada averiado: nadie ha tenido ocasion de leer el sensor desde el
+// autotest. Con SensorBoard es peor todavia, porque el sello del aire lo
+// escribe el enlace USB, que aun no ha entregado su primera trama.
+//
+// Declararlo ahi no es un aviso, es un fantasma con ruido: ALARM_AIR_SENSOR_FAULT
+// es ALTA, la maquina sella su rafaga minima de 6.10 al anunciarla
+// (ALARM_MIN_BURST_MS_HIGH, alarm_machine.h) y la pasada siguiente ya ve el
+// sello fresco y retira la condicion. Resultado audible: media rafaga de ALTA
+// —cinco pulsos— justo al terminar el autotest, con el bitmask volviendo a 0 en
+// el mismo ciclo, o sea sin banner ni registro que expliquen el ruido. Eso es
+// exactamente la fatiga de alarma que 60601-1-8 quiere evitar: el operador
+// aprende que la incubadora pita al encender y no significa nada.
+//
+// El margen se cuenta desde la primera pasada y no desde el reset por el mismo
+// criterio que HMI_LINK_BOOT_GRACE_MS: lo que se mide es tiempo con alguien
+// mirando. Y TERMINA. Pasado el margen, un sensor de verdad muerto se declara
+// con el mismo antirrebote de 5 s que en marcha; lo unico que se pierde es
+// declararlo durante los primeros 5 s de vida del monitor, cuando todavia no
+// hay ninguna lectura con la que afirmar nada.
+static bool sensorMonitorWarmingUp(uint32_t now, uint32_t staleLimit)
+{
+  if (!sensorMonitorStarted)
+  {
+    sensorMonitorStarted = true;
+    sensorMonitorStartMs = now;
+  }
+  return (uint32_t)(now - sensorMonitorStartMs) <= staleLimit;
+}
+
 void checkStatusOfSensor(byte sensor)
 {
   const uint32_t now = millis();
   const uint32_t staleLimit = (sensor == ROOM_DIGITAL_TEMP_SENSOR)
                                   ? MINIMUM_SUCCESSFULL_AIR_SENSOR_UPDATE
                                   : MINIMUM_SUCCESSFULL_SKIN_SENSOR_UPDATE;
+  // El margen se evalua SIEMPRE, y antes que la frescura: si se dejara detras
+  // de un && el instante de arranque quedaria sin sellar mientras el sello
+  // estuviera fresco, y el primer sensor que se cayera de verdad se llevaria un
+  // margen entero de regalo justo cuando hay que avisar.
+  const bool warmingUp = sensorMonitorWarmingUp(now, staleLimit);
   const bool stale =
-      (millis() - lastSuccesfullSensorUpdate[sensor] > staleLimit);
+      !warmingUp && (now - lastSuccesfullSensorUpdate[sensor] > staleLimit);
   switch (sensor)
   {
   case ROOM_DIGITAL_TEMP_SENSOR:
@@ -680,8 +753,13 @@ void checkAlarms()
   const float measured = airMode ? in3.temperature[ROOM_DIGITAL_TEMP_SENSOR]
                                  : in3.temperature[SKIN_SENSOR];
   const float deviation = measured - (float)in3.desiredControlTemperature;
-  const float limit =
-      airMode ? AIR_TEMP_DEVIATION_LIMIT_C : SKIN_TEMP_DEVIATION_LIMIT_C;
+  // En AIRE el lado caliente es mas estricto que el frio (ver los #define de
+  // arriba). En PIEL la norma ya pide 1 C simetrico, asi que los dos limites
+  // coinciden y separarlos no cambia nada.
+  const float hotLimit =
+      airMode ? AIR_TEMP_DEVIATION_HOT_LIMIT_C : SKIN_TEMP_DEVIATION_LIMIT_C;
+  const float coldLimit =
+      airMode ? AIR_TEMP_DEVIATION_COLD_LIMIT_C : SKIN_TEMP_DEVIATION_LIMIT_C;
 
   const bool airHighWas = airHighPresent;
   const bool airLowWas = airLowPresent;
@@ -689,16 +767,16 @@ void checkAlarms()
   const bool skinLowWas = skinLowPresent;
 
   airHighPresent = controlling && airMode &&
-                   thresholdWithHysteresis(airHighWas, deviation, limit,
+                   thresholdWithHysteresis(airHighWas, deviation, hotLimit,
                                            TEMPERATURE_ERROR_HYSTERESIS);
   airLowPresent = controlling && airMode && steadyAir &&
-                  thresholdWithHysteresis(airLowWas, -deviation, limit,
+                  thresholdWithHysteresis(airLowWas, -deviation, coldLimit,
                                           TEMPERATURE_ERROR_HYSTERESIS);
   skinHighPresent = controlling && !airMode &&
-                    thresholdWithHysteresis(skinHighWas, deviation, limit,
+                    thresholdWithHysteresis(skinHighWas, deviation, hotLimit,
                                             TEMPERATURE_ERROR_HYSTERESIS);
   skinLowPresent = controlling && !airMode && steadySkin &&
-                   thresholdWithHysteresis(skinLowWas, -deviation, limit,
+                   thresholdWithHysteresis(skinLowWas, -deviation, coldLimit,
                                            TEMPERATURE_ERROR_HYSTERESIS);
 
   declareHotDeviation(ALARM_AIR_TEMP_DEVIATION_HIGH, airHighWas, airHighPresent,

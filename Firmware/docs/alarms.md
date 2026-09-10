@@ -38,8 +38,8 @@ se añaden al final.
 | 5 | `ALARM_FAN_FAILURE` | en marcha, `in3.fan_rpm < FAN_MIN_RPM` (3000 rpm, `board.h:185`), con histéresis de 300 rpm para despejar (`checkFanSpeed()`); solo evaluable con `in3.fanHasSpeedFeedback`. **También la declara el autotest de arranque** (`initHardware.cpp:412,677,732,740,779`), antes de que exista lazo de control | ALTA | sí |
 | 6 | `ALARM_AIR_OUTLET_BLOCKED` | en marcha, `fanControlPIDOutput > FAN_DUTY_BLOCKED_THRESHOLD` (190, `board.h:221`) sostenido `AIR_BLOCKED_SUSTAIN_MS` = 5000 ms (`checkAirBlockage()`). **También la declara el autotest de arranque** (`initHardware.cpp:803`) | ALTA | sí |
 | 7 | `ALARM_MAINS_INTERRUPTION` | **sin detector** — ver §9 | ALTA | no (no hay condición que cortar). **No silenciable**: 201.12.3.103 exige 10 min de aviso y la pausa dura justo eso |
-| 8 | `ALARM_AIR_TEMP_DEVIATION_HIGH` | en modo aire, `temperatura − consigna > 3.0 °C` (`AIR_TEMP_DEVIATION_LIMIT_C`, `checkAlarms()`) | MEDIA | sí |
-| 9 | `ALARM_AIR_TEMP_DEVIATION_LOW` | en modo aire, `consigna − temperatura > 3.0 °C`, y solo tras cerrar la ventana de estabilización (§5) | MEDIA | no |
+| 8 | `ALARM_AIR_TEMP_DEVIATION_HIGH` | en modo aire, `temperatura − consigna > 1.0 °C` (`AIR_TEMP_DEVIATION_HOT_LIMIT_C`, `checkAlarms()`) | MEDIA | sí |
+| 9 | `ALARM_AIR_TEMP_DEVIATION_LOW` | en modo aire, `consigna − temperatura > 3.0 °C` (`AIR_TEMP_DEVIATION_COLD_LIMIT_C`), y solo tras cerrar la ventana de estabilización (§5) | MEDIA | no |
 | 10 | `ALARM_SKIN_TEMP_DEVIATION_HIGH` | en modo piel, `temperatura − consigna > 1.0 °C` (`SKIN_TEMP_DEVIATION_LIMIT_C`) | MEDIA | sí |
 | 11 | `ALARM_SKIN_TEMP_DEVIATION_LOW` | en modo piel, `consigna − temperatura > 1.0 °C`, tras cerrar la ventana | MEDIA | no |
 | 12 | `ALARM_HEATER_FAULT` | corriente de calefactor fuera de `[HEATER_CONSUMPTION_MIN, HEATER_CONSUMPTION_MAX]` en el autotest de arranque (`initHardware.cpp`). Es avería de cableado o resistencia | MEDIA | sí |
@@ -362,6 +362,15 @@ reset de más borra las condiciones que ya declaró el autotest de arranque
 de la desviación de temperatura de forma deliberadamente distinta, y el
 propio código lo documenta como no siendo una inconsistencia
 (`security.cpp:601-615`):
+
+En modo aire los dos lados tampoco comparten umbral: el caliente está en
+**1.0 °C** y el frío en **3.0 °C** (`AIR_TEMP_DEVIATION_HOT_LIMIT_C` y
+`AIR_TEMP_DEVIATION_COLD_LIMIT_C`). La norma fija un máximo de ±3 °C, no un
+mínimo, así que apretar el lado caliente está permitido — y es necesario:
+con 3 °C y el corte térmico topado a 38 °C, una consigna de 35 °C dejaba la
+desviación alarmando en el mismo punto que el corte, y una de 36 °C o más la
+dejaba sin alarmar nunca. El lado frío se queda en 3 °C porque bajarlo
+convertiría cada apertura de puerta en una alarma MEDIA.
 
 - **Lado caliente** (`AIR_TEMP_DEVIATION_HIGH`, `SKIN_TEMP_DEVIATION_HIGH`):
   se declara **siempre**, incluso durante la ventana de estabilización de 30

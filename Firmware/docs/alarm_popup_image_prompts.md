@@ -440,7 +440,7 @@ FOCUS: the gap between the plug and the wall socket.
 
 ### Prioridad MEDIA
 
-**8 — `ALARM_AIR_TEMP_DEVIATION_HIGH`** · *TEMP AIRE ALTA* · «CALEFACTOR CORTADO - AIRE MAS DE 3 C SOBRE LA CONSIGNA»
+**8 — `ALARM_AIR_TEMP_DEVIATION_HIGH`** · *TEMP AIRE ALTA* · «CALEFACTOR CORTADO - AIRE MAS DE 1 C SOBRE LA CONSIGNA»
 
 ```
 SCENE: The COMPLETE unit in flat front elevation, baby inside with its head to
