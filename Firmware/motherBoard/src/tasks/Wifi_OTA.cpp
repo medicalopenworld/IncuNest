@@ -146,6 +146,14 @@ static volatile bool s_staHasIp = false;
 static float s_ipLat = 0.0f;
 static float s_ipLon = 0.0f;
 static bool s_ipLocValid = false;
+// Ultimo valor METIDO en la telemetria, para no repetirlo en cada ciclo. El
+// motivo está en ip_geoloc_due(): el root chain manda toda la telemetría al
+// "Country estimator", que llama a Nominatim mientras el equipo no tenga
+// guardado el atributo `country`, y por WiFi se publica cada 5 s.
+static float s_ipPubLat = 0.0f;
+static float s_ipPubLon = 0.0f;
+static uint32_t s_ipPubMs = 0;
+static bool s_ipPubEver = false;
 
 // Registro idempotente de los manejadores de eventos. Vive aparte de
 // wifiInit() porque applyWifiCredentials() también depende de s_staHasIp y
@@ -1056,11 +1064,20 @@ void addTelemetriesToWIFIJSON() {
   // ya existen sigan mostrando la unidad sin tocar el cuadro de mando. Lo que
   // cambia es la calidad, y va declarada: tri_accuracy = 25 km y loc_source
   // "ip". El fix de torre manda siempre; esto solo lo suple.
-  else if (s_ipLocValid) {
+  // Y solo cuando cambia, con un latido de 6 h: a diferencia del fix de torre,
+  // esta posicion es la misma durante dias y cada repeticion es una peticion a
+  // Nominatim que no aporta nada (ver ip_geoloc_due()).
+  else if (s_ipLocValid &&
+           ip_geoloc_due(s_ipPubEver, s_ipPubLat, s_ipPubLon, s_ipPubMs,
+                         s_ipLat, s_ipLon, millis())) {
     addVariableToTelemetryWIFIJSON[LOCATION_LONGTITUD_KEY] = s_ipLon;
     addVariableToTelemetryWIFIJSON[LOCATION_LATITUD_KEY] = s_ipLat;
     addVariableToTelemetryWIFIJSON[TRI_ACCURACY_KEY] = IP_GEOLOC_ACCURACY_M;
     addVariableToTelemetryWIFIJSON[LOCATION_SOURCE_KEY] = "ip";
+    s_ipPubLat = s_ipLat;
+    s_ipPubLon = s_ipLon;
+    s_ipPubMs = millis();
+    s_ipPubEver = true;
   }
 #endif
   addVariableToTelemetryWIFIJSON[SKIN_TEMPERATURE_KEY] = roundSignificantDigits(

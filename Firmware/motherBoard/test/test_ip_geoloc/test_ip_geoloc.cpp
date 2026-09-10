@@ -191,6 +191,64 @@ void test_timezone_parses_when_the_position_is_absent(void) {
                                     &lat, &lon));
 }
 
+// --- Cadencia de publicacion ---------------------------------------------
+//
+// Por que existe: el root chain de ThingsBoard manda TODA la telemetria al
+// chain "Country estimator", que llama a Nominatim mientras el equipo no
+// tenga el atributo `country`. Publicar la posicion por IP en cada ciclo de
+// WiFi (5 s) son ~17.000 peticiones al dia por unidad, todas con el MISMO
+// valor: eso banea la IP y se lleva por delante la estimacion de pais de la
+// flota entera. La posicion por IP cambia una vez al dia como mucho.
+
+void test_publica_la_primera_vez(void) {
+  TEST_ASSERT_TRUE(ip_geoloc_due(false, 0.0f, 0.0f, 0u, 9.03f, 38.75f, 1000u));
+}
+
+void test_no_republica_el_mismo_valor_dentro_de_la_ventana(void) {
+  TEST_ASSERT_FALSE(
+      ip_geoloc_due(true, 9.03f, 38.75f, 1000u, 9.03f, 38.75f, 1000u));
+  // 5 s despues, que es la cadencia de la telemetria por WiFi.
+  TEST_ASSERT_FALSE(
+      ip_geoloc_due(true, 9.03f, 38.75f, 1000u, 9.03f, 38.75f, 6000u));
+  // Una hora despues sigue siendo el mismo sitio.
+  TEST_ASSERT_FALSE(ip_geoloc_due(true, 9.03f, 38.75f, 1000u, 9.03f, 38.75f,
+                                  1000u + 3600000u));
+}
+
+// Que el equipo se mueva es la unica noticia de verdad, y no espera.
+void test_republica_en_cuanto_cambia_la_posicion(void) {
+  TEST_ASSERT_TRUE(
+      ip_geoloc_due(true, 9.03f, 38.75f, 1000u, 9.04f, 38.75f, 1100u));
+  TEST_ASSERT_TRUE(
+      ip_geoloc_due(true, 9.03f, 38.75f, 1000u, 9.03f, 38.76f, 1100u));
+}
+
+// Latido: si el publish se perdio (broker caido, JSON truncado) el valor se
+// repone sin esperar a que cambie la IP publica.
+void test_republica_al_cumplirse_el_latido(void) {
+  const uint32_t t0 = 1000u;
+  TEST_ASSERT_FALSE(ip_geoloc_due(true, 9.03f, 38.75f, t0, 9.03f, 38.75f,
+                                  t0 + IP_GEOLOC_REPUBLISH_MS - 1u));
+  TEST_ASSERT_TRUE(ip_geoloc_due(true, 9.03f, 38.75f, t0, 9.03f, 38.75f,
+                                 t0 + IP_GEOLOC_REPUBLISH_MS));
+}
+
+// millis() desborda a los 49,7 dias. Con una resta con signo, un equipo que
+// pasara de ese punto dejaria de publicar la posicion PARA SIEMPRE. La resta
+// sin signo envuelve y mide bien el intervalo real a traves del desborde.
+void test_sobrevive_al_desborde_de_millis(void) {
+  const uint32_t antes = 0xFFFFFF00u; // a 256 ms de desbordar
+  // Justo despues del desborde han pasado 512 ms de verdad: NO toca.
+  TEST_ASSERT_FALSE(
+      ip_geoloc_due(true, 9.03f, 38.75f, antes, 9.03f, 38.75f, 0x00000100u));
+  // Y al cumplirse el latido A TRAVES del desborde, si toca. Con una resta
+  // con signo esto daria negativo y no publicaria nunca mas.
+  const uint32_t latido = antes + IP_GEOLOC_REPUBLISH_MS; // envuelve
+  TEST_ASSERT_TRUE(latido < antes); // el caso de prueba es real
+  TEST_ASSERT_TRUE(
+      ip_geoloc_due(true, 9.03f, 38.75f, antes, 9.03f, 38.75f, latido));
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_parses_a_successful_body);
@@ -211,5 +269,10 @@ int main(int, char **) {
   RUN_TEST(test_leaves_outputs_untouched_on_rejection);
   RUN_TEST(test_timezone_still_parses_from_the_extended_body);
   RUN_TEST(test_timezone_parses_when_the_position_is_absent);
+  RUN_TEST(test_publica_la_primera_vez);
+  RUN_TEST(test_no_republica_el_mismo_valor_dentro_de_la_ventana);
+  RUN_TEST(test_republica_en_cuanto_cambia_la_posicion);
+  RUN_TEST(test_republica_al_cumplirse_el_latido);
+  RUN_TEST(test_sobrevive_al_desborde_de_millis);
   return UNITY_END();
 }
