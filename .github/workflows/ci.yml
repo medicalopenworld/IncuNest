@@ -1,0 +1,144 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - dev
+  push:
+    branches:
+      - dev
+
+permissions:
+  contents: read
+
+jobs:
+  # The three PlatformIO gates share one recipe (install PlatformIO, restore
+  # its cache, run one command in one directory) and differ only in that
+  # command, so they run as a matrix instead of three near-identical jobs.
+  # fail-fast is off: a broken Display_HMI build must not hide a broken
+  # motherBoard test run.
+  platformio:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: motherboard-build
+            name: Build motherBoard
+            directory: Firmware/motherBoard
+            command: pio run -e IncuNest_V17
+          - id: display-hmi-build
+            name: Build Display_HMI
+            directory: Firmware/Display_HMI
+            command: pio run -e main
+          - id: motherboard-test
+            name: Test motherBoard (native)
+            directory: Firmware/motherBoard
+            command: pio test -e native
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Same cache as release.yml, keyed per matrix entry as well: the three
+      # entries pull different toolchains and would otherwise overwrite each
+      # other's entry under a single key.
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: ${{ runner.os }}-pio-${{ matrix.id }}-${{ hashFiles('Firmware/motherBoard/platformio.ini', 'Firmware/Display_HMI/platformio.ini') }}
+          restore-keys: ${{ runner.os }}-pio-${{ matrix.id }}-
+
+      # motherBoard pins medicalopenworld/incunest_afe4490 in lib_deps and
+      # that repository is not publicly readable, so PlatformIO cannot clone
+      # it with the anonymous credentials of a runner (GITHUB_TOKEN only
+      # grants access to this repository). Give a PIO_GIT_TOKEN secret read
+      # access to it and the build resolves; without the secret this step
+      # does nothing. Secrets are never exposed to pull requests from forks,
+      # so a fork cannot build motherBoard either way.
+      - name: Authenticate private library dependencies
+        env:
+          PIO_GIT_TOKEN: ${{ secrets.PIO_GIT_TOKEN }}
+        run: |
+          if [ -n "$PIO_GIT_TOKEN" ]; then
+            git config --global \
+              url."https://x-access-token:$PIO_GIT_TOKEN@github.com/".insteadOf \
+              "https://github.com/"
+          fi
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: ${{ matrix.name }}
+        run: ${{ matrix.command }}
+        working-directory: ${{ matrix.directory }}
+
+  # SensorBoard_v2 is native ESP-IDF (CMake + idf.py), not PlatformIO, so it
+  # builds inside Espressif's own image. The version is pinned to the one
+  # recorded in Firmware/SensorBoard_v2/dependencies.lock, so CI resolves the
+  # same components as a developer machine and does not rewrite that file;
+  # bump both together.
+  build-sensorboard:
+    name: Build SensorBoard_v2
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build with ESP-IDF
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v6.0.1
+          target: esp32s3
+          path: Firmware/SensorBoard_v2
+
+  # Formatting is defined against the diff of the pull request, so this job
+  # only runs for pull_request events; a push to dev has no such diff and is
+  # already covered by the build and test jobs above.
+  format:
+    name: Check formatting
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      # Full history: the check diffs against the merge base of the pull
+      # request, which a shallow checkout does not contain.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Pinned: clang-format output changes between LLVM releases, so an
+      # unpinned version would turn unrelated pull requests red on its own.
+      # This wheel also ships git-clang-format.
+      - name: Install clang-format
+        run: pip install clang-format==23.1.1
+
+      # Only the lines this pull request changed are checked. The firmware
+      # predates the formatter, so checking whole files would report hundreds
+      # of unrelated lines on every pull request and reformatting it wholesale
+      # is out of scope. Each file is formatted with the .clang-format of its
+      # own tree — no global -style is passed — and files deleted by the pull
+      # request are skipped by git-clang-format itself.
+      - name: Check formatting of changed lines
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if ! git-clang-format --diff --diff_from_common_commit \
+              --extensions c,cc,cpp,cxx,h,hh,hpp \
+              "$BASE_SHA" "$HEAD_SHA" -- \
+              Firmware/motherBoard \
+              Firmware/Display_HMI \
+              Firmware/SensorBoard_v2; then
+            echo "::error::Changed lines are not formatted. Apply the diff above, or run 'git clang-format origin/dev' before pushing."
+            exit 1
+          fi
