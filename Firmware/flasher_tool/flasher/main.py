@@ -41,6 +41,42 @@ WIFI_SCAN_INTERVAL_S = 5
 # _write_initial_ota_data.
 PIO_ARTIFACTS = ('firmware.bin', 'bootloader.bin', 'partitions.bin', 'spiffs.bin')
 
+# Sufijo de los entornos de build que NUNCA se empaquetan en el flasher.
+#
+# Su firmware.bin lleva ONOMONDO_API_KEY dentro -- la activacion de SIM del
+# test de fabrica sim_act, ver
+# motherBoard/src/modules/factory_test/ftest_sim_activation.h -- y esa clave
+# controla TODAS las SIM de la organizacion. data/firmware/ acaba como asset de
+# GitHub Releases, y el repo es publico.
+#
+# El filtro es explicito y no confia en el orden: _pio_env_sort_key saca
+# [Vv](\d+) del nombre del entorno, asi que "IncuNest_V18_factory" tambien
+# puntua 18 y el desempate era el mtime. Es decir, se copiaba el que se hubiera
+# compilado mas tarde: una moneda al aire con una credencial de flota en juego.
+FACTORY_ENV_SUFFIX = '_factory'
+
+
+def _pio_env_sort_key(p: Path) -> tuple:
+    # Prefer higher version number (e.g. V17 > V16); mtime as tiebreaker.
+    m = re.search(r'[Vv](\d+)', p.parent.name)
+    return (int(m.group(1)) if m else -1, p.stat().st_mtime)
+
+
+def pick_pio_env_dir(pio_dir: Path) -> Optional[Path]:
+    """Directorio .pio/build/<env>/ del que copiar los artefactos.
+
+    Prefiere la revision de hardware mas alta y, a igualdad, el build mas
+    reciente. Descarta los entornos de fabrica (FACTORY_ENV_SUFFIX).
+    """
+    candidates = [
+        p for p in pio_dir.glob('*/firmware.bin')
+        if not p.parent.name.endswith(FACTORY_ENV_SUFFIX)
+    ]
+    if not candidates:
+        return None
+    return sorted(candidates, key=_pio_env_sort_key, reverse=True)[0].parent
+
+
 
 
 def get_firmware_base() -> Path:
@@ -1151,11 +1187,6 @@ class FlasherApp:
         spiffs.bin en el offset del CSV nuevo mientras la placa arranca con la
         tabla vieja, y el flasheo no da ningun error.
         """
-        def _env_sort_key(p: Path) -> tuple:
-            # Prefer higher version number (e.g. V17 > V16); mtime as tiebreaker.
-            m = re.search(r'[Vv](\d+)', p.parent.name)
-            return (int(m.group(1)) if m else -1, p.stat().st_mtime)
-
         try:
             firmware_base = get_firmware_base()
             repo_root = firmware_base.parents[2]
@@ -1167,14 +1198,9 @@ class FlasherApp:
             ]:
                 if not pio_dir.is_dir():
                     continue
-                candidates = sorted(
-                    pio_dir.glob('*/firmware.bin'),
-                    key=_env_sort_key,
-                    reverse=True,
-                )
-                if not candidates:
+                env_dir = pick_pio_env_dir(pio_dir)
+                if env_dir is None:
                     continue
-                env_dir = candidates[0].parent
                 sources[board_folder] = {
                     name: env_dir / name
                     for name in PIO_ARTIFACTS
