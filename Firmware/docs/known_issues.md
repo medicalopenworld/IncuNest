@@ -221,10 +221,19 @@ build before trusting any observation.
     the board. `TelemetryHistory` also moved to PSRAM (-17.3 KB of internal
     `.bss`), and panel creation stopped aborting outright — it now walks a
     ladder of 24 -> 16 -> 12 -> 8 -> 0 bounce lines. Margin: 9 KB -> ~87 KB.
-*   **Bench verification**: CrowPanel 7.0, unit sn 317, serial log. Before:
-    49 reboots/min. After: panel ready at 240 ms, WiFi started afterwards,
-    0 reboots in 40 s.
-*   **Still open**: the bounce ladder is only visible over UART
-    (`RGB panel initialized OK bounce=N lineas`). `g_lcd_bounce_lines` is
-    exposed neither in Settings nor in the factory test, so a deployed unit
-    running with degraded bounce buffers goes unnoticed.
+*   **What is verified, and what is not**: on COM62, `50293a0` boots with the
+    full 24 bounce lines, `LCD_DIAG` steady at 43.5 fps and touch working —
+    that is the PSRAM move and the ladder doing the work. The `setup()`
+    barrier itself was **compiled but never flashed**; its own commit message
+    records that the port was absent at the time. The field figures (49
+    reboots/min before, 0 reboots and panel ready at 240 ms after, on
+    CrowPanel 7.0 sn 317) come from @acuesta-mow's equivalent variant on the
+    branch of PR #28, **not** from the build now on `dev`.
+*   **Still open**:
+    *   `dev`'s ordering barrier is pending a flash on a unit with saved
+        credentials, which is the only configuration that reproduces the loop.
+        @acuesta-mow has that unit (sn 317) and is verifying it.
+    *   The bounce ladder is only visible over UART
+        (`RGB panel initialized OK bounce=N lineas`). `g_lcd_bounce_lines` is
+        exposed neither in Settings nor in the factory test, so a deployed
+        unit running with degraded bounce buffers goes unnoticed.
