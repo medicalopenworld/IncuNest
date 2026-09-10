@@ -5,12 +5,16 @@
 // real: la lampara de fototerapia y el calefactor se encienden de verdad
 // (con la incubadora vacia: el gate clinico exige que no haya terapia ni bebe
 // real). Lo que se virtualiza es el bebe y todo lo que se REGISTRA:
-//   - El asistente ve un unico bebe de practica, ZOE (TRAINING_BABY_SEQ), y
-//     obliga a elegirla (BEBE NUEVO y SALTAR se rechazan). Sus peticiones de
-//     perfil (lista, seleccion, peso, edad) y la hora se contestan en local
-//     con los mismos flags g_pending* que pondria el parser; alta, salida,
-//     canguro y credenciales WiFi se tragan. ZOE nunca llega a la placa ni al
-//     historial ni a ThingsBoard.
+//   - La lista de perfiles trae al bebe de practica ZOE (TRAINING_BABY_SEQ)
+//     y, si el alumno registro uno desde la pantalla Bebes durante la
+//     leccion, ese segundo bebe de practica (TRAINING_NEW_BABY_SEQ, con el
+//     nombre y las semanas que tecleo). El asistente obliga a elegir a uno de
+//     ellos (BEBE NUEVO y SALTAR se rechazan alli; el registro se ensena
+//     desde Bebes). Las peticiones de perfil (lista, nuevo, seleccion, peso,
+//     edad) y la hora se contestan en local con los mismos flags g_pending*
+//     que pondria el parser; alta, salida, canguro y credenciales WiFi se
+//     tragan. Ninguno de los dos llega a la placa, al historial ni a
+//     ThingsBoard.
 //   - Nada cambiado en formacion se persiste en NVS.
 //   - Al salir, Training_Exit() restaura hmi_msg desde la instantanea tomada
 //     al entrar y fuerza un envio: la placa vuelve al estado previo (todo
@@ -29,6 +33,14 @@
 #define TRAINING_BABY_NAME "ZOE"
 #define TRAINING_BABY_GEST_WEEKS 32
 #define TRAINING_BABY_WEIGHT_G 1500
+// Segundo bebe de practica: el que el alumno registra desde Bebes durante la
+// leccion, con su nombre y sus semanas. Vive lo que dura la leccion; un
+// segundo registro en la misma leccion lo sustituye.
+#define TRAINING_NEW_BABY_SEQ 0xFFFEu
+// Verdadero para cualquier seq de practica (ZOE o el registrado en la
+// leccion): lo que hay que limpiar al salir y lo que una leccion acepta como
+// "bebe admitido".
+bool Training_IsPracticeSeq(uint32_t seq);
 
 // Watchdog de la lampara en formacion: si la HMI se reinicia o se cuelga con
 // la fototerapia encendida, la placa mantiene la terapia (ALARM_HMI_LINK_LOST

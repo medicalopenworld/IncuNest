@@ -285,10 +285,11 @@ void endLesson(bool passed, bool aborted) {
     // lo que la leccion encendio) y baja el flag.
     UI_RestoreControlSnapshot(&s_snap);
     Training_Exit();
-    // El seq de formacion (0xFFFF) no debe sobrevivir a la leccion. Solo se
-    // borra si es el de ZOE: si la leccion no llego a seleccionarla, el
-    // perfil recordado (un paciente registrado) se queda como estaba.
-    if (BabyWizard_GetActiveSeq() == TRAINING_BABY_SEQ) {
+    // Un seq de formacion (ZOE o el bebe registrado en la leccion) no debe
+    // sobrevivir a la leccion. Solo se borra si es uno de ellos: si la
+    // leccion no llego a seleccionar a ninguno, el perfil recordado (un
+    // paciente registrado) se queda como estaba.
+    if (Training_IsPracticeSeq(BabyWizard_GetActiveSeq())) {
       BabyWizard_ClearActiveProfile();
     }
   }
@@ -696,12 +697,14 @@ void Training_Poll(void) {
   // overlay vuelve al fondo de la capa.
   if (kind == STEP_DO && (st.flags & STEP_FREE)) {
     // El SALIR de la franja se esconde mientras haya un dialogo de la
-    // pantalla principal abierto: el teclado del asistente llega hasta y=456
-    // y su barra de espacio quedaba debajo del boton (abortaria la leccion
-    // con un toque bajo). Siguen valiendo el aborto por alarma e inactividad
-    // y la X del propio dialogo.
+    // pantalla principal abierto: el teclado del asistente (y el del registro
+    // desde Bebes, que es el mismo) llega hasta y=456 y su barra de espacio
+    // quedaba debajo del boton (abortaria la leccion con un toque bajo).
+    // Siguen valiendo el aborto por alarma e inactividad y la X del propio
+    // dialogo.
     const bool mainDialog = BabyWizard_IsOpen() || BabyExitDialog_IsOpen() ||
-                            TimeDialog_IsOpen() || HelpDialog_IsOpen();
+                            TimeDialog_IsOpen() || HelpDialog_IsOpen() ||
+                            BabyHistory_IsOpen();
     show(s_stripExit, !mainDialog);
 
     const bool modalTop = AlarmCenter_IsOpen() || TelemetryHistory_IsOpen();
