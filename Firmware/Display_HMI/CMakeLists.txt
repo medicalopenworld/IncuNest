@@ -11,5 +11,20 @@ set(EXTRA_COMPONENT_DIRS
   "${CMAKE_CURRENT_LIST_DIR}/../components/thingsboard"
 )
 
+# LVGL tiene que usar EL lv_conf.h DEL PROYECTO, no su Kconfig.
+#
+# El componente de LVGL para ESP-IDF, si le dejas, se configura por menuconfig
+# (CONFIG_LV_*) y se salta include/config/lv_conf.h. Eso aqui seria un cambio
+# de comportamiento encubierto: ese fichero lleva la profundidad de color, el
+# tamano del pool de LVGL y el juego de fuentes con el que esta cuadrada toda
+# la UI. LV_KCONFIG_IGNORE apaga el camino de Kconfig y LV_CONF_PATH apunta al
+# fichero de siempre, que asi sigue siendo la unica fuente de verdad.
+# (idf_build_set_property solo existe DESPUES de incluir project.cmake, y
+# tiene que ir ANTES de project(), que es cuando se procesan los componentes.)
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+
+idf_build_set_property(COMPILE_DEFINITIONS "LV_KCONFIG_IGNORE" APPEND)
+idf_build_set_property(COMPILE_DEFINITIONS
+  "LV_CONF_PATH=${CMAKE_CURRENT_LIST_DIR}/include/config/lv_conf.h" APPEND)
+
 project(display_hmi)

@@ -51,3 +51,23 @@ idf_component_register(
     thingsboard
     espressif__mdns
 )
+
+# Estandar de C++: gnu++2b, el mismo con el que compilaba pioarduino.
+#
+# ESP-IDF 6 compila por defecto en gnu++26, y eso NO es neutral para este
+# codigo: C++26 convierte en ERROR las operaciones de bits entre enums de
+# distinto tipo, que es un patron que LVGL usa por todas partes (22 errores
+# solo en src/ui). Fijar el estandar que ya se usaba mantiene el porte
+# centrado en quitar Arduino, en vez de arrastrar de paso una migracion de
+# lenguaje sobre 36k lineas. Subir a C++26 es un trabajo aparte y deliberado.
+target_compile_options(${COMPONENT_LIB} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-std=gnu++2b>)
+
+# PlatformIO no compilaba con -Werror; ESP-IDF si. Mantener -Werror aqui
+# convertiria en errores avisos preexistentes (inicializadores de struct
+# incompletos, etc.) que no tienen nada que ver con el porte. Se rebajan a
+# aviso SOLO para las fuentes del proyecto: los componentes siguen con la
+# politica estricta de IDF. Limpiarlos es una tarea propia, no de este cambio.
+target_compile_options(${COMPONENT_LIB} PRIVATE
+  -Wno-error=missing-field-initializers
+  -Wno-error=deprecated-enum-enum-conversion
+)

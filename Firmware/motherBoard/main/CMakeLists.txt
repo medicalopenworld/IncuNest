@@ -57,3 +57,17 @@ target_compile_definitions(${COMPONENT_LIB} PUBLIC HW_NUM=${CONFIG_INCUNEST_HW_N
 # -O0 -g3, que es lo que pedia build_flags. Sin esto, el porte cambiaria en
 # silencio el nivel de optimizacion del codigo de control.
 target_compile_options(${COMPONENT_LIB} PRIVATE -O0 -g3)
+
+# Estandar de C++: gnu++17, el que usaba arduino-esp32 2.0.16 en esta placa.
+# ESP-IDF 6 va por defecto a gnu++26, que cambia reglas del lenguaje (entre
+# otras, convierte en error las operaciones de bits entre enums distintos).
+# Modernizar el estandar es un trabajo aparte del de quitar Arduino.
+target_compile_options(${COMPONENT_LIB} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-std=gnu++17>)
+
+# PlatformIO no compilaba con -Werror y ESP-IDF si. Se rebajan a aviso SOLO
+# para las fuentes del proyecto, para que el porte no se mezcle con la
+# limpieza de avisos preexistentes.
+target_compile_options(${COMPONENT_LIB} PRIVATE
+  -Wno-error=missing-field-initializers
+  -Wno-error=deprecated-enum-enum-conversion
+)

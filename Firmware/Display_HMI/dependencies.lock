@@ -37,27 +37,12 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 8.3.11
-  thingsboard/thingsboard:
-    component_hash: 3c7e6d6951be72b622216e2fc4d0c6639596639b85d701040986d407acad484f
-    dependencies:
-    - name: idf
-      require: private
-      version: '*'
-    - name: bblanchon/arduinojson
-      registry_url: https://components.espressif.com
-      require: private
-      version: ^6.21.4
-    source:
-      registry_url: https://components.espressif.com/
-      type: service
-    version: 0.13.0
 direct_dependencies:
 - bblanchon/arduinojson
 - espressif/mdns
 - espressif/mqtt
 - idf
 - lvgl/lvgl
-- thingsboard/thingsboard
-manifest_hash: b636a1809baab60abda54200cfc047b440b6a6b1d882cbb0866eb27674a54bfc
+manifest_hash: 378cedfd3d3c702df449de3bbb345a2578da5b02cea930700bc8278611f838cf
 target: esp32s3
 version: 3.0.0
