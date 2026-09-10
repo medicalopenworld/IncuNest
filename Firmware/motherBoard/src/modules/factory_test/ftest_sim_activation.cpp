@@ -8,6 +8,8 @@
 #include "main.h"         // logI / logE
 #include "protocol/Credentials_public.h"
 
+#if FTEST_SIM_ACT_ENABLED
+
 // ---------------------------------------------------------------------------
 // Contrato de la API de Onomondo (comprobado contra la API viva el
 // 2026-09-06, https://docs.onomondo.com/readme/sims):
@@ -291,3 +293,32 @@ void ftest_sim_activation_reset(void) {
   s_detail[0] = '\0';
   s_iccid[0] = '\0';
 }
+
+#else // !FTEST_SIM_ACT_ENABLED
+
+// ---------------------------------------------------------------------------
+// Build de CAMPO. La clave de Onomondo no se nombra en ningun sitio de este
+// bloque, asi que no existe en el binario: es lo que impide que un firmware
+// distribuido lleve dentro la credencial de toda la flota (ver la cabecera).
+//
+// El estado es UNREACHABLE y no ERROR a proposito, con el mismo criterio que
+// el caso "sin key": no sabemos si la SIM esta activada, y no saberlo no es un
+// fallo de la placa. El runner lo pinta como WARN.
+// ---------------------------------------------------------------------------
+
+static volatile FtestSimState s_state = FTEST_SIM_IDLE;
+
+bool ftest_sim_activation_start(const char * /*iccid*/) {
+  s_state = FTEST_SIM_UNREACHABLE;
+  return false;
+}
+
+FtestSimState ftest_sim_activation_state(void) { return s_state; }
+
+const char *ftest_sim_activation_detail(void) {
+  return (s_state == FTEST_SIM_IDLE) ? "" : "solo fabrica";
+}
+
+void ftest_sim_activation_reset(void) { s_state = FTEST_SIM_IDLE; }
+
+#endif // FTEST_SIM_ACT_ENABLED
