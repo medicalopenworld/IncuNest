@@ -1,0 +1,22 @@
+# clang-format for motherBoard (Arduino/ESP32, C++).
+#
+# This describes the style already in the tree instead of imposing a new one:
+# LLVM is the closest base (2-space indent, 80 columns, `Type *name`), so only
+# the deviations measured against the existing sources are listed below.
+BasedOnStyle: LLVM
+
+IndentWidth: 2
+ColumnLimit: 80
+
+# Guard clauses are written on one line all over this tree
+# (`if (!ok) return false;`, `while (*p == ' ') p++;`).
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: true
+
+# Comments are hand-wrapped and carry ASCII tables and rationale blocks;
+# reflowing them is churn, not formatting.
+ReflowComments: false
+
+# Include order is load-bearing here (main.h pulls in the board configuration
+# that later headers rely on), so clang-format must not reorder it.
+SortIncludes: Never
