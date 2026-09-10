@@ -93,14 +93,24 @@ bool goalPhotoOff() { return hmi_msg.phototherapyMode == PHOTOTHERAPY_OFF; }
 bool goalAlarmCenterOpen() { return AlarmCenter_IsOpen(); }
 bool goalAlarmCenterClosed() { return !AlarmCenter_IsOpen(); }
 
-// Bebes. En formacion el asistente solo ofrece a ZOE y rechaza BEBE NUEVO y
+// Bebes. En formacion el registro desde Bebes crea un bebe de practicas
+// virtual (TRAINING_NEW_BABY_SEQ) que la lista y el asistente ofrecen junto a
+// ZOE; ningun camino crea un perfil real. El asistente rechaza BEBE NUEVO y
 // SALTAR (BabyWizard::trainingRefuse), asi que el unico camino que enciende
-// el control deja seq = TRAINING_BABY_SEQ.
+// el control es seleccionar a uno de los dos y el seq activo es de practicas.
 bool goalBabyHistoryOpen() { return BabyHistory_IsOpen(); }
 bool goalBabyHistoryClosed() { return !BabyHistory_IsOpen(); }
+bool goalNewBabyAtName() { return BabyHistory_GetStep() == BH_NEW_NAME; }
+bool goalNewBabyAtGest() { return BabyHistory_GetStep() == BH_NEW_GEST; }
+bool goalNewBabyAtWeight() { return BabyHistory_GetStep() == BH_NEW_WEIGHT; }
+// Registro hecho y lista de vuelta (recargandose o ya pintada).
+bool goalNewBabyRegistered() {
+  return BabyHistory_LastRegisteredSeq() != 0 &&
+         BabyHistory_GetStep() == BH_LIST;
+}
 bool goalTrainingBabyAdmitted() {
   return snap().switchTemp && !BabyWizard_IsOpen() &&
-         BabyWizard_GetActiveSeq() == TRAINING_BABY_SEQ;
+         Training_IsPracticeSeq(BabyWizard_GetActiveSeq());
 }
 // Salida: el dialogo se permite solo en este paso, y el objetivo es haberlo
 // visto abierto y despues cerrado con el control apagado.
@@ -166,55 +176,114 @@ const Quiz QUIZ_BABY = {
 constexpr Step BABY_STEPS[] = {
     EXPLAIN(&ui_BabiesButton, &ui_ScreenMain,
             "Cada bebe tiene su registro: nombre, semanas, pesos, horas de "
-            "terapia y salidas. Se crea con BEBE NUEVO al encender una terapia "
-            "por primera vez. En formacion practicaras con ZOE, ya creada.",
+            "terapia y salidas. Se crea al ingresar, desde Bebes con BEBE "
+            "NUEVO; si no se hizo, el asistente lo pide al encender la primera "
+            "terapia. En formacion nada se guarda de verdad.",
             "Each baby has a record: name, weeks, weights, therapy hours and "
-            "exits. It is created with NEW BABY when a therapy is first "
-            "switched on. In training you practise with ZOE, already created.",
+            "exits. It is created on admission, from Babies with NEW BABY; if "
+            "not, the assistant asks for it when the first therapy is switched "
+            "on. In training nothing is really saved.",
             "Chaque bebe a son dossier : nom, semaines, poids, heures de "
-            "therapie et sorties. Il se cree avec NOUVEAU BEBE a la premiere "
-            "therapie. En formation vous pratiquez avec ZOE, deja creee.",
+            "therapie et sorties. Il se cree a l'admission, depuis Bebes avec "
+            "NOUVEAU BEBE ; sinon l'assistant le demande a la premiere "
+            "therapie. En formation rien n'est vraiment enregistre.",
             "Cada bebe tem o seu registo: nome, semanas, pesos, horas de "
-            "terapia e saidas. Cria-se com BEBE NOVO ao ligar uma terapia pela "
-            "primeira vez. Em formacao vais praticar com a ZOE, ja criada."),
+            "terapia e saidas. Cria-se na admissao, em Bebes com BEBE NOVO; se "
+            "nao, o assistente pede-o ao ligar a primeira terapia. Em formacao "
+            "nada fica guardado a serio."),
     DO(&ui_BabiesButton, &ui_ScreenMain, goalBabyHistoryOpen,
-       "Toca Bebes para ver los registros. Dentro veras el bebe activo, los "
-       "ya dados de alta y la curva de peso de cada uno. Cierra con la X al "
-       "terminar.",
-       "Touch Babies to see the records. Inside you see the active baby, the "
-       "discharged ones and each weight curve. Close with the X when done.",
-       "Touchez Bebes pour voir les dossiers : le bebe actif, ceux sortis et "
-       "la courbe de poids de chacun. Fermez avec la X a la fin.",
-       "Toca em Bebes para ver os registos. La dentro ves o bebe ativo, "
-       "os que ja tiveram alta e a curva de peso de cada um. Fecha com o "
-       "X ao terminar."),
+       "Toca Bebes. Dentro veras los bebes activos, los ya dados de alta y "
+       "el boton BEBE NUEVO para registrar un ingreso.",
+       "Touch Babies. Inside you see the active babies, the discharged ones "
+       "and the NEW BABY button to register an admission.",
+       "Touchez Bebes. Dedans : les bebes actifs, ceux sortis et le bouton "
+       "NOUVEAU BEBE pour enregistrer une admission.",
+       "Toca em Bebes. La dentro ves os bebes ativos, os que ja tiveram alta "
+       "e o botao BEBE NOVO para registar uma admissao."),
+    FREE(&ui_ScreenMain, goalNewBabyAtName,
+         "Toca BEBE NUEVO, bajo la lista de activos, para registrar un "
+         "ingreso.",
+         "Touch NEW BABY, below the active list, to register an admission.",
+         "Touchez NOUVEAU BEBE, sous la liste des actifs, pour enregistrer "
+         "une admission.",
+         "Toca em BEBE NOVO, abaixo da lista de ativos, para registar uma "
+         "admissao."),
+    FREE(&ui_ScreenMain, goalNewBabyAtGest,
+         "1/3 Nombre: escribe el nombre o las iniciales del bebe con el "
+         "teclado y pulsa CONTINUAR. Es como aparecera en la lista y en el "
+         "historial.",
+         "1/3 Name: type the baby's name or initials on the keyboard and "
+         "press CONTINUE. This is how it will appear in the list and the "
+         "history.",
+         "1/3 Nom : saisissez le nom ou les initiales du bebe au clavier et "
+         "CONTINUER. C'est ainsi qu'il apparaitra dans la liste et "
+         "l'historique.",
+         "1/3 Nome: escreve o nome ou as iniciais do bebe no teclado e toca "
+         "em CONTINUAR. E assim que aparecera na lista e no historico."),
+    FREE(&ui_ScreenMain, goalNewBabyAtWeight,
+         "2/3 Semanas de gestacion al nacer (20 a 40): con ellas y el peso el "
+         "equipo calcula cuanto calor necesita el bebe. CONTINUAR.",
+         "2/3 Gestational weeks at birth (20 to 40): with them and the weight "
+         "the device computes how much warmth the baby needs. CONTINUE.",
+         "2/3 Semaines de gestation a la naissance (20 a 40) : avec le poids, "
+         "l'appareil en deduit la chaleur dont le bebe a besoin. CONTINUER.",
+         "2/3 Semanas de gestacao ao nascer (20 a 40): com elas e o peso o "
+         "equipamento calcula quanto calor precisa o bebe. CONTINUAR."),
+    FREE(&ui_ScreenMain, goalNewBabyRegistered,
+         "3/3 Peso al ingreso en gramos y REGISTRAR; si aun no lo has pesado, "
+         "SIN PESO. Solo REGISTRAR crea el registro: hasta aqui la X no deja "
+         "rastro. El bebe aparece en Activos.",
+         "3/3 Admission weight in grams and REGISTER; if not weighed yet, NO "
+         "WEIGHT. Only REGISTER creates the record: until here the X leaves "
+         "no trace. The baby appears under Active.",
+         "3/3 Poids a l'admission en grammes et ENREGISTRER ; pas encore "
+         "pese : SANS POIDS. Seul ENREGISTRER cree le dossier ; jusqu'ici la "
+         "X ne laisse aucune trace. Le bebe apparait dans Actifs.",
+         "3/3 Peso na admissao em gramas e REGISTAR; se ainda nao o pesaste, "
+         "SEM PESO. So REGISTAR cria o registo: ate aqui o X nao deixa "
+         "rasto. O bebe aparece em Ativos."),
     FREE(&ui_ScreenMain, goalBabyHistoryClosed,
-         "Explora los registros de bebes. Cierra con la X para continuar.",
-         "Explore the baby records. Close with the X to continue.",
-         "Explorez les dossiers des bebes. Fermez avec la X pour continuer.",
-         "Explora os registos de bebes. Fecha com o X para continuar."),
+         "Ahi esta el registro nuevo, con ALTA para cuando salga. Toca su "
+         "tarjeta para ver la curva de peso (aun vacia) y ATRAS. Cierra con "
+         "la X para continuar.",
+         "There is the new record, with DISCHARGE for when the baby leaves. "
+         "Touch its card to see the weight curve (still empty) and BACK. "
+         "Close with the X to continue.",
+         "Voici le nouveau dossier, avec SORTIE pour le depart. Touchez sa "
+         "carte pour voir la courbe de poids (encore vide) et RETOUR. Fermez "
+         "avec la X pour continuer.",
+         "Ai esta o registo novo, com ALTA para quando sair. Toca no cartao "
+         "para ver a curva de peso (ainda vazia) e VOLTAR. Fecha com o X "
+         "para continuar."),
     DO(&ui_TempToggleBtn, &ui_ScreenMain, goalWizardOpen,
-       "El registro se abre desde cualquier terapia. Enciende el control de "
-       "temperatura para abrir el asistente del bebe.",
-       "The record is opened from any therapy. Turn temperature control on to "
-       "open the baby assistant.",
-       "Le dossier s'ouvre depuis n'importe quelle therapie. Allumez le "
-       "controle de temperature pour ouvrir l'assistant bebe.",
-       "O registo abre-se a partir de qualquer terapia. Liga o controlo "
-       "de temperatura para abrir o assistente do bebe."),
+       "Al encender una terapia el equipo pregunta que bebe esta en la "
+       "incubadora. Enciende el control de temperatura para abrir el "
+       "asistente del bebe.",
+       "When a therapy is switched on the device asks which baby is in the "
+       "incubator. Turn temperature control on to open the baby assistant.",
+       "En allumant une therapie, l'appareil demande quel bebe est dans "
+       "l'incubateur. Allumez le controle de temperature pour ouvrir "
+       "l'assistant bebe.",
+       "Ao ligar uma terapia o equipamento pergunta que bebe esta na "
+       "incubadora. Liga o controlo de temperatura para abrir o assistente "
+       "do bebe."),
     FREE(&ui_ScreenMain, goalTrainingBabyAdmitted,
-         "Selecciona a ZOE. Introduce su peso de hoy en gramos y sus dias de "
-         "vida: asi se registra un peso nuevo. Lee la temperatura propuesta y "
-         "pulsa APLICAR. ZOE no se guarda en el historial.",
-         "Select ZOE. Enter today's weight in grams and her days of life: "
-         "that is how a new weight is recorded. Read the proposed temperature "
-         "and press APPLY. ZOE is not saved to the history.",
-         "Selectionnez ZOE. Saisissez son poids du jour en grammes et ses "
-         "jours de vie : c'est ainsi qu'un poids s'enregistre. Lisez la "
-         "temperature proposee et APPLIQUER. ZOE n'est pas gardee.",
-         "Seleciona a ZOE. Introduz o peso de hoje em gramas e os dias de "
-         "vida: assim regista-se um peso novo. Le a temperatura proposta e "
-         "toca em APLICAR. A ZOE nao fica guardada no historico."),
+         "Selecciona al bebe que acabas de registrar. Introduce su peso de "
+         "hoy en gramos y sus dias de vida: asi se registra un peso nuevo. "
+         "Lee la temperatura propuesta y pulsa APLICAR. En formacion nada "
+         "queda en el historial.",
+         "Select the baby you have just registered. Enter today's weight in "
+         "grams and the days of life: that is how a new weight is recorded. "
+         "Read the proposed temperature and press APPLY. In training nothing "
+         "stays in the history.",
+         "Selectionnez le bebe que vous venez d'enregistrer. Saisissez son "
+         "poids du jour en grammes et ses jours de vie : c'est ainsi qu'un "
+         "poids s'enregistre. Lisez la temperature proposee et APPLIQUER. En "
+         "formation rien ne reste dans l'historique.",
+         "Seleciona o bebe que acabaste de registar. Introduz o peso de hoje "
+         "em gramas e os dias de vida: assim regista-se um peso novo. Le a "
+         "temperatura proposta e toca em APLICAR. Em formacao nada fica no "
+         "historico."),
     EXPLAIN(&ui_BabiesButton, &ui_ScreenMain,
             "Cada nuevo peso se registra desde el asistente y dibuja la curva "
             "de crecimiento en Bebes. Registra el peso a diario a la misma "

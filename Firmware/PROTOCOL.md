@@ -380,12 +380,18 @@ Solicitud manual de sincronización completa.
 Pide la lista de perfiles activos. Respuesta: `CTRL,PROFILE_LIST`.
 
 #### HMI,PROFILE_NEW
-Crea un perfil de bebé nuevo (el wizard de activación).
+Crea un perfil de bebé nuevo. Lo envían el wizard de activación (BEBE NUEVO
+al confirmar las semanas) y la pantalla Bebes (BEBE NUEVO → nombre, semanas,
+peso → REGISTRAR; en este camino la HMI no lo envía si ya hay 3 activos).
 **Formato**: `HMI,PROFILE_NEW,name,gestWeeks`
 - `name`: sin comas (el teclado del HMI bloquea la tecla; la placa además
   las filtra defensivamente). Máx. 23 caracteres.
 - Respuesta: `CTRL,PROFILE_ACK,seq`. Si los 3 slots están llenos, se
   desaloja por FIFO (menor `seq`) el que no esté controlando (`activeSeq`).
+- El perfil (nombre, semanas, `admissionEpoch` = ahora, `weightGrams` = 0) se
+  **persiste en NVS en este mismo mensaje** (`babyStore_createProfile`):
+  un reinicio después del ACK conserva el bebé aunque nunca llegue
+  `PROFILE_WEIGHT`.
 
 #### HMI,PROFILE_SELECT
 Selecciona un bebé existente para el wizard.
@@ -397,8 +403,9 @@ Peso actual del bebé del wizard (o SKIP si no se conoce).
 - Con peso: actualiza el último peso conocido y añade un punto
   `(timestamp,grams)` a la curva de evolución (deduplicado si no cambió).
 - Respuesta: `CTRL,PROFILE_RANGE`.
-- Hasta este mensaje NADA se persiste del wizard en curso (un reinicio a
-  mitad de wizard no toca los slots).
+- Con `SKIP` no se persiste nada nuevo (el perfil ya quedó en NVS con
+  `PROFILE_NEW`); por eso la pantalla Bebes no envía `SKIP` cuando se
+  registra SIN PESO.
 
 #### HMI,PROFILE_AGE_MANUAL
 Edad en días introducida a mano (solo cuando `CTRL,PROFILE_RANGE` llegó con

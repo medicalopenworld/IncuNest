@@ -65,6 +65,20 @@ bool BabyWizard_HasLiveSession(void);
 // Cleared when a baby is discharged so the exit dialog stops offering it.
 void BabyWizard_ClearActiveProfile(void);
 
+// Instantanea del perfil recordado (seq, nombre, semanas, ultimo peso). El
+// motor de lecciones la toma al entrar en formacion y la devuelve al salir:
+// una leccion sustituye el perfil recordado por un bebe de practicas, y lo que
+// habia antes (un paciente registrado, o nada) tiene que volver tal cual. Con
+// seq 0, SetSession equivale a BabyWizard_ClearActiveProfile().
+typedef struct {
+  uint32_t seq;
+  char name[24];
+  uint8_t gest;
+  uint16_t weight;
+} BabyWizardSession;
+void BabyWizard_GetSession(BabyWizardSession *out);
+void BabyWizard_SetSession(const BabyWizardSession *s);
+
 // --- Para el motor de lecciones (hmi-training-courses) -------------------
 // Fase del asistente, agrupada: lo que una leccion necesita para saber "por
 // donde va" el alumno sin exponer el enum interno.
