@@ -47,6 +47,7 @@ idf_component_register(
     incunest_afe4490
     incunest_sensors
     espressif__mdns
+    espressif__esp_modem
     joltwallet__littlefs
 )
 

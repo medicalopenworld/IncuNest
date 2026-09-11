@@ -1,8 +1,8 @@
 #ifndef _MAIN_H
 #define _MAIN_H
 
-#define TINY_GSM_MODEM_SIM800
-#define modemSerial Serial2
+// TINY_GSM_MODEM_SIM800 y modemSerial desaparecen con TinyGSM: el modem va
+// ahora por esp_modem (PPP), ver src/tasks/gprs_modem.h.
 #ifndef THINGSBOARD_ENABLE_PSRAM
 #define THINGSBOARD_ENABLE_PSRAM 0
 #endif

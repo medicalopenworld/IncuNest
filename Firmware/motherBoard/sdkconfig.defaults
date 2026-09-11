@@ -102,3 +102,11 @@ CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY=y
 # que decir lo mismo que los #define para que todas las unidades de
 # compilacion vean la misma clase ThingsBoard.
 CONFIG_THINGSBOARD_ENABLE_DYNAMIC=y
+
+# --- PPP en lwIP: el modem SIM800 entra en la pila de red por PPP (esp_modem).
+# Con TinyGSM el TCP lo hacia el propio modem por comandos AT; ahora MQTT y
+# HTTPS por celular van por lwIP igual que por WiFi. PAP/CHAP se activan por si
+# algun APN de la lista exige usuario/clave (hoy GPRS_USER esta vacio).
+CONFIG_LWIP_PPP_SUPPORT=y
+CONFIG_LWIP_PPP_PAP_SUPPORT=y
+CONFIG_LWIP_PPP_CHAP_SUPPORT=y

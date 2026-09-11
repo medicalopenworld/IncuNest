@@ -45,15 +45,18 @@
 #include "Wifi_OTA.h"
 #include "main.h"
 #include "platform/plat_string_json.h"  // doc["x"].as<String>()
+#include "gprs_modem.h"
 
-// Initialize GSM modem
-TinyGsm modem(modemSerial);
+// Modem SIM800 sobre esp_modem (PPP en modo CMUX), con la forma de los
+// metodos de TinyGSM que usa la maquina de estados de abajo. Ver gprs_modem.h.
+GprsModem modem;
 
-// Initialize GSM client
-TinyGsmClient client(modem);
-
-// Initalize the Mqtt client instance
-Arduino_MQTT_Client mqttClientGPRS(client);
+// Transporte MQTT nativo de ESP-IDF. Con TinyGSM el TCP lo hacia el modem por
+// comandos AT (TinyGsmClient); con PPP el modem es una interfaz mas de lwIP y
+// esp-mqtt sale por ella cuando el WiFi no tiene IP (route_prio: WiFi 100,
+// PPP 20). La telemetria por celular sigue publicandose solo con el WiFi
+// caido, igual que antes (ver GPRS_Handler).
+Espressif_MQTT_Client mqttClientGPRS;
 
 // Initialize ThingsBoard instance
 // ThingsBoardSized<THINGSBOARD_BUFFER_SIZE, THINGSBOARD_FIELDS_AMOUNT>
@@ -284,7 +287,14 @@ void initGPRS() {
   }
 
   // Normal power‑up path:
-  Serial2.begin(MODEM_BAUD, SERIAL_8N1, GSM_UART_TX_PIN, GSM_UART_RX_PIN);
+  // OJO AL ORDEN DE LOS PINES, que se conserva tal cual: antes era
+  // Serial2.begin(baud, SERIAL_8N1, rxPin = GSM_UART_TX_PIN, txPin = GSM_UART_RX_PIN).
+  // Los nombres de board.h estan desde el punto de vista del MODEM, asi que el
+  // RX del ESP32 es GSM_UART_TX_PIN (9) y el TX del ESP32 es GSM_UART_RX_PIN (10).
+  if (!modem.begin(UART_NUM_2, /*tx_pin=*/GSM_UART_RX_PIN, /*rx_pin=*/GSM_UART_TX_PIN,
+                   MODEM_BAUD, RX_BUFFER_LENGTH)) {
+    logE("[GPRS] -> no se pudo crear el modem (esp_modem)");
+  }
   GPRS.powerUp = true;
 #if (GPRS_PWRKEY)
   pin_write(GPRS_PWRKEY, true);
@@ -526,18 +536,10 @@ void GPRSUpdateCSQ() {
 }
 
 void readGPRSData() {
-  while (Serial2.available()) {
-    GPRS.buffer[GPRS.bufferWritePos] = Serial2.read();
-    if (LOG_MODEM_DATA) {
-      debugSerial.print(GPRS.buffer[GPRS.bufferWritePos]);
-    }
-    GPRS.bufferWritePos++;
-    if (GPRS.bufferWritePos >= RX_BUFFER_LENGTH) {
-      GPRS.bufferWritePos = 0;
-      logModemData("[GPRS] -> Buffer overflow");
-    }
-    GPRS.charToRead++;
-  }
+  // Con esp_modem el UART del modem lo lee su propia tarea (DTE): aqui ya no
+  // hay bytes sueltos que vaciar. Las respuestas a los AT que manda esta
+  // maquina de estados llegan sincronas a GPRS.buffer a traves de
+  // modem.sendAT(), asi que checkSerial()/strstr siguen funcionando igual.
 }
 
 // Apaga el modulo y devuelve la maquina de estados a powerUp, para que el
@@ -555,7 +557,7 @@ void GPRSForceReset(const String &reason) {
   GPRS.powerUp = true;
   GPRS.serverConnectionStatus = false;
   logModemData("[GPRS] -> powering module down...");
-  Serial2.print("AT+CPOWD=1\n");
+  modem.powerDown(); // AT+CPOWD=1
   GPRS.packetSentenceTime = millis();
   GPRS.processTime = millis();
 }
@@ -619,7 +621,9 @@ void GPRSPowerUp() {
     if (millis() - GPRS.packetSentenceTime > 1000) {
       clearGPRSBuffer();
       logModemData("[GPRS] -> Sending AT command");
-      Serial2.print(SIMCOM800_ASK_CPIN);
+      // La respuesta (READY / SIM PIN / ERROR) cae en GPRS.buffer, que es lo
+      // que miran los strstr de mas abajo y el test de fabrica.
+      modem.sendAT(SIMCOM800_ASK_CPIN, GPRS.buffer, RX_BUFFER_LENGTH, 2000);
       GPRS.packetSentenceTime = millis();
     }
     if (strstr(GPRS.buffer, AT_CPIN_SIM_PIN)) {
@@ -628,7 +632,7 @@ void GPRSPowerUp() {
       GPRS.modemResponded = true;
       if (!GPRS.pinAttempted) {
         logModemData("[GPRS] -> SIM PIN required, unlocking...");
-        Serial2.print(SIMCOM800_ENTER_PIN);
+        modem.sendAT(SIMCOM800_ENTER_PIN, nullptr, 0, 5000);
         GPRS.pinAttempted = true;
       } else {
         // Already tried once this boot and the SIM is still asking for the
