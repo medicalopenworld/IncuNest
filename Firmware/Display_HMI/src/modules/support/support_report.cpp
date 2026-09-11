@@ -1,6 +1,6 @@
 #include "support_report.h"
 
-#include <Arduino.h>
+#include "platform/plat_time.h"
 #include <WiFi.h>
 #include <esp_heap_caps.h>
 #include <esp_log.h>

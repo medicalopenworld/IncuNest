@@ -39,3 +39,15 @@ if(ESP_PLATFORM)
 endif()
 
 project(ThingsBoardClientSDK VERSION 0.13.0)
+
+# ESP-IDF compila con -Werror y esta es una SDK de terceros que nunca se construyo con
+# esa politica: sus avisos preexistentes (orden de inicializadores, campos sin
+# inicializar) no son del porte y arreglarlos seria separarse mas de upstream.
+# Se rebajan a aviso SOLO en este componente.
+target_compile_options(${COMPONENT_LIB} PRIVATE
+  -Wno-error=reorder
+  -Wno-error=missing-field-initializers
+  -Wno-error=unused-variable
+  -Wno-error=format=
+  -Wno-error=format-truncation
+)

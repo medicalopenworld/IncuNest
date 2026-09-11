@@ -22,8 +22,9 @@
   SOFTWARE.
 
 */
-#include <Arduino.h>
-#include <Preferences.h>
+#include "platform/plat_gpio.h"
+#include "platform/plat_pwm.h"
+#include "platform/plat_nvs.h"
 
 #include "main.h"
 #include "system/hw_selftest.h"
@@ -43,13 +44,13 @@ void turnFans(bool mode) {
   if (g_factoryTestActive)
     return;
   in3.fanCommandedOn = mode || in3.phototherapy;
-  digitalWrite(ACTUATORS_EN, mode || in3.phototherapy);
+  pin_write(ACTUATORS_EN, mode || in3.phototherapy);
 #if (HW_NUM >= 8)
   // Gate on in3.fanCommandedOn (mode || in3.phototherapy), not mode alone —
   // otherwise a phototherapy-only activation enables ACTUATORS_EN but never
   // powers the fan itself, leaving fanControlPID AUTOMATIC with nothing to
   // drive.
-  ledcWrite(FAN_PWM_CHANNEL, (in3.fanCommandedOn && !ongoingFanCriticalAlarm()) *
+  pwm_write(FAN_PWM_CHANNEL, (in3.fanCommandedOn && !ongoingFanCriticalAlarm()) *
                                  in3.fanPwrSupplyPWM);
 #if defined(FAN_SPEED_FEEDBACK)
   if (in3.fanHasSpeedFeedback && in3.fanPidEnabled) {
@@ -60,20 +61,20 @@ void turnFans(bool mode) {
       // past baseline (a ~6000rpm overshoot). Skip the write once the PID
       // has taken over so we don't stomp its output.
       if (fanControlPID.GetMode() != AUTOMATIC) {
-        ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
+        pwm_write(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
       }
     } else {
       fanControlPID.SetMode(MANUAL);
       fanControlPIDOutput = 0;
-      ledcWrite(FAN_CTL_PWM_CHANNEL, 0);
+      pwm_write(FAN_CTL_PWM_CHANNEL, 0);
     }
   } else
 #endif
   {
-    ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCommandedOn * in3.fanCtlPWM);
+    pwm_write(FAN_CTL_PWM_CHANNEL, in3.fanCommandedOn * in3.fanCtlPWM);
   }
 #else
-  digitalWrite(FAN, in3.phototherapy || mode && !ongoingFanCriticalAlarm());
+  pin_write(FAN, in3.phototherapy || mode && !ongoingFanCriticalAlarm());
 #endif
 }
 
@@ -84,12 +85,12 @@ void turnFans(bool mode) {
 // after its spin-up grace, so no action is needed here for that case.
 void setFanPidEnabled(bool enabled) {
   in3.fanPidEnabled = enabled;
-  { Preferences p; p.begin(NS_CFG, false); p.putUChar(KEY_FAN_PID_EN, enabled); p.end(); }
+  { NvsPrefs p; p.begin(NS_CFG, false); p.putUChar(KEY_FAN_PID_EN, enabled); p.end(); }
 #if defined(FAN_SPEED_FEEDBACK)
   if (!enabled && in3.fanHasSpeedFeedback) {
     fanControlPID.SetMode(MANUAL);
     if (in3.fanCommandedOn) {
-      ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
+      pwm_write(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
     }
   }
 #endif

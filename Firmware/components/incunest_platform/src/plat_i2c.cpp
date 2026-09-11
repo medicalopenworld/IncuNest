@@ -4,6 +4,9 @@
 
 static const char *TAG = "plat_i2c";
 
+I2cBus Wire;
+I2cBus Wire1;
+
 I2cBus::~I2cBus() { end(); }
 
 bool I2cBus::begin(int sda, int scl, uint32_t freq_hz, int port) {

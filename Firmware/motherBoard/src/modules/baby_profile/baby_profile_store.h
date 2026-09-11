@@ -1,7 +1,7 @@
 #pragma once
 // NVS + LittleFS persistence for baby profiles. All decisions (slot pick,
 // eviction, dedup, budget, downsampling) live in baby_profile_core.h; this
-// layer only executes them against Preferences and LittleFS.
+// layer only executes them against NvsPrefs and LittleFS.
 //
 // Thread-safety: call from a single task (CommTask) — no internal locking.
 #include "baby_cloud.h"

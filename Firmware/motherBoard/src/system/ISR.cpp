@@ -23,13 +23,14 @@
 
 */
 
-#include <Arduino.h>
+#include "esp_attr.h"  // IRAM_ATTR, que antes venia de Arduino.h
+#include "platform/plat_time.h"
+#include "platform/plat_num.h"
 
 #include "main.h"
 
-extern TwoWire *wire;
+extern I2cBus *wire;
 extern MAM_IncuNest_Humidifier in3_hum;
-extern TFT_eSPI tft;
 extern RotaryEncoder encoder;
 
 extern bool WIFI_EN;

@@ -1,6 +1,6 @@
 #include "maintenance.h"
 
-#include <Preferences.h>
+#include "platform/plat_nvs.h"
 #include <cstdio>
 #include <ctime>
 
@@ -36,14 +36,14 @@ bool s_enabled = true;
 bool s_terminalPending = false;
 
 void putU32(const char *key, uint32_t v) {
-  Preferences p;
+  NvsPrefs p;
   p.begin(HMI_NS_CFG, false);
   p.putUInt(key, v);
   p.end();
 }
 
 void putBool(const char *key, bool v) {
-  Preferences p;
+  NvsPrefs p;
   p.begin(HMI_NS_CFG, false);
   p.putUChar(key, v ? 1 : 0);
   p.end();
@@ -64,7 +64,7 @@ bool periodElapsed(mnt_level_t lvl) {
 }  // namespace
 
 void Maintenance_Init(void) {
-  Preferences p;
+  NvsPrefs p;
   p.begin(HMI_NS_CFG, true);
   for (int i = 0; i < MNT_LEVEL_COUNT; i++) {
     s_last[i] = p.getUInt(KEY_LAST[i], 0);

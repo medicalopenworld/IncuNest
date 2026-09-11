@@ -3,7 +3,7 @@
 #include "DriveUpload.h"
 #include "board.h"
 
-#include <LittleFS.h>
+#include "platform/plat_fs.h"
 #include <esp_system.h>
 
 extern IncuNest_parameters in3;
@@ -102,7 +102,7 @@ void crashReporterMaybeFlush() {
   snprintf(path, sizeof(path), "/crash_mb_%lu.log",
            (unsigned long)millis());
 
-  File f = LittleFS.open(path, "w", true);
+  FsFile f = LittleFS.open(path, "w", true);
   if (!f) {
     logDrive("cannot open crash file");
     free(s_pending_copy);

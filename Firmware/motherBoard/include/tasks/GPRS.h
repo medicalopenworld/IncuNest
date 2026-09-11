@@ -72,8 +72,11 @@
 
 #define PROVISION_MAX_RETRIES 3
 
-constexpr char ACCESS_TOKEN_CRED_TYPE[] PROGMEM = "ACCESS_TOKEN";
-constexpr char MQTT_BASIC_CRED_TYPE[] PROGMEM = "MQTT_BASIC";
+// Sin PROGMEM: era un atributo de AVR, en Arduino-ESP32 ya estaba definido
+// como nada y en ESP-IDF la macro ni existe. Al ser constexpr, las cadenas van
+// a .rodata (flash) igual, que es lo que PROGMEM buscaba.
+constexpr char ACCESS_TOKEN_CRED_TYPE[] = "ACCESS_TOKEN";
+constexpr char MQTT_BASIC_CRED_TYPE[] = "MQTT_BASIC";
 
 struct GPRSstruct {
   int provisioned = false;

@@ -27,7 +27,9 @@
 #include "alarm_audio_pattern.h"
 #include "main.h"
 #include "ui.h"
-#include <PCA9557.h>
+// PCA9557 retirado en el porte: el expansor NO esta poblado en esta
+// revision de hardware (UITask.cpp:4020 "was not found in scan",
+// FactoryTest.cpp:1264). Solo quedaba el include; cero usos del tipo.
 #include <SPI.h>
 #include <TAMC_GT911.h>
 

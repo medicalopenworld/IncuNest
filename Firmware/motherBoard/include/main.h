@@ -5,33 +5,65 @@
 #define modemSerial Serial2
 #define THINGSBOARD_ENABLE_PSRAM 0
 #define THINGSBOARD_ENABLE_DYNAMIC 1
-#define THINGSBOARD_ENABLE_STREAM_UTILS 1
+// ================== CAMBIO DE COMPORTAMIENTO, PENDIENTE DE BANCO ==================
+// Pasa de 1 a 0 en el porte, y NO es una eleccion: la propia Configuration.h
+// del SDK lo dice ("Option can only be enabled when using Arduino"). El truco
+// se apoya en BufferingPrint de ArduinoStreamUtils y exige que el
+// IMQTT_Client implemente ademas el interfaz Print de Arduino.
+// Espressif_MQTT_Client (esp-mqtt) no lo hace, asi que con el transporte de
+// ESP-IDF esta opcion no puede existir.
+//
+// QUE SE PIERDE: con STREAM_UTILS=1, sendTelemetryJson() usaba Serialize_Json()
+// (begin_publish + BufferingPrint + end_publish) y publicaba EN STREAMING,
+// rodeando el bufer del cliente MQTT: un payload de mas de 1024 B se enviaba
+// igual, troceado. Es justo lo que explica la nota de
+// config/transport_policy.h. Con STREAM_UTILS=0 el payload tiene que caber
+// entero en THINGSBOARD_BUFFER_SIZE (4096 B, mas abajo).
+//
+// POR QUE HAY QUE MEDIRLO EN BANCO: el peor caso documentado son 99 claves
+// (87 por GPRS + 12 del bloque). A ~35 B por clave eso ronda los 3,5 KB, que
+// deja muy poco margen sobre 4096. Si una publicacion se pasa, el SDK la
+// DESCARTA y avisa con INVALID_BUFFER_SIZE — se perderia telemetria en
+// silencio para quien no mire el log.
+//
+// QUE HACER ANTES DE DAR ESTO POR BUENO: medir el tamano real del payload en
+// el peor caso (GPRS, todos los grupos encendidos) y, si hace falta, subir
+// THINGSBOARD_BUFFER_SIZE. Con esp-mqtt el bufer es configurable y el coste
+// es RAM, no dinero de datos.
+// ==================================================================================
+#define THINGSBOARD_ENABLE_STREAM_UTILS 0
 #include "ThingsBoard.h"
 #include "config/transport_policy.h" // tabla única GPRS/WiFi
-#include <Arduino.h>
-#include <TinyGsmClient.h>
 
-#include <ESPmDNS.h>
-#include <Update.h>
-#include <WebServer.h>
-#include <WiFi.h>
-// include libraries
+// ===================== PORTE A ESP-IDF: LIMPIEZA DE ESTE HUB =====================
+// main.h reexportaba a TODO el firmware una docena de cabeceras de Arduino
+// (WiFi, WebServer, Update, ESPmDNS, TinyGsmClient, Wire, Preferences,
+// RotaryEncoder, Filters, Adafruit_GFX, Adafruit_SHT4x, BluetoothSerial, SPI,
+// INA3221...). Se comprobo una por una: NINGUNO de esos tipos se usa dentro de
+// main.h — eran solo reexportaciones. Como casi todos los .cpp incluyen main.h,
+// esas cabeceras hacian fallar 33 de las ~85 fuentes de la placa a la vez.
+//
+// Ahora cada .cpp incluye lo que de verdad usa. BluetoothSerial se retira del
+// todo: no se usaba en ningun sitio del proyecto (cero referencias en src/).
+// ================================================================================
 #include "esp_log.h"
 #include "esp_system.h"
+// FreeRTOS.h SHALL ir antes que semphr.h (semphr.h lleva un #error si no).
+// Antes lo colaba Arduino.h; ahora se pide explicitamente.
+#include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
-#include <Beastdevices_INA3221.h>
-#include <Preferences.h>
-#include <Filters.h>
-#include <RotaryEncoder.h>
-#include <Wire.h>
 
-#include <AH/Timing/MillisMicrosTimer.hpp>
-#undef DEBUG
-#include <Filters/Butterworth.hpp>
+#include "platform/plat_esp.h"
+#include "platform/plat_gpio.h"
+#include "platform/plat_ip.h"
+#include "platform/plat_types.h"
+#include "platform/plat_i2c.h"
+#include "platform/plat_nvs.h"
+#include "platform/plat_num.h"
+#include "platform/plat_pwm.h"
+#include "platform/plat_string.h"
+#include "platform/plat_time.h"
 
-#include "Adafruit_GFX.h"
-#include "Adafruit_SHT4x.h"
-#include "BluetoothSerial.h"
 #include "CommTask.h"
 #include "control_types.h"
 #include "alarm_ids.h"
@@ -39,16 +71,14 @@
 #include "ESP32_config.h"
 #include "GPRS.h"
 #include "PID.h"
-#include "SPI.h"
 #include "SPO2.h"
-#include "SparkFun_SHTC3.h"
-#include "TCA9555.h"
 #include "Wifi_OTA.h"
 #include "board.h"
-#include "driver/rtc_io.h"
-#include "esp32/ulp.h"
-#include "esp_bt.h"
-#include "esp_bt_main.h"
+// Se retiran de este hub tres cabeceras que nadie usaba: driver/rtc_io.h y
+// esp32/ulp.h (cero referencias a rtc_gpio_* o ulp_* en todo src/ — ademas
+// esp32/ulp.h ya no existe en ESP-IDF 6), y esp_bt_main.h. esp_bt.h SI hace
+// falta, pero solo en main.cpp, que es donde se libera la memoria del
+// controlador BLE; se incluye alli.
 #include "IncuNest_humidifier.h"
 #include "nvs_flash.h"
 #if CONFIG_IDF_TARGET_ESP32S3
@@ -58,8 +88,11 @@
 #include "usb/vcp_ch34x.hpp"
 #endif
 #include "BQ25730.h"
-#include <SensirionI2cSts3x.h>
-#include <TFT_eSPI.h> // Hardware-specific library
+// TFT_eSPI retirada en el porte a ESP-IDF: era codigo MUERTO. Se declaraba
+// el objeto `tft` en main.cpp, tres ficheros lo declaraban extern y no habia
+// ni una sola llamada sobre el (cero `tft.`). La motherBoard ya no tiene
+// pantalla propia: la pantalla es el HMI. Ademas arrastraba Print.h de
+// Arduino a los 7 ficheros que incluyen main.h.
 
 #include <Arduino_MQTT_Client.h>
 #include <Espressif_MQTT_Client.h>
@@ -546,7 +579,7 @@ bool measureSkinSensor();
 
 void pinMode(uint8_t GPIO, uint8_t Mode);
 bool GPIORead(uint8_t GPIO);
-void digitalWrite(uint8_t GPIO, uint8_t Mode);
+void pin_write(uint8_t GPIO, uint8_t Mode);
 
 void basictemperatureControl();
 

@@ -15,6 +15,11 @@ idf_component_register(
     "src/plat_pwm.c"
     "src/plat_i2c.cpp"
     "src/plat_nvs.cpp"
+    "src/plat_string.cpp"
+    "src/plat_num.c"
+    "src/plat_spi.cpp"
+    "src/plat_fs.cpp"
+    "src/plat_esp.cpp"
   INCLUDE_DIRS "include"
-  REQUIRES esp_driver_gpio esp_driver_ledc esp_driver_i2c esp_adc esp_timer nvs_flash
+  REQUIRES esp_driver_gpio esp_driver_ledc esp_driver_i2c esp_driver_spi esp_adc esp_timer nvs_flash joltwallet__littlefs vfs esp_system spi_flash
 )

@@ -27,8 +27,8 @@
 #ifndef MAM_IncuNest_humidifier_H
 #define MAM_IncuNest_humidifier_H
 
-#include "Arduino.h"
-#include "Wire.h"
+#include <cstdint>
+#include "platform/plat_i2c.h"
 
 #define HUMIDIFIER_BINARY 0
 #define HUMIDIFIER_PWM 1
@@ -45,7 +45,7 @@ typedef enum {
 
 class MAM_IncuNest_Humidifier {
   // Arduino's I2C library
-  TwoWire *_i2c;
+  I2cBus *_i2c;
 
   // I2C address
   IncuNestHum_addr_t _i2c_addr;
@@ -60,7 +60,7 @@ class MAM_IncuNest_Humidifier {
   MAM_IncuNest_Humidifier(IncuNestHum_addr_t addr) : _i2c_addr(addr){};
 
   // Initializes i2c humidifier
-  void begin(TwoWire *theWire = &Wire);
+  void begin(I2cBus *theWire = &Wire);
 
   // Initializes i2c humidifier
   void begin(uint16_t mode, uint8_t pin);

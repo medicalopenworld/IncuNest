@@ -22,7 +22,8 @@
   SOFTWARE.
 
 */
-#include <Arduino.h>
+#include "platform/plat_time.h"
+#include "platform/plat_string.h"
 
 #include "main.h"
 

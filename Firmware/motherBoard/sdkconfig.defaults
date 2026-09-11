@@ -76,3 +76,12 @@ CONFIG_ESP_COREDUMP_CHECKSUM_CRC32=y
 CONFIG_ESP_COREDUMP_CHECK_BOOT=y
 CONFIG_ESP_COREDUMP_MAX_TASKS_NUM=64
 CONFIG_ESP_COREDUMP_STACK_SIZE=1024
+
+# --- Excepciones de C++ ACTIVADAS.
+# No es una preferencia: arduino-esp32 2.0.16 compilaba con
+# CONFIG_COMPILER_CXX_EXCEPTIONS=y, y el codigo de USB Host que ya estaba
+# vendorizado en src/system/ (usb_host_ch34x_vcp.cpp) lo exige de forma
+# explicita — lleva un #error si no las encuentra. ESP-IDF las trae apagadas
+# por defecto, asi que hay que pedirlas para no cambiar comportamiento.
+CONFIG_COMPILER_CXX_EXCEPTIONS=y
+CONFIG_COMPILER_CXX_EXCEPTIONS_EMG_POOL_SIZE=0

@@ -1,6 +1,6 @@
 #include "drv_sts3x.h"
 
-bool drv_sts3x_init(SensirionI2cSts3x *dev, TwoWire *bus, uint8_t addr) {
+bool drv_sts3x_init(SensirionI2cSts3x *dev, I2cBus *bus, uint8_t addr) {
   dev->begin(*bus, addr);
   return true;
 }

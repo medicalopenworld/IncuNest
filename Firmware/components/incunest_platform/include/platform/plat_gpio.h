@@ -14,6 +14,17 @@
 extern "C" {
 #endif
 
+// HIGH y LOW se conservan con su valor de Arduino (1 y 0). No son modos: el
+// codigo los usa sueltos en comparaciones del estilo
+// `if (pin_read(p) == HIGH)`, y mantenerlos evita tocar esos sitios sin ganar
+// nada. Son dos constantes, no una dependencia.
+#ifndef HIGH
+#define HIGH 0x1
+#endif
+#ifndef LOW
+#define LOW 0x0
+#endif
+
 typedef enum {
   PIN_MODE_INPUT = 0,
   PIN_MODE_OUTPUT,
@@ -31,6 +42,27 @@ bool pin_read(uint8_t pin);
 // que se le pase el numero de GPIO: la traduccion a unidad+canal se hace
 // dentro. Devuelve 0 si el pin no tiene ADC o la calibracion no esta.
 uint32_t adc_read_mv(uint8_t pin);
+
+// --- Interrupciones de GPIO -------------------------------------------------
+// Sustituyen a attachInterrupt()/detachInterrupt() de Arduino. El manejador
+// tiene la misma firma que alli —void(void), sin argumento— para que los dos
+// puntos de llamada del firmware (el DRDY del AFE4490 y el encoder en
+// initHardware) no cambien de forma; por dentro se registra en el servicio de
+// ISR de ESP-IDF.
+//
+// Igual que en Arduino, el manejador corre EN CONTEXTO DE INTERRUPCION: tiene
+// que llevar IRAM_ATTR y no puede bloquear, reservar memoria ni loguear.
+typedef enum {
+  PIN_INT_RISING = 0,
+  PIN_INT_FALLING,
+  PIN_INT_CHANGE,
+  PIN_INT_LOW_LEVEL,
+  PIN_INT_HIGH_LEVEL,
+} pin_int_mode_t;
+
+void pin_attach_interrupt(uint8_t pin, void (*handler)(void),
+                          pin_int_mode_t mode);
+void pin_detach_interrupt(uint8_t pin);
 
 #ifdef __cplusplus
 }

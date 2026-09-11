@@ -1,6 +1,7 @@
 #include "ftest_sim_activation.h"
 
-#include <Arduino.h>
+#include "platform/plat_time.h"
+#include "platform/plat_string.h"
 #include <WiFiClientSecure.h>
 #include <time.h>
 
@@ -147,7 +148,7 @@ static bool httpRequest(const char *method, const char *path,
   while ((client.connected() || client.available()) &&
          (millis() - t0) < SIM_HTTP_TIMEOUT_MS) {
     if (!client.available()) {
-      delay(5);
+      delay_ms(5);
       continue;
     }
     String line = client.readStringUntil('\n');

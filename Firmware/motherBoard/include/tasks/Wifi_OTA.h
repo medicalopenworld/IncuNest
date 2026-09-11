@@ -2,7 +2,10 @@
 #ifndef _WIFI_OTA_H_
 #define _WIFI_OTA_H_
 
-#include <Arduino.h>
+#include <cstdint>
+#include <string>
+// Igual que en el HMI: esta cabecera ya no arrastra la capa de red de Arduino
+// a todo el firmware. Lo que necesite la implementacion se incluye en el .cpp.
 
 #include "main.h"
 

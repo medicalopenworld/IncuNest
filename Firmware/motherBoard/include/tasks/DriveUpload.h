@@ -1,7 +1,7 @@
 #pragma once
 
-#include <Arduino.h>
-#include <freertos/task.h>
+#include <cstdint>
+#include "freertos/FreeRTOS.h"  // SHALL ir antes que el resto de cabeceras de FreeRTOS
 #include <freertos/queue.h>
 
 #include "incunest_afe4490.h"

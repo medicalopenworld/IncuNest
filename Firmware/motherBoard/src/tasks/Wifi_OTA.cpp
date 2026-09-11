@@ -22,7 +22,10 @@
   SOFTWARE.
 
 */
-#include <Arduino.h>
+#include "platform/plat_time.h"
+#include "platform/plat_pwm.h"
+#include "platform/plat_string.h"
+#include "platform/plat_num.h"
 #include <string.h>
 #include <time.h>
 #include "lwip/dns.h"
@@ -181,7 +184,7 @@ static void wifiRegisterEvents(void) {
 void applyWifiCredentials(const char* ssid, const char* pass) {
   wifiRegisterEvents();
 
-  Preferences prefs;
+  NvsPrefs prefs;
   char prevSSID[64] = "";
   char prevPass[64] = "";
   prefs.begin("mb_wifi", true);
@@ -474,7 +477,7 @@ void wifiInit(void) {
     pass = pendingPass;
     ESP_LOGI(TAG, "Connecting to pending SSID: %s", ssid.c_str());
   } else {
-    { Preferences p; p.begin(NS_WIFI, true);
+    { NvsPrefs p; p.begin(NS_WIFI, true);
       ssid = p.getString(KEY_SSID,     "");
       pass = p.getString(KEY_PASSWORD, "");
       p.end(); }
@@ -579,54 +582,54 @@ void configWifiServer() {
     extern float maxDesiredTemp[2];
     if (wifiServer.hasArg("serial")) {
       in3.serialNumber = wifiServer.arg("serial").toInt();
-      { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_SERIAL, in3.serialNumber); p.end(); }
+      { NvsPrefs p; p.begin(NS_CFG, false); p.putInt(KEY_SERIAL, in3.serialNumber); p.end(); }
     }
     if (wifiServer.hasArg("fan_supply_pwm")) {
       in3.fanPwrSupplyPWM = wifiServer.arg("fan_supply_pwm").toInt();
-      { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_PWR_SUPPLY_PWM, in3.fanPwrSupplyPWM); p.end(); }
+      { NvsPrefs p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_PWR_SUPPLY_PWM, in3.fanPwrSupplyPWM); p.end(); }
     }
     if (wifiServer.hasArg("fan_ctl_pwm")) {
       in3.fanCtlPWM = wifiServer.arg("fan_ctl_pwm").toInt();
-      { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_CTL_PWM, in3.fanCtlPWM); p.end(); }
-      ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
+      { NvsPrefs p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_CTL_PWM, in3.fanCtlPWM); p.end(); }
+      pwm_write(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
     }
     if (wifiServer.hasArg("fan_pid_en")) {
       setFanPidEnabled(wifiServer.arg("fan_pid_en").toInt() != 0);
     }
     if (wifiServer.hasArg("heater_amps")) {
       in3.heaterMaxPowerAmps = wifiServer.arg("heater_amps").toFloat();
-      { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_HEAT_MAX_A, in3.heaterMaxPowerAmps); p.end(); }
+      { NvsPrefs p; p.begin(NS_CFG, false); p.putFloat(KEY_HEAT_MAX_A, in3.heaterMaxPowerAmps); p.end(); }
     }
     if (wifiServer.hasArg("air_tmax")) {
       in3.airTemperatureSetMax =
           alarm_clamp_air_cutout(wifiServer.arg("air_tmax").toFloat());
       maxDesiredTemp[CONTROL_AIR] = in3.airTemperatureSetMax;
-      { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_AIR_T_MAX, in3.airTemperatureSetMax); p.end(); }
+      { NvsPrefs p; p.begin(NS_CFG, false); p.putFloat(KEY_AIR_T_MAX, in3.airTemperatureSetMax); p.end(); }
     }
     if (wifiServer.hasArg("skin_tmax")) {
       in3.skinTemperatureSetMax =
           alarm_clamp_skin_cutout(wifiServer.arg("skin_tmax").toFloat());
       maxDesiredTemp[CONTROL_SKIN] = in3.skinTemperatureSetMax;
-      { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_SKIN_T_MAX, in3.skinTemperatureSetMax); p.end(); }
+      { NvsPrefs p; p.begin(NS_CFG, false); p.putFloat(KEY_SKIN_T_MAX, in3.skinTemperatureSetMax); p.end(); }
     }
     if (wifiServer.hasArg("gprs_act")) {
       in3.actuating_gprs_period = wifiServer.arg("gprs_act").toInt();
-      { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_ACT_PERIOD, in3.actuating_gprs_period); p.end(); }
+      { NvsPrefs p; p.begin(NS_GPRS, false); p.putInt(KEY_ACT_PERIOD, in3.actuating_gprs_period); p.end(); }
     }
     if (wifiServer.hasArg("gprs_photo")) {
       in3.phototherapy_gprs_period = wifiServer.arg("gprs_photo").toInt();
-      { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_PHOTO_PERIOD, in3.phototherapy_gprs_period); p.end(); }
+      { NvsPrefs p; p.begin(NS_GPRS, false); p.putInt(KEY_PHOTO_PERIOD, in3.phototherapy_gprs_period); p.end(); }
     }
     if (wifiServer.hasArg("gprs_stby")) {
       in3.standby_gprs_period = wifiServer.arg("gprs_stby").toInt();
-      { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_STBY_PERIOD, in3.standby_gprs_period); p.end(); }
+      { NvsPrefs p; p.begin(NS_GPRS, false); p.putInt(KEY_STBY_PERIOD, in3.standby_gprs_period); p.end(); }
     }
     if (wifiServer.hasArg("reference_temp")) {
       double referenceTemp = wifiServer.arg("reference_temp").toDouble();
       in3.fineTuneSkinTemperature =
           in3.fineTuneSkinTemperature +
           (referenceTemp - in3.temperature[SKIN_SENSOR]);
-      { Preferences p; p.begin(NS_CAL, false); p.putFloat(KEY_FT_SKIN, in3.fineTuneSkinTemperature); p.end(); }
+      { NvsPrefs p; p.begin(NS_CAL, false); p.putFloat(KEY_FT_SKIN, in3.fineTuneSkinTemperature); p.end(); }
     }
     if (wifiServer.hasArg("set_time")) {
       // "YYYY-MM-DDTHH:MM[:SS]" — what <input type='datetime-local'> posts.
@@ -655,7 +658,7 @@ void configWifiServer() {
                       "Clock set. The display picks it up within 10 s.");
       return;
     }
-    /* Preferences commits on p.end() — no explicit commit needed */
+    /* NvsPrefs commits on p.end() — no explicit commit needed */
     wifiServer.sendHeader("Connection", "close");
     wifiServer.send(200, "text/plain", "Saved. Settings applied immediately.");
   });
@@ -670,7 +673,7 @@ void configWifiServer() {
         wifiServer.sendHeader("Connection", "close");
         if (ok) {
           wifiServer.send(200, "text/plain", "OK");
-          delay(500); // let TCP stack flush the response before hardware reset
+          delay_ms(500); // let TCP stack flush the response before hardware reset
           ESP.restart();
           return;
         }
@@ -789,7 +792,7 @@ void WIFICheckOTA() {
 }
 
 void WIFI_TB_Init() {
-  { Preferences p; p.begin(NS_GPRS, true);
+  { NvsPrefs p; p.begin(NS_GPRS, true);
     Wifi_TB.provisioned   = p.getUChar (KEY_PROVISIONED, 0);
     if (Wifi_TB.provisioned) {
       Wifi_TB.device_token = p.getString(KEY_TOKEN, "").c_str();
@@ -828,7 +831,7 @@ void WIFIProvisionResponse(const JsonObjectConst &data) {
     wifi_credentials.password = "";
     Wifi_TB.provisioned = true;
     Wifi_TB.device_token = wifi_credentials.username.c_str();
-    { Preferences p; p.begin(NS_GPRS, false);
+    { NvsPrefs p; p.begin(NS_GPRS, false);
       p.putString(KEY_TOKEN,       Wifi_TB.device_token);
       p.putUChar (KEY_PROVISIONED, Wifi_TB.provisioned);
       p.end(); }
@@ -843,7 +846,7 @@ void WIFIProvisionResponse(const JsonObjectConst &data) {
         credentials_value[CLIENT_PASSWORD].as<std::string>();
     Wifi_TB.provisioned = true;
     Wifi_TB.device_token = wifi_credentials.username.c_str();
-    { Preferences p; p.begin(NS_GPRS, false);
+    { NvsPrefs p; p.begin(NS_GPRS, false);
       p.putString(KEY_TOKEN,       Wifi_TB.device_token);
       p.putUChar (KEY_PROVISIONED, Wifi_TB.provisioned);
       p.end(); }
@@ -1242,7 +1245,7 @@ static bool s_dwellLoaded = false;
 static bool s_wifiAttrsDirty = true; // publicar una vez en cuanto haya broker
 
 static void dwellLoad() {
-  Preferences p;
+  NvsPrefs p;
   p.begin(NS_WIFI, true);
   const String s = p.getString(KEY_DWELL_SSID, "");
   wifi_dwell_clear(&s_dwell); // deja el buffer a cero: garantiza el NUL
@@ -1255,7 +1258,7 @@ static void dwellLoad() {
 }
 
 static void dwellSave() {
-  Preferences p;
+  NvsPrefs p;
   p.begin(NS_WIFI, false);
   p.putString(KEY_DWELL_SSID, s_dwell.ssid);
   p.putULong(KEY_DWELL_FIRST, s_dwell.firstEpoch);
@@ -1352,7 +1355,7 @@ void WEB_OTA() {
   if (WIFIIsConnected()) {
     if (strlen(pendingSSID) > 0 && WiFi.SSID() == String(pendingSSID)) {
       logI("[WIFI] -> Connection successful, persisting credentials to Preferences");
-      { Preferences p; p.begin(NS_WIFI, false);
+      { NvsPrefs p; p.begin(NS_WIFI, false);
         p.putString(KEY_SSID,     pendingSSID);
         p.putString(KEY_PASSWORD, pendingPass);
         p.end(); }

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Arduino.h>
+#include <cstdint>
 #include <stddef.h>
 
 // Ring buffer size kept in RTC slow memory. Survives software resets and

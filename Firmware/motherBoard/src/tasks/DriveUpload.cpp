@@ -2,7 +2,7 @@
 #include "main.h"
 #include "modules/util/system_clock.h"
 
-#include <LittleFS.h>
+#include "platform/plat_fs.h"
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <fcntl.h>
@@ -111,7 +111,7 @@ static void parseLocation(const String &url, String &host, String &path) {
 }
 
 // ─── Streamed POST: JSON envelope around base64(csv) ─────────────────────────
-static bool streamPost(const String &host, const String &path, File &csv,
+static bool streamPost(const String &host, const String &path, FsFile &csv,
                        const String &prefix, const String &suffix,
                        size_t bodyLen, int &outStatus, String &outLocation,
                        String &outBody) {
@@ -158,7 +158,7 @@ static bool streamPost(const String &host, const String &path, File &csv,
   while ((client.connected() || client.available()) &&
          millis() - t0 < 20000) {
     if (!client.available()) {
-      delay(5);
+      delay_ms(5);
       continue;
     }
     String line = client.readStringUntil('\n');
@@ -187,7 +187,7 @@ static bool streamPost(const String &host, const String &path, File &csv,
 // GAS always answers 302 -> script.googleusercontent.com; we follow by hand
 // because WiFiClientSecure does not.
 static bool uploadToGoogleDrive(const DriveUploadRequest &req) {
-  File csv = LittleFS.open(req.source_path, "r");
+  FsFile csv = LittleFS.open(req.source_path, "r");
   if (!csv) {
     logDrive(String("cannot open ") + req.source_path);
     return false;
@@ -229,7 +229,7 @@ static bool uploadToGoogleDrive(const DriveUploadRequest &req) {
     while ((echoClient.connected() || echoClient.available()) &&
            millis() - t0 < 15000) {
       if (!echoClient.available()) {
-        delay(5);
+        delay_ms(5);
         continue;
       }
       String line = echoClient.readStringUntil('\n');
@@ -493,9 +493,9 @@ void initDriveUpload() {
   CrashLogEntry hmiKept[DRIVE_CRASH_LOG_RETENTION_CAP] = {};
   int mbKeptCount = 0, hmiKeptCount = 0;
 
-  File root = LittleFS.open("/");
+  FsFile root = LittleFS.open("/");
   if (root && root.isDirectory()) {
-    File f;
+    FsFile f;
     while ((f = root.openNextFile())) {
       const char *n = f.name();
       char nameBuf[32] = {0};

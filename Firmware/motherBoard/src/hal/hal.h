@@ -1,6 +1,8 @@
 #pragma once
-#include <Arduino.h>
-#include <Wire.h>
+#include "platform/plat_gpio.h"
+#include "platform/plat_i2c.h"
+#include "platform/plat_gpio.h"
+#include "platform/plat_i2c.h"
 #include <stdint.h>
 
 typedef struct {
@@ -42,11 +44,11 @@ typedef struct {
 extern const HalPinConfig  g_hal_pins;
 extern const HalBusConfig  g_hal_buses;
 
-void     hal_gpio_set_mode(uint8_t pin, uint8_t mode);
+void     hal_gpio_set_mode(uint8_t pin, pin_mode_t mode);
 void     hal_gpio_write(uint8_t pin, bool value);
 bool     hal_gpio_read(uint8_t pin);
 void     hal_pwm_init(uint8_t channel, uint32_t freq_hz, uint8_t resolution_bits, uint8_t pin);
 void     hal_pwm_write(uint8_t channel, uint32_t duty);
-bool     hal_i2c_write(TwoWire *bus, uint8_t addr, const uint8_t *data, size_t len);
-bool     hal_i2c_read (TwoWire *bus, uint8_t addr, uint8_t *buf,        size_t len);
+bool     hal_i2c_write(I2cBus *bus, uint8_t addr, const uint8_t *data, size_t len);
+bool     hal_i2c_read (I2cBus *bus, uint8_t addr, uint8_t *buf,        size_t len);
 uint32_t hal_adc_read_mv(uint8_t pin);

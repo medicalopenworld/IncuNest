@@ -1,7 +1,7 @@
 #include "SPO2.h"
 #include "DriveUpload.h"
 #include "PpgSnapshot.h"
-#include "esp32-hal-gpio.h"
+#include "platform/plat_gpio.h"
 #include "main.h"
 
 INCUNEST_AFE4490 afe;
@@ -45,10 +45,10 @@ void SPO2_Task(void *pvParameters) {
 
 void initSPO2() {
   // Hard reset via PWDN pin (FAKE_PIN=46 on V16: no physical PWDN connected)
-  pinMode(AFE44XX_PWDN_PIN, OUTPUT);
-  digitalWrite(AFE44XX_PWDN_PIN, LOW);
+  pin_mode(AFE44XX_PWDN_PIN, PIN_MODE_OUTPUT);
+  pin_write(AFE44XX_PWDN_PIN, false);
   vTaskDelay(pdMS_TO_TICKS(100));
-  digitalWrite(AFE44XX_PWDN_PIN, HIGH);
+  pin_write(AFE44XX_PWDN_PIN, true);
   vTaskDelay(pdMS_TO_TICKS(100));
 
   // Initialize SPI bus for AFE4490 (CS=-1: managed per device via AFE44XX_CS)

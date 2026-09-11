@@ -1,6 +1,6 @@
 #include "training_mode.h"
 
-#include <Arduino.h>
+#include "platform/plat_time.h"
 
 #include <cstdio>
 #include <cstring>

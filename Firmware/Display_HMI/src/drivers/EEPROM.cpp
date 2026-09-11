@@ -26,6 +26,7 @@
 #include <cstring>
 #include <string>
 
+#include "esp_log.h"
 #include "platform/plat_nvs.h"
 
 #include "EEPROM_defines.h"

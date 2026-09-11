@@ -34,26 +34,31 @@ int activationMode;
 int controlPin;
 
 void MAM_IncuNest_Humidifier::_read(IncuNestHum_param_t param, uint16_t *val) {
-  _i2c->beginTransmission(_i2c_addr);
-  _i2c->write(param); // parameter
-  _i2c->endTransmission();
+  // Porte a ESP-IDF: antes eran dos transacciones sueltas (escribir el
+  // parametro, soltar el bus, pedir 2 bytes). writeRead() las une con START
+  // repetido, sin soltar el bus entre medias — mas robusto y una transaccion
+  // menos, pero OJO: si este esclavo necesitase el STOP intermedio habria que
+  // volver a separarlas. Comprobar en banco la lectura de humedad.
+  uint8_t rx[2] = {0, 0};
+  const uint8_t reg = (uint8_t)param;
+  const bool ok = _i2c->writeRead(_i2c_addr, &reg, 1, rx, sizeof(rx));
 
-  _i2c->requestFrom(_i2c_addr, 2);
-
-  if (_i2c->available()) {
+  if (ok) {
     *val = ((_i2c->read() << 8) | _i2c->read());
   }
 }
 
 void MAM_IncuNest_Humidifier::_write(IncuNestHum_param_t param, uint16_t *val) {
-  _i2c->beginTransmission(_i2c_addr);
-  _i2c->write(param);              // parameter
-  _i2c->write((*val >> 8) & 0xFF); // Upper 8-bits
-  _i2c->write(*val & 0xFF);        // Lower 8-bits
-  _i2c->endTransmission();
+  // Mismo orden de bytes en el bus que antes: parametro, byte alto, byte bajo.
+  const uint8_t payload[3] = {
+      (uint8_t)param,                  // parameter
+      (uint8_t)((*val >> 8) & 0xFF),   // Upper 8-bits
+      (uint8_t)(*val & 0xFF),          // Lower 8-bits
+  };
+  _i2c->write(_i2c_addr, payload, sizeof(payload));
 }
 
-void MAM_IncuNest_Humidifier::begin(TwoWire *theWire) {
+void MAM_IncuNest_Humidifier::begin(I2cBus *theWire) {
   _i2c = theWire;
   _i2c->begin();
   activationMode = HUMIDIFIER_I2C;
@@ -76,11 +81,11 @@ void MAM_IncuNest_Humidifier::turn(uint16_t mode) {
   int16_t val = 0;
   switch (activationMode) {
   case HUMIDIFIER_BINARY:
-    digitalWrite(controlPin, mode);
+    pin_write(controlPin, mode);
     break;
   case HUMIDIFIER_PWM:
     // HUMIDIFIER_CTL to 115Khz
-    ledcWrite(HUMIDIFIER_PWM_CHANNEL, (PWM_MAX_VALUE / 2) * mode);
+    pwm_write(HUMIDIFIER_PWM_CHANNEL, (PWM_MAX_VALUE / 2) * mode);
     break;
   case HUMIDIFIER_I2C:
   default:

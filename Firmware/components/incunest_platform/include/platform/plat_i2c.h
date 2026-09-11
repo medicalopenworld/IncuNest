@@ -63,3 +63,11 @@ private:
   DevSlot devices_[kMaxDevices] = {};
   int device_count_ = 0;
 };
+
+// Buses globales, con los nombres de Arduino. Mismo criterio que con SPI y
+// millis(): el firmware los usa como argumento por defecto en cabeceras
+// (IncuNest_humidifier.h) y en punteros que se pasan a los drivers de sensor.
+// Son objetos nuestros sobre i2c_master; de Arduino solo queda el nombre.
+// begin() se llama en initHardware(), como antes.
+extern I2cBus Wire;   // bus principal
+extern I2cBus Wire1;  // segundo bus (HW16/17: SHTC3 + STS35)

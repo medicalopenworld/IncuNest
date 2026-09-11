@@ -22,8 +22,8 @@
   SOFTWARE.
 
 */
-#include <Arduino.h>
-#include <Preferences.h>
+#include "platform/plat_string.h"
+#include "platform/plat_nvs.h"
 
 #include "main.h"
 #include "alarm_policy.h"
@@ -40,7 +40,7 @@ extern int g_restore_photo_minutes;
 
 void resetFlash()
 {
-  Preferences p;
+  NvsPrefs p;
   const char *ns[] = {NS_CFG, NS_CAL, NS_WIFI, NS_GPRS, NS_RT, NS_STATE, "photo"};
   for (auto n : ns)
   {
@@ -67,7 +67,7 @@ void loaddefaultValues()
   }
 
   {
-    Preferences p;
+    NvsPrefs p;
     p.begin(NS_CFG, false);
     p.putUChar(KEY_LANG, in3.language);
     p.putUChar(KEY_CTRL_MODE, in3.controlMode);
@@ -86,7 +86,7 @@ void loaddefaultValues()
   }
 
   {
-    Preferences p;
+    NvsPrefs p;
     p.begin(NS_CAL, false);
     p.putFloat(KEY_CAL_SK_LOW, 0.0f);
     p.putFloat(KEY_CAL_SK_RNG, 0.0f);
@@ -98,7 +98,7 @@ void loaddefaultValues()
   }
 
   {
-    Preferences p;
+    NvsPrefs p;
     p.begin(NS_WIFI, false);
     p.putString(KEY_SSID, "");
     p.putString(KEY_PASSWORD, "");
@@ -106,7 +106,7 @@ void loaddefaultValues()
   }
 
   {
-    Preferences p;
+    NvsPrefs p;
     p.begin(NS_RT, false);
     p.putFloat(KEY_RT_STANDBY, 0.0f);
     p.putFloat(KEY_RT_CTRL, 0.0f);
@@ -118,7 +118,7 @@ void loaddefaultValues()
   }
 
   {
-    Preferences p;
+    NvsPrefs p;
     p.begin(NS_STATE, false);
     p.putUChar(KEY_PHOTO_ACTIVE, 0);
     p.putUChar(KEY_ACTUATION, 0);
@@ -162,7 +162,7 @@ static bool migrateFromEEPROM()
   constexpr int OLD_STBY_PERIOD = 278;
   constexpr int OLD_FAN_CTL_PWM = 282;
 
-  Preferences old;
+  NvsPrefs old;
   old.begin("eeprom", true);
   uint8_t buf[512] = {};
   size_t len = old.getBytes("data", buf, sizeof(buf));
@@ -179,7 +179,7 @@ static bool migrateFromEEPROM()
   { int32_t v; memcpy(&v, buf + off, 4); return v; };
 
   {
-    Preferences p;
+    NvsPrefs p;
     p.begin(NS_CFG, false);
     p.putUChar(KEY_LANG, buf[OLD_LANG]);
     p.putInt(KEY_SERIAL, ri(OLD_SERIAL));
@@ -195,7 +195,7 @@ static bool migrateFromEEPROM()
   }
 
   {
-    Preferences p;
+    NvsPrefs p;
     p.begin(NS_CAL, false);
     p.putFloat(KEY_CAL_SK_LOW, rf(OLD_SK_LOW));
     p.putFloat(KEY_CAL_SK_RNG, rf(OLD_SK_RNG));
@@ -214,7 +214,7 @@ static bool migrateFromEEPROM()
   memcpy(token_tmp, buf + OLD_TB_TOKEN, 21);
 
   {
-    Preferences p;
+    NvsPrefs p;
     p.begin(NS_WIFI, false);
     p.putString(KEY_SSID, ssid_tmp);
     p.putString(KEY_PASSWORD, pass_tmp);
@@ -222,7 +222,7 @@ static bool migrateFromEEPROM()
   }
 
   {
-    Preferences p;
+    NvsPrefs p;
     p.begin(NS_GPRS, false);
     p.putUChar(KEY_PROVISIONED, buf[OLD_TB_PROV]);
     p.putString(KEY_TOKEN, token_tmp);
@@ -233,7 +233,7 @@ static bool migrateFromEEPROM()
   }
 
   {
-    Preferences p;
+    NvsPrefs p;
     p.begin(NS_RT, false);
     p.putFloat(KEY_RT_STANDBY, rf(OLD_STANDBY));
     p.putFloat(KEY_RT_CTRL, rf(OLD_CTRL_TIME));
@@ -245,7 +245,7 @@ static bool migrateFromEEPROM()
   }
 
   {
-    Preferences p;
+    NvsPrefs p;
     p.begin(NS_STATE, false);
     p.putUChar(KEY_PHOTO_ACTIVE, buf[OLD_PHOTO_ACTIVE]);
     p.putUChar(KEY_ACTUATION, buf[OLD_CTRL_ACTIVE]); // actuation encodes same byte
@@ -256,14 +256,14 @@ static bool migrateFromEEPROM()
   old.clear();
   old.end();
 
-  ESP_LOGI("APP", "Migración EEPROM → Preferences completada");
+  ESP_LOGI("APP", "Migración EEPROM → NvsPrefs completada");
   return true;
 }
 
 void initEEPROM()
 {
   // Read any flasher-provisioned serial before a potential resetFlash clears it.
-  Preferences p;
+  NvsPrefs p;
   p.begin(NS_CFG, false);
   bool initialized = p.isKey(KEY_LANG);
   int flashedSerial = p.getInt(KEY_SERIAL, -1);
@@ -280,7 +280,7 @@ void initEEPROM()
       // Restore serial written by flasher tool (resetFlash cleared it).
       if (flashedSerial >= 0)
       {
-        Preferences p2;
+        NvsPrefs p2;
         p2.begin(NS_CFG, false);
         p2.putInt(KEY_SERIAL, flashedSerial);
         p2.end();
@@ -298,7 +298,7 @@ void initEEPROM()
 void recapVariables()
 {
   {
-    Preferences p;
+    NvsPrefs p;
     p.begin(NS_CFG, true);
     in3.language = p.getUChar(KEY_LANG, defaultLanguage);
     in3.serialNumber = p.getInt(KEY_SERIAL, 0);
@@ -340,7 +340,7 @@ void recapVariables()
   }
 
   {
-    Preferences p;
+    NvsPrefs p;
     p.begin(NS_CAL, true);
     RawTemperatureLow[SKIN_SENSOR] = p.getFloat(KEY_CAL_SK_LOW, 0.0f);
     RawTemperatureRange[SKIN_SENSOR] = p.getFloat(KEY_CAL_SK_RNG, 0.0f);
@@ -362,7 +362,7 @@ void recapVariables()
   }
 
   {
-    Preferences p;
+    NvsPrefs p;
     p.begin(NS_RT, true);
     in3.standby_time = p.getFloat(KEY_RT_STANDBY, 0.0f);
     in3.control_active_time = p.getFloat(KEY_RT_CTRL, 0.0f);
@@ -374,7 +374,7 @@ void recapVariables()
   }
 
   {
-    Preferences p;
+    NvsPrefs p;
     p.begin(NS_GPRS, true);
     in3.actuating_gprs_period = p.getInt(KEY_ACT_PERIOD, 60);
     in3.phototherapy_gprs_period = p.getInt(KEY_PHOTO_PERIOD, 180);
@@ -383,7 +383,7 @@ void recapVariables()
   }
 
   {
-    Preferences p;
+    NvsPrefs p;
     p.begin(NS_WIFI, true);
     String s = p.getString(KEY_SSID, "");
     String pw = p.getString(KEY_PASSWORD, "");
@@ -395,7 +395,7 @@ void recapVariables()
   }
 
   {
-    Preferences p;
+    NvsPrefs p;
     p.begin(NS_STATE, true);
     in3.actuation = p.getUChar(KEY_ACTUATION, 0);
     in3.phototherapy = p.getUChar(KEY_PHOTO_ACTIVE, 0);
@@ -406,7 +406,7 @@ void recapVariables()
   // Restore phototherapy timer if it was active
   if (in3.phototherapy)
   {
-    Preferences p;
+    NvsPrefs p;
     p.begin("photo", true);
     bool was_active = p.getBool("active", false);
     int saved_mins = p.getInt("mins", 0);

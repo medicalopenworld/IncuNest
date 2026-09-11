@@ -70,4 +70,6 @@ target_compile_options(${COMPONENT_LIB} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-std=g
 target_compile_options(${COMPONENT_LIB} PRIVATE
   -Wno-error=missing-field-initializers
   -Wno-error=deprecated-enum-enum-conversion
+  -Wno-error=format-truncation
+  -Wno-error=format=
 )

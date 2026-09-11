@@ -22,11 +22,13 @@
   SOFTWARE.
 
 */
-#include <Arduino.h>
+#include "platform/plat_time.h"
+#include "platform/plat_gpio.h"
+#include "platform/plat_string.h"
 
 #include "main.h"
 #include "alarm_text.h"
-#include <Preferences.h>
+#include "platform/plat_nvs.h"
 
 #include "modules/baby_profile/baby_profile_store.h"
 #include "modules/control/alarm_history.h"
@@ -65,9 +67,8 @@ static PendingAlarm pending_alarms[PENDING_ALARM_QUEUE_LEN];
 static int pending_alarm_count = 0;
 static bool hmi_connected = false;
 
-extern TwoWire *wire;
+extern I2cBus *wire;
 extern MAM_IncuNest_Humidifier in3_hum;
-extern TFT_eSPI tft;
 extern RotaryEncoder encoder;
 
 extern bool WIFI_EN;
@@ -999,7 +1000,7 @@ void alarmHistorySave()
     logE("[ALARM] historial: blob mas grande que el buffer, no se guarda");
     return;
   }
-  Preferences p;
+  NvsPrefs p;
   p.begin(kAlarmHistNs, false);
   p.putBytes(kAlarmHistKey, blob, n);
   p.end();
@@ -1009,7 +1010,7 @@ void alarmHistoryLoad()
 {
   alarm_history_init();
   uint8_t blob[256];
-  Preferences p;
+  NvsPrefs p;
   p.begin(kAlarmHistNs, true);
   const size_t got = p.getBytes(kAlarmHistKey, blob, sizeof(blob));
   p.end();

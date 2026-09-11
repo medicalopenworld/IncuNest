@@ -1,5 +1,6 @@
 #include "hal.h"
-#include <Arduino.h>
+#include "platform/plat_gpio.h"
+#include "platform/plat_pwm.h"
 
 const HalPinConfig g_hal_pins = {
   .buzzer           = 1,
@@ -37,24 +38,20 @@ const HalBusConfig g_hal_buses = {
   .i2c2SpeedHz = 10000,
 };
 
-void hal_gpio_set_mode(uint8_t pin, uint8_t mode) { pinMode(pin, mode); }
-void hal_gpio_write(uint8_t pin, bool value)       { digitalWrite(pin, value ? HIGH : LOW); }
-bool hal_gpio_read(uint8_t pin)                    { return digitalRead(pin) == HIGH; }
+void hal_gpio_set_mode(uint8_t pin, pin_mode_t mode) { pin_mode(pin, mode); }
+void hal_gpio_write(uint8_t pin, bool value)       { pin_write(pin, value ? HIGH : LOW); }
+bool hal_gpio_read(uint8_t pin)                    { return pin_read(pin) == HIGH; }
 
 void hal_pwm_init(uint8_t ch, uint32_t freq, uint8_t res, uint8_t pin) {
-  ledcSetup(ch, freq, res);
-  ledcAttachPin(pin, ch);
+  pwm_setup(ch, freq, res);
+  pwm_attach(pin, ch);
 }
-void hal_pwm_write(uint8_t ch, uint32_t duty) { ledcWrite(ch, duty); }
+void hal_pwm_write(uint8_t ch, uint32_t duty) { pwm_write(ch, duty); }
 
-bool hal_i2c_write(TwoWire *bus, uint8_t addr, const uint8_t *data, size_t len) {
-  bus->beginTransmission(addr);
-  bus->write(data, len);
-  return bus->endTransmission() == 0;
+bool hal_i2c_write(I2cBus *bus, uint8_t addr, const uint8_t *data, size_t len) {
+  return bus->write(addr, data, len);
 }
-bool hal_i2c_read(TwoWire *bus, uint8_t addr, uint8_t *buf, size_t len) {
-  if (bus->requestFrom((uint8_t)addr, (uint8_t)len) != (uint8_t)len) return false;
-  for (size_t i = 0; i < len; i++) buf[i] = bus->read();
-  return true;
+bool hal_i2c_read(I2cBus *bus, uint8_t addr, uint8_t *buf, size_t len) {
+  return bus->read(addr, buf, len);
 }
-uint32_t hal_adc_read_mv(uint8_t pin) { return analogReadMilliVolts(pin); }
+uint32_t hal_adc_read_mv(uint8_t pin) { return adc_read_mv(pin); }

@@ -5,8 +5,8 @@
 #include "modules/util/system_clock.h"
 #include "tasks/PID.h"
 #include "DriveUpload.h"
-#include <LittleFS.h>
-#include <Preferences.h>
+#include "platform/plat_fs.h"
+#include "platform/plat_nvs.h"
 
 #include "alarm_text.h"
 #include "modules/control/alarm_history.h"
@@ -290,9 +290,9 @@ double getRemainingPhotoTime() {
       remainingTime = 0.0;
 
       in3.phototherapy = false;
-      ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, 0);
+      pwm_write(PHOTOTHERAPY_PWM_CHANNEL, 0);
       turnFans(bool(in3.phototherapy || in3.actuation));
-      { Preferences p; p.begin("photo", false); p.clear(); p.end(); }
+      { NvsPrefs p; p.begin("photo", false); p.clear(); p.end(); }
 
       if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         ESP_LOGI(TAG, "Phototherapy timer expired. Hardware turned OFF.");
@@ -461,7 +461,7 @@ static void hmiCrashFlush() {
   snprintf(path, sizeof(path), "/crash_hmi_%lu.log",
            (unsigned long)hmi_crash_start_ms);
 
-  File f = LittleFS.open(path, "w", true);
+  FsFile f = LittleFS.open(path, "w", true);
   if (!f) {
     logDrive(String("HMI crash: cannot open ") + path);
     hmi_crash_capturing = false;
@@ -683,37 +683,37 @@ void parse_line(const char *line) {
         }
       } else if (strcmp(param, "FAN_SUPPLY_PWM") == 0) {
         in3.fanPwrSupplyPWM = (int)value;
-        { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_PWR_SUPPLY_PWM, in3.fanPwrSupplyPWM); p.end(); }
+        { NvsPrefs p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_PWR_SUPPLY_PWM, in3.fanPwrSupplyPWM); p.end(); }
       } else if (strcmp(param, "HEATER_AMPS") == 0) {
         in3.heaterMaxPowerAmps = value;
-        { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_HEAT_MAX_A, in3.heaterMaxPowerAmps); p.end(); }
+        { NvsPrefs p; p.begin(NS_CFG, false); p.putFloat(KEY_HEAT_MAX_A, in3.heaterMaxPowerAmps); p.end(); }
       } else if (strcmp(param, "SKIN_TMAX") == 0) {
         in3.skinTemperatureSetMax = alarm_clamp_skin_cutout(value);
         maxDesiredTemp[CONTROL_SKIN] = in3.skinTemperatureSetMax;
-        { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_SKIN_T_MAX, in3.skinTemperatureSetMax); p.end(); }
+        { NvsPrefs p; p.begin(NS_CFG, false); p.putFloat(KEY_SKIN_T_MAX, in3.skinTemperatureSetMax); p.end(); }
       } else if (strcmp(param, "AIR_TMAX") == 0) {
         in3.airTemperatureSetMax = alarm_clamp_air_cutout(value);
         maxDesiredTemp[CONTROL_AIR] = in3.airTemperatureSetMax;
-        { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_AIR_T_MAX, in3.airTemperatureSetMax); p.end(); }
+        { NvsPrefs p; p.begin(NS_CFG, false); p.putFloat(KEY_AIR_T_MAX, in3.airTemperatureSetMax); p.end(); }
       } else if (strcmp(param, "GPRS_ACT") == 0) {
         in3.actuating_gprs_period = (int)value;
-        { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_ACT_PERIOD, in3.actuating_gprs_period); p.end(); }
+        { NvsPrefs p; p.begin(NS_GPRS, false); p.putInt(KEY_ACT_PERIOD, in3.actuating_gprs_period); p.end(); }
       } else if (strcmp(param, "GPRS_PHOTO") == 0) {
         in3.phototherapy_gprs_period = (int)value;
-        { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_PHOTO_PERIOD, in3.phototherapy_gprs_period); p.end(); }
+        { NvsPrefs p; p.begin(NS_GPRS, false); p.putInt(KEY_PHOTO_PERIOD, in3.phototherapy_gprs_period); p.end(); }
       } else if (strcmp(param, "GPRS_STBY") == 0) {
         in3.standby_gprs_period = (int)value;
-        { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_STBY_PERIOD, in3.standby_gprs_period); p.end(); }
+        { NvsPrefs p; p.begin(NS_GPRS, false); p.putInt(KEY_STBY_PERIOD, in3.standby_gprs_period); p.end(); }
       } else if (strcmp(param, "FAN_CTL_PWM") == 0) {
         in3.fanCtlPWM = (int)value;
-        { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_CTL_PWM, in3.fanCtlPWM); p.end(); }
-        ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
+        { NvsPrefs p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_CTL_PWM, in3.fanCtlPWM); p.end(); }
+        pwm_write(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
       } else if (strcmp(param, "FAN_PID_EN") == 0) {
         setFanPidEnabled(value != 0);
       } else {
         success = false;
       }
-      if (success) { /* Preferences commits on p.end() */ }
+      if (success) { /* NvsPrefs commits on p.end() */ }
       if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         if (success)
           ESP_LOGI(TAG, "Config updated: %s = %.2f", param, value);
@@ -1213,7 +1213,7 @@ void Communication_Task(void *pvParameters) {
         long elapsed = (long)((millis() - photoTimerStartMs) / 1000);
         int remaining_mins = ((long)photoTimerMinutes * 60 - elapsed + 59) / 60;
         if (remaining_mins < 1) remaining_mins = 1;
-        Preferences p;
+        NvsPrefs p;
         p.begin("photo", false);
         p.putBool("active", true);
         p.putInt("mins", remaining_mins);
@@ -1298,7 +1298,7 @@ void Communication_Task(void *pvParameters) {
 
       {
         // Mirrors the same 0..PWM_MAX_VALUE scale and ongoingCriticalAlarm()
-        // gating that PIDHandler() actually writes via ledcWrite(), so the
+        // gating that PIDHandler() actually writes via pwm_write(), so the
         // HMI bar never disagrees with the log or with the real hardware duty.
         int temp_duty = ongoingCriticalAlarm() ? 0 : (int)(HeaterPIDOutput + 0.5);
         if (temp_duty < 0)               temp_duty = 0;

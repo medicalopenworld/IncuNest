@@ -25,8 +25,10 @@
 
 #include "GPRS.h"
 
-#include <Arduino.h>
-#include <Preferences.h>
+#include "platform/plat_time.h"
+#include "platform/plat_gpio.h"
+#include "platform/plat_string.h"
+#include "platform/plat_nvs.h"
 
 #include "modules/baby_profile/baby_cloud.h"
 #include "modules/baby_profile/baby_profile_store.h"
@@ -269,7 +271,7 @@ void initGPRS() {
     logModemData("[GPRS] -> Abnormal reset detected (" + String(reason) +
                  "), deleting GPRS task this session");
     {
-      Preferences p;
+      NvsPrefs p;
       p.begin("diag", false);
       g_gprsKillCount = p.getUInt("gprs_kill", 0) + 1;
       p.putUInt("gprs_kill", g_gprsKillCount);
@@ -284,7 +286,7 @@ void initGPRS() {
   Serial2.begin(MODEM_BAUD, SERIAL_8N1, GSM_UART_TX_PIN, GSM_UART_RX_PIN);
   GPRS.powerUp = true;
 #if (GPRS_PWRKEY)
-  digitalWrite(GPRS_PWRKEY, HIGH);
+  pin_write(GPRS_PWRKEY, true);
 #endif
 }
 
@@ -597,7 +599,7 @@ void GPRSPowerUp() {
   case 0:
     GPRS.processTime = millis();
 #if (GPRS_PWRKEY)
-    digitalWrite(GPRS_PWRKEY, LOW);
+    pin_write(GPRS_PWRKEY, false);
 #endif
     GPRS.process++;
     GPRS.packetSentenceTime = millis();
@@ -606,7 +608,7 @@ void GPRSPowerUp() {
   case 1:
 #if (GPRS_PWRKEY)
     if (millis() - GPRS.packetSentenceTime > 1000) {
-      digitalWrite(GPRS_PWRKEY, HIGH);
+      pin_write(GPRS_PWRKEY, true);
       logModemData("[GPRS] -> GPRS powered");
     }
 #endif
@@ -753,7 +755,7 @@ void GPRSProvisionResponse(const JsonObjectConst &data) {
     credentials.password = "";
     GPRS.provisioned = true;
     GPRS.device_token = credentials.username.c_str();
-    { Preferences p; p.begin(NS_GPRS, false);
+    { NvsPrefs p; p.begin(NS_GPRS, false);
       p.putString(KEY_TOKEN,       GPRS.device_token);
       p.putUChar (KEY_PROVISIONED, GPRS.provisioned);
       p.end(); }
@@ -766,7 +768,7 @@ void GPRSProvisionResponse(const JsonObjectConst &data) {
     credentials.password = credentials_value[CLIENT_PASSWORD].as<std::string>();
     GPRS.provisioned = true;
     GPRS.device_token = credentials.username.c_str();
-    { Preferences p; p.begin(NS_GPRS, false);
+    { NvsPrefs p; p.begin(NS_GPRS, false);
       p.putString(KEY_TOKEN,       GPRS.device_token);
       p.putUChar (KEY_PROVISIONED, GPRS.provisioned);
       p.end(); }
@@ -1301,7 +1303,7 @@ void GPRSPost() {
 }
 
 void GPRS_TB_Init() {
-  { Preferences p; p.begin(NS_GPRS, true);
+  { NvsPrefs p; p.begin(NS_GPRS, true);
     GPRS.provisioned   = p.getUChar (KEY_PROVISIONED, 0);
     if (GPRS.provisioned) {
       GPRS.device_token = p.getString(KEY_TOKEN, "").c_str();

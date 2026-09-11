@@ -115,3 +115,64 @@ uint32_t adc_read_mv(uint8_t pin) {
   }
   return (uint32_t)mv;
 }
+
+// --- Interrupciones de GPIO -------------------------------------------------
+// ESP-IDF pasa un argumento al manejador y Arduino no. Se guarda el puntero a
+// la funcion del usuario por pin y un trampolin hace de puente. La tabla se
+// indexa por GPIO, asi que no hay busqueda dentro de la ISR.
+
+#include "hal/gpio_types.h"
+
+static void (*s_isr_handlers[GPIO_NUM_MAX])(void);
+static bool s_isr_service_installed;
+
+static void IRAM_ATTR plat_gpio_isr_trampoline(void *arg) {
+  const uint32_t pin = (uint32_t)(uintptr_t)arg;
+  if (pin < GPIO_NUM_MAX && s_isr_handlers[pin] != NULL) {
+    s_isr_handlers[pin]();
+  }
+}
+
+void pin_attach_interrupt(uint8_t pin, void (*handler)(void),
+                          pin_int_mode_t mode) {
+  if (pin >= GPIO_NUM_MAX || handler == NULL) {
+    ESP_LOGE(TAG, "pin_attach_interrupt(%u) invalido", pin);
+    return;
+  }
+
+  gpio_int_type_t type = GPIO_INTR_POSEDGE;
+  switch (mode) {
+  case PIN_INT_FALLING:    type = GPIO_INTR_NEGEDGE;  break;
+  case PIN_INT_CHANGE:     type = GPIO_INTR_ANYEDGE;  break;
+  case PIN_INT_LOW_LEVEL:  type = GPIO_INTR_LOW_LEVEL;  break;
+  case PIN_INT_HIGH_LEVEL: type = GPIO_INTR_HIGH_LEVEL; break;
+  case PIN_INT_RISING:
+  default:                 type = GPIO_INTR_POSEDGE;  break;
+  }
+
+  if (!s_isr_service_installed) {
+    // Arduino instalaba el servicio por su cuenta en el primer
+    // attachInterrupt(); aqui se hace igual, la primera vez que hace falta.
+    esp_err_t err = gpio_install_isr_service(0);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+      ESP_LOGE(TAG, "gpio_install_isr_service -> %s", esp_err_to_name(err));
+      return;
+    }
+    s_isr_service_installed = true;
+  }
+
+  s_isr_handlers[pin] = handler;
+  gpio_set_intr_type(pin, type);
+  gpio_isr_handler_add(pin, plat_gpio_isr_trampoline,
+                       (void *)(uintptr_t)pin);
+  gpio_intr_enable(pin);
+}
+
+void pin_detach_interrupt(uint8_t pin) {
+  if (pin >= GPIO_NUM_MAX) {
+    return;
+  }
+  gpio_intr_disable(pin);
+  gpio_isr_handler_remove(pin);
+  s_isr_handlers[pin] = NULL;
+}

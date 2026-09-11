@@ -8,6 +8,8 @@ set(EXTRA_COMPONENT_DIRS
   "${CMAKE_CURRENT_LIST_DIR}/../components/incunest_platform"
   "${CMAKE_CURRENT_LIST_DIR}/../shared"
   "${CMAKE_CURRENT_LIST_DIR}/../components/thingsboard"
+  "${CMAKE_CURRENT_LIST_DIR}/../components/arduino_pid"
+  "${CMAKE_CURRENT_LIST_DIR}/../components/incunest_afe4490"
 )
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)

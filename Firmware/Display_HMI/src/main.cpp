@@ -5,7 +5,9 @@
 #include "UITask.h"
 #include "Wifi_OTA.h"
 #include "esp_log.h"
-#include <PCA9557.h>
+// PCA9557 retirado en el porte: el expansor NO esta poblado en esta
+// revision de hardware (UITask.cpp:4020 "was not found in scan",
+// FactoryTest.cpp:1264). Solo quedaba el include; cero usos del tipo.
 #include <Preferences.h>
 #include <lvgl.h>
 
