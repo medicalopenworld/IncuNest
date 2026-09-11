@@ -19,11 +19,23 @@ Objetivo: quitar el framework Arduino de las dos placas y construir con
 
 | | Fuentes | Pendientes | Compila |
 |---|---|---|---|
-| `components/incunest_platform` | 5 | 0 | ✅ |
+| `components/incunest_platform` | 10 | 0 | ✅ |
 | `shared/` | 6 | 0 | ✅ |
 | `components/thingsboard` (parcheado) | 44 | 0 | ✅ |
-| **Display_HMI** | ~100 | **15** | configura y enlaza dependencias |
-| **motherBoard** | ~85 | **37** | configura y enlaza dependencias |
+| `components/incunest_sensors` (9 libs vendorizadas) | 16 | 0 | ✅ |
+| `components/incunest_afe4490`, `arduino_pid`, `incunest_gt911` | 3 | 0 | ✅ |
+| **Display_HMI** | ~100 | **6** | todo menos red y serie |
+| **motherBoard** | ~85 | **7** | todo menos red y serie |
+
+**Las 13 fuentes que quedan son todas del mismo tipo.** No queda nada
+mecanico: es exactamente el trabajo que este documento ya señalaba como
+"pide diseño, no sustitución".
+
+| Pendiente | HMI | motherBoard |
+|---|---|---|
+| WiFi / WebServer / OTA | `Wifi_OTA.cpp`, `support_report.cpp`, `UITask.cpp`, `FactoryTest.cpp` | `Wifi_OTA.cpp`, `DriveUpload.cpp`, `factory_test_hw.cpp`, `ftest_sim_activation.cpp` |
+| Enlace serie | `main.cpp`, `CommTask.cpp` | `main.cpp`, `CommTask.cpp` |
+| GPRS (`TinyGSM` → `esp_modem`) | — | `GPRS.cpp` |
 
 Gate barato para la capa base, sin construir una placa entera:
 
@@ -102,7 +114,10 @@ publica desde diciembre de 2024. Detalle completo y delta exacto en
 El orden importa: cada bloque desbloquea al siguiente y es verificable por su
 cuenta con `idf.py build`.
 
-### Fase A — Display_HMI (16 ficheros)
+> **Estado**: A1, A2, A3, A6, B1..B7 estan HECHOS. Queda A4/A5 (enlace serie y
+> red del HMI), B8 (red de la motherBoard) y B9 (GPRS), mas toda la fase C.
+
+### Fase A — Display_HMI  ·  HECHO salvo A4 y A5
 
 | # | Trabajo | Ficheros | Notas |
 |---|---|---|---|
@@ -116,7 +131,7 @@ cuenta con `idf.py build`.
 `AudioManager.cpp` sigue **fuera del build**, igual que en `platformio.ini`. No
 se reactiva dentro del porte.
 
-### Fase B — motherBoard (37 ficheros)
+### Fase B — motherBoard  ·  HECHO salvo B8 y B9
 
 | # | Trabajo | Notas |
 |---|---|---|
@@ -168,3 +183,27 @@ se reactiva dentro del porte.
 - Los `usb_host_*` de la motherBoard, que ya eran ESP-IDF nativo. Candidatos a
   sustituirse por los componentes gestionados `espressif/usb_host_cdc_acm` y
   `espressif/usb_host_ch34x_vcp`, pero eso es un cambio aparte.
+
+## 6. Hallazgos del porte que NO son del porte
+
+Cosas que ya estaban en el codigo y que han salido a la luz al compilarlo
+contra un compilador estricto. Se dejan anotadas, no arregladas: cada una
+merece su propio commit.
+
+- **`TFT_eSPI` en la motherBoard era codigo muerto** — objeto declarado, tres
+  `extern`, cero llamadas. Ya retirada (bloqueaba 7 ficheros por arrastrar
+  `Print.h`).
+- **`PCA9557` en el HMI**: el expansor no esta poblado en esta revision
+  (`UITask.cpp:4020`, `FactoryTest.cpp:1264`). Solo quedaba el `#include`.
+- **`BluetoothSerial`**: cero referencias en todo `src/`.
+- **`pinMode` y `digitalWrite` redeclarados en `main.h`** de la motherBoard,
+  con la firma de Arduino y sin definirse en ningun sitio.
+- **Toda la capa `drv_*`** (`drv_shtc3`, `drv_sts3x`, `drv_ina3221`) **es
+  codigo muerto**: son envoltorios limpios que no llama nadie. Los sensores se
+  usan directamente desde `sensors_module.cpp` e `initHardware.cpp`.
+- **`src/hal/hal_hmi.*`** del HMI: tampoco lo llama nadie.
+- **El canal 5 del PWM (humidificador) nunca se configura**: nadie le llama a
+  `ledcSetup` ni le enruta un pin, pero `IncuNest_humidifier.cpp:83` le
+  escribe duty. La rama esta dormida (solo se alcanza con
+  `activationMode == HUMIDIFIER_PWM`), pero esta muerta. El porte la preserva
+  tal cual y ahora avisa por log.
