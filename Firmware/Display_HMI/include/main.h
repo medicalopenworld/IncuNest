@@ -21,6 +21,7 @@
 #include "platform/plat_i2c.h"
 #include "platform/plat_nvs.h"
 #include "platform/plat_time.h"
+#include "platform/plat_uart.h"
 
 // Unico bus I2C del display: pantalla tactil GT911, expansor PCA9557 y el
 // STC8H1K28 del backlight/zumbador (0x30). Sustituye al objeto global Wire.

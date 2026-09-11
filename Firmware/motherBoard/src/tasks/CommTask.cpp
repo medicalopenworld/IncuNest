@@ -1,4 +1,6 @@
 #include "CommTask.h"
+#include <cmath>  // isfinite, antes lo traia Arduino.h
+
 #include "main.h"
 #include "modules/util/tz_source.h"
 #include "modules/util/civil_time.h"

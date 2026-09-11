@@ -63,6 +63,7 @@
 #include "platform/plat_pwm.h"
 #include "platform/plat_string.h"
 #include "platform/plat_time.h"
+#include "platform/plat_uart.h"
 
 #include "CommTask.h"
 #include "control_types.h"

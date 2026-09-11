@@ -19,12 +19,10 @@
 #define COMM_LOG(...)
 #endif
 
-// PENDIENTE DEL PORTE: COMM_SERIAL sigue nombrando el objeto Serial de
-// Arduino. Es el enlace con la motherBoard y se sustituye a la vez que el
-// Stream* de display_comms.h, por el driver de UART de ESP-IDF (ver la nota
-// larga de include/protocol/display_comms.h). Se deja el nombre para que el
-// trabajo pendiente quede acotado a sus puntos de uso —CommTask.cpp y
-// main.cpp— en vez de repartido por toda la cabecera.
+// COMM_SERIAL es UART0, el enlace con la motherBoard. Con el porte a ESP-IDF
+// `Serial` es la HardwareSerial de platform/plat_uart.h sobre driver/uart.
+// La consola de logs comparte UART0 con el protocolo, igual que con Arduino
+// (decision del 2026-09-11); ver la cabecera de plat_uart.h.
 #define COMM_SERIAL Serial
 
 // Cadencia del latido del display hacia la placa. La placa declara

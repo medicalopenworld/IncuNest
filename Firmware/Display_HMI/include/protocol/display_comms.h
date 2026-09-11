@@ -5,22 +5,13 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-// ===================== PENDIENTE DEL PORTE A ESP-IDF =====================
-// Este fichero sigue hablando de Stream*, la abstraccion de flujo de Arduino
-// (ver dc_init_stream y el campo `io`). Es el enlace HMI <-> motherBoard: por
-// aqui viajan las alarmas, asi que NO se cambia con una sustitucion mecanica.
-//
-// La sustitucion natural en ESP-IDF es el driver de UART por numero de puerto
-// (uart_driver_install / uart_read_bytes / uart_write_bytes), que ademas
-// resuelve mejor lo que ya documenta main.cpp: el anillo de RX de 256 B por
-// defecto que hacia perder lineas enteras del protocolo. En IDF el tamano del
-// anillo es un argumento de uart_driver_install(), no un setter que solo
-// funciona antes del primer begin().
-//
-// Al hacerlo hay que conservar dos cosas medidas en banco:
-//   - COMM_RX_RING_BYTES = 1024 (~89 ms de margen a 115200).
-//   - Que la tarea Comm drene el anillo sin quedarse esperando LVGL_Lock().
-// =========================================================================
+// Nota del porte a ESP-IDF (2026-09-11): Stream ahora lo aporta
+// platform/plat_print.h (con HardwareSerial de plat_uart.h como
+// implementacion), asi que esta cabecera compila sin Arduino. OJO: dc_init_stream()
+// no tiene NINGUN llamador en src/ — el enlace con la placa lo lleva CommTask.cpp
+// directamente sobre COMM_SERIAL. Esta abstraccion es codigo muerto, igual que
+// la capa drv_* de la motherBoard; candidata a borrar en un commit aparte.
+#include "platform/plat_print.h"
 
 /* ======= Config ======= */
 #define DC_PROTO_VERSION        1
