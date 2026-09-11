@@ -5,3 +5,7 @@ dependencies:
     version: ">=5.3"
   joltwallet/littlefs:
     version: "^1.16.0"
+
+  ## incunest_platform requiere tambien mdns (capa de red).
+  espressif/mdns:
+    version: "^1.8.0"

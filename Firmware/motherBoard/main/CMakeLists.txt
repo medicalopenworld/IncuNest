@@ -56,6 +56,13 @@ idf_component_register(
 # compilacion si no esta puesto.
 target_compile_definitions(${COMPONENT_LIB} PUBLIC HW_NUM=${CONFIG_INCUNEST_HW_NUM})
 
+# Variante de taller (antes los entornos *_factory de platformio.ini). Ver la
+# ayuda de INCUNEST_FTEST_SIM_ACT_ENABLED en Kconfig.projbuild: ese binario no
+# se distribuye.
+if(CONFIG_INCUNEST_FTEST_SIM_ACT_ENABLED)
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC FTEST_SIM_ACT_ENABLED=1)
+endif()
+
 # Reproduce el reparto de optimizacion que habia con PlatformIO: la IDF va a
 # -Os (CONFIG_COMPILER_OPTIMIZATION_SIZE en sdkconfig.defaults, igual que el
 # framework de Arduino precompilado) y SOLO las fuentes del proyecto van a

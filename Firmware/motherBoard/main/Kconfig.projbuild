@@ -13,4 +13,19 @@ menu "IncuNest motherBoard"
             Se elige con `idf.py menuconfig`, o de una vez con
             `idf.py -DCONFIG_INCUNEST_HW_NUM=18 build`.
 
+    config INCUNEST_FTEST_SIM_ACT_ENABLED
+        bool "Build de TALLER: activacion de SIM en el test de fabrica"
+        default n
+        help
+            Sustituye a los entornos IncuNest_V17_factory / IncuNest_V18_factory
+            de platformio.ini, que solo anadian -DFTEST_SIM_ACT_ENABLED=1.
+
+            Activa el paso sim_act del test de fabrica, que llama a la API de
+            Onomondo con ONOMONDO_API_KEY. Esa clave controla TODAS las SIM de
+            la organizacion y el repo es publico: un binario construido con
+            esto activado se queda en el taller y NUNCA va a
+            flasher_tool/data/firmware/ ni a una release de GitHub (`strings`
+            la saca entera). Con la opcion apagada la clave no se nombra y por
+            tanto no esta en el binario.
+
 endmenu

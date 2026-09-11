@@ -1175,9 +1175,11 @@ class FlasherApp:
     def _get_build_sources(self) -> dict[str, dict[str, Path]]:
         """Return {board_folder → {dest_filename → local build output}}.
 
-        Covers both build layouts in this repo: PlatformIO (per-env dirs,
-        already-generic filenames) for motherBoard/Display HMI, and plain
-        ESP-IDF (single build/ dir, project-named app binary) for SensorBoard.
+        Covers both build layouts in this repo: plain ESP-IDF (single build/
+        dir, project-named app binary) for the three boards since the 2026-09
+        port, and PlatformIO (per-env dirs, already-generic filenames) as a
+        fallback for motherBoard/Display HMI checkouts that still carry an old
+        .pio/build/.
 
         Copia TODOS los artefactos del build, no solo firmware.bin. Hasta
         2026-09 solo copiaba la app: bootloader, tabla de particiones e imagen
@@ -1192,10 +1194,30 @@ class FlasherApp:
             repo_root = firmware_base.parents[2]
             sources: dict[str, dict[str, Path]] = {}
 
-            for board_folder, pio_dir in [
-                ('display_hmi', repo_root / 'Display_HMI' / '.pio' / 'build'),
-                ('motherboard', repo_root / 'motherBoard' / '.pio' / 'build'),
+            # Desde el porte a ESP-IDF (2026-09) las dos placas construyen con
+            # idf.py y dejan un unico build/ con el binario de la app con el
+            # nombre del proyecto. Se prefiere ese layout cuando existe: un
+            # .pio/build/ antiguo que siga en el disco es un binario viejo, y
+            # copiarlo por delante del nuevo seria justo el error de version
+            # mezclada que describe la nota de arriba.
+            for board_folder, project_dir, app_name in [
+                ('display_hmi', repo_root / 'Display_HMI', 'display_hmi.bin'),
+                ('motherboard', repo_root / 'motherBoard', 'motherboard.bin'),
             ]:
+                idf_build = project_dir / 'build'
+                idf_files = {
+                    'firmware.bin': idf_build / app_name,
+                    'bootloader.bin': idf_build / 'bootloader' / 'bootloader.bin',
+                    'partitions.bin': idf_build / 'partition_table' / 'partition-table.bin',
+                    'ota_data_initial.bin': idf_build / 'ota_data_initial.bin',
+                }
+                idf_present = {name: p for name, p in idf_files.items() if p.is_file()}
+                if 'firmware.bin' in idf_present:
+                    sources[board_folder] = idf_present
+                    continue
+
+                # Layout de PlatformIO, solo si no hay build de IDF.
+                pio_dir = project_dir / '.pio' / 'build'
                 if not pio_dir.is_dir():
                     continue
                 env_dir = pick_pio_env_dir(pio_dir)
