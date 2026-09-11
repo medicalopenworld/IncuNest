@@ -440,7 +440,7 @@ FOCUS: the gap between the plug and the wall socket.
 
 ### Prioridad MEDIA
 
-**8 — `ALARM_AIR_TEMP_DEVIATION_HIGH`** · *TEMP AIRE ALTA* · «CALEFACTOR CORTADO - AIRE MAS DE 3 C SOBRE LA CONSIGNA»
+**8 — `ALARM_AIR_TEMP_DEVIATION_HIGH`** · *TEMP AIRE ALTA* · «CALEFACTOR CORTADO - AIRE MAS DE 1 C SOBRE LA CONSIGNA»
 
 ```
 SCENE: The COMPLETE unit in flat front elevation, baby inside with its head to
@@ -457,7 +457,7 @@ FOCUS: the amber column rising above the pale blue setpoint tick, inside the
 over-warm hood.
 ```
 
-**9 — `ALARM_AIR_TEMP_DEVIATION_LOW`** · *TEMP AIRE BAJA* · «AIRE MAS DE 3 C BAJO LA CONSIGNA»
+**9 — `ALARM_AIR_TEMP_DEVIATION_LOW`** · *TEMP AIRE BAJA* · «AIRE MAS DE 1 C BAJO LA CONSIGNA»
 
 ```
 SCENE: Mirror of image 8 in structure, opposite in meaning. The air inside the
