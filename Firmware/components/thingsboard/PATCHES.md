@@ -26,12 +26,12 @@ internas que ahi ya no existen. Y no se puede subir de version para esquivarlo:
 
 Es decir: la dependencia esta de facto sin mantenimiento y su ultima version es
 la rota. Tarde o temprano hay que hacerse cargo de ella; esta copia lo hace
-ahora, con la deuda escrita y acotada a dos parches.
+ahora, con la deuda escrita y acotada a tres parches.
 
-## Los dos parches
+## Los tres parches
 
 Todo lo tocado lleva el marcador `PARCHE INCUNEST` en el codigo, para que
-`grep -rn "PARCHE INCUNEST" src/` liste el delta completo frente a upstream.
+`grep -rn "PARCHE INCUNEST" .` liste el delta completo frente a upstream.
 
 ### 1. `HashGenerator` deja de mirar dentro de `mbedtls_md_context_t`
 
@@ -57,6 +57,19 @@ depende de la version de mbedtls ni de campos privados de nadie.
 Declara `void once(uint64_t const &)` sin incluir `<cstdint>`. Con las
 cabeceras de IDF 5 le llegaba por inclusion transitiva; con las de IDF 6 ya
 no, y falla con `'uint64_t' has not been declared`. Se anade el include.
+
+### 3. `CMakeLists.txt` declara `app_update` como dependencia
+
+`Configuration.h` decide `THINGSBOARD_USE_ESP_PARTITION` con
+`__has_include(<esp_ota_ops.h>)`. El `CMakeLists.txt` de upstream solo pide
+`mqtt` y `mbedtls`, asi que dentro del propio componente esa cabecera NO esta
+en el path de inclusion: `Espressif_Updater.cpp` se compila vacio. La
+aplicacion, que si tiene `app_update`, ve la clase completa y al enlazar
+faltan `Espressif_Updater::begin/write/end/reset` y su vtable.
+
+Se anaden `app_update` y `esp_app_format` a `dependencies` (publicas). Es un
+fallo real de upstream para cualquier proyecto ESP-IDF que use la OTA del
+SDK.
 
 ## Que NO se ha tocado
 

@@ -26,7 +26,9 @@
 // Unico bus I2C del display: pantalla tactil GT911, expansor PCA9557 y el
 // STC8H1K28 del backlight/zumbador (0x30). Sustituye al objeto global Wire.
 // Se abre en setup(), antes de crear ninguna tarea.
-extern I2cBus g_i2c;
+// g_i2c es el mismo objeto que Wire (platform/plat_i2c.h): el HMI solo tiene
+// un bus. Se conserva el nombre porque buzzer.cpp y compania ya lo usan.
+extern I2cBus &g_i2c;
 #include "control_types.h"
 #include "alarm_ids.h"
 #include "ui/i18n.h"

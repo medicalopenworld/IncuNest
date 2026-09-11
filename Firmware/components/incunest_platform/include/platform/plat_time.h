@@ -43,6 +43,19 @@ void delay_ms(uint32_t ms);
 // cortos de los drivers de bus; no la uses para plazos de logica.
 void delay_us(uint32_t us);
 
+// Cede el turno a otra tarea de la misma prioridad (taskYIELD). Es lo que
+// hacia el yield() de Arduino-ESP32.
+void yield(void);
+
+// Arranca SNTP y fija la zona horaria, con la firma de configTime() de
+// Arduino. Solo se llama con offsets 0 y dos servidores. Se puede llamar
+// varias veces: reinicia SNTP en vez de abortar como haria esp_sntp_init().
+void configTime(long gmtOffset_sec, int daylightOffset_sec, const char *server1,
+                const char *server2, const char *server3);
+
 #ifdef __cplusplus
+}
+inline void configTime(long gmt, int dst, const char *s1, const char *s2 = nullptr) {
+  configTime(gmt, dst, s1, s2, nullptr);
 }
 #endif

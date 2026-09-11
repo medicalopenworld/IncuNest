@@ -85,3 +85,20 @@ CONFIG_ESP_COREDUMP_STACK_SIZE=1024
 # por defecto, asi que hay que pedirlas para no cambiar comportamiento.
 CONFIG_COMPILER_CXX_EXCEPTIONS=y
 CONFIG_COMPILER_CXX_EXCEPTIONS_EMG_POOL_SIZE=0
+
+# --- TLS sin verificar el certificado del servidor.
+# Lo exige WiFiClientSecure::setInsecure(), que el firmware YA usaba en la
+# activacion de SIM (ftest_sim_activation.cpp) y en la subida a Drive
+# (DriveUpload.cpp): Arduino tampoco validaba ahi el certificado. esp-tls no
+# permite saltarse la verificacion si estas dos opciones no estan activas.
+# Es una deuda de seguridad heredada, no nueva; queda anotada en el plan.
+CONFIG_ESP_TLS_INSECURE=y
+CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY=y
+
+# --- SDK de ThingsBoard: bajo ESP-IDF lee estas opciones de Kconfig.
+# El firmware las fijaba con #define antes de incluir ThingsBoard.h, pero hay
+# rutas de inclusion (fw_guarded_updater.h -> Espressif_Updater.h ->
+# Configuration.h) donde el SDK llega primero y toma el valor de aqui. Tienen
+# que decir lo mismo que los #define para que todas las unidades de
+# compilacion vean la misma clase ThingsBoard.
+CONFIG_THINGSBOARD_ENABLE_DYNAMIC=y

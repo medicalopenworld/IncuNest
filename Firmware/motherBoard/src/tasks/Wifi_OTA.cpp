@@ -36,6 +36,16 @@
 #include "PpgSnapshot.h"
 #include "PpgSnapshotPublish.h"
 #include "main.h"
+#include "platform/plat_string_json.h"  // doc["x"].as<String>()
+
+// Capa de red del porte a ESP-IDF (sustituye a WiFi.h, WiFiClientSecure.h,
+// WebServer.h, Update.h y ESPmDNS.h de Arduino).
+#include "platform/plat_wifi.h"
+#include "platform/plat_net_client.h"
+#include "platform/plat_webserver.h"
+#include "platform/plat_update.h"
+#include "platform/plat_mdns.h"
+
 #include "modules/util/tz_source.h"
 #include "modules/util/ip_geoloc.h"
 #include "modules/util/wifi_dwell.h"
@@ -70,10 +80,10 @@ char wifiHost[32];
 
 WebServer wifiServer(80);
 
-WiFiClient espClient;
-
 // Initalize the Mqtt client instance
-Arduino_MQTT_Client mqttClientWIFI(espClient);
+// Transporte MQTT nativo de ESP-IDF (esp-mqtt). Antes: Arduino_MQTT_Client
+// sobre un WiFiClient (PubSubClient). El SDK ya lo traia; ver Wifi_OTA.h.
+Espressif_MQTT_Client mqttClientWIFI;
 
 // Initialize ThingsBoard instance
 // ThingsBoardSized<THINGSBOARD_BUFFER_SIZE, THINGSBOARD_FIELDS_AMOUNT>

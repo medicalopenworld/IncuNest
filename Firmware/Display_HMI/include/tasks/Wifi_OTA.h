@@ -5,8 +5,12 @@
 #include <cstdint>
 #include <string>
 
+#ifndef THINGSBOARD_ENABLE_PSRAM
 #define THINGSBOARD_ENABLE_PSRAM 0
+#endif
+#ifndef THINGSBOARD_ENABLE_DYNAMIC
 #define THINGSBOARD_ENABLE_DYNAMIC 1
+#endif
 // Transporte MQTT nativo de ESP-IDF (esp-mqtt) en vez de Arduino_MQTT_Client
 // (que iba sobre PubSubClient). Es el cambio de fondo de este fichero: con el
 // desaparecen de paso las esperas ACTIVAS de PubSubClient que documenta el

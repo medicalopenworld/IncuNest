@@ -20,6 +20,15 @@ set(srcs
 set(dependencies
     mqtt
     mbedtls
+    # PARCHE INCUNEST (ver PATCHES.md, parche 3): Configuration.h decide
+    # THINGSBOARD_USE_ESP_PARTITION con __has_include(<esp_ota_ops.h>). Sin
+    # app_update en los REQUIRES, dentro de este componente la cabecera no se
+    # ve y Espressif_Updater.cpp compila VACIO, mientras que la aplicacion (que
+    # si tiene app_update) ve la clase completa y acaba con referencias sin
+    # definir al enlazar. Va como dependencia publica porque la decision se
+    # toma tambien en las cabeceras que incluye la aplicacion.
+    app_update
+    esp_app_format
 )
 
 set(private_dependencies

@@ -1,7 +1,17 @@
 #include "CommTask.h"
 #include <cmath>  // isfinite, antes lo traia Arduino.h
+using std::isfinite;
 
 #include "main.h"
+
+// Capa de red del porte a ESP-IDF (sustituye a WiFi.h, WiFiClientSecure.h,
+// WebServer.h, Update.h y ESPmDNS.h de Arduino).
+#include "platform/plat_wifi.h"
+#include "platform/plat_net_client.h"
+#include "platform/plat_webserver.h"
+#include "platform/plat_update.h"
+#include "platform/plat_mdns.h"
+
 #include "modules/util/tz_source.h"
 #include "modules/util/civil_time.h"
 #include "modules/util/system_clock.h"

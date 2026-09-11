@@ -1,7 +1,6 @@
 #include "support_report.h"
 
 #include "platform/plat_time.h"
-#include <WiFi.h>
 #include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <esp_system.h>
@@ -14,6 +13,15 @@
 #include "Credentials_public.h"
 #include "Wifi_OTA.h"
 #include "main.h"
+
+// Capa de red del porte a ESP-IDF (sustituye a WiFi.h, WiFiClientSecure.h,
+// WebServer.h, Update.h y ESPmDNS.h de Arduino).
+#include "platform/plat_wifi.h"
+#include "platform/plat_net_client.h"
+#include "platform/plat_webserver.h"
+#include "platform/plat_update.h"
+#include "platform/plat_mdns.h"
+
 
 // Diagnostico de arranque: definidos en main.cpp, sin header propio (mismo
 // extern a mano que hace CommTask.cpp para la trama HMI,BOOT).

@@ -2,11 +2,19 @@
 
 #include "platform/plat_time.h"
 #include "platform/plat_string.h"
-#include <WiFiClientSecure.h>
 #include <time.h>
 
 #include "factory_test.h" // FTEST_DETAIL_MAX (shared/)
-#include "main.h"         // logI / logE
+#include "main.h"
+
+// Capa de red del porte a ESP-IDF (sustituye a WiFi.h, WiFiClientSecure.h,
+// WebServer.h, Update.h y ESPmDNS.h de Arduino).
+#include "platform/plat_wifi.h"
+#include "platform/plat_net_client.h"
+#include "platform/plat_webserver.h"
+#include "platform/plat_update.h"
+#include "platform/plat_mdns.h"
+         // logI / logE
 #include "protocol/Credentials_public.h"
 
 #if FTEST_SIM_ACT_ENABLED

@@ -6,6 +6,16 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 6.21.6
+  espressif/esp_modem:
+    component_hash: 06abed971065e9cb88039e011fd85ec1412c7416d3a3d84541a7a432e8d3f94d
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.1'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 2.1.0
   espressif/mdns:
     component_hash: 3ba256ac95e07c274be53cbd73f06cb846c403b61e8fbdf1be57bdb79db7a63e
     dependencies:
@@ -59,11 +69,12 @@ dependencies:
     version: 1.22.3
 direct_dependencies:
 - bblanchon/arduinojson
+- espressif/esp_modem
 - espressif/mdns
 - espressif/mqtt
 - espressif/usb
 - idf
 - joltwallet/littlefs
-manifest_hash: 7490d4ceea13764fe0e103123034f033a8d16b259aeff9870269713855ad793a
+manifest_hash: 07c2e52d324c0736085d4bc8ea84a03333114e82c154b1be7e766f3483c61295
 target: esp32s3
 version: 3.0.0

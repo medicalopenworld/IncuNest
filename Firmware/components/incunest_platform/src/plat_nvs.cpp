@@ -149,6 +149,10 @@ size_t NvsPrefs::putULong(const char *key, uint32_t v) {
 size_t NvsPrefs::putBool(const char *key, bool v) {
   return putUChar(key, v ? 1 : 0);
 }
+size_t NvsPrefs::putString(const char *key, const String &v) {
+  return putString(key, v.c_str());
+}
+
 size_t NvsPrefs::putString(const char *key, const std::string &v) {
   return putString(key, v.c_str());
 }

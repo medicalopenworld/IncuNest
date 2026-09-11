@@ -87,3 +87,11 @@ CONFIG_ESP_COREDUMP_CHECK_BOOT=y
 CONFIG_ESP_COREDUMP_MAX_TASKS_NUM=64
 CONFIG_ESP_COREDUMP_USE_STACK_SIZE=y
 CONFIG_ESP_COREDUMP_STACK_SIZE=1792
+
+# --- SDK de ThingsBoard: bajo ESP-IDF lee estas opciones de Kconfig.
+# El firmware las fijaba con #define antes de incluir ThingsBoard.h, pero hay
+# rutas de inclusion (fw_guarded_updater.h -> Espressif_Updater.h ->
+# Configuration.h) donde el SDK llega primero y toma el valor de aqui. Tienen
+# que decir lo mismo que los #define para que todas las unidades de
+# compilacion vean la misma clase ThingsBoard.
+CONFIG_THINGSBOARD_ENABLE_DYNAMIC=y

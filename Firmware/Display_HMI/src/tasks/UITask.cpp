@@ -20,6 +20,8 @@
 #include "esp_lcd_panel_rgb.h"
 #include "esp_log.h"
 #include "esp_timer.h"  // esp_timer_get_time(), antes lo traia Arduino
+#include <cmath>
+using std::round; // antes venia de Arduino.h
 // alarm_priority(): la prioridad del banner sale de la misma tabla de shared/
 // que usa la motherboard, no de una copia local.
 #include "alarm_policy.h"
@@ -27,6 +29,15 @@
 // zumbadores del equipo tienen que emitir el patron identico.
 #include "alarm_audio_pattern.h"
 #include "main.h"
+
+// Capa de red del porte a ESP-IDF (sustituye a WiFi.h, WiFiClientSecure.h,
+// WebServer.h, Update.h y ESPmDNS.h de Arduino).
+#include "platform/plat_wifi.h"
+#include "platform/plat_net_client.h"
+#include "platform/plat_webserver.h"
+#include "platform/plat_update.h"
+#include "platform/plat_mdns.h"
+
 #include "ui.h"
 // PCA9557 retirado en el porte: el expansor NO esta poblado en esta
 // revision de hardware (UITask.cpp:4020 "was not found in scan",
@@ -3920,33 +3931,39 @@ void UI_Task(void *pvParameters) {
     panel_cfg.data_width = 16; // RGB565
     panel_cfg.num_fbs = 1;
     panel_cfg.bounce_buffer_size_px = BOUNCE_BUF_SIZE_PX;
-    panel_cfg.psram_trans_align = 64;
+    // PORTE A ESP-IDF 6: psram_trans_align (alineacion de las transacciones
+    // hacia PSRAM) desaparecio; su sustituto es dma_burst_size, en bytes. 64
+    // es el valor que recomienda IDF para el S3 con framebuffer en PSRAM y el
+    // mismo numero que habia. PENDIENTE DE BANCO: es el parametro del que
+    // dependen los bounce buffers y el drift del LCD que ya se depuro; hay
+    // que comprobar que la imagen sigue estable con el mismo margen.
+    panel_cfg.dma_burst_size = 64;
     panel_cfg.flags.fb_in_psram = 1;         // Framebuffer en PSRAM
     panel_cfg.flags.bb_invalidate_cache = 0; // DMA usa bounce buffer completo
 
     // Pines de datos RGB565: B[4:0], G[5:0], R[4:0]
-    panel_cfg.data_gpio_nums[0] = DISPLAY_PIN_B0;
-    panel_cfg.data_gpio_nums[1] = DISPLAY_PIN_B1;
-    panel_cfg.data_gpio_nums[2] = DISPLAY_PIN_B2;
-    panel_cfg.data_gpio_nums[3] = DISPLAY_PIN_B3;
-    panel_cfg.data_gpio_nums[4] = DISPLAY_PIN_B4;
-    panel_cfg.data_gpio_nums[5] = DISPLAY_PIN_G0;
-    panel_cfg.data_gpio_nums[6] = DISPLAY_PIN_G1;
-    panel_cfg.data_gpio_nums[7] = DISPLAY_PIN_G2;
-    panel_cfg.data_gpio_nums[8] = DISPLAY_PIN_G3;
-    panel_cfg.data_gpio_nums[9] = DISPLAY_PIN_G4;
-    panel_cfg.data_gpio_nums[10] = DISPLAY_PIN_G5;
-    panel_cfg.data_gpio_nums[11] = DISPLAY_PIN_R0;
-    panel_cfg.data_gpio_nums[12] = DISPLAY_PIN_R1;
-    panel_cfg.data_gpio_nums[13] = DISPLAY_PIN_R2;
-    panel_cfg.data_gpio_nums[14] = DISPLAY_PIN_R3;
-    panel_cfg.data_gpio_nums[15] = DISPLAY_PIN_R4;
+    panel_cfg.data_gpio_nums[0] = (gpio_num_t)DISPLAY_PIN_B0;
+    panel_cfg.data_gpio_nums[1] = (gpio_num_t)DISPLAY_PIN_B1;
+    panel_cfg.data_gpio_nums[2] = (gpio_num_t)DISPLAY_PIN_B2;
+    panel_cfg.data_gpio_nums[3] = (gpio_num_t)DISPLAY_PIN_B3;
+    panel_cfg.data_gpio_nums[4] = (gpio_num_t)DISPLAY_PIN_B4;
+    panel_cfg.data_gpio_nums[5] = (gpio_num_t)DISPLAY_PIN_G0;
+    panel_cfg.data_gpio_nums[6] = (gpio_num_t)DISPLAY_PIN_G1;
+    panel_cfg.data_gpio_nums[7] = (gpio_num_t)DISPLAY_PIN_G2;
+    panel_cfg.data_gpio_nums[8] = (gpio_num_t)DISPLAY_PIN_G3;
+    panel_cfg.data_gpio_nums[9] = (gpio_num_t)DISPLAY_PIN_G4;
+    panel_cfg.data_gpio_nums[10] = (gpio_num_t)DISPLAY_PIN_G5;
+    panel_cfg.data_gpio_nums[11] = (gpio_num_t)DISPLAY_PIN_R0;
+    panel_cfg.data_gpio_nums[12] = (gpio_num_t)DISPLAY_PIN_R1;
+    panel_cfg.data_gpio_nums[13] = (gpio_num_t)DISPLAY_PIN_R2;
+    panel_cfg.data_gpio_nums[14] = (gpio_num_t)DISPLAY_PIN_R3;
+    panel_cfg.data_gpio_nums[15] = (gpio_num_t)DISPLAY_PIN_R4;
 
-    panel_cfg.hsync_gpio_num = DISPLAY_PIN_HSYNC;
-    panel_cfg.vsync_gpio_num = DISPLAY_PIN_VSYNC;
-    panel_cfg.de_gpio_num = DISPLAY_PIN_DE;
-    panel_cfg.pclk_gpio_num = DISPLAY_PIN_PCLK;
-    panel_cfg.disp_gpio_num = -1; // No separate enable pin
+    panel_cfg.hsync_gpio_num = (gpio_num_t)(DISPLAY_PIN_HSYNC);
+    panel_cfg.vsync_gpio_num = (gpio_num_t)(DISPLAY_PIN_VSYNC);
+    panel_cfg.de_gpio_num = (gpio_num_t)(DISPLAY_PIN_DE);
+    panel_cfg.pclk_gpio_num = (gpio_num_t)(DISPLAY_PIN_PCLK);
+    panel_cfg.disp_gpio_num = (gpio_num_t)(-1); // No separate enable pin
 
     // El driver pide los DOS bounce buffers en SRAM interna DMA-capaz
     // (38,4 KB contiguos cada uno con 24 lineas). Aqui ya han arrancado WiFi
@@ -3994,7 +4011,10 @@ void UI_Task(void *pvParameters) {
     esp_lcd_rgb_panel_event_callbacks_t lcd_cbs = {
         .on_vsync = lcd_on_vsync,
         .on_bounce_empty = lcd_on_bounce_empty,
-        .on_bounce_frame_finish = lcd_on_bounce_frame_finish,
+        // PORTE A ESP-IDF 6: el callback se llama ahora on_frame_buf_complete
+        // (un frame buffer entero entregado al DMA). Misma firma y mismo
+        // momento que on_bounce_frame_finish en IDF 5; la funcion no cambia.
+        .on_frame_buf_complete = lcd_on_bounce_frame_finish,
     };
     ESP_ERROR_CHECK(
         esp_lcd_rgb_panel_register_event_callbacks(lcd_panel, &lcd_cbs, NULL));

@@ -44,6 +44,7 @@
 #include "SPO2.h"
 #include "Wifi_OTA.h"
 #include "main.h"
+#include "platform/plat_string_json.h"  // doc["x"].as<String>()
 
 // Initialize GSM modem
 TinyGsm modem(modemSerial);

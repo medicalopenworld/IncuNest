@@ -50,3 +50,11 @@ dependencies:
   ## antes ponia el framework.
   espressif/usb:
     version: "^1.0.0"
+
+  ## Modem celular (SIM800) sobre PPP. Sustituye a TinyGSM (decision del
+  ## 2026-09-11: esp_modem con PPP, no un cliente AT propio). Con PPP el
+  ## trafico del modem entra en lwIP y MQTT/HTTPS van por el mismo camino que
+  ## por WiFi. Modo CMUX para poder seguir mandando AT (CSQ, CCLK, CCID) con
+  ## la sesion de datos levantada, como hacia el codigo con TinyGSM.
+  espressif/esp_modem:
+    version: "^2.1.0"

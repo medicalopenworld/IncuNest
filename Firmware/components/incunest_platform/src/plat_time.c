@@ -25,3 +25,36 @@ void delay_ms(uint32_t ms) {
 }
 
 void delay_us(uint32_t us) { esp_rom_delay_us(us); }
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+
+#include "esp_sntp.h"
+
+void yield(void) { taskYIELD(); }
+
+void configTime(long gmtOffset_sec, int daylightOffset_sec, const char *server1,
+                const char *server2, const char *server3) {
+  if (esp_sntp_enabled()) {
+    esp_sntp_stop();
+  }
+  esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+  if (server1) esp_sntp_setservername(0, server1);
+  if (server2) esp_sntp_setservername(1, server2);
+  if (server3) esp_sntp_setservername(2, server3);
+  esp_sntp_init();
+
+  // Misma construccion de TZ que Arduino (setTimeZone): POSIX invierte el
+  // signo del offset, y el horario de verano va como segundo campo.
+  char tz[40];
+  long off = -gmtOffset_sec;
+  int dst = daylightOffset_sec / 3600;
+  snprintf(tz, sizeof(tz), "UTC%+ld:%02ld:%02ld%s", off / 3600, labs(off % 3600) / 60,
+           labs(off % 60), dst != 0 ? "DST" : "");
+  if (gmtOffset_sec == 0 && daylightOffset_sec == 0) {
+    snprintf(tz, sizeof(tz), "UTC0");
+  }
+  setenv("TZ", tz, 1);
+  tzset();
+}

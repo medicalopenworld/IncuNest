@@ -3,8 +3,12 @@
 
 #define TINY_GSM_MODEM_SIM800
 #define modemSerial Serial2
+#ifndef THINGSBOARD_ENABLE_PSRAM
 #define THINGSBOARD_ENABLE_PSRAM 0
+#endif
+#ifndef THINGSBOARD_ENABLE_DYNAMIC
 #define THINGSBOARD_ENABLE_DYNAMIC 1
+#endif
 // ================== CAMBIO DE COMPORTAMIENTO, PENDIENTE DE BANCO ==================
 // Pasa de 1 a 0 en el porte, y NO es una eleccion: la propia Configuration.h
 // del SDK lo dice ("Option can only be enabled when using Arduino"). El truco
@@ -31,7 +35,9 @@
 // THINGSBOARD_BUFFER_SIZE. Con esp-mqtt el bufer es configurable y el coste
 // es RAM, no dinero de datos.
 // ==================================================================================
+#ifndef THINGSBOARD_ENABLE_STREAM_UTILS
 #define THINGSBOARD_ENABLE_STREAM_UTILS 0
+#endif
 #include "ThingsBoard.h"
 #include "config/transport_policy.h" // tabla única GPRS/WiFi
 

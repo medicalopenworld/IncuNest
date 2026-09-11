@@ -103,7 +103,11 @@ void sensorboard_capture_free(uint8_t *jpeg);
 // caido. Solo lo usa el test de fabrica (SB_STATUS).
 bool sensorboard_status_request(void);
 
-#ifdef ARDUINO
+// Antes: #ifdef ARDUINO. Ese guard queria decir "en la placa, no en los tests
+// de host", pero al quitar Arduino dejaba fuera esta declaracion en silencio
+// (Wifi_OTA.cpp dejaba de ver sensorboard_add_telemetry). Se expresa lo que
+// de verdad significa: fuera del entorno nativo de tests.
+#ifndef NATIVE_TEST
 #include <ArduinoJson.h>
 // Anade las claves sb_* al JSON de telemetria: luz, sonido, puerta, estado del
 // enlace y LAS TRES POSICIONES CRUDAS de temperatura y humedad

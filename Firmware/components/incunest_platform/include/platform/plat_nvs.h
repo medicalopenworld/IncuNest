@@ -47,6 +47,7 @@
 #include <string>
 
 #include "nvs.h"
+#include "platform/plat_string.h"
 #include "nvs_flash.h"
 
 class NvsPrefs {
@@ -80,6 +81,7 @@ public:
   size_t putBool(const char *key, bool value);
   size_t putString(const char *key, const char *value);
   size_t putString(const char *key, const std::string &value);
+  size_t putString(const char *key, const String &value);
   size_t putBytes(const char *key, const void *value, size_t len);
 
   int8_t getChar(const char *key, int8_t defaultValue = 0);

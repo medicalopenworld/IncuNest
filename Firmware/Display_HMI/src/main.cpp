@@ -13,6 +13,7 @@
 
 static const char *TAG = "Main";
 
+I2cBus &g_i2c = Wire; // ver main.h
 bool OTA_inprogress = false;
 in3ator_parameters in3;
 
