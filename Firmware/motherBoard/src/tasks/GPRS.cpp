@@ -1026,6 +1026,7 @@ void addTelemetriesToGPRSJSON() {
                                TELEMETRIES_DECIMALS);
   }
   addVariableToTelemetryGPRSJSON[PHOTOTHERAPY_ACTIVE_KEY] = in3.phototherapy;
+  addVariableToTelemetryGPRSJSON[HUMIDIFIER_ACTIVE_KEY] = in3.humidityControl;
   addVariableToTelemetryGPRSJSON[HUMIDITY_ROOM_KEY] = roundSignificantDigits(
       in3.humidity[ROOM_DIGITAL_HUM_SENSOR], TELEMETRIES_DECIMALS);
   addVariableToTelemetryGPRSJSON[SYSTEM_CURRENT_KEY] =
@@ -1075,9 +1076,11 @@ void addTelemetriesToGPRSJSON() {
       addVariableToTelemetryGPRSJSON[DESIRED_HUMIDITY_ROOM_KEY] =
           in3.desiredControlHumidity;
     }
+    // Mismo motivo que en Wifi_OTA.cpp: el false sale en cada ciclo, asi que
+    // el true tambien tiene que salir siempre o la serie queda coja.
+    addVariableToTelemetryGPRSJSON[CONTROL_ACTIVE_KEY] = true;
     if (!GPRS.firstConfigPost) {
       GPRS.firstConfigPost = true;
-      addVariableToTelemetryGPRSJSON[CONTROL_ACTIVE_KEY] = true;
       if (in3.temperatureControl) {
         if (in3.controlMode == CONTROL_AIR) {
           addVariableToTelemetryGPRSJSON[CONTROL_MODE_KEY] = "AIR";

@@ -87,8 +87,13 @@
 // campos, no por coste de datos: el peor caso por GPRS son 87 claves
 // (CORE 69 + CELLULAR 4 + DIAG 8 + CALIBRATION 6) y el bloque son 12, o sea
 // 99 -- no cabian en los 96 de entonces. Se subio
-// THINGSBOARD_FIELDS_AMOUNT a 112 (512 B de .bss) y ahora quedan 13 de
-// margen. Por WiFi, con los grupos pesados apagados, son 69 + 12 = 81.
+// THINGSBOARD_FIELDS_AMOUNT a 112 (512 B de .bss). Por WiFi, con los grupos
+// pesados apagados, son 69 + 12 = 81.
+//
+// 2026-09-10: +2 claves en el peor caso (Humidifier_active, siempre; y
+// Control_active, que antes solo salia una vez por arranque de control y
+// ahora sale en cada ciclo tambien en la rama ON). Peor caso GPRS 101 de
+// 112: quedan 11 de margen.
 //
 // MAX_MESSAGE_SIZE (1024 B) NO es un limite aqui, al contrario de lo que
 // decia este comentario antes: main.h define THINGSBOARD_ENABLE_STREAM_UTILS
