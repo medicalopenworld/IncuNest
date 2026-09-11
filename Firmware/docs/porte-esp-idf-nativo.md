@@ -17,33 +17,34 @@ Objetivo: quitar el framework Arduino de las dos placas y construir con
 
 ## 1. Estado actual (medido, no estimado)
 
-| | Fuentes | Pendientes | Compila |
+**Las dos placas compilan y enlazan enteras sobre ESP-IDF v6.0.1, sin una
+linea de Arduino.** Nada probado en hardware todavia.
+
+| Binario | Tamano | Slot | Libre |
 |---|---|---|---|
-| `components/incunest_platform` | 10 | 0 | ✅ |
-| `shared/` | 6 | 0 | ✅ |
-| `components/thingsboard` (parcheado) | 44 | 0 | ✅ |
-| `components/incunest_sensors` (9 libs vendorizadas) | 16 | 0 | ✅ |
-| `components/incunest_afe4490`, `arduino_pid`, `incunest_gt911` | 3 | 0 | ✅ |
-| **Display_HMI** | ~100 | **6** | todo menos red y serie |
-| **motherBoard** | ~85 | **7** | todo menos red y serie |
+| `Display_HMI/build/display_hmi.bin` | 0x26df60 (2,5 MB) | 5 MB | 51 % |
+| `motherBoard/build/motherboard.bin` | 0x1deb50 (1,96 MB) | 2,625 MB | 29 % |
 
-**Las 13 fuentes que quedan son todas del mismo tipo.** No queda nada
-mecanico: es exactamente el trabajo que este documento ya señalaba como
-"pide diseño, no sustitución".
+| Pieza | Estado |
+|---|---|
+| `components/incunest_platform` (tiempo, GPIO, PWM, I2C, SPI, NVS, FS, UART, WiFi, TCP/TLS, HTTP, OTA, mDNS, String) | ✅ |
+| `shared/` como componente | ✅ |
+| `components/thingsboard` (SDK con tres parches, `PATCHES.md`) | ✅ |
+| `components/incunest_sensors` (9 libs vendorizadas), `incunest_afe4490`, `arduino_pid`, `incunest_gt911` | ✅ |
+| GPRS sobre `esp_modem` (PPP/CMUX), `motherBoard/src/tasks/gprs_modem.*` | ✅ compila · ⚠ banco |
+| Tests de host: `tools/host_tests` (CMake + Unity) | ✅ **25/25 en verde** |
+| `flasher_tool` (layout de IDF, con PlatformIO como respaldo) | ✅ |
+| `.github/workflows/release.yml` (esp-idf-ci-action v6.0.1) | ✅ sin ejecutar aun |
 
-| Pendiente | HMI | motherBoard |
-|---|---|---|
-| WiFi / WebServer / OTA | `Wifi_OTA.cpp`, `support_report.cpp`, `UITask.cpp`, `FactoryTest.cpp` | `Wifi_OTA.cpp`, `DriveUpload.cpp`, `factory_test_hw.cpp`, `ftest_sim_activation.cpp` |
-| Enlace serie | `main.cpp`, `CommTask.cpp` | `main.cpp`, `CommTask.cpp` |
-| GPRS (`TinyGSM` → `esp_modem`) | — | `GPRS.cpp` |
-
-Gate barato para la capa base, sin construir una placa entera:
+Comandos:
 
 ```
-idf.py -C Firmware/tools/platform_smoke build
+idf.py -C Firmware/Display_HMI build
+idf.py -C Firmware/motherBoard build            # HW_NUM y variante de taller: idf.py menuconfig
+idf.py -C Firmware/tools/platform_smoke build   # gate barato de la capa de plataforma
+.\Firmware	ools\host_tests
+un_host_tests.ps1  # 25 suites Unity en el PC
 ```
-
----
 
 ## 2. Decisiones tomadas y por que
 
@@ -109,15 +110,42 @@ publica desde diciembre de 2024. Detalle completo y delta exacto en
 
 ---
 
+### 2.7 GPRS: `esp_modem` con PPP en modo CMUX
+
+Decision del 2026-09-11. `motherBoard/src/tasks/gprs_modem.{h,cpp}` envuelve la
+API C de `esp_modem` con la forma de los metodos de TinyGSM, asi que la maquina
+de estados de `GPRS.cpp` y los ganchos del test de fabrica no cambian. Dos
+cosas que parecen erratas y se conservan a proposito: el cruce de nombres de
+pines en `Serial2.begin()` (los nombres de `board.h` son desde el modem) y la
+doble inversion lat/lon en `getGsmLocation()` que se anula. **Riesgo**: `CLBS`
+y `CNTP` usan el portador interno `SAPBR` del SIM800, que puede no convivir con
+PPP; se abre best-effort y el reloj queda cubierto por SNTP sobre PPP.
+
+### 2.8 Los manejadores del servidor web siguen corriendo en la tarea de OTA
+
+`esp_http_server` ejecuta los manejadores en su propia tarea; la `WebServer`
+de Arduino los ejecutaba dentro de `handleClient()`, en la tarea de OTA. El
+manejador de `/update` escribe la flash y comparte estado con la OTA de
+ThingsBoard: moverlo de tarea seria meter una carrera entre dos escrituras de
+flash. `plat_webserver` hace un rendezvous entre la tarea de httpd y
+`handleClient()` para que la concurrencia sea exactamente la de antes.
+
+### 2.9 Consola del HMI compartida con el protocolo en UART0
+
+Decision del 2026-09-11: se mantiene como estaba. `HardwareSerial::begin()`
+sobre UART0 hace que la consola escriba a traves del mismo driver
+(`uart_vfs_dev_use_driver`) para que cada escritura salga entera.
+
 ## 3. Trabajo pendiente, en orden
 
 El orden importa: cada bloque desbloquea al siguiente y es verificable por su
 cuenta con `idf.py build`.
 
-> **Estado**: A1, A2, A3, A6, B1..B7 estan HECHOS. Queda A4/A5 (enlace serie y
-> red del HMI), B8 (red de la motherBoard) y B9 (GPRS), mas toda la fase C.
+> **Estado**: fases A, B y C HECHAS (compilan, enlazan, tests de host en
+> verde). Lo que queda es banco (seccion 4), lo que solo se puede hacer tras el
+> merge (seccion 7) y las limpiezas de codigo muerto (seccion 6).
 
-### Fase A — Display_HMI  ·  HECHO salvo A4 y A5
+### Fase A — Display_HMI  ·  HECHA
 
 | # | Trabajo | Ficheros | Notas |
 |---|---|---|---|
@@ -131,7 +159,7 @@ cuenta con `idf.py build`.
 `AudioManager.cpp` sigue **fuera del build**, igual que en `platformio.ini`. No
 se reactiva dentro del porte.
 
-### Fase B — motherBoard  ·  HECHO salvo B8 y B9
+### Fase B — motherBoard  ·  HECHA (B9 pendiente de banco)
 
 | # | Trabajo | Notas |
 |---|---|---|
@@ -145,7 +173,7 @@ se reactiva dentro del porte.
 | B8 | Red y nube (`Wifi_OTA.cpp`, 1679 l.) | Igual que A5. |
 | B9 | **`TinyGSM` → `esp_modem`** (`GPRS.cpp`, 1339 l.) | **El bloque de mas riesgo de todo el porte.** No es una sustitucion: TinyGSM es AT sobre `Stream` y `esp_modem` es PPP/lwIP, otra arquitectura. De aqui cuelgan las SIM Onomondo y la tirada de 200. **Debe ir el ultimo y con banco dedicado.** |
 
-### Fase C — alrededores
+### Fase C — alrededores  ·  HECHA salvo C4 (post-merge) y C5
 
 | # | Trabajo | Notas |
 |---|---|---|
@@ -207,3 +235,16 @@ merece su propio commit.
   escribe duty. La rama esta dormida (solo se alcanza con
   `activationMode == HUMIDIFIER_PWM`), pero esta muerta. El porte la preserva
   tal cual y ahora avisa por log.
+
+## 7. Solo tras el merge (fuera del alcance de la rama)
+
+- **`Firmware/.claude/`** esta en `.gitignore`: sus reglas, hooks y skills que
+  citan `pio run` / `pio test -e native` (11 ficheros) hay que actualizarlos a
+  mano en el arbol principal. El hook de Stop pasa a `idf.py build` y a
+  `run_host_tests.ps1`.
+- **Borrar lo que ya no se usa**, cada cosa en su commit: `platformio.ini` y
+  `pre_native.py` de las dos placas, `shared/library.json`,
+  `Display_HMI/lib/TAMC_GT911_Fixed` (ahora componente), los `.pio/` locales,
+  y el codigo muerto de la seccion 6.
+- **Primera ejecucion real de `release.yml`** con un tag de prueba.
+- **`Firmware/README.md`** y el `CLAUDE.md` de las placas: comandos de build.
