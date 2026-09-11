@@ -253,6 +253,20 @@ independientes, así que por WiFi el RPC no existía y el dashboard respondía
 cada una llama a la comprobación de su propio transporte (`GPRSCheckOTA()` /
 `WIFICheckOTA()`), porque cada cliente ThingsBoard es un objeto distinto.
 
+> **Corrección (2026-09-10).** Registrarlo en las dos listas era necesario
+> pero no suficiente, y la frase de arriba no llegó a verificarse: **ningún
+> RPC de esta placa respondía, por ninguno de los dos transportes.** Los nueve
+> `RPC_Callback` se construían sin el tercer argumento `responseSize`, cuyo
+> defecto es `JSON_OBJECT_SIZE(Default_RPC_Amount)` con
+> `Default_RPC_Amount = 0` — capacidad cero. Con `THINGSBOARD_ENABLE_DYNAMIC=1`
+> el SDK monta el documento de respuesta con esa capacidad, el primer
+> `response["status"] = …` desborda y `ThingsBoard.h` hace `break` **sin
+> enviar nada**. El handler sí corría: la comprobación de OTA se disparaba,
+> pero el dashboard seguía diciendo "el equipo no respondió". Medido el
+> 2026-09-10 contra `IncuNest-353_1` por WiFi y contra `IncuNest-311` por
+> GPRS: **504 en los dos**. Corregido dimensionando cada callback con el
+> número de campos que escribe.
+
 > Las dos listas siguen **asimétricas** por lo demás: `restart`, `getDiag` y
 > `wipeBabies` solo existen por GPRS, y `capturePPG` solo por WiFi. Es anterior
 > a este cambio, pero conviene tenerlo presente: un RPC probado en el banco por

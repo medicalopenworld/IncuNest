@@ -186,14 +186,23 @@ static void rpc_capture_ppg_gprs_cb(JsonVariantConst const & /*data*/,
 }
 #endif
 
+// El tercer argumento es el tamano del documento de respuesta y NO es
+// opcional: su defecto es JSON_OBJECT_SIZE(Default_RPC_Amount) con
+// Default_RPC_Amount = 0 (Constants.h del SDK), o sea capacidad CERO. Con
+// THINGSBOARD_ENABLE_DYNAMIC=1 el SDK monta TBJsonDocument(0), el primer
+// response[...] desborda y ThingsBoard.h hace break SIN enviar la respuesta:
+// el handler corre, pero el servidor se queda esperando y da 504. Aqui va el
+// numero exacto de campos que escribe cada callback; si anades uno, sube la
+// cuenta. Claves y literales son const char* (cero copia), asi que
+// JSON_OBJECT_SIZE(n) basta.
 static RPC_Callback rpc_callbacks[] = {
-  RPC_Callback("restart",  rpc_restart_cb),
-  RPC_Callback("getDiag",  rpc_diag_cb),
-  RPC_Callback("setWifi",  rpc_setwifi_cb),
-  RPC_Callback("wipeBabies", rpc_wipe_babies_cb),
-  RPC_Callback("checkOta",   rpc_check_ota_cb),
+  RPC_Callback("restart",  rpc_restart_cb,  JSON_OBJECT_SIZE(1)),
+  RPC_Callback("getDiag",  rpc_diag_cb,     JSON_OBJECT_SIZE(8)),
+  RPC_Callback("setWifi",  rpc_setwifi_cb,  JSON_OBJECT_SIZE(1)),
+  RPC_Callback("wipeBabies", rpc_wipe_babies_cb, JSON_OBJECT_SIZE(2)),
+  RPC_Callback("checkOta",   rpc_check_ota_cb,   JSON_OBJECT_SIZE(1)),
 #if TX_FEATURE_PPG_SNAPSHOT_GPRS
-  RPC_Callback("capturePPG", rpc_capture_ppg_gprs_cb),
+  RPC_Callback("capturePPG", rpc_capture_ppg_gprs_cb, JSON_OBJECT_SIZE(1)),
 #endif
 };
 static constexpr size_t RPC_CB_COUNT = sizeof(rpc_callbacks) / sizeof(rpc_callbacks[0]);
