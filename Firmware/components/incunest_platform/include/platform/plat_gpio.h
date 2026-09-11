@@ -44,6 +44,14 @@ typedef enum {
   PIN_MODE_OUTPUT_OPEN_DRAIN,
 } pin_mode_t;
 
+// Valor de "pin no conectado". El firmware pasa (uint8_t)(-1) = 255 en sitios
+// donde la senal no existe en esta revision de hardware: el INT y el RST del
+// tactil GT911 del HMI, por ejemplo. Arduino ignoraba en silencio un pinMode()
+// sobre un pin invalido, y main.cpp del HMI incluso silenciaba el log del
+// driver ("Suppress ESP-IDF gpio error logs (caused by GT911 using pin -1)").
+// Aqui se ignoran igual, sin log: son llamadas deliberadas, no errores.
+#define PIN_NONE 255
+
 void pin_mode(uint8_t pin, pin_mode_t mode);
 void pin_write(uint8_t pin, bool level);
 bool pin_read(uint8_t pin);

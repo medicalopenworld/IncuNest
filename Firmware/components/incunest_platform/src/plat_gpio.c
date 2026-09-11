@@ -9,6 +9,9 @@
 static const char *TAG = "plat_gpio";
 
 void pin_mode(uint8_t pin, pin_mode_t mode) {
+  if (pin == PIN_NONE) {
+    return; // senal no cableada en esta revision; ver plat_gpio.h
+  }
   gpio_config_t cfg = {
       .pin_bit_mask = 1ULL << pin,
       .intr_type = GPIO_INTR_DISABLE,
@@ -47,9 +50,19 @@ void pin_mode(uint8_t pin, pin_mode_t mode) {
   }
 }
 
-void pin_write(uint8_t pin, bool level) { gpio_set_level(pin, level ? 1 : 0); }
+void pin_write(uint8_t pin, bool level) {
+  if (pin == PIN_NONE) {
+    return;
+  }
+  gpio_set_level(pin, level ? 1 : 0);
+}
 
-bool pin_read(uint8_t pin) { return gpio_get_level(pin) != 0; }
+bool pin_read(uint8_t pin) {
+  if (pin == PIN_NONE) {
+    return false;
+  }
+  return gpio_get_level(pin) != 0;
+}
 
 // --- ADC -------------------------------------------------------------------
 // Las unidades y sus handles de calibracion se crean la primera vez que se
@@ -135,6 +148,9 @@ static void IRAM_ATTR plat_gpio_isr_trampoline(void *arg) {
 
 void pin_attach_interrupt(uint8_t pin, void (*handler)(void),
                           pin_int_mode_t mode) {
+  if (pin == PIN_NONE) {
+    return;
+  }
   if (pin >= GPIO_NUM_MAX || handler == NULL) {
     ESP_LOGE(TAG, "pin_attach_interrupt(%u) invalido", pin);
     return;

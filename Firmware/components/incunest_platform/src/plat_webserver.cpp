@@ -55,7 +55,10 @@ void WebServer::begin() {
   cfg.lru_purge_enable = true;
   cfg.recv_wait_timeout = 30;
   cfg.send_wait_timeout = 30;
-  cfg.stack_size = 6144;
+  // 6144 se quedaba corto: el analizador multipart de /update desbordaba la
+  // pila de httpd en banco. Con el bufer de recepcion movido a miembro, 10 KB
+  // dan margen de sobra para los marcos de esp_http_server mas los nuestros.
+  cfg.stack_size = 10240;
 
   esp_err_t err = httpd_start(&server_, &cfg);
   if (err != ESP_OK) {
@@ -197,13 +200,25 @@ void WebServer::receiveMultipart(httpd_req_t *req) {
     boundary.erase(2, 1);
   }
 
-  upload_ = HTTPUpload{};
+  // OJO: NO hacer `upload_ = HTTPUpload{}`. HTTPUpload lleva un bufer de
+  // HTTP_UPLOAD_BUFLEN (4 KB), asi que esa asignacion construye un temporal de
+  // 4 KB EN LA PILA y luego lo copia. Eso desbordaba la pila de la tarea de
+  // httpd en banco (2026-09-11, "STACK: OVERFLOW in task 'httpd'") y tumbaba
+  // la subida de /update. Se reinician los campos uno a uno; el bufer no hace
+  // falta limpiarlo, cada trozo lo sobrescribe y currentSize dice cuanto vale.
+  upload_.status = UPLOAD_FILE_START;
+  upload_.filename = String();
+  upload_.name = String();
+  upload_.type = String();
+  upload_.totalSize = 0;
+  upload_.currentSize = 0;
   std::string window; // bytes recibidos aun no entregados
   size_t remaining = req->content_len;
   bool in_part_headers = false;
   bool in_data = false;
   bool started = false;
-  char chunk[1024];
+  char *chunk = rx_chunk_;              // miembro, no pila: ver plat_webserver.h
+  const size_t chunk_size = sizeof(rx_chunk_);
 
   auto deliver = [&](const char *data, size_t len) {
     // Entregar en trozos de HTTP_UPLOAD_BUFLEN como maximo.
@@ -221,7 +236,7 @@ void WebServer::receiveMultipart(httpd_req_t *req) {
 
   while (remaining > 0 || !window.empty()) {
     if (remaining > 0) {
-      const size_t want = remaining < sizeof(chunk) ? remaining : sizeof(chunk);
+      const size_t want = remaining < chunk_size ? remaining : chunk_size;
       const int n = httpd_req_recv(req, chunk, want);
       if (n <= 0) {
         if (started) {
@@ -288,7 +303,7 @@ void WebServer::receiveMultipart(httpd_req_t *req) {
         window.clear();
         // Drenar el resto del cuerpo para no dejar la conexion a medias.
         while (remaining > 0) {
-          const size_t want = remaining < sizeof(chunk) ? remaining : sizeof(chunk);
+          const size_t want = remaining < chunk_size ? remaining : chunk_size;
           const int n = httpd_req_recv(req, chunk, want);
           if (n <= 0) break;
           remaining -= static_cast<size_t>(n);

@@ -121,6 +121,12 @@ private:
   std::vector<std::pair<std::string, std::string>> resp_headers_;
   bool responded_ = false;
   HTTPUpload upload_;
+  // Bufer de recepcion del analizador multipart. Va como MIEMBRO, no en la
+  // pila de receiveMultipart(): la tarea de httpd desbordo su pila con el
+  // subida de /update en banco (2026-09-11, "STACK: OVERFLOW in task 'httpd'").
+  // 1 KB en .bss cuesta menos que 1 KB de pila en una tarea que ya arrastra
+  // los marcos de esp_http_server.
+  char rx_chunk_[1024];
 
   // Sincronizacion httpd <-> handleClient().
   SemaphoreHandle_t request_ready_ = nullptr;  // hay peticion para handleClient()

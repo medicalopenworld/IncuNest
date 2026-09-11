@@ -54,9 +54,16 @@ void watchdogInit(uint32_t wdt_timeout) {
       .trigger_panic = true, // que la placa reinicie, como antes
   };
 
-  esp_err_t err = esp_task_wdt_init(&cfg);
+  // Se RECONFIGURA primero y solo se inicializa si hiciera falta, no al reves:
+  // sdkconfig trae CONFIG_ESP_TASK_WDT_INIT=y, asi que al llegar aqui el TWDT
+  // SIEMPRE esta ya en marcha (a 5 s) y llamar antes a esp_task_wdt_init()
+  // hacia que ESP-IDF soltara un ESP_LOGE "TWDT already initialized" en cada
+  // arranque, visto en banco el 2026-09-11. El plazo quedaba bien igualmente,
+  // pero un error en rojo en el log de arranque de la placa que gobierna el
+  // calefactor no es ruido aceptable.
+  esp_err_t err = esp_task_wdt_reconfigure(&cfg);
   if (err == ESP_ERR_INVALID_STATE) {
-    err = esp_task_wdt_reconfigure(&cfg);
+    err = esp_task_wdt_init(&cfg);
   }
   if (err != ESP_OK) {
     ESP_LOGE("WDT", "no se pudo configurar el Task WDT: %s",
