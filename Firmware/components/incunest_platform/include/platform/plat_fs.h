@@ -95,6 +95,8 @@ public:
   bool exists(const String &path);
   bool remove(const char *path);
   bool remove(const String &path);
+  bool rename(const char *from, const char *to);
+  bool rename(const String &from, const String &to);
   bool mkdir(const char *path);
   bool rmdir(const char *path);
 

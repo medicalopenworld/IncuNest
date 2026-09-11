@@ -45,6 +45,16 @@ public:
   String(long long v) : s_(std::to_string(v)) {}
   String(unsigned long long v) : s_(std::to_string(v)) {}
 
+  // Con base numerica, como String(valor, HEX) de Arduino. Solo se usa para
+  // trazas (direcciones I2C en hexadecimal).
+  // La base va como unsigned char, igual que en Arduino. No es un detalle:
+  // con `int` aqui, una llamada como String(valorDouble, 4) quedaba AMBIGUA
+  // entre este constructor y el de coma flotante.
+  String(int v, unsigned char base);
+  String(unsigned int v, unsigned char base);
+  String(long v, unsigned char base);
+  String(unsigned long v, unsigned char base);
+
   // Coma flotante: 2 decimales por defecto, como Arduino. Ver la nota de
   // arriba antes de tocar esto.
   String(double v, unsigned int decimalPlaces = 2);

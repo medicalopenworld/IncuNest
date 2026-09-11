@@ -1138,7 +1138,7 @@ static bool ReceiveMessageFromOtherESP() {
 static void applyCtrlStateInfoAndAlarms(const ControlBoard_Message_State &st) {
   if (st.serialNumber != 0 && st.serialNumber != in3.serialNumber) {
     in3.serialNumber = st.serialNumber;
-    { Preferences p; p.begin(HMI_NS_CFG, false); p.putInt(HMI_KEY_SERIAL, in3.serialNumber); p.end(); }
+    { NvsPrefs p; p.begin(HMI_NS_CFG, false); p.putInt(HMI_KEY_SERIAL, in3.serialNumber); p.end(); }
     ESP_LOGI(TAG, "Serial Number updated from motherboard: %d",
              in3.serialNumber);
   }

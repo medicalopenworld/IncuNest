@@ -1,6 +1,7 @@
 #include "platform/plat_fs.h"
 
 #include <cstring>
+#include <cstdio>  // rename()
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -268,6 +269,14 @@ bool LittleFsWrapper::remove(const char *path) {
   return unlink(fullPath(path).c_str()) == 0;
 }
 bool LittleFsWrapper::remove(const String &path) { return remove(path.c_str()); }
+
+bool LittleFsWrapper::rename(const char *from, const char *to) {
+  return ::rename(fullPath(from).c_str(), fullPath(to).c_str()) == 0;
+}
+
+bool LittleFsWrapper::rename(const String &from, const String &to) {
+  return rename(from.c_str(), to.c_str());
+}
 
 bool LittleFsWrapper::mkdir(const char *path) {
   return ::mkdir(fullPath(path).c_str(), 0777) == 0;

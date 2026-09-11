@@ -1,0 +1,11 @@
+#pragma once
+
+#include <AH/Settings/NamespaceSettings.hpp>
+
+#ifdef __AVR__
+#include <AH/Arduino-Wrapper.h>
+
+#include "Fallback/numeric"
+#else
+#include <numeric>
+#endif

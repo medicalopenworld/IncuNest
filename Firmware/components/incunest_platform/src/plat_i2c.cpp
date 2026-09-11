@@ -119,3 +119,96 @@ bool I2cBus::writeReg8(uint8_t addr, uint8_t reg, uint8_t value) {
 bool I2cBus::readReg(uint8_t addr, uint8_t reg, uint8_t *buf, size_t len) {
   return writeRead(addr, &reg, 1, buf, len);
 }
+
+// ---------------------------------------------------------------------------
+// Compatibilidad con Wire. Ver la advertencia de plat_i2c.h: esto es SOLO
+// para las librerias de sensor vendorizadas, no para el codigo de la app.
+// ---------------------------------------------------------------------------
+
+void I2cBus::beginTransmission(uint8_t addr) {
+  tx_addr_ = addr;
+  tx_len_ = 0;
+  tx_open_ = true;
+}
+
+size_t I2cBus::write(uint8_t data) {
+  if (!tx_open_ || tx_len_ >= kBufSize) {
+    return 0;
+  }
+  tx_buf_[tx_len_++] = data;
+  return 1;
+}
+
+size_t I2cBus::write(const uint8_t *data, size_t len) {
+  if (!tx_open_ || data == nullptr) {
+    return 0;
+  }
+  size_t n = 0;
+  while (n < len && tx_len_ < kBufSize) {
+    tx_buf_[tx_len_++] = data[n++];
+  }
+  return n;
+}
+
+uint8_t I2cBus::endTransmission(bool sendStop) {
+  if (!tx_open_) {
+    return 4; // "otro error", igual que Wire
+  }
+  tx_open_ = false;
+
+  if (!sendStop) {
+    // START repetido: NO se envia nada todavia. Lo resolvera el requestFrom()
+    // siguiente en una sola transaccion escritura+lectura, que es exactamente
+    // lo que veia el bus con Arduino.
+    pending_restart_ = true;
+    return 0;
+  }
+
+  pending_restart_ = false;
+  if (tx_len_ == 0) {
+    // endTransmission() sin datos era el sondeo de presencia de Arduino.
+    return probe(tx_addr_) ? 0 : 2; // 2 = NACK a la direccion
+  }
+  const bool ok = write(tx_addr_, tx_buf_, tx_len_);
+  tx_len_ = 0;
+  return ok ? 0 : 2;
+}
+
+uint8_t I2cBus::requestFrom(uint8_t addr, uint8_t len, bool sendStop) {
+  (void)sendStop;
+  rx_len_ = 0;
+  rx_pos_ = 0;
+  if (len == 0 || len > kBufSize) {
+    return 0;
+  }
+
+  bool ok;
+  if (pending_restart_ && tx_len_ > 0 && addr == tx_addr_) {
+    ok = writeRead(addr, tx_buf_, tx_len_, rx_buf_, len);
+    tx_len_ = 0;
+    pending_restart_ = false;
+  } else {
+    ok = read(addr, rx_buf_, len);
+  }
+  if (!ok) {
+    return 0;
+  }
+  rx_len_ = len;
+  return len;
+}
+
+int I2cBus::available() { return static_cast<int>(rx_len_ - rx_pos_); }
+
+int I2cBus::read() {
+  if (rx_pos_ >= rx_len_) {
+    return -1;
+  }
+  return rx_buf_[rx_pos_++];
+}
+
+int I2cBus::peek() {
+  if (rx_pos_ >= rx_len_) {
+    return -1;
+  }
+  return rx_buf_[rx_pos_];
+}

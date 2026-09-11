@@ -34,6 +34,8 @@ bool SpiBus::begin(int sck, int miso, int mosi, int ss) {
   return true;
 }
 
+bool SpiBus::begin() { return bus_ready_; }
+
 void SpiBus::end() {
   if (dev_ != nullptr) {
     spi_bus_remove_device(dev_);

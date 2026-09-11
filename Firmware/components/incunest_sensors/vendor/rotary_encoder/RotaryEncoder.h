@@ -1,0 +1,107 @@
+// -----
+// RotaryEncoder.h - Library for using rotary encoders.
+// This class is implemented for use with the Arduino environment.
+//
+// Copyright (c) by Matthias Hertel, http://www.mathertel.de
+//
+// This work is licensed under a BSD 3-Clause style license,
+// https://www.mathertel.de/License.aspx.
+//
+// More information on: http://www.mathertel.de/Arduino
+// -----
+// 18.01.2014 created by Matthias Hertel
+// 16.06.2019 pin initialization using INPUT_PULLUP
+// 10.11.2020 Added the ability to obtain the encoder RPM
+// 29.01.2021 Options for using rotary encoders with 2 state changes per latch.
+// 06.06.2024 Implementation of tick() with passing the input values for more performant implementations.
+// 21.02.2025 Documentation and Constructor without hardware initialization added.
+// -----
+
+#ifndef RotaryEncoder_h
+#define RotaryEncoder_h
+
+// PARCHE INCUNEST: Arduino -> capa de plataforma propia
+#include "platform/plat_gpio.h"
+#include "platform/plat_num.h"
+#include "platform/plat_string.h"
+#include "platform/plat_time.h"
+#include "platform/plat_types.h"
+
+#ifndef NO_PIN
+#define NO_PIN -1
+#endif
+
+class RotaryEncoder {
+public:
+  enum class Direction {
+    NOROTATION = 0,
+    CLOCKWISE = 1,
+    COUNTERCLOCKWISE = -1
+  };
+
+  enum class LatchMode {
+    FOUR3 = 1,  // 4 steps, Latch at position 3 only (compatible to older versions)
+    FOUR0 = 2,  // 4 steps, Latch at position 0 (reverse wirings)
+    TWO03 = 3   // 2 steps, Latch at position 0 and 3
+  };
+
+  // Constructor that initializes the RotaryEncoder without hardware setup.
+  RotaryEncoder(LatchMode mode = LatchMode::FOUR0);
+
+  /**
+   * @brief Constructor that initializes the RotaryEncoder with hardware pin setup.
+   *
+   * This constructor creates a RotaryEncoder instance with full default hardware initialization.
+   * It configures the specified pins, enables internal pull-up resistors, and reads their
+   * current state to establish the initial encoder position.
+   *
+   * @param pin1 First encoder pin (typically pin A). Use a value 0 or greater for a valid pin.
+   *             A negative value or NO_PIN will skip hardware configuration.
+   * @param pin2 Second encoder pin (typically pin B). Use a value 0 or greater for a valid pin.
+   *             A negative value or NO_PIN will skip hardware configuration.
+   * @param mode The latch mode defining the encoder sensitivity.
+   *   See RotaryEncoder.h for details on the available modes.
+   */
+  RotaryEncoder(int pin1, int pin2, LatchMode mode = LatchMode::FOUR0);
+
+  // retrieve the current position
+  long getPosition();
+
+  // simple retrieve of the direction the knob was rotated last time. 0 = No rotation, 1 = Clockwise, -1 = Counter Clockwise
+  Direction getDirection();
+
+  // adjust the current position
+  void setPosition(long newPosition);
+
+  // call this function every some milliseconds or by using an interrupt for handling state changes of the rotary encoder.
+  // This method uses the standard Arduino pin_read() function with the 2 pins provided in the class creation.
+  void tick(void);
+
+  // Use this tick variant when a faster method than digitalRead is available and provide the values directly.
+  // The 2 pins provided in the class creation are ignored.
+  void tick(int sig1, int sig2);
+
+  // Returns the time in milliseconds between the current observed
+  unsigned long getMillisBetweenRotations() const;
+
+  // Returns the RPM
+  unsigned long getRPM();
+
+private:
+  int _pin1, _pin2;  // Arduino pins used for the encoder.
+
+  LatchMode _mode;  // Latch mode from initialization
+
+  volatile int8_t _oldState;
+
+  volatile long _position;         // Internal position (4 times _positionExt)
+  volatile long _positionExt;      // External position
+  volatile long _positionExtPrev;  // External position (used only for direction checking)
+
+  unsigned long _positionExtTime;      // The time the last position change was detected.
+  unsigned long _positionExtTimePrev;  // The time the previous position change was detected.
+};
+
+#endif
+
+// End

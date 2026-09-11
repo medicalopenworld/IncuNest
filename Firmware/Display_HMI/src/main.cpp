@@ -8,7 +8,7 @@
 // PCA9557 retirado en el porte: el expansor NO esta poblado en esta
 // revision de hardware (UITask.cpp:4020 "was not found in scan",
 // FactoryTest.cpp:1264). Solo quedaba el include; cero usos del tipo.
-#include <Preferences.h>
+#include "platform/plat_nvs.h"
 #include <lvgl.h>
 
 static const char *TAG = "Main";
@@ -111,7 +111,7 @@ void setup() {
   esp_log_level_set("gpio", ESP_LOG_NONE);
 
   {
-    Preferences p;
+    NvsPrefs p;
     p.begin("diag", false);
     g_hmiBootCount = p.getUInt("boots", 0) + 1;
     p.putUInt("boots", g_hmiBootCount);
@@ -148,13 +148,13 @@ void setup() {
   // AudioManager::getInstance().begin();
 
   /* Comentado para v1.3 - Control vía I2C @ 0x30
-  pinMode(TFT_BL_PIN, OUTPUT);
-  digitalWrite(TFT_BL_PIN, HIGH);
+  pin_mode(TFT_BL_PIN, PIN_MODE_OUTPUT);
+  pin_write(TFT_BL_PIN, true);
   */
 
   // Power stability delay — only needed on cold power-on
   if (!g_hmiRestoreState) {
-    delay(STARTUP_DELAY_MS);
+    delay_ms(STARTUP_DELAY_MS);
   }
 
   LVGL_Mutex_Init();
@@ -187,7 +187,7 @@ void setup() {
   {
     const uint32_t t0 = millis();
     while (!UI_IsLcdPanelReady() && (millis() - t0) < LCD_READY_TIMEOUT_MS) {
-      delay(5);
+      delay_ms(5);
     }
     if (!UI_IsLcdPanelReady())
       ESP_LOGE(TAG, "panel RGB sin listo tras %lu ms — se sigue arrancando",

@@ -9,6 +9,7 @@ set(EXTRA_COMPONENT_DIRS
   "${CMAKE_CURRENT_LIST_DIR}/../components/incunest_platform"
   "${CMAKE_CURRENT_LIST_DIR}/../shared"
   "${CMAKE_CURRENT_LIST_DIR}/../components/thingsboard"
+  "${CMAKE_CURRENT_LIST_DIR}/../components/incunest_gt911"
 )
 
 # LVGL tiene que usar EL lv_conf.h DEL PROYECTO, no su Kconfig.

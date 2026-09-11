@@ -6,6 +6,18 @@
 #include "platform/plat_string.h"
 
 #include "main.h"
+
+// Librerias de sensor y de filtrado: ya no llegan por main.h.
+#include <AH/Timing/MillisMicrosTimer.hpp>
+#undef DEBUG
+#include <Filters/Butterworth.hpp>
+// Timer y Butterworth viven en el namespace AH. Antes lo exponia la cadena
+// de includes de main.h; ahora se dice aqui con el idioma de la libreria.
+USING_AH_NAMESPACE;
+#include <Beastdevices_INA3221.h>
+#include <Adafruit_SHT4x.h>
+#include <SparkFun_SHTC3.h>
+#include <SensirionI2cSts3x.h>
 #include "modules/control/alarm_machine.h"
 #include "modules/sensorboard_comm/sensorboard_comm.h"
 #include "sensor_source.h"

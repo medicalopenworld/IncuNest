@@ -17,6 +17,7 @@
 // reexportaba a medio firmware. Ahora cada consumidor incluye lo que necesita
 // de ESP-IDF, que es lo que evita que un cambio en la capa de red obligue a
 // recompilar las 14.700 lineas de src/ui.
+#include "platform/plat_esp.h"
 #include "platform/plat_i2c.h"
 #include "platform/plat_nvs.h"
 #include "platform/plat_time.h"

@@ -5,6 +5,40 @@
 #include <cstdlib>
 #include <vector>
 
+// Arduino imprimia en la base pedida, en MINUSCULAS para el hexadecimal y sin
+// prefijo. Se reproduce igual, porque estas cadenas salen en logs que la gente
+// compara a ojo entre versiones.
+static std::string base_to_string(unsigned long value, unsigned char base,
+                                  bool negative) {
+  if (base < 2 || base > 36) {
+    base = 10;
+  }
+  static const char digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
+  std::string out;
+  if (value == 0) {
+    out = "0";
+  }
+  while (value > 0) {
+    out.insert(out.begin(), digits[value % (unsigned long)base]);
+    value /= (unsigned long)base;
+  }
+  if (negative) {
+    out.insert(out.begin(), '-');
+  }
+  return out;
+}
+
+String::String(int v, unsigned char base)
+    : s_(base_to_string(v < 0 ? (unsigned long)(-(long)v) : (unsigned long)v,
+                        base, v < 0)) {}
+String::String(unsigned int v, unsigned char base)
+    : s_(base_to_string(v, base, false)) {}
+String::String(long v, unsigned char base)
+    : s_(base_to_string(v < 0 ? (unsigned long)(-v) : (unsigned long)v, base,
+                        v < 0)) {}
+String::String(unsigned long v, unsigned char base)
+    : s_(base_to_string(v, base, false)) {}
+
 String::String(double v, unsigned int decimalPlaces) {
   // Equivalente exacto de lo que hacia Arduino:
   //     dtostrf(v, decimalPlaces + 2, decimalPlaces, buf)

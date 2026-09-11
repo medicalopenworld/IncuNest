@@ -212,7 +212,7 @@ void wifiInit(void) {
     pass = pendingPass;
     ESP_LOGI(TAG, "Connecting to pending SSID: %s", ssid.c_str());
   } else {
-    { Preferences p; p.begin(HMI_NS_WIFI, true);
+    { NvsPrefs p; p.begin(HMI_NS_WIFI, true);
       ssid = p.getString(HMI_KEY_SSID,     "");
       pass = p.getString(HMI_KEY_PASSWORD, "");
       p.end(); }
@@ -317,7 +317,7 @@ void configWifiServer() {
         wifiServer.sendHeader("Connection", "close");
         if (ok) {
           wifiServer.send(200, "text/plain", "OK");
-          delay(500); // let TCP stack flush the response before hardware reset
+          delay_ms(500); // let TCP stack flush the response before hardware reset
           ESP.restart();
           return;
         }
@@ -424,7 +424,7 @@ void WIFICheckOTA() {
 }
 
 void WIFI_TB_Init() {
-  { Preferences p; p.begin(HMI_NS_GPRS, true);
+  { NvsPrefs p; p.begin(HMI_NS_GPRS, true);
     Wifi_TB.provisioned = p.getUChar(HMI_KEY_PROVISIONED, 0);
     if (Wifi_TB.provisioned) {
       Wifi_TB.device_token = p.getString(HMI_KEY_TOKEN, "");
@@ -466,12 +466,12 @@ void WIFIProvisionResponse(const JsonObjectConst &data) {
   Wifi_TB.provisioned = true;
   Wifi_TB.device_token = credentials.username.c_str();
   uint32_t t0 = millis();
-  { Preferences p; p.begin(HMI_NS_GPRS, false);
+  { NvsPrefs p; p.begin(HMI_NS_GPRS, false);
     p.putString(HMI_KEY_TOKEN,       Wifi_TB.device_token);
     p.putUChar (HMI_KEY_PROVISIONED, (uint8_t)Wifi_TB.provisioned);
     p.end(); }
   ESP_LOGI(TAG, "Device provisioned successfully");
-  ESP_LOGW(TAG, "LCD_DIAG: provisioning Preferences write tomó %lu ms",
+  ESP_LOGW(TAG, "LCD_DIAG: provisioning NvsPrefs write tomó %lu ms",
            (unsigned long)(millis() - t0));
 
   if (tb_wifi.connected()) tb_wifi.disconnect();
@@ -589,12 +589,12 @@ void WifiOTAHandler(void) {
   if (s_persistCredentials) {
     s_persistCredentials = false;
     uint32_t t0 = millis();
-    { Preferences p; p.begin(HMI_NS_WIFI, false);
+    { NvsPrefs p; p.begin(HMI_NS_WIFI, false);
       p.putString(HMI_KEY_SSID,     pendingSSID);
       p.putString(HMI_KEY_PASSWORD, pendingPass);
       p.end(); }
     ESP_LOGI(TAG, "WiFi credentials saved to Preferences (SSID: %s)", pendingSSID);
-    ESP_LOGW(TAG, "LCD_DIAG: credentials Preferences write tomó %lu ms",
+    ESP_LOGW(TAG, "LCD_DIAG: credentials NvsPrefs write tomó %lu ms",
              (unsigned long)(millis() - t0));
     pendingSSID[0] = '\0';
     pendingPass[0] = '\0';

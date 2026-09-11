@@ -19,6 +19,7 @@
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_rgb.h"
 #include "esp_log.h"
+#include "esp_timer.h"  // esp_timer_get_time(), antes lo traia Arduino
 // alarm_priority(): la prioridad del banner sale de la misma tabla de shared/
 // que usa la motherboard, no de una copia local.
 #include "alarm_policy.h"
@@ -30,7 +31,7 @@
 // PCA9557 retirado en el porte: el expansor NO esta poblado en esta
 // revision de hardware (UITask.cpp:4020 "was not found in scan",
 // FactoryTest.cpp:1264). Solo quedaba el include; cero usos del tipo.
-#include <SPI.h>
+#include "platform/plat_spi.h"
 #include <TAMC_GT911.h>
 
 static const char *TAG = "UI";
@@ -273,9 +274,9 @@ uint32_t lcd_get_freq_write() { return g_currentFreqWrite; }
 
 void lcd_set_freq_write(uint32_t freq_hz) {
   g_currentFreqWrite = freq_hz;
-  { Preferences p; p.begin(HMI_NS_CFG, false); p.putUInt(HMI_KEY_DISP_FREQ, freq_hz); p.end(); }
+  { NvsPrefs p; p.begin(HMI_NS_CFG, false); p.putUInt(HMI_KEY_DISP_FREQ, freq_hz); p.end(); }
   ESP_LOGW("LCD", "freq_write saved: %lu Hz — restarting...", freq_hz);
-  delay(200);
+  delay_ms(200);
   ESP.restart();
 }
 
@@ -949,7 +950,7 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   g_lang = lang;
   // En modo formacion nada se persiste: el idioma se restaura al salir.
   if (!Training_IsActive()) {
-    Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_LANG, (uint8_t)g_lang); p.end();
+    NvsPrefs p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_LANG, (uint8_t)g_lang); p.end();
   }
   eepromDirty = true;
   lastVarChangeTime = millis();
@@ -1184,7 +1185,7 @@ void WifiButton_cb(lv_event_t *e) {
   // is empty or contains invalid (non-printable) data.
   {
     String savedSSID, savedPass;
-    { Preferences p; p.begin(HMI_NS_WIFI, true);
+    { NvsPrefs p; p.begin(HMI_NS_WIFI, true);
       savedSSID = p.getString(HMI_KEY_SSID,     "");
       savedPass = p.getString(HMI_KEY_PASSWORD, "");
       p.end(); }
@@ -1947,7 +1948,7 @@ void Switch_cb(lv_event_t *e) {
     bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
     darkMode = checked;
     if (!Training_IsActive()) {
-      Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_DARK_MODE, darkMode ? 1 : 0); p.end();
+      NvsPrefs p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_DARK_MODE, darkMode ? 1 : 0); p.end();
     }
     eepromDirty = true;
     lastVarChangeTime = millis();
@@ -1956,7 +1957,7 @@ void Switch_cb(lv_event_t *e) {
     bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
     humidityEnabled = checked;
     if (!Training_IsActive()) {
-      Preferences p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_HUM_EN, humidityEnabled ? 1 : 0); p.end();
+      NvsPrefs p; p.begin(HMI_NS_CFG, false); p.putUChar(HMI_KEY_HUM_EN, humidityEnabled ? 1 : 0); p.end();
     }
     eepromDirty = true;
     lastVarChangeTime = millis();
@@ -2322,7 +2323,7 @@ void alarm_banner_init(void) {
 // este fichero se olvida en el cincuenta y uno.
 //
 // NO BLOQUEANTE a proposito. hmi_audio_module_beep() existe pero hace
-// delay(): llamarlo desde aqui congelaria el despacho de eventos de LVGL
+// delay_ms(): llamarlo desde aqui congelaria el despacho de eventos de LVGL
 // durante todo el pitido. Aqui se enciende y se apaga desde el bucle de UI.
 // 12 ms: un tic seco. Estuvo en 25 y el chasquido competia en protagonismo con
 // las senales de alarma, que es justo al reves de lo que debe ser — y en este
@@ -3878,10 +3879,10 @@ void UI_Task(void *pvParameters) {
     vTaskDelay(pdMS_TO_TICKS(100));
   }
 
-  // Display initialization — leer freq_write de Preferences antes de crear panel
+  // Display initialization — leer freq_write de NvsPrefs antes de crear panel
   {
     uint32_t savedFreq = 0;
-    { Preferences p; p.begin(HMI_NS_CFG, true);
+    { NvsPrefs p; p.begin(HMI_NS_CFG, true);
       savedFreq = p.getUInt(HMI_KEY_DISP_FREQ, 0);
       p.end(); }
     if (savedFreq >= DISPLAY_FREQ_MIN && savedFreq <= DISPLAY_FREQ_MAX) {
@@ -4068,9 +4069,9 @@ void UI_Task(void *pvParameters) {
                            // podemos pintar alarmas
 
   /* Comentado para v1.3 (Control vía I2C)
-  ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RESOLUTION);
-  ledcAttachPin(TFT_BL_PIN, PWM_CHANNEL);
-  ledcWrite(PWM_CHANNEL, BRIGHTNESS_MAX);
+  pwm_setup(PWM_CHANNEL, PWM_FREQ, PWM_RESOLUTION);
+  pwm_attach(TFT_BL_PIN, PWM_CHANNEL);
+  pwm_write(PWM_CHANNEL, BRIGHTNESS_MAX);
   */
 
   // Antes de UI_ApplyLanguage(): es quien rellena el desplegable del
@@ -4761,7 +4762,7 @@ void UI_Task(void *pvParameters) {
     connectivity_heading_update();
     link_audio_mute_button_update();
     // Apaga el chasquido de la ultima pulsacion cuando le toca. Va aqui, y no
-    // con un delay() dentro del callback, para no congelar LVGL.
+    // con un delay_ms() dentro del callback, para no congelar LVGL.
     click_beep_service();
     // Baby-exit dialog: only the transition to a fully idle incubator
     // (no temperature, no humidity, no phototherapy) means the baby
@@ -4795,21 +4796,21 @@ void UI_Task(void *pvParameters) {
     // wear-leveling erasure (~30ms worst case). Same pattern as AlarmSound_Update.
     if (doNVSWrite) {
       uint32_t t0 = millis(); // LCD_DIAG: correlar con glitches de pantalla (ver lcd_diagnostics_log)
-      Preferences p;
+      NvsPrefs p;
       p.begin(HMI_NS_CFG, false);
       p.putFloat(HMI_KEY_AIR_TEMP,   (float)airTempValue);
       p.putFloat(HMI_KEY_SKIN_TEMP,  (float)skinTempValue);
       p.putUChar(HMI_KEY_HUMIDITY,   (uint8_t)humValue);
       p.putUChar(HMI_KEY_PHOTO_MIN,  (uint8_t)photoTimerMinutes);
       p.end();
-      ESP_LOGI(TAG, "Preferences write cycle complete");
-      ESP_LOGW(TAG, "LCD_DIAG: periodic Preferences write tomó %lu ms",
+      ESP_LOGI(TAG, "NvsPrefs write cycle complete");
+      ESP_LOGW(TAG, "LCD_DIAG: periodic NvsPrefs write tomó %lu ms",
                (unsigned long)(millis() - t0));
     }
     if (doTrainingWrite) {
       uint32_t t0 = millis();
       TrainingProgress_Flush();
-      ESP_LOGW(TAG, "LCD_DIAG: training Preferences write tomó %lu ms",
+      ESP_LOGW(TAG, "LCD_DIAG: training NvsPrefs write tomó %lu ms",
                (unsigned long)(millis() - t0));
     }
 

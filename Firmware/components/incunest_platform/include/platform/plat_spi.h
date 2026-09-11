@@ -63,6 +63,9 @@ public:
   // ss = -1 significa que el chip select lo maneja el driver del dispositivo
   // por GPIO, igual que hacia el codigo con Arduino.
   bool begin(int sck, int miso, int mosi, int ss = -1);
+  // Sin argumentos: lo llaman librerias de terceros que dan por hecho que el
+  // bus ya esta configurado (Adafruit BusIO). No reconfigura nada.
+  bool begin();
   void end();
 
   void beginTransaction(const SPISettings &settings);

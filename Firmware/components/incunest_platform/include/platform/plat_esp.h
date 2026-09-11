@@ -22,3 +22,7 @@ public:
 };
 
 extern EspClass ESP;
+
+// psramFound() era una funcion suelta de Arduino, no un metodo de ESP. Se
+// mantiene con el mismo nombre porque el log de arranque del HMI la imprime.
+bool psramFound();

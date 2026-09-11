@@ -27,6 +27,9 @@
 #include "platform/plat_string.h"
 
 #include "main.h"
+
+// Librerias de sensor: ya no llegan por main.h.
+#include <RotaryEncoder.h>
 #include "alarm_text.h"
 #include "platform/plat_nvs.h"
 

@@ -1,6 +1,6 @@
 #include "ui/FactoryTest.h"
 
-#include <Wire.h>
+#include "platform/plat_i2c.h"
 #include <cstdio>
 #include <cstring>
 
@@ -1279,7 +1279,7 @@ void runNvs() {
   // Fuera de LVGL_Lock(): NVS puede tardar hasta ~30 ms en un ciclo de
   // wear-leveling (mismo motivo que el resto de escrituras de Preferences).
   LVGL_Unlock();
-  Preferences p;
+  NvsPrefs p;
   p.begin(HMI_NS_FTEST, false);
   const uint32_t probeValue = (uint32_t)millis();
   p.putUInt(HMI_KEY_FTEST_PROBE, probeValue);
@@ -1590,7 +1590,7 @@ void persistResults() {
   // Fuera de LVGL_Lock(): escritura de Preferences (mismo motivo que el resto
   // de escrituras periodicas de NVS de UITask.cpp).
   LVGL_Unlock();
-  Preferences p;
+  NvsPrefs p;
   p.begin(HMI_NS_FTEST, false);
   p.putUInt(HMI_KEY_FTEST_EPOCH, epoch);
   p.putUInt(HMI_KEY_FTEST_PASSMASK, passMask);

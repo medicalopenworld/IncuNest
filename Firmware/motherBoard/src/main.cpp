@@ -29,6 +29,15 @@
 
 #include "main.h"
 
+// Las librerias de sensor ya no llegan por main.h (reexportaba una docena de
+// cabeceras de Arduino a todo el firmware). Se incluyen aqui, que es donde se
+// declaran los objetos.
+#include <Adafruit_SHT4x.h>
+#include <Beastdevices_INA3221.h>
+#include <RotaryEncoder.h>
+#include <SensirionI2cSts3x.h>
+#include <SparkFun_SHTC3.h>
+
 #include "state/state.h"
 #include "modules/sensorboard_comm/sensorboard_comm.h"
 #include "modules/sensors/sensor_source.h"

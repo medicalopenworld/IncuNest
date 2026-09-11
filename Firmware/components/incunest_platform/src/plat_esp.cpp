@@ -2,6 +2,7 @@
 
 #include "esp_heap_caps.h"
 #include "esp_system.h"
+#include "esp_flash.h"
 #include "spi_flash_mmap.h"
 
 EspClass ESP;
@@ -36,3 +37,7 @@ uint32_t EspClass::getFlashChipSize() const {
 }
 
 void EspClass::restart() const { esp_restart(); }
+
+bool psramFound() {
+  return heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0;
+}

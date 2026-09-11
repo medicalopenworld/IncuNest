@@ -25,6 +25,17 @@ extern "C" {
 #define LOW 0x0
 #endif
 
+// INPUT/OUTPUT con sus valores de Arduino. Aqui NO son el modo de un pin del
+// ESP32 (para eso esta pin_mode_t): se conservan porque el codigo los usa
+// tambien como valor de direccion de los expansores de E/S por I2C
+// (TCA9535 en initHardware.cpp) y en la libreria vendorizada TCA9555.
+#ifndef OUTPUT
+#define INPUT 0x01
+#define OUTPUT 0x03
+#define INPUT_PULLUP 0x05
+#define INPUT_PULLDOWN 0x09
+#endif
+
 typedef enum {
   PIN_MODE_INPUT = 0,
   PIN_MODE_OUTPUT,

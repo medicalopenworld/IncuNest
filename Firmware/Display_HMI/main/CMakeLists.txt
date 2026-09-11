@@ -49,6 +49,7 @@ idf_component_register(
     spiffs
     mqtt
     thingsboard
+    incunest_gt911
     espressif__mdns
 )
 
@@ -69,6 +70,7 @@ target_compile_options(${COMPONENT_LIB} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-std=g
 # politica estricta de IDF. Limpiarlos es una tarea propia, no de este cambio.
 target_compile_options(${COMPONENT_LIB} PRIVATE
   -Wno-error=missing-field-initializers
+  -Wno-error=volatile
   -Wno-error=deprecated-enum-enum-conversion
   -Wno-error=format-truncation
   -Wno-error=format=

@@ -1,0 +1,23 @@
+/// @cond   !AH_MAIN_LIBRARY
+/// @addtogroup AH_group
+/// @{
+/// @endcond
+
+/**
+ * @defgroup    AH_Math   Math Utilities
+ * @brief   Mathematics helper functions. Min/max functions, functions to 
+ *          uniformly increase the effective bit depth, etc.
+ */
+/// @{
+
+/**
+ * @defgroup    math-types  Math Types
+ *              Vector and Quaternion types with the necessary operators and 
+ *              functions.
+ */
+
+/// @}
+
+/// @cond   !AH_MAIN_LIBRARY
+/// @}
+/// @endcond

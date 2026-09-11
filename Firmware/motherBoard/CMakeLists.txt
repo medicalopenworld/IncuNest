@@ -10,6 +10,7 @@ set(EXTRA_COMPONENT_DIRS
   "${CMAKE_CURRENT_LIST_DIR}/../components/thingsboard"
   "${CMAKE_CURRENT_LIST_DIR}/../components/arduino_pid"
   "${CMAKE_CURRENT_LIST_DIR}/../components/incunest_afe4490"
+  "${CMAKE_CURRENT_LIST_DIR}/../components/incunest_sensors"
 )
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)

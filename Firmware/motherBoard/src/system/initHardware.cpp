@@ -29,6 +29,14 @@
 #include "platform/plat_i2c.h"
 
 #include "main.h"
+
+// Librerias de sensor: ya no llegan por main.h.
+#include <TCA9555.h>
+#include <Adafruit_SHT4x.h>
+#include <SparkFun_SHTC3.h>
+#include <SensirionI2cSts3x.h>
+#include <Beastdevices_INA3221.h>
+#include <RotaryEncoder.h>
 #include "modules/control/alarm_machine.h"
 #include "modules/sensors/sensor_source.h"
 

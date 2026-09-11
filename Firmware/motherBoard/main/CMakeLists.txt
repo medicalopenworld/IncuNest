@@ -45,6 +45,7 @@ idf_component_register(
     thingsboard
     arduino_pid
     incunest_afe4490
+    incunest_sensors
     espressif__mdns
     joltwallet__littlefs
 )
@@ -75,4 +76,5 @@ target_compile_options(${COMPONENT_LIB} PRIVATE
   -Wno-error=deprecated-enum-enum-conversion
   -Wno-error=format-truncation
   -Wno-error=format=
+  -Wno-error=attributes
 )

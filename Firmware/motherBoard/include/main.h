@@ -577,9 +577,12 @@ void IRAM_ATTR fanEncoderISR();
 void fanSpeedHandler();
 bool measureSkinSensor();
 
-void pinMode(uint8_t GPIO, uint8_t Mode);
+// Aqui habia dos declaraciones mas —pinMode y digitalWrite— que redeclaraban
+// la API GPIO de Arduino con su misma firma y que NO estaban definidas en
+// ningun sitio del proyecto. Eran vestigios inofensivos mientras Arduino
+// aportaba esos simbolos; con la capa de plataforma propia chocaban con
+// pin_write(uint8_t, bool). Se borran. GPIORead si se usa y se queda.
 bool GPIORead(uint8_t GPIO);
-void pin_write(uint8_t GPIO, uint8_t Mode);
 
 void basictemperatureControl();
 

@@ -29,6 +29,9 @@
 
 #include "main.h"
 
+// Librerias de sensor: ya no llegan por main.h.
+#include <RotaryEncoder.h>
+
 extern I2cBus *wire;
 extern MAM_IncuNest_Humidifier in3_hum;
 extern RotaryEncoder encoder;
