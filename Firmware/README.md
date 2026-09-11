@@ -38,8 +38,8 @@ idf.py -C Firmware/motherBoard build          # HW_NUM y variante de taller: idf
 idf.py -C Firmware/SensorBoard_v2 build
 
 # tests Unity de host (25 suites, sin hardware)
-.\Firmware	ools\host_tests
-un_host_tests.ps1
+pwsh Firmware/tools/host_tests/run_host_tests.ps1   # 25 suites Unity en el PC
+pwsh Firmware/tools/host_tests/run_host_tests.ps1   # 25 suites Unity en el PC
 ```
 
 Flashear y monitorizar (`idf.py -p COMx flash monitor`) es siempre manual. Los

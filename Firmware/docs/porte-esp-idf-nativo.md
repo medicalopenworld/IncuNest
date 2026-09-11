@@ -32,7 +32,7 @@ linea de Arduino.** Nada probado en hardware todavia.
 | `components/thingsboard` (SDK con tres parches, `PATCHES.md`) | ✅ |
 | `components/incunest_sensors` (9 libs vendorizadas), `incunest_afe4490`, `arduino_pid`, `incunest_gt911` | ✅ |
 | GPRS sobre `esp_modem` (PPP/CMUX), `motherBoard/src/tasks/gprs_modem.*` | ✅ compila · ⚠ banco |
-| Tests de host: `tools/host_tests` (CMake + Unity) | ✅ **25/25 en verde** |
+pwsh Firmware/tools/host_tests/run_host_tests.ps1   # 25 suites Unity en el PC
 | `flasher_tool` (layout de IDF, con PlatformIO como respaldo) | ✅ |
 | `.github/workflows/release.yml` (esp-idf-ci-action v6.0.1) | ✅ sin ejecutar aun |
 
@@ -42,8 +42,8 @@ Comandos:
 idf.py -C Firmware/Display_HMI build
 idf.py -C Firmware/motherBoard build            # HW_NUM y variante de taller: idf.py menuconfig
 idf.py -C Firmware/tools/platform_smoke build   # gate barato de la capa de plataforma
-.\Firmware	ools\host_tests
-un_host_tests.ps1  # 25 suites Unity en el PC
+pwsh Firmware/tools/host_tests/run_host_tests.ps1   # 25 suites Unity en el PC
+pwsh Firmware/tools/host_tests/run_host_tests.ps1   # 25 suites Unity en el PC
 ```
 
 ## 2. Decisiones tomadas y por que
@@ -241,7 +241,7 @@ merece su propio commit.
 - **`Firmware/.claude/`** esta en `.gitignore`: sus reglas, hooks y skills que
   citan `pio run` / `pio test -e native` (11 ficheros) hay que actualizarlos a
   mano en el arbol principal. El hook de Stop pasa a `idf.py build` y a
-  `run_host_tests.ps1`.
+pwsh Firmware/tools/host_tests/run_host_tests.ps1   # 25 suites Unity en el PC
 - **Borrar lo que ya no se usa**, cada cosa en su commit: `platformio.ini` y
   `pre_native.py` de las dos placas, `shared/library.json`,
   `Display_HMI/lib/TAMC_GT911_Fixed` (ahora componente), los `.pio/` locales,
