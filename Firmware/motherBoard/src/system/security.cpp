@@ -32,6 +32,7 @@
 #include "modules/control/alarm_history.h"
 #include "modules/control/alarm_machine.h"
 #include "modules/control/fan_guard.h"
+#include "modules/debug/debug_mode.h"
 #include "modules/control/alarm_test.h"
 #include "modules/control/alarm_window.h"
 

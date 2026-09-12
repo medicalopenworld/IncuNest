@@ -29,6 +29,7 @@
 
 #include "main.h"
 #include "state/state.h"
+#include "modules/debug/debug_mode.h"
 #include "modules/sensorboard_comm/sensorboard_comm.h"
 #include "modules/sensors/sensor_source.h"
 #include "system/hw_selftest.h"
@@ -44,9 +45,12 @@ int g_hmiBootCount = 0;
 int g_hmiLastRst = 0;
 int g_restore_photo_minutes = 0;
 
-// Build-flag crash simulator. Add -DCRASH_TEST_MB=1 to platformio.ini
-// build_flags to fire a panic after CRASH_TEST_MB_DELAY_S seconds (default 130).
-// Remove the flag for production builds.
+// Build-flag crash simulator. Se enciende con la variable de entorno
+// INCUNEST_CRASH_TEST (ver main/CMakeLists.txt); la instruccion anterior decia
+// platformio.ini, que el porte a ESP-IDF dejo sin efecto. Dispara un panic
+// pasados CRASH_TEST_MB_DELAY_S segundos (130 por defecto).
+// La alternativa en caliente y sin recompilar es POST /debug/crash.
+// Nunca en un binario de produccion.
 //   CRASH_TEST_MB=1  → abort() (panic, RST_reason=12)
 //   CRASH_TEST_MB=2  → null-pointer LoadProhibited
 #ifdef CRASH_TEST_MB
@@ -89,10 +93,29 @@ TFT_eSPI tft = TFT_eSPI(); // Invoke custom library
 SHTC3 mySHTC3;             // Declare an instance of the SHTC3 class
 SensirionI2cSts3x mySTS35[STS3X_NUM];
 Adafruit_SHT4x sht4 = Adafruit_SHT4x();
-RotaryEncoder encoder(ENC_A, ENC_B, RotaryEncoder::LatchMode::TWO03);
 Beastdevices_INA3221 mainDigitalCurrentSensor(INA3221_ADDR41_VCC);
 Beastdevices_INA3221 secundaryDigitalCurrentSensor(INA3221_ADDR40_GND);
 // BQ25730 gestionado por BQ25730.cpp (chargerPresent definido allí)
+
+// Encoder rotativo. En la linea del port a ESP-IDF se retiro (e2e3ede), y al
+// portar el modo depuracion (17312e3) el rebase arrastro la retirada de estos
+// globales como un hunk limpio, dejando colgados los `extern` de ISR.cpp y
+// security.cpp. En esta linea el encoder sigue en el arbol, asi que los
+// globales vuelven aqui tal cual estaban.
+RotaryEncoder encoder(ENC_A, ENC_B, RotaryEncoder::LatchMode::TWO03);
+boolean A_set;
+boolean B_set;
+int encoderpinA = ENC_A;         // pin  encoder A
+int encoderpinB = ENC_B;         // pin  encoder B
+bool encPulsed, encPulsedBefore; // encoder switch status
+bool updateUIData;
+volatile int EncMove;                 // moved encoder
+volatile int lastEncMove;             // moved last encoder
+volatile int EncMoveOrientation = -1; // set to -1 to increase values clockwise
+volatile int last_encoder_move;       // moved encoder
+long encoder_debounce_time =
+    true; // in milliseconds, debounce time in encoder to filter signal bounces
+long last_encPulsed; // last time encoder was pulsed
 
 bool WIFI_EN = true;
 long lastDebugUpdate;
@@ -137,20 +160,6 @@ float maxDesiredTemp[2] = {
     SKIN_TEMPERATURE_SET_MAX,
     AIR_TEMPERATURE_SET_MAX}; // maximum allowed temperature to be set
 int presetTemp[2] = {36, 32}; // preset baby skin temperature
-
-boolean A_set;
-boolean B_set;
-int encoderpinA = ENC_A;         // pin  encoder A
-int encoderpinB = ENC_B;         // pin  encoder B
-bool encPulsed, encPulsedBefore; // encoder switch status
-bool updateUIData;
-volatile int EncMove;                 // moved encoder
-volatile int lastEncMove;             // moved last encoder
-volatile int EncMoveOrientation = -1; // set to -1 to increase values clockwise
-volatile int last_encoder_move;       // moved encoder
-long encoder_debounce_time =
-    true; // in milliseconds, debounce time in encoder to filter signal bounces
-long last_encPulsed; // last time encoder was pulsed
 
 // Text Graphic position variables
 int humidityX;
@@ -324,6 +333,13 @@ void sensors_Task(void *pvParameters) {
         }
       }
     }
+    // Las medidas simuladas del modo depuracion se pisan AQUI: despues de que
+    // los sensores reales hayan escrito y ANTES de copiar a ctrl_tel_msg, para
+    // que el control, securityCheck() y el display vean todos exactamente el
+    // mismo valor. Con el modo apagado no hace nada y la medida real vuelve
+    // sola en la pasada siguiente. Ver modules/debug/debug_mode.h.
+    debug_sensors_apply();
+
     ctrl_tel_msg.detectedAirTemperature =
         in3.temperature[ROOM_DIGITAL_TEMP_SENSOR];
     ctrl_tel_msg.detectedSkinTemperature = in3.temperature[SKIN_SENSOR];
