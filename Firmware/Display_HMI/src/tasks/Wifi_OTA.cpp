@@ -24,10 +24,12 @@
 
 #include <string.h>
 
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "fw_guarded_updater.h"
 #include "fw_image_tag.h"
 #include "main.h"
+#include "modules/debug/debug_mode.h"
 #include "platform/plat_string_json.h"  // doc["x"].as<String>()
 
 // Capa de red del porte a ESP-IDF (sustituye a WiFi.h, WiFiClientSecure.h,
@@ -317,6 +319,149 @@ void configWifiServer() {
     wifiServer.sendHeader("Connection", "close");
     wifiServer.send(200, "application/json", json);
   });
+  // ================== ENDPOINTS DE DEPURACION ==================
+  // Ver modules/debug/debug_mode.h. Mismas reglas que en la motherBoard:
+  // /debug/state es de solo lectura y siempre esta; lo que simula exige el
+  // modo encendido, y apagarlo retira las simulaciones de golpe.
+
+  wifiServer.on("/debug/state", HTTP_GET, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    // EN LA PSRAM, no en la DRAM interna, y sin copiar a String.
+    //
+    // La primera version pedia 4 KB con malloc() —que sirve de la interna
+    // primero— y ademas envolvia el resultado en un String, o sea otros 4 KB
+    // copiados: ocho kilobytes de DRAM interna POR PETICION. Con un script de
+    // pruebas consultando esto en bucle, la interna de esta placa paso de
+    // 23,8 KB a 5,7 KB y salieron `wifi:mem fail`, glitches en el panel y un
+    // HMI LINK LOST fantasma (banco, 2026-09-11). Aqui la interna es EL recurso
+    // escaso: la PSRAM tiene 7 MB y no sirve para DMA de WiFi ni para los
+    // buffers de dibujo. El envio va por la sobrecarga de `const char *`, que
+    // no copia: se la pasa tal cual a httpd_resp_send().
+    const size_t cap = 4096;
+    char *buf = (char *)heap_caps_malloc(cap, MALLOC_CAP_SPIRAM);
+    if (buf == nullptr) {
+      buf = (char *)malloc(cap); // placa sin PSRAM
+    }
+    if (buf == nullptr) {
+      wifiServer.sendHeader("Connection", "close");
+      wifiServer.send(503, "application/json", "{\"error\":\"sin memoria\"}");
+      return;
+    }
+    // ?tasks=1 anade la tabla de tareas; ver debug_state_json_ex().
+    debug_state_json_ex(buf, cap, wifiServer.hasArg("tasks"));
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "application/json", (const char *)buf);
+    free(buf);
+  });
+
+  wifiServer.on("/debug/mode", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    if (!wifiServer.hasArg("on")) {
+      wifiServer.send(400, "text/plain", "falta on=0|1");
+      return;
+    }
+    debug_mode_set(wifiServer.arg("on").toInt() != 0);
+    wifiServer.send(200, "application/json",
+                    String("{\"debug\":") + (debug_mode_enabled() ? 1 : 0) + "}");
+  });
+
+  // Inyectar una linea del protocolo como si la hubiera mandado la placa.
+  // POST /debug/inject?line=CTRL,TEL,36.50,36.20,55.00,1,353
+  //
+  // Es la herramienta principal: con ella se reproduce cualquier estado de la
+  // placa —alarmas, telemetria, fototerapia, PPG— sin tenerla delante, y de
+  // paso se ejercita el parseador de verdad.
+  wifiServer.on("/debug/inject", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    if (!wifiServer.hasArg("line")) {
+      wifiServer.send(400, "text/plain", "falta line=<trama>");
+      return;
+    }
+    const String line = wifiServer.arg("line");
+    if (!debug_inject_line(line.c_str())) {
+      wifiServer.send(409, "text/plain",
+                      "modo depuracion apagado, prefijo incorrecto o cola llena");
+      return;
+    }
+    wifiServer.send(200, "text/plain", "OK");
+  });
+
+  // Apagar partes de la red, para aislar el temblor del panel.
+  // POST /debug/net?tb=0        -> corta la publicacion a ThingsBoard
+  // POST /debug/net?radio=0     -> apaga la radio (adios webserver hasta reset)
+  wifiServer.on("/debug/net", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    if (wifiServer.hasArg("tb")) {
+      debug_net_set_tb(wifiServer.arg("tb").toInt() != 0);
+    }
+    bool radioOff = false;
+    if (wifiServer.hasArg("radio")) {
+      const bool on = wifiServer.arg("radio").toInt() != 0;
+      debug_net_set_radio(on);
+      radioOff = !on;
+    }
+    wifiServer.send(200, "application/json",
+                    String("{\"tb\":") + (debug_net_tb_enabled() ? 1 : 0) +
+                        ",\"radio\":" + (debug_net_radio_enabled() ? 1 : 0) +
+                        "}");
+    if (radioOff) {
+      // Se contesta ANTES de tumbar la radio, si no el cliente ve una conexion
+      // cortada y no sabe si le hicieron caso.
+      delay_ms(300);
+      WiFi.disconnect(true);
+    }
+  });
+
+  // Simular la perdida del enlace sin tocar el cable.
+  // POST /debug/link?mute=0|1
+  wifiServer.on("/debug/link", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    if (!wifiServer.hasArg("mute")) {
+      wifiServer.send(400, "text/plain", "falta mute=0|1");
+      return;
+    }
+    debug_link_mute_set(wifiServer.arg("mute").toInt() != 0);
+    wifiServer.send(200, "application/json",
+                    String("{\"muted\":") + (debug_link_mute_get() ? 1 : 0) + "}");
+  });
+
+  // POST /debug/crash?kind=abort|null|stack|wdt|assert[&delay_ms=500]
+  wifiServer.on("/debug/crash", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    const debug_crash_kind_t kind =
+        debug_crash_from_name(wifiServer.arg("kind").c_str());
+    if (kind == DEBUG_CRASH_NONE) {
+      wifiServer.send(400, "text/plain", "kind=abort|null|stack|wdt|assert");
+      return;
+    }
+    uint32_t delay = 500;
+    if (wifiServer.hasArg("delay_ms")) {
+      delay = (uint32_t)wifiServer.arg("delay_ms").toInt();
+    }
+    if (!debug_crash_request(kind, delay)) {
+      wifiServer.send(409, "text/plain", "el modo depuracion esta apagado");
+      return;
+    }
+    wifiServer.send(200, "text/plain", "OK");
+  });
+
   wifiServer.on(
       "/update", HTTP_POST,
       []() {
@@ -572,6 +717,11 @@ void WIFI_TB_OTA() {
 // Main OTA/WiFi handler — called every OTA_TASK_PERIOD_MS from the OTA task.
 // ---------------------------------------------------------------------------
 void WifiOTAHandler(void) {
+  // Radio apagada a mano para diagnosticar el panel: no se reintenta nada.
+  if (!debug_net_radio_enabled()) {
+    return;
+  }
+
   // Manual reconnect: retry wifiInit() when disconnected. Auto-reconnect is
   // disabled to avoid ASSOC_TOOMANY event storms; this provides the fallback.
   // Backoff exponencial: cada intento fallido dobla la espera hasta el tope
@@ -610,7 +760,12 @@ void WifiOTAHandler(void) {
     pendingPass[0] = '\0';
   }
 
-  WIFI_TB_OTA();
+  // Interruptores de diagnostico (modules/debug/debug_mode.h). El webserver se
+  // atiende igual mientras haya enlace: es la via de actualizacion y no se
+  // toca. Lo que se puede apagar es el trafico de fondo hacia ThingsBoard.
+  if (debug_net_tb_enabled()) {
+    WIFI_TB_OTA();
+  }
 
   if (WiFi.status() == WL_CONNECTED) {
     wifiServer.handleClient();

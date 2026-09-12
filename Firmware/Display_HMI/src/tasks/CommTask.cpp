@@ -3,6 +3,7 @@
 #include "Wifi_OTA.h"
 #include "esp_log.h"
 #include "main.h"
+#include "modules/debug/debug_mode.h"
 #include "state/training_mode.h"
 #include "ui.h"
 #include <cstdio>
@@ -51,9 +52,22 @@ volatile bool     g_ctrlEverSeen = false;
 // cosa que la deje sin ejecutar 5 s produce un LINK LOST que no existe.
 static volatile uint32_t s_lastCommPassMs = 0;
 
+// La cola de inyeccion del modo depuracion la drena esta tarea; ver
+// modules/debug/debug_mode.h para por que no la drena el manejador HTTP.
+extern "C" bool debug_inject_take(char *out, size_t out_len);
+
 bool Display_BoardEverSeen(void) { return g_ctrlEverSeen; }
 
 bool Display_IsBoardLinkLost(void) {
+  // Enlace simulado como perdido desde /debug/link. Va lo PRIMERO: lo que se
+  // quiere probar es el camino completo del aviso (banner, borrado de cifras,
+  // zumbador) con las dos placas sanas y hablando, que es la unica forma de
+  // ensayarlo sin desenchufar el cable. Fuera del modo depuracion esta bandera
+  // no se puede poner, y apagarlo la retira.
+  if (debug_link_mute_get()) {
+    return true;
+  }
+
   // Antes de la primera linea no hay enlace que perder: el display arranca
   // antes de que la placa empiece a emitir.
   //
@@ -387,6 +401,18 @@ void Communication_SendAlarmSilence(uint8_t id, bool on) {
 #endif
 }
 
+// Reset manual de una alarma ENCLAVADA (201.15.4.2.1 aa)/bb)).
+//
+// Se manda id a id, como el silencio y por el mismo motivo: un "reconocer
+// todo" no dejaria constancia de QUE ha reconocido el operador. La placa
+// rechaza el reset si la condicion sigue presente, asi que este comando no
+// puede hacer desaparecer un aviso vivo.
+void Communication_SendAlarmReset(uint8_t id) {
+#if IS_HMI
+  COMM_SERIAL.printf("HMI,ALM_RESET,%u\n", (unsigned)id);
+#endif
+}
+
 void Communication_SendAlarmDescReq(uint8_t id) {
 #if IS_HMI
   COMM_SERIAL.printf("HMI,ALM_DESC_REQ,%u\n", (unsigned)id);
@@ -503,6 +529,7 @@ static void parse_message(const char *line) {
     int act, mode, photo, mute, sn, hwNum, numAlarms, skinE, commStatus, lang, probeState = 0;
     uint32_t alarmBitmask = 0;
     uint32_t silencedBitmask = 0;
+    uint32_t latchedBitmask = 0;
     int almTest = ALARM_TEST_IDLE_HMI;
     int silenceLeftS = 0;
     int linkBars = -1;
@@ -511,9 +538,9 @@ static void parse_message(const char *line) {
     char fwVer[20];
     double airSet, skinSet, humSet;
     int result =
-        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d,%lf,%d,%d,0x%X,0x%X,%d,%d,%d",
+        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d,%lf,%d,%d,0x%X,0x%X,%d,%d,%d,0x%X",
                &act, &mode, &airSet, &skinSet, &humSet, &photo, &mute,
-               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus, &photoTimeRemaining, &lang, &probeState, &alarmBitmask, &silencedBitmask, &almTest, &silenceLeftS, &linkBars);
+               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus, &photoTimeRemaining, &lang, &probeState, &alarmBitmask, &silencedBitmask, &almTest, &silenceLeftS, &linkBars, &latchedBitmask);
 
     // Accept 12 (old), 13 (with alarms), 14+skinModeEnabled, 15+photoTime, 16+lang, 17+probeState, 18+bitmask, 19+silenced, 22+linkBars
     if (result >= 12) {
@@ -572,6 +599,11 @@ static void parse_message(const char *line) {
       // antigua que no mande el campo: "no se sabe" no es lo mismo que "0
       // barras", que es una lectura real de cobertura pesima.
       ctrl_state_msg.linkBars = (result >= 22) ? linkBars : -1;
+      // Alarmas enclavadas esperando reconocimiento. 0 con una placa antigua
+      // que no mande el campo, que es el lado seguro: como mucho no se ofrece
+      // el reset manual (y ahi el equipo se comporta como hasta ahora), nunca
+      // se ofrece para una alarma cuya condicion sigue viva.
+      ctrl_state_msg.latchedBitmask = (result >= 23) ? latchedBitmask : 0u;
       ctrl_state_msg.serialNumber = sn;
 
       strncpy(ctrl_state_msg.fwVer, fwVer, sizeof(ctrl_state_msg.fwVer));
@@ -1079,6 +1111,21 @@ static bool ReceiveMessageFromOtherESP() {
         COMM_LOG("[COMM] anillo RX %d/%d B: la tarea Comm no esta drenando\n",
                  pending, COMM_RX_RING_BYTES);
       }
+    }
+  }
+
+  // Lineas inyectadas por el modo depuracion. Se tratan AQUI, en la tarea
+  // Comm y con el mismo sello de latido y la misma llamada a parse_message()
+  // que una linea real, para que lo que se prueba sea el camino de produccion
+  // entero y no una maqueta suya. Con el modo apagado la cola esta vacia.
+  {
+    char injected[192];
+    while (debug_inject_take(injected, sizeof(injected))) {
+      COMM_LOG("[COMM][DEBUG] linea inyectada: %s\n", injected);
+      g_lastCtrlLineMs = millis();
+      g_ctrlEverSeen = true;
+      parse_message(injected);
+      msgReceived = true;
     }
   }
 

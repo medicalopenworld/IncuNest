@@ -26,6 +26,7 @@
 #include "platform/plat_pwm.h"
 #include "platform/plat_string.h"
 #include "platform/plat_num.h"
+#include "esp_heap_caps.h"
 #include <string.h>
 #include <time.h>
 #include "lwip/dns.h"
@@ -36,6 +37,7 @@
 #include "PpgSnapshot.h"
 #include "PpgSnapshotPublish.h"
 #include "main.h"
+#include "modules/debug/debug_mode.h"
 #include "platform/plat_string_json.h"  // doc["x"].as<String>()
 
 // Capa de red del porte a ESP-IDF (sustituye a WiFi.h, WiFiClientSecure.h,
@@ -672,6 +674,180 @@ void configWifiServer() {
     wifiServer.sendHeader("Connection", "close");
     wifiServer.send(200, "text/plain", "Saved. Settings applied immediately.");
   });
+  // ================== ENDPOINTS DE DEPURACION ==================
+  // Ver modules/debug/debug_mode.h para las reglas que cumplen. Resumen:
+  // /debug/state es de solo lectura y siempre esta; TODO lo que simula exige
+  // el modo encendido, y apagarlo retira las simulaciones de golpe.
+  //
+  // Todos piden la misma autenticacion que /config. Es la unica barrera que
+  // hay, asi que la otra mitad de la proteccion es que el modo no se persiste:
+  // un equipo reiniciado vuelve a la realidad aunque alguien lo dejara puesto.
+
+  // Volcado de estado. SOLO LECTURA: no cambia nada y por eso no exige el modo.
+  wifiServer.on("/debug/state", HTTP_GET, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    // En el monton y EN LA PSRAM, no en la pila ni en la DRAM interna: esta
+    // funcion corre en la tarea de OTA y el volcado con la tabla de tareas pasa
+    // de 3 KB.
+    //
+    // La primera version pedia 4 KB con malloc() —que sirve de la interna
+    // primero— y ademas envolvia el resultado en un String, o sea otros 4 KB
+    // copiados. Ocho kilobytes de DRAM interna POR PETICION. En la motherBoard
+    // no se nota; en el display se cargo la placa: con un script de pruebas
+    // consultando esto en bucle, la interna paso de 23,8 KB a 5,7 KB y salieron
+    // `wifi:mem fail`, glitches en el panel y un HMI LINK LOST fantasma
+    // (banco, 2026-09-11). El envio va por la sobrecarga de `const char *`
+    // porque esa no copia: se la pasa tal cual a httpd_resp_send().
+    const size_t cap = 4096;
+    char *buf = (char *)heap_caps_malloc(cap, MALLOC_CAP_SPIRAM);
+    if (buf == nullptr) {
+      buf = (char *)malloc(cap); // placa sin PSRAM
+    }
+    if (buf == nullptr) {
+      wifiServer.sendHeader("Connection", "close");
+      wifiServer.send(503, "application/json", "{\"error\":\"sin memoria\"}");
+      return;
+    }
+    // ?tasks=1 anade la tabla de tareas; ver debug_state_json_ex().
+    debug_state_json_ex(buf, cap, wifiServer.hasArg("tasks"));
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "application/json", (const char *)buf);
+    free(buf);
+  });
+
+  // Interruptor general. POST /debug/mode?on=0|1
+  wifiServer.on("/debug/mode", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    if (!wifiServer.hasArg("on")) {
+      wifiServer.send(400, "text/plain", "falta on=0|1");
+      return;
+    }
+    debug_mode_set(wifiServer.arg("on").toInt() != 0);
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "application/json",
+                    String("{\"debug\":") + (debug_mode_enabled() ? 1 : 0) + "}");
+  });
+
+  // Simular una medida. POST /debug/sensor?ch=air_temp&value=39.5
+  //                     POST /debug/sensor?ch=air_temp&clear=1
+  //                     POST /debug/sensor?clear_all=1
+  wifiServer.on("/debug/sensor", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    if (wifiServer.hasArg("clear_all")) {
+      debug_override_clear_all();
+      wifiServer.send(200, "text/plain", "OK");
+      return;
+    }
+    if (!wifiServer.hasArg("ch")) {
+      wifiServer.send(400, "text/plain", "falta ch=<canal>");
+      return;
+    }
+    const String chName = wifiServer.arg("ch");
+    const debug_channel_t ch = debug_channel_from_name(chName.c_str());
+    if (ch == DEBUG_CH_COUNT) {
+      wifiServer.send(400, "text/plain", "canal desconocido: " + chName);
+      return;
+    }
+    if (wifiServer.hasArg("clear")) {
+      debug_override_clear(ch);
+      wifiServer.send(200, "text/plain", "OK");
+      return;
+    }
+    if (!wifiServer.hasArg("value")) {
+      wifiServer.send(400, "text/plain", "falta value=<numero> o clear=1");
+      return;
+    }
+    if (!debug_override_set(ch, wifiServer.arg("value").toFloat())) {
+      wifiServer.send(409, "text/plain", "el modo depuracion esta apagado");
+      return;
+    }
+    wifiServer.send(200, "text/plain", "OK");
+  });
+
+  // Inyectar una trama del display como si hubiera llegado por el cable.
+  // POST /debug/inject?line=HMI,1,0,1,36.50,37.00,50,0,0,1,0
+  //
+  // Con esto se reproduce cualquier orden del operador sin tener el display
+  // delante: encender la actuacion, mover consignas, silenciar o reconocer una
+  // alarma. Y se ejercita el parseador de verdad.
+  wifiServer.on("/debug/inject", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    if (!wifiServer.hasArg("line")) {
+      wifiServer.send(400, "text/plain", "falta line=<trama>");
+      return;
+    }
+    if (!debug_inject_line(wifiServer.arg("line").c_str())) {
+      wifiServer.send(409, "text/plain",
+                      "modo depuracion apagado, prefijo incorrecto o cola llena");
+      return;
+    }
+    wifiServer.send(200, "text/plain", "OK");
+  });
+
+  // Forzar la CONDICION de una alarma. POST /debug/alarm?id=5&present=1
+  wifiServer.on("/debug/alarm", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    if (wifiServer.hasArg("clear_all")) {
+      debug_alarm_clear_all();
+      wifiServer.send(200, "text/plain", "OK");
+      return;
+    }
+    if (!wifiServer.hasArg("id") || !wifiServer.hasArg("present")) {
+      wifiServer.send(400, "text/plain", "faltan id=<n> y present=0|1");
+      return;
+    }
+    const int id = wifiServer.arg("id").toInt();
+    const bool present = wifiServer.arg("present").toInt() != 0;
+    if (!debug_alarm_force(id, present)) {
+      wifiServer.send(409, "text/plain",
+                      "id fuera de rango o modo depuracion apagado");
+      return;
+    }
+    wifiServer.send(200, "text/plain", "OK");
+  });
+
+  // Provocar un fallo, para la prueba de coredump.
+  // POST /debug/crash?kind=abort|null|stack|wdt|assert[&delay_ms=500]
+  //
+  // Contesta ANTES de morir (de ahi el retardo): si no, el cliente ve una
+  // conexion cortada y no puede distinguir "ha fallado como le pedi" de "no
+  // me ha llegado la peticion".
+  wifiServer.on("/debug/crash", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    const debug_crash_kind_t kind =
+        debug_crash_from_name(wifiServer.arg("kind").c_str());
+    if (kind == DEBUG_CRASH_NONE) {
+      wifiServer.send(400, "text/plain",
+                      "kind=abort|null|stack|wdt|assert");
+      return;
+    }
+    uint32_t delay = 500;
+    if (wifiServer.hasArg("delay_ms")) {
+      delay = (uint32_t)wifiServer.arg("delay_ms").toInt();
+    }
+    if (!debug_crash_request(kind, delay)) {
+      wifiServer.send(409, "text/plain", "el modo depuracion esta apagado");
+      return;
+    }
+    wifiServer.send(200, "text/plain", "OK");
+  });
+
   /*handling uploading firmware file */
   wifiServer.on(
       "/update", HTTP_POST,
@@ -1508,10 +1684,17 @@ static void ensureWifiTimeZoneSynced() {
   if (WiFi.status() != WL_CONNECTED)
     return;
 
+  // Los fallos de aqui abajo se LOGUEAN. Esta funcion podia irse por tres
+  // `return` mudos —no conecta, respuesta sin cabeceras, offset que no
+  // parsea— y el sintoma en banco fue un reloj de pantalla dos horas atrasado
+  // sin una sola linea en el log que dijera por que (2026-09-11). Es
+  // informacion que solo se puede recoger en el momento en que pasa.
   WiFiClient client;
   client.setTimeout(5);
-  if (!client.connect("ip-api.com", 80))
+  if (!client.connect("ip-api.com", 80)) {
+    ESP_LOGW("WiFi", "zona horaria: no se conecta a ip-api.com:80");
     return;
+  }
   client.print("GET /json/?fields=status,offset,lat,lon HTTP/1.1\r\n"
                "Host: ip-api.com\r\nConnection: close\r\n\r\n");
 
@@ -1539,8 +1722,11 @@ static void ensureWifiTimeZoneSynced() {
   // El cuerpo va tras la línea en blanco de las cabeceras. Si no aparece, la
   // respuesta está incompleta y se descarta entera.
   const char *body = strstr(buf, "\r\n\r\n");
-  if (!body)
+  if (!body) {
+    ESP_LOGW("WiFi", "zona horaria: respuesta sin cabeceras completas (%u B)",
+             (unsigned)len);
     return;
+  }
   body += 4;
 
   // La posición se saca ANTES del return de la zona: un cuerpo sin offset no
@@ -1559,8 +1745,10 @@ static void ensureWifiTimeZoneSynced() {
 #endif
 
   int quarters = 0;
-  if (!tz_parse_ipapi_offset(body, &quarters))
+  if (!tz_parse_ipapi_offset(body, &quarters)) {
+    ESP_LOGW("WiFi", "zona horaria: no se parsea el offset de '%s'", body);
     return;
+  }
   if (tz_source_set(quarters, TZ_SOURCE_IP)) {
     ESP_LOGI("WiFi", "Timezone from IP lookup: %d quarter-hours", quarters);
   }

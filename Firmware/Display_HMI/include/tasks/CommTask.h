@@ -124,6 +124,11 @@ typedef struct {
   // de este estado: la pausa caduca sola (60601-2-19 201.12.3.104) y el
   // display no puede saberlo por su cuenta.
   uint32_t silencedBitmask;
+  // Bit por AlarmId de las alarmas ENCLAVADAS: siguen avisando pero su
+  // condicion ya se fue, asi que admiten el reset manual que pide
+  // 201.15.4.2.1 aa)/bb). Con esto el display ofrece la accion solo cuando de
+  // verdad hace algo. Se pide con HMI,ALM_RESET[,<id>].
+  uint32_t latchedBitmask;
   // Prioridad que reproduce la prueba de funcionamiento de alarmas
   // (201.12.3.105), o ALARM_TEST_IDLE_HMI si no hay prueba en curso.
   int      alarmTestPriority;
@@ -335,6 +340,7 @@ void Communication_SendAlarmHistoryReq(void);
 
 extern volatile bool        g_pendingAlarmDesc;
 extern AlarmDescMsg         g_alarmDesc;
+void Communication_SendAlarmReset(uint8_t id);
 void Communication_SendAlarmDescReq(uint8_t id);
 
 // AUDIO PAUSED de UNA condicion. on=false lo cancela, que es lo que exige

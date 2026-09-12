@@ -13,6 +13,9 @@ using std::isfinite;
 #include "platform/plat_mdns.h"
 
 #include "modules/util/tz_source.h"
+// La cola de inyeccion del modo depuracion la drena ESTA tarea; ver
+// modules/debug/debug_mode.h para por que no la drena el manejador HTTP.
+extern "C" bool debug_inject_take(char *out, size_t out_len);
 #include "modules/util/civil_time.h"
 #include "modules/util/system_clock.h"
 #include "tasks/PID.h"
@@ -397,8 +400,21 @@ static void send_state_to_hmi() {
   int skinProbeState = (in3.temperature[SKIN_SENSOR] > 0.1f) ? SKIN_PROBE_VALID
                                                               : SKIN_PROBE_NOT_CONNECTED;
 
+  // Alarmas ENCLAVADAS esperando reconocimiento: siguen avisando aunque su
+  // condicion ya se haya ido. Solo con esto puede el display ofrecer el reset
+  // manual que pide 201.15.4.2.1 aa)/bb) —y ofrecerlo SOLO cuando sirve de
+  // algo, en vez de un boton que unas veces hace efecto y otras no. La placa
+  // sigue siendo la duena de la decision: HMI,ALM_RESET pasa por
+  // alarm_machine_reset(), que rechaza lo que no proceda.
+  uint32_t latchedBitmask = 0;
+  for (int a = ALARM_NONE + 1; a < ALARM_COUNT; a++) {
+    if (alarm_machine_is_latched((AlarmId)a)) {
+      latchedBitmask |= (1u << a);
+    }
+  }
+
   snprintf(msg, sizeof(msg),
-           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d,%d,0x%X,0x%X,%d,%d,%d\n",
+           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d,%d,0x%X,0x%X,%d,%d,%d,0x%X\n",
            (int)g_last_cmd.actuation, (int)g_last_cmd.controlMode,
            (double)g_last_cmd.desiredAirTemperature,
            (double)g_last_cmd.desiredSkinTemperature,
@@ -407,7 +423,7 @@ static void send_state_to_hmi() {
            HW_REVISION, FWversion, alarmCount, (int)g_last_cmd.skinModeEnabled,
            (int)ctrl_tel_msg.serverCommStatus, remainingTime, in3.language,
            skinProbeState, alarmBitmask, silencedBitmask, almTest,
-           silenceLeftS, (int)ctrl_tel_msg.linkBars);
+           silenceLeftS, (int)ctrl_tel_msg.linkBars, latchedBitmask);
 
 
   ESP_LOGI(TAG, "Sending state to HMI: %s", msg);
@@ -835,6 +851,57 @@ void parse_line(const char *line) {
     return;
   }
 
+  // Reset manual de una alarma enclavada.
+  //
+  // 201.15.4.2.1 aa)/bb) piden que el corte termico —que REARMA SOLO en cuanto
+  // baja la temperatura— siga avisando "hasta reset manual". Por eso los dos
+  // cortes termicos son latching (alarm_is_latching, shared/): si la senal se
+  // borrase sola al enfriarse, un episodio de sobretemperatura no dejaria
+  // ningun rastro que el operador pudiera ver.
+  //
+  // LO QUE FALTABA ERA EL RESET. alarm_machine_reset() existia desde el
+  // principio y no lo llamaba NADIE: la unica forma de quitar un corte termico
+  // ya enfriado era reiniciar la placa. Encontrado en banco el 2026-09-11
+  // simulando el corte con el modo depuracion. Un aviso que no se puede
+  // reconocer no es una alarma enclavada, es una alarma atascada.
+  //
+  // La maquina se encarga de rechazarlo si no procede: alarm_machine_reset()
+  // devuelve false cuando la alarma no es latching o cuando SU CONDICION SIGUE
+  // PRESENTE, que es justo lo que impide que el operador haga desaparecer un
+  // aviso vivo pulsando un boton. Aqui no se duplica ninguna de esas dos
+  // comprobaciones a proposito: la politica vive en un sitio solo.
+  //
+  // Sin id, o con id 0, resetea todas las que se dejen.
+  if (strncmp(line, "HMI,ALM_RESET", 13) == 0) {
+    const uint32_t now = millis();
+    unsigned id = 0;
+    const bool one = (line[13] == ',') && (sscanf(line + 14, "%u", &id) == 1) &&
+                     id > ALARM_NONE && id < ALARM_COUNT;
+    int done = 0, refused = 0;
+    for (int a = ALARM_NONE + 1; a < ALARM_COUNT; a++) {
+      if (one && (unsigned)a != id) {
+        continue;
+      }
+      if (!alarm_machine_is_latched((AlarmId)a)) {
+        continue; // no esta enclavada esperando reconocimiento
+      }
+      if (alarm_machine_reset((AlarmId)a, now)) {
+        done++;
+      } else {
+        refused++;
+      }
+    }
+    logAlarm("[ALARM] ALM_RESET" + (one ? (" id=" + String(id)) : String("")) +
+             " -> reseteadas=" + String(done) +
+             " rechazadas=" + String(refused));
+    // El display repinta con el siguiente CTRL,STATE/CTRL,ALM; forzamos el
+    // envio para que el boton no parezca que no ha hecho nada.
+    if (done > 0) {
+      xSemaphoreGive(hmi_state_req_sem);
+    }
+    return;
+  }
+
   // Descripcion de una alarma concreta, bajo demanda.
   //
   // No viaja dentro de CTRL,ALM_HISTORY porque no cabe: 10 entradas x (29 de
@@ -1132,6 +1199,18 @@ void Communication_Task(void *pvParameters) {
   }
 
   for (;;) {
+    // Lineas inyectadas por el modo depuracion. Se tratan AQUI, en la tarea
+    // Comm y con la misma llamada a parse_line() que una linea real, para que
+    // lo que se prueba sea el camino de produccion entero. Con el modo apagado
+    // la cola esta vacia y esto no cuesta nada.
+    {
+      char injected[192];
+      while (debug_inject_take(injected, sizeof(injected))) {
+        ESP_LOGW(TAG, "[DEBUG] linea inyectada: %s", injected);
+        parse_line(injected);
+      }
+    }
+
     // --- RX: drain Serial1 into line buffer ---
     while (hmiSerial.available()) {
       char c = (char)hmiSerial.read();
