@@ -686,15 +686,33 @@ void WIFI_TB_OTA() {
     WIFICheckOTA();
     Wifi_TB.lastOTACheck = millis();
   } else {
-    if (millis() - Wifi_TB.lastMQTTPublish > WIFI_PUBLISH_INTERVAL) {
-      addTelemetriesToWIFIJSON();
-      bool ok = tb_wifi.sendTelemetryJson(
-          addVariableToTelemetryWIFIJSON,
-          JSON_STRING_SIZE(measureJson(addVariableToTelemetryWIFIJSON)));
-      ESP_LOGI(TAG, "TB telemetry: %s", ok ? "OK" : "FAIL");
-      WIFI_JSON.clear();
-      Wifi_TB.lastMQTTPublish = millis();
-    }
+    // ============ EL DISPLAY YA NO PUBLICA TELEMETRIA ============
+    //
+    // Aqui se publicaba addTelemetriesToWIFIJSON() cada WIFI_PUBLISH_INTERVAL
+    // (5 s). Se ha quitado por dos motivos que apuntan al mismo sitio:
+    //
+    // 1. LA PANTALLA. El framebuffer vive en PSRAM y el bounce buffer del panel
+    //    se rellena leyendo de ahi; el trafico WiFi le roba ancho de banda y
+    //    desactiva interrupciones. En banco (2026-09-11) el panel temblaba y se
+    //    quedaba desplazado, y cortar esta publicacion fue lo que mas mejoro.
+    //    El arreglo de fondo fue CONFIG_SPI_FLASH_AUTO_SUSPEND, pero no hay
+    //    razon para pagar este trafico si ademas no hace falta:
+    //
+    // 2. NO ES SUYO. La dueña de la telemetria es la motherBoard, que es el
+    //    unico dispositivo que debe existir en ThingsBoard (ver el cambio
+    //    openspec shared-cascade-ota-distribution). Lo que el display mandaba
+    //    —fw_version, sn, heaps y marcas de pila— o lo tiene ya la placa o es
+    //    diagnostico que ahora se consulta por /debug/state.
+    //
+    // LO QUE SI SE QUEDA es la conexion con ThingsBoard y la comprobacion de
+    // OTA de mas abajo: es la UNICA via para actualizar el display en remoto.
+    // El servidor web /update solo alcanza a quien este en la misma red.
+    // Cuando la OTA en cascada este implementada y la placa empuje el firmware
+    // del display por el cable, este cliente entero se podra retirar.
+    //
+    // addTelemetriesToWIFIJSON() se conserva a proposito, sin llamantes: es la
+    // lista de lo que el display sabe de si mismo, y la necesitara quien
+    // implemente la cascada para decidir que sube la placa en su nombre.
     if (!OTA_inprogress && millis() - Wifi_TB.lastOTACheck > WIFI_OTA_CHECK_INTERVAL) {
       WIFICheckOTA();
       Wifi_TB.lastOTACheck = millis();
@@ -750,9 +768,11 @@ void WifiOTAHandler(void) {
     pendingPass[0] = '\0';
   }
 
-  // Interruptores de diagnostico (modules/debug/debug_mode.h). El webserver se
-  // atiende igual mientras haya enlace: es la via de actualizacion y no se
-  // toca. Lo que se puede apagar es el trafico de fondo hacia ThingsBoard.
+  // Interruptor de diagnostico (modules/debug/debug_mode.h). El webserver se
+  // atiende igual mientras haya enlace: es una via de actualizacion y no se
+  // toca. Lo que apaga es el cliente de ThingsBoard — que desde que se retiro
+  // la publicacion de telemetria es solo la conexion y la comprobacion de OTA,
+  // asi que apagarlo deja al display SIN ACTUALIZACION REMOTA hasta reiniciar.
   if (debug_net_tb_enabled()) {
     WIFI_TB_OTA();
   }
