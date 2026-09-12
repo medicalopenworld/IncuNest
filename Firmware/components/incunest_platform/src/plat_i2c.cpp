@@ -4,12 +4,47 @@
 
 static const char *TAG = "plat_i2c";
 
+// Solo protege la creacion perezosa del mutex de cada bus, no las
+// transacciones. Se mantiene microscopica a proposito.
+static portMUX_TYPE s_lock_init_spin = portMUX_INITIALIZER_UNLOCKED;
+
 I2cBus Wire;
 I2cBus Wire1;
+
+// Creacion perezosa del cerrojo. Los buses son globales y begin() se llama
+// desde initHardware(), pero alguna libreria vendorizada puede tocar el bus
+// antes; crearlo aqui hace que la primera llamada, sea cual sea, lo tenga.
+// Solo la primera pasada entra en la seccion critica.
+void I2cBus::lock() {
+  if (lock_ == nullptr) {
+    SemaphoreHandle_t m = xSemaphoreCreateRecursiveMutex();
+    portENTER_CRITICAL(&s_lock_init_spin);
+    if (lock_ == nullptr) {
+      lock_ = m;
+      m = nullptr;
+    }
+    portEXIT_CRITICAL(&s_lock_init_spin);
+    if (m != nullptr) {
+      vSemaphoreDelete(m); // otra tarea gano la carrera
+    }
+    if (lock_ == nullptr) {
+      ESP_LOGE(TAG, "sin memoria para el mutex del bus");
+      return;
+    }
+  }
+  xSemaphoreTakeRecursive(lock_, portMAX_DELAY);
+}
+
+void I2cBus::unlock() {
+  if (lock_ != nullptr) {
+    xSemaphoreGiveRecursive(lock_);
+  }
+}
 
 I2cBus::~I2cBus() { end(); }
 
 bool I2cBus::begin(int sda, int scl, uint32_t freq_hz, int port) {
+  Guard g(*this);
   if (bus_ != nullptr) {
     end();
   }
@@ -38,6 +73,8 @@ bool I2cBus::begin(int sda, int scl, uint32_t freq_hz, int port) {
 }
 
 void I2cBus::end() {
+  // OJO: begin() llama a end() con el cerrojo ya tomado. Por eso es recursivo.
+  Guard g(*this);
   if (bus_ == nullptr) {
     return;
   }
@@ -78,6 +115,7 @@ i2c_master_dev_handle_t I2cBus::deviceFor(uint8_t addr) {
 }
 
 bool I2cBus::probe(uint8_t addr, int timeout_ms) {
+  Guard g(*this);
   if (bus_ == nullptr) {
     return false;
   }
@@ -86,6 +124,7 @@ bool I2cBus::probe(uint8_t addr, int timeout_ms) {
 
 bool I2cBus::write(uint8_t addr, const uint8_t *data, size_t len,
                    int timeout_ms) {
+  Guard g(*this);
   i2c_master_dev_handle_t dev = deviceFor(addr);
   if (dev == nullptr) {
     return false;
@@ -94,6 +133,7 @@ bool I2cBus::write(uint8_t addr, const uint8_t *data, size_t len,
 }
 
 bool I2cBus::read(uint8_t addr, uint8_t *buf, size_t len, int timeout_ms) {
+  Guard g(*this);
   i2c_master_dev_handle_t dev = deviceFor(addr);
   if (dev == nullptr) {
     return false;
@@ -103,6 +143,7 @@ bool I2cBus::read(uint8_t addr, uint8_t *buf, size_t len, int timeout_ms) {
 
 bool I2cBus::writeRead(uint8_t addr, const uint8_t *out, size_t out_len,
                        uint8_t *in, size_t in_len, int timeout_ms) {
+  Guard g(*this);
   i2c_master_dev_handle_t dev = deviceFor(addr);
   if (dev == nullptr) {
     return false;
@@ -126,6 +167,15 @@ bool I2cBus::readReg(uint8_t addr, uint8_t reg, uint8_t *buf, size_t len) {
 // ---------------------------------------------------------------------------
 
 void I2cBus::beginTransmission(uint8_t addr) {
+  lock(); // se suelta en endTransmission(true) o en requestFrom()
+  TaskHandle_t self = xTaskGetCurrentTaskHandle();
+  if (compat_owner_ == self) {
+    // Esta misma tarea dejo una transaccion sin cerrar (ver compat_owner_ en
+    // la cabecera). La toma huerfana es suya: se devuelve ahora, no se filtra.
+    pending_restart_ = false;
+    unlock();
+  }
+  compat_owner_ = self;
   tx_addr_ = addr;
   tx_len_ = 0;
   tx_open_ = true;
@@ -152,6 +202,8 @@ size_t I2cBus::write(const uint8_t *data, size_t len) {
 
 uint8_t I2cBus::endTransmission(bool sendStop) {
   if (!tx_open_) {
+    // Sin beginTransmission() previo NO tenemos el cerrojo, asi que no se
+    // puede soltar aqui: seria devolver la toma de otra tarea.
     return 4; // "otro error", igual que Wire
   }
   tx_open_ = false;
@@ -159,26 +211,50 @@ uint8_t I2cBus::endTransmission(bool sendStop) {
   if (!sendStop) {
     // START repetido: NO se envia nada todavia. Lo resolvera el requestFrom()
     // siguiente en una sola transaccion escritura+lectura, que es exactamente
-    // lo que veia el bus con Arduino.
+    // lo que veia el bus con Arduino. EL CERROJO SE QUEDA TOMADO hasta
+    // entonces: entre la escritura y la lectura no puede colarse otra tarea,
+    // que es precisamente lo que significa un START repetido.
     pending_restart_ = true;
-    return 0;
+    return 0; // compat_owner_ sigue siendo esta tarea: el cerrojo no se suelta
   }
 
   pending_restart_ = false;
+  compat_owner_ = nullptr;
+  uint8_t rc;
   if (tx_len_ == 0) {
     // endTransmission() sin datos era el sondeo de presencia de Arduino.
-    return probe(tx_addr_) ? 0 : 2; // 2 = NACK a la direccion
+    //
+    // Aqui SI se aplica setTimeOut(). El unico punto del firmware que lo
+    // llama (initRoomSensor) lo hace por el coste de sondear una direccion
+    // que NO contesta, no por el de una lectura; con el sensor de aire
+    // desconectado ese sondeo se repite en cada ciclo de reconexion. Las
+    // TRANSFERENCIAS DE DATOS se quedan con el plazo por defecto del driver a
+    // proposito: bajarlas a 10 ms convertiria una conversion lenta del STS35
+    // en una lectura de aire perdida, que es justo lo que no puede fallar.
+    rc = probe(tx_addr_, timeout_ms_) ? 0 : 2; // 2 = NACK a la direccion
+  } else {
+    rc = write(tx_addr_, tx_buf_, tx_len_) ? 0 : 2;
+    tx_len_ = 0;
   }
-  const bool ok = write(tx_addr_, tx_buf_, tx_len_);
-  tx_len_ = 0;
-  return ok ? 0 : 2;
+  unlock();
+  return rc;
 }
 
 uint8_t I2cBus::requestFrom(uint8_t addr, uint8_t len, bool sendStop) {
   (void)sendStop;
+  // Si veniamos de un endTransmission(false) YA tenemos el cerrojo; si no, se
+  // toma aqui. En los dos casos se sale de esta funcion sin tenerlo.
+  const bool held = (compat_owner_ == xTaskGetCurrentTaskHandle());
+  if (!held) {
+    lock();
+  }
+  compat_owner_ = nullptr;
+
   rx_len_ = 0;
   rx_pos_ = 0;
   if (len == 0 || len > kBufSize) {
+    pending_restart_ = false;
+    unlock();
     return 0;
   }
 
@@ -188,8 +264,11 @@ uint8_t I2cBus::requestFrom(uint8_t addr, uint8_t len, bool sendStop) {
     tx_len_ = 0;
     pending_restart_ = false;
   } else {
+    pending_restart_ = false;
     ok = read(addr, rx_buf_, len);
   }
+  rx_owner_ = ok ? xTaskGetCurrentTaskHandle() : nullptr;
+  unlock();
   if (!ok) {
     return 0;
   }
@@ -197,17 +276,24 @@ uint8_t I2cBus::requestFrom(uint8_t addr, uint8_t len, bool sendStop) {
   return len;
 }
 
-int I2cBus::available() { return static_cast<int>(rx_len_ - rx_pos_); }
+// available()/read()/peek() solo sirven bytes a la tarea que los pidio; ver
+// rx_owner_ en la cabecera.
+int I2cBus::available() {
+  if (rx_owner_ != xTaskGetCurrentTaskHandle()) {
+    return 0;
+  }
+  return static_cast<int>(rx_len_ - rx_pos_);
+}
 
 int I2cBus::read() {
-  if (rx_pos_ >= rx_len_) {
+  if (rx_owner_ != xTaskGetCurrentTaskHandle() || rx_pos_ >= rx_len_) {
     return -1;
   }
   return rx_buf_[rx_pos_++];
 }
 
 int I2cBus::peek() {
-  if (rx_pos_ >= rx_len_) {
+  if (rx_owner_ != xTaskGetCurrentTaskHandle() || rx_pos_ >= rx_len_) {
     return -1;
   }
   return rx_buf_[rx_pos_];

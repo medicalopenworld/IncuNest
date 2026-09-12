@@ -98,10 +98,27 @@ int WiFiClient::rawAvailable() {
     return 0;
   }
   int n = 0;
-  if (ioctl(fd_, FIONREAD, &n) != 0) {
-    return 0;
+  if (ioctl(fd_, FIONREAD, &n) == 0) {
+    return n;
   }
-  return n;
+
+  // FIONREAD ha fallado. NO se puede devolver 0 y callar.
+  //
+  // lwIP solo implementa FIONREAD si esta CONFIG_LWIP_SO_RCVBUF (sockets.c,
+  // `#if LWIP_SO_RCVBUF`). Cuando el porte perdio esa opcion, este `return 0`
+  // convirtio a available() en "nunca hay nada", y todos los bucles de lectura
+  // del firmware —que preguntan `while (client.available())`— se quedaron
+  // leyendo cero bytes sin un solo error. Costo encontrarlo un reloj dos horas
+  // atrasado en banco (2026-09-11) y dejo rotas en silencio la subida a Drive
+  // y la activacion de SIM.
+  //
+  // El sdkconfig ya lo arregla, pero la respuesta correcta a "no puedo contar
+  // los bytes" es mirar SI HAY ALGUNO, no afirmar que no hay ninguno. Un
+  // sondeo sin bloqueo responde justo a eso, y a los que llaman les basta:
+  // todos usan available() como un si/no.
+  uint8_t b;
+  const int peek = recv(fd_, &b, 1, MSG_PEEK | MSG_DONTWAIT);
+  return peek == 1 ? 1 : 0;
 }
 
 int WiFiClient::rawRead(uint8_t *buf, size_t len) {

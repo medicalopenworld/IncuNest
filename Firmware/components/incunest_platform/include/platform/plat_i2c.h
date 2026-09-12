@@ -12,11 +12,36 @@
 // Los handles de dispositivo se cachean por direccion dentro de la clase: el
 // coste de i2c_master_bus_add_device() se paga una vez por chip, no en cada
 // transaccion.
+//
+// ================== EXCLUSION MUTUA: ES OBLIGATORIA ==================
+// La TwoWire de Arduino tomaba un mutex en beginTransmission() y no lo soltaba
+// hasta endTransmission()/requestFrom(). No era decorativo: en esta placa CADA
+// BUS LO COMPARTEN VARIAS TAREAS.
+//
+//   Wire  -> BQ25730 (PWR_MGMT), humidificador (bucle principal),
+//            INA3221/ambiente (SENSORS), bateria de fabrica (FTEST)
+//   Wire1 -> SensorBoard (SB_COMM) y sensores de aire STS35/SHTC3 (SENSORS)
+//
+// Y la superficie de compatibilidad de abajo es una MAQUINA DE ESTADOS POR BUS
+// (tx_buf_, tx_addr_, pending_restart_, rx_buf_...). Sin cerrojo, dos tareas
+// que se intercalen entre beginTransmission() y endTransmission() se pisan el
+// bufer: una acaba escribiendo su registro en la direccion de la otra, o
+// leyendo sus bytes. Eso aqui son la temperatura del aire y de la piel, que es
+// lo que gobierna el calefactor. Ademas deviceFor() muta devices_[] y
+// device_count_: dos altas simultaneas con device_count_ == kMaxDevices-1
+// escriben las dos en el mismo hueco y dejan el contador en kMaxDevices+1,
+// que ya es corrupcion de memoria.
+//
+// El mutex es RECURSIVO a proposito: endTransmission()/requestFrom() llaman
+// por dentro a write()/read()/probe(), que lo vuelven a tomar.
 
 #include <stddef.h>
 #include <stdint.h>
 
 #include "driver/i2c_master.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
 
 class I2cBus {
 public:
@@ -93,6 +118,23 @@ public:
 private:
   static constexpr int kMaxDevices = 16;
 
+  // Toma/suelta el cerrojo del bus. lock() lo crea la primera vez: los buses
+  // son objetos globales y no hay orden garantizado de constructores.
+  void lock();
+  void unlock();
+
+  // RAII para las rutas de una sola transaccion.
+  class Guard {
+  public:
+    explicit Guard(I2cBus &bus) : bus_(bus) { bus_.lock(); }
+    ~Guard() { bus_.unlock(); }
+    Guard(const Guard &) = delete;
+    Guard &operator=(const Guard &) = delete;
+
+  private:
+    I2cBus &bus_;
+  };
+
   struct DevSlot {
     uint8_t addr;
     i2c_master_dev_handle_t handle;
@@ -102,6 +144,7 @@ private:
 
   static constexpr size_t kBufSize = 64;
 
+  SemaphoreHandle_t lock_ = nullptr;
   i2c_master_bus_handle_t bus_ = nullptr;
   uint32_t freq_hz_ = 0;
   uint16_t timeout_ms_ = 100;
@@ -114,9 +157,32 @@ private:
   uint8_t tx_addr_ = 0;
   bool tx_open_ = false;
   bool pending_restart_ = false; // hubo un endTransmission(false)
+  // Tarea que tiene una toma del cerrojo VIVA hecha por la superficie de
+  // compatibilidad (beginTransmission la toma; endTransmission(true) o
+  // requestFrom() la sueltan).
+  //
+  // Existe para que una transaccion abandonada no cierre el bus para siempre.
+  // Se abandona de dos maneras, y las dos estan en codigo que no es nuestro:
+  // un endTransmission(false) cuyo requestFrom() nunca llega, y —esta es real,
+  // viene de upstream— Adafruit_I2CDevice::write(), que hace
+  // beginTransmission() y se vuelve con `return false` si el bufer se queda
+  // corto, sin cerrar nada. Con la TwoWire de Arduino eso filtraba su mutex
+  // igual; aqui el siguiente beginTransmission() de ESA MISMA tarea devuelve
+  // la toma huerfana antes de quedarse con la suya.
+  TaskHandle_t compat_owner_ = nullptr;
   uint8_t rx_buf_[kBufSize] = {};
   size_t rx_len_ = 0;
   size_t rx_pos_ = 0;
+  // Dueña del contenido de rx_buf_.
+  //
+  // El cerrojo cubre el trafico del bus, pero el que llama DRENA el bufer
+  // despues, con available()/read(), y para entonces ya esta suelto —
+  // soltarlo ahi es lo que hacia Arduino, y alargarlo hasta el drenaje
+  // dejaria el bus muerto para siempre si alguien pide 4 bytes y lee 2.
+  // Asi que en vez de alargar el cerrojo se marca de quien son los bytes: a
+  // otra tarea se le contesta "no hay nada", que es como ya trata cualquiera
+  // de estos drivers una lectura fallida.
+  TaskHandle_t rx_owner_ = nullptr;
 };
 
 // Buses globales, con los nombres de Arduino. Mismo criterio que con SPI y
