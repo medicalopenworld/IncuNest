@@ -36,7 +36,6 @@
 #include <SparkFun_SHTC3.h>
 #include <SensirionI2cSts3x.h>
 #include <Beastdevices_INA3221.h>
-#include <RotaryEncoder.h>
 #include "modules/control/alarm_machine.h"
 #include "modules/sensors/sensor_source.h"
 
@@ -46,7 +45,6 @@ extern MAM_IncuNest_Humidifier in3_hum;
 extern SHTC3 mySHTC3; // Declare an instance of the SHTC3 class
 extern SensirionI2cSts3x mySTS35[STS3X_NUM];
 extern Adafruit_SHT4x sht4;
-extern RotaryEncoder encoder;
 extern Beastdevices_INA3221 mainDigitalCurrentSensor;
 extern Beastdevices_INA3221 secundaryDigitalCurrentSensor;
 
@@ -89,21 +87,6 @@ extern bool digitalCurrentSensorPresent[2];
 
 // room variables
 extern bool controlAlgorithm;
-
-extern boolean A_set;
-extern boolean B_set;
-extern int encoderpinA;                 // pin  encoder A
-extern int encoderpinB;                 // pin  encoder B
-extern bool encPulsed, encPulsedBefore; // encoder switch status
-extern bool updateUIData;
-extern volatile int EncMove;     // moved encoder
-extern volatile int lastEncMove; // moved last encoder
-extern volatile int
-    EncMoveOrientation;            // set to -1 to increase values clockwise
-extern int last_encoder_move;      // moved encoder
-extern long encoder_debounce_time; // in milliseconds, debounce time in encoder
-                                   // to filter signal bounces
-extern long last_encPulsed;        // last time encoder was pulsed
 
 // Text Graphic position variables
 extern int humidityX;
@@ -266,9 +249,6 @@ void initGPIO() {
 #if (GPRS_PWRKEY)
   pin_mode(GPRS_PWRKEY, PIN_MODE_OUTPUT);
 #endif
-  pin_mode(encoderpinA, PIN_MODE_INPUT_PULLUP);
-  pin_mode(encoderpinB, PIN_MODE_INPUT_PULLUP);
-  pin_mode(ENC_SWITCH, PIN_MODE_INPUT_PULLUP);
   pin_mode(TFT_CS, PIN_MODE_OUTPUT);
   pin_mode(PHOTOTHERAPY, PIN_MODE_OUTPUT);
   pin_mode(FAN, PIN_MODE_OUTPUT);

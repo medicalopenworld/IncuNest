@@ -44,7 +44,7 @@
 // ===================== PORTE A ESP-IDF: LIMPIEZA DE ESTE HUB =====================
 // main.h reexportaba a TODO el firmware una docena de cabeceras de Arduino
 // (WiFi, WebServer, Update, ESPmDNS, TinyGsmClient, Wire, Preferences,
-// RotaryEncoder, Filters, Adafruit_GFX, Adafruit_SHT4x, BluetoothSerial, SPI,
+// Filters, Adafruit_GFX, Adafruit_SHT4x, BluetoothSerial, SPI,
 // INA3221...). Se comprobo una por una: NINGUNO de esos tipos se usa dentro de
 // main.h — eran solo reexportaciones. Como casi todos los .cpp incluyen main.h,
 // esas cabeceras hacian fallar 33 de las ~85 fuentes de la placa a la vez.
@@ -285,7 +285,6 @@ extern int g_restore_photo_minutes;
   10000                              // in millis, there will be a periodic tone when regulating baby's
                                      // constants
 #define buzzerStandbyTone 500        // in micros, tone freq
-#define buzzerRotaryEncoderTone 2200 // in micros, tone freq
 #define buzzerStandbyToneDuration 50 // in micros, tone freq
 #define buzzerSwitchDuration 10      // in micros, tone freq
 #define buzzerStandbyToneTimes 1     // in micros, tone freq
@@ -373,11 +372,6 @@ typedef enum
 #define AIR_TEMPERATURE_SET_MIN 30
 #define SKIN_TEMPERATURE_SET_MAX 37.5
 #define AIR_TEMPERATURE_SET_MAX 38
-
-// Encoder variables
-#define NUMENCODERS 1 // number of encoders in circuit
-#define ENCODER_TICKS_DIV 0
-#define encPulseDebounce 200
 
 // Graphic variables
 #define ERASE false
@@ -578,7 +572,6 @@ void initAlarms();
 void alarmHistorySave();
 void alarmHistoryLoad();
 void security_check_reboot_cause();
-void IRAM_ATTR encoderISR();
 void IRAM_ATTR fanEncoderISR();
 
 void fanSpeedHandler();
