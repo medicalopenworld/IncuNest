@@ -2796,6 +2796,7 @@ void alarm_banner_update(void) {
     lv_anim_del(s_alarmBanner, banner_blink_cb);
     lv_obj_add_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN);
     s_bannerPriority = -1;
+    s_bannerText[0] = '\0';
     return;
   }
 
@@ -2846,9 +2847,27 @@ void alarm_banner_update(void) {
   // franja y reordenaba lv_layer_top() sin parar, y arrastraba toda la
   // interfaz. No se noto al escribirlo porque el banner solo salia en la
   // pantalla de bloqueo, donde no hay nada mas compitiendo por el redibujado.
-  if (strncmp(s_bannerText, wantText, sizeof(s_bannerText) - 1) != 0) {
+  const bool textChanged =
+      strncmp(s_bannerText, wantText, sizeof(s_bannerText) - 1) != 0;
+  if (textChanged) {
     snprintf(s_bannerText, sizeof(s_bannerText), "%s", wantText);
     lv_label_set_text(s_alarmBannerLabel, s_bannerText);
+  }
+
+  // PERO EL DES-OCULTADO NO PUEDE COLGAR DE ESE MISMO `if`.
+  //
+  // Colgaba, y el efecto era una alarma que SONABA SIN VERSE: la misma
+  // condicion que se retira y vuelve (el caso de banco fue BOARD LINK LOST)
+  // deja `wantText` identico al `s_bannerText` de la vez anterior, asi que el
+  // strncmp daba 0 y nadie quitaba LV_OBJ_FLAG_HIDDEN que habia puesto la
+  // salida temprana. Media senal de alarma, que es justo la mitad que
+  // 60601-1-8 no deja omitir.
+  //
+  // Se mira el estado REAL del objeto en vez del texto. lv_obj_has_flag() es
+  // una lectura de un bit: no invalida ni repinta nada, asi que la razon por
+  // la que existe la guarda de arriba —no tocar LVGL en cada pasada— se
+  // mantiene intacta.
+  if (lv_obj_has_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN) || textChanged) {
     lv_obj_clear_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(s_alarmBanner);
   }
