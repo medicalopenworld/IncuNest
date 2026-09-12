@@ -86,3 +86,23 @@ target_compile_options(${COMPONENT_LIB} PRIVATE
   -Wno-error=format=
   -Wno-error=attributes
 )
+
+# Simulador de fallo por bandera de compilacion. Reemplaza al `-DCRASH_TEST_MB=1`
+# en build_flags de platformio.ini, que el porte a ESP-IDF dejo sin efecto.
+#
+#   set INCUNEST_CRASH_TEST=1 && idf.py build     (abort -> panic)
+#   set INCUNEST_CRASH_TEST=2 && idf.py build     (LoadProhibited)
+#   set INCUNEST_CRASH_TEST_DELAY_S=20            (opcional; 130 por defecto)
+#
+# Sirve para validar la ruta de coredump sin depender de la red, que es la que
+# usan los endpoints /debug/crash. NUNCA en un binario de produccion.
+if(DEFINED ENV{INCUNEST_CRASH_TEST})
+  message(WARNING "CRASH_TEST_MB=$ENV{INCUNEST_CRASH_TEST}: este binario se "
+                  "estrellara a proposito. No distribuirlo.")
+  target_compile_definitions(${COMPONENT_LIB} PRIVATE
+    CRASH_TEST_MB=$ENV{INCUNEST_CRASH_TEST})
+  if(DEFINED ENV{INCUNEST_CRASH_TEST_DELAY_S})
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE
+      CRASH_TEST_MB_DELAY_S=$ENV{INCUNEST_CRASH_TEST_DELAY_S})
+  endif()
+endif()

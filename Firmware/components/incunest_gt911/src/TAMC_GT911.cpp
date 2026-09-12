@@ -99,13 +99,40 @@ void TAMC_GT911::setResolution(uint16_t _width, uint16_t _height) {
 // void TAMC_GT911::setOnRead(void (*isr)()) {
 //   onRead = isr;
 // }
+// Lecturas del tactil que el bus no ha contestado. Se expone en
+// /debug/state del display (campo touch.read_fail) porque es la unica forma de
+// distinguir "la interfaz se mueve sola" de "alguien la esta tocando": sin
+// este numero, el sintoma parece del panel y no del I2C.
+extern "C" {
+uint32_t gt911_read_failures = 0;
+// Flancos "sin toque -> toque" y ultimo punto entregado. Con estos tres, la
+// pregunta "la interfaz se mueve sola porque alguien la toca o porque el
+// tactil se lo inventa" se responde mirando un numero en vez de discutiendo:
+// si gt911_press_events sube con nadie delante, son toques fantasma.
+uint32_t gt911_press_events = 0;
+uint16_t gt911_last_x = 0;
+uint16_t gt911_last_y = 0;
+uint8_t  gt911_touched_now = 0;
+}
+
 void TAMC_GT911::read(void) {
   // Serial.println("TAMC_GT911::read");
   uint8_t data[7];
   uint8_t id;
   uint16_t x, y, size;
 
-  uint8_t pointInfo = readByteData(GT911_POINT_INFO);
+  bool infoOk = false;
+  uint8_t pointInfo = readByteData(GT911_POINT_INFO, &infoOk);
+  if (!infoOk) {
+    // El bus no ha contestado: no se sabe nada del tactil, asi que se declara
+    // NO TOCADO y se sale sin escribir el registro de fin de lectura. Antes
+    // esta rama no existia y el 0xFF de la lectura fallida se colaba como un
+    // toque con coordenadas basura (ver la nota de la cabecera).
+    isTouched = false;
+    touches = 0;
+    gt911_read_failures++;
+    return;
+  }
   uint8_t bufferStatus = pointInfo >> 7 & 1;
   uint8_t proximityValid = pointInfo >> 5 & 1;
   uint8_t haveKey = pointInfo >> 4 & 1;
@@ -116,15 +143,31 @@ void TAMC_GT911::read(void) {
   // Serial.print("proximityValid: ");Serial.println(proximityValid);
   // Serial.print("haveKey: ");Serial.println(haveKey);
   // Serial.print("touches: ");Serial.println(touches);
+  const bool wasTouched = isTouched;
   isTouched = touches > 0;
+  gt911_touched_now = isTouched ? 1 : 0;
+  if (isTouched && !wasTouched) {
+    gt911_press_events++;
+  }
   if (isTouched) {
     if (touches > 5) {
       touches = 5;
     }
     if (bufferStatus == 1) {
       for (uint8_t i = 0; i < touches; i++) {
-        readBlockData(data, GT911_POINT_1 + i * 8, 7);
+        if (!readBlockData(data, GT911_POINT_1 + i * 8, 7)) {
+          // Media lectura de coordenadas no vale: mejor ningun toque que uno
+          // en un punto inventado.
+          isTouched = false;
+          touches = 0;
+          gt911_read_failures++;
+          break;
+        }
         points[i] = readPoint(data);
+        if (i == 0) {
+          gt911_last_x = points[0].x;
+          gt911_last_y = points[0].y;
+        }
       }
     }
   }
@@ -167,15 +210,27 @@ void TAMC_GT911::writeByteData(uint16_t reg, uint8_t val) {
   Wire.write(val);
   Wire.endTransmission();
 }
-uint8_t TAMC_GT911::readByteData(uint16_t reg) {
-  uint8_t x;
+uint8_t TAMC_GT911::readByteData(uint16_t reg, bool *ok) {
+  if (ok) {
+    *ok = false;
+  }
   Wire.beginTransmission(addr);
   Wire.write(highByte(reg));
   Wire.write(lowByte(reg));
-  Wire.endTransmission();
-  Wire.requestFrom(addr, (uint8_t)1);
-  x = Wire.read();
-  return x;
+  if (Wire.endTransmission() != 0) {
+    return 0; // 0 = "sin toques" si alguien ignora `ok`
+  }
+  if (Wire.requestFrom(addr, (uint8_t)1) != 1) {
+    return 0;
+  }
+  const int x = Wire.read();
+  if (x < 0) {
+    return 0;
+  }
+  if (ok) {
+    *ok = true;
+  }
+  return (uint8_t)x;
 }
 void TAMC_GT911::writeBlockData(uint16_t reg, uint8_t *val, uint8_t size) {
   Wire.beginTransmission(addr);
@@ -187,15 +242,24 @@ void TAMC_GT911::writeBlockData(uint16_t reg, uint8_t *val, uint8_t size) {
   }
   Wire.endTransmission();
 }
-void TAMC_GT911::readBlockData(uint8_t *buf, uint16_t reg, uint8_t size) {
+bool TAMC_GT911::readBlockData(uint8_t *buf, uint16_t reg, uint8_t size) {
   Wire.beginTransmission(addr);
   Wire.write(highByte(reg));
   Wire.write(lowByte(reg));
-  Wire.endTransmission();
-  Wire.requestFrom(addr, size);
-  for (uint8_t i = 0; i < size; i++) {
-    buf[i] = Wire.read();
+  if (Wire.endTransmission() != 0) {
+    return false;
   }
+  if (Wire.requestFrom(addr, size) != size) {
+    return false;
+  }
+  for (uint8_t i = 0; i < size; i++) {
+    const int b = Wire.read();
+    if (b < 0) {
+      return false;
+    }
+    buf[i] = (uint8_t)b;
+  }
+  return true;
 }
 TP_Point::TP_Point(void) { id = x = y = size = 0; }
 TP_Point::TP_Point(uint8_t _id, uint16_t _x, uint16_t _y, uint16_t _size) {

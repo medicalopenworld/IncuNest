@@ -93,6 +93,31 @@ CONFIG_ESP_COREDUMP_CHECKSUM_CRC32=y
 CONFIG_ESP_COREDUMP_CHECK_BOOT=y
 CONFIG_ESP_COREDUMP_MAX_TASKS_NUM=64
 CONFIG_ESP_COREDUMP_USE_STACK_SIZE=y
+# Pila propia del volcador de coredump.
+#
+# Estaba en 1792 aqui y en 1024 en la placa y NO LLEGABA: con ella, un abort() limpio en la motherBoard
+# terminaba en "Guru Meditation Error: Core 1 panic'ed (Double exception)" en
+# mitad de "Save core dump to flash...", y lo que quedaba grabado eran 96 bytes
+# —la cabecera y un program header— que el arranque siguiente rechazaba con
+# "Core dump data check failed". Es decir: la placa no habia producido nunca un
+# coredump utilizable. Reproducido en banco el 2026-09-11 con
+# INCUNEST_CRASH_TEST=1 (ver motherBoard/main/CMakeLists.txt).
+#
+# Son bytes de DRAM interna reservados para siempre, pero un volcado que se
+# estrella al escribirse no vale nada, y es justo lo que hace falta cuando una
+# unidad se cae en campo.
+# OJO: 4096 aqui DEJA AL DISPLAY SIN WIFI.
+#
+# Se subio de 1792 a 4096 por el fallo del volcador de la motherBoard (que
+# necesita 1456 B medidos), y en esta placa los 2304 B extra de DRAM interna
+# estatica fueron la gota: WiFi encontraba el AP pero no lograba asociarse,
+# con `wifi:m f assoc req` en el log —"m f" es malloc failed— porque los frames
+# de gestion exigen memoria interna DMA-capaz y ya no quedaba. Esta placa vive
+# con ~24 KB de interna libre y WiFi se lleva ~16 KB de ellos.
+#
+# 1792 cubre los 1456 B medidos con 336 B de margen. Si algun dia se comprueba
+# que no basta, la DRAM hay que sacarla de otro sitio (ver la nota de los
+# cuatro ajustes de PSRAM mas arriba), no de aqui.
 CONFIG_ESP_COREDUMP_STACK_SIZE=1792
 
 # --- SDK de ThingsBoard: bajo ESP-IDF lee estas opciones de Kconfig.
@@ -102,3 +127,81 @@ CONFIG_ESP_COREDUMP_STACK_SIZE=1792
 # que decir lo mismo que los #define para que todas las unidades de
 # compilacion vean la misma clase ThingsBoard.
 CONFIG_THINGSBOARD_ENABLE_DYNAMIC=y
+
+# uxTaskGetSystemState() para el volcado de /debug/state: la marca de agua de
+# pila por tarea es lo unico que delata un desbordamiento ANTES de que ocurra.
+# Cuesta unos pocos bytes por TCB.
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+
+# ================== available() DE LOS SOCKETS: OBLIGATORIO ==================
+# lwIP implementa ioctl(FIONREAD) DENTRO de `#if LWIP_SO_RCVBUF` (sockets.c).
+# Sin esta opcion el ioctl falla, WiFiClient::available() devuelve 0 para
+# siempre, y TODO bucle de lectura escrito como `while (client.available())`
+# —que es como los escribio este firmware— lee CERO BYTES sin dar ningun error.
+#
+# arduino-esp32 la traia activada; el porte la perdio, y en banco el sintoma
+# fue un reloj de pantalla dos horas atrasado (2026-09-11): la consulta de zona
+# horaria a ip-api.com conectaba, mandaba la peticion y se volvia con 0 B.
+# Afectaba igual, y en silencio, a la subida a Drive y a la activacion de SIM.
+CONFIG_LWIP_SO_RCVBUF=y
+
+# ================== EL PANEL NO PUEDE QUEDARSE DESPLAZADO ==================
+# Reinicia el canal GDMA en cada VBlank. La ayuda de IDF lo dice literal:
+# "stop permanent desyncs from happening... when the DMA can't deliver data as
+# fast as the LCD consumes it".
+#
+# Sin esto, en cuanto el DMA pierde una entrega —una escritura de flash deja la
+# cache desactivada y la PSRAM, donde vive el framebuffer, inalcanzable— el DMA
+# y el panel se quedan DESFASADOS PARA SIEMPRE: la imagen aparece corrida y no
+# vuelve sola. Visto en banco el 2026-09-11 al encender el control de
+# temperatura, y el mismo mecanismo produce el flicker intermitente bajo carga.
+#
+# El sintoma enganaba: LCD_DIAG seguia dando 48,8 fps y worst_frame 20,5 ms
+# perfectos, porque LVGL dibujaba bien y el DMA seguia corriendo — solo que
+# desplazado. Los fps no detectan esto; hay que mirar la pantalla.
+#
+# Cuesta un reset de GDMA por VBlank (~48/s). La alternativa,
+# LCD_RGB_ISR_IRAM_SAFE, NO resuelve este caso: mantiene viva la ISR con la
+# cache apagada, pero el bufer de rebote se rellena LEYENDO DE PSRAM, que con
+# la cache apagada tampoco esta disponible. Y esta placa no tiene IRAM que
+# gastar.
+# REVERTIDO (2026-09-11). Lo puse para curar el desplazamiento permanente del
+# panel y NO lo cura; hay motivo para pensar que lo empeora.
+#
+# Con la opcion apagada, el driver reinicia el DMA SOLO cuando ha detectado un
+# underrun de verdad (bb_eof_count < expect_eof_count, esp_lcd_panel_rgb.c:1147).
+# Forzandola, lo reinicia en CADA VBlank — y su propio comentario avisa
+# (esp_lcd_panel_rgb.c:1129): "if this interrupt is late enough, the display
+# will shift as the LCD controller already read out the first data bytes, and
+# resetting DMA will re-send those".
+#
+# Nuestra ISR de VSYNC NO esta en IRAM (LCD_RGB_ISR_IRAM_SAFE apagado, y no se
+# puede encender: ver abajo), asi que llega tarde en CADA operacion de flash.
+# Es decir: la opcion convierte un reinicio puntual y justificado en un
+# reinicio por frame que a veces desplaza. Se vuelve al comportamiento de IDF.
+# CONFIG_LCD_RGB_RESTART_IN_VSYNC is not set
+
+# ============ LA CACHE NO PUEDE APAGARSE MIENTRAS EL PANEL DIBUJA ============
+# El framebuffer vive en PSRAM y el bounce buffer se rellena con un memcpy DESDE
+# esa PSRAM, dentro de la ISR del panel (esp_lcd_panel_rgb.c:926). Cuando una
+# escritura o borrado de flash desactiva la cache, la PSRAM deja de estar
+# accesible: el relleno no puede ocurrir, el DMA se queda sin datos y la imagen
+# tiembla o se desplaza. El propio driver lo dice en esa linea: "if the frame
+# buffer is behind a cache, and the cache is disabled, crash would happen here".
+#
+# POR QUE NO VALE LCD_RGB_ISR_IRAM_SAFE, que es lo que uno probaria primero:
+# mantiene viva la ISR con la cache apagada, pero NO hace accesible la PSRAM de
+# la que tiene que copiar. Solo sirve con el framebuffer en RAM interna
+# (768 KB aqui: imposible) o en modo no_fb rellenando a mano. Ademas gasta IRAM,
+# que en esta placa no sobra.
+#
+# AUTO_SUSPEND ataca la causa: suspende la operacion de flash para que la cache
+# —y con ella la PSRAM— siga sirviendo lecturas. El SoC lo soporta
+# (SOC_SPI_MEM_SUPPORT_AUTO_SUSPEND=y) y no choca con SPI_FLASH_ROM_IMPL, que
+# esta apagado.
+#
+# IDF lo marca "READ DOCS FIRST" y por defecto apagado: no todas las memorias
+# flash implementan bien la suspension. PENDIENTE DE VALIDAR EN BANCO antes de
+# que esto salga de la rama: hay que confirmar que las escrituras de NVS y una
+# OTA completa siguen siendo correctas con la suspension activa.
+CONFIG_SPI_FLASH_AUTO_SUSPEND=y

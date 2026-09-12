@@ -75,7 +75,21 @@ CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
 CONFIG_ESP_COREDUMP_CHECKSUM_CRC32=y
 CONFIG_ESP_COREDUMP_CHECK_BOOT=y
 CONFIG_ESP_COREDUMP_MAX_TASKS_NUM=64
-CONFIG_ESP_COREDUMP_STACK_SIZE=1024
+# Pila propia del volcador de coredump.
+#
+# Estaba en 1024 y NO LLEGABA: con ella, un abort() limpio en la motherBoard
+# terminaba en "Guru Meditation Error: Core 1 panic'ed (Double exception)" en
+# mitad de "Save core dump to flash...", y lo que quedaba grabado eran 96 bytes
+# —la cabecera y un program header— que el arranque siguiente rechazaba con
+# "Core dump data check failed". Es decir: la placa no ha producido nunca un
+# coredump utilizable. Reproducido en banco el 2026-09-11 con
+# INCUNEST_CRASH_TEST=1 (ver main/CMakeLists.txt).
+#
+# Son bytes de DRAM interna reservados para siempre, pero un volcado que se
+# estrella al escribirse no vale nada, y es justo lo que hace falta cuando una
+# unidad se cae en campo.
+CONFIG_ESP_COREDUMP_USE_STACK_SIZE=y
+CONFIG_ESP_COREDUMP_STACK_SIZE=4096
 
 # --- Excepciones de C++ ACTIVADAS.
 # No es una preferencia: arduino-esp32 2.0.16 compilaba con
@@ -110,3 +124,20 @@ CONFIG_THINGSBOARD_ENABLE_DYNAMIC=y
 CONFIG_LWIP_PPP_SUPPORT=y
 CONFIG_LWIP_PPP_PAP_SUPPORT=y
 CONFIG_LWIP_PPP_CHAP_SUPPORT=y
+
+# uxTaskGetSystemState() para el volcado de /debug/state: la marca de agua de
+# pila por tarea es lo unico que delata un desbordamiento ANTES de que ocurra.
+# Cuesta unos pocos bytes por TCB.
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+
+# ================== available() DE LOS SOCKETS: OBLIGATORIO ==================
+# lwIP implementa ioctl(FIONREAD) DENTRO de `#if LWIP_SO_RCVBUF` (sockets.c).
+# Sin esta opcion el ioctl falla, WiFiClient::available() devuelve 0 para
+# siempre, y TODO bucle de lectura escrito como `while (client.available())`
+# —que es como los escribio este firmware— lee CERO BYTES sin dar ningun error.
+#
+# arduino-esp32 la traia activada; el porte la perdio, y en banco el sintoma
+# fue un reloj de pantalla dos horas atrasado (2026-09-11): la consulta de zona
+# horaria a ip-api.com conectaba, mandaba la peticion y se volvia con 0 B.
+# Afectaba igual, y en silencio, a la subida a Drive y a la activacion de SIM.
+CONFIG_LWIP_SO_RCVBUF=y

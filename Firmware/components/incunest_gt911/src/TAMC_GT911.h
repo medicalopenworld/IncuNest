@@ -175,9 +175,23 @@ class TAMC_GT911 {
     TP_Point readPoint(uint8_t *data);
     // void (*onRead)();
     void writeByteData(uint16_t reg, uint8_t val);
-    uint8_t readByteData(uint16_t reg);
+    // ================== UNA LECTURA FALLIDA NO ES UN TOQUE ==================
+    // Estas dos devolvian el dato sin decir si la transaccion habia salido, y
+    // Wire.read() devuelve -1 cuando no hay nada que leer. Metido en un
+    // uint8_t, ese -1 es 0xFF: read() interpretaba `touches = 0xFF & 0xF = 15`
+    // y `bufferStatus = 1`, o sea UN TOQUE con coordenadas basura, en cada
+    // pasada. LVGL recibia un arrastre continuo y la interfaz se iba
+    // desplazando y temblando con el panel perfectamente sano — sintoma de
+    // banco del 2026-09-11, que costo descartar medio panel RGB antes de
+    // llegar aqui.
+    //
+    // Ahora informan del exito por `ok` y el que llama decide. Un bus que no
+    // contesta tiene que significar "no hay toque", nunca "toque en un sitio
+    // cualquiera": lo segundo mueve la interfaz de un equipo medico sin que
+    // nadie la haya tocado.
+    uint8_t readByteData(uint16_t reg, bool *ok = nullptr);
     void writeBlockData(uint16_t reg, uint8_t *val, uint8_t size);
-    void readBlockData(uint8_t *buf, uint16_t reg, uint8_t size);
+    bool readBlockData(uint8_t *buf, uint16_t reg, uint8_t size);
     uint8_t rotation = ROTATION_NORMAL;
     uint8_t addr;
     uint8_t pinSda;
