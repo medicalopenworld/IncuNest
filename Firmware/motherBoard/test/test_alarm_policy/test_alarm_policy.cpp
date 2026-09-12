@@ -79,16 +79,53 @@ void test_out_of_range_defaults_to_high(void) {
   TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_HIGH, alarm_priority((AlarmId)999));
 }
 
-// 201.15.4.2.1 aa) y bb): el corte termico auto-rearmable exige que "la alarma
-// opere continuamente hasta reset manual". Es la unica familia latching.
-void test_only_thermal_cutouts_latch(void) {
-  TEST_ASSERT_TRUE(alarm_is_latching(ALARM_AIR_THERMAL_CUTOUT));
-  TEST_ASSERT_TRUE(alarm_is_latching(ALARM_SKIN_THERMAL_CUTOUT));
+// Solo el fallo de corriente del calefactor es latching: es el unico que exige
+// revisar algo con el equipo APAGADO (el cableado), asi que la instruccion al
+// operador es apagar, revisar y volver a encender.
+//
+// Los cortes termicos NO lo son: al enfriarse, el equipo vuelve solo y el aviso
+// con el. El episodio queda en el registro de alarmas (6.12.2), que es donde
+// tiene que quedar. Ver alarm_is_latching() en shared/src/alarm_policy.cpp.
+void test_only_the_heater_current_fault_latches(void) {
+  TEST_ASSERT_TRUE(alarm_is_latching(ALARM_HEATER_FAULT));
   for (int id = ALARM_NONE + 1; id < ALARM_COUNT; ++id) {
-    if (id == ALARM_AIR_THERMAL_CUTOUT || id == ALARM_SKIN_THERMAL_CUTOUT) {
+    if (id == ALARM_HEATER_FAULT) {
       continue;
     }
     TEST_ASSERT_FALSE(alarm_is_latching((AlarmId)id));
+  }
+}
+
+// Y en particular NO lo son los cortes termicos, que es el cambio del
+// 2026-09-11: un equipo que se enfria tiene que recuperarse sin que nadie
+// pulse nada.
+void test_thermal_cutouts_do_not_latch(void) {
+  TEST_ASSERT_FALSE(alarm_is_latching(ALARM_AIR_THERMAL_CUTOUT));
+  TEST_ASSERT_FALSE(alarm_is_latching(ALARM_SKIN_THERMAL_CUTOUT));
+}
+
+// ENCLAVAMIENTO Y ANUNCIO INMEDIATO SON POLITICAS DISTINTAS.
+//
+// Estuvieron en la misma funcion, y colaba mientras las unicas latching eran
+// los cortes termicos. Al separarlas quedaron cruzadas a proposito: el corte
+// termico se anuncia sin esperar pero NO se enclava, y el fallo de corriente
+// del calefactor se enclava pero SI respeta su retardo. Este test existe para
+// que nadie vuelva a fundirlas: si alguien sustituye una por la otra, se
+// retrasa el aviso de un corte termico o se enclava lo que no debe.
+void test_latching_and_immediate_announcement_are_independent(void) {
+  TEST_ASSERT_TRUE(alarm_announces_immediately(ALARM_AIR_THERMAL_CUTOUT));
+  TEST_ASSERT_FALSE(alarm_is_latching(ALARM_AIR_THERMAL_CUTOUT));
+
+  TEST_ASSERT_TRUE(alarm_is_latching(ALARM_HEATER_FAULT));
+  TEST_ASSERT_FALSE(alarm_announces_immediately(ALARM_HEATER_FAULT));
+
+  // Y solo los cortes termicos se anuncian sin esperar.
+  for (int id = ALARM_NONE + 1; id < ALARM_COUNT; ++id) {
+    if (id == ALARM_AIR_THERMAL_CUTOUT || id == ALARM_SKIN_THERMAL_CUTOUT) {
+      TEST_ASSERT_TRUE(alarm_announces_immediately((AlarmId)id));
+    } else {
+      TEST_ASSERT_FALSE(alarm_announces_immediately((AlarmId)id));
+    }
   }
 }
 
@@ -171,7 +208,9 @@ int main(void) {
   RUN_TEST(test_priority_distribution);
   RUN_TEST(test_heater_and_its_sensor_are_separate_conditions);
   RUN_TEST(test_out_of_range_defaults_to_high);
-  RUN_TEST(test_only_thermal_cutouts_latch);
+  RUN_TEST(test_only_the_heater_current_fault_latches);
+  RUN_TEST(test_thermal_cutouts_do_not_latch);
+  RUN_TEST(test_latching_and_immediate_announcement_are_independent);
   RUN_TEST(test_conditions_that_must_cut_the_heater);
   RUN_TEST(test_cold_side_deviation_never_cuts_the_heater);
   RUN_TEST(test_mains_interruption_does_not_cut_the_heater);

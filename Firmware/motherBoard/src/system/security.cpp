@@ -31,6 +31,7 @@
 #include "modules/baby_profile/baby_profile_store.h"
 #include "modules/control/alarm_history.h"
 #include "modules/control/alarm_machine.h"
+#include "modules/control/fan_guard.h"
 #include "modules/control/alarm_test.h"
 #include "modules/control/alarm_window.h"
 
@@ -110,21 +111,6 @@ extern bool digitalCurrentSensorPresent[2];
 extern float minDesiredTemp[2]; // minimum allowed temperature to be set
 extern float maxDesiredTemp[2]; // maximum allowed temperature to be set
 extern int presetTemp[2];       // preset baby skin temperature
-
-extern boolean A_set;
-extern boolean B_set;
-extern int encoderpinA;                 // pin  encoder A
-extern int encoderpinB;                 // pin  encoder B
-extern bool encPulsed, encPulsedBefore; // encoder switch status
-extern bool updateUIData;
-extern volatile int EncMove;     // moved encoder
-extern volatile int lastEncMove; // moved last encoder
-extern volatile int
-    EncMoveOrientation;            // set to -1 to increase values clockwise
-extern int last_encoder_move;      // moved encoder
-extern long encoder_debounce_time; // in milliseconds, debounce time in encoder
-                                   // to filter signal bounces
-extern long last_encPulsed;        // last time encoder was pulsed
 
 // Text Graphic position variables
 extern int humidityX;
@@ -355,10 +341,16 @@ void checkThermalCutOuts()
       skinCutoutPresent, in3.temperature[SKIN_SENSOR],
       in3.skinTemperatureSetMax, SKIN_THERMAL_CUTOUT_HYSTERESIS);
 
-  // 201.15.4.2.1 aa)/bb): ambos son latching, asi que retirar la condicion no
-  // apaga el aviso — hace falta un reset manual (alarm_machine_reset()). Lo
-  // que si se libera de inmediato es el corte de calefactor, que depende de
-  // la condicion presente y no del estado de la senal.
+  // Ninguno de los dos es latching (2026-09-11): al volver la temperatura a
+  // rango se retira la condicion, el aviso se va con ella y el equipo vuelve
+  // solo a regular. El corte de calefactor ya se liberaba de inmediato porque
+  // depende de la condicion presente y no del estado de la senal.
+  //
+  // El episodio NO se pierde: publishAlarmChanges() lo escribe en el registro
+  // persistido de alarmas (6.12.2), que es donde el operador lo consulta. La
+  // unica alarma que exige intervencion humana es ALARM_HEATER_FAULT, porque
+  // revisar el cableado del calefactor pide el equipo apagado. Ver
+  // alarm_is_latching() en shared/src/alarm_policy.cpp.
   alarm_machine_condition(ALARM_AIR_THERMAL_CUTOUT, airCutoutPresent, now);
   alarm_machine_condition(ALARM_SKIN_THERMAL_CUTOUT, skinCutoutPresent, now);
 }
@@ -508,10 +500,41 @@ bool ongoingCriticalWiringAlarm()
 // Unlike ongoingCriticalWiringAlarm() (used for heater/humidifier gating),
 // a heater fault only has to take the fan down with it when this unit has
 // no independent way (RPM feedback) to verify the fan is still spinning.
+//
+// ================== POR QUE ALARM_FAN_FAILURE NO ESTA AQUI ==================
+// Estuvo, y se quito el 2026-09-11 tras verlo en banco: desconectada la sonda
+// de aire, el ventilador se puso a oscilar, salto ALARM_FAN_FAILURE, y LA
+// ALARMA YA NO SE RETIRO NUNCA — ni despues de corregir el fallo del sensor.
+//
+// El motivo es que se realimentaba a si misma. Con la alarma dentro de esta
+// puerta, declararla CORTABA LA ALIMENTACION DEL VENTILADOR (Actuators.cpp) y
+// apagaba su lazo (PID.cpp); con el ventilador sin alimentar las rpm son 0 por
+// construccion, y checkFanSpeed() —que sigue evaluando, porque fanCommandedOn
+// es la ORDEN, no la alimentacion— volvia a ver 0 rpm y a declarar la
+// condicion. Un enclavamiento de hecho, sin reset manual que lo levante y sin
+// forma de comprobar si el ventilador se ha recuperado.
+//
+// Quitarla NO relaja nada:
+//
+//   - El calefactor se corta igual. No dependia de esta puerta sino de
+//     alarm_cuts_heater() (shared/src/alarm_policy.cpp), que lista
+//     ALARM_FAN_FAILURE explicitamente. Sin aire no se calienta, y eso sigue
+//     siendo cierto letra por letra.
+//   - Un ventilador que gira a 2800 rpm en vez de 3000 SIGUE MOVIENDO AIRE.
+//     Cortarlo a 0 no hacia el equipo mas seguro: le quitaba la poca
+//     ventilacion que quedaba.
+//   - Y es lo unico que permite que la condicion se retire sola: con el
+//     ventilador alimentado, si vuelve a girar por encima del umbral mas la
+//     histeresis, checkFanSpeed() retira la condicion y el aviso desaparece,
+//     que es como tiene que comportarse una alarma no enclavada.
+//
+// Las otras dos siguen: con subtension hay que soltar carga (y ahi el
+// ventilador parado SI es verdad, asi que la alarma de ventilador que aparezca
+// no miente), y un fallo de calefactor en una unidad sin tacometro se lleva el
+// ventilador por delante porque no hay forma de verificarlo.
 bool ongoingFanCriticalAlarm()
 {
-  return (alarmSignalling(ALARM_FAN_FAILURE) ||
-          alarmSignalling(ALARM_SUPPLY_UNDERVOLTAGE) ||
+  return (alarmSignalling(ALARM_SUPPLY_UNDERVOLTAGE) ||
           (alarmSignalling(ALARM_HEATER_FAULT) && !in3.fanHasSpeedFeedback));
 }
 
@@ -760,37 +783,40 @@ void checkAlarms()
 
 void checkFanSpeed()
 {
-  static bool wasFanCommandedOn = false;
-  static long fanCommandedOnSince = 0;
-
-  if (!in3.fanHasSpeedFeedback)
+  // La decision vive en modules/control/fan_guard.c, sin nada de hardware, para
+  // que la ejerciten los tests de host (test_fan_guard). Aqui solo se le dan
+  // las dos entradas y se traduce el veredicto.
+  static FanGuard guard;
+  static bool guardReady = false;
+  if (!guardReady)
   {
-    return; // this unit's fan has no tachometer signal — nothing to check
+    fan_guard_init(&guard);
+    guardReady = true;
   }
+  static const FanGuardConfig cfg = {FAN_MIN_RPM, FAN_MIN_RPM_HYSTERESIS,
+                                     FAN_SPINUP_GRACE_MS};
 
-  if (in3.fanCommandedOn && !wasFanCommandedOn)
-  {
-    fanCommandedOnSince = millis();
-  }
-  wasFanCommandedOn = in3.fanCommandedOn;
+  // ALIMENTADO, no solo ordenado: son cosas distintas en cuanto hay una puerta
+  // de alarma por medio (subtension, por ejemplo, mantiene fanCommandedOn en
+  // true con la alimentacion cortada). Es la MISMA expresion que decide la
+  // alimentacion en turnFans() y en PIDHandler(), a proposito: si se separan,
+  // la guarda juzga un ventilador distinto del que hay.
+  const bool fanEnergised = in3.fanCommandedOn && !ongoingFanCriticalAlarm();
 
-  if (!in3.fanCommandedOn)
+  const uint32_t now = millis();
+  switch (fan_guard_update(&guard, &cfg, in3.fanHasSpeedFeedback, fanEnergised,
+                           in3.fan_rpm, now))
   {
-    return; // fan intentionally off — no RPM expected
+  case FAN_GUARD_PRESENT:
+    alarm_machine_condition(ALARM_FAN_FAILURE, true, now);
+    break;
+  case FAN_GUARD_ABSENT:
+    alarm_machine_condition(ALARM_FAN_FAILURE, false, now);
+    break;
+  case FAN_GUARD_SILENT:
+  default:
+    break;
   }
-  if (millis() - fanCommandedOnSince < FAN_SPINUP_GRACE_MS)
-  {
-    return; // still spinning up
-  }
-
-  // Histeresis en el mismo sentido que thresholdWithHysteresis() pero con el
-  // signo invertido (aqui alarma el valor BAJO): se declara por debajo de
-  // FAN_MIN_RPM y no se retira hasta superar FAN_MIN_RPM + histeresis.
-  static bool fanFailurePresent = false;
-  fanFailurePresent = fanFailurePresent
-                          ? (in3.fan_rpm < FAN_MIN_RPM + FAN_MIN_RPM_HYSTERESIS)
-                          : (in3.fan_rpm < FAN_MIN_RPM);
-  alarm_machine_condition(ALARM_FAN_FAILURE, fanFailurePresent, millis());
 }
 
 void checkAirBlockage()
@@ -1159,6 +1185,12 @@ void securityCheck()
   // El tick va DESPUES de la deteccion y ANTES de publicar: es el que hace
   // madurar PENDING -> ACTIVE y el que expira las pausas de audio.
   checkHmiLink();
+  // Las alarmas forzadas del modo depuracion se declaran despues de TODOS los
+  // detectores y antes del tick: asi lo forzado gana a lo medido, pero el
+  // retardo de anuncio, la prioridad, el enclavamiento y el corte de
+  // calefactor siguen siendo los de produccion. Con el modo apagado no hace
+  // nada. Ver modules/debug/debug_mode.h.
+  debug_alarms_apply(millis());
   alarm_machine_tick(millis());
   alarm_test_tick(millis());
   publishAlarmChanges();

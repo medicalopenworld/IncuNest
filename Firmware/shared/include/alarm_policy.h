@@ -15,6 +15,10 @@ AlarmPriority alarm_priority(AlarmId id);
 // haya bajado. El resto de condiciones son non-latching.
 bool alarm_is_latching(AlarmId id);
 
+// true si la alarma se anuncia SIN ESPERAR su retardo. Politica separada del
+// enclavamiento: ver el comentario en alarm_policy.cpp.
+bool alarm_announces_immediately(AlarmId id);
+
 // true si el operador puede inactivar el audio de esta condicion.
 //
 // Solo hay una excepcion, y es ALARM_MAINS_INTERRUPTION: 60601-2-19

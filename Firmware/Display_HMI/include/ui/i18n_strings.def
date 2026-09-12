@@ -244,6 +244,7 @@ UI_STR(STR_ONGOING,            "en curso",     "ongoing",     "en cours",    "em
 UI_STR(STR_CANNOT_SILENCE,     "NO SILENCIABLE","CANNOT SILENCE","NON SILENCABLE","NAO SILENCIAVEL")
 UI_STR(STR_RESUME_UC,          "REANUDAR",     "RESUME",      "REPRENDRE",   "RETOMAR")
 UI_STR(STR_SILENCE_UC,         "SILENCIAR",    "SILENCE",     "SILENCE",     "SILENCIAR")
+UI_STR(STR_ACK_RESET_UC,       "RECONOCER",    "ACKNOWLEDGE", "ACQUITTER",   "RECONHECER")
 UI_STR(STR_NO_ACTIVE_ALARMS,   "Sin alarmas activas",
                                "No active alarms",
                                "Aucune alarme active",
