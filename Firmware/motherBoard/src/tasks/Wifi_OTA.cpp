@@ -1099,6 +1099,7 @@ void addTelemetriesToWIFIJSON() {
                                TELEMETRIES_DECIMALS);
   }
   addVariableToTelemetryWIFIJSON[PHOTOTHERAPY_ACTIVE_KEY] = in3.phototherapy;
+  addVariableToTelemetryWIFIJSON[HUMIDIFIER_ACTIVE_KEY] = in3.humidityControl;
   addVariableToTelemetryWIFIJSON[HUMIDITY_ROOM_KEY] = roundSignificantDigits(
       in3.humidity[ROOM_DIGITAL_HUM_SENSOR], TELEMETRIES_DECIMALS);
   addVariableToTelemetryWIFIJSON[SYSTEM_CURRENT_KEY] =
@@ -1145,9 +1146,14 @@ void addTelemetriesToWIFIJSON() {
       addVariableToTelemetryWIFIJSON[DESIRED_HUMIDITY_ROOM_KEY] =
           in3.desiredControlHumidity;
     }
+    // Fuera de firstConfigPost a proposito: el false del else sale en cada
+    // ciclo, asi que publicar el true una sola vez dejaba la serie coja. Una
+    // ventana que empiece con el control ya encendido -- p. ej. la entity
+    // view de una estancia -- no veria ni un solo true hasta el siguiente
+    // flanco, y el grafico nace vacio.
+    addVariableToTelemetryWIFIJSON[CONTROL_ACTIVE_KEY] = true;
     if (!Wifi_TB.firstConfigPost) {
       Wifi_TB.firstConfigPost = true;
-      addVariableToTelemetryWIFIJSON[CONTROL_ACTIVE_KEY] = true;
       if (in3.temperatureControl) {
         if (in3.controlMode == CONTROL_AIR) {
           addVariableToTelemetryWIFIJSON[CONTROL_MODE_KEY] = "AIR";
@@ -1421,10 +1427,14 @@ static void rpc_check_ota_wifi_cb(JsonVariantConst const & /*data*/,
   logI("[WIFI] -> OTA check forced by RPC");
 }
 
+// Tamano del documento de respuesta: obligatorio. Ver el comentario extenso
+// en GPRS.cpp, junto a rpc_callbacks[] -- sin el, el defecto es capacidad
+// cero, la respuesta se descarta al desbordar y el RPC expira con 504
+// aunque el handler haya corrido.
 static RPC_Callback wifi_rpc_callbacks[] = {
-  RPC_Callback("setWifi", rpc_setwifi_wifi_cb),
-  RPC_Callback("capturePPG", rpc_capture_ppg_cb),
-  RPC_Callback("checkOta", rpc_check_ota_wifi_cb),
+  RPC_Callback("setWifi", rpc_setwifi_wifi_cb, JSON_OBJECT_SIZE(1)),
+  RPC_Callback("capturePPG", rpc_capture_ppg_cb, JSON_OBJECT_SIZE(1)),
+  RPC_Callback("checkOta", rpc_check_ota_wifi_cb, JSON_OBJECT_SIZE(1)),
 };
 
 // El array de PPG_snapshot necesita un ts real por muestra (20 ms entre

@@ -138,8 +138,29 @@ build before trusting any observation.
     `WifiOTAHandler()`) starved the Comm task for seconds at a time. UART0's
     1 KB RX ring fills in ~1.5 s, so whole protocol lines were lost as well,
     alarm lines included (same sink as the factory-test lines, but with a new
-    trigger). No reset: `CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1` is off in
-    the framework's sdkconfig, so a long core-1 stall is benign for the TWDT.
+    trigger). No reset **on the HMI**: `CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1`
+    is off in the framework's sdkconfig, so a long core-1 stall is benign for
+    the TWDT *there*.
+*   **The same conclusion does NOT transfer to the motherBoard — there the
+    identical stall reboots the board.** The asymmetry is that the HMI
+    subscribes no task to the TWDT and therefore inherits the framework's
+    configuration, while the motherBoard installs its own:
+    `initHardware()` ends in `watchdogInit(WDT_TIMEOUT)`
+    (`system/initHardware.cpp`), i.e. `esp_task_wdt_init(75, true)` plus
+    `esp_task_wdt_add(NULL)` called from `setup()` — which subscribes
+    Arduino's **`loopTask`** to a 75 s TWDT with panic, fed once a second by
+    `watchdogReload()` in `loop()`. That `loopTask` runs at **priority 1 on
+    core 1** (`CONFIG_ARDUINO_RUNNING_CORE=1`), the lowest of every motherBoard
+    task on that core (OTA 4, GPRS 5, buzzer 6, comm 7, sensors 8, security 9),
+    so the very busy-loops described above starve it. Five consecutive waits of
+    the library's default `MQTT_SOCKET_TIMEOUT` (15 s) are exactly the 75 s
+    budget. Observed on the bench on 2026-09-10: IncuNest-353_1 lost WiFi at
+    16:54 and reset with `RST_reason = 6` (`TASK_WDT`) about 50 minutes later,
+    having stopped publishing at 17:46. `-D MQTT_SOCKET_TIMEOUT=2` is now in
+    the motherBoard's `IncuNest_V18`/`IncuNest_V17` blocks too (the `_factory`
+    variants inherit it); with 2 s it would take 38 consecutive waits.
+    Still a strong hypothesis rather than a closed case: the CrashReporter
+    dump naming the starved task is what would confirm it.
 *   **Mitigation (implemented)**, in three layers:
     1.  *Order of priorities*: `OTA_TASK_PRIORITY` 4 -> **2**, below
         `COMM_TASK_PRIORITY` (3). The link with the board cannot yield to
