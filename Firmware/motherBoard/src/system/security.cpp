@@ -176,7 +176,37 @@ extern PID humidityControlPID;
 // alarma a +-3 C. ee): en control por PIEL, a +-1 C. Son cuatro condiciones
 // distintas (modo x sentido) porque el calefactor solo se corta por el lado
 // caliente: por el frio tiene que seguir calentando.
-#define AIR_TEMP_DEVIATION_LIMIT_C 3.0f
+//
+// En AIRE se alarma a +-1 C, no a los +-3 C de dd). La norma fija un MAXIMO,
+// no un minimo: ser mas estricto esta permitido, y hasta 912029d este mismo
+// firmware ya lo era. Con 3 C el aviso no llega a tiempo en la mitad alta del
+// rango de consigna, porque el corte termico del aire esta topado a 38 C
+// (ALARM_AIR_CUTOUT_MAX_C): con consigna de 35 C la desviacion alarmaria a
+// 38 C — el MISMO punto que el corte, que ademas es ALTA, latching y exige
+// reset manual — y con 36 C o mas no alarmaria nunca. Entre la consigna y el
+// disyuntor no quedaba ningun aviso intermedio.
+//
+// Eso es lo que dejo callada a una unidad en campo con consigna de 35 C que la
+// fototerapia subio a 37 C (2026-09-10): +2 C sobre la consigna, con el bebe
+// dentro, y sin que el equipo pudiera corregir — el calor lo metia una fuente
+// externa, el lazo ya estaba saturado a 0 y la incubadora no refrigera. Es
+// justo el escenario en el que la accion correctiva es del OPERADOR (apartar
+// la lampara, bajar la consigna) y por tanto hay que avisarle.
+//
+// Tres efectos que 3 C tapaba y que hay que vigilar en banco con este umbral:
+//   - El lado caliente corta el calefactor (alarm_cuts_heater()), asi que el
+//     corte se adelanta 2 C. A +1 C sobre consigna el PID ya esta en 0, luego
+//     no deberia quitar potencia util, pero hay que verlo en una rampa real.
+//   - El sobreimpulso de la rampa de calentamiento pasa a ser visible: el lado
+//     caliente se declara SIEMPRE y la ventana de estabilizacion solo aplaza el
+//     AUDIO, no el banner del display ni la publicacion a nube.
+//   - El lado frio salta al abrir la puerta, que hunde el aire mas de 1 C en
+//     segundos: la ventana de estabilizacion solo se rearma al activar la
+//     actuacion o al reiniciar (alarmTimerStart()), nunca al abrir. Si en campo
+//     resulta ruidoso, la salida no es volver a 3 C sino enmascarar el lado
+//     frio mientras la puerta este abierta — hoy el sensor de puerta no se usa
+//     para nada termico (ALARM_SENSORBOARD_DOOR_FAULT).
+#define AIR_TEMP_DEVIATION_LIMIT_C 1.0f
 #define SKIN_TEMP_DEVIATION_LIMIT_C 1.0f
 #define HUMIDITY_ERROR 10   // 10 %RH to trigger alarm
 
