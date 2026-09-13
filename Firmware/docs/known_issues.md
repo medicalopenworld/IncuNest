@@ -138,8 +138,29 @@ build before trusting any observation.
     `WifiOTAHandler()`) starved the Comm task for seconds at a time. UART0's
     1 KB RX ring fills in ~1.5 s, so whole protocol lines were lost as well,
     alarm lines included (same sink as the factory-test lines, but with a new
-    trigger). No reset: `CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1` is off in
-    the framework's sdkconfig, so a long core-1 stall is benign for the TWDT.
+    trigger). No reset **on the HMI**: `CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1`
+    is off in the framework's sdkconfig, so a long core-1 stall is benign for
+    the TWDT *there*.
+*   **The same conclusion does NOT transfer to the motherBoard — there the
+    identical stall reboots the board.** The asymmetry is that the HMI
+    subscribes no task to the TWDT and therefore inherits the framework's
+    configuration, while the motherBoard installs its own:
+    `initHardware()` ends in `watchdogInit(WDT_TIMEOUT)`
+    (`system/initHardware.cpp`), i.e. `esp_task_wdt_init(75, true)` plus
+    `esp_task_wdt_add(NULL)` called from `setup()` — which subscribes
+    Arduino's **`loopTask`** to a 75 s TWDT with panic, fed once a second by
+    `watchdogReload()` in `loop()`. That `loopTask` runs at **priority 1 on
+    core 1** (`CONFIG_ARDUINO_RUNNING_CORE=1`), the lowest of every motherBoard
+    task on that core (OTA 4, GPRS 5, buzzer 6, comm 7, sensors 8, security 9),
+    so the very busy-loops described above starve it. Five consecutive waits of
+    the library's default `MQTT_SOCKET_TIMEOUT` (15 s) are exactly the 75 s
+    budget. Observed on the bench on 2026-09-10: IncuNest-353_1 lost WiFi at
+    16:54 and reset with `RST_reason = 6` (`TASK_WDT`) about 50 minutes later,
+    having stopped publishing at 17:46. `-D MQTT_SOCKET_TIMEOUT=2` is now in
+    the motherBoard's `IncuNest_V18`/`IncuNest_V17` blocks too (the `_factory`
+    variants inherit it); with 2 s it would take 38 consecutive waits.
+    Still a strong hypothesis rather than a closed case: the CrashReporter
+    dump naming the starved task is what would confirm it.
 *   **Mitigation (implemented)**, in three layers:
     1.  *Order of priorities*: `OTA_TASK_PRIORITY` 4 -> **2**, below
         `COMM_TASK_PRIORITY` (3). The link with the board cannot yield to
@@ -182,3 +203,105 @@ build before trusting any observation.
     and the 5 s telemetry publish, not with the OTA task (which can no longer
     preempt Comm) — the LVGL mutex and the `arduino_events` task at priority 19
     on core 1 are the remaining coupling, 4x under the alarm window.
+
+## 9. Phantom `BOARD LINK LOST` of a few ms on every unlock (regression of #8)
+
+*   **Problem Description**: on the bench (2026-09-10), **every** screen unlock
+    produced the same sequence: the maintenance pop-up opened, the link-lost
+    banner appeared with its audible pattern for a few milliseconds, the pop-up
+    closed itself, and everything went back to normal. The motherBoard's alarm
+    log held **no** `ALARM_HMI_LINK_LOST` entry, so unlike #8 the HMI's
+    keepalive never stopped: the board could still hear the display, and the
+    display was the only one claiming the link was gone.
+*   **Reason**: an unsigned underflow in the very discount added as layer 3 of
+    #8's mitigation. The accounting block at the top of `Comm_Task()` measures
+    `gap` from the **header of the previous pass**, but incoming lines are
+    stamped into `g_lastCtrlLineMs` **inside** that pass, by
+    `ReceiveMessageFromOtherESP()`. When the UI task (priority 5) preempts Comm
+    (priority 3) mid-pass and does not hand the CPU back for hundreds of ms,
+    the stamp ends up *later* than the header it will be compared against, so
+    `g_lastCtrlLineMs += gap` double-counts a window already contained in the
+    stamp and pushes it into the **future**. The old code asserted the opposite
+    in a comment ("gap se mide contra la pasada anterior, `g_lastCtrlLineMs`
+    nunca adelanta a `nowPass`"), which is true only if nothing is stamped
+    during the pass. With a future stamp, `now - g_lastCtrlLineMs` wraps around
+    in `Display_IsBoardLinkLost()` and reads as ~49 days of silence, so the
+    detector fires instantly — and clears again as soon as the next `CTRL,TEL`
+    or `CTRL,STATE` (1 Hz each) re-stamps a sane value. Hence "a few ms".
+    The unlock is what makes it reproducible rather than random: repainting the
+    screen and then building the maintenance pop-up (QR render included) are
+    two long UI passes back to back, which is exactly the preemption shape
+    required. The pop-up then closed itself correctly — `mustYield()` in
+    `MaintenanceDialog.cpp` cedes to any active alarm or to a lost link — so
+    the closing pop-up was a symptom, never a second bug.
+*   **Mitigation (implemented)**, in two layers:
+    1.  *Root cause*: the shifted stamp is clamped to `nowPass`, so
+        `g_lastCtrlLineMs` can never move ahead of the pass doing the shifting.
+        The discount still forgives blindness shorter than
+        `BOARD_LINK_TIMEOUT_MS`, exactly as #8 intended.
+    2.  *Defence in depth*: `Display_IsBoardLinkLost()` computes both ages with
+        **signed** arithmetic saturated at 0, so a stamp ahead of `millis()`
+        reads as "just seen" rather than as a wrap-around silence. This
+        detector decides whether a medical device declares its readings dead;
+        it must not depend on every other site in the file being right to the
+        millisecond.
+*   **What did NOT change**: a genuinely silent board is still declared at
+    `BOARD_LINK_TIMEOUT_MS`, and a hung or dead Comm task still raises the
+    banner through the `unheard > BOARD_LINK_TIMEOUT_MS` branch, which the
+    clamp does not touch.
+*   **Bench verification**: with the reminder due (or `Maintenance_SetEnabled`
+    left on with the daily level overdue), lock and unlock the screen several
+    times. Expected after the fix: the pop-up opens and **stays** open, no
+    banner, no beep, no blanked readings. `[COMM] N ms sin drenar el cable` may
+    still appear with N between `COMM_RX_TIMEOUT_MS` and `BOARD_LINK_TIMEOUT_MS`
+    — that line reports the UI stall, which is real and unchanged; what it must
+    no longer do is trigger the alarm.
+
+## 10. Temperature control (or phototherapy) switches itself back OFF right after the baby wizard
+
+*   **Symptom**: select a baby, enter the weight, press APLICAR on the proposed
+    air temperature. Temperature control goes ON and, a second or two later,
+    goes back OFF on its own. The same shape was reported for phototherapy.
+*   **Why it is a regression of the phototherapy echo race (`a77bd1b`)**: the
+    HMI is the only place that can turn these switches off spontaneously.
+    `Display_ApplyCtrlState()` resyncs `actuation` / `controlMode` /
+    `phototherapyMode` / `muteAlarm` / `skinModeEnabled` from the
+    motherBoard's echoed `CTRL,STATE` on every frame — needed so a rebooted
+    HMI inherits the board's real state (#4). A frame that was already in
+    flight still carries the value from *before* the board processed the
+    command; adopting it does not just repaint the switch, it writes
+    `hmi_msg`, and the HMI's next 1 Hz heartbeat then genuinely commands the
+    board OFF.
+*   **Why the old fix was not enough**: `a77bd1b` protected a just-changed
+    field for a fixed 2.5 s grace window. That is a bet that the round trip
+    fits inside it, and this link does not guarantee that — the HMI Comm task
+    can lose the CPU for whole seconds (#7, #9) and the UART RX ring drops the
+    *newest* bytes when it fills, so what gets parsed after a stall is
+    precisely the stale line. Once the window expires without confirmation the
+    stale echo wins, and the resulting OFF is irreversible. The baby wizard
+    makes the shape easy to hit: activation now happens at the end of a long
+    modal, in a single heavy UI pass, right after a burst of `HMI,PROFILE_*`
+    traffic.
+*   **Fix (implemented)**: the guard is no longer a timer but a
+    **confirmation**. A locally changed field stays authoritative until the
+    board echoes back that same value; the 1 Hz heartbeat keeps resending the
+    intent meanwhile, so lost frames and multi-second stalls no longer matter.
+    `LOCAL_CMD_CONFIRM_TIMEOUT_MS` (10 s) survives only as a safety net for a
+    board that never confirms, and logs `<campo> sin confirmar en N ms` when it
+    fires — that log line is the discriminator between "stale echo" and "the
+    board is refusing the command".
+*   **Also fixed here**: the setpoints (`desiredAirTemperature`,
+    `desiredSkinTemperature`) had **no** guard at all — they were overwritten
+    from every echo. Applying the wizard's proposed temperature could therefore
+    be silently undone by the next `CTRL,STATE`, which still carried the
+    previous setpoint. They now use the same confirmation guard.
+*   **What did NOT change**: recovery after an HMI reboot (#4). No guard arms
+    before the first `CTRL,STATE` has been applied (`g_stateSynced`), nor on
+    the first value observed for a field, so a freshly booted display never
+    imposes its start-up "everything off" on a board that is actually
+    regulating.
+*   **Bench verification**: select a baby, enter a weight, press APLICAR.
+    Expected: temperature control stays ON and the target temperature stays at
+    the proposed value (not the previous setpoint) for at least 30 s. Repeat
+    for SKIN and for phototherapy. Unplug the HMI↔MB cable for ~5 s while
+    control is ON and reconnect: control must still be ON afterwards.

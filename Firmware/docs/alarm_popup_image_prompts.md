@@ -457,7 +457,7 @@ FOCUS: the amber column rising above the pale blue setpoint tick, inside the
 over-warm hood.
 ```
 
-**9 — `ALARM_AIR_TEMP_DEVIATION_LOW`** · *TEMP AIRE BAJA* · «AIRE MAS DE 3 C BAJO LA CONSIGNA»
+**9 — `ALARM_AIR_TEMP_DEVIATION_LOW`** · *TEMP AIRE BAJA* · «AIRE MAS DE 1 C BAJO LA CONSIGNA»
 
 ```
 SCENE: Mirror of image 8 in structure, opposite in meaning. The air inside the

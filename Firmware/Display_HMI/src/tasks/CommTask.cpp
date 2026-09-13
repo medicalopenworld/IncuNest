@@ -8,6 +8,9 @@
 #include "ui.h"
 #include <cstdio>
 #include <cstdlib>
+// lround(), para setpointKey(). En PlatformIO lo traia Arduino.h; el porte a
+// ESP-IDF ya no lo incluye, asi que hay que pedirlo explicitamente.
+#include <math.h>
 #include <string.h>
 
 static const char *TAG = "CommTask";
@@ -93,8 +96,20 @@ bool Display_IsBoardLinkLost(void) {
   // display ciego jurando que todo va bien, que es exactamente el peligro que
   // este detector existe para evitar. Con la tarea Comm colgada o muerta el
   // aviso sale, como antes; lo que ya no sale es por un hipo de medio segundo.
-  const uint32_t sinceLine = (uint32_t)(now - g_lastCtrlLineMs);
-  const uint32_t unheard   = (uint32_t)(now - s_lastCommPassMs);
+  // Las dos edades se calculan CON SIGNO y se saturan a 0. Un sello por
+  // delante de `now` significa "recien visto", no 49 dias: la resta sin signo
+  // daba la vuelta y convertia un sello adelantado en un silencio enorme, o
+  // sea un BOARD LINK LOST instantaneo con la placa hablando. El
+  // desplazamiento de la contabilidad ya no puede producir ese sello (se topa
+  // en nowPass, ver Comm_Task), pero la guarda se queda aqui: este detector
+  // decide si las cifras de un equipo medico se declaran muertas, y no debe
+  // depender de que ningun otro punto del fichero se equivoque de un ms.
+  const int32_t sinceLineSigned = (int32_t)(now - g_lastCtrlLineMs);
+  const int32_t unheardSigned   = (int32_t)(now - s_lastCommPassMs);
+  const uint32_t sinceLine =
+      sinceLineSigned > 0 ? (uint32_t)sinceLineSigned : 0u;
+  const uint32_t unheard =
+      unheardSigned > 0 ? (uint32_t)unheardSigned : 0u;
   if (unheard > BOARD_LINK_TIMEOUT_MS) return true;
   if (unheard >= sinceLine) return false; // no hemos escuchado nada en absoluto
   return (sinceLine - unheard) > BOARD_LINK_TIMEOUT_MS;
@@ -159,6 +174,10 @@ bool error = false;
 static char rxBuffer[COMM_RX_BUFFER_SIZE];
 static int rxIndex = 0;
 
+// g_stateSynced (definido en UITask.cpp) marca que ya se ha aplicado al
+// menos un CTRL,STATE: hasta entonces las guardas de abajo no se arman.
+extern bool g_stateSynced;
+
 // ---- Local-command echo race guard ------------------------------------
 // Display_ApplyCtrlState() resyncs actuation/controlMode/phototherapyMode/
 // muteAlarm/skinModeEnabled from the motherBoard's own echoed CTRL,STATE on
@@ -170,32 +189,94 @@ static int rxIndex = 0;
 // and the motherBoard genuinely turns the lamp back off — visibly, within
 // about a second of switching it on.
 //
-// Fix: give a field that just changed locally a grace window before an
-// echo is trusted to overwrite it again, long enough for a full round trip
-// (HMI keepalive + motherBoard CTRL,STATE, ~1s each way) to settle.
-constexpr uint32_t LOCAL_CMD_ECHO_GRACE_MS = 2500u;
+// Primer intento (a77bd1b): una ventana de gracia fija de 2.5 s durante la
+// cual el eco no podia pisar un valor recien cambiado. Es una APUESTA a que
+// el viaje de ida y vuelta cabe dentro, y el enlace no lo garantiza: la
+// tarea Comm del display se queda sin CPU segundos enteros
+// (known_issues.md #7) y el anillo de RX tira las lineas NUEVAS cuando se
+// llena, no las viejas, asi que lo que se procesa despues de un atasco es
+// justamente lo viejo. En cuanto la ventana expira sin confirmacion, el eco
+// no solo repinta el switch: se copia a hmi_msg y el siguiente latido MANDA
+// el apagado, que ya es irreversible. Eso es lo que se veia despues del
+// asistente del bebe — APLICAR la temperatura propuesta, ver el control de
+// temperatura en ON y verlo caer a OFF acto seguido — y lo mismo con la
+// fototerapia.
+//
+// Ahora el criterio no es el reloj sino la CONFIRMACION: el valor local
+// manda hasta que la placa lo devuelve igual. Da igual cuanto tarde el viaje
+// o cuantas tramas se pierdan por el camino; el latido de 1 Hz reenvia la
+// intencion local mientras tanto. El plazo sobrevive solo como red de
+// seguridad para no quedarse enganchado para siempre si la placa nunca
+// confirma, y cuando salta lo deja escrito en el log: ese era justo el dato
+// que faltaba en banco para distinguir "eco viejo" de "la placa se niega".
+constexpr uint32_t LOCAL_CMD_CONFIRM_TIMEOUT_MS = 10000u;
+
+// Centinela de "aun no observado". Ninguno de los campos vigilados lo toma:
+// los enteros son banderas o modos >= 0 y las consignas van en centigrados.
+constexpr int LOCAL_CMD_UNSEEN = INT32_MIN;
 
 struct LocalCmdGuard {
-  int lastSeen = -1;  // sentinel: none of the guarded fields are ever -1
+  int lastSeen = LOCAL_CMD_UNSEEN;
   uint32_t changedAtMs = 0;
+  // Cambio local aun sin confirmar por la placa. Lo escribe Comm_Task (al
+  // detectar el cambio) y lo borra UITask (al llegar el eco que coincide);
+  // en el peor cruce se pierde o se repite un ciclo de retencion, que es
+  // inocuo, y a cambio no hace falta un mutex en el camino de 10 ms.
+  volatile bool pending = false;
 };
 static LocalCmdGuard s_actuationGuard;
 static LocalCmdGuard s_controlModeGuard;
 static LocalCmdGuard s_photoModeGuard;
 static LocalCmdGuard s_muteAlarmGuard;
 static LocalCmdGuard s_skinModeGuard;
+// Las consignas viajan como double pero se vigilan en centigrados enteros:
+// la placa las devuelve con "%.2f", asi que la comparacion es exacta y una
+// sola maquinaria sirve para banderas y para temperaturas.
+static LocalCmdGuard s_airSetpointGuard;
+static LocalCmdGuard s_skinSetpointGuard;
+
+static int setpointKey(double celsius) { return (int)lround(celsius * 100.0); }
 
 // Called once per Comm_Task tick (10ms) for each guarded field: catches a
-// local UI change well within the multi-second window it then protects.
+// local UI change well within the window it then protects.
 static void trackLocalCmdGuard(LocalCmdGuard *g, int current) {
-  if (g->lastSeen != current) {
-    g->lastSeen = current;
-    g->changedAtMs = millis();
+  if (g->lastSeen == current) return;
+  const bool firstObservation = (g->lastSeen == LOCAL_CMD_UNSEEN);
+  g->lastSeen = current;
+  g->changedAtMs = millis();
+  // Solo un cambio hecho POR EL OPERADOR arma la guarda. Los dos casos que
+  // no lo son quedan fuera, y por el mismo motivo: retener un valor que
+  // nadie ha pedido y reenviarlo cada segundo seria imponerselo a una placa
+  // que quiza esta regulando de verdad — justo lo contrario de lo que pide
+  // known_issues.md #4 (que un display reiniciado herede el estado real de
+  // la placa).
+  //   - Antes del primer CTRL,STATE aplicado no se sabe todavia que esta
+  //     haciendo la placa: lo que hay en hmi_msg son valores de arranque
+  //     (consignas de Preferences, todo apagado).
+  //   - El primer valor que se observa de un campo es ese mismo valor de
+  //     arranque, no una orden.
+  if (!g_stateSynced || firstObservation) {
+    g->pending = false;
+    return;
   }
+  g->pending = true;
 }
 
-static bool localCmdRecentlyChanged(const LocalCmdGuard &g) {
-  return (millis() - g.changedAtMs) < LOCAL_CMD_ECHO_GRACE_MS;
+// True mientras haya un cambio local sin confirmar y el eco no coincida:
+// entonces manda el valor local. El eco que coincide cierra la guarda.
+static bool localCmdHoldsLocal(LocalCmdGuard *g, int echoed, const char *what) {
+  if (!g->pending) return false;
+  if (echoed == g->lastSeen) {
+    g->pending = false;
+    return false;
+  }
+  if ((uint32_t)(millis() - g->changedAtMs) >= LOCAL_CMD_CONFIRM_TIMEOUT_MS) {
+    g->pending = false;
+    COMM_LOG("[COMM] %s sin confirmar en %u ms: gana la placa (%d) sobre el display (%d)\n",
+             what, (unsigned)LOCAL_CMD_CONFIRM_TIMEOUT_MS, echoed, g->lastSeen);
+    return false;
+  }
+  return true;
 }
 
 // Formato de parseo de `CTRL,ALM,<id>,<titulo>,<descripcion>,<0|1>`.
@@ -1242,19 +1323,25 @@ bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
     LVGL_Unlock();
     return true;
   }
-  // Effective values: within LOCAL_CMD_ECHO_GRACE_MS of a local change, trust
-  // the pending local value instead of this frame's echo (see the guard
-  // comment above hmi_msg's declaration for why).
-  int effActuation = localCmdRecentlyChanged(s_actuationGuard)
-                         ? hmi_msg.actuation : st.actuation;
-  int effControlMode = localCmdRecentlyChanged(s_controlModeGuard)
-                           ? hmi_msg.controlMode : st.controlMode;
-  int effPhotoMode = localCmdRecentlyChanged(s_photoModeGuard)
-                         ? hmi_msg.phototherapyMode : st.phototherapyMode;
-  bool effMuteAlarm = localCmdRecentlyChanged(s_muteAlarmGuard)
-                          ? hmi_msg.muteAlarm : st.muteAlarm;
-  bool effSkinWanted = localCmdRecentlyChanged(s_skinModeGuard)
-                           ? hmi_msg.skinModeEnabled : st.skinModeEnabled;
+  // Effective values: mientras un cambio local siga sin confirmar por la
+  // placa, manda el valor local en vez del eco de esta trama (ver la guarda
+  // arriba). El eco que coincide con lo local cierra la guarda.
+  int effActuation =
+      localCmdHoldsLocal(&s_actuationGuard, st.actuation, "actuacion")
+          ? hmi_msg.actuation : st.actuation;
+  int effControlMode =
+      localCmdHoldsLocal(&s_controlModeGuard, st.controlMode, "modo de control")
+          ? hmi_msg.controlMode : st.controlMode;
+  int effPhotoMode =
+      localCmdHoldsLocal(&s_photoModeGuard, st.phototherapyMode, "fototerapia")
+          ? hmi_msg.phototherapyMode : st.phototherapyMode;
+  bool effMuteAlarm =
+      localCmdHoldsLocal(&s_muteAlarmGuard, st.muteAlarm ? 1 : 0, "silencio")
+          ? hmi_msg.muteAlarm : st.muteAlarm;
+  bool effSkinWanted =
+      localCmdHoldsLocal(&s_skinModeGuard, st.skinModeEnabled ? 1 : 0,
+                         "modo piel")
+          ? hmi_msg.skinModeEnabled : st.skinModeEnabled;
 
   bool tempOn = effActuation & 0x01;
   ui_set_switch_state_silent(ui_Switch1, tempOn);
@@ -1292,9 +1379,20 @@ bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
   }
   */
 
-  if (st.desiredAirTemperature > COMM_TEMP_VALID_THRESHOLD)
+  // Las consignas tambien se protegen con la confirmacion, y hasta ahora no
+  // lo estaban: el caso real es APLICAR la temperatura propuesta al final
+  // del asistente del bebe. airTempValue pasa a la propuesta y el siguiente
+  // CTRL,STATE, que todavia lleva la consigna anterior, la deshacia sin que
+  // nadie lo hubiera pedido.
+  if (st.desiredAirTemperature > COMM_TEMP_VALID_THRESHOLD &&
+      !localCmdHoldsLocal(&s_airSetpointGuard,
+                          setpointKey(st.desiredAirTemperature),
+                          "consigna de aire"))
     airTempValue = st.desiredAirTemperature;
-  if (st.desiredSkinTemperature > COMM_TEMP_VALID_THRESHOLD)
+  if (st.desiredSkinTemperature > COMM_TEMP_VALID_THRESHOLD &&
+      !localCmdHoldsLocal(&s_skinSetpointGuard,
+                          setpointKey(st.desiredSkinTemperature),
+                          "consigna de piel"))
     skinTempValue = st.desiredSkinTemperature;
   if (st.language != (int)g_lang) {
     // Only update if it's a valid change to avoid loops
@@ -1439,11 +1537,29 @@ void Comm_Task(void *pvParameters) {
       const uint32_t nowPass = millis();
       const uint32_t gap = (uint32_t)(nowPass - s_lastCommPassMs);
       if (g_ctrlEverSeen && gap > (uint32_t)COMM_RX_TIMEOUT_MS) {
-        // Desplaza el plazo por la ventana no escuchada; como gap se mide
-        // contra la pasada anterior, g_lastCtrlLineMs nunca adelanta a
-        // nowPass. Solo se perdona una ceguera MENOR que la ventana de
-        // silencio, por el mismo motivo que en Display_IsBoardLinkLost().
-        if (gap <= (uint32_t)BOARD_LINK_TIMEOUT_MS) g_lastCtrlLineMs += gap;
+        // Desplaza el plazo por la ventana no escuchada. Solo se perdona una
+        // ceguera MENOR que la ventana de silencio, por el mismo motivo que en
+        // Display_IsBoardLinkLost().
+        //
+        // Y el resultado se topa en nowPass. Aqui estaba el fallo: `gap` se
+        // mide desde la CABECERA de la pasada anterior, pero las lineas se
+        // estampan DENTRO de la pasada, asi que el sello puede ser posterior a
+        // esa cabecera y sumarle el hueco entero lo mandaba al FUTURO. Pasa
+        // siempre que la UI (prioridad 5) desaloja a esta tarea (3) a mitad de
+        // pasada y no le devuelve la CPU hasta pasados cientos de ms: la tarea
+        // arranca su pasada, se queda a medias, drena el cable al final y en la
+        // vuelta siguiente ve un hueco > COMM_RX_TIMEOUT_MS que ya estaba
+        // contado en el propio sello. Con el sello adelantado, la resta sin
+        // signo del detector daba la vuelta y salia un BOARD LINK LOST de unos
+        // ms —banner, cifras en blanco y pitido— con la placa hablando
+        // perfectamente. Banco 2026-09-10: reproducible en CADA desbloqueo,
+        // porque el repintado de la pantalla mas la construccion del pop-up de
+        // mantenimiento (QR incluido) son dos pasadas largas de UI seguidas.
+        if (gap <= (uint32_t)BOARD_LINK_TIMEOUT_MS) {
+          g_lastCtrlLineMs += gap;
+          if ((int32_t)(g_lastCtrlLineMs - nowPass) > 0)
+            g_lastCtrlLineMs = nowPass;
+        }
         COMM_LOG("[COMM] %u ms sin drenar el cable\n", (unsigned)gap);
       }
       s_lastCommPassMs = nowPass;
@@ -1460,6 +1576,10 @@ void Comm_Task(void *pvParameters) {
     trackLocalCmdGuard(&s_photoModeGuard, hmi_msg.phototherapyMode);
     trackLocalCmdGuard(&s_muteAlarmGuard, hmi_msg.muteAlarm ? 1 : 0);
     trackLocalCmdGuard(&s_skinModeGuard, hmi_msg.skinModeEnabled ? 1 : 0);
+    trackLocalCmdGuard(&s_airSetpointGuard,
+                       setpointKey(hmi_msg.desiredAirTemperature));
+    trackLocalCmdGuard(&s_skinSetpointGuard,
+                       setpointKey(hmi_msg.desiredSkinTemperature));
 #endif
 
     if (ReceiveMessageFromOtherESP()) {

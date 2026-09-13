@@ -53,6 +53,12 @@
 #define DESIRED_HUMIDITY_ROOM_KEY "Hum_desired"
 #define HUMIDIFIER_CURRENT_KEY "Humidifier_current"
 #define HUMIDIFIER_VOLTAGE_KEY "Humidifier_voltage"
+// Espejo de Phototherapy_active, y por el mismo motivo: Hum_desired solo se
+// publica DENTRO de if (in3.humidityControl), asi que el apagado es una
+// ausencia de clave. Para la placa vale, pero una serie temporal no puede
+// reconstruir un OFF desde un silencio: entre dos puntos separados horas, un
+// grafico en escalon pinta encendido todo el hueco. Hace falta el 0 explicito.
+#define HUMIDIFIER_ACTIVE_KEY "Humidifier_active"
 #define PHOTOTHERAPY_PWM_KEY "PH_PWM"
 #define PHOTOTHERAPY_CURRENT_KEY "Phototherapy_current"
 #define PHOTOTHERAPY_ACTIVE_KEY "Phototherapy_active"

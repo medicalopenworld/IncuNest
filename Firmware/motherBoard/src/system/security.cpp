@@ -166,29 +166,36 @@ extern PID humidityControlPID;
 // distintas (modo x sentido) porque el calefactor solo se corta por el lado
 // caliente: por el frio tiene que seguir calentando.
 //
-// En AIRE los dos lados NO llevan el mismo umbral, y la asimetria es
-// deliberada. La norma fija un MAXIMO, no un minimo: ser mas estricto esta
-// permitido, y de hecho hasta 912029d este firmware alarmaba a +-1 C en los
-// dos modos.
+// En AIRE se alarma a +-1 C, no a los +-3 C de dd). La norma fija un MAXIMO,
+// no un minimo: ser mas estricto esta permitido, y hasta 912029d este mismo
+// firmware ya lo era. Con 3 C el aviso no llega a tiempo en la mitad alta del
+// rango de consigna, porque el corte termico del aire esta topado a 38 C
+// (ALARM_AIR_CUTOUT_MAX_C): con consigna de 35 C la desviacion alarmaria a
+// 38 C — el MISMO punto que el corte, que ademas es ALTA, latching y exige
+// reset manual — y con 36 C o mas no alarmaria nunca. Entre la consigna y el
+// disyuntor no quedaba ningun aviso intermedio.
 //
-// - Lado CALIENTE a 1 C. Con 3 C el aviso llega demasiado tarde para servir de
-//   nada en la mitad alta del rango de consigna, porque el corte termico del
-//   aire esta topado a 38 C (ALARM_AIR_CUTOUT_MAX_C): con consigna de 35 C la
-//   desviacion alarmaria a 38 C — el MISMO punto que el corte, que ademas es
-//   ALTA y latching — y con 36 C o mas no alarmaria nunca. Entre la consigna y
-//   38 C no quedaba ningun aviso intermedio. Eso es lo que dejo callada a una
-//   unidad en campo con consigna de 35 C que la fototerapia subio a 37 C
-//   (2026-09-10): +2 C sobre la consigna, con el bebe dentro, y sin que el
-//   equipo pudiera corregir — el calor lo metia una fuente externa, el lazo ya
-//   estaba saturado a 0 y la incubadora no refrigera. Justo el escenario en el
-//   que la accion correctiva es del operador y por tanto hay que avisarle.
-// - Lado FRIO en 3 C. Bajarlo no compra seguridad y si compra fatiga de
-//   alarma: abrir la puerta para atender al bebe hunde la temperatura del aire
-//   mas de 1 C en segundos, y la ventana de estabilizacion solo se rearma al
-//   activar la actuacion o al reiniciar (alarmTimerStart()), nunca al abrir la
-//   puerta. Cada manipulacion levantaria una MEDIA.
-#define AIR_TEMP_DEVIATION_HOT_LIMIT_C 1.0f
-#define AIR_TEMP_DEVIATION_COLD_LIMIT_C 3.0f
+// Eso es lo que dejo callada a una unidad en campo con consigna de 35 C que la
+// fototerapia subio a 37 C (2026-09-10): +2 C sobre la consigna, con el bebe
+// dentro, y sin que el equipo pudiera corregir — el calor lo metia una fuente
+// externa, el lazo ya estaba saturado a 0 y la incubadora no refrigera. Es
+// justo el escenario en el que la accion correctiva es del OPERADOR (apartar
+// la lampara, bajar la consigna) y por tanto hay que avisarle.
+//
+// Tres efectos que 3 C tapaba y que hay que vigilar en banco con este umbral:
+//   - El lado caliente corta el calefactor (alarm_cuts_heater()), asi que el
+//     corte se adelanta 2 C. A +1 C sobre consigna el PID ya esta en 0, luego
+//     no deberia quitar potencia util, pero hay que verlo en una rampa real.
+//   - El sobreimpulso de la rampa de calentamiento pasa a ser visible: el lado
+//     caliente se declara SIEMPRE y la ventana de estabilizacion solo aplaza el
+//     AUDIO, no el banner del display ni la publicacion a nube.
+//   - El lado frio salta al abrir la puerta, que hunde el aire mas de 1 C en
+//     segundos: la ventana de estabilizacion solo se rearma al activar la
+//     actuacion o al reiniciar (alarmTimerStart()), nunca al abrir. Si en campo
+//     resulta ruidoso, la salida no es volver a 3 C sino enmascarar el lado
+//     frio mientras la puerta este abierta — hoy el sensor de puerta no se usa
+//     para nada termico (ALARM_SENSORBOARD_DOOR_FAULT).
+#define AIR_TEMP_DEVIATION_LIMIT_C 1.0f
 #define SKIN_TEMP_DEVIATION_LIMIT_C 1.0f
 #define HUMIDITY_ERROR 10   // 10 %RH to trigger alarm
 
@@ -779,13 +786,8 @@ void checkAlarms()
   const float measured = airMode ? in3.temperature[ROOM_DIGITAL_TEMP_SENSOR]
                                  : in3.temperature[SKIN_SENSOR];
   const float deviation = measured - (float)in3.desiredControlTemperature;
-  // En AIRE el lado caliente es mas estricto que el frio (ver los #define de
-  // arriba). En PIEL la norma ya pide 1 C simetrico, asi que los dos limites
-  // coinciden y separarlos no cambia nada.
-  const float hotLimit =
-      airMode ? AIR_TEMP_DEVIATION_HOT_LIMIT_C : SKIN_TEMP_DEVIATION_LIMIT_C;
-  const float coldLimit =
-      airMode ? AIR_TEMP_DEVIATION_COLD_LIMIT_C : SKIN_TEMP_DEVIATION_LIMIT_C;
+  const float limit =
+      airMode ? AIR_TEMP_DEVIATION_LIMIT_C : SKIN_TEMP_DEVIATION_LIMIT_C;
 
   const bool airHighWas = airHighPresent;
   const bool airLowWas = airLowPresent;
@@ -793,16 +795,16 @@ void checkAlarms()
   const bool skinLowWas = skinLowPresent;
 
   airHighPresent = controlling && airMode &&
-                   thresholdWithHysteresis(airHighWas, deviation, hotLimit,
+                   thresholdWithHysteresis(airHighWas, deviation, limit,
                                            TEMPERATURE_ERROR_HYSTERESIS);
   airLowPresent = controlling && airMode && steadyAir &&
-                  thresholdWithHysteresis(airLowWas, -deviation, coldLimit,
+                  thresholdWithHysteresis(airLowWas, -deviation, limit,
                                           TEMPERATURE_ERROR_HYSTERESIS);
   skinHighPresent = controlling && !airMode &&
-                    thresholdWithHysteresis(skinHighWas, deviation, hotLimit,
+                    thresholdWithHysteresis(skinHighWas, deviation, limit,
                                             TEMPERATURE_ERROR_HYSTERESIS);
   skinLowPresent = controlling && !airMode && steadySkin &&
-                   thresholdWithHysteresis(skinLowWas, -deviation, coldLimit,
+                   thresholdWithHysteresis(skinLowWas, -deviation, limit,
                                            TEMPERATURE_ERROR_HYSTERESIS);
 
   declareHotDeviation(ALARM_AIR_TEMP_DEVIATION_HIGH, airHighWas, airHighPresent,
