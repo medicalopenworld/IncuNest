@@ -20,6 +20,41 @@ CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
 CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
 CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
 
+# --- Suspension automatica de escrituras/borrados de flash.
+#
+# POR QUE: sin esto, escribir o borrar flash obliga a apagar la cache y a
+# APARCAR EL OTRO CORE mientras dura la operacion (spi_flash_op_block_func por
+# IPC), porque el codigo se ejecuta desde flash. Con auto-suspend el driver usa
+# el comando de suspension del propio chip para dejar pasar lecturas de cache y
+# luego reanudar, asi que el otro core no se queda parado.
+#
+# LO QUE LO MOTIVA, medido: banco 2026-09-14, la MB se reinicio con la sonda de
+# PPG puesta y trafico de red. El coredump apunta justo ahi:
+#   Panic: Task watchdog (loopTask, CPU 1)
+#   #0 spi_flash_op_block_func (cache_utils.c:108)  #1 ipc_task
+# Es el mismo mecanismo que hacia temblar el panel del display, donde este
+# ajuste ya estaba puesto y lo resolvio. La MB se habia quedado sin el.
+#
+# POR QUE SE PUEDE PONER EN ESTA PLACA (IDF lo marca "READ DOCS FIRST" porque
+# depende del chip de flash concreto, no solo del SoC):
+#   - ESP32-S3: SOC_SPI_MEM_SUPPORT_AUTO_SUSPEND = 1.
+#   - Flash de la MB: JEDEC 0x20 4017 (XMC, 8 MB). No hay driver propio de XMC,
+#     asi que cae en spi_flash_chip_generic.c, que para 0x20 lee la SFDP en
+#     0x32 y exige el bit 3. Leido de la placa con
+#     `esptool read-flash-sfdp 0x32 1` -> 0xF9, y 0xF9 & 0x08 = 0x08: es de la
+#     serie XMC-D y la capacidad SE CONCEDE.
+#   - NO hace falta CONFIG_SPI_FLASH_FORCE_ENABLE_XMC_C_SUSPEND, que es el
+#     camino para las XMC-C y que IDF comenta como "big risk".
+#
+# OJO: el HMI lleva OTRO chip (0xC8 4018, GigaDevice), soportado por su propio
+# driver. Dos placas del mismo proyecto con flash de fabricantes distintos, asi
+# que ESTO PUEDE VARIAR ENTRE UNIDADES DE PRODUCCION. Al validar una placa
+# nueva, mirar el arranque: IDF escribe siempre "Flash suspend feature is
+# enabled", y si el chip no lo soporta anade "Suspend and resume may not
+# supported for this flash model yet.". Si sale esa segunda linea, esta unidad
+# NO tiene la proteccion aunque el firmware la pida.
+CONFIG_SPI_FLASH_AUTO_SUSPEND=y
+
 # --- CPU a 240 MHz (platformio.ini: f_cpu = 240000000L).
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 
