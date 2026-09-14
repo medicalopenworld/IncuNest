@@ -471,14 +471,48 @@ typedef struct
 
 } IncuNest_parameters;
 
-void logE(const String &dataString);
-void logAlarm(const String &dataString);
-void logI(const String &dataString);
-void logCharger(const String &dataString);
-void logModemData(const String &dataString);
-void logSPO2(String dataString);
-void logDrive(const String &dataString);
-void logModemData(const String &dataString);
+// ================== POR QUE ESTOS LOGS SON MACROS ==================
+//
+// El argumento de una llamada se evalua SIEMPRE, antes de entrar. Como casi
+// todos los sitios escriben cosas como
+//
+//     logI("[X] v=" + String(v) + " w=" + String(w));
+//
+// la cadena se construia —con un temporal y una realocacion por cada `+`—
+// aunque el flag del canal estuviera apagado y la funcion fuera a descartarla
+// en su primera linea. Trabajo y HEAP gastados para nada, 79 veces repartidas
+// por el firmware.
+//
+// No es teorico: en banco (2026-09-14) una de esas cadenas, la de SPO2.cpp a
+// 500 Hz, agoto el heap. `operator new` lanzo std::bad_alloc, nadie lo captura,
+// y std::terminate llamo a abort(): la placa que gobierna el calefactor se
+// reinicio construyendo una linea de log que NI SIQUIERA SE IMPRIME
+// (LOG_PULSIOXIMETRY es false).
+//
+// Con la macro la expresion queda DENTRO del `if`, y como los flags son
+// `#define ... false` el compilador elimina el bloque entero: ni cadena, ni
+// asignacion, ni llamada. Encender un canal lo devuelve todo tal cual estaba.
+//
+// Se conservan los nombres de siempre a proposito: asi los 79 puntos de llamada
+// no se tocan, que es justo lo que no conviene mezclar con un arreglo de
+// seguridad. Las funciones de verdad pasan a llamarse logX_impl().
+//
+// El do/while(0) es para que `if (c) logI(x); else ...` siga compilando.
+void logE_impl(const String &dataString);
+void logAlarm_impl(const String &dataString);
+void logI_impl(const String &dataString);
+void logCharger_impl(const String &dataString);
+void logModemData_impl(const String &dataString);
+void logSPO2_impl(const String &dataString);
+void logDrive_impl(const String &dataString);
+
+#define logI(expr)         do { if (LOG_INFORMATION)   { logI_impl(expr); } } while (0)
+#define logE(expr)         do { if (LOG_ERRORS)        { logE_impl(expr); } } while (0)
+#define logAlarm(expr)     do { if (LOG_ALARMS)        { logAlarm_impl(expr); } } while (0)
+#define logCharger(expr)   do { if (LOG_CHARGER)       { logCharger_impl(expr); } } while (0)
+#define logModemData(expr) do { if (LOG_MODEM_DATA)    { logModemData_impl(expr); } } while (0)
+#define logSPO2(expr)      do { if (LOG_PULSIOXIMETRY) { logSPO2_impl(expr); } } while (0)
+#define logDrive(expr)     do { if (LOG_DRIVE)         { logDrive_impl(expr); } } while (0)
 long secsToMillis(long timeInMillis);
 long minsToMillis(long timeInMillis);
 float millisToHours(long timeInMillis);
