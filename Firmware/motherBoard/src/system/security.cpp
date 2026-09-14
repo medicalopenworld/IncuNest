@@ -218,7 +218,29 @@ extern PID humidityControlPID;
   30000 // when the fan is spinning, heater cools down and consume less current
 
 // security config
-#define AIR_THERMAL_CUTOUT_HYSTERESIS 0.2f
+//
+// HISTERESIS DEL CORTE TERMICO. Solo mueve el punto de RETIRADA: la condicion
+// se declara igual que antes, en cuanto se supera el umbral
+// (in3.airTemperatureSetMax), y se retira al bajar de umbral - histeresis. O
+// sea que ensancharla NO relaja la proteccion, la hace mas conservadora: el
+// calefactor queda cortado mas tiempo.
+//
+// El aire pasa de 0.2 a 0.5 C. Con 0.2 la banda quedaba dentro del ruido: en
+// banco (2026-09-14, consigna 39 C, corte 40 C, fototerapia al 82 %) la alarma
+// se activaba y desactivaba sola alrededor de los 40 C. Dos sensores de aire
+// distintos leian 38.18 y 38.34 en el mismo instante, asi que 0.2 C es
+// directamente el suelo de ruido entre lecturas, no una banda.
+//
+// Por que 0.5 y no 1.0: con 1.0 la retirada caeria en 39.0, que es exactamente
+// la consigna, y eso ata el corte termico al termostato. La norma pide justo lo
+// contrario — 201.15.4.2.1 aa) exige que el corte opere "independientemente de
+// cualquier TERMOSTATO" — asi que el numero se elige por el ruido del sensor,
+// que es lo que lo justifica, y no por donde este la consigna.
+//
+// La de piel se queda en 0.2 a proposito: el sintoma se vio en el aire, su
+// dinamica es otra (sonda sobre la piel, no aire en movimiento) y no hay medida
+// de banco que respalde tocarla.
+#define AIR_THERMAL_CUTOUT_HYSTERESIS 0.5f
 #define SKIN_THERMAL_CUTOUT_HYSTERESIS 0.2f
 
 // Ventana de staleness. Las dos valen 5 s, pero se mantienen separadas porque
