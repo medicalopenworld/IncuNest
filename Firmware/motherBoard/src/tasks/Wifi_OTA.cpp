@@ -53,6 +53,8 @@
 #include "modules/util/wifi_dwell.h"
 #include "modules/baby_profile/baby_cloud.h"
 #include "modules/baby_profile/baby_profile_store.h"
+// Por LittleFS/FsFile en el endpoint /debug/fs.
+#include "platform/plat_fs.h"
 #include "modules/util/civil_time.h"
 #include "modules/util/system_clock.h"
 #include "modules/sensorboard_comm/sensorboard_comm.h"
@@ -712,6 +714,72 @@ void configWifiServer() {
     }
     // ?tasks=1 anade la tabla de tareas; ver debug_state_json_ex().
     debug_state_json_ex(buf, cap, wifiServer.hasArg("tasks"));
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "application/json", (const char *)buf);
+    free(buf);
+  });
+
+  // GET /debug/fs — listado del sistema de ficheros. SOLO LECTURA.
+  //
+  // Existe porque quedarse sin espacio no se notaba desde fuera: en banco
+  // (2026-09-14) las ventanas de PPG llenaron la particion y lo primero que se
+  // vio fue un abort. /debug/state ya informa total y usado; esto dice CON QUE,
+  // que es lo que hace falta para decidir si sobra un diagnostico o falta sitio
+  // para los perfiles de bebe, que viven en esta misma particion.
+  //
+  // No borra nada a proposito: aqui dentro estan los perfiles y el historico de
+  // pesos, y un endpoint que barre no es algo que deba existir sin pensarlo.
+  wifiServer.on("/debug/fs", HTTP_GET, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    const size_t cap = 4096;
+    char *buf = (char *)heap_caps_malloc(cap, MALLOC_CAP_SPIRAM);
+    if (buf == nullptr) {
+      buf = (char *)malloc(cap);
+    }
+    if (buf == nullptr) {
+      wifiServer.sendHeader("Connection", "close");
+      wifiServer.send(503, "application/json", "{\"error\":\"sin memoria\"}");
+      return;
+    }
+    size_t n = 0;
+    const size_t total = LittleFS.totalBytes();
+    const size_t used = LittleFS.usedBytes();
+    n += snprintf(buf + n, cap - n, "{\"total\":%u,\"used\":%u,\"files\":[",
+                  (unsigned)total, (unsigned)used);
+    // Recorrido de un solo nivel mas los dos directorios de pesos. Se acota por
+    // el buffer: si no cabe todo se corta y se avisa con "truncated", que es
+    // mejor que mandar JSON invalido.
+    bool first = true;
+    bool truncated = false;
+    // Literales a proposito: en baby_profile_store.cpp son `static const`
+    // del modulo, no parte de su interfaz. Si alli cambian, aqui solo se
+    // deja de listar un directorio; no se rompe nada.
+    const char *dirs[] = {"/", "/weight_active", "/weight_archive"};
+    for (size_t d = 0; d < sizeof(dirs) / sizeof(dirs[0]) && !truncated; d++) {
+      FsFile root = LittleFS.open(dirs[d]);
+      if (!root || !root.isDirectory()) {
+        continue;
+      }
+      FsFile f;
+      while ((f = root.openNextFile())) {
+        if (f.isDirectory()) {
+          continue;
+        }
+        if (cap - n < 160) {
+          truncated = true;
+          break;
+        }
+        // name() es el nombre pelado (ver plat_fs.h), asi que la ruta se
+        // recompone aqui: "/" en la raiz y "<dir>/" en los subdirectorios.
+        n += snprintf(buf + n, cap - n, "%s{\"n\":\"%s/%s\",\"b\":%u}",
+                      first ? "" : ",", (d == 0) ? "" : dirs[d],
+                      f.name(), (unsigned)f.size());
+        first = false;
+      }
+    }
+    n += snprintf(buf + n, cap - n, "],\"truncated\":%d}", truncated ? 1 : 0);
     wifiServer.sendHeader("Connection", "close");
     wifiServer.send(200, "application/json", (const char *)buf);
     free(buf);
