@@ -134,12 +134,42 @@ Two present-state problems:
   thermostat and its own cut-out. This is an architectural non-conformance
   and cannot be fixed in firmware alone — it needs a second, independent
   temperature channel.
-- **Bounded threshold.** `in3.airTemperatureSetMax` defaults to 38.0 °C but is
-  freely writable at runtime over USB and from the WiFi `/config` page, with
-  no clamp. Setting it to 45 °C is currently possible and would void the
-  requirement. It must be clamped to 38 °C for air control (40 °C for baby
-  control, per bb), and the "override up to 39 °C" path described in the
-  standard requires a *second* cut-out at 40 °C, which does not exist.
+- **Bounded threshold.** `in3.airTemperatureSetMax` was freely writable at
+  runtime over USB and from the WiFi `/config` page, with no clamp — setting
+  it to 45 °C was possible and would void the requirement. A clamp now exists
+  (`alarm_clamp_air_cutout()`), so this half is fixed. **Its ceiling, however,
+  is 40 °C, not the 38 °C the clause requires — see below.**
+
+#### Deviation on record (2026-09-14): air cut-out ceiling raised to 40 °C
+
+`ALARM_AIR_CUTOUT_MAX_C` is **40.0 °C**. Clause aa) says 38 °C. **This is a
+known, deliberate non-conformance**, decided by Pablo Sánchez so the air
+setpoint ceiling could be raised to 39 °C and tested on the bench. It is
+recorded here rather than left to be discovered in the source. Conformance with
+aa) **cannot be claimed** while this stands.
+
+What it costs, stated plainly: the cut-out still reads the same sensor as the
+PID (the independence problem above, unchanged). Raising its ceiling from 38 to
+40 **widens the window in which a stuck sensor can overheat the incubator**
+before anything trips — up to 2 °C more headroom on the single failure this
+section already flags as an architectural non-conformance.
+
+The standard *does* contemplate going above 37 °C, but not like this. It asks
+for an **override path** — a deliberate clinician gesture plus a permanent
+on-screen indication — and, while it is active, a **second cut-out at 40 °C on
+a channel independent of the thermostat**. That work is analysed in the
+`mb-air-overtemp-override` OpenSpec change.
+
+**Correction to the sentence this section used to carry** («a second,
+independent temperature channel … does not exist»): it half exists and is
+unused for safety. The SHTC3 is a physically distinct chip from the STS35 that
+feeds the PID; `sensors_module.cpp` already reads it, range-checks it and
+populates `in3.airTemperatureRedundantSensor`, but today it is only published as
+the `Air_temp_redundant` telemetry key and gates nothing. Wiring the override
+cut-out to *that* sensor is the concrete next step. Two limits: units running
+the SensorBoard never populate it (three readings are median-fused into one
+value instead), and if the STS35 fails the SHTC3 becomes the primary, at which
+point the redundancy is gone and any override must be refused.
 
 ### 2.5 Power supply interruption needs a 10-minute alarm
 

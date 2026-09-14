@@ -365,10 +365,18 @@ propio código lo documenta como no siendo una inconsistencia
 
 El umbral en modo aire es **±1.0 °C**, no los ±3 °C de dd). La norma fija un
 máximo, no un mínimo, así que apretarlo está permitido — y aquí es necesario:
-con 3 °C y el corte térmico topado a 38 °C, una consigna de 35 °C dejaba la
-desviación alarmando en el mismo punto que el corte, y una de 36 °C o más la
-dejaba sin alarmar nunca, de modo que entre la consigna y el disyuntor no
-había ningún aviso intermedio. Con ±1 °C hay que vigilar tres efectos que el
+con 3 °C el aviso no llega a tiempo en la mitad alta del rango de consigna
+(con 35 °C no alarmaría hasta 38 °C, y de ahí para arriba cada vez más tarde).
+
+> **Cambió el dato que sostenía esto.** Cuando se decidió, el corte térmico
+> estaba topado a 38 °C, así que con consigna de 35 °C la desviación alarmaba
+> en el mismo punto que el corte y a partir de 36 °C no alarmaba nunca antes
+> que él. Desde el 2026-09-14 el corte se topa a 40 °C (§6), esa coincidencia
+> ya no se da y sí queda margen entre los dos. La decisión de ±1 °C sigue en
+> pie por lo que de verdad la sostiene: es un aviso temprano en el único
+> escenario en el que el equipo no puede corregir por sí mismo.
+
+Con ±1 °C hay que vigilar tres efectos que el
 umbral anterior tapaba: el corte de calefactor se adelanta 2 °C, el
 sobreimpulso de la rampa pasa a ser visible en pantalla, y el lado frío salta
 al abrir la puerta (ver el comentario de `AIR_TEMP_DEVIATION_LIMIT_C` en
@@ -421,15 +429,40 @@ reloj a los ~49 días.
 ## 6. Límites acotados de los cortes térmicos
 
 `alarm_policy.h` define tres constantes de acotado:
-`ALARM_AIR_CUTOUT_MAX_C` = 38.0 °C, `ALARM_SKIN_CUTOUT_MAX_C` = 40.0 °C, y un
+`ALARM_AIR_CUTOUT_MAX_C` = 40.0 °C, `ALARM_SKIN_CUTOUT_MAX_C` = 40.0 °C, y un
 suelo común `ALARM_CUTOUT_MIN_C` = 34.0 °C. `alarm_clamp_air_cutout()` y
-`alarm_clamp_skin_cutout()` (`alarm_policy.cpp:59-65`) recortan cualquier
-valor propuesto a `[34.0, 38.0]` o `[34.0, 40.0]` respectivamente.
+`alarm_clamp_skin_cutout()` recortan cualquier valor propuesto a `[34.0, 40.0]`.
 
-Importante no confundir el acotado con el valor por defecto: los valores de
-fábrica (`main.h:319-320`) son `SKIN_TEMPERATURE_SET_MAX` = 37.5 °C y
-`AIR_TEMPERATURE_SET_MAX` = 38 °C — el de piel arranca 2.5 °C por debajo de su
-propio techo de acotado (40 °C), no en el límite.
+> **El techo del aire incumple la norma a propósito.** 201.15.4.2.1 aa) fija
+> 38 °C y aquí hay 40 °C. Decisión de producto del 2026-09-14, tomada para
+> poder subir la consigna de aire a 39 °C y probarlo en banco. **No se puede
+> reclamar conformidad.** El razonamiento completo —y por qué el camino bueno
+> es el override con un segundo corte en canal independiente, no mover este
+> número— está en el comentario sobre el `#define` en
+> `shared/include/alarm_policy.h` y en §2.4 de `alarms_normative_analysis.md`.
+
+Importante no confundir el acotado con el valor por defecto. Y no confundir
+tampoco **consigna** con **corte**, que hasta el 2026-09-14 eran la misma
+constante en la motherBoard:
+
+- **Tope de consigna**: `ALARM_AIR_SETPOINT_MAX_C` = 39 °C, en `shared/` porque
+  lo necesitan las dos placas (antes estaba duplicado a mano y se habían
+  desincronizado: 38.5 en el display y 38 en la placa).
+- **Corte térmico, valor de arranque**: `AIR_THERMAL_CUTOUT_DEFAULT_C` = 40 °C
+  y `SKIN_TEMPERATURE_SET_MAX` = 37.5 °C — el de piel arranca 2.5 °C por debajo
+  de su propio techo de acotado, no en el límite.
+
+La consigna máxima tiene que quedar **por debajo** del corte, o el equipo no
+puede alcanzar lo que se le pide: al cruzar el umbral salta el corte, que es
+ALTA y apaga el calefactor. Lo comprueba `test_alarm_policy`.
+
+**Trampa al actualizar una unidad que ya existía**: `KEY_AIR_T_MAX` se escribe
+en la inicialización de fábrica, así que un equipo que arrancó con el firmware
+anterior lleva **38 guardado en NVS y se queda en 38**, porque NVS manda sobre
+el compilado. Con la consigna topada en 39 eso deja un equipo que no puede
+alcanzar su consigna. No se migra en silencio —subir un umbral de seguridad por
+nuestra cuenta es justo lo que no se debe hacer—: se avisa en el log de
+arranque y se corrige a mano con `air_tmax` en `/config`.
 
 `in3.airTemperatureSetMax` / `in3.skinTemperatureSetMax` son escribibles en
 caliente, y las tres vías de escritura existentes aplican el acotado en todas
@@ -446,7 +479,7 @@ ellas:
    escribir a `in3` y a NVS.
 
 Con esto, un valor propuesto de 45 °C para el corte de aire queda recortado a
-38 °C en cualquiera de las tres vías; no hay un cuarto punto de entrada que
+40 °C en cualquiera de las tres vías; no hay un cuarto punto de entrada que
 modifique estos campos sin pasar por el acotado (búsqueda de
 `airTemperatureSetMax`/`skinTemperatureSetMax` en `motherBoard/src`).
 

@@ -31,6 +31,9 @@
 extern I2cBus &g_i2c;
 #include "control_types.h"
 #include "alarm_ids.h"
+// Por ALARM_AIR_SETPOINT_MAX_C: el tope de consigna lo fija shared/ para las
+// dos placas a la vez (ver AIR_TEMP_MAX mas abajo).
+#include "alarm_policy.h"
 #include "ui/i18n.h"
 
 #define FWversion "4.0.0"
@@ -157,7 +160,12 @@ constexpr int BRIGHTNESS_MAX = 255;
 // Temperature
 // -----------------------------
 constexpr double AIR_TEMP_MIN = 30.0;
-constexpr double AIR_TEMP_MAX = 38.5;
+// El display es quien de verdad limita lo que se puede pedir: la placa acepta
+// la consigna que le llegue por el enlace sin recortarla (main.cpp,
+// ACTUATION_TEMPERATURE) y su maxDesiredTemp[] se escribe pero no lo lee
+// nadie. Por eso el numero sale de shared/ y no se teclea aqui: cuando cada
+// placa tenia el suyo acabaron en 38.5 y 38 sin que nadie lo notara.
+constexpr double AIR_TEMP_MAX = ALARM_AIR_SETPOINT_MAX_C;
 constexpr double SKIN_TEMP_MIN = 35.0;
 constexpr double SKIN_TEMP_MAX = 37.5;
 // Clinical standard skin setpoint applied by the baby-data wizard — fixed,

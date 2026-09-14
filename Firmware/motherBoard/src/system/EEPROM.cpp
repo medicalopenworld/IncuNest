@@ -78,7 +78,7 @@ void loaddefaultValues()
     p.putInt(KEY_FAN_PWR_SUPPLY_PWM, FAN_PWR_SUPPLY_PWM);
     p.putFloat(KEY_HEAT_MAX_A, HEATER_MAX_POWER_AMPS);
     p.putFloat(KEY_SKIN_T_MAX, SKIN_TEMPERATURE_SET_MAX);
-    p.putFloat(KEY_AIR_T_MAX, AIR_TEMPERATURE_SET_MAX);
+    p.putFloat(KEY_AIR_T_MAX, AIR_THERMAL_CUTOUT_DEFAULT_C);
     p.putInt(KEY_ACT_PERIOD, 60);
     p.putInt(KEY_PHOTO_PERIOD, 180);
     p.putInt(KEY_STBY_PERIOD, 3600);
@@ -326,11 +326,29 @@ void recapVariables()
     // 201.15.4.2.1 bb): un valor persistido antes de que existiera este limite
     // (o corrupto) no debe superar el tope normativo al restaurarse.
     in3.skinTemperatureSetMax = alarm_clamp_skin_cutout(in3.skinTemperatureSetMax);
-    in3.airTemperatureSetMax = p.getFloat(KEY_AIR_T_MAX, AIR_TEMPERATURE_SET_MAX);
+    in3.airTemperatureSetMax = p.getFloat(KEY_AIR_T_MAX, AIR_THERMAL_CUTOUT_DEFAULT_C);
     if (isnan(in3.airTemperatureSetMax) || in3.airTemperatureSetMax <= 0)
-      in3.airTemperatureSetMax = AIR_TEMPERATURE_SET_MAX;
-    // 201.15.4.2.1 aa): idem para el corte por aire.
+      in3.airTemperatureSetMax = AIR_THERMAL_CUTOUT_DEFAULT_C;
+    // Idem para el corte por aire; el techo esta en shared/alarm_policy.h.
     in3.airTemperatureSetMax = alarm_clamp_air_cutout(in3.airTemperatureSetMax);
+    // UNA UNIDAD YA INICIALIZADA NO HEREDA EL CORTE NUEVO. KEY_AIR_T_MAX se
+    // escribe en la inicializacion de fabrica, asi que cualquier equipo que ya
+    // haya arrancado con el firmware anterior lleva 38 guardado y se queda en
+    // 38 aunque el compilado diga 40: lo de arriba lee NVS, que manda. Con la
+    // consigna topada en 39 eso deja un equipo que NO puede alcanzar lo que se
+    // le pide — al cruzar 38 salta el corte, que es ALTA y apaga el
+    // calefactor. No se migra en silencio: subir un umbral de seguridad por
+    // nuestra cuenta es justo lo que no se debe hacer, y ademas borraria un 38
+    // puesto a proposito. Se avisa, y se corrige a mano con air_tmax en
+    // /config (o por el enlace).
+    if (in3.airTemperatureSetMax < AIR_TEMPERATURE_SET_MAX) {
+      logI(String("[BOOT][AVISO] corte termico de aire a ") +
+           String(in3.airTemperatureSetMax, 1) +
+           " C, por debajo del tope de consigna (" +
+           String((float)AIR_TEMPERATURE_SET_MAX, 1) +
+           " C): una consigna por encima del corte disparara "
+           "ALARM_AIR_THERMAL_CUTOUT sin poder alcanzarse. Ajusta air_tmax.");
+    }
     in3.fanCtlPWM = p.getInt(KEY_FAN_CTL_PWM, FAN_CTL_PWM_DEFAULT);
     if (in3.fanCtlPWM <= 0 || in3.fanCtlPWM > 255)
       in3.fanCtlPWM = FAN_CTL_PWM_DEFAULT;
