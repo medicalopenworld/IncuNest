@@ -4,6 +4,8 @@ Placas afectadas: **motherBoard** (detecta la condición y la anuncia), **Displa
 
 > **Trabajo futuro, no planificado todavía.** Esta propuesta se registra para no perder el análisis. Nada de aquí está implementado y la Fase 0 tiene decisiones abiertas que hay que cerrar antes de escribir código.
 
+> **La línea base cambió el 2026-09-14 y este documento aún la describe como estaba.** Se tomó la vía corta: consigna de aire a **39 °C** y corte térmico a **40 °C** (`ALARM_AIR_CUTOUT_MAX_C`), sin override y **sin conformidad con 201.15.4.2.1 aa)**, para poder probarlo en banco. Así que donde abajo se lee «el corte térmico de 38 °C no se toca» y «el tope de consigna en 37 °C», hoy son 40 °C y 39 °C. Lo que **no** cambia es el fondo de esta propuesta: sigue sin haber override, sigue sin haber segundo corte independiente, y el punto ciego de la consigna alta seguida correctamente sigue abierto — de hecho ahora es más ancho, porque el disyuntor está 2 °C más arriba. Un dato nuevo a favor: el canal independiente que la sección Impact daba por inexistente **existe a medias** (el SHTC3, ya leído y publicado como `Air_temp_redundant`, sin gobernar nada); ver §2.4 de `alarms_normative_analysis.md`.
+
 **Todas las alarmas térmicas del equipo son relativas a la consigna.** El firmware nunca se pregunta «¿37 °C es mucho?», sino «¿me estoy alejando de lo que me pidieron?». Si no se aleja, calla — sea cual sea la temperatura absoluta.
 
 Eso deja un punto ciego que ningún umbral relativo puede cubrir: **si la consigna en sí es alta y el lazo la sigue bien, no hay desviación que alarmar.** Con el umbral de ±1 °C que introduce `fix/mb-air-deviation-1c`:

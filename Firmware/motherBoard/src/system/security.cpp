@@ -167,11 +167,19 @@ extern PID humidityControlPID;
 // En AIRE se alarma a +-1 C, no a los +-3 C de dd). La norma fija un MAXIMO,
 // no un minimo: ser mas estricto esta permitido, y hasta 912029d este mismo
 // firmware ya lo era. Con 3 C el aviso no llega a tiempo en la mitad alta del
-// rango de consigna, porque el corte termico del aire esta topado a 38 C
-// (ALARM_AIR_CUTOUT_MAX_C): con consigna de 35 C la desviacion alarmaria a
-// 38 C — el MISMO punto que el corte, que ademas es ALTA, latching y exige
-// reset manual — y con 36 C o mas no alarmaria nunca. Entre la consigna y el
-// disyuntor no quedaba ningun aviso intermedio.
+// rango de consigna: con consigna de 35 C la desviacion no alarmaria hasta
+// 38 C, y de ahi para arriba cada vez mas tarde.
+//
+// OJO AL DATO QUE SOSTENIA ESTO, QUE HA CAMBIADO. Cuando se decidio (912029d,
+// 7d20140) el corte termico estaba topado a 38 C, asi que con consigna de 35 C
+// la desviacion alarmaba en el MISMO punto que el corte y a partir de 36 C no
+// alarmaba nunca antes que el: no quedaba ningun aviso intermedio. Desde el
+// 2026-09-14 el corte se topa a 40 C (ver ALARM_AIR_CUTOUT_MAX_C), asi que esa
+// coincidencia exacta ya no se da y ahora si queda margen entre los dos.
+//
+// La decision de +-1 C SIGUE EN PIE, pero apoyada en lo que de verdad la
+// sostiene y no en aquella coincidencia: es un aviso temprano al operador en
+// el unico escenario en el que el equipo no puede corregir por si mismo.
 //
 // Eso es lo que dejo callada a una unidad en campo con consigna de 35 C que la
 // fototerapia subio a 37 C (2026-09-10): +2 C sobre la consigna, con el bebe

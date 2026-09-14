@@ -180,11 +180,28 @@ void test_notify_only_conditions_do_not_cut_the_heater(void) {
   TEST_ASSERT_FALSE(alarm_cuts_heater(ALARM_SENSORBOARD_DOOR_FAULT));
 }
 
-// 201.15.4.2.1 aa): el corte por aire no puede exceder 38 C.
-void test_air_cutout_is_capped_at_38(void) {
-  TEST_ASSERT_FLOAT_WITHIN(0.01f, 38.0f, alarm_clamp_air_cutout(45.0f));
+// El corte por aire se topa en 40 C. OJO: 201.15.4.2.1 aa) dice 38 C, asi que
+// esto NO es conforme — es la desviacion consciente del 2026-09-14 para poder
+// subir la consigna a 39 C. El porque y lo que costaria hacerlo bien estan en
+// shared/include/alarm_policy.h, sobre el #define. Este test fija el numero
+// que hay, no el que deberia haber: si se vuelve a 38, se cambia aqui tambien.
+void test_air_cutout_is_capped_at_40(void) {
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 40.0f, alarm_clamp_air_cutout(45.0f));
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 40.0f, alarm_clamp_air_cutout(40.0f));
   TEST_ASSERT_FLOAT_WITHIN(0.01f, 38.0f, alarm_clamp_air_cutout(38.0f));
   TEST_ASSERT_FLOAT_WITHIN(0.01f, 36.5f, alarm_clamp_air_cutout(36.5f));
+}
+
+// La consigna maxima tiene que quedar por debajo del corte: si se cruzan, el
+// equipo no puede alcanzar lo que se le pide sin disparar el corte termico.
+// Es la invariante que hace que subir la consigna a 39 exigiera tocar tambien
+// el corte, y la que un "ajuste" futuro de cualquiera de los dos numeros va a
+// romper primero.
+void test_air_setpoint_ceiling_stays_below_the_cutout(void) {
+  TEST_ASSERT_TRUE(ALARM_AIR_SETPOINT_MAX_C < ALARM_AIR_CUTOUT_MAX_C);
+  // Y por encima del suelo, o no se podria configurar ningun corte valido por
+  // encima de la consigna.
+  TEST_ASSERT_TRUE(ALARM_AIR_SETPOINT_MAX_C > ALARM_CUTOUT_MIN_C);
 }
 
 // 201.15.4.2.1 bb): el corte de piel no puede exceder 40 C.
@@ -215,7 +232,8 @@ int main(void) {
   RUN_TEST(test_cold_side_deviation_never_cuts_the_heater);
   RUN_TEST(test_mains_interruption_does_not_cut_the_heater);
   RUN_TEST(test_notify_only_conditions_do_not_cut_the_heater);
-  RUN_TEST(test_air_cutout_is_capped_at_38);
+  RUN_TEST(test_air_cutout_is_capped_at_40);
+  RUN_TEST(test_air_setpoint_ceiling_stays_below_the_cutout);
   RUN_TEST(test_skin_cutout_is_capped_at_40);
   RUN_TEST(test_cutouts_have_a_floor);
   return UNITY_END();

@@ -332,7 +332,29 @@ typedef enum
 #define SKIN_TEMPERATURE_SET_MIN 35
 #define AIR_TEMPERATURE_SET_MIN 30
 #define SKIN_TEMPERATURE_SET_MAX 37.5
-#define AIR_TEMPERATURE_SET_MAX 38
+
+// CONSIGNA y CORTE TERMICO son dos cosas distintas y hasta 2026-09-14 eran la
+// misma constante: AIR_TEMPERATURE_SET_MAX valia 38 y de ahi salian a la vez
+// el tope que el operador puede pedir y el umbral al que se dispara el corte.
+// Mientras los dos numeros coincidieron nadie lo noto; en cuanto se quiso
+// consigna 39 quedo a la vista que subir uno subia el otro.
+//
+// Ahora van separadas. La de abajo es SOLO el tope de consigna; el umbral del
+// corte es in3.airTemperatureSetMax, que arranca de
+// AIR_THERMAL_CUTOUT_DEFAULT_C y lo recorta alarm_clamp_air_cutout().
+//
+// La consigna tiene que quedar POR DEBAJO del corte, si no el equipo no puede
+// alcanzar lo que se le pide: al cruzar el umbral salta ALARM_AIR_THERMAL_
+// CUTOUT, que es ALTA y corta el calefactor. Hoy 39 < 40 y hay 1 C de margen.
+// El numero lo pone shared/alarm_policy.h, que es de donde lo lee tambien el
+// display: cuando cada placa tenia el suyo se desincronizaron.
+#define AIR_TEMPERATURE_SET_MAX ALARM_AIR_SETPOINT_MAX_C
+
+// Umbral de arranque del corte termico del aire. Ajustable en caliente (por
+// /config y por el enlace) y persistido en KEY_AIR_T_MAX, asi que este valor
+// solo manda en una unidad sin nada guardado. El techo, y el motivo por el que
+// 40 C es una desviacion normativa consciente, estan en shared/alarm_policy.h.
+#define AIR_THERMAL_CUTOUT_DEFAULT_C 40
 
 // Encoder variables
 #define NUMENCODERS 1 // number of encoders in circuit
@@ -415,7 +437,11 @@ typedef struct
   bool fanPidEnabled = FAN_PID_ENABLED_DEFAULT;
   float heaterMaxPowerAmps = HEATER_MAX_POWER_AMPS;
   float skinTemperatureSetMax = SKIN_TEMPERATURE_SET_MAX;
-  float airTemperatureSetMax = AIR_TEMPERATURE_SET_MAX;
+  // Pese al nombre no es el tope de consigna, es el UMBRAL DEL CORTE TERMICO
+  // (security.cpp: checkThermalCutOuts()). El tope de consigna es
+  // AIR_TEMPERATURE_SET_MAX. El nombre se conserva porque viaja al protocolo,
+  // a /config como air_tmax y a NVS como KEY_AIR_T_MAX.
+  float airTemperatureSetMax = AIR_THERMAL_CUTOUT_DEFAULT_C;
   // Defaults en config/transport_policy.h; /config los sobrescribe en NVS.
   int actuating_gprs_period = TX_GPRS_PERIOD_ACTUATING_S;
   int phototherapy_gprs_period = TX_GPRS_PERIOD_PHOTOTHERAPY_S;
