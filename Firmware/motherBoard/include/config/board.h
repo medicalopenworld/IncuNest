@@ -232,8 +232,51 @@
 //   whereas a partial obstruction that slips past this threshold still
 //   shows up as a temperature-deviation alarm or a thermal cutout — both of
 //   which exist and act independently of this one.
-#define FAN_DUTY_BLOCKED_THRESHOLD 190
-#define FAN_DUTY_BLOCKED_HYSTERESIS 15 // duty below (threshold - this) required to clear ALARM_AIR_OUTLET_BLOCKED
+// ============ MEDIDO EN BANCO 2026-09-14 (unidad 353): 190 NO VALIA ============
+//
+// El razonamiento de arriba parte de dos premisas y LAS DOS se caen con la
+// medida: da por bueno un baseline de 137 y un peor caso legitimo de ~158.
+// 97 muestras en 5 min con el ventilador a 4006 rpm, calefactor a 255 y
+// fototerapia al 82 %, con la salida de aire LIMPIA:
+//
+//     duty  min 186   max 188   media 187,0
+//
+// O sea que el punto de trabajo normal esta 50 cuentas por encima del baseline
+// supuesto, y el umbral de 190 dejaba **2 cuentas** de margen, no el 39 % que
+// dice el texto. Cualquier perturbacion levantaba una alarma ALTA que corta el
+// calefactor.
+//
+// Y habia algo peor que el falso positivo, que es lo que de verdad obliga a
+// tocar esto: el umbral de RETIRADA era 190-15 = 175, **por debajo** del duty
+// de trabajo. Con el ventilador girando el duty nunca baja de 175, asi que una
+// vez declarada la condicion NO SE PODIA RETIRAR: calefactor cortado hasta
+// reiniciar. La histeresis apuntaba al lado equivocado del punto de trabajo.
+//
+// Valores nuevos, derivados de la medida y no de una estimacion:
+//   - retirada en 200: 12 cuentas POR ENCIMA del maximo normal observado (188),
+//     que es la condicion para que la alarma pueda irse sola.
+//   - disparo en 220: 32 por encima del maximo normal y todavia 35 por debajo
+//     de la saturacion (255). Una obstruccion real ahoga el flujo, el RPM cae y
+//     el PID empuja el duty HACIA LA SATURACION, asi que se sigue detectando.
+//
+// Se conserva el sesgo original contra el falso positivo, que sigue siendo el
+// criterio correcto: un falso positivo corta el calefactor y enfria al bebe sin
+// red, mientras que una obstruccion parcial que se cuele por debajo de 220
+// aparece igual como desviacion de temperatura o como corte termico.
+//
+// SIGUE SIENDO DE UNA SOLA UNIDAD. La dispersion entre placas —otro ventilador,
+// otro conducto, otra fototerapia— no esta medida, y es justo lo que el WARNING
+// de abajo pide. Lo que ya no es una estimacion es el orden de magnitud: el
+// punto de trabajo real de esta placa es 187, no 137.
+#define FAN_DUTY_BLOCKED_THRESHOLD 220
+#define FAN_DUTY_BLOCKED_HYSTERESIS 20 // duty below (threshold - this) required to clear ALARM_AIR_OUTLET_BLOCKED
+
+// Maximo duty observado en funcionamiento NORMAL (salida limpia, peor carga).
+// No lo usa el detector: existe para poder comprobar en compilacion que la
+// retirada queda por encima de el. Si alguien vuelve a bajar el umbral o a
+// estrechar la histeresis, el build falla en vez de dejar una alarma que no se
+// puede retirar.
+#define FAN_DUTY_NORMAL_MAX_OBSERVED 188
 // Master enable for air-outlet-blockage detection (boot check + runtime
 // monitor). IEC 60601-2-19 201.12.3.101 requires an alarm AND a heater cut
 // when the air outlet is obstructed, and a mandated alarm cannot ship
