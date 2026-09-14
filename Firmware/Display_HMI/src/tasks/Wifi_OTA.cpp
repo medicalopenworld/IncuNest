@@ -545,6 +545,10 @@ void configWifiServer() {
 // ThingsBoard OTA callbacks
 // ---------------------------------------------------------------------------
 void progressCallback(const uint32_t &currentChunk, const uint32_t &totalChuncks) {
+  // AQUI es donde una actualizacion esta de verdad en curso: llegan chunks.
+  // Antes la bandera la ponia WIFICheckOTA(), que es solo una PREGUNTA — ver
+  // el comentario alli.
+  OTA_inprogress = true;
   ESP_LOGI(TAG, "OTA progress %.2f%%",
            static_cast<float>(currentChunk * 100U) / totalChuncks);
 }
@@ -572,8 +576,27 @@ bool WIFIIsConnectedToServer() {
 }
 
 void WIFICheckOTA() {
+  // NO se pone OTA_inprogress aqui, y ese era el fallo. Esto es una PREGUNTA
+  // ("¿hay firmware nuevo?"), no una actualizacion en curso.
+  //
+  // Lo que pasaba: la bandera se ponia a true en cada comprobacion y solo la
+  // limpiaba updatedCallback(false). Si ThingsBoard NO tiene firmware asignado
+  // a este dispositivo, ese callback no llega nunca — Start_Firmware_Update()
+  // se suscribe y se queda esperando un atributo que no existe. La bandera se
+  // quedaba puesta PARA SIEMPRE, y como la comprobacion periodica de
+  // WIFI_TB_OTA() esta guardada por !OTA_inprogress, el display preguntaba UNA
+  // VEZ al conectar y nunca mas.
+  //
+  // Medido en banco (2026-09-14, display asociado y con TB conectado): un solo
+  // "Checking ThingsBoard firmware update..." al arrancar y despues 150 s de
+  // silencio absoluto, cuando deberian haber salido dos comprobaciones mas.
+  //
+  // Ahora la bandera la pone progressCallback(), que solo corre cuando llegan
+  // chunks de verdad. Sigue protegiendo lo que tenia que proteger —que una
+  // comprobacion periodica se cruce con una descarga en marcha, propia o de la
+  // OTA por web, que la pone por su cuenta— pero ya no se queda enganchada
+  // cuando no hay nada que descargar.
   ESP_LOGI(TAG, "Checking ThingsBoard firmware update...");
-  OTA_inprogress = true;
   tb_wifi.Firmware_Send_Info(CURRENT_FIRMWARE_TITLE, FWversion);
   tb_wifi.Start_Firmware_Update(OTAcallback);
 }
