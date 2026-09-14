@@ -30,6 +30,17 @@ static TaskHandle_t s_write_task  = nullptr;
 static TaskHandle_t s_upload_task = nullptr;
 
 static volatile bool s_upload_slot_busy = false;
+
+// Espacio libre por debajo del cual no se abre otra ventana de PPG. Una ventana
+// completa ronda los 900 KB (500 Hz x 60 s x ~30 B), asi que 1 MB deja margen
+// para cerrarla y, sobre todo, para que los perfiles de bebe y el historico de
+// pesos —que viven en esta MISMA particion de 2,625 MB— no se queden sin sitio
+// por culpa de un diagnostico.
+#define DRIVE_MIN_FREE_BYTES (1024UL * 1024UL)
+
+// Evita repetir el aviso de "sin espacio" en cada vuelta del bucle: se emite al
+// entrar en el estado y se rearma al salir.
+static bool s_fs_full_reported = false;
 static bool s_time_synced = false;
 
 // One request = one upload. `source_path` holds the CSV/log on LittleFS;
@@ -360,6 +371,32 @@ static void driveWriteTask(void *pv) {
         if (s_upload_slot_busy) {
           break;
         }
+        // FRENO POR ESPACIO LIBRE. Una ventana son 500 muestras/s x 60 s x ~30 B
+        // = ~900 KB, y la particion `spiffs` (LittleFS) son 2,625 MB: con la
+        // sonda puesta y la subida sin drenar, TRES ventanas la llenan. Cuando
+        // se lleno, en banco (2026-09-14), el sistema quedo escupiendo
+        // "lfs.c:702:error: No more free space" 500 veces por segundo y la
+        // placa acabo abortando.
+        //
+        // Abrir una ventana que no cabe no aporta nada: el CSV saldria
+        // truncado y ademas deja el FS sin hueco para lo que SI importa —los
+        // perfiles de bebe y el historico de pesos viven en esta misma
+        // particion—. Asi que no se abre y se avisa una vez por episodio.
+        const size_t fs_total = LittleFS.totalBytes();
+        const size_t fs_used  = LittleFS.usedBytes();
+        const size_t fs_free  = (fs_total > fs_used) ? (fs_total - fs_used) : 0;
+        if (fs_free < DRIVE_MIN_FREE_BYTES) {
+          if (!s_fs_full_reported) {
+            s_fs_full_reported = true;
+            ESP_LOGW("DRIVE",
+                     "sin espacio para otra ventana de PPG (%u B libres de %u); "
+                     "no se captura mas hasta que la subida drene",
+                     (unsigned)fs_free, (unsigned)fs_total);
+          }
+          vTaskDelay(pdMS_TO_TICKS(1000));
+          break;
+        }
+        s_fs_full_reported = false;
         snprintf(csv_rel, sizeof(csv_rel),
                  DRIVE_CSV_PATH_PREFIX "%lu" DRIVE_CSV_PATH_SUFFIX,
                  (unsigned long)s.t_ms);
@@ -384,8 +421,23 @@ static void driveWriteTask(void *pv) {
       char line[64];
       int  n = snprintf(line, sizeof(line), "%u,%d,%d,%.4e\n", (unsigned)rel_ms,
                         (int)s.led1_sub, (int)s.led2_sub, s.ppg_disp);
-      if (n > 0)
-        ::write(csv_fd, line, n);
+      if (n > 0) {
+        // EL RETORNO DE write() SE COMPRUEBA, y antes no. Con el FS lleno cada
+        // escritura falla y el bucle seguia llamando 500 veces por segundo: de
+        // ahi la tormenta de errores de littlefs que precedio al abort en
+        // banco. Un CSV a medias no sirve para nada, asi que se abandona la
+        // ventana entera y se borra el fichero parcial — que ademas es lo que
+        // devuelve algo de espacio.
+        if (::write(csv_fd, line, n) != n) {
+          ESP_LOGW("DRIVE", "escritura fallida; se abandona la ventana %s",
+                   csv_rel);
+          ::close(csv_fd);
+          csv_fd = -1;
+          removeIfExists(csv_rel);
+          vTaskDelay(pdMS_TO_TICKS(1000));
+          break;
+        }
+      }
 
       if (s.valid_signal) {
         hb_detected = true;
