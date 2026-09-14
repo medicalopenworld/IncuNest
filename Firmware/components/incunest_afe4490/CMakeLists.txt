@@ -36,3 +36,29 @@ target_compile_options(${COMPONENT_LIB} PRIVATE
   -Wno-error=volatile
   -Wno-error=deprecated
 )
+
+# Instrumentacion de tiempos de la propia libreria (INCUNEST_TIMING_STATS), que
+# viene apagada. Se enciende asi:
+#
+#   set INCUNEST_PPG_TIMING=1 && idf.py build flash
+#
+# Emite una trama "$TIMING,..." cada 5 s (2500 muestras a 500 Hz) con media y
+# maximo de hr1/hr2/hr3/spo2, del CICLO y de los computos asincronos, mas la
+# pila libre. El campo que importa para el porte es el del CICLO: a 500 Hz la
+# media debe rondar los 2000 us. Es el dato que el analisis del porte da por no
+# verificado (ver la nota de plat_spi.h).
+#
+# PUBLIC Y NO PRIVATE, Y ESTO IMPORTA: el #if INCUNEST_TIMING_STATS anade
+# miembros a la clase INCUNEST_AFE4490, asi que cambia su TAMANO. La cabecera la
+# incluyen tambien SPO2.h, DriveUpload.h y PpgSnapshot.h de la motherBoard; si
+# el define solo llegase a este componente, cada lado veria una clase distinta y
+# el resultado seria corrupcion de memoria silenciosa, no un error de enlazado.
+# Con PUBLIC se propaga a todo el que haga REQUIRES de este componente.
+#
+# NO DEJARLO PUESTO EN PRODUCCION: cuesta dos lecturas de esp_timer por muestra
+# a 500 Hz y mete una trama de log cada 5 s.
+if(DEFINED ENV{INCUNEST_PPG_TIMING})
+  message(WARNING "INCUNEST_PPG_TIMING: instrumentacion de tiempos del AFE4490 "
+                  "ACTIVADA. Binario de diagnostico, no de produccion.")
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC INCUNEST_TIMING_STATS=1)
+endif()
