@@ -453,7 +453,28 @@ static void driveWriteTask(void *pv) {
 // Minimum heap we accept after a TLS failure. Below this the mbedTLS stack
 // has likely corrupted internal allocator state (observed: next LFS write
 // asserts `lfs_mlist_isopen`). Restart cleanly instead of operating blind.
-#define DRIVE_MIN_HEAP_AFTER_UPLOAD 50000
+//
+// ============ 50000 GARANTIZABA UN REINICIO POR CADA SUBIDA ============
+//
+// Medido en banco (2026-09-14, unidad 353): esta placa NO lleva PSRAM, asi que
+// ESP.getFreeHeap() es heap interno a secas, y en regimen —WiFi asociado, MQTT
+// arriba, enlace con el display— se estabiliza en unos 32 KB:
+//
+//     recien arrancada  ~63 KB
+//     en regimen        ~32 KB   (20 peticiones seguidas cuestan 8 B: no hay fuga)
+//
+// O sea que heap_after < 50000 se cumplia SIEMPRE, y una guarda pensada para
+// un caso excepcional reiniciaba la placa cada vez que una subida terminaba
+// BIEN. Es el mismo defecto de forma que el umbral del ventilador: una
+// constante elegida contra un punto de trabajo supuesto que no es el real.
+//
+// Baja a 20 KB: 12 por debajo del regimen medido, asi que solo salta ante un
+// agotamiento de verdad y no en operacion normal.
+//
+// Y lo que de verdad protege no es este numero, sino heap_caps_check_integrity_all()
+// unas lineas mas abajo: esa comprueba la corrupcion DIRECTAMENTE, sin umbral
+// que calibrar. El umbral es solo la red por si la corrupcion no se detecta.
+#define DRIVE_MIN_HEAP_AFTER_UPLOAD 20000
 
 // DNS preflight: skip TLS entirely if the host is not resolvable quickly.
 // Broken/partial handshakes are the path that corrupts heap.
@@ -497,9 +518,21 @@ static void driveUploadTask(void *pv) {
     // allocator, releasing s_upload_slot_busy would let the write task open a
     // new LFS file on a broken heap, which asserts lfs_mlist_isopen.
     if (heap_after < DRIVE_MIN_HEAP_AFTER_UPLOAD || heap_corrupt) {
-      logDrive(String("CRITICAL heap ") + heap_after +
-               (heap_corrupt ? " (corrupt)" : "") +
-               " after upload, restarting to recover");
+      // ESP_LOGE y NO logDrive: esto REINICIA una placa que gobierna el
+      // calefactor, y logDrive va por LOG_DRIVE, que es false. O sea que el
+      // equipo se reiniciaba solo y el motivo no salia por ningun lado.
+      //
+      // En banco (2026-09-14) eso costo una investigacion entera: tras una
+      // tanda con la sonda puesta aparecio un `rst:0xc (RTC_SW_CPU_RST)` sin
+      // panico, sin backtrace y sin una linea que lo explicara. Parecia un
+      // crash y era este reinicio a proposito. Un reinicio deliberado siempre
+      // tiene que dejar rastro.
+      ESP_LOGE("DRIVE",
+               "heap CRITICO %u B%s tras subir %s/%s; se reinicia para "
+               "recuperar (umbral %u)",
+               (unsigned)heap_after, heap_corrupt ? " (corrupto)" : "",
+               req.drive_folder, req.drive_filename,
+               (unsigned)DRIVE_MIN_HEAP_AFTER_UPLOAD);
       Serial.flush();
       vTaskDelay(pdMS_TO_TICKS(200));
       esp_restart();

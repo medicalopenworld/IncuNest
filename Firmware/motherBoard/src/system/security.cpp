@@ -214,6 +214,27 @@ extern PID humidityControlPID;
 // ACTUATORS_ALARM_STABILIZATION_MINS / RESTART_ALARM_GRACE_MINS now live in
 // main.h (initHardware.cpp needs them too for the restoreState resume path).
 
+// INVARIANTE DE LA ALARMA DE OBSTRUCCION, comprobada en COMPILACION.
+//
+// El umbral de RETIRADA (umbral - histeresis) tiene que quedar POR ENCIMA del
+// duty de trabajo normal. Si queda por debajo, con el ventilador girando el
+// duty nunca llega hasta el, y la condicion —una vez declarada— NO SE PUEDE
+// RETIRAR: el calefactor se queda cortado hasta reiniciar. Es exactamente lo
+// que pasaba con 190/15 sobre un punto de trabajo real de 187 (banco
+// 2026-09-14, 97 muestras). Un numero mal puesto valia para dejar una
+// incubadora sin calentar.
+//
+// Va aqui y no en board.h porque board.h lo incluye tambien codigo C, y
+// static_assert con mensaje es de C++.
+static_assert(FAN_DUTY_BLOCKED_THRESHOLD - FAN_DUTY_BLOCKED_HYSTERESIS >
+                  FAN_DUTY_NORMAL_MAX_OBSERVED,
+              "la retirada de ALARM_AIR_OUTLET_BLOCKED cae por debajo del duty "
+              "normal: la alarma no podria retirarse y dejaria el calefactor "
+              "cortado");
+static_assert(FAN_DUTY_BLOCKED_THRESHOLD < 255,
+              "el umbral de obstruccion debe quedar por debajo de la saturacion "
+              "del PWM, o no se alcanzaria nunca");
+
 #define FAN_TEST_CURRENTDIF_MIN \
   0.2 // when the fan is spinning, heater cools down and consume less current
 #define FAN_TEST_PREHEAT_TIME \
