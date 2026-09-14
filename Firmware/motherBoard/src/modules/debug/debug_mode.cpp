@@ -5,6 +5,9 @@
 #include <string.h>
 
 #include "esp_heap_caps.h"
+// Por LittleFS.totalBytes()/usedBytes() en el bloque "fs" del volcado. En el
+// port venia por platform/plat_fs.h; aqui es la LittleFS de Arduino.
+#include <LittleFS.h>
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -398,6 +401,14 @@ size_t debug_state_json_ex(char *out, size_t out_len, bool with_tasks) {
     (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
     (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
     (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
+
+  // SISTEMA DE FICHEROS. Se informa porque llenarlo no se notaba desde fuera:
+  // en banco (2026-09-14) las ventanas de PPG de DriveUpload llenaron los
+  // 2,625 MB de la particion en minutos y lo primero que se vio fue un abort.
+  // En esta particion viven tambien los perfiles de bebe y el historico de
+  // pesos, asi que quedarse sin sitio no es solo perder un diagnostico.
+  J(",\"fs\":{\"total\":%u,\"used\":%u}",
+    (unsigned)LittleFS.totalBytes(), (unsigned)LittleFS.usedBytes());
 
   // La tabla de tareas va BAJO PETICION (debug_state_json_ex(.., true)).
   //

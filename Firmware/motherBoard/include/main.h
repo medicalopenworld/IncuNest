@@ -471,14 +471,14 @@ typedef struct
 
 } IncuNest_parameters;
 
-void logE(String dataString);
-void logAlarm(String dataString);
-void logI(String dataString);
-void logCharger(String dataString);
-void logModemData(String dataString);
+void logE(const String &dataString);
+void logAlarm(const String &dataString);
+void logI(const String &dataString);
+void logCharger(const String &dataString);
+void logModemData(const String &dataString);
 void logSPO2(String dataString);
-void logDrive(String dataString);
-void logModemData(String dataString);
+void logDrive(const String &dataString);
+void logModemData(const String &dataString);
 long secsToMillis(long timeInMillis);
 long minsToMillis(long timeInMillis);
 float millisToHours(long timeInMillis);

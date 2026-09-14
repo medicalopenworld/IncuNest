@@ -30,7 +30,7 @@
 // through the shared log_mutex (main.cpp). Migrated out of system/updateData.cpp,
 // which used to mix this with on-board display drawing code.
 
-void logI(String dataString) {
+void logI(const String &dataString) {
   if (LOG_INFORMATION) {
     static const char *TAG_USER __attribute__((unused)) = "APP";
     if (log_mutex == NULL ||
@@ -43,7 +43,7 @@ void logI(String dataString) {
   }
 }
 
-void logCharger(String dataString) {
+void logCharger(const String &dataString) {
   if (LOG_CHARGER) {
     static const char *TAG_USER __attribute__((unused)) = "APP";
     if (log_mutex == NULL ||
@@ -56,7 +56,7 @@ void logCharger(String dataString) {
   }
 }
 
-void logModemData(String dataString) {
+void logModemData(const String &dataString) {
   if (!LOG_MODEM_DATA)
     return;
 
@@ -69,7 +69,7 @@ void logModemData(String dataString) {
   }
 }
 
-void logE(String dataString) {
+void logE(const String &dataString) {
   if (!LOG_ERRORS)
     return;
 
@@ -82,7 +82,7 @@ void logE(String dataString) {
   }
 }
 
-void logAlarm(String dataString) {
+void logAlarm(const String &dataString) {
   if (!LOG_ALARMS)
     return;
 
@@ -108,7 +108,7 @@ void logSPO2(String dataString) {
   }
 }
 
-void logDrive(String dataString) {
+void logDrive(const String &dataString) {
   if (!LOG_DRIVE)
     return;
 
