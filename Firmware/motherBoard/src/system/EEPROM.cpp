@@ -341,13 +341,18 @@ void recapVariables()
     // nuestra cuenta es justo lo que no se debe hacer, y ademas borraria un 38
     // puesto a proposito. Se avisa, y se corrige a mano con air_tmax en
     // /config (o por el enlace).
+    //
+    // Va por ESP_LOGW y no por logI() a proposito: logI esta detras de
+    // LOG_INFORMATION, que es false, asi que se compilaria a nada. Un aviso
+    // que no se ve no es un aviso.
     if (in3.airTemperatureSetMax < AIR_TEMPERATURE_SET_MAX) {
-      logI(String("[BOOT][AVISO] corte termico de aire a ") +
-           String(in3.airTemperatureSetMax, 1) +
-           " C, por debajo del tope de consigna (" +
-           String((float)AIR_TEMPERATURE_SET_MAX, 1) +
-           " C): una consigna por encima del corte disparara "
-           "ALARM_AIR_THERMAL_CUTOUT sin poder alcanzarse. Ajusta air_tmax.");
+      ESP_LOGW("APP",
+               "corte termico de aire a %.1f C, por debajo del tope de "
+               "consigna (%.1f C): una consigna por encima del corte "
+               "disparara ALARM_AIR_THERMAL_CUTOUT sin poder alcanzarse. "
+               "Ajusta air_tmax a %.1f en /config.",
+               in3.airTemperatureSetMax, (float)AIR_TEMPERATURE_SET_MAX,
+               (float)AIR_THERMAL_CUTOUT_DEFAULT_C);
     }
     in3.fanCtlPWM = p.getInt(KEY_FAN_CTL_PWM, FAN_CTL_PWM_DEFAULT);
     if (in3.fanCtlPWM <= 0 || in3.fanCtlPWM > 255)
