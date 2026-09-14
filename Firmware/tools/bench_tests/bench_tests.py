@@ -355,6 +355,60 @@ def t_corte_termico_del_aire(mb, hmi):
         mb.debug(False)
 
 
+def t_frontera_del_corte_termico(mb, hmi):
+    """El corte del aire esta en 40 C, no en 38.
+
+    La prueba de arriba sube el aire a 45 C, que dispara con 38 y con 40: no
+    distingue donde esta el umbral. Esta si, y por eso existe — el umbral se
+    movio el 2026-09-14 (consigna a 39, corte a 40) y sin una prueba de
+    frontera cualquiera puede devolverlo a 38 sin que nada se queje.
+
+    39.0 C es el punto que discrimina: por encima del tope de consigna, por
+    debajo del corte. Con el umbral viejo aqui YA habria saltado.
+
+    OJO SI ESTA FALLA EN 39.0: lo mas probable no es que el firmware este mal,
+    sino que ESTA unidad lleve un air_tmax menor guardado en NVS, que manda
+    sobre el compilado. La placa lo avisa al arrancar ("corte termico de aire
+    a X C, por debajo del tope de consigna"). Se arregla con
+    POST /config air_tmax=40, no tocando esta prueba.
+    """
+    mb.debug(True)
+    try:
+        mb.post("/debug/sensor", ch="air_temp", value=39.0)
+        time.sleep(3)
+        st = mb.state()
+        if alarm_signalling(st, ALARM_AIR_THERMAL_CUTOUT):
+            raise BenchError(
+                "el corte ha saltado con el aire a 39.0 C: el umbral sigue por "
+                "debajo de 40 (mira air_tmax en NVS, no solo el compilado)"
+            )
+        if st["heater"]["must_cut"]:
+            raise BenchError("calefactor cortado a 39.0 C sin corte termico declarado")
+
+        # Y por encima del umbral si salta.
+        mb.post("/debug/sensor", ch="air_temp", value=40.5)
+        st = wait_for(
+            lambda: (lambda s: s if alarm_signalling(s, ALARM_AIR_THERMAL_CUTOUT) else None)(mb.state()),
+            timeout_s=30,
+            what="ALARM_AIR_THERMAL_CUTOUT con el aire a 40.5 C",
+        )
+        if not st["heater"]["must_cut"]:
+            raise BenchError("corte declarado pero heater_must_cut es false")
+
+        # El limite que la placa publica tiene que ser el que se esta usando:
+        # es lo que el display le ensena al operador.
+        for a in st["alarms"]["list"]:
+            if a["id"] == ALARM_AIR_THERMAL_CUTOUT and "limit" in a:
+                if abs(float(a["limit"]) - 40.0) > 0.05:
+                    raise BenchError(
+                        f"la placa publica limite {a['limit']} y deberia ser 40.0"
+                    )
+                break
+    finally:
+        mb.post("/debug/sensor", ch="air_temp", clear=1)
+        mb.debug(False)
+
+
 def t_fallo_calefactor_se_enclava(mb, hmi):
     """El fallo de corriente del calefactor SI se enclava, y solo lo quita el reset.
 
@@ -667,6 +721,7 @@ TESTS = [
     ("apagar-retira-todo", t_apagar_retira_las_simulaciones),
     ("medida-simulada", t_medida_simulada_llega_al_control),
     ("corte-termico", t_corte_termico_del_aire),
+    ("frontera-corte-termico", t_frontera_del_corte_termico),
     ("ventilador-se-retira", t_alarma_de_ventilador_se_retira),
     ("calefactor-enclava", t_fallo_calefactor_se_enclava),
     ("alarma-forzada", t_alarma_forzada_respeta_la_maquina),
