@@ -191,9 +191,25 @@ bool Espressif_MQTT_Client::connect(const char *client_id, const char *user_name
     // additionally before we attempt to connect with the client we have to ensure it is configued by then.
     m_mqtt_client = esp_mqtt_client_init(&m_mqtt_configuration);
 
-    // The last argument may be used to pass data to the event handler, here that would be the static_mqtt_event_handler. But for our use case this is not needed,
-    // because the static_mqtt_event_handler calls a private method on this class again anyway, meaning we already have access to all private member variables that are required
-    esp_err_t error = esp_mqtt_client_register_event(m_mqtt_client, esp_mqtt_event_id_t::MQTT_EVENT_ANY, Espressif_MQTT_Client::static_mqtt_event_handler, nullptr);
+    // PARCHE INCUNEST (4): se pasa `this` como handler_args en vez de nullptr.
+    // Upstream lo dejaba a nullptr y el manejador estatico despachaba siempre
+    // contra m_instance, un unico puntero estatico que el constructor pisa.
+    // Con UNA instancia da igual; este firmware crea DOS (mqttClientGPRS en
+    // GPRS.cpp y mqttClientWIFI en Wifi_OTA.cpp, uno por transporte), asi que
+    // el ultimo construido se quedaba TODOS los eventos de los dos clientes.
+    //
+    // Consecuencia medida en banco el 2026-09-15: por GPRS, el
+    // MQTT_EVENT_CONNECTED del cliente celular se entregaba al objeto de WiFi,
+    // el m_connected del de GPRS no se ponia nunca a true y connected() mentia
+    // para siempre. El broker veia la sesion viva (ThingsBoard marcaba el
+    // equipo activo) mientras el firmware reintentaba cada 30 s, no suscribia
+    // ni un RPC (el servidor devolvia 409) y no pedia la OTA jamas. Los datos
+    // entrantes -- RPC y trozos de OTA -- tambien iban al cliente equivocado.
+    //
+    // esp_mqtt_client_register_event ya reenvia handler_args al manejador, asi
+    // que basta con usarlo; m_instance se conserva como respaldo para no
+    // romper a quien registre con nullptr.
+    esp_err_t error = esp_mqtt_client_register_event(m_mqtt_client, esp_mqtt_event_id_t::MQTT_EVENT_ANY, Espressif_MQTT_Client::static_mqtt_event_handler, this);
 
     if (error != ESP_OK) {
         return false;
@@ -310,11 +326,18 @@ void Espressif_MQTT_Client::mqtt_event_handler(void *handler_args, esp_event_bas
 }
 
 void Espressif_MQTT_Client::static_mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
-    if (m_instance == nullptr) {
+    // PARCHE INCUNEST (4): el evento se despacha al cliente que lo registro,
+    // no al ultimo construido. Ver el comentario largo en connect().
+    Espressif_MQTT_Client *instance = static_cast<Espressif_MQTT_Client *>(handler_args);
+    if (instance == nullptr) {
+        // Respaldo para registros hechos con nullptr (comportamiento upstream).
+        instance = m_instance;
+    }
+    if (instance == nullptr) {
         return;
     }
 
-    m_instance->mqtt_event_handler(handler_args, base, static_cast<esp_mqtt_event_id_t>(event_id), event_data);
+    instance->mqtt_event_handler(handler_args, base, static_cast<esp_mqtt_event_id_t>(event_id), event_data);
 }
 
 #endif // THINGSBOARD_USE_ESP_MQTT

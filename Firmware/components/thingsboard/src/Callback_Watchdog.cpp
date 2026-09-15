@@ -60,9 +60,19 @@ void Callback_Watchdog::create_timer() {
         return;
     }
 
+    // PARCHE INCUNEST (6): se pasa `this` como arg del temporizador en vez de
+    // nullptr. Upstream despachaba siempre contra m_instance, un unico puntero
+    // estatico que pisa el ultimo constructor. Este firmware tiene DOS
+    // ThingsBoard (GPRS y WiFi), luego dos OTA_Handler y dos watchdogs: el
+    // temporizador de la OTA celular acababa llamando al manejador de WiFi,
+    // cuyo m_fw_callback es nulo porque nunca arranco ninguna actualizacion.
+    // Medido en banco el 2026-09-15: tras un trozo corrupto, el reintento
+    // que debia pedir el watchdog nunca llegaba al handler correcto y la
+    // descarga por 2G se quedaba muda para siempre ("OTA update callback is
+    // NULL" en el handler equivocado; antes del parche 5, un LoadProhibited).
     const esp_timer_create_args_t oneshot_timer_args = {
         .callback = &oneshot_timer_callback,
-        .arg = nullptr,
+        .arg = this,
         .dispatch_method = esp_timer_dispatch_t::ESP_TIMER_TASK,
         .name = WATCHDOG_TIMER_NAME,
         .skip_unhandled_events = false
@@ -83,14 +93,21 @@ void Callback_Watchdog::create_timer() {
 
 #if THINGSBOARD_USE_ESP_TIMER
 void Callback_Watchdog::oneshot_timer_callback(void *arg) {
+    // PARCHE INCUNEST (6): el temporizador avisa al watchdog que lo armo, no
+    // al ultimo construido. m_instance queda solo de respaldo para un arg nulo.
+    Callback_Watchdog *self = static_cast<Callback_Watchdog *>(arg);
+    if (self == nullptr) {
+        self = m_instance;
+    }
 #else
 void Callback_Watchdog::oneshot_timer_callback() {
+    Callback_Watchdog *self = m_instance;
 #endif // THINGSBOARD_USE_ESP_TIMER
-    if (m_instance == nullptr) {
+    if (self == nullptr) {
         return;
     }
 
-    m_instance->m_callback();
+    self->m_callback();
 }
 
 #endif // THINGSBOARD_ENABLE_OTA

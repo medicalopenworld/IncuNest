@@ -318,6 +318,29 @@ class OTA_Handler {
 
     /// @brief Callback that will be called if we did not receive the firmware chunk response in the given timeout time
     void Handle_Request_Timeout()  {
+        // PARCHE INCUNEST (5): guarda contra m_fw_callback nulo, igual que la
+        // que upstream ya tiene en Process_Firmware_Packet().
+        //
+        // Stop_Firmware_Update() hace m_watchdog.detach() antes de anular
+        // m_fw_callback, pero eso NO basta: este callback corre en la tarea de
+        // esp_timer y el desmontaje en otra. Si el temporizador ya se disparo
+        // cuando la otra tarea anula el puntero, aqui se desreferencia un nulo.
+        //
+        // Medido en banco el 2026-09-15, primera OTA por celular: la sesion
+        // MQTT se cayo a media descarga (transport_read(): EOF, errno=128) y
+        // nueve segundos despues:
+        //
+        //   Guru Meditation Error: Core 0 panic'ed (LoadProhibited)
+        //   Handle_Request_Timeout() -> Helper::detectSize() -> EXCVADDR 0x3c
+        //
+        // El panico es peor que perder la OTA: initGPRS() ve un reset anormal
+        // y borra la tarea GPRS de esa sesion, asi que el equipo se queda sin
+        // celular hasta que alguien le quita la corriente a mano. Por WiFi no
+        // saltaba nunca porque la peticion de trozo no llegaba a vencer.
+        if (m_fw_callback == nullptr) {
+            Logger::println(OTA_CB_IS_NULL);
+            return;
+        }
         uint64_t const & timeout = m_fw_callback->Get_Timeout();
         char message[Helper::detectSize(CHUNK_REQUEST_TIMED_OUT, m_requested_chunks, timeout)] = {};
         (void)snprintf(message, sizeof(message), CHUNK_REQUEST_TIMED_OUT, m_requested_chunks, timeout);
