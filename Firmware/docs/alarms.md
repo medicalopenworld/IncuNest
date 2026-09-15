@@ -31,12 +31,12 @@ se añaden al final.
 
 | ID | Identificador | Qué la dispara en el código | Prioridad | Corta calefactor |
 |---|---|---|---|---|
-| 1 | `ALARM_AIR_THERMAL_CUTOUT` | `in3.temperature[ROOM_DIGITAL_TEMP_SENSOR] > in3.airTemperatureSetMax` (histéresis 0.2 °C, `AIR_THERMAL_CUTOUT_HYSTERESIS`, `security.cpp:191`), evaluada en `checkThermalCutOuts()` | ALTA | sí |
+| 1 | `ALARM_AIR_THERMAL_CUTOUT` | `in3.temperature[ROOM_DIGITAL_TEMP_SENSOR] > in3.airTemperatureSetMax` (histéresis **0.5 °C**, `AIR_THERMAL_CUTOUT_HYSTERESIS` — era 0.2, dentro del ruido del sensor; ver §6), evaluada en `checkThermalCutOuts()` | ALTA | sí |
 | 2 | `ALARM_SKIN_THERMAL_CUTOUT` | `in3.temperature[SKIN_SENSOR] > in3.skinTemperatureSetMax` (histéresis 0.2 °C, `SKIN_THERMAL_CUTOUT_HYSTERESIS`), misma función | ALTA | sí |
 | 3 | `ALARM_AIR_SENSOR_FAULT` | lectura del sensor de aire sin refrescar durante `MINIMUM_SUCCESSFULL_AIR_SENSOR_UPDATE` = 5000 ms (`checkStatusOfSensor()`) | ALTA | sí |
 | 4 | `ALARM_SKIN_SENSOR_FAULT_SKIN_MODE` | mismo mecanismo de staleness que el 3 pero sobre la sonda de piel, con su propia ventana `MINIMUM_SUCCESSFULL_SKIN_SENSOR_UPDATE` = 5000 ms (~25 muestras a 200 ms), y solo cuando `in3.controlMode == CONTROL_SKIN` | ALTA | sí |
 | 5 | `ALARM_FAN_FAILURE` | en marcha, `in3.fan_rpm < FAN_MIN_RPM` (3000 rpm, `board.h:185`), con histéresis de 300 rpm para despejar (`checkFanSpeed()`); solo evaluable con `in3.fanHasSpeedFeedback`. **También la declara el autotest de arranque** (`initHardware.cpp:412,677,732,740,779`), antes de que exista lazo de control | ALTA | sí |
-| 6 | `ALARM_AIR_OUTLET_BLOCKED` | en marcha, `fanControlPIDOutput > FAN_DUTY_BLOCKED_THRESHOLD` (190, `board.h:221`) sostenido `AIR_BLOCKED_SUSTAIN_MS` = 5000 ms (`checkAirBlockage()`). **También la declara el autotest de arranque** (`initHardware.cpp:803`) | ALTA | sí |
+| 6 | `ALARM_AIR_OUTLET_BLOCKED` | en marcha, `fanControlPIDOutput > FAN_DUTY_BLOCKED_THRESHOLD` (220, se retira bajo 200, `board.h`) sostenido `AIR_BLOCKED_SUSTAIN_MS` = 5000 ms (`checkAirBlockage()`). **También la declara el autotest de arranque** (`initHardware.cpp:803`) | ALTA | sí |
 | 7 | `ALARM_MAINS_INTERRUPTION` | **sin detector** — ver §9 | ALTA | no (no hay condición que cortar). **No silenciable**: 201.12.3.103 exige 10 min de aviso y la pausa dura justo eso |
 | 8 | `ALARM_AIR_TEMP_DEVIATION_HIGH` | en modo aire, `temperatura − consigna > 1.0 °C` (`AIR_TEMP_DEVIATION_LIMIT_C`, `checkAlarms()`) | MEDIA | sí |
 | 9 | `ALARM_AIR_TEMP_DEVIATION_LOW` | en modo aire, `consigna − temperatura > 1.0 °C`, y solo tras cerrar la ventana de estabilización (§5) | MEDIA | no |
@@ -733,21 +733,33 @@ hace hoy, para no inducir a confiar en protecciones que no existen.
   razonado pero pendiente de ajuste fino en banco.**
   `AIR_BLOCKED_DETECTION_ENABLED` es `true` (`board.h:234`) y ya corta el
   calefactor a través de `alarm_cuts_heater()`.
-  `FAN_DUTY_BLOCKED_THRESHOLD` vale **190** (`board.h:221`), derivado del duty
-  de fábrica de 137 que sostiene `FAN_TARGET_RPM` con la salida limpia: queda
-  +39 % por encima de esa línea base, holgadamente sobre el duty al que el PID
-  llega compensando la caída de tensión con el calefactor a máxima potencia
-  (~158), y aún 65 cuentas por debajo de la saturación a la que lleva una
-  obstrucción real. El margen está sesgado a propósito contra falsos
-  positivos, porque un falso positivo corta el calefactor y enfría al bebé sin
-  red de respaldo, mientras que una obstrucción parcial que se escape sigue
-  apareciendo como desviación de temperatura o corte térmico.
+  `FAN_DUTY_BLOCKED_THRESHOLD` vale **220** y la condición se retira por debajo
+  de **200** (`board.h`). Hasta el 2026-09-14 valían 190 y 175, derivados de un
+  duty de fábrica supuesto de 137, y **la medida los desmintió**: 97 muestras
+  con el ventilador a 4006 rpm, el calefactor a 255 y la fototerapia al 82 %,
+  con la salida limpia, dan un duty de trabajo de **187** (min 186, máx 188).
 
-  Sigue siendo un punto de partida calculado, **no validado en banco**: el
-  propio `board.h` lo dice y el arranque registra el duty necesario para
-  sostener `FAN_TARGET_RPM` precisamente para recoger esos datos. El ajuste
-  contra la dispersión real entre unidades es del responsable del proyecto,
-  antes de que el equipo salga a campo.
+  Eso dejaba dos problemas. El umbral de disparo quedaba a **2 cuentas** del
+  punto de trabajo, no al +39 % que decía este documento. Y el de retirada,
+  175, quedaba **por debajo** de ese punto de trabajo: con el ventilador
+  girando el duty nunca baja hasta ahí, así que una vez declarada la condición
+  **no podía retirarse** y el calefactor se quedaba cortado hasta reiniciar.
+
+  Los valores nuevos salen de esa medida: retirada 12 cuentas por encima del
+  máximo normal (para que la alarma pueda irse sola) y disparo 32 por encima,
+  aún 35 por debajo de la saturación a la que lleva una obstrucción real. Se
+  conserva el sesgo contra falsos positivos, que sigue siendo el criterio
+  correcto: un falso positivo corta el calefactor y enfría al bebé sin red,
+  mientras que una obstrucción parcial que se escape sigue apareciendo como
+  desviación de temperatura o corte térmico.
+
+  Un `static_assert` en `security.cpp` rompe la compilación si alguien vuelve a
+  dejar la retirada por debajo del duty de trabajo (`FAN_DUTY_NORMAL_MAX_OBSERVED`).
+
+  **Sigue siendo de UNA SOLA UNIDAD.** Lo que ya no es una estimación es el
+  orden de magnitud del punto de trabajo; la dispersión real entre placas
+  —otro ventilador, otro conducto— no está medida, y ese ajuste es del
+  responsable del proyecto antes de que el equipo salga a campo.
 - **Canal de corte térmico independiente del termostato: no existe.** El
   corte por aire (ID 1) lee el mismo `ROOM_DIGITAL_TEMP_SENSOR` que usa el PID
   de control. Un único fallo de sensor se lleva por delante tanto el control
