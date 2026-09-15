@@ -2,6 +2,11 @@
 #include "DriveUpload.h"
 #include "PpgSnapshot.h"
 #include "platform/plat_gpio.h"
+// Antes llegaba de rebote a traves de la cabecera parcheada del AFE4490
+// (incunest_afe4490.h la incluia bajo "PARCHE INCUNEST"). El submodulo v0.92
+// ya no la arrastra, y el objeto global SPI sigue haciendo falta aqui para
+// el spi_bus_initialize() de mas abajo.
+#include "platform/plat_spi.h"
 #include "main.h"
 
 INCUNEST_AFE4490 afe;

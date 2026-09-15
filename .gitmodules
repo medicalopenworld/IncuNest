@@ -1,0 +1,4 @@
+[submodule "Firmware/components/incunest_afe4490"]
+	path = Firmware/components/incunest_afe4490
+	url = https://github.com/medicalopenworld/incunest_afe4490.git
+	branch = master
