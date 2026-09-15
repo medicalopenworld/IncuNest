@@ -10,8 +10,8 @@
 
 Ambos boards exponen un WebServer en puerto 80 con endpoint `POST /update` para OTA:
 
-- **Motherboard** (`IncuNest-<sn>`): requiere auth (nueva: `incunestadmin/savinglives`; fallback: `in3admin/savinglives`; fallback final: sin auth para versiones muy antiguas)
-- **Display HMI** (`IncuNest_Display-<sn>`): requiere auth (nueva: `incunestadmin/savinglives`; fallback: `in3admin/savinglives`)
+- **Motherboard** (`IncuNest-<sn>`): requiere auth (nueva: `incunestadmin/<WEB_SERVER_PASSWORD>`; fallback: `in3admin/<WEB_SERVER_PASSWORD>`; fallback final: sin auth para versiones muy antiguas)
+- **Display HMI** (`IncuNest_Display-<sn>`): requiere auth (nueva: `incunestadmin/<WEB_SERVER_PASSWORD>`; fallback: `in3admin/<WEB_SERVER_PASSWORD>`)
 
 Limitación vs USB: vía WiFi solo se flashea `firmware.bin`. Bootloader, partitions table y NVS (número de serie) no se tocan — adecuado para actualizaciones de campo.
 
@@ -79,8 +79,8 @@ class WifiBoard:
 firmware_path = firmware_base / {"motherboard"|"display_hmi"} / "firmware.bin"
 Abre con _ProgressFile (wrapper → progress_cb en cada read())
 
-Intento 1: POST /update con HTTPBasicAuth('incunestadmin', 'savinglives')
-Intento 2 (si 401): POST /update con HTTPBasicAuth('in3admin', 'savinglives')
+Intento 1: POST /update con HTTPBasicAuth('incunestadmin', '<WEB_SERVER_PASSWORD>')
+Intento 2 (si 401): POST /update con HTTPBasicAuth('in3admin', '<WEB_SERVER_PASSWORD>')
 Intento 3 (si 401 y MOTHERBOARD): POST /update sin auth
 
 Si respuesta.text == "FAIL" → RuntimeError
