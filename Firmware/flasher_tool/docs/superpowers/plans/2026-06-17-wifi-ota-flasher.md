@@ -13,7 +13,7 @@
 - Working dir: `flasher_tool/flasher/`
 - Tests run from `flasher_tool/flasher/` con `pytest tests/`
 - Conftest añade el directorio padre al sys.path — imports directos por nombre de módulo
-- Credenciales nuevas: `incunestadmin` / `savinglives`; fallback antiguo: `in3admin` / `savinglives`; fallback sin auth solo para `Board.MOTHERBOARD`
+- Credenciales nuevas: `incunestadmin` / `<WEB_SERVER_PASSWORD>`; fallback antiguo: `in3admin` / `<WEB_SERVER_PASSWORD>`; fallback sin auth solo para `Board.MOTHERBOARD`
 - Solo se flashea `firmware.bin` — bootloader/partitions/NVS fuera de scope
 - `Board.MOTHERBOARD` → carpeta `motherboard/`; `Board.DISPLAY_HMI` → carpeta `display_hmi/`
 - Nombre de red: `IncuNest_Display-*` → Display HMI; `IncuNest-*` → Motherboard
@@ -296,12 +296,12 @@ _BOARD_FOLDER: dict[Board, str] = {
 
 _AUTH_SEQUENCES: dict[Board, list] = {
     Board.DISPLAY_HMI: [
-        HTTPBasicAuth('incunestadmin', 'savinglives'),
-        HTTPBasicAuth('in3admin', 'savinglives'),
+        HTTPBasicAuth('incunestadmin', '<WEB_SERVER_PASSWORD>'),
+        HTTPBasicAuth('in3admin', '<WEB_SERVER_PASSWORD>'),
     ],
     Board.MOTHERBOARD: [
-        HTTPBasicAuth('incunestadmin', 'savinglives'),
-        HTTPBasicAuth('in3admin', 'savinglives'),
+        HTTPBasicAuth('incunestadmin', '<WEB_SERVER_PASSWORD>'),
+        HTTPBasicAuth('in3admin', '<WEB_SERVER_PASSWORD>'),
         None,
     ],
 }

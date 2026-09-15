@@ -265,16 +265,25 @@ const char *loginIndex =
     "</table>"
     "</form>"
     "<script>"
+    // AQUI HABIA UNA COMPROBACION DE CREDENCIALES EN JAVASCRIPT, y se ha
+    // quitado por dos motivos:
+    //
+    //  1. NO PROTEGIA NADA. Corria en el navegador del visitante: bastaba con
+    //     mirar el codigo de la pagina, o llamar a /serverIndex directamente,
+    //     para saltarsela. Quien de verdad protege es el
+    //     wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)
+    //     que lleva /serverIndex y el resto de endpoints.
+    //  2. PUBLICABA LA CONTRASENA. Esta pagina la sirve "/" SIN autenticar, o
+    //     sea que la placa le entregaba usuario y contrasena en claro a
+    //     cualquiera que abriese su IP. Y como el literal estaba en el fuente,
+    //     ademas era legible en GitHub: el repo es publico.
+    //
+    // El formulario se deja: al pulsar Login se abre /serverIndex, y es el
+    // navegador quien pide las credenciales por HTTP Basic contra la
+    // autenticacion de verdad.
     "function check(form)"
     "{"
-    "if(form.userid.value=='in3admin' && form.pwd.value=='savinglives')"
-    "{"
     "window.open('/serverIndex')"
-    "}"
-    "else"
-    "{"
-    " alert('Error WIFI_PASSWORD or Username')/*displays error message*/"
-    "}"
     "}"
     "</script>";
 
