@@ -14,7 +14,28 @@
 #define SERIAL_DEBUG_BAUD 115200
 #define MODEM_BAUD 115200
 #define RX_BUFFER_LENGTH 1024
+
 #define GPRS_TIMEOUT 30000 // in millisecs
+
+// Cuanto se espera, tras un tb.connect() que devolvio true, a que la sesion
+// MQTT exista de verdad (evento MQTT_EVENT_CONNECTED). Ver el comentario largo
+// en GPRSPost(): connect() solo arranca el cliente, y suscribirse antes de que
+// llegue el evento falla en silencio. 5 s es holgado incluso por GPRS -- en
+// banco el evento llego en menos de 1 s -- y si no llega, se reintenta al
+// siguiente ciclo en vez de darse por conectado.
+#define GPRS_MQTT_SESSION_TIMEOUT 5000
+
+// Timeout de lectura de red de esp-mqtt en el cliente CELULAR. El defecto son
+// 10 s y no llegan para un trozo de OTA de FIRMWARE_PACKET_SIZE (4096 B) por
+// GPRS: el cliente abandona a media lectura y la OTA se cae sin avanzar. 60 s
+// es el maximo comodo (el setter toma un uint16_t, tope 65535 ms) y sigue
+// detectando una caida real en menos de un minuto.
+#define GPRS_MQTT_NETWORK_TIMEOUT 60000
+
+// Cadencia propia de publicacion de ota_progress mientras hay una OTA bajando.
+// Ver publishOtaProgressIfDue() en GPRS.cpp: sin esto el progreso viajaba solo
+// dentro de la telemetria normal, que en reposo sale cada hora.
+#define GPRS_OTA_PROGRESS_PUBLISH_MS 30000
 
 // Los valores viven en transport_policy.h, que es la tabla única GPRS/WiFi.
 // Estos alias mantienen los nombres que ya usa el código.

@@ -1,5 +1,24 @@
 #pragma once
 
+// Buffer de recepcion del DRIVER UART del modem. NO confundir con
+// RX_BUFFER_LENGTH, que es el buffer donde se copian las respuestas a los AT
+// de la maquina de estados (GPRS.buffer) y con 1 KB va sobrado.
+//
+// El porte a esp_modem paso RX_BUFFER_LENGTH tambien como tamano del anillo
+// del UART, y ahi 1 KB no llega: por ese mismo UART va el flujo PPP dentro de
+// CMUX, y los trozos de OTA son de FIRMWARE_PACKET_SIZE (4096 B). Medido en
+// banco el 2026-09-15, en cuanto empezaban a llegar trozos:
+//
+//   uart_terminal: Ring Buffer Full
+//   CMUX: Restarting CMUX state machine (reason: 6)
+//   mqtt_client: Network timeout while reading MQTT message
+//
+// Con AT normal no se nota nunca; solo aparece con una descarga de verdad.
+#define GPRS_MODEM_UART_RX_BUFFER 8192
+#define GPRS_MODEM_UART_TX_BUFFER 2048
+#define GPRS_MODEM_DTE_BUFFER 4096
+
+
 // Modem celular SIM800 sobre esp_modem (ESP-IDF puro), con la forma de los
 // metodos de TinyGSM que usaba GPRS.cpp.
 //
@@ -86,6 +105,11 @@ public:
   static constexpr uint32_t GPRS_PPP_CONNECT_TIMEOUT_MS = 75000;
 
 private:
+  // Ver gprs_modem.cpp: devuelve el modem a modo comandos venga del estado que
+  // venga, comprobandolo con un AT en vez de suponerlo.
+  void rescueFromPreviousSession();
+  bool modemRespondeAT();
+
   static void onIpEvent(void *arg, esp_event_base_t base, int32_t id, void *data);
   bool openInternalBearer(const char *apn);
   bool atLine(const char *cmd, const char *prefix, char *line, size_t line_len,
@@ -97,3 +121,8 @@ private:
   bool cmux_ = false;
   char resp_[256] = {};
 };
+
+// La instancia unica vive en GPRS.cpp. Se declara aqui para que el lado WiFi
+// pueda preguntar si hay datos por celular antes de rehacer su interfaz: el
+// reintento de WiFi derriba el PPP (ver WifiOTAHandler en Wifi_OTA.cpp).
+extern GprsModem modem;

@@ -33,6 +33,7 @@
 
 #include "CommTask.h"
 #include "GPRS.h"
+#include "gprs_modem.h"
 #include "SPO2.h"
 #include "PpgSnapshot.h"
 #include "PpgSnapshotPublish.h"
@@ -92,7 +93,10 @@ Espressif_MQTT_Client mqttClientWIFI;
 // Initialize ThingsBoard instance
 // ThingsBoardSized<THINGSBOARD_BUFFER_SIZE, THINGSBOARD_FIELDS_AMOUNT>
 // tb_wifi(espClient);
-ThingsBoard tb_wifi(mqttClientWIFI, MAX_MESSAGE_SIZE);
+// Buffer dimensionado para un trozo de OTA desde la creacion: ver
+// TB_MQTT_BUFFER_WIFI en main.h (esp-mqtt no lo puede ampliar despues). Por
+// WiFi funcionaba con 1024 de milagro; no es algo de lo que depender.
+ThingsBoard tb_wifi(mqttClientWIFI, TB_MQTT_BUFFER_WIFI);
 StaticJsonDocument<JSON_OBJECT_SIZE(THINGSBOARD_FIELDS_AMOUNT)> WIFI_JSON;
 JsonObject addVariableToTelemetryWIFIJSON = WIFI_JSON.to<JsonObject>();
 
@@ -1048,9 +1052,27 @@ bool WIFIIsConnectedToServer() {
   return (Wifi_TB.serverConnectionStatus && WIFIIsConnected());
 }
 
+// Gemela de currentFWSent (GPRS.cpp), pero PROPIA: los dos transportes tienen
+// su propio cliente ThingsBoard (tb / tb_wifi) y cada uno tiene que hacer su
+// handshake. Compartir la bandera haria que, si GPRS ya informo, el lado WiFi
+// no informase nunca -- y al reves.
+static bool s_wifiCurrentFWSent = false;
+
 void WIFICheckOTA() {
   logI("[WIFI] -> Checking WIFI firwmare Update...");
-  tb_wifi.Firmware_Send_Info(CURRENT_FIRMWARE_TITLE, FWversion);
+  // Sin el Firmware_Send_State, ThingsBoard NUNCA se entera de que la
+  // actualizacion salio bien: la OTA deja el estado en UPDATING (el servidor
+  // asume que el equipo esta reiniciando) y ahi se queda para siempre.
+  // Verificado en banco el 2026-09-15: tras una OTA por WiFi completada y
+  // aplicada (18.2 -> 18.3, arrancando ya desde app1), CLIENT_SCOPE no tenia
+  // un solo atributo fw_*, asi que el panel de firmware no mostraba la unidad
+  // como actualizada. El lado GPRS si lo hacia (ver GPRSCheckOTA); esto era
+  // una divergencia entre gemelas, no una decision.
+  if (!s_wifiCurrentFWSent) {
+    s_wifiCurrentFWSent =
+        tb_wifi.Firmware_Send_Info(CURRENT_FIRMWARE_TITLE, FWversion) &&
+        tb_wifi.Firmware_Send_State(FW_STATE_UPDATED);
+  }
   tb_wifi.Start_Firmware_Update(OTAcallback);
 }
 
@@ -1956,6 +1978,34 @@ void WIFI_TB_OTA() {
 
 void WifiOTAHandler(void) {
   if (WIFI_EN && !WIFIIsConnected()) {
+    // Reintentar el WiFi DERRIBA la sesion PPP del celular. wifiInit() rehace
+    // la interfaz de la STA, y eso se lleva por delante el netif de PPP:
+    //
+    //   Progress 1.86%
+    //   WiFi: Initializing WiFi
+    //   tcp_read error, errno=113 (ECONNABORTED)
+    //   esp-netif_lwip-ppp: ppp: User interrupt
+    //   CMUX: Restarting CMUX state machine
+    //
+    // Medido en banco el 2026-09-15: la descarga de OTA por 2G duraba
+    // exactamente 30 s -- un periodo de reintento de WiFi -- y moria ahi
+    // siempre, dejando ademas el modem mudo.
+    //
+    // No es solo cosa del banco: cualquier unidad con una SSID configurada
+    // que no este al alcance (y la compilada por defecto lo esta en muy pocos
+    // sitios) reintenta cada 30 s, o sea que su enlace celular no sobrevive
+    // medio minuto. Por eso una OTA por 2G no podia completarse nunca.
+    //
+    // Mientras haya datos por celular no se toca el WiFi; y si ademas hay una
+    // OTA bajando, ni eso. El WiFi se reintenta igual en cuanto el celular no
+    // tiene IP, que es cuando hace falta de verdad.
+    if (GPRS.OTAInProgress) {
+      return;
+    }
+    if (modem.isGprsConnected() &&
+        millis() - Wifi_TB.lastWifiReconnectAttempt < WIFI_RECONNECT_WITH_PPP_INTERVAL) {
+      return;
+    }
     if (millis() - Wifi_TB.lastWifiReconnectAttempt > WIFI_RECONNECT_INTERVAL) {
       logI("[WIFI] -> Connection lost, re-init WiFi");
       wifiInit();   // updates lastWifiReconnectAttempt

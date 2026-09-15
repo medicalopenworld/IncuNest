@@ -204,6 +204,31 @@
 #define TELEMETRIES_DECIMALS 2
 #define FIRMWARE_FAILURE_RETRIES 12
 #define FIRMWARE_PACKET_SIZE 4096
+// Tamano de trozo para la OTA POR CELULAR. Los 4096 de arriba van bien por
+// WiFi (la actualizacion entera dura 80 s), pero por GPRS cada mensaje tarda
+// segundos en llegar y un enlace con baches lo deja a medias: medido en banco
+// el 2026-09-15, la descarga moria siempre con "Network timeout while reading
+// MQTT message" aun con el timeout de red subido a 60 s.
+// 1024 ademas CUADRA con MAX_MESSAGE_SIZE, que es el tamano de mensaje que se
+// le declara al cliente ThingsBoard: pedir trozos de 4096 con un buffer
+// declarado de 1024 era incoherente de partida.
+// El precio es que hay ~4x mas trozos, o sea una descarga bastante mas larga.
+#define FIRMWARE_PACKET_SIZE_GPRS 1024
+
+// Tamano del buffer MQTT con el que se CREA cada cliente ThingsBoard. Tiene
+// que caber ya un trozo de OTA entero (carga + topico + cabecera), porque
+// esp-mqtt NO permite cambiar el buffer de un cliente en marcha: el SDK lo
+// intenta al arrancar la OTA con setBufferSize(chunk + 50) y la llamada no
+// tiene efecto (esp-mqtt issue #267; lo dice el propio comentario de
+// Espressif_MQTT_Client::set_buffer_size). Medido en banco el 2026-09-15 con
+// MAX_MESSAGE_SIZE=1024 y trozos de 1024: desde el trozo 29 TODOS llegaban al
+// handler con 0 bytes, deterministicamente, aunque el volcado del UART
+// mostraba el PUBLISH completo. El mensaje del trozo no cabia en el buffer.
+//
+// Margen: +256 por encima del trozo para topico (~26 B), cabecera MQTT y
+// holgura; ~1,3 KB y ~4,4 KB de RAM respectivamente.
+#define TB_MQTT_BUFFER_GPRS (FIRMWARE_PACKET_SIZE_GPRS + 256)
+#define TB_MQTT_BUFFER_WIFI (FIRMWARE_PACKET_SIZE + 256)
 #define WAIT_FAILED_OTA_CHUNKS 10U * 1000U * 1000U
 
 // Mutex for protecting the shared variable

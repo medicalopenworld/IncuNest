@@ -47,14 +47,22 @@ bool GprsModem::begin(int uart_num, int tx_pin, int rx_pin, int baud, int rx_buf
   dte_cfg.uart_config.cts_io_num = -1;
   dte_cfg.uart_config.flow_control = ESP_MODEM_FLOW_CONTROL_NONE;
   dte_cfg.uart_config.baud_rate = baud;
+  // Ver GPRS_MODEM_UART_RX_BUFFER en GPRS.h: por este UART no van solo los AT,
+  // va el PPP entero dentro de CMUX. Con los 1 KB de antes, la primera rafaga
+  // de trozos de OTA desbordaba el anillo y se llevaba por delante el CMUX.
   dte_cfg.uart_config.rx_buffer_size = rx_buffer;
-  dte_cfg.uart_config.tx_buffer_size = 512;
+  dte_cfg.uart_config.tx_buffer_size = GPRS_MODEM_UART_TX_BUFFER;
   dte_cfg.uart_config.event_queue_size = 30;
-  dte_cfg.dte_buffer_size = 1024;
+  dte_cfg.dte_buffer_size = GPRS_MODEM_DTE_BUFFER;
   // La tarea del DTE se queda por debajo de la de comunicacion con el HMI
   // (7) y de la del SensorBoard (8): el cable no debe ceder ante el modem.
   dte_cfg.task_priority = 5;
   dte_cfg.task_stack_size = 6144;
+
+  // Para ver el trafico AT crudo en banco: CONFIG_ESP_MODEM_ADD_DEBUG_LOGS=y,
+  // CONFIG_LOG_MAXIMUM_LEVEL_DEBUG=y y subir a DEBUG los tags "uart-tx" y
+  // "uart-rx" (son esos, no el TAG del fichero; sin ellos no se ve un byte).
+  ESP_LOGI(TAG, "DTE: uart=%d tx_io=%d rx_io=%d baud=%d", uart_num, tx_pin, rx_pin, baud);
 
   esp_modem_dce_config_t dce_cfg = ESP_MODEM_DCE_DEFAULT_CONFIG("onomondo");
   dce_ = esp_modem_new_dev(ESP_MODEM_DCE_SIM800, &dte_cfg, &dce_cfg, ppp_netif_);
@@ -64,7 +72,90 @@ bool GprsModem::begin(int uart_num, int tx_pin, int rx_pin, int baud, int rx_buf
     ppp_netif_ = nullptr;
     return false;
   }
+
+  // El modem NO se reinicia cuando se reinicia el ESP32: GSM_PWRKEY no esta
+  // cableado a ningun IO (ver board.h), asi que sobrevive al reset con el modo
+  // que tuviera. Si la sesion anterior lo dejo en CMUX -- que es el caso normal,
+  // porque es donde vive PPP -- un DCE recien creado se cree en modo comandos y
+  // le habla AT plano a un canal multiplexado: el modem no contesta NADA y la
+  // unidad se queda sin celular hasta que alguien le quita la corriente a mano.
+  // Verificado en banco el 2026-09-15: cero bytes en uart-rx durante 6 ciclos.
+  //
+  // AUTODETECT sondea el modo real y lo reanuda, que es lo unico que permite
+  // volver a modo comandos desde CMUX sin tocar hardware.
+  rescueFromPreviousSession();
   return true;
+}
+
+// Devuelve al modem a modo comandos venga del estado que venga, COMPROBANDOLO
+// en vez de suponerlo: tras cada intento se manda un AT pelado y solo se da por
+// bueno si contesta.
+//
+// Por que hace falta comprobar: la version anterior encadenaba AUTODETECT y
+// luego COMMAND a ciegas, y acertaba una de cada tres veces. AUTODETECT reanuda
+// el modo real (que es lo que permite volver a hablar con un modem dejado en
+// CMUX), pero reanudar no es lo mismo que salir: si se queda en CMUX_MANUAL,
+// la transicion directa a COMMAND se rechaza y el modem sigue mudo.
+//
+// Por que no se usa el escape "+++": esp_modem lo trae, pero su guarda es
+// #ifdef ESP_MODEM_PPP_ESCAPE_BEFORE_EXIT mientras que Kconfig genera
+// CONFIG_ESP_MODEM_PPP_ESCAPE_BEFORE_EXIT -- nombres distintos, nadie define
+// la macro y el codigo nunca se compila. Y aunque se arreglase, su propia
+// ayuda avisa de que "might cause trouble for SIMCOM", que es este chip.
+// La via correcta de protocolo es la trama CLD de cierre del multiplexado,
+// que es lo que hace CMUX_MANUAL_EXIT.
+void GprsModem::rescueFromPreviousSession() {
+  // El modem NO se reinicia cuando se reinicia el ESP32: GSM_PWRKEY no esta
+  // cableado a ningun IO (ver board.h), asi que sobrevive con el modo que
+  // tuviera. Si la sesion anterior lo dejo en CMUX -- que es lo normal, porque
+  // es donde vive PPP -- un DCE recien creado le habla AT plano a un canal
+  // multiplexado y no contesta NADA, hasta que alguien le quita la corriente.
+  // OJO con AUTODETECT: si el modem estaba en CMUX, lo REANUDA en vez de
+  // salir de el, y desde CMUX el modem tambien contesta AT (por el canal de
+  // control del multiplexor). Un AT que responde NO distingue "modo comandos
+  // plano" de "CMUX reanudado". Medido en banco el 2026-09-15: el rescate
+  // gano por DETECT, la sonda AT dio OK, y el siguiente set_mode(CMUX) fallo
+  // al instante para los tres APN porque el DTE ya estaba en CMUX_MANUAL.
+  // Por eso DETECT va el ULTIMO y, si es el que acierta, se encadena el
+  // cierre CLD y el forzado a comandos antes de darlo por bueno.
+  struct Intento { esp_modem_dce_mode_t modo; const char *nombre; };
+  static const Intento intentos[] = {
+      {ESP_MODEM_MODE_CMUX_MANUAL_EXIT, "cerrar el multiplexado (CLD)"},
+      {ESP_MODEM_MODE_COMMAND, "forzar modo comandos"},
+      {ESP_MODEM_MODE_DETECT, "detectar y reanudar"},
+  };
+
+  if (modemRespondeAT()) {
+    return; // recien alimentado: ya esta en modo comandos, no se toca
+  }
+
+  for (const Intento &i : intentos) {
+    esp_modem_set_mode(dce_, i.modo); // el retorno no decide: manda el AT
+    if (!modemRespondeAT()) {
+      continue;
+    }
+    if (i.modo == ESP_MODEM_MODE_DETECT) {
+      // Reanudado, no salido: cerrar el multiplexado de verdad. Los retornos
+      // se ignoran a proposito -- alguno de los dos sera "transicion invalida"
+      // segun el modo que haya detectado -- y decide la sonda final.
+      esp_modem_set_mode(dce_, ESP_MODEM_MODE_CMUX_MANUAL_EXIT);
+      esp_modem_set_mode(dce_, ESP_MODEM_MODE_COMMAND);
+      if (!modemRespondeAT()) {
+        break; // se perdio al salir: cae al aviso de abajo
+      }
+    }
+    ESP_LOGI(TAG, "modem rescatado de una sesion anterior (%s)", i.nombre);
+    return;
+  }
+  ESP_LOGW(TAG, "el modem sigue mudo tras los intentos de rescate; "
+                "hara falta un ciclo de alimentacion");
+}
+
+// Un AT pelado con timeout corto. Es la unica prueba que vale de que el modem
+// esta escuchando comandos: cualquier otra cosa es suponer.
+bool GprsModem::modemRespondeAT() {
+  char resp[64] = {};
+  return esp_modem_at(dce_, "AT", resp, 1000) == ESP_OK;
 }
 
 void GprsModem::end() {
@@ -113,6 +204,10 @@ bool GprsModem::sendAT(const char *cmd, char *out, size_t out_len, int timeout_m
     p[-1] = '\0';
   }
   const esp_err_t err = esp_modem_at(dce_, clean, tmp, timeout_ms);
+  // A nivel DEBUG (compilado fuera en produccion): sin esta traza un
+  // ESP_ERR_TIMEOUT y una respuesta que llega pero no casa son indistinguibles
+  // en el log -- los dos se ven como silencio. Fue lo que destapo el 2G.
+  ESP_LOGD(TAG, "AT{%s} -> err=%s resp{%s}", clean, esp_err_to_name(err), tmp);
   if (out != nullptr && out_len > 0) {
     strncpy(out, tmp, out_len - 1);
     out[out_len - 1] = '\0';
@@ -250,8 +345,25 @@ bool GprsModem::gprsConnect(const char *apn, const char *user, const char *pass)
   pdp.protocol_type = "IP";
   pdp.apn = apn;
   if (esp_modem_set_pdp_context(dce_, &pdp) != ESP_OK) {
-    ESP_LOGW(TAG, "no se pudo fijar el APN '%s'", apn);
-    return false;
+    // El SIM800 responde ERROR a AT+CGDCONT mientras el contexto 1 siga
+    // ACTIVO, y lo esta cuando el ESP32 se reinicio con PPP levantado: el
+    // modem no se reinicia con el ESP32 (PWRKEY sin cablear) y conserva la
+    // sesion de datos. Medido en banco el 2026-09-15 justo tras un flasheo:
+    //
+    //   AT+CGDCONT=1,"IP","onomondo"  ->  ERROR
+    //   no se pudo fijar el APN 'onomondo'
+    //   Attach FAIL, retrying with different APN...   (TM, truphone: igual)
+    //
+    // La rotacion de APN aqui es inutil -- el APN no tiene nada que ver --
+    // y acababa en GPRS_TIMEOUT y modem mudo. Se desactiva el contexto
+    // heredado y se reintenta UNA vez; si aun asi falla, si es un APN malo.
+    ESP_LOGW(TAG, "AT+CGDCONT rechazado con APN '%s': desactivando el contexto "
+                  "PDP heredado y reintentando", apn);
+    esp_modem_at(dce_, "AT+CGACT=0,1", resp_, 10000);
+    if (esp_modem_set_pdp_context(dce_, &pdp) != ESP_OK) {
+      ESP_LOGW(TAG, "no se pudo fijar el APN '%s'", apn);
+      return false;
+    }
   }
 
   // CMUX: canal de comandos + canal PPP por el mismo UART.
@@ -275,7 +387,24 @@ bool GprsModem::gprsConnect(const char *apn, const char *user, const char *pass)
     return false;
   }
 
-  openInternalBearer(apn);
+  // NO se abre el portador interno (SAPBR) aqui. El SIM800 tiene UN solo
+  // contexto PDP: PPP y SAPBR se lo disputan, y gana el ultimo que llega.
+  // Verificado en banco el 2026-09-15 con el volcado del UART -- la respuesta
+  // a AT+SAPBR=1,1 es literalmente NO CARRIER y la sesion PPP muere:
+  //
+  //   TX AT+SAPBR=1,1
+  //   RX ... NO CARRIER ... OK
+  //   (~7 s despues) esp-netif_lwip-ppp: ppp: Connection lost
+  //
+  // Como esto corria al final de CADA gprsConnect(), el enlace celular se
+  // mataba solo en cada adjunto: quedaba adjunto a la red (CREG 1/5) pero sin
+  // datos, y nada lo detectaba (ver GPRSVerifyStillAttached).
+  //
+  // Lo que se pierde: CLBS (triangulacion por torre) y CNTP. El reloj ya esta
+  // cubierto -- configTime() sobre SNTP arranca en IP_EVENT_PPP_GOT_IP, y en
+  // este mismo banco el reloj se sincronizo por NITZ (AT+CCLK?), que no
+  // necesita portador. La posicion por torre se pierde mientras haya PPP, que
+  // es el precio de tener datos; el doc del porte ya lo daba por "best effort".
   return true;
 }
 
@@ -395,11 +524,21 @@ void GprsModem::powerDown() {
   if (dce_ == nullptr) {
     return;
   }
-  if (cmux_) {
-    esp_modem_set_mode(dce_, ESP_MODEM_MODE_COMMAND);
-    cmux_ = false;
-    ppp_has_ip_ = false;
+  // NO se manda AT+CPOWD=1. Ese comando APAGA el SIM800 de verdad, y en esta
+  // placa no hay nada que pueda volver a encenderlo: GSM_PWRKEY no esta
+  // cableado al micro (board.h). Un "power down" que si llega a ejecutarse
+  // deja la unidad sin celular hasta que alguien le quite la corriente a mano
+  // -- justo lo contrario de lo que GPRSForceReset() pretende. Heredado de la
+  // version TinyGSM, donde tampoco habia PWRKEY; alli simplemente no se noto.
+  //
+  // Lo que si se puede hacer desde software, y es lo que hace falta para
+  // "empezar de cero": volver a modo comandos comprobandolo (el modem puede
+  // haberse quedado en CMUX, ver rescueFromPreviousSession) y tirar el
+  // contexto PDP para que el siguiente AT+CGDCONT no sea rechazado.
+  cmux_ = false;
+  ppp_has_ip_ = false;
+  rescueFromPreviousSession();
+  if (modemRespondeAT()) {
+    esp_modem_at(dce_, "AT+CGACT=0,1", resp_, 10000);
   }
-  // El SIM800 contesta "NORMAL POWER DOWN", no OK.
-  esp_modem_at_raw(dce_, "AT+CPOWD=1\r", resp_, "NORMAL POWER DOWN", "ERROR", 3000);
 }

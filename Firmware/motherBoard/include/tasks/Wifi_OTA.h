@@ -22,6 +22,11 @@
 // before the in-flight WiFi.begin() finishes corrupts STA state
 // (ESP_ERR_WIFI_CONN + HANDSHAKE_TIMEOUT). Match Display_HMI interval.
 #define WIFI_RECONNECT_INTERVAL TX_WIFI_RECONNECT_MS
+// Cadencia de reintento del WiFi CUANDO el celular ya tiene datos (PPP con IP).
+// Rehacer la STA mata el PPP, asi que con celular vivo se reintenta cada 5 min
+// en vez de cada 30 s. No se desactiva del todo a proposito: si el equipo llega
+// a un sitio con su WiFi, tiene que poder engancharse y dejar de gastar datos.
+#define WIFI_RECONNECT_WITH_PPP_INTERVAL 300000
 
 struct WIFIstruct {
   int provisioned = false;

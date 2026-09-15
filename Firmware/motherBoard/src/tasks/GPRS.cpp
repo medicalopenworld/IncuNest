@@ -63,7 +63,9 @@ Espressif_MQTT_Client mqttClientGPRS;
 // tb(client);
 
 // Initialize ThingsBoard client provision instance
-ThingsBoard tb(mqttClientGPRS, MAX_MESSAGE_SIZE);
+// Buffer dimensionado para un trozo de OTA desde la creacion: ver
+// TB_MQTT_BUFFER_GPRS en main.h (esp-mqtt no lo puede ampliar despues).
+ThingsBoard tb(mqttClientGPRS, TB_MQTT_BUFFER_GPRS);
 
 StaticJsonDocument<JSON_OBJECT_SIZE(THINGSBOARD_FIELDS_AMOUNT)> GPRS_JSON;
 JsonObject addVariableToTelemetryGPRSJSON = GPRS_JSON.to<JsonObject>();
@@ -253,7 +255,9 @@ void updatedCallback(const bool &success) {
 const OTA_Update_Callback OTAcallback(&progressCallback, &updatedCallback,
                                       CURRENT_FIRMWARE_TITLE, FWversion,
                                       &updater_GPRS, FIRMWARE_FAILURE_RETRIES,
-                                      FIRMWARE_PACKET_SIZE,
+                                      // Trozo mas corto que por WiFi: ver
+                                      // FIRMWARE_PACKET_SIZE_GPRS en main.h.
+                                      FIRMWARE_PACKET_SIZE_GPRS,
                                       WAIT_FAILED_OTA_CHUNKS);
 
 void clearGPRSBuffer() {
@@ -300,8 +304,23 @@ void initGPRS() {
   // Serial2.begin(baud, SERIAL_8N1, rxPin = GSM_UART_TX_PIN, txPin = GSM_UART_RX_PIN).
   // Los nombres de board.h estan desde el punto de vista del MODEM, asi que el
   // RX del ESP32 es GSM_UART_TX_PIN (9) y el TX del ESP32 es GSM_UART_RX_PIN (10).
+  // El timeout de lectura de esp-mqtt son 10 s por defecto, pensados para una
+  // red que entrega un mensaje entero de golpe. Un trozo de OTA son 4096 B y
+  // por GPRS tardan segundos en llegar: el cliente se rinde a media lectura,
+  // la peticion del trozo vence y la OTA se desmonta sin avanzar un byte.
+  // Medido en banco el 2026-09-15:
+  //
+  //   GPRS MQTT PUBLISH TELEMETRIES SUCCESS
+  //   (8 s) mqtt_client: Network timeout while reading MQTT message
+  //   (6 s) [TB] OTA update callback is NULL
+  //
+  // Solo se toca el cliente celular; el de WiFi se queda como estaba, porque
+  // ahi el mensaje llega en milisegundos y alargar el timeout solo retrasaria
+  // la deteccion de una caida real.
+  mqttClientGPRS.set_network_timeout(GPRS_MQTT_NETWORK_TIMEOUT);
+
   if (!modem.begin(UART_NUM_2, /*tx_pin=*/GSM_UART_RX_PIN, /*rx_pin=*/GSM_UART_TX_PIN,
-                   MODEM_BAUD, RX_BUFFER_LENGTH)) {
+                   MODEM_BAUD, GPRS_MODEM_UART_RX_BUFFER)) {
     logE("[GPRS] -> no se pudo crear el modem (esp_modem)");
   }
   GPRS.powerUp = true;
@@ -595,6 +614,22 @@ void GPRSStatusHandler() {
 // se quedaba pegado en "2G" en vez de caer a "sin enlace".
 void GPRSVerifyStillAttached() {
   if (!GPRS.post) return; // solo aplica en estado estable
+  // Durante una OTA no se sondea nada. Este chequeo manda AT+CREG? por el canal
+  // de control del CMUX mientras la descarga satura el de datos; bajo esa carga
+  // el AT vence, isNetworkConnected() lo interpreta como "adjunto perdido" y
+  // GPRSForceReset() derriba un enlace que estaba perfectamente bien.
+  // Medido en banco el 2026-09-15, con la descarga al 7,42%:
+  //
+  //   Progress 7.42%
+  //   poll_write select error 113 (Software caused connection abort)
+  //   ppp: User interrupt
+  //   [TB] Unable to request firmware chunk
+  //   [GPRS] -> powering up GPRS
+  //
+  // El sondeo existe para detectar que retiran la SIM o se pierde cobertura;
+  // ninguna de las dos cosas deja de ser cierta por esperar a que acabe la
+  // descarga, y si el enlace se cae de verdad, la propia OTA lo nota.
+  if (GPRS.OTAInProgress) return;
   static uint32_t s_lastCheckMs = 0;
   uint32_t now = millis();
   if (s_lastCheckMs != 0 && now - s_lastCheckMs < GPRS_ATTACH_RECHECK_INTERVAL)
@@ -828,6 +863,13 @@ void addIntVariableToTelemetryJSON(JsonObject &json, const char *key,
 }
 
 void GPRSCheckOTA() {
+  // Pedir una OTA con otra ya bajando la reinicia desde cero (ver la guarda del
+  // chequeo periodico en GPRSPost). Esta funcion tambien la llama el RPC
+  // checkOta, que alguien puede pulsar desde el panel a mitad de descarga.
+  if (GPRS.OTAInProgress) {
+    logModemData("[GPRS] -> OTA ya en curso, no se vuelve a pedir");
+    return;
+  }
   logModemData("Checking GPRS firwmare Update...");
   if (!currentFWSent) {
     // Firmware state send at the start of the firmware, to inform the cloud
@@ -1203,6 +1245,42 @@ static void publishBabyCloudDataGPRS() {
   }
 }
 
+// Publica ota_progress con cadencia propia MIENTRAS hay una OTA bajando.
+//
+// Por que no basta con meterlo en la telemetria normal (que es lo que se hacia):
+// esa sale cada GPRS.sendPeriod, y en reposo son 3600 s. Una OTA por 2G dura
+// media hora, asi que el panel recibia como mucho UN punto en toda la descarga
+// -- o ninguno, que es lo que pasaba. Justo en el transporte donde la barra de
+// progreso hace falta, porque por WiFi la actualizacion entera dura 80 s.
+// Comprobado contra el servidor el 2026-09-15: cero puntos de ota_progress
+// durante una descarga de 40 minutos.
+//
+// El coste es despreciable: un JSON de un solo campo cada 30 s, unas 60
+// publicaciones en una OTA completa, frente a los 2 MB del binario.
+void publishOtaProgressIfDue() {
+  extern volatile int g_otaProgressPct;
+  static uint32_t lastPublish = 0;
+  static int lastPctSent = -1;
+
+  const int pct = g_otaProgressPct;
+  if (pct < 0) {
+    lastPctSent = -1; // OTA terminada o abortada: al empezar otra, se publica ya
+    return;
+  }
+  if (pct == lastPctSent) {
+    return; // sin cambio: no se gasta una publicacion en repetir el mismo valor
+  }
+  if (lastPublish != 0 && millis() - lastPublish < GPRS_OTA_PROGRESS_PUBLISH_MS) {
+    return;
+  }
+  lastPublish = millis();
+  lastPctSent = pct;
+
+  StaticJsonDocument<JSON_OBJECT_SIZE(1)> doc;
+  doc[OTA_PROGRESS_KEY] = pct;
+  tb.sendTelemetryJson(doc, JSON_STRING_SIZE(measureJson(doc)));
+}
+
 void GPRSPost() {
   // Independiente de ThingsBoard a proposito: sin esto, una unidad sin
   // numero de serie (in3.serialNumber == 0) nunca sale del "Waiting for
@@ -1250,6 +1328,37 @@ void GPRSPost() {
         logModemData("[GPRS] -> Failed to connect");
         return;
       } else {
+        // OJO: con Espressif_MQTT_Client, connect() NO deja la sesion hecha.
+        // Por dentro llama a esp_mqtt_client_start(), que es ASINCRONO: vuelve
+        // en cuanto arranca la tarea del cliente, y m_connected no se pone a
+        // true hasta que llega el evento MQTT_EVENT_CONNECTED, decimas de
+        // segundo despues. Con TinyGSM esto no pasaba porque el TCP lo abria
+        // el modem por AT y connect() era sincrono de verdad.
+        //
+        // Suscribirse en ese hueco falla EN SILENCIO: subscribe() del cliente
+        // empieza con `if (!connected()) return false`. Verificado en banco el
+        // 2026-09-15 -- las seis suscripciones de RPC y la de atributos de la
+        // OTA fallaban todas, y como OTA_requested quedaba a true, la OTA no
+        // se volvia a pedir jamas:
+        //
+        //   [GPRS] -> Connected to host
+        //   [TB] Subscribing (v1/devices/me/rpc/request/+) failed   x6
+        //   [TB] Subscribing (v1/devices/me/attributes/response/+) failed
+        //
+        // El equipo quedaba "conectado" para el HMI y para ThingsBoard, pero
+        // sordo: ni RPC (el servidor devolvia 409) ni OTA.
+        uint32_t sessionWait = millis();
+        while (!tb.connected() &&
+               millis() - sessionWait < GPRS_MQTT_SESSION_TIMEOUT) {
+          vTaskDelay(pdMS_TO_TICKS(50));
+        }
+        if (!tb.connected()) {
+          // El cliente arranco pero la sesion no llego a establecerse. No se
+          // toca serverConnectionStatus: decir "+SERVIDOR" aqui es justo la
+          // mentira que ocultaba el fallo.
+          logModemData("[GPRS] -> MQTT session not established, will retry");
+          return;
+        }
         logModemData("[GPRS] -> Connected to host");
         GPRS.serverConnectionStatus = true;
         subscribeRPCHandlers();
@@ -1262,6 +1371,7 @@ void GPRSPost() {
       }
     }
     if (tb.connected()) {
+      publishOtaProgressIfDue();
       if (millis() - GPRS.lastSent > secsToMillis(GPRS.sendPeriod)) {
         // Send our firmware title and version
         logModemData("[GPRS] -> sendPeriod is " + String(GPRS.sendPeriod) +
@@ -1311,7 +1421,22 @@ void GPRSPost() {
         GPRS.process = false;
         GPRS.lastSent = millis();
       }
-      if (millis() - GPRS.lastOTACheck > GPRS_OTA_CHECK_INTERVAL) {
+      // El !GPRS.OTAInProgress NO es cosmetico: sin el, el chequeo periodico
+      // llama a Start_Firmware_Update() sobre una descarga EN CURSO, lo que
+      // devuelve el contador de trozos a 0. El trozo que venia en vuelo deja
+      // de cuadrar y la OTA entera vuelve a empezar:
+      //
+      //   Checking GPRS firwmare Update...
+      //   Progress 16.05%
+      //   [TB] Received chunk (311), not the same as requested chunk (0)
+      //   Progress 0.05%      <- otra vez desde cero
+      //
+      // Por WiFi nunca se noto porque la actualizacion entera dura 80 s y el
+      // chequeo salta cada 10 min. Por GPRS la descarga necesita ~45 min, asi
+      // que se reiniciaba cada 10 y NO PODIA TERMINAR NUNCA. La gemela de
+      // Wifi_OTA.cpp ya llevaba esta guarda; esta se quedo sin ella.
+      if (millis() - GPRS.lastOTACheck > GPRS_OTA_CHECK_INTERVAL &&
+          !GPRS.OTAInProgress) {
         GPRSCheckOTA();
         GPRS.lastOTACheck = millis();
       }
