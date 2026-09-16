@@ -40,7 +40,7 @@
 #include "modules/util/wifi_dwell.h"
 #include "modules/baby_profile/baby_cloud.h"
 #include "modules/baby_profile/baby_profile_store.h"
-#include "modules/util/civil_time.h"
+#include "civil_time.h"
 #include "modules/util/system_clock.h"
 #include "modules/sensorboard_comm/sensorboard_comm.h"
 #include "alarm_policy.h"
