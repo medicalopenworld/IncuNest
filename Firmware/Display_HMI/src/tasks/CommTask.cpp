@@ -984,9 +984,18 @@ static void parse_message(const char *line) {
       // `src` es el rango de la fuente del EPOCH, escala distinta de `tzsrc`.
       // Sin el campo se queda en NONE, y rtc_should_write() no escribe con
       // fuente desconocida.
-      s_mbTimeSrc = (n >= 4 && src >= 0 && src <= PROTO_TIME_SOURCE_MANUAL)
-                        ? (Proto_TimeSource)src
-                        : PROTO_TIME_SOURCE_NONE;
+      const Proto_TimeSource newSrc =
+          (n >= 4 && src >= 0 && src <= PROTO_TIME_SOURCE_MANUAL)
+              ? (Proto_TimeSource)src
+              : PROTO_TIME_SOURCE_NONE;
+      // Solo al CAMBIAR, nunca en cada difusion: este log sale por UART0, que
+      // es el MISMO cable que el enlace con la placa. Un log cada 10 s seria
+      // exactamente el trafico periodico que known_issues #2 desaconseja.
+      if (newSrc != s_mbTimeSrc) {
+        COMM_LOG("[COMM] fuente de hora: %d -> %d (campos leidos %d)\n",
+                 (int)s_mbTimeSrc, (int)newSrc, n);
+      }
+      s_mbTimeSrc = newSrc;
 
       if (s_mbEpoch != 0) {
         // La placa ya tiene hora: la semilla deja de ofrecerse hasta el

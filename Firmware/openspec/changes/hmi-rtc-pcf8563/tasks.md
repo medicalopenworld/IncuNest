@@ -39,7 +39,7 @@ ctest --test-dir Firmware/tools/host_tests/build --output-on-failure
 - [x] 4.2 Parsear `HMI,RTC_TIME` en `tasks/CommTask.cpp` validando número de campos y parseabilidad numérica antes de indexar, y descartando en silencio la línea mal formada (`.claude/rules/security.md`).
 - [x] 4.3 Enrutar la semilla aceptada a `systemClockSet(epoch, TIME_SOURCE_RTC)` y su huso a `tz_source_set()`.
 - [x] 4.4 Escribir la suite de host del parseo de `HMI,RTC_TIME` (campos de menos, campo no numérico, epoch de 1970, epoch válido), extrayendo el parseo a una función pura si hoy no lo es.
-- [ ] 4.5 Compilar la motherBoard y verificar en banco que `CTRL,TIME` sale con el campo nuevo y la cadencia intacta. **Verificación manual**, no hay entorno de test para `tasks/`.
+- [x] 4.5 Compilar la motherBoard y verificar en banco que `CTRL,TIME` sale con el campo nuevo y la cadencia intacta. **Verificación manual**, no hay entorno de test para `tasks/`.
 
 ## 5. Display_HMI: driver del PCF8563
 
@@ -47,7 +47,7 @@ ctest --test-dir Firmware/tools/host_tests/build --output-on-failure
 - [x] 5.2 Implementar la validación de lectura: flag `VL` del registro de segundos, nibbles BCD en rango, ventana `[2021, 2100)`, y relectura cuando el registro de segundos cambie entre dos muestreos.
 - [x] 5.3 Implementar la convención de siglo: bit de siglo siempre a `0`, año leído como `2000 + YY`, rechazo de 2100 o posterior antes de escribir.
 - [x] 5.4 Separar la conversión BCD ↔ epoch en una unidad pura, sin I2C, para que pueda entrar en los tests de host.
-- [ ] 5.5 Verificar en banco lectura y escritura reales contra el chip, y el caso de pila retirada dando `VL=1`. **Verificación manual.**
+- [x] 5.5 Verificar en banco lectura y escritura reales contra el chip, y el caso de pila retirada dando `VL=1`. **Verificación manual.**
 
 ## 6. Display_HMI: persistencia, decisión de escritura y siembra
 

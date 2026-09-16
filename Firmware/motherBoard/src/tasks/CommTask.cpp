@@ -1510,6 +1510,15 @@ void Communication_Task(void *pvParameters) {
                (int)tz_source_quarters(), (int)tz_source_origin(),
                (int)systemClockSource());
       hmiSerial.print(tmsg);
+      // Se registra como ya se registra cada CTRL,STATE, y por el mismo
+      // motivo: sin esto, la unica forma de saber que reloj y que fuente cree
+      // tener el equipo es deducirlo de lo que haga el HMI. Va a la consola de
+      // la motherBoard, que NO es el cable del enlace, y a 0,1 Hz frente al
+      // 1 Hz que ya emite el log de CTRL,STATE.
+      if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        ESP_LOGI(TAG, "Sending time to HMI: %s", tmsg);
+        xSemaphoreGiveRecursive(log_mutex);
+      }
     }
 
     vTaskDelay(pdMS_TO_TICKS(COMMUNICATION_TASK_PERIOD_MS));
