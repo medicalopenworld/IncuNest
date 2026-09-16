@@ -422,7 +422,9 @@ void recapVariables()
     p.begin(NS_STATE, true);
     in3.actuation = p.getUChar(KEY_ACTUATION, 0);
     in3.phototherapy = p.getUChar(KEY_PHOTO_ACTIVE, 0);
-    // restoreState is set only by security_check_reboot_cause() on crash/WDT
+    // restoreState ya viene resuelto por security_check_reboot_cause()
+    // (initHardware.cpp), que corre antes que initEEPROM() en setup(): se
+    // recupera en todo reinicio salvo POWERON y BROWNOUT.
     p.end();
   }
 
@@ -442,9 +444,15 @@ void recapVariables()
   }
 
   // Process actuation mode (restore temperature/humidity control state)
-  logI("[BOOT][DEBUG] recapVariables: restoreState=" + String(in3.restoreState) +
-       " actuation=" + String(in3.actuation) +
-       " controlMode=" + String(in3.controlMode));
+  //
+  // ESP_LOGW, no logI(): esta y la de abajo son las dos lineas que dicen si un
+  // equipo que acaba de reiniciarse vuelve controlando o vuelve parado, y con
+  // LOG_INFORMATION a false (main.h) logI() no compila nada. Sin ellas, tras
+  // un crash en banco no hay forma de saber si la recuperacion ocurrio: lo
+  // unico observable es el comportamiento del equipo, que es justo lo que se
+  // esta intentando explicar.
+  ESP_LOGW("APP", "[BOOT] recap: restoreState=%d actuation=%d controlMode=%d",
+           (int)in3.restoreState, (int)in3.actuation, (int)in3.controlMode);
   if (in3.restoreState)
   {
     switch (in3.actuation)
@@ -466,9 +474,9 @@ void recapVariables()
       in3.humidityControl = false;
       break;
     }
-    logI("[BOOT][DEBUG] recapVariables: restoreState resolved -> temperatureControl=" +
-         String(in3.temperatureControl) +
-         " humidityControl=" + String(in3.humidityControl));
+    ESP_LOGW("APP",
+             "[BOOT] recap: recuperado -> temperatureControl=%d humidityControl=%d",
+             (int)in3.temperatureControl, (int)in3.humidityControl);
   }
 
   ESP_LOGI("APP", "Serial: %d, Lang: %d", in3.serialNumber, in3.language);
