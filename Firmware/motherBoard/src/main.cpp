@@ -47,6 +47,9 @@
 #include "CrashReporter.h"
 #include "platform/plat_nvs.h"
 #include "esp_heap_caps.h"
+#include "esp_netif.h"
+#include "lwip/dns.h"
+#include "lwip/ip_addr.h"
 
 static NvsPrefs diag_prefs;
 uint32_t g_bootCount = 0;
@@ -804,6 +807,42 @@ static void diag_heap_tick() {
              (unsigned long)heap_int, (unsigned long)heap_int_min,
              (unsigned long)heap_int_max, (unsigned long)(now_ms / 1000U));
   }
+
+  // Estado de red: netif por defecto y tabla global de DNS de lwIP. Se anadio
+  // para separar hipotesis de un `getaddrinfo() returns 202` en bucle (banco
+  // 2026-09-16) y fue lo que zanjo la investigacion: la ruta era la correcta
+  // (WIFI_STA_DEF), el DNS 0 era el del hotspot, y lo que faltaba era el DNS
+  // de respaldo en el indice 1 — se ve como "-" — porque el `dns_setserver()`
+  // global no sobrevive a la restauracion por netif. Ver configWifiServer().
+  // Se queda porque una tabla DNS que no es la que uno cree es invisible desde
+  // fuera, y esta linea la ensena una vez por minuto.
+  esp_netif_t *def = esp_netif_get_default_netif();
+  const char *def_key = def ? esp_netif_get_ifkey(def) : "none";
+  char dns_txt[3][IPADDR_STRLEN_MAX];
+  for (int i = 0; i < 3; ++i) {
+    const ip_addr_t *srv = dns_getserver((u8_t)i);
+    if (srv != NULL && !ip_addr_isany(srv)) {
+      ipaddr_ntoa_r(srv, dns_txt[i], sizeof(dns_txt[i]));
+    } else {
+      strlcpy(dns_txt[i], "-", sizeof(dns_txt[i]));
+    }
+  }
+  char sta_ip[16] = "-";
+  char sta_dns[16] = "-";
+  esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+  if (sta != NULL) {
+    esp_netif_ip_info_t ip_info;
+    if (esp_netif_get_ip_info(sta, &ip_info) == ESP_OK && ip_info.ip.addr != 0) {
+      esp_ip4addr_ntoa(&ip_info.ip, sta_ip, sizeof(sta_ip));
+    }
+    esp_netif_dns_info_t dns_info;
+    if (esp_netif_get_dns_info(sta, ESP_NETIF_DNS_MAIN, &dns_info) == ESP_OK &&
+        dns_info.ip.type == ESP_IPADDR_TYPE_V4 && dns_info.ip.u_addr.ip4.addr != 0) {
+      esp_ip4addr_ntoa(&dns_info.ip.u_addr.ip4, sta_dns, sizeof(sta_dns));
+    }
+  }
+  ESP_LOGW("DIAG", "NET default=%s dns=[%s %s %s] sta_ip=%s sta_dns=%s",
+           def_key, dns_txt[0], dns_txt[1], dns_txt[2], sta_ip, sta_dns);
 }
 
 void loop() {
