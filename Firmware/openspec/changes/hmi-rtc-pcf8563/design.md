@@ -217,6 +217,16 @@ inerte para un firmware que no lo lea.
   una hora sembrada por RTC de una sincronizada por NTP? El dato ya viaja en
   `CTRL,TIME`, así que es decisión de producto, no de arquitectura. Fuera de
   alcance salvo indicación contraria.
+- **Un equipo puesto a mano nunca adopta despues el huso real.** Es consecuencia
+  directa de la regla de que el ajuste manual fija offset CERO y nada lo
+  desplaza hasta el reinicio: si mas tarde aparece la red con un NITZ bueno, el
+  equipo sigue con offset 0. En pantalla se ve bien SOLO si quien tecleo la hora
+  puso la local de verdad, que es lo que el formulario pide. Es deliberado
+  —sumarle un offset a una hora que ya es local la desplazaria— pero conviene
+  decidir si merece un aviso en la interfaz, o si el huso deberia poder
+  actualizarse por separado del instante cuando llega una fuente mejor. Lo
+  levanto otra sesion revisando la jerarquia; es de producto, no de
+  arquitectura.
 - El umbral de 2 segundos para reescribir el RTC es un valor razonado, no
   medido. Conviene confirmarlo en banco una vez se vea la deriva real del chip
   a temperatura de incubadora.

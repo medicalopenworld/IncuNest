@@ -364,10 +364,18 @@ void GPRSEnsureTimeSynced() {
   static uint32_t s_lastAttemptMs = 0;
   if (s_synced) return;
 
-  // WiFi NTP may have won the race; nothing to do if the clock is already set.
+  // El reloj ya esta puesto: no hay nada que hacer aqui, gane quien gane.
+  //
+  // El mensaje decia "(WiFi NTP)" y era una suposicion, no un dato: esta rama
+  // salta con el reloj puesto por CUALQUIER fuente. Se vio en banco el
+  // 2026-09-16 anunciando WiFi NTP con la hora tecleada a mano en /config, y
+  // otra vez con la hora sembrada desde el RTC del HMI. Mando a dos personas a
+  // buscar un SNTP que nunca habia ocurrido. Ahora que time_source sabe de
+  // verdad quien puso el reloj, se dice el rango y se acabo la adivinanza.
   if (time(nullptr) >= (time_t)1609459200L) {
     s_synced = true;
-    logModemData("[GPRS] -> time already synced (WiFi NTP)");
+    logModemData("[GPRS] -> clock already set, source rank " +
+                 String((int)systemClockSource()));
     return;
   }
 
