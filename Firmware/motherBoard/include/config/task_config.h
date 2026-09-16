@@ -51,5 +51,8 @@
 #define TIME_TRACK_TASK_PERIOD_MS 100
 #define FAN_TASK_PERIOD_MS 10
 #define LOOP_TASK_PERIOD_MS 1000
+// Serie temporal de heap interno (ver loop() en main.cpp). 60 s da 30 puntos
+// en la media hora que tardo en morir la placa en banco el 2026-09-16.
+#define DIAG_HEAP_PERIOD_MS 60000
 #define GPRS_MONITOR_TASK_PERIOD 5000
 #define GPRS_MONITOR_TASK_DELETE 30000

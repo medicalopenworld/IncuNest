@@ -46,6 +46,7 @@
 #include "DriveUpload.h"
 #include "CrashReporter.h"
 #include "platform/plat_nvs.h"
+#include "esp_heap_caps.h"
 
 static NvsPrefs diag_prefs;
 uint32_t g_bootCount = 0;
@@ -770,8 +771,44 @@ void setup() {
 #endif
 }
 
+// Serie temporal del heap interno, siempre (no solo cuando va mal): lo que
+// hace falta para ver la PENDIENTE. En banco (2026-09-16, SN 353) la placa
+// aborto a los 24,7 min de uptime porque `operator new` no pudo reservar 141 B
+// (COMM_TASK_RX, la concatenacion de String del log de comandos del HMI), y
+// no habia forma de saber si el heap se habia ido de golpe o gota a gota: la
+// unica lectura de heap la emitia tb_mqtt, y solo cuando ya no cabia el
+// cliente. Con dos puntos (77 KB al arrancar, 0 al morir) no se acusa a nadie.
+//
+// Solo interna: esta placa no tiene PSRAM. Y el bloque contiguo mayor es el
+// numero que manda, no el libre total (ver el comentario largo del informe de
+// salud en modules/debug/debug_mode.cpp). Misma etiqueta "DIAG" y mismo
+// formato que el display para poder cruzar los dos logs con un grep.
+static void diag_heap_tick() {
+  static uint32_t s_last_ms = 0;
+  uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+  if (now_ms - s_last_ms < DIAG_HEAP_PERIOD_MS && s_last_ms != 0) {
+    return;
+  }
+  s_last_ms = now_ms;
+  uint32_t heap_int     = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+  uint32_t heap_int_min = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
+  uint32_t heap_int_max = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+  // 20 KB de minimo es el umbral del display; 8 KB de bloque es lo que cabe
+  // justo por encima de un bufer del cliente MQTT (4352 B) con su holgura.
+  if (heap_int_min < 20480 || heap_int_max < 8192) {
+    ESP_LOGE("DIAG", "LOW RESOURCES heap_int=%lu heap_int_min=%lu heap_int_largest=%lu uptime_s=%lu",
+             (unsigned long)heap_int, (unsigned long)heap_int_min,
+             (unsigned long)heap_int_max, (unsigned long)(now_ms / 1000U));
+  } else {
+    ESP_LOGW("DIAG", "heap_int=%lu heap_int_min=%lu heap_int_largest=%lu uptime_s=%lu",
+             (unsigned long)heap_int, (unsigned long)heap_int_min,
+             (unsigned long)heap_int_max, (unsigned long)(now_ms / 1000U));
+  }
+}
+
 void loop() {
   watchdogReload();
   updateData();
+  diag_heap_tick();
   vTaskDelay(pdMS_TO_TICKS(LOOP_TASK_PERIOD_MS));
 }
