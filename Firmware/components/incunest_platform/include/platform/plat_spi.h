@@ -4,20 +4,30 @@
 //
 // Se le da la FORMA de la API SPI de Arduino —begin / beginTransaction /
 // transfer / endTransaction, con SPISettings— y se publica un objeto global
-// llamado SPI. El motivo es el mismo que con millis() y String: el unico
-// consumidor es la libreria del AFE4490 (el frontal de SpO2), que vive en
-// OTRO REPOSITORIO con otro responsable y esta pineada a un commit concreto.
-// Cuanto menos se toque su codigo, mas facil es volver a fusionar cuando
-// upstream se mueva, y menos riesgo se mete en una ruta de monitorizacion de
-// paciente.
+// llamado SPI, por el mismo motivo que millis() y String: minimizar el delta
+// del codigo portado desde Arduino.
 //
-// SOBRE EL COSTE POR BYTE: Arduino resolvia SPI.transfer(uint8_t) escribiendo
-// directamente los registros del periferico (spiTransferByteNL), sin
-// interrupciones. Aqui se usa spi_device_polling_transmit(), que es el
-// equivalente de IDF y tambien va por sondeo, sin interrupciones ni DMA: el
-// coste por byte queda en el mismo orden. AUN ASI, la cadencia real de las
-// muestras de PPG debe comprobarse en banco antes de dar esto por bueno; es
-// una senal de monitorizacion, no un log.
+// QUE QUEDA DE ESTO EN CADA PLACA, TRAS PASAR EL AFE4490 A SUBMODULO v0.92:
+//
+//   motherBoard: SOLO el spi_bus_initialize() de begin(). La libreria del
+//     AFE4490 dejo de pasar por aqui — desde v0.91 tiene su propio HAL de
+//     ESP-IDF y abre su device con spi_bus_add_device(SPI2_HOST). Pero SIGUE
+//     NECESITANDO que alguien inicialice el bus antes, y ese alguien es este
+//     begin(), llamado desde initSPO2(). No se borra: el resto de la clase
+//     (beginTransaction / transfer / endTransaction) queda sin consumidor en
+//     esta placa, pero Display_HMI si la usa entera.
+//
+//   Display_HMI: consumidor completo, via UITask.cpp.
+//
+// SOBRE EL COSTE POR BYTE (aplica al camino de Display_HMI): Arduino resolvia
+// SPI.transfer(uint8_t) escribiendo directamente los registros del periferico
+// (spiTransferByteNL), sin interrupciones. Aqui se usa
+// spi_device_polling_transmit(), que tambien va por sondeo, sin interrupciones
+// ni DMA: el coste por byte queda en el mismo orden.
+//
+// La duda que este fichero dejaba abierta sobre la cadencia de las muestras de
+// PPG ya no se responde aqui: la mide la propia libreria. Compila con
+// INCUNEST_PPG_TIMING=1 y lee spi_mean/spi_max de la trama $TIMING (v0.92).
 
 #include <cstdint>
 

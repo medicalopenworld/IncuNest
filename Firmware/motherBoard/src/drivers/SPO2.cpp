@@ -81,7 +81,11 @@ void initSPO2() {
   pin_write(AFE44XX_PWDN_PIN, true);
   vTaskDelay(pdMS_TO_TICKS(100));
 
-  // Initialize SPI bus for AFE4490 (CS=-1: managed per device via AFE44XX_CS)
+  // Levanta el bus SPI2. OBLIGATORIO Y EN ESTE ORDEN: desde v0.92 la libreria
+  // del AFE4490 hace su propio spi_bus_add_device(SPI2_HOST) dentro de
+  // afe.begin(), y eso falla con ESP_ERR_INVALID_STATE si el bus no esta
+  // inicializado. El ss=-1 es porque el CS (AFE44XX_CS) lo gobierna por GPIO la
+  // propia libreria, como hacia bajo Arduino.
   SPI.begin(AFE_SCK, AFE_MISO, AFE_MOSI, -1);
 
   // HGAC (RF-only; since lib v0.81 two EMAs per domain — a fast HIGH2 guard plus
