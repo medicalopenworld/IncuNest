@@ -22,22 +22,40 @@
   SOFTWARE.
 
 */
-#include <Arduino.h>
+#include "platform/plat_time.h"
+#include "platform/plat_pwm.h"
+#include "platform/plat_string.h"
+#include "platform/plat_num.h"
+#include "esp_heap_caps.h"
 #include <string.h>
 #include <time.h>
 #include "lwip/dns.h"
 
 #include "CommTask.h"
 #include "GPRS.h"
+#include "gprs_modem.h"
 #include "SPO2.h"
 #include "PpgSnapshot.h"
 #include "PpgSnapshotPublish.h"
 #include "main.h"
+#include "modules/debug/debug_mode.h"
+#include "platform/plat_string_json.h"  // doc["x"].as<String>()
+
+// Capa de red del porte a ESP-IDF (sustituye a WiFi.h, WiFiClientSecure.h,
+// WebServer.h, Update.h y ESPmDNS.h de Arduino).
+#include "platform/plat_wifi.h"
+#include "platform/plat_net_client.h"
+#include "platform/plat_webserver.h"
+#include "platform/plat_update.h"
+#include "platform/plat_mdns.h"
+
 #include "modules/util/tz_source.h"
 #include "modules/util/ip_geoloc.h"
 #include "modules/util/wifi_dwell.h"
 #include "modules/baby_profile/baby_cloud.h"
 #include "modules/baby_profile/baby_profile_store.h"
+// Por LittleFS/FsFile en el endpoint /debug/fs.
+#include "platform/plat_fs.h"
 #include "modules/util/civil_time.h"
 #include "modules/util/system_clock.h"
 #include "modules/sensorboard_comm/sensorboard_comm.h"
@@ -67,15 +85,18 @@ char wifiHost[32];
 
 WebServer wifiServer(80);
 
-WiFiClient espClient;
-
 // Initalize the Mqtt client instance
-Arduino_MQTT_Client mqttClientWIFI(espClient);
+// Transporte MQTT nativo de ESP-IDF (esp-mqtt). Antes: Arduino_MQTT_Client
+// sobre un WiFiClient (PubSubClient). El SDK ya lo traia; ver Wifi_OTA.h.
+Espressif_MQTT_Client mqttClientWIFI;
 
 // Initialize ThingsBoard instance
 // ThingsBoardSized<THINGSBOARD_BUFFER_SIZE, THINGSBOARD_FIELDS_AMOUNT>
 // tb_wifi(espClient);
-ThingsBoard tb_wifi(mqttClientWIFI, MAX_MESSAGE_SIZE);
+// Buffer dimensionado para un trozo de OTA desde la creacion: ver
+// TB_MQTT_BUFFER_WIFI en main.h (esp-mqtt no lo puede ampliar despues). Por
+// WiFi funcionaba con 1024 de milagro; no es algo de lo que depender.
+ThingsBoard tb_wifi(mqttClientWIFI, TB_MQTT_BUFFER_WIFI);
 StaticJsonDocument<JSON_OBJECT_SIZE(THINGSBOARD_FIELDS_AMOUNT)> WIFI_JSON;
 JsonObject addVariableToTelemetryWIFIJSON = WIFI_JSON.to<JsonObject>();
 
@@ -181,7 +202,7 @@ static void wifiRegisterEvents(void) {
 void applyWifiCredentials(const char* ssid, const char* pass) {
   wifiRegisterEvents();
 
-  Preferences prefs;
+  NvsPrefs prefs;
   char prevSSID[64] = "";
   char prevPass[64] = "";
   prefs.begin("mb_wifi", true);
@@ -248,16 +269,25 @@ const char *loginIndex =
     "</table>"
     "</form>"
     "<script>"
+    // AQUI HABIA UNA COMPROBACION DE CREDENCIALES EN JAVASCRIPT, y se ha
+    // quitado por dos motivos:
+    //
+    //  1. NO PROTEGIA NADA. Corria en el navegador del visitante: bastaba con
+    //     mirar el codigo de la pagina, o llamar a /serverIndex directamente,
+    //     para saltarsela. Quien de verdad protege es el
+    //     wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)
+    //     que lleva /serverIndex y el resto de endpoints.
+    //  2. PUBLICABA LA CONTRASENA. Esta pagina la sirve "/" SIN autenticar, o
+    //     sea que la placa le entregaba usuario y contrasena en claro a
+    //     cualquiera que abriese su IP. Y como el literal estaba en el fuente,
+    //     ademas era legible en GitHub: el repo es publico.
+    //
+    // El formulario se deja: al pulsar Login se abre /serverIndex, y es el
+    // navegador quien pide las credenciales por HTTP Basic contra la
+    // autenticacion de verdad.
     "function check(form)"
     "{"
-    "if(form.userid.value=='in3admin' && form.pwd.value=='savinglives')"
-    "{"
     "window.open('/serverIndex')"
-    "}"
-    "else"
-    "{"
-    " alert('Error WIFI_PASSWORD or Username')/*displays error message*/"
-    "}"
     "}"
     "</script>";
 
@@ -474,7 +504,7 @@ void wifiInit(void) {
     pass = pendingPass;
     ESP_LOGI(TAG, "Connecting to pending SSID: %s", ssid.c_str());
   } else {
-    { Preferences p; p.begin(NS_WIFI, true);
+    { NvsPrefs p; p.begin(NS_WIFI, true);
       ssid = p.getString(KEY_SSID,     "");
       pass = p.getString(KEY_PASSWORD, "");
       p.end(); }
@@ -579,54 +609,54 @@ void configWifiServer() {
     extern float maxDesiredTemp[2];
     if (wifiServer.hasArg("serial")) {
       in3.serialNumber = wifiServer.arg("serial").toInt();
-      { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_SERIAL, in3.serialNumber); p.end(); }
+      { NvsPrefs p; p.begin(NS_CFG, false); p.putInt(KEY_SERIAL, in3.serialNumber); p.end(); }
     }
     if (wifiServer.hasArg("fan_supply_pwm")) {
       in3.fanPwrSupplyPWM = wifiServer.arg("fan_supply_pwm").toInt();
-      { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_PWR_SUPPLY_PWM, in3.fanPwrSupplyPWM); p.end(); }
+      { NvsPrefs p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_PWR_SUPPLY_PWM, in3.fanPwrSupplyPWM); p.end(); }
     }
     if (wifiServer.hasArg("fan_ctl_pwm")) {
       in3.fanCtlPWM = wifiServer.arg("fan_ctl_pwm").toInt();
-      { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_CTL_PWM, in3.fanCtlPWM); p.end(); }
-      ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
+      { NvsPrefs p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_CTL_PWM, in3.fanCtlPWM); p.end(); }
+      pwm_write(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
     }
     if (wifiServer.hasArg("fan_pid_en")) {
       setFanPidEnabled(wifiServer.arg("fan_pid_en").toInt() != 0);
     }
     if (wifiServer.hasArg("heater_amps")) {
       in3.heaterMaxPowerAmps = wifiServer.arg("heater_amps").toFloat();
-      { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_HEAT_MAX_A, in3.heaterMaxPowerAmps); p.end(); }
+      { NvsPrefs p; p.begin(NS_CFG, false); p.putFloat(KEY_HEAT_MAX_A, in3.heaterMaxPowerAmps); p.end(); }
     }
     if (wifiServer.hasArg("air_tmax")) {
       in3.airTemperatureSetMax =
           alarm_clamp_air_cutout(wifiServer.arg("air_tmax").toFloat());
       maxDesiredTemp[CONTROL_AIR] = in3.airTemperatureSetMax;
-      { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_AIR_T_MAX, in3.airTemperatureSetMax); p.end(); }
+      { NvsPrefs p; p.begin(NS_CFG, false); p.putFloat(KEY_AIR_T_MAX, in3.airTemperatureSetMax); p.end(); }
     }
     if (wifiServer.hasArg("skin_tmax")) {
       in3.skinTemperatureSetMax =
           alarm_clamp_skin_cutout(wifiServer.arg("skin_tmax").toFloat());
       maxDesiredTemp[CONTROL_SKIN] = in3.skinTemperatureSetMax;
-      { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_SKIN_T_MAX, in3.skinTemperatureSetMax); p.end(); }
+      { NvsPrefs p; p.begin(NS_CFG, false); p.putFloat(KEY_SKIN_T_MAX, in3.skinTemperatureSetMax); p.end(); }
     }
     if (wifiServer.hasArg("gprs_act")) {
       in3.actuating_gprs_period = wifiServer.arg("gprs_act").toInt();
-      { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_ACT_PERIOD, in3.actuating_gprs_period); p.end(); }
+      { NvsPrefs p; p.begin(NS_GPRS, false); p.putInt(KEY_ACT_PERIOD, in3.actuating_gprs_period); p.end(); }
     }
     if (wifiServer.hasArg("gprs_photo")) {
       in3.phototherapy_gprs_period = wifiServer.arg("gprs_photo").toInt();
-      { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_PHOTO_PERIOD, in3.phototherapy_gprs_period); p.end(); }
+      { NvsPrefs p; p.begin(NS_GPRS, false); p.putInt(KEY_PHOTO_PERIOD, in3.phototherapy_gprs_period); p.end(); }
     }
     if (wifiServer.hasArg("gprs_stby")) {
       in3.standby_gprs_period = wifiServer.arg("gprs_stby").toInt();
-      { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_STBY_PERIOD, in3.standby_gprs_period); p.end(); }
+      { NvsPrefs p; p.begin(NS_GPRS, false); p.putInt(KEY_STBY_PERIOD, in3.standby_gprs_period); p.end(); }
     }
     if (wifiServer.hasArg("reference_temp")) {
       double referenceTemp = wifiServer.arg("reference_temp").toDouble();
       in3.fineTuneSkinTemperature =
           in3.fineTuneSkinTemperature +
           (referenceTemp - in3.temperature[SKIN_SENSOR]);
-      { Preferences p; p.begin(NS_CAL, false); p.putFloat(KEY_FT_SKIN, in3.fineTuneSkinTemperature); p.end(); }
+      { NvsPrefs p; p.begin(NS_CAL, false); p.putFloat(KEY_FT_SKIN, in3.fineTuneSkinTemperature); p.end(); }
     }
     if (wifiServer.hasArg("set_time")) {
       // "YYYY-MM-DDTHH:MM[:SS]" — what <input type='datetime-local'> posts.
@@ -655,10 +685,250 @@ void configWifiServer() {
                       "Clock set. The display picks it up within 10 s.");
       return;
     }
-    /* Preferences commits on p.end() — no explicit commit needed */
+    /* NvsPrefs commits on p.end() — no explicit commit needed */
     wifiServer.sendHeader("Connection", "close");
     wifiServer.send(200, "text/plain", "Saved. Settings applied immediately.");
   });
+  // ================== ENDPOINTS DE DEPURACION ==================
+  // Ver modules/debug/debug_mode.h para las reglas que cumplen. Resumen:
+  // /debug/state es de solo lectura y siempre esta; TODO lo que simula exige
+  // el modo encendido, y apagarlo retira las simulaciones de golpe.
+  //
+  // Todos piden la misma autenticacion que /config. Es la unica barrera que
+  // hay, asi que la otra mitad de la proteccion es que el modo no se persiste:
+  // un equipo reiniciado vuelve a la realidad aunque alguien lo dejara puesto.
+
+  // Volcado de estado. SOLO LECTURA: no cambia nada y por eso no exige el modo.
+  wifiServer.on("/debug/state", HTTP_GET, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    // En el monton y EN LA PSRAM, no en la pila ni en la DRAM interna: esta
+    // funcion corre en la tarea de OTA y el volcado con la tabla de tareas pasa
+    // de 3 KB.
+    //
+    // La primera version pedia 4 KB con malloc() —que sirve de la interna
+    // primero— y ademas envolvia el resultado en un String, o sea otros 4 KB
+    // copiados. Ocho kilobytes de DRAM interna POR PETICION. En la motherBoard
+    // no se nota; en el display se cargo la placa: con un script de pruebas
+    // consultando esto en bucle, la interna paso de 23,8 KB a 5,7 KB y salieron
+    // `wifi:mem fail`, glitches en el panel y un HMI LINK LOST fantasma
+    // (banco, 2026-09-11). El envio va por la sobrecarga de `const char *`
+    // porque esa no copia: se la pasa tal cual a httpd_resp_send().
+    const size_t cap = 4096;
+    char *buf = (char *)heap_caps_malloc(cap, MALLOC_CAP_SPIRAM);
+    if (buf == nullptr) {
+      buf = (char *)malloc(cap); // placa sin PSRAM
+    }
+    if (buf == nullptr) {
+      wifiServer.sendHeader("Connection", "close");
+      wifiServer.send(503, "application/json", "{\"error\":\"sin memoria\"}");
+      return;
+    }
+    // ?tasks=1 anade la tabla de tareas; ver debug_state_json_ex().
+    debug_state_json_ex(buf, cap, wifiServer.hasArg("tasks"));
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "application/json", (const char *)buf);
+    free(buf);
+  });
+
+  // GET /debug/fs — listado del sistema de ficheros. SOLO LECTURA.
+  //
+  // Existe porque quedarse sin espacio no se notaba desde fuera: en banco
+  // (2026-09-14) las ventanas de PPG llenaron la particion y lo primero que se
+  // vio fue un abort. /debug/state ya informa total y usado; esto dice CON QUE,
+  // que es lo que hace falta para decidir si sobra un diagnostico o falta sitio
+  // para los perfiles de bebe, que viven en esta misma particion.
+  //
+  // No borra nada a proposito: aqui dentro estan los perfiles y el historico de
+  // pesos, y un endpoint que barre no es algo que deba existir sin pensarlo.
+  wifiServer.on("/debug/fs", HTTP_GET, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    const size_t cap = 4096;
+    char *buf = (char *)heap_caps_malloc(cap, MALLOC_CAP_SPIRAM);
+    if (buf == nullptr) {
+      buf = (char *)malloc(cap);
+    }
+    if (buf == nullptr) {
+      wifiServer.sendHeader("Connection", "close");
+      wifiServer.send(503, "application/json", "{\"error\":\"sin memoria\"}");
+      return;
+    }
+    size_t n = 0;
+    const size_t total = LittleFS.totalBytes();
+    const size_t used = LittleFS.usedBytes();
+    n += snprintf(buf + n, cap - n, "{\"total\":%u,\"used\":%u,\"files\":[",
+                  (unsigned)total, (unsigned)used);
+    // Recorrido de un solo nivel mas los dos directorios de pesos. Se acota por
+    // el buffer: si no cabe todo se corta y se avisa con "truncated", que es
+    // mejor que mandar JSON invalido.
+    bool first = true;
+    bool truncated = false;
+    // Literales a proposito: en baby_profile_store.cpp son `static const`
+    // del modulo, no parte de su interfaz. Si alli cambian, aqui solo se
+    // deja de listar un directorio; no se rompe nada.
+    const char *dirs[] = {"/", "/weight_active", "/weight_archive"};
+    for (size_t d = 0; d < sizeof(dirs) / sizeof(dirs[0]) && !truncated; d++) {
+      FsFile root = LittleFS.open(dirs[d]);
+      if (!root || !root.isDirectory()) {
+        continue;
+      }
+      FsFile f;
+      while ((f = root.openNextFile())) {
+        if (f.isDirectory()) {
+          continue;
+        }
+        if (cap - n < 160) {
+          truncated = true;
+          break;
+        }
+        // name() es el nombre pelado (ver plat_fs.h), asi que la ruta se
+        // recompone aqui: "/" en la raiz y "<dir>/" en los subdirectorios.
+        n += snprintf(buf + n, cap - n, "%s{\"n\":\"%s/%s\",\"b\":%u}",
+                      first ? "" : ",", (d == 0) ? "" : dirs[d],
+                      f.name(), (unsigned)f.size());
+        first = false;
+      }
+    }
+    n += snprintf(buf + n, cap - n, "],\"truncated\":%d}", truncated ? 1 : 0);
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "application/json", (const char *)buf);
+    free(buf);
+  });
+
+  // Interruptor general. POST /debug/mode?on=0|1
+  wifiServer.on("/debug/mode", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    if (!wifiServer.hasArg("on")) {
+      wifiServer.send(400, "text/plain", "falta on=0|1");
+      return;
+    }
+    debug_mode_set(wifiServer.arg("on").toInt() != 0);
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "application/json",
+                    String("{\"debug\":") + (debug_mode_enabled() ? 1 : 0) + "}");
+  });
+
+  // Simular una medida. POST /debug/sensor?ch=air_temp&value=39.5
+  //                     POST /debug/sensor?ch=air_temp&clear=1
+  //                     POST /debug/sensor?clear_all=1
+  wifiServer.on("/debug/sensor", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    if (wifiServer.hasArg("clear_all")) {
+      debug_override_clear_all();
+      wifiServer.send(200, "text/plain", "OK");
+      return;
+    }
+    if (!wifiServer.hasArg("ch")) {
+      wifiServer.send(400, "text/plain", "falta ch=<canal>");
+      return;
+    }
+    const String chName = wifiServer.arg("ch");
+    const debug_channel_t ch = debug_channel_from_name(chName.c_str());
+    if (ch == DEBUG_CH_COUNT) {
+      wifiServer.send(400, "text/plain", "canal desconocido: " + chName);
+      return;
+    }
+    if (wifiServer.hasArg("clear")) {
+      debug_override_clear(ch);
+      wifiServer.send(200, "text/plain", "OK");
+      return;
+    }
+    if (!wifiServer.hasArg("value")) {
+      wifiServer.send(400, "text/plain", "falta value=<numero> o clear=1");
+      return;
+    }
+    if (!debug_override_set(ch, wifiServer.arg("value").toFloat())) {
+      wifiServer.send(409, "text/plain", "el modo depuracion esta apagado");
+      return;
+    }
+    wifiServer.send(200, "text/plain", "OK");
+  });
+
+  // Inyectar una trama del display como si hubiera llegado por el cable.
+  // POST /debug/inject?line=HMI,1,0,1,36.50,37.00,50,0,0,1,0
+  //
+  // Con esto se reproduce cualquier orden del operador sin tener el display
+  // delante: encender la actuacion, mover consignas, silenciar o reconocer una
+  // alarma. Y se ejercita el parseador de verdad.
+  wifiServer.on("/debug/inject", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    if (!wifiServer.hasArg("line")) {
+      wifiServer.send(400, "text/plain", "falta line=<trama>");
+      return;
+    }
+    if (!debug_inject_line(wifiServer.arg("line").c_str())) {
+      wifiServer.send(409, "text/plain",
+                      "modo depuracion apagado, prefijo incorrecto o cola llena");
+      return;
+    }
+    wifiServer.send(200, "text/plain", "OK");
+  });
+
+  // Forzar la CONDICION de una alarma. POST /debug/alarm?id=5&present=1
+  wifiServer.on("/debug/alarm", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    if (wifiServer.hasArg("clear_all")) {
+      debug_alarm_clear_all();
+      wifiServer.send(200, "text/plain", "OK");
+      return;
+    }
+    if (!wifiServer.hasArg("id") || !wifiServer.hasArg("present")) {
+      wifiServer.send(400, "text/plain", "faltan id=<n> y present=0|1");
+      return;
+    }
+    const int id = wifiServer.arg("id").toInt();
+    const bool present = wifiServer.arg("present").toInt() != 0;
+    if (!debug_alarm_force(id, present)) {
+      wifiServer.send(409, "text/plain",
+                      "id fuera de rango o modo depuracion apagado");
+      return;
+    }
+    wifiServer.send(200, "text/plain", "OK");
+  });
+
+  // Provocar un fallo, para la prueba de coredump.
+  // POST /debug/crash?kind=abort|null|stack|wdt|assert[&delay_ms=500]
+  //
+  // Contesta ANTES de morir (de ahi el retardo): si no, el cliente ve una
+  // conexion cortada y no puede distinguir "ha fallado como le pedi" de "no
+  // me ha llegado la peticion".
+  wifiServer.on("/debug/crash", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    const debug_crash_kind_t kind =
+        debug_crash_from_name(wifiServer.arg("kind").c_str());
+    if (kind == DEBUG_CRASH_NONE) {
+      wifiServer.send(400, "text/plain",
+                      "kind=abort|null|stack|wdt|assert");
+      return;
+    }
+    uint32_t delay = 500;
+    if (wifiServer.hasArg("delay_ms")) {
+      delay = (uint32_t)wifiServer.arg("delay_ms").toInt();
+    }
+    if (!debug_crash_request(kind, delay)) {
+      wifiServer.send(409, "text/plain", "el modo depuracion esta apagado");
+      return;
+    }
+    wifiServer.send(200, "text/plain", "OK");
+  });
+
   /*handling uploading firmware file */
   wifiServer.on(
       "/update", HTTP_POST,
@@ -670,7 +940,7 @@ void configWifiServer() {
         wifiServer.sendHeader("Connection", "close");
         if (ok) {
           wifiServer.send(200, "text/plain", "OK");
-          delay(500); // let TCP stack flush the response before hardware reset
+          delay_ms(500); // let TCP stack flush the response before hardware reset
           ESP.restart();
           return;
         }
@@ -782,14 +1052,32 @@ bool WIFIIsConnectedToServer() {
   return (Wifi_TB.serverConnectionStatus && WIFIIsConnected());
 }
 
+// Gemela de currentFWSent (GPRS.cpp), pero PROPIA: los dos transportes tienen
+// su propio cliente ThingsBoard (tb / tb_wifi) y cada uno tiene que hacer su
+// handshake. Compartir la bandera haria que, si GPRS ya informo, el lado WiFi
+// no informase nunca -- y al reves.
+static bool s_wifiCurrentFWSent = false;
+
 void WIFICheckOTA() {
   logI("[WIFI] -> Checking WIFI firwmare Update...");
-  tb_wifi.Firmware_Send_Info(CURRENT_FIRMWARE_TITLE, FWversion);
+  // Sin el Firmware_Send_State, ThingsBoard NUNCA se entera de que la
+  // actualizacion salio bien: la OTA deja el estado en UPDATING (el servidor
+  // asume que el equipo esta reiniciando) y ahi se queda para siempre.
+  // Verificado en banco el 2026-09-15: tras una OTA por WiFi completada y
+  // aplicada (18.2 -> 18.3, arrancando ya desde app1), CLIENT_SCOPE no tenia
+  // un solo atributo fw_*, asi que el panel de firmware no mostraba la unidad
+  // como actualizada. El lado GPRS si lo hacia (ver GPRSCheckOTA); esto era
+  // una divergencia entre gemelas, no una decision.
+  if (!s_wifiCurrentFWSent) {
+    s_wifiCurrentFWSent =
+        tb_wifi.Firmware_Send_Info(CURRENT_FIRMWARE_TITLE, FWversion) &&
+        tb_wifi.Firmware_Send_State(FW_STATE_UPDATED);
+  }
   tb_wifi.Start_Firmware_Update(OTAcallback);
 }
 
 void WIFI_TB_Init() {
-  { Preferences p; p.begin(NS_GPRS, true);
+  { NvsPrefs p; p.begin(NS_GPRS, true);
     Wifi_TB.provisioned   = p.getUChar (KEY_PROVISIONED, 0);
     if (Wifi_TB.provisioned) {
       Wifi_TB.device_token = p.getString(KEY_TOKEN, "").c_str();
@@ -828,7 +1116,7 @@ void WIFIProvisionResponse(const JsonObjectConst &data) {
     wifi_credentials.password = "";
     Wifi_TB.provisioned = true;
     Wifi_TB.device_token = wifi_credentials.username.c_str();
-    { Preferences p; p.begin(NS_GPRS, false);
+    { NvsPrefs p; p.begin(NS_GPRS, false);
       p.putString(KEY_TOKEN,       Wifi_TB.device_token);
       p.putUChar (KEY_PROVISIONED, Wifi_TB.provisioned);
       p.end(); }
@@ -843,7 +1131,7 @@ void WIFIProvisionResponse(const JsonObjectConst &data) {
         credentials_value[CLIENT_PASSWORD].as<std::string>();
     Wifi_TB.provisioned = true;
     Wifi_TB.device_token = wifi_credentials.username.c_str();
-    { Preferences p; p.begin(NS_GPRS, false);
+    { NvsPrefs p; p.begin(NS_GPRS, false);
       p.putString(KEY_TOKEN,       Wifi_TB.device_token);
       p.putUChar (KEY_PROVISIONED, Wifi_TB.provisioned);
       p.end(); }
@@ -1099,6 +1387,7 @@ void addTelemetriesToWIFIJSON() {
                                TELEMETRIES_DECIMALS);
   }
   addVariableToTelemetryWIFIJSON[PHOTOTHERAPY_ACTIVE_KEY] = in3.phototherapy;
+  addVariableToTelemetryWIFIJSON[HUMIDIFIER_ACTIVE_KEY] = in3.humidityControl;
   addVariableToTelemetryWIFIJSON[HUMIDITY_ROOM_KEY] = roundSignificantDigits(
       in3.humidity[ROOM_DIGITAL_HUM_SENSOR], TELEMETRIES_DECIMALS);
   addVariableToTelemetryWIFIJSON[SYSTEM_CURRENT_KEY] =
@@ -1145,9 +1434,14 @@ void addTelemetriesToWIFIJSON() {
       addVariableToTelemetryWIFIJSON[DESIRED_HUMIDITY_ROOM_KEY] =
           in3.desiredControlHumidity;
     }
+    // Fuera de firstConfigPost a proposito: el false del else sale en cada
+    // ciclo, asi que publicar el true una sola vez dejaba la serie coja. Una
+    // ventana que empiece con el control ya encendido -- p. ej. la entity
+    // view de una estancia -- no veria ni un solo true hasta el siguiente
+    // flanco, y el grafico nace vacio.
+    addVariableToTelemetryWIFIJSON[CONTROL_ACTIVE_KEY] = true;
     if (!Wifi_TB.firstConfigPost) {
       Wifi_TB.firstConfigPost = true;
-      addVariableToTelemetryWIFIJSON[CONTROL_ACTIVE_KEY] = true;
       if (in3.temperatureControl) {
         if (in3.controlMode == CONTROL_AIR) {
           addVariableToTelemetryWIFIJSON[CONTROL_MODE_KEY] = "AIR";
@@ -1242,7 +1536,7 @@ static bool s_dwellLoaded = false;
 static bool s_wifiAttrsDirty = true; // publicar una vez en cuanto haya broker
 
 static void dwellLoad() {
-  Preferences p;
+  NvsPrefs p;
   p.begin(NS_WIFI, true);
   const String s = p.getString(KEY_DWELL_SSID, "");
   wifi_dwell_clear(&s_dwell); // deja el buffer a cero: garantiza el NUL
@@ -1255,7 +1549,7 @@ static void dwellLoad() {
 }
 
 static void dwellSave() {
-  Preferences p;
+  NvsPrefs p;
   p.begin(NS_WIFI, false);
   p.putString(KEY_DWELL_SSID, s_dwell.ssid);
   p.putULong(KEY_DWELL_FIRST, s_dwell.firstEpoch);
@@ -1352,7 +1646,7 @@ void WEB_OTA() {
   if (WIFIIsConnected()) {
     if (strlen(pendingSSID) > 0 && WiFi.SSID() == String(pendingSSID)) {
       logI("[WIFI] -> Connection successful, persisting credentials to Preferences");
-      { Preferences p; p.begin(NS_WIFI, false);
+      { NvsPrefs p; p.begin(NS_WIFI, false);
         p.putString(KEY_SSID,     pendingSSID);
         p.putString(KEY_PASSWORD, pendingPass);
         p.end(); }
@@ -1421,10 +1715,14 @@ static void rpc_check_ota_wifi_cb(JsonVariantConst const & /*data*/,
   logI("[WIFI] -> OTA check forced by RPC");
 }
 
+// Tamano del documento de respuesta: obligatorio. Ver el comentario extenso
+// en GPRS.cpp, junto a rpc_callbacks[] -- sin el, el defecto es capacidad
+// cero, la respuesta se descarta al desbordar y el RPC expira con 504
+// aunque el handler haya corrido.
 static RPC_Callback wifi_rpc_callbacks[] = {
-  RPC_Callback("setWifi", rpc_setwifi_wifi_cb),
-  RPC_Callback("capturePPG", rpc_capture_ppg_cb),
-  RPC_Callback("checkOta", rpc_check_ota_wifi_cb),
+  RPC_Callback("setWifi", rpc_setwifi_wifi_cb, JSON_OBJECT_SIZE(1)),
+  RPC_Callback("capturePPG", rpc_capture_ppg_cb, JSON_OBJECT_SIZE(1)),
+  RPC_Callback("checkOta", rpc_check_ota_wifi_cb, JSON_OBJECT_SIZE(1)),
 };
 
 // El array de PPG_snapshot necesita un ts real por muestra (20 ms entre
@@ -1495,10 +1793,17 @@ static void ensureWifiTimeZoneSynced() {
   if (WiFi.status() != WL_CONNECTED)
     return;
 
+  // Los fallos de aqui abajo se LOGUEAN. Esta funcion podia irse por tres
+  // `return` mudos —no conecta, respuesta sin cabeceras, offset que no
+  // parsea— y el sintoma en banco fue un reloj de pantalla dos horas atrasado
+  // sin una sola linea en el log que dijera por que (2026-09-11). Es
+  // informacion que solo se puede recoger en el momento en que pasa.
   WiFiClient client;
   client.setTimeout(5);
-  if (!client.connect("ip-api.com", 80))
+  if (!client.connect("ip-api.com", 80)) {
+    ESP_LOGW("WiFi", "zona horaria: no se conecta a ip-api.com:80");
     return;
+  }
   client.print("GET /json/?fields=status,offset,lat,lon HTTP/1.1\r\n"
                "Host: ip-api.com\r\nConnection: close\r\n\r\n");
 
@@ -1526,8 +1831,11 @@ static void ensureWifiTimeZoneSynced() {
   // El cuerpo va tras la línea en blanco de las cabeceras. Si no aparece, la
   // respuesta está incompleta y se descarta entera.
   const char *body = strstr(buf, "\r\n\r\n");
-  if (!body)
+  if (!body) {
+    ESP_LOGW("WiFi", "zona horaria: respuesta sin cabeceras completas (%u B)",
+             (unsigned)len);
     return;
+  }
   body += 4;
 
   // La posición se saca ANTES del return de la zona: un cuerpo sin offset no
@@ -1546,8 +1854,10 @@ static void ensureWifiTimeZoneSynced() {
 #endif
 
   int quarters = 0;
-  if (!tz_parse_ipapi_offset(body, &quarters))
+  if (!tz_parse_ipapi_offset(body, &quarters)) {
+    ESP_LOGW("WiFi", "zona horaria: no se parsea el offset de '%s'", body);
     return;
+  }
   if (tz_source_set(quarters, TZ_SOURCE_IP)) {
     ESP_LOGI("WiFi", "Timezone from IP lookup: %d quarter-hours", quarters);
   }
@@ -1668,6 +1978,34 @@ void WIFI_TB_OTA() {
 
 void WifiOTAHandler(void) {
   if (WIFI_EN && !WIFIIsConnected()) {
+    // Reintentar el WiFi DERRIBA la sesion PPP del celular. wifiInit() rehace
+    // la interfaz de la STA, y eso se lleva por delante el netif de PPP:
+    //
+    //   Progress 1.86%
+    //   WiFi: Initializing WiFi
+    //   tcp_read error, errno=113 (ECONNABORTED)
+    //   esp-netif_lwip-ppp: ppp: User interrupt
+    //   CMUX: Restarting CMUX state machine
+    //
+    // Medido en banco el 2026-09-15: la descarga de OTA por 2G duraba
+    // exactamente 30 s -- un periodo de reintento de WiFi -- y moria ahi
+    // siempre, dejando ademas el modem mudo.
+    //
+    // No es solo cosa del banco: cualquier unidad con una SSID configurada
+    // que no este al alcance (y la compilada por defecto lo esta en muy pocos
+    // sitios) reintenta cada 30 s, o sea que su enlace celular no sobrevive
+    // medio minuto. Por eso una OTA por 2G no podia completarse nunca.
+    //
+    // Mientras haya datos por celular no se toca el WiFi; y si ademas hay una
+    // OTA bajando, ni eso. El WiFi se reintenta igual en cuanto el celular no
+    // tiene IP, que es cuando hace falta de verdad.
+    if (GPRS.OTAInProgress) {
+      return;
+    }
+    if (modem.isGprsConnected() &&
+        millis() - Wifi_TB.lastWifiReconnectAttempt < WIFI_RECONNECT_WITH_PPP_INTERVAL) {
+      return;
+    }
     if (millis() - Wifi_TB.lastWifiReconnectAttempt > WIFI_RECONNECT_INTERVAL) {
       logI("[WIFI] -> Connection lost, re-init WiFi");
       wifiInit();   // updates lastWifiReconnectAttempt

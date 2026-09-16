@@ -96,7 +96,7 @@
 // modules/control/{alarm_machine,pid_wrapper}.cpp y la logica pura de este
 // modulo, ya cubierta en ftest_summary.cpp/test_factory_test): verificacion
 // manual en banco documentada en el commit.
-#include <Preferences.h>
+#include "platform/plat_nvs.h"
 #include <cstdio>
 #include <cstring>
 #include <time.h>
@@ -356,32 +356,32 @@ static void enter_safe_state(void) {
   stopPID(humidityPID);
   fanControlPID.SetMode(MANUAL);
 
-  ledcWrite(HEATER_PWM_CHANNEL, 0);
-  ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, 0);
-  ledcWrite(FAN_PWM_CHANNEL, 0);
-  ledcWrite(FAN_CTL_PWM_CHANNEL, 0);
-  ledcWrite(BUZZER_PWM_CHANNEL, 0);
+  pwm_write(HEATER_PWM_CHANNEL, 0);
+  pwm_write(PHOTOTHERAPY_PWM_CHANNEL, 0);
+  pwm_write(FAN_PWM_CHANNEL, 0);
+  pwm_write(FAN_CTL_PWM_CHANNEL, 0);
+  pwm_write(BUZZER_PWM_CHANNEL, 0);
   in3_hum.turn(OFF);
-  digitalWrite(ACTUATORS_EN, LOW);
+  pin_write(ACTUATORS_EN, false);
 }
 
 // Se llama SIEMPRE al terminar la tarea (fin de bateria, RUN unico, ABORT o
 // cualquier salida): deja los actuadores exactamente donde enter_safe_state()
 // los puso y devuelve el control a PIDHandler()/turnFans().
 static void restore(void) {
-  ledcWrite(HEATER_PWM_CHANNEL, 0);
-  ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, 0);
-  ledcWrite(FAN_PWM_CHANNEL, 0);
-  ledcWrite(FAN_CTL_PWM_CHANNEL, 0);
-  ledcWrite(BUZZER_PWM_CHANNEL, 0);
+  pwm_write(HEATER_PWM_CHANNEL, 0);
+  pwm_write(PHOTOTHERAPY_PWM_CHANNEL, 0);
+  pwm_write(FAN_PWM_CHANNEL, 0);
+  pwm_write(FAN_CTL_PWM_CHANNEL, 0);
+  pwm_write(BUZZER_PWM_CHANNEL, 0);
   // Simetria con enter_safe_state() (bloqueante #7 del review de seguridad):
   // el humidificador tiene DOS caminos de salida (in3_hum.turn(), que ya se
   // llamaba, y el acceso directo de HUMID_USB via USB_EN/HUMIDIFIER_PWM_
   // CHANNEL) y solo el primero se restauraba.
-  digitalWrite(USB_EN, LOW);
+  pin_write(USB_EN, false);
   in3_hum.turn(OFF);
-  ledcWrite(HUMIDIFIER_PWM_CHANNEL, 0);
-  digitalWrite(ACTUATORS_EN, LOW);
+  pwm_write(HUMIDIFIER_PWM_CHANNEL, 0);
+  pin_write(ACTUATORS_EN, false);
   g_factoryTestActive = false;
   // Solo si alarmsEnabled sigue en false: si alguien la puso a true mientras
   // la bateria corria (p.ej. el HMI reenvio un comando que la reactivo), esa
@@ -400,7 +400,7 @@ static uint32_t current_epoch_or_zero(void) {
 static void persist_full(const FtestSummary *sum) {
   SbSnapshot sb;
   sensorboard_get_snapshot(&sb);
-  Preferences p;
+  NvsPrefs p;
   p.begin(NS_FTEST, false);
   p.putUInt(KEY_FTEST_EPOCH, current_epoch_or_zero());
   p.putUInt(KEY_FTEST_PASS, sum->pass_mask);
@@ -413,7 +413,7 @@ static void persist_full(const FtestSummary *sum) {
 }
 
 static void persist_single(unsigned id, FtestStatus st) {
-  Preferences p;
+  NvsPrefs p;
   p.begin(NS_FTEST, false);
   uint32_t passMask = p.getUInt(KEY_FTEST_PASS, 0);
   uint32_t failMask = p.getUInt(KEY_FTEST_FAIL, 0);

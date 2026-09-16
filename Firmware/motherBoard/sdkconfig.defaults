@@ -1,0 +1,178 @@
+# motherBoard (ESP32-S3) — ESP-IDF nativo.
+#
+# ORIGEN: igual que en el HMI, esto no son preferencias sino la traduccion de
+# lo que regia antes en la placa — platformio.ini mas el sdkconfig con el que
+# venian compiladas las libs de arduino-esp32. OJO: la motherBoard iba con
+# arduino-esp32 2.0.16 (ESP-IDF 4.4), no con la 3.1.0 del HMI. Las dos placas
+# quedan ahora sobre la misma ESP-IDF, que es parte del objetivo del porte.
+
+CONFIG_IDF_TARGET="esp32s3"
+
+# --- Flash: 8 MB DIO a 80 MHz (platformio.ini: flash_mode=dio, f_flash=80M).
+#
+# SIN CONFIRMAR EN HARDWARE: platformio.ini no declaraba board_build.flash_size
+# y heredaba los 8 MB del manifest de esp32-s3-devkitc-1. Si el modulo real es
+# un WROOM-1 N16R8 (como el HMI y la SensorBoard), sobra media flash. Ver la
+# nota de partitions/ESP32S3_8MB.csv: hay que comprobarlo con `esptool.py
+# flash_id` antes de cambiarlo, porque declarar 16 MB sobre un modulo de 8
+# impide el arranque. Se mantiene 8 MB, que es lo que corre hoy.
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+
+# --- Suspension automatica de escrituras/borrados de flash.
+#
+# POR QUE: sin esto, escribir o borrar flash obliga a apagar la cache y a
+# APARCAR EL OTRO CORE mientras dura la operacion (spi_flash_op_block_func por
+# IPC), porque el codigo se ejecuta desde flash. Con auto-suspend el driver usa
+# el comando de suspension del propio chip para dejar pasar lecturas de cache y
+# luego reanudar, asi que el otro core no se queda parado.
+#
+# LO QUE LO MOTIVA, medido: banco 2026-09-14, la MB se reinicio con la sonda de
+# PPG puesta y trafico de red. El coredump apunta justo ahi:
+#   Panic: Task watchdog (loopTask, CPU 1)
+#   #0 spi_flash_op_block_func (cache_utils.c:108)  #1 ipc_task
+# Es el mismo mecanismo que hacia temblar el panel del display, donde este
+# ajuste ya estaba puesto y lo resolvio. La MB se habia quedado sin el.
+#
+# POR QUE SE PUEDE PONER EN ESTA PLACA (IDF lo marca "READ DOCS FIRST" porque
+# depende del chip de flash concreto, no solo del SoC):
+#   - ESP32-S3: SOC_SPI_MEM_SUPPORT_AUTO_SUSPEND = 1.
+#   - Flash de la MB: JEDEC 0x20 4017 (XMC, 8 MB). No hay driver propio de XMC,
+#     asi que cae en spi_flash_chip_generic.c, que para 0x20 lee la SFDP en
+#     0x32 y exige el bit 3. Leido de la placa con
+#     `esptool read-flash-sfdp 0x32 1` -> 0xF9, y 0xF9 & 0x08 = 0x08: es de la
+#     serie XMC-D y la capacidad SE CONCEDE.
+#   - NO hace falta CONFIG_SPI_FLASH_FORCE_ENABLE_XMC_C_SUSPEND, que es el
+#     camino para las XMC-C y que IDF comenta como "big risk".
+#
+# OJO: el HMI lleva OTRO chip (0xC8 4018, GigaDevice), soportado por su propio
+# driver. Dos placas del mismo proyecto con flash de fabricantes distintos, asi
+# que ESTO PUEDE VARIAR ENTRE UNIDADES DE PRODUCCION. Al validar una placa
+# nueva, mirar el arranque: IDF escribe siempre "Flash suspend feature is
+# enabled", y si el chip no lo soporta anade "Suspend and resume may not
+# supported for this flash model yet.". Si sale esa segunda linea, esta unidad
+# NO tiene la proteccion aunque el firmware la pida.
+CONFIG_SPI_FLASH_AUTO_SUSPEND=y
+
+# --- CPU a 240 MHz (platformio.ini: f_cpu = 240000000L).
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+
+# --- Sin PSRAM. Este modulo no la lleva; el codigo cuenta con ello
+# (sensorboard_comm.cpp: "esta placa no tiene PSRAM y el buffer sale de la
+# heap interna").
+# CONFIG_SPIRAM is not set
+
+# --- Tabla de particiones existente, sin tocar un offset.
+# La particion se llama "spiffs" pero monta LittleFS, y ahi viven los perfiles
+# de bebe y el archivo de pesos. Ver la nota del propio CSV: renombrarla
+# obligaria a reformatear y se perderian esos datos.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions/ESP32S3_8MB.csv"
+
+# --- FreeRTOS: 1000 Hz.
+# CRITICO, mismo motivo que en el HMI: arduino-esp32 compilaba a 1 kHz y el
+# defecto de ESP-IDF es 100 Hz. Aqui pesa aun mas, porque de este tick cuelgan
+# los lazos de control del calefactor y los plazos de la maquina de alarmas.
+CONFIG_FREERTOS_HZ=1000
+
+# --- Watchdog de tarea: 5 s con panic, igual que traia Arduino.
+# El firmware ademas lo maneja explicitamente (esp_task_wdt en src/).
+CONFIG_ESP_TASK_WDT_EN=y
+CONFIG_ESP_TASK_WDT_INIT=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=5
+CONFIG_ESP_TASK_WDT_PANIC=y
+
+# --- Consola y logs (CORE_DEBUG_LEVEL=3 equivale a INFO).
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_UART_NUM=0
+CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# --- Optimizacion: -Os para ESP-IDF.
+#
+# platformio.ini compilaba el proyecto con `-g3 -O0`, pero eso NO significa que
+# la placa entera fuese sin optimizar: el framework de Arduino venia
+# precompilado con -Os y solo las fuentes del proyecto iban a -O0. Aqui se
+# reproduce ese mismo reparto: la IDF a -Os (esta linea) y las fuentes de
+# main/ a -O0 -g3 (ver main/CMakeLists.txt). Poner -O0 global multiplicaria el
+# tamano del binario contra un slot de app de 2,625 MB.
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+
+# --- Pila de la tarea principal.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=4096
+
+# --- Volcado de fallo a la particion "coredump".
+# Ya funcionaba con PlatformIO (el sdkconfig de arduino-esp32 lo traia
+# activado); la particion se anadio el 2026-09-06 justo por eso.
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
+CONFIG_ESP_COREDUMP_CHECKSUM_CRC32=y
+CONFIG_ESP_COREDUMP_CHECK_BOOT=y
+CONFIG_ESP_COREDUMP_MAX_TASKS_NUM=64
+# Pila propia del volcador de coredump.
+#
+# Estaba en 1024 y NO LLEGABA: con ella, un abort() limpio en la motherBoard
+# terminaba en "Guru Meditation Error: Core 1 panic'ed (Double exception)" en
+# mitad de "Save core dump to flash...", y lo que quedaba grabado eran 96 bytes
+# —la cabecera y un program header— que el arranque siguiente rechazaba con
+# "Core dump data check failed". Es decir: la placa no ha producido nunca un
+# coredump utilizable. Reproducido en banco el 2026-09-11 con
+# INCUNEST_CRASH_TEST=1 (ver main/CMakeLists.txt).
+#
+# Son bytes de DRAM interna reservados para siempre, pero un volcado que se
+# estrella al escribirse no vale nada, y es justo lo que hace falta cuando una
+# unidad se cae en campo.
+CONFIG_ESP_COREDUMP_USE_STACK_SIZE=y
+CONFIG_ESP_COREDUMP_STACK_SIZE=4096
+
+# --- Excepciones de C++ ACTIVADAS.
+# No es una preferencia: arduino-esp32 2.0.16 compilaba con
+# CONFIG_COMPILER_CXX_EXCEPTIONS=y, y el codigo de USB Host que ya estaba
+# vendorizado en src/system/ (usb_host_ch34x_vcp.cpp) lo exige de forma
+# explicita — lleva un #error si no las encuentra. ESP-IDF las trae apagadas
+# por defecto, asi que hay que pedirlas para no cambiar comportamiento.
+CONFIG_COMPILER_CXX_EXCEPTIONS=y
+CONFIG_COMPILER_CXX_EXCEPTIONS_EMG_POOL_SIZE=0
+
+# --- TLS sin verificar el certificado del servidor.
+# Lo exige WiFiClientSecure::setInsecure(), que el firmware YA usaba en la
+# activacion de SIM (ftest_sim_activation.cpp) y en la subida a Drive
+# (DriveUpload.cpp): Arduino tampoco validaba ahi el certificado. esp-tls no
+# permite saltarse la verificacion si estas dos opciones no estan activas.
+# Es una deuda de seguridad heredada, no nueva; queda anotada en el plan.
+CONFIG_ESP_TLS_INSECURE=y
+CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY=y
+
+# --- SDK de ThingsBoard: bajo ESP-IDF lee estas opciones de Kconfig.
+# El firmware las fijaba con #define antes de incluir ThingsBoard.h, pero hay
+# rutas de inclusion (fw_guarded_updater.h -> Espressif_Updater.h ->
+# Configuration.h) donde el SDK llega primero y toma el valor de aqui. Tienen
+# que decir lo mismo que los #define para que todas las unidades de
+# compilacion vean la misma clase ThingsBoard.
+CONFIG_THINGSBOARD_ENABLE_DYNAMIC=y
+
+# --- PPP en lwIP: el modem SIM800 entra en la pila de red por PPP (esp_modem).
+# Con TinyGSM el TCP lo hacia el propio modem por comandos AT; ahora MQTT y
+# HTTPS por celular van por lwIP igual que por WiFi. PAP/CHAP se activan por si
+# algun APN de la lista exige usuario/clave (hoy GPRS_USER esta vacio).
+CONFIG_LWIP_PPP_SUPPORT=y
+CONFIG_LWIP_PPP_PAP_SUPPORT=y
+CONFIG_LWIP_PPP_CHAP_SUPPORT=y
+
+# uxTaskGetSystemState() para el volcado de /debug/state: la marca de agua de
+# pila por tarea es lo unico que delata un desbordamiento ANTES de que ocurra.
+# Cuesta unos pocos bytes por TCB.
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+
+# ================== available() DE LOS SOCKETS: OBLIGATORIO ==================
+# lwIP implementa ioctl(FIONREAD) DENTRO de `#if LWIP_SO_RCVBUF` (sockets.c).
+# Sin esta opcion el ioctl falla, WiFiClient::available() devuelve 0 para
+# siempre, y TODO bucle de lectura escrito como `while (client.available())`
+# —que es como los escribio este firmware— lee CERO BYTES sin dar ningun error.
+#
+# arduino-esp32 la traia activada; el porte la perdio, y en banco el sintoma
+# fue un reloj de pantalla dos horas atrasado (2026-09-11): la consulta de zona
+# horaria a ip-api.com conectaba, mandaba la peticion y se volvia con 0 B.
+# Afectaba igual, y en silencio, a la subida a Drive y a la activacion de SIM.
+CONFIG_LWIP_SO_RCVBUF=y

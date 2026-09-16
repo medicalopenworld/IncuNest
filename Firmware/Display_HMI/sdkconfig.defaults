@@ -1,0 +1,207 @@
+# Display HMI (CrowPanel Advance 7", ESP32-S3-WROOM-1 N16R8) — ESP-IDF nativo.
+#
+# ORIGEN DE ESTOS VALORES: no son preferencias, son la traduccion de lo que el
+# firmware tenia antes. Cada bloque dice de donde sale, porque varios de ellos
+# deciden si la placa arranca o no.
+#   - platformio.ini del proyecto (flash, PSRAM, particiones)
+#   - el sdkconfig con el que venian compiladas las libs de arduino-esp32
+#     3.1.0, que es el que de verdad regia en la placa
+#
+# Un cambio aqui NO es cosmetico: la reserva de memoria del panel RGB depende
+# de estos valores. Ver el bloque de PSRAM.
+
+CONFIG_IDF_TARGET="esp32s3"
+
+# --- Flash: 16 MB QIO a 80 MHz (platformio.ini: flash_mode=qio, f_flash=80M)
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+
+# --- Tabla de particiones: la que ya usa la flota, sin tocar un offset.
+# La tabla NO viaja en un OTA (ver la cabecera del propio CSV): si estos
+# offsets no coinciden con los de las unidades reflasheadas, el OTA aterriza
+# en la particion equivocada.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions/hmi_16mb_ota.csv"
+
+# --- PSRAM: 8 MB OPI (octal) a 80 MHz.
+# platformio.ini pedia memory_type=qio_opi y psram_type=opi.
+#
+# LOS CUATRO DE ABAJO SON LOS DELICADOS. Salen del sdkconfig de arduino-esp32
+# y gobiernan que acaba en SRAM interna y que en PSRAM. El panel RGB necesita
+# DOS bounce buffers de 38,4 KB CONTIGUOS en SRAM interna DMA-capaz, y el
+# margen medido en banco es de solo ~87 KB (ver la nota de UITask.cpp y
+# src/main.cpp). En particular TRY_ALLOCATE_WIFI_LWIP es lo que saca los
+# buffers de WiFi/LWIP de la SRAM interna; sin el, WiFi se lleva ~85 KB, parte
+# el mayor bloque libre y el panel deja de caber: arranque en bucle con la
+# pantalla negra. No los toques sin volver a medir en banco el mayor bloque
+# contiguo (no el libre total).
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=0
+CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY=y
+
+# --- CPU a 240 MHz.
+# arduino-esp32 compilaba con CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240; el defecto
+# de ESP-IDF son 160. No es solo "mas rapido": de la frecuencia de CPU dependen
+# el tiempo de repintado de LVGL y el margen con el que se rellenan los bounce
+# buffers del panel RGB. Visto en banco el 2026-09-11 arrancando a 160 MHz.
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+
+# --- FreeRTOS: 1000 Hz.
+# CRITICO. arduino-esp32 compilaba con CONFIG_FREERTOS_HZ=1000; el defecto de
+# ESP-IDF es 100. Todo el firmware esta escrito contra un tick de 1 ms: los
+# pdMS_TO_TICKS, los plazos de las tareas de alarma y el ritmo del enlace con
+# la motherBoard. Dejarlo en 100 multiplicaria por 10 la granularidad de cada
+# espera del sistema.
+CONFIG_FREERTOS_HZ=1000
+
+# --- Watchdog de tarea: 5 s con panic, igual que traia Arduino.
+CONFIG_ESP_TASK_WDT_EN=y
+CONFIG_ESP_TASK_WDT_INIT=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=5
+CONFIG_ESP_TASK_WDT_PANIC=y
+
+# --- Consola y logs.
+# CORE_DEBUG_LEVEL=3 de platformio.ini equivale al nivel INFO de ESP-IDF.
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_UART_NUM=0
+CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# --- Optimizacion: -Os, como compilaba Arduino.
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+
+# --- Pila de la tarea principal.
+# app_main solo crea tareas y se queda dormida (antes era loop()), asi que no
+# necesita mas de lo que traia Arduino.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=4096
+
+# --- Volcado de fallo a la particion "coredump" de la tabla.
+# Esto YA funcionaba con PlatformIO: el sdkconfig de arduino-esp32 traia
+# COREDUMP_ENABLE_TO_FLASH=y (por eso la nota del CSV de particiones de la
+# motherBoard dice que al HMI ya no le faltaba la particion). Se replican
+# tambien los valores accesorios para no cambiar el formato del volcado ni el
+# consumo de pila del propio volcador.
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
+CONFIG_ESP_COREDUMP_CHECKSUM_CRC32=y
+CONFIG_ESP_COREDUMP_CHECK_BOOT=y
+CONFIG_ESP_COREDUMP_MAX_TASKS_NUM=64
+CONFIG_ESP_COREDUMP_USE_STACK_SIZE=y
+# Pila propia del volcador de coredump.
+#
+# Estaba en 1792 aqui y en 1024 en la placa y NO LLEGABA: con ella, un abort() limpio en la motherBoard
+# terminaba en "Guru Meditation Error: Core 1 panic'ed (Double exception)" en
+# mitad de "Save core dump to flash...", y lo que quedaba grabado eran 96 bytes
+# —la cabecera y un program header— que el arranque siguiente rechazaba con
+# "Core dump data check failed". Es decir: la placa no habia producido nunca un
+# coredump utilizable. Reproducido en banco el 2026-09-11 con
+# INCUNEST_CRASH_TEST=1 (ver motherBoard/main/CMakeLists.txt).
+#
+# Son bytes de DRAM interna reservados para siempre, pero un volcado que se
+# estrella al escribirse no vale nada, y es justo lo que hace falta cuando una
+# unidad se cae en campo.
+# OJO: 4096 aqui DEJA AL DISPLAY SIN WIFI.
+#
+# Se subio de 1792 a 4096 por el fallo del volcador de la motherBoard (que
+# necesita 1456 B medidos), y en esta placa los 2304 B extra de DRAM interna
+# estatica fueron la gota: WiFi encontraba el AP pero no lograba asociarse,
+# con `wifi:m f assoc req` en el log —"m f" es malloc failed— porque los frames
+# de gestion exigen memoria interna DMA-capaz y ya no quedaba. Esta placa vive
+# con ~24 KB de interna libre y WiFi se lleva ~16 KB de ellos.
+#
+# 1792 cubre los 1456 B medidos con 336 B de margen. Si algun dia se comprueba
+# que no basta, la DRAM hay que sacarla de otro sitio (ver la nota de los
+# cuatro ajustes de PSRAM mas arriba), no de aqui.
+CONFIG_ESP_COREDUMP_STACK_SIZE=1792
+
+# --- SDK de ThingsBoard: bajo ESP-IDF lee estas opciones de Kconfig.
+# El firmware las fijaba con #define antes de incluir ThingsBoard.h, pero hay
+# rutas de inclusion (fw_guarded_updater.h -> Espressif_Updater.h ->
+# Configuration.h) donde el SDK llega primero y toma el valor de aqui. Tienen
+# que decir lo mismo que los #define para que todas las unidades de
+# compilacion vean la misma clase ThingsBoard.
+CONFIG_THINGSBOARD_ENABLE_DYNAMIC=y
+
+# uxTaskGetSystemState() para el volcado de /debug/state: la marca de agua de
+# pila por tarea es lo unico que delata un desbordamiento ANTES de que ocurra.
+# Cuesta unos pocos bytes por TCB.
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+
+# ================== available() DE LOS SOCKETS: OBLIGATORIO ==================
+# lwIP implementa ioctl(FIONREAD) DENTRO de `#if LWIP_SO_RCVBUF` (sockets.c).
+# Sin esta opcion el ioctl falla, WiFiClient::available() devuelve 0 para
+# siempre, y TODO bucle de lectura escrito como `while (client.available())`
+# —que es como los escribio este firmware— lee CERO BYTES sin dar ningun error.
+#
+# arduino-esp32 la traia activada; el porte la perdio, y en banco el sintoma
+# fue un reloj de pantalla dos horas atrasado (2026-09-11): la consulta de zona
+# horaria a ip-api.com conectaba, mandaba la peticion y se volvia con 0 B.
+# Afectaba igual, y en silencio, a la subida a Drive y a la activacion de SIM.
+CONFIG_LWIP_SO_RCVBUF=y
+
+# ================== EL PANEL NO PUEDE QUEDARSE DESPLAZADO ==================
+# Reinicia el canal GDMA en cada VBlank. La ayuda de IDF lo dice literal:
+# "stop permanent desyncs from happening... when the DMA can't deliver data as
+# fast as the LCD consumes it".
+#
+# Sin esto, en cuanto el DMA pierde una entrega —una escritura de flash deja la
+# cache desactivada y la PSRAM, donde vive el framebuffer, inalcanzable— el DMA
+# y el panel se quedan DESFASADOS PARA SIEMPRE: la imagen aparece corrida y no
+# vuelve sola. Visto en banco el 2026-09-11 al encender el control de
+# temperatura, y el mismo mecanismo produce el flicker intermitente bajo carga.
+#
+# El sintoma enganaba: LCD_DIAG seguia dando 48,8 fps y worst_frame 20,5 ms
+# perfectos, porque LVGL dibujaba bien y el DMA seguia corriendo — solo que
+# desplazado. Los fps no detectan esto; hay que mirar la pantalla.
+#
+# Cuesta un reset de GDMA por VBlank (~48/s). La alternativa,
+# LCD_RGB_ISR_IRAM_SAFE, NO resuelve este caso: mantiene viva la ISR con la
+# cache apagada, pero el bufer de rebote se rellena LEYENDO DE PSRAM, que con
+# la cache apagada tampoco esta disponible. Y esta placa no tiene IRAM que
+# gastar.
+# REVERTIDO (2026-09-11). Lo puse para curar el desplazamiento permanente del
+# panel y NO lo cura; hay motivo para pensar que lo empeora.
+#
+# Con la opcion apagada, el driver reinicia el DMA SOLO cuando ha detectado un
+# underrun de verdad (bb_eof_count < expect_eof_count, esp_lcd_panel_rgb.c:1147).
+# Forzandola, lo reinicia en CADA VBlank — y su propio comentario avisa
+# (esp_lcd_panel_rgb.c:1129): "if this interrupt is late enough, the display
+# will shift as the LCD controller already read out the first data bytes, and
+# resetting DMA will re-send those".
+#
+# Nuestra ISR de VSYNC NO esta en IRAM (LCD_RGB_ISR_IRAM_SAFE apagado, y no se
+# puede encender: ver abajo), asi que llega tarde en CADA operacion de flash.
+# Es decir: la opcion convierte un reinicio puntual y justificado en un
+# reinicio por frame que a veces desplaza. Se vuelve al comportamiento de IDF.
+# CONFIG_LCD_RGB_RESTART_IN_VSYNC is not set
+
+# ============ LA CACHE NO PUEDE APAGARSE MIENTRAS EL PANEL DIBUJA ============
+# El framebuffer vive en PSRAM y el bounce buffer se rellena con un memcpy DESDE
+# esa PSRAM, dentro de la ISR del panel (esp_lcd_panel_rgb.c:926). Cuando una
+# escritura o borrado de flash desactiva la cache, la PSRAM deja de estar
+# accesible: el relleno no puede ocurrir, el DMA se queda sin datos y la imagen
+# tiembla o se desplaza. El propio driver lo dice en esa linea: "if the frame
+# buffer is behind a cache, and the cache is disabled, crash would happen here".
+#
+# POR QUE NO VALE LCD_RGB_ISR_IRAM_SAFE, que es lo que uno probaria primero:
+# mantiene viva la ISR con la cache apagada, pero NO hace accesible la PSRAM de
+# la que tiene que copiar. Solo sirve con el framebuffer en RAM interna
+# (768 KB aqui: imposible) o en modo no_fb rellenando a mano. Ademas gasta IRAM,
+# que en esta placa no sobra.
+#
+# AUTO_SUSPEND ataca la causa: suspende la operacion de flash para que la cache
+# —y con ella la PSRAM— siga sirviendo lecturas. El SoC lo soporta
+# (SOC_SPI_MEM_SUPPORT_AUTO_SUSPEND=y) y no choca con SPI_FLASH_ROM_IMPL, que
+# esta apagado.
+#
+# IDF lo marca "READ DOCS FIRST" y por defecto apagado: no todas las memorias
+# flash implementan bien la suspension. PENDIENTE DE VALIDAR EN BANCO antes de
+# que esto salga de la rama: hay que confirmar que las escrituras de NVS y una
+# OTA completa siguen siendo correctas con la suspension activa.
+CONFIG_SPI_FLASH_AUTO_SUSPEND=y

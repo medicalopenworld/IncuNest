@@ -1,10 +1,17 @@
 #include "DriveUpload.h"
 #include "main.h"
+
+// Capa de red del porte a ESP-IDF (sustituye a WiFi.h, WiFiClientSecure.h,
+// WebServer.h, Update.h y ESPmDNS.h de Arduino).
+#include "platform/plat_wifi.h"
+#include "platform/plat_net_client.h"
+#include "platform/plat_webserver.h"
+#include "platform/plat_update.h"
+#include "platform/plat_mdns.h"
+
 #include "modules/util/system_clock.h"
 
-#include <LittleFS.h>
-#include <WiFi.h>
-#include <WiFiClientSecure.h>
+#include "platform/plat_fs.h"
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <time.h>
@@ -23,6 +30,17 @@ static TaskHandle_t s_write_task  = nullptr;
 static TaskHandle_t s_upload_task = nullptr;
 
 static volatile bool s_upload_slot_busy = false;
+
+// Espacio libre por debajo del cual no se abre otra ventana de PPG. Una ventana
+// completa ronda los 900 KB (500 Hz x 60 s x ~30 B), asi que 1 MB deja margen
+// para cerrarla y, sobre todo, para que los perfiles de bebe y el historico de
+// pesos —que viven en esta MISMA particion de 2,625 MB— no se queden sin sitio
+// por culpa de un diagnostico.
+#define DRIVE_MIN_FREE_BYTES (1024UL * 1024UL)
+
+// Evita repetir el aviso de "sin espacio" en cada vuelta del bucle: se emite al
+// entrar en el estado y se rearma al salir.
+static bool s_fs_full_reported = false;
 static bool s_time_synced = false;
 
 // One request = one upload. `source_path` holds the CSV/log on LittleFS;
@@ -111,7 +129,7 @@ static void parseLocation(const String &url, String &host, String &path) {
 }
 
 // ─── Streamed POST: JSON envelope around base64(csv) ─────────────────────────
-static bool streamPost(const String &host, const String &path, File &csv,
+static bool streamPost(const String &host, const String &path, FsFile &csv,
                        const String &prefix, const String &suffix,
                        size_t bodyLen, int &outStatus, String &outLocation,
                        String &outBody) {
@@ -158,7 +176,7 @@ static bool streamPost(const String &host, const String &path, File &csv,
   while ((client.connected() || client.available()) &&
          millis() - t0 < 20000) {
     if (!client.available()) {
-      delay(5);
+      delay_ms(5);
       continue;
     }
     String line = client.readStringUntil('\n');
@@ -187,7 +205,7 @@ static bool streamPost(const String &host, const String &path, File &csv,
 // GAS always answers 302 -> script.googleusercontent.com; we follow by hand
 // because WiFiClientSecure does not.
 static bool uploadToGoogleDrive(const DriveUploadRequest &req) {
-  File csv = LittleFS.open(req.source_path, "r");
+  FsFile csv = LittleFS.open(req.source_path, "r");
   if (!csv) {
     logDrive(String("cannot open ") + req.source_path);
     return false;
@@ -229,7 +247,7 @@ static bool uploadToGoogleDrive(const DriveUploadRequest &req) {
     while ((echoClient.connected() || echoClient.available()) &&
            millis() - t0 < 15000) {
       if (!echoClient.available()) {
-        delay(5);
+        delay_ms(5);
         continue;
       }
       String line = echoClient.readStringUntil('\n');
@@ -353,6 +371,32 @@ static void driveWriteTask(void *pv) {
         if (s_upload_slot_busy) {
           break;
         }
+        // FRENO POR ESPACIO LIBRE. Una ventana son 500 muestras/s x 60 s x ~30 B
+        // = ~900 KB, y la particion `spiffs` (LittleFS) son 2,625 MB: con la
+        // sonda puesta y la subida sin drenar, TRES ventanas la llenan. Cuando
+        // se lleno, en banco (2026-09-14), el sistema quedo escupiendo
+        // "lfs.c:702:error: No more free space" 500 veces por segundo y la
+        // placa acabo abortando.
+        //
+        // Abrir una ventana que no cabe no aporta nada: el CSV saldria
+        // truncado y ademas deja el FS sin hueco para lo que SI importa —los
+        // perfiles de bebe y el historico de pesos viven en esta misma
+        // particion—. Asi que no se abre y se avisa una vez por episodio.
+        const size_t fs_total = LittleFS.totalBytes();
+        const size_t fs_used  = LittleFS.usedBytes();
+        const size_t fs_free  = (fs_total > fs_used) ? (fs_total - fs_used) : 0;
+        if (fs_free < DRIVE_MIN_FREE_BYTES) {
+          if (!s_fs_full_reported) {
+            s_fs_full_reported = true;
+            ESP_LOGW("DRIVE",
+                     "sin espacio para otra ventana de PPG (%u B libres de %u); "
+                     "no se captura mas hasta que la subida drene",
+                     (unsigned)fs_free, (unsigned)fs_total);
+          }
+          vTaskDelay(pdMS_TO_TICKS(1000));
+          break;
+        }
+        s_fs_full_reported = false;
         snprintf(csv_rel, sizeof(csv_rel),
                  DRIVE_CSV_PATH_PREFIX "%lu" DRIVE_CSV_PATH_SUFFIX,
                  (unsigned long)s.t_ms);
@@ -377,8 +421,23 @@ static void driveWriteTask(void *pv) {
       char line[64];
       int  n = snprintf(line, sizeof(line), "%u,%d,%d,%.4e\n", (unsigned)rel_ms,
                         (int)s.led1_sub, (int)s.led2_sub, s.ppg_disp);
-      if (n > 0)
-        ::write(csv_fd, line, n);
+      if (n > 0) {
+        // EL RETORNO DE write() SE COMPRUEBA, y antes no. Con el FS lleno cada
+        // escritura falla y el bucle seguia llamando 500 veces por segundo: de
+        // ahi la tormenta de errores de littlefs que precedio al abort en
+        // banco. Un CSV a medias no sirve para nada, asi que se abandona la
+        // ventana entera y se borra el fichero parcial — que ademas es lo que
+        // devuelve algo de espacio.
+        if (::write(csv_fd, line, n) != n) {
+          ESP_LOGW("DRIVE", "escritura fallida; se abandona la ventana %s",
+                   csv_rel);
+          ::close(csv_fd);
+          csv_fd = -1;
+          removeIfExists(csv_rel);
+          vTaskDelay(pdMS_TO_TICKS(1000));
+          break;
+        }
+      }
 
       if (s.valid_signal) {
         hb_detected = true;
@@ -394,7 +453,28 @@ static void driveWriteTask(void *pv) {
 // Minimum heap we accept after a TLS failure. Below this the mbedTLS stack
 // has likely corrupted internal allocator state (observed: next LFS write
 // asserts `lfs_mlist_isopen`). Restart cleanly instead of operating blind.
-#define DRIVE_MIN_HEAP_AFTER_UPLOAD 50000
+//
+// ============ 50000 GARANTIZABA UN REINICIO POR CADA SUBIDA ============
+//
+// Medido en banco (2026-09-14, unidad 353): esta placa NO lleva PSRAM, asi que
+// ESP.getFreeHeap() es heap interno a secas, y en regimen —WiFi asociado, MQTT
+// arriba, enlace con el display— se estabiliza en unos 32 KB:
+//
+//     recien arrancada  ~63 KB
+//     en regimen        ~32 KB   (20 peticiones seguidas cuestan 8 B: no hay fuga)
+//
+// O sea que heap_after < 50000 se cumplia SIEMPRE, y una guarda pensada para
+// un caso excepcional reiniciaba la placa cada vez que una subida terminaba
+// BIEN. Es el mismo defecto de forma que el umbral del ventilador: una
+// constante elegida contra un punto de trabajo supuesto que no es el real.
+//
+// Baja a 20 KB: 12 por debajo del regimen medido, asi que solo salta ante un
+// agotamiento de verdad y no en operacion normal.
+//
+// Y lo que de verdad protege no es este numero, sino heap_caps_check_integrity_all()
+// unas lineas mas abajo: esa comprueba la corrupcion DIRECTAMENTE, sin umbral
+// que calibrar. El umbral es solo la red por si la corrupcion no se detecta.
+#define DRIVE_MIN_HEAP_AFTER_UPLOAD 20000
 
 // DNS preflight: skip TLS entirely if the host is not resolvable quickly.
 // Broken/partial handshakes are the path that corrupts heap.
@@ -438,9 +518,21 @@ static void driveUploadTask(void *pv) {
     // allocator, releasing s_upload_slot_busy would let the write task open a
     // new LFS file on a broken heap, which asserts lfs_mlist_isopen.
     if (heap_after < DRIVE_MIN_HEAP_AFTER_UPLOAD || heap_corrupt) {
-      logDrive(String("CRITICAL heap ") + heap_after +
-               (heap_corrupt ? " (corrupt)" : "") +
-               " after upload, restarting to recover");
+      // ESP_LOGE y NO logDrive: esto REINICIA una placa que gobierna el
+      // calefactor, y logDrive va por LOG_DRIVE, que es false. O sea que el
+      // equipo se reiniciaba solo y el motivo no salia por ningun lado.
+      //
+      // En banco (2026-09-14) eso costo una investigacion entera: tras una
+      // tanda con la sonda puesta aparecio un `rst:0xc (RTC_SW_CPU_RST)` sin
+      // panico, sin backtrace y sin una linea que lo explicara. Parecia un
+      // crash y era este reinicio a proposito. Un reinicio deliberado siempre
+      // tiene que dejar rastro.
+      ESP_LOGE("DRIVE",
+               "heap CRITICO %u B%s tras subir %s/%s; se reinicia para "
+               "recuperar (umbral %u)",
+               (unsigned)heap_after, heap_corrupt ? " (corrupto)" : "",
+               req.drive_folder, req.drive_filename,
+               (unsigned)DRIVE_MIN_HEAP_AFTER_UPLOAD);
       Serial.flush();
       vTaskDelay(pdMS_TO_TICKS(200));
       esp_restart();
@@ -493,9 +585,9 @@ void initDriveUpload() {
   CrashLogEntry hmiKept[DRIVE_CRASH_LOG_RETENTION_CAP] = {};
   int mbKeptCount = 0, hmiKeptCount = 0;
 
-  File root = LittleFS.open("/");
+  FsFile root = LittleFS.open("/");
   if (root && root.isDirectory()) {
-    File f;
+    FsFile f;
     while ((f = root.openNextFile())) {
       const char *n = f.name();
       char nameBuf[32] = {0};

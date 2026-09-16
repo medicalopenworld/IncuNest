@@ -1,5 +1,9 @@
 #pragma once
-#include <Preferences.h>
+
+// Antes incluia <Preferences.h> sin usar el tipo para nada: este fichero solo
+// define constantes y nombres de namespace/clave. Como main.h lo incluye, esa
+// cabecera de Arduino acababa en 20 de los ficheros que fallaban al portar.
+// Quien necesite el almacen incluye "platform/plat_nvs.h" por su cuenta.
 
 // --------------- Non-EEPROM constants kept from original header ---------------
 #define INACTIVITY_TIMEOUT_MS 20000 // 20s of inactivity before auto-lock

@@ -23,7 +23,8 @@
 
 */
 
-#include <Arduino.h>
+#include <cmath>
+#include <cstdlib>
 
 long minsToMillis(long timeInMillis) { return (timeInMillis * 60 * 1000); }
 

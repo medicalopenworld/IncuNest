@@ -1,0 +1,9 @@
+dependencies:
+  bblanchon/arduinojson:
+    version: ^6.21.4
+  idf:
+    version: '*'
+description: Provides access to ThingsBoard platform over the MQTT protocol or alternatively
+  over HTTP/S.
+url: https://github.com/thingsboard/thingsboard-client-sdk
+version: 0.13.0

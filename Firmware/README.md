@@ -25,6 +25,26 @@ El sistema se basa en una arquitectura de arquitectura distribuida para garantiz
     - Reproducción de alarmas sonoras (I2S Audio).
     - Configuración del sistema por parte del usuario.
 
+## Compilar
+
+Desde 2026-09 las **tres placas** se construyen con **ESP-IDF v6.0.1** (`idf.py`,
+CMake); PlatformIO y el framework Arduino ya no se usan. Detalle, decisiones y
+estado del porte en [`docs/porte-esp-idf-nativo.md`](./docs/porte-esp-idf-nativo.md).
+
+```powershell
+# idf.py solo desde PowerShell con el export.ps1 de la IDF cargado
+idf.py -C Firmware/Display_HMI build
+idf.py -C Firmware/motherBoard build          # HW_NUM y variante de taller: idf.py menuconfig
+idf.py -C Firmware/SensorBoard_v2 build
+
+# tests Unity de host (25 suites, sin hardware)
+pwsh Firmware/tools/host_tests/run_host_tests.ps1   # 25 suites Unity en el PC
+```
+
+Flashear y monitorizar (`idf.py -p COMx flash monitor`) es siempre manual. Los
+binarios quedan en `build/<proyecto>.bin`, `build/bootloader/bootloader.bin` y
+`build/partition_table/partition-table.bin`; el `flasher_tool` los recoge de ahi.
+
 ## Protocolo de Comunicación (Handshake Robusto)
 
 Ambos sistemas se comunican mediante un protocolo serie a 115200 baudios. Se han implementado mejoras críticas de sincronización:

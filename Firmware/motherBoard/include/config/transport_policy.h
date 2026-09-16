@@ -87,15 +87,26 @@
 // campos, no por coste de datos: el peor caso por GPRS son 87 claves
 // (CORE 69 + CELLULAR 4 + DIAG 8 + CALIBRATION 6) y el bloque son 12, o sea
 // 99 -- no cabian en los 96 de entonces. Se subio
-// THINGSBOARD_FIELDS_AMOUNT a 112 (512 B de .bss) y ahora quedan 13 de
-// margen. Por WiFi, con los grupos pesados apagados, son 69 + 12 = 81.
+// THINGSBOARD_FIELDS_AMOUNT a 112 (512 B de .bss). Por WiFi, con los grupos
+// pesados apagados, son 69 + 12 = 81.
 //
-// MAX_MESSAGE_SIZE (1024 B) NO es un limite aqui, al contrario de lo que
-// decia este comentario antes: main.h define THINGSBOARD_ENABLE_STREAM_UTILS
-// a 1, y con eso sendTelemetryJson() usa Serialize_Json()
-// (begin_publish + BufferingPrint + end_publish, ThingsBoard.h:1100), que
-// publica en streaming y rodea el buffer del cliente MQTT. Un payload de mas
-// de 1024 B se envia igual, troceado.
+// 2026-09-10: +2 claves en el peor caso (Humidifier_active, siempre; y
+// Control_active, que antes solo salia una vez por arranque de control y
+// ahora sale en cada ciclo tambien en la rama ON). Peor caso GPRS 101 de
+// 112: quedan 11 de margen.
+//
+// MAX_MESSAGE_SIZE (1024 B) NO era un limite aqui mientras
+// THINGSBOARD_ENABLE_STREAM_UTILS valia 1: sendTelemetryJson() usaba
+// Serialize_Json() (begin_publish + BufferingPrint + end_publish,
+// ThingsBoard.h:1100), que publica en streaming y rodea el buffer del cliente
+// MQTT, asi que un payload de mas de 1024 B se enviaba troceado.
+//
+// OJO — ESO YA NO APLICA desde el porte a ESP-IDF. StreamUtils solo funciona
+// con Arduino (lo dice la Configuration.h del SDK: necesita que el cliente
+// MQTT implemente tambien el interfaz Print), asi que con
+// Espressif_MQTT_Client la opcion esta a 0 y el payload TIENE que caber en
+// THINGSBOARD_BUFFER_SIZE. La explicacion larga y lo que hay que medir en
+// banco estan en la nota de main.h, junto al #define.
 //
 // Lo que si cuesta dinero: por GPRS cada publicacion son datos de pago, y son
 // ~200 B mas por publicacion. Con TX_GPRS_PERIOD_ACTUATING_S = 60 eso es
@@ -147,7 +158,19 @@
 // segundos. Por eso va aparte y está a 0: por GPRS se captura solo si alguien
 // lo pide con el RPC. Súbelo a 1 solo con una tarifa que lo aguante.
 #define TX_FEATURE_PPG_AUTOCAPTURE_GPRS 0
-#define TX_FEATURE_PPG_AUTOCAPTURE_WIFI 1
+// Por WiFi estuvo a 1 hasta el 2026-09-10. Ese dia se ejecuto por primera vez
+// en toda la flota -- hacia falta una unidad con FW 18.2, WiFi y la sonda
+// aplicada con rsqi==1, y no se habia dado nunca -- y la secuencia observada
+// en IncuNest-353_1 fue: captura hacia las 16:52, WiFi perdido a las 16:54,
+// sin publicar desde las 17:46 y vuelta con RST_reason=6 (TASK_WDT). Es
+// correlacion, no causa demostrada, pero es el unico camino de codigo
+// estrenado ese dia y el publish son ~23 KB en streaming por MQTT.
+//
+// Queda a 0 hasta validarlo en banco con el monitor serie delante, buscando
+// "[WIFI] -> PPG snapshot PUBLISH SUCCESS (400 muestras, ...)". El RPC
+// capturePPG sigue disponible en los dos transportes para provocarlo a mano,
+// que es justo como hay que probarlo: una captura controlada y mirando.
+#define TX_FEATURE_PPG_AUTOCAPTURE_WIFI 0
 
 // -----------------------------------------------------------------------------
 // 4. RPC DISPONIBLES POR TRANSPORTE

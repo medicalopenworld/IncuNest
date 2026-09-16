@@ -1,7 +1,7 @@
 #pragma once
 // NVS (Preferences) namespace and key names
 
-// --------------- Preferences namespaces ---------------
+// --------------- NvsPrefs namespaces ---------------
 constexpr char NS_CFG[]   = "mb_cfg";
 constexpr char NS_CAL[]   = "mb_cal";
 constexpr char NS_WIFI[]  = "mb_wifi";

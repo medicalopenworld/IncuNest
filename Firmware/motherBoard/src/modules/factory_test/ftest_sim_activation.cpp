@@ -1,11 +1,20 @@
 #include "ftest_sim_activation.h"
 
-#include <Arduino.h>
-#include <WiFiClientSecure.h>
+#include "platform/plat_time.h"
+#include "platform/plat_string.h"
 #include <time.h>
 
 #include "factory_test.h" // FTEST_DETAIL_MAX (shared/)
-#include "main.h"         // logI / logE
+#include "main.h"
+
+// Capa de red del porte a ESP-IDF (sustituye a WiFi.h, WiFiClientSecure.h,
+// WebServer.h, Update.h y ESPmDNS.h de Arduino).
+#include "platform/plat_wifi.h"
+#include "platform/plat_net_client.h"
+#include "platform/plat_webserver.h"
+#include "platform/plat_update.h"
+#include "platform/plat_mdns.h"
+         // logI / logE
 #include "protocol/Credentials_public.h"
 
 #if FTEST_SIM_ACT_ENABLED
@@ -147,7 +156,7 @@ static bool httpRequest(const char *method, const char *path,
   while ((client.connected() || client.available()) &&
          (millis() - t0) < SIM_HTTP_TIMEOUT_MS) {
     if (!client.available()) {
-      delay(5);
+      delay_ms(5);
       continue;
     }
     String line = client.readStringUntil('\n');

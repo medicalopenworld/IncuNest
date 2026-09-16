@@ -1,6 +1,6 @@
 #include "ui/training/training_progress.h"
 
-#include <Preferences.h>
+#include "platform/plat_nvs.h"
 
 #include <cstdio>
 #include <cstring>
@@ -32,7 +32,7 @@ void keyCert(char *out, size_t cap, uint8_t slot) {
 void TrainingProgress_Load(void) {
   memset(s_course, 0, sizeof(s_course));
   memset(s_cert, 0, sizeof(s_cert));
-  Preferences p;
+  NvsPrefs p;
   if (!p.begin(HMI_NS_TRAIN, true)) {
     // Namespace aun no existe: sin progreso. Se creara al primer Flush().
     s_certCount = 0;
@@ -125,7 +125,7 @@ bool TrainingProgress_TakeDirty(void) {
 }
 
 void TrainingProgress_Flush(void) {
-  Preferences p;
+  NvsPrefs p;
   if (!p.begin(HMI_NS_TRAIN, false)) {
     ESP_LOGE(TAG, "no se pudo abrir el namespace %s", HMI_NS_TRAIN);
     return;

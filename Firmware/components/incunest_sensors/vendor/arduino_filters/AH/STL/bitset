@@ -1,0 +1,20 @@
+#pragma once
+
+#include <AH/Settings/NamespaceSettings.hpp>
+
+#ifdef __AVR__
+#include <AH/Arduino-Wrapper.h>
+
+#include "Fallback/bitset"
+#else
+#include <bitset>
+#endif
+
+#include <AH/PrintStream/PrintStream.hpp>
+
+template <size_t Nb>
+Print &operator<<(Print &os, const std::bitset<Nb> &bs) {
+    for (size_t i = Nb; i-- > 0;)
+        os << (bs[i] ? '1' : '0');
+    return os;
+}

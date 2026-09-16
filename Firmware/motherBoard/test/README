@@ -1,11 +1,19 @@
+Tests Unity de host de la motherBoard (y de shared/).
 
-This directory is intended for PlatformIO Test Runner and project tests.
+Desde el porte a ESP-IDF (2026-09) ya no corren con PlatformIO
+(`pio test -e native`), sino con CMake + Unity en el PC:
 
-Unit Testing is a software testing method by which individual units of
-source code, sets of one or more MCU program modules together with associated
-control data, usage procedures, and operating procedures, are tested to
-determine whether they are fit for use. Unit testing finds problems early
-in the development cycle.
+    .\Firmware\tools\host_tests\run_host_tests.ps1            # todas las suites
+    .\Firmware\tools\host_tests\run_host_tests.ps1 test_pid   # una suite
+    .\Firmware\tools\host_tests\run_host_tests.ps1 -Clean     # rehacer desde cero
 
-More information about PlatformIO Unit Testing:
-- https://docs.platformio.org/en/latest/advanced/unit-testing/index.html
+Cada directorio test_<area>/ es una suite con su propio main()
+(UNITY_BEGIN / RUN_TEST). Al anadir una suite nueva basta crear el
+directorio con su .cpp: tools/host_tests/CMakeLists.txt los descubre solos.
+Al anadir un fichero NUEVO bajo prueba hay que listarlo en MB_SOURCES de ese
+CMakeLists (es la misma lista que antes vivia en el build_src_filter del
+[env:native] de platformio.ini): solo entra la logica pura, nada que toque
+hardware.
+
+Compilador de host: el g++ de MSYS2 (C:\msys64\mingw64\bin), el mismo que
+usaba pre_native.py.

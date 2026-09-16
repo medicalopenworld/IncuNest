@@ -2,19 +2,29 @@
 #ifndef _WIFI_OTA_H_
 #define _WIFI_OTA_H_
 
-#include <Arduino.h>
+#include <cstdint>
 #include <string>
 
+#ifndef THINGSBOARD_ENABLE_PSRAM
 #define THINGSBOARD_ENABLE_PSRAM 0
+#endif
+#ifndef THINGSBOARD_ENABLE_DYNAMIC
 #define THINGSBOARD_ENABLE_DYNAMIC 1
-#include <Arduino_MQTT_Client.h>
-#include <ESPmDNS.h>
+#endif
+// Transporte MQTT nativo de ESP-IDF (esp-mqtt) en vez de Arduino_MQTT_Client
+// (que iba sobre PubSubClient). Es el cambio de fondo de este fichero: con el
+// desaparecen de paso las esperas ACTIVAS de PubSubClient que documenta el
+// comentario de OTA_TASK_PRIORITY en main.h — esp-mqtt tiene su propia tarea y
+// bloquea de verdad, en vez de girar en `while(!available()) yield()`.
+#include <Espressif_MQTT_Client.h>
 #include <Espressif_Updater.h>
 #include <ThingsBoard.h>
-#include <Update.h>
-#include <WebServer.h>
-#include <WiFi.h>
 
+// Esta cabecera ya NO arrastra WiFi.h/WebServer.h/Update.h/ESPmDNS.h. Las
+// incluia por el .cpp, pero como main.h incluye este fichero, acababan dentro
+// de las ~14.700 lineas de src/ui, que no tocan la red para nada: 22 de los 28
+// ficheros que fallaban al portar el HMI fallaban solo por esto. Lo que
+// necesita la implementacion se incluye ahora en Wifi_OTA.cpp.
 #include "main.h"
 
 #define CURRENT_FIRMWARE_TITLE "IncuNest_HMI"
@@ -58,7 +68,7 @@ struct WIFIstruct {
   bool provision_request_sent = false;
   bool provision_request_processed = false;
   bool serverConnectionStatus = false;
-  String device_token;
+  std::string device_token;
   long lastReconnectAttempt = 0;
   long lastMQTTPublish = 0;
   long lastOTACheck = 0;
@@ -85,8 +95,11 @@ void updatedCallback(const bool &success);
 #define CLIENT_PASSWORD "password"
 #define CLIENT_USERNAME "userName"
 #define FW_STATE_UPDATED "UPDATED"
-constexpr char ACCESS_TOKEN_CRED_TYPE[] PROGMEM = "ACCESS_TOKEN";
-constexpr char MQTT_BASIC_CRED_TYPE[] PROGMEM = "MQTT_BASIC";
+// Sin PROGMEM: era un atributo de AVR que en Arduino-ESP32 ya estaba definido
+// como nada. En ESP-IDF ni existe la macro. Las constantes van igualmente a
+// .rodata en flash, que es lo que PROGMEM pretendia conseguir.
+constexpr char ACCESS_TOKEN_CRED_TYPE[] = "ACCESS_TOKEN";
+constexpr char MQTT_BASIC_CRED_TYPE[] = "MQTT_BASIC";
 
 // Struct for client connecting after provisioning
 struct Credentials {

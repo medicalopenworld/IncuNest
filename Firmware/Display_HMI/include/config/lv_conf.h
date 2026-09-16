@@ -87,11 +87,13 @@
  *It removes the need to manually update the tick with `lv_tick_inc()`)*/
 #define LV_TICK_CUSTOM 1
 #if LV_TICK_CUSTOM
-    #define LV_TICK_CUSTOM_INCLUDE "Arduino.h"         /*Header for the system time function*/
+    /*Porte a ESP-IDF: la fuente de tiempo ya no es Arduino.h sino la capa de
+     *plataforma propia, que lo saca de esp_timer. La EXPRESION no cambia
+     *porque millis() conserva el nombre a proposito (ver la explicacion en
+     *components/incunest_platform/include/platform/plat_time.h), asi que el
+     *tick que ve LVGL es exactamente el mismo de antes.*/
+    #define LV_TICK_CUSTOM_INCLUDE "platform/plat_time.h"
     #define LV_TICK_CUSTOM_SYS_TIME_EXPR (millis())    /*Expression evaluating to current system time in ms*/
-    /*If using lvgl as ESP32 component*/
-    // #define LV_TICK_CUSTOM_INCLUDE "esp_timer.h"
-    // #define LV_TICK_CUSTOM_SYS_TIME_EXPR ((esp_timer_get_time() / 1000LL))
 #endif   /*LV_TICK_CUSTOM*/
 
 /*Default Dot Per Inch. Used to initialize default sizes such as widgets sized, style paddings.

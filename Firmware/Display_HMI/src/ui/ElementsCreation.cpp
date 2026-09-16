@@ -4,7 +4,8 @@
 #include "ui/FactoryTest.h"
 #include "ui_helpers.h"
 #include "main.h"
-#include <Arduino.h>
+#include <algorithm>  // std::min, antes la macro min() de Arduino
+#include <cstdlib>    // std::abs
 
 // ============================================================================
 // UI HELPERS IMPLEMENTATION

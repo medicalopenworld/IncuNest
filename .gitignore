@@ -62,3 +62,11 @@ Regulatory/
 # Python bytecode
 **/__pycache__/
 *.pyc
+
+# ESP-IDF: solo se versiona sdkconfig.defaults; sdkconfig lo genera idf.py
+sdkconfig
+**/sdkconfig
+sdkconfig.old
+**/sdkconfig.old
+managed_components/
+**/managed_components/

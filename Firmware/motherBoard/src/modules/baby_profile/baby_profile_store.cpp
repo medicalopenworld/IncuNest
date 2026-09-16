@@ -1,12 +1,12 @@
 #include "baby_profile_store.h"
 
-#include <LittleFS.h>
-#include <Preferences.h>
+#include "platform/plat_fs.h"
+#include "platform/plat_nvs.h"
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
-#include "esp32-hal-log.h"
+#include "esp_log.h"
 
 static const char *TAG = "BABY";
 
@@ -107,7 +107,7 @@ uint32_t babyStore_nowEpoch() {
 // ---------------- NVS helpers ----------------
 
 static void persistSlot(int i) {
-  Preferences p;
+  NvsPrefs p;
   p.begin(NS_BABY, false);
   if (s_slots[i].slotUsed) {
     p.putBytes(SLOT_KEYS[i], &s_slots[i], sizeof(BabyProfile));
@@ -118,20 +118,20 @@ static void persistSlot(int i) {
 }
 
 static void persistNextSeq() {
-  Preferences p;
+  NvsPrefs p;
   p.begin(NS_BABY, false);
   p.putULong(KEY_NEXT_SEQ, s_nextSeq);
   p.end();
 }
 
-// ---------------- File helpers ----------------
+// ---------------- FsFile helpers ----------------
 
-static bool readHeader(File &f, FileHeader *h) {
+static bool readHeader(FsFile &f, FileHeader *h) {
   if (!f.seek(0)) return false;
   return f.read((uint8_t *)h, sizeof(FileHeader)) == sizeof(FileHeader);
 }
 
-static void writeHeader(File &f, const FileHeader &h) {
+static void writeHeader(FsFile &f, const FileHeader &h) {
   f.seek(0);
   f.write((const uint8_t *)&h, sizeof(FileHeader));
 }
@@ -147,9 +147,9 @@ static String weightArchivePath(uint32_t seq) {
 
 static void archiveIndexRebuild() {
   s_archiveCount = 0;
-  File dir = LittleFS.open(WEIGHT_ARCHIVE_DIR);
+  FsFile dir = LittleFS.open(WEIGHT_ARCHIVE_DIR);
   if (!dir || !dir.isDirectory()) return;
-  File f = dir.openNextFile();
+  FsFile f = dir.openNextFile();
   while (f && s_archiveCount < (int)(sizeof(s_archive) / sizeof(s_archive[0]))) {
     uint32_t seq = (uint32_t)strtoul(f.name(), nullptr, 10);
     if (seq != 0) {
@@ -173,7 +173,7 @@ static void archiveIndexRemove(uint32_t seq) {
 
 // ---------------- Audit log ----------------
 
-static bool historyOpen(File &f) {
+static bool historyOpen(FsFile &f) {
   if (LittleFS.exists(HISTORY_PATH)) {
     f = LittleFS.open(HISTORY_PATH, "r+");
     return (bool)f;
@@ -186,7 +186,7 @@ static bool historyOpen(File &f) {
 }
 
 static void historyTombstone(uint32_t seq) {
-  File f;
+  FsFile f;
   if (!historyOpen(f)) return;
   FileHeader h;
   if (!readHeader(f, &h)) {
@@ -225,7 +225,7 @@ static void evictOldestArchived() {
 // the oldest record also deletes that record's archived weight file
 // (design decision 8, audit-cap trigger).
 static void historyAppend(const BabyProfile *p) {
-  File f;
+  FsFile f;
   if (!historyOpen(f)) {
     ESP_LOGE(TAG, "history open failed");
     return;
@@ -273,7 +273,7 @@ static int wipeDir(const char *dir);  // defined with the wipe-all helpers
 // always header + min(count, cap) * recordSize for a log this firmware wrote.
 static void historyResetIfIncompatible() {
   if (!LittleFS.exists(HISTORY_PATH)) return;
-  File f = LittleFS.open(HISTORY_PATH, "r");
+  FsFile f = LittleFS.open(HISTORY_PATH, "r");
   if (!f) return;
   size_t actual = f.size();
   FileHeader h = {0, 0};  // a header too short to read stays all-zero
@@ -308,7 +308,7 @@ static uint32_t weightFileSize(uint32_t count) {
 
 static void weightAppend(uint32_t seq, uint32_t timestamp, uint16_t grams) {
   String path = weightActivePath(seq);
-  File f;
+  FsFile f;
   if (LittleFS.exists(path)) {
     f = LittleFS.open(path, "r+");
   } else {
@@ -367,7 +367,7 @@ static void archiveProfile(int slotIdx) {
   String activePath = weightActivePath(seq);
   bool hasWeightFile = LittleFS.exists(activePath);
   if (hasWeightFile) {
-    File f = LittleFS.open(activePath, "r");
+    FsFile f = LittleFS.open(activePath, "r");
     if (f) {
       incomingBytes = f.size();
       f.close();
@@ -417,7 +417,7 @@ void babyStore_init() {
     ESP_LOGE(TAG, "LittleFS mount failed — history/weight disabled");
   }
   memset(s_slots, 0, sizeof(s_slots));
-  Preferences p;
+  NvsPrefs p;
   p.begin(NS_BABY, true);
   s_nextSeq = p.getULong(KEY_NEXT_SEQ, 1);
   s_activeSeq = p.getULong(KEY_ACTIVE_SEQ, 0);
@@ -598,14 +598,14 @@ bool babyStore_discharge(uint32_t seq, uint8_t outcome, uint8_t cause) {
 // directories, and we want the directory itself to survive for reuse).
 static int wipeDir(const char *dir) {
   int removed = 0;
-  File d = LittleFS.open(dir);
+  FsFile d = LittleFS.open(dir);
   if (!d || !d.isDirectory()) return 0;
   // Collect first, delete after: deleting while the directory handle walks it
   // is exactly the kind of open-fd juggling esp_littlefs is documented to
   // mishandle (docs/known_issues.md).
   String names[64];
   int n = 0;
-  File f = d.openNextFile();
+  FsFile f = d.openNextFile();
   while (f && n < 64) {
     names[n++] = String(dir) + "/" + f.name();
     f = d.openNextFile();
@@ -623,7 +623,7 @@ int babyStore_wipeAll() {
   removed += wipeDir(WEIGHT_ACTIVE_DIR);
   removed += wipeDir(WEIGHT_ARCHIVE_DIR);
 
-  Preferences p;
+  NvsPrefs p;
   p.begin(NS_BABY, false);
   p.clear();
   p.end();
@@ -646,7 +646,7 @@ uint32_t babyStore_getActiveSeq() { return s_activeSeq; }
 void babyStore_setActiveSeq(uint32_t seq) {
   if (s_activeSeq != seq) s_attributesDirty = true;
   s_activeSeq = seq;
-  Preferences p;
+  NvsPrefs p;
   p.begin(NS_BABY, false);
   p.putULong(KEY_ACTIVE_SEQ, seq);
   p.end();
@@ -662,7 +662,7 @@ bool babyStore_deriveAgeDays(uint32_t seq, uint16_t *ageDays) {
 uint32_t babyStore_readHistoryPage(uint32_t page, uint32_t pageSize,
                                    BabyProfile *out, uint32_t *totalCount) {
   *totalCount = 0;
-  File f;
+  FsFile f;
   if (!LittleFS.exists(HISTORY_PATH)) return 0;
   f = LittleFS.open(HISTORY_PATH, "r");
   if (!f) return 0;
@@ -714,7 +714,7 @@ uint32_t babyStore_readWeightHistory(uint32_t seq, BabyWeightPoint *out,
     path = weightArchivePath(seq);
     if (!LittleFS.exists(path)) return 0;
   }
-  File f = LittleFS.open(path, "r");
+  FsFile f = LittleFS.open(path, "r");
   if (!f) return 0;
   FileHeader h;
   if (!readHeader(f, &h)) {

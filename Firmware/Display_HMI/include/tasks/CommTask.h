@@ -2,8 +2,9 @@
 #define COMM_TASK_H
 
 #include "main.h"
-#include <Arduino.h>
+#include <cstdint>
 #include <lvgl.h>
+#include "esp_log.h"
 #include "protocol.h"
 #include "control_types.h"
 #include "alarm_ids.h"
@@ -11,11 +12,17 @@
 
 #define COMMUNICATION_DEBUG true
 #if COMMUNICATION_DEBUG
-#define COMM_LOG(...) Serial.printf(__VA_ARGS__)
+// Antes era Serial.printf(). Va a la consola de ESP-IDF, que es el mismo
+// destino que tenia: el log del sistema, no el enlace con la placa.
+#define COMM_LOG(...) ESP_LOG_LEVEL(ESP_LOG_INFO, "COMM", __VA_ARGS__)
 #else
 #define COMM_LOG(...)
 #endif
 
+// COMM_SERIAL es UART0, el enlace con la motherBoard. Con el porte a ESP-IDF
+// `Serial` es la HardwareSerial de platform/plat_uart.h sobre driver/uart.
+// La consola de logs comparte UART0 con el protocolo, igual que con Arduino
+// (decision del 2026-09-11); ver la cabecera de plat_uart.h.
 #define COMM_SERIAL Serial
 
 // Cadencia del latido del display hacia la placa. La placa declara
@@ -117,6 +124,11 @@ typedef struct {
   // de este estado: la pausa caduca sola (60601-2-19 201.12.3.104) y el
   // display no puede saberlo por su cuenta.
   uint32_t silencedBitmask;
+  // Bit por AlarmId de las alarmas ENCLAVADAS: siguen avisando pero su
+  // condicion ya se fue, asi que admiten el reset manual que pide
+  // 201.15.4.2.1 aa)/bb). Con esto el display ofrece la accion solo cuando de
+  // verdad hace algo. Se pide con HMI,ALM_RESET[,<id>].
+  uint32_t latchedBitmask;
   // Prioridad que reproduce la prueba de funcionamiento de alarmas
   // (201.12.3.105), o ALARM_TEST_IDLE_HMI si no hay prueba en curso.
   int      alarmTestPriority;
@@ -328,6 +340,7 @@ void Communication_SendAlarmHistoryReq(void);
 
 extern volatile bool        g_pendingAlarmDesc;
 extern AlarmDescMsg         g_alarmDesc;
+void Communication_SendAlarmReset(uint8_t id);
 void Communication_SendAlarmDescReq(uint8_t id);
 
 // AUDIO PAUSED de UNA condicion. on=false lo cancela, que es lo que exige

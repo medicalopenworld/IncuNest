@@ -1,37 +1,76 @@
 #ifndef _MAIN_H
 #define _MAIN_H
 
-#define TINY_GSM_MODEM_SIM800
-#define modemSerial Serial2
+// TINY_GSM_MODEM_SIM800 y modemSerial desaparecen con TinyGSM: el modem va
+// ahora por esp_modem (PPP), ver src/tasks/gprs_modem.h.
+#ifndef THINGSBOARD_ENABLE_PSRAM
 #define THINGSBOARD_ENABLE_PSRAM 0
+#endif
+#ifndef THINGSBOARD_ENABLE_DYNAMIC
 #define THINGSBOARD_ENABLE_DYNAMIC 1
-#define THINGSBOARD_ENABLE_STREAM_UTILS 1
+#endif
+// ================== CAMBIO DE COMPORTAMIENTO, PENDIENTE DE BANCO ==================
+// Pasa de 1 a 0 en el porte, y NO es una eleccion: la propia Configuration.h
+// del SDK lo dice ("Option can only be enabled when using Arduino"). El truco
+// se apoya en BufferingPrint de ArduinoStreamUtils y exige que el
+// IMQTT_Client implemente ademas el interfaz Print de Arduino.
+// Espressif_MQTT_Client (esp-mqtt) no lo hace, asi que con el transporte de
+// ESP-IDF esta opcion no puede existir.
+//
+// QUE SE PIERDE: con STREAM_UTILS=1, sendTelemetryJson() usaba Serialize_Json()
+// (begin_publish + BufferingPrint + end_publish) y publicaba EN STREAMING,
+// rodeando el bufer del cliente MQTT: un payload de mas de 1024 B se enviaba
+// igual, troceado. Es justo lo que explica la nota de
+// config/transport_policy.h. Con STREAM_UTILS=0 el payload tiene que caber
+// entero en THINGSBOARD_BUFFER_SIZE (4096 B, mas abajo).
+//
+// POR QUE HAY QUE MEDIRLO EN BANCO: el peor caso documentado son 99 claves
+// (87 por GPRS + 12 del bloque). A ~35 B por clave eso ronda los 3,5 KB, que
+// deja muy poco margen sobre 4096. Si una publicacion se pasa, el SDK la
+// DESCARTA y avisa con INVALID_BUFFER_SIZE — se perderia telemetria en
+// silencio para quien no mire el log.
+//
+// QUE HACER ANTES DE DAR ESTO POR BUENO: medir el tamano real del payload en
+// el peor caso (GPRS, todos los grupos encendidos) y, si hace falta, subir
+// THINGSBOARD_BUFFER_SIZE. Con esp-mqtt el bufer es configurable y el coste
+// es RAM, no dinero de datos.
+// ==================================================================================
+#ifndef THINGSBOARD_ENABLE_STREAM_UTILS
+#define THINGSBOARD_ENABLE_STREAM_UTILS 0
+#endif
 #include "ThingsBoard.h"
 #include "config/transport_policy.h" // tabla única GPRS/WiFi
-#include <Arduino.h>
-#include <TinyGsmClient.h>
 
-#include <ESPmDNS.h>
-#include <Update.h>
-#include <WebServer.h>
-#include <WiFi.h>
-// include libraries
+// ===================== PORTE A ESP-IDF: LIMPIEZA DE ESTE HUB =====================
+// main.h reexportaba a TODO el firmware una docena de cabeceras de Arduino
+// (WiFi, WebServer, Update, ESPmDNS, TinyGsmClient, Wire, Preferences,
+// Filters, Adafruit_GFX, Adafruit_SHT4x, BluetoothSerial, SPI,
+// INA3221...). Se comprobo una por una: NINGUNO de esos tipos se usa dentro de
+// main.h — eran solo reexportaciones. Como casi todos los .cpp incluyen main.h,
+// esas cabeceras hacian fallar 33 de las ~85 fuentes de la placa a la vez.
+//
+// Ahora cada .cpp incluye lo que de verdad usa. BluetoothSerial se retira del
+// todo: no se usaba en ningun sitio del proyecto (cero referencias en src/).
+// ================================================================================
 #include "esp_log.h"
 #include "esp_system.h"
+// FreeRTOS.h SHALL ir antes que semphr.h (semphr.h lleva un #error si no).
+// Antes lo colaba Arduino.h; ahora se pide explicitamente.
+#include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
-#include <Beastdevices_INA3221.h>
-#include <Preferences.h>
-#include <Filters.h>
-#include <RotaryEncoder.h>
-#include <Wire.h>
 
-#include <AH/Timing/MillisMicrosTimer.hpp>
-#undef DEBUG
-#include <Filters/Butterworth.hpp>
+#include "platform/plat_esp.h"
+#include "platform/plat_gpio.h"
+#include "platform/plat_ip.h"
+#include "platform/plat_types.h"
+#include "platform/plat_i2c.h"
+#include "platform/plat_nvs.h"
+#include "platform/plat_num.h"
+#include "platform/plat_pwm.h"
+#include "platform/plat_string.h"
+#include "platform/plat_time.h"
+#include "platform/plat_uart.h"
 
-#include "Adafruit_GFX.h"
-#include "Adafruit_SHT4x.h"
-#include "BluetoothSerial.h"
 #include "CommTask.h"
 #include "control_types.h"
 #include "alarm_ids.h"
@@ -39,16 +78,14 @@
 #include "ESP32_config.h"
 #include "GPRS.h"
 #include "PID.h"
-#include "SPI.h"
 #include "SPO2.h"
-#include "SparkFun_SHTC3.h"
-#include "TCA9555.h"
 #include "Wifi_OTA.h"
 #include "board.h"
-#include "driver/rtc_io.h"
-#include "esp32/ulp.h"
-#include "esp_bt.h"
-#include "esp_bt_main.h"
+// Se retiran de este hub tres cabeceras que nadie usaba: driver/rtc_io.h y
+// esp32/ulp.h (cero referencias a rtc_gpio_* o ulp_* en todo src/ — ademas
+// esp32/ulp.h ya no existe en ESP-IDF 6), y esp_bt_main.h. esp_bt.h SI hace
+// falta, pero solo en main.cpp, que es donde se libera la memoria del
+// controlador BLE; se incluye alli.
 #include "IncuNest_humidifier.h"
 #include "nvs_flash.h"
 #if CONFIG_IDF_TARGET_ESP32S3
@@ -58,8 +95,11 @@
 #include "usb/vcp_ch34x.hpp"
 #endif
 #include "BQ25730.h"
-#include <SensirionI2cSts3x.h>
-#include <TFT_eSPI.h> // Hardware-specific library
+// TFT_eSPI retirada en el porte a ESP-IDF: era codigo MUERTO. Se declaraba
+// el objeto `tft` en main.cpp, tres ficheros lo declaraban extern y no habia
+// ni una sola llamada sobre el (cero `tft.`). La motherBoard ya no tiene
+// pantalla propia: la pantalla es el HMI. Ademas arrastraba Print.h de
+// Arduino a los 7 ficheros que incluyen main.h.
 
 #include <Arduino_MQTT_Client.h>
 #include <Espressif_MQTT_Client.h>
@@ -164,6 +204,31 @@
 #define TELEMETRIES_DECIMALS 2
 #define FIRMWARE_FAILURE_RETRIES 12
 #define FIRMWARE_PACKET_SIZE 4096
+// Tamano de trozo para la OTA POR CELULAR. Los 4096 de arriba van bien por
+// WiFi (la actualizacion entera dura 80 s), pero por GPRS cada mensaje tarda
+// segundos en llegar y un enlace con baches lo deja a medias: medido en banco
+// el 2026-09-15, la descarga moria siempre con "Network timeout while reading
+// MQTT message" aun con el timeout de red subido a 60 s.
+// 1024 ademas CUADRA con MAX_MESSAGE_SIZE, que es el tamano de mensaje que se
+// le declara al cliente ThingsBoard: pedir trozos de 4096 con un buffer
+// declarado de 1024 era incoherente de partida.
+// El precio es que hay ~4x mas trozos, o sea una descarga bastante mas larga.
+#define FIRMWARE_PACKET_SIZE_GPRS 1024
+
+// Tamano del buffer MQTT con el que se CREA cada cliente ThingsBoard. Tiene
+// que caber ya un trozo de OTA entero (carga + topico + cabecera), porque
+// esp-mqtt NO permite cambiar el buffer de un cliente en marcha: el SDK lo
+// intenta al arrancar la OTA con setBufferSize(chunk + 50) y la llamada no
+// tiene efecto (esp-mqtt issue #267; lo dice el propio comentario de
+// Espressif_MQTT_Client::set_buffer_size). Medido en banco el 2026-09-15 con
+// MAX_MESSAGE_SIZE=1024 y trozos de 1024: desde el trozo 29 TODOS llegaban al
+// handler con 0 bytes, deterministicamente, aunque el volcado del UART
+// mostraba el PUBLISH completo. El mensaje del trozo no cabia en el buffer.
+//
+// Margen: +256 por encima del trozo para topico (~26 B), cabecera MQTT y
+// holgura; ~1,3 KB y ~4,4 KB de RAM respectivamente.
+#define TB_MQTT_BUFFER_GPRS (FIRMWARE_PACKET_SIZE_GPRS + 256)
+#define TB_MQTT_BUFFER_WIFI (FIRMWARE_PACKET_SIZE + 256)
 #define WAIT_FAILED_OTA_CHUNKS 10U * 1000U * 1000U
 
 // Mutex for protecting the shared variable
@@ -245,7 +310,6 @@ extern int g_restore_photo_minutes;
   10000                              // in millis, there will be a periodic tone when regulating baby's
                                      // constants
 #define buzzerStandbyTone 500        // in micros, tone freq
-#define buzzerRotaryEncoderTone 2200 // in micros, tone freq
 #define buzzerStandbyToneDuration 50 // in micros, tone freq
 #define buzzerSwitchDuration 10      // in micros, tone freq
 #define buzzerStandbyToneTimes 1     // in micros, tone freq
@@ -332,12 +396,29 @@ typedef enum
 #define SKIN_TEMPERATURE_SET_MIN 35
 #define AIR_TEMPERATURE_SET_MIN 30
 #define SKIN_TEMPERATURE_SET_MAX 37.5
-#define AIR_TEMPERATURE_SET_MAX 38
 
-// Encoder variables
-#define NUMENCODERS 1 // number of encoders in circuit
-#define ENCODER_TICKS_DIV 0
-#define encPulseDebounce 200
+// CONSIGNA y CORTE TERMICO son dos cosas distintas y hasta 2026-09-14 eran la
+// misma constante: AIR_TEMPERATURE_SET_MAX valia 38 y de ahi salian a la vez
+// el tope que el operador puede pedir y el umbral al que se dispara el corte.
+// Mientras los dos numeros coincidieron nadie lo noto; en cuanto se quiso
+// consigna 39 quedo a la vista que subir uno subia el otro.
+//
+// Ahora van separadas. La de abajo es SOLO el tope de consigna; el umbral del
+// corte es in3.airTemperatureSetMax, que arranca de
+// AIR_THERMAL_CUTOUT_DEFAULT_C y lo recorta alarm_clamp_air_cutout().
+//
+// La consigna tiene que quedar POR DEBAJO del corte, si no el equipo no puede
+// alcanzar lo que se le pide: al cruzar el umbral salta ALARM_AIR_THERMAL_
+// CUTOUT, que es ALTA y corta el calefactor. Hoy 39 < 40 y hay 1 C de margen.
+// El numero lo pone shared/alarm_policy.h, que es de donde lo lee tambien el
+// display: cuando cada placa tenia el suyo se desincronizaron.
+#define AIR_TEMPERATURE_SET_MAX ALARM_AIR_SETPOINT_MAX_C
+
+// Umbral de arranque del corte termico del aire. Ajustable en caliente (por
+// /config y por el enlace) y persistido en KEY_AIR_T_MAX, asi que este valor
+// solo manda en una unidad sin nada guardado. El techo, y el motivo por el que
+// 40 C es una desviacion normativa consciente, estan en shared/alarm_policy.h.
+#define AIR_THERMAL_CUTOUT_DEFAULT_C 40
 
 // Graphic variables
 #define ERASE false
@@ -415,7 +496,11 @@ typedef struct
   bool fanPidEnabled = FAN_PID_ENABLED_DEFAULT;
   float heaterMaxPowerAmps = HEATER_MAX_POWER_AMPS;
   float skinTemperatureSetMax = SKIN_TEMPERATURE_SET_MAX;
-  float airTemperatureSetMax = AIR_TEMPERATURE_SET_MAX;
+  // Pese al nombre no es el tope de consigna, es el UMBRAL DEL CORTE TERMICO
+  // (security.cpp: checkThermalCutOuts()). El tope de consigna es
+  // AIR_TEMPERATURE_SET_MAX. El nombre se conserva porque viaja al protocolo,
+  // a /config como air_tmax y a NVS como KEY_AIR_T_MAX.
+  float airTemperatureSetMax = AIR_THERMAL_CUTOUT_DEFAULT_C;
   // Defaults en config/transport_policy.h; /config los sobrescribe en NVS.
   int actuating_gprs_period = TX_GPRS_PERIOD_ACTUATING_S;
   int phototherapy_gprs_period = TX_GPRS_PERIOD_PHOTOTHERAPY_S;
@@ -445,14 +530,48 @@ typedef struct
 
 } IncuNest_parameters;
 
-void logE(String dataString);
-void logAlarm(String dataString);
-void logI(String dataString);
-void logCharger(String dataString);
-void logModemData(String dataString);
-void logSPO2(String dataString);
-void logDrive(String dataString);
-void logModemData(String dataString);
+// ================== POR QUE ESTOS LOGS SON MACROS ==================
+//
+// El argumento de una llamada se evalua SIEMPRE, antes de entrar. Como casi
+// todos los sitios escriben cosas como
+//
+//     logI("[X] v=" + String(v) + " w=" + String(w));
+//
+// la cadena se construia —con un temporal y una realocacion por cada `+`—
+// aunque el flag del canal estuviera apagado y la funcion fuera a descartarla
+// en su primera linea. Trabajo y HEAP gastados para nada, 79 veces repartidas
+// por el firmware.
+//
+// No es teorico: en banco (2026-09-14) una de esas cadenas, la de SPO2.cpp a
+// 500 Hz, agoto el heap. `operator new` lanzo std::bad_alloc, nadie lo captura,
+// y std::terminate llamo a abort(): la placa que gobierna el calefactor se
+// reinicio construyendo una linea de log que NI SIQUIERA SE IMPRIME
+// (LOG_PULSIOXIMETRY es false).
+//
+// Con la macro la expresion queda DENTRO del `if`, y como los flags son
+// `#define ... false` el compilador elimina el bloque entero: ni cadena, ni
+// asignacion, ni llamada. Encender un canal lo devuelve todo tal cual estaba.
+//
+// Se conservan los nombres de siempre a proposito: asi los 79 puntos de llamada
+// no se tocan, que es justo lo que no conviene mezclar con un arreglo de
+// seguridad. Las funciones de verdad pasan a llamarse logX_impl().
+//
+// El do/while(0) es para que `if (c) logI(x); else ...` siga compilando.
+void logE_impl(const String &dataString);
+void logAlarm_impl(const String &dataString);
+void logI_impl(const String &dataString);
+void logCharger_impl(const String &dataString);
+void logModemData_impl(const String &dataString);
+void logSPO2_impl(const String &dataString);
+void logDrive_impl(const String &dataString);
+
+#define logI(expr)         do { if (LOG_INFORMATION)   { logI_impl(expr); } } while (0)
+#define logE(expr)         do { if (LOG_ERRORS)        { logE_impl(expr); } } while (0)
+#define logAlarm(expr)     do { if (LOG_ALARMS)        { logAlarm_impl(expr); } } while (0)
+#define logCharger(expr)   do { if (LOG_CHARGER)       { logCharger_impl(expr); } } while (0)
+#define logModemData(expr) do { if (LOG_MODEM_DATA)    { logModemData_impl(expr); } } while (0)
+#define logSPO2(expr)      do { if (LOG_PULSIOXIMETRY) { logSPO2_impl(expr); } } while (0)
+#define logDrive(expr)     do { if (LOG_DRIVE)         { logDrive_impl(expr); } } while (0)
 long secsToMillis(long timeInMillis);
 long minsToMillis(long timeInMillis);
 float millisToHours(long timeInMillis);
@@ -538,15 +657,17 @@ void initAlarms();
 void alarmHistorySave();
 void alarmHistoryLoad();
 void security_check_reboot_cause();
-void IRAM_ATTR encoderISR();
 void IRAM_ATTR fanEncoderISR();
 
 void fanSpeedHandler();
 bool measureSkinSensor();
 
-void pinMode(uint8_t GPIO, uint8_t Mode);
+// Aqui habia dos declaraciones mas —pinMode y digitalWrite— que redeclaraban
+// la API GPIO de Arduino con su misma firma y que NO estaban definidas en
+// ningun sitio del proyecto. Eran vestigios inofensivos mientras Arduino
+// aportaba esos simbolos; con la capa de plataforma propia chocaban con
+// pin_write(uint8_t, bool). Se borran. GPIORead si se usa y se queda.
 bool GPIORead(uint8_t GPIO);
-void digitalWrite(uint8_t GPIO, uint8_t Mode);
 
 void basictemperatureControl();
 

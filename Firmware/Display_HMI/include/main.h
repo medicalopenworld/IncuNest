@@ -8,16 +8,32 @@
 #include "Credentials_public.h"
 #include "Wifi_OTA.h"
 #include "display_config.h"
-#include <Preferences.h>
 #include "EEPROM_defines.h"
-#include <ESPmDNS.h>
-#include <Update.h>
-#include <WebServer.h>
-#include <WiFi.h>
 #include <lvgl.h>
 #include <stdint.h>
+
+// Las cabeceras de red de Arduino (WiFi.h, WebServer.h, Update.h, ESPmDNS.h)
+// se han quitado de aqui: main.h no usaba ninguno de esos tipos, solo los
+// reexportaba a medio firmware. Ahora cada consumidor incluye lo que necesita
+// de ESP-IDF, que es lo que evita que un cambio en la capa de red obligue a
+// recompilar las 14.700 lineas de src/ui.
+#include "platform/plat_esp.h"
+#include "platform/plat_i2c.h"
+#include "platform/plat_nvs.h"
+#include "platform/plat_time.h"
+#include "platform/plat_uart.h"
+
+// Unico bus I2C del display: pantalla tactil GT911, expansor PCA9557 y el
+// STC8H1K28 del backlight/zumbador (0x30). Sustituye al objeto global Wire.
+// Se abre en setup(), antes de crear ninguna tarea.
+// g_i2c es el mismo objeto que Wire (platform/plat_i2c.h): el HMI solo tiene
+// un bus. Se conserva el nombre porque buzzer.cpp y compania ya lo usan.
+extern I2cBus &g_i2c;
 #include "control_types.h"
 #include "alarm_ids.h"
+// Por ALARM_AIR_SETPOINT_MAX_C: el tope de consigna lo fija shared/ para las
+// dos placas a la vez (ver AIR_TEMP_MAX mas abajo).
+#include "alarm_policy.h"
 #include "ui/i18n.h"
 
 #define FWversion "4.0.0"
@@ -144,7 +160,12 @@ constexpr int BRIGHTNESS_MAX = 255;
 // Temperature
 // -----------------------------
 constexpr double AIR_TEMP_MIN = 30.0;
-constexpr double AIR_TEMP_MAX = 38.5;
+// El display es quien de verdad limita lo que se puede pedir: la placa acepta
+// la consigna que le llegue por el enlace sin recortarla (main.cpp,
+// ACTUATION_TEMPERATURE) y su maxDesiredTemp[] se escribe pero no lo lee
+// nadie. Por eso el numero sale de shared/ y no se teclea aqui: cuando cada
+// placa tenia el suyo acabaron en 38.5 y 38 sin que nadie lo notara.
+constexpr double AIR_TEMP_MAX = ALARM_AIR_SETPOINT_MAX_C;
 constexpr double SKIN_TEMP_MIN = 35.0;
 constexpr double SKIN_TEMP_MAX = 37.5;
 // Clinical standard skin setpoint applied by the baby-data wizard — fixed,

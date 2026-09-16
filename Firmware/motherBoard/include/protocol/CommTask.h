@@ -1,5 +1,5 @@
 #pragma once
-#include <Arduino.h>
+#include <cstdint>
 #include "protocol.h"
 #include "control_types.h"
 #include "alarm_ids.h"

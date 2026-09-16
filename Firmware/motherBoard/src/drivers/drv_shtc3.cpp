@@ -1,6 +1,6 @@
 #include "drv_shtc3.h"
 
-bool drv_shtc3_init(SHTC3 *dev, TwoWire *bus) {
+bool drv_shtc3_init(SHTC3 *dev, I2cBus *bus) {
   return dev->begin(*bus) == SHTC3_Status_Nominal;
 }
 

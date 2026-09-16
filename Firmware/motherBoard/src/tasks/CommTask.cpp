@@ -1,12 +1,27 @@
 #include "CommTask.h"
+#include <cmath>  // isfinite, antes lo traia Arduino.h
+using std::isfinite;
+
 #include "main.h"
+
+// Capa de red del porte a ESP-IDF (sustituye a WiFi.h, WiFiClientSecure.h,
+// WebServer.h, Update.h y ESPmDNS.h de Arduino).
+#include "platform/plat_wifi.h"
+#include "platform/plat_net_client.h"
+#include "platform/plat_webserver.h"
+#include "platform/plat_update.h"
+#include "platform/plat_mdns.h"
+
 #include "modules/util/tz_source.h"
+// La cola de inyeccion del modo depuracion la drena ESTA tarea; ver
+// modules/debug/debug_mode.h para por que no la drena el manejador HTTP.
+extern "C" bool debug_inject_take(char *out, size_t out_len);
 #include "modules/util/civil_time.h"
 #include "modules/util/system_clock.h"
 #include "tasks/PID.h"
 #include "DriveUpload.h"
-#include <LittleFS.h>
-#include <Preferences.h>
+#include "platform/plat_fs.h"
+#include "platform/plat_nvs.h"
 
 #include "alarm_text.h"
 #include "modules/control/alarm_history.h"
@@ -290,9 +305,9 @@ double getRemainingPhotoTime() {
       remainingTime = 0.0;
 
       in3.phototherapy = false;
-      ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, 0);
+      pwm_write(PHOTOTHERAPY_PWM_CHANNEL, 0);
       turnFans(bool(in3.phototherapy || in3.actuation));
-      { Preferences p; p.begin("photo", false); p.clear(); p.end(); }
+      { NvsPrefs p; p.begin("photo", false); p.clear(); p.end(); }
 
       if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         ESP_LOGI(TAG, "Phototherapy timer expired. Hardware turned OFF.");
@@ -385,8 +400,21 @@ static void send_state_to_hmi() {
   int skinProbeState = (in3.temperature[SKIN_SENSOR] > 0.1f) ? SKIN_PROBE_VALID
                                                               : SKIN_PROBE_NOT_CONNECTED;
 
+  // Alarmas ENCLAVADAS esperando reconocimiento: siguen avisando aunque su
+  // condicion ya se haya ido. Solo con esto puede el display ofrecer el reset
+  // manual que pide 201.15.4.2.1 aa)/bb) —y ofrecerlo SOLO cuando sirve de
+  // algo, en vez de un boton que unas veces hace efecto y otras no. La placa
+  // sigue siendo la duena de la decision: HMI,ALM_RESET pasa por
+  // alarm_machine_reset(), que rechaza lo que no proceda.
+  uint32_t latchedBitmask = 0;
+  for (int a = ALARM_NONE + 1; a < ALARM_COUNT; a++) {
+    if (alarm_machine_is_latched((AlarmId)a)) {
+      latchedBitmask |= (1u << a);
+    }
+  }
+
   snprintf(msg, sizeof(msg),
-           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d,%d,0x%X,0x%X,%d,%d,%d\n",
+           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d,%d,0x%X,0x%X,%d,%d,%d,0x%X\n",
            (int)g_last_cmd.actuation, (int)g_last_cmd.controlMode,
            (double)g_last_cmd.desiredAirTemperature,
            (double)g_last_cmd.desiredSkinTemperature,
@@ -395,7 +423,7 @@ static void send_state_to_hmi() {
            HW_REVISION, FWversion, alarmCount, (int)g_last_cmd.skinModeEnabled,
            (int)ctrl_tel_msg.serverCommStatus, remainingTime, in3.language,
            skinProbeState, alarmBitmask, silencedBitmask, almTest,
-           silenceLeftS, (int)ctrl_tel_msg.linkBars);
+           silenceLeftS, (int)ctrl_tel_msg.linkBars, latchedBitmask);
 
 
   ESP_LOGI(TAG, "Sending state to HMI: %s", msg);
@@ -461,7 +489,7 @@ static void hmiCrashFlush() {
   snprintf(path, sizeof(path), "/crash_hmi_%lu.log",
            (unsigned long)hmi_crash_start_ms);
 
-  File f = LittleFS.open(path, "w", true);
+  FsFile f = LittleFS.open(path, "w", true);
   if (!f) {
     logDrive(String("HMI crash: cannot open ") + path);
     hmi_crash_capturing = false;
@@ -683,37 +711,37 @@ void parse_line(const char *line) {
         }
       } else if (strcmp(param, "FAN_SUPPLY_PWM") == 0) {
         in3.fanPwrSupplyPWM = (int)value;
-        { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_PWR_SUPPLY_PWM, in3.fanPwrSupplyPWM); p.end(); }
+        { NvsPrefs p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_PWR_SUPPLY_PWM, in3.fanPwrSupplyPWM); p.end(); }
       } else if (strcmp(param, "HEATER_AMPS") == 0) {
         in3.heaterMaxPowerAmps = value;
-        { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_HEAT_MAX_A, in3.heaterMaxPowerAmps); p.end(); }
+        { NvsPrefs p; p.begin(NS_CFG, false); p.putFloat(KEY_HEAT_MAX_A, in3.heaterMaxPowerAmps); p.end(); }
       } else if (strcmp(param, "SKIN_TMAX") == 0) {
         in3.skinTemperatureSetMax = alarm_clamp_skin_cutout(value);
         maxDesiredTemp[CONTROL_SKIN] = in3.skinTemperatureSetMax;
-        { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_SKIN_T_MAX, in3.skinTemperatureSetMax); p.end(); }
+        { NvsPrefs p; p.begin(NS_CFG, false); p.putFloat(KEY_SKIN_T_MAX, in3.skinTemperatureSetMax); p.end(); }
       } else if (strcmp(param, "AIR_TMAX") == 0) {
         in3.airTemperatureSetMax = alarm_clamp_air_cutout(value);
         maxDesiredTemp[CONTROL_AIR] = in3.airTemperatureSetMax;
-        { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_AIR_T_MAX, in3.airTemperatureSetMax); p.end(); }
+        { NvsPrefs p; p.begin(NS_CFG, false); p.putFloat(KEY_AIR_T_MAX, in3.airTemperatureSetMax); p.end(); }
       } else if (strcmp(param, "GPRS_ACT") == 0) {
         in3.actuating_gprs_period = (int)value;
-        { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_ACT_PERIOD, in3.actuating_gprs_period); p.end(); }
+        { NvsPrefs p; p.begin(NS_GPRS, false); p.putInt(KEY_ACT_PERIOD, in3.actuating_gprs_period); p.end(); }
       } else if (strcmp(param, "GPRS_PHOTO") == 0) {
         in3.phototherapy_gprs_period = (int)value;
-        { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_PHOTO_PERIOD, in3.phototherapy_gprs_period); p.end(); }
+        { NvsPrefs p; p.begin(NS_GPRS, false); p.putInt(KEY_PHOTO_PERIOD, in3.phototherapy_gprs_period); p.end(); }
       } else if (strcmp(param, "GPRS_STBY") == 0) {
         in3.standby_gprs_period = (int)value;
-        { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_STBY_PERIOD, in3.standby_gprs_period); p.end(); }
+        { NvsPrefs p; p.begin(NS_GPRS, false); p.putInt(KEY_STBY_PERIOD, in3.standby_gprs_period); p.end(); }
       } else if (strcmp(param, "FAN_CTL_PWM") == 0) {
         in3.fanCtlPWM = (int)value;
-        { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_CTL_PWM, in3.fanCtlPWM); p.end(); }
-        ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
+        { NvsPrefs p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_CTL_PWM, in3.fanCtlPWM); p.end(); }
+        pwm_write(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
       } else if (strcmp(param, "FAN_PID_EN") == 0) {
         setFanPidEnabled(value != 0);
       } else {
         success = false;
       }
-      if (success) { /* Preferences commits on p.end() */ }
+      if (success) { /* NvsPrefs commits on p.end() */ }
       if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         if (success)
           ESP_LOGI(TAG, "Config updated: %s = %.2f", param, value);
@@ -820,6 +848,57 @@ void parse_line(const char *line) {
     // main.h) — y es ademas la categoria que corresponde.
     logAlarm("[ALARM] ALM_SILENCE id=" + String(id) + " on=" + String(on) +
              " -> estado=" + String((int)alarm_machine_state((AlarmId)id)));
+    return;
+  }
+
+  // Reset manual de una alarma enclavada.
+  //
+  // 201.15.4.2.1 aa)/bb) piden que el corte termico —que REARMA SOLO en cuanto
+  // baja la temperatura— siga avisando "hasta reset manual". Por eso los dos
+  // cortes termicos son latching (alarm_is_latching, shared/): si la senal se
+  // borrase sola al enfriarse, un episodio de sobretemperatura no dejaria
+  // ningun rastro que el operador pudiera ver.
+  //
+  // LO QUE FALTABA ERA EL RESET. alarm_machine_reset() existia desde el
+  // principio y no lo llamaba NADIE: la unica forma de quitar un corte termico
+  // ya enfriado era reiniciar la placa. Encontrado en banco el 2026-09-11
+  // simulando el corte con el modo depuracion. Un aviso que no se puede
+  // reconocer no es una alarma enclavada, es una alarma atascada.
+  //
+  // La maquina se encarga de rechazarlo si no procede: alarm_machine_reset()
+  // devuelve false cuando la alarma no es latching o cuando SU CONDICION SIGUE
+  // PRESENTE, que es justo lo que impide que el operador haga desaparecer un
+  // aviso vivo pulsando un boton. Aqui no se duplica ninguna de esas dos
+  // comprobaciones a proposito: la politica vive en un sitio solo.
+  //
+  // Sin id, o con id 0, resetea todas las que se dejen.
+  if (strncmp(line, "HMI,ALM_RESET", 13) == 0) {
+    const uint32_t now = millis();
+    unsigned id = 0;
+    const bool one = (line[13] == ',') && (sscanf(line + 14, "%u", &id) == 1) &&
+                     id > ALARM_NONE && id < ALARM_COUNT;
+    int done = 0, refused = 0;
+    for (int a = ALARM_NONE + 1; a < ALARM_COUNT; a++) {
+      if (one && (unsigned)a != id) {
+        continue;
+      }
+      if (!alarm_machine_is_latched((AlarmId)a)) {
+        continue; // no esta enclavada esperando reconocimiento
+      }
+      if (alarm_machine_reset((AlarmId)a, now)) {
+        done++;
+      } else {
+        refused++;
+      }
+    }
+    logAlarm("[ALARM] ALM_RESET" + (one ? (" id=" + String(id)) : String("")) +
+             " -> reseteadas=" + String(done) +
+             " rechazadas=" + String(refused));
+    // El display repinta con el siguiente CTRL,STATE/CTRL,ALM; forzamos el
+    // envio para que el boton no parezca que no ha hecho nada.
+    if (done > 0) {
+      xSemaphoreGive(hmi_state_req_sem);
+    }
     return;
   }
 
@@ -1120,6 +1199,18 @@ void Communication_Task(void *pvParameters) {
   }
 
   for (;;) {
+    // Lineas inyectadas por el modo depuracion. Se tratan AQUI, en la tarea
+    // Comm y con la misma llamada a parse_line() que una linea real, para que
+    // lo que se prueba sea el camino de produccion entero. Con el modo apagado
+    // la cola esta vacia y esto no cuesta nada.
+    {
+      char injected[192];
+      while (debug_inject_take(injected, sizeof(injected))) {
+        ESP_LOGW(TAG, "[DEBUG] linea inyectada: %s", injected);
+        parse_line(injected);
+      }
+    }
+
     // --- RX: drain Serial1 into line buffer ---
     while (hmiSerial.available()) {
       char c = (char)hmiSerial.read();
@@ -1213,7 +1304,7 @@ void Communication_Task(void *pvParameters) {
         long elapsed = (long)((millis() - photoTimerStartMs) / 1000);
         int remaining_mins = ((long)photoTimerMinutes * 60 - elapsed + 59) / 60;
         if (remaining_mins < 1) remaining_mins = 1;
-        Preferences p;
+        NvsPrefs p;
         p.begin("photo", false);
         p.putBool("active", true);
         p.putInt("mins", remaining_mins);
@@ -1298,7 +1389,7 @@ void Communication_Task(void *pvParameters) {
 
       {
         // Mirrors the same 0..PWM_MAX_VALUE scale and ongoingCriticalAlarm()
-        // gating that PIDHandler() actually writes via ledcWrite(), so the
+        // gating that PIDHandler() actually writes via pwm_write(), so the
         // HMI bar never disagrees with the log or with the real hardware duty.
         int temp_duty = ongoingCriticalAlarm() ? 0 : (int)(HeaterPIDOutput + 0.5);
         if (temp_duty < 0)               temp_duty = 0;

@@ -31,15 +31,15 @@ se añaden al final.
 
 | ID | Identificador | Qué la dispara en el código | Prioridad | Corta calefactor |
 |---|---|---|---|---|
-| 1 | `ALARM_AIR_THERMAL_CUTOUT` | `in3.temperature[ROOM_DIGITAL_TEMP_SENSOR] > in3.airTemperatureSetMax` (histéresis 0.2 °C, `AIR_THERMAL_CUTOUT_HYSTERESIS`, `security.cpp:191`), evaluada en `checkThermalCutOuts()` | ALTA | sí |
+| 1 | `ALARM_AIR_THERMAL_CUTOUT` | `in3.temperature[ROOM_DIGITAL_TEMP_SENSOR] > in3.airTemperatureSetMax` (histéresis **0.5 °C**, `AIR_THERMAL_CUTOUT_HYSTERESIS` — era 0.2, dentro del ruido del sensor; ver §6), evaluada en `checkThermalCutOuts()` | ALTA | sí |
 | 2 | `ALARM_SKIN_THERMAL_CUTOUT` | `in3.temperature[SKIN_SENSOR] > in3.skinTemperatureSetMax` (histéresis 0.2 °C, `SKIN_THERMAL_CUTOUT_HYSTERESIS`), misma función | ALTA | sí |
 | 3 | `ALARM_AIR_SENSOR_FAULT` | lectura del sensor de aire sin refrescar durante `MINIMUM_SUCCESSFULL_AIR_SENSOR_UPDATE` = 5000 ms (`checkStatusOfSensor()`) | ALTA | sí |
 | 4 | `ALARM_SKIN_SENSOR_FAULT_SKIN_MODE` | mismo mecanismo de staleness que el 3 pero sobre la sonda de piel, con su propia ventana `MINIMUM_SUCCESSFULL_SKIN_SENSOR_UPDATE` = 5000 ms (~25 muestras a 200 ms), y solo cuando `in3.controlMode == CONTROL_SKIN` | ALTA | sí |
 | 5 | `ALARM_FAN_FAILURE` | en marcha, `in3.fan_rpm < FAN_MIN_RPM` (3000 rpm, `board.h:185`), con histéresis de 300 rpm para despejar (`checkFanSpeed()`); solo evaluable con `in3.fanHasSpeedFeedback`. **También la declara el autotest de arranque** (`initHardware.cpp:412,677,732,740,779`), antes de que exista lazo de control | ALTA | sí |
-| 6 | `ALARM_AIR_OUTLET_BLOCKED` | en marcha, `fanControlPIDOutput > FAN_DUTY_BLOCKED_THRESHOLD` (190, `board.h:221`) sostenido `AIR_BLOCKED_SUSTAIN_MS` = 5000 ms (`checkAirBlockage()`). **También la declara el autotest de arranque** (`initHardware.cpp:803`) | ALTA | sí |
+| 6 | `ALARM_AIR_OUTLET_BLOCKED` | en marcha, `fanControlPIDOutput > FAN_DUTY_BLOCKED_THRESHOLD` (220, se retira bajo 200, `board.h`) sostenido `AIR_BLOCKED_SUSTAIN_MS` = 5000 ms (`checkAirBlockage()`). **También la declara el autotest de arranque** (`initHardware.cpp:803`) | ALTA | sí |
 | 7 | `ALARM_MAINS_INTERRUPTION` | **sin detector** — ver §9 | ALTA | no (no hay condición que cortar). **No silenciable**: 201.12.3.103 exige 10 min de aviso y la pausa dura justo eso |
-| 8 | `ALARM_AIR_TEMP_DEVIATION_HIGH` | en modo aire, `temperatura − consigna > 3.0 °C` (`AIR_TEMP_DEVIATION_LIMIT_C`, `checkAlarms()`) | MEDIA | sí |
-| 9 | `ALARM_AIR_TEMP_DEVIATION_LOW` | en modo aire, `consigna − temperatura > 3.0 °C`, y solo tras cerrar la ventana de estabilización (§5) | MEDIA | no |
+| 8 | `ALARM_AIR_TEMP_DEVIATION_HIGH` | en modo aire, `temperatura − consigna > 1.0 °C` (`AIR_TEMP_DEVIATION_LIMIT_C`, `checkAlarms()`) | MEDIA | sí |
+| 9 | `ALARM_AIR_TEMP_DEVIATION_LOW` | en modo aire, `consigna − temperatura > 1.0 °C`, y solo tras cerrar la ventana de estabilización (§5) | MEDIA | no |
 | 10 | `ALARM_SKIN_TEMP_DEVIATION_HIGH` | en modo piel, `temperatura − consigna > 1.0 °C` (`SKIN_TEMP_DEVIATION_LIMIT_C`) | MEDIA | sí |
 | 11 | `ALARM_SKIN_TEMP_DEVIATION_LOW` | en modo piel, `consigna − temperatura > 1.0 °C`, tras cerrar la ventana | MEDIA | no |
 | 12 | `ALARM_HEATER_FAULT` | corriente de calefactor fuera de `[HEATER_CONSUMPTION_MIN, HEATER_CONSUMPTION_MAX]` en el autotest de arranque (`initHardware.cpp`). Es avería de cableado o resistencia | MEDIA | sí |
@@ -363,6 +363,25 @@ de la desviación de temperatura de forma deliberadamente distinta, y el
 propio código lo documenta como no siendo una inconsistencia
 (`security.cpp:601-615`):
 
+El umbral en modo aire es **±1.0 °C**, no los ±3 °C de dd). La norma fija un
+máximo, no un mínimo, así que apretarlo está permitido — y aquí es necesario:
+con 3 °C el aviso no llega a tiempo en la mitad alta del rango de consigna
+(con 35 °C no alarmaría hasta 38 °C, y de ahí para arriba cada vez más tarde).
+
+> **Cambió el dato que sostenía esto.** Cuando se decidió, el corte térmico
+> estaba topado a 38 °C, así que con consigna de 35 °C la desviación alarmaba
+> en el mismo punto que el corte y a partir de 36 °C no alarmaba nunca antes
+> que él. Desde el 2026-09-14 el corte se topa a 40 °C (§6), esa coincidencia
+> ya no se da y sí queda margen entre los dos. La decisión de ±1 °C sigue en
+> pie por lo que de verdad la sostiene: es un aviso temprano en el único
+> escenario en el que el equipo no puede corregir por sí mismo.
+
+Con ±1 °C hay que vigilar tres efectos que el
+umbral anterior tapaba: el corte de calefactor se adelanta 2 °C, el
+sobreimpulso de la rampa pasa a ser visible en pantalla, y el lado frío salta
+al abrir la puerta (ver el comentario de `AIR_TEMP_DEVIATION_LIMIT_C` en
+`security.cpp`).
+
 - **Lado caliente** (`AIR_TEMP_DEVIATION_HIGH`, `SKIN_TEMP_DEVIATION_HIGH`):
   se declara **siempre**, incluso durante la ventana de estabilización de 30
   min tras la activación. `declareHotDeviation()` (`security.cpp:269-277`)
@@ -410,15 +429,40 @@ reloj a los ~49 días.
 ## 6. Límites acotados de los cortes térmicos
 
 `alarm_policy.h` define tres constantes de acotado:
-`ALARM_AIR_CUTOUT_MAX_C` = 38.0 °C, `ALARM_SKIN_CUTOUT_MAX_C` = 40.0 °C, y un
+`ALARM_AIR_CUTOUT_MAX_C` = 40.0 °C, `ALARM_SKIN_CUTOUT_MAX_C` = 40.0 °C, y un
 suelo común `ALARM_CUTOUT_MIN_C` = 34.0 °C. `alarm_clamp_air_cutout()` y
-`alarm_clamp_skin_cutout()` (`alarm_policy.cpp:59-65`) recortan cualquier
-valor propuesto a `[34.0, 38.0]` o `[34.0, 40.0]` respectivamente.
+`alarm_clamp_skin_cutout()` recortan cualquier valor propuesto a `[34.0, 40.0]`.
 
-Importante no confundir el acotado con el valor por defecto: los valores de
-fábrica (`main.h:319-320`) son `SKIN_TEMPERATURE_SET_MAX` = 37.5 °C y
-`AIR_TEMPERATURE_SET_MAX` = 38 °C — el de piel arranca 2.5 °C por debajo de su
-propio techo de acotado (40 °C), no en el límite.
+> **El techo del aire incumple la norma a propósito.** 201.15.4.2.1 aa) fija
+> 38 °C y aquí hay 40 °C. Decisión de producto del 2026-09-14, tomada para
+> poder subir la consigna de aire a 39 °C y probarlo en banco. **No se puede
+> reclamar conformidad.** El razonamiento completo —y por qué el camino bueno
+> es el override con un segundo corte en canal independiente, no mover este
+> número— está en el comentario sobre el `#define` en
+> `shared/include/alarm_policy.h` y en §2.4 de `alarms_normative_analysis.md`.
+
+Importante no confundir el acotado con el valor por defecto. Y no confundir
+tampoco **consigna** con **corte**, que hasta el 2026-09-14 eran la misma
+constante en la motherBoard:
+
+- **Tope de consigna**: `ALARM_AIR_SETPOINT_MAX_C` = 39 °C, en `shared/` porque
+  lo necesitan las dos placas (antes estaba duplicado a mano y se habían
+  desincronizado: 38.5 en el display y 38 en la placa).
+- **Corte térmico, valor de arranque**: `AIR_THERMAL_CUTOUT_DEFAULT_C` = 40 °C
+  y `SKIN_TEMPERATURE_SET_MAX` = 37.5 °C — el de piel arranca 2.5 °C por debajo
+  de su propio techo de acotado, no en el límite.
+
+La consigna máxima tiene que quedar **por debajo** del corte, o el equipo no
+puede alcanzar lo que se le pide: al cruzar el umbral salta el corte, que es
+ALTA y apaga el calefactor. Lo comprueba `test_alarm_policy`.
+
+**Trampa al actualizar una unidad que ya existía**: `KEY_AIR_T_MAX` se escribe
+en la inicialización de fábrica, así que un equipo que arrancó con el firmware
+anterior lleva **38 guardado en NVS y se queda en 38**, porque NVS manda sobre
+el compilado. Con la consigna topada en 39 eso deja un equipo que no puede
+alcanzar su consigna. No se migra en silencio —subir un umbral de seguridad por
+nuestra cuenta es justo lo que no se debe hacer—: se avisa en el log de
+arranque y se corrige a mano con `air_tmax` en `/config`.
 
 `in3.airTemperatureSetMax` / `in3.skinTemperatureSetMax` son escribibles en
 caliente, y las tres vías de escritura existentes aplican el acotado en todas
@@ -435,7 +479,7 @@ ellas:
    escribir a `in3` y a NVS.
 
 Con esto, un valor propuesto de 45 °C para el corte de aire queda recortado a
-38 °C en cualquiera de las tres vías; no hay un cuarto punto de entrada que
+40 °C en cualquiera de las tres vías; no hay un cuarto punto de entrada que
 modifique estos campos sin pasar por el acotado (búsqueda de
 `airTemperatureSetMax`/`skinTemperatureSetMax` en `motherBoard/src`).
 
@@ -689,21 +733,33 @@ hace hoy, para no inducir a confiar en protecciones que no existen.
   razonado pero pendiente de ajuste fino en banco.**
   `AIR_BLOCKED_DETECTION_ENABLED` es `true` (`board.h:234`) y ya corta el
   calefactor a través de `alarm_cuts_heater()`.
-  `FAN_DUTY_BLOCKED_THRESHOLD` vale **190** (`board.h:221`), derivado del duty
-  de fábrica de 137 que sostiene `FAN_TARGET_RPM` con la salida limpia: queda
-  +39 % por encima de esa línea base, holgadamente sobre el duty al que el PID
-  llega compensando la caída de tensión con el calefactor a máxima potencia
-  (~158), y aún 65 cuentas por debajo de la saturación a la que lleva una
-  obstrucción real. El margen está sesgado a propósito contra falsos
-  positivos, porque un falso positivo corta el calefactor y enfría al bebé sin
-  red de respaldo, mientras que una obstrucción parcial que se escape sigue
-  apareciendo como desviación de temperatura o corte térmico.
+  `FAN_DUTY_BLOCKED_THRESHOLD` vale **220** y la condición se retira por debajo
+  de **200** (`board.h`). Hasta el 2026-09-14 valían 190 y 175, derivados de un
+  duty de fábrica supuesto de 137, y **la medida los desmintió**: 97 muestras
+  con el ventilador a 4006 rpm, el calefactor a 255 y la fototerapia al 82 %,
+  con la salida limpia, dan un duty de trabajo de **187** (min 186, máx 188).
 
-  Sigue siendo un punto de partida calculado, **no validado en banco**: el
-  propio `board.h` lo dice y el arranque registra el duty necesario para
-  sostener `FAN_TARGET_RPM` precisamente para recoger esos datos. El ajuste
-  contra la dispersión real entre unidades es del responsable del proyecto,
-  antes de que el equipo salga a campo.
+  Eso dejaba dos problemas. El umbral de disparo quedaba a **2 cuentas** del
+  punto de trabajo, no al +39 % que decía este documento. Y el de retirada,
+  175, quedaba **por debajo** de ese punto de trabajo: con el ventilador
+  girando el duty nunca baja hasta ahí, así que una vez declarada la condición
+  **no podía retirarse** y el calefactor se quedaba cortado hasta reiniciar.
+
+  Los valores nuevos salen de esa medida: retirada 12 cuentas por encima del
+  máximo normal (para que la alarma pueda irse sola) y disparo 32 por encima,
+  aún 35 por debajo de la saturación a la que lleva una obstrucción real. Se
+  conserva el sesgo contra falsos positivos, que sigue siendo el criterio
+  correcto: un falso positivo corta el calefactor y enfría al bebé sin red,
+  mientras que una obstrucción parcial que se escape sigue apareciendo como
+  desviación de temperatura o corte térmico.
+
+  Un `static_assert` en `security.cpp` rompe la compilación si alguien vuelve a
+  dejar la retirada por debajo del duty de trabajo (`FAN_DUTY_NORMAL_MAX_OBSERVED`).
+
+  **Sigue siendo de UNA SOLA UNIDAD.** Lo que ya no es una estimación es el
+  orden de magnitud del punto de trabajo; la dispersión real entre placas
+  —otro ventilador, otro conducto— no está medida, y ese ajuste es del
+  responsable del proyecto antes de que el equipo salga a campo.
 - **Canal de corte térmico independiente del termostato: no existe.** El
   corte por aire (ID 1) lee el mismo `ROOM_DIGITAL_TEMP_SENSOR` que usa el PID
   de control. Un único fallo de sensor se lleva por delante tanto el control

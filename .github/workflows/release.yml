@@ -8,6 +8,15 @@ on:
 permissions:
   contents: write
 
+# Desde el porte a ESP-IDF (2026-09) las dos placas construyen con idf.py.
+# La accion oficial de Espressif trae la ESP-IDF de la version indicada ya
+# instalada (imagen docker espressif/idf:<version>), asi que no hay que
+# instalar toolchains a mano. La version tiene que ser LA MISMA que la del
+# equipo de desarrollo y que la de la SensorBoard: v6.0.1.
+#
+# HW_NUM: el build por defecto es la revision 17 (Kconfig
+# INCUNEST_HW_NUM default 17), igual que antes se publicaba IncuNest_V17.
+
 jobs:
   release:
     runs-on: ubuntu-22.04
@@ -16,34 +25,33 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Cache PlatformIO
-        uses: actions/cache@v4
+      - name: Build motherboard firmware (ESP-IDF v6.0.1)
+        uses: espressif/esp-idf-ci-action@v1
         with:
-          path: ~/.platformio
-          key: ${{ runner.os }}-pio-${{ hashFiles('Firmware/motherBoard/platformio.ini', 'Firmware/Display_HMI/platformio.ini') }}
-          restore-keys: ${{ runner.os }}-pio-
+          esp_idf_version: v6.0.1
+          target: esp32s3
+          path: Firmware/motherBoard
 
-      - name: Install PlatformIO
-        run: pip install --upgrade platformio
+      - name: Build Display HMI firmware (ESP-IDF v6.0.1)
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v6.0.1
+          target: esp32s3
+          path: Firmware/Display_HMI
 
-      - name: Build motherboard firmware
-        run: pio run -e IncuNest_V17
-        working-directory: Firmware/motherBoard
-
-      - name: Build Display HMI firmware
-        run: pio run -e main
-        working-directory: Firmware/Display_HMI
-
+      # Los nombres de los assets se conservan tal cual: el flasher los
+      # descarga por estos nombres desde la ultima release.
       - name: Stage release assets
         run: |
           mkdir release_assets
-          cp Firmware/motherBoard/.pio/build/IncuNest_V17/bootloader.bin release_assets/motherboard_bootloader.bin
-          cp Firmware/motherBoard/.pio/build/IncuNest_V17/partitions.bin release_assets/motherboard_partitions.bin
-          cp Firmware/motherBoard/.pio/build/IncuNest_V17/firmware.bin   release_assets/motherboard_firmware.bin
-          cp Firmware/Display_HMI/.pio/build/main/bootloader.bin         release_assets/display_hmi_bootloader.bin
-          cp Firmware/Display_HMI/.pio/build/main/partitions.bin         release_assets/display_hmi_partitions.bin
-          cp Firmware/Display_HMI/.pio/build/main/firmware.bin           release_assets/display_hmi_firmware.bin
-          cp Firmware/Display_HMI/.pio/build/main/ota_data_initial.bin   release_assets/display_hmi_ota_data_initial.bin 2>/dev/null || true
+          cp Firmware/motherBoard/build/bootloader/bootloader.bin              release_assets/motherboard_bootloader.bin
+          cp Firmware/motherBoard/build/partition_table/partition-table.bin    release_assets/motherboard_partitions.bin
+          cp Firmware/motherBoard/build/motherboard.bin                        release_assets/motherboard_firmware.bin
+          cp Firmware/motherBoard/build/ota_data_initial.bin                   release_assets/motherboard_ota_data_initial.bin
+          cp Firmware/Display_HMI/build/bootloader/bootloader.bin              release_assets/display_hmi_bootloader.bin
+          cp Firmware/Display_HMI/build/partition_table/partition-table.bin    release_assets/display_hmi_partitions.bin
+          cp Firmware/Display_HMI/build/display_hmi.bin                        release_assets/display_hmi_firmware.bin
+          cp Firmware/Display_HMI/build/ota_data_initial.bin                   release_assets/display_hmi_ota_data_initial.bin
 
       - name: Generate manifest.json
         run: |

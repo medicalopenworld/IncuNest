@@ -28,15 +28,25 @@
 // Firmware version and head title of UI screen
 
 #include "main.h"
+
+// Las librerias de sensor ya no llegan por main.h (reexportaba una docena de
+// cabeceras de Arduino a todo el firmware). Se incluyen aqui, que es donde se
+// declaran los objetos.
+#include <Adafruit_SHT4x.h>
+#include <Beastdevices_INA3221.h>
+#include <SensirionI2cSts3x.h>
+#include <SparkFun_SHTC3.h>
+
 #include "state/state.h"
+#include "modules/debug/debug_mode.h"
 #include "modules/sensorboard_comm/sensorboard_comm.h"
 #include "modules/sensors/sensor_source.h"
 #include "system/hw_selftest.h"
 #include "DriveUpload.h"
 #include "CrashReporter.h"
-#include <Preferences.h>
+#include "platform/plat_nvs.h"
 
-static Preferences diag_prefs;
+static NvsPrefs diag_prefs;
 uint32_t g_bootCount = 0;
 uint32_t g_gprsKillCount = 0;
 uint32_t g_monKillCount = 0;
@@ -44,9 +54,12 @@ int g_hmiBootCount = 0;
 int g_hmiLastRst = 0;
 int g_restore_photo_minutes = 0;
 
-// Build-flag crash simulator. Add -DCRASH_TEST_MB=1 to platformio.ini
-// build_flags to fire a panic after CRASH_TEST_MB_DELAY_S seconds (default 130).
-// Remove the flag for production builds.
+// Build-flag crash simulator. Se enciende con la variable de entorno
+// INCUNEST_CRASH_TEST (ver main/CMakeLists.txt); la instruccion anterior decia
+// platformio.ini, que el porte a ESP-IDF dejo sin efecto. Dispara un panic
+// pasados CRASH_TEST_MB_DELAY_S segundos (130 por defecto).
+// La alternativa en caliente y sin recompilar es POST /debug/crash.
+// Nunca en un binario de produccion.
 //   CRASH_TEST_MB=1  → abort() (panic, RST_reason=12)
 //   CRASH_TEST_MB=2  → null-pointer LoadProhibited
 #ifdef CRASH_TEST_MB
@@ -78,18 +91,19 @@ char pendingPass[64] = "";
 char wifi_ssid[64] = "";
 char wifi_pass[64] = "";
 
-#include <Arduino.h>
+#include "platform/plat_time.h"
+#include "platform/plat_gpio.h"
+#include "platform/plat_pwm.h"
+#include "platform/plat_string.h"
 #include <stdarg.h>
 #include <stdio.h>
 
-TwoWire *wire;
-TwoWire *wire2 = nullptr; // second I2C bus (HW16: SHTC3 + STS35 on pins 19/20)
+I2cBus *wire;
+I2cBus *wire2 = nullptr; // second I2C bus (HW16: SHTC3 + STS35 on pins 19/20)
 MAM_IncuNest_Humidifier in3_hum(DEFAULT_ADDRESS);
-TFT_eSPI tft = TFT_eSPI(); // Invoke custom library
 SHTC3 mySHTC3;             // Declare an instance of the SHTC3 class
 SensirionI2cSts3x mySTS35[STS3X_NUM];
 Adafruit_SHT4x sht4 = Adafruit_SHT4x();
-RotaryEncoder encoder(ENC_A, ENC_B, RotaryEncoder::LatchMode::TWO03);
 Beastdevices_INA3221 mainDigitalCurrentSensor(INA3221_ADDR41_VCC);
 Beastdevices_INA3221 secundaryDigitalCurrentSensor(INA3221_ADDR40_GND);
 // BQ25730 gestionado por BQ25730.cpp (chargerPresent definido allí)
@@ -137,20 +151,6 @@ float maxDesiredTemp[2] = {
     SKIN_TEMPERATURE_SET_MAX,
     AIR_TEMPERATURE_SET_MAX}; // maximum allowed temperature to be set
 int presetTemp[2] = {36, 32}; // preset baby skin temperature
-
-boolean A_set;
-boolean B_set;
-int encoderpinA = ENC_A;         // pin  encoder A
-int encoderpinB = ENC_B;         // pin  encoder B
-bool encPulsed, encPulsedBefore; // encoder switch status
-bool updateUIData;
-volatile int EncMove;                 // moved encoder
-volatile int lastEncMove;             // moved last encoder
-volatile int EncMoveOrientation = -1; // set to -1 to increase values clockwise
-volatile int last_encoder_move;       // moved encoder
-long encoder_debounce_time =
-    true; // in milliseconds, debounce time in encoder to filter signal bounces
-long last_encPulsed; // last time encoder was pulsed
 
 // Text Graphic position variables
 int humidityX;
@@ -294,7 +294,7 @@ void sensors_Task(void *pvParameters) {
         // descargado parcialmente durante el corte.
         if (g_bq_status_valid && g_bq_status.ac_present && !prev_ac_present) {
           if (LOG_CHARGER) logCharger("[CHG] Adaptador detectado → reinicializando config");
-          extern TwoWire *wire;
+          extern I2cBus *wire;
           init_BQ25730(wire);  // restaura MaxChargeVoltage = 14.4V (absorción)
           charger_in_float = false;
           ichg_low_since   = 0;
@@ -324,6 +324,13 @@ void sensors_Task(void *pvParameters) {
         }
       }
     }
+    // Las medidas simuladas del modo depuracion se pisan AQUI: despues de que
+    // los sensores reales hayan escrito y ANTES de copiar a ctrl_tel_msg, para
+    // que el control, securityCheck() y el display vean todos exactamente el
+    // mismo valor. Con el modo apagado no hace nada y la medida real vuelve
+    // sola en la pasada siguiente. Ver modules/debug/debug_mode.h.
+    debug_sensors_apply();
+
     ctrl_tel_msg.detectedAirTemperature =
         in3.temperature[ROOM_DIGITAL_TEMP_SENSOR];
     ctrl_tel_msg.detectedSkinTemperature = in3.temperature[SKIN_SENSOR];
@@ -388,13 +395,13 @@ void Communication_Receiver(void *pvParameters) {
       // avoids perpetually postponing the window and suppressing alarms.
       bool actuationWasOff = (in3.actuation == ACTUATION_OFF);
       in3.actuation = hmi_cmd_msg.actuation;
-      { Preferences p; p.begin(NS_STATE, false); p.putUChar(KEY_ACTUATION, in3.actuation); p.end(); }
+      { NvsPrefs p; p.begin(NS_STATE, false); p.putUChar(KEY_ACTUATION, in3.actuation); p.end(); }
       if (actuationWasOff && in3.actuation != ACTUATION_OFF) {
         alarmTimerStart();
       }
       if (in3.controlMode != hmi_cmd_msg.controlMode) {
         in3.controlMode = hmi_cmd_msg.controlMode;
-        { Preferences p; p.begin(NS_CFG, false); p.putUChar(KEY_CTRL_MODE, in3.controlMode); p.end(); }
+        { NvsPrefs p; p.begin(NS_CFG, false); p.putUChar(KEY_CTRL_MODE, in3.controlMode); p.end(); }
       }
 
       const bool tempBlocked = ongoingCriticalWiringAlarm();
@@ -426,7 +433,7 @@ void Communication_Receiver(void *pvParameters) {
           // Persisted so a restoreState boot (crash/WDT) restarts the PID at
           // the setpoint the user actually configured, not the compiled-in
           // default (KEY_CTRL_TEMP's fallback in recapVariables()).
-          Preferences p;
+          NvsPrefs p;
           p.begin(NS_CFG, false);
           p.putFloat(KEY_CTRL_TEMP, in3.desiredControlTemperature);
           p.end();
@@ -439,13 +446,13 @@ void Communication_Receiver(void *pvParameters) {
         // (design.md D4, shared-factory-test): no pisarlo con este keepalive
         // del HMI, que se repite en cada trama aunque actuation ya este OFF.
         if (!g_factoryTestActive)
-          ledcWrite(HEATER_PWM_CHANNEL, false);
+          pwm_write(HEATER_PWM_CHANNEL, false);
       }
       if (in3.humidityControl) {
         if (hmi_cmd_msg.desiredHumidity != in3.desiredControlHumidity) {
           in3.desiredControlHumidity = hmi_cmd_msg.desiredHumidity;
           // Same rationale as KEY_CTRL_TEMP above, for humidity restoreState boots.
-          Preferences p;
+          NvsPrefs p;
           p.begin(NS_CFG, false);
           p.putUChar(KEY_CTRL_HUM, in3.desiredControlHumidity);
           p.end();
@@ -460,7 +467,7 @@ void Communication_Receiver(void *pvParameters) {
       }
 
       in3.phototherapy = hmi_cmd_msg.phototherapyMode;
-      { Preferences p; p.begin(NS_STATE, false); p.putUChar(KEY_PHOTO_ACTIVE, in3.phototherapy); p.end(); }
+      { NvsPrefs p; p.begin(NS_STATE, false); p.putUChar(KEY_PHOTO_ACTIVE, in3.phototherapy); p.end(); }
       if (in3.language != hmi_cmd_msg.language) {
         in3.language = hmi_cmd_msg.language;
         resendActiveAlarms();
@@ -479,7 +486,7 @@ void Communication_Receiver(void *pvParameters) {
       // cuanto g_factoryTestActive baje (ver cabecera de
       // factory_test_task.cpp).
       if (!g_factoryTestActive)
-        ledcWrite(PHOTOTHERAPY_PWM_CHANNEL,
+        pwm_write(PHOTOTHERAPY_PWM_CHANNEL,
                   in3.phototherapy * in3.phototherapy_intensity);
       turnFans(bool(in3.phototherapy || in3.actuation));
 
@@ -495,7 +502,7 @@ void Communication_Receiver(void *pvParameters) {
       // pitido por segundo. Pero el problema de fondo es peor y llevaba aqui
       // desde antes: buzzerHandler()/buzzerTone() y buzzerAlarmUpdate()
       // escriben el MISMO canal PWM. Cada trama recibida hacia shutBuzzer(),
-      // o sea ledcWrite(0), pisando la rafaga de alarma que estuviera sonando
+      // o sea pwm_write(0), pisando la rafaga de alarma que estuviera sonando
       // y destrozando el patron de la Tabla 3.
       //
       // Y un pulso suelto del zumbador de la placa es acusticamente identico
@@ -548,7 +555,7 @@ void PowerManagement_Task(void *pvParameters) {
           CommunicationHost_Send("CTRL,PWR_OFF,0\n");
           logI("[PWR] Long press detected, powering off");
           vTaskDelay(pdMS_TO_TICKS(50)); // allow UART to flush
-          digitalWrite(PWR_EN, LOW);
+          pin_write(PWR_EN, false);
           while (true) {
             vTaskDelay(pdMS_TO_TICKS(100));
           }
@@ -605,11 +612,18 @@ void setup() {
   // enough to keep the device ON. Latch PWR_EN immediately, then wait for
   // the button to be released so the runtime task starts from a clean state.
   {
-    pinMode(PWR_EN, OUTPUT);
-    digitalWrite(PWR_EN, HIGH);
+    pin_mode(PWR_EN, PIN_MODE_OUTPUT);
+    pin_write(PWR_EN, true);
   }
 #endif
-  esp_bt_controller_mem_release(ESP_BT_MODE_BLE);
+  // PORTE A ESP-IDF: aqui habia esp_bt_controller_mem_release(ESP_BT_MODE_BLE).
+  // Servia para devolver al heap la RAM que el controlador BLE reservaba en
+  // arranque, porque el sdkconfig de Arduino traia Bluetooth ACTIVADO aunque
+  // esta placa no lo use. Con ESP-IDF el Bluetooth no esta activado, asi que
+  // esa memoria NUNCA se reserva y no hay nada que liberar: la llamada sobra
+  // (y su cabecera ni existe para el ESP32-S3 en IDF 6). El heap libre tras el
+  // arranque deberia salir igual o MAYOR que antes; conviene compararlo en
+  // banco con el log de arranque.
   debugSerial.begin(115200);
   log_mutex = xSemaphoreCreateRecursiveMutex();
   crashReporterInit();
