@@ -1,6 +1,6 @@
 # Port a ESP-IDF: issues abiertos a 2026-09-16 (noche)
 
-Estado congelado antes de volver a PlatformIO (`112a2e9`) para la tanda de
+Estado congelado antes de volver a PlatformIO (`627affc`) para la tanda de
 fabricación del 2026-09-17. Todo lo de aquí se midió en banco con la unidad
 SN 353 (**HW 18** según el usuario; el `17` del campo `hwNum` de `CTRL,STATE`
 es el `HW_NUM` con el que se compiló, no una lectura del hardware), firmware
@@ -151,19 +151,29 @@ the given device` cada 60 s (logger del SDK).
 - `dev` = `db71994` (port IDF). Ramas con trabajo sin mergear:
   `feat/mb-heap-diag` (3 commits, arriba), `feat/mb-baby-count`,
   `refactor/afe4490-submodulo-v092`, `test/plat-contract-apps`.
-- Worktree `Firmware/.worktrees/pio-stable` en **`65a79be`** (último `dev`
-  PlatformIO, **2026-09-11**, primer padre del merge del port `6e69486`) con
-  `Credentials.h` copiados a mano: es lo que se compila y flashea para
-  fabricación. Entornos: HMI `main`, MB `IncuNest_V18_factory`
-  (= `IncuNest_V18` + `-DFTEST_SIM_ACT_ENABLED=1`, activación de SIM contra
-  Onomondo en el test de fábrica).
-  - OJO al elegir este commit: `112a2e9` (2026-09-07) NO es el último
-    PlatformIO, se queda 25 commits corto — entre ellos la clave de Onomondo
-    fuera del firmware distribuido (`753255c`), los dos arreglos de LINK LOST
-    (`181e8d2`, `5580d3e`), el alta de bebé desde la lista (`9048205`), el
-    fix del eco que apagaba el control (`65a79be`) y **el reparto de
-    particiones** (`bebcd04`: el HMI pasa de 3,14 a 5,24 MB de app). El modo
-    fiable de encontrarlo es `git log -1 6e69486^`, no filtrar asuntos por
-    texto.
+- Worktree `Firmware/.worktrees/pio-stable` en **`627affc`** (2026-09-13), que
+  es **el ultimo commit de `dev` anterior a ESP-IDF**, con `Credentials.h`
+  copiados a mano: es lo que se compila y flashea para fabricacion. Entornos:
+  HMI `main`, MB `IncuNest_V18_factory` (= `IncuNest_V18` +
+  `-DFTEST_SIM_ACT_ENABLED=1`, activacion de SIM contra Onomondo en el test de
+  fabrica).
+  - **Como encontrarlo, porque tiene trampa.** El trabajo pre-IDF del 13-sep
+    (`d27e322`, `51f7296`, `627affc`) entro en `dev` como **segundo padre**: la
+    rama del port absorbio `dev` con `3ef8327 merge: dev ->
+    refactor/idf-native-port` y luego el port se mergeo a `dev` con `65a79be`
+    (11-sep) como primer padre. Por eso `git log --first-parent` **no los
+    ensena**, aunque son ancestros de `dev`.
+  - Metodo fiable: recorrer todos los commits y preguntar por el marcador real
+    de IDF, `Firmware/motherBoard/sdkconfig.defaults`. **No sirve**
+    `platformio.ini` (la propia rama del port lo conserva en su punta) ni
+    filtrar asuntos por la palabra "port" (casa con "soporte").
+  - Candidatos descartados: `112a2e9` (7-sep, 34 commits corto) y `65a79be`
+    (11-sep, 9 commits corto). Lo que anade `627affc` sobre `65a79be` incluye
+    el aviso de desviacion de aire a 1 C en vez de 3 C (`7d20140`), los 9 RPC
+    que nunca contestaban (`838fbb8`), las esperas de PubSubClient acotadas a
+    2 s (`857ee6a`) y la autocaptura PPG por WiFi desactivada (`e69f0ae`).
+  - En `627affc` el arranque **no emite ningun pitido**: el `buzzerTone(2, ...)`
+    de fin de autotest se retiro en `8f78ab3` y el revert `c508411` solo
+    recupero el de `testBuzzer()`, que a su vez no suena en HW>=17.
 - `motherBoard/sdkconfig` (no versionado) tiene
   `CONFIG_ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF=y` aplicado localmente.
