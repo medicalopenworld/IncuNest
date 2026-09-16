@@ -10,7 +10,20 @@ Esta fase no produce código. Sin ella, las demás no deben empezar.
 
 ## Fase 1 — red de seguridad (vale igual si se decide blindar)
 
-- [ ] Test de contrato de `plat_fs`: `name()` devuelve el nombre pelado; el prefijo de montaje se antepone por dentro; `openNextFile()` recorre lo que debe.
+> **Precedente ya montado.** La primera está hecha y sirve de plantilla para
+> las otras tres: convención de `test_apps/` de IDF (la misma de
+> `SensorBoard_v2`), `WHOLE_ARCHIVE` para que Unity registre los casos,
+> `EXTRA_COMPONENT_DIRS` apuntando al **componente concreto** —sobre
+> `components/` entero arrastra `thingsboard` y con él `mqtt`— y la tabla de
+> particiones de la placa por ruta relativa, sin la cual no hay partición
+> `spiffs` donde montar.
+>
+> **Y dejó un dato para la Fase 0**: `incunest_platform` es un solo componente
+> con **21 REQUIRES**, así que un test que sólo quiere el sistema de ficheros
+> compila mDNS, WiFi, HTTP y mbedTLS. Separar el shim por capas mejoraría la
+> testabilidad de inmediato, y es más barato que retirarlo.
+
+- [x] **Test de contrato de `plat_fs` — HECHO** (`4334fd6`). `motherBoard/test_apps/plat_fs_test/`, Unity sobre la placa. 5 casos: `name()` pelado, `path()` completa, rutas sin prefijo de montaje, `totalBytes`/`usedBytes` coherentes y `remove()` sobre ruta compuesta a partir de `name()`. **Verificado que caza el fallo**: reintroducido el defecto de `d324f9e` da 2 de 5 en rojo; restaurado, 5/0.
 - [ ] Test de contrato de `plat_i2c`: el bloqueo abarca la transacción con repeated-start; dos tareas concurrentes no se entrelazan.
 - [ ] Test de contrato de `plat_net_client`: `available()` refleja los bytes pendientes de verdad; el `timeout` se aplica donde se dice.
 - [ ] Test de contrato de `plat_nvs`: `putFloat`/`putDouble` siguen guardando **BLOB**, como hacía Arduino. Cambiarlo deja sin perfiles de bebé a las unidades en campo.
