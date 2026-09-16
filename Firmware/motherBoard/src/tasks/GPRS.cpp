@@ -33,6 +33,7 @@
 #include "modules/baby_profile/baby_cloud.h"
 #include "modules/baby_profile/baby_profile_store.h"
 #include "modules/util/civil_time.h"
+#include "modules/util/system_clock.h"
 #include "modules/util/tz_source.h"
 #include <sys/time.h>
 
@@ -416,13 +417,23 @@ void GPRSEnsureTimeSynced() {
   float tz = 0.0f;
   uint32_t epoch = 0;
   bool got = false;
+  // De que rama sale `epoch`. Las dos acababan en el mismo settimeofday() y
+  // eran indistinguibles, pero NO valen lo mismo: AT+CCLK? devuelve la hora
+  // que anuncia la red (NITZ), que muchos operadores no emiten o emiten con
+  // minutos de error, mientras que el fallback habla con pool.ntp.org. Son el
+  // ultimo y el segundo rango de la jerarquia. Confundirlas dejaria un NTP
+  // bueno degradado a NITZ, y entonces la semilla del RTC del HMI —que esta
+  // por encima de NITZ— podria pisarlo.
+  Proto_TimeSource src = PROTO_TIME_SOURCE_NONE;
 
   if (modem.getNetworkTime(&year, &month, &day, &hour, &minute, &second,
                            &tz)) {
     got = civil_to_unix_utc(year, (unsigned)month, (unsigned)day,
                             (unsigned)hour, (unsigned)minute,
                             (unsigned)second, (int)tz, &epoch);
-    if (!got) {
+    if (got) {
+      src = PROTO_TIME_SOURCE_NITZ;
+    } else {
       // Expected when the operator sends no NITZ: the SIM800 reports its
       // 2004 default, which civil_to_unix_utc() rejects outright.
       logModemData("[GPRS] -> NITZ clock not valid yet");
@@ -438,6 +449,10 @@ void GPRSEnsureTimeSynced() {
                               (unsigned)hour, (unsigned)minute,
                               (unsigned)second, (int)tz, &epoch);
       if (got) {
+        // Esta hora viene de pool.ntp.org, no de la red movil, aunque se lea
+        // por el mismo AT+CCLK?: el CNTP de arriba acaba de reescribir el
+        // reloj del modem con ella. Rango NTP, no NITZ.
+        src = PROTO_TIME_SOURCE_NTP;
         // El sync solo se da por bueno si esta linea se alcanza: un intento
         // fallido (CCLK/CNTP con error, timeout de red...) no debe dejar la
         // zona marcada como contaminada para siempre — sin esto un fallo
@@ -451,11 +466,18 @@ void GPRSEnsureTimeSynced() {
 
   if (!got) return;
 
-  struct timeval tv = {};
-  tv.tv_sec = (time_t)epoch;
-  settimeofday(&tv, nullptr);
+  if (!systemClockSet(epoch, src)) {
+    // Una fuente mejor gano la carrera (hora puesta a mano, o SNTP por WiFi
+    // que llego entre la comprobacion de arriba y esta linea). No es un
+    // error: el reloj ya esta bien. Se marca sincronizado para no seguir
+    // gastando comandos AT en algo resuelto.
+    s_synced = true;
+    logModemData("[GPRS] -> cellular clock declined, better source already set");
+    return;
+  }
   s_synced = true;
-  logModemData("[GPRS] -> clock synced from cellular, epoch " + String(epoch));
+  logModemData("[GPRS] -> clock synced from cellular, epoch " + String(epoch) +
+               ", src " + String((int)src));
 }
 
 // Zona horaria desde la red movil (NITZ), separada de la puesta en hora.

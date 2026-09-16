@@ -37,6 +37,7 @@
 #include <SensirionI2cSts3x.h>
 #include <SparkFun_SHTC3.h>
 
+#include "modules/util/system_clock.h"
 #include "state/state.h"
 #include "modules/debug/debug_mode.h"
 #include "modules/sensorboard_comm/sensorboard_comm.h"
@@ -628,6 +629,12 @@ void setup() {
   log_mutex = xSemaphoreCreateRecursiveMutex();
   crashReporterInit();
   esp_log_set_vprintf(sync_vprintf);
+
+  // Antes de que arranque ninguna tarea que haga configTime(): con SNTP el
+  // reloj lo escribe lwIP por su cuenta, y sin este callback la motherBoard no
+  // se enteraria de que la hora vigente la puso NTP. Sin eso el arbitro la
+  // daria por desconocida y una fuente peor podria pisarla.
+  systemClockInit();
 
   GPRS_monitor_mutex = xSemaphoreCreateBinary();
   security_check_reboot_cause();
