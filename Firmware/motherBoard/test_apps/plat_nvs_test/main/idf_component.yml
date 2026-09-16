@@ -1,0 +1,11 @@
+## incunest_plat_storage agrupa LittleFS y NVS, asi que un test de NVS arrastra
+## littlefs igual aunque no lo use. Es el limite del reparto por peso de
+## dependencias: se agrupo por coste (ambos son almacenamiento y ninguno trae
+## red), no por fichero. El coste aqui es un componente de mas en el build, no
+## media pila de red.
+##
+## La version se fija igual que en la placa: si se separan, el test dejaria de
+## probar lo que corre en produccion.
+dependencies:
+  joltwallet/littlefs:
+    version: "^1.16.0"
