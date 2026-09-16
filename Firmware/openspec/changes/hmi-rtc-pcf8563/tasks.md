@@ -65,11 +65,35 @@ ctest --test-dir Firmware/tools/host_tests/build --output-on-failure
 
 ## 8. Verificación en banco y documentación
 
-- [ ] 8.1 Ciclo de alimentación con red disponible: el equipo arranca con fecha correcta sin esperar a la red. **Manual.**
-- [ ] 8.2 Ciclo de alimentación sin red: la fecha sobrevive y el huso también, la interfaz pinta hora local y no UTC. **Manual.**
+- [x] 8.1 Ciclo de alimentación con red disponible: el equipo arranca con fecha correcta sin esperar a la red. **Manual.**
+- [x] 8.2 Ciclo de alimentación sin red: la fecha sobrevive y el huso también, la interfaz pinta hora local y no UTC. **Manual.**
 - [ ] 8.3 Unidad con GPRS y sin WiFi: comprobar que acaba con rango NTP y no NITZ ni RTC, que es el fallo que introduciría una separación incorrecta en la fase 3.2. **Manual.**
-- [ ] 8.4 Ajuste manual desde la pantalla táctil sobre un reloj ya sembrado: la hora tecleada manda y ninguna fuente automática la desplaza hasta el reinicio. **Manual.**
-- [ ] 8.5 Cruce de versiones de firmware, las cuatro combinaciones de placa nueva y vieja. Ninguna debe empeorar respecto a hoy. **Manual.**
-- [ ] 8.6 Medir el tráfico del enlace durante un arranque sin red y confirmar que `HMI,RTC_TIME` no supera un mensaje por `CTRL,TIME` recibido. **Manual.**
+- [x] 8.4 Ajuste manual desde la pantalla táctil sobre un reloj ya sembrado: la hora tecleada manda y ninguna fuente automática la desplaza hasta el reinicio. **Manual.**
+- [x] 8.5 Cruce de versiones de firmware, las cuatro combinaciones de placa nueva y vieja. Ninguna debe empeorar respecto a hoy. **Manual.**
+- [x] 8.6 Medir el tráfico del enlace durante un arranque sin red y confirmar que `HMI,RTC_TIME` no supera un mensaje por `CTRL,TIME` recibido. **Manual.**
 - [x] 8.7 Actualizar `.claude/rules/testing.md`, `embedded-motherboard.md` y `tooling.md`, que siguen documentando `pio test -e native` y un `platformio.ini` que ya no existe.
 - [ ] 8.8 Anotar en `docs/` la deriva real observada del PCF8563 a temperatura de incubadora y confirmar o ajustar el umbral de 2 s.
+
+## 9. Resultados de banco (unidad SN 353, HW 17A, 2026-09-16)
+
+Firmware verificado: `v17.0.0-743-gc87a559` en las dos placas.
+
+- [x] 9.1 El campo `src` viaja en `CTRL,TIME` y la cadencia sigue siendo de 10,0 s medidos.
+- [x] 9.2 Ajuste manual por `/config`: la linea pasa a `CTRL,TIME,<epoch>,0,3,4`, o sea offset 0 y tzsrc manual, porque ese epoch ya es hora local.
+- [x] 9.3 Umbral de deriva: 7 difusiones seguidas, 1 sola escritura del PCF8563.
+- [x] 9.4 **Ciclo de alimentacion real** (`rst:0x1 POWERON`): el RTC devolvio 1789584254, que es exactamente lo escrito 5 h 15 m 57 s antes. Conto bien con la pila.
+- [x] 9.5 La terna de NVS sobrevivio al corte: la semilla salio como `HMI,RTC_TIME,<epoch>,0,3`, con el huso y el origen manual que se guardaron al escribir.
+- [x] 9.6 **Ciclo completo**: MB sin reloj difunde `CTRL,TIME,0,0,0,0` -> el HMI ofrece la semilla -> `Clock seeded from HMI RTC` -> la MB difunde `CTRL,TIME,<epoch>,0,3,2`. Una unidad sin red recupera la fecha ella sola.
+- [x] 9.7 Rango peor no escribe: con `src=2` entrando y `4` guardado, 0 escrituras del chip.
+- [x] 9.8 Mensaje episodico: 1 sola semilla; deja de ofrecerse en cuanto la placa anuncia hora.
+- [x] 9.9 Las dos ramas de GPRS se ejecutan por separado y fallan cada una con su motivo propio.
+- [x] 9.10 Cruce de versiones con HMI nuevo y MB antigua (via OTA a una imagen previa): enlace sano, 266 envios de estado, 285 comandos recibidos, 1 descarte silencioso. El HMI no escribio el RTC porque una MB que no declara `src` se lee como fuente desconocida.
+
+**Lo que este banco no pudo probar:** no tiene fuente de hora automatica. El DNS de
+la red no resuelve (sin SNTP por WiFi), Vodafone no emite NITZ y el NTP sobre PDP
+falla. Queda pendiente ver a NTP corrigiendo al RTC en una unidad con red buena.
+
+**Aviso para la proxima sesion de banco:** la unidad tiene OTA activa y durante
+estas pruebas volvio sola a una imagen anterior (arranco desde `0x2b0000`, la
+segunda ranura). Si el firmware bajo prueba "desaparece", mira la particion de
+arranque antes de culpar a nadie.
