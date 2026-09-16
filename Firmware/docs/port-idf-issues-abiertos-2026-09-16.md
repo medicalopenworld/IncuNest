@@ -2,8 +2,10 @@
 
 Estado congelado antes de volver a PlatformIO (`112a2e9`) para la tanda de
 fabricación del 2026-09-17. Todo lo de aquí se midió en banco con la unidad
-SN 353 (HW 17), firmware `dev` = `db71994` (`v17.0.0-754-gdb71994`) y las
-ramas indicadas. Sirve para abrir los issues formales en otra sesión.
+SN 353 (**HW 18** según el usuario; el `17` del campo `hwNum` de `CTRL,STATE`
+es el `HW_NUM` con el que se compiló, no una lectura del hardware), firmware
+`dev` = `db71994` (`v17.0.0-754-gdb71994`) y las ramas indicadas. Sirve para
+abrir los issues formales en otra sesión.
 
 Evidencia (logs de las 7 fases y el coredump) copiada fuera del temporal a
 `C:\Users\Pablo\Documents\IncuNest_dev\bench-logs-2026-09-16\`.
