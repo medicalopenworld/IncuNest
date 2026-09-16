@@ -150,19 +150,16 @@ static void rpc_setwifi_cb(JsonVariantConst const & data,
   response["status"] = "ok";
 }
 
-static void rpc_wipe_babies_cb(JsonVariantConst const & data,
-                               JsonDocument & response) {
-  // Same explicit confirmation as the /config path: a stray RPC must never
-  // erase clinical records.
-  if (data["confirm"] != 1234) {
-    response["status"] = "refused";
-    return;
-  }
-  int n = babyStore_wipeAll();
-  response["status"] = "wiped";
-  response["files_removed"] = n;
-  logModemData("[RPC] baby data wiped");
-}
+// Aqui vivia rpc_wipe_babies_cb(): borrar el historial clinico de una unidad
+// con un RPC desde el cuadro de mando. Retirado a proposito. El codigo de
+// confirmacion (1234) limitaba los accidentes, pero no cambiaba quien tenia
+// la capacidad: cualquiera con permiso de RPC sobre el dispositivo podia
+// dejar sin registros a una incubadora en produccion, desde fuera del
+// hospital y sin tocarla. El borrado sigue existiendo por la via de
+// servicio, "/config,BABY_WIPE,1234" por el cable entre placas
+// (CommTask.cpp), que exige acceso fisico al equipo.
+//
+// No lo vuelvas a registrar en rpc_callbacks[] sin una decision explicita.
 
 static void rpc_check_ota_cb(JsonVariantConst const & /*data*/,
                              JsonDocument & response) {
@@ -207,7 +204,6 @@ static RPC_Callback rpc_callbacks[] = {
   RPC_Callback("restart",  rpc_restart_cb,  JSON_OBJECT_SIZE(1)),
   RPC_Callback("getDiag",  rpc_diag_cb,     JSON_OBJECT_SIZE(8)),
   RPC_Callback("setWifi",  rpc_setwifi_cb,  JSON_OBJECT_SIZE(1)),
-  RPC_Callback("wipeBabies", rpc_wipe_babies_cb, JSON_OBJECT_SIZE(2)),
   RPC_Callback("checkOta",   rpc_check_ota_cb,   JSON_OBJECT_SIZE(1)),
 #if TX_FEATURE_PPG_SNAPSHOT_GPRS
   RPC_Callback("capturePPG", rpc_capture_ppg_gprs_cb, JSON_OBJECT_SIZE(1)),

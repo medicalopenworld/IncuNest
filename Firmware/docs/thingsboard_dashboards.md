@@ -267,10 +267,12 @@ cada una llama a la comprobación de su propio transporte (`GPRSCheckOTA()` /
 > GPRS: **504 en los dos**. Corregido dimensionando cada callback con el
 > número de campos que escribe.
 
-> Las dos listas siguen **asimétricas** por lo demás: `restart`, `getDiag` y
-> `wipeBabies` solo existen por GPRS, y `capturePPG` solo por WiFi. Es anterior
+> Las dos listas siguen **asimétricas** por lo demás: `restart` y `getDiag`
+> solo existen por GPRS, y `capturePPG` solo por WiFi. Es anterior
 > a este cambio, pero conviene tenerlo presente: un RPC probado en el banco por
 > WiFi puede no responder en campo por GPRS, y al revés.
+> `wipeBabies` estaba también en esa lista y se retiró: borrar el historial
+> clínico de una unidad en remoto no debe ser un botón del cuadro de mando.
 > El reparto completo está en [`transport_matrix.md`](transport_matrix.md).
 
 ### "FW state: Not synced" sin OTA asignada es normal
