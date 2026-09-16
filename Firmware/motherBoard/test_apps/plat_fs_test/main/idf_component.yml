@@ -1,0 +1,17 @@
+## Dependencias gestionadas del test_app.
+##
+## Solo hace falta lo que arrastra incunest_platform para el sistema de
+## ficheros. El test_app no compila el firmware de la placa, asi que no
+## necesita el resto de la lista de motherBoard/main/idf_component.yml.
+##
+## La version se fija igual que en la placa: si se separan, el test dejaria de
+## probar lo que corre en produccion, que es justo el sentido de tenerlo.
+## OJO: incunest_platform es UN SOLO componente con 21 REQUIRES, asi que un
+## test que solo quiere el sistema de ficheros arrastra tambien mDNS (y con el
+## WiFi, HTTP y mbedTLS). No es un descuido de este test_app: es que el shim no
+## esta separado por capas. Anotado en la propuesta shared-retirar-shim-arduino.
+dependencies:
+  joltwallet/littlefs:
+    version: "^1.16.0"
+  espressif/mdns:
+    version: "^1.8.0"
