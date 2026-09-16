@@ -33,7 +33,7 @@ No es para siempre. Retirar el shim pasaría a tener sentido si:
 - [x] **Test de contrato de `plat_fs` — HECHO** (`4334fd6`). `motherBoard/test_apps/plat_fs_test/`, Unity sobre la placa. 5 casos: `name()` pelado, `path()` completa, rutas sin prefijo de montaje, `totalBytes`/`usedBytes` coherentes y `remove()` sobre ruta compuesta a partir de `name()`. **Verificado que caza el fallo**: reintroducido el defecto de `d324f9e` da 2 de 5 en rojo; restaurado, 5/0.
 - [ ] Test de contrato de `plat_i2c`: el bloqueo abarca la transacción con repeated-start; dos tareas concurrentes no se entrelazan.
 - [ ] Test de contrato de `plat_net_client`: `available()` refleja los bytes pendientes de verdad; el `timeout` se aplica donde se dice.
-- [ ] Test de contrato de `plat_nvs`: `putFloat`/`putDouble` siguen guardando **BLOB**, como hacía Arduino. Cambiarlo deja sin perfiles de bebé a las unidades en campo.
+- [x] **Test de contrato de `plat_nvs` — HECHO** (`36b4d65`). 7 casos. La clave: comprueba el **formato físico** con `getBytesLength()`, no sólo la ida y vuelta — un cambio de formato hecho de forma *consistente* en `put` y `get` pasaría cualquier round-trip y aun así dejaría sin datos a las unidades en campo. **Verificado que caza el fallo**: inyectado un `putFloat` que guarda `u32`, 3 de 7 en rojo; restaurado, 7/0.
 - [ ] Comprobar que cada test FALLA si se le reintroduce el defecto histórico. Un test que pasa con el bug puesto no sirve.
 
 ## Fase 2 — retirada del grupo B, una capa por commit
