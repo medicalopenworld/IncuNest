@@ -151,8 +151,19 @@ the given device` cada 60 s (logger del SDK).
 - `dev` = `db71994` (port IDF). Ramas con trabajo sin mergear:
   `feat/mb-heap-diag` (3 commits, arriba), `feat/mb-baby-count`,
   `refactor/afe4490-submodulo-v092`, `test/plat-contract-apps`.
-- Worktree `Firmware/.worktrees/pio-stable` en `112a2e9` (último `dev`
-  PlatformIO, 2026-09-07) con `Credentials.h` copiados a mano: es lo que se
-  compila y flashea para fabricación.
+- Worktree `Firmware/.worktrees/pio-stable` en **`65a79be`** (último `dev`
+  PlatformIO, **2026-09-11**, primer padre del merge del port `6e69486`) con
+  `Credentials.h` copiados a mano: es lo que se compila y flashea para
+  fabricación. Entornos: HMI `main`, MB `IncuNest_V18_factory`
+  (= `IncuNest_V18` + `-DFTEST_SIM_ACT_ENABLED=1`, activación de SIM contra
+  Onomondo en el test de fábrica).
+  - OJO al elegir este commit: `112a2e9` (2026-09-07) NO es el último
+    PlatformIO, se queda 25 commits corto — entre ellos la clave de Onomondo
+    fuera del firmware distribuido (`753255c`), los dos arreglos de LINK LOST
+    (`181e8d2`, `5580d3e`), el alta de bebé desde la lista (`9048205`), el
+    fix del eco que apagaba el control (`65a79be`) y **el reparto de
+    particiones** (`bebcd04`: el HMI pasa de 3,14 a 5,24 MB de app). El modo
+    fiable de encontrarlo es `git log -1 6e69486^`, no filtrar asuntos por
+    texto.
 - `motherBoard/sdkconfig` (no versionado) tiene
   `CONFIG_ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF=y` aplicado localmente.
