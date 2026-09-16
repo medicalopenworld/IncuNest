@@ -18,9 +18,14 @@
 //   Display_HMI: no lo usa. Tiene un #include huerfano en UITask.cpp. El panel
 //     es RGB paralelo (esp_lcd_new_rgb_panel), el tactil I2C (GT911).
 //
-// Consecuencia: el resto de la clase (beginTransaction / transfer /
-// endTransaction) se queda sin ningun consumidor en todo el repo. Retirarla es
-// una decision de arquitectura aparte, fuera del alcance de esta rama.
+// Consecuencia real: no hay ningun Adafruit_SPIDevice instanciado en modo SPI
+// en todo el repo, asi que beginTransaction / transfer / endTransaction NUNCA
+// se ejecutan. Pero SI se compilan y enlazan: BUSIO_HAS_HW_SPI esta definido
+// incondicionalmente en Adafruit_SPIDevice.h (vendor/adafruit_busio), y ese
+// .cpp esta en los SRCS de components/incunest_sensors/CMakeLists.txt.
+// Retirar estos metodos de esta clase NO seria una deleccion limpia: rompe la
+// compilacion de incunest_sensors. La retirada de plat_spi es una decision de
+// arquitectura aparte, fuera del alcance de esta rama.
 //
 // SOBRE EL COSTE POR BYTE: Arduino resolvia SPI.transfer(uint8_t) escribiendo
 // directamente los registros del periferico (spiTransferByteNL), sin
