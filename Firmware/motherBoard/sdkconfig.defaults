@@ -160,6 +160,31 @@ CONFIG_LWIP_PPP_SUPPORT=y
 CONFIG_LWIP_PPP_PAP_SUPPORT=y
 CONFIG_LWIP_PPP_CHAP_SUPPORT=y
 
+# --- DNS por interfaz, con WiFi y PPP conviviendo.
+#
+# lwIP tiene UNA tabla global de servidores DNS. Sin esta opcion, PPP la pisa
+# al negociar IPCP (lwip/src/netif/ppp/ppp.c, sifdns -> dns_setserver(0/1))
+# con los DNS privados del operador, aunque el netif por defecto —y por donde
+# sale el trafico— siga siendo el WiFi (route_prio 100 frente a 20). Con la
+# opcion (que selecciona LWIP_DNS_SETSERVER_WITH_NETIF), cada netif guarda los
+# suyos y la tabla global se rellena desde el netif por defecto cada vez que
+# este cambia: solo WiFi -> los del WiFi; solo PPP -> los del operador; los dos
+# -> los del WiFi. Es lo que hace coherente el DNS con la ruta.
+#
+# OJO, lo que NO hace, medido en banco el 2026-09-16 (SN 353): no arregla por
+# si sola el `esp-tls: getaddrinfo() returns 202` en bucle que mataba la placa.
+# La linea `DIAG: NET` demostro que con la opcion la ruta y el DNS 0 eran
+# correctos y el fallo seguia, y ademas que el `dns_setserver(1, 8.8.8.8)`
+# global de configWifiServer() habia desaparecido: no esta guardado en ningun
+# netif y la restauracion lo borra. Este ajuste va POR TANTO EMPAREJADO con el
+# respaldo por netif de configWifiServer() (Wifi_OTA.cpp): con los dos, la
+# conexion MQTT por WiFi aguanto 8 min con el OTA-check respondido cada
+# minuto, frente a 0 antes. Pero el 202 volvio en cuanto hubo que reconectar
+# con el heap interno en ~11 KB (lwIP devuelve EAI_FAIL tambien por ERR_MEM),
+# asi que la escasez de heap con las dos pilas de red arriba sigue siendo el
+# problema de fondo, y es otra conversacion.
+CONFIG_ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF=y
+
 # uxTaskGetSystemState() para el volcado de /debug/state: la marca de agua de
 # pila por tarea es lo unico que delata un desbordamiento ANTES de que ocurra.
 # Cuesta unos pocos bytes por TCB.

@@ -528,11 +528,43 @@ void configWifiServer() {
   logI("Connected to " + WiFi.SSID() + " IP address " +
        WiFi.localIP().toString());
 
-  // Pin a fallback DNS so subsequent lookups survive lwIP reinit after reconnects
-  ip_addr_t dns_fallback;
-  IP4_ADDR(&dns_fallback.u_addr.ip4, 8, 8, 8, 8);
-  dns_fallback.type = IPADDR_TYPE_V4;
-  dns_setserver(1, &dns_fallback);
+  // DNS de respaldo (8.8.8.8) en el indice 1, POR NETIF y no en la tabla
+  // global de lwIP.
+  //
+  // Antes era `dns_setserver(1, ...)` a secas, y con
+  // CONFIG_ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF eso no sobrevive: cada vez que
+  // esp_netif reelige el netif por defecto, vuelve a escribir la tabla global
+  // entera desde lo que ese netif tiene guardado, y lo que se puso a mano sin
+  // netif no esta guardado en ninguno — la linea `DIAG: NET` lo ensenaba como
+  // `dns=[192.168.137.1 - -]`. Guardado en el netif STA, la restauracion lo
+  // repone en vez de borrarlo.
+  //
+  // Por que importa (banco 2026-09-16, SN 353, hotspot de Windows): con la ruta
+  // y el DNS 0 correctos y sin indice 1, cada reconexion del MQTT de
+  // ThingsBoard por WiFi terminaba en `esp-tls: getaddrinfo() returns 202`
+  // (133 veces en 45 min), y cada intento era un handshake TLS sobre ~11 KB de
+  // heap interno; asi murio la placa por `abort()` en COMM_TASK_RX. Con el
+  // respaldo por netif la conexion inicial aguanto 8 min con el OTA-check
+  // respondido cada minuto, frente a 0 antes.
+  //
+  // Lo que NO esta demostrado: que el resolver del hotspot deje de contestar.
+  // El 202 de lwIP no distingue (netdb.c devuelve EAI_FAIL ante cualquier
+  // error, tambien ERR_MEM), y en la misma sesion volvio a salir con el 8.8.8.8
+  // ya en la tabla, en el instante en que la reconexion TLS habia dejado el
+  // heap en 6 KB con bloque mayor de 1 KB. Un segundo resolver quita la
+  // dependencia de uno solo; no arregla que la reconexion se quede sin RAM.
+  esp_netif_t *sta_netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+  if (sta_netif != nullptr) {
+    esp_netif_dns_info_t dns_fallback = {};
+    dns_fallback.ip.type = ESP_IPADDR_TYPE_V4;
+    dns_fallback.ip.u_addr.ip4.addr = ESP_IP4TOADDR(8, 8, 8, 8);
+    esp_err_t err = esp_netif_set_dns_info(sta_netif, ESP_NETIF_DNS_BACKUP, &dns_fallback);
+    if (err != ESP_OK) {
+      ESP_LOGW(TAG, "DNS de respaldo 8.8.8.8 en el netif STA -> %s", esp_err_to_name(err));
+    }
+  } else {
+    ESP_LOGW(TAG, "sin netif WIFI_STA_DEF: no se pudo fijar el DNS de respaldo");
+  }
 
   /*use mdns for wifiHost name resolution*/
   if (!MDNS.begin(wifiHost)) { // http://esp32.local
