@@ -106,6 +106,11 @@
 #define BABY_ADMISSION_EPOCH_KEY "baby_admission_epoch"
 #define BABY_KANGAROO_EVENT_KEY "baby_kangaroo_event"
 #define BABY_STAY_DAYS_KEY "baby_stay_days"
+// Cuantos bebes ha dado de alta ESTA incubadora desde siempre. Describe el
+// equipo, no a su ocupante, asi que no lleva baby_seq y viaja tambien en el
+// payload de incubadora vacia. Sin prefijo baby_ en la clave a proposito: en
+// el cuadro de mando no se agrupa con las tarjetas del paciente.
+#define BABY_TOTAL_REGISTERED_KEY "babies_registered_total"
 // Una clave por condicion de alarm_ids.h. Las condiciones que ya existian
 // conservan su cadena original para no romper los cuadros de mando de la
 // nube; las nacidas del desglose normativo (desviaciones direccionales,
