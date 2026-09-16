@@ -98,14 +98,21 @@ cuya justificación está escrita ahí y sigue siendo válida:
 > error de enlazado.
 
 Con submódulo ese fichero deja de ser nuestro. El knob se reubica a
-`motherBoard/CMakeLists.txt`, **antes de `project()`**:
+`motherBoard/CMakeLists.txt`, **después de
+`include($ENV{IDF_PATH}/tools/cmake/project.cmake)` y antes de `project()`**
+—`idf_build_set_property` la define ese `include()`, así que antes no compila
+(`Unknown CMake command`):
 
 ```cmake
+include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+
 if(DEFINED ENV{INCUNEST_PPG_TIMING})
   message(WARNING "INCUNEST_PPG_TIMING: instrumentacion de tiempos del AFE4490 "
                   "ACTIVADA. Binario de diagnostico, no de produccion.")
-  idf_build_set_property(COMPILE_OPTIONS "-DINCUNEST_TIMING_STATS=1" APPEND)
+  idf_build_set_property(COMPILE_DEFINITIONS "INCUNEST_TIMING_STATS=1" APPEND)
 endif()
+
+project(motherboard)
 ```
 
 `idf_build_set_property(... APPEND)` alcanza a **todos** los componentes del
@@ -124,7 +131,7 @@ protocolo de línea `$...*XX\r\n` vuelve a estar limpio.
 
 ### 4.3 SPI: qué se queda y qué cambia de significado
 
-`initSPO2()` en `SPO2.cpp:71` llama `SPI.begin(AFE_SCK, AFE_MISO, AFE_MOSI, -1)`,
+`initSPO2()` en `SPO2.cpp:89` llama `SPI.begin(AFE_SCK, AFE_MISO, AFE_MOSI, -1)`,
 que en `plat_spi.cpp:27` hace `spi_bus_initialize(SPI2_HOST, ..., SPI_DMA_DISABLED)`,
 nueve líneas antes de `afe.begin(AFE44XX_CS, AFE_ADC_READY)`.
 
@@ -140,9 +147,15 @@ La llamada se queda, pero **su significado cambia y los comentarios mienten**:
   SPI de `plat_spi` (`adafruit_busio` incluye la cabecera pero nadie la usa por
   SPI), así que `plat_spi` pasa a existir **solo para levantar el bus**.
 - **No se borra en esta rama**: la retirada de `plat_spi` es una decisión de
-  arquitectura aparte, fuera del alcance. Hoy el resto de la clase
-  (beginTransaction / transfer / endTransaction) se queda sin ningún consumidor
-  en todo el repo, y es estado que merece documentarse honestamente.
+  arquitectura aparte, fuera del alcance. Lo cierto es más fino que "sin
+  consumidor": `components/incunest_sensors/vendor/adafruit_busio/Adafruit_SPIDevice.cpp`
+  sí llama a `beginTransaction`/`transfer`/`endTransaction`, `BUSIO_HAS_HW_SPI`
+  está definido incondicionalmente en su cabecera, y ese `.cpp` está en los
+  `SRCS` de `components/incunest_sensors/CMakeLists.txt` — esas llamadas **se
+  compilan y se enlazan**. Lo que no hay es ningún `Adafruit_SPIDevice`
+  instanciado en modo SPI en todo el repo, así que esas llamadas **nunca se
+  ejecutan**. Consecuencia práctica: retirar esos métodos no sería una
+  eliminación limpia, rompería la compilación de `incunest_sensors`.
 
 Consideraciones técnicas verificadas:
 
@@ -171,9 +184,10 @@ mismo orden, mismos tipos. El `static_assert` de `SPO2.h` sobre
 | 4 | — | `PROBE_ONLY_LED_SATURATING` (nuevo) |
 
 **El port no rompe a compilar**: solo usa `PROBE_APPLIED` y `PROBE_DISCONNECTED`
-(`SPO2.cpp:20`, `CommTask.cpp:1186/1231/1265/1409`, `DriveUpload.cpp:572`,
-`GPRS.cpp:179`, `factory_test_hw.cpp:648/650`). Ninguno de los nombres
-renombrados aparece.
+(`SPO2.cpp:25`, `CommTask.cpp:1186/1231/1265/1409`, `DriveUpload.cpp:572`,
+`GPRS.cpp:181/1187/1415`, `Wifi_OTA.cpp:1491/1692/1964`,
+`factory_test_hw.cpp:648/650`). Ninguno de los nombres renombrados
+(`PROBE_OT_HIGH`, `PROBE_AMB_SATURATING`, `PROBE_ONLY_LED_SATURATING`) aparece.
 
 `v0.92` añade `isProbeAbsent(ProbeState)` como el único sitio que define "no hay
 paciente en la sonda". El port no lo necesita hoy, pero es la API a usar si
@@ -182,20 +196,22 @@ alguna vez hay que distinguir "ausente" de "aplicado" en más de un sitio.
 ## 5. Deuda conocida que este cambio crea (y no resuelve)
 
 **El valor 4 sale por el cable y el HMI lo pierde.** La motherBoard emite
-`(int)probe_state` en las tramas. `Display_HMI/src/tasks/CommTask.cpp:701`
-valida `state < SPO2_PROBE_DISCONNECTED || state > SPO2_PROBE_SATURATING`
+`(uint8_t)probe_state` en las tramas (`motherBoard/src/tasks/CommTask.cpp:1414`).
+`Display_HMI/src/tasks/CommTask.cpp:736` valida
+`state < SPO2_PROBE_DISCONNECTED || state > SPO2_PROBE_SATURATING`
 (rango 0..3) y colapsa lo que sobra a `SPO2_PROBE_NOT_APPLIED`.
 
 Un `4` (`PROBE_ONLY_LED_SATURATING`) degradaría a `NOT_APPLIED`. Como ambos son
 estados "sonda ausente" según `isProbeAbsent()`, **no hay error clínico**, pero
 sí pérdida de información diagnóstica. Además, los nombres del HMI
-(`SPO2_PROBE_NOT_APPLIED`, `SPO2_PROBE_SATURATING` en `CommTask.h:145-151`)
-quedan mintiendo respecto a la librería que fija el contrato numérico — cosa que
-el propio `CommTask.h:140` documenta.
+(`SPO2_PROBE_NOT_APPLIED`, `SPO2_PROBE_SATURATING` en
+`Display_HMI/include/tasks/CommTask.h:151-163`) quedan mintiendo respecto a la
+librería que fija el contrato numérico — cosa que el propio
+`CommTask.h:152-156` documenta.
 
 **Se deja fuera a propósito**: `Display_HMI` vive en `dev`, no en el worktree del
 port. Merece su propia propuesta OpenSpec, alimentada por lo que se observe en el
-punto 4 de la verificación de banco.
+punto 5 de la verificación de banco (§7.2).
 
 **Divergencia entre ramas.** El `motherBoard` legacy de `dev` sigue pineado a
 `#4e0dd91` (v0.81) en `platformio.ini`. No se bumpea: la unidad de banco corre el
@@ -237,11 +253,25 @@ que `idf.py build` con `INCUNEST_PPG_TIMING=1` compila y emite el `message(WARNI
 3. **HR y SpO2 contra la unidad legacy.** *Aquí es donde asomarían los 23 commits
    de algoritmo*, y es el riesgo real de este cambio:
    - `v0.86b`: HR1 media móvil 64 → 160 taps, con un clamp que antes truncaba en
-     silencio.
+     silencio. **HR1 solo se observa por telemetría de nube**
+     (`motherBoard/src/tasks/GPRS.cpp:1196` y `Wifi_OTA.cpp:1500`, ambos con
+     puerta `hr1_sqi > 0.0f`): el HR que se pinta en el HMI es una fusión de
+     hr2/hr3 (`CommTask.cpp:1420-1425`) que estos commits no tocan. Comparar
+     HR1 contra la unidad legacy exige mirar esa telemetría, no la pantalla.
    - `v0.89`: presencia por OT pasa de OR a AND en los dos canales.
    - `v0.88`: la puerta SQI *"reverses both HR1 conclusions"*.
    - `v0.85`/`v0.87`: catálogo cerrado de PRF, parámetros temporales en segundos.
-4. **El valor 4.** Observar si `probe_state` llega a valer `4` alguna vez en uso
+4. **Ausencia de falsos positivos de presencia (prueba negativa).** `v0.89`
+   cambió el criterio de presencia por OT de OR a AND en los dos canales, lo
+   que hace `PROBE_APPLIED` **estrictamente más fácil de alcanzar** que en
+   v0.81: antes bastaba con que un canal superase el umbral para declarar "sin
+   tejido", ahora hacen falta los dos. `PROBE_APPLIED` gobierna las constantes
+   vitales al HMI, la subida de SpO2/HR a la nube y el `valid_signal` del CSV,
+   así que es la única consecuencia clínica de los 23 commits de algoritmo que
+   el punto 3 no cubre (solo prueba la dirección positiva, sonda aplicada →
+   `APPLIED`). Verificar la negativa: con la sonda **conectada, en aire, bajo
+   lámpara y tapada**, `probe_state` no debe reportar `APPLIED` en ningún caso.
+5. **El valor 4.** Observar si `probe_state` llega a valer `4` alguna vez en uso
    real y qué hace el HMI con él. Alimenta la propuesta de §5.
 
 ## 8. Alternativas descartadas
