@@ -92,6 +92,7 @@ list(TRANSFORM MB_SOURCES PREPEND "${MB_ROOT}/src/")
 set(HMI_SOURCES
   drivers/rtc_pcf8563_codec.cpp
   drivers/rtc_write_policy.cpp
+  drivers/rtc_store.cpp
 )
 list(TRANSFORM HMI_SOURCES PREPEND "${HMI_ROOT}/src/")
 file(GLOB SHARED_SOURCES "${SHARED_ROOT}/src/*.cpp")
