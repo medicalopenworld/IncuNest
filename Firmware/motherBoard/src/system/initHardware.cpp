@@ -880,37 +880,61 @@ bool GPIORead(uint8_t GPIO) {
   }
 }
 
+static const char *resetReasonName(esp_reset_reason_t r) {
+  switch (r) {
+  case ESP_RST_POWERON:   return "POWERON";
+  case ESP_RST_BROWNOUT:  return "BROWNOUT";
+  case ESP_RST_EXT:       return "EXT";
+  case ESP_RST_SW:        return "SW";
+  case ESP_RST_DEEPSLEEP: return "DEEPSLEEP";
+  case ESP_RST_PANIC:     return "PANIC";
+  case ESP_RST_INT_WDT:   return "INT_WDT";
+  case ESP_RST_TASK_WDT:  return "TASK_WDT";
+  case ESP_RST_WDT:       return "WDT";
+  case ESP_RST_UNKNOWN:   return "UNKNOWN";
+  default:                return "OTRO";
+  }
+}
+
 void security_check_reboot_cause() {
   in3.resetReason = esp_reset_reason();
-  switch (in3.resetReason) {
-  case ESP_RST_BROWNOUT: // Brownout reset (voltage too low)
-    logI("[HW] -> Brownout reset (voltage too low)");
-    break;
-  case ESP_RST_POWERON: // Power-on reset
-    logI("[HW] -> Power-on reset");
-    break;
-  case ESP_RST_EXT: // Reset by external pin
-    logI("[HW] -> Reset by external pin");
-    break;
-  case ESP_RST_SW: // Software reset via esp_restart
-    logI("[HW] -> Software reset");
-    break;
-  case ESP_RST_DEEPSLEEP: // Reset after exiting deep sleep mode
-    logI("[HW] -> Reset after exiting deep sleep mode");
-    break;
-  case ESP_RST_PANIC:    // Software reset due to exception/panic
-  case ESP_RST_INT_WDT:  // Reset (software or hardware) due to interrupt
-                         // watchdog
-  case ESP_RST_TASK_WDT: // Reset due to task watchdog
-  case ESP_RST_WDT:      // Reset due to other watchdogs
-    logI("[HW] -> Reset due to error");
-    in3.restoreState = true;
-    break;
 
-  // Add any other reset reasons you are interested in
-  default:
-    logI("Reset for another reason");
-  }
+  // Que se recupere el estado de control NO se decide enumerando los
+  // reinicios "malos". Esa era la regla anterior (PANIC + los tres WDT) y
+  // deja fuera POR DEFECTO cada ruta de reinicio que alguien anada despues.
+  // Ya habia tres, todas alcanzables en marcha y ninguna recuperaba:
+  //   - DriveUpload.cpp, esp_restart() cuando el heap queda critico tras una
+  //     subida — justo la condicion de un equipo que se esta quedando sin
+  //     memoria, que es cuando mas falta hace recuperar;
+  //   - GPRS.cpp, el RPC de reinicio desde ThingsBoard;
+  //   - Wifi_OTA.cpp, el reinicio tras actualizar.
+  // Las tres imprimen el mismo `rst:0xc (RTC_SW_CPU_RST)` que un panico en el
+  // bootloader de ROM, asi que desde el log no se distinguian.
+  //
+  // La regla va al reves: se recupera SIEMPRE salvo en los dos arranques que
+  // no son un fallo del firmware.
+  //
+  // El BROWNOUT queda fuera a proposito: es un problema de alimentacion, no
+  // un crash. Ahi se quiere un arranque limpio con el autotest completo, no
+  // volver a meter corriente en el calefactor sobre una red que acaba de
+  // caerse. El POWERON es el encendido normal y tampoco recupera.
+  //
+  // Es la misma regla que ya aplicaba la HMI (Display_HMI/src/main.cpp,
+  // g_hmiRestoreState), de modo que las dos placas dejan de discrepar sobre
+  // que cuenta como recuperacion: hasta ahora un brownout dejaba al display
+  // entrando sin splash mientras la placa arrancaba en frio.
+  in3.restoreState = (in3.resetReason != ESP_RST_POWERON &&
+                      in3.resetReason != ESP_RST_BROWNOUT);
+
+  // ESP_LOGW y no logI(): logI esta detras de LOG_INFORMATION, que es false
+  // (main.h), asi que esta linea se compilaria a nada — y es la unica que
+  // dice, en el arranque siguiente a un crash, si el equipo ha recuperado el
+  // estado o ha vuelto en frio. Sin ella la pregunta no se puede contestar
+  // desde una captura de puerto serie. Mismo criterio que el aviso del corte
+  // termico en EEPROM.cpp.
+  ESP_LOGW("APP", "[BOOT] reset=%s (%d) restoreState=%d",
+           resetReasonName((esp_reset_reason_t)in3.resetReason),
+           in3.resetReason, (int)in3.restoreState);
 }
 
 void initHardware(bool printOutputTest) {
@@ -974,20 +998,25 @@ void initHardware(bool printOutputTest) {
     // pause (instead of the full ACTUATORS_ALARM_STABILIZATION_MINS a fresh
     // activation waits out) so telemetry/sensors have time to resync after
     // the reboot before alarms can fire again.
-    logI("[BOOT][DEBUG] initHardware: entering restoreState resume block, "
-         "temperatureControl=" + String(in3.temperatureControl) +
-         " humidityControl=" + String(in3.humidityControl) +
-         " controlMode=" + String(in3.controlMode) +
-         " HW_critical_error=" + String(in3.HW_critical_error));
     alarmTimerStart(RESTART_ALARM_GRACE_MINS);
+    // ESP_LOGW: cierra la cadena que empieza en [BOOT] reset=... Con las tres
+    // lineas visibles se puede seguir, desde una sola captura de arranque, si
+    // el equipo decidio recuperar, que habia guardado y si los lazos llegaron
+    // a arrancar de verdad.
+    ESP_LOGW("APP",
+             "[BOOT] resume: temperatureControl=%d humidityControl=%d "
+             "controlMode=%d HW_critical_error=%d graceMin=%d",
+             (int)in3.temperatureControl, (int)in3.humidityControl,
+             (int)in3.controlMode, (int)in3.HW_critical_error,
+             (int)RESTART_ALARM_GRACE_MINS);
     if (in3.temperatureControl) {
       startPID(in3.controlMode);
       turnFans(ON);
-      logI("[HW] -> restoreState: temperature PID restarted, fan ON");
+      ESP_LOGW("APP", "[BOOT] resume: PID de temperatura rearrancado, ventilador ON");
     }
     if (in3.humidityControl) {
       startPID(humidityPID);
-      logI("[HW] -> restoreState: humidity PID restarted");
+      ESP_LOGW("APP", "[BOOT] resume: PID de humedad rearrancado");
     }
   }
   watchdogInit(WDT_TIMEOUT);
