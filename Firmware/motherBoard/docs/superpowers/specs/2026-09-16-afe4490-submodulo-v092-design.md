@@ -139,7 +139,10 @@ La llamada se queda, pero **su significado cambia y los comentarios mienten**:
   AFE4490"*. Deja de ser cierto. En `motherBoard` ya no hay ningún consumidor
   SPI de `plat_spi` (`adafruit_busio` incluye la cabecera pero nadie la usa por
   SPI), así que `plat_spi` pasa a existir **solo para levantar el bus**.
-- **No se borra `plat_spi`**: `Display_HMI/src/tasks/UITask.cpp` lo usa.
+- **No se borra en esta rama**: la retirada de `plat_spi` es una decisión de
+  arquitectura aparte, fuera del alcance. Hoy el resto de la clase
+  (beginTransaction / transfer / endTransaction) se queda sin ningún consumidor
+  en todo el repo, y es estado que merece documentarse honestamente.
 
 Consideraciones técnicas verificadas:
 

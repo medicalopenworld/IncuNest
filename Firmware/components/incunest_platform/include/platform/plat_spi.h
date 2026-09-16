@@ -13,20 +13,23 @@
 //     AFE4490 dejo de pasar por aqui — desde v0.91 tiene su propio HAL de
 //     ESP-IDF y abre su device con spi_bus_add_device(SPI2_HOST). Pero SIGUE
 //     NECESITANDO que alguien inicialice el bus antes, y ese alguien es este
-//     begin(), llamado desde initSPO2(). No se borra: el resto de la clase
-//     (beginTransaction / transfer / endTransaction) queda sin consumidor en
-//     esta placa, pero Display_HMI si la usa entera.
+//     begin(), llamado desde initSPO2().
 //
-//   Display_HMI: consumidor completo, via UITask.cpp.
+//   Display_HMI: no lo usa. Tiene un #include huerfano en UITask.cpp. El panel
+//     es RGB paralelo (esp_lcd_new_rgb_panel), el tactil I2C (GT911).
 //
-// SOBRE EL COSTE POR BYTE (aplica al camino de Display_HMI): Arduino resolvia
-// SPI.transfer(uint8_t) escribiendo directamente los registros del periferico
-// (spiTransferByteNL), sin interrupciones. Aqui se usa
-// spi_device_polling_transmit(), que tambien va por sondeo, sin interrupciones
-// ni DMA: el coste por byte queda en el mismo orden.
+// Consecuencia: el resto de la clase (beginTransaction / transfer /
+// endTransaction) se queda sin ningun consumidor en todo el repo. Retirarla es
+// una decision de arquitectura aparte, fuera del alcance de esta rama.
+//
+// SOBRE EL COSTE POR BYTE: Arduino resolvia SPI.transfer(uint8_t) escribiendo
+// directamente los registros del periferico (spiTransferByteNL), sin
+// interrupciones. Aqui se usa spi_device_polling_transmit(), que tambien va
+// por sondeo, sin interrupciones ni DMA: el coste por byte queda en el mismo
+// orden.
 //
 // La duda que este fichero dejaba abierta sobre la cadencia de las muestras de
-// PPG ya no se responde aqui: la mide la propia libreria. Compila con
+// PPG ahora se responde en la libreria del AFE4490. Compila con
 // INCUNEST_PPG_TIMING=1 y lee spi_mean/spi_max de la trama $TIMING (v0.92).
 
 #include <cstdint>
