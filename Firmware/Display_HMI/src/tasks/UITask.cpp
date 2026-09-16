@@ -1056,10 +1056,6 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   if (ui_PhotoLockLabel)
     lv_label_set_text(ui_PhotoLockLabel, L(STR_PHOTO_LOCK));
 
-  // Boton de tendencia de telemetria (pantalla de bloqueo)
-  if (ui_ChartLockLabel)
-    lv_label_set_text(ui_ChartLockLabel, L(STR_TREND_UC));
-
   // Babies history button (baby-history-viewer)
   if (ui_BabiesButtonLabel)
     lv_label_set_text(ui_BabiesButtonLabel, L(STR_BABIES));
@@ -4209,8 +4205,10 @@ void UI_Task(void *pvParameters) {
   // la fila "Test de hardware" de ui_ScreenSettings
   // (hmi-factory-test-settings-only).
   FactoryTest_Init();
-  // --- Tendencia de telemetria (aire/piel/humedad), accesible desde el
-  // bloqueo (ui_ChartLockImg). Mismo criterio de parent que AlarmCenter. ---
+  // --- Tendencia de telemetria (aire/piel/humedad). Mismo criterio de parent
+  // que AlarmCenter. OJO: desde que se retiro el boton TREND de la pantalla de
+  // bloqueo (tanda de fabricacion 2026-09-17) este overlay NO tiene ninguna
+  // via de entrada; se sigue inicializando para no tocar mas de la cuenta. ---
   TelemetryHistory_Init();
   // El check de "todo OK" es lo unico visible en el sitio de las alarmas
   // cuando no hay ninguna; hacerlo pulsable es lo que deja el registro

@@ -136,9 +136,7 @@ bool goalUnlockPopup() {
 }
 bool goalUnlocked() { return lv_scr_act() == ui_ScreenMain; }
 
-// Tendencia, hora, soporte
-bool goalTrendOpen() { return TelemetryHistory_IsOpen(); }
-bool goalTrendClosed() { return !TelemetryHistory_IsOpen(); }
+// Hora, soporte. (goalTrendOpen/Closed se fueron con la leccion 9.)
 bool goalTimeOpen() { return TimeDialog_IsOpen(); }
 bool goalTimeClosed() { return !TimeDialog_IsOpen(); }
 bool goalHelpOpen() { return HelpDialog_IsOpen(); }
@@ -999,78 +997,6 @@ constexpr Step LOCK_STEPS[] = {
 };
 LESSON_TABLE_IS_ASCII(LOCK_STEPS);
 
-// ---- E9: tendencia -----------------------------------------------------------------
-
-const Quiz QUIZ_TREND = {
-    {T4("Solo el ultimo valor medido", "Only the last measured value",
-        "Seulement la derniere valeur mesuree",
-        "So o ultimo valor medido"),
-     T4("La evolucion de temperatura y humedad en las ultimas horas",
-        "How temperature and humidity evolved over the last hours",
-        "L'evolution de la temperature et de l'humidite ces dernieres "
-        "heures",
-        "A evolucao de temperatura e humidade nas ultimas horas"),
-     T4("La lista de alarmas", "The alarm list", "La liste des alarmes",
-                                                 "A lista de alarmes")},
-    1,
-    T4("La tendencia dibuja aire, piel y humedad de los ultimos minutos u "
-       "horas (5 min a 2 h). Sirve para ver si el equipo mantiene la "
-       "consigna o hay oscilaciones.",
-       "The trend draws air, skin and humidity over the last minutes or "
-       "hours (5 min to 2 h). Use it to see whether the device holds the "
-       "setpoint or oscillates.",
-       "La tendance trace air, peau et humidite des dernieres minutes ou "
-       "heures (5 min a 2 h). Elle montre si l'appareil tient la consigne ou "
-       "oscille.",
-       "A tendencia desenha ar, pele e humidade dos ultimos minutos ou "
-       "horas (5 min a 2 h). Serve para ver se o equipamento mantem o "
-       "valor definido ou se ha oscilacoes."),
-};
-
-constexpr Step TREND_STEPS[] = {
-    EXPLAIN(&ui_ImgButton1, &ui_ScreenMain,
-            "La grafica de tendencia esta en la pantalla de bloqueo, para "
-            "consultarla sin riesgo de tocar nada.",
-            "The trend chart is on the lock screen, to consult it with no "
-            "risk of touching anything.",
-            "Le graphique de tendance est sur l'ecran verrouille, pour le "
-            "consulter sans risque de toucher quoi que ce soit.",
-            "O grafico de tendencia esta no ecra de bloqueio, para o consultar "
-            "sem risco de tocar em nada."),
-    DO(&ui_ImgButton1, &ui_ScreenMain, goalLocked,
-       "Bloquea la pantalla con el candado.", "Lock the screen with the padlock.",
-       "Verrouillez l'ecran avec le cadenas.",
-       "Bloqueia o ecra com o fecho."),
-    DO(&ui_ChartLockImg, &ui_ScreenLock, goalTrendOpen,
-       "Toca el icono de la grafica.", "Touch the chart icon.",
-       "Touchez l'icone du graphique.",
-       "Toca no icone do grafico."),
-    FREE(&ui_ScreenLock, goalTrendClosed,
-         "Cambia la ventana de tiempo (5 min, 30 min, 1 h, 2 h) y mira las "
-         "tres curvas. Cierra con la X para continuar.",
-         "Change the time window (5 min, 30 min, 1 h, 2 h) and look at the "
-         "three curves. Close with the X to continue.",
-         "Changez la fenetre de temps (5 min, 30 min, 1 h, 2 h) et regardez "
-         "les trois courbes. Fermez avec la X pour continuer.",
-         "Muda a janela de tempo (5 min, 30 min, 1 h, 2 h) e olha para as "
-         "tres curvas. Fecha com o X para continuar."),
-    DO(&ui_ScreenLock, &ui_ScreenLock, goalUnlockPopup,
-       "Toca la pantalla para que aparezca el boton de desbloqueo.",
-       "Touch the screen so the unlock button appears.",
-       "Touchez l'ecran pour faire apparaitre le bouton de deverrouillage.",
-       "Toca no ecra para que apareca o botao de desbloqueio."),
-    DO(&ui_UnlockCont, &ui_ScreenLock, goalUnlocked,
-       "Manten pulsado para desbloquear.", "Hold to unlock.",
-       "Maintenez pour deverrouiller.",
-       "Mantem premido para desbloquear."),
-    QUIZ(&ui_ScreenMain, &QUIZ_TREND,
-         "Pregunta: que muestra la grafica de tendencia?",
-         "Question: what does the trend chart show?",
-         "Question : que montre le graphique de tendance ?",
-         "Pergunta: o que mostra o grafico de tendencia?"),
-};
-LESSON_TABLE_IS_ASCII(TREND_STEPS);
-
 // ---- E10: ajustar la hora ----------------------------------------------------------
 
 const Quiz QUIZ_TIME = {
@@ -1198,8 +1124,10 @@ const Lesson NURSE_LESSONS[] = {
     LESSON(8, "Bloqueo de pantalla", "Screen lock", "Verrouillage de l'ecran",
                                                     "Bloqueio de ecra",
            LOCK_STEPS),
-    LESSON(9, "Tendencia", "Trend", "Tendance",
-                                    "Tendencia", TREND_STEPS),
+    // La leccion 9 ("Tendencia") se retiro con el boton TREND de la pantalla
+    // de bloqueo (tanda de fabricacion 2026-09-17): sin ese boton no habia
+    // forma de completarla. Se deja el hueco en la numeracion a proposito, en
+    // vez de renumerar, para no cambiar el nombre de las dos siguientes.
     LESSON(10, "Ajustar la hora", "Setting the time", "Regler l'heure",
                                                       "Acertar a hora",
            TIME_STEPS),
