@@ -1,32 +1,36 @@
-# Componente "platform": los primitivos que antes ponia el framework Arduino,
-# reimplementados sobre ESP-IDF puro. No depende de arduino-esp32 ni lo emula:
-# cada pieza es una envoltura fina sobre la API nativa (esp_timer, driver/gpio,
-# esp_driver_ledc, esp_driver_i2c, nvs_flash, esp_log). En IDF 6 el antiguo
-# componente "driver" esta partido en esp_driver_*, de ahi la lista de abajo.
+# Agregador de la capa de plataforma. NO tiene fuentes propias.
 #
-# Por que existe en vez de convertir cada llamada a la API de IDF en su sitio:
-# el firmware es de un equipo medico con unidades en campo. Concentrar la
-# traduccion en un unico punto revisable deja el resto del porte como cambios
-# mecanicos y auditables, en vez de 62k lineas de reescritura dispersa.
+# ================== POR QUE ESTE COMPONENTE SIGUE EXISTIENDO ==================
+#
+# Hasta 2026-09-16 esto era UN SOLO componente con todo dentro y 21 REQUIRES.
+# Funcionaba, pero tenia un coste concreto: cualquiera que quisiera una sola
+# pieza se llevaba el resto. Al escribir el primer test_app de contrato
+# (motherBoard/test_apps/plat_fs_test) resulto que un test del SISTEMA DE
+# FICHEROS acababa compilando mDNS, WiFi, HTTP y mbedTLS.
+#
+# Ahora hay cuatro componentes de verdad, agrupados por PESO DE DEPENDENCIAS y
+# no uno por fichero, que seria mucho ruido para el mismo beneficio:
+#
+#   incunest_plat_core     String, Print, millis(), num, tipos   (esp_timer)
+#   incunest_plat_hw       GPIO, PWM, I2C, SPI, UART             (esp_driver_*)
+#   incunest_plat_storage  LittleFS y NVS  <- DATOS DE PACIENTE  (littlefs, nvs)
+#   incunest_plat_net      WiFi, TLS, webserver, mDNS, OTA       (el grupo pesado)
+#
+# El reparto sale del arbol de dependencias real entre las capas, que se
+# comprobo antes de partir: cuelga casi todo de plat_string y plat_print, y NO
+# HAY CICLOS.
+#
+# ESTE AGREGADOR EXISTE PARA NO TOCAR EL FIRMWARE. Hay 157 inclusiones de
+# `platform/*.h` repartidas por las dos placas, y sus CMakeLists piden
+# `incunest_platform`. Requiriendo aqui los cuatro, los directorios de include
+# se propagan y todo eso sigue compilando sin cambiar ni una linea. El reparto
+# es de CONSTRUCCION, no de codigo: cero cambios de comportamiento.
+#
+# COMO USARLO EN CODIGO NUEVO: pedir el componente concreto, no este. Este es
+# la compatibilidad con lo que ya existe; depender de el vuelve a arrastrarlo
+# todo, que es justo lo que se acaba de arreglar.
 idf_component_register(
-  SRCS
-    "src/plat_time.c"
-    "src/plat_gpio.c"
-    "src/plat_pwm.c"
-    "src/plat_i2c.cpp"
-    "src/plat_nvs.cpp"
-    "src/plat_string.cpp"
-    "src/plat_num.c"
-    "src/plat_spi.cpp"
-    "src/plat_fs.cpp"
-    "src/plat_esp.cpp"
-    "src/plat_print.cpp"
-    "src/plat_uart.cpp"
-    "src/plat_wifi.cpp"
-    "src/plat_net_client.cpp"
-    "src/plat_webserver.cpp"
-    "src/plat_update.cpp"
-    "src/plat_mdns.cpp"
-  INCLUDE_DIRS "include"
-  REQUIRES esp_driver_gpio esp_driver_ledc esp_driver_i2c esp_driver_spi esp_adc esp_timer nvs_flash joltwallet__littlefs vfs esp_system spi_flash esp_driver_uart esp_wifi esp_netif esp_event esp_http_server app_update esp-tls lwip mbedtls espressif__mdns
+  INCLUDE_DIRS ""
+  REQUIRES incunest_plat_core incunest_plat_hw incunest_plat_storage
+           incunest_plat_net
 )

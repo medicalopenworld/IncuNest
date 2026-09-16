@@ -1,12 +1,19 @@
 # Tareas
 
-## Fase 0 — decidir, antes de escribir código
+## Fase 0 — DECIDIDA (2026-09-16): separar y blindar, **no retirar**
 
-Esta fase no produce código. Sin ella, las demás no deben empezar.
+- [x] **Decidido: NO se retira.** Los cuatro defectos ya están arreglados y el shim de hoy funciona. Migrarlo sería reescribir código que ya va, escribiendo código nuevo contra IDF que puede divergir en silencio exactamente igual: **mueve el riesgo, no lo elimina**. El problema nunca fue que el shim tuviera *forma* de Arduino, fue que estaba *mal*. Son cosas distintas y sólo una ha costado días.
+- [x] **Decidido: se separa por capas.** Hecho en `d56c987`. Riesgo cero —sólo `CMakeLists`, ni una línea de lógica—, resuelve un problema real (un test de ficheros compilaba mDNS, WiFi, HTTP y mbedTLS) y es requisito previo de cualquier retirada futura.
+- [x] **Decidido: `String` no se toca** salvo oportunistamente en caminos calientes, como ya se hizo en `SPO2.cpp` (`25d745e`). Y el **grupo A queda fuera**: renombrar envoltorios que ya son `inline` sobre IDF no elimina riesgo y mueve 157 inclusiones.
+- [x] **Contrastado con lo abierto.** Sigue sin validarse `SPI_FLASH_AUTO_SUSPEND` en una segunda unidad —con dos fabricantes de flash distintos en dos placas—, el umbral del ventilador sale de una sola placa, el temblor del panel está acotado pero no eliminado, y 12 ficheros de `.claude/` dan instrucciones que fallan. **Eso es riesgo vivo; el shim es riesgo mitigado cuatro veces y con red puesta.**
 
-- [ ] **Decidir entre retirar o blindar.** La alternativa barata al grupo B es dejarlo y ponerle tests de contrato: ataca el mismo riesgo (que se comporte distinto y calle) por una fracción del coste y es reversible. Migrar sólo gana si además se quiere quitar la dependencia conceptual de Arduino.
-- [ ] **Si se retira: fijar hasta dónde.** Retirar sólo el grupo B es un estado final coherente. Incluir `String` es el 80 % del esfuerzo y el 100 % del riesgo nuevo.
-- [ ] **Contrastar con lo que hay abierto.** Tras el porte siguen sin probarse GPRS/SIM, táctil, audio, humidificador, fototerapia y SensorBoard; el temblor del panel está acotado, no eliminado; el umbral del ventilador está calibrado sobre una sola unidad. Eso es riesgo medido y vivo. El shim es riesgo ya mitigado cuatro veces.
+### Cuándo revisar esta decisión
+
+No es para siempre. Retirar el shim pasaría a tener sentido si:
+
+- **entra gente que conoce ESP-IDF y no Arduino** — ahí el coste de traducción mental se paga cada día;
+- **el shim bloquea una función de IDF** que su forma Arduino no deja exponer;
+- **la capa deja de cambiar**: si en seis meses nadie la toca, se cae el argumento de mantenerla, pero también el de que da problemas.
 
 ## Fase 1 — red de seguridad (vale igual si se decide blindar)
 
@@ -26,12 +33,13 @@ Esta fase no produce código. Sin ella, las demás no deben empezar.
 - [x] **Test de contrato de `plat_fs` — HECHO** (`4334fd6`). `motherBoard/test_apps/plat_fs_test/`, Unity sobre la placa. 5 casos: `name()` pelado, `path()` completa, rutas sin prefijo de montaje, `totalBytes`/`usedBytes` coherentes y `remove()` sobre ruta compuesta a partir de `name()`. **Verificado que caza el fallo**: reintroducido el defecto de `d324f9e` da 2 de 5 en rojo; restaurado, 5/0.
 - [ ] Test de contrato de `plat_i2c`: el bloqueo abarca la transacción con repeated-start; dos tareas concurrentes no se entrelazan.
 - [ ] Test de contrato de `plat_net_client`: `available()` refleja los bytes pendientes de verdad; el `timeout` se aplica donde se dice.
-- [ ] Test de contrato de `plat_nvs`: `putFloat`/`putDouble` siguen guardando **BLOB**, como hacía Arduino. Cambiarlo deja sin perfiles de bebé a las unidades en campo.
+- [x] **Test de contrato de `plat_nvs` — HECHO** (`36b4d65`). 7 casos. La clave: comprueba el **formato físico** con `getBytesLength()`, no sólo la ida y vuelta — un cambio de formato hecho de forma *consistente* en `put` y `get` pasaría cualquier round-trip y aun así dejaría sin datos a las unidades en campo. **Verificado que caza el fallo**: inyectado un `putFloat` que guarda `u32`, 3 de 7 en rojo; restaurado, 7/0.
 - [ ] Comprobar que cada test FALLA si se le reintroduce el defecto histórico. Un test que pasa con el bug puesto no sirve.
 
 ## Fase 2 — retirada del grupo B, una capa por commit
 
-Sólo si la Fase 0 decide retirar.
+**NO SE HACE.** La Fase 0 decidió separar y blindar. Se deja escrito lo que
+habría sido, por si alguna de las tres condiciones de arriba se cumple.
 
 - [ ] `plat_fs` → llamadas POSIX directas. Verificar en banco: perfiles de bebé y pesos intactos tras reinicio y tras OTA.
 - [ ] `plat_i2c` → `i2c_master_*` de IDF. Verificar en banco con los cuatro consumidores simultáneos (BQ25730, humidificador, INA3221, SensorBoard).
@@ -39,7 +47,7 @@ Sólo si la Fase 0 decide retirar.
 - [ ] `plat_nvs` → `nvs_*` de IDF. Verificar la migración de datos existentes, no sólo la escritura nueva.
 - [ ] Batería de banco (17) y tests de host (26) verdes tras cada capa, con la placa flasheada de verdad.
 
-## Fase 3 — `String`, por zonas y sólo si la Fase 0 lo incluye
+## Fase 3 — `String`: NO SE HACE por barrido
 
 - [ ] Inventariar los 388 usos por temperatura del camino: 500 Hz / ISR / control / arranque / configuración.
 - [ ] Migrar primero los calientes, a buffer de pila con `snprintf`.
