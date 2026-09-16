@@ -6,7 +6,14 @@
 cmake_minimum_required(VERSION 3.16)
 
 set(EXTRA_COMPONENT_DIRS
+  # incunest_platform es solo el AGREGADOR (sin fuentes): requiere los cuatro
+  # de abajo para que las 157 inclusiones de platform/*.h sigan resolviendo
+  # sin tocar el firmware. En codigo nuevo, pedir el componente concreto.
   "${CMAKE_CURRENT_LIST_DIR}/../components/incunest_platform"
+  "${CMAKE_CURRENT_LIST_DIR}/../components/incunest_plat_core"
+  "${CMAKE_CURRENT_LIST_DIR}/../components/incunest_plat_hw"
+  "${CMAKE_CURRENT_LIST_DIR}/../components/incunest_plat_storage"
+  "${CMAKE_CURRENT_LIST_DIR}/../components/incunest_plat_net"
   "${CMAKE_CURRENT_LIST_DIR}/../shared"
   "${CMAKE_CURRENT_LIST_DIR}/../components/thingsboard"
   "${CMAKE_CURRENT_LIST_DIR}/../components/incunest_gt911"
@@ -28,8 +35,12 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 # componente de LVGL tiene que poder encontrar esa cabecera. Va como include
 # global porque LVGL no declara (ni debe declarar) una dependencia de un
 # componente nuestro.
+#
+# Apunta a incunest_plat_core y no al agregador: plat_time.h vive ahi desde que
+# la capa se partio en cuatro (2026-09-16), y es ademas el minimo que LVGL
+# necesita — no tiene por que ver el resto de la plataforma.
 idf_build_set_property(INCLUDE_DIRECTORIES
-  "${CMAKE_CURRENT_LIST_DIR}/../components/incunest_platform/include" APPEND)
+  "${CMAKE_CURRENT_LIST_DIR}/../components/incunest_plat_core/include" APPEND)
 
 idf_build_set_property(COMPILE_DEFINITIONS "LV_KCONFIG_IGNORE" APPEND)
 idf_build_set_property(COMPILE_DEFINITIONS

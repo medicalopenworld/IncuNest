@@ -5,7 +5,14 @@
 cmake_minimum_required(VERSION 3.16)
 
 set(EXTRA_COMPONENT_DIRS
+  # incunest_platform es solo el AGREGADOR (sin fuentes): requiere los cuatro
+  # de abajo para que las 157 inclusiones de platform/*.h sigan resolviendo
+  # sin tocar el firmware. En codigo nuevo, pedir el componente concreto.
   "${CMAKE_CURRENT_LIST_DIR}/../components/incunest_platform"
+  "${CMAKE_CURRENT_LIST_DIR}/../components/incunest_plat_core"
+  "${CMAKE_CURRENT_LIST_DIR}/../components/incunest_plat_hw"
+  "${CMAKE_CURRENT_LIST_DIR}/../components/incunest_plat_storage"
+  "${CMAKE_CURRENT_LIST_DIR}/../components/incunest_plat_net"
   "${CMAKE_CURRENT_LIST_DIR}/../shared"
   "${CMAKE_CURRENT_LIST_DIR}/../components/thingsboard"
   "${CMAKE_CURRENT_LIST_DIR}/../components/arduino_pid"
