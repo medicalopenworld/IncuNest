@@ -26,9 +26,9 @@ internas que ahi ya no existen. Y no se puede subir de version para esquivarlo:
 
 Es decir: la dependencia esta de facto sin mantenimiento y su ultima version es
 la rota. Tarde o temprano hay que hacerse cargo de ella; esta copia lo hace
-ahora, con la deuda escrita y acotada a seis parches.
+ahora, con la deuda escrita y acotada a siete parches.
 
-## Los seis parches
+## Los siete parches
 
 Todo lo tocado lleva el marcador `PARCHE INCUNEST` en el codigo, para que
 `grep -rn "PARCHE INCUNEST" .` liste el delta completo frente a upstream.
@@ -154,6 +154,66 @@ puntero, con `m_instance` solo como respaldo para un `arg` nulo. La rama sin
 Nota aparte, no corregida: el mensaje `RECEIVED_UNEXPECTED_CHUNK_SIZE` de
 `OTA_Handler.h` imprime los dos numeros al reves (`printfln(FMT, esperado,
 recibido)` con un formato que dice "recibido... esperado"). Leelo cruzado.
+
+### 7. `connect()` creaba el cliente sin mirar si habia RAM para sus bufers
+
+`src/Espressif_MQTT_Client.cpp`
+
+Este no es un bug del SDK de ThingsBoard sino de **esp-mqtt**, pero el parche
+vive aqui porque `managed_components/` no esta versionado: lo rellena el gestor
+de componentes y cualquier arreglo escrito ahi se pierde en el siguiente
+`fullclean`.
+
+El defecto de esp-mqtt: `esp_mqtt_set_config()` empieza con `esp_err_t err =
+ESP_OK` y sus comprobaciones de memoria usan el macro `ESP_MEM_CHECK`, que solo
+imprime y hace `goto`, **sin tocar `err`**. Cuando falla la reserva del bufer de
+entrada (`mqtt_client.c:492`), la funcion salta a `_mqtt_set_config_failed`,
+llama a `esp_mqtt_destroy_config()` -- que deja `client->config` a nulo -- y
+**devuelve ESP_OK**. `esp_mqtt_client_init()` lo interpreta como exito, crea el
+bucle de eventos en `&client->config->event_loop_handle`, que es la direccion 0,
+y devuelve un handle no nulo a medio construir. El primer uso lo desreferencia.
+
+Medido en banco el 2026-09-16 (SN 353), a los 30 s de arranque, con WiFi
+enganchada y ThingsBoard conectando:
+
+```
+E mqtt_client: esp_mqtt_set_config(492): Memory exhausted
+E event: event_loop was NULL
+Guru Meditation Error: Core 1 panic'ed (LoadProhibited)  EXCVADDR 0x00000000
+  esp_mqtt_client_register_event   mqtt_client.c:2761
+  Espressif_MQTT_Client::connect   Espressif_MQTT_Client.cpp:212
+  WIFI_TB_OTA                      Wifi_OTA.cpp:1901
+```
+
+El desensamblado confirma el punto exacto: la instruccion que falla es la carga
+de `client->config->event_loop_handle` con `client->config` a cero, ya pasada la
+comprobacion de handle nulo que esa funcion si tiene. Por eso mirar el valor de
+retorno de `init()` no basta como arreglo.
+
+Por que salta en esta placa: la motherBoard **no tiene PSRAM**
+(`CONFIG_ESP32S3_SPIRAM_SUPPORT` sin activar) y `MQTT_BUFFER_MEMORY` es
+`MALLOC_CAP_DEFAULT`, asi que los dos bufers salen de RAM interna.
+`TB_MQTT_BUFFER_WIFI` son 4352 B contiguos --- `FIRMWARE_PACKET_SIZE` mas 256,
+dimensionado en 1a2eca7 para que quepa un trozo de OTA entero --- pedidos en el
+peor momento del arranque. Antes de ese commit el cliente usaba el defecto de
+1024 B y el fallo no aparecia.
+
+El precio del reinicio no es solo el reloj: `initGPRS()` ve un reset anormal y
+borra la tarea GPRS de esa sesion, de modo que un fallo de heap llegando por
+WiFi deja la unidad **tambien sin celular** hasta que alguien le quite la
+corriente.
+
+El parche comprueba el heap antes de crear el cliente: el bloque contiguo mayor
+tiene que dar para un bufer con holgura y el total para los dos mas lo pequeno
+que esp-mqtt reserva ademas. Si no llega, `connect()` devuelve false con un log
+que dice las tres cifras, y el reintento normal de ThingsBoard lo vuelve a
+probar mas tarde. Falla del lado seguro: en la franja dudosa se niega a crear
+el cliente en vez de arriesgar el panico. Se anade tambien la comprobacion de
+nulo del retorno de `init()`, que upstream no hacia.
+
+Lo que este parche NO arregla: que la placa llegue a quedarse sin esos 4352 B.
+Eso es presion de heap y se decide aparte, bajando el trozo de OTA por WiFi o
+liberando memoria en otro sitio.
 
 ## Que NO se ha tocado
 

@@ -3,11 +3,28 @@
 
 #if THINGSBOARD_USE_ESP_MQTT
 
+// PARCHE INCUNEST (7): cabeceras para la comprobacion de heap previa a crear
+// el cliente. Ver el bloque largo en connect().
+#include <esp_heap_caps.h>
+#include <esp_log.h>
+
 // The error integer -1 means a general failure while handling the mqtt client,
 // where as -2 means that the outbox is filled and the message can therefore not be sent.
 // Therefore we have to check if the value is smaller or equal to the MQTT_FAILURE_MESSAGE_ID,
 // to ensure other errors are indentified as well
 constexpr int MQTT_FAILURE_MESSAGE_ID = -1;
+
+// PARCHE INCUNEST (7): etiqueta de log y holguras de la comprobacion de heap.
+//
+// MARGIN_BLOCK es holgura sobre el bloque contiguo mas grande; MARGIN_TOTAL
+// cubre lo pequeno que esp-mqtt reserva ademas de los dos bufers (estructura
+// del cliente, almacen de configuracion, cadenas de host/uri/credenciales y
+// outbox). No cubre la pila de la tarea que crea esp_mqtt_client_start(), que
+// se reserva despues: si esa falla, start() devuelve error y se trata solo
+// como un fallo de conexion, sin panico.
+constexpr char INCUNEST_MQTT_TAG[] = "tb_mqtt";
+constexpr size_t INCUNEST_MQTT_MARGIN_BLOCK = 1024U;
+constexpr size_t INCUNEST_MQTT_MARGIN_TOTAL = 4096U;
 
 Espressif_MQTT_Client *Espressif_MQTT_Client::m_instance = nullptr;
 
@@ -187,9 +204,86 @@ bool Espressif_MQTT_Client::connect(const char *client_id, const char *user_name
         return error == ESP_OK;
     }
 
+    // PARCHE INCUNEST (7): no crear el cliente si la RAM interna no da para sus
+    // bufers.
+    //
+    // esp-mqtt reserva DOS bloques de `buffer.size` al configurar el cliente, el
+    // de entrada y el de salida. Cuando el de entrada no cabe,
+    // `esp_mqtt_set_config()` salta a su etiqueta de error a traves del macro
+    // ESP_MEM_CHECK, que solo imprime y hace `goto`: NO toca la variable `err`,
+    // inicializada a ESP_OK. O sea que la funcion DEVUELVE ESP_OK despues de
+    // haber llamado a `esp_mqtt_destroy_config()`, que deja `client->config` a
+    // nulo. `esp_mqtt_client_init()` se lo cree, crea el bucle de eventos en
+    // `&client->config->event_loop_handle` -- direccion 0, de ahi el
+    // "event_loop was NULL" del log -- y devuelve un handle NO nulo a medio
+    // construir. El primer uso lo desreferencia y la placa entra en panico.
+    //
+    // Medido en banco el 2026-09-16 (SN 353), a los 30 s de arranque:
+    //
+    //   E mqtt_client: esp_mqtt_set_config(492): Memory exhausted
+    //   E event: event_loop was NULL
+    //   Guru Meditation Error: Core 1 panic'ed (LoadProhibited) EXCVADDR 0
+    //     esp_mqtt_client_register_event -> Espressif_MQTT_Client::connect
+    //
+    // El desensamblado lo confirma: la instruccion que falla es la carga de
+    // `client->config->event_loop_handle` con `client->config` a cero, ya
+    // pasada la comprobacion de handle nulo que si tiene esa funcion. Por eso
+    // mirar solo el valor de retorno de init() no basta.
+    //
+    // El reinicio no se queda en un reloj perdido: `initGPRS()` ve un reset
+    // anormal y borra la tarea GPRS de la sesion, asi que un fallo de heap
+    // llegando por WiFi deja la unidad tambien sin celular hasta que alguien le
+    // quite la corriente.
+    //
+    // Por que pasa aqui: la motherBoard no tiene PSRAM y el bufer se
+    // dimensiona para que quepa un trozo de OTA entero (TB_MQTT_BUFFER_WIFI,
+    // 4352 B), pedidos contiguos en el peor momento, con WiFi y TLS ya en pie.
+    // Comprobarlo ANTES es lo unico que evita el panico sin depender de las
+    // interioridades de esp-mqtt. Si no hay sitio se devuelve false y el
+    // reintento normal de ThingsBoard lo vuelve a probar mas tarde, que es
+    // justo lo que este metodo promete a quien lo llama.
+#if ESP_IDF_VERSION_MAJOR < 5
+    size_t const buffer_size = m_mqtt_configuration.buffer_size;
+#else
+    size_t const buffer_size = m_mqtt_configuration.buffer.size;
+#endif // ESP_IDF_VERSION_MAJOR < 5
+    // Se piden dos bufers del mismo tamano: `out_size` a cero significa "como
+    // el de entrada" y este SDK nunca configura otra cosa (set_buffer_size()
+    // solo escribe el de entrada).
+    size_t const largest_block = heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);
+    size_t const total_free = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
+    if (largest_block < buffer_size + INCUNEST_MQTT_MARGIN_BLOCK ||
+        total_free < (2U * buffer_size) + INCUNEST_MQTT_MARGIN_TOTAL) {
+        ESP_LOGE(INCUNEST_MQTT_TAG,
+                 "sin RAM para el cliente MQTT: bufer %u B x2, bloque mayor %u B, "
+                 "libre %u B; no se crea y se reintenta luego",
+                 static_cast<unsigned>(buffer_size),
+                 static_cast<unsigned>(largest_block),
+                 static_cast<unsigned>(total_free));
+        return false;
+    }
+
+    // PARCHE INCUNEST (7): deja constancia del margen real con el que se crea
+    // el cliente. Solo se llega aqui cuando todavia no existe, o sea una vez
+    // por cliente y transporte, salvo que la creacion este fallando -- que es
+    // justo cuando interesa ver las cifras.
+    ESP_LOGI(INCUNEST_MQTT_TAG,
+             "creando cliente MQTT: bufer %u B x2, bloque mayor %u B, libre %u B",
+             static_cast<unsigned>(buffer_size),
+             static_cast<unsigned>(largest_block),
+             static_cast<unsigned>(total_free));
+
     // The client is first initalized once the connect has actually been called, this is done because the passed setting are required for the client inizialitation structure,
     // additionally before we attempt to connect with the client we have to ensure it is configued by then.
     m_mqtt_client = esp_mqtt_client_init(&m_mqtt_configuration);
+
+    // PARCHE INCUNEST (7): init() devuelve nulo en varios caminos de fallo y
+    // upstream no lo miraba. No cubre el handle a medio construir de arriba,
+    // pero un nulo aqui llegaria igualmente a esp_mqtt_client_start().
+    if (m_mqtt_client == nullptr) {
+        ESP_LOGE(INCUNEST_MQTT_TAG, "esp_mqtt_client_init() devolvio nulo");
+        return false;
+    }
 
     // PARCHE INCUNEST (4): se pasa `this` como handler_args en vez de nullptr.
     // Upstream lo dejaba a nullptr y el manejador estatico despachaba siempre
