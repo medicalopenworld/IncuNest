@@ -108,6 +108,42 @@ typedef struct {
   int    photoMinutesRemaining;
 } Proto_HmiCommand;
 
+// Rango de la fuente que fijo el reloj de pared. Viaja en el campo `src` de
+// CTRL,TIME, asi que es vocabulario del protocolo y no un detalle interno de
+// la motherBoard: el HMI lo necesita para decidir si lo que recibe merece
+// escribirse en su RTC.
+//
+// GANA EL MAYOR. Se numera en orden creciente de confianza a proposito: en
+// codigo `nueva > vigente` se lee solo, mientras que numerar al reves —el 1
+// como el mejor, que es como se suele hablar de prioridades— invita al error
+// de signo cada vez que alguien toca la comparacion.
+//
+// NO es la misma escala que TzSource, aunque compartan forma. TzSource ordena
+// el HUSO y tiene IP en el 2, sin NTP ni RTC; esta ordena el INSTANTE. El
+// protocolo las transmite en campos distintos (`tzsrc` y `src`) y fundirlas
+// costaria un bug el dia que alguien pase un valor de una a la otra.
+typedef enum {
+  // No se sabe. Con el reloj sin sincronizar, o con un CTRL,TIME de una
+  // motherBoard anterior a esta version, que no envia el campo.
+  PROTO_TIME_SOURCE_NONE = 0,
+  // NITZ de la red movil. Va el ultimo porque muchos operadores no lo emiten,
+  // o lo emiten con minutos de error. Sigue siendo la MEJOR fuente de huso
+  // (ver TzSource): es la peor hora y la mejor zona, y por eso son dos
+  // escalas separadas.
+  PROTO_TIME_SOURCE_NITZ = 1,
+  // El PCF8563 del HMI. Conserva la hora entre apagados, que es justo lo que
+  // ninguna otra fuente hace, pero es un RTC de cristal sin compensacion
+  // termica: deriva minutos al mes. Sirve de semilla, no de referencia.
+  PROTO_TIME_SOURCE_RTC = 2,
+  // NTP/SNTP, por WiFi o por el contexto PDP del modem. Precision de segundos
+  // y fecha fiable.
+  PROTO_TIME_SOURCE_NTP = 3,
+  // La tecleo el operador, en /config o en HMI,SET_TIME. Gana a todo: es la
+  // unica que conoce la hora local sin red, y desplazarla bajo los pies de
+  // quien la acaba de poner es peor que un error de minutos.
+  PROTO_TIME_SOURCE_MANUAL = 4,
+} Proto_TimeSource;
+
 #ifdef __cplusplus
 }
 #endif
