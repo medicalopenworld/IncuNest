@@ -26,9 +26,23 @@ endif()
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
 # Instrumentacion de tiempos de la libreria del AFE4490 (INCUNEST_TIMING_STATS),
-# apagada por defecto. Se enciende asi:
+# apagada por defecto. Se enciende asi (PowerShell):
 #
-#     set INCUNEST_PPG_TIMING=1 && idf.py build flash
+#     $env:INCUNEST_PPG_TIMING = "1"
+#     idf.py reconfigure build flash
+#
+# EL RECONFIGURE NO ES OPCIONAL: sobre un build/ ya configurado, idf.py build
+# a secas NO vuelve a leer este CMakeLists solo porque cambio una variable de
+# entorno (ninja no rastrea eso como dependencia), asi que produce un binario
+# SIN instrumentar mientras parece que si se instrumento. Lo mismo para
+# apagarla:
+#
+#     Remove-Item Env:\INCUNEST_PPG_TIMING
+#     idf.py reconfigure build
+#
+# LA UNICA SENAL FIABLE de que esta encendida es el message(WARNING) de mas
+# abajo en la salida del configure ("INCUNEST_PPG_TIMING: ... ACTIVADA"). Si
+# no lo ves en pantalla, no se activo, aunque el build termine bien.
 #
 # Emite una trama "$TIMING,..." cada 5 s (2500 muestras a 500 Hz) con media y
 # maximo de hr1/hr2/hr3/spo2, del CICLO y de los computos asincronos, mas la
