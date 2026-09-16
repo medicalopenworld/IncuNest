@@ -6,6 +6,11 @@
 #include "modules/debug/debug_mode.h"
 #include "state/training_mode.h"
 #include "ui.h"
+#include "platform/plat_nvs.h"
+#include "config/EEPROM_defines.h"
+#include "drivers/rtc_pcf8563.h"
+#include "drivers/rtc_store.h"
+#include "drivers/rtc_write_policy.h"
 #include <cstdio>
 #include <cstdlib>
 // lround(), para setpointKey(). En PlatformIO lo traia Arduino.h; el porte a
@@ -301,6 +306,91 @@ static bool localCmdHoldsLocal(LocalCmdGuard *g, int echoed, const char *what) {
 // Motherboard-provided wall clock (CTRL,TIME). 0 = not synced there yet.
 static uint32_t s_mbEpoch = 0;
 static uint32_t s_mbEpochAtMs = 0;
+// Rango de la fuente que fijo ese epoch en la motherBoard (campo `src`).
+// PROTO_TIME_SOURCE_NONE tambien cuando la placa es anterior a esta feature y
+// no envia el campo.
+static Proto_TimeSource s_mbTimeSrc = PROTO_TIME_SOURCE_NONE;
+
+// --- RTC del HMI (PCF8563) ------------------------------------------------
+//
+// El HMI no decide nada sobre la hora: la autoridad sigue siendo la
+// motherBoard. Lo unico que aporta este chip es MEMORIA — es la unica pieza
+// del equipo que conserva la hora con la alimentacion cortada. Asi que el HMI
+// lo lee al arrancar para ofrecerselo a la placa, y lo escribe con lo que la
+// placa difunda cuando merece la pena.
+
+// Terna guardada en NVS junto a lo ultimo escrito en el chip. El PCF8563
+// guarda el instante y nada mas.
+static RtcStoredTz s_rtcStored = {0, 0, PROTO_TIME_SOURCE_NONE};
+// Lo que el chip tenia al arrancar, 0 si no tenia hora creible. Se usa para
+// medir la deriva sin volver a leer el chip en cada difusion.
+static uint32_t s_rtcEpochAtBoot = 0;
+static uint32_t s_rtcEpochAtBootMs = 0;
+// La semilla deja de enviarse en cuanto la motherBoard anuncia hora, y no
+// vuelve hasta el siguiente reinicio.
+static bool s_rtcSeedDone = false;
+
+// Lo que el chip deberia marcar AHORA, extrapolando desde la lectura del
+// arranque. Evita ocupar el bus del tactil en cada CTRL,TIME solo para saber
+// si hay deriva. Es una estimacion: la deriva real del cristal frente al reloj
+// del ESP32 es de segundos al mes, muy por debajo del umbral de escritura.
+static uint32_t rtcEstimatedNow(void) {
+  if (s_rtcEpochAtBoot == 0) return 0;
+  return s_rtcEpochAtBoot + (millis() - s_rtcEpochAtBootMs) / 1000u;
+}
+
+// Lee el chip y la NVS al arrancar, y ofrece la semilla si hay algo creible.
+static void rtcSeedInit(void) {
+  NvsPrefs p;
+  if (p.begin(HMI_NS_CFG, true)) {
+    rtc_store_unpack(p.getUInt(HMI_KEY_RTC_TZ, RTC_STORE_EMPTY), &s_rtcStored);
+    p.end();
+  }
+
+  uint32_t epoch = 0;
+  if (!rtcRead(&epoch)) {
+    // Chip ausente, pila agotada (flag VL) o contenido no creible. No es un
+    // error: el equipo arranca sin fecha exactamente como hasta ahora.
+    COMM_LOG("[RTC] sin hora utilizable al arrancar\n");
+    return;
+  }
+  s_rtcEpochAtBoot = epoch;
+  s_rtcEpochAtBootMs = millis();
+
+  // La terna viaja ENTERA con el epoch. Si la NVS no tenia nada, van ceros,
+  // que el protocolo ya interpreta como "hay hora, no hay zona".
+  COMM_SERIAL.printf("HMI,RTC_TIME,%lu,%d,%u\n", (unsigned long)epoch,
+                     (int)s_rtcStored.tzQuarters,
+                     (unsigned)s_rtcStored.tzSource);
+  COMM_LOG("[RTC] semilla ofrecida, epoch %lu\n", (unsigned long)epoch);
+}
+
+// Guarda en el chip lo que acaba de llegar, si merece la pena.
+static void rtcMaybeWrite(uint32_t epoch, Proto_TimeSource src, int8_t tzq,
+                          uint8_t tzsrc) {
+  if (!rtc_should_write(epoch, src, rtcEstimatedNow(), s_rtcStored.src)) {
+    return;
+  }
+  if (!rtcWrite(epoch)) {
+    COMM_LOG("[RTC] escritura fallida\n");
+    return;
+  }
+  s_rtcEpochAtBoot = epoch;
+  s_rtcEpochAtBootMs = millis();
+
+  // La terna se escribe DESPUES del chip y como una sola clave: si el corte
+  // llega entre las dos, es preferible un chip con hora buena y una zona vieja
+  // que una zona nueva junto a una hora que no se llego a escribir.
+  const RtcStoredTz tz = {tzq, tzsrc, src};
+  NvsPrefs p;
+  if (p.begin(HMI_NS_CFG, false)) {
+    p.putUInt(HMI_KEY_RTC_TZ, rtc_store_pack(&tz));
+    p.end();
+  }
+  s_rtcStored = tz;
+  COMM_LOG("[RTC] escrito, epoch %lu, src %d\n", (unsigned long)epoch,
+           (int)src);
+}
 // Zona horaria, tambien propiedad de la placa. El epoch de arriba es UTC
 // SIEMPRE; esto solo se aplica al formatear para una persona.
 static int8_t  s_tzQuarters = 0;
@@ -872,22 +962,56 @@ static void parse_message(const char *line) {
     }
   } else if (strncmp(line, "CTRL,TIME,", 10) == 0) {
     unsigned long epoch = 0;
-    int tzq = 0, tzsrc = 0;
-    // Los dos campos de zona son opcionales a proposito: una motherBoard
+    int tzq = 0, tzsrc = 0, src = 0;
+    // Los tres campos de detras son opcionales a proposito: una motherBoard
     // anterior a esta feature manda solo el epoch, y ahi lo correcto es
-    // quedarse sin hora local en vez de descartar tambien la hora.
-    const int n = sscanf(line, "CTRL,TIME,%lu,%d,%d", &epoch, &tzq, &tzsrc);
+    // quedarse sin hora local en vez de descartar tambien la hora. Se cuenta
+    // lo que sscanf logro leer, nunca se indexa a ciegas.
+    const int n =
+        sscanf(line, "CTRL,TIME,%lu,%d,%d,%d", &epoch, &tzq, &tzsrc, &src);
     if (n >= 1) {
       s_mbEpoch = (uint32_t)epoch;
       s_mbEpochAtMs = millis();
-      if (n == 3 && tzsrc >= 0 && tzsrc <= 3 && tzq >= -48 && tzq <= 56) {
+      if (n >= 3 && tzsrc >= 0 && tzsrc <= 3 && tzq >= -48 && tzq <= 56) {
         s_tzQuarters = (int8_t)tzq;
         s_tzSource   = (uint8_t)tzsrc;
-      } else if (n != 3) {
+      } else if (n < 3) {
         s_tzSource = 0;  // placa antigua: hay hora, no hay zona
       }
       // Campos presentes pero fuera de rango: se descartan callando y se
       // conserva lo ultimo bueno, en vez de aceptar un offset imposible.
+
+      // `src` es el rango de la fuente del EPOCH, escala distinta de `tzsrc`.
+      // Sin el campo se queda en NONE, y rtc_should_write() no escribe con
+      // fuente desconocida.
+      const Proto_TimeSource newSrc =
+          (n >= 4 && src >= 0 && src <= PROTO_TIME_SOURCE_MANUAL)
+              ? (Proto_TimeSource)src
+              : PROTO_TIME_SOURCE_NONE;
+      // Solo al CAMBIAR, nunca en cada difusion: este log sale por UART0, que
+      // es el MISMO cable que el enlace con la placa. Un log cada 10 s seria
+      // exactamente el trafico periodico que known_issues #2 desaconseja.
+      if (newSrc != s_mbTimeSrc) {
+        COMM_LOG("[COMM] fuente de hora: %d -> %d (campos leidos %d)\n",
+                 (int)s_mbTimeSrc, (int)newSrc, n);
+      }
+      s_mbTimeSrc = newSrc;
+
+      if (s_mbEpoch != 0) {
+        // La placa ya tiene hora: la semilla deja de ofrecerse hasta el
+        // siguiente reinicio. Es lo que mantiene el mensaje episodico y no
+        // periodico (known_issues #2).
+        s_rtcSeedDone = true;
+        rtcMaybeWrite(s_mbEpoch, s_mbTimeSrc, s_tzQuarters, s_tzSource);
+      } else if (!s_rtcSeedDone && s_rtcEpochAtBoot != 0) {
+        // La placa sigue sin hora y nosotros si la tenemos. Se reofrece una
+        // vez POR CADA difusion recibida, nunca por nuestra cuenta: asi el
+        // ritmo lo marca ella y el enlace no gana trafico propio.
+        COMM_SERIAL.printf("HMI,RTC_TIME,%lu,%d,%u\n",
+                           (unsigned long)rtcEstimatedNow(),
+                           (int)s_rtcStored.tzQuarters,
+                           (unsigned)s_rtcStored.tzSource);
+      }
     } else {
       COMM_LOG("[COMM] TIME parse error: %s\n", line);
     }
@@ -1521,6 +1645,9 @@ void Comm_Task(void *pvParameters) {
   COMM_SERIAL.begin(COMM_BAUD_RATE);
 
   Communication_SendBootInfo();
+  // Antes de pedir el estado: si la placa arranca sin red, cuanto antes tenga
+  // la semilla antes deja de haber registros sin fecha.
+  rtcSeedInit();
   Communication_RequestState();
   g_lastStateReqMs = millis();
   s_lastCommPassMs = millis();

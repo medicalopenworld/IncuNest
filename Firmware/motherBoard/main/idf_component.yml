@@ -16,7 +16,7 @@ dependencies:
   ## Firmware/components/thingsboard. Motivo, resumido: v0.13.0 no compila
   ## contra ESP-IDF 6 (mbedtls 4) y no hay ninguna version publicada que si lo
   ## haga — v0.15.0 esta rota de otra forma y el proyecto no publica desde
-  ## diciembre de 2024. El delta frente a upstream son dos parches, descritos
+  ## diciembre de 2024. El delta frente a upstream son siete parches, descritos
   ## en components/thingsboard/PATCHES.md.
 
   ## ArduinoJson 6.x, pineada igual que antes. La usan el SDK de ThingsBoard,

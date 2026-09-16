@@ -246,10 +246,14 @@ extern volatile bool     g_pendingProfileAck;
 extern uint32_t          g_profileAck;
 
 // --- Wall clock, owned by the motherBoard (CTRL,TIME) ---------------------
-// The HMI has no RTC and does no NTP of its own, so the motherBoard's synced
-// epoch is the only clock available here. Returns 0 while the motherBoard
-// reports "not synced" (or before the first CTRL,TIME arrives).
-// Interpolates with millis() between the 10 s broadcasts.
+// La motherBoard es la unica AUTORIDAD de hora: arbitra entre manual, NTP, el
+// RTC de aqui y NITZ, y es la unica que fija el reloj. El HMI SI tiene un
+// PCF8563 con pila (I2C 0x51), pero no decide nada con el: lo lee al arrancar
+// para ofrecerle la semilla a la placa (HMI,RTC_TIME) y lo escribe con lo que
+// ella difunda. Es memoria entre apagados, no un segundo reloj.
+//
+// Devuelve 0 mientras la motherBoard diga "sin sincronizar" (o antes del
+// primer CTRL,TIME). Interpola con millis() entre las difusiones de 10 s.
 uint32_t HMI_GetEpochNow();
 
 // --- Zona horaria, tambien propiedad de la motherBoard --------------------

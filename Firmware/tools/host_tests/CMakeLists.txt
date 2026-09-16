@@ -25,6 +25,7 @@ set(CMAKE_C_STANDARD 11)
 set(FW_ROOT "${CMAKE_CURRENT_LIST_DIR}/../..")
 set(MB_ROOT "${FW_ROOT}/motherBoard")
 set(SHARED_ROOT "${FW_ROOT}/shared")
+set(HMI_ROOT "${FW_ROOT}/Display_HMI")
 
 # ---- ArduinoJson (cabeceras) ----------------------------------------------
 # La usan wifi_dwell.cpp, sb_json_codec.cpp y sb_telemetry.cpp. Se toma la
@@ -64,8 +65,9 @@ set(MB_SOURCES
   modules/factory_test/ftest_summary.cpp
   modules/baby_profile/baby_profile_core.cpp
   modules/baby_profile/baby_profile_protocol.cpp
-  modules/util/civil_time.cpp
   modules/util/tz_source.cpp
+  modules/util/time_source.cpp
+  modules/util/time_protocol.cpp
   modules/util/wifi_dwell.cpp
   modules/util/ip_geoloc.cpp
   modules/baby_profile/baby_cloud.cpp
@@ -78,13 +80,29 @@ set(MB_SOURCES
   modules/sensorboard_comm/sb_telemetry.cpp
 )
 list(TRANSFORM MB_SOURCES PREPEND "${MB_ROOT}/src/")
+
+# ---- Logica pura del Display_HMI ------------------------------------------
+# El HMI no tenia NINGUNA cobertura de host: no existe un [env:native] suyo y
+# casi todo su arbol toca LVGL o el bus I2C. Estos dos si son puros, y son
+# justo donde se esconden los errores caros del RTC — BCD mal leido, el bit de
+# siglo, el flag de pila baja ignorado, escribir el chip cuando no toca.
+#
+# Aqui solo entra lo que no incluye Arduino, LVGL ni platform/: el driver que
+# mueve bytes por el bus se queda fuera y se verifica en banco.
+set(HMI_SOURCES
+  drivers/rtc_pcf8563_codec.cpp
+  drivers/rtc_write_policy.cpp
+  drivers/rtc_store.cpp
+)
+list(TRANSFORM HMI_SOURCES PREPEND "${HMI_ROOT}/src/")
 file(GLOB SHARED_SOURCES "${SHARED_ROOT}/src/*.cpp")
 
-add_library(under_test STATIC ${MB_SOURCES} ${SHARED_SOURCES})
+add_library(under_test STATIC ${MB_SOURCES} ${SHARED_SOURCES} ${HMI_SOURCES})
 target_include_directories(under_test PUBLIC
   "${MB_ROOT}/src"
   "${MB_ROOT}/include"
   "${MB_ROOT}/include/config"
+  "${HMI_ROOT}/src"
   "${SHARED_ROOT}/include"
   "${ARDUINOJSON_INCLUDE}")
 target_compile_definitions(under_test PUBLIC NATIVE_TEST)
@@ -92,7 +110,7 @@ target_link_libraries(under_test PUBLIC unity)
 
 # ---- Una suite por directorio test_*/ -------------------------------------
 enable_testing()
-file(GLOB SUITE_DIRS LIST_DIRECTORIES true "${MB_ROOT}/test/test_*")
+file(GLOB SUITE_DIRS LIST_DIRECTORIES true "${MB_ROOT}/test/test_*" "${HMI_ROOT}/test/test_*")
 foreach(dir ${SUITE_DIRS})
   if(NOT IS_DIRECTORY "${dir}")
     continue()
