@@ -13,6 +13,7 @@ idf_component_register(
     "src/alarm_audio_pattern.cpp"
     "src/alarm_policy.cpp"
     "src/alarm_text.cpp"
+    "src/civil_time.cpp"
     "src/factory_test.cpp"
     "src/fw_image_tag.cpp"
     "src/nte_table.cpp"

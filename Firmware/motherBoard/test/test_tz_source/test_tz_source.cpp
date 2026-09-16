@@ -186,6 +186,33 @@ void test_manual_counts_as_known(void) {
   TEST_ASSERT_TRUE(tz_source_known());
 }
 
+// --- El huso se ordena aparte del instante ---------------------------------
+//
+// Al meter el RTC del HMI en la jerarquia de fuentes de HORA, NITZ bajo al
+// ultimo puesto: muchos operadores no lo emiten, o lo emiten con minutos de
+// error. Pero para el HUSO sigue siendo la MEJOR fuente, porque la antena esta
+// fisicamente donde esta el equipo. Son dos escalas distintas y este par de
+// tests existe para que nadie las funda "simplificando".
+
+// El caso cruzado que importa: un NITZ que NO puede fijar el reloj —porque ya
+// lo fijo NTP, que gana— tiene que seguir aportando su offset.
+void test_nitz_still_wins_the_zone_after_losing_the_clock(void) {
+  TEST_ASSERT_TRUE(tz_source_set(8, TZ_SOURCE_IP));
+  // El reloj lo puso NTP; aqui solo llega la zona del modem.
+  TEST_ASSERT_TRUE(tz_source_set(4, TZ_SOURCE_NITZ));
+  TEST_ASSERT_EQUAL_INT(4, tz_source_quarters());
+  TEST_ASSERT_EQUAL_INT(TZ_SOURCE_NITZ, tz_source_origin());
+}
+
+// Y al reves: la escala del huso no conoce ni NTP ni RTC, asi que nada de lo
+// que pase con el instante debe degradar un huso ya resuelto por NITZ.
+void test_zone_survives_a_better_clock_source(void) {
+  TEST_ASSERT_TRUE(tz_source_set(4, TZ_SOURCE_NITZ));
+  TEST_ASSERT_FALSE(tz_source_set(8, TZ_SOURCE_IP));
+  TEST_ASSERT_EQUAL_INT(4, tz_source_quarters());
+  TEST_ASSERT_EQUAL_INT(TZ_SOURCE_NITZ, tz_source_origin());
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_starts_unknown);
@@ -209,5 +236,7 @@ int main(int, char **) {
   RUN_TEST(test_manual_overrides_ip_and_nitz);
   RUN_TEST(test_nothing_overrides_manual);
   RUN_TEST(test_manual_counts_as_known);
+  RUN_TEST(test_nitz_still_wins_the_zone_after_losing_the_clock);
+  RUN_TEST(test_zone_survives_a_better_clock_source);
   return UNITY_END();
 }
