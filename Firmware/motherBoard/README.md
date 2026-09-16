@@ -33,14 +33,13 @@ La Motherboard actúa como el "Guardian de Seguridad":
 
 ## Compilación
 
-> **Nota:** los comandos `pio run` de más abajo son de antes del port a
-> ESP-IDF y están sin actualizar. El port se construye con `idf.py`.
+> **Nota:** esta sección cubre el build con ESP-IDF (`idf.py`). Otras secciones de este README pueden ser anteriores al port y estar desactualizadas.
 
 ### Requisito previo: submódulos
 
-`components/incunest_afe4490` es un **submódulo de git** (la librería del
+`Firmware/components/incunest_afe4490` es un **submódulo de git** (la librería del
 frontal de SpO2, pineada en `v0.92`). Un clon sin `--recursive` deja ese
-directorio vacío y el build aborta con un `FATAL_ERROR` que te manda aquí.
+directorio vacío y el build aborta con un error que te indica cómo clonarlo correctamente.
 
 ```bash
 # Al clonar
