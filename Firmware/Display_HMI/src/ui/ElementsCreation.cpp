@@ -918,8 +918,15 @@ void ui_ScreenIntro_screen_init(void) {
 // ui_ScreenMain y su replica en ui_ScreenLock (ver
 // "mantener IncuNest/reloj/conectividad en la pantalla de bloqueo"): ambas
 // instancias las refresca connectivity_heading_update() (UITask.cpp).
+//
+// `onDarkBg` solo fija el tono de arranque de las barras vacias, para que la
+// instancia de ui_ScreenLock (fondo 0x242323) no se vea con las 4 llenas
+// durante la ventana que va de crear la pantalla al primer
+// connectivity_heading_update(). A partir de ahi manda esa funcion, que
+// recibe el mismo flag.
 static void create_heading_conn_indicator(lv_obj_t *parent, lv_coord_t x,
-                                          lv_coord_t y, lv_obj_t **outCont,
+                                          lv_coord_t y, bool onDarkBg,
+                                          lv_obj_t **outCont,
                                           lv_obj_t **outIcon,
                                           lv_obj_t *outBars[4]) {
   lv_obj_t *cont = lv_obj_create(parent);
@@ -940,14 +947,21 @@ static void create_heading_conn_indicator(lv_obj_t *parent, lv_coord_t x,
   lv_label_set_text(icon, "");
   lv_obj_set_style_text_font(icon, &lv_font_montserrat_14,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_text_color(icon, lv_color_hex(0x888888), LV_PART_MAIN);
+  lv_obj_set_style_text_color(
+      icon, onDarkBg ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x888888),
+      LV_PART_MAIN);
   *outIcon = icon;
 
   // 4 barras estilo "senal de movil", altura creciente, apoyadas en la misma
-  // base, centradas bajo el texto/icono de arriba. Sin fill = gris claro; con
-  // fill = azul si la placa esta en ThingsBoard y negro si no (ver
-  // apply_connectivity_indicator() en UITask.cpp). El nivel a colorear
-  // (linkBars) llega en CTRL,STATE.
+  // base, centradas bajo el texto/icono de arriba. Sobre fondo claro, sin
+  // fill = gris claro y con fill = el color de estado (verde si la placa esta
+  // en ThingsBoard, negro si no); sobre el fondo oscuro del bloqueo, sin fill
+  // = 0x555555 y con fill = blanco. Todo eso lo pinta
+  // apply_connectivity_indicator() en UITask.cpp; aqui solo se deja el
+  // "vacio" que corresponda al fondo. El nivel a colorear (linkBars) llega en
+  // CTRL,STATE.
+  const lv_color_t emptyCol =
+      onDarkBg ? lv_color_hex(0x555555) : lv_color_hex(0xDDDDDD);
   static const lv_coord_t BAR_H[4] = {8, 13, 18, 23};
   for (int i = 0; i < 4; i++) {
     lv_obj_t *bar = lv_obj_create(cont);
@@ -958,7 +972,7 @@ static void create_heading_conn_indicator(lv_obj_t *parent, lv_coord_t x,
     lv_obj_set_x(bar, 4 + i * 9);
     lv_obj_set_y(bar, -2);
     lv_obj_set_style_radius(bar, 1, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(bar, lv_color_hex(0xDDDDDD), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(bar, emptyCol, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_MAIN);
     outBars[i] = bar;
   }
@@ -1049,7 +1063,8 @@ void ui_ScreenMain_screen_init(void) {
   // centro exacto del heading; este widget vive en el hueco a su izquierda,
   // justo despues del reloj, sin invadir su zona tactil ni su area visual.
   create_heading_conn_indicator(ui_ScreenMain, HEADING_SLOT2_CONN, -213,
-                                &ui_ConnCont, &ui_ConnIcon, ui_ConnBar);
+                                /*onDarkBg=*/false, &ui_ConnCont, &ui_ConnIcon,
+                                ui_ConnBar);
 
   ui_Settings = lv_imgbtn_create(ui_ScreenMain);
   lv_imgbtn_set_src(ui_Settings, LV_IMGBTN_STATE_RELEASED, NULL,
@@ -3570,7 +3585,7 @@ void ui_ScreenLock_screen_init(void) {
                               LV_PART_MAIN);
 
   create_heading_conn_indicator(ui_ScreenLock, HEADING_SLOT2_CONN, -213,
-                                &ui_LockHeadingConnCont,
+                                /*onDarkBg=*/true, &ui_LockHeadingConnCont,
                                 &ui_LockHeadingConnIcon,
                                 ui_LockHeadingConnBar);
 
