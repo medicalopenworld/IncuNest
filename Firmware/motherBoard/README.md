@@ -33,10 +33,56 @@ La Motherboard actúa como el "Guardian de Seguridad":
 
 ## Compilación
 
+> **Nota:** los comandos `pio run` de más abajo son de antes del port a
+> ESP-IDF y están sin actualizar. El port se construye con `idf.py`.
+
+### Requisito previo: submódulos
+
+`components/incunest_afe4490` es un **submódulo de git** (la librería del
+frontal de SpO2, pineada en `v0.92`). Un clon sin `--recursive` deja ese
+directorio vacío y el build aborta con un `FATAL_ERROR` que te manda aquí.
+
 ```bash
-# Compilar para v1.5 (S3)
-pio run -e in3ator_V15
-pio run -e in3ator_V15 -t upload
+# Al clonar
+git clone --recursive <url-del-repo>
+
+# O si ya clonaste sin --recursive
+git submodule update --init --recursive
+```
+
+### Build
+
+```powershell
+# Desde PowerShell. idf.py NO funciona bajo Git Bash: avisa de MSys/Mingw,
+# no construye nada y aun asi sale con codigo 0.
+Set-Location Firmware\motherBoard
+idf.py build
+idf.py -p COM30 flash monitor
+```
+
+### Build de diagnóstico: tiempos del PPG
+
+Instrumenta la librería del AFE4490 y emite una trama `$TIMING` cada 5 s con
+medias y máximos por etapa, incluidos `spi_mean`/`spi_max`. **No es un binario
+de producción** (cuesta dos lecturas de `esp_timer` por muestra a 500 Hz):
+
+```powershell
+$env:INCUNEST_PPG_TIMING = "1"
+idf.py reconfigure build flash monitor
+```
+
+**Importante:** `idf.py build` a secas no vuelve a ejecutar el configure de CMake
+si solo cambió una variable de entorno. Hace falta `idf.py reconfigure` (o
+`idf.py fullclean`) después de poner (o quitar) la variable. La única señal
+fiable de que se activó es un `message(WARNING)` en la salida del configure que
+dice `INCUNEST_PPG_TIMING: ... ACTIVADA`. Sin ese warning, el binario está sin
+instrumentar aunque el build haya terminado.
+
+Para volver al binario de producción:
+
+```powershell
+Remove-Item Env:\INCUNEST_PPG_TIMING
+idf.py reconfigure build
 ```
 
 ---
