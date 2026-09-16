@@ -1521,8 +1521,10 @@ static void publishBabyCloudDataWIFI() {
 
   if (babyStore_attributesDirty()) {
     const BabyProfile *occ = babyStore_currentOccupant();
-    int n = occ ? babyCloud_buildAttributesJson(occ, json, sizeof(json))
-                : babyCloud_buildEmptyAttributesJson(json, sizeof(json));
+    const uint32_t total = babyStore_totalRegistered();
+    int n = occ ? babyCloud_buildAttributesJson(occ, total, json, sizeof(json))
+                : babyCloud_buildEmptyAttributesJson(total, json,
+                                                     sizeof(json));
     if (n > 0 && tb_wifi.sendAttributeJson(json)) {
       babyStore_clearAttributesDirty();
     }

@@ -35,10 +35,20 @@ Publicados cuando cambia algo del perfil, y una vez al arrancar.
 | `baby_kangaroo_count` | int | Salidas con la madre |
 | `baby_phototherapy_min` | int | Minutos acumulados **de este bebé** |
 | `baby_thermo_min` | int | Minutos acumulados **de este bebé** |
+| `babies_registered_total` | int | Altas acumuladas **de esta incubadora** desde siempre |
 
 Al quedar vacía la incubadora, todas las claves se publican **a cero o vacío**,
 nunca se omiten: una clave omitida conserva su valor anterior en ThingsBoard y
 dejaría al bebé dado de alta colgado en la tarjeta.
+
+**`babies_registered_total` es la excepción**: describe el equipo, no a su
+ocupante, así que **no** se pone a cero con el resto — viaja igual en el
+payload de incubadora vacía, y por eso una unidad que arranca sin nadie dentro
+publica igualmente su número. Sale de `nextSeq-1`, el contador de secuencias
+repartidas, que no baja al archivar un perfil ni al desalojar un slot. Lo
+único que lo devuelve a `0` es un `/config,BABY_WIPE,1234`, que borra también
+los registros que contaba. En el cuadro de mando va con las tarjetas del
+equipo, no con las del paciente: sin prefijo `baby_` justo por eso.
 
 > **No confundir** `baby_phototherapy_min` / `baby_thermo_min` (por paciente)
 > con `Phototherapy_active_time` / `Control_active_time`, que son contadores de
