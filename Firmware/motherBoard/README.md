@@ -41,6 +41,9 @@ La Motherboard actúa como el "Guardian de Seguridad":
 frontal de SpO2, pineada en `v0.92`). Un clon sin `--recursive` deja ese
 directorio vacío y el build aborta con un error que te indica cómo clonarlo correctamente.
 
+Los comandos siguientes se ejecutan **desde la raíz del repo**, no desde
+`Firmware/motherBoard/`:
+
 ```bash
 # Al clonar
 git clone --recursive <url-del-repo>
