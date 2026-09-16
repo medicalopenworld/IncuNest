@@ -71,7 +71,11 @@ void Maintenance_Init(void) {
   }
   s_snoozeUntil = p.getUInt(HMI_KEY_MNT_SNOOZE, 0);
   s_lastSeq = p.getUInt(HMI_KEY_MNT_SEQ, 0);
-  s_enabled = p.getUChar(HMI_KEY_MNT_EN, 1) != 0;
+  // Por defecto DESACTIVADO (peticion para la tanda de fabricacion del
+  // 2026-09-17). Solo afecta a una NVS virgen, que es el caso de una unidad
+  // recien fabricada: en una unidad que ya tenga la clave guardada manda su
+  // valor, no este. El interruptor de Ajustes lo enciende por unidad.
+  s_enabled = p.getUChar(HMI_KEY_MNT_EN, 0) != 0;
   s_terminalPending = p.getUChar(HMI_KEY_MNT_TPEND, 0) != 0;
   p.end();
 
