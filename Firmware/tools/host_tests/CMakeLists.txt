@@ -67,6 +67,7 @@ set(MB_SOURCES
   modules/util/civil_time.cpp
   modules/util/tz_source.cpp
   modules/util/time_source.cpp
+  modules/util/time_protocol.cpp
   modules/util/wifi_dwell.cpp
   modules/util/ip_geoloc.cpp
   modules/baby_profile/baby_cloud.cpp
