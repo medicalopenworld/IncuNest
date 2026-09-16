@@ -95,6 +95,19 @@ const BabyProfile *babyStore_currentOccupant() {
 bool babyStore_attributesDirty() { return s_attributesDirty; }
 void babyStore_clearAttributesDirty() { s_attributesDirty = false; }
 
+// nextSeq is handed out once and never reused (design decision 3), and it is
+// persisted BEFORE the slot is marked used, so "seqs handed out" is exactly
+// how many admissions this unit has recorded. Reading it beats counting
+// slots or archive records: slots get evicted and the archive is a circular
+// file, so both undercount an old unit.
+// The 0 guard is defensive, not reachable today: s_nextSeq starts at 1, only
+// ever increments, and NVS defaults it to 1. But a corrupt entry reading 0
+// would underflow into 4294967295 and publish that to the ministry dashboard
+// as an admission count, which is worse than publishing nothing sensible.
+uint32_t babyStore_totalRegistered() {
+  return s_nextSeq > 0 ? s_nextSeq - 1 : 0;
+}
+
 // ---------------- Time ----------------
 
 uint32_t babyStore_nowEpoch() {
