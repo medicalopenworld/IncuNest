@@ -16,7 +16,7 @@ using std::isfinite;
 // La cola de inyeccion del modo depuracion la drena ESTA tarea; ver
 // modules/debug/debug_mode.h para por que no la drena el manejador HTTP.
 extern "C" bool debug_inject_take(char *out, size_t out_len);
-#include "modules/util/civil_time.h"
+#include "civil_time.h"
 #include "modules/util/system_clock.h"
 #include "modules/util/time_protocol.h"
 #include "tasks/PID.h"
