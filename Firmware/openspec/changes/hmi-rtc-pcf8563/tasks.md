@@ -89,9 +89,30 @@ Firmware verificado: `v17.0.0-743-gc87a559` en las dos placas.
 - [x] 9.9 Las dos ramas de GPRS se ejecutan por separado y fallan cada una con su motivo propio.
 - [x] 9.10 Cruce de versiones con HMI nuevo y MB antigua (via OTA a una imagen previa): enlace sano, 266 envios de estado, 285 comandos recibidos, 1 descarte silencioso. El HMI no escribio el RTC porque una MB que no declara `src` se lee como fuente desconocida.
 
-**Lo que este banco no pudo probar:** no tiene fuente de hora automatica. El DNS de
-la red no resuelve (sin SNTP por WiFi), Vodafone no emite NITZ y el NTP sobre PDP
-falla. Queda pendiente ver a NTP corrigiendo al RTC en una unidad con red buena.
+**Lo que este banco no pudo probar, y con que precision se sabe:**
+
+Queda pendiente ver a NTP corrigiendo al RTC, porque durante estas pruebas el
+equipo nunca llego a sincronizar por red. Pero el motivo NO es "esta red no
+tiene DNS", como se escribio en un primer momento:
+
+- El DNS **si** resolvia en parte: la geolocalizacion por IP funciono
+  (`Position from IP lookup`), lo que exige resolver ip-api.com. Lo que fallaba
+  era `mon.medicalopenworld.org`, el servidor de ThingsBoard.
+- Otra sesion capturo esa misma manana, en esa misma red, arranques con el
+  reloj ya puesto al llegar a la comprobacion del modem. O sea que el fallo es
+  **intermitente**, no una propiedad de la red.
+- Lo unico medido con certeza: en dos ventanas seguidas con firmware nuevo y
+  arranque limpio, el reloj siguio a 0 durante ~180 s (16 difusiones) con la
+  geolocalizacion por IP ya resuelta.
+
+Cuidado con `[GPRS] -> time already synced (WiFi NTP)` como prueba de que SNTP
+funciono: ese mensaje saltaba con el reloj puesto por CUALQUIER fuente, y en
+estas pruebas salio con la hora tecleada en `/config` y con la sembrada desde el
+RTC. El texto se corrigio para que diga el rango real.
+
+De las otras dos fuentes si hay dato firme: Vodafone no emite NITZ (`NITZ clock
+not valid yet` en todos los intentos, de las dos sesiones) y el NTP sobre PDP
+fallo siempre (`NTP over PDP failed`).
 
 **Aviso para la proxima sesion de banco:** la unidad tiene OTA activa y durante
 estas pruebas volvio sola a una imagen anterior (arranco desde `0x2b0000`, la
