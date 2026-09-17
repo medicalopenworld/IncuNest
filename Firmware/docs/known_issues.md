@@ -305,3 +305,48 @@ build before trusting any observation.
     the proposed value (not the previous setpoint) for at least 30 s. Repeat
     for SKIN and for phototherapy. Unplug the HMI↔MB cable for ~5 s while
     control is ON and reconnect: control must still be ON afterwards.
+
+## 11. Control (or phototherapy) switches itself OFF milliseconds after being turned on (residual race of #10)
+
+*   **Symptom**: flip temperature control or phototherapy ON and a few
+    *milliseconds* later it goes back OFF on its own, as if OFF had been
+    pressed. Intermittent — it depends on the exact instant of the tap.
+*   **How it differs from #10**: #10 is the *baby wizard* shape and takes a
+    second or two (the command's round trip). This one is immediate and hits a
+    plain switch tap. The confirmation guard from #10 is present and correct;
+    what failed is *when* it gets armed.
+*   **Root cause**: the guard was armed only by `Comm_Task`'s 10 ms poll
+    (`CommTask.cpp`, `trackLocalCmdGuard`), while the decision is taken by
+    `UITask` inside `Display_ApplyCtrlState()`. Between the operator's tap
+    (UITask writes `hmi_msg`) and the next poll there is a window of up to
+    10 ms:
+
+    ```
+    t=0      Comm_Task parses a CTRL,STATE that predates the command
+    t=+1ms   operator taps  -> UITask writes hmi_msg.actuation = 1
+    t=+2ms   UITask reaches Display_ApplyCtrlState -> `pending` is still false
+             -> the stale echo wins, hmi_msg is rewritten, switch paints OFF
+    t=+10ms  Comm_Task polls -> sees 0, equal to lastSeen -> "no change"
+             -> the guard is NEVER armed
+    ```
+
+    Because the guard never armed, the `<field> sin confirmar en N ms` line
+    never fires either: the defect leaves **no trace in the log**, which is why
+    it survived the #10 work.
+*   **Fix (implemented)**: `Display_ApplyCtrlState()` now arms all seven guards
+    itself, immediately before consulting them. Arming and deciding happen in
+    the same task and the same instant, so the window is gone. `Comm_Task`'s
+    poll stays: it is idempotent, and it is what leaves `changedAtMs` at the
+    real instant of the change, which the `LOCAL_CMD_CONFIRM_TIMEOUT_MS` safety
+    net hangs from.
+*   **What did NOT change**: recovery after an HMI reboot (#4). `g_stateSynced`
+    is set *after* `Display_ApplyCtrlState()` returns, so on the first frame the
+    new arming call takes the `!g_stateSynced` branch and arms nothing — a
+    freshly booted display still inherits the board's real state instead of
+    imposing its start-up "everything off".
+*   **Bench verification**: flip temperature control ON and OFF ~20 times in a
+    row at a normal pace, then the same for phototherapy. Expected: every ON
+    stays ON. If one still drops, capture both serial ports and check whether
+    `sin confirmar en 10000 ms` appears — with the line it is the board
+    refusing the command (a different defect); without it, the race is not
+    fully closed.

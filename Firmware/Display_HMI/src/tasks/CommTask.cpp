@@ -1273,6 +1273,42 @@ bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
     LVGL_Unlock();
     return true;
   }
+  // Armar la guarda AQUI, en el mismo instante y la misma tarea en que se
+  // consulta. Cierra una ventana de carrera de hasta 10 ms (banco
+  // 2026-09-17).
+  //
+  // Hasta ahora la guarda se armaba solo en el sondeo de 10 ms de Comm_Task,
+  // pero quien decide es UITask, que es donde corre esta funcion. Entre que
+  // el operador toca el switch (UITask escribe hmi_msg) y el siguiente sondeo
+  // de Comm_Task cabe un CTRL,STATE viejo ya parseado y en espera:
+  //
+  //   t=0     Comm_Task parsea un CTRL,STATE anterior a la orden
+  //   t=+1ms  el operador toca -> UITask escribe hmi_msg.actuation = 1
+  //   t=+2ms  UITask entra aqui -> `pending` sigue false (nadie sondeo aun)
+  //           -> gana el eco viejo, se reescribe hmi_msg, el switch pinta OFF
+  //   t=+10ms Comm_Task sondea -> ve 0, igual que lastSeen -> "sin cambios"
+  //           -> la guarda no se arma NUNCA
+  //
+  // El sintoma es el switch apagandose solo a los pocos milisegundos de
+  // encenderlo, como si se hubiera pulsado OFF, y sin dejar rastro: la linea
+  // "<campo> sin confirmar" no sale porque la guarda ni llego a armarse. Es
+  // una ventana distinta de la del asistente (known_issues.md #10, de un
+  // segundo o dos), y por eso sobrevivio a aquel arreglo.
+  //
+  // Armando aqui, `trackLocalCmdGuard` lee hmi_msg con el valor que el
+  // operador acaba de poner y arma antes de que se compare. El sondeo de
+  // Comm_Task se mantiene y no estorba: la funcion es idempotente, si la
+  // guarda ya esta armada con ese valor no hace nada.
+  trackLocalCmdGuard(&s_actuationGuard, hmi_msg.actuation);
+  trackLocalCmdGuard(&s_controlModeGuard, hmi_msg.controlMode);
+  trackLocalCmdGuard(&s_photoModeGuard, hmi_msg.phototherapyMode);
+  trackLocalCmdGuard(&s_muteAlarmGuard, hmi_msg.muteAlarm ? 1 : 0);
+  trackLocalCmdGuard(&s_skinModeGuard, hmi_msg.skinModeEnabled ? 1 : 0);
+  trackLocalCmdGuard(&s_airSetpointGuard,
+                     setpointKey(hmi_msg.desiredAirTemperature));
+  trackLocalCmdGuard(&s_skinSetpointGuard,
+                     setpointKey(hmi_msg.desiredSkinTemperature));
+
   // Effective values: mientras un cambio local siga sin confirmar por la
   // placa, manda el valor local en vez del eco de esta trama (ver la guarda
   // arriba). El eco que coincide con lo local cierra la guarda.
@@ -1518,9 +1554,13 @@ void Comm_Task(void *pvParameters) {
     Display_StateSync_Service();
 
 #if IS_HMI
-    // Catch a local UI change (switch tap, wizard step, ...) within 10ms of
-    // it happening — well inside the multi-second window it then protects
-    // against a stale CTRL,STATE echo in Display_ApplyCtrlState().
+    // Sondeo de respaldo: recoge un cambio local (toque de switch, paso del
+    // asistente...) a los 10 ms como mucho. Ya NO es el unico armado ni el
+    // que importa para la carrera: el armado que cuenta esta en
+    // Display_ApplyCtrlState(), justo antes de consultar la guarda y en la
+    // misma tarea (ver el bloque largo alli). Este se queda porque deja
+    // `changedAtMs` en el instante real del cambio, que es de donde cuelga el
+    // plazo de seguridad de LOCAL_CMD_CONFIRM_TIMEOUT_MS.
     trackLocalCmdGuard(&s_actuationGuard, hmi_msg.actuation);
     trackLocalCmdGuard(&s_controlModeGuard, hmi_msg.controlMode);
     trackLocalCmdGuard(&s_photoModeGuard, hmi_msg.phototherapyMode);
