@@ -350,3 +350,7 @@ build before trusting any observation.
     `sin confirmar en 10000 ms` appears — with the line it is the board
     refusing the command (a different defect); without it, the race is not
     fully closed.
+*   **Bench result (2026-09-19, SN 353, HW18)**: verified working by the user
+    on the fixed build — control and phototherapy no longer switch themselves
+    back OFF. This issue is **closed**; #10's own bench verification, which had
+    been left pending since 2026-09-11, is covered by the same run.
