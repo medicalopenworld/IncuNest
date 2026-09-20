@@ -6,7 +6,7 @@
 #include "modules/debug/debug_mode.h"
 #include "state/training_mode.h"
 #include "ui.h"
-#include "platform/plat_nvs.h"
+#include <Preferences.h>
 #include "config/EEPROM_defines.h"
 #include "drivers/rtc_pcf8563.h"
 #include "drivers/rtc_store.h"
@@ -338,7 +338,7 @@ static uint32_t rtcEstimatedNow(void) {
 
 // Lee el chip y la NVS al arrancar, y ofrece la semilla si hay algo creible.
 static void rtcSeedInit(void) {
-  NvsPrefs p;
+  Preferences p;
   if (p.begin(HMI_NS_CFG, true)) {
     rtc_store_unpack(p.getUInt(HMI_KEY_RTC_TZ, RTC_STORE_EMPTY), &s_rtcStored);
     p.end();
@@ -379,7 +379,7 @@ static void rtcMaybeWrite(uint32_t epoch, Proto_TimeSource src, int8_t tzq,
   // llega entre las dos, es preferible un chip con hora buena y una zona vieja
   // que una zona nueva junto a una hora que no se llego a escribir.
   const RtcStoredTz tz = {tzq, tzsrc, src};
-  NvsPrefs p;
+  Preferences p;
   if (p.begin(HMI_NS_CFG, false)) {
     p.putUInt(HMI_KEY_RTC_TZ, rtc_store_pack(&tz));
     p.end();

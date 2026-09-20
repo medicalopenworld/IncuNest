@@ -2,7 +2,7 @@
 
 #include "rtc_pcf8563_codec.h"
 
-#include "main.h" // g_i2c
+#include <Wire.h>
 
 // Registro de control 1. Se comprueba al escribir: el bit STOP (0x20) para el
 // contador, y un chip parado devolveria siempre la misma hora sin que nada lo
@@ -10,12 +10,68 @@
 #define PCF8563_REG_CONTROL1 0x00
 #define PCF8563_CONTROL1_STOP 0x20
 
-bool rtcPresent(void) { return g_i2c.probe(PCF8563_I2C_ADDR); }
+// ---- Acceso al bus -----------------------------------------------------------
+//
+// En el port a ESP-IDF esto hablaba con `g_i2c` (I2cBus de platform/plat_i2c.h,
+// con su propio cerrojo). En esta linea el HMI usa la `Wire` de Arduino
+// directamente desde varias tareas —tactil en UITask, retroiluminacion y
+// zumbador en AudioManager/UITask— sin cerrojo comun, y el RTC entra en el
+// mismo bus (TOUCH_SDA_PIN/TOUCH_SCL_PIN, Wire.begin() en main.cpp) por la
+// misma via. Las cuatro primitivas replican la semantica de I2cBus: cada una
+// es una transaccion completa y devuelve false ante cualquier NACK o lectura
+// corta, que el llamador trata como "sin hora utilizable", nunca como datos.
+
+static bool i2cProbe(uint8_t addr) {
+  Wire.beginTransmission(addr);
+  return Wire.endTransmission() == 0;
+}
+
+static bool i2cReadReg(uint8_t addr, uint8_t reg, uint8_t *buf, size_t n) {
+  Wire.beginTransmission(addr);
+  Wire.write(reg);
+  if (Wire.endTransmission(false) != 0) {
+    return false;
+  }
+  const size_t got = Wire.requestFrom((int)addr, (int)n);
+  if (got != n) {
+    // Vaciar lo que haya llegado para no dejar bytes huerfanos en el bufer.
+    while (Wire.available()) {
+      (void)Wire.read();
+    }
+    return false;
+  }
+  for (size_t i = 0; i < n; i++) {
+    const int b = Wire.read();
+    if (b < 0) {
+      return false;
+    }
+    buf[i] = (uint8_t)b;
+  }
+  return true;
+}
+
+static bool i2cWrite(uint8_t addr, const uint8_t *buf, size_t n) {
+  Wire.beginTransmission(addr);
+  if (Wire.write(buf, n) != n) {
+    (void)Wire.endTransmission();
+    return false;
+  }
+  return Wire.endTransmission() == 0;
+}
+
+static bool i2cWriteReg8(uint8_t addr, uint8_t reg, uint8_t val) {
+  const uint8_t msg[2] = {reg, val};
+  return i2cWrite(addr, msg, sizeof(msg));
+}
+
+// ------------------------------------------------------------------------------
+
+bool rtcPresent(void) { return i2cProbe(PCF8563_I2C_ADDR); }
 
 // Una lectura cruda de los siete registros de tiempo.
 static bool readRaw(uint8_t regs[PCF8563_TIME_REG_COUNT]) {
-  return g_i2c.readReg(PCF8563_I2C_ADDR, PCF8563_TIME_REG_FIRST, regs,
-                       PCF8563_TIME_REG_COUNT);
+  return i2cReadReg(PCF8563_I2C_ADDR, PCF8563_TIME_REG_FIRST, regs,
+                    PCF8563_TIME_REG_COUNT);
 }
 
 bool rtcRead(uint32_t *outEpoch) {
@@ -54,7 +110,7 @@ bool rtcWrite(uint32_t epoch) {
   for (int i = 0; i < PCF8563_TIME_REG_COUNT; i++) {
     msg[1 + i] = regs[i];
   }
-  if (!g_i2c.write(PCF8563_I2C_ADDR, msg, sizeof(msg))) {
+  if (!i2cWrite(PCF8563_I2C_ADDR, msg, sizeof(msg))) {
     return false;
   }
 
@@ -64,10 +120,10 @@ bool rtcWrite(uint32_t epoch) {
   // porque la pila esta bien. Se comprueba aqui, que es la unica ruta que
   // escribe el chip.
   uint8_t ctrl1 = 0;
-  if (g_i2c.readReg(PCF8563_I2C_ADDR, PCF8563_REG_CONTROL1, &ctrl1, 1) &&
+  if (i2cReadReg(PCF8563_I2C_ADDR, PCF8563_REG_CONTROL1, &ctrl1, 1) &&
       (ctrl1 & PCF8563_CONTROL1_STOP) != 0) {
-    g_i2c.writeReg8(PCF8563_I2C_ADDR, PCF8563_REG_CONTROL1,
-                    (uint8_t)(ctrl1 & ~PCF8563_CONTROL1_STOP));
+    i2cWriteReg8(PCF8563_I2C_ADDR, PCF8563_REG_CONTROL1,
+                 (uint8_t)(ctrl1 & ~PCF8563_CONTROL1_STOP));
   }
   return true;
 }
