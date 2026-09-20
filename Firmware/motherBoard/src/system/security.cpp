@@ -416,22 +416,40 @@ void checkStatusOfSensor(byte sensor)
 
   // De que instante se mide la caducidad.
   //
-  // lastSuccesfullSensorUpdate[] vale 0 hasta la primera lectura buena, y
-  // cuando esta tarea hace su primera pasada millis() ya va muy por encima del
-  // limite: initHardware() tarda mas de 5 s. Restando contra 0 el sensor salia
-  // caducado ANTES de haber tenido ocasion de hablar, asi que cada encendido
-  // levantaba ALARM_AIR_SENSOR_FAULT --prioridad ALTA, corta el calefactor-- y
-  // la retiraba sola en cuanto llegaba la primera muestra. Una alarma de
-  // seguridad que suena en todos los arranques es peor que inutil: entrena al
-  // operador a ignorarla (60601-1-8, fatiga de alarma).
+  // No vale usar lastSuccesfullSensorUpdate[] a secas, y por dos motivos
+  // distintos que se dan los dos en el arranque:
   //
-  // Mientras el sensor no haya hablado nunca, la cuenta arranca en la PRIMERA
-  // mirada, no en el arranque de la placa. Si el sensor esta de verdad averiado
-  // la alarma salta igual, staleLimit despues de esa primera mirada; lo unico
-  // que se deja de hacer es declararla sin haber esperado.
+  //   - Vale 0 hasta la primera lectura buena. Restando contra 0, con millis()
+  //     ya por encima del limite, el sensor sale caducado sin haber hablado.
+  //   - Y cuando SI ha hablado, lo ha hecho demasiado pronto: initHardware()
+  //     llama a updateRoomSensor() (initHardware.cpp:463) para su autotest y
+  //     sella el sensor ahi, pero luego sigue varios segundos mas antes de
+  //     arrancar las tareas. Para cuando esta tarea mira por primera vez, ese
+  //     sello ya ha caducado aunque el sensor este perfecto.
+  //
+  // El segundo caso es el que hacia que la primera version de este arreglo no
+  // sirviera de nada: guardaba solo contra el 0.
+  //
+  // El resultado era ALARM_AIR_SENSOR_FAULT --prioridad ALTA, corta el
+  // calefactor-- en TODOS los encendidos, retirandose sola en cuanto la tarea
+  // de sensores publicaba su primera muestra. Una alarma de seguridad que suena
+  // siempre entrena al operador a ignorarla: es fatiga de alarma de manual
+  // (60601-1-8).
+  //
+  // La referencia es el instante MAS RECIENTE entre la ultima lectura buena y
+  // el arranque de la tarea de sensores, que es cuando de verdad empieza a
+  // haber muestras periodicas. Si el sensor esta averiado, la alarma salta
+  // igual staleLimit despues de ese arranque: no se enmascara nada, solo se
+  // deja de declarar la averia antes de darle ocasion de hablar.
   static uint32_t firstCheckMs[SENSOR_TEMP_QTY] = {0};
   uint32_t reference = (uint32_t)lastSuccesfullSensorUpdate[sensor];
+  if (g_sensorsTaskStartedMs != 0 &&
+      (int32_t)(g_sensorsTaskStartedMs - reference) > 0) {
+    reference = g_sensorsTaskStartedMs;
+  }
   if (reference == 0) {
+    // Ni lectura ni tarea de sensores todavia: la cuenta arranca en la primera
+    // mirada.
     if (firstCheckMs[sensor] == 0) {
       firstCheckMs[sensor] = (now != 0) ? now : 1; // 0 es el centinela
     }

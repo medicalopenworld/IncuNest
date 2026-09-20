@@ -67,7 +67,7 @@
 
 #define HW_REVISION 'A'
 #define HWversion String(HW_NUM) + "." + String(HW_REVISION)
-#define FWversion "18.9"
+#define FWversion "18.10"
 #define WIFI_NAME "IncuNest"
 #define CURRENT_FIRMWARE_TITLE "IncuNest"
 
@@ -228,6 +228,8 @@ typedef enum
 #include "telemetry_keys.h"
 
 extern uint32_t g_bootCount;
+// millis() en que arranco sensors_Task; 0 = todavia no. Ver checkStatusOfSensor().
+extern uint32_t g_sensorsTaskStartedMs;
 extern uint32_t g_gprsKillCount;
 extern uint32_t g_monKillCount;
 extern int g_hmiBootCount;

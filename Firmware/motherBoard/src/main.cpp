@@ -193,6 +193,7 @@ bool blinkSetMessageState;
 long lastBlinkSetMessage;
 
 long lastSuccesfullSensorUpdate[SENSOR_TEMP_QTY];
+uint32_t g_sensorsTaskStartedMs = 0;
 
 long lastSkinAttachedSensorUpdate;
 long lastRoomSensorUpdate, lastCurrentSensorUpdate;
@@ -268,6 +269,14 @@ bool           g_bq_status_valid = false;
 // ademas del flag, porque un `true` sin sello sobreviviria a una tarea parada.
 uint32_t       g_bq_status_ms    = 0;
 void sensors_Task(void *pvParameters) {
+  // Instante en que empieza a haber muestras periodicas de verdad. Lo usa
+  // checkStatusOfSensor() (security.cpp) como referencia de frescura: el sello
+  // que deja el autotest de initHardware() es varios segundos anterior y
+  // levantaba ALARM_AIR_SENSOR_FAULT en cada arranque.
+  g_sensorsTaskStartedMs = millis();
+  if (g_sensorsTaskStartedMs == 0) {
+    g_sensorsTaskStartedMs = 1; // 0 es el centinela de "aun no arranco"
+  }
   for (;;) {
     fanSpeedHandler();
     if (millis() - lastSkinAttachedSensorUpdate >
