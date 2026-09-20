@@ -6,11 +6,11 @@
   },
   "files": {
     "display_hmi_bootloader.bin": "a81f432c79695c65b0be0024bfcb7b9618df7f75331f3fb1ba06fcbb93c76a95",
-    "display_hmi_firmware.bin": "888bf2e1f3512eda07ff54b25ee6a6526ad71cd310fc7ee14630bb83dc6ef3a9",
+    "display_hmi_firmware.bin": "de77221f521b5b04e43f16bb680ce11b4c9e973d148d59658f1d492fd0e22cd0",
     "display_hmi_ota_data_initial.bin": "7d2c7ac4888bfd75cd5f56e8d61f69595121183afc81556c876732fd3782c62f",
     "display_hmi_partitions.bin": "e8b759707a00c12bfbd6ac624eb207b4c1c993758ce5470ed51e023c886fb975",
     "motherboard_bootloader.bin": "be3068f692ae3d3e87944845d8512fe1cf5abbbe0721e477099d43e865190987",
-    "motherboard_firmware.bin": "0f5522e03970d3fbcce31a0fff5e69a68df14b2d8d3b5b875b411daa430be08b",
+    "motherboard_firmware.bin": "1d53ff9cf64b56a0fe02e7f8642d7f277671374718aa4b96ef72fbcbc12a57a8",
     "motherboard_ota_data_initial.bin": "7d2c7ac4888bfd75cd5f56e8d61f69595121183afc81556c876732fd3782c62f",
     "motherboard_partitions.bin": "330716ded8a02f9c12f6733b1acddadec1853f48998a26c6254cdb499ca7fd68",
     "sensorboard_ota_data_initial.bin": "7d2c7ac4888bfd75cd5f56e8d61f69595121183afc81556c876732fd3782c62f"

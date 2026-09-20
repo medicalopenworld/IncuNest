@@ -23,7 +23,7 @@
 #include "alarm_policy.h"
 #include "ui/i18n.h"
 
-#define FWversion "4.2.0"
+#define FWversion "4.2.1"
 #define ENABLE_WIFI_OTA true // enable wifi OTA
 extern bool OTA_inprogress;
 
