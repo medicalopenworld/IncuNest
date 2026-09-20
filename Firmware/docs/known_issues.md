@@ -389,3 +389,34 @@ build before trusting any observation.
     deletes them. Worth considering `CHECK_PRE_PROVISIONED_DEVICES` for the
     `IncuNest` profile so a re-provisioning unit recovers its own credentials
     instead of creating a twin.
+
+## 13. `Reset due to task watchdog` a los 2-3 min de encender (TinyGSM) — FIXED
+
+*   **Symptom (production, 2026-09-20)**: units 352, 358 and 359 reset with
+    `RST_reason = 6` (`ESP_RST_TASK_WDT`) two to three minutes after power-on,
+    once each, and then ran for hours without another reset. The operator had
+    just switched phototherapy on, so phototherapy looked like the trigger.
+*   **Phototherapy is not the trigger.** Its regulation loop
+    (`sensors_module.cpp`) is rate-limited and never blocks, and the three
+    units kept phototherapy on for 4.5 h afterwards with no further resets.
+    What lines up with the timing is the **modem bring-up**.
+*   **Root cause**: `TINY_GSM_YIELD()` is `delay(TINY_GSM_YIELD_MS)` and the
+    library's default is `0`. In arduino-esp32 `delay(0)` is `vTaskDelay(0)`,
+    which yields **only to tasks of equal or higher priority**. `loopTask`
+    runs at priority 1 and is the only thing that feeds the 75 s task
+    watchdog (`watchdogInit(WDT_TIMEOUT)`, `initHardware.cpp`), so while the
+    GPRS task — priority 5 — sits inside a TinyGSM wait, the watchdog is
+    never fed. And the waits are long: `modem.gprsConnect()` blocks for the
+    whole attach handshake, which `GPRS.cpp:727` already warned "can by
+    itself exceed GPRS_TIMEOUT on slow networks". Over 75 s on a slow 2G
+    network and the board resets.
+*   **Same family as #8**: that one was PubSubClient's 15 s active waits
+    starving the same `loopTask`, fixed with `MQTT_SOCKET_TIMEOUT=2`. The
+    project had already paid for this lesson once in another library.
+*   **Fix**: `-DTINY_GSM_YIELD_MS=1` on both motherBoard environments. One
+    tick of real `vTaskDelay` does yield to lower priorities. Costs at most
+    1 ms per poll of the modem UART.
+*   **Not verified on hardware yet**: the bench unit attaches quickly, so it
+    does not reproduce the slow-attach case on demand. What can be checked is
+    the absence of the reset; reproducing it needs a slow or marginal 2G
+    network.
