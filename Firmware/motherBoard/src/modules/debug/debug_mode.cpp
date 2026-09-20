@@ -394,13 +394,19 @@ size_t debug_state_json_ex(char *out, size_t out_len, bool with_tasks) {
   // no se habia movido. Y el numero que de verdad manda no es el libre sino el
   // MAYOR BLOQUE CONTIGUO: 5 KB libres en trozos de 500 B no sirven para un
   // buffer de 2 KB.
+  // Sin el mayor bloque de la PSRAM, por simetria con el display y porque es
+  // una bomba de relojeria: heap_caps_get_largest_free_block() recorre el pool
+  // ENTERO (tlsf_walk_pool) con el cerrojo del heap cogido. Esta placa no lleva
+  // PSRAM y la llamada vuelve de inmediato, pero en el display —8 MB— disparaba
+  // el interrupt watchdog y reiniciaba en CADA peticion a /debug/state (banco
+  // 2026-09-20). Se quita aqui tambien para que las dos placas den la misma
+  // forma de JSON y para que no reviva si algun dia esta placa lleva PSRAM.
   J(",\"heap\":{\"int_free\":%u,\"int_min\":%u,\"int_largest\":%u"
-    ",\"psram_free\":%u,\"psram_largest\":%u}",
+    ",\"psram_free\":%u}",
     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
     (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
     (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
-    (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
-    (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
+    (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
 
   // SISTEMA DE FICHEROS. Se informa porque llenarlo no se notaba desde fuera:
   // en banco (2026-09-14) las ventanas de PPG de DriveUpload llenaron los
@@ -426,12 +432,16 @@ size_t debug_state_json_ex(char *out, size_t out_len, bool with_tasks) {
 
 #if !defined(configUSE_TRACE_FACILITY) || (configUSE_TRACE_FACILITY == 0)
   // El core Arduino precompilado de esta placa (espressif32@6.6.0, IDF 4.4)
-  // no trae configUSE_TRACE_FACILITY, asi que uxTaskGetSystemState() no
-  // existe y no hay tabla de tareas que dar. En el port se activaba por
-  // sdkconfig (CONFIG_FREERTOS_USE_TRACE_FACILITY=y). Se dice en el JSON en
-  // vez de omitirlo, para que el script de banco sepa por que no hay datos.
-  J(",\"tasks\":\"no disponible: configUSE_TRACE_FACILITY=0 en el core "
-    "Arduino de la motherBoard\"}");
+  // no trae configUSE_TRACE_FACILITY, asi que uxTaskGetSystemState() no existe
+  // y no hay tabla de tareas que dar. En el port se activaba por sdkconfig
+  // (CONFIG_FREERTOS_USE_TRACE_FACILITY=y).
+  //
+  // `tasks` se queda como LISTA VACIA, no como texto: la bateria de banco
+  // itera sobre ella (t_margen_de_pila) y con un string recorria sus
+  // caracteres y moria con "string indices must be integers" (2026-09-20). El
+  // motivo va en un campo aparte, que nadie recorre.
+  J(",\"tasks\":[],\"tasks_note\":\"no disponible: configUSE_TRACE_FACILITY=0 "
+    "en el core Arduino de la motherBoard\"}");
   return n;
 #else
   J(",\"tasks\":[");

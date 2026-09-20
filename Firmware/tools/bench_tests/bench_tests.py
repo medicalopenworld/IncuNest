@@ -186,7 +186,12 @@ def t_estado_alcanzable(mb, hmi):
         for key in ("debug", "uptime_ms", "heap", "tasks"):
             if key not in st:
                 raise BenchError(f"{b.name}: falta '{key}' en /debug/state")
-        if not st["tasks"]:
+        # Una tabla vacia con `tasks_note` no es un fallo: es una placa cuyo
+        # core no trae configUSE_TRACE_FACILITY y por tanto no tiene
+        # uxTaskGetSystemState(). Le pasa a la motherBoard con el core Arduino
+        # 2.0.14. Vacia y SIN nota si es un fallo: el volcado se trunco o la
+        # tabla no se construyo.
+        if not st["tasks"] and "tasks_note" not in st:
             raise BenchError(f"{b.name}: la tabla de tareas viene vacia")
 
 
@@ -676,10 +681,12 @@ def t_memoria_estable(mb, hmi):
         after = b.state()["heap"]
         lost = before - after["int_free"]
         if lost > LEAK_FLOOR:
+            largest = after["int_largest"]
+            detalle = (f"; mayor bloque contiguo {largest} B" if largest >= 0
+                       else "; mayor bloque no medido en esta placa")
             raise BenchError(
                 f"{b.name}: la DRAM interna bajo {lost} B en {REQUESTS} "
-                f"peticiones ({before} -> {after['int_free']}); "
-                f"mayor bloque contiguo {after['int_largest']} B"
+                f"peticiones ({before} -> {after['int_free']})" + detalle
             )
 
 
@@ -701,7 +708,12 @@ def t_reserva_de_dram_interna(mb, hmi):
         h = b.state()["heap"]
         if h["int_free"] < FLOOR_FREE:
             problems.append(f"{b.name}: solo {h['int_free']} B de interna libre")
-        if h["int_largest"] < FLOOR_LARGEST:
+        # int_largest negativo = la placa no lo mide. El display lo dejo de
+        # medir porque heap_caps_get_largest_free_block() recorre el pool con
+        # las interrupciones deshabilitadas y disparaba el interrupt watchdog
+        # (ver el comentario en su debug_mode.cpp). No es un cero: es "no hay
+        # dato", y tratarlo como cero daria un fallo falso en cada pasada.
+        if h["int_largest"] >= 0 and h["int_largest"] < FLOOR_LARGEST:
             problems.append(
                 f"{b.name}: mayor bloque interno contiguo {h['int_largest']} B"
             )
