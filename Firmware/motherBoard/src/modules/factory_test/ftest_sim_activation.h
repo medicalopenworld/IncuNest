@@ -18,26 +18,34 @@
 // Credentials_public.h da un valor dummy para que compile tras un clone
 // limpio). Nunca se escribe en un log ni en el detail del test.
 
-// SOLO se compila el camino real en los entornos *_factory de platformio.ini,
-// que son los unicos que ponen esto a 1.
+// Encendido por defecto desde el 2026-09-20: el test de hardware activa la SIM
+// si no lo esta, en cualquier build. Antes hacia falta compilar un entorno
+// *_factory aparte, y acordarse de hacerlo en la linea de montaje era un paso
+// de mas que no aportaba nada al operario.
 //
-// Por que: Credentials_public.h hace `#if __has_include("Credentials.h")`, asi
-// que en la maquina de quien tenga el Credentials.h real TODOS los builds
-// llevaban la clave dentro -- incluido el IncuNest_V18 que alimenta
-// flasher_tool/data/firmware/ y los assets de GitHub Releases, en un repo
-// PUBLICO. Y ONOMONDO_API_KEY no es la credencial de una unidad: controla
-// TODAS las SIM de la organizacion.
+// LO QUE ESTO IMPLICA, y no hay que perder de vista: Credentials_public.h hace
+// `#if __has_include("Credentials.h")`, asi que en una maquina con el
+// Credentials.h real TODO binario lleva dentro ONOMONDO_API_KEY. Y esa clave no
+// es la credencial de una unidad: controla TODAS las SIM de la organizacion.
+// Un `strings firmware.bin` la saca entera.
 //
-// No basta con sobrescribir la clave a la dummy por -D: dependeria del orden
-// de los #define y de un fichero que no esta versionado. Lo que se apaga aqui
-// es la FUNCIONALIDAD, asi que con esto a 0 el fichero no NOMBRA la clave en
-// ningun sitio y por tanto no puede acabar en el binario.
+// De donde NO sale:
+//   - GitHub Releases: los compila el runner de CI, que no tiene Credentials.h
+//     y usa los valores dummy (.github/workflows/release.yml).
+//   - El paquete del flasher: build.bat corre check_no_secrets.py, que busca la
+//     clave DENTRO de los .bin de data/firmware/ y se niega a dar las
+//     instrucciones de empaquetado si aparece.
 //
-// El firmware de campo no tiene nada que hacer activando SIMs: eso es un paso
-// de fabrica. Con esto a 0, el cuerpo del test devuelve UNREACHABLE (WARN) con
-// el motivo, nunca un PASS silencioso.
+// De donde SI saldria: cualquier .bin compilado aqui que se mande por correo,
+// se suba a un drive o se adjunte a un issue. Eso ya no lo para el nombre de
+// un entorno; hay que mirar el contenido.
+//
+// Poner esto a 0 (-DFTEST_SIM_ACT_ENABLED=0) deja un binario en el que la clave
+// no se nombra y por tanto no existe: es la salida si alguna vez hace falta un
+// firmware publicable de verdad. Con 0 el cuerpo del test devuelve UNREACHABLE
+// (WARN) con el motivo, nunca un PASS silencioso.
 #ifndef FTEST_SIM_ACT_ENABLED
-#define FTEST_SIM_ACT_ENABLED 0
+#define FTEST_SIM_ACT_ENABLED 1
 #endif
 
 #ifdef __cplusplus
