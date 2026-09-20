@@ -4,6 +4,7 @@
 #include "board.h"
 
 #include <LittleFS.h>
+#include <stdarg.h>
 #include <esp_system.h>
 #include "esp_log.h"
 
@@ -98,6 +99,41 @@ bool        crashReportPending(void) { return s_summary_valid; }
 const char *crashReportReason(void) { return s_summary_reason; }
 uint32_t    crashReportReboots(void) { return s_summary_reboots; }
 const char *crashReportTail(void) { return s_summary_tail; }
+
+// ---------------------------------------------------------------------------
+// Puente del log de Arduino al anillo de caidas.
+//
+// build_src_flags define log_printf=incunest_log_printf SOLO para src/, asi
+// que todos los ESP_LOGx/log_x de nuestro codigo entran aqui. Se copia la
+// linea al anillo y se reenvia al log_printf de verdad del core, que es quien
+// imprime. El framework y las librerias no pasan por aqui: siguen llamando al
+// original.
+//
+// El #undef es imprescindible: sin el, la llamada de abajo se sustituiria por
+// esta misma funcion y seria una recursion infinita.
+// ---------------------------------------------------------------------------
+#undef log_printf
+extern "C" int log_printf(const char *fmt, ...);
+
+extern "C" int incunest_log_printf(const char *fmt, ...) {
+  char buf[256];
+  va_list ring_args;
+  va_start(ring_args, fmt);
+  int n = vsnprintf(buf, sizeof(buf), fmt, ring_args);
+  va_end(ring_args);
+  if (n > 0) {
+    crashReporterPut(buf, (size_t)(n < (int)sizeof(buf) ? n : (int)sizeof(buf)));
+  }
+
+  va_list out_args;
+  va_start(out_args, fmt);
+  // No se puede reenviar un va_list a una funcion variadica, asi que se imprime
+  // aqui la cadena ya formateada. El formato y el orden son los mismos: buf lo
+  // ha compuesto el mismo vsnprintf que usaria el core.
+  int r = (n > 0) ? log_printf("%s", buf) : 0;
+  va_end(out_args);
+  return r;
+}
 
 void crashReporterInit() {
   esp_reset_reason_t reason = esp_reset_reason();
