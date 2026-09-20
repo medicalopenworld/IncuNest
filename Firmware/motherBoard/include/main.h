@@ -67,7 +67,7 @@
 
 #define HW_REVISION 'A'
 #define HWversion String(HW_NUM) + "." + String(HW_REVISION)
-#define FWversion "18.3"
+#define FWversion "18.4"
 #define WIFI_NAME "IncuNest"
 #define CURRENT_FIRMWARE_TITLE "IncuNest"
 
@@ -537,6 +537,10 @@ double measureStabilizedCurrent(bool sensor, int shunt, float offsetCurrent,
 float measureMeanVoltage(bool, int);
 void WIFI_TB_Init();
 void WifiOTAHandler(void);
+// Enciende/apaga la WiFi desde la UART (HMI,WIFI_EN,<0|1>), para poder probar
+// el camino 2G. Solo anota la peticion: la aplica WifiOTAHandler() en el lazo
+// principal. Volatil — WIFI_EN vuelve a true en cada arranque.
+void wifiRequestEnable(bool enable);
 void securityCheck();
 
 void turnFans(bool mode);

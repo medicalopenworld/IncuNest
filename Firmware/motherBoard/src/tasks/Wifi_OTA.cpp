@@ -1875,7 +1875,61 @@ void WIFI_TB_OTA() {
   tb_wifi.loop();
 }
 
+// ---------------------------------------------------------------------------
+// Encendido/apagado de la WiFi desde la UART (HMI,WIFI_EN,<0|1>)
+//
+// Existe para poder probar el camino 2G. Con enlace WiFi el celular no publica
+// ni mira actualizaciones: GPRS_Handler() (GPRS.cpp) solo refresca localizacion
+// y hora, asi que sin apagar la WiFi no hay forma de ejercitar GPRSCheckOTA().
+//
+// VOLATIL A PROPOSITO: no se guarda en NVS ni en ningun sitio. WIFI_EN nace a
+// true en cada arranque (main.cpp), asi que una placa reiniciada siempre vuelve
+// con la WiFi encendida y no hay manera de que una unidad salga de fabrica
+// apagada por haberse dejado un comando puesto.
+//
+// La peticion se ANOTA aqui y la aplica WifiOTAHandler(), que corre en el lazo
+// principal (main.cpp). Tocar la API WiFi de Arduino desde COMM_TASK_RX
+// mientras ese lazo esta dentro de wifiInit() o de una publicacion es la misma
+// clase de carrera entre tareas que el issue #11 de known_issues.md.
+// -1 = nada pendiente.
+static volatile int s_wifiEnableRequest = -1;
+
+void wifiRequestEnable(bool enable) { s_wifiEnableRequest = enable ? 1 : 0; }
+
+static void wifiApplyEnable(bool enable) {
+  WIFI_EN = enable;
+  // ESP_LOGx y no logI: main.h compila logI fuera del binario
+  // (LOG_INFORMATION a false), asi que el acuse no se imprimiria nunca y la
+  // consola pareceria muerta aunque el comando hubiera funcionado.
+  // El token "CTRL,WIFI_EN,<v>" va dentro del texto a proposito: es lo que
+  // busca quien esta al otro lado del puerto para saber que ya se aplico.
+  if (enable) {
+    ESP_LOGI(TAG, "CTRL,WIFI_EN,1 - WiFi habilitada por consola");
+    wifiInit();
+  } else {
+    ESP_LOGI(TAG, "CTRL,WIFI_EN,0 - WiFi DESHABILITADA por consola: "
+                  "telemetria y OTA pasan a 2G. Es volatil, cualquier "
+                  "reinicio la vuelve a encender.");
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+    // Los manejadores de evento son los duenos de s_staHasIp, pero apagar la
+    // radio a mano puede no generar el evento de desconexion: sin esto,
+    // WIFIIsConnected() seguiria diciendo que hay enlace y el 2G no arrancaria.
+    s_staHasIp = false;
+    Wifi_TB.serverConnectionStatus = false;
+  }
+  char line[24];
+  snprintf(line, sizeof(line), "CTRL,WIFI_EN,%d", enable ? 1 : 0);
+  CommunicationHost_Enqueue(line);
+}
+
 void WifiOTAHandler(void) {
+  const int request = s_wifiEnableRequest;
+  if (request >= 0) {
+    s_wifiEnableRequest = -1;
+    wifiApplyEnable(request != 0);
+  }
+
   if (WIFI_EN && !WIFIIsConnected()) {
     if (millis() - Wifi_TB.lastWifiReconnectAttempt > WIFI_RECONNECT_INTERVAL) {
       logI("[WIFI] -> Connection lost, re-init WiFi");

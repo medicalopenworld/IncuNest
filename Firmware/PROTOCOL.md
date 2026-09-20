@@ -528,6 +528,37 @@ Lanza la prueba de funcionamiento de las señales de alarma
   (6.3.2.2.2).
 - No toca actuadores ni declara condición alguna.
 
+### 2.bis Consola de depuración (NO es este protocolo)
+
+La motherBoard tiene **dos** puertos serie y conviene no confundirlos:
+
+| puerto | objeto | pines | qué lleva |
+|---|---|---|---|
+| enlace con el display | `Serial1` (`hmiSerial`) | TX 15 / RX 16 | todo lo descrito en este documento |
+| consola de depuración | `Serial` (`debugSerial`) | UART0 (el del flasheo) | el log, y un único comando de banco |
+
+En la consola se acepta **`WIFI_EN,<0|1>`** (`main.cpp::debugConsolePoll`).
+Enciende o apaga la WiFi en caliente para poder probar la OTA por 2G: con
+enlace WiFi, `GPRS_Handler()` solo refresca localización y hora — ni publica
+telemetría ni llama a `GPRSCheckOTA()`, así que ese camino no se ejercita
+nunca.
+
+- Confirmación: una línea de log con el testigo `CTRL,WIFI_EN,<0|1>` cuando el
+  cambio **ya está aplicado**.
+- **No se persiste en ningún sitio.** `WIFI_EN` nace a `true` en cada arranque,
+  así que cualquier reinicio —incluido el que hace la propia OTA— devuelve la
+  WiFi encendida. Es deliberado: que no exista forma de que una unidad salga de
+  fábrica con la WiFi apagada por un comando que alguien se dejó puesto.
+- El comando solo **anota** la petición; la aplica `WifiOTAHandler()` en el lazo
+  principal. Tocar la API WiFi desde otra tarea mientras ese lazo está dentro de
+  `wifiInit()` es la misma clase de carrera que el issue #11 de
+  `docs/known_issues.md`.
+- Argumento que no sea exactamente `0` o `1`: se rechaza con aviso. Cualquier
+  otra línea se ignora y se registra.
+- Los acuses van con `ESP_LOGx`, no con `logI`/`logE`: `main.h` compila esos dos
+  fuera del binario (`LOG_INFORMATION` y `LOG_ERRORS` a `false`), y un acuse
+  escrito con `logI` no se imprime nunca aunque el comando funcione.
+
 ### 3. Test de fábrica (`FTEST`)
 
 Batería de comprobaciones de hardware para el montaje en fábrica y el servicio

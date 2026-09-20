@@ -349,9 +349,66 @@ void sensors_Task(void *pvParameters) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Consola de depuracion sobre debugSerial (el puerto por el que sale el log).
+//
+// NO es el enlace con el display: ese es Serial1 en los pines 15/16
+// (hmiSerial en CommTask.cpp). Por debugSerial no habla nadie, asi que un
+// comando aqui no compite con las tramas del protocolo ni puede corromperlas.
+//
+// Un solo comando, y a proposito: "WIFI_EN,<0|1>". Existe para poder probar la
+// OTA por 2G, que con la WiFi levantada no se ejercita nunca. El estado no se
+// guarda en ningun sitio: cualquier reinicio vuelve a dejar la WiFi encendida.
+// Todo lo demas que llegue por aqui se ignora en silencio.
+// ---------------------------------------------------------------------------
+// ESP_LOGx y no logI/logE: main.h compila esos dos fuera del binario
+// (LOG_INFORMATION y LOG_ERRORS estan a false), asi que un acuse escrito con
+// logI no se imprime nunca y la consola parece muerta aunque funcione.
+static const char *DBGCON_TAG __attribute__((unused)) = "DBGCON";
+
+static void debugConsoleHandle(const char *line) {
+  if (strncmp(line, "WIFI_EN,", 8) != 0) {
+    ESP_LOGI(DBGCON_TAG, "comando desconocido, ignorado: %s", line);
+    return;
+  }
+  const char *arg = line + 8;
+  // Exactamente un '0' o un '1' y nada mas: sin atoi(), "WIFI_EN,0abc" no se
+  // cuela como un apagado valido.
+  if ((arg[0] != '0' && arg[0] != '1') || arg[1] != '\0') {
+    ESP_LOGW(DBGCON_TAG, "WIFI_EN: argumento invalido, se espera 0 o 1");
+    return;
+  }
+  wifiRequestEnable(arg[0] == '1');
+}
+
+void debugConsolePoll(void) {
+  static char buf[40];
+  static size_t len = 0;
+  while (debugSerial.available()) {
+    const char c = (char)debugSerial.read();
+    if (c == '\r') continue;
+    if (c != '\n') {
+      // Al pasarse de largo se marca la linea y se descarta ENTERA al final,
+      // en vez de procesar un trozo: media linea podria ser un comando valido
+      // por accidente.
+      if (len < sizeof(buf) - 1)
+        buf[len++] = c;
+      else
+        len = sizeof(buf);
+      continue;
+    }
+    if (len < sizeof(buf)) {
+      buf[len] = '\0';
+      debugConsoleHandle(buf);
+    }
+    len = 0;
+  }
+}
+
 void OTA_WIFI_Task(void *pvParameters) {
   WIFI_TB_Init();
   for (;;) {
+    debugConsolePoll();
     WifiOTAHandler();
     vTaskDelay(pdMS_TO_TICKS(OTA_TASK_PERIOD_MS));
   }
