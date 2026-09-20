@@ -18,7 +18,8 @@ from detector import (
     detect_board_ambiguous, BoardDetectionError,
 )
 from flasher import (
-    flash_board, has_firmware_flashed, missing_files, write_initial_ota_data,
+    flash_board, has_firmware_flashed, missing_files, read_device_serial,
+    serial_to_write, write_initial_ota_data,
 )
 from updater import (
     check_update_available, download_latest, pinned_folders, PIN_MARKER,
@@ -323,8 +324,10 @@ class _Slot:
 class _SerialNumberDialog:
     """Modal dialog that asks for a serial number (0-9999) before flashing a motherBoard."""
 
-    def __init__(self, parent: tk.Tk, port: str) -> None:
+    def __init__(self, parent: tk.Tk, port: str,
+                 current: Optional[int] = None) -> None:
         self.result: Optional[int] = None
+        self.current = current
 
         top = tk.Toplevel(parent)
         top.title("Número de serie")
@@ -337,12 +340,32 @@ class _SerialNumberDialog:
         tk.Label(top, text="Introduce el número de serie:").pack(padx=24)
 
         vcmd = (top.register(self._validate), '%P')
-        self._var = tk.StringVar(value='')
+        # Precargado con el serial que la placa ya tiene: aceptar sin tocarlo
+        # deja la NVS intacta, que es lo que hay que hacer al reflashear una
+        # unidad ya provisionada.
+        self._var = tk.StringVar(value='' if current is None else str(current))
         entry = tk.Entry(top, textvariable=self._var, width=10,
                          validate='key', validatecommand=vcmd,
                          font=('', 16), justify='center')
         entry.pack(padx=24, pady=8)
         tk.Label(top, text="(0 – 9999)", fg='#757575').pack()
+
+        if current is None:
+            tk.Label(
+                top,
+                text="La placa no tiene serial (o no se ha podido leer).\n"
+                     "Se escribirá la NVS: si el equipo ya estaba dado de alta,\n"
+                     "perderá el token de ThingsBoard y el WiFi guardado.",
+                fg='#C62828', font=('', 8), justify='center',
+            ).pack(padx=16, pady=(4, 0))
+        else:
+            tk.Label(
+                top,
+                text=f"La placa ya tiene el serial {current}.\n"
+                     "Acéptalo sin cambiarlo y se conservan el token de\n"
+                     "ThingsBoard y las credenciales WiFi. Cambiarlo las borra.",
+                fg='#2E7D32', font=('', 8), justify='center',
+            ).pack(padx=16, pady=(4, 0))
 
         btn_frame = tk.Frame(top)
         btn_frame.pack(padx=24, pady=(12, 18))
@@ -358,9 +381,9 @@ class _SerialNumberDialog:
         top.bind('<Escape>', lambda _: top.destroy())
 
         parent.update_idletasks()
-        x = parent.winfo_rootx() + (parent.winfo_width()  - 300) // 2
-        y = parent.winfo_rooty() + (parent.winfo_height() - 200) // 2
-        top.geometry(f"300x195+{x}+{y}")
+        x = parent.winfo_rootx() + (parent.winfo_width()  - 340) // 2
+        y = parent.winfo_rooty() + (parent.winfo_height() - 270) // 2
+        top.geometry(f"340x265+{x}+{y}")
 
         self._top = top
         parent.wait_window(top)
@@ -1019,20 +1042,16 @@ class FlasherApp:
         self._update_status_banner()
 
         if board == Board.MOTHERBOARD and self._force_serial_number_entry:
-            # Always ask for serial number regardless of existing firmware
-            self._slots[slot_idx].set_status('📋  Introduce el serial…')
-            dlg = _SerialNumberDialog(self.root, port)
-            self._slots[slot_idx].set_status('')
-            if dlg.result is None:
-                self._slots[slot_idx].log("Flasheo cancelado por el usuario.", 'info')
-                self._slots[slot_idx].reset()
-                del self._port_to_slot[port]
-                self._log_line(
-                    f"Slot {slot_idx + 1}: flasheo de {board.value} cancelado.", 'info'
-                )
-                self._update_status_banner()
-                return
-            self._run_flash(port, board, slot_idx, dlg.result)
+            # Se pregunta el serial siempre, pero antes se lee el que la placa
+            # ya tiene: si no cambia, no hay que reescribir la NVS y el equipo
+            # conserva su identidad (token de ThingsBoard, WiFi). Ver
+            # flasher.read_device_serial.
+            self._slots[slot_idx].set_status('🔍  Leyendo serial…')
+            threading.Thread(
+                target=self._read_serial_then_ask,
+                args=(port, board, slot_idx),
+                daemon=True,
+            ).start()
         elif board == Board.MOTHERBOARD:
             # Auto-detect: check firmware presence, preserve NVS if already flashed
             threading.Thread(
@@ -1042,6 +1061,44 @@ class FlasherApp:
             ).start()
         else:
             self._run_flash(port, board, slot_idx, None)
+
+    def _read_serial_then_ask(self, port: str, board: Board, slot_idx: int) -> None:
+        current = read_device_serial(port, get_firmware_base())
+        self.root.after(0, self._ask_serial, port, board, slot_idx, current)
+
+    def _ask_serial(self, port: str, board: Board, slot_idx: int,
+                    current: Optional[int]) -> None:
+        self._slots[slot_idx].set_status('📋  Introduce el serial…')
+        dlg = _SerialNumberDialog(self.root, port, current)
+        self._slots[slot_idx].set_status('')
+        if dlg.result is None:
+            self._cancel_slot(port, board, slot_idx)
+            return
+
+        if serial_to_write(current, dlg.result) is None:
+            # El caso normal al reflashear una unidad ya fabricada. Sin escribir
+            # la NVS, la placa sigue siendo el mismo dispositivo en ThingsBoard.
+            self._slots[slot_idx].log(
+                f"Serial {current} sin cambios — no se toca la NVS "
+                "(token de ThingsBoard y WiFi conservados).", 'success')
+            self._run_flash(port, board, slot_idx, None)
+            return
+
+        if current is not None:
+            self._slots[slot_idx].log(
+                f"Serial {current} → {dlg.result}: se reescribe la NVS. El equipo "
+                "pierde el token de ThingsBoard y el WiFi guardado, y tendra que "
+                "provisionarse de nuevo.", 'error')
+        self._run_flash(port, board, slot_idx, dlg.result)
+
+    def _cancel_slot(self, port: str, board: Board, slot_idx: int) -> None:
+        self._slots[slot_idx].log("Flasheo cancelado por el usuario.", 'info')
+        self._slots[slot_idx].reset()
+        self._port_to_slot.pop(port, None)
+        self._log_line(
+            f"Slot {slot_idx + 1}: flasheo de {board.value} cancelado.", 'info'
+        )
+        self._update_status_banner()
 
     def _check_firmware_present(self, port: str, board: Board, slot_idx: int) -> None:
         self._slots[slot_idx].set_status('🔍  Leyendo dispositivo…')

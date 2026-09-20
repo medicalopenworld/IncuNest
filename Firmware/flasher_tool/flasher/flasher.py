@@ -191,6 +191,58 @@ def has_firmware_flashed(port: str) -> bool:
             pass
 
 
+def serial_to_write(current: Optional[int], requested: int) -> Optional[int]:
+    """Serial que hay que escribir en la NVS, o None si no hay que tocarla.
+
+    Escribir la NVS borra la identidad del equipo (ver read_device_serial), asi
+    que solo se escribe cuando el serial cambia de verdad. `current is None`
+    --placa virgen o lectura fallida-- cuenta como cambio: no se puede dar por
+    bueno lo que no se ha podido leer.
+    """
+    return None if current is not None and requested == current else requested
+
+
+def read_device_serial(port: str, firmware_base: Path) -> Optional[int]:
+    """Numero de serie que la placa ya tiene en NVS, o None si no se puede leer.
+
+    Sirve para NO reescribir la NVS cuando el serial no cambia. Escribirla
+    cuesta la identidad entera del equipo: generate_serial_nvs produce una
+    imagen del tamano de la particion con un unico dato (mb_cfg/serial), asi
+    que borra tambien el token de ThingsBoard, la marca de provisionado
+    (mb_gprs) y las credenciales WiFi (mb_wifi). La placa vuelve a arrancar
+    como virgen, se conecta al SSID por defecto compilado --que fuera de
+    fabrica no suele existir-- y, si llega a la red, pide provisionarse otra
+    vez con un nombre que ya esta cogido en ThingsBoard.
+
+    None significa "no se sabe" (placa virgen, lectura fallida): el llamante
+    tiene que asumir lo peor y avisar antes de escribir.
+    """
+    folder = firmware_base / _BOARD_FOLDER[Board.MOTHERBOARD]
+    offset, size = nvs_gen.find_nvs_partition(folder / 'partitions.bin')
+
+    fd, tmp = tempfile.mkstemp(suffix='.bin')
+    os.close(fd)
+    try:
+        with esptool_io.capture():  # discard all esptool output
+            esptool.main([
+                '--port', port,
+                '--chip', 'esp32s3',
+                '--no-stub',
+                '--before', 'no-reset',
+                '--after', 'no-reset',
+                'read_flash',
+                hex(offset), hex(size), tmp,
+            ])
+        return nvs_gen.parse_nvs_serial(Path(tmp).read_bytes())
+    except Exception:
+        return None
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
 def flash_board(
     port: str,
     board: Board,

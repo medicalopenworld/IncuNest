@@ -354,3 +354,38 @@ build before trusting any observation.
     on the fixed build — control and phototherapy no longer switch themselves
     back OFF. This issue is **closed**; #10's own bench verification, which had
     been left pending since 2026-09-11, is covered by the same run.
+
+## 12. Re-flashing with the flasher tool erases the unit's identity (no ThingsBoard) — FIXED
+
+*   **Symptom (2026-09-20)**: a unit re-flashed with `IncuNest_Flasher.exe`
+    stopped connecting to ThingsBoard. Nothing in the flashing log looked
+    wrong, the board booted normally, and no new device appeared in the
+    server.
+*   **Root cause**: `flasher_config.json` sets `force_serial_number: true`, so
+    the tool asks for a serial on *every* motherBoard, including boards that
+    already have firmware. Supplying a serial makes `flash_board()` write the
+    image from `nvs_gen.generate_serial_nvs()`, which is the size of the whole
+    NVS partition and carries a single key (`mb_cfg/serial`). Writing it wipes
+    everything else in NVS: the ThingsBoard token and the `provisioned` flag
+    (`mb_gprs`) and the WiFi credentials (`mb_wifi`).
+*   **Why it looks like a server problem**: with no stored WiFi the unit falls
+    back to the SSID compiled into `Credentials.h`, which usually does not
+    exist outside the bench, so it never reaches the network. If it does reach
+    it, the `IncuNest` device profile provisions with
+    `ALLOW_CREATE_NEW_DEVICES`, which refuses a name that already exists; the
+    firmware retries as `IncuNest-<n>_1`..`_3` (`PROVISION_MAX_RETRIES = 3`)
+    and then gives up for good. On the server, serial 1 already has all four
+    names taken, and 325, 327, 328, 331, 333, 334, 336, 337 and 353 have burnt
+    at least one retry — each of those is a unit that was re-flashed and came
+    back as a different device, losing its history.
+*   **Fix (flasher)**: the tool now reads the serial already stored on the
+    board (`flasher.read_device_serial()`, using the `parse_nvs_serial()` that
+    was already there) and pre-fills the dialog with it. Accepting it unchanged
+    writes no NVS at all, so the unit keeps its identity
+    (`flasher.serial_to_write()`); changing it rewrites NVS and the dialog says
+    so in red. Covered by `tests/test_serial_preserva_nvs.py`.
+*   **Still open on the server side**: the duplicate `IncuNest-<n>_k` devices
+    are not cleaned up, and serial 1 cannot provision again until somebody
+    deletes them. Worth considering `CHECK_PRE_PROVISIONED_DEVICES` for the
+    `IncuNest` profile so a re-provisioning unit recovers its own credentials
+    instead of creating a twin.
