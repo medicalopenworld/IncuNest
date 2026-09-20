@@ -97,7 +97,8 @@ static constexpr size_t GPRS_APN_COUNT =
 
 // Statuses for updating
 bool currentFWSent = false;
-bool updateRequestSent = false;
+// updateRequestSent se ha retirado: nunca se asignaba, asi que la guarda que
+// dependia de ella no guardaba nada. Ver GPRSCheckOTA().
 
 extern double ReferenceTemperatureRange, ReferenceTemperatureLow;
 
@@ -860,7 +861,18 @@ void GPRSCheckOTA() {
     currentFWSent = tb.Firmware_Send_Info(CURRENT_FIRMWARE_TITLE, FWversion) &&
                     tb.Firmware_Send_State(FW_STATE_UPDATED);
   }
-  if (!updateRequestSent) {
+  // La guarda es GPRS.OTAInProgress (la pone progressCallback y la quita
+  // updatedCallback), no la antigua updateRequestSent, que se declaraba a
+  // false y NO SE ASIGNABA EN NINGUN SITIO: la condicion era siempre cierta.
+  //
+  // Sin guarda, cada pasada periodica --cada GPRS_OTA_CHECK_INTERVAL, 10 min--
+  // volvia a llamar a Start_Firmware_Update() sobre una descarga ya en curso y
+  // la reiniciaba desde el trozo 0. Por 2G la descarga completa no cabe en esa
+  // ventana, asi que la OTA no podia terminar NUNCA: banco 2026-09-20, la
+  // barra llegaba a ~22.7% (trozo 688 de 2916) a los ~570 s y volvia a empezar,
+  // una y otra vez, sin un solo error por debajo. El unico rastro era un
+  // "Received chunk (688), not the same as requested chunk (0)" por vuelta.
+  if (!GPRS.OTAInProgress) {
     tb.Start_Firmware_Update(OTAcallback);
   }
 }

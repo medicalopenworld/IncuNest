@@ -970,7 +970,20 @@ bool WIFIIsConnectedToServer() {
 void WIFICheckOTA() {
   logI("[WIFI] -> Checking WIFI firwmare Update...");
   tb_wifi.Firmware_Send_Info(CURRENT_FIRMWARE_TITLE, FWversion);
-  tb_wifi.Start_Firmware_Update(OTAcallback);
+  // Misma guarda que GPRSCheckOTA(), y por el mismo motivo: esta funcion la
+  // llama el lazo cada TX_WIFI_OTA_CHECK_MS (1 min), y sin guarda cada pasada
+  // reiniciaba desde el trozo 0 una descarga que ya estaba en marcha. Por WiFi
+  // el fallo es mas dificil de ver que por 2G --a veces la descarga entera
+  // cabe en el minuto-- pero es el mismo: una OTA que no termina y vuelve a
+  // empezar sin dar ni un error.
+  //
+  // GPRS.OTAInProgress no es un descuido de nombre: los dos transportes
+  // comparten progressCallback/updatedCallback (GPRS.cpp), asi que esa bandera
+  // es la de la OTA en curso, venga por donde venga. Solo una puede estar viva
+  // a la vez.
+  if (!GPRS.OTAInProgress) {
+    tb_wifi.Start_Firmware_Update(OTAcallback);
+  }
 }
 
 void WIFI_TB_Init() {

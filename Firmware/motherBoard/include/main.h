@@ -67,7 +67,7 @@
 
 #define HW_REVISION 'A'
 #define HWversion String(HW_NUM) + "." + String(HW_REVISION)
-#define FWversion "18.4"
+#define FWversion "18.8"
 #define WIFI_NAME "IncuNest"
 #define CURRENT_FIRMWARE_TITLE "IncuNest"
 
@@ -163,7 +163,26 @@
 #define THINGSBOARD_QOS false
 #define TELEMETRIES_DECIMALS 2
 #define FIRMWARE_FAILURE_RETRIES 12
-#define FIRMWARE_PACKET_SIZE 4096
+// Tamano del trozo de firmware que el cliente pide en cada vuelta de la OTA.
+//
+// TIENE QUE CABER EN EL BUFFER DEL CLIENTE MQTT, que es MAX_MESSAGE_SIZE
+// (1024 B): `ThingsBoard tb(mqttClientGPRS, MAX_MESSAGE_SIZE)` en GPRS.cpp y
+// Wifi_OTA.cpp. Ese buffer tiene que alojar el paquete MQTT ENTERO -- cabecera
+// y topico ("v2/fw/response/<id>/chunk/<n>", ~30 B) ademas del payload -- asi
+// que el trozo util se queda en algo menos de 1 KB. Por eso 512 y no 1024.
+//
+// Estaba en 4096, que no cabe, y el sintoma no se parecia a la causa: el
+// chunk llegaba y se descartaba por tamano, el cliente agotaba sus 10 s
+// (WAIT_FAILED_OTA_CHUNKS) y lo volvia a pedir, con algun "Received chunk (0),
+// not the same as requested chunk (1)" suelto cuando se cruzaban peticion y
+// reenvio. Banco 2026-09-20, OTA por 2G: 92 trozos de 365 en ~9 min con 40
+// expiraciones, ~293 B/s. Parecia un problema de cobertura y no lo era.
+//
+// Subir MAX_MESSAGE_SIZE en vez de bajar esto iria mas rapido (menos vueltas),
+// pero el buffer sale del heap interno, y de ese hay ~11 KB libres con WiFi y
+// celular arriba (ver docs/known_issues.md y el abort por OOM del port IDF).
+// No se toca sin medir.
+#define FIRMWARE_PACKET_SIZE 512
 #define WAIT_FAILED_OTA_CHUNKS 10U * 1000U * 1000U
 
 // Mutex for protecting the shared variable
