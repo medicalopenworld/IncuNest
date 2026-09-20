@@ -20,7 +20,9 @@ from detector import (
 from flasher import (
     flash_board, has_firmware_flashed, missing_files, write_initial_ota_data,
 )
-from updater import check_update_available, download_latest
+from updater import (
+    check_update_available, download_latest, pinned_folders, PIN_MARKER,
+)
 
 HOTPLUG_POLL_S = 0.5
 POST_FLASH_COOLDOWN_S = 8
@@ -62,12 +64,21 @@ def _pio_env_sort_key(p: Path) -> tuple:
     return (int(m.group(1)) if m else -1, p.stat().st_mtime)
 
 
-def pick_pio_env_dir(pio_dir: Path) -> Optional[Path]:
+def pick_pio_env_dir(pio_dir: Path, pinned_env: Optional[str] = None) -> Optional[Path]:
     """Directorio .pio/build/<env>/ del que copiar los artefactos.
 
     Prefiere la revision de hardware mas alta y, a igualdad, el build mas
     reciente. Descarta los entornos de fabrica (FACTORY_ENV_SUFFIX).
+
+    Con pinned_env se copia exactamente ese entorno, sea cual sea su sufijo:
+    es como se refrescan unos binarios de fabrica sin volver al de
+    distribucion por el camino. Si ese entorno no esta compilado devuelve None
+    en vez de caer al de distribucion, porque ese silencio es justo el fallo
+    que el ancla quiere evitar.
     """
+    if pinned_env:
+        env_dir = pio_dir / pinned_env
+        return env_dir if (env_dir / 'firmware.bin').is_file() else None
     candidates = [
         p for p in pio_dir.glob('*/firmware.bin')
         if not p.parent.name.endswith(FACTORY_ENV_SUFFIX)
@@ -788,6 +799,31 @@ class FlasherApp:
             font=('', 10), fg='#757575',
         )
         self._status_label.pack(fill='x', pady=(8, 2))
+
+        # --- Aviso permanente de binarios anclados ---
+        #
+        # No es decorativo: un build de fabrica y uno de distribucion se
+        # flashean igual y dejan la misma pantalla en la placa. Sin este aviso,
+        # la unica forma de saber cual esta cargado es el sha256 del .bin.
+        pinned_here = pinned_folders(get_firmware_base())
+        if pinned_here:
+            detail = ", ".join(
+                f"{folder} ({env})" if env else folder
+                for folder, env in sorted(pinned_here.items())
+            )
+            factory = any(
+                env.endswith(FACTORY_ENV_SUFFIX) for env in pinned_here.values() if env
+            )
+            tk.Label(
+                left,
+                text="⚠  BINARIOS ANCLADOS: " + detail
+                     + ("\nBuild de FÁBRICA: no empaquetar data/firmware/."
+                        if factory else
+                        "\nNo se actualizan desde la release."),
+                anchor='w', justify='left', wraplength=wrap,
+                font=('', 9, 'bold'), fg='#C62828',
+            ).pack(fill='x', pady=(0, 4))
+
         tk.Label(
             left,
             text="Para motherBoard y SensorBoard, conecta la placa mientras "
@@ -1192,13 +1228,18 @@ class FlasherApp:
             repo_root = firmware_base.parents[2]
             sources: dict[str, dict[str, Path]] = {}
 
+            pinned = pinned_folders(firmware_base)
+
             for board_folder, pio_dir in [
                 ('display_hmi', repo_root / 'Display_HMI' / '.pio' / 'build'),
                 ('motherboard', repo_root / 'motherBoard' / '.pio' / 'build'),
             ]:
                 if not pio_dir.is_dir():
                     continue
-                env_dir = pick_pio_env_dir(pio_dir)
+                if board_folder in pinned and not pinned[board_folder]:
+                    # Anclada sin declarar entorno: no se toca.
+                    continue
+                env_dir = pick_pio_env_dir(pio_dir, pinned.get(board_folder))
                 if env_dir is None:
                     continue
                 sources[board_folder] = {
@@ -1240,7 +1281,13 @@ class FlasherApp:
             for dest_name, src in files.items():
                 dst = dest_dir / dest_name
                 shutil.copy2(src, dst)
-                self._log_line(f"Copiado: {src.name} → {dst.name} ({board_folder})", 'info')
+                # El nombre del entorno va en el registro a proposito: es lo
+                # unico que distingue en pantalla un build de fabrica de uno de
+                # distribucion.
+                self._log_line(
+                    f"Copiado: {src.parent.name}/{src.name} → {dst.name} ({board_folder})",
+                    'info',
+                )
             copied.append(f"{board_folder} ({len(files)})")
 
         write_initial_ota_data(firmware_base)
