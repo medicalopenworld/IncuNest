@@ -23,6 +23,7 @@
 
 */
 #include <Arduino.h>
+#include <LittleFS.h>   // /debug/crash lee los informes de CrashReporter
 #include "esp_heap_caps.h"
 #include <string.h>
 #include <time.h>
@@ -34,6 +35,7 @@
 #include "PpgSnapshot.h"
 #include "PpgSnapshotPublish.h"
 #include "main.h"
+#include "tasks/CrashReporter.h"
 #include "modules/debug/debug_mode.h"
 #include "modules/util/tz_source.h"
 #include "modules/util/ip_geoloc.h"
@@ -680,6 +682,55 @@ void configWifiServer() {
   // un equipo reiniciado vuelve a la realidad aunque alguien lo dejara puesto.
 
   // Volcado de estado. SOLO LECTURA: no cambia nada y por eso no exige el modo.
+  // Informes de caida guardados en LittleFS por CrashReporter.
+  //
+  // El anillo de log vive en memoria RTC, sobrevive al panic y se vuelca a
+  // /crash_mb_<n>.log en el arranque siguiente. O sea que las ultimas lineas
+  // ANTES del reinicio quedan guardadas en la propia unidad -- y hasta ahora
+  // no habia forma de sacarlas sin abrir la placa por el puerto serie. Eso es
+  // justo lo que hace falta para saber QUE tarea se quedo sin ceder CPU
+  // cuando salta el Task WDT, en vez de deducirlo (produccion 2026-09-20,
+  // unidades 352/358/359, ver known_issues.md #13).
+  //
+  // Solo lectura y con la misma autenticacion que /debug/state. LittleFS
+  // sobrevive a un reflasheo por USB, asi que el informe sigue ahi aunque la
+  // unidad se haya actualizado despues del fallo.
+  //
+  //   GET /debug/crash          -> lista los informes disponibles
+  //   GET /debug/crash?file=... -> devuelve ese informe en texto plano
+  wifiServer.on("/debug/crash", HTTP_GET, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    if (wifiServer.hasArg("file")) {
+      String name = wifiServer.arg("file");
+      // Solo ficheros de informe del directorio raiz: sin '/' ni '..' no se
+      // puede salir a leer otra cosa del sistema de archivos.
+      if (name.indexOf('/') >= 0 || name.indexOf("..") >= 0 ||
+          !name.startsWith("crash_") || !name.endsWith(".log")) {
+        return wifiServer.send(400, "text/plain", "nombre no valido\n");
+      }
+      File f = LittleFS.open("/" + name, "r");
+      if (!f) {
+        return wifiServer.send(404, "text/plain", "no existe\n");
+      }
+      wifiServer.streamFile(f, "text/plain");
+      f.close();
+      return;
+    }
+    String list;
+    File dir = LittleFS.open("/");
+    for (File e = dir.openNextFile(); e; e = dir.openNextFile()) {
+      String n = String(e.name());
+      if (n.startsWith("crash_") || n.startsWith("/crash_")) {
+        list += n + "  " + String(e.size()) + " bytes\n";
+      }
+      e.close();
+    }
+    wifiServer.send(200, "text/plain",
+                    list.length() ? list : String("sin informes de caida\n"));
+  });
+
   wifiServer.on("/debug/state", HTTP_GET, []() {
     if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
       return wifiServer.requestAuthentication();
@@ -1184,6 +1235,15 @@ void addConfigTelemetriesToWIFIJSON() {
   addVariableToTelemetryWIFIJSON[HW_REV_KEY] = String(HW_REVISION);
   addVariableToTelemetryWIFIJSON[FW_VERSION_KEY] = FWversion;
   addVariableToTelemetryWIFIJSON[CCID_KEY] = GPRS.CCID.c_str();
+
+  // Causa de la ultima caida. Solo cuando la hubo: en un arranque limpio no se
+  // manda nada. Cuesta ~220 B una unica vez, y es la diferencia entre ver "se
+  // reinicio" y ver por que.
+  if (crashReportPending()) {
+    addVariableToTelemetryWIFIJSON[CRASH_REASON_KEY] = crashReportReason();
+    addVariableToTelemetryWIFIJSON[CRASH_REBOOTS_KEY] = crashReportReboots();
+    addVariableToTelemetryWIFIJSON[CRASH_LOG_KEY] = crashReportTail();
+  }
 
 #if TX_GROUP_DIAG_WIFI // grupo DIAG — config/transport_policy.h
   addVariableToTelemetryWIFIJSON[BOOT_COUNT_KEY] = g_bootCount;

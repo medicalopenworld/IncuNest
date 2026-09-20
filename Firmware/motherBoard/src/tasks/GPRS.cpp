@@ -43,6 +43,7 @@
 #include "SPO2.h"
 #include "Wifi_OTA.h"
 #include "main.h"
+#include "tasks/CrashReporter.h"
 
 // Initialize GSM modem
 TinyGsm modem(modemSerial);
@@ -989,6 +990,15 @@ void addConfigTelemetriesToGPRSJSON() {
   addVariableToTelemetryGPRSJSON[HW_REV_KEY] = String(HW_REVISION);
   addVariableToTelemetryGPRSJSON[FW_VERSION_KEY] = FWversion;
   addVariableToTelemetryGPRSJSON[CCID_KEY] = GPRS.CCID.c_str();
+
+  // Causa de la ultima caida. Solo cuando la hubo: en un arranque limpio no se
+  // manda nada. Cuesta ~220 B una unica vez, y es la diferencia entre ver "se
+  // reinicio" y ver por que.
+  if (crashReportPending()) {
+    addVariableToTelemetryGPRSJSON[CRASH_REASON_KEY] = crashReportReason();
+    addVariableToTelemetryGPRSJSON[CRASH_REBOOTS_KEY] = crashReportReboots();
+    addVariableToTelemetryGPRSJSON[CRASH_LOG_KEY] = crashReportTail();
+  }
 #if TX_GROUP_CELLULAR_GPRS // grupo CELLULAR — config/transport_policy.h
   addVariableToTelemetryGPRSJSON[IMEI_KEY] = GPRS.IMEI.c_str();
   addVariableToTelemetryGPRSJSON[APN_KEY] = GPRS.APN.c_str();

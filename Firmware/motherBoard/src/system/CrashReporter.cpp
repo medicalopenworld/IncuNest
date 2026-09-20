@@ -5,6 +5,7 @@
 
 #include <LittleFS.h>
 #include <esp_system.h>
+#include "esp_log.h"
 
 extern IncuNest_parameters in3;
 
@@ -45,6 +46,59 @@ static bool resetLooksLikeCrash(esp_reset_reason_t r) {
          r == ESP_RST_WDT   || r == ESP_RST_BROWNOUT;
 }
 
+// --------------------------------------------------------------------------
+// Resumen publicable de la ultima caida (ver CrashReporter.h).
+// --------------------------------------------------------------------------
+static bool     s_summary_valid = false;
+static char     s_summary_reason[16] = "";
+static uint32_t s_summary_reboots = 0;
+static char     s_summary_tail[CRASH_SUMMARY_TAIL_MAX] = "";
+
+// Coge el FINAL del anillo --lo ultimo que se escribio antes de morir, que es
+// lo que identifica la averia-- y lo deja en una sola linea apta para JSON.
+static void buildSummaryTail(const char *ring, uint32_t head, uint32_t full) {
+  if (ring == nullptr) {
+    return;
+  }
+  // Reordena el anillo a lectura lineal: si dio la vuelta, lo ultimo esta
+  // justo antes de head; si no, el contenido util va de 0 a head.
+  const size_t used = full ? CRASH_RING_SIZE : (size_t)head;
+  if (used == 0) {
+    return;
+  }
+  const size_t want = (used < CRASH_SUMMARY_TAIL_MAX - 1)
+                          ? used
+                          : (size_t)(CRASH_SUMMARY_TAIL_MAX - 1);
+  size_t out = 0;
+  for (size_t i = used - want; i < used; i++) {
+    // Indice real dentro del anillo.
+    const size_t idx = full ? ((head + i) % CRASH_RING_SIZE) : i;
+    char c = ring[idx];
+    // Una sola linea y sin nada que rompa el JSON: los saltos de linea pasan a
+    // " | " comprimido a un separador, y lo no imprimible se descarta.
+    if (c == '\n' || c == '\r') {
+      if (out > 0 && s_summary_tail[out - 1] != '|') {
+        if (out + 2 >= CRASH_SUMMARY_TAIL_MAX) break;
+        s_summary_tail[out++] = ' ';
+        s_summary_tail[out++] = '|';
+      }
+      continue;
+    }
+    if (c == '"' || c == '\\' || (unsigned char)c < 0x20 ||
+        (unsigned char)c > 0x7E) {
+      continue;
+    }
+    if (out + 1 >= CRASH_SUMMARY_TAIL_MAX) break;
+    s_summary_tail[out++] = c;
+  }
+  s_summary_tail[out] = '\0';
+}
+
+bool        crashReportPending(void) { return s_summary_valid; }
+const char *crashReportReason(void) { return s_summary_reason; }
+uint32_t    crashReportReboots(void) { return s_summary_reboots; }
+const char *crashReportTail(void) { return s_summary_tail; }
+
 void crashReporterInit() {
   esp_reset_reason_t reason = esp_reset_reason();
 
@@ -61,6 +115,23 @@ void crashReporterInit() {
       s_pending_reason       = reason;
       s_pending_valid        = true;
     }
+  }
+
+  // Resumen para telemetria. Se arma aqui y no en el volcado a fichero porque
+  // no puede depender de que LittleFS monte: una unidad que no consiga
+  // escribir el informe tiene que poder contar igualmente por que se reinicio.
+  if (s_pending_valid) {
+    snprintf(s_summary_reason, sizeof(s_summary_reason), "%s",
+             resetReasonStr(s_pending_reason));
+    s_summary_reboots = s_pending_reboot_count;
+    buildSummaryTail(s_pending_copy, s_pending_head, s_pending_full);
+    s_summary_valid = true;
+    // Sale siempre por consola: si el resumen llega vacio a ThingsBoard, esto
+    // dice si el anillo estaba vacio o si el problema es el saneado.
+    ESP_LOGW("CRASH", "resumen: reason=%s reboots=%u head=%u full=%u tail=[%s]",
+             s_summary_reason, (unsigned)s_summary_reboots,
+             (unsigned)s_pending_head, (unsigned)s_pending_full,
+             s_summary_tail);
   }
 
   if (!ring_valid) {
