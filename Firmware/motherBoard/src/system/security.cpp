@@ -413,8 +413,31 @@ void checkStatusOfSensor(byte sensor)
   const uint32_t staleLimit = (sensor == ROOM_DIGITAL_TEMP_SENSOR)
                                   ? MINIMUM_SUCCESSFULL_AIR_SENSOR_UPDATE
                                   : MINIMUM_SUCCESSFULL_SKIN_SENSOR_UPDATE;
-  const bool stale =
-      (millis() - lastSuccesfullSensorUpdate[sensor] > staleLimit);
+
+  // De que instante se mide la caducidad.
+  //
+  // lastSuccesfullSensorUpdate[] vale 0 hasta la primera lectura buena, y
+  // cuando esta tarea hace su primera pasada millis() ya va muy por encima del
+  // limite: initHardware() tarda mas de 5 s. Restando contra 0 el sensor salia
+  // caducado ANTES de haber tenido ocasion de hablar, asi que cada encendido
+  // levantaba ALARM_AIR_SENSOR_FAULT --prioridad ALTA, corta el calefactor-- y
+  // la retiraba sola en cuanto llegaba la primera muestra. Una alarma de
+  // seguridad que suena en todos los arranques es peor que inutil: entrena al
+  // operador a ignorarla (60601-1-8, fatiga de alarma).
+  //
+  // Mientras el sensor no haya hablado nunca, la cuenta arranca en la PRIMERA
+  // mirada, no en el arranque de la placa. Si el sensor esta de verdad averiado
+  // la alarma salta igual, staleLimit despues de esa primera mirada; lo unico
+  // que se deja de hacer es declararla sin haber esperado.
+  static uint32_t firstCheckMs[SENSOR_TEMP_QTY] = {0};
+  uint32_t reference = (uint32_t)lastSuccesfullSensorUpdate[sensor];
+  if (reference == 0) {
+    if (firstCheckMs[sensor] == 0) {
+      firstCheckMs[sensor] = (now != 0) ? now : 1; // 0 es el centinela
+    }
+    reference = firstCheckMs[sensor];
+  }
+  const bool stale = (now - reference > staleLimit);
   switch (sensor)
   {
   case ROOM_DIGITAL_TEMP_SENSOR:

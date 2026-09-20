@@ -776,7 +776,12 @@ void GPRSProvisionResponse(const JsonObjectConst &data) {
                    " - retrying as IncuNest-" + String(in3.serialNumber) + "_" + String(GPRS.provision_retry_count));
       GPRS.provision_request_sent = false;
     } else {
-      logModemData("[GPRS] -> Provision failed after max retries, giving up");
+      logModemData(
+          "[GPRS] -> provisioning AGOTADO: IncuNest-" +
+          String(in3.serialNumber) + " y sus _1.._" +
+          String(PROVISION_MAX_RETRIES) +
+          " ya existen en el servidor. No se reintenta hasta reiniciar; hay "
+          "que borrarlos en ThingsBoard o dar otro numero de serie.");
     }
     return;
   }

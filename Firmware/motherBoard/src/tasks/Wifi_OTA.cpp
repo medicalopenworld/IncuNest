@@ -996,12 +996,14 @@ void WIFI_TB_Init() {
   logI("[WIFI] -> WIFI_TB_Init check provisioning: " +
        String(Wifi_TB.provisioned));
   if (Wifi_TB.provisioned) {
-    logI("[WIFI] -> Provisioned with token: " + String(Wifi_TB.device_token));
+    // El token es una credencial: se dice que lo hay y su longitud, nunca su valor.
+    ESP_LOGI(TAG, "ya provisionado (token de %u caracteres en NVS)",
+             (unsigned)Wifi_TB.device_token.length());
   }
 }
 
 void WIFIProvisionResponse(const JsonObjectConst &data) {
-  logI("[WIFI] -> Received device provision response");
+  ESP_LOGI(TAG, "respuesta de provisioning recibida");
   const size_t jsonSize = JSON_OBJECT_SIZE(data.size()) + 200;
   char buffer[jsonSize];
   serializeJson(data, buffer, jsonSize);
@@ -1009,11 +1011,19 @@ void WIFIProvisionResponse(const JsonObjectConst &data) {
   if (strncmp(data["status"], "SUCCESS", strlen("SUCCESS")) != 0) {
     Wifi_TB.provision_retry_count++;
     if (Wifi_TB.provision_retry_count <= PROVISION_MAX_RETRIES) {
-      logI("[WIFI] -> Provision failed: " + data["errorMsg"].as<String>() +
-           " - retrying as IncuNest-" + String(in3.serialNumber) + "_" + String(Wifi_TB.provision_retry_count));
+      ESP_LOGW(TAG, "provisioning RECHAZADO (%s) - reintento %u como IncuNest-%d_%u",
+               data["errorMsg"].as<String>().c_str(),
+               (unsigned)Wifi_TB.provision_retry_count, in3.serialNumber,
+               (unsigned)Wifi_TB.provision_retry_count);
       Wifi_TB.provision_request_sent = false;
     } else {
-      logI("[WIFI] -> Provision failed after max retries, giving up");
+      ESP_LOGE(TAG,
+               "provisioning AGOTADO tras %u reintentos: IncuNest-%d y sus "
+               "_1.._%u ya existen en el servidor. No se volvera a intentar "
+               "hasta reiniciar; hay que borrarlos en ThingsBoard o dar otro "
+               "numero de serie a la unidad.",
+               (unsigned)PROVISION_MAX_RETRIES, in3.serialNumber,
+               (unsigned)PROVISION_MAX_RETRIES);
     }
     return;
   }
@@ -1030,7 +1040,7 @@ void WIFIProvisionResponse(const JsonObjectConst &data) {
       p.putString(KEY_TOKEN,       Wifi_TB.device_token);
       p.putUChar (KEY_PROVISIONED, Wifi_TB.provisioned);
       p.end(); }
-    logI("[WIFI] -> Device provisioned successfully");
+    ESP_LOGI(TAG, "provisionado correctamente");
   } else if (strncmp(data[CREDENTIALS_TYPE], MQTT_BASIC_CRED_TYPE,
                      strlen(MQTT_BASIC_CRED_TYPE)) == 0) {
     auto credentials_value = data[CREDENTIALS_VALUE].as<JsonObjectConst>();
@@ -1061,7 +1071,7 @@ void WIFITBProvision() {
     logI("[WIFI] -> Connecting for provision to: " +
          String(THINGSBOARD_SERVER));
     if (!tb_wifi.connect(THINGSBOARD_SERVER, "provision", THINGSBOARD_PORT)) {
-      logI("[WIFI] -> Failed to connect");
+      ESP_LOGW(TAG, "no se pudo abrir la conexion de provisioning");
       return;
     }
   }
@@ -1072,7 +1082,7 @@ void WIFITBProvision() {
   String deviceName = (Wifi_TB.provision_retry_count == 0)
       ? baseName
       : baseName + "_" + String(Wifi_TB.provision_retry_count);
-  logI("[WIFI] -> Provisioning as: " + deviceName);
+  ESP_LOGI(TAG, "pidiendo provisioning como %s", deviceName.c_str());
   const Provision_Callback provisionCallback(
       Access_Token(), &WIFIProvisionResponse, PROVISION_DEVICE_KEY,
       PROVISION_DEVICE_SECRET, deviceName.c_str());
@@ -1795,7 +1805,8 @@ void WIFI_TB_OTA() {
 
     if (!Wifi_TB.provisioned) {
       if (in3.serialNumber == 0) {
-        logI("[WIFI] -> Waiting for serial number before provisioning");
+        ESP_LOGW(TAG, "SIN NUMERO DE SERIE (0): no se puede provisionar. El "
+                    "flasher lo escribe en NVS (mb_cfg/serial).");
       } else if (!Wifi_TB.provision_request_sent) {
         WIFITBProvision();
       }
