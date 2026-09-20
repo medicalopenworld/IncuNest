@@ -42,7 +42,10 @@ WIFI_SCAN_INTERVAL_S = 5
 # es opcional y se avisa cuando falta. ota_data_initial.bin no lo genera
 # PlatformIO en ninguno de los dos proyectos: se escribe aparte, ver
 # _write_initial_ota_data.
-PIO_ARTIFACTS = ('firmware.bin', 'bootloader.bin', 'partitions.bin', 'spiffs.bin')
+# spiffs.bin ya no esta: el HMI no flashea imagen del sistema de archivos
+# porque nadie la lee (ver _BOARD_FILES en flasher.py). Copiarla aqui solo
+# servia para dejar en data/firmware/ un fichero de 6 MB que no se escribe.
+PIO_ARTIFACTS = ('firmware.bin', 'bootloader.bin', 'partitions.bin')
 
 # Sufijo de los entornos de build que NUNCA se empaquetan en el flasher.
 #
@@ -1358,19 +1361,14 @@ class FlasherApp:
     def _report_missing_binaries(self, firmware_base: Path) -> None:
         """Avisa en el registro de lo que la secuencia de flasheo espera y no hay.
 
-        El caso habitual es display_hmi/spiffs.bin: PlatformIO solo lo genera si
-        se corre `pio run -t buildfs`, asi que un build normal no lo deja en
-        .pio/build/ y no hay nada que copiar.
+        Sin esto, un hueco no sale hasta el FileNotFoundError de flash_board,
+        con la placa delante y en fabrica.
         """
         gaps = missing_files(firmware_base)
         if not gaps:
             return
         for folder, names in gaps.items():
             self._log_line(f"Faltan en {folder}: {', '.join(names)}", 'error')
-        if any('spiffs.bin' in names for names in gaps.values()):
-            self._log_line(
-                "spiffs.bin se genera con `pio run -t buildfs` en Display_HMI.", 'info',
-            )
 
 
 if __name__ == '__main__':

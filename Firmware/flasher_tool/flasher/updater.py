@@ -24,7 +24,9 @@ _ASSET_MAP = {
     "display_hmi_partitions.bin":       "display_hmi/partitions.bin",
     "display_hmi_firmware.bin":         "display_hmi/firmware.bin",
     "display_hmi_ota_data_initial.bin": "display_hmi/ota_data_initial.bin",
-    "display_hmi_spiffs.bin":           "display_hmi/spiffs.bin",
+    # display_hmi_spiffs.bin ya no: el HMI no flashea imagen del sistema de
+    # archivos, asi que descargarla solo dejaria 6 MB muertos en disco.
+    # Ver _BOARD_FILES en flasher.py.
     "sensorboard_bootloader.bin":       "sensorboard/bootloader.bin",
     "sensorboard_partitions.bin":       "sensorboard/partitions.bin",
     "sensorboard_firmware.bin":         "sensorboard/firmware.bin",

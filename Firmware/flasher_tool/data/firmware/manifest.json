@@ -9,7 +9,6 @@
     "display_hmi_firmware.bin": "888bf2e1f3512eda07ff54b25ee6a6526ad71cd310fc7ee14630bb83dc6ef3a9",
     "display_hmi_ota_data_initial.bin": "7d2c7ac4888bfd75cd5f56e8d61f69595121183afc81556c876732fd3782c62f",
     "display_hmi_partitions.bin": "e8b759707a00c12bfbd6ac624eb207b4c1c993758ce5470ed51e023c886fb975",
-    "display_hmi_spiffs.bin": "9519ea6ed47bdcba714b75bf5a650e7bed006d1e0c51b02d9906b55d09fc76c3",
     "motherboard_bootloader.bin": "be3068f692ae3d3e87944845d8512fe1cf5abbbe0721e477099d43e865190987",
     "motherboard_firmware.bin": "6711eb5c15252f6f51e2a230137df80812e3bcef6bb308fb9a71bf8db2ffd51d",
     "motherboard_ota_data_initial.bin": "7d2c7ac4888bfd75cd5f56e8d61f69595121183afc81556c876732fd3782c62f",

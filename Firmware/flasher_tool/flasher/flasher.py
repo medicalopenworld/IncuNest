@@ -45,19 +45,25 @@ _BOARD_FILES = {
         ('0xE000', 'ota_data_initial.bin'),
         ('0x10000', 'firmware.bin'),
     ],
-    # spiffs.bin lleva /heartbeat.mp3, el unico fichero que el firmware lee del
-    # filesystem (src/tasks/AudioManager.cpp). Hasta 2026-09 no se flasheaba
-    # ninguna imagen SPIFFS: una unidad recien salida de fabrica arrancaba con
-    # la particion vacia y sin sonido de latido, y el aviso quedaba en un
-    # Serial.println que nadie lee en produccion ("NOT FOUND. Run 'Upload File
-    # System Image'"). La imagen ocupa toda la particion pero va casi entera a
-    # 0xFF, asi que con --compress el coste real de escribirla es despreciable.
+    # SIN imagen SPIFFS (2026-09-20). Se flasheaba una de 6,16 MB en 0xA10000
+    # para llevar /heartbeat.mp3, y resulta que en esta linea de firmware NADIE
+    # la lee: su unico consumidor era src/tasks/AudioManager.cpp, que esta
+    # excluido del build (`build_src_filter = +<*> -<tasks/AudioManager.cpp>` en
+    # Display_HMI/platformio.ini) y ni siquiera genera objeto. El boton de audio
+    # de la interfaz esta oculto de forma permanente.
+    #
+    # Quitarla ademas cierra dos molestias: el flasheo fallaba con "Archivo no
+    # encontrado" si nadie habia corrido `pio run -t buildfs` (la imagen no sale
+    # de un build normal), y reflashear una unidad ya no pisa esa particion.
+    #
+    # Si algun dia se reactiva el audio, hay que volver a anadir la linea
+    # ('0xA10000', 'spiffs.bin') -- el offset sale de
+    # Display_HMI/partitions/hmi_16mb_ota.csv -- y volver a generar la imagen.
     Board.DISPLAY_HMI: [
         ('0x0000', 'bootloader.bin'),
         ('0x8000', 'partitions.bin'),
         ('0xE000', 'ota_data_initial.bin'),
         ('0x10000', 'firmware.bin'),
-        ('0xA10000', 'spiffs.bin'),
     ],
     # ESP-IDF native layout (bootloader offset 0x0, partition table at
     # 0x8000, primera app en 0x10000 — see SensorBoard_v2/partitions.csv).
