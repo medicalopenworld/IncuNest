@@ -20,7 +20,13 @@
 #include "modules/util/system_clock.h"
 #include "modules/baby_profile/baby_profile_store.h"
 
+#include <WiFi.h>
+#include "tasks/GPRS.h"
+#include "tasks/Wifi_OTA.h"
+
 extern IncuNest_parameters in3;
+extern WIFIstruct Wifi_TB;
+extern GPRSstruct GPRS;
 extern double fanControlPIDOutput;
 extern double HeaterPIDOutput;
 
@@ -407,6 +413,39 @@ size_t debug_state_json_ex(char *out, size_t out_len, bool with_tasks) {
     (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
     (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
     (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+
+  // NUBE. Para que se pueda diagnosticar "no conecta con ThingsBoard" sin
+  // tener la placa abierta por el puerto serie: en una unidad montada, en
+  // fabrica o en campo, ese puerto no esta a mano, y hasta ahora la unica
+  // forma de saber en que punto se atascaba era leer el log (banco
+  // 2026-09-20, unidad 356).
+  //
+  // Lo que distingue cada averia:
+  //   wifi.connected=0            -> no hay red; no mires mas alla
+  //   serial=0                    -> sin numero de serie, no se provisiona
+  //   tb.provisioned=0            -> nunca consiguio credenciales
+  //   tb.retries>0                -> el servidor rechaza el nombre (ya existe)
+  //   tb.provisioned=1 + conn=0   -> tiene token pero el broker no lo acepta
+  //                                  o el puerto esta cerrado
+  //
+  // El token NO se publica: solo su longitud. Es la credencial de la unidad y
+  // este endpoint, aunque pide usuario y clave, va por HTTP plano.
+  J(",\"cloud\":{\"server\":\"%s\",\"port\":%d"
+    ",\"wifi\":{\"connected\":%d,\"ssid\":\"%s\",\"ip\":\"%s\",\"rssi\":%d}"
+    ",\"tb_wifi\":{\"provisioned\":%d,\"token_len\":%u,\"conn\":%d"
+    ",\"req_sent\":%d,\"retries\":%u}"
+    ",\"tb_gprs\":{\"provisioned\":%d,\"token_len\":%u,\"conn\":%d"
+    ",\"retries\":%u}}",
+    THINGSBOARD_SERVER, (int)THINGSBOARD_PORT,
+    (int)WIFIIsConnected(), WiFi.SSID().c_str(),
+    WiFi.localIP().toString().c_str(), (int)WiFi.RSSI(),
+    (int)Wifi_TB.provisioned, (unsigned)Wifi_TB.device_token.length(),
+    (int)Wifi_TB.serverConnectionStatus,
+    (int)Wifi_TB.provision_request_sent,
+    (unsigned)Wifi_TB.provision_retry_count,
+    (int)GPRS.provisioned, (unsigned)GPRS.device_token.length(),
+    (int)GPRS.serverConnectionStatus,
+    (unsigned)GPRS.provision_retry_count);
 
   // SISTEMA DE FICHEROS. Se informa porque llenarlo no se notaba desde fuera:
   // en banco (2026-09-14) las ventanas de PPG de DriveUpload llenaron los
