@@ -110,6 +110,19 @@ static void buildCoreDumpSummary(void) {
 // muriera de lo que muriera. Se descartan al componer el resumen; en el
 // fichero completo de LittleFS siguen estando.
 // --------------------------------------------------------------------------
+// Cuerpo del mensaje, saltando la marca de tiempo "[ 60420]" que cambia en
+// cada linea. Sin esto dos emisiones de la MISMA alarma parecen distintas y el
+// deduplicado no sirve de nada.
+static const char *lineBody(const char *line) {
+  if (line != NULL && line[0] == '[') {
+    const char *p = strchr(line, ']');
+    if (p != NULL) {
+      return p + 1;
+    }
+  }
+  return line;
+}
+
 static bool lineIsNoise(const char *line) {
   static const char *const kNoise[] = {
       "Sending state to HMI",
@@ -285,6 +298,34 @@ static void buildFullLog(char *ring, uint32_t head, uint32_t full) {
       const char *linea = &ring[ini];
       // La primera linea del anillo esta cortada por la mitad cuando ha dado
       // la vuelta: no se publica un trozo sin principio.
+      // Cada mensaje DISTINTO se publica una sola vez.
+      //
+      // No basta con colapsar repeticiones seguidas: con dos alarmas activas
+      // se alternan (A, B, A, B...) y no hay dos iguales consecutivas, asi que
+      // el presupuesto se llena igual de copias. Medido en banco: 1874
+      // caracteres para contar exactamente dos cosas.
+      //
+      // Se comprueba contra TODO lo ya emitido, no contra la linea anterior.
+      // Se pierde cuantas veces se repitio cada una, pero se gana lo que de
+      // verdad hace falta para depurar: la secuencia de cosas DISTINTAS que
+      // pasaron, con la marca de tiempo de la primera vez.
+      //
+      // El strstr es O(n^2) sobre 4 KB y corre una sola vez, en el arranque.
+      const char *cuerpo = lineBody(linea);
+      bool ya_emitida = false;
+      if (out > 0 && cuerpo[0] != '\0' && out < ini) {
+        const char guardado_out = ring[out];
+        ring[out] = '\0';
+        ya_emitida = (strstr(ring, cuerpo) != NULL);
+        ring[out] = guardado_out;
+      }
+      if (ya_emitida) {
+        ring[i] = guardado;
+        primera = false;
+        ini = i + 1;
+        continue;
+      }
+
       const bool cortada = (primera && full);
       if (!cortada && !lineIsNoise(linea)) {
         if (out > 0 && out + 3 < ini) {
@@ -507,26 +548,16 @@ void crashReporterMaybeFlush() {
   f.printf("\n-- end --\n");
   f.close();
 
-  char drive_name[64];
-  time_t now;
-  time(&now);
-  if (now > 1609459200UL) {
-    struct tm t;
-    gmtime_r(&now, &t);
-    char tsbuf[32];
-    strftime(tsbuf, sizeof(tsbuf), "%Y_%m_%d_%H_%M_%S", &t);
-    snprintf(drive_name, sizeof(drive_name), "%s_%d_crash_mb_%s.log", tsbuf,
-             (int)in3.serialNumber, resetReasonStr(s_pending_reason));
-  } else {
-    snprintf(drive_name, sizeof(drive_name), "boot_%d_crash_mb_%s.log",
-             (int)in3.serialNumber, resetReasonStr(s_pending_reason));
-  }
-
-  if (!driveEnqueueLogUpload(path, drive_name)) {
-    logDrive("MB crash enqueue failed");
-  } else {
-    logDrive(String("queued MB crash: ") + drive_name);
-  }
+  // El informe YA NO se sube a Drive (2026-09-21). El canal es ThingsBoard:
+  // Crash_reason, Crash_reboots, Crash_log y Crash_log_full salen en el primer
+  // envio tras el reinicio, que es donde se miran.
+  //
+  // Quitar la subida no es solo simplificar: driveUploadTask era quien BORRABA
+  // este fichero --tras subir, tras fallar y hasta por la rama "network not
+  // ready"--, asi que con Drive fuera el informe se queda en la placa como
+  // respaldo y se puede descargar con GET /debug/crash. Eso importa cuando la
+  // caida ocurre sin WiFi: la telemetria no sale y el fichero es lo unico que
+  // queda.
 
   // El buffer NO se libera aqui: a partir de este punto pertenece a la
   // telemetria, que publica el log completo (crashReportFullLog) y lo suelta
