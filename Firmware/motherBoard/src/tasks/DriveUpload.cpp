@@ -51,6 +51,30 @@ struct DriveUploadRequest {
 // Silent remove: LittleFS.exists() + LittleFS.remove() both log [E] at the
 // framework level when the file is missing. We clean pre-emptively so probe
 // via POSIX stat() on the mounted path, which does not log.
+// Un informe de caida NO se borra al fallar la subida.
+//
+// Es el unico artefacto que no se puede volver a generar: son las ultimas
+// lineas antes de morir, y si se pierden hay que esperar a que la averia se
+// repita. Las ventanas de PPG si se pueden tirar --habra otra en 15 min-- pero
+// esto no.
+//
+// El borrado indiscriminado dejaba la placa SIEMPRE sin informes: se escribia
+// el fichero, se encolaba para Drive, la subida no era posible (sin red o sin
+// Drive configurado) y la tarea lo borraba igual, incluso por la rama
+// "network not ready, dropping upload". Comprobado el 2026-09-21: seis caidas
+// forzadas seguidas y en la placa seguian solo cuatro informes de la 18.2.
+//
+// No hace falta limite extra: keepNewestCrashLog() ya los acota a
+// DRIVE_CRASH_LOG_RETENTION_CAP (5) en cada arranque, o sea 22 KB como mucho
+// en una particion de 2 MB. Y se pueden descargar con GET /debug/crash.
+static bool isCrashReport(const char *path) {
+  if (path == nullptr) {
+    return false;
+  }
+  const char *base = (path[0] == '/') ? path + 1 : path;
+  return strncmp(base, "crash_", 6) == 0;
+}
+
 static void removeIfExists(const char *path) {
   char full[40];
   snprintf(full, sizeof(full), LFS_MOUNT "%s", path);
@@ -494,7 +518,9 @@ static void driveUploadTask(void *pv) {
 
     if (!driveHostReachable()) {
       logDrive("network not ready, dropping upload");
-      removeIfExists(req.source_path);
+      if (!isCrashReport(req.source_path)) {
+        removeIfExists(req.source_path);
+      }
       if (req.clear_pulsiox_slot)
         s_upload_slot_busy = false;
       continue;
@@ -531,7 +557,11 @@ static void driveUploadTask(void *pv) {
       esp_restart();
     }
 
-    removeIfExists(req.source_path);
+    // Los informes de caida solo se borran si la subida SALIO BIEN: si fallo,
+    // el fichero es lo unico que queda de esa averia (ver isCrashReport).
+    if (ok || !isCrashReport(req.source_path)) {
+      removeIfExists(req.source_path);
+    }
     if (req.clear_pulsiox_slot)
       s_upload_slot_busy = false;
     logDrive(String(ok ? "upload OK" : "upload FAILED") +

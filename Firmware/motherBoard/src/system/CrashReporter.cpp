@@ -4,6 +4,7 @@
 #include "board.h"
 
 #include <LittleFS.h>
+#include <Preferences.h>
 #include <stdarg.h>
 #include <esp_system.h>
 #include "esp_core_dump.h"
@@ -332,9 +333,11 @@ void crashReporterPut(const char *data, size_t len) {
 }
 
 void crashReporterMaybeFlush() {
+  // Con ESP_LOGW y no logDrive: logDrive se compila fuera (LOG_DRIVE a false),
+  // asi que este camino era completamente mudo y no habia forma de saber por
+  // que no aparecia el fichero.
+  ESP_LOGW("CRASH", "volcado a fichero: pendiente=%d", (int)s_pending_valid);
   if (!s_pending_valid) {
-    logDrive(String("no pending MB crash (reason=") +
-             resetReasonStr(esp_reset_reason()) + ")");
     return;
   }
 
@@ -342,13 +345,39 @@ void crashReporterMaybeFlush() {
            resetReasonStr(s_pending_reason) +
            " reboots=" + String(s_pending_reboot_count));
 
+  // El nombre lleva un numero de secuencia persistido, NO millis().
+  //
+  // Antes era "/crash_mb_<millis>.log", y el volcado ocurre siempre a ~1,4 s de
+  // arranque: ese numero valia casi lo mismo en todos los arranques (1323,
+  // 1329, 1383, 1451...). La retencion de DriveUpload ordena por el y conserva
+  // los 5 "mas nuevos", asi que comparaba ruido: una caida de hoy con 1380
+  // perdia contra una de hace dos semanas con 1451 y se borraba en el arranque
+  // siguiente. El informe que se tiraba era justo el mas reciente -- el unico
+  // que alguien iba a querer leer. Comprobado el 2026-09-21: seis caidas
+  // forzadas seguidas y los cuatro ficheros de la placa seguian siendo de la
+  // 18.2.
+  //
+  // La secuencia arranca en 100000 para quedar SIEMPRE por encima de los
+  // nombres viejos basados en millis, que no llegan a 6 cifras. Asi los
+  // legados se van solos por retencion en vez de bloquear los nuevos.
+  uint32_t seq = 100000;
+  {
+    Preferences p;
+    if (p.begin("mb_crash", false)) {
+      seq = p.getULong("seq", 100000) + 1;
+      if (seq < 100000) {
+        seq = 100000;
+      }
+      p.putULong("seq", seq);
+      p.end();
+    }
+  }
   char path[48];
-  snprintf(path, sizeof(path), "/crash_mb_%lu.log",
-           (unsigned long)millis());
+  snprintf(path, sizeof(path), "/crash_mb_%lu.log", (unsigned long)seq);
 
   File f = LittleFS.open(path, "w", true);
+  ESP_LOGW("CRASH", "abriendo %s -> %s", path, f ? "OK" : "FALLO");
   if (!f) {
-    logDrive("cannot open crash file");
     free(s_pending_copy);
     s_pending_copy  = nullptr;
     s_pending_valid = false;
