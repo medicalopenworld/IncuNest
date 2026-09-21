@@ -262,23 +262,49 @@ static void buildFullLog(char *ring, uint32_t head, uint32_t full) {
     invertir(ring + head, CRASH_RING_SIZE - head);
     invertir(ring, CRASH_RING_SIZE);
   }
-  // Y despues se sanea, compactando: los saltos de linea pasan a " | " y lo no
-  // imprimible se descarta.
+  // Y despues se sanea POR LINEAS, descartando el trafico periodico.
+  //
+  // Mandar el anillo en crudo seria peor de lo que parece: es en su mayoria la
+  // trama de estado al HMI y el keepalive del display, una vez por segundo
+  // cada uno. Filtrando, los ~4 KB se quedan tipicamente en ~1 KB que es todo
+  // senal. Mas pequeno y mas util a la vez, que es justo lo que hizo falta en
+  // el resumen corto.
   size_t out = 0;
-  for (size_t i = 0; i < used; i++) {
-    const char c = ring[i];
-    if (c == '\n' || c == '\r') {
-      if (out > 0 && ring[out - 1] != '|') {
-        ring[out++] = ' ';
-        ring[out++] = '|';
+  size_t ini = 0;
+  bool primera = true;
+  for (size_t i = 0; i <= used; i++) {
+    const bool fin_de_linea = (i == used) || ring[i] == '\n' || ring[i] == '\r';
+    if (!fin_de_linea) {
+      continue;
+    }
+    const size_t len = i - ini;
+    if (len > 0) {
+      // Copia temporal terminada para poder preguntarle a lineIsNoise().
+      char guardado = ring[i];
+      ring[i] = '\0';
+      const char *linea = &ring[ini];
+      // La primera linea del anillo esta cortada por la mitad cuando ha dado
+      // la vuelta: no se publica un trozo sin principio.
+      const bool cortada = (primera && full);
+      if (!cortada && !lineIsNoise(linea)) {
+        if (out > 0 && out + 3 < ini) {
+          ring[out++] = ' ';
+          ring[out++] = '|';
+          ring[out++] = ' ';
+        }
+        for (size_t j = 0; j < len && out < ini; j++) {
+          const char c = ring[ini + j];
+          if (c == '"' || c == '\\' || (unsigned char)c < 0x20 ||
+              (unsigned char)c > 0x7E) {
+            continue;
+          }
+          ring[out++] = c;
+        }
       }
-      continue;
+      ring[i] = guardado;
+      primera = false;
     }
-    if (c == '"' || c == '\\' || (unsigned char)c < 0x20 ||
-        (unsigned char)c > 0x7E) {
-      continue;
-    }
-    ring[out++] = c;
+    ini = i + 1;
   }
   ring[out] = '\0';
   s_full_log = ring;
