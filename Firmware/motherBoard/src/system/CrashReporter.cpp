@@ -6,6 +6,7 @@
 #include <LittleFS.h>
 #include <stdarg.h>
 #include <esp_system.h>
+#include "esp_core_dump.h"
 #include "esp_log.h"
 
 extern IncuNest_parameters in3;
@@ -54,51 +55,186 @@ static bool     s_summary_valid = false;
 static char     s_summary_reason[16] = "";
 static uint32_t s_summary_reboots = 0;
 static char     s_summary_tail[CRASH_SUMMARY_TAIL_MAX] = "";
+static char     s_summary_task[20] = "";
+static char     s_summary_bt[96] = "";
 
-// Coge el FINAL del anillo --lo ultimo que se escribio antes de morir, que es
-// lo que identifica la averia-- y lo deja en una sola linea apta para JSON.
+// Resumen del coredump: la tarea que exploto y su backtrace.
+//
+// No se borra el coredump despues de leerlo: sigue en su particion para poder
+// sacarlo entero con esptool y decodificarlo con addr2line. Solo se lee en el
+// arranque siguiente a una caida, asi que no se republica en cada reinicio.
+static void buildCoreDumpSummary(void) {
+#if CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH && CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF
+  esp_core_dump_summary_t *sum =
+      (esp_core_dump_summary_t *)malloc(sizeof(esp_core_dump_summary_t));
+  if (sum == NULL) {
+    return;
+  }
+  const esp_err_t cd = esp_core_dump_get_summary(sum);
+  if (cd != ESP_OK) {
+    // Sale por consola para no quedarse adivinando por que va vacio: lo normal
+    // es ESP_ERR_NOT_FOUND (la caida no llego a escribir coredump).
+    ESP_LOGW("CRASH", "coredump no legible: %s", esp_err_to_name(cd));
+    // Una imagen que no se puede leer no sirve para nada y ademas impide que
+    // se escriba una buena: se borra para que la SIGUIENTE caida si deje un
+    // volcado aprovechable. Solo se borra lo ilegible; un volcado valido se
+    // conserva para sacarlo entero con esptool.
+    if (cd == ESP_ERR_INVALID_SIZE || cd == ESP_ERR_INVALID_CRC ||
+        cd == ESP_ERR_INVALID_VERSION) {
+      const esp_err_t er = esp_core_dump_image_erase();
+      ESP_LOGW("CRASH", "coredump ilegible borrado: %s", esp_err_to_name(er));
+    }
+  }
+  if (cd == ESP_OK) {
+    snprintf(s_summary_task, sizeof(s_summary_task), "%s", sum->exc_task);
+    size_t out = 0;
+    out += snprintf(s_summary_bt + out, sizeof(s_summary_bt) - out, "pc=0x%08x",
+                    (unsigned)sum->exc_pc);
+    for (uint32_t i = 0; i < sum->exc_bt_info.depth && out < sizeof(s_summary_bt) - 12; i++) {
+      out += snprintf(s_summary_bt + out, sizeof(s_summary_bt) - out, " 0x%08x",
+                      (unsigned)sum->exc_bt_info.bt[i]);
+    }
+  }
+  free(sum);
+#endif
+}
+
+// --------------------------------------------------------------------------
+// Lineas que NO aportan nada en un informe de caida.
+//
+// La placa imprime la trama de estado al HMI y el keepalive del display una
+// vez por segundo. Con una ventana corta, ese ruido periodico se come siempre
+// lo interesante: el primer Crash_log que llego a ThingsBoard (unidad 1_2,
+// 2026-09-21) eran exactamente esas dos lineas, que se habrian visto igual
+// muriera de lo que muriera. Se descartan al componer el resumen; en el
+// fichero completo de LittleFS siguen estando.
+// --------------------------------------------------------------------------
+static bool lineIsNoise(const char *line) {
+  static const char *const kNoise[] = {
+      "Sending state to HMI",
+      "HMI CMD stored",
+      "send_state_to_hmi",
+      "Sending time to HMI",  // CTRL,TIME, tambien periodico
+  };
+  for (size_t i = 0; i < sizeof(kNoise) / sizeof(kNoise[0]); i++) {
+    if (strstr(line, kNoise[i]) != NULL) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Recorre el anillo de ATRAS hacia delante quedandose con las ultimas lineas
+// que dicen algo, y las devuelve en orden cronologico. Es la diferencia entre
+// "lo ultimo que se imprimio" y "lo ultimo que importo".
 static void buildSummaryTail(const char *ring, uint32_t head, uint32_t full) {
   if (ring == nullptr) {
     return;
   }
-  // Reordena el anillo a lectura lineal: si dio la vuelta, lo ultimo esta
-  // justo antes de head; si no, el contenido util va de 0 a head.
   const size_t used = full ? CRASH_RING_SIZE : (size_t)head;
   if (used == 0) {
     return;
   }
-  const size_t want = (used < CRASH_SUMMARY_TAIL_MAX - 1)
-                          ? used
-                          : (size_t)(CRASH_SUMMARY_TAIL_MAX - 1);
+  // Copia lineal del anillo para poder partirlo en lineas sin pelearse con la
+  // vuelta. Se libera antes de salir.
+  char *lin = (char *)malloc(used + 1);
+  if (lin == nullptr) {
+    return;
+  }
+  for (size_t i = 0; i < used; i++) {
+    lin[i] = ring[full ? ((head + i) % CRASH_RING_SIZE) : i];
+  }
+  lin[used] = '\0';
+
+  // Primero TODOS los saltos de linea pasan a terminador, en una sola pasada
+  // hacia delante. Hacerlo sobre la marcha durante el barrido hacia atras era
+  // el fallo de la primera version: el retroceso buscaba el terminador
+  // anterior, que todavia era un '\n' sin convertir, y se tragaba el anillo
+  // entero como una unica linea gigante que no cabia en el presupuesto. El
+  // resultado era un resumen vacio pese a tener el anillo lleno.
+  for (size_t i = 0; i < used; i++) {
+    if (lin[i] == '\n' || lin[i] == '\r') {
+      lin[i] = '\0';
+    }
+  }
+
+  // Ahora si: de la ultima linea a la primera.
+  const size_t kMaxLines = 24;
+  const char *starts[kMaxLines];
+  size_t nlines = 0;
+  size_t i = used;
+  while (i > 0 && nlines < kMaxLines) {
+    // saltar terminadores
+    while (i > 0 && lin[i - 1] == '\0') {
+      i--;
+    }
+    if (i == 0) {
+      break;
+    }
+    const size_t end = i;
+    while (i > 0 && lin[i - 1] != '\0') {
+      i--;
+    }
+    // La primera linea del anillo suele estar cortada por la mitad (el anillo
+    // dio la vuelta): se descarta para no publicar un trozo sin principio.
+    if (i > 0 || used < CRASH_RING_SIZE) {
+      (void)end;
+      starts[nlines++] = &lin[i];
+    }
+  }
+
+  // Quedarse con las utiles, de la mas reciente hacia atras, hasta llenar el
+  // presupuesto; luego escribirlas en orden cronologico.
+  const char *keep[kMaxLines];
+  size_t nkeep = 0, budget = 0;
+  for (size_t i = 0; i < nlines; i++) {
+    const char *l = starts[i];
+    if (l == NULL || l[0] == '\0' || lineIsNoise(l)) {
+      continue;
+    }
+    const size_t len = strlen(l);
+    if (budget + len + 3 >= CRASH_SUMMARY_TAIL_MAX) {
+      break;
+    }
+    keep[nkeep++] = l;
+    budget += len + 3;
+  }
+
   size_t out = 0;
-  for (size_t i = used - want; i < used; i++) {
-    // Indice real dentro del anillo.
-    const size_t idx = full ? ((head + i) % CRASH_RING_SIZE) : i;
-    char c = ring[idx];
-    // Una sola linea y sin nada que rompa el JSON: los saltos de linea pasan a
-    // " | " comprimido a un separador, y lo no imprimible se descarta.
-    if (c == '\n' || c == '\r') {
-      if (out > 0 && s_summary_tail[out - 1] != '|') {
-        if (out + 2 >= CRASH_SUMMARY_TAIL_MAX) break;
-        s_summary_tail[out++] = ' ';
-        s_summary_tail[out++] = '|';
+  for (size_t i = nkeep; i > 0; i--) {
+    const char *l = keep[i - 1];
+    for (const char *c = l; *c && out + 1 < CRASH_SUMMARY_TAIL_MAX; c++) {
+      // Nada que rompa un JSON.
+      if (*c == '"' || *c == '\\' || (unsigned char)*c < 0x20 ||
+          (unsigned char)*c > 0x7E) {
+        continue;
       }
-      continue;
+      s_summary_tail[out++] = *c;
     }
-    if (c == '"' || c == '\\' || (unsigned char)c < 0x20 ||
-        (unsigned char)c > 0x7E) {
-      continue;
+    if (i > 1 && out + 3 < CRASH_SUMMARY_TAIL_MAX) {
+      s_summary_tail[out++] = ' ';
+      s_summary_tail[out++] = '|';
+      s_summary_tail[out++] = ' ';
     }
-    if (out + 1 >= CRASH_SUMMARY_TAIL_MAX) break;
-    s_summary_tail[out++] = c;
   }
   s_summary_tail[out] = '\0';
+  // Distinguir "no capture nada" de "no habia nada raro que capturar": si el
+  // anillo tenia lineas pero todas eran trafico periodico, decirlo. Un campo
+  // vacio no permite saber cual de las dos cosas paso.
+  if (out == 0 && nlines > 0) {
+    snprintf(s_summary_tail, CRASH_SUMMARY_TAIL_MAX,
+             "(sin nada anomalo: %u lineas, todas trafico periodico)",
+             (unsigned)nlines);
+  }
+  free(lin);
 }
 
 bool        crashReportPending(void) { return s_summary_valid; }
 const char *crashReportReason(void) { return s_summary_reason; }
 uint32_t    crashReportReboots(void) { return s_summary_reboots; }
 const char *crashReportTail(void) { return s_summary_tail; }
+const char *crashReportTask(void) { return s_summary_task; }
+const char *crashReportBacktrace(void) { return s_summary_bt; }
 
 // ---------------------------------------------------------------------------
 // Puente del log de Arduino al anillo de caidas.
@@ -161,6 +297,7 @@ void crashReporterInit() {
              resetReasonStr(s_pending_reason));
     s_summary_reboots = s_pending_reboot_count;
     buildSummaryTail(s_pending_copy, s_pending_head, s_pending_full);
+    buildCoreDumpSummary();
     s_summary_valid = true;
     // Sale siempre por consola: si el resumen llega vacio a ThingsBoard, esto
     // dice si el anillo estaba vacio o si el problema es el saneado.

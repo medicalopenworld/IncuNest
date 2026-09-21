@@ -32,7 +32,7 @@ void crashReporterMaybeFlush();
 // reinicio anterior fue normal (apagado, reset por software), y entonces las
 // otras tres no hay que publicarlas.
 // --------------------------------------------------------------------------
-#define CRASH_SUMMARY_TAIL_MAX 192
+#define CRASH_SUMMARY_TAIL_MAX 320
 
 bool        crashReportPending(void);
 const char *crashReportReason(void);   // "TASK_WDT", "PANIC", "INT_WDT"...
@@ -42,3 +42,11 @@ uint32_t    crashReportReboots(void);  // reinicios desde el ultimo arranque en 
 // Es lo que de verdad identifica la averia: en las tres caidas de banco del
 // 2026-09-20 aqui ponia "[MON] GPRS_Task hung, restarting it".
 const char *crashReportTail(void);
+
+// Del COREDUMP, no del log: nombre de la tarea que provoco la excepcion y su
+// backtrace. Es lo unico que senala al culpable sin deducirlo -- en un
+// TASK_WDT dice que tarea dejo de ceder CPU. Cadena vacia si no hay coredump
+// legible (la particion existe desde 2026-09-06; una unidad que caiga sin
+// escribirlo, o con formato distinto de ELF, devuelve vacio).
+const char *crashReportTask(void);
+const char *crashReportBacktrace(void);

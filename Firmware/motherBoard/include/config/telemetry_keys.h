@@ -21,6 +21,10 @@
 #define CRASH_REASON_KEY  "Crash_reason"
 #define CRASH_REBOOTS_KEY "Crash_reboots"
 #define CRASH_LOG_KEY     "Crash_log"
+// Del coredump: la tarea que exploto y su backtrace. Crash_task es lo unico
+// que senala al culpable sin deducirlo.
+#define CRASH_TASK_KEY    "Crash_task"
+#define CRASH_BT_KEY      "Crash_bt"
 #define SYS_CURR_STANDBY_TEST_KEY "SYS_current_stanby_test"
 #define HEATER_CURR_TEST_KEY "Heater_current_test"
 #define FAN_CURR_TEST_KEY "Fan_current_test"

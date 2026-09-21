@@ -1243,6 +1243,10 @@ void addConfigTelemetriesToWIFIJSON() {
     addVariableToTelemetryWIFIJSON[CRASH_REASON_KEY] = crashReportReason();
     addVariableToTelemetryWIFIJSON[CRASH_REBOOTS_KEY] = crashReportReboots();
     addVariableToTelemetryWIFIJSON[CRASH_LOG_KEY] = crashReportTail();
+    if (crashReportTask()[0] != ' ') {
+      addVariableToTelemetryWIFIJSON[CRASH_TASK_KEY] = crashReportTask();
+      addVariableToTelemetryWIFIJSON[CRASH_BT_KEY] = crashReportBacktrace();
+    }
   }
 
 #if TX_GROUP_DIAG_WIFI // grupo DIAG — config/transport_policy.h
