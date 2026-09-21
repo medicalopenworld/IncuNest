@@ -230,6 +230,81 @@ static void buildSummaryTail(const char *ring, uint32_t head, uint32_t full) {
   free(lin);
 }
 
+// Anillo entero, saneado EN EL SITIO dentro del buffer que ya existe.
+//
+// Se hace sobre s_pending_copy --los 4 KB que crashReporterInit() ya reserva
+// para el informe-- en vez de pedir memoria nueva: en esta placa el margen de
+// heap interno con WiFi y celular arriba es de unos 11 KB, y duplicar el
+// anillo seria una tercera parte de ese margen por una traza de diagnostico.
+//
+// Al terminar, s_pending_copy contiene una cadena en una sola linea, sin nada
+// que rompa un JSON, con lo mas antiguo primero.
+static char *s_full_log = nullptr;
+
+static void buildFullLog(char *ring, uint32_t head, uint32_t full) {
+  if (ring == nullptr) {
+    return;
+  }
+  const size_t used = full ? CRASH_RING_SIZE : (size_t)head;
+  if (used == 0) {
+    return;
+  }
+  // Primero se ordena: si el anillo dio la vuelta, lo mas antiguo empieza en
+  // head. Se rota en el sitio con el algoritmo de las tres inversiones, que no
+  // necesita buffer auxiliar.
+  if (full && head > 0) {
+    auto invertir = [](char *a, size_t n) {
+      for (size_t i = 0, j = n - 1; i < j; i++, j--) {
+        char t = a[i]; a[i] = a[j]; a[j] = t;
+      }
+    };
+    invertir(ring, head);
+    invertir(ring + head, CRASH_RING_SIZE - head);
+    invertir(ring, CRASH_RING_SIZE);
+  }
+  // Y despues se sanea, compactando: los saltos de linea pasan a " | " y lo no
+  // imprimible se descarta.
+  size_t out = 0;
+  for (size_t i = 0; i < used; i++) {
+    const char c = ring[i];
+    if (c == '\n' || c == '\r') {
+      if (out > 0 && ring[out - 1] != '|') {
+        ring[out++] = ' ';
+        ring[out++] = '|';
+      }
+      continue;
+    }
+    if (c == '"' || c == '\\' || (unsigned char)c < 0x20 ||
+        (unsigned char)c > 0x7E) {
+      continue;
+    }
+    ring[out++] = c;
+  }
+  ring[out] = '\0';
+  s_full_log = ring;
+}
+
+const char *crashReportFullLog(void) {
+  // Se compone PEREZOSAMENTE, en la primera consulta. No puede hacerse en
+  // crashReporterInit() porque el saneado destruye la estructura del anillo y
+  // crashReporterMaybeFlush() todavia tiene que volcarlo tal cual al fichero.
+  // Cuando la telemetria pregunta, el volcado ya ha ocurrido.
+  if (s_full_log == nullptr && s_pending_copy != nullptr) {
+    buildFullLog(s_pending_copy, s_pending_head, s_pending_full);
+  }
+  return (s_full_log != nullptr) ? s_full_log : "";
+}
+
+void crashReportFullLogRelease(void) {
+  if (s_full_log != nullptr) {
+    free(s_full_log);
+    s_full_log = nullptr;
+    // s_pending_copy apuntaba al mismo bloque: no se puede volver a usar.
+    s_pending_copy = nullptr;
+    s_pending_valid = false;
+  }
+}
+
 bool        crashReportPending(void) { return s_summary_valid; }
 const char *crashReportReason(void) { return s_summary_reason; }
 uint32_t    crashReportReboots(void) { return s_summary_reboots; }
@@ -427,7 +502,9 @@ void crashReporterMaybeFlush() {
     logDrive(String("queued MB crash: ") + drive_name);
   }
 
-  free(s_pending_copy);
-  s_pending_copy  = nullptr;
-  s_pending_valid = false;
+  // El buffer NO se libera aqui: a partir de este punto pertenece a la
+  // telemetria, que publica el log completo (crashReportFullLog) y lo suelta
+  // con crashReportFullLogRelease(). Antes se liberaba aqui y por eso el log
+  // completo no podia salir de la placa por ningun camino que no fuera el
+  // fichero.
 }

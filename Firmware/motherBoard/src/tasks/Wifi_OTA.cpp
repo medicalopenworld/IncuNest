@@ -1243,6 +1243,12 @@ void addConfigTelemetriesToWIFIJSON() {
     addVariableToTelemetryWIFIJSON[CRASH_REASON_KEY] = crashReportReason();
     addVariableToTelemetryWIFIJSON[CRASH_REBOOTS_KEY] = crashReportReboots();
     addVariableToTelemetryWIFIJSON[CRASH_LOG_KEY] = crashReportTail();
+#if TX_FEATURE_CRASH_FULLLOG_WIFI
+    // El anillo entero (~4 KB) por WiFi: es lo que permite depurar la averia
+    // concreta desde el despacho y sacar una OTA sin ir a por la unidad. Sale
+    // una sola vez, en el arranque siguiente a la caida. Ver transport_policy.h.
+    addVariableToTelemetryWIFIJSON[CRASH_FULLLOG_KEY] = crashReportFullLog();
+#endif
   }
 
 #if TX_GROUP_DIAG_WIFI // grupo DIAG — config/transport_policy.h
@@ -1893,6 +1899,15 @@ void WIFI_TB_OTA() {
                     JSON_STRING_SIZE(
                         measureJson(addVariableToTelemetryWIFIJSON)))) {
               logI("[WIFI] -> WIFI MQTT PUBLISH CONFIG SUCCESS");
+              // El log completo de la caida ya ha salido: se sueltan sus 4 KB
+              // de heap interno, que en esta placa es un margen que no sobra.
+              // Solo tras un envio CORRECTO; si fallo, se reintenta en la
+              // siguiente vuelta con el buffer todavia vivo.
+              if (crashReportPending()) {
+                ESP_LOGW(TAG, "log de caida publicado (%u caracteres), buffer liberado",
+                         (unsigned)strlen(crashReportFullLog()));
+                crashReportFullLogRelease();
+              }
             } else {
               logI("[WIFI] -> WIFI MQTT PUBLISH CONFIG FAIL");
             }

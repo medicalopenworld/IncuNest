@@ -21,6 +21,8 @@
 #define CRASH_REASON_KEY  "Crash_reason"
 #define CRASH_REBOOTS_KEY "Crash_reboots"
 #define CRASH_LOG_KEY     "Crash_log"
+// Anillo completo (~4 KB). Solo por WiFi, ver TX_FEATURE_CRASH_FULLLOG_*.
+#define CRASH_FULLLOG_KEY "Crash_log_full"
 // Del coredump: la tarea que exploto y su backtrace. Crash_task es lo unico
 // que senala al culpable sin deducirlo.
 #define CRASH_TASK_KEY    "Crash_task"

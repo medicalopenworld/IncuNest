@@ -72,6 +72,22 @@
 #define TX_GROUP_DIAG_GPRS 1
 #define TX_GROUP_DIAG_WIFI 0
 
+// Log COMPLETO de la ultima caida (Crash_log_full): los ~4 KB del anillo de
+// CrashReporter, publicados una sola vez en el arranque siguiente a un reinicio
+// anormal. Es lo que permite depurar la averia concreta desde el despacho y
+// sacar una OTA, sin ir a por la unidad.
+//
+// Por WiFi va encendido: 4 KB una vez por caida no le importan a nadie, y la
+// publicacion usa Serialize_Json() en streaming (THINGSBOARD_ENABLE_STREAM_UTILS),
+// asi que el tamano no choca con MAX_MESSAGE_SIZE.
+//
+// Por GPRS va APAGADO: son 4 KB de datos de pago por caida, y una unidad que
+// se reinicie en bucle los paga en cada vuelta. Por ahi sigue yendo el resumen
+// corto de Crash_log, que para identificar la averia suele bastar. Enciendelo
+// solo con una tarifa que lo aguante.
+#define TX_FEATURE_CRASH_FULLLOG_WIFI 1
+#define TX_FEATURE_CRASH_FULLLOG_GPRS 0
+
 // CALIBRATION: referencias y ajuste fino de los sensores de temperatura.
 //              Mismo caso que DIAG: divergencia heredada, no decidida.
 #define TX_GROUP_CALIBRATION_GPRS 1

@@ -50,3 +50,17 @@ const char *crashReportTail(void);
 // escribirlo, o con formato distinto de ELF, devuelve vacio).
 const char *crashReportTask(void);
 const char *crashReportBacktrace(void);
+
+// Log COMPLETO de la caida: el anillo entero (~4 KB), ya saneado para JSON y en
+// una sola linea. Es lo que hace falta para depurar la averia concreta y sacar
+// una OTA sin ir a por la unidad.
+//
+// No pasa por el sistema de archivos: sale del mismo buffer que ya se reserva
+// en crashReporterInit() para el informe, asi que no cuesta memoria adicional.
+// Devuelve cadena vacia si no hay caida pendiente o si ya se libero.
+//
+// crashReportFullLogRelease() suelta ese buffer y hay que llamarla DESPUES de
+// publicar: son 4 KB de heap interno, y en esta placa el margen con WiFi y
+// celular arriba es de ~11 KB (ver known_issues.md #12 del port).
+const char *crashReportFullLog(void);
+void        crashReportFullLogRelease(void);
