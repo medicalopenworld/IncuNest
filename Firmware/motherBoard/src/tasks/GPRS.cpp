@@ -998,10 +998,6 @@ void addConfigTelemetriesToGPRSJSON() {
     addVariableToTelemetryGPRSJSON[CRASH_REASON_KEY] = crashReportReason();
     addVariableToTelemetryGPRSJSON[CRASH_REBOOTS_KEY] = crashReportReboots();
     addVariableToTelemetryGPRSJSON[CRASH_LOG_KEY] = crashReportTail();
-    if (crashReportTask()[0] != ' ') {
-      addVariableToTelemetryGPRSJSON[CRASH_TASK_KEY] = crashReportTask();
-      addVariableToTelemetryGPRSJSON[CRASH_BT_KEY] = crashReportBacktrace();
-    }
   }
 #if TX_GROUP_CELLULAR_GPRS // grupo CELLULAR — config/transport_policy.h
   addVariableToTelemetryGPRSJSON[IMEI_KEY] = GPRS.IMEI.c_str();
