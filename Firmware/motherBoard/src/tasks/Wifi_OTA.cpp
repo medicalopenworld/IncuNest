@@ -24,6 +24,7 @@
 */
 #include <Arduino.h>
 #include <LittleFS.h>   // /debug/crash lee los informes de CrashReporter
+#include "esp_partition.h"  // /debug/coredump lee la particion en crudo
 #include "esp_heap_caps.h"
 #include <string.h>
 #include <time.h>
@@ -729,6 +730,53 @@ void configWifiServer() {
     }
     wifiServer.send(200, "text/plain",
                     list.length() ? list : String("sin informes de caida\n"));
+  });
+
+  // Descarga del COREDUMP por HTTP.
+  //
+  // Es lo unico que da un backtrace de verdad --con nombres de funcion, no PCs
+  // crudos-- y hasta ahora solo se podia sacar con la placa delante y esptool.
+  // Con esto, una unidad que se reinicia en campo se depura desde el despacho:
+  //
+  //   curl -u <usuario>:<clave> http://<ip>/debug/coredump -o dump.bin
+  //   python -m esp_coredump --chip esp32s3 info_corefile \
+  //          --core dump.bin --core-format raw firmware.elf
+  //
+  // OJO: hace falta el firmware.elf EXACTO de esa version. El decodificador
+  // compara el SHA256 de la aplicacion y se niega si no coincide -- comprobado
+  // el 2026-09-21: "coredump SHA256(...) != app SHA256(...)". Por eso el .elf
+  // se archiva junto a los binarios de cada entrega.
+  //
+  // La lectura NO usa el lector de a bordo (esp_core_dump_get_summary, que en
+  // esta placa devuelve ESP_ERR_INVALID_SIZE con un volcado que por lo demas
+  // es valido): se lee la particion en crudo y se decodifica fuera.
+  wifiServer.on("/debug/coredump", HTTP_GET, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    const esp_partition_t *part = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_COREDUMP, NULL);
+    if (part == NULL) {
+      return wifiServer.send(404, "text/plain", "sin particion de coredump\n");
+    }
+    // La cabecera del volcado empieza por su longitud: si es 0 o 0xFFFFFFFF no
+    // hay nada escrito y no tiene sentido mandar 64 KB de flash borrada.
+    uint32_t len = 0;
+    if (esp_partition_read(part, 0, &len, sizeof(len)) != ESP_OK || len == 0 ||
+        len == 0xFFFFFFFFu || len > part->size) {
+      return wifiServer.send(404, "text/plain", "sin volcado valido\n");
+    }
+    wifiServer.setContentLength(len);
+    wifiServer.send(200, "application/octet-stream", "");
+    // En trozos: 64 KB de golpe no caben en el heap interno de esta placa.
+    uint8_t buf[512];
+    for (uint32_t off = 0; off < len; off += sizeof(buf)) {
+      const uint32_t n = (len - off < sizeof(buf)) ? (len - off) : sizeof(buf);
+      if (esp_partition_read(part, off, buf, n) != ESP_OK) {
+        break;
+      }
+      wifiServer.sendContent((const char *)buf, n);
+    }
   });
 
   wifiServer.on("/debug/state", HTTP_GET, []() {
