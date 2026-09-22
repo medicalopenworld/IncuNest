@@ -126,7 +126,8 @@ int babyCloud_buildEventJson(const BabyCloudEvent *e, char *buf, size_t len) {
   return ovf ? 0 : pos;
 }
 
-int babyCloud_buildAttributesJson(const BabyProfile *p, char *buf,
+int babyCloud_buildAttributesJson(const BabyProfile *p,
+                                  uint32_t totalRegistered, char *buf,
                                   size_t len) {
   if (!p) return 0;
   int pos = 0;
@@ -135,11 +136,14 @@ int babyCloud_buildAttributesJson(const BabyProfile *p, char *buf,
   appendCommonProfileKeys(buf, len, &pos, &ovf, p);
   appendf(buf, len, &pos, &ovf, ",\"" BABY_ADMISSION_EPOCH_KEY "\":%u",
           (unsigned)p->admissionEpoch);
+  appendf(buf, len, &pos, &ovf, ",\"" BABY_TOTAL_REGISTERED_KEY "\":%u",
+          (unsigned)totalRegistered);
   appendf(buf, len, &pos, &ovf, "}");
   return ovf ? 0 : pos;
 }
 
-int babyCloud_buildEmptyAttributesJson(char *buf, size_t len) {
+int babyCloud_buildEmptyAttributesJson(uint32_t totalRegistered, char *buf,
+                                       size_t len) {
   int pos = 0;
   bool ovf = false;
   // Null rather than omit: omitted keys keep their previous value in
@@ -151,6 +155,10 @@ int babyCloud_buildEmptyAttributesJson(char *buf, size_t len) {
           "\"" BABY_PHOTO_MINUTES_KEY "\":0,"
           "\"" BABY_THERMO_MINUTES_KEY "\":0,"
           "\"" BABY_HUMIDITY_MINUTES_KEY "\":0,"
-          "\"" BABY_ADMISSION_EPOCH_KEY "\":0}");
+          "\"" BABY_ADMISSION_EPOCH_KEY "\":0");
+  // Deliberately NOT zeroed with the rest: the unit keeps its history even
+  // with nobody inside, and 0 here is a real answer for a virgin unit.
+  appendf(buf, len, &pos, &ovf, ",\"" BABY_TOTAL_REGISTERED_KEY "\":%u}",
+          (unsigned)totalRegistered);
   return ovf ? 0 : pos;
 }

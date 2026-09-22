@@ -28,7 +28,9 @@
 // Firmware version and head title of UI screen
 
 #include "main.h"
+#include "modules/util/system_clock.h"
 #include "state/state.h"
+#include "modules/debug/debug_mode.h"
 #include "modules/sensorboard_comm/sensorboard_comm.h"
 #include "modules/sensors/sensor_source.h"
 #include "system/hw_selftest.h"
@@ -44,9 +46,12 @@ int g_hmiBootCount = 0;
 int g_hmiLastRst = 0;
 int g_restore_photo_minutes = 0;
 
-// Build-flag crash simulator. Add -DCRASH_TEST_MB=1 to platformio.ini
-// build_flags to fire a panic after CRASH_TEST_MB_DELAY_S seconds (default 130).
-// Remove the flag for production builds.
+// Build-flag crash simulator. Se enciende con la variable de entorno
+// INCUNEST_CRASH_TEST (ver main/CMakeLists.txt); la instruccion anterior decia
+// platformio.ini, que el porte a ESP-IDF dejo sin efecto. Dispara un panic
+// pasados CRASH_TEST_MB_DELAY_S segundos (130 por defecto).
+// La alternativa en caliente y sin recompilar es POST /debug/crash.
+// Nunca en un binario de produccion.
 //   CRASH_TEST_MB=1  → abort() (panic, RST_reason=12)
 //   CRASH_TEST_MB=2  → null-pointer LoadProhibited
 #ifdef CRASH_TEST_MB
@@ -89,10 +94,29 @@ TFT_eSPI tft = TFT_eSPI(); // Invoke custom library
 SHTC3 mySHTC3;             // Declare an instance of the SHTC3 class
 SensirionI2cSts3x mySTS35[STS3X_NUM];
 Adafruit_SHT4x sht4 = Adafruit_SHT4x();
-RotaryEncoder encoder(ENC_A, ENC_B, RotaryEncoder::LatchMode::TWO03);
 Beastdevices_INA3221 mainDigitalCurrentSensor(INA3221_ADDR41_VCC);
 Beastdevices_INA3221 secundaryDigitalCurrentSensor(INA3221_ADDR40_GND);
 // BQ25730 gestionado por BQ25730.cpp (chargerPresent definido allí)
+
+// Encoder rotativo. En la linea del port a ESP-IDF se retiro (e2e3ede), y al
+// portar el modo depuracion (17312e3) el rebase arrastro la retirada de estos
+// globales como un hunk limpio, dejando colgados los `extern` de ISR.cpp y
+// security.cpp. En esta linea el encoder sigue en el arbol, asi que los
+// globales vuelven aqui tal cual estaban.
+RotaryEncoder encoder(ENC_A, ENC_B, RotaryEncoder::LatchMode::TWO03);
+boolean A_set;
+boolean B_set;
+int encoderpinA = ENC_A;         // pin  encoder A
+int encoderpinB = ENC_B;         // pin  encoder B
+bool encPulsed, encPulsedBefore; // encoder switch status
+bool updateUIData;
+volatile int EncMove;                 // moved encoder
+volatile int lastEncMove;             // moved last encoder
+volatile int EncMoveOrientation = -1; // set to -1 to increase values clockwise
+volatile int last_encoder_move;       // moved encoder
+long encoder_debounce_time =
+    true; // in milliseconds, debounce time in encoder to filter signal bounces
+long last_encPulsed; // last time encoder was pulsed
 
 bool WIFI_EN = true;
 long lastDebugUpdate;
@@ -138,20 +162,6 @@ float maxDesiredTemp[2] = {
     AIR_TEMPERATURE_SET_MAX}; // maximum allowed temperature to be set
 int presetTemp[2] = {36, 32}; // preset baby skin temperature
 
-boolean A_set;
-boolean B_set;
-int encoderpinA = ENC_A;         // pin  encoder A
-int encoderpinB = ENC_B;         // pin  encoder B
-bool encPulsed, encPulsedBefore; // encoder switch status
-bool updateUIData;
-volatile int EncMove;                 // moved encoder
-volatile int lastEncMove;             // moved last encoder
-volatile int EncMoveOrientation = -1; // set to -1 to increase values clockwise
-volatile int last_encoder_move;       // moved encoder
-long encoder_debounce_time =
-    true; // in milliseconds, debounce time in encoder to filter signal bounces
-long last_encPulsed; // last time encoder was pulsed
-
 // Text Graphic position variables
 int humidityX;
 int humidityY;
@@ -183,6 +193,7 @@ bool blinkSetMessageState;
 long lastBlinkSetMessage;
 
 long lastSuccesfullSensorUpdate[SENSOR_TEMP_QTY];
+uint32_t g_sensorsTaskStartedMs = 0;
 
 long lastSkinAttachedSensorUpdate;
 long lastRoomSensorUpdate, lastCurrentSensorUpdate;
@@ -258,6 +269,14 @@ bool           g_bq_status_valid = false;
 // ademas del flag, porque un `true` sin sello sobreviviria a una tarea parada.
 uint32_t       g_bq_status_ms    = 0;
 void sensors_Task(void *pvParameters) {
+  // Instante en que empieza a haber muestras periodicas de verdad. Lo usa
+  // checkStatusOfSensor() (security.cpp) como referencia de frescura: el sello
+  // que deja el autotest de initHardware() es varios segundos anterior y
+  // levantaba ALARM_AIR_SENSOR_FAULT en cada arranque.
+  g_sensorsTaskStartedMs = millis();
+  if (g_sensorsTaskStartedMs == 0) {
+    g_sensorsTaskStartedMs = 1; // 0 es el centinela de "aun no arranco"
+  }
   for (;;) {
     fanSpeedHandler();
     if (millis() - lastSkinAttachedSensorUpdate >
@@ -324,6 +343,13 @@ void sensors_Task(void *pvParameters) {
         }
       }
     }
+    // Las medidas simuladas del modo depuracion se pisan AQUI: despues de que
+    // los sensores reales hayan escrito y ANTES de copiar a ctrl_tel_msg, para
+    // que el control, securityCheck() y el display vean todos exactamente el
+    // mismo valor. Con el modo apagado no hace nada y la medida real vuelve
+    // sola en la pasada siguiente. Ver modules/debug/debug_mode.h.
+    debug_sensors_apply();
+
     ctrl_tel_msg.detectedAirTemperature =
         in3.temperature[ROOM_DIGITAL_TEMP_SENSOR];
     ctrl_tel_msg.detectedSkinTemperature = in3.temperature[SKIN_SENSOR];
@@ -332,9 +358,66 @@ void sensors_Task(void *pvParameters) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Consola de depuracion sobre debugSerial (el puerto por el que sale el log).
+//
+// NO es el enlace con el display: ese es Serial1 en los pines 15/16
+// (hmiSerial en CommTask.cpp). Por debugSerial no habla nadie, asi que un
+// comando aqui no compite con las tramas del protocolo ni puede corromperlas.
+//
+// Un solo comando, y a proposito: "WIFI_EN,<0|1>". Existe para poder probar la
+// OTA por 2G, que con la WiFi levantada no se ejercita nunca. El estado no se
+// guarda en ningun sitio: cualquier reinicio vuelve a dejar la WiFi encendida.
+// Todo lo demas que llegue por aqui se ignora en silencio.
+// ---------------------------------------------------------------------------
+// ESP_LOGx y no logI/logE: main.h compila esos dos fuera del binario
+// (LOG_INFORMATION y LOG_ERRORS estan a false), asi que un acuse escrito con
+// logI no se imprime nunca y la consola parece muerta aunque funcione.
+static const char *DBGCON_TAG __attribute__((unused)) = "DBGCON";
+
+static void debugConsoleHandle(const char *line) {
+  if (strncmp(line, "WIFI_EN,", 8) != 0) {
+    ESP_LOGI(DBGCON_TAG, "comando desconocido, ignorado: %s", line);
+    return;
+  }
+  const char *arg = line + 8;
+  // Exactamente un '0' o un '1' y nada mas: sin atoi(), "WIFI_EN,0abc" no se
+  // cuela como un apagado valido.
+  if ((arg[0] != '0' && arg[0] != '1') || arg[1] != '\0') {
+    ESP_LOGW(DBGCON_TAG, "WIFI_EN: argumento invalido, se espera 0 o 1");
+    return;
+  }
+  wifiRequestEnable(arg[0] == '1');
+}
+
+void debugConsolePoll(void) {
+  static char buf[40];
+  static size_t len = 0;
+  while (debugSerial.available()) {
+    const char c = (char)debugSerial.read();
+    if (c == '\r') continue;
+    if (c != '\n') {
+      // Al pasarse de largo se marca la linea y se descarta ENTERA al final,
+      // en vez de procesar un trozo: media linea podria ser un comando valido
+      // por accidente.
+      if (len < sizeof(buf) - 1)
+        buf[len++] = c;
+      else
+        len = sizeof(buf);
+      continue;
+    }
+    if (len < sizeof(buf)) {
+      buf[len] = '\0';
+      debugConsoleHandle(buf);
+    }
+    len = 0;
+  }
+}
+
 void OTA_WIFI_Task(void *pvParameters) {
   WIFI_TB_Init();
   for (;;) {
+    debugConsolePoll();
     WifiOTAHandler();
     vTaskDelay(pdMS_TO_TICKS(OTA_TASK_PERIOD_MS));
   }
@@ -614,6 +697,12 @@ void setup() {
   log_mutex = xSemaphoreCreateRecursiveMutex();
   crashReporterInit();
   esp_log_set_vprintf(sync_vprintf);
+
+  // Antes de que arranque ninguna tarea que haga configTime(): con SNTP el
+  // reloj lo escribe lwIP por su cuenta, y sin este callback la motherBoard no
+  // se enteraria de que la hora vigente la puso NTP. Sin eso el arbitro la
+  // daria por desconocida y una fuente peor podria pisarla.
+  systemClockInit();
 
   GPRS_monitor_mutex = xSemaphoreCreateBinary();
   security_check_reboot_cause();

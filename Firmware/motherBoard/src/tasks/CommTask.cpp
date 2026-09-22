@@ -1,8 +1,12 @@
 #include "CommTask.h"
 #include "main.h"
 #include "modules/util/tz_source.h"
-#include "modules/util/civil_time.h"
+// La cola de inyeccion del modo depuracion la drena ESTA tarea; ver
+// modules/debug/debug_mode.h para por que no la drena el manejador HTTP.
+extern "C" bool debug_inject_take(char *out, size_t out_len);
+#include "civil_time.h"
 #include "modules/util/system_clock.h"
+#include "modules/util/time_protocol.h"
 #include "tasks/PID.h"
 #include "DriveUpload.h"
 #include <LittleFS.h>
@@ -385,8 +389,21 @@ static void send_state_to_hmi() {
   int skinProbeState = (in3.temperature[SKIN_SENSOR] > 0.1f) ? SKIN_PROBE_VALID
                                                               : SKIN_PROBE_NOT_CONNECTED;
 
+  // Alarmas ENCLAVADAS esperando reconocimiento: siguen avisando aunque su
+  // condicion ya se haya ido. Solo con esto puede el display ofrecer el reset
+  // manual que pide 201.15.4.2.1 aa)/bb) —y ofrecerlo SOLO cuando sirve de
+  // algo, en vez de un boton que unas veces hace efecto y otras no. La placa
+  // sigue siendo la duena de la decision: HMI,ALM_RESET pasa por
+  // alarm_machine_reset(), que rechaza lo que no proceda.
+  uint32_t latchedBitmask = 0;
+  for (int a = ALARM_NONE + 1; a < ALARM_COUNT; a++) {
+    if (alarm_machine_is_latched((AlarmId)a)) {
+      latchedBitmask |= (1u << a);
+    }
+  }
+
   snprintf(msg, sizeof(msg),
-           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d,%d,0x%X,0x%X,%d,%d,%d\n",
+           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d,%d,0x%X,0x%X,%d,%d,%d,0x%X\n",
            (int)g_last_cmd.actuation, (int)g_last_cmd.controlMode,
            (double)g_last_cmd.desiredAirTemperature,
            (double)g_last_cmd.desiredSkinTemperature,
@@ -395,7 +412,7 @@ static void send_state_to_hmi() {
            HW_REVISION, FWversion, alarmCount, (int)g_last_cmd.skinModeEnabled,
            (int)ctrl_tel_msg.serverCommStatus, remainingTime, in3.language,
            skinProbeState, alarmBitmask, silencedBitmask, almTest,
-           silenceLeftS, (int)ctrl_tel_msg.linkBars);
+           silenceLeftS, (int)ctrl_tel_msg.linkBars, latchedBitmask);
 
 
   ESP_LOGI(TAG, "Sending state to HMI: %s", msg);
@@ -636,6 +653,40 @@ void parse_line(const char *line) {
     return;
   }
 
+  if (strncmp(line, "HMI,RTC_TIME,", 13) == 0) {
+    // Semilla del PCF8563 del HMI. Es la unica pieza del equipo que conserva
+    // la hora con la alimentacion cortada, asi que en una unidad desplegada
+    // sin cobertura es la unica que puede decir que dia es. Rango RTC: gana a
+    // NITZ, pierde contra NTP y contra la hora puesta a mano.
+    //
+    // A diferencia de HMI,SET_TIME esto NO se contesta con un ACK: el HMI ya
+    // ve el resultado en el siguiente CTRL,TIME, que le llega cada 10 s de
+    // todas formas. Un ACK seria trafico periodico evitable (known_issues #2).
+    uint32_t epoch = 0;
+    int tzq = 0, tzsrc = 0;
+    if (!time_protocol_parse_rtc_seed(line, &epoch, &tzq, &tzsrc)) {
+      // Descarte silencioso, como el resto del parseo del enlace.
+      return;
+    }
+    const bool applied = systemClockSet(epoch, PROTO_TIME_SOURCE_RTC);
+    if (applied && tzsrc != TZ_SOURCE_NONE) {
+      // El huso viaja aparte y con su propia politica: tz_source_set() decide
+      // si este origen gana al vigente. Solo se ofrece si el reloj se acepto,
+      // para no quedarnos con la zona de una semilla que se rechazo.
+      tz_source_set(tzq, (TzSource)tzsrc);
+    }
+    if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      if (applied) {
+        ESP_LOGI(TAG, "Clock seeded from HMI RTC, epoch %u, tzq %d",
+                 (unsigned)epoch, tzq);
+      } else {
+        ESP_LOGI(TAG, "HMI RTC seed declined, better source already set");
+      }
+      xSemaphoreGiveRecursive(log_mutex);
+    }
+    return;
+  }
+
   if (strncmp(line, "HMI,SET_TIME,", 13) == 0) {
     // Mismo contrato que /config,set_time (Wifi_OTA.cpp): lo que llega es la
     // hora LOCAL vista por el operador, sin zona -> offset 0 y
@@ -820,6 +871,57 @@ void parse_line(const char *line) {
     // main.h) — y es ademas la categoria que corresponde.
     logAlarm("[ALARM] ALM_SILENCE id=" + String(id) + " on=" + String(on) +
              " -> estado=" + String((int)alarm_machine_state((AlarmId)id)));
+    return;
+  }
+
+  // Reset manual de una alarma enclavada.
+  //
+  // 201.15.4.2.1 aa)/bb) piden que el corte termico —que REARMA SOLO en cuanto
+  // baja la temperatura— siga avisando "hasta reset manual". Por eso los dos
+  // cortes termicos son latching (alarm_is_latching, shared/): si la senal se
+  // borrase sola al enfriarse, un episodio de sobretemperatura no dejaria
+  // ningun rastro que el operador pudiera ver.
+  //
+  // LO QUE FALTABA ERA EL RESET. alarm_machine_reset() existia desde el
+  // principio y no lo llamaba NADIE: la unica forma de quitar un corte termico
+  // ya enfriado era reiniciar la placa. Encontrado en banco el 2026-09-11
+  // simulando el corte con el modo depuracion. Un aviso que no se puede
+  // reconocer no es una alarma enclavada, es una alarma atascada.
+  //
+  // La maquina se encarga de rechazarlo si no procede: alarm_machine_reset()
+  // devuelve false cuando la alarma no es latching o cuando SU CONDICION SIGUE
+  // PRESENTE, que es justo lo que impide que el operador haga desaparecer un
+  // aviso vivo pulsando un boton. Aqui no se duplica ninguna de esas dos
+  // comprobaciones a proposito: la politica vive en un sitio solo.
+  //
+  // Sin id, o con id 0, resetea todas las que se dejen.
+  if (strncmp(line, "HMI,ALM_RESET", 13) == 0) {
+    const uint32_t now = millis();
+    unsigned id = 0;
+    const bool one = (line[13] == ',') && (sscanf(line + 14, "%u", &id) == 1) &&
+                     id > ALARM_NONE && id < ALARM_COUNT;
+    int done = 0, refused = 0;
+    for (int a = ALARM_NONE + 1; a < ALARM_COUNT; a++) {
+      if (one && (unsigned)a != id) {
+        continue;
+      }
+      if (!alarm_machine_is_latched((AlarmId)a)) {
+        continue; // no esta enclavada esperando reconocimiento
+      }
+      if (alarm_machine_reset((AlarmId)a, now)) {
+        done++;
+      } else {
+        refused++;
+      }
+    }
+    logAlarm("[ALARM] ALM_RESET" + (one ? (" id=" + String(id)) : String("")) +
+             " -> reseteadas=" + String(done) +
+             " rechazadas=" + String(refused));
+    // El display repinta con el siguiente CTRL,STATE/CTRL,ALM; forzamos el
+    // envio para que el boton no parezca que no ha hecho nada.
+    if (done > 0) {
+      xSemaphoreGive(hmi_state_req_sem);
+    }
     return;
   }
 
@@ -1120,6 +1222,18 @@ void Communication_Task(void *pvParameters) {
   }
 
   for (;;) {
+    // Lineas inyectadas por el modo depuracion. Se tratan AQUI, en la tarea
+    // Comm y con la misma llamada a parse_line() que una linea real, para que
+    // lo que se prueba sea el camino de produccion entero. Con el modo apagado
+    // la cola esta vacia y esto no cuesta nada.
+    {
+      char injected[192];
+      while (debug_inject_take(injected, sizeof(injected))) {
+        ESP_LOGW(TAG, "[DEBUG] linea inyectada: %s", injected);
+        parse_line(injected);
+      }
+    }
+
     // --- RX: drain Serial1 into line buffer ---
     while (hmiSerial.available()) {
       char c = (char)hmiSerial.read();
@@ -1357,11 +1471,12 @@ void Communication_Task(void *pvParameters) {
       last_tel_time = millis();
     }
 
-    // Wall-clock broadcast. The HMI has no clock of its own (no RTC, no NTP),
-    // so the motherBoard — the only board that syncs time, over WiFi — is the
-    // single source. Every 10 s rather than with the 1 Hz block: the HMI only
-    // needs it to render dates, and known_issues #2 warns against adding
-    // avoidable periodic UART traffic. epoch 0 means "not synced yet".
+    // Wall-clock broadcast. La motherBoard es la unica AUTORIDAD de hora: es
+    // la que arbitra entre manual, NTP, RTC y NITZ. El HMI tiene un PCF8563
+    // con pila, pero no decide nada — solo conserva la hora entre apagados y
+    // escribe lo que llegue por aqui. Cada 10 s y no con el bloque de 1 Hz:
+    // el HMI solo la necesita para pintar fechas, y known_issues #2 avisa
+    // contra el trafico UART periodico evitable. epoch 0 = aun sin sincronizar.
     if (millis() - last_time_bcast > 10000) {
       last_time_bcast = millis();
       // El epoch sigue siendo UTC. La zona viaja aparte porque son dos datos
@@ -1371,11 +1486,27 @@ void Communication_Task(void *pvParameters) {
       // tzsrc no es redundante con tzq: sin el, "offset 0 porque estamos en
       // Togo" y "offset 0 porque no lo sabemos" son indistinguibles, y el
       // display no puede decidir si pintar la hora o el aviso.
-      char tmsg[48];
-      snprintf(tmsg, sizeof(tmsg), "CTRL,TIME,%lu,%d,%d\n",
+      //
+      // `src` es el rango de la fuente que fijo el EPOCH, y no tiene nada que
+      // ver con tzsrc, que es el origen del HUSO. No coinciden ni en valores
+      // ni en orden: NITZ es la peor fuente de hora y la mejor de zona. El HMI
+      // necesita `src` para decidir si lo que recibe merece escribirse en su
+      // RTC, que es lo unico que sobrevive a un corte de alimentacion.
+      char tmsg[56];
+      snprintf(tmsg, sizeof(tmsg), "CTRL,TIME,%lu,%d,%d,%d\n",
                (unsigned long)babyStore_nowEpoch(),
-               (int)tz_source_quarters(), (int)tz_source_origin());
+               (int)tz_source_quarters(), (int)tz_source_origin(),
+               (int)systemClockSource());
       hmiSerial.print(tmsg);
+      // Se registra como ya se registra cada CTRL,STATE, y por el mismo
+      // motivo: sin esto, la unica forma de saber que reloj y que fuente cree
+      // tener el equipo es deducirlo de lo que haga el HMI. Va a la consola de
+      // la motherBoard, que NO es el cable del enlace, y a 0,1 Hz frente al
+      // 1 Hz que ya emite el log de CTRL,STATE.
+      if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        ESP_LOGI(TAG, "Sending time to HMI: %s", tmsg);
+        xSemaphoreGiveRecursive(log_mutex);
+      }
     }
 
     vTaskDelay(pdMS_TO_TICKS(COMMUNICATION_TASK_PERIOD_MS));

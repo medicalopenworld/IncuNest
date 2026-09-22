@@ -25,10 +25,12 @@
 #include <Arduino.h>
 #include <string.h>
 
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "fw_guarded_updater.h"
 #include "fw_image_tag.h"
 #include "main.h"
+#include "modules/debug/debug_mode.h"
 #include "UITask.h"
 #include "CommTask.h"
 
@@ -307,6 +309,149 @@ void configWifiServer() {
     wifiServer.sendHeader("Connection", "close");
     wifiServer.send(200, "application/json", json);
   });
+  // ================== ENDPOINTS DE DEPURACION ==================
+  // Ver modules/debug/debug_mode.h. Mismas reglas que en la motherBoard:
+  // /debug/state es de solo lectura y siempre esta; lo que simula exige el
+  // modo encendido, y apagarlo retira las simulaciones de golpe.
+
+  wifiServer.on("/debug/state", HTTP_GET, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    // EN LA PSRAM, no en la DRAM interna, y sin copiar a String.
+    //
+    // La primera version pedia 4 KB con malloc() —que sirve de la interna
+    // primero— y ademas envolvia el resultado en un String, o sea otros 4 KB
+    // copiados: ocho kilobytes de DRAM interna POR PETICION. Con un script de
+    // pruebas consultando esto en bucle, la interna de esta placa paso de
+    // 23,8 KB a 5,7 KB y salieron `wifi:mem fail`, glitches en el panel y un
+    // HMI LINK LOST fantasma (banco, 2026-09-11). Aqui la interna es EL recurso
+    // escaso: la PSRAM tiene 7 MB y no sirve para DMA de WiFi ni para los
+    // buffers de dibujo. El envio va por la sobrecarga de `const char *`, que
+    // no copia: se la pasa tal cual a httpd_resp_send().
+    const size_t cap = 4096;
+    char *buf = (char *)heap_caps_malloc(cap, MALLOC_CAP_SPIRAM);
+    if (buf == nullptr) {
+      buf = (char *)malloc(cap); // placa sin PSRAM
+    }
+    if (buf == nullptr) {
+      wifiServer.sendHeader("Connection", "close");
+      wifiServer.send(503, "application/json", "{\"error\":\"sin memoria\"}");
+      return;
+    }
+    // ?tasks=1 anade la tabla de tareas; ver debug_state_json_ex().
+    debug_state_json_ex(buf, cap, wifiServer.hasArg("tasks"));
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "application/json", (const char *)buf);
+    free(buf);
+  });
+
+  wifiServer.on("/debug/mode", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    if (!wifiServer.hasArg("on")) {
+      wifiServer.send(400, "text/plain", "falta on=0|1");
+      return;
+    }
+    debug_mode_set(wifiServer.arg("on").toInt() != 0);
+    wifiServer.send(200, "application/json",
+                    String("{\"debug\":") + (debug_mode_enabled() ? 1 : 0) + "}");
+  });
+
+  // Inyectar una linea del protocolo como si la hubiera mandado la placa.
+  // POST /debug/inject?line=CTRL,TEL,36.50,36.20,55.00,1,353
+  //
+  // Es la herramienta principal: con ella se reproduce cualquier estado de la
+  // placa —alarmas, telemetria, fototerapia, PPG— sin tenerla delante, y de
+  // paso se ejercita el parseador de verdad.
+  wifiServer.on("/debug/inject", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    if (!wifiServer.hasArg("line")) {
+      wifiServer.send(400, "text/plain", "falta line=<trama>");
+      return;
+    }
+    const String line = wifiServer.arg("line");
+    if (!debug_inject_line(line.c_str())) {
+      wifiServer.send(409, "text/plain",
+                      "modo depuracion apagado, prefijo incorrecto o cola llena");
+      return;
+    }
+    wifiServer.send(200, "text/plain", "OK");
+  });
+
+  // Apagar partes de la red, para aislar el temblor del panel.
+  // POST /debug/net?tb=0        -> corta la publicacion a ThingsBoard
+  // POST /debug/net?radio=0     -> apaga la radio (adios webserver hasta reset)
+  wifiServer.on("/debug/net", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    if (wifiServer.hasArg("tb")) {
+      debug_net_set_tb(wifiServer.arg("tb").toInt() != 0);
+    }
+    bool radioOff = false;
+    if (wifiServer.hasArg("radio")) {
+      const bool on = wifiServer.arg("radio").toInt() != 0;
+      debug_net_set_radio(on);
+      radioOff = !on;
+    }
+    wifiServer.send(200, "application/json",
+                    String("{\"tb\":") + (debug_net_tb_enabled() ? 1 : 0) +
+                        ",\"radio\":" + (debug_net_radio_enabled() ? 1 : 0) +
+                        "}");
+    if (radioOff) {
+      // Se contesta ANTES de tumbar la radio, si no el cliente ve una conexion
+      // cortada y no sabe si le hicieron caso.
+      delay(300);
+      WiFi.disconnect(true);
+    }
+  });
+
+  // Simular la perdida del enlace sin tocar el cable.
+  // POST /debug/link?mute=0|1
+  wifiServer.on("/debug/link", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    if (!wifiServer.hasArg("mute")) {
+      wifiServer.send(400, "text/plain", "falta mute=0|1");
+      return;
+    }
+    debug_link_mute_set(wifiServer.arg("mute").toInt() != 0);
+    wifiServer.send(200, "application/json",
+                    String("{\"muted\":") + (debug_link_mute_get() ? 1 : 0) + "}");
+  });
+
+  // POST /debug/crash?kind=abort|null|stack|wdt|assert[&delay_ms=500]
+  wifiServer.on("/debug/crash", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    const debug_crash_kind_t kind =
+        debug_crash_from_name(wifiServer.arg("kind").c_str());
+    if (kind == DEBUG_CRASH_NONE) {
+      wifiServer.send(400, "text/plain", "kind=abort|null|stack|wdt|assert");
+      return;
+    }
+    uint32_t delay = 500;
+    if (wifiServer.hasArg("delay_ms")) {
+      delay = (uint32_t)wifiServer.arg("delay_ms").toInt();
+    }
+    if (!debug_crash_request(kind, delay)) {
+      wifiServer.send(409, "text/plain", "el modo depuracion esta apagado");
+      return;
+    }
+    wifiServer.send(200, "text/plain", "OK");
+  });
+
   wifiServer.on(
       "/update", HTTP_POST,
       []() {
@@ -390,6 +535,10 @@ void configWifiServer() {
 // ThingsBoard OTA callbacks
 // ---------------------------------------------------------------------------
 void progressCallback(const uint32_t &currentChunk, const uint32_t &totalChuncks) {
+  // AQUI es donde una actualizacion esta de verdad en curso: llegan chunks.
+  // Antes la bandera la ponia WIFICheckOTA(), que es solo una PREGUNTA — ver
+  // el comentario alli.
+  OTA_inprogress = true;
   ESP_LOGI(TAG, "OTA progress %.2f%%",
            static_cast<float>(currentChunk * 100U) / totalChuncks);
 }
@@ -417,8 +566,27 @@ bool WIFIIsConnectedToServer() {
 }
 
 void WIFICheckOTA() {
+  // NO se pone OTA_inprogress aqui, y ese era el fallo. Esto es una PREGUNTA
+  // ("¿hay firmware nuevo?"), no una actualizacion en curso.
+  //
+  // Lo que pasaba: la bandera se ponia a true en cada comprobacion y solo la
+  // limpiaba updatedCallback(false). Si ThingsBoard NO tiene firmware asignado
+  // a este dispositivo, ese callback no llega nunca — Start_Firmware_Update()
+  // se suscribe y se queda esperando un atributo que no existe. La bandera se
+  // quedaba puesta PARA SIEMPRE, y como la comprobacion periodica de
+  // WIFI_TB_OTA() esta guardada por !OTA_inprogress, el display preguntaba UNA
+  // VEZ al conectar y nunca mas.
+  //
+  // Medido en banco (2026-09-14, display asociado y con TB conectado): un solo
+  // "Checking ThingsBoard firmware update..." al arrancar y despues 150 s de
+  // silencio absoluto, cuando deberian haber salido dos comprobaciones mas.
+  //
+  // Ahora la bandera la pone progressCallback(), que solo corre cuando llegan
+  // chunks de verdad. Sigue protegiendo lo que tenia que proteger —que una
+  // comprobacion periodica se cruce con una descarga en marcha, propia o de la
+  // OTA por web, que la pone por su cuenta— pero ya no se queda enganchada
+  // cuando no hay nada que descargar.
   ESP_LOGI(TAG, "Checking ThingsBoard firmware update...");
-  OTA_inprogress = true;
   tb_wifi.Firmware_Send_Info(CURRENT_FIRMWARE_TITLE, FWversion);
   tb_wifi.Start_Firmware_Update(OTAcallback);
 }
@@ -541,15 +709,33 @@ void WIFI_TB_OTA() {
     WIFICheckOTA();
     Wifi_TB.lastOTACheck = millis();
   } else {
-    if (millis() - Wifi_TB.lastMQTTPublish > WIFI_PUBLISH_INTERVAL) {
-      addTelemetriesToWIFIJSON();
-      bool ok = tb_wifi.sendTelemetryJson(
-          addVariableToTelemetryWIFIJSON,
-          JSON_STRING_SIZE(measureJson(addVariableToTelemetryWIFIJSON)));
-      ESP_LOGI(TAG, "TB telemetry: %s", ok ? "OK" : "FAIL");
-      WIFI_JSON.clear();
-      Wifi_TB.lastMQTTPublish = millis();
-    }
+    // ============ EL DISPLAY YA NO PUBLICA TELEMETRIA ============
+    //
+    // Aqui se publicaba addTelemetriesToWIFIJSON() cada WIFI_PUBLISH_INTERVAL
+    // (5 s). Se ha quitado por dos motivos que apuntan al mismo sitio:
+    //
+    // 1. LA PANTALLA. El framebuffer vive en PSRAM y el bounce buffer del panel
+    //    se rellena leyendo de ahi; el trafico WiFi le roba ancho de banda y
+    //    desactiva interrupciones. En banco (2026-09-11) el panel temblaba y se
+    //    quedaba desplazado, y cortar esta publicacion fue lo que mas mejoro.
+    //    El arreglo de fondo fue CONFIG_SPI_FLASH_AUTO_SUSPEND, pero no hay
+    //    razon para pagar este trafico si ademas no hace falta:
+    //
+    // 2. NO ES SUYO. La dueña de la telemetria es la motherBoard, que es el
+    //    unico dispositivo que debe existir en ThingsBoard (ver el cambio
+    //    openspec shared-cascade-ota-distribution). Lo que el display mandaba
+    //    —fw_version, sn, heaps y marcas de pila— o lo tiene ya la placa o es
+    //    diagnostico que ahora se consulta por /debug/state.
+    //
+    // LO QUE SI SE QUEDA es la conexion con ThingsBoard y la comprobacion de
+    // OTA de mas abajo: es la UNICA via para actualizar el display en remoto.
+    // El servidor web /update solo alcanza a quien este en la misma red.
+    // Cuando la OTA en cascada este implementada y la placa empuje el firmware
+    // del display por el cable, este cliente entero se podra retirar.
+    //
+    // addTelemetriesToWIFIJSON() se conserva a proposito, sin llamantes: es la
+    // lista de lo que el display sabe de si mismo, y la necesitara quien
+    // implemente la cascada para decidir que sube la placa en su nombre.
     if (!OTA_inprogress && millis() - Wifi_TB.lastOTACheck > WIFI_OTA_CHECK_INTERVAL) {
       WIFICheckOTA();
       Wifi_TB.lastOTACheck = millis();
@@ -562,6 +748,11 @@ void WIFI_TB_OTA() {
 // Main OTA/WiFi handler — called every OTA_TASK_PERIOD_MS from the OTA task.
 // ---------------------------------------------------------------------------
 void WifiOTAHandler(void) {
+  // Radio apagada a mano para diagnosticar el panel: no se reintenta nada.
+  if (!debug_net_radio_enabled()) {
+    return;
+  }
+
   // Manual reconnect: retry wifiInit() when disconnected. Auto-reconnect is
   // disabled to avoid ASSOC_TOOMANY event storms; this provides the fallback.
   // Backoff exponencial: cada intento fallido dobla la espera hasta el tope
@@ -600,7 +791,14 @@ void WifiOTAHandler(void) {
     pendingPass[0] = '\0';
   }
 
-  WIFI_TB_OTA();
+  // Interruptor de diagnostico (modules/debug/debug_mode.h). El webserver se
+  // atiende igual mientras haya enlace: es una via de actualizacion y no se
+  // toca. Lo que apaga es el cliente de ThingsBoard — que desde que se retiro
+  // la publicacion de telemetria es solo la conexion y la comprobacion de OTA,
+  // asi que apagarlo deja al display SIN ACTUALIZACION REMOTA hasta reiniciar.
+  if (debug_net_tb_enabled()) {
+    WIFI_TB_OTA();
+  }
 
   if (WiFi.status() == WL_CONNECTED) {
     wifiServer.handleClient();

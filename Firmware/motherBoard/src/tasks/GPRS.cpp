@@ -30,7 +30,8 @@
 
 #include "modules/baby_profile/baby_cloud.h"
 #include "modules/baby_profile/baby_profile_store.h"
-#include "modules/util/civil_time.h"
+#include "civil_time.h"
+#include "modules/util/system_clock.h"
 #include "modules/util/tz_source.h"
 #include <sys/time.h>
 
@@ -42,6 +43,7 @@
 #include "SPO2.h"
 #include "Wifi_OTA.h"
 #include "main.h"
+#include "tasks/CrashReporter.h"
 
 // Initialize GSM modem
 TinyGsm modem(modemSerial);
@@ -96,7 +98,8 @@ static constexpr size_t GPRS_APN_COUNT =
 
 // Statuses for updating
 bool currentFWSent = false;
-bool updateRequestSent = false;
+// updateRequestSent se ha retirado: nunca se asignaba, asi que la guarda que
+// dependia de ella no guardaba nada. Ver GPRSCheckOTA().
 
 extern double ReferenceTemperatureRange, ReferenceTemperatureLow;
 
@@ -142,19 +145,16 @@ static void rpc_setwifi_cb(JsonVariantConst const & data,
   response["status"] = "ok";
 }
 
-static void rpc_wipe_babies_cb(JsonVariantConst const & data,
-                               JsonDocument & response) {
-  // Same explicit confirmation as the /config path: a stray RPC must never
-  // erase clinical records.
-  if (data["confirm"] != 1234) {
-    response["status"] = "refused";
-    return;
-  }
-  int n = babyStore_wipeAll();
-  response["status"] = "wiped";
-  response["files_removed"] = n;
-  logModemData("[RPC] baby data wiped");
-}
+// Aqui vivia rpc_wipe_babies_cb(): borrar el historial clinico de una unidad
+// con un RPC desde el cuadro de mando. Retirado a proposito. El codigo de
+// confirmacion (1234) limitaba los accidentes, pero no cambiaba quien tenia
+// la capacidad: cualquiera con permiso de RPC sobre el dispositivo podia
+// dejar sin registros a una incubadora en produccion, desde fuera del
+// hospital y sin tocarla. El borrado sigue existiendo por la via de
+// servicio, "/config,BABY_WIPE,1234" por el cable entre placas
+// (CommTask.cpp), que exige acceso fisico al equipo.
+//
+// No lo vuelvas a registrar en rpc_callbacks[] sin una decision explicita.
 
 static void rpc_check_ota_cb(JsonVariantConst const & /*data*/,
                              JsonDocument & response) {
@@ -199,7 +199,6 @@ static RPC_Callback rpc_callbacks[] = {
   RPC_Callback("restart",  rpc_restart_cb,  JSON_OBJECT_SIZE(1)),
   RPC_Callback("getDiag",  rpc_diag_cb,     JSON_OBJECT_SIZE(8)),
   RPC_Callback("setWifi",  rpc_setwifi_cb,  JSON_OBJECT_SIZE(1)),
-  RPC_Callback("wipeBabies", rpc_wipe_babies_cb, JSON_OBJECT_SIZE(2)),
   RPC_Callback("checkOta",   rpc_check_ota_cb,   JSON_OBJECT_SIZE(1)),
 #if TX_FEATURE_PPG_SNAPSHOT_GPRS
   RPC_Callback("capturePPG", rpc_capture_ppg_gprs_cb, JSON_OBJECT_SIZE(1)),
@@ -219,6 +218,27 @@ static void subscribeRPCHandlers() {
 // while the unit is in the field. -1 = no OTA in flight.
 volatile int g_otaProgressPct = -1;
 
+// Una imagen ya descargada y a la espera de arrancar. Solo la borra el
+// reinicio, que es justo lo que se quiere: vive en RAM a proposito.
+//
+// Hace falta porque el modelo de OTA de ThingsBoard da por terminada la
+// actualizacion cuando el equipo REPORTA la version nueva, y este equipo no
+// reinicia al acabar (ver updatedCallback: el esp_restart() esta comentado a
+// conciencia, no se reinicia una incubadora con un nino dentro). Asi que el
+// servidor sigue viendo 18.35 con objetivo 18.36, vuelve a lanzar la
+// actualizacion, y Update.begin() ya falla porque la particion esta escrita:
+//
+//     [TB] Failed to initalize flash updater, ensure that the partition
+//          scheme has two app sections
+//
+// A partir de ahi el SDK entra en RETRY_UPDATE sin fin --Request_First_
+// Firmware_Packet() vuelve a poner m_retries a Get_Chunk_Retries() en cada
+// vuelta, asi que la cuenta de reintentos no baja NUNCA-- y machaca al
+// servidor a ~7 peticiones por segundo hasta que la unidad cae. Es lo que
+// reinicio las siete unidades de la tanda del 2026-09-21 con PANIC, y lo que
+// se reprodujo en banco el 2026-09-22 (ver known_issues.md #14).
+volatile bool g_otaPendingReboot = false;
+
 void progressCallback(const uint32_t &currentChunk,
                       const uint32_t &totalChuncks) {
   if (totalChuncks > 0) {
@@ -237,6 +257,7 @@ void updatedCallback(const bool &success) {
   g_otaProgressPct = -1;
   if (success) {
     logModemData("[GPRS] -> Done, OTA will be implemented on next boot");
+    g_otaPendingReboot = true;
     // esp_restart();
   } else {
     logModemData("[GPRS] -> No new firmware");
@@ -367,10 +388,18 @@ void GPRSEnsureTimeSynced() {
   static uint32_t s_lastAttemptMs = 0;
   if (s_synced) return;
 
-  // WiFi NTP may have won the race; nothing to do if the clock is already set.
+  // El reloj ya esta puesto: no hay nada que hacer aqui, gane quien gane.
+  //
+  // El mensaje decia "(WiFi NTP)" y era una suposicion, no un dato: esta rama
+  // salta con el reloj puesto por CUALQUIER fuente. Se vio en banco el
+  // 2026-09-16 anunciando WiFi NTP con la hora tecleada a mano en /config, y
+  // otra vez con la hora sembrada desde el RTC del HMI. Mando a dos personas a
+  // buscar un SNTP que nunca habia ocurrido. Ahora que time_source sabe de
+  // verdad quien puso el reloj, se dice el rango y se acabo la adivinanza.
   if (time(nullptr) >= (time_t)1609459200L) {
     s_synced = true;
-    logModemData("[GPRS] -> time already synced (WiFi NTP)");
+    logModemData("[GPRS] -> clock already set, source rank " +
+                 String((int)systemClockSource()));
     return;
   }
 
@@ -384,13 +413,23 @@ void GPRSEnsureTimeSynced() {
   float tz = 0.0f;
   uint32_t epoch = 0;
   bool got = false;
+  // De que rama sale `epoch`. Las dos acababan en el mismo settimeofday() y
+  // eran indistinguibles, pero NO valen lo mismo: AT+CCLK? devuelve la hora
+  // que anuncia la red (NITZ), que muchos operadores no emiten o emiten con
+  // minutos de error, mientras que el fallback habla con pool.ntp.org. Son el
+  // ultimo y el segundo rango de la jerarquia. Confundirlas dejaria un NTP
+  // bueno degradado a NITZ, y entonces la semilla del RTC del HMI —que esta
+  // por encima de NITZ— podria pisarlo.
+  Proto_TimeSource src = PROTO_TIME_SOURCE_NONE;
 
   if (modem.getNetworkTime(&year, &month, &day, &hour, &minute, &second,
                            &tz)) {
     got = civil_to_unix_utc(year, (unsigned)month, (unsigned)day,
                             (unsigned)hour, (unsigned)minute,
                             (unsigned)second, (int)tz, &epoch);
-    if (!got) {
+    if (got) {
+      src = PROTO_TIME_SOURCE_NITZ;
+    } else {
       // Expected when the operator sends no NITZ: the SIM800 reports its
       // 2004 default, which civil_to_unix_utc() rejects outright.
       logModemData("[GPRS] -> NITZ clock not valid yet");
@@ -406,6 +445,10 @@ void GPRSEnsureTimeSynced() {
                               (unsigned)hour, (unsigned)minute,
                               (unsigned)second, (int)tz, &epoch);
       if (got) {
+        // Esta hora viene de pool.ntp.org, no de la red movil, aunque se lea
+        // por el mismo AT+CCLK?: el CNTP de arriba acaba de reescribir el
+        // reloj del modem con ella. Rango NTP, no NITZ.
+        src = PROTO_TIME_SOURCE_NTP;
         // El sync solo se da por bueno si esta linea se alcanza: un intento
         // fallido (CCLK/CNTP con error, timeout de red...) no debe dejar la
         // zona marcada como contaminada para siempre — sin esto un fallo
@@ -419,11 +462,18 @@ void GPRSEnsureTimeSynced() {
 
   if (!got) return;
 
-  struct timeval tv = {};
-  tv.tv_sec = (time_t)epoch;
-  settimeofday(&tv, nullptr);
+  if (!systemClockSet(epoch, src)) {
+    // Una fuente mejor gano la carrera (hora puesta a mano, o SNTP por WiFi
+    // que llego entre la comprobacion de arriba y esta linea). No es un
+    // error: el reloj ya esta bien. Se marca sincronizado para no seguir
+    // gastando comandos AT en algo resuelto.
+    s_synced = true;
+    logModemData("[GPRS] -> cellular clock declined, better source already set");
+    return;
+  }
   s_synced = true;
-  logModemData("[GPRS] -> clock synced from cellular, epoch " + String(epoch));
+  logModemData("[GPRS] -> clock synced from cellular, epoch " + String(epoch) +
+               ", src " + String((int)src));
 }
 
 // Zona horaria desde la red movil (NITZ), separada de la puesta en hora.
@@ -749,7 +799,12 @@ void GPRSProvisionResponse(const JsonObjectConst &data) {
                    " - retrying as IncuNest-" + String(in3.serialNumber) + "_" + String(GPRS.provision_retry_count));
       GPRS.provision_request_sent = false;
     } else {
-      logModemData("[GPRS] -> Provision failed after max retries, giving up");
+      logModemData(
+          "[GPRS] -> provisioning AGOTADO: IncuNest-" +
+          String(in3.serialNumber) + " y sus _1.._" +
+          String(PROVISION_MAX_RETRIES) +
+          " ya existen en el servidor. No se reintenta hasta reiniciar; hay "
+          "que borrarlos en ThingsBoard o dar otro numero de serie.");
     }
     return;
   }
@@ -834,7 +889,21 @@ void GPRSCheckOTA() {
     currentFWSent = tb.Firmware_Send_Info(CURRENT_FIRMWARE_TITLE, FWversion) &&
                     tb.Firmware_Send_State(FW_STATE_UPDATED);
   }
-  if (!updateRequestSent) {
+  // La guarda es GPRS.OTAInProgress (la pone progressCallback y la quita
+  // updatedCallback), no la antigua updateRequestSent, que se declaraba a
+  // false y NO SE ASIGNABA EN NINGUN SITIO: la condicion era siempre cierta.
+  //
+  // Sin guarda, cada pasada periodica --cada GPRS_OTA_CHECK_INTERVAL, 10 min--
+  // volvia a llamar a Start_Firmware_Update() sobre una descarga ya en curso y
+  // la reiniciaba desde el trozo 0. Por 2G la descarga completa no cabe en esa
+  // ventana, asi que la OTA no podia terminar NUNCA: banco 2026-09-20, la
+  // barra llegaba a ~22.7% (trozo 688 de 2916) a los ~570 s y volvia a empezar,
+  // una y otra vez, sin un solo error por debajo. El unico rastro era un
+  // "Received chunk (688), not the same as requested chunk (0)" por vuelta.
+  // g_otaPendingReboot: ya hay una imagen escrita esperando arranque. Volver a
+  // empezar no puede salir bien --Update.begin() falla-- y deja al SDK
+  // reintentando sin fin. Ver el comentario de la bandera.
+  if (!GPRS.OTAInProgress && !g_otaPendingReboot) {
     tb.Start_Firmware_Update(OTAcallback);
   }
 }
@@ -946,6 +1015,15 @@ void addConfigTelemetriesToGPRSJSON() {
   addVariableToTelemetryGPRSJSON[HW_REV_KEY] = String(HW_REVISION);
   addVariableToTelemetryGPRSJSON[FW_VERSION_KEY] = FWversion;
   addVariableToTelemetryGPRSJSON[CCID_KEY] = GPRS.CCID.c_str();
+
+  // Causa de la ultima caida. Solo cuando la hubo: en un arranque limpio no se
+  // manda nada. Cuesta ~220 B una unica vez, y es la diferencia entre ver "se
+  // reinicio" y ver por que.
+  if (crashReportPending()) {
+    addVariableToTelemetryGPRSJSON[CRASH_REASON_KEY] = crashReportReason();
+    addVariableToTelemetryGPRSJSON[CRASH_REBOOTS_KEY] = crashReportReboots();
+    addVariableToTelemetryGPRSJSON[CRASH_LOG_KEY] = crashReportTail();
+  }
 #if TX_GROUP_CELLULAR_GPRS // grupo CELLULAR — config/transport_policy.h
   addVariableToTelemetryGPRSJSON[IMEI_KEY] = GPRS.IMEI.c_str();
   addVariableToTelemetryGPRSJSON[APN_KEY] = GPRS.APN.c_str();
@@ -1178,8 +1256,10 @@ static void publishBabyCloudDataGPRS() {
 
   if (babyStore_attributesDirty()) {
     const BabyProfile *occ = babyStore_currentOccupant();
-    int n = occ ? babyCloud_buildAttributesJson(occ, json, sizeof(json))
-                : babyCloud_buildEmptyAttributesJson(json, sizeof(json));
+    const uint32_t total = babyStore_totalRegistered();
+    int n = occ ? babyCloud_buildAttributesJson(occ, total, json, sizeof(json))
+                : babyCloud_buildEmptyAttributesJson(total, json,
+                                                     sizeof(json));
     if (n > 0 && tb.sendAttributeJson(json)) {
       babyStore_clearAttributesDirty();
     }

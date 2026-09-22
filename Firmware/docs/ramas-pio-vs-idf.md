@@ -55,12 +55,45 @@ Entornos de compilación:
 | motherBoard | `IncuNest_V17` / `_factory` | para HW17 |
 | Display_HMI | `main` | |
 
+## Qué hay de `dev` en esta línea, y qué no
+
+El 2026-09-20 se portaron a `dev-pio` (rama `feat/portar-desde-dev`) **26 de
+los 27 cambios de producto** que `dev` acumuló desde la base `627affc`,
+cherry-pick a cherry-pick con `-x` (cada commit conserva su
+`cherry picked from commit <sha>` y, cuando hubo que adaptar algo a Arduino, lo
+dice en su propio mensaje). Entre ellos, los seis de seguridad clínica
+(umbrales de alarma, histéresis, los tres defectos de alarmas de banco, la
+recuperación del estado de control tras reinicio y la retirada de
+`wipeBabies`), el modo depuración, el reloj RTC PCF8563 con su árbitro de
+fuentes de hora, y el contador de bebés.
+
+**No se portó**, a sabiendas:
+
+- `e2e3ede` (retirar el encoder rotativo): refactor sin valor de producto cuyos
+  tres conflictos eran fontanería del port, no el encoder.
+- Lo que solo tiene sentido en IDF: `CONFIG_SPI_FLASH_AUTO_SUSPEND`, los dos
+  parches al SDK de ThingsBoard vendorizado (`b2845f7`, `0549cef`), GPRS/OTA
+  sobre `esp_modem` (`1a2eca7`, `2940b53`), el fix de caché/coredump del
+  componente GT911 (`7a8463a`) y el knob del AFE4490 (`c442951`).
+
+Adaptaciones que conviene conocer porque se notan al leer el código:
+
+- La tabla de tareas del `/debug/state` de la motherBoard está detrás de
+  `configUSE_TRACE_FACILITY`, que el core Arduino 2.0.14 no trae: el JSON lo
+  dice en vez de omitirlo.
+- Los contadores `gt911_*` del táctil viven en `lib/TAMC_GT911_Fixed`.
+- `civil_time` pasó a `shared/` (como en el port); la motherBoard ya no lo
+  lista en su `[env:native]` porque `pre_native.py` compila `shared/src`.
+- El HMI tiene por primera vez un `[env:native]` (`pio test -e native` en
+  `Display_HMI/`) con las tres suites del RTC; para ello la sección común de su
+  `platformio.ini` pasó de `[env]` a `[common]`.
+
 ## Si se retoma el port
 
 Lo que se arregle aquí **no viaja solo** a `dev`. Hoy están pendientes de
-portar los tres cambios de esta rama: botón TREND retirado, mantenimiento
-desactivado por defecto y el cierre de la carrera de la guarda de eco
-(`known_issues.md` #11).
+portar en sentido contrario los tres cambios propios de esta línea: botón TREND
+retirado, mantenimiento desactivado por defecto y el cierre de la carrera de la
+guarda de eco (`known_issues.md` #11).
 
 Los issues abiertos que congelaron el port están documentados en la otra línea,
 en `Firmware/docs/port-idf-issues-abiertos-2026-09-16.md` (rama

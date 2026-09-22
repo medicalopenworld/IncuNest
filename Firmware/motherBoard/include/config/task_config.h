@@ -36,7 +36,23 @@
 #define ROOM_SENSOR_UPDATE_PERIOD_MS 1000
 #define ROOM_SENSOR_RECONNECT_MS     500
 #define PHOTOTHERAPY_INITIAL_PWM_PCT 40
-#define PHOTO_TARGET_CURRENT 0.45f
+// Corriente de trabajo del lazo de fototerapia. NO es un duty: sensors_module
+// mueve el PWM a 1 cuenta/s hasta igualar este valor, asi que este define —y no
+// PHOTOTHERAPY_INITIAL_PWM_PCT, que solo es la semilla— es el unico ajuste de
+// intensidad que sobrevive a la regulacion.
+//
+// 2026-09-21: 0.45 -> 0.27 A, un 40 % menos de corriente por peticion de
+// producto. Va EMPAREJADO con PHOTOTHERAPY_CONSUMPTION_DEFAULT
+// (initHardware.cpp), que extrapola el PWM inicial para este mismo setpoint: si
+// se mueve uno solo, la placa arranca al valor viejo y el lazo tarda ~1-2 min en
+// corregirlo a 1 cuenta/s.
+//
+// La corriente NO esta calibrada contra irradiancia. El flujo radiante del LED
+// es casi lineal con la corriente, asi que -40 % de corriente es del orden de
+// -40 % de uW/cm2/nm, pero el valor real solo lo da un radiometro sobre la
+// unidad. Sin esa medida no se puede afirmar que la dosis quede en el rango que
+// espere el protocolo clinico.
+#define PHOTO_TARGET_CURRENT 0.27f
 #define PHOTO_SETTLE_MS      3000
 #define PHOTO_CONTROL_PERIOD_MS 1000
 #define PHOTO_MAX_STEP       1

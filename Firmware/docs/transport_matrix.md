@@ -168,7 +168,6 @@ espera y muestra *"el equipo no respondió"* aunque el equipo aparezca conectado
 |---|:--:|:--:|
 | `restart` | ✅ | ❌ |
 | `getDiag` | ✅ | ❌ |
-| `wipeBabies` | ✅ | ❌ |
 | `setWifi` | ✅ | ✅ |
 | `checkOta` | ✅ | ✅ |
 | `capturePPG` | ✅ | ✅ |
@@ -176,10 +175,20 @@ espera y muestra *"el equipo no respondió"* aunque el equipo aparezca conectado
 `checkOta` estaba solo en GPRS y por eso el botón del dashboard fallaba en
 equipos por WiFi. Ya está en los dos.
 
-**Quedan tres huecos.** `restart`, `getDiag` y `wipeBabies` no responden por
-WiFi. Significa que **un RPC probado en el banco por WiFi puede no responder en
-campo por GPRS**, y al revés — justo el escenario en el que uno querría
-reiniciar un equipo en remoto.
+**Quedan dos huecos.** `restart` y `getDiag` no responden por WiFi. Significa
+que **un RPC probado en el banco por WiFi puede no responder en campo por
+GPRS**, y al revés — justo el escenario en el que uno querría reiniciar un
+equipo en remoto.
+
+**`wipeBabies` ya no existe por ningún transporte.** Estaba solo en GPRS y se
+retiró a propósito: borraba el historial clínico entero de una unidad, y el
+código de confirmación (`{"confirm":1234}`) evitaba accidentes pero no
+cambiaba quién tenía la capacidad — cualquiera con permiso de RPC sobre el
+dispositivo podía dejar sin registros una incubadora en producción sin
+acercarse a ella. El borrado se conserva solo por la vía de servicio
+`/config,BABY_WIPE,1234` sobre el cable entre placas (`CommTask.cpp`), que
+exige acceso físico. No lo vuelvas a añadir a `rpc_callbacks[]` sin una
+decisión explícita.
 
 ### Por qué el snapshot PPG no se veía en ThingsBoard
 

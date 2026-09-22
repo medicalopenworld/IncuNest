@@ -67,7 +67,7 @@
 
 #define HW_REVISION 'A'
 #define HWversion String(HW_NUM) + "." + String(HW_REVISION)
-#define FWversion "18.2"
+#define FWversion "18.38"
 #define WIFI_NAME "IncuNest"
 #define CURRENT_FIRMWARE_TITLE "IncuNest"
 
@@ -163,7 +163,26 @@
 #define THINGSBOARD_QOS false
 #define TELEMETRIES_DECIMALS 2
 #define FIRMWARE_FAILURE_RETRIES 12
-#define FIRMWARE_PACKET_SIZE 4096
+// Tamano del trozo de firmware que el cliente pide en cada vuelta de la OTA.
+//
+// TIENE QUE CABER EN EL BUFFER DEL CLIENTE MQTT, que es MAX_MESSAGE_SIZE
+// (1024 B): `ThingsBoard tb(mqttClientGPRS, MAX_MESSAGE_SIZE)` en GPRS.cpp y
+// Wifi_OTA.cpp. Ese buffer tiene que alojar el paquete MQTT ENTERO -- cabecera
+// y topico ("v2/fw/response/<id>/chunk/<n>", ~30 B) ademas del payload -- asi
+// que el trozo util se queda en algo menos de 1 KB. Por eso 512 y no 1024.
+//
+// Estaba en 4096, que no cabe, y el sintoma no se parecia a la causa: el
+// chunk llegaba y se descartaba por tamano, el cliente agotaba sus 10 s
+// (WAIT_FAILED_OTA_CHUNKS) y lo volvia a pedir, con algun "Received chunk (0),
+// not the same as requested chunk (1)" suelto cuando se cruzaban peticion y
+// reenvio. Banco 2026-09-20, OTA por 2G: 92 trozos de 365 en ~9 min con 40
+// expiraciones, ~293 B/s. Parecia un problema de cobertura y no lo era.
+//
+// Subir MAX_MESSAGE_SIZE en vez de bajar esto iria mas rapido (menos vueltas),
+// pero el buffer sale del heap interno, y de ese hay ~11 KB libres con WiFi y
+// celular arriba (ver docs/known_issues.md y el abort por OOM del port IDF).
+// No se toca sin medir.
+#define FIRMWARE_PACKET_SIZE 512
 #define WAIT_FAILED_OTA_CHUNKS 10U * 1000U * 1000U
 
 // Mutex for protecting the shared variable
@@ -209,6 +228,8 @@ typedef enum
 #include "telemetry_keys.h"
 
 extern uint32_t g_bootCount;
+// millis() en que arranco sensors_Task; 0 = todavia no. Ver checkStatusOfSensor().
+extern uint32_t g_sensorsTaskStartedMs;
 extern uint32_t g_gprsKillCount;
 extern uint32_t g_monKillCount;
 extern int g_hmiBootCount;
@@ -332,7 +353,29 @@ typedef enum
 #define SKIN_TEMPERATURE_SET_MIN 35
 #define AIR_TEMPERATURE_SET_MIN 30
 #define SKIN_TEMPERATURE_SET_MAX 37.5
-#define AIR_TEMPERATURE_SET_MAX 38
+
+// CONSIGNA y CORTE TERMICO son dos cosas distintas y hasta 2026-09-14 eran la
+// misma constante: AIR_TEMPERATURE_SET_MAX valia 38 y de ahi salian a la vez
+// el tope que el operador puede pedir y el umbral al que se dispara el corte.
+// Mientras los dos numeros coincidieron nadie lo noto; en cuanto se quiso
+// consigna 39 quedo a la vista que subir uno subia el otro.
+//
+// Ahora van separadas. La de abajo es SOLO el tope de consigna; el umbral del
+// corte es in3.airTemperatureSetMax, que arranca de
+// AIR_THERMAL_CUTOUT_DEFAULT_C y lo recorta alarm_clamp_air_cutout().
+//
+// La consigna tiene que quedar POR DEBAJO del corte, si no el equipo no puede
+// alcanzar lo que se le pide: al cruzar el umbral salta ALARM_AIR_THERMAL_
+// CUTOUT, que es ALTA y corta el calefactor. Hoy 39 < 40 y hay 1 C de margen.
+// El numero lo pone shared/alarm_policy.h, que es de donde lo lee tambien el
+// display: cuando cada placa tenia el suyo se desincronizaron.
+#define AIR_TEMPERATURE_SET_MAX ALARM_AIR_SETPOINT_MAX_C
+
+// Umbral de arranque del corte termico del aire. Ajustable en caliente (por
+// /config y por el enlace) y persistido en KEY_AIR_T_MAX, asi que este valor
+// solo manda en una unidad sin nada guardado. El techo, y el motivo por el que
+// 40 C es una desviacion normativa consciente, estan en shared/alarm_policy.h.
+#define AIR_THERMAL_CUTOUT_DEFAULT_C 40
 
 // Encoder variables
 #define NUMENCODERS 1 // number of encoders in circuit
@@ -415,7 +458,11 @@ typedef struct
   bool fanPidEnabled = FAN_PID_ENABLED_DEFAULT;
   float heaterMaxPowerAmps = HEATER_MAX_POWER_AMPS;
   float skinTemperatureSetMax = SKIN_TEMPERATURE_SET_MAX;
-  float airTemperatureSetMax = AIR_TEMPERATURE_SET_MAX;
+  // Pese al nombre no es el tope de consigna, es el UMBRAL DEL CORTE TERMICO
+  // (security.cpp: checkThermalCutOuts()). El tope de consigna es
+  // AIR_TEMPERATURE_SET_MAX. El nombre se conserva porque viaja al protocolo,
+  // a /config como air_tmax y a NVS como KEY_AIR_T_MAX.
+  float airTemperatureSetMax = AIR_THERMAL_CUTOUT_DEFAULT_C;
   // Defaults en config/transport_policy.h; /config los sobrescribe en NVS.
   int actuating_gprs_period = TX_GPRS_PERIOD_ACTUATING_S;
   int phototherapy_gprs_period = TX_GPRS_PERIOD_PHOTOTHERAPY_S;
@@ -445,14 +492,48 @@ typedef struct
 
 } IncuNest_parameters;
 
-void logE(String dataString);
-void logAlarm(String dataString);
-void logI(String dataString);
-void logCharger(String dataString);
-void logModemData(String dataString);
-void logSPO2(String dataString);
-void logDrive(String dataString);
-void logModemData(String dataString);
+// ================== POR QUE ESTOS LOGS SON MACROS ==================
+//
+// El argumento de una llamada se evalua SIEMPRE, antes de entrar. Como casi
+// todos los sitios escriben cosas como
+//
+//     logI("[X] v=" + String(v) + " w=" + String(w));
+//
+// la cadena se construia —con un temporal y una realocacion por cada `+`—
+// aunque el flag del canal estuviera apagado y la funcion fuera a descartarla
+// en su primera linea. Trabajo y HEAP gastados para nada, 79 veces repartidas
+// por el firmware.
+//
+// No es teorico: en banco (2026-09-14) una de esas cadenas, la de SPO2.cpp a
+// 500 Hz, agoto el heap. `operator new` lanzo std::bad_alloc, nadie lo captura,
+// y std::terminate llamo a abort(): la placa que gobierna el calefactor se
+// reinicio construyendo una linea de log que NI SIQUIERA SE IMPRIME
+// (LOG_PULSIOXIMETRY es false).
+//
+// Con la macro la expresion queda DENTRO del `if`, y como los flags son
+// `#define ... false` el compilador elimina el bloque entero: ni cadena, ni
+// asignacion, ni llamada. Encender un canal lo devuelve todo tal cual estaba.
+//
+// Se conservan los nombres de siempre a proposito: asi los 79 puntos de llamada
+// no se tocan, que es justo lo que no conviene mezclar con un arreglo de
+// seguridad. Las funciones de verdad pasan a llamarse logX_impl().
+//
+// El do/while(0) es para que `if (c) logI(x); else ...` siga compilando.
+void logE_impl(const String &dataString);
+void logAlarm_impl(const String &dataString);
+void logI_impl(const String &dataString);
+void logCharger_impl(const String &dataString);
+void logModemData_impl(const String &dataString);
+void logSPO2_impl(const String &dataString);
+void logDrive_impl(const String &dataString);
+
+#define logI(expr)         do { if (LOG_INFORMATION)   { logI_impl(expr); } } while (0)
+#define logE(expr)         do { if (LOG_ERRORS)        { logE_impl(expr); } } while (0)
+#define logAlarm(expr)     do { if (LOG_ALARMS)        { logAlarm_impl(expr); } } while (0)
+#define logCharger(expr)   do { if (LOG_CHARGER)       { logCharger_impl(expr); } } while (0)
+#define logModemData(expr) do { if (LOG_MODEM_DATA)    { logModemData_impl(expr); } } while (0)
+#define logSPO2(expr)      do { if (LOG_PULSIOXIMETRY) { logSPO2_impl(expr); } } while (0)
+#define logDrive(expr)     do { if (LOG_DRIVE)         { logDrive_impl(expr); } } while (0)
 long secsToMillis(long timeInMillis);
 long minsToMillis(long timeInMillis);
 float millisToHours(long timeInMillis);
@@ -477,6 +558,10 @@ double measureStabilizedCurrent(bool sensor, int shunt, float offsetCurrent,
 float measureMeanVoltage(bool, int);
 void WIFI_TB_Init();
 void WifiOTAHandler(void);
+// Enciende/apaga la WiFi desde la UART (HMI,WIFI_EN,<0|1>), para poder probar
+// el camino 2G. Solo anota la peticion: la aplica WifiOTAHandler() en el lazo
+// principal. Volatil — WIFI_EN vuelve a true en cada arranque.
+void wifiRequestEnable(bool enable);
 void securityCheck();
 
 void turnFans(bool mode);

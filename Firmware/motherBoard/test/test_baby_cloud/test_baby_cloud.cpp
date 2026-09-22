@@ -42,8 +42,38 @@ void test_every_payload_carries_baby_seq(void) {
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_seq\":7"));
 
   TEST_ASSERT_GREATER_THAN_INT(
-      0, babyCloud_buildAttributesJson(&p, buf, sizeof(buf)));
+      0, babyCloud_buildAttributesJson(&p, 7, buf, sizeof(buf)));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_seq\":7"));
+}
+
+// --- Cumulative admissions counter (device-level, not per-baby) ---
+
+void test_attributes_carry_total_registered_count(void) {
+  BabyProfile p = mk();
+  char buf[512];
+  TEST_ASSERT_GREATER_THAN_INT(
+      0, babyCloud_buildAttributesJson(&p, 47, buf, sizeof(buf)));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"babies_registered_total\":47"));
+}
+
+// The counter describes the incubator, not its occupant, so it must survive
+// the payload that clears the occupancy cards. Without this, a unit that
+// boots with an empty incubator would never publish the number at all.
+void test_empty_attributes_still_carry_total_registered_count(void) {
+  char buf[512];
+  TEST_ASSERT_GREATER_THAN_INT(
+      0, babyCloud_buildEmptyAttributesJson(47, buf, sizeof(buf)));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"babies_registered_total\":47"));
+}
+
+// Zero is a real answer ("this unit has admitted nobody"), so it is published
+// as 0 rather than omitted — an omitted attribute keeps its previous value in
+// ThingsBoard, which after a wipe would keep claiming the old count.
+void test_virgin_unit_publishes_zero_rather_than_omitting_the_key(void) {
+  char buf[512];
+  TEST_ASSERT_GREATER_THAN_INT(
+      0, babyCloud_buildEmptyAttributesJson(0, buf, sizeof(buf)));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"babies_registered_total\":0"));
 }
 
 // --- Timestamps: real event time, not publish time ---
@@ -116,7 +146,7 @@ void test_name_with_quotes_cannot_break_the_json(void) {
   snprintf(p.name, BABY_NAME_LEN, "%s", "A\"B\\C");
   char buf[512];
   TEST_ASSERT_GREATER_THAN_INT(
-      0, babyCloud_buildAttributesJson(&p, buf, sizeof(buf)));
+      0, babyCloud_buildAttributesJson(&p, 3, buf, sizeof(buf)));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\\\"B"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\\\\C"));
   // Braces stay balanced: one open, one close.
@@ -133,7 +163,7 @@ void test_name_with_quotes_cannot_break_the_json(void) {
 void test_empty_attributes_clear_every_occupancy_key(void) {
   char buf[512];
   TEST_ASSERT_GREATER_THAN_INT(
-      0, babyCloud_buildEmptyAttributesJson(buf, sizeof(buf)));
+      0, babyCloud_buildEmptyAttributesJson(12, buf, sizeof(buf)));
   // Omitting a key would leave the discharged baby on the dashboard card.
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_seq\":0"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_name\":\"\""));
@@ -167,6 +197,26 @@ void test_widest_discharge_payload_fits_transport_buffer(void) {
   TEST_ASSERT_LESS_THAN_INT(512, n);
 }
 
+// Same fixed 512-byte transport buffer, now one key wider.
+void test_widest_attributes_payload_fits_transport_buffer(void) {
+  BabyProfile p;
+  memset(&p, 0, sizeof(p));
+  p.slotUsed = true;
+  p.seq = 4294967295u;
+  memset(p.name, 'W', BABY_NAME_LEN - 1);
+  p.gestWeeks = 255;
+  p.weightGrams = 65535;
+  p.admissionEpoch = 4294967295u;
+  p.kangarooCount = 65535;
+  p.phototherapyMinutes = 4294967295u;
+  p.thermoMinutes = 4294967295u;
+  p.humidityMinutes = 4294967295u;
+  char buf[512];
+  int n = babyCloud_buildAttributesJson(&p, 4294967295u, buf, sizeof(buf));
+  TEST_ASSERT_GREATER_THAN_INT(0, n);
+  TEST_ASSERT_LESS_THAN_INT(512, n);
+}
+
 void test_small_buffer_fails_closed(void) {
   BabyProfile p = mk();
   BabyCloudEvent d = {BABY_EVT_DISCHARGE, 1700000700u, 1460, p};
@@ -185,6 +235,9 @@ void test_unknown_event_type_builds_nothing(void) {
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_every_payload_carries_baby_seq);
+  RUN_TEST(test_attributes_carry_total_registered_count);
+  RUN_TEST(test_empty_attributes_still_carry_total_registered_count);
+  RUN_TEST(test_virgin_unit_publishes_zero_rather_than_omitting_the_key);
   RUN_TEST(test_known_timestamp_uses_ts_envelope_in_millis);
   RUN_TEST(test_unsynced_clock_omits_ts_so_server_stamps_it);
   RUN_TEST(test_discharge_is_self_contained_with_stay_days);
@@ -193,6 +246,7 @@ int main(void) {
   RUN_TEST(test_name_with_quotes_cannot_break_the_json);
   RUN_TEST(test_empty_attributes_clear_every_occupancy_key);
   RUN_TEST(test_widest_discharge_payload_fits_transport_buffer);
+  RUN_TEST(test_widest_attributes_payload_fits_transport_buffer);
   RUN_TEST(test_small_buffer_fails_closed);
   RUN_TEST(test_unknown_event_type_builds_nothing);
   return UNITY_END();

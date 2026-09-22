@@ -105,18 +105,20 @@ void alarm_machine_condition(AlarmId id, bool present, uint32_t now_ms) {
   if (present) {
     if (e.state == ALARM_STATE_INACTIVE) {
       e.present_since_ms = now_ms;
-      // Un corte termico nunca espera: la norma exige aviso inmediato.
+      // Un corte termico nunca espera: la norma exige aviso inmediato. Se
+      // pregunta por ESO y no por si la alarma es latching, que es una
+      // politica distinta aunque durante un tiempo coincidieran.
       const bool may_wait =
-          e.announce_delay_ms > 0 && !alarm_is_latching(id);
+          e.announce_delay_ms > 0 && !alarm_announces_immediately(id);
       e.state = may_wait ? ALARM_STATE_PENDING : ALARM_STATE_ACTIVE;
       if (e.state == ALARM_STATE_ACTIVE) {
         arm_audio_hold(e, id, now_ms);
       }
     }
   } else {
-    // 201.15.4.2.1 aa)/bb): un corte termico mantiene la alarma hasta reset
-    // manual aunque la temperatura ya haya vuelto a rango. El resto se limpia
-    // solo (senal non-latching, 6.10).
+    // Una alarma latching mantiene la senal aunque su condicion se vaya, hasta
+    // que alguien la resetee; el resto se limpia sola (6.10). Hoy la unica
+    // latching es ALARM_HEATER_FAULT (ver alarm_is_latching en shared/).
     if (!alarm_is_latching(id)) {
       e.state = ALARM_STATE_INACTIVE;
     }

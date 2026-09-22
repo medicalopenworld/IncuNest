@@ -45,19 +45,25 @@ _BOARD_FILES = {
         ('0xE000', 'ota_data_initial.bin'),
         ('0x10000', 'firmware.bin'),
     ],
-    # spiffs.bin lleva /heartbeat.mp3, el unico fichero que el firmware lee del
-    # filesystem (src/tasks/AudioManager.cpp). Hasta 2026-09 no se flasheaba
-    # ninguna imagen SPIFFS: una unidad recien salida de fabrica arrancaba con
-    # la particion vacia y sin sonido de latido, y el aviso quedaba en un
-    # Serial.println que nadie lee en produccion ("NOT FOUND. Run 'Upload File
-    # System Image'"). La imagen ocupa toda la particion pero va casi entera a
-    # 0xFF, asi que con --compress el coste real de escribirla es despreciable.
+    # SIN imagen SPIFFS (2026-09-20). Se flasheaba una de 6,16 MB en 0xA10000
+    # para llevar /heartbeat.mp3, y resulta que en esta linea de firmware NADIE
+    # la lee: su unico consumidor era src/tasks/AudioManager.cpp, que esta
+    # excluido del build (`build_src_filter = +<*> -<tasks/AudioManager.cpp>` en
+    # Display_HMI/platformio.ini) y ni siquiera genera objeto. El boton de audio
+    # de la interfaz esta oculto de forma permanente.
+    #
+    # Quitarla ademas cierra dos molestias: el flasheo fallaba con "Archivo no
+    # encontrado" si nadie habia corrido `pio run -t buildfs` (la imagen no sale
+    # de un build normal), y reflashear una unidad ya no pisa esa particion.
+    #
+    # Si algun dia se reactiva el audio, hay que volver a anadir la linea
+    # ('0xA10000', 'spiffs.bin') -- el offset sale de
+    # Display_HMI/partitions/hmi_16mb_ota.csv -- y volver a generar la imagen.
     Board.DISPLAY_HMI: [
         ('0x0000', 'bootloader.bin'),
         ('0x8000', 'partitions.bin'),
         ('0xE000', 'ota_data_initial.bin'),
         ('0x10000', 'firmware.bin'),
-        ('0xA10000', 'spiffs.bin'),
     ],
     # ESP-IDF native layout (bootloader offset 0x0, partition table at
     # 0x8000, primera app en 0x10000 — see SensorBoard_v2/partitions.csv).
@@ -184,6 +190,58 @@ def has_firmware_flashed(port: str) -> bool:
         return len(data) == 4 and data != b'\xff\xff\xff\xff'
     except Exception:
         return True  # conservative: assume firmware present, preserve NVS
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def serial_to_write(current: Optional[int], requested: int) -> Optional[int]:
+    """Serial que hay que escribir en la NVS, o None si no hay que tocarla.
+
+    Escribir la NVS borra la identidad del equipo (ver read_device_serial), asi
+    que solo se escribe cuando el serial cambia de verdad. `current is None`
+    --placa virgen o lectura fallida-- cuenta como cambio: no se puede dar por
+    bueno lo que no se ha podido leer.
+    """
+    return None if current is not None and requested == current else requested
+
+
+def read_device_serial(port: str, firmware_base: Path) -> Optional[int]:
+    """Numero de serie que la placa ya tiene en NVS, o None si no se puede leer.
+
+    Sirve para NO reescribir la NVS cuando el serial no cambia. Escribirla
+    cuesta la identidad entera del equipo: generate_serial_nvs produce una
+    imagen del tamano de la particion con un unico dato (mb_cfg/serial), asi
+    que borra tambien el token de ThingsBoard, la marca de provisionado
+    (mb_gprs) y las credenciales WiFi (mb_wifi). La placa vuelve a arrancar
+    como virgen, se conecta al SSID por defecto compilado --que fuera de
+    fabrica no suele existir-- y, si llega a la red, pide provisionarse otra
+    vez con un nombre que ya esta cogido en ThingsBoard.
+
+    None significa "no se sabe" (placa virgen, lectura fallida): el llamante
+    tiene que asumir lo peor y avisar antes de escribir.
+    """
+    folder = firmware_base / _BOARD_FOLDER[Board.MOTHERBOARD]
+    offset, size = nvs_gen.find_nvs_partition(folder / 'partitions.bin')
+
+    fd, tmp = tempfile.mkstemp(suffix='.bin')
+    os.close(fd)
+    try:
+        with esptool_io.capture():  # discard all esptool output
+            esptool.main([
+                '--port', port,
+                '--chip', 'esp32s3',
+                '--no-stub',
+                '--before', 'no-reset',
+                '--after', 'no-reset',
+                'read_flash',
+                hex(offset), hex(size), tmp,
+            ])
+        return nvs_gen.parse_nvs_serial(Path(tmp).read_bytes())
+    except Exception:
+        return None
     finally:
         try:
             os.unlink(tmp)

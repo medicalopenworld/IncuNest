@@ -78,7 +78,7 @@ void loaddefaultValues()
     p.putInt(KEY_FAN_PWR_SUPPLY_PWM, FAN_PWR_SUPPLY_PWM);
     p.putFloat(KEY_HEAT_MAX_A, HEATER_MAX_POWER_AMPS);
     p.putFloat(KEY_SKIN_T_MAX, SKIN_TEMPERATURE_SET_MAX);
-    p.putFloat(KEY_AIR_T_MAX, AIR_TEMPERATURE_SET_MAX);
+    p.putFloat(KEY_AIR_T_MAX, AIR_THERMAL_CUTOUT_DEFAULT_C);
     p.putInt(KEY_ACT_PERIOD, 60);
     p.putInt(KEY_PHOTO_PERIOD, 180);
     p.putInt(KEY_STBY_PERIOD, 3600);
@@ -326,11 +326,34 @@ void recapVariables()
     // 201.15.4.2.1 bb): un valor persistido antes de que existiera este limite
     // (o corrupto) no debe superar el tope normativo al restaurarse.
     in3.skinTemperatureSetMax = alarm_clamp_skin_cutout(in3.skinTemperatureSetMax);
-    in3.airTemperatureSetMax = p.getFloat(KEY_AIR_T_MAX, AIR_TEMPERATURE_SET_MAX);
+    in3.airTemperatureSetMax = p.getFloat(KEY_AIR_T_MAX, AIR_THERMAL_CUTOUT_DEFAULT_C);
     if (isnan(in3.airTemperatureSetMax) || in3.airTemperatureSetMax <= 0)
-      in3.airTemperatureSetMax = AIR_TEMPERATURE_SET_MAX;
-    // 201.15.4.2.1 aa): idem para el corte por aire.
+      in3.airTemperatureSetMax = AIR_THERMAL_CUTOUT_DEFAULT_C;
+    // Idem para el corte por aire; el techo esta en shared/alarm_policy.h.
     in3.airTemperatureSetMax = alarm_clamp_air_cutout(in3.airTemperatureSetMax);
+    // UNA UNIDAD YA INICIALIZADA NO HEREDA EL CORTE NUEVO. KEY_AIR_T_MAX se
+    // escribe en la inicializacion de fabrica, asi que cualquier equipo que ya
+    // haya arrancado con el firmware anterior lleva 38 guardado y se queda en
+    // 38 aunque el compilado diga 40: lo de arriba lee NVS, que manda. Con la
+    // consigna topada en 39 eso deja un equipo que NO puede alcanzar lo que se
+    // le pide — al cruzar 38 salta el corte, que es ALTA y apaga el
+    // calefactor. No se migra en silencio: subir un umbral de seguridad por
+    // nuestra cuenta es justo lo que no se debe hacer, y ademas borraria un 38
+    // puesto a proposito. Se avisa, y se corrige a mano con air_tmax en
+    // /config (o por el enlace).
+    //
+    // Va por ESP_LOGW y no por logI() a proposito: logI esta detras de
+    // LOG_INFORMATION, que es false, asi que se compilaria a nada. Un aviso
+    // que no se ve no es un aviso.
+    if (in3.airTemperatureSetMax < AIR_TEMPERATURE_SET_MAX) {
+      ESP_LOGW("APP",
+               "corte termico de aire a %.1f C, por debajo del tope de "
+               "consigna (%.1f C): una consigna por encima del corte "
+               "disparara ALARM_AIR_THERMAL_CUTOUT sin poder alcanzarse. "
+               "Ajusta air_tmax a %.1f en /config.",
+               in3.airTemperatureSetMax, (float)AIR_TEMPERATURE_SET_MAX,
+               (float)AIR_THERMAL_CUTOUT_DEFAULT_C);
+    }
     in3.fanCtlPWM = p.getInt(KEY_FAN_CTL_PWM, FAN_CTL_PWM_DEFAULT);
     if (in3.fanCtlPWM <= 0 || in3.fanCtlPWM > 255)
       in3.fanCtlPWM = FAN_CTL_PWM_DEFAULT;
@@ -399,7 +422,9 @@ void recapVariables()
     p.begin(NS_STATE, true);
     in3.actuation = p.getUChar(KEY_ACTUATION, 0);
     in3.phototherapy = p.getUChar(KEY_PHOTO_ACTIVE, 0);
-    // restoreState is set only by security_check_reboot_cause() on crash/WDT
+    // restoreState ya viene resuelto por security_check_reboot_cause()
+    // (initHardware.cpp), que corre antes que initEEPROM() en setup(): se
+    // recupera en todo reinicio salvo POWERON y BROWNOUT.
     p.end();
   }
 
@@ -419,9 +444,15 @@ void recapVariables()
   }
 
   // Process actuation mode (restore temperature/humidity control state)
-  logI("[BOOT][DEBUG] recapVariables: restoreState=" + String(in3.restoreState) +
-       " actuation=" + String(in3.actuation) +
-       " controlMode=" + String(in3.controlMode));
+  //
+  // ESP_LOGW, no logI(): esta y la de abajo son las dos lineas que dicen si un
+  // equipo que acaba de reiniciarse vuelve controlando o vuelve parado, y con
+  // LOG_INFORMATION a false (main.h) logI() no compila nada. Sin ellas, tras
+  // un crash en banco no hay forma de saber si la recuperacion ocurrio: lo
+  // unico observable es el comportamiento del equipo, que es justo lo que se
+  // esta intentando explicar.
+  ESP_LOGW("APP", "[BOOT] recap: restoreState=%d actuation=%d controlMode=%d",
+           (int)in3.restoreState, (int)in3.actuation, (int)in3.controlMode);
   if (in3.restoreState)
   {
     switch (in3.actuation)
@@ -443,9 +474,9 @@ void recapVariables()
       in3.humidityControl = false;
       break;
     }
-    logI("[BOOT][DEBUG] recapVariables: restoreState resolved -> temperatureControl=" +
-         String(in3.temperatureControl) +
-         " humidityControl=" + String(in3.humidityControl));
+    ESP_LOGW("APP",
+             "[BOOT] recap: recuperado -> temperatureControl=%d humidityControl=%d",
+             (int)in3.temperatureControl, (int)in3.humidityControl);
   }
 
   ESP_LOGI("APP", "Serial: %d, Lang: %d", in3.serialNumber, in3.language);

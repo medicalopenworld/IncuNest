@@ -31,6 +31,8 @@
 #include "modules/baby_profile/baby_profile_store.h"
 #include "modules/control/alarm_history.h"
 #include "modules/control/alarm_machine.h"
+#include "modules/control/fan_guard.h"
+#include "modules/debug/debug_mode.h"
 #include "modules/control/alarm_test.h"
 #include "modules/control/alarm_window.h"
 
@@ -111,21 +113,6 @@ extern float minDesiredTemp[2]; // minimum allowed temperature to be set
 extern float maxDesiredTemp[2]; // maximum allowed temperature to be set
 extern int presetTemp[2];       // preset baby skin temperature
 
-extern boolean A_set;
-extern boolean B_set;
-extern int encoderpinA;                 // pin  encoder A
-extern int encoderpinB;                 // pin  encoder B
-extern bool encPulsed, encPulsedBefore; // encoder switch status
-extern bool updateUIData;
-extern volatile int EncMove;     // moved encoder
-extern volatile int lastEncMove; // moved last encoder
-extern volatile int
-    EncMoveOrientation;            // set to -1 to increase values clockwise
-extern int last_encoder_move;      // moved encoder
-extern long encoder_debounce_time; // in milliseconds, debounce time in encoder
-                                   // to filter signal bounces
-extern long last_encPulsed;        // last time encoder was pulsed
-
 // Text Graphic position variables
 extern int humidityX;
 extern int humidityY;
@@ -180,11 +167,19 @@ extern PID humidityControlPID;
 // En AIRE se alarma a +-1 C, no a los +-3 C de dd). La norma fija un MAXIMO,
 // no un minimo: ser mas estricto esta permitido, y hasta 912029d este mismo
 // firmware ya lo era. Con 3 C el aviso no llega a tiempo en la mitad alta del
-// rango de consigna, porque el corte termico del aire esta topado a 38 C
-// (ALARM_AIR_CUTOUT_MAX_C): con consigna de 35 C la desviacion alarmaria a
-// 38 C — el MISMO punto que el corte, que ademas es ALTA, latching y exige
-// reset manual — y con 36 C o mas no alarmaria nunca. Entre la consigna y el
-// disyuntor no quedaba ningun aviso intermedio.
+// rango de consigna: con consigna de 35 C la desviacion no alarmaria hasta
+// 38 C, y de ahi para arriba cada vez mas tarde.
+//
+// OJO AL DATO QUE SOSTENIA ESTO, QUE HA CAMBIADO. Cuando se decidio (912029d,
+// 7d20140) el corte termico estaba topado a 38 C, asi que con consigna de 35 C
+// la desviacion alarmaba en el MISMO punto que el corte y a partir de 36 C no
+// alarmaba nunca antes que el: no quedaba ningun aviso intermedio. Desde el
+// 2026-09-14 el corte se topa a 40 C (ver ALARM_AIR_CUTOUT_MAX_C), asi que esa
+// coincidencia exacta ya no se da y ahora si queda margen entre los dos.
+//
+// La decision de +-1 C SIGUE EN PIE, pero apoyada en lo que de verdad la
+// sostiene y no en aquella coincidencia: es un aviso temprano al operador en
+// el unico escenario en el que el equipo no puede corregir por si mismo.
 //
 // Eso es lo que dejo callada a una unidad en campo con consigna de 35 C que la
 // fototerapia subio a 37 C (2026-09-10): +2 C sobre la consigna, con el bebe
@@ -217,13 +212,56 @@ extern PID humidityControlPID;
 // ACTUATORS_ALARM_STABILIZATION_MINS / RESTART_ALARM_GRACE_MINS now live in
 // main.h (initHardware.cpp needs them too for the restoreState resume path).
 
+// INVARIANTE DE LA ALARMA DE OBSTRUCCION, comprobada en COMPILACION.
+//
+// El umbral de RETIRADA (umbral - histeresis) tiene que quedar POR ENCIMA del
+// duty de trabajo normal. Si queda por debajo, con el ventilador girando el
+// duty nunca llega hasta el, y la condicion —una vez declarada— NO SE PUEDE
+// RETIRAR: el calefactor se queda cortado hasta reiniciar. Es exactamente lo
+// que pasaba con 190/15 sobre un punto de trabajo real de 187 (banco
+// 2026-09-14, 97 muestras). Un numero mal puesto valia para dejar una
+// incubadora sin calentar.
+//
+// Va aqui y no en board.h porque board.h lo incluye tambien codigo C, y
+// static_assert con mensaje es de C++.
+static_assert(FAN_DUTY_BLOCKED_THRESHOLD - FAN_DUTY_BLOCKED_HYSTERESIS >
+                  FAN_DUTY_NORMAL_MAX_OBSERVED,
+              "la retirada de ALARM_AIR_OUTLET_BLOCKED cae por debajo del duty "
+              "normal: la alarma no podria retirarse y dejaria el calefactor "
+              "cortado");
+static_assert(FAN_DUTY_BLOCKED_THRESHOLD < 255,
+              "el umbral de obstruccion debe quedar por debajo de la saturacion "
+              "del PWM, o no se alcanzaria nunca");
+
 #define FAN_TEST_CURRENTDIF_MIN \
   0.2 // when the fan is spinning, heater cools down and consume less current
 #define FAN_TEST_PREHEAT_TIME \
   30000 // when the fan is spinning, heater cools down and consume less current
 
 // security config
-#define AIR_THERMAL_CUTOUT_HYSTERESIS 0.2f
+//
+// HISTERESIS DEL CORTE TERMICO. Solo mueve el punto de RETIRADA: la condicion
+// se declara igual que antes, en cuanto se supera el umbral
+// (in3.airTemperatureSetMax), y se retira al bajar de umbral - histeresis. O
+// sea que ensancharla NO relaja la proteccion, la hace mas conservadora: el
+// calefactor queda cortado mas tiempo.
+//
+// El aire pasa de 0.2 a 0.5 C. Con 0.2 la banda quedaba dentro del ruido: en
+// banco (2026-09-14, consigna 39 C, corte 40 C, fototerapia al 82 %) la alarma
+// se activaba y desactivaba sola alrededor de los 40 C. Dos sensores de aire
+// distintos leian 38.18 y 38.34 en el mismo instante, asi que 0.2 C es
+// directamente el suelo de ruido entre lecturas, no una banda.
+//
+// Por que 0.5 y no 1.0: con 1.0 la retirada caeria en 39.0, que es exactamente
+// la consigna, y eso ata el corte termico al termostato. La norma pide justo lo
+// contrario — 201.15.4.2.1 aa) exige que el corte opere "independientemente de
+// cualquier TERMOSTATO" — asi que el numero se elige por el ruido del sensor,
+// que es lo que lo justifica, y no por donde este la consigna.
+//
+// La de piel se queda en 0.2 a proposito: el sintoma se vio en el aire, su
+// dinamica es otra (sonda sobre la piel, no aire en movimiento) y no hay medida
+// de banco que respalde tocarla.
+#define AIR_THERMAL_CUTOUT_HYSTERESIS 0.5f
 #define SKIN_THERMAL_CUTOUT_HYSTERESIS 0.2f
 
 // Ventana de staleness. Las dos valen 5 s, pero se mantienen separadas porque
@@ -355,10 +393,16 @@ void checkThermalCutOuts()
       skinCutoutPresent, in3.temperature[SKIN_SENSOR],
       in3.skinTemperatureSetMax, SKIN_THERMAL_CUTOUT_HYSTERESIS);
 
-  // 201.15.4.2.1 aa)/bb): ambos son latching, asi que retirar la condicion no
-  // apaga el aviso — hace falta un reset manual (alarm_machine_reset()). Lo
-  // que si se libera de inmediato es el corte de calefactor, que depende de
-  // la condicion presente y no del estado de la senal.
+  // Ninguno de los dos es latching (2026-09-11): al volver la temperatura a
+  // rango se retira la condicion, el aviso se va con ella y el equipo vuelve
+  // solo a regular. El corte de calefactor ya se liberaba de inmediato porque
+  // depende de la condicion presente y no del estado de la senal.
+  //
+  // El episodio NO se pierde: publishAlarmChanges() lo escribe en el registro
+  // persistido de alarmas (6.12.2), que es donde el operador lo consulta. La
+  // unica alarma que exige intervencion humana es ALARM_HEATER_FAULT, porque
+  // revisar el cableado del calefactor pide el equipo apagado. Ver
+  // alarm_is_latching() en shared/src/alarm_policy.cpp.
   alarm_machine_condition(ALARM_AIR_THERMAL_CUTOUT, airCutoutPresent, now);
   alarm_machine_condition(ALARM_SKIN_THERMAL_CUTOUT, skinCutoutPresent, now);
 }
@@ -369,8 +413,49 @@ void checkStatusOfSensor(byte sensor)
   const uint32_t staleLimit = (sensor == ROOM_DIGITAL_TEMP_SENSOR)
                                   ? MINIMUM_SUCCESSFULL_AIR_SENSOR_UPDATE
                                   : MINIMUM_SUCCESSFULL_SKIN_SENSOR_UPDATE;
-  const bool stale =
-      (millis() - lastSuccesfullSensorUpdate[sensor] > staleLimit);
+
+  // De que instante se mide la caducidad.
+  //
+  // No vale usar lastSuccesfullSensorUpdate[] a secas, y por dos motivos
+  // distintos que se dan los dos en el arranque:
+  //
+  //   - Vale 0 hasta la primera lectura buena. Restando contra 0, con millis()
+  //     ya por encima del limite, el sensor sale caducado sin haber hablado.
+  //   - Y cuando SI ha hablado, lo ha hecho demasiado pronto: initHardware()
+  //     llama a updateRoomSensor() (initHardware.cpp:463) para su autotest y
+  //     sella el sensor ahi, pero luego sigue varios segundos mas antes de
+  //     arrancar las tareas. Para cuando esta tarea mira por primera vez, ese
+  //     sello ya ha caducado aunque el sensor este perfecto.
+  //
+  // El segundo caso es el que hacia que la primera version de este arreglo no
+  // sirviera de nada: guardaba solo contra el 0.
+  //
+  // El resultado era ALARM_AIR_SENSOR_FAULT --prioridad ALTA, corta el
+  // calefactor-- en TODOS los encendidos, retirandose sola en cuanto la tarea
+  // de sensores publicaba su primera muestra. Una alarma de seguridad que suena
+  // siempre entrena al operador a ignorarla: es fatiga de alarma de manual
+  // (60601-1-8).
+  //
+  // La referencia es el instante MAS RECIENTE entre la ultima lectura buena y
+  // el arranque de la tarea de sensores, que es cuando de verdad empieza a
+  // haber muestras periodicas. Si el sensor esta averiado, la alarma salta
+  // igual staleLimit despues de ese arranque: no se enmascara nada, solo se
+  // deja de declarar la averia antes de darle ocasion de hablar.
+  static uint32_t firstCheckMs[SENSOR_TEMP_QTY] = {0};
+  uint32_t reference = (uint32_t)lastSuccesfullSensorUpdate[sensor];
+  if (g_sensorsTaskStartedMs != 0 &&
+      (int32_t)(g_sensorsTaskStartedMs - reference) > 0) {
+    reference = g_sensorsTaskStartedMs;
+  }
+  if (reference == 0) {
+    // Ni lectura ni tarea de sensores todavia: la cuenta arranca en la primera
+    // mirada.
+    if (firstCheckMs[sensor] == 0) {
+      firstCheckMs[sensor] = (now != 0) ? now : 1; // 0 es el centinela
+    }
+    reference = firstCheckMs[sensor];
+  }
+  const bool stale = (now - reference > staleLimit);
   switch (sensor)
   {
   case ROOM_DIGITAL_TEMP_SENSOR:
@@ -508,10 +593,41 @@ bool ongoingCriticalWiringAlarm()
 // Unlike ongoingCriticalWiringAlarm() (used for heater/humidifier gating),
 // a heater fault only has to take the fan down with it when this unit has
 // no independent way (RPM feedback) to verify the fan is still spinning.
+//
+// ================== POR QUE ALARM_FAN_FAILURE NO ESTA AQUI ==================
+// Estuvo, y se quito el 2026-09-11 tras verlo en banco: desconectada la sonda
+// de aire, el ventilador se puso a oscilar, salto ALARM_FAN_FAILURE, y LA
+// ALARMA YA NO SE RETIRO NUNCA — ni despues de corregir el fallo del sensor.
+//
+// El motivo es que se realimentaba a si misma. Con la alarma dentro de esta
+// puerta, declararla CORTABA LA ALIMENTACION DEL VENTILADOR (Actuators.cpp) y
+// apagaba su lazo (PID.cpp); con el ventilador sin alimentar las rpm son 0 por
+// construccion, y checkFanSpeed() —que sigue evaluando, porque fanCommandedOn
+// es la ORDEN, no la alimentacion— volvia a ver 0 rpm y a declarar la
+// condicion. Un enclavamiento de hecho, sin reset manual que lo levante y sin
+// forma de comprobar si el ventilador se ha recuperado.
+//
+// Quitarla NO relaja nada:
+//
+//   - El calefactor se corta igual. No dependia de esta puerta sino de
+//     alarm_cuts_heater() (shared/src/alarm_policy.cpp), que lista
+//     ALARM_FAN_FAILURE explicitamente. Sin aire no se calienta, y eso sigue
+//     siendo cierto letra por letra.
+//   - Un ventilador que gira a 2800 rpm en vez de 3000 SIGUE MOVIENDO AIRE.
+//     Cortarlo a 0 no hacia el equipo mas seguro: le quitaba la poca
+//     ventilacion que quedaba.
+//   - Y es lo unico que permite que la condicion se retire sola: con el
+//     ventilador alimentado, si vuelve a girar por encima del umbral mas la
+//     histeresis, checkFanSpeed() retira la condicion y el aviso desaparece,
+//     que es como tiene que comportarse una alarma no enclavada.
+//
+// Las otras dos siguen: con subtension hay que soltar carga (y ahi el
+// ventilador parado SI es verdad, asi que la alarma de ventilador que aparezca
+// no miente), y un fallo de calefactor en una unidad sin tacometro se lleva el
+// ventilador por delante porque no hay forma de verificarlo.
 bool ongoingFanCriticalAlarm()
 {
-  return (alarmSignalling(ALARM_FAN_FAILURE) ||
-          alarmSignalling(ALARM_SUPPLY_UNDERVOLTAGE) ||
+  return (alarmSignalling(ALARM_SUPPLY_UNDERVOLTAGE) ||
           (alarmSignalling(ALARM_HEATER_FAULT) && !in3.fanHasSpeedFeedback));
 }
 
@@ -760,37 +876,40 @@ void checkAlarms()
 
 void checkFanSpeed()
 {
-  static bool wasFanCommandedOn = false;
-  static long fanCommandedOnSince = 0;
-
-  if (!in3.fanHasSpeedFeedback)
+  // La decision vive en modules/control/fan_guard.c, sin nada de hardware, para
+  // que la ejerciten los tests de host (test_fan_guard). Aqui solo se le dan
+  // las dos entradas y se traduce el veredicto.
+  static FanGuard guard;
+  static bool guardReady = false;
+  if (!guardReady)
   {
-    return; // this unit's fan has no tachometer signal — nothing to check
+    fan_guard_init(&guard);
+    guardReady = true;
   }
+  static const FanGuardConfig cfg = {FAN_MIN_RPM, FAN_MIN_RPM_HYSTERESIS,
+                                     FAN_SPINUP_GRACE_MS};
 
-  if (in3.fanCommandedOn && !wasFanCommandedOn)
-  {
-    fanCommandedOnSince = millis();
-  }
-  wasFanCommandedOn = in3.fanCommandedOn;
+  // ALIMENTADO, no solo ordenado: son cosas distintas en cuanto hay una puerta
+  // de alarma por medio (subtension, por ejemplo, mantiene fanCommandedOn en
+  // true con la alimentacion cortada). Es la MISMA expresion que decide la
+  // alimentacion en turnFans() y en PIDHandler(), a proposito: si se separan,
+  // la guarda juzga un ventilador distinto del que hay.
+  const bool fanEnergised = in3.fanCommandedOn && !ongoingFanCriticalAlarm();
 
-  if (!in3.fanCommandedOn)
+  const uint32_t now = millis();
+  switch (fan_guard_update(&guard, &cfg, in3.fanHasSpeedFeedback, fanEnergised,
+                           in3.fan_rpm, now))
   {
-    return; // fan intentionally off — no RPM expected
+  case FAN_GUARD_PRESENT:
+    alarm_machine_condition(ALARM_FAN_FAILURE, true, now);
+    break;
+  case FAN_GUARD_ABSENT:
+    alarm_machine_condition(ALARM_FAN_FAILURE, false, now);
+    break;
+  case FAN_GUARD_SILENT:
+  default:
+    break;
   }
-  if (millis() - fanCommandedOnSince < FAN_SPINUP_GRACE_MS)
-  {
-    return; // still spinning up
-  }
-
-  // Histeresis en el mismo sentido que thresholdWithHysteresis() pero con el
-  // signo invertido (aqui alarma el valor BAJO): se declara por debajo de
-  // FAN_MIN_RPM y no se retira hasta superar FAN_MIN_RPM + histeresis.
-  static bool fanFailurePresent = false;
-  fanFailurePresent = fanFailurePresent
-                          ? (in3.fan_rpm < FAN_MIN_RPM + FAN_MIN_RPM_HYSTERESIS)
-                          : (in3.fan_rpm < FAN_MIN_RPM);
-  alarm_machine_condition(ALARM_FAN_FAILURE, fanFailurePresent, millis());
 }
 
 void checkAirBlockage()
@@ -1159,6 +1278,12 @@ void securityCheck()
   // El tick va DESPUES de la deteccion y ANTES de publicar: es el que hace
   // madurar PENDING -> ACTIVE y el que expira las pausas de audio.
   checkHmiLink();
+  // Las alarmas forzadas del modo depuracion se declaran despues de TODOS los
+  // detectores y antes del tick: asi lo forzado gana a lo medido, pero el
+  // retardo de anuncio, la prioridad, el enclavamiento y el corte de
+  // calefactor siguen siendo los de produccion. Con el modo apagado no hace
+  // nada. Ver modules/debug/debug_mode.h.
+  debug_alarms_apply(millis());
   alarm_machine_tick(millis());
   alarm_test_tick(millis());
   publishAlarmChanges();

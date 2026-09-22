@@ -223,7 +223,7 @@ Enviado cuando una alarma cambia de estado.
 
 #### CTRL,TIME (Reloj de pared)
 Enviado cada 10 segundos (y una vez al arrancar la tarea de comunicación).
-**Formato**: `CTRL,TIME,epoch,tzq,tzsrc`
+**Formato**: `CTRL,TIME,epoch,tzq,tzsrc,src`
 - `epoch`: hora Unix UTC de la motherboard, o `0` si aún no ha sincronizado.
 - `tzq`: offset de zona horaria en **cuartos de hora** (`-48`..`+56`, o sea
   UTC-12:00..UTC+14:00). Cuartos y no horas porque existen husos no enteros
@@ -236,22 +236,60 @@ Enviado cada 10 segundos (y una vez al arrancar la tarea de comunicación).
   **No es redundante con `tzq`**: sin él, «offset 0 porque estamos en Togo» y
   «offset 0 porque no lo sabemos» son indistinguibles, y el HMI no puede
   decidir si pintar la hora o el aviso «Sin hora».
-- **`tzq`/`tzsrc` son opcionales**: una motherBoard anterior a esta versión
-  envía solo `epoch`, y el HMI lo interpreta como `tzsrc=0` (hay hora, no hay
-  zona). Al revés también funciona: un HMI antiguo ignora los campos de más.
+- **`tzq`/`tzsrc`/`src` son opcionales**: una motherBoard anterior a esta
+  versión envía solo `epoch`, y el HMI lo interpreta como `tzsrc=0` (hay hora,
+  no hay zona) y `src=0` (hay hora, no se sabe de dónde). Al revés también
+  funciona: un HMI antiguo ignora los campos de más. El parseo es por número de
+  campos encontrados, nunca por índice fijo.
 - **La zona nunca altera un epoch.** Todo lo que se almacena o se transmite
   —historial de alarmas, perfiles, Drive, ThingsBoard— sigue en UTC; el offset
   se aplica solo al formatear para una persona. Un cambio de offset no
   reinterpreta ningún registro ya escrito.
-- Prioridad entre fuentes: **NITZ gana a IP, siempre**. La antena está
-  físicamente donde está el equipo; una IP puede ser de una VPN, un enlace
+- Prioridad entre fuentes **de huso**: **NITZ gana a IP, siempre**. La antena
+  está físicamente donde está el equipo; una IP puede ser de una VPN, un enlace
   satelital o la sede del operador en otro país.
-- La motherboard es la **única** fuente de hora del sistema (NTP por WiFi);
-  el HMI no tiene RTC ni sincroniza por su cuenta. El HMI interpola con su
-  propio `millis()` entre difusiones (`HMI_GetEpochNow()`).
+- `src`: rango de la fuente que fijó **el epoch**. `0`=desconocido,
+  `1`=NITZ, `2`=RTC del HMI, `3`=NTP/SNTP, `4`=puesto a mano. **Gana el
+  mayor.** También es opcional: una motherBoard anterior no lo envía y el HMI
+  lo interpreta como `0`, y un HMI antiguo que lo reciba lo ignora.
+- **`src` y `tzsrc` son escalas DISTINTAS.** `src` ordena el instante y
+  `tzsrc` el huso, y no coinciden ni en los valores ni en el orden: NITZ es la
+  **peor** fuente de hora y la **mejor** de huso. Están separadas justo para
+  poder decir eso. Los valores de una nunca se pasan a la otra.
+- La motherboard es la **única** autoridad de hora del sistema: es la que
+  arbitra entre manual, NTP, RTC y NITZ, y la única que fija el reloj. El HMI
+  no decide nada sobre la hora — solo **lee** su RTC al arrancar para
+  ofrecérselo (`HMI,RTC_TIME`) y lo **escribe** con lo que la motherboard
+  difunda. Entre difusiones interpola con su propio `millis()`
+  (`HMI_GetEpochNow()`).
 - Cadencia de 10 s a propósito, no 1 Hz: el HMI solo la necesita para
   formatear fechas, y `known_issues.md` #2 desaconseja añadir tráfico UART
-  periódico evitable.
+  periódico evitable. El campo `src` **no añade ningún mensaje**: viaja dentro
+  de esta difusión que ya existía.
+
+#### HMI,RTC_TIME (Semilla del RTC del HMI)
+El HMI lleva un **PCF8563** con pila (I2C `0x51`, en el bus del táctil). Es la
+única pieza del equipo que conserva la hora con la alimentación cortada, así
+que tras un ciclo de alimentación es la única que puede decir qué día es
+mientras no haya red.
+
+**Formato**: `HMI,RTC_TIME,epoch,tzq,tzsrc`
+- Mismos campos y mismas unidades que `CTRL,TIME`, porque es literalmente lo
+  que el HMI guardó de la última difusión: el epoch en el chip y el huso en su
+  NVS (el PCF8563 no tiene RAM de usuario donde guardarlo).
+- La motherboard lo trata como una fuente de rango `2` (RTC). O sea que lo
+  adopta cuando aún no tiene hora, y lo **descarta** si ya la fijó por NTP o a
+  mano. NITZ sí queda por debajo y no lo desplaza.
+- Se descarta también, en silencio y sin tocar el reloj, si la línea viene mal
+  formada o si el epoch cae fuera de `[2021-01-01, 2100-01-01)` — la misma
+  ventana que impone `civil_to_unix_utc()`.
+- El HMI **no** lo envía periódicamente. Lo manda al arrancar y después solo
+  mientras la motherboard siga difundiendo `epoch=0`, como mucho uno por cada
+  `CTRL,TIME` recibido; en cuanto la motherboard anuncie hora, se calla hasta
+  el siguiente reinicio. Esta restricción responde a `known_issues.md` #2.
+- El HMI escribe su RTC solo cuando el `CTRL,TIME` recibido trae un `src`
+  mejor que el que tiene guardado, o del mismo rango con más de 2 s de deriva.
+  Nunca de forma periódica: el I2C es el mismo bus del táctil.
 
 #### HMI,SET_TIME
 Ajuste manual del reloj desde la pantalla táctil de la HMI: se toca la propia
@@ -489,6 +527,37 @@ Lanza la prueba de funcionamiento de las señales de alarma
   patrón de una alarma real: el operador dejaría de poder identificar qué suena
   (6.3.2.2.2).
 - No toca actuadores ni declara condición alguna.
+
+### 2.bis Consola de depuración (NO es este protocolo)
+
+La motherBoard tiene **dos** puertos serie y conviene no confundirlos:
+
+| puerto | objeto | pines | qué lleva |
+|---|---|---|---|
+| enlace con el display | `Serial1` (`hmiSerial`) | TX 15 / RX 16 | todo lo descrito en este documento |
+| consola de depuración | `Serial` (`debugSerial`) | UART0 (el del flasheo) | el log, y un único comando de banco |
+
+En la consola se acepta **`WIFI_EN,<0|1>`** (`main.cpp::debugConsolePoll`).
+Enciende o apaga la WiFi en caliente para poder probar la OTA por 2G: con
+enlace WiFi, `GPRS_Handler()` solo refresca localización y hora — ni publica
+telemetría ni llama a `GPRSCheckOTA()`, así que ese camino no se ejercita
+nunca.
+
+- Confirmación: una línea de log con el testigo `CTRL,WIFI_EN,<0|1>` cuando el
+  cambio **ya está aplicado**.
+- **No se persiste en ningún sitio.** `WIFI_EN` nace a `true` en cada arranque,
+  así que cualquier reinicio —incluido el que hace la propia OTA— devuelve la
+  WiFi encendida. Es deliberado: que no exista forma de que una unidad salga de
+  fábrica con la WiFi apagada por un comando que alguien se dejó puesto.
+- El comando solo **anota** la petición; la aplica `WifiOTAHandler()` en el lazo
+  principal. Tocar la API WiFi desde otra tarea mientras ese lazo está dentro de
+  `wifiInit()` es la misma clase de carrera que el issue #11 de
+  `docs/known_issues.md`.
+- Argumento que no sea exactamente `0` o `1`: se rechaza con aviso. Cualquier
+  otra línea se ignora y se registra.
+- Los acuses van con `ESP_LOGx`, no con `logI`/`logE`: `main.h` compila esos dos
+  fuera del binario (`LOG_INFORMATION` y `LOG_ERRORS` a `false`), y un acuse
+  escrito con `logI` no se imprime nunca aunque el comando funcione.
 
 ### 3. Test de fábrica (`FTEST`)
 

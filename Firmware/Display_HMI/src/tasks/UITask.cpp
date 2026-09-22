@@ -559,9 +559,19 @@ static void wifi_link_status_invalidate(void) {
 // es el cache de "no cambio nada desde la ultima pasada" de ESA instancia:
 // cada llamador pasa su propia estatica, para que la primera pintura de una
 // instancia no se salte solo porque la otra ya estaba al dia.
+//
+// `onDarkBg` es lo UNICO que cambia entre las dos instancias: ui_ScreenLock
+// tiene fondo 0x242323, donde el negro del caso "sin servidor" no se lee, asi
+// que ahi el acromatico es blanco en vez de negro (el verde de "hay servidor"
+// no cambia: se lee igual sobre los dos fondos).
+//
+// EL INDICADOR ENTERO VA DE UN SOLO COLOR: el texto de arriba (el simbolo
+// WIFI, "2G" o la X) y las barras llenas de abajo son UNA pieza visual, no
+// dos, y pintarlas de colores distintos las hacia parecer dos cosas sin
+// relacion. Un solo tono, el del estado, para todo.
 static void apply_connectivity_indicator(lv_obj_t *icon, lv_obj_t *bars[4],
                                           int status, int linkBars,
-                                          int *lastSignature) {
+                                          bool onDarkBg, int *lastSignature) {
   if (!icon) return;
 
   const int signature = status * 100 + (linkBars + 1);
@@ -572,17 +582,27 @@ static void apply_connectivity_indicator(lv_obj_t *icon, lv_obj_t *bars[4],
       (status == COMM_STATUS_WIFI_SERVER || status == COMM_STATUS_GPRS_SERVER);
   const bool hasTransport = (status != COMM_STATUS_NONE);
 
-  // Azul (el acento de marca, 0x0075EE) SOLO cuando la placa esta hablando
-  // con ThingsBoard; en cuanto no hay servidor el indicador se queda
-  // acromatico (negro con transporte, gris sin transporte ni dato fresco).
-  // Antes era verde/naranja: el naranja se leia como aviso cuando "WiFi sin
-  // servidor" no es una alarma, y el verde competia con los verdes de estado
-  // del resto del HMI. Lo unico que hace falta distinguir de un vistazo es
-  // "sube telemetria" / "no sube", y un color unico para el caso bueno lo
-  // dice sin gastar la semantica de alarma.
-  const lv_color_t color = !hasTransport ? lv_color_hex(0x888888)
-                            : onServer   ? lv_color_hex(0x0075EE)
-                                         : lv_color_hex(0x000000);
+  // Verde (0x2E9E4F) SOLO cuando la placa esta hablando con ThingsBoard, y da
+  // igual por que transporte: WIFI_SERVER y GPRS_SERVER pintan los dos verde.
+  // Sin servidor el indicador se queda acromatico — negro sobre fondo claro,
+  // blanco sobre el oscuro del bloqueo — y sin transporte ni dato fresco, un
+  // gris apagado (que en el bloqueo tambien sube a blanco: ahi el gris se
+  // hunde en el fondo).
+  //
+  // Antes el caso bueno era el azul de marca 0x0075EE, y sobre 0x242323 no se
+  // leia: el indicador se ve mucho mas rato bloqueado que desbloqueado, asi
+  // que el color del caso bueno lo manda esa pantalla. El verde es ademas el
+  // mismo 0x2E9E4F que ya usa "MB: ..." en Ajustes/WiFi
+  // (wifi_link_status_update) para decir exactamente esto — hay servidor —,
+  // con lo que las dos lecturas de "sube telemetria" del HMI quedan en el
+  // mismo tono.
+  const lv_color_t achromatic =
+      onDarkBg ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x000000);
+  const lv_color_t color = onServer ? lv_color_hex(0x2E9E4F)
+                            : !hasTransport
+                                ? (onDarkBg ? lv_color_hex(0xFFFFFF)
+                                            : lv_color_hex(0x888888))
+                                : achromatic;
 
   const char *iconTxt;
   switch (status) {
@@ -613,12 +633,20 @@ static void apply_connectivity_indicator(lv_obj_t *icon, lv_obj_t *bars[4],
       continue;
     }
     lv_obj_clear_flag(bars[i], LV_OBJ_FLAG_HIDDEN);
-    // Las barras vacias van en gris CLARO, no oscuro: con el indicador
-    // acromatico (sin servidor) las llenas son negras, y un vacio 0x404040
-    // era casi el mismo tono, con lo que no se distinguia el nivel.
-    lv_obj_set_style_bg_color(
-        bars[i], (i < fillCount) ? color : lv_color_hex(0xDDDDDD),
-        LV_PART_MAIN);
+    // Las llenas SIEMPRE con el color de estado, el mismo que el texto de
+    // arriba (ver la cabecera de la funcion): el indicador se lee de una
+    // pieza, verde entero con ThingsBoard.
+    //
+    // Lo unico que depende del fondo son las vacias. Sobre fondo claro, gris
+    // CLARO y no oscuro: con el indicador acromatico las llenas son negras y
+    // un vacio 0x404040 era casi el mismo tono, con lo que no se distinguia
+    // el nivel. Sobre el fondo del bloqueo, 0x555555, que es el equivalente
+    // de aquel 0xDDDDDD: se adivina el hueco sin leerse como barra llena (el
+    // propio 0xDDDDDD sobre 0x242323 parecia llena, que era el problema).
+    const lv_color_t emptyCol =
+        onDarkBg ? lv_color_hex(0x555555) : lv_color_hex(0xDDDDDD);
+    lv_obj_set_style_bg_color(bars[i], (i < fillCount) ? color : emptyCol,
+                              LV_PART_MAIN);
   }
 }
 
@@ -639,11 +667,12 @@ void connectivity_heading_update(void) {
 
   static int lastSignatureMain = -999;
   apply_connectivity_indicator(ui_ConnIcon, ui_ConnBar, status, linkBars,
-                                &lastSignatureMain);
+                                /*onDarkBg=*/false, &lastSignatureMain);
 
   static int lastSignatureLock = -999;
   apply_connectivity_indicator(ui_LockHeadingConnIcon, ui_LockHeadingConnBar,
-                                status, linkBars, &lastSignatureLock);
+                                status, linkBars, /*onDarkBg=*/true,
+                                &lastSignatureLock);
 }
 
 void link_lost_blank_update(void) {
@@ -2778,6 +2807,7 @@ void alarm_banner_update(void) {
     lv_anim_del(s_alarmBanner, banner_blink_cb);
     lv_obj_add_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN);
     s_bannerPriority = -1;
+    s_bannerText[0] = '\0';
     return;
   }
 
@@ -2828,9 +2858,27 @@ void alarm_banner_update(void) {
   // franja y reordenaba lv_layer_top() sin parar, y arrastraba toda la
   // interfaz. No se noto al escribirlo porque el banner solo salia en la
   // pantalla de bloqueo, donde no hay nada mas compitiendo por el redibujado.
-  if (strncmp(s_bannerText, wantText, sizeof(s_bannerText) - 1) != 0) {
+  const bool textChanged =
+      strncmp(s_bannerText, wantText, sizeof(s_bannerText) - 1) != 0;
+  if (textChanged) {
     snprintf(s_bannerText, sizeof(s_bannerText), "%s", wantText);
     lv_label_set_text(s_alarmBannerLabel, s_bannerText);
+  }
+
+  // PERO EL DES-OCULTADO NO PUEDE COLGAR DE ESE MISMO `if`.
+  //
+  // Colgaba, y el efecto era una alarma que SONABA SIN VERSE: la misma
+  // condicion que se retira y vuelve (el caso de banco fue BOARD LINK LOST)
+  // deja `wantText` identico al `s_bannerText` de la vez anterior, asi que el
+  // strncmp daba 0 y nadie quitaba LV_OBJ_FLAG_HIDDEN que habia puesto la
+  // salida temprana. Media senal de alarma, que es justo la mitad que
+  // 60601-1-8 no deja omitir.
+  //
+  // Se mira el estado REAL del objeto en vez del texto. lv_obj_has_flag() es
+  // una lectura de un bit: no invalida ni repinta nada, asi que la razon por
+  // la que existe la guarda de arriba —no tocar LVGL en cada pasada— se
+  // mantiene intacta.
+  if (lv_obj_has_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN) || textChanged) {
     lv_obj_clear_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(s_alarmBanner);
   }

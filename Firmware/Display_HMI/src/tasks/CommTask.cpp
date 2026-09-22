@@ -3,8 +3,14 @@
 #include "Wifi_OTA.h"
 #include "esp_log.h"
 #include "main.h"
+#include "modules/debug/debug_mode.h"
 #include "state/training_mode.h"
 #include "ui.h"
+#include <Preferences.h>
+#include "config/EEPROM_defines.h"
+#include "drivers/rtc_pcf8563.h"
+#include "drivers/rtc_store.h"
+#include "drivers/rtc_write_policy.h"
 #include <cstdio>
 #include <cstdlib>
 #include <string.h>
@@ -51,9 +57,22 @@ volatile bool     g_ctrlEverSeen = false;
 // cosa que la deje sin ejecutar 5 s produce un LINK LOST que no existe.
 static volatile uint32_t s_lastCommPassMs = 0;
 
+// La cola de inyeccion del modo depuracion la drena esta tarea; ver
+// modules/debug/debug_mode.h para por que no la drena el manejador HTTP.
+extern "C" bool debug_inject_take(char *out, size_t out_len);
+
 bool Display_BoardEverSeen(void) { return g_ctrlEverSeen; }
 
 bool Display_IsBoardLinkLost(void) {
+  // Enlace simulado como perdido desde /debug/link. Va lo PRIMERO: lo que se
+  // quiere probar es el camino completo del aviso (banner, borrado de cifras,
+  // zumbador) con las dos placas sanas y hablando, que es la unica forma de
+  // ensayarlo sin desenchufar el cable. Fuera del modo depuracion esta bandera
+  // no se puede poner, y apagarlo la retira.
+  if (debug_link_mute_get()) {
+    return true;
+  }
+
   // Antes de la primera linea no hay enlace que perder: el display arranca
   // antes de que la placa empiece a emitir.
   //
@@ -284,6 +303,91 @@ static bool localCmdHoldsLocal(LocalCmdGuard *g, int echoed, const char *what) {
 // Motherboard-provided wall clock (CTRL,TIME). 0 = not synced there yet.
 static uint32_t s_mbEpoch = 0;
 static uint32_t s_mbEpochAtMs = 0;
+// Rango de la fuente que fijo ese epoch en la motherBoard (campo `src`).
+// PROTO_TIME_SOURCE_NONE tambien cuando la placa es anterior a esta feature y
+// no envia el campo.
+static Proto_TimeSource s_mbTimeSrc = PROTO_TIME_SOURCE_NONE;
+
+// --- RTC del HMI (PCF8563) ------------------------------------------------
+//
+// El HMI no decide nada sobre la hora: la autoridad sigue siendo la
+// motherBoard. Lo unico que aporta este chip es MEMORIA — es la unica pieza
+// del equipo que conserva la hora con la alimentacion cortada. Asi que el HMI
+// lo lee al arrancar para ofrecerselo a la placa, y lo escribe con lo que la
+// placa difunda cuando merece la pena.
+
+// Terna guardada en NVS junto a lo ultimo escrito en el chip. El PCF8563
+// guarda el instante y nada mas.
+static RtcStoredTz s_rtcStored = {0, 0, PROTO_TIME_SOURCE_NONE};
+// Lo que el chip tenia al arrancar, 0 si no tenia hora creible. Se usa para
+// medir la deriva sin volver a leer el chip en cada difusion.
+static uint32_t s_rtcEpochAtBoot = 0;
+static uint32_t s_rtcEpochAtBootMs = 0;
+// La semilla deja de enviarse en cuanto la motherBoard anuncia hora, y no
+// vuelve hasta el siguiente reinicio.
+static bool s_rtcSeedDone = false;
+
+// Lo que el chip deberia marcar AHORA, extrapolando desde la lectura del
+// arranque. Evita ocupar el bus del tactil en cada CTRL,TIME solo para saber
+// si hay deriva. Es una estimacion: la deriva real del cristal frente al reloj
+// del ESP32 es de segundos al mes, muy por debajo del umbral de escritura.
+static uint32_t rtcEstimatedNow(void) {
+  if (s_rtcEpochAtBoot == 0) return 0;
+  return s_rtcEpochAtBoot + (millis() - s_rtcEpochAtBootMs) / 1000u;
+}
+
+// Lee el chip y la NVS al arrancar, y ofrece la semilla si hay algo creible.
+static void rtcSeedInit(void) {
+  Preferences p;
+  if (p.begin(HMI_NS_CFG, true)) {
+    rtc_store_unpack(p.getUInt(HMI_KEY_RTC_TZ, RTC_STORE_EMPTY), &s_rtcStored);
+    p.end();
+  }
+
+  uint32_t epoch = 0;
+  if (!rtcRead(&epoch)) {
+    // Chip ausente, pila agotada (flag VL) o contenido no creible. No es un
+    // error: el equipo arranca sin fecha exactamente como hasta ahora.
+    COMM_LOG("[RTC] sin hora utilizable al arrancar\n");
+    return;
+  }
+  s_rtcEpochAtBoot = epoch;
+  s_rtcEpochAtBootMs = millis();
+
+  // La terna viaja ENTERA con el epoch. Si la NVS no tenia nada, van ceros,
+  // que el protocolo ya interpreta como "hay hora, no hay zona".
+  COMM_SERIAL.printf("HMI,RTC_TIME,%lu,%d,%u\n", (unsigned long)epoch,
+                     (int)s_rtcStored.tzQuarters,
+                     (unsigned)s_rtcStored.tzSource);
+  COMM_LOG("[RTC] semilla ofrecida, epoch %lu\n", (unsigned long)epoch);
+}
+
+// Guarda en el chip lo que acaba de llegar, si merece la pena.
+static void rtcMaybeWrite(uint32_t epoch, Proto_TimeSource src, int8_t tzq,
+                          uint8_t tzsrc) {
+  if (!rtc_should_write(epoch, src, rtcEstimatedNow(), s_rtcStored.src)) {
+    return;
+  }
+  if (!rtcWrite(epoch)) {
+    COMM_LOG("[RTC] escritura fallida\n");
+    return;
+  }
+  s_rtcEpochAtBoot = epoch;
+  s_rtcEpochAtBootMs = millis();
+
+  // La terna se escribe DESPUES del chip y como una sola clave: si el corte
+  // llega entre las dos, es preferible un chip con hora buena y una zona vieja
+  // que una zona nueva junto a una hora que no se llego a escribir.
+  const RtcStoredTz tz = {tzq, tzsrc, src};
+  Preferences p;
+  if (p.begin(HMI_NS_CFG, false)) {
+    p.putUInt(HMI_KEY_RTC_TZ, rtc_store_pack(&tz));
+    p.end();
+  }
+  s_rtcStored = tz;
+  COMM_LOG("[RTC] escrito, epoch %lu, src %d\n", (unsigned long)epoch,
+           (int)src);
+}
 // Zona horaria, tambien propiedad de la placa. El epoch de arriba es UTC
 // SIEMPRE; esto solo se aplica al formatear para una persona.
 static int8_t  s_tzQuarters = 0;
@@ -465,6 +569,18 @@ void Communication_SendAlarmSilence(uint8_t id, bool on) {
 #endif
 }
 
+// Reset manual de una alarma ENCLAVADA (201.15.4.2.1 aa)/bb)).
+//
+// Se manda id a id, como el silencio y por el mismo motivo: un "reconocer
+// todo" no dejaria constancia de QUE ha reconocido el operador. La placa
+// rechaza el reset si la condicion sigue presente, asi que este comando no
+// puede hacer desaparecer un aviso vivo.
+void Communication_SendAlarmReset(uint8_t id) {
+#if IS_HMI
+  COMM_SERIAL.printf("HMI,ALM_RESET,%u\n", (unsigned)id);
+#endif
+}
+
 void Communication_SendAlarmDescReq(uint8_t id) {
 #if IS_HMI
   COMM_SERIAL.printf("HMI,ALM_DESC_REQ,%u\n", (unsigned)id);
@@ -581,6 +697,7 @@ static void parse_message(const char *line) {
     int act, mode, photo, mute, sn, hwNum, numAlarms, skinE, commStatus, lang, probeState = 0;
     uint32_t alarmBitmask = 0;
     uint32_t silencedBitmask = 0;
+    uint32_t latchedBitmask = 0;
     int almTest = ALARM_TEST_IDLE_HMI;
     int silenceLeftS = 0;
     int linkBars = -1;
@@ -589,9 +706,9 @@ static void parse_message(const char *line) {
     char fwVer[20];
     double airSet, skinSet, humSet;
     int result =
-        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d,%lf,%d,%d,0x%X,0x%X,%d,%d,%d",
+        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d,%lf,%d,%d,0x%X,0x%X,%d,%d,%d,0x%X",
                &act, &mode, &airSet, &skinSet, &humSet, &photo, &mute,
-               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus, &photoTimeRemaining, &lang, &probeState, &alarmBitmask, &silencedBitmask, &almTest, &silenceLeftS, &linkBars);
+               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus, &photoTimeRemaining, &lang, &probeState, &alarmBitmask, &silencedBitmask, &almTest, &silenceLeftS, &linkBars, &latchedBitmask);
 
     // Accept 12 (old), 13 (with alarms), 14+skinModeEnabled, 15+photoTime, 16+lang, 17+probeState, 18+bitmask, 19+silenced, 22+linkBars
     if (result >= 12) {
@@ -650,6 +767,11 @@ static void parse_message(const char *line) {
       // antigua que no mande el campo: "no se sabe" no es lo mismo que "0
       // barras", que es una lectura real de cobertura pesima.
       ctrl_state_msg.linkBars = (result >= 22) ? linkBars : -1;
+      // Alarmas enclavadas esperando reconocimiento. 0 con una placa antigua
+      // que no mande el campo, que es el lado seguro: como mucho no se ofrece
+      // el reset manual (y ahi el equipo se comporta como hasta ahora), nunca
+      // se ofrece para una alarma cuya condicion sigue viva.
+      ctrl_state_msg.latchedBitmask = (result >= 23) ? latchedBitmask : 0u;
       ctrl_state_msg.serialNumber = sn;
 
       strncpy(ctrl_state_msg.fwVer, fwVer, sizeof(ctrl_state_msg.fwVer));
@@ -837,22 +959,56 @@ static void parse_message(const char *line) {
     }
   } else if (strncmp(line, "CTRL,TIME,", 10) == 0) {
     unsigned long epoch = 0;
-    int tzq = 0, tzsrc = 0;
-    // Los dos campos de zona son opcionales a proposito: una motherBoard
+    int tzq = 0, tzsrc = 0, src = 0;
+    // Los tres campos de detras son opcionales a proposito: una motherBoard
     // anterior a esta feature manda solo el epoch, y ahi lo correcto es
-    // quedarse sin hora local en vez de descartar tambien la hora.
-    const int n = sscanf(line, "CTRL,TIME,%lu,%d,%d", &epoch, &tzq, &tzsrc);
+    // quedarse sin hora local en vez de descartar tambien la hora. Se cuenta
+    // lo que sscanf logro leer, nunca se indexa a ciegas.
+    const int n =
+        sscanf(line, "CTRL,TIME,%lu,%d,%d,%d", &epoch, &tzq, &tzsrc, &src);
     if (n >= 1) {
       s_mbEpoch = (uint32_t)epoch;
       s_mbEpochAtMs = millis();
-      if (n == 3 && tzsrc >= 0 && tzsrc <= 3 && tzq >= -48 && tzq <= 56) {
+      if (n >= 3 && tzsrc >= 0 && tzsrc <= 3 && tzq >= -48 && tzq <= 56) {
         s_tzQuarters = (int8_t)tzq;
         s_tzSource   = (uint8_t)tzsrc;
-      } else if (n != 3) {
+      } else if (n < 3) {
         s_tzSource = 0;  // placa antigua: hay hora, no hay zona
       }
       // Campos presentes pero fuera de rango: se descartan callando y se
       // conserva lo ultimo bueno, en vez de aceptar un offset imposible.
+
+      // `src` es el rango de la fuente del EPOCH, escala distinta de `tzsrc`.
+      // Sin el campo se queda en NONE, y rtc_should_write() no escribe con
+      // fuente desconocida.
+      const Proto_TimeSource newSrc =
+          (n >= 4 && src >= 0 && src <= PROTO_TIME_SOURCE_MANUAL)
+              ? (Proto_TimeSource)src
+              : PROTO_TIME_SOURCE_NONE;
+      // Solo al CAMBIAR, nunca en cada difusion: este log sale por UART0, que
+      // es el MISMO cable que el enlace con la placa. Un log cada 10 s seria
+      // exactamente el trafico periodico que known_issues #2 desaconseja.
+      if (newSrc != s_mbTimeSrc) {
+        COMM_LOG("[COMM] fuente de hora: %d -> %d (campos leidos %d)\n",
+                 (int)s_mbTimeSrc, (int)newSrc, n);
+      }
+      s_mbTimeSrc = newSrc;
+
+      if (s_mbEpoch != 0) {
+        // La placa ya tiene hora: la semilla deja de ofrecerse hasta el
+        // siguiente reinicio. Es lo que mantiene el mensaje episodico y no
+        // periodico (known_issues #2).
+        s_rtcSeedDone = true;
+        rtcMaybeWrite(s_mbEpoch, s_mbTimeSrc, s_tzQuarters, s_tzSource);
+      } else if (!s_rtcSeedDone && s_rtcEpochAtBoot != 0) {
+        // La placa sigue sin hora y nosotros si la tenemos. Se reofrece una
+        // vez POR CADA difusion recibida, nunca por nuestra cuenta: asi el
+        // ritmo lo marca ella y el enlace no gana trafico propio.
+        COMM_SERIAL.printf("HMI,RTC_TIME,%lu,%d,%u\n",
+                           (unsigned long)rtcEstimatedNow(),
+                           (int)s_rtcStored.tzQuarters,
+                           (unsigned)s_rtcStored.tzSource);
+      }
     } else {
       COMM_LOG("[COMM] TIME parse error: %s\n", line);
     }
@@ -1157,6 +1313,21 @@ static bool ReceiveMessageFromOtherESP() {
         COMM_LOG("[COMM] anillo RX %d/%d B: la tarea Comm no esta drenando\n",
                  pending, COMM_RX_RING_BYTES);
       }
+    }
+  }
+
+  // Lineas inyectadas por el modo depuracion. Se tratan AQUI, en la tarea
+  // Comm y con el mismo sello de latido y la misma llamada a parse_message()
+  // que una linea real, para que lo que se prueba sea el camino de produccion
+  // entero y no una maqueta suya. Con el modo apagado la cola esta vacia.
+  {
+    char injected[192];
+    while (debug_inject_take(injected, sizeof(injected))) {
+      COMM_LOG("[COMM][DEBUG] linea inyectada: %s\n", injected);
+      g_lastCtrlLineMs = millis();
+      g_ctrlEverSeen = true;
+      parse_message(injected);
+      msgReceived = true;
     }
   }
 
@@ -1507,6 +1678,9 @@ void Comm_Task(void *pvParameters) {
   COMM_SERIAL.begin(COMM_BAUD_RATE);
 
   Communication_SendBootInfo();
+  // Antes de pedir el estado: si la placa arranca sin red, cuanto antes tenga
+  // la semilla antes deja de haber registros sin fecha.
+  rtcSeedInit();
   Communication_RequestState();
   g_lastStateReqMs = millis();
   s_lastCommPassMs = millis();

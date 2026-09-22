@@ -10,6 +10,23 @@
 #define APN_KEY "APN"
 #define COP_KEY "COP"
 #define SYSTEM_RESET_REASON "RST_reason"
+// Causa de la ULTIMA caida, publicada solo en el arranque siguiente a un
+// reinicio anormal (ver CrashReporter.h). En un arranque normal no se envia
+// ninguna de las tres, asi que no consumen del presupuesto de
+// THINGSBOARD_FIELDS_AMOUNT en regimen permanente.
+//
+// Crash_log es un texto corto (<= 192 car.) con las ultimas lineas del log
+// antes de morir. Es lo que distingue una averia de otra: en las caidas de
+// banco del 2026-09-20 ponia "[MON] GPRS_Task hung, restarting it".
+#define CRASH_REASON_KEY  "Crash_reason"
+#define CRASH_REBOOTS_KEY "Crash_reboots"
+#define CRASH_LOG_KEY     "Crash_log"
+// Anillo completo (~4 KB). Solo por WiFi, ver TX_FEATURE_CRASH_FULLLOG_*.
+#define CRASH_FULLLOG_KEY "Crash_log_full"
+// Del coredump: la tarea que exploto y su backtrace. Crash_task es lo unico
+// que senala al culpable sin deducirlo.
+#define CRASH_TASK_KEY    "Crash_task"
+#define CRASH_BT_KEY      "Crash_bt"
 #define SYS_CURR_STANDBY_TEST_KEY "SYS_current_stanby_test"
 #define HEATER_CURR_TEST_KEY "Heater_current_test"
 #define FAN_CURR_TEST_KEY "Fan_current_test"
@@ -106,6 +123,11 @@
 #define BABY_ADMISSION_EPOCH_KEY "baby_admission_epoch"
 #define BABY_KANGAROO_EVENT_KEY "baby_kangaroo_event"
 #define BABY_STAY_DAYS_KEY "baby_stay_days"
+// Cuantos bebes ha dado de alta ESTA incubadora desde siempre. Describe el
+// equipo, no a su ocupante, asi que no lleva baby_seq y viaja tambien en el
+// payload de incubadora vacia. Sin prefijo baby_ en la clave a proposito: en
+// el cuadro de mando no se agrupa con las tarjetas del paciente.
+#define BABY_TOTAL_REGISTERED_KEY "babies_registered_total"
 // Una clave por condicion de alarm_ids.h. Las condiciones que ya existian
 // conservan su cadena original para no romper los cuadros de mando de la
 // nube; las nacidas del desglose normativo (desviaciones direccionales,

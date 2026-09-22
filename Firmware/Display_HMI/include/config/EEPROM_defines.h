@@ -42,6 +42,25 @@ constexpr char HMI_KEY_MNT_SNOOZE[]   = "mnt_snooze";  // epoch fin del "mas tar
 constexpr char HMI_KEY_MNT_SEQ[]      = "mnt_seq";     // ultimo bebe visto al mando
 constexpr char HMI_KEY_MNT_TPEND[]    = "mnt_tpend";   // alta sin terminal hecha
 
+// Zona horaria y procedencia de lo ultimo escrito en el RTC (PCF8563).
+//
+// El chip guarda el INSTANTE y nada mas: no tiene RAM de usuario respaldada por
+// pila, a diferencia de un DS1307. Asi que el huso y el rango de la fuente
+// tienen que vivir aqui, o tras un ciclo de alimentacion el display pintaria
+// UTC sin avisar de que es UTC — dos horas de error en España, y en la fecha
+// que sella el historial de alarmas.
+//
+// UNA SOLA CLAVE con los tres campos empaquetados, no tres claves. La NVS no
+// da transaccionalidad: con claves sueltas, un corte entre la primera y la
+// tercera escritura dejaria el huso de una hora junto al rango de otra, y el
+// error resultante son horas enteras. Empaquetado, o se escribe entero o no se
+// escribe.
+//
+//   bits 0-7   tzq + 48  (offset en cuartos de hora, desplazado a sin signo)
+//   bits 8-11  tzsrc     (TzSource: 0=desconocido, 1=NITZ, 2=IP, 3=manual)
+//   bits 12-15 src       (Proto_TimeSource del epoch escrito en el chip)
+constexpr char HMI_KEY_RTC_TZ[] = "rtc_tz";
+
 // --------------- Keys: hmi_wifi ---------------
 constexpr char HMI_KEY_SSID[]     = "ssid";
 constexpr char HMI_KEY_PASSWORD[] = "password";
