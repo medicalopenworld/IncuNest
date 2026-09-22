@@ -420,3 +420,77 @@ build before trusting any observation.
     does not reproduce the slow-attach case on demand. What can be checked is
     the absence of the reset; reproducing it needs a slow or marginal 2G
     network.
+
+## 14. Every OTA ends in `PANIC`: the server re-triggers an update that can never succeed
+
+*   **Symptom (production, 2026-09-21)**: the seven units of the batch (352,
+    354-359) all reached 18.30 **and** all reported
+    `RST_reason = 4` (`ESP_RST_PANIC`). Reproduced on the bench on 2026-09-22
+    with 18.32 and again with 18.33.
+*   **Why it looked like the update "worked"**: it applies on reboot, and the
+    panic *is* the reboot. `updatedCallback()` (`GPRS.cpp`) and
+    `WIFI_UpdatedCallback()` (`Wifi_OTA.cpp`) deliberately leave
+    `esp_restart()` commented out — you do not reboot an incubator with a baby
+    inside, the image is meant to boot at the next power-up. So a unit that
+    updated *and* rebooted by itself had, by definition, crashed.
+*   **Captured live** (`ota2_bucle_fantasma.log`, bench, 18.33). Right after
+    `Progress 100.00%` and `[GPRS] -> Done, OTA will be implemented on next
+    boot`, the port fills at ~7 lines/s with:
+
+    ```
+    [TB] Failed to initalize flash updater, ensure that the partition scheme has two app sections
+    ```
+
+    That message is `ERROR_UPDATE_BEGIN`, and it is only reachable while
+    processing **chunk 0**. The finished download had been restarted from
+    scratch, on an updater that was already closed. Control and the HMI link
+    stayed alive throughout: it is not a CPU lock-up, it is a retry storm that
+    keeps asking the server for chunks forever.
+*   **Root cause — a clash of models, not a coding slip.** ThingsBoard
+    considers an update finished when the device **reports** the new version.
+    This device deliberately does not reboot, so it keeps reporting the old
+    one. The server therefore still sees `target != current`, re-triggers the
+    update, and `Start_Firmware_Update()` runs again on a partition that is
+    already written and finalized — so Arduino's `Update.begin()` refuses,
+    which is the `ERROR_UPDATE_BEGIN` above.
+
+    From there the SDK never gives up: `Handle_Failure(RETRY_UPDATE)` calls
+    `Request_First_Firmware_Packet()`, which **re-reads
+    `m_retries = m_fw_callback->Get_Chunk_Retries()` on every lap**. The retry
+    count never reaches zero, so the loop is unbounded by construction.
+*   **Proof it is server-driven** (bench, 18.35, 00:05:45): unassigning the
+    firmware package in ThingsBoard stopped the storm instantly — 488
+    occurrences before, 488 thirty seconds later, zero new — and the unit
+    logged `[TB] No new firmware assigned on the given device`. Nothing was
+    changed on the device to achieve that.
+*   **Fix** (`GPRS.cpp`, `Wifi_OTA.cpp`): a `g_otaPendingReboot` latch, set by
+    the shared `updatedCallback()` on success and checked at both
+    `Start_Firmware_Update()` call sites. It lives in RAM on purpose: the only
+    thing that clears it is the reboot that actually applies the image. Both
+    transports share `updatedCallback()`, so one flag covers 2G and WiFi.
+*   **A false trail worth recording.** The first diagnosis was that the
+    per-chunk timeout timer (`OTA_Handler::m_watchdog`) outlived the download
+    and resurrected it, and the first patch was
+    `if (m_fw_callback == nullptr) { return; }` in `Handle_Request_Timeout()`.
+    That guard **can never fire**: on success `Firmware_OTA_Unsubscribe()` does
+    `m_fw_callback = OTA_Update_Callback();`, which rebuilds
+    *ThingsBoardSized's own member* rather than `OTA_Handler`'s pointer to it,
+    and the only thing that nulls that pointer — `Stop_Firmware_Update()` —
+    hangs off `Cleanup_Subscriptions()`, which this firmware never calls. The
+    patch shipped inside 18.32 and the unit panicked anyway. What settled it
+    was the serial capture: the loop starts **one second after** `Done` with no
+    `Progress` line at all, so it is a *new* update being started, not a
+    download being resumed.
+*   **Still worth knowing** (not the cause, not patched): after
+    `Firmware_OTA_Unsubscribe()` that pointer aims at a default-constructed
+    object, and both `OTA_Update_Callback()` and `Callback()` are `= default`
+    with no member initializers, so `m_message`, `m_fwTitel`, `m_updater`,
+    `m_retries` and `m_timeout` are **indeterminate**. Anything that reaches
+    `Handle_Request_Timeout()` after an update ends reads garbage, and
+    `Logger::println(m_message)` in `Callback.h` would print from a wild
+    `char *`. `patch_libdeps.py` patches 2 to 4 stop the timer and null the
+    pointer at the three exits of the update so that patch 1's guard becomes
+    reachable — defensive, and **not** verified to fix anything observed.
+*   **Do not "fix" this by raising the timeout or the retry count.** The retry
+    count is reset every lap; the defect is that the update is restarted at
+    all.

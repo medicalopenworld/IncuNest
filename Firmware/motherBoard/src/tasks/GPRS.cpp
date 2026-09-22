@@ -218,6 +218,27 @@ static void subscribeRPCHandlers() {
 // while the unit is in the field. -1 = no OTA in flight.
 volatile int g_otaProgressPct = -1;
 
+// Una imagen ya descargada y a la espera de arrancar. Solo la borra el
+// reinicio, que es justo lo que se quiere: vive en RAM a proposito.
+//
+// Hace falta porque el modelo de OTA de ThingsBoard da por terminada la
+// actualizacion cuando el equipo REPORTA la version nueva, y este equipo no
+// reinicia al acabar (ver updatedCallback: el esp_restart() esta comentado a
+// conciencia, no se reinicia una incubadora con un nino dentro). Asi que el
+// servidor sigue viendo 18.35 con objetivo 18.36, vuelve a lanzar la
+// actualizacion, y Update.begin() ya falla porque la particion esta escrita:
+//
+//     [TB] Failed to initalize flash updater, ensure that the partition
+//          scheme has two app sections
+//
+// A partir de ahi el SDK entra en RETRY_UPDATE sin fin --Request_First_
+// Firmware_Packet() vuelve a poner m_retries a Get_Chunk_Retries() en cada
+// vuelta, asi que la cuenta de reintentos no baja NUNCA-- y machaca al
+// servidor a ~7 peticiones por segundo hasta que la unidad cae. Es lo que
+// reinicio las siete unidades de la tanda del 2026-09-21 con PANIC, y lo que
+// se reprodujo en banco el 2026-09-22 (ver known_issues.md #14).
+volatile bool g_otaPendingReboot = false;
+
 void progressCallback(const uint32_t &currentChunk,
                       const uint32_t &totalChuncks) {
   if (totalChuncks > 0) {
@@ -236,6 +257,7 @@ void updatedCallback(const bool &success) {
   g_otaProgressPct = -1;
   if (success) {
     logModemData("[GPRS] -> Done, OTA will be implemented on next boot");
+    g_otaPendingReboot = true;
     // esp_restart();
   } else {
     logModemData("[GPRS] -> No new firmware");
@@ -878,7 +900,10 @@ void GPRSCheckOTA() {
   // barra llegaba a ~22.7% (trozo 688 de 2916) a los ~570 s y volvia a empezar,
   // una y otra vez, sin un solo error por debajo. El unico rastro era un
   // "Received chunk (688), not the same as requested chunk (0)" por vuelta.
-  if (!GPRS.OTAInProgress) {
+  // g_otaPendingReboot: ya hay una imagen escrita esperando arranque. Volver a
+  // empezar no puede salir bien --Update.begin() falla-- y deja al SDK
+  // reintentando sin fin. Ver el comentario de la bandera.
+  if (!GPRS.OTAInProgress && !g_otaPendingReboot) {
     tb.Start_Firmware_Update(OTAcallback);
   }
 }

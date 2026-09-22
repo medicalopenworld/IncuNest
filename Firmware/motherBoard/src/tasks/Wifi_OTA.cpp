@@ -1080,7 +1080,11 @@ void WIFICheckOTA() {
   // comparten progressCallback/updatedCallback (GPRS.cpp), asi que esa bandera
   // es la de la OTA en curso, venga por donde venga. Solo una puede estar viva
   // a la vez.
-  if (!GPRS.OTAInProgress) {
+  // Misma bandera compartida que en GPRSCheckOTA(), y por el mismo motivo: una
+  // imagen ya descargada espera al reinicio, y reintentar sobre ella deja al
+  // SDK en un bucle de reintentos sin fin. Ver el comentario en GPRS.cpp.
+  extern volatile bool g_otaPendingReboot;
+  if (!GPRS.OTAInProgress && !g_otaPendingReboot) {
     tb_wifi.Start_Firmware_Update(OTAcallback);
   }
 }
