@@ -536,6 +536,16 @@ void configWifiServer() {
     wifiServer.sendHeader("Connection", "close");
     wifiServer.send(200, "text/html", serverIndex);
   });
+  // SIN autenticar A PROPOSITO: es el faro de descubrimiento del flash tool,
+  // que barre la subred con 50 hilos preguntando por aqui (wifi_flasher.py,
+  // _get_fw_version) antes de tener credencial ninguna. Exigir autenticacion
+  // aqui rompe el descubrimiento de placas.
+  //
+  // Lo que publica es lo justo para eso: version, numero de serie y tipo de
+  // placa. El tipo lo declara el dispositivo y NO se deduce del hostname mDNS
+  // (ver known_issues.md #7, donde deducirlo del hostname flasheaba firmware
+  // de motherBoard en un HMI). No anadas aqui nada mas: cualquier campo que
+  // pongas queda legible por toda la red sin credenciales.
   wifiServer.on("/get_fw_version", HTTP_GET, []() {
     String json = "{";
     json += "\"version\":\"" + String(FWversion) + "\"";
@@ -547,7 +557,13 @@ void configWifiServer() {
     wifiServer.sendHeader("Connection", "close");
     wifiServer.send(200, "application/json", json);
   });
+  // Autenticado: el CCID identifica la SIM de la unidad. Lo pide por AJAX la
+  // pagina /serverIndex, que ya esta autenticada, asi que el navegador manda
+  // la credencial ya cacheada y el flujo de usuario no cambia.
   wifiServer.on("/get_ccid", HTTP_GET, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
     String json = "{";
     json += "\"ccid\":\"" + GPRS.CCID + "\"";
     json += "}";
@@ -562,7 +578,19 @@ void configWifiServer() {
     wifiServer.sendHeader("Connection", "close");
     wifiServer.send(200, "text/html", configIndex);
   });
+  // Autenticado: aqui va "skin_temp_val", que es la temperatura cutanea del
+  // bebe en ese momento -- dato clinico de un equipo identificable por su
+  // numero de serie -- ademas de los limites de seguridad (heater_amps,
+  // air_tmax, skin_tmax). Estaba abierto mientras que el POST de /config, que
+  // escribe esos mismos parametros, si pedia credencial: se protegia la
+  // escritura y no la lectura.
+  //
+  // Lo pide por AJAX la pagina /config, ya autenticada, asi que el navegador
+  // manda la credencial cacheada y la pantalla de configuracion no cambia.
   wifiServer.on("/get_config", HTTP_GET, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
     String json = "{";
     json += "\"serial\":" + String(in3.serialNumber) + ",";
     json += "\"fan_supply_pwm\":" + String(in3.fanPwrSupplyPWM) + ",";

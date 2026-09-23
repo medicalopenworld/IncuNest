@@ -292,6 +292,10 @@ void configWifiServer() {
     wifiServer.sendHeader("Connection", "close");
     wifiServer.send(200, "application/json", json);
   });
+  // SIN autenticar A PROPOSITO, como /get_fw_version: el flash tool usa esta
+  // ruta como sonda de tipo de placa (200 = Display HMI, 404 = motherBoard),
+  // antes de tener credencial. Solo publica la frecuencia de escritura del
+  // LCD, que no es dato sensible. No le anadas campos.
   wifiServer.on("/get_freq", HTTP_GET, []() {
     String json = "{\"freq\":" + String(lcd_get_freq_write()) + "}";
     wifiServer.sendHeader("Connection", "close");

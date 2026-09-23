@@ -549,6 +549,77 @@ so a copy of it kept as a unit test would drift from production in silence.
 Making this properly testable means extracting the timer into
 `modules/control/`, like `fan_guard` — worth doing, not done here.
 
-**Not yet verified on hardware.** Reproducing it needs phototherapy commanded
-from the HMI (or injected through `/debug/inject`) and a reset at a chosen
-moment.
+**C — the fix for A uncovered a third fault: the HMI echo ratcheted the
+countdown.** Verified on the bench (2026-09-23, 18.39): after a restored timer,
+15 minutes were consumed in **26 seconds**. The board broadcasts the remaining
+time as `MM.SS`, which just under a whole minute reads `14.59`; the HMI
+truncates that to `14` and sends it back; the board compared it against
+`photoTimerMinutes` — the duration it was *armed* with — saw `14 != 15`, took it
+for a new duration and restarted the count from 14. Every round trip ate a
+whole minute.
+
+This was pre-existing and unreachable in production: it needs a *restored*
+timer, and until A was fixed the timer was never restored. Left alone it would
+have traded "the lamp never switches off" for "the lamp switches off in 30
+seconds", which is not an improvement.
+
+The fix compares against the **remaining** time, not the armed duration, and
+only re-arms on a genuine change: a new session, or a difference of more than
+one minute. One minute is exactly the truncation margin, so the steady-state
+echo — always exactly one step below — is ignored, while a real operator change
+(15 → 30, 15 → 5) still re-arms.
+
+*Residual limitation:* the protocol has no way to distinguish "the operator set
+a new duration" from "the HMI is echoing what we just sent", so the rule is a
+heuristic on the size of the jump. An echo that arrived two or more minutes
+stale would still be read as a change and would lose a minute. It would not
+ratchet, and it has not been observed.
+
+**Verified on hardware** (bench, 18.39 and 18.40, `/debug/inject` +
+`/debug/crash?kind=null`):
+
+| check | evidence |
+|---|---|
+| A: crash 1 s into a timed session | `reset=PANIC (4) restoreState=1` then `[RESTORE] photo timer resumed: 15 min` |
+| C: single-step echo (`15` then `14`) | no second `timer started` line — no re-arm |
+| C: two-step jump (`15` then `13`) | re-arms, as a real operator change should |
+
+B was verified on the host model only: reproducing it on hardware needs the HMI
+to hold a continuous session, and the HMI overwrites the injected command about
+once a second.
+
+## 16. Web endpoints leaked patient data and unit identifiers without a password
+
+Found by audit on 2026-09-23. Every endpoint that **writes** was already
+authenticated — `/config` POST, `/update`, all of `/debug/*` (the last with a
+second gate on debug mode). The reads were not.
+
+*   `/get_config` returned `skin_temp_val` — **the baby's current skin
+    temperature** — plus the serial number, `heater_amps` and the `air_tmax` /
+    `skin_tmax` thermal cutoffs. Anyone on the hospital LAN could read it with
+    no credentials, while the POST that writes those same parameters asked for
+    them.
+*   `/get_ccid` returned the unit's SIM CCID.
+*   Both are now authenticated. Neither user flow changes: they are fetched by
+    AJAX from `/config` and `/serverIndex`, which are themselves authenticated,
+    so the browser sends the credentials it has already cached.
+
+**Left open on purpose, do not "fix" these:** `/get_fw_version` (both boards)
+and `/get_freq` (HMI) are the flasher's discovery path — it sweeps the subnet
+with 50 threads before it has any credential, and uses `/get_freq` returning
+200 vs 404 to tell an HMI from a motherBoard. They publish only version, serial,
+board type and the LCD write frequency. Adding a field to either of them
+publishes it to the whole network unauthenticated.
+
+**Still open — the transport.** All of this is HTTP Basic over plain HTTP, so
+the credentials travel base64 on the wire, and that same password is the only
+thing guarding `/update`, which accepts an arbitrary binary. Capturing one
+authenticated request is enough to flash anything onto the unit. Fixing it
+means TLS on a board with ~11 KB of free internal heap (see the OOM notes), so
+it is a design decision, not a patch.
+
+**Credentials fallback is no longer silent.** `Credentials_public.h` fell back
+to the repository's public dummy values with no diagnostic; the only thing that
+caught it was the factory test failing to provision. It now emits a `#warning`
+always, and `-DREQUIRE_REAL_CREDENTIALS` turns it into an `#error` — that flag
+belongs in any build destined for a real unit.

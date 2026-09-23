@@ -1098,7 +1098,36 @@ void parse_line(const char *line) {
       g_last_cmd.newCommand = false;
 
       if (hmi_cmd_msg.phototherapyMode && hmi_cmd_msg.photoMinutesRemaining > 0) {
-        if (!photoTimerActive || photoTimerMinutes != hmi_cmd_msg.photoMinutesRemaining) {
+        // Minutos que quedan AHORA, redondeando hacia arriba igual que el
+        // guardado periodico. La comparacion tiene que ser contra esto, no
+        // contra photoTimerMinutes: photoTimerMinutes es la duracion con la
+        // que se armo, y tras un rearme pasa a valer el restante, con lo que
+        // los dos conceptos se confunden.
+        int restante_ahora = 0;
+        if (photoTimerActive) {
+          long transcurrido = (long)((millis() - photoTimerStartMs) / 1000);
+          restante_ahora = ((long)photoTimerMinutes * 60 - transcurrido + 59) / 60;
+          if (restante_ahora < 0) restante_ahora = 0;
+        }
+        // Un mandato del HMI solo rearma si es una sesion nueva o si el
+        // operador ha cambiado de verdad la duracion. Lo demas es el ECO de
+        // nuestra propia emision y NO debe tocar el temporizador.
+        //
+        // Sin esta guarda habia un trinquete: la placa emite el restante en
+        // formato MM.SS, que justo por debajo del minuto entero vale 14.59; el
+        // HMI lo trunca a 14 y lo devuelve; la placa veia 14 != 15, lo tomaba
+        // por una duracion nueva y reiniciaba la cuenta desde 14. Cada ida y
+        // vuelta se comia un minuto entero. Medido en banco el 2026-09-23 tras
+        // restaurar un temporizador: de 15 a 1 minutos en 26 SEGUNDOS.
+        //
+        // No se veia en produccion porque hacia falta que el temporizador se
+        // restaurase, y hasta el arreglo de la caida eso no pasaba nunca.
+        //
+        // La tolerancia de 1 minuto es exactamente el margen de ese truncado.
+        const int delta = hmi_cmd_msg.photoMinutesRemaining - restante_ahora;
+        const bool sesion_nueva = !photoTimerActive;
+        const bool cambio_real  = (delta > 1) || (delta < -1);
+        if (sesion_nueva || cambio_real) {
           photoTimerActive = true;
           photoTimerMinutes = hmi_cmd_msg.photoMinutesRemaining;
           photoTimerStartMs = millis();
