@@ -828,3 +828,30 @@ Not changed: the 1-count-per-second slew in both directions. Lowering current
 is always the safe direction, so an asymmetric slew — fast down, slow up —
 would cut the overshoot to a few seconds. It changes the dynamics of a clinical
 actuator, so it is left as a proposal.
+
+## 22. `ventilador-se-retira` fails intermittently — and not because of the new library (OPEN)
+
+Surfaced while benching the move to incunest_afe4490 v0.94 (2026-09-23). The
+bench test fails in one of two timing steps, never the same one twice in a row:
+
+- `plazo agotado (40 s) esperando ALARM_FAN_FAILURE con el ventilador simulado parado`
+- `plazo agotado (10 s) esperando que la actuacion inyectada ordene el ventilador`
+
+Suspecting the heavier library (more decimation chains, HR1 buffer 64 → 160),
+the same test was run ten times per firmware on the same bench, with the same
+display (4.3.0, compatible with both), changing **only** the library:
+
+| board | library | passes |
+|---|---|---|
+| 18.49.0 | v0.94 | 6/10 |
+| 18.48.0 | v0.81 | 8/10 (one of the two failures was a network timeout) |
+
+It fails on v0.81 too, and in the same step, so it predates the library change;
+the four clean 17/17 battery runs earlier the same day were luck. With ten
+runs per side the difference is not conclusive either way, so a small
+worsening from v0.94 is not ruled out.
+
+**The part that matters is not the test.** "ALARM_FAN_FAILURE did not fire in
+40 s with the fan simulated stopped" may be the alarm, not the harness. Until
+it is known which, do not read a green `ventilador-se-retira` as proof that fan
+failure is always detected in time.
