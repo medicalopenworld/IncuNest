@@ -78,6 +78,10 @@ static constexpr float PPG_DISP_UNITS_PER_LSB = 1.6e-8f;
 static bool photoTimerActive = false;
 static unsigned long photoTimerStartMs = 0;
 static int photoTimerMinutes = 0;
+// Modo de fototerapia del mandato anterior del HMI. Sirve para detectar el
+// FLANCO de arranque de una sesion CONTINUA (sin temporizador), que no lo
+// detecta ninguna de las dos ramas del if de abajo.
+static bool photoPrevMode = false;
 
 // ======================================================
 //  USB-ONLY HELPERS
@@ -280,6 +284,36 @@ static void handleBabyLine(const char *line) {
 // ======================================================
 //  PHOTOTHERAPY TIMER
 // ======================================================
+
+// Persistencia del restante del temporizador, en el espacio NVS "photo".
+//
+// Lo lee initEEPROM() (EEPROM.cpp) en un arranque con restoreState para volver
+// a armar el temporizador tras una caida. Como in3.phototherapy se guarda en el
+// instante en que se pulsa, tras un crash la lampara SIEMPRE vuelve encendida:
+// lo unico que decide si ademas vuelve con su cuenta atras es lo que haya aqui.
+// De ahi que las dos funciones existan y que se llamen en TODAS las
+// transiciones, no solo en algunas.
+static void photoTimerPersist(int remaining_mins) {
+  if (remaining_mins < 1) remaining_mins = 1;
+  Preferences p;
+  p.begin("photo", false);
+  p.putBool("active", true);
+  p.putInt("mins", remaining_mins);
+  p.end();
+}
+
+// Borra el restante guardado. Comprueba antes si hay algo que borrar: esto se
+// llama en cada mandato del HMI (~1 Hz) y un clear() incondicional seria una
+// escritura de flash por segundo.
+static void photoTimerForget() {
+  Preferences p;
+  p.begin("photo", false);
+  if (p.getBool("active", false)) {
+    p.clear();
+  }
+  p.end();
+}
+
 double getRemainingPhotoTime() {
   double remainingTime = 0.0;
   if (photoTimerActive) {
@@ -296,7 +330,7 @@ double getRemainingPhotoTime() {
       in3.phototherapy = false;
       ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, 0);
       turnFans(bool(in3.phototherapy || in3.actuation));
-      { Preferences p; p.begin("photo", false); p.clear(); p.end(); }
+      photoTimerForget();
 
       if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         ESP_LOGI(TAG, "Phototherapy timer expired. Hardware turned OFF.");
@@ -1068,19 +1102,52 @@ void parse_line(const char *line) {
           photoTimerActive = true;
           photoTimerMinutes = hmi_cmd_msg.photoMinutesRemaining;
           photoTimerStartMs = millis();
+          // Se guarda YA, no en el primer guardado periodico. El periodico es
+          // cada 60 s, asi que una caida dentro del primer minuto dejaba el
+          // espacio "photo" vacio: al rearrancar, in3.phototherapy volvia a 1
+          // (se guarda al pulsar) pero sin cuenta atras, y la lampara quedaba
+          // encendida indefinidamente. Sobretratamiento silencioso.
+          photoTimerPersist(photoTimerMinutes);
           if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
             ESP_LOGI(TAG, "Phototherapy timer started: %d minutes", photoTimerMinutes);
             xSemaphoreGiveRecursive(log_mutex);
           }
         }
-      } else if (!hmi_cmd_msg.phototherapyMode && photoTimerActive) {
-        photoTimerActive = false;
-        photoTimerMinutes = 0;
-        if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-          ESP_LOGI(TAG, "Phototherapy timer stopped");
-          xSemaphoreGiveRecursive(log_mutex);
+      } else if (!hmi_cmd_msg.phototherapyMode) {
+        // Fototerapia APAGADA.
+        //
+        // Antes el clear() de NVS solo lo hacia la expiracion natural del
+        // temporizador. Con eso, apagar a mano una sesion temporizada dejaba
+        // "active=true, mins=N" en el espacio "photo"; si luego se arrancaba
+        // fototerapia CONTINUA y habia una caida, la restauracion resucitaba
+        // aquel temporizador cancelado y la lampara se apagaba sola a los N
+        // minutos sin que nadie lo hubiera pedido.
+        //
+        // El olvido va fuera del if: tambien hay que limpiar cuando se apaga
+        // sin temporizador vivo, que es como se barre un resto ya existente.
+        if (photoTimerActive) {
+          photoTimerActive = false;
+          photoTimerMinutes = 0;
+          if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+            ESP_LOGI(TAG, "Phototherapy timer stopped");
+            xSemaphoreGiveRecursive(log_mutex);
+          }
+        }
+        photoTimerForget();
+      } else {
+        // Encendida y photoMin == 0. Es AMBIGUO y no se puede tratar como
+        // "continua" sin mirar el estado: el HMI manda tambien photoMin=0
+        // durante el ULTIMO MINUTO de una sesion temporizada, porque los
+        // segundos viajan en su propio campo (Display_HMI/CommTask.cpp:1571).
+        //
+        // Con temporizador vivo es ese ultimo minuto: no se toca nada y se le
+        // deja expirar. Sin temporizador vivo y viniendo de apagada, es el
+        // arranque de una sesion continua, que no debe heredar un restante.
+        if (!photoTimerActive && !photoPrevMode) {
+          photoTimerForget();
         }
       }
+      photoPrevMode = hmi_cmd_msg.phototherapyMode;
 
       if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         ESP_LOGI(TAG, "HMI CMD stored (lang=%d)", lang);
@@ -1326,12 +1393,7 @@ void Communication_Task(void *pvParameters) {
       if (photoTimerActive && millis() - last_photo_save > 60000) {
         long elapsed = (long)((millis() - photoTimerStartMs) / 1000);
         int remaining_mins = ((long)photoTimerMinutes * 60 - elapsed + 59) / 60;
-        if (remaining_mins < 1) remaining_mins = 1;
-        Preferences p;
-        p.begin("photo", false);
-        p.putBool("active", true);
-        p.putInt("mins", remaining_mins);
-        p.end();
+        photoTimerPersist(remaining_mins);
         last_photo_save = millis();
       }
     }

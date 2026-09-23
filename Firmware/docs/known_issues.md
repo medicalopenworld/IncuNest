@@ -494,3 +494,61 @@ build before trusting any observation.
 *   **Do not "fix" this by raising the timeout or the retry count.** The retry
     count is reset every lap; the defect is that the update is restarted at
     all.
+
+## 15. Phototherapy timer lost or resurrected across a crash
+
+Found by audit on 2026-09-23, not by a field report. Both faults need a reset
+to show up, and both change how long a baby is irradiated, so they are written
+down in full.
+
+**What already worked.** State restore is sound: the rule is "restore on every
+reset except `POWERON` and `BROWNOUT`" (`initHardware.cpp`), both boards use
+it, and control state is written to NVS *at the moment it changes*
+(`main.cpp:474` and `546`), so a crash does not lose it. `in3.phototherapy` is
+part of that, which means **after a crash the lamp always comes back on**. The
+only thing that decides whether it also comes back with its countdown is the
+`"photo"` NVS namespace — and that is where both faults were.
+
+**A — a crash in the first 60 s turned a timed session into an endless one.**
+The remaining minutes were only persisted by a periodic save every 60 s
+(`CommTask.cpp`). Before the first save the namespace is empty, so
+`initEEPROM()` read `active=false`, `g_restore_photo_minutes` stayed 0 and the
+timer was never re-armed. The lamp came back on with **no countdown and no
+auto-off**. Over-treatment, with nothing on screen to suggest it.
+
+**B — a cancelled timer could resurrect on top of a continuous session.** Only
+natural expiry cleared the namespace. Stopping a timed session by hand left
+`active=true, mins=N` behind. Start a **continuous** session afterwards, crash,
+and the restore read those leftovers and re-armed the cancelled timer: the lamp
+switched itself off N minutes later with nobody asking. Under-treatment, silent.
+
+**Fix.** `photoTimerPersist()` / `photoTimerForget()` in `CommTask.cpp`, called
+on *every* transition rather than some of them: persist when the session starts
+(A) and on each periodic save, forget on operator stop, on natural expiry, and
+on the edge that starts a continuous session (B). `photoTimerForget()` probes
+before clearing, because it runs on every HMI command (~1 Hz) and an
+unconditional `clear()` would be a flash write per second.
+
+**The trap in this code — do not "simplify" the three branches into two.** The
+HMI sends `photoMin=0` *with* `photo=1` during the **last minute** of a timed
+session, because the seconds travel in their own field
+(`Display_HMI/src/tasks/CommTask.cpp:1571`, and `photoMinutesRemaining` is
+`(int)photoTimeRemaining` over an `MM.SS` value). So `mode=1, mins=0` is
+ambiguous: it is either a continuous session or the final minute of a timed
+one. Treating it as "continuous" stops a live timer and leaves the lamp on
+forever — the exact fault A was meant to remove. The third branch tells them
+apart by looking at `photoTimerActive`. The original two-branch shape was
+deliberate; it just did not persist or clear enough.
+
+**Verification.** The five transitions were modelled on the host and run
+against the old and the new logic: the old one fails A and B (2 failures), the
+new one passes all of them, and the last-minute case is unaffected by both.
+That model is *not* in the repo: the logic lives inside `CommTask.cpp`, which
+needs Arduino, FreeRTOS and Preferences and does not build in `[env:native]`,
+so a copy of it kept as a unit test would drift from production in silence.
+Making this properly testable means extracting the timer into
+`modules/control/`, like `fan_guard` — worth doing, not done here.
+
+**Not yet verified on hardware.** Reproducing it needs phototherapy commanded
+from the HMI (or injected through `/debug/inject`) and a reset at a chosen
+moment.
