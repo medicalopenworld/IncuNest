@@ -24,7 +24,7 @@ cd Firmware/motherBoard && python tools/check_transport_matrix.py
 | Reconexión de red | 10 s | 30 s | `TX_GPRS_RECONNECT_MS` / `TX_WIFI_RECONNECT_MS` |
 | Reconexión a ThingsBoard | 30 s | 30 s | `TX_THINGSBOARD_RECONNECT_MS` |
 | Triangulación por torre | 30 min | — | `GPRS_TRIANGULATION_INTERVAL` |
-| Captura PPG automática | — | 15 min | `PPG_SNAPSHOT_AUTO_INTERVAL_MS` |
+| Captura PPG automática | — (apagada) | **5 min** con señal; reintento a 10 s sin ella | `TX_PPG_AUTOCAPTURE_WIFI_MS` / `PPG_SNAPSHOT_AUTO_RETRY_MS` |
 
 **Por qué GPRS es variable y WiFi no.** Por WiFi la red es gratis y no bloquea,
 así que cadencia fija de 5 s. Por GPRS cada publicación son datos de pago y una
@@ -92,8 +92,8 @@ documento) o registrar `overflowed()` para saber si está pasando.
 | Triangulación por torre | ✅ | ❌ | No existe equivalente por WiFi |
 | Posición aproximada por IP | ❌ | ✅ | Suple a la de torre cuando no hay fix |
 | Permanencia en la red WiFi | ❌ | ✅ | Cinco atributos de cliente; una unidad en GPRS no tiene nada que contar |
-| Snapshot PPG (RPC `capturePPG`) | ✅ | ✅ | Bajo demanda, ~23 KB por captura |
-| Snapshot PPG, captura automática | ❌ | ✅ | Cada 15 min ≈ 2,2 MB/día: por GPRS va apagado |
+| Snapshot PPG (RPC `capturePPG`) | ✅ | ✅ | Bajo demanda, ~23 KB por captura en 34 trozos de ~800 B |
+| Snapshot PPG, captura automática | ❌ | ✅ | Cada 5 min con sonda y `rsqi==1`. Por GPRS va apagada: ~23 KB × 4/h ≈ 2,2 MB/día de datos de pago |
 
 ### La posición tiene dos fuentes y una sola pareja de claves
 
@@ -201,6 +201,31 @@ capturaba. El módulo de captura funcionaba bien; nadie le pedía nunca nada.
 Ahora la publicación es común (`PpgSnapshotPublish.cpp`) y el RPC está en los
 dos transportes.
 
+### Y por qué, aun así, no llegaba ni un punto por WiFi (2026-09-23)
+
+Con dedo real y FW 18.49.0, dos de tres capturas no llegaron nunca. En el log
+serie, `WiFiClient::write()` daba `errno 11` (EAGAIN) una vez por segundo
+durante ~30 s, luego `BEACON_TIMEOUT` y reconexión MQTT. La placa no se
+reiniciaba y el heap no estaba corto (~90 KB libres).
+
+La causa estaba en la librería: un payload mayor que el buffer del cliente MQTT
+(`MAX_MESSAGE_SIZE`, 1024 B) no se rechaza, se manda **en streaming por un
+`BufferingPrint` de 64 B** (`ThingsBoard.h`, `Serialize_Json`). Cada 64 B es una
+escritura TLS y un segmento TCP. Los 23 KB del snapshot eran ~360 escrituras
+seguidas, que llenaban la cola de segmentos de lwIP (de ahí el EAGAIN) y
+dejaban el envío en ~400 B/s: 38–60 s cuando salía.
+
+Ahora el snapshot sale en trozos de 12 muestras (~800 B), que caben en el buffer
+y van cada uno en una sola escritura, uno por vuelta de la tarea WiFi con
+250 ms entre medias. En banco: **11,9 s** por snapshot, sin un solo `errno`, y
+un RPC en mitad del envío contesta en 0,4 s (antes, 408). Un test de host
+comprueba que el trozo del peor caso cabe, y un `static_assert` lo ata a
+`MAX_MESSAGE_SIZE`.
+
+> Lo mismo le pasa a **toda** publicación mayor de 1024 B, incluida la
+> telemetría periódica (~80 claves). No se ha tocado aquí; es la primera
+> sospechosa si vuelve a verse EAGAIN.
+
 ### Y por qué el botón "Capturar PPG" no hacía nada (fallo distinto)
 
 El botón era un `system.cards.html_card` con un `<script>` inline. **TB no
@@ -253,10 +278,11 @@ transportes.
 
 **Dos detalles que también hacen parecer que no funciona:**
 
-- **La primera captura automática tarda 15 minutos.** `lastPpgSnapshotAttempt`
-  arranca en `0`, así que `millis() - 0 > 15 min` no se cumple hasta que el
-  equipo lleva 15 minutos encendido. En una prueba corta no verás nada aunque
-  todo esté bien. Usa el RPC `capturePPG` para no esperar.
+- **La primera captura automática tardaba 15 minutos.** `lastPpgSnapshotAttempt`
+  arrancaba en `0`, así que `millis() - 0 > 15 min` no se cumplía hasta que el
+  equipo llevaba 15 minutos encendido, y un intento sin dedo costaba otro
+  intervalo entero. Desde el 2026-09-24 (`modules/util/ppg_snapshot_plan`) el
+  primer intento es inmediato y sin señal se reintenta a los 10 s.
 - **La gráfica tenía una ventana de 30 segundos.** Un snapshot son 8 s de onda
   publicados cada 15 min: se salía de la ventana casi al instante, así que
   había que estar mirando en el momento exacto. Subida a 30 min.

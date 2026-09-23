@@ -1379,7 +1379,9 @@ void GPRSPost() {
               g_spo2_data.rsqi, millis());
         }
 #endif
-        ppgSnapshotPublish(tb, "GPRS");
+        // burst: esta tarea solo pasa por aquí una vez por ciclo de
+        // publicación; de trozo en trozo tardaría 16 ciclos.
+        ppgSnapshotPublish(tb, "GPRS", true);
 #endif
         GPRS.process = false;
         GPRS.lastSent = millis();

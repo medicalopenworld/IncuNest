@@ -2030,22 +2030,25 @@ void WIFI_TB_OTA() {
           Wifi_TB.lastOTACheck = millis();
         }
 
-        // PPG snapshot: captura automática cada PPG_SNAPSHOT_AUTO_INTERVAL_MS
+        // PPG snapshot: captura automática cada TX_PPG_AUTOCAPTURE_WIFI_MS
         // mientras haya WiFi/TB arriba (además del botón "capturar ahora" del
-        // RPC capturePPG). BUSY/SIGNAL_NOT_READY se ignoran aquí a propósito:
-        // simplemente se reintenta en el siguiente intervalo.
+        // RPC capturePPG). Sin señal se reintenta a los
+        // PPG_SNAPSHOT_AUTO_RETRY_MS; BUSY cuenta como captura (ya hay una).
 #if TX_FEATURE_PPG_AUTOCAPTURE_WIFI
-        if (millis() - Wifi_TB.lastPpgSnapshotAttempt >
-            PPG_SNAPSHOT_AUTO_INTERVAL_MS) {
-          Wifi_TB.lastPpgSnapshotAttempt = millis();
-          ppgSnapshotRequestCapture(
+        if (ppg_autocapture_due(&Wifi_TB.ppgAuto, millis(),
+                                TX_PPG_AUTOCAPTURE_WIFI_MS,
+                                PPG_SNAPSHOT_AUTO_RETRY_MS)) {
+          PpgSnapshotStatus const st = ppgSnapshotRequestCapture(
               g_spo2_data.probe_state == ProbeState::PROBE_APPLIED,
               g_spo2_data.rsqi, millis());
+          ppg_autocapture_record(&Wifi_TB.ppgAuto, millis(),
+                                 st != PpgSnapshotStatus::SIGNAL_NOT_READY);
         }
 #endif
         // El montaje del JSON es idéntico por GPRS: vive en
-        // PpgSnapshotPublish.cpp para no tener dos copias que diverjan.
-        ppgSnapshotPublish(tb_wifi, "WIFI");
+        // PpgSnapshotPublish.cpp para no tener dos copias que diverjan. Un
+        // trozo por vuelta: tb_wifi.loop() corre entre medias.
+        ppgSnapshotPublish(tb_wifi, "WIFI", false);
       }
     }
   } else {
