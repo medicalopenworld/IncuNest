@@ -535,7 +535,35 @@ La motherBoard tiene **dos** puertos serie y conviene no confundirlos:
 | puerto | objeto | pines | qué lleva |
 |---|---|---|---|
 | enlace con el display | `Serial1` (`hmiSerial`) | TX 15 / RX 16 | todo lo descrito en este documento |
-| consola de depuración | `Serial` (`debugSerial`) | UART0 (el del flasheo) | el log, y un único comando de banco |
+| consola de depuración | `Serial` (`debugSerial`) | UART0 (el del flasheo) | el log, y dos comandos de banco |
+
+#### `PHOTO,<0|1>` — fototerapia desde el modo depuración
+
+Enciende (`1`) o suelta (`0`) la fototerapia sin nadie en la pantalla, para
+probar el lazo de intensidad en banco.
+
+- **`PHOTO,1` exige el modo depuración encendido** (`POST /debug/mode?on=1`); si
+  no, se rechaza con `PHOTO,1 rechazado: el modo depuracion esta apagado`.
+  `PHOTO,0` se acepta siempre: apagar nunca es lo peligroso.
+- **Solo por esta consola, sin endpoint HTTP, a propósito.** Acciona un
+  actuador sobre un paciente; la consola exige acceso físico al USB de la
+  placa, y `/debug/*` se alcanza desde toda la red con una contraseña que viaja
+  en claro (`known_issues.md` #16).
+- Se aplica con la siguiente trama del display (≤1 s), en el mismo camino que
+  una orden real, así que lo que se prueba es el lazo de producción.
+- **Nada de la prueba se guarda.** Durante la sesión y durante una ventana de
+  gracia de 5 s al soltarla no se escribe `photo_active` en NVS: una caída a
+  mitad de sesión vuelve con la fototerapia apagada (verificado en banco).
+- Soltar (con `PHOTO,0` o apagando el modo) devuelve la fototerapia a como
+  estaba antes de la prueba, no siempre a apagado.
+- Estado en `GET /debug/state`: `ctl.photo_dbg` (1 mientras dure la prueba).
+- Aviso: mientras dura la prueba, **la pantalla muestra la fototerapia
+  apagada** aunque la lámpara esté encendida — el campo `photo` de `CTRL,STATE`
+  es el eco de la orden del display (`known_issues.md` #20).
+- Lógica en `modules/control/photo_override.h`, con test de host
+  (`test/test_photo_override`).
+
+#### `WIFI_EN,<0|1>`
 
 En la consola se acepta **`WIFI_EN,<0|1>`** (`main.cpp::debugConsolePoll`).
 Enciende o apaga la WiFi en caliente para poder probar la OTA por 2G: con

@@ -31,6 +31,7 @@
 #include "modules/util/system_clock.h"
 #include "state/state.h"
 #include "modules/debug/debug_mode.h"
+#include "modules/control/photo_override.h"
 #include "modules/sensorboard_comm/sensorboard_comm.h"
 #include "modules/sensors/sensor_source.h"
 #include "system/hw_selftest.h"
@@ -365,10 +366,19 @@ void sensors_Task(void *pvParameters) {
 // (hmiSerial en CommTask.cpp). Por debugSerial no habla nadie, asi que un
 // comando aqui no compite con las tramas del protocolo ni puede corromperlas.
 //
-// Un solo comando, y a proposito: "WIFI_EN,<0|1>". Existe para poder probar la
-// OTA por 2G, que con la WiFi levantada no se ejercita nunca. El estado no se
-// guarda en ningun sitio: cualquier reinicio vuelve a dejar la WiFi encendida.
-// Todo lo demas que llegue por aqui se ignora en silencio.
+// Dos comandos, y a proposito ninguno mas:
+//
+//   "WIFI_EN,<0|1>"  para probar la OTA por 2G, que con la WiFi levantada no se
+//                    ejercita nunca.
+//   "PHOTO,<0|1>"    enciende/suelta la fototerapia para probar el lazo de
+//                    intensidad sin nadie en la pantalla. PHOTO,1 exige el modo
+//                    depuracion encendido; PHOTO,0 se acepta siempre, porque
+//                    apagar nunca es lo peligroso. Va SOLO por aqui, sin
+//                    endpoint HTTP: acciona un actuador y esta consola pide
+//                    acceso fisico al USB (ver debug_mode.h).
+//
+// Nada de esto se guarda: cualquier reinicio vuelve a dejar la WiFi encendida
+// y la fototerapia como la tenga el display. Lo demas se ignora.
 // ---------------------------------------------------------------------------
 // ESP_LOGx y no logI/logE: main.h compila esos dos fuera del binario
 // (LOG_INFORMATION y LOG_ERRORS estan a false), asi que un acuse escrito con
@@ -376,6 +386,31 @@ void sensors_Task(void *pvParameters) {
 static const char *DBGCON_TAG __attribute__((unused)) = "DBGCON";
 
 static void debugConsoleHandle(const char *line) {
+  if (strncmp(line, "PHOTO,", 6) == 0) {
+    const char *arg = line + 6;
+    // Mismo parseo estricto que WIFI_EN: un '0' o un '1' y nada mas.
+    if ((arg[0] != '0' && arg[0] != '1') || arg[1] != '\0') {
+      ESP_LOGW(DBGCON_TAG, "PHOTO: argumento invalido, se espera 0 o 1");
+      return;
+    }
+    if (arg[0] == '0') {
+      debug_photo_off();
+      ESP_LOGW(DBGCON_TAG, "PHOTO,0: fototerapia de depuracion soltada; vuelve "
+               "a mandar el display tras %u ms de gracia",
+               (unsigned)PHOTO_OVERRIDE_RELEASE_GRACE_MS);
+      return;
+    }
+    // in3.phototherapy es aqui la ultima orden REAL del display: todavia no
+    // la ha podido contaminar esta prueba.
+    if (!debug_photo_on(in3.phototherapy)) {
+      ESP_LOGW(DBGCON_TAG, "PHOTO,1 rechazado: el modo depuracion esta apagado "
+               "(POST /debug/mode?on=1)");
+      return;
+    }
+    ESP_LOGW(DBGCON_TAG, "PHOTO,1: fototerapia de depuracion ENCENDIDA (se "
+             "aplica con la siguiente trama del display)");
+    return;
+  }
   if (strncmp(line, "WIFI_EN,", 8) != 0) {
     ESP_LOGI(DBGCON_TAG, "comando desconocido, ignorado: %s", line);
     return;
@@ -544,8 +579,20 @@ void Communication_Receiver(void *pvParameters) {
 
       // Estado ANTERIOR, para distinguir el flanco de encendido del keepalive.
       const bool photoEstabaEncendida = in3.phototherapy;
-      in3.phototherapy = hmi_cmd_msg.phototherapyMode;
-      { Preferences p; p.begin(NS_STATE, false); p.putUChar(KEY_PHOTO_ACTIVE, in3.phototherapy); p.end(); }
+      // Normalmente es lo que manda el display. Con un encendido de depuracion
+      // en marcha (o en su ventana de gracia) manda photo_override: fuerza ON
+      // durante la prueba e ignora despues el ON rancio que el display habra
+      // adoptado. Ver modules/control/photo_override.h.
+      in3.phototherapy = debug_photo_effective(hmi_cmd_msg.phototherapyMode);
+      // Se guarda la orden DEL DISPLAY, y solo cuando no hay prueba en curso:
+      // durante ella el display devuelve el ON adoptado, y guardarlo haria que
+      // una caida reanudase una sesion de depuracion como si fuera real.
+      if (debug_photo_may_persist()) {
+        Preferences p;
+        p.begin(NS_STATE, false);
+        p.putUChar(KEY_PHOTO_ACTIVE, hmi_cmd_msg.phototherapyMode);
+        p.end();
+      }
       if (in3.language != hmi_cmd_msg.language) {
         in3.language = hmi_cmd_msg.language;
         resendActiveAlarms();

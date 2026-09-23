@@ -16,6 +16,7 @@
 #include "main.h"
 #include "config/board.h"
 #include "modules/control/alarm_machine.h"
+#include "modules/control/photo_override.h"
 #include "modules/util/tz_source.h"
 #include "modules/util/system_clock.h"
 #include "modules/baby_profile/baby_profile_store.h"
@@ -32,6 +33,62 @@ extern double HeaterPIDOutput;
 
 // El modo NO se persiste: ver la regla 1 de debug_mode.h.
 static volatile bool s_enabled = false;
+
+// Encendido de fototerapia de depuracion (photo_override.h). Lo tocan la
+// consola UART y el web server (tarea OTA_WIFI) y lo lee el receptor de tramas
+// del display (Communication_Receiver): de ahi el spinlock.
+static PhotoOverride s_photo;
+static bool s_photo_inited = false;
+static portMUX_TYPE s_photo_mux = portMUX_INITIALIZER_UNLOCKED;
+
+static void photo_lock_init(void) {
+  if (!s_photo_inited) {
+    photo_override_init(&s_photo);
+    s_photo_inited = true;
+  }
+}
+
+bool debug_photo_on(bool real_now) {
+  if (!s_enabled) {
+    return false;
+  }
+  portENTER_CRITICAL(&s_photo_mux);
+  photo_lock_init();
+  photo_override_start(&s_photo, real_now, millis());
+  portEXIT_CRITICAL(&s_photo_mux);
+  return true;
+}
+
+void debug_photo_off(void) {
+  portENTER_CRITICAL(&s_photo_mux);
+  photo_lock_init();
+  photo_override_release(&s_photo, millis());
+  portEXIT_CRITICAL(&s_photo_mux);
+}
+
+bool debug_photo_active(void) {
+  portENTER_CRITICAL(&s_photo_mux);
+  photo_lock_init();
+  const bool a = photo_override_active(&s_photo);
+  portEXIT_CRITICAL(&s_photo_mux);
+  return a;
+}
+
+bool debug_photo_effective(bool display_value) {
+  portENTER_CRITICAL(&s_photo_mux);
+  photo_lock_init();
+  const bool v = photo_override_effective(&s_photo, display_value, millis());
+  portEXIT_CRITICAL(&s_photo_mux);
+  return v;
+}
+
+bool debug_photo_may_persist(void) {
+  portENTER_CRITICAL(&s_photo_mux);
+  photo_lock_init();
+  const bool p = photo_override_may_persist(&s_photo, millis());
+  portEXIT_CRITICAL(&s_photo_mux);
+  return p;
+}
 
 struct Override {
   bool active;
@@ -85,6 +142,11 @@ void debug_mode_set(bool on) {
     // todavia puesta.
     debug_override_clear_all();
     debug_alarm_clear_all();
+    // Tambien el encendido de fototerapia. Soltar (con su ventana de gracia) y
+    // no simplemente borrar: el display habra adoptado el ON y lo seguira
+    // devolviendo un rato, y sin la gracia ese ON rancio encenderia la lampara
+    // de verdad justo al apagar el modo.
+    debug_photo_off();
     if (s_inject_q != NULL) {
       xQueueReset(s_inject_q);
     }
@@ -339,11 +401,12 @@ size_t debug_state_json_ex(char *out, size_t out_len, bool with_tasks) {
     in3.BATTERY_current);
 
   J(",\"ctl\":{\"actuation\":%d,\"mode\":%d,\"temp_ctl\":%d,\"hum_ctl\":%d"
-    ",\"set_temp\":%.2f,\"set_hum\":%.2f,\"photo\":%d,\"photo_pwm\":%d}",
+    ",\"set_temp\":%.2f,\"set_hum\":%.2f,\"photo\":%d,\"photo_pwm\":%d"
+    ",\"photo_dbg\":%d}",
     in3.actuation, in3.controlMode ? 1 : 0, in3.temperatureControl ? 1 : 0,
     in3.humidityControl ? 1 : 0, in3.desiredControlTemperature,
     in3.desiredControlHumidity, in3.phototherapy ? 1 : 0,
-    (int)in3.phototherapy_intensity);
+    (int)in3.phototherapy_intensity, debug_photo_active() ? 1 : 0);
 
   J(",\"fan\":{\"commanded\":%d,\"feedback\":%d,\"pid_en\":%d,\"pid_out\":%.0f"
     ",\"ctl_pwm\":%d,\"supply_pwm\":%d}",
