@@ -739,14 +739,24 @@ bool actuatorsTest() {
     logE("[HW] -> Fail -> Phototherapy current too low/high to extrapolate a "
          "reliable intensity (raw PWM=" + String(pwmTargetRaw) + ")");
   } else {
-    in3.phototherapy_intensity = pwmTargetRaw;
-    in3.photoFirstRun = false;
-    // Se guarda para poder sembrar con el en un arranque donde este autotest
-    // no llega a correr, que es justo el que sigue a una caida (restoreState
-    // se salta actuatorsTest). Sin esto la semilla ahi era un 40 % fijo, que
-    // depende de la unidad y no apunta a la corriente objetivo.
-    { Preferences p; p.begin(NS_STATE, false);
-      p.putUChar(KEY_PHOTO_PWM, (uint8_t)pwmTargetRaw); p.end(); }
+    // Solo si NO hay ya una semilla mejor. recapVariables() deja
+    // photoFirstRun a false cuando ha cargado de NVS la intensidad a la que
+    // convergio el lazo, y ese valor es MEDIDO sobre la lampara en su punto de
+    // trabajo, mientras que esto es un modelo extrapolado desde una lectura al
+    // 10 % de PWM. En la unidad de banco ese modelo pide el doble de PWM del
+    // necesario, asi que dejarlo pisar el valor convergido es ir a peor.
+    //
+    // Sin esta guarda el orden del arranque lo estropeaba en silencio:
+    // recapVariables() cargaba 47, actuatorsTest() lo sobrescribia con 93 y la
+    // lampara volvia a arrancar al doble y a tardar un minuto en bajar
+    // (medido en banco el 2026-09-23).
+    //
+    // La comprobacion de rango de arriba se mantiene siempre: es un test de
+    // hardware, no una calibracion.
+    if (in3.photoFirstRun) {
+      in3.phototherapy_intensity = pwmTargetRaw;
+      in3.photoFirstRun = false;
+    }
     logI("[HW] -> Phototherapy extrapolated PWM=" + String(pwmTargetRaw) +
          " (" + String(pwmTargetRaw * 100 / PWM_MAX_VALUE) + "%) for " +
          String(PHOTOTHERAPY_CONSUMPTION_DEFAULT, 2) + " A");
