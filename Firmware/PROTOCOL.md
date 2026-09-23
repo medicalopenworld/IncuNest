@@ -176,23 +176,35 @@ repite: en su lugar viaja `CTRL,VIT`.
 **Formato**: `CTRL,PROBE,state`
 
 - `state` es el valor crudo del enum `ProbeState` de la librería
-  `incunest_afe4490`. **El rango no es 0–2**:
+  `incunest_afe4490` (anclada en `motherBoard/platformio.ini`, hoy `#v0.94`).
+  **El rango no es 0–2, y desde la v0.90 de la librería tampoco es 0–3**:
 
   | `state` | Significado |
   |---|---|
   | `0` | `DISCONNECTED` — sonda o conector sin enchufar |
-  | `1` | `NOT_APPLIED` — sonda conectada, sin tejido en el camino óptico |
+  | `1` | `OT_HIGH` (antes `NOT_APPLIED`; mismo valor, renombrado en v0.90) — sonda conectada, los dos canales superan el umbral de transmitancia óptica: no hay tejido en el camino óptico |
   | `2` | `APPLIED` — sonda sobre el paciente, medida normal |
-  | `3` | `SATURATING` — canal saturado por exceso de luz; la presencia de tejido es **desconocida**, así que **no** implica `APPLIED` |
+  | `3` | `AMB_SATURATING` (antes `SATURATING`; mismo valor, renombrado en v0.90) — satura también el canal ambiente (luz externa, p. ej. la lámpara de fototerapia); la presencia de tejido es **desconocida**, así que **no** implica `APPLIED` |
+  | `4` | `ONLY_LED_SATURATING` (nuevo en v0.90) — satura solo la fase LED, el ambiente queda limpio: la luz del propio LED llega al fotodiodo sin nada que la atenúe |
 
-- `3` es el estado habitual justo al **retirar** la sonda: queda expuesta a la
-  luz ambiente y el ADC se va al raíl positivo. Un receptor que solo acepte
-  `0..2` descarta ese mensaje y se queda con el último `APPLIED` (fallo real
-  corregido: la gráfica PPG no se ocultaba al quitar la sonda).
+- **En esta placa `4` es el estado habitual de "sonda retirada"**, no `3`. Con
+  el HGAC encendido, sin dedo los dos canales LED se van al raíl positivo del
+  ADC con el ambiente limpio, que es exactamente la firma de `4`; `3` exige
+  además que sature el ambiente. Con la librería v0.81 ese mismo caso físico
+  se reportaba como `1`.
+- Receptores anteriores al `Display_HMI` 4.3.0 validaban `0..3` y convertían
+  cualquier otro valor —incluido el `4`— en `1`. Lo que se pinta no cambia
+  (todo lo que no es `2` es "sin contacto válido"); lo que se pierde es poder
+  distinguir sonda retirada (`4`) de sonda deslumbrada (`3`). Desde la 4.3.0 el
+  display tiene su propio tipo espejo del de la librería
+  (`Display_HMI/include/protocol/spo2_probe.h`, con test de host).
+- Un receptor que solo acepte un rango cerrado y **descarte** el resto se queda
+  con el último `APPLIED` (fallo real corregido: la gráfica PPG no se ocultaba
+  al quitar la sonda, cuando el `3` llegaba fuera de `0..2`).
 - **Regla fail-safe para el receptor**: solo `2` habilita mostrar traza y HR.
   Cualquier otro valor parseable —incluido uno que esta versión no conozca—
   debe tratarse como "sin contacto válido"; nunca descartarse. Si la librería
-  añade un estado, hay que reflejarlo aquí y en `Display_HMI`'s `CommTask.h`.
+  añade un estado, hay que reflejarlo aquí y en `spo2_probe.h`.
 
 #### CTRL,PPG (Onda pletismográfica)
 Enviado a 25 Hz (cada 40 ms) **solo** cuando el estado de sonda es `2`.
