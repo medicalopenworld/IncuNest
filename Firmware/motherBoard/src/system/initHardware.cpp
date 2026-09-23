@@ -180,10 +180,11 @@ extern PID humidityControlPID;
 #define FAN_CONSUMPTION_MAX 0.8
 // Emparejado con PHOTO_TARGET_CURRENT (task_config.h): los dos son el mismo
 // setpoint de corriente, aqui para extrapolar el PWM inicial en actuatorsTest()
-// y alli para regularlo en marcha. Se mueven juntos. 2026-09-21: 0.45 -> 0.27.
+// y alli para regularlo en marcha. Se mueven juntos. 2026-09-21: 0.45 -> 0.27;
+// 2026-09-23: vuelta a 0.45.
 // No confundir con PHOTOTHERAPY_CONSUMPTION_MIN/MAX, que son limites de
 // presencia de hardware medidos al 10 % de PWM y no dependen del setpoint.
-#define PHOTOTHERAPY_CONSUMPTION_DEFAULT 0.27
+#define PHOTOTHERAPY_CONSUMPTION_DEFAULT 0.45
 #define PHOTOTHERAPY_CONSUMPTION_MAX 3
 #define PHOTOTHERAPY_INITIAL_PWM_PCT 40
 #define HUMIDIFIER_CONSUMPTION_MAX 0.8

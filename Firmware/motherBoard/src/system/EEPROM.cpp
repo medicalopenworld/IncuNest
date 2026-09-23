@@ -428,7 +428,18 @@ void recapVariables()
     // 40 % fijo de PHOTOTHERAPY_INITIAL_PWM_PCT, que no apunta a ningun
     // objetivo y da una corriente distinta en cada unidad.
     const uint8_t photoPwmGuardado = p.getUChar(KEY_PHOTO_PWM, 0);
-    if (photoPwmGuardado > 0) {
+    // Solo vale si se calibro para el objetivo ACTUAL. Una semilla de otro
+    // objetivo (o una sin objetivo, escrita por 18.43/18.44) se ignora y se
+    // cae al camino normal: extrapolacion del autotest o 40 % fijo.
+    const uint16_t objetivoGuardado = p.getUShort(KEY_PHOTO_PWM_TGT, 0);
+    const uint16_t objetivoActual =
+        (uint16_t)(PHOTO_TARGET_CURRENT * 1000.0f + 0.5f);
+    if (photoPwmGuardado > 0 && objetivoGuardado != objetivoActual) {
+      ESP_LOGW("APP", "[BOOT] semilla de fototerapia descartada: calibrada "
+               "para %u mA, objetivo actual %u mA",
+               (unsigned)objetivoGuardado, (unsigned)objetivoActual);
+    }
+    if (photoPwmGuardado > 0 && objetivoGuardado == objetivoActual) {
       in3.phototherapy_intensity = photoPwmGuardado;
       in3.photoFirstRun = false;   // ya hay semilla buena: no usar el 40 % fijo
     }

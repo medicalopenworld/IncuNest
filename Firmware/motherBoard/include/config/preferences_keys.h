@@ -68,6 +68,11 @@ constexpr char KEY_ACTUATION[]    = "actuation";
 // autotest NO corre, y sin esto la semilla caia en un 40 % fijo que no apunta
 // a ningun objetivo y depende de la unidad. Ver known_issues.md #17.
 constexpr char KEY_PHOTO_PWM[]    = "photo_pwm";
+// Objetivo de corriente (en mA) para el que se calibro KEY_PHOTO_PWM. Si
+// PHOTO_TARGET_CURRENT cambia por firmware, la semilla guardada corresponde a
+// OTRO punto de trabajo y se descarta. Sin esto, al pasar de 0.27 a 0.45 A la
+// lampara arrancaba en el PWM convergido para 0.27 y subia despacio.
+constexpr char KEY_PHOTO_PWM_TGT[] = "photo_pwm_tgt";
 
 // --------------- Key names: mb_ftest ---------------
 constexpr char KEY_FTEST_EPOCH[] = "epoch";

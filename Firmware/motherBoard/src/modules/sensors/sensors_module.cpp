@@ -167,6 +167,8 @@ void currentMonitor() {
       Preferences p;
       p.begin(NS_STATE, false);
       p.putUChar(KEY_PHOTO_PWM, in3.phototherapy_intensity);
+      p.putUShort(KEY_PHOTO_PWM_TGT,
+                  (uint16_t)(PHOTO_TARGET_CURRENT * 1000.0f + 0.5f));
       p.end();
       pwmGuardado = in3.phototherapy_intensity;
       ultimoGuardadoPwm = millis();
