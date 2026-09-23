@@ -160,9 +160,18 @@ void currentMonitor() {
     //
     // Se escribe como mucho cada 60 s y solo si ha cambiado: esto corre una
     // vez por segundo y NVS es flash.
+    //
+    // Y SOLO DENTRO DE BANDA. La primera version guardaba cualquier valor, y
+    // la primera escritura de una sesion caia en la semilla de la
+    // extrapolacion: en banco (2026-09-23, objetivo 0,45 A) eso fue PWM 175 a
+    // 1,06 A. Si la sesion se cortaba antes del siguiente guardado, la
+    // proxima volvia a arrancar al doble del objetivo. Una semilla solo vale
+    // si es un punto donde el lazo YA estaba en su sitio.
+    const bool enBanda =
+        (error <= PHOTO_TOLERANCE_A) && (error >= -PHOTO_TOLERANCE_A);
     static uint32_t ultimoGuardadoPwm = 0;
     static uint8_t  pwmGuardado = 0;
-    if (in3.phototherapy_intensity != pwmGuardado &&
+    if (enBanda && in3.phototherapy_intensity != pwmGuardado &&
         millis() - ultimoGuardadoPwm > 60000) {
       Preferences p;
       p.begin(NS_STATE, false);
