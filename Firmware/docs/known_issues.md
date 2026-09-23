@@ -748,21 +748,68 @@ watchdog (`DEBUG_CRASH_TASK_WDT`, "lo dispara el TWDT"), but the board reported
 `INT_WDT`. It does not reproduce the production failure it is named after
 (`TASK_WDT`, units 352/358/359, #13).
 
-## 19. The bench unit's thermal cutout is 38 °C, not 40 (unit config, OPEN)
+## 19. The 40 °C air cutout is a bench shortcut shipping on the production line (OPEN, decision pending)
 
-The bench battery test `frontera-corte-termico` fails on the bench unit: the
-air cutout fires at 39.0 °C. Not a code regression — the compiled default is
-`AIR_THERMAL_CUTOUT_DEFAULT_C 40` since `68a0369e`, but a value already stored
-in NVS wins, and this unit holds `air_tmax = 38.00` from before that change.
-The firmware warns about it on every boot:
+**Correction.** The first version of this entry said the bench unit was wrong
+to cut at 38 °C and suggested checking the fleet for "old" 38 °C units. That was
+backwards. `68a0369e`, the commit that introduced the 40 °C default, says so in
+its own message: *"El corte a 40 C ES UNA DESVIACION NORMATIVA CONSCIENTE de
+201.15.4.2.1 aa), que fija 38 C: no se puede reclamar conformidad mientras esto
+este puesto"*, and records it as a shortcut to test 39 °C setpoints on the
+bench. `docs/alarms_normative_analysis.md` §2.4 says the same.
 
-```
-corte termico de aire a 38.0 C, por debajo del tope de consigna (39.0 C):
-una consigna por encima del corte disparara ALARM_AIR_THERMAL_CUTOUT sin
-poder alcanzarse. Ajusta air_tmax a 40.0 en /config.
-```
+So the facts are:
 
-**Worth checking across the fleet**: any unit whose NVS was initialised before
-`68a0369e` keeps its old cutout, and with the setpoint ceiling at 39 °C a 38 °C
-cutout makes the top of the setpoint range unreachable. The default only applies
-to units whose NVS has no `air_tmax` at all.
+| | value | meaning |
+|---|---|---|
+| IEC 60601-2-19 201.15.4.2.1 aa) | **38 °C** | the requirement |
+| bench unit NVS `air_tmax` | 38.00 | initialised before `68a0369e`: **conforming** |
+| `AIR_THERMAL_CUTOUT_DEFAULT_C` | 40 | the deviation, as default for new NVS |
+| `ALARM_AIR_CUTOUT_MAX_C` | 40 | ceiling of the clamp |
+| `ALARM_AIR_SETPOINT_MAX_C` | 39 | setpoint ceiling, must stay below the cutout |
+
+The consequence that matters: this is on `dev-pio`, the production line. **Any
+unit whose NVS is initialised by firmware at or after `68a0369e` gets a 40 °C
+cutout** — which is likely the manufacturing batch of 2026-09-17 — and the
+bench test `frontera-corte-termico` encodes the deviation as the expected value.
+The standard's own route above 37 °C is an override gesture plus a second,
+independent cutout at 40 °C (OpenSpec `mb-air-overtemp-override`, not
+implemented), and the cutout still reads the same sensor as the PID (§2.4).
+
+The bench unit's 38 is the correct value and has been left alone. Deciding the
+production value is a product/regulatory call, not a firmware fix.
+
+## 20. The board echoes the display's phototherapy order instead of reporting the lamp (OPEN)
+
+Seen while testing the UART `PHOTO,1` command on 2026-09-23 (18.46): with the
+lamp on at 0.46 A, `CTRL,STATE` field 8 said `0`. `send_state_to_hmi()` sends
+`g_last_cmd.phototherapyMode` — the last thing the *display* asked for — not
+`in3.phototherapy`. Same class of fault as the audio field already fixed in
+that function ("devolvia g_last_cmd.muteAlarm... no aportaba nada y ademas
+mentia"); actuation, control mode and setpoints are echoes too.
+
+Certain consequence: during a debug phototherapy session **the screen shows
+phototherapy OFF while the lamp is ON**. Not yet established: whether any
+*non*-debug path (a crash restore, a timer expiry on the board) leaves the lamp
+and the screen disagreeing. The debug override does not depend on it — its
+release window is defensive and verified to leave the lamp off.
+
+## 21. The first session after a setpoint change can start at twice the target
+
+Measured on the bench unit (18.46, target 0.45 A, seed discarded because it was
+calibrated for another target): the autotest's extrapolated seed was PWM 175,
+the lamp started at **1.06 A**, and the loop took **95 s** to reach 0.46 A
+because it moves 1 PWM count per second (`PHOTO_MAX_STEP`). On this unit the
+10 %-PWM reading sits below the linear model, so extrapolation overshoots; on
+fleet units it is accurate (#17).
+
+It happens once per unit per target: after convergence the seed is saved with
+its target and the next session starts at PWM 75 / 0.46 A from the first
+second (verified, 18.47). Two things were fixed along the way: the seed is now
+saved **only inside the tolerance band** (the first version saved the PWM-175
+overshoot as a seed), and a seed calibrated for another target is discarded.
+
+Not changed: the 1-count-per-second slew in both directions. Lowering current
+is always the safe direction, so an asymmetric slew — fast down, slow up —
+would cut the overshoot to a few seconds. It changes the dynamics of a clinical
+actuator, so it is left as a proposal.
