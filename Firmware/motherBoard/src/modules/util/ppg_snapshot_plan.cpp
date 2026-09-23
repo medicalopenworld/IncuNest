@@ -1,5 +1,7 @@
 #include "ppg_snapshot_plan.h"
 
+#include "config/telemetry_keys.h"
+
 uint16_t ppg_chunk_end(uint16_t next, uint16_t n, uint16_t chunk) {
   // En uint32_t: next + chunk puede pasar de 65535 y dar la vuelta.
   uint32_t const end = (uint32_t)next + chunk;
@@ -9,6 +11,18 @@ uint16_t ppg_chunk_end(uint16_t next, uint16_t n, uint16_t chunk) {
 uint64_t ppg_sample_ts_ms(uint64_t lastMs, uint16_t n, uint16_t i,
                           uint32_t stepMs) {
   return lastMs - (uint64_t)(n - 1 - i) * stepMs;
+}
+
+uint16_t ppg_chunk_to_json(JsonArray series, const float *samples,
+                           uint16_t next, uint16_t n, uint64_t lastMs,
+                           uint32_t stepMs) {
+  uint16_t const end = ppg_chunk_end(next, n, PPG_SNAPSHOT_CHUNK_SAMPLES);
+  for (uint16_t i = next; i < end; i++) {
+    JsonObject point = series.createNestedObject();
+    point["ts"] = ppg_sample_ts_ms(lastMs, n, i, stepMs);
+    point.createNestedObject("values")[PPG_SNAPSHOT_KEY] = samples[i];
+  }
+  return end;
 }
 
 bool ppg_elapsed(uint32_t now, uint32_t since, uint32_t interval) {

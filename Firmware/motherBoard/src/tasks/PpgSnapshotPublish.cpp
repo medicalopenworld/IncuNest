@@ -68,26 +68,23 @@ bool begin(ThingsBoard &client, const char *tag) {
   return true;
 }
 
-bool sendChunk(ThingsBoard &client) {
-  uint16_t const n = ppgSnapshotSampleCount();
-  float const *samples = ppgSnapshotSamples();
-  uint16_t const end = ppg_chunk_end(s_next, n, PPG_SNAPSHOT_CHUNK_SAMPLES);
-  uint16_t const count = end - s_next;
-  uint32_t const stepMs = 1000UL / PPG_SNAPSHOT_FS_HZ;
+// Si el trozo no cabe en el buffer del cliente MQTT, la librería vuelve al
+// streaming de 64 B en 64 B, que es justo lo que se atascaba.
+static_assert(PPG_SNAPSHOT_CHUNK_JSON_BUDGET + 64 <= MAX_MESSAGE_SIZE,
+              "un trozo PPG tiene que caber en el buffer MQTT");
 
-  DynamicJsonDocument doc(JSON_ARRAY_SIZE(count) +
-                          count * (JSON_OBJECT_SIZE(2) + JSON_OBJECT_SIZE(1)));
-  // ~1,3 KB. Si ni eso cabe, el documento queda nulo: publicarlo mandaría
+bool sendChunk(ThingsBoard &client) {
+  DynamicJsonDocument doc(PPG_SNAPSHOT_CHUNK_DOC_CAPACITY);
+  // Si ni esto cabe en el heap, el documento queda nulo: publicarlo mandaría
   // basura a la nube. Se reintenta en la siguiente llamada.
   if (doc.capacity() == 0)
     return false;
 
   JsonArray series = doc.to<JsonArray>();
-  for (uint16_t i = s_next; i < end; i++) {
-    JsonObject point = series.createNestedObject();
-    point["ts"] = ppg_sample_ts_ms(s_lastMs, n, i, stepMs);
-    point.createNestedObject("values")[PPG_SNAPSHOT_KEY] = samples[i];
-  }
+  uint16_t const end =
+      ppg_chunk_to_json(series, ppgSnapshotSamples(), s_next,
+                        ppgSnapshotSampleCount(), s_lastMs,
+                        1000UL / PPG_SNAPSHOT_FS_HZ);
 
   size_t const bytes = measureJson(series);
   if (!client.sendTelemetryJson(series, JSON_STRING_SIZE(bytes)))
