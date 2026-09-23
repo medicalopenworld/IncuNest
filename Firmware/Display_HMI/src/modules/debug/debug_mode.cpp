@@ -189,6 +189,12 @@ size_t debug_state_json_ex(char *out, size_t out_len, bool with_tasks) {
     Display_IsBoardLinkLost() ? 1 : 0, s_link_muted ? 1 : 0,
     Display_BoardEverSeen() ? 1 : 0);
 
+  // Sonda de SpO2, tal como la ha entendido el display (CTRL,PROBE). Aparte de
+  // "state.probe", que es la sonda de PIEL. Sirve para comprobar en banco que
+  // un estado nuevo de incunest_afe4490 llega con su nombre y no colapsado.
+  J(",\"spo2\":{\"probe\":%d,\"name\":\"%s\"}", (int)ctrl_probe_msg.state,
+    spo2ProbeName(ctrl_probe_msg.state));
+
   J(",\"tel\":{\"air\":%.2f,\"skin\":%.2f,\"hum\":%.2f,\"serial\":%d"
     ",\"srv\":%d}",
     ctrl_tel_msg.detectedAirTemperature, ctrl_tel_msg.detectedSkinTemperature,

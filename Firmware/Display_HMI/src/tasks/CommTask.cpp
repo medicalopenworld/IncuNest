@@ -820,17 +820,18 @@ static void parse_message(const char *line) {
       // el ultimo APPLIED y con el la traza PPG congelada en la pantalla de
       // bloqueo, que es justo el fallo que esto corrige (SATURATING=3 llegaba y
       // se rechazaba por estar fuera del rango 0..2).
-      if (state < SPO2_PROBE_DISCONNECTED || state > SPO2_PROBE_SATURATING) {
+      //
+      // Hasta la 4.2.1 el rango valido era 0..3 y el 4 (ONLY_LED_SATURATING,
+      // nuevo en incunest_afe4490 v0.90 y el estado habitual de "sonda
+      // retirada" en esta placa) caia aqui como desconocido. En pantalla daba
+      // igual; lo que se perdia era distinguir retirada (4) de deslumbrada (3).
+      const Spo2ProbeState s = spo2ProbeFromWire(state);
+      if ((int)s != state) {
         COMM_LOG("[COMM] CTRL,PROBE estado desconocido (%d) -> NOT_APPLIED\n",
                  state);
-        state = SPO2_PROBE_NOT_APPLIED;
       }
-      ctrl_probe_msg.state   = (ProbeContactState)state;
+      ctrl_probe_msg.state   = s;
       ctrl_probe_msg.updated = true;
-      static const char *const probe_state_names[] = {
-          "DISCONNECTED", "NOT_APPLIED", "APPLIED", "SATURATING"};
-      (void)probe_state_names;
-      // COMM_LOG("[COMM] CTRL,PROBE -> %s\n", probe_state_names[state]);
     } else {
       COMM_LOG("[COMM] CTRL,PROBE parse error: %s\n", line);
     }

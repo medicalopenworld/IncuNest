@@ -139,21 +139,11 @@ typedef struct {
   bool     newState;
 } ControlBoard_Message_State;
 
-// Legacy name for the probe state enum
-typedef SkinProbeState ProbeContactState;
-// SPO2_PROBE_* aliases (HMI code uses these names)
-// El contrato numerico lo fija ProbeState de la libreria incunest_afe4490 (la
-// motherboard reenvia el valor crudo en CTRL,PROBE): 0=DISCONNECTED,
-// 1=NOT_APPLIED, 2=APPLIED, 3=SATURATING. Si la libreria anade un estado
-// nuevo, hay que anadirlo aqui y en PROTOCOL.md: el HMI trata cualquier
-// estado desconocido como "sin contacto" (fail-safe), no lo descarta.
-#define SPO2_PROBE_DISCONNECTED SKIN_PROBE_NOT_CONNECTED
-#define SPO2_PROBE_NOT_APPLIED  SKIN_PROBE_PENDING_VALIDATION
-#define SPO2_PROBE_APPLIED      SKIN_PROBE_VALID
-// Canal saturado desde arriba (exceso de luz): la presencia de tejido es
-// DESCONOCIDA, por lo que no implica APPLIED. Es el estado tipico al retirar
-// la sonda, que queda expuesta a la luz ambiente.
-#define SPO2_PROBE_SATURATING   SKIN_PROBE_INVALID
+// Estado de la sonda de SpO2: espejo de ProbeState de incunest_afe4490, con su
+// propio tipo desde la 4.3.0 (antes eran alias del enum de la sonda de PIEL).
+// Contrato, historia y conversion fail-safe en protocol/spo2_probe.h. Si la
+// libreria anade un estado, se anade alli y en PROTOCOL.md.
+#include "protocol/spo2_probe.h"
 
 // PPG waveform sample (CTRL,PPG — 25 Hz)
 typedef struct {
@@ -171,8 +161,8 @@ typedef struct {
 
 // SpO2 probe contact state
 typedef struct {
-  ProbeContactState state;
-  bool              updated;
+  Spo2ProbeState state;
+  bool           updated;
 } ControlBoard_Message_Probe;
 
 // Sensor data message (HMI-internal, not a protocol type)
