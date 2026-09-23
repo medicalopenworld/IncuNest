@@ -428,6 +428,33 @@ void recapVariables()
     p.end();
   }
 
+  // En un arranque que NO es recuperacion (encendido normal o brownout) la
+  // fototerapia no se reanuda, igual que no se reanuda el control de
+  // temperatura: in3.actuation se lee siempre pero solo se APLICA bajo
+  // restoreState, unas lineas mas abajo. in3.phototherapy no tenia ese filtro
+  // y si se aplicaba siempre, en initHardware.cpp:
+  //
+  //     if (in3.phototherapy) { ...; ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, ...) }
+  //
+  // Consecuencia observada en banco: apagas la unidad con la fototerapia
+  // puesta, la enciendes en frio, el autotest prueba la lampara al 10 % de PWM
+  // --correcto-- y justo despues esa linea la encendia a la intensidad de
+  // trabajo (40 %, o hasta 255 si photoFirstRun ya era falso), es decir MAS
+  // intensidad que el test, hasta que ~1 s despues llegaba el primer mandato
+  // del HMI con photo=0 y la apagaba. Un destello de irradiacion que nadie ha
+  // mandado, en cada encendido en frio posterior a una sesion.
+  //
+  // Intermitente a proposito de nadie: solo ocurre si se apago con la
+  // fototerapia encendida.
+  //
+  // Ademas dejaba a las dos placas discrepando justo en lo que
+  // security_check_reboot_cause() dice que se unifico: el HMI usa la misma
+  // regla (g_hmiRestoreState) y por eso el que mandaba photo=0 era el.
+  if (!in3.restoreState && in3.phototherapy) {
+    ESP_LOGW("APP", "[BOOT] arranque en frio: no se reanuda la fototerapia");
+    in3.phototherapy = false;
+  }
+
   // Restore phototherapy timer if it was active
   if (in3.phototherapy)
   {

@@ -618,6 +618,75 @@ authenticated request is enough to flash anything onto the unit. Fixing it
 means TLS on a board with ~11 KB of free internal heap (see the OOM notes), so
 it is a design decision, not a patch.
 
+## 17. Phototherapy intensity was never regulated, so the 40 % cut did nothing
+
+Reported from the bench on 2026-09-23 as "during the current test the light
+uses a low PWM (correct), but sometimes it comes back on for a second at a
+higher intensity". Chasing that turned up two separate faults, the second much
+larger than the report.
+
+### 17a — a one-second irradiation burst on every cold boot after a session
+
+`in3.actuation` is read from NVS unconditionally but only **applied** under
+`if (in3.restoreState)` (`EEPROM.cpp`), so a cold power-up does not resume
+temperature control. `in3.phototherapy` had no such filter: it was read *and*
+applied, in `initHardware.cpp`:
+
+```c
+if (in3.phototherapy) { ...; ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, ...); }
+```
+
+Sequence: switch the unit off with phototherapy running (NVS keeps
+`photo_active=1`), power it up cold (`restoreState=false`), the autotest drives
+the lamp at 10 % PWM — correct — and immediately afterwards that line drives it
+at the *operating* intensity, brighter than the test, until the HMI's first
+command arrives about a second later with `photo=0` and switches it off.
+
+Intermittent because it needs the unit to have been switched off mid-session.
+It also left the two boards disagreeing on exactly the point
+`security_check_reboot_cause()` says was unified: the HMI uses the same
+`restoreState` rule, which is why the `photo=0` that ended the burst came from
+the HMI. Fixed by clearing `in3.phototherapy` when `!in3.restoreState`.
+
+### 17b — the regulation loop never ran, and the current is 2.2x the target
+
+`PHOTO_TARGET_CURRENT` is read in exactly one place: the intensity loop in
+`currentMonitor()` (`sensors_module.cpp`), which is gated on
+
+```c
+millis() - in3.photoTurnOnTime > PHOTO_SETTLE_MS   // 3000 ms
+```
+
+`main.cpp` refreshed `in3.photoTurnOnTime` on **every** HMI command, and that
+command is a keepalive — `CommTask.cpp` sets `newCommand = true` on every frame
+received, about once a second. The gate therefore never opened and the loop
+never executed once. `PHOTO_TARGET_CURRENT` was dead code, and the lamp simply
+sat at its open-loop seed.
+
+That seed is wrong too. The autotest extrapolates a PWM for the target current
+with a `1/x` model from a 10 % reading, and the LED's draw is not linear in duty:
+
+| measurement | value |
+|---|---|
+| autotest, 10 % PWM | 0.10 A |
+| extrapolated PWM for 0.27 A | 102 |
+| **actual current at PWM 102** | **0.59 - 0.60 A**, flat over 6 minutes |
+
+So the delivered current was **2.2x the intended 0.27 A**, and above even the
+old 0.45 A setpoint. Correcting that error is precisely what the loop exists
+for. The 0.44 - 0.46 A seen across the fleet is not a regulated value either —
+it is those units' open-loop seed, which happens to land near the old target.
+
+Fixed by re-arming `photoTurnOnTime` only on the off→on edge instead of on
+every keepalive.
+
+**This changes delivered irradiance and must be validated before it reaches a
+patient.** Enabling the loop drops the current from ~0.60 A to 0.27 A, more
+than halving it. Current is not calibrated against irradiance — the LED's
+radiant flux is roughly linear with current, so this is of the order of -55 %
+in uW/cm2/nm, but only a radiometer on the unit gives the real figure, and only
+that says whether the dose still meets the clinical protocol.
+
 **Credentials fallback is no longer silent.** `Credentials_public.h` fell back
 to the repository's public dummy values with no diagnostic; the only thing that
 caught it was the factory test failing to provision. It now emits a `#warning`

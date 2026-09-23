@@ -542,6 +542,8 @@ void Communication_Receiver(void *pvParameters) {
           in3_hum.turn(OFF);
       }
 
+      // Estado ANTERIOR, para distinguir el flanco de encendido del keepalive.
+      const bool photoEstabaEncendida = in3.phototherapy;
       in3.phototherapy = hmi_cmd_msg.phototherapyMode;
       { Preferences p; p.begin(NS_STATE, false); p.putUChar(KEY_PHOTO_ACTIVE, in3.phototherapy); p.end(); }
       if (in3.language != hmi_cmd_msg.language) {
@@ -553,7 +555,27 @@ void Communication_Receiver(void *pvParameters) {
           in3.phototherapy_intensity = PWM_MAX_VALUE * PHOTOTHERAPY_INITIAL_PWM_PCT / 100;
           in3.photoFirstRun = false;
         }
-        in3.photoTurnOnTime = millis();
+        // SOLO en el flanco de encendido. Esto estaba fuera del if y se
+        // ejecutaba en cada mandato del HMI, que es un KEEPALIVE: CommTask.cpp
+        // pone newCommand=true en cada trama recibida, ~1 por segundo.
+        //
+        // photoTurnOnTime es la marca de asentamiento que mira el lazo de
+        // regulacion de intensidad (sensors_module.cpp, currentMonitor):
+        //
+        //     millis() - in3.photoTurnOnTime > PHOTO_SETTLE_MS   // 3000 ms
+        //
+        // Refrescandola cada segundo esa condicion NO se cumple NUNCA, asi que
+        // el lazo no llegaba a ejecutarse jamas y PHOTO_TARGET_CURRENT era
+        // codigo muerto: la lampara se quedaba en la semilla en lazo abierto.
+        //
+        // Medido en banco el 2026-09-23: semilla PWM 102 (extrapolada por el
+        // autotest para 0.27 A desde una lectura de 0.10 A al 10 % de PWM) y
+        // corriente real 0.59-0.60 A sostenida durante 6 minutos. La
+        // extrapolacion 1/x se equivoca por 2.2x porque el consumo del LED no
+        // es lineal con el duty; corregir eso es justo el trabajo del lazo.
+        if (!photoEstabaEncendida) {
+          in3.photoTurnOnTime = millis();
+        }
       }
       // Idem: el canal de fototerapia tambien lo posee el test de fabrica
       // mientras dura la bateria. La reconciliacion con in3.phototherapy
