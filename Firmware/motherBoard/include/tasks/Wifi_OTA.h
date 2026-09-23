@@ -7,6 +7,7 @@
 #include "main.h"
 
 #include "config/transport_policy.h"
+#include "modules/util/ppg_snapshot_plan.h"
 
 // Los valores viven en transport_policy.h, que es la tabla única GPRS/WiFi.
 // Estos alias mantienen los nombres que ya usa el código.
@@ -30,7 +31,7 @@ struct WIFIstruct {
   bool lastWIFIConnectionStatus = false;
   bool lastOTAInProgress = false;
   long lastMQTTPublish = false;
-  long lastPpgSnapshotAttempt = false;
+  PpgAutoCapture ppgAuto = {}; // captura PPG automática (ver policy)
   long lastOTACheck = false;
   long lastReconnectAttempt = false;
   bool firstPublish = false;

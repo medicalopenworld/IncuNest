@@ -159,7 +159,8 @@
 // presupuesto de THINGSBOARD_FIELDS_AMOUNT. Ver modules/util/wifi_dwell.h.
 #define TX_FEATURE_WIFI_DWELL_GPRS 0
 #define TX_FEATURE_WIFI_DWELL_WIFI 1
-// Snapshot PPG. Un snapshot son 400 muestras ≈ 23 KB de JSON.
+// Snapshot PPG. Un snapshot son 400 muestras ≈ 23 KB de JSON, que se mandan
+// en 16 trozos de ~1,5 KB (ver modules/util/ppg_snapshot_plan.h).
 // El RPC capturePPG (captura bajo demanda) está en los dos transportes.
 #define TX_FEATURE_PPG_SNAPSHOT_GPRS 1
 #define TX_FEATURE_PPG_SNAPSHOT_WIFI 1
@@ -176,11 +177,17 @@
 // correlacion, no causa demostrada, pero es el unico camino de codigo
 // estrenado ese dia y el publish son ~23 KB en streaming por MQTT.
 //
-// Queda a 0 hasta validarlo en banco con el monitor serie delante, buscando
-// "[WIFI] -> PPG snapshot PUBLISH SUCCESS (400 muestras, ...)". El RPC
-// capturePPG sigue disponible en los dos transportes para provocarlo a mano,
-// que es justo como hay que probarlo: una captura controlada y mirando.
-#define TX_FEATURE_PPG_AUTOCAPTURE_WIFI 0
+// Banco 2026-09-23 (IncuNest-1_2, FW 18.49.0) lo reprodujo con el monitor
+// serie delante: con el publish de una pieza, WiFiClient::write() daba EAGAIN
+// una vez por segundo durante ~30 s, luego BEACON_TIMEOUT y reconexion MQTT;
+// no llego ni un punto en 2 de 3 capturas. Desde entonces el snapshot sale en
+// trozos, uno por vuelta de la tarea, y la autocaptura vuelve a 1.
+//
+// Cada TX_PPG_AUTOCAPTURE_WIFI_MS mientras haya sonda con rsqi==1: ~115 000
+// puntos/dia por equipo en TB. Sin senal se reintenta a los 10 s
+// (PPG_SNAPSHOT_AUTO_RETRY_MS), no al intervalo siguiente.
+#define TX_FEATURE_PPG_AUTOCAPTURE_WIFI 1
+#define TX_PPG_AUTOCAPTURE_WIFI_MS (5UL * 60UL * 1000UL)
 
 // -----------------------------------------------------------------------------
 // 4. RPC DISPONIBLES POR TRANSPORTE

@@ -18,7 +18,8 @@
 #define PPG_SNAPSHOT_DECIM      (PPG_SNAPSHOT_SRC_HZ / PPG_SNAPSHOT_FS_HZ)
 #define PPG_SNAPSHOT_SAMPLES    (PPG_SNAPSHOT_FS_HZ * PPG_SNAPSHOT_DURATION_S)
 
-// Captura automática mientras WiFi/ThingsBoard estén arriba y el gate pase.
+// Captura automática por GPRS (apagada, ver transport_policy.h). La de WiFi
+// usa TX_PPG_AUTOCAPTURE_WIFI_MS.
 #define PPG_SNAPSHOT_AUTO_INTERVAL_MS (15UL * 60UL * 1000UL)
 
 // Si una captura no termina en 3x su duración esperada (p. ej. el AFE4490
