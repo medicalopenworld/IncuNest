@@ -146,6 +146,31 @@ void currentMonitor() {
       ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, in3.phototherapy_intensity);
     }
     lastPhotoControl = millis();
+
+    // Guarda la intensidad a la que el lazo ha convergido, para sembrar con
+    // ella en el proximo encendido en vez de con la extrapolacion del
+    // autotest.
+    //
+    // La extrapolacion parte de una lectura al 10 % de PWM y asume
+    // I proporcional a (PWM+20). En la flota eso acierta, pero no en todas las
+    // unidades: en la de banco (2026-09-23) el lazo convergio a PWM 47 para
+    // 0,28 A, mientras que su lectura al 10 % --0,10 A-- queda por debajo de
+    // esa recta y hace que la extrapolacion pida en torno al doble de PWM. El
+    // valor convergido es medido, no modelado, asi que es mejor semilla.
+    //
+    // Se escribe como mucho cada 60 s y solo si ha cambiado: esto corre una
+    // vez por segundo y NVS es flash.
+    static uint32_t ultimoGuardadoPwm = 0;
+    static uint8_t  pwmGuardado = 0;
+    if (in3.phototherapy_intensity != pwmGuardado &&
+        millis() - ultimoGuardadoPwm > 60000) {
+      Preferences p;
+      p.begin(NS_STATE, false);
+      p.putUChar(KEY_PHOTO_PWM, in3.phototherapy_intensity);
+      p.end();
+      pwmGuardado = in3.phototherapy_intensity;
+      ultimoGuardadoPwm = millis();
+    }
   }
 }
 
