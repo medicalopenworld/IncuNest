@@ -67,7 +67,13 @@
 
 #define HW_REVISION 'A'
 #define HWversion String(HW_NUM) + "." + String(HW_REVISION)
-#define FWversion "18.47"
+// MAJOR.MINOR.PATCH desde 18.48.0 (2026-09-23), igual que el Display_HMI.
+// Antes era "18.NN", y ThingsBoard guarda como NUMERO una cadena que lo
+// parece: "18.40" llegaba como 18.4, indistinguible de una 18.4 de verdad.
+// Con tres componentes deja de parecer un numero y se queda como texto.
+// Nada del firmware ni del flash tool ordena versiones: ThingsBoard compara
+// por igualdad y el flash tool elige por la revision de HW del entorno.
+#define FWversion "18.48.0"
 #define WIFI_NAME "IncuNest"
 #define CURRENT_FIRMWARE_TITLE "IncuNest"
 

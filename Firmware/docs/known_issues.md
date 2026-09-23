@@ -748,7 +748,22 @@ watchdog (`DEBUG_CRASH_TASK_WDT`, "lo dispara el TWDT"), but the board reported
 `INT_WDT`. It does not reproduce the production failure it is named after
 (`TASK_WDT`, units 352/358/359, #13).
 
-## 19. The 40 °C air cutout is a bench shortcut shipping on the production line (OPEN, decision pending)
+## 19. The 40 °C air cutout is a bench shortcut shipping on the production line (DECIDED: kept)
+
+**Decision, 2026-09-23 (Pablo Sánchez):** keep the setpoint ceiling at 39 °C
+and the cutout at 40 °C in production. The deviation from 201.15.4.2.1 aa)
+stays on record as in `68a0369e` and `alarms_normative_analysis.md` §2.4, and
+conformance with that clause still cannot be claimed while it stands.
+
+Applied to the bench unit the same day: `air_tmax` 38 → 40 through `POST
+/config` (only that field; `heater_amps` and `skin_tmax` untouched), persisted
+across a reboot (the boot warning disappeared), and `frontera-corte-termico`
+now passes — the bench battery is 17/17. Units already in the field whose NVS
+predates `68a0369e` still hold 38 °C, and the firmware deliberately does not
+migrate a safety threshold silently: each needs `air_tmax` set in `/config` to
+follow this decision.
+
+What follows is the analysis that led to it.
 
 **Correction.** The first version of this entry said the bench unit was wrong
 to cut at 38 °C and suggested checking the fleet for "old" 38 °C units. That was
