@@ -663,22 +663,44 @@ received, about once a second. The gate therefore never opened and the loop
 never executed once. `PHOTO_TARGET_CURRENT` was dead code, and the lamp simply
 sat at its open-loop seed.
 
-That seed is wrong too. The autotest extrapolates a PWM for the target current
-with a `1/x` model from a 10 % reading, and the LED's draw is not linear in duty:
-
-| measurement | value |
-|---|---|
-| autotest, 10 % PWM | 0.10 A |
-| extrapolated PWM for 0.27 A | 102 |
-| **actual current at PWM 102** | **0.59 - 0.60 A**, flat over 6 minutes |
-
-So the delivered current was **2.2x the intended 0.27 A**, and above even the
-old 0.45 A setpoint. Correcting that error is precisely what the loop exists
-for. The 0.44 - 0.46 A seen across the fleet is not a regulated value either —
-it is those units' open-loop seed, which happens to land near the old target.
-
 Fixed by re-arming `photoTurnOnTime` only on the off→on edge instead of on
 every keepalive.
+
+**Retracted claim — the extrapolation is *not* broken.** This entry first said
+the open-loop seed was wrong by 2.2x, from a bench reading of 0.59-0.60 A that
+was attributed to PWM 102. That attribution was wrong: the `PH_PWM` sample used
+was published *before* the session started, so the PWM during that measurement
+is simply unknown. Fleet telemetry says the model is accurate — for each unit,
+the current at its working PWM matches `I ∝ (PWM + 20)` extrapolated from its
+own 10 % reading:
+
+| unit | 10 % PWM | working PWM | measured | model |
+|---|---|---|---|---|
+| 301 | 0.13 A | 138 | 0.45 A | 0.456 A |
+| 329 | 0.13 A | 138 | 0.46 A | 0.456 A |
+| 345 | 0.14 A | 129 | 0.46 A | 0.463 A |
+| 346 | 0.14 A | 121 | 0.46 A | 0.439 A |
+
+Those working PWMs are themselves the extrapolation for the **old** 0.45 A
+target (`0.45·45/0.13 − 20 ≈ 136`), which is what confirms the mechanism: the
+extrapolation is what sets the operating point, and it lands accurately. The
+0.59-0.60 A measured on the bench is left recorded as **unexplained**, not as
+evidence of anything.
+
+### 17c — the seed was a fixed 40 % on any boot that skips the autotest
+
+Consequence of the above, and what makes the lamp start near its target rather
+than converging to it. `actuatorsTest()` extrapolates a PWM for
+`PHOTOTHERAPY_CONSUMPTION_DEFAULT` and that lands accurately — but it is
+skipped on a `restoreState` boot, exactly the boot after a crash. The
+`photoFirstRun` fallback then seeded a fixed `PHOTOTHERAPY_INITIAL_PWM_PCT`
+(40 %, PWM 102), which targets no particular current and gives a different one
+on every unit.
+
+The extrapolated value is now persisted (`KEY_PHOTO_PWM`, `mb_state`) when the
+autotest commits it, and reloaded at boot when present, so a unit that skips
+the autotest still starts at its own calibrated operating point instead of a
+fixed duty.
 
 **This changes delivered irradiance and must be validated before it reaches a
 patient.** Enabling the loop drops the current from ~0.60 A to 0.27 A, more

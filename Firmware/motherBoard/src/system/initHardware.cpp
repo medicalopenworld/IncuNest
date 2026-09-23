@@ -741,6 +741,12 @@ bool actuatorsTest() {
   } else {
     in3.phototherapy_intensity = pwmTargetRaw;
     in3.photoFirstRun = false;
+    // Se guarda para poder sembrar con el en un arranque donde este autotest
+    // no llega a correr, que es justo el que sigue a una caida (restoreState
+    // se salta actuatorsTest). Sin esto la semilla ahi era un 40 % fijo, que
+    // depende de la unidad y no apunta a la corriente objetivo.
+    { Preferences p; p.begin(NS_STATE, false);
+      p.putUChar(KEY_PHOTO_PWM, (uint8_t)pwmTargetRaw); p.end(); }
     logI("[HW] -> Phototherapy extrapolated PWM=" + String(pwmTargetRaw) +
          " (" + String(pwmTargetRaw * 100 / PWM_MAX_VALUE) + "%) for " +
          String(PHOTOTHERAPY_CONSUMPTION_DEFAULT, 2) + " A");

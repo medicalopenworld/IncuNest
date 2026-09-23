@@ -422,6 +422,16 @@ void recapVariables()
     p.begin(NS_STATE, true);
     in3.actuation = p.getUChar(KEY_ACTUATION, 0);
     in3.phototherapy = p.getUChar(KEY_PHOTO_ACTIVE, 0);
+    // Semilla de intensidad. La escribe actuatorsTest() cuando extrapola un PWM
+    // para la corriente objetivo, y se relee aqui porque en un arranque con
+    // restoreState ese autotest NO corre: sin esto la lampara arrancaba en el
+    // 40 % fijo de PHOTOTHERAPY_INITIAL_PWM_PCT, que no apunta a ningun
+    // objetivo y da una corriente distinta en cada unidad.
+    const uint8_t photoPwmGuardado = p.getUChar(KEY_PHOTO_PWM, 0);
+    if (photoPwmGuardado > 0) {
+      in3.phototherapy_intensity = photoPwmGuardado;
+      in3.photoFirstRun = false;   // ya hay semilla buena: no usar el 40 % fijo
+    }
     // restoreState ya viene resuelto por security_check_reboot_cause()
     // (initHardware.cpp), que corre antes que initEEPROM() en setup(): se
     // recupera en todo reinicio salvo POWERON y BROWNOUT.
