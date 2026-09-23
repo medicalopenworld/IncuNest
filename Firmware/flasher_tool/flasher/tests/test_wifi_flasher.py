@@ -1,4 +1,6 @@
 import pytest
+
+import wifi_flasher
 from pathlib import Path
 from unittest.mock import patch, MagicMock, call
 
@@ -50,6 +52,22 @@ class TestBoardFromHostname:
 # ── flash_board_wifi ──────────────────────────────────────────────────────
 
 class TestFlashBoardWifi:
+    @pytest.fixture(autouse=True)
+    def _credenciales_falsas(self, monkeypatch):
+        # wifi_flasher lee las credenciales del ENTORNO al importarse (desde
+        # eb9ded4b, que las saco del codigo porque el repositorio es publico).
+        # Estos tests no se actualizaron entonces y dependian de que quien los
+        # corriera tuviera las credenciales REALES exportadas: sin ellas
+        # fallaban seis, y con ellas un test unitario leia secretos de verdad.
+        # Aqui se fijan valores falsos directamente en el modulo --no en el
+        # entorno, que ya se leyo al importar--, asi que el test es hermetico.
+        # Los usuarios son los que las aserciones esperan; las contrasenas no
+        # se comprueban en ningun sitio y son de pega a proposito.
+        monkeypatch.setattr(wifi_flasher, '_WEB_USER', 'incunestadmin')
+        monkeypatch.setattr(wifi_flasher, '_WEB_PASS', 'no-es-real-1')
+        monkeypatch.setattr(wifi_flasher, '_WEB_USER_LEGACY', 'in3admin')
+        monkeypatch.setattr(wifi_flasher, '_WEB_PASS_LEGACY', 'no-es-real-2')
+
     def _ok_response(self):
         r = MagicMock()
         r.status_code = 200

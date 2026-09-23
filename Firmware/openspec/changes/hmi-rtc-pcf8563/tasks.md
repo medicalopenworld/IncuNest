@@ -87,14 +87,6 @@ Firmware verificado: `v17.0.0-743-gc87a559` en las dos placas.
 - [x] 9.7 Rango peor no escribe: con `src=2` entrando y `4` guardado, 0 escrituras del chip.
 - [x] 9.8 Mensaje episodico: 1 sola semilla; deja de ofrecerse en cuanto la placa anuncia hora.
 - [x] 9.9 Las dos ramas de GPRS se ejecutan por separado y fallan cada una con su motivo propio.
-- [x] 9.11 **NTP si llega, de forma intermitente**: en un arranque posterior SNTP
-  sincronizo a los ~48 s y la placa paso a difundir `CTRL,TIME,<epoch>,8,2,3`,
-  o sea instante por NTP y huso por IP. Esto verifica de paso el callback de
-  SNTP: el rango solo puede valer 3 si `onSntpSync()` se ejecuto.
-- [x] 9.12 El HMI siguio los tres cambios de rango sin escribir el chip
-  (`2 -> 0 -> 3`), porque su terna guardada tiene rango manual, que gana a NTP.
-  Es la politica funcionando en la direccion incomoda: no corrige aunque la
-  fuente nueva sea mas precisa.
 - [x] 9.10 Cruce de versiones con HMI nuevo y MB antigua (via OTA a una imagen previa): enlace sano, 266 envios de estado, 285 comandos recibidos, 1 descarte silencioso. El HMI no escribio el RTC porque una MB que no declara `src` se lee como fuente desconocida.
 
 **Lo que este banco no pudo probar, y con que precision se sabe:**

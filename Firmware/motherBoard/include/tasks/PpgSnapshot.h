@@ -1,6 +1,6 @@
 #pragma once
 
-#include <cstdint>
+#include <Arduino.h>
 
 #include "incunest_afe4490.h"
 

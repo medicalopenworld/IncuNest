@@ -4,8 +4,7 @@
 #include "ui/FactoryTest.h"
 #include "ui_helpers.h"
 #include "main.h"
-#include <algorithm>  // std::min, antes la macro min() de Arduino
-#include <cstdlib>    // std::abs
+#include <Arduino.h>
 
 // ============================================================================
 // UI HELPERS IMPLEMENTATION
@@ -327,9 +326,6 @@ lv_obj_t *ui_AlarmLockCont = NULL;
 lv_obj_t *ui_AlarmLockImg = NULL;
 lv_obj_t *ui_PanelLockAlarm = NULL;
 lv_obj_t *ui_AlarmLockNumLabel = NULL;
-lv_obj_t *ui_ChartLockCont = NULL;
-lv_obj_t *ui_ChartLockImg = NULL;
-lv_obj_t *ui_ChartLockLabel = NULL;
 lv_obj_t *ui_CheckImg = NULL;
 lv_obj_t *ui_LockPPGChart = NULL;
 lv_obj_t *ui_LockHRCont = NULL;
@@ -501,22 +497,6 @@ void ui_event_AlarmLockImg(lv_event_t *e) {
     // emite las senales de alarma.
     extern void AlarmCenter_Open(void);
     AlarmCenter_Open();
-  }
-}
-
-void ui_event_ChartLockImg(lv_event_t *e) {
-  lv_event_code_t event_code = lv_event_get_code(e);
-  if (event_code == LV_EVENT_CLICKED) {
-    extern void TelemetryHistory_Open(void);
-    TelemetryHistory_Open();
-  }
-}
-
-void ui_event_ChartLockCont(lv_event_t *e) {
-  lv_event_code_t event_code = lv_event_get_code(e);
-  if (event_code == LV_EVENT_CLICKED) {
-    extern void TelemetryHistory_Open(void);
-    TelemetryHistory_Open();
   }
 }
 
@@ -4034,52 +4014,14 @@ void ui_ScreenLock_screen_init(void) {
   lv_obj_set_style_text_font(ui_AlarmLockNumLabel, &lv_font_montserrat_18,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
 
-  // Boton de tendencia de telemetria (TelemetryHistory): abre el overlay sin
-  // desbloquear, mismo criterio que ui_AlarmLockImg/AlarmCenter. Reactivado
-  // (ver 3215bc2, que lo oculto porque no se notaba que era pulsable) con
-  // el mismo azul de ui_BabiesButton para que se lea como boton de verdad.
-  // Posicion: centrado en la columna derecha (misma x que Status/Photo,
-  // x=240), por debajo de esa columna (y<=210 absoluto) y por encima de
-  // ui_LockPPGChart (BOTTOM_LEFT, y>=370 absoluto) / ui_LockHRCont
-  // (BOTTOM_RIGHT, ambos ocultos salvo con sonda SpO2 aplicada, pero hay
-  // que dejarles el hueco libre para cuando se muestran).
-  ui_ChartLockCont = lv_obj_create(ui_ScreenLock);
-  lv_obj_remove_style_all(ui_ChartLockCont);
-  lv_obj_set_width(ui_ChartLockCont, 100);
-  lv_obj_set_height(ui_ChartLockCont, 100);
-  lv_obj_set_x(ui_ChartLockCont, 240);
-  lv_obj_set_y(ui_ChartLockCont, 70);
-  lv_obj_set_align(ui_ChartLockCont, LV_ALIGN_CENTER);
-  lv_obj_clear_flag(ui_ChartLockCont, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_color(ui_ChartLockCont, lv_color_hex(0x0075EE),
-                            LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(ui_ChartLockCont, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_radius(ui_ChartLockCont, 8, LV_PART_MAIN);
-
-  ui_ChartLockImg = lv_imgbtn_create(ui_ChartLockCont);
-  lv_imgbtn_set_src(ui_ChartLockImg, LV_IMGBTN_STATE_RELEASED, NULL,
-                    &ui_img_chart_png, NULL);
-  lv_obj_set_width(ui_ChartLockImg, 48);
-  lv_obj_set_height(ui_ChartLockImg, 48);
-  lv_obj_set_y(ui_ChartLockImg, -12);
-  lv_obj_set_align(ui_ChartLockImg, LV_ALIGN_CENTER);
-  // Blanco sobre el azul del boton, igual que el texto de ui_BabiesButton:
-  // el icono trae sus propios colores pensados para fondo claro.
-  lv_obj_set_style_img_recolor(ui_ChartLockImg, lv_color_hex(0xFFFFFF),
-                                LV_PART_MAIN);
-  lv_obj_set_style_img_recolor_opa(ui_ChartLockImg, LV_OPA_COVER,
-                                    LV_PART_MAIN);
-
-  ui_ChartLockLabel = lv_label_create(ui_ChartLockCont);
-  lv_obj_set_width(ui_ChartLockLabel, LV_SIZE_CONTENT);
-  lv_obj_set_height(ui_ChartLockLabel, LV_SIZE_CONTENT);
-  lv_obj_set_y(ui_ChartLockLabel, 28);
-  lv_obj_set_align(ui_ChartLockLabel, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_ChartLockLabel, "TREND");
-  lv_obj_set_style_text_color(ui_ChartLockLabel, lv_color_hex(0xFFFFFF),
-                              LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_text_font(ui_ChartLockLabel, &lv_font_montserrat_14,
-                             LV_PART_MAIN | LV_STATE_DEFAULT);
+  // Aqui vivia el boton de tendencia (ui_ChartLockCont/Img/Label, "TREND"),
+  // que abria el overlay de TelemetryHistory sin desbloquear. Retirado por
+  // peticion para la tanda de fabricacion del 2026-09-17: la pantalla de
+  // bloqueo se queda sin esa entrada. Con el se fueron sus dos handlers
+  // (ui_event_ChartLockImg/Cont) y la leccion 9 de enfermeria, que no tenia
+  // ya como completarse. El modulo TelemetryHistory sigue compilando pero
+  // queda sin ninguna via de entrada: si se recupera el boton, hay que
+  // devolver tambien esa leccion.
 
   ui_CheckImg = lv_img_create(ui_ScreenLock);
   lv_img_set_src(ui_CheckImg, &ui_img_check_png);
@@ -4279,17 +4221,11 @@ void ui_ScreenLock_screen_init(void) {
                       NULL);
   lv_obj_add_event_cb(ui_AlarmLockCont, ui_event_AlarmLockCont, LV_EVENT_ALL,
                       NULL);
-  lv_obj_add_event_cb(ui_ChartLockImg, ui_event_ChartLockImg, LV_EVENT_ALL,
-                      NULL);
-  lv_obj_add_event_cb(ui_ChartLockCont, ui_event_ChartLockCont, LV_EVENT_ALL,
-                      NULL);
   lv_obj_add_event_cb(ui_ScreenLock, ui_event_ScreenLock, LV_EVENT_ALL, NULL);
 
   lv_obj_set_ext_click_area(ui_LockButton, TOUCH_EXT_SMALL);
   lv_obj_set_ext_click_area(ui_AlarmLockImg, TOUCH_EXT_MEDIUM);
   lv_obj_set_ext_click_area(ui_AlarmLockCont, TOUCH_EXT_NARROW);
-  lv_obj_set_ext_click_area(ui_ChartLockImg, TOUCH_EXT_MEDIUM);
-  lv_obj_set_ext_click_area(ui_ChartLockCont, TOUCH_EXT_NARROW);
 }
 
 // ============================================================================

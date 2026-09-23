@@ -36,6 +36,31 @@
 #define ROOM_SENSOR_UPDATE_PERIOD_MS 1000
 #define ROOM_SENSOR_RECONNECT_MS     500
 #define PHOTOTHERAPY_INITIAL_PWM_PCT 40
+// Corriente de trabajo del lazo de fototerapia. NO es un duty: sensors_module
+// mueve el PWM a 1 cuenta/s hasta igualar este valor, asi que este define —y no
+// PHOTOTHERAPY_INITIAL_PWM_PCT, que solo es la semilla— es el unico ajuste de
+// intensidad que sobrevive a la regulacion.
+//
+// Historia del valor:
+//   2026-09-21  0.45 -> 0.27 A (-40 %) por peticion de producto. Sin efecto
+//               real: el lazo no se ejecutaba nunca (known_issues.md #17b).
+//   2026-09-23  0.27 -> 0.45 A, vuelta al valor original por decision de
+//               producto, ya con el lazo funcionando.
+//
+// OJO al leer la flota: hasta 18.41 el lazo estaba muerto, asi que los ~0.45 A
+// que se ven en las unidades antiguas son su semilla en lazo abierto
+// (extrapolada para 0.45 por el autotest), no un valor regulado. Con el lazo
+// vivo el resultado deberia ser el mismo en las unidades lineales y corregido en
+// las que no lo son (la de banco).
+//
+// Va EMPAREJADO con PHOTOTHERAPY_CONSUMPTION_DEFAULT (initHardware.cpp), que
+// extrapola el PWM inicial para este mismo setpoint. Y la semilla guardada en
+// NVS (KEY_PHOTO_PWM) lleva al lado el objetivo para el que se calibro
+// (KEY_PHOTO_PWM_TGT): si este define cambia, esa semilla se descarta en vez de
+// arrancar en el punto de trabajo de otro objetivo.
+//
+// La corriente NO esta calibrada contra irradiancia; el valor real de
+// uW/cm2/nm solo lo da un radiometro sobre la unidad.
 #define PHOTO_TARGET_CURRENT 0.45f
 #define PHOTO_SETTLE_MS      3000
 #define PHOTO_CONTROL_PERIOD_MS 1000

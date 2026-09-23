@@ -2,9 +2,8 @@
 #define COMM_TASK_H
 
 #include "main.h"
-#include <cstdint>
+#include <Arduino.h>
 #include <lvgl.h>
-#include "esp_log.h"
 #include "protocol.h"
 #include "control_types.h"
 #include "alarm_ids.h"
@@ -12,17 +11,11 @@
 
 #define COMMUNICATION_DEBUG true
 #if COMMUNICATION_DEBUG
-// Antes era Serial.printf(). Va a la consola de ESP-IDF, que es el mismo
-// destino que tenia: el log del sistema, no el enlace con la placa.
-#define COMM_LOG(...) ESP_LOG_LEVEL(ESP_LOG_INFO, "COMM", __VA_ARGS__)
+#define COMM_LOG(...) Serial.printf(__VA_ARGS__)
 #else
 #define COMM_LOG(...)
 #endif
 
-// COMM_SERIAL es UART0, el enlace con la motherBoard. Con el porte a ESP-IDF
-// `Serial` es la HardwareSerial de platform/plat_uart.h sobre driver/uart.
-// La consola de logs comparte UART0 con el protocolo, igual que con Arduino
-// (decision del 2026-09-11); ver la cabecera de plat_uart.h.
 #define COMM_SERIAL Serial
 
 // Cadencia del latido del display hacia la placa. La placa declara

@@ -1,6 +1,6 @@
 #include "ui/FactoryTest.h"
 
-#include "platform/plat_i2c.h"
+#include <Wire.h>
 #include <cstdio>
 #include <cstring>
 
@@ -8,15 +8,6 @@
 #include "UITask.h"
 #include "factory_test.h"
 #include "main.h"
-
-// Capa de red del porte a ESP-IDF (sustituye a WiFi.h, WiFiClientSecure.h,
-// WebServer.h, Update.h y ESPmDNS.h de Arduino).
-#include "platform/plat_wifi.h"
-#include "platform/plat_net_client.h"
-#include "platform/plat_webserver.h"
-#include "platform/plat_update.h"
-#include "platform/plat_mdns.h"
-
 #include "state/training_mode.h"
 #include "ui.h"
 
@@ -1288,7 +1279,7 @@ void runNvs() {
   // Fuera de LVGL_Lock(): NVS puede tardar hasta ~30 ms en un ciclo de
   // wear-leveling (mismo motivo que el resto de escrituras de Preferences).
   LVGL_Unlock();
-  NvsPrefs p;
+  Preferences p;
   p.begin(HMI_NS_FTEST, false);
   const uint32_t probeValue = (uint32_t)millis();
   p.putUInt(HMI_KEY_FTEST_PROBE, probeValue);
@@ -1599,7 +1590,7 @@ void persistResults() {
   // Fuera de LVGL_Lock(): escritura de Preferences (mismo motivo que el resto
   // de escrituras periodicas de NVS de UITask.cpp).
   LVGL_Unlock();
-  NvsPrefs p;
+  Preferences p;
   p.begin(HMI_NS_FTEST, false);
   p.putUInt(HMI_KEY_FTEST_EPOCH, epoch);
   p.putUInt(HMI_KEY_FTEST_PASSMASK, passMask);

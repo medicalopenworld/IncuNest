@@ -8,27 +8,14 @@
 #include "Credentials_public.h"
 #include "Wifi_OTA.h"
 #include "display_config.h"
+#include <Preferences.h>
 #include "EEPROM_defines.h"
+#include <ESPmDNS.h>
+#include <Update.h>
+#include <WebServer.h>
+#include <WiFi.h>
 #include <lvgl.h>
 #include <stdint.h>
-
-// Las cabeceras de red de Arduino (WiFi.h, WebServer.h, Update.h, ESPmDNS.h)
-// se han quitado de aqui: main.h no usaba ninguno de esos tipos, solo los
-// reexportaba a medio firmware. Ahora cada consumidor incluye lo que necesita
-// de ESP-IDF, que es lo que evita que un cambio en la capa de red obligue a
-// recompilar las 14.700 lineas de src/ui.
-#include "platform/plat_esp.h"
-#include "platform/plat_i2c.h"
-#include "platform/plat_nvs.h"
-#include "platform/plat_time.h"
-#include "platform/plat_uart.h"
-
-// Unico bus I2C del display: pantalla tactil GT911, expansor PCA9557 y el
-// STC8H1K28 del backlight/zumbador (0x30). Sustituye al objeto global Wire.
-// Se abre en setup(), antes de crear ninguna tarea.
-// g_i2c es el mismo objeto que Wire (platform/plat_i2c.h): el HMI solo tiene
-// un bus. Se conserva el nombre porque buzzer.cpp y compania ya lo usan.
-extern I2cBus &g_i2c;
 #include "control_types.h"
 #include "alarm_ids.h"
 // Por ALARM_AIR_SETPOINT_MAX_C: el tope de consigna lo fija shared/ para las
@@ -36,7 +23,7 @@ extern I2cBus &g_i2c;
 #include "alarm_policy.h"
 #include "ui/i18n.h"
 
-#define FWversion "4.0.0"
+#define FWversion "4.2.1"
 #define ENABLE_WIFI_OTA true // enable wifi OTA
 extern bool OTA_inprogress;
 

@@ -22,6 +22,7 @@
   SOFTWARE.
 */
 
+#include <Arduino.h>
 #include <string.h>
 
 #include "esp_heap_caps.h"
@@ -30,16 +31,6 @@
 #include "fw_image_tag.h"
 #include "main.h"
 #include "modules/debug/debug_mode.h"
-#include "platform/plat_string_json.h"  // doc["x"].as<String>()
-
-// Capa de red del porte a ESP-IDF (sustituye a WiFi.h, WiFiClientSecure.h,
-// WebServer.h, Update.h y ESPmDNS.h de Arduino).
-#include "platform/plat_wifi.h"
-#include "platform/plat_net_client.h"
-#include "platform/plat_webserver.h"
-#include "platform/plat_update.h"
-#include "platform/plat_mdns.h"
-
 #include "UITask.h"
 #include "CommTask.h"
 
@@ -67,9 +58,8 @@ char wifiHost[32] = "in3ator";
 
 WebServer wifiServer(80);
 
-// Transporte MQTT nativo de ESP-IDF (esp-mqtt). Antes: Arduino_MQTT_Client
-// sobre un WiFiClient (PubSubClient). El SDK ya lo traia; ver Wifi_OTA.h.
-Espressif_MQTT_Client mqttClientWIFI;
+WiFiClient espClient;
+Arduino_MQTT_Client mqttClientWIFI(espClient);
 
 ThingsBoard tb_wifi(mqttClientWIFI, MAX_MESSAGE_SIZE);
 StaticJsonDocument<JSON_OBJECT_SIZE(THINGSBOARD_FIELDS_AMOUNT)> WIFI_JSON;
@@ -224,7 +214,7 @@ void wifiInit(void) {
     pass = pendingPass;
     ESP_LOGI(TAG, "Connecting to pending SSID: %s", ssid.c_str());
   } else {
-    { NvsPrefs p; p.begin(HMI_NS_WIFI, true);
+    { Preferences p; p.begin(HMI_NS_WIFI, true);
       ssid = p.getString(HMI_KEY_SSID,     "");
       pass = p.getString(HMI_KEY_PASSWORD, "");
       p.end(); }
@@ -302,6 +292,10 @@ void configWifiServer() {
     wifiServer.sendHeader("Connection", "close");
     wifiServer.send(200, "application/json", json);
   });
+  // SIN autenticar A PROPOSITO, como /get_fw_version: el flash tool usa esta
+  // ruta como sonda de tipo de placa (200 = Display HMI, 404 = motherBoard),
+  // antes de tener credencial. Solo publica la frecuencia de escritura del
+  // LCD, que no es dato sensible. No le anadas campos.
   wifiServer.on("/get_freq", HTTP_GET, []() {
     String json = "{\"freq\":" + String(lcd_get_freq_write()) + "}";
     wifiServer.sendHeader("Connection", "close");
@@ -418,7 +412,7 @@ void configWifiServer() {
     if (radioOff) {
       // Se contesta ANTES de tumbar la radio, si no el cliente ve una conexion
       // cortada y no sabe si le hicieron caso.
-      delay_ms(300);
+      delay(300);
       WiFi.disconnect(true);
     }
   });
@@ -472,7 +466,7 @@ void configWifiServer() {
         wifiServer.sendHeader("Connection", "close");
         if (ok) {
           wifiServer.send(200, "text/plain", "OK");
-          delay_ms(500); // let TCP stack flush the response before hardware reset
+          delay(500); // let TCP stack flush the response before hardware reset
           ESP.restart();
           return;
         }
@@ -602,7 +596,7 @@ void WIFICheckOTA() {
 }
 
 void WIFI_TB_Init() {
-  { NvsPrefs p; p.begin(HMI_NS_GPRS, true);
+  { Preferences p; p.begin(HMI_NS_GPRS, true);
     Wifi_TB.provisioned = p.getUChar(HMI_KEY_PROVISIONED, 0);
     if (Wifi_TB.provisioned) {
       Wifi_TB.device_token = p.getString(HMI_KEY_TOKEN, "");
@@ -644,12 +638,12 @@ void WIFIProvisionResponse(const JsonObjectConst &data) {
   Wifi_TB.provisioned = true;
   Wifi_TB.device_token = credentials.username.c_str();
   uint32_t t0 = millis();
-  { NvsPrefs p; p.begin(HMI_NS_GPRS, false);
+  { Preferences p; p.begin(HMI_NS_GPRS, false);
     p.putString(HMI_KEY_TOKEN,       Wifi_TB.device_token);
     p.putUChar (HMI_KEY_PROVISIONED, (uint8_t)Wifi_TB.provisioned);
     p.end(); }
   ESP_LOGI(TAG, "Device provisioned successfully");
-  ESP_LOGW(TAG, "LCD_DIAG: provisioning NvsPrefs write tomó %lu ms",
+  ESP_LOGW(TAG, "LCD_DIAG: provisioning Preferences write tomó %lu ms",
            (unsigned long)(millis() - t0));
 
   if (tb_wifi.connected()) tb_wifi.disconnect();
@@ -790,12 +784,12 @@ void WifiOTAHandler(void) {
   if (s_persistCredentials) {
     s_persistCredentials = false;
     uint32_t t0 = millis();
-    { NvsPrefs p; p.begin(HMI_NS_WIFI, false);
+    { Preferences p; p.begin(HMI_NS_WIFI, false);
       p.putString(HMI_KEY_SSID,     pendingSSID);
       p.putString(HMI_KEY_PASSWORD, pendingPass);
       p.end(); }
     ESP_LOGI(TAG, "WiFi credentials saved to Preferences (SSID: %s)", pendingSSID);
-    ESP_LOGW(TAG, "LCD_DIAG: credentials NvsPrefs write tomó %lu ms",
+    ESP_LOGW(TAG, "LCD_DIAG: credentials Preferences write tomó %lu ms",
              (unsigned long)(millis() - t0));
     pendingSSID[0] = '\0';
     pendingPass[0] = '\0';

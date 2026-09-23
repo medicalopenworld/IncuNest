@@ -28,26 +28,18 @@
 // Firmware version and head title of UI screen
 
 #include "main.h"
-
-// Las librerias de sensor ya no llegan por main.h (reexportaba una docena de
-// cabeceras de Arduino a todo el firmware). Se incluyen aqui, que es donde se
-// declaran los objetos.
-#include <Adafruit_SHT4x.h>
-#include <Beastdevices_INA3221.h>
-#include <SensirionI2cSts3x.h>
-#include <SparkFun_SHTC3.h>
-
 #include "modules/util/system_clock.h"
 #include "state/state.h"
 #include "modules/debug/debug_mode.h"
+#include "modules/control/photo_override.h"
 #include "modules/sensorboard_comm/sensorboard_comm.h"
 #include "modules/sensors/sensor_source.h"
 #include "system/hw_selftest.h"
 #include "DriveUpload.h"
 #include "CrashReporter.h"
-#include "platform/plat_nvs.h"
+#include <Preferences.h>
 
-static NvsPrefs diag_prefs;
+static Preferences diag_prefs;
 uint32_t g_bootCount = 0;
 uint32_t g_gprsKillCount = 0;
 uint32_t g_monKillCount = 0;
@@ -92,22 +84,40 @@ char pendingPass[64] = "";
 char wifi_ssid[64] = "";
 char wifi_pass[64] = "";
 
-#include "platform/plat_time.h"
-#include "platform/plat_gpio.h"
-#include "platform/plat_pwm.h"
-#include "platform/plat_string.h"
+#include <Arduino.h>
 #include <stdarg.h>
 #include <stdio.h>
 
-I2cBus *wire;
-I2cBus *wire2 = nullptr; // second I2C bus (HW16: SHTC3 + STS35 on pins 19/20)
+TwoWire *wire;
+TwoWire *wire2 = nullptr; // second I2C bus (HW16: SHTC3 + STS35 on pins 19/20)
 MAM_IncuNest_Humidifier in3_hum(DEFAULT_ADDRESS);
+TFT_eSPI tft = TFT_eSPI(); // Invoke custom library
 SHTC3 mySHTC3;             // Declare an instance of the SHTC3 class
 SensirionI2cSts3x mySTS35[STS3X_NUM];
 Adafruit_SHT4x sht4 = Adafruit_SHT4x();
 Beastdevices_INA3221 mainDigitalCurrentSensor(INA3221_ADDR41_VCC);
 Beastdevices_INA3221 secundaryDigitalCurrentSensor(INA3221_ADDR40_GND);
 // BQ25730 gestionado por BQ25730.cpp (chargerPresent definido allí)
+
+// Encoder rotativo. En la linea del port a ESP-IDF se retiro (e2e3ede), y al
+// portar el modo depuracion (17312e3) el rebase arrastro la retirada de estos
+// globales como un hunk limpio, dejando colgados los `extern` de ISR.cpp y
+// security.cpp. En esta linea el encoder sigue en el arbol, asi que los
+// globales vuelven aqui tal cual estaban.
+RotaryEncoder encoder(ENC_A, ENC_B, RotaryEncoder::LatchMode::TWO03);
+boolean A_set;
+boolean B_set;
+int encoderpinA = ENC_A;         // pin  encoder A
+int encoderpinB = ENC_B;         // pin  encoder B
+bool encPulsed, encPulsedBefore; // encoder switch status
+bool updateUIData;
+volatile int EncMove;                 // moved encoder
+volatile int lastEncMove;             // moved last encoder
+volatile int EncMoveOrientation = -1; // set to -1 to increase values clockwise
+volatile int last_encoder_move;       // moved encoder
+long encoder_debounce_time =
+    true; // in milliseconds, debounce time in encoder to filter signal bounces
+long last_encPulsed; // last time encoder was pulsed
 
 bool WIFI_EN = true;
 long lastDebugUpdate;
@@ -184,6 +194,7 @@ bool blinkSetMessageState;
 long lastBlinkSetMessage;
 
 long lastSuccesfullSensorUpdate[SENSOR_TEMP_QTY];
+uint32_t g_sensorsTaskStartedMs = 0;
 
 long lastSkinAttachedSensorUpdate;
 long lastRoomSensorUpdate, lastCurrentSensorUpdate;
@@ -259,6 +270,14 @@ bool           g_bq_status_valid = false;
 // ademas del flag, porque un `true` sin sello sobreviviria a una tarea parada.
 uint32_t       g_bq_status_ms    = 0;
 void sensors_Task(void *pvParameters) {
+  // Instante en que empieza a haber muestras periodicas de verdad. Lo usa
+  // checkStatusOfSensor() (security.cpp) como referencia de frescura: el sello
+  // que deja el autotest de initHardware() es varios segundos anterior y
+  // levantaba ALARM_AIR_SENSOR_FAULT en cada arranque.
+  g_sensorsTaskStartedMs = millis();
+  if (g_sensorsTaskStartedMs == 0) {
+    g_sensorsTaskStartedMs = 1; // 0 es el centinela de "aun no arranco"
+  }
   for (;;) {
     fanSpeedHandler();
     if (millis() - lastSkinAttachedSensorUpdate >
@@ -295,7 +314,7 @@ void sensors_Task(void *pvParameters) {
         // descargado parcialmente durante el corte.
         if (g_bq_status_valid && g_bq_status.ac_present && !prev_ac_present) {
           if (LOG_CHARGER) logCharger("[CHG] Adaptador detectado → reinicializando config");
-          extern I2cBus *wire;
+          extern TwoWire *wire;
           init_BQ25730(wire);  // restaura MaxChargeVoltage = 14.4V (absorción)
           charger_in_float = false;
           ichg_low_since   = 0;
@@ -340,9 +359,100 @@ void sensors_Task(void *pvParameters) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Consola de depuracion sobre debugSerial (el puerto por el que sale el log).
+//
+// NO es el enlace con el display: ese es Serial1 en los pines 15/16
+// (hmiSerial en CommTask.cpp). Por debugSerial no habla nadie, asi que un
+// comando aqui no compite con las tramas del protocolo ni puede corromperlas.
+//
+// Dos comandos, y a proposito ninguno mas:
+//
+//   "WIFI_EN,<0|1>"  para probar la OTA por 2G, que con la WiFi levantada no se
+//                    ejercita nunca.
+//   "PHOTO,<0|1>"    enciende/suelta la fototerapia para probar el lazo de
+//                    intensidad sin nadie en la pantalla. PHOTO,1 exige el modo
+//                    depuracion encendido; PHOTO,0 se acepta siempre, porque
+//                    apagar nunca es lo peligroso. Va SOLO por aqui, sin
+//                    endpoint HTTP: acciona un actuador y esta consola pide
+//                    acceso fisico al USB (ver debug_mode.h).
+//
+// Nada de esto se guarda: cualquier reinicio vuelve a dejar la WiFi encendida
+// y la fototerapia como la tenga el display. Lo demas se ignora.
+// ---------------------------------------------------------------------------
+// ESP_LOGx y no logI/logE: main.h compila esos dos fuera del binario
+// (LOG_INFORMATION y LOG_ERRORS estan a false), asi que un acuse escrito con
+// logI no se imprime nunca y la consola parece muerta aunque funcione.
+static const char *DBGCON_TAG __attribute__((unused)) = "DBGCON";
+
+static void debugConsoleHandle(const char *line) {
+  if (strncmp(line, "PHOTO,", 6) == 0) {
+    const char *arg = line + 6;
+    // Mismo parseo estricto que WIFI_EN: un '0' o un '1' y nada mas.
+    if ((arg[0] != '0' && arg[0] != '1') || arg[1] != '\0') {
+      ESP_LOGW(DBGCON_TAG, "PHOTO: argumento invalido, se espera 0 o 1");
+      return;
+    }
+    if (arg[0] == '0') {
+      debug_photo_off();
+      ESP_LOGW(DBGCON_TAG, "PHOTO,0: fototerapia de depuracion soltada; vuelve "
+               "a mandar el display tras %u ms de gracia",
+               (unsigned)PHOTO_OVERRIDE_RELEASE_GRACE_MS);
+      return;
+    }
+    // in3.phototherapy es aqui la ultima orden REAL del display: todavia no
+    // la ha podido contaminar esta prueba.
+    if (!debug_photo_on(in3.phototherapy)) {
+      ESP_LOGW(DBGCON_TAG, "PHOTO,1 rechazado: el modo depuracion esta apagado "
+               "(POST /debug/mode?on=1)");
+      return;
+    }
+    ESP_LOGW(DBGCON_TAG, "PHOTO,1: fototerapia de depuracion ENCENDIDA (se "
+             "aplica con la siguiente trama del display)");
+    return;
+  }
+  if (strncmp(line, "WIFI_EN,", 8) != 0) {
+    ESP_LOGI(DBGCON_TAG, "comando desconocido, ignorado: %s", line);
+    return;
+  }
+  const char *arg = line + 8;
+  // Exactamente un '0' o un '1' y nada mas: sin atoi(), "WIFI_EN,0abc" no se
+  // cuela como un apagado valido.
+  if ((arg[0] != '0' && arg[0] != '1') || arg[1] != '\0') {
+    ESP_LOGW(DBGCON_TAG, "WIFI_EN: argumento invalido, se espera 0 o 1");
+    return;
+  }
+  wifiRequestEnable(arg[0] == '1');
+}
+
+void debugConsolePoll(void) {
+  static char buf[40];
+  static size_t len = 0;
+  while (debugSerial.available()) {
+    const char c = (char)debugSerial.read();
+    if (c == '\r') continue;
+    if (c != '\n') {
+      // Al pasarse de largo se marca la linea y se descarta ENTERA al final,
+      // en vez de procesar un trozo: media linea podria ser un comando valido
+      // por accidente.
+      if (len < sizeof(buf) - 1)
+        buf[len++] = c;
+      else
+        len = sizeof(buf);
+      continue;
+    }
+    if (len < sizeof(buf)) {
+      buf[len] = '\0';
+      debugConsoleHandle(buf);
+    }
+    len = 0;
+  }
+}
+
 void OTA_WIFI_Task(void *pvParameters) {
   WIFI_TB_Init();
   for (;;) {
+    debugConsolePoll();
     WifiOTAHandler();
     vTaskDelay(pdMS_TO_TICKS(OTA_TASK_PERIOD_MS));
   }
@@ -396,13 +506,13 @@ void Communication_Receiver(void *pvParameters) {
       // avoids perpetually postponing the window and suppressing alarms.
       bool actuationWasOff = (in3.actuation == ACTUATION_OFF);
       in3.actuation = hmi_cmd_msg.actuation;
-      { NvsPrefs p; p.begin(NS_STATE, false); p.putUChar(KEY_ACTUATION, in3.actuation); p.end(); }
+      { Preferences p; p.begin(NS_STATE, false); p.putUChar(KEY_ACTUATION, in3.actuation); p.end(); }
       if (actuationWasOff && in3.actuation != ACTUATION_OFF) {
         alarmTimerStart();
       }
       if (in3.controlMode != hmi_cmd_msg.controlMode) {
         in3.controlMode = hmi_cmd_msg.controlMode;
-        { NvsPrefs p; p.begin(NS_CFG, false); p.putUChar(KEY_CTRL_MODE, in3.controlMode); p.end(); }
+        { Preferences p; p.begin(NS_CFG, false); p.putUChar(KEY_CTRL_MODE, in3.controlMode); p.end(); }
       }
 
       const bool tempBlocked = ongoingCriticalWiringAlarm();
@@ -434,7 +544,7 @@ void Communication_Receiver(void *pvParameters) {
           // Persisted so a restoreState boot (crash/WDT) restarts the PID at
           // the setpoint the user actually configured, not the compiled-in
           // default (KEY_CTRL_TEMP's fallback in recapVariables()).
-          NvsPrefs p;
+          Preferences p;
           p.begin(NS_CFG, false);
           p.putFloat(KEY_CTRL_TEMP, in3.desiredControlTemperature);
           p.end();
@@ -447,13 +557,13 @@ void Communication_Receiver(void *pvParameters) {
         // (design.md D4, shared-factory-test): no pisarlo con este keepalive
         // del HMI, que se repite en cada trama aunque actuation ya este OFF.
         if (!g_factoryTestActive)
-          pwm_write(HEATER_PWM_CHANNEL, false);
+          ledcWrite(HEATER_PWM_CHANNEL, false);
       }
       if (in3.humidityControl) {
         if (hmi_cmd_msg.desiredHumidity != in3.desiredControlHumidity) {
           in3.desiredControlHumidity = hmi_cmd_msg.desiredHumidity;
           // Same rationale as KEY_CTRL_TEMP above, for humidity restoreState boots.
-          NvsPrefs p;
+          Preferences p;
           p.begin(NS_CFG, false);
           p.putUChar(KEY_CTRL_HUM, in3.desiredControlHumidity);
           p.end();
@@ -467,8 +577,22 @@ void Communication_Receiver(void *pvParameters) {
           in3_hum.turn(OFF);
       }
 
-      in3.phototherapy = hmi_cmd_msg.phototherapyMode;
-      { NvsPrefs p; p.begin(NS_STATE, false); p.putUChar(KEY_PHOTO_ACTIVE, in3.phototherapy); p.end(); }
+      // Estado ANTERIOR, para distinguir el flanco de encendido del keepalive.
+      const bool photoEstabaEncendida = in3.phototherapy;
+      // Normalmente es lo que manda el display. Con un encendido de depuracion
+      // en marcha (o en su ventana de gracia) manda photo_override: fuerza ON
+      // durante la prueba e ignora despues el ON rancio que el display habra
+      // adoptado. Ver modules/control/photo_override.h.
+      in3.phototherapy = debug_photo_effective(hmi_cmd_msg.phototherapyMode);
+      // Se guarda la orden DEL DISPLAY, y solo cuando no hay prueba en curso:
+      // durante ella el display devuelve el ON adoptado, y guardarlo haria que
+      // una caida reanudase una sesion de depuracion como si fuera real.
+      if (debug_photo_may_persist()) {
+        Preferences p;
+        p.begin(NS_STATE, false);
+        p.putUChar(KEY_PHOTO_ACTIVE, hmi_cmd_msg.phototherapyMode);
+        p.end();
+      }
       if (in3.language != hmi_cmd_msg.language) {
         in3.language = hmi_cmd_msg.language;
         resendActiveAlarms();
@@ -478,7 +602,27 @@ void Communication_Receiver(void *pvParameters) {
           in3.phototherapy_intensity = PWM_MAX_VALUE * PHOTOTHERAPY_INITIAL_PWM_PCT / 100;
           in3.photoFirstRun = false;
         }
-        in3.photoTurnOnTime = millis();
+        // SOLO en el flanco de encendido. Esto estaba fuera del if y se
+        // ejecutaba en cada mandato del HMI, que es un KEEPALIVE: CommTask.cpp
+        // pone newCommand=true en cada trama recibida, ~1 por segundo.
+        //
+        // photoTurnOnTime es la marca de asentamiento que mira el lazo de
+        // regulacion de intensidad (sensors_module.cpp, currentMonitor):
+        //
+        //     millis() - in3.photoTurnOnTime > PHOTO_SETTLE_MS   // 3000 ms
+        //
+        // Refrescandola cada segundo esa condicion NO se cumple NUNCA, asi que
+        // el lazo no llegaba a ejecutarse jamas y PHOTO_TARGET_CURRENT era
+        // codigo muerto: la lampara se quedaba en la semilla en lazo abierto.
+        //
+        // Medido en banco el 2026-09-23: semilla PWM 102 (extrapolada por el
+        // autotest para 0.27 A desde una lectura de 0.10 A al 10 % de PWM) y
+        // corriente real 0.59-0.60 A sostenida durante 6 minutos. La
+        // extrapolacion 1/x se equivoca por 2.2x porque el consumo del LED no
+        // es lineal con el duty; corregir eso es justo el trabajo del lazo.
+        if (!photoEstabaEncendida) {
+          in3.photoTurnOnTime = millis();
+        }
       }
       // Idem: el canal de fototerapia tambien lo posee el test de fabrica
       // mientras dura la bateria. La reconciliacion con in3.phototherapy
@@ -487,7 +631,7 @@ void Communication_Receiver(void *pvParameters) {
       // cuanto g_factoryTestActive baje (ver cabecera de
       // factory_test_task.cpp).
       if (!g_factoryTestActive)
-        pwm_write(PHOTOTHERAPY_PWM_CHANNEL,
+        ledcWrite(PHOTOTHERAPY_PWM_CHANNEL,
                   in3.phototherapy * in3.phototherapy_intensity);
       turnFans(bool(in3.phototherapy || in3.actuation));
 
@@ -503,7 +647,7 @@ void Communication_Receiver(void *pvParameters) {
       // pitido por segundo. Pero el problema de fondo es peor y llevaba aqui
       // desde antes: buzzerHandler()/buzzerTone() y buzzerAlarmUpdate()
       // escriben el MISMO canal PWM. Cada trama recibida hacia shutBuzzer(),
-      // o sea pwm_write(0), pisando la rafaga de alarma que estuviera sonando
+      // o sea ledcWrite(0), pisando la rafaga de alarma que estuviera sonando
       // y destrozando el patron de la Tabla 3.
       //
       // Y un pulso suelto del zumbador de la placa es acusticamente identico
@@ -556,7 +700,7 @@ void PowerManagement_Task(void *pvParameters) {
           CommunicationHost_Send("CTRL,PWR_OFF,0\n");
           logI("[PWR] Long press detected, powering off");
           vTaskDelay(pdMS_TO_TICKS(50)); // allow UART to flush
-          pin_write(PWR_EN, false);
+          digitalWrite(PWR_EN, LOW);
           while (true) {
             vTaskDelay(pdMS_TO_TICKS(100));
           }
@@ -613,18 +757,11 @@ void setup() {
   // enough to keep the device ON. Latch PWR_EN immediately, then wait for
   // the button to be released so the runtime task starts from a clean state.
   {
-    pin_mode(PWR_EN, PIN_MODE_OUTPUT);
-    pin_write(PWR_EN, true);
+    pinMode(PWR_EN, OUTPUT);
+    digitalWrite(PWR_EN, HIGH);
   }
 #endif
-  // PORTE A ESP-IDF: aqui habia esp_bt_controller_mem_release(ESP_BT_MODE_BLE).
-  // Servia para devolver al heap la RAM que el controlador BLE reservaba en
-  // arranque, porque el sdkconfig de Arduino traia Bluetooth ACTIVADO aunque
-  // esta placa no lo use. Con ESP-IDF el Bluetooth no esta activado, asi que
-  // esa memoria NUNCA se reserva y no hay nada que liberar: la llamada sobra
-  // (y su cabecera ni existe para el ESP32-S3 en IDF 6). El heap libre tras el
-  // arranque deberia salir igual o MAYOR que antes; conviene compararlo en
-  // banco con el log de arranque.
+  esp_bt_controller_mem_release(ESP_BT_MODE_BLE);
   debugSerial.begin(115200);
   log_mutex = xSemaphoreCreateRecursiveMutex();
   crashReporterInit();

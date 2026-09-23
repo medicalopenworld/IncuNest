@@ -23,16 +23,14 @@
 
 */
 
-#include "esp_attr.h"  // IRAM_ATTR, que antes venia de Arduino.h
-#include "platform/plat_time.h"
-#include "platform/plat_num.h"
+#include <Arduino.h>
 
 #include "main.h"
 
-// Librerias de sensor: ya no llegan por main.h.
-
-extern I2cBus *wire;
+extern TwoWire *wire;
 extern MAM_IncuNest_Humidifier in3_hum;
+extern TFT_eSPI tft;
+extern RotaryEncoder encoder;
 
 extern bool WIFI_EN;
 extern long lastDebugUpdate;
@@ -69,6 +67,21 @@ extern bool WIFI_connection_status;
 // room variables
 extern double desiredControlTemperature; // preset baby skin temperature
 extern double desiredControlHumidity;    // preset enviromental humidity
+
+extern boolean A_set;
+extern boolean B_set;
+extern int encoderpinA;                 // pin  encoder A
+extern int encoderpinB;                 // pin  encoder B
+extern bool encPulsed, encPulsedBefore; // encoder switch status
+extern bool updateUIData;
+extern volatile int EncMove;     // moved encoder
+extern volatile int lastEncMove; // moved last encoder
+extern volatile int
+    EncMoveOrientation;            // set to -1 to increase values clockwise
+extern int last_encoder_move;      // moved encoder
+extern long encoder_debounce_time; // in milliseconds, debounce time in encoder
+                                   // to filter signal bounces
+extern long last_encPulsed;        // last time encoder was pulsed
 
 // Text Graphic position variables
 extern int humidityX;
@@ -112,6 +125,18 @@ extern PID skinControlPID;
 extern PID humidityControlPID;
 
 extern IncuNest_parameters in3;
+
+void IRAM_ATTR encoderISR()
+{
+  int newPos;
+  encoder.tick(); // just call tick() to check the state.
+  newPos = encoder.getPosition();
+  if (abs(lastEncMove - newPos) > ENCODER_TICKS_DIV)
+  {
+    EncMove = EncMoveOrientation * int(encoder.getDirection());
+    lastEncMove = newPos;
+  }
+}
 
 void IRAM_ATTR fanEncoderISR()
 {

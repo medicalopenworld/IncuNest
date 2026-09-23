@@ -1,5 +1,5 @@
 #pragma once
-#include <cstdint>
+#include <Arduino.h>
 #include <lvgl.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"

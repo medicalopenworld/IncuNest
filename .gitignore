@@ -27,6 +27,11 @@ build/
 # este repositorio es publico, asi que subirlos publica esas claves dentro del
 # .bin. El flasher los descarga de GitHub Releases (flasher/updater.py).
 # La regla general *.bin de arriba ya los cubre.
+#
+# El marcador NO_SOBRESCRIBIR.txt tampoco se versiona: dice que build tiene
+# anclado *esta* maquina en data/firmware/, que es estado del banco y no del
+# repositorio. Ver flasher/updater.py::PIN_MARKER.
+Firmware/flasher_tool/data/firmware/*/NO_SOBRESCRIBIR.txt
 
 # clangd cache (all subprojects)
 **/.cache/
@@ -62,11 +67,3 @@ Regulatory/
 # Python bytecode
 **/__pycache__/
 *.pyc
-
-# ESP-IDF: solo se versiona sdkconfig.defaults; sdkconfig lo genera idf.py
-sdkconfig
-**/sdkconfig
-sdkconfig.old
-**/sdkconfig.old
-managed_components/
-**/managed_components/

@@ -1,8 +1,8 @@
 #include "AudioManager.h"
 #include <SPIFFS.h>
-#include "platform/plat_i2c.h"
+#include <Wire.h>
 #include "esp_log.h"
-#include "platform/plat_nvs.h"
+#include <Preferences.h>
 #include "EEPROM_defines.h"
 #include "main.h"
 
@@ -63,7 +63,7 @@ void AudioManager::begin() {
     audio.forceMono(true);
     
     // Leer volumen guardado en Preferences (0-21). Si es 0 o >21, usar default 15.
-    { NvsPrefs p; p.begin(HMI_NS_CFG, true);
+    { Preferences p; p.begin(HMI_NS_CFG, true);
       uint8_t savedVol = p.getUChar(HMI_KEY_VOLUME, AUDIO_VOLUME_DEFAULT);
       p.end();
       if (savedVol == AUDIO_VOLUME_MIN || savedVol > AUDIO_VOLUME_MAX) savedVol = AUDIO_VOLUME_DEFAULT;

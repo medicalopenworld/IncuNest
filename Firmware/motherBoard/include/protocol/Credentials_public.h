@@ -12,6 +12,20 @@
 #if __has_include("Credentials.h")
 #include "Credentials.h"
 #else
+// El respaldo era SILENCIOSO: una unidad construida sin Credentials.h salia
+// con la contrasena de WEB_SERVER_PASSWORD que hay unas lineas mas abajo, y
+// este repositorio es publico. Esa misma contrasena es la unica puerta de
+// /update, que acepta un binario arbitrario. Lo cazaba el test de fabrica
+// (FTEST_MB_TB_PROVISION falla con el servidor dummy), pero por accidente y
+// no por diseno.
+//
+// Con -DREQUIRE_REAL_CREDENTIALS el respaldo pasa a ser un error de
+// compilacion. Es lo que debe llevar cualquier build que vaya a una placa;
+// sin el, un clon nuevo sigue compilando y solo avisa.
+#ifdef REQUIRE_REAL_CREDENTIALS
+#error "Falta include/Credentials.h y se ha pedido REQUIRE_REAL_CREDENTIALS: este build saldria con las credenciales publicas del repositorio."
+#endif
+#warning "Sin include/Credentials.h: se compila con las credenciales PUBLICAS del repositorio. No flashees esto en una unidad."
 // -------- Dummy defaults (compile-friendly) --------
 #define THINGSBOARD_SERVER "myURL"
 #define THINGSBOARD_PORT 1883 // default port

@@ -22,8 +22,8 @@
   SOFTWARE.
 
 */
-#include "platform/plat_string.h"
-#include "platform/plat_nvs.h"
+#include <Arduino.h>
+#include <Preferences.h>
 
 #include "main.h"
 #include "alarm_policy.h"
@@ -40,7 +40,7 @@ extern int g_restore_photo_minutes;
 
 void resetFlash()
 {
-  NvsPrefs p;
+  Preferences p;
   const char *ns[] = {NS_CFG, NS_CAL, NS_WIFI, NS_GPRS, NS_RT, NS_STATE, "photo"};
   for (auto n : ns)
   {
@@ -67,7 +67,7 @@ void loaddefaultValues()
   }
 
   {
-    NvsPrefs p;
+    Preferences p;
     p.begin(NS_CFG, false);
     p.putUChar(KEY_LANG, in3.language);
     p.putUChar(KEY_CTRL_MODE, in3.controlMode);
@@ -86,7 +86,7 @@ void loaddefaultValues()
   }
 
   {
-    NvsPrefs p;
+    Preferences p;
     p.begin(NS_CAL, false);
     p.putFloat(KEY_CAL_SK_LOW, 0.0f);
     p.putFloat(KEY_CAL_SK_RNG, 0.0f);
@@ -98,7 +98,7 @@ void loaddefaultValues()
   }
 
   {
-    NvsPrefs p;
+    Preferences p;
     p.begin(NS_WIFI, false);
     p.putString(KEY_SSID, "");
     p.putString(KEY_PASSWORD, "");
@@ -106,7 +106,7 @@ void loaddefaultValues()
   }
 
   {
-    NvsPrefs p;
+    Preferences p;
     p.begin(NS_RT, false);
     p.putFloat(KEY_RT_STANDBY, 0.0f);
     p.putFloat(KEY_RT_CTRL, 0.0f);
@@ -118,7 +118,7 @@ void loaddefaultValues()
   }
 
   {
-    NvsPrefs p;
+    Preferences p;
     p.begin(NS_STATE, false);
     p.putUChar(KEY_PHOTO_ACTIVE, 0);
     p.putUChar(KEY_ACTUATION, 0);
@@ -162,7 +162,7 @@ static bool migrateFromEEPROM()
   constexpr int OLD_STBY_PERIOD = 278;
   constexpr int OLD_FAN_CTL_PWM = 282;
 
-  NvsPrefs old;
+  Preferences old;
   old.begin("eeprom", true);
   uint8_t buf[512] = {};
   size_t len = old.getBytes("data", buf, sizeof(buf));
@@ -179,7 +179,7 @@ static bool migrateFromEEPROM()
   { int32_t v; memcpy(&v, buf + off, 4); return v; };
 
   {
-    NvsPrefs p;
+    Preferences p;
     p.begin(NS_CFG, false);
     p.putUChar(KEY_LANG, buf[OLD_LANG]);
     p.putInt(KEY_SERIAL, ri(OLD_SERIAL));
@@ -195,7 +195,7 @@ static bool migrateFromEEPROM()
   }
 
   {
-    NvsPrefs p;
+    Preferences p;
     p.begin(NS_CAL, false);
     p.putFloat(KEY_CAL_SK_LOW, rf(OLD_SK_LOW));
     p.putFloat(KEY_CAL_SK_RNG, rf(OLD_SK_RNG));
@@ -214,7 +214,7 @@ static bool migrateFromEEPROM()
   memcpy(token_tmp, buf + OLD_TB_TOKEN, 21);
 
   {
-    NvsPrefs p;
+    Preferences p;
     p.begin(NS_WIFI, false);
     p.putString(KEY_SSID, ssid_tmp);
     p.putString(KEY_PASSWORD, pass_tmp);
@@ -222,7 +222,7 @@ static bool migrateFromEEPROM()
   }
 
   {
-    NvsPrefs p;
+    Preferences p;
     p.begin(NS_GPRS, false);
     p.putUChar(KEY_PROVISIONED, buf[OLD_TB_PROV]);
     p.putString(KEY_TOKEN, token_tmp);
@@ -233,7 +233,7 @@ static bool migrateFromEEPROM()
   }
 
   {
-    NvsPrefs p;
+    Preferences p;
     p.begin(NS_RT, false);
     p.putFloat(KEY_RT_STANDBY, rf(OLD_STANDBY));
     p.putFloat(KEY_RT_CTRL, rf(OLD_CTRL_TIME));
@@ -245,7 +245,7 @@ static bool migrateFromEEPROM()
   }
 
   {
-    NvsPrefs p;
+    Preferences p;
     p.begin(NS_STATE, false);
     p.putUChar(KEY_PHOTO_ACTIVE, buf[OLD_PHOTO_ACTIVE]);
     p.putUChar(KEY_ACTUATION, buf[OLD_CTRL_ACTIVE]); // actuation encodes same byte
@@ -256,14 +256,14 @@ static bool migrateFromEEPROM()
   old.clear();
   old.end();
 
-  ESP_LOGI("APP", "Migración EEPROM → NvsPrefs completada");
+  ESP_LOGI("APP", "Migración EEPROM → Preferences completada");
   return true;
 }
 
 void initEEPROM()
 {
   // Read any flasher-provisioned serial before a potential resetFlash clears it.
-  NvsPrefs p;
+  Preferences p;
   p.begin(NS_CFG, false);
   bool initialized = p.isKey(KEY_LANG);
   int flashedSerial = p.getInt(KEY_SERIAL, -1);
@@ -280,7 +280,7 @@ void initEEPROM()
       // Restore serial written by flasher tool (resetFlash cleared it).
       if (flashedSerial >= 0)
       {
-        NvsPrefs p2;
+        Preferences p2;
         p2.begin(NS_CFG, false);
         p2.putInt(KEY_SERIAL, flashedSerial);
         p2.end();
@@ -298,7 +298,7 @@ void initEEPROM()
 void recapVariables()
 {
   {
-    NvsPrefs p;
+    Preferences p;
     p.begin(NS_CFG, true);
     in3.language = p.getUChar(KEY_LANG, defaultLanguage);
     in3.serialNumber = p.getInt(KEY_SERIAL, 0);
@@ -363,7 +363,7 @@ void recapVariables()
   }
 
   {
-    NvsPrefs p;
+    Preferences p;
     p.begin(NS_CAL, true);
     RawTemperatureLow[SKIN_SENSOR] = p.getFloat(KEY_CAL_SK_LOW, 0.0f);
     RawTemperatureRange[SKIN_SENSOR] = p.getFloat(KEY_CAL_SK_RNG, 0.0f);
@@ -385,7 +385,7 @@ void recapVariables()
   }
 
   {
-    NvsPrefs p;
+    Preferences p;
     p.begin(NS_RT, true);
     in3.standby_time = p.getFloat(KEY_RT_STANDBY, 0.0f);
     in3.control_active_time = p.getFloat(KEY_RT_CTRL, 0.0f);
@@ -397,7 +397,7 @@ void recapVariables()
   }
 
   {
-    NvsPrefs p;
+    Preferences p;
     p.begin(NS_GPRS, true);
     in3.actuating_gprs_period = p.getInt(KEY_ACT_PERIOD, 60);
     in3.phototherapy_gprs_period = p.getInt(KEY_PHOTO_PERIOD, 180);
@@ -406,7 +406,7 @@ void recapVariables()
   }
 
   {
-    NvsPrefs p;
+    Preferences p;
     p.begin(NS_WIFI, true);
     String s = p.getString(KEY_SSID, "");
     String pw = p.getString(KEY_PASSWORD, "");
@@ -418,20 +418,68 @@ void recapVariables()
   }
 
   {
-    NvsPrefs p;
+    Preferences p;
     p.begin(NS_STATE, true);
     in3.actuation = p.getUChar(KEY_ACTUATION, 0);
     in3.phototherapy = p.getUChar(KEY_PHOTO_ACTIVE, 0);
+    // Semilla de intensidad. La escribe actuatorsTest() cuando extrapola un PWM
+    // para la corriente objetivo, y se relee aqui porque en un arranque con
+    // restoreState ese autotest NO corre: sin esto la lampara arrancaba en el
+    // 40 % fijo de PHOTOTHERAPY_INITIAL_PWM_PCT, que no apunta a ningun
+    // objetivo y da una corriente distinta en cada unidad.
+    const uint8_t photoPwmGuardado = p.getUChar(KEY_PHOTO_PWM, 0);
+    // Solo vale si se calibro para el objetivo ACTUAL. Una semilla de otro
+    // objetivo (o una sin objetivo, escrita por 18.43/18.44) se ignora y se
+    // cae al camino normal: extrapolacion del autotest o 40 % fijo.
+    const uint16_t objetivoGuardado = p.getUShort(KEY_PHOTO_PWM_TGT, 0);
+    const uint16_t objetivoActual =
+        (uint16_t)(PHOTO_TARGET_CURRENT * 1000.0f + 0.5f);
+    if (photoPwmGuardado > 0 && objetivoGuardado != objetivoActual) {
+      ESP_LOGW("APP", "[BOOT] semilla de fototerapia descartada: calibrada "
+               "para %u mA, objetivo actual %u mA",
+               (unsigned)objetivoGuardado, (unsigned)objetivoActual);
+    }
+    if (photoPwmGuardado > 0 && objetivoGuardado == objetivoActual) {
+      in3.phototherapy_intensity = photoPwmGuardado;
+      in3.photoFirstRun = false;   // ya hay semilla buena: no usar el 40 % fijo
+    }
     // restoreState ya viene resuelto por security_check_reboot_cause()
     // (initHardware.cpp), que corre antes que initEEPROM() en setup(): se
     // recupera en todo reinicio salvo POWERON y BROWNOUT.
     p.end();
   }
 
+  // En un arranque que NO es recuperacion (encendido normal o brownout) la
+  // fototerapia no se reanuda, igual que no se reanuda el control de
+  // temperatura: in3.actuation se lee siempre pero solo se APLICA bajo
+  // restoreState, unas lineas mas abajo. in3.phototherapy no tenia ese filtro
+  // y si se aplicaba siempre, en initHardware.cpp:
+  //
+  //     if (in3.phototherapy) { ...; ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, ...) }
+  //
+  // Consecuencia observada en banco: apagas la unidad con la fototerapia
+  // puesta, la enciendes en frio, el autotest prueba la lampara al 10 % de PWM
+  // --correcto-- y justo despues esa linea la encendia a la intensidad de
+  // trabajo (40 %, o hasta 255 si photoFirstRun ya era falso), es decir MAS
+  // intensidad que el test, hasta que ~1 s despues llegaba el primer mandato
+  // del HMI con photo=0 y la apagaba. Un destello de irradiacion que nadie ha
+  // mandado, en cada encendido en frio posterior a una sesion.
+  //
+  // Intermitente a proposito de nadie: solo ocurre si se apago con la
+  // fototerapia encendida.
+  //
+  // Ademas dejaba a las dos placas discrepando justo en lo que
+  // security_check_reboot_cause() dice que se unifico: el HMI usa la misma
+  // regla (g_hmiRestoreState) y por eso el que mandaba photo=0 era el.
+  if (!in3.restoreState && in3.phototherapy) {
+    ESP_LOGW("APP", "[BOOT] arranque en frio: no se reanuda la fototerapia");
+    in3.phototherapy = false;
+  }
+
   // Restore phototherapy timer if it was active
   if (in3.phototherapy)
   {
-    NvsPrefs p;
+    Preferences p;
     p.begin("photo", true);
     bool was_active = p.getBool("active", false);
     int saved_mins = p.getInt("mins", 0);

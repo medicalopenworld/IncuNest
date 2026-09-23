@@ -14,7 +14,7 @@ def firmware_dir(tmp_path):
         ('motherboard', ['bootloader.bin', 'partitions.bin', 'ota_data_initial.bin',
                          'firmware.bin']),
         ('display_hmi', ['bootloader.bin', 'partitions.bin', 'ota_data_initial.bin',
-                         'firmware.bin', 'spiffs.bin']),
+                         'firmware.bin']),
         ('sensorboard', ['bootloader.bin', 'partitions.bin', 'ota_data_initial.bin',
                          'firmware.bin']),
     ]:
@@ -55,19 +55,28 @@ def test_display_hmi_flash_includes_ota_data_address(firmware_dir):
     assert '0x10000' in captured
 
 
-def test_display_hmi_flash_includes_spiffs_image(firmware_dir):
-    """Sin la imagen SPIFFS una unidad de fabrica arranca sin heartbeat.mp3.
+def test_display_hmi_no_flashea_imagen_spiffs(firmware_dir):
+    """El HMI NO escribe la particion del sistema de archivos.
 
-    El firmware no falla por ello: AudioManager solo escupe un Serial.println
-    que en produccion no lee nadie. Por eso el fallo estuvo vivo hasta 2026-09
-    y por eso hay test.
+    Se flasheaba una imagen de 6,16 MB en 0xA10000 para llevar
+    /heartbeat.mp3, y en esta linea de firmware no la lee nadie: su unico
+    consumidor, src/tasks/AudioManager.cpp, esta excluido del build
+    (build_src_filter en Display_HMI/platformio.ini) y ni genera objeto.
+
+    El test es al reves que el de antes a proposito. Volver a escribirla no es
+    gratis: pisa esa particion en cada reflasheo y obliga a acordarse de
+    `pio run -t buildfs`, que un build normal no hace, con un
+    FileNotFoundError delante de la placa si se olvida.
     """
     captured = []
     with patch('flasher.esptool.main', lambda args: captured.extend(args)):
         flash_board('COM3', Board.DISPLAY_HMI, firmware_dir, lambda m, p: None)
 
-    assert '0xA10000' in captured, 'offset de la particion spiffs de hmi_16mb_ota.csv'
-    assert any(a.endswith('spiffs.bin') for a in captured)
+    assert '0xA10000' not in captured
+    assert not any(a.endswith('spiffs.bin') for a in captured)
+    # Y lo que si tiene que escribir sigue ahi.
+    assert '0x10000' in captured
+    assert any(a.endswith('firmware.bin') for a in captured)
 
 
 def test_flash_passes_port_to_esptool(firmware_dir):
@@ -152,7 +161,8 @@ def test_missing_files_reports_gaps_per_board(tmp_path):
     write_initial_ota_data(tmp_path)
     gaps = missing_files(tmp_path)
 
-    assert 'spiffs.bin' in gaps['display_hmi']
+    assert 'firmware.bin' in gaps['display_hmi']
+    assert 'spiffs.bin' not in gaps['display_hmi']
     assert 'ota_data_initial.bin' not in gaps['display_hmi']
     assert 'firmware.bin' in gaps['motherboard']
 

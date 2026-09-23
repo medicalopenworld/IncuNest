@@ -48,8 +48,8 @@
 //
 // Sin entorno de test (hardware real, USB, I2C, PWM): verificacion manual en
 // banco documentada en el commit de este cambio.
-#include "platform/plat_nvs.h"
-#include "platform/plat_fs.h"
+#include <Preferences.h>
+#include <LittleFS.h>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -60,15 +60,6 @@
 #include "factory_test_hw.h"
 #include "ftest_sim_activation.h"
 #include "main.h"
-
-// Capa de red del porte a ESP-IDF (sustituye a WiFi.h, WiFiClientSecure.h,
-// WebServer.h, Update.h y ESPmDNS.h de Arduino).
-#include "platform/plat_wifi.h"
-#include "platform/plat_net_client.h"
-#include "platform/plat_webserver.h"
-#include "platform/plat_update.h"
-#include "platform/plat_mdns.h"
-
 #include "modules/sensorboard_comm/sensorboard_comm.h"
 #include "modules/sensors/sensor_source.h"
 #include "modules/sensors/sensors_module.h"
@@ -119,7 +110,7 @@ static FtestStatus ftest_sysinfo(char *detail, FtestCascade *, uint32_t) {
   esp_read_mac(mac, ESP_MAC_WIFI_STA);
   uint32_t boots = 0;
   {
-    NvsPrefs p;
+    Preferences p;
     p.begin("diag", true);
     boots = p.getUInt("boots", 0);
     p.end();
@@ -610,7 +601,7 @@ static FtestStatus ftest_buzzer(char *detail, FtestCascade *) {
 
   const float base = before.dba;
   const uint32_t baseMs = before.last_sound_ms;
-  pwm_write(BUZZER_PWM_CHANNEL, BUZZER_HALF_PWM);
+  ledcWrite(BUZZER_PWM_CHANNEL, BUZZER_HALF_PWM);
   float peak = base;
   bool gotNew = false;
   const uint32_t start = millis();
@@ -626,7 +617,7 @@ static FtestStatus ftest_buzzer(char *detail, FtestCascade *) {
     ftest_yield();
     vTaskDelay(pdMS_TO_TICKS(250));
   }
-  pwm_write(BUZZER_PWM_CHANNEL, 0);
+  ledcWrite(BUZZER_PWM_CHANNEL, 0);
   D("base=%.0f pico=%.0f", base, peak);
   if (!gotNew) return FTEST_FAIL;
   return ((peak - base) >= FTEST_BUZZER_DBA_DELTA) ? FTEST_PASS : FTEST_FAIL;
@@ -815,7 +806,7 @@ static FtestStatus ftest_time(char *detail, FtestCascade *, uint32_t elapsed_ms)
 // ---------------------------------------------------------------------------
 // 26: NVS (pasivo, instantaneo)
 static FtestStatus ftest_nvs(char *detail, FtestCascade *, uint32_t) {
-  NvsPrefs p;
+  Preferences p;
   p.begin(NS_FTEST, false);
   const uint32_t val = (uint32_t)millis();
   p.putUInt(KEY_FTEST_PROBE, val);

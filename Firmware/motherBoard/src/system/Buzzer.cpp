@@ -22,9 +22,7 @@
   SOFTWARE.
 
 */
-#include "platform/plat_time.h"
-#include "platform/plat_pwm.h"
-#include "platform/plat_string.h"
+#include <Arduino.h>
 
 #include "main.h"
 // Para los static_assert que atan el patron de rafaga (main.h) con la rafaga
@@ -52,7 +50,7 @@ void buzzerHandler()
   {
     buzzerBeeps -= buzzerBuzzing;
     buzzerBuzzing = !buzzerBuzzing;
-    pwm_write(BUZZER_PWM_CHANNEL, BUZZER_HALF_PWM * buzzerBuzzing);
+    ledcWrite(BUZZER_PWM_CHANNEL, BUZZER_HALF_PWM * buzzerBuzzing);
     buzzerTime = millis();
   }
 }
@@ -62,7 +60,7 @@ void shutBuzzer()
     // logI("[BUZZER] -> BUZZER was shutted");
     buzzerBeeps = 0;
     buzzerBuzzing = false;
-    pwm_write(BUZZER_PWM_CHANNEL, false);
+    ledcWrite(BUZZER_PWM_CHANNEL, false);
 }
 
 void buzzerTone(int beepTimes, int timevTaskDelay, int freq)
@@ -178,7 +176,7 @@ static void writePulseAmplitude(uint32_t elapsedInPulse)
     const uint32_t remain = ALARM_PULSE_MS - elapsedInPulse;
     duty = (peak * remain) / ALARM_PULSE_FALL_MS;
   }
-  pwm_write(BUZZER_PWM_CHANNEL, duty);
+  ledcWrite(BUZZER_PWM_CHANNEL, duty);
 }
 
 // Hueco que sigue al pulso numero `pulsesDone` (1 = ya sono el primero).
@@ -210,7 +208,7 @@ void buzzerAlarmUpdate(bool audioRequired, AlarmPriority priority)
   {
     if (on)
     {
-      pwm_write(BUZZER_PWM_CHANNEL, 0);
+      ledcWrite(BUZZER_PWM_CHANNEL, 0);
       on = false;
     }
     pulsesLeft = 0;
@@ -276,7 +274,7 @@ void buzzerAlarmUpdate(bool audioRequired, AlarmPriority priority)
       writePulseAmplitude(elapsed);
       return;
     }
-    pwm_write(BUZZER_PWM_CHANNEL, 0);
+    ledcWrite(BUZZER_PWM_CHANNEL, 0);
     phaseStart = now;
     on = false;
     pulsesDone++;

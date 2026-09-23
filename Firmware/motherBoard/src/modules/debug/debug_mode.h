@@ -73,6 +73,25 @@ bool debug_override_active(debug_channel_t ch);
 // apagado.
 void debug_sensors_apply(void);
 
+// --- encendido de fototerapia --------------------------------------------
+// Solo por la consola UART ("PHOTO,1" / "PHOTO,0", main.cpp) y a proposito:
+// acciona la lampara sobre un paciente, y la consola exige acceso fisico al
+// USB de la placa, mientras que /debug/* se alcanza desde toda la red con una
+// contrasena que viaja en claro (known_issues.md #16). No hay endpoint HTTP.
+//
+// La logica de verdad esta en modules/control/photo_override.h; esto solo la
+// protege con un spinlock y la ata al modo: debug_photo_on() se rechaza con
+// el modo apagado, y apagar el modo la suelta.
+//
+// `real_now` es la fototerapia que el display habia mandado hasta ahora.
+bool debug_photo_on(bool real_now);
+void debug_photo_off(void);
+bool debug_photo_active(void);
+// Valor que el receptor de tramas del display debe APLICAR en lugar del suyo,
+// y si puede guardar el suyo en NVS. Ver photo_override.h.
+bool debug_photo_effective(bool display_value);
+bool debug_photo_may_persist(void);
+
 // --- alarmas forzadas ----------------------------------------------------
 // Fuerza la CONDICION (el `present` de la maquina), no la senal: el retardo de
 // anuncio, la prioridad, el enclavamiento y el corte de calefactor siguen

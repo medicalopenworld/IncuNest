@@ -1,76 +1,37 @@
 #ifndef _MAIN_H
 #define _MAIN_H
 
-// TINY_GSM_MODEM_SIM800 y modemSerial desaparecen con TinyGSM: el modem va
-// ahora por esp_modem (PPP), ver src/tasks/gprs_modem.h.
-#ifndef THINGSBOARD_ENABLE_PSRAM
+#define TINY_GSM_MODEM_SIM800
+#define modemSerial Serial2
 #define THINGSBOARD_ENABLE_PSRAM 0
-#endif
-#ifndef THINGSBOARD_ENABLE_DYNAMIC
 #define THINGSBOARD_ENABLE_DYNAMIC 1
-#endif
-// ================== CAMBIO DE COMPORTAMIENTO, PENDIENTE DE BANCO ==================
-// Pasa de 1 a 0 en el porte, y NO es una eleccion: la propia Configuration.h
-// del SDK lo dice ("Option can only be enabled when using Arduino"). El truco
-// se apoya en BufferingPrint de ArduinoStreamUtils y exige que el
-// IMQTT_Client implemente ademas el interfaz Print de Arduino.
-// Espressif_MQTT_Client (esp-mqtt) no lo hace, asi que con el transporte de
-// ESP-IDF esta opcion no puede existir.
-//
-// QUE SE PIERDE: con STREAM_UTILS=1, sendTelemetryJson() usaba Serialize_Json()
-// (begin_publish + BufferingPrint + end_publish) y publicaba EN STREAMING,
-// rodeando el bufer del cliente MQTT: un payload de mas de 1024 B se enviaba
-// igual, troceado. Es justo lo que explica la nota de
-// config/transport_policy.h. Con STREAM_UTILS=0 el payload tiene que caber
-// entero en THINGSBOARD_BUFFER_SIZE (4096 B, mas abajo).
-//
-// POR QUE HAY QUE MEDIRLO EN BANCO: el peor caso documentado son 99 claves
-// (87 por GPRS + 12 del bloque). A ~35 B por clave eso ronda los 3,5 KB, que
-// deja muy poco margen sobre 4096. Si una publicacion se pasa, el SDK la
-// DESCARTA y avisa con INVALID_BUFFER_SIZE — se perderia telemetria en
-// silencio para quien no mire el log.
-//
-// QUE HACER ANTES DE DAR ESTO POR BUENO: medir el tamano real del payload en
-// el peor caso (GPRS, todos los grupos encendidos) y, si hace falta, subir
-// THINGSBOARD_BUFFER_SIZE. Con esp-mqtt el bufer es configurable y el coste
-// es RAM, no dinero de datos.
-// ==================================================================================
-#ifndef THINGSBOARD_ENABLE_STREAM_UTILS
-#define THINGSBOARD_ENABLE_STREAM_UTILS 0
-#endif
+#define THINGSBOARD_ENABLE_STREAM_UTILS 1
 #include "ThingsBoard.h"
 #include "config/transport_policy.h" // tabla única GPRS/WiFi
+#include <Arduino.h>
+#include <TinyGsmClient.h>
 
-// ===================== PORTE A ESP-IDF: LIMPIEZA DE ESTE HUB =====================
-// main.h reexportaba a TODO el firmware una docena de cabeceras de Arduino
-// (WiFi, WebServer, Update, ESPmDNS, TinyGsmClient, Wire, Preferences,
-// Filters, Adafruit_GFX, Adafruit_SHT4x, BluetoothSerial, SPI,
-// INA3221...). Se comprobo una por una: NINGUNO de esos tipos se usa dentro de
-// main.h — eran solo reexportaciones. Como casi todos los .cpp incluyen main.h,
-// esas cabeceras hacian fallar 33 de las ~85 fuentes de la placa a la vez.
-//
-// Ahora cada .cpp incluye lo que de verdad usa. BluetoothSerial se retira del
-// todo: no se usaba en ningun sitio del proyecto (cero referencias en src/).
-// ================================================================================
+#include <ESPmDNS.h>
+#include <Update.h>
+#include <WebServer.h>
+#include <WiFi.h>
+// include libraries
 #include "esp_log.h"
 #include "esp_system.h"
-// FreeRTOS.h SHALL ir antes que semphr.h (semphr.h lleva un #error si no).
-// Antes lo colaba Arduino.h; ahora se pide explicitamente.
-#include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include <Beastdevices_INA3221.h>
+#include <Preferences.h>
+#include <Filters.h>
+#include <RotaryEncoder.h>
+#include <Wire.h>
 
-#include "platform/plat_esp.h"
-#include "platform/plat_gpio.h"
-#include "platform/plat_ip.h"
-#include "platform/plat_types.h"
-#include "platform/plat_i2c.h"
-#include "platform/plat_nvs.h"
-#include "platform/plat_num.h"
-#include "platform/plat_pwm.h"
-#include "platform/plat_string.h"
-#include "platform/plat_time.h"
-#include "platform/plat_uart.h"
+#include <AH/Timing/MillisMicrosTimer.hpp>
+#undef DEBUG
+#include <Filters/Butterworth.hpp>
 
+#include "Adafruit_GFX.h"
+#include "Adafruit_SHT4x.h"
+#include "BluetoothSerial.h"
 #include "CommTask.h"
 #include "control_types.h"
 #include "alarm_ids.h"
@@ -78,14 +39,16 @@
 #include "ESP32_config.h"
 #include "GPRS.h"
 #include "PID.h"
+#include "SPI.h"
 #include "SPO2.h"
+#include "SparkFun_SHTC3.h"
+#include "TCA9555.h"
 #include "Wifi_OTA.h"
 #include "board.h"
-// Se retiran de este hub tres cabeceras que nadie usaba: driver/rtc_io.h y
-// esp32/ulp.h (cero referencias a rtc_gpio_* o ulp_* en todo src/ — ademas
-// esp32/ulp.h ya no existe en ESP-IDF 6), y esp_bt_main.h. esp_bt.h SI hace
-// falta, pero solo en main.cpp, que es donde se libera la memoria del
-// controlador BLE; se incluye alli.
+#include "driver/rtc_io.h"
+#include "esp32/ulp.h"
+#include "esp_bt.h"
+#include "esp_bt_main.h"
 #include "IncuNest_humidifier.h"
 #include "nvs_flash.h"
 #if CONFIG_IDF_TARGET_ESP32S3
@@ -95,11 +58,8 @@
 #include "usb/vcp_ch34x.hpp"
 #endif
 #include "BQ25730.h"
-// TFT_eSPI retirada en el porte a ESP-IDF: era codigo MUERTO. Se declaraba
-// el objeto `tft` en main.cpp, tres ficheros lo declaraban extern y no habia
-// ni una sola llamada sobre el (cero `tft.`). La motherBoard ya no tiene
-// pantalla propia: la pantalla es el HMI. Ademas arrastraba Print.h de
-// Arduino a los 7 ficheros que incluyen main.h.
+#include <SensirionI2cSts3x.h>
+#include <TFT_eSPI.h> // Hardware-specific library
 
 #include <Arduino_MQTT_Client.h>
 #include <Espressif_MQTT_Client.h>
@@ -107,7 +67,13 @@
 
 #define HW_REVISION 'A'
 #define HWversion String(HW_NUM) + "." + String(HW_REVISION)
-#define FWversion "18.2"
+// MAJOR.MINOR.PATCH desde 18.48.0 (2026-09-23), igual que el Display_HMI.
+// Antes era "18.NN", y ThingsBoard guarda como NUMERO una cadena que lo
+// parece: "18.40" llegaba como 18.4, indistinguible de una 18.4 de verdad.
+// Con tres componentes deja de parecer un numero y se queda como texto.
+// Nada del firmware ni del flash tool ordena versiones: ThingsBoard compara
+// por igualdad y el flash tool elige por la revision de HW del entorno.
+#define FWversion "18.48.0"
 #define WIFI_NAME "IncuNest"
 #define CURRENT_FIRMWARE_TITLE "IncuNest"
 
@@ -203,32 +169,26 @@
 #define THINGSBOARD_QOS false
 #define TELEMETRIES_DECIMALS 2
 #define FIRMWARE_FAILURE_RETRIES 12
-#define FIRMWARE_PACKET_SIZE 4096
-// Tamano de trozo para la OTA POR CELULAR. Los 4096 de arriba van bien por
-// WiFi (la actualizacion entera dura 80 s), pero por GPRS cada mensaje tarda
-// segundos en llegar y un enlace con baches lo deja a medias: medido en banco
-// el 2026-09-15, la descarga moria siempre con "Network timeout while reading
-// MQTT message" aun con el timeout de red subido a 60 s.
-// 1024 ademas CUADRA con MAX_MESSAGE_SIZE, que es el tamano de mensaje que se
-// le declara al cliente ThingsBoard: pedir trozos de 4096 con un buffer
-// declarado de 1024 era incoherente de partida.
-// El precio es que hay ~4x mas trozos, o sea una descarga bastante mas larga.
-#define FIRMWARE_PACKET_SIZE_GPRS 1024
-
-// Tamano del buffer MQTT con el que se CREA cada cliente ThingsBoard. Tiene
-// que caber ya un trozo de OTA entero (carga + topico + cabecera), porque
-// esp-mqtt NO permite cambiar el buffer de un cliente en marcha: el SDK lo
-// intenta al arrancar la OTA con setBufferSize(chunk + 50) y la llamada no
-// tiene efecto (esp-mqtt issue #267; lo dice el propio comentario de
-// Espressif_MQTT_Client::set_buffer_size). Medido en banco el 2026-09-15 con
-// MAX_MESSAGE_SIZE=1024 y trozos de 1024: desde el trozo 29 TODOS llegaban al
-// handler con 0 bytes, deterministicamente, aunque el volcado del UART
-// mostraba el PUBLISH completo. El mensaje del trozo no cabia en el buffer.
+// Tamano del trozo de firmware que el cliente pide en cada vuelta de la OTA.
 //
-// Margen: +256 por encima del trozo para topico (~26 B), cabecera MQTT y
-// holgura; ~1,3 KB y ~4,4 KB de RAM respectivamente.
-#define TB_MQTT_BUFFER_GPRS (FIRMWARE_PACKET_SIZE_GPRS + 256)
-#define TB_MQTT_BUFFER_WIFI (FIRMWARE_PACKET_SIZE + 256)
+// TIENE QUE CABER EN EL BUFFER DEL CLIENTE MQTT, que es MAX_MESSAGE_SIZE
+// (1024 B): `ThingsBoard tb(mqttClientGPRS, MAX_MESSAGE_SIZE)` en GPRS.cpp y
+// Wifi_OTA.cpp. Ese buffer tiene que alojar el paquete MQTT ENTERO -- cabecera
+// y topico ("v2/fw/response/<id>/chunk/<n>", ~30 B) ademas del payload -- asi
+// que el trozo util se queda en algo menos de 1 KB. Por eso 512 y no 1024.
+//
+// Estaba en 4096, que no cabe, y el sintoma no se parecia a la causa: el
+// chunk llegaba y se descartaba por tamano, el cliente agotaba sus 10 s
+// (WAIT_FAILED_OTA_CHUNKS) y lo volvia a pedir, con algun "Received chunk (0),
+// not the same as requested chunk (1)" suelto cuando se cruzaban peticion y
+// reenvio. Banco 2026-09-20, OTA por 2G: 92 trozos de 365 en ~9 min con 40
+// expiraciones, ~293 B/s. Parecia un problema de cobertura y no lo era.
+//
+// Subir MAX_MESSAGE_SIZE en vez de bajar esto iria mas rapido (menos vueltas),
+// pero el buffer sale del heap interno, y de ese hay ~11 KB libres con WiFi y
+// celular arriba (ver docs/known_issues.md y el abort por OOM del port IDF).
+// No se toca sin medir.
+#define FIRMWARE_PACKET_SIZE 512
 #define WAIT_FAILED_OTA_CHUNKS 10U * 1000U * 1000U
 
 // Mutex for protecting the shared variable
@@ -274,6 +234,8 @@ typedef enum
 #include "telemetry_keys.h"
 
 extern uint32_t g_bootCount;
+// millis() en que arranco sensors_Task; 0 = todavia no. Ver checkStatusOfSensor().
+extern uint32_t g_sensorsTaskStartedMs;
 extern uint32_t g_gprsKillCount;
 extern uint32_t g_monKillCount;
 extern int g_hmiBootCount;
@@ -310,6 +272,7 @@ extern int g_restore_photo_minutes;
   10000                              // in millis, there will be a periodic tone when regulating baby's
                                      // constants
 #define buzzerStandbyTone 500        // in micros, tone freq
+#define buzzerRotaryEncoderTone 2200 // in micros, tone freq
 #define buzzerStandbyToneDuration 50 // in micros, tone freq
 #define buzzerSwitchDuration 10      // in micros, tone freq
 #define buzzerStandbyToneTimes 1     // in micros, tone freq
@@ -419,6 +382,11 @@ typedef enum
 // solo manda en una unidad sin nada guardado. El techo, y el motivo por el que
 // 40 C es una desviacion normativa consciente, estan en shared/alarm_policy.h.
 #define AIR_THERMAL_CUTOUT_DEFAULT_C 40
+
+// Encoder variables
+#define NUMENCODERS 1 // number of encoders in circuit
+#define ENCODER_TICKS_DIV 0
+#define encPulseDebounce 200
 
 // Graphic variables
 #define ERASE false
@@ -596,6 +564,10 @@ double measureStabilizedCurrent(bool sensor, int shunt, float offsetCurrent,
 float measureMeanVoltage(bool, int);
 void WIFI_TB_Init();
 void WifiOTAHandler(void);
+// Enciende/apaga la WiFi desde la UART (HMI,WIFI_EN,<0|1>), para poder probar
+// el camino 2G. Solo anota la peticion: la aplica WifiOTAHandler() en el lazo
+// principal. Volatil — WIFI_EN vuelve a true en cada arranque.
+void wifiRequestEnable(bool enable);
 void securityCheck();
 
 void turnFans(bool mode);
@@ -657,17 +629,15 @@ void initAlarms();
 void alarmHistorySave();
 void alarmHistoryLoad();
 void security_check_reboot_cause();
+void IRAM_ATTR encoderISR();
 void IRAM_ATTR fanEncoderISR();
 
 void fanSpeedHandler();
 bool measureSkinSensor();
 
-// Aqui habia dos declaraciones mas —pinMode y digitalWrite— que redeclaraban
-// la API GPIO de Arduino con su misma firma y que NO estaban definidas en
-// ningun sitio del proyecto. Eran vestigios inofensivos mientras Arduino
-// aportaba esos simbolos; con la capa de plataforma propia chocaban con
-// pin_write(uint8_t, bool). Se borran. GPIORead si se usa y se queda.
+void pinMode(uint8_t GPIO, uint8_t Mode);
 bool GPIORead(uint8_t GPIO);
+void digitalWrite(uint8_t GPIO, uint8_t Mode);
 
 void basictemperatureControl();
 

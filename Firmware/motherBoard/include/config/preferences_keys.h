@@ -1,7 +1,7 @@
 #pragma once
 // NVS (Preferences) namespace and key names
 
-// --------------- NvsPrefs namespaces ---------------
+// --------------- Preferences namespaces ---------------
 constexpr char NS_CFG[]   = "mb_cfg";
 constexpr char NS_CAL[]   = "mb_cal";
 constexpr char NS_WIFI[]  = "mb_wifi";
@@ -63,6 +63,16 @@ constexpr char KEY_RT_HUM[]      = "hum_t";
 // --------------- Key names: mb_state ---------------
 constexpr char KEY_PHOTO_ACTIVE[] = "photo_active";
 constexpr char KEY_ACTUATION[]    = "actuation";
+// PWM de fototerapia extrapolado por actuatorsTest() para la corriente
+// objetivo. Se guarda porque en un arranque con restoreState (caida) el
+// autotest NO corre, y sin esto la semilla caia en un 40 % fijo que no apunta
+// a ningun objetivo y depende de la unidad. Ver known_issues.md #17.
+constexpr char KEY_PHOTO_PWM[]    = "photo_pwm";
+// Objetivo de corriente (en mA) para el que se calibro KEY_PHOTO_PWM. Si
+// PHOTO_TARGET_CURRENT cambia por firmware, la semilla guardada corresponde a
+// OTRO punto de trabajo y se descarta. Sin esto, al pasar de 0.27 a 0.45 A la
+// lampara arrancaba en el PWM convergido para 0.27 y subia despacio.
+constexpr char KEY_PHOTO_PWM_TGT[] = "photo_pwm_tgt";
 
 // --------------- Key names: mb_ftest ---------------
 constexpr char KEY_FTEST_EPOCH[] = "epoch";

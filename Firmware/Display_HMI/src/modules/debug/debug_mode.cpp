@@ -13,7 +13,6 @@
 
 #include "main.h"
 #include "tasks/CommTask.h"
-#include "platform/plat_time.h"
 
 static const char *TAG = "hmi_debug";
 
@@ -234,13 +233,35 @@ size_t debug_state_json_ex(char *out, size_t out_len, bool with_tasks) {
   // no se habia movido. Y el numero que de verdad manda no es el libre sino el
   // MAYOR BLOQUE CONTIGUO: 5 KB libres en trozos de 500 B no sirven para un
   // buffer de 2 KB.
-  J(",\"heap\":{\"int_free\":%u,\"int_min\":%u,\"int_largest\":%u"
-    ",\"psram_free\":%u,\"psram_largest\":%u}",
+  // AQUI NO SE LLAMA A heap_caps_get_largest_free_block(). NI INTERNA NI PSRAM.
+  //
+  // No lee un contador: baja a multi_heap_get_info() y RECORRE EL POOL bloque a
+  // bloque con el cerrojo del heap cogido (portENTER_CRITICAL, o sea con las
+  // interrupciones de ese core deshabilitadas), y con el poisoning del heap
+  // activado ademas valida el patron de cada bloque. En este display eso tarda
+  // mas que el interrupt watchdog, y el resultado es un reinicio:
+  //
+  //   Guru Meditation Error: Core 1 panic'ed (Interrupt wdt timeout on CPU1)
+  //   multi_heap_get_info_impl <- heap_caps_get_largest_free_block
+  //   <- debug_state_json_ex <- /debug/state
+  //
+  // Banco 2026-09-20: CADA peticion a /debug/state reiniciaba el display, con
+  // el bootCount subiendo de uno en uno. Se probo primero quitando solo la
+  // llamada de PSRAM (8 MB) y siguio petando en la de la INTERNA, asi que el
+  // problema es la llamada, no el tamano del pool. La motherBoard no lo sufre
+  // —alli sigue— porque su heap es mucho menor y no lleva poisoning ni PSRAM.
+  //
+  // Se informa -1 en vez de omitir la clave: quien lee el JSON distingue "no
+  // medido" de "cero", y la bateria de banco se salta el umbral cuando es
+  // negativo. int_min (minimo historico) SI es un contador y cubre lo que mas
+  // importa aqui, que es si la interna se esta agotando.
+  J(",\"heap\":{\"int_free\":%u,\"int_min\":%u,\"int_largest\":-1"
+    ",\"psram_free\":%u"
+    ",\"note\":\"int_largest no se mide: recorrer el pool dispara el "
+    "interrupt watchdog en esta placa\"}",
     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
     (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
-    (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
-    (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
-    (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
+    (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
 
   // La tabla de tareas va BAJO PETICION (debug_state_json_ex(.., true)).
   //

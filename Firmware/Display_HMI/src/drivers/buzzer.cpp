@@ -1,3 +1,4 @@
+#include <Wire.h>
 #include "buzzer.h"
 #include "main.h"
 
@@ -11,12 +12,14 @@
 // boton de SILENCIAR, cuyo efecto tarda en verse porque la placa es la que
 // confirma el estado.
 void buzzerOn() {
-    const uint8_t cmd = I2C_CMD_BUZZER_ON;
-    g_i2c.write(I2C_ADDR_BACKLIGHT, &cmd, 1);
+    Wire.beginTransmission(I2C_ADDR_BACKLIGHT);
+    Wire.write(I2C_CMD_BUZZER_ON);
+    Wire.endTransmission();
 }
 
 // Desactivar buzzer (Forzar OFF)
 void buzzerOff() {
-    const uint8_t cmd = I2C_CMD_BUZZER_OFF;
-    g_i2c.write(I2C_ADDR_BACKLIGHT, &cmd, 1);
+    Wire.beginTransmission(I2C_ADDR_BACKLIGHT);
+    Wire.write(I2C_CMD_BUZZER_OFF);
+    Wire.endTransmission();
 }

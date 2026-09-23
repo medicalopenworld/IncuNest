@@ -10,6 +10,23 @@
 #define APN_KEY "APN"
 #define COP_KEY "COP"
 #define SYSTEM_RESET_REASON "RST_reason"
+// Causa de la ULTIMA caida, publicada solo en el arranque siguiente a un
+// reinicio anormal (ver CrashReporter.h). En un arranque normal no se envia
+// ninguna de las tres, asi que no consumen del presupuesto de
+// THINGSBOARD_FIELDS_AMOUNT en regimen permanente.
+//
+// Crash_log es un texto corto (<= 192 car.) con las ultimas lineas del log
+// antes de morir. Es lo que distingue una averia de otra: en las caidas de
+// banco del 2026-09-20 ponia "[MON] GPRS_Task hung, restarting it".
+#define CRASH_REASON_KEY  "Crash_reason"
+#define CRASH_REBOOTS_KEY "Crash_reboots"
+#define CRASH_LOG_KEY     "Crash_log"
+// Anillo completo (~4 KB). Solo por WiFi, ver TX_FEATURE_CRASH_FULLLOG_*.
+#define CRASH_FULLLOG_KEY "Crash_log_full"
+// Del coredump: la tarea que exploto y su backtrace. Crash_task es lo unico
+// que senala al culpable sin deducirlo.
+#define CRASH_TASK_KEY    "Crash_task"
+#define CRASH_BT_KEY      "Crash_bt"
 #define SYS_CURR_STANDBY_TEST_KEY "SYS_current_stanby_test"
 #define HEATER_CURR_TEST_KEY "Heater_current_test"
 #define FAN_CURR_TEST_KEY "Fan_current_test"

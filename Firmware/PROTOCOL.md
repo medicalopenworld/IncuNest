@@ -528,6 +528,65 @@ Lanza la prueba de funcionamiento de las señales de alarma
   (6.3.2.2.2).
 - No toca actuadores ni declara condición alguna.
 
+### 2.bis Consola de depuración (NO es este protocolo)
+
+La motherBoard tiene **dos** puertos serie y conviene no confundirlos:
+
+| puerto | objeto | pines | qué lleva |
+|---|---|---|---|
+| enlace con el display | `Serial1` (`hmiSerial`) | TX 15 / RX 16 | todo lo descrito en este documento |
+| consola de depuración | `Serial` (`debugSerial`) | UART0 (el del flasheo) | el log, y dos comandos de banco |
+
+#### `PHOTO,<0|1>` — fototerapia desde el modo depuración
+
+Enciende (`1`) o suelta (`0`) la fototerapia sin nadie en la pantalla, para
+probar el lazo de intensidad en banco.
+
+- **`PHOTO,1` exige el modo depuración encendido** (`POST /debug/mode?on=1`); si
+  no, se rechaza con `PHOTO,1 rechazado: el modo depuracion esta apagado`.
+  `PHOTO,0` se acepta siempre: apagar nunca es lo peligroso.
+- **Solo por esta consola, sin endpoint HTTP, a propósito.** Acciona un
+  actuador sobre un paciente; la consola exige acceso físico al USB de la
+  placa, y `/debug/*` se alcanza desde toda la red con una contraseña que viaja
+  en claro (`known_issues.md` #16).
+- Se aplica con la siguiente trama del display (≤1 s), en el mismo camino que
+  una orden real, así que lo que se prueba es el lazo de producción.
+- **Nada de la prueba se guarda.** Durante la sesión y durante una ventana de
+  gracia de 5 s al soltarla no se escribe `photo_active` en NVS: una caída a
+  mitad de sesión vuelve con la fototerapia apagada (verificado en banco).
+- Soltar (con `PHOTO,0` o apagando el modo) devuelve la fototerapia a como
+  estaba antes de la prueba, no siempre a apagado.
+- Estado en `GET /debug/state`: `ctl.photo_dbg` (1 mientras dure la prueba).
+- Aviso: mientras dura la prueba, **la pantalla muestra la fototerapia
+  apagada** aunque la lámpara esté encendida — el campo `photo` de `CTRL,STATE`
+  es el eco de la orden del display (`known_issues.md` #20).
+- Lógica en `modules/control/photo_override.h`, con test de host
+  (`test/test_photo_override`).
+
+#### `WIFI_EN,<0|1>`
+
+En la consola se acepta **`WIFI_EN,<0|1>`** (`main.cpp::debugConsolePoll`).
+Enciende o apaga la WiFi en caliente para poder probar la OTA por 2G: con
+enlace WiFi, `GPRS_Handler()` solo refresca localización y hora — ni publica
+telemetría ni llama a `GPRSCheckOTA()`, así que ese camino no se ejercita
+nunca.
+
+- Confirmación: una línea de log con el testigo `CTRL,WIFI_EN,<0|1>` cuando el
+  cambio **ya está aplicado**.
+- **No se persiste en ningún sitio.** `WIFI_EN` nace a `true` en cada arranque,
+  así que cualquier reinicio —incluido el que hace la propia OTA— devuelve la
+  WiFi encendida. Es deliberado: que no exista forma de que una unidad salga de
+  fábrica con la WiFi apagada por un comando que alguien se dejó puesto.
+- El comando solo **anota** la petición; la aplica `WifiOTAHandler()` en el lazo
+  principal. Tocar la API WiFi desde otra tarea mientras ese lazo está dentro de
+  `wifiInit()` es la misma clase de carrera que el issue #11 de
+  `docs/known_issues.md`.
+- Argumento que no sea exactamente `0` o `1`: se rechaza con aviso. Cualquier
+  otra línea se ignora y se registra.
+- Los acuses van con `ESP_LOGx`, no con `logI`/`logE`: `main.h` compila esos dos
+  fuera del binario (`LOG_INFORMATION` y `LOG_ERRORS` a `false`), y un acuse
+  escrito con `logI` no se imprime nunca aunque el comando funcione.
+
 ### 3. Test de fábrica (`FTEST`)
 
 Batería de comprobaciones de hardware para el montaje en fábrica y el servicio

@@ -30,36 +30,37 @@ static inline void bqE(const String &s) { if (LOG_CHARGER) logE(s); }
 
 // ─── Estado interno del módulo ────────────────────────────────────────────────
 bool chargerPresent = false;
-static I2cBus *_i2c = nullptr;
+static TwoWire *_i2c = nullptr;
 static bool     _initialized = false;
 
 // ─── Helpers I2C de bajo nivel ────────────────────────────────────────────────
 
-// Porte a ESP-IDF: el patron beginTransmission/write/endTransmission de
-// Arduino era un bufer con estado escondido; la API de i2c_master es por
-// transaccion. El orden de los bytes en el bus no cambia: registro, byte bajo,
-// byte alto — el BQ25730 mapea el byte alto en la direccion base+1.
 static bool write_reg16(uint8_t reg, uint16_t value) {
-    const uint8_t payload[3] = {
-        reg,
-        (uint8_t)(value & 0xFF),        // Byte bajo (dirección base)
-        (uint8_t)((value >> 8) & 0xFF), // Byte alto (dirección base+1)
-    };
-    return _i2c->write(BQ25730_ADDR, payload, sizeof(payload));
+    _i2c->beginTransmission(BQ25730_ADDR);
+    _i2c->write(reg);
+    _i2c->write((uint8_t)(value & 0xFF));        // Byte bajo (dirección base)
+    _i2c->write((uint8_t)((value >> 8) & 0xFF)); // Byte alto (dirección base+1)
+    return (_i2c->endTransmission() == 0);
 }
 
-// El endTransmission(false) de antes pedia START REPETIDO (no soltar el bus
-// entre la escritura del registro y la lectura). writeRead() hace exactamente
-// eso en una sola transaccion.
 static bool read_reg16(uint8_t reg, uint16_t *out) {
-    uint8_t rx[2] = {0, 0};
-    if (!_i2c->writeRead(BQ25730_ADDR, &reg, 1, rx, sizeof(rx))) return false;
-    *out = (uint16_t)rx[0] | ((uint16_t)rx[1] << 8);
+    _i2c->beginTransmission(BQ25730_ADDR);
+    _i2c->write(reg);
+    if (_i2c->endTransmission(false) != 0) return false;
+    if (_i2c->requestFrom((uint8_t)BQ25730_ADDR, (uint8_t)2) != 2) return false;
+    uint8_t lo = _i2c->read();
+    uint8_t hi = _i2c->read();
+    *out = (uint16_t)lo | ((uint16_t)hi << 8);
     return true;
 }
 
 static bool read_reg8(uint8_t reg, uint8_t *out) {
-    return _i2c->writeRead(BQ25730_ADDR, &reg, 1, out, 1);
+    _i2c->beginTransmission(BQ25730_ADDR);
+    _i2c->write(reg);
+    if (_i2c->endTransmission(false) != 0) return false;
+    if (_i2c->requestFrom((uint8_t)BQ25730_ADDR, (uint8_t)1) != 1) return false;
+    *out = _i2c->read();
+    return true;
 }
 
 // ─── Funciones de cálculo de valores de registro ─────────────────────────────
@@ -116,7 +117,7 @@ static uint16_t calc_iin_host_reg(uint16_t ma) {
 }
 
 // ─── init_BQ25730() ───────────────────────────────────────────────────────────
-bool init_BQ25730(I2cBus *i2c) {
+bool init_BQ25730(TwoWire *i2c) {
     _i2c          = i2c;
     _initialized  = false;
     chargerPresent = false;

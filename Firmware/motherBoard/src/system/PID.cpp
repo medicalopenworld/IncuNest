@@ -24,10 +24,7 @@
 */
 #include "PID.h"
 
-#include "platform/plat_time.h"
-#include "platform/plat_pwm.h"
-#include "platform/plat_string.h"
-#include "platform/plat_num.h"
+#include <Arduino.h>
 
 #include "main.h"
 #include "system/hw_selftest.h"
@@ -207,7 +204,7 @@ void PIDHandler()
       airControlPID.SetTunings(Kp[airPID], false, Kd[airPID]);
     }
     airControlPID.Compute();
-    pwm_write(HEATER_PWM_CHANNEL, HeaterPIDOutput * !ongoingCriticalAlarm());
+    ledcWrite(HEATER_PWM_CHANNEL, HeaterPIDOutput * !ongoingCriticalAlarm());
   }
   if (skinControlPID.GetMode() == AUTOMATIC)
   {
@@ -217,7 +214,7 @@ void PIDHandler()
       skinControlPID.SetTunings(Kp[skinPID], Ki[skinPID], Kd[skinPID]);
     }
     skinControlPID.Compute();
-    pwm_write(HEATER_PWM_CHANNEL, HeaterPIDOutput * !ongoingCriticalAlarm());
+    ledcWrite(HEATER_PWM_CHANNEL, HeaterPIDOutput * !ongoingCriticalAlarm());
   }
   if (humidityControlPID.GetMode() == AUTOMATIC)
   {
@@ -272,7 +269,7 @@ void PIDHandler()
       if (fanControlPID.GetMode() == AUTOMATIC)
       {
         fanControlPID.Compute();
-        pwm_write(FAN_CTL_PWM_CHANNEL,
+        ledcWrite(FAN_CTL_PWM_CHANNEL,
                   fanControlPIDOutput * !ongoingFanCriticalAlarm());
       }
       else if (millis() - fanCommandedAt >= FAN_SPINUP_GRACE_MS)

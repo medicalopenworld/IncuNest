@@ -1,29 +1,14 @@
 #include "sensors_module.h"
 
-#include "platform/plat_time.h"
-#include "platform/plat_gpio.h"
-#include "platform/plat_pwm.h"
-#include "platform/plat_string.h"
+#include <Arduino.h>
 
 #include "main.h"
-
-// Librerias de sensor y de filtrado: ya no llegan por main.h.
-#include <AH/Timing/MillisMicrosTimer.hpp>
-#undef DEBUG
-#include <Filters/Butterworth.hpp>
-// Timer y Butterworth viven en el namespace AH. Antes lo exponia la cadena
-// de includes de main.h; ahora se dice aqui con el idioma de la libreria.
-USING_AH_NAMESPACE;
-#include <Beastdevices_INA3221.h>
-#include <Adafruit_SHT4x.h>
-#include <SparkFun_SHTC3.h>
-#include <SensirionI2cSts3x.h>
 #include "modules/control/alarm_machine.h"
 #include "modules/sensorboard_comm/sensorboard_comm.h"
 #include "sensor_source.h"
 #include "system/hw_selftest.h"
 
-extern I2cBus *wire;
+extern TwoWire *wire;
 extern SHTC3 mySHTC3; // Declare an instance of the SHTC3 class
 extern SensirionI2cSts3x mySTS35[STS3X_NUM];
 extern Adafruit_SHT4x sht4;
@@ -158,9 +143,45 @@ void currentMonitor() {
       if (next < PHOTO_MIN_PWM)   next = PHOTO_MIN_PWM;
       if (next > PWM_MAX_VALUE)   next = PWM_MAX_VALUE;
       in3.phototherapy_intensity = (byte)next;
-      pwm_write(PHOTOTHERAPY_PWM_CHANNEL, in3.phototherapy_intensity);
+      ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, in3.phototherapy_intensity);
     }
     lastPhotoControl = millis();
+
+    // Guarda la intensidad a la que el lazo ha convergido, para sembrar con
+    // ella en el proximo encendido en vez de con la extrapolacion del
+    // autotest.
+    //
+    // La extrapolacion parte de una lectura al 10 % de PWM y asume
+    // I proporcional a (PWM+20). En la flota eso acierta, pero no en todas las
+    // unidades: en la de banco (2026-09-23) el lazo convergio a PWM 47 para
+    // 0,28 A, mientras que su lectura al 10 % --0,10 A-- queda por debajo de
+    // esa recta y hace que la extrapolacion pida en torno al doble de PWM. El
+    // valor convergido es medido, no modelado, asi que es mejor semilla.
+    //
+    // Se escribe como mucho cada 60 s y solo si ha cambiado: esto corre una
+    // vez por segundo y NVS es flash.
+    //
+    // Y SOLO DENTRO DE BANDA. La primera version guardaba cualquier valor, y
+    // la primera escritura de una sesion caia en la semilla de la
+    // extrapolacion: en banco (2026-09-23, objetivo 0,45 A) eso fue PWM 175 a
+    // 1,06 A. Si la sesion se cortaba antes del siguiente guardado, la
+    // proxima volvia a arrancar al doble del objetivo. Una semilla solo vale
+    // si es un punto donde el lazo YA estaba en su sitio.
+    const bool enBanda =
+        (error <= PHOTO_TOLERANCE_A) && (error >= -PHOTO_TOLERANCE_A);
+    static uint32_t ultimoGuardadoPwm = 0;
+    static uint8_t  pwmGuardado = 0;
+    if (enBanda && in3.phototherapy_intensity != pwmGuardado &&
+        millis() - ultimoGuardadoPwm > 60000) {
+      Preferences p;
+      p.begin(NS_STATE, false);
+      p.putUChar(KEY_PHOTO_PWM, in3.phototherapy_intensity);
+      p.putUShort(KEY_PHOTO_PWM_TGT,
+                  (uint16_t)(PHOTO_TARGET_CURRENT * 1000.0f + 0.5f));
+      p.end();
+      pwmGuardado = in3.phototherapy_intensity;
+      ultimoGuardadoPwm = millis();
+    }
   }
 }
 
@@ -451,14 +472,14 @@ bool measureSkinSensor() {
   // Con single-shot no hay riesgo de leer una conversión obsoleta y el
   // tiempo de excitación de la NTC queda en ~22 ms (5 ms settle + ~17 ms
   // conversión), minimizando el autocalentamiento.
-  pin_write(BABY_TEMP_EN, true);
+  digitalWrite(BABY_TEMP_EN, HIGH);
   vTaskDelay(pdMS_TO_TICKS(22)); // espera estabilización del divisor
 
   wire->beginTransmission(ADS1110_I2C_ADDRESS);
   wire->write(0xC4); // dispara conversión single-shot
   if (wire->endTransmission() != 0) {
 #if SKIN_NTC_PULSED_EXCITATION
-    pin_write(BABY_TEMP_EN, false);
+    digitalWrite(BABY_TEMP_EN, LOW);
 #endif
     in3.temperature[SKIN_SENSOR] = 0;
     return false;
@@ -474,7 +495,7 @@ bool measureSkinSensor() {
     uint8_t n = wire->requestFrom((uint8_t)ADS1110_I2C_ADDRESS, (uint8_t)3);
     if (n < 3) {
 #if SKIN_NTC_PULSED_EXCITATION
-      pin_write(BABY_TEMP_EN, false);
+      digitalWrite(BABY_TEMP_EN, LOW);
 #endif
       static uint32_t lastI2cErrLog = 0;
       if (millis() - lastI2cErrLog >= 1000) {
@@ -495,7 +516,7 @@ bool measureSkinSensor() {
     vTaskDelay(pdMS_TO_TICKS(10));
   }
 #if SKIN_NTC_PULSED_EXCITATION
-  pin_write(BABY_TEMP_EN, false); // power off NTC divider after read
+  digitalWrite(BABY_TEMP_EN, LOW); // power off NTC divider after read
 #endif
 
   if (!convReady) {

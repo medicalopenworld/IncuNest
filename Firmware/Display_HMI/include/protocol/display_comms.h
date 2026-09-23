@@ -1,17 +1,10 @@
 #ifndef DISPLAY_COMMS_H
 #define DISPLAY_COMMS_H
 
+#include <Arduino.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include <stddef.h>
-
-// Nota del porte a ESP-IDF (2026-09-11): Stream ahora lo aporta
-// platform/plat_print.h (con HardwareSerial de plat_uart.h como
-// implementacion), asi que esta cabecera compila sin Arduino. OJO: dc_init_stream()
-// no tiene NINGUN llamador en src/ — el enlace con la placa lo lleva CommTask.cpp
-// directamente sobre COMM_SERIAL. Esta abstraccion es codigo muerto, igual que
-// la capa drv_* de la motherBoard; candidata a borrar en un commit aparte.
-#include "platform/plat_print.h"
+#include <Stream.h>
 
 /* ======= Config ======= */
 #define DC_PROTO_VERSION        1

@@ -1,8 +1,7 @@
 #include "sensorboard_comm.h"
 
-#include "platform/plat_time.h"
-#include "platform/plat_i2c.h"
-#include "platform/plat_i2c.h"
+#include <Arduino.h>
+#include <Wire.h>
 #include <string.h>
 
 #include "config/task_config.h"

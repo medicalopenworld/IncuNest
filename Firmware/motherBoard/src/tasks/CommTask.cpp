@@ -1,17 +1,5 @@
 #include "CommTask.h"
-#include <cmath>  // isfinite, antes lo traia Arduino.h
-using std::isfinite;
-
 #include "main.h"
-
-// Capa de red del porte a ESP-IDF (sustituye a WiFi.h, WiFiClientSecure.h,
-// WebServer.h, Update.h y ESPmDNS.h de Arduino).
-#include "platform/plat_wifi.h"
-#include "platform/plat_net_client.h"
-#include "platform/plat_webserver.h"
-#include "platform/plat_update.h"
-#include "platform/plat_mdns.h"
-
 #include "modules/util/tz_source.h"
 // La cola de inyeccion del modo depuracion la drena ESTA tarea; ver
 // modules/debug/debug_mode.h para por que no la drena el manejador HTTP.
@@ -21,8 +9,8 @@ extern "C" bool debug_inject_take(char *out, size_t out_len);
 #include "modules/util/time_protocol.h"
 #include "tasks/PID.h"
 #include "DriveUpload.h"
-#include "platform/plat_fs.h"
-#include "platform/plat_nvs.h"
+#include <LittleFS.h>
+#include <Preferences.h>
 
 #include "alarm_text.h"
 #include "modules/control/alarm_history.h"
@@ -90,6 +78,10 @@ static constexpr float PPG_DISP_UNITS_PER_LSB = 1.6e-8f;
 static bool photoTimerActive = false;
 static unsigned long photoTimerStartMs = 0;
 static int photoTimerMinutes = 0;
+// Modo de fototerapia del mandato anterior del HMI. Sirve para detectar el
+// FLANCO de arranque de una sesion CONTINUA (sin temporizador), que no lo
+// detecta ninguna de las dos ramas del if de abajo.
+static bool photoPrevMode = false;
 
 // ======================================================
 //  USB-ONLY HELPERS
@@ -292,6 +284,36 @@ static void handleBabyLine(const char *line) {
 // ======================================================
 //  PHOTOTHERAPY TIMER
 // ======================================================
+
+// Persistencia del restante del temporizador, en el espacio NVS "photo".
+//
+// Lo lee initEEPROM() (EEPROM.cpp) en un arranque con restoreState para volver
+// a armar el temporizador tras una caida. Como in3.phototherapy se guarda en el
+// instante en que se pulsa, tras un crash la lampara SIEMPRE vuelve encendida:
+// lo unico que decide si ademas vuelve con su cuenta atras es lo que haya aqui.
+// De ahi que las dos funciones existan y que se llamen en TODAS las
+// transiciones, no solo en algunas.
+static void photoTimerPersist(int remaining_mins) {
+  if (remaining_mins < 1) remaining_mins = 1;
+  Preferences p;
+  p.begin("photo", false);
+  p.putBool("active", true);
+  p.putInt("mins", remaining_mins);
+  p.end();
+}
+
+// Borra el restante guardado. Comprueba antes si hay algo que borrar: esto se
+// llama en cada mandato del HMI (~1 Hz) y un clear() incondicional seria una
+// escritura de flash por segundo.
+static void photoTimerForget() {
+  Preferences p;
+  p.begin("photo", false);
+  if (p.getBool("active", false)) {
+    p.clear();
+  }
+  p.end();
+}
+
 double getRemainingPhotoTime() {
   double remainingTime = 0.0;
   if (photoTimerActive) {
@@ -306,9 +328,9 @@ double getRemainingPhotoTime() {
       remainingTime = 0.0;
 
       in3.phototherapy = false;
-      pwm_write(PHOTOTHERAPY_PWM_CHANNEL, 0);
+      ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, 0);
       turnFans(bool(in3.phototherapy || in3.actuation));
-      { NvsPrefs p; p.begin("photo", false); p.clear(); p.end(); }
+      photoTimerForget();
 
       if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         ESP_LOGI(TAG, "Phototherapy timer expired. Hardware turned OFF.");
@@ -490,7 +512,7 @@ static void hmiCrashFlush() {
   snprintf(path, sizeof(path), "/crash_hmi_%lu.log",
            (unsigned long)hmi_crash_start_ms);
 
-  FsFile f = LittleFS.open(path, "w", true);
+  File f = LittleFS.open(path, "w", true);
   if (!f) {
     logDrive(String("HMI crash: cannot open ") + path);
     hmi_crash_capturing = false;
@@ -746,37 +768,37 @@ void parse_line(const char *line) {
         }
       } else if (strcmp(param, "FAN_SUPPLY_PWM") == 0) {
         in3.fanPwrSupplyPWM = (int)value;
-        { NvsPrefs p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_PWR_SUPPLY_PWM, in3.fanPwrSupplyPWM); p.end(); }
+        { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_PWR_SUPPLY_PWM, in3.fanPwrSupplyPWM); p.end(); }
       } else if (strcmp(param, "HEATER_AMPS") == 0) {
         in3.heaterMaxPowerAmps = value;
-        { NvsPrefs p; p.begin(NS_CFG, false); p.putFloat(KEY_HEAT_MAX_A, in3.heaterMaxPowerAmps); p.end(); }
+        { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_HEAT_MAX_A, in3.heaterMaxPowerAmps); p.end(); }
       } else if (strcmp(param, "SKIN_TMAX") == 0) {
         in3.skinTemperatureSetMax = alarm_clamp_skin_cutout(value);
         maxDesiredTemp[CONTROL_SKIN] = in3.skinTemperatureSetMax;
-        { NvsPrefs p; p.begin(NS_CFG, false); p.putFloat(KEY_SKIN_T_MAX, in3.skinTemperatureSetMax); p.end(); }
+        { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_SKIN_T_MAX, in3.skinTemperatureSetMax); p.end(); }
       } else if (strcmp(param, "AIR_TMAX") == 0) {
         in3.airTemperatureSetMax = alarm_clamp_air_cutout(value);
         maxDesiredTemp[CONTROL_AIR] = in3.airTemperatureSetMax;
-        { NvsPrefs p; p.begin(NS_CFG, false); p.putFloat(KEY_AIR_T_MAX, in3.airTemperatureSetMax); p.end(); }
+        { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_AIR_T_MAX, in3.airTemperatureSetMax); p.end(); }
       } else if (strcmp(param, "GPRS_ACT") == 0) {
         in3.actuating_gprs_period = (int)value;
-        { NvsPrefs p; p.begin(NS_GPRS, false); p.putInt(KEY_ACT_PERIOD, in3.actuating_gprs_period); p.end(); }
+        { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_ACT_PERIOD, in3.actuating_gprs_period); p.end(); }
       } else if (strcmp(param, "GPRS_PHOTO") == 0) {
         in3.phototherapy_gprs_period = (int)value;
-        { NvsPrefs p; p.begin(NS_GPRS, false); p.putInt(KEY_PHOTO_PERIOD, in3.phototherapy_gprs_period); p.end(); }
+        { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_PHOTO_PERIOD, in3.phototherapy_gprs_period); p.end(); }
       } else if (strcmp(param, "GPRS_STBY") == 0) {
         in3.standby_gprs_period = (int)value;
-        { NvsPrefs p; p.begin(NS_GPRS, false); p.putInt(KEY_STBY_PERIOD, in3.standby_gprs_period); p.end(); }
+        { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_STBY_PERIOD, in3.standby_gprs_period); p.end(); }
       } else if (strcmp(param, "FAN_CTL_PWM") == 0) {
         in3.fanCtlPWM = (int)value;
-        { NvsPrefs p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_CTL_PWM, in3.fanCtlPWM); p.end(); }
-        pwm_write(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
+        { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_CTL_PWM, in3.fanCtlPWM); p.end(); }
+        ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
       } else if (strcmp(param, "FAN_PID_EN") == 0) {
         setFanPidEnabled(value != 0);
       } else {
         success = false;
       }
-      if (success) { /* NvsPrefs commits on p.end() */ }
+      if (success) { /* Preferences commits on p.end() */ }
       if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         if (success)
           ESP_LOGI(TAG, "Config updated: %s = %.2f", param, value);
@@ -1076,23 +1098,85 @@ void parse_line(const char *line) {
       g_last_cmd.newCommand = false;
 
       if (hmi_cmd_msg.phototherapyMode && hmi_cmd_msg.photoMinutesRemaining > 0) {
-        if (!photoTimerActive || photoTimerMinutes != hmi_cmd_msg.photoMinutesRemaining) {
+        // Minutos que quedan AHORA, redondeando hacia arriba igual que el
+        // guardado periodico. La comparacion tiene que ser contra esto, no
+        // contra photoTimerMinutes: photoTimerMinutes es la duracion con la
+        // que se armo, y tras un rearme pasa a valer el restante, con lo que
+        // los dos conceptos se confunden.
+        int restante_ahora = 0;
+        if (photoTimerActive) {
+          long transcurrido = (long)((millis() - photoTimerStartMs) / 1000);
+          restante_ahora = ((long)photoTimerMinutes * 60 - transcurrido + 59) / 60;
+          if (restante_ahora < 0) restante_ahora = 0;
+        }
+        // Un mandato del HMI solo rearma si es una sesion nueva o si el
+        // operador ha cambiado de verdad la duracion. Lo demas es el ECO de
+        // nuestra propia emision y NO debe tocar el temporizador.
+        //
+        // Sin esta guarda habia un trinquete: la placa emite el restante en
+        // formato MM.SS, que justo por debajo del minuto entero vale 14.59; el
+        // HMI lo trunca a 14 y lo devuelve; la placa veia 14 != 15, lo tomaba
+        // por una duracion nueva y reiniciaba la cuenta desde 14. Cada ida y
+        // vuelta se comia un minuto entero. Medido en banco el 2026-09-23 tras
+        // restaurar un temporizador: de 15 a 1 minutos en 26 SEGUNDOS.
+        //
+        // No se veia en produccion porque hacia falta que el temporizador se
+        // restaurase, y hasta el arreglo de la caida eso no pasaba nunca.
+        //
+        // La tolerancia de 1 minuto es exactamente el margen de ese truncado.
+        const int delta = hmi_cmd_msg.photoMinutesRemaining - restante_ahora;
+        const bool sesion_nueva = !photoTimerActive;
+        const bool cambio_real  = (delta > 1) || (delta < -1);
+        if (sesion_nueva || cambio_real) {
           photoTimerActive = true;
           photoTimerMinutes = hmi_cmd_msg.photoMinutesRemaining;
           photoTimerStartMs = millis();
+          // Se guarda YA, no en el primer guardado periodico. El periodico es
+          // cada 60 s, asi que una caida dentro del primer minuto dejaba el
+          // espacio "photo" vacio: al rearrancar, in3.phototherapy volvia a 1
+          // (se guarda al pulsar) pero sin cuenta atras, y la lampara quedaba
+          // encendida indefinidamente. Sobretratamiento silencioso.
+          photoTimerPersist(photoTimerMinutes);
           if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
             ESP_LOGI(TAG, "Phototherapy timer started: %d minutes", photoTimerMinutes);
             xSemaphoreGiveRecursive(log_mutex);
           }
         }
-      } else if (!hmi_cmd_msg.phototherapyMode && photoTimerActive) {
-        photoTimerActive = false;
-        photoTimerMinutes = 0;
-        if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-          ESP_LOGI(TAG, "Phototherapy timer stopped");
-          xSemaphoreGiveRecursive(log_mutex);
+      } else if (!hmi_cmd_msg.phototherapyMode) {
+        // Fototerapia APAGADA.
+        //
+        // Antes el clear() de NVS solo lo hacia la expiracion natural del
+        // temporizador. Con eso, apagar a mano una sesion temporizada dejaba
+        // "active=true, mins=N" en el espacio "photo"; si luego se arrancaba
+        // fototerapia CONTINUA y habia una caida, la restauracion resucitaba
+        // aquel temporizador cancelado y la lampara se apagaba sola a los N
+        // minutos sin que nadie lo hubiera pedido.
+        //
+        // El olvido va fuera del if: tambien hay que limpiar cuando se apaga
+        // sin temporizador vivo, que es como se barre un resto ya existente.
+        if (photoTimerActive) {
+          photoTimerActive = false;
+          photoTimerMinutes = 0;
+          if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+            ESP_LOGI(TAG, "Phototherapy timer stopped");
+            xSemaphoreGiveRecursive(log_mutex);
+          }
+        }
+        photoTimerForget();
+      } else {
+        // Encendida y photoMin == 0. Es AMBIGUO y no se puede tratar como
+        // "continua" sin mirar el estado: el HMI manda tambien photoMin=0
+        // durante el ULTIMO MINUTO de una sesion temporizada, porque los
+        // segundos viajan en su propio campo (Display_HMI/CommTask.cpp:1571).
+        //
+        // Con temporizador vivo es ese ultimo minuto: no se toca nada y se le
+        // deja expirar. Sin temporizador vivo y viniendo de apagada, es el
+        // arranque de una sesion continua, que no debe heredar un restante.
+        if (!photoTimerActive && !photoPrevMode) {
+          photoTimerForget();
         }
       }
+      photoPrevMode = hmi_cmd_msg.phototherapyMode;
 
       if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         ESP_LOGI(TAG, "HMI CMD stored (lang=%d)", lang);
@@ -1338,12 +1422,7 @@ void Communication_Task(void *pvParameters) {
       if (photoTimerActive && millis() - last_photo_save > 60000) {
         long elapsed = (long)((millis() - photoTimerStartMs) / 1000);
         int remaining_mins = ((long)photoTimerMinutes * 60 - elapsed + 59) / 60;
-        if (remaining_mins < 1) remaining_mins = 1;
-        NvsPrefs p;
-        p.begin("photo", false);
-        p.putBool("active", true);
-        p.putInt("mins", remaining_mins);
-        p.end();
+        photoTimerPersist(remaining_mins);
         last_photo_save = millis();
       }
     }
@@ -1424,7 +1503,7 @@ void Communication_Task(void *pvParameters) {
 
       {
         // Mirrors the same 0..PWM_MAX_VALUE scale and ongoingCriticalAlarm()
-        // gating that PIDHandler() actually writes via pwm_write(), so the
+        // gating that PIDHandler() actually writes via ledcWrite(), so the
         // HMI bar never disagrees with the log or with the real hardware duty.
         int temp_duty = ongoingCriticalAlarm() ? 0 : (int)(HeaterPIDOutput + 0.5);
         if (temp_duty < 0)               temp_duty = 0;

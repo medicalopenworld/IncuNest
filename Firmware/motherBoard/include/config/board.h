@@ -82,6 +82,9 @@
 #define GPRS_PWRKEY FAKE_PIN
 #undef TFT_DC
 #define TFT_DC FAKE_PIN
+#define ENC_SWITCH FAKE_PIN
+#define ENC_A FAKE_PIN
+#define ENC_B FAKE_PIN
 #undef TFT_CS
 #define TFT_CS FAKE_PIN
 

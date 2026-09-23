@@ -22,8 +22,7 @@
   SOFTWARE.
 
 */
-#include "platform/plat_time.h"
-#include "platform/plat_string.h"
+#include <Arduino.h>
 
 #include "main.h"
 
@@ -68,7 +67,7 @@ void timeTrackHandler() {
       if (in3.phototherapy) {
         in3.phototherapy_active_time += millisToHours(TIME_TRACK_UPDATE_PERIOD);
       }
-      { NvsPrefs p; p.begin(NS_RT, false);
+      { Preferences p; p.begin(NS_RT, false);
         p.putFloat(KEY_RT_CTRL,   in3.control_active_time);
         p.putFloat(KEY_RT_HEATER, in3.heater_active_time);
         p.putFloat(KEY_RT_FAN,    in3.fan_active_time);
@@ -81,7 +80,7 @@ void timeTrackHandler() {
     if (millis() - in3.last_check_time > TIME_TRACK_UPDATE_PERIOD) {
       in3.last_check_time = millis();
       in3.standby_time += millisToHours(TIME_TRACK_UPDATE_PERIOD);
-      { NvsPrefs p; p.begin(NS_RT, false); p.putFloat(KEY_RT_STANDBY, in3.standby_time); p.end(); }
+      { Preferences p; p.begin(NS_RT, false); p.putFloat(KEY_RT_STANDBY, in3.standby_time); p.end(); }
     }
   }
   if (activeStatus != lastActiveStatus) {

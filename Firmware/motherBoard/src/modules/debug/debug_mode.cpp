@@ -5,8 +5,9 @@
 #include <string.h>
 
 #include "esp_heap_caps.h"
-// Por LittleFS.totalBytes()/usedBytes() en el bloque "fs" del volcado.
-#include "platform/plat_fs.h"
+// Por LittleFS.totalBytes()/usedBytes() en el bloque "fs" del volcado. En el
+// port venia por platform/plat_fs.h; aqui es la LittleFS de Arduino.
+#include <LittleFS.h>
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -15,17 +16,79 @@
 #include "main.h"
 #include "config/board.h"
 #include "modules/control/alarm_machine.h"
+#include "modules/control/photo_override.h"
 #include "modules/util/tz_source.h"
 #include "modules/util/system_clock.h"
 #include "modules/baby_profile/baby_profile_store.h"
-#include "platform/plat_time.h"
+
+#include <WiFi.h>
+#include "tasks/GPRS.h"
+#include "tasks/Wifi_OTA.h"
 
 extern IncuNest_parameters in3;
+extern WIFIstruct Wifi_TB;
+extern GPRSstruct GPRS;
 extern double fanControlPIDOutput;
 extern double HeaterPIDOutput;
 
 // El modo NO se persiste: ver la regla 1 de debug_mode.h.
 static volatile bool s_enabled = false;
+
+// Encendido de fototerapia de depuracion (photo_override.h). Lo tocan la
+// consola UART y el web server (tarea OTA_WIFI) y lo lee el receptor de tramas
+// del display (Communication_Receiver): de ahi el spinlock.
+static PhotoOverride s_photo;
+static bool s_photo_inited = false;
+static portMUX_TYPE s_photo_mux = portMUX_INITIALIZER_UNLOCKED;
+
+static void photo_lock_init(void) {
+  if (!s_photo_inited) {
+    photo_override_init(&s_photo);
+    s_photo_inited = true;
+  }
+}
+
+bool debug_photo_on(bool real_now) {
+  if (!s_enabled) {
+    return false;
+  }
+  portENTER_CRITICAL(&s_photo_mux);
+  photo_lock_init();
+  photo_override_start(&s_photo, real_now, millis());
+  portEXIT_CRITICAL(&s_photo_mux);
+  return true;
+}
+
+void debug_photo_off(void) {
+  portENTER_CRITICAL(&s_photo_mux);
+  photo_lock_init();
+  photo_override_release(&s_photo, millis());
+  portEXIT_CRITICAL(&s_photo_mux);
+}
+
+bool debug_photo_active(void) {
+  portENTER_CRITICAL(&s_photo_mux);
+  photo_lock_init();
+  const bool a = photo_override_active(&s_photo);
+  portEXIT_CRITICAL(&s_photo_mux);
+  return a;
+}
+
+bool debug_photo_effective(bool display_value) {
+  portENTER_CRITICAL(&s_photo_mux);
+  photo_lock_init();
+  const bool v = photo_override_effective(&s_photo, display_value, millis());
+  portEXIT_CRITICAL(&s_photo_mux);
+  return v;
+}
+
+bool debug_photo_may_persist(void) {
+  portENTER_CRITICAL(&s_photo_mux);
+  photo_lock_init();
+  const bool p = photo_override_may_persist(&s_photo, millis());
+  portEXIT_CRITICAL(&s_photo_mux);
+  return p;
+}
 
 struct Override {
   bool active;
@@ -79,6 +142,11 @@ void debug_mode_set(bool on) {
     // todavia puesta.
     debug_override_clear_all();
     debug_alarm_clear_all();
+    // Tambien el encendido de fototerapia. Soltar (con su ventana de gracia) y
+    // no simplemente borrar: el display habra adoptado el ON y lo seguira
+    // devolviendo un rato, y sin la gracia ese ON rancio encenderia la lampara
+    // de verdad justo al apagar el modo.
+    debug_photo_off();
     if (s_inject_q != NULL) {
       xQueueReset(s_inject_q);
     }
@@ -333,11 +401,12 @@ size_t debug_state_json_ex(char *out, size_t out_len, bool with_tasks) {
     in3.BATTERY_current);
 
   J(",\"ctl\":{\"actuation\":%d,\"mode\":%d,\"temp_ctl\":%d,\"hum_ctl\":%d"
-    ",\"set_temp\":%.2f,\"set_hum\":%.2f,\"photo\":%d,\"photo_pwm\":%d}",
+    ",\"set_temp\":%.2f,\"set_hum\":%.2f,\"photo\":%d,\"photo_pwm\":%d"
+    ",\"photo_dbg\":%d}",
     in3.actuation, in3.controlMode ? 1 : 0, in3.temperatureControl ? 1 : 0,
     in3.humidityControl ? 1 : 0, in3.desiredControlTemperature,
     in3.desiredControlHumidity, in3.phototherapy ? 1 : 0,
-    (int)in3.phototherapy_intensity);
+    (int)in3.phototherapy_intensity, debug_photo_active() ? 1 : 0);
 
   J(",\"fan\":{\"commanded\":%d,\"feedback\":%d,\"pid_en\":%d,\"pid_out\":%.0f"
     ",\"ctl_pwm\":%d,\"supply_pwm\":%d}",
@@ -394,13 +463,52 @@ size_t debug_state_json_ex(char *out, size_t out_len, bool with_tasks) {
   // no se habia movido. Y el numero que de verdad manda no es el libre sino el
   // MAYOR BLOQUE CONTIGUO: 5 KB libres en trozos de 500 B no sirven para un
   // buffer de 2 KB.
+  // Sin el mayor bloque de la PSRAM, por simetria con el display y porque es
+  // una bomba de relojeria: heap_caps_get_largest_free_block() recorre el pool
+  // ENTERO (tlsf_walk_pool) con el cerrojo del heap cogido. Esta placa no lleva
+  // PSRAM y la llamada vuelve de inmediato, pero en el display —8 MB— disparaba
+  // el interrupt watchdog y reiniciaba en CADA peticion a /debug/state (banco
+  // 2026-09-20). Se quita aqui tambien para que las dos placas den la misma
+  // forma de JSON y para que no reviva si algun dia esta placa lleva PSRAM.
   J(",\"heap\":{\"int_free\":%u,\"int_min\":%u,\"int_largest\":%u"
-    ",\"psram_free\":%u,\"psram_largest\":%u}",
+    ",\"psram_free\":%u}",
     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
     (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
     (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
-    (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
-    (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
+    (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+
+  // NUBE. Para que se pueda diagnosticar "no conecta con ThingsBoard" sin
+  // tener la placa abierta por el puerto serie: en una unidad montada, en
+  // fabrica o en campo, ese puerto no esta a mano, y hasta ahora la unica
+  // forma de saber en que punto se atascaba era leer el log (banco
+  // 2026-09-20, unidad 356).
+  //
+  // Lo que distingue cada averia:
+  //   wifi.connected=0            -> no hay red; no mires mas alla
+  //   serial=0                    -> sin numero de serie, no se provisiona
+  //   tb.provisioned=0            -> nunca consiguio credenciales
+  //   tb.retries>0                -> el servidor rechaza el nombre (ya existe)
+  //   tb.provisioned=1 + conn=0   -> tiene token pero el broker no lo acepta
+  //                                  o el puerto esta cerrado
+  //
+  // El token NO se publica: solo su longitud. Es la credencial de la unidad y
+  // este endpoint, aunque pide usuario y clave, va por HTTP plano.
+  J(",\"cloud\":{\"server\":\"%s\",\"port\":%d"
+    ",\"wifi\":{\"connected\":%d,\"ssid\":\"%s\",\"ip\":\"%s\",\"rssi\":%d}"
+    ",\"tb_wifi\":{\"provisioned\":%d,\"token_len\":%u,\"conn\":%d"
+    ",\"req_sent\":%d,\"retries\":%u}"
+    ",\"tb_gprs\":{\"provisioned\":%d,\"token_len\":%u,\"conn\":%d"
+    ",\"retries\":%u}}",
+    THINGSBOARD_SERVER, (int)THINGSBOARD_PORT,
+    (int)WIFIIsConnected(), WiFi.SSID().c_str(),
+    WiFi.localIP().toString().c_str(), (int)WiFi.RSSI(),
+    (int)Wifi_TB.provisioned, (unsigned)Wifi_TB.device_token.length(),
+    (int)Wifi_TB.serverConnectionStatus,
+    (int)Wifi_TB.provision_request_sent,
+    (unsigned)Wifi_TB.provision_retry_count,
+    (int)GPRS.provisioned, (unsigned)GPRS.device_token.length(),
+    (int)GPRS.serverConnectionStatus,
+    (unsigned)GPRS.provision_retry_count);
 
   // SISTEMA DE FICHEROS. Se informa porque llenarlo no se notaba desde fuera:
   // en banco (2026-09-14) las ventanas de PPG de DriveUpload llenaron los
@@ -424,6 +532,20 @@ size_t debug_state_json_ex(char *out, size_t out_len, bool with_tasks) {
     return n;
   }
 
+#if !defined(configUSE_TRACE_FACILITY) || (configUSE_TRACE_FACILITY == 0)
+  // El core Arduino precompilado de esta placa (espressif32@6.6.0, IDF 4.4)
+  // no trae configUSE_TRACE_FACILITY, asi que uxTaskGetSystemState() no existe
+  // y no hay tabla de tareas que dar. En el port se activaba por sdkconfig
+  // (CONFIG_FREERTOS_USE_TRACE_FACILITY=y).
+  //
+  // `tasks` se queda como LISTA VACIA, no como texto: la bateria de banco
+  // itera sobre ella (t_margen_de_pila) y con un string recorria sus
+  // caracteres y moria con "string indices must be integers" (2026-09-20). El
+  // motivo va en un campo aparte, que nadie recorre.
+  J(",\"tasks\":[],\"tasks_note\":\"no disponible: configUSE_TRACE_FACILITY=0 "
+    "en el core Arduino de la motherBoard\"}");
+  return n;
+#else
   J(",\"tasks\":[");
   {
     const UBaseType_t count = uxTaskGetNumberOfTasks();
@@ -449,6 +571,7 @@ size_t debug_state_json_ex(char *out, size_t out_len, bool with_tasks) {
   J("]}");
 
   return n;
+#endif // configUSE_TRACE_FACILITY
 }
 
 #undef J

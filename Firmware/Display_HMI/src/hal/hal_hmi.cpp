@@ -1,4 +1,5 @@
 #include "hal_hmi.h"
+#include <Arduino.h>
 
 // Pin values sourced from display_config.h and include/main.h:
 //   Buzzer: controlled via I2C @ 0x30 (STC8H1K28) — no dedicated GPIO pin.
@@ -24,7 +25,7 @@ const HmiBusConfig g_hmi_buses = {
   .i2cSpeedHz = 400000, // DISPLAY_I2C_FREQ_TOUCH
 };
 
-void     hmi_hal_gpio_write(uint8_t pin, bool value)        { pin_write(pin, value); }
-bool     hmi_hal_gpio_read(uint8_t pin)                     { return pin_read(pin); }
-void     hmi_hal_gpio_set_mode(uint8_t pin, pin_mode_t mode) { pin_mode(pin, mode); }
-uint32_t hmi_hal_adc_read_mv(uint8_t pin)                   { return adc_read_mv(pin); }
+void     hmi_hal_gpio_write(uint8_t pin, bool value) { digitalWrite(pin, value ? HIGH : LOW); }
+bool     hmi_hal_gpio_read(uint8_t pin)              { return digitalRead(pin) == HIGH; }
+void     hmi_hal_gpio_set_mode(uint8_t pin, uint8_t mode) { pinMode(pin, mode); }
+uint32_t hmi_hal_adc_read_mv(uint8_t pin)            { return analogReadMilliVolts(pin); }

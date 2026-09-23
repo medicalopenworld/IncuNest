@@ -1,8 +1,6 @@
 #pragma once
-#include <cstdint>
-
-#include "platform/plat_i2c.h"
-#include "platform/plat_time.h"
+#include <Arduino.h>
+#include <Wire.h>
 
 // ─── Direcciones I2C
 // ────────────────────────────────────────────────────────── ADDR pin HIGH →
@@ -194,6 +192,6 @@ extern uint32_t       g_bq_status_ms;
 
 // ─── Funciones públicas
 // ───────────────────────────────────────────────────────
-bool init_BQ25730(I2cBus *i2c);
+bool init_BQ25730(TwoWire *i2c);
 bool charge_status(BQ25730_Status *status);
 bool set_charge_voltage(uint16_t voltage_mv);

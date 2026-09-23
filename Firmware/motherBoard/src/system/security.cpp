@@ -22,15 +22,11 @@
   SOFTWARE.
 
 */
-#include "platform/plat_time.h"
-#include "platform/plat_gpio.h"
-#include "platform/plat_string.h"
+#include <Arduino.h>
 
 #include "main.h"
-
-// Librerias de sensor: ya no llegan por main.h.
 #include "alarm_text.h"
-#include "platform/plat_nvs.h"
+#include <Preferences.h>
 
 #include "modules/baby_profile/baby_profile_store.h"
 #include "modules/control/alarm_history.h"
@@ -71,8 +67,10 @@ static PendingAlarm pending_alarms[PENDING_ALARM_QUEUE_LEN];
 static int pending_alarm_count = 0;
 static bool hmi_connected = false;
 
-extern I2cBus *wire;
+extern TwoWire *wire;
 extern MAM_IncuNest_Humidifier in3_hum;
+extern TFT_eSPI tft;
+extern RotaryEncoder encoder;
 
 extern bool WIFI_EN;
 extern long lastDebugUpdate;
@@ -305,12 +303,6 @@ long lastPowerSupplyCheck;
 // 5 s de arrancar: fatiga de alarma pura. Una sonda ausente no es un fallo.
 static bool skinProbeEverRead = false;
 
-// Monitor de frescura de sensores: si ya corrio alguna vez e instante de esa
-// primera pasada. Declarados aqui, y no junto a sensorMonitorWarmingUp(),
-// porque initAlarms() esta por encima y tiene que poder rearmar el margen.
-static bool sensorMonitorStarted = false;
-static uint32_t sensorMonitorStartMs = 0;
-
 // Bitmask de condiciones senalizando en el ciclo anterior. Comparar contra el
 // actual es lo que produce los eventos que van al display (sendAlarmUSB): la
 // maquina de alarmas es un estado, no un flujo de eventos. El audio ya no
@@ -376,9 +368,6 @@ void initAlarms()
   alarm_machine_init();
   previousAlarmBitmask = 0;
   skinProbeEverRead = false;
-  // Se llama al principio de initHardware(), antes de que exista la tarea de
-  // seguridad: el margen arranca con la primera pasada real del monitor.
-  sensorMonitorStarted = false;
   for (int i = 0; i < NUM_ALARMS; i++)
   {
     in3.alarmToReport[i] = false;
@@ -418,55 +407,55 @@ void checkThermalCutOuts()
   alarm_machine_condition(ALARM_SKIN_THERMAL_CUTOUT, skinCutoutPresent, now);
 }
 
-// Margen de arranque del monitor de frescura, contado desde su PRIMERA pasada.
-//
-// El sello lastSuccesfullSensorUpdate[] que hay al empezar lo dejo
-// testSensors(), dentro del autotest, y despues initActuators() se lleva mas de
-// MINIMUM_SUCCESSFULL_*_SENSOR_UPDATE midiendo corrientes y RPM
-// (initHardware.cpp). La tarea de seguridad no existe hasta que initHardware()
-// vuelve, asi que en la primera pasada el sello SIEMPRE esta caducado sin que
-// haya nada averiado: nadie ha tenido ocasion de leer el sensor desde el
-// autotest. Con SensorBoard es peor todavia, porque el sello del aire lo
-// escribe el enlace USB, que aun no ha entregado su primera trama.
-//
-// Declararlo ahi no es un aviso, es un fantasma con ruido: ALARM_AIR_SENSOR_FAULT
-// es ALTA, la maquina sella su rafaga minima de 6.10 al anunciarla
-// (ALARM_MIN_BURST_MS_HIGH, alarm_machine.h) y la pasada siguiente ya ve el
-// sello fresco y retira la condicion. Resultado audible: media rafaga de ALTA
-// —cinco pulsos— justo al terminar el autotest, con el bitmask volviendo a 0 en
-// el mismo ciclo, o sea sin banner ni registro que expliquen el ruido. Eso es
-// exactamente la fatiga de alarma que 60601-1-8 quiere evitar: el operador
-// aprende que la incubadora pita al encender y no significa nada.
-//
-// El margen se cuenta desde la primera pasada y no desde el reset por el mismo
-// criterio que HMI_LINK_BOOT_GRACE_MS: lo que se mide es tiempo con alguien
-// mirando. Y TERMINA. Pasado el margen, un sensor de verdad muerto se declara
-// con el mismo antirrebote de 5 s que en marcha; lo unico que se pierde es
-// declararlo durante los primeros 5 s de vida del monitor, cuando todavia no
-// hay ninguna lectura con la que afirmar nada.
-static bool sensorMonitorWarmingUp(uint32_t now, uint32_t staleLimit)
-{
-  if (!sensorMonitorStarted)
-  {
-    sensorMonitorStarted = true;
-    sensorMonitorStartMs = now;
-  }
-  return (uint32_t)(now - sensorMonitorStartMs) <= staleLimit;
-}
-
 void checkStatusOfSensor(byte sensor)
 {
   const uint32_t now = millis();
   const uint32_t staleLimit = (sensor == ROOM_DIGITAL_TEMP_SENSOR)
                                   ? MINIMUM_SUCCESSFULL_AIR_SENSOR_UPDATE
                                   : MINIMUM_SUCCESSFULL_SKIN_SENSOR_UPDATE;
-  // El margen se evalua SIEMPRE, y antes que la frescura: si se dejara detras
-  // de un && el instante de arranque quedaria sin sellar mientras el sello
-  // estuviera fresco, y el primer sensor que se cayera de verdad se llevaria un
-  // margen entero de regalo justo cuando hay que avisar.
-  const bool warmingUp = sensorMonitorWarmingUp(now, staleLimit);
-  const bool stale =
-      !warmingUp && (now - lastSuccesfullSensorUpdate[sensor] > staleLimit);
+
+  // De que instante se mide la caducidad.
+  //
+  // No vale usar lastSuccesfullSensorUpdate[] a secas, y por dos motivos
+  // distintos que se dan los dos en el arranque:
+  //
+  //   - Vale 0 hasta la primera lectura buena. Restando contra 0, con millis()
+  //     ya por encima del limite, el sensor sale caducado sin haber hablado.
+  //   - Y cuando SI ha hablado, lo ha hecho demasiado pronto: initHardware()
+  //     llama a updateRoomSensor() (initHardware.cpp:463) para su autotest y
+  //     sella el sensor ahi, pero luego sigue varios segundos mas antes de
+  //     arrancar las tareas. Para cuando esta tarea mira por primera vez, ese
+  //     sello ya ha caducado aunque el sensor este perfecto.
+  //
+  // El segundo caso es el que hacia que la primera version de este arreglo no
+  // sirviera de nada: guardaba solo contra el 0.
+  //
+  // El resultado era ALARM_AIR_SENSOR_FAULT --prioridad ALTA, corta el
+  // calefactor-- en TODOS los encendidos, retirandose sola en cuanto la tarea
+  // de sensores publicaba su primera muestra. Una alarma de seguridad que suena
+  // siempre entrena al operador a ignorarla: es fatiga de alarma de manual
+  // (60601-1-8).
+  //
+  // La referencia es el instante MAS RECIENTE entre la ultima lectura buena y
+  // el arranque de la tarea de sensores, que es cuando de verdad empieza a
+  // haber muestras periodicas. Si el sensor esta averiado, la alarma salta
+  // igual staleLimit despues de ese arranque: no se enmascara nada, solo se
+  // deja de declarar la averia antes de darle ocasion de hablar.
+  static uint32_t firstCheckMs[SENSOR_TEMP_QTY] = {0};
+  uint32_t reference = (uint32_t)lastSuccesfullSensorUpdate[sensor];
+  if (g_sensorsTaskStartedMs != 0 &&
+      (int32_t)(g_sensorsTaskStartedMs - reference) > 0) {
+    reference = g_sensorsTaskStartedMs;
+  }
+  if (reference == 0) {
+    // Ni lectura ni tarea de sensores todavia: la cuenta arranca en la primera
+    // mirada.
+    if (firstCheckMs[sensor] == 0) {
+      firstCheckMs[sensor] = (now != 0) ? now : 1; // 0 es el centinela
+    }
+    reference = firstCheckMs[sensor];
+  }
+  const bool stale = (now - reference > staleLimit);
   switch (sensor)
   {
   case ROOM_DIGITAL_TEMP_SENSOR:
@@ -1081,7 +1070,7 @@ void alarmHistorySave()
     logE("[ALARM] historial: blob mas grande que el buffer, no se guarda");
     return;
   }
-  NvsPrefs p;
+  Preferences p;
   p.begin(kAlarmHistNs, false);
   p.putBytes(kAlarmHistKey, blob, n);
   p.end();
@@ -1091,7 +1080,7 @@ void alarmHistoryLoad()
 {
   alarm_history_init();
   uint8_t blob[256];
-  NvsPrefs p;
+  Preferences p;
   p.begin(kAlarmHistNs, true);
   const size_t got = p.getBytes(kAlarmHistKey, blob, sizeof(blob));
   p.end();

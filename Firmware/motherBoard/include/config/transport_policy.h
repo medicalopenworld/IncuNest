@@ -72,6 +72,22 @@
 #define TX_GROUP_DIAG_GPRS 1
 #define TX_GROUP_DIAG_WIFI 0
 
+// Log COMPLETO de la ultima caida (Crash_log_full): los ~4 KB del anillo de
+// CrashReporter, publicados una sola vez en el arranque siguiente a un reinicio
+// anormal. Es lo que permite depurar la averia concreta desde el despacho y
+// sacar una OTA, sin ir a por la unidad.
+//
+// Por WiFi va encendido: 4 KB una vez por caida no le importan a nadie, y la
+// publicacion usa Serialize_Json() en streaming (THINGSBOARD_ENABLE_STREAM_UTILS),
+// asi que el tamano no choca con MAX_MESSAGE_SIZE.
+//
+// Por GPRS va APAGADO: son 4 KB de datos de pago por caida, y una unidad que
+// se reinicie en bucle los paga en cada vuelta. Por ahi sigue yendo el resumen
+// corto de Crash_log, que para identificar la averia suele bastar. Enciendelo
+// solo con una tarifa que lo aguante.
+#define TX_FEATURE_CRASH_FULLLOG_WIFI 1
+#define TX_FEATURE_CRASH_FULLLOG_GPRS 0
+
 // CALIBRATION: referencias y ajuste fino de los sensores de temperatura.
 //              Mismo caso que DIAG: divergencia heredada, no decidida.
 #define TX_GROUP_CALIBRATION_GPRS 1
@@ -95,18 +111,12 @@
 // ahora sale en cada ciclo tambien en la rama ON). Peor caso GPRS 101 de
 // 112: quedan 11 de margen.
 //
-// MAX_MESSAGE_SIZE (1024 B) NO era un limite aqui mientras
-// THINGSBOARD_ENABLE_STREAM_UTILS valia 1: sendTelemetryJson() usaba
-// Serialize_Json() (begin_publish + BufferingPrint + end_publish,
-// ThingsBoard.h:1100), que publica en streaming y rodea el buffer del cliente
-// MQTT, asi que un payload de mas de 1024 B se enviaba troceado.
-//
-// OJO — ESO YA NO APLICA desde el porte a ESP-IDF. StreamUtils solo funciona
-// con Arduino (lo dice la Configuration.h del SDK: necesita que el cliente
-// MQTT implemente tambien el interfaz Print), asi que con
-// Espressif_MQTT_Client la opcion esta a 0 y el payload TIENE que caber en
-// THINGSBOARD_BUFFER_SIZE. La explicacion larga y lo que hay que medir en
-// banco estan en la nota de main.h, junto al #define.
+// MAX_MESSAGE_SIZE (1024 B) NO es un limite aqui, al contrario de lo que
+// decia este comentario antes: main.h define THINGSBOARD_ENABLE_STREAM_UTILS
+// a 1, y con eso sendTelemetryJson() usa Serialize_Json()
+// (begin_publish + BufferingPrint + end_publish, ThingsBoard.h:1100), que
+// publica en streaming y rodea el buffer del cliente MQTT. Un payload de mas
+// de 1024 B se envia igual, troceado.
 //
 // Lo que si cuesta dinero: por GPRS cada publicacion son datos de pago, y son
 // ~200 B mas por publicacion. Con TX_GPRS_PERIOD_ACTUATING_S = 60 eso es

@@ -22,13 +22,8 @@
   SOFTWARE.
 
 */
-#include <cmath>
-#include <cstring>
-#include <string>
-
-#include "esp_log.h"
-#include "platform/plat_nvs.h"
-
+#include <Arduino.h>
+#include <Preferences.h>
 #include "EEPROM_defines.h"
 #include "main.h"
 
@@ -37,13 +32,13 @@ extern char wifi_pass[64];
 extern int photoTimerMinutes;
 
 void resetFlash() {
-  NvsPrefs p;
+  Preferences p;
   const char* ns[] = { HMI_NS_CFG, HMI_NS_WIFI, HMI_NS_GPRS };
   for (auto n : ns) { p.begin(n, false); p.clear(); p.end(); }
 }
 
 void loaddefaultValues() {
-  NvsPrefs p;
+  Preferences p;
   p.begin(HMI_NS_CFG, false);
   p.putUChar (HMI_KEY_LANG,      UI_LANG_FALLBACK);
   p.putFloat (HMI_KEY_AIR_TEMP,  DEFAULT_AIR_TEMP);
@@ -73,7 +68,7 @@ static bool migrateFromEEPROM() {
   constexpr int OLD_VOLUME        = 251;
   constexpr int OLD_DISP_FREQ     = 253;
 
-  NvsPrefs old;
+  Preferences old;
   old.begin("eeprom", true);
   uint8_t buf[263] = {};
   size_t len = old.getBytes("data", buf, sizeof(buf));
@@ -93,7 +88,7 @@ static bool migrateFromEEPROM() {
   memcpy(pass_tmp,  buf + OLD_WIFI_PASS, 25);
   memcpy(token_tmp, buf + OLD_TB_TOKEN,  21);
 
-  { NvsPrefs p; p.begin(HMI_NS_CFG, false);
+  { Preferences p; p.begin(HMI_NS_CFG, false);
     p.putUChar (HMI_KEY_LANG,      buf[OLD_LANG]);
     p.putInt   (HMI_KEY_SERIAL,    *((int32_t*)(buf + OLD_SERIAL)));
     p.putFloat (HMI_KEY_AIR_TEMP,  rf(OLD_AIR_TEMP));
@@ -106,12 +101,12 @@ static bool migrateFromEEPROM() {
     p.putUInt  (HMI_KEY_DISP_FREQ, ru(OLD_DISP_FREQ));
     p.end(); }
 
-  { NvsPrefs p; p.begin(HMI_NS_WIFI, false);
+  { Preferences p; p.begin(HMI_NS_WIFI, false);
     p.putString(HMI_KEY_SSID,     ssid_tmp);
     p.putString(HMI_KEY_PASSWORD, pass_tmp);
     p.end(); }
 
-  { NvsPrefs p; p.begin(HMI_NS_GPRS, false);
+  { Preferences p; p.begin(HMI_NS_GPRS, false);
     p.putUChar (HMI_KEY_PROVISIONED, buf[OLD_TB_PROV]);
     p.putString(HMI_KEY_TOKEN,       token_tmp);
     p.end(); }
@@ -120,12 +115,12 @@ static bool migrateFromEEPROM() {
   old.clear();
   old.end();
 
-  ESP_LOGI("HMI", "Migration EEPROM -> NVS complete");
+  ESP_LOGI("HMI", "Migration EEPROM -> Preferences complete");
   return true;
 }
 
 void initEEPROM() {
-  NvsPrefs p;
+  Preferences p;
   p.begin(HMI_NS_CFG, true);
   bool initialized = p.isKey(HMI_KEY_LANG);
   p.end();
@@ -140,7 +135,7 @@ void initEEPROM() {
 }
 
 void recapVariables() {
-  { NvsPrefs p; p.begin(HMI_NS_CFG, true);
+  { Preferences p; p.begin(HMI_NS_CFG, true);
     // Un equipo que venga de un firmware con mas idiomas (o de NVS corrupta)
     // puede traer un indice que esta version no soporta: se cae al idioma de
     // reserva en vez de indexar fuera del catalogo.
@@ -160,9 +155,9 @@ void recapVariables() {
     in3.serialNumber  = p.getInt   (HMI_KEY_SERIAL,    0);
     p.end(); }
 
-  { NvsPrefs p; p.begin(HMI_NS_WIFI, true);
-    std::string s  = p.getString(HMI_KEY_SSID,     "");
-    std::string pw = p.getString(HMI_KEY_PASSWORD, "");
+  { Preferences p; p.begin(HMI_NS_WIFI, true);
+    String s  = p.getString(HMI_KEY_SSID,     "");
+    String pw = p.getString(HMI_KEY_PASSWORD, "");
     strncpy(wifi_ssid, s.c_str(),  sizeof(wifi_ssid) - 1);
     wifi_ssid[sizeof(wifi_ssid) - 1] = '\0';
     strncpy(wifi_pass, pw.c_str(), sizeof(wifi_pass) - 1);
