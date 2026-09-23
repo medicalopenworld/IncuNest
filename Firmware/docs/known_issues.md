@@ -368,3 +368,107 @@ build before trusting any observation.
     mayor_bloque=139264`. That covers the ordering barrier on THIS unit. It
     does **not** close the item above: sn 317 is a different unit and the
     field figures still come from @acuesta-mow's branch, not from here.
+
+## 12. HMI shows "MB: connected" to ThingsBoard while the unit never appears on the platform (OPEN)
+
+*   **Symptom** (bench, unit sn 353, IDF port on `dev` at `8d07c11`,
+    2026-09-16): the WiFi screen paints `MB: ...` green and the heading
+    indicator is green with 4 bars, but the device is not active on
+    `mon.medicalopenworld.org` and no telemetry arrives by any transport.
+*   **The display is not lying on its own**: it only repeats the
+    `serverCommStatus` field of `CTRL,STATE` (`UITask.cpp`,
+    `wifi_link_status_update()`), and the board is sending `4`
+    (`COMM_STATUS_WIFI_SERVER`). The fault is on the motherBoard.
+*   **Root cause of the false indicator** (confirmed in code and log):
+    `motherBoard/src/tasks/Wifi_OTA.cpp`, `WIFI_TB_OTA()` around line 1904.
+    After `tb_wifi.connect(...)` returns `true`, the code sets
+    `Wifi_TB.serverConnectionStatus = true`, subscribes the RPC callbacks and
+    requests the OTA **immediately**. With `Espressif_MQTT_Client`, `connect()`
+    only calls `esp_mqtt_client_start()` (or `esp_mqtt_client_reconnect()` on
+    retries) and returns `ESP_OK` as soon as the client task starts: it says
+    nothing about the session. The flag is never lowered while WiFi stays
+    associated (`WIFIIsConnectedToServer()` only checks the flag plus
+    `WIFIIsConnected()`), and every 30 s retry sets it to `true` again.
+    **The GPRS twin already has the correct code** (`GPRS.cpp` lines ~1340
+    and ~1370-1391: lower the flag when `!tb.connected()`, wait for
+    `tb.connected()` up to `GPRS_MQTT_SESSION_TIMEOUT` before subscribing or
+    declaring `+SERVIDOR`). That fix was item 3 of the 2G OTA chain and was
+    never ported to the WiFi side.
+*   **Log evidence** (COM32, two consecutive boots, identical shape):
+
+    ```
+    I (40855) tb_mqtt: creando cliente MQTT: bufer 4352 B x2, bloque mayor 20480 B, libre 30964 B
+    E (41275) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): EOF
+    E (41290) mqtt_client: mqtt_process_receive: mqtt_message_receive() returned -2
+    I (42446) COMM_HOST: Sending state to HMI: CTRL,STATE,...,0,0,4,0.00,...   <- serverCommStatus=4
+    E (72251) esp-tls: couldn't get hostname for :mon.medicalopenworld.org: getaddrinfo() returns 202
+    W (86276) mqtt_client: Publish: Losing qos0 data when client not connected
+    [TB] Subscribing the given topic (v1/devices/me/rpc/request/+) failed    x3
+    [TB] Preparing for OTA firmware updates failed, attributes might be NULL
+    E (69657) DIAG: LOW RESOURCES heap_int=11064 heap_int_min=100 heap_int_largest=3456
+    ```
+
+    The `Subscribing ... failed` / `Losing qos0` lines are the WiFi side acting
+    on a session that does not exist. The GPRS side never publishes because
+    `GPRS.cpp` (~line 1495) hands ThingsBoard to WiFi whenever
+    `WIFIIsConnected()`; so with WiFi associated but MQTT down, **neither
+    transport** delivers telemetry. `heap_int_min=100` is issue
+    [mb-muere-por-oom-en-comm-task-rx] (memory), not new.
+*   **Why the MQTT session over WiFi actually fails — two stages**:
+    1.  First attempt (~1 s after `GOT_IP`, before PPP): TCP connects and the
+        peer closes it 0.4-2.4 s later **before any CONNACK**. Cause not
+        established, see below.
+    2.  Every later attempt fails at DNS (`getaddrinfo() returns 202`): once
+        the modem's PPP negotiates IPCP it overwrites lwIP's global DNS while
+        the default route stays on WiFi. Known; candidate fix is
+        `CONFIG_ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF=y` in the MB
+        `sdkconfig.defaults` (being handled on `feat/mb-heap-diag`).
+*   **Ruled out for stage 1**: the broker closing without CONNACK. A raw MQTT
+    CONNECT from the PC to `mon.medicalopenworld.org:1883` with a bogus token
+    gets `CONNACK rc=5` in 0.12 s and `provision` gets `rc=0`; the server
+    answers, it does not silently drop. The HMI kicking the MB's session is
+    also unlikely: the display provisions as `IncuNest-Display-<sn>` with its
+    own provision key, so tokens differ.
+*   **Two hypotheses left for stage 1, undecided**:
+    1.  The WiFi side is **not provisioned** in NVS (`NS_GPRS`/`KEY_PROVISIONED`
+        read in `WIFI_TB_Init()`), so that first connection is the
+        `provision` request. ThingsBoard closes the connection right after the
+        provision response, which is exactly an EOF with no further CONNACK.
+        Fits the timing. If so, expect an `IncuNest-353` or `IncuNest-353_N`
+        device on the platform that never goes active (the retry logic in
+        `WIFIProvisionResponse()` appends `_N` when the name exists).
+    2.  The path through the Windows Mobile Hotspot (`in3wifi`, gateway
+        192.168.137.1 = the bench PC, NAT to the home router) resets the
+        session. Could not be checked: `pktmon` needs an elevated shell.
+*   **Bench notes for whoever picks this up**:
+    *   `logI()` is compiled out (`LOG_INFORMATION false` in `main.h`), so
+        `[WIFI] -> Connecting ... with token`, `Provisioning as:` and the
+        `PUBLISH ... SUCCESS/FAIL` lines **never reach the UART**. Either flip
+        it for the session or promote the four decisive lines to `ESP_LOGI`.
+    *   Opening COM32 with default DTR/RTS **resets the motherBoard** (FTDI
+        auto-reset). Capture with `dtr=False`, `rts=False` set before
+        `open()`, or you will chase reboots that are your own.
+    *   NVS is at `0x9000`, size `0x5000` (`partitions/ESP32S3_8MB.csv`).
+        `esptool --chip esp32s3 --port COM32 read-flash 0x9000 0x5000 nvs.bin`
+        plus a strings dump gives token and provisioned flag; then a raw
+        CONNECT from the PC with that token decides hypothesis 1 vs 2
+        (`rc=0` = the device exists and the token is good).
+*   **Plan**:
+    1.  Port the GPRS session wait to `WIFI_TB_OTA()`: after `connect()`,
+        poll `tb_wifi.connected()` up to a `WIFI_MQTT_SESSION_TIMEOUT`
+        (5000 ms like GPRS) before subscribing, publishing config, requesting
+        OTA or raising `serverConnectionStatus`; set the flag to `false` in
+        the `!tb_wifi.connected()` branch. Change `WIFIIsConnectedToServer()`
+        to also require `tb_wifi.connected()`. After this the HMI will show
+        `MB: sin servidor`, which is the truth, and the real fault becomes
+        visible to the operator.
+    2.  Consider letting the GPRS side publish when WiFi is associated but
+        `!tb_wifi.connected()` for longer than N minutes, instead of gating on
+        `WIFIIsConnected()` alone. Today a WiFi network without reachable
+        MQTT silences the cellular path too.
+    3.  Close stage 1 with the NVS read described above, then either fix
+        provisioning persistence or document the hotspot as unsupported for
+        bench MQTT tests.
+    4.  Land the DNS-per-netif change (stage 2) and re-verify with WiFi and
+        PPP up at the same time; the reconnect storm is also what pushes
+        `heap_int_min` to 100 B.
