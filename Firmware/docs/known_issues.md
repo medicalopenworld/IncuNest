@@ -714,3 +714,55 @@ to the repository's public dummy values with no diagnostic; the only thing that
 caught it was the factory test failing to provision. It now emits a `#warning`
 always, and `-DREQUIRE_REAL_CREDENTIALS` turns it into an `#error` — that flag
 belongs in any build destined for a real unit.
+
+## 18. `/debug/coredump` can serve the dump of a *previous* crash (OPEN)
+
+Found running the bench battery on 2026-09-23 (18.45). Two crashes provoked in
+a row through `/debug/crash`:
+
+| kind | reset reason | dump downloaded afterwards |
+|---|---|---|
+| `null` | `PANIC (4)` | 45 220 B, decodes to `debug_crash_task+117`, `StoreProhibited` |
+| `wdt` | `INT_WDT (5)` | 45 220 B, **byte-identical** (same SHA-256) — the `null` dump again |
+
+The watchdog reset wrote no new dump, and `/debug/coredump` served the old one
+with nothing to say it belongs to a different reset. `CrashReporter.cpp` keeps a
+valid dump **on purpose** ("se conserva para sacarlo entero con esptool") and
+only erases *unreadable* ones, so this is by construction: after any reset that
+does not write a dump, the partition still holds the last one that did.
+
+**Impact.** Not on ThingsBoard: `Crash_reason` was correctly `INT_WDT`, and
+`Crash_task` / `Crash_backtrace` are not being published at all. The damage is
+to the diagnostic workflow documented next to the archived symbols
+(`curl /debug/coredump` → `esp_coredump info_corefile`): after such a reset it
+hands you the backtrace of a different, older crash. That is the exact trap
+this project fell into on 2026-09-22, decoding the wrong image's dump.
+
+**Fix, not applied yet:** tie the dump to the reset that produced it — e.g.
+persist a checksum of the last dump already reported and, at boot, treat an
+unchanged dump as "no dump for this reset" (and have `/debug/coredump` say so),
+while still keeping it in flash for esptool.
+
+**Also seen in the same run:** the debug `wdt` kind is meant to fire the *task*
+watchdog (`DEBUG_CRASH_TASK_WDT`, "lo dispara el TWDT"), but the board reported
+`INT_WDT`. It does not reproduce the production failure it is named after
+(`TASK_WDT`, units 352/358/359, #13).
+
+## 19. The bench unit's thermal cutout is 38 °C, not 40 (unit config, OPEN)
+
+The bench battery test `frontera-corte-termico` fails on the bench unit: the
+air cutout fires at 39.0 °C. Not a code regression — the compiled default is
+`AIR_THERMAL_CUTOUT_DEFAULT_C 40` since `68a0369e`, but a value already stored
+in NVS wins, and this unit holds `air_tmax = 38.00` from before that change.
+The firmware warns about it on every boot:
+
+```
+corte termico de aire a 38.0 C, por debajo del tope de consigna (39.0 C):
+una consigna por encima del corte disparara ALARM_AIR_THERMAL_CUTOUT sin
+poder alcanzarse. Ajusta air_tmax a 40.0 en /config.
+```
+
+**Worth checking across the fleet**: any unit whose NVS was initialised before
+`68a0369e` keeps its old cutout, and with the setpoint ceiling at 39 °C a 38 °C
+cutout makes the top of the setpoint range unreachable. The default only applies
+to units whose NVS has no `air_tmax` at all.
