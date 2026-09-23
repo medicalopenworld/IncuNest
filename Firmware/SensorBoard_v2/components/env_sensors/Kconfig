@@ -1,0 +1,35 @@
+menu "SensorBoard env_sensors"
+
+    config SB_ENV_POLL_PERIOD_S
+        int "Periodo de polling de sensores (segundos)"
+        default 1
+        range 1 3600
+        help
+            1 s, y no 5, porque estas lecturas son la VARIABLE DE CONTROL del
+            PID de aire de la motherboard, no telemetria: alli el sensor de
+            aire se declara averiado a los 5 s sin lectura fresca
+            (MINIMUM_SUCCESSFULL_AIR_SENSOR_UPDATE) y esa alarma es de
+            prioridad ALTA y corta el calefactor. Con cadencia de 5 s una sola
+            publicacion perdida -- y se descartan sin reintento cuando el host
+            no drena -- cortaba la calefaccion. Con 1 s hay 5 oportunidades
+            antes de declarar el fallo. No subir este valor sin mirar
+            SB_ENV_STALE_MS en la motherboard.
+
+    config SB_ENV_I2C_SCAN
+        bool "Escanear los buses I2C al arrancar (diagnostico via logs)"
+        default y
+        help
+            Sondea 0x08-0x77 en cada bus tras crearlo y loguea que
+            direcciones responden. ~1-2s extra de arranque; desactivar
+            en produccion si no se necesita.
+
+    config SB_ALS_UV_PER_LUX
+        int "ALS: microvoltios por lux (placeholder SIN calibrar)"
+        default 1000
+        range 1 1000000
+        help
+            Factor de conversion mV->lux del ALS-PT19. Depende de la
+            resistencia de carga del esquema. PENDIENTE de calibracion
+            contra luxometro; el valor por defecto es un placeholder.
+
+endmenu

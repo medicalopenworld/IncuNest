@@ -28,7 +28,13 @@
 // Firmware version and head title of UI screen
 
 #include "main.h"
+#include "modules/util/system_clock.h"
 #include "state/state.h"
+#include "modules/debug/debug_mode.h"
+#include "modules/control/photo_override.h"
+#include "modules/sensorboard_comm/sensorboard_comm.h"
+#include "modules/sensors/sensor_source.h"
+#include "system/hw_selftest.h"
 #include "DriveUpload.h"
 #include "CrashReporter.h"
 #include <Preferences.h>
@@ -41,9 +47,12 @@ int g_hmiBootCount = 0;
 int g_hmiLastRst = 0;
 int g_restore_photo_minutes = 0;
 
-// Build-flag crash simulator. Add -DCRASH_TEST_MB=1 to platformio.ini
-// build_flags to fire a panic after CRASH_TEST_MB_DELAY_S seconds (default 130).
-// Remove the flag for production builds.
+// Build-flag crash simulator. Se enciende con la variable de entorno
+// INCUNEST_CRASH_TEST (ver main/CMakeLists.txt); la instruccion anterior decia
+// platformio.ini, que el porte a ESP-IDF dejo sin efecto. Dispara un panic
+// pasados CRASH_TEST_MB_DELAY_S segundos (130 por defecto).
+// La alternativa en caliente y sin recompilar es POST /debug/crash.
+// Nunca en un binario de produccion.
 //   CRASH_TEST_MB=1  → abort() (panic, RST_reason=12)
 //   CRASH_TEST_MB=2  → null-pointer LoadProhibited
 #ifdef CRASH_TEST_MB
@@ -82,15 +91,33 @@ char wifi_pass[64] = "";
 TwoWire *wire;
 TwoWire *wire2 = nullptr; // second I2C bus (HW16: SHTC3 + STS35 on pins 19/20)
 MAM_IncuNest_Humidifier in3_hum(DEFAULT_ADDRESS);
-// Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC);
 TFT_eSPI tft = TFT_eSPI(); // Invoke custom library
 SHTC3 mySHTC3;             // Declare an instance of the SHTC3 class
 SensirionI2cSts3x mySTS35[STS3X_NUM];
 Adafruit_SHT4x sht4 = Adafruit_SHT4x();
-RotaryEncoder encoder(ENC_A, ENC_B, RotaryEncoder::LatchMode::TWO03);
 Beastdevices_INA3221 mainDigitalCurrentSensor(INA3221_ADDR41_VCC);
 Beastdevices_INA3221 secundaryDigitalCurrentSensor(INA3221_ADDR40_GND);
 // BQ25730 gestionado por BQ25730.cpp (chargerPresent definido allí)
+
+// Encoder rotativo. En la linea del port a ESP-IDF se retiro (e2e3ede), y al
+// portar el modo depuracion (17312e3) el rebase arrastro la retirada de estos
+// globales como un hunk limpio, dejando colgados los `extern` de ISR.cpp y
+// security.cpp. En esta linea el encoder sigue en el arbol, asi que los
+// globales vuelven aqui tal cual estaban.
+RotaryEncoder encoder(ENC_A, ENC_B, RotaryEncoder::LatchMode::TWO03);
+boolean A_set;
+boolean B_set;
+int encoderpinA = ENC_A;         // pin  encoder A
+int encoderpinB = ENC_B;         // pin  encoder B
+bool encPulsed, encPulsedBefore; // encoder switch status
+bool updateUIData;
+volatile int EncMove;                 // moved encoder
+volatile int lastEncMove;             // moved last encoder
+volatile int EncMoveOrientation = -1; // set to -1 to increase values clockwise
+volatile int last_encoder_move;       // moved encoder
+long encoder_debounce_time =
+    true; // in milliseconds, debounce time in encoder to filter signal bounces
+long last_encPulsed; // last time encoder was pulsed
 
 bool WIFI_EN = true;
 long lastDebugUpdate;
@@ -136,30 +163,12 @@ float maxDesiredTemp[2] = {
     AIR_TEMPERATURE_SET_MAX}; // maximum allowed temperature to be set
 int presetTemp[2] = {36, 32}; // preset baby skin temperature
 
-boolean A_set;
-boolean B_set;
-int encoderpinA = ENC_A;         // pin  encoder A
-int encoderpinB = ENC_B;         // pin  encoder B
-bool encPulsed, encPulsedBefore; // encoder switch status
-bool updateUIData;
-volatile int EncMove;                 // moved encoder
-volatile int lastEncMove;             // moved last encoder
-volatile int EncMoveOrientation = -1; // set to -1 to increase values clockwise
-volatile int last_encoder_move;       // moved encoder
-long encoder_debounce_time =
-    true; // in milliseconds, debounce time in encoder to filter signal bounces
-long last_encPulsed; // last time encoder was pulsed
-
 // Text Graphic position variables
 int humidityX;
 int humidityY;
 int temperatureX;
 int temperatureY;
 int separatorTopYPos, separatorMidYPos, separatorBotYPos;
-int ypos;
-bool print_text;
-int initialSensorPosition = separatorPosition - letter_width;
-bool pos_text[8];
 
 bool enableSet;
 float temperaturePercentage, temperatureAtStart;
@@ -168,11 +177,6 @@ int barWidth, barHeight, tempBarPosX, tempBarPosY, humBarPosX, humBarPosY;
 int screenTextColor, screenTextBackgroundColour;
 
 // User Interface display variables
-bool goToSettings = false;
-bool autoLock; // setting that enables backlight switch OFF after a given time
-               // of no user actions
-long lastbacklightHandler; // last time there was a encoder movement or pulse
-
 bool selected;
 char cstring[128];
 char *textToWrite;
@@ -190,8 +194,8 @@ bool blinkSetMessageState;
 long lastBlinkSetMessage;
 
 long lastSuccesfullSensorUpdate[SENSOR_TEMP_QTY];
+uint32_t g_sensorsTaskStartedMs = 0;
 
-int ScreenBacklightMode;
 long lastSkinAttachedSensorUpdate;
 long lastRoomSensorUpdate, lastCurrentSensorUpdate;
 bool roomSensorOk = false;
@@ -202,6 +206,8 @@ TaskHandle_t taskHandle =
     NULL; // Handle for the task we want to delete if it hangs
 long GPRS_lastMillisTaskClear;
 bool TB_connected;
+
+void GPRS_Task(void *pvParameters); // forward decl: GPRSMonitorTask restarts it on hang
 
 QueueHandle_t sharedSensorQueue;
 // Mutex for protecting the shared variable
@@ -218,19 +224,19 @@ void GPRSMonitorTask(void *pvParameters) {
         diag_prefs.putUInt("mon_kill", g_monKillCount);
         diag_prefs.end();
         {
-          const char *m = "[MON] killing GPRS_Task after idle timeout\n";
+          const char *m = "[MON] GPRS_Task hung, restarting it\n";
           crashReporterPut(m, strlen(m));
         }
         vTaskDelete(taskHandle); // Delete the hung task
-        // Serial.println("Task deleted. Restarting task...");
-
-        // // Optionally restart the task
-        // while (xTaskCreatePinnedToCore(GPRS_Task, (const char *)"GPRS", 8192,
-        //                                NULL, GPRS_TAST_PRIORITY, &taskHandle,
-        //                                CORE_ID_FREERTOS) != pdPASS)
-        //   ;
-        // logI("GPRS task successfully created!\n");
-        vTaskDelete(NULL); // Delete the monitor task
+        GPRS = GPRSstruct();     // drop state left over from the aborted attempt
+        GPRS_lastMillisTaskClear = millis();
+        // Recreate GPRS_Task so a single hung AT call doesn't kill cellular
+        // connectivity for good; the new task spawns its own fresh monitor.
+        xTaskCreatePinnedToCore(GPRS_Task, "GPRS", 16384, NULL,
+                                GPRS_TAST_PRIORITY, &taskHandle,
+                                CORE_ID_FREERTOS);
+        xSemaphoreGive(GPRS_monitor_mutex);
+        vTaskDelete(NULL); // this monitor's job is done
       }
       if (GPRSIsConnectedToServer() || WIFIIsConnectedToServer()) {
         vTaskDelete(NULL); // Delete the monitor task
@@ -258,22 +264,20 @@ void GPRS_Task(void *pvParameters) {
   }
 }
 
-void Backlight_Task(void *pvParameters) {
-  for (;;) {
-    backlightHandler();
-    vTaskDelay(pdMS_TO_TICKS(BACKLIGHT_TASK_PERIOD_MS));
-  }
-}
-
 BQ25730_Status g_bq_status      = {};
 bool           g_bq_status_valid = false;
-#ifdef BQ25730_TEST
-// Forward decls (defined later in the file)
-static void dump_BQ25730_regs();
-static void print_charger_status();
-#endif
-
+// millis() del ultimo refresco con exito: el test de fabrica exige frescura
+// ademas del flag, porque un `true` sin sello sobreviviria a una tarea parada.
+uint32_t       g_bq_status_ms    = 0;
 void sensors_Task(void *pvParameters) {
+  // Instante en que empieza a haber muestras periodicas de verdad. Lo usa
+  // checkStatusOfSensor() (security.cpp) como referencia de frescura: el sello
+  // que deja el autotest de initHardware() es varios segundos anterior y
+  // levantaba ALARM_AIR_SENSOR_FAULT en cada arranque.
+  g_sensorsTaskStartedMs = millis();
+  if (g_sensorsTaskStartedMs == 0) {
+    g_sensorsTaskStartedMs = 1; // 0 es el centinela de "aun no arranco"
+  }
   for (;;) {
     fanSpeedHandler();
     if (millis() - lastSkinAttachedSensorUpdate >
@@ -301,6 +305,7 @@ void sensors_Task(void *pvParameters) {
       static long ichg_low_since    = 0;
       if (chargerPresent && millis() - lastChargerUpdate > 5000) {
         g_bq_status_valid = charge_status(&g_bq_status);
+        if (g_bq_status_valid) g_bq_status_ms = millis();
         lastChargerUpdate = millis();
         // Detecta transición ausente→presente del adaptador y reinicializa el
         // chip: algunos BQ25xxx pierden VINDPM/IIN al re-detectar VBUS, así que
@@ -339,20 +344,13 @@ void sensors_Task(void *pvParameters) {
         }
       }
     }
-#ifdef BQ25730_TEST
-    {
-      static long lastChargerPrint = 0;
-      static long lastChargerDump  = 0;
-      if (chargerPresent && millis() - lastChargerPrint > 3000) {
-        print_charger_status();
-        lastChargerPrint = millis();
-      }
-      if (chargerPresent && millis() - lastChargerDump > 10000) {
-        dump_BQ25730_regs();
-        lastChargerDump = millis();
-      }
-    }
-#endif
+    // Las medidas simuladas del modo depuracion se pisan AQUI: despues de que
+    // los sensores reales hayan escrito y ANTES de copiar a ctrl_tel_msg, para
+    // que el control, securityCheck() y el display vean todos exactamente el
+    // mismo valor. Con el modo apagado no hace nada y la medida real vuelve
+    // sola en la pasada siguiente. Ver modules/debug/debug_mode.h.
+    debug_sensors_apply();
+
     ctrl_tel_msg.detectedAirTemperature =
         in3.temperature[ROOM_DIGITAL_TEMP_SENSOR];
     ctrl_tel_msg.detectedSkinTemperature = in3.temperature[SKIN_SENSOR];
@@ -361,9 +359,100 @@ void sensors_Task(void *pvParameters) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Consola de depuracion sobre debugSerial (el puerto por el que sale el log).
+//
+// NO es el enlace con el display: ese es Serial1 en los pines 15/16
+// (hmiSerial en CommTask.cpp). Por debugSerial no habla nadie, asi que un
+// comando aqui no compite con las tramas del protocolo ni puede corromperlas.
+//
+// Dos comandos, y a proposito ninguno mas:
+//
+//   "WIFI_EN,<0|1>"  para probar la OTA por 2G, que con la WiFi levantada no se
+//                    ejercita nunca.
+//   "PHOTO,<0|1>"    enciende/suelta la fototerapia para probar el lazo de
+//                    intensidad sin nadie en la pantalla. PHOTO,1 exige el modo
+//                    depuracion encendido; PHOTO,0 se acepta siempre, porque
+//                    apagar nunca es lo peligroso. Va SOLO por aqui, sin
+//                    endpoint HTTP: acciona un actuador y esta consola pide
+//                    acceso fisico al USB (ver debug_mode.h).
+//
+// Nada de esto se guarda: cualquier reinicio vuelve a dejar la WiFi encendida
+// y la fototerapia como la tenga el display. Lo demas se ignora.
+// ---------------------------------------------------------------------------
+// ESP_LOGx y no logI/logE: main.h compila esos dos fuera del binario
+// (LOG_INFORMATION y LOG_ERRORS estan a false), asi que un acuse escrito con
+// logI no se imprime nunca y la consola parece muerta aunque funcione.
+static const char *DBGCON_TAG __attribute__((unused)) = "DBGCON";
+
+static void debugConsoleHandle(const char *line) {
+  if (strncmp(line, "PHOTO,", 6) == 0) {
+    const char *arg = line + 6;
+    // Mismo parseo estricto que WIFI_EN: un '0' o un '1' y nada mas.
+    if ((arg[0] != '0' && arg[0] != '1') || arg[1] != '\0') {
+      ESP_LOGW(DBGCON_TAG, "PHOTO: argumento invalido, se espera 0 o 1");
+      return;
+    }
+    if (arg[0] == '0') {
+      debug_photo_off();
+      ESP_LOGW(DBGCON_TAG, "PHOTO,0: fototerapia de depuracion soltada; vuelve "
+               "a mandar el display tras %u ms de gracia",
+               (unsigned)PHOTO_OVERRIDE_RELEASE_GRACE_MS);
+      return;
+    }
+    // in3.phototherapy es aqui la ultima orden REAL del display: todavia no
+    // la ha podido contaminar esta prueba.
+    if (!debug_photo_on(in3.phototherapy)) {
+      ESP_LOGW(DBGCON_TAG, "PHOTO,1 rechazado: el modo depuracion esta apagado "
+               "(POST /debug/mode?on=1)");
+      return;
+    }
+    ESP_LOGW(DBGCON_TAG, "PHOTO,1: fototerapia de depuracion ENCENDIDA (se "
+             "aplica con la siguiente trama del display)");
+    return;
+  }
+  if (strncmp(line, "WIFI_EN,", 8) != 0) {
+    ESP_LOGI(DBGCON_TAG, "comando desconocido, ignorado: %s", line);
+    return;
+  }
+  const char *arg = line + 8;
+  // Exactamente un '0' o un '1' y nada mas: sin atoi(), "WIFI_EN,0abc" no se
+  // cuela como un apagado valido.
+  if ((arg[0] != '0' && arg[0] != '1') || arg[1] != '\0') {
+    ESP_LOGW(DBGCON_TAG, "WIFI_EN: argumento invalido, se espera 0 o 1");
+    return;
+  }
+  wifiRequestEnable(arg[0] == '1');
+}
+
+void debugConsolePoll(void) {
+  static char buf[40];
+  static size_t len = 0;
+  while (debugSerial.available()) {
+    const char c = (char)debugSerial.read();
+    if (c == '\r') continue;
+    if (c != '\n') {
+      // Al pasarse de largo se marca la linea y se descarta ENTERA al final,
+      // en vez de procesar un trozo: media linea podria ser un comando valido
+      // por accidente.
+      if (len < sizeof(buf) - 1)
+        buf[len++] = c;
+      else
+        len = sizeof(buf);
+      continue;
+    }
+    if (len < sizeof(buf)) {
+      buf[len] = '\0';
+      debugConsoleHandle(buf);
+    }
+    len = 0;
+  }
+}
+
 void OTA_WIFI_Task(void *pvParameters) {
   WIFI_TB_Init();
   for (;;) {
+    debugConsolePoll();
     WifiOTAHandler();
     vTaskDelay(pdMS_TO_TICKS(OTA_TASK_PERIOD_MS));
   }
@@ -382,22 +471,6 @@ void security_Task(void *pvParameters) {
       securityCheck();
     }
     vTaskDelay(pdMS_TO_TICKS(SECURITY_TASK_PERIOD_MS));
-  }
-}
-
-void UI_Task(void *pvParameters) {
-  if (in3.restoreState) {
-    UI_actuatorsProgress();
-  } else {
-    if (goToSettings) {
-      UI_settings();
-    } else {
-      UI_mainMenu();
-    }
-  }
-  for (;;) {
-    userInterfaceHandler(page);
-    vTaskDelay(pdMS_TO_TICKS(UI_TASK_PERIOD_MS));
   }
 }
 
@@ -424,23 +497,29 @@ void Communication_Receiver(void *pvParameters) {
 
       logI(msg);
 
-      if (hmi_cmd_msg.newBabyData) {
-        hmi_cmd_msg.newBabyData = false;
-        logI("Auto Air baby data -> weight=" +
-             String(hmi_cmd_msg.babyWeightGrams) +
-             "g gest=" + String(hmi_cmd_msg.babyGestWeeks) +
-             "w ageD=" + String(hmi_cmd_msg.babyAgeDays));
-      }
+      // Reset the alarm stabilization window (see alarmTimerStart(),
+      // security.cpp) only on the OFF->ON transition, matching what the
+      // now-removed on-board UI (legacy/UI_actuatorsProgress.cpp) used to do
+      // when a user confirmed activation from its menu. The HMI-driven path
+      // resends this command on every command cycle even while actuation
+      // stays on, so gating on the transition (rather than "actuation != 0")
+      // avoids perpetually postponing the window and suppressing alarms.
+      bool actuationWasOff = (in3.actuation == ACTUATION_OFF);
       in3.actuation = hmi_cmd_msg.actuation;
       { Preferences p; p.begin(NS_STATE, false); p.putUChar(KEY_ACTUATION, in3.actuation); p.end(); }
+      if (actuationWasOff && in3.actuation != ACTUATION_OFF) {
+        alarmTimerStart();
+      }
       if (in3.controlMode != hmi_cmd_msg.controlMode) {
         in3.controlMode = hmi_cmd_msg.controlMode;
         { Preferences p; p.begin(NS_CFG, false); p.putUChar(KEY_CTRL_MODE, in3.controlMode); p.end(); }
       }
 
+      const bool tempBlocked = ongoingCriticalWiringAlarm();
+
       switch (in3.actuation) {
       case ACTUATION_TEMPERATURE:
-        in3.temperatureControl = true;
+        in3.temperatureControl = !tempBlocked;
         in3.humidityControl = false;
         break;
       case ACTUATION_HUMIDITY:
@@ -448,7 +527,7 @@ void Communication_Receiver(void *pvParameters) {
         in3.humidityControl = true;
         break;
       case ACTUATION_TEMP_AND_HUMIDITY:
-        in3.temperatureControl = true;
+        in3.temperatureControl = !tempBlocked;
         in3.humidityControl = true;
         break;
       default:
@@ -458,28 +537,62 @@ void Communication_Receiver(void *pvParameters) {
       }
 
       if (in3.temperatureControl) {
-        if (in3.controlMode) {
-          in3.desiredControlTemperature = hmi_cmd_msg.desiredAirTemperature;
-          startPID(in3.controlMode);
-        } else {
-          in3.desiredControlTemperature = hmi_cmd_msg.desiredSkinTemperature;
-          startPID(!in3.controlMode);
+        double newDesiredTemp = in3.controlMode ? hmi_cmd_msg.desiredAirTemperature
+                                                 : hmi_cmd_msg.desiredSkinTemperature;
+        if (newDesiredTemp != in3.desiredControlTemperature) {
+          in3.desiredControlTemperature = newDesiredTemp;
+          // Persisted so a restoreState boot (crash/WDT) restarts the PID at
+          // the setpoint the user actually configured, not the compiled-in
+          // default (KEY_CTRL_TEMP's fallback in recapVariables()).
+          Preferences p;
+          p.begin(NS_CFG, false);
+          p.putFloat(KEY_CTRL_TEMP, in3.desiredControlTemperature);
+          p.end();
         }
+        startPID(in3.controlMode);
       } else {
         stopPID(CONTROL_AIR);
         stopPID(!CONTROL_AIR);
-        ledcWrite(HEATER_PWM_CHANNEL, false);
+        // El test de fabrica tiene el canal del calefactor en estado seguro
+        // (design.md D4, shared-factory-test): no pisarlo con este keepalive
+        // del HMI, que se repite en cada trama aunque actuation ya este OFF.
+        if (!g_factoryTestActive)
+          ledcWrite(HEATER_PWM_CHANNEL, false);
       }
       if (in3.humidityControl) {
-        in3.desiredControlHumidity = hmi_cmd_msg.desiredHumidity;
+        if (hmi_cmd_msg.desiredHumidity != in3.desiredControlHumidity) {
+          in3.desiredControlHumidity = hmi_cmd_msg.desiredHumidity;
+          // Same rationale as KEY_CTRL_TEMP above, for humidity restoreState boots.
+          Preferences p;
+          p.begin(NS_CFG, false);
+          p.putUChar(KEY_CTRL_HUM, in3.desiredControlHumidity);
+          p.end();
+        }
         startPID(humidityPID);
       } else {
         stopPID(humidityPID);
-        in3_hum.turn(OFF);
+        // Idem HEATER_PWM_CHANNEL arriba: el humidificador tambien es parte
+        // del estado seguro del test de fabrica (design.md D4).
+        if (!g_factoryTestActive)
+          in3_hum.turn(OFF);
       }
 
-      in3.phototherapy = hmi_cmd_msg.phototherapyMode;
-      { Preferences p; p.begin(NS_STATE, false); p.putUChar(KEY_PHOTO_ACTIVE, in3.phototherapy); p.end(); }
+      // Estado ANTERIOR, para distinguir el flanco de encendido del keepalive.
+      const bool photoEstabaEncendida = in3.phototherapy;
+      // Normalmente es lo que manda el display. Con un encendido de depuracion
+      // en marcha (o en su ventana de gracia) manda photo_override: fuerza ON
+      // durante la prueba e ignora despues el ON rancio que el display habra
+      // adoptado. Ver modules/control/photo_override.h.
+      in3.phototherapy = debug_photo_effective(hmi_cmd_msg.phototherapyMode);
+      // Se guarda la orden DEL DISPLAY, y solo cuando no hay prueba en curso:
+      // durante ella el display devuelve el ON adoptado, y guardarlo haria que
+      // una caida reanudase una sesion de depuracion como si fuera real.
+      if (debug_photo_may_persist()) {
+        Preferences p;
+        p.begin(NS_STATE, false);
+        p.putUChar(KEY_PHOTO_ACTIVE, hmi_cmd_msg.phototherapyMode);
+        p.end();
+      }
       if (in3.language != hmi_cmd_msg.language) {
         in3.language = hmi_cmd_msg.language;
         resendActiveAlarms();
@@ -489,30 +602,84 @@ void Communication_Receiver(void *pvParameters) {
           in3.phototherapy_intensity = PWM_MAX_VALUE * PHOTOTHERAPY_INITIAL_PWM_PCT / 100;
           in3.photoFirstRun = false;
         }
-        in3.photoTurnOnTime = millis();
+        // SOLO en el flanco de encendido. Esto estaba fuera del if y se
+        // ejecutaba en cada mandato del HMI, que es un KEEPALIVE: CommTask.cpp
+        // pone newCommand=true en cada trama recibida, ~1 por segundo.
+        //
+        // photoTurnOnTime es la marca de asentamiento que mira el lazo de
+        // regulacion de intensidad (sensors_module.cpp, currentMonitor):
+        //
+        //     millis() - in3.photoTurnOnTime > PHOTO_SETTLE_MS   // 3000 ms
+        //
+        // Refrescandola cada segundo esa condicion NO se cumple NUNCA, asi que
+        // el lazo no llegaba a ejecutarse jamas y PHOTO_TARGET_CURRENT era
+        // codigo muerto: la lampara se quedaba en la semilla en lazo abierto.
+        //
+        // Medido en banco el 2026-09-23: semilla PWM 102 (extrapolada por el
+        // autotest para 0.27 A desde una lectura de 0.10 A al 10 % de PWM) y
+        // corriente real 0.59-0.60 A sostenida durante 6 minutos. La
+        // extrapolacion 1/x se equivoca por 2.2x porque el consumo del LED no
+        // es lineal con el duty; corregir eso es justo el trabajo del lazo.
+        if (!photoEstabaEncendida) {
+          in3.photoTurnOnTime = millis();
+        }
       }
-      ledcWrite(PHOTOTHERAPY_PWM_CHANNEL,
-                in3.phototherapy * in3.phototherapy_intensity);
+      // Idem: el canal de fototerapia tambien lo posee el test de fabrica
+      // mientras dura la bateria. La reconciliacion con in3.phototherapy
+      // (actualizado arriba, sin gate: eso SI debe seguir reflejando la
+      // trama) la hace este mismo newCommand en su siguiente vuelta, en
+      // cuanto g_factoryTestActive baje (ver cabecera de
+      // factory_test_task.cpp).
+      if (!g_factoryTestActive)
+        ledcWrite(PHOTOTHERAPY_PWM_CHANNEL,
+                  in3.phototherapy * in3.phototherapy_intensity);
       turnFans(bool(in3.phototherapy || in3.actuation));
 
-      shutBuzzer();
-      buzzerTone(buzzerStandbyToneTimes, buzzerSwitchDuration,
-                 buzzerRotaryEncoderTone);
+      // AQUI NO SE PITA AL RECIBIR UNA TRAMA DEL DISPLAY.
+      //
+      // Habia un shutBuzzer() + buzzerTone() en este punto: el zumbador de la
+      // placa sonaba cada vez que llegaba una trama, que era el truco con el
+      // que el display conseguia confirmacion sonora al tocar un boton. Ese
+      // papel lo cubre ahora el zumbador del propio display, y los envios de
+      // estado que solo existian para dispararlo ya se retiraron.
+      //
+      // Quitarlo era obligado desde el latido de 1 Hz, que lo convertia en un
+      // pitido por segundo. Pero el problema de fondo es peor y llevaba aqui
+      // desde antes: buzzerHandler()/buzzerTone() y buzzerAlarmUpdate()
+      // escriben el MISMO canal PWM. Cada trama recibida hacia shutBuzzer(),
+      // o sea ledcWrite(0), pisando la rafaga de alarma que estuviera sonando
+      // y destrozando el patron de la Tabla 3.
+      //
+      // Y un pulso suelto del zumbador de la placa es acusticamente identico
+      // a una rafaga de prioridad BAJA, que es de UN solo pulso: el
+      // transductor de las alarmas no puede emitir sonidos que no sean
+      // alarmas.
     }
 
     // Handle Phototherapy timer expiration/calculation constantly
     // This runs even if no HMI is connected, ensuring hardware turns OFF.
     getRemainingPhotoTime();
 
-    if (in3.actuation) {
-      PIDHandler();
-    }
+    // Unconditional: every loop inside gates itself on its own PID mode, and
+    // the fan loop must run for phototherapy-only activation too (fan is
+    // commanded on with in3.actuation == 0 — gating on actuation left
+    // FAN_CTL_PWM_CHANNEL undriven and false-fired ALARM_FAN_FAILURE).
+    PIDHandler();
     vTaskDelay(pdMS_TO_TICKS(COMMUNICATION_TASK_PERIOD_MS));
   }
 }
 
 #if (HW_NUM >= 16)
+// Apagado por pulsación larga del ON_OFF_SWITCH deshabilitado hasta nuevo
+// aviso: mientras sea false, el equipo solo se apaga cortando alimentación
+// externa (PWR_EN se mantiene latcheado por el arranque en setup()).
+constexpr bool ON_OFF_SWITCH_POWEROFF_ENABLED = false;
+
 void PowerManagement_Task(void *pvParameters) {
+  if (!ON_OFF_SWITCH_POWEROFF_ENABLED) {
+    vTaskDelete(NULL);
+  }
+
   while (GPIORead(ON_OFF_SWITCH)) {
     vTaskDelay(pdMS_TO_TICKS(10));
   }
@@ -582,98 +749,6 @@ extern "C" int sync_vprintf(const char *fmt, va_list args) {
   return vprintf(fmt, args);
 }
 
-// ─── BQ25730 test (activo con -DBQ25730_TEST en build_flags)
-// ──────────────────
-#ifdef BQ25730_TEST
-static void dump_BQ25730_regs() {
-  extern TwoWire *wire;
-  auto read8 = [](TwoWire *w, uint8_t reg) -> uint8_t {
-    w->beginTransmission(BQ25730_ADDR);
-    w->write(reg);
-    if (w->endTransmission(false) != 0)
-      return 0xFF;
-    if (w->requestFrom((uint8_t)BQ25730_ADDR, (uint8_t)1) != 1)
-      return 0xFF;
-    return w->read();
-  };
-  auto read16 = [](TwoWire *w, uint8_t reg) -> uint16_t {
-    w->beginTransmission(BQ25730_ADDR);
-    w->write(reg);
-    if (w->endTransmission(false) != 0)
-      return 0xFFFF;
-    if (w->requestFrom((uint8_t)BQ25730_ADDR, (uint8_t)2) != 2)
-      return 0xFFFF;
-    uint8_t lo = w->read();
-    uint8_t hi = w->read();
-    return (uint16_t)lo | ((uint16_t)hi << 8);
-  };
-  if (!LOG_CHARGER) return;
-  logCharger("=== BQ25730 register dump (PDF V2) ===");
-  logCharger("REG 0x3E MfgID(8b)  : 0x" + String(read8(wire, 0x3E), HEX));
-  logCharger("REG 0x3F DevID(8b)  : 0x" + String(read8(wire, 0x3F), HEX));
-  logCharger("--- Config basica ---");
-  logCharger("REG 0x00 ChargeOpt0 : 0x" + String(read16(wire, 0x00), HEX));
-  logCharger("REG 0x02 ChargeCurr : 0x" + String(read16(wire, 0x02), HEX));
-  logCharger("REG 0x04 MaxChrVolt : 0x" + String(read16(wire, 0x04), HEX));
-  logCharger("--- Config electrica (PDF V2) ---");
-  logCharger("REG 0x0A VINDPM     : 0x" + String(read16(wire, 0x0A), HEX));
-  logCharger("REG 0x0C VSYS_MIN   : 0x" + String(read16(wire, 0x0C), HEX));
-  logCharger("REG 0x0E IIN_HOST   : 0x" + String(read16(wire, 0x0E), HEX));
-  logCharger("--- Estado y ADC ---");
-  logCharger("REG 0x20 ChrStatus  : 0x" + String(read16(wire, 0x20), HEX));
-  logCharger("REG 0x26 ADC_VBUS   : 0x" + String(read16(wire, 0x26), HEX));
-  logCharger("REG 0x28 ADC_IBAT   : 0x" + String(read16(wire, 0x28), HEX));
-  logCharger("REG 0x2C ADC_VSYS_VBAT:0x" + String(read16(wire, 0x2C), HEX));
-  logCharger("--- ChargeOptions (PDF V2) ---");
-  logCharger("REG 0x30 ChargeOpt1 : 0x" + String(read16(wire, 0x30), HEX));
-  logCharger("REG 0x32 ChargeOpt2 : 0x" + String(read16(wire, 0x32), HEX));
-  logCharger("REG 0x34 ChargeOpt3 : 0x" + String(read16(wire, 0x34), HEX));
-  logCharger("REG 0x3A ADCOption  : 0x" + String(read16(wire, 0x3A), HEX));
-  logCharger("======================================");
-}
-
-static void print_charger_status() {
-  if (!LOG_CHARGER) return;
-  if (!chargerPresent) {
-    logCharger("[CHG] Cargador no detectado");
-    return;
-  }
-  if (!g_bq_status_valid) {
-    logCharger("[CHG] Esperando primera lectura...");
-    return;
-  }
-  const BQ25730_Status &s = g_bq_status;
-  const char *state_str;
-  switch (s.state) {
-  case BQ25730_STATE_NO_POWER:
-    state_str = "SIN ADAPTADOR";
-    break;
-  case BQ25730_STATE_ABSORPTION:
-    state_str = "ABSORCION";
-    break;
-  case BQ25730_STATE_FLOAT:
-    state_str = "FLOTACION";
-    break;
-  case BQ25730_STATE_FAULT:
-    state_str = "FAULT";
-    break;
-  default:
-    state_str = "?";
-    break;
-  }
-  logCharger("──── BQ25730 ─────────────────────────────");
-  logCharger("  Estado   : " + String(state_str));
-  logCharger("  AC       : " + String(s.ac_present ? "SI" : "NO"));
-  logCharger("  VBUS     : " + String(s.vbus_mv) + " mV");
-  logCharger("  VBAT     : " + String(s.vbat_mv) + " mV");
-  logCharger("  VSYS     : " + String(s.vsys_mv) + " mV");
-  logCharger("  ICHG     : " + String(s.ichg_ma) + " mA  (real, corregido)");
-  logCharger("  IBUS     : " + String(s.ibus_ma) + " mA  (real, corregido)");
-  logCharger("  Fault    : " + String(s.fault ? "SI 0x" + String(s.raw_status, HEX) : "NO"));
-  logCharger("──────────────────────────────────────────");
-}
-#endif
-
 void setup() {
   state_init();
 
@@ -691,6 +766,12 @@ void setup() {
   log_mutex = xSemaphoreCreateRecursiveMutex();
   crashReporterInit();
   esp_log_set_vprintf(sync_vprintf);
+
+  // Antes de que arranque ninguna tarea que haga configTime(): con SNTP el
+  // reloj lo escribe lwIP por su cuenta, y sin este callback la motherBoard no
+  // se enteraria de que la hora vigente la puso NTP. Sin eso el arbitro la
+  // daria por desconocida y una fuente peor podria pisarla.
+  systemClockInit();
 
   GPRS_monitor_mutex = xSemaphoreCreateBinary();
   security_check_reboot_cause();
@@ -715,10 +796,6 @@ void setup() {
   logI("IncuNest debug uart, version v" + String(FWversion) + "/" +
        String(HWversion) + ", SN: " + String(in3.serialNumber));
 
-  if (!GPIORead(ENC_SWITCH)) {
-    goToSettings = true;
-  }
-
   initHardware(false);
   initDriveUpload();
   crashReporterMaybeFlush();
@@ -733,7 +810,10 @@ void setup() {
   logI("Initializing communication task ...");
   CommunicationHost_Init();
 
-  xTaskCreatePinnedToCore(Communication_Task, "COMM_TASK", 4096, NULL,
+  // 8 KB, up from 4 KB: the baby-profile handlers added a much deeper path
+  // through this task (protocol parse -> LittleFS read/write -> float
+  // formatting in the NTE range builder), which 4 KB could not absorb.
+  xTaskCreatePinnedToCore(Communication_Task, "COMM_TASK", 8192, NULL,
                           COMMUNICATION_TASK_PRIORITY, NULL,
                           CORE_ID_FREERTOS // o 0/1 según tu placa
   );
@@ -743,9 +823,27 @@ void setup() {
                           CORE_ID_FREERTOS // o 0/1 según tu placa
   );
   logI("Communication task successfully created!\n");
-#endif
-#ifdef BQ25730_TEST
-  dump_BQ25730_regs();
+
+  // ¿De dónde vienen la temperatura y la humedad de cabina en ESTE equipo?
+  // Los pines 19/20 son el bus I2C2 hacia la PCBA de sensores en los equipos
+  // antiguos y el USB hacia el SensorBoard en los nuevos. El sondeo del bus ya
+  // lo hizo initRoomSensor() dentro de initHardware(): si respondió alguien,
+  // este equipo lleva los sensores por I2C y NO se levanta el host USB —
+  // hacerlo reclamaría esos pads y dejaría al PID sin variable de control.
+  //
+  // Va aquí, después de initSPO2(), para no cambiar el orden de arranque que
+  // ya estaba validado.
+  if (roomSensorI2CDetected()) {
+    sensorSourceSet(SENSOR_SOURCE_I2C);
+    logI("Air sensors found on I2C2: SensorBoard USB link not started");
+  } else {
+    sensorSourceSet(SENSOR_SOURCE_SENSORBOARD);
+    logI("No air sensor on I2C2: starting SensorBoard USB link ...");
+    sensorboard_comm_init();
+    xTaskCreatePinnedToCore(sensorboard_comm_task, "SB_COMM", 4096, NULL,
+                            SENSORBOARD_TASK_PRIORITY, NULL, CORE_ID_FREERTOS);
+    logI("SensorBoard task successfully created!\n");
+  }
 #endif
   if (WIFI_EN) {
     wifiInit();
@@ -783,25 +881,18 @@ void setup() {
   logI("Security task successfully created!\n");
 
   logI("Creating GPRS task ...\n");
-  while (xTaskCreatePinnedToCore(GPRS_Task, "GPRS", 8192, NULL,
+  while (xTaskCreatePinnedToCore(GPRS_Task, "GPRS", 16384, NULL,
                                  GPRS_TAST_PRIORITY, &taskHandle,
                                  CORE_ID_FREERTOS) != pdPASS)
     ;
   logI("GPRS task successfully created!\n");
 
   logI("Creating OTA task ...\n");
-  while (xTaskCreatePinnedToCore(OTA_WIFI_Task, "OTA", 8192, NULL,
+  while (xTaskCreatePinnedToCore(OTA_WIFI_Task, "OTA", 16384, NULL,
                                  OTA_TASK_PRIORITY, NULL,
                                  CORE_ID_FREERTOS) != pdPASS)
     ;
   logI("OTA task successfully created!\n");
-
-  logI("Creating Backlight task ...\n");
-  while (xTaskCreatePinnedToCore(Backlight_Task, "BACKLIGHT", 4096, NULL,
-                                 BACKLIGHT_TASK_PRIORITY, NULL,
-                                 CORE_ID_FREERTOS) != pdPASS)
-    ;
-  logI("Backlight task successfully created!\n");
 
   logI("Creating time track task ...\n");
   while (xTaskCreatePinnedToCore(TimeTrack_Task, "TimeTrack", 4096, NULL,
@@ -809,14 +900,6 @@ void setup() {
                                  CORE_ID_FREERTOS) != pdPASS)
     ;
   logI("Time track task successfully created!\n");
-
-#if HW_NUM < 15
-  logI("Creating UI task ...\n");
-  while (xTaskCreatePinnedToCore(UI_Task, "UI", 4096, NULL, UI_TASK_PRIORITY,
-                                 NULL, CORE_ID_FREERTOS) != pdPASS)
-    ;
-  logI("UI task successfully created!\n");
-#endif
 
 #ifdef CRASH_TEST_MB
   xTaskCreatePinnedToCore(CrashTestMBTask, "CRASH_TEST_MB", 2048, NULL, 1,
@@ -827,12 +910,5 @@ void setup() {
 void loop() {
   watchdogReload();
   updateData();
-// #ifdef BQ25730_TEST
-//   static long lastPrint = 0;
-//   if (millis() - lastPrint > 2000) {
-//     print_charger_status();
-//     lastPrint = millis();
-//   }
-// #endif
   vTaskDelay(pdMS_TO_TICKS(LOOP_TASK_PERIOD_MS));
 }

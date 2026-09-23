@@ -1,0 +1,66 @@
+# ESP32-S3-WROOM-1-N16R8
+CONFIG_IDF_TARGET="esp32s3"
+
+# USB TinyUSB CDC-ACM
+CONFIG_TINYUSB_CDC_ENABLED=y
+CONFIG_TINYUSB_CDC_RX_BUFSIZE=4096
+CONFIG_TINYUSB_CDC_TX_BUFSIZE=4096
+
+# Sin consola — los logs van como frames JSON sobre USB CDC (ADR-0001)
+CONFIG_ESP_CONSOLE_NONE=y
+
+# Flash 16MB + PSRAM OPI 8MB
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+
+# Core dump a flash (particion "coredump" de partitions.csv). En ESP-IDF viene
+# desactivado por defecto, al contrario que en Arduino-ESP32. Aqui importa mas
+# que en las otras dos placas: con CONFIG_ESP_CONSOLE_NONE=y no hay consola,
+# asi que el backtrace de un panic no sale por ningun sitio y la flash es el
+# unico post-mortem posible. Leerlo con:
+#     idf.py -p COMx coredump-info      (resumen)
+#     idf.py -p COMx coredump-debug     (gdb sobre el volcado)
+# En IDF v6 ESP_COREDUMP_ENABLE ya selecciona formato ELF y checksum SHA256,
+# no hace falta declararlos.
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+CONFIG_ESP_COREDUMP_CHECK_BOOT=y
+
+# Cámara: sensores soportados (esp32-camera autodetecta por SCCB:
+# OV2640 en 0x30, OV5640 en 0x3C)
+CONFIG_OV2640_SUPPORT=y
+CONFIG_OV5640_SUPPORT=y
+
+# Nivel INFO: en DEBUG el escaneo I2C emite ~110 frames "nack" por bus y
+# barre la retencion de arranque; subir a DEBUG puntualmente via menuconfig
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# FreeRTOS tick 1kHz
+CONFIG_FREERTOS_HZ=1000
+
+# Cadencia de sensor_data: 1 s. Estas lecturas son la variable de control del
+# PID de aire de la motherboard; alli el sensor se declara averiado a los 5 s
+# sin dato fresco y esa alarma corta el calefactor. Fijado aqui y no solo en
+# el Kconfig porque sdkconfig esta gitignored: sin esta linea, un clon nuevo
+# hereda lo que diga el menuconfig de cada uno.
+CONFIG_SB_ENV_POLL_PERIOD_S=1
+
+# El descriptor USB es un CONTRATO con la motherboard: abre el dispositivo por
+# VID 0x303A / PID 0x4001, y ese PID lo calcula TinyUSB a partir de las clases
+# habilitadas (0x4000 | CDC<<0). Habilitar MSC lo movería a 0x4003 y el enlace
+# dejaría de encontrarse, sin ningún error de compilación. Se fija aquí para
+# que no dependa del menuconfig local de nadie.
+CONFIG_TINYUSB_DESC_USE_ESPRESSIF_VID=y
+CONFIG_TINYUSB_DESC_USE_DEFAULT_PID=y
+CONFIG_TINYUSB_CDC_COUNT=1
+
+# Eventos de bus para el vigilante de host: al desenchufar el cable o
+# reiniciarse la motherboard no cambia el DTR (nadie envía
+# SET_CONTROL_LINE_STATE) y sin sensado de VBUS no hay evento de desconexión;
+# lo único que llega es SUSPEND/RESUME. Sin estos callbacks el firmware cree
+# que sigue teniendo host y nunca se reinicia para re-enumerar.
+CONFIG_TINYUSB_SUSPEND_CALLBACK=y
+CONFIG_TINYUSB_RESUME_CALLBACK=y

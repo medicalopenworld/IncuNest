@@ -1,0 +1,43 @@
+#include "esp_log.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "sb_camera_sensor.h"
+#include "sb_door_sensor.h"
+#include "sb_env_sensors.h"
+#include "sb_mic_sensor.h"
+#include "sensorBoard_comm.h"
+#include "sensorBoard_comm_protocol.h"
+#include <stdio.h>
+
+static const char *TAG = "MAIN";
+
+#define SB_HEARTBEAT_PERIOD_MS 30000
+
+void app_main(void)
+{
+    /* comm_init primero: instala el interceptor de logs — cualquier ESP_LOG
+     * anterior no tiene canal (consola NONE) y se pierde */
+    ESP_ERROR_CHECK(sensorBoard_comm_init());
+    ESP_LOGI(TAG, "SensorBoard v%s booting", SB_PROTO_FW_VERSION);
+    /* Sensores: fallo no fatal — cada componente reporta su disponibilidad */
+    ESP_ERROR_CHECK_WITHOUT_ABORT(sb_env_sensors_init());
+    ESP_ERROR_CHECK_WITHOUT_ABORT(sb_door_sensor_init());
+    ESP_ERROR_CHECK_WITHOUT_ABORT(sb_mic_sensor_init());
+    /* Después de env_sensors: la cámara comparte su bus I2C (SCCB) */
+    ESP_ERROR_CHECK_WITHOUT_ABORT(sb_camera_sensor_init());
+    ESP_LOGI(TAG, "SensorBoard ready — USB CDC active");
+
+    /* Heartbeat: señal de vida hacia la motherboard. Cada 30 s y, además, en
+     * cuanto vuelve el host: la motherboard sólo levanta el enlace con un
+     * heartbeat, así que tras una reconexión esperar al siguiente periodo
+     * dejaba la alarma de enlace hasta 30 s más de lo necesario. */
+    for (;;) {
+        sensorBoard_comm_wait_host_ready(SB_HEARTBEAT_PERIOD_MS);
+        char buf[96];
+        uint32_t uptime = (uint32_t)(esp_timer_get_time() / 1000);
+        snprintf(buf, sizeof(buf), "{\"type\":\"event\",\"cmd\":\"heartbeat\",\"uptime\":%lu}",
+                 (unsigned long)uptime);
+        sensorBoard_comm_send_json(buf);
+    }
+}

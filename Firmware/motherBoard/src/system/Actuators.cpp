@@ -1,0 +1,96 @@
+/*
+  MIT License
+
+  Copyright (c) 2022 Medical Open World, Pablo Sánchez Bergasa
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+
+*/
+#include <Arduino.h>
+#include <Preferences.h>
+
+#include "main.h"
+#include "system/hw_selftest.h"
+
+extern IncuNest_parameters in3;
+extern PID fanControlPID;
+extern double fanControlPIDOutput;
+
+// Migrated from legacy/UI_actuatorsProgress.cpp - despite living in the
+// on-board UI folder, this is live actuator control called from the active
+// HMI-driven path (main.cpp), CommTask.cpp, calibrateSensors.cpp and
+// initHardware.cpp, not from any UI code.
+void turnFans(bool mode) {
+  // Mismo motivo que el retorno temprano de PIDHandler(): con la bateria de
+  // fabrica en curso, esta funcion es el otro escritor de PWM que sobrevive
+  // con el control apagado (se llama en cada trama HMI).
+  if (g_factoryTestActive)
+    return;
+  in3.fanCommandedOn = mode || in3.phototherapy;
+  digitalWrite(ACTUATORS_EN, mode || in3.phototherapy);
+#if (HW_NUM >= 8)
+  // Gate on in3.fanCommandedOn (mode || in3.phototherapy), not mode alone —
+  // otherwise a phototherapy-only activation enables ACTUATORS_EN but never
+  // powers the fan itself, leaving fanControlPID AUTOMATIC with nothing to
+  // drive.
+  ledcWrite(FAN_PWM_CHANNEL, (in3.fanCommandedOn && !ongoingFanCriticalAlarm()) *
+                                 in3.fanPwrSupplyPWM);
+#if defined(FAN_SPEED_FEEDBACK)
+  if (in3.fanHasSpeedFeedback && in3.fanPidEnabled) {
+    if (in3.fanCommandedOn) {
+      // Start (or hold) open-loop at the calibrated baseline duty.
+      // PIDHandler() closes the loop bumplessly after FAN_SPINUP_GRACE_MS —
+      // running the loop during the mechanical spin-up wound the duty far
+      // past baseline (a ~6000rpm overshoot). Skip the write once the PID
+      // has taken over so we don't stomp its output.
+      if (fanControlPID.GetMode() != AUTOMATIC) {
+        ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
+      }
+    } else {
+      fanControlPID.SetMode(MANUAL);
+      fanControlPIDOutput = 0;
+      ledcWrite(FAN_CTL_PWM_CHANNEL, 0);
+    }
+  } else
+#endif
+  {
+    ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCommandedOn * in3.fanCtlPWM);
+  }
+#else
+  digitalWrite(FAN, in3.phototherapy || mode && !ongoingFanCriticalAlarm());
+#endif
+}
+
+// Runtime toggle for the closed-loop fan PID (from /config web + USB). When
+// disabled, turnFans()/PIDHandler() leave the fan at the fixed in3.fanCtlPWM
+// duty (same path as a no-feedback unit). Applied immediately: disabling
+// drops to fixed duty now; enabling while running lets PIDHandler() re-engage
+// after its spin-up grace, so no action is needed here for that case.
+void setFanPidEnabled(bool enabled) {
+  in3.fanPidEnabled = enabled;
+  { Preferences p; p.begin(NS_CFG, false); p.putUChar(KEY_FAN_PID_EN, enabled); p.end(); }
+#if defined(FAN_SPEED_FEEDBACK)
+  if (!enabled && in3.fanHasSpeedFeedback) {
+    fanControlPID.SetMode(MANUAL);
+    if (in3.fanCommandedOn) {
+      ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
+    }
+  }
+#endif
+}

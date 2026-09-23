@@ -1,0 +1,58 @@
+menu "SensorBoard usb_comm"
+
+    config SB_USB_AUTOSWAP
+        bool "Intercambiar D+/D- automaticamente si el host no enumera"
+        default y
+        help
+            SensorBoard HW_NUM 4: el conector USB admite dos orientaciones
+            y en una de ellas D+/D- (IO20/IO19) llegan cruzados. Si tras un
+            bus reset del host este no habla al dispositivo (ni SETUP ni
+            SET_CONFIGURATION) en el plazo configurado, usb_comm intercambia
+            los pines en el PHY del ESP32-S3 (exchg_pins) con detach/attach,
+            una vez por reset visto; sin host no alterna. Con host activo
+            nunca intercambia,
+            asi que dejarlo activo en la V5 (conector corregido en
+            hardware) es inocuo: solo actua cuando nadie enumera. Se expone
+            como sensors.usb_swap en la resp de status (ADR-0003).
+
+    config SB_USB_AUTOSWAP_TIMEOUT_MS
+        int "Plazo sin host activo antes de intercambiar D+/D- (ms)"
+        depends on SB_USB_AUTOSWAP
+        default 2000
+        range 1500 10000
+        help
+            Cota inferior 1500 ms: debe superar debounce de conexion del
+            host (~100 ms) + bus reset + primer SETUP + debounce de
+            enumeracion de pilas host como la de ESP-IDF (~250 ms) con
+            margen; un valor menor convertiria el autoswap en un oscilador
+            que impide enumerar. En la orientacion invertida el arranque
+            enumera aproximadamente este tiempo mas tarde.
+
+    config SB_USB_SWAP_DETACH_MS
+        int "Duracion del detach al intercambiar D+/D- (ms)"
+        depends on SB_USB_AUTOSWAP
+        default 1000
+        range 250 5000
+        help
+            Tiempo que el dispositivo permanece desconectado (pull-ups
+            retirados) entre el intercambio de pines y el re-attach. Debe
+            superar la recuperacion del puerto raiz de la pila host de la
+            motherboard (ESP-IDF 4.4.6): tras un fallo de enumeracion el
+            puerto queda deshabilitado, la desconexion lo hace apagar y
+            encender, y si el dispositivo se re-conecta antes de que el
+            puerto este listo, el host no ve ninguna transicion y ambos se
+            quedan esperando (banco 2026-09-03 con 250 ms). Windows recupera
+            en ~100 ms; 1000 ms cubre ambos con margen.
+
+    config SB_LOG_MIRROR_CONSOLE
+        bool "Duplicar los logs a la consola (UART0) para depuracion en banco"
+        default n
+        help
+            Ademas de emitirlos como frames JSON por USB, escribe cada ESP_LOG
+            en la consola estandar. Solo tiene efecto si la consola no es
+            NONE (CONFIG_ESP_CONSOLE_UART_DEFAULT). Util para ver que hace el
+            SensorBoard mientras esta conectado a la motherboard, cuando el
+            enlace USB no esta disponible para leerlo. Desactivado en
+            produccion: la consola es NONE y UART0 no va a ningun sitio.
+
+endmenu

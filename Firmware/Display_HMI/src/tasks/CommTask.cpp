@@ -1,0 +1,1809 @@
+#include "CommTask.h"
+#include "UITask.h"
+#include "Wifi_OTA.h"
+#include "esp_log.h"
+#include "main.h"
+#include "modules/debug/debug_mode.h"
+#include "state/training_mode.h"
+#include "ui.h"
+#include <Preferences.h>
+#include "config/EEPROM_defines.h"
+#include "drivers/rtc_pcf8563.h"
+#include "drivers/rtc_store.h"
+#include "drivers/rtc_write_policy.h"
+#include <cstdio>
+#include <cstdlib>
+#include <string.h>
+
+static const char *TAG = "CommTask";
+
+// --- Global variables (moved from communication.cpp) ---
+HMI_Message hmi_msg;
+ControlBoard_Message ctrl_msg;
+ControlBoard_Message_Telemetry ctrl_tel_msg;
+ControlBoard_Message_Alarm ctrl_msg_alarm;
+ControlBoard_Message_State ctrl_state_msg = {0};
+ControlBoard_Message_PPG ctrl_ppg_msg     = {0, false};
+ControlBoard_Message_VIT ctrl_vit_msg     = {0, 0, 0.0f, false};
+ControlBoard_Message_Probe ctrl_probe_msg = {SPO2_PROBE_DISCONNECTED, false};
+int g_skinProbeState = SKIN_PROBE_NOT_CONNECTED; // Last received skin probe state
+
+// --- Baby profile wizard protocol state ---
+volatile bool       g_pendingProfileList = false;
+BabyProfileListMsg  g_profileList = {0, {}};
+volatile bool       g_pendingProfileAck = false;
+uint32_t            g_profileAck = 0;
+volatile bool       g_pendingProfileRange = false;
+BabyProfileRangeMsg g_profileRange = {0, false, 0, -1.0f, -1.0f, -1.0f, true};
+
+// --- Ajuste manual de hora (Settings) ---
+volatile bool g_pendingTimeAck = false;
+uint32_t      g_timeAckResult  = 0;
+
+// --- Registro de alarmas ---
+volatile bool   g_pendingAlarmHistory = false;
+AlarmHistoryMsg g_alarmHistory = {0, {}};
+// Latido de la placa. El display tiene que detectar el silencio por su cuenta:
+// cuando el enlace cae, la alarma que declara la motherBoard no puede llegar
+// —es justamente lo que se ha perdido—, asi que si el display no lo mira solo,
+// se queda enseñando "todo OK" y unas cifras congeladas que el operador lee
+// como si fueran actuales. Ese es el peligro real, mas que el aviso en si.
+volatile uint32_t g_lastCtrlLineMs = 0;
+volatile bool     g_ctrlEverSeen = false;
+
+// Ultima pasada de Comm_Task. Sin esto, el detector de mas abajo no distingue
+// "la placa lleva 5 s callada" de "llevamos 5 s sin escuchar el cable": mide
+// cuando ESTA tarea vio la ultima linea, no cuando hablo la placa, y cualquier
+// cosa que la deje sin ejecutar 5 s produce un LINK LOST que no existe.
+static volatile uint32_t s_lastCommPassMs = 0;
+
+// La cola de inyeccion del modo depuracion la drena esta tarea; ver
+// modules/debug/debug_mode.h para por que no la drena el manejador HTTP.
+extern "C" bool debug_inject_take(char *out, size_t out_len);
+
+bool Display_BoardEverSeen(void) { return g_ctrlEverSeen; }
+
+bool Display_IsBoardLinkLost(void) {
+  // Enlace simulado como perdido desde /debug/link. Va lo PRIMERO: lo que se
+  // quiere probar es el camino completo del aviso (banner, borrado de cifras,
+  // zumbador) con las dos placas sanas y hablando, que es la unica forma de
+  // ensayarlo sin desenchufar el cable. Fuera del modo depuracion esta bandera
+  // no se puede poner, y apagarlo la retira.
+  if (debug_link_mute_get()) {
+    return true;
+  }
+
+  // Antes de la primera linea no hay enlace que perder: el display arranca
+  // antes de que la placa empiece a emitir.
+  //
+  // Pero esa espera TERMINA. Devolver false mientras no se haya visto nada
+  // convertia "arrancar sin el cable" en un equipo que jura estar bien para
+  // siempre: sin banner, sin borrar cifras y sin nada que delatase que al otro
+  // lado no hay placa. Pasado el margen de arranque, no haber hablado nunca ya
+  // no es que venga de camino — es que no esta.
+  const uint32_t now = millis();
+  if (!g_ctrlEverSeen) {
+    return now > BOARD_LINK_BOOT_GRACE_MS;
+  }
+
+  // El silencio que NADIE ha escuchado no es del cable, es nuestro: mientras
+  // la tarea Comm no da una pasada, el anillo de RX puede estar lleno de
+  // lineas sin leer, asi que se descuenta esa ventana en vez de afirmar que la
+  // placa ha enmudecido. Con la tarea corriendo con normalidad `unheard` vale
+  // ~10 ms (COMM_TASK_LOOP_MS) y el plazo sigue siendo BOARD_LINK_TIMEOUT_MS.
+  //
+  // Pero el descuento SE PARA en esa misma ventana: si llevamos mas de
+  // BOARD_LINK_TIMEOUT_MS sin leer el cable, las cifras de la pantalla estan
+  // igual de muertas —sea culpa de la placa o nuestra— y perdonarlo dejaria un
+  // display ciego jurando que todo va bien, que es exactamente el peligro que
+  // este detector existe para evitar. Con la tarea Comm colgada o muerta el
+  // aviso sale, como antes; lo que ya no sale es por un hipo de medio segundo.
+  // Las dos edades se calculan CON SIGNO y se saturan a 0. Un sello por
+  // delante de `now` significa "recien visto", no 49 dias: la resta sin signo
+  // daba la vuelta y convertia un sello adelantado en un silencio enorme, o
+  // sea un BOARD LINK LOST instantaneo con la placa hablando. El
+  // desplazamiento de la contabilidad ya no puede producir ese sello (se topa
+  // en nowPass, ver Comm_Task), pero la guarda se queda aqui: este detector
+  // decide si las cifras de un equipo medico se declaran muertas, y no debe
+  // depender de que ningun otro punto del fichero se equivoque de un ms.
+  const int32_t sinceLineSigned = (int32_t)(now - g_lastCtrlLineMs);
+  const int32_t unheardSigned   = (int32_t)(now - s_lastCommPassMs);
+  const uint32_t sinceLine =
+      sinceLineSigned > 0 ? (uint32_t)sinceLineSigned : 0u;
+  const uint32_t unheard =
+      unheardSigned > 0 ? (uint32_t)unheardSigned : 0u;
+  if (unheard > BOARD_LINK_TIMEOUT_MS) return true;
+  if (unheard >= sinceLine) return false; // no hemos escuchado nada en absoluto
+  return (sinceLine - unheard) > BOARD_LINK_TIMEOUT_MS;
+}
+
+volatile bool   g_pendingAlarmDesc = false;
+AlarmDescMsg    g_alarmDesc = {0, {0}, {0}};
+
+// --- Test de fabrica (CTRL,FTEST*, shared-factory-test) ---
+portMUX_TYPE  g_ftestMux = portMUX_INITIALIZER_UNLOCKED;
+volatile bool g_pendingFtest = false;
+FtestRing     g_ftestRing = {{}, 0, 0};
+volatile unsigned g_ftestRingDrops = 0;
+
+volatile bool     g_pendingFtestDone = false;
+volatile unsigned g_ftestDonePass = 0;
+volatile unsigned g_ftestDoneFail = 0;
+volatile unsigned g_ftestDoneSkip = 0;
+volatile unsigned g_ftestDoneWarn = 0;
+
+volatile bool g_pendingFtestReject = false;
+volatile int  g_ftestRejectReason = 0;
+
+bool FactoryTest_TakeEvent(FtestResult *out) {
+  bool got = false;
+  taskENTER_CRITICAL(&g_ftestMux);
+  if (g_ftestRing.count > 0) {
+    *out = g_ftestRing.buf[g_ftestRing.head];
+    g_ftestRing.head = (uint8_t)((g_ftestRing.head + 1) % FTEST_RING_LEN);
+    g_ftestRing.count--;
+    got = true;
+  }
+  if (g_ftestRing.count == 0) {
+    g_pendingFtest = false;
+  }
+  taskEXIT_CRITICAL(&g_ftestMux);
+  return got;
+}
+
+// --- Baby history viewer protocol state ---
+volatile bool        g_pendingBabyHistory = false;
+BabyHistoryMsg       g_babyHistory = {0, 0, 0, {}};
+volatile bool        g_pendingWeightHistory = false;
+BabyWeightHistoryMsg g_weightHistory = {0, 0, {}, {}};
+
+// --- Power Off countdown state (written here, read by UITask) ---
+volatile bool g_pwrOffActive = false;
+volatile int  g_pwrOffRemainingMs = 0;
+
+// --- Pending LVGL work flags (set by CommTask, consumed by UITask) ---
+volatile bool g_pendingTelemetryApply = false;
+volatile int  g_tempDutyPwm           = 0;
+volatile int  g_humDutyPwm            = 0;
+volatile bool g_pendingDutyApply      = false;
+
+// --- Spinlock protecting double-width telemetry writes (Fix: ARQ-THREAD-001) ---
+portMUX_TYPE g_telemetry_mux = portMUX_INITIALIZER_UNLOCKED;
+
+static TaskHandle_t s_comm_task_handle = NULL;
+
+bool error = false;
+static char rxBuffer[COMM_RX_BUFFER_SIZE];
+static int rxIndex = 0;
+
+// g_stateSynced (definido en UITask.cpp) marca que ya se ha aplicado al
+// menos un CTRL,STATE: hasta entonces las guardas de abajo no se arman.
+extern bool g_stateSynced;
+
+// ---- Local-command echo race guard ------------------------------------
+// Display_ApplyCtrlState() resyncs actuation/controlMode/phototherapyMode/
+// muteAlarm/skinModeEnabled from the motherBoard's own echoed CTRL,STATE on
+// every frame (needed so an HMI reboot inherits the motherBoard's real
+// state — docs/known_issues.md #4). Real bug this caused: toggle
+// phototherapy, and a CTRL,STATE already in flight (still carrying the OLD
+// value, from before the motherBoard had processed the toggle) resyncs
+// hmi_msg straight back to it; the HMI's next frame re-sends that old value
+// and the motherBoard genuinely turns the lamp back off — visibly, within
+// about a second of switching it on.
+//
+// Primer intento (a77bd1b): una ventana de gracia fija de 2.5 s durante la
+// cual el eco no podia pisar un valor recien cambiado. Es una APUESTA a que
+// el viaje de ida y vuelta cabe dentro, y el enlace no lo garantiza: la
+// tarea Comm del display se queda sin CPU segundos enteros
+// (known_issues.md #7) y el anillo de RX tira las lineas NUEVAS cuando se
+// llena, no las viejas, asi que lo que se procesa despues de un atasco es
+// justamente lo viejo. En cuanto la ventana expira sin confirmacion, el eco
+// no solo repinta el switch: se copia a hmi_msg y el siguiente latido MANDA
+// el apagado, que ya es irreversible. Eso es lo que se veia despues del
+// asistente del bebe — APLICAR la temperatura propuesta, ver el control de
+// temperatura en ON y verlo caer a OFF acto seguido — y lo mismo con la
+// fototerapia.
+//
+// Ahora el criterio no es el reloj sino la CONFIRMACION: el valor local
+// manda hasta que la placa lo devuelve igual. Da igual cuanto tarde el viaje
+// o cuantas tramas se pierdan por el camino; el latido de 1 Hz reenvia la
+// intencion local mientras tanto. El plazo sobrevive solo como red de
+// seguridad para no quedarse enganchado para siempre si la placa nunca
+// confirma, y cuando salta lo deja escrito en el log: ese era justo el dato
+// que faltaba en banco para distinguir "eco viejo" de "la placa se niega".
+constexpr uint32_t LOCAL_CMD_CONFIRM_TIMEOUT_MS = 10000u;
+
+// Centinela de "aun no observado". Ninguno de los campos vigilados lo toma:
+// los enteros son banderas o modos >= 0 y las consignas van en centigrados.
+constexpr int LOCAL_CMD_UNSEEN = INT32_MIN;
+
+struct LocalCmdGuard {
+  int lastSeen = LOCAL_CMD_UNSEEN;
+  uint32_t changedAtMs = 0;
+  // Cambio local aun sin confirmar por la placa. Lo escribe Comm_Task (al
+  // detectar el cambio) y lo borra UITask (al llegar el eco que coincide);
+  // en el peor cruce se pierde o se repite un ciclo de retencion, que es
+  // inocuo, y a cambio no hace falta un mutex en el camino de 10 ms.
+  volatile bool pending = false;
+};
+static LocalCmdGuard s_actuationGuard;
+static LocalCmdGuard s_controlModeGuard;
+static LocalCmdGuard s_photoModeGuard;
+static LocalCmdGuard s_muteAlarmGuard;
+static LocalCmdGuard s_skinModeGuard;
+// Las consignas viajan como double pero se vigilan en centigrados enteros:
+// la placa las devuelve con "%.2f", asi que la comparacion es exacta y una
+// sola maquinaria sirve para banderas y para temperaturas.
+static LocalCmdGuard s_airSetpointGuard;
+static LocalCmdGuard s_skinSetpointGuard;
+
+static int setpointKey(double celsius) { return (int)lround(celsius * 100.0); }
+
+// Called once per Comm_Task tick (10ms) for each guarded field: catches a
+// local UI change well within the window it then protects.
+static void trackLocalCmdGuard(LocalCmdGuard *g, int current) {
+  if (g->lastSeen == current) return;
+  const bool firstObservation = (g->lastSeen == LOCAL_CMD_UNSEEN);
+  g->lastSeen = current;
+  g->changedAtMs = millis();
+  // Solo un cambio hecho POR EL OPERADOR arma la guarda. Los dos casos que
+  // no lo son quedan fuera, y por el mismo motivo: retener un valor que
+  // nadie ha pedido y reenviarlo cada segundo seria imponerselo a una placa
+  // que quiza esta regulando de verdad — justo lo contrario de lo que pide
+  // known_issues.md #4 (que un display reiniciado herede el estado real de
+  // la placa).
+  //   - Antes del primer CTRL,STATE aplicado no se sabe todavia que esta
+  //     haciendo la placa: lo que hay en hmi_msg son valores de arranque
+  //     (consignas de Preferences, todo apagado).
+  //   - El primer valor que se observa de un campo es ese mismo valor de
+  //     arranque, no una orden.
+  if (!g_stateSynced || firstObservation) {
+    g->pending = false;
+    return;
+  }
+  g->pending = true;
+}
+
+// True mientras haya un cambio local sin confirmar y el eco no coincida:
+// entonces manda el valor local. El eco que coincide cierra la guarda.
+static bool localCmdHoldsLocal(LocalCmdGuard *g, int echoed, const char *what) {
+  if (!g->pending) return false;
+  if (echoed == g->lastSeen) {
+    g->pending = false;
+    return false;
+  }
+  if ((uint32_t)(millis() - g->changedAtMs) >= LOCAL_CMD_CONFIRM_TIMEOUT_MS) {
+    g->pending = false;
+    COMM_LOG("[COMM] %s sin confirmar en %u ms: gana la placa (%d) sobre el display (%d)\n",
+             what, (unsigned)LOCAL_CMD_CONFIRM_TIMEOUT_MS, echoed, g->lastSeen);
+    return false;
+  }
+  return true;
+}
+
+// Formato de parseo de `CTRL,ALM,<id>,<titulo>,<descripcion>,<0|1>`.
+//
+// Los anchos NO se escriben a mano: se derivan de las macros de capacidad del
+// protocolo (shared/include/alarm_ids.h), que son las mismas de las que salen
+// los tamanos de los buffers. Un ancho mayor que el buffer lo desborda; uno
+// menor es peor todavia, porque no trunca: sscanf para al llenar el ancho, no
+// encuentra la coma que el formato exige a continuacion y devuelve menos
+// campos de los pedidos, asi que la LINEA ENTERA se descarta. Ese fue el
+// defecto real — 31 hardcodeado contra descripciones de hasta 43 caracteres —
+// y dejaba 12 de las 16 alarmas sin aparecer en pantalla en espanol.
+//
+// El ancho de %[...] cuenta caracteres SIN el terminador, de ahi que sea
+// exactamente ALARM_*_MAX_CHARS y el buffer uno mas.
+#define ALM_STR2(x) #x
+#define ALM_STR(x) ALM_STR2(x)
+#define ALM_SCAN_FMT                                              \
+  "CTRL,ALM,%d,%" ALM_STR(ALARM_TITLE_MAX_CHARS) "[^,],%" ALM_STR( \
+      ALARM_DESC_MAX_CHARS) "[^,],%d,%d"
+
+// Motherboard-provided wall clock (CTRL,TIME). 0 = not synced there yet.
+static uint32_t s_mbEpoch = 0;
+static uint32_t s_mbEpochAtMs = 0;
+// Rango de la fuente que fijo ese epoch en la motherBoard (campo `src`).
+// PROTO_TIME_SOURCE_NONE tambien cuando la placa es anterior a esta feature y
+// no envia el campo.
+static Proto_TimeSource s_mbTimeSrc = PROTO_TIME_SOURCE_NONE;
+
+// --- RTC del HMI (PCF8563) ------------------------------------------------
+//
+// El HMI no decide nada sobre la hora: la autoridad sigue siendo la
+// motherBoard. Lo unico que aporta este chip es MEMORIA — es la unica pieza
+// del equipo que conserva la hora con la alimentacion cortada. Asi que el HMI
+// lo lee al arrancar para ofrecerselo a la placa, y lo escribe con lo que la
+// placa difunda cuando merece la pena.
+
+// Terna guardada en NVS junto a lo ultimo escrito en el chip. El PCF8563
+// guarda el instante y nada mas.
+static RtcStoredTz s_rtcStored = {0, 0, PROTO_TIME_SOURCE_NONE};
+// Lo que el chip tenia al arrancar, 0 si no tenia hora creible. Se usa para
+// medir la deriva sin volver a leer el chip en cada difusion.
+static uint32_t s_rtcEpochAtBoot = 0;
+static uint32_t s_rtcEpochAtBootMs = 0;
+// La semilla deja de enviarse en cuanto la motherBoard anuncia hora, y no
+// vuelve hasta el siguiente reinicio.
+static bool s_rtcSeedDone = false;
+
+// Lo que el chip deberia marcar AHORA, extrapolando desde la lectura del
+// arranque. Evita ocupar el bus del tactil en cada CTRL,TIME solo para saber
+// si hay deriva. Es una estimacion: la deriva real del cristal frente al reloj
+// del ESP32 es de segundos al mes, muy por debajo del umbral de escritura.
+static uint32_t rtcEstimatedNow(void) {
+  if (s_rtcEpochAtBoot == 0) return 0;
+  return s_rtcEpochAtBoot + (millis() - s_rtcEpochAtBootMs) / 1000u;
+}
+
+// Lee el chip y la NVS al arrancar, y ofrece la semilla si hay algo creible.
+static void rtcSeedInit(void) {
+  Preferences p;
+  if (p.begin(HMI_NS_CFG, true)) {
+    rtc_store_unpack(p.getUInt(HMI_KEY_RTC_TZ, RTC_STORE_EMPTY), &s_rtcStored);
+    p.end();
+  }
+
+  uint32_t epoch = 0;
+  if (!rtcRead(&epoch)) {
+    // Chip ausente, pila agotada (flag VL) o contenido no creible. No es un
+    // error: el equipo arranca sin fecha exactamente como hasta ahora.
+    COMM_LOG("[RTC] sin hora utilizable al arrancar\n");
+    return;
+  }
+  s_rtcEpochAtBoot = epoch;
+  s_rtcEpochAtBootMs = millis();
+
+  // La terna viaja ENTERA con el epoch. Si la NVS no tenia nada, van ceros,
+  // que el protocolo ya interpreta como "hay hora, no hay zona".
+  COMM_SERIAL.printf("HMI,RTC_TIME,%lu,%d,%u\n", (unsigned long)epoch,
+                     (int)s_rtcStored.tzQuarters,
+                     (unsigned)s_rtcStored.tzSource);
+  COMM_LOG("[RTC] semilla ofrecida, epoch %lu\n", (unsigned long)epoch);
+}
+
+// Guarda en el chip lo que acaba de llegar, si merece la pena.
+static void rtcMaybeWrite(uint32_t epoch, Proto_TimeSource src, int8_t tzq,
+                          uint8_t tzsrc) {
+  if (!rtc_should_write(epoch, src, rtcEstimatedNow(), s_rtcStored.src)) {
+    return;
+  }
+  if (!rtcWrite(epoch)) {
+    COMM_LOG("[RTC] escritura fallida\n");
+    return;
+  }
+  s_rtcEpochAtBoot = epoch;
+  s_rtcEpochAtBootMs = millis();
+
+  // La terna se escribe DESPUES del chip y como una sola clave: si el corte
+  // llega entre las dos, es preferible un chip con hora buena y una zona vieja
+  // que una zona nueva junto a una hora que no se llego a escribir.
+  const RtcStoredTz tz = {tzq, tzsrc, src};
+  Preferences p;
+  if (p.begin(HMI_NS_CFG, false)) {
+    p.putUInt(HMI_KEY_RTC_TZ, rtc_store_pack(&tz));
+    p.end();
+  }
+  s_rtcStored = tz;
+  COMM_LOG("[RTC] escrito, epoch %lu, src %d\n", (unsigned long)epoch,
+           (int)src);
+}
+// Zona horaria, tambien propiedad de la placa. El epoch de arriba es UTC
+// SIEMPRE; esto solo se aplica al formatear para una persona.
+static int8_t  s_tzQuarters = 0;
+static uint8_t s_tzSource   = 0;  // 0=desconocido, 1=NITZ, 2=IP
+
+uint32_t HMI_GetEpochNow() {
+  if (s_mbEpoch == 0) return 0;
+  return s_mbEpoch + (millis() - s_mbEpochAtMs) / 1000u;
+}
+
+int8_t HMI_GetTzQuarterHours() { return s_tzQuarters; }
+
+// Hace falta hora Y zona. Un offset 0 con fuente desconocida no es UTC+0: es
+// que no se sabe, y pintar UTC sin avisar de que es UTC induce a error en un
+// equipo clinico.
+bool HMI_HasLocalTime() { return s_mbEpoch != 0 && s_tzSource != 0; }
+
+// Epoch UTC -> segundos en hora local, para pasarselo a gmtime_r. NUNCA se
+// almacena ni se reenvia: es exclusivamente para formatear.
+uint32_t HMI_ToLocal(uint32_t utcEpoch) {
+  if (utcEpoch == 0) return 0;
+  const int32_t shift = (int32_t)s_tzQuarters * 900;
+  if (shift < 0 && (uint32_t)(-shift) > utcEpoch) return 0;
+  return (uint32_t)((int64_t)utcEpoch + shift);
+}
+
+// --- Phototherapy Timer (from UITask.cpp) ---
+extern int photoTimerMinutes;
+extern bool photoTimerActive;
+extern unsigned long photoTimerStartMs;
+
+// --- Shared flags/state (from UITask.cpp) ---
+extern bool tempSwitched;
+extern bool alarmsMuted;
+extern uint32_t g_muteHoldUntilMs;
+extern bool g_stateSynced;
+extern uint32_t g_lastStateReqMs;
+extern int selectedPanel;
+extern int lastSelectedPanel;
+extern bool skinPanelEnabled;
+extern bool g_ui_initialized;
+
+// ======================
+//  LOW-LEVEL COMMS
+// ======================
+
+void Communication_RequestState(void) {
+#if IS_HMI
+  COMM_SERIAL.print("HMI,REQ,STATE\n");
+#endif
+}
+
+void Communication_UIReady(void) {
+#if IS_HMI
+  COMM_SERIAL.print("HMI,UI_READY\n");
+#endif
+}
+
+void Communication_SendBootInfo(void) {
+#if IS_HMI
+  extern uint32_t g_hmiBootCount;
+  extern int      g_hmiLastRst;
+  COMM_SERIAL.printf("HMI,BOOT,%d,%u\n", g_hmiLastRst,
+                     (unsigned)g_hmiBootCount);
+#endif
+}
+
+void Communication_SendWiFiCredentials(const char *ssid, const char *password) {
+#if IS_HMI
+  // Modo formacion (ADR-0002): el bebe y todo lo que se REGISTRA (perfil,
+  // hora, credenciales) se virtualiza: las funciones que siguen, hasta
+  // SendMessageToOtherESP(), o se tragan la orden o la sustituyen por una
+  // respuesta simulada de training_mode.cpp. La actuacion (linea de estado)
+  // si es real.
+  if (Training_IsActive()) return;
+  COMM_SERIAL.printf("HMI,WIFI,%s,%s\n", ssid, password);
+#endif
+}
+
+// --- Baby profile wizard protocol (PROTOCOL.md v1.6.0) ---
+void Communication_SendProfileListReq(void) {
+#if IS_HMI
+  if (Training_IsActive()) { Training_SimProfileListReq(); return; }
+  COMM_SERIAL.print("HMI,PROFILE_LIST_REQ\n");
+#endif
+}
+
+void Communication_SendProfileNew(const char *name, uint8_t gestWeeks) {
+#if IS_HMI
+  if (Training_IsActive()) { Training_SimProfileNew(name, gestWeeks); return; }
+  COMM_SERIAL.printf("HMI,PROFILE_NEW,%s,%u\n", name, (unsigned)gestWeeks);
+#endif
+}
+
+void Communication_SendProfileSelect(uint32_t seq) {
+#if IS_HMI
+  // En formacion la lista trae a ZOE (TRAINING_BABY_SEQ) y, si el alumno lo
+  // registro desde Bebes, al segundo bebe de practica: seleccionarlos se
+  // contesta en local con su ACK.
+  if (Training_IsActive()) { Training_SimProfileSelect(seq); return; }
+  // Un seq de practica nunca sale a la placa, tampoco con la formacion ya
+  // apagada: si una leccion acabase con una respuesta simulada en vuelo, la
+  // trama que la seguiria se corta aqui en vez de llegar con un seq que la
+  // placa no tiene. Hoy el orden de endLesson() lo impide; esto lo garantiza.
+  if (Training_IsPracticeSeq(seq)) return;
+  COMM_SERIAL.printf("HMI,PROFILE_SELECT,%u\n", (unsigned)seq);
+#endif
+}
+
+void Communication_SendSetTime(int year, int month, int day, int hour,
+                               int minute) {
+#if IS_HMI
+  if (Training_IsActive()) { Training_SimSetTime(); return; }
+  COMM_SERIAL.printf("HMI,SET_TIME,%04d,%02d,%02d,%02d,%02d\n", year, month,
+                     day, hour, minute);
+#endif
+}
+
+void Communication_SendProfileWeight(uint32_t seq, uint16_t grams) {
+#if IS_HMI
+  if (Training_IsActive()) { Training_SimProfileWeight(seq, grams); return; }
+  if (Training_IsPracticeSeq(seq)) return;  // ver SendProfileSelect
+  if (grams == 0) {
+    COMM_SERIAL.printf("HMI,PROFILE_WEIGHT,%u,SKIP\n", (unsigned)seq);
+  } else {
+    COMM_SERIAL.printf("HMI,PROFILE_WEIGHT,%u,%u\n", (unsigned)seq,
+                       (unsigned)grams);
+  }
+#endif
+}
+
+void Communication_SendProfileAgeManual(uint32_t seq, uint16_t ageDays) {
+#if IS_HMI
+  if (Training_IsActive()) { Training_SimProfileAgeManual(seq, ageDays); return; }
+  if (Training_IsPracticeSeq(seq)) return;  // ver SendProfileSelect
+  COMM_SERIAL.printf("HMI,PROFILE_AGE_MANUAL,%u,%u\n", (unsigned)seq,
+                     (unsigned)ageDays);
+#endif
+}
+
+void Communication_SendProfileDischarge(uint32_t seq, uint8_t outcome,
+                                        uint8_t cause) {
+#if IS_HMI
+  if (Training_IsActive()) return;  // ni alta ni salida reales en formacion
+  COMM_SERIAL.printf("HMI,PROFILE_DISCHARGE,%u,%u,%u\n", (unsigned)seq,
+                     (unsigned)outcome, (unsigned)cause);
+#endif
+}
+
+// Baby taken out to be with the mother. Deliberately NOT a discharge:
+// the motherBoard keeps the profile in its active slot.
+void Communication_SendProfileKangaroo(uint32_t seq) {
+#if IS_HMI
+  if (Training_IsActive()) return;
+  COMM_SERIAL.printf("HMI,PROFILE_KANGAROO,%u\n", (unsigned)seq);
+#endif
+}
+
+void Communication_SendAlarmHistoryReq(void) {
+#if IS_HMI
+  COMM_SERIAL.print("HMI,ALM_HISTORY_REQ\n");
+#endif
+}
+
+// ALM_TEST y ALM_SILENCE NO se gatean en formacion: son interacciones con el
+// sistema de alarmas (60601-1-8), no con la terapia, no persisten nada, y
+// tragarlas en silencio dejaria un boton muerto justo cuando suena algo.
+// (Una alarma real aborta la leccion en la siguiente pasada de UI de todas
+// formas.)
+void Communication_SendAlarmTest(void) {
+#if IS_HMI
+  COMM_SERIAL.print("HMI,ALM_TEST\n");
+#endif
+}
+
+void Communication_SendAlarmSilence(uint8_t id, bool on) {
+#if IS_HMI
+  COMM_SERIAL.printf("HMI,ALM_SILENCE,%u,%d\n", (unsigned)id, on ? 1 : 0);
+#endif
+}
+
+// Reset manual de una alarma ENCLAVADA (201.15.4.2.1 aa)/bb)).
+//
+// Se manda id a id, como el silencio y por el mismo motivo: un "reconocer
+// todo" no dejaria constancia de QUE ha reconocido el operador. La placa
+// rechaza el reset si la condicion sigue presente, asi que este comando no
+// puede hacer desaparecer un aviso vivo.
+void Communication_SendAlarmReset(uint8_t id) {
+#if IS_HMI
+  COMM_SERIAL.printf("HMI,ALM_RESET,%u\n", (unsigned)id);
+#endif
+}
+
+void Communication_SendAlarmDescReq(uint8_t id) {
+#if IS_HMI
+  COMM_SERIAL.printf("HMI,ALM_DESC_REQ,%u\n", (unsigned)id);
+#endif
+}
+
+void Communication_SendFtestStart(void) {
+#if IS_HMI
+  COMM_SERIAL.print("HMI,FTEST,START\n");
+#endif
+}
+
+void Communication_SendFtestRun(uint8_t id) {
+#if IS_HMI
+  COMM_SERIAL.printf("HMI,FTEST,RUN,%u\n", (unsigned)id);
+#endif
+}
+
+void Communication_SendFtestAbort(void) {
+#if IS_HMI
+  COMM_SERIAL.print("HMI,FTEST,ABORT\n");
+#endif
+}
+
+void Communication_SendFtestConfirm(uint8_t id, bool ok) {
+#if IS_HMI
+  COMM_SERIAL.printf("HMI,FTEST,CONFIRM,%u,%d\n", (unsigned)id, ok ? 1 : 0);
+#endif
+}
+
+void Communication_SendProfileHistoryReq(uint32_t page) {
+#if IS_HMI
+  COMM_SERIAL.printf("HMI,PROFILE_HISTORY_REQ,%u\n", (unsigned)page);
+#endif
+}
+
+void Communication_SendWeightHistoryReq(uint32_t seq) {
+#if IS_HMI
+  // La curva de un bebe de practica se contesta en local: su seq no existe en
+  // la placa y no debe salir ni como consulta. Las curvas de bebes reales
+  // (historial archivado, visible tambien en formacion) si se piden.
+  if (Training_IsPracticeSeq(seq)) {
+    if (Training_IsActive()) Training_SimWeightHistoryReq(seq);
+    return;
+  }
+  COMM_SERIAL.printf("HMI,WEIGHT_HISTORY_REQ,%u\n", (unsigned)seq);
+#endif
+}
+
+static void SendMessageToOtherESP() {
+#if IS_HMI
+  // Modo formacion (ADR-0002, revisado 2026-09-05): la ACTUACION es real
+  // tambien en formacion (la lampara y el calefactor se encienden de verdad,
+  // con la incubadora vacia por el gate clinico); lo que se virtualiza es el
+  // bebe (ZOE) y su registro. Por eso aqui va el hmi_msg vivo. Al salir de la
+  // leccion, Training_Exit() restaura hmi_msg y fuerza un envio para que la
+  // placa vuelva al estado previo.
+  const HMI_Message &m = hmi_msg;
+  // Watchdog de la lampara en formacion (ver TRAINING_PHOTO_TIMER_MIN): la
+  // placa nunca recibe "fototerapia ON sin temporizador" durante una leccion.
+  int photoMin = m.photoMinutesRemaining;
+  if (Training_IsActive() && m.phototherapyMode && photoMin <= 0) {
+    photoMin = TRAINING_PHOTO_TIMER_MIN;
+  }
+  COMM_SERIAL.printf(
+      "HMI,%d,%d,%d,%0.2f,%0.2f,%0.0f,%d,%d,%d,%d\n", m.actuation,
+      (int)m.skinModeEnabled, m.controlMode,
+      m.desiredAirTemperature, m.desiredSkinTemperature,
+      m.desiredHumidity, m.phototherapyMode, m.muteAlarm,
+      m.language, photoMin);
+#else
+  COMM_SERIAL.printf("CTRL,%0.2f,%0.2f,%0.2f,%0.2f,%0.2f\n",
+                     ctrl_msg.temperature[0], ctrl_msg.temperature[1],
+                     ctrl_msg.temperature[2], ctrl_msg.humidity[0],
+                     ctrl_msg.humidity[1]);
+#endif
+}
+
+static void parse_message(const char *line) {
+#if IS_HMI
+  if (strcmp(line, "CTRL,PWR_OFF_CANCEL") == 0) {
+    g_pwrOffActive = false;
+    g_pwrOffRemainingMs = 0;
+    COMM_LOG("[COMM] PWR_OFF cancelled\n");
+    return;
+  }
+  if (strncmp(line, "CTRL,PWR_OFF,", 13) == 0) {
+    int ms = 0;
+    if (sscanf(line, "CTRL,PWR_OFF,%d", &ms) == 1) {
+      g_pwrOffRemainingMs = ms;
+      g_pwrOffActive = true;
+      COMM_LOG("[COMM] PWR_OFF remaining=%d ms\n", ms);
+    }
+    return;
+  }
+  if (strncmp(line, "CTRL,TEL", strlen("CTRL,TEL")) == 0) {
+    int probeState = SKIN_PROBE_NOT_CONNECTED;
+    int result = sscanf(
+        line, "CTRL,TEL,%lf,%lf,%lf,%d,%d", &ctrl_tel_msg.detectedAirTemperature,
+        &ctrl_tel_msg.detectedSkinTemperature, &ctrl_tel_msg.detectedHumidity,
+        &ctrl_tel_msg.serverCommStatus, &probeState);
+    if (result < 3) {
+      // COMM_LOG("[COMM] HMI failed to parse CTRL,TEL: %s\n", line);
+    }
+    if (result == 3) {
+      // Backward compatibility or partial parse
+      ctrl_tel_msg.serverCommStatus = COMM_STATUS_NONE;
+    }
+    if (result >= 5) {
+      // Update skin probe state from periodic telemetry (RF-SKIN-008, ARQ-SKIN-003)
+      g_skinProbeState = probeState;
+    }
+  } else if (strncmp(line, "CTRL,STATE", strlen("CTRL,STATE")) == 0) {
+    int act, mode, photo, mute, sn, hwNum, numAlarms, skinE, commStatus, lang, probeState = 0;
+    uint32_t alarmBitmask = 0;
+    uint32_t silencedBitmask = 0;
+    uint32_t latchedBitmask = 0;
+    int almTest = ALARM_TEST_IDLE_HMI;
+    int silenceLeftS = 0;
+    int linkBars = -1;
+    double photoTimeRemaining;  // Formato MM.SS (ej: 18.33 = 18 min 33 seg)
+    char hwRev;
+    char fwVer[20];
+    double airSet, skinSet, humSet;
+    int result =
+        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d,%lf,%d,%d,0x%X,0x%X,%d,%d,%d,0x%X",
+               &act, &mode, &airSet, &skinSet, &humSet, &photo, &mute,
+               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus, &photoTimeRemaining, &lang, &probeState, &alarmBitmask, &silencedBitmask, &almTest, &silenceLeftS, &linkBars, &latchedBitmask);
+
+    // Accept 12 (old), 13 (with alarms), 14+skinModeEnabled, 15+photoTime, 16+lang, 17+probeState, 18+bitmask, 19+silenced, 22+linkBars
+    if (result >= 12) {
+      ctrl_state_msg.actuation = act;
+      ctrl_state_msg.controlMode = mode;
+      ctrl_state_msg.desiredAirTemperature = airSet;
+      ctrl_state_msg.desiredSkinTemperature = skinSet;
+      ctrl_state_msg.desiredHumidity = humSet;
+      ctrl_state_msg.phototherapyMode = photo;
+      ctrl_state_msg.muteAlarm = mute;
+      // El campo ya no es el eco de lo que pidio este display, sino el estado
+      // REAL del audio en la placa: 1 = no queda nada que silenciar. La copia
+      // local se rinde ante el, que es quien sabe que la pausa de 2 min de
+      // 6.8.3 ha caducado y el zumbador ha vuelto. Sin esto el boton de
+      // silencio no reaparecia nunca y la alarma se quedaba sonando sin forma
+      // de callarla.
+      //
+      // La ventana de gracia evita el parpadeo de la pulsacion: entre que el
+      // operador toca SILENCIAR y la placa lo procesa puede llegar un
+      // CTRL,STATE emitido antes del silencio, que revertiria el boton y
+      // generaria un flanco de subida espurio en el comando.
+      if ((int32_t)(millis() - g_muteHoldUntilMs) >= 0) {
+        alarmsMuted = (mute != 0);
+      }
+      if (result >= 13) ctrl_state_msg.skinModeEnabled = skinE;
+      // Conectividad de la placa (WiFi/GPRS/ninguna, con o sin servidor). Este
+      // campo ya viajaba en el formato pero nunca se copiaba a ctrl_state_msg:
+      // wifi_board_status_update() y el heading (connectivity_heading_update)
+      // se quedaban leyendo siempre el COMM_STATUS_NONE del zero-init.
+      ctrl_state_msg.serverCommStatus =
+          (result >= 14) ? commStatus : COMM_STATUS_NONE;
+      if (result >= 16) ctrl_state_msg.language = lang;
+      if (result >= 17) {
+        ctrl_state_msg.skinProbeState = probeState;
+        g_skinProbeState = probeState; // Expose globally for UITask (RF-SKIN-008, ARQ-SKIN-003)
+      }
+      if (result >= 18) ctrl_state_msg.alarmBitmask = alarmBitmask;
+      else ctrl_state_msg.alarmBitmask = (uint32_t)-1; // Valor nulo si no viene
+      // Que condiciones estan en AUDIO PAUSED (6.8.1: el operador tiene que
+      // poder determinar CUALES). Si la placa es de una version anterior y no
+      // manda el campo, se asume ninguna silenciada: es el lado seguro, porque
+      // como mucho ofrece silenciar algo que ya lo estaba, nunca oculta que
+      // una alarma sigue callada.
+      ctrl_state_msg.silencedBitmask = (result >= 19) ? silencedBitmask : 0u;
+      // Prioridad que reproduce la prueba de funcionamiento, o
+      // ALARM_TEST_IDLE. Una placa antigua que no mande el campo se interpreta
+      // como "sin prueba", que es lo unico seguro: nunca hace creer que suena
+      // una prueba cuando lo que suena podria ser una alarma.
+      ctrl_state_msg.alarmTestPriority =
+          (result >= 20) ? almTest : ALARM_TEST_IDLE_HMI;
+      // Cuenta atras de la pausa de audio. 0 = no hay ninguna silenciada, que
+      // es tambien lo que se asume con una placa antigua que no mande el
+      // campo: como mucho no se pinta la cuenta atras, nunca se inventa una.
+      ctrl_state_msg.silenceRemainingS = (result >= 21) ? silenceLeftS : 0;
+      // Barras de cobertura del transporte activo. -1 (no 0) con una placa
+      // antigua que no mande el campo: "no se sabe" no es lo mismo que "0
+      // barras", que es una lectura real de cobertura pesima.
+      ctrl_state_msg.linkBars = (result >= 22) ? linkBars : -1;
+      // Alarmas enclavadas esperando reconocimiento. 0 con una placa antigua
+      // que no mande el campo, que es el lado seguro: como mucho no se ofrece
+      // el reset manual (y ahi el equipo se comporta como hasta ahora), nunca
+      // se ofrece para una alarma cuya condicion sigue viva.
+      ctrl_state_msg.latchedBitmask = (result >= 23) ? latchedBitmask : 0u;
+      ctrl_state_msg.serialNumber = sn;
+
+      strncpy(ctrl_state_msg.fwVer, fwVer, sizeof(ctrl_state_msg.fwVer));
+      ctrl_state_msg.fwVer[sizeof(ctrl_state_msg.fwVer) - 1] = '\0';
+
+      // Extract minutes and seconds from MM.SS format
+      if (result >= 15) {
+        int mins = (int)photoTimeRemaining;
+        int secs = (int)((photoTimeRemaining - mins) * 100.0 + 0.5);  // Extract SS from MM.SS format, round to nearest
+        ctrl_state_msg.photoMinutesRemaining = mins;
+        ctrl_state_msg.photoSecondsRemaining = secs;
+      } else {
+        ctrl_state_msg.photoMinutesRemaining = 0;
+        ctrl_state_msg.photoSecondsRemaining = 0;
+      }
+
+      ctrl_state_msg.newState = true;
+
+      // If we have alarms count (result == 13), we could use it for verification
+      // but individual alarm messages will follow anyway.
+    } else {
+      COMM_LOG("[COMM] HMI failed to parse CTRL,STATE: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,PPG", 8) == 0) {
+    int ppg = 0;
+    if (sscanf(line, "CTRL,PPG,%d", &ppg) == 1) {
+      ctrl_ppg_msg.ppg     = (uint8_t)ppg;
+      ctrl_ppg_msg.updated = true;
+    }
+  } else if (strncmp(line, "CTRL,VIT", 8) == 0) {
+    int hr = 0, spo2 = 0;
+    float pi = 0.0f;
+    int n = sscanf(line, "CTRL,VIT,%d,%d,%f", &hr, &spo2, &pi);
+    if (n >= 2) {
+      ctrl_vit_msg.hr      = (uint8_t)hr;
+      ctrl_vit_msg.spo2    = (uint8_t)spo2;
+      ctrl_vit_msg.pi      = (n >= 3) ? pi : 0.0f;
+      ctrl_vit_msg.updated = true;
+    }
+  } else if (strncmp(line, "CTRL,PROBE", 10) == 0) {
+    int state = 0;
+    if (sscanf(line, "CTRL,PROBE,%d", &state) == 1) {
+      // Fail-safe: un estado parseable NUNCA se descarta. Solo APPLIED habilita
+      // la traza; cualquier otro valor — incluido uno que esta version del HMI
+      // no conozca — significa "sin contacto valido". Descartarlo dejaria en pie
+      // el ultimo APPLIED y con el la traza PPG congelada en la pantalla de
+      // bloqueo, que es justo el fallo que esto corrige (SATURATING=3 llegaba y
+      // se rechazaba por estar fuera del rango 0..2).
+      if (state < SPO2_PROBE_DISCONNECTED || state > SPO2_PROBE_SATURATING) {
+        COMM_LOG("[COMM] CTRL,PROBE estado desconocido (%d) -> NOT_APPLIED\n",
+                 state);
+        state = SPO2_PROBE_NOT_APPLIED;
+      }
+      ctrl_probe_msg.state   = (ProbeContactState)state;
+      ctrl_probe_msg.updated = true;
+      static const char *const probe_state_names[] = {
+          "DISCONNECTED", "NOT_APPLIED", "APPLIED", "SATURATING"};
+      (void)probe_state_names;
+      // COMM_LOG("[COMM] CTRL,PROBE -> %s\n", probe_state_names[state]);
+    } else {
+      COMM_LOG("[COMM] CTRL,PROBE parse error: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,ALM,", strlen("CTRL,ALM,")) == 0) {
+    // La coma del prefijo NO es cosmetica. Sin ella este strncmp comparaba 8
+    // caracteres, y "CTRL,ALM" es prefijo de "CTRL,ALM_HISTORY" y de
+    // "CTRL,ALM_DESC": al ser una cadena else-if, esta rama se los tragaba a
+    // los dos y las ramas de abajo eran codigo muerto. El sintoma era que el
+    // registro de alarmas llegaba siempre vacio y el detalle de una entrada
+    // decia "descripcion no disponible", porque las respuestas de la placa se
+    // descartaban aqui como CTRL,ALM malformadas.
+    //
+    // Regla para cualquier mensaje que se anada: comparar SIEMPRE con el
+    // separador incluido, o poner la rama especifica antes que la generica.
+    int id, stateInt;
+    char type[ALARM_TYPE_LEN];
+    char description[ALARM_DESC_LEN];
+    static_assert(ALARM_TYPE_LEN == ALARM_TITLE_MAX_CHARS + 1,
+                  "el ancho de parseo del titulo debe ser el del buffer - 1");
+    static_assert(ALARM_DESC_LEN == ALARM_DESC_MAX_CHARS + 1,
+                  "el ancho de parseo de la descripcion debe ser el del buffer - 1");
+    // Conteo TOLERANTE: 4 campos (placa anterior, sin prioridad) o 5. Exigir 5
+    // exactos volveria a descartar la linea entera contra un firmware viejo, y
+    // una alarma descartada es una alarma invisible.
+    int priority = -1;
+    int result =
+        sscanf(line, ALM_SCAN_FMT, &id, type, description, &stateInt, &priority);
+    if (result >= 4) {
+      ctrl_msg_alarm.id = id;
+      strncpy(ctrl_msg_alarm.type, type, ALARM_TYPE_LEN - 1);
+      ctrl_msg_alarm.type[ALARM_TYPE_LEN - 1] = '\0';
+      strncpy(ctrl_msg_alarm.description, description, ALARM_DESC_LEN - 1);
+      ctrl_msg_alarm.description[ALARM_DESC_LEN - 1] = '\0';
+      ctrl_msg_alarm.state = (stateInt != 0);
+      // Sin campo de prioridad se asume la mas urgente: equivocarse hacia
+      // arriba avisa de mas, hacia abajo silencia algo grave.
+      ctrl_msg_alarm.priority = (result >= 5 && priority >= 0) ? priority : 2;
+    } else {
+      COMM_LOG("[COMM] HMI failed to parse CTRL,ALM: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,ALM_DESC,", 14) == 0) {
+    // CTRL,ALM_DESC,<id>,<titulo>,<descripcion>
+    // Respuesta a HMI,ALM_DESC_REQ. Texto ya resuelto por la placa.
+    unsigned id = 0;
+    char title[ALARM_TITLE_MAX_CHARS + 1] = {0};
+    char desc[ALARM_DESC_MAX_CHARS + 1] = {0};
+    // La descripcion es el ultimo campo y puede llevar comas, asi que se toma
+    // hasta el fin de linea ([^\n]) en vez de hasta la siguiente coma.
+    const int got = sscanf(line + 14,
+                           "%u,%" ALM_STR(ALARM_TITLE_MAX_CHARS) "[^,],%"
+                           ALM_STR(ALARM_DESC_MAX_CHARS) "[^\n]",
+                           &id, title, desc);
+    if (got != 3 || id >= ALARM_COUNT) {
+      COMM_LOG("[COMM] CTRL,ALM_DESC malformada, descartada\n");
+      return;
+    }
+    g_alarmDesc.id = (uint8_t)id;
+    strncpy(g_alarmDesc.title, title, ALARM_TITLE_MAX_CHARS);
+    g_alarmDesc.title[ALARM_TITLE_MAX_CHARS] = '\0';
+    strncpy(g_alarmDesc.desc, desc, ALARM_DESC_MAX_CHARS);
+    g_alarmDesc.desc[ALARM_DESC_MAX_CHARS] = '\0';
+    g_pendingAlarmDesc = true;
+
+  } else if (strncmp(line, "CTRL,ALM_HISTORY,", 17) == 0) {
+    // CTRL,ALM_HISTORY,n{,id,prio,raised,cleared,limite,valor,titulo}xn
+    //
+    // Llega entero de la motherBoard, titulo incluido: aqui no se traduce ni
+    // se deduce nada, solo se pinta. La placa es la dueña de la informacion.
+    //
+    // Se parsea entrada a entrada y NO se acepta nada si alguna viene
+    // incompleta: aceptar a medias mostraria un registro clinico con campos de
+    // otra entrada. Regla general del protocolo (.claude/rules/security.md):
+    // descarte silencioso con log, nunca datos parciales.
+    int n = 0;
+    const char *p = line + 17;
+    if (sscanf(p, "%d", &n) != 1 || n < 0 || n > 10) {
+      COMM_LOG("[COMM] CTRL,ALM_HISTORY cabecera invalida: %s\n", line);
+      return;
+    }
+    AlarmHistoryMsg parsed = {0, {}};
+    bool ok = true;
+    for (int i = 0; i < n && ok; i++) {
+      p = strchr(p, ',');
+      if (!p) { ok = false; break; }
+      p++;
+      unsigned id = 0, prio = 0, resolved = 0;
+      unsigned long raised = 0, cleared = 0;
+      int limitC = 0, valueC = 0;
+      char title[ALARM_TITLE_MAX_CHARS + 1] = {0};
+      // %n dice cuantos caracteres consumio sscanf, que es la unica forma
+      // fiable de avanzar al siguiente registro: contar comas a mano se rompe
+      // en cuanto un campo cambia de ancho. %n no cuenta para el retorno, de
+      // ahi que se comparen 7 campos y no 8.
+      int consumed = 0;
+      const int got =
+          sscanf(p, "%u,%u,%u,%lu,%lu,%d,%d,%" ALM_STR(ALARM_TITLE_MAX_CHARS)
+                    "[^,\n]%n",
+                 &id, &prio, &resolved, &raised, &cleared, &limitC, &valueC,
+                 title, &consumed);
+      if (got != 8) { ok = false; break; }
+      parsed.items[i].id = (uint8_t)id;
+      parsed.items[i].priority = (uint8_t)prio;
+      parsed.items[i].resolved = (resolved != 0);
+      parsed.items[i].raisedEpoch = (uint32_t)raised;
+      parsed.items[i].clearedEpoch = (uint32_t)cleared;
+      parsed.items[i].limitCenti = (int16_t)limitC;
+      parsed.items[i].valueCenti = (int16_t)valueC;
+      strncpy(parsed.items[i].title, title, ALARM_TITLE_MAX_CHARS);
+      parsed.items[i].title[ALARM_TITLE_MAX_CHARS] = '\0';
+      p += consumed;
+    }
+    if (!ok) {
+      COMM_LOG("[COMM] CTRL,ALM_HISTORY incompleta, descartada\n");
+      return;
+    }
+    parsed.count = n;
+    g_alarmHistory = parsed;
+    g_pendingAlarmHistory = true;
+  } else if (strncmp(line, "CTRL,WIFI,", 10) == 0) {
+    char ssid[64], pass[64];
+    if (sscanf(line, "CTRL,WIFI,%63[^,],%63[^\n]", ssid, pass) == 2) {
+      wifiApplyNewCredentials(ssid, pass);
+      COMM_LOG("[COMM] CTRL,WIFI: reconnecting to %s\n", ssid);
+    } else {
+      COMM_LOG("[COMM] CTRL,WIFI parse error: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,TIME,", 10) == 0) {
+    unsigned long epoch = 0;
+    int tzq = 0, tzsrc = 0, src = 0;
+    // Los tres campos de detras son opcionales a proposito: una motherBoard
+    // anterior a esta feature manda solo el epoch, y ahi lo correcto es
+    // quedarse sin hora local en vez de descartar tambien la hora. Se cuenta
+    // lo que sscanf logro leer, nunca se indexa a ciegas.
+    const int n =
+        sscanf(line, "CTRL,TIME,%lu,%d,%d,%d", &epoch, &tzq, &tzsrc, &src);
+    if (n >= 1) {
+      s_mbEpoch = (uint32_t)epoch;
+      s_mbEpochAtMs = millis();
+      if (n >= 3 && tzsrc >= 0 && tzsrc <= 3 && tzq >= -48 && tzq <= 56) {
+        s_tzQuarters = (int8_t)tzq;
+        s_tzSource   = (uint8_t)tzsrc;
+      } else if (n < 3) {
+        s_tzSource = 0;  // placa antigua: hay hora, no hay zona
+      }
+      // Campos presentes pero fuera de rango: se descartan callando y se
+      // conserva lo ultimo bueno, en vez de aceptar un offset imposible.
+
+      // `src` es el rango de la fuente del EPOCH, escala distinta de `tzsrc`.
+      // Sin el campo se queda en NONE, y rtc_should_write() no escribe con
+      // fuente desconocida.
+      const Proto_TimeSource newSrc =
+          (n >= 4 && src >= 0 && src <= PROTO_TIME_SOURCE_MANUAL)
+              ? (Proto_TimeSource)src
+              : PROTO_TIME_SOURCE_NONE;
+      // Solo al CAMBIAR, nunca en cada difusion: este log sale por UART0, que
+      // es el MISMO cable que el enlace con la placa. Un log cada 10 s seria
+      // exactamente el trafico periodico que known_issues #2 desaconseja.
+      if (newSrc != s_mbTimeSrc) {
+        COMM_LOG("[COMM] fuente de hora: %d -> %d (campos leidos %d)\n",
+                 (int)s_mbTimeSrc, (int)newSrc, n);
+      }
+      s_mbTimeSrc = newSrc;
+
+      if (s_mbEpoch != 0) {
+        // La placa ya tiene hora: la semilla deja de ofrecerse hasta el
+        // siguiente reinicio. Es lo que mantiene el mensaje episodico y no
+        // periodico (known_issues #2).
+        s_rtcSeedDone = true;
+        rtcMaybeWrite(s_mbEpoch, s_mbTimeSrc, s_tzQuarters, s_tzSource);
+      } else if (!s_rtcSeedDone && s_rtcEpochAtBoot != 0) {
+        // La placa sigue sin hora y nosotros si la tenemos. Se reofrece una
+        // vez POR CADA difusion recibida, nunca por nuestra cuenta: asi el
+        // ritmo lo marca ella y el enlace no gana trafico propio.
+        COMM_SERIAL.printf("HMI,RTC_TIME,%lu,%d,%u\n",
+                           (unsigned long)rtcEstimatedNow(),
+                           (int)s_rtcStored.tzQuarters,
+                           (unsigned)s_rtcStored.tzSource);
+      }
+    } else {
+      COMM_LOG("[COMM] TIME parse error: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,DUTY", 9) == 0) {
+    int t = 0, h = 0;
+    if (sscanf(line, "CTRL,DUTY,%d,%d", &t, &h) == 2) {
+      g_tempDutyPwm      = t;
+      g_humDutyPwm       = h;
+      g_pendingDutyApply = true;
+    }
+  } else if (strncmp(line, "CTRL,PROFILE_LIST", 17) == 0) {
+    // CTRL,PROFILE_LIST,<n>{,<seq>,<name>,<gestWeeks>,<weightGrams>}xn
+    // Manual comma-split (variable arity) — validate every field before
+    // indexing/using it; malformed lines are silently discarded (security.md).
+    char buf[COMM_RX_BUFFER_SIZE];
+    strncpy(buf, line, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+    char *save = nullptr;
+    strtok_r(buf, ",", &save);       // "CTRL"
+    strtok_r(nullptr, ",", &save);   // "PROFILE_LIST"
+    char *nTok = strtok_r(nullptr, ",", &save);
+    char *endp = nullptr;
+    long n = nTok ? strtol(nTok, &endp, 10) : -1;
+    bool ok = (nTok != nullptr) && endp && *endp == '\0' && n >= 0 && n <= 3;
+    BabyProfileListMsg msg;
+    msg.count = ok ? (int)n : 0;
+    for (int i = 0; ok && i < n; i++) {
+      char *seqTok = strtok_r(nullptr, ",", &save);
+      char *nameTok = strtok_r(nullptr, ",", &save);
+      char *gestTok = strtok_r(nullptr, ",", &save);
+      char *wTok = strtok_r(nullptr, ",", &save);
+      char *kTok = strtok_r(nullptr, ",", &save);
+      char *ptTok = strtok_r(nullptr, ",", &save);
+      char *thTok = strtok_r(nullptr, ",", &save);
+      char *huTok = strtok_r(nullptr, ",", &save);
+      if (!seqTok || !nameTok || !gestTok || !wTok || !kTok || !ptTok ||
+          !thTok || !huTok) {
+        ok = false;
+        break;
+      }
+      char *e1, *e2, *e3, *e4, *e5, *e6, *e7;
+      long seq = strtol(seqTok, &e1, 10);
+      long gest = strtol(gestTok, &e2, 10);
+      long w = strtol(wTok, &e3, 10);
+      long kang = strtol(kTok, &e4, 10);
+      unsigned long photoMin = strtoul(ptTok, &e5, 10);
+      unsigned long thermoMin = strtoul(thTok, &e6, 10);
+      unsigned long humMin = strtoul(huTok, &e7, 10);
+      if (*e1 || *e2 || *e3 || *e4 || *e5 || *e6 || *e7 || seq < 0 ||
+          gest < 0 || gest > 255 || w < 0 || w > 65535 || kang < 0 ||
+          kang > 65535) {
+        ok = false;
+        break;
+      }
+      msg.items[i].seq = (uint32_t)seq;
+      snprintf(msg.items[i].name, sizeof(msg.items[i].name), "%s", nameTok);
+      msg.items[i].gestWeeks = (uint8_t)gest;
+      msg.items[i].weightGrams = (uint16_t)w;
+      msg.items[i].kangarooCount = (uint16_t)kang;
+      msg.items[i].phototherapyMinutes = (uint32_t)photoMin;
+      msg.items[i].thermoMinutes = (uint32_t)thermoMin;
+      msg.items[i].humidityMinutes = (uint32_t)humMin;
+    }
+    if (ok) {
+      g_profileList = msg;
+      g_pendingProfileList = true;
+    } else {
+      COMM_LOG("[COMM] PROFILE_LIST malformed: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,PROFILE_ACK", 16) == 0) {
+    unsigned seq = 0;
+    if (sscanf(line, "CTRL,PROFILE_ACK,%u", &seq) == 1) {
+      g_profileAck = (uint32_t)seq;
+      g_pendingProfileAck = true;
+    } else {
+      COMM_LOG("[COMM] PROFILE_ACK parse error: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,TIME_ACK", 13) == 0) {
+    unsigned result = 0;
+    if (sscanf(line, "CTRL,TIME_ACK,%u", &result) == 1) {
+      g_timeAckResult = (uint32_t)result;
+      g_pendingTimeAck = true;
+    } else {
+      COMM_LOG("[COMM] TIME_ACK parse error: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,PROFILE_RANGE", 18) == 0) {
+    unsigned seq = 0;
+    int ageKnown = 0, ageDays = 0, estimated = 0;
+    float lo = -1.0f, hi = -1.0f, mid = -1.0f;
+    if (sscanf(line, "CTRL,PROFILE_RANGE,%u,%d,%d,%f,%f,%f,%d", &seq,
+               &ageKnown, &ageDays, &lo, &hi, &mid, &estimated) == 7 &&
+        ageDays >= 0 && ageDays <= 65535) {
+      g_profileRange.seq = (uint32_t)seq;
+      g_profileRange.ageKnown = (ageKnown != 0);
+      g_profileRange.ageDays = (uint16_t)ageDays;
+      g_profileRange.lo = lo;
+      g_profileRange.hi = hi;
+      g_profileRange.mid = mid;
+      g_profileRange.estimated = (estimated != 0);
+      g_pendingProfileRange = true;
+    } else {
+      COMM_LOG("[COMM] PROFILE_RANGE parse error: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,PROFILE_HISTORY", 20) == 0) {
+    // CTRL,PROFILE_HISTORY,<page>,<totalCount>,<n>{,<seq>,<name>,<gestWeeks>,
+    //   <lastWeightGrams>,<admissionEpoch>,<dischargeEpoch>,<outcome>,
+    //   <cause>,<kangarooCount>,<phototherapyMin>,<thermoMin>,<humidityMin>}xn
+    // Same manual comma-split pattern as PROFILE_LIST: every field validated
+    // before use, malformed line = silent discard (security.md).
+    char buf[COMM_RX_BUFFER_SIZE];
+    strncpy(buf, line, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+    char *save = nullptr;
+    strtok_r(buf, ",", &save);      // "CTRL"
+    strtok_r(nullptr, ",", &save);  // "PROFILE_HISTORY"
+    char *pageTok = strtok_r(nullptr, ",", &save);
+    char *totTok = strtok_r(nullptr, ",", &save);
+    char *nTok = strtok_r(nullptr, ",", &save);
+    char *e0 = nullptr, *e1 = nullptr, *e2 = nullptr;
+    long page = pageTok ? strtol(pageTok, &e0, 10) : -1;
+    long tot = totTok ? strtol(totTok, &e1, 10) : -1;
+    long n = nTok ? strtol(nTok, &e2, 10) : -1;
+    bool ok = pageTok && totTok && nTok && e0 && !*e0 && e1 && !*e1 && e2 &&
+              !*e2 && page >= 0 && tot >= 0 && n >= 0 && n <= 10;
+    BabyHistoryMsg msg;
+    msg.page = ok ? (uint32_t)page : 0;
+    msg.totalCount = ok ? (uint32_t)tot : 0;
+    msg.count = ok ? (int)n : 0;
+    for (int i = 0; ok && i < n; i++) {
+      char *seqTok = strtok_r(nullptr, ",", &save);
+      char *nameTok = strtok_r(nullptr, ",", &save);
+      char *gestTok = strtok_r(nullptr, ",", &save);
+      char *wTok = strtok_r(nullptr, ",", &save);
+      char *admTok = strtok_r(nullptr, ",", &save);
+      char *disTok = strtok_r(nullptr, ",", &save);
+      char *ocTok = strtok_r(nullptr, ",", &save);
+      char *cauTok = strtok_r(nullptr, ",", &save);
+      char *kTok = strtok_r(nullptr, ",", &save);
+      char *ptTok = strtok_r(nullptr, ",", &save);
+      char *thTok = strtok_r(nullptr, ",", &save);
+      char *huTok = strtok_r(nullptr, ",", &save);
+      if (!seqTok || !nameTok || !gestTok || !wTok || !admTok || !disTok ||
+          !ocTok || !cauTok || !kTok || !ptTok || !thTok || !huTok) {
+        ok = false;
+        break;
+      }
+      char *p1, *p2, *p3, *p4, *p5, *p6, *p6b, *p7, *p8, *p9, *p10;
+      long seq = strtol(seqTok, &p1, 10);
+      long gest = strtol(gestTok, &p2, 10);
+      long w = strtol(wTok, &p3, 10);
+      unsigned long adm = strtoul(admTok, &p4, 10);
+      unsigned long dis = strtoul(disTok, &p5, 10);
+      long oc = strtol(ocTok, &p6, 10);
+      long cause = strtol(cauTok, &p6b, 10);
+      long kang = strtol(kTok, &p7, 10);
+      unsigned long photoMin = strtoul(ptTok, &p8, 10);
+      unsigned long thermoMin = strtoul(thTok, &p9, 10);
+      unsigned long humMin = strtoul(huTok, &p10, 10);
+      if (*p1 || *p2 || *p3 || *p4 || *p5 || *p6 || *p6b || *p7 || *p8 ||
+          *p9 || *p10 || seq < 0 ||
+          gest < 0 || gest > 255 || w < 0 || w > 65535 || oc < 0 || oc > 3 ||
+          cause < 0 || cause > 6 || kang < 0 || kang > 65535) {
+        ok = false;
+        break;
+      }
+      msg.items[i].seq = (uint32_t)seq;
+      snprintf(msg.items[i].name, sizeof(msg.items[i].name), "%s", nameTok);
+      msg.items[i].gestWeeks = (uint8_t)gest;
+      msg.items[i].lastWeightGrams = (uint16_t)w;
+      msg.items[i].admissionEpoch = (uint32_t)adm;
+      msg.items[i].dischargeEpoch = (uint32_t)dis;
+      msg.items[i].outcome = (uint8_t)oc;
+      msg.items[i].cause = (uint8_t)cause;
+      msg.items[i].kangarooCount = (uint16_t)kang;
+      msg.items[i].phototherapyMinutes = (uint32_t)photoMin;
+      // Was parsed but never stored, so the archived cards showed an
+      // uninitialised "Termo" value.
+      msg.items[i].thermoMinutes = (uint32_t)thermoMin;
+      msg.items[i].humidityMinutes = (uint32_t)humMin;
+    }
+    if (ok) {
+      g_babyHistory = msg;
+      g_pendingBabyHistory = true;
+    } else {
+      COMM_LOG("[COMM] PROFILE_HISTORY malformed: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,WEIGHT_HISTORY", 19) == 0) {
+    // CTRL,WEIGHT_HISTORY,<seq>,<n>{,<dayOffset>,<weightGrams>}xn — n<=50.
+    char buf[COMM_RX_BUFFER_SIZE];
+    strncpy(buf, line, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+    char *save = nullptr;
+    strtok_r(buf, ",", &save);      // "CTRL"
+    strtok_r(nullptr, ",", &save);  // "WEIGHT_HISTORY"
+    char *seqTok = strtok_r(nullptr, ",", &save);
+    char *nTok = strtok_r(nullptr, ",", &save);
+    char *e0 = nullptr, *e1 = nullptr;
+    long seq = seqTok ? strtol(seqTok, &e0, 10) : -1;
+    long n = nTok ? strtol(nTok, &e1, 10) : -1;
+    bool ok = seqTok && nTok && e0 && !*e0 && e1 && !*e1 && seq >= 0 &&
+              n >= 0 && n <= 50;
+    BabyWeightHistoryMsg msg;
+    msg.seq = ok ? (uint32_t)seq : 0;
+    msg.count = ok ? (int)n : 0;
+    for (int i = 0; ok && i < n; i++) {
+      char *dTok = strtok_r(nullptr, ",", &save);
+      char *wTok = strtok_r(nullptr, ",", &save);
+      if (!dTok || !wTok) { ok = false; break; }
+      char *p1, *p2;
+      long d = strtol(dTok, &p1, 10);
+      long w = strtol(wTok, &p2, 10);
+      if (*p1 || *p2 || d < 0 || d > 65535 || w < 0 || w > 65535) {
+        ok = false;
+        break;
+      }
+      msg.dayOffset[i] = (uint16_t)d;
+      msg.weightGrams[i] = (uint16_t)w;
+    }
+    if (ok) {
+      g_weightHistory = msg;
+      g_pendingWeightHistory = true;
+    } else {
+      COMM_LOG("[COMM] WEIGHT_HISTORY malformed: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,FTEST_DONE,", sizeof("CTRL,FTEST_DONE,") - 1) == 0) {
+    unsigned p = 0, f = 0, s = 0, w = 0;
+    if (ftest_parse_done(line + sizeof("CTRL,FTEST_DONE,") - 1, &p, &f, &s,
+                         &w)) {
+      g_ftestDonePass = p;
+      g_ftestDoneFail = f;
+      g_ftestDoneSkip = s;
+      g_ftestDoneWarn = w;
+      g_pendingFtestDone = true;
+    } else {
+      COMM_LOG("[COMM] CTRL,FTEST_DONE malformado: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,FTEST_REJECT,", sizeof("CTRL,FTEST_REJECT,") - 1) == 0) {
+    FtestReject r;
+    if (ftest_parse_reject(line + sizeof("CTRL,FTEST_REJECT,") - 1, &r)) {
+      g_ftestRejectReason = (int)r;
+      g_pendingFtestReject = true;
+    } else {
+      COMM_LOG("[COMM] CTRL,FTEST_REJECT malformado: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,FTEST,", sizeof("CTRL,FTEST,") - 1) == 0) {
+    FtestResult res;
+    if (ftest_parse_result(line + sizeof("CTRL,FTEST,") - 1, &res)) {
+      // Banco 2026-09-06: el COMM_LOG de "anillo lleno" vivia DENTRO de esta
+      // seccion critica. Serial.printf() con las interrupciones deshabilitadas
+      // (taskENTER_CRITICAL) disparaba el Interrupt WDT tras varios descartes
+      // seguidos (rafaga de RUNNING+SKIP de la MB) y el HMI se reiniciaba. La
+      // seccion critica ahora SOLO copia datos/indices y marca `ringFull`; el
+      // log (y el contador, que es informativo y puede leerse sin lock) salen
+      // fuera.
+      bool ringFull = false;
+      taskENTER_CRITICAL(&g_ftestMux);
+      const uint8_t idx =
+          (uint8_t)((g_ftestRing.head + g_ftestRing.count) % FTEST_RING_LEN);
+      if (g_ftestRing.count < FTEST_RING_LEN) {
+        g_ftestRing.buf[idx] = res;
+        g_ftestRing.count++;
+      } else {
+        // Anillo lleno: se descarta la mas antigua en vez de bloquear o
+        // crecer sin limite.
+        g_ftestRing.buf[g_ftestRing.head] = res;
+        g_ftestRing.head = (uint8_t)((g_ftestRing.head + 1) % FTEST_RING_LEN);
+        g_ftestRingDrops++;
+        ringFull = true;
+      }
+      g_pendingFtest = true;
+      taskEXIT_CRITICAL(&g_ftestMux);
+      if (ringFull) {
+        COMM_LOG("[COMM] anillo FTEST lleno, se descarta el mas antiguo (total=%u)\n",
+                 (unsigned)g_ftestRingDrops);
+      }
+    } else {
+      COMM_LOG("[COMM] CTRL,FTEST malformado: %s\n", line);
+    }
+  }
+#endif
+}
+
+static bool ReceiveMessageFromOtherESP() {
+  bool msgReceived = false;
+  static uint32_t lastRxTime = 0;
+
+  // Vigilancia del anillo de RX del driver (banco 2026-09-07). Lo que se
+  // pierde cuando ese anillo se llena son bytes, y con ellos LINEAS ENTERAS,
+  // sin que nadie se entere: no hay error ni hueco visible, la linea
+  // simplemente no llega nunca. Es la explicacion de los tests del test de
+  // fabrica que se quedan "en curso" para siempre (su unica linea de
+  // resultado se perdio). Se avisa al acercarse al tope -- no al desbordar,
+  // que ya seria tarde -- y como mucho una vez por segundo, para no
+  // realimentar el problema con el propio log.
+  {
+    const int pending = COMM_SERIAL.available();
+    if (pending > (COMM_RX_RING_BYTES * 3) / 4) {
+      static uint32_t lastRingWarnMs = 0;
+      const uint32_t nowRing = millis();
+      if ((uint32_t)(nowRing - lastRingWarnMs) > 1000u) {
+        lastRingWarnMs = nowRing;
+        COMM_LOG("[COMM] anillo RX %d/%d B: la tarea Comm no esta drenando\n",
+                 pending, COMM_RX_RING_BYTES);
+      }
+    }
+  }
+
+  // Lineas inyectadas por el modo depuracion. Se tratan AQUI, en la tarea
+  // Comm y con el mismo sello de latido y la misma llamada a parse_message()
+  // que una linea real, para que lo que se prueba sea el camino de produccion
+  // entero y no una maqueta suya. Con el modo apagado la cola esta vacia.
+  {
+    char injected[192];
+    while (debug_inject_take(injected, sizeof(injected))) {
+      COMM_LOG("[COMM][DEBUG] linea inyectada: %s\n", injected);
+      g_lastCtrlLineMs = millis();
+      g_ctrlEverSeen = true;
+      parse_message(injected);
+      msgReceived = true;
+    }
+  }
+
+  while (COMM_SERIAL.available()) {
+    // Resincronizacion tras una linea truncada. OJO: este reloj NO mide el
+    // hueco entre bytes en el cable, mide cuanto ha tardado ESTA tarea en
+    // volver a ejecutarse (ver COMM_RX_TIMEOUT_MS en main.h) -- por eso el
+    // plazo es amplio: una linea a medias que sigue intacta no debe tirarse
+    // solo porque la UI haya tenido a la tarea esperando LVGL_Lock().
+    if (rxIndex > 0 && (millis() - lastRxTime > COMM_RX_TIMEOUT_MS)) {
+      rxIndex = 0;
+      COMM_LOG("[COMM] RX Timeout, buffer cleared\n");
+    }
+
+    char c = COMM_SERIAL.read();
+    lastRxTime = millis(); // Update time after receiving char
+
+    if (c == '\r')
+      continue;
+
+    if (c == '\n') {
+      rxBuffer[rxIndex] = '\0'; // Null-terminate
+      if (rxIndex > 0) {
+        if (strncmp(rxBuffer, EXPECTED_PREFIX, strlen(EXPECTED_PREFIX)) == 0) {
+          // Latido de la placa, simetrico al que el display le manda a ella.
+          // Se marca con el prefijo ya validado y antes de parsear: lo que se
+          // vigila es que la placa siga hablando, no lo que diga.
+          g_lastCtrlLineMs = millis();
+          g_ctrlEverSeen = true;
+          parse_message(rxBuffer);
+          msgReceived = true;
+        }
+      }
+      rxIndex = 0; // Reset buffer
+    } else {
+      if (rxIndex < sizeof(rxBuffer) - 1) {
+        rxBuffer[rxIndex++] = c;
+      } else {
+        // Buffer overflow protection: overflowed, reset and ignore this line
+        rxIndex = 0;
+        COMM_LOG("[COMM] Buffer overflow, line too long\n");
+      }
+    }
+  }
+  return msgReceived;
+}
+
+// ======================
+//  HIGH-LEVEL LOGIC
+// ======================
+
+// Parte de CTRL,STATE que NO es estado de control: identidad de la placa,
+// etiquetas de Informacion y sincronizacion del bitmask de alarmas. Va aparte
+// porque en modo formacion (ADR-0002) es lo unico que se sigue aplicando: las
+// alarmas tienen que verse y abortar la leccion aunque la UI este simulando.
+// Llamar bajo LVGL_Lock().
+static void applyCtrlStateInfoAndAlarms(const ControlBoard_Message_State &st) {
+  if (st.serialNumber != 0 && st.serialNumber != in3.serialNumber) {
+    in3.serialNumber = st.serialNumber;
+    { Preferences p; p.begin(HMI_NS_CFG, false); p.putInt(HMI_KEY_SERIAL, in3.serialNumber); p.end(); }
+    ESP_LOGI(TAG, "Serial Number updated from motherboard: %d",
+             in3.serialNumber);
+  }
+
+  // Actualizar labels de información si están disponibles
+  if (ui_MBVerValue) lv_label_set_text(ui_MBVerValue, st.fwVer);
+  if (ui_SNValue) {
+      char sn_buf[16];
+      snprintf(sn_buf, sizeof(sn_buf), "%d", st.serialNumber);
+      lv_label_set_text(ui_SNValue, sn_buf);
+  }
+  if (ui_ConnValue) {
+      lv_label_set_text(ui_ConnValue, getConnectivityString(st.serverCommStatus, g_lang));
+  }
+
+  // --- Sincronización de Alarmas via Bitmask (CORRECCIÓN: usa ID como bit, igual que la Board) ---
+  // La Board calcula: bitmask |= (1 << alarmID). El HMI debe descodificarlo igual.
+  // El slot en alarmList es: alarmList[alarmID] (mapeo directo ID->índice).
+  if (st.alarmBitmask != (uint32_t)-1) {
+      extern Alarm alarmList[];
+      extern volatile bool g_pendingAlarmUpdate;
+      bool changed = false;
+      // Iterar por IDs válidos (1..MAX_ALARMS-1), igual que el enum ALARMS_ID
+      for (int id = 1; id < MAX_ALARMS; id++) {
+          // El bit del ID corresponde a la posición 'id' en el bitmask
+          bool boardActive = (st.alarmBitmask >> id) & 1;
+          if (alarmList[id].state && !boardActive) {
+              // La alarma está pintada en el HMI pero la Board dice que ya no está activa
+              COMM_LOG("[COMM] Bitmask sync: limpiando alarma ID %d (%s)\n", id, alarmList[id].type);
+              alarmList[id].state = false;
+              changed = true;
+          }
+      }
+      if (changed) {
+          g_pendingAlarmUpdate = true;
+          // AlarmSound_Update() moved to UITask — consumed in g_pendingAlarmUpdate handler
+      }
+  }
+}
+
+bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
+  if (!g_ui_initialized)
+    return false;
+  LVGL_Lock();
+
+  // Modo formacion (ADR-0002, revisado): la actuacion es real, asi que el
+  // CTRL,STATE se aplica igual que en operacion normal. Solo el perfil del
+  // bebe (ZOE) es virtual, y eso no viaja en esta trama. Excepcion: justo
+  // tras salir de una leccion, un CTRL,STATE en vuelo aun trae el estado de la
+  // leccion y las consignas no tienen gracia de eco; durante
+  // TRAINING_RESTORE_GUARD_MS solo se aplican identidad y alarmas.
+  if (Training_RestoreGuardActive()) {
+    applyCtrlStateInfoAndAlarms(st);
+    LVGL_Unlock();
+    return true;
+  }
+  // Armar la guarda AQUI, en el mismo instante y la misma tarea en que se
+  // consulta. Cierra una ventana de carrera de hasta 10 ms (banco
+  // 2026-09-17).
+  //
+  // Hasta ahora la guarda se armaba solo en el sondeo de 10 ms de Comm_Task,
+  // pero quien decide es UITask, que es donde corre esta funcion. Entre que
+  // el operador toca el switch (UITask escribe hmi_msg) y el siguiente sondeo
+  // de Comm_Task cabe un CTRL,STATE viejo ya parseado y en espera:
+  //
+  //   t=0     Comm_Task parsea un CTRL,STATE anterior a la orden
+  //   t=+1ms  el operador toca -> UITask escribe hmi_msg.actuation = 1
+  //   t=+2ms  UITask entra aqui -> `pending` sigue false (nadie sondeo aun)
+  //           -> gana el eco viejo, se reescribe hmi_msg, el switch pinta OFF
+  //   t=+10ms Comm_Task sondea -> ve 0, igual que lastSeen -> "sin cambios"
+  //           -> la guarda no se arma NUNCA
+  //
+  // El sintoma es el switch apagandose solo a los pocos milisegundos de
+  // encenderlo, como si se hubiera pulsado OFF, y sin dejar rastro: la linea
+  // "<campo> sin confirmar" no sale porque la guarda ni llego a armarse. Es
+  // una ventana distinta de la del asistente (known_issues.md #10, de un
+  // segundo o dos), y por eso sobrevivio a aquel arreglo.
+  //
+  // Armando aqui, `trackLocalCmdGuard` lee hmi_msg con el valor que el
+  // operador acaba de poner y arma antes de que se compare. El sondeo de
+  // Comm_Task se mantiene y no estorba: la funcion es idempotente, si la
+  // guarda ya esta armada con ese valor no hace nada.
+  trackLocalCmdGuard(&s_actuationGuard, hmi_msg.actuation);
+  trackLocalCmdGuard(&s_controlModeGuard, hmi_msg.controlMode);
+  trackLocalCmdGuard(&s_photoModeGuard, hmi_msg.phototherapyMode);
+  trackLocalCmdGuard(&s_muteAlarmGuard, hmi_msg.muteAlarm ? 1 : 0);
+  trackLocalCmdGuard(&s_skinModeGuard, hmi_msg.skinModeEnabled ? 1 : 0);
+  trackLocalCmdGuard(&s_airSetpointGuard,
+                     setpointKey(hmi_msg.desiredAirTemperature));
+  trackLocalCmdGuard(&s_skinSetpointGuard,
+                     setpointKey(hmi_msg.desiredSkinTemperature));
+
+  // Effective values: mientras un cambio local siga sin confirmar por la
+  // placa, manda el valor local en vez del eco de esta trama (ver la guarda
+  // arriba). El eco que coincide con lo local cierra la guarda.
+  int effActuation =
+      localCmdHoldsLocal(&s_actuationGuard, st.actuation, "actuacion")
+          ? hmi_msg.actuation : st.actuation;
+  int effControlMode =
+      localCmdHoldsLocal(&s_controlModeGuard, st.controlMode, "modo de control")
+          ? hmi_msg.controlMode : st.controlMode;
+  int effPhotoMode =
+      localCmdHoldsLocal(&s_photoModeGuard, st.phototherapyMode, "fototerapia")
+          ? hmi_msg.phototherapyMode : st.phototherapyMode;
+  bool effMuteAlarm =
+      localCmdHoldsLocal(&s_muteAlarmGuard, st.muteAlarm ? 1 : 0, "silencio")
+          ? hmi_msg.muteAlarm : st.muteAlarm;
+  bool effSkinWanted =
+      localCmdHoldsLocal(&s_skinModeGuard, st.skinModeEnabled ? 1 : 0,
+                         "modo piel")
+          ? hmi_msg.skinModeEnabled : st.skinModeEnabled;
+
+  bool tempOn = effActuation & 0x01;
+  ui_set_switch_state_silent(ui_Switch1, tempOn);
+  temp_content_set_visible(tempOn);
+  ui_set_switch_state_silent(ui_Switch2, (effActuation >> 1) & 0x01);
+  bool photoOn = effPhotoMode;
+  ui_set_switch_state_silent(ui_Switch3, photoOn);
+  if (ui_PhotoTimerCont) {
+    if (photoOn) lv_obj_clear_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN);
+    else         lv_obj_add_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN);
+  }
+  // Restore skin: only activate if saved state says ON *and* probe is present.
+  // If saved ON but no probe → fall back to Air and force switch OFF.
+  bool probeAvailable = (st.skinProbeState == SKIN_PROBE_VALID);
+  bool restoreSkin = (effSkinWanted && probeAvailable);
+
+  ui_set_switch_state_silent(ui_Switch4, restoreSkin);
+
+  skinPanelEnabled = restoreSkin;
+  if (skinPanelEnabled && tempOn) {
+    if (ui_SkinPanelCont) lv_obj_clear_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    if (ui_SkinPanelCont) lv_obj_add_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
+    lastSelectedPanel = AIR_PANEL_SELECTED;
+  }
+
+  /*
+  if (st.language != g_lang) {
+    // Only update if different to avoid loop, but Applying Language is safe
+    // here
+    UI_ApplyLanguage((ui_lang_t)st.language);
+    if (ui_LanguagesDropDown) {
+      lv_dropdown_set_selected(ui_LanguagesDropDown, st.language);
+    }
+  }
+  */
+
+  // Las consignas tambien se protegen con la confirmacion, y hasta ahora no
+  // lo estaban: el caso real es APLICAR la temperatura propuesta al final
+  // del asistente del bebe. airTempValue pasa a la propuesta y el siguiente
+  // CTRL,STATE, que todavia lleva la consigna anterior, la deshacia sin que
+  // nadie lo hubiera pedido.
+  if (st.desiredAirTemperature > COMM_TEMP_VALID_THRESHOLD &&
+      !localCmdHoldsLocal(&s_airSetpointGuard,
+                          setpointKey(st.desiredAirTemperature),
+                          "consigna de aire"))
+    airTempValue = st.desiredAirTemperature;
+  if (st.desiredSkinTemperature > COMM_TEMP_VALID_THRESHOLD &&
+      !localCmdHoldsLocal(&s_skinSetpointGuard,
+                          setpointKey(st.desiredSkinTemperature),
+                          "consigna de piel"))
+    skinTempValue = st.desiredSkinTemperature;
+  if (st.language != (int)g_lang) {
+    // Only update if it's a valid change to avoid loops
+  }
+
+  // Sync internal hmi_msg to avoid sending "all OFF" on next user action
+  hmi_msg.actuation = effActuation;
+  hmi_msg.controlMode = effControlMode;
+  hmi_msg.desiredAirTemperature = airTempValue;
+  hmi_msg.desiredSkinTemperature = skinTempValue;
+  hmi_msg.desiredHumidity = humValue;
+  hmi_msg.phototherapyMode = effPhotoMode;
+  hmi_msg.muteAlarm = effMuteAlarm;
+  // hmi_msg.language = st.language; // REMOVIDO: No sobrescribir idioma local
+  hmi_msg.skinModeEnabled = restoreSkin;
+  hmi_msg.photoMinutesRemaining = st.photoMinutesRemaining;
+
+  // Restore Phototherapy Timer if active in received state
+  if (st.phototherapyMode && (st.photoMinutesRemaining > 0 || st.photoSecondsRemaining > 0)) {
+      if (!photoTimerActive) {
+          photoTimerActive = true;
+          
+          // Calculate total seconds remaining and elapsed
+          long totalSecondsRemaining = st.photoMinutesRemaining * SECONDS_PER_MINUTE + st.photoSecondsRemaining;
+          long totalSecondsOriginal = photoTimerMinutes * SECONDS_PER_MINUTE;
+          long elapsedSeconds = totalSecondsOriginal - totalSecondsRemaining;
+          
+          // Adjust start time to reflect elapsed time
+          photoTimerStartMs = millis() - (elapsedSeconds * MS_PER_SECOND);
+          
+          // Sync to avoid sending 0 back
+          hmi_msg.photoMinutesRemaining = st.photoMinutesRemaining;
+          
+          ESP_LOGI(TAG, "Phototherapy timer restored: %d:%02d remaining", 
+                   st.photoMinutesRemaining, st.photoSecondsRemaining);
+      }
+  }
+
+  if (st.controlMode == CONTROL_SKIN && restoreSkin) {
+    selectedPanel = SKIN_PANEL_SELECTED;
+    lastSelectedPanel = SKIN_PANEL_SELECTED;
+    if (ui_Switch4) lv_obj_add_state(ui_Switch4, LV_STATE_CHECKED);
+  } else {
+    selectedPanel = AIR_PANEL_SELECTED;
+    lastSelectedPanel = AIR_PANEL_SELECTED;
+  }
+
+  applyCtrlStateInfoAndAlarms(st);
+
+  UI_SyncAll();
+  LVGL_Unlock();
+  return true;
+}
+
+static void Display_StateSync_Service(void) {
+  if (g_stateSynced)
+    return;
+  uint32_t now = millis();
+  if (now - g_lastStateReqMs >= COMM_STATE_SYNC_MS) {
+    Communication_RequestState();
+    g_lastStateReqMs = now;
+  }
+  // UITask handles Display_ApplyCtrlState when ctrl_state_msg.newState == true
+}
+
+static void applyHMIData() {
+  if (!g_ui_initialized)
+    return;
+  taskENTER_CRITICAL(&g_telemetry_mux);
+  airTempValueDetected    = ctrl_tel_msg.detectedAirTemperature;
+  skinTempValueDetected   = ctrl_tel_msg.detectedSkinTemperature;
+  humValueDetected        = (int)ctrl_tel_msg.detectedHumidity;
+  g_pendingTelemetryApply = true;
+  taskEXIT_CRITICAL(&g_telemetry_mux);
+  // LVGL calls (update_labels, chart_add_*) have been moved to UITask — it
+  // consumes g_pendingTelemetryApply inside LVGL_Lock().
+}
+
+static void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
+  extern volatile bool g_pendingAlarmUpdate;
+  // --- MAPEO DIRECTO ID -> ÍNDICE ---
+  // El ID de la alarma (enum ALARMS_ID: 1..9) se usa directamente como índice en alarmList[].
+  // Esto elimina búsquedas, colisiones y duplicados garantizando que cada alarma
+  // ocupe siempre el mismo slot, independientemente del orden de llegada.
+  if (alarm.id <= 0 || alarm.id >= MAX_ALARMS) {
+    COMM_LOG("[COMM] Alarm ID %d fuera de rango, ignorando.\n", alarm.id);
+    return;
+  }
+
+  int index = alarm.id; // Slot determinista: ID 5 -> alarmList[5], ID 6 -> alarmList[6]
+
+  bool wasActive = alarmList[index].state;
+
+  // Actualizar slot con los datos recibidos
+  alarmList[index].id = alarm.id;
+  alarmList[index].priority = alarm.priority;
+  strncpy(alarmList[index].type, alarm.type, ALARM_TYPE_LEN - 1);
+  alarmList[index].type[ALARM_TYPE_LEN - 1] = '\0';
+  strncpy(alarmList[index].description, alarm.description, ALARM_DESC_LEN - 1);
+  alarmList[index].description[ALARM_DESC_LEN - 1] = '\0';
+  alarmList[index].state = alarm.state;
+
+  COMM_LOG("[COMM] Alarma ID %d (%s): %s -> %s\n",
+           alarm.id, alarm.type,
+           wasActive ? "ACTIVA" : "inactiva",
+           alarm.state ? "ACTIVA" : "inactiva");
+
+  // Si se activa una alarma nueva, desmutar
+  if (alarm.state && !wasActive) {
+    alarmsMuted = false;
+    hmi_msg.muteAlarm = 0;
+  }
+
+  if (!g_ui_initialized)
+    return;
+  g_pendingAlarmUpdate = true;
+  // AlarmSound_Update() moved to UITask — consumed in g_pendingAlarmUpdate handler
+}
+
+void Comm_Task(void *pvParameters) {
+  ESP_LOGI(TAG, "Communication Task Started");
+  // Segundo begin() sobre el mismo puerto: reutiliza el tamano de anillo de
+  // RX que setup() fijo con setRxBufferSize(COMM_RX_RING_BYTES) antes del
+  // PRIMER begin(). Cambiarlo aqui no serviria de nada (el driver ya esta
+  // instalado y setRxBufferSize() lo rechaza); ver el comentario en setup().
+  COMM_SERIAL.begin(COMM_BAUD_RATE);
+
+  Communication_SendBootInfo();
+  // Antes de pedir el estado: si la placa arranca sin red, cuanto antes tenga
+  // la semilla antes deja de haber registros sin fecha.
+  rtcSeedInit();
+  Communication_RequestState();
+  g_lastStateReqMs = millis();
+  s_lastCommPassMs = millis();
+
+  for (;;) {
+    // Contabilidad del enlace, antes de cualquier otra cosa: esta tarea es el
+    // unico oyente del cable, asi que su propia puntualidad es parte del dato.
+    // El descuento de Display_IsBoardLinkLost() cubre el paron MIENTRAS dura;
+    // este desplazamiento cubre el residuo de DESPUES, cuando el anillo de RX
+    // desbordo y no queda ninguna linea completa que estampar. Se reutiliza
+    // COMM_RX_TIMEOUT_MS porque ya significa exactamente esto — "cuanto ha
+    // tardado esta tarea en volver" — y no hace falta un numero nuevo.
+    {
+      const uint32_t nowPass = millis();
+      const uint32_t gap = (uint32_t)(nowPass - s_lastCommPassMs);
+      if (g_ctrlEverSeen && gap > (uint32_t)COMM_RX_TIMEOUT_MS) {
+        // Desplaza el plazo por la ventana no escuchada. Solo se perdona una
+        // ceguera MENOR que la ventana de silencio, por el mismo motivo que en
+        // Display_IsBoardLinkLost().
+        //
+        // Y el resultado se topa en nowPass. Aqui estaba el fallo: `gap` se
+        // mide desde la CABECERA de la pasada anterior, pero las lineas se
+        // estampan DENTRO de la pasada, asi que el sello puede ser posterior a
+        // esa cabecera y sumarle el hueco entero lo mandaba al FUTURO. Pasa
+        // siempre que la UI (prioridad 5) desaloja a esta tarea (3) a mitad de
+        // pasada y no le devuelve la CPU hasta pasados cientos de ms: la tarea
+        // arranca su pasada, se queda a medias, drena el cable al final y en la
+        // vuelta siguiente ve un hueco > COMM_RX_TIMEOUT_MS que ya estaba
+        // contado en el propio sello. Con el sello adelantado, la resta sin
+        // signo del detector daba la vuelta y salia un BOARD LINK LOST de unos
+        // ms —banner, cifras en blanco y pitido— con la placa hablando
+        // perfectamente. Banco 2026-09-10: reproducible en CADA desbloqueo,
+        // porque el repintado de la pantalla mas la construccion del pop-up de
+        // mantenimiento (QR incluido) son dos pasadas largas de UI seguidas.
+        if (gap <= (uint32_t)BOARD_LINK_TIMEOUT_MS) {
+          g_lastCtrlLineMs += gap;
+          if ((int32_t)(g_lastCtrlLineMs - nowPass) > 0)
+            g_lastCtrlLineMs = nowPass;
+        }
+        COMM_LOG("[COMM] %u ms sin drenar el cable\n", (unsigned)gap);
+      }
+      s_lastCommPassMs = nowPass;
+    }
+
+    Display_StateSync_Service();
+
+#if IS_HMI
+    // Sondeo de respaldo: recoge un cambio local (toque de switch, paso del
+    // asistente...) a los 10 ms como mucho. Ya NO es el unico armado ni el
+    // que importa para la carrera: el armado que cuenta esta en
+    // Display_ApplyCtrlState(), justo antes de consultar la guarda y en la
+    // misma tarea (ver el bloque largo alli). Este se queda porque deja
+    // `changedAtMs` en el instante real del cambio, que es de donde cuelga el
+    // plazo de seguridad de LOCAL_CMD_CONFIRM_TIMEOUT_MS.
+    trackLocalCmdGuard(&s_actuationGuard, hmi_msg.actuation);
+    trackLocalCmdGuard(&s_controlModeGuard, hmi_msg.controlMode);
+    trackLocalCmdGuard(&s_photoModeGuard, hmi_msg.phototherapyMode);
+    trackLocalCmdGuard(&s_muteAlarmGuard, hmi_msg.muteAlarm ? 1 : 0);
+    trackLocalCmdGuard(&s_skinModeGuard, hmi_msg.skinModeEnabled ? 1 : 0);
+    trackLocalCmdGuard(&s_airSetpointGuard,
+                       setpointKey(hmi_msg.desiredAirTemperature));
+    trackLocalCmdGuard(&s_skinSetpointGuard,
+                       setpointKey(hmi_msg.desiredSkinTemperature));
+#endif
+
+    if (ReceiveMessageFromOtherESP()) {
+      if (ctrl_msg_alarm.id != 0) {
+        processReceivedAlarm(ctrl_msg_alarm);
+        ctrl_msg_alarm.id = 0;
+        ctrl_msg_alarm.state = false;
+      } else if (error == false) {
+        applyHMIData();
+      }
+    }
+
+#if IS_HMI
+    // Keepalive de 1 Hz.
+    //
+    // Hasta ahora el display solo transmitia cuando algo cambiaba, asi que en
+    // la pantalla principal quieta podian pasar minutos sin una sola trama y
+    // el silencio no significaba nada. Sin un latido periodico la placa no
+    // puede distinguir "no hay novedades" de "el display esta muerto", y
+    // ALARM_HMI_LINK_LOST no era detectable.
+    //
+    // Una linea por segundo es del mismo orden que el CTRL,STATE que ya manda
+    // la placa; no es el trafico periodico evitable que preocupa en
+    // known_issues.md #2, que hablaba de rafagas por evento.
+    static uint32_t lastKeepaliveMs = 0;
+    const uint32_t nowMs = millis();
+    if ((uint32_t)(nowMs - lastKeepaliveMs) >= HMI_KEEPALIVE_PERIOD_MS) {
+      hmi_msg.shouldSendData = true;
+    }
+    // Fin de una leccion de formacion: el estado restaurado sale ya, no en el
+    // siguiente keepalive. El flag lo pone la UI y lo consume esta tarea, asi
+    // que shouldSendData solo se toca aqui.
+    if (Training_TakeForceSend()) hmi_msg.shouldSendData = true;
+    if (hmi_msg.shouldSendData) {
+      SendMessageToOtherESP();
+      hmi_msg.shouldSendData = false;
+      // El reloj se reinicia con CUALQUIER envio, no solo con el keepalive:
+      // una trama por cambio vale igual como latido y ahorra la siguiente.
+      lastKeepaliveMs = nowMs;
+    }
+#endif
+
+    vTaskDelay(pdMS_TO_TICKS(COMM_TASK_LOOP_MS));
+  }
+}
+
+void CreateCommTask() {
+  // El centinela de "sin prueba en curso" es 255, pero ctrl_state_msg se
+  // inicializa a CERO, y cero es ALARM_PRIORITY_LOW: una prioridad valida.
+  // Sin motherBoard conectada no llega ningun CTRL,STATE que lo corrija, asi
+  // que el display arrancaba creyendo que habia una prueba de alarmas
+  // corriendo y pintaba el banner "ALARM TEST" para siempre.
+  //
+  // Misma familia de fallo que el clearedEpoch del registro: un centinela que
+  // coincide con un valor legitimo. Aqui se rompe el empate poniendo el
+  // centinela de verdad antes de arrancar la tarea.
+  ctrl_state_msg.alarmTestPriority = ALARM_TEST_IDLE_HMI;
+
+  xTaskCreatePinnedToCore(Comm_Task, "Comm", COMM_TASK_STACK_SIZE, NULL,
+                          COMM_TASK_PRIORITY, &s_comm_task_handle, CORE_ID_FREERTOS);
+}
+
+TaskHandle_t CommTask_GetHandle(void) { return s_comm_task_handle; }

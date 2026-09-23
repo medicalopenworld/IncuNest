@@ -1,0 +1,1377 @@
+// Catalogo de cadenas de la interfaz. UNA linea por texto visible.
+//
+// Este fichero se incluye dos veces (X-macro): una en `i18n.h` para generar el
+// enum `ui_str_id_t`, y otra en `i18n.cpp` para generar la tabla. Por eso no
+// lleva guarda de inclusion y no debe contener nada mas que invocaciones de
+// UI_STR().
+//
+//   UI_STR(id, es, en, fr, pt)
+//
+// ANADIR UN IDIOMA = anadir una columna a TODAS las filas de este fichero, mas
+// la entrada correspondiente en el enum `ui_lang_t` de `i18n.h`. Ningun punto
+// de llamada cambia.
+//
+// El ingles es el idioma de reserva: si una celda queda vacia ("") o a NULL,
+// `UI_Str()` devuelve la columna inglesa en su lugar.
+//
+// El portugues es de Portugal (pt-PT), no de Brasil: "Humidade", "Definicoes",
+// "bebe", "Registo". El despliegue previsto comparte contexto con el frances.
+//
+// IMPORTANTE - juego de caracteres: las fuentes Montserrat integradas de LVGL
+// solo traen ASCII 32-126 (mas el grado y los iconos de FontAwesome). Cualquier
+// letra acentuada se pinta como caja vacia. Por eso todas las traducciones se
+// escriben SIN TILDES, enes ni cedillas ("CONTRASENA", "Prematurite",
+// "DEFINICOES"). Para usar acentos de verdad hay que generar una fuente propia
+// que incluya los rangos Latin-1 Supplement / Latin Extended-A; el portugues es
+// el idioma que peor lo lleva, porque pierde c-cedilla y las nasales.
+
+// ------------------------------------------------------- pantalla principal
+UI_STR(STR_TEMPERATURE,        "TEMPERATURA",  "TEMPERATURE", "TEMPERATURE", "TEMPERATURA")
+UI_STR(STR_HUMIDITY,           "HUMEDAD",      "HUMIDITY",    "HUMIDITE",    "HUMIDADE")
+UI_STR(STR_PHOTOTHERAPY,       "FOTOTERAPIA",  "PHOTOTHERAPY","PHOTOTHERAPIE","FOTOTERAPIA")
+UI_STR(STR_AIR,                "AIRE",         "AIR",         "AIR",         "AR")
+UI_STR(STR_SKIN,               "PIEL",         "SKIN",        "PEAU",        "PELE")
+UI_STR(STR_ON,                 "ON",           "ON",          "ON",          "ON")
+UI_STR(STR_OFF,                "OFF",          "OFF",         "OFF",         "OFF")
+UI_STR(STR_SET,                "AJUSTAR",      "SET",         "REGLER",      "DEFINIR")
+
+// ------------------------------------------------------- ajustes
+UI_STR(STR_SETTINGS,           "AJUSTES",      "SETTINGS",    "PARAMETRES",  "DEFINICOES")
+UI_STR(STR_LANGUAGE,           "IDIOMA",       "LANGUAGE",    "LANGUE",      "IDIOMA")
+UI_STR(STR_LANG_OPTIONS,       "ESPANOL\nINGLES\nFRANCES\nPORTUGUES",
+                               "SPANISH\nENGLISH\nFRENCH\nPORTUGUESE",
+                               "ESPAGNOL\nANGLAIS\nFRANCAIS\nPORTUGAIS",
+                               "ESPANHOL\nINGLES\nFRANCES\nPORTUGUES")
+UI_STR(STR_WIFI,               "WIFI",         "WIFI",        "WIFI",        "WIFI")
+UI_STR(STR_CONNECT,            "CONECTAR",     "CONNECT",     "CONNEXION",   "LIGAR")
+UI_STR(STR_SSID,               "SSID",         "SSID",        "SSID",        "SSID")
+UI_STR(STR_PASSWORD,           "CONTRASENA",   "PASSWORD",    "MOT DE PASSE","PALAVRA-PASSE")
+UI_STR(STR_SKIN_MODE,          "MODO PIEL",    "SKIN MODE",   "MODE PEAU",   "MODO PELE")
+UI_STR(STR_NO_SKIN_PROBE,      "SIN SONDA DE PIEL",
+                               "NO SKIN PROBE DETECTED",
+                               "SONDE PEAU ABSENTE",
+                               "SONDA DE PELE AUSENTE")
+UI_STR(STR_INFO,               "INFO",         "INFO",        "INFO",        "INFO")
+UI_STR(STR_DARK_MODE,          "MODO OSCURO",  "DARK MODE",   "MODE SOMBRE", "MODO ESCURO")
+UI_STR(STR_MODES,              "MODOS",        "MODES",       "MODES",       "MODOS")
+UI_STR(STR_HUMIDITY_CONTROL,   "CONTROL HUMEDAD",
+                               "HUMIDITY CONTROL",
+                               "CONTROLE HUMIDITE",
+                               "CONTROLO HUMIDADE")
+UI_STR(STR_HW_TEST,            "TEST DE HARDWARE",
+                               "HARDWARE TEST",
+                               "TEST MATERIEL",
+                               "TESTE DE HARDWARE")
+UI_STR(STR_HW_TEST_SUB,        "Apaga el control para testear",
+                               "Turn control off to test",
+                               "Arreter le controle pour tester",
+                               "Desliga o controlo para testar")
+// Rechazo comun de todo lo que en modo formacion tocaria el equipo de verdad
+// (NVS, WiFi, registros). Estaba repetido literal en tres sitios.
+UI_STR(STR_NOT_IN_TRAINING,    "No disponible en modo formacion",
+                               "Not available in training mode",
+                               "Indisponible en mode formation",
+                               "Indisponivel em modo formacao")
+UI_STR(STR_TRAINING_SELECT_ZOE,"En formacion, selecciona a ZOE",
+                               "In training, select ZOE",
+                               "En formation, selectionnez ZOE",
+                               "Em formacao, seleciona a ZOE")
+
+// ------------------------------------------------------- info / version
+UI_STR(STR_HMI_VERSION,        "VERSION PANTALLA:",
+                               "DISPLAY VERSION:",
+                               "VERSION ECRAN:",
+                               "VERSAO ECRA:")
+UI_STR(STR_MB_VERSION,         "VERSION PLACA:",
+                               "MOTHERBOARD VERSION:",
+                               "VERSION CARTE:",
+                               "VERSAO PLACA:")
+UI_STR(STR_SERIAL_NUMBER,      "S/N:",         "S/N:",        "S/N:",        "S/N:")
+UI_STR(STR_CONNECTIVITY,       "CONECTIVIDAD:","CONNECTIVITY:","CONNECTIVITE:","CONECTIVIDADE:")
+
+// ------------------------------------------------------- conectividad
+UI_STR(STR_CONN_DISCONNECTED,  "DESCONECTADO", "DISCONNECTED","DECONNECTE",  "SEM LIGACAO")
+UI_STR(STR_CONN_GPRS_ONLY,     "2G (SIN SERVER)",
+                               "2G (NO SERVER)",
+                               "2G (SANS SERVEUR)",
+                               "2G (SEM SERVIDOR)")
+UI_STR(STR_CONN_GPRS_SERVER,   "2G + SERVIDOR","2G + SERVER", "2G + SERVEUR","2G + SERVIDOR")
+UI_STR(STR_CONN_WIFI_ONLY,     "WIFI (SIN SERVER)",
+                               "WIFI (NO SERVER)",
+                               "WIFI (SANS SERVEUR)",
+                               "WIFI (SEM SERVIDOR)")
+UI_STR(STR_CONN_WIFI_SERVER,   "WIFI + SERVIDOR",
+                               "WIFI + SERVER",
+                               "WIFI + SERVEUR",
+                               "WIFI + SERVIDOR")
+UI_STR(STR_CONN_UNKNOWN,       "-",            "-",           "-",           "-")
+UI_STR(STR_NO_TIME,            "Sin hora",     "No time",     "Sans heure",  "Sem hora")
+
+// ------------------------------------------------------- graficas
+UI_STR(STR_HUM_CHART,          "GRAFICO HUMEDAD",
+                               "HUMIDITY CHART",
+                               "GRAPHIQUE HUMIDITE",
+                               "GRAFICO HUMIDADE")
+UI_STR(STR_AIR_TEMP_CHART,     "GRAFICO TEMPERATURA AIRE",
+                               "AIR TEMPERATURE CHART",
+                               "GRAPHIQUE TEMPERATURE AIR",
+                               "GRAFICO TEMPERATURA AR")
+UI_STR(STR_SKIN_TEMP_CHART,    "GRAFICO TEMPERATURA PIEL",
+                               "SKIN TEMPERATURE CHART",
+                               "GRAPHIQUE TEMPERATURE PEAU",
+                               "GRAFICO TEMPERATURA PELE")
+UI_STR(STR_OXI_CHART,          "GRAFICO OXIMETRIA",
+                               "OXIMETRY CHART",
+                               "GRAPHIQUE OXIMETRIE",
+                               "GRAFICO OXIMETRIA")
+UI_STR(STR_PULSE_OXIMETRY,     "PULSIOXIMETRIA",
+                               "PULSE OXIMETRY",
+                               "PULSIOXYMETRIE",
+                               "OXIMETRIA DE PULSO")
+
+// ------------------------------------------------------- lecturas
+UI_STR(STR_AIR_TEMP_COLON,     "TEMPERATURA AIRE:",
+                               "AIR TEMPERATURE:",
+                               "TEMPERATURE AIR:",
+                               "TEMPERATURA AR:")
+UI_STR(STR_BABY_TEMP_COLON,    "TEMPERATURA BEBE:",
+                               "BABY TEMPERATURE:",
+                               "TEMPERATURE BEBE:",
+                               "TEMPERATURA BEBE:")
+UI_STR(STR_HUM_COLON,          "HUMEDAD:",     "HUMIDITY:",   "HUMIDITE:",   "HUMIDADE:")
+UI_STR(STR_TARGET_TEMP,        "TEMP. OBJETIVO:",
+                               "TARGET TEMP:",
+                               "TEMP. OBJECTIF:",
+                               "TEMP. ALVO:")
+UI_STR(STR_TARGET_HUM,         "HUMEDAD OBJETIVO:",
+                               "TARGET HUMIDITY:",
+                               "HUMIDITE OBJECTIF:",
+                               "HUMIDADE ALVO:")
+UI_STR(STR_STATUS_COLON,       "ESTADO:",      "STATUS:",     "ETAT:",       "ESTADO:")
+
+// ------------------------------------------------------- pantalla de bloqueo
+UI_STR(STR_UNLOCK_HINT,        "PRESIONA 2 SEG\nPARA DESBLOQUEAR",
+                               "PRESS 2 SEC \nTO UNLOCK",
+                               "APPUYEZ 2 SEG\nPOUR DEVERROUILLER",
+                               "PRIMA 2 SEG\nPARA DESBLOQUEAR")
+UI_STR(STR_PHOTO_LOCK,         "FOTOTERAPIA:", "PHOTOTHERAPY:","PHOTOTHERAPIE:","FOTOTERAPIA:")
+UI_STR(STR_TREND_UC,           "TENDENCIA",    "TREND",       "TENDANCE",    "TENDENCIA")
+UI_STR(STR_BABIES,             "Bebes",        "Babies",      "Bebes",       "Bebes")
+
+// ------------------------------------------------------- fototerapia
+UI_STR(STR_PHOTO_START,        "EMPEZAR",      "START",       "DEMARRER",    "INICIAR")
+UI_STR(STR_PHOTO_RUNNING,      "EJECUTANDO",   "RUNNING",     "EN COURS",    "A DECORRER")
+UI_STR(STR_PHOTO_SAFETY_TITLE, "PROTECCION OCULAR OBLIGATORIA",
+                               "EYE PROTECTION REQUIRED",
+                               "PROTECTION OCULAIRE OBLIGATOIRE",
+                               "PROTECAO OCULAR OBRIGATORIA")
+UI_STR(STR_PHOTO_SAFETY_BODY,
+       "Coloque proteccion ocular al paciente\nantes de activar la fototerapia.",
+       "Protect the patient's eyes with eye\nshields before activating phototherapy.",
+       "Protegez les yeux du patient avec des\nlunettes adaptees avant d'activer\nla phototherapie.",
+       "Coloque protecao ocular no paciente\nantes de ativar a fototerapia.")
+UI_STR(STR_PHOTO_SAFETY_TURN_ON, "ENCENDER",   "TURN ON",     "ACTIVER",     "LIGAR")
+
+// ------------------------------------------------------- modo piel
+UI_STR(STR_SKIN_MODE_UNAVAILABLE,
+       "Modo piel no disponible:\nConecte la sonda de temperatura",
+       "Skin mode unavailable:\nConnect the skin temperature probe",
+       "Mode peau indisponible:\nConnectez la sonde de temperature",
+       "Modo pele indisponivel:\nLigue a sonda de temperatura")
+UI_STR(STR_SKIN_NO_AUTO_RANGE_TOAST,
+       "Modo piel activo sin rango automatico (sin peso)",
+       "Skin mode active, no automatic range (no weight)",
+       "Mode peau actif, sans plage automatique (sans poids)",
+       "Modo pele ativo sem intervalo automatico (sem peso)")
+
+// ------------------------------------------------------- alarmas (pantallas)
+UI_STR(STR_ALARMS_UC,          "ALARMAS",      "ALARMS",      "ALARMES",     "ALARMES")
+UI_STR(STR_VIEW_DETAILS,       "VER DETALLES", "VIEW DETAILS","VOIR DETAILS","VER DETALHES")
+UI_STR(STR_ALARMS_DESC,        "DESCRIPCION DE ALARMAS",
+                               "ALARMS DESCRIPTION",
+                               "DESCRIPTION DES ALARMES",
+                               "DESCRICAO DOS ALARMES")
+UI_STR(STR_HEATER_ERROR_RESTART,
+       "Error calentador\nToque para mas informacion",
+       "Heater error\nTouch for more information",
+       "Erreur chauffage\nToucher pour plus d'infos",
+       "Erro do aquecedor\nToque para mais informacao")
+UI_STR(STR_HEATER_ERROR_DESC,
+       "Hay un problema con el ventilador / calefactor: \n\n 1. Pruebe a "
+       "desconectar y conectar el calefactor y posteriormente reinicie "
+       "incubadora\n\n 2. Si no funciona el paso 1, arregle el calefactor.",
+       "There is a problem with the fan / heater:\n\n 1. Try unplugging and "
+       "plugging in the heater and then restart the incubator\n\n 2. If step 1 "
+       "doesn't work, fix the heater.",
+       "Il y a un probleme avec le ventilateur / chauffage :\n\n 1. Essayez de "
+       "debrancher et de brancher le chauffage et redemarrez l'incubateur\n\n "
+       "2. Si le pas 1 ne fonctionne pas, reparez le chauffage.",
+       "Ha um problema com a ventoinha / aquecedor:\n\n 1. Experimente "
+       "desligar e ligar o aquecedor e depois reinicie a incubadora\n\n "
+       "2. Se o passo 1 nao resultar, repare o aquecedor.")
+
+// Banner de la pantalla de bloqueo
+UI_STR(STR_BOARD_LINK_LOST,    "!! SIN ENLACE CON LA PLACA",
+                               "!! BOARD LINK LOST",
+                               "!! LIAISON CARTE PERDUE",
+                               "!! SEM LIGACAO A PLACA")
+UI_STR(STR_ALARM_TEST,         "PRUEBA DE ALARMA","ALARM TEST","TEST D'ALARME","TESTE DE ALARME")
+
+// ------------------------------------------------------- centro de alarmas
+UI_STR(STR_PRIO_HIGH,          "ALTA",         "HIGH",        "HAUTE",       "ALTA")
+UI_STR(STR_PRIO_MEDIUM,        "MEDIA",        "MEDIUM",      "MOYENNE",     "MEDIA")
+UI_STR(STR_PRIO_LOW,           "BAJA",         "LOW",         "BASSE",       "BAIXA")
+UI_STR(STR_ALARM_ACTIVE_NO_TEST,
+       "Hay una alarma activa:\nno se puede probar ahora",
+       "An alarm is active:\ncannot test now",
+       "Une alarme est active:\ntest impossible",
+       "Ha um alarme ativo:\nnao e possivel testar agora")
+UI_STR(STR_TESTING_ALARM_SIGNALS,
+       "Probando senales de alarma...",
+       "Testing alarm signals...",
+       "Test des signaux d'alarme...",
+       "A testar sinais de alarme...")
+UI_STR(STR_ALARM_SILENCED,     "Alarma silenciada",
+                               "Alarm silenced",
+                               "Alarme silencee",
+                               "Alarme silenciado")
+UI_STR(STR_LOADING,            "Cargando...",  "Loading...",  "Chargement...","A carregar...")
+UI_STR(STR_ALARMS,             "Alarmas",      "Alarms",      "Alarmes",     "Alarmes")
+UI_STR(STR_TEST_UC,            "PROBAR",       "TEST",        "TESTER",      "TESTAR")
+UI_STR(STR_ACTIVE_F,           "Activas",      "Active",      "Actives",     "Ativos")
+UI_STR(STR_AUDIO_PAUSED,       "AUDIO EN PAUSA","AUDIO PAUSED","AUDIO EN PAUSE","AUDIO EM PAUSA")
+UI_STR(STR_ONGOING,            "en curso",     "ongoing",     "en cours",    "em curso")
+UI_STR(STR_CANNOT_SILENCE,     "NO SILENCIABLE","CANNOT SILENCE","NON SILENCABLE","NAO SILENCIAVEL")
+UI_STR(STR_RESUME_UC,          "REANUDAR",     "RESUME",      "REPRENDRE",   "RETOMAR")
+UI_STR(STR_SILENCE_UC,         "SILENCIAR",    "SILENCE",     "SILENCE",     "SILENCIAR")
+UI_STR(STR_ACK_RESET_UC,       "RECONOCER",    "ACKNOWLEDGE", "ACQUITTER",   "RECONHECER")
+UI_STR(STR_NO_ACTIVE_ALARMS,   "Sin alarmas activas",
+                               "No active alarms",
+                               "Aucune alarme active",
+                               "Sem alarmes ativos")
+UI_STR(STR_LOG,                "Registro",     "Log",         "Journal",     "Registo")
+UI_STR(STR_NO_ALARMS_RECORDED, "Todavia no ha saltado ninguna alarma",
+                               "No alarms recorded yet",
+                               "Aucune alarme enregistree",
+                               "Ainda nao ocorreu nenhum alarme")
+UI_STR(STR_UNRESOLVED,         "sin resolver", "unresolved",  "non resolue", "por resolver")
+UI_STR(STR_RESOLVED,           "resuelta",     "resolved",    "resolue",     "resolvido")
+UI_STR(STR_CLOSE_UC,           "CERRAR",       "CLOSE",       "FERMER",      "FECHAR")
+UI_STR(STR_COULD_NOT_READ_LOG, "No se pudo leer el registro",
+                               "Could not read the log",
+                               "Impossible de lire le journal",
+                               "Nao foi possivel ler o registo")
+UI_STR(STR_DESC_UNAVAILABLE,   "Descripcion no disponible",
+                               "Description unavailable",
+                               "Description indisponible",
+                               "Descricao indisponivel")
+
+// ------------------------------------------------------- salida del bebe
+UI_STR(STR_EXIT_IDLE_NAMED_FMT,"Incubadora en reposo\n%s ha salido:",
+                               "Incubator idle\n%s has come out:",
+                               "Incubateur au repos\n%s est sorti:",
+                               "Incubadora em repouso\n%s saiu:")
+UI_STR(STR_EXIT_IDLE_ANON,     "Incubadora en reposo\nEl bebe ha salido:",
+                               "Incubator idle\nThe baby has come out:",
+                               "Incubateur au repos\nLe bebe est sorti:",
+                               "Incubadora em repouso\nO bebe saiu:")
+UI_STR(STR_WITH_THE_MOTHER,    "CON LA MADRE", "WITH THE MOTHER","AVEC LA MERE","COM A MAE")
+UI_STR(STR_DISCHARGE_UC,       "ALTA",         "DISCHARGE",   "SORTIE",      "ALTA")
+UI_STR(STR_REASON_FOR_DISCHARGE,"Motivo del alta",
+                               "Reason for discharge",
+                               "Motif de la sortie",
+                               "Motivo da alta")
+UI_STR(STR_OUTCOME_SURVIVED_UC,"SOBREVIVIO",   "SURVIVED",    "A SURVECU",   "SOBREVIVEU")
+UI_STR(STR_OUTCOME_DIED_UC,    "NO SOBREVIVIO","DID NOT SURVIVE","N'A PAS SURVECU","NAO SOBREVIVEU")
+UI_STR(STR_OUTCOME_TRANSFER_UC,"TRASLADADO",   "TRANSFERRED", "TRANSFERE",   "TRANSFERIDO")
+UI_STR(STR_OUTCOME_UNKNOWN_UC, "DESCONOCIDO",  "UNKNOWN",     "INCONNU",     "DESCONHECIDO")
+UI_STR(STR_CAUSE_OF_DEATH,     "Causa del fallecimiento",
+                               "Cause of death",
+                               "Cause du deces",
+                               "Causa da morte")
+
+// Causas de fallecimiento, version de boton (mayusculas)
+UI_STR(STR_CAUSE_PREMATURITY_UC,"PREMATURIDAD","PREMATURITY", "PREMATURITE", "PREMATURIDADE")
+UI_STR(STR_CAUSE_ASPHYXIA_UC,  "ASFIXIA PERINATAL",
+                               "PERINATAL ASPHYXIA",
+                               "ASPHYXIE PERINATALE",
+                               "ASFIXIA PERINATAL")
+UI_STR(STR_CAUSE_SEPSIS_UC,    "SEPSIS / INFECCION",
+                               "SEPSIS / INFECTION",
+                               "SEPSIS / INFECTION",
+                               "SEPSE / INFECAO")
+UI_STR(STR_CAUSE_MALFORMATION_UC,"MALFORMACION CONGENITA",
+                               "CONGENITAL MALFORMATION",
+                               "MALFORMATION CONGENITALE",
+                               "MALFORMACAO CONGENITA")
+UI_STR(STR_CAUSE_HYPOTHERMIA_UC,"HIPOTERMIA",  "HYPOTHERMIA", "HYPOTHERMIE", "HIPOTERMIA")
+UI_STR(STR_CAUSE_OTHER_UC,     "OTRA / DESCONOCIDA",
+                               "OTHER / UNKNOWN",
+                               "AUTRE / INCONNUE",
+                               "OUTRA / DESCONHECIDA")
+
+// ------------------------------------------------------- historial de bebes
+UI_STR(STR_OUTCOME_SURVIVED,   "Sobrevivio",   "Survived",    "A survecu",   "Sobreviveu")
+UI_STR(STR_OUTCOME_DIED,       "No sobrevivio","Deceased",    "Decede",      "Falecido")
+UI_STR(STR_OUTCOME_TRANSFER,   "Trasladado",   "Transferred", "Transfere",   "Transferido")
+UI_STR(STR_OUTCOME_UNKNOWN,    "Desconocido",  "Unknown",     "Inconnu",     "Desconhecido")
+UI_STR(STR_CAUSE_PREMATURITY,  "Prematuridad", "Prematurity", "Prematurite", "Prematuridade")
+UI_STR(STR_CAUSE_ASPHYXIA,     "Asfixia perinatal",
+                               "Perinatal asphyxia",
+                               "Asphyxie perinatale",
+                               "Asfixia perinatal")
+UI_STR(STR_CAUSE_SEPSIS,       "Sepsis/infeccion",
+                               "Sepsis/infection",
+                               "Sepsis/infection",
+                               "Sepse/infecao")
+UI_STR(STR_CAUSE_MALFORMATION, "Malformacion congenita",
+                               "Congenital malformation",
+                               "Malformation congenitale",
+                               "Malformacao congenita")
+UI_STR(STR_CAUSE_HYPOTHERMIA,  "Hipotermia",   "Hypothermia", "Hypothermie", "Hipotermia")
+UI_STR(STR_CAUSE_OTHER,        "Otra",         "Other",       "Autre",       "Outra")
+UI_STR(STR_CAUSE_UNKNOWN_F,    "Desconocida",  "Unknown",     "Inconnue",    "Desconhecida")
+UI_STR(STR_ACTIVE_M,           "Activos",      "Active",      "Actifs",      "Ativos")
+UI_STR(STR_NO_ACTIVE_BABIES,   "Sin bebes activos",
+                               "No active babies",
+                               "Aucun bebe actif",
+                               "Sem bebes ativos")
+UI_STR(STR_BABY_ROW_ACTIVE_FMT,
+       "%s  -  EG %u  -  %s\nCanguro %u\nFoto %s  -  Termo %s  -  Hum %s",
+       "%s  -  GA %u  -  %s\nKangaroo %u\nPhoto %s  -  Thermo %s  -  Hum %s",
+       "%s  -  AG %u  -  %s\nKangourou %u\nPhoto %s  -  Thermo %s  -  Hum %s",
+       "%s  -  IG %u  -  %s\nCanguru %u\nFoto %s  -  Termo %s  -  Hum %s")
+UI_STR(STR_HISTORY,            "Historial",    "History",     "Historique",  "Historico")
+UI_STR(STR_NO_BABIES_DISCHARGED,"Aun no se ha dado de alta a ningun bebe",
+                               "No babies discharged yet",
+                               "Aucun bebe encore sorti",
+                               "Ainda nao foi dada alta a nenhum bebe")
+UI_STR(STR_BABY_ROW_ARCHIVED_FMT,
+       "%s  -  EG %u  -  %s  -  %s\nCanguro %u\nFoto %s  -  Termo %s  -  Hum %s",
+       "%s  -  GA %u  -  %s  -  %s\nKangaroo %u\nPhoto %s  -  Thermo %s  -  Hum %s",
+       "%s  -  AG %u  -  %s  -  %s\nKangourou %u\nPhoto %s  -  Thermo %s  -  Hum %s",
+       "%s  -  IG %u  -  %s  -  %s\nCanguru %u\nFoto %s  -  Termo %s  -  Hum %s")
+UI_STR(STR_DISCHARGE_OUTCOME,  "Dar de alta - resultado:",
+                               "Discharge - outcome:",
+                               "Sortie - resultat:",
+                               "Dar alta - resultado:")
+UI_STR(STR_CANCEL_UC,          "CANCELAR",     "CANCEL",      "ANNULER",     "CANCELAR")
+UI_STR(STR_WEIGHT_EVOLUTION,   "Evolucion de peso",
+                               "Weight evolution",
+                               "Evolution du poids",
+                               "Evolucao do peso")
+UI_STR(STR_BACK_UC,            "ATRAS",        "BACK",        "RETOUR",      "VOLTAR")
+UI_STR(STR_NO_WEIGHT_DATA,     "Sin datos de peso",
+                               "No weight data",
+                               "Pas de donnees de poids",
+                               "Sem dados de peso")
+UI_STR(STR_DAY_OF_LIFE,        "dia de vida",  "day of life", "jour de vie", "dia de vida")
+UI_STR(STR_MEASUREMENT,        "medida",       "measurement", "mesure",      "medicao")
+UI_STR(STR_NO_BOARD_RESPONSE,  "Sin respuesta de la placa",
+                               "No response from board",
+                               "Pas de reponse de la carte",
+                               "Sem resposta da placa")
+UI_STR(STR_COULD_NOT_FETCH_HISTORY,
+                               "No se pudo consultar el historial",
+                               "Could not fetch history",
+                               "Impossible de recuperer l'historique",
+                               "Nao foi possivel consultar o historico")
+UI_STR(STR_DISCHARGE_REFUSED,  "Alta rechazada","Discharge refused","Sortie refusee","Alta recusada")
+UI_STR(STR_BABY_DISCHARGED,    "Bebe dado de alta","Baby discharged","Bebe sorti","Bebe com alta")
+// Registro de un bebe nuevo desde la pantalla Bebes (BEBE NUEVO).
+UI_STR(STR_REGISTER_UC,        "REGISTRAR",    "REGISTER",    "ENREGISTRER", "REGISTAR")
+UI_STR(STR_ADMISSION_WEIGHT_G, "Peso al ingreso (gramos)",
+                               "Admission weight (grams)",
+                               "Poids a l'admission (grammes)",
+                               "Peso na admissao (gramas)")
+UI_STR(STR_BABY_REGISTERED,    "Bebe registrado",
+                               "Baby registered",
+                               "Bebe enregistre",
+                               "Bebe registado")
+UI_STR(STR_REGISTER_REFUSED,   "Registro rechazado por la placa",
+                               "Registration refused by the board",
+                               "Enregistrement refuse par la carte",
+                               "Registo recusado pela placa")
+UI_STR(STR_THREE_ACTIVE_DISCHARGE_FIRST,
+       "Ya hay 3 bebes activos: da de alta a uno antes",
+       "3 babies already active: discharge one first",
+       "Deja 3 bebes actifs : faites-en sortir un d'abord",
+       "Ja ha 3 bebes ativos: da alta a um primeiro")
+
+// ------------------------------------------------------- asistente de bebe
+UI_STR(STR_CONTINUE_UC,        "CONTINUAR",    "CONTINUE",    "CONTINUER",   "CONTINUAR")
+UI_STR(STR_SKIP_UC,            "SALTAR",       "SKIP",        "PASSER",      "IGNORAR")
+UI_STR(STR_APPLY_UC,           "APLICAR",      "APPLY",       "APPLIQUER",   "APLICAR")
+UI_STR(STR_VALUE_BETWEEN_FMT,  "Introduce un valor entre %u y %u",
+                               "Enter a value between %u and %u",
+                               "Entrez une valeur entre %u et %u",
+                               "Introduza um valor entre %u e %u")
+UI_STR(STR_LOADING_BABIES,     "Cargando bebes...",
+                               "Loading babies...",
+                               "Chargement des bebes...",
+                               "A carregar bebes...")
+UI_STR(STR_NEW_OR_EXISTING,    "Bebe nuevo o existente",
+                               "New or existing baby",
+                               "Bebe nouveau ou existant",
+                               "Bebe novo ou existente")
+UI_STR(STR_NEW_BABY_UC,        "BEBE NUEVO",   "NEW BABY",    "NOUVEAU BEBE","BEBE NOVO")
+UI_STR(STR_ENTER_A_NAME,       "Introduce un nombre",
+                               "Enter a name",
+                               "Entrez un nom",
+                               "Introduza um nome")
+UI_STR(STR_BABY_NAME,          "Nombre del bebe","Baby name", "Nom du bebe", "Nome do bebe")
+UI_STR(STR_LETTERS_ONLY,       "Solo letras",  "Letters only","Lettres uniquement","Apenas letras")
+UI_STR(STR_GEST_AGE_WEEKS,     "Edad gestacional (semanas)",
+                               "Gestational age (weeks)",
+                               "Age gestationnel (semaines)",
+                               "Idade gestacional (semanas)")
+UI_STR(STR_CURRENT_WEIGHT_G,   "Peso actual (gramos)",
+                               "Current weight (grams)",
+                               "Poids actuel (grammes)",
+                               "Peso atual (gramas)")
+UI_STR(STR_NO_WEIGHT_UC,       "SIN PESO",     "NO WEIGHT",   "SANS POIDS",  "SEM PESO")
+UI_STR(STR_AGE_IN_DAYS,        "Edad en dias (sin hora sincronizada)",
+                               "Age in days (no synced time)",
+                               "Age en jours (heure non sync.)",
+                               "Idade em dias (hora nao sincronizada)")
+UI_STR(STR_SUMMARY,            "Resumen",      "Summary",     "Resume",      "Resumo")
+UI_STR(STR_PLACE_SKIN_SENSOR,  "Coloca el sensor de piel asi",
+                               "Place the skin sensor like this",
+                               "Placez le capteur cutane ainsi",
+                               "Coloque o sensor de pele assim")
+UI_STR(STR_PROPOSED_AIR_TEMP,  "Temperatura de aire propuesta",
+                               "Proposed air temperature",
+                               "Temperature d'air proposee",
+                               "Temperatura de ar proposta")
+UI_STR(STR_RANGE_FMT,          "rango %.1f - %.1f C",
+                               "range %.1f - %.1f C",
+                               "plage %.1f - %.1f C",
+                               "intervalo %.1f - %.1f C")
+UI_STR(STR_NO_RANGE_SKIN_BLOCKED,
+       "Sin rango automatico: el modo PIEL no se puede activar.",
+       "No automatic range: SKIN mode cannot be activated.",
+       "Pas de plage automatique : le mode PEAU ne peut pas etre active.",
+       "Sem intervalo automatico: o modo PELE nao pode ser ativado.")
+UI_STR(STR_NO_RANGE_AIR_MANUAL,
+       "Sin rango automatico (peso no informado).\nEl modo AIRE arrancara en manual.",
+       "No automatic range (weight not provided).\nAIR mode will start in manual.",
+       "Pas de plage automatique (poids non fourni).\nLe mode AIR demarrera en manuel.",
+       "Sem intervalo automatico (peso nao indicado).\nO modo AR arranca em manual.")
+// El asistente y el historial dan mensajes distintos en ingles para el mismo
+// fallo de consulta ("baby history" vs "history"): se conservan tal cual.
+UI_STR(STR_COULD_NOT_FETCH_BABY_HISTORY,
+       "No se pudo consultar el historial",
+       "Could not fetch baby history",
+       "Impossible de recuperer l'historique",
+       "Nao foi possivel consultar o historico do bebe")
+UI_STR(STR_OPERATION_REFUSED,  "Operacion rechazada, intentelo de nuevo",
+                               "Operation refused, try again",
+                               "Operation refusee, reessayez",
+                               "Operacao recusada, tente novamente")
+
+// ------------------------------------------------------- ajuste de hora
+UI_STR(STR_ADJUST_TIME_UC,     "AJUSTAR HORA", "ADJUST TIME", "AJUSTER L'HEURE","ACERTAR HORA")
+UI_STR(STR_DATE_TIME_HINT,     "DD/MM/AA  HH:MM",
+                               "DD/MM/YY  HH:MM",
+                               "JJ/MM/AA  HH:MM",
+                               "DD/MM/AA  HH:MM")
+UI_STR(STR_CLEAR_UC,           "BORRAR",       "CLEAR",       "EFFACER",     "LIMPAR")
+UI_STR(STR_FILL_DATE_TIME,     "Completa la fecha y la hora",
+                               "Fill in the whole date and time",
+                               "Completez la date et l'heure",
+                               "Preencha a data e a hora")
+UI_STR(STR_MONTH_OUT_OF_RANGE, "Mes fuera de rango (01-12)",
+                               "Month out of range (01-12)",
+                               "Mois hors plage (01-12)",
+                               "Mes fora do intervalo (01-12)")
+UI_STR(STR_YEAR_OUT_OF_RANGE_FMT,
+                               "Ano fuera de rango (%02d-%02d)",
+                               "Year out of range (%02d-%02d)",
+                               "Annee hors plage (%02d-%02d)",
+                               "Ano fora do intervalo (%02d-%02d)")
+UI_STR(STR_DAY_OUT_OF_RANGE_FMT,
+                               "Dia fuera de rango (01-%02u)",
+                               "Day out of range (01-%02u)",
+                               "Jour hors plage (01-%02u)",
+                               "Dia fora do intervalo (01-%02u)")
+UI_STR(STR_HOUR_OUT_OF_RANGE,  "Hora fuera de rango (00-23)",
+                               "Hour out of range (00-23)",
+                               "Heure hors plage (00-23)",
+                               "Hora fora do intervalo (00-23)")
+UI_STR(STR_MINUTE_OUT_OF_RANGE,"Minuto fuera de rango (00-59)",
+                               "Minute out of range (00-59)",
+                               "Minute hors plage (00-59)",
+                               "Minuto fora do intervalo (00-59)")
+UI_STR(STR_SENDING,            "Enviando...",  "Sending...",  "Envoi...",    "A enviar...")
+UI_STR(STR_TIME_SET,           "Hora ajustada","Time set",    "Heure ajustee","Hora acertada")
+UI_STR(STR_TIME_REJECTED,      "Hora rechazada","Time rejected","Heure rejetee","Hora recusada")
+
+// ------------------------------------------------------- tendencia
+UI_STR(STR_TREND,              "Tendencia",    "Trend",       "Tendance",    "Tendencia")
+
+// ------------------------------------------------- cursos de formacion (motor)
+UI_STR(STR_TRAIN_BANNER_REAL,  "FORMACION: LA INCUBADORA CALIENTA E ILUMINA DE "
+                               "VERDAD. CABINA VACIA. Bebe de practica ZOE.",
+                               "TRAINING: THE INCUBATOR REALLY HEATS AND LIGHTS "
+                               "UP. EMPTY CABIN. Practice baby ZOE.",
+                               "FORMATION : LA COUVEUSE CHAUFFE ET S'ALLUME "
+                               "VRAIMENT. HABITACLE VIDE. Bebe d'entrainement "
+                               "ZOE.",
+                               "FORMACAO: A INCUBADORA AQUECE E ILUMINA A "
+                               "SERIO. CABINA VAZIA. Bebe de pratica ZOE.")
+UI_STR(STR_TRAIN_BANNER_DEMO,  "DEMOSTRACION: hay terapia o alarma activa, sin "
+                               "cambios en el equipo",
+                               "DEMO: therapy or alarm active, nothing changes "
+                               "on the device",
+                               "DEMONSTRATION : therapie ou alarme active, rien "
+                               "ne change",
+                               "DEMONSTRACAO: ha terapia ou alarme ativa, sem "
+                               "alteracoes no equipamento")
+UI_STR(STR_TRAIN_BANNER_PLAIN, "TUTORIAL",     "TUTORIAL",    "TUTORIEL",    "TUTORIAL")
+UI_STR(STR_TRAIN_CORRECT,      "Correcto.",    "Correct.",    "Correct.",    "Correto.")
+UI_STR(STR_TRAIN_WRONG,        "No es eso.",   "Not quite.",  "Pas tout a fait.","Nao e isso.")
+UI_STR(STR_TRAIN_DEMO_PREFIX,  "Demostracion:","Demo:",       "Demonstration :","Demonstracao:")
+UI_STR(STR_TRAIN_YOUR_TURN,    "Hazlo tu: toca el control resaltado.",
+                               "Your turn: touch the highlighted control.",
+                               "A vous : touchez la commande en surbrillance.",
+                               "Fa-lo tu: toca no comando realcado.")
+UI_STR(STR_TRAIN_DEMO_TOAST,   "Hay terapia o alarma activa: leccion en "
+                               "demostracion, no cuenta como superada",
+                               "Therapy or alarm active: demo lesson, does not "
+                               "count as passed",
+                               "Therapie ou alarme active : lecon en "
+                               "demonstration, ne compte pas",
+                               "Ha terapia ou alarme ativa: licao em "
+                               "demonstracao, nao conta como superada")
+
+// ------------------------------------------------------- test de fabrica
+//
+// Nombres y descripciones de cada prueba, en el orden de la tabla de
+// FactoryTest.cpp. Son terminos de banco (no los ve el personal clinico),
+// pero se traducen igual: el test lo pasa tambien el tecnico en destino.
+UI_STR(STR_FT_SYSINFO,         "Info sistema", "System info", "Info systeme","Info sistema")
+UI_STR(STR_FT_I2C,             "Bus I2C",      "I2C bus",     "Bus I2C",     "Bus I2C")
+UI_STR(STR_FT_WIFI,            "WiFi",         "WiFi",        "WiFi",        "WiFi")
+UI_STR(STR_FT_NVS,             "Memoria NVS",  "NVS memory",  "Memoire NVS", "Memoria NVS")
+UI_STR(STR_FT_BOARDLINK,       "Enlace placa", "Board link",  "Liaison carte","Ligacao placa")
+UI_STR(STR_FT_SYSINFO_D,       "Flash, PSRAM y memoria libre del display",
+                               "Display flash, PSRAM and free heap",
+                               "Flash, PSRAM et memoire libre de l'ecran",
+                               "Flash, PSRAM e memoria livre do ecra")
+UI_STR(STR_FT_I2C_D,           "Bus I2C del display (tactil y retroiluminacion)",
+                               "Display I2C bus (touch and backlight)",
+                               "Bus I2C de l'ecran (tactile et retroeclairage)",
+                               "Bus I2C do ecra (tatil e retroiluminacao)")
+UI_STR(STR_FT_WIFI_D,          "Conexion WiFi del display",
+                               "Display WiFi connection",
+                               "Connexion WiFi de l'ecran",
+                               "Ligacao WiFi do ecra")
+UI_STR(STR_FT_NVS_D,           "Memoria NVS del display",
+                               "Display NVS memory",
+                               "Memoire NVS de l'ecran",
+                               "Memoria NVS do ecra")
+UI_STR(STR_FT_BOARDLINK_D,     "Enlace serie con la placa",
+                               "Serial link to the board",
+                               "Liaison serie avec la carte",
+                               "Ligacao serie com a placa")
+UI_STR(STR_FT_CURRENT,         "Sensor corriente","Current sensor","Capteur courant","Sensor corrente")
+UI_STR(STR_FT_STANDBY,         "Consumo reposo","Standby current","Consommation veille","Consumo repouso")
+UI_STR(STR_FT_CHARGER,         "Cargador",     "Charger",     "Chargeur",    "Carregador")
+UI_STR(STR_FT_PWRSRC,          "Fuente alimentacion","Power source","Source alimentation","Fonte alimentacao")
+UI_STR(STR_FT_SKINPROBE,       "Sonda piel",   "Skin probe",  "Sonde peau",  "Sonda pele")
+UI_STR(STR_FT_AMBIENT,         "Sensor ambiental","Ambient sensor","Capteur ambiant","Sensor ambiental")
+UI_STR(STR_FT_SB_STATUS,       "Estado SensorBoard","SensorBoard status","Etat SensorBoard","Estado SensorBoard")
+UI_STR(STR_FT_SB_ENV,          "Ambiente SensorBoard","SensorBoard env","Environnement SensorBoard","Ambiente SensorBoard")
+UI_STR(STR_FT_DOOR,            "Puerta",       "Door",        "Porte",       "Porta")
+UI_STR(STR_FT_LIGHT,           "Sensor luz",   "Light sensor","Capteur lumiere","Sensor luz")
+UI_STR(STR_FT_CAMERA,          "Camara",       "Camera",      "Camera",      "Camara")
+UI_STR(STR_FT_ACTUATORS,       "Actuadores",   "Actuators",   "Actionneurs", "Atuadores")
+UI_STR(STR_FT_FANRPM,          "RPM ventilador","Fan RPM",    "RPM ventilateur","RPM ventilador")
+UI_STR(STR_FT_HUMUSB,          "Humidificador USB","Humidifier USB","Humidificateur USB","Humidificador USB")
+UI_STR(STR_FT_BUZZER,          "Zumbador placa","Board buzzer","Buzzer carte","Besouro placa")
+UI_STR(STR_FT_AFESPI,          "AFE SPI",      "AFE SPI",     "AFE SPI",     "AFE SPI")
+UI_STR(STR_FT_SPO2,            "Sonda SpO2",   "SpO2 probe",  "Sonde SpO2",  "Sonda SpO2")
+UI_STR(STR_FT_HMILINK,         "Enlace HMI",   "HMI link",    "Liaison HMI", "Ligacao HMI")
+UI_STR(STR_FT_GSMMODEM,        "Modem GSM",    "GSM modem",   "Modem GSM",   "Modem GSM")
+UI_STR(STR_FT_SIM,             "SIM",          "SIM",         "SIM",         "SIM")
+UI_STR(STR_FT_GSMSIGNAL,       "Senal GSM",    "GSM signal",  "Signal GSM",  "Sinal GSM")
+UI_STR(STR_FT_GSMNET,          "Red GSM",      "GSM network", "Reseau GSM",  "Rede GSM")
+UI_STR(STR_FT_BOARDWIFI,       "WiFi placa",   "Board WiFi",  "WiFi carte",  "WiFi placa")
+UI_STR(STR_FT_THINGSBOARD,     "ThingsBoard",  "ThingsBoard", "ThingsBoard", "ThingsBoard")
+UI_STR(STR_FT_TIME,            "Hora",         "Time",        "Heure",       "Hora")
+UI_STR(STR_FT_BOARDNVS,        "NVS placa",    "Board NVS",   "NVS carte",   "NVS placa")
+UI_STR(STR_FT_LITTLEFS,        "LittleFS",     "LittleFS",    "LittleFS",    "LittleFS")
+UI_STR(STR_FT_BOARDINFO_D,     "Version y memoria de la placa",
+                               "Board firmware and memory",
+                               "Version et memoire de la carte",
+                               "Versao e memoria da placa")
+UI_STR(STR_FT_CURRENT_D,       "Lee las corrientes del sensor INA3221",
+                               "Reads currents from the INA3221 sensor",
+                               "Lit les courants du capteur INA3221",
+                               "Le as correntes do sensor INA3221")
+UI_STR(STR_FT_STANDBY_D,       "Consumo electrico en reposo",
+                               "Standby power consumption",
+                               "Consommation electrique en veille",
+                               "Consumo eletrico em repouso")
+UI_STR(STR_FT_CHARGER_D,       "Estado del cargador de bateria",
+                               "Battery charger status",
+                               "Etat du chargeur de batterie",
+                               "Estado do carregador de bateria")
+UI_STR(STR_FT_PWRSRC_D,        "Fuente de alimentacion activa (red o bateria)",
+                               "Active power source (mains or battery)",
+                               "Source d'alimentation active (secteur ou "
+                               "batterie)",
+                               "Fonte de alimentacao ativa (rede ou bateria)")
+UI_STR(STR_FT_SKINPROBE_D,     "Lectura de la sonda de piel",
+                               "Skin probe reading",
+                               "Lecture de la sonde de peau",
+                               "Leitura da sonda de pele")
+UI_STR(STR_FT_AMBIENT_D,       "SensorBoard por USB, sensores I2C2 o SHT4x "
+                               "exterior: cualquiera vale",
+                               "SensorBoard over USB, I2C2 sensors or external "
+                               "SHT4x: either works",
+                               "SensorBoard par USB, capteurs I2C2 ou SHT4x "
+                               "exterieur : l'un des deux suffit",
+                               "SensorBoard por USB, sensores I2C2 ou SHT4x "
+                               "exterior: qualquer um serve")
+UI_STR(STR_FT_SB_STATUS_D,     "Estado general del SensorBoard",
+                               "SensorBoard overall status",
+                               "Etat general de la carte SensorBoard",
+                               "Estado geral do SensorBoard")
+UI_STR(STR_FT_SB_ENV_D,        "Ambiente de cabina del SensorBoard",
+                               "SensorBoard cabin environment",
+                               "Environnement de cabine du SensorBoard",
+                               "Ambiente de cabina do SensorBoard")
+UI_STR(STR_FT_DOOR_D,          "Sensor de puerta abierta/cerrada",
+                               "Open/closed door sensor",
+                               "Capteur de porte ouverte/fermee",
+                               "Sensor de porta aberta/fechada")
+UI_STR(STR_FT_LIGHT_D,         "Sensor de luz ambiente",
+                               "Ambient light sensor",
+                               "Capteur de lumiere ambiante",
+                               "Sensor de luz ambiente")
+UI_STR(STR_FT_CAMERA_D,        "Camara del SensorBoard",
+                               "SensorBoard camera",
+                               "Camera du SensorBoard",
+                               "Camara do SensorBoard")
+UI_STR(STR_FT_ACTUATORS_D,     "Actuadores en lazo abierto",
+                               "Actuators in open loop",
+                               "Actionneurs en boucle ouverte",
+                               "Atuadores em malha aberta")
+UI_STR(STR_FT_FANRPM_D,        "Revoluciones del ventilador",
+                               "Fan RPM",
+                               "Tours du ventilateur",
+                               "Rotacoes do ventilador")
+UI_STR(STR_FT_HUMUSB_D,        "Humidificador por USB",
+                               "USB humidifier",
+                               "Humidificateur USB",
+                               "Humidificador por USB")
+UI_STR(STR_FT_BUZZER_D,        "Zumbador de la placa",
+                               "Board buzzer",
+                               "Buzzer de la carte",
+                               "Besouro da placa")
+UI_STR(STR_FT_AFESPI_D,        "Enlace SPI con el AFE",
+                               "SPI link to the AFE",
+                               "Liaison SPI avec l'AFE",
+                               "Ligacao SPI com o AFE")
+UI_STR(STR_FT_SPO2_D,          "Sonda de SpO2 conectada",
+                               "SpO2 probe connected",
+                               "Sonde SpO2 connectee",
+                               "Sonda de SpO2 ligada")
+UI_STR(STR_FT_HMILINK_D,       "Enlace serie con el display",
+                               "Serial link to the display",
+                               "Liaison serie avec l'ecran",
+                               "Ligacao serie com o ecra")
+UI_STR(STR_FT_GSMMODEM_D,      "El modem GSM responde a comandos AT",
+                               "GSM modem responds to AT commands",
+                               "Le modem GSM repond aux commandes AT",
+                               "O modem GSM responde a comandos AT")
+UI_STR(STR_FT_SIM_D,           "Tarjeta SIM lista",
+                               "SIM card ready",
+                               "Carte SIM prete",
+                               "Cartao SIM pronto")
+UI_STR(STR_FT_GSMSIGNAL_D,     "Nivel de senal GSM",
+                               "GSM signal level",
+                               "Niveau de signal GSM",
+                               "Nivel de sinal GSM")
+UI_STR(STR_FT_GSMNET_D,        "Registro en la red movil",
+                               "Mobile network registration",
+                               "Enregistrement sur le reseau mobile",
+                               "Registo na rede movel")
+UI_STR(STR_FT_BOARDWIFI_D,     "Conexion WiFi de la placa",
+                               "Board WiFi connection",
+                               "Connexion WiFi de la carte",
+                               "Ligacao WiFi da placa")
+UI_STR(STR_FT_THINGSBOARD_D,   "Aprovisionamiento en ThingsBoard",
+                               "ThingsBoard provisioning",
+                               "Provisionnement ThingsBoard",
+                               "Aprovisionamento no ThingsBoard")
+UI_STR(STR_FT_TIME_D,          "Hora sincronizada por red",
+                               "Time synced from network",
+                               "Heure synchronisee par le reseau",
+                               "Hora sincronizada pela rede")
+UI_STR(STR_FT_BOARDNVS_D,      "Memoria NVS de la placa",
+                               "Board NVS memory",
+                               "Memoire NVS de la carte",
+                               "Memoria NVS da placa")
+UI_STR(STR_FT_LITTLEFS_D,      "Sistema de archivos LittleFS",
+                               "LittleFS filesystem",
+                               "Systeme de fichiers LittleFS",
+                               "Sistema de ficheiros LittleFS")
+UI_STR(STR_FT_ASK_DOOR,        "Abre y cierra la puerta",
+                               "Open and close the door",
+                               "Ouvrez et fermez la porte",
+                               "Abre e fecha a porta")
+UI_STR(STR_FT_ASK_LIGHT,       "Tapa el sensor de luz",
+                               "Cover the light sensor",
+                               "Couvrez le capteur de lumiere",
+                               "Tapa o sensor de luz")
+UI_STR(STR_FT_ASK_GENERIC,     "Sigue las instrucciones",
+                               "Follow the instructions",
+                               "Suivez les instructions",
+                               "Segue as instrucoes")
+UI_STR(STR_FT_ASK_BUZZER,      "Suena el zumbador de la placa?",
+                               "Does the board buzzer sound?",
+                               "Le buzzer de la carte sonne-t-il ?",
+                               "O besouro da placa toca?")
+UI_STR(STR_FT_ASK_CONFIRM,     "Confirma el resultado",
+                               "Confirm the result",
+                               "Confirmez le resultat",
+                               "Confirma o resultado")
+UI_STR(STR_FT_ALREADY_RUNNING, "Ya hay un test en curso",
+                               "A test is already running",
+                               "Un test est deja en cours",
+                               "Ja ha um teste em curso")
+UI_STR(STR_FT_CONTROL_ACTIVE,  "Control activo: apaga el control antes del test",
+                               "Control active: turn off control before testing",
+                               "Controle actif : eteignez le controle avant le "
+                               "test",
+                               "Controlo ativo: desliga o controlo antes do "
+                               "teste")
+UI_STR(STR_FT_UNKNOWN_TEST,    "Test desconocido","Unknown test","Test inconnu","Teste desconhecido")
+UI_STR(STR_FT_WARNING_UC,      "ATENCION",     "WARNING",     "ATTENTION",   "ATENCAO")
+UI_STR(STR_FT_EMPTY_WARNING,   "El equipo debe estar VACIO, sin paciente. Los "
+                               "actuadores se encenderan en lazo abierto. "
+                               "Continuar?",
+                               "The unit must be EMPTY, no patient inside. "
+                               "Actuators will be switched on in open loop. "
+                               "Continue?",
+                               "L'appareil doit etre VIDE, sans patient. Les "
+                               "actionneurs seront allumes en boucle ouverte. "
+                               "Continuer ?",
+                               "O equipamento deve estar VAZIO, sem doente. Os "
+                               "atuadores serao ligados em malha aberta. "
+                               "Continuar?")
+UI_STR(STR_FT_PAGE_FMT,        "Pagina %d/%d", "Page %d/%d",  "Page %d/%d",  "Pagina %d/%d")
+UI_STR(STR_FT_PENDING,         "Pendiente",    "Pending",     "En attente",  "Pendente")
+UI_STR(STR_FT_RUNNING,         "En curso",     "Running",     "En cours",    "Em curso")
+UI_STR(STR_FT_PASS,            "PASA",         "PASS",        "REUSSI",      "PASSA")
+UI_STR(STR_FT_FAIL,            "FALLA",        "FAIL",        "ECHEC",       "FALHA")
+UI_STR(STR_FT_SKIPPED,         "OMITIDO",      "SKIPPED",     "OMIS",        "OMITIDO")
+UI_STR(STR_FT_WAIT,            "ESPERA",       "WAIT",        "ATTENTE",     "ESPERA")
+UI_STR(STR_FT_CONFIRM,         "CONFIRMAR",    "CONFIRM",     "CONFIRMER",   "CONFIRMAR")
+UI_STR(STR_FT_WARN,            "AVISO",        "WARN",        "AVIS",        "AVISO")
+UI_STR(STR_FT_YES,             "SI",           "YES",         "OUI",         "SIM")
+UI_STR(STR_FT_NO,              "NO",           "NO",          "NON",         "NAO")
+UI_STR(STR_FT_SCANNING_WIFI,   "Buscando redes WiFi...",
+                               "Scanning WiFi networks...",
+                               "Recherche de reseaux WiFi...",
+                               "A procurar redes WiFi...")
+UI_STR(STR_FT_WAITING_MB,      "Esperando a la motherBoard...",
+                               "Waiting for the motherBoard...",
+                               "En attente de la carte...",
+                               "A aguardar a motherBoard...")
+UI_STR(STR_FT_TALLY_FMT,       "%d errores - %d avisos - %d OK",
+                               "%d errors - %d warnings - %d OK",
+                               "%d erreurs - %d avis - %d OK",
+                               "%d erros - %d avisos - %d OK")
+UI_STR(STR_FT_LINK_LOST,       "Placa: enlace perdido durante el test",
+                               "Board: link lost during test",
+                               "Carte : liaison perdue pendant le test",
+                               "Placa: ligacao perdida durante o teste")
+UI_STR(STR_FT_NO_SUPPORT,      "Placa: sin soporte",
+                               "Board: no support",
+                               "Carte : non supportee",
+                               "Placa: sem suporte")
+UI_STR(STR_FT_BOARD,           "Placa",        "Board",       "Carte",       "Placa")
+UI_STR(STR_FT_RING_DROPS_FMT,  "Anillo FTEST: %u descartes",
+                               "FTEST ring: %u drops",
+                               "Anneau FTEST : %u pertes",
+                               "Anel FTEST: %u descartes")
+UI_STR(STR_FT_RETRY,           "REINTENTAR",   "RETRY",       "RESSAYER",    "REPETIR")
+UI_STR(STR_FT_IN_PROGRESS_UC,  "EN CURSO...",  "RUNNING...",  "EN COURS...", "EM CURSO...")
+UI_STR(STR_FT_SUMMARY,         "RESUMEN",      "SUMMARY",     "RESUME",      "RESUMO")
+UI_STR(STR_FT_TITLE,           "TEST DE FABRICA","FACTORY TEST","TEST USINE", "TESTE DE FABRICA")
+UI_STR(STR_FT_NOT_IN_TRAINING, "No disponible en formacion",
+                               "Not available during training",
+                               "Indisponible en formation",
+                               "Indisponivel em formacao")
+
+// ------------------------------------------- cursos de formacion (selector)
+UI_STR(STR_TRSEL_TITLE,        "CURSOS DE FORMACION",
+                               "TRAINING COURSES",
+                               "COURS DE FORMATION",
+                               "CURSOS DE FORMACAO")
+UI_STR(STR_TRSEL_CERTS,        "CERTIFICADOS", "CERTIFICATES","CERTIFICATS", "CERTIFICADOS")
+UI_STR(STR_TRSEL_LESSONS,      "lecciones",    "lessons",     "lecons",      "licoes")
+UI_STR(STR_TRSEL_HANDS_ON,     "  (practica)", "  (hands-on)","  (pratique)","  (pratica)")
+UI_STR(STR_TRSEL_NO_STUDENT,   "Sin alumno en curso",
+                               "No student in progress",
+                               "Aucun eleve en cours",
+                               "Sem aluno em curso")
+UI_STR(STR_TRSEL_MIN_LETTERS,  "Escribe al menos dos letras",
+                               "Type at least two letters",
+                               "Saisissez au moins deux lettres",
+                               "Escreve pelo menos duas letras")
+UI_STR(STR_TRSEL_IN_PROGRESS,  "Hay un curso empezado:",
+                               "There is a course in progress:",
+                               "Un cours est deja commence :",
+                               "Ha um curso comecado:")
+UI_STR(STR_TRSEL_CONTINUE,     "CONTINUAR",    "CONTINUE",    "CONTINUER",   "CONTINUAR")
+UI_STR(STR_TRSEL_NEW_STUDENT,  "NUEVO ALUMNO (borra el progreso)",
+                               "NEW STUDENT (clears progress)",
+                               "NOUVEL ELEVE (efface la progression)",
+                               "NOVO ALUNO (apaga o progresso)")
+UI_STR(STR_TRSEL_YOUR_NAME,    "TU NOMBRE O INICIALES",
+                               "YOUR NAME OR INITIALS",
+                               "VOTRE NOM OU VOS INITIALES",
+                               "O TEU NOME OU INICIAIS")
+UI_STR(STR_TRSEL_NAME_HINT,    "Con este nombre se guardara tu progreso y tu "
+                               "certificado.",
+                               "Your progress and certificate will be saved "
+                               "under this name.",
+                               "Votre progression et votre certificat seront "
+                               "enregistres sous ce nom.",
+                               "Com este nome sera guardado o teu progresso e o "
+                               "teu certificado.")
+UI_STR(STR_TRSEL_BEFORE_START, "ANTES DE EMPEZAR",
+                               "BEFORE YOU START",
+                               "AVANT DE COMMENCER",
+                               "ANTES DE COMECAR")
+UI_STR(STR_TRSEL_REAL_WARNING, "En esta leccion la incubadora CALIENTA y/o "
+                               "ENCIENDE LA LAMPARA de verdad. Solo se puede "
+                               "hacer con la CABINA VACIA: sin ningun bebe "
+                               "dentro, aunque no tenga terapia.",
+                               "In this lesson the incubator REALLY HEATS "
+                               "and/or SWITCHES THE LAMP ON. It can only be "
+                               "done with an EMPTY CABIN: no baby inside, even "
+                               "without therapy.",
+                               "Dans cette lecon l'incubateur CHAUFFE et/ou "
+                               "ALLUME LA LAMPE vraiment. Uniquement avec "
+                               "l'HABITACLE VIDE : aucun bebe dedans, meme sans "
+                               "therapie.",
+                               "Nesta licao a incubadora AQUECE e/ou ACENDE A "
+                               "LAMPADA a serio. So se pode fazer com a CABINA "
+                               "VAZIA: sem nenhum bebe dentro, mesmo sem "
+                               "terapia.")
+UI_STR(STR_TRSEL_CHECKING,     "Comprobando en la placa si hay pacientes "
+                               "registrados...",
+                               "Checking the board for registered patients...",
+                               "Verification des patients enregistres sur la "
+                               "carte...",
+                               "A verificar na placa se ha doentes "
+                               "registados...")
+UI_STR(STR_TRSEL_CABIN_EMPTY,  "SI, LA CABINA ESTA VACIA. EMPEZAR",
+                               "YES, THE CABIN IS EMPTY. START",
+                               "OUI, L'HABITACLE EST VIDE. COMMENCER",
+                               "SIM, A CABINA ESTA VAZIA. COMECAR")
+UI_STR(STR_TRSEL_CANCEL,       "CANCELAR",     "CANCEL",      "ANNULER",     "CANCELAR")
+UI_STR(STR_TRSEL_NO_PATIENTS,  "La placa no tiene pacientes registrados.",
+                               "The board has no registered patients.",
+                               "La carte n'a aucun patient enregistre.",
+                               "A placa nao tem doentes registados.")
+UI_STR(STR_TRSEL_ONE_PATIENT,  "Hay un paciente registrado en la placa",
+                               "There is a registered patient on the board",
+                               "Un patient est enregistre sur la carte",
+                               "Ha um doente registado na placa")
+UI_STR(STR_TRSEL_COUNTERS,     "La formacion es posible, pero sus contadores de "
+                               "terapia podrian recibir los minutos de la "
+                               "practica.",
+                               "Training is possible, but their therapy "
+                               "counters may receive the practice minutes.",
+                               "La formation est possible, mais ses compteurs "
+                               "de therapie peuvent recevoir les minutes "
+                               "d'exercice.",
+                               "A formacao e possivel, mas os seus contadores "
+                               "de terapia podem receber os minutos da "
+                               "pratica.")
+UI_STR(STR_TRSEL_NO_ANSWER,    "La placa no ha contestado a la consulta de "
+                               "pacientes.",
+                               "The board did not answer the patient query.",
+                               "La carte n'a pas repondu a la consultation des "
+                               "patients.",
+                               "A placa nao respondeu a consulta de doentes.")
+UI_STR(STR_TRSEL_NO_TIME,      "sin hora",     "no time",     "sans heure",  "sem hora")
+UI_STR(STR_TRSEL_CERT_UC,      "CERTIFICADO",  "CERTIFICATE", "CERTIFICAT",  "CERTIFICADO")
+UI_STR(STR_TRSEL_CERT,         "Certificado",  "Certificate", "Certificat",  "Certificado")
+UI_STR(STR_TRSEL_CERT_SUBJECT, "Certificado de formacion IncuNest",
+                               "IncuNest training certificate",
+                               "Certificat de formation IncuNest",
+                               "Certificado de formacao IncuNest")
+UI_STR(STR_TRSEL_STUDENT,      "Alumno",       "Student",     "Eleve",       "Aluno")
+UI_STR(STR_TRSEL_COURSE,       "Curso",        "Course",      "Cours",       "Curso")
+UI_STR(STR_TRSEL_PASSED_CNT,   "Lecciones superadas",
+                               "Lessons passed",
+                               "Lecons reussies",
+                               "Licoes superadas")
+UI_STR(STR_TRSEL_FAILED_CNT,   "Intentos fallidos en preguntas",
+                               "Failed quiz attempts",
+                               "Tentatives ratees aux questions",
+                               "Tentativas falhadas nas perguntas")
+UI_STR(STR_TRSEL_DATE,         "Fecha",        "Date",        "Date",        "Data")
+UI_STR(STR_TRSEL_CERT_QR_HINT, "Escanea el QR con tu movil: se abre un correo "
+                               "con el certificado para el responsable de "
+                               "formacion.",
+                               "Scan the QR with your phone: an email with the "
+                               "certificate opens, addressed to the training "
+                               "lead.",
+                               "Scannez le QR avec votre telephone : un e-mail "
+                               "avec le certificat s'ouvre, adresse au "
+                               "responsable de formation.",
+                               "Digitaliza o QR com o telemovel: abre-se um "
+                               "email com o certificado para o responsavel de "
+                               "formacao.")
+UI_STR(STR_TRSEL_ALREADY_OPEN, "Ya hay una leccion en curso",
+                               "A lesson is already running",
+                               "Une lecon est deja en cours",
+                               "Ja ha uma licao em curso")
+UI_STR(STR_TRSEL_COURSE_DONE,  "Curso superado. Enhorabuena!",
+                               "Course passed. Well done!",
+                               "Cours reussi. Felicitations !",
+                               "Curso superado. Parabens!")
+UI_STR(STR_TRSEL_LESSON_DONE,  "Leccion superada",
+                               "Lesson passed",
+                               "Lecon reussie",
+                               "Licao superada")
+UI_STR(STR_TRSEL_LESSON_FAIL,  "Leccion no completada",
+                               "Lesson not completed",
+                               "Lecon non terminee",
+                               "Licao nao completada")
+
+// ------------------------------------------------- recordatorio de mantenimiento
+//
+// Los tres niveles y su cadencia son el protocolo de limpieza del equipo, no
+// una preferencia: no se configuran, solo se activan o desactivan. Al traducir
+// las cadencias, mantener el matiz entre parentesis (suciedad visible,
+// estancia prolongada): es lo que le dice al operador cuando adelantar una.
+UI_STR(STR_MAINT_UC,           "MANTENIMIENTO","MAINTENANCE", "ENTRETIEN",   "MANUTENCAO")
+UI_STR(STR_MAINT_TITLE,        "LIMPIEZA Y MANTENIMIENTO",
+                               "CLEANING AND MAINTENANCE",
+                               "NETTOYAGE ET ENTRETIEN",
+                               "LIMPEZA E MANUTENCAO")
+UI_STR(STR_MAINT_DAILY,        "DIARIA",       "DAILY",       "QUOTIDIEN",   "DIARIA")
+UI_STR(STR_MAINT_DAILY_WHEN,   "Con paciente dentro.",
+                               "With a patient inside.",
+                               "Avec un patient a l'interieur.",
+                               "Com doente dentro.")
+UI_STR(STR_MAINT_WEEKLY,       "SEMANAL",      "WEEKLY",      "HEBDOMADAIRE","SEMANAL")
+UI_STR(STR_MAINT_WEEKLY_WHEN,  "Cada 7 dias, o antes si hay suciedad visible.",
+                               "Every 7 days, or sooner if visibly dirty.",
+                               "Tous les 7 jours, ou avant si salissure "
+                               "visible.",
+                               "A cada 7 dias, ou antes se houver sujidade "
+                               "visivel.")
+UI_STR(STR_MAINT_TERMINAL,     "TERMINAL",     "TERMINAL",    "TERMINAL",    "TERMINAL")
+UI_STR(STR_MAINT_TERMINAL_WHEN,"Al alta del paciente, o cada 7 dias si la "
+                               "estancia es prolongada.",
+                               "At patient discharge, or every 7 days for a "
+                               "prolonged stay.",
+                               "A la sortie du patient, ou tous les 7 jours si "
+                               "le sejour se prolonge.",
+                               "Na alta do doente, ou a cada 7 dias se a "
+                               "estadia for prolongada.")
+UI_STR(STR_MAINT_DUE_NOW,      "TOCA AHORA",   "DUE NOW",     "A FAIRE",     "TOCA AGORA")
+UI_STR(STR_MAINT_UP_TO_DATE,   "al dia",       "up to date",  "a jour",      "em dia")
+UI_STR(STR_MAINT_QR_HINT,      "Escanea el QR con la camara de tu movil para "
+                               "ver los tutoriales de limpieza y "
+                               "mantenimiento.",
+                               "Scan the QR with your phone camera to watch the "
+                               "cleaning and maintenance tutorials.",
+                               "Scannez le QR avec l'appareil photo de votre "
+                               "telephone pour voir les tutoriels de nettoyage "
+                               "et d'entretien.",
+                               "Digitaliza o QR com a camara do telemovel para "
+                               "ver os tutoriais de limpeza e manutencao.")
+UI_STR(STR_MAINT_LAST_FMT,     "Ultima: %s",   "Last: %s",    "Derniere : %s","Ultima: %s")
+UI_STR(STR_MAINT_NEVER,        "sin registrar", "not recorded","non enregistre","sem registo")
+UI_STR(STR_MAINT_DONE_UC,      "HECHO",        "DONE",        "FAIT",        "FEITA")
+UI_STR(STR_MAINT_LATER_UC,     "MAS TARDE",    "LATER",       "PLUS TARD",   "MAIS TARDE")
+UI_STR(STR_MAINT_LOGGED,       "Mantenimiento registrado",
+                               "Maintenance recorded",
+                               "Entretien enregistre",
+                               "Manutencao registada")
+UI_STR(STR_MAINT_REMINDER,     "AVISOS",       "REMINDERS",   "RAPPELS",     "AVISOS")
+UI_STR(STR_MAINT_OPEN_UC,      "VER RECORDATORIO",
+                               "OPEN REMINDER",
+                               "VOIR LE RAPPEL",
+                               "VER RECORDATORIO")
+UI_STR(STR_MAINT_SETTINGS_HINT,"Con los avisos activados, sale un recordatorio "
+                               "con los tres niveles y el QR de los tutoriales "
+                               "en cuanto a alguno le toque.",
+                               "With reminders on, a notice with the three "
+                               "levels and the QR of the tutorials appears as "
+                               "soon as any of them is due.",
+                               "Avec les rappels actives, un avis avec les "
+                               "trois niveaux et le QR des tutoriels apparait "
+                               "des que l'un d'eux est a faire.",
+                               "Com os avisos ativados, aparece um recordatorio "
+                               "com os tres niveis e o QR dos tutoriais assim "
+                               "que algum deles tocar.")
+
+
+// ------------------------------------------------------- menu de ayuda
+UI_STR(STR_HELP_UC,            "AYUDA",        "HELP",        "AIDE",        "AJUDA")
+UI_STR(STR_HELP_TOUR_TITLE,    "TUTORIAL GUIADO",
+                               "GUIDED TUTORIAL",
+                               "TUTORIEL GUIDE",
+                               "TUTORIAL GUIADO")
+// Texto actualizado al fusionar con hmi-training-courses: el boton ya no
+// abre un recorrido paso a paso (HelpTour.cpp, retirado), abre
+// Training_OpenSelector() — cursos con lecciones y certificado.
+UI_STR(STR_HELP_TOUR_SUB,      "Cursos de formacion para enfermeria y tecnicos: "
+                               "lecciones practicas sobre la pantalla real, con "
+                               "certificado.",
+                               "Training courses for nurses and technicians: "
+                               "hands-on lessons on the real screen, with a "
+                               "certificate.",
+                               "Cours de formation pour infirmiers et techniciens : "
+                               "lecons pratiques sur l'ecran reel, avec "
+                               "certificat.",
+                               "Cursos de formacao para enfermagem e tecnicos: "
+                               "licoes praticas no ecra real, com certificado.")
+UI_STR(STR_HELP_VIDEO_TITLE,   "VIDEO TUTORIAL",
+                               "VIDEO TUTORIAL",
+                               "TUTORIEL VIDEO",
+                               "VIDEO TUTORIAL")
+UI_STR(STR_HELP_VIDEO_SUB,     "Escanea un codigo QR con tu movil para ver el "
+                               "video en nuestra web.",
+                               "Scan a QR code with your phone to watch the "
+                               "video on our website.",
+                               "Scannez un code QR avec votre telephone pour "
+                               "voir la video sur notre site.",
+                               "Digitaliza um codigo QR com o telemovel para "
+                               "ver o video no nosso site.")
+UI_STR(STR_HELP_CONTACT_TITLE, "CONTACTAR SOPORTE",
+                               "CONTACT SUPPORT",
+                               "CONTACTER LE SUPPORT",
+                               "CONTACTAR O SUPORTE")
+UI_STR(STR_HELP_CONTACT_SUB,   "Escanea un QR y se abre un correo a soporte con "
+                               "el numero de serie y el estado del equipo ya "
+                               "rellenos.",
+                               "Scan a QR and an email to support opens with the "
+                               "serial number and device status already filled "
+                               "in.",
+                               "Scannez un QR : un e-mail au support s'ouvre "
+                               "avec le numero de serie et l'etat de l'appareil "
+                               "deja remplis.",
+                               "Digitaliza um QR e abre-se um email para o "
+                               "suporte com o numero de serie e o estado do "
+                               "equipamento ja preenchidos.")
+UI_STR(STR_HELP_VIDEO_HINT,    "Escanea el codigo con la camara de tu movil "
+                               "para abrir el video tutorial en la web de "
+                               "Medical Open World.",
+                               "Scan the code with your phone camera to open "
+                               "the video tutorial on the Medical Open World "
+                               "website.",
+                               "Scannez le code avec l'appareil photo de votre "
+                               "telephone pour ouvrir le tutoriel video sur le "
+                               "site de Medical Open World.",
+                               "Digitaliza o codigo com a camara do telemovel "
+                               "para abrir o video tutorial no site da Medical "
+                               "Open World.")
+UI_STR(STR_HELP_OR_TYPE_URL,   "O escribe esta direccion:",
+                               "Or type this address:",
+                               "Ou saisissez cette adresse :",
+                               "Ou escreve este endereco:")
+UI_STR(STR_HELP_CONTACT_HEAD,  "CONTACTAR CON SOPORTE",
+                               "CONTACT SUPPORT",
+                               "CONTACTER LE SUPPORT",
+                               "CONTACTAR O SUPORTE")
+UI_STR(STR_HELP_CONTACT_HINT,  "Escanea el QR con la camara de tu movil: se "
+                               "abrira un correo a soporte tecnico listo para "
+                               "enviar.",
+                               "Scan the QR with your phone camera: an email to "
+                               "technical support opens, ready to send.",
+                               "Scannez le QR avec l'appareil photo de votre "
+                               "telephone : un e-mail au support technique "
+                               "s'ouvre, pret a envoyer.",
+                               "Digitaliza o QR com a camara do telemovel: "
+                               "abre-se um email para o suporte tecnico pronto "
+                               "a enviar.")
+UI_STR(STR_HELP_TO,            "Para:",        "To:",         "A :",         "Para:")
+UI_STR(STR_HELP_SUBJECT,       "Asunto:",      "Subject:",    "Objet :",     "Assunto:")
+UI_STR(STR_HELP_QR_NOTE_FULL,  "El correo lleva el numero de serie en el asunto "
+                               "y el estado tecnico del equipo en el cuerpo. "
+                               "Escribe tu consulta encima y envialo.",
+                               "The email carries the serial number in the "
+                               "subject and the device technical status in the "
+                               "body. Type your question above it and send.",
+                               "L'e-mail porte le numero de serie en objet et "
+                               "l'etat technique de l'appareil dans le corps. "
+                               "Ecrivez votre question au-dessus et envoyez.",
+                               "O email leva o numero de serie no assunto e o "
+                               "estado tecnico do equipamento no corpo. Escreve "
+                               "a tua questao acima e envia.")
+UI_STR(STR_HELP_QR_NOTE_SHORT, "QR reducido: solo destinatario y asunto con el "
+                               "numero de serie. Describe el problema en el "
+                               "correo.",
+                               "Reduced QR: recipient and subject with the "
+                               "serial number only. Describe the problem in the "
+                               "email.",
+                               "QR reduit : destinataire et objet avec le "
+                               "numero de serie seulement. Decrivez le probleme "
+                               "dans l'e-mail.",
+                               "QR reduzido: apenas destinatario e assunto com "
+                               "o numero de serie. Descreve o problema no "
+                               "email.")
+UI_STR(STR_HELP_NO_REPORT,     "SIN INFORME", "NO REPORT",   "SANS RAPPORT","SEM RELATORIO")
+UI_STR(STR_HELP_WITH_REPORT,   "CON INFORME", "WITH REPORT", "AVEC RAPPORT","COM RELATORIO")
+
+// ------------------------------------------------------- tutorial guiado
+//
+// Cada texto cabe en el bocadillo de su modo (~200 caracteres en el bocadillo
+// ancho, ~180 en el estrecho de los contenedores): al traducir uno, comprobar
+// que la version mas larga sigue cabiendo.
+UI_STR(STR_TOUR_EXIT,          "SALIR",        "EXIT",        "QUITTER",     "SAIR")
+UI_STR(STR_TOUR_PREV,          "ANTERIOR",     "BACK",        "PRECEDENT",   "ANTERIOR")
+UI_STR(STR_TOUR_NEXT,          "SIGUIENTE",    "NEXT",        "SUIVANT",     "SEGUINTE")
+UI_STR(STR_TOUR_FINISH,        "TERMINAR",     "FINISH",      "TERMINER",    "TERMINAR")
+UI_STR(STR_TOUR_WELCOME,       "Bienvenido al tutorial de IncuNest. Te "
+                               "mostraremos cada control de la pantalla paso a "
+                               "paso. Pulsa SIGUIENTE para avanzar o SALIR en "
+                               "cualquier momento. Durante el recorrido no se "
+                               "acciona nada.",
+                               "Welcome to the IncuNest tutorial. We will show "
+                               "you each control on the screen step by step. "
+                               "Press NEXT to move on or EXIT at any time. "
+                               "Nothing is operated during the tour.",
+                               "Bienvenue dans le tutoriel IncuNest. Nous "
+                               "allons vous montrer chaque commande de l'ecran "
+                               "pas a pas. Appuyez sur SUIVANT pour avancer ou "
+                               "QUITTER a tout moment. Rien n'est actionne "
+                               "pendant la visite.",
+                               "Bem-vindo ao tutorial da IncuNest. Vamos "
+                               "mostrar cada comando do ecra passo a passo. "
+                               "Toca em SEGUINTE para avancar ou SAIR a "
+                               "qualquer momento. Durante o percurso nada e "
+                               "acionado.")
+UI_STR(STR_TOUR_HELP_BTN,      "Boton de ayuda. Desde aqui abres este tutorial, "
+                               "el codigo QR del video tutorial y el formulario "
+                               "para contactar con soporte tecnico.",
+                               "Help button. From here you open this tutorial, "
+                               "the video tutorial QR code and the form to "
+                               "contact technical support.",
+                               "Bouton d'aide. D'ici vous ouvrez ce tutoriel, "
+                               "le code QR du tutoriel video et le formulaire "
+                               "pour contacter le support technique.",
+                               "Botao de ajuda. Daqui abres este tutorial, o "
+                               "codigo QR do video tutorial e o formulario para "
+                               "contactar o suporte tecnico.")
+UI_STR(STR_TOUR_CLOCK,         "Hora y fecha del equipo. Tocalo para ajustar la "
+                               "hora a mano: de ella dependen las marcas de "
+                               "tiempo del historial clinico.",
+                               "Device time and date. Tap it to set the time "
+                               "manually: the clinical history timestamps "
+                               "depend on it.",
+                               "Heure et date de l'appareil. Touchez pour "
+                               "regler l'heure a la main : les horodatages de "
+                               "l'historique clinique en dependent.",
+                               "Hora e data do equipamento. Toca para acertar a "
+                               "hora a mao: dela dependem as marcas de tempo do "
+                               "historico clinico.")
+UI_STR(STR_TOUR_CONN,          "Indicador de conectividad: WIFI o 2G y las "
+                               "barras de cobertura con el servidor de "
+                               "monitorizacion. Si se pierde el enlace con la "
+                               "placa de control, aparece tachado.",
+                               "Connectivity indicator: WIFI or 2G and the "
+                               "signal bars to the monitoring server. If the "
+                               "link with the control board is lost, it shows "
+                               "crossed out.",
+                               "Indicateur de connectivite : WIFI ou 2G et les "
+                               "barres de couverture vers le serveur de suivi. "
+                               "Si la liaison avec la carte de controle est "
+                               "perdue, il apparait barre.",
+                               "Indicador de conectividade: WIFI ou 2G e as "
+                               "barras de cobertura com o servidor de "
+                               "monitorizacao. Se o elo com a placa de controlo "
+                               "se perder, aparece riscado.")
+UI_STR(STR_TOUR_LOCK,          "Candado. Un toque bloquea la pantalla para "
+                               "evitar toques accidentales. Tras 20 segundos "
+                               "sin tocar se bloquea sola; el anillo muestra el "
+                               "tiempo que falta.",
+                               "Padlock. One tap locks the screen to avoid "
+                               "accidental touches. After 20 seconds without "
+                               "touching it locks by itself; the ring shows the "
+                               "time left.",
+                               "Cadenas. Un appui verrouille l'ecran pour "
+                               "eviter les touches accidentelles. Apres 20 "
+                               "secondes sans contact il se verrouille seul ; "
+                               "l'anneau montre le temps restant.",
+                               "Fecho. Um toque bloqueia o ecra para evitar "
+                               "toques acidentais. Apos 20 segundos sem toque "
+                               "bloqueia sozinho; o anel mostra o tempo que "
+                               "falta.")
+UI_STR(STR_TOUR_BABIES,        "Bebes: alta de un nuevo paciente (nombre, "
+                               "semanas de gestacion, peso), historial de "
+                               "estancias y curva de peso de cada bebe.",
+                               "Babies: admit a new patient (name, gestational "
+                               "weeks, weight), stay history and weight curve "
+                               "of each baby.",
+                               "Bebes : admission d'un nouveau patient (nom, "
+                               "semaines de gestation, poids), historique des "
+                               "sejours et courbe de poids de chaque bebe.",
+                               "Bebes: admissao de um novo doente (nome, "
+                               "semanas de gestacao, peso), historico de "
+                               "estadias e curva de peso de cada bebe.")
+UI_STR(STR_TOUR_ALARMS,        "Alarmas: lista de las alarmas activas con la "
+                               "accion recomendada, y registro de las pasadas. "
+                               "El numero rojo indica cuantas hay activas.",
+                               "Alarms: list of active alarms with the "
+                               "recommended action, and log of past ones. The "
+                               "red number shows how many are active.",
+                               "Alarmes : liste des alarmes actives avec "
+                               "l'action recommandee, et journal des "
+                               "precedentes. Le chiffre rouge indique combien "
+                               "sont actives.",
+                               "Alarmes: lista das alarmes ativas com a acao "
+                               "recomendada, e registo das passadas. O numero "
+                               "vermelho indica quantas estao ativas.")
+UI_STR(STR_TOUR_CHECK,         "Este check significa que no hay ninguna alarma "
+                               "activa. Tocarlo tambien abre el registro de "
+                               "alarmas.",
+                               "This check mark means there is no active alarm. "
+                               "Tapping it also opens the alarm log.",
+                               "Cette coche signifie qu'aucune alarme n'est "
+                               "active. La toucher ouvre aussi le journal des "
+                               "alarmes.",
+                               "Este visto significa que nao ha nenhuma alarme "
+                               "ativa. Toca-lo tambem abre o registo de "
+                               "alarmes.")
+UI_STR(STR_TOUR_TEMP,          "Control de temperatura. Elige AIRE (cabina) o "
+                               "PIEL (sonda en el bebe). Las flechas ajustan la "
+                               "consigna; las cifras grandes son la medida "
+                               "actual.",
+                               "Temperature control. Choose AIR (cabin) or SKIN "
+                               "(probe on the baby). The arrows adjust the "
+                               "setpoint; the big figures are the current "
+                               "reading.",
+                               "Controle de temperature. Choisissez AIR "
+                               "(habitacle) ou PEAU (sonde sur le bebe). Les "
+                               "fleches reglent la consigne ; les grands "
+                               "chiffres sont la mesure actuelle.",
+                               "Controlo de temperatura. Escolhe AR (cabina) ou "
+                               "PELE (sonda no bebe). As setas ajustam o valor "
+                               "definido; os numeros grandes sao a medida "
+                               "atual.")
+UI_STR(STR_TOUR_TEMP_TOGGLE,   "Con este boton activas o desactivas el control "
+                               "de temperatura. Al activarlo se te pediran los "
+                               "datos del bebe si aun no estan.",
+                               "This button turns temperature control on or "
+                               "off. When turning it on you will be asked for "
+                               "the baby data if not yet entered.",
+                               "Ce bouton active ou desactive le controle de "
+                               "temperature. A l'activation, les donnees du "
+                               "bebe vous seront demandees si elles manquent.",
+                               "Com este botao ativas ou desativas o controlo "
+                               "de temperatura. Ao ativar serao pedidos os "
+                               "dados do bebe se ainda nao existirem.")
+UI_STR(STR_TOUR_HUM,           "Control de humedad: la consigna con las flechas "
+                               "y el boton inferior para activarlo. Se puede "
+                               "ocultar desde Ajustes > Modos.",
+                               "Humidity control: setpoint with the arrows and "
+                               "the lower button to turn it on. It can be "
+                               "hidden from Settings > Modes.",
+                               "Controle d'humidite : la consigne avec les "
+                               "fleches et le bouton du bas pour l'activer. Il "
+                               "peut etre masque depuis Reglages > Modes.",
+                               "Controlo de humidade: o valor definido com as "
+                               "setas e o botao inferior para o ativar. Pode "
+                               "ser escondido em Definicoes > Modos.")
+UI_STR(STR_TOUR_PHOTO,         "Fototerapia: fija los minutos con + y - e "
+                               "INICIAR arranca la cuenta atras. Cubre siempre "
+                               "los ojos del bebe antes de encender la luz.",
+                               "Phototherapy: set the minutes with + and -, "
+                               "START begins the countdown. Always cover the "
+                               "baby's eyes before switching the light on.",
+                               "Phototherapie : reglez les minutes avec + et -, "
+                               "DEMARRER lance le compte a rebours. Couvrez "
+                               "toujours les yeux du bebe avant d'allumer.",
+                               "Fototerapia: define os minutos com + e - e "
+                               "INICIAR arranca a contagem decrescente. Cobre "
+                               "sempre os olhos do bebe antes de acender a "
+                               "luz.")
+UI_STR(STR_TOUR_SETTINGS,      "Ajustes: informacion del equipo, WiFi, idioma y "
+                               "modos de funcionamiento. Vamos a verlo.",
+                               "Settings: device information, WiFi, language "
+                               "and operating modes. Let's have a look.",
+                               "Reglages : informations sur l'appareil, WiFi, "
+                               "langue et modes de fonctionnement. Allons voir.",
+                               "Definicoes: informacao do equipamento, WiFi, "
+                               "idioma e modos de funcionamento. Vamos ver.")
+UI_STR(STR_TOUR_INFO,          "Informacion: numero de serie y versiones de "
+                               "firmware de la pantalla y de la placa. Tenlo a "
+                               "mano al contactar con soporte.",
+                               "Information: serial number and firmware "
+                               "versions of the display and the board. Keep it "
+                               "handy when contacting support.",
+                               "Informations : numero de serie et versions du "
+                               "firmware de l'ecran et de la carte. Gardez-les "
+                               "a portee de main pour contacter le support.",
+                               "Informacao: numero de serie e versoes de "
+                               "firmware do ecra e da placa. Tem-no a mao ao "
+                               "contactar o suporte.")
+UI_STR(STR_TOUR_WIFI,          "WiFi: red y contrasena para conectar el equipo "
+                               "al servidor de monitorizacion y recibir "
+                               "actualizaciones de firmware.",
+                               "WiFi: network and password to connect the "
+                               "device to the monitoring server and receive "
+                               "firmware updates.",
+                               "WiFi : reseau et mot de passe pour connecter "
+                               "l'appareil au serveur de suivi et recevoir les "
+                               "mises a jour du firmware.",
+                               "WiFi: rede e palavra-passe para ligar o "
+                               "equipamento ao servidor de monitorizacao e "
+                               "receber atualizacoes de firmware.")
+UI_STR(STR_TOUR_LANG,          "Idioma: espanol, ingles, frances o portugues. "
+                               "Se aplica al instante a toda la pantalla y a la "
+                               "placa de control.",
+                               "Language: Spanish, English, French or "
+                               "Portuguese. It applies at once to the whole "
+                               "screen and to the control board.",
+                               "Langue : espagnol, anglais, francais ou "
+                               "portugais. Elle s'applique aussitot a tout "
+                               "l'ecran et a la carte de controle.",
+                               "Idioma: espanhol, ingles, frances ou "
+                               "portugues. Aplica-se de imediato a todo o ecra "
+                               "e a placa de controlo.")
+UI_STR(STR_TOUR_MODES,         "Modos: control por piel, modo oscuro y control "
+                               "de humedad. Lo que desactives aqui desaparece "
+                               "de la pantalla principal.",
+                               "Modes: skin control, dark mode and humidity "
+                               "control. Whatever you disable here disappears "
+                               "from the main screen.",
+                               "Modes : controle par la peau, mode sombre et "
+                               "controle d'humidite. Ce que vous desactivez ici "
+                               "disparait de l'ecran principal.",
+                               "Modos: controlo por pele, modo escuro e "
+                               "controlo de humidade. O que desativares aqui "
+                               "desaparece do ecra principal.")
+UI_STR(STR_TOUR_BACK_ARROW,    "Con esta flecha vuelves a la pantalla "
+                               "principal.",
+                               "This arrow takes you back to the main screen.",
+                               "Cette fleche vous ramene a l'ecran principal.",
+                               "Com esta seta voltas ao ecra principal.")
+UI_STR(STR_TOUR_END,           "Fin del tutorial. Puedes repetirlo cuando "
+                               "quieras desde el boton de ayuda. Si tienes "
+                               "dudas, usa CONTACTAR SOPORTE en ese mismo menu.",
+                               "End of the tutorial. You can repeat it any time "
+                               "from the help button. If in doubt, use CONTACT "
+                               "SUPPORT in that same menu.",
+                               "Fin du tutoriel. Vous pouvez le refaire a tout "
+                               "moment depuis le bouton d'aide. En cas de "
+                               "doute, utilisez CONTACTER LE SUPPORT dans ce "
+                               "menu.",
+                               "Fim do tutorial. Podes repeti-lo quando "
+                               "quiseres a partir do botao de ajuda. Em caso de "
+                               "duvida, usa CONTACTAR O SUPORTE nesse mesmo "
+                               "menu.")

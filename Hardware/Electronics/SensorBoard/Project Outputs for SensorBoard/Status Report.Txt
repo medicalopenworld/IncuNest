@@ -1,0 +1,10 @@
+Output: Bill of Materials
+Type  : BOM
+From  : Variant [Main] of Project [SensorBoard.PrjPcb]
+   Generated File[Bill of Materials-SensorBoard(Main).xlsx]
+
+
+Files Generated   : 1
+Documents Printed : 0
+
+Finished Output Generation At 19.23.57 On 11/08/2026

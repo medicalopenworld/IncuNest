@@ -87,6 +87,22 @@ extern "C" void vApplicationStackOverflowHook(TaskHandle_t xTask,
 
 void setup() {
   hmi_state_init();
+  // Anillo de RX del enlace con la motherBoard (banco 2026-09-07): el
+  // driver de UART reserva 256 B por defecto, ~22 ms de linea a 115200. La
+  // tarea Comm no drena durante ese tiempo siempre que se queda esperando
+  // LVGL_Lock() dentro de Display_ApplyCtrlState() (1 Hz, y ademas hace
+  // UI_SyncAll() con el lock cogido): mientras la UI repinta, los bytes que
+  // llegan por encima de esos 256 B se pierden EN SILENCIO y con ellos
+  // lineas enteras del protocolo. En el test de fabrica eso deja tests
+  // "en curso" para siempre, porque su unica linea de resultado es la que se
+  // perdio. 1 KB da ~89 ms de margen, que cubre un repintado de la
+  // cuadricula; el coste es 768 B de DRAM interna (ver la nota de los bounce
+  // buffers del panel: hay margen de sobra para esto).
+  // SHALL ir antes del PRIMER begin(): setRxBufferSize() no hace nada una vez
+  // el driver esta instalado (HardwareSerial.cpp, "RX Buffer can't be resized
+  // when Serial is already running"), y Comm_Task() vuelve a hacer begin()
+  // sobre este mismo puerto reutilizando ya este tamano.
+  Serial.setRxBufferSize(COMM_RX_RING_BYTES);
   Serial.begin(SERIAL_BAUD);
 
   // Suppress ESP-IDF gpio error logs (caused by GT911 using pin -1)
@@ -106,10 +122,22 @@ void setup() {
              (unsigned)g_hmiBootCount, g_hmiLastRst, (int)g_hmiRestoreState);
   }
 
-  ESP_LOGW(TAG, "BOOT heap: internal=%u SPIRAM=%u psramFound=%d psramSize=%u",
+  // El "mayor bloque DMA" es el numero que decide si el HMI arranca: el panel
+  // RGB pide DOS bounce buffers de 38,4 KB contiguos en SRAM interna
+  // DMA-capaz, y el total libre no dice nada de si caben. Aqui, antes de
+  // crear ninguna tarea, esta en su maximo; para cuando UI_Task crea el panel
+  // WiFi ya se ha llevado ~85 KB y lo ha partido. Ver la escalera de
+  // reintentos en UITask.cpp.
+  ESP_LOGW(TAG,
+           "BOOT heap: internal=%u SPIRAM=%u psramFound=%d psramSize=%u  "
+           "[SRAM DMA] libre=%u mayor_bloque=%u",
            (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
            (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
-           (int)psramFound(), (unsigned)ESP.getPsramSize());
+           (int)psramFound(), (unsigned)ESP.getPsramSize(),
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL |
+                                             MALLOC_CAP_DMA),
+           (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL |
+                                                      MALLOC_CAP_DMA));
 
   initEEPROM();
 
@@ -129,17 +157,50 @@ void setup() {
 
   LVGL_Mutex_Init();
 
-  ESP_LOGI(TAG, "Creating OTA task ...");
-  CreateOTATask();
-  ESP_LOGI(TAG, "OTA task successfully created!");
+  // La UI va PRIMERO, y las demas esperan a que tenga el panel: los dos
+  // bounce buffers del panel RGB son 38,4 KB contiguos cada uno en SRAM
+  // interna DMA-capaz, y son lo unico del arranque que necesita bloques tan
+  // grandes. Arrancando WiFi antes, el mayor bloque libre bajaba de ~164 KB a
+  // ~86 KB (medido en banco) y los 76,8 KB entraban por 9 KB — cualquier
+  // buffer estatico nuevo dejaba el equipo en bucle de reinicio con la
+  // pantalla negra. Con este orden el margen es de ~87 KB.
+  ESP_LOGI(TAG, "Creating UI task ...");
+  CreateUITask();
+  ESP_LOGI(TAG, "UI task successfully created!");
 
+  // CommTask va aqui, antes de la barrera: no pide bloques grandes (sus
+  // anillos son estaticos) y adelantarla evita perder los CTRL,* que la placa
+  // emita mientras el panel se crea.
   ESP_LOGI(TAG, "Creating Communication task ...");
   CreateCommTask();
   ESP_LOGI(TAG, "Communication task successfully created!");
 
-  ESP_LOGI(TAG, "Creating UI task ...");
-  CreateUITask();
-  ESP_LOGI(TAG, "UI task successfully created!");
+  // Espera acotada: crear la tarea no reserva nada, la reserva ocurre dentro
+  // de UI_Task (que ademas espera al STC8 del backlight). Sin esta barrera el
+  // orden de arriba no sirve de nada, porque setup() seguiria y WiFi
+  // fragmentaria la SRAM antes de que el panel la pidiese. El tope existe
+  // para que un panel que no arranca no deje al equipo sin comunicacion con
+  // la placa: sin display se monitoriza peor, pero sin CommTask no se
+  // monitoriza nada.
+  {
+    const uint32_t t0 = millis();
+    while (!UI_IsLcdPanelReady() && (millis() - t0) < LCD_READY_TIMEOUT_MS) {
+      delay(5);
+    }
+    if (!UI_IsLcdPanelReady())
+      ESP_LOGE(TAG, "panel RGB sin listo tras %lu ms — se sigue arrancando",
+               (unsigned long)LCD_READY_TIMEOUT_MS);
+    else
+      ESP_LOGI(TAG, "panel RGB listo en %lu ms", (unsigned long)(millis() - t0));
+  }
+
+#ifndef DISABLE_WIFI_TEST
+  ESP_LOGI(TAG, "Creating OTA task ...");
+  CreateOTATask();
+  ESP_LOGI(TAG, "OTA task successfully created!");
+#else
+  ESP_LOGW(TAG, "[DISABLE_WIFI_TEST] WiFi/OTA task NOT created — bench test build");
+#endif
 
 #ifdef CRASH_TEST
   xTaskCreatePinnedToCore(CrashTestTask, "CRASH_TEST", 2048, NULL, 1, NULL, 1);

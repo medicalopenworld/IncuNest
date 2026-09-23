@@ -22,20 +22,31 @@ build/
 *.elf
 *.hex
 
-# Flasher tool firmware binaries are intentionally tracked
-!Firmware/flasher_tool/data/firmware/**/*.bin
+# Los binarios de firmware del flasher NO se versionan: se compilan con el
+# Credentials.h real (claves de ThingsBoard, del servidor web y de Onomondo) y
+# este repositorio es publico, asi que subirlos publica esas claves dentro del
+# .bin. El flasher los descarga de GitHub Releases (flasher/updater.py).
+# La regla general *.bin de arriba ya los cubre.
+#
+# El marcador NO_SOBRESCRIBIR.txt tampoco se versiona: dice que build tiene
+# anclado *esta* maquina en data/firmware/, que es estado del banco y no del
+# repositorio. Ver flasher/updater.py::PIN_MARKER.
+Firmware/flasher_tool/data/firmware/*/NO_SOBRESCRIBIR.txt
 
-# clangd cache (esto es lo tuyo)
-Firmware/motherBoard/.cache/
-# (opcional más fino, si solo quieres clangd)
-# Firmware/motherBoard/.cache/clangd/
+# clangd cache (all subprojects)
+**/.cache/
 # Credentials (nunca versionar)
 **/Credentials.h
+Firmware/tools/.gemini_key
 
-# Hardware history folders
-Hardware/Electronics/Motherboard/History/
-# (o más genérico, si quieres ignorar cualquier carpeta History)
-# Hardware/**/[Hh]istory/
+# Taller de imágenes de alarma: originales de ~1.4 MB por intento, con el
+# historial completo de iteraciones. Es material de trabajo local — lo que se
+# versiona son las imágenes ya elegidas y reescaladas que `--publish` deja en
+# Display_HMI/assets_src/.
+Firmware/docs/alarm_images_wip/
+
+# Hardware history folders (backups automáticos de Altium, no se versionan)
+Hardware/**/[Hh]istory/
 
 # Agents and Workspaces
 .agent
@@ -47,3 +58,12 @@ Firmware/motherBoard/serial_*.txt
 
 # Thingsboard local folder
 Firmware/Thingsboard/
+
+# Git worktrees (superpowers:using-git-worktrees isolated workspaces)
+Firmware/.worktrees/
+
+# Documentacion regulatoria local (no versionar)
+Regulatory/
+# Python bytecode
+**/__pycache__/
+*.pyc

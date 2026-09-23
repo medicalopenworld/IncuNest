@@ -18,18 +18,38 @@
 #include <stdint.h>
 #include "control_types.h"
 #include "alarm_ids.h"
+// Por ALARM_AIR_SETPOINT_MAX_C: el tope de consigna lo fija shared/ para las
+// dos placas a la vez (ver AIR_TEMP_MAX mas abajo).
+#include "alarm_policy.h"
+#include "ui/i18n.h"
 
-#define FWversion "2.1.0"
+#define FWversion "4.2.1"
 #define ENABLE_WIFI_OTA true // enable wifi OTA
 extern bool OTA_inprogress;
 
-#define OTA_TASK_PRIORITY 4
+// POR DEBAJO de COMM_TASK_PRIORITY (3), la tarea del enlace con la
+// motherBoard. Es el orden que ya sigue la placa (su Communication_Task va a 7
+// y su OTA a 4): el cable no puede ceder ante mantenimiento de red.
+//
+// PubSubClient espera bytes con espera ACTIVA de hasta MQTT_SOCKET_TIMEOUT
+// segundos: readByte() gira en `while(!available()) yield();` y connect() ni
+// eso, gira sin ceder. yield() en Arduino-ESP32 es taskYIELD(), que NO cede a
+// tareas de MENOR prioridad, y WiFiClient::available() es un ioctl que nunca
+// bloquea: no hay ningun punto de espera real donde soltar la CPU. Con esta
+// tarea por encima de Comm y las dos en el mismo core, una caida de la senal
+// WiFi (socket medio abierto, paquete MQTT a medias) dejaba a la tarea Comm
+// sin ejecutar hasta 15 s. Consecuencias, todas vistas en campo: se desborda
+// el anillo de RX y se pierden lineas enteras del protocolo —alarmas
+// incluidas—; aparece BOARD LINK LOST con la placa hablando perfectamente; y
+// como el latido hacia la placa lo manda esa misma tarea, la placa declara
+// ALARM_HMI_LINK_LOST y lo deja escrito en su registro de alarmas.
+#define OTA_TASK_PRIORITY 2
 #define OTA_TASK_PERIOD_MS 50
 #define OTA_TASK_STACK_SIZE 8192
 #define CORE_MONITOR_FREERTOS 0
 #define CORE_ID_FREERTOS 1
 
-#define WIFI_NAME "IncuNest_Display"
+#define WIFI_NAME "IncuNest-Display"
 
 // Set to true only on the HMI board
 #define IS_HMI true
@@ -37,11 +57,13 @@ extern bool OTA_inprogress;
 // -----------------------------
 // LANGUAGES
 // -----------------------------
+//
+// `ui_lang_t`, `g_lang` y el catalogo de cadenas viven en `ui/i18n.h`
+// (incluido arriba).
 
-typedef enum { LANG_ES = 0, LANG_EN = 1, LANG_FR = 2 } ui_lang_t;
-extern ui_lang_t g_lang;
 extern bool darkMode;        // Global Dark Mode state
-extern bool humidityEnabled; // Humidity control enabled from Settings
+extern bool humidityEnabled;   // Humidity control enabled from Settings
+extern bool skinPanelEnabled;  // Skin mode control enabled from Settings
 extern double airTempValue, skinTempValue;
 extern volatile double airTempValueDetected, skinTempValueDetected;
 extern int humValue;
@@ -125,9 +147,17 @@ constexpr int BRIGHTNESS_MAX = 255;
 // Temperature
 // -----------------------------
 constexpr double AIR_TEMP_MIN = 30.0;
-constexpr double AIR_TEMP_MAX = 38.5;
+// El display es quien de verdad limita lo que se puede pedir: la placa acepta
+// la consigna que le llegue por el enlace sin recortarla (main.cpp,
+// ACTUATION_TEMPERATURE) y su maxDesiredTemp[] se escribe pero no lo lee
+// nadie. Por eso el numero sale de shared/ y no se teclea aqui: cuando cada
+// placa tenia el suyo acabaron en 38.5 y 38 sin que nadie lo notara.
+constexpr double AIR_TEMP_MAX = ALARM_AIR_SETPOINT_MAX_C;
 constexpr double SKIN_TEMP_MIN = 35.0;
 constexpr double SKIN_TEMP_MAX = 37.5;
+// Clinical standard skin setpoint applied by the baby-data wizard — fixed,
+// never manually adjustable (temp-control-activation-wizard spec, Section 4).
+constexpr double SKIN_FIXED_SETPOINT_C = 36.5;
 constexpr double TEMP_INCREMENT = 0.2;
 constexpr double TEMP_ALARM_THRESHOLD = 37.0;
 constexpr double TEMP_DIVISOR = 10.0;
@@ -190,24 +220,33 @@ constexpr double HUM_SAFE_ZONE_MIN = 40.0;  // %
 constexpr double HUM_SAFE_ZONE_MAX = 70.0;  // %
 
 // -----------------------------
-// History chart
-// -----------------------------
-constexpr int HISTORY_POINTS_5MIN = 30;
-constexpr int HISTORY_POINTS_30MIN = 180;
-constexpr int HISTORY_POINTS_1H = 360;
-constexpr int HISTORY_POINTS_2H = 720;
-
-// -----------------------------
 // Communication
 // -----------------------------
 constexpr int COMM_BAUD_RATE = 115200;
-constexpr int COMM_RX_TIMEOUT_MS = 50;
+// Descarte de una linea a medias (ReceiveMessageFromOtherESP()): solo esta
+// para resincronizar tras una linea truncada, NO para medir el hueco real
+// entre bytes -- ese reloj se mira una vez por pasada de la tarea Comm, asi
+// que lo que mide de verdad es "cuanto ha tardado esta tarea en volver".
+// Con 50 ms cualquier pasada que se retrasara mas de eso (esperar
+// LVGL_Lock() en Display_ApplyCtrlState(), repintado de la cuadricula del
+// test de fabrica) tiraba a la basura la linea a medias que habia en el
+// buffer, aunque estuviera intacta: una linea perdida por cada retraso, y en
+// el test de fabrica una linea perdida es un test que se queda "en curso"
+// para siempre (banco 2026-09-07). 500 ms sigue resincronizando de sobra
+// (el protocolo va a 1-10 lineas/s) sin castigar los retrasos normales.
+constexpr int COMM_RX_TIMEOUT_MS = 500;
+// Anillo de RX del driver de UART0 (el enlace con la motherBoard), en bytes.
+// Se aplica en setup() ANTES del primer Serial.begin(); ver el comentario
+// largo alli. El defecto de Arduino son 256 B = ~22 ms de linea a 115200.
+constexpr int COMM_RX_RING_BYTES = 1024;
 constexpr int COMM_STATE_SYNC_MS = 500;
 constexpr double COMM_TEMP_VALID_THRESHOLD =
     0.1; // received temp > this = valid
 constexpr int COMM_TASK_STACK_SIZE = 16384;   // 16 KB — margen para calls LVGL profundas
 constexpr int COMM_TASK_PRIORITY = 3;
-constexpr int COMM_RX_BUFFER_SIZE = 512;
+// 1024: CTRL,WEIGHT_HISTORY/CTRL,PROFILE_HISTORY can carry up to ~50/10
+// entries respectively and approach ~700 chars in the worst case.
+constexpr int COMM_RX_BUFFER_SIZE = 1280;
 constexpr int COMM_TASK_LOOP_MS = 10;
 
 // -----------------------------
@@ -247,13 +286,17 @@ constexpr int RAND_HUM_MAX = 0;
 // Progress arc for lock long-press
 // -----------------------------
 
-static lv_obj_t *lockProgressArc = NULL;
 static lv_timer_t *lockProgressTimer = NULL;
 static lv_timer_t *unlockTimeoutTimer = NULL;
 static lv_timer_t *lockStopDebounceTimer = NULL;
 static uint32_t lockProgressStart = 0;
 static const uint32_t LOCK_PROGRESS_DURATION_MS = 1500; // 1.5 seconds
 static const uint32_t UNLOCK_TIMEOUT_MS = 5000;         // 5 seconds timeout
+
+// Unlock popup border-fill dimensions
+static const lv_coord_t UNLOCK_POPUP_W  = 420;
+static const lv_coord_t UNLOCK_POPUP_H  = 300;
+static const lv_coord_t UNLOCK_BORDER_T = 10;
 
 // -----------------------------
 // Serial
@@ -269,20 +312,31 @@ constexpr int MS_PER_SECOND = 1000;
 // -----------------------------
 // Startup
 // -----------------------------
-constexpr int STARTUP_DELAY_MS = 1000;
+constexpr int STARTUP_DELAY_MS = 0;
+
+// Tope de la barrera de setup() que espera al panel RGB antes de arrancar
+// WiFi. En banco el panel esta listo en ~250 ms (el grueso es la espera al
+// STC8 del backlight); 3 s es margen de sobra sin dejar al equipo sin
+// conectividad si el panel nunca llega a crearse.
+constexpr uint32_t LCD_READY_TIMEOUT_MS = 3000;
 
 // -----------------------------
 // Misc sizes / lengths
 // -----------------------------
 constexpr int BUFFER_SIZE = 10;    // used for label char buffers
 constexpr int DHT_BUFFER_SIZE = 6; // used in commented DHT code
-constexpr int ALARM_TYPE_LEN = 30;
-constexpr int ALARM_DESC_LEN = 100;
+// Derivados de la capacidad de campo que declara el protocolo
+// (shared/include/alarm_ids.h), +1 por el terminador. No son numeros propios
+// del display: si divergen de lo que emite motherBoard, o se desborda el
+// buffer o se descartan lineas enteras. Los anchos de sscanf de CommTask.cpp
+// salen de las MISMAS macros, asi que ya no pueden separarse.
+constexpr int ALARM_TYPE_LEN = ALARM_TITLE_MAX_CHARS + 1;
+constexpr int ALARM_DESC_LEN = ALARM_DESC_MAX_CHARS + 1;
 
-// AlarmId enum (NO_ALARMS, HUMIDITY_ALARM ... POWER_SUPPLY_ALARM, NUM_ALARMS,
+// AlarmId enum (ALARM_NONE, ALARM_AIR_TEMP_DEVIATION_HIGH ... ALARM_COUNT,
 // MAX_ALARM_STRING_SIZE=255) is now in shared alarm_ids.h.
 
-constexpr int MAX_ALARMS = 10;
+constexpr int MAX_ALARMS = ALARM_COUNT;
 constexpr int MAX_ALARM_DISPLAY = 4;
 
 struct Alarm {
@@ -290,6 +344,9 @@ struct Alarm {
   char type[ALARM_TYPE_LEN];
   char description[ALARM_DESC_LEN];
   bool state;
+  // Prioridad tal como la manda la motherBoard en CTRL,ALM. El display no la
+  // calcula: la placa es la dueña de la informacion de alarmas.
+  uint8_t priority;
 };
 extern Alarm alarmList[MAX_ALARMS];
 

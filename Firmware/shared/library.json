@@ -3,5 +3,8 @@
   "version": "1.0.0",
   "description": "Shared protocol types and enums for IncuNest MB<->HMI communication",
   "frameworks": ["arduino"],
-  "platforms": ["espressif32"]
+  "platforms": ["espressif32", "native"],
+  "build": {
+    "srcDir": "src"
+  }
 }

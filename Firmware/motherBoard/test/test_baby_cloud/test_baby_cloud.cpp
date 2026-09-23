@@ -1,0 +1,253 @@
+#include <stdio.h>
+#include <string.h>
+#include <unity.h>
+
+#include "modules/baby_profile/baby_cloud.h"
+
+void setUp(void) {}
+void tearDown(void) {}
+
+static BabyProfile mk() {
+  BabyProfile p;
+  memset(&p, 0, sizeof(p));
+  p.slotUsed = true;
+  p.seq = 7;
+  snprintf(p.name, BABY_NAME_LEN, "%s", "ANA");
+  p.gestWeeks = 31;
+  p.weightGrams = 1450;
+  p.admissionEpoch = 1700000000u;
+  p.kangarooCount = 4;
+  p.phototherapyMinutes = 90;
+  p.thermoMinutes = 300;
+  p.humidityMinutes = 240;
+  return p;
+}
+
+// --- The whole point of the redesign: every payload identifies the baby ---
+
+void test_every_payload_carries_baby_seq(void) {
+  BabyProfile p = mk();
+  char buf[512];
+
+  BabyCloudEvent w = {BABY_EVT_WEIGHT, 1700000500u, 1460, p};
+  TEST_ASSERT_GREATER_THAN_INT(0, babyCloud_buildEventJson(&w, buf, sizeof(buf)));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_seq\":7"));
+
+  BabyCloudEvent k = {BABY_EVT_KANGAROO, 1700000600u, 0, p};
+  TEST_ASSERT_GREATER_THAN_INT(0, babyCloud_buildEventJson(&k, buf, sizeof(buf)));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_seq\":7"));
+
+  BabyCloudEvent d = {BABY_EVT_DISCHARGE, 1700000700u, 1460, p};
+  TEST_ASSERT_GREATER_THAN_INT(0, babyCloud_buildEventJson(&d, buf, sizeof(buf)));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_seq\":7"));
+
+  TEST_ASSERT_GREATER_THAN_INT(
+      0, babyCloud_buildAttributesJson(&p, 7, buf, sizeof(buf)));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_seq\":7"));
+}
+
+// --- Cumulative admissions counter (device-level, not per-baby) ---
+
+void test_attributes_carry_total_registered_count(void) {
+  BabyProfile p = mk();
+  char buf[512];
+  TEST_ASSERT_GREATER_THAN_INT(
+      0, babyCloud_buildAttributesJson(&p, 47, buf, sizeof(buf)));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"babies_registered_total\":47"));
+}
+
+// The counter describes the incubator, not its occupant, so it must survive
+// the payload that clears the occupancy cards. Without this, a unit that
+// boots with an empty incubator would never publish the number at all.
+void test_empty_attributes_still_carry_total_registered_count(void) {
+  char buf[512];
+  TEST_ASSERT_GREATER_THAN_INT(
+      0, babyCloud_buildEmptyAttributesJson(47, buf, sizeof(buf)));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"babies_registered_total\":47"));
+}
+
+// Zero is a real answer ("this unit has admitted nobody"), so it is published
+// as 0 rather than omitted — an omitted attribute keeps its previous value in
+// ThingsBoard, which after a wipe would keep claiming the old count.
+void test_virgin_unit_publishes_zero_rather_than_omitting_the_key(void) {
+  char buf[512];
+  TEST_ASSERT_GREATER_THAN_INT(
+      0, babyCloud_buildEmptyAttributesJson(0, buf, sizeof(buf)));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"babies_registered_total\":0"));
+}
+
+// --- Timestamps: real event time, not publish time ---
+
+void test_known_timestamp_uses_ts_envelope_in_millis(void) {
+  BabyProfile p = mk();
+  BabyCloudEvent w = {BABY_EVT_WEIGHT, 1700000500u, 1460, p};
+  char buf[512];
+  babyCloud_buildEventJson(&w, buf, sizeof(buf));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"ts\":1700000500000"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"values\":{"));
+}
+
+void test_unsynced_clock_omits_ts_so_server_stamps_it(void) {
+  BabyProfile p = mk();
+  BabyCloudEvent w = {BABY_EVT_WEIGHT, 0, 1460, p};
+  char buf[512];
+  babyCloud_buildEventJson(&w, buf, sizeof(buf));
+  // No ts envelope at all, and no bogus 1970 timestamp.
+  TEST_ASSERT_NULL(strstr(buf, "\"ts\""));
+  TEST_ASSERT_EQUAL_STRING("{\"baby_seq\":7,\"baby_weight_g\":1460}", buf);
+}
+
+// --- Discharge row must stand alone (history table reads only this) ---
+
+void test_discharge_is_self_contained_with_stay_days(void) {
+  BabyProfile p = mk();
+  p.dischargeEpoch = p.admissionEpoch + 5u * 86400u;
+  p.outcome = BABY_OUTCOME_SURVIVED;
+  BabyCloudEvent d = {BABY_EVT_DISCHARGE, p.dischargeEpoch, 1460, p};
+  char buf[512];
+  TEST_ASSERT_GREATER_THAN_INT(0, babyCloud_buildEventJson(&d, buf, sizeof(buf)));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_name\":\"ANA\""));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_gest_weeks\":31"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_outcome\":1"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_discharge_cause\":0"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_kangaroo_count\":4"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_phototherapy_min\":90"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_thermo_min\":300"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_humidity_min\":240"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_stay_days\":5"));
+}
+
+void test_discharge_cause_only_meaningful_for_deceased(void) {
+  BabyProfile p = mk();
+  p.outcome = BABY_OUTCOME_DECEASED;
+  p.cause = BABY_CAUSE_HYPOTHERMIA;
+  BabyCloudEvent d = {BABY_EVT_DISCHARGE, 1700000700u, 0, p};
+  char buf[512];
+  TEST_ASSERT_GREATER_THAN_INT(0, babyCloud_buildEventJson(&d, buf, sizeof(buf)));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_outcome\":2"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_discharge_cause\":5"));
+}
+
+void test_stay_days_omitted_when_dates_unusable(void) {
+  BabyProfile p = mk();
+  p.admissionEpoch = 0;  // clock was never synced during the stay
+  p.dischargeEpoch = 1700000000u;
+  BabyCloudEvent d = {BABY_EVT_DISCHARGE, p.dischargeEpoch, 0, p};
+  char buf[512];
+  babyCloud_buildEventJson(&d, buf, sizeof(buf));
+  // Better absent than a fabricated 19000-day stay.
+  TEST_ASSERT_NULL(strstr(buf, "baby_stay_days"));
+}
+
+// --- Robustness ---
+
+void test_name_with_quotes_cannot_break_the_json(void) {
+  BabyProfile p = mk();
+  snprintf(p.name, BABY_NAME_LEN, "%s", "A\"B\\C");
+  char buf[512];
+  TEST_ASSERT_GREATER_THAN_INT(
+      0, babyCloud_buildAttributesJson(&p, 3, buf, sizeof(buf)));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\\\"B"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\\\\C"));
+  // Braces stay balanced: one open, one close.
+  int depth = 0, minDepth = 0;
+  for (const char *c = buf; *c; c++) {
+    if (*c == '{') depth++;
+    if (*c == '}') depth--;
+    if (depth < minDepth) minDepth = depth;
+  }
+  TEST_ASSERT_EQUAL_INT(0, depth);
+  TEST_ASSERT_EQUAL_INT(0, minDepth);
+}
+
+void test_empty_attributes_clear_every_occupancy_key(void) {
+  char buf[512];
+  TEST_ASSERT_GREATER_THAN_INT(
+      0, babyCloud_buildEmptyAttributesJson(12, buf, sizeof(buf)));
+  // Omitting a key would leave the discharged baby on the dashboard card.
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_seq\":0"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_name\":\"\""));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_kangaroo_count\":0"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_thermo_min\":0"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_humidity_min\":0"));
+}
+
+// The discharge row is the widest payload and the transports give it a fixed
+// 512-byte buffer, so a new key must not be the one that silently drops it.
+void test_widest_discharge_payload_fits_transport_buffer(void) {
+  BabyProfile p;
+  memset(&p, 0, sizeof(p));
+  p.slotUsed = true;
+  p.seq = 4294967295u;
+  memset(p.name, 'W', BABY_NAME_LEN - 1);
+  p.gestWeeks = 255;
+  p.weightGrams = 65535;
+  p.admissionEpoch = 1700000000u;
+  p.dischargeEpoch = 4294967295u;
+  p.outcome = 3;
+  p.cause = 255;
+  p.kangarooCount = 65535;
+  p.phototherapyMinutes = 4294967295u;
+  p.thermoMinutes = 4294967295u;
+  p.humidityMinutes = 4294967295u;
+  BabyCloudEvent d = {BABY_EVT_DISCHARGE, p.dischargeEpoch, 65535, p};
+  char buf[512];
+  int n = babyCloud_buildEventJson(&d, buf, sizeof(buf));
+  TEST_ASSERT_GREATER_THAN_INT(0, n);
+  TEST_ASSERT_LESS_THAN_INT(512, n);
+}
+
+// Same fixed 512-byte transport buffer, now one key wider.
+void test_widest_attributes_payload_fits_transport_buffer(void) {
+  BabyProfile p;
+  memset(&p, 0, sizeof(p));
+  p.slotUsed = true;
+  p.seq = 4294967295u;
+  memset(p.name, 'W', BABY_NAME_LEN - 1);
+  p.gestWeeks = 255;
+  p.weightGrams = 65535;
+  p.admissionEpoch = 4294967295u;
+  p.kangarooCount = 65535;
+  p.phototherapyMinutes = 4294967295u;
+  p.thermoMinutes = 4294967295u;
+  p.humidityMinutes = 4294967295u;
+  char buf[512];
+  int n = babyCloud_buildAttributesJson(&p, 4294967295u, buf, sizeof(buf));
+  TEST_ASSERT_GREATER_THAN_INT(0, n);
+  TEST_ASSERT_LESS_THAN_INT(512, n);
+}
+
+void test_small_buffer_fails_closed(void) {
+  BabyProfile p = mk();
+  BabyCloudEvent d = {BABY_EVT_DISCHARGE, 1700000700u, 1460, p};
+  char buf[24];
+  // 0 means "do not send", never a truncated half-JSON.
+  TEST_ASSERT_EQUAL_INT(0, babyCloud_buildEventJson(&d, buf, sizeof(buf)));
+}
+
+void test_unknown_event_type_builds_nothing(void) {
+  BabyProfile p = mk();
+  BabyCloudEvent e = {BABY_EVT_NONE, 1700000700u, 0, p};
+  char buf[128];
+  TEST_ASSERT_EQUAL_INT(0, babyCloud_buildEventJson(&e, buf, sizeof(buf)));
+}
+
+int main(void) {
+  UNITY_BEGIN();
+  RUN_TEST(test_every_payload_carries_baby_seq);
+  RUN_TEST(test_attributes_carry_total_registered_count);
+  RUN_TEST(test_empty_attributes_still_carry_total_registered_count);
+  RUN_TEST(test_virgin_unit_publishes_zero_rather_than_omitting_the_key);
+  RUN_TEST(test_known_timestamp_uses_ts_envelope_in_millis);
+  RUN_TEST(test_unsynced_clock_omits_ts_so_server_stamps_it);
+  RUN_TEST(test_discharge_is_self_contained_with_stay_days);
+  RUN_TEST(test_discharge_cause_only_meaningful_for_deceased);
+  RUN_TEST(test_stay_days_omitted_when_dates_unusable);
+  RUN_TEST(test_name_with_quotes_cannot_break_the_json);
+  RUN_TEST(test_empty_attributes_clear_every_occupancy_key);
+  RUN_TEST(test_widest_discharge_payload_fits_transport_buffer);
+  RUN_TEST(test_widest_attributes_payload_fits_transport_buffer);
+  RUN_TEST(test_small_buffer_fails_closed);
+  RUN_TEST(test_unknown_event_type_builds_nothing);
+  return UNITY_END();
+}

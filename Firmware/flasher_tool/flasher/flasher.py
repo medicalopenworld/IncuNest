@@ -1,13 +1,13 @@
 import io
 import os
 import re
-import sys
 import tempfile
 from pathlib import Path
 from typing import Callable, Optional
 
 import esptool
 
+import esptool_io
 import nvs_gen
 from detector import Board
 
@@ -15,28 +15,116 @@ from detector import Board
 _BOARD_FOLDER = {
     Board.MOTHERBOARD: 'motherboard',
     Board.DISPLAY_HMI: 'display_hmi',
+    Board.SENSORBOARD: 'sensorboard',
 }
 
-# ESP32-S3 native USB supports automatic bootloader entry via USB reset sequence.
-# CH340K boards use classic DTR/RTS toggle (default_reset).
 _BOARD_BEFORE_RESET = {
     Board.MOTHERBOARD: 'default-reset',
     Board.DISPLAY_HMI: 'default-reset',
+    Board.SENSORBOARD: 'default-reset',
 }
 
+# OJO: estos offsets estan duplicados a mano y tienen que seguir a las tablas
+# de particiones de cada placa. Si se mueve una particion en el CSV y no aqui,
+# el flasheo no falla — escribe en el sitio equivocado y la placa arranca mal.
+# Fuentes de verdad:
+#   motherboard   -> motherBoard/partitions/ESP32S3_8MB.csv
+#   display_hmi   -> Display_HMI/partitions/hmi_16mb_ota.csv
+#   sensorboard   -> SensorBoard_v2/partitions.csv
 _BOARD_FILES = {
+    # otadata en 0xE000, igual que el HMI (ESP32S3_8MB.csv). Reponerlo no es
+    # cosmetico: motherBoard/src/tasks/Wifi_OTA.cpp hace OTA de verdad, asi que
+    # una placa que haya recibido una actualizacion tiene el puntero de arranque
+    # en app1. Si se reflashea por USB sin tocar otadata, firmware.bin cae en
+    # app0 y la placa sigue arrancando la app vieja de app1 — parece un flasheo
+    # correcto y no lo es. 8 KB de 0xFF significan "ninguna OTA todavia, arranca
+    # el primer slot".
     Board.MOTHERBOARD: [
         ('0x0000', 'bootloader.bin'),
         ('0x8000', 'partitions.bin'),
+        ('0xE000', 'ota_data_initial.bin'),
         ('0x10000', 'firmware.bin'),
     ],
+    # SIN imagen SPIFFS (2026-09-20). Se flasheaba una de 6,16 MB en 0xA10000
+    # para llevar /heartbeat.mp3, y resulta que en esta linea de firmware NADIE
+    # la lee: su unico consumidor era src/tasks/AudioManager.cpp, que esta
+    # excluido del build (`build_src_filter = +<*> -<tasks/AudioManager.cpp>` en
+    # Display_HMI/platformio.ini) y ni siquiera genera objeto. El boton de audio
+    # de la interfaz esta oculto de forma permanente.
+    #
+    # Quitarla ademas cierra dos molestias: el flasheo fallaba con "Archivo no
+    # encontrado" si nadie habia corrido `pio run -t buildfs` (la imagen no sale
+    # de un build normal), y reflashear una unidad ya no pisa esa particion.
+    #
+    # Si algun dia se reactiva el audio, hay que volver a anadir la linea
+    # ('0xA10000', 'spiffs.bin') -- el offset sale de
+    # Display_HMI/partitions/hmi_16mb_ota.csv -- y volver a generar la imagen.
     Board.DISPLAY_HMI: [
         ('0x0000', 'bootloader.bin'),
         ('0x8000', 'partitions.bin'),
         ('0xE000', 'ota_data_initial.bin'),
         ('0x10000', 'firmware.bin'),
     ],
+    # ESP-IDF native layout (bootloader offset 0x0, partition table at
+    # 0x8000, primera app en 0x10000 — see SensorBoard_v2/partitions.csv).
+    # otadata va en 0xD000, no en 0xE000 como en las placas Arduino: la tabla de
+    # la SensorBoard usa el reparto estandar de IDF (nvs de 16K en 0x9000).
+    Board.SENSORBOARD: [
+        ('0x0000', 'bootloader.bin'),
+        ('0x8000', 'partitions.bin'),
+        ('0xD000', 'ota_data_initial.bin'),
+        ('0x10000', 'firmware.bin'),
+    ],
 }
+
+
+# Una imagen de otadata "virgen" son 8 KB de 0xFF: ninguna OTA todavia, el
+# bootloader arranca el primer slot de app.
+_OTA_DATA_SIZE = 0x2000
+_OTA_DATA_NAME = 'ota_data_initial.bin'
+
+
+def required_files(board: Board) -> list[str]:
+    """Ficheros que flash_board espera en la carpeta de la placa."""
+    return [fname for _, fname in _BOARD_FILES[board]]
+
+
+def missing_files(firmware_base: Path) -> dict[str, list[str]]:
+    """Devuelve {carpeta → ficheros que faltan} para las tres placas.
+
+    Sirve para que un hueco salga en el registro al refrescar los binarios y no
+    en un FileNotFoundError delante de la placa, en fabrica.
+    """
+    out: dict[str, list[str]] = {}
+    for board, folder in _BOARD_FOLDER.items():
+        absent = [
+            fname for fname in required_files(board)
+            if not (firmware_base / folder / fname).is_file()
+        ]
+        if absent:
+            out[folder] = absent
+    return out
+
+
+def write_initial_ota_data(firmware_base: Path) -> list[str]:
+    """Escribe los ota_data_initial.bin que la secuencia de flasheo espera.
+
+    ESP-IDF genera el suyo en build/, pero PlatformIO no genera ninguno, asi que
+    en el HMI el fichero se venia copiando a mano. Como el contenido es una
+    constante, se escribe aqui en vez de depender de que alguien lo copie o de
+    que venga en la release de GitHub.
+
+    Devuelve las carpetas escritas.
+    """
+    written: list[str] = []
+    for board, folder in _BOARD_FOLDER.items():
+        if _OTA_DATA_NAME not in required_files(board):
+            continue
+        dest = firmware_base / folder / _OTA_DATA_NAME
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b'\xff' * _OTA_DATA_SIZE)
+        written.append(folder)
+    return written
 
 
 class _ProgressTracker:
@@ -59,14 +147,12 @@ class _ProgressTracker:
         self._last = 0
 
     def parse(self, text: str) -> Optional[int]:
-        # Direct percentage from esptool (stub mode or plain-text mode)
         m = re.search(r'\((\d+)\s*%\)', text)
         if m:
             pct = int(m.group(1))
             self._last = pct
             return pct
 
-        # Fallback: estimate from the write address
         m = re.search(r'[Ww]riting at 0x([0-9a-fA-F]+)', text)
         if m and self._total > 0:
             addr = int(m.group(1), 16)
@@ -85,44 +171,78 @@ class _ProgressTracker:
 
 
 def has_firmware_flashed(port: str) -> bool:
-    """Return True if the app partition (0x10000) contains firmware.
-
-    Reads only 4 bytes using the ROM bootloader (--no-stub) so no stub
-    is left in RAM and the port is cleanly released.  If the bytes are
-    all 0xFF the flash is erased (new device); anything else means
-    firmware has been written before.  Returns False on any error so the
-    caller can fall back to showing the serial dialog.
-    """
+    """Return True if the app partition (0x10000) contains firmware."""
     fd, tmp = tempfile.mkstemp(suffix='.bin')
     os.close(fd)
 
-    prev_no_color = os.environ.get('NO_COLOR')
-    os.environ['NO_COLOR'] = '1'
-    old_out, old_err = sys.stdout, sys.stderr
-    sys.stdout = io.StringIO()
-    sys.stderr = sys.stdout
-
     try:
-        esptool.main([
-            '--port', port,
-            '--chip', 'esp32s3',
-            '--no-stub',
-            '--before', 'no-reset',
-            '--after', 'no-reset',
-            'read_flash',
-            '0x10000', '4', tmp,
-        ])
+        with esptool_io.capture():  # discard all esptool output
+            esptool.main([
+                '--port', port,
+                '--chip', 'esp32s3',
+                '--no-stub',
+                '--before', 'no-reset',
+                '--after', 'no-reset',
+                'read_flash',
+                '0x10000', '4', tmp,
+            ])
         data = open(tmp, 'rb').read()
         return len(data) == 4 and data != b'\xff\xff\xff\xff'
     except Exception:
-        return False
+        return True  # conservative: assume firmware present, preserve NVS
     finally:
-        sys.stdout = old_out
-        sys.stderr = old_err
-        if prev_no_color is None:
-            os.environ.pop('NO_COLOR', None)
-        else:
-            os.environ['NO_COLOR'] = prev_no_color
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def serial_to_write(current: Optional[int], requested: int) -> Optional[int]:
+    """Serial que hay que escribir en la NVS, o None si no hay que tocarla.
+
+    Escribir la NVS borra la identidad del equipo (ver read_device_serial), asi
+    que solo se escribe cuando el serial cambia de verdad. `current is None`
+    --placa virgen o lectura fallida-- cuenta como cambio: no se puede dar por
+    bueno lo que no se ha podido leer.
+    """
+    return None if current is not None and requested == current else requested
+
+
+def read_device_serial(port: str, firmware_base: Path) -> Optional[int]:
+    """Numero de serie que la placa ya tiene en NVS, o None si no se puede leer.
+
+    Sirve para NO reescribir la NVS cuando el serial no cambia. Escribirla
+    cuesta la identidad entera del equipo: generate_serial_nvs produce una
+    imagen del tamano de la particion con un unico dato (mb_cfg/serial), asi
+    que borra tambien el token de ThingsBoard, la marca de provisionado
+    (mb_gprs) y las credenciales WiFi (mb_wifi). La placa vuelve a arrancar
+    como virgen, se conecta al SSID por defecto compilado --que fuera de
+    fabrica no suele existir-- y, si llega a la red, pide provisionarse otra
+    vez con un nombre que ya esta cogido en ThingsBoard.
+
+    None significa "no se sabe" (placa virgen, lectura fallida): el llamante
+    tiene que asumir lo peor y avisar antes de escribir.
+    """
+    folder = firmware_base / _BOARD_FOLDER[Board.MOTHERBOARD]
+    offset, size = nvs_gen.find_nvs_partition(folder / 'partitions.bin')
+
+    fd, tmp = tempfile.mkstemp(suffix='.bin')
+    os.close(fd)
+    try:
+        with esptool_io.capture():  # discard all esptool output
+            esptool.main([
+                '--port', port,
+                '--chip', 'esp32s3',
+                '--no-stub',
+                '--before', 'no-reset',
+                '--after', 'no-reset',
+                'read_flash',
+                hex(offset), hex(size), tmp,
+            ])
+        return nvs_gen.parse_nvs_serial(Path(tmp).read_bytes())
+    except Exception:
+        return None
+    finally:
         try:
             os.unlink(tmp)
         except OSError:
@@ -185,14 +305,7 @@ def flash_board(
                 progress_callback(text.rstrip(), tracker.parse(text))
             return result
 
-    # Disable rich/color output so esptool writes plain parseable text
-    _prev_no_color = os.environ.get('NO_COLOR')
-    os.environ['NO_COLOR'] = '1'
-
-    writer = _Writer()
-    old_out, old_err = sys.stdout, sys.stderr
-    sys.stdout = writer
-    sys.stderr = writer
+    esptool_io.set_thread_writer(_Writer())
     try:
         esptool.main(args)
     except SystemExit as e:
@@ -205,12 +318,7 @@ def flash_board(
         if not reset_seen:
             raise RuntimeError(str(e))
     finally:
-        sys.stdout = old_out
-        sys.stderr = old_err
-        if _prev_no_color is None:
-            os.environ.pop('NO_COLOR', None)
-        else:
-            os.environ['NO_COLOR'] = _prev_no_color
+        esptool_io.set_thread_writer(None)
         if nvs_tmp:
             try:
                 os.unlink(nvs_tmp)

@@ -1,0 +1,339 @@
+/*
+  MIT License
+
+  Copyright (c) 2022 Medical Open World, Pablo Sánchez Bergasa
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+
+*/
+#ifndef HW_NUM
+#error "HW_NUM must be defined via build_flags in platformio.ini (-DHW_NUM=16, -DHW_NUM=17 or -DHW_NUM=18)"
+#endif
+// Set to true only on the HMI board
+#define IS_HMI false
+
+#define GPIO_EXP_BASE 100 // To differentiate with ESP32 GPIO
+// Power / control
+#define PWR_EN 2
+#define ON_OFF_SWITCH 4
+#define BUZZER 1
+
+// GSM
+#define GSM_UART_TX_PIN 9
+#define GSM_UART_RX_PIN 10
+// #define GSM_PWRKEY         // No se ve conectado a ningún IO del uC
+
+// Display / Modbus UART
+#define UART_MB_TX_PIN 15
+#define UART_MB_RX_PIN 16
+
+// Actuators
+#define ACTUATORS_EN 14
+#define HEATER 45
+#define FAN 12
+#define PHOTOTHERAPY 13
+#define FAN_CTL 11
+#define FAN_SPEED_FEEDBACK 38
+#define USB_EN 5
+#define USB_FAULT 6
+
+// Sensors
+#define BABY_NTC_PIN 8
+#define BABY_TEMP_EN 18
+#define ADS1110_I2C_ADDRESS 0x48 // I2C ADC for baby NTC
+
+// USB / Second I2C bus (SHTC3 + STS35 for HW16)
+#define USB_D_MINUS 19
+#define USB_D_PLUS 20
+#define I2C2_SCL 19 // repurposed from USB_D_PLUS
+#define I2C2_SDA 20 // repurposed from USB_D_MINUS
+
+// I2C (primary: SHT4x + INA3221)
+#define I2C_SDA 47
+#define I2C_SCL 48
+
+// AFE
+#define AFE_MISO 37
+#define AFE_MOSI 35
+#define AFE_SCK 36
+#define AFE_ADC_READY 17
+#define AFE44XX_CS 21
+
+#define FAKE_PIN 46
+
+#define SCREENBACKLIGHT FAKE_PIN
+#define AFE44XX_PWDN_PIN FAKE_PIN
+#define GPRS_PWRKEY FAKE_PIN
+#undef TFT_DC
+#define TFT_DC FAKE_PIN
+#define ENC_SWITCH FAKE_PIN
+#define ENC_A FAKE_PIN
+#define ENC_B FAKE_PIN
+#undef TFT_CS
+#define TFT_CS FAKE_PIN
+
+// Selección del puerto de depuración según modo USB
+#if ARDUINO_USB_MODE == 1
+// Cuando el USB CDC está activo, Serial ya se enruta por USB
+#define debugSerial Serial
+#else
+// Si no se usa USB CDC, utiliza UART0 físico
+#define debugSerial Serial
+#endif
+
+// number assignment of each environmental sensor for later call in variable
+#define SKIN_SENSOR 0
+#define ROOM_DIGITAL_TEMP_SENSOR 1
+#define AMBIENT_DIGITAL_TEMP_SENSOR 2
+#define SENSOR_TEMP_QTY 3 // number of total temperature sensors in system
+#define ROOM_DIGITAL_HUM_SENSOR 0
+#define AMBIENT_DIGITAL_HUM_SENSOR 1
+#define SENSOR_HUM_QTY 2 // number of total humidity sensors in system
+
+#define SYSTEM_SHUNT_CHANNEL INA3221_CH1
+#define PHOTOTHERAPY_SHUNT_CHANNEL INA3221_CH2
+#define FAN_SHUNT_CHANNEL INA3221_CH3
+
+#define HEATER_SHUNT_CHANNEL INA3221_CH1
+#define DISPLAY_SHUNT_CHANNEL INA3221_CH2
+#define USB_SHUNT_CHANNEL INA3221_CH2
+#define BATTERY_SHUNT_CHANNEL INA3221_CH3
+
+#if (HW_NUM >= 17)
+#define HUMIDIFIER_SHUNT 100 // miliohms
+#else
+#define HUMIDIFIER_SHUNT 1   // flag (boolean legacy, not used as resistance)
+#endif
+
+// Cuando es true, el GPIO BABY_TEMP_EN se pone LOW tras cada lectura para
+// reducir el autocalentamiento de la NTC (excitación pulsada).
+// Cuando es false, BABY_TEMP_EN permanece HIGH entre medidas.
+#define SKIN_NTC_PULSED_EXCITATION false
+
+#if (HW_NUM == 17)
+// PCB layout bug: INA3221 IN+ taps the MOSFET switching node instead of the
+// shunt pad. During PWM switching the reading flips negative with amplified
+// magnitude. Empirical correction: I_real ≈ |I_measured| / factor.
+// Tune HEATER_CURRENT_CORRECTION_FACTOR based on measured vs. expected current.
+#define HEATER_CURRENT_CORRECTION_FACTOR 5.80f
+#define SYSTEM_SHUNT 1000        // miliohms (VSYS_SHUNT+ is not connected properly, is connected before O-ring)
+#define HEATER_SHUNT 5        // miliohms
+#define FAN_SHUNT 100         // miliohms
+#define PHOTOTHERAPY_SHUNT 5   // miliohms
+#define USB_SHUNT 100         // miliohms (humidifier via USB_EN channel)
+#define BATTERY_SHUNT 27000   // miliohms
+#elif (HW_NUM == 18)
+// HW18: VSYS_SHUNT+/heater shunt wiring fixed, no more MOSFET-switching-node
+// tap - HEATER_CURRENT_CORRECTION_FACTOR is a HW17-only workaround, not
+// needed here (see HW_NUM == 17 above and sensors_module.cpp's
+// #if (HW_NUM == 17) around heater_current).
+#define SYSTEM_SHUNT 5        // miliohms
+#define HEATER_SHUNT 2        // miliohms
+#define FAN_SHUNT 100         // miliohms
+#define PHOTOTHERAPY_SHUNT 5   // miliohms
+#define USB_SHUNT 100         // miliohms (humidifier via USB_EN channel)
+#define BATTERY_SHUNT 27000   // miliohms
+#elif (HW_NUM >= 16)
+#define SYSTEM_SHUNT 3        // miliohms
+#define FAN_SHUNT 3           // miliohms
+#define PHOTOTHERAPY_SHUNT 15 // miliohms
+#define BATTERY_SHUNT 27000   // miliohms
+#define USB_SHUNT 3           // miliohms
+#define HEATER_SHUNT 3        // miliohms
+#endif
+
+#define DISPLAY_DEFAULT_ROTATION 3
+
+#define SCREENBACKLIGHT_PWM_CHANNEL 0
+#define BUZZER_PWM_CHANNEL 1
+#define HEATER_PWM_CHANNEL 2
+// FAN y FAN_CTL comparten timer 3 (ch 6,7) a 25 kHz; HEATER (ch 2, timer 1)
+// queda aislado para que HEATER_PWM_FREQUENCY (400 Hz) no sea sobrescrito.
+#define FAN_PWM_CHANNEL 7
+#define PHOTOTHERAPY_PWM_CHANNEL 4
+#define HUMIDIFIER_PWM_CHANNEL 5
+#define FAN_CTL_PWM_CHANNEL 6
+#define DEFAULT_PWM_RESOLUTION 8
+#define DEFAULT_PWM_FREQUENCY 400
+// NO uses DEFAULT_PWM_FREQUENCY aqui: esa la comparten calefactor y
+// ventilador, y ajustarla por motivos de potencia cambiaria el tono del
+// zumbador y podria tumbar la Tabla 4 sin que nadie lo relacione.
+//
+// 400 Hz es una eleccion acustica, no electrica. El zumbador es pasivo y se
+// excita con una onda cuadrada, cuyo espectro son los armonicos impares:
+// 400, 1200, 2000, 2800 y 3600 Hz. Eso da CINCO picos dentro de la banda de
+// 150 a 4000 Hz (la Tabla 4 exige al menos cuatro) y deja el fundamental
+// dentro de 150 a 1000 Hz siendo ademas la componente de mayor nivel (la
+// Tabla 4 exige al menos una de las cuatro mayores en esa banda).
+//
+// Si algun dia se cambia, hay que rehacer esa cuenta: por encima de 1000 Hz
+// el fundamental se sale de la banda obligatoria, y por encima de ~800 Hz
+// quedan menos de cuatro armonicos por debajo de 4000 Hz.
+#define BUZZER_PWM_FREQUENCY 400
+#define PHOTOTHERAPY_PWM_FREQUENCY 10000
+#define HEATER_PWM_FREQUENCY DEFAULT_PWM_FREQUENCY
+#define FAN_PWM_FREQUENCY DEFAULT_PWM_FREQUENCY
+#define HUMIDIFIER_PWM_FREQUENCY 109000
+
+#define maxADCvalue 4095
+// #define PWM_MAX_VALUE maxADCvalue
+#define PWM_MAX_VALUE (pow(2, DEFAULT_PWM_RESOLUTION) - 1)
+#define FAN_PWR_SUPPLY_PWM PWM_MAX_VALUE
+#define FAN_CTL_PWM_DEFAULT 130
+#define FAN_MIN_RPM 3000            // minimum acceptable fan RPM when speed feedback is present
+#define FAN_MIN_RPM_HYSTERESIS 300  // rpm above FAN_MIN_RPM required to clear ALARM_FAN_FAILURE
+
+// Closed-loop fan speed control (HW>=16, feedback-capable units only).
+#define FAN_TARGET_RPM 4000
+// Default for in3.fanPidEnabled (runtime-toggleable via /config and USB). When
+// false, the fan runs at the fixed in3.fanCtlPWM duty with the PID bypassed —
+// same as a unit without RPM feedback.
+#define FAN_PID_ENABLED_DEFAULT true
+// The fan is held open-loop at its baseline duty for this long after being
+// commanded on; only then does the PID close the loop (bumpless). Running
+// the loop during the ~3s mechanical spin-up made it chase the lagged,
+// still-ramping RPM measurement and wind the duty far past baseline — a
+// ~6000rpm overshoot on a 4000 target. Also used by the RPM/air-blockage
+// monitors in security.cpp as their spin-up grace.
+#define FAN_SPINUP_GRACE_MS 6000
+// Factory baseline duty (0-255) to hold FAN_TARGET_RPM with a clean air
+// outlet is 137. FAN_DUTY_BLOCKED_THRESHOLD below is a REASONED starting
+// point derived from that baseline, not a bench-validated one — see the
+// WARNING further down for what is still missing.
+//
+// Why 190:
+// - A genuine obstruction chokes airflow, RPM sags, and the PID drives the
+//   duty toward saturation, so a real blockage is detected well above 190.
+// - The worst legitimate load is the heater at max power sagging the supply
+//   voltage: the PID raises the duty to keep FAN_TARGET_RPM. A 10-15% supply
+//   sag puts the duty at roughly 158. The previous value (160) sat just
+//   above that number, which is exactly why it was dangerous: a legitimate
+//   compensation spike could trip the alarm.
+// - 190 is baseline+53 (+39%), comfortably above the sag-compensation duty,
+//   and still 65 counts below saturation.
+// - The margin is deliberately biased against false positives: a false
+//   positive cuts the heater and cools the infant with no backup net,
+//   whereas a partial obstruction that slips past this threshold still
+//   shows up as a temperature-deviation alarm or a thermal cutout — both of
+//   which exist and act independently of this one.
+// ============ MEDIDO EN BANCO 2026-09-14 (unidad 353): 190 NO VALIA ============
+//
+// El razonamiento de arriba parte de dos premisas y LAS DOS se caen con la
+// medida: da por bueno un baseline de 137 y un peor caso legitimo de ~158.
+// 97 muestras en 5 min con el ventilador a 4006 rpm, calefactor a 255 y
+// fototerapia al 82 %, con la salida de aire LIMPIA:
+//
+//     duty  min 186   max 188   media 187,0
+//
+// O sea que el punto de trabajo normal esta 50 cuentas por encima del baseline
+// supuesto, y el umbral de 190 dejaba **2 cuentas** de margen, no el 39 % que
+// dice el texto. Cualquier perturbacion levantaba una alarma ALTA que corta el
+// calefactor.
+//
+// Y habia algo peor que el falso positivo, que es lo que de verdad obliga a
+// tocar esto: el umbral de RETIRADA era 190-15 = 175, **por debajo** del duty
+// de trabajo. Con el ventilador girando el duty nunca baja de 175, asi que una
+// vez declarada la condicion NO SE PODIA RETIRAR: calefactor cortado hasta
+// reiniciar. La histeresis apuntaba al lado equivocado del punto de trabajo.
+//
+// Valores nuevos, derivados de la medida y no de una estimacion:
+//   - retirada en 200: 12 cuentas POR ENCIMA del maximo normal observado (188),
+//     que es la condicion para que la alarma pueda irse sola.
+//   - disparo en 220: 32 por encima del maximo normal y todavia 35 por debajo
+//     de la saturacion (255). Una obstruccion real ahoga el flujo, el RPM cae y
+//     el PID empuja el duty HACIA LA SATURACION, asi que se sigue detectando.
+//
+// Se conserva el sesgo original contra el falso positivo, que sigue siendo el
+// criterio correcto: un falso positivo corta el calefactor y enfria al bebe sin
+// red, mientras que una obstruccion parcial que se cuele por debajo de 220
+// aparece igual como desviacion de temperatura o como corte termico.
+//
+// SIGUE SIENDO DE UNA SOLA UNIDAD. La dispersion entre placas —otro ventilador,
+// otro conducto, otra fototerapia— no esta medida, y es justo lo que el WARNING
+// de abajo pide. Lo que ya no es una estimacion es el orden de magnitud: el
+// punto de trabajo real de esta placa es 187, no 137.
+#define FAN_DUTY_BLOCKED_THRESHOLD 220
+#define FAN_DUTY_BLOCKED_HYSTERESIS 20 // duty below (threshold - this) required to clear ALARM_AIR_OUTLET_BLOCKED
+
+// Maximo duty observado en funcionamiento NORMAL (salida limpia, peor carga).
+// No lo usa el detector: existe para poder comprobar en compilacion que la
+// retirada queda por encima de el. Si alguien vuelve a bajar el umbral o a
+// estrechar la histeresis, el build falla en vez de dejar una alarma que no se
+// puede retirar.
+#define FAN_DUTY_NORMAL_MAX_OBSERVED 188
+// Master enable for air-outlet-blockage detection (boot check + runtime
+// monitor). IEC 60601-2-19 201.12.3.101 requires an alarm AND a heater cut
+// when the air outlet is obstructed, and a mandated alarm cannot ship
+// disabled — so this is now ON.
+//
+// WARNING: FAN_DUTY_BLOCKED_THRESHOLD above is a calculated starting point
+// (see the reasoning above), not a bench-validated one. It is a considerably
+// better estimate than the previous unfounded 160, but it is still pending
+// fine-tuning on the bench — by whoever owns the project, against real
+// unit-to-unit variance — before the unit goes to the field. The duty
+// needed to hold FAN_TARGET_RPM is logged at boot to collect exactly that
+// calibration data.
+#define AIR_BLOCKED_DETECTION_ENABLED true
+// Duty must stay above the threshold continuously this long before alarming
+// (rejects transients: spin-up saturation, heater kick-in sag compensation).
+#define AIR_BLOCKED_SUSTAIN_MS 5000
+
+#if (ADC_READ_FUNCTION == MILLIVOTSREAD_ADC)
+#define ADC_TO_DISCARD_MIN 500  // in mV
+#define ADC_TO_DISCARD_MAX 2500 // in mV
+#else
+#define ADC_TO_DISCARD_MIN maxADCvalue / 5     // in ADC points
+#define ADC_TO_DISCARD_MAX maxADCvalue * 4 / 5 // in ADC points
+#endif
+
+#define DIG_TEMP_TO_DISCARD_MAX 60
+#define DIG_TEMP_TO_DISCARD_MIN 5
+
+// Master enable for heaterPowerConsumptionCheck() (PID.cpp): the current-based
+// ramp that throttles heaterSafeMAXPWM down when in3.heater_current/system_current
+// exceed in3.heaterMaxPowerAmps. When false, that check is skipped and
+// heaterSafeMAXPWM is pinned at HEATER_MAX_PWM instead - i.e. the heater is no
+// longer power-limited by the current sensor.
+#define HEATER_CURRENT_LIMIT_ENABLED true
+
+// HW18 only: heaterPowerConsumptionCheck() (PID.cpp) keys its current-based
+// PWM ramp off in3.system_current (MAIN/INA3221 sensor) instead of
+// in3.heater_current (SECUNDARY sensor) - HW16/HW17 keep using heater_current
+// (OR'd with system_current, unchanged). in3.heater_current is still read and
+// telemetered on HW18, just not used as the throttling reference.
+#if (HW_NUM == 18)
+#define HEATER_POWER_REFERENCE_IS_SYSTEM_CURRENT true
+#else
+#define HEATER_POWER_REFERENCE_IS_SYSTEM_CURRENT false
+#endif
+
+#define HEATER_MAX_PWM PWM_MAX_VALUE
+#define HEATER_HALF_PWR PWM_MAX_VALUE / 2
+#define HEATER_START_PWM 1
+
+#define BUZZER_MAX_PWM PWM_MAX_VALUE
+#define BUZZER_HALF_PWM PWM_MAX_VALUE / 2
+
+#define MIN_SYSTEM_VOLTAGE_TRIGGER 0
+#define MAX_SYSTEM_VOLTAGE_TRIGGER 8
+
+#define SCREEN_BRIGHTNESS_FACTOR                                               \
+  0.7 // Max brightness will be multiplied by this constant
+
+#define BACKLIGHT_POWER_DEFAULT PWM_MAX_VALUE *SCREEN_BRIGHTNESS_FACTOR

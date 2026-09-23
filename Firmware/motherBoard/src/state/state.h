@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include <stdbool.h>
+#include "alarm_ids.h"
 
 typedef struct {
   // Sensors
@@ -45,7 +46,7 @@ typedef struct {
 
   // Alarms
   bool     alarmsEnabled;
-  bool     alarmToReport[10];
+  bool     alarmToReport[ALARM_COUNT];
   char     alarmMessage[255];
   bool     previousAlarmReport;
 

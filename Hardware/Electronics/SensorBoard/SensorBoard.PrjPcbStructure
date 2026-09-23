@@ -1,0 +1,4 @@
+Record=TopLevelDocument|FileName=Main.SchDoc|SheetNumber=1
+Record=SheetSymbol|SourceDocument=Main.SchDoc|Designator=U_PowerManagement|SchDesignator=U_PowerManagement|FileName=PowerManagement.SchDoc|SheetNumber=2|SymbolType=Normal|RawFileName=PowerManagement.SchDoc|DesignItemId= |SourceLibraryName= |ObjectKind=Sheet Symbol|RevisionGUID= |ItemGUID= |VaultGUID= 
+Record=SheetSymbol|SourceDocument=Main.SchDoc|Designator=U_Sensors|SchDesignator=U_Sensors|FileName=Sensors.SchDoc|SheetNumber=4|SymbolType=Normal|RawFileName=Sensors.SchDoc|DesignItemId= |SourceLibraryName= |ObjectKind=Sheet Symbol|RevisionGUID= |ItemGUID= |VaultGUID= 
+Record=SheetSymbol|SourceDocument=Main.SchDoc|Designator=U_uC|SchDesignator=U_uC|FileName=uC.SchDoc|SheetNumber=3|SymbolType=Normal|RawFileName=uC.SchDoc|DesignItemId= |SourceLibraryName= |ObjectKind=Sheet Symbol|RevisionGUID= |ItemGUID= |VaultGUID= 

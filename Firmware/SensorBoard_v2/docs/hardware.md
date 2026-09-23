@@ -1,0 +1,99 @@
+# SensorBoard — Hardware y pinout (referencia)
+
+**Fecha:** 2026-09-02 (corrección de pinout de cámara respecto a la versión del 2026-07-03)
+**Fuente:** esquema de hardware, transcrito por Pablo Sánchez Bergasa.
+**MCU:** ESP32-S3-WROOM-1-N16R8 (16MB Flash, 8MB PSRAM Octal)
+
+Referencia de configuración para todas las fases del roadmap (`Firmware/docs/superpowers/specs/2026-07-03-sensorboard-roadmap.md`). Los pines de esta tabla son la fuente de verdad; las notas de la sección "Derivado" son interpretación del firmware y deben confirmarse en el diseño de cada fase.
+
+## Sensores y módulos
+
+| Componente | Referencia | Interfaz |
+|---|---|---|
+| Temperatura/humedad ×2 | SHT40-AD1B-R3 + SHT40-CD1B-R3 | I2C sensores temp (IO41/IO42) |
+| Temperatura/humedad ×1 | SHT40-AD1B-R3 | I2C principal (IO4/IO5, compartido con cámara) |
+| Luz ambiental | ALS-PT19-315C/L177/TR8 | Analógica (IO1) |
+| Micrófono | ICS-41350 | PDM (IO39/IO40) |
+| Sensor de puerta (efecto Hall) | DRV5032FBDBZR | GPIO digital (IO47) |
+| Cámara | OV2640 u OV5640 (autodetección por SCCB: 0x30 / 0x3C) | DVP + SCCB (I2C principal) |
+
+## Mapeo de posiciones de los tres SHT40
+
+**Los tres comparten ubicación física** (confirmado por Pablo, 2026-09-03): son
+redundancia del mismo punto de medida, no sensores de zonas distintas. Es la
+premisa que hace válida la votación por mediana de la motherboard — si
+estuvieran repartidos por la cabina, la mediana estaría mezclando un gradiente
+real en vez de arbitrar entre tres medidas del mismo sitio.
+
+El índice de posición es un **contrato de protocolo**, no un detalle de
+implementación: viaja en los arrays del evento `sensor_data` y termina en una
+serie distinta de ThingsBoard por sensor. Reordenar el array remapearía en
+silencio las series históricas de toda la flota.
+
+| Índice | Dirección I2C | Bus | Pines | Referencia |
+|---|---|---|---|---|
+| 0 | 0x44 | I2C sensores temp | IO41 / IO42 | SHT40-AD1B-R3 |
+| 1 | 0x46 | I2C sensores temp | IO41 / IO42 | SHT40-CD1B-R3 |
+| 2 | 0x44 | I2C principal (compartido con SCCB de cámara) | IO4 / IO5 | SHT40-AD1B-R3 |
+
+Los dos del bus de temperatura no colisionan porque el sufijo de la variante
+codifica la dirección (AD1B = 0x44, CD1B = 0x46); el del bus principal tampoco
+colisiona con la cámara (0x30 / 0x3C).
+
+**Dónde está fijado el contrato y quién lo consume:**
+
+- `docs/adr/0002-redundancia-sht40-posicional.md` — la decisión: publicar las
+  tres sin fusionar, con `null` en la posición caída.
+- `openspec/specs/env-sensors/spec.md` — el requisito del evento
+  `sensor_data` con `"temp":[t0,t1,t2]`.
+- `components/env_sensors/sb_env_sensors.c` — el array `s_sht[]`, que es donde
+  el índice se ata a una dirección de bus.
+- En la motherboard: `sb_env_fusion.cpp` vota la mediana para `Air_temp` (la
+  variable del PID y del corte térmico) y `sb_telemetry.cpp` publica las tres
+  crudas como `sb_temp0/1/2_C` y `sb_hum0/1/2_pct`.
+
+**Para qué sirve saber esto:** cuando en un dashboard se vea `sb_temp2_C`
+derivando de sus compañeras, esta tabla dice qué sensor hay que desmontar — el
+del bus principal, IO4/IO5, 0x44. Sin ella, la serie identifica el problema
+pero no el componente.
+
+## Pinout
+
+| Pin | Función | Módulo |
+|---|---|---|
+| IO1 | ALS (salida analógica del fototransistor) | Luz ambiental |
+| IO4 | I2C_SDA | I2C principal (cámara SCCB + SHT40) |
+| IO5 | I2C_SCL | I2C principal (cámara SCCB + SHT40) |
+| IO6 | DVP_Y6 | Cámara |
+| IO7 | DVP_Y7 | Cámara |
+| IO8 | DVP_Y2 | Cámara |
+| IO9 | DVP_Y5 | Cámara |
+| IO10 | DVP_Y3 | Cámara |
+| IO11 | DVP_Y4 | Cámara |
+| IO12 | DVP_VSYNC | Cámara |
+| IO13 | CAM_PWDN | Cámara (power down) |
+| IO15 | DVP_Y9 | Cámara |
+| IO16 | XMCLK | Cámara (reloj maestro) |
+| IO17 | DVP_Y8 | Cámara |
+| IO18 | DVP_HREF | Cámara |
+| IO19 | USB_N / D_N | USB nativo |
+| IO20 | USB_P / D_P | USB nativo |
+| IO21 | DVP_PCLK | Cámara |
+| IO39 | MIC_DATA | Micrófono |
+| IO40 | MIC_SCK | Micrófono |
+| IO41 | I2C_TEMP_SENSORS_SDA | I2C sensores temperatura |
+| IO42 | I2C_TEMP_SENSORS_SCL | I2C sensores temperatura |
+| IO47 | HALL_SENSOR | Sensor de puerta |
+
+**No conectados (NC):** IO2, IO14, IO35, IO36, IO37, IO38, IO45, IO48, TXD0, RXD0.
+
+## Derivado (interpretación de firmware — confirmar en diseño de cada fase)
+
+- **Dos buses I2C**: principal (IO4/IO5: SCCB de la OV2640, addr 7-bit 0x30, + un SHT40-AD1B) y de sensores de temperatura (IO41/IO42: SHT40-AD1B + SHT40-CD1B).
+- **Direcciones SHT4x**: ya no es una derivación pendiente de confirmar — está implementada y verificada en banco. Ver "Mapeo de posiciones de los tres SHT40" arriba, que es la fuente única (índice de posición, dirección y bus de cada uno).
+- **ALS-PT19 es un fototransistor analógico**, no un sensor I2C: se lee por ADC en IO1 (ADC1_CH0). Esto resuelve el "I2C o ADC a confirmar" de la Fase 2 del roadmap. La conversión a lux depende de la resistencia de carga del esquema — calibración pendiente de diseño de fase.
+- **El ICS-41350 es un micrófono PDM**, no I2S estándar: IO40 = clock PDM, IO39 = data. En ESP32-S3 se lee con el periférico I2S en modo PDM RX. Afecta al diseño de la Fase 3 (el roadmap asumía "MEMS I2S").
+- **DRV5032FB**: salida digital push-pull, versión de muy bajo consumo a 5 Hz de muestreo interno — el debounce de la Fase 4 debe considerar esa latencia propia del sensor.
+- **OV2640 sin pin RESET dedicado** en el pinout (solo PWDN en IO13): asumir RESET fijado por hardware; confirmar al diseñar la Fase 5.
+- **USB nativo** en IO19/IO20: la Fase 1 (USB CDC) usa el periférico USB-OTG del S3, no un puente UART.
+- **HW_NUM 4: conector USB reversible con D+/D- cruzados en una orientación** (defecto de cableado). Corregido en hardware en la **V5** (enviada a fabricar 2026-09). Mitigado en firmware para las HW4 con el autoswap de `exchg_pins` del PHY (ADR-0003); el mecanismo se deja activo en V5 por inocuo. Al recibir la V5 comprobar que la alimentación (VBUS/GND) sea simétrica en ambas orientaciones: un cruce de alimentación no lo arregla ningún firmware.

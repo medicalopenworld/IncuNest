@@ -1,0 +1,13 @@
+menu "SensorBoard camera_sensor"
+
+    config SB_CAM_JPEG_QUALITY
+        int "Calidad JPEG (menor = mejor)"
+        default 12
+        range 5 40
+
+    config SB_CAM_XCLK_HZ
+        int "Frecuencia XCLK (Hz)"
+        default 20000000
+        range 8000000 24000000
+
+endmenu

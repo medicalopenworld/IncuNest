@@ -1,0 +1,28 @@
+# Tabla de particiones de la motherboard — ESP32-S3 con 16 MB de flash.
+#
+# NO ESTA EN USO. platformio.ini apunta a partitions/ESP32S3_8MB.csv porque el
+# board esp32-s3-devkitc-1 declara 8 MB por defecto y nadie ha confirmado el
+# tamano real del modulo montado (docs/hardware.md solo dice "WROOM-1 o
+# similar"). Esta tabla queda lista para el dia que se verifique.
+#
+# Para activarla, en motherBoard/platformio.ini [common]:
+#     board_build.flash_size = 16MB
+#     board_upload.flash_size = 16MB
+#     board_build.partitions = partitions/ESP32S3_16MB.csv
+#
+# ANTES de activarla, confirmar el modulo con:
+#     esptool.py --port COMx flash_id
+# Declarar 16 MB sobre un modulo de 8 MB impide el arranque.
+#
+# Reparto pensado para el perfil de esta placa: app ligera (1,48 MB hoy) y
+# filesystem pesado (perfiles de bebe e historico de pesos en LittleFS, ver
+# src/modules/baby_profile/), al reves que el HMI. Suma exacta 0x1000000.
+# Sobre el nombre "spiffs" para una particion LittleFS, ver ESP32S3_8MB.csv.
+#
+# Name,   Type, SubType, Offset,   Size,      Flags
+nvs,      data, nvs,      0x9000,   0x5000,
+otadata,  data, ota,      0xE000,   0x2000,
+app0,     app,  ota_0,    0x10000,  0x400000,
+app1,     app,  ota_1,    0x410000, 0x400000,
+spiffs,   data, spiffs,   0x810000, 0x7E0000,
+coredump, data, coredump, 0xFF0000, 0x10000,

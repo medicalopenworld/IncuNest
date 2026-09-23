@@ -37,7 +37,11 @@ Display_HMI/
 │   └── ...
 ├── lib/
 │   └── TAMC_GT911_Fixed/     ← Driver GT911 local (version parcheada)
-├── data/                     ← Archivos SPIFFS (audio .mp3)
+├── data/                     ← Contenido de la imagen SPIFFS. SOLO lo que el
+│                                firmware lee en runtime: hoy heartbeat.mp3
+├── assets_src/               ← Fuentes PNG/JPG de los arrays de src/ui/assets/.
+│                                No se flashean (ver su README)
+├── partitions/               ← Tabla de particiones activa (+ legacy/)
 └── platformio.ini
 ```
 
@@ -82,6 +86,27 @@ El archivo `include/display_config.h` es la **única fuente de verdad** para la 
 | VSYNC pulse width | 31 | — |
 | VSYNC back porch | 13 | — |
 | PCLK active neg | 1 | Datos válidos en flanco descendente |
+
+---
+
+## Configuración de Credenciales
+
+Los secretos de despliegue (WiFi, ThingsBoard, panel web) viven en
+`include/protocol/Credentials.h`, que **no está versionado** (`.gitignore`)
+y está protegido por un hook. `include/protocol/Credentials_public.h` es el
+fichero versionado: si `Credentials.h` no existe (clon nuevo), aporta
+valores dummy para que el firmware compile; si existe, sus `#define` tienen
+prioridad.
+
+Además de los secretos de conexión, `Credentials_public.h` trae valores por
+defecto **no secretos** para el menú de ayuda del heading (`docs/hmi.md`,
+§6), redefinibles igual desde `Credentials.h` sin recompilar nada más:
+
+| Define | Valor por defecto | Uso |
+|---|---|---|
+| `SUPPORT_EMAIL` | `support@medicalopenworld.org` | Destinatario del formulario "Contactar soporte" (telemetría ThingsBoard y QR `mailto:`) |
+| `SUPPORT_TUTORIAL_URL` | `https://medicalopenworld.org/incunest/tutorial` | URL codificada en el QR de "Vídeo tutorial" y en el del aviso de mantenimiento |
+| `TRAINING_EMAIL` | `SUPPORT_EMAIL` | Destinatario del QR `mailto:` del certificado de los cursos de formación (`docs/hmi.md`, §6) |
 
 ---
 

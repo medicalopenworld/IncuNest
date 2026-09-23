@@ -1,0 +1,825 @@
+/*
+  MIT License
+
+  Copyright (c) 2022 Medical Open World, Pablo Sánchez Bergasa
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+*/
+
+#include <Arduino.h>
+#include <string.h>
+
+#include "esp_heap_caps.h"
+#include "esp_log.h"
+#include "fw_guarded_updater.h"
+#include "fw_image_tag.h"
+#include "main.h"
+#include "modules/debug/debug_mode.h"
+#include "UITask.h"
+#include "CommTask.h"
+
+static const char *TAG = "WiFi";
+
+// Marca de placa que viaja DENTRO de este binario y que otra unidad busca en
+// el flujo OTA antes de dar por buena una imagen (ver fw_image_tag.h). No es
+// static ni const-plegable a proposito: tiene que existir como cadena en
+// .rodata aunque el compilador vea que solo se usa como patron.
+extern "C" const char kFwBoardTag[] __attribute__((used)) =
+    FW_TAG_PREFIX FW_BOARD_ID_DISPLAY_HMI;
+
+// Cabecera con la que el flasher declara a que placa CREE que esta hablando.
+// Sirve para cortar en el primer callback, antes de tocar la flash; la
+// comprobacion que de verdad protege es la del contenido, mas abajo.
+static const char *const OTA_BOARD_HEADER = "X-IncuNest-Board";
+
+// Estado del escaneo de la imagen que se esta recibiendo por /update.
+static FwStreamMatcher s_otaSelfTag(kFwBoardTag);
+static FwStreamMatcher s_otaAnyTag(FW_TAG_PREFIX);
+static bool s_otaRejected = false;
+static const char *s_otaRejectReason = "";
+
+char wifiHost[32] = "in3ator";
+
+WebServer wifiServer(80);
+
+WiFiClient espClient;
+Arduino_MQTT_Client mqttClientWIFI(espClient);
+
+ThingsBoard tb_wifi(mqttClientWIFI, MAX_MESSAGE_SIZE);
+StaticJsonDocument<JSON_OBJECT_SIZE(THINGSBOARD_FIELDS_AMOUNT)> WIFI_JSON;
+JsonObject addVariableToTelemetryWIFIJSON = WIFI_JSON.to<JsonObject>();
+
+WIFIstruct Wifi_TB;
+Credentials credentials;
+// Ver fw_guarded_updater.h: la OTA de ThingsBoard pasa por la misma
+// comprobacion de marca de placa que la subida por /update.
+FwGuardedUpdater updater_WIFI(kFwBoardTag);
+
+const OTA_Update_Callback OTAcallback(&progressCallback, &updatedCallback,
+                                      CURRENT_FIRMWARE_TITLE, FWversion,
+                                      &updater_WIFI, FIRMWARE_FAILURE_RETRIES,
+                                      FIRMWARE_PACKET_SIZE,
+                                      WAIT_FAILED_OTA_CHUNKS);
+
+// Credentials staged by the UI before calling wifiInit().
+// Persisted to EEPROM on the first successful GOT_IP with these credentials.
+char pendingSSID[64] = "";
+char pendingPass[64] = "";
+static volatile bool s_persistCredentials = false;
+
+// Backoff exponencial de reconexión WiFi (ver WIFI_RECONNECT_MAX_INTERVAL).
+// Se incrementa en cada reintento de wifiInit() mientras no haya IP; se
+// resetea a 0 en STA_GOT_IP y en wifiResetReconnectBackoff() (intento manual).
+static volatile uint32_t s_wifiReconnectFailStreak = 0;
+
+
+const char *serverIndex =
+    "<script "
+    "src='https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js'></"
+    "script>"
+    "<style>body{font-family:sans-serif;margin:20px} .section{margin:20px 0;padding:15px;border:1px solid #ccc;border-radius:8px} "
+    "input[type=number]{width:120px;padding:4px;font-size:16px} "
+    "button,.btn{padding:6px 16px;font-size:14px;cursor:pointer;border-radius:4px;border:1px solid #888} "
+    "#freq_status{margin-left:10px;font-weight:bold}</style>"
+    "<h2>IncuNest Display HMI</h2>"
+    "<p>FW Version: <span id='fw_version'></span></p>"
+    "<div class='section'>"
+    "<h3>Display Pixel Clock</h3>"
+    "<p>Current: <span id='cur_freq'>--</span> Hz (<span id='cur_freq_mhz'>--</span> MHz)</p>"
+    "<label>New freq (Hz): </label>"
+    "<input type='range' id='freq_slider' min='12000000' max='25000000' step='250000' oninput='updateSlider()'>"
+    "<br><span id='freq_val' style='font-size:20px;font-weight:bold'>-- MHz</span>"
+    "<br><br>"
+    "<button onclick='setFreq()' style='padding:8px 24px;font-size:16px'>Apply (restart)</button>"
+    "<span id='freq_status'></span>"
+    "</div>"
+    "<div class='section'>"
+    "<h3>Firmware Update</h3>"
+    "<form method='POST' action='#' enctype='multipart/form-data' "
+    "id='upload_form'>"
+    "<input type='file' name='update'>"
+    "<input type='submit' value='Update'>"
+    "</form>"
+    "<div id='prg'>progress: 0%</div>"
+    "</div>"
+    "<script>"
+    "function updateSlider(){"
+    "  var v=$('#freq_slider').val();"
+    "  $('#freq_val').text((v/1e6).toFixed(2)+' MHz');"
+    "}"
+    "function refreshFreq(){"
+    "  $.get('/get_freq',function(d){"
+    "    $('#cur_freq').text(d.freq);$('#cur_freq_mhz').text((d.freq/1e6).toFixed(2));"
+    "    $('#freq_slider').val(d.freq);updateSlider();"
+    "  });"
+    "}"
+    "function setFreq(){"
+    "  var f=$('#freq_slider').val();"
+    "  $.post('/set_freq',{freq:f},function(d){$('#freq_status').text(d.ok?'Restarting...':'FAIL').css('color',d.ok?'green':'red');});"
+    "}"
+    "$(document).ready(function(){"
+    "  $.get('/get_fw_version',function(d){$('#fw_version').text(d.version);});"
+    "  refreshFreq();"
+    "});"
+    "$('form').submit(function(e){"
+    "e.preventDefault();"
+    "var form=$('#upload_form')[0];"
+    "var data=new FormData(form);"
+    "$.ajax({"
+    "url:'/update',type:'POST',data:data,contentType:false,processData:false,"
+    "xhr:function(){var xhr=new window.XMLHttpRequest();"
+    "xhr.upload.addEventListener('progress',function(evt){"
+    "if(evt.lengthComputable){var per=evt.loaded/evt.total;"
+    "$('#prg').html('progress: '+Math.round(per*100)+'%');}},false);"
+    "return xhr;},"
+    "success:function(d,s){console.log('success!')},"
+    "error:function(a,b,c){}"
+    "});"
+    "});"
+    "</script>";
+
+// ---------------------------------------------------------------------------
+// WiFi init — called once at boot, on credential changes, and periodically
+// by WifiOTAHandler() when disconnected (manual reconnect, no auto-reconnect).
+// ---------------------------------------------------------------------------
+void wifiInit(void) {
+  ESP_LOGI(TAG, "Initializing WiFi");
+
+  String hostname = String(WIFI_NAME) + "-" + String(in3.serialNumber);
+  strncpy(wifiHost, hostname.c_str(), sizeof(wifiHost) - 1);
+  wifiHost[sizeof(wifiHost) - 1] = '\0';
+  ESP_LOGI(TAG, "Setting hostname to: %s", wifiHost);
+
+  // setHostname must be called before mode() in Arduino 3.x / IDF 5.x.
+  WiFi.setHostname(hostname.c_str());
+  if (WiFi.getMode() != WIFI_MODE_STA) {
+    WiFi.mode(WIFI_STA);
+  }
+
+  static bool s_eventsRegistered = false;
+  if (!s_eventsRegistered) {
+    WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t info) {
+      ESP_LOGW(TAG, "STA_DISCONNECTED reason=%d",
+               info.wifi_sta_disconnected.reason);
+    }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+
+    WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t) {
+      ESP_LOGW(TAG, "STA_GOT_IP: %s  [HEAP] internal=%u PSRAM=%u",
+               WiFi.localIP().toString().c_str(),
+               (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+               (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+      s_wifiReconnectFailStreak = 0; // reconexión OK: backoff vuelve a la base
+      MDNS.begin(wifiHost);
+      MDNS.addService("http", "tcp", 80);
+      // If new credentials are pending, schedule their EEPROM save.
+      if (pendingSSID[0] != '\0') {
+        s_persistCredentials = true;
+      }
+    }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
+
+    s_eventsRegistered = true;
+  }
+
+  // persistent(false): las credenciales ya se guardan a mano en Preferences
+  // (HMI_NS_WIFI, ver WifiOTAHandler) tras el primer GOT_IP. persistent(true)
+  // hacía que el driver escribiese además su propio blob en NVS en cada
+  // begin()/disconnect() — flash write redundante que, al deshabilitar la
+  // cache de memoria externa (incluye PSRAM), bloquea la ISR del panel RGB
+  // (no es IRAM-safe) y provoca el parpadeo/desync de un frame reportado al
+  // conectar/reconectar. Ver LCD_DIAG en lcd_diagnostics_log() (UITask.cpp).
+  WiFi.persistent(false);
+  // Auto-reconnect disabled: no backoff for ASSOC_TOOMANY (reason=5) causes a
+  // 25 Hz event storm that starves other tasks. Manual retry in WifiOTAHandler.
+  WiFi.setAutoReconnect(false);
+
+  String ssid, pass;
+  if (pendingSSID[0] != '\0') {
+    ssid = pendingSSID;
+    pass = pendingPass;
+    ESP_LOGI(TAG, "Connecting to pending SSID: %s", ssid.c_str());
+  } else {
+    { Preferences p; p.begin(HMI_NS_WIFI, true);
+      ssid = p.getString(HMI_KEY_SSID,     "");
+      pass = p.getString(HMI_KEY_PASSWORD, "");
+      p.end(); }
+    if (ssid.length() > 0) {
+      ESP_LOGI(TAG, "Connecting to SSID from Preferences: %s", ssid.c_str());
+    } else {
+      ESP_LOGI(TAG, "Connecting to default SSID: %s", WIFI_SSID);
+      ssid = WIFI_SSID;
+      pass = WIFI_PASSWORD;
+    }
+  }
+
+  ESP_LOGW(TAG, "[HEAP] before WiFi.begin — internal=%u PSRAM=%u",
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+  // LCD_DIAG evidencia: WiFi.begin() puede disparar una escritura/calibración
+  // en NVS (RF cal data) que suspende la cache externa unos ms. Medir su
+  // duración permite correlar un glitch de pantalla visto en ese instante.
+  uint32_t t0 = millis();
+  WiFi.begin(ssid.c_str(), pass.c_str());
+  WiFi.setSleep(WIFI_PS_NONE);
+  ESP_LOGW(TAG, "LCD_DIAG: WiFi.begin() tomó %lu ms", (unsigned long)(millis() - t0));
+  Wifi_TB.lastWifiReconnectAttempt = millis();
+}
+
+// ---------------------------------------------------------------------------
+// Reset del backoff de reconexión. Un intento explícito (botón "Conectar" de
+// ajustes, o credenciales nuevas) significa que alguien espera conexión ahora:
+// sin este reset, el streak acumulado sigue vivo y si ese intento falla el
+// siguiente reintento automático puede tardar WIFI_RECONNECT_MAX_INTERVAL.
+// ---------------------------------------------------------------------------
+void wifiResetReconnectBackoff(void) { s_wifiReconnectFailStreak = 0; }
+
+// ---------------------------------------------------------------------------
+// Apply new WiFi credentials received from the motherboard (CTRL,WIFI message).
+// Disconnects from the current AP, reconnects with the new credentials, and
+// relies on the GOT_IP event handler + WifiOTAHandler() to persist them to NVS.
+// ---------------------------------------------------------------------------
+void wifiApplyNewCredentials(const char* ssid, const char* pass) {
+  wifiResetReconnectBackoff();
+  strncpy(pendingSSID, ssid, sizeof(pendingSSID) - 1);
+  pendingSSID[sizeof(pendingSSID) - 1] = '\0';
+  strncpy(pendingPass, pass, sizeof(pendingPass) - 1);
+  pendingPass[sizeof(pendingPass) - 1] = '\0';
+  WiFi.disconnect();
+  WiFi.begin(ssid, pass);
+  // GOT_IP event handler detects pendingSSID != "" and sets s_persistCredentials
+  // so WifiOTAHandler() will save to NVS automatically on successful connection.
+}
+
+// ---------------------------------------------------------------------------
+// Web server — register routes and start once at task init.
+// ---------------------------------------------------------------------------
+void configWifiServer() {
+  wifiServer.on("/", HTTP_GET, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "text/html", serverIndex);
+  });
+  wifiServer.on("/serverIndex", HTTP_GET, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "text/html", serverIndex);
+  });
+  wifiServer.on("/get_fw_version", HTTP_GET, []() {
+    // "board" es la identidad que declara el propio dispositivo: es lo que el
+    // flasher debe creerse, en vez de deducir la placa del hostname mDNS.
+    String json = "{\"version\":\"" + String(FWversion) +
+                  "\",\"sn\":" + String(in3.serialNumber) +
+                  ",\"board\":\"" FW_BOARD_ID_DISPLAY_HMI "\"}";
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "application/json", json);
+  });
+  // SIN autenticar A PROPOSITO, como /get_fw_version: el flash tool usa esta
+  // ruta como sonda de tipo de placa (200 = Display HMI, 404 = motherBoard),
+  // antes de tener credencial. Solo publica la frecuencia de escritura del
+  // LCD, que no es dato sensible. No le anadas campos.
+  wifiServer.on("/get_freq", HTTP_GET, []() {
+    String json = "{\"freq\":" + String(lcd_get_freq_write()) + "}";
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "application/json", json);
+  });
+  wifiServer.on("/set_freq", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    uint32_t freq = wifiServer.arg("freq").toInt();
+    bool ok = (freq >= DISPLAY_FREQ_MIN && freq <= DISPLAY_FREQ_MAX);
+    if (ok) lcd_set_freq_write(freq);
+    String json = "{\"ok\":" + String(ok ? "true" : "false") +
+                  ",\"freq\":" + String(lcd_get_freq_write()) + "}";
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "application/json", json);
+  });
+  // ================== ENDPOINTS DE DEPURACION ==================
+  // Ver modules/debug/debug_mode.h. Mismas reglas que en la motherBoard:
+  // /debug/state es de solo lectura y siempre esta; lo que simula exige el
+  // modo encendido, y apagarlo retira las simulaciones de golpe.
+
+  wifiServer.on("/debug/state", HTTP_GET, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    // EN LA PSRAM, no en la DRAM interna, y sin copiar a String.
+    //
+    // La primera version pedia 4 KB con malloc() —que sirve de la interna
+    // primero— y ademas envolvia el resultado en un String, o sea otros 4 KB
+    // copiados: ocho kilobytes de DRAM interna POR PETICION. Con un script de
+    // pruebas consultando esto en bucle, la interna de esta placa paso de
+    // 23,8 KB a 5,7 KB y salieron `wifi:mem fail`, glitches en el panel y un
+    // HMI LINK LOST fantasma (banco, 2026-09-11). Aqui la interna es EL recurso
+    // escaso: la PSRAM tiene 7 MB y no sirve para DMA de WiFi ni para los
+    // buffers de dibujo. El envio va por la sobrecarga de `const char *`, que
+    // no copia: se la pasa tal cual a httpd_resp_send().
+    const size_t cap = 4096;
+    char *buf = (char *)heap_caps_malloc(cap, MALLOC_CAP_SPIRAM);
+    if (buf == nullptr) {
+      buf = (char *)malloc(cap); // placa sin PSRAM
+    }
+    if (buf == nullptr) {
+      wifiServer.sendHeader("Connection", "close");
+      wifiServer.send(503, "application/json", "{\"error\":\"sin memoria\"}");
+      return;
+    }
+    // ?tasks=1 anade la tabla de tareas; ver debug_state_json_ex().
+    debug_state_json_ex(buf, cap, wifiServer.hasArg("tasks"));
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "application/json", (const char *)buf);
+    free(buf);
+  });
+
+  wifiServer.on("/debug/mode", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    if (!wifiServer.hasArg("on")) {
+      wifiServer.send(400, "text/plain", "falta on=0|1");
+      return;
+    }
+    debug_mode_set(wifiServer.arg("on").toInt() != 0);
+    wifiServer.send(200, "application/json",
+                    String("{\"debug\":") + (debug_mode_enabled() ? 1 : 0) + "}");
+  });
+
+  // Inyectar una linea del protocolo como si la hubiera mandado la placa.
+  // POST /debug/inject?line=CTRL,TEL,36.50,36.20,55.00,1,353
+  //
+  // Es la herramienta principal: con ella se reproduce cualquier estado de la
+  // placa —alarmas, telemetria, fototerapia, PPG— sin tenerla delante, y de
+  // paso se ejercita el parseador de verdad.
+  wifiServer.on("/debug/inject", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    if (!wifiServer.hasArg("line")) {
+      wifiServer.send(400, "text/plain", "falta line=<trama>");
+      return;
+    }
+    const String line = wifiServer.arg("line");
+    if (!debug_inject_line(line.c_str())) {
+      wifiServer.send(409, "text/plain",
+                      "modo depuracion apagado, prefijo incorrecto o cola llena");
+      return;
+    }
+    wifiServer.send(200, "text/plain", "OK");
+  });
+
+  // Apagar partes de la red, para aislar el temblor del panel.
+  // POST /debug/net?tb=0        -> corta la publicacion a ThingsBoard
+  // POST /debug/net?radio=0     -> apaga la radio (adios webserver hasta reset)
+  wifiServer.on("/debug/net", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    if (wifiServer.hasArg("tb")) {
+      debug_net_set_tb(wifiServer.arg("tb").toInt() != 0);
+    }
+    bool radioOff = false;
+    if (wifiServer.hasArg("radio")) {
+      const bool on = wifiServer.arg("radio").toInt() != 0;
+      debug_net_set_radio(on);
+      radioOff = !on;
+    }
+    wifiServer.send(200, "application/json",
+                    String("{\"tb\":") + (debug_net_tb_enabled() ? 1 : 0) +
+                        ",\"radio\":" + (debug_net_radio_enabled() ? 1 : 0) +
+                        "}");
+    if (radioOff) {
+      // Se contesta ANTES de tumbar la radio, si no el cliente ve una conexion
+      // cortada y no sabe si le hicieron caso.
+      delay(300);
+      WiFi.disconnect(true);
+    }
+  });
+
+  // Simular la perdida del enlace sin tocar el cable.
+  // POST /debug/link?mute=0|1
+  wifiServer.on("/debug/link", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    if (!wifiServer.hasArg("mute")) {
+      wifiServer.send(400, "text/plain", "falta mute=0|1");
+      return;
+    }
+    debug_link_mute_set(wifiServer.arg("mute").toInt() != 0);
+    wifiServer.send(200, "application/json",
+                    String("{\"muted\":") + (debug_link_mute_get() ? 1 : 0) + "}");
+  });
+
+  // POST /debug/crash?kind=abort|null|stack|wdt|assert[&delay_ms=500]
+  wifiServer.on("/debug/crash", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    const debug_crash_kind_t kind =
+        debug_crash_from_name(wifiServer.arg("kind").c_str());
+    if (kind == DEBUG_CRASH_NONE) {
+      wifiServer.send(400, "text/plain", "kind=abort|null|stack|wdt|assert");
+      return;
+    }
+    uint32_t delay = 500;
+    if (wifiServer.hasArg("delay_ms")) {
+      delay = (uint32_t)wifiServer.arg("delay_ms").toInt();
+    }
+    if (!debug_crash_request(kind, delay)) {
+      wifiServer.send(409, "text/plain", "el modo depuracion esta apagado");
+      return;
+    }
+    wifiServer.send(200, "text/plain", "OK");
+  });
+
+  wifiServer.on(
+      "/update", HTTP_POST,
+      []() {
+        if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+          return wifiServer.requestAuthentication();
+        }
+        const bool ok = !s_otaRejected && !Update.hasError();
+        wifiServer.sendHeader("Connection", "close");
+        if (ok) {
+          wifiServer.send(200, "text/plain", "OK");
+          delay(500); // let TCP stack flush the response before hardware reset
+          ESP.restart();
+          return;
+        }
+        // Reiniciar tras una OTA fallida no sirve de nada: otadata sigue
+        // apuntando al firmware bueno y lo unico que se consigue es tirar la
+        // pantalla y el enlace con la placa un par de segundos.
+        wifiServer.send(400, "text/plain",
+                        String("FAIL: ") + (s_otaRejected ? s_otaRejectReason
+                                                          : "error de escritura"));
+        ESP_LOGE(TAG, "OTA rechazada: %s",
+                 s_otaRejected ? s_otaRejectReason : "error de escritura");
+      },
+      []() {
+        if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) return;
+        HTTPUpload &upload = wifiServer.upload();
+        if (upload.status == UPLOAD_FILE_START) {
+          s_otaRejected = false;
+          s_otaRejectReason = "";
+          s_otaSelfTag.reset();
+          s_otaAnyTag.reset();
+
+          // Barrera 1 (barata): la herramienta dice a que placa cree que
+          // habla. Si se equivoca, se corta aqui, sin abrir Update siquiera.
+          String declared = wifiServer.header(OTA_BOARD_HEADER);
+          if (declared.length() == 0) declared = wifiServer.arg("board");
+          if (declared.length() != 0 && declared != FW_BOARD_ID_DISPLAY_HMI) {
+            s_otaRejected = true;
+            s_otaRejectReason = "esto es un " FW_BOARD_ID_DISPLAY_HMI;
+            ESP_LOGE(TAG, "OTA rechazada: la herramienta envia firmware de '%s'",
+                     declared.c_str());
+            return;
+          }
+
+          OTA_inprogress = true;
+          if (!Update.begin(UPDATE_SIZE_UNKNOWN)) Update.printError(Serial);
+        } else if (upload.status == UPLOAD_FILE_WRITE) {
+          if (s_otaRejected) return;
+          // Barrera 2 (la que de verdad protege): la marca de placa va dentro
+          // del binario, asi que no depende de que la herramienta sea honesta
+          // ni de que este actualizada.
+          s_otaSelfTag.feed(upload.buf, upload.currentSize);
+          s_otaAnyTag.feed(upload.buf, upload.currentSize);
+          if (Update.write(upload.buf, upload.currentSize) != upload.currentSize)
+            Update.printError(Serial);
+        } else if (upload.status == UPLOAD_FILE_END) {
+          if (s_otaRejected) return;
+          if (fw_image_is_foreign(s_otaSelfTag.found(), s_otaAnyTag.found())) {
+            s_otaRejected = true;
+            s_otaRejectReason = "el binario es de otra placa";
+            OTA_inprogress = false;
+            Update.abort(); // otadata intacto: seguimos con el firmware actual
+            ESP_LOGE(TAG, "OTA rechazada: la imagen no lleva la marca de esta "
+                          "placa (%s)", kFwBoardTag);
+            return;
+          }
+          if (!Update.end(true)) Update.printError(Serial);
+        } else if (upload.status == UPLOAD_FILE_ABORTED) {
+          OTA_inprogress = false;
+          Update.abort();
+        }
+      });
+  // header() solo devuelve las cabeceras declaradas antes de begin().
+  const char *otaHeaders[] = {OTA_BOARD_HEADER};
+  wifiServer.collectHeaders(otaHeaders, 1);
+  wifiServer.begin();
+  ESP_LOGI(TAG, "Web server started on port 80 (placa %s)", kFwBoardTag);
+}
+
+// ---------------------------------------------------------------------------
+// ThingsBoard OTA callbacks
+// ---------------------------------------------------------------------------
+void progressCallback(const uint32_t &currentChunk, const uint32_t &totalChuncks) {
+  // AQUI es donde una actualizacion esta de verdad en curso: llegan chunks.
+  // Antes la bandera la ponia WIFICheckOTA(), que es solo una PREGUNTA — ver
+  // el comentario alli.
+  OTA_inprogress = true;
+  ESP_LOGI(TAG, "OTA progress %.2f%%",
+           static_cast<float>(currentChunk * 100U) / totalChuncks);
+}
+
+void updatedCallback(const bool &success) {
+  if (success) {
+    ESP_LOGI(TAG, "OTA done, will apply on next boot");
+  } else {
+    // No update available — clear the flag so the periodic check can run again.
+    OTA_inprogress = false;
+    if (updater_WIFI.rejectedForeignImage()) {
+      ESP_LOGE(TAG, "OTA rechazada: el binario de ThingsBoard no es de esta "
+                    "placa (%s) — revisa el slot de firmware del dispositivo",
+               kFwBoardTag);
+    } else {
+      ESP_LOGI(TAG, "OTA: no new firmware");
+    }
+  }
+}
+
+bool WIFIIsConnected() { return WiFi.status() == WL_CONNECTED; }
+
+bool WIFIIsConnectedToServer() {
+  return Wifi_TB.serverConnectionStatus && WIFIIsConnected();
+}
+
+void WIFICheckOTA() {
+  // NO se pone OTA_inprogress aqui, y ese era el fallo. Esto es una PREGUNTA
+  // ("¿hay firmware nuevo?"), no una actualizacion en curso.
+  //
+  // Lo que pasaba: la bandera se ponia a true en cada comprobacion y solo la
+  // limpiaba updatedCallback(false). Si ThingsBoard NO tiene firmware asignado
+  // a este dispositivo, ese callback no llega nunca — Start_Firmware_Update()
+  // se suscribe y se queda esperando un atributo que no existe. La bandera se
+  // quedaba puesta PARA SIEMPRE, y como la comprobacion periodica de
+  // WIFI_TB_OTA() esta guardada por !OTA_inprogress, el display preguntaba UNA
+  // VEZ al conectar y nunca mas.
+  //
+  // Medido en banco (2026-09-14, display asociado y con TB conectado): un solo
+  // "Checking ThingsBoard firmware update..." al arrancar y despues 150 s de
+  // silencio absoluto, cuando deberian haber salido dos comprobaciones mas.
+  //
+  // Ahora la bandera la pone progressCallback(), que solo corre cuando llegan
+  // chunks de verdad. Sigue protegiendo lo que tenia que proteger —que una
+  // comprobacion periodica se cruce con una descarga en marcha, propia o de la
+  // OTA por web, que la pone por su cuenta— pero ya no se queda enganchada
+  // cuando no hay nada que descargar.
+  ESP_LOGI(TAG, "Checking ThingsBoard firmware update...");
+  tb_wifi.Firmware_Send_Info(CURRENT_FIRMWARE_TITLE, FWversion);
+  tb_wifi.Start_Firmware_Update(OTAcallback);
+}
+
+void WIFI_TB_Init() {
+  { Preferences p; p.begin(HMI_NS_GPRS, true);
+    Wifi_TB.provisioned = p.getUChar(HMI_KEY_PROVISIONED, 0);
+    if (Wifi_TB.provisioned) {
+      Wifi_TB.device_token = p.getString(HMI_KEY_TOKEN, "");
+    }
+    p.end(); }
+  ESP_LOGI(TAG, "WIFI_TB_Init provisioned=%d", Wifi_TB.provisioned);
+  if (Wifi_TB.provisioned) {
+    ESP_LOGI(TAG, "Token: %s", Wifi_TB.device_token.c_str());
+  }
+}
+
+void WIFIProvisionResponse(const JsonObjectConst &data) {
+  ESP_LOGI(TAG, "Received provision response");
+  const size_t jsonSize = JSON_OBJECT_SIZE(data.size()) + 200;
+  char buffer[jsonSize];
+  serializeJson(data, buffer, jsonSize);
+
+  if (strncmp(data["status"], "SUCCESS", strlen("SUCCESS")) != 0) {
+    ESP_LOGE(TAG, "Provision FAIL: %s", data["errorMsg"].as<String>().c_str());
+    return;
+  }
+
+  if (strncmp(data[CREDENTIALS_TYPE], ACCESS_TOKEN_CRED_TYPE,
+              strlen(ACCESS_TOKEN_CRED_TYPE)) == 0) {
+    credentials.client_id = "";
+    credentials.username = data[CREDENTIALS_VALUE].as<std::string>();
+    credentials.password = "";
+  } else if (strncmp(data[CREDENTIALS_TYPE], MQTT_BASIC_CRED_TYPE,
+                     strlen(MQTT_BASIC_CRED_TYPE)) == 0) {
+    auto cv = data[CREDENTIALS_VALUE].as<JsonObjectConst>();
+    credentials.client_id = cv[CLIENT_ID].as<std::string>();
+    credentials.username  = cv[CLIENT_USERNAME].as<std::string>();
+    credentials.password  = cv[CLIENT_PASSWORD].as<std::string>();
+  } else {
+    ESP_LOGW(TAG, "Unexpected credentialsType");
+    return;
+  }
+
+  Wifi_TB.provisioned = true;
+  Wifi_TB.device_token = credentials.username.c_str();
+  uint32_t t0 = millis();
+  { Preferences p; p.begin(HMI_NS_GPRS, false);
+    p.putString(HMI_KEY_TOKEN,       Wifi_TB.device_token);
+    p.putUChar (HMI_KEY_PROVISIONED, (uint8_t)Wifi_TB.provisioned);
+    p.end(); }
+  ESP_LOGI(TAG, "Device provisioned successfully");
+  ESP_LOGW(TAG, "LCD_DIAG: provisioning Preferences write tomó %lu ms",
+           (unsigned long)(millis() - t0));
+
+  if (tb_wifi.connected()) tb_wifi.disconnect();
+  Wifi_TB.provision_request_processed = true;
+}
+
+void WIFITBProvision() {
+  if (in3.serialNumber == 0) {
+    static bool logged = false;
+    if (!logged) { ESP_LOGI(TAG, "Serial 0, skipping provisioning"); logged = true; }
+    return;
+  }
+  if (!tb_wifi.connected()) {
+    ESP_LOGI(TAG, "Connecting for provision to: %s", THINGSBOARD_SERVER);
+    if (!tb_wifi.connect(THINGSBOARD_SERVER, "provision", THINGSBOARD_PORT)) {
+      ESP_LOGI(TAG, "Failed to connect");
+      return;
+    }
+  }
+  String deviceName = String(WIFI_NAME) + "-" + String(in3.serialNumber);
+  const Provision_Callback provisionCallback(
+      Access_Token(), &WIFIProvisionResponse, PROVISION_DEVICE_KEY,
+      PROVISION_DEVICE_SECRET, deviceName.c_str());
+  Wifi_TB.provision_request_sent = tb_wifi.Provision_Request(provisionCallback);
+}
+
+void addTelemetriesToWIFIJSON() {
+  addVariableToTelemetryWIFIJSON["fw_version"] = FWversion;
+  addVariableToTelemetryWIFIJSON["sn"]         = in3.serialNumber;
+  addVariableToTelemetryWIFIJSON["hmi_heap_int_b"]     = (uint32_t)heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+  addVariableToTelemetryWIFIJSON["hmi_heap_int_min_b"] = (uint32_t)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
+  addVariableToTelemetryWIFIJSON["hmi_heap_psram_b"]   = (uint32_t)heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+  TaskHandle_t ui_h   = xTaskGetHandle("UI");
+  TaskHandle_t comm_h = CommTask_GetHandle();
+  addVariableToTelemetryWIFIJSON["hmi_stack_ui_b"]   = ui_h   ? (uint32_t)uxTaskGetStackHighWaterMark(ui_h)   * sizeof(StackType_t) : 0;
+  addVariableToTelemetryWIFIJSON["hmi_stack_comm_b"] = comm_h ? (uint32_t)uxTaskGetStackHighWaterMark(comm_h) * sizeof(StackType_t) : 0;
+}
+
+void WIFI_TB_OTA() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Wifi_TB.serverConnectionStatus = false;
+    tb_wifi.loop();
+    return;
+  }
+
+  if (!Wifi_TB.provisioned) {
+    if (!Wifi_TB.provision_request_sent) WIFITBProvision();
+    tb_wifi.loop();
+    return;
+  }
+
+  if (!tb_wifi.connected()) {
+    if (Wifi_TB.lastReconnectAttempt != 0 &&
+        millis() - Wifi_TB.lastReconnectAttempt < THINGSBOARD_RECONNECT_DELAY) {
+      tb_wifi.loop();
+      return;
+    }
+    Wifi_TB.lastReconnectAttempt = millis();
+    ESP_LOGW(TAG, "TB disconnected, reconnecting... heap=%u", (unsigned)ESP.getFreeHeap());
+    if (!tb_wifi.connect(THINGSBOARD_SERVER, Wifi_TB.device_token.c_str())) {
+      ESP_LOGI(TAG, "TB connect failed");
+      tb_wifi.loop();
+      return;
+    }
+    ESP_LOGI(TAG, "TB connected");
+    Wifi_TB.serverConnectionStatus = true;
+    WIFICheckOTA();
+    Wifi_TB.lastOTACheck = millis();
+  } else {
+    // ============ EL DISPLAY YA NO PUBLICA TELEMETRIA ============
+    //
+    // Aqui se publicaba addTelemetriesToWIFIJSON() cada WIFI_PUBLISH_INTERVAL
+    // (5 s). Se ha quitado por dos motivos que apuntan al mismo sitio:
+    //
+    // 1. LA PANTALLA. El framebuffer vive en PSRAM y el bounce buffer del panel
+    //    se rellena leyendo de ahi; el trafico WiFi le roba ancho de banda y
+    //    desactiva interrupciones. En banco (2026-09-11) el panel temblaba y se
+    //    quedaba desplazado, y cortar esta publicacion fue lo que mas mejoro.
+    //    El arreglo de fondo fue CONFIG_SPI_FLASH_AUTO_SUSPEND, pero no hay
+    //    razon para pagar este trafico si ademas no hace falta:
+    //
+    // 2. NO ES SUYO. La dueña de la telemetria es la motherBoard, que es el
+    //    unico dispositivo que debe existir en ThingsBoard (ver el cambio
+    //    openspec shared-cascade-ota-distribution). Lo que el display mandaba
+    //    —fw_version, sn, heaps y marcas de pila— o lo tiene ya la placa o es
+    //    diagnostico que ahora se consulta por /debug/state.
+    //
+    // LO QUE SI SE QUEDA es la conexion con ThingsBoard y la comprobacion de
+    // OTA de mas abajo: es la UNICA via para actualizar el display en remoto.
+    // El servidor web /update solo alcanza a quien este en la misma red.
+    // Cuando la OTA en cascada este implementada y la placa empuje el firmware
+    // del display por el cable, este cliente entero se podra retirar.
+    //
+    // addTelemetriesToWIFIJSON() se conserva a proposito, sin llamantes: es la
+    // lista de lo que el display sabe de si mismo, y la necesitara quien
+    // implemente la cascada para decidir que sube la placa en su nombre.
+    if (!OTA_inprogress && millis() - Wifi_TB.lastOTACheck > WIFI_OTA_CHECK_INTERVAL) {
+      WIFICheckOTA();
+      Wifi_TB.lastOTACheck = millis();
+    }
+  }
+  tb_wifi.loop();
+}
+
+// ---------------------------------------------------------------------------
+// Main OTA/WiFi handler — called every OTA_TASK_PERIOD_MS from the OTA task.
+// ---------------------------------------------------------------------------
+void WifiOTAHandler(void) {
+  // Radio apagada a mano para diagnosticar el panel: no se reintenta nada.
+  if (!debug_net_radio_enabled()) {
+    return;
+  }
+
+  // Manual reconnect: retry wifiInit() when disconnected. Auto-reconnect is
+  // disabled to avoid ASSOC_TOOMANY event storms; this provides the fallback.
+  // Backoff exponencial: cada intento fallido dobla la espera hasta el tope
+  // WIFI_RECONNECT_MAX_INTERVAL, para no machacar WiFi.begin() cada 30s durante
+  // una pérdida prolongada del AP (NO_AP_FOUND visto en campo 50+ min seguidos).
+  // El reintento en sí es barato — 5-20 ms y sin escritura NVS desde que hay
+  // WiFi.persistent(false) —, así que el tope se mantiene corto a propósito: un
+  // tope largo solo alarga la desconexión cuando el AP ya ha vuelto. Nunca baja
+  // de WIFI_RECONNECT_INTERVAL — ver el comentario de esa constante.
+  if (WiFi.status() != WL_CONNECTED) {
+    uint32_t backoff = WIFI_RECONNECT_INTERVAL;
+    for (uint32_t i = 0; i < s_wifiReconnectFailStreak && backoff < WIFI_RECONNECT_MAX_INTERVAL; i++) {
+      backoff *= 2;
+    }
+    if (backoff > WIFI_RECONNECT_MAX_INTERVAL) backoff = WIFI_RECONNECT_MAX_INTERVAL;
+    if (millis() - Wifi_TB.lastWifiReconnectAttempt > backoff) {
+      ESP_LOGW(TAG, "WiFi disconnected, retrying wifiInit() (backoff=%lu ms, streak=%lu)",
+               (unsigned long)backoff, (unsigned long)s_wifiReconnectFailStreak);
+      wifiInit();
+      s_wifiReconnectFailStreak++;
+    }
+  }
+
+  // Persist credentials staged by the UI on the first successful connection.
+  if (s_persistCredentials) {
+    s_persistCredentials = false;
+    uint32_t t0 = millis();
+    { Preferences p; p.begin(HMI_NS_WIFI, false);
+      p.putString(HMI_KEY_SSID,     pendingSSID);
+      p.putString(HMI_KEY_PASSWORD, pendingPass);
+      p.end(); }
+    ESP_LOGI(TAG, "WiFi credentials saved to Preferences (SSID: %s)", pendingSSID);
+    ESP_LOGW(TAG, "LCD_DIAG: credentials Preferences write tomó %lu ms",
+             (unsigned long)(millis() - t0));
+    pendingSSID[0] = '\0';
+    pendingPass[0] = '\0';
+  }
+
+  // Interruptor de diagnostico (modules/debug/debug_mode.h). El webserver se
+  // atiende igual mientras haya enlace: es una via de actualizacion y no se
+  // toca. Lo que apaga es el cliente de ThingsBoard — que desde que se retiro
+  // la publicacion de telemetria es solo la conexion y la comprobacion de OTA,
+  // asi que apagarlo deja al display SIN ACTUALIZACION REMOTA hasta reiniciar.
+  if (debug_net_tb_enabled()) {
+    WIFI_TB_OTA();
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    wifiServer.handleClient();
+  }
+}
+
+static void OTA_WIFI_Task(void *pvParameters) {
+  wifiInit();           // Sets STA mode and initializes the TCP/IP stack first.
+  configWifiServer();   // Safe to start the TCP server now that the stack is up.
+  WIFI_TB_Init();
+  for (;;) {
+    WifiOTAHandler();
+    vTaskDelay(pdMS_TO_TICKS(OTA_TASK_PERIOD_MS));
+  }
+}
+
+void CreateOTATask() {
+  xTaskCreatePinnedToCore(OTA_WIFI_Task, "OTA", OTA_TASK_STACK_SIZE, NULL,
+                          OTA_TASK_PRIORITY, NULL, CORE_ID_FREERTOS);
+}

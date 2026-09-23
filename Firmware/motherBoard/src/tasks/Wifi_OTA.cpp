@@ -1,0 +1,2121 @@
+/*
+  MIT License
+
+  Copyright (c) 2022 Medical Open World, Pablo Sánchez Bergasa
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+
+*/
+#include <Arduino.h>
+#include <LittleFS.h>   // /debug/crash lee los informes de CrashReporter
+#include "esp_partition.h"  // /debug/coredump lee la particion en crudo
+#include "esp_heap_caps.h"
+#include <string.h>
+#include <time.h>
+#include "lwip/dns.h"
+
+#include "CommTask.h"
+#include "GPRS.h"
+#include "SPO2.h"
+#include "PpgSnapshot.h"
+#include "PpgSnapshotPublish.h"
+#include "main.h"
+#include "tasks/CrashReporter.h"
+#include "modules/debug/debug_mode.h"
+#include "modules/util/tz_source.h"
+#include "modules/util/ip_geoloc.h"
+#include "modules/util/wifi_dwell.h"
+#include "modules/baby_profile/baby_cloud.h"
+#include "modules/baby_profile/baby_profile_store.h"
+#include "civil_time.h"
+#include "modules/util/system_clock.h"
+#include "modules/sensorboard_comm/sensorboard_comm.h"
+#include "alarm_policy.h"
+#include "fw_guarded_updater.h"
+#include "fw_image_tag.h"
+
+extern GPRSstruct GPRS;
+static const char *TAG __attribute__((unused)) = "WiFi";
+
+// Marca de placa que viaja DENTRO de este binario y que otra unidad busca en
+// el flujo OTA antes de dar por buena una imagen (ver fw_image_tag.h). No es
+// static ni const-plegable a proposito: tiene que existir como cadena en
+// .rodata aunque el compilador vea que solo se usa como patron.
+extern "C" const char kFwBoardTag[] __attribute__((used)) =
+    FW_TAG_PREFIX FW_BOARD_ID_MOTHERBOARD;
+
+// Cabecera con la que el flasher declara a que placa CREE que esta hablando.
+static const char *const OTA_BOARD_HEADER = "X-IncuNest-Board";
+
+// Estado del escaneo de la imagen que se esta recibiendo por /update.
+static FwStreamMatcher s_otaSelfTag(kFwBoardTag);
+static FwStreamMatcher s_otaAnyTag(FW_TAG_PREFIX);
+static bool s_otaRejected = false;
+static const char *s_otaRejectReason = "";
+char wifiHost[32];
+
+WebServer wifiServer(80);
+
+WiFiClient espClient;
+
+// Initalize the Mqtt client instance
+Arduino_MQTT_Client mqttClientWIFI(espClient);
+
+// Initialize ThingsBoard instance
+// ThingsBoardSized<THINGSBOARD_BUFFER_SIZE, THINGSBOARD_FIELDS_AMOUNT>
+// tb_wifi(espClient);
+ThingsBoard tb_wifi(mqttClientWIFI, MAX_MESSAGE_SIZE);
+StaticJsonDocument<JSON_OBJECT_SIZE(THINGSBOARD_FIELDS_AMOUNT)> WIFI_JSON;
+JsonObject addVariableToTelemetryWIFIJSON = WIFI_JSON.to<JsonObject>();
+
+// Gemelo del de GPRS.cpp: ArduinoJson descarta claves en silencio al llenarse
+// el pool y sendTelemetryJson() sigue devolviendo true.
+static void warnIfWifiTelemetryTruncated(const char *what) {
+  if (WIFI_JSON.overflowed()) {
+    logE(String("[WiFi] -> TELEMETRIA TRUNCADA en ") + what +
+         ": el JSON no cabe en THINGSBOARD_FIELDS_AMOUNT y se han descartado "
+         "campos");
+  }
+}
+
+// WIFI
+bool WIFI_connection_status = false;
+
+extern IncuNest_parameters in3;
+extern PID fanControlPID;
+extern double fanControlPIDOutput;
+extern bool WIFI_EN;
+extern char pendingSSID[64];
+extern char pendingPass[64];
+
+WIFIstruct Wifi_TB;
+Credentials wifi_credentials;
+// Ver fw_guarded_updater.h: la OTA de ThingsBoard pasa por la misma
+// comprobacion de marca de placa que la subida por /update.
+FwGuardedUpdater updater_WIFI(kFwBoardTag);
+
+const OTA_Update_Callback OTAcallback(&progressCallback, &updatedCallback,
+                                      CURRENT_FIRMWARE_TITLE, FWversion,
+                                      &updater_WIFI, FIRMWARE_FAILURE_RETRIES,
+                                      FIRMWARE_PACKET_SIZE,
+                                      WAIT_FAILED_OTA_CHUNKS);
+
+// ---------------------------------------------------------------------------
+// Estado real del enlace WiFi.
+//
+// WiFi.status() NO sirve para esto. En arduino-esp32 2.0.14 (el core que fija
+// espressif32@6.6.0) el manejador de STA_DISCONNECTED tiene una rama vacía
+// para reason=2 (AUTH_EXPIRE, WiFiGeneric.cpp:1068): a diferencia del resto de
+// motivos, no llama a _setStatus(), así que _sta_status se queda en
+// WL_CONNECTED aunque la STA ya esté desasociada y sin IP. WL_CONNECTED solo
+// se vuelve a escribir en STA_GOT_IP (WiFiGeneric.cpp:1104), y el
+// auto-reconnect del core —único camino que lo corregiría— está desactivado a
+// propósito en wifiInit() por el event storm de ASSOC_TOOMANY.
+//
+// Resultado observado en banco: WiFi.status() miente para siempre,
+// WifiOTAHandler() nunca reintenta wifiInit() (su guarda cree que hay enlace)
+// y WIFI_TB_OTA() sigue llamando a tb_wifi.connect() cada
+// THINGSBOARD_RECONNECT_DELAY, que falla en hostByName() por no haber IP. La
+// placa queda sin WiFi indefinidamente y solo se recupera metiendo
+// credenciales a mano.
+//
+// No se arregla subiendo el core: la misma rama vacía sigue en 2.0.16
+// (WiFiGeneric.cpp:1069) y en 3.3.7 (STA.cpp:144). Por eso la comprobación se
+// apoya en eventos, que son estables entre versiones.
+//
+// s_staHasIp lo mantienen los propios manejadores de eventos: es la única
+// fuente que refleja DISCONNECTED/GOT_IP sin pasar por el estado corrupto.
+static volatile bool s_staHasIp = false;
+
+// Posición aproximada por IP, del mismo cuerpo de respuesta que la zona
+// horaria (ensureWifiTimeZoneSynced, más abajo). Vive aquí arriba porque la
+// consume el montaje de telemetría, que va antes en el fichero. Una consulta
+// fallida NO la borra: un fallo transitorio no debe dejar la unidad fuera del
+// mapa hasta el día siguiente.
+static float s_ipLat = 0.0f;
+static float s_ipLon = 0.0f;
+static bool s_ipLocValid = false;
+// Ultimo valor METIDO en la telemetria, para no repetirlo en cada ciclo. El
+// motivo está en ip_geoloc_due(): el root chain manda toda la telemetría al
+// "Country estimator", que llama a Nominatim mientras el equipo no tenga
+// guardado el atributo `country`, y por WiFi se publica cada 5 s.
+static float s_ipPubLat = 0.0f;
+static float s_ipPubLon = 0.0f;
+static uint32_t s_ipPubMs = 0;
+static bool s_ipPubEver = false;
+
+// Registro idempotente de los manejadores de eventos. Vive aparte de
+// wifiInit() porque applyWifiCredentials() también depende de s_staHasIp y
+// puede ejecutarse antes (RPC setWifi): sin los manejadores puestos, la espera
+// de 15 s expiraría siempre y revertiría unas credenciales válidas.
+static void wifiRegisterEvents(void) {
+  static bool s_wifiEventsRegistered = false;
+  if (s_wifiEventsRegistered)
+    return;
+
+  WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t info) {
+    s_staHasIp = false;
+    ESP_LOGW(TAG, "STA_DISCONNECTED reason=%d",
+             info.wifi_sta_disconnected.reason);
+  }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+
+  WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t) {
+    s_staHasIp = true;
+    ESP_LOGI(TAG, "STA_GOT_IP: %s", WiFi.localIP().toString().c_str());
+  }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
+
+  s_wifiEventsRegistered = true;
+}
+
+void applyWifiCredentials(const char* ssid, const char* pass) {
+  wifiRegisterEvents();
+
+  Preferences prefs;
+  char prevSSID[64] = "";
+  char prevPass[64] = "";
+  prefs.begin("mb_wifi", true);
+  prefs.getString("ssid", prevSSID, sizeof(prevSSID));
+  prefs.getString("password", prevPass, sizeof(prevPass));
+  prefs.end();
+
+  prefs.begin("mb_wifi", false);
+  prefs.putString("ssid", ssid);
+  prefs.putString("password", pass);
+  prefs.end();
+
+  WiFi.disconnect();
+  WiFi.begin(ssid, pass);
+
+  uint32_t start = millis();
+  while (!WIFIIsConnected() && millis() - start < 15000) {
+    vTaskDelay(pdMS_TO_TICKS(500));
+  }
+
+  if (WIFIIsConnected()) {
+    sendWifiToHMI(ssid, pass);
+  } else {
+    prefs.begin("mb_wifi", false);
+    prefs.putString("ssid", prevSSID);
+    prefs.putString("password", prevPass);
+    prefs.end();
+    WiFi.begin(prevSSID, prevPass);
+    pendingSSID[0] = '\0';
+    pendingPass[0] = '\0';
+  }
+}
+
+/*
+   Login page
+*/
+
+const char *loginIndex =
+    "<form name='loginForm'>"
+    "<table width='20%' bgcolor='A09F9F' align='center'>"
+    "<tr>"
+    "<td colspan=2>"
+    "<center><font size=4><b>ESP32 Login Page</b></font></center>"
+    "<br>"
+    "</td>"
+    "<br>"
+    "<br>"
+    "</tr>"
+    "<tr>"
+    "<td>Username:</td>"
+    "<td><input type='text' size=25 name='userid'><br></td>"
+    "</tr>"
+    "<br>"
+    "<br>"
+    "<tr>"
+    "<td>WIFI_PASSWORD:</td>"
+    "<td><input type='WIFI_PASSWORD' size=25 name='pwd'><br></td>"
+    "<br>"
+    "<br>"
+    "</tr>"
+    "<tr>"
+    "<td><input type='submit' onclick='check(this.form)' value='Login'></td>"
+    "</tr>"
+    "</table>"
+    "</form>"
+    "<script>"
+    // AQUI HABIA UNA COMPROBACION DE CREDENCIALES EN JAVASCRIPT, y se ha
+    // quitado por dos motivos:
+    //
+    //  1. NO PROTEGIA NADA. Corria en el navegador del visitante: bastaba con
+    //     mirar el codigo de la pagina, o llamar a /serverIndex directamente,
+    //     para saltarsela. Quien de verdad protege es el
+    //     wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)
+    //     que lleva /serverIndex y el resto de endpoints.
+    //  2. PUBLICABA LA CONTRASENA. Esta pagina la sirve "/" SIN autenticar, o
+    //     sea que la placa le entregaba usuario y contrasena en claro a
+    //     cualquiera que abriese su IP. Y como el literal estaba en el fuente,
+    //     ademas era legible en GitHub: el repo es publico.
+    //
+    // El formulario se deja: al pulsar Login se abre /serverIndex, y es el
+    // navegador quien pide las credenciales por HTTP Basic contra la
+    // autenticacion de verdad.
+    "function check(form)"
+    "{"
+    "window.open('/serverIndex')"
+    "}"
+    "</script>";
+
+/*
+   wifiServer Index Page
+*/
+
+const char *serverIndex =
+    "<script "
+    "src='https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js'></"
+    "script>"
+    "<h3>Firmware Update</h3>"
+    "<p>Current Version: <span id='fw_version'></span></p>"
+    "<p>CCID: <span id='ccid'></span></p>"
+    "<form method='POST' action='#' enctype='multipart/form-data' "
+    "id='upload_form'>"
+    "<input type='file' name='update'>"
+    "<input type='submit' value='Update'>"
+    "</form>"
+    "<div id='prg'>progress: 0%</div>"
+    "<script>"
+    "$(document).ready(function() {"
+    "  $.get('/get_fw_version', function(data) {"
+    "    $('#fw_version').text(data.version);"
+    "  });"
+    "  $.get('/get_ccid', function(data) {"
+    "    $('#ccid').text(data.ccid);"
+    "  });"
+    "});"
+    "</script>"
+    "<script>"
+    "$('form').submit(function(e){"
+    "e.preventDefault();"
+    "var form = $('#upload_form')[0];"
+    "var data = new FormData(form);"
+    " $.ajax({"
+    "url: '/update',"
+    "type: 'POST',"
+    "data: data,"
+    "contentType: false,"
+    "processData:false,"
+    "xhr: function() {"
+    "var xhr = new window.XMLHttpRequest();"
+    "xhr.upload.addEventListener('progress', function(evt) {"
+    "if (evt.lengthComputable) {"
+    "var per = evt.loaded / evt.total;"
+    "$('#prg').html('progress: ' + Math.round(per*100) + '%');"
+    "}"
+    "}, false);"
+    "return xhr;"
+    "},"
+    "success:function(d, s) {"
+    "console.log('success!')"
+    "},"
+    "error: function (a, b, c) {"
+    "}"
+    "});"
+    "});"
+    "</script>";
+
+const char *configIndex =
+    "<script "
+    "src='https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js'></"
+    "script>"
+    "<h3>System Configuration</h3>"
+    "<label>Serial Number:</label><br>"
+    "<input type='number' name='serial' id='serial'><br><br>"
+    "<label>Fan Supply PWM (0-255):</label><br>"
+    "<input type='number' name='fan_supply_pwm' id='fan_supply_pwm'><br><br>"
+    "<label>Fan Control PWM (0-255):</label><br>"
+    "<input type='number' name='fan_ctl_pwm' id='fan_ctl_pwm'><br><br>"
+    "<label>Fan Speed PID:</label><br>"
+    "<select name='fan_pid_en' id='fan_pid_en'>"
+    "<option value='1'>Enabled</option>"
+    "<option value='0'>Disabled (fixed Fan Control PWM)</option>"
+    "</select><br><br>"
+    "<label>Heater Max Power (Amps):</label><br>"
+    "<input type='number' step='0.1' name='heater_amps' id='heater_amps'><br><br>"
+    "<label>Air Temp Max (C):</label><br>"
+    "<input type='number' step='0.1' name='air_tmax' id='air_tmax'><br><br>"
+    "<label>Skin Temp Max (C):</label><br>"
+    "<input type='number' step='0.1' name='skin_tmax' id='skin_tmax'><br><br>"
+    "<button type='button' onclick='saveSection([\"serial\",\"fan_supply_pwm\",\"fan_ctl_pwm\",\"fan_pid_en\",\"heater_amps\",\"air_tmax\",\"skin_tmax\"])'>Save System Configuration</button>"
+    "<br><br>"
+    "<h3>GPRS Reporting Periods (seconds)</h3>"
+    "<label>Actuating Period:</label><br>"
+    "<input type='number' name='gprs_act' id='gprs_act'><br><br>"
+    "<label>Phototherapy Period:</label><br>"
+    "<input type='number' name='gprs_photo' id='gprs_photo'><br><br>"
+    "<label>Standby Period:</label><br>"
+    "<input type='number' name='gprs_stby' id='gprs_stby'><br><br>"
+    "<button type='button' onclick='saveSection([\"gprs_act\",\"gprs_photo\",\"gprs_stby\"])'>Save GPRS Reporting</button>"
+    "<br><br>"
+    "<h3>Calibration</h3>"
+    "<label>Reference Skin Temp (Current Actual):</label><br>"
+    "<input type='number' step='0.01' name='reference_temp' id='reference_temp'><br><br>"
+    "<label>Fine Tune Skin Temperature Offset:</label><br>"
+    "<input type='number' step='0.01' name='fine_tune' id='fine_tune' readonly><br><br>"
+    "<button type='button' onclick='saveSection([\"reference_temp\"])'>Save Calibration</button>"
+    "<br><br>"
+    "<h3>Date &amp; Time</h3>"
+    "<p>Incubator clock: <b><span id='dev_time'>--</span></b> <span id='dev_time_src'></span></p>"
+    "<label>Set clock:</label><br>"
+    "<input type='datetime-local' step='1' name='set_time' id='set_time'><br><br>"
+    "<button type='button' onclick='fillBrowserTime()'>Use this device's time</button> "
+    "<button type='button' onclick='setDeviceTime()'>Set Date &amp; Time</button>"
+    "<p><small>The incubator keeps a single clock with no time zone: what you"
+    " enter here is exactly what the screen, the baby's age and the alarm log"
+    " will show. A manual entry overrides WiFi/GPRS time sync until the next"
+    " reboot; after a power cycle the clock is lost and sync takes over"
+    " again.</small></p>"
+    "<br>"
+    "<div id='msg'></div>"
+    "<script>"
+    "$(document).ready(function() {"
+    "  $.get('/get_config', function(data) {"
+    "    $('#serial').val(data.serial);"
+    "    $('#fan_supply_pwm').val(data.fan_supply_pwm);"
+    "    $('#fan_ctl_pwm').val(data.fan_ctl_pwm);"
+    "    $('#fan_pid_en').val(data.fan_pid_en);"
+    "    $('#heater_amps').val(data.heater_amps);"
+    "    $('#air_tmax').val(data.air_tmax);"
+    "    $('#skin_tmax').val(data.skin_tmax);"
+    "    $('#gprs_act').val(data.gprs_act);"
+    "    $('#gprs_photo').val(data.gprs_photo);"
+    "    $('#gprs_stby').val(data.gprs_stby);"
+    "    $('#reference_temp').val(data.skin_temp_val);"
+    "    $('#fine_tune').val(data.fine_tune);"
+    "    showDeviceTime(data);"
+    "    if (data.time_epoch > 0) { $('#set_time').val(stamp(data.time_epoch)); }"
+    "    else { fillBrowserTime(); }"
+    "  });"
+    "});"
+    "function saveSection(fields) {"
+    "  var data = {};"
+    "  fields.forEach(function(f) { data[f] = $('#'+f).val(); });"
+    "  $.post('/config', data, function(resp) {"
+    "    $('#msg').text(resp);"
+    "  });"
+    "}"
+    "function pad(n) { return (n < 10 ? '0' : '') + n; }"
+    // The board clock has no time zone, so render the epoch as-is (UTC fields)
+    // instead of shifting it into the browser's zone: what is shown here must
+    // be what the incubator screen shows.
+    "function stamp(epoch) {"
+    "  var d = new Date(epoch * 1000);"
+    "  return d.getUTCFullYear() + '-' + pad(d.getUTCMonth()+1) + '-' + pad(d.getUTCDate())"
+    "    + 'T' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ':' + pad(d.getUTCSeconds());"
+    "}"
+    "function showDeviceTime(data) {"
+    "  if (data.time_epoch > 0) {"
+    "    $('#dev_time').text(stamp(data.time_epoch).replace('T', ' '));"
+    "    $('#dev_time_src').text(data.time_manual == 1 ? '(set manually)' : '(synced from WiFi/GPRS)');"
+    "  } else {"
+    "    $('#dev_time').text('not set');"
+    "    $('#dev_time_src').text('(no WiFi/GPRS time sync yet)');"
+    "  }"
+    "}"
+    "function fillBrowserTime() {"
+    "  var d = new Date();"
+    "  $('#set_time').val(d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate())"
+    "    + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()));"
+    "}"
+    "function setDeviceTime() {"
+    "  $.post('/config', { set_time: $('#set_time').val() }, function(resp) {"
+    "    $('#msg').text(resp);"
+    "    $.get('/get_config', showDeviceTime);"
+    "  }).fail(function(x) { $('#msg').text(x.responseText || 'Error setting the clock'); });"
+    "}"
+    "</script>";
+
+/*
+   setup function
+*/
+extern char pendingSSID[64];
+extern char pendingPass[64];
+
+static uint32_t lastconnectiontrywifi = 0;
+
+void wifiInit(void) {
+  // Connect to WiFi network
+  ESP_LOGI(TAG, "Initializing WiFi");
+  Wifi_TB.lastWifiReconnectAttempt = millis();
+
+  String hostname = String(WIFI_NAME) + "-" + String(in3.serialNumber);
+
+  // Copy hostname to wifiHost for MDNS
+  strncpy(wifiHost, hostname.c_str(), sizeof(wifiHost) - 1);
+  wifiHost[sizeof(wifiHost) - 1] = '\0';
+  ESP_LOGI(TAG, "Setting hostname to: %s", wifiHost);
+
+  // In Arduino 3.x (ESP-IDF 5.x), setHostname must be called BEFORE mode(WIFI_STA).
+  WiFi.setHostname(hostname.c_str());
+  // Skip mode change if already STA — calling mode() while connecting causes ESP_ERR_WIFI_CONN.
+  if (WiFi.getMode() != WIFI_MODE_STA) {
+    WiFi.mode(WIFI_STA);
+  }
+
+  // Register disconnect/got-IP handlers once so reason codes land in the log
+  // and s_staHasIp refleje el enlace real (ver wifiRegisterEvents()).
+  wifiRegisterEvents();
+
+  WiFi.persistent(true);
+  // Manual reconnect via WifiOTAHandler() at WIFI_RECONNECT_INTERVAL.
+  // Auto-reconnect has no backoff for ASSOC_TOOMANY (reason=5) and causes a
+  // 25 Hz event storm that starves other tasks and flickers the display.
+  WiFi.setAutoReconnect(false);
+
+  String ssid;
+  String pass;
+
+  if (strlen(pendingSSID) > 0) {
+    ssid = pendingSSID;
+    pass = pendingPass;
+    ESP_LOGI(TAG, "Connecting to pending SSID: %s", ssid.c_str());
+  } else {
+    { Preferences p; p.begin(NS_WIFI, true);
+      ssid = p.getString(KEY_SSID,     "");
+      pass = p.getString(KEY_PASSWORD, "");
+      p.end(); }
+    if (ssid.length() > 0) {
+      ESP_LOGI(TAG, "Connecting to SSID from Preferences: %s", ssid.c_str());
+    } else {
+      ESP_LOGI(TAG, "Connecting to default SSID: %s", WIFI_SSID);
+      ssid = WIFI_SSID;
+      pass = WIFI_PASSWORD;
+    }
+  }
+
+  WiFi.begin(ssid.c_str(), pass.c_str());
+  // Mobile hotspots often drop power-saving clients. Disable modem sleep.
+  WiFi.setSleep(WIFI_PS_NONE);
+  lastconnectiontrywifi = millis();
+}
+
+void configWifiServer() {
+  // Wait for connection
+  logI("Connected to " + WiFi.SSID() + " IP address " +
+       WiFi.localIP().toString());
+
+  // Pin a fallback DNS so subsequent lookups survive lwIP reinit after reconnects
+  ip_addr_t dns_fallback;
+  IP4_ADDR(&dns_fallback.u_addr.ip4, 8, 8, 8, 8);
+  dns_fallback.type = IPADDR_TYPE_V4;
+  dns_setserver(1, &dns_fallback);
+
+  /*use mdns for wifiHost name resolution*/
+  if (!MDNS.begin(wifiHost)) { // http://esp32.local
+    logI("Error setting up MDNS responder!");
+  }
+  MDNS.addService("http", "tcp", 80);
+  logI("mDNS responder started");
+  /*return index page which is stored in ServerIndex */
+  wifiServer.on("/", HTTP_GET, []() {
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "text/html", loginIndex);
+  });
+  wifiServer.on("/serverIndex", HTTP_GET, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "text/html", serverIndex);
+  });
+  // SIN autenticar A PROPOSITO: es el faro de descubrimiento del flash tool,
+  // que barre la subred con 50 hilos preguntando por aqui (wifi_flasher.py,
+  // _get_fw_version) antes de tener credencial ninguna. Exigir autenticacion
+  // aqui rompe el descubrimiento de placas.
+  //
+  // Lo que publica es lo justo para eso: version, numero de serie y tipo de
+  // placa. El tipo lo declara el dispositivo y NO se deduce del hostname mDNS
+  // (ver known_issues.md #7, donde deducirlo del hostname flasheaba firmware
+  // de motherBoard en un HMI). No anadas aqui nada mas: cualquier campo que
+  // pongas queda legible por toda la red sin credenciales.
+  wifiServer.on("/get_fw_version", HTTP_GET, []() {
+    String json = "{";
+    json += "\"version\":\"" + String(FWversion) + "\"";
+    json += ",\"sn\":" + String(in3.serialNumber);
+    // "board" es la identidad que declara el propio dispositivo: es lo que el
+    // flasher debe creerse, en vez de deducir la placa del hostname mDNS.
+    json += ",\"board\":\"" FW_BOARD_ID_MOTHERBOARD "\"";
+    json += "}";
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "application/json", json);
+  });
+  // Autenticado: el CCID identifica la SIM de la unidad. Lo pide por AJAX la
+  // pagina /serverIndex, que ya esta autenticada, asi que el navegador manda
+  // la credencial ya cacheada y el flujo de usuario no cambia.
+  wifiServer.on("/get_ccid", HTTP_GET, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    String json = "{";
+    json += "\"ccid\":\"" + GPRS.CCID + "\"";
+    json += "}";
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "application/json", json);
+  });
+  /* config page */
+  wifiServer.on("/config", HTTP_GET, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "text/html", configIndex);
+  });
+  // Autenticado: aqui va "skin_temp_val", que es la temperatura cutanea del
+  // bebe en ese momento -- dato clinico de un equipo identificable por su
+  // numero de serie -- ademas de los limites de seguridad (heater_amps,
+  // air_tmax, skin_tmax). Estaba abierto mientras que el POST de /config, que
+  // escribe esos mismos parametros, si pedia credencial: se protegia la
+  // escritura y no la lectura.
+  //
+  // Lo pide por AJAX la pagina /config, ya autenticada, asi que el navegador
+  // manda la credencial cacheada y la pantalla de configuracion no cambia.
+  wifiServer.on("/get_config", HTTP_GET, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    String json = "{";
+    json += "\"serial\":" + String(in3.serialNumber) + ",";
+    json += "\"fan_supply_pwm\":" + String(in3.fanPwrSupplyPWM) + ",";
+    json += "\"fan_ctl_pwm\":" + String(in3.fanCtlPWM) + ",";
+    json += "\"fan_pid_en\":" + String(in3.fanPidEnabled) + ",";
+    json += "\"heater_amps\":" + String(in3.heaterMaxPowerAmps) + ",";
+    json += "\"air_tmax\":" + String(in3.airTemperatureSetMax) + ",";
+    json += "\"skin_tmax\":" + String(in3.skinTemperatureSetMax) + ",";
+    json += "\"gprs_act\":" + String(in3.actuating_gprs_period) + ",";
+    json += "\"gprs_photo\":" + String(in3.phototherapy_gprs_period) + ",";
+    json += "\"gprs_stby\":" + String(in3.standby_gprs_period) + ",";
+    // Return current displayed temperature so user can see what it is or use it
+    // as base
+    json += "\"skin_temp_val\":" + String(in3.temperature[SKIN_SENSOR]) + ",";
+    json += "\"fine_tune\":" + String(in3.fineTuneSkinTemperature) + ",";
+    // Wall clock. 0 means "never synced and never set" — same floor the rest
+    // of the firmware uses to decide the date cannot be trusted.
+    json += "\"time_epoch\":" + String((unsigned long)babyStore_nowEpoch()) + ",";
+    json += "\"time_manual\":" + String(systemClockIsManual() ? 1 : 0);
+    json += "}";
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "application/json", json);
+  });
+  wifiServer.on("/config", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    extern float maxDesiredTemp[2];
+    if (wifiServer.hasArg("serial")) {
+      in3.serialNumber = wifiServer.arg("serial").toInt();
+      { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_SERIAL, in3.serialNumber); p.end(); }
+    }
+    if (wifiServer.hasArg("fan_supply_pwm")) {
+      in3.fanPwrSupplyPWM = wifiServer.arg("fan_supply_pwm").toInt();
+      { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_PWR_SUPPLY_PWM, in3.fanPwrSupplyPWM); p.end(); }
+    }
+    if (wifiServer.hasArg("fan_ctl_pwm")) {
+      in3.fanCtlPWM = wifiServer.arg("fan_ctl_pwm").toInt();
+      { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_CTL_PWM, in3.fanCtlPWM); p.end(); }
+      ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
+    }
+    if (wifiServer.hasArg("fan_pid_en")) {
+      setFanPidEnabled(wifiServer.arg("fan_pid_en").toInt() != 0);
+    }
+    if (wifiServer.hasArg("heater_amps")) {
+      in3.heaterMaxPowerAmps = wifiServer.arg("heater_amps").toFloat();
+      { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_HEAT_MAX_A, in3.heaterMaxPowerAmps); p.end(); }
+    }
+    if (wifiServer.hasArg("air_tmax")) {
+      in3.airTemperatureSetMax =
+          alarm_clamp_air_cutout(wifiServer.arg("air_tmax").toFloat());
+      maxDesiredTemp[CONTROL_AIR] = in3.airTemperatureSetMax;
+      { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_AIR_T_MAX, in3.airTemperatureSetMax); p.end(); }
+    }
+    if (wifiServer.hasArg("skin_tmax")) {
+      in3.skinTemperatureSetMax =
+          alarm_clamp_skin_cutout(wifiServer.arg("skin_tmax").toFloat());
+      maxDesiredTemp[CONTROL_SKIN] = in3.skinTemperatureSetMax;
+      { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_SKIN_T_MAX, in3.skinTemperatureSetMax); p.end(); }
+    }
+    if (wifiServer.hasArg("gprs_act")) {
+      in3.actuating_gprs_period = wifiServer.arg("gprs_act").toInt();
+      { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_ACT_PERIOD, in3.actuating_gprs_period); p.end(); }
+    }
+    if (wifiServer.hasArg("gprs_photo")) {
+      in3.phototherapy_gprs_period = wifiServer.arg("gprs_photo").toInt();
+      { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_PHOTO_PERIOD, in3.phototherapy_gprs_period); p.end(); }
+    }
+    if (wifiServer.hasArg("gprs_stby")) {
+      in3.standby_gprs_period = wifiServer.arg("gprs_stby").toInt();
+      { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_STBY_PERIOD, in3.standby_gprs_period); p.end(); }
+    }
+    if (wifiServer.hasArg("reference_temp")) {
+      double referenceTemp = wifiServer.arg("reference_temp").toDouble();
+      in3.fineTuneSkinTemperature =
+          in3.fineTuneSkinTemperature +
+          (referenceTemp - in3.temperature[SKIN_SENSOR]);
+      { Preferences p; p.begin(NS_CAL, false); p.putFloat(KEY_FT_SKIN, in3.fineTuneSkinTemperature); p.end(); }
+    }
+    if (wifiServer.hasArg("set_time")) {
+      // "YYYY-MM-DDTHH:MM[:SS]" — what <input type='datetime-local'> posts.
+      // Taken as the board clock verbatim (tz offset 0): the firmware keeps a
+      // single timezone-less clock, so what the operator types is what the
+      // screen, the baby's age and the alarm log show. Deployments with
+      // neither WiFi nor a NITZ-capable operator had no other way in.
+      String v = wifiServer.arg("set_time");
+      int y = 0, mo = 0, d = 0, h = 0, mi = 0, s = 0;
+      uint32_t epoch = 0;
+      // %*c swallows the 'T' (or a space, for a hand-crafted curl POST).
+      int n = sscanf(v.c_str(), "%d-%d-%d%*c%d:%d:%d", &y, &mo, &d, &h, &mi, &s);
+      if (n < 5 ||
+          !civil_to_unix_utc(y, (unsigned)mo, (unsigned)d, (unsigned)h,
+                             (unsigned)mi, (unsigned)s, 0, &epoch) ||
+          !systemClockSetManual(epoch)) {
+        wifiServer.sendHeader("Connection", "close");
+        wifiServer.send(400, "text/plain",
+                        "Invalid date/time. Expected YYYY-MM-DDTHH:MM[:SS], "
+                        "year 2021 or later.");
+        return;
+      }
+      logI("[WIFI] -> clock set manually to epoch " + String(epoch));
+      wifiServer.sendHeader("Connection", "close");
+      wifiServer.send(200, "text/plain",
+                      "Clock set. The display picks it up within 10 s.");
+      return;
+    }
+    /* Preferences commits on p.end() — no explicit commit needed */
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "text/plain", "Saved. Settings applied immediately.");
+  });
+  // ================== ENDPOINTS DE DEPURACION ==================
+  // Ver modules/debug/debug_mode.h para las reglas que cumplen. Resumen:
+  // /debug/state es de solo lectura y siempre esta; TODO lo que simula exige
+  // el modo encendido, y apagarlo retira las simulaciones de golpe.
+  //
+  // Todos piden la misma autenticacion que /config. Es la unica barrera que
+  // hay, asi que la otra mitad de la proteccion es que el modo no se persiste:
+  // un equipo reiniciado vuelve a la realidad aunque alguien lo dejara puesto.
+
+  // Volcado de estado. SOLO LECTURA: no cambia nada y por eso no exige el modo.
+  // Informes de caida guardados en LittleFS por CrashReporter.
+  //
+  // El anillo de log vive en memoria RTC, sobrevive al panic y se vuelca a
+  // /crash_mb_<n>.log en el arranque siguiente. O sea que las ultimas lineas
+  // ANTES del reinicio quedan guardadas en la propia unidad -- y hasta ahora
+  // no habia forma de sacarlas sin abrir la placa por el puerto serie. Eso es
+  // justo lo que hace falta para saber QUE tarea se quedo sin ceder CPU
+  // cuando salta el Task WDT, en vez de deducirlo (produccion 2026-09-20,
+  // unidades 352/358/359, ver known_issues.md #13).
+  //
+  // Solo lectura y con la misma autenticacion que /debug/state. LittleFS
+  // sobrevive a un reflasheo por USB, asi que el informe sigue ahi aunque la
+  // unidad se haya actualizado despues del fallo.
+  //
+  //   GET /debug/crash          -> lista los informes disponibles
+  //   GET /debug/crash?file=... -> devuelve ese informe en texto plano
+  wifiServer.on("/debug/crash", HTTP_GET, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    if (wifiServer.hasArg("file")) {
+      String name = wifiServer.arg("file");
+      // Solo ficheros de informe del directorio raiz: sin '/' ni '..' no se
+      // puede salir a leer otra cosa del sistema de archivos.
+      if (name.indexOf('/') >= 0 || name.indexOf("..") >= 0 ||
+          !name.startsWith("crash_") || !name.endsWith(".log")) {
+        return wifiServer.send(400, "text/plain", "nombre no valido\n");
+      }
+      File f = LittleFS.open("/" + name, "r");
+      if (!f) {
+        return wifiServer.send(404, "text/plain", "no existe\n");
+      }
+      wifiServer.streamFile(f, "text/plain");
+      f.close();
+      return;
+    }
+    String list;
+    File dir = LittleFS.open("/");
+    for (File e = dir.openNextFile(); e; e = dir.openNextFile()) {
+      String n = String(e.name());
+      if (n.startsWith("crash_") || n.startsWith("/crash_")) {
+        list += n + "  " + String(e.size()) + " bytes\n";
+      }
+      e.close();
+    }
+    wifiServer.send(200, "text/plain",
+                    list.length() ? list : String("sin informes de caida\n"));
+  });
+
+  // Descarga del COREDUMP por HTTP.
+  //
+  // Es lo unico que da un backtrace de verdad --con nombres de funcion, no PCs
+  // crudos-- y hasta ahora solo se podia sacar con la placa delante y esptool.
+  // Con esto, una unidad que se reinicia en campo se depura desde el despacho:
+  //
+  //   curl -u <usuario>:<clave> http://<ip>/debug/coredump -o dump.bin
+  //   python -m esp_coredump --chip esp32s3 info_corefile \
+  //          --core dump.bin --core-format raw firmware.elf
+  //
+  // OJO: hace falta el firmware.elf EXACTO de esa version. El decodificador
+  // compara el SHA256 de la aplicacion y se niega si no coincide -- comprobado
+  // el 2026-09-21: "coredump SHA256(...) != app SHA256(...)". Por eso el .elf
+  // se archiva junto a los binarios de cada entrega.
+  //
+  // La lectura NO usa el lector de a bordo (esp_core_dump_get_summary, que en
+  // esta placa devuelve ESP_ERR_INVALID_SIZE con un volcado que por lo demas
+  // es valido): se lee la particion en crudo y se decodifica fuera.
+  wifiServer.on("/debug/coredump", HTTP_GET, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    const esp_partition_t *part = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_COREDUMP, NULL);
+    if (part == NULL) {
+      return wifiServer.send(404, "text/plain", "sin particion de coredump\n");
+    }
+    // La cabecera del volcado empieza por su longitud: si es 0 o 0xFFFFFFFF no
+    // hay nada escrito y no tiene sentido mandar 64 KB de flash borrada.
+    uint32_t len = 0;
+    if (esp_partition_read(part, 0, &len, sizeof(len)) != ESP_OK || len == 0 ||
+        len == 0xFFFFFFFFu || len > part->size) {
+      return wifiServer.send(404, "text/plain", "sin volcado valido\n");
+    }
+    wifiServer.setContentLength(len);
+    wifiServer.send(200, "application/octet-stream", "");
+    // En trozos: 64 KB de golpe no caben en el heap interno de esta placa.
+    uint8_t buf[512];
+    for (uint32_t off = 0; off < len; off += sizeof(buf)) {
+      const uint32_t n = (len - off < sizeof(buf)) ? (len - off) : sizeof(buf);
+      if (esp_partition_read(part, off, buf, n) != ESP_OK) {
+        break;
+      }
+      wifiServer.sendContent((const char *)buf, n);
+    }
+  });
+
+  wifiServer.on("/debug/state", HTTP_GET, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    // En el monton y EN LA PSRAM, no en la pila ni en la DRAM interna: esta
+    // funcion corre en la tarea de OTA y el volcado con la tabla de tareas pasa
+    // de 3 KB.
+    //
+    // La primera version pedia 4 KB con malloc() —que sirve de la interna
+    // primero— y ademas envolvia el resultado en un String, o sea otros 4 KB
+    // copiados. Ocho kilobytes de DRAM interna POR PETICION. En la motherBoard
+    // no se nota; en el display se cargo la placa: con un script de pruebas
+    // consultando esto en bucle, la interna paso de 23,8 KB a 5,7 KB y salieron
+    // `wifi:mem fail`, glitches en el panel y un HMI LINK LOST fantasma
+    // (banco, 2026-09-11). El envio va por la sobrecarga de `const char *`
+    // porque esa no copia: se la pasa tal cual a httpd_resp_send().
+    const size_t cap = 4096;
+    char *buf = (char *)heap_caps_malloc(cap, MALLOC_CAP_SPIRAM);
+    if (buf == nullptr) {
+      buf = (char *)malloc(cap); // placa sin PSRAM
+    }
+    if (buf == nullptr) {
+      wifiServer.sendHeader("Connection", "close");
+      wifiServer.send(503, "application/json", "{\"error\":\"sin memoria\"}");
+      return;
+    }
+    // ?tasks=1 anade la tabla de tareas; ver debug_state_json_ex().
+    debug_state_json_ex(buf, cap, wifiServer.hasArg("tasks"));
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "application/json", (const char *)buf);
+    free(buf);
+  });
+
+  // Interruptor general. POST /debug/mode?on=0|1
+  wifiServer.on("/debug/mode", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    if (!wifiServer.hasArg("on")) {
+      wifiServer.send(400, "text/plain", "falta on=0|1");
+      return;
+    }
+    debug_mode_set(wifiServer.arg("on").toInt() != 0);
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "application/json",
+                    String("{\"debug\":") + (debug_mode_enabled() ? 1 : 0) + "}");
+  });
+
+  // Simular una medida. POST /debug/sensor?ch=air_temp&value=39.5
+  //                     POST /debug/sensor?ch=air_temp&clear=1
+  //                     POST /debug/sensor?clear_all=1
+  wifiServer.on("/debug/sensor", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    if (wifiServer.hasArg("clear_all")) {
+      debug_override_clear_all();
+      wifiServer.send(200, "text/plain", "OK");
+      return;
+    }
+    if (!wifiServer.hasArg("ch")) {
+      wifiServer.send(400, "text/plain", "falta ch=<canal>");
+      return;
+    }
+    const String chName = wifiServer.arg("ch");
+    const debug_channel_t ch = debug_channel_from_name(chName.c_str());
+    if (ch == DEBUG_CH_COUNT) {
+      wifiServer.send(400, "text/plain", "canal desconocido: " + chName);
+      return;
+    }
+    if (wifiServer.hasArg("clear")) {
+      debug_override_clear(ch);
+      wifiServer.send(200, "text/plain", "OK");
+      return;
+    }
+    if (!wifiServer.hasArg("value")) {
+      wifiServer.send(400, "text/plain", "falta value=<numero> o clear=1");
+      return;
+    }
+    if (!debug_override_set(ch, wifiServer.arg("value").toFloat())) {
+      wifiServer.send(409, "text/plain", "el modo depuracion esta apagado");
+      return;
+    }
+    wifiServer.send(200, "text/plain", "OK");
+  });
+
+  // Inyectar una trama del display como si hubiera llegado por el cable.
+  // POST /debug/inject?line=HMI,1,0,1,36.50,37.00,50,0,0,1,0
+  //
+  // Con esto se reproduce cualquier orden del operador sin tener el display
+  // delante: encender la actuacion, mover consignas, silenciar o reconocer una
+  // alarma. Y se ejercita el parseador de verdad.
+  wifiServer.on("/debug/inject", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    if (!wifiServer.hasArg("line")) {
+      wifiServer.send(400, "text/plain", "falta line=<trama>");
+      return;
+    }
+    if (!debug_inject_line(wifiServer.arg("line").c_str())) {
+      wifiServer.send(409, "text/plain",
+                      "modo depuracion apagado, prefijo incorrecto o cola llena");
+      return;
+    }
+    wifiServer.send(200, "text/plain", "OK");
+  });
+
+  // Forzar la CONDICION de una alarma. POST /debug/alarm?id=5&present=1
+  wifiServer.on("/debug/alarm", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    if (wifiServer.hasArg("clear_all")) {
+      debug_alarm_clear_all();
+      wifiServer.send(200, "text/plain", "OK");
+      return;
+    }
+    if (!wifiServer.hasArg("id") || !wifiServer.hasArg("present")) {
+      wifiServer.send(400, "text/plain", "faltan id=<n> y present=0|1");
+      return;
+    }
+    const int id = wifiServer.arg("id").toInt();
+    const bool present = wifiServer.arg("present").toInt() != 0;
+    if (!debug_alarm_force(id, present)) {
+      wifiServer.send(409, "text/plain",
+                      "id fuera de rango o modo depuracion apagado");
+      return;
+    }
+    wifiServer.send(200, "text/plain", "OK");
+  });
+
+  // Provocar un fallo, para la prueba de coredump.
+  // POST /debug/crash?kind=abort|null|stack|wdt|assert[&delay_ms=500]
+  //
+  // Contesta ANTES de morir (de ahi el retardo): si no, el cliente ve una
+  // conexion cortada y no puede distinguir "ha fallado como le pedi" de "no
+  // me ha llegado la peticion".
+  wifiServer.on("/debug/crash", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    const debug_crash_kind_t kind =
+        debug_crash_from_name(wifiServer.arg("kind").c_str());
+    if (kind == DEBUG_CRASH_NONE) {
+      wifiServer.send(400, "text/plain",
+                      "kind=abort|null|stack|wdt|assert");
+      return;
+    }
+    uint32_t delay = 500;
+    if (wifiServer.hasArg("delay_ms")) {
+      delay = (uint32_t)wifiServer.arg("delay_ms").toInt();
+    }
+    if (!debug_crash_request(kind, delay)) {
+      wifiServer.send(409, "text/plain", "el modo depuracion esta apagado");
+      return;
+    }
+    wifiServer.send(200, "text/plain", "OK");
+  });
+
+  /*handling uploading firmware file */
+  wifiServer.on(
+      "/update", HTTP_POST,
+      []() {
+        if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+          return wifiServer.requestAuthentication();
+        }
+        const bool ok = !s_otaRejected && !Update.hasError();
+        wifiServer.sendHeader("Connection", "close");
+        if (ok) {
+          wifiServer.send(200, "text/plain", "OK");
+          delay(500); // let TCP stack flush the response before hardware reset
+          ESP.restart();
+          return;
+        }
+        // Reiniciar tras una OTA fallida no sirve de nada: otadata sigue
+        // apuntando al firmware bueno y lo unico que se consigue es un corte
+        // de control y de telemetria de varios segundos.
+        wifiServer.send(400, "text/plain",
+                        String("FAIL: ") + (s_otaRejected ? s_otaRejectReason
+                                                          : "error de escritura"));
+        logI("[WIFI] OTA rechazada: " +
+             String(s_otaRejected ? s_otaRejectReason : "error de escritura"));
+      },
+      []() {
+        if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) return;
+        HTTPUpload &upload = wifiServer.upload();
+        if (upload.status == UPLOAD_FILE_START) {
+          s_otaRejected = false;
+          s_otaRejectReason = "";
+          s_otaSelfTag.reset();
+          s_otaAnyTag.reset();
+
+          // Barrera 1 (barata): la herramienta dice a que placa cree que
+          // habla. Si se equivoca, se corta aqui, sin abrir Update siquiera.
+          String declared = wifiServer.header(OTA_BOARD_HEADER);
+          if (declared.length() == 0) declared = wifiServer.arg("board");
+          if (declared.length() != 0 && declared != FW_BOARD_ID_MOTHERBOARD) {
+            s_otaRejected = true;
+            s_otaRejectReason = "esto es una " FW_BOARD_ID_MOTHERBOARD;
+            logI("[WIFI] OTA rechazada: firmware de otra placa (" + declared +
+                 ")");
+            return;
+          }
+
+          if (!Update.begin(
+                  UPDATE_SIZE_UNKNOWN)) { // start with max available size
+            Update.printError(Serial);
+          }
+        } else if (upload.status == UPLOAD_FILE_WRITE) {
+          if (s_otaRejected) return;
+          // Barrera 2 (la que de verdad protege): la marca de placa va dentro
+          // del binario, asi que no depende de que la herramienta sea honesta
+          // ni de que este actualizada.
+          s_otaSelfTag.feed(upload.buf, upload.currentSize);
+          s_otaAnyTag.feed(upload.buf, upload.currentSize);
+          /* flashing firmware to ESP*/
+          if (Update.write(upload.buf, upload.currentSize) !=
+              upload.currentSize) {
+            Update.printError(Serial);
+          }
+        } else if (upload.status == UPLOAD_FILE_END) {
+          if (s_otaRejected) return;
+          if (fw_image_is_foreign(s_otaSelfTag.found(), s_otaAnyTag.found())) {
+            s_otaRejected = true;
+            s_otaRejectReason = "el binario es de otra placa";
+            Update.abort(); // otadata intacto: seguimos con el firmware actual
+            logI("[WIFI] OTA rechazada: la imagen no lleva la marca de esta "
+                 "placa (" + String(kFwBoardTag) + ")");
+            return;
+          }
+          if (Update.end(
+                  true)) { // true to set the size to the current progress
+            logI("Update Success: " + String(upload.totalSize) + " bytes");
+          } else {
+            Update.printError(Serial);
+          }
+        } else if (upload.status == UPLOAD_FILE_ABORTED) {
+          Update.abort();
+        }
+      });
+  // header() solo devuelve las cabeceras declaradas antes de begin().
+  const char *otaHeaders[] = {OTA_BOARD_HEADER};
+  wifiServer.collectHeaders(otaHeaders, 1);
+  wifiServer.begin();
+}
+
+void WIFI_UpdatedCallback(const bool &success) {
+  if (success) {
+    logI("[WIFI] -> Done, OTA will be implemented on next boot");
+    // esp_restart();
+  } else {
+    logI("[WIFI] -> No new firmware");
+    Update.abort();
+  }
+}
+
+bool WIFICheckNewEvent() {
+  bool retVal = false;
+  bool WifiStatus = WIFIIsConnected();
+  bool serverConnectionStatus = WIFIIsConnectedToServer();
+  if (serverConnectionStatus != Wifi_TB.lastServerConnectionStatus ||
+      WifiStatus != Wifi_TB.lastWIFIConnectionStatus) {
+    retVal = true;
+  }
+  Wifi_TB.lastWIFIConnectionStatus = WifiStatus;
+  Wifi_TB.lastServerConnectionStatus = serverConnectionStatus;
+  return (retVal);
+}
+
+// Enlace WiFi real: los tres criterios deben coincidir. s_staHasIp es el que
+// sobrevive al bug de AUTH_EXPIRE del core (ver su declaración); WiFi.status()
+// se mantiene para no ser nunca menos estricto que antes, y localIP() es el
+// mismo criterio que ya usa driveHostReachable() en DriveUpload.cpp.
+bool WIFIIsConnected() {
+  return (s_staHasIp && WiFi.status() == WL_CONNECTED &&
+          WiFi.localIP() != IPAddress(0, 0, 0, 0));
+}
+
+bool WIFIIsConnectedToServer() {
+  return (Wifi_TB.serverConnectionStatus && WIFIIsConnected());
+}
+
+void WIFICheckOTA() {
+  logI("[WIFI] -> Checking WIFI firwmare Update...");
+  tb_wifi.Firmware_Send_Info(CURRENT_FIRMWARE_TITLE, FWversion);
+  // Misma guarda que GPRSCheckOTA(), y por el mismo motivo: esta funcion la
+  // llama el lazo cada TX_WIFI_OTA_CHECK_MS (1 min), y sin guarda cada pasada
+  // reiniciaba desde el trozo 0 una descarga que ya estaba en marcha. Por WiFi
+  // el fallo es mas dificil de ver que por 2G --a veces la descarga entera
+  // cabe en el minuto-- pero es el mismo: una OTA que no termina y vuelve a
+  // empezar sin dar ni un error.
+  //
+  // GPRS.OTAInProgress no es un descuido de nombre: los dos transportes
+  // comparten progressCallback/updatedCallback (GPRS.cpp), asi que esa bandera
+  // es la de la OTA en curso, venga por donde venga. Solo una puede estar viva
+  // a la vez.
+  // Misma bandera compartida que en GPRSCheckOTA(), y por el mismo motivo: una
+  // imagen ya descargada espera al reinicio, y reintentar sobre ella deja al
+  // SDK en un bucle de reintentos sin fin. Ver el comentario en GPRS.cpp.
+  extern volatile bool g_otaPendingReboot;
+  if (!GPRS.OTAInProgress && !g_otaPendingReboot) {
+    tb_wifi.Start_Firmware_Update(OTAcallback);
+  }
+}
+
+void WIFI_TB_Init() {
+  { Preferences p; p.begin(NS_GPRS, true);
+    Wifi_TB.provisioned   = p.getUChar (KEY_PROVISIONED, 0);
+    if (Wifi_TB.provisioned) {
+      Wifi_TB.device_token = p.getString(KEY_TOKEN, "").c_str();
+    }
+    p.end(); }
+  logI("[WIFI] -> WIFI_TB_Init check provisioning: " +
+       String(Wifi_TB.provisioned));
+  if (Wifi_TB.provisioned) {
+    // El token es una credencial: se dice que lo hay y su longitud, nunca su valor.
+    ESP_LOGI(TAG, "ya provisionado (token de %u caracteres en NVS)",
+             (unsigned)Wifi_TB.device_token.length());
+  }
+}
+
+void WIFIProvisionResponse(const JsonObjectConst &data) {
+  ESP_LOGI(TAG, "respuesta de provisioning recibida");
+  const size_t jsonSize = JSON_OBJECT_SIZE(data.size()) + 200;
+  char buffer[jsonSize];
+  serializeJson(data, buffer, jsonSize);
+
+  if (strncmp(data["status"], "SUCCESS", strlen("SUCCESS")) != 0) {
+    Wifi_TB.provision_retry_count++;
+    if (Wifi_TB.provision_retry_count <= PROVISION_MAX_RETRIES) {
+      ESP_LOGW(TAG, "provisioning RECHAZADO (%s) - reintento %u como IncuNest-%d_%u",
+               data["errorMsg"].as<String>().c_str(),
+               (unsigned)Wifi_TB.provision_retry_count, in3.serialNumber,
+               (unsigned)Wifi_TB.provision_retry_count);
+      Wifi_TB.provision_request_sent = false;
+    } else {
+      ESP_LOGE(TAG,
+               "provisioning AGOTADO tras %u reintentos: IncuNest-%d y sus "
+               "_1.._%u ya existen en el servidor. No se volvera a intentar "
+               "hasta reiniciar; hay que borrarlos en ThingsBoard o dar otro "
+               "numero de serie a la unidad.",
+               (unsigned)PROVISION_MAX_RETRIES, in3.serialNumber,
+               (unsigned)PROVISION_MAX_RETRIES);
+    }
+    return;
+  }
+
+  if (strncmp(data[CREDENTIALS_TYPE], ACCESS_TOKEN_CRED_TYPE,
+              strlen(ACCESS_TOKEN_CRED_TYPE)) == 0) {
+
+    wifi_credentials.client_id = "";
+    wifi_credentials.username = data[CREDENTIALS_VALUE].as<std::string>();
+    wifi_credentials.password = "";
+    Wifi_TB.provisioned = true;
+    Wifi_TB.device_token = wifi_credentials.username.c_str();
+    { Preferences p; p.begin(NS_GPRS, false);
+      p.putString(KEY_TOKEN,       Wifi_TB.device_token);
+      p.putUChar (KEY_PROVISIONED, Wifi_TB.provisioned);
+      p.end(); }
+    ESP_LOGI(TAG, "provisionado correctamente");
+  } else if (strncmp(data[CREDENTIALS_TYPE], MQTT_BASIC_CRED_TYPE,
+                     strlen(MQTT_BASIC_CRED_TYPE)) == 0) {
+    auto credentials_value = data[CREDENTIALS_VALUE].as<JsonObjectConst>();
+    wifi_credentials.client_id = credentials_value[CLIENT_ID].as<std::string>();
+    wifi_credentials.username =
+        credentials_value[CLIENT_USERNAME].as<std::string>();
+    wifi_credentials.password =
+        credentials_value[CLIENT_PASSWORD].as<std::string>();
+    Wifi_TB.provisioned = true;
+    Wifi_TB.device_token = wifi_credentials.username.c_str();
+    { Preferences p; p.begin(NS_GPRS, false);
+      p.putString(KEY_TOKEN,       Wifi_TB.device_token);
+      p.putUChar (KEY_PROVISIONED, Wifi_TB.provisioned);
+      p.end(); }
+    logI("[WIFI] -> Device provisioned successfully");
+  } else {
+    logI("[WIFI] -> Unexpected provision credentialsType");
+    return;
+  }
+  if (tb_wifi.connected()) {
+    tb_wifi.disconnect();
+  }
+  Wifi_TB.provision_request_processed = true;
+}
+
+void WIFITBProvision() {
+  if (!tb_wifi.connected()) {
+    logI("[WIFI] -> Connecting for provision to: " +
+         String(THINGSBOARD_SERVER));
+    if (!tb_wifi.connect(THINGSBOARD_SERVER, "provision", THINGSBOARD_PORT)) {
+      ESP_LOGW(TAG, "no se pudo abrir la conexion de provisioning");
+      return;
+    }
+  }
+  // Connect to the ThingsBoard
+  logI("[WIFI] -> Sending provision request to: " + String(THINGSBOARD_SERVER));
+
+  String baseName = "IncuNest-" + String(in3.serialNumber);
+  String deviceName = (Wifi_TB.provision_retry_count == 0)
+      ? baseName
+      : baseName + "_" + String(Wifi_TB.provision_retry_count);
+  ESP_LOGI(TAG, "pidiendo provisioning como %s", deviceName.c_str());
+  const Provision_Callback provisionCallback(
+      Access_Token(), &WIFIProvisionResponse, PROVISION_DEVICE_KEY,
+      PROVISION_DEVICE_SECRET, deviceName.c_str());
+  Wifi_TB.provision_request_sent = tb_wifi.Provision_Request(provisionCallback);
+}
+
+void switchAlarmTelemetryWIFI(int alarm, bool value) {
+  // Ver el comentario gemelo en GPRS.cpp: como String, ArduinoJson copiaba
+  // la clave al pool y se perdian claves clinicas al final del JSON.
+  const char *alarmKey = nullptr;
+  switch (alarm) {
+  case ALARM_AIR_THERMAL_CUTOUT:
+    alarmKey = ALARM_AIR_THERMAL_CUTOUT_KEY;
+    break;
+  case ALARM_SKIN_THERMAL_CUTOUT:
+    alarmKey = ALARM_SKIN_THERMAL_CUTOUT_KEY;
+    break;
+  case ALARM_AIR_SENSOR_FAULT:
+    alarmKey = ALARM_AIR_SENSOR_FAULT_KEY;
+    break;
+  case ALARM_SKIN_SENSOR_FAULT_SKIN_MODE:
+    alarmKey = ALARM_SKIN_SENSOR_FAULT_SKIN_MODE_KEY;
+    break;
+  case ALARM_FAN_FAILURE:
+    alarmKey = ALARM_FAN_FAILURE_KEY;
+    break;
+  case ALARM_AIR_OUTLET_BLOCKED:
+    alarmKey = ALARM_AIR_OUTLET_BLOCKED_KEY;
+    break;
+  case ALARM_MAINS_INTERRUPTION:
+    alarmKey = ALARM_MAINS_INTERRUPTION_KEY;
+    break;
+  case ALARM_AIR_TEMP_DEVIATION_HIGH:
+    alarmKey = ALARM_AIR_TEMP_DEVIATION_HIGH_KEY;
+    break;
+  case ALARM_AIR_TEMP_DEVIATION_LOW:
+    alarmKey = ALARM_AIR_TEMP_DEVIATION_LOW_KEY;
+    break;
+  case ALARM_SKIN_TEMP_DEVIATION_HIGH:
+    alarmKey = ALARM_SKIN_TEMP_DEVIATION_HIGH_KEY;
+    break;
+  case ALARM_SKIN_TEMP_DEVIATION_LOW:
+    alarmKey = ALARM_SKIN_TEMP_DEVIATION_LOW_KEY;
+    break;
+  case ALARM_HEATER_FAULT:
+    alarmKey = ALARM_HEATER_FAULT_KEY;
+    break;
+  case ALARM_SUPPLY_UNDERVOLTAGE:
+    alarmKey = ALARM_SUPPLY_UNDERVOLTAGE_KEY;
+    break;
+  case ALARM_HMI_LINK_LOST:
+    alarmKey = ALARM_HMI_LINK_LOST_KEY;
+    break;
+  case ALARM_SKIN_SENSOR_FAULT_AIR_MODE:
+    alarmKey = ALARM_SKIN_SENSOR_FAULT_AIR_MODE_KEY;
+    break;
+  case ALARM_HUMIDITY_DEVIATION:
+    alarmKey = ALARM_HUMIDITY_DEVIATION_KEY;
+    break;
+  case ALARM_HEATER_SENSOR_FAULT:
+    alarmKey = ALARM_HEATER_SENSOR_FAULT_KEY;
+    break;
+  case ALARM_SENSORBOARD_LINK_LOST:
+    alarmKey = ALARM_SENSORBOARD_LINK_LOST_KEY;
+    break;
+  case ALARM_SENSORBOARD_DOOR_FAULT:
+    alarmKey = ALARM_SENSORBOARD_DOOR_FAULT_KEY;
+    break;
+  default:
+    return;
+  }
+  addVariableToTelemetryWIFIJSON[alarmKey] = value;
+}
+
+void addAlarmTelemetriesToWIFIJSON() {
+  int alarmReported = 0;
+  for (int i = NO_ALARMS + 1; i < NUM_ALARMS; i++) {
+    if (in3.alarmToReport[i]) {
+      switchAlarmTelemetryWIFI(i, true);
+      alarmReported = true;
+      in3.previousAlarmReport = true;
+    }
+  }
+  if (!alarmReported) {
+    if (in3.previousAlarmReport) {
+      in3.previousAlarmReport = false;
+      for (int i = NO_ALARMS + 1; i < NUM_ALARMS; i++) {
+        switchAlarmTelemetryWIFI(i, false);
+      }
+    }
+  }
+}
+
+void addConfigTelemetriesToWIFIJSON() {
+  addAlarmTelemetriesToWIFIJSON();
+  addVariableToTelemetryWIFIJSON[SN_KEY] = in3.serialNumber;
+  addVariableToTelemetryWIFIJSON[SYSTEM_RESET_REASON] = in3.resetReason;
+  addVariableToTelemetryWIFIJSON[HW_NUM_KEY] = HW_NUM;
+  addVariableToTelemetryWIFIJSON[HW_REV_KEY] = String(HW_REVISION);
+  addVariableToTelemetryWIFIJSON[FW_VERSION_KEY] = FWversion;
+  addVariableToTelemetryWIFIJSON[CCID_KEY] = GPRS.CCID.c_str();
+
+  // Causa de la ultima caida. Solo cuando la hubo: en un arranque limpio no se
+  // manda nada. Cuesta ~220 B una unica vez, y es la diferencia entre ver "se
+  // reinicio" y ver por que.
+  if (crashReportPending()) {
+    addVariableToTelemetryWIFIJSON[CRASH_REASON_KEY] = crashReportReason();
+    addVariableToTelemetryWIFIJSON[CRASH_REBOOTS_KEY] = crashReportReboots();
+    addVariableToTelemetryWIFIJSON[CRASH_LOG_KEY] = crashReportTail();
+#if TX_FEATURE_CRASH_FULLLOG_WIFI
+    // El anillo entero (~4 KB) por WiFi: es lo que permite depurar la averia
+    // concreta desde el despacho y sacar una OTA sin ir a por la unidad. Sale
+    // una sola vez, en el arranque siguiente a la caida. Ver transport_policy.h.
+    addVariableToTelemetryWIFIJSON[CRASH_FULLLOG_KEY] = crashReportFullLog();
+#endif
+  }
+
+#if TX_GROUP_DIAG_WIFI // grupo DIAG — config/transport_policy.h
+  addVariableToTelemetryWIFIJSON[BOOT_COUNT_KEY] = g_bootCount;
+  addVariableToTelemetryWIFIJSON[GPRS_KILL_COUNT_KEY] = g_gprsKillCount;
+  addVariableToTelemetryWIFIJSON[GPRS_MON_KILL_COUNT_KEY] = g_monKillCount;
+  addVariableToTelemetryWIFIJSON[FREE_HEAP_KEY] = (uint32_t)ESP.getFreeHeap();
+  addVariableToTelemetryWIFIJSON[MIN_FREE_HEAP_KEY] =
+      (uint32_t)ESP.getMinFreeHeap();
+  addVariableToTelemetryWIFIJSON[UPTIME_S_KEY] = (uint32_t)(millis() / 1000);
+  addVariableToTelemetryWIFIJSON[HMI_BOOT_COUNT_KEY] = g_hmiBootCount;
+  addVariableToTelemetryWIFIJSON[HMI_LAST_RST_KEY] = g_hmiLastRst;
+#endif
+
+#if TX_GROUP_CELLULAR_WIFI // grupo CELLULAR — config/transport_policy.h
+  // Ojo: por WiFi estos campos pueden ir vacíos o rancios si el módem no ha
+  // llegado a registrarse. Por eso el flag está a 0 por defecto.
+  addVariableToTelemetryWIFIJSON[IMEI_KEY] = GPRS.IMEI.c_str();
+  addVariableToTelemetryWIFIJSON[APN_KEY] = GPRS.APN.c_str();
+  addVariableToTelemetryWIFIJSON[COP_KEY] = GPRS.COP.c_str();
+  addVariableToTelemetryWIFIJSON[CELL_SIGNAL_QUALITY_KEY] = GPRS.CSQ;
+#endif
+
+  addVariableToTelemetryWIFIJSON[SYS_CURR_STANDBY_TEST_KEY] =
+      roundSignificantDigits(in3.system_current_standby_test,
+                             TELEMETRIES_DECIMALS);
+  addVariableToTelemetryWIFIJSON[HEATER_CURR_TEST_KEY] =
+      roundSignificantDigits(in3.heater_current_test, TELEMETRIES_DECIMALS);
+  addVariableToTelemetryWIFIJSON[FAN_CURR_TEST_KEY] =
+      roundSignificantDigits(in3.fan_current_test, TELEMETRIES_DECIMALS);
+  addVariableToTelemetryWIFIJSON[FAN_FEEDBACK_PRESENT_KEY] =
+      in3.fanHasSpeedFeedback;
+  addVariableToTelemetryWIFIJSON[PHOTOTHERAPY_CURR_KEY] =
+      roundSignificantDigits(in3.phototherapy_current_test,
+                             TELEMETRIES_DECIMALS);
+  addVariableToTelemetryWIFIJSON[PHOTOTHERAPY_PWM_KEY] =
+      roundSignificantDigits(in3.phototherapy_intensity, TELEMETRIES_DECIMALS);
+  addVariableToTelemetryWIFIJSON[HUMIDIFIER_CURR_KEY] =
+      roundSignificantDigits(in3.humidifier_current_test, TELEMETRIES_DECIMALS);
+  addVariableToTelemetryWIFIJSON[BUZZER_CURR_TEST_KEY] =
+      roundSignificantDigits(in3.buzzer_current_test, TELEMETRIES_DECIMALS);
+  addVariableToTelemetryWIFIJSON[HW_TEST_KEY] = in3.HW_test_error_code;
+
+  addVariableToTelemetryWIFIJSON[UI_LANGUAGE_KEY] = in3.language;
+  addVariableToTelemetryWIFIJSON[CALIBRATED_SENSOR_KEY] = !in3.calibrationError;
+  addVariableToTelemetryWIFIJSON[GPRS_CONNECTIVITY_KEY] = false;
+  addVariableToTelemetryWIFIJSON[WIFI_CONNECTIVITY_KEY] = true;
+
+#if TX_GROUP_CALIBRATION_WIFI // grupo CALIBRATION — config/transport_policy.h
+  // Los globales de calibración no están en ningún header: cada .cpp que los
+  // usa declara su propio extern (mismo patrón que GPRS.cpp).
+  extern double ReferenceTemperatureRange, ReferenceTemperatureLow;
+  extern double RawTemperatureLow[SENSOR_TEMP_QTY],
+      RawTemperatureRange[SENSOR_TEMP_QTY];
+  addVariableToTelemetryWIFIJSON[CALIBRATION_REFERENCE_TEMPERATURE_RANGE_KEY] =
+      roundSignificantDigits(ReferenceTemperatureRange, TELEMETRIES_DECIMALS);
+  addVariableToTelemetryWIFIJSON[CALIBRATION_REFERENCE_TEMPERATURE_LOW_KEY] =
+      roundSignificantDigits(ReferenceTemperatureLow, TELEMETRIES_DECIMALS);
+  addVariableToTelemetryWIFIJSON[CALIBRATION_SKIN_FINETUNE_KEY] =
+      roundSignificantDigits(in3.fineTuneSkinTemperature, TELEMETRIES_DECIMALS);
+  addVariableToTelemetryWIFIJSON[CALIBRATION_AIR_FINETUNE_KEY] =
+      roundSignificantDigits(in3.fineTuneAirTemperature, TELEMETRIES_DECIMALS);
+  addVariableToTelemetryWIFIJSON[CALIBRATION_RAW_TEMPERATURE_RANGE_SKIN_KEY] =
+      roundSignificantDigits(RawTemperatureRange[SKIN_SENSOR],
+                             TELEMETRIES_DECIMALS);
+  addVariableToTelemetryWIFIJSON[CALIBRATION_RAW_TEMPERATURE_LOW_SKIN_KEY] =
+      roundSignificantDigits(RawTemperatureLow[SKIN_SENSOR],
+                             TELEMETRIES_DECIMALS);
+#endif
+}
+
+void addTelemetriesToWIFIJSON() {
+  addAlarmTelemetriesToWIFIJSON();
+  // GSM-based location: the GPRS modem is kept attached to the cellular
+  // network purely for this even when WiFi carries the telemetry itself
+  // (see GPRSUpdateLocationIfDue() in GPRS.cpp). Only available while the
+  // inserted SIM is active and registered on a network.
+  if (GPRS.longitud || GPRS.latitud) {
+    addVariableToTelemetryWIFIJSON[LOCATION_LONGTITUD_KEY] = GPRS.longitud;
+    addVariableToTelemetryWIFIJSON[LOCATION_LATITUD_KEY] = GPRS.latitud;
+    addVariableToTelemetryWIFIJSON[TRI_ACCURACY_KEY] = GPRS.accuracy;
+    addVariableToTelemetryWIFIJSON[LOCATION_SOURCE_KEY] = "gsm";
+  }
+#if TX_FEATURE_IP_GEOLOC_WIFI
+  // Sin fix de torre —SIM dada de baja, o el AT que no contesta— se publica el
+  // aproximado por IP bajo LAS MISMAS claves, para que los widgets de mapa que
+  // ya existen sigan mostrando la unidad sin tocar el cuadro de mando. Lo que
+  // cambia es la calidad, y va declarada: tri_accuracy = 25 km y loc_source
+  // "ip". El fix de torre manda siempre; esto solo lo suple.
+  // Y solo cuando cambia, con un latido de 6 h: a diferencia del fix de torre,
+  // esta posicion es la misma durante dias y cada repeticion es una peticion a
+  // Nominatim que no aporta nada (ver ip_geoloc_due()).
+  else if (s_ipLocValid &&
+           ip_geoloc_due(s_ipPubEver, s_ipPubLat, s_ipPubLon, s_ipPubMs,
+                         s_ipLat, s_ipLon, millis())) {
+    addVariableToTelemetryWIFIJSON[LOCATION_LONGTITUD_KEY] = s_ipLon;
+    addVariableToTelemetryWIFIJSON[LOCATION_LATITUD_KEY] = s_ipLat;
+    addVariableToTelemetryWIFIJSON[TRI_ACCURACY_KEY] = IP_GEOLOC_ACCURACY_M;
+    addVariableToTelemetryWIFIJSON[LOCATION_SOURCE_KEY] = "ip";
+    s_ipPubLat = s_ipLat;
+    s_ipPubLon = s_ipLon;
+    s_ipPubMs = millis();
+    s_ipPubEver = true;
+  }
+#endif
+  addVariableToTelemetryWIFIJSON[SKIN_TEMPERATURE_KEY] = roundSignificantDigits(
+      in3.temperature[SKIN_SENSOR], TELEMETRIES_DECIMALS);
+  addVariableToTelemetryWIFIJSON[AIR_TEMPERATURE_KEY] = roundSignificantDigits(
+      in3.temperature[ROOM_DIGITAL_TEMP_SENSOR], TELEMETRIES_DECIMALS);
+  if (in3.airTemperatureRedundantSensor) {
+    addVariableToTelemetryWIFIJSON[AIR_TEMPERATURE_REDUNDANT_KEY] =
+        roundSignificantDigits(in3.airTemperatureRedundantSensor,
+                               TELEMETRIES_DECIMALS);
+  }
+  if (in3.temperature[AMBIENT_DIGITAL_TEMP_SENSOR] &&
+      in3.humidity[AMBIENT_DIGITAL_HUM_SENSOR]) {
+    addVariableToTelemetryWIFIJSON[AMBIENT_TEMPERATURE_KEY] =
+        roundSignificantDigits(in3.temperature[AMBIENT_DIGITAL_TEMP_SENSOR],
+                               TELEMETRIES_DECIMALS);
+    addVariableToTelemetryWIFIJSON[HUMIDITY_AMBIENT_KEY] =
+        roundSignificantDigits(in3.humidity[AMBIENT_DIGITAL_HUM_SENSOR],
+                               TELEMETRIES_DECIMALS);
+  }
+  addVariableToTelemetryWIFIJSON[PHOTOTHERAPY_ACTIVE_KEY] = in3.phototherapy;
+  addVariableToTelemetryWIFIJSON[HUMIDIFIER_ACTIVE_KEY] = in3.humidityControl;
+  addVariableToTelemetryWIFIJSON[HUMIDITY_ROOM_KEY] = roundSignificantDigits(
+      in3.humidity[ROOM_DIGITAL_HUM_SENSOR], TELEMETRIES_DECIMALS);
+  addVariableToTelemetryWIFIJSON[SYSTEM_CURRENT_KEY] =
+      roundSignificantDigits(in3.system_current, TELEMETRIES_DECIMALS);
+  addVariableToTelemetryWIFIJSON[SYSTEM_VOLTAGE_KEY] =
+      roundSignificantDigits(in3.system_voltage, TELEMETRIES_DECIMALS);
+  addVariableToTelemetryWIFIJSON[V5_CURRENT_KEY] =
+      roundSignificantDigits(in3.USB_current, TELEMETRIES_DECIMALS);
+  addVariableToTelemetryWIFIJSON[V5_VOLTAGE_KEY] =
+      roundSignificantDigits(in3.USB_voltage, TELEMETRIES_DECIMALS);
+  addVariableToTelemetryWIFIJSON[BAT_CURRENT_KEY] =
+      roundSignificantDigits(in3.BATTERY_current, TELEMETRIES_DECIMALS);
+  addVariableToTelemetryWIFIJSON[BAT_VOLTAGE_KEY] =
+      roundSignificantDigits(in3.BATTERY_voltage, TELEMETRIES_DECIMALS);
+
+  if (chargerPresent && g_bq_status_valid &&
+      g_bq_status.ac_present && g_bq_status.vbat_mv > 10000) {
+    addVariableToTelemetryWIFIJSON[BQ_STATE_KEY] = (int)g_bq_status.state;
+    addVariableToTelemetryWIFIJSON[BQ_FAULT_KEY] = g_bq_status.fault;
+    addVariableToTelemetryWIFIJSON[BQ_AC_KEY]    = g_bq_status.ac_present;
+    addVariableToTelemetryWIFIJSON[BQ_VBAT_KEY]  =
+        roundSignificantDigits(g_bq_status.vbat_mv / 1000.0f, 3);
+    addVariableToTelemetryWIFIJSON[BQ_VBUS_KEY]  =
+        roundSignificantDigits(g_bq_status.vbus_mv / 1000.0f, 3);
+    addVariableToTelemetryWIFIJSON[BQ_ICHG_KEY]  = (int)g_bq_status.ichg_ma;
+  }
+
+  if (in3.temperatureControl || in3.humidityControl) {
+    addVariableToTelemetryWIFIJSON[FAN_CURRENT_KEY] =
+        roundSignificantDigits(in3.fan_current, TELEMETRIES_DECIMALS);
+    addVariableToTelemetryWIFIJSON[CONTROL_ACTIVE_TIME_KEY] =
+        roundSignificantDigits(in3.control_active_time, TELEMETRIES_DECIMALS);
+    addVariableToTelemetryWIFIJSON[FAN_ACTIVE_TIME_KEY] =
+        roundSignificantDigits(in3.fan_active_time, TELEMETRIES_DECIMALS);
+    if (in3.temperatureControl) {
+      addVariableToTelemetryWIFIJSON[HEATER_CURRENT_KEY] =
+          roundSignificantDigits(in3.heater_current, TELEMETRIES_DECIMALS);
+      addVariableToTelemetryWIFIJSON[DESIRED_TEMPERATURE_KEY] =
+          in3.desiredControlTemperature;
+      addVariableToTelemetryWIFIJSON[HEATER_ACTIVE_TIME_KEY] =
+          roundSignificantDigits(in3.heater_active_time, TELEMETRIES_DECIMALS);
+    }
+    if (in3.humidityControl) {
+      addVariableToTelemetryWIFIJSON[DESIRED_HUMIDITY_ROOM_KEY] =
+          in3.desiredControlHumidity;
+    }
+    // Fuera de firstConfigPost a proposito: el false del else sale en cada
+    // ciclo, asi que publicar el true una sola vez dejaba la serie coja. Una
+    // ventana que empiece con el control ya encendido -- p. ej. la entity
+    // view de una estancia -- no veria ni un solo true hasta el siguiente
+    // flanco, y el grafico nace vacio.
+    addVariableToTelemetryWIFIJSON[CONTROL_ACTIVE_KEY] = true;
+    if (!Wifi_TB.firstConfigPost) {
+      Wifi_TB.firstConfigPost = true;
+      if (in3.temperatureControl) {
+        if (in3.controlMode == CONTROL_AIR) {
+          addVariableToTelemetryWIFIJSON[CONTROL_MODE_KEY] = "AIR";
+        } else {
+          addVariableToTelemetryWIFIJSON[CONTROL_MODE_KEY] = "SKIN";
+        }
+      }
+    }
+  } else {
+    Wifi_TB.firstConfigPost = false;
+    addVariableToTelemetryWIFIJSON[CONTROL_ACTIVE_KEY] = false;
+    addVariableToTelemetryWIFIJSON[STANBY_TIME_KEY] =
+        roundSignificantDigits(in3.standby_time, TELEMETRIES_DECIMALS);
+  }
+  if (in3.humidityControl) {
+    addVariableToTelemetryWIFIJSON[HUMIDIFIER_CURRENT_KEY] =
+        roundSignificantDigits(in3.humidifier_current, TELEMETRIES_DECIMALS);
+    addVariableToTelemetryWIFIJSON[HUMIDIFIER_VOLTAGE_KEY] =
+        roundSignificantDigits(in3.humidifier_voltage, TELEMETRIES_DECIMALS);
+    addVariableToTelemetryWIFIJSON[HUMIDIFIER_ACTIVE_TIME_KEY] =
+        roundSignificantDigits(in3.humidifier_active_time,
+                               TELEMETRIES_DECIMALS);
+  }
+  if (in3.phototherapy) {
+    addVariableToTelemetryWIFIJSON[PHOTOTHERAPY_CURRENT_KEY] =
+        roundSignificantDigits(in3.phototherapy_current, TELEMETRIES_DECIMALS);
+    addVariableToTelemetryWIFIJSON[PHOTHERAPY_ACTIVE_TIME_KEY] =
+        roundSignificantDigits(in3.phototherapy_active_time,
+                               TELEMETRIES_DECIMALS);
+  }
+
+  if (in3.fanCommandedOn) {
+    // Only while an OTA is actually downloading, so the key does not
+  // sit at a stale value between updates.
+  extern volatile int g_otaProgressPct;
+  if (g_otaProgressPct >= 0) {
+    addVariableToTelemetryWIFIJSON[OTA_PROGRESS_KEY] = g_otaProgressPct;
+  }
+  addVariableToTelemetryWIFIJSON[FAN_RPM_KEY] = (int)(in3.fan_rpm + 0.5f);
+    addVariableToTelemetryWIFIJSON[FAN_PWM_KEY] =
+        fanControlPID.GetMode() == AUTOMATIC ? (int)(fanControlPIDOutput + 0.5)
+                                             : in3.fanCtlPWM;
+  }
+
+  // Suppress SpO2/HR telemetry unless the probe is actually on the patient —
+  // no probe or probe-present-but-not-applied readings aren't valid vitals.
+  if (g_spo2_data.probe_state == ProbeState::PROBE_APPLIED) {
+    if (g_spo2_data.spo2_sqi > 0.0f) {
+      addVariableToTelemetryWIFIJSON[SPO2_KEY] =
+          roundSignificantDigits(g_spo2_data.spo2, TELEMETRIES_DECIMALS);
+      addVariableToTelemetryWIFIJSON[SPO2_SQI_KEY] =
+          roundSignificantDigits(g_spo2_data.spo2_sqi, TELEMETRIES_DECIMALS);
+      addVariableToTelemetryWIFIJSON[PI_KEY] =
+          roundSignificantDigits(g_spo2_data.pi, TELEMETRIES_DECIMALS);
+    }
+    if (g_spo2_data.hr1_sqi > 0.0f) {
+      addVariableToTelemetryWIFIJSON[HR1_KEY] = (int)(g_spo2_data.hr1 + 0.5f);
+      addVariableToTelemetryWIFIJSON[HR1_SQI_KEY] =
+          roundSignificantDigits(g_spo2_data.hr1_sqi, TELEMETRIES_DECIMALS);
+    }
+    if (g_spo2_data.hr2_sqi > 0.0f) {
+      addVariableToTelemetryWIFIJSON[HR2_KEY] = (int)(g_spo2_data.hr2 + 0.5f);
+      addVariableToTelemetryWIFIJSON[HR2_SQI_KEY] =
+          roundSignificantDigits(g_spo2_data.hr2_sqi, TELEMETRIES_DECIMALS);
+    }
+    if (g_spo2_data.hr3_sqi > 0.0f) {
+      addVariableToTelemetryWIFIJSON[HR3_KEY] = (int)(g_spo2_data.hr3 + 0.5f);
+      addVariableToTelemetryWIFIJSON[HR3_SQI_KEY] =
+          roundSignificantDigits(g_spo2_data.hr3_sqi, TELEMETRIES_DECIMALS);
+    }
+  }
+
+#if TX_GROUP_SENSORBOARD_WIFI // grupo SENSORBOARD — config/transport_policy.h
+  sensorboard_add_telemetry(addVariableToTelemetryWIFIJSON);
+#endif
+}
+
+
+// ── Permanencia en la red WiFi ──────────────────────────────────────────────
+//
+// Por qué se evalúa aquí y no en el manejador de ARDUINO_EVENT_WIFI_STA_GOT_IP:
+// ese callback corre en la tarea de eventos del core, con su propia pila y sin
+// margen para bloquearse, y una escritura en NVS no es gratis. El manejador se
+// queda con lo mínimo —poner s_staHasIp— y el trabajo se hace desde el lazo de
+// la tarea de WiFi, que es donde ya vive todo lo que puede tardar.
+//
+// Reasociarse no cuesta nada: wifi_dwell_update() solo devuelve true cuando el
+// estado cambia de verdad, así que un enlace que parpadea no produce ni una
+// escritura en NVS ni una publicación.
+static WifiDwell s_dwell;
+static bool s_dwellLoaded = false;
+static bool s_wifiAttrsDirty = true; // publicar una vez en cuanto haya broker
+
+static void dwellLoad() {
+  Preferences p;
+  p.begin(NS_WIFI, true);
+  const String s = p.getString(KEY_DWELL_SSID, "");
+  wifi_dwell_clear(&s_dwell); // deja el buffer a cero: garantiza el NUL
+  strncpy(s_dwell.ssid, s.c_str(), WIFI_DWELL_SSID_MAX);
+  s_dwell.firstEpoch = (uint32_t)p.getULong(KEY_DWELL_FIRST, 0);
+  s_dwell.lastDayIndex = (uint32_t)p.getULong(KEY_DWELL_DAY, 0);
+  s_dwell.days = (uint16_t)p.getUShort(KEY_DWELL_DAYS, 0);
+  p.end();
+  s_dwellLoaded = true;
+}
+
+static void dwellSave() {
+  Preferences p;
+  p.begin(NS_WIFI, false);
+  p.putString(KEY_DWELL_SSID, s_dwell.ssid);
+  p.putULong(KEY_DWELL_FIRST, s_dwell.firstEpoch);
+  p.putULong(KEY_DWELL_DAY, s_dwell.lastDayIndex);
+  p.putUShort(KEY_DWELL_DAYS, s_dwell.days);
+  p.end();
+}
+
+static void wifiDwellPoll() {
+  // Una vez por minuto y no en cada pasada: la tarea de OTA corre a 20 Hz
+  // (OTA_TASK_PERIOD_MS = 50) y WiFi.SSID() devuelve un String, o sean veinte
+  // asignaciones de heap por segundo para vigilar algo cuya resolucion util es
+  // el DIA. La primera pasada tras arrancar si es inmediata, para que los
+  // atributos aparezcan en cuanto haya broker. El precio es que un cambio de
+  // red tarda hasta un minuto en verse, lo cual no significa nada frente a un
+  // criterio de catorce dias.
+  static uint32_t s_lastPollMs = 0;
+  if (s_lastPollMs != 0 && millis() - s_lastPollMs < 60000u) return;
+  s_lastPollMs = millis();
+
+  if (!s_dwellLoaded) dwellLoad();
+  const String ssid = WiFi.SSID();
+  // Asociado pero sin SSID legible: no es una asociación que apuntar.
+  if (ssid.length() == 0) return;
+  if (wifi_dwell_update(&s_dwell, ssid.c_str(), (uint32_t)time(nullptr))) {
+    dwellSave();
+    s_wifiAttrsDirty = true;
+    ESP_LOGI(TAG, "WiFi dwell on '%s': %u distinct UTC days", s_dwell.ssid,
+             (unsigned)s_dwell.days);
+  }
+}
+
+// Atributos de cliente, no telemetría: al servidor le interesa el valor actual
+// y no una serie temporal, y así no consumen del presupuesto de
+// THINGSBOARD_FIELDS_AMOUNT.
+//
+// Se publica el nombre de la red y NADA más: ni la contraseña, ni el BSSID, ni
+// un escaneo de las redes vecinas. En claro y no en hash porque la lista de
+// redes propias de la organización que mantiene el operador es una lista de
+// NOMBRES, y un SSID lo emite el propio AP en abierto de todas formas.
+static void publishWifiDwellAttributes() {
+  if (!s_wifiAttrsDirty) return;
+
+  char ssid[WIFI_DWELL_SSID_MAX + 1];
+  wifi_dwell_sanitize_ssid(s_dwell.ssid, ssid, sizeof(ssid));
+
+  StaticJsonDocument<256> doc;
+  doc[WIFI_SSID_KEY] = ssid;
+  // La SSID compilada es la de fábrica: mientras sea esa, nadie ha
+  // aprovisionado el equipo y no puede estar en su destino.
+  doc[WIFI_IS_DEFAULT_KEY] = (strcmp(s_dwell.ssid, WIFI_SSID) == 0);
+  doc[WIFI_DWELL_DAYS_KEY] = s_dwell.days;
+  doc[WIFI_DWELL_SINCE_KEY] = s_dwell.firstEpoch;
+  doc[WIFI_DWELL_SPAN_KEY] =
+      wifi_dwell_span_days(&s_dwell, (uint32_t)time(nullptr));
+
+  char json[256];
+  if (serializeJson(doc, json, sizeof(json)) == 0) return;
+  // La marca se limpia SOLO si el broker lo aceptó, igual que hace
+  // publishBabyCloudDataWIFI(): si falla, se reintenta en el siguiente ciclo.
+  if (tb_wifi.sendAttributeJson(json)) s_wifiAttrsDirty = false;
+}
+
+// Publishes queued baby lifecycle events and the current-occupant attributes.
+// Peek -> send -> pop: an event is only dropped once the broker accepted it,
+// so a publish failure retries on the next cycle instead of losing the
+// record (the previous dirty-flag scheme cleared itself while building the
+// payload, so any failed send lost the data permanently).
+// One event per call keeps a backlog from monopolising the modem.
+static void publishBabyCloudDataWIFI() {
+  char json[512];
+
+  if (babyStore_attributesDirty()) {
+    const BabyProfile *occ = babyStore_currentOccupant();
+    const uint32_t total = babyStore_totalRegistered();
+    int n = occ ? babyCloud_buildAttributesJson(occ, total, json, sizeof(json))
+                : babyCloud_buildEmptyAttributesJson(total, json,
+                                                     sizeof(json));
+    if (n > 0 && tb_wifi.sendAttributeJson(json)) {
+      babyStore_clearAttributesDirty();
+    }
+  }
+
+  BabyCloudEvent e;
+  if (babyStore_peekCloudEvent(&e)) {
+    int n = babyCloud_buildEventJson(&e, json, sizeof(json));
+    if (n <= 0) {
+      babyStore_popCloudEvent();  // unbuildable: drop rather than wedge
+    } else if (tb_wifi.sendTelemetryJson(json)) {
+      babyStore_popCloudEvent();
+    }
+  }
+}
+
+void WEB_OTA() {
+  if (WIFIIsConnected()) {
+    if (strlen(pendingSSID) > 0 && WiFi.SSID() == String(pendingSSID)) {
+      logI("[WIFI] -> Connection successful, persisting credentials to Preferences");
+      { Preferences p; p.begin(NS_WIFI, false);
+        p.putString(KEY_SSID,     pendingSSID);
+        p.putString(KEY_PASSWORD, pendingPass);
+        p.end(); }
+      pendingSSID[0] = '\0';
+      pendingPass[0] = '\0';
+    }
+    static bool s_server_initialized = false;
+    if (!s_server_initialized) {
+      configWifiServer();
+      s_server_initialized = true;
+    }
+    wifiServer.handleClient();
+    WIFI_connection_status = true;
+  } else {
+    WIFI_connection_status = false;
+  }
+}
+
+// ── RPC handlers (WiFi TB path) ───────────────────────────────────────────────
+static void rpc_setwifi_wifi_cb(JsonVariantConst const & data,
+                                JsonDocument & response) {
+  const char* ssid = data["ssid"];
+  const char* pass = data["password"];
+  if (!ssid || !pass || ssid[0] == '\0' || pass[0] == '\0' ||
+      strlen(ssid) > 63 || strlen(pass) > 63) {
+    // Nunca registrar ssid/password: son credenciales.
+    ESP_LOGW("WiFi", "[RPC] setWifi: invalid ssid or password");
+    response["status"] = "invalid";
+    return;
+  }
+  ESP_LOGI("WiFi", "[RPC] setWifi received, applying credentials");
+  applyWifiCredentials(ssid, pass);
+  response["status"] = "ok";
+}
+
+// "Capturar ahora" desde el dashboard: arranca una captura de PPG_snapshot
+// bajo demanda si el gate (sonda aplicada + rsqi válido) pasa. La respuesta
+// del RPC le dice al usuario si arrancó, si ya había una en curso, o si la
+// señal no está lista todavía (ej. sonda no puesta).
+static void rpc_capture_ppg_cb(JsonVariantConst const & /*data*/,
+                               JsonDocument & response) {
+  PpgSnapshotStatus st = ppgSnapshotRequestCapture(
+      g_spo2_data.probe_state == ProbeState::PROBE_APPLIED, g_spo2_data.rsqi,
+      millis());
+  switch (st) {
+    case PpgSnapshotStatus::STARTED:
+      response["status"] = "started";
+      break;
+    case PpgSnapshotStatus::BUSY:
+      response["status"] = "busy";
+      break;
+    case PpgSnapshotStatus::SIGNAL_NOT_READY:
+      response["status"] = "signal_not_ready";
+      break;
+  }
+}
+
+// Mismo nombre de RPC que en GPRS.cpp, pero cada transporte tiene que llamar a
+// SU comprobación: las dos hablan con su propio cliente ThingsBoard. Sin este
+// gemelo, el botón del dashboard solo respondía si el equipo estaba en GPRS, y
+// por WiFi expiraba sin que el RPC existiese siquiera.
+static void rpc_check_ota_wifi_cb(JsonVariantConst const & /*data*/,
+                                  JsonDocument & response) {
+  WIFICheckOTA();
+  response["status"] = "checking";
+  logI("[WIFI] -> OTA check forced by RPC");
+}
+
+// Tamano del documento de respuesta: obligatorio. Ver el comentario extenso
+// en GPRS.cpp, junto a rpc_callbacks[] -- sin el, el defecto es capacidad
+// cero, la respuesta se descarta al desbordar y el RPC expira con 504
+// aunque el handler haya corrido.
+static RPC_Callback wifi_rpc_callbacks[] = {
+  RPC_Callback("setWifi", rpc_setwifi_wifi_cb, JSON_OBJECT_SIZE(1)),
+  RPC_Callback("capturePPG", rpc_capture_ppg_cb, JSON_OBJECT_SIZE(1)),
+  RPC_Callback("checkOta", rpc_check_ota_wifi_cb, JSON_OBJECT_SIZE(1)),
+};
+
+// El array de PPG_snapshot necesita un ts real por muestra (20 ms entre
+// muestras a 50 Hz) para que un chart de serie temporal estándar lo dibuje
+// bien — no basta con millis() desde el arranque. No bloqueante: si el reloj
+// aún no está sincronizado, arranca la sincronización y devuelve false; el
+// envío del snapshot simplemente se reintenta en la siguiente vuelta del
+// loop (cada OTA_TASK_PERIOD_MS, 50 ms) hasta que sincronice.
+// La comprobación de reloj para el snapshot se hace ahora dentro de
+// ppgSnapshotPublish(), común a los dos transportes. Aquí solo queda el
+// arranque de SNTP, que sigue haciendo falta para tener hora por WiFi.
+static void ensureWifiTimeStarted() {
+  static bool s_requested = false;
+  if (s_requested)
+    return;
+  time_t now = 0;
+  time(&now);
+  if (now < 1609459200L) { // antes de 2021-01-01: aún no sincronizado
+    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    return; // reintenta en la siguiente vuelta hasta que SNTP conteste
+  }
+  s_requested = true;
+}
+
+// Zona horaria por WiFi, preguntando a quién sí la sabe.
+//
+// NTP transporta UTC y NADA más: no tiene un campo de zona horaria que pedirle,
+// y por eso `configTime(0, 0, ...)` de arriba no está mal configurado — es que
+// no hay nada que configurar. La hora local no es deducible por el equipo: es
+// una convención política, no una magnitud observable, así que alguien externo
+// tiene que comunicarla. Con módem es NITZ; sin módem, esto.
+//
+// ip-api.com devuelve el offset de la zona en SEGUNDOS. Su nivel gratuito es
+// solo HTTP (verificado contra su documentación: el SSL es de pago), así que
+// esto viaja en claro. Es un riesgo asumido y acotado: el offset solo afecta a
+// lo que se PINTA. Los epochs almacenados y la telemetría siguen en UTC, y
+// nada de esto toca el PID ni las alarmas. Lo peor que consigue quien
+// manipulase la respuesta es un reloj de pantalla desplazado.
+static void ensureWifiTimeZoneSynced() {
+  static uint32_t s_lastAttemptMs = 0;
+  // Si NITZ ya resolvió la zona no hay nada que preguntar sobre ella: la
+  // antena está donde está el equipo y una IP puede ser de una VPN o de otro
+  // país. Además tz_source_set() nunca deja que IP pise a NITZ.
+  const bool tzNeeded = (tz_source_origin() != TZ_SOURCE_NITZ);
+  // Pero la misma consulta puede seguir haciendo falta para la POSICIÓN: sin fix
+  // de torre —SIM dada de baja, o un AT+CIPGSMLOC que no contesta— es la única
+  // fuente que queda, y TX_FEATURE_TRIANGULATION_WIFI está a 0 porque el WiFi
+  // no puede producir un fix de torre. Ver modules/util/ip_geoloc.h.
+#if TX_FEATURE_IP_GEOLOC_WIFI
+  const bool posNeeded = (GPRS.latitud == 0.0f && GPRS.longitud == 0.0f);
+#else
+  const bool posNeeded = false;
+#endif
+  if (!tzNeeded && !posNeeded)
+    return;
+  // Mientras no haya nada resuelto se reintenta cada 5 min (45
+  // peticiones/minuto es el límite del servicio, de sobra incluso
+  // compartiendo IP con toda una clínica); una vez resuelto se refresca una
+  // vez al día para que un cambio de horario de verano/invierno no se quede
+  // pillado en un equipo que lleve semanas sin reiniciar. Una incubadora de
+  // hospital se mueve muchísimo menos que eso.
+  uint32_t interval = (tz_source_known() || s_ipLocValid)
+                          ? TX_TIMEZONE_REFRESH_MS
+                          : 300000u;
+  if (s_lastAttemptMs != 0 && millis() - s_lastAttemptMs < interval)
+    return;
+  s_lastAttemptMs = millis();
+  if (WiFi.status() != WL_CONNECTED)
+    return;
+
+  // Los fallos de aqui abajo se LOGUEAN. Esta funcion podia irse por tres
+  // `return` mudos —no conecta, respuesta sin cabeceras, offset que no
+  // parsea— y el sintoma en banco fue un reloj de pantalla dos horas atrasado
+  // sin una sola linea en el log que dijera por que (2026-09-11). Es
+  // informacion que solo se puede recoger en el momento en que pasa.
+  WiFiClient client;
+  client.setTimeout(5);
+  if (!client.connect("ip-api.com", 80)) {
+    ESP_LOGW("WiFi", "zona horaria: no se conecta a ip-api.com:80");
+    return;
+  }
+  client.print("GET /json/?fields=status,offset,lat,lon HTTP/1.1\r\n"
+               "Host: ip-api.com\r\nConnection: close\r\n\r\n");
+
+  // Respuesta minúscula (fields= recorta todo lo demás). Buffer fijo y con
+  // tope de tiempo: esto corre en la tarea de OTA y no puede quedarse colgado.
+  // 384 y no 256 desde que el fields= pide también lat/lon: el cuerpo sigue
+  // siendo diminuto, pero el margen se mantiene.
+  char buf[384];
+  size_t len = 0;
+  uint32_t deadline = millis() + 5000;
+  while ((client.connected() || client.available()) && millis() < deadline &&
+         len < sizeof(buf) - 1) {
+    if (!client.available()) {
+      vTaskDelay(pdMS_TO_TICKS(10));
+      continue;
+    }
+    int c = client.read();
+    if (c < 0)
+      break;
+    buf[len++] = (char)c;
+  }
+  buf[len] = '\0';
+  client.stop();
+
+  // El cuerpo va tras la línea en blanco de las cabeceras. Si no aparece, la
+  // respuesta está incompleta y se descarta entera.
+  const char *body = strstr(buf, "\r\n\r\n");
+  if (!body) {
+    ESP_LOGW("WiFi", "zona horaria: respuesta sin cabeceras completas (%u B)",
+             (unsigned)len);
+    return;
+  }
+  body += 4;
+
+  // La posición se saca ANTES del return de la zona: un cuerpo sin offset no
+  // debe tirar también las coordenadas. Un parseo fallido no borra las que ya
+  // hubiera (ver s_ipLocValid).
+#if TX_FEATURE_IP_GEOLOC_WIFI
+  float ipLat = 0.0f;
+  float ipLon = 0.0f;
+  if (ip_geoloc_parse(body, &ipLat, &ipLon)) {
+    s_ipLat = ipLat;
+    s_ipLon = ipLon;
+    s_ipLocValid = true;
+    ESP_LOGI("WiFi", "Position from IP lookup: %.4f, %.4f (+/- %d m)",
+             (double)ipLat, (double)ipLon, IP_GEOLOC_ACCURACY_M);
+  }
+#endif
+
+  int quarters = 0;
+  if (!tz_parse_ipapi_offset(body, &quarters)) {
+    ESP_LOGW("WiFi", "zona horaria: no se parsea el offset de '%s'", body);
+    return;
+  }
+  if (tz_source_set(quarters, TZ_SOURCE_IP)) {
+    ESP_LOGI("WiFi", "Timezone from IP lookup: %d quarter-hours", quarters);
+  }
+}
+static constexpr size_t WIFI_RPC_CB_COUNT =
+    sizeof(wifi_rpc_callbacks) / sizeof(wifi_rpc_callbacks[0]);
+// ─────────────────────────────────────────────────────────────────────────────
+
+void WIFI_TB_OTA() {
+  if (WIFIIsConnected()) {
+    // Independiente del aprovisionamiento en ThingsBoard a propósito: mismo
+    // fallo que en GPRSPost() (ver GPRS.cpp) — una unidad sin número de serie
+    // se queda esperando el provisioning para siempre y, si esto viviera más
+    // abajo, jamás llegaría a poner en hora ni a resolver la zona horaria.
+    ensureWifiTimeStarted();
+    ensureWifiTimeZoneSynced();
+#if TX_FEATURE_WIFI_DWELL_WIFI
+    // Fuera del aprovisionamiento a propósito, igual que las dos de arriba: la
+    // permanencia hay que contarla desde el primer día, tenga el equipo token
+    // de ThingsBoard o no. Lo que espera al broker es la publicación.
+    wifiDwellPoll();
+#endif
+
+    if (!Wifi_TB.provisioned) {
+      if (in3.serialNumber == 0) {
+        ESP_LOGW(TAG, "SIN NUMERO DE SERIE (0): no se puede provisionar. El "
+                    "flasher lo escribe en NVS (mb_cfg/serial).");
+      } else if (!Wifi_TB.provision_request_sent) {
+        WIFITBProvision();
+      }
+    } else {
+      if (!tb_wifi.connected()) {
+        if (millis() - Wifi_TB.lastReconnectAttempt <
+            THINGSBOARD_RECONNECT_DELAY) {
+          return;
+        }
+        // Connect to the ThingsBoard
+        logI(
+            "[WIFI] -> Connecting over WIFI to: " + String(THINGSBOARD_SERVER) +
+            " with token " + String(Wifi_TB.device_token));
+        Wifi_TB.lastReconnectAttempt = millis();
+        if (!tb_wifi.connect(THINGSBOARD_SERVER,
+                             Wifi_TB.device_token.c_str())) {
+          logI("[WIFI] ->Failed to connect");
+          return;
+        } else {
+          if (!Wifi_TB.firstPublish) {
+            addConfigTelemetriesToWIFIJSON();
+            if (tb_wifi.sendTelemetryJson(
+                    addVariableToTelemetryWIFIJSON,
+                    JSON_STRING_SIZE(
+                        measureJson(addVariableToTelemetryWIFIJSON)))) {
+              logI("[WIFI] -> WIFI MQTT PUBLISH CONFIG SUCCESS");
+              // El log completo de la caida ya ha salido: se sueltan sus 4 KB
+              // de heap interno, que en esta placa es un margen que no sobra.
+              // Solo tras un envio CORRECTO; si fallo, se reintenta en la
+              // siguiente vuelta con el buffer todavia vivo.
+              if (crashReportPending()) {
+                ESP_LOGW(TAG, "log de caida publicado (%u caracteres), buffer liberado",
+                         (unsigned)strlen(crashReportFullLog()));
+                crashReportFullLogRelease();
+              }
+            } else {
+              logI("[WIFI] -> WIFI MQTT PUBLISH CONFIG FAIL");
+            }
+            WIFI_JSON.clear();
+          }
+          Wifi_TB.serverConnectionStatus = true;
+          // Los atributos son valor-actual: tras una reconexión hay que
+          // reponerlos, aunque la permanencia no haya cambiado.
+          s_wifiAttrsDirty = true;
+          for (size_t i = 0; i < WIFI_RPC_CB_COUNT; i++) {
+            tb_wifi.RPC_Subscribe(wifi_rpc_callbacks[i]);
+          }
+          if (ENABLE_WIFI_OTA && !Wifi_TB.OTA_requested) {
+            Wifi_TB.OTA_requested = true;
+          }
+          WIFICheckOTA();
+          Wifi_TB.lastOTACheck = millis();
+        }
+      } else {
+        if (millis() - Wifi_TB.lastMQTTPublish > WIFI_PUBLISH_INTERVAL) {
+          addTelemetriesToWIFIJSON();
+          warnIfWifiTelemetryTruncated("telemetria");
+          if (tb_wifi.sendTelemetryJson(addVariableToTelemetryWIFIJSON,
+                                        JSON_STRING_SIZE(measureJson(
+                                            addVariableToTelemetryWIFIJSON)))) {
+            logI("[WIFI] -> WIFI MQTT PUBLISH TELEMETRIES SUCCESS");
+          } else {
+            logI("[WIFI] -> WIFI MQTT PUBLISH TELEMETRIES FAIL");
+          }
+          WIFI_JSON.clear();
+          publishBabyCloudDataWIFI();
+#if TX_FEATURE_WIFI_DWELL_WIFI
+          publishWifiDwellAttributes();
+#endif
+          Wifi_TB.lastMQTTPublish = millis();
+        }
+        if (millis() - Wifi_TB.lastOTACheck > WIFI_OTA_CHECK_INTERVAL &&
+            !GPRS.OTAInProgress) {
+          WIFICheckOTA();
+          Wifi_TB.lastOTACheck = millis();
+        }
+
+        // PPG snapshot: captura automática cada PPG_SNAPSHOT_AUTO_INTERVAL_MS
+        // mientras haya WiFi/TB arriba (además del botón "capturar ahora" del
+        // RPC capturePPG). BUSY/SIGNAL_NOT_READY se ignoran aquí a propósito:
+        // simplemente se reintenta en el siguiente intervalo.
+#if TX_FEATURE_PPG_AUTOCAPTURE_WIFI
+        if (millis() - Wifi_TB.lastPpgSnapshotAttempt >
+            PPG_SNAPSHOT_AUTO_INTERVAL_MS) {
+          Wifi_TB.lastPpgSnapshotAttempt = millis();
+          ppgSnapshotRequestCapture(
+              g_spo2_data.probe_state == ProbeState::PROBE_APPLIED,
+              g_spo2_data.rsqi, millis());
+        }
+#endif
+        // El montaje del JSON es idéntico por GPRS: vive en
+        // PpgSnapshotPublish.cpp para no tener dos copias que diverjan.
+        ppgSnapshotPublish(tb_wifi, "WIFI");
+      }
+    }
+  } else {
+    Wifi_TB.serverConnectionStatus = false;
+  }
+  tb_wifi.loop();
+}
+
+// ---------------------------------------------------------------------------
+// Encendido/apagado de la WiFi desde la UART (HMI,WIFI_EN,<0|1>)
+//
+// Existe para poder probar el camino 2G. Con enlace WiFi el celular no publica
+// ni mira actualizaciones: GPRS_Handler() (GPRS.cpp) solo refresca localizacion
+// y hora, asi que sin apagar la WiFi no hay forma de ejercitar GPRSCheckOTA().
+//
+// VOLATIL A PROPOSITO: no se guarda en NVS ni en ningun sitio. WIFI_EN nace a
+// true en cada arranque (main.cpp), asi que una placa reiniciada siempre vuelve
+// con la WiFi encendida y no hay manera de que una unidad salga de fabrica
+// apagada por haberse dejado un comando puesto.
+//
+// La peticion se ANOTA aqui y la aplica WifiOTAHandler(), que corre en el lazo
+// principal (main.cpp). Tocar la API WiFi de Arduino desde COMM_TASK_RX
+// mientras ese lazo esta dentro de wifiInit() o de una publicacion es la misma
+// clase de carrera entre tareas que el issue #11 de known_issues.md.
+// -1 = nada pendiente.
+static volatile int s_wifiEnableRequest = -1;
+
+void wifiRequestEnable(bool enable) { s_wifiEnableRequest = enable ? 1 : 0; }
+
+static void wifiApplyEnable(bool enable) {
+  WIFI_EN = enable;
+  // ESP_LOGx y no logI: main.h compila logI fuera del binario
+  // (LOG_INFORMATION a false), asi que el acuse no se imprimiria nunca y la
+  // consola pareceria muerta aunque el comando hubiera funcionado.
+  // El token "CTRL,WIFI_EN,<v>" va dentro del texto a proposito: es lo que
+  // busca quien esta al otro lado del puerto para saber que ya se aplico.
+  if (enable) {
+    ESP_LOGI(TAG, "CTRL,WIFI_EN,1 - WiFi habilitada por consola");
+    wifiInit();
+  } else {
+    ESP_LOGI(TAG, "CTRL,WIFI_EN,0 - WiFi DESHABILITADA por consola: "
+                  "telemetria y OTA pasan a 2G. Es volatil, cualquier "
+                  "reinicio la vuelve a encender.");
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+    // Los manejadores de evento son los duenos de s_staHasIp, pero apagar la
+    // radio a mano puede no generar el evento de desconexion: sin esto,
+    // WIFIIsConnected() seguiria diciendo que hay enlace y el 2G no arrancaria.
+    s_staHasIp = false;
+    Wifi_TB.serverConnectionStatus = false;
+  }
+  char line[24];
+  snprintf(line, sizeof(line), "CTRL,WIFI_EN,%d", enable ? 1 : 0);
+  CommunicationHost_Enqueue(line);
+}
+
+void WifiOTAHandler(void) {
+  const int request = s_wifiEnableRequest;
+  if (request >= 0) {
+    s_wifiEnableRequest = -1;
+    wifiApplyEnable(request != 0);
+  }
+
+  if (WIFI_EN && !WIFIIsConnected()) {
+    if (millis() - Wifi_TB.lastWifiReconnectAttempt > WIFI_RECONNECT_INTERVAL) {
+      logI("[WIFI] -> Connection lost, re-init WiFi");
+      wifiInit();   // updates lastWifiReconnectAttempt
+    }
+  }
+
+  WIFI_TB_OTA();
+  WEB_OTA();
+}

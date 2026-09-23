@@ -1,0 +1,9 @@
+DRC Rules Export File for PCB: C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\SensorBoard\SensorBoard.PcbDoc
+RuleKind=MinimumAnnularRing|RuleName=MinimumAnnularRing|Scope=Board|Minimum=3.94
+RuleKind=ShortCircuit|RuleName=ShortCircuit_1|Scope=Board|Allowed=0
+RuleKind=ShortCircuit|RuleName=ShortCircuit_Antenna|Scope=Board|Allowed=1
+RuleKind=SolderMaskExpansion|RuleName=SolderMaskExpansion_1|Scope=Board|Minimum=4.00
+RuleKind=SolderMaskExpansion|RuleName=SolderMaskExpansion|Scope=Board|Minimum=4.00
+RuleKind=Width|RuleName=Width_1|Scope=Board|Minimum=3.94
+RuleKind=Clearance|RuleName=Clearance_1|Scope=Board|Minimum=7.87
+RuleKind=Clearance|RuleName=Board outline clearance|Scope=Board|Minimum=15.00

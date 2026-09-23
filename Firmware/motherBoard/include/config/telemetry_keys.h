@@ -1,0 +1,218 @@
+#pragma once
+// ThingsBoard telemetry key strings
+
+#define SN_KEY "SN"
+#define HW_NUM_KEY "HW_num"
+#define HW_REV_KEY "HW_revision"
+#define FW_VERSION_KEY "FW_version"
+#define CCID_KEY "CCID"
+#define IMEI_KEY "IMEI"
+#define APN_KEY "APN"
+#define COP_KEY "COP"
+#define SYSTEM_RESET_REASON "RST_reason"
+// Causa de la ULTIMA caida, publicada solo en el arranque siguiente a un
+// reinicio anormal (ver CrashReporter.h). En un arranque normal no se envia
+// ninguna de las tres, asi que no consumen del presupuesto de
+// THINGSBOARD_FIELDS_AMOUNT en regimen permanente.
+//
+// Crash_log es un texto corto (<= 192 car.) con las ultimas lineas del log
+// antes de morir. Es lo que distingue una averia de otra: en las caidas de
+// banco del 2026-09-20 ponia "[MON] GPRS_Task hung, restarting it".
+#define CRASH_REASON_KEY  "Crash_reason"
+#define CRASH_REBOOTS_KEY "Crash_reboots"
+#define CRASH_LOG_KEY     "Crash_log"
+// Anillo completo (~4 KB). Solo por WiFi, ver TX_FEATURE_CRASH_FULLLOG_*.
+#define CRASH_FULLLOG_KEY "Crash_log_full"
+// Del coredump: la tarea que exploto y su backtrace. Crash_task es lo unico
+// que senala al culpable sin deducirlo.
+#define CRASH_TASK_KEY    "Crash_task"
+#define CRASH_BT_KEY      "Crash_bt"
+#define SYS_CURR_STANDBY_TEST_KEY "SYS_current_stanby_test"
+#define HEATER_CURR_TEST_KEY "Heater_current_test"
+#define FAN_CURR_TEST_KEY "Fan_current_test"
+#define PHOTOTHERAPY_CURR_KEY "Phototherapy_current_test"
+#define HUMIDIFIER_CURR_KEY "Humidifier_current_test"
+#define BUZZER_CURR_TEST_KEY "Buzzer_current_test"
+#define HW_TEST_KEY "HW_Test"
+#define LOCATION_LONGTITUD_KEY "tri_longitud"
+#define LOCATION_LATITUD_KEY "tri_latitud"
+#define TRI_ACCURACY_KEY "tri_accuracy"
+// Origen del valor publicado en las tres claves de arriba: "gsm" para el fix
+// de torre del modem, "ip" para el aproximado por IP publica. Las claves de
+// posicion se reutilizan a proposito para que los widgets de mapa sigan
+// funcionando cuando una unidad se queda sin SIM; esta dice de que calidad es
+// el dato, junto con tri_accuracy. Ver modules/util/ip_geoloc.h.
+#define LOCATION_SOURCE_KEY "loc_source"
+#define UI_LANGUAGE_KEY "UI_language"
+// Skin_CAP retired: raw capacitance was a bring-up diagnostic, not
+// clinical data. The probe state already travels in CTRL,TEL.
+#define SKIN_TEMPERATURE_KEY "Skin_temp"
+#define AIR_TEMPERATURE_KEY "Air_temp"
+#define AIR_TEMPERATURE_REDUNDANT_KEY "Air_temp_redundant"
+#define AMBIENT_TEMPERATURE_KEY "Amb_temp"
+#define HUMIDITY_ROOM_KEY "Humidity"
+#define HUMIDITY_AMBIENT_KEY "Amb_humidity"
+#define SYSTEM_CURRENT_KEY "SYS_current"
+#define SYSTEM_VOLTAGE_KEY "SYS_voltage"
+#define CELL_SIGNAL_QUALITY_KEY "CSQ"
+#define HEATER_CURRENT_KEY "Heater_current"
+#define FAN_CURRENT_KEY "Fan_current"
+#define FAN_FEEDBACK_PRESENT_KEY "fan_has_fb"
+#define FAN_RPM_KEY "fan_rpm"
+#define FAN_PWM_KEY "fan_pwm"  // applied fan control duty, raw 0-255 counts
+#define V5_CURRENT_KEY "V5_current"
+#define V5_VOLTAGE_KEY "V5_voltage"
+#define BAT_CURRENT_KEY "BAT_current"
+#define BAT_VOLTAGE_KEY "BAT_voltage"
+#define CONTROL_ACTIVE_KEY "Control_active"
+#define CONTROL_MODE_KEY "Control_mode"
+#define DESIRED_TEMPERATURE_KEY "Temp_desired"
+#define DESIRED_HUMIDITY_ROOM_KEY "Hum_desired"
+#define HUMIDIFIER_CURRENT_KEY "Humidifier_current"
+#define HUMIDIFIER_VOLTAGE_KEY "Humidifier_voltage"
+// Espejo de Phototherapy_active, y por el mismo motivo: Hum_desired solo se
+// publica DENTRO de if (in3.humidityControl), asi que el apagado es una
+// ausencia de clave. Para la placa vale, pero una serie temporal no puede
+// reconstruir un OFF desde un silencio: entre dos puntos separados horas, un
+// grafico en escalon pinta encendido todo el hueco. Hace falta el 0 explicito.
+#define HUMIDIFIER_ACTIVE_KEY "Humidifier_active"
+#define PHOTOTHERAPY_PWM_KEY "PH_PWM"
+#define PHOTOTHERAPY_CURRENT_KEY "Phototherapy_current"
+#define PHOTOTHERAPY_ACTIVE_KEY "Phototherapy_active"
+#define CALIBRATED_SENSOR_KEY "Calibrated_sensor"
+#define STANBY_TIME_KEY "Standby_time"
+#define CONTROL_ACTIVE_TIME_KEY "Control_active_time"
+#define HEATER_ACTIVE_TIME_KEY "Heater_active_time"
+#define FAN_ACTIVE_TIME_KEY "Fan_active_time"
+#define PHOTHERAPY_ACTIVE_TIME_KEY "Phototherapy_active_time"
+#define HUMIDIFIER_ACTIVE_TIME_KEY "Humidifier_active_time"
+#define GPRS_CONNECTIVITY_KEY "GPRS_connection"
+#define WIFI_CONNECTIVITY_KEY "WIFI_connection"
+#define HR1_KEY "HR1"
+#define HR1_SQI_KEY "HR1_SQI"
+#define HR2_KEY "HR2"
+#define HR2_SQI_KEY "HR2_SQI"
+#define HR3_KEY "HR3"
+#define HR3_SQI_KEY "HR3_SQI"
+#define SPO2_KEY "SpO2"
+#define SPO2_SQI_KEY "SpO2_SQI"
+#define PI_KEY "PI"
+// _v1: versionado por si cambia el formato (fs/duración/canal) más adelante.
+#define PPG_SNAPSHOT_KEY "PPG_snapshot_v1"       // 1 punto por muestra ppg_disp
+#define PPG_SNAPSHOT_FS_KEY "PPG_snapshot_fs_v1" // sample rate de la captura [Hz]
+#define PPG_SNAPSHOT_N_KEY "PPG_snapshot_n_v1"   // nº de muestras de la última captura
+#define BABY_WEIGHT_KEY "baby_weight_g"
+#define BABY_GEST_AGE_KEY "baby_gest_weeks"
+#define BABY_AGE_DAYS_KEY "baby_age_days"
+// Intentional PII publication (Ministry of Health access via ThingsBoard) —
+// see openspec design decision 14; not an accidental leak.
+#define BABY_NAME_KEY "baby_name"
+#define BABY_OUTCOME_KEY "baby_outcome"
+// Only meaningful when baby_outcome==2 (Deceased); sent as 0 otherwise.
+#define BABY_CAUSE_KEY "baby_discharge_cause"
+#define BABY_DISCHARGE_EPOCH_KEY "baby_discharge_epoch"
+#define BABY_KANGAROO_COUNT_KEY "baby_kangaroo_count"
+#define BABY_KANGAROO_LAST_KEY "baby_kangaroo_last_epoch"
+#define BABY_PHOTO_MINUTES_KEY "baby_phototherapy_min"
+#define BABY_THERMO_MINUTES_KEY "baby_thermo_min"
+#define BABY_HUMIDITY_MINUTES_KEY "baby_humidity_min"
+// baby_seq is mandatory on every baby payload: without it the cloud cannot
+// tell one patient from the next, and per-baby cumulative counters look
+// like data corruption when a new admission resets them.
+#define BABY_SEQ_KEY "baby_seq"
+#define BABY_ADMISSION_EPOCH_KEY "baby_admission_epoch"
+#define BABY_KANGAROO_EVENT_KEY "baby_kangaroo_event"
+#define BABY_STAY_DAYS_KEY "baby_stay_days"
+// Cuantos bebes ha dado de alta ESTA incubadora desde siempre. Describe el
+// equipo, no a su ocupante, asi que no lleva baby_seq y viaja tambien en el
+// payload de incubadora vacia. Sin prefijo baby_ en la clave a proposito: en
+// el cuadro de mando no se agrupa con las tarjetas del paciente.
+#define BABY_TOTAL_REGISTERED_KEY "babies_registered_total"
+// Una clave por condicion de alarm_ids.h. Las condiciones que ya existian
+// conservan su cadena original para no romper los cuadros de mando de la
+// nube; las nacidas del desglose normativo (desviaciones direccionales,
+// fallo de sonda de piel en modo aire, red y enlace HMI) estrenan clave.
+#define ALARM_AIR_THERMAL_CUTOUT_KEY "air_TC_alarm"
+#define ALARM_SKIN_THERMAL_CUTOUT_KEY "skin_TC_alarm"
+#define ALARM_AIR_SENSOR_FAULT_KEY "air_sensor_alarm"
+#define ALARM_SKIN_SENSOR_FAULT_SKIN_MODE_KEY "skin_sensor_alarm"
+#define ALARM_FAN_FAILURE_KEY "fan_alarm"
+#define ALARM_AIR_OUTLET_BLOCKED_KEY "air_blocked_alarm"
+#define ALARM_MAINS_INTERRUPTION_KEY "mains_alarm"
+#define ALARM_AIR_TEMP_DEVIATION_HIGH_KEY "air_temp_high_alarm"
+#define ALARM_AIR_TEMP_DEVIATION_LOW_KEY "air_temp_low_alarm"
+#define ALARM_SKIN_TEMP_DEVIATION_HIGH_KEY "skin_temp_high_alarm"
+#define ALARM_SKIN_TEMP_DEVIATION_LOW_KEY "skin_temp_low_alarm"
+#define ALARM_HEATER_FAULT_KEY "heater_alarm"
+#define ALARM_HEATER_SENSOR_FAULT_KEY "heater_sensor_alarm"
+#define ALARM_SUPPLY_UNDERVOLTAGE_KEY "power_alarm"
+#define ALARM_HMI_LINK_LOST_KEY "hmi_link_alarm"
+#define ALARM_SKIN_SENSOR_FAULT_AIR_MODE_KEY "skin_sensor_air_alarm"
+#define ALARM_HUMIDITY_DEVIATION_KEY "hum_alarm"
+// Sin estas dos, las alarmas 18 y 19 caian en el `default: return` del switch
+// y NUNCA llegaban a la nube: un equipo con el enlace del SensorBoard caido
+// -- y por tanto sin sensor de aire -- era invisible en monitorizacion remota.
+#define ALARM_SENSORBOARD_LINK_LOST_KEY "sb_link_alarm"
+#define ALARM_SENSORBOARD_DOOR_FAULT_KEY "sb_door_alarm"
+
+#define CALIBRATION_RAW_TEMPERATURE_RANGE_SKIN_KEY "Cal_raw_range_skin_temp"
+#define CALIBRATION_RAW_TEMPERATURE_LOW_SKIN_KEY "Cal_raw_low_skin_temp"
+#define CALIBRATION_REFERENCE_TEMPERATURE_RANGE_KEY "Cal_ref_range_temp"
+#define CALIBRATION_REFERENCE_TEMPERATURE_LOW_KEY "Cal_ref_low_temp"
+#define CALIBRATION_SKIN_FINETUNE_KEY "Cal_finetune_skin_temp"
+#define CALIBRATION_AIR_FINETUNE_KEY "Cal_finetune_air_temp"
+
+// Diagnostic telemetry keys
+// BQ25730 charger telemetry keys
+#define BQ_STATE_KEY  "BQ_state"
+#define BQ_FAULT_KEY  "BQ_fault"
+#define BQ_AC_KEY     "BQ_ac"
+#define BQ_VBAT_KEY   "BQ_vbat_V"
+#define BQ_VBUS_KEY   "BQ_vbus_V"
+#define BQ_ICHG_KEY   "BQ_ichg_mA"
+
+#define BOOT_COUNT_KEY "boot_count"
+#define FREE_HEAP_KEY "free_heap"
+#define MIN_FREE_HEAP_KEY "min_free_heap"
+#define UPTIME_S_KEY "uptime_s"
+#define GPRS_KILL_COUNT_KEY "gprs_kill_count"
+#define GPRS_MON_KILL_COUNT_KEY "gprs_mon_kill_count"
+#define HMI_BOOT_COUNT_KEY "hmi_boot_count"
+#define HMI_LAST_RST_KEY "hmi_last_rst"
+// 0-100 while an OTA is downloading; absent otherwise.
+#define OTA_PROGRESS_KEY "ota_progress"
+
+// SensorBoard (placa auxiliar por USB). Cada magnitud se publica SOLO si
+// llego valida: una posicion caida viaja como null desde el SensorBoard y
+// aqui se omite la clave, en vez de mandar un cero que parece una medida.
+#define SB_LINK_OK_KEY "sb_link_ok"
+#define SB_TEMP0_KEY "sb_temp0_C"
+#define SB_TEMP1_KEY "sb_temp1_C"
+#define SB_TEMP2_KEY "sb_temp2_C"
+#define SB_HUM0_KEY "sb_hum0_pct"
+#define SB_HUM1_KEY "sb_hum1_pct"
+#define SB_HUM2_KEY "sb_hum2_pct"
+#define SB_LUX_KEY "sb_lux"
+// Sin ponderacion A ni calibrar contra sonometro: SPL estimado, no dBA
+// clinicos (ver SensorBoard_v2/README.md #Nivel-sonoro).
+#define SB_DB_KEY "sb_db"
+#define SB_DOOR_OPEN_KEY "sb_door_open"
+#define SB_DOOR_FAULT_KEY "sb_door_fault"
+// Posiciones de sensor que sostienen la temperatura de aire (3, 2 o 1). Si
+// baja, la redundancia se esta perdiendo aunque la incubadora siga midiendo.
+#define SB_ENV_USED_KEY "sb_env_used"
+
+// Permanencia en la red WiFi. ATRIBUTOS de cliente, no telemetria: al
+// servidor le interesa el valor actual y no una serie temporal, y asi no
+// consumen del presupuesto de THINGSBOARD_FIELDS_AMOUNT. Solo por WiFi: una
+// unidad en GPRS no tiene nada que contar aqui.
+//
+// Existen para que el SERVIDOR pueda decidir por su cuenta que una unidad se
+// ha asentado en la red de su hospital y dar de baja su SIM. El firmware
+// publica hechos y no lleva ni el umbral ni la lista de redes propias: ver
+// modules/util/wifi_dwell.h y la nota operativa de docs/thingsboard_dashboards.md.
+#define WIFI_SSID_KEY "wifi_ssid"
+#define WIFI_IS_DEFAULT_KEY "wifi_is_default"
+#define WIFI_DWELL_DAYS_KEY "wifi_dwell_days"
+#define WIFI_DWELL_SINCE_KEY "wifi_dwell_since"
+#define WIFI_DWELL_SPAN_KEY "wifi_dwell_span_d"
