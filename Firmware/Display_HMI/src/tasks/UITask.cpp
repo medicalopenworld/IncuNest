@@ -2336,6 +2336,111 @@ void alarm_banner_init(void) {
                              LV_PART_MAIN);
 }
 
+// Chip de "sin enlace" en el heading de ui_ScreenMain.
+//
+// Con el enlace caido el banner se pintaba tambien fuera del bloqueo, y en
+// ui_ScreenMain tapaba el heading entero justo al desbloquear: reloj,
+// conectividad, bebes y ajustes. En esa pantalla el aviso va aqui, en el
+// hueco entre ui_BabiesButton y ui_Settings, encima del slot de alarmas.
+//
+// Tapa a proposito el boton y el contador de alarmas: con la placa callada
+// ese contador es informacion vieja, igual que las medidas (que ya salen como
+// "--"). Pulsarlo hace lo mismo que el banner y que ese boton: abre el centro
+// de alarmas.
+//
+// Mismos colores y el mismo parpadeo que el banner a prioridad MEDIA, que es
+// la que lleva la condicion (ver alarm_banner_update()): una sola senal para
+// el operador, cambie la pantalla o no.
+//
+// Cuelga de ui_ScreenMain y no de lv_layer_top(): asi solo existe donde esta
+// el heading y el centro de alarmas, que es un overlay, lo tapa sin mas.
+static lv_obj_t *s_linkLostChip = NULL;
+static lv_obj_t *s_linkLostChipLabel = NULL;
+static const char *s_linkLostChipText = NULL;  // puntero de TR(); cambia con g_lang
+
+// Hueco libre del heading: ui_BabiesButton acaba en x=+178 desde el centro y
+// ui_Settings empieza en x=+344. 8 px de aire a cada lado.
+#define LINK_LOST_CHIP_W 150
+#define LINK_LOST_CHIP_H 44
+#define LINK_LOST_CHIP_X 261
+
+static void link_lost_chip_blink_cb(void *obj, int32_t v) {
+  lv_obj_set_style_bg_color(
+      (lv_obj_t *)obj,
+      lv_color_mix(lv_color_hex(0xFFB436), lv_color_hex(0x6A4810), (uint8_t)v),
+      LV_PART_MAIN);
+}
+
+static void link_lost_chip_init(void) {
+  if (!ui_ScreenMain) {
+    return;
+  }
+  s_linkLostChip = lv_obj_create(ui_ScreenMain);
+  lv_obj_remove_style_all(s_linkLostChip);
+  lv_obj_set_size(s_linkLostChip, LINK_LOST_CHIP_W, LINK_LOST_CHIP_H);
+  lv_obj_set_x(s_linkLostChip, LINK_LOST_CHIP_X);
+  lv_obj_set_y(s_linkLostChip, -212);  // la fila del heading
+  lv_obj_set_align(s_linkLostChip, LV_ALIGN_CENTER);
+  lv_obj_set_style_radius(s_linkLostChip, 8, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(s_linkLostChip, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(s_linkLostChip, lv_color_hex(0xFFB436),
+                            LV_PART_MAIN);
+  lv_obj_clear_flag(s_linkLostChip, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(s_linkLostChip, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(s_linkLostChip, AlarmBanner_cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_add_flag(s_linkLostChip, LV_OBJ_FLAG_HIDDEN);
+
+  s_linkLostChipLabel = lv_label_create(s_linkLostChip);
+  lv_obj_set_align(s_linkLostChipLabel, LV_ALIGN_CENTER);
+  lv_label_set_long_mode(s_linkLostChipLabel, LV_LABEL_LONG_DOT);
+  lv_obj_set_width(s_linkLostChipLabel, LINK_LOST_CHIP_W - 10);
+  lv_obj_set_style_text_align(s_linkLostChipLabel, LV_TEXT_ALIGN_CENTER,
+                              LV_PART_MAIN);
+  lv_obj_set_style_text_font(s_linkLostChipLabel, &lv_font_montserrat_20,
+                             LV_PART_MAIN);
+  lv_obj_set_style_text_color(s_linkLostChipLabel, lv_color_hex(0x1A1208),
+                              LV_PART_MAIN);
+}
+
+// Corre en cada pasada desde alarm_banner_update(): solo toca LVGL cuando
+// cambia la visibilidad o el idioma, por lo mismo que el banner.
+static void link_lost_chip_set(bool show) {
+  if (!s_linkLostChip) {
+    return;
+  }
+  const bool shown = !lv_obj_has_flag(s_linkLostChip, LV_OBJ_FLAG_HIDDEN);
+  if (!show) {
+    if (shown) {
+      lv_anim_del(s_linkLostChip, link_lost_chip_blink_cb);
+      lv_obj_add_flag(s_linkLostChip, LV_OBJ_FLAG_HIDDEN);
+    }
+    return;
+  }
+
+  const char *want = TR(STR_LINK_LOST_SHORT);
+  if (want != s_linkLostChipText) {
+    s_linkLostChipText = want;
+    lv_label_set_text(s_linkLostChipLabel, want);
+  }
+  if (shown) {
+    return;
+  }
+  lv_obj_clear_flag(s_linkLostChip, LV_OBJ_FLAG_HIDDEN);
+  // Por encima de ui_AlarmButton, ui_Panel10 y ui_NumAlarm, que comparten
+  // pantalla con el chip y estan en su mismo hueco.
+  lv_obj_move_foreground(s_linkLostChip);
+
+  lv_anim_t a;
+  lv_anim_init(&a);
+  lv_anim_set_var(&a, s_linkLostChip);
+  lv_anim_set_values(&a, 255, 0);
+  lv_anim_set_time(&a, BANNER_HALF_PERIOD_MS_MEDIUM);
+  lv_anim_set_playback_time(&a, BANNER_HALF_PERIOD_MS_MEDIUM);
+  lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+  lv_anim_set_exec_cb(&a, link_lost_chip_blink_cb);
+  lv_anim_start(&a);
+}
+
 // --- Chasquido de confirmacion al pulsar ---------------------------------
 //
 // Se engancha al feedback_cb del driver de entrada de LVGL, que es el punto
@@ -2803,6 +2908,37 @@ void alarm_banner_update(void) {
   // pasada, asi que se lee sobre la tarjeta sin ocultar lo que importa.
   const bool suppressed = onAlarmsScreen && !testing && !linkLost;
 
+  // En ui_ScreenMain la perdida de enlace se avisa desde el propio heading
+  // (link_lost_chip_set()) y no con el banner, que lo tapaba entero al
+  // desbloquear. Con el centro de alarmas abierto sigue mandando el banner:
+  // el chip queda debajo del overlay y esa es la vista que hay que tapar.
+  //
+  // Sale antes de mirar `testing` a proposito: con la placa callada el campo
+  // de la prueba es tan viejo como lo demas y podria quedarse "en curso"
+  // para siempre, pintando otra vez el banner encima del heading.
+  //
+  // Lo mismo con cualquier otro dialogo abierto sobre ui_ScreenMain: todos
+  // tapan el heading, y el chip debajo no avisaria de nada. Varios se cierran
+  // solos al caer el enlace (su mustYield()), pero no todos, y fiar la senal
+  // a que el cierre ocurra primero es dejarla media pasada sin verse.
+  const bool mainHeadingCovered =
+      AlarmCenter_IsOpen() || FactoryTest_IsOpen() ||
+      TelemetryHistory_IsOpen() || BabyHistory_IsOpen() ||
+      BabyExitDialog_IsOpen() || TimeDialog_IsOpen() || HelpDialog_IsOpen() ||
+      Training_IsOpen() || TrainingSelector_IsOpen() ||
+      MaintenanceDialog_IsOpen() || BabyWizard_IsOpen();
+  const bool linkLostInHeading = linkLost && ui_ScreenMain &&
+                                 lv_scr_act() == ui_ScreenMain &&
+                                 !mainHeadingCovered;
+  link_lost_chip_set(linkLostInHeading);
+  if (linkLostInHeading) {
+    lv_anim_del(s_alarmBanner, banner_blink_cb);
+    lv_obj_add_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN);
+    s_bannerPriority = -1;
+    s_bannerText[0] = '\0';
+    return;
+  }
+
   if ((topIdx < 0 && !testing && !linkLost) || suppressed) {
     lv_anim_del(s_alarmBanner, banner_blink_cb);
     lv_obj_add_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN);
@@ -2826,6 +2962,9 @@ void alarm_banner_update(void) {
   // pantalla. El operador la lanza desde ajustes y tiene que ver alli mismo
   // que la senal visual responde; obligarle a bloquear la pantalla para
   // comprobarlo haria inservible la prueba.
+  //
+  // Y la perdida de enlace tambien, salvo en ui_ScreenMain, donde ya ha
+  // salido por el chip del heading (mas arriba).
   const bool onLockScreen = (ui_ScreenLock && lv_scr_act() == ui_ScreenLock);
   if (!onLockScreen && !testing && !linkLost) {
     lv_anim_del(s_alarmBanner, banner_blink_cb);
@@ -4275,6 +4414,8 @@ void UI_Task(void *pvParameters) {
   // En lv_layer_top(), no colgado de una pantalla: la senal de alarma
   // tiene que sobrevivir a lv_scr_load().
   alarm_banner_init();
+  // Este si cuelga de ui_ScreenMain: es parte de su heading.
+  link_lost_chip_init();
   audio_paused_icon_init();
 
   if (g_hmiRestoreState) {
