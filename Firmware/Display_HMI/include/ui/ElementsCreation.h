@@ -120,6 +120,11 @@ extern lv_obj_t * ui_ImageFlagTogo;
 #if INTRO_FLAG != INTRO_FLAG_NONE
 extern lv_obj_t * ui_ImageIntroFlag;
 #endif
+// Boton del primer test de fabrica: oculto salvo que
+// FactoryTest_FirstTestPending() (lo muestra UI_ShowIntroHwTestButton()).
+extern lv_obj_t * ui_IntroHwTestBtn;
+extern lv_obj_t * ui_IntroHwTestLabel;
+void UI_ShowIntroHwTestButton(void);
 void ui_ScreenIntro_screen_init(void);
 void ui_ScreenIntro_screen_destroy(void);
 

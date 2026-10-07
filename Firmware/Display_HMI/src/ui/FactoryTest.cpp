@@ -6,6 +6,7 @@
 
 #include "CommTask.h"
 #include "UITask.h"
+#include "drivers/hmi_mic.h"
 #include "factory_test.h"
 #include "main.h"
 #include "state/training_mode.h"
@@ -138,6 +139,35 @@ uint32_t   s_deadlineMs = 0;
 // resto de FactoryTest.cpp): FactoryTest_Poll() lo consume incluso con el
 // overlay cerrado, porque el resto de Poll() bail-outea en Step::Closed.
 bool     s_pendingOpenFromSettings = false;
+
+// Primer test de fabrica (FactoryTest_FirstTestPending()). s_firstTestPending
+// lo fija FactoryTest_LoadFirstTestState() en setup() y solo lo baja un TEST
+// OK (persistResults()). s_firstTestMode es la foto de ese flag al abrir la
+// pantalla: se mantiene toda la sesion para que el veredicto siga diciendo
+// "TEST OK" aunque el flag ya se haya bajado al llegar al resumen.
+bool     s_firstTestPending = false;
+bool     s_firstTestMode = false;
+
+// Zumbador de la motherBoard medido con el microfono de ESTE display (banco
+// 2026-10-06). La placa enciende el zumbador y emite CONFIRM para BUZZER; el
+// microfono lleva encendido desde FactoryTest_Open(), asi que el tramo de
+// justo antes del CONFIRM es el fondo con el zumbador apagado y el de despues
+// es con el sonando. Se contesta solo, sin preguntar al operario; si el
+// microfono no da senal se cae a la pregunta de siempre (BuzzMeas::Manual).
+enum class BuzzMeas { Idle, Measuring, Answered, Manual };
+BuzzMeas s_buzzMeas = BuzzMeas::Idle;
+uint32_t s_buzzConfirmMs = 0;
+char     s_buzzDetail[FTEST_DETAIL_MAX + 1] = "";
+// Fondo: de 1,3 s a 0,2 s antes del CONFIRM (el margen cubre la latencia de
+// la linea: el zumbador ya suena cuando la placa la emite). Zumbador: de
+// 0,3 s a 1,3 s despues.
+constexpr uint32_t kBuzzBaseFromMs = 1300;
+constexpr uint32_t kBuzzBaseToMs = 200;
+constexpr uint32_t kBuzzOnFromMs = 300;
+constexpr uint32_t kBuzzOnToMs = 1300;
+// Subida minima para dar el zumbador por oido (mismo umbral que tenia el test
+// con el microfono de la SensorBoard).
+constexpr float kBuzzMinDeltaDb = 6.0f;
 
 bool     s_mbSupported = false;
 bool     s_mbUnsupported = false;
@@ -287,6 +317,7 @@ const char *mbTestName(unsigned id) {
     case FTEST_MB_TIME:        return TR(STR_FT_TIME);
     case FTEST_MB_NVS:         return TR(STR_FT_BOARDNVS);
     case FTEST_MB_LITTLEFS:    return TR(STR_FT_LITTLEFS);
+    case FTEST_MB_SIM_ACT:     return TR(STR_FT_SIMACT);
     default: return ftest_id_key(id);
   }
 }
@@ -351,6 +382,8 @@ const char *mbTestDesc(unsigned id) {
       return TR(STR_FT_BOARDNVS_D);
     case FTEST_MB_LITTLEFS:
       return TR(STR_FT_LITTLEFS_D);
+    case FTEST_MB_SIM_ACT:
+      return TR(STR_FT_SIMACT_D);
     default: return "?";
   }
 }
@@ -454,11 +487,40 @@ void gridColors(const RowData &r, lv_color_t *fill, lv_color_t *border) {
 // enlace a mitad de bateria; HW OK en cualquier otro caso. Los AVISOS no
 // cuentan. Mismo criterio para el veredicto en pantalla
 // (renderVerdictAndProgress()) y su persistencia (persistResults()).
+//
+// En el primer test de fabrica, ademas, SIM ACT tiene que haber PASADO: una
+// fila ausente (motherBoard sin ese test) tambien es error.
 bool computeHwError() {
+  bool simActPassed = false;
   for (int i = 0; i < s_rowCount; i++) {
     if (s_rows[i].started && s_rows[i].status == FTEST_FAIL) return true;
+    if (s_rows[i].isMb && s_rows[i].id == FTEST_MB_SIM_ACT &&
+        s_rows[i].started && s_rows[i].status == FTEST_PASS) {
+      simActPassed = true;
+    }
   }
+  if (s_firstTestMode && !simActPassed) return true;
   return s_mbUnsupported || s_mbRejected || s_mbLinkLost;
+}
+
+// Ajustes del primer test de fabrica sobre el estado que manda la placa, en
+// un solo sitio para que la cuadricula, la cabecera, la barra y el veredicto
+// cuadren entre si:
+//  - GSM SIGNAL no forma parte del primer test: la fila queda en OMITIDO, que
+//    ya la oculta y la saca de todas las cuentas. La placa lo sigue leyendo
+//    (es pasivo, solo mira el CSQ), pero no se enseña ni se juzga.
+//  - SIM ACT es obligatorio: un AVISO (sin wifi, API sin respuesta) o un
+//    OMITIDO (SIM que no es de Onomondo) pasan a FALLA con el mismo detalle,
+//    asi la celda sale en rojo y ofrece REINTENTAR.
+// Fuera del primer test no toca nada.
+void applyFirstTestRules(RowData &r) {
+  if (!s_firstTestMode || !r.isMb || !r.started) return;
+  if (r.id == FTEST_MB_GSM_SIGNAL) {
+    r.status = FTEST_SKIP;
+  } else if (r.id == FTEST_MB_SIM_ACT &&
+             (r.status == FTEST_WARN || r.status == FTEST_SKIP)) {
+    r.status = FTEST_FAIL;
+  }
 }
 
 // Cuenta PASA/FALLA/AVISO/OMITIDO de las filas [startIdx, s_rowCount) ya
@@ -670,7 +732,10 @@ void renderRemoteAction() {
       return;
     }
     if (s_rows[i].status == FTEST_CONFIRM) {
-      if (s_remoteConfirmAnsweredRowId == s_rows[i].id) {
+      if (s_rows[i].id == FTEST_MB_BUZZER &&
+          s_buzzMeas == BuzzMeas::Measuring) {
+        renderCenteredText(TR(STR_FT_MEASURING_BUZZER));
+      } else if (s_remoteConfirmAnsweredRowId == s_rows[i].id) {
         renderCenteredText(TR(STR_FT_WAITING_MB));
       } else {
         renderAskUi(mbConfirmQuestion(s_rows[i].id), onRemoteConfirmYes,
@@ -904,6 +969,11 @@ bool remoteNeedsAttention() {
     if (s_rows[i].status == FTEST_WAIT) return true;
     if (s_rows[i].status == FTEST_CONFIRM &&
         s_remoteConfirmAnsweredRowId != s_rows[i].id) {
+      // El zumbador medido por el microfono no necesita al operario.
+      if (s_rows[i].id == FTEST_MB_BUZZER &&
+          s_buzzMeas == BuzzMeas::Measuring) {
+        continue;
+      }
       return true;
     }
   }
@@ -1098,7 +1168,7 @@ void renderVerdictAndProgress() {
   if (s_step == Step::Summary) {
     const bool hwError = computeHwError();
     bucket = hwError ? 0 : 3;
-    text = hwError ? "HW ERROR" : "HW OK";
+    text = hwError ? "HW ERROR" : (s_firstTestMode ? "TEST OK" : "HW OK");
   }
   lv_color_t fill, border;
   colorsForBucket(bucket, &fill, &border);
@@ -1243,8 +1313,12 @@ void runSysInfo() {
           (unsigned)(heap / 1024u));
   // PSRAM "aprox 8MB": el propio SDK reserva parte del banco OPI, asi que el
   // valor reportado suele quedar algo por debajo de 8*1024*1024 exactos.
+  // Heap >= 50 kB y no 60 (banco 2026-10-07): con el microfono siempre
+  // encendido (~6,7 kB de SRAM interna) el HMI sano se queda en ~58 kB en
+  // pleno test, y 60 suspendia todas las unidades. 50 deja margen para cazar
+  // una fuga de verdad.
   const bool ok = flash == 16u * 1024u * 1024u &&
-                  psram >= 7u * 1024u * 1024u && heap >= 60u * 1024u;
+                  psram >= 7u * 1024u * 1024u && heap >= 50u * 1024u;
   finishLocal(ok ? FTEST_PASS : FTEST_FAIL, detail);
 }
 
@@ -1365,6 +1439,8 @@ void finishLocal(FtestStatus st, const char *detail) {
   s_rowsDirty = true;
   snprintf(r.detail, sizeof(r.detail), "%s", detail ? detail : "");
   s_localPhase = LocalPhase::None;
+  // st: 1 PASA, 2 FALLA, 3 OMITIDO, 6 AVISO (FtestStatus).
+  COMM_LOG("[FTEST] HMI %s st=%d (%s)\n", ftest_id_key(r.id), (int)st, r.detail);
 
   if (s_retryMode) {
     s_retryMode = false;
@@ -1417,6 +1493,31 @@ int drainFtestEvents() {
     r.lastChangeMs = millis();
     s_rowsDirty = true;
     snprintf(r.detail, sizeof(r.detail), "%s", res.detail);
+    if (res.id == FTEST_MB_BUZZER) {
+      if (res.status == FTEST_CONFIRM && s_buzzMeas == BuzzMeas::Idle) {
+        // Sin senal en el microfono no hay medida posible: pregunta al
+        // operario, como un display sin microfono.
+        s_buzzConfirmMs = millis();
+        s_buzzMeas = HmiMic_Alive() ? BuzzMeas::Measuring : BuzzMeas::Manual;
+        if (s_buzzMeas == BuzzMeas::Manual) {
+          snprintf(s_buzzDetail, sizeof(s_buzzDetail), "mic sin senal");
+        }
+      } else if (res.status == FTEST_PASS || res.status == FTEST_FAIL ||
+                 res.status == FTEST_WARN || res.status == FTEST_SKIP) {
+        // La placa solo sabe si/no: el detalle util es lo que midio el
+        // microfono.
+        if (s_buzzDetail[0] != '\0') {
+          snprintf(r.detail, sizeof(r.detail), "%s", s_buzzDetail);
+        }
+        s_buzzMeas = BuzzMeas::Idle;
+        s_buzzDetail[0] = '\0';
+      }
+    }
+    applyFirstTestRules(r);
+    if (r.status != FTEST_RUNNING) {
+      COMM_LOG("[FTEST] MB %s st=%d (%s)\n", ftest_id_key(r.id), (int)r.status,
+               r.detail);
+    }
     // Fila "en curso" a seguir con la paginacion (banco 2026-09-06, bateria
     // con ~20 tests pasivos arrancando casi a la vez y resolviendo fuera de
     // orden de id): debe ser la fila que recibio RUNNING mas recientemente
@@ -1558,6 +1659,10 @@ void retryRemote(unsigned id) {
   // Intento nuevo: si el anterior habia terminado en "enlace perdido"
   // (hallazgo 5), no arrastrar ese rotulo al resumen de este reintento.
   s_mbLinkLost = false;
+  if (id == FTEST_MB_BUZZER) {
+    s_buzzMeas = BuzzMeas::Idle;
+    s_buzzDetail[0] = '\0';
+  }
   Communication_SendFtestRun((uint8_t)id);
   s_step = Step::RemoteRunning;
   // Hallazgo 5: reinicia el reloj de silencio; sin esto heredaria el
@@ -1586,6 +1691,10 @@ void persistResults() {
   // Veredicto unico de la bateria (D5): 1 = HW OK, 2 = HW ERROR. Mismo
   // criterio que renderVerdictAndProgress() (computeHwError()).
   const uint32_t verdict = computeHwError() ? 2u : 1u;
+  // Solo un TEST OK cierra el primer test; un error lo deja pendiente y el
+  // equipo sigue volviendo a la pantalla de inicio.
+  const bool firstTestNowDone =
+      s_firstTestMode && s_firstTestPending && verdict == 1u;
 
   // Fuera de LVGL_Lock(): escritura de Preferences (mismo motivo que el resto
   // de escrituras periodicas de NVS de UITask.cpp).
@@ -1601,12 +1710,28 @@ void persistResults() {
   p.putUInt(HMI_KEY_FTEST_MBWARN, (uint32_t)mbWarn);
   p.putString(HMI_KEY_FTEST_FWVER, fwVer);
   p.putUInt(HMI_KEY_FTEST_VERDICT, verdict);
+  if (firstTestNowDone) p.putUChar(HMI_KEY_FTEST_FIRST_DONE, 1);
   p.end();
   LVGL_Lock();
+  if (firstTestNowDone) {
+    s_firstTestPending = false;
+    COMM_LOG("[FTEST] primer test de fabrica OK: guardado en NVS\n");
+  }
 }
 
 void goSummary() {
   destroyTransientOverlayObjects();
+  // Las filas que se cierran sin linea de la placa (sin resultado, enlace
+  // perdido) no pasan por drainFtestEvents(): sin esto un GSM SIGNAL perdido
+  // saldria FALLA en el primer test.
+  for (int i = kLocalCount; i < s_rowCount; i++) {
+    const FtestStatus before = s_rows[i].status;
+    applyFirstTestRules(s_rows[i]);
+    if (s_rows[i].status != before) {
+      s_rows[i].dirty = true;
+      s_rowsDirty = true;
+    }
+  }
   s_localPhase = LocalPhase::None;
   s_step = Step::Summary;
   // Hallazgo 6: tope de inactividad en Summary. Cualquier pulsacion de
@@ -1634,9 +1759,51 @@ void serviceRemoteAwaitFirst() {
   }
 }
 
+// Cierra la medida del zumbador cuando ya hay 1,3 s de microfono con el
+// zumbador sonando y contesta a la placa. true si ha cambiado algo que pintar.
+bool serviceBuzzerMeasurement() {
+  if (s_buzzMeas != BuzzMeas::Measuring) return false;
+  if ((uint32_t)(millis() - s_buzzConfirmMs) < kBuzzOnToMs + 100) return false;
+
+  // Se decide con la energia en el tono del zumbador (400 Hz y armonicos), no
+  // con el nivel total: banco 2026-10-06, con los ventiladores del test el
+  // nivel total solo subio de 58,1 a 60,7 dB con el zumbador sonando.
+  const uint32_t baseFrom = s_buzzConfirmMs - kBuzzBaseFromMs;
+  const uint32_t baseTo = s_buzzConfirmMs - kBuzzBaseToMs;
+  const uint32_t onFrom = s_buzzConfirmMs + kBuzzOnFromMs;
+  const uint32_t onTo = s_buzzConfirmMs + kBuzzOnToMs;
+  float base = 0.0f, on = 0.0f;
+  const bool haveBase = HmiMic_ToneBetween(baseFrom, baseTo, &base);
+  const bool haveOn = HmiMic_ToneBetween(onFrom, onTo, &on);
+  float totalBase = 0.0f, totalOn = 0.0f;  // solo para el log
+  HmiMic_LevelBetween(baseFrom, baseTo, &totalBase);
+  HmiMic_LevelBetween(onFrom, onTo, &totalOn);
+  if (!haveBase || !haveOn) {
+    // Ventanas perdidas (microfono parado o sin senal a mitad): mejor que
+    // decida el operario que contestar "no" por un fallo del display.
+    COMM_LOG("[FTEST] zumbador: sin ventanas de microfono (base=%d on=%d), "
+             "se pregunta al operario\n", (int)haveBase, (int)haveOn);
+    snprintf(s_buzzDetail, sizeof(s_buzzDetail), "mic sin ventanas");
+    s_buzzMeas = BuzzMeas::Manual;
+    return true;
+  }
+  const bool heard = (on - base) >= kBuzzMinDeltaDb;
+  snprintf(s_buzzDetail, sizeof(s_buzzDetail), "400Hz base=%.0f zumb=%.0f dB",
+           (double)base, (double)on);
+  COMM_LOG("[FTEST] zumbador: tono 400Hz base=%.1f zumbador=%.1f dB (+%.1f) | "
+           "total base=%.1f zumbador=%.1f dB -> %s\n",
+           (double)base, (double)on, (double)(on - base), (double)totalBase,
+           (double)totalOn, heard ? "oido" : "no oido");
+  Communication_SendFtestConfirm((uint8_t)FTEST_MB_BUZZER, heard);
+  s_remoteConfirmAnsweredRowId = FTEST_MB_BUZZER;
+  s_buzzMeas = BuzzMeas::Answered;
+  return true;
+}
+
 void serviceRemoteRunning() {
   const int n = drainFtestEvents();
   const int nTimeout = checkRowTimeouts();
+  const bool buzzChanged = serviceBuzzerMeasurement();
 
   if (g_pendingFtestReject) {
     g_pendingFtestReject = false;
@@ -1708,7 +1875,7 @@ void serviceRemoteRunning() {
     goSummary();
     return;
   }
-  if (n > 0 || nTimeout > 0) renderAll();
+  if (n > 0 || nTimeout > 0 || buzzChanged) renderAll();
 }
 
 // ============================================================================
@@ -1756,6 +1923,8 @@ void resetState() {
   // 2026-09-06): es un contador global de Comm_Task, se limpia al abrir.
   g_ftestRingDrops = 0;
   s_remoteConfirmAnsweredRowId = FTEST_ID_NONE;
+  s_buzzMeas = BuzzMeas::Idle;
+  s_buzzDetail[0] = '\0';
   // Estado de UI pendiente de una sesion anterior (hallazgo 4): ningun flag
   // de hand-off debe sobrevivir a un cierre y reapertura de la pantalla.
   s_pendingRemoteConfirm = Answer::None;
@@ -1902,6 +2071,13 @@ void FactoryTest_Open(void) {
   g_pendingFtestReject = false;
 
   resetState();
+  s_firstTestMode = s_firstTestPending;
+  // El microfono va siempre encendido desde setup(); esto solo lo reintenta si
+  // no arranco. Sin el, el test del zumbador se pregunta al operario
+  // (BuzzMeas::Manual).
+  if (!HmiMic_Start()) {
+    COMM_LOG("[FTEST] microfono del display no disponible\n");
+  }
   // Hallazgo 7: barrera de entrada antes de tocar nada (local o remoto).
   s_step = Step::Gate;
   lv_obj_clear_flag(s_overlay, LV_OBJ_FLAG_HIDDEN);
@@ -1910,6 +2086,14 @@ void FactoryTest_Open(void) {
   // alarma y el icono AUDIO PAUSED; move_foreground() los deja detras si
   // estaban visibles.
   UI_ReassertAlarmOverlays();
+  // Primer test de fabrica: el equipo aun no ha salido de la linea de
+  // montaje, preguntar si hay un bebe dentro no tiene sentido. Se arranca
+  // directo; Open() solo se llama desde Poll(), fuera de un despacho de
+  // evento, que es lo que exige beginLocalSequence().
+  if (s_firstTestMode) {
+    beginLocalSequence();
+    return;
+  }
   renderAll();
 }
 
@@ -1933,12 +2117,40 @@ void FactoryTest_Close(void) {
   destroyRowButtons();
   if (s_overlay) lv_obj_add_flag(s_overlay, LV_OBJ_FLAG_HIDDEN);
   s_step = Step::Closed;
-  if (!stayInSettings) {
+  // Primer test sin TEST OK (error, abortado o "No" en la barrera): de vuelta
+  // a la pantalla de inicio con el boton, nunca a ui_ScreenMain.
+  if (s_firstTestPending) {
+    if (lv_scr_act() != ui_ScreenIntro) lv_scr_load(ui_ScreenIntro);
+  } else if (!stayInSettings) {
     lv_scr_load(ui_ScreenMain);
   }
 }
 
 void FactoryTest_RequestOpenFromSettings(void) {
+  s_pendingOpenFromSettings = true;
+}
+
+void FactoryTest_LoadFirstTestState(bool legacyUnit) {
+#if !FACTORY_FIRST_HW_TEST_ENABLED
+  (void)legacyUnit;
+  s_firstTestPending = false;
+  return;
+#endif
+  Preferences p;
+  p.begin(HMI_NS_FTEST, false);
+  if (!p.isKey(HMI_KEY_FTEST_FIRST_DONE)) {
+    // Se decide una sola vez y se guarda: en el segundo arranque de una placa
+    // nueva el contador de arranques ya existe, y sin esta marca pasaria a
+    // parecer un equipo antiguo y se saltaria el test.
+    p.putUChar(HMI_KEY_FTEST_FIRST_DONE, legacyUnit ? 1 : 0);
+  }
+  s_firstTestPending = p.getUChar(HMI_KEY_FTEST_FIRST_DONE, 1) == 0;
+  p.end();
+}
+
+bool FactoryTest_FirstTestPending(void) { return s_firstTestPending; }
+
+void FactoryTest_RequestOpenFirstTest(void) {
   s_pendingOpenFromSettings = true;
 }
 

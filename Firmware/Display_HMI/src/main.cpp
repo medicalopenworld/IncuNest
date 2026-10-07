@@ -5,6 +5,8 @@
 #include "UITask.h"
 #include "Wifi_OTA.h"
 #include "esp_log.h"
+#include "ui/FactoryTest.h"
+#include "drivers/hmi_mic.h"
 #include <PCA9557.h>
 #include <Preferences.h>
 #include <lvgl.h>
@@ -111,6 +113,9 @@ void setup() {
   {
     Preferences p;
     p.begin("diag", false);
+    // Leido ANTES de escribirlo: con el contador ya presente la NVS viene de
+    // un firmware anterior y el equipo no es una placa recien fabricada.
+    const bool nvsHadBoots = p.isKey("boots");
     g_hmiBootCount = p.getUInt("boots", 0) + 1;
     p.putUInt("boots", g_hmiBootCount);
     esp_reset_reason_t rst = esp_reset_reason();
@@ -120,6 +125,11 @@ void setup() {
     g_hmiRestoreState = (rst != ESP_RST_POWERON && rst != ESP_RST_BROWNOUT);
     ESP_LOGW(TAG, "[DIAG] HMI bootCount=%u lastRst=%d restoreState=%d",
              (unsigned)g_hmiBootCount, g_hmiLastRst, (int)g_hmiRestoreState);
+    FactoryTest_LoadFirstTestState(nvsHadBoots);
+    ESP_LOGW(TAG, "[FTEST] primer test de fabrica %s",
+             !FACTORY_FIRST_HW_TEST_ENABLED ? "desactivado"
+             : FactoryTest_FirstTestPending() ? "PENDIENTE"
+                                              : "hecho");
   }
 
   // El "mayor bloque DMA" es el numero que decide si el HMI arranca: el panel
@@ -174,6 +184,9 @@ void setup() {
   ESP_LOGI(TAG, "Creating Communication task ...");
   CreateCommTask();
   ESP_LOGI(TAG, "Communication task successfully created!");
+#ifdef HMI_MIC_BOOT_PROBE
+  HmiMic_BootProbe();  // verificacion temporal del microfono en banco
+#endif
 
   // Espera acotada: crear la tarea no reserva nada, la reserva ocurre dentro
   // de UI_Task (que ademas espera al STC8 del backlight). Sin esta barrera el
@@ -192,6 +205,19 @@ void setup() {
                (unsigned long)LCD_READY_TIMEOUT_MS);
     else
       ESP_LOGI(TAG, "panel RGB listo en %lu ms", (unsigned long)(millis() - t0));
+  }
+
+  // Microfono siempre encendido (2026-10-06): lo usa el test de fabrica para
+  // medir el zumbador de la placa y, mas adelante, la telemetria de ruido
+  // ambiente. Despues del panel, que es quien necesita los bloques grandes de
+  // SRAM interna; lo suyo es pequeno (DMA del I2S y una pila de 3 KB).
+  {
+    const uint32_t before = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    const bool ok = HmiMic_Start();
+    ESP_LOGW(TAG, "[MIC] %s; SRAM interna libre %u -> %u",
+             ok ? "microfono arrancado" : "el microfono NO arranca",
+             (unsigned)before,
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
   }
 
 #ifndef DISABLE_WIFI_TEST

@@ -26,6 +26,8 @@ lv_obj_t *ui_ImageFlagTogo = NULL;
 #if INTRO_FLAG != INTRO_FLAG_NONE
 lv_obj_t *ui_ImageIntroFlag = NULL;
 #endif
+lv_obj_t *ui_IntroHwTestBtn = NULL;
+lv_obj_t *ui_IntroHwTestLabel = NULL;
 
 // Screen Main
 lv_obj_t *ui_ScreenMain = NULL;
@@ -607,6 +609,21 @@ void ui_event_HwTestButton(lv_event_t *e) {
   FactoryTest_RequestOpenFromSettings();
 }
 
+void ui_event_IntroHwTestButton(lv_event_t *e) {
+  if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+  FactoryTest_RequestOpenFirstTest();
+}
+
+// La bandera de pais ocupa el mismo hueco que el boton: en el primer test de
+// fabrica se oculta, nadie la echa de menos en la linea de montaje.
+void UI_ShowIntroHwTestButton(void) {
+  if (!ui_IntroHwTestBtn) return;
+#if INTRO_FLAG != INTRO_FLAG_NONE
+  if (ui_ImageIntroFlag) lv_obj_add_flag(ui_ImageIntroFlag, LV_OBJ_FLAG_HIDDEN);
+#endif
+  lv_obj_clear_flag(ui_IntroHwTestBtn, LV_OBJ_FLAG_HIDDEN);
+}
+
 void ui_event_MaintButton(lv_event_t *e) {
   if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
     MaintButton_cb(e);
@@ -879,6 +896,25 @@ void ui_ScreenIntro_screen_init(void) {
   lv_obj_set_style_text_font(ui_IntroFWLabel, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(ui_IntroFWLabel, lv_color_hex(0x555555),
                               LV_PART_MAIN);
+
+  // Primer test de fabrica: oculto hasta que intro_timer_cb() (UITask.cpp)
+  // termina el splash y el test sigue pendiente.
+  ui_IntroHwTestBtn = lv_btn_create(ui_ScreenIntro);
+  lv_obj_set_size(ui_IntroHwTestBtn, 320, 64);
+  lv_obj_align(ui_IntroHwTestBtn, LV_ALIGN_BOTTOM_MID, 0, -40);
+  lv_obj_set_style_bg_color(ui_IntroHwTestBtn, lv_color_hex(0x0075EE),
+                            LV_PART_MAIN);
+  lv_obj_set_style_radius(ui_IntroHwTestBtn, 10, LV_PART_MAIN);
+  lv_obj_add_flag(ui_IntroHwTestBtn, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_event_cb(ui_IntroHwTestBtn, ui_event_IntroHwTestButton,
+                      LV_EVENT_CLICKED, NULL);
+  ui_IntroHwTestLabel = lv_label_create(ui_IntroHwTestBtn);
+  lv_label_set_text(ui_IntroHwTestLabel, TR(STR_HW_TEST));
+  lv_obj_set_style_text_font(ui_IntroHwTestLabel, &lv_font_montserrat_24,
+                             LV_PART_MAIN);
+  lv_obj_set_style_text_color(ui_IntroHwTestLabel, lv_color_hex(0xFFFFFF),
+                              LV_PART_MAIN);
+  lv_obj_center(ui_IntroHwTestLabel);
 }
 
 // Slots horizontales del heading (ui_ScreenMain y su replica en
@@ -4439,7 +4475,9 @@ void ui_init(void) {
   ui_ScreenIntro_screen_init();
 
   ui____initial_actions0 = lv_obj_create(NULL);
-  if (!g_hmiRestoreState) {
+  // Con el primer test pendiente no hay estado que restaurar: el equipo
+  // vuelve siempre a la pantalla de inicio (mismo criterio en UI_Task).
+  if (!g_hmiRestoreState || FactoryTest_FirstTestPending()) {
     lv_scr_load(ui_ScreenIntro);
   }
 }

@@ -601,6 +601,7 @@ UI_STR(STR_FT_THINGSBOARD,     "ThingsBoard",  "ThingsBoard", "ThingsBoard", "Th
 UI_STR(STR_FT_TIME,            "Hora",         "Time",        "Heure",       "Hora")
 UI_STR(STR_FT_BOARDNVS,        "NVS placa",    "Board NVS",   "NVS carte",   "NVS placa")
 UI_STR(STR_FT_LITTLEFS,        "LittleFS",     "LittleFS",    "LittleFS",    "LittleFS")
+UI_STR(STR_FT_SIMACT,          "SIM ACT",      "SIM ACT",     "SIM ACT",     "SIM ACT")
 UI_STR(STR_FT_BOARDINFO_D,     "Version y memoria de la placa",
                                "Board firmware and memory",
                                "Version et memoire de la carte",
@@ -718,6 +719,10 @@ UI_STR(STR_FT_LITTLEFS_D,      "Sistema de archivos LittleFS",
                                "LittleFS filesystem",
                                "Systeme de fichiers LittleFS",
                                "Sistema de ficheiros LittleFS")
+UI_STR(STR_FT_SIMACT_D,        "Activacion de la SIM Onomondo",
+                               "Onomondo SIM activation",
+                               "Activation de la SIM Onomondo",
+                               "Ativacao do SIM Onomondo")
 UI_STR(STR_FT_ASK_DOOR,        "Abre y cierra la puerta",
                                "Open and close the door",
                                "Ouvrez et fermez la porte",
@@ -734,6 +739,10 @@ UI_STR(STR_FT_ASK_BUZZER,      "Suena el zumbador de la placa?",
                                "Does the board buzzer sound?",
                                "Le buzzer de la carte sonne-t-il ?",
                                "O besouro da placa toca?")
+UI_STR(STR_FT_MEASURING_BUZZER, "Midiendo el zumbador con el microfono...",
+                               "Measuring the buzzer with the microphone...",
+                               "Mesure du buzzer avec le microphone...",
+                               "A medir o besouro com o microfone...")
 UI_STR(STR_FT_ASK_CONFIRM,     "Confirma el resultado",
                                "Confirm the result",
                                "Confirmez le resultat",
