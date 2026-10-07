@@ -4,13 +4,10 @@
 // NVS y ofrece a los cuerpos de test las primitivas de ABORT/emision de
 // linea que necesitan sin que cada uno conozca el mecanismo real.
 //
-// ---- CONFIRM retirado (banco 2026-09-06, cuarta ronda) ----
-// factoryTestConfirm()/ftest_arm_confirm()/ftest_wait_confirm() y el
-// semaforo binario que los respaldaba se eliminaron: BUZZER (id 15), unico
-// llamante, ya no pregunta al operario -- sin microfono de la SensorBoard
-// SKIP directo (factory_test_hw.cpp). El comando HMI,FTEST,CONFIRM sigue
-// aceptandolo el parser (CommTask.cpp parse_line) pero se descarta con log
-// "sin uso": no queda ningun consumidor al que reenviarlo.
+// ---- CONFIRM (retirado el 2026-09-06, recuperado el 2026-10-06) ----
+// factoryTestConfirm()/ftest_arm_confirm()/ftest_wait_confirm() y su
+// semaforo binario: BUZZER (id 15) enciende el zumbador, emite CONFIRM y
+// espera a que el display conteste si su microfono lo oyo.
 //
 // ---- Estado seguro completo (respuesta al review de seguridad) ----
 // Mientras `g_factoryTestActive` este a true (puesto en start_task() ANTES de
@@ -113,6 +110,7 @@
 #include "system/hw_selftest.h"
 
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 
 extern IncuNest_parameters in3;
@@ -229,6 +227,56 @@ const char *ftest_abort_reason(void) {
 void ftest_wdt_feed(void) { esp_task_wdt_reset(); }
 
 void factoryTestAbort(void) { s_abortRequested = true; }
+
+// ---- CONFIRM: semaforo binario + id esperado (recuperado 2026-10-06) ----
+// Lo da Communication_Task (factoryTestConfirm()) y lo espera la tarea FTEST
+// (ftest_wait_confirm()). Mismo diseno que tenia antes de 8e289d3d.
+static SemaphoreHandle_t s_confirmSem = NULL;
+static volatile int s_confirmExpectedId = -1;
+static volatile bool s_confirmOk = false;
+
+static void ensure_confirm_sem(void) {
+  if (s_confirmSem == NULL) {
+    s_confirmSem = xSemaphoreCreateBinary();
+  }
+}
+
+void factoryTestConfirm(unsigned id, bool ok) {
+  if ((int)id != s_confirmExpectedId || s_confirmSem == NULL) {
+    logE("[FTEST] CONFIRM id=" + String(id) + " inesperado, descartado");
+    return;
+  }
+  s_confirmOk = ok;
+  xSemaphoreGive(s_confirmSem);
+}
+
+// Orden: primero drenar cualquier "give" residual de un CONFIRM anterior,
+// DESPUES fijar el id esperado; al reves, un CONFIRM que llegase entre las dos
+// cosas se perderia.
+void ftest_arm_confirm(unsigned id) {
+  ensure_confirm_sem();
+  while (xSemaphoreTake(s_confirmSem, 0) == pdTRUE) {
+  }
+  s_confirmExpectedId = (int)id;
+}
+
+int ftest_wait_confirm(unsigned id, uint32_t timeout_ms) {
+  (void)id;  // lo fija ftest_arm_confirm()
+  ensure_confirm_sem();
+  int result = -1;
+  const uint32_t start = millis();
+  while ((uint32_t)(millis() - start) < timeout_ms) {
+    if (ftest_abort_requested()) break;
+    // Paso <= 250 ms (design.md D5); ademas hace avanzar a los pasivos.
+    ftest_yield();
+    if (xSemaphoreTake(s_confirmSem, pdMS_TO_TICKS(250)) == pdTRUE) {
+      result = s_confirmOk ? 1 : 0;
+      break;
+    }
+  }
+  s_confirmExpectedId = -1;
+  return result;
+}
 
 // ---- Solape cooperativo de los PASIVOS (ver cabecera del fichero) ----
 // Estado de la bateria completa en curso; queda todo a 0/nullptr fuera de
