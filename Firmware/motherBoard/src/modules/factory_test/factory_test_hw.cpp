@@ -326,11 +326,16 @@ static FtestStatus ftest_sb_status(char *detail, FtestCascade *cascade,
     }
   }
 
+  // Sensor de luz (als) y camara (cam) ya no se exigen (banco 2026-10-06): sus
+  // tests SB_LIGHT y SB_CAMERA estan omitidos, y exigirlos aqui volvia a
+  // suspender la SensorBoard por lo mismo ("falta cam" con una camara que no
+  // responde en el bus). Se siguen pintando en el detalle para el banco.
   SbSnapshot s;
   sensorboard_get_snapshot(&s);
   if (s.status_seen && s.avail_sht[0] && s.avail_sht[1] && s.avail_sht[2] &&
-      s.avail_als && s.avail_door && s.avail_cam) {
-    D("fw=%s sw=%d", s.sb_fw, s.usb_swap);
+      s.avail_door) {
+    D("fw=%s sw=%d als=%d cam=%d", s.sb_fw, s.usb_swap, (int)s.avail_als,
+      (int)s.avail_cam);
     return FTEST_PASS;
   }
 
@@ -342,12 +347,11 @@ static FtestStatus ftest_sb_status(char *detail, FtestCascade *cascade,
     D("sin respuesta");
     return FTEST_FAIL;
   }
-  static const char *const kNames[6] = {"sht0", "sht1", "sht2",
-                                        "als",  "door", "cam"};
-  const bool avail[6] = {s.avail_sht[0], s.avail_sht[1], s.avail_sht[2],
-                        s.avail_als,    s.avail_door,   s.avail_cam};
+  static const char *const kNames[4] = {"sht0", "sht1", "sht2", "door"};
+  const bool avail[4] = {s.avail_sht[0], s.avail_sht[1], s.avail_sht[2],
+                        s.avail_door};
   const char *missing = kNames[0];
-  for (int i = 0; i < 6; i++) {
+  for (int i = 0; i < 4; i++) {
     if (!avail[i]) {
       missing = kNames[i];
       break;
@@ -455,8 +459,13 @@ static FtestStatus ftest_sb_door(char *detail, FtestCascade *, uint32_t) {
 }
 
 // ---------------------------------------------------------------------------
-// 10: SB_LIGHT (ACTIVO, WAIT)
+// 10: SB_LIGHT (ACTIVO, WAIT) -- omitido en banco 2026-10-06, mismo criterio
+// que SB_DOOR: FTEST_SKIP explicito sin emitir WAIT, asi no se pide al
+// operario que tape el sensor. El cuerpo sigue debajo, inalcanzable, para
+// reactivarlo quitando el return.
 static FtestStatus ftest_sb_light(char *detail, FtestCascade *cascade) {
+  D("omitido");
+  return FTEST_SKIP;
   if (sb_skip_if_no_usb(cascade, detail)) return FTEST_SKIP;
 
   float base = -1.0f;
@@ -508,8 +517,13 @@ static FtestStatus ftest_sb_light(char *detail, FtestCascade *cascade) {
 // 11: SB_CAMERA (pasivo) -- depende de ENV_SENSOR (misma cascada que
 // SB_STATUS). Pide una captura UNA sola vez (s_sbCameraRequested) y despues
 // solo observa si ya hay JPEG listo.
+//
+// Omitido en banco 2026-10-06 (junto con SB_LIGHT): FTEST_SKIP sin pedir la
+// captura. Para reactivarlo basta quitar el return.
 static FtestStatus ftest_sb_camera(char *detail, FtestCascade *cascade,
                                     uint32_t elapsed_ms) {
+  D("omitido");
+  return FTEST_SKIP;
   if (sb_skip_if_no_usb(cascade, detail)) return FTEST_SKIP;
 
   if (!s_sbCameraRequested) {
@@ -583,44 +597,37 @@ static FtestStatus ftest_humid_usb(char *detail, FtestCascade *, uint32_t) {
 }
 
 // ---------------------------------------------------------------------------
-// 15: BUZZER (ACTIVO) -- SOLO con microfono (SensorBoard). Cuarta ronda
-// (banco 2026-09-06): se elimina el camino CONFIRM (preguntar al operario
-// "sonido del zumbador?") -- sin microfono no hay forma objetiva de medir el
-// zumbador, y un CONFIRM humano en una bateria pensada para correr sin
-// supervision constante no aporta nada que un SKIP no diga ya. Sin
-// sound_seen el test SKIP con detail "sin microfono" (el HMI oculta los
-// SKIP) sin hacer sonar el zumbador ni preguntar nada.
+// 15: BUZZER (ACTIVO) -- lo mide el DISPLAY con su microfono (banco
+// 2026-10-06). El de la SensorBoard no servia: queda lejos del zumbador y con
+// los ventiladores del test el zumbador no subia el nivel medido.
+//
+// La placa solo actua: enciende el zumbador y emite CONFIRM. El display lleva
+// el microfono encendido desde que abrio la pantalla de test, compara el nivel
+// de justo antes del CONFIRM (zumbador apagado) con el de despues y contesta
+// HMI,FTEST,CONFIRM,15,<1|0>. Un display sin microfono (version anterior)
+// pinta la pregunta "suena el zumbador?" y contesta el operario: el mismo
+// mensaje sirve para los dos casos.
+//
+// No oirlo o no recibir respuesta es AVISO, no FALLA: no prueba que el
+// zumbador este roto, y el operario lo oye igualmente.
 static FtestStatus ftest_buzzer(char *detail, FtestCascade *) {
-  SbSnapshot before;
-  sensorboard_get_snapshot(&before);
-
-  if (!before.sound_seen) {
-    D("sin microfono");
-    return FTEST_SKIP;
-  }
-
-  const float base = before.dba;
-  const uint32_t baseMs = before.last_sound_ms;
+  // Armar ANTES de emitir (bloqueante #8 del review de seguridad).
+  ftest_arm_confirm(FTEST_MB_BUZZER);
   ledcWrite(BUZZER_PWM_CHANNEL, BUZZER_HALF_PWM);
-  float peak = base;
-  bool gotNew = false;
-  const uint32_t start = millis();
-  while ((uint32_t)(millis() - start) < 7000) {
-    SbSnapshot s;
-    sensorboard_get_snapshot(&s);
-    if (s.sound_seen && s.last_sound_ms != baseMs) {
-      peak = s.dba;
-      gotNew = true;
-      break;
-    }
-    if (ftest_abort_requested()) break;
-    ftest_yield();
-    vTaskDelay(pdMS_TO_TICKS(250));
-  }
+  ftest_emit(FTEST_MB_BUZZER, FTEST_CONFIRM, "zumbador sonando");
+  const int answer = ftest_wait_confirm(FTEST_MB_BUZZER, FTEST_CONFIRM_TIMEOUT_MS);
   ledcWrite(BUZZER_PWM_CHANNEL, 0);
-  D("base=%.0f pico=%.0f", base, peak);
-  if (!gotNew) return FTEST_FAIL;
-  return ((peak - base) >= FTEST_BUZZER_DBA_DELTA) ? FTEST_PASS : FTEST_FAIL;
+  if (answer == 1) {
+    D("oido");
+    return FTEST_PASS;
+  }
+  if (answer == 0) {
+    D("no oido");
+    return FTEST_WARN;
+  }
+  // -1: plazo agotado o ABORT (este ultimo lo reescribe run_one()).
+  D("sin respuesta");
+  return FTEST_WARN;
 }
 
 // ---------------------------------------------------------------------------
@@ -706,6 +713,13 @@ static FtestStatus ftest_gsm_signal(char *detail, FtestCascade *cascade,
                                      uint32_t elapsed_ms) {
   if (cascade->gsm_sim == FTEST_DEP_FAILED) {
     D("sin sim");
+    return FTEST_SKIP;
+  }
+  // Con WiFi no se juzga la cobertura celular (banco 2026-10-06): el equipo no
+  // depende del 2G para salir, y en la nave la senal es la que haya. Se mira
+  // en cada sondeo: si la WiFi entra a mitad del plazo, tambien se omite.
+  if (WIFIIsConnected()) {
+    D("con wifi");
     return FTEST_SKIP;
   }
   if (GPRS.CSQ >= 1 && GPRS.CSQ <= 31) {

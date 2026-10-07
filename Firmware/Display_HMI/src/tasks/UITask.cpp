@@ -314,6 +314,12 @@ static void intro_timer_cb(lv_timer_t *t) {
     lv_timer_del(intro_timer);
     intro_timer = NULL;
   }
+  // Primer test de fabrica pendiente: el equipo se queda en la pantalla de
+  // inicio con el boton de test (FactoryTest.h).
+  if (FactoryTest_FirstTestPending()) {
+    UI_ShowIntroHwTestButton();
+    return;
+  }
   lv_scr_load(ui_ScreenMain);
   if (!synced)
     ESP_LOGW(TAG, "Intro: no state sync after 10s — proceeding anyway");
@@ -1012,6 +1018,8 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   lv_label_set_text(ui_ModesLabel, L(STR_MODES));
   lv_label_set_text(ui_ModesTitleLabel, L(STR_MODES));
   if (ui_HwTestLabel) lv_label_set_text(ui_HwTestLabel, L(STR_HW_TEST));
+  if (ui_IntroHwTestLabel)
+    lv_label_set_text(ui_IntroHwTestLabel, L(STR_HW_TEST));
   if (ui_HwTestSubLabel)
     lv_label_set_text(ui_HwTestSubLabel, L(STR_HW_TEST_SUB));
   lv_label_set_text(ui_HumidityModeLabel, L(STR_HUMIDITY_CONTROL));
@@ -3590,7 +3598,10 @@ void inactivity_timer_cb(lv_timer_t *timer) {
   // tocar). La ayuda, la formacion y el aviso de mantenimiento gestionan su
   // propia exencion con tope (mas abajo); el resumen del test se cierra solo
   // a los 10 min para no dejar el banner de alarma inalcanzable.
-  if (lv_scr_act() == ui_ScreenAlarms || FactoryTest_IsOpen()) {
+  // La pantalla de inicio tambien: en el primer test de fabrica el equipo se
+  // queda en ella esperando al operario, y bloquearla lo sacaria de ahi.
+  if (lv_scr_act() == ui_ScreenAlarms || lv_scr_act() == ui_ScreenIntro ||
+      FactoryTest_IsOpen()) {
     lv_disp_trig_activity(NULL);
     update_autolock_ring(0);
     return;
@@ -4418,7 +4429,7 @@ void UI_Task(void *pvParameters) {
   link_lost_chip_init();
   audio_paused_icon_init();
 
-  if (g_hmiRestoreState) {
+  if (g_hmiRestoreState && !FactoryTest_FirstTestPending()) {
     // Skip 5-second splash and go straight to lock screen on crash recovery
     lv_scr_load(ui_ScreenMain);
     enter_lock_screen();
@@ -4904,6 +4915,15 @@ void UI_Task(void *pvParameters) {
     // motherBoard. Mismo contrato de polling, sin peticion de cierre por
     // alarma critica: es la pantalla de montaje, se usa con el equipo vacio.
     FactoryTest_Poll();
+    // Primer test de fabrica pendiente: terminado el splash, ninguna otra
+    // pantalla es alcanzable (salvo la de alarmas, para poder atender una).
+    // Cualquier camino que cargue otra — un toque en el banner, un aviso que
+    // navega — acaba de vuelta en la pantalla de inicio con el boton.
+    if (FactoryTest_FirstTestPending() && intro_timer == NULL &&
+        !FactoryTest_IsOpen() && lv_scr_act() != ui_ScreenIntro &&
+        lv_scr_act() != ui_ScreenAlarms) {
+      lv_scr_load(ui_ScreenIntro);
+    }
     // hmi-factory-test-settings-entry: fila "Test de hardware" de
     // ui_ScreenSettings. Gateada internamente para no repintar si el estado
     // no cambio; se llama en cada pasada mientras esa pantalla esta activa

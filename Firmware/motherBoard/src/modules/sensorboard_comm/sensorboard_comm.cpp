@@ -521,7 +521,7 @@ void sensorboard_comm_init(void) {
     return;
   }
 
-  xTaskCreatePinnedToCore(usb_host_daemon_task, "USB_HOST_D", 4096, NULL,
+  xTaskCreatePinnedToCore(usb_host_daemon_task, "USB_HOST_D", SMALL_TASK_STACK_BYTES, NULL,
                           SENSORBOARD_TASK_PRIORITY, NULL, CORE_ID_FREERTOS);
 
   // Stack propio mayor que el de por defecto: el callback de datos decodifica

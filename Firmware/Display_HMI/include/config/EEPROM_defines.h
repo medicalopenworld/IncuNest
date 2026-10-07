@@ -85,6 +85,11 @@ constexpr char HMI_KEY_FTEST_FWVER[]    = "fwver";
 // Veredicto unico de la bateria (shared-factory-test-bench2 D5): 0 = nunca
 // persistido con un valor valido (clave ausente), 1 = HW OK, 2 = HW ERROR.
 constexpr char HMI_KEY_FTEST_VERDICT[]  = "verdict";
+// Primer test de hardware de fabrica: 0 = pendiente (el equipo arranca parado
+// en la pantalla de inicio con el boton de test), 1 = hecho. Clave ausente =
+// aun no decidido: FactoryTest_LoadFirstTestState() la fija en el primer
+// arranque con este firmware.
+constexpr char HMI_KEY_FTEST_FIRST_DONE[] = "first_done";
 
 void initEEPROM();
 void loaddefaultValues();

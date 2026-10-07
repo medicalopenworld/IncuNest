@@ -24,6 +24,21 @@
 #define SECURITY_TASK_PRIORITY 9
 #define GPRS_MONITOR_TASK_PRIORITY 10
 
+// Pilas (bytes). Esta placa NO tiene PSRAM: todo sale de ~318 KB de SRAM
+// interna, y el handshake TLS de la activacion de la SIM (mbedTLS con 16 KB de
+// entrada y 16 KB de salida, siempre en SRAM interna) la dejaba en < 1 KB, con
+// la WiFi sin buferes (banco 2026-10-07: errno 11 en todos los sockets,
+// BEACON_TIMEOUT). Recortadas a ~2,5x lo maximo que se midio usar (marca de
+// agua tras arranque, WiFi + ThingsBoard + GPRS publicando):
+//   GPRS 16384 (usaba 2,3 KB), OTA 16384 (2,8 KB), BUZZER/SECURITY/TimeTrack/
+//   SPO2/USB_HOST_D 4096 (0,7-1 KB).
+// Ni OTA ni GPRS hacen TLS en su propia pila (la WiFi a ThingsBoard es MQTT sin
+// cifrar y el GPRS cifra en el modem), que es lo unico que las haria crecer
+// de golpe.
+#define GPRS_TASK_STACK_BYTES 8192
+#define OTA_TASK_STACK_BYTES 10240
+#define SMALL_TASK_STACK_BYTES 3072
+
 #define PWR_HOLD_MS 3000
 #define PWR_OFF_UPDATE_INTERVAL_MS 200
 #define POWER_MANAGEMENT_TASK_PERIOD_MS 50

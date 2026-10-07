@@ -109,11 +109,21 @@ void ftest_emit(unsigned id, FtestStatus st, const char *detail);
 // CUALQUIER bucle de espera, en pasos de <= 250 ms (design.md D5).
 bool ftest_abort_requested(void);
 
-// NOTA (cuarta ronda, banco 2026-09-06): ftest_arm_confirm()/ftest_wait_
-// confirm() se retiraron de aqui y de factory_test_task.cpp junto con su
-// semaforo -- BUZZER (unico llamante) ya no usa el camino CONFIRM (ver su
-// cuerpo en factory_test_hw.cpp). El comando HMI,FTEST,CONFIRM lo sigue
-// aceptando el parser (CommTask.cpp) pero se descarta con log "sin uso".
+// CONFIRM (recuperado el 2026-10-06, banco): BUZZER lo usa para que el
+// DISPLAY mida el zumbador con su microfono y conteste si lo oyo (un display
+// sin microfono se lo pregunta al operario, que es el camino de siempre).
+//
+// Arma la espera de un CONFIRM: drena cualquier "give" residual del semaforo
+// y DESPUES fija `id` como el esperado. El cuerpo del test la llama ANTES de
+// encolar su linea CTRL,FTEST,id,5 con ftest_emit() (bloqueante #8 del review
+// de seguridad, "carrera del CONFIRM"): al reves, un CONFIRM que llegase
+// justo entre encolar la linea y armar la espera se perderia.
+void ftest_arm_confirm(unsigned id);
+
+// Espera hasta timeout_ms la respuesta a un CONFIRM ya armado con
+// ftest_arm_confirm(). Hace avanzar a los pasivos (ftest_yield()) en pasos de
+// <= 250 ms. 1 = si, 0 = no, -1 = plazo agotado o ABORT.
+int ftest_wait_confirm(unsigned id, uint32_t timeout_ms);
 
 // Motivo del ultimo ftest_abort_requested() == true ("abort"/"control on"/
 // "hmi lost"/"max time"). Los cuerpos de test la usan para el detail del

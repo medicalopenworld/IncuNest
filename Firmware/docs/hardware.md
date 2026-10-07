@@ -95,11 +95,11 @@ control or phototherapy is active.
 | Power | INA3221 ×2 presence, standby current, BQ25730 answering (cached `g_bq_status_valid`, with or without mains), mains/battery | presence flags, `HW_error` bits, state refreshed every 5 s by `sensors_Task`, checked with a freshness stamp |
 | Skin probe | ADS1110 + skin NTC | `skinProbeLastReading()` and the freshness stamp kept by `sensors_Task` |
 | Ambient sensor | one fresh, valid reading by **any** of the three paths: SensorBoard over USB (`usb`), STS35/SHTC3 over I2C2 (`i2c`) or external SHT4x (`sht4x`). A unit carries a SensorBoard **or** an SHT4x, never both | `sensorSourceGet()`, `sensorboard_comm` snapshot, `in3.temperature[]` + freshness stamps |
-| SensorBoard (USB) | `status` availability of sht0/1/2, ALS, Hall, camera; 3×SHT40 coherence (≤ 1.0 °C spread; ≤ 3.0 °C vs external only if an SHT4x exists); door open/close; light drop; JPEG capture | `sensorboard_comm` snapshot and `status`/`capture` requests; skipped (hidden) when the ambient reading did not come over USB |
+| SensorBoard (USB) | `status` availability of sht0/1/2 and Hall (ALS and camera are reported in the detail but no longer required); 3×SHT40 coherence (≤ 1.0 °C spread; ≤ 3.0 °C vs external only if an SHT4x exists). Door, light and JPEG capture are **omitted** (SKIP) | `sensorboard_comm` snapshot and `status` request; skipped (hidden) when the ambient reading did not come over USB |
 | Actuators | heater, phototherapy, fan currents; fan RPM. The humidifier USB switch test is **omitted for now** (SKIP) until the jig can measure the humidifier | `actuatorsTest()`, INA3221 channels |
-| Buzzer | dBA rise measured by the SensorBoard microphone; operator confirmation if no microphone | `sound_level` events |
+| Buzzer | the motherBoard turns the buzzer on and sends `CONFIRM`; the **display** measures it with its own PDM microphone (LMD3526B261, IO19 clock / IO20 data, always on) as energy at 400 Hz and its 3rd/5th harmonics, 1.1 s before vs 1 s after the `CONFIRM`, and answers by itself (PASS if ≥ +6 dB). Not heard, or no answer in 60 s, is a **WARNING**. A display whose microphone gives no signal (or an older display) asks the operator instead | `HMI,FTEST,CONFIRM,15,<0\|1>`; bench: +20 dB with the test fans running, where the broadband level only rose 3 dB |
 | SpO2 | AFE4490 timing registers read back over SPI; probe attached (optional) | `getTimingConfig()`, `runAfeDiagnostics()`, `probe_state` |
-| Communications | HMI link; GSM modem answering AT, SIM `+CPIN: READY`, CSQ, network attach; WiFi to the default AP; ThingsBoard session with provisioned token; wall clock | state already collected by `GPRS_Task` and the WiFi task, read passively. Only "modem answers" and "SIM ready" can fail; signal, attach, WiFi, ThingsBoard and clock end as **WARNING** (amber, not a board fault) when the environment is missing |
+| Communications | HMI link; GSM modem answering AT, SIM `+CPIN: READY`, CSQ, network attach; WiFi to the default AP; ThingsBoard session with provisioned token; wall clock | state already collected by `GPRS_Task` and the WiFi task, read passively. Only "modem answers" and "SIM ready" can fail; signal, attach, WiFi, ThingsBoard and clock end as **WARNING** (amber, not a board fault) when the environment is missing. CSQ is **skipped while WiFi is up**. `sim_act` activates the Onomondo SIM through its HTTPS API over WiFi (PASS if already active), retrying for up to 60 s |
 | Storage | NVS write/read, LittleFS mount | `Preferences`, `LittleFS.begin()` |
 
 **Execution order.** The battery runs in the single `FTEST` task with
@@ -108,7 +108,7 @@ asynchronous request: connectivity, charger, ambient sensor, SensorBoard
 status and camera, and the instantaneous checks) starts at once when the
 battery begins and is polled every 250 ms, including inside the wait loops of
 the *active* tests (standby current, actuators, fan RPM, buzzer, AFE, SHT40
-coherence, light with the operator), which stay strictly sequential and never
+coherence), which stay strictly sequential and never
 overlap each other. Worst case in a factory with no coverage and no AP drops
 from four or five minutes to about 45 s, and the GSM/WiFi checks get the whole
 battery to connect. Results reach the display out of id order; the display
@@ -125,9 +125,17 @@ in a non-cooperative call is only covered by the task WDT.
 `power_src` and a real `charger` check need the jig to power the unit over
 VBUS (the BQ25730 is unpowered on battery; `charger` reports a WARNING
 instead); `sb_door` needs the door mounted on the jig; `humid_usb` needs a
-way to measure the humidifier; the motherBoard `buzzer` check needs the
-SensorBoard microphone (without it the test is skipped, it never asks the
-operator); the display's own buzzer and speaker tests were removed.
+way to measure the humidifier; `sb_light` and `sb_camera` were dropped on the
+bench 2026-10-06; the display's own buzzer and speaker tests were removed.
+
+**SRAM on the motherBoard.** The board has **no PSRAM** and mbedTLS allocates
+from internal SRAM (16 KB in + 16 KB out per connection). Before 2026-10-07 the
+`sim_act` TLS handshake left less than 1 KB free and the WiFi ran out of
+buffers (`errno 11` on every socket, `BEACON_TIMEOUT`), which looked like a bad
+access point. Task stacks were trimmed to ~2.5× their measured high-water mark
+(`task_config.h`), which gives about 96 KB free at rest and 17 KB at the
+handshake peak. A bench build (`-DFTEST_BENCH_DEBUG`) adds `MEM` and `SIMACT`
+to the debug console to measure this again.
 
 Deliberately **not** tested: the TCA9535 expander and the rotary encoder
 (vestigial code with no hardware behind it on this board), buzzer current

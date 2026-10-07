@@ -35,6 +35,10 @@
 #include "modules/sensorboard_comm/sensorboard_comm.h"
 #include "modules/sensors/sensor_source.h"
 #include "system/hw_selftest.h"
+#ifdef FTEST_BENCH_DEBUG
+#include "esp_heap_caps.h"
+#include "modules/factory_test/factory_test_api.h"
+#endif
 #include "DriveUpload.h"
 #include "CrashReporter.h"
 #include <Preferences.h>
@@ -232,7 +236,7 @@ void GPRSMonitorTask(void *pvParameters) {
         GPRS_lastMillisTaskClear = millis();
         // Recreate GPRS_Task so a single hung AT call doesn't kill cellular
         // connectivity for good; the new task spawns its own fresh monitor.
-        xTaskCreatePinnedToCore(GPRS_Task, "GPRS", 16384, NULL,
+        xTaskCreatePinnedToCore(GPRS_Task, "GPRS", GPRS_TASK_STACK_BYTES, NULL,
                                 GPRS_TAST_PRIORITY, &taskHandle,
                                 CORE_ID_FREERTOS);
         xSemaphoreGive(GPRS_monitor_mutex);
@@ -379,6 +383,10 @@ void sensors_Task(void *pvParameters) {
 //
 // Nada de esto se guarda: cualquier reinicio vuelve a dejar la WiFi encendida
 // y la fototerapia como la tenga el display. Lo demas se ignora.
+//
+// Solo en builds de banco (-DFTEST_BENCH_DEBUG, nunca en el firmware normal):
+//   "MEM"     reparto de SRAM interna y marca de agua de cada pila.
+//   "SIMACT"  lanza el test sim_act aislado (sin actuadores).
 // ---------------------------------------------------------------------------
 // ESP_LOGx y no logI/logE: main.h compila esos dos fuera del binario
 // (LOG_INFORMATION y LOG_ERRORS estan a false), asi que un acuse escrito con
@@ -386,6 +394,48 @@ void sensors_Task(void *pvParameters) {
 static const char *DBGCON_TAG __attribute__((unused)) = "DBGCON";
 
 static void debugConsoleHandle(const char *line) {
+#ifdef FTEST_BENCH_DEBUG
+  // Solo en builds de banco (-DFTEST_BENCH_DEBUG): lanza SIM ACT aislado, el
+  // mismo camino que el REINTENTAR del display (factoryTestRunSingle), para
+  // diagnosticar la activacion de la SIM sin nadie en la pantalla. Solo ese
+  // id: no acciona ningun actuador.
+  if (strcmp(line, "MEM") == 0) {
+    // Reparto de SRAM interna: cuanto sobra en cada pila (marca de agua) y
+    // como esta el heap. Las tareas se buscan por nombre porque la mayoria se
+    // crean sin guardar el handle.
+    static const char *const kTasks[] = {
+        "GPRS",     "OTA",       "COMM_TASK", "COMM_TASK_RX", "SB_COMM",
+        "PWR_MGMT", "BUZZER",    "SENSORS",   "SECURITY",     "TimeTrack",
+        "SPO2",     "GPRS_MONITOR", "USB_HOST_D", "DRV_WR",   "DRV_UP",
+        "FTEST",    "FTEST_SIM", "loopTask",  "async_tcp",    "tiT",
+        "wifi",     "esp_timer", "sys_evt",   "ipc0",         "ipc1",
+        "IDLE",     "Tmr Svc"};
+    ESP_LOGW(DBGCON_TAG, "MEM: SRAM interna total=%u libre=%u minimo=%u "
+             "bloque=%u | 8bit libre=%u",
+             (unsigned)heap_caps_get_total_size(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+    for (const char *name : kTasks) {
+      TaskHandle_t h = xTaskGetHandle(name);
+      if (h == NULL) continue;
+      ESP_LOGW(DBGCON_TAG, "MEM: tarea %-13s pila sin usar nunca=%u B", name,
+               (unsigned)uxTaskGetStackHighWaterMark(h));
+    }
+    return;
+  }
+  if (strcmp(line, "SIMACT") == 0) {
+    const int reject = factoryTestPrecheck(FTEST_MB_SIM_ACT);
+    if (reject >= 0) {
+      ESP_LOGW(DBGCON_TAG, "SIMACT rechazado (reject=%d)", reject);
+      return;
+    }
+    ESP_LOGW(DBGCON_TAG, "SIMACT: arranca factoryTestRunSingle(%d) -> %d",
+             (int)FTEST_MB_SIM_ACT, (int)factoryTestRunSingle(FTEST_MB_SIM_ACT));
+    return;
+  }
+#endif
   if (strncmp(line, "PHOTO,", 6) == 0) {
     const char *arg = line + 6;
     // Mismo parseo estricto que WIFI_EN: un '0' o un '1' y nada mas.
@@ -860,7 +910,7 @@ void setup() {
 #endif
 
   logI("Creating buzzer task ...\n");
-  while (xTaskCreatePinnedToCore(buzzer_Task, "BUZZER", 4096, NULL,
+  while (xTaskCreatePinnedToCore(buzzer_Task, "BUZZER", SMALL_TASK_STACK_BYTES, NULL,
                                  BUZZER_TASK_PRIORITY, NULL,
                                  CORE_ID_FREERTOS) != pdPASS)
     ;
@@ -874,28 +924,28 @@ void setup() {
   logI("Sensors task successfully created!\n");
 
   logI("Creating security task ...\n");
-  while (xTaskCreatePinnedToCore(security_Task, "SECURITY", 4096, NULL,
+  while (xTaskCreatePinnedToCore(security_Task, "SECURITY", SMALL_TASK_STACK_BYTES, NULL,
                                  SECURITY_TASK_PRIORITY, NULL,
                                  CORE_ID_FREERTOS) != pdPASS)
     ;
   logI("Security task successfully created!\n");
 
   logI("Creating GPRS task ...\n");
-  while (xTaskCreatePinnedToCore(GPRS_Task, "GPRS", 16384, NULL,
+  while (xTaskCreatePinnedToCore(GPRS_Task, "GPRS", GPRS_TASK_STACK_BYTES, NULL,
                                  GPRS_TAST_PRIORITY, &taskHandle,
                                  CORE_ID_FREERTOS) != pdPASS)
     ;
   logI("GPRS task successfully created!\n");
 
   logI("Creating OTA task ...\n");
-  while (xTaskCreatePinnedToCore(OTA_WIFI_Task, "OTA", 16384, NULL,
+  while (xTaskCreatePinnedToCore(OTA_WIFI_Task, "OTA", OTA_TASK_STACK_BYTES, NULL,
                                  OTA_TASK_PRIORITY, NULL,
                                  CORE_ID_FREERTOS) != pdPASS)
     ;
   logI("OTA task successfully created!\n");
 
   logI("Creating time track task ...\n");
-  while (xTaskCreatePinnedToCore(TimeTrack_Task, "TimeTrack", 4096, NULL,
+  while (xTaskCreatePinnedToCore(TimeTrack_Task, "TimeTrack", SMALL_TASK_STACK_BYTES, NULL,
                                  TIME_TRACK_TASK_PRIORITY, NULL,
                                  CORE_ID_FREERTOS) != pdPASS)
     ;
