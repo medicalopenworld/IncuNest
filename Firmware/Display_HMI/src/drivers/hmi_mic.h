@@ -33,7 +33,3 @@ bool HmiMic_LevelBetween(uint32_t fromMs, uint32_t toMs, float *dbOut);
 // (400 Hz y sus armonicos 3 y 5). El ruido de banda ancha de los ventiladores
 // apenas cae ahi, asi que el zumbador destaca mucho mas que en el nivel total.
 bool HmiMic_ToneBetween(uint32_t fromMs, uint32_t toMs, float *dbOut);
-
-#ifdef HMI_MIC_BOOT_PROBE
-void HmiMic_BootProbe(void);  // verificacion temporal en banco
-#endif

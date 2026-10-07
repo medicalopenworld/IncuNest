@@ -256,32 +256,6 @@ bool HmiMic_Alive(void) {
   return alive;
 }
 
-#ifdef HMI_MIC_BOOT_PROBE
-// Verificacion en banco del microfono (temporal): -DHMI_MIC_BOOT_PROBE.
-static void micProbeTask(void *) {
-  vTaskDelay(pdMS_TO_TICKS(8000));  // tras el arranque de UI/WiFi
-  if (!HmiMic_Start()) {
-    ESP_LOGE(TAG, "[PROBE] el microfono no arranca");
-    vTaskDelete(nullptr);
-  }
-  for (int i = 0; i < 60; i++) {
-    vTaskDelay(pdMS_TO_TICKS(1000));
-    float db = 0.0f;
-    const uint32_t now = millis();
-    const bool ok = HmiMic_LevelBetween(now - 1000, now, &db);
-    ESP_LOGW(TAG, "[PROBE] t=%ds alive=%d nivel=%s%.1f dB", i + 1,
-             (int)HmiMic_Alive(), ok ? "" : "(sin ventanas) ", (double)db);
-  }
-  HmiMic_Stop();
-  ESP_LOGW(TAG, "[PROBE] fin");
-  vTaskDelete(nullptr);
-}
-
-void HmiMic_BootProbe(void) {
-  xTaskCreate(micProbeTask, "mic_probe", 3072, nullptr, 1, nullptr);
-}
-#endif
-
 static bool levelBetween(uint32_t fromMs, uint32_t toMs, bool tone,
                          float *dbOut) {
   double energy = 0.0;

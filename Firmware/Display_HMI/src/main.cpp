@@ -184,9 +184,6 @@ void setup() {
   ESP_LOGI(TAG, "Creating Communication task ...");
   CreateCommTask();
   ESP_LOGI(TAG, "Communication task successfully created!");
-#ifdef HMI_MIC_BOOT_PROBE
-  HmiMic_BootProbe();  // verificacion temporal del microfono en banco
-#endif
 
   // Espera acotada: crear la tarea no reserva nada, la reserva ocurre dentro
   // de UI_Task (que ademas espera al STC8 del backlight). Sin esta barrera el
