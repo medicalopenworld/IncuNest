@@ -216,6 +216,9 @@ UI_STR(STR_BOARD_LINK_LOST,    "!! SIN ENLACE CON LA PLACA",
                                "!! LIAISON CARTE PERDUE",
                                "!! SEM LIGACAO A PLACA")
 UI_STR(STR_ALARM_TEST,         "PRUEBA DE ALARMA","ALARM TEST","TEST D'ALARME","TESTE DE ALARME")
+// Chip del heading de ui_ScreenMain: la misma condicion que STR_BOARD_LINK_LOST
+// en un hueco de 150 px, asi que corto.
+UI_STR(STR_LINK_LOST_SHORT,    "SIN ENLACE","LINK LOST","HORS LIGNE","SEM LIGACAO")
 
 // ------------------------------------------------------- centro de alarmas
 UI_STR(STR_PRIO_HIGH,          "ALTA",         "HIGH",        "HAUTE",       "ALTA")

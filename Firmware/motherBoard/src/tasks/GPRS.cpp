@@ -32,6 +32,7 @@
 #include "modules/baby_profile/baby_profile_store.h"
 #include "civil_time.h"
 #include "modules/util/system_clock.h"
+#include "modules/util/therapy_off_edge.h"
 #include "modules/util/tz_source.h"
 #include <sys/time.h>
 
@@ -62,6 +63,10 @@ Arduino_MQTT_Client mqttClientGPRS(client);
 ThingsBoard tb(mqttClientGPRS, MAX_MESSAGE_SIZE);
 
 StaticJsonDocument<JSON_OBJECT_SIZE(THINGSBOARD_FIELDS_AMOUNT)> GPRS_JSON;
+
+// Flanco de apagado de fototerapia/control -> publicacion adelantada. Solo lo
+// toca la tarea GPRS. A cero equivale a therapy_off_edge_init().
+static TherapyOffEdge s_offEdge = {};
 JsonObject addVariableToTelemetryGPRSJSON = GPRS_JSON.to<JsonObject>();
 
 // Cuando el pool se llena, ArduinoJson deja de anadir claves SIN error y
@@ -1335,10 +1340,19 @@ void GPRSPost() {
       }
     }
     if (tb.connected()) {
-      if (millis() - GPRS.lastSent > secsToMillis(GPRS.sendPeriod)) {
+      // Un apagado de fototerapia o control adelanta la publicacion: si no,
+      // en standby (3600 s) ThingsBoard tardaria hasta una hora en verlo.
+      // Ver modules/util/therapy_off_edge.h.
+      const bool offEdgeDue = therapy_off_edge_due(&s_offEdge, millis());
+      if (offEdgeDue ||
+          millis() - GPRS.lastSent > secsToMillis(GPRS.sendPeriod)) {
         // Send our firmware title and version
         logModemData("[GPRS] -> sendPeriod is " + String(GPRS.sendPeriod) +
                      " secs");
+        if (offEdgeDue) {
+          logModemData("[GPRS] -> Publicacion adelantada: apagado de "
+                       "fototerapia/control");
+        }
         logModemData("[GPRS] -> Posting GPRS data...");
 
         if (!GPRS.firstPublish) {
@@ -1362,6 +1376,9 @@ void GPRSPost() {
                                  JSON_STRING_SIZE(measureJson(
                                      addVariableToTelemetryGPRSJSON)))) {
           logModemData("[GPRS] -> GPRS MQTT PUBLISH TELEMETRIES SUCCESS");
+          // Solo si ha salido: un envio fallido deja el apagado pendiente y
+          // se reintenta pasada la separacion minima, no a la hora.
+          therapy_off_edge_published(&s_offEdge, millis());
         } else {
           logModemData("[GPRS] -> GPRS MQTT PUBLISH TELEMETRIES FAIL");
         }
@@ -1404,6 +1421,11 @@ void GPRS_TB_Init() {
 }
 
 void GPRS_Handler() {
+  // En cada vuelta, haya conexion o no: un apagado ocurrido sin enlace queda
+  // pendiente y sale al reconectar. Control = el mismo criterio que
+  // control_active en addTelemetriesToGPRSJSON().
+  therapy_off_edge_observe(&s_offEdge, in3.phototherapy,
+                           in3.temperatureControl || in3.humidityControl);
   GPRSStatusHandler();
   if (GPRS.powerUp) {
     GPRSPowerUp();
