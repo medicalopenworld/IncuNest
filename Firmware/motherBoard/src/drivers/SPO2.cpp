@@ -91,7 +91,7 @@ void initSPO2() {
 
   // Launch application consumer task
   logSPO2("Creating SPO2 task ...\n");
-  while (xTaskCreatePinnedToCore(SPO2_Task, "SPO2", 4096, NULL,
+  while (xTaskCreatePinnedToCore(SPO2_Task, "SPO2", SMALL_TASK_STACK_BYTES, NULL,
                                  SPO2_TASK_PRIORITY, &g_spo2_task,
                                  CORE_ID_FREERTOS) != pdPASS)
     ;
