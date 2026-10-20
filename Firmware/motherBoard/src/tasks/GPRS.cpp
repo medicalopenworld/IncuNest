@@ -734,7 +734,17 @@ void GPRSPowerUp() {
     GPRS.modemResponded = true;
     GPRS.simReady = true;
     GPRS.CCID = modem.getSimCCID();
-    GPRS.CCID.remove(GPRS.CCID.length() - 1);
+    // El ICCID va ENTERO. Antes se le quitaba siempre el ultimo caracter y se
+    // publicaban 19 digitos (a 89457300000051200304 le faltaba el 4). Ademas,
+    // 19 digitos caben en un int64 y ThingsBoard, que convierte en numero los
+    // strings que lo parecen, lo guardaba como long; su web lo pintaba como
+    // double y salia 8945730000005120000. Con 20 digitos (>= 8.9e19) no cabe
+    // y ThingsBoard lo guarda como string, exacto.
+    // Solo se quita la 'F' de relleno con la que el modem completa un ICCID
+    // de 19 digitos.
+    if (GPRS.CCID.endsWith("F") || GPRS.CCID.endsWith("f")) {
+      GPRS.CCID.remove(GPRS.CCID.length() - 1);
+    }
     GPRS.IMEI = modem.getIMEI();
     logModemData("[GPRS] -> CCID is: " + GPRS.CCID);
     logModemData("[GPRS] -> IMEI is: " + GPRS.IMEI);
