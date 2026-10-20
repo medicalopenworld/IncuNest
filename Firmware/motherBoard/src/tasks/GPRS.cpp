@@ -615,6 +615,7 @@ void GPRSForceReset(const String &reason) {
   GPRS.connect = false;
   GPRS.powerUp = true;
   GPRS.serverConnectionStatus = false;
+  GPRS.tbConnectFailures = 0;
   logModemData("[GPRS] -> powering module down...");
   Serial2.print("AT+CPOWD=1\n");
   GPRS.packetSentenceTime = millis();
@@ -653,6 +654,16 @@ void GPRSVerifyStillAttached() {
 
   if (!modem.isNetworkConnected()) {
     GPRSForceReset("network attach lost (SIM retirada o sin cobertura)");
+    return;
+  }
+  // Estar registrado en la red (CREG) no es tener sesion de datos. Si el
+  // contexto PDP se cae (+PDP: DEACT) el modem sigue registrado, CREG sigue
+  // diciendo 1/5 y el HMI seguia pintando "2G" mientras tb.connect() fallaba
+  // para siempre: el equipo no aparecia en ThingsBoard ni en el portal de
+  // Onomondo hasta reiniciar la placa (visto en banco, 2026-10-20).
+  // isGprsConnected() mira CGATT y que el modem conserve IP (AT+CIFSR).
+  if (!modem.isGprsConnected()) {
+    GPRSForceReset("data session lost (CREG ok, sin CGATT/IP)");
   }
 }
 
@@ -1325,9 +1336,16 @@ void GPRSPost() {
 
       GPRS.lastReconnectAttempt = millis();
       if (!tb.connect(THINGSBOARD_SERVER, GPRS.device_token.c_str())) {
-        logModemData("[GPRS] -> Failed to connect");
+        GPRS.tbConnectFailures++;
+        logModemData("[GPRS] -> Failed to connect (" +
+                     String(GPRS.tbConnectFailures) + "/" +
+                     String(GPRS_TB_CONNECT_MAX_FAILS) + ")");
+        if (GPRS.tbConnectFailures >= GPRS_TB_CONNECT_MAX_FAILS) {
+          GPRSForceReset("ThingsBoard inalcanzable por GPRS");
+        }
         return;
       } else {
+        GPRS.tbConnectFailures = 0;
         logModemData("[GPRS] -> Connected to host");
         GPRS.serverConnectionStatus = true;
         subscribeRPCHandlers();
@@ -1439,6 +1457,9 @@ void GPRS_Handler() {
   if (WIFIIsConnected()) {
     // WiFi already owns the ThingsBoard connection/publish; don't duplicate
     // it over cellular, just keep location fresh off the existing attach.
+    // Los fallos de ThingsBoard por GPRS anteriores a la WiFi no cuentan para
+    // cuando se vuelva a GPRS.
+    GPRS.tbConnectFailures = 0;
     GPRSUpdateLocationIfDue();
     GPRSEnsureTimeSynced();
     GPRSEnsureTimeZoneSynced();
