@@ -35,16 +35,11 @@
 // propio endpoint es ^[0-9]{9}$|^894573[0-9]{13,14}$, asi que solo valen
 // ICCIDs de Onomondo.
 //
-// OJO con la longitud: GPRS.CCID NO es el ICCID completo. GPRS.cpp:658 hace
-//     GPRS.CCID.remove(GPRS.CCID.length() - 1);
-// justo despues de modem.getSimCCID(), asi que lo que llega aqui son 19
-// digitos y no los 20 del ICCID real (al de la SIM 005120030,
-// 89457300000051200304, le falta el 4 final). El endpoint acepta las dos
-// formas -- el {13,14} de la regex es exactamente eso -- y se comprobo
-// contra la API viva que 19 digitos, 20 digitos y el SIM ID de 9 devuelven
-// la MISMA SIM. Si algun dia se quita ese recorte en GPRS.cpp, esto sigue
-// funcionando; lo que no hay que hacer es "arreglarlo" añadiendo un digito
-// aqui.
+// Longitud: GPRS.CCID es el ICCID completo de 20 digitos (la SIM 005120030
+// es 89457300000051200304). Hasta 2026-10 GPRS.cpp le quitaba el ultimo
+// digito y llegaban 19; el endpoint acepta las dos formas -- el {13,14} de
+// la regex es exactamente eso -- y se comprobo contra la API viva que 19
+// digitos, 20 digitos y el SIM ID de 9 devuelven la MISMA SIM.
 //
 // La cabecera es `authorization: <clave>` CRUDA, sin prefijo "Bearer". La
 // spec OpenAPI publicada etiqueta el esquema como bearerAuth, pero mandar

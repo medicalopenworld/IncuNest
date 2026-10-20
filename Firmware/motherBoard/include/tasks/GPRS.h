@@ -48,6 +48,12 @@
 // 30 s: mismo orden de magnitud que otros sondeos periodicos del modem
 // (GPRSUpdateCSQ()), sin generar trafico AT excesivo.
 #define GPRS_ATTACH_RECHECK_INTERVAL 30000 // 30 seconds in milliseconds
+// Intentos seguidos de conectar a ThingsBoard por GPRS que pueden fallar antes
+// de reiniciar el modem. Uno cada THINGSBOARD_RECONNECT_DELAY (30 s): 6 son
+// ~3 min. Cubre el caso en que el modem dice tener sesion de datos (CGATT=1 e
+// IP) pero no pasa nada por ella; sin este limite se reintentaba para siempre
+// y solo un reinicio de la placa sacaba al equipo de ahi.
+#define GPRS_TB_CONNECT_MAX_FAILS 6
 // Cadencia de la traza "esperando número de serie": GPRSPost() se ejecuta cada
 // pocos ms, así que sin límite la traza ahoga el resto del log.
 #define GPRS_SERIAL_WAIT_LOG_PERIOD 30000 // 30 seconds in milliseconds
@@ -89,6 +95,7 @@ struct GPRSstruct {
   long lastOTACheck = false;
   long lastPpgSnapshotAttempt = false; // captura PPG automática (ver policy)
   long lastReconnectAttempt = false;
+  int tbConnectFailures = 0; // seguidos; ver GPRS_TB_CONNECT_MAX_FAILS
   long lastTriangulationUpdate = false;
   bool enable = false;
   long sendPeriod = false;
