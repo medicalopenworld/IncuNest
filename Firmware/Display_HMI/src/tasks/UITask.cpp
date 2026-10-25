@@ -609,8 +609,9 @@ static void therapy_label_set(lv_obj_t *label, char *last, size_t lastSize,
 }
 
 // Terapia acumulada del bebe al mando en la cabecera de cada panel de Main
-// ("Total" y debajo "3h 20m"). Mismo contrato que patient_identity_update():
-// dentro de LVGL_Lock, escribe solo si cambia, y solo con sesion viva. Los
+// (una linea, "3h 20m", bajo el titulo). Mismo contrato que patient_identity_update():
+// dentro de LVGL_Lock, escribe solo si cambia, y solo con sesion viva, identidad
+// confirmada y minutos conocidos. Los
 // minutos los cuenta state/patient_state a 1 Hz; esto solo los pinta.
 void patient_therapy_update(void) {
   static char lastTemp[24] = {0};
@@ -624,13 +625,9 @@ void patient_therapy_update(void) {
   if (BabyWizard_HasLiveSession() &&
       PatientState_IsConfirmed(BabyWizard_GetActiveSeq()) &&
       PatientState_GetTherapy(BabyWizard_GetActiveSeq(), &m)) {
-    char dur[16];
-    patient_fmt_minutes(m.thermo, dur, sizeof(dur));
-    snprintf(temp, sizeof(temp), "%s\n%s", TR(STR_THERAPY_TOTAL), dur);
-    patient_fmt_minutes(m.humidity, dur, sizeof(dur));
-    snprintf(hum, sizeof(hum), "%s\n%s", TR(STR_THERAPY_TOTAL), dur);
-    patient_fmt_minutes(m.photo, dur, sizeof(dur));
-    snprintf(photo, sizeof(photo), "%s\n%s", TR(STR_THERAPY_TOTAL), dur);
+    patient_fmt_minutes(m.thermo, temp, sizeof(temp));
+    patient_fmt_minutes(m.humidity, hum, sizeof(hum));
+    patient_fmt_minutes(m.photo, photo, sizeof(photo));
   }
   therapy_label_set(ui_TempTotalLabel, lastTemp, sizeof(lastTemp), temp);
   therapy_label_set(ui_HumTotalLabel, lastHum, sizeof(lastHum), hum);

@@ -171,9 +171,6 @@ UI_STR(STR_PATIENT_AGE_FMT,    "EGC %u+%u - %sd",
                                "IGC %u+%u - %sd")
 UI_STR(STR_PATIENT_GEST_ONLY_FMT, "EG %u sem", "GA %u wk", "AG %u sem", "IG %u sem")
 UI_STR(STR_PATIENT_DAYS_ONLY_FMT, "%sd de vida", "%sd old", "%sj de vie", "%sd de vida")
-// Rotulo de la linea superior de la etiqueta de terapia acumulada de cada
-// panel; la inferior es el tiempo ("3h 20m").
-UI_STR(STR_THERAPY_TOTAL,      "Total",        "Total",       "Total",       "Total")
 
 // ------------------------------------------------------- fototerapia
 UI_STR(STR_PHOTO_START,        "EMPEZAR",      "START",       "DEMARRER",    "INICIAR")

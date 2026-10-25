@@ -1021,14 +1021,14 @@ static void create_heading_conn_indicator(lv_obj_t *parent, lv_coord_t x,
   }
 }
 
-// Etiqueta de dos lineas (12 pt) de terapia acumulada, hija de la cabecera de
+// Etiqueta de una linea (12 pt) de terapia acumulada, hija de la cabecera de
 // un panel de Main. Oculta y sin texto hasta que patient_therapy_update()
 // tenga algo que decir; no recibe toques ni desplaza nada del panel.
 static lv_obj_t *create_therapy_total_label(lv_obj_t *parent, lv_align_t align,
                                             lv_coord_t x, lv_coord_t y,
                                             lv_text_align_t textAlign) {
   lv_obj_t *lbl = lv_label_create(parent);
-  lv_obj_set_width(lbl, 64);
+  lv_obj_set_width(lbl, 120);  // "9999h 59m" a 12 pt mide ~65 px
   lv_label_set_long_mode(lbl, LV_LABEL_LONG_CLIP);
   lv_obj_set_align(lbl, align);
   lv_obj_set_x(lbl, x);
@@ -4544,24 +4544,27 @@ void create_main_toggle_buttons() {
     lv_obj_center(lbl);
   }
 
-  // Terapia acumulada del bebe al mando (spec hmi-patient-identity): "Total" y
-  // debajo "3h 20m", en el hueco entre el titulo y el boton de cada cabecera.
+  // Terapia acumulada del bebe al mando (spec hmi-patient-identity): una sola
+  // linea de 12 pt ("3h 20m", sin rotulo), DEBAJO del titulo de cada cabecera y
+  // alineada como el: izquierda en humedad y fototerapia (titulo en x=20),
+  // derecha en temperatura (titulo pegado a x=-20). Antes iba entre el titulo
+  // y el boton, y con "100h 5m" bajo el titulo frances ("PHOTOTHERAPIE", ~125
+  // px) la etiqueta lo pisaba: no hay hueco horizontal fiable. Debajo si lo
+  // hay: las cabeceras miden 50-54 px y el titulo (14 pt) ocupa unos 16
+  // centrados, asi que quedan ~14 px libres abajo, justo lo que mide la
+  // linea. Misma solucion en los tres paneles.
+  //
   // Se crean AQUI, detras de los botones de encendido, para quedar por encima
   // de los paneles en el orden de dibujo. Las rellena y muestra
-  // patient_therapy_update() (UITask.cpp).
-  //
-  // Medidas (800x480, ver los comentarios de cada cabecera): la cabecera de
-  // temperatura lleva el boton a la izquierda (acaba en x=180 del contenedor) y
-  // el titulo pegado a la derecha, asi que el hueco esta en medio, a partir de
-  // 188. En humedad y fototerapia es al reves (titulo a la izquierda, boton
-  // desde x=195): el texto va alineado a la derecha, acabando en 190, para
-  // alejarlo del titulo, que en frances ("PHOTOTHERAPIE") llega a ~141.
+  // patient_therapy_update() (UITask.cpp). ui_HumidityLabel (x=20, y=-98) esta
+  // en la misma fila que su boton (y=-98) y su fondo (Panel6, y=-98): la
+  // etiqueta se cuelga 16 px por debajo de esa fila.
   ui_TempTotalLabel = create_therapy_total_label(
-      ui_TempCont, LV_ALIGN_LEFT_MID, 188, -176, LV_TEXT_ALIGN_LEFT);
+      ui_TempCont, LV_ALIGN_RIGHT_MID, -20, -176 + 16, LV_TEXT_ALIGN_RIGHT);
   ui_HumTotalLabel = create_therapy_total_label(
-      ui_HumCont, LV_ALIGN_RIGHT_MID, -(378 - 190), -98, LV_TEXT_ALIGN_RIGHT);
+      ui_HumCont, LV_ALIGN_LEFT_MID, 20, -98 + 16, LV_TEXT_ALIGN_LEFT);
   ui_PhotoTotalLabel = create_therapy_total_label(
-      ui_PhotoCont, LV_ALIGN_RIGHT_MID, -(384 - 190), 1, LV_TEXT_ALIGN_RIGHT);
+      ui_PhotoCont, LV_ALIGN_LEFT_MID, 20, 1 + 16, LV_TEXT_ALIGN_LEFT);
 }
 
 
