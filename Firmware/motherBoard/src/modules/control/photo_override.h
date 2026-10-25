@@ -11,7 +11,7 @@
 //   1. Mientras la prueba esta ACTIVA, la lampara va ON (`forced`), las
 //      ordenes del display se REGISTRAN (`ordered`) pero no se aplican, y no se
 //      guarda nada en NVS.
-//   2. El campo `photo` de CTRL,STATE (estado_field) NO emite el ON forzado
+//   2. El campo `photo` de CTRL,STATE (photo_override_state_field) NO emite el ON forzado
 //      sino la ultima orden del display (`ordered`). Asi el display nunca
 //      adopta el ON de depuracion, y no existe ningun 1 rancio que neutralizar
 //      al soltar. Fuera de la prueba el campo es el estado REAL de la lampara

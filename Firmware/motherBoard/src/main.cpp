@@ -445,10 +445,9 @@ static void debugConsoleHandle(const char *line) {
     }
     if (arg[0] == '0') {
       debug_photo_off();
-      ESP_LOGW(DBGCON_TAG, "PHOTO,0: fototerapia de depuracion soltada; vuelve "
-               "a mandar el display cuando confirme el valor real (minimo "
-               "%u ms)",
-               (unsigned)PHOTO_OVERRIDE_CONFIRM_MIN_MS);
+      ESP_LOGW(DBGCON_TAG, "PHOTO,0: fototerapia de depuracion soltada; manda "
+               "otra vez el display (se aplica en el siguiente tick, sin "
+               "esperar ninguna trama)");
       return;
     }
     // in3.phototherapy es aqui la ultima orden REAL del display: todavia no
@@ -459,7 +458,9 @@ static void debugConsoleHandle(const char *line) {
       return;
     }
     ESP_LOGW(DBGCON_TAG, "PHOTO,1: fototerapia de depuracion ENCENDIDA (se "
-             "aplica con la siguiente trama del display)");
+             "aplica en el siguiente tick). La pantalla NO la muestra: el "
+             "campo photo de CTRL,STATE emite la orden del display mientras "
+             "dura la prueba; ver /debug/state ctl.photo_dbg");
     return;
   }
   if (strncmp(line, "WIFI_EN,", 8) != 0) {
@@ -573,9 +574,13 @@ static void applyPhotoState(bool on) {
   // trama) la hace este mismo newCommand en su siguiente vuelta, en
   // cuanto g_factoryTestActive baje (ver cabecera de
   // factory_test_task.cpp).
+  //
+  // photoPwmRefresh() y no un ledcWrite suelto: el lazo de intensidad
+  // (currentMonitor, tarea de seguridad) tambien escribe este canal, y entre
+  // que comprobaba in3.phototherapy y escribia podia colarse un apagado desde
+  // aqui, dejando la lampara encendida con in3.phototherapy=false y sin alarma.
   if (!g_factoryTestActive)
-    ledcWrite(PHOTOTHERAPY_PWM_CHANNEL,
-              in3.phototherapy * in3.phototherapy_intensity);
+    photoPwmRefresh();
   turnFans(bool(in3.phototherapy || in3.actuation));
 }
 
@@ -718,17 +723,19 @@ void Communication_Receiver(void *pvParameters) {
     }
 
     // Encendido/apagado de depuracion SIN depender de una trama del display.
-    // Tras `PHOTO,0` (o al apagar el modo) el valor real previo se aplica aqui,
-    // en el tick periodico, por el mismo camino que una orden: con el display
-    // colgado no llega ningun keepalive y, sin esto, la lampara se quedaria en
-    // el ON de la prueba. No persiste nada en NVS (eso solo lo hace el camino
-    // de la orden, y solo con debug_photo_may_persist()). Solo actua si el
-    // estado real difiere del forzado, asi que no reescribe el PWM cada vuelta.
+    // Mientras la prueba esta activa se fuerza ON; al soltarla (PHOTO,0 o al
+    // apagar el modo) se aplica la ULTIMA ORDEN DEL DISPLAY (la del operador
+    // manda) por el mismo camino que una orden: con el display colgado no llega
+    // ningun keepalive y, sin esto, la lampara se quedaria en el ON de la
+    // prueba. No persiste nada en NVS (eso solo lo hace el camino de la orden,
+    // y solo con debug_photo_may_persist()). Solo actua si el estado difiere,
+    // asi que no reescribe el PWM cada vuelta.
     {
-      bool photoForzada = false;
-      if (debug_photo_forced(&photoForzada) &&
-          in3.phototherapy != photoForzada) {
-        applyPhotoState(photoForzada);
+      bool photoValor = false;
+      if (debug_photo_forced(&photoValor)) {
+        if (in3.phototherapy != photoValor) applyPhotoState(photoValor);
+      } else if (debug_photo_take_release(&photoValor)) {
+        if (in3.phototherapy != photoValor) applyPhotoState(photoValor);
       }
     }
 

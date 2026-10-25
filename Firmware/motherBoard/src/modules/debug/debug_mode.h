@@ -83,17 +83,27 @@ void debug_sensors_apply(void);
 // protege con un spinlock y la ata al modo: debug_photo_on() se rechaza con
 // el modo apagado, y apagar el modo la suelta.
 //
-// `real_now` es la fototerapia que el display habia mandado hasta ahora.
-bool debug_photo_on(bool real_now);
+// `ordered_now` es la ultima orden del display hasta ahora (in3.phototherapy).
+bool debug_photo_on(bool ordered_now);
 void debug_photo_off(void);
 bool debug_photo_active(void);
-// Valor que el receptor de tramas del display debe APLICAR en lugar del suyo,
-// y si puede guardar el suyo en NVS. Ver photo_override.h.
+// Valor que el receptor de tramas del display debe APLICAR en lugar del suyo
+// (ON durante la prueba, registrando la orden), y si puede guardar el suyo en
+// NVS (no durante la prueba).
 bool debug_photo_effective(bool display_value);
 bool debug_photo_may_persist(void);
-// Valor forzado ahora mismo por la prueba de depuracion (activa o por
-// confirmar), sin esperar a una trama del display. Ver photo_override_forced().
+// Valor forzado ahora mismo por la prueba (ON mientras esta activa), para
+// aplicarlo en el tick periodico sin esperar a una trama del display.
 bool debug_photo_forced(bool *value);
+// Verdadero UNA vez tras soltar, con la ultima orden del display, que hay que
+// aplicar a la lampara ya (por el camino normal y sin persistirla).
+bool debug_photo_take_release(bool *value);
+// El temporizador de fototerapia de la placa caduco durante la prueba: es una
+// orden de apagado que tiene que ganar al soltar.
+void debug_photo_note_order(bool ordered);
+// Valor del campo `photo` de CTRL,STATE: la orden del display durante la
+// prueba, el estado real aplicado (`applied`) fuera de ella.
+bool debug_photo_state_field(bool applied);
 
 // --- alarmas forzadas ----------------------------------------------------
 // Fuerza la CONDICION (el `present` de la maquina), no la senal: el retardo de

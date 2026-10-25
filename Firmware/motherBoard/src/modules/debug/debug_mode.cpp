@@ -48,13 +48,13 @@ static void photo_lock_init(void) {
   }
 }
 
-bool debug_photo_on(bool real_now) {
+bool debug_photo_on(bool ordered_now) {
   if (!s_enabled) {
     return false;
   }
   portENTER_CRITICAL(&s_photo_mux);
   photo_lock_init();
-  photo_override_start(&s_photo, real_now, millis());
+  photo_override_start(&s_photo, ordered_now);
   portEXIT_CRITICAL(&s_photo_mux);
   return true;
 }
@@ -62,7 +62,7 @@ bool debug_photo_on(bool real_now) {
 void debug_photo_off(void) {
   portENTER_CRITICAL(&s_photo_mux);
   photo_lock_init();
-  photo_override_release(&s_photo, millis());
+  photo_override_release(&s_photo);
   portEXIT_CRITICAL(&s_photo_mux);
 }
 
@@ -77,19 +77,17 @@ bool debug_photo_active(void) {
 bool debug_photo_effective(bool display_value) {
   portENTER_CRITICAL(&s_photo_mux);
   photo_lock_init();
-  const uint32_t now = millis();
-  const bool v = photo_override_effective(&s_photo, display_value, now);
-  const bool overdue = photo_override_unconfirmed_overdue(&s_photo, now);
+  const bool v = photo_override_effective(&s_photo, display_value);
   portEXIT_CRITICAL(&s_photo_mux);
-  // Fuera de la seccion critica: el log no puede ir dentro. La lampara sigue
-  // forzada a su valor real y sin guardar; el display no ha confirmado nunca.
-  if (overdue) {
-    logE(String("[DEBUG] PHOTO: el display no confirma el apagado de "
-                "depuracion tras ") +
-         String((unsigned)PHOTO_OVERRIDE_RELEASE_BACKSTOP_MS) +
-         " ms; se sigue forzando el valor real y sin guardar");
-  }
   return v;
+}
+
+bool debug_photo_may_persist(void) {
+  portENTER_CRITICAL(&s_photo_mux);
+  photo_lock_init();
+  const bool p = photo_override_may_persist(&s_photo);
+  portEXIT_CRITICAL(&s_photo_mux);
+  return p;
 }
 
 bool debug_photo_forced(bool *value) {
@@ -100,12 +98,27 @@ bool debug_photo_forced(bool *value) {
   return f;
 }
 
-bool debug_photo_may_persist(void) {
+bool debug_photo_take_release(bool *value) {
   portENTER_CRITICAL(&s_photo_mux);
   photo_lock_init();
-  const bool p = photo_override_may_persist(&s_photo, millis());
+  const bool r = photo_override_take_release(&s_photo, value);
   portEXIT_CRITICAL(&s_photo_mux);
-  return p;
+  return r;
+}
+
+void debug_photo_note_order(bool ordered) {
+  portENTER_CRITICAL(&s_photo_mux);
+  photo_lock_init();
+  photo_override_note_order(&s_photo, ordered);
+  portEXIT_CRITICAL(&s_photo_mux);
+}
+
+bool debug_photo_state_field(bool applied) {
+  portENTER_CRITICAL(&s_photo_mux);
+  photo_lock_init();
+  const bool f = photo_override_state_field(&s_photo, applied);
+  portEXIT_CRITICAL(&s_photo_mux);
+  return f;
 }
 
 struct Override {

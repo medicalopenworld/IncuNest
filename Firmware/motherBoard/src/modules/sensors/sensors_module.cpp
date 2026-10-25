@@ -89,6 +89,27 @@ static bool photoSampleIsNew() {
   photoLoopSeqSeen = systemCurrentSampleSeq;
   return true;
 }
+// Escritura del PWM de la lampara, serializada (declarada en main.h).
+//
+// Carrera que cierra: el lazo de intensidad (tarea de seguridad) comprueba
+// in3.phototherapy y escribe el PWM un poco despues; si entre medias la tarea
+// Comm apaga la lampara (applyPhotoState(false), caducidad del temporizador, o
+// soltar la prueba de depuracion con el display colgado), la escritura tardia
+// la reenciende con in3.phototherapy=false: lampara ON sin estado y sin alarma.
+//
+// Un spinlock y no un mutex: la seccion critica es UNA escritura de registro
+// (microsegundos) y la tarea de seguridad no puede quedarse bloqueada ni sufrir
+// inversion de prioridad. Y el duty se calcula DENTRO, a partir del estado
+// actual, en vez de comprobarlo antes y escribir despues: asi la ultima
+// escritura serializada siempre ve el estado mas reciente.
+static portMUX_TYPE s_photoPwmMux = portMUX_INITIALIZER_UNLOCKED;
+void photoPwmRefresh(void) {
+  portENTER_CRITICAL(&s_photoPwmMux);
+  ledcWrite(PHOTOTHERAPY_PWM_CHANNEL,
+            in3.phototherapy ? in3.phototherapy_intensity : 0);
+  portEXIT_CRITICAL(&s_photoPwmMux);
+}
+
 // Idem para la alarma, con su propio marcador (cadencias distintas).
 static unsigned long photoFaultSeqSeen = 0;
 
@@ -173,7 +194,7 @@ void currentMonitor() {
       if (next < PHOTO_MIN_PWM)   next = PHOTO_MIN_PWM;
       if (next > PWM_MAX_VALUE)   next = PWM_MAX_VALUE;
       in3.phototherapy_intensity = (byte)next;
-      ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, in3.phototherapy_intensity);
+      photoPwmRefresh();
     }
     lastPhotoControl = millis();
 

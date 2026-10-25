@@ -329,7 +329,11 @@ double getRemainingPhotoTime() {
       remainingTime = 0.0;
 
       in3.phototherapy = false;
-      ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, 0);
+      // Si hay una prueba de depuracion activa, el temporizador es una orden de
+      // apagado de la placa que tiene que ganar al soltarla (la prueba sigue
+      // forzando ON hasta entonces).
+      debug_photo_note_order(false);
+      photoPwmRefresh();
       turnFans(bool(in3.phototherapy || in3.actuation));
       photoTimerForget();
 
@@ -439,20 +443,24 @@ static void send_state_to_hmi() {
 
   // Estado REAL de la lampara (lo aplicado, in3.phototherapy), no el eco de lo
   // que pidio el display (g_last_cmd.phototherapyMode). Mismo fallo que el
-  // audio de arriba: el eco no aportaba nada y ademas mentia. Con una sesion
-  // de fototerapia de depuracion (PHOTO,1) la pantalla decia OFF con la
-  // lampara ON (known_issues #20). Ademas, el display ADOPTA este campo y lo
-  // devuelve en su keepalive: photo_override.h da por hecho que la placa emite
-  // el valor real. Entre que el operador toca el switch y la placa aplica la
-  // orden este campo sale con el valor anterior unas decenas de ms; el display
-  // mantiene su valor local hasta que la placa lo confirma
-  // (localCmdHoldsLocal), asi que no hay rebote.
+  // audio de arriba: el eco no aportaba nada y ademas mentia (known_issues
+  // #20). Entre que el operador toca el switch y la placa aplica la orden este
+  // campo sale con el valor anterior unas decenas de ms; el display mantiene su
+  // valor local hasta que la placa lo confirma (localCmdHoldsLocal), asi que no
+  // hay rebote.
+  //
+  // UNICA EXCEPCION: durante una prueba de fototerapia de depuracion (PHOTO,1)
+  // se emite la ORDEN DEL DISPLAY, no el ON forzado. El display ADOPTA este
+  // campo y lo devuelve en su keepalive; si adoptase el ON de la prueba, al
+  // soltar habria que neutralizar un 1 rancio, y ningun plazo ni confirmacion
+  // aguanto (ver la historia en photo_override.h). El ON de la prueba se ve en
+  // /debug/state (ctl.photo_dbg) y en el log.
   //
   // Actuacion, modo de control y consignas siguen siendo ecos A PROPOSITO: no
   // tienen un valor "real" de una linea (la placa guarda una unica consigna
   // segun el modo, y in3.actuation/controlMode se asignan literalmente del
   // comando). Ver openspec mb-photo-current-check, design D2.
-  const int photoApplied = in3.phototherapy ? 1 : 0;
+  const int photoApplied = debug_photo_state_field(in3.phototherapy) ? 1 : 0;
 
   snprintf(msg, sizeof(msg),
            "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d,%d,0x%X,0x%X,%d,%d,%d,0x%X\n",
