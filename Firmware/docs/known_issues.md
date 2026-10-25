@@ -809,7 +809,7 @@ phototherapy OFF while the lamp is ON**. Not yet established: whether any
 and the screen disagreeing. The debug override does not depend on it — its
 release window is defensive and verified to leave the lamp off.
 
-## 21. The first session after a setpoint change can start at twice the target
+## 21. The first session after a setpoint change can start at twice the target — FIXED
 
 Measured on the bench unit (18.46, target 0.45 A, seed discarded because it was
 calibrated for another target): the autotest's extrapolated seed was PWM 175,
@@ -824,10 +824,16 @@ second (verified, 18.47). Two things were fixed along the way: the seed is now
 saved **only inside the tolerance band** (the first version saved the PWM-175
 overshoot as a seed), and a seed calibrated for another target is discarded.
 
-Not changed: the 1-count-per-second slew in both directions. Lowering current
-is always the safe direction, so an asymmetric slew — fast down, slow up —
-would cut the overshoot to a few seconds. It changes the dynamics of a clinical
-actuator, so it is left as a proposal.
+**Resolved 2026-10-25.** The slew is now asymmetric: `PHOTO_MAX_STEP` was
+replaced by `PHOTO_MAX_STEP_UP 1` (raising current is the clinically risky
+direction, still 1 count/s) and `PHOTO_MAX_STEP_DOWN 20` (lowering is always
+safe). The next-PWM computation moved to the pure function
+`photo_slew_next_pwm()` (`modules/control/photo_slew.cpp`, host-tested in
+`test/test_photo_slew`). The step never crosses the proportional model's own
+estimate, so the descent cannot undershoot beyond what the model predicts.
+Expected convergence for the case above (seed 175, 1.06 A, target 0.45 A): the
+simulated loop goes 175 → 155 → 135 → 115 → 95 → 75, about 5 control cycles
+(~5 s) instead of 95 s. Not yet measured on the bench unit.
 
 ## 22. `ventilador-se-retira` fails intermittently — and not because of the new library (OPEN)
 
