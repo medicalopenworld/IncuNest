@@ -39,6 +39,18 @@ static portMUX_TYPE s_profileMirrorMux = portMUX_INITIALIZER_UNLOCKED;
 static BabyProfileListMsg s_profileMirror = {0, {}};
 static uint32_t s_profileMirrorGen = 0;
 
+// Ultimo CTRL,STATE visto, en la parte que concierne al bebe al mando.
+static portMUX_TYPE s_boardViewMux = portMUX_INITIALIZER_UNLOCKED;
+static PatientBoardView s_boardView = {false, false, 0, false, 0};
+
+bool Communication_GetBoardView(PatientBoardView *out) {
+  if (!out) return false;
+  taskENTER_CRITICAL(&s_boardViewMux);
+  *out = s_boardView;
+  taskEXIT_CRITICAL(&s_boardViewMux);
+  return out->stateSeen;
+}
+
 bool Communication_TakeProfileListMirror(uint32_t *seenGen,
                                          BabyProfileListMsg *out) {
   if (!seenGen || !out) return false;
@@ -719,6 +731,7 @@ static void parse_message(const char *line) {
     uint32_t alarmBitmask = 0;
     uint32_t silencedBitmask = 0;
     uint32_t latchedBitmask = 0;
+    unsigned activeSeq = 0;  // campo 24; solo vale con result >= 24
     int almTest = ALARM_TEST_IDLE_HMI;
     int silenceLeftS = 0;
     int linkBars = -1;
@@ -727,11 +740,11 @@ static void parse_message(const char *line) {
     char fwVer[20];
     double airSet, skinSet, humSet;
     int result =
-        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d,%lf,%d,%d,0x%X,0x%X,%d,%d,%d,0x%X",
+        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d,%lf,%d,%d,0x%X,0x%X,%d,%d,%d,0x%X,%u",
                &act, &mode, &airSet, &skinSet, &humSet, &photo, &mute,
-               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus, &photoTimeRemaining, &lang, &probeState, &alarmBitmask, &silencedBitmask, &almTest, &silenceLeftS, &linkBars, &latchedBitmask);
+               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus, &photoTimeRemaining, &lang, &probeState, &alarmBitmask, &silencedBitmask, &almTest, &silenceLeftS, &linkBars, &latchedBitmask, &activeSeq);
 
-    // Accept 12 (old), 13 (with alarms), 14+skinModeEnabled, 15+photoTime, 16+lang, 17+probeState, 18+bitmask, 19+silenced, 22+linkBars
+    // Accept 12 (old), 13 (with alarms), 14+skinModeEnabled, 15+photoTime, 16+lang, 17+probeState, 18+bitmask, 19+silenced, 22+linkBars, 23+latched, 24+activeSeq
     if (result >= 12) {
       ctrl_state_msg.actuation = act;
       ctrl_state_msg.controlMode = mode;
@@ -794,6 +807,23 @@ static void parse_message(const char *line) {
       // se ofrece para una alarma cuya condicion sigue viva.
       ctrl_state_msg.latchedBitmask = (result >= 23) ? latchedBitmask : 0u;
       ctrl_state_msg.serialNumber = sn;
+
+      // Lo que la placa dice del bebe al mando, publicado ENTERO y de una vez:
+      // quien lo lee (state/patient_state, en UI_Task) decide borrar una
+      // identidad comparando activeSeq con la terapia viva, y leyendolos de
+      // ctrl_state_msg campo a campo podria ver la terapia de este mensaje con
+      // el activeSeq del anterior y borrar un bebe valido.
+      {
+        PatientBoardView v;
+        v.stateSeen = true;
+        v.sendsActiveSeq = (result >= 24);
+        v.activeSeq = (result >= 24) ? (uint32_t)activeSeq : 0u;
+        v.therapyOn = (act != 0) || (photo != 0);
+        v.sn = (uint32_t)sn;
+        taskENTER_CRITICAL(&s_boardViewMux);
+        s_boardView = v;
+        taskEXIT_CRITICAL(&s_boardViewMux);
+      }
 
       strncpy(ctrl_state_msg.fwVer, fwVer, sizeof(ctrl_state_msg.fwVer));
       ctrl_state_msg.fwVer[sizeof(ctrl_state_msg.fwVer) - 1] = '\0';

@@ -1189,7 +1189,7 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_add_flag(ui_BabiesPatientName, LV_OBJ_FLAG_HIDDEN);
   ui_BabiesPatientDetail = lv_label_create(ui_BabiesButton);
   lv_obj_set_width(ui_BabiesPatientDetail, 102);
-  lv_label_set_long_mode(ui_BabiesPatientDetail, LV_LABEL_LONG_CLIP);
+  lv_label_set_long_mode(ui_BabiesPatientDetail, LV_LABEL_LONG_DOT);
   lv_obj_set_align(ui_BabiesPatientDetail, LV_ALIGN_BOTTOM_MID);
   lv_obj_set_style_text_align(ui_BabiesPatientDetail, LV_TEXT_ALIGN_CENTER,
                               LV_PART_MAIN);

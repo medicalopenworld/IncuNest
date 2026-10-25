@@ -5,11 +5,12 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "CommTask.h"        // HMI_GetEpochNow(), ctrl_state_msg, enlace
+#include "CommTask.h"        // ctrl_state_msg, instantanea de la placa, lista
 #include "EEPROM_defines.h"  // HMI_NS_CFG, HMI_KEY_PAT_*
 #include "esp_log.h"
 #include "state/training_mode.h"  // Training_IsActive(), Training_IsPracticeSeq()
-#include "ui/BabyWizard.h"        // BabyWizard_SetSession()
+#include "ui/BabyHistory.h"       // BabyHistory_IsOpen()
+#include "ui/BabyWizard.h"        // SetSession(), ClearActiveProfile(), IsOpen()
 
 namespace {
 
@@ -17,6 +18,11 @@ constexpr const char *TAG = "PATIENT";
 
 constexpr uint32_t SERVICE_PERIOD_MS = 1000u;
 constexpr uint32_t NVS_RETRY_MS = 5000u;
+// Peticiones de PROFILE_LIST propias (placa antigua, o minutos por sembrar):
+// pocas y espaciadas. No hay peticionario periodico (el flag de la lista tiene
+// un unico consumidor), esto es solo la comprobacion de despues de un reinicio.
+constexpr uint8_t LIST_MAX_ATTEMPTS = 3;
+constexpr uint32_t LIST_RETRY_MS = 10000u;
 
 PatientIdentity s_id = {};  // seq 0 = nadie
 bool s_idDirty = false;
@@ -27,14 +33,29 @@ bool s_erasePending = false;
 bool s_idWriteFailed = false;
 uint32_t s_idFailedAtMs = 0;
 
+// Confirmacion con la placa. Solo tienen sentido con s_id.seq != 0.
+bool s_confirmed = false;  // la placa confirma este bebe
+bool s_listed = false;     // placa antigua: esta en su lista (gris con "?")
+bool s_legacyBoard = false;  // la placa no manda activeSeq
+
 PatientAccum s_acc = {};  // seq 0 = nadie
 uint32_t s_mirrorGen = 0;
 uint32_t s_lastServiceMs = 0;
 bool s_serviceStarted = false;
 
+// Peticiones de lista propias.
+uint8_t s_listAttempts = 0;
+bool s_listOutstanding = false;
+uint32_t s_listAskedAtMs = 0;
+
 // En formacion nada de esto cuenta: el bebe de practicas no es un paciente.
 bool ignoredNow(uint32_t seq) {
   return Training_IsActive() || (seq != 0 && Training_IsPracticeSeq(seq));
+}
+
+uint32_t boardSnNow() {
+  PatientBoardView b;
+  return Communication_GetBoardView(&b) ? b.sn : 0u;
 }
 
 bool identityRetryAllowed() {
@@ -81,18 +102,111 @@ void writeTherapy(uint32_t nowMs) {
   }
 }
 
-// Resincroniza con la ultima PROFILE_LIST de la placa, si trajo al bebe.
-void resyncFromMirror() {
-  BabyProfileListMsg m;
-  if (!Communication_TakeProfileListMirror(&s_mirrorGen, &m)) return;
-  if (s_acc.seq == 0) return;
+void resetState() {
+  memset(&s_id, 0, sizeof(s_id));
+  patient_accum_init(&s_acc);
+  s_idDirty = false;
+  s_confirmed = false;
+  s_listed = false;
+  s_legacyBoard = false;
+  s_listAttempts = 0;
+  s_listOutstanding = false;
+}
+
+// La placa contradice la identidad (o el HMI esta ante otra placa): fuera, de la
+// RAM, de la NVS y del asistente, que si no seguiria creyendo en ella.
+// BabyWizard_ClearActiveProfile() vuelve a llamar a OnClear, que ya no encuentra
+// nada que borrar.
+void dropIdentity(const char *why) {
+  ESP_LOGW(TAG, "identidad seq=%lu descartada: %s", (unsigned long)s_id.seq, why);
+  resetState();
+  s_erasePending = true;
+  BabyWizard_ClearActiveProfile();
+}
+
+// Pide una PROFILE_LIST propia si procede. No compite con el asistente ni con
+// el visor: con alguno abierto espera.
+void requestListIfNeeded(bool linkOk) {
+  if (!linkOk || s_listOutstanding || s_listAttempts >= LIST_MAX_ATTEMPTS) return;
+  if (BabyWizard_IsOpen() || BabyHistory_IsOpen()) return;
+  const uint32_t now = millis();
+  if (s_listAttempts > 0 && (now - s_listAskedAtMs) < LIST_RETRY_MS) return;
+  Communication_SendProfileListReq();
+  s_listAttempts++;
+  s_listAskedAtMs = now;
+  s_listOutstanding = true;
+}
+
+// Una lista de la placa ha llegado (la pidiera quien la pidiera).
+void onListArrived(const BabyProfileListMsg &m) {
+  if (s_id.seq == 0) return;
+
+  // Placa antigua: la lista es lo unico con lo que contrastar la identidad.
+  if (s_legacyBoard && !s_confirmed && !s_listed) {
+    PatientListEntry entries[3];
+    const int n = m.count < 3 ? m.count : 3;
+    for (int i = 0; i < n; i++) {
+      entries[i].seq = m.items[i].seq;
+      snprintf(entries[i].name, sizeof(entries[i].name), "%s", m.items[i].name);
+      entries[i].gestWeeks = m.items[i].gestWeeks;
+    }
+    if (patient_list_has_baby(&s_id, entries, n)) {
+      s_listed = true;  // gris con "?": nunca como confirmada
+    } else {
+      dropIdentity("no figura en la lista de la placa");
+      return;
+    }
+  }
+
+  // Minutos: solo de un bebe que la placa avala (confirmado o en su lista).
+  if (!(s_confirmed || s_listed) || s_acc.seq == 0) return;
   for (int i = 0; i < m.count && i < 3; i++) {
     if (m.items[i].seq != s_acc.seq) continue;
     const PatientMinutes board = {m.items[i].phototherapyMinutes,
                                   m.items[i].thermoMinutes,
                                   m.items[i].humidityMinutes};
     patient_accum_resync(&s_acc, s_acc.seq, &board);
-    return;
+    break;
+  }
+}
+
+void serviceMirror() {
+  BabyProfileListMsg m;
+  if (!Communication_TakeProfileListMirror(&s_mirrorGen, &m)) return;
+  // Si la lista era la respuesta a una peticion MIA y nadie mas esta esperando
+  // una, se baja el flag del unico consumidor: sin esto una lista vieja se
+  // tomaria por la respuesta fresca de la siguiente peticion del asistente.
+  if (s_listOutstanding && !BabyWizard_IsOpen() && !BabyHistory_IsOpen()) {
+    g_pendingProfileList = false;
+  }
+  s_listOutstanding = false;
+  onListArrived(m);
+}
+
+// Confirma (o descarta) una identidad restaurada con lo que dice la placa.
+void serviceConfirmation(bool linkOk) {
+  if (s_id.seq == 0 || s_confirmed) return;
+  PatientBoardView b;
+  if (!Communication_GetBoardView(&b)) return;  // la placa aun no ha hablado
+
+  switch (patient_confirm_decide(s_id.seq, s_id.boardSn, &b)) {
+    case PATIENT_CONFIRM_CONFIRM:
+      s_confirmed = true;
+      s_listed = false;
+      ESP_LOGI(TAG, "identidad seq=%lu confirmada por activeSeq",
+               (unsigned long)s_id.seq);
+      break;
+    case PATIENT_CONFIRM_CLEAR:
+      dropIdentity(b.sn != s_id.boardSn ? "es de otra placa"
+                                        : "la placa tiene otro bebe al mando");
+      return;
+    case PATIENT_CONFIRM_WAIT:
+      // Placa antigua: no manda activeSeq, asi que se contrasta con la lista.
+      if (!b.sendsActiveSeq) {
+        s_legacyBoard = true;
+        requestListIfNeeded(linkOk);
+      }
+      break;
   }
 }
 
@@ -117,20 +231,27 @@ void PatientState_Restore(void) {
   PatientIdentity id;
   if (idGot != sizeof(idBlob) ||
       !patient_identity_decode(idBlob, sizeof(idBlob), &id)) {
-    if (idHave != 0) ESP_LOGW(TAG, "pat_id invalido (%u B): descartado", (unsigned)idHave);
+    if (idHave != 0 || thHave != 0) {
+      // Version 1 (40 B, sin sn), corrupto o de otro tamano: no se puede atar a
+      // ninguna placa. Se descarta y se borra para no reintentarlo cada arranque.
+      ESP_LOGW(TAG, "pat_id invalido o de version antigua (%u B): descartado",
+               (unsigned)idHave);
+      s_erasePending = true;
+    }
     return;
   }
 
   // Primero el estado propio, luego el asistente: asi el gancho de SetSession
-  // ve el mismo seq y no lo toma por un bebe nuevo.
+  // ve el mismo bebe y no lo toma por uno nuevo. Nace SIN CONFIRMAR.
   s_id = id;
-  patient_accum_begin(&s_acc, id.seq, nullptr);
+  s_confirmed = false;
+  patient_accum_begin(&s_acc, id.seq, nullptr);  // minutos desconocidos...
   PatientTherapyRecord rec;
   bool therapyRestored = false;
   if (thGot == sizeof(thBlob) &&
       patient_therapy_decode(thBlob, sizeof(thBlob), &rec)) {
-    // Solo vale si es del mismo bebe: dos blobs, dos escrituras, y un corte
-    // entre ambas puede dejar acumulados de otro.
+    // ...salvo que haya un registro de ESTE bebe: dos blobs, dos escrituras, y
+    // un corte entre ambas puede dejar acumulados de otro.
     therapyRestored = patient_accum_restore(&s_acc, &rec, id.seq);
   }
   if (!therapyRestored) {
@@ -144,36 +265,50 @@ void PatientState_Restore(void) {
   s.weight = 0;
   BabyWizard_SetSession(&s);
   const PatientMinutes m = patient_accum_minutes(&s_acc);
-  ESP_LOGI(TAG, "restaurado seq=%lu gest=%u age=%d ther=%d (%lu/%lu/%lu min)",
+  ESP_LOGI(TAG,
+           "restaurado SIN CONFIRMAR seq=%lu gest=%u age=%d ther=%d "
+           "(%lu/%lu/%lu min)",
            (unsigned long)id.seq, (unsigned)id.gestWeeks, (int)id.ageKnown,
            (int)therapyRestored, (unsigned long)m.photo, (unsigned long)m.thermo,
            (unsigned long)m.humidity);
 }
 
 void PatientState_OnSessionSet(uint32_t seq, const char *name,
-                               uint8_t gestWeeks, const PatientMinutes *seed) {
+                               uint8_t gestWeeks, const PatientMinutes *seed,
+                               bool fromBoardAck) {
   if (seq == 0) {
     PatientState_OnClear();
     return;
   }
   if (ignoredNow(seq)) return;
   const char *n = name ? name : "";
-  if (s_id.seq == seq) {
-    // Mismo bebe: la edad y los acumulados ya capturados siguen valiendo (el
-    // contador local es mas fresco que cualquier lista vieja).
-    if (s_id.gestWeeks != gestWeeks ||
-        strncmp(s_id.name, n, PATIENT_NAME_LEN) != 0) {
-      s_id.gestWeeks = gestWeeks;
-      snprintf(s_id.name, sizeof(s_id.name), "%s", n);
-      s_idDirty = true;
+
+  if (patient_same_baby(&s_id, seq, n, gestWeeks)) {
+    // El mismo bebe: edad y acumulados siguen valiendo (el contador local es
+    // mas fresco que cualquier lista vieja).
+    if (fromBoardAck) {
+      s_confirmed = true;
+      s_listed = false;
+      const uint32_t sn = boardSnNow();
+      if (s_id.boardSn != sn) {
+        s_id.boardSn = sn;
+        s_idDirty = true;
+      }
     }
-    if (s_acc.seq != seq) patient_accum_begin(&s_acc, seq, seed);
+    if (s_acc.seq != seq || (!s_acc.known && seed)) {
+      patient_accum_begin(&s_acc, seq, seed);
+    }
     return;
   }
-  memset(&s_id, 0, sizeof(s_id));
+
+  // Otro bebe. Incluye el MISMO seq con otro nombre o semanas: la placa
+  // reasigno el seq, y la edad y los acumulados del anterior no son de este.
+  resetState();
   s_id.seq = seq;
   snprintf(s_id.name, sizeof(s_id.name), "%s", n);
   s_id.gestWeeks = gestWeeks;
+  s_id.boardSn = boardSnNow();
+  s_confirmed = fromBoardAck;
   s_idDirty = true;
   patient_accum_begin(&s_acc, seq, seed);
 }
@@ -189,10 +324,17 @@ void PatientState_OnAge(uint32_t seq, uint16_t ageDays, bool known) {
 void PatientState_OnClear(void) {
   if (Training_IsActive()) return;
   if (s_id.seq == 0 && s_acc.seq == 0) return;
-  memset(&s_id, 0, sizeof(s_id));
-  patient_accum_init(&s_acc);
-  s_idDirty = false;
+  resetState();
   s_erasePending = true;
+}
+
+PatientDisplay PatientState_GetDisplay(uint32_t seq) {
+  if (seq == 0 || s_id.seq != seq) return PATIENT_DISPLAY_CONFIRMED;
+  return patient_display_state(s_confirmed, s_listed);
+}
+
+bool PatientState_IsConfirmed(uint32_t seq) {
+  return PatientState_GetDisplay(seq) == PATIENT_DISPLAY_CONFIRMED;
 }
 
 PatientAge PatientState_GetAge(uint32_t seq, uint8_t gestWeeks) {
@@ -202,7 +344,7 @@ PatientAge PatientState_GetAge(uint32_t seq, uint8_t gestWeeks) {
 }
 
 bool PatientState_GetTherapy(uint32_t seq, PatientMinutes *out) {
-  if (!out || seq == 0 || s_acc.seq != seq) return false;
+  if (!out || seq == 0 || s_acc.seq != seq || !s_acc.known) return false;
   *out = patient_accum_minutes(&s_acc);
   return true;
 }
@@ -221,7 +363,8 @@ void PatientState_Service(void) {
 
   if (s_idDirty && s_id.seq != 0 && identityRetryAllowed()) writeIdentity();
 
-  // El resto es el reloj de terapia: ~1 Hz, no en cada pasada de UI_Task.
+  // El resto es el reloj de terapia y la confirmacion: ~1 Hz, no en cada pasada
+  // de UI_Task.
   const uint32_t now = millis();
   if (s_serviceStarted && (now - s_lastServiceMs) < SERVICE_PERIOD_MS) return;
   s_serviceStarted = true;
@@ -230,9 +373,25 @@ void PatientState_Service(void) {
   // Formacion o enlace caido: ctrl_state_msg esta virtualizado u obsoleto y no
   // dice nada de lo que la incubadora esta haciendo AHORA.
   const bool linkOk = !Training_IsActive() && !Display_IsBoardLinkLost();
+
+  if (!Training_IsActive()) serviceConfirmation(linkOk);
+  // Identidad confirmada pero sin saber sus minutos (no habia pat_ther): una
+  // lista los fija.
+  if (s_id.seq != 0 && (s_confirmed || s_listed) && !s_acc.known) {
+    requestListIfNeeded(linkOk);
+  }
+  serviceMirror();
+  if (s_id.seq == 0) return;  // el acumulador sigue la identidad
+
+  // Acreditar solo si la placa dice que ESE bebe esta al mando; sin dato de la
+  // placa, solo con la identidad confirmada.
+  PatientBoardView b;
+  const bool haveBoard = Communication_GetBoardView(&b);
+  const bool creditOk = patient_credit_allowed(
+      s_acc.seq, haveBoard && b.sendsActiveSeq, haveBoard ? b.activeSeq : 0u,
+      s_confirmed);
   patient_accum_tick(&s_acc, now, (uint8_t)ctrl_state_msg.actuation,
-                     ctrl_state_msg.phototherapyMode != 0, linkOk);
-  resyncFromMirror();
+                     ctrl_state_msg.phototherapyMode != 0, linkOk && creditOk);
 
   // Un fallo de escritura deja `dirty` y, como flush_done() ya anoto la hora,
   // el siguiente intento espera un intervalo entero: no hay bucle de reintentos.

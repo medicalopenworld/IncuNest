@@ -504,44 +504,73 @@ void patient_identity_update(void) {
     return;
   }
 
-  const bool live = BabyWizard_HasLiveSession();
-  char name[24] = "";
+  // Tres estados (state/patient_state): nada (identidad restaurada que la
+  // placa aun no confirma), confirmada, o -placa antigua con el bebe en su
+  // lista- el nombre en gris con "?" y sin edad. Una identidad sin confirmar
+  // NUNCA se pinta como cierta: podria ser otro bebe.
+  PatientDisplay disp = PATIENT_DISPLAY_HIDDEN;
+  BabyWizardSession s = {};
+  if (BabyWizard_HasLiveSession()) {
+    BabyWizard_GetSession(&s);
+    disp = PatientState_GetDisplay(s.seq);
+  }
+  const bool live = (disp != PATIENT_DISPLAY_HIDDEN);
+  const bool confirmed = (disp == PATIENT_DISPLAY_CONFIRMED);
+
+  char name[28] = "";
   char detail[48] = "";
   if (live) {
-    BabyWizardSession s;
-    BabyWizard_GetSession(&s);
-    snprintf(name, sizeof(name), "%s", s.name[0] ? s.name : "--");
-    const PatientAge age = PatientState_GetAge(s.seq, s.gest);
-    if (age.hasCorrected) {
-      snprintf(detail, sizeof(detail), TR(STR_PATIENT_AGE_FMT),
-               (unsigned)age.corrWeeks, (unsigned)age.corrDays,
-               (unsigned)age.lifeDays);
-    } else if (s.gest > 0) {
-      snprintf(detail, sizeof(detail), TR(STR_PATIENT_GEST_ONLY_FMT),
-               (unsigned)s.gest);
-    } else if (age.hasLifeDays) {
-      snprintf(detail, sizeof(detail), TR(STR_PATIENT_DAYS_ONLY_FMT),
-               (unsigned)age.lifeDays);
+    if (confirmed) {
+      snprintf(name, sizeof(name), "%s", s.name[0] ? s.name : "--");
+      const PatientAge age = PatientState_GetAge(s.seq, s.gest);
+      char days[8];
+      patient_fmt_life_days(age.lifeDays, days, sizeof(days));
+      if (age.hasCorrected) {
+        snprintf(detail, sizeof(detail), TR(STR_PATIENT_AGE_FMT),
+                 (unsigned)age.corrWeeks, (unsigned)age.corrDays, days);
+      } else if (s.gest > 0) {
+        snprintf(detail, sizeof(detail), TR(STR_PATIENT_GEST_ONLY_FMT),
+                 (unsigned)s.gest);
+      } else if (age.hasLifeDays) {
+        snprintf(detail, sizeof(detail), TR(STR_PATIENT_DAYS_ONLY_FMT), days);
+      }
+    } else {
+      // Sin edad ni semanas: lo unico que se puede decir es que el HMI cree
+      // que es este bebe.
+      snprintf(name, sizeof(name), "%s ?", s.name[0] ? s.name : "--");
     }
   }
 
   static bool lastLive = false;
+  static bool lastConfirmed = false;
   static char lastName[sizeof(name)] = {0};
   static char lastDetail[sizeof(detail)] = {0};
   static int lastLang = -1;
   const bool langChanged = lastLang != (int)g_lang;
   const bool nameChanged = strcmp(name, lastName) != 0;
   const bool detailChanged = strcmp(detail, lastDetail) != 0;
-  if (live == lastLive && !nameChanged && !detailChanged && !langChanged &&
-      lastLang != -1) {
+  if (live == lastLive && confirmed == lastConfirmed && !nameChanged &&
+      !detailChanged && !langChanged && lastLang != -1) {
     return;
   }
   lastLive = live;
+  lastConfirmed = confirmed;
   lastLang = (int)g_lang;
   snprintf(lastName, sizeof(lastName), "%s", name);
   snprintf(lastDetail, sizeof(lastDetail), "%s", detail);
 
   if (live) {
+    // Gris cuando no esta confirmada (sobre el azul del boton y sobre el fondo
+    // oscuro del bloqueo); los colores de la identidad confirmada son los de
+    // ElementsCreation.cpp.
+    const lv_color_t mainName = confirmed ? lv_color_hex(0xFFFFFF) : lv_color_hex(0xBFBFBF);
+    const lv_color_t mainDetail = confirmed ? lv_color_hex(0xD6E6FF) : lv_color_hex(0xBFBFBF);
+    const lv_color_t lockName = confirmed ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x8C8C8C);
+    const lv_color_t lockDetail = confirmed ? lv_color_hex(0xBBBBBB) : lv_color_hex(0x8C8C8C);
+    lv_obj_set_style_text_color(ui_BabiesPatientName, mainName, LV_PART_MAIN);
+    lv_obj_set_style_text_color(ui_BabiesPatientDetail, mainDetail, LV_PART_MAIN);
+    if (ui_LockPatientName) lv_obj_set_style_text_color(ui_LockPatientName, lockName, LV_PART_MAIN);
+    if (ui_LockPatientDetail) lv_obj_set_style_text_color(ui_LockPatientDetail, lockDetail, LV_PART_MAIN);
     lv_obj_add_flag(ui_BabiesButtonLabel, LV_OBJ_FLAG_HIDDEN);
     lv_label_set_text(ui_BabiesPatientName, name);
     lv_label_set_text(ui_BabiesPatientDetail, detail);
@@ -593,6 +622,7 @@ void patient_therapy_update(void) {
   char photo[24] = "";
   PatientMinutes m;
   if (BabyWizard_HasLiveSession() &&
+      PatientState_IsConfirmed(BabyWizard_GetActiveSeq()) &&
       PatientState_GetTherapy(BabyWizard_GetActiveSeq(), &m)) {
     char dur[16];
     patient_fmt_minutes(m.thermo, dur, sizeof(dur));

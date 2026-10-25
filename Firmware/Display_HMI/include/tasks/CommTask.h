@@ -235,6 +235,14 @@ extern BabyProfileListMsg g_profileList;
 // `*seenGen`. Segura entre tareas.
 bool Communication_TakeProfileListMirror(uint32_t *seenGen,
                                          BabyProfileListMsg *out);
+
+// Lo que el ultimo CTRL,STATE dice del bebe al mando (`activeSeq`, campo 24;
+// terapia viva; sn de la placa), como una sola instantanea coherente. Devuelve
+// false (y `out->stateSeen` a false) hasta que llegue el primer CTRL,STATE.
+// `sendsActiveSeq` es false con una placa que no manda el campo: ahi
+// `activeSeq` NO vale 0, es desconocido. Segura entre tareas.
+#include "modules/patient/patient_session.h"  // PatientBoardView
+bool Communication_GetBoardView(PatientBoardView *out);
 extern volatile bool     g_pendingProfileAck;
 extern uint32_t          g_profileAck;
 

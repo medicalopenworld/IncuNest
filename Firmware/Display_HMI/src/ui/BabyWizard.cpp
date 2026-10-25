@@ -677,7 +677,11 @@ static void openForTarget(WizTarget target) {
   s_hasUsableRange = false;
   s_listRetries = 0;
 
-  if (BabyWizard_HasLiveSession()) {
+  // PatientState_IsConfirmed(): una identidad RESTAURADA de la NVS que la
+  // placa aun no ha confirmado no vale para el atajo (podria ser otro bebe:
+  // los seq de dos placas colisionan, y el atajo atribuiria terapia y minutos
+  // al equivocado). Sin confirmar, el selector.
+  if (BabyWizard_HasLiveSession() && PatientState_IsConfirmed(s_sessionSeq)) {
     // Baby already identified AND still under care right now (e.g.
     // phototherapy is running and temperature is being added): skip the
     // picker and go straight to whatever this therapy still needs.
@@ -753,7 +757,7 @@ void BabyWizard_SetSession(const BabyWizardSession *s) {
   s_sessionGest = s->gest;
   s_sessionWeight = s->weight;
   PatientState_OnSessionSet(s_sessionSeq, s_sessionName, s_sessionGest,
-                            nullptr);
+                            nullptr, /*fromBoardAck=*/false);
 }
 
 BabyWizardStep BabyWizard_GetStep() {
@@ -811,13 +815,19 @@ void BabyWizard_Poll() {
     case WizStep::WaitingSelectAck:
       if (g_pendingProfileAck) {
         g_pendingProfileAck = false;
+        // Que peticion contesta este ACK, ANTES de que s_step cambie mas abajo.
+        const bool answersSelect = (s_step == WizStep::WaitingSelectAck);
         if (g_profileAck == 0) {
-          // The remembered baby no longer exists on the motherBoard (it was
-          // discharged, FIFO-evicted, or the records were wiped). Forget it
-          // so the picker takes over instead of retrying a dead seq forever.
-          s_sessionSeq = 0;
-          s_sessionName[0] = '\0';
-          PatientState_OnClear();  // manda la placa: ya no existe ese bebe
+          if (answersSelect) {
+            // The remembered baby no longer exists on the motherBoard (it was
+            // discharged, FIFO-evicted, or the records were wiped). Forget it
+            // so the picker takes over instead of retrying a dead seq forever.
+            s_sessionSeq = 0;
+            s_sessionName[0] = '\0';
+            PatientState_OnClear();  // manda la placa: ya no existe ese bebe
+          }
+          // Un PROFILE_NEW rechazado (los tres huecos llenos) NO dice nada del
+          // bebe que sigue en la incubadora: su identidad no se toca.
           UI_ShowToast(TR(STR_OPERATION_REFUSED), 3000);
           // Re-request the list: we may have arrived here bypassing it.
           Communication_SendProfileListReq();
@@ -842,8 +852,10 @@ void BabyWizard_Poll() {
             seed.humidity = s_list.items[i].humidityMinutes;
             break;
           }
+          // Viene de un PROFILE_ACK: la placa acaba de responder por este
+          // bebe, asi que nace (o pasa a estar) confirmado.
           PatientState_OnSessionSet(s_sessionSeq, s_sessionName, s_sessionGest,
-                                    &seed);
+                                    &seed, /*fromBoardAck=*/true);
           if (targetIsIdentityOnly(s_target)) {
             // A lamp or a humidifier needs no NTE range, so weight and
             // age-in-days are never asked here: identifying the baby is the
