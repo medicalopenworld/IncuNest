@@ -463,15 +463,40 @@ min/max would flicker); the cost is a partial bucket on the right, at most
 `Display_HMI/src/modules/storage/hmi_fs.{h,cpp}` mounts **LittleFS** on the
 existing `spiffs` partition (`partitions/hmi_16mb_ota.csv`, 0xA10000, 0x5E0000,
 ≈5.9 MB) by label — the partition table is not touched. API:
-`HmiFs_Begin()` (idempotent; if the mount fails it formats **once** and retries,
-then gives up for good), `HmiFs_IsMounted()`, `HmiFs_Info()`,
-`HmiFs_FileSize()`, `HmiFs_ReadAll()`, `HmiFs_Remove()`, `HmiFsAtomicWriter`
-(`begin` / `write` / `commit` / `abort`: writes `path.tmp` and renames it over
-`path`) and `HmiFs_WriteAtomic()`. Rules: never under `LVGL_Lock` (ARQ-LOCK-001);
-mount from `UI_Task` after the RGB panel has reserved its bounce buffers (it is
-mounted lazily the first time the trend needs it, not in `setup()`); a flash
-write suspends the cache and can flicker the panel briefly (see the note in
+`HmiFs_Begin()`, `HmiFs_State()`, `HmiFs_Service()`, `HmiFs_IsMounted()`,
+`HmiFs_Info()`, `HmiFs_FileSize()`, `HmiFs_ReadAll()`, `HmiFs_Remove()`,
+`HmiFsReader` (incremental read), `HmiFsAtomicWriter` (`begin` / `write` /
+`commit` / `abort`: writes `path.tmp` and renames it over `path`) and
+`HmiFs_WriteAtomic()`. Rules: never under `LVGL_Lock` (ARQ-LOCK-001); mount from
+`UI_Task` after the RGB panel has reserved its bounce buffers (it is mounted
+lazily the first time the trend needs it, not in `setup()`); a flash write
+suspends the cache and can flicker the panel briefly (see the note in
 `platformio.ini`), so large files are written in 4 KB chunks.
+
+**Semantics change — `HmiFs_Begin()` no longer formats on the spot** (code
+review C1). In the field the 6 MB `spiffs` partition is blank or carries an old
+SPIFFS image, so the first mount fails; formatting there could erase the whole
+partition in one go and freeze `UI_Task` for tens of seconds with no banner and
+no alarm sound. Now `HmiFs_Begin()` only *tries* to mount (`begin(false)`) and
+returns the result; if there is no valid image the state becomes
+`HmiFsState::NeedsFormat` and `Begin()` returns `false` (it does not retry the
+mount, which would spam the VFS log). The format is **deferred** and spread by
+`HmiFs_Service(ioAllowed, millis())`, called every `UI_Task` pass: only with no
+active alarm and a live board link, it erases the partition in **64 KB ranges**
+(`esp_partition_erase_range`, starting at offset 0 where the superblocks live —
+a power cut mid-way leaves a "blank" partition and the next boot restarts the
+format), one range per pass and ≥ 100 ms apart (94 ranges, ~10 s of spacing plus
+the erase time), then `LittleFS.format()` on the already-erased partition and a
+mount, logging the total time (and the erase/`format()` split). Until it ends
+`Begin()` returns `false` and **the trend works in RAM only**; callers must treat
+`false` as "no persistence yet" and call `Begin()` again later. `Failed` is
+final (no format loop). `LittleFS.format()` on an erased partition only writes
+the superblocks; that is to be confirmed on the bench (checklist 2.7) — if it
+turns out slow, the plan is to drop it and use `begin(true)` on the erased
+partition. Production alternative: flash an **empty LittleFS image** at 0xA10000
+with the flasher so the field never formats (pending; the flasher is not
+touched by this change). The public API of `hmi_fs` is otherwise unchanged:
+`HmiFs_State()`, `HmiFs_Service()` and `HmiFsReader` are additions.
 
 `/trend.bin` (little-endian, written byte by byte, no packed structs):
 
@@ -499,22 +524,67 @@ once per loop pass): every **5 min** if samples have arrived since the last
 dump, and on **entering the lock screen** with at least 2 min since the previous
 dump (the 20 s auto-lock fires after every interaction; without the floor each
 touch would be a dump). Only with synchronised time — before that the slots are
-not epochs. The model is serialised to a PSRAM staging buffer (~104 KB, only
-while dumping) and written **one 4 KB chunk per loop pass, at most one every
-50 ms**, to `/trend.bin.tmp`; at the end it is renamed over `/trend.bin`. A power
-cut mid-dump leaves the previous file intact and an orphan `.tmp` that the next
-dump truncates. A failure aborts, frees the staging buffer and retries after a
-full period (never in a loop); the in-RAM trend is unaffected. Cost: ~27 block
-erases per dump, ≈5 erases/block/day with LittleFS wear levelling over ~1450
-blocks. **Maximum loss on a power cut: 5 min of samples and the edges in them.**
+not epochs.
 
-**Restore** (once per boot, as soon as the clock is synchronised): the file is
-read into a PSRAM buffer, validated and *prepended* to what the session has
-already recorded — aligned by the epoch of its last slot; the gap between that
-slot and the first live sample stays "no data"; live samples win where the two
-overlap; what does not fit in 24 h is dropped from the old side; file events in
-range and older than the first live event are prepended to the live ones. A file
-whose last slot is after "now + 1 slot" (a wrong clock) or that no longer falls
-inside the ring is rejected and left on disk for the next dump to replace.
+**Everything is sliced** (code review C2): one `UI_Task` pass does at most *one*
+slice, never "allocate 104 KB + serialise 51 840 values + two CRCs + first
+erase" at once. A dump is: (1) a pass that reserves the PSRAM staging buffer
+(~104 KB, only while dumping) and takes the event snapshot; (2) *N* passes that
+serialise 4096 values each (13 for 24 h) and then compute the payload CRC over
+16 KB per pass (7), keeping incremental state (`trend_ser_*`, pure and
+host-tested); (3) a pass that opens `/trend.bin.tmp`; (4) **the writing starts on
+a later pass**: one 4 KB chunk per pass, at most one every 50 ms; (5) rename over
+`/trend.bin`. Because the model keeps recording between passes, the serialiser
+carries the ring's generation counter: if a sample (or a clock shift) lands
+between slices it restarts (up to 5 times) instead of writing a torn snapshot.
 
-Manual bench checklist: `openspec/changes/hmi-trend/tasks.md` (2.7).
+**No I/O with an alarm or a lost link.** Nothing starts or continues while
+`UI_IsAnyAlarmActive()` or `Display_IsBoardLinkLost()` is true
+(`trend_io_allowed()`): a dump in progress is **aborted cleanly** (the `.tmp` is
+discarded and the dump is retried when due), a restore is paused where it is, and
+the deferred partition format waits too. A power cut mid-dump leaves the
+previous file intact and an orphan `.tmp` that the next dump truncates. A real
+failure aborts, frees the staging buffer and retries after a full period (never
+in a loop); the in-RAM trend is unaffected. **Consequence:** during a long alarm
+the trend is not saved, so a power cut in the middle of an alarm loses back to
+the last dump (up to the alarm's length + 5 min). Cost: ~27 block erases per
+dump; with the usual 5 min period that is ≈5 erases/block/day over ~1450
+blocks, but with frequent locks the 2 min floor means one dump every 2 min:
+720 dumps/day × 27 = 19 440 erases/day ≈ **13 erases/block/day** — still ~20
+years of a 100 000-cycle budget. **Maximum loss on a power cut (no alarm): 5 min
+of samples and the edges in them.**
+
+**Known risk — UART without an IRAM-safe ISR during erases (A1/A2).** A flash
+erase suspends the instruction cache; the UART driver's ISR is not placed in IRAM
+here, so bytes of the `CTRL,*` stream can be lost while a sector erase is in
+progress (≈45 ms each; the 4 KB chunks and the 64 KB format ranges each cost
+at least one). Mitigations in place: no I/O with an alarm or a lost link, chunks
+spaced ≥ 50 ms, and the protocol's lines are re-sent periodically and parsed
+defensively (a truncated line is discarded). It is not eliminated: the bench
+checklist (2.7) measures the lines discarded during a dump. If the count is not
+zero in practice, the options are to lengthen the gap between chunks, to dump
+only while locked, or to enable `CONFIG_UART_ISR_IN_IRAM` (blocked by the
+build-environment limitation noted in `platformio.ini`).
+
+**Restore** (once per boot, as soon as the clock is synchronised; also sliced,
+and paused with an alarm or lost link): the file is read 4 KB per pass into a
+PSRAM buffer; then the header is validated, the payload CRC is computed over
+16 KB per pass and the block is *prepended* to what the session has already
+recorded in 4096-slot slices — aligned by the epoch of its last slot; the gap
+between that slot and the first live sample stays "no data"; live samples win
+where the two overlap; what does not fit in 24 h is dropped from the old side;
+file events in range and older than the first live event are prepended to the
+live ones. The slices write only into free ring positions and the ring changes
+visibly in the last one, so a live sample arriving mid-restore just makes the
+job re-plan (`trend_prepend_*`). A file whose last slot is after "now + 1 slot"
+(`FUTURE`, a wrong clock) or that no longer falls inside the ring (`STALE`) is
+rejected: it is **retried once**, the first time the clock is corrected
+afterwards (`TrendModel::clockShifts` changes), and **the dump does not overwrite
+it until that retry** — or until a 30 min grace expires, so that a file that is
+really old does not block persistence for ever. A file that is merely `INVALID`
+(corrupt, other version) is final.
+
+Manual bench checklist: `openspec/changes/archive/2026-10-25-hmi-trend/tasks.md`
+(1.8 and 2.7, **still open**: no hardware was available). 2.7 includes
+measuring the `CTRL` lines discarded during a dump (A1/A2) and the deferred
+format on a blank partition (C1).

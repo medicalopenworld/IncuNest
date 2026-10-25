@@ -79,6 +79,17 @@ Commits: `test(hmi): failing specs for trend persistence` y
       formatea una vez y monta); log `HmiFs`: heap interno antes/después del
       montaje y tiempo de montaje; log `TrendPersist`: duración y trozos de un
       volcado; log `TelHist`: coste de `redraw` en las tres ventanas.
+      Tras la revision de codigo (C1/C2/A1/A2/A3), ademas: con una particion
+      **virgen o con una imagen SPIFFS antigua**, el arranque NO se para (el
+      banner y el sonido de alarma siguen vivos), la tendencia funciona en RAM
+      y el formateo diferido empieza solo sin alarma y con el enlace vivo; leer
+      en el log `HmiFs` el tiempo total y el reparto borrado / `format()` (si
+      `format()` sobre la particion ya borrada no es rapido, sustituirlo por
+      `begin(true)`); **un volcado con una alarma activa se aborta y no queda
+      `.tmp`**; el volcado/restauracion de 24 h reparte el trabajo (ninguna
+      pasada del bucle de UI larga: log `TrendPersist`); y **medir las lineas
+      CTRL descartadas por el UART durante un volcado** (contador de lineas
+      truncadas o descartadas del parser, con y sin volcado).
 
 ## 3. Docs
 
