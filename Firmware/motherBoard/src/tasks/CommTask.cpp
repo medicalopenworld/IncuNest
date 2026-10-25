@@ -16,6 +16,7 @@ extern "C" bool debug_inject_take(char *out, size_t out_len);
 #include "modules/control/alarm_history.h"
 #include "modules/control/alarm_machine.h"
 #include "modules/control/alarm_test.h"
+#include "modules/config/runtime_config.h"
 #include "modules/baby_profile/baby_profile_protocol.h"
 #include "modules/baby_profile/baby_profile_store.h"
 #include "nte_table.h"
@@ -751,9 +752,9 @@ void parse_line(const char *line) {
     char param[32];
     float value;
     bool success = false;
+    char cfgMsg[96] = "";
     if (line[7] == ',' && sscanf(line, "/config,%31[^,],%f", param, &value) == 2) {
       success = true;
-      extern float maxDesiredTemp[2];
       if (strcmp(param, "BABY_WIPE") == 0) {
         // Destructive and irreversible, so it needs an explicit magic value
         // rather than any truthy number: /config,BABY_WIPE,1234
@@ -766,44 +767,19 @@ void parse_line(const char *line) {
         } else {
           success = false;  // wrong confirmation code: do nothing
         }
-      } else if (strcmp(param, "FAN_SUPPLY_PWM") == 0) {
-        in3.fanPwrSupplyPWM = (int)value;
-        { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_PWR_SUPPLY_PWM, in3.fanPwrSupplyPWM); p.end(); }
-      } else if (strcmp(param, "HEATER_AMPS") == 0) {
-        in3.heaterMaxPowerAmps = value;
-        { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_HEAT_MAX_A, in3.heaterMaxPowerAmps); p.end(); }
-      } else if (strcmp(param, "SKIN_TMAX") == 0) {
-        in3.skinTemperatureSetMax = alarm_clamp_skin_cutout(value);
-        maxDesiredTemp[CONTROL_SKIN] = in3.skinTemperatureSetMax;
-        { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_SKIN_T_MAX, in3.skinTemperatureSetMax); p.end(); }
-      } else if (strcmp(param, "AIR_TMAX") == 0) {
-        in3.airTemperatureSetMax = alarm_clamp_air_cutout(value);
-        maxDesiredTemp[CONTROL_AIR] = in3.airTemperatureSetMax;
-        { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_AIR_T_MAX, in3.airTemperatureSetMax); p.end(); }
-      } else if (strcmp(param, "GPRS_ACT") == 0) {
-        in3.actuating_gprs_period = (int)value;
-        { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_ACT_PERIOD, in3.actuating_gprs_period); p.end(); }
-      } else if (strcmp(param, "GPRS_PHOTO") == 0) {
-        in3.phototherapy_gprs_period = (int)value;
-        { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_PHOTO_PERIOD, in3.phototherapy_gprs_period); p.end(); }
-      } else if (strcmp(param, "GPRS_STBY") == 0) {
-        in3.standby_gprs_period = (int)value;
-        { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_STBY_PERIOD, in3.standby_gprs_period); p.end(); }
-      } else if (strcmp(param, "FAN_CTL_PWM") == 0) {
-        in3.fanCtlPWM = (int)value;
-        { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_CTL_PWM, in3.fanCtlPWM); p.end(); }
-        ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
-      } else if (strcmp(param, "FAN_PID_EN") == 0) {
-        setFanPidEnabled(value != 0);
       } else {
-        success = false;
+        // Los nueve parametros de la lista blanca (en mayusculas aqui, el
+        // lookup no distingue) pasan por runtime_config: la misma regla que
+        // POST /config y que ThingsBoard. El modulo ya deja su propia linea
+        // de log con origen, valor pedido y valor aplicado.
+        success = runtime_config_apply(RCFG_ORIGIN_USB, param, value, cfgMsg,
+                                       sizeof(cfgMsg));
       }
-      if (success) { /* Preferences commits on p.end() */ }
       if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         if (success)
           ESP_LOGI(TAG, "Config updated: %s = %.2f", param, value);
         else
-          ESP_LOGE(TAG, "Unknown config parameter: %s", param);
+          ESP_LOGE(TAG, "Config not applied: %s", cfgMsg[0] ? cfgMsg : param);
         xSemaphoreGiveRecursive(log_mutex);
       }
     } else {

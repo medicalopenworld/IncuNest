@@ -340,16 +340,16 @@ const char *configIndex =
     "<h3>System Configuration</h3>"
     "<label>Serial Number:</label><br>"
     "<input type='number' name='serial' id='serial'><br><br>"
-    "<label>Fan Supply PWM (0-255):</label><br>"
+    "<label>Fan Supply PWM (1-255):</label><br>"
     "<input type='number' name='fan_supply_pwm' id='fan_supply_pwm'><br><br>"
-    "<label>Fan Control PWM (0-255):</label><br>"
+    "<label>Fan Control PWM (1-255):</label><br>"
     "<input type='number' name='fan_ctl_pwm' id='fan_ctl_pwm'><br><br>"
     "<label>Fan Speed PID:</label><br>"
     "<select name='fan_pid_en' id='fan_pid_en'>"
     "<option value='1'>Enabled</option>"
     "<option value='0'>Disabled (fixed Fan Control PWM)</option>"
     "</select><br><br>"
-    "<label>Heater Max Power (Amps):</label><br>"
+    "<label>Heater Max Power (Amps, 1-12):</label><br>"
     "<input type='number' step='0.1' name='heater_amps' id='heater_amps'><br><br>"
     "<label>Air Temp Max (C):</label><br>"
     "<input type='number' step='0.1' name='air_tmax' id='air_tmax'><br><br>"
@@ -358,11 +358,11 @@ const char *configIndex =
     "<button type='button' onclick='saveSection([\"serial\",\"fan_supply_pwm\",\"fan_ctl_pwm\",\"fan_pid_en\",\"heater_amps\",\"air_tmax\",\"skin_tmax\"])'>Save System Configuration</button>"
     "<br><br>"
     "<h3>GPRS Reporting Periods (seconds)</h3>"
-    "<label>Actuating Period:</label><br>"
+    "<label>Actuating Period (10-86400):</label><br>"
     "<input type='number' name='gprs_act' id='gprs_act'><br><br>"
-    "<label>Phototherapy Period:</label><br>"
+    "<label>Phototherapy Period (10-86400):</label><br>"
     "<input type='number' name='gprs_photo' id='gprs_photo'><br><br>"
-    "<label>Standby Period:</label><br>"
+    "<label>Standby Period (10-86400):</label><br>"
     "<input type='number' name='gprs_stby' id='gprs_stby'><br><br>"
     "<button type='button' onclick='saveSection([\"gprs_act\",\"gprs_photo\",\"gprs_stby\"])'>Save GPRS Reporting</button>"
     "<br><br>"
@@ -411,6 +411,8 @@ const char *configIndex =
     "  fields.forEach(function(f) { data[f] = $('#'+f).val(); });"
     "  $.post('/config', data, function(resp) {"
     "    $('#msg').text(resp);"
+    "  }).fail(function(xhr) {"
+    "    $('#msg').text(xhr.responseText || 'Request failed');"
     "  });"
     "}"
     "function pad(n) { return (n < 10 ? '0' : '') + n; }"
@@ -619,50 +621,39 @@ void configWifiServer() {
     if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
       return wifiServer.requestAuthentication();
     }
-    extern float maxDesiredTemp[2];
+    // Los nueve parametros de la lista blanca (fan_*, heater_amps, *_tmax,
+    // gprs_*) pasan por runtime_config, el mismo punto que usan la consola
+    // USB y ThingsBoard. Primero se COMPRUEBAN todos los presentes y solo si
+    // todos valen se aplican: un formulario con un campo malo no queda a
+    // medias. serial, reference_temp y set_time se quedan aqui debajo.
+    {
+      size_t nKeys = 0;
+      const char *const *keys = runtime_config_keys(&nKeys);
+      char msg[96];
+      for (size_t i = 0; i < nKeys; i++) {
+        if (wifiServer.hasArg(keys[i]) &&
+            !runtime_config_check_text(keys[i], wifiServer.arg(keys[i]).c_str(),
+                                       msg, sizeof(msg))) {
+          wifiServer.sendHeader("Connection", "close");
+          wifiServer.send(400, "text/plain", String("Rejected, nothing applied. ") + msg);
+          return;
+        }
+      }
+      for (size_t i = 0; i < nKeys; i++) {
+        if (wifiServer.hasArg(keys[i]) &&
+            !runtime_config_apply_text(RCFG_ORIGIN_WEB, keys[i],
+                                       wifiServer.arg(keys[i]).c_str(), msg,
+                                       sizeof(msg))) {
+          // Ya validado arriba: aqui solo falla la NVS.
+          wifiServer.sendHeader("Connection", "close");
+          wifiServer.send(500, "text/plain", String("Not saved. ") + msg);
+          return;
+        }
+      }
+    }
     if (wifiServer.hasArg("serial")) {
       in3.serialNumber = wifiServer.arg("serial").toInt();
       { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_SERIAL, in3.serialNumber); p.end(); }
-    }
-    if (wifiServer.hasArg("fan_supply_pwm")) {
-      in3.fanPwrSupplyPWM = wifiServer.arg("fan_supply_pwm").toInt();
-      { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_PWR_SUPPLY_PWM, in3.fanPwrSupplyPWM); p.end(); }
-    }
-    if (wifiServer.hasArg("fan_ctl_pwm")) {
-      in3.fanCtlPWM = wifiServer.arg("fan_ctl_pwm").toInt();
-      { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_CTL_PWM, in3.fanCtlPWM); p.end(); }
-      ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
-    }
-    if (wifiServer.hasArg("fan_pid_en")) {
-      setFanPidEnabled(wifiServer.arg("fan_pid_en").toInt() != 0);
-    }
-    if (wifiServer.hasArg("heater_amps")) {
-      in3.heaterMaxPowerAmps = wifiServer.arg("heater_amps").toFloat();
-      { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_HEAT_MAX_A, in3.heaterMaxPowerAmps); p.end(); }
-    }
-    if (wifiServer.hasArg("air_tmax")) {
-      in3.airTemperatureSetMax =
-          alarm_clamp_air_cutout(wifiServer.arg("air_tmax").toFloat());
-      maxDesiredTemp[CONTROL_AIR] = in3.airTemperatureSetMax;
-      { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_AIR_T_MAX, in3.airTemperatureSetMax); p.end(); }
-    }
-    if (wifiServer.hasArg("skin_tmax")) {
-      in3.skinTemperatureSetMax =
-          alarm_clamp_skin_cutout(wifiServer.arg("skin_tmax").toFloat());
-      maxDesiredTemp[CONTROL_SKIN] = in3.skinTemperatureSetMax;
-      { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_SKIN_T_MAX, in3.skinTemperatureSetMax); p.end(); }
-    }
-    if (wifiServer.hasArg("gprs_act")) {
-      in3.actuating_gprs_period = wifiServer.arg("gprs_act").toInt();
-      { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_ACT_PERIOD, in3.actuating_gprs_period); p.end(); }
-    }
-    if (wifiServer.hasArg("gprs_photo")) {
-      in3.phototherapy_gprs_period = wifiServer.arg("gprs_photo").toInt();
-      { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_PHOTO_PERIOD, in3.phototherapy_gprs_period); p.end(); }
-    }
-    if (wifiServer.hasArg("gprs_stby")) {
-      in3.standby_gprs_period = wifiServer.arg("gprs_stby").toInt();
-      { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_STBY_PERIOD, in3.standby_gprs_period); p.end(); }
     }
     if (wifiServer.hasArg("reference_temp")) {
       double referenceTemp = wifiServer.arg("reference_temp").toDouble();

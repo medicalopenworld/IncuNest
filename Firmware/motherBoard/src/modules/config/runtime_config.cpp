@@ -239,6 +239,29 @@ bool runtime_config_apply_text(RuntimeConfigOrigin origin, const char *name,
   return apply_id(origin, id, value, msg, msg_len);
 }
 
+bool runtime_config_check_text(const char *name, const char *text, char *msg,
+                               size_t msg_len) {
+  RuntimeConfigId id;
+  if (!runtime_config_lookup(name, &id)) {
+    set_msg(msg, msg_len, "%s: %s", name != nullptr ? name : "?",
+            "unknown parameter");
+    return false;
+  }
+  float value = 0.0f;
+  if (!runtime_config_parse_number(text, &value)) {
+    set_msg(msg, msg_len, "%s: %s", runtime_config_name(id), "not a number");
+    return false;
+  }
+  float applied = 0.0f;
+  const RuntimeConfigStatus st = runtime_config_validate(id, value, &applied);
+  if (!runtime_config_status_accepted(st)) {
+    set_msg(msg, msg_len, "%s: %s", runtime_config_name(id),
+            runtime_config_status_text(st));
+    return false;
+  }
+  return true;
+}
+
 size_t runtime_config_apply_json(RuntimeConfigOrigin origin,
                                  JsonObjectConst data) {
   size_t accepted = 0;

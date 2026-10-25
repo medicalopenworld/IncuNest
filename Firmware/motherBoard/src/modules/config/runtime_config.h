@@ -46,6 +46,13 @@ bool runtime_config_apply(RuntimeConfigOrigin origin, const char *name,
 bool runtime_config_apply_text(RuntimeConfigOrigin origin, const char *name,
                                const char *text, char *msg, size_t msg_len);
 
+// Solo comprueba que `name` = `text` se aceptaria: mismas reglas que
+// runtime_config_apply_text(), pero sin cambiar nada, sin registrar nada y sin
+// marcar eco. Sirve para validar TODOS los campos de un POST antes de aplicar
+// ninguno, de modo que un formulario con un campo malo no queda a medias.
+bool runtime_config_check_text(const char *name, const char *text, char *msg,
+                               size_t msg_len);
+
 // Aplica las claves de la lista blanca presentes en `data` (el objeto que
 // entrega el SDK de ThingsBoard). Ignora cualquier otra clave y cualquier valor
 // que no sea numero o booleano. Devuelve cuantas se aceptaron.
