@@ -8,6 +8,7 @@
 #include "control_types.h"
 #include "alarm_ids.h"
 #include "factory_test.h"
+#include "modules/patient/patient_session.h"  // PatientBoardView (Communication_GetBoardView)
 
 #define COMMUNICATION_DEBUG true
 #if COMMUNICATION_DEBUG
@@ -241,7 +242,6 @@ bool Communication_TakeProfileListMirror(uint32_t *seenGen,
 // false (y `out->stateSeen` a false) hasta que llegue el primer CTRL,STATE.
 // `sendsActiveSeq` es false con una placa que no manda el campo: ahi
 // `activeSeq` NO vale 0, es desconocido. Segura entre tareas.
-#include "modules/patient/patient_session.h"  // PatientBoardView
 bool Communication_GetBoardView(PatientBoardView *out);
 extern volatile bool     g_pendingProfileAck;
 extern uint32_t          g_profileAck;

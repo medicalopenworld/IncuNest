@@ -61,7 +61,24 @@ const char *BabyWizard_GetActiveName(void);
 // care session ended there. Deliberately independent of what the exit dialog
 // answered (kangaroo / "not now" / never shown): that answer belongs to the
 // clinical record, not to who the picker offers.
+//
+// SEMANTICS CHANGE (hmi-patient-identity): it now ALSO requires the identity to
+// be CONFIRMED by the motherBoard (PatientState_IsConfirmed()). An identity
+// restored from the HMI's NVS after a restart is only what this HMI once saw:
+// the seq may belong to another baby (two boards both start at 1), the board's
+// NVS may have been wiped, the discharge may have been done elsewhere. Every
+// path that ACTS on the seq towards the board (PROFILE_DISCHARGE, re-sending
+// PROFILE_SELECT, the picker shortcut, phototherapy/humidity wizard gating)
+// goes through this function, so requiring confirmation here closes them all.
+// Any other open branch calling it (e.g. a weighing reminder) inherits that:
+// until the board confirms, it sees "no live session". Callers that really
+// mean "a patient is inside, whoever it is" use HasAnySession().
 bool BabyWizard_HasLiveSession(void);
+// seq known and some therapy running, WITHOUT requiring the identity to be
+// confirmed. Only for things that do not depend on WHO the baby is and never
+// act on the seq towards the board: the daily-cleaning reminder (a patient is
+// inside whoever it is) and painting a restored, unconfirmed identity grey.
+bool BabyWizard_HasAnySession(void);
 // Cleared when a baby is discharged so the exit dialog stops offering it.
 void BabyWizard_ClearActiveProfile(void);
 

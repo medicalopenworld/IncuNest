@@ -677,11 +677,11 @@ static void openForTarget(WizTarget target) {
   s_hasUsableRange = false;
   s_listRetries = 0;
 
-  // PatientState_IsConfirmed(): una identidad RESTAURADA de la NVS que la
-  // placa aun no ha confirmado no vale para el atajo (podria ser otro bebe:
-  // los seq de dos placas colisionan, y el atajo atribuiria terapia y minutos
-  // al equivocado). Sin confirmar, el selector.
-  if (BabyWizard_HasLiveSession() && PatientState_IsConfirmed(s_sessionSeq)) {
+  // HasLiveSession() ya exige la identidad confirmada: una RESTAURADA de la
+  // NVS que la placa aun no ha confirmado no vale para el atajo (podria ser
+  // otro bebe: los seq de dos placas colisionan, y el atajo atribuiria terapia
+  // y minutos al equivocado). Sin confirmar, el selector.
+  if (BabyWizard_HasLiveSession()) {
     // Baby already identified AND still under care right now (e.g.
     // phototherapy is running and temperature is being added): skip the
     // picker and go straight to whatever this therapy still needs.
@@ -725,6 +725,10 @@ bool BabyWizard_IsOpen() { return s_step != WizStep::Closed; }
 
 uint32_t BabyWizard_GetActiveSeq() { return s_sessionSeq; }
 bool BabyWizard_HasLiveSession() {
+  return patient_live_session(s_sessionSeq, UI_AnyControlActive(),
+                              PatientState_IsConfirmed(s_sessionSeq));
+}
+bool BabyWizard_HasAnySession() {
   return s_sessionSeq != 0 && UI_AnyControlActive();
 }
 const char *BabyWizard_GetActiveName() { return s_sessionName; }

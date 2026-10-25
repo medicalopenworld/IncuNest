@@ -9,6 +9,7 @@
 #include "EEPROM_defines.h"  // HMI_NS_CFG, HMI_KEY_PAT_*
 #include "esp_log.h"
 #include "state/training_mode.h"  // Training_IsActive(), Training_IsPracticeSeq()
+#include "modules/maintenance/maintenance.h"  // Maintenance_NoteSeqDropped()
 #include "ui/BabyHistory.h"       // BabyHistory_IsOpen()
 #include "ui/BabyWizard.h"        // SetSession(), ClearActiveProfile(), IsOpen()
 
@@ -36,7 +37,17 @@ uint32_t s_idFailedAtMs = 0;
 // Confirmacion con la placa. Solo tienen sentido con s_id.seq != 0.
 bool s_confirmed = false;  // la placa confirma este bebe
 bool s_listed = false;     // placa antigua: esta en su lista (gris con "?")
-bool s_legacyBoard = false;  // la placa no manda activeSeq
+bool s_legacyBoard = false;  // la placa no manda activeSeq (se refresca CADA pasada)
+// Contraste de nombre y semanas con la siguiente PROFILE_LIST: tras confirmar por
+// activeSeq, porque un seq se REUTILIZA (babyStore_wipeAll reinicia la cuenta en
+// 1) y el mismo numero puede ser ya otro bebe.
+bool s_needsListCheck = false;
+// activeSeq coincide pero el sn no es verificable (0): no se confirma solo por
+// activeSeq, hace falta ademas que la lista traiga al bebe.
+bool s_activeMatchedNoSn = false;
+// Descarte aplazado: no se descarta con el asistente abierto (su bebe en curso
+// vive en s_seq/s_name, y ClearActiveProfile() se los llevaria por delante).
+const char *s_deferredDropWhy = nullptr;
 
 PatientAccum s_acc = {};  // seq 0 = nadie
 uint32_t s_mirrorGen = 0;
@@ -109,6 +120,9 @@ void resetState() {
   s_confirmed = false;
   s_listed = false;
   s_legacyBoard = false;
+  s_needsListCheck = false;
+  s_activeMatchedNoSn = false;
+  s_deferredDropWhy = nullptr;
   s_listAttempts = 0;
   s_listOutstanding = false;
 }
@@ -117,20 +131,37 @@ void resetState() {
 // RAM, de la NVS y del asistente, que si no seguiria creyendo en ella.
 // BabyWizard_ClearActiveProfile() vuelve a llamar a OnClear, que ya no encuentra
 // nada que borrar.
+//
+// No se descarta con el asistente abierto: su bebe en curso vive en s_seq/s_name
+// y ClearActiveProfile() los pondria a cero a mitad de un alta. Se aplaza hasta
+// que se cierre (o hasta que el propio asistente confirme/sustituya la identidad).
 void dropIdentity(const char *why) {
+  if (BabyWizard_IsOpen()) {
+    s_deferredDropWhy = why;
+    return;
+  }
   ESP_LOGW(TAG, "identidad seq=%lu descartada: %s", (unsigned long)s_id.seq, why);
+  // Descartar una identidad que la placa nunca confirmo NO es un alta del
+  // paciente: sin esto Maintenance_Tick() veria seq -> 0 y dejaria una limpieza
+  // terminal pendiente, y persistida.
+  if (!s_confirmed) Maintenance_NoteSeqDropped(s_id.seq);
   resetState();
   s_erasePending = true;
   BabyWizard_ClearActiveProfile();
 }
 
 // Pide una PROFILE_LIST propia si procede. No compite con el asistente ni con
-// el visor: con alguno abierto espera.
+// el visor: con alguno abierto espera. Una peticion en vuelo CADUCA tras
+// LIST_RETRY_MS (si la respuesta se pierde, antes no se reintentaba nunca).
 void requestListIfNeeded(bool linkOk) {
-  if (!linkOk || s_listOutstanding || s_listAttempts >= LIST_MAX_ATTEMPTS) return;
+  if (!linkOk) return;
   if (BabyWizard_IsOpen() || BabyHistory_IsOpen()) return;
   const uint32_t now = millis();
-  if (s_listAttempts > 0 && (now - s_listAskedAtMs) < LIST_RETRY_MS) return;
+  if (!patient_list_request_due(s_listOutstanding, s_listAskedAtMs, now,
+                                s_listAttempts, LIST_MAX_ATTEMPTS,
+                                LIST_RETRY_MS)) {
+    return;
+  }
   Communication_SendProfileListReq();
   s_listAttempts++;
   s_listAskedAtMs = now;
@@ -141,8 +172,13 @@ void requestListIfNeeded(bool linkOk) {
 void onListArrived(const BabyProfileListMsg &m) {
   if (s_id.seq == 0) return;
 
-  // Placa antigua: la lista es lo unico con lo que contrastar la identidad.
-  if (s_legacyBoard && !s_confirmed && !s_listed) {
+  // Contraste de nombre y semanas. Hace falta (a) con una placa antigua, donde es
+  // lo unico con lo que se puede avalar la identidad, y (b) tras confirmar por
+  // activeSeq, porque un seq se reutiliza (babyStore_wipeAll lo reinicia a 1) y
+  // el mismo numero puede ser ya otro bebe. Una identidad nacida de un ACK acaba
+  // de ser avalada por la placa y no lo necesita.
+  const bool legacyCheck = s_legacyBoard && !s_confirmed && !s_listed;
+  if (s_needsListCheck || legacyCheck) {
     PatientListEntry entries[3];
     const int n = m.count < 3 ? m.count : 3;
     for (int i = 0; i < n; i++) {
@@ -150,11 +186,18 @@ void onListArrived(const BabyProfileListMsg &m) {
       snprintf(entries[i].name, sizeof(entries[i].name), "%s", m.items[i].name);
       entries[i].gestWeeks = m.items[i].gestWeeks;
     }
-    if (patient_list_has_baby(&s_id, entries, n)) {
-      s_listed = true;  // gris con "?": nunca como confirmada
-    } else {
-      dropIdentity("no figura en la lista de la placa");
+    if (!patient_list_has_baby(&s_id, entries, n)) {
+      dropIdentity("no figura en la lista de la placa (o con otro nombre)");
       return;
+    }
+    s_needsListCheck = false;
+    if (s_activeMatchedNoSn) {
+      // activeSeq coincidia y la lista lo avala: ahora si, confirmado.
+      s_activeMatchedNoSn = false;
+      s_confirmed = true;
+      s_listed = false;
+    } else if (!s_confirmed) {
+      s_listed = true;  // placa antigua: gris con "?", nunca como confirmada
     }
   }
 
@@ -185,28 +228,41 @@ void serviceMirror() {
 
 // Confirma (o descarta) una identidad restaurada con lo que dice la placa.
 void serviceConfirmation(bool linkOk) {
-  if (s_id.seq == 0 || s_confirmed) return;
+  if (s_id.seq == 0) return;
+  if (s_deferredDropWhy) {  // descarte que esperaba a que se cerrase el asistente
+    dropIdentity(s_deferredDropWhy);
+    return;
+  }
+  // Con el enlace caido el ultimo CTRL,STATE esta obsoleto: no dice nada de
+  // quien esta ahora al mando, y decidir con el podria borrar un bebe valido.
+  if (!linkOk) return;
   PatientBoardView b;
   if (!Communication_GetBoardView(&b)) return;  // la placa aun no ha hablado
+  s_legacyBoard = !b.sendsActiveSeq;            // se refresca en CADA pasada
+  if (s_confirmed) return;
 
   switch (patient_confirm_decide(s_id.seq, s_id.boardSn, &b)) {
     case PATIENT_CONFIRM_CONFIRM:
-      s_confirmed = true;
       s_listed = false;
-      ESP_LOGI(TAG, "identidad seq=%lu confirmada por activeSeq",
-               (unsigned long)s_id.seq);
-      break;
-    case PATIENT_CONFIRM_CLEAR:
-      dropIdentity(b.sn != s_id.boardSn ? "es de otra placa"
-                                        : "la placa tiene otro bebe al mando");
-      return;
-    case PATIENT_CONFIRM_WAIT:
-      // Placa antigua: no manda activeSeq, asi que se contrasta con la lista.
-      if (!b.sendsActiveSeq) {
-        s_legacyBoard = true;
-        requestListIfNeeded(linkOk);
+      s_needsListCheck = true;  // seq reutilizable: se contrasta con la lista
+      if (patient_confirm_requires_list(s_id.boardSn, b.sn)) {
+        // Sin numero de serie que verificar, activeSeq por si solo no basta.
+        s_activeMatchedNoSn = true;
+        ESP_LOGI(TAG, "identidad seq=%lu: activeSeq coincide, sn sin verificar:"
+                      " espera a la lista", (unsigned long)s_id.seq);
+      } else {
+        s_confirmed = true;
+        ESP_LOGI(TAG, "identidad seq=%lu confirmada por activeSeq",
+                 (unsigned long)s_id.seq);
       }
       break;
+    case PATIENT_CONFIRM_CLEAR:
+      dropIdentity((s_id.boardSn != 0 && b.sn != 0 && b.sn != s_id.boardSn)
+                       ? "es de otra placa"
+                       : "la placa tiene otro bebe al mando");
+      return;
+    case PATIENT_CONFIRM_WAIT:
+      break;  // placa antigua: la lista decide (Service pide la lista)
   }
 }
 
@@ -289,6 +345,11 @@ void PatientState_OnSessionSet(uint32_t seq, const char *name,
     if (fromBoardAck) {
       s_confirmed = true;
       s_listed = false;
+      // La placa acaba de responder por este bebe: nada que contrastar, y un
+      // descarte aplazado (asistente abierto) ya no tiene objeto.
+      s_needsListCheck = false;
+      s_activeMatchedNoSn = false;
+      s_deferredDropWhy = nullptr;
       const uint32_t sn = boardSnNow();
       if (s_id.boardSn != sn) {
         s_id.boardSn = sn;
@@ -375,10 +436,15 @@ void PatientState_Service(void) {
   const bool linkOk = !Training_IsActive() && !Display_IsBoardLinkLost();
 
   if (!Training_IsActive()) serviceConfirmation(linkOk);
-  // Identidad confirmada pero sin saber sus minutos (no habia pat_ther): una
-  // lista los fija.
-  if (s_id.seq != 0 && (s_confirmed || s_listed) && !s_acc.known) {
-    requestListIfNeeded(linkOk);
+  // Hace falta una lista (una peticion propia, no un peticionario periodico):
+  // para contrastar nombre y semanas (placa antigua, o tras confirmar por
+  // activeSeq), o para fijar unos minutos que no se conocen (no habia pat_ther).
+  if (s_id.seq != 0) {
+    const bool legacyCheck = s_legacyBoard && !s_confirmed && !s_listed;
+    const bool minutesUnknown = (s_confirmed || s_listed) && !s_acc.known;
+    if (s_needsListCheck || legacyCheck || minutesUnknown) {
+      requestListIfNeeded(linkOk);
+    }
   }
   serviceMirror();
   if (s_id.seq == 0) return;  // el acumulador sigue la identidad

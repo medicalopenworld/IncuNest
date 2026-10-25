@@ -494,7 +494,7 @@ void clock_update(void) {
 // en cada pasada, solo escribe en los widgets si algo cambio, y alimenta las
 // dos pantallas a la vez. Va DENTRO de LVGL_Lock (toca widgets); no toca NVS.
 //
-// Solo se muestra con sesion VIVA (BabyWizard_HasLiveSession(): bebe conocido
+// Solo se muestra con sesion en marcha (BabyWizard_HasAnySession(): bebe conocido
 // Y alguna terapia en marcha). Con la incubadora parada el seq que recuerda el
 // asistente es historia, no "quien esta dentro", y un nombre ajeno en pantalla
 // con la cabina vacia es justo el error que esto quiere evitar.
@@ -510,7 +510,7 @@ void patient_identity_update(void) {
   // NUNCA se pinta como cierta: podria ser otro bebe.
   PatientDisplay disp = PATIENT_DISPLAY_HIDDEN;
   BabyWizardSession s = {};
-  if (BabyWizard_HasLiveSession()) {
+  if (BabyWizard_HasAnySession()) {
     BabyWizard_GetSession(&s);
     disp = PatientState_GetDisplay(s.seq);
   }

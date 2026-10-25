@@ -1,4 +1,5 @@
 #include "maintenance.h"
+#include "maintenance_seq.h"
 
 #include <Preferences.h>
 #include <cstdio>
@@ -30,6 +31,7 @@ const char *const KEY_LAST[MNT_LEVEL_COUNT] = {
 uint32_t s_last[MNT_LEVEL_COUNT] = {0, 0, 0};  // epoch UTC, 0 = sin registro
 uint32_t s_snoozeUntil = 0;  // epoch UTC, 0 = sin "mas tarde" vigente
 uint32_t s_lastSeq = 0;      // ultimo perfil de bebe visto al mando
+uint32_t s_droppedSeq = 0;   // seq de una identidad descartada sin confirmar (K2)
 bool s_enabled = true;
 // Alta de paciente sin limpieza terminal registrada todavia. Se persiste: el
 // equipo puede apagarse entre el alta y la limpieza.
@@ -129,19 +131,33 @@ void Maintenance_Tick(void) {
   // NVS (nada cambiado en formacion persiste, ADR-0002). Al salir de la
   // leccion el motor limpia el perfil de practica y el seq vuelve al que
   // habia, asi que aqui no hay flanco que anotar.
+  //
+  // Que el HMI DESCARTE una identidad restaurada que la placa no confirma (otro
+  // bebe al mando, otra placa, NVS borrada) tambien lleva el seq a 0, pero no
+  // es un alta: nadie ha salido de esta incubadora, y la limpieza terminal
+  // pendiente seria un aviso falso Y persistido. patient_state lo anota con
+  // Maintenance_NoteSeqDropped() y mnt_seq_decide() lo excusa.
+  const uint32_t dropped = s_droppedSeq;
+  s_droppedSeq = 0;  // vale para UNA transicion; si no, excusaria una alta real
   if (Training_IsActive()) return;
   const uint32_t seq = BabyWizard_GetActiveSeq();
-  if (seq != s_lastSeq) {
-    if (s_lastSeq != 0) {
+  const MntSeqDecision d = mnt_seq_decide(s_lastSeq, seq, dropped);
+  if (d.changed) {
+    if (d.markTerminalPending) {
       s_terminalPending = true;
       putBool(HMI_KEY_MNT_TPEND, true);
       ESP_LOGI(TAG, "alta del paciente (seq %lu -> %lu): terminal pendiente",
+               (unsigned long)s_lastSeq, (unsigned long)seq);
+    } else if (s_lastSeq != 0) {
+      ESP_LOGI(TAG, "identidad descartada (seq %lu -> %lu): no es un alta",
                (unsigned long)s_lastSeq, (unsigned long)seq);
     }
     s_lastSeq = seq;
     putU32(HMI_KEY_MNT_SEQ, seq);
   }
 }
+
+void Maintenance_NoteSeqDropped(uint32_t seq) { s_droppedSeq = seq; }
 
 bool Maintenance_IsEnabled(void) { return s_enabled; }
 
@@ -160,9 +176,12 @@ bool Maintenance_IsDue(mnt_level_t lvl) {
   switch (lvl) {
     case MNT_LEVEL_DAILY:
       // Solo con paciente dentro: una incubadora vacia no se ensucia a diario.
-      // "Dentro" es el criterio de BabyWizard: identidad conocida Y terapia en
-      // marcha ahora mismo, no un perfil recordado de la semana pasada.
-      return BabyWizard_HasLiveSession() && periodElapsed(lvl);
+      // "Dentro" es el criterio de BabyWizard: bebe conocido Y terapia en
+      // marcha ahora mismo, no un perfil recordado de la semana pasada. Es
+      // HasAnySession() y no HasLiveSession() adrede: que haya alguien dentro
+      // no depende de QUIEN sea, y con una identidad restaurada aun sin
+      // confirmar no por eso deja de haber un paciente.
+      return BabyWizard_HasAnySession() && periodElapsed(lvl);
     case MNT_LEVEL_WEEKLY:
       return periodElapsed(lvl);
     case MNT_LEVEL_TERMINAL:

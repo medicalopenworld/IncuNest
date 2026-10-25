@@ -318,8 +318,13 @@ PatientConfirmAction patient_confirm_decide(uint32_t identitySeq,
   if (!board || identitySeq == 0 || !board->stateSeen) {
     return PATIENT_CONFIRM_WAIT;
   }
-  // Otra placa: los seq no significan nada aqui, sea cual sea el resto.
-  if (board->sn != identitySn) return PATIENT_CONFIRM_CLEAR;
+  // Otra placa: los seq no significan nada aqui, sea cual sea el resto. Un sn
+  // de 0 (sin numero de serie, en el registro o en la placa) no se puede
+  // comparar, y no es "otra placa": el estado exige entonces ademas el
+  // contraste con la lista (patient_confirm_requires_list).
+  if (identitySn != 0 && board->sn != 0 && board->sn != identitySn) {
+    return PATIENT_CONFIRM_CLEAR;
+  }
   // Placa antigua: no hay forma de confirmar por si sola (se contrasta con la
   // lista). Su activeSeq no viaja, asi que no se mira.
   if (!board->sendsActiveSeq) return PATIENT_CONFIRM_WAIT;
