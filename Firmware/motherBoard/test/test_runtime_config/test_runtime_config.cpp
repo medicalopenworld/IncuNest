@@ -239,6 +239,7 @@ static void test_aceptado_solo_para_ok_y_recortado(void) {
   TEST_ASSERT_FALSE(runtime_config_status_accepted(RCFG_REJ_NO_TACHOMETER));
   TEST_ASSERT_FALSE(runtime_config_status_accepted(RCFG_REJ_HEATER_ACTING));
   TEST_ASSERT_FALSE(runtime_config_status_accepted(RCFG_REJ_NOT_ALLOWED));
+  TEST_ASSERT_FALSE(runtime_config_status_accepted(RCFG_REJ_WRONG_TYPE));
 }
 
 static void test_cada_estado_tiene_texto_propio(void) {
@@ -252,7 +253,8 @@ static void test_cada_estado_tiene_texto_propio(void) {
                                      RCFG_REJ_BELOW_SETPOINT,
                                      RCFG_REJ_NO_TACHOMETER,
                                      RCFG_REJ_HEATER_ACTING,
-                                     RCFG_REJ_NOT_ALLOWED};
+                                     RCFG_REJ_NOT_ALLOWED,
+                                     RCFG_REJ_WRONG_TYPE};
   for (unsigned i = 0; i < sizeof(all) / sizeof(all[0]); ++i) {
     const char *t = runtime_config_status_text(all[i]);
     TEST_ASSERT_NOT_NULL(t);
@@ -809,6 +811,60 @@ static void test_cfg_rejected_no_rompe_el_json_con_comillas(void) {
                         deserializeJson(doc, buf).code());
 }
 
+// --- linea de la consola USB ---------------------------------------------
+
+static void test_consola_linea_valida(void) {
+  char param[32], raw[32];
+  TEST_ASSERT_TRUE(runtime_config_parse_console_line("/config,AIR_TMAX,38", param,
+                                                     sizeof(param), raw,
+                                                     sizeof(raw)));
+  TEST_ASSERT_EQUAL_STRING("AIR_TMAX", param);
+  TEST_ASSERT_EQUAL_STRING("38", raw);
+  TEST_ASSERT_TRUE(runtime_config_parse_console_line(
+      "/config,GPRS_STBY,1800\r\n", param, sizeof(param), raw, sizeof(raw)));
+  TEST_ASSERT_EQUAL_STRING("GPRS_STBY", param);
+  TEST_ASSERT_EQUAL_STRING("1800", raw);
+  TEST_ASSERT_TRUE(runtime_config_parse_console_line(
+      "/config,AIR_TMAX,38.5  ", param, sizeof(param), raw, sizeof(raw)));
+  TEST_ASSERT_EQUAL_STRING("38.5", raw);
+}
+
+static void test_consola_rechaza_texto_despues_del_valor(void) {
+  char param[32], raw[32];
+  const char *malas[] = {"/config,AIR_TMAX,38 99", "/config,AIR_TMAX,38,99",
+                         "/config,AIR_TMAX,38abc", "/config,AIR_TMAX,38 x\n",
+                         "/config,AIR_TMAX,38;"};
+  for (unsigned i = 0; i < sizeof(malas) / sizeof(malas[0]); ++i) {
+    TEST_ASSERT_FALSE_MESSAGE(
+        runtime_config_parse_console_line(malas[i], param, sizeof(param), raw,
+                                          sizeof(raw)),
+        malas[i]);
+  }
+}
+
+static void test_consola_rechaza_lineas_mal_formadas(void) {
+  char param[32], raw[32];
+  const char *malas[] = {"/config", "/config,", "/config,AIR_TMAX",
+                         "/config,AIR_TMAX,", "/config,,38", "config,AIR_TMAX,38",
+                         "", "/configX,AIR_TMAX,38"};
+  for (unsigned i = 0; i < sizeof(malas) / sizeof(malas[0]); ++i) {
+    TEST_ASSERT_FALSE_MESSAGE(
+        runtime_config_parse_console_line(malas[i], param, sizeof(param), raw,
+                                          sizeof(raw)),
+        malas[i]);
+  }
+  TEST_ASSERT_FALSE(runtime_config_parse_console_line(nullptr, param,
+                                                      sizeof(param), raw,
+                                                      sizeof(raw)));
+  // Nombre o valor que no caben: se rechaza, no se trunca.
+  TEST_ASSERT_FALSE(runtime_config_parse_console_line(
+      "/config,AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA,1", param, sizeof(param), raw,
+      sizeof(raw)));
+  TEST_ASSERT_FALSE(runtime_config_parse_console_line(
+      "/config,AIR_TMAX,1234567890123456789012345678901234567890", param,
+      sizeof(param), raw, sizeof(raw)));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_los_nueve_nombres_resuelven_a_su_id);
@@ -867,5 +923,11 @@ int main(void) {
   RUN_TEST(test_auditoria_de_un_entero_y_buffer_corto);
   RUN_TEST(test_cfg_rejected);
   RUN_TEST(test_cfg_rejected_no_rompe_el_json_con_comillas);
+  RUN_TEST(test_consola_linea_valida);
+  RUN_TEST(test_consola_rechaza_texto_despues_del_valor);
+  RUN_TEST(test_consola_rechaza_lineas_mal_formadas);
+  RUN_TEST(test_consola_linea_valida);
+  RUN_TEST(test_consola_rechaza_texto_despues_del_valor);
+  RUN_TEST(test_consola_rechaza_lineas_mal_formadas);
   return UNITY_END();
 }

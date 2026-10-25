@@ -309,6 +309,8 @@ const char *runtime_config_status_text(RuntimeConfigStatus s) {
       return "heater is acting";
     case RCFG_REJ_NOT_ALLOWED:
       return "not allowed remotely";
+    case RCFG_REJ_WRONG_TYPE:
+      return "wrong value type";
   }
   return "unknown";
 }
@@ -482,4 +484,10 @@ size_t runtime_config_format_rejected(const char *name, const char *why,
   buf[off++] = '}';
   buf[off] = '\0';
   return off;
+}
+
+// ESQUELETO EN ROJO (revision 2): la implementacion llega en el commit siguiente.
+bool runtime_config_parse_console_line(const char *, char *, size_t, char *,
+                                       size_t) {
+  return false;
 }

@@ -42,14 +42,9 @@
 
 #include <ArduinoJson.h>
 
+#include "modules/config/runtime_config_core.h"
 #include "modules/config/runtime_config_rules.h"
 
-typedef enum {
-  RCFG_ORIGIN_USB = 0,
-  RCFG_ORIGIN_WEB,
-  RCFG_ORIGIN_TB_GPRS,
-  RCFG_ORIGIN_TB_WIFI
-} RuntimeConfigOrigin;
 
 // Etiqueta de log del origen: "usb", "web", "tb-gprs", "tb-wifi".
 const char *runtime_config_origin_name(RuntimeConfigOrigin origin);

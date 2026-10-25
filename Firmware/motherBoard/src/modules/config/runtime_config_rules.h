@@ -53,7 +53,8 @@ typedef enum {
   RCFG_REJ_BELOW_SETPOINT,  // remoto: corte por debajo de la consigna activa
   RCFG_REJ_NO_TACHOMETER,   // remoto: fan_* en una unidad sin tacometro
   RCFG_REJ_HEATER_ACTING,   // remoto: fan_* con el calefactor actuando
-  RCFG_REJ_NOT_ALLOWED      // remoto: parametro fuera de la lista remota
+  RCFG_REJ_NOT_ALLOWED,     // remoto: parametro fuera de la lista remota
+  RCFG_REJ_WRONG_TYPE       // remoto: cadena, null, objeto o booleano mal puesto
 } RuntimeConfigStatus;
 
 // Limites de las reglas. Estan aqui, y no repartidos por el .cpp, para que
@@ -157,6 +158,14 @@ bool runtime_config_parse_number(const char *text, float *out);
 // objetos se rechazan. No toca *out si falla.
 bool runtime_config_json_number(JsonVariantConst v, bool allow_bool,
                                 float *out);
+
+// Linea de la consola USB: "/config,<PARAM>,<valor>". Copia el nombre y el
+// valor EN CRUDO y devuelve false si la linea esta mal formada o si hay CUALQUIER
+// texto despues del valor (solo se admiten espacios y fin de linea):
+// "/config,AIR_TMAX,38 99" se rechaza en lugar de aplicar 38.
+bool runtime_config_parse_console_line(const char *line, char *param,
+                                       size_t param_len, char *raw,
+                                       size_t raw_len);
 
 // Valores heredados de NVS fuera de rango (una version anterior los guardaba
 // sin comprobar): devuelve v si vale, def si no. Sirve para que un valor
