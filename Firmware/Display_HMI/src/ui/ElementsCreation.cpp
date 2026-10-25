@@ -44,6 +44,13 @@ lv_obj_t *ui_Settings = NULL;
 lv_obj_t *ui_AlarmButton = NULL;
 lv_obj_t *ui_BabiesButton = NULL;
 lv_obj_t *ui_BabiesButtonLabel = NULL;
+lv_obj_t *ui_BabiesPatientName = NULL;
+lv_obj_t *ui_BabiesPatientDetail = NULL;
+lv_obj_t *ui_TempTotalLabel = NULL;
+lv_obj_t *ui_HumTotalLabel = NULL;
+lv_obj_t *ui_PhotoTotalLabel = NULL;
+lv_obj_t *ui_LockPatientName = NULL;
+lv_obj_t *ui_LockPatientDetail = NULL;
 lv_obj_t *ui_TempCont = NULL;
 lv_obj_t *ui_Panel1 = NULL;
 lv_obj_t *ui_Panel4 = NULL;
@@ -1050,6 +1057,26 @@ static void create_heading_conn_indicator(lv_obj_t *parent, lv_coord_t x,
   }
 }
 
+// Etiqueta de una linea (12 pt) de terapia acumulada, hija de la cabecera de
+// un panel de Main. Oculta y sin texto hasta que patient_therapy_update()
+// tenga algo que decir; no recibe toques ni desplaza nada del panel.
+static lv_obj_t *create_therapy_total_label(lv_obj_t *parent, lv_align_t align,
+                                            lv_coord_t x, lv_coord_t y,
+                                            lv_text_align_t textAlign) {
+  lv_obj_t *lbl = lv_label_create(parent);
+  lv_obj_set_width(lbl, 120);  // "9999h 59m" a 12 pt mide ~65 px
+  lv_label_set_long_mode(lbl, LV_LABEL_LONG_CLIP);
+  lv_obj_set_align(lbl, align);
+  lv_obj_set_x(lbl, x);
+  lv_obj_set_y(lbl, y);
+  lv_obj_set_style_text_align(lbl, textAlign, LV_PART_MAIN);
+  lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, LV_PART_MAIN);
+  lv_obj_clear_flag(lbl, LV_OBJ_FLAG_CLICKABLE);
+  lv_label_set_text(lbl, "");
+  lv_obj_add_flag(lbl, LV_OBJ_FLAG_HIDDEN);
+  return lbl;
+}
+
 void ui_ScreenMain_screen_init(void) {
   ui_ScreenMain = lv_obj_create(NULL);
   lv_obj_clear_flag(ui_ScreenMain, LV_OBJ_FLAG_SCROLLABLE);
@@ -1173,6 +1200,41 @@ void ui_ScreenMain_screen_init(void) {
   ui_BabiesButtonLabel = lv_label_create(ui_BabiesButton);
   lv_label_set_text(ui_BabiesButtonLabel, "Bebes");
   lv_obj_center(ui_BabiesButtonLabel);
+
+  // Identidad del bebe al mando (spec hmi-patient-identity). El heading no
+  // tiene un solo hueco libre, asi que vive DENTRO de este boton: con sesion
+  // viva se oculta el rotulo "Bebes" y se muestran dos lineas, nombre y
+  // edad; sin ella, todo como antes. Ningun slot se mueve, y el boton sigue
+  // abriendo el visor de bebes, que es lo que se espera de tocar al bebe.
+  // Las rellena patient_identity_update() (UITask.cpp). El nombre se desplaza
+  // en circular si no cabe: truncarlo con "..." en un nombre propio es justo
+  // lo que esta funcion quiere evitar.
+  lv_obj_set_style_pad_hor(ui_BabiesButton, 4, LV_PART_MAIN);
+  lv_obj_set_style_pad_ver(ui_BabiesButton, 2, LV_PART_MAIN);
+  ui_BabiesPatientName = lv_label_create(ui_BabiesButton);
+  lv_obj_set_width(ui_BabiesPatientName, 102);
+  lv_label_set_long_mode(ui_BabiesPatientName, LV_LABEL_LONG_SCROLL_CIRCULAR);
+  lv_obj_set_align(ui_BabiesPatientName, LV_ALIGN_TOP_MID);
+  lv_obj_set_style_text_align(ui_BabiesPatientName, LV_TEXT_ALIGN_CENTER,
+                              LV_PART_MAIN);
+  lv_obj_set_style_text_font(ui_BabiesPatientName, &lv_font_montserrat_14,
+                             LV_PART_MAIN);
+  lv_obj_set_style_text_color(ui_BabiesPatientName, lv_color_hex(0xFFFFFF),
+                              LV_PART_MAIN);
+  lv_label_set_text(ui_BabiesPatientName, "");
+  lv_obj_add_flag(ui_BabiesPatientName, LV_OBJ_FLAG_HIDDEN);
+  ui_BabiesPatientDetail = lv_label_create(ui_BabiesButton);
+  lv_obj_set_width(ui_BabiesPatientDetail, 102);
+  lv_label_set_long_mode(ui_BabiesPatientDetail, LV_LABEL_LONG_DOT);
+  lv_obj_set_align(ui_BabiesPatientDetail, LV_ALIGN_BOTTOM_MID);
+  lv_obj_set_style_text_align(ui_BabiesPatientDetail, LV_TEXT_ALIGN_CENTER,
+                              LV_PART_MAIN);
+  lv_obj_set_style_text_font(ui_BabiesPatientDetail, &lv_font_montserrat_12,
+                             LV_PART_MAIN);
+  lv_obj_set_style_text_color(ui_BabiesPatientDetail, lv_color_hex(0xD6E6FF),
+                              LV_PART_MAIN);
+  lv_label_set_text(ui_BabiesPatientDetail, "");
+  lv_obj_add_flag(ui_BabiesPatientDetail, LV_OBJ_FLAG_HIDDEN);
 
   ui_TempCont = lv_obj_create(ui_ScreenMain);
   lv_obj_remove_style_all(ui_TempCont);
@@ -3763,6 +3825,35 @@ void ui_ScreenLock_screen_init(void) {
                                 &ui_LockHeadingConnIcon,
                                 ui_LockHeadingConnBar);
 
+  // Replica de la identidad del bebe (spec hmi-patient-identity). A la derecha
+  // de la conectividad: la pantalla de bloqueo no lleva Bebes/alarma/ajustes,
+  // asi que hay sitio para el nombre entero y no hace falta desplazarlo. Mismo
+  // origen de datos que el boton "Bebes" de Main (patient_identity_update()).
+  ui_LockPatientName = lv_label_create(ui_ScreenLock);
+  lv_obj_set_width(ui_LockPatientName, 440);
+  lv_label_set_long_mode(ui_LockPatientName, LV_LABEL_LONG_DOT);
+  lv_obj_set_align(ui_LockPatientName, LV_ALIGN_TOP_LEFT);
+  lv_obj_set_x(ui_LockPatientName, 350);
+  lv_obj_set_y(ui_LockPatientName, 6);
+  lv_obj_set_style_text_font(ui_LockPatientName, &lv_font_montserrat_20,
+                             LV_PART_MAIN);
+  lv_obj_set_style_text_color(ui_LockPatientName, lv_color_hex(0xFFFFFF),
+                              LV_PART_MAIN);
+  lv_label_set_text(ui_LockPatientName, "");
+  lv_obj_add_flag(ui_LockPatientName, LV_OBJ_FLAG_HIDDEN);
+  ui_LockPatientDetail = lv_label_create(ui_ScreenLock);
+  lv_obj_set_width(ui_LockPatientDetail, 440);
+  lv_label_set_long_mode(ui_LockPatientDetail, LV_LABEL_LONG_CLIP);
+  lv_obj_set_align(ui_LockPatientDetail, LV_ALIGN_TOP_LEFT);
+  lv_obj_set_x(ui_LockPatientDetail, 350);
+  lv_obj_set_y(ui_LockPatientDetail, 32);
+  lv_obj_set_style_text_font(ui_LockPatientDetail, &lv_font_montserrat_14,
+                             LV_PART_MAIN);
+  lv_obj_set_style_text_color(ui_LockPatientDetail, lv_color_hex(0xBBBBBB),
+                              LV_PART_MAIN);
+  lv_label_set_text(ui_LockPatientDetail, "");
+  lv_obj_add_flag(ui_LockPatientDetail, LV_OBJ_FLAG_HIDDEN);
+
   ui_Container1 = lv_obj_create(ui_ScreenLock);
   lv_obj_remove_style_all(ui_Container1);
   lv_obj_set_width(ui_Container1, 790);
@@ -4590,6 +4681,28 @@ void create_main_toggle_buttons() {
     lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0);
     lv_obj_center(lbl);
   }
+
+  // Terapia acumulada del bebe al mando (spec hmi-patient-identity): una sola
+  // linea de 12 pt ("3h 20m", sin rotulo), DEBAJO del titulo de cada cabecera y
+  // alineada como el: izquierda en humedad y fototerapia (titulo en x=20),
+  // derecha en temperatura (titulo pegado a x=-20). Antes iba entre el titulo
+  // y el boton, y con "100h 5m" bajo el titulo frances ("PHOTOTHERAPIE", ~125
+  // px) la etiqueta lo pisaba: no hay hueco horizontal fiable. Debajo si lo
+  // hay: las cabeceras miden 50-54 px y el titulo (14 pt) ocupa unos 16
+  // centrados, asi que quedan ~14 px libres abajo, justo lo que mide la
+  // linea. Misma solucion en los tres paneles.
+  //
+  // Se crean AQUI, detras de los botones de encendido, para quedar por encima
+  // de los paneles en el orden de dibujo. Las rellena y muestra
+  // patient_therapy_update() (UITask.cpp). ui_HumidityLabel (x=20, y=-98) esta
+  // en la misma fila que su boton (y=-98) y su fondo (Panel6, y=-98): la
+  // etiqueta se cuelga 16 px por debajo de esa fila.
+  ui_TempTotalLabel = create_therapy_total_label(
+      ui_TempCont, LV_ALIGN_RIGHT_MID, -20, -176 + 16, LV_TEXT_ALIGN_RIGHT);
+  ui_HumTotalLabel = create_therapy_total_label(
+      ui_HumCont, LV_ALIGN_LEFT_MID, 20, -98 + 16, LV_TEXT_ALIGN_LEFT);
+  ui_PhotoTotalLabel = create_therapy_total_label(
+      ui_PhotoCont, LV_ALIGN_LEFT_MID, 20, 1 + 16, LV_TEXT_ALIGN_LEFT);
 }
 
 

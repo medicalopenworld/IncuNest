@@ -159,6 +159,20 @@ UI_STR(STR_UNLOCK_HINT,        "PRESIONA 2 SEG\nPARA DESBLOQUEAR",
 UI_STR(STR_PHOTO_LOCK,         "FOTOTERAPIA:", "PHOTOTHERAPY:","PHOTOTHERAPIE:","FOTOTERAPIA:")
 UI_STR(STR_TREND_UC,           "TENDENCIA",    "TREND",       "TENDANCE",    "TENDENCIA")
 UI_STR(STR_BABIES,             "Bebes",        "Babies",      "Bebes",       "Bebes")
+// Identidad del bebe al mando (heading de Main y del bloqueo). EGC / CGA / AGC
+// / IGC = edad gestacional CORREGIDA (semanas+dias), la misma sigla que usa el
+// visor de bebes mas la "C". Detalle de una sola linea: el boton "Bebes" del
+// heading mide 110 px.
+//   AGE_FMT       : %u+%u = semanas+dias corregidos, %s = dias de vida (texto:
+//                   "5" o "99+", ver patient_fmt_life_days())
+//   GEST_ONLY_FMT : solo gestacion al nacer (no se conoce la edad)
+//   DAYS_ONLY_FMT : solo dias de vida (no se conocen las semanas)
+UI_STR(STR_PATIENT_AGE_FMT,    "EGC %u+%u - %sd",
+                               "CGA %u+%u - %sd",
+                               "AGC %u+%u - %sj",
+                               "IGC %u+%u - %sd")
+UI_STR(STR_PATIENT_GEST_ONLY_FMT, "EG %u sem", "GA %u wk", "AG %u sem", "IG %u sem")
+UI_STR(STR_PATIENT_DAYS_ONLY_FMT, "%sd de vida", "%sd old", "%sj de vie", "%sd de vida")
 
 // ------------------------------------------------------- fototerapia
 UI_STR(STR_PHOTO_START,        "EMPEZAR",      "START",       "DEMARRER",    "INICIAR")

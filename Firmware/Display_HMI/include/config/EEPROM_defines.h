@@ -77,6 +77,17 @@ constexpr char HMI_KEY_WGH_EN[]      = "wgh_en";      // aviso on/off (def. ON)
 //   bits 12-15 src       (Proto_TimeSource del epoch escrito en el chip)
 constexpr char HMI_KEY_RTC_TZ[] = "rtc_tz";
 
+// Bebe al mando (modules/patient, state/patient_state). El HMI conserva el bebe
+// activo entre reinicios porque la placa lo conserva y reanuda sus terapias.
+// Cada clave es UN blob (no un campo por clave), por el mismo motivo que
+// `rtc_tz`: la NVS no es transaccional, y con claves sueltas un corte dejaria
+// el nombre de un bebe junto a los minutos de otro. Formato y version en
+// modules/patient/patient_session.h.
+//   pat_id   : identidad (seq, nombre, semanas, ageDays + epoch de captura)
+//   pat_ther : segundos acumulados de foto/termo/humedad del mismo seq
+constexpr char HMI_KEY_PAT_ID[]   = "pat_id";
+constexpr char HMI_KEY_PAT_THER[] = "pat_ther";
+
 // --------------- Keys: hmi_wifi ---------------
 constexpr char HMI_KEY_SSID[]     = "ssid";
 constexpr char HMI_KEY_PASSWORD[] = "password";

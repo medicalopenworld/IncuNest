@@ -1,6 +1,7 @@
 #include "UITask.h"
 // #include "AudioManager.h"  // Deshabilitado para migración Arduino 3.x
 #include "CommTask.h"
+#include "state/patient_state.h"
 #include "state/training_mode.h"
 #include "buzzer.h"
 #include "ui/AlarmCenter.h"
@@ -493,6 +494,152 @@ void clock_update(void) {
     lv_label_set_text(ui_ClockDate, nowDate);
     if (ui_LockHeadingClockDate) lv_label_set_text(ui_LockHeadingClockDate, nowDate);
   }
+}
+
+// Identidad del bebe al mando (spec hmi-patient-identity): nombre, edad
+// gestacional corregida y dias de vida, en el boton "Bebes" del heading de
+// Main y en su replica de ui_ScreenLock. Mismo patron que clock_update(): corre
+// en cada pasada, solo escribe en los widgets si algo cambio, y alimenta las
+// dos pantallas a la vez. Va DENTRO de LVGL_Lock (toca widgets); no toca NVS.
+//
+// Solo se muestra con sesion en marcha (BabyWizard_HasAnySession(): bebe conocido
+// Y alguna terapia en marcha). Con la incubadora parada el seq que recuerda el
+// asistente es historia, no "quien esta dentro", y un nombre ajeno en pantalla
+// con la cabina vacia es justo el error que esto quiere evitar.
+void patient_identity_update(void) {
+  if (!ui_BabiesPatientName || !ui_BabiesPatientDetail ||
+      !ui_BabiesButtonLabel) {
+    return;
+  }
+
+  // Tres estados (state/patient_state): nada (identidad restaurada que la
+  // placa aun no confirma), confirmada, o -placa antigua con el bebe en su
+  // lista- el nombre en gris con "?" y sin edad. Una identidad sin confirmar
+  // NUNCA se pinta como cierta: podria ser otro bebe.
+  PatientDisplay disp = PATIENT_DISPLAY_HIDDEN;
+  BabyWizardSession s = {};
+  if (BabyWizard_HasAnySession()) {
+    BabyWizard_GetSession(&s);
+    disp = PatientState_GetDisplay(s.seq);
+  }
+  const bool live = (disp != PATIENT_DISPLAY_HIDDEN);
+  const bool confirmed = (disp == PATIENT_DISPLAY_CONFIRMED);
+
+  char name[28] = "";
+  char detail[48] = "";
+  if (live) {
+    if (confirmed) {
+      snprintf(name, sizeof(name), "%s", s.name[0] ? s.name : "--");
+      const PatientAge age = PatientState_GetAge(s.seq, s.gest);
+      char days[8];
+      patient_fmt_life_days(age.lifeDays, days, sizeof(days));
+      if (age.hasCorrected) {
+        snprintf(detail, sizeof(detail), TR(STR_PATIENT_AGE_FMT),
+                 (unsigned)age.corrWeeks, (unsigned)age.corrDays, days);
+      } else if (s.gest > 0) {
+        snprintf(detail, sizeof(detail), TR(STR_PATIENT_GEST_ONLY_FMT),
+                 (unsigned)s.gest);
+      } else if (age.hasLifeDays) {
+        snprintf(detail, sizeof(detail), TR(STR_PATIENT_DAYS_ONLY_FMT), days);
+      }
+    } else {
+      // Sin edad ni semanas: lo unico que se puede decir es que el HMI cree
+      // que es este bebe.
+      snprintf(name, sizeof(name), "%s ?", s.name[0] ? s.name : "--");
+    }
+  }
+
+  static bool lastLive = false;
+  static bool lastConfirmed = false;
+  static char lastName[sizeof(name)] = {0};
+  static char lastDetail[sizeof(detail)] = {0};
+  static int lastLang = -1;
+  const bool langChanged = lastLang != (int)g_lang;
+  const bool nameChanged = strcmp(name, lastName) != 0;
+  const bool detailChanged = strcmp(detail, lastDetail) != 0;
+  if (live == lastLive && confirmed == lastConfirmed && !nameChanged &&
+      !detailChanged && !langChanged && lastLang != -1) {
+    return;
+  }
+  lastLive = live;
+  lastConfirmed = confirmed;
+  lastLang = (int)g_lang;
+  snprintf(lastName, sizeof(lastName), "%s", name);
+  snprintf(lastDetail, sizeof(lastDetail), "%s", detail);
+
+  if (live) {
+    // Gris cuando no esta confirmada (sobre el azul del boton y sobre el fondo
+    // oscuro del bloqueo); los colores de la identidad confirmada son los de
+    // ElementsCreation.cpp.
+    const lv_color_t mainName = confirmed ? lv_color_hex(0xFFFFFF) : lv_color_hex(0xBFBFBF);
+    const lv_color_t mainDetail = confirmed ? lv_color_hex(0xD6E6FF) : lv_color_hex(0xBFBFBF);
+    const lv_color_t lockName = confirmed ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x8C8C8C);
+    const lv_color_t lockDetail = confirmed ? lv_color_hex(0xBBBBBB) : lv_color_hex(0x8C8C8C);
+    lv_obj_set_style_text_color(ui_BabiesPatientName, mainName, LV_PART_MAIN);
+    lv_obj_set_style_text_color(ui_BabiesPatientDetail, mainDetail, LV_PART_MAIN);
+    if (ui_LockPatientName) lv_obj_set_style_text_color(ui_LockPatientName, lockName, LV_PART_MAIN);
+    if (ui_LockPatientDetail) lv_obj_set_style_text_color(ui_LockPatientDetail, lockDetail, LV_PART_MAIN);
+    lv_obj_add_flag(ui_BabiesButtonLabel, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(ui_BabiesPatientName, name);
+    lv_label_set_text(ui_BabiesPatientDetail, detail);
+    lv_obj_clear_flag(ui_BabiesPatientName, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_BabiesPatientDetail, LV_OBJ_FLAG_HIDDEN);
+    if (ui_LockPatientName) {
+      lv_label_set_text(ui_LockPatientName, name);
+      lv_obj_clear_flag(ui_LockPatientName, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (ui_LockPatientDetail) {
+      lv_label_set_text(ui_LockPatientDetail, detail);
+      lv_obj_clear_flag(ui_LockPatientDetail, LV_OBJ_FLAG_HIDDEN);
+    }
+  } else {
+    lv_obj_add_flag(ui_BabiesPatientName, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_BabiesPatientDetail, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_BabiesButtonLabel, LV_OBJ_FLAG_HIDDEN);
+    if (ui_LockPatientName) lv_obj_add_flag(ui_LockPatientName, LV_OBJ_FLAG_HIDDEN);
+    if (ui_LockPatientDetail) lv_obj_add_flag(ui_LockPatientDetail, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+// Pone `txt` en una etiqueta de terapia acumulada solo si cambio; un texto
+// vacio la oculta. `last` es la copia de lo ultimo escrito.
+static void therapy_label_set(lv_obj_t *label, char *last, size_t lastSize,
+                              const char *txt) {
+  if (!label || strcmp(txt, last) == 0) return;
+  snprintf(last, lastSize, "%s", txt);
+  if (txt[0] == '\0') {
+    lv_obj_add_flag(label, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(label, "");
+  } else {
+    lv_label_set_text(label, txt);
+    lv_obj_clear_flag(label, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+// Terapia acumulada del bebe al mando en la cabecera de cada panel de Main
+// (una linea, "3h 20m", bajo el titulo). Mismo contrato que patient_identity_update():
+// dentro de LVGL_Lock, escribe solo si cambia, y solo con sesion viva, identidad
+// confirmada y minutos conocidos. Los
+// minutos los cuenta state/patient_state a 1 Hz; esto solo los pinta.
+void patient_therapy_update(void) {
+  static char lastTemp[24] = {0};
+  static char lastHum[24] = {0};
+  static char lastPhoto[24] = {0};
+
+  char temp[24] = "";
+  char hum[24] = "";
+  char photo[24] = "";
+  PatientMinutes m;
+  if (BabyWizard_HasLiveSession() &&
+      PatientState_IsConfirmed(BabyWizard_GetActiveSeq()) &&
+      PatientState_GetTherapy(BabyWizard_GetActiveSeq(), &m)) {
+    patient_fmt_minutes(m.thermo, temp, sizeof(temp));
+    patient_fmt_minutes(m.humidity, hum, sizeof(hum));
+    patient_fmt_minutes(m.photo, photo, sizeof(photo));
+  }
+  therapy_label_set(ui_TempTotalLabel, lastTemp, sizeof(lastTemp), temp);
+  therapy_label_set(ui_HumTotalLabel, lastHum, sizeof(lastHum), hum);
+  therapy_label_set(ui_PhotoTotalLabel, lastPhoto, sizeof(lastPhoto), photo);
 }
 
 static char s_lastMbStatus[80] = {0};
@@ -4359,6 +4506,10 @@ void UI_Task(void *pvParameters) {
   // Antes de UI_ApplyLanguage(): es quien rellena el desplegable del
   // intervalo, y necesita el valor ya leido de NVS para marcar la opcion
   // correcta. Solo toca NVS, no LVGL, asi que puede ir aqui.
+  // El bebe al mando se restaura ANTES que el recordatorio de mantenimiento:
+  // Maintenance_Tick() compara BabyWizard_GetActiveSeq() con el ultimo seq que
+  // vio, y un reinicio con seq 0 de por medio se leeria como un alta.
+  PatientState_Restore();
   Maintenance_Init();
   WeighTracker_Init();
 
@@ -5059,6 +5210,8 @@ void UI_Task(void *pvParameters) {
     // Y estos dos por el motivo opuesto: dependen de que NO llegue nada.
     link_lost_blank_update();
     clock_update();
+    patient_identity_update();
+    patient_therapy_update();
     wifi_link_status_update();
     connectivity_heading_update();
     link_audio_mute_button_update();
@@ -5108,6 +5261,10 @@ void UI_Task(void *pvParameters) {
     // la escritura en NVS porque esa puede tardar ~30 ms y desplazaria los
     // bordes de los pulsos.
     link_audio_service();
+
+    // Bebe al mando (identidad capturada por el asistente): la NVS se toca
+    // aqui, fuera de LVGL_Lock, y solo cuando algo cambio.
+    PatientState_Service();
 
     // NVS writes run outside LVGL_Lock — avoids blocking the renderer during
     // wear-leveling erasure (~30ms worst case). Same pattern as AlarmSound_Update.

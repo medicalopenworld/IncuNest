@@ -8,6 +8,7 @@
 #include "control_types.h"
 #include "alarm_ids.h"
 #include "factory_test.h"
+#include "modules/patient/patient_session.h"  // PatientBoardView (Communication_GetBoardView)
 
 #define COMMUNICATION_DEBUG true
 #if COMMUNICATION_DEBUG
@@ -225,6 +226,23 @@ struct BabyProfileRangeMsg {
 
 extern volatile bool     g_pendingProfileList;
 extern BabyProfileListMsg g_profileList;
+
+// Copia de solo lectura de cada CTRL,PROFILE_LIST valida, para quien necesita
+// los minutos de terapia sin ser el consumidor de g_pendingProfileList (que
+// tiene UNO: el asistente o el visor de bebes). Nunca toca ese flag.
+//
+// `*seenGen` es la generacion que este lector ya vio (empezar en 0). Devuelve
+// true y rellena `*out` solo si hay una lista mas reciente; actualiza
+// `*seenGen`. Segura entre tareas.
+bool Communication_TakeProfileListMirror(uint32_t *seenGen,
+                                         BabyProfileListMsg *out);
+
+// Lo que el ultimo CTRL,STATE dice del bebe al mando (`activeSeq`, campo 24;
+// terapia viva; sn de la placa), como una sola instantanea coherente. Devuelve
+// false (y `out->stateSeen` a false) hasta que llegue el primer CTRL,STATE.
+// `sendsActiveSeq` es false con una placa que no manda el campo: ahi
+// `activeSeq` NO vale 0, es desconocido. Segura entre tareas.
+bool Communication_GetBoardView(PatientBoardView *out);
 extern volatile bool     g_pendingProfileAck;
 extern uint32_t          g_profileAck;
 

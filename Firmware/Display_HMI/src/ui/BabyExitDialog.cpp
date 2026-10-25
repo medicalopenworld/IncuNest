@@ -7,6 +7,7 @@
 #include "UITask.h"
 #include "main.h"
 #include "ui.h"
+#include "state/patient_state.h"  // PatientState_IsConfirmed()
 #include "ui/BabyWizard.h"
 
 namespace {
@@ -271,6 +272,15 @@ void BabyExitDialog_Tick(bool anyControlActive) {
   // Nothing to attribute the exit to (wizard skipped, or already discharged).
   s_seq = BabyWizard_GetActiveSeq();
   if (s_seq == 0) return;
+
+  // Never offer (and so never send PROFILE_DISCHARGE for) a baby the board has
+  // not confirmed: an identity restored from the NVS could be another baby's
+  // seq, and the discharge would archive the wrong profile. Direct guard on
+  // top of the one HasLiveSession() already gives the rest of the paths.
+  if (!PatientState_IsConfirmed(s_seq)) {
+    s_seq = 0;
+    return;
+  }
 
   // A critical alarm owns the screen; asking paperwork over it would be wrong.
   if (UI_IsCriticalAlarmActive()) return;

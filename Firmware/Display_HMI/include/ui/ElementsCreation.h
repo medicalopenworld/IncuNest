@@ -145,6 +145,16 @@ extern lv_obj_t * ui_Settings;
 extern lv_obj_t * ui_AlarmButton;
 extern lv_obj_t * ui_BabiesButton;
 extern lv_obj_t * ui_BabiesButtonLabel;
+// Identidad del bebe al mando: dentro del boton "Bebes" de Main y replica en
+// el heading de ui_ScreenLock. Ocultas hasta que haya sesion viva.
+extern lv_obj_t * ui_BabiesPatientName;
+extern lv_obj_t * ui_BabiesPatientDetail;
+// Terapia acumulada del bebe al mando, en la cabecera de cada panel de Main.
+extern lv_obj_t * ui_TempTotalLabel;
+extern lv_obj_t * ui_HumTotalLabel;
+extern lv_obj_t * ui_PhotoTotalLabel;
+extern lv_obj_t * ui_LockPatientName;
+extern lv_obj_t * ui_LockPatientDetail;
 extern lv_obj_t * ui_TempCont;
 extern lv_obj_t * ui_Panel1;
 extern lv_obj_t * ui_Panel4;
