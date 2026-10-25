@@ -386,3 +386,64 @@ boot *with* a valid clock seeds the three dates with today (otherwise a
 factory-fresh unit would read as "overdue since 1970"); and a clock moved
 backwards re-anchors any date left in the future to today, where the interval
 would otherwise never elapse again.
+
+### 8.1 Daily weighing reminder
+
+The weight curve is the key data point of the dashboard and used to depend on
+somebody remembering to weigh. With a baby in charge and **no weighing
+recorded in the last 24 h**, unlocking the screen raises a notice on the same
+overlay, with the same rules for giving way (§8 above): own arm flag, only on
+`ui_ScreenMain`, no other modal open (now including the Babies screen), yields
+to any alarm or a lost board link, 3 min idle cap, closing without answering
+does not count.
+
+**Rule** (`weigh_reminder_should_warn()`, pure, in
+`src/modules/maintenance/weigh_reminder.cpp`, covered by `test/test_weigh_reminder`
+under `[env:native]`): warn when there is a live session
+(`BabyWizard_HasLiveSession()`), the clock is synced, a *reference* exists and
+`now - reference >= 24 h`, and no LATER is in force. The reference is, in this
+order: the epoch of the last weighing stamped **for that same `seq`**; else
+the moment the HMI first saw that `seq` in charge (persisted). No clock, no
+reference, or a reference in the future: no warning. Nothing is invented from
+`millis()`, which does not survive a restart.
+
+**Stamp.** The protocol has no epoch for the last weighing
+(`CTRL,WEIGHT_HISTORY` gives only days relative to admission), so the HMI
+stamps it itself in `Communication_SendProfileWeight()` — one place, so the
+wizard (including the admission weight), and the dialog below are all covered.
+Only a real weight stamps: `SKIP` (0 g) does not. A weight for a baby who is
+**not** in charge (registering a baby from the Babies screen) is ignored, since
+there is a single stamp slot. In training nothing is written (ADR-0002); the
+tracker's `Tick()` also returns first thing in training. Registering a weight
+cancels LATER. With no clock at that instant the stamp is deferred until there
+is one, and nothing is warned meanwhile.
+
+**Lifecycle** (`WeighTracker_Tick()`, `src/modules/maintenance/weigh_tracker.cpp`):
+discharge (`BabyWizard_GetActiveSeq()` → 0) clears the stamp, the "first
+seen" and LATER; a different baby in charge drops whatever is not that baby's
+(and LATER, unless that baby was already known, e.g. after an HMI restart); a
+date in the future is re-anchored to today. The identifier of the live session
+lives in RAM, so after an HMI restart there is no warning until the wizard
+identifies the baby again; the NVS stamp is recognised when the same `seq`
+returns.
+
+**UI** (`ui/MaintenanceDialog.cpp`, `Mode::WeighPrompt` / `Mode::WeighEntry`):
+the card shows "<Name>: not weighed for N h", a hint, **WEIGH NOW** and
+**LATER** (24 h, only if there is a clock). WEIGH NOW swaps the content for a
+digit keypad (400-5000 g, same range as the wizard, empty on purpose); REGISTER
+sends `HMI,PROFILE_WEIGHT`, which stamps it. The NTE range the board answers
+with is discarded by the dialog (3 s window, only if the wizard is not open) so
+it does not stay orphaned in `g_pendingProfileRange`. Both flags (maintenance
+and weighing) are armed by the same unlock and are independent: if both are due
+the cleaning notice goes first and the weighing one follows without loops. The
+weighing flag is consumed the first time it is evaluated at an openable moment,
+due or not, so the notice is "on unlocking", not mid-use when the 24 h happen
+to elapse. There is no Settings switch (the `mnt_en` switch is off on a fresh
+NVS and would hide the feature on new units).
+
+NVS (`hmi_cfg`, epochs in UTC, written outside `LVGL_Lock` by
+`WeighTracker_Flush()` after `LVGL_Unlock()` in `UI_Task`): `wgh_seq` and
+`wgh_last` (baby and epoch of the last real weighing), `wgh_sseq` and
+`wgh_sfirst` (baby and epoch of when the HMI first saw it in charge) and
+`wgh_snooze` (epoch when LATER expires). Strings: `STR_WEIGH_*` in
+`i18n_strings.def`, in the four languages.
