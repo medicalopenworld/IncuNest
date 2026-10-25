@@ -116,6 +116,11 @@ const char *alarm_title_text(AlarmId id, Language lang) {
       FR("CAPTEUR PORTE SUSPECT");
       PT("SENSOR PORTA SUSPEITO");
       return "DOOR SENSOR SUSPECT";
+    case ALARM_PHOTO_LAMP_FAULT:
+      ES("FALLO LAMPARA FOTOTERAPIA");
+      FR("PANNE LAMPE PHOTOTHERAPIE");
+      PT("FALHA LAMPADA FOTOTERAPIA");
+      return "PHOTOTHERAPY LAMP FAULT";
     default:
       return "ALARM";
   }
@@ -231,6 +236,13 @@ const char *alarm_action_text(AlarmId id, Language lang) {
       FR("CAPTEUR HALL PANNE POSSIBLE - NE PAS UTILISER COMME ENTREE");
       PT("SENSOR HALL POSSIVEL AVARIA - NAO USAR COMO ENTRADA DE CONTROLO");
       return "HALL SENSOR POSSIBLE FAULT - DO NOT USE AS A CONTROL INPUT";
+    // Dice que la terapia NO se esta dando: es lo que el operador necesita
+    // saber, y no hay riesgo para el neonato por la lampara en si.
+    case ALARM_PHOTO_LAMP_FAULT:
+      ES("LAMPARA SIN CORRIENTE - REVISAR CONECTOR - TERAPIA NO ADMINISTRADA");
+      FR("LAMPE SANS COURANT - VERIFIER LE CONNECTEUR - THERAPIE NON ADMINISTREE");
+      PT("LAMPADA SEM CORRENTE - VERIFICAR O CONECTOR - TERAPIA NAO ADMINISTRADA");
+      return "LAMP DRAWS NO CURRENT - CHECK THE CONNECTOR - THERAPY NOT DELIVERED";
     default:
       return "alarm";
   }

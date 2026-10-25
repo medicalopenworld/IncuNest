@@ -25,6 +25,7 @@ AlarmPriority alarm_priority(AlarmId id) {
     case ALARM_SKIN_SENSOR_FAULT_AIR_MODE:
     case ALARM_HUMIDITY_DEVIATION:
     case ALARM_SENSORBOARD_DOOR_FAULT:
+    case ALARM_PHOTO_LAMP_FAULT:
       return ALARM_PRIORITY_LOW;
 
     default:

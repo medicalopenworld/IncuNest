@@ -56,6 +56,11 @@ typedef enum {
   // se declara el sensor sospechoso, nunca se usa como entrada de control
   // termico.
   ALARM_SENSORBOARD_DOOR_FAULT = 19,
+  // Lampara de fototerapia ordenada ON que no consume corriente: la terapia
+  // no se esta administrando. La declara photo_fault (motherBoard,
+  // modules/control) a partir de in3.phototherapy_current. Aviso, no
+  // proteccion: no corta el calefactor ni la lampara.
+  ALARM_PHOTO_LAMP_FAULT = 20,
   ALARM_COUNT
 } AlarmId;
 
