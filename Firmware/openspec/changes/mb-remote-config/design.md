@@ -129,13 +129,13 @@ callbacks (both): runtime_config_apply_json(ORIGIN_TB_xxx, data);
 
 ### D5. Local paths
 
-`POST /config`: for each of the nine names present, `runtime_config_apply_text(RCFG_ORIGIN_WEB, ...)`; a rejection stops processing and answers `400 text/plain` with the module's message, without applying the remaining arguments. Names `serial`, `reference_temp`, `set_time` keep their inline code. The success body stays `Saved. Settings applied immediately.`
+`POST /config`: first every one of the nine names present is checked with `runtime_config_check_text()` (no side effects); if any is rejected the response is `400 text/plain` with the module's message and **nothing** is applied (a form with one bad field is never half-applied). Only then is each applied with `runtime_config_apply_text(RCFG_ORIGIN_WEB, ...)` (a failure here can only be an NVS write, answered `500`). The config page shows the body of a failed POST. Names `serial`, `reference_temp`, `set_time` keep their inline code. The success body stays `Saved. Settings applied immediately.`
 
 Console: `FAN_SUPPLY_PWM`, `HEATER_AMPS`, `SKIN_TMAX`, `AIR_TMAX`, `GPRS_*`, `FAN_CTL_PWM`, `FAN_PID_EN` map onto `runtime_config_apply(RCFG_ORIGIN_USB, ...)`; `BABY_WIPE` and the "unknown parameter" branch stay in `CommTask.cpp`. The console logs `Config updated: NAME = value` as before on success and the rejection reason otherwise.
 
 ### D6. Logging
 
-One line per application, through `logI(...)` (the project's logger; note `LOG_INFORMATION` may be compiled out, so rejections of safety parameters are additionally emitted with `ESP_LOGW` to be visible on the bench, the same trade-off documented in `EEPROM.cpp`):
+One line per application. **Deviation from the brief:** it asked for `logI`, but `logI` is gated by `LOG_INFORMATION`, which is `false` in `main.h`, so it compiles to nothing and the required audit trail would not exist. The module logs with `ESP_LOGI` (accepted) and `ESP_LOGW` (rejected), tag `CFG`, which are always on at `CORE_DEBUG_LEVEL=3` and reach the CrashReporter ring through `incunest_log_printf`; this is the same trade-off `EEPROM.cpp` documents for its boot warning:
 
 ```
 [CFG] origin=tb-gprs name=air_tmax requested=45.00 applied=40.00 (clamped)
@@ -144,7 +144,7 @@ One line per application, through `logI(...)` (the project's logger; note `LOG_I
 
 ### D7. Threading
 
-Callbacks and the web handler run in different tasks (GPRS task, WiFi/OTA task, CommTask). `in3` fields are plain ints/floats written by one task and read by others already today (the web handler and the console write the same fields); NVS is thread-safe. The pending-echo mask is a `volatile uint16_t`, set by the applying task and cleared by the publishing task; a lost update would at worst cause one redundant echo. Only one ThingsBoard client owns the connection at a time (`WIFIIsConnected()` gates the GPRS client), so concurrent remote applications from both transports are limited to the hand-over instant. No mutex is added.
+Callbacks and the web handler run in different tasks (GPRS task, WiFi/OTA task, CommTask). `in3` fields are plain ints/floats written by one task and read by others already today (the web handler and the console write the same fields); NVS is thread-safe. The pending-echo mask is a `std::atomic<uint32_t>` (32-bit because the Xtensa has native 32-bit atomics), set by the applying task and cleared by the publishing task; a bit is cleared only if the value still equals the one that went out in that message, so a change made between building and sending is echoed on the next pass. Only one ThingsBoard client owns the connection at a time (`WIFIIsConnected()` gates the GPRS client), so concurrent remote applications from both transports are limited to the hand-over instant. No mutex is added.
 
 ## Risks / Trade-offs
 

@@ -763,6 +763,17 @@ predates `68a0369e` still hold 38 °C, and the firmware deliberately does not
 migrate a safety threshold silently: each needs `air_tmax` set in `/config` to
 follow this decision.
 
+**Update (`mb-remote-config`): that no longer needs a visit.** `air_tmax` (and
+`skin_tmax`) can now be set from ThingsBoard by writing the shared attribute of
+the same name on the device; it is applied over WiFi or GPRS, also on a unit
+that was off when it was written, and the unit answers with a client attribute
+holding the value it actually has (clamped to 34-40 °C). The boot warning in
+`recapVariables()` is still the signal that a unit holds the old 38. The
+firmware still does not migrate it on its own; the decision is now an operator
+action, applied fleet-wide by writing `air_tmax = 40` on each device (see
+`thingsboard_dashboards.md` §10). Local `POST /config` and the USB console go
+through the same code and the same rules.
+
 What follows is the analysis that led to it.
 
 **Correction.** The first version of this entry said the bench unit was wrong

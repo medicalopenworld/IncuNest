@@ -403,3 +403,53 @@ firmware.
 este firmware: las claves de NVS no existían antes, así que el contador arranca
 en la primera asociación posterior a la actualización. Es el comportamiento
 correcto — el firmware no tiene forma de saber cuánto llevaba en esa red.
+
+---
+
+## 10. Configuración remota por atributos compartidos
+
+Desde `mb-remote-config` los límites de seguridad y la cadencia GPRS de una
+unidad se cambian **desde ThingsBoard, sin visita**, escribiendo un **atributo
+compartido** (*shared attribute*) del dispositivo. Funciona igual por WiFi y por
+GPRS: la unidad se suscribe a los cambios y, además, los pide tras cada
+conexión, así que un valor escrito mientras estaba apagada se aplica al
+encender.
+
+Los nombres y la validación son los de `POST /config`:
+
+| Atributo compartido | Tipo | Regla | Qué pasa fuera de rango |
+|---|---|---|---|
+| `fan_supply_pwm` | entero | 1..255 | se **rechaza** |
+| `fan_ctl_pwm` | entero | 1..255 | se **rechaza** |
+| `fan_pid_en` | booleano / 0 / 1 | solo `true`/`false` o 0/1 | se **rechaza** |
+| `heater_amps` | número | 1.0..12.0 A | se **rechaza** |
+| `air_tmax` | número | 34..40 °C (`alarm_clamp_air_cutout`) | se **recorta** |
+| `skin_tmax` | número | 34..40 °C (`alarm_clamp_skin_cutout`) | se **recorta** |
+| `gprs_act`, `gprs_photo`, `gprs_stby` | entero | 10..86400 s | se **rechaza** |
+
+Un valor rechazado **no cambia nada** en la unidad. Las cadenas (`"38"`) se
+rechazan: hay que escribir números o booleanos. Cualquier otra clave del
+dispositivo se ignora; **no existen** por esta vía `serial`, `reference_temp`,
+`set_time` ni el borrado de bebés.
+
+**Qué mira el operador.** La unidad contesta con un **atributo de cliente del
+mismo nombre** con el valor que realmente tiene (ya recortado), así que el
+panel debe mostrar el *atributo de cliente*, no el compartido: si alguien
+escribe `air_tmax = 45`, el compartido dice 45 y el de cliente dice 40. El eco
+se publica también tras un cambio local (web o USB) y una vez, con los nueve,
+cada vez que la unidad se conecta. Una unidad en campo que aún no tenga este
+firmware no publica el atributo de cliente: ahí el compartido no es verdad.
+
+**Gotchas.**
+
+- El eco no es instantáneo: sale en la siguiente pasada de la tarea de
+  ThingsBoard, no dentro del callback.
+- ThingsBoard conserva el atributo compartido: la unidad lo pide en **cada**
+  conexión y lo vuelve a aplicar (no escribe flash si ya coincide). **Un cambio
+  local por la web o la consola USB se deshace en la siguiente conexión si el
+  atributo compartido existe y dice otra cosa.** Para dejar de imponer un valor
+  hay que **borrar el atributo** en ThingsBoard; para fijarlo, escribirlo.
+- Por GPRS cuesta unos cientos de bytes por conexión (petición + respuesta +
+  eco), y un eco por cada cambio.
+- Todo esto es verificación manual contra un ThingsBoard real: no hay entorno de
+  test para la parte de red (ver el spec `mb-remote-config`).
