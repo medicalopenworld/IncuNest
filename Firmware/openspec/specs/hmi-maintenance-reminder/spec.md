@@ -10,9 +10,7 @@ lleve la cuenta por su cuenta.
 Afecta solo a `Display_HMI`. No toca el protocolo serie ni la `motherBoard`:
 el HMI ya recibe de la placa el epoch (`CTRL,TIME`) y ya sabe qué bebé está al
 mando (`BabyWizard_GetActiveSeq()`), que es todo lo que hace falta.
-
 ## Requirements
-
 ### Requirement: El protocolo tiene tres niveles con cadencia fija
 
 El recordatorio SHALL manejar tres niveles, con estas cadencias, que NO son
@@ -149,8 +147,8 @@ en medio de una maniobra.
 
 Estando armado, SHALL abrirse únicamente cuando la pantalla activa sea
 `ui_ScreenMain` y NINGÚN otro diálogo modal esté abierto (menú de ayuda,
-tutorial guiado, centro de alarmas, asistente de bebé, diálogo de salida o
-ajuste de hora).
+tutorial guiado, centro de alarmas, asistente de bebé, diálogo de salida,
+ajuste de hora, prueba de fábrica o pantalla Bebés).
 
 El aviso SHALL ceder la pantalla con el mismo criterio que los overlays de
 solo lectura (`TelemetryHistory`, `HelpDialog`): cualquier alarma activa
@@ -166,14 +164,16 @@ cerrarse solo, SIN contar como respuesta — volverá a salir en el siguiente
 desbloqueo si sigue habiendo algo vencido, porque solo pulsar un botón lo
 calla.
 
-El tope SHALL medirse desde el instante de apertura (`lv_tick_elaps()`) y NO
-con `lv_disp_get_inactive_time()`: la propia exención del auto-bloqueo
-reinicia ese contador cada 200 ms, así que un tope que lo leyera no llegaría
-nunca.
+El tope SHALL medirse con `lv_disp_get_inactive_time()` (3 min SIN ningún
+toque; el contador se reinicia al abrir el aviso con `lv_disp_trig_activity()`)
+y NO con `lv_tick_elaps()` desde la apertura. Esto es fiable porque la
+exención del auto-bloqueo en `inactivity_timer_cb()` NO llama a
+`lv_disp_trig_activity()` para estos overlays: si lo hiciera cada 200 ms, el
+tope no llegaría nunca.
 
 #### Scenario: No se cuela encima de otro diálogo
 - **WHEN** hay algo vencido y el operador desbloquea la pantalla
-- **AND** el asistente de bebé o el diálogo de salida está abierto
+- **AND** el asistente de bebé, el diálogo de salida o la pantalla Bebés está abierto
 - **THEN** el aviso espera, y sale cuando ese diálogo se cierra
 - *(Verificación manual en banco.)*
 
@@ -189,7 +189,7 @@ nunca.
 - **WHEN** el aviso lleva abierto más de `INACTIVITY_TIMEOUT_MS` (20 s) pero
   menos de `MNT_IDLE_TIMEOUT_MS` (3 min) sin ningún toque
 - **THEN** la pantalla NO se bloquea
-- **AND** pasados los 3 min el aviso se cierra solo, el auto-bloqueo vuelve a
+- **AND** pasados los 3 min sin tocar el aviso se cierra solo, el auto-bloqueo vuelve a
   contar, y el aviso vuelve a salir en el siguiente desbloqueo
 - *(Verificación manual en banco, cronómetro en mano.)*
 
@@ -238,3 +238,4 @@ ya cumplen Info, WiFi, Idioma y Modos entre ellas.
 - **THEN** solo se ve el panel de la fila abierta, y la columna de menú de
   Ajustes sigue visible a la izquierda
 - *(Verificación manual en banco, tocando las cinco filas en cualquier orden.)*
+
