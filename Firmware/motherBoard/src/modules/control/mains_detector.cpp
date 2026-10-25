@@ -1,27 +1,34 @@
 #include "modules/control/mains_detector.h"
 
-void mains_detector_init(MainsDetector *d) {
+void mains_detector_init_hold(MainsDetector *d, uint32_t hold_ms) {
   d->absent_streak = 0;
   d->present_streak = 0;
   d->absent_confirmed = false;  // se asume red hasta que se demuestre lo contrario
   d->declared = false;
   d->since_ms = 0;
+  d->hold_ms = hold_ms;
+  d->last_valid_ms = 0;
+}
+
+void mains_detector_init(MainsDetector *d) {
+  mains_detector_init_hold(d, MAINS_ALARM_MIN_HOLD_MS);
 }
 
 void mains_detector_sample(MainsDetector *d, bool reading_valid, bool ac_present,
-                           uint16_t vbat_mv, uint32_t now_ms) {
+                           uint32_t now_ms) {
   // Un plazo ya vencido se da por cerrado aqui (el unico escritor), para que
   // since_ms no resucite al dar millis() la vuelta a los ~49,7 dias. Es
   // mantenimiento del plazo, no una lectura: va antes del filtro de validez.
   if (d->declared && !d->absent_confirmed &&
-      (uint32_t)(now_ms - d->since_ms) >= MAINS_ALARM_MIN_HOLD_MS) {
+      (uint32_t)(now_ms - d->since_ms) >= d->hold_ms) {
     d->declared = false;
   }
 
   // Lectura no valida: no cambia NADA, tampoco la racha.
-  if (!reading_valid || vbat_mv == 0) {
+  if (!reading_valid) {
     return;
   }
+  d->last_valid_ms = now_ms;
 
   if (ac_present) {
     d->absent_streak = 0;
@@ -56,5 +63,13 @@ bool mains_detector_condition(const MainsDetector *d, uint32_t now_ms) {
     return false;
   }
   // Resta sin signo: correcta aunque millis() haya dado la vuelta.
-  return (uint32_t)(now_ms - d->since_ms) < MAINS_ALARM_MIN_HOLD_MS;
+  return (uint32_t)(now_ms - d->since_ms) < d->hold_ms;
+}
+
+bool mains_detector_blind(const MainsDetector *d, bool charger_detected,
+                          uint32_t now_ms) {
+  if (!charger_detected) {
+    return false;
+  }
+  return (uint32_t)(now_ms - d->last_valid_ms) > MAINS_DETECTOR_BLIND_MS;
 }

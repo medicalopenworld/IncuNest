@@ -1184,24 +1184,32 @@ static void checkHmiLink()
 
 // ALARM_MAINS_INTERRUPTION (60601-2-19 201.12.3.103).
 //
-// La decision (antirrebote de 2 lecturas, minimo de 10 min desde la
-// declaracion, lecturas no validas sin efecto) vive en
-// modules/control/mains_detector.cpp y la alimenta sensors_Task tras cada
-// lectura del cargador. Aqui solo se traduce su veredicto, en cada pasada,
-// porque el vencimiento del plazo de 10 min se evalua al consultar.
+// La decision (antirrebote de 2 lecturas, plazo minimo de aviso —0 hoy—,
+// lecturas no validas sin efecto) vive en modules/control/mains_detector.cpp y
+// la alimenta sensors_Task tras cada lectura del cargador. Aqui solo se
+// traduce su veredicto, en cada pasada, porque el vencimiento del plazo se
+// evalua al consultar. La ceguera del cargador (sin lecturas validas) NO se
+// trata aqui: la hace visible sensors_Task (charger_comm_fault) y la alarma ya
+// declarada se mantiene.
 static void checkMainsInterruption()
 {
   extern MainsDetector g_mains_detector;
 
-  // Sin cargador no hay fuente de la senal: la placa no puede saber si hay
-  // red, asi que no declara. Se anota una sola vez.
-  if (!chargerPresent)
+  // Sin cargador NUNCA DETECTADO en el arranque no hay fuente de la senal: la
+  // placa no puede saber si hay red, asi que no declara. Se anota una sola
+  // vez, y como error: es una placa que no vigila la red.
+  //
+  // Es chargerDetected y NO chargerPresent: ese ultimo baja mientras el chip
+  // se reconfigura al volver la red y aqui retiraba y volvia a levantar la
+  // alarma (historial, flash y audio incluidos) en cada retorno de red.
+  if (!chargerDetected)
   {
     static bool logged = false;
     if (!logged)
     {
       logged = true;
-      ESP_LOGI(TAG, "Sin cargador BQ25730: no se vigila la interrupcion de red");
+      logE("[MAINS] Sin cargador BQ25730 detectado en el arranque: "
+           "no se vigila la interrupcion de red");
     }
     alarm_machine_condition(ALARM_MAINS_INTERRUPTION, false, millis());
     return;
