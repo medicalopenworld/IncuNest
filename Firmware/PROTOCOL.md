@@ -121,6 +121,11 @@ Enviado **cada 1 segundo** (intercalado con `CTRL,TEL`) y además bajo petición
   confirma. `act`, `mode`, `airSet`, `skinSet`, `humSet` y `skinE` **siguen
   siendo el eco** de la última orden del display: no tienen un valor «real»
   equivalente de una línea (la placa guarda una única consigna según el modo).
+  La placa descarta una trama `HMI,...` cuyo `photo` no sea 0 o 1.
+  **Despliegue**: junto con esto la placa puede declarar `ALARM_PHOTO_LAMP_FAULT`
+  (id 20 en `alarmBitmask`); un display anterior descarta la línea `CTRL,ALM`
+  de ese id (`id >= ALARM_COUNT`) y el aviso no se vería en pantalla. **Flashear
+  el HMI antes que la motherBoard.**
 - `commStatus`: transporte activo y si llega a servidor (`CommStatus` enum: `0`=ninguno,
   `1`=GPRS sin servidor, `2`=GPRS+servidor, `3`=WiFi sin servidor, `4`=WiFi+servidor).
   Alimenta el icono WIFI/2G/sin enlace del heading del display, además de la
@@ -574,21 +579,27 @@ probar el lazo de intensidad en banco.
   en claro (`known_issues.md` #16).
 - Se aplica con la siguiente trama del display (≤1 s), en el mismo camino que
   una orden real, así que lo que se prueba es el lazo de producción.
-- **Nada de la prueba se guarda.** Durante la sesión y durante una ventana de
-  gracia de 5 s al soltarla no se escribe `photo_active` en NVS: una caída a
+- **Nada de la prueba se guarda.** Durante la sesión y, tras soltarla, hasta
+  que el display CONFIRMA (ver abajo) no se escribe `photo_active` en NVS: una caída a
   mitad de sesión vuelve con la fototerapia apagada (verificado en banco).
 - Soltar (con `PHOTO,0` o apagando el modo) devuelve la fototerapia a como
-  estaba antes de la prueba, no siempre a apagado.
+  estaba antes de la prueba, no siempre a apagado. **La liberación es por
+  confirmación, no por tiempo**: la placa fuerza el valor real previo e ignora
+  el ON rancio del display hasta que llega un keepalive con ese valor real
+  (nunca antes de 2 s tras soltar). Pasados 60 s sin confirmar se registra un
+  error, pero se sigue forzando el valor real y sin guardar: jamás se adopta un
+  1 sin confirmar (con la tarea Comm del display atascada, `known_issues.md` #7,
+  la lámpara quedaría encendida y reanudable tras un reinicio).
 - Estado en `GET /debug/state`: `ctl.photo_dbg` (1 mientras dure la prueba).
 - Mientras dura la prueba **la pantalla muestra la fototerapia encendida**: el
   campo `photo` de `CTRL,STATE` refleja la lámpara real (desde 2026-10-25,
   `known_issues.md` #20; antes era el eco de la orden del display y la pantalla
   decía apagado con la lámpara encendida). El display adopta ese ON y lo
-  devuelve en su keepalive: por eso existe la ventana de gracia al soltar, y al
-  soltar la placa vuelve a emitir 0. Efecto secundario conocido: el ON
-  adoptado llega a `CommTask` como una orden del display, así que la
-  contabilidad de exposición por bebé (`updateTherapyAccounting`) cuenta la
-  prueba si hay un bebé activo en el asistente; en banco no lo hay.
+  devuelve en su keepalive: por eso existe la liberación confirmada al soltar, y
+  al soltar la placa vuelve a emitir 0. El ON adoptado llega a `CommTask` como
+  una orden del display, pero la contabilidad de exposición por bebé
+  (`updateTherapyAccounting`) NO lo cuenta: exige lámpara aplicada, sin prueba
+  de depuración activa o por confirmar y sin `ALARM_PHOTO_LAMP_FAULT`.
 - Lógica en `modules/control/photo_override.h`, con test de host
   (`test/test_photo_override`).
 

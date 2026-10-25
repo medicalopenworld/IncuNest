@@ -816,11 +816,24 @@ release window is defensive and verified to leave the lamp off.
     value is the same), and the board keeps a single setpoint per mode, so
     there is no one-line real value for the other one.
 *   **Side effects to know about**: (1) the display now adopts the debug ON and
-    returns it in its keepalive, so `CommTask`'s per-baby therapy accounting
-    sees the debug session as a display order (harmless on a bench unit with no
-    baby in the wizard); (2) between the operator's tap and the board applying
-    it, one `CTRL,STATE` can go out with the old value — the display's local
-    confirmation guard (`localCmdHoldsLocal`, 10 s) covers it.
+    returns it in its keepalive. The debug release is therefore *confirmed*,
+    not timed: after `PHOTO,0` the board forces the real previous value and
+    ignores the display until a keepalive carries that value (never before
+    2 s), so a stuck display Comm task (#7, #11) can no longer make the board
+    apply and persist a stale ON; after 60 s without confirmation it logs an
+    error and keeps forcing. `CommTask`'s per-baby therapy accounting no longer
+    counts that session (it requires the lamp applied, no debug override
+    active or pending, and no `ALARM_PHOTO_LAMP_FAULT`). (2) **Echo window**:
+    between the operator's tap and the board applying it, one `CTRL,STATE` can
+    go out with the old value; the display's local confirmation guard
+    (`localCmdHoldsLocal`, 10 s) covers it, but a display *without* that guard
+    would see the switch bounce. (3) **Residual gap**: if no display keepalive
+    arrives at all after `PHOTO,0` (Comm task fully stuck, no frames), the
+    override logic only runs on a received command, so `in3.phototherapy` keeps
+    its last value until one arrives. (4) **Watch on the bench**: the lamp-fault
+    alarm (`ALARM_PHOTO_LAMP_FAULT`) also fires when the main INA3221 gives no
+    sample with the lamp ON; on HW17 with the channel-2 shunt **not populated**
+    this would be a false positive on every session.
 *   **Still open from the original text**: whether any *non*-debug path (crash
     restore, timer expiry) left lamp and screen disagreeing. With the real
     state emitted, a restore from NVS now reaches a rebooted display, which is
