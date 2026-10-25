@@ -186,8 +186,24 @@ void test_a_big_time_correction_shifts_data_and_events_together(void) {
   TEST_ASSERT_EQUAL_INT64(170000000 - 360, ev.slot);
 }
 
+// ---- clockShifts: la persistencia detecta correcciones de hora (A3) ----
+
+void test_clock_shifts_count_first_sync_and_real_corrections_only(void) {
+  ModelFixture f;
+  TEST_ASSERT_EQUAL_UINT32(0, f.m.clockShifts);
+  trend_model_tick(&f.m, 20000, 0);  // sin hora: nada
+  TEST_ASSERT_EQUAL_UINT32(0, f.m.clockShifts);
+  trend_model_tick(&f.m, 65000, 1700000005u);  // primera sincronia
+  TEST_ASSERT_EQUAL_UINT32(1, f.m.clockShifts);
+  trend_model_tick(&f.m, 65000, 1700000015u);  // +-1 ranura: redondeo
+  TEST_ASSERT_EQUAL_UINT32(1, f.m.clockShifts);
+  trend_model_tick(&f.m, 65000, 1700000005u - 3600u);  // correccion real
+  TEST_ASSERT_EQUAL_UINT32(2, f.m.clockShifts);
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
+  RUN_TEST(test_clock_shifts_count_first_sync_and_real_corrections_only);
   RUN_TEST(test_without_time_the_slot_is_the_monotonic_one);
   RUN_TEST(test_epoch_zero_means_no_time_and_changes_nothing);
   RUN_TEST(test_first_time_sets_the_offset_and_returns_the_full_shift);

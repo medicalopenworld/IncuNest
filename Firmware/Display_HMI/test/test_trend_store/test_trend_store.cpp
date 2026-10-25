@@ -371,8 +371,138 @@ void test_prepend_rejects_bad_arguments(void) {
   TEST_ASSERT_EQUAL_INT(0, f.store.count);
 }
 
+// ---- generacion del anillo (C2) ----
+
+void test_gen_changes_on_every_visible_mutation_and_only_then(void) {
+  Fixture f;
+  const uint32_t g0 = f.store.gen;
+  const TrendSample a = tagged(1);
+  TEST_ASSERT_TRUE(trend_store_record(&f.store, 10, &a));
+  const uint32_t g1 = f.store.gen;
+  TEST_ASSERT_NOT_EQUAL(g0, g1);
+  TEST_ASSERT_FALSE(trend_store_record(&f.store, 10, &a));  // rechazada
+  TEST_ASSERT_EQUAL_UINT32(g1, f.store.gen);
+  trend_store_shift(&f.store, 5);
+  const uint32_t g2 = f.store.gen;
+  TEST_ASSERT_NOT_EQUAL(g1, g2);
+  const std::vector<uint8_t> b = blockLE(14, 2);
+  TEST_ASSERT_EQUAL_INT(2, trend_store_prepend(&f.store, 14, b.data(), 2));
+  const uint32_t g3 = f.store.gen;
+  TEST_ASSERT_NOT_EQUAL(g2, g3);
+  const std::vector<uint8_t> none = blockLE(500, 2);  // posterior: no entra nada
+  TEST_ASSERT_EQUAL_INT(0, trend_store_prepend(&f.store, 500, none.data(), 2));
+  TEST_ASSERT_EQUAL_UINT32(g3, f.store.gen);
+  trend_store_clear(&f.store);
+  TEST_ASSERT_NOT_EQUAL(g3, f.store.gen);
+}
+
+// ---- prepend repartido en pasadas (C2) ----
+
+namespace {
+// Corre el trabajo hasta el final con tramos de `slice` ranuras; devuelve el
+// numero de pasadas y el estado final.
+int runJob(TrendPrependJob *j, int slice, TrendJobStatus *outStatus) {
+  int steps = 0;
+  for (;;) {
+    steps++;
+    const TrendJobStatus st = trend_prepend_step(j, slice);
+    if (st != TREND_JOB_MORE) {
+      *outStatus = st;
+      return steps;
+    }
+    if (steps > 100000) {
+      *outStatus = TREND_JOB_FAIL;
+      return steps;
+    }
+  }
+}
+}  // namespace
+
+void test_sliced_prepend_equals_the_one_shot_result(void) {
+  Fixture a(64), b(64);
+  for (int64_t s = 100; s <= 105; s++) {
+    const TrendSample x = tagged(s);
+    trend_store_record(&a.store, s, &x);
+    trend_store_record(&b.store, s, &x);
+  }
+  const std::vector<uint8_t> blk = blockLE(90, 30);  // 61..90, hueco 91..99
+  const int one = trend_store_prepend(&a.store, 90, blk.data(), 30);
+
+  TrendPrependJob j;
+  TEST_ASSERT_TRUE(trend_prepend_begin(&j, &b.store, 90, blk.data(), 30));
+  TrendJobStatus st;
+  const int steps = runJob(&j, 7, &st);
+  TEST_ASSERT_EQUAL_INT(TREND_JOB_DONE, st);
+  TEST_ASSERT_TRUE(steps > 1);
+  TEST_ASSERT_EQUAL_INT(one, j.added);
+  TEST_ASSERT_EQUAL_INT(a.store.count, b.store.count);
+  TEST_ASSERT_EQUAL_INT64(a.store.lastSlot, b.store.lastSlot);
+  for (int64_t s = 61; s <= 105; s++)
+    for (int ser = 0; ser < TREND_SERIES; ser++)
+      TEST_ASSERT_EQUAL_INT16(trend_store_value(&a.store, ser, s),
+                              trend_store_value(&b.store, ser, s));
+}
+
+void test_a_sliced_prepend_is_invisible_until_the_last_slice(void) {
+  Fixture f(64);
+  const TrendSample x = tagged(100);
+  trend_store_record(&f.store, 100, &x);
+  const std::vector<uint8_t> blk = blockLE(99, 20);
+  TrendPrependJob j;
+  TEST_ASSERT_TRUE(trend_prepend_begin(&j, &f.store, 99, blk.data(), 20));
+  TEST_ASSERT_EQUAL_INT(TREND_JOB_MORE, trend_prepend_step(&j, 5));
+  TEST_ASSERT_EQUAL_INT(1, f.store.count);              // aun no se ve nada
+  TEST_ASSERT_EQUAL_INT64(100, trend_store_first_slot(&f.store));
+  TEST_ASSERT_EQUAL_INT(TREND_JOB_MORE, trend_prepend_step(&j, 5));
+  TEST_ASSERT_EQUAL_INT(1, f.store.count);
+  TEST_ASSERT_EQUAL_INT(TREND_JOB_MORE, trend_prepend_step(&j, 5));
+  TEST_ASSERT_EQUAL_INT(TREND_JOB_DONE, trend_prepend_step(&j, 5));
+  TEST_ASSERT_EQUAL_INT(21, f.store.count);
+}
+
+void test_a_live_sample_between_slices_restarts_without_touching_the_ring(void) {
+  Fixture f(64);
+  const TrendSample x = tagged(100);
+  trend_store_record(&f.store, 100, &x);
+  const std::vector<uint8_t> blk = blockLE(99, 20);
+  TrendPrependJob j;
+  TEST_ASSERT_TRUE(trend_prepend_begin(&j, &f.store, 99, blk.data(), 20));
+  TEST_ASSERT_EQUAL_INT(TREND_JOB_MORE, trend_prepend_step(&j, 5));
+  const TrendSample y = tagged(101);
+  trend_store_record(&f.store, 101, &y);  // llega una muestra viva
+  TEST_ASSERT_EQUAL_INT(TREND_JOB_RESTART, trend_prepend_step(&j, 5));
+  TEST_ASSERT_EQUAL_INT(2, f.store.count);
+  TEST_ASSERT_EQUAL_INT64(100, trend_store_first_slot(&f.store));
+  // Y tras replanificar, el trabajo termina bien.
+  TEST_ASSERT_TRUE(trend_prepend_begin(&j, &f.store, 99, blk.data(), 20));
+  TrendJobStatus st;
+  runJob(&j, 5, &st);
+  TEST_ASSERT_EQUAL_INT(TREND_JOB_DONE, st);
+  TEST_ASSERT_EQUAL_INT(22, f.store.count);
+  TEST_ASSERT_EQUAL_INT16(tagged(101).v[TREND_AIR],
+                          trend_store_value(&f.store, TREND_AIR, 101));
+}
+
+void test_prepend_begin_says_false_when_there_is_nothing_to_do(void) {
+  Fixture f(8);
+  for (int64_t s = 100; s <= 107; s++) {  // lleno
+    const TrendSample x = tagged(s);
+    trend_store_record(&f.store, s, &x);
+  }
+  const std::vector<uint8_t> blk = blockLE(99, 3);
+  TrendPrependJob j;
+  TEST_ASSERT_FALSE(trend_prepend_begin(&j, &f.store, 99, blk.data(), 3));
+  TEST_ASSERT_EQUAL_INT(0, j.added);
+  TEST_ASSERT_FALSE(trend_prepend_begin(&j, nullptr, 99, blk.data(), 3));
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
+  RUN_TEST(test_gen_changes_on_every_visible_mutation_and_only_then);
+  RUN_TEST(test_sliced_prepend_equals_the_one_shot_result);
+  RUN_TEST(test_a_sliced_prepend_is_invisible_until_the_last_slice);
+  RUN_TEST(test_a_live_sample_between_slices_restarts_without_touching_the_ring);
+  RUN_TEST(test_prepend_begin_says_false_when_there_is_nothing_to_do);
   RUN_TEST(test_prepend_onto_an_empty_store_becomes_its_content);
   RUN_TEST(test_prepend_before_live_data_fills_the_gap_with_no_data);
   RUN_TEST(test_prepend_does_not_overwrite_live_slots);

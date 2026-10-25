@@ -65,6 +65,23 @@ void trend_dump_failed(TrendDumpState *d, uint32_t nowMs);
 // true si ya puede escribirse el siguiente trozo.
 bool trend_chunk_due(uint32_t nowMs, uint32_t lastChunkMs);
 
+// ---- E/S solo con la casa en orden (C2) -------------------------------------
+// Ni se empieza ni se continua un volcado, una restauracion o el formateo
+// diferido de la particion mientras haya una alarma activa (de cualquier
+// prioridad) o el enlace con la placa este caido: una escritura de flash para
+// la cache y puede retrasar el refresco, el sonido de la alarma o la lectura
+// del UART. Un volcado a medias se aborta limpio (el .tmp se descarta).
+bool trend_io_allowed(bool anyAlarmActive, bool boardLinkLost);
+
+// ---- Fichero rechazado por el reloj (A3) -------------------------------------
+// Si la restauracion rechaza un fichero por FUTURE o STALE puede ser que el
+// reloj estuviera mal. El volcado no lo sobrescribe hasta que el reloj se
+// corrija (el reintento unico) o pase esta gracia: un fichero realmente viejo
+// no debe dejar la persistencia bloqueada para siempre.
+constexpr uint32_t TREND_REJECT_GRACE_MS = 30u * 60u * 1000u;
+bool trend_dump_blocked_by_rejected_file(bool rejectedPending, uint32_t rejectedAtMs,
+                                         uint32_t nowMs);
+
 // Clase visual de una marca de alarma. Una prioridad desconocida se trata
 // como ALTA: ante la duda, la marca mas severa.
 enum TrendMarkKind : int {

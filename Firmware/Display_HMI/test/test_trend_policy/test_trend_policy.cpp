@@ -203,8 +203,43 @@ void test_chunks_are_paced_at_least_50_ms_apart(void) {
   TEST_ASSERT_TRUE(trend_chunk_due(50, 0xFFFFFFF0u));
 }
 
+// ---- E/S solo sin alarma y con el enlace vivo (C2) ----
+
+void test_io_is_allowed_only_without_alarm_and_with_a_live_link(void) {
+  TEST_ASSERT_TRUE(trend_io_allowed(false, false));
+  TEST_ASSERT_FALSE(trend_io_allowed(true, false));   // cualquier alarma
+  TEST_ASSERT_FALSE(trend_io_allowed(false, true));   // enlace caido
+  TEST_ASSERT_FALSE(trend_io_allowed(true, true));
+}
+
+// ---- Fichero rechazado por el reloj (A3) ----
+
+void test_a_rejected_file_blocks_the_dump_until_the_grace_expires(void) {
+  TEST_ASSERT_EQUAL_UINT32(1800000u, TREND_REJECT_GRACE_MS);
+  TEST_ASSERT_TRUE(trend_dump_blocked_by_rejected_file(true, 1000, 1000));
+  TEST_ASSERT_TRUE(trend_dump_blocked_by_rejected_file(
+      true, 1000, 1000 + TREND_REJECT_GRACE_MS - 1));
+  TEST_ASSERT_FALSE(trend_dump_blocked_by_rejected_file(
+      true, 1000, 1000 + TREND_REJECT_GRACE_MS));
+}
+
+void test_without_a_rejected_file_nothing_is_blocked(void) {
+  TEST_ASSERT_FALSE(trend_dump_blocked_by_rejected_file(false, 0, 5));
+}
+
+void test_the_grace_survives_the_millis_wraparound(void) {
+  const uint32_t at = 0xFFFFFF00u;
+  TEST_ASSERT_TRUE(trend_dump_blocked_by_rejected_file(true, at, at + 1000));
+  TEST_ASSERT_FALSE(trend_dump_blocked_by_rejected_file(
+      true, at, at + TREND_REJECT_GRACE_MS));
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
+  RUN_TEST(test_io_is_allowed_only_without_alarm_and_with_a_live_link);
+  RUN_TEST(test_a_rejected_file_blocks_the_dump_until_the_grace_expires);
+  RUN_TEST(test_without_a_rejected_file_nothing_is_blocked);
+  RUN_TEST(test_the_grace_survives_the_millis_wraparound);
   RUN_TEST(test_dump_constants_are_5_min_and_2_min);
   RUN_TEST(test_dump_never_without_synced_clock_or_samples);
   RUN_TEST(test_dump_waits_a_full_period_from_start);

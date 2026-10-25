@@ -15,6 +15,10 @@ struct TrendModel {
   TrendStore store;
   TrendEvents events;
   TrendClock clock;
+  // Cuantas veces la hora ha obligado a re-etiquetar lo guardado (la primera
+  // sincronizacion cuenta). La persistencia lo usa para saber que el reloj se
+  // ha corregido desde que rechazo un fichero (A3).
+  uint32_t clockShifts;
 };
 
 // Vincula el bloque (trend_store_bytes(capacity)) y deja todo vacio y sin hora.

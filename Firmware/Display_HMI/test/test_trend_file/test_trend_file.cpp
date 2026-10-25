@@ -466,8 +466,216 @@ void test_a_full_24h_ring_roundtrips_within_the_max_size(void) {
   assertSameSlots(src.st, dst.st, trend_store_first_slot(&src.st), BASE + 8639);
 }
 
+// ---------------------------------------------------------------------------
+// C2: trabajos repartidos en pasadas
+
+void test_incremental_crc_equals_the_one_shot_crc_for_any_split(void) {
+  std::vector<uint8_t> data(1000);
+  for (size_t i = 0; i < data.size(); i++) data[i] = (uint8_t)(i * 31u + 7u);
+  const uint32_t whole = trend_crc32(data.data(), data.size());
+  const size_t cuts[] = {1, 3, 7, 64, 333, 999};
+  for (size_t cut : cuts) {
+    uint32_t st = TREND_CRC_INIT;
+    st = trend_crc32_update(st, data.data(), cut);
+    st = trend_crc32_update(st, data.data() + cut, data.size() - cut);
+    TEST_ASSERT_EQUAL_HEX32(whole, trend_crc32_final(st));
+  }
+  TEST_ASSERT_EQUAL_HEX32(0u, trend_crc32_final(TREND_CRC_INIT));
+}
+
+namespace {
+// Serializa por tramos hasta el final; devuelve las pasadas.
+int serializeSliced(TrendSerializer *z, TrendJobStatus *outStatus) {
+  int steps = 0;
+  for (;;) {
+    steps++;
+    const TrendJobStatus st = trend_ser_step(z);
+    if (st != TREND_JOB_MORE) {
+      *outStatus = st;
+      return steps;
+    }
+    if (steps > 100000) {
+      *outStatus = TREND_JOB_FAIL;
+      return steps;
+    }
+  }
+}
+}  // namespace
+
+void test_sliced_serialization_is_byte_identical_to_the_one_shot(void) {
+  Ring src = sampleRing();
+  const std::vector<uint8_t> oneShot = serializeOf(src);
+
+  std::vector<uint8_t> out(trend_file_max_bytes(16));
+  TrendSerializer z;
+  TEST_ASSERT_TRUE(trend_ser_begin(&z, &src.st, &src.ev, out.data(), out.size()));
+  TrendJobStatus st;
+  serializeSliced(&z, &st);
+  TEST_ASSERT_EQUAL_INT(TREND_JOB_DONE, st);
+  TEST_ASSERT_EQUAL_UINT32((uint32_t)oneShot.size(), (uint32_t)trend_ser_size(&z));
+  TEST_ASSERT_EQUAL_INT(0, memcmp(oneShot.data(), out.data(), oneShot.size()));
+}
+
+// Un dia entero no cabe en una pasada: el tramo esta acotado.
+void test_a_24h_serialization_takes_many_bounded_steps(void) {
+  Ring src(TREND_CAPACITY);
+  fill(src, BASE, BASE + 8639);
+  std::vector<uint8_t> out(trend_file_max_bytes(TREND_CAPACITY));
+  TrendSerializer z;
+  TEST_ASSERT_TRUE(trend_ser_begin(&z, &src.st, &src.ev, out.data(), out.size()));
+  TrendJobStatus st;
+  const int steps = serializeSliced(&z, &st);
+  TEST_ASSERT_EQUAL_INT(TREND_JOB_DONE, st);
+  // 51 840 valores / 4096 por tramo = 13 tramos, mas ~7 de CRC.
+  TEST_ASSERT_TRUE(steps >= 13 + 6);
+  // Y el resultado es el mismo fichero valido.
+  TrendFileInfo info;
+  TEST_ASSERT_EQUAL_INT(TREND_FILE_OK, trend_file_validate(out.data(), trend_ser_size(&z), &info));
+  TEST_ASSERT_EQUAL_INT(8640, info.count);
+}
+
+void test_a_sample_between_serialization_steps_forces_a_restart(void) {
+  Ring src(TREND_CAPACITY);
+  fill(src, BASE, BASE + 8639);
+  std::vector<uint8_t> out(trend_file_max_bytes(TREND_CAPACITY));
+  TrendSerializer z;
+  TEST_ASSERT_TRUE(trend_ser_begin(&z, &src.st, &src.ev, out.data(), out.size()));
+  TEST_ASSERT_EQUAL_INT(TREND_JOB_MORE, trend_ser_step(&z));
+  const TrendSample x = sampleAt(BASE + 8640);
+  TEST_ASSERT_TRUE(trend_store_record(&src.st, BASE + 8640, &x));  // el anillo gira
+  TEST_ASSERT_EQUAL_INT(TREND_JOB_RESTART, trend_ser_step(&z));
+  // Reiniciado, termina y refleja el anillo nuevo.
+  TEST_ASSERT_TRUE(trend_ser_begin(&z, &src.st, &src.ev, out.data(), out.size()));
+  TrendJobStatus st;
+  serializeSliced(&z, &st);
+  TEST_ASSERT_EQUAL_INT(TREND_JOB_DONE, st);
+  TrendFileInfo info;
+  TEST_ASSERT_EQUAL_INT(TREND_FILE_OK, trend_file_validate(out.data(), trend_ser_size(&z), &info));
+  TEST_ASSERT_EQUAL_INT64(BASE + 8640, info.lastSlot);
+}
+
+void test_ser_begin_refuses_what_the_one_shot_refuses(void) {
+  Ring empty(16);
+  std::vector<uint8_t> buf(1024);
+  TrendSerializer z;
+  TEST_ASSERT_FALSE(trend_ser_begin(&z, &empty.st, &empty.ev, buf.data(), buf.size()));
+  Ring r(16);
+  fill(r, BASE, BASE + 4);
+  TEST_ASSERT_FALSE(trend_ser_begin(&z, &r.st, &r.ev, buf.data(), 40));
+  TEST_ASSERT_FALSE(trend_ser_begin(&z, &r.st, &r.ev, nullptr, 1024));
+}
+
+namespace {
+// Restaura por tramos; devuelve las pasadas.
+int restoreSliced(TrendRestoreJob *r) {
+  int steps = 0;
+  while (trend_restore_step(r) == TREND_JOB_MORE && ++steps < 100000) {
+  }
+  return steps + 1;
+}
+}  // namespace
+
+void test_sliced_restore_equals_the_one_shot_restore(void) {
+  Ring src(64);
+  fill(src, 1000 + BASE, 1019 + BASE);
+  trend_events_add(&src.ev, 1003 + BASE, 5, 2, true);
+  const std::vector<uint8_t> b = serializeOf(src);
+
+  Ring one(64), sliced(64);
+  fill(one, 1050 + BASE, 1050 + BASE, 500);
+  fill(sliced, 1050 + BASE, 1050 + BASE, 500);
+  int restoredOne = 0;
+  TEST_ASSERT_EQUAL_INT(TREND_RESTORE_OK,
+                        trend_file_restore(b.data(), b.size(), 1050 + BASE, &one.st,
+                                           &one.ev, &restoredOne));
+  TrendRestoreJob job;
+  trend_restore_begin(&job, b.data(), b.size(), 1050 + BASE, &sliced.st, &sliced.ev);
+  restoreSliced(&job);
+  TEST_ASSERT_EQUAL_INT(TREND_RESTORE_OK, job.result);
+  TEST_ASSERT_EQUAL_INT(restoredOne, job.restored);
+  TEST_ASSERT_EQUAL_INT(one.st.count, sliced.st.count);
+  assertSameSlots(one.st, sliced.st, 1000 + BASE, 1050 + BASE);
+  TEST_ASSERT_EQUAL_INT(one.ev.count, sliced.ev.count);
+}
+
+void test_a_24h_restore_takes_many_bounded_steps(void) {
+  Ring src(TREND_CAPACITY);
+  fill(src, BASE, BASE + 8639);
+  const std::vector<uint8_t> b = serializeOf(src);
+  Ring dst(TREND_CAPACITY);
+  TrendRestoreJob job;
+  trend_restore_begin(&job, b.data(), b.size(), BASE + 8639, &dst.st, &dst.ev);
+  const int steps = restoreSliced(&job);
+  TEST_ASSERT_EQUAL_INT(TREND_RESTORE_OK, job.result);
+  TEST_ASSERT_EQUAL_INT(8640, dst.st.count);
+  // CRC de ~104 KB en tramos de 16 KB (7) + 8640 ranuras en tramos de 4096 (3).
+  TEST_ASSERT_TRUE(steps >= 7 + 3);
+  assertSameSlots(src.st, dst.st, BASE, BASE + 8639);
+}
+
+void test_sliced_restore_reports_each_rejection(void) {
+  Ring src = sampleRing();
+  const std::vector<uint8_t> good = serializeOf(src);
+
+  std::vector<uint8_t> bad = good;
+  bad[40] ^= 0x10;  // carga: solo el CRC por tramos lo ve
+  Ring a(16);
+  TrendRestoreJob j;
+  trend_restore_begin(&j, bad.data(), bad.size(), BASE + 8, &a.st, &a.ev);
+  restoreSliced(&j);
+  TEST_ASSERT_EQUAL_INT(TREND_RESTORE_INVALID, j.result);
+  TEST_ASSERT_EQUAL_INT(0, a.st.count);
+
+  trend_restore_begin(&j, good.data(), good.size(), BASE + 3, &a.st, &a.ev);
+  restoreSliced(&j);
+  TEST_ASSERT_EQUAL_INT(TREND_RESTORE_FUTURE, j.result);
+
+  trend_restore_begin(&j, good.data(), good.size(), BASE + 5 + 16, &a.st, &a.ev);
+  restoreSliced(&j);
+  TEST_ASSERT_EQUAL_INT(TREND_RESTORE_STALE, j.result);
+  TEST_ASSERT_EQUAL_INT(0, a.st.count);
+}
+
+// Una muestra viva llega mientras se restaura: el trabajo se replanifica solo y
+// acaba bien, con la muestra viva intacta.
+void test_a_live_sample_during_a_sliced_restore_does_not_corrupt_it(void) {
+  Ring src(TREND_CAPACITY);
+  fill(src, BASE, BASE + 3999);
+  const std::vector<uint8_t> b = serializeOf(src);
+
+  Ring dst(TREND_CAPACITY);
+  fill(dst, BASE + 4010, BASE + 4010, 700);
+  TrendRestoreJob job;
+  trend_restore_begin(&job, b.data(), b.size(), BASE + 4010, &dst.st, &dst.ev);
+  int steps = 0;
+  bool injected = false;
+  while (trend_restore_step(&job) == TREND_JOB_MORE && steps++ < 100000) {
+    if (!injected && job.stage >= 3) {  // ya aplicando
+      const TrendSample x = sampleAt(BASE + 4011, 700);
+      TEST_ASSERT_TRUE(trend_store_record(&dst.st, BASE + 4011, &x));
+      injected = true;
+    }
+  }
+  TEST_ASSERT_TRUE(injected);
+  TEST_ASSERT_EQUAL_INT(TREND_RESTORE_OK, job.result);
+  TEST_ASSERT_EQUAL_INT16(val(BASE + 4011, TREND_AIR, 700),
+                          trend_store_value(&dst.st, TREND_AIR, BASE + 4011));
+  TEST_ASSERT_EQUAL_INT16(val(BASE + 4010, TREND_AIR, 700),
+                          trend_store_value(&dst.st, TREND_AIR, BASE + 4010));
+  assertSameSlots(src.st, dst.st, BASE, BASE + 3999);
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
+  RUN_TEST(test_incremental_crc_equals_the_one_shot_crc_for_any_split);
+  RUN_TEST(test_sliced_serialization_is_byte_identical_to_the_one_shot);
+  RUN_TEST(test_a_24h_serialization_takes_many_bounded_steps);
+  RUN_TEST(test_a_sample_between_serialization_steps_forces_a_restart);
+  RUN_TEST(test_ser_begin_refuses_what_the_one_shot_refuses);
+  RUN_TEST(test_sliced_restore_equals_the_one_shot_restore);
+  RUN_TEST(test_a_24h_restore_takes_many_bounded_steps);
+  RUN_TEST(test_sliced_restore_reports_each_rejection);
+  RUN_TEST(test_a_live_sample_during_a_sliced_restore_does_not_corrupt_it);
   RUN_TEST(test_crc32_matches_the_ieee_check_value);
   RUN_TEST(test_max_bytes_for_24h_is_104224);
   RUN_TEST(test_header_layout_is_the_documented_one);

@@ -16,6 +16,20 @@ struct TrendStore {
   int writeIdx;      // siguiente posicion a escribir
   int count;         // ranuras validas (incluidas las "sin dato")
   int64_t lastSlot;  // ranura de la ultima muestra escrita (si count > 0)
+  // Contador de generacion: sube con CUALQUIER cambio del contenido visible
+  // (muestra nueva, shift, prepend, vaciado). Los trabajos que se reparten en
+  // varias pasadas (serializador, restauracion) lo comparan para detectar que
+  // el anillo cambio por debajo y reiniciarse en vez de leer/escribir sobre un
+  // anillo que ya no es el que vieron al empezar.
+  uint32_t gen;
+};
+
+// Estado de un trabajo repartido en pasadas.
+enum TrendJobStatus : int {
+  TREND_JOB_MORE = 0,  // quedan pasadas
+  TREND_JOB_DONE,      // terminado
+  TREND_JOB_RESTART,   // el anillo cambio por debajo: volver a empezar
+  TREND_JOB_FAIL,      // no se puede continuar
 };
 
 // Bytes del bloque que necesita un anillo de `capacity` ranuras.
@@ -61,3 +75,29 @@ void trend_store_shift(TrendStore *s, int64_t delta);
 // es posterior, o el hueco no deja sitio para nada).
 int trend_store_prepend(TrendStore *s, int64_t blockLastSlot,
                         const uint8_t *planarLE, int n);
+
+// ---- prepend REPARTIDO en pasadas (C2) ----------------------------------
+// Mismo resultado que trend_store_prepend, pero escribiendo como mucho
+// `maxSlots` ranuras por llamada. Las ranuras se escriben en posiciones LIBRES
+// del anillo (anteriores a la primera, fuera de `count`), asi que mientras el
+// trabajo esta a medias el anillo visible NO cambia: count/lastSlot/gen solo se
+// tocan en la pasada final. Si entre pasadas el anillo cambia (otra muestra
+// viva), step() devuelve TREND_JOB_RESTART sin haber modificado nada visible.
+struct TrendPrependJob {
+  TrendStore *s;
+  const uint8_t *planar;
+  int n;
+  int64_t blockLast, blockFirst;
+  int64_t first, hi, lo, newestFromBlock;
+  int64_t next;       // siguiente ranura a escribir
+  int oldestIdx;
+  uint32_t gen;
+  bool wasEmpty;
+  int added;          // ranuras del bloque que entraran
+};
+
+// Planifica. false si no hay nada que anadir (argumentos invalidos, bloque
+// posterior, sin sitio): entonces added = 0 y no hay nada que hacer.
+bool trend_prepend_begin(TrendPrependJob *j, TrendStore *s, int64_t blockLastSlot,
+                         const uint8_t *planarLE, int n);
+TrendJobStatus trend_prepend_step(TrendPrependJob *j, int maxSlots);
