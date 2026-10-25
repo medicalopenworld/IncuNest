@@ -9,6 +9,9 @@
 constexpr int TREND_SLOT_SECONDS = 10;
 constexpr int64_t TREND_SLOT_MS = (int64_t)TREND_SLOT_SECONDS * 1000;
 
+// Capacidad del anillo del firmware: 24 h de ranuras de 10 s por serie.
+constexpr int TREND_CAPACITY = 8640;
+
 // Series del modelo, todas en decimas (36.7 C -> 367; 55 %RH -> 550). El
 // grafico ya redondeaba a decimas (Y_SCALE = 10), asi que int16 no pierde
 // nada visible y el fichero comparte representacion con el anillo.

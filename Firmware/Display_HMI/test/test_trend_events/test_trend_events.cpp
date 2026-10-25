@@ -91,8 +91,115 @@ void test_shift_relabels_every_event(void) {
   TEST_ASSERT_EQUAL_INT(2, trend_events_in_window(&e, 5, 9, buf, 4));
 }
 
+// ---- prepend: eventos de un fichero antes de los vivos ----
+
+namespace {
+TrendEvent ev(int64_t slot, uint8_t id) { return TrendEvent{slot, id, 1, true}; }
+}  // namespace
+
+void test_prepend_onto_an_empty_ring_keeps_order(void) {
+  TrendEvents e;
+  trend_events_init(&e);
+  const TrendEvent older[] = {ev(10, 1), ev(20, 2), ev(30, 3)};
+  TEST_ASSERT_EQUAL_INT(3, trend_events_prepend(&e, older, 3, 0));
+  TEST_ASSERT_EQUAL_INT(3, e.count);
+  TrendEvent out;
+  for (int i = 0; i < 3; i++) {
+    TEST_ASSERT_TRUE(trend_events_get(&e, i, &out));
+    TEST_ASSERT_EQUAL_INT64(older[i].slot, out.slot);
+    TEST_ASSERT_EQUAL_UINT8(older[i].id, out.id);
+  }
+}
+
+void test_prepend_goes_before_the_existing_events(void) {
+  TrendEvents e;
+  trend_events_init(&e);
+  trend_events_add(&e, 100, 9, 2, true);
+  const TrendEvent older[] = {ev(10, 1), ev(20, 2)};
+  TEST_ASSERT_EQUAL_INT(2, trend_events_prepend(&e, older, 2, 0));
+  TrendEvent out;
+  TEST_ASSERT_EQUAL_INT(3, e.count);
+  TEST_ASSERT_TRUE(trend_events_get(&e, 0, &out));
+  TEST_ASSERT_EQUAL_INT64(10, out.slot);
+  TEST_ASSERT_TRUE(trend_events_get(&e, 2, &out));
+  TEST_ASSERT_EQUAL_INT64(100, out.slot);
+  TEST_ASSERT_EQUAL_UINT8(9, out.id);
+}
+
+// El mismo flanco ya vivo no se duplica: solo entran los estrictamente
+// anteriores al primer evento guardado.
+void test_prepend_skips_events_not_older_than_the_first_existing(void) {
+  TrendEvents e;
+  trend_events_init(&e);
+  trend_events_add(&e, 50, 9, 2, true);
+  const TrendEvent older[] = {ev(40, 1), ev(45, 2), ev(50, 3), ev(55, 4)};
+  TEST_ASSERT_EQUAL_INT(2, trend_events_prepend(&e, older, 4, 0));
+  TEST_ASSERT_EQUAL_INT(3, e.count);
+}
+
+void test_prepend_skips_events_before_minSlot(void) {
+  TrendEvents e;
+  trend_events_init(&e);
+  const TrendEvent older[] = {ev(5, 1), ev(15, 2), ev(25, 3)};
+  TEST_ASSERT_EQUAL_INT(2, trend_events_prepend(&e, older, 3, 15));
+  TrendEvent out;
+  TEST_ASSERT_TRUE(trend_events_get(&e, 0, &out));
+  TEST_ASSERT_EQUAL_INT64(15, out.slot);
+}
+
+// Los vivos nunca se pierden: si no cabe todo, se descartan los mas antiguos
+// de los anteriores.
+void test_prepend_never_evicts_existing_events(void) {
+  TrendEvents e;
+  trend_events_init(&e);
+  for (int i = 0; i < TREND_MAX_EVENTS - 2; i++)
+    trend_events_add(&e, 1000 + i, (uint8_t)i, 1, true);
+  const TrendEvent older[] = {ev(1, 101), ev(2, 102), ev(3, 103), ev(4, 104),
+                              ev(5, 105)};
+  TEST_ASSERT_EQUAL_INT(2, trend_events_prepend(&e, older, 5, 0));
+  TEST_ASSERT_EQUAL_INT(TREND_MAX_EVENTS, e.count);
+  TrendEvent out;
+  TEST_ASSERT_TRUE(trend_events_get(&e, 0, &out));
+  TEST_ASSERT_EQUAL_UINT8(104, out.id);  // los 2 mas recientes de los anteriores
+  TEST_ASSERT_TRUE(trend_events_get(&e, 2, &out));
+  TEST_ASSERT_EQUAL_INT64(1000, out.slot);
+  TEST_ASSERT_TRUE(trend_events_get(&e, TREND_MAX_EVENTS - 1, &out));
+  TEST_ASSERT_EQUAL_INT64(1000 + TREND_MAX_EVENTS - 3, out.slot);
+}
+
+void test_prepend_handles_a_wrapped_ring(void) {
+  TrendEvents e;
+  trend_events_init(&e);
+  for (int i = 0; i < TREND_MAX_EVENTS + 10; i++)  // el anillo ya dio la vuelta
+    trend_events_add(&e, 1000 + i, (uint8_t)i, 1, true);
+  // Lleno: no cabe ninguno.
+  const TrendEvent older[] = {ev(1, 1)};
+  TEST_ASSERT_EQUAL_INT(0, trend_events_prepend(&e, older, 1, 0));
+  TEST_ASSERT_EQUAL_INT(TREND_MAX_EVENTS, e.count);
+  TrendEvent out;
+  TEST_ASSERT_TRUE(trend_events_get(&e, 0, &out));
+  TEST_ASSERT_EQUAL_INT64(1010, out.slot);
+}
+
+void test_prepend_rejects_bad_arguments(void) {
+  TrendEvents e;
+  trend_events_init(&e);
+  const TrendEvent older[] = {ev(1, 1)};
+  TEST_ASSERT_EQUAL_INT(0, trend_events_prepend(nullptr, older, 1, 0));
+  TEST_ASSERT_EQUAL_INT(0, trend_events_prepend(&e, nullptr, 1, 0));
+  TEST_ASSERT_EQUAL_INT(0, trend_events_prepend(&e, older, 0, 0));
+  TEST_ASSERT_EQUAL_INT(0, trend_events_prepend(&e, older, -1, 0));
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
+  RUN_TEST(test_prepend_onto_an_empty_ring_keeps_order);
+  RUN_TEST(test_prepend_goes_before_the_existing_events);
+  RUN_TEST(test_prepend_skips_events_not_older_than_the_first_existing);
+  RUN_TEST(test_prepend_skips_events_before_minSlot);
+  RUN_TEST(test_prepend_never_evicts_existing_events);
+  RUN_TEST(test_prepend_handles_a_wrapped_ring);
+  RUN_TEST(test_prepend_rejects_bad_arguments);
   RUN_TEST(test_empty_ring_has_nothing);
   RUN_TEST(test_raise_then_clear_come_back_in_order_with_their_fields);
   RUN_TEST(test_window_bounds_are_inclusive);

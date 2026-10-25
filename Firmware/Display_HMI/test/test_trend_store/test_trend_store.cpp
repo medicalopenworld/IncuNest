@@ -212,8 +212,176 @@ void test_empty_sample_is_all_no_data(void) {
   for (int i = 0; i < TREND_SERIES; i++) TEST_ASSERT_EQUAL_INT16(TREND_NO_DATA, s.v[i]);
 }
 
+// ---- prepend: restauracion de un bloque anterior (series planares LE) ----
+
+namespace {
+
+// Bloque de `n` ranuras que termina en `lastSlot`, serie a serie, int16 LE.
+std::vector<uint8_t> blockLE(int64_t lastSlot, int n, int tag = 0) {
+  std::vector<uint8_t> b((size_t)TREND_SERIES * (size_t)n * 2);
+  for (int ser = 0; ser < TREND_SERIES; ser++) {
+    for (int i = 0; i < n; i++) {
+      const int64_t slot = lastSlot - n + 1 + i;
+      const int16_t v = (int16_t)(1000 * ser + (slot & 0xFF) + tag);
+      const size_t o = ((size_t)ser * (size_t)n + (size_t)i) * 2;
+      b[o] = (uint8_t)(v & 0xFF);
+      b[o + 1] = (uint8_t)((uint16_t)v >> 8);
+    }
+  }
+  return b;
+}
+
+int16_t blockVal(int64_t slot, int ser, int tag = 0) {
+  return (int16_t)(1000 * ser + (slot & 0xFF) + tag);
+}
+
+}  // namespace
+
+void test_prepend_onto_an_empty_store_becomes_its_content(void) {
+  Fixture f;
+  const std::vector<uint8_t> b = blockLE(200, 5);
+  TEST_ASSERT_EQUAL_INT(5, trend_store_prepend(&f.store, 200, b.data(), 5));
+  TEST_ASSERT_EQUAL_INT(5, f.store.count);
+  TEST_ASSERT_EQUAL_INT64(200, f.store.lastSlot);
+  TEST_ASSERT_EQUAL_INT64(196, trend_store_first_slot(&f.store));
+  for (int64_t s = 196; s <= 200; s++)
+    for (int ser = 0; ser < TREND_SERIES; ser++)
+      TEST_ASSERT_EQUAL_INT16(blockVal(s, ser), trend_store_value(&f.store, ser, s));
+  // Y el anillo sigue siendo escribible a continuacion.
+  const TrendSample next = tagged(203);
+  TEST_ASSERT_TRUE(trend_store_record(&f.store, 203, &next));
+  TEST_ASSERT_EQUAL_INT16(TREND_NO_DATA, trend_store_value(&f.store, TREND_AIR, 201));
+  TEST_ASSERT_EQUAL_INT16(blockVal(200, 0), trend_store_value(&f.store, TREND_AIR, 200));
+}
+
+void test_prepend_before_live_data_fills_the_gap_with_no_data(void) {
+  Fixture f(32);
+  for (int64_t s = 100; s <= 102; s++) {
+    const TrendSample x = tagged(s);
+    trend_store_record(&f.store, s, &x);
+  }
+  const std::vector<uint8_t> b = blockLE(96, 3);  // 94..96
+  TEST_ASSERT_EQUAL_INT(3, trend_store_prepend(&f.store, 96, b.data(), 3));
+  TEST_ASSERT_EQUAL_INT(9, f.store.count);  // 94..102
+  TEST_ASSERT_EQUAL_INT64(102, f.store.lastSlot);
+  for (int64_t s = 94; s <= 96; s++)
+    TEST_ASSERT_EQUAL_INT16(blockVal(s, TREND_SKIN),
+                            trend_store_value(&f.store, TREND_SKIN, s));
+  for (int64_t s = 97; s <= 99; s++)
+    for (int ser = 0; ser < TREND_SERIES; ser++)
+      TEST_ASSERT_EQUAL_INT16(TREND_NO_DATA, trend_store_value(&f.store, ser, s));
+  for (int64_t s = 100; s <= 102; s++)
+    TEST_ASSERT_EQUAL_INT16(tagged(s).v[TREND_SKIN],
+                            trend_store_value(&f.store, TREND_SKIN, s));
+}
+
+void test_prepend_does_not_overwrite_live_slots(void) {
+  Fixture f(32);
+  for (int64_t s = 100; s <= 105; s++) {
+    const TrendSample x = tagged(s);
+    trend_store_record(&f.store, s, &x);
+  }
+  const std::vector<uint8_t> b = blockLE(102, 5, 5000);  // 98..102, solapa 100..102
+  TEST_ASSERT_EQUAL_INT(2, trend_store_prepend(&f.store, 102, b.data(), 5));
+  TEST_ASSERT_EQUAL_INT(8, f.store.count);  // 98..105
+  TEST_ASSERT_EQUAL_INT16(blockVal(98, TREND_AIR, 5000),
+                          trend_store_value(&f.store, TREND_AIR, 98));
+  TEST_ASSERT_EQUAL_INT16(blockVal(99, TREND_AIR, 5000),
+                          trend_store_value(&f.store, TREND_AIR, 99));
+  for (int64_t s = 100; s <= 105; s++)
+    TEST_ASSERT_EQUAL_INT16(tagged(s).v[TREND_AIR],
+                            trend_store_value(&f.store, TREND_AIR, s));
+}
+
+void test_prepend_of_a_block_that_is_not_older_adds_nothing(void) {
+  Fixture f(32);
+  const TrendSample x = tagged(100);
+  trend_store_record(&f.store, 100, &x);
+  const std::vector<uint8_t> b = blockLE(110, 4);
+  TEST_ASSERT_EQUAL_INT(0, trend_store_prepend(&f.store, 110, b.data(), 4));
+  const std::vector<uint8_t> c = blockLE(100, 4);  // 97..100: entran 97..99, no la 100 viva
+  TEST_ASSERT_EQUAL_INT(3, trend_store_prepend(&f.store, 100, c.data(), 4));
+}
+
+void test_prepend_drops_what_does_not_fit_from_the_old_side(void) {
+  Fixture f(8);
+  for (int64_t s = 100; s <= 102; s++) {
+    const TrendSample x = tagged(s);
+    trend_store_record(&f.store, s, &x);
+  }
+  const std::vector<uint8_t> b = blockLE(99, 10);  // 90..99, caben 5
+  TEST_ASSERT_EQUAL_INT(5, trend_store_prepend(&f.store, 99, b.data(), 10));
+  TEST_ASSERT_EQUAL_INT(8, f.store.count);
+  TEST_ASSERT_EQUAL_INT64(95, trend_store_first_slot(&f.store));
+  for (int64_t s = 95; s <= 99; s++)
+    TEST_ASSERT_EQUAL_INT16(blockVal(s, TREND_HUM), trend_store_value(&f.store, TREND_HUM, s));
+  TEST_ASSERT_EQUAL_INT16(TREND_NO_DATA, trend_store_value(&f.store, TREND_HUM, 94));
+}
+
+void test_prepend_with_a_gap_that_leaves_no_room_adds_nothing(void) {
+  Fixture f(8);
+  for (int64_t s = 100; s <= 102; s++) {
+    const TrendSample x = tagged(s);
+    trend_store_record(&f.store, s, &x);
+  }
+  const std::vector<uint8_t> b = blockLE(80, 5);
+  TEST_ASSERT_EQUAL_INT(0, trend_store_prepend(&f.store, 80, b.data(), 5));
+  TEST_ASSERT_EQUAL_INT(3, f.store.count);
+  TEST_ASSERT_EQUAL_INT64(100, trend_store_first_slot(&f.store));
+}
+
+void test_prepend_into_a_full_store_adds_nothing(void) {
+  Fixture f(4);
+  for (int64_t s = 100; s <= 103; s++) {
+    const TrendSample x = tagged(s);
+    trend_store_record(&f.store, s, &x);
+  }
+  const std::vector<uint8_t> b = blockLE(99, 3);
+  TEST_ASSERT_EQUAL_INT(0, trend_store_prepend(&f.store, 99, b.data(), 3));
+  TEST_ASSERT_EQUAL_INT(4, f.store.count);
+}
+
+// El anillo ya tiene el cursor de escritura a mitad de camino: la zona anterior
+// a la primera ranura da la vuelta por el final del bloque.
+void test_prepend_wraps_around_the_end_of_the_ring(void) {
+  Fixture f(8);
+  for (int64_t s = 1; s <= 6; s++) {
+    const TrendSample x = tagged(s);
+    trend_store_record(&f.store, s, &x);
+  }
+  const std::vector<uint8_t> b = blockLE(0, 4);  // -3..0, caben 2
+  TEST_ASSERT_EQUAL_INT(2, trend_store_prepend(&f.store, 0, b.data(), 4));
+  TEST_ASSERT_EQUAL_INT(8, f.store.count);
+  TEST_ASSERT_EQUAL_INT64(-1, trend_store_first_slot(&f.store));
+  for (int64_t s = -1; s <= 0; s++)
+    TEST_ASSERT_EQUAL_INT16(blockVal(s, TREND_SP_HUM),
+                            trend_store_value(&f.store, TREND_SP_HUM, s));
+  for (int64_t s = 1; s <= 6; s++)
+    TEST_ASSERT_EQUAL_INT16(tagged(s).v[TREND_SP_HUM],
+                            trend_store_value(&f.store, TREND_SP_HUM, s));
+}
+
+void test_prepend_rejects_bad_arguments(void) {
+  Fixture f;
+  const std::vector<uint8_t> b = blockLE(10, 3);
+  TEST_ASSERT_EQUAL_INT(0, trend_store_prepend(nullptr, 10, b.data(), 3));
+  TEST_ASSERT_EQUAL_INT(0, trend_store_prepend(&f.store, 10, nullptr, 3));
+  TEST_ASSERT_EQUAL_INT(0, trend_store_prepend(&f.store, 10, b.data(), 0));
+  TEST_ASSERT_EQUAL_INT(0, trend_store_prepend(&f.store, 10, b.data(), -2));
+  TEST_ASSERT_EQUAL_INT(0, f.store.count);
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
+  RUN_TEST(test_prepend_onto_an_empty_store_becomes_its_content);
+  RUN_TEST(test_prepend_before_live_data_fills_the_gap_with_no_data);
+  RUN_TEST(test_prepend_does_not_overwrite_live_slots);
+  RUN_TEST(test_prepend_of_a_block_that_is_not_older_adds_nothing);
+  RUN_TEST(test_prepend_drops_what_does_not_fit_from_the_old_side);
+  RUN_TEST(test_prepend_with_a_gap_that_leaves_no_room_adds_nothing);
+  RUN_TEST(test_prepend_into_a_full_store_adds_nothing);
+  RUN_TEST(test_prepend_wraps_around_the_end_of_the_ring);
+  RUN_TEST(test_prepend_rejects_bad_arguments);
   RUN_TEST(test_bytes_is_six_planar_series);
   RUN_TEST(test_empty_store_reads_nothing);
   RUN_TEST(test_first_record_is_readable_in_all_series);

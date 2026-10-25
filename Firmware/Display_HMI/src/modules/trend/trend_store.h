@@ -47,3 +47,17 @@ int64_t trend_store_first_slot(const TrendStore *s);
 // Re-etiqueta todo lo guardado: lastSlot += delta. Los datos conservan su
 // separacion relativa (transicion esp_timer -> epoch).
 void trend_store_shift(TrendStore *s, int64_t delta);
+
+// Antepone un bloque de `n` ranuras ANTERIORES a lo ya guardado (restauracion
+// de un fichero). `planarLE`: series planares, n valores int16 little-endian
+// por serie, de la mas antigua a la mas reciente; la mas reciente es la ranura
+// `blockLastSlot`. Se lee byte a byte, sin suponer alineacion ni endianness.
+//  - Con el anillo vacio, el bloque pasa a ser todo el contenido.
+//  - Si no, solo entran las ranuras del bloque anteriores a la primera ya
+//    guardada (las vivas mandan en el solape), y el hueco entre el final del
+//    bloque y esa primera se rellena con "sin dato".
+//  - Lo que no cabe se descarta por el lado ANTIGUO del bloque.
+// Devuelve cuantas ranuras del bloque se incorporaron (0 si ninguna: el bloque
+// es posterior, o el hueco no deja sitio para nada).
+int trend_store_prepend(TrendStore *s, int64_t blockLastSlot,
+                        const uint8_t *planarLE, int n);

@@ -107,8 +107,113 @@ void test_mark_kind_unknown_priority_is_treated_as_high(void) {
   TEST_ASSERT_EQUAL_INT(TREND_MARK_HIGH, trend_mark_kind(255, true));
 }
 
+// ---- Politica de volcado ----
+
+namespace {
+constexpr int64_t SLOT_A = 170000100;
+}
+
+void test_dump_constants_are_5_min_and_2_min(void) {
+  TEST_ASSERT_EQUAL_UINT32(300000u, TREND_DUMP_PERIOD_MS);
+  TEST_ASSERT_EQUAL_UINT32(120000u, TREND_DUMP_LOCK_MIN_MS);
+  TEST_ASSERT_EQUAL_UINT32(4096u, (uint32_t)TREND_CHUNK_BYTES);
+  TEST_ASSERT_EQUAL_UINT32(50u, TREND_CHUNK_GAP_MS);
+}
+
+void test_dump_never_without_synced_clock_or_samples(void) {
+  TrendDumpState d;
+  trend_dump_init(&d, 1000);
+  const uint32_t later = 1000 + TREND_DUMP_PERIOD_MS + 5;
+  TEST_ASSERT_FALSE(trend_dump_due(&d, false, true, SLOT_A, later, false));
+  TEST_ASSERT_FALSE(trend_dump_due(&d, true, false, 0, later, false));
+  TEST_ASSERT_TRUE(trend_dump_due(&d, true, true, SLOT_A, later, false));
+}
+
+void test_dump_waits_a_full_period_from_start(void) {
+  TrendDumpState d;
+  trend_dump_init(&d, 50000);
+  TEST_ASSERT_FALSE(trend_dump_due(&d, true, true, SLOT_A, 50000, false));
+  TEST_ASSERT_FALSE(
+      trend_dump_due(&d, true, true, SLOT_A, 50000 + TREND_DUMP_PERIOD_MS - 1, false));
+  TEST_ASSERT_TRUE(
+      trend_dump_due(&d, true, true, SLOT_A, 50000 + TREND_DUMP_PERIOD_MS, false));
+}
+
+void test_lock_entry_dumps_only_after_the_minimum_gap(void) {
+  TrendDumpState d;
+  trend_dump_init(&d, 0);
+  TEST_ASSERT_FALSE(
+      trend_dump_due(&d, true, true, SLOT_A, TREND_DUMP_LOCK_MIN_MS - 1, true));
+  TEST_ASSERT_TRUE(trend_dump_due(&d, true, true, SLOT_A, TREND_DUMP_LOCK_MIN_MS, true));
+  // Sin entrada en bloqueo, esa misma hora todavia no toca.
+  TEST_ASSERT_FALSE(trend_dump_due(&d, true, true, SLOT_A, TREND_DUMP_LOCK_MIN_MS, false));
+}
+
+void test_nothing_new_since_the_last_dump_means_no_dump(void) {
+  TrendDumpState d;
+  trend_dump_init(&d, 0);
+  trend_dump_done(&d, 10000, SLOT_A);
+  const uint32_t later = 10000 + TREND_DUMP_PERIOD_MS + 1;
+  TEST_ASSERT_FALSE(trend_dump_due(&d, true, true, SLOT_A, later, false));
+  TEST_ASSERT_FALSE(trend_dump_due(&d, true, true, SLOT_A, later, true));
+  TEST_ASSERT_TRUE(trend_dump_due(&d, true, true, SLOT_A + 1, later, false));
+}
+
+void test_done_restarts_the_period(void) {
+  TrendDumpState d;
+  trend_dump_init(&d, 0);
+  trend_dump_done(&d, 400000, SLOT_A);
+  TEST_ASSERT_FALSE(trend_dump_due(&d, true, true, SLOT_A + 10,
+                                   400000 + TREND_DUMP_PERIOD_MS - 1, false));
+  TEST_ASSERT_TRUE(trend_dump_due(&d, true, true, SLOT_A + 10,
+                                  400000 + TREND_DUMP_PERIOD_MS, false));
+}
+
+// Un fallo no se reintenta en bucle ni da la ranura por guardada.
+void test_failed_waits_a_full_period_and_keeps_the_slot_unsaved(void) {
+  TrendDumpState d;
+  trend_dump_init(&d, 0);
+  trend_dump_failed(&d, 400000);
+  TEST_ASSERT_FALSE(trend_dump_due(&d, true, true, SLOT_A, 400000 + 1000, false));
+  TEST_ASSERT_FALSE(trend_dump_due(&d, true, true, SLOT_A,
+                                   400000 + TREND_DUMP_LOCK_MIN_MS, false));
+  TEST_ASSERT_TRUE(trend_dump_due(&d, true, true, SLOT_A,
+                                  400000 + TREND_DUMP_PERIOD_MS, false));
+  TEST_ASSERT_FALSE(d.haveDumped);
+}
+
+// millis() da la vuelta a los 49 dias: la resta sin signo lo absorbe.
+void test_dump_timing_survives_the_millis_wraparound(void) {
+  TrendDumpState d;
+  const uint32_t start = 0xFFFFFF00u;
+  trend_dump_init(&d, start);
+  const uint32_t before = start + TREND_DUMP_PERIOD_MS - 1;   // ya envuelto
+  const uint32_t at = start + TREND_DUMP_PERIOD_MS;
+  TEST_ASSERT_TRUE(before < start);
+  TEST_ASSERT_FALSE(trend_dump_due(&d, true, true, SLOT_A, before, false));
+  TEST_ASSERT_TRUE(trend_dump_due(&d, true, true, SLOT_A, at, false));
+}
+
+void test_chunks_are_paced_at_least_50_ms_apart(void) {
+  TEST_ASSERT_FALSE(trend_chunk_due(1049, 1000));
+  TEST_ASSERT_TRUE(trend_chunk_due(1050, 1000));
+  TEST_ASSERT_TRUE(trend_chunk_due(5000, 1000));
+  // Con la vuelta de millis().
+  TEST_ASSERT_FALSE(trend_chunk_due(20, 0xFFFFFFF0u));
+  TEST_ASSERT_TRUE(trend_chunk_due(50, 0xFFFFFFF0u));
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
+  RUN_TEST(test_dump_constants_are_5_min_and_2_min);
+  RUN_TEST(test_dump_never_without_synced_clock_or_samples);
+  RUN_TEST(test_dump_waits_a_full_period_from_start);
+  RUN_TEST(test_lock_entry_dumps_only_after_the_minimum_gap);
+  RUN_TEST(test_nothing_new_since_the_last_dump_means_no_dump);
+  RUN_TEST(test_done_restarts_the_period);
+  RUN_TEST(test_failed_waits_a_full_period_and_keeps_the_slot_unsaved);
+  RUN_TEST(test_dump_timing_survives_the_millis_wraparound);
+  RUN_TEST(test_chunks_are_paced_at_least_50_ms_apart);
   RUN_TEST(test_off_validates_no_setpoint);
   RUN_TEST(test_temperature_in_air_mode_validates_only_air);
   RUN_TEST(test_temperature_in_skin_mode_validates_only_skin);

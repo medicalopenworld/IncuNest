@@ -37,3 +37,11 @@ int trend_events_in_window(const TrendEvents *e, int64_t loSlot, int64_t hiSlot,
 
 // Re-etiqueta todos los eventos: slot += delta.
 void trend_events_shift(TrendEvents *e, int64_t delta);
+
+// Antepone `n` eventos anteriores (cronologicos) a los ya guardados
+// (restauracion de un fichero). Solo entran los de slot >= minSlot y los de
+// slot estrictamente anterior al primer evento ya guardado (los vivos mandan:
+// el mismo flanco no se duplica). Si no caben todos, se descartan los mas
+// antiguos de `older`: los guardados nunca se pierden. Devuelve cuantos entran.
+int trend_events_prepend(TrendEvents *e, const TrendEvent *older, int n,
+                         int64_t minSlot);
