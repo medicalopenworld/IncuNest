@@ -31,6 +31,27 @@ int g_skinProbeState = SKIN_PROBE_NOT_CONNECTED; // Last received skin probe sta
 // --- Baby profile wizard protocol state ---
 volatile bool       g_pendingProfileList = false;
 BabyProfileListMsg  g_profileList = {0, {}};
+
+// Espejo de solo lectura de la ultima CTRL,PROFILE_LIST valida. No es un
+// segundo flag de "pendiente": nadie lo consume, cada lector recuerda la
+// generacion que vio (Communication_TakeProfileListMirror).
+static portMUX_TYPE s_profileMirrorMux = portMUX_INITIALIZER_UNLOCKED;
+static BabyProfileListMsg s_profileMirror = {0, {}};
+static uint32_t s_profileMirrorGen = 0;
+
+bool Communication_TakeProfileListMirror(uint32_t *seenGen,
+                                         BabyProfileListMsg *out) {
+  if (!seenGen || !out) return false;
+  bool fresh = false;
+  taskENTER_CRITICAL(&s_profileMirrorMux);
+  if (s_profileMirrorGen != *seenGen) {
+    *out = s_profileMirror;
+    *seenGen = s_profileMirrorGen;
+    fresh = true;
+  }
+  taskEXIT_CRITICAL(&s_profileMirrorMux);
+  return fresh;
+}
 volatile bool       g_pendingProfileAck = false;
 uint32_t            g_profileAck = 0;
 volatile bool       g_pendingProfileRange = false;
@@ -1076,6 +1097,14 @@ static void parse_message(const char *line) {
     if (ok) {
       g_profileList = msg;
       g_pendingProfileList = true;
+      // Copia aparte para quien solo quiere LEER los minutos de terapia
+      // (state/patient_state) sin ser el consumidor del flag de arriba, que
+      // tiene uno solo: wizard o visor de bebes. Nota: la seccion critica solo
+      // copia datos (embedded-display-hmi.md).
+      taskENTER_CRITICAL(&s_profileMirrorMux);
+      s_profileMirror = msg;
+      s_profileMirrorGen++;
+      taskEXIT_CRITICAL(&s_profileMirrorMux);
     } else {
       COMM_LOG("[COMM] PROFILE_LIST malformed: %s\n", line);
     }

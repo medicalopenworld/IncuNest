@@ -45,6 +45,9 @@ lv_obj_t *ui_BabiesButton = NULL;
 lv_obj_t *ui_BabiesButtonLabel = NULL;
 lv_obj_t *ui_BabiesPatientName = NULL;
 lv_obj_t *ui_BabiesPatientDetail = NULL;
+lv_obj_t *ui_TempTotalLabel = NULL;
+lv_obj_t *ui_HumTotalLabel = NULL;
+lv_obj_t *ui_PhotoTotalLabel = NULL;
 lv_obj_t *ui_LockPatientName = NULL;
 lv_obj_t *ui_LockPatientDetail = NULL;
 lv_obj_t *ui_TempCont = NULL;
@@ -1016,6 +1019,26 @@ static void create_heading_conn_indicator(lv_obj_t *parent, lv_coord_t x,
     lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_MAIN);
     outBars[i] = bar;
   }
+}
+
+// Etiqueta de dos lineas (12 pt) de terapia acumulada, hija de la cabecera de
+// un panel de Main. Oculta y sin texto hasta que patient_therapy_update()
+// tenga algo que decir; no recibe toques ni desplaza nada del panel.
+static lv_obj_t *create_therapy_total_label(lv_obj_t *parent, lv_align_t align,
+                                            lv_coord_t x, lv_coord_t y,
+                                            lv_text_align_t textAlign) {
+  lv_obj_t *lbl = lv_label_create(parent);
+  lv_obj_set_width(lbl, 64);
+  lv_label_set_long_mode(lbl, LV_LABEL_LONG_CLIP);
+  lv_obj_set_align(lbl, align);
+  lv_obj_set_x(lbl, x);
+  lv_obj_set_y(lbl, y);
+  lv_obj_set_style_text_align(lbl, textAlign, LV_PART_MAIN);
+  lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, LV_PART_MAIN);
+  lv_obj_clear_flag(lbl, LV_OBJ_FLAG_CLICKABLE);
+  lv_label_set_text(lbl, "");
+  lv_obj_add_flag(lbl, LV_OBJ_FLAG_HIDDEN);
+  return lbl;
 }
 
 void ui_ScreenMain_screen_init(void) {
@@ -4520,6 +4543,25 @@ void create_main_toggle_buttons() {
     lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0);
     lv_obj_center(lbl);
   }
+
+  // Terapia acumulada del bebe al mando (spec hmi-patient-identity): "Total" y
+  // debajo "3h 20m", en el hueco entre el titulo y el boton de cada cabecera.
+  // Se crean AQUI, detras de los botones de encendido, para quedar por encima
+  // de los paneles en el orden de dibujo. Las rellena y muestra
+  // patient_therapy_update() (UITask.cpp).
+  //
+  // Medidas (800x480, ver los comentarios de cada cabecera): la cabecera de
+  // temperatura lleva el boton a la izquierda (acaba en x=180 del contenedor) y
+  // el titulo pegado a la derecha, asi que el hueco esta en medio, a partir de
+  // 188. En humedad y fototerapia es al reves (titulo a la izquierda, boton
+  // desde x=195): el texto va alineado a la derecha, acabando en 190, para
+  // alejarlo del titulo, que en frances ("PHOTOTHERAPIE") llega a ~141.
+  ui_TempTotalLabel = create_therapy_total_label(
+      ui_TempCont, LV_ALIGN_LEFT_MID, 188, -176, LV_TEXT_ALIGN_LEFT);
+  ui_HumTotalLabel = create_therapy_total_label(
+      ui_HumCont, LV_ALIGN_RIGHT_MID, -(378 - 190), -98, LV_TEXT_ALIGN_RIGHT);
+  ui_PhotoTotalLabel = create_therapy_total_label(
+      ui_PhotoCont, LV_ALIGN_RIGHT_MID, -(384 - 190), 1, LV_TEXT_ALIGN_RIGHT);
 }
 
 

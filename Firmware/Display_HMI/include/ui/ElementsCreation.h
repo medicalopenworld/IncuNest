@@ -149,6 +149,10 @@ extern lv_obj_t * ui_BabiesButtonLabel;
 // el heading de ui_ScreenLock. Ocultas hasta que haya sesion viva.
 extern lv_obj_t * ui_BabiesPatientName;
 extern lv_obj_t * ui_BabiesPatientDetail;
+// Terapia acumulada del bebe al mando, en la cabecera de cada panel de Main.
+extern lv_obj_t * ui_TempTotalLabel;
+extern lv_obj_t * ui_HumTotalLabel;
+extern lv_obj_t * ui_PhotoTotalLabel;
 extern lv_obj_t * ui_LockPatientName;
 extern lv_obj_t * ui_LockPatientDetail;
 extern lv_obj_t * ui_TempCont;

@@ -752,7 +752,8 @@ void BabyWizard_SetSession(const BabyWizardSession *s) {
   snprintf(s_sessionName, sizeof(s_sessionName), "%s", s->name);
   s_sessionGest = s->gest;
   s_sessionWeight = s->weight;
-  PatientState_OnSessionSet(s_sessionSeq, s_sessionName, s_sessionGest);
+  PatientState_OnSessionSet(s_sessionSeq, s_sessionName, s_sessionGest,
+                            nullptr);
 }
 
 BabyWizardStep BabyWizard_GetStep() {
@@ -830,7 +831,19 @@ void BabyWizard_Poll() {
           snprintf(s_sessionName, sizeof(s_sessionName), "%s", s_name);
           s_sessionGest = s_gestWeeks;
           if (s_weightGrams > 0) s_sessionWeight = s_weightGrams;
-          PatientState_OnSessionSet(s_sessionSeq, s_sessionName, s_sessionGest);
+          // Minutos de terapia que la placa tenia de este bebe en la lista que
+          // trajo el asistente (0 si es un alta nueva). Es la siembra del
+          // contador local; si ya contaba para este mismo bebe no se toca.
+          PatientMinutes seed = {0, 0, 0};
+          for (int i = 0; i < s_list.count && i < 3; i++) {
+            if (s_list.items[i].seq != s_sessionSeq) continue;
+            seed.photo = s_list.items[i].phototherapyMinutes;
+            seed.thermo = s_list.items[i].thermoMinutes;
+            seed.humidity = s_list.items[i].humidityMinutes;
+            break;
+          }
+          PatientState_OnSessionSet(s_sessionSeq, s_sessionName, s_sessionGest,
+                                    &seed);
           if (targetIsIdentityOnly(s_target)) {
             // A lamp or a humidifier needs no NTE range, so weight and
             // age-in-days are never asked here: identifying the baby is the

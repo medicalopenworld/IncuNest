@@ -225,6 +225,16 @@ struct BabyProfileRangeMsg {
 
 extern volatile bool     g_pendingProfileList;
 extern BabyProfileListMsg g_profileList;
+
+// Copia de solo lectura de cada CTRL,PROFILE_LIST valida, para quien necesita
+// los minutos de terapia sin ser el consumidor de g_pendingProfileList (que
+// tiene UNO: el asistente o el visor de bebes). Nunca toca ese flag.
+//
+// `*seenGen` es la generacion que este lector ya vio (empezar en 0). Devuelve
+// true y rellena `*out` solo si hay una lista mas reciente; actualiza
+// `*seenGen`. Segura entre tareas.
+bool Communication_TakeProfileListMirror(uint32_t *seenGen,
+                                         BabyProfileListMsg *out);
 extern volatile bool     g_pendingProfileAck;
 extern uint32_t          g_profileAck;
 
