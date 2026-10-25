@@ -20,10 +20,10 @@
 //
 // Esta maquina decide, trama a trama, que valor de fototerapia aplicar y si el
 // del display se puede guardar. Mientras el encendido de depuracion esta
-// activo, manda ON y no se guarda nada. Al soltarlo, durante una ventana de
-// gracia manda el valor REAL que habia antes de la prueba e ignora el 1 rancio
-// que el display sigue devolviendo hasta adoptar el apagado; tampoco se guarda
-// nada en ese tiempo. Pasada la ventana, manda otra vez el display.
+// activo, manda ON y no se guarda nada. Al soltarlo manda el valor REAL que
+// habia antes de la prueba e ignora el 1 rancio que el display sigue
+// devolviendo, y no guarda nada, HASTA que el display confirma devolviendo ese
+// valor real (ver mas abajo). Entonces manda otra vez el display.
 //
 // Test de regresion: motherBoard/test/test_photo_override.
 
@@ -34,14 +34,10 @@
 extern "C" {
 #endif
 
-// Tiempo durante el que, al soltar el encendido de depuracion, se ignora lo
-// que diga el display. Tiene que cubrir con holgura una vuelta completa
-// emision -> adopcion -> keepalive, que es de 1-2 s.
-#define PHOTO_OVERRIDE_RELEASE_GRACE_MS 5000u
-
-// Liberacion CONFIRMADA (sustituye a la ventana fija de arriba).
+// Liberacion CONFIRMADA.
 //
-// Una ventana fija es una apuesta a que el display adopta el apagado dentro de
+// (Antes era una ventana fija de 5 s, PHOTO_OVERRIDE_RELEASE_GRACE_MS, durante
+// la que se ignoraba al display.) Una ventana fija es una apuesta a que el display adopta el apagado dentro de
 // ella, y la tarea Comm del display se queda sin CPU segundos enteros
 // (known_issues #7, #11). Si vence antes de que el display lo haya adoptado,
 // main.cpp aplica Y GUARDA EN NVS el ON rancio: lampara encendida y

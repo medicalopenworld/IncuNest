@@ -16,6 +16,7 @@ extern "C" bool debug_inject_take(char *out, size_t out_len);
 #include "modules/control/alarm_history.h"
 #include "modules/control/alarm_machine.h"
 #include "modules/control/alarm_test.h"
+#include "modules/debug/debug_mode.h"
 #include "modules/baby_profile/baby_profile_protocol.h"
 #include "modules/baby_profile/baby_profile_store.h"
 #include "nte_table.h"
@@ -1045,14 +1046,18 @@ void parse_line(const char *line) {
   }
 
   if (strncmp(line, "HMI,", 4) == 0) {
-    int act, skinE, mode, photo, mute, lang, photoMin;
+    int act, skinE, mode, photo, mute, lang;
+    int photoMin = 0;  // el campo 10 es opcional: sin inicializar seria basura
     double air, skin, hum;
 
     int parsed = sscanf(line,
                         "HMI,%d,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d",
                         &act, &skinE, &mode, &air, &skin, &hum, &photo,
                         &mute, &lang, &photoMin);
-    if (parsed >= 9) {
+    // `photo` es un booleano (0/1) y se emite tal cual en CTRL,STATE y se guarda
+    // en NVS: cualquier otro valor es una trama corrupta (sin CRC, ver
+    // known_issues #2) y se descarta entera en vez de actuar sobre la lampara.
+    if (parsed >= 9 && (photo == 0 || photo == 1)) {
       // activeSeq protection: stamp the wizard-selected baby while ANY
       // therapy is running, and only clear it once every therapy is off.
       // Phototherapy counts: the HMI now runs the baby-data wizard for it
@@ -1071,7 +1076,15 @@ void parse_line(const char *line) {
       // Per-baby therapy exposure. Accumulated in RAM and only written to NVS
       // on the OFF edge or every THERAPY_FLUSH_INTERVAL — a slot write per
       // minute would wear the flash for no benefit.
-      updateTherapyAccounting(s_photoAcc, photo != 0);
+      // Solo cuenta exposicion REAL: la lampara esta aplicada (in3.phototherapy,
+      // no solo pedida), no es una prueba de depuracion en curso o por
+      // confirmar (el display adopta el ON de PHOTO,1 y lo devuelve en su
+      // keepalive, y eso no es un bebe tratado) y no hay un fallo de lampara
+      // declarado (sin corriente o sin medida, la terapia no esta garantizada).
+      const bool photoExposure =
+          photo != 0 && in3.phototherapy && debug_photo_may_persist() &&
+          alarm_machine_state(ALARM_PHOTO_LAMP_FAULT) == ALARM_STATE_INACTIVE;
+      updateTherapyAccounting(s_photoAcc, photoExposure);
       updateTherapyAccounting(s_thermoAcc,
                               act == ACTUATION_TEMPERATURE ||
                                   act == ACTUATION_TEMP_AND_HUMIDITY);

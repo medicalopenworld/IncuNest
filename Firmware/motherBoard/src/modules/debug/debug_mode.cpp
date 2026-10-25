@@ -77,8 +77,18 @@ bool debug_photo_active(void) {
 bool debug_photo_effective(bool display_value) {
   portENTER_CRITICAL(&s_photo_mux);
   photo_lock_init();
-  const bool v = photo_override_effective(&s_photo, display_value, millis());
+  const uint32_t now = millis();
+  const bool v = photo_override_effective(&s_photo, display_value, now);
+  const bool overdue = photo_override_unconfirmed_overdue(&s_photo, now);
   portEXIT_CRITICAL(&s_photo_mux);
+  // Fuera de la seccion critica: el log no puede ir dentro. La lampara sigue
+  // forzada a su valor real y sin guardar; el display no ha confirmado nunca.
+  if (overdue) {
+    logE(String("[DEBUG] PHOTO: el display no confirma el apagado de "
+                "depuracion tras ") +
+         String((unsigned)PHOTO_OVERRIDE_RELEASE_BACKSTOP_MS) +
+         " ms; se sigue forzando el valor real y sin guardar");
+  }
   return v;
 }
 
@@ -96,7 +106,8 @@ struct Override {
 };
 static Override s_ovr[DEBUG_CH_COUNT];
 
-// Bitmask de alarmas forzadas. NUM_ALARMS es 20, asi que cabe de sobra.
+// Bitmask de alarmas forzadas: un bit por AlarmId. Cabe mientras ALARM_COUNT
+// <= 32, que garantiza un static_assert en shared/include/alarm_ids.h.
 static uint32_t s_forced_present;
 
 // Cola de tramas inyectadas; la crea debug_inject_line() en la primera y la

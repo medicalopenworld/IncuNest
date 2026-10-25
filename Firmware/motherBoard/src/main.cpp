@@ -446,8 +446,9 @@ static void debugConsoleHandle(const char *line) {
     if (arg[0] == '0') {
       debug_photo_off();
       ESP_LOGW(DBGCON_TAG, "PHOTO,0: fototerapia de depuracion soltada; vuelve "
-               "a mandar el display tras %u ms de gracia",
-               (unsigned)PHOTO_OVERRIDE_RELEASE_GRACE_MS);
+               "a mandar el display cuando confirme el valor real (minimo "
+               "%u ms)",
+               (unsigned)PHOTO_OVERRIDE_CONFIRM_MIN_MS);
       return;
     }
     // in3.phototherapy es aqui la ultima orden REAL del display: todavia no
