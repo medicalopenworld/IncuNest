@@ -32,6 +32,14 @@ typedef struct {
   uint8_t afeLedAlm;
   uint8_t usbEn;
   uint8_t usbFault;
+  // Pines que aparecen en la V19 (0xFF = la revision no los tiene).
+  uint8_t afePwdn;
+  uint8_t gsmPwrEn;
+  uint8_t pwr5vEn;
+  uint8_t extWdtWdi;
+  uint8_t mainsOk;
+  uint8_t debugTx;
+  uint8_t debugRx;
 } HalPinConfig;
 
 typedef struct {

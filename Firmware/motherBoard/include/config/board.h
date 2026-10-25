@@ -23,7 +23,7 @@
 
 */
 #ifndef HW_NUM
-#error "HW_NUM must be defined via build_flags in platformio.ini (-DHW_NUM=16, -DHW_NUM=17 or -DHW_NUM=18)"
+#error "HW_NUM must be defined via build_flags in platformio.ini (-DHW_NUM=16, -DHW_NUM=17, -DHW_NUM=18 or -DHW_NUM=19)"
 #endif
 // Set to true only on the HMI board
 #define IS_HMI false
@@ -78,8 +78,10 @@
 #define FAKE_PIN 46
 
 #define SCREENBACKLIGHT FAKE_PIN
+#if (HW_NUM < 19) // en la V19 son pines reales: ver el bloque HW19 mas abajo
 #define AFE44XX_PWDN_PIN FAKE_PIN
 #define GPRS_PWRKEY FAKE_PIN
+#endif
 #undef TFT_DC
 #define TFT_DC FAKE_PIN
 #define ENC_SWITCH FAKE_PIN
@@ -88,7 +90,63 @@
 #undef TFT_CS
 #define TFT_CS FAKE_PIN
 
-// Selección del puerto de depuración según modo USB
+// ---------------------------------------------------------------------------
+// HW19 (motherBoard V19, ESP32-S3-WROOM-1-N8R2). Ver Firmware/docs/hw19.md.
+//
+// Pines nuevos hacia el micro. El pinout sale del PcbDoc.
+//
+//   IO7   AFE_PDN      PDN del AFE4490 (U4-20), activo bajo: LOW = apagado.
+//   IO39  GSM_PWR_EN   EN del buck TPS563231 de VBAT del SIM800C. Pull-down:
+//                      el modem esta APAGADO hasta que el firmware lo levanta.
+//   IO40  PWR_5V_EN    EN del buck TPS563231 de 5 V (humidificador, LEDs del
+//                      AFE, SensorBoard por USB, display HMI). Pull-down: nada
+//                      de eso arranca hasta que el firmware lo levanta.
+//   IO41  EXT_WDT_WDI  WDI del watchdog externo TPS3431 (montaje por confirmar).
+//   IO42  CHRG_OK      CHRG_OK del BQ25730 (U11-4), open-drain con pull-up de
+//                      10k a 3V3. HIGH = fuente de entrada valida (red).
+//   IO43/44            UART de depuracion (conector J1) = UART0 = Serial.
+//   IO46               libre (sigue siendo FAKE_PIN).
+//
+// El resto del pinout (incl. IO5 USB_EN, IO6 USB_FAULT, IO18 BABY_TEMP_EN y
+// el SPI del AFE en 35/36/37) no cambia respecto a la V18.
+// ---------------------------------------------------------------------------
+#if (HW_NUM >= 19)
+#define AFE44XX_PWDN_PIN 7
+#define GSM_PWR_EN 39
+#define PWR_5V_EN 40
+#define EXT_WDT_WDI 41
+#define MAINS_OK_PIN 42
+#define DEBUG_UART_TX_PIN 43
+#define DEBUG_UART_RX_PIN 44
+
+// El PWRKEY del SIM800C va a GND en la V19: el modem se enciende solo al
+// aplicar VBAT (GSM_PWR_EN). En V17/V18 GPRS_PWRKEY es FAKE_PIN (46), que es
+// VERDADERO para `#if (GPRS_PWRKEY)`, asi que la V18 "pulsa" IO46 en el vacio
+// y gasta ~2 s en GPRSPowerUp(). Con 0 esos bloques quedan fuera en la V19.
+#define GPRS_PWRKEY 0
+
+// Watchdog externo TPS3431: toggle de EXT_WDT_WDI junto a watchdogReload().
+// DEJAR EN 0 hasta que el hardware fije la ventana del TPS3431 (sus pines de
+// temporizacion) y se verifique en banco: un watchdog de ventana resetea tanto
+// por un pulso TARDIO como por un pulso TEMPRANO, y con el montaje sin
+// confirmar un toggle a 1 Hz puede ser cualquiera de los dos. Con 0 el pin no
+// se configura siquiera como salida.
+#define EXT_WDT_ENABLED 0
+
+// El vigilante de muestras del AFE4490 (stop() / pulso de PDN / begin()) solo
+// sirve donde PDN es un pin real. En HW<19 el pulso cae en FAKE_PIN.
+#define AFE_WATCHDOG_ENABLED 1
+#else
+#define AFE_WATCHDOG_ENABLED 0
+#endif
+
+// Selección del puerto de depuración según modo USB.
+//
+// En ESTA placa ARDUINO_USB_CDC_ON_BOOT es 0 (no se define en platformio.ini),
+// asi que `Serial` es SIEMPRE la UART0 hardware con sus pines por defecto del
+// S3: IO43 (TX) / IO44 (RX). Las dos ramas de abajo son equivalentes. El
+// display va por Serial1 (IO15/IO16, CommTask.cpp) y el modem por Serial2, asi
+// que en la V19 el conector J1 (IO43/IO44) ya recibe el log sin UART extra.
 #if ARDUINO_USB_MODE == 1
 // Cuando el USB CDC está activo, Serial ya se enruta por USB
 #define debugSerial Serial
@@ -138,7 +196,10 @@
 #define PHOTOTHERAPY_SHUNT 5   // miliohms
 #define USB_SHUNT 100         // miliohms (humidifier via USB_EN channel)
 #define BATTERY_SHUNT 27000   // miliohms
-#elif (HW_NUM == 18)
+#elif (HW_NUM >= 18)
+// HW19 hereda las resistencias shunt de la V18 salvo que el hardware diga otra
+// cosa: el enunciado de la V19 no las cambia. Si el PcbDoc final las toca, se
+// separa aqui una rama `HW_NUM >= 19` propia.
 // HW18: VSYS_SHUNT+/heater shunt wiring fixed, no more MOSFET-switching-node
 // tap - HEATER_CURRENT_CORRECTION_FACTOR is a HW17-only workaround, not
 // needed here (see HW_NUM == 17 above and sensors_module.cpp's
@@ -317,7 +378,8 @@
 // in3.heater_current (SECUNDARY sensor) - HW16/HW17 keep using heater_current
 // (OR'd with system_current, unchanged). in3.heater_current is still read and
 // telemetered on HW18, just not used as the throttling reference.
-#if (HW_NUM == 18)
+// (HW19 hereda este criterio de la V18.)
+#if (HW_NUM >= 18)
 #define HEATER_POWER_REFERENCE_IS_SYSTEM_CURRENT true
 #else
 #define HEATER_POWER_REFERENCE_IS_SYSTEM_CURRENT false
