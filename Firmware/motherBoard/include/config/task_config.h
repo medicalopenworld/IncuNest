@@ -81,7 +81,7 @@
 #define PHOTO_CONTROL_PERIOD_MS 1000
 // Slew asimetrico del PWM por ciclo de control (photo_slew.h). Subir corriente
 // es la direccion de riesgo clinico: 1 cuenta/s. Bajar es siempre seguro: a 20
-// cuentas/s el caso del issue 21 (semilla 175 -> 75) se resuelve en ~5 s en
+// cuentas/s el caso del issue 21 (semilla 175 -> 75) se resuelve en ~6 s en
 // vez de 95 s. El modelo proporcional acota la bajada (nunca cruza el PWM que
 // el modelo estima), asi que no hay undershoot mas alla de lo que el modelo da.
 #define PHOTO_MAX_STEP_UP    1

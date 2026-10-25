@@ -134,11 +134,19 @@ void currentMonitor() {
       in3.phototherapy_current > 0.0f) {
 
     float error = in3.phototherapy_current - PHOTO_TARGET_CURRENT;
-    if (error > PHOTO_TOLERANCE_A || error < -PHOTO_TOLERANCE_A) {
-      const int next = photo_slew_next_pwm(
-          (int)in3.phototherapy_intensity, in3.phototherapy_current,
-          PHOTO_TARGET_CURRENT, PHOTO_TOLERANCE_A, PHOTO_MAX_STEP_UP,
-          PHOTO_MAX_STEP_DOWN, PHOTO_MIN_PWM, PWM_MAX_VALUE);
+    // Estado del filtro de ruido del slew; se reinicia en cada encendido.
+    static PhotoSlew photoSlew;
+    static long photoSlewSession = -1;
+    if (photoSlewSession != in3.photoTurnOnTime) {
+      photo_slew_init(&photoSlew);
+      photoSlewSession = in3.photoTurnOnTime;
+    }
+    // Se llama cada ciclo, tambien en banda, para reiniciar la cuenta.
+    const int next = photo_slew_step(
+        &photoSlew, (int)in3.phototherapy_intensity, in3.phototherapy_current,
+        PHOTO_TARGET_CURRENT, PHOTO_TOLERANCE_A, PHOTO_MAX_STEP_UP,
+        PHOTO_MAX_STEP_DOWN, PHOTO_MIN_PWM, PWM_MAX_VALUE);
+    if (next != (int)in3.phototherapy_intensity) {
       in3.phototherapy_intensity = (byte)next;
       ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, in3.phototherapy_intensity);
     }

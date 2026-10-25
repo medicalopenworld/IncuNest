@@ -832,8 +832,8 @@ safe). The next-PWM computation moved to the pure function
 `test/test_photo_slew`). The step never crosses the proportional model's own
 estimate, so the descent cannot undershoot beyond what the model predicts.
 Expected convergence for the case above (seed 175, 1.06 A, target 0.45 A): the
-simulated loop goes 175 → 155 → 135 → 115 → 95 → 75, about 5 control cycles
-(~5 s) instead of 95 s. Not yet measured on the bench unit.
+simulated loop goes 175 → 174 → 154 → 134 → 114 → 94 → 74 (the first high reading drops only 1 count, a second consecutive one allows the 20-count step, which filters a spurious reading), about 6 control cycles
+(~6 s) instead of 95 s. Not yet measured on the bench unit.
 
 ## 22. `ventilador-se-retira` fails intermittently — and not because of the new library (OPEN)
 
