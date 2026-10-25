@@ -13,6 +13,7 @@
 // Los otros dialogos modales: el aviso espera su turno y no se pinta encima.
 #include "ui/AlarmCenter.h"
 #include "ui/BabyExitDialog.h"
+#include "ui/BabyHistory.h"
 #include "ui/BabyWizard.h"
 #include "ui/FactoryTest.h"
 #include "ui/HelpDialog.h"
@@ -279,7 +280,7 @@ void MaintenanceDialog_Poll(void) {
   if (lv_scr_act() != ui_ScreenMain) return;
   if (HelpDialog_IsOpen() || Training_IsOpen() || AlarmCenter_IsOpen() ||
       BabyWizard_IsOpen() || BabyExitDialog_IsOpen() || TimeDialog_IsOpen() ||
-      FactoryTest_IsOpen()) {
+      FactoryTest_IsOpen() || BabyHistory_IsOpen()) {
     return;
   }
   // En formacion la pantalla es del alumno: un aviso real encima de una
