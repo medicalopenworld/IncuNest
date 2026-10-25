@@ -36,6 +36,29 @@ typedef enum {
 // tolerancia evita depender de la representacion exacta tras el formateo.
 #define PROTO_TEL_TEMP_IS_UNAVAILABLE(v) ((v) < -900.0)
 
+// CTRL,ENV,link,door,lux,dbA : entorno que la SensorBoard (USB) comunica a la
+// motherBoard, reenviado al display. Solo informativo: ni la puerta ni el ruido
+// entran en el lazo termico ni en ninguna alarma.
+//
+// Mismo criterio que CTRL,TEL: lo que no se sabe viaja como centinela fuera de
+// rango fisico y NO como 0, que es un valor plausible. lux y dbA ademas
+// viajan SIN CALIBRAR (ver SensorBoard_v2/ESTADO.md): el display no los pinta
+// como medida, solo clasifica el ruido en niveles.
+#define PROTO_ENV_UNAVAILABLE    (-1)  // lux o dbA no disponible
+
+#define PROTO_ENV_DOOR_UNKNOWN   (-1)  // sin dato, o enlace caido
+#define PROTO_ENV_DOOR_CLOSED    0
+#define PROTO_ENV_DOOR_OPEN      1
+#define PROTO_ENV_DOOR_FAULT     2     // hall sospechoso (ALARM_SENSORBOARD_DOOR_FAULT)
+
+// Cadencia en reposo. Un cambio de enlace o de puerta sale sin esperar. Misma
+// cifra que el periodo de publicacion del sonido en origen: mas rapido no
+// traeria dato nuevo.
+#define PROTO_ENV_PERIOD_MS      5000u
+
+// Cota de la linea completa (sin el '\n' ni el NUL), para dimensionar buffers.
+#define PROTO_ENV_LINE_MAX       39
+
 typedef struct {
   double detectedAirTemperature;
   double detectedSkinTemperature;
