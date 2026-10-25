@@ -47,7 +47,7 @@ pero no aparece en el dashboard al instante.
 |---|---|:--:|:--:|---|
 | **CORE** | 69 | ✅ | ✅ | Constantes vitales, alarmas, actuadores, datos de bebé. Lo clínico. |
 | **CELLULAR** | 4 | ✅ | ❌ | `IMEI`, `APN`, `COP`, `CSQ`. Sin sentido físico por WiFi. |
-| **DIAG** | 8 | ✅ | ❌ | Boot count, heap, uptime, resets del HMI, kills del módem. |
+| **DIAG** | 8 | ✅ | ✅ | Boot count, heap, uptime, resets del HMI, kills del módem. Por WiFi desde 2026-10-25. |
 | **CALIBRATION** | 6 | ✅ | ❌ | Referencias y ajuste fino de los sensores de temperatura. |
 
 Se cambian con un `0`/`1` en `TX_GROUP_<grupo>_<TRANSPORTE>`.
@@ -56,7 +56,8 @@ Se cambian con un `0`/`1` en `TX_GROUP_<grupo>_<TRANSPORTE>`.
 
 **CELLULAR es correcta.** Por WiFi esos campos irían vacíos o rancios.
 
-**DIAG y CALIBRATION no se decidieron.** Los dos bloques de montaje de
+**DIAG ya va por los dos transportes (2026-10-25); CALIBRATION sigue sin
+decidirse.** Los dos bloques de montaje de
 telemetría (`addConfigTelemetriesToGPRSJSON` en `GPRS.cpp` y su gemela en
 `Wifi_OTA.cpp`) están escritos **dos veces a mano**, y alguien añadió 14 claves
 solo a la copia de GPRS. Nada en ellas es específico del transporte: un equipo

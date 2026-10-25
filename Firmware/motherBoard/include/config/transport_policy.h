@@ -66,11 +66,12 @@
 #define TX_GROUP_CELLULAR_WIFI 0
 
 // DIAG: boot count, heap libre, uptime, resets del HMI, kills del módem.
-//       No tienen nada de específico del transporte. Está a 0 en WiFi porque
-//       es lo que hace el firmware hoy, no porque se decidiera: ponlo a 1 si
-//       quieres diagnóstico también en los equipos conectados por WiFi.
+//       No tienen nada de específico del transporte. Desde 2026-10-25 va por
+//       los dos: heap, uptime y reinicios del HMI hacen falta también en los
+//       equipos conectados por WiFi, donde la red es gratis. Estaba a 0 por
+//       herencia (solo se había escrito la copia de GPRS), no por decisión.
 #define TX_GROUP_DIAG_GPRS 1
-#define TX_GROUP_DIAG_WIFI 0
+#define TX_GROUP_DIAG_WIFI 1
 
 // Log COMPLETO de la ultima caida (Crash_log_full): los ~4 KB del anillo de
 // CrashReporter, publicados una sola vez en el arranque siguiente a un reinicio
