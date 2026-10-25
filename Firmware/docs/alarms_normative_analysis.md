@@ -178,10 +178,12 @@ interruption of the power supply, and "shall be provided for a **minimum time
 of 10 min**".
 
 Present state: the firmware detects the interruption (`mains_detector`, from
-the BQ25730 AC_STAT bit: 2 consecutive valid readings, ≈ 10 s) and holds the
-alarm a minimum of 10 min from its declaration even if mains returns earlier —
-the literal reading of the clause, which does not say "or until mains is
-restored"; see `docs/alarms.md` §9. `POWER_SUPPLY_ALARM` is separate and only
+the BQ25730 AC_STAT bit: 2 consecutive valid readings, ≈ 10 s) and clears it
+when mains is confirmed back. The clause is read as an *endurance*
+requirement — the alarm must be able to be sustained 10 min without mains,
+which is hardware — not as an obligation to keep it on once mains is present
+(product decision 2026-10-25; the minimum-hold mechanism stays, set to 0, and
+is reverted by changing one constant); see `docs/alarms.md` §9. `POWER_SUPPLY_ALARM` is separate and only
 detects under-voltage on the 12 V rail (`0 V < system_voltage < 8 V`).
 What is still missing is an alarm that *survives* the loss of mains for 10
 minutes: that requires an energy reserve dedicated to the alarm, with buzzer

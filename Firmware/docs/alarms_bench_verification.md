@@ -476,17 +476,21 @@ cronómetro. Enchufa y desenchufa **el cable de red del equipo**, no la batería
 |---|---|---|
 | Corte sostenido | desenchufa la red y espera | a los ≈ 10 s: `CORTE DE RED` ALTA, zumbador, pop-up e indicador **BATERIA** en Main y en Lock; la terapia **sigue** |
 | Cortes breves | enchufa y desenchufa rápido, varias veces, cada corte < 5 s | no sale ningún aviso |
-| Retorno antes de 10 min | corte de ~1 min y vuelve la red | el aviso **se mantiene** hasta cumplirse 10 min **desde que salió**, no desde que volvió la red |
-| Retorno después de 10 min | corte de 12 min y vuelve la red | el aviso se retira a los ≈ 10 s del retorno |
-| Reinterrupción | red de vuelta a los 3 min y nuevo corte a los 5 | no se retira nunca; el plazo se cuenta desde el segundo corte |
+| Retorno de red (caso 3) | corte de ~1 min y vuelve la red | **ya no se mantiene 10 min**: el aviso y el indicador se retiran a los ≈ 10 s del retorno (2 lecturas); sin retirada y levantada espuria en el historial de alarmas ni audio que se rearme |
+| Retorno largo (caso 4) | corte de 12 min y vuelve la red | igual: se retira a los ≈ 10 s del retorno |
+| Reinterrupción (caso 5) | red de vuelta a los 3 min y nuevo corte a los 5 | sale de nuevo a los ≈ 10 s del segundo corte (entre medias se retiró: es lo esperado con plazo 0) |
+| Reconfiguración del cargador | vuelve la red con el log a la vista | el cargador se sigue leyendo (`BQ_ac`), `chargerPresent` no baja y la vigilancia continúa |
+| Cargador mudo | con la alarma declarada, desconecta el BQ25730 del bus I2C | la alarma **se mantiene**; a los 30 s hay `logE` y `charger_comm_fault` = true en DIAG por GPRS |
 | No silenciable | pulsa silenciar durante el aviso | el audio no se inactiva (201.12.3.103) |
-| Sin cargador | placa sin BQ25730 | nunca hay aviso; una línea de log al arrancar |
+| Sin cargador | placa sin BQ25730 | nunca hay aviso; un `logE` al arrancar |
 
-**Indicador.** Comprueba en ES, EN, FR y PT que el icono y la palabra caben en
-el botón del reloj de Main sin pisar la hora ni la fecha, y en Lock, en el
-hueco del botón de ayuda, sin tocar el reloj. Debe desaparecer solo cuando el
-aviso termina y no debe verse con el cable del enlace entre placas
-desconectado.
+**Indicador.** En Main solo hay **icono** (la palabra pisaba la fecha); en Lock,
+icono y palabra. **Haz una captura del heading de Main en ES y en FR, con la
+fecha puesta y también sin hora («Sans heure»)**, y comprueba que el icono no
+pisa ni la hora ni la fecha. En Lock comprueba en ES, EN, FR y PT que la
+palabra cabe en el hueco del botón de ayuda sin tocar el reloj. Debe
+desaparecer en cuanto la placa confirma el retorno de la red y no debe verse
+con el cable del enlace entre placas desconectado.
 
 **Qué mirar de más.** Que en el corte la hora del reloj y el resto de la
 pantalla no parpadeen (el indicador solo repinta al cambiar) y que no salga

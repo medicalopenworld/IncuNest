@@ -855,3 +855,26 @@ worsening from v0.94 is not ruled out.
 40 s with the fan simulated stopped" may be the alarm, not the harness. Until
 it is known which, do not read a green `ventilador-se-retira` as proof that fan
 failure is always detected in time.
+
+## 23. No technical alarm when the BQ25730 charger stops answering (OPEN)
+
+Found in the safety review of `shared-mains-detector` (2026-10-25). The mains
+interruption alarm (`ALARM_MAINS_INTERRUPTION`) is fed by the BQ25730 AC_STAT
+bit, read every 5 s. If the charger stops giving valid readings, the detector
+cannot know whether mains is present: it freezes (a declared alarm stays, the
+safe side; no alarm is raised if there was none).
+
+What exists today: with the charger detected at boot, more than 30 s without a
+valid reading (or a failing re-configuration when mains returns) logs an error
+(`logE`) and publishes `charger_comm_fault` (DIAG group, GPRS only; WiFi has no
+DIAG group). **What is missing is an alarm**: `shared/include/alarm_ids.h` has
+no technical-fault id for it, and none was added because another open branch
+adds id 20 and a second new id would collide with it. Until the branches are
+integrated, a unit with a mute charger is only visible from the log and from
+ThingsBoard, **not on the incubator's own screen**.
+
+Also fixed in the same review: the charger re-configuration on mains return
+used to lower `chargerPresent`; one failing I2C operation left it false for
+good (the charger was never read again, so mains was never watched), and even a
+successful one made `securityCheck()` retire and re-raise the alarm. See
+`openspec/changes/archive/*-shared-mains-detector-fixes`.
