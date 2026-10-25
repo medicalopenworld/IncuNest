@@ -1008,3 +1008,88 @@ Manual bench checklist: `openspec/changes/archive/2026-10-25-hmi-trend/tasks.md`
 (1.8 and 2.7, **still open**: no hardware was available). 2.7 includes
 measuring the `CTRL` lines discarded during a dump (A1/A2) and the deferred
 format on a blank partition (C1).
+## 12. Service by hours of use
+
+Each actuator with a bounded life (heater, fan, humidifier, phototherapy LEDs)
+has a service threshold in hours of use. The motherBoard owns the data and the
+threshold; the HMI only shows what `CTRL,SERVICE` says (see `PROTOCOL.md`) and
+decides *when* to warn. It is **information, not an alarm**: no `AlarmId`, no
+buzzer, nothing in the alarm centre.
+
+Where it lives: the pure state (last report, due, "later") is
+`src/modules/service/service_state.cpp` (host tests in
+`test/test_service_state`); the view is a second mode of
+`src/ui/MaintenanceDialog.cpp`, so it shares the overlay, the card and every
+yielding rule of section 8. `Comm_Task` parses the line into
+`g_serviceReport` and raises `g_pendingService`; `MaintenanceDialog_Poll()`
+(UI_Task) hands it to `service_state`, so no LVGL call happens in the comm
+task (ARQ-LOCK-001 is about I/O under the LVGL mutex: nothing here does NVS,
+network or I2C — the only I/O is the UART request, same as the other
+dialogs).
+
+How to reach it: **Settings > MAINTENANCE > OPEN REMINDER**, then the
+**SERVICE** button next to LATER/CLOSE (amber when something is due). The view
+lists each actuator with `hours of threshold h since last service` and whether
+it is `DUE NOW` or `up to date`; a **CLEANING** button goes back to the cleaning
+view. There is no PIN on Settings > Maintenance today, so recording a service
+takes two steps: **DONE** arms the row (the button becomes CONFIRM next to a
+CANCEL) and **CONFIRM** sends `HMI,SERVICE_DONE,<id>`. It is refused in training
+mode (it writes the board's NVS for real). The board answers with an updated
+`CTRL,SERVICE`; until then the old value stays on screen.
+
+When it opens by itself: after the cleaning reminder has had its turn
+(`Maintenance_ShouldWarn()` first), if the **SERVICE REMINDER switch is on**
+and at least one actuator is due. That switch is its own (NVS `hmi_cfg`,
+`svc_en`) and **defaults to ON, also on a virgin NVS**: it does NOT depend on
+the cleaning REMINDERS switch, which is off on a factory-fresh unit. Switched
+off, only the automatic opening is silenced; the SERVICE button keeps working.
+Changing it in training mode is refused with the standard toast and writes
+nothing. It opens
+directly in the service view, with the same yielding rules as the cleaning
+(alarm, lost board link, other modal dialogs, training) and the same 3 min idle
+cap. **LATER** silences it for 24 h, but only for the actuators that were due at
+that moment: another actuator falling due afterwards brings it back. The
+snooze is in RAM only (a display reboot forgets it).
+
+If no report has arrived yet the view says so and the HMI asks for one every
+30 s (`HMI,SERVICE_REQ`); the board also sends it on `HMI,UI_READY` and hourly.
+
+Texts: `STR_SVC_*` in `i18n_strings.def` (ES/EN/FR/PT, no accents).
+
+**Bench checklist** (not covered by host tests; nothing here has been run on
+hardware yet):
+1. Boot both boards: the service view shows 4 actuators with sane hours.
+2. Force a threshold low (rebuild with `SERVICE_THRESHOLD_FAN_H 1u`) or edit the
+   NVS base (`svc_b_fan` to 0 with the life counter above threshold): unlock the
+   screen with the SERVICE REMINDER switch on (default, whatever the cleaning
+   REMINDERS switch says) and see the soft notice; with that switch off, nothing
+   opens by itself and the SERVICE button still works. Reboot: the switch keeps
+   its value.
+3. LATER: it does not come back on the next unlock within 24 h; another actuator
+   falling due does bring it back.
+4. DONE then CANCEL records nothing; DONE then CONFIRM zeroes the row, the
+   board log prints `servicio N registrado`, and the value survives a reboot.
+5. During an alarm or with the MB cable pulled the notice does not open / closes.
+6. In a training lesson DONE shows "not available in training mode".
+7. ThingsBoard shows `svc_heater_h`, `svc_fan_h`, `svc_hum_h`, `svc_photo_h`
+   (GPRS only: DIAG is off over WiFi) and the lifetime counters are unchanged.
+
+### Settings > MAINTENANCE panel coordinates
+
+Coordinates (LVGL `LV_ALIGN_CENTER` offsets inside `ui_MaintConfigCont`,
+770x361) in `ElementsCreation.cpp`, recorded because other branches add rows to
+this same panel (`feat/hmi-weigh-reminder` adds a `wgh_en` switch):
+
+| Element | x | y |
+|---|---|---|
+| title | 185 | -140 |
+| REMINDERS label / switch (`ui_MaintEnable*`) | 60 / 296 | -95 |
+| SERVICE REMINDER label / switch (`ui_MaintSvc*`, switch 90x30) | 60 / 296 | -60 |
+| level labels (3 rows) | 185 | -15, 23, 61 (`-15 + 38*i`; was `-40 + 42*i`) |
+| OPEN REMINDER button | 185 | 105 |
+| hint | 185 | 152 |
+
+The service switch sits one row (35 px) under REMINDERS; the only existing line
+that changed is the `lv_obj_set_y` of the level labels. A new row for another
+switch needs the same kind of room, so on merge the level labels and the hint
+have to be re-spaced once for all the switches together.

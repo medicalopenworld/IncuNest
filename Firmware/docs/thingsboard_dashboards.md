@@ -403,3 +403,22 @@ firmware.
 este firmware: las claves de NVS no existían antes, así que el contador arranca
 en la primera asociación posterior a la actualización. Es el comportamiento
 correcto — el firmware no tiene forma de saber cuánto llevaba en esa red.
+
+---
+
+## 10. Horas desde servicio de cada actuador
+
+La placa publica cuatro claves de telemetría con las horas de uso **desde el
+último servicio registrado en el equipo** (`HMI,SERVICE_DONE`, ver
+`PROTOCOL.md`): `svc_heater_h`, `svc_fan_h`, `svc_hum_h` y `svc_photo_h`
+(enteras). Van en el grupo DIAG, así que hoy salen solo por GPRS
+(`TX_GROUP_DIAG_WIFI = 0`).
+
+No sustituyen a los contadores de vida útil (`Heater_active_time`, etc.): esos
+siguen publicándose sin tocar y **no se reinician al registrar un servicio**. Un
+widget de "servicio pendiente" compara `svc_*_h` con el umbral del actuador, que
+hoy es **provisional y está compilado en la placa**
+(`motherBoard/include/config/service_thresholds.h`: calefactor 5 000 h,
+ventilador 10 000 h, humidificador 2 000 h, fototerapia 10 000 h); el servidor no
+lo recibe, así que el dashboard tiene que llevar el mismo número hasta que el
+plan de mantenimiento del fabricante fije los definitivos.

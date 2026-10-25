@@ -65,7 +65,9 @@
 #define TX_GROUP_CELLULAR_GPRS 1
 #define TX_GROUP_CELLULAR_WIFI 0
 
-// DIAG: boot count, heap libre, uptime, resets del HMI, kills del módem.
+// DIAG: boot count, heap libre, uptime, resets del HMI, kills del módem, las
+//       horas desde servicio de cada actuador (svc_*_h, 4 claves) y los
+//       fallos técnicos de diagnóstico (cargador, AFE).
 //       No tienen nada de específico del transporte. Desde 2026-10-25 va por
 //       los dos: heap, uptime y reinicios del HMI hacen falta también en los
 //       equipos conectados por WiFi, donde la red es gratis. Estaba a 0 por

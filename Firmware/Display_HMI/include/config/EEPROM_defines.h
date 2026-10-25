@@ -47,6 +47,7 @@ constexpr char HMI_KEY_MNT_EN[]       = "mnt_en";      // avisos on/off
 constexpr char HMI_KEY_MNT_SNOOZE[]   = "mnt_snooze";  // epoch fin del "mas tarde"
 constexpr char HMI_KEY_MNT_SEQ[]      = "mnt_seq";     // ultimo bebe visto al mando
 constexpr char HMI_KEY_MNT_TPEND[]    = "mnt_tpend";   // alta sin terminal hecha
+constexpr char HMI_KEY_SVC_EN[]       = "svc_en";      // aviso de servicio on/off (defecto ON)
 
 // Recordatorio de pesada diaria (modules/maintenance/weigh_tracker). Epochs
 // UTC, como mnt_*. El protocolo no da el epoch de la ultima pesada, asi que

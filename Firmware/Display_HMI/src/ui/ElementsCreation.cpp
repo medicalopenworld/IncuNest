@@ -181,6 +181,8 @@ lv_obj_t *ui_MaintEnableLabel = NULL;
 lv_obj_t *ui_MaintEnableSwitch = NULL;
 lv_obj_t *ui_WeighEnableLabel = NULL;
 lv_obj_t *ui_WeighEnableSwitch = NULL;
+lv_obj_t *ui_MaintSvcLabel = NULL;
+lv_obj_t *ui_MaintSvcSwitch = NULL;
 lv_obj_t *ui_MaintLevelLabel[3] = {NULL, NULL, NULL};
 lv_obj_t *ui_MaintHintLabel = NULL;
 lv_obj_t *ui_MaintOpenButton = NULL;
@@ -393,6 +395,7 @@ extern void MaintButton_cb(lv_event_t *e);
 extern void MaintEnableSwitch_cb(lv_event_t *e);
 extern void BrightnessSlider_cb(lv_event_t *e);
 extern void WeighEnableSwitch_cb(lv_event_t *e);
+extern void MaintSvcSwitch_cb(lv_event_t *e);
 extern void MaintOpenButton_cb(lv_event_t *e);
 extern void ClockButton_cb(lv_event_t *e);
 extern void HelpButton_cb(lv_event_t *e);
@@ -664,6 +667,12 @@ void ui_event_MaintEnableSwitch(lv_event_t *e) {
 void ui_event_WeighEnableSwitch(lv_event_t *e) {
   if (lv_event_get_code(e) == LV_EVENT_VALUE_CHANGED) {
     WeighEnableSwitch_cb(e);
+  }
+}
+
+void ui_event_MaintSvcSwitch(lv_event_t *e) {
+  if (lv_event_get_code(e) == LV_EVENT_VALUE_CHANGED) {
+    MaintSvcSwitch_cb(e);
   }
 }
 
@@ -3519,7 +3528,7 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_width(ui_MaintEnableLabel, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_MaintEnableLabel, LV_SIZE_CONTENT);
   lv_obj_set_x(ui_MaintEnableLabel, 60);
-  lv_obj_set_y(ui_MaintEnableLabel, -100);
+  lv_obj_set_y(ui_MaintEnableLabel, -108);
   lv_obj_set_align(ui_MaintEnableLabel, LV_ALIGN_CENTER);
   lv_label_set_text(ui_MaintEnableLabel, TR(STR_MAINT_REMINDER));
   lv_obj_set_style_text_font(ui_MaintEnableLabel, &lv_font_montserrat_18,
@@ -3527,9 +3536,9 @@ void ui_ScreenSettings_screen_init(void) {
 
   ui_MaintEnableSwitch = lv_switch_create(ui_MaintConfigCont);
   lv_obj_set_width(ui_MaintEnableSwitch, 90);
-  lv_obj_set_height(ui_MaintEnableSwitch, 35);
+  lv_obj_set_height(ui_MaintEnableSwitch, 30);
   lv_obj_set_x(ui_MaintEnableSwitch, 296);
-  lv_obj_set_y(ui_MaintEnableSwitch, -100);
+  lv_obj_set_y(ui_MaintEnableSwitch, -108);
   lv_obj_set_align(ui_MaintEnableSwitch, LV_ALIGN_CENTER);
 
   // Segundo interruptor, el del aviso de pesada diaria (no es un nivel de
@@ -3539,7 +3548,7 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_width(ui_WeighEnableLabel, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_WeighEnableLabel, LV_SIZE_CONTENT);
   lv_obj_set_x(ui_WeighEnableLabel, 60);
-  lv_obj_set_y(ui_WeighEnableLabel, -60);
+  lv_obj_set_y(ui_WeighEnableLabel, -74);
   lv_obj_set_align(ui_WeighEnableLabel, LV_ALIGN_CENTER);
   lv_label_set_text(ui_WeighEnableLabel, TR(STR_WEIGH_SETTING));
   lv_obj_set_style_text_font(ui_WeighEnableLabel, &lv_font_montserrat_18,
@@ -3547,10 +3556,33 @@ void ui_ScreenSettings_screen_init(void) {
 
   ui_WeighEnableSwitch = lv_switch_create(ui_MaintConfigCont);
   lv_obj_set_width(ui_WeighEnableSwitch, 90);
-  lv_obj_set_height(ui_WeighEnableSwitch, 35);
+  lv_obj_set_height(ui_WeighEnableSwitch, 30);
   lv_obj_set_x(ui_WeighEnableSwitch, 296);
-  lv_obj_set_y(ui_WeighEnableSwitch, -60);
+  lv_obj_set_y(ui_WeighEnableSwitch, -74);
   lv_obj_set_align(ui_WeighEnableSwitch, LV_ALIGN_CENTER);
+  // Interruptor propio del aviso de SERVICIO por horas de uso (shared-service-
+  // hours-toggle). Fila inmediatamente debajo de AVISOS, mismas x (60 y 296) e
+  // y = -60 (la de AVISOS esta en -95: paso de 35 px). Para hacerle sitio las
+  // tres filas de niveles bajan de y = -40 + 42*i a -15 + 38*i (ver abajo).
+  // Coordenadas de este panel (centro de ui_MaintConfigCont, 770x361):
+  //   titulo -140 | AVISOS -95 | SERVICIO -60 | niveles -15, 23, 61 |
+  //   boton ver recordatorio 105 | pista 152
+  ui_MaintSvcLabel = lv_label_create(ui_MaintConfigCont);
+  lv_obj_set_width(ui_MaintSvcLabel, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_MaintSvcLabel, LV_SIZE_CONTENT);
+  lv_obj_set_x(ui_MaintSvcLabel, 60);
+  lv_obj_set_y(ui_MaintSvcLabel, -40);
+  lv_obj_set_align(ui_MaintSvcLabel, LV_ALIGN_CENTER);
+  lv_label_set_text(ui_MaintSvcLabel, TR(STR_SVC_SWITCH));
+  lv_obj_set_style_text_font(ui_MaintSvcLabel, &lv_font_montserrat_18,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  ui_MaintSvcSwitch = lv_switch_create(ui_MaintConfigCont);
+  lv_obj_set_width(ui_MaintSvcSwitch, 90);
+  lv_obj_set_height(ui_MaintSvcSwitch, 30);
+  lv_obj_set_x(ui_MaintSvcSwitch, 296);
+  lv_obj_set_y(ui_MaintSvcSwitch, -40);
+  lv_obj_set_align(ui_MaintSvcSwitch, LV_ALIGN_CENTER);
 
   // Los tres niveles, solo lectura. El texto lo rellena
   // maintenance_panel_refresh() (UITask.cpp) con la cadencia y la fecha.
@@ -3560,7 +3592,8 @@ void ui_ScreenSettings_screen_init(void) {
     lv_obj_set_width(ui_MaintLevelLabel[i], 400);
     lv_obj_set_height(ui_MaintLevelLabel[i], LV_SIZE_CONTENT);
     lv_obj_set_x(ui_MaintLevelLabel[i], 185);
-    lv_obj_set_y(ui_MaintLevelLabel[i], -22 + 37 * i);
+    // Con tres interruptores encima (avisos -108, pesada -74, servicio -40).
+    lv_obj_set_y(ui_MaintLevelLabel[i], -6 + 32 * i);
     lv_obj_set_align(ui_MaintLevelLabel[i], LV_ALIGN_CENTER);
     lv_label_set_text(ui_MaintLevelLabel[i], "");
     lv_obj_set_style_text_font(ui_MaintLevelLabel[i], &lv_font_montserrat_14,
@@ -3934,6 +3967,9 @@ void ui_ScreenSettings_screen_init(void) {
                       LV_EVENT_ALL, NULL);
   lv_obj_set_ext_click_area(ui_MaintEnableSwitch, TOUCH_EXT_NARROW);
   lv_obj_set_ext_click_area(ui_WeighEnableSwitch, TOUCH_EXT_NARROW);
+  lv_obj_add_event_cb(ui_MaintSvcSwitch, ui_event_MaintSvcSwitch, LV_EVENT_ALL,
+                      NULL);
+  lv_obj_set_ext_click_area(ui_MaintSvcSwitch, TOUCH_EXT_NARROW);
 
   lv_obj_set_ext_click_area(ui_ImgButton2, TOUCH_EXT_MEDIUM);
   lv_obj_set_ext_click_area(ui_Switch4, TOUCH_EXT_NARROW);

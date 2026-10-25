@@ -76,6 +76,10 @@ BabyProfileRangeMsg g_profileRange = {0, false, 0, -1.0f, -1.0f, -1.0f, true};
 volatile bool g_pendingTimeAck = false;
 uint32_t      g_timeAckResult  = 0;
 
+// --- Avisos de servicio por horas (CTRL,SERVICE) ---
+volatile bool g_pendingService = false;
+ServiceReport g_serviceReport  = {0, {}};
+
 // --- Registro de alarmas ---
 volatile bool   g_pendingAlarmHistory = false;
 AlarmHistoryMsg g_alarmHistory = {0, {}};
@@ -614,6 +618,25 @@ void Communication_SendProfileKangaroo(uint32_t seq) {
 void Communication_SendAlarmHistoryReq(void) {
 #if IS_HMI
   COMM_SERIAL.print("HMI,ALM_HISTORY_REQ\n");
+#endif
+}
+
+void Communication_SendServiceReq(void) {
+#if IS_HMI
+  COMM_SERIAL.print(SERVICE_PROTO_REQ_LINE);
+#endif
+}
+
+void Communication_SendServiceDone(uint8_t id) {
+#if IS_HMI
+  // Registrar un servicio escribe NVS de la placa de verdad: justo lo que la
+  // franja de formacion dice que no ocurre (ADR-0002).
+  if (Training_IsActive()) return;
+  char msg[32];
+  if (service_proto_build_done(msg, sizeof(msg), id) == 0) return;  // id malo
+  COMM_SERIAL.print(msg);
+#else
+  (void)id;
 #endif
 }
 
@@ -1191,6 +1214,16 @@ static void parse_message(const char *line) {
       g_pendingProfileAck = true;
     } else {
       COMM_LOG("[COMM] PROFILE_ACK parse error: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,SERVICE,", 13) == 0) {
+    // CTRL,SERVICE,n{,id,horas,umbral}xn. Se acepta entera o no se acepta: una
+    // linea mala deja el ultimo estado valido (nunca datos a medias).
+    ServiceReport rep;
+    if (service_proto_parse_report(line, &rep)) {
+      g_serviceReport = rep;
+      g_pendingService = true;
+    } else {
+      COMM_LOG("[COMM] CTRL,SERVICE malformada, descartada: %s\n", line);
     }
   } else if (strncmp(line, "CTRL,TIME_ACK", 13) == 0) {
     unsigned result = 0;

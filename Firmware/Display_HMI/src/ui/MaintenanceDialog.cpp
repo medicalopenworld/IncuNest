@@ -7,8 +7,10 @@
 #include "Credentials_public.h"  // SUPPORT_TUTORIAL_URL
 #include "UITask.h"
 #include "main.h"
+#include "esp_timer.h"
 #include "modules/maintenance/maintenance.h"
 #include "modules/maintenance/weigh_tracker.h"
+#include "modules/service/service_state.h"  // vista de servicio por horas
 #include "state/training_mode.h"  // Training_IsActive()
 #include "ui.h"
 // Los otros dialogos modales: el aviso espera su turno y no se pinta encima.
@@ -50,6 +52,7 @@ enum class Mode : uint8_t {
   WeighPrompt,  // "lleva N h sin pesar": PESAR AHORA / MAS TARDE
   WeighEntry,   // teclado numerico del peso del bebe activo
   WeighWaiting, // peso enviado, esperando CTRL,PROFILE_RANGE de la placa
+  Service,      // horas de uso de los actuadores desde su ultimo servicio
 };
 
 // Por que se cierra. Solo importa para decidir que armados se conservan: un
@@ -94,6 +97,11 @@ void armRangeDiscard() {
 }
 // Mismo rango que el paso de peso del asistente (BabyWizard.cpp).
 constexpr uint32_t WEIGH_MIN_G = 400, WEIGH_MAX_G = 5000;
+
+// La vista de servicio (Mode::Service) comparte overlay, tarjeta y cesiones con
+// la de limpieza y con el aviso de pesada.
+// Actuador cuyo HECHO esta pulsado a la espera de CONFIRMAR; -1 = ninguno.
+int s_svcConfirmId = -1;
 
 lv_obj_t *s_overlay = nullptr;
 lv_obj_t *s_content = nullptr;
@@ -148,7 +156,7 @@ void closeDialog(Close why = Close::User) {
   // enlace perdido devuelve el suyo cuando la causa cese (el tope de
   // inactividad vuelve en el siguiente desbloqueo, como siempre).
   if (fromArm && why != Close::User) {
-    if (closedMode == Mode::Maintenance) {
+    if (closedMode == Mode::Maintenance || closedMode == Mode::Service) {
       s_armedWeigh = false;
       if (why == Close::Yield) s_armedMaint = true;
     } else if (why == Close::Yield) {
@@ -162,6 +170,8 @@ void closeDialog(Close why = Close::User) {
     lv_obj_set_parent(s_overlay, s_homeParent);
   }
   s_open = false;
+  s_mode = Mode::Maintenance;
+  s_svcConfirmId = -1;
   // Que el auto-bloqueo vuelva a contar desde cero y no desde el ultimo toque
   // de antes de abrirse: mientras el aviso estuvo abierto estuvo exento.
   lv_disp_trig_activity(NULL);
@@ -413,6 +423,150 @@ void buildWeighWaiting() {
   lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
 }
 
+// ---------------------------------------------------------------------------
+//  Vista de SERVICIO: horas de uso de cada actuador desde su ultimo servicio
+//  (shared-service-hours). No es una alarma: sin AlarmId ni zumbador. Los datos
+//  los manda la placa (CTRL,SERVICE) y se guardan en modules/service.
+// ---------------------------------------------------------------------------
+constexpr lv_coord_t SVC_ROW_Y0 = 50, SVC_ROW_DY = 78;
+constexpr lv_coord_t SVC_TEXT_W = 440;
+constexpr lv_coord_t SVC_BTN_X = 20 + SVC_TEXT_W + 10;
+
+struct SvcText {
+  ui_str_id_t name;
+};
+// En el orden de ServiceActuator.
+constexpr SvcText SVC_NAMES[SVC_COUNT] = {
+    {STR_SVC_HEATER},
+    {STR_SVC_FAN},
+    {STR_SVC_HUMIDIFIER},
+    {STR_SVC_PHOTO},
+};
+
+// Reloj monotono en segundos para el "mas tarde": no depende de tener hora.
+uint32_t svcNowSec() { return (uint32_t)(esp_timer_get_time() / 1000000LL); }
+
+void onSvcDone(lv_event_t *e) {
+  if (Training_IsActive()) {
+    UI_ShowToast(TR(STR_NOT_IN_TRAINING), 2500);
+    return;
+  }
+  // Primer paso: solo arma la confirmacion. Registrar un servicio no se puede
+  // deshacer desde aqui y no hay PIN, asi que un toque suelto no basta.
+  s_svcConfirmId = (int)(uintptr_t)lv_event_get_user_data(e);
+  buildContent();
+}
+
+void onSvcCancel(lv_event_t *) {
+  s_svcConfirmId = -1;
+  buildContent();
+}
+
+void onSvcConfirm(lv_event_t *e) {
+  const int id = (int)(uintptr_t)lv_event_get_user_data(e);
+  s_svcConfirmId = -1;
+  if (Training_IsActive()) {
+    UI_ShowToast(TR(STR_NOT_IN_TRAINING), 2500);
+    buildContent();
+    return;
+  }
+  Communication_SendServiceDone((uint8_t)id);
+  // La placa contesta con un CTRL,SERVICE que ya trae las horas a 0; hasta
+  // entonces se sigue viendo el valor anterior, que es lo honesto.
+  buildContent();
+  UI_ShowToast(TR(STR_SVC_LOGGED), 2500);
+}
+
+void onSvcSwitchView(lv_event_t *) {
+  s_svcConfirmId = -1;
+  if (s_mode == Mode::Service) {
+    s_mode = Mode::Maintenance;
+  } else {
+    s_mode = Mode::Service;
+    Communication_SendServiceReq();  // datos frescos al entrar
+  }
+  buildContent();
+}
+
+// Mismo contrato que onDismiss(): MAS TARDE si hay algo vencido sin callar,
+// CERRAR si no.
+void onSvcDismiss(lv_event_t *) {
+  const uint32_t now = svcNowSec();
+  if (ServiceState_ShouldWarn(now)) ServiceState_Snooze(now);
+  closeDialog();
+}
+
+void buildSvcRow(uint8_t id) {
+  const lv_coord_t y = SVC_ROW_Y0 + SVC_ROW_DY * (lv_coord_t)id;
+  uint32_t hours = 0, thr = 0;
+  if (!ServiceState_Get(id, &hours, &thr)) return;
+  const bool due = ServiceState_IsDue(id);
+
+  char head[64];
+  snprintf(head, sizeof(head), "%s - %s", TR(SVC_NAMES[id].name),
+           due ? TR(STR_MAINT_DUE_NOW) : TR(STR_MAINT_UP_TO_DATE));
+  makeWrapLabel(head, 20, y, SVC_TEXT_W, &lv_font_montserrat_18,
+                lv_color_hex(due ? COLOR_DUE : COLOR_TEXT));
+
+  char sub[96];
+  if (thr != 0) {
+    snprintf(sub, sizeof(sub), TR(STR_SVC_HOURS_FMT), (unsigned long)hours,
+             (unsigned long)thr);
+  } else {
+    snprintf(sub, sizeof(sub), TR(STR_SVC_HOURS_NOLIMIT_FMT),
+             (unsigned long)hours);
+  }
+  makeWrapLabel(sub, 20, y + 26, SVC_TEXT_W, &lv_font_montserrat_14,
+                lv_color_hex(COLOR_SUB));
+
+  void *ud = (void *)(uintptr_t)id;
+  if (s_svcConfirmId == (int)id) {
+    lv_obj_t *ok = makeBtn(s_content, TR(STR_SVC_CONFIRM_UC), onSvcConfirm,
+                           lv_color_hex(0x2E7D32), ud);
+    lv_obj_set_size(ok, 140, BTN_H);
+    lv_obj_align(ok, LV_ALIGN_TOP_LEFT, SVC_BTN_X, y + 2);
+    lv_obj_t *no = makeBtn(s_content, TR(STR_CANCEL_UC), onSvcCancel,
+                           lv_color_hex(0x9E9E9E));
+    lv_obj_set_size(no, 120, BTN_H);
+    lv_obj_align(no, LV_ALIGN_TOP_LEFT, SVC_BTN_X + 150, y + 2);
+  } else {
+    lv_obj_t *btn = makeBtn(s_content, TR(STR_SVC_DONE_UC), onSvcDone,
+                            lv_color_hex(due ? 0x2E7D32 : 0x9E9E9E), ud);
+    lv_obj_set_size(btn, BTN_W, BTN_H);
+    lv_obj_align(btn, LV_ALIGN_TOP_LEFT, SVC_BTN_X, y + 2);
+  }
+}
+
+void buildServiceContent() {
+  lv_obj_t *title = lv_label_create(s_content);
+  lv_label_set_text(title, TR(STR_SVC_TITLE));
+  lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
+
+  if (!ServiceState_HasData()) {
+    makeWrapLabel(TR(STR_SVC_NO_DATA), 20, SVC_ROW_Y0, CARD_W - 60,
+                  &lv_font_montserrat_18, lv_color_hex(COLOR_SUB));
+  } else {
+    for (uint8_t i = 0; i < SVC_COUNT; i++) buildSvcRow(i);
+  }
+
+  makeWrapLabel(TR(STR_SVC_HINT), 20, 366, CARD_W - 60, &lv_font_montserrat_14,
+                lv_color_hex(COLOR_SUB));
+
+  lv_obj_t *back = makeBtn(s_content, TR(STR_SVC_BACK_UC), onSvcSwitchView,
+                           lv_color_hex(0x0075EE));
+  lv_obj_set_size(back, 170, 46);
+  lv_obj_align(back, LV_ALIGN_BOTTOM_LEFT, 6, -6);
+
+  lv_obj_t *dismiss = makeBtn(
+      s_content,
+      ServiceState_ShouldWarn(svcNowSec()) ? TR(STR_MAINT_LATER_UC)
+                                           : TR(STR_CLOSE_UC),
+      onSvcDismiss, lv_color_hex(0x888888));
+  lv_obj_set_size(dismiss, 170, 46);
+  lv_obj_align(dismiss, LV_ALIGN_BOTTOM_RIGHT, -6, -6);
+}
+
 void buildContent() {
   if (!s_content) return;
   lv_obj_clean(s_content);
@@ -428,6 +582,10 @@ void buildContent() {
   }
   if (s_mode == Mode::WeighEntry) {
     buildWeighEntry();
+    return;
+  }
+  if (s_mode == Mode::Service) {
+    buildServiceContent();
     return;
   }
 
@@ -459,6 +617,13 @@ void buildContent() {
       onDismiss, lv_color_hex(0x888888));
   lv_obj_set_size(dismiss, 170, 46);
   lv_obj_align(dismiss, LV_ALIGN_BOTTOM_RIGHT, -6, -6);
+
+  // Acceso a la vista de servicio, a la izquierda de MAS TARDE/CERRAR.
+  lv_obj_t *svc = makeBtn(s_content, TR(STR_SVC_BUTTON_UC), onSvcSwitchView,
+                          lv_color_hex(ServiceState_AnyDue() ? 0xB26A00
+                                                             : 0x0075EE));
+  lv_obj_set_size(svc, 170, 46);
+  lv_obj_align(svc, LV_ALIGN_BOTTOM_RIGHT, -186, -6);
 }
 
 void openDialog(Mode mode, bool fromArm = false) {
@@ -478,7 +643,9 @@ void openDialog(Mode mode, bool fromArm = false) {
   s_open = true;
   // Solo se consume el armado del aviso que se abre: el otro sigue esperando
   // su turno.
-  if (mode == Mode::Maintenance) {
+  // El aviso de servicio sale con el armado de la limpieza (mismo desbloqueo)
+  // y no toca el de la pesada.
+  if (mode == Mode::Maintenance || mode == Mode::Service) {
     s_armedMaint = false;
   } else {
     s_armedWeigh = false;
@@ -488,6 +655,36 @@ void openDialog(Mode mode, bool fromArm = false) {
   lv_disp_trig_activity(NULL);
   lv_obj_clear_flag(s_overlay, LV_OBJ_FLAG_HIDDEN);
   lv_obj_move_foreground(s_overlay);
+}
+
+// Abre el dialogo directamente en la vista de servicio (aviso suave).
+void openServiceDialog(bool fromArm = false) {
+  s_svcConfirmId = -1;
+  Communication_SendServiceReq();  // por si hay horas mas frescas que el ultimo aviso
+  openDialog(Mode::Service, fromArm);
+}
+
+// Una vez por vuelta de UI_Task. Pasa a modules/service el ultimo CTRL,SERVICE
+// que dejo Comm_Task y, mientras no haya llegado ninguno, lo pide cada 30 s
+// (la placa lo manda sola al UI_READY y cada hora, pero si el display arranco
+// antes que ella no hay quien se lo recuerde).
+void servicePollData() {
+  if (g_pendingService) {
+    g_pendingService = false;
+    const ServiceReport rep = g_serviceReport;
+    ServiceState_Apply(&rep);
+    if (s_open && s_mode == Mode::Service) buildContent();
+    return;
+  }
+  if (ServiceState_HasData() || Display_IsBoardLinkLost()) return;
+  static uint32_t lastReqSec = 0;
+  static bool requested = false;
+  const uint32_t now = svcNowSec();
+  if (!requested || (uint32_t)(now - lastReqSec) >= 30u) {
+    requested = true;
+    lastReqSec = now;
+    Communication_SendServiceReq();
+  }
 }
 
 }  // namespace
@@ -551,6 +748,7 @@ void MaintenanceDialog_Poll(void) {
       s_discardRangeUntilMs = 0;
     }
   }
+  servicePollData();
 
   if (s_open) {
     // Una alarma o el enlace perdido se llevan la pantalla por delante. El
@@ -591,6 +789,14 @@ void MaintenanceDialog_Poll(void) {
   // su armado sigue en pie; un cierre sin contestar lo desarma (closeDialog()).
   if (s_armedMaint && Maintenance_ShouldWarn()) {
     openDialog(Mode::Maintenance, /*fromArm=*/true);
+    return;
+  }
+  // Aviso de servicio por horas: mismas cesiones que la limpieza, y solo cuando
+  // no hay limpieza pendiente (esa abre primero; el boton SERVICIO lleva a la
+  // otra vista). NO depende del interruptor AVISOS de la limpieza (apagado de
+  // fabrica): tiene el suyo, activado por defecto (ServiceState_ShouldWarn).
+  if (s_armedMaint && ServiceState_ShouldWarn(svcNowSec())) {
+    openServiceDialog(/*fromArm=*/true);
     return;
   }
   if (s_armedWeigh) {
