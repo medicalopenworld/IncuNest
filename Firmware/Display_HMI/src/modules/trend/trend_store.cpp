@@ -9,10 +9,12 @@ void trend_store_clear(TrendStore *s) {
   s->writeIdx = 0;
   s->count = 0;
   s->lastSlot = 0;
+  s->gen++;
 }
 
 void trend_store_init(TrendStore *s, int16_t *block, int capacity) {
   if (!s) return;
+  s->gen = 0;
   s->data = block;
   s->capacity = (block && capacity > 0) ? capacity : 0;
   trend_store_clear(s);
@@ -42,6 +44,7 @@ bool trend_store_record(TrendStore *s, int64_t slot, const TrendSample *sample) 
   }
   push(s, sample->v);
   s->lastSlot = slot;
+  s->gen++;
   return true;
 }
 
@@ -84,6 +87,7 @@ int64_t trend_store_first_slot(const TrendStore *s) {
 void trend_store_shift(TrendStore *s, int64_t delta) {
   if (!s) return;
   s->lastSlot += delta;
+  s->gen++;
 }
 
 namespace {
@@ -96,9 +100,11 @@ int16_t readLE(const uint8_t *planar, int ser, int i, int n) {
 
 }  // namespace
 
-int trend_store_prepend(TrendStore *s, int64_t blockLastSlot,
-                        const uint8_t *planarLE, int n) {
-  if (!s || !s->data || s->capacity <= 0 || !planarLE || n <= 0) return 0;
+bool trend_prepend_begin(TrendPrependJob *j, TrendStore *s, int64_t blockLastSlot,
+                         const uint8_t *planarLE, int n) {
+  if (!j) return false;
+  j->added = 0;
+  if (!s || !s->data || s->capacity <= 0 || !planarLE || n <= 0) return false;
 
   const int64_t blockFirst = blockLastSlot - n + 1;
   // Primera ranura ya guardada. Con el anillo vacio, el bloque entero es lo
@@ -107,29 +113,69 @@ int trend_store_prepend(TrendStore *s, int64_t blockLastSlot,
       (s->count > 0) ? s->lastSlot - s->count + 1 : blockLastSlot + 1;
   const int64_t hi = first - 1;  // ultima ranura que puede entrar
   const int room = s->capacity - s->count;
-  if (room <= 0 || hi < blockFirst) return 0;
+  if (room <= 0 || hi < blockFirst) return false;
 
   int64_t lo = hi - room + 1;  // lo que no cabe se pierde por el lado antiguo
   if (lo < blockFirst) lo = blockFirst;
   const int64_t newestFromBlock = (hi < blockLastSlot) ? hi : blockLastSlot;
-  if (lo > newestFromBlock) return 0;  // el hueco se come todo el sitio
+  if (lo > newestFromBlock) return false;  // el hueco se come todo el sitio
 
-  const bool wasEmpty = (s->count == 0);
-  if (wasEmpty) s->writeIdx = 0;
-  const int oldestIdx = (s->writeIdx - s->count + s->capacity) % s->capacity;
+  j->s = s;
+  j->planar = planarLE;
+  j->n = n;
+  j->blockLast = blockLastSlot;
+  j->blockFirst = blockFirst;
+  j->first = first;
+  j->hi = hi;
+  j->lo = lo;
+  j->newestFromBlock = newestFromBlock;
+  j->next = lo;
+  j->wasEmpty = (s->count == 0);
+  // Con el anillo vacio el cursor de escritura esta en 0 (init/clear).
+  j->oldestIdx = (s->writeIdx - s->count + s->capacity) % s->capacity;
+  j->gen = s->gen;
+  j->added = (int)(newestFromBlock - lo + 1);
+  return true;
+}
 
-  for (int64_t slot = lo; slot <= hi; slot++) {
+TrendJobStatus trend_prepend_step(TrendPrependJob *j, int maxSlots) {
+  if (!j || !j->s || j->added <= 0) return TREND_JOB_FAIL;
+  TrendStore *s = j->s;
+  // El anillo cambio desde que se planifico (muestra viva, shift...): las
+  // posiciones "libres" pueden haber dejado de serlo. No se ha tocado nada
+  // visible, asi que basta con replanificar.
+  if (s->gen != j->gen) return TREND_JOB_RESTART;
+
+  int64_t end = j->next + (maxSlots > 0 ? maxSlots : 1) - 1;
+  if (end > j->hi) end = j->hi;
+  for (int64_t slot = j->next; slot <= end; slot++) {
     // first - slot esta en 1..room <= capacity: aritmetica de int.
-    int idx = oldestIdx - (int)(first - slot);
+    int idx = j->oldestIdx - (int)(j->first - slot);
     if (idx < 0) idx += s->capacity;
-    const bool fromBlock = (slot <= blockLastSlot);
-    const int bi = fromBlock ? (int)(slot - blockFirst) : 0;
+    const bool fromBlock = (slot <= j->blockLast);
+    const int bi = fromBlock ? (int)(slot - j->blockFirst) : 0;
     for (int ser = 0; ser < TREND_SERIES; ser++)
       s->data[(size_t)ser * (size_t)s->capacity + (size_t)idx] =
-          fromBlock ? readLE(planarLE, ser, bi, n) : TREND_NO_DATA;
+          fromBlock ? readLE(j->planar, ser, bi, j->n) : TREND_NO_DATA;
   }
+  j->next = end + 1;
+  if (j->next <= j->hi) return TREND_JOB_MORE;
 
-  s->count += (int)(hi - lo + 1);
-  if (wasEmpty) s->lastSlot = blockLastSlot;
-  return (int)(newestFromBlock - lo + 1);
+  // Ultima pasada: ahora si, el anillo cambia de golpe.
+  s->count += (int)(j->hi - j->lo + 1);
+  if (j->wasEmpty) {
+    s->writeIdx = 0;
+    s->lastSlot = j->blockLast;
+  }
+  s->gen++;
+  return TREND_JOB_DONE;
+}
+
+int trend_store_prepend(TrendStore *s, int64_t blockLastSlot,
+                        const uint8_t *planarLE, int n) {
+  TrendPrependJob j;
+  if (!trend_prepend_begin(&j, s, blockLastSlot, planarLE, n)) return 0;
+  while (trend_prepend_step(&j, 1 << 30) == TREND_JOB_MORE) {
+  }
+  return j.added;
 }

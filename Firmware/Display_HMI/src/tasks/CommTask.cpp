@@ -1420,6 +1420,11 @@ static void applyCtrlStateInfoAndAlarms(const ControlBoard_Message_State &st) {
               // La alarma está pintada en el HMI pero la Board dice que ya no está activa
               COMM_LOG("[COMM] Bitmask sync: limpiando alarma ID %d (%s)\n", id, alarmList[id].type);
               alarmList[id].state = false;
+              // Esta es la otra via por la que una alarma se resuelve (la
+              // primera es el CTRL,ALM con state=0 de processReceivedAlarm):
+              // si no se marca aqui, la baja nunca llega a la tendencia.
+              TelemetryHistory_RecordAlarmEdge((uint8_t)id,
+                                               alarmList[id].priority, false);
               changed = true;
           }
       }

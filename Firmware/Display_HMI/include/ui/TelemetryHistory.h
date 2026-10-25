@@ -74,9 +74,12 @@ void TelemetryHistory_NoteLockEntered(void);
 // UI_Task y FUERA de LVGL_Lock (ARQ-LOCK-001: es E/S de flash). Con la hora
 // sincronizada: restaura el fichero una vez (anteponiendolo a lo ya registrado)
 // y vuelca el modelo cada 5 min / al bloquear, en trozos de 4 KB espaciados
-// >= 50 ms sobre un temporal que se renombra al final (atomico). Nunca bloquea
-// el refresco, tampoco con una alarma activa: cada pasada hace como mucho un
-// trozo.
+// >= 50 ms sobre un temporal que se renombra al final (atomico). Todo va por
+// tramos acotados (reserva, serializacion, CRC y restauracion incluidas): cada
+// pasada hace como mucho UN tramo. Y NO hay E/S mientras haya una alarma activa
+// (de cualquier prioridad) o el enlace con la placa este caido: un volcado a
+// medias se aborta limpio (el temporal se descarta), una restauracion se pausa,
+// y el formateo diferido de la particion (hmi_fs) espera igual.
 void TelemetryHistory_PersistService(void);
 
 // Vuelve a fijar el titulo, las etiquetas de canal ("AIRE"/"PIEL"/

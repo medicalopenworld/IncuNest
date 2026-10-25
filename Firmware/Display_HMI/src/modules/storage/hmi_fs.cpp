@@ -6,7 +6,10 @@
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_partition.h"
 #include "esp_timer.h"
+
+#include "modules/storage/hmi_fs_format.h"
 
 namespace {
 
@@ -20,33 +23,110 @@ const char *kBasePath = "/littlefs";
 constexpr uint8_t kMaxOpenFiles = 4;
 
 bool s_mounted = false;
-bool s_gaveUp = false;
+HmiFsState s_state = HmiFsState::Unmounted;
+
+// Formateo diferido en curso.
+const esp_partition_t *s_part = nullptr;
+HmiFsErasePlan s_plan;
+bool s_planStarted = false;
+uint32_t s_lastStepMs = 0;
+int64_t s_formatT0Us = 0;
+int64_t s_eraseUs = 0;  // suma de lo que han tardado los borrados
 
 size_t internalFree() { return heap_caps_get_free_size(MALLOC_CAP_INTERNAL); }
+
+// Monta SIN formatear. true si ya hay una imagen valida.
+bool tryMount() {
+  const size_t heapBefore = internalFree();
+  const int64_t t0 = esp_timer_get_time();
+  if (!LittleFS.begin(false, kBasePath, kMaxOpenFiles, kPartitionLabel)) return false;
+  s_mounted = true;
+  s_state = HmiFsState::Mounted;
+  const size_t heapAfter = internalFree();
+  // Cifra para el banco: heap interno que se come el montaje.
+  ESP_LOGI(TAG, "LittleFS montado en %lld ms; heap interno libre %u -> %u B (delta %d B)",
+           (long long)((esp_timer_get_time() - t0) / 1000), (unsigned)heapBefore,
+           (unsigned)heapAfter, (int)heapAfter - (int)heapBefore);
+  return true;
+}
+
+void giveUp(const char *why) {
+  s_state = HmiFsState::Failed;
+  ESP_LOGE(TAG, "formateo diferido fallido (%s): sin persistencia", why);
+}
 
 }  // namespace
 
 bool HmiFs_Begin(void) {
   if (s_mounted) return true;
-  if (s_gaveUp) return false;
+  // NeedsFormat / Formatting / Failed: no se reintenta el montaje (cada intento
+  // fallido escribe errores en el log del VFS) ni se formatea aqui.
+  if (s_state != HmiFsState::Unmounted) return false;
 
-  const size_t heapBefore = internalFree();
-  const int64_t t0 = esp_timer_get_time();
-  // formatOnFail = true: si la particion es virgen o esta corrupta, esp_littlefs
-  // la formatea y monta UNA vez. Si eso tambien falla, no se reintenta.
-  if (!LittleFS.begin(true, kBasePath, kMaxOpenFiles, kPartitionLabel)) {
-    s_gaveUp = true;
-    ESP_LOGE(TAG, "no se pudo montar ni formatear la particion '%s' — sin persistencia",
-             kPartitionLabel);
-    return false;
+  if (tryMount()) return true;
+  s_state = HmiFsState::NeedsFormat;
+  ESP_LOGW(TAG,
+           "la particion '%s' no tiene una imagen LittleFS valida: formateo "
+           "diferido (sin alarma activa y con el enlace vivo); mientras tanto "
+           "sin persistencia",
+           kPartitionLabel);
+  return false;
+}
+
+HmiFsState HmiFs_State(void) { return s_state; }
+
+void HmiFs_Service(bool ioAllowed, uint32_t nowMs) {
+  if (s_state != HmiFsState::NeedsFormat && s_state != HmiFsState::Formatting) return;
+  if (!ioAllowed) return;  // en pausa: ni empieza ni continua
+
+  if (s_state == HmiFsState::NeedsFormat) {
+    s_part = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY,
+                                      kPartitionLabel);
+    if (!s_part) {
+      giveUp("no existe la particion");
+      return;
+    }
+    hmifs_erase_plan_init(&s_plan, s_part->size);
+    s_planStarted = true;
+    s_lastStepMs = nowMs - HMIFS_ERASE_GAP_MS;  // el primer rango, ya
+    s_formatT0Us = esp_timer_get_time();
+    s_eraseUs = 0;
+    s_state = HmiFsState::Formatting;
+    ESP_LOGI(TAG, "formateo diferido: %u rangos de %u KB", (unsigned)hmifs_erase_plan_ranges(s_part->size),
+             (unsigned)(HMIFS_ERASE_RANGE_BYTES / 1024u));
+    return;
   }
-  s_mounted = true;
-  const size_t heapAfter = internalFree();
-  // Cifra para el banco: heap interno que se come el montaje.
-  ESP_LOGW(TAG, "LittleFS montado en %lld ms; heap interno libre %u -> %u B (delta %d B)",
-           (long long)((esp_timer_get_time() - t0) / 1000), (unsigned)heapBefore,
-           (unsigned)heapAfter, (int)heapAfter - (int)heapBefore);
-  return true;
+
+  // Formatting: un rango por pasada, con separacion.
+  if (!s_planStarted || !hmifs_erase_step_due(nowMs, s_lastStepMs)) return;
+  uint32_t off = 0, len = 0;
+  if (hmifs_erase_plan_next(&s_plan, &off, &len)) {
+    s_lastStepMs = nowMs;
+    const int64_t t0 = esp_timer_get_time();
+    // Empieza por el offset 0 (donde viven los superblocks): un corte a mitad
+    // deja la particion "virgen" y el siguiente arranque reinicia el formateo.
+    if (esp_partition_erase_range(s_part, off, len) != ESP_OK) {
+      giveUp("borrado de rango");
+      return;
+    }
+    s_eraseUs += esp_timer_get_time() - t0;
+    return;
+  }
+
+  // Particion borrada: format() solo escribe los superblocks, y un montaje.
+  const int64_t tf = esp_timer_get_time();
+  if (!LittleFS.format()) {
+    giveUp("format()");
+    return;
+  }
+  const int64_t formatUs = esp_timer_get_time() - tf;
+  if (!tryMount()) {
+    giveUp("montaje tras el formateo");
+    return;
+  }
+  ESP_LOGI(TAG, "formateo diferido terminado en %lld ms (borrado %lld ms, format() %lld ms)",
+           (long long)((esp_timer_get_time() - s_formatT0Us) / 1000),
+           (long long)(s_eraseUs / 1000), (long long)(formatUs / 1000));
 }
 
 bool HmiFs_IsMounted(void) { return s_mounted; }
@@ -90,6 +170,30 @@ bool HmiFs_ReadAll(const char *path, uint8_t *buf, size_t cap, size_t *outLen) {
 bool HmiFs_Remove(const char *path) {
   if (!s_mounted || !path) return false;
   return LittleFS.remove(path);
+}
+
+int32_t HmiFsReader::open(const char *path) {
+  close();
+  if (!s_mounted || !path || !LittleFS.exists(path)) return -1;
+  file_ = LittleFS.open(path, "r");
+  if (!file_ || file_.isDirectory()) {
+    file_.close();
+    return -1;
+  }
+  open_ = true;
+  return (int32_t)file_.size();
+}
+
+size_t HmiFsReader::read(uint8_t *buf, size_t n) {
+  if (!open_ || !buf) return 0;
+  return file_.read(buf, n);
+}
+
+void HmiFsReader::close(void) {
+  if (open_) {
+    file_.close();
+    open_ = false;
+  }
 }
 
 bool HmiFsAtomicWriter::begin(const char *path) {

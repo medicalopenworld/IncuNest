@@ -5,6 +5,7 @@ void trend_model_init(TrendModel *m, int16_t *block, int capacity) {
   trend_store_init(&m->store, block, capacity);
   trend_events_init(&m->events);
   trend_clock_init(&m->clock);
+  m->clockShifts = 0;
 }
 
 int64_t trend_model_tick(TrendModel *m, int64_t monoMs, uint32_t epoch) {
@@ -15,6 +16,7 @@ int64_t trend_model_tick(TrendModel *m, int64_t monoMs, uint32_t epoch) {
     // eventos, para que sigan alineados entre si.
     trend_store_shift(&m->store, shift);
     trend_events_shift(&m->events, shift);
+    m->clockShifts++;
   }
   return trend_clock_slot(&m->clock, monoMs);
 }

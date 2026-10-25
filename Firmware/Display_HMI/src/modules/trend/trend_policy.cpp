@@ -54,6 +54,17 @@ bool trend_chunk_due(uint32_t nowMs, uint32_t lastChunkMs) {
   return (uint32_t)(nowMs - lastChunkMs) >= TREND_CHUNK_GAP_MS;
 }
 
+bool trend_io_allowed(bool anyAlarmActive, bool boardLinkLost) {
+  return !anyAlarmActive && !boardLinkLost;
+}
+
+bool trend_dump_blocked_by_rejected_file(bool rejectedPending, uint32_t rejectedAtMs,
+                                         uint32_t nowMs) {
+  if (!rejectedPending) return false;
+  // Resta sin signo: segura ante la vuelta de millis().
+  return (uint32_t)(nowMs - rejectedAtMs) < TREND_REJECT_GRACE_MS;
+}
+
 TrendMarkKind trend_mark_kind(uint8_t priority, bool raised) {
   if (!raised) return TREND_MARK_CLEARED;
   switch (priority) {

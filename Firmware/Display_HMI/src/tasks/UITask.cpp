@@ -5042,8 +5042,12 @@ void UI_Task(void *pvParameters) {
     // Persistencia de la tendencia (hmi-trend): restauracion tras la primera
     // hora y volcado a LittleFS. E/S de flash, asi que FUERA de LVGL_Lock
     // (ARQ-LOCK-001), y la ULTIMA de la pasada: lo urgente (sonido de alarma,
-    // pulsos del enlace perdido) ya se atendio. Cada llamada hace como mucho un
-    // trozo de 4 KB, asi que nunca frena el refresco, ni con una alarma activa.
+    // pulsos del enlace perdido) ya se atendio. Cada llamada hace como mucho UN
+    // tramo (reserva, serializacion, CRC, restauracion y escritura van por
+    // tramos acotados; la escritura, 4 KB cada >= 50 ms), y el servicio NO hace
+    // E/S mientras haya una alarma activa o el enlace este caido (aborta limpio
+    // un volcado a medias): una escritura de flash para la cache y no debe
+    // competir con el banner ni con el sonido de alarma.
     TelemetryHistory_PersistService();
   }
 }

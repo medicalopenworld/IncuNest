@@ -694,7 +694,10 @@ void TelemetryHistory_PersistService(void) {
   // Fuera de LVGL_Lock: es E/S de flash. El modelo es de esta misma tarea, asi
   // que no hay carrera con Poll/RecordSample; si restaura, avisa para que la
   // proxima pasada de Poll (bajo lock) repinte.
-  if (TrendPersist_Service(s_mp, monoMsNow(), millis())) s_needRedraw = true;
+  // E/S solo con la casa en orden: sin alarma activa (de cualquier prioridad) y
+  // con el enlace vivo. Si no, el servicio pausa/aborta lo que tenga a medias.
+  const bool ioAllowed = trend_io_allowed(UI_IsAnyAlarmActive(), Display_IsBoardLinkLost());
+  if (TrendPersist_Service(s_mp, monoMsNow(), millis(), ioAllowed)) s_needRedraw = true;
 }
 
 void TelemetryHistory_RecordAlarmEdge(uint8_t id, uint8_t priority,

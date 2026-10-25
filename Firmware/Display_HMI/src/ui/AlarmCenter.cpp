@@ -229,6 +229,10 @@ uint32_t viewSignature() {
   uint32_t sig = activeIdSignature();
   sig = sig * 31u + ctrl_state_msg.silencedBitmask;
   sig = sig * 31u + (alarmsMuted ? 1u : 0u);
+  // El boton TENDENCIA se apaga con el enlace caido (y con una alarma activa,
+  // que ya entra por activeIdSignature): sin esto la lista no se reconstruia al
+  // perder o recuperar el enlace y el boton quedaba en el estado equivocado.
+  sig = sig * 31u + (Display_IsBoardLinkLost() ? 1u : 0u);
   return sig;
 }
 
