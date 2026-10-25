@@ -286,6 +286,10 @@ lv_obj_t *ui_LockHeadingClockDate = NULL;
 lv_obj_t *ui_LockHeadingConnCont = NULL;
 lv_obj_t *ui_LockHeadingConnIcon = NULL;
 lv_obj_t *ui_LockHeadingConnBar[4] = {NULL, NULL, NULL, NULL};
+lv_obj_t *ui_OnBatteryIcon = NULL;
+lv_obj_t *ui_OnBatteryText = NULL;
+lv_obj_t *ui_LockOnBatteryIcon = NULL;
+lv_obj_t *ui_LockOnBatteryText = NULL;
 lv_obj_t *ui_Container1 = NULL;
 lv_obj_t *ui_AirTempLockCont = NULL;
 lv_obj_t *ui_Label11 = NULL;
@@ -1014,6 +1018,46 @@ static void create_heading_conn_indicator(lv_obj_t *parent, lv_coord_t x,
   }
 }
 
+// Indicador "en bateria" del heading: icono de bateria (montserrat_20) sobre
+// una palabra corta (montserrat_14), los dos en ambar y OCULTOS hasta que
+// on_battery_heading_update() (UITask.cpp) los muestre. Es la misma pareja en
+// ui_ScreenMain y en su replica de ui_ScreenLock; solo cambian el ancla y el
+// color (sobre el azul del boton del reloj, o sobre el fondo oscuro del
+// bloqueo). El texto y su visibilidad no se fijan aqui: dependen del idioma y
+// de alarmBitmask, que solo conoce el refresco.
+//
+// Sin zona tactil propia: los dos labels no son clicables, asi que en Main el
+// toque sigue llegando al boton del reloj que los contiene.
+static void create_on_battery_indicator(lv_obj_t *parent, lv_align_t align,
+                                        lv_coord_t x, lv_coord_t iconY,
+                                        lv_coord_t textY, lv_color_t color,
+                                        lv_obj_t **outIcon,
+                                        lv_obj_t **outText) {
+  lv_obj_t *icon = lv_label_create(parent);
+  lv_obj_set_width(icon, LV_SIZE_CONTENT);
+  lv_obj_set_height(icon, LV_SIZE_CONTENT);
+  lv_obj_set_align(icon, align);
+  lv_obj_set_x(icon, x);
+  lv_obj_set_y(icon, iconY);
+  lv_label_set_text(icon, LV_SYMBOL_BATTERY_2);
+  lv_obj_set_style_text_font(icon, &lv_font_montserrat_20, LV_PART_MAIN);
+  lv_obj_set_style_text_color(icon, color, LV_PART_MAIN);
+  lv_obj_add_flag(icon, LV_OBJ_FLAG_HIDDEN);
+  *outIcon = icon;
+
+  lv_obj_t *text = lv_label_create(parent);
+  lv_obj_set_width(text, LV_SIZE_CONTENT);
+  lv_obj_set_height(text, LV_SIZE_CONTENT);
+  lv_obj_set_align(text, align);
+  lv_obj_set_x(text, x);
+  lv_obj_set_y(text, textY);
+  lv_label_set_text(text, "");
+  lv_obj_set_style_text_font(text, &lv_font_montserrat_14, LV_PART_MAIN);
+  lv_obj_set_style_text_color(text, color, LV_PART_MAIN);
+  lv_obj_add_flag(text, LV_OBJ_FLAG_HIDDEN);
+  *outText = text;
+}
+
 void ui_ScreenMain_screen_init(void) {
   ui_ScreenMain = lv_obj_create(NULL);
   lv_obj_clear_flag(ui_ScreenMain, LV_OBJ_FLAG_SCROLLABLE);
@@ -1069,6 +1113,13 @@ void ui_ScreenMain_screen_init(void) {
                              LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_text_color(ui_ClockDate, lv_color_hex(0xD6E6FF),
                               LV_PART_MAIN);
+
+  // Indicador "en bateria": en el hueco libre a la derecha de hora y fecha
+  // dentro del propio boton del reloj (~80 px). El heading no tiene otro
+  // slot: los siete estan ocupados con 19 px de holgura entre ellos.
+  create_on_battery_indicator(ui_ClockButton, LV_ALIGN_RIGHT_MID, -8, -11, 11,
+                              lv_color_hex(0xFFD54F), &ui_OnBatteryIcon,
+                              &ui_OnBatteryText);
 
   // Boton de ayuda (spec hmi-help-center): "?" redondo en el primer slot del
   // heading, solo en ui_ScreenMain. Es texto sobre un lv_btn, no un asset:
@@ -3624,6 +3675,13 @@ void ui_ScreenLock_screen_init(void) {
                                 /*onDarkBg=*/true, &ui_LockHeadingConnCont,
                                 &ui_LockHeadingConnIcon,
                                 ui_LockHeadingConnBar);
+
+  // Indicador "en bateria" en el slot de ayuda, que en el bloqueo esta vacio
+  // por diseno (ver HEADING_SLOT0_HELP). Mismas alturas que hora y fecha.
+  create_on_battery_indicator(ui_ScreenLock, LV_ALIGN_LEFT_MID,
+                              HEADING_SLOT0_HELP, -222, -200,
+                              lv_color_hex(0xFFC107), &ui_LockOnBatteryIcon,
+                              &ui_LockOnBatteryText);
 
   ui_Container1 = lv_obj_create(ui_ScreenLock);
   lv_obj_remove_style_all(ui_Container1);

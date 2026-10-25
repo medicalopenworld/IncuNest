@@ -106,6 +106,8 @@ UI_STR(STR_CONN_WIFI_SERVER,   "WIFI + SERVIDOR",
                                "WIFI + SERVIDOR")
 UI_STR(STR_CONN_UNKNOWN,       "-",            "-",           "-",           "-")
 UI_STR(STR_NO_TIME,            "Sin hora",     "No time",     "Sans heure",  "Sem hora")
+// Indicador del heading mientras el aviso de corte de red esta senalizado.
+UI_STR(STR_ON_BATTERY,         "BATERIA",      "BATTERY",     "BATTERIE",    "BATERIA")
 
 // ------------------------------------------------------- graficas
 UI_STR(STR_HUM_CHART,          "GRAFICO HUMEDAD",
