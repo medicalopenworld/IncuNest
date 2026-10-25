@@ -60,6 +60,13 @@
 #define DISPLAY_I2C_ADDR_BL 0x30
 #define DISPLAY_BL_ON_VALUE 10
 #define DISPLAY_BL_OFF_VALUE 245
+// 1 = el STC8H1K28 acepta niveles intermedios entre 10 (maximo) y 240 (el mas
+// oscuro que se emite). NO VERIFICADO EN BANCO: la doc v1.3 dice que el byte
+// es un nivel, pero hasta ahora solo se han escrito 10 y 245. Si en banco el
+// chip se apaga, se cuelga o ignora el byte, ponerlo a 0: todo nivel escribe
+// DISPLAY_BL_ON_VALUE (pantalla siempre plena, el comportamiento anterior) y
+// el slider y el modo noche quedan inertes pero inofensivos.
+#define DISPLAY_BL_LEVELS_SUPPORTED 1
 
 // -----------------------------------------------------------------------------
 // Touch GT911 — I2C 15/16

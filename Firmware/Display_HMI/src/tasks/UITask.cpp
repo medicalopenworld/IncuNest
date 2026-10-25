@@ -15,6 +15,8 @@
 #include "ui/MaintenanceDialog.h"
 #include "ui/BabyWizard.h"
 #include "modules/maintenance/maintenance.h"
+#include "modules/brightness/brightness_policy.h"
+#include "drivers/backlight.h"
 #include "display_config.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_rgb.h"
@@ -87,6 +89,11 @@ bool tempSwitched = false;
 bool humSwitched = false;
 bool arrowsActive = false;
 bool darkMode = false;
+uint8_t g_brightnessUserPct = BRIGHTNESS_DEFAULT_PCT;
+bool g_nightMode = false;
+// Hay un cambio de brillo/modo noche pendiente de escribir en NVS. Lo activan
+// los callbacks (bajo LVGL_Lock) y lo consume UI_Task fuera del bloqueo.
+static bool s_brightnessDirty = false;
 bool humidityEnabled = false;
 int g_selectedAlarmId = -1;
 volatile bool g_pendingAlarmUpdate = false;
@@ -1023,6 +1030,8 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   if (ui_HwTestSubLabel)
     lv_label_set_text(ui_HwTestSubLabel, L(STR_HW_TEST_SUB));
   lv_label_set_text(ui_HumidityModeLabel, L(STR_HUMIDITY_CONTROL));
+  lv_label_set_text(ui_BrightnessLabel, L(STR_BRIGHTNESS));
+  lv_label_set_text(ui_NightModeLabel, L(STR_NIGHT_MODE));
   lv_label_set_text(ui_HMIVerTitle, L(STR_HMI_VERSION));
   lv_label_set_text(ui_MBVerTitle, L(STR_MB_VERSION));
   lv_label_set_text(ui_SNTitle, L(STR_SERIAL_NUMBER));
@@ -1346,6 +1355,22 @@ void MaintButton_cb(lv_event_t *e) {
   lv_obj_clear_flag(ui_MaintConfigCont, LV_OBJ_FLAG_HIDDEN);
 
   wifiVisible = false;
+}
+
+// Slider de brillo (Ajustes > Modos). Mientras se arrastra solo cambia la
+// variable: el servicio de UI_Task aplica el nivel en vivo (I2C fuera de
+// LVGL_Lock) y la NVS no se toca hasta soltar, para no escribir en cada paso.
+void BrightnessSlider_cb(lv_event_t *e) {
+  lv_obj_t *s = lv_event_get_target(e);
+  const lv_event_code_t code = lv_event_get_code(e);
+  if (code == LV_EVENT_VALUE_CHANGED) {
+    const int32_t v = lv_slider_get_value(s);
+    g_brightnessUserPct =
+        Brightness_ClampPct((uint8_t)(v < 0 ? 0 : (v > 255 ? 255 : v)));
+  } else {
+    // RELEASED / PRESS_LOST: valor final, a NVS (diferido, fuera del bloqueo).
+    s_brightnessDirty = true;
+  }
 }
 
 void MaintEnableSwitch_cb(lv_event_t *e) {
@@ -1983,6 +2008,11 @@ void Switch_cb(lv_event_t *e) {
     eepromDirty = true;
     lastVarChangeTime = millis();
     UI_ApplyTheme();
+  } else if (obj == ui_SwitchNightMode) { // NIGHT MODE SWITCH
+    // Solo la variable: el servicio de brillo (UI_Task) decide cuando atenua
+    // y la NVS se escribe diferida, fuera de LVGL_Lock.
+    g_nightMode = lv_obj_has_state(obj, LV_STATE_CHECKED);
+    s_brightnessDirty = true;
   } else if (obj == ui_SwitchHumidityMode) { // HUMIDITY ENABLE SWITCH
     bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
     humidityEnabled = checked;
@@ -3762,6 +3792,8 @@ void UI_GetControlSnapshot(UiControlSnapshot *out) {
   out->sw4 = switchChecked(ui_Switch4);
   out->swDark = switchChecked(ui_SwitchDarkMode);
   out->swHum = switchChecked(ui_SwitchHumidityMode);
+  out->brightnessPct = g_brightnessUserPct;
+  out->nightMode = g_nightMode;
 }
 
 void UI_RestoreControlSnapshot(const UiControlSnapshot *s) {
@@ -3775,6 +3807,11 @@ void UI_RestoreControlSnapshot(const UiControlSnapshot *s) {
   ui_set_switch_state_silent(ui_Switch4, s->sw4);
   ui_set_switch_state_silent(ui_SwitchDarkMode, s->swDark);
   ui_set_switch_state_silent(ui_SwitchHumidityMode, s->swHum);
+  g_brightnessUserPct = Brightness_ClampPct(s->brightnessPct);
+  g_nightMode = s->nightMode;
+  ui_set_switch_state_silent(ui_SwitchNightMode, g_nightMode);
+  if (ui_SliderBrightness)
+    lv_slider_set_value(ui_SliderBrightness, g_brightnessUserPct, LV_ANIM_OFF);
 
   const bool themeChanged = (darkMode != s->darkMode);
   const bool langChanged = (g_lang != s->lang);
@@ -4003,10 +4040,9 @@ static void pwroff_update(void) {
       lv_arc_set_value(ui_PwrOffArc, 360);
       lv_timer_handler(); // flush last frame
 
-      // Turn off backlight via I2C
-      Wire.beginTransmission(I2C_ADDR_BACKLIGHT);
-      Wire.write(DISPLAY_BL_OFF_VALUE);
-      Wire.endTransmission();
+      // Turn off backlight via I2C (la unica via al byte de apagado; ignora
+      // el nivel de usuario y el modo noche)
+      Backlight_Off();
 
       // Halt — device power will be cut by motherboard
       while (true) {
@@ -4017,6 +4053,46 @@ static void pwroff_update(void) {
     if (pwrOffPopupVisible) {
       pwroff_hide();
     }
+  }
+}
+
+// ==========================================
+// Brillo (modules/brightness + drivers/backlight)
+// ==========================================
+// Porcentaje que tiene aplicado el chip, o -1 si no se sabe (arranque fallido
+// o ultima escritura sin ACK): obliga a reintentar.
+static int s_blAppliedPct = -1;
+
+// Nivel objetivo ahora mismo. Lee LVGL (pantalla activa, inactividad), asi que
+// va BAJO LVGL_Lock; la escritura I2C posterior va FUERA (ARQ-LOCK-001).
+// Alarma = cualquier alarma activa (silenciada o no: el silencio apaga el
+// sonido, no la condicion) o enlace con la placa perdido, que tiene su propia
+// senal acustica y tampoco debe pillar la pantalla atenuada.
+static uint8_t brightness_compute_target(void) {
+  BrightnessInputs in;
+  in.userPct = g_brightnessUserPct;
+  in.nightMode = g_nightMode;
+  in.locked = (lv_scr_act() == ui_ScreenLock);
+  in.idleSec = lv_disp_get_inactive_time(NULL) / 1000u;
+  in.alarmActive = UI_IsAnyAlarmActive() || Display_IsBoardLinkLost();
+  return Brightness_Target(&in);
+}
+
+// Escribe el nivel si cambio. Fuera de LVGL_Lock. Si la escritura falla no se
+// da por aplicado y se reintenta, con un ritmo de 200 ms para no inundar el
+// log ni el bus si el chip no contesta.
+static void brightness_apply(uint8_t target) {
+  if ((int)target == s_blAppliedPct)
+    return;
+  static uint32_t s_lastTryMs = 0;
+  const uint32_t now = millis();
+  if (s_blAppliedPct < 0 && s_lastTryMs != 0 && now - s_lastTryMs < 200)
+    return;
+  s_lastTryMs = now;
+  if (Backlight_SetPercent(target, 1)) {
+    s_blAppliedPct = (int)target;
+  } else {
+    s_blAppliedPct = -1;
   }
 }
 
@@ -4047,25 +4123,15 @@ void UI_Task(void *pvParameters) {
       vTaskDelay(pdMS_TO_TICKS(50));
     }
 
-    // Según doc v1.3: 0 es Brillo Máximo, 245 es Apagado.
-    bool bl_ok = false;
-    for (int attempt = 0; attempt < 5 && !bl_ok; attempt++) {
-      Wire.beginTransmission(I2C_ADDR_BACKLIGHT);
-      Wire.write(DISPLAY_BL_ON_VALUE);
-      uint8_t err = Wire.endTransmission();
-      if (err == 0) {
-        bl_ok = true;
-        if (attempt > 0)
-          ESP_LOGI(TAG, "Backlight ON: OK after %d retr%s", attempt,
-                   attempt == 1 ? "y" : "ies");
-      } else {
-        ESP_LOGE(TAG, "Backlight ON: I2C err=%d (attempt %d/5)", err, attempt + 1);
-        vTaskDelay(pdMS_TO_TICKS(50));
-      }
-    }
+    // Según doc v1.3: 0 es Brillo Máximo, 245 es Apagado. Arranca al nivel de
+    // usuario (100 % = byte 10 por defecto, como siempre); el modo noche solo
+    // atenua con la pantalla ya bloqueada, nunca en el arranque. El driver
+    // reintenta (5 veces) y registra cada fallo.
+    const bool bl_ok = Backlight_SetPercent(g_brightnessUserPct, 5);
     if (!bl_ok)
       ESP_LOGE(TAG, "Backlight ON: FAILED after all retries — screen will be black");
     s_backlightInitOk = bl_ok;
+    s_blAppliedPct = bl_ok ? (int)Brightness_ClampPct(g_brightnessUserPct) : -1;
 
     vTaskDelay(pdMS_TO_TICKS(100));
   }
@@ -4273,6 +4339,8 @@ void UI_Task(void *pvParameters) {
   UI_ApplyLanguage(g_lang);
   ui_set_switch_state_silent(ui_SwitchDarkMode, darkMode);
   ui_set_switch_state_silent(ui_SwitchHumidityMode, humidityEnabled);
+  ui_set_switch_state_silent(ui_SwitchNightMode, g_nightMode);
+  lv_slider_set_value(ui_SliderBrightness, g_brightnessUserPct, LV_ANIM_OFF);
   if (humidityEnabled) {
     lv_obj_clear_flag(ui_HumCont, LV_OBJ_FLAG_HIDDEN);
   }
@@ -4698,6 +4766,9 @@ void UI_Task(void *pvParameters) {
     vTaskDelay(pdMS_TO_TICKS(LOOP_DELAY_MS));
     bool doAlarmSound = false;
     bool doNVSWrite = false;
+    bool doBrightnessWrite = false;
+    uint8_t blPctToSave = BRIGHTNESS_DEFAULT_PCT;
+    bool blNightToSave = false;
     LVGL_Lock();
 
     // --- Lock screen: probe contact state from CTRL,PROBE ---
@@ -4988,7 +5059,23 @@ void UI_Task(void *pvParameters) {
     }
     // Progreso de los cursos: mismo patron (decidir dentro, escribir fuera).
     const bool doTrainingWrite = TrainingProgress_TakeDirty();
+    // Brillo: mismo patron (decidir dentro, escribir fuera) y misma regla de
+    // formacion: se pospone, no se descarta. El valor del slider ya se aplica
+    // en vivo aunque la escritura espere.
+    if (s_brightnessDirty && !Training_IsActive()) {
+      s_brightnessDirty = false;
+      doBrightnessWrite = true;
+      blPctToSave = g_brightnessUserPct;
+      blNightToSave = g_nightMode;
+    }
+    // Nivel objetivo (lee LVGL): se calcula aqui, se escribe tras soltar.
+    const uint8_t brightnessTarget = brightness_compute_target();
     LVGL_Unlock();
+
+    // Brillo: I2C, fuera de LVGL_Lock (ARQ-LOCK-001). Va justo antes de la
+    // senal acustica del enlace para que una alarma recupere el brillo sin
+    // esperar a la escritura NVS.
+    brightness_apply(brightnessTarget);
 
     // Senal acustica del enlace perdido. Fuera de LVGL_Lock porque cada
     // transicion del patron es una transaccion I2C (ARQ-LOCK-001), y ANTES de
@@ -5010,6 +5097,13 @@ void UI_Task(void *pvParameters) {
       ESP_LOGI(TAG, "Preferences write cycle complete");
       ESP_LOGW(TAG, "LCD_DIAG: periodic Preferences write tomó %lu ms",
                (unsigned long)(millis() - t0));
+    }
+    if (doBrightnessWrite) {
+      Preferences p;
+      p.begin(HMI_NS_CFG, false);
+      p.putUChar(HMI_KEY_BL_PCT, blPctToSave);
+      p.putUChar(HMI_KEY_BL_NIGHT, blNightToSave ? 1 : 0);
+      p.end();
     }
     if (doTrainingWrite) {
       uint32_t t0 = millis();
@@ -5404,6 +5498,10 @@ void UI_ApplyTheme() {
     lv_obj_set_style_bg_color(ui_PanelDarkMode, panel_col, 0);
   if (ui_PanelHumidityMode)
     lv_obj_set_style_bg_color(ui_PanelHumidityMode, panel_col, 0);
+  if (ui_PanelBrightness)
+    lv_obj_set_style_bg_color(ui_PanelBrightness, panel_col, 0);
+  if (ui_PanelNightMode)
+    lv_obj_set_style_bg_color(ui_PanelNightMode, panel_col, 0);
   if (ui_InfoPanel)
     lv_obj_set_style_bg_color(ui_InfoPanel, panel_col, 0);
 
