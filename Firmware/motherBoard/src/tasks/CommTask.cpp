@@ -27,6 +27,9 @@ extern "C" bool debug_inject_take(char *out, size_t out_len);
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "modules/factory_test/factory_test_api.h"
+#include "modules/sensorboard_comm/sb_env_report.h"
+#include "modules/sensorboard_comm/sensorboard_comm.h"
+#include "modules/sensors/sensor_source.h"
 #include <cstdio>
 #include <cstring>
 #include <time.h>
@@ -1305,6 +1308,10 @@ void Communication_Task(void *pvParameters) {
   uint8_t hr_valid_streak = 0;
   uint8_t hr_bad_streak   = 0;
   bool    hr_displaying   = false;
+  // CTRL,ENV (puerta, luz, ruido de la SensorBoard): ver el bloque tras STATE.
+  SbEnvPacer env_pacer;
+  sb_env_pacer_init(&env_pacer);
+  uint32_t last_env_poll_ms = 0;
   ESP_LOGI(TAG, "UART communication task started");
 
   if (g_restore_photo_minutes > 0) {
@@ -1370,6 +1377,51 @@ void Communication_Task(void *pvParameters) {
     if (stateRequested || (millis() - last_state_time >= 1000)) {
       send_state_to_hmi();
       last_state_time = millis();
+    }
+
+    // --- ENV: puerta, luz y ruido de la SensorBoard (CTRL,ENV) ---
+    //
+    // Solo informativo para el display; ni la puerta ni el ruido entran en el
+    // lazo de control. Mensaje propio y no campos de CTRL,STATE: esa linea va
+    // al filo de su buffer y PROTOCOL.md exige que todo campo suyo aguante
+    // 1 Hz, y esto no lo necesita. Cadencia: al instante si cambia el enlace o
+    // la puerta, y cada PROTO_ENV_PERIOD_MS si no (sb_env_report.h).
+    //
+    // Solo en equipos con SensorBoard: en los antiguos (I2C2) no existe el
+    // modulo y no hay nada que contar; el display, al no recibir la linea, no
+    // pinta nada.
+    //
+    // El snapshot se copia cada 200 ms y no en cada pasada (esta tarea itera
+    // cada 1 ms): la latencia de la puerta queda por debajo de 200 ms y no se
+    // pelea por el mutex con la tarea del SensorBoard.
+    if (sensorSourceGet() == SENSOR_SOURCE_SENSORBOARD) {
+      // Un display que acaba de arrancar pide STATE: se le re-envia tambien el
+      // entorno, en vez de hacerle esperar un periodo entero.
+      if (stateRequested) {
+        sb_env_pacer_init(&env_pacer);
+        last_env_poll_ms = (uint32_t)(millis() - 200u);
+      }
+      const uint32_t env_now = millis();
+      if ((uint32_t)(env_now - last_env_poll_ms) >= 200u) {
+        last_env_poll_ms = env_now;
+        SbSnapshot env_snap;
+        sensorboard_get_snapshot(&env_snap);
+        SbEnvReport env_report;
+        sb_env_report_make(&env_report, &env_snap, env_now);
+        if (sb_env_pacer_due(&env_pacer, &env_report, env_now)) {
+          char env_msg[PROTO_ENV_LINE_MAX + 2];
+          if (sb_env_report_format(env_msg, sizeof(env_msg), &env_report) >
+              0) {
+            hmiSerial.print(env_msg);
+            sb_env_pacer_sent(&env_pacer, &env_report, env_now);
+          } else {
+            // No debe pasar (la cota esta en protocol.h y la prueba el test),
+            // pero un informe que no cabe no se reintenta cada 200 ms.
+            ESP_LOGE(TAG, "CTRL,ENV no cabe en el buffer");
+            sb_env_pacer_sent(&env_pacer, &env_report, env_now);
+          }
+        }
+      }
     }
 
     // --- PPG waveform (25 Hz = every 40 ms) ---
