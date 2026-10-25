@@ -407,6 +407,30 @@ Descripción de una alarma concreta, ya traducida.
   `known_issues.md` #2 documenta una inundación real de UART por tráfico
   periódico evitable.
 
+#### CTRL,SERVICE (Horas de uso desde el último servicio)
+Aviso de servicio por horas de uso de cada actuador con vida útil acotada. Es
+**información, no una alarma**: no hay `AlarmId` ni suena el zumbador.
+**Formato**: `CTRL,SERVICE,n{,id,horasDesdeServicio,umbralHoras}×n`
+- `n`: número de entradas (0 a 4). `id`: 0 calefactor, 1 ventilador,
+  2 humidificador, 3 fototerapia (`ServiceActuator` en
+  `shared/include/service_hours_proto.h`; solo se añaden ids al final).
+- `horasDesdeServicio`: horas de uso enteras (hacia abajo) desde el último
+  `HMI,SERVICE_DONE` de ese actuador, es decir, contador de vida − base. Si el
+  contador de vida es menor que la base (NVS borrada), vale el contador.
+  `umbralHoras`: umbral compilado en la placa
+  (`motherBoard/include/config/service_thresholds.h`, provisionales); **0 = sin
+  aviso** para ese actuador. Vencido = `horas >= umbral`.
+- Ejemplo: `CTRL,SERVICE,4,0,12,5000,1,30,10000,2,2001,2000,3,0,10000`
+- Se envía al recibir `HMI,UI_READY`, al recibir `HMI,SERVICE_REQ`, tras
+  registrar un `HMI,SERVICE_DONE` (con los valores ya actualizados, que hace de
+  confirmación) y cada hora. No va dentro de `CTRL,STATE`.
+- El HMI descarta la línea entera si es malformada (n incoherente con los
+  campos, no numérico, id desconocido o repetido) y conserva el último estado
+  válido.
+- Los contadores de vida útil (NVS `heater_t`, `fan_t`, `hum_t`, `photo_t`;
+  telemetría `*_active_time`) NO se reinician al registrar un servicio y se
+  siguen publicando tal cual a ThingsBoard.
+
 ### 2. Mensajes del Display (HMI → MCU)
 
 #### HMI,UI_READY (Handshake Crítico)
@@ -502,6 +526,21 @@ Curva de peso de cualquier bebé (activo o archivado).
 #### HMI,ALM_HISTORY_REQ
 Registro completo de alarmas (últimas 10).
 **Formato**: `HMI,ALM_HISTORY_REQ` → `CTRL,ALM_HISTORY`
+
+#### HMI,SERVICE_REQ
+Pide el estado de servicio por horas ahora (el HMI lo manda al abrir la vista de
+servicio y, cada 30 s, mientras no haya recibido ningún informe).
+**Formato**: `HMI,SERVICE_REQ` → `CTRL,SERVICE`
+
+#### HMI,SERVICE_DONE
+Registra que se ha hecho el servicio de un actuador.
+**Formato**: `HMI,SERVICE_DONE,id` → `CTRL,SERVICE` (ya actualizado)
+- La placa guarda en NVS (`mb_rt`) las horas de vida actuales del actuador como
+  base (`svc_b_heater`, `svc_b_fan`, `svc_b_hum`, `svc_b_photo`, float) y el
+  epoch UTC del servicio (`svc_e_*`, uint32; 0 si no hay hora válida). Si la
+  escritura falla no cambia nada y no hay respuesta.
+- `id` fuera de `[0, 4)`, vacío o no numérico se descarta con log, sin efecto.
+- El HMI exige dos pasos (HECHO y CONFIRMAR) y no lo manda en modo formación.
 
 #### HMI,ALM_DESC_REQ
 Descripción de una alarma concreta, para el pop-up de detalle.

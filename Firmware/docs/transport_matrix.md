@@ -41,13 +41,13 @@ pero no aparece en el dashboard al instante.
 
 ## 2. Telemetrías, por grupos
 
-87 claves en total. Se agrupan así:
+91 claves en total. Se agrupan así:
 
 | Grupo | Claves | GPRS | WiFi | Motivo |
 |---|---|:--:|:--:|---|
 | **CORE** | 69 | ✅ | ✅ | Constantes vitales, alarmas, actuadores, datos de bebé. Lo clínico. |
 | **CELLULAR** | 4 | ✅ | ❌ | `IMEI`, `APN`, `COP`, `CSQ`. Sin sentido físico por WiFi. |
-| **DIAG** | 8 | ✅ | ❌ | Boot count, heap, uptime, resets del HMI, kills del módem. |
+| **DIAG** | 12 | ✅ | ❌ | Boot count, heap, uptime, resets del HMI, kills del módem y `svc_heater_h`, `svc_fan_h`, `svc_hum_h`, `svc_photo_h` (horas de uso desde el último servicio; el contador de vida sigue aparte). |
 | **CALIBRATION** | 6 | ✅ | ❌ | Referencias y ajuste fino de los sensores de temperatura. |
 
 Se cambian con un `0`/`1` en `TX_GROUP_<grupo>_<TRANSPORTE>`.

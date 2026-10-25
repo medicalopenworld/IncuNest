@@ -383,3 +383,63 @@ boot *with* a valid clock seeds the three dates with today (otherwise a
 factory-fresh unit would read as "overdue since 1970"); and a clock moved
 backwards re-anchors any date left in the future to today, where the interval
 would otherwise never elapse again.
+
+## 9. Service by hours of use
+
+Each actuator with a bounded life (heater, fan, humidifier, phototherapy LEDs)
+has a service threshold in hours of use. The motherBoard owns the data and the
+threshold; the HMI only shows what `CTRL,SERVICE` says (see `PROTOCOL.md`) and
+decides *when* to warn. It is **information, not an alarm**: no `AlarmId`, no
+buzzer, nothing in the alarm centre.
+
+Where it lives: the pure state (last report, due, "later") is
+`src/modules/service/service_state.cpp` (host tests in
+`test/test_service_state`); the view is a second mode of
+`src/ui/MaintenanceDialog.cpp`, so it shares the overlay, the card and every
+yielding rule of section 8. `Comm_Task` parses the line into
+`g_serviceReport` and raises `g_pendingService`; `MaintenanceDialog_Poll()`
+(UI_Task) hands it to `service_state`, so no LVGL call happens in the comm
+task (ARQ-LOCK-001 is about I/O under the LVGL mutex: nothing here does NVS,
+network or I2C — the only I/O is the UART request, same as the other
+dialogs).
+
+How to reach it: **Settings > MAINTENANCE > OPEN REMINDER**, then the
+**SERVICE** button next to LATER/CLOSE (amber when something is due). The view
+lists each actuator with `hours of threshold h since last service` and whether
+it is `DUE NOW` or `up to date`; a **CLEANING** button goes back to the cleaning
+view. There is no PIN on Settings > Maintenance today, so recording a service
+takes two steps: **DONE** arms the row (the button becomes CONFIRM next to a
+CANCEL) and **CONFIRM** sends `HMI,SERVICE_DONE,<id>`. It is refused in training
+mode (it writes the board's NVS for real). The board answers with an updated
+`CTRL,SERVICE`; until then the old value stays on screen.
+
+When it opens by itself: after the cleaning reminder has had its turn
+(`Maintenance_ShouldWarn()` first), if the **REMINDERS switch is on**
+(`Maintenance_IsEnabled()`, same single switch as the cleaning; it is off by
+default on a factory-fresh unit) and at least one actuator is due. It opens
+directly in the service view, with the same yielding rules as the cleaning
+(alarm, lost board link, other modal dialogs, training) and the same 3 min idle
+cap. **LATER** silences it for 24 h, but only for the actuators that were due at
+that moment: another actuator falling due afterwards brings it back. The
+snooze is in RAM only (a display reboot forgets it).
+
+If no report has arrived yet the view says so and the HMI asks for one every
+30 s (`HMI,SERVICE_REQ`); the board also sends it on `HMI,UI_READY` and hourly.
+
+Texts: `STR_SVC_*` in `i18n_strings.def` (ES/EN/FR/PT, no accents).
+
+**Bench checklist** (not covered by host tests; nothing here has been run on
+hardware yet):
+1. Boot both boards: the service view shows 4 actuators with sane hours.
+2. Force a threshold low (rebuild with `SERVICE_THRESHOLD_FAN_H 1u`) or edit the
+   NVS base (`svc_b_fan` to 0 with the life counter above threshold): unlock the
+   screen with the REMINDERS switch on and see the soft notice; with the switch
+   off, nothing opens by itself.
+3. LATER: it does not come back on the next unlock within 24 h; another actuator
+   falling due does bring it back.
+4. DONE then CANCEL records nothing; DONE then CONFIRM zeroes the row, the
+   board log prints `servicio N registrado`, and the value survives a reboot.
+5. During an alarm or with the MB cable pulled the notice does not open / closes.
+6. In a training lesson DONE shows "not available in training mode".
+7. ThingsBoard shows `svc_heater_h`, `svc_fan_h`, `svc_hum_h`, `svc_photo_h`
+   (GPRS only: DIAG is off over WiFi) and the lifetime counters are unchanged.
