@@ -92,7 +92,7 @@ Commit: `docs(hmi): update for trend`.
 
 Commit: `chore(spec): archive hmi-trend`.
 
-- [ ] 4.1 `openspec archive hmi-trend`.
+- [x] 4.1 `openspec archive hmi-trend`.
 
 ## Deuda anotada (para el scribe / retro)
 
