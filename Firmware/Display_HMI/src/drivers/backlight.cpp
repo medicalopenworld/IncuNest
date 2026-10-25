@@ -5,6 +5,7 @@
 #include "esp_log.h"
 
 #include "display_config.h"
+#include "main.h" // I2C_CMD_BUZZER_ON
 #include "modules/brightness/brightness_policy.h"
 
 static const char *TAG = "Backlight";
@@ -18,8 +19,9 @@ static_assert(BRIGHTNESS_BYTE_OFF == DISPLAY_BL_OFF_VALUE,
 // Los bytes de brillo jamas pueden alcanzar los opcodes de audio (246..249).
 static_assert(BRIGHTNESS_BYTE_DIMMEST < DISPLAY_BL_OFF_VALUE,
               "el byte mas oscuro debe quedar por debajo del apagado");
-
-static int s_lastByte = -1;
+static_assert(BRIGHTNESS_BYTE_DIMMEST < I2C_CMD_BUZZER_ON &&
+                  BRIGHTNESS_BYTE_OFF < I2C_CMD_BUZZER_ON,
+              "un byte de brillo no puede alcanzar los opcodes de audio");
 
 // Una transaccion de un byte. true si el chip la ACKeo.
 static bool writeByte(uint8_t value) {
@@ -30,7 +32,6 @@ static bool writeByte(uint8_t value) {
     ESP_LOGE(TAG, "write 0x%02X: I2C err=%u", (unsigned)value, (unsigned)err);
     return false;
   }
-  s_lastByte = (int)value;
   return true;
 }
 
@@ -61,5 +62,3 @@ bool Backlight_Off(void) {
   }
   return false;
 }
-
-int Backlight_LastByte(void) { return s_lastByte; }

@@ -4080,14 +4080,19 @@ static uint8_t brightness_compute_target(void) {
 
 // Escribe el nivel si cambio. Fuera de LVGL_Lock. Si la escritura falla no se
 // da por aplicado y se reintenta, con un ritmo de 200 ms para no inundar el
-// log ni el bus si el chip no contesta.
+// log ni el bus si el chip no contesta. EXCEPCION: con objetivo 100 % (alarma o
+// enlace perdido) se reintenta en cada pasada, sin esperar: no se retrasa la
+// recuperacion del brillo cuando hay una alarma.
 static void brightness_apply(uint8_t target) {
   if ((int)target == s_blAppliedPct)
     return;
+  static bool s_haveTried = false;
   static uint32_t s_lastTryMs = 0;
   const uint32_t now = millis();
-  if (s_blAppliedPct < 0 && s_lastTryMs != 0 && now - s_lastTryMs < 200)
+  if (target < BRIGHTNESS_MAX_PCT && s_blAppliedPct < 0 && s_haveTried &&
+      now - s_lastTryMs < 200)
     return;
+  s_haveTried = true;
   s_lastTryMs = now;
   if (Backlight_SetPercent(target, 1)) {
     s_blAppliedPct = (int)target;

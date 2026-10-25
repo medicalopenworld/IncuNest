@@ -20,6 +20,3 @@ bool Backlight_SetPercent(uint8_t pct, uint8_t attempts);
 // Apaga la pantalla (byte 245), hasta 3 intentos. Solo para el apagado del
 // equipo (pwroff): es la unica via a 245.
 bool Backlight_Off(void);
-
-// Ultimo byte ACKeado por el chip, o -1 si todavia ninguno.
-int Backlight_LastByte(void);

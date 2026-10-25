@@ -62,11 +62,15 @@
 #define DISPLAY_BL_OFF_VALUE 245
 // 1 = el STC8H1K28 acepta niveles intermedios entre 10 (maximo) y 240 (el mas
 // oscuro que se emite). NO VERIFICADO EN BANCO: la doc v1.3 dice que el byte
-// es un nivel, pero hasta ahora solo se han escrito 10 y 245. Si en banco el
-// chip se apaga, se cuelga o ignora el byte, ponerlo a 0: todo nivel escribe
-// DISPLAY_BL_ON_VALUE (pantalla siempre plena, el comportamiento anterior) y
-// el slider y el modo noche quedan inertes pero inofensivos.
-#define DISPLAY_BL_LEVELS_SUPPORTED 1
+// es un nivel, pero hasta ahora solo se han escrito 10 y 245.
+//
+// POR DEFECTO 0 (produccion): todo nivel escribe DISPLAY_BL_ON_VALUE (pantalla
+// siempre plena, el comportamiento anterior) y el slider y el modo noche
+// quedan inertes pero inofensivos. Con un chip que ignorase o malinterpretase
+// los bytes intermedios, un 20 % guardado en NVS dejaria la pantalla casi
+// negra en cada arranque. PONERLO A 1 SOLO TRAS la prueba de banco (barrido
+// 10/100/150/236, ver docs/hmi.md seccion 9).
+#define DISPLAY_BL_LEVELS_SUPPORTED 0
 
 // -----------------------------------------------------------------------------
 // Touch GT911 — I2C 15/16
