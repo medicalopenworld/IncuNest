@@ -46,3 +46,25 @@ void trend_events_shift(TrendEvents *e, int64_t delta) {
   for (int i = 0; i < e->count; i++)
     e->ev[(e->head + i) % TREND_MAX_EVENTS].slot += delta;
 }
+
+int trend_events_prepend(TrendEvents *e, const TrendEvent *older, int n,
+                         int64_t minSlot) {
+  if (!e || !older || n <= 0) return 0;
+  const bool have = e->count > 0;
+  const int64_t firstSlot = have ? e->ev[e->head].slot : 0;
+  const int room = TREND_MAX_EVENTS - e->count;
+
+  // De mas reciente a mas antiguo, empujando por delante: el resultado queda en
+  // orden cronologico y, si falta sitio, lo que se pierde es lo mas antiguo.
+  int added = 0;
+  for (int i = n - 1; i >= 0 && added < room; i--) {
+    const TrendEvent &o = older[i];
+    if (o.slot < minSlot) continue;
+    if (have && o.slot >= firstSlot) continue;  // el mismo flanco ya esta vivo
+    e->head = (e->head + TREND_MAX_EVENTS - 1) % TREND_MAX_EVENTS;
+    e->ev[e->head] = o;
+    e->count++;
+    added++;
+  }
+  return added;
+}

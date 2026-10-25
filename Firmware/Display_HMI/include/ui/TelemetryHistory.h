@@ -4,11 +4,14 @@
 #include <stdint.h>
 
 // Tendencia de temperatura de aire/piel y humedad, con ventana de tiempo
-// seleccionable (1 h por defecto / 2 h / 4 h). El eje X es SIEMPRE la ventana
-// completa, con "ahora" en el borde derecho: rejilla vertical cada 15 min en
-// los tres charts y, bajo el de humedad, 5 horas (HH:MM local si la placa ha
-// mandado la hora; si no, "-h:mm" hacia atras). Mismo criterio que
+// seleccionable (4 h por defecto / 12 h / 24 h). El eje X es SIEMPRE la ventana
+// completa, con "ahora" en el borde derecho: rejilla vertical cada 15 min /
+// 1 h / 2 h en los tres charts y, bajo el de humedad, 5 horas (HH:MM local si
+// la placa ha mandado la hora; si no, "-h:mm" hacia atras). Mismo criterio que
 // AlarmCenter.h: cuelga de lv_layer_top(), no de una pantalla concreta.
+//
+// El buffer es de 24 h y SOBREVIVE a un reinicio o un corte de red: se vuelca a
+// LittleFS (/trend.bin) y se restaura alineado por epoch en cuanto hay hora.
 //
 // Sobre cada grafico: la consigna historica (linea morada) y una marca
 // vertical por cada flanco de alarma (alta: continua, color de la prioridad;
@@ -58,6 +61,23 @@ void TelemetryHistory_RecordSample(float airTempC, bool airOk,
 // 1 media, 2 alta (PROTOCOL.md, CTRL,ALM), raised = true en la alta.
 void TelemetryHistory_RecordAlarmEdge(uint8_t id, uint8_t priority,
                                       bool raised);
+
+// ---- Persistencia (/trend.bin en LittleFS) ---------------------------------
+
+// Pide un volcado en cuanto la politica lo permita: se llama al ENTRAR EN
+// BLOQUEO (enter_lock_screen y la ruta de auto-bloqueo). Solo levanta una
+// bandera: seguro bajo LVGL_Lock. La politica (>= 2 min desde el ultimo
+// volcado) decide si se atiende ya o mas tarde.
+void TelemetryHistory_NoteLockEntered(void);
+
+// Una pasada del servicio de persistencia. Llamar en CADA vuelta del bucle de
+// UI_Task y FUERA de LVGL_Lock (ARQ-LOCK-001: es E/S de flash). Con la hora
+// sincronizada: restaura el fichero una vez (anteponiendolo a lo ya registrado)
+// y vuelca el modelo cada 5 min / al bloquear, en trozos de 4 KB espaciados
+// >= 50 ms sobre un temporal que se renombra al final (atomico). Nunca bloquea
+// el refresco, tampoco con una alarma activa: cada pasada hace como mucho un
+// trozo.
+void TelemetryHistory_PersistService(void);
 
 // Vuelve a fijar el titulo, las etiquetas de canal ("AIRE"/"PIEL"/
 // "HUMEDAD") y la leyenda leyendo g_lang. Necesario porque esos labels solo

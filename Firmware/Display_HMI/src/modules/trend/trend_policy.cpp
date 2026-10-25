@@ -21,6 +21,39 @@ int trend_slot_to_px(int64_t slot, int64_t startSlot, int64_t totalSlots,
   return (int)((off * (int64_t)widthPx) / totalSlots);
 }
 
+void trend_dump_init(TrendDumpState *d, uint32_t nowMs) {
+  if (!d) return;
+  d->lastDumpMs = nowMs;
+  d->lastDumpedSlot = 0;
+  d->haveDumped = false;
+}
+
+bool trend_dump_due(const TrendDumpState *d, bool clockSynced, bool haveSamples,
+                    int64_t newestSlot, uint32_t nowMs, bool lockEntered) {
+  if (!d || !clockSynced || !haveSamples) return false;
+  if (d->haveDumped && newestSlot == d->lastDumpedSlot) return false;
+  // Resta sin signo: correcta aunque millis() haya dado la vuelta (49 dias).
+  const uint32_t elapsed = nowMs - d->lastDumpMs;
+  return elapsed >= TREND_DUMP_PERIOD_MS ||
+         (lockEntered && elapsed >= TREND_DUMP_LOCK_MIN_MS);
+}
+
+void trend_dump_done(TrendDumpState *d, uint32_t nowMs, int64_t newestSlot) {
+  if (!d) return;
+  d->lastDumpMs = nowMs;
+  d->lastDumpedSlot = newestSlot;
+  d->haveDumped = true;
+}
+
+void trend_dump_failed(TrendDumpState *d, uint32_t nowMs) {
+  if (!d) return;
+  d->lastDumpMs = nowMs;  // reintento tras un periodo completo; la ranura NO se da por guardada
+}
+
+bool trend_chunk_due(uint32_t nowMs, uint32_t lastChunkMs) {
+  return (uint32_t)(nowMs - lastChunkMs) >= TREND_CHUNK_GAP_MS;
+}
+
 TrendMarkKind trend_mark_kind(uint8_t priority, bool raised) {
   if (!raised) return TREND_MARK_CLEARED;
   switch (priority) {

@@ -12,9 +12,10 @@
 #include "CommTask.h"
 #include "UITask.h"
 #include "main.h"
-#include "modules/trend/trend_events.h"
+#include "modules/trend/trend_decimate.h"
+#include "modules/trend/trend_model.h"
+#include "modules/trend/trend_persist.h"
 #include "modules/trend/trend_policy.h"
-#include "modules/trend/trend_store.h"
 #include "ui.h"
 
 // Definidas en ElementsCreation.cpp (sin header propio: hasta ahora solo las
@@ -29,39 +30,35 @@ extern void ui_add_chart_safe_zone(lv_obj_t *chart, float min_val,
 namespace {
 
 // ---------------------------------------------------------------------------
-// Modelo de datos: una ranura de 10 s por muestra, indice == tiempo.
+// Modelo de datos: una ranura de 10 s por muestra, indice == tiempo. Toda la
+// logica (anillo, eventos, reloj, decimacion, fichero) esta en modules/trend/,
+// sin LVGL y con tests de host; aqui solo queda el pegamento con LVGL.
 //
-// El anillo (seis series int16: medida y consigna de aire/piel/humedad, ver
-// modules/trend/) vive en PSRAM, no en .bss: la SRAM interna es el recurso
+// El anillo (seis series int16 x 8640 ranuras = 24 h: medida y consigna de
+// aire/piel/humedad) vive en PSRAM, no en .bss: la SRAM interna es el recurso
 // escaso del HMI. Los dos bounce buffers del panel RGB necesitan 38,4 KB
 // contiguos y DMA-capaces CADA UNO, y el driver los pide en UI_Task, despues
 // de que WiFi se haya llevado su parte del heap interno; 17 KB de .bss aqui
 // eran parte de lo que dejaba esa reserva sin sitio (ESP_ERR_NO_MEM en
 // esp_lcd_new_rgb_panel → abort en el arranque). Estos buffers solo los lee
 // y escribe la CPU, nunca DMA, asi que PSRAM les vale de sobra.
-// Nombre especifico y no "BUFFER_SIZE": main.h ya declara una constante
-// global con ese nombre (buffers de texto de labels) y, aunque esta vive en
-// un namespace anonimo, ambas quedan visibles sin cualificar en este mismo
-// TU — el nombre generico resultaba en "reference to BUFFER_SIZE is
-// ambiguous" al compilar.
-constexpr int HIST_BUF_SIZE = 1440;
-// Ranuras de tiempo absolutas (esp_timer / SLOT_MS), no "10 s desde la
-// ultima muestra": con el criterio relativo cada muestra caia 10 s + el
-// periodo de la telemetria despues de la anterior, y ese medio segundo de
-// media acumulado sobre 1440 muestras desplazaba el eje X hasta 12 min. Con
-// ranuras absolutas el indice del buffer ES el tiempo (±10 s), que es lo que
-// hace fiables las lineas de rejilla y las horas del eje.
+//
+// HILO: el modelo es de UI_Task (Poll, RecordSample, el servicio de volcado y
+// el dibujo corren ahi). CommTask solo encola flancos de alarma.
 constexpr int64_t SLOT_MS = TREND_SLOT_MS;  // 10 s/ranura
-// 1h/2h/4h en ranuras. El ultimo coincide con HIST_BUF_SIZE (el techo del
-// buffer es tambien la ventana mas ancha ofrecida) — referencia la constante
-// en vez de repetir 1440 para que no puedan divergir. 1h primero: es la
-// ventana por defecto (indice 0 del dropdown, sin seleccion explicita).
-constexpr int WINDOW_POINTS[3] = {360, 720, HIST_BUF_SIZE};
-// Eje X: rejilla vertical cada 15 min en las tres ventanas (90 ranuras) y
-// siempre 5 etiquetas de hora (4 tramos): cada 15 min en 1 h, cada 30 min
-// en 2 h, cada hora en 4 h. Las lineas que coinciden con una etiqueta se
-// pintan mas marcadas que las intermedias (ver onChartDrawPart).
-constexpr int GRID_STEP_SLOTS = 90;
+// Ranuras de tiempo ABSOLUTAS (esp_timer, y epoch/10 en cuanto la placa da la
+// hora; ver trend_clock.h), no "10 s desde la ultima muestra": con el criterio
+// relativo cada muestra caia 10 s + el periodo de la telemetria despues de la
+// anterior, y ese medio segundo de media acumulado sobre 1440 muestras
+// desplazaba el eje X hasta 12 min. Con ranuras absolutas el indice del buffer
+// ES el tiempo (±10 s), que es lo que hace fiables las lineas de rejilla y las
+// horas del eje.
+//
+// Ventanas 4 h / 12 h / 24 h (trend_window_slots). Siempre 5 etiquetas de hora
+// (4 tramos): cada hora, cada 3 h y cada 6 h. Rejilla vertical: cada 15 min,
+// cada hora y cada 2 h. Las lineas que coinciden con una etiqueta se pintan
+// mas marcadas que las intermedias (ver onChartDrawPart).
+constexpr int GRID_STEP_SLOTS[TREND_WINDOW_COUNT] = {90, 360, 720};
 constexpr int LABEL_SEGMENTS = 4;
 // Lineas horizontales: alineadas con las 3 etiquetas del eje Y (la
 // ui_apply_sparkline_style pone 4, que no cuadran con 3 numeros).
@@ -106,8 +103,7 @@ constexpr int MEAS_SERIES[N_CHARTS] = {TREND_AIR, TREND_SKIN, TREND_HUM};
 constexpr int SP_SERIES[N_CHARTS] = {TREND_SP_AIR, TREND_SP_SKIN, TREND_SP_HUM};
 
 int16_t *s_block = nullptr;
-TrendStore s_store = {};
-TrendEvents s_events = {};
+TrendModel s_model = {};
 bool s_allocFailed = false;
 
 // Reserva unica y perpetua de las seis series en un solo bloque de PSRAM: un
@@ -117,7 +113,7 @@ bool s_allocFailed = false;
 bool ensureBuffers() {
   if (s_block) return true;
   if (s_allocFailed) return false;
-  const size_t bytes = trend_store_bytes(HIST_BUF_SIZE);
+  const size_t bytes = trend_store_bytes(TREND_CAPACITY);
   s_block = (int16_t *)heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM);
   if (!s_block) {
     s_allocFailed = true;
@@ -125,17 +121,24 @@ bool ensureBuffers() {
              (unsigned)bytes);
     return false;
   }
-  trend_store_init(&s_store, s_block, HIST_BUF_SIZE);
+  // Solo el anillo: el reloj y los eventos ya pueden estar en marcha (un flanco
+  // de alarma o la primera hora llegan antes que la primera muestra) y un
+  // trend_model_init() completo los borraria.
+  trend_store_init(&s_model.store, s_block, TREND_CAPACITY);
   return true;
 }
 
 int64_t s_drawnSlot = -1;  // ranura "ahora" del ultimo repintado
 int s_axisIdx = -1;        // ventana a la que estan configurados los ejes
-// Ventana pintada por el ultimo redraw(): las marcas de alarma se colocan
-// contra ella, no contra el "ahora" del momento de dibujar, para que queden
-// alineadas con las series que ya estan escritas en y_points[].
-int64_t s_drawStart = 0;
-int s_drawN = 0;
+// Ventana pintada por el ultimo redraw(): las marcas de alarma y las horas del
+// eje se calculan contra ella, no contra el "ahora" del momento de dibujar,
+// para que queden alineadas con las series que ya estan escritas en y_points[].
+int64_t s_drawStart = 0;    // primera ranura del eje
+int64_t s_drawTotal = 0;    // ranuras que cubre el eje
+int64_t s_drawNow = 0;      // ranura "ahora" de ese repintado
+// El servicio de volcado restauro datos: repintar en la siguiente pasada bajo
+// lock (el servicio corre fuera del lock y no puede tocar LVGL).
+bool s_needRedraw = false;
 
 bool s_isOpen = false;
 
@@ -185,17 +188,25 @@ int drainEdges() {
     }
     taskEXIT_CRITICAL(&s_edgeMux);
     if (!have) break;
-    trend_events_add(&s_events, e.ms / SLOT_MS, e.id, e.priority, e.raised);
+    trend_model_edge(&s_model, e.ms, e.id, e.priority, e.raised);
     n++;
   }
   return n;
 }
 
-int64_t nowSlot() { return (esp_timer_get_time() / 1000) / SLOT_MS; }
+int64_t monoMsNow() { return esp_timer_get_time() / 1000; }
+
+// Incorpora la hora al modelo (si la hay) y devuelve la ranura de "ahora". La
+// primera hora re-etiqueta lo ya guardado (trend_model_tick), asi que esto se
+// llama en cada pasada de Poll, no solo al registrar una muestra: la
+// transicion a epoch ocurre en cuanto hay hora, tenga o no la vista abierta.
+int64_t nowSlot() {
+  return trend_model_tick(&s_model, monoMsNow(), HMI_GetEpochNow());
+}
 
 int windowIdx() {
   uint16_t idx = s_windowDd ? lv_dropdown_get_selected(s_windowDd) : 0;
-  return idx > 2 ? 0 : (int)idx;
+  return idx >= TREND_WINDOW_COUNT ? 0 : (int)idx;
 }
 
 // true si algo con mas prioridad debe llevarse la pantalla por delante: una
@@ -225,25 +236,27 @@ void onClose(lv_event_t *e) {
   closeScreen();
 }
 
-// Texto de la etiqueta k (0..LABEL_SEGMENTS) del eje X para la ventana idx.
-// Hora local si la placa ya ha mandado la hora (mismo criterio que el reloj
-// del heading: HMI_GetEpochNow + HMI_ToLocal); si no, tiempo hacia atras
+// Texto de la etiqueta k (0..LABEL_SEGMENTS) del eje X. Se calcula contra la
+// ventana del ultimo repintado: la ranura de la etiqueta k es la que cae a k/4
+// del eje. Con el reloj del modelo sincronizado la ranura ES epoch/10, asi que
+// la hora sale directa (local si la placa ya ha mandado la zona, mismo
+// criterio que el reloj del heading: HMI_ToLocal); si no, tiempo hacia atras
 // "-h:mm" ("-0:45", "-2:00") con "0:00" en el borde derecho, que es "ahora".
-void xLabelText(int idx, int k, char *out, size_t outLen) {
-  const int n = WINDOW_POINTS[idx];
-  const int64_t backSec =
-      (int64_t)(n - (n * k) / LABEL_SEGMENTS) * (SLOT_MS / 1000);
-  const uint32_t epoch = HMI_GetEpochNow();
-  if (epoch != 0) {
+void xLabelText(int k, char *out, size_t outLen) {
+  int64_t slot = s_drawStart + (s_drawTotal * k) / LABEL_SEGMENTS;
+  if (slot > s_drawNow) slot = s_drawNow;  // el borde derecho es "ahora"
+  if (s_model.clock.synced && slot >= 0) {
+    const uint32_t epoch = (uint32_t)(slot * TREND_SLOT_SECONDS);
     const uint32_t local = HMI_HasLocalTime() ? HMI_ToLocal(epoch) : epoch;
-    const time_t t = (time_t)((int64_t)local - backSec);
+    const time_t t = (time_t)local;
     struct tm tmv;
     gmtime_r(&t, &tmv);
     snprintf(out, outLen, "%02d:%02d", tmv.tm_hour, tmv.tm_min);
     return;
   }
+  const int64_t backSec = (s_drawNow - slot) * TREND_SLOT_SECONDS;
   const int mins = (int)(backSec / 60);
-  if (mins == 0)
+  if (mins <= 0)
     snprintf(out, outLen, "0:00");
   else
     snprintf(out, outLen, "-%d:%02d", mins / 60, mins % 60);
@@ -265,14 +278,15 @@ void onChartDrawPart(lv_event_t *e) {
       lv_snprintf(dsc->text, dsc->text_length, "%d",
                   (int)(dsc->value / Y_SCALE));
     } else if (dsc->id == LV_CHART_AXIS_PRIMARY_X) {
-      xLabelText(windowIdx(), (int)dsc->value, dsc->text, dsc->text_length);
+      xLabelText((int)dsc->value, dsc->text, dsc->text_length);
     }
     return;
   }
 
   if (dsc->type == LV_CHART_DRAW_PART_DIV_LINE_VER && dsc->line_dsc) {
-    const int n = WINDOW_POINTS[windowIdx()];
-    const int linesPerLabel = (n / LABEL_SEGMENTS) / GRID_STEP_SLOTS;  // 1/2/4
+    const int idx = windowIdx();
+    const int n = trend_window_slots(idx);
+    const int linesPerLabel = (n / LABEL_SEGMENTS) / GRID_STEP_SLOTS[idx];  // 4/3/3
     const bool major = (dsc->id % linesPerLabel) == 0;
     dsc->line_dsc->opa = major ? LV_OPA_40 : LV_OPA_20;
   }
@@ -295,22 +309,22 @@ lv_color_t markColor(TrendMarkKind kind) {
 // Marcas de alarma: una linea vertical por evento visible, sobre series y
 // rejilla (DRAW_POST_END, cuando el chart ya ha pintado todo lo suyo). Alta =
 // continua con el color de la prioridad; baja (resuelta) = discontinua verde.
-// Se colocan contra la ventana del ULTIMO redraw() (s_drawStart/s_drawN), la
-// misma con la que se escribieron las series.
+// Se colocan contra la ventana del ULTIMO redraw() (s_drawStart/s_drawTotal),
+// la misma con la que se escribieron las series.
 void onChartDrawPost(lv_event_t *e) {
   lv_obj_t *chart = lv_event_get_target(e);
   lv_draw_ctx_t *dc = lv_event_get_draw_ctx(e);
-  if (!chart || !dc || s_drawN <= 0 || s_events.count == 0) return;
+  if (!chart || !dc || s_drawTotal <= 0 || s_model.events.count == 0) return;
 
   lv_area_t a;
   lv_obj_get_content_coords(chart, &a);
   const int w = lv_area_get_width(&a);
   if (w <= 0) return;
 
-  for (int i = 0; i < s_events.count; i++) {
+  for (int i = 0; i < s_model.events.count; i++) {
     TrendEvent ev;
-    if (!trend_events_get(&s_events, i, &ev)) break;
-    const int px = trend_slot_to_px(ev.slot, s_drawStart, s_drawN, w);
+    if (!trend_events_get(&s_model.events, i, &ev)) break;
+    const int px = trend_slot_to_px(ev.slot, s_drawStart, s_drawTotal, w);
     if (px < 0) continue;
 
     const TrendMarkKind kind = trend_mark_kind(ev.priority, ev.raised);
@@ -329,32 +343,51 @@ void onChartDrawPost(lv_event_t *e) {
   }
 }
 
-// Ejes y rejilla para la ventana idx. Solo hace trabajo cuando cambia la
-// ventana: lv_chart_set_point_count realoja las series (y antes se llamaba
-// en cada muestra) y set_axis_tick/set_div_line_count invalidan el chart.
+// Rejilla y marcas del eje X para la ventana idx. Solo hace trabajo cuando
+// cambia la ventana: set_axis_tick/set_div_line_count invalidan el chart. El
+// numero de PUNTOS no cambia nunca (TREND_CHART_POINTS, fijado al crear el
+// grafico): cambiar de ventana no realoja las series.
 void applyAxis(int idx) {
   if (idx == s_axisIdx) return;
   s_axisIdx = idx;
-  const int n = WINDOW_POINTS[idx];
-  const uint16_t vdiv = (uint16_t)(n / GRID_STEP_SLOTS + 1);  // 5/9/17
+  const int n = trend_window_slots(idx);
+  const uint16_t vdiv = (uint16_t)(n / GRID_STEP_SLOTS[idx] + 1);  // 17/13/13
   const uint16_t minor =
-      (uint16_t)((n / LABEL_SEGMENTS) / GRID_STEP_SLOTS);  // 1/2/4
-  for (lv_obj_t *c : s_chart) {
-    lv_chart_set_point_count(c, (uint16_t)n);
-    lv_chart_set_div_line_count(c, HDIV_LINES, vdiv);
-  }
+      (uint16_t)((n / LABEL_SEGMENTS) / GRID_STEP_SLOTS[idx]);  // 4/3/3
+  for (lv_obj_t *c : s_chart) lv_chart_set_div_line_count(c, HDIV_LINES, vdiv);
   lv_chart_set_axis_tick(s_chart[N_CHARTS - 1], LV_CHART_AXIS_PRIMARY_X, 6, 3,
                          LABEL_SEGMENTS + 1, minor, true, X_TICK_DRAW_SIZE);
 }
 
-// Repinta las series desde el anillo. El punto j (0..N-1) del chart es la
-// ranura now-(N-1)+j: el eje X es siempre la ventana completa y los datos
-// quedan pegados al borde derecho ("ahora"). Con el equipo recien encendido
-// se ve la ventana vacia con 10 min de traza a la derecha, no 10 min
-// estirados a todo el ancho como si fueran 4 h. Y si el enlace lleva un
-// rato caido, la traza se va desplazando a la izquierda con el tiempo
-// (TelemetryHistory_Poll repinta al cambiar de ranura) en vez de quedarse
-// pegada al borde fingiendo ser actual.
+static_assert(sizeof(lv_coord_t) == sizeof(int16_t),
+              "la decimacion escribe int16 directamente en y_points[]");
+
+// Escribe en y_points[] la serie `series` decimada para la ventana `w`, y la
+// traduce al vocabulario de LVGL: "sin dato" (medida no disponible / ranura sin
+// telemetria / consigna que no gobierna nada) -> LV_CHART_POINT_NONE, con lo
+// que LVGL corta la linea ahi en vez de unir con una recta que implicaria una
+// medida o una continuidad que no hubo. Un valor valido nunca puede valer
+// NONE (INT16_MAX): se satura un punto por debajo.
+void fillSeries(lv_chart_series_t *ser, int series, const TrendWindow &w) {
+  int16_t *y = (int16_t *)ser->y_points;
+  ser->start_point = 0;
+  trend_decimate(&s_model.store, series, &w, y);
+  for (int i = 0; i < TREND_CHART_POINTS; i++) {
+    if (y[i] == TREND_NO_DATA)
+      y[i] = (int16_t)LV_CHART_POINT_NONE;
+    else if (y[i] >= (int16_t)LV_CHART_POINT_NONE)
+      y[i] = (int16_t)(LV_CHART_POINT_NONE - 1);
+  }
+}
+
+// Repinta las series desde el anillo, decimadas a TREND_CHART_POINTS puntos
+// (721 cubos de minimo y maximo; trend_decimate). El eje X es siempre la
+// ventana completa y los datos quedan pegados al borde derecho ("ahora"): con
+// el equipo recien encendido se ve la ventana vacia con 10 min de traza a la
+// derecha, no 10 min estirados a todo el ancho como si fueran 24 h. Y si el
+// enlace lleva un rato caido, la traza se va desplazando a la izquierda con el
+// tiempo (TelemetryHistory_Poll repinta al cambiar de ranura) en vez de
+// quedarse pegada al borde fingiendo ser actual.
 //
 // Escribe y_points[] directamente y refresca una vez por chart: la version
 // anterior encadenaba lv_chart_set_next_value, que en modo SHIFT invalida el
@@ -368,47 +401,26 @@ void redraw() {
   const int64_t t0 = esp_timer_get_time();
 
   const int idx = windowIdx();
-  const int n = WINDOW_POINTS[idx];
   const int64_t now = nowSlot();
+  const TrendWindow w = trend_window_plan(now, idx);
   s_drawnSlot = now;
+  s_drawNow = now;
+  s_drawStart = w.startSlot;
+  s_drawTotal = w.totalSlots;
   applyAxis(idx);
-  s_drawStart = now - (n - 1);
-  s_drawN = n;
 
   for (int c = 0; c < N_CHARTS; c++) {
-    s_serMeas[c]->start_point = 0;
-    s_serSp[c]->start_point = 0;
+    fillSeries(s_serMeas[c], MEAS_SERIES[c], w);
+    fillSeries(s_serSp[c], SP_SERIES[c], w);
   }
-
-  const bool haveData = s_block != nullptr && s_store.count > 0;
-  for (int c = 0; c < N_CHARTS; c++) {
-    lv_coord_t *yMeas = s_serMeas[c]->y_points;
-    lv_coord_t *ySp = s_serSp[c]->y_points;
-    for (int j = 0; j < n; j++) {
-      // NO_DATA (medida no disponible / ranura sin telemetria / consigna que
-      // no gobierna nada) se pinta como LV_CHART_POINT_NONE: LVGL corta la
-      // linea ahi en vez de unir con una recta que implicaria una medida o
-      // continuidad que no hubo.
-      int16_t m = TREND_NO_DATA;
-      int16_t sp = TREND_NO_DATA;
-      if (haveData) {
-        const int64_t slot = s_drawStart + j;
-        m = trend_store_value(&s_store, MEAS_SERIES[c], slot);
-        sp = trend_store_value(&s_store, SP_SERIES[c], slot);
-      }
-      yMeas[j] = (m == TREND_NO_DATA) ? LV_CHART_POINT_NONE : (lv_coord_t)m;
-      ySp[j] = (sp == TREND_NO_DATA) ? LV_CHART_POINT_NONE : (lv_coord_t)sp;
-    }
-  }
-
   for (lv_obj_t *c : s_chart) lv_chart_refresh(c);
 
   // Medida para el banco: solo se emite con la vista abierta (una linea
   // cada 10 s). Es el coste de preparar el frame, no de pintarlo — el pintado
   // lo hace lv_timer_handler y se ve en lcd_diagnostics_log (slow_frames).
-  ESP_LOGI("TelHist", "redraw %d pts, %d muestras, %d eventos, %lld us", n,
-           s_store.count, s_events.count,
-           (long long)(esp_timer_get_time() - t0));
+  ESP_LOGI("TelHist", "redraw %d slots/%d pts, %d muestras, %d eventos, %lld us",
+           trend_window_slots(idx), TREND_CHART_POINTS, s_model.store.count,
+           s_model.events.count, (long long)(esp_timer_get_time() - t0));
 }
 
 void onWindowChanged(lv_event_t *e) {
@@ -451,6 +463,9 @@ void makeChart(int slot, lv_coord_t y, int rangeLo, int rangeHi, double safeLo,
                           (float)(safeHi * Y_SCALE),
                           (float)(rangeLo * Y_SCALE),
                           (float)(rangeHi * Y_SCALE));
+  // Geometria fija: 721 cubos x (minimo, maximo) para las tres ventanas. Se
+  // fija ANTES de anadir las series, que reservan sus y_points con este tamano.
+  lv_chart_set_point_count(chart, (uint16_t)TREND_CHART_POINTS);
   // La consigna se anade ANTES que la medida: LVGL pinta las series en orden
   // de creacion, asi que la medida queda encima de la linea de consigna.
   s_serSp[slot] = lv_chart_add_series(chart, lv_color_hex(COLOR_SETPOINT),
@@ -518,7 +533,10 @@ lv_obj_t *makeLegendItem(lv_obj_t *row, lv_color_t color, LegendGlyph glyph,
 }  // namespace
 
 void TelemetryHistory_Init(void) {
-  trend_events_init(&s_events);
+  // Modelo vacio y sin hora; el bloque de PSRAM del anillo se reserva aqui, una
+  // vez y para siempre (si falla, la tendencia queda sin datos, ver arriba).
+  trend_model_init(&s_model, nullptr, 0);
+  ensureBuffers();
 
   // lv_layer_top(), no una pantalla: igual que AlarmCenter, para poder
   // abrirse desde ui_ScreenLock sin desbloquear.
@@ -562,9 +580,9 @@ void TelemetryHistory_Init(void) {
   lv_obj_center(closeLbl);
 
   s_windowDd = lv_dropdown_create(s_content);
-  // "1 h" primero: indice 0 es la seleccion por defecto de un dropdown sin
-  // lv_dropdown_set_selected() explicito.
-  lv_dropdown_set_options(s_windowDd, "1 h\n2 h\n4 h");
+  // "4 h" primero: indice 0 es la seleccion por defecto de un dropdown sin
+  // lv_dropdown_set_selected() explicito. Mismo orden que trend_window_slots().
+  lv_dropdown_set_options(s_windowDd, "4 h\n12 h\n24 h");
   lv_obj_set_width(s_windowDd, 110);
   lv_obj_align(s_windowDd, LV_ALIGN_TOP_RIGHT, -54, 2);
   lv_obj_add_event_cb(s_windowDd, onWindowChanged, LV_EVENT_VALUE_CHANGED,
@@ -646,18 +664,36 @@ void TelemetryHistory_Open(void) {
 }
 
 void TelemetryHistory_Poll(void) {
-  // Los flancos se drenan con la vista cerrada tambien: el anillo de eventos
-  // tiene que estar al dia para cuando se abra.
+  // Con la vista cerrada tambien: la hora tiene que entrar al modelo en cuanto
+  // llegue (re-etiqueta lo guardado y habilita el volcado), y los flancos de
+  // alarma tienen que estar al dia para cuando se abra.
+  const int64_t now = nowSlot();
   const int newEdges = drainEdges();
-  if (!s_isOpen) return;
+  if (!s_isOpen) {
+    s_needRedraw = false;  // se repinta entero en Open()
+    return;
+  }
   if (mustYield()) {
     closeScreen();
     return;
   }
   // El eje avanza con el reloj aunque no llegue telemetria: un repintado
-  // por ranura (10 s), que con y_points[] directo es barato. Un flanco nuevo
-  // repinta al momento para que la marca aparezca sin esperar.
-  if (newEdges > 0 || nowSlot() != s_drawnSlot) redraw();
+  // por ranura (10 s), que es barato. Un flanco nuevo, o datos restaurados del
+  // fichero por el servicio de volcado, repintan al momento.
+  if (newEdges > 0 || s_needRedraw || now != s_drawnSlot) {
+    s_needRedraw = false;
+    redraw();
+  }
+}
+
+void TelemetryHistory_NoteLockEntered(void) { TrendPersist_RequestDumpOnLock(); }
+
+void TelemetryHistory_PersistService(void) {
+  if (!s_model.store.data) return;  // sin PSRAM: no hay nada que persistir
+  // Fuera de LVGL_Lock: es E/S de flash. El modelo es de esta misma tarea, asi
+  // que no hay carrera con Poll/RecordSample; si restaura, avisa para que la
+  // proxima pasada de Poll (bajo lock) repinte.
+  if (TrendPersist_Service(&s_model, monoMsNow(), millis())) s_needRedraw = true;
 }
 
 void TelemetryHistory_RecordAlarmEdge(uint8_t id, uint8_t priority,
@@ -697,7 +733,7 @@ void TelemetryHistory_RecordSample(float airTempC, bool airOk,
   // Una muestra por ranura: la primera telemetria de cada 10 s manda, y los
   // huecos (enlace caido, reinicio de la placa — known_issues.md #1/#5) se
   // rellenan con "sin dato" dentro de trend_store_record.
-  if (!trend_store_record(&s_store, nowSlot(), &sample)) return;
+  if (!trend_model_record(&s_model, monoMsNow(), HMI_GetEpochNow(), &sample)) return;
 
   // Redibujar solo si esta visible: el mismo ahorro que ya hacia el panel
   // retirado (evitar repintar un chart que nadie esta mirando).

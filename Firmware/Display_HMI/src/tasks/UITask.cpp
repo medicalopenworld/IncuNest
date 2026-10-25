@@ -3499,6 +3499,9 @@ static void enter_lock_screen(void) {
   lv_scr_load(ui_ScreenLock);
   show_targets_for_mode();
   lv_disp_trig_activity(NULL);
+  // Pide el volcado de la tendencia (solo una bandera: la E/S la hace
+  // TelemetryHistory_PersistService, fuera del lock).
+  TelemetryHistory_NoteLockEntered();
 }
 
 void ImgButton1_Lock_cb(lv_event_t *e) {
@@ -3626,6 +3629,7 @@ void inactivity_timer_cb(lv_timer_t *timer) {
       locked = true;
       lv_scr_load(ui_ScreenLock);
       show_targets_for_mode();
+      TelemetryHistory_NoteLockEntered();  // ver enter_lock_screen()
     }
   }
 }
@@ -5034,6 +5038,13 @@ void UI_Task(void *pvParameters) {
     if (doAlarmSound) {
       AlarmSound_Update();
     }
+
+    // Persistencia de la tendencia (hmi-trend): restauracion tras la primera
+    // hora y volcado a LittleFS. E/S de flash, asi que FUERA de LVGL_Lock
+    // (ARQ-LOCK-001), y la ULTIMA de la pasada: lo urgente (sonido de alarma,
+    // pulsos del enlace perdido) ya se atendio. Cada llamada hace como mucho un
+    // trozo de 4 KB, asi que nunca frena el refresco, ni con una alarma activa.
+    TelemetryHistory_PersistService();
   }
 }
 
