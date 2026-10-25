@@ -10,6 +10,7 @@
 #include "esp_timer.h"
 
 #include "modules/storage/hmi_fs_format.h"
+#include "drivers/lcd_recover.h"
 
 namespace {
 
@@ -110,6 +111,7 @@ void HmiFs_Service(bool ioAllowed, uint32_t nowMs) {
       return;
     }
     s_eraseUs += esp_timer_get_time() - t0;
+    LCD_RequestRestart();
     return;
   }
 
@@ -120,6 +122,7 @@ void HmiFs_Service(bool ioAllowed, uint32_t nowMs) {
     return;
   }
   const int64_t formatUs = esp_timer_get_time() - tf;
+  LCD_RequestRestart();
   if (!tryMount()) {
     giveUp("montaje tras el formateo");
     return;
@@ -169,7 +172,9 @@ bool HmiFs_ReadAll(const char *path, uint8_t *buf, size_t cap, size_t *outLen) {
 
 bool HmiFs_Remove(const char *path) {
   if (!s_mounted || !path) return false;
-  return LittleFS.remove(path);
+  const bool ok = LittleFS.remove(path);
+  LCD_RequestRestart();
+  return ok;
 }
 
 int32_t HmiFsReader::open(const char *path) {
@@ -214,12 +219,15 @@ bool HmiFsAtomicWriter::begin(const char *path) {
 
 size_t HmiFsAtomicWriter::write(const uint8_t *data, size_t n) {
   if (!open_ || !data) return 0;
-  return file_.write(data, n);
+  const size_t w = file_.write(data, n);
+  LCD_RequestRestart();
+  return w;
 }
 
 bool HmiFsAtomicWriter::commit(void) {
   if (!open_) return false;
   file_.close();  // vuelca y cierra
+  LCD_RequestRestart();  // el cierre y el renombrado escriben flash
   open_ = false;
   // lfs_rename sobre un destino existente lo sustituye de forma atomica.
   if (LittleFS.rename(tmp_, path_)) return true;

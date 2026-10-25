@@ -20,6 +20,7 @@
 #include "modules/maintenance/maintenance.h"
 #include "modules/brightness/brightness_policy.h"
 #include "drivers/backlight.h"
+#include "drivers/lcd_recover.h"
 #include "modules/maintenance/weigh_tracker.h"
 #include "modules/trend/trend_policy.h"
 #include "display_config.h"
@@ -163,6 +164,10 @@ Alarm alarmList[MAX_ALARMS];
 // ==========================================
 static esp_lcd_panel_handle_t lcd_panel = NULL;
 
+// Peticion de reinicio de la transmision del panel (drivers/lcd_recover.h).
+static volatile bool s_lcdRestartPending = false;
+void LCD_RequestRestart(void) { s_lcdRestartPending = true; }
+
 // Bounce buffer: N líneas en SRAM interno desacoplan LCD DMA de PSRAM.
 // N=24 (divisor exacto de las 480 líneas del panel, evita wraps parciales)
 // amplía el margen de "drenaje" frente a jitter de CPU/bus (p.ej. tráfico
@@ -263,6 +268,9 @@ void lcd_diagnostics_log() {
   if (frame_mismatch < 0) frame_mismatch = -frame_mismatch;
 
   if (underruns > 0 || slow_frames > 0 || frame_mismatch > 2) {
+    // Red de seguridad: un ciclo perdido puede dejar la imagen desplazada
+    // para siempre; se rearma la transmision (lcd_recover.h).
+    LCD_RequestRestart();
     ESP_LOGW("LCD_DIAG",
              "GLITCH DETECTED — underruns=%lu  slow_frames=%lu/%lu  "
              "frame_finish=%lu (mismatch=%ld)  worst_frame=%.1fms (%.1f fps)",
@@ -5092,6 +5100,13 @@ void UI_Task(void *pvParameters) {
         lcd_diag_last_ms = now_ms;
         lcd_diagnostics_log();
       }
+    }
+
+    // Reinicio pedido tras una operacion de flash o un glitch detectado:
+    // fuera de LVGL_Lock, se aplica en el siguiente VSYNC.
+    if (s_lcdRestartPending && lcd_panel) {
+      s_lcdRestartPending = false;
+      esp_lcd_rgb_panel_restart(lcd_panel);
     }
 
     // Heap/stack high-water mark — every 60 s
