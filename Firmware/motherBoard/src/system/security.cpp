@@ -32,6 +32,8 @@
 #include "modules/control/alarm_history.h"
 #include "modules/control/alarm_machine.h"
 #include "modules/control/fan_guard.h"
+#include "modules/control/mains_detector.h"
+#include "system/hw_selftest.h"
 #include "modules/debug/debug_mode.h"
 #include "modules/control/alarm_test.h"
 #include "modules/control/alarm_window.h"
@@ -1180,6 +1182,38 @@ static void checkHmiLink()
   alarm_machine_condition(ALARM_HMI_LINK_LOST, lost, millis());
 }
 
+// ALARM_MAINS_INTERRUPTION (60601-2-19 201.12.3.103).
+//
+// La decision (antirrebote de 2 lecturas, minimo de 10 min desde la
+// declaracion, lecturas no validas sin efecto) vive en
+// modules/control/mains_detector.cpp y la alimenta sensors_Task tras cada
+// lectura del cargador. Aqui solo se traduce su veredicto, en cada pasada,
+// porque el vencimiento del plazo de 10 min se evalua al consultar.
+static void checkMainsInterruption()
+{
+  extern MainsDetector g_mains_detector;
+
+  // Sin cargador no hay fuente de la senal: la placa no puede saber si hay
+  // red, asi que no declara. Se anota una sola vez.
+  if (!chargerPresent)
+  {
+    static bool logged = false;
+    if (!logged)
+    {
+      logged = true;
+      ESP_LOGI(TAG, "Sin cargador BQ25730: no se vigila la interrupcion de red");
+    }
+    alarm_machine_condition(ALARM_MAINS_INTERRUPTION, false, millis());
+    return;
+  }
+
+  // El test de fabrica maneja la alimentacion y el cargador a su manera: no
+  // declara una alarma real durante la bateria.
+  const bool present =
+      !g_factoryTestActive && mains_detector_condition(&g_mains_detector, millis());
+  alarm_machine_condition(ALARM_MAINS_INTERRUPTION, present, millis());
+}
+
 static void publishAlarmChanges()
 {
   const uint32_t mask = alarm_machine_bitmask();
@@ -1278,6 +1312,7 @@ void securityCheck()
   // El tick va DESPUES de la deteccion y ANTES de publicar: es el que hace
   // madurar PENDING -> ACTIVE y el que expira las pausas de audio.
   checkHmiLink();
+  checkMainsInterruption();
   // Las alarmas forzadas del modo depuracion se declaran despues de TODOS los
   // detectores y antes del tick: asi lo forzado gana a lo medido, pero el
   // retardo de anuncio, la prioridad, el enclavamiento y el corte de

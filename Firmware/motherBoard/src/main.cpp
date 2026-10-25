@@ -32,6 +32,7 @@
 #include "state/state.h"
 #include "modules/debug/debug_mode.h"
 #include "modules/control/photo_override.h"
+#include "modules/control/mains_detector.h"
 #include "modules/sensorboard_comm/sensorboard_comm.h"
 #include "modules/sensors/sensor_source.h"
 #include "system/hw_selftest.h"
@@ -273,6 +274,35 @@ bool           g_bq_status_valid = false;
 // millis() del ultimo refresco con exito: el test de fabrica exige frescura
 // ademas del flag, porque un `true` sin sello sobreviviria a una tarea parada.
 uint32_t       g_bq_status_ms    = 0;
+
+// Detector de interrupcion de red (ALARM_MAINS_INTERRUPTION). Lo ALIMENTA solo
+// sensors_Task, tras cada lectura del cargador; lo CONSULTA securityCheck()
+// (checkMainsInterruption, security.cpp). Ver modules/control/mains_detector.h.
+MainsDetector g_mains_detector = {};
+
+// UNICO PUNTO donde se decide "hay red": cualquier fuente nueva entra aqui y
+// el detector no se entera. Hoy es el bit AC_STAT del BQ25730 (por I2C).
+//
+// La rev. V19 anade MAINS_OK_PIN (IO42, CHRG_OK del mismo cargador) y su
+// getter mainsPresentPin(). Se combinara aqui como AND sobre las fuentes que
+// responden — la red cuenta como presente solo si todas dicen que lo esta —,
+// con `valid` = registro valido OR pin presente: el pin sigue decidiendo con el
+// bus I2C colgado. AND y no OR porque el fallo que importa es no avisar de un
+// corte real (201.12.3.103), y una fuente atascada en "presente" lo taparia.
+// Razonado en openspec/changes/shared-mains-detector/design.md.
+struct MainsReading {
+  bool valid;
+  bool present;
+  uint16_t vbat_mv;
+};
+static MainsReading mains_present_now() {
+  MainsReading r = {};
+  r.valid = chargerPresent && g_bq_status_valid;
+  r.present = r.valid && g_bq_status.ac_present;
+  r.vbat_mv = g_bq_status.vbat_mv;
+  return r;
+}
+
 void sensors_Task(void *pvParameters) {
   // Instante en que empieza a haber muestras periodicas de verdad. Lo usa
   // checkStatusOfSensor() (security.cpp) como referencia de frescura: el sello
@@ -311,6 +341,11 @@ void sensors_Task(void *pvParameters) {
         g_bq_status_valid = charge_status(&g_bq_status);
         if (g_bq_status_valid) g_bq_status_ms = millis();
         lastChargerUpdate = millis();
+        {
+          const MainsReading mains = mains_present_now();
+          mains_detector_sample(&g_mains_detector, mains.valid, mains.present,
+                                mains.vbat_mv, millis());
+        }
         // Detecta transición ausente→presente del adaptador y reinicializa el
         // chip: algunos BQ25xxx pierden VINDPM/IIN al re-detectar VBUS, así que
         // reaplicamos toda la config para asegurar carga estable.

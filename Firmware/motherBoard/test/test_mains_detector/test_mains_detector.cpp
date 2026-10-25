@@ -204,6 +204,18 @@ void test_hold_survives_millis_wraparound(void) {
   TEST_ASSERT_FALSE(cond(t0 + MAINS_ALARM_MIN_HOLD_MS));
 }
 
+// Un plazo ya cerrado no puede resucitar cuando millis() da la vuelta (~49,7
+// dias despues): since_ms quedaria "reciente" otra vez.
+void test_expired_hold_does_not_resurrect_after_a_full_clock_cycle(void) {
+  const uint32_t t0 = feedN(2, false, 100000);
+  const uint32_t tr = feedN(2, true, t0 + MAINS_ALARM_MIN_HOLD_MS + 5000u);
+  TEST_ASSERT_FALSE(cond(tr));
+  // Una vuelta entera de reloj despues, con el mismo valor de millis() que
+  // t0 + 1 s: sin cerrar el plazo, la resta sin signo daria 1 s < 10 min.
+  feed(true, true, tr + 3600000u);
+  TEST_ASSERT_FALSE(cond(t0 + 1000u));
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_starts_without_condition);
@@ -226,5 +238,6 @@ int main(int, char **) {
   RUN_TEST(test_reinterruption_during_hold_restarts_the_minimum);
   RUN_TEST(test_new_interruption_after_release_is_declared_again);
   RUN_TEST(test_hold_survives_millis_wraparound);
+  RUN_TEST(test_expired_hold_does_not_resurrect_after_a_full_clock_cycle);
   return UNITY_END();
 }
