@@ -26,12 +26,22 @@ struct PatientAge {
   uint8_t corrDays;    // ...y dias (0-6)
 };
 
-// `captureEpoch` y `nowEpoch` son epoch UTC; 0 = "sin hora". Si falta alguno,
-// o si la hora fue hacia atras, no se suma nada: se devuelve el valor
-// capturado, que es un limite inferior y nunca un dato inventado.
+// `captureEpoch` y `nowEpoch` son epoch UTC; 0 = "sin hora". La edad es
+// DESCONOCIDA (hasLifeDays = hasCorrected = false) si no hubo hora al capturar,
+// si falta ahora, o si han pasado mas de PATIENT_AGE_MAX_ELAPSED_DAYS: sin hora
+// no se puede afirmar cuantos dias han pasado, y un contador congelado en el
+// valor de hace horas es peor que ninguno. Si la hora fue hacia atras (un
+// ajuste de reloj) no se suma nada.
+constexpr uint32_t PATIENT_AGE_MAX_ELAPSED_DAYS = 365u;
 PatientAge patient_age_compute(uint8_t gestWeeks, bool ageKnown,
                                uint16_t ageDaysAtCapture,
                                uint32_t captureEpoch, uint32_t nowEpoch);
+
+// Dias de vida para el detalle del boton "Bebes" (que mide 110 px): "5", "99",
+// "99+" a partir de PATIENT_LIFE_DAYS_CAP. El formato localizado pone la "d"/"j"
+// detras.
+constexpr uint32_t PATIENT_LIFE_DAYS_CAP = 99u;
+size_t patient_fmt_life_days(uint32_t days, char *out, size_t len);
 
 // --------------------------------------------------------------------------
 // Formato
@@ -71,6 +81,11 @@ struct PatientAccum {
   uint32_t lastTickMs;
   bool hasTick;
   bool photoOn, thermoOn, humidityOn;  // estado en la ultima pasada
+  // false = no se sabe cuantos minutos lleva este bebe: no hay siembra, ni
+  // registro de NVS valido, ni lista de la placa que los diga. Un contador que
+  // empezase en 0 se mostraria como el total real. Mientras no se conozcan, no
+  // se cuenta ni se muestra; la primera lista (resync) los fija.
+  bool known;
   bool dirty;                          // cambio sin volcar a NVS
   bool stopEdge;                       // todas se pararon: volcar ya
   uint32_t lastFlushMs;
@@ -110,10 +125,20 @@ void patient_accum_flush_done(PatientAccum *a, uint32_t nowMs);
 // arrastraria el relleno y haria el formato dependiente del compilador. Cada
 // registro es UN blob: la NVS no es transaccional, y con claves sueltas un
 // corte dejaria el nombre de un bebe con los minutos de otro.
-constexpr uint8_t PATIENT_RECORD_VERSION = 1;
+//
+// pat_id v2 anade el `sn` de la placa: sin el, un seq solo identifica a un bebe
+// DENTRO de una placa y dos placas colisionan. La v1 no se puede atar a nadie y
+// se descarta.
+constexpr uint8_t PATIENT_ID_RECORD_VERSION = 2;
+constexpr uint8_t PATIENT_THER_RECORD_VERSION = 1;
 constexpr size_t PATIENT_NAME_LEN = 24;
-constexpr size_t PATIENT_ID_RECORD_SIZE = 40;
+constexpr size_t PATIENT_ID_RECORD_SIZE = 44;
+constexpr size_t PATIENT_ID_RECORD_V1_SIZE = 40;  // solo para reconocerlo
 constexpr size_t PATIENT_THER_RECORD_SIZE = 20;
+// Semanas de gestacion admitidas al decodificar: 0 (no informadas) o 20-44. El
+// asistente pide 20-40; el margen es para lo que ya viva en la placa.
+constexpr uint8_t PATIENT_GEST_MIN = 20;
+constexpr uint8_t PATIENT_GEST_MAX = 44;
 
 struct PatientIdentity {
   uint32_t seq;
@@ -122,6 +147,7 @@ struct PatientIdentity {
   bool ageKnown;
   uint16_t ageDays;
   uint32_t captureEpoch;
+  uint32_t boardSn;  // `sn` de la placa a la que pertenece el seq
 };
 
 // Escribe PATIENT_ID_RECORD_SIZE bytes en `out`. false si seq == 0 o args nulos.
@@ -141,3 +167,62 @@ bool patient_therapy_decode(const uint8_t *in, size_t len,
 // Restaura el acumulador desde un registro, solo si es del `expectedSeq`.
 bool patient_accum_restore(PatientAccum *a, const PatientTherapyRecord *rec,
                            uint32_t expectedSeq);
+
+// --------------------------------------------------------------------------
+// Confirmacion de la identidad con la placa
+// --------------------------------------------------------------------------
+// Una identidad restaurada de la NVS nace SIN CONFIRMAR: el HMI solo sabe lo
+// que vio, y puede estar enfrente de otra placa, de una NVS borrada o de un
+// alta hecha por otra via. La placa si sabe quien esta al mando (activeSeq,
+// campo 24 de CTRL,STATE). Estas funciones son la decision; el pegamento (leer
+// ctrl_state_msg, pedir la lista, pintar) esta en state/patient_state.cpp.
+struct PatientBoardView {
+  bool stateSeen;        // ya llego algun CTRL,STATE de la placa
+  bool sendsActiveSeq;   // la linea traia el campo 24 (placa nueva)
+  uint32_t activeSeq;    // solo vale si sendsActiveSeq
+  bool therapyOn;        // la placa dice act != 0 o photo != 0
+  uint32_t sn;           // sn de la placa conectada
+};
+enum PatientConfirmAction {
+  PATIENT_CONFIRM_WAIT = 0,  // sin decision todavia
+  PATIENT_CONFIRM_CONFIRM,   // la placa confirma este bebe
+  PATIENT_CONFIRM_CLEAR,     // la placa lo contradice: borrar
+};
+// Tabla de decision para una identidad restaurada (ver design.md D2). Con una
+// placa que no manda activeSeq nunca decide por si sola: WAIT (se contrasta
+// con la lista, patient_list_has_baby).
+PatientConfirmAction patient_confirm_decide(uint32_t identitySeq,
+                                            uint32_t identitySn,
+                                            const PatientBoardView *board);
+
+// Un renglon de CTRL,PROFILE_LIST, sin depender del tipo de CommTask.h.
+struct PatientListEntry {
+  uint32_t seq;
+  char name[PATIENT_NAME_LEN];
+  uint8_t gestWeeks;
+};
+// El bebe esta en la lista con el MISMO seq, nombre y semanas. Cualquier
+// diferencia (mismo seq con otro nombre = otro bebe) es "no esta".
+bool patient_list_has_baby(const PatientIdentity *id,
+                           const PatientListEntry *entries, int count);
+
+// Mismo bebe que el recordado: seq, nombre y semanas iguales. Con el mismo seq
+// y otro nombre la placa reasigno el seq: es otro bebe, y su edad y sus
+// acumulados no valen.
+bool patient_same_baby(const PatientIdentity *id, uint32_t seq,
+                       const char *name, uint8_t gestWeeks);
+
+// Acreditar minutos solo si la placa dice que ESE bebe esta al mando (la placa
+// acredita al activeSeq y, con 0, a nadie); sin dato de la placa, solo con la
+// identidad confirmada.
+bool patient_credit_allowed(uint32_t accSeq, bool sendsActiveSeq,
+                            uint32_t activeSeq, bool confirmed);
+
+// Que se pinta: nada, la identidad completa, o (placa antigua con el bebe en su
+// lista) el nombre en gris con "?" y sin edad ni minutos.
+enum PatientDisplay {
+  PATIENT_DISPLAY_HIDDEN = 0,
+  PATIENT_DISPLAY_CONFIRMED,
+  PATIENT_DISPLAY_UNCONFIRMED,
+};
+PatientDisplay patient_display_state(bool confirmed, bool listedOnLegacyBoard);

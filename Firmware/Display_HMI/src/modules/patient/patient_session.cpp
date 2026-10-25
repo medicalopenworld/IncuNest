@@ -37,10 +37,10 @@ uint32_t get_u32(const uint8_t *p) {
 
 // Offsets del registro de identidad (ver patient_session.h).
 constexpr size_t ID_VER = 0, ID_GEST = 1, ID_FLAGS = 2, ID_SEQ = 4,
-                 ID_EPOCH = 8, ID_AGE = 12, ID_NAME = 16;
+                 ID_EPOCH = 8, ID_AGE = 12, ID_NAME = 16, ID_SN = 40;
 constexpr uint8_t ID_FLAG_AGE_KNOWN = 0x01;
-static_assert(ID_NAME + PATIENT_NAME_LEN == PATIENT_ID_RECORD_SIZE,
-              "el nombre cierra el registro de identidad");
+static_assert(ID_NAME + PATIENT_NAME_LEN == ID_SN && ID_SN + 4 == PATIENT_ID_RECORD_SIZE,
+              "el sn cierra el registro de identidad");
 
 // Offsets del registro de terapia.
 constexpr size_t TH_VER = 0, TH_SEQ = 4, TH_PHOTO = 8, TH_THERMO = 12,
@@ -210,7 +210,7 @@ bool patient_identity_encode(const PatientIdentity *id, uint8_t *out,
     return false;
   }
   memset(out, 0, PATIENT_ID_RECORD_SIZE);
-  out[ID_VER] = PATIENT_RECORD_VERSION;
+  out[ID_VER] = PATIENT_ID_RECORD_VERSION;
   out[ID_GEST] = id->gestWeeks;
   out[ID_FLAGS] = id->ageKnown ? ID_FLAG_AGE_KNOWN : 0;
   put_u32(out + ID_SEQ, id->seq);
@@ -226,7 +226,7 @@ bool patient_identity_encode(const PatientIdentity *id, uint8_t *out,
 bool patient_identity_decode(const uint8_t *in, size_t len,
                              PatientIdentity *id) {
   if (!in || !id || len != PATIENT_ID_RECORD_SIZE) return false;
-  if (in[ID_VER] != PATIENT_RECORD_VERSION) return false;
+  if (in[ID_VER] != PATIENT_ID_RECORD_VERSION) return false;
   const uint32_t seq = get_u32(in + ID_SEQ);
   if (seq == 0) return false;
   if (memchr(in + ID_NAME, '\0', PATIENT_NAME_LEN) == nullptr) return false;
@@ -246,7 +246,7 @@ bool patient_therapy_encode(const PatientAccum *a, uint8_t *out,
     return false;
   }
   memset(out, 0, PATIENT_THER_RECORD_SIZE);
-  out[TH_VER] = PATIENT_RECORD_VERSION;
+  out[TH_VER] = PATIENT_THER_RECORD_VERSION;
   put_u32(out + TH_SEQ, a->seq);
   put_u32(out + TH_PHOTO, a->photoSec);
   put_u32(out + TH_THERMO, a->thermoSec);
@@ -257,7 +257,7 @@ bool patient_therapy_encode(const PatientAccum *a, uint8_t *out,
 bool patient_therapy_decode(const uint8_t *in, size_t len,
                             PatientTherapyRecord *rec) {
   if (!in || !rec || len != PATIENT_THER_RECORD_SIZE) return false;
-  if (in[TH_VER] != PATIENT_RECORD_VERSION) return false;
+  if (in[TH_VER] != PATIENT_THER_RECORD_VERSION) return false;
   const uint32_t seq = get_u32(in + TH_SEQ);
   if (seq == 0) return false;
   rec->seq = seq;
@@ -277,3 +277,29 @@ bool patient_accum_restore(PatientAccum *a, const PatientTherapyRecord *rec,
   a->humiditySec = rec->humiditySec;
   return true;
 }
+
+// ---------------------------------------- RED: stubs, sin comportamiento
+
+size_t patient_fmt_life_days(uint32_t, char *out, size_t len) {
+  if (out && len) out[0] = '\0';
+  return 0;
+}
+
+PatientConfirmAction patient_confirm_decide(uint32_t, uint32_t,
+                                            const PatientBoardView *) {
+  return PATIENT_CONFIRM_WAIT;
+}
+
+bool patient_list_has_baby(const PatientIdentity *, const PatientListEntry *,
+                           int) {
+  return false;
+}
+
+bool patient_same_baby(const PatientIdentity *, uint32_t, const char *,
+                       uint8_t) {
+  return false;
+}
+
+bool patient_credit_allowed(uint32_t, bool, uint32_t, bool) { return false; }
+
+PatientDisplay patient_display_state(bool, bool) { return PATIENT_DISPLAY_HIDDEN; }
