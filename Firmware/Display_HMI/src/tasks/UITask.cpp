@@ -684,12 +684,11 @@ void connectivity_heading_update(void) {
 // Indicador "en bateria" del heading (Main y su replica en Lock).
 //
 // La fuente es el bit de ALARM_MAINS_INTERRUPTION en alarmBitmask de
-// CTRL,STATE: la placa ya lo calcula (detector de red, con su antirrebote y su
-// minimo de 10 min) y el bitmask es la "verdad binaria" que se repite cada
-// segundo (known issue 1), asi que no hace falta campo de protocolo y un
-// CTRL,ALM perdido no deja el indicador atascado. Por lo mismo sigue a la
-// condicion SENALIZADA, no a la presencia fisica de red: durante el plazo
-// minimo del aviso se mantiene aunque la red haya vuelto.
+// CTRL,STATE: la placa ya lo calcula (detector de red, con su antirrebote) y el
+// bitmask es la "verdad binaria" que se repite cada segundo (known issue 1),
+// asi que no hace falta campo de protocolo y un CTRL,ALM perdido no deja el
+// indicador atascado. Sigue a la condicion SENALIZADA, no a la presencia
+// fisica de red: se retira cuando la placa confirma que la red ha vuelto.
 //
 // Sin enlace con la placa, o con el bitmask nulo (0xFFFFFFFF = "no vino en la
 // trama"), no hay dato fresco y se oculta, igual criterio que
@@ -698,15 +697,19 @@ void connectivity_heading_update(void) {
 // Corre en cada pasada del bucle de UI, ya dentro del bloqueo de LVGL, y solo
 // toca widgets: nada de NVS ni I2C aqui (ARQ-LOCK-001). Solo escribe cuando
 // cambia la senal o el idioma, para no repintar a 20 Hz.
+// `text` es NULL en Main, que lleva solo el icono (no cabe la palabra sin pisar
+// la fecha del reloj).
 static void apply_on_battery_indicator(lv_obj_t *icon, lv_obj_t *text, bool on) {
-  if (!icon || !text) return;
+  if (!icon) return;
   if (on) {
-    lv_label_set_text(text, TR(STR_ON_BATTERY));
     lv_obj_clear_flag(icon, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(text, LV_OBJ_FLAG_HIDDEN);
+    if (text) {
+      lv_label_set_text(text, TR(STR_ON_BATTERY));
+      lv_obj_clear_flag(text, LV_OBJ_FLAG_HIDDEN);
+    }
   } else {
     lv_obj_add_flag(icon, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(text, LV_OBJ_FLAG_HIDDEN);
+    if (text) lv_obj_add_flag(text, LV_OBJ_FLAG_HIDDEN);
   }
 }
 
@@ -721,7 +724,7 @@ void on_battery_heading_update(void) {
   if (signature == lastSignature) return;
   lastSignature = signature;
 
-  apply_on_battery_indicator(ui_OnBatteryIcon, ui_OnBatteryText, on);
+  apply_on_battery_indicator(ui_OnBatteryIcon, NULL, on);
   apply_on_battery_indicator(ui_LockOnBatteryIcon, ui_LockOnBatteryText, on);
 }
 
