@@ -855,8 +855,9 @@ release window is defensive and verified to leave the lamp off.
     **No LEDC fade may ever be installed on `PHOTOTHERAPY_PWM_CHANNEL`**:
     `ledcWrite` takes a semaphore only when fade is installed, and that would
     be a semaphore inside a critical section (kernel assert). `board.h` and
-    `photoPwmRefresh()` say so, and `photoPwmCheckNoFade()` checks it once at
-    boot. (4) The minutes of a *real* therapy already ON when the test starts
+    `photoPwmRefresh()` say so; there is deliberately no runtime check
+    (installing/uninstalling the fade service just to look would allocate and
+    register its ISR globally, and break a legitimate fade user). (4) The minutes of a *real* therapy already ON when the test starts
     are not counted per baby. (5) `timeTrackHandler` excludes the test from
     the phototherapy hours, but the `Phototherapy_active` telemetry key
     publishes it as active (it is the real lamp state). (6) While the test is

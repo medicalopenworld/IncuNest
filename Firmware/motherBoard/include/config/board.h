@@ -172,7 +172,7 @@
 // semaforo para esperar el fade en curso, y tomar un semaforo dentro de una
 // seccion critica dispara un assert del kernel (o bloquea con interrupciones
 // deshabilitadas). Sin fade, ledcWrite es una escritura de registro y no
-// bloquea. initHardware.cpp comprueba en el arranque que no hay fade instalado.
+// bloquea. Nada lo comprueba en tiempo de ejecucion: es una regla de revision.
 #define PHOTOTHERAPY_PWM_CHANNEL 4
 #define HUMIDIFIER_PWM_CHANNEL 5
 #define FAN_CTL_PWM_CHANNEL 6

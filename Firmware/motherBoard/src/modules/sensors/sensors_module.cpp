@@ -5,7 +5,6 @@
 #include "main.h"
 #include "modules/control/alarm_machine.h"
 #include "modules/control/photo_fault.h"
-#include "driver/ledc.h"
 #include "modules/sensorboard_comm/sensorboard_comm.h"
 #include "sensor_source.h"
 #include "system/hw_selftest.h"
@@ -107,25 +106,11 @@ static bool photoSampleIsNew() {
 // RESTRICCION: no se puede instalar fade (ledc_fade_func_install / ledcFade) en
 // PHOTOTHERAPY_PWM_CHANNEL. Hoy ledcWrite() solo toma un semaforo si hay fade
 // instalado; con el, esto seria un semaforo dentro de una seccion critica
-// (assert del kernel, o bloqueo con interrupciones deshabilitadas). Ver board.h;
-// initHardware.cpp lo comprueba una vez en el arranque (photoPwmCheckNoFade()),
-// sin coste en este camino.
+// (assert del kernel, o bloqueo con interrupciones deshabilitadas). Ver board.h.
+// No hay comprobacion en tiempo de ejecucion: instalar y desinstalar el fade
+// solo para mirar reservaria memoria y registraria su ISR globalmente, y
+// romperia a otro usuario legitimo del fade. Basta con esta prohibicion escrita.
 static portMUX_TYPE s_photoPwmMux = portMUX_INITIALIZER_UNLOCKED;
-// Comprobacion UNICA en el arranque de la restriccion de arriba. El servicio de
-// fade de LEDC es global: ledc_fade_func_install() devuelve
-// ESP_ERR_INVALID_STATE si ya estaba instalado. Si no lo estaba, queda
-// instalado por esta prueba y se desinstala en el acto. Nada de esto toca el
-// camino caliente.
-void photoPwmCheckNoFade(void) {
-  const esp_err_t r = ledc_fade_func_install(0);
-  if (r == ESP_ERR_INVALID_STATE) {
-    logE("[HW] -> LEDC fade instalado: ledcWrite() tomara un semaforo y "
-         "photoPwmRefresh() lo llama dentro de una seccion critica");
-  } else if (r == ESP_OK) {
-    ledc_fade_func_uninstall();
-  }
-}
-
 void photoPwmRefresh(void) {
   portENTER_CRITICAL(&s_photoPwmMux);
   ledcWrite(PHOTOTHERAPY_PWM_CHANNEL,
