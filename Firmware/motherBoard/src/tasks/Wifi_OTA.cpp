@@ -36,6 +36,7 @@
 #include "PpgSnapshot.h"
 #include "PpgSnapshotPublish.h"
 #include "main.h"
+#include "modules/config/runtime_config_tb.h"
 #include "tasks/CrashReporter.h"
 #include "modules/debug/debug_mode.h"
 #include "modules/util/tz_source.h"
@@ -1934,6 +1935,10 @@ static constexpr size_t WIFI_RPC_CB_COUNT =
     sizeof(wifi_rpc_callbacks) / sizeof(wifi_rpc_callbacks[0]);
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Suscripcion a los atributos compartidos de configuracion: UNA vez por cliente
+// (ver runtime_config_tb.h). Solo la toca la tarea WiFi.
+static bool s_cfgSubscribed = false;
+
 void WIFI_TB_OTA() {
   if (WIFIIsConnected()) {
     // Independiente del aprovisionamiento en ThingsBoard a propósito: mismo
@@ -2000,6 +2005,11 @@ void WIFI_TB_OTA() {
           for (size_t i = 0; i < WIFI_RPC_CB_COUNT; i++) {
             tb_wifi.RPC_Subscribe(wifi_rpc_callbacks[i]);
           }
+          // Configuracion remota por atributos compartidos (mb-remote-config):
+          // suscripcion en caliente (una vez) + peticion de los valores
+          // actuales (cada conexion) + eco de lo que tiene la placa.
+          runtime_config_tb_connected(tb_wifi, runtime_config_on_shared_wifi,
+                                      &s_cfgSubscribed, "WIFI");
           if (ENABLE_WIFI_OTA && !Wifi_TB.OTA_requested) {
             Wifi_TB.OTA_requested = true;
           }
@@ -2007,6 +2017,9 @@ void WIFI_TB_OTA() {
           Wifi_TB.lastOTACheck = millis();
         }
       } else {
+        // Eco del valor efectivo de la configuracion, fuera de cualquier
+        // callback del SDK. Una lectura atomica cuando no hay nada pendiente.
+        runtime_config_tb_publish_echo(tb_wifi);
         if (millis() - Wifi_TB.lastMQTTPublish > WIFI_PUBLISH_INTERVAL) {
           addTelemetriesToWIFIJSON();
           warnIfWifiTelemetryTruncated("telemetria");

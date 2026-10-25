@@ -310,7 +310,7 @@ static void test_eco_solo_lleva_las_claves_pendientes(void) {
   TEST_ASSERT_TRUE(n > 0);
   TEST_ASSERT_EQUAL_UINT(strlen(buf), n);
 
-  StaticJsonDocument<256> doc;
+  StaticJsonDocument<512> doc;
   TEST_ASSERT_EQUAL_INT(DeserializationError::Ok,
                         deserializeJson(doc, buf).code());
   TEST_ASSERT_EQUAL_UINT(2, doc.size());
@@ -348,7 +348,7 @@ static void test_eco_completo_a_valores_maximos_cabe(void) {
   TEST_ASSERT_TRUE(n > 0);
   TEST_ASSERT_TRUE(n < sizeof(buf));
 
-  StaticJsonDocument<256> doc;
+  StaticJsonDocument<512> doc;
   TEST_ASSERT_EQUAL_INT(DeserializationError::Ok,
                         deserializeJson(doc, buf).code());
   TEST_ASSERT_EQUAL_UINT(RCFG_COUNT, doc.size());

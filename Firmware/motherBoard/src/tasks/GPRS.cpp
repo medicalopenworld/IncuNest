@@ -44,6 +44,7 @@
 #include "SPO2.h"
 #include "Wifi_OTA.h"
 #include "main.h"
+#include "modules/config/runtime_config_tb.h"
 #include "tasks/CrashReporter.h"
 
 // Initialize GSM modem
@@ -1302,6 +1303,11 @@ static void publishBabyCloudDataGPRS() {
   }
 }
 
+// La suscripcion a los atributos compartidos de configuracion se hace UNA vez
+// por cliente, no en cada conexion (ver runtime_config_tb.h). Solo la toca la
+// tarea GPRS.
+static bool s_cfgSubscribed = false;
+
 void GPRSPost() {
   // Independiente de ThingsBoard a proposito: sin esto, una unidad sin
   // numero de serie (in3.serialNumber == 0) nunca sale del "Waiting for
@@ -1359,6 +1365,12 @@ void GPRSPost() {
         logModemData("[GPRS] -> Connected to host");
         GPRS.serverConnectionStatus = true;
         subscribeRPCHandlers();
+        // Configuracion remota por atributos compartidos (mb-remote-config).
+        // Tras subscribeRPCHandlers() y antes del OTA a proposito: si el
+        // fabricante cambio un limite mientras la unidad estaba apagada, hay
+        // que recogerlo aunque la comprobacion de firmware se alargue.
+        runtime_config_tb_connected(tb, runtime_config_on_shared_gprs,
+                                    &s_cfgSubscribed, "GPRS");
         if (ENABLE_GPRS_OTA && !GPRS.OTA_requested) {
           logModemData("[GPRS] -> Requesting OTA");
           GPRSCheckOTA();
@@ -1368,6 +1380,9 @@ void GPRSPost() {
       }
     }
     if (tb.connected()) {
+      // Eco del valor efectivo de la configuracion, fuera de cualquier callback
+      // del SDK. Una lectura atomica cuando no hay nada pendiente.
+      runtime_config_tb_publish_echo(tb);
       // Un apagado de fototerapia o control adelanta la publicacion: si no,
       // en standby (3600 s) ThingsBoard tardaria hasta una hora en verlo.
       // Ver modules/util/therapy_off_edge.h.
