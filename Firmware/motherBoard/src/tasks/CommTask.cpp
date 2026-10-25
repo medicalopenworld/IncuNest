@@ -377,11 +377,14 @@ static int LinkBarsFromGprsCsq(int csq) {
 //  SEND STATE TO HMI
 // ======================================================
 static void send_state_to_hmi() {
-  // 192 y no 160: el campo silencedBitmask anadio hasta 11 caracteres y el
-  // peor caso (fwVer de 20, tres bitmask/contadores al ancho maximo) se
-  // quedaba al filo. Truncar aqui no da error, da una linea que el HMI
-  // descarta entera y una pantalla que deja de refrescarse.
-  char msg[192];
+  // 224 y no 192 (ni 160): el campo silencedBitmask anadio hasta 11 caracteres
+  // y el peor caso (fwVer de 20, tres bitmask/contadores al ancho maximo) se
+  // quedaba al filo. activeSeq anade otros 11 (coma + un uint32 de hasta 10
+  // digitos): el peor caso razonable de la linea completa ronda los 183 bytes,
+  // a 9 del limite de 192, y con 224 quedan ~40 de holgura. Truncar aqui no da
+  // error, da una linea que el HMI descarta entera y una pantalla que deja de
+  // refrescarse.
+  char msg[224];
   int alarmCount = getActiveAlarmCount();
   double remainingTime = getRemainingPhotoTime();
 
@@ -437,7 +440,7 @@ static void send_state_to_hmi() {
   }
 
   snprintf(msg, sizeof(msg),
-           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d,%d,0x%X,0x%X,%d,%d,%d,0x%X\n",
+           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d,%d,0x%X,0x%X,%d,%d,%d,0x%X,%u\n",
            (int)g_last_cmd.actuation, (int)g_last_cmd.controlMode,
            (double)g_last_cmd.desiredAirTemperature,
            (double)g_last_cmd.desiredSkinTemperature,
@@ -446,7 +449,8 @@ static void send_state_to_hmi() {
            HW_REVISION, FWversion, alarmCount, (int)g_last_cmd.skinModeEnabled,
            (int)ctrl_tel_msg.serverCommStatus, remainingTime, in3.language,
            skinProbeState, alarmBitmask, silencedBitmask, almTest,
-           silenceLeftS, (int)ctrl_tel_msg.linkBars, latchedBitmask);
+           silenceLeftS, (int)ctrl_tel_msg.linkBars, latchedBitmask,
+           (unsigned)babyStore_getActiveSeq());
 
 
   ESP_LOGI(TAG, "Sending state to HMI: %s", msg);
