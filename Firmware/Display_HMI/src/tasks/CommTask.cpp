@@ -507,7 +507,8 @@ void Communication_SendSetTime(int year, int month, int day, int hour,
 #endif
 }
 
-void Communication_SendProfileWeight(uint32_t seq, uint16_t grams) {
+void Communication_SendProfileWeight(uint32_t seq, uint16_t grams,
+                                     bool stampOnSend) {
 #if IS_HMI
   if (Training_IsActive()) { Training_SimProfileWeight(seq, grams); return; }
   if (Training_IsPracticeSeq(seq)) return;  // ver SendProfileSelect
@@ -517,9 +518,10 @@ void Communication_SendProfileWeight(uint32_t seq, uint16_t grams) {
     COMM_SERIAL.printf("HMI,PROFILE_WEIGHT,%u,%u\n", (unsigned)seq,
                        (unsigned)grams);
     // Sello de la pesada para el recordatorio diario: el protocolo no trae el
-    // epoch de la ultima. Aqui, y no en cada llamador, para que cualquier
-    // camino de pesada (asistente, pantalla Bebes, aviso) quede sellado.
-    WeighTracker_NoteWeighed(seq, grams);
+    // epoch de la ultima. Los llamadores que no esperan respuesta (asistente,
+    // pantalla Bebes) sellan aqui, al enviar. El dialogo de PESAR AHORA pide
+    // stampOnSend=false y sella al recibir CTRL,PROFILE_RANGE.
+    if (stampOnSend) WeighTracker_NoteWeighed(seq, grams);
   }
 #endif
 }

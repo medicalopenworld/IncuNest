@@ -397,7 +397,12 @@ void Communication_SendFtestConfirm(uint8_t id, bool ok);
 void Communication_SendProfileListReq(void);
 void Communication_SendProfileNew(const char *name, uint8_t gestWeeks);
 void Communication_SendProfileSelect(uint32_t seq);
-void Communication_SendProfileWeight(uint32_t seq, uint16_t grams); // 0 = SKIP
+// 0 = SKIP. `stampOnSend`: sella la pesada para el recordatorio diario al
+// enviarla (asistente y pantalla Bebes, que no esperan respuesta). El dialogo
+// de PESAR AHORA pasa false: espera CTRL,PROFILE_RANGE y sella al recibirla
+// (WeighTracker_NoteWeighed()).
+void Communication_SendProfileWeight(uint32_t seq, uint16_t grams,
+                                     bool stampOnSend = true);
 void Communication_SendProfileAgeManual(uint32_t seq, uint16_t ageDays);
 void Communication_SendProfileDischarge(uint32_t seq, uint8_t outcome,
                                         uint8_t cause);

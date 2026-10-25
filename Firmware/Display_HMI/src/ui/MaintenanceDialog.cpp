@@ -49,9 +49,21 @@ enum class Mode : uint8_t {
   Maintenance,  // limpieza y mantenimiento (los tres niveles y el QR)
   WeighPrompt,  // "lleva N h sin pesar": PESAR AHORA / MAS TARDE
   WeighEntry,   // teclado numerico del peso del bebe activo
+  WeighWaiting, // peso enviado, esperando CTRL,PROFILE_RANGE de la placa
+};
+
+// Por que se cierra. Solo importa para decidir que armados se conservan: un
+// cierre SIN contestar no debe encadenar el otro aviso, y uno por alarma debe
+// devolver el aviso cuando la alarma ceda.
+enum class Close : uint8_t {
+  User,   // el operador ha pulsado un boton
+  Yield,  // alarma o enlace perdido
+  Idle,   // tope de inactividad o cambio de pantalla
 };
 
 bool s_open = false;
+// El aviso lo abrio _Poll() por estar armado (no VER RECORDATORIO a mano).
+bool s_openedFromArm = false;
 Mode s_mode = Mode::Maintenance;
 // Armados por el desbloqueo de pantalla, uno por aviso, para que si caen a la
 // vez salgan uno detras de otro sin que cerrar el primero vuelva a armar nada.
@@ -63,11 +75,23 @@ bool s_armedWeigh = false;
 
 // Textarea de la entrada de peso. Se invalida al limpiar el contenido.
 lv_obj_t *s_weighTa = nullptr;
-// Tras enviar una pesada la placa contesta con el rango NTE
-// (g_pendingProfileRange). Nadie lo espera aqui, asi que se descarta hasta este
-// instante (millis) para no dejarlo huerfano. 0 = nada que descartar.
+// La unica respuesta a HMI,PROFILE_WEIGHT es CTRL,PROFILE_RANGE
+// (g_pendingProfileRange, g_profileRange.seq). Es la confirmacion que espera
+// PESAR AHORA antes de sellar la pesada y dar el aviso por atendido.
+uint32_t s_confirmSeq = 0;  // 0 = no se espera nada
+uint16_t s_confirmGrams = 0;
+uint32_t s_confirmDeadlineMs = 0;
+constexpr uint32_t RANGE_CONFIRM_MS = 3000;
+// Si el dialogo se cierra o se agota la espera, la respuesta puede llegar
+// tarde y nadie la espera: se descarta hasta este instante (millis) para no
+// dejarla huerfana, que la adoptaria el siguiente peticionario (el mismo bebe,
+// el mismo seq). 0 = nada que descartar. Ver MaintenanceDialog_Poll.
 uint32_t s_discardRangeUntilMs = 0;
 constexpr uint32_t RANGE_DISCARD_MS = 3000;
+
+void armRangeDiscard() {
+  s_discardRangeUntilMs = (millis() + RANGE_DISCARD_MS) | 1u;
+}
 // Mismo rango que el paso de peso del asistente (BabyWizard.cpp).
 constexpr uint32_t WEIGH_MIN_G = 400, WEIGH_MAX_G = 5000;
 
@@ -107,10 +131,30 @@ lv_obj_t *makeWrapLabel(const char *text, lv_coord_t x, lv_coord_t y,
 // ante CUALQUIER alarma activa y ante la perdida del enlace con la placa.
 bool mustYield() { return UI_IsAnyAlarmActive() || Display_IsBoardLinkLost(); }
 
-void closeDialog() {
+void closeDialog(Close why = Close::User) {
+  const Mode closedMode = s_mode;
+  const bool fromArm = s_openedFromArm;
+  s_openedFromArm = false;
   if (s_overlay) lv_obj_add_flag(s_overlay, LV_OBJ_FLAG_HIDDEN);
   if (s_content) lv_obj_clean(s_content);
   s_weighTa = nullptr;
+  // Cerrado con un peso enviado y sin confirmar: no se sella (no sabemos si
+  // llego), y si la respuesta aparece despues se descarta.
+  if (s_confirmSeq != 0) {
+    s_confirmSeq = 0;
+    armRangeDiscard();
+  }
+  // Un cierre sin contestar no encadena el otro aviso, y solo el de alarma o
+  // enlace perdido devuelve el suyo cuando la causa cese (el tope de
+  // inactividad vuelve en el siguiente desbloqueo, como siempre).
+  if (fromArm && why != Close::User) {
+    if (closedMode == Mode::Maintenance) {
+      s_armedWeigh = false;
+      if (why == Close::Yield) s_armedMaint = true;
+    } else if (why == Close::Yield) {
+      s_armedWeigh = true;
+    }
+  }
   // Devolver el overlay a ui_ScreenMain: ahi es donde lo espera el camino
   // normal (_Poll() solo lo abre en la pantalla principal).
   if (s_overlay && s_homeParent &&
@@ -234,14 +278,54 @@ void onWeighRegister(lv_event_t *) {
     closeDialog();
     return;
   }
-  // Descartar antes de enviar y, pasado un plazo, al abandonar la espera: el
-  // rango que contesta la placa no lo usa nadie aqui y, huerfano, lo
-  // adoptaria el siguiente peticionario (ver embedded-display-hmi.md).
+  // Se descarta cualquier rango anterior ANTES de enviar: el que llegue ahora
+  // es la respuesta a ESTE peso. Y NO se sella ni se da el aviso por atendido
+  // hasta recibirlo (pollWeighConfirm): con el enlace caido el peso no ha
+  // llegado y callar el aviso 24 h dejaria al bebe sin pesar sin que nadie lo
+  // sepa.
   g_pendingProfileRange = false;
-  Communication_SendProfileWeight(seq, (uint16_t)grams);  // sella la pesada
-  s_discardRangeUntilMs = (millis() + RANGE_DISCARD_MS) | 1u;
-  closeDialog();
-  UI_ShowToast(TR(STR_WEIGH_LOGGED), 2500);
+  Communication_SendProfileWeight(seq, (uint16_t)grams, /*stampOnSend=*/false);
+  s_confirmSeq = seq;
+  s_confirmGrams = (uint16_t)grams;
+  s_confirmDeadlineMs = (millis() + RANGE_CONFIRM_MS) | 1u;
+  s_mode = Mode::WeighWaiting;
+  buildContent();
+}
+
+// Una vez por vuelta mientras se espera la confirmacion de la placa.
+void pollWeighConfirm() {
+  // Otro modulo toma el relevo del canal de perfil: el rango que llegue ya no
+  // es nuestro y no se sella nada. El flag se limpia para que no lo adopte el
+  // asistente (mismo bebe, mismo seq).
+  if (Training_IsActive() || BabyWizard_IsOpen() || BabyHistory_IsOpen()) {
+    g_pendingProfileRange = false;
+    closeDialog();
+    return;
+  }
+  if (g_pendingProfileRange) {
+    g_pendingProfileRange = false;
+    if (g_profileRange.seq == s_confirmSeq) {
+      const uint32_t seq = s_confirmSeq;
+      const uint16_t grams = s_confirmGrams;
+      s_confirmSeq = 0;  // resuelto: closeDialog() no armara el descarte
+      WeighTracker_NoteWeighed(seq, grams);
+      closeDialog();
+      UI_ShowToast(TR(STR_WEIGH_LOGGED), 2500);
+      return;
+    }
+    // Un rango de otro bebe es una respuesta rezagada: se ignora y se sigue
+    // esperando la nuestra.
+  }
+  if ((int32_t)(millis() - s_confirmDeadlineMs) >= 0) {
+    // Sin confirmacion: el peso puede o no haber llegado. No se sella; el aviso
+    // sigue pendiente y el operador puede reintentar. Una respuesta tardia se
+    // descarta.
+    s_confirmSeq = 0;
+    armRangeDiscard();
+    s_mode = Mode::WeighPrompt;
+    buildContent();
+    UI_ShowToast(TR(STR_WEIGH_NOT_CONFIRMED), 4000);
+  }
 }
 
 void buildWeighPrompt() {
@@ -318,11 +402,26 @@ void buildWeighEntry() {
   lv_obj_align(kb, LV_ALIGN_BOTTOM_MID, 0, -4);
 }
 
+void buildWeighWaiting() {
+  lv_obj_t *title = lv_label_create(s_content);
+  lv_label_set_text(title, TR(STR_WEIGH_TITLE));
+  lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
+  lv_obj_t *lbl = makeWrapLabel(TR(STR_WEIGH_SENDING), 20, 190, CARD_W - 60,
+                                &lv_font_montserrat_20,
+                                lv_color_hex(COLOR_TEXT));
+  lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
+}
+
 void buildContent() {
   if (!s_content) return;
   lv_obj_clean(s_content);
   s_weighTa = nullptr;
 
+  if (s_mode == Mode::WeighWaiting) {
+    buildWeighWaiting();
+    return;
+  }
   if (s_mode == Mode::WeighPrompt) {
     buildWeighPrompt();
     return;
@@ -362,9 +461,11 @@ void buildContent() {
   lv_obj_align(dismiss, LV_ALIGN_BOTTOM_RIGHT, -6, -6);
 }
 
-void openDialog(Mode mode) {
+void openDialog(Mode mode, bool fromArm = false) {
   if (!s_overlay) return;
   s_mode = mode;
+  s_openedFromArm = fromArm;
+  s_confirmSeq = 0;
   // El overlay cuelga de ui_ScreenMain, pero VER RECORDATORIO se pulsa desde
   // Ajustes: sin esto el aviso se pintaba en una pantalla que no estaba a la
   // vista y solo aparecia al volver atras. Se lleva a la pantalla activa y
@@ -433,11 +534,15 @@ void MaintenanceDialog_Poll(void) {
   Maintenance_Tick();
   WeighTracker_Tick();
 
-  // Respuesta de rango de la ultima pesada de este dialogo: se descarta en
-  // cuanto llega, o al vencer el plazo. Si el asistente se abre entre medias,
-  // el rango es suyo y no se toca.
+  // Respuesta de rango de una pesada de este dialogo que ya nadie espera: se
+  // descarta en cuanto llega, o al vencer el plazo. Si se abre el asistente,
+  // Bebes o una leccion, la ventana se cancela Y el flag se limpia ahora: el
+  // rango rezagado es del MISMO bebe, y el nuevo peticionario lo adoptaria
+  // como respuesta a su peso (mismo criterio que BabyHistory::
+  // discardPendingReplies()).
   if (s_discardRangeUntilMs != 0) {
-    if (BabyWizard_IsOpen()) {
+    if (BabyWizard_IsOpen() || BabyHistory_IsOpen() || Training_IsActive()) {
+      g_pendingProfileRange = false;
       s_discardRangeUntilMs = 0;
     } else if (g_pendingProfileRange) {
       g_pendingProfileRange = false;
@@ -455,10 +560,13 @@ void MaintenanceDialog_Poll(void) {
     // Tambien se cierra si la pantalla cambia debajo (el aviso puede haberse
     // abierto sobre Ajustes): un overlay huerfano en una pantalla que ya no
     // se ve dejaria s_open a true y bloquearia el auto-bloqueo.
-    if (mustYield() ||
-        lv_disp_get_inactive_time(NULL) > MNT_IDLE_TIMEOUT_MS ||
-        (s_overlay && lv_obj_get_parent(s_overlay) != lv_scr_act())) {
-      closeDialog();
+    if (mustYield()) {
+      closeDialog(Close::Yield);
+    } else if (lv_disp_get_inactive_time(NULL) > MNT_IDLE_TIMEOUT_MS ||
+               (s_overlay && lv_obj_get_parent(s_overlay) != lv_scr_act())) {
+      closeDialog(Close::Idle);
+    } else if (s_mode == Mode::WeighWaiting) {
+      pollWeighConfirm();
     }
     return;
   }
@@ -479,16 +587,21 @@ void MaintenanceDialog_Poll(void) {
   if (Training_IsActive()) return;
 
   // Primero la limpieza. Si el aviso de pesada tambien esta armado, sale
-  // detras (en la siguiente pasada, cuando este se cierre) porque su armado
-  // sigue en pie.
+  // detras (en la siguiente pasada, cuando este se cierre RESPONDIENDO) porque
+  // su armado sigue en pie; un cierre sin contestar lo desarma (closeDialog()).
   if (s_armedMaint && Maintenance_ShouldWarn()) {
-    openDialog(Mode::Maintenance);
+    openDialog(Mode::Maintenance, /*fromArm=*/true);
     return;
   }
   if (s_armedWeigh) {
-    // Se evalua UNA vez por desbloqueo y se consume, toque o no: ver la nota
-    // de s_armedWeigh.
+    // Sin bebe al mando no hay nada que evaluar, y consumir el armado aqui
+    // (arranque, antes de identificar al bebe) haria que el primer desbloqueo
+    // que si tiene bebe no avisase. Se queda armado hasta que lo haya.
+    if (BabyWizard_GetActiveSeq() == 0) return;
+    // Se evalua UNA vez y se consume, toque o no: ver la nota de s_armedWeigh.
     s_armedWeigh = false;
-    if (WeighTracker_ShouldWarn()) openDialog(Mode::WeighPrompt);
+    if (WeighTracker_ShouldWarn()) {
+      openDialog(Mode::WeighPrompt, /*fromArm=*/true);
+    }
   }
 }

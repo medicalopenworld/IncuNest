@@ -1055,6 +1055,19 @@ UI_STR(STR_WEIGH_ENTRY_TITLE,  "Peso de hoy (gramos)",
                                "Today's weight (grams)",
                                "Poids du jour (grammes)",
                                "Peso de hoje (gramas)")
+UI_STR(STR_WEIGH_SENDING,      "Registrando el peso...",
+                               "Recording the weight...",
+                               "Enregistrement du poids...",
+                               "A registar o peso...")
+UI_STR(STR_WEIGH_NOT_CONFIRMED,"La placa no ha confirmado el peso. Reintentalo.",
+                               "The board did not confirm the weight. Try again.",
+                               "La carte n'a pas confirme le poids. Reessayez.",
+                               "A placa nao confirmou o peso. Tente de novo.")
+// Fila de Ajustes > MANTENIMIENTO con el interruptor del aviso de pesada.
+UI_STR(STR_WEIGH_SETTING,      "AVISO DE PESADA",
+                               "WEIGHING REMINDER",
+                               "RAPPEL DE PESEE",
+                               "LEMBRETE DE PESAGEM")
 UI_STR(STR_WEIGH_LOGGED,       "Peso registrado",
                                "Weight recorded",
                                "Poids enregistre",
