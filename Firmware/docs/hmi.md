@@ -363,16 +363,19 @@ When it appears: only armed by **unlocking the screen** (and once at UI init,
 because whoever powers the incubator up is standing in front of it), never in
 the middle of a manoeuvre. `MaintenanceDialog_Poll()` then opens it only on
 `ui_ScreenMain`, with no other modal dialog open (help, training, alarm
-centre, baby wizard, exit dialog or time dialog) and no reason to yield.
+centre, baby wizard, exit dialog, time dialog, factory test or the Babies
+screen) and no reason to yield.
 
 Common rules, the same as the help menu: it yields to any active alarm
 (`UI_IsAnyAlarmActive()`) or a lost board link (`Display_IsBoardLinkLost()`),
 and it is exempt from the 20 s auto-lock with its own `MNT_IDLE_TIMEOUT_MS`
-cap (3 min). That cap is measured with `lv_tick_elaps()` from the moment it
-opened and **not** with `lv_disp_get_inactive_time()`: the auto-lock exemption
-itself resets that counter every 200 ms, so a cap reading it would never fire.
-Closing by the cap does not count as an answer — the notice comes back on the
-next unlock, since only pressing a button silences it.
+cap (3 min without any touch). That cap is measured with
+`lv_disp_get_inactive_time()`, after `lv_disp_trig_activity()` at the moment it
+opens. It is reliable because the auto-lock exemption in
+`inactivity_timer_cb()` does **not** call `lv_disp_trig_activity()` for these
+overlays: if it did, every 200 ms, the counter would be reset and the cap would
+never fire. Closing by the cap does not count as an answer — the notice comes
+back on the next unlock, since only pressing a button silences it.
 
 State persists in NVS (`hmi_cfg`): `mnt_daily`, `mnt_weekly`, `mnt_term` (the
 epoch of each level's last record), `mnt_en` (warn on/off), `mnt_snooze`
