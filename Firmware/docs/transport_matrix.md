@@ -191,6 +191,30 @@ acercarse a ella. El borrado se conserva solo por la vía de servicio
 exige acceso físico. No lo vuelvas a añadir a `rpc_callbacks[]` sin una
 decisión explícita.
 
+### Atributos compartidos de configuración (`mb-remote-config`)
+
+A diferencia de las RPC, **los atributos compartidos de configuración están en
+los dos transportes por construcción**: los dos clientes (`tb` en `GPRS.cpp`,
+`tb_wifi` en `Wifi_OTA.cpp`) llaman al mismo cableado
+(`modules/config/runtime_config_tb.h`).
+
+| Pieza | GPRS | WiFi |
+|---|:--:|:--:|
+| Suscripción a cambios en caliente (una vez por cliente) | ✅ | ✅ |
+| Petición de valores actuales tras cada conexión (solo aplica un valor nuevo; no pisa un cambio local) | ✅ | ✅ |
+| Eco del valor efectivo + `cfg_src_<clave>` como atributo de cliente | ✅ | ✅ |
+| Evento de telemetría `cfg_change` por cada cambio | ✅ | ✅ |
+
+**Claves remotas hoy: solo `gprs_act, gprs_photo, gprs_stby`.** Las otras seis
+(`air_tmax, skin_tmax, heater_amps, fan_supply_pwm, fan_ctl_pwm, fan_pid_en`)
+quedan detrás de `RCFG_REMOTE_SAFETY_PARAMS = 0` mientras el MQTT vaya en claro
+(ver `thingsboard_dashboards.md` §10). Coste por GPRS: ~120 B de petición, su
+respuesta y hasta ~600 B de eco por conexión.
+
+Las RPC de las dos listas siguen registrándose en cada reconexión, lo que las
+duplica en el vector del SDK; la suscripción nueva **no** repite ese defecto
+(se hace una vez por cliente). Deuda anotada, no corregida aquí.
+
 ### Por qué el snapshot PPG no se veía en ThingsBoard
 
 No era el dashboard ni el envío: **toda la funcionalidad vivía dentro de

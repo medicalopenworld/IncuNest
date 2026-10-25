@@ -19,6 +19,7 @@ extern "C" bool debug_inject_take(char *out, size_t out_len);
 #include "modules/control/photo_expiry_latch.h"
 #include "modules/debug/debug_mode.h"
 #include "modules/service/service_hours.h"
+#include "modules/config/runtime_config.h"
 #include "modules/baby_profile/baby_profile_protocol.h"
 #include "modules/baby_profile/baby_profile_store.h"
 #include "nte_table.h"
@@ -833,15 +834,21 @@ void parse_line(const char *line) {
 
   if (strncmp(line, "/config", 7) == 0) {
     char param[32];
-    float value;
+    // Valor EN CRUDO, no con %f: sscanf("%f") acepta "nan", "inf", hexadecimales
+    // y se queda con el prefijo de "12abc". runtime_config lo lee estricto.
+    char raw[32];
     bool success = false;
-    if (line[7] == ',' && sscanf(line, "/config,%31[^,],%f", param, &value) == 2) {
+    char cfgMsg[96] = "";
+    // runtime_config_parse_console_line() rechaza la linea si hay CUALQUIER
+    // texto despues del valor: "/config,AIR_TMAX,38 99" no aplica 38.
+    if (runtime_config_parse_console_line(line, param, sizeof(param), raw,
+                                          sizeof(raw))) {
       success = true;
-      extern float maxDesiredTemp[2];
       if (strcmp(param, "BABY_WIPE") == 0) {
         // Destructive and irreversible, so it needs an explicit magic value
         // rather than any truthy number: /config,BABY_WIPE,1234
-        if ((int)value == 1234) {
+        float code = 0.0f;
+        if (runtime_config_parse_number(raw, &code) && (int)code == 1234) {
           int n = babyStore_wipeAll();
           if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
             ESP_LOGW(TAG, "BABY_WIPE done, %d files removed", n);
@@ -850,48 +857,27 @@ void parse_line(const char *line) {
         } else {
           success = false;  // wrong confirmation code: do nothing
         }
-      } else if (strcmp(param, "FAN_SUPPLY_PWM") == 0) {
-        in3.fanPwrSupplyPWM = (int)value;
-        { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_PWR_SUPPLY_PWM, in3.fanPwrSupplyPWM); p.end(); }
-      } else if (strcmp(param, "HEATER_AMPS") == 0) {
-        in3.heaterMaxPowerAmps = value;
-        { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_HEAT_MAX_A, in3.heaterMaxPowerAmps); p.end(); }
-      } else if (strcmp(param, "SKIN_TMAX") == 0) {
-        in3.skinTemperatureSetMax = alarm_clamp_skin_cutout(value);
-        maxDesiredTemp[CONTROL_SKIN] = in3.skinTemperatureSetMax;
-        { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_SKIN_T_MAX, in3.skinTemperatureSetMax); p.end(); }
-      } else if (strcmp(param, "AIR_TMAX") == 0) {
-        in3.airTemperatureSetMax = alarm_clamp_air_cutout(value);
-        maxDesiredTemp[CONTROL_AIR] = in3.airTemperatureSetMax;
-        { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_AIR_T_MAX, in3.airTemperatureSetMax); p.end(); }
-      } else if (strcmp(param, "GPRS_ACT") == 0) {
-        in3.actuating_gprs_period = (int)value;
-        { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_ACT_PERIOD, in3.actuating_gprs_period); p.end(); }
-      } else if (strcmp(param, "GPRS_PHOTO") == 0) {
-        in3.phototherapy_gprs_period = (int)value;
-        { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_PHOTO_PERIOD, in3.phototherapy_gprs_period); p.end(); }
-      } else if (strcmp(param, "GPRS_STBY") == 0) {
-        in3.standby_gprs_period = (int)value;
-        { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_STBY_PERIOD, in3.standby_gprs_period); p.end(); }
-      } else if (strcmp(param, "FAN_CTL_PWM") == 0) {
-        in3.fanCtlPWM = (int)value;
-        { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_CTL_PWM, in3.fanCtlPWM); p.end(); }
-        ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
-      } else if (strcmp(param, "FAN_PID_EN") == 0) {
-        setFanPidEnabled(value != 0);
       } else {
-        success = false;
+        // Los nueve parametros pasan por runtime_config con la regla del
+        // origen USB: nombres en MAYUSCULAS exactas (como siempre), valor en
+        // crudo, y los cortes fuera de 34..40 C se RECHAZAN en vez de
+        // recortarse. El modulo deja su propia linea de log con origen, valor
+        // pedido y valor aplicado.
+        success = runtime_config_apply_text(RCFG_ORIGIN_USB, param, raw, cfgMsg,
+                                            sizeof(cfgMsg));
       }
-      if (success) { /* Preferences commits on p.end() */ }
       if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         if (success)
-          ESP_LOGI(TAG, "Config updated: %s = %.2f", param, value);
+          ESP_LOGI(TAG, "Config updated: %s = %s", param, raw);
         else
-          ESP_LOGE(TAG, "Unknown config parameter: %s", param);
+          ESP_LOGE(TAG, "Config not applied: %s", cfgMsg[0] ? cfgMsg : param);
         xSemaphoreGiveRecursive(log_mutex);
       }
     } else {
       if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        if (line[7] == ',') {
+          ESP_LOGE(TAG, "Config line malformed, nothing applied");
+        }
         ESP_LOGI(TAG, "FAN_SUPPLY_PWM:%d FAN_CTL_PWM:%d HEATER_AMPS:%.2f SKIN_TMAX:%.2f AIR_TMAX:%.2f",
                  in3.fanPwrSupplyPWM, in3.fanCtlPWM, in3.heaterMaxPowerAmps, in3.skinTemperatureSetMax,
                  in3.airTemperatureSetMax);
