@@ -179,6 +179,12 @@
 #define GPRS_MON_KILL_COUNT_KEY "gprs_mon_kill_count"
 #define HMI_BOOT_COUNT_KEY "hmi_boot_count"
 #define HMI_LAST_RST_KEY "hmi_last_rst"
+// Horas de uso desde el ultimo servicio registrado de cada actuador (enteras).
+// El contador de vida util sigue publicandose aparte, sin tocar.
+#define SVC_HEATER_H_KEY "svc_heater_h"
+#define SVC_FAN_H_KEY "svc_fan_h"
+#define SVC_HUM_H_KEY "svc_hum_h"
+#define SVC_PHOTO_H_KEY "svc_photo_h"
 // 0-100 while an OTA is downloading; absent otherwise.
 #define OTA_PROGRESS_KEY "ota_progress"
 

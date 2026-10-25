@@ -27,6 +27,7 @@
 
 #include "main.h"
 #include "alarm_policy.h"
+#include "modules/service/service_hours.h"
 
 extern bool WIFI_EN;
 extern int presetTemp[2]; // preset baby skin temperature
@@ -114,6 +115,16 @@ void loaddefaultValues()
     p.putFloat(KEY_RT_FAN, 0.0f);
     p.putFloat(KEY_RT_PHOTO, 0.0f);
     p.putFloat(KEY_RT_HUM, 0.0f);
+    // Contadores a cero => las bases de servicio tambien, o el primer servicio
+    // tras el borrado contaria mal las horas hasta superar la base vieja.
+    p.putFloat(KEY_SVC_BASE_HEATER, 0.0f);
+    p.putFloat(KEY_SVC_BASE_FAN, 0.0f);
+    p.putFloat(KEY_SVC_BASE_HUM, 0.0f);
+    p.putFloat(KEY_SVC_BASE_PHOTO, 0.0f);
+    p.putUInt(KEY_SVC_EPOCH_HEATER, 0);
+    p.putUInt(KEY_SVC_EPOCH_FAN, 0);
+    p.putUInt(KEY_SVC_EPOCH_HUM, 0);
+    p.putUInt(KEY_SVC_EPOCH_PHOTO, 0);
     p.end();
   }
 
@@ -395,6 +406,8 @@ void recapVariables()
     in3.humidifier_active_time = p.getFloat(KEY_RT_HUM, 0.0f);
     p.end();
   }
+  // Las bases de servicio dependen de los contadores de vida de arriba.
+  ServiceHours_Init();
 
   {
     Preferences p;

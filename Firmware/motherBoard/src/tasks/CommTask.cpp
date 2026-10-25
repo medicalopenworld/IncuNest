@@ -16,6 +16,7 @@ extern "C" bool debug_inject_take(char *out, size_t out_len);
 #include "modules/control/alarm_history.h"
 #include "modules/control/alarm_machine.h"
 #include "modules/control/alarm_test.h"
+#include "modules/service/service_hours.h"
 #include "modules/baby_profile/baby_profile_protocol.h"
 #include "modules/baby_profile/baby_profile_store.h"
 #include "nte_table.h"
@@ -601,6 +602,26 @@ static bool hmiCrashAppend(const char *line) {
 uint32_t g_lastHmiLineMs = 0;
 bool g_hmiEverSeen = false;
 
+// CTRL,SERVICE (horas desde servicio, ver modules/service). Se manda al
+// arrancar el enlace (HMI,UI_READY), bajo peticion, al registrar un servicio y
+// cada hora; el flag lo levanta parse_line() y lo consume el bucle de
+// Communication_Task, que es el mismo hilo, asi que no hace falta sincronizar.
+static bool s_serviceSendPending = false;
+constexpr uint32_t SERVICE_BCAST_PERIOD_MS = 3600UL * 1000UL;
+
+static void sendServiceToHMI() {
+  ServiceReport rep;
+  ServiceHours_BuildReport(&rep);
+  char msg[128];
+  if (service_proto_build_report(msg, sizeof(msg), &rep) == 0) {
+    // No deberia ocurrir (el peor caso son ~112 B), pero una linea a medias es
+    // peor que ninguna.
+    ESP_LOGE(TAG, "CTRL,SERVICE no cabe en el buffer, no se envia");
+    return;
+  }
+  CommunicationHost_Send(msg);
+}
+
 void parse_line(const char *line) {
   // HMI panic output arrives as plain ROM/ESP_LOG text, so intercept it
   // before the protocol-prefix filter discards everything without "HMI,".
@@ -638,6 +659,9 @@ void parse_line(const char *line) {
     }
     setHMIConnected(true);
     xSemaphoreGive(hmi_state_req_sem);
+    // Solo el UI_READY (el display acaba de arrancar): REQ,STATE se repite y
+    // no necesita el estado de servicio cada vez.
+    if (strcmp(line, "HMI,UI_READY") == 0) s_serviceSendPending = true;
     return;
   }
 
@@ -820,6 +844,25 @@ void parse_line(const char *line) {
   if (strncmp(line, "HMI,PROFILE_", 12) == 0 ||
       strncmp(line, "HMI,WEIGHT_HISTORY_REQ", 22) == 0) {
     handleBabyLine(line);
+    return;
+  }
+
+  // Avisos de servicio por horas de uso. La respuesta a ambos es el mismo
+  // CTRL,SERVICE; el de SERVICE_DONE ya lleva el valor nuevo, asi que hace de
+  // confirmacion. Id invalido o linea mala: se descarta sin efecto.
+  if (service_proto_is_req(line)) {
+    s_serviceSendPending = true;
+    return;
+  }
+  if (strncmp(line, "HMI,SERVICE_DONE", 16) == 0) {
+    uint8_t id = 0;
+    if (service_proto_parse_done(line, &id)) {
+      if (ServiceHours_MarkDone(id, babyStore_nowEpoch())) {
+        s_serviceSendPending = true;
+      }
+    } else {
+      ESP_LOGW(TAG, "HMI,SERVICE_DONE malformada, descartada");
+    }
     return;
   }
 
@@ -1370,6 +1413,17 @@ void Communication_Task(void *pvParameters) {
     if (stateRequested || (millis() - last_state_time >= 1000)) {
       send_state_to_hmi();
       last_state_time = millis();
+    }
+
+    // --- SERVICE: bajo peticion y cada hora (no 1 Hz: known_issues #2) ---
+    {
+      static uint32_t last_service_time = 0;
+      if (s_serviceSendPending ||
+          (millis() - last_service_time >= SERVICE_BCAST_PERIOD_MS)) {
+        s_serviceSendPending = false;
+        last_service_time = millis();
+        sendServiceToHMI();
+      }
     }
 
     // --- PPG waveform (25 Hz = every 40 ms) ---

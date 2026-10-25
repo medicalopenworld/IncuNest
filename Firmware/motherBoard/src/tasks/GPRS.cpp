@@ -28,6 +28,7 @@
 #include <Arduino.h>
 #include <Preferences.h>
 
+#include "modules/service/service_hours.h"
 #include "modules/baby_profile/baby_cloud.h"
 #include "modules/baby_profile/baby_profile_store.h"
 #include "civil_time.h"
@@ -1036,6 +1037,14 @@ void addConfigTelemetriesToGPRSJSON() {
   addVariableToTelemetryGPRSJSON[UPTIME_S_KEY] = (uint32_t)(millis() / 1000);
   addVariableToTelemetryGPRSJSON[HMI_BOOT_COUNT_KEY] = g_hmiBootCount;
   addVariableToTelemetryGPRSJSON[HMI_LAST_RST_KEY] = g_hmiLastRst;
+  addVariableToTelemetryGPRSJSON[SVC_HEATER_H_KEY] =
+      ServiceHours_SinceHours(SVC_HEATER);
+  addVariableToTelemetryGPRSJSON[SVC_FAN_H_KEY] =
+      ServiceHours_SinceHours(SVC_FAN);
+  addVariableToTelemetryGPRSJSON[SVC_HUM_H_KEY] =
+      ServiceHours_SinceHours(SVC_HUMIDIFIER);
+  addVariableToTelemetryGPRSJSON[SVC_PHOTO_H_KEY] =
+      ServiceHours_SinceHours(SVC_PHOTO);
 #endif
   addVariableToTelemetryGPRSJSON[HW_NUM_KEY] = HW_NUM;
   addVariableToTelemetryGPRSJSON[HW_REV_KEY] = String(HW_REVISION);

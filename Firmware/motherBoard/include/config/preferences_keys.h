@@ -60,6 +60,19 @@ constexpr char KEY_RT_FAN[]      = "fan_t";
 constexpr char KEY_RT_PHOTO[]    = "photo_t";
 constexpr char KEY_RT_HUM[]      = "hum_t";
 
+// Servicio por horas (modules/service/service_hours.cpp). La BASE es el valor
+// del contador de vida (KEY_RT_*) en el ultimo servicio registrado; el EPOCH es
+// cuando se registro (UTC, 0 = sin hora valida o nunca). Los contadores de vida
+// no se reinician al registrar un servicio. Max 15 caracteres por clave.
+constexpr char KEY_SVC_BASE_HEATER[] = "svc_b_heater";
+constexpr char KEY_SVC_BASE_FAN[]    = "svc_b_fan";
+constexpr char KEY_SVC_BASE_HUM[]    = "svc_b_hum";
+constexpr char KEY_SVC_BASE_PHOTO[]  = "svc_b_photo";
+constexpr char KEY_SVC_EPOCH_HEATER[] = "svc_e_heater";
+constexpr char KEY_SVC_EPOCH_FAN[]    = "svc_e_fan";
+constexpr char KEY_SVC_EPOCH_HUM[]    = "svc_e_hum";
+constexpr char KEY_SVC_EPOCH_PHOTO[]  = "svc_e_photo";
+
 // --------------- Key names: mb_state ---------------
 constexpr char KEY_PHOTO_ACTIVE[] = "photo_active";
 constexpr char KEY_ACTUATION[]    = "actuation";

@@ -38,6 +38,7 @@
 #include "main.h"
 #include "tasks/CrashReporter.h"
 #include "modules/debug/debug_mode.h"
+#include "modules/service/service_hours.h"
 #include "modules/util/tz_source.h"
 #include "modules/util/ip_geoloc.h"
 #include "modules/util/wifi_dwell.h"
@@ -1341,6 +1342,14 @@ void addConfigTelemetriesToWIFIJSON() {
   addVariableToTelemetryWIFIJSON[UPTIME_S_KEY] = (uint32_t)(millis() / 1000);
   addVariableToTelemetryWIFIJSON[HMI_BOOT_COUNT_KEY] = g_hmiBootCount;
   addVariableToTelemetryWIFIJSON[HMI_LAST_RST_KEY] = g_hmiLastRst;
+  addVariableToTelemetryWIFIJSON[SVC_HEATER_H_KEY] =
+      ServiceHours_SinceHours(SVC_HEATER);
+  addVariableToTelemetryWIFIJSON[SVC_FAN_H_KEY] =
+      ServiceHours_SinceHours(SVC_FAN);
+  addVariableToTelemetryWIFIJSON[SVC_HUM_H_KEY] =
+      ServiceHours_SinceHours(SVC_HUMIDIFIER);
+  addVariableToTelemetryWIFIJSON[SVC_PHOTO_H_KEY] =
+      ServiceHours_SinceHours(SVC_PHOTO);
 #endif
 
 #if TX_GROUP_CELLULAR_WIFI // grupo CELLULAR — config/transport_policy.h

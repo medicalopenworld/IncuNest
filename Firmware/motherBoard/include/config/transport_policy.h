@@ -65,7 +65,8 @@
 #define TX_GROUP_CELLULAR_GPRS 1
 #define TX_GROUP_CELLULAR_WIFI 0
 
-// DIAG: boot count, heap libre, uptime, resets del HMI, kills del módem.
+// DIAG: boot count, heap libre, uptime, resets del HMI, kills del módem y las
+//       horas desde servicio de cada actuador (svc_*_h, 4 claves).
 //       No tienen nada de específico del transporte. Está a 0 en WiFi porque
 //       es lo que hace el firmware hoy, no porque se decidiera: ponlo a 1 si
 //       quieres diagnóstico también en los equipos conectados por WiFi.
