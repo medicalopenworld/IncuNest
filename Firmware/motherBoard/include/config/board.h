@@ -166,6 +166,13 @@
 // FAN y FAN_CTL comparten timer 3 (ch 6,7) a 25 kHz; HEATER (ch 2, timer 1)
 // queda aislado para que HEATER_PWM_FREQUENCY (400 Hz) no sea sobrescrito.
 #define FAN_PWM_CHANNEL 7
+// PROHIBIDO instalar fade (ledc_fade_func_install / ledcFade) en este canal.
+// photoPwmRefresh() (sensors_module.cpp) escribe el duty con ledcWrite() DENTRO
+// de una seccion critica (spinlock): con fade instalado, ledcWrite toma un
+// semaforo para esperar el fade en curso, y tomar un semaforo dentro de una
+// seccion critica dispara un assert del kernel (o bloquea con interrupciones
+// deshabilitadas). Sin fade, ledcWrite es una escritura de registro y no
+// bloquea. Nada lo comprueba en tiempo de ejecucion: es una regla de revision.
 #define PHOTOTHERAPY_PWM_CHANNEL 4
 #define HUMIDIFIER_PWM_CHANNEL 5
 #define FAN_CTL_PWM_CHANNEL 6

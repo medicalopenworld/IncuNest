@@ -20,6 +20,13 @@ AlarmPriority alarm_priority(AlarmId id) {
     case ALARM_SUPPLY_UNDERVOLTAGE:
     case ALARM_HMI_LINK_LOST:
     case ALARM_SENSORBOARD_LINK_LOST:
+    // PROVISIONAL hasta el expediente de riesgos. Tabla 1 de IEC 60601-1-8:
+    // no dar una fototerapia indicada puede acabar en kernicterus (lesion
+    // irreversible) con aparicion DIFERIDA (horas), y esa celda da MEDIA. Se
+    // empezo en BAJA por analogia con los avisos de funciones auxiliares, que
+    // aqui no vale: la fototerapia es terapia, no telemetria. No corta nada:
+    // una lampara sin corriente no hace dano por si misma.
+    case ALARM_PHOTO_LAMP_FAULT:
       return ALARM_PRIORITY_MEDIUM;
 
     case ALARM_SKIN_SENSOR_FAULT_AIR_MODE:

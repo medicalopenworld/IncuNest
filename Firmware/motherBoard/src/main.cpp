@@ -445,9 +445,9 @@ static void debugConsoleHandle(const char *line) {
     }
     if (arg[0] == '0') {
       debug_photo_off();
-      ESP_LOGW(DBGCON_TAG, "PHOTO,0: fototerapia de depuracion soltada; vuelve "
-               "a mandar el display tras %u ms de gracia",
-               (unsigned)PHOTO_OVERRIDE_RELEASE_GRACE_MS);
+      ESP_LOGW(DBGCON_TAG, "PHOTO,0: fototerapia de depuracion soltada; manda "
+               "otra vez el display (se aplica en el siguiente tick, sin "
+               "esperar ninguna trama)");
       return;
     }
     // in3.phototherapy es aqui la ultima orden REAL del display: todavia no
@@ -458,7 +458,9 @@ static void debugConsoleHandle(const char *line) {
       return;
     }
     ESP_LOGW(DBGCON_TAG, "PHOTO,1: fototerapia de depuracion ENCENDIDA (se "
-             "aplica con la siguiente trama del display)");
+             "aplica en el siguiente tick). La pantalla NO la muestra: el "
+             "campo photo de CTRL,STATE emite la orden del display mientras "
+             "dura la prueba; ver /debug/state ctl.photo_dbg");
     return;
   }
   if (strncmp(line, "WIFI_EN,", 8) != 0) {
@@ -529,6 +531,57 @@ void TimeTrack_Task(void *pvParameters) {
     timeTrackHandler();
     vTaskDelay(pdMS_TO_TICKS(TIME_TRACK_TASK_PERIOD_MS));
   }
+}
+
+// Aplica el estado de la fototerapia: variable, PWM y ventilador. Es el camino
+// UNICO que usa una orden del display (newCommand) y el tick periodico que
+// cierra el encendido/apagado de depuracion, y NO persiste nada en NVS (eso
+// lo decide quien llama).
+static void applyPhotoState(bool on) {
+  // Estado ANTERIOR, para distinguir el flanco de encendido del keepalive.
+  const bool photoEstabaEncendida = in3.phototherapy;
+  in3.phototherapy = on;
+  if (in3.phototherapy) {
+    if (in3.photoFirstRun) {
+      in3.phototherapy_intensity = PWM_MAX_VALUE * PHOTOTHERAPY_INITIAL_PWM_PCT / 100;
+      in3.photoFirstRun = false;
+    }
+    // SOLO en el flanco de encendido. Esto estaba fuera del if y se
+    // ejecutaba en cada mandato del HMI, que es un KEEPALIVE: CommTask.cpp
+    // pone newCommand=true en cada trama recibida, ~1 por segundo.
+    //
+    // photoTurnOnTime es la marca de asentamiento que mira el lazo de
+    // regulacion de intensidad (sensors_module.cpp, currentMonitor):
+    //
+    //     millis() - in3.photoTurnOnTime > PHOTO_SETTLE_MS   // 3000 ms
+    //
+    // Refrescandola cada segundo esa condicion NO se cumple NUNCA, asi que
+    // el lazo no llegaba a ejecutarse jamas y PHOTO_TARGET_CURRENT era
+    // codigo muerto: la lampara se quedaba en la semilla en lazo abierto.
+    //
+    // Medido en banco el 2026-09-23: semilla PWM 102 (extrapolada por el
+    // autotest para 0.27 A desde una lectura de 0.10 A al 10 % de PWM) y
+    // corriente real 0.59-0.60 A sostenida durante 6 minutos. La
+    // extrapolacion 1/x se equivoca por 2.2x porque el consumo del LED no
+    // es lineal con el duty; corregir eso es justo el trabajo del lazo.
+    if (!photoEstabaEncendida) {
+      in3.photoTurnOnTime = millis();
+    }
+  }
+  // Idem: el canal de fototerapia tambien lo posee el test de fabrica
+  // mientras dura la bateria. La reconciliacion con in3.phototherapy
+  // (actualizado arriba, sin gate: eso SI debe seguir reflejando la
+  // trama) la hace este mismo newCommand en su siguiente vuelta, en
+  // cuanto g_factoryTestActive baje (ver cabecera de
+  // factory_test_task.cpp).
+  //
+  // photoPwmRefresh() y no un ledcWrite suelto: el lazo de intensidad
+  // (currentMonitor, tarea de seguridad) tambien escribe este canal, y entre
+  // que comprobaba in3.phototherapy y escribia podia colarse un apagado desde
+  // aqui, dejando la lampara encendida con in3.phototherapy=false y sin alarma.
+  if (!g_factoryTestActive)
+    photoPwmRefresh();
+  turnFans(bool(in3.phototherapy || in3.actuation));
 }
 
 void Communication_Receiver(void *pvParameters) {
@@ -627,17 +680,22 @@ void Communication_Receiver(void *pvParameters) {
           in3_hum.turn(OFF);
       }
 
-      // Estado ANTERIOR, para distinguir el flanco de encendido del keepalive.
-      const bool photoEstabaEncendida = in3.phototherapy;
-      // Normalmente es lo que manda el display. Con un encendido de depuracion
-      // en marcha (o en su ventana de gracia) manda photo_override: fuerza ON
-      // durante la prueba e ignora despues el ON rancio que el display habra
-      // adoptado. Ver modules/control/photo_override.h.
-      in3.phototherapy = debug_photo_effective(hmi_cmd_msg.phototherapyMode);
-      // Se guarda la orden DEL DISPLAY, y solo cuando no hay prueba en curso:
-      // durante ella el display devuelve el ON adoptado, y guardarlo haria que
-      // una caida reanudase una sesion de depuracion como si fuera real.
-      if (debug_photo_may_persist()) {
+      // Normalmente es lo que manda el display. Con una prueba de depuracion
+      // activa manda photo_override: fuerza ON y REGISTRA la orden del display
+      // para aplicarla al soltar. Ver modules/control/photo_override.h. Se
+      // aplica mas abajo con applyPhotoState(), el mismo camino que usa el tick
+      // periodico.
+      const bool photoOrden = debug_photo_effective(hmi_cmd_msg.phototherapyMode);
+      // Se guarda SIEMPRE la orden del display, tambien durante la prueba: el
+      // campo photo de CTRL,STATE emite esa misma orden mientras dura (el
+      // display nunca adopta el ON forzado), asi que lo que devuelve en su
+      // keepalive es una orden REAL del operador y nunca esta contaminado. No
+      // guardarla perderia un OFF/ON del operador si la placa cayera a mitad de
+      // prueba. El ON forzado de la prueba, en cambio, no se guarda nunca:
+      // solo existe en in3.phototherapy, no en hmi_cmd_msg. Coherente con el
+      // espacio "photo" del temporizador, que el parser RX de CommTask guarda y
+      // borra por su cuenta.
+      {
         Preferences p;
         p.begin(NS_STATE, false);
         p.putUChar(KEY_PHOTO_ACTIVE, hmi_cmd_msg.phototherapyMode);
@@ -647,43 +705,7 @@ void Communication_Receiver(void *pvParameters) {
         in3.language = hmi_cmd_msg.language;
         resendActiveAlarms();
       }
-      if (in3.phototherapy) {
-        if (in3.photoFirstRun) {
-          in3.phototherapy_intensity = PWM_MAX_VALUE * PHOTOTHERAPY_INITIAL_PWM_PCT / 100;
-          in3.photoFirstRun = false;
-        }
-        // SOLO en el flanco de encendido. Esto estaba fuera del if y se
-        // ejecutaba en cada mandato del HMI, que es un KEEPALIVE: CommTask.cpp
-        // pone newCommand=true en cada trama recibida, ~1 por segundo.
-        //
-        // photoTurnOnTime es la marca de asentamiento que mira el lazo de
-        // regulacion de intensidad (sensors_module.cpp, currentMonitor):
-        //
-        //     millis() - in3.photoTurnOnTime > PHOTO_SETTLE_MS   // 3000 ms
-        //
-        // Refrescandola cada segundo esa condicion NO se cumple NUNCA, asi que
-        // el lazo no llegaba a ejecutarse jamas y PHOTO_TARGET_CURRENT era
-        // codigo muerto: la lampara se quedaba en la semilla en lazo abierto.
-        //
-        // Medido en banco el 2026-09-23: semilla PWM 102 (extrapolada por el
-        // autotest para 0.27 A desde una lectura de 0.10 A al 10 % de PWM) y
-        // corriente real 0.59-0.60 A sostenida durante 6 minutos. La
-        // extrapolacion 1/x se equivoca por 2.2x porque el consumo del LED no
-        // es lineal con el duty; corregir eso es justo el trabajo del lazo.
-        if (!photoEstabaEncendida) {
-          in3.photoTurnOnTime = millis();
-        }
-      }
-      // Idem: el canal de fototerapia tambien lo posee el test de fabrica
-      // mientras dura la bateria. La reconciliacion con in3.phototherapy
-      // (actualizado arriba, sin gate: eso SI debe seguir reflejando la
-      // trama) la hace este mismo newCommand en su siguiente vuelta, en
-      // cuanto g_factoryTestActive baje (ver cabecera de
-      // factory_test_task.cpp).
-      if (!g_factoryTestActive)
-        ledcWrite(PHOTOTHERAPY_PWM_CHANNEL,
-                  in3.phototherapy * in3.phototherapy_intensity);
-      turnFans(bool(in3.phototherapy || in3.actuation));
+      applyPhotoState(photoOrden);
 
       // AQUI NO SE PITA AL RECIBIR UNA TRAMA DEL DISPLAY.
       //
@@ -706,9 +728,44 @@ void Communication_Receiver(void *pvParameters) {
       // alarmas.
     }
 
+    // Encendido/apagado de depuracion SIN depender de una trama del display.
+    // Mientras la prueba esta activa se fuerza ON; al soltarla (PHOTO,0 o al
+    // apagar el modo) se aplica la ULTIMA ORDEN DEL DISPLAY (la del operador
+    // manda) por el mismo camino que una orden: con el display colgado no llega
+    // ningun keepalive y, sin esto, la lampara se quedaria en el ON de la
+    // prueba. El ON forzado no se persiste nunca; al SOLTAR se persiste el valor
+    // aplicado (la ultima orden del display, o OFF si vencio el temporizador):
+    // con el display colgado no llega ningun keepalive que lo guarde, y NVS
+    // seguiria con una orden anterior que la placa ya no cumple. Solo actua si
+    // el estado difiere, asi que no reescribe el PWM cada vuelta.
+    {
+      bool photoValor = false;
+      if (debug_photo_forced(&photoValor)) {
+        if (in3.phototherapy != photoValor) applyPhotoState(photoValor);
+      } else if (debug_photo_take_release(&photoValor)) {
+        if (in3.phototherapy != photoValor) applyPhotoState(photoValor);
+        Preferences p;
+        p.begin(NS_STATE, false);
+        p.putUChar(KEY_PHOTO_ACTIVE, photoValor ? 1 : 0);
+        p.end();
+      }
+    }
+
     // Handle Phototherapy timer expiration/calculation constantly
     // This runs even if no HMI is connected, ensuring hardware turns OFF.
     getRemainingPhotoTime();
+    // Al caducar el temporizador se borra el slot "photo" de NVS, pero
+    // KEY_PHOTO_ACTIVE seguiria en 1 hasta la siguiente trama del display: una
+    // caida entre medias arrancaria en fototerapia continua sin limite. Se
+    // guarda el 0 aqui, UNA sola vez por caducidad (la bandera la consume esta
+    // tarea; getRemainingPhotoTime tambien la llama send_state_to_hmi) y fuera de
+    // la seccion critica. Solo cuesta una lectura de bandera por vuelta.
+    if (photoExpiryTakePersistOff()) {
+      Preferences p;
+      p.begin(NS_STATE, false);
+      p.putUChar(KEY_PHOTO_ACTIVE, 0);
+      p.end();
+    }
 
     // Unconditional: every loop inside gates itself on its own PID mode, and
     // the fan loop must run for phototherapy-only activation too (fan is

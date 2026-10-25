@@ -48,13 +48,13 @@ static void photo_lock_init(void) {
   }
 }
 
-bool debug_photo_on(bool real_now) {
+bool debug_photo_on(bool ordered_now) {
   if (!s_enabled) {
     return false;
   }
   portENTER_CRITICAL(&s_photo_mux);
   photo_lock_init();
-  photo_override_start(&s_photo, real_now, millis());
+  photo_override_start(&s_photo, ordered_now);
   portEXIT_CRITICAL(&s_photo_mux);
   return true;
 }
@@ -62,7 +62,7 @@ bool debug_photo_on(bool real_now) {
 void debug_photo_off(void) {
   portENTER_CRITICAL(&s_photo_mux);
   photo_lock_init();
-  photo_override_release(&s_photo, millis());
+  photo_override_release(&s_photo);
   portEXIT_CRITICAL(&s_photo_mux);
 }
 
@@ -77,17 +77,41 @@ bool debug_photo_active(void) {
 bool debug_photo_effective(bool display_value) {
   portENTER_CRITICAL(&s_photo_mux);
   photo_lock_init();
-  const bool v = photo_override_effective(&s_photo, display_value, millis());
+  const bool v = photo_override_effective(&s_photo, display_value);
   portEXIT_CRITICAL(&s_photo_mux);
   return v;
 }
 
-bool debug_photo_may_persist(void) {
+
+bool debug_photo_forced(bool *value) {
   portENTER_CRITICAL(&s_photo_mux);
   photo_lock_init();
-  const bool p = photo_override_may_persist(&s_photo, millis());
+  const bool f = photo_override_forced(&s_photo, value);
   portEXIT_CRITICAL(&s_photo_mux);
-  return p;
+  return f;
+}
+
+bool debug_photo_take_release(bool *value) {
+  portENTER_CRITICAL(&s_photo_mux);
+  photo_lock_init();
+  const bool r = photo_override_take_release(&s_photo, value);
+  portEXIT_CRITICAL(&s_photo_mux);
+  return r;
+}
+
+void debug_photo_note_order(bool ordered) {
+  portENTER_CRITICAL(&s_photo_mux);
+  photo_lock_init();
+  photo_override_note_order(&s_photo, ordered);
+  portEXIT_CRITICAL(&s_photo_mux);
+}
+
+bool debug_photo_state_field(bool applied) {
+  portENTER_CRITICAL(&s_photo_mux);
+  photo_lock_init();
+  const bool f = photo_override_state_field(&s_photo, applied);
+  portEXIT_CRITICAL(&s_photo_mux);
+  return f;
 }
 
 struct Override {
@@ -96,7 +120,8 @@ struct Override {
 };
 static Override s_ovr[DEBUG_CH_COUNT];
 
-// Bitmask de alarmas forzadas. NUM_ALARMS es 20, asi que cabe de sobra.
+// Bitmask de alarmas forzadas: un bit por AlarmId. Cabe mientras ALARM_COUNT
+// <= 32, que garantiza un static_assert en shared/include/alarm_ids.h.
 static uint32_t s_forced_present;
 
 // Cola de tramas inyectadas; la crea debug_inject_line() en la primera y la
@@ -142,10 +167,10 @@ void debug_mode_set(bool on) {
     // todavia puesta.
     debug_override_clear_all();
     debug_alarm_clear_all();
-    // Tambien el encendido de fototerapia. Soltar (con su ventana de gracia) y
-    // no simplemente borrar: el display habra adoptado el ON y lo seguira
-    // devolviendo un rato, y sin la gracia ese ON rancio encenderia la lampara
-    // de verdad justo al apagar el modo.
+    // Tambien el encendido de fototerapia. Soltar y no simplemente borrar: el
+    // tick periodico aplica entonces la ultima orden del display (la del
+    // operador manda), de modo que apagar el modo no deja la lampara en el ON
+    // de la prueba ni la apaga si el operador la habia pedido.
     debug_photo_off();
     if (s_inject_q != NULL) {
       xQueueReset(s_inject_q);

@@ -610,6 +610,13 @@ void initAmbientSensor();
 void initSkinSensor();
 void powerMonitor();
 void currentMonitor();
+// Escribe el PWM de la lampara de fototerapia (0 si in3.phototherapy es false,
+// in3.phototherapy_intensity si es true) bajo un spinlock que comparten el lazo
+// de intensidad de currentMonitor() y applyPhotoState()/la caducidad del
+// temporizador. El duty se calcula DENTRO de la seccion critica, asi que gana
+// siempre la escritura que ve el estado mas reciente. No respeta
+// g_factoryTestActive: eso lo decide quien llama.
+void photoPwmRefresh(void);
 void voltageMonitor();
 
 // Incremented only when in3.heater_current is genuinely refreshed

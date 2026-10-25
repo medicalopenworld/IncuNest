@@ -998,6 +998,9 @@ void switchAlarmTelemetryGPRS(int alarm, bool value) {
   case ALARM_SENSORBOARD_DOOR_FAULT:
     alarmKey = ALARM_SENSORBOARD_DOOR_FAULT_KEY;
     break;
+  case ALARM_PHOTO_LAMP_FAULT:
+    alarmKey = ALARM_PHOTO_LAMP_FAULT_KEY;
+    break;
   default:
     return;
   }

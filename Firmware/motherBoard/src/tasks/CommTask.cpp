@@ -16,6 +16,8 @@ extern "C" bool debug_inject_take(char *out, size_t out_len);
 #include "modules/control/alarm_history.h"
 #include "modules/control/alarm_machine.h"
 #include "modules/control/alarm_test.h"
+#include "modules/control/photo_expiry_latch.h"
+#include "modules/debug/debug_mode.h"
 #include "modules/baby_profile/baby_profile_protocol.h"
 #include "modules/baby_profile/baby_profile_store.h"
 #include "nte_table.h"
@@ -79,6 +81,13 @@ static constexpr float PPG_DISP_UNITS_PER_LSB = 1.6e-8f;
 
 // ---- Phototherapy Timer (Motherboard is source of truth) ----
 static bool photoTimerActive = false;
+
+// Cerrojo "el temporizador caduco, esperando un photo=0 del display" (logica en
+// modules/control/photo_expiry_latch.h). Lo arma getRemainingPhotoTime() y lo
+// consulta el parser de tramas del display, que pueden correr en tareas
+// distintas: de ahi el spinlock (dos accesos de un bool, sin llamadas dentro).
+static PhotoExpiryLatch s_photoExpiry;
+static portMUX_TYPE s_photoExpiryMux = portMUX_INITIALIZER_UNLOCKED;
 static unsigned long photoTimerStartMs = 0;
 static int photoTimerMinutes = 0;
 // Modo de fototerapia del mandato anterior del HMI. Sirve para detectar el
@@ -317,6 +326,20 @@ static void photoTimerForget() {
   p.end();
 }
 
+// Verdadero UNA vez por caducidad del temporizador: hay que guardar
+// KEY_PHOTO_ACTIVE=0. getRemainingPhotoTime() se invoca desde dos tareas (el
+// bucle de Communication_Receiver en main.cpp y send_state_to_hmi) y no debe
+// escribir NVS ella misma (ruta caliente de 1 ms, y duplicaria la escritura):
+// solo arma la bandera, y UNA tarea (Communication_Receiver) la consume aqui.
+// Sin esto, el 0 solo llegaria a NVS con la siguiente trama del display, y una
+// caida entre medias arrancaria en fototerapia continua sin limite.
+bool photoExpiryTakePersistOff(void) {
+  portENTER_CRITICAL(&s_photoExpiryMux);
+  const bool pendiente = photo_expiry_latch_take_persist_off(&s_photoExpiry);
+  portEXIT_CRITICAL(&s_photoExpiryMux);
+  return pendiente;
+}
+
 double getRemainingPhotoTime() {
   double remainingTime = 0.0;
   if (photoTimerActive) {
@@ -331,7 +354,16 @@ double getRemainingPhotoTime() {
       remainingTime = 0.0;
 
       in3.phototherapy = false;
-      ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, 0);
+      // Si hay una prueba de depuracion activa, el temporizador es una orden de
+      // apagado de la placa que tiene que ganar al soltarla (la prueba sigue
+      // forzando ON hasta entonces).
+      debug_photo_note_order(false);
+      // ... y ninguna trama rezagada con photo=1 sin minutos puede reencenderla
+      // (dentro y fuera de la prueba). Ver photo_expiry_latch.h.
+      portENTER_CRITICAL(&s_photoExpiryMux);
+      photo_expiry_latch_expire(&s_photoExpiry);
+      portEXIT_CRITICAL(&s_photoExpiryMux);
+      photoPwmRefresh();
       turnFans(bool(in3.phototherapy || in3.actuation));
       photoTimerForget();
 
@@ -442,12 +474,33 @@ static void send_state_to_hmi() {
     }
   }
 
+  // Estado REAL de la lampara (lo aplicado, in3.phototherapy), no el eco de lo
+  // que pidio el display (g_last_cmd.phototherapyMode). Mismo fallo que el
+  // audio de arriba: el eco no aportaba nada y ademas mentia (known_issues
+  // #20). Entre que el operador toca el switch y la placa aplica la orden este
+  // campo sale con el valor anterior unas decenas de ms; el display mantiene su
+  // valor local hasta que la placa lo confirma (localCmdHoldsLocal), asi que no
+  // hay rebote.
+  //
+  // UNICA EXCEPCION: durante una prueba de fototerapia de depuracion (PHOTO,1)
+  // se emite la ORDEN DEL DISPLAY, no el ON forzado. El display ADOPTA este
+  // campo y lo devuelve en su keepalive; si adoptase el ON de la prueba, al
+  // soltar habria que neutralizar un 1 rancio, y ningun plazo ni confirmacion
+  // aguanto (ver la historia en photo_override.h). El ON de la prueba se ve en
+  // /debug/state (ctl.photo_dbg) y en el log.
+  //
+  // Actuacion, modo de control y consignas siguen siendo ecos A PROPOSITO: no
+  // tienen un valor "real" de una linea (la placa guarda una unica consigna
+  // segun el modo, y in3.actuation/controlMode se asignan literalmente del
+  // comando). Ver openspec mb-photo-current-check, design D2.
+  const int photoApplied = debug_photo_state_field(in3.phototherapy) ? 1 : 0;
+
   snprintf(msg, sizeof(msg),
            "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d,%d,0x%X,0x%X,%d,%d,%d,0x%X,%u\n",
            (int)g_last_cmd.actuation, (int)g_last_cmd.controlMode,
            (double)g_last_cmd.desiredAirTemperature,
            (double)g_last_cmd.desiredSkinTemperature,
-           (double)g_last_cmd.desiredHumidity, (int)g_last_cmd.phototherapyMode,
+           (double)g_last_cmd.desiredHumidity, photoApplied,
            audioSilenced, ctrl_tel_msg.serialNumber, HW_NUM,
            HW_REVISION, FWversion, alarmCount, (int)g_last_cmd.skinModeEnabled,
            (int)ctrl_tel_msg.serverCommStatus, remainingTime, in3.language,
@@ -1035,14 +1088,35 @@ void parse_line(const char *line) {
   }
 
   if (strncmp(line, "HMI,", 4) == 0) {
-    int act, skinE, mode, photo, mute, lang, photoMin;
+    int act, skinE, mode, photo, mute, lang;
+    int photoMin = 0;  // el campo 10 es opcional: sin inicializar seria basura
     double air, skin, hum;
 
     int parsed = sscanf(line,
                         "HMI,%d,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d",
                         &act, &skinE, &mode, &air, &skin, &hum, &photo,
                         &mute, &lang, &photoMin);
-    if (parsed >= 9) {
+    // `photo` es un booleano (0/1) y `photoMin` va de 0 a PHOTO_TIMER_MAX_MINUTES
+    // (10 h): se emiten tal cual en CTRL,STATE, se guardan en NVS y arman el
+    // temporizador. Cualquier otro valor es una trama corrupta (sin CRC, ver
+    // known_issues #2) y se descarta ENTERA en vez de actuar sobre la lampara.
+    if (parsed >= 9 && photo_hmi_fields_valid(photo, photoMin)) {
+      // Tras la caducidad del temporizador de fototerapia se IGNORA un photo=1
+      // sin minutos hasta ver un photo=0: es una trama que el display tenia en
+      // vuelo (o retenida por localCmdHoldsLocal, 10 s) de ANTES de adoptar el
+      // apagado, y reencenderia la lampara que acaba de caducar. Va lo primero:
+      // todo lo que sigue (activeSeq, contabilidad, temporizador, orden aplicada
+      // y guardada) usa el valor ya filtrado. Ver photo_expiry_latch.h.
+      portENTER_CRITICAL(&s_photoExpiryMux);
+      photo = photo_expiry_latch_filter(&s_photoExpiry, photo != 0, photoMin) ? 1 : 0;
+      const bool avisarFiltrada = photo_expiry_latch_take_filter_log(&s_photoExpiry);
+      portEXIT_CRITICAL(&s_photoExpiryMux);
+      // Un solo log por episodio (la trama retenida llega muchas veces), y fuera
+      // de la seccion critica.
+      if (avisarFiltrada) {
+        ESP_LOGW(TAG, "HMI photo=1 sin minutos ignorado tras caducar el "
+                 "temporizador de fototerapia (hasta ver photo=0)");
+      }
       // activeSeq protection: stamp the wizard-selected baby while ANY
       // therapy is running, and only clear it once every therapy is off.
       // Phototherapy counts: the HMI now runs the baby-data wizard for it
@@ -1061,7 +1135,15 @@ void parse_line(const char *line) {
       // Per-baby therapy exposure. Accumulated in RAM and only written to NVS
       // on the OFF edge or every THERAPY_FLUSH_INTERVAL — a slot write per
       // minute would wear the flash for no benefit.
-      updateTherapyAccounting(s_photoAcc, photo != 0);
+      // Solo cuenta exposicion REAL: la lampara esta aplicada (in3.phototherapy,
+      // no solo pedida), no es una prueba de depuracion en curso o por
+      // confirmar (el display adopta el ON de PHOTO,1 y lo devuelve en su
+      // keepalive, y eso no es un bebe tratado) y no hay un fallo de lampara
+      // declarado (sin corriente o sin medida, la terapia no esta garantizada).
+      const bool photoExposure =
+          photo != 0 && in3.phototherapy && !debug_photo_active() &&
+          alarm_machine_state(ALARM_PHOTO_LAMP_FAULT) == ALARM_STATE_INACTIVE;
+      updateTherapyAccounting(s_photoAcc, photoExposure);
       updateTherapyAccounting(s_thermoAcc,
                               act == ACTUATION_TEMPERATURE ||
                                   act == ACTUATION_TEMP_AND_HUMIDITY);

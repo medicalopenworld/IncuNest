@@ -794,7 +794,7 @@ implemented), and the cutout still reads the same sensor as the PID (§2.4).
 The bench unit's 38 is the correct value and has been left alone. Deciding the
 production value is a product/regulatory call, not a firmware fix.
 
-## 20. The board echoes the display's phototherapy order instead of reporting the lamp (OPEN)
+## 20. The board echoes the display's phototherapy order instead of reporting the lamp — FIXED (2026-10-25, pending bench check)
 
 Seen while testing the UART `PHOTO,1` command on 2026-09-23 (18.46): with the
 lamp on at 0.46 A, `CTRL,STATE` field 8 said `0`. `send_state_to_hmi()` sends
@@ -808,6 +808,73 @@ phototherapy OFF while the lamp is ON**. Not yet established: whether any
 *non*-debug path (a crash restore, a timer expiry on the board) leaves the lamp
 and the screen disagreeing. The debug override does not depend on it — its
 release window is defensive and verified to leave the lamp off.
+
+*   **Fix (change `mb-photo-current-check`)**: `send_state_to_hmi()` now sends
+    `in3.phototherapy` (what is applied) in field 8. Actuation, control mode
+    and setpoints are **still echoes, on purpose**: `in3.actuation` /
+    `in3.controlMode` are assigned verbatim from the command (so the "real"
+    value is the same), and the board keeps a single setpoint per mode, so
+    there is no one-line real value for the other one.
+*   **One exception, and why (change `mb-photo-override-simplify`)**: during a
+    debug phototherapy session (`PHOTO,1`) field 8 carries the *display's own
+    order*, not the forced ON. The display ADOPTS field 8 and returns it in its
+    keepalive, so emitting the forced ON meant neutralising a stale 1 on
+    release. A fixed 5 s window and then a confirmation scheme (value == real,
+    min 2 s, 60 s backstop) both failed review: with the phototherapy timer
+    expiring during the release the ON confirmed itself and was persisted as a
+    continuous session; an OFF from the operator in that window was lost; and a
+    stale `CTRL,STATE` processed late by the display's RX ring still slipped
+    through (#7, #11). Removing the root (never emit the forced ON) leaves
+    nothing to neutralise. The debug ON is visible in `/debug/state`
+    (`ctl.photo_dbg`) and in the log, which is where whoever runs the test looks.
+*   **Release is immediate**: `PHOTO,0` (or leaving debug mode) applies the
+    *last display order* — operator orders and the timer expiry are recorded
+    during the test — on the board's periodic tick, with no frame needed (so a
+    stuck display Comm task cannot leave the lamp ON). The forced ON is never
+    persisted; display orders are persisted always (they are never
+    contaminated now, since field 8 carries the display order during the
+    test), and on release the applied value is persisted too. Re-arming
+    (`PHOTO,1`,`PHOTO,0`,`PHOTO,1` in one console pass, before the tick) does
+    not capture the contaminated `in3.phototherapy` as the display order.
+*   **Timer expiry vs a late frame** (also outside the test, a pre-existing
+    race): after the phototherapy timer expires the board ignores a
+    `photo=1` with no minutes until it sees a `photo=0` (a frame in flight, or
+    held up to 10 s by `localCmdHoldsLocal`, would otherwise re-light the lamp
+    that just expired). A timed session (`photo=1`, minutes>0) is always
+    accepted. `photo_expiry_latch.h`.
+*   **Side effects / limits**: (1) `CommTask`'s per-baby therapy accounting
+    does not count the session (lamp applied, no debug override active, no
+    `ALARM_PHOTO_LAMP_FAULT`). (2) **Echo window**: between the operator's tap
+    and the board applying it, one `CTRL,STATE` can go out with the old value;
+    the display's local confirmation guard (`localCmdHoldsLocal`, 10 s) covers
+    it, but a display *without* that guard would see the switch bounce.
+    (3) The lamp PWM is written through `photoPwmRefresh()` under one spinlock
+    by both the intensity loop (`currentMonitor`) and `applyPhotoState()`: a
+    late loop write could otherwise re-light the lamp after the Comm task had
+    turned it off, leaving it ON with `in3.phototherapy=false` and no alarm.
+    **No LEDC fade may ever be installed on `PHOTOTHERAPY_PWM_CHANNEL`**:
+    `ledcWrite` takes a semaphore only when fade is installed, and that would
+    be a semaphore inside a critical section (kernel assert). `board.h` and
+    `photoPwmRefresh()` say so; there is deliberately no runtime check
+    (installing/uninstalling the fade service just to look would allocate and
+    register its ISR globally, and break a legitimate fade user). (4) The minutes of a *real* therapy already ON when the test starts
+    are not counted per baby. (5) `timeTrackHandler` excludes the test from
+    the phototherapy hours, but the `Phototherapy_active` telemetry key
+    publishes it as active (it is the real lamp state). (6) While the test is
+    active, a lamp fault (`ALARM_PHOTO_LAMP_FAULT`) can show while field 8
+    says OFF.
+*   **Verify on the bench BEFORE manufacturing**: the lamp-fault alarm
+    (`ALARM_PHOTO_LAMP_FAULT`) also fires when the main INA3221 gives no
+    sample with the lamp ON. On HW17 with the channel-2 shunt **not populated**
+    this would be a false positive on every session. Check it on the real
+    units of each hardware revision first.
+*   **Still open from the original text**: whether any *non*-debug path (crash
+    restore, timer expiry) left lamp and screen disagreeing. With the real
+    state emitted, a restore from NVS now reaches a rebooted display, which is
+    the intent of #4.
+*   **Verification**: host-testable parts (`test_photo_override`,
+    `test_photo_fault`) are green; the screen behaviour is **manual, on the
+    bench**.
 
 ## 21. The first session after a setpoint change can start at twice the target — FIXED
 
