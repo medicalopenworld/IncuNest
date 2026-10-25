@@ -79,9 +79,11 @@ sirve a nadie**, por tres motivos que se han comprobado en el código:
   `test/test_trend_*`.
 - **Memoria**: +~104 KB de PSRAM permanentes (modelo de datos, frente a
   17 KB hoy) y ~104 KB de PSRAM transitorios durante un volcado o la
-  restauración. **Cero SRAM interna nueva por diseño**; el montaje de
-  LittleFS asigna una cantidad pequeña de heap interno que se mide y se
-  reporta en `tasks.md`.
+  restauración. **El modelo no usa SRAM interna** (un único bloque de PSRAM);
+  lo único nuevo en `.bss` es una cola de flancos de 256 B y el estado del
+  código nuevo (+528 B de RAM en el build, ver `tasks.md`). El montaje de
+  LittleFS asigna además una cantidad pequeña de heap interno en ejecución,
+  que se mide en banco (tarea 2.7).
 - **Flash**: la partición `spiffs` (≈5,9 MB) pasa a usarse de verdad; el
   volcado cada 5 min cuesta ~27 borrados de bloque, ≈5 ciclos/bloque/día
   con el reparto de desgaste de LittleFS.

@@ -30,7 +30,7 @@ OPI). Estado de partida, verificado en el código:
 - Ventanas 4 h / 12 h / 24 h con un único buffer de 24 h.
 - La tendencia sobrevive a un reinicio y a un corte de red eléctrica
   (pérdida máxima acotada y documentada).
-- Lógica pura testeada en host; cero SRAM interna nueva.
+- Lógica pura testeada en host; el modelo no usa SRAM interna.
 
 **Non-Goals**
 
@@ -114,16 +114,19 @@ Memoria resumida:
 
 | Qué | Tamaño | Dónde | Vida |
 |---|---|---|---|
-| Modelo (6 x 8640 x int16) | 103 680 B | PSRAM | permanente |
-| Eventos (64 x 16 B) | ~1 KB | `.bss` | permanente |
+| Modelo: anillo (6 x 8640 x int16) | 103 680 B | PSRAM | permanente |
+| Modelo: eventos (64 x 16 B) + reloj + cabecera | ~1,1 KB | PSRAM (mismo bloque) | permanente |
 | Cola de flancos (16 x 16 B) | 256 B | `.bss` | permanente |
 | Staging de volcado/restauración | <= 104 224 B | PSRAM | durante el volcado |
 | `y_points` LVGL (6 series x 1442 x 2 B) | 17 304 B | PSRAM (`LV_MEM_CUSTOM`) | permanente |
 
-~1,3 KB de `.bss` son SRAM interna; se aceptan porque son la cola de flancos
-(la escribe `CommTask`, no puede estar en PSRAM bajo sección crítica sin
-más, y es una estructura estática de 16 entradas) y el anillo de eventos. Se
-mide y se reporta el delta de RAM del build.
+El modelo entero (estructura + anillo) es **un único `heap_caps_malloc`** en
+`MALLOC_CAP_SPIRAM`, reservado en `TelemetryHistory_Init()`. La única
+estructura nueva en SRAM interna es la cola de flancos de 256 B: la escribe
+`CommTask` bajo una sección crítica de unos pocos ciclos y no puede apuntar a
+un modelo que pertenece a `UI_Task`. Además el código nuevo (estado de
+`trend_persist`, `hmi_fs`, estáticos de la librería LittleFS) añade `.bss`; el
+delta total de RAM del build se mide y se reporta en `tasks.md`.
 
 ### Reloj: de `esp_timer` a epoch con transición limpia
 
@@ -288,6 +291,8 @@ src/modules/trend/
   trend_file.*       CRC-32, serializar, validar, restaurar
   trend_model.*      store + events + clock; muestra, flanco, restauración
   trend_policy.*     cuándo toca volcar; validez de consigna
+  trend_persist.*    pegamento con E/S real (hmi_fs + PSRAM): restauración y
+                     volcado troceado (solo firmware, no se compila en host)
 src/modules/storage/
   hmi_fs.*           LittleFS de la partición "spiffs" (solo Arduino)
 ```
