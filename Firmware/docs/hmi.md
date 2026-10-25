@@ -383,3 +383,56 @@ boot *with* a valid clock seeds the three dates with today (otherwise a
 factory-fresh unit would read as "overdue since 1970"); and a clock moved
 backwards re-anchors any date left in the future to today, where the interval
 would otherwise never elapse again.
+
+## 9. Backlight and night mode
+
+The backlight is the **STC8H1K28** at I2C `0x30` (the same chip that drives
+the display's buzzer and speaker): one byte per transaction, no register.
+`0` is full brightness, `245` is off, and `246..249` are the buzzer/speaker
+opcodes, which are **never** written as brightness. The wire is
+`src/drivers/backlight.{h,cpp}` (`Backlight_SetPercent()`, `Backlight_Off()`);
+*what* level is wanted is decided by `src/modules/brightness/brightness_policy.cpp`,
+which has no Arduino or LVGL and is covered by `pio test -e native`
+(`test/test_brightness_policy`).
+
+**Settings > Modes** has two rows below the humidity switch: a **BRIGHTNESS**
+slider (20-100 %, default 100 %) and a **NIGHT MODE** switch (default off).
+The slider applies live while dragging and writes NVS when released.
+
+Target level, first matching row wins:
+
+| Alarm active (or board link lost) | Night mode | Lock screen loaded | Idle (no touch) | Target |
+|---|---|---|---|---|
+| yes | any | any | any | **100 %** |
+| no | on | yes | >= 30 s | `min(user level, 20 %)` |
+| no | any other combination | | | user level |
+
+Idle time is LVGL's (`lv_disp_get_inactive_time()`), so any touch, on the lock
+screen or the unlock pop-up, brings the screen back to the user level on the
+next `UI_Task` pass. The auto-lock fires at 20 s, so night mode dims about 10 s
+after an automatic lock and 30 s after a manual one. A screen is never dimmed
+with an alarm active, silenced or not. The power-off countdown (`pwroff`) is
+outside the policy: it still writes byte `245` and halts.
+
+The percentage maps to the byte with a quadratic duty curve, clamped to
+`[10, 240]` (`Brightness_PercentToByte()`): 100 % = 10 (the byte the firmware
+has always used), 80 % = 95, 60 % = 160, 40 % = 207, 20 % = 236. These points
+are a hypothesis until calibrated on the bench.
+
+I2C is done by `UI_Task` **after** `LVGL_Unlock()` (ARQ-LOCK-001): the level is
+computed under the lock and written outside it, only when it changes. A write
+the chip does not ACK is not recorded as applied and is retried every 200 ms.
+
+> **Not verified on hardware.** That the STC8H1K28 accepts intermediate bytes
+> is an assumption from its v1.3 datasheet comment; until now only `10` and
+> `245` had ever been written. If on the bench it turns off, hangs or ignores
+> the byte, set `DISPLAY_BL_LEVELS_SUPPORTED` to `0` in
+> `include/config/display_config.h`: every level then writes the full-on byte
+> and the slider and night mode become inert but harmless.
+
+NVS (`hmi_cfg`): `bl_pct` (uchar, 20-100, default 100; clamped on load) and
+`bl_night` (uchar 0/1, default 0). Absent keys on units already deployed read
+as the defaults, which reproduce the previous behaviour byte for byte. Writes
+go through the deferred block of `UI_Task`, outside `LVGL_Lock`, and are
+postponed while a training course is active; the training snapshot restores the
+brightness and night mode on exit.
