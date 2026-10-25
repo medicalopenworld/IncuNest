@@ -323,6 +323,20 @@ static void photoTimerForget() {
   p.end();
 }
 
+// Verdadero UNA vez por caducidad del temporizador: hay que guardar
+// KEY_PHOTO_ACTIVE=0. getRemainingPhotoTime() se invoca desde dos tareas (el
+// bucle de Communication_Receiver en main.cpp y send_state_to_hmi) y no debe
+// escribir NVS ella misma (ruta caliente de 1 ms, y duplicaria la escritura):
+// solo arma la bandera, y UNA tarea (Communication_Receiver) la consume aqui.
+// Sin esto, el 0 solo llegaria a NVS con la siguiente trama del display, y una
+// caida entre medias arrancaria en fototerapia continua sin limite.
+bool photoExpiryTakePersistOff(void) {
+  portENTER_CRITICAL(&s_photoExpiryMux);
+  const bool pendiente = photo_expiry_latch_take_persist_off(&s_photoExpiry);
+  portEXIT_CRITICAL(&s_photoExpiryMux);
+  return pendiente;
+}
+
 double getRemainingPhotoTime() {
   double remainingTime = 0.0;
   if (photoTimerActive) {
@@ -1075,10 +1089,11 @@ void parse_line(const char *line) {
                         "HMI,%d,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d",
                         &act, &skinE, &mode, &air, &skin, &hum, &photo,
                         &mute, &lang, &photoMin);
-    // `photo` es un booleano (0/1) y se emite tal cual en CTRL,STATE y se guarda
-    // en NVS: cualquier otro valor es una trama corrupta (sin CRC, ver
-    // known_issues #2) y se descarta entera en vez de actuar sobre la lampara.
-    if (parsed >= 9 && (photo == 0 || photo == 1)) {
+    // `photo` es un booleano (0/1) y `photoMin` va de 0 a PHOTO_TIMER_MAX_MINUTES
+    // (10 h): se emiten tal cual en CTRL,STATE, se guardan en NVS y arman el
+    // temporizador. Cualquier otro valor es una trama corrupta (sin CRC, ver
+    // known_issues #2) y se descarta ENTERA en vez de actuar sobre la lampara.
+    if (parsed >= 9 && photo_hmi_fields_valid(photo, photoMin)) {
       // Tras la caducidad del temporizador de fototerapia se IGNORA un photo=1
       // sin minutos hasta ver un photo=0: es una trama que el display tenia en
       // vuelo (o retenida por localCmdHoldsLocal, 10 s) de ANTES de adoptar el
@@ -1087,7 +1102,14 @@ void parse_line(const char *line) {
       // y guardada) usa el valor ya filtrado. Ver photo_expiry_latch.h.
       portENTER_CRITICAL(&s_photoExpiryMux);
       photo = photo_expiry_latch_filter(&s_photoExpiry, photo != 0, photoMin) ? 1 : 0;
+      const bool avisarFiltrada = photo_expiry_latch_take_filter_log(&s_photoExpiry);
       portEXIT_CRITICAL(&s_photoExpiryMux);
+      // Un solo log por episodio (la trama retenida llega muchas veces), y fuera
+      // de la seccion critica.
+      if (avisarFiltrada) {
+        ESP_LOGW(TAG, "HMI photo=1 sin minutos ignorado tras caducar el "
+                 "temporizador de fototerapia (hasta ver photo=0)");
+      }
       // activeSeq protection: stamp the wizard-selected baby while ANY
       // therapy is running, and only clear it once every therapy is off.
       // Phototherapy counts: the HMI now runs the baby-data wizard for it

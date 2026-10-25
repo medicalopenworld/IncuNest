@@ -754,6 +754,18 @@ void Communication_Receiver(void *pvParameters) {
     // Handle Phototherapy timer expiration/calculation constantly
     // This runs even if no HMI is connected, ensuring hardware turns OFF.
     getRemainingPhotoTime();
+    // Al caducar el temporizador se borra el slot "photo" de NVS, pero
+    // KEY_PHOTO_ACTIVE seguiria en 1 hasta la siguiente trama del display: una
+    // caida entre medias arrancaria en fototerapia continua sin limite. Se
+    // guarda el 0 aqui, UNA sola vez por caducidad (la bandera la consume esta
+    // tarea; getRemainingPhotoTime tambien la llama send_state_to_hmi) y fuera de
+    // la seccion critica. Solo cuesta una lectura de bandera por vuelta.
+    if (photoExpiryTakePersistOff()) {
+      Preferences p;
+      p.begin(NS_STATE, false);
+      p.putUChar(KEY_PHOTO_ACTIVE, 0);
+      p.end();
+    }
 
     // Unconditional: every loop inside gates itself on its own PID mode, and
     // the fan loop must run for phototherapy-only activation too (fan is

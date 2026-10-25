@@ -10,6 +10,14 @@ void photo_expiry_latch_init(PhotoExpiryLatch *l) {
 
 void photo_expiry_latch_expire(PhotoExpiryLatch *l) {
   if (l == nullptr) return;
+  // Persistir OFF y el aviso de log son UNO por episodio. getRemainingPhotoTime()
+  // la puede detectar a la vez desde dos tareas: la segunda llamada, dentro del
+  // mismo episodio, no vuelve a armar nada.
+  if (!l->expired) {
+    l->persist_off_pending = true;
+    l->log_done = false;
+    l->log_pending = false;
+  }
   l->expired = true;
 }
 
@@ -23,27 +31,33 @@ bool photo_expiry_latch_filter(PhotoExpiryLatch *l, bool photo, int photo_min) {
     return false;
   }
   // Una sesion nueva con temporizador es una orden inequivoca del operador.
+  // (Tambien la "continua" del modo formacion, que va con photoMin=5.)
   if (photo_min > 0) {
     l->expired = false;
     return true;
   }
   // photo=1 sin minutos tras la caducidad: es la trama rezagada, no una orden.
+  // Un solo aviso de log por episodio: la trama retenida llega muchas veces.
+  if (!l->log_done) {
+    l->log_done = true;
+    l->log_pending = true;
+  }
   return false;
 }
 
-// Esqueletos de la fase roja (TDD): sin logica, para que los tests compilen.
 bool photo_expiry_latch_take_persist_off(PhotoExpiryLatch *l) {
-  (void)l;
-  return false;
+  if (l == nullptr || !l->persist_off_pending) return false;
+  l->persist_off_pending = false;
+  return true;
 }
 
 bool photo_expiry_latch_take_filter_log(PhotoExpiryLatch *l) {
-  (void)l;
-  return false;
+  if (l == nullptr || !l->log_pending) return false;
+  l->log_pending = false;
+  return true;
 }
 
 bool photo_hmi_fields_valid(int photo, int photo_min) {
-  (void)photo;
-  (void)photo_min;
-  return true;
+  return (photo == 0 || photo == 1) && photo_min >= 0 &&
+         photo_min <= PHOTO_TIMER_MAX_MINUTES;
 }
