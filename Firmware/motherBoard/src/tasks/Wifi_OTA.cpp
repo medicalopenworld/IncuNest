@@ -627,13 +627,19 @@ void configWifiServer() {
     // todos valen se aplican: un formulario con un campo malo no queda a
     // medias. serial, reference_temp y set_time se quedan aqui debajo.
     {
-      size_t nKeys = 0;
-      const char *const *keys = runtime_config_keys(&nKeys);
+      // La web local acepta los NUEVE (la lista remota de ThingsBoard es otra,
+      // mas corta: ver runtime_config_policy.h).
+      const char *keys[RCFG_COUNT];
+      const size_t nKeys = RCFG_COUNT;
+      for (size_t i = 0; i < nKeys; i++) {
+        keys[i] = runtime_config_name((RuntimeConfigId)i);
+      }
       char msg[96];
       for (size_t i = 0; i < nKeys; i++) {
         if (wifiServer.hasArg(keys[i]) &&
-            !runtime_config_check_text(keys[i], wifiServer.arg(keys[i]).c_str(),
-                                       msg, sizeof(msg))) {
+            !runtime_config_check_text(RCFG_ORIGIN_WEB, keys[i],
+                                       wifiServer.arg(keys[i]).c_str(), msg,
+                                       sizeof(msg))) {
           wifiServer.sendHeader("Connection", "close");
           wifiServer.send(400, "text/plain", String("Rejected, nothing applied. ") + msg);
           return;
@@ -1929,6 +1935,7 @@ static constexpr size_t WIFI_RPC_CB_COUNT =
 // Suscripcion a los atributos compartidos de configuracion: UNA vez por cliente
 // (ver runtime_config_tb.h). Solo la toca la tarea WiFi.
 static bool s_cfgSubscribed = false;
+static RuntimeConfigPubState s_cfgPub = {};
 
 void WIFI_TB_OTA() {
   if (WIFIIsConnected()) {
@@ -1999,8 +2006,9 @@ void WIFI_TB_OTA() {
           // Configuracion remota por atributos compartidos (mb-remote-config):
           // suscripcion en caliente (una vez) + peticion de los valores
           // actuales (cada conexion) + eco de lo que tiene la placa.
-          runtime_config_tb_connected(tb_wifi, runtime_config_on_shared_wifi,
-                                      &s_cfgSubscribed, "WIFI");
+          runtime_config_tb_connected(tb_wifi, runtime_config_on_update_wifi,
+                                  runtime_config_on_request_wifi, &s_cfgSubscribed,
+                                  "WIFI");
           if (ENABLE_WIFI_OTA && !Wifi_TB.OTA_requested) {
             Wifi_TB.OTA_requested = true;
           }
@@ -2010,7 +2018,7 @@ void WIFI_TB_OTA() {
       } else {
         // Eco del valor efectivo de la configuracion, fuera de cualquier
         // callback del SDK. Una lectura atomica cuando no hay nada pendiente.
-        runtime_config_tb_publish_echo(tb_wifi);
+        runtime_config_tb_service(tb_wifi, &s_cfgPub);
         if (millis() - Wifi_TB.lastMQTTPublish > WIFI_PUBLISH_INTERVAL) {
           addTelemetriesToWIFIJSON();
           warnIfWifiTelemetryTruncated("telemetria");

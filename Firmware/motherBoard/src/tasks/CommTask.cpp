@@ -750,15 +750,19 @@ void parse_line(const char *line) {
 
   if (strncmp(line, "/config", 7) == 0) {
     char param[32];
-    float value;
+    // Valor EN CRUDO, no con %f: sscanf("%f") acepta "nan", "inf", hexadecimales
+    // y se queda con el prefijo de "12abc". runtime_config lo lee estricto.
+    char raw[32];
     bool success = false;
     char cfgMsg[96] = "";
-    if (line[7] == ',' && sscanf(line, "/config,%31[^,],%f", param, &value) == 2) {
+    if (line[7] == ',' &&
+        sscanf(line, "/config,%31[^,],%31s", param, raw) == 2) {
       success = true;
       if (strcmp(param, "BABY_WIPE") == 0) {
         // Destructive and irreversible, so it needs an explicit magic value
         // rather than any truthy number: /config,BABY_WIPE,1234
-        if ((int)value == 1234) {
+        float code = 0.0f;
+        if (runtime_config_parse_number(raw, &code) && (int)code == 1234) {
           int n = babyStore_wipeAll();
           if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
             ESP_LOGW(TAG, "BABY_WIPE done, %d files removed", n);
@@ -768,16 +772,17 @@ void parse_line(const char *line) {
           success = false;  // wrong confirmation code: do nothing
         }
       } else {
-        // Los nueve parametros de la lista blanca (en mayusculas aqui, el
-        // lookup no distingue) pasan por runtime_config: la misma regla que
-        // POST /config y que ThingsBoard. El modulo ya deja su propia linea
-        // de log con origen, valor pedido y valor aplicado.
-        success = runtime_config_apply(RCFG_ORIGIN_USB, param, value, cfgMsg,
-                                       sizeof(cfgMsg));
+        // Los nueve parametros pasan por runtime_config con la regla del
+        // origen USB: nombres en MAYUSCULAS exactas (como siempre), valor en
+        // crudo, y los cortes fuera de 34..40 C se RECHAZAN en vez de
+        // recortarse. El modulo deja su propia linea de log con origen, valor
+        // pedido y valor aplicado.
+        success = runtime_config_apply_text(RCFG_ORIGIN_USB, param, raw, cfgMsg,
+                                            sizeof(cfgMsg));
       }
       if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         if (success)
-          ESP_LOGI(TAG, "Config updated: %s = %.2f", param, value);
+          ESP_LOGI(TAG, "Config updated: %s = %s", param, raw);
         else
           ESP_LOGE(TAG, "Config not applied: %s", cfgMsg[0] ? cfgMsg : param);
         xSemaphoreGiveRecursive(log_mutex);

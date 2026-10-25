@@ -1307,6 +1307,7 @@ static void publishBabyCloudDataGPRS() {
 // por cliente, no en cada conexion (ver runtime_config_tb.h). Solo la toca la
 // tarea GPRS.
 static bool s_cfgSubscribed = false;
+static RuntimeConfigPubState s_cfgPub = {};
 
 void GPRSPost() {
   // Independiente de ThingsBoard a proposito: sin esto, una unidad sin
@@ -1369,8 +1370,9 @@ void GPRSPost() {
         // Tras subscribeRPCHandlers() y antes del OTA a proposito: si el
         // fabricante cambio un limite mientras la unidad estaba apagada, hay
         // que recogerlo aunque la comprobacion de firmware se alargue.
-        runtime_config_tb_connected(tb, runtime_config_on_shared_gprs,
-                                    &s_cfgSubscribed, "GPRS");
+        runtime_config_tb_connected(tb, runtime_config_on_update_gprs,
+                                  runtime_config_on_request_gprs, &s_cfgSubscribed,
+                                  "GPRS");
         if (ENABLE_GPRS_OTA && !GPRS.OTA_requested) {
           logModemData("[GPRS] -> Requesting OTA");
           GPRSCheckOTA();
@@ -1380,9 +1382,9 @@ void GPRSPost() {
       }
     }
     if (tb.connected()) {
-      // Eco del valor efectivo de la configuracion, fuera de cualquier callback
-      // del SDK. Una lectura atomica cuando no hay nada pendiente.
-      runtime_config_tb_publish_echo(tb);
+      // Configuracion remota: aplica lo aplazado y publica cfg_rejected, cfg_change
+      // y el eco del valor efectivo, fuera de cualquier callback del SDK.
+      runtime_config_tb_service(tb, &s_cfgPub);
       // Un apagado de fototerapia o control adelanta la publicacion: si no,
       // en standby (3600 s) ThingsBoard tardaria hasta una hora en verlo.
       // Ver modules/util/therapy_off_edge.h.

@@ -9,6 +9,10 @@ constexpr char NS_GPRS[]  = "mb_gprs";
 constexpr char NS_RT[]    = "mb_rt";
 constexpr char NS_STATE[] = "mb_state";
 constexpr char NS_FTEST[]  = "mb_ftest";
+// Estado por clave de la configuracion remota (modules/config/runtime_config):
+// un blob "k0".."k8" por parametro con el ultimo valor remoto visto, si hay
+// cambio local que lo gana, y origen y epoch del ultimo cambio.
+constexpr char NS_RCFG[]  = "mb_rcfg";
 
 // --------------- Key names: mb_cfg ---------------
 constexpr char KEY_LANG[]        = "lang";

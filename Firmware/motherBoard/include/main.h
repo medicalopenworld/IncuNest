@@ -571,7 +571,7 @@ void wifiRequestEnable(bool enable);
 void securityCheck();
 
 void turnFans(bool mode);
-void setFanPidEnabled(bool enabled);
+bool setFanPidEnabled(bool enabled);
 void alarmTimerStart(long graceMinutes = ACTUATORS_ALARM_STABILIZATION_MINS);
 void timeTrackHandler();
 
