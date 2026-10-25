@@ -156,6 +156,10 @@ typedef struct {
   lv_obj_t * noiseIcon;  // simbolo de altavoz (LV_SYMBOL_VOLUME_*)
   lv_obj_t * noiseText;
 } ui_HeadingEnv_t;
+// Filas del indicador de entorno dentro de su contenedor (66x48). La fila
+// 0..16 queda para el icono "en bateria" de Main, que va en la misma franja.
+#define HEADING_ENV_DOOR_ROW_Y 16
+#define HEADING_ENV_NOISE_ROW_Y 32
 extern ui_HeadingEnv_t ui_HeadingEnvMain;
 extern ui_HeadingEnv_t ui_HeadingEnvLock;
 extern lv_obj_t * ui_Settings;

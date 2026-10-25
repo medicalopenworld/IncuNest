@@ -1146,8 +1146,13 @@ static void create_heading_env_indicator(lv_obj_t *parent, lv_align_t align,
   lv_obj_add_flag(out->cont, LV_OBJ_FLAG_HIDDEN);
 
   out->doorRow = env_plain_obj(out->cont);
-  lv_obj_set_size(out->doorRow, 66, 22);
+  // Tres filas fijas de 16 px en la franja (y=5..53 de pantalla): la de
+  // arriba es del icono "en bateria" (create_on_battery_indicator), la del
+  // medio de la puerta y la de abajo del ruido. Fijas, no centradas: asi
+  // ningun indicador pisa a otro aunque se vean los tres a la vez.
+  lv_obj_set_size(out->doorRow, 66, 16);
   lv_obj_set_align(out->doorRow, LV_ALIGN_TOP_LEFT);
+  lv_obj_set_y(out->doorRow, HEADING_ENV_DOOR_ROW_Y);
 
   out->doorFrame = env_plain_obj(out->doorRow);
   lv_obj_set_size(out->doorFrame, 11, 15);
@@ -1170,9 +1175,9 @@ static void create_heading_env_indicator(lv_obj_t *parent, lv_align_t align,
   lv_obj_set_x(out->doorText, 14);  // 14 + 49,5 ("Ouverte") = 63,5 < 66
 
   out->noiseRow = env_plain_obj(out->cont);
-  lv_obj_set_size(out->noiseRow, 66, 22);
+  lv_obj_set_size(out->noiseRow, 66, 16);
   lv_obj_set_align(out->noiseRow, LV_ALIGN_TOP_LEFT);
-  lv_obj_set_y(out->noiseRow, 24);
+  lv_obj_set_y(out->noiseRow, HEADING_ENV_NOISE_ROW_Y);
 
   // La fila del ruido queda pegada a la fecha (la mas ancha de la izquierda,
   // x=109), asi que arranca 2 px mas a la derecha que la de la puerta.
@@ -1308,7 +1313,11 @@ void ui_ScreenMain_screen_init(void) {
   // su derecha, dentro del propio boton del reloj. El heading no tiene otro
   // slot: los siete estan ocupados con 19 px de holgura entre ellos. Ver el
   // comentario de create_on_battery_indicator() sobre por que sin palabra.
-  create_on_battery_indicator(ui_ClockButton, LV_ALIGN_RIGHT_MID, -2, 11, 0,
+  // Fila de arriba de la franja del entorno (y=5..21), pegada a la derecha:
+  // centro en (254, 13) de pantalla. Hijo de la pantalla y no del boton, por
+  // el mismo motivo que el indicador del entorno (el pad del boton desplaza
+  // los offsets de sus hijos).
+  create_on_battery_indicator(ui_ScreenMain, LV_ALIGN_CENTER, -146, -227, 0,
                               lv_color_hex(0xFFD54F), &lv_font_montserrat_14,
                               &ui_OnBatteryIcon, NULL);
 
@@ -4036,7 +4045,7 @@ void ui_ScreenLock_screen_init(void) {
   // asi que hay sitio para el nombre entero y no hace falta desplazarlo. Mismo
   // origen de datos que el boton "Bebes" de Main (patient_identity_update()).
   ui_LockPatientName = lv_label_create(ui_ScreenLock);
-  lv_obj_set_width(ui_LockPatientName, 440);
+  lv_obj_set_width(ui_LockPatientName, 360);  // x=350..710: deja sitio al entorno
   lv_label_set_long_mode(ui_LockPatientName, LV_LABEL_LONG_DOT);
   lv_obj_set_align(ui_LockPatientName, LV_ALIGN_TOP_LEFT);
   lv_obj_set_x(ui_LockPatientName, 350);
@@ -4048,7 +4057,7 @@ void ui_ScreenLock_screen_init(void) {
   lv_label_set_text(ui_LockPatientName, "");
   lv_obj_add_flag(ui_LockPatientName, LV_OBJ_FLAG_HIDDEN);
   ui_LockPatientDetail = lv_label_create(ui_ScreenLock);
-  lv_obj_set_width(ui_LockPatientDetail, 440);
+  lv_obj_set_width(ui_LockPatientDetail, 360);
   lv_label_set_long_mode(ui_LockPatientDetail, LV_LABEL_LONG_CLIP);
   lv_obj_set_align(ui_LockPatientDetail, LV_ALIGN_TOP_LEFT);
   lv_obj_set_x(ui_LockPatientDetail, 350);
@@ -4064,7 +4073,8 @@ void ui_ScreenLock_screen_init(void) {
   // Bebes/Alarmas/Ajustes): borde izquierdo en x=480, justo fuera de la zona
   // tactil ampliada del candado (que acaba en 459). Centro del contenedor de 66
   // px = 480 + 33 -> offset 113 desde el centro de pantalla.
-  create_heading_env_indicator(ui_ScreenLock, LV_ALIGN_CENTER, 113, -213,
+  // x=724..790, a la derecha de la identidad del paciente (x=350..710).
+  create_heading_env_indicator(ui_ScreenLock, LV_ALIGN_CENTER, 357, -213,
                                &ui_HeadingEnvLock);
   // Indicador "en bateria" en el slot de ayuda, que en el bloqueo esta vacio
   // por diseno (ver HEADING_SLOT0_HELP). Mismas alturas que hora y fecha.

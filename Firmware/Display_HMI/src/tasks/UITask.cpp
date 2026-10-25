@@ -891,14 +891,11 @@ static void apply_heading_env(const ui_HeadingEnv_t *w, const SbEnvView &v,
   static const lv_color_t WHITE = lv_color_hex(0xFFFFFF);
   static const lv_color_t ALERT = lv_color_hex(0xFFD400);
 
-  // Con las dos filas, una encima de la otra; con una sola, centrada en el alto
-  // del contenedor (48 px, filas de 22).
-  const bool both = showDoor && showNoise;
-  const lv_coord_t onlyY = (48 - 22) / 2;
+  // Filas fijas (HEADING_ENV_*_ROW_Y, ElementsCreation.h): la de arriba de la
+  // franja es del icono "en bateria" y no se comparte.
 
   if (showDoor) {
     lv_obj_clear_flag(w->doorRow, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_set_y(w->doorRow, both ? 0 : onlyY);
     lv_label_set_text(w->doorText, TR(STR_ENV_DOOR_OPEN));
     lv_obj_set_style_text_color(w->doorText, ALERT, LV_PART_MAIN);
     lv_obj_set_style_border_color(w->doorFrame, ALERT, LV_PART_MAIN);
@@ -909,7 +906,6 @@ static void apply_heading_env(const ui_HeadingEnv_t *w, const SbEnvView &v,
 
   if (showNoise) {
     lv_obj_clear_flag(w->noiseRow, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_set_y(w->noiseRow, both ? 24 : onlyY);
     const char *symbol = LV_SYMBOL_VOLUME_MAX;
     const char *word = TR(STR_ENV_NOISE_MID);
     lv_color_t color = WHITE;
