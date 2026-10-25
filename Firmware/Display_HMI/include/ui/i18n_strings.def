@@ -109,6 +109,18 @@ UI_STR(STR_CONN_WIFI_SERVER,   "WIFI + SERVIDOR",
 UI_STR(STR_CONN_UNKNOWN,       "-",            "-",           "-",           "-")
 UI_STR(STR_NO_TIME,            "Sin hora",     "No time",     "Sans heure",  "Sem hora")
 
+// ------------------------------------------------------- entorno (SensorBoard)
+// Indicador del heading (franja libre del boton del reloj). Palabras CORTAS: la
+// franja mide 66 px y la fila lleva ademas el pictograma; la mas ancha, "Ouverte",
+// ocupa 49,5 px en montserrat_12. El ruido es
+// un nivel RELATIVO y provisional (el microfono no esta calibrado), por eso
+// Bajo/Medio/Alto y no "Silencio"/"Normal": no se afirma que el ambiente sea
+// aceptable. Ver design.md del change shared-sb-env-to-hmi, D3.
+UI_STR(STR_ENV_DOOR_OPEN,      "Abierta",      "Open",        "Ouverte",     "Aberta")
+UI_STR(STR_ENV_NOISE_LOW,      "Bajo",         "Low",         "Bas",         "Baixo")
+UI_STR(STR_ENV_NOISE_MID,      "Medio",        "Mid",         "Moyen",       "Medio")
+UI_STR(STR_ENV_NOISE_HIGH,     "Alto",         "High",        "Eleve",       "Alto")
+
 // ------------------------------------------------------- graficas
 UI_STR(STR_HUM_CHART,          "GRAFICO HUMEDAD",
                                "HUMIDITY CHART",

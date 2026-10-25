@@ -13,6 +13,7 @@
 #include "drivers/rtc_pcf8563.h"
 #include "drivers/rtc_store.h"
 #include "drivers/rtc_write_policy.h"
+#include "modules/comm/sb_env.h"
 #include <cstdio>
 #include <cstdlib>
 #include <string.h>
@@ -150,6 +151,29 @@ bool Display_IsBoardLinkLost(void) {
   if (unheard > BOARD_LINK_TIMEOUT_MS) return true;
   if (unheard >= sinceLine) return false; // no hemos escuchado nada en absoluto
   return (sinceLine - unheard) > BOARD_LINK_TIMEOUT_MS;
+}
+
+// --- Entorno de la SensorBoard (CTRL,ENV) ---
+//
+// Lo escribe la tarea Comm y lo lee la UI, asi que el trio mensaje/instante/
+// "ha llegado" se copia entero bajo el spinlock (no son tipos atomicos y una
+// lectura a medias mezclaria una puerta con el ruido de otra trama).
+static portMUX_TYPE s_sbEnvMux = portMUX_INITIALIZER_UNLOCKED;
+static SbEnvMsg s_sbEnvMsg = {false, PROTO_ENV_DOOR_UNKNOWN,
+                              PROTO_ENV_UNAVAILABLE, PROTO_ENV_UNAVAILABLE};
+static uint32_t s_sbEnvRxMs = 0;
+static bool s_sbEnvHave = false;
+
+SbEnvView Display_GetSbEnvView(void) {
+  SbEnvMsg msg;
+  uint32_t rxMs;
+  bool have;
+  taskENTER_CRITICAL(&s_sbEnvMux);
+  msg = s_sbEnvMsg;
+  rxMs = s_sbEnvRxMs;
+  have = s_sbEnvHave;
+  taskEXIT_CRITICAL(&s_sbEnvMux);
+  return sbenv_view(have, &msg, rxMs, millis(), Display_IsBoardLinkLost());
 }
 
 volatile bool   g_pendingAlarmDesc = false;
@@ -1078,6 +1102,20 @@ static void parse_message(const char *line) {
       g_tempDutyPwm      = t;
       g_humDutyPwm       = h;
       g_pendingDutyApply = true;
+    }
+  } else if (strncmp(line, "CTRL,ENV,", 9) == 0) {
+    // Puerta/luz/ruido de la SensorBoard. Solo informativo. Una linea
+    // malformada se descarta SIN tocar lo ultimo recibido (sbenv_parse no
+    // escribe en la salida al rechazar); el dato viejo caduca solo.
+    SbEnvMsg env;
+    if (sbenv_parse(line, &env)) {
+      taskENTER_CRITICAL(&s_sbEnvMux);
+      s_sbEnvMsg = env;
+      s_sbEnvRxMs = millis();
+      s_sbEnvHave = true;
+      taskEXIT_CRITICAL(&s_sbEnvMux);
+    } else {
+      COMM_LOG("[COMM] CTRL,ENV malformado: %s\n", line);
     }
   } else if (strncmp(line, "CTRL,PROFILE_LIST", 17) == 0) {
     // CTRL,PROFILE_LIST,<n>{,<seq>,<name>,<gestWeeks>,<weightGrams>}xn

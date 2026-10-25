@@ -304,6 +304,8 @@ lv_obj_t *ui_LockHeadingClockDate = NULL;
 lv_obj_t *ui_LockHeadingConnCont = NULL;
 lv_obj_t *ui_LockHeadingConnIcon = NULL;
 lv_obj_t *ui_LockHeadingConnBar[4] = {NULL, NULL, NULL, NULL};
+ui_HeadingEnv_t ui_HeadingEnvMain = {};
+ui_HeadingEnv_t ui_HeadingEnvLock = {};
 lv_obj_t *ui_Container1 = NULL;
 lv_obj_t *ui_AirTempLockCont = NULL;
 lv_obj_t *ui_Label11 = NULL;
@@ -1077,6 +1079,97 @@ static lv_obj_t *create_therapy_total_label(lv_obj_t *parent, lv_align_t align,
   return lbl;
 }
 
+// Objeto "mudo": sin estilo por defecto y sin reaccionar al tacto, para que el
+// toque atraviese el indicador y llegue al widget que tenga debajo (en Main, el
+// boton del reloj).
+static lv_obj_t *env_plain_obj(lv_obj_t *parent) {
+  lv_obj_t *o = lv_obj_create(parent);
+  lv_obj_remove_style_all(o);
+  lv_obj_clear_flag(o, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+  return o;
+}
+
+static lv_obj_t *env_label(lv_obj_t *parent, const lv_font_t *font) {
+  lv_obj_t *l = lv_label_create(parent);
+  lv_obj_set_width(l, LV_SIZE_CONTENT);
+  lv_obj_set_height(l, LV_SIZE_CONTENT);
+  lv_obj_set_align(l, LV_ALIGN_LEFT_MID);
+  lv_label_set_text(l, "");
+  lv_obj_set_style_text_font(l, font, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_text_color(l, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+  return l;
+}
+
+// Indicador del entorno de la SensorBoard (ver ui_HeadingEnv_t): fila de
+// PUERTA ABIERTA (pictograma dibujado + texto) y fila de NIVEL DE RUIDO
+// (altavoz + Bajo/Medio/Alto). Nace oculto; sb_env_heading_update() (UITask.cpp)
+// decide que filas se ven, con que color y con que texto.
+//
+// Dimensionado para la franja libre a la derecha de la hora y la fecha de
+// ui_ClockButton: 66 px, 2 filas de 22 px. Medidas (avances reales de
+// montserrat en los .c de LVGL, no estimaciones): la hora "23:59" en 26 pt acaba
+// en x=101 del boton y la fecha "DD/MM/AAAA" en 14 pt en x=109 (el tema por
+// defecto mete 20 px de pad_hor al boton; los x=14 de los labels se suman a
+// eso), asi que quedan x=112..178 de los 180. La palabra mas ancha es "Ouverte"
+// (49,5 px en montserrat_12). El pictograma de la puerta es un marco de 11x15
+// con una hoja de 4 px pegada a un lado (puerta entornada); no hay glifo de
+// puerta en las fuentes integradas de LVGL.
+//
+// Por eso este indicador NO es hijo del boton (sus offsets se medirian desde el
+// area de contenido, que el pad desplaza): es hijo de la pantalla, por encima del
+// boton y en coordenadas absolutas. No es clicable, asi que el toque lo
+// atraviesa y llega al boton del reloj.
+//
+// Las dos instancias se crean en blanco (sobre el azul del boton en Main, sobre
+// el fondo oscuro en el bloqueo); el amarillo de "atencion" lo pone la funcion
+// de refresco solo para lo que lo merece.
+static void create_heading_env_indicator(lv_obj_t *parent, lv_align_t align,
+                                         lv_coord_t x, lv_coord_t y,
+                                         ui_HeadingEnv_t *out) {
+  out->cont = env_plain_obj(parent);
+  lv_obj_set_size(out->cont, 66, 48);
+  lv_obj_set_align(out->cont, align);
+  lv_obj_set_x(out->cont, x);
+  lv_obj_set_y(out->cont, y);
+  lv_obj_add_flag(out->cont, LV_OBJ_FLAG_HIDDEN);
+
+  out->doorRow = env_plain_obj(out->cont);
+  lv_obj_set_size(out->doorRow, 66, 22);
+  lv_obj_set_align(out->doorRow, LV_ALIGN_TOP_LEFT);
+
+  out->doorFrame = env_plain_obj(out->doorRow);
+  lv_obj_set_size(out->doorFrame, 11, 15);
+  lv_obj_set_align(out->doorFrame, LV_ALIGN_LEFT_MID);
+  lv_obj_set_x(out->doorFrame, 0);
+  lv_obj_set_style_radius(out->doorFrame, 1, LV_PART_MAIN);
+  lv_obj_set_style_border_width(out->doorFrame, 2, LV_PART_MAIN);
+  lv_obj_set_style_border_color(out->doorFrame, lv_color_hex(0xFFFFFF),
+                                LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(out->doorFrame, LV_OPA_TRANSP, LV_PART_MAIN);
+
+  out->doorLeaf = env_plain_obj(out->doorFrame);
+  lv_obj_set_size(out->doorLeaf, 4, 9);
+  lv_obj_set_align(out->doorLeaf, LV_ALIGN_LEFT_MID);
+  lv_obj_set_style_bg_color(out->doorLeaf, lv_color_hex(0xFFFFFF),
+                            LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(out->doorLeaf, LV_OPA_COVER, LV_PART_MAIN);
+
+  out->doorText = env_label(out->doorRow, &lv_font_montserrat_12);
+  lv_obj_set_x(out->doorText, 14);  // 14 + 49,5 ("Ouverte") = 63,5 < 66
+
+  out->noiseRow = env_plain_obj(out->cont);
+  lv_obj_set_size(out->noiseRow, 66, 22);
+  lv_obj_set_align(out->noiseRow, LV_ALIGN_TOP_LEFT);
+  lv_obj_set_y(out->noiseRow, 24);
+
+  // La fila del ruido queda pegada a la fecha (la mas ancha de la izquierda,
+  // x=109), asi que arranca 2 px mas a la derecha que la de la puerta.
+  out->noiseIcon = env_label(out->noiseRow, &lv_font_montserrat_14);
+  lv_obj_set_x(out->noiseIcon, 2);
+  out->noiseText = env_label(out->noiseRow, &lv_font_montserrat_12);
+  lv_obj_set_x(out->noiseText, 19);  // 19 + 41,3 ("Moyen") = 60,3 < 66
+}
+
 void ui_ScreenMain_screen_init(void) {
   ui_ScreenMain = lv_obj_create(NULL);
   lv_obj_clear_flag(ui_ScreenMain, LV_OBJ_FLAG_SCROLLABLE);
@@ -1132,6 +1225,21 @@ void ui_ScreenMain_screen_init(void) {
                              LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_text_color(ui_ClockDate, lv_color_hex(0xD6E6FF),
                               LV_PART_MAIN);
+
+  // Entorno de la SensorBoard (puerta abierta / nivel de ruido): la franja
+  // libre a la derecha de la hora y la fecha, SOBRE el boton del reloj. El
+  // heading esta lleno (huecos de 19 px entre widgets; ver HEADING_SLOT*) y
+  // otras ramas reservan los slots de Bebes/Alarmas/Ajustes, asi que se aprovecha
+  // un hueco que ya existe sin mover nada ni tocar zonas tactiles. No es
+  // clicable: el toque llega al boton del reloj. Lo refresca
+  // sb_env_heading_update() (UITask.cpp).
+  //
+  // Coordenadas desde el centro de pantalla: el boton ocupa x=83..263 e
+  // y=2..57 (centro 173-400 / -211 + 240); la franja libre son x=195..261 (los
+  // 112..178 de 180 del boton, ver create_heading_env_indicator()), centro 228
+  // -> offset -172.
+  create_heading_env_indicator(ui_ScreenMain, LV_ALIGN_CENTER, -172, -211,
+                               &ui_HeadingEnvMain);
 
   // Boton de ayuda (spec hmi-help-center): "?" redondo en el primer slot del
   // heading, solo en ui_ScreenMain. Es texto sobre un lv_btn, no un asset:
@@ -3853,6 +3961,13 @@ void ui_ScreenLock_screen_init(void) {
                               LV_PART_MAIN);
   lv_label_set_text(ui_LockPatientDetail, "");
   lv_obj_add_flag(ui_LockPatientDetail, LV_OBJ_FLAG_HIDDEN);
+  // Replica del indicador de entorno (puerta abierta / ruido). A la derecha del
+  // candado, que es el lado libre del heading de esta pantalla (no lleva
+  // Bebes/Alarmas/Ajustes): borde izquierdo en x=480, justo fuera de la zona
+  // tactil ampliada del candado (que acaba en 459). Centro del contenedor de 66
+  // px = 480 + 33 -> offset 113 desde el centro de pantalla.
+  create_heading_env_indicator(ui_ScreenLock, LV_ALIGN_CENTER, 113, -213,
+                               &ui_HeadingEnvLock);
 
   ui_Container1 = lv_obj_create(ui_ScreenLock);
   lv_obj_remove_style_all(ui_Container1);

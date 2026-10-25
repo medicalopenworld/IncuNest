@@ -141,6 +141,23 @@ extern lv_obj_t * ui_HelpButtonLabel;
 extern lv_obj_t * ui_ConnCont;
 extern lv_obj_t * ui_ConnIcon;
 extern lv_obj_t * ui_ConnBar[4];
+
+// Indicador del entorno de la SensorBoard (puerta abierta, nivel de ruido):
+// dos filas de pictograma + palabra corta. Una instancia vive dentro de
+// la franja libre de ui_ClockButton (Main) y otra en el heading de ui_ScreenLock. Las refresca
+// sb_env_heading_update() (UITask.cpp); aqui solo se crean, ocultas.
+typedef struct {
+  lv_obj_t * cont;       // contenedor; oculto salvo que haya algo que pintar
+  lv_obj_t * doorRow;
+  lv_obj_t * doorFrame;  // pictograma: marco de la puerta...
+  lv_obj_t * doorLeaf;   // ...y la hoja abierta
+  lv_obj_t * doorText;
+  lv_obj_t * noiseRow;
+  lv_obj_t * noiseIcon;  // simbolo de altavoz (LV_SYMBOL_VOLUME_*)
+  lv_obj_t * noiseText;
+} ui_HeadingEnv_t;
+extern ui_HeadingEnv_t ui_HeadingEnvMain;
+extern ui_HeadingEnv_t ui_HeadingEnvLock;
 extern lv_obj_t * ui_Settings;
 extern lv_obj_t * ui_AlarmButton;
 extern lv_obj_t * ui_BabiesButton;

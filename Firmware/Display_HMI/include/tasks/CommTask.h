@@ -9,6 +9,7 @@
 #include "alarm_ids.h"
 #include "factory_test.h"
 #include "modules/patient/patient_session.h"  // PatientBoardView (Communication_GetBoardView)
+#include "modules/comm/sb_env.h"
 
 #define COMMUNICATION_DEBUG true
 #if COMMUNICATION_DEBUG
@@ -63,6 +64,12 @@ bool Display_IsBoardLinkLost(void);
 // "el enlace esta vivo": sirve para no afirmar nada sobre un equipo del que
 // todavia no se sabe nada, como al arrancar el display sin motherBoard.
 bool Display_BoardEverSeen(void);
+
+// Que pintar del entorno de la SensorBoard (puerta abierta, nivel de ruido),
+// a partir del ultimo CTRL,ENV. Todo "no pintar" si nunca ha llegado (equipo sin
+// SensorBoard), si esta rancio, o si el enlace con la placa esta caido. Ver
+// sb_env.h; la consume sb_env_heading_update() en UITask.cpp.
+SbEnvView Display_GetSbEnvView(void);
 
 // Expected prefix of incoming messages
 #if IS_HMI
