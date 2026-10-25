@@ -681,6 +681,115 @@ void connectivity_heading_update(void) {
                                 &lastSignatureLock);
 }
 
+// Indicador del entorno de la SensorBoard en el heading: puerta ABIERTA y nivel
+// de RUIDO (Bajo/Medio/Alto), en Main (sobre la franja libre del boton del reloj) y replicado
+// en el bloqueo. Solo informativo.
+//
+// Que se pinta lo decide sbenv_view() (sb_env.cpp, con test de host): nada si el
+// equipo no tiene SensorBoard (nunca llega CTRL,ENV), si el dato esta rancio o
+// si el enlace con la placa esta caido; la puerta solo si esta ABIERTA (cerrada
+// es lo normal, y en fallo lo senaliza ALARM_SENSORBOARD_DOOR_FAULT, no esto).
+// NUNCA se pinta un numero de dB ni de lux: el microfono y el ALS no estan
+// calibrados.
+//
+// Mismo patron que clock_update(): se calcula una firma de lo que hay que
+// pintar y solo se toca LVGL cuando cambia. La firma incluye el idioma, para
+// que el cambio de idioma redibuje los textos.
+static constexpr uint32_t kEnvSigInvalid = 0xFFFFFFFFu;
+static uint32_t s_sbEnvSigMain = kEnvSigInvalid;
+static uint32_t s_sbEnvSigLock = kEnvSigInvalid;
+
+// UI_ApplyTheme() barre TODAS las etiquetas con un color unico y se llevaria por
+// delante el amarillo de "atencion": la firma se invalida y la proxima pasada
+// vuelve a pintar (mismo motivo que wifi_link_status_invalidate()).
+static void sb_env_heading_invalidate(void) {
+  s_sbEnvSigMain = kEnvSigInvalid;
+  s_sbEnvSigLock = kEnvSigInvalid;
+}
+
+static void apply_heading_env(const ui_HeadingEnv_t *w, const SbEnvView &v,
+                              bool hideAll, uint32_t *lastSig) {
+  if (!w->cont) return;
+
+  const bool showDoor = !hideAll && v.doorOpen;
+  const bool showNoise = !hideAll && v.noise != SBENV_NOISE_NONE;
+
+  const uint32_t sig = (showDoor ? 1u : 0u) |
+                       ((showNoise ? (uint32_t)v.noise : 0u) << 1) |
+                       (((uint32_t)g_lang & 0xFu) << 4);
+  if (sig == *lastSig) return;
+  *lastSig = sig;
+
+  if (!showDoor && !showNoise) {
+    lv_obj_add_flag(w->cont, LV_OBJ_FLAG_HIDDEN);
+    return;
+  }
+  lv_obj_clear_flag(w->cont, LV_OBJ_FLAG_HIDDEN);
+
+  // Blanco = informativo; amarillo = merece atencion (puerta abierta, ruido
+  // alto). Legible tanto sobre el azul del boton del reloj como sobre el fondo
+  // oscuro del bloqueo. El texto lleva siempre la palabra: el color solo no
+  // basta.
+  static const lv_color_t WHITE = lv_color_hex(0xFFFFFF);
+  static const lv_color_t ALERT = lv_color_hex(0xFFD400);
+
+  // Con las dos filas, una encima de la otra; con una sola, centrada en el alto
+  // del contenedor (48 px, filas de 22).
+  const bool both = showDoor && showNoise;
+  const lv_coord_t onlyY = (48 - 22) / 2;
+
+  if (showDoor) {
+    lv_obj_clear_flag(w->doorRow, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_y(w->doorRow, both ? 0 : onlyY);
+    lv_label_set_text(w->doorText, TR(STR_ENV_DOOR_OPEN));
+    lv_obj_set_style_text_color(w->doorText, ALERT, LV_PART_MAIN);
+    lv_obj_set_style_border_color(w->doorFrame, ALERT, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(w->doorLeaf, ALERT, LV_PART_MAIN);
+  } else {
+    lv_obj_add_flag(w->doorRow, LV_OBJ_FLAG_HIDDEN);
+  }
+
+  if (showNoise) {
+    lv_obj_clear_flag(w->noiseRow, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_y(w->noiseRow, both ? 24 : onlyY);
+    const char *symbol = LV_SYMBOL_VOLUME_MAX;
+    const char *word = TR(STR_ENV_NOISE_MID);
+    lv_color_t color = WHITE;
+    switch (v.noise) {
+    case SBENV_NOISE_LOW:
+      symbol = LV_SYMBOL_VOLUME_MID;
+      word = TR(STR_ENV_NOISE_LOW);
+      break;
+    case SBENV_NOISE_HIGH:
+      word = TR(STR_ENV_NOISE_HIGH);
+      color = ALERT;
+      break;
+    case SBENV_NOISE_MID:
+    case SBENV_NOISE_NONE:
+    default:
+      break;
+    }
+    lv_label_set_text(w->noiseIcon, symbol);
+    lv_label_set_text(w->noiseText, word);
+    lv_obj_set_style_text_color(w->noiseIcon, color, LV_PART_MAIN);
+    lv_obj_set_style_text_color(w->noiseText, color, LV_PART_MAIN);
+  } else {
+    lv_obj_add_flag(w->noiseRow, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+static void sb_env_heading_update(void) {
+  const SbEnvView v = Display_GetSbEnvView();
+
+  // En Main el indicador vive en la franja libre a la derecha de la hora. Con
+  // "Sin hora" (sin epoch) el texto de 26 pt la invade, asi que ahi se oculta;
+  // es un estado transitorio y el indicador es informativo. La replica del
+  // bloqueo esta lejos del reloj y no tiene ese problema.
+  const bool noClock = (HMI_GetEpochNow() == 0);
+  apply_heading_env(&ui_HeadingEnvMain, v, noClock, &s_sbEnvSigMain);
+  apply_heading_env(&ui_HeadingEnvLock, v, false, &s_sbEnvSigLock);
+}
+
 void link_lost_blank_update(void) {
   static bool wasLost = false;
   const bool lost = Display_IsBoardLinkLost();
@@ -4964,6 +5073,7 @@ void UI_Task(void *pvParameters) {
     clock_update();
     wifi_link_status_update();
     connectivity_heading_update();
+    sb_env_heading_update();
     link_audio_mute_button_update();
     // Apaga el chasquido de la ultima pulsacion cuando le toca. Va aqui, y no
     // con un delay() dentro del callback, para no congelar LVGL.
@@ -5434,6 +5544,8 @@ void UI_ApplyTheme() {
     // de arriba se los acaba de llevar por delante.
     wifi_link_status_invalidate();
   }
+  // Mismo barrido: se lleva el amarillo del indicador de entorno del heading.
+  sb_env_heading_invalidate();
 
   // Images recoloring for Dark Mode (Originals are black, we want white)
   lv_color_t img_recolor =
