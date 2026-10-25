@@ -1,10 +1,16 @@
 // Detector de interrupcion de red (ALARM_MAINS_INTERRUPTION).
 //
 // Lo que se protege: que un corte de red real se declare en ~10 s y NO se
-// retire hasta cumplirse el minimo de 10 min de 60601-2-19 201.12.3.103, y que
-// un parpadeo o un fallo de I2C del cargador no levante ni retire una alarma
-// ALTA que el operador no puede silenciar. Ver modules/control/mains_detector.h
-// y openspec/changes/shared-mains-detector/design.md.
+// retire hasta que la red vuelva (confirmada), y que un parpadeo o un fallo de
+// I2C del cargador no levante ni retire una alarma ALTA que el operador no
+// puede silenciar. Y que un cargador que deja de responder no deje al detector
+// ciego sin que nadie se entere (mains_detector_blind). Ver
+// modules/control/mains_detector.h y openspec/changes/archive/*mains-detector*.
+//
+// El plazo minimo de aviso es 0 por decision de producto (design de
+// shared-mains-detector-fixes): los tests del mecanismo con plazo usan su
+// propia constante, TEST_HOLD_MS, para que revertir la decision no deje el
+// mecanismo sin probar.
 
 #include <unity.h>
 
@@ -14,15 +20,19 @@ static MainsDetector d;
 
 // Periodo de lectura del BQ en main.cpp.
 static const uint32_t PERIOD_MS = 5000u;
-static const uint16_t VBAT_OK = 12600;
+// Plazo de prueba para ejercitar el mecanismo de minimo de aviso.
+static const uint32_t TEST_HOLD_MS = 600000u;
 
 void setUp(void) { mains_detector_init(&d); }
 void tearDown(void) {}
 
-static void feed(bool valid, bool ac, uint32_t t, uint16_t vbat = VBAT_OK) {
-  mains_detector_sample(&d, valid, ac, vbat, t);
+static void feed(bool valid, bool ac, uint32_t t) {
+  mains_detector_sample(&d, valid, ac, t);
 }
 static bool cond(uint32_t t) { return mains_detector_condition(&d, t); }
+static bool blind(uint32_t t, bool detected = true) {
+  return mains_detector_blind(&d, detected, t);
+}
 
 // Alimenta `n` lecturas validas con el mismo valor, una cada PERIOD_MS desde
 // `t`. Devuelve el instante de la ULTIMA.
@@ -94,58 +104,30 @@ void test_invalid_reading_does_not_count_as_absent(void) {
 }
 
 void test_invalid_reading_does_not_release(void) {
-  const uint32_t t0 = feedN(2, false, 100000);  // declarada en t0
-  // Pasado el minimo, solo hay lecturas invalidas: no es un restablecimiento.
-  const uint32_t t = t0 + MAINS_ALARM_MIN_HOLD_MS + 1000u;
+  const uint32_t t0 = feedN(2, false, 100000);  // declarada
+  // Solo lecturas invalidas con "red presente": no es un restablecimiento.
   for (int i = 0; i < 10; ++i) {
-    feed(false, true, t + (uint32_t)i * PERIOD_MS);
+    feed(false, true, t0 + 60000u + (uint32_t)i * PERIOD_MS);
   }
-  TEST_ASSERT_TRUE(cond(t + 10 * PERIOD_MS));
+  TEST_ASSERT_TRUE(cond(t0 + 60000u + 10 * PERIOD_MS));
 }
 
-void test_zero_battery_voltage_makes_the_reading_invalid(void) {
-  // vbat 0 = el ADC del cargador aun no ha convertido: el resto de la trama no
-  // es de fiar, aunque el flag de lectura diga que si.
-  feed(true, false, 100000, 0);
-  feed(true, false, 105000, 0);
-  TEST_ASSERT_FALSE(cond(105000));
+// --- plazo minimo por defecto: 0 (decision de producto) ---
+
+void test_default_hold_is_zero(void) {
+  TEST_ASSERT_EQUAL_UINT32(0u, MAINS_ALARM_MIN_HOLD_MS);
 }
 
-void test_zero_battery_voltage_does_not_release(void) {
+void test_default_alarm_clears_as_soon_as_mains_is_confirmed_back(void) {
   const uint32_t t0 = feedN(2, false, 100000);
-  const uint32_t t = t0 + MAINS_ALARM_MIN_HOLD_MS + 1000u;
-  feed(true, true, t, 0);
-  feed(true, true, t + PERIOD_MS, 0);
-  TEST_ASSERT_TRUE(cond(t + PERIOD_MS));
+  TEST_ASSERT_TRUE(cond(t0));
+  feed(true, true, t0 + 30000u);
+  TEST_ASSERT_TRUE(cond(t0 + 30000u));  // una sola lectura de red: aun no
+  feed(true, true, t0 + 35000u);
+  TEST_ASSERT_FALSE(cond(t0 + 35000u));  // la segunda confirma: se retira
 }
 
-// --- minimo de 10 min (201.12.3.103) ---
-
-void test_hold_counts_from_the_declaration(void) {
-  feed(true, false, 100000);
-  feed(true, false, 105000);  // se declara AQUI
-  // La red vuelve enseguida y se confirma.
-  feed(true, true, 110000);
-  feed(true, true, 115000);
-  TEST_ASSERT_TRUE(cond(115000));
-  TEST_ASSERT_TRUE(cond(105000 + MAINS_ALARM_MIN_HOLD_MS - 1u));
-  TEST_ASSERT_FALSE(cond(105000 + MAINS_ALARM_MIN_HOLD_MS));
-}
-
-void test_hold_is_ten_minutes(void) {
-  TEST_ASSERT_EQUAL_UINT32(600000u, MAINS_ALARM_MIN_HOLD_MS);
-}
-
-void test_mains_back_after_30s_keeps_the_alarm_to_the_minimum(void) {
-  const uint32_t t0 = feedN(2, false, 100000);
-  feedN(2, true, t0 + 30000u);
-  TEST_ASSERT_TRUE(cond(t0 + 40000u));
-  TEST_ASSERT_TRUE(cond(t0 + 300000u));
-  TEST_ASSERT_TRUE(cond(t0 + MAINS_ALARM_MIN_HOLD_MS - 1u));
-  TEST_ASSERT_FALSE(cond(t0 + MAINS_ALARM_MIN_HOLD_MS));
-}
-
-void test_long_interruption_stays_present_the_whole_time(void) {
+void test_default_long_interruption_stays_present_the_whole_time(void) {
   const uint32_t t0 = feedN(2, false, 100000);
   for (uint32_t t = t0 + PERIOD_MS; t < t0 + 25u * 60u * 1000u; t += PERIOD_MS) {
     feed(true, false, t);
@@ -153,67 +135,144 @@ void test_long_interruption_stays_present_the_whole_time(void) {
   }
 }
 
-void test_release_after_the_minimum_needs_two_present_readings(void) {
+void test_default_mains_flapping_does_not_release(void) {
   const uint32_t t0 = feedN(2, false, 100000);
-  uint32_t t = t0 + MAINS_ALARM_MIN_HOLD_MS + 20000u;
-  feed(true, false, t - PERIOD_MS);  // sigue el corte pasados los 10 min
-  TEST_ASSERT_TRUE(cond(t));
-  feed(true, true, t);               // una sola lectura de red: aun no
-  TEST_ASSERT_TRUE(cond(t));
-  feed(true, true, t + PERIOD_MS);   // la segunda confirma
-  TEST_ASSERT_FALSE(cond(t + PERIOD_MS));
-}
-
-void test_mains_flapping_after_the_minimum_does_not_release(void) {
-  const uint32_t t0 = feedN(2, false, 100000);
-  uint32_t t = t0 + MAINS_ALARM_MIN_HOLD_MS + 20000u;
   for (int i = 0; i < 10; ++i) {  // red presente / ausente alternando
-    feed(true, (i % 2) == 0, t + (uint32_t)i * PERIOD_MS);
+    feed(true, (i % 2) == 0, t0 + PERIOD_MS * (uint32_t)(i + 1));
   }
-  TEST_ASSERT_TRUE(cond(t + 10 * PERIOD_MS));
+  TEST_ASSERT_TRUE(cond(t0 + 11 * PERIOD_MS));
 }
 
-// --- nueva interrupcion mientras el aviso aun se mantiene ---
-
-void test_reinterruption_during_hold_restarts_the_minimum(void) {
-  const uint32_t t0 = feedN(2, false, 100000);   // declaracion 1 en t0
-  feedN(2, true, t0 + 60000u);                    // red de vuelta (~t0+65 s)
-  const uint32_t t2 = feedN(2, false, t0 + 180000u);  // corte 2 en t2
-  feedN(2, true, t2 + 20000u);                    // vuelve otra vez
-  // Pasado el minimo del PRIMER corte, el segundo aun lo mantiene.
-  TEST_ASSERT_TRUE(cond(t0 + MAINS_ALARM_MIN_HOLD_MS + 1000u));
-  TEST_ASSERT_TRUE(cond(t2 + MAINS_ALARM_MIN_HOLD_MS - 1u));
-  TEST_ASSERT_FALSE(cond(t2 + MAINS_ALARM_MIN_HOLD_MS));
-}
-
-void test_new_interruption_after_release_is_declared_again(void) {
+void test_default_new_interruption_is_declared_again(void) {
   const uint32_t t0 = feedN(2, false, 100000);
-  const uint32_t tr = feedN(2, true, t0 + MAINS_ALARM_MIN_HOLD_MS + 5000u);
+  const uint32_t tr = feedN(2, true, t0 + 30000u);
   TEST_ASSERT_FALSE(cond(tr));
   const uint32_t t2 = feedN(2, false, tr + 60000u);
   TEST_ASSERT_TRUE(cond(t2));
 }
 
-// --- desbordamiento de millis() ---
+// --- mecanismo de minimo de aviso (plazo de prueba) ---
+//
+// Con MAINS_ALARM_MIN_HOLD_MS a 0 esto no corre en produccion, pero es lo que
+// hay que tener probado para revertir la decision con una linea.
+
+void test_hold_counts_from_the_declaration(void) {
+  mains_detector_init_hold(&d, TEST_HOLD_MS);
+  feed(true, false, 100000);
+  feed(true, false, 105000);  // se declara AQUI
+  feed(true, true, 110000);
+  feed(true, true, 115000);   // la red vuelve y se confirma
+  TEST_ASSERT_TRUE(cond(115000));
+  TEST_ASSERT_TRUE(cond(105000 + TEST_HOLD_MS - 1u));
+  TEST_ASSERT_FALSE(cond(105000 + TEST_HOLD_MS));
+}
+
+void test_hold_long_interruption_outlasts_the_minimum(void) {
+  mains_detector_init_hold(&d, TEST_HOLD_MS);
+  const uint32_t t0 = feedN(2, false, 100000);
+  for (uint32_t t = t0 + PERIOD_MS; t < t0 + 25u * 60u * 1000u; t += PERIOD_MS) {
+    feed(true, false, t);
+    TEST_ASSERT_TRUE(cond(t));
+  }
+}
+
+void test_hold_release_after_the_minimum_needs_two_present_readings(void) {
+  mains_detector_init_hold(&d, TEST_HOLD_MS);
+  const uint32_t t0 = feedN(2, false, 100000);
+  const uint32_t t = t0 + TEST_HOLD_MS + 20000u;
+  feed(true, false, t - PERIOD_MS);  // sigue el corte pasados los 10 min
+  TEST_ASSERT_TRUE(cond(t));
+  feed(true, true, t);
+  TEST_ASSERT_TRUE(cond(t));
+  feed(true, true, t + PERIOD_MS);
+  TEST_ASSERT_FALSE(cond(t + PERIOD_MS));
+}
+
+void test_hold_reinterruption_restarts_the_minimum(void) {
+  mains_detector_init_hold(&d, TEST_HOLD_MS);
+  const uint32_t t0 = feedN(2, false, 100000);
+  feedN(2, true, t0 + 60000u);
+  const uint32_t t2 = feedN(2, false, t0 + 180000u);
+  feedN(2, true, t2 + 20000u);
+  TEST_ASSERT_TRUE(cond(t0 + TEST_HOLD_MS + 1000u));
+  TEST_ASSERT_TRUE(cond(t2 + TEST_HOLD_MS - 1u));
+  TEST_ASSERT_FALSE(cond(t2 + TEST_HOLD_MS));
+}
 
 void test_hold_survives_millis_wraparound(void) {
-  const uint32_t start = 0xFFFFFFFFu - 6000u;  // la declaracion cae antes del giro
-  const uint32_t t0 = feedN(2, false, start);
+  mains_detector_init_hold(&d, TEST_HOLD_MS);
+  const uint32_t t0 = feedN(2, false, 0xFFFFFFFFu - 6000u);
   feedN(2, true, t0 + 20000u);
-  TEST_ASSERT_TRUE(cond(t0 + MAINS_ALARM_MIN_HOLD_MS - 1u));
-  TEST_ASSERT_FALSE(cond(t0 + MAINS_ALARM_MIN_HOLD_MS));
+  TEST_ASSERT_TRUE(cond(t0 + TEST_HOLD_MS - 1u));
+  TEST_ASSERT_FALSE(cond(t0 + TEST_HOLD_MS));
 }
 
 // Un plazo ya cerrado no puede resucitar cuando millis() da la vuelta (~49,7
 // dias despues): since_ms quedaria "reciente" otra vez.
-void test_expired_hold_does_not_resurrect_after_a_full_clock_cycle(void) {
+void test_hold_expired_does_not_resurrect_after_a_full_clock_cycle(void) {
+  mains_detector_init_hold(&d, TEST_HOLD_MS);
   const uint32_t t0 = feedN(2, false, 100000);
-  const uint32_t tr = feedN(2, true, t0 + MAINS_ALARM_MIN_HOLD_MS + 5000u);
+  const uint32_t tr = feedN(2, true, t0 + TEST_HOLD_MS + 5000u);
   TEST_ASSERT_FALSE(cond(tr));
-  // Una vuelta entera de reloj despues, con el mismo valor de millis() que
-  // t0 + 1 s: sin cerrar el plazo, la resta sin signo daria 1 s < 10 min.
   feed(true, true, tr + 3600000u);
   TEST_ASSERT_FALSE(cond(t0 + 1000u));
+}
+
+// --- ceguera: el cargador deja de dar lecturas validas (A2) ---
+
+void test_not_blind_with_a_recent_valid_reading(void) {
+  feed(true, true, 100000);
+  TEST_ASSERT_FALSE(blind(100000));
+  TEST_ASSERT_FALSE(blind(100000 + MAINS_DETECTOR_BLIND_MS));
+}
+
+void test_blind_after_the_limit_without_valid_readings(void) {
+  feed(true, true, 100000);
+  TEST_ASSERT_TRUE(blind(100000 + MAINS_DETECTOR_BLIND_MS + 1u));
+}
+
+void test_blind_limit_is_thirty_seconds(void) {
+  TEST_ASSERT_EQUAL_UINT32(30000u, MAINS_DETECTOR_BLIND_MS);
+}
+
+void test_invalid_readings_do_not_refresh_the_blindness_clock(void) {
+  feed(true, true, 100000);
+  for (int i = 1; i <= 8; ++i) {
+    feed(false, false, 100000 + (uint32_t)i * PERIOD_MS);
+  }
+  TEST_ASSERT_TRUE(blind(100000 + 8 * PERIOD_MS));
+}
+
+void test_a_valid_reading_ends_the_blindness(void) {
+  feed(true, true, 100000);
+  TEST_ASSERT_TRUE(blind(200000));
+  feed(true, true, 200000);
+  TEST_ASSERT_FALSE(blind(200000));
+}
+
+void test_never_blind_without_a_detected_charger(void) {
+  TEST_ASSERT_FALSE(blind(10000000, /*detected=*/false));
+}
+
+void test_blind_from_boot_when_no_reading_ever_arrives(void) {
+  // Cargador detectado, pero ninguna lectura valida desde el arranque.
+  TEST_ASSERT_FALSE(blind(MAINS_DETECTOR_BLIND_MS));
+  TEST_ASSERT_TRUE(blind(MAINS_DETECTOR_BLIND_MS + 1u));
+}
+
+void test_declared_alarm_is_kept_while_blind(void) {
+  const uint32_t t0 = feedN(2, false, 100000);
+  // El cargador deja de responder durante el corte: la alarma NO se retira
+  // (lado seguro) y la ceguera se ve.
+  const uint32_t t = t0 + MAINS_DETECTOR_BLIND_MS + 5000u;
+  TEST_ASSERT_TRUE(cond(t));
+  TEST_ASSERT_TRUE(blind(t));
+}
+
+void test_blindness_survives_millis_wraparound(void) {
+  feed(true, true, 0xFFFFFFFFu - 1000u);
+  TEST_ASSERT_FALSE(blind(MAINS_DETECTOR_BLIND_MS - 2000u));  // ya dio la vuelta
+  TEST_ASSERT_TRUE(blind(MAINS_DETECTOR_BLIND_MS + 2000u));
 }
 
 int main(int, char **) {
@@ -227,17 +286,25 @@ int main(int, char **) {
   RUN_TEST(test_invalid_reading_does_not_break_the_streak);
   RUN_TEST(test_invalid_reading_does_not_count_as_absent);
   RUN_TEST(test_invalid_reading_does_not_release);
-  RUN_TEST(test_zero_battery_voltage_makes_the_reading_invalid);
-  RUN_TEST(test_zero_battery_voltage_does_not_release);
+  RUN_TEST(test_default_hold_is_zero);
+  RUN_TEST(test_default_alarm_clears_as_soon_as_mains_is_confirmed_back);
+  RUN_TEST(test_default_long_interruption_stays_present_the_whole_time);
+  RUN_TEST(test_default_mains_flapping_does_not_release);
+  RUN_TEST(test_default_new_interruption_is_declared_again);
   RUN_TEST(test_hold_counts_from_the_declaration);
-  RUN_TEST(test_hold_is_ten_minutes);
-  RUN_TEST(test_mains_back_after_30s_keeps_the_alarm_to_the_minimum);
-  RUN_TEST(test_long_interruption_stays_present_the_whole_time);
-  RUN_TEST(test_release_after_the_minimum_needs_two_present_readings);
-  RUN_TEST(test_mains_flapping_after_the_minimum_does_not_release);
-  RUN_TEST(test_reinterruption_during_hold_restarts_the_minimum);
-  RUN_TEST(test_new_interruption_after_release_is_declared_again);
+  RUN_TEST(test_hold_long_interruption_outlasts_the_minimum);
+  RUN_TEST(test_hold_release_after_the_minimum_needs_two_present_readings);
+  RUN_TEST(test_hold_reinterruption_restarts_the_minimum);
   RUN_TEST(test_hold_survives_millis_wraparound);
-  RUN_TEST(test_expired_hold_does_not_resurrect_after_a_full_clock_cycle);
+  RUN_TEST(test_hold_expired_does_not_resurrect_after_a_full_clock_cycle);
+  RUN_TEST(test_not_blind_with_a_recent_valid_reading);
+  RUN_TEST(test_blind_after_the_limit_without_valid_readings);
+  RUN_TEST(test_blind_limit_is_thirty_seconds);
+  RUN_TEST(test_invalid_readings_do_not_refresh_the_blindness_clock);
+  RUN_TEST(test_a_valid_reading_ends_the_blindness);
+  RUN_TEST(test_never_blind_without_a_detected_charger);
+  RUN_TEST(test_blind_from_boot_when_no_reading_ever_arrives);
+  RUN_TEST(test_declared_alarm_is_kept_while_blind);
+  RUN_TEST(test_blindness_survives_millis_wraparound);
   return UNITY_END();
 }
