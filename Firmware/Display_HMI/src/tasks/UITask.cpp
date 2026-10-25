@@ -17,6 +17,7 @@
 #include "modules/maintenance/maintenance.h"
 #include "modules/brightness/brightness_policy.h"
 #include "drivers/backlight.h"
+#include "modules/maintenance/weigh_tracker.h"
 #include "display_config.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_rgb.h"
@@ -1058,9 +1059,11 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   lv_label_set_text(ui_MaintLabel, L(STR_MAINT_UC));
   lv_label_set_text(ui_MaintTitleLabel, L(STR_MAINT_UC));
   lv_label_set_text(ui_MaintEnableLabel, L(STR_MAINT_REMINDER));
+  lv_label_set_text(ui_WeighEnableLabel, L(STR_WEIGH_SETTING));
   lv_label_set_text(ui_MaintOpenLabel, L(STR_MAINT_OPEN_UC));
   lv_label_set_text(ui_MaintHintLabel, L(STR_MAINT_SETTINGS_HINT));
   ui_set_switch_state_silent(ui_MaintEnableSwitch, Maintenance_IsEnabled());
+  ui_set_switch_state_silent(ui_WeighEnableSwitch, WeighTracker_IsEnabled());
 
   // lv_btnmatrix NO copia el mapa: se queda con el puntero. Por eso el array
   // es `static` y las cadenas vienen del catalogo, que es memoria estatica.
@@ -1329,6 +1332,9 @@ static void maintenance_panel_refresh(void) {
   if (ui_MaintEnableSwitch) {
     ui_set_switch_state_silent(ui_MaintEnableSwitch, Maintenance_IsEnabled());
   }
+  if (ui_WeighEnableSwitch) {
+    ui_set_switch_state_silent(ui_WeighEnableSwitch, WeighTracker_IsEnabled());
+  }
   for (int i = 0; i < MNT_LEVEL_COUNT; i++) {
     if (!ui_MaintLevelLabel[i]) continue;
     char last[64];
@@ -1376,6 +1382,20 @@ void BrightnessSlider_cb(lv_event_t *e) {
 void MaintEnableSwitch_cb(lv_event_t *e) {
   Maintenance_SetEnabled(lv_obj_has_state(lv_event_get_target(e),
                                           LV_STATE_CHECKED));
+}
+
+// Interruptor del aviso de pesada diaria. Persiste en NVS (`wgh_en`, via
+// WeighTracker_Flush() fuera del lock), asi que en formacion se rechaza como
+// cualquier otro ajuste que escriba NVS (ADR-0002) y el interruptor vuelve a
+// su posicion real.
+void WeighEnableSwitch_cb(lv_event_t *e) {
+  lv_obj_t *sw = lv_event_get_target(e);
+  if (Training_IsActive()) {
+    ui_set_switch_state_silent(sw, WeighTracker_IsEnabled());
+    UI_ShowToast(TR(STR_NOT_IN_TRAINING), 2500);
+    return;
+  }
+  WeighTracker_SetEnabled(lv_obj_has_state(sw, LV_STATE_CHECKED));
 }
 
 // Abrir el recordatorio sin esperar a que toque: es la via para registrar una
@@ -3637,9 +3657,9 @@ void inactivity_timer_cb(lv_timer_t *timer) {
     return;
   }
   // Ayuda, formacion y aviso de mantenimiento: exentos del bloqueo, pero SIN
-  // reiniciar el contador de inactividad de LVGL. Sus _Poll() lo leen (o, en
-  // el caso de MaintenanceDialog, su propio lv_tick_elaps()) para cerrarse
-  // solos a su tope (HELP_IDLE_TIMEOUT_MS / MNT_IDLE_TIMEOUT_MS); si aqui se
+  // reiniciar el contador de inactividad de LVGL. Sus _Poll() lo leen
+  // (lv_disp_get_inactive_time()) para cerrarse solos a su tope
+  // (HELP_IDLE_TIMEOUT_MS / MNT_IDLE_TIMEOUT_MS); si aqui se
   // hiciera lv_disp_trig_activity() cada 200 ms, esos topes no llegarian
   // nunca (defecto real detectado en review, ya colado dos veces:
   // TelemetryHistory, HelpDialog/HelpTour).
@@ -4340,6 +4360,7 @@ void UI_Task(void *pvParameters) {
   // intervalo, y necesita el valor ya leido de NVS para marcar la opcion
   // correcta. Solo toca NVS, no LVGL, asi que puede ir aqui.
   Maintenance_Init();
+  WeighTracker_Init();
 
   UI_ApplyLanguage(g_lang);
   ui_set_switch_state_silent(ui_SwitchDarkMode, darkMode);
@@ -5116,6 +5137,9 @@ void UI_Task(void *pvParameters) {
       ESP_LOGW(TAG, "LCD_DIAG: training Preferences write tomó %lu ms",
                (unsigned long)(millis() - t0));
     }
+    // Sello de pesada del recordatorio diario: el tracker solo marca "sucio"
+    // dentro del lock y escribe aqui, fuera. No hace nada si no hay cambios.
+    WeighTracker_Flush();
 
     // AlarmSound_Update uses I2C (Wire.endTransmission) — must run outside
     // LVGL_Lock to avoid blocking the LVGL mutex for ~50 ms (Fix: ARQ-LOCK-001)

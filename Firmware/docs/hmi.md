@@ -363,16 +363,19 @@ When it appears: only armed by **unlocking the screen** (and once at UI init,
 because whoever powers the incubator up is standing in front of it), never in
 the middle of a manoeuvre. `MaintenanceDialog_Poll()` then opens it only on
 `ui_ScreenMain`, with no other modal dialog open (help, training, alarm
-centre, baby wizard, exit dialog or time dialog) and no reason to yield.
+centre, baby wizard, exit dialog, time dialog, factory test or the Babies
+screen) and no reason to yield.
 
 Common rules, the same as the help menu: it yields to any active alarm
 (`UI_IsAnyAlarmActive()`) or a lost board link (`Display_IsBoardLinkLost()`),
 and it is exempt from the 20 s auto-lock with its own `MNT_IDLE_TIMEOUT_MS`
-cap (3 min). That cap is measured with `lv_tick_elaps()` from the moment it
-opened and **not** with `lv_disp_get_inactive_time()`: the auto-lock exemption
-itself resets that counter every 200 ms, so a cap reading it would never fire.
-Closing by the cap does not count as an answer — the notice comes back on the
-next unlock, since only pressing a button silences it.
+cap (3 min without any touch). That cap is measured with
+`lv_disp_get_inactive_time()`, after `lv_disp_trig_activity()` at the moment it
+opens. It is reliable because the auto-lock exemption in
+`inactivity_timer_cb()` does **not** call `lv_disp_trig_activity()` for these
+overlays: if it did, every 200 ms, the counter would be reset and the cap would
+never fire. Closing by the cap does not count as an answer — the notice comes
+back on the next unlock, since only pressing a button silences it.
 
 State persists in NVS (`hmi_cfg`): `mnt_daily`, `mnt_weekly`, `mnt_term` (the
 epoch of each level's last record), `mnt_en` (warn on/off), `mnt_snooze`
@@ -384,6 +387,141 @@ factory-fresh unit would read as "overdue since 1970"); and a clock moved
 backwards re-anchors any date left in the future to today, where the interval
 would otherwise never elapse again.
 
+### 8.1 Daily weighing reminder
+
+The weight curve is the key data point of the dashboard and used to depend on
+somebody remembering to weigh. With a baby in charge and **no weighing
+recorded in the last 24 h**, unlocking the screen raises a notice on the same
+overlay, with the same rules for giving way (§8 above): own arm flag, only on
+`ui_ScreenMain`, no other modal open (now including the Babies screen), yields
+to any alarm or a lost board link, 3 min idle cap, closing without answering
+does not count.
+
+**Code layout** (three layers, only the first two testable on the host):
+
+| File | Role | Tests |
+|---|---|---|
+| `modules/maintenance/weigh_reminder.{h,cpp}` | pure rule: "should it warn?" from a snapshot | `test/test_weigh_reminder` |
+| `modules/maintenance/weigh_state.{h,cpp}` | state machine (discharge, baby change, deferred stamp, first-seen, future re-anchor), clock/baby/training injected through `weigh_env_t` | `test/test_weigh_state` |
+| `modules/maintenance/weigh_tracker.{h,cpp}` | thin glue: NVS load/save, fills `weigh_env_t` from `HMI_GetEpochNow()`, `BabyWizard`, `Training` | manual |
+
+**Rule** (`weigh_reminder_should_warn()`): warn when the switch is on, there is
+a live session (`BabyWizard_HasLiveSession()`), the clock is synced, a
+*reference* exists and `now - reference >= 24 h`, and no LATER is in force. The
+reference is, in this order: the epoch of the last weighing stamped **for that
+same `seq`**; else the moment the HMI first saw that `seq` in charge
+("seen", persisted). No clock, no reference, or a reference in the future: no
+warning. Nothing is invented from `millis()`, which does not survive a restart.
+
+**Stamp.** The protocol has no epoch for the last weighing
+(`CTRL,WEIGHT_HISTORY` gives only days relative to admission), so the HMI
+stamps it itself. Only a real weight stamps: `SKIP` (0 g) does not. When it is
+stamped depends on who sends it, on purpose:
+
+- **Wizard (admission and re-activation weights) and Babies screen** do not
+  wait for any reply, so they stamp **on send**, inside
+  `Communication_SendProfileWeight()` (default `stampOnSend=true`). If the frame
+  is lost the reminder fires once too often, never too late.
+- **WEIGH NOW** (the notice's own keypad) **waits for the board**. The only
+  reply to `HMI,PROFILE_WEIGHT` is `CTRL,PROFILE_RANGE` (`PROTOCOL.md`), so the
+  dialog sends with `stampOnSend=false` and shows "Recording the weight..." for
+  up to 3 s. It stamps, cancels LATER and shows "Weight recorded" only when
+  a `PROFILE_RANGE` for the same `seq` arrives. Without it: error toast, **no
+  stamp**, back to the notice so the operator can retry. A lost link would
+  otherwise silence the reminder for 24 h with a weight that never arrived. The
+  one case that stamps without confirmation does not exist in the dialog; the
+  caveat is the opposite one: the board may have received a weight we did not
+  see confirmed, so a retry can send the same value twice (the board dedups
+  unchanged weights).
+
+A weight for a baby who is **not** in charge (registering a baby from the
+Babies screen) is ignored: there is a **single stamp slot**, kept for the baby in
+charge. Consequence: if baby A is replaced by baby B and later A comes back,
+A's stamp was dropped when B took over, so A's deadline counts from "seen"
+(the moment the HMI saw A in charge again), not from A's last real weighing.
+In training nothing is written (ADR-0002); `weigh_state_tick()` also returns
+first thing in training. With no clock at the instant of a weighing the stamp
+is deferred until there is one and nothing is warned meanwhile.
+
+**Lifecycle** (`weigh_state_tick()`): discharge (`BabyWizard_GetActiveSeq()` →
+0) clears the stamp, "seen" and LATER; a different baby in charge drops
+whatever is not that baby's (and LATER, unless that baby was already known, e.g.
+after an HMI restart); a stored date more than 60 s ahead of the clock
+(`WEIGH_FUTURE_TOLERANCE_SECS`) is re-anchored to today (smaller differences
+are left alone to avoid pointless NVS writes). The identifier of the live
+session lives in RAM, so after an HMI restart there is no warning until the
+wizard identifies the baby again; the NVS stamp is recognised when the same
+`seq` returns.
+
+**UI** (`ui/MaintenanceDialog.cpp`, `Mode::WeighPrompt` / `WeighEntry` /
+`WeighWaiting`): the card shows "<Name>: not weighed for N h", a hint, **WEIGH
+NOW** and **LATER** (24 h, only if there is a clock). WEIGH NOW swaps the
+content for a digit keypad (400-5000 g, same range as the wizard, empty on
+purpose); REGISTER sends the weight and waits as described above.
+
+Arming and chaining: both notices are armed by the same unlock and are
+independent flags. The cleaning notice goes first and, once **answered**, the
+weighing one follows without loops. A cleaning notice closed *without* answering
+(idle cap, screen change) does not chain the weighing one; closed by an alarm or
+lost link it **re-arms itself** so it returns when the cause ends (the weighing
+notice does the same). The weighing flag is consumed the first time it is
+evaluated at an openable moment, due or not, so the notice is "on unlocking",
+not mid-use when the 24 h happen to elapse; but it is **not consumed while no
+baby is in charge** (`BabyWizard_GetActiveSeq() == 0`, e.g. at power-up), so the
+first unlock after the baby is identified does warn.
+
+Orphan replies: a `PROFILE_RANGE` that arrives after the dialog gave up
+(timeout, closed by an alarm) is dropped within a 3 s window. If the wizard,
+the Babies screen or a lesson opens in that window, the window is cancelled
+**and `g_pendingProfileRange` is cleared** at once: the straggler is for the same
+baby and the newcomer would adopt it as the answer to its own weight (same rule
+as `BabyHistory::discardPendingReplies()`).
+
+**Settings > MAINTENANCE** has a second switch, **WEIGHING REMINDER**, under the
+cleaning one (`wgh_en`, **ON by default**, also on a fresh NVS: it is a
+clinical prompt, unlike `mnt_en`). Off silences the notice but stamps keep being
+recorded; turning it on again clears an old LATER. In training the switch is
+rejected with the standard toast and snaps back (it writes NVS).
+
+NVS (`hmi_cfg`, epochs in UTC, written outside `LVGL_Lock` by
+`WeighTracker_Flush()` after `LVGL_Unlock()` in `UI_Task`): `wgh_seq` and
+`wgh_last` (baby and epoch of the last real weighing), `wgh_sseq` and
+`wgh_sfirst` (baby and epoch of when the HMI first saw it in charge),
+`wgh_snooze` (epoch when LATER expires) and `wgh_en` (switch). If
+`WeighTracker_Init()` could not open the NVS (it retries read-write, which also
+creates the namespace on a fresh unit) nothing is ever written that session
+(`s_loaded`), so default zeros do not overwrite good values. Strings:
+`STR_WEIGH_*` in `i18n_strings.def`, in the four languages.
+
+**Bench procedure** (no automated test covers the UI, NVS or board link; the rule
+and the state machine are covered on the host, `pio test -e native`). Needs a
+unit with a synced clock and a baby admitted from the wizard; read the `WGH` log
+lines on the HMI serial port.
+
+1. *Stamp on admission:* admit a baby with a real weight; `WGH` logs
+   `bebe al mando` and `pesada: ... sellada`; after a restart, `init:` shows
+   `weigh seq/at` set. With NO WEIGHT (SKIP) only `seen` is set.
+2. *Due notice:* with a stamp older than 24 h (set the clock forward or wait),
+   lock and unlock: the notice shows the name and hours. LATER: it does not
+   return on the next unlocks for 24 h.
+3. *WEIGH NOW with the link up:* type a value, REGISTER: "Recording..." for
+   under a second, then "Weight recorded"; `wgh_last` updates and the notice does
+   not return. Out-of-range (300, 6000): toast, nothing sent.
+4. *WEIGH NOW with the link down* (unplug the board UART): after 3 s an error
+   toast, back to the notice, `wgh_last` unchanged. Plug it back: no stale
+   `PROFILE_RANGE` is adopted by the wizard (open it right after).
+5. *Giving way:* with the notice open raise an alarm: it closes and, for the
+   cleaning notice, comes back when the alarm ends. Leave it idle 3 min: it
+   closes and the weighing notice does not follow. Open the Babies screen with
+   the notice due: it waits.
+6. *Power-up:* reboot with a baby already controlled; no notice until the wizard
+   identifies the baby, and then the first unlock does warn.
+7. *Switch:* Settings > Maintenance > WEIGHING REMINDER off: no notice; on again
+   (and ON on a factory-fresh NVS). In a lesson: toast and the switch snaps back.
+8. *Discharge:* discharge the baby; `wgh_*` all 0.
+9. *Layout and languages:* the Maintenance panel with its two switches, three
+   level lines, button and hint fits the card in Spanish, English, French and
+   Portuguese without clipping.
 ## 9. Backlight and night mode
 
 The backlight is the **STC8H1K28** at I2C `0x30` (the same chip that drives

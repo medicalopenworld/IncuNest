@@ -1032,6 +1032,49 @@ UI_STR(STR_MAINT_SETTINGS_HINT,"Con los avisos activados, sale un recordatorio "
                                "com os tres niveis e o QR dos tutoriais assim "
                                "que algum deles tocar.")
 
+// ------------------------------------------------------- aviso de pesada
+UI_STR(STR_WEIGH_TITLE,        "RECORDATORIO DE PESADA",
+                               "WEIGHING REMINDER",
+                               "RAPPEL DE PESEE",
+                               "LEMBRETE DE PESAGEM")
+UI_STR(STR_WEIGH_BABY,         "Bebe",         "Baby",        "Bebe",        "Bebe")
+UI_STR(STR_WEIGH_DUE_FMT,      "%s: sin pesar desde hace %u h.",
+                               "%s: not weighed for %u h.",
+                               "%s : non pese depuis %u h.",
+                               "%s: sem pesagem ha %u h.")
+UI_STR(STR_WEIGH_HINT,         "El peso diario es el dato clave de la curva de "
+                               "crecimiento. Pesa al bebe y registra el valor.",
+                               "The daily weight is the key data point of the "
+                               "growth curve. Weigh the baby and record the "
+                               "value.",
+                               "Le poids quotidien est la donnee cle de la "
+                               "courbe de croissance. Pesez le bebe et "
+                               "enregistrez la valeur.",
+                               "O peso diario e o dado chave da curva de "
+                               "crescimento. Pese o bebe e registe o valor.")
+UI_STR(STR_WEIGH_NOW_UC,       "PESAR AHORA",  "WEIGH NOW",   "PESER MAINTENANT","PESAR AGORA")
+UI_STR(STR_WEIGH_ENTRY_TITLE,  "Peso de hoy (gramos)",
+                               "Today's weight (grams)",
+                               "Poids du jour (grammes)",
+                               "Peso de hoje (gramas)")
+UI_STR(STR_WEIGH_SENDING,      "Registrando el peso...",
+                               "Recording the weight...",
+                               "Enregistrement du poids...",
+                               "A registar o peso...")
+UI_STR(STR_WEIGH_NOT_CONFIRMED,"La placa no ha confirmado el peso. Reintentalo.",
+                               "The board did not confirm the weight. Try again.",
+                               "La carte n'a pas confirme le poids. Reessayez.",
+                               "A placa nao confirmou o peso. Tente de novo.")
+// Fila de Ajustes > MANTENIMIENTO con el interruptor del aviso de pesada.
+UI_STR(STR_WEIGH_SETTING,      "AVISO DE PESADA",
+                               "WEIGHING REMINDER",
+                               "RAPPEL DE PESEE",
+                               "LEMBRETE DE PESAGEM")
+UI_STR(STR_WEIGH_LOGGED,       "Peso registrado",
+                               "Weight recorded",
+                               "Poids enregistre",
+                               "Peso registado")
+
 
 // ------------------------------------------------------- menu de ayuda
 UI_STR(STR_HELP_UC,            "AYUDA",        "HELP",        "AIDE",        "AJUDA")

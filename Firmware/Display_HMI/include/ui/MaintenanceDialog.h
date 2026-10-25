@@ -9,6 +9,13 @@
 // tutorial" del menu de ayuda: los tutoriales de limpieza viven en esa misma
 // pagina, y el operador ya conoce ese codigo.
 //
+// El mismo overlay lleva tambien el aviso de pesada diaria (la decision es
+// `modules/maintenance/weigh_reminder.h`, el estado `weigh_tracker.h`): "lleva
+// N h sin pesar", con PESAR AHORA (abre un teclado numerico para el peso del
+// bebe activo) y MAS TARDE (calla 24 h). Comparte armado, cesion, tope de
+// inactividad y devolucion al reposo con el de mantenimiento; los dos armados
+// son independientes y, si caen a la vez, sale primero la limpieza.
+//
 // Dos salidas y ninguna X: MANTENIMIENTO HECHO (registra la fecha y reinicia
 // el plazo) y MAS TARDE (calla el aviso 24 h). Un recordatorio que se puede
 // cerrar sin contestar no deja constancia de nada.
