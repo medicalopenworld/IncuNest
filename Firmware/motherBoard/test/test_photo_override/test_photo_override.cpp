@@ -63,13 +63,83 @@ void test_release_does_not_persist_during_grace(void) {
   TEST_ASSERT_FALSE(photo_override_may_persist(&o, now));
 }
 
-void test_after_grace_display_rules_again(void) {
+// --- liberacion CONFIRMADA (no una ventana fija) ---
+
+// El fallo que motiva el cambio: la tarea Comm del display se atasca y sigue
+// devolviendo el ON adoptado MUCHO despues de los 5 s de la ventana antigua.
+// Antes main.cpp aplicaba y guardaba en NVS ese 1.
+void test_display_still_returning_on_after_5s_is_ignored(void) {
   photo_override_start(&o, false, now);
   photo_override_release(&o, now);
-  now += PHOTO_OVERRIDE_RELEASE_GRACE_MS + 1;
-  // Pasada la gracia, un ON del display es una orden real del operario.
+  const uint32_t offsets[] = {5001u, 8000u, 20000u, 59000u};
+  for (unsigned i = 0; i < 4; ++i) {
+    now = 100000 + offsets[i];
+    TEST_ASSERT_FALSE(photo_override_effective(&o, true, now));
+    TEST_ASSERT_FALSE(photo_override_may_persist(&o, now));
+  }
+}
+
+// Tampoco al vencer el plazo largo: nunca se adopta un 1 sin confirmar.
+void test_backstop_never_adopts_unconfirmed_on(void) {
+  photo_override_start(&o, false, now);
+  photo_override_release(&o, now);
+  now += PHOTO_OVERRIDE_RELEASE_BACKSTOP_MS + 1u;
+  TEST_ASSERT_FALSE(photo_override_effective(&o, true, now));
+  TEST_ASSERT_FALSE(photo_override_may_persist(&o, now));
+  now += 3600000u;
+  TEST_ASSERT_FALSE(photo_override_effective(&o, true, now));
+  TEST_ASSERT_FALSE(photo_override_may_persist(&o, now));
+}
+
+// El aviso de plazo vencido sale una sola vez y no antes.
+void test_overdue_is_reported_once_and_not_before(void) {
+  photo_override_start(&o, false, now);
+  photo_override_release(&o, now);
+  now += PHOTO_OVERRIDE_RELEASE_BACKSTOP_MS - 1u;
+  TEST_ASSERT_FALSE(photo_override_unconfirmed_overdue(&o, now));
+  now += 2u;
+  TEST_ASSERT_TRUE(photo_override_unconfirmed_overdue(&o, now));
+  TEST_ASSERT_FALSE(photo_override_unconfirmed_overdue(&o, now + 1000u));
+}
+
+// Una confirmacion a los 8 s: el display ya devuelve el valor real, asi que
+// a partir de ahi manda el display y se puede guardar.
+void test_confirmation_at_8s_hands_control_back(void) {
+  photo_override_start(&o, false, now);
+  photo_override_release(&o, now);
+  now += 3000u;
+  TEST_ASSERT_FALSE(photo_override_effective(&o, true, now));  // rancio
+  now += 5000u;                                                // t = 8 s
+  TEST_ASSERT_FALSE(photo_override_effective(&o, false, now)); // confirma
+  TEST_ASSERT_TRUE(photo_override_may_persist(&o, now));
+  // Ya confirmado, un ON del display es una orden real del operario.
+  now += 1000u;
   TEST_ASSERT_TRUE(photo_override_effective(&o, true, now));
   TEST_ASSERT_TRUE(photo_override_may_persist(&o, now));
+}
+
+// Si la prueba arranco con la lampara real encendida, "confirmar" es que el
+// display devuelva 1.
+void test_confirmation_when_real_was_on(void) {
+  photo_override_start(&o, true, now);
+  photo_override_release(&o, now);
+  now += 3000u;
+  TEST_ASSERT_TRUE(photo_override_effective(&o, true, now));
+  TEST_ASSERT_TRUE(photo_override_may_persist(&o, now));
+}
+
+// Una trama del display ya en vuelo de ANTES de adoptar el ON tambien lleva
+// el valor real: no es una confirmacion si llega recien soltado.
+void test_early_echo_of_real_value_is_not_a_confirmation(void) {
+  photo_override_start(&o, false, now);
+  photo_override_release(&o, now);
+  now += 500u;
+  TEST_ASSERT_FALSE(photo_override_effective(&o, false, now));
+  TEST_ASSERT_FALSE(photo_override_may_persist(&o, now));
+  // Y el ON que el display adopta despues sigue ignorado.
+  now += 1000u;
+  TEST_ASSERT_FALSE(photo_override_effective(&o, true, now));
+  TEST_ASSERT_FALSE(photo_override_may_persist(&o, now));
 }
 
 // --- volver a como estaba ANTES, no siempre a apagado ---
@@ -122,7 +192,9 @@ void test_grace_survives_millis_wraparound(void) {
   photo_override_release(&o, now);
   now += 2000;  // ha dado la vuelta
   TEST_ASSERT_FALSE(photo_override_effective(&o, true, now));
-  now += PHOTO_OVERRIDE_RELEASE_GRACE_MS;
+  now += PHOTO_OVERRIDE_CONFIRM_MIN_MS;
+  // Confirma el display (devuelve el valor real) y despues manda el display.
+  TEST_ASSERT_FALSE(photo_override_effective(&o, false, now));
   TEST_ASSERT_TRUE(photo_override_effective(&o, true, now));
 }
 
@@ -133,7 +205,12 @@ int main(int, char **) {
   RUN_TEST(test_active_never_persists);
   RUN_TEST(test_release_ignores_stale_on_from_display);
   RUN_TEST(test_release_does_not_persist_during_grace);
-  RUN_TEST(test_after_grace_display_rules_again);
+  RUN_TEST(test_display_still_returning_on_after_5s_is_ignored);
+  RUN_TEST(test_backstop_never_adopts_unconfirmed_on);
+  RUN_TEST(test_overdue_is_reported_once_and_not_before);
+  RUN_TEST(test_confirmation_at_8s_hands_control_back);
+  RUN_TEST(test_confirmation_when_real_was_on);
+  RUN_TEST(test_early_echo_of_real_value_is_not_a_confirmation);
   RUN_TEST(test_release_restores_real_on_when_it_was_on);
   RUN_TEST(test_start_twice_keeps_first_real_state);
   RUN_TEST(test_release_when_idle_is_harmless);

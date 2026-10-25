@@ -39,12 +39,39 @@ extern "C" {
 // emision -> adopcion -> keepalive, que es de 1-2 s.
 #define PHOTO_OVERRIDE_RELEASE_GRACE_MS 5000u
 
+// Liberacion CONFIRMADA (sustituye a la ventana fija de arriba).
+//
+// Una ventana fija es una apuesta a que el display adopta el apagado dentro de
+// ella, y la tarea Comm del display se queda sin CPU segundos enteros
+// (known_issues #7, #11). Si vence antes de que el display lo haya adoptado,
+// main.cpp aplica Y GUARDA EN NVS el ON rancio: lampara encendida y
+// reanudable tras un reinicio, justo lo que esta maquina existe para evitar.
+//
+// Ahora, tras soltar, la placa fuerza `real_before` hasta que llega un
+// keepalive cuyo valor ES `real_before` (el display ya adopto lo que la placa
+// emite). No se acepta una confirmacion antes de PHOTO_OVERRIDE_CONFIRM_MIN_MS:
+// una trama del display ya en vuelo de antes de adoptar el ON tambien lleva
+// `real_before` y no demuestra nada.
+//
+// PHOTO_OVERRIDE_RELEASE_BACKSTOP_MS es solo el plazo tras el que se AVISA
+// (photo_override_unconfirmed_overdue): vencido, la placa sigue forzando
+// `real_before` y sin guardar; NUNCA adopta el valor del display sin
+// confirmacion.
+#define PHOTO_OVERRIDE_CONFIRM_MIN_MS 2000u
+#define PHOTO_OVERRIDE_RELEASE_BACKSTOP_MS 60000u
+
 typedef struct {
   bool active;             // el encendido de depuracion esta forzando ON
   bool real_before;        // fototerapia REAL (la del display) al empezar
-  bool releasing;          // en ventana de gracia tras soltar
+  bool releasing;          // soltado, a la espera de la confirmacion
+  bool overdue_reported;   // ya se aviso de que vencio el plazo largo
   uint32_t release_since_ms;
 } PhotoOverride;
+
+// Verdadero UNA sola vez cuando, soltado el encendido, ha vencido
+// PHOTO_OVERRIDE_RELEASE_BACKSTOP_MS sin confirmacion. Para que el llamador lo
+// registre como error; el estado de la maquina no cambia.
+bool photo_override_unconfirmed_overdue(PhotoOverride *o, uint32_t now_ms);
 
 void photo_override_init(PhotoOverride *o);
 

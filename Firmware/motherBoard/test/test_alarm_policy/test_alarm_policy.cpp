@@ -23,7 +23,9 @@ void test_medium_priority_set(void) {
       ALARM_AIR_TEMP_DEVIATION_HIGH,  ALARM_AIR_TEMP_DEVIATION_LOW,
       ALARM_SKIN_TEMP_DEVIATION_HIGH, ALARM_SKIN_TEMP_DEVIATION_LOW,
       ALARM_HEATER_FAULT,             ALARM_SUPPLY_UNDERVOLTAGE,
-      ALARM_HMI_LINK_LOST,            ALARM_SENSORBOARD_LINK_LOST};
+      ALARM_HMI_LINK_LOST,            ALARM_SENSORBOARD_LINK_LOST,
+      // Terapia indicada que no se da: ver alarm_priority().
+      ALARM_PHOTO_LAMP_FAULT};
   for (unsigned i = 0; i < sizeof(medium) / sizeof(medium[0]); ++i) {
     TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_MEDIUM, alarm_priority(medium[i]));
   }
@@ -37,9 +39,8 @@ void test_low_priority_set(void) {
                         alarm_priority(ALARM_HUMIDITY_DEVIATION));
   TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_LOW,
                         alarm_priority(ALARM_SENSORBOARD_DOOR_FAULT));
-  // Lampara de fototerapia sin corriente: terapia que no se esta dando, no un
-  // riesgo para el neonato.
-  TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_LOW,
+  // La lampara de fototerapia NO esta aqui: es MEDIA (test_medium_priority_set).
+  TEST_ASSERT_NOT_EQUAL(ALARM_PRIORITY_LOW,
                         alarm_priority(ALARM_PHOTO_LAMP_FAULT));
 }
 
@@ -53,7 +54,7 @@ void test_photo_lamp_fault_is_notify_only(void) {
   TEST_ASSERT_EQUAL_INT(ALARM_PHOTO_LAMP_FAULT + 1, ALARM_COUNT);
 }
 
-// El reparto declarado en la spec: 7 ALTA / 9 MEDIA / 4 BAJA.
+// El reparto declarado en la spec: 7 ALTA / 10 MEDIA / 3 BAJA.
 //
 // La MEDIA subio de 7 a 8 al separar ALARM_HEATER_SENSOR_FAULT de
 // ALARM_HEATER_FAULT: son averias distintas (calefactor frente a su sensor de
@@ -68,8 +69,8 @@ void test_priority_distribution(void) {
   for (int id = ALARM_NONE + 1; id < ALARM_COUNT; ++id) {
     counts[alarm_priority((AlarmId)id)]++;
   }
-  TEST_ASSERT_EQUAL_INT(4, counts[ALARM_PRIORITY_LOW]);
-  TEST_ASSERT_EQUAL_INT(9, counts[ALARM_PRIORITY_MEDIUM]);
+  TEST_ASSERT_EQUAL_INT(3, counts[ALARM_PRIORITY_LOW]);
+  TEST_ASSERT_EQUAL_INT(10, counts[ALARM_PRIORITY_MEDIUM]);
   TEST_ASSERT_EQUAL_INT(7, counts[ALARM_PRIORITY_HIGH]);
 }
 

@@ -16,6 +16,7 @@ void photo_override_init(PhotoOverride *o) {
   o->real_before = false;
   o->releasing = false;
   o->release_since_ms = 0;
+  o->overdue_reported = false;
 }
 
 void photo_override_start(PhotoOverride *o, bool real_now, uint32_t now_ms) {
@@ -57,4 +58,11 @@ bool photo_override_effective(PhotoOverride *o, bool display_value,
 bool photo_override_may_persist(PhotoOverride *o, uint32_t now_ms) {
   expire_grace(o, now_ms);
   return !o->active && !o->releasing;
+}
+
+// Esqueleto de la fase roja: existe para que los tests compilen.
+bool photo_override_unconfirmed_overdue(PhotoOverride *o, uint32_t now_ms) {
+  (void)o;
+  (void)now_ms;
+  return false;
 }

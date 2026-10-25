@@ -40,19 +40,42 @@ extern "C" {
 // Ciclos consecutivos de 1 s por debajo de PHOTO_FAULT_MIN_A para declararla.
 #define PHOTO_FAULT_CYCLES 5u
 
+// Ciclos consecutivos de 1 s CON la fototerapia ON y SIN medida utilizable
+// (el INA principal no contesta, o no hay muestra nueva) para declarar la
+// averia. Sin medida no se sabe si la lampara funciona, y una lampara que no se
+// puede vigilar tampoco se puede dar por buena.
+#define PHOTO_FAULT_BLIND_CYCLES 5u
+
+// Que ha pasado en este ciclo respecto a la medida.
+typedef enum {
+  // No aplica: fototerapia apagada, test de fabrica en curso, o todavia en el
+  // asentamiento. No se puede afirmar nada: se olvida todo y se RETIRA la
+  // averia.
+  PHOTO_FAULT_INPUT_INACTIVE = 0,
+  // La fototerapia esta ON y asentada, pero no hay medida utilizable: el
+  // sensor no contesta o la muestra es la misma de antes. NO retira la averia
+  // ni toca la cuenta de corriente baja: una sola lectura fallida no puede
+  // hacer parpadear la alarma.
+  PHOTO_FAULT_INPUT_NO_SAMPLE = 1,
+  // Hay una muestra nueva: `current_a` vale.
+  PHOTO_FAULT_INPUT_SAMPLE = 2,
+} PhotoFaultInput;
+
 typedef struct {
-  uint8_t low_cycles;  // ciclos consecutivos por debajo de PHOTO_FAULT_MIN_A
-  bool present;        // la averia esta declarada
+  uint8_t low_cycles;    // ciclos consecutivos por debajo de PHOTO_FAULT_MIN_A
+  uint8_t blind_cycles;  // ciclos consecutivos sin medida utilizable
+  bool present;          // la averia esta declarada
 } PhotoFault;
 
 void photo_fault_init(PhotoFault *f);
 
-// Un ciclo del lazo. `evaluable` es verdadero solo si la medida vale: la
-// fototerapia esta ordenada ON, ha pasado PHOTO_SETTLE_MS, el sensor de
-// corriente contesta y no hay un test de fabrica en curso. Si no lo es, se
-// reinicia la cuenta y se RETIRA la averia: no se puede afirmar que la lampara
-// falle. Devuelve si la condicion esta presente tras este ciclo.
-bool photo_fault_update(PhotoFault *f, bool evaluable, float current_a);
+// Un ciclo del lazo. Devuelve si la condicion esta presente tras este ciclo.
+//   - INACTIVE: reinicia las dos cuentas y retira la averia.
+//   - NO_SAMPLE: cuenta ciclos a ciegas; al llegar a PHOTO_FAULT_BLIND_CYCLES
+//     declara la averia. Nunca la retira.
+//   - SAMPLE: corta la racha de ceguera y aplica umbral e histeresis.
+// `current_a` solo se mira con SAMPLE.
+bool photo_fault_update(PhotoFault *f, PhotoFaultInput in, float current_a);
 
 bool photo_fault_present(const PhotoFault *f);
 
