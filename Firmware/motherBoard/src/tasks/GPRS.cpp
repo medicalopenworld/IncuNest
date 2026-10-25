@@ -1052,6 +1052,10 @@ void addConfigTelemetriesToGPRSJSON() {
 #if (HW_NUM >= 19)
   addVariableToTelemetryGPRSJSON[GSM_POWER_CYCLES_KEY] = gsmPowerCycles();
 #endif
+  addVariableToTelemetryGPRSJSON[AFE_DIAG_KEY] = afeDiagCode();
+#if AFE_WATCHDOG_ENABLED
+  addVariableToTelemetryGPRSJSON[AFE_RESETS_KEY] = afeResetCount();
+#endif
   addVariableToTelemetryGPRSJSON[FREE_HEAP_KEY] = (uint32_t)ESP.getFreeHeap();
   addVariableToTelemetryGPRSJSON[MIN_FREE_HEAP_KEY] = (uint32_t)ESP.getMinFreeHeap();
   addVariableToTelemetryGPRSJSON[UPTIME_S_KEY] = (uint32_t)(millis() / 1000);

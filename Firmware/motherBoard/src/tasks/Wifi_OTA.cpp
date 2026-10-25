@@ -1339,6 +1339,10 @@ void addConfigTelemetriesToWIFIJSON() {
 #if (HW_NUM >= 19)
   addVariableToTelemetryWIFIJSON[GSM_POWER_CYCLES_KEY] = gsmPowerCycles();
 #endif
+  addVariableToTelemetryWIFIJSON[AFE_DIAG_KEY] = afeDiagCode();
+#if AFE_WATCHDOG_ENABLED
+  addVariableToTelemetryWIFIJSON[AFE_RESETS_KEY] = afeResetCount();
+#endif
   addVariableToTelemetryWIFIJSON[FREE_HEAP_KEY] = (uint32_t)ESP.getFreeHeap();
   addVariableToTelemetryWIFIJSON[MIN_FREE_HEAP_KEY] =
       (uint32_t)ESP.getMinFreeHeap();
