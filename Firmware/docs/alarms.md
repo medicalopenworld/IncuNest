@@ -37,7 +37,7 @@ se añaden al final.
 | 4 | `ALARM_SKIN_SENSOR_FAULT_SKIN_MODE` | mismo mecanismo de staleness que el 3 pero sobre la sonda de piel, con su propia ventana `MINIMUM_SUCCESSFULL_SKIN_SENSOR_UPDATE` = 5000 ms (~25 muestras a 200 ms), y solo cuando `in3.controlMode == CONTROL_SKIN` | ALTA | sí |
 | 5 | `ALARM_FAN_FAILURE` | en marcha, `in3.fan_rpm < FAN_MIN_RPM` (3000 rpm, `board.h:185`), con histéresis de 300 rpm para despejar (`checkFanSpeed()`); solo evaluable con `in3.fanHasSpeedFeedback`. **También la declara el autotest de arranque** (`initHardware.cpp:412,677,732,740,779`), antes de que exista lazo de control | ALTA | sí |
 | 6 | `ALARM_AIR_OUTLET_BLOCKED` | en marcha, `fanControlPIDOutput > FAN_DUTY_BLOCKED_THRESHOLD` (220, se retira bajo 200, `board.h`) sostenido `AIR_BLOCKED_SUSTAIN_MS` = 5000 ms (`checkAirBlockage()`). **También la declara el autotest de arranque** (`initHardware.cpp:803`) | ALTA | sí |
-| 7 | `ALARM_MAINS_INTERRUPTION` | **sin detector** — ver §9 | ALTA | no (no hay condición que cortar). **No silenciable**: 201.12.3.103 exige 10 min de aviso y la pausa dura justo eso |
+| 7 | `ALARM_MAINS_INTERRUPTION` | `mains_detector` (`modules/control/mains_detector.cpp`): bit AC_STAT del cargador BQ25730 ausente en **2 lecturas válidas consecutivas** (cada 5 s, ≈ 10 s), y se mantiene **≥ 10 min desde la declaración** aunque la red vuelva antes (`MAINS_ALARM_MIN_HOLD_MS`); evaluada en `checkMainsInterruption()`. Lectura no válida del cargador = sin efecto; sin cargador o en test de fábrica, nunca se declara. Ver §9 | ALTA | no (no hay condición que cortar). **No silenciable**: 201.12.3.103 exige 10 min de aviso y la pausa dura justo eso |
 | 8 | `ALARM_AIR_TEMP_DEVIATION_HIGH` | en modo aire, `temperatura − consigna > 1.0 °C` (`AIR_TEMP_DEVIATION_LIMIT_C`, `checkAlarms()`) | MEDIA | sí |
 | 9 | `ALARM_AIR_TEMP_DEVIATION_LOW` | en modo aire, `consigna − temperatura > 1.0 °C`, y solo tras cerrar la ventana de estabilización (§5) | MEDIA | no |
 | 10 | `ALARM_SKIN_TEMP_DEVIATION_HIGH` | en modo piel, `temperatura − consigna > 1.0 °C` (`SKIN_TEMP_DEVIATION_LIMIT_C`) | MEDIA | sí |
@@ -670,12 +670,50 @@ enlace posterior suena desde el primer instante.
 Esta sección es tan relevante como el resto: enumera lo que el sistema no
 hace hoy, para no inducir a confiar en protecciones que no existen.
 
-- **`ALARM_MAINS_INTERRUPTION` no tiene detector.** Ningún punto del código
-  llama a `alarm_machine_condition(ALARM_MAINS_INTERRUPTION, ...)`. La
-  condición existe en el enum, tiene prioridad ALTA asignada, pero nunca se
-  activa. Un detector real exigiría además una reserva de energía dedicada
-  que sobreviva 10 minutos de corte de red — es un requisito de hardware, no
-  solo de firmware.
+- ~~`ALARM_MAINS_INTERRUPTION` no tiene detector~~ — **implementado en
+  firmware**; sigue pendiente la parte de hardware. Cambio OpenSpec
+  `shared-mains-detector`.
+  - **Qué hace.** `sensors_Task` lee el BQ25730 cada 5 s y alimenta
+    `mains_detector` (lógica pura, probada en `[env:native]`:
+    `test_mains_detector`) a través de `mains_present_now()` (`main.cpp`), el
+    único punto donde se decide «hay red». `securityCheck()` consulta el
+    detector y llama a `alarm_machine_condition(ALARM_MAINS_INTERRUPTION, ...)`.
+  - **Antirrebote: 2 lecturas válidas consecutivas** (≈ 10 s) para declarar y
+    otras 2 para retirar. Una sola lectura no levanta una alarma ALTA que el
+    operador no puede silenciar; 10 s sobre un aviso de ≥ 10 min es un retardo
+    proporcionado, y 201.12.3.103 no fija latencia de detección.
+  - **Mínimo de 10 min desde la declaración** (201.12.3.103: «shall be
+    provided for a minimum time of 10 min»). `alarm_machine` no lo garantiza
+    (solo la ráfaga mínima de audio de 6.10), así que lo hace el detector: si
+    la red vuelve antes, la condición sigue presente hasta cumplirse el plazo;
+    si el corte dura más, dura lo que el corte. Un corte nuevo confirmado antes
+    de vencer reinicia el plazo. **Decisión abierta para el análisis de
+    riesgos**: la cita no dice «o hasta que vuelva la red, lo que ocurra
+    antes»; se aplica la lectura literal. Consecuencia: tras un corte breve el
+    aviso persiste hasta 10 min con la red ya presente y no se puede
+    silenciar. Poner `MAINS_ALARM_MIN_HOLD_MS` a 0 adopta la otra lectura.
+  - **Lectura no válida** (fallo de I2C, o `vbat_mv == 0` = el ADC aún no ha
+    convertido): ni declara, ni retira, ni rompe la racha. **Sin cargador**
+    (`chargerPresent == false`): nunca se declara, con una línea de log.
+    **Test de fábrica**: no se declara.
+  - **Indicador «en batería» en el HMI**: icono de batería y palabra corta
+    (ES/EN/FR/PT) en el heading de Main (a la derecha del reloj, dentro de su
+    botón) y de Lock (slot de ayuda, vacío ahí). Sale del **bit 7 de
+    `alarmBitmask`** de `CTRL,STATE`; no hay campo de protocolo nuevo. Sigue a
+    la condición *señalizada*, no a la presencia física de red: se mantiene
+    durante el plazo mínimo aunque la red haya vuelto. Oculto sin enlace con la
+    placa. Telemetría: `mains_alarm` (`ALARM_MAINS_INTERRUPTION_KEY`) ya se
+    publicaba por `GPRS.cpp` y `Wifi_OTA.cpp`.
+  - **Rev. V19.** `MAINS_OK_PIN` (IO42, CHRG_OK del BQ25730) se añadirá solo en
+    `mains_present_now()`: red presente = **AND** de las fuentes que responden
+    (registro `ac_present` y pin), válida si responde cualquiera de las dos.
+    AND porque el fallo que importa es no avisar de un corte real; el pin
+    además sigue decidiendo con el bus I2C colgado. Ver el design del cambio.
+  - **Sigue siendo hardware, y es verificación de banco (casos 19 y 20 de
+    `alarms_bench_verification.md`):** la reserva de energía que mantenga el
+    equipo vivo y sonando 10 min sin red, y que el zumbador y el micro
+    cuelguen de VSYS y no de la entrada de red. Sin eso el detector avisa
+    mientras la batería aguante, pero 201.12.3.103 no se cumple del todo.
 - ~~`ALARM_HMI_LINK_LOST` no tiene detector~~ — **implementado**. El display manda un latido cada 1 s (`HMI_KEEPALIVE_PERIOD_MS`) y la placa declara la condición tras 5 s sin recibir nada (`HMI_LINK_TIMEOUT_MS`, `checkHmiLink()`). Antes no era detectable: el display solo transmitía al cambiar algo, así que el silencio no significaba nada. No se declara antes de la primera trama — la placa arranca antes que el display y un enlace que nunca existió no es un enlace caído.
 - ~~El display no tenía señal audible propia si la placa se colgaba~~ —
   **implementado**. El detector de esta misma condición vive en el display

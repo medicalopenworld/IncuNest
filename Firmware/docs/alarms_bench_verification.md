@@ -466,6 +466,49 @@ llamar a `lv_label_set_text()` y `lv_obj_move_foreground()` incondicionalmente.
 
 ---
 
+### 19. Corte de red (ALARM_MAINS_INTERRUPTION) — pendiente
+
+Detector de `mains_detector` más el indicador «en batería». Necesitas el log de
+la placa a la vista, el equipo en terapia (control de aire y fototerapia) y un
+cronómetro. Enchufa y desenchufa **el cable de red del equipo**, no la batería.
+
+| Prueba | Cómo | Debe salir |
+|---|---|---|
+| Corte sostenido | desenchufa la red y espera | a los ≈ 10 s: `CORTE DE RED` ALTA, zumbador, pop-up e indicador **BATERIA** en Main y en Lock; la terapia **sigue** |
+| Cortes breves | enchufa y desenchufa rápido, varias veces, cada corte < 5 s | no sale ningún aviso |
+| Retorno antes de 10 min | corte de ~1 min y vuelve la red | el aviso **se mantiene** hasta cumplirse 10 min **desde que salió**, no desde que volvió la red |
+| Retorno después de 10 min | corte de 12 min y vuelve la red | el aviso se retira a los ≈ 10 s del retorno |
+| Reinterrupción | red de vuelta a los 3 min y nuevo corte a los 5 | no se retira nunca; el plazo se cuenta desde el segundo corte |
+| No silenciable | pulsa silenciar durante el aviso | el audio no se inactiva (201.12.3.103) |
+| Sin cargador | placa sin BQ25730 | nunca hay aviso; una línea de log al arrancar |
+
+**Indicador.** Comprueba en ES, EN, FR y PT que el icono y la palabra caben en
+el botón del reloj de Main sin pisar la hora ni la fecha, y en Lock, en el
+hueco del botón de ayuda, sin tocar el reloj. Debe desaparecer solo cuando el
+aviso termina y no debe verse con el cable del enlace entre placas
+desconectado.
+
+**Qué mirar de más.** Que en el corte la hora del reloj y el resto de la
+pantalla no parpadeen (el indicador solo repinta al cambiar) y que no salga
+ninguna otra alarma por el corte (por ejemplo la de subtensión de
+alimentación, `ALARM_SUPPLY_UNDERVOLTAGE`).
+
+---
+
+### 20. Reserva de energía del aviso de corte de red — pendiente (hardware)
+
+Es lo que el firmware **no** puede resolver (201.12.3.103 pide 10 min):
+
+- Con el equipo en terapia y **sin red**, mide cuánto aguanta vivo y sonando; el
+  objetivo es ≥ 10 min con la batería a nivel de servicio.
+- Confirma que **el zumbador y el micro cuelgan de VSYS** y no de la entrada de
+  red: si el zumbador se alimenta de la entrada, en el corte no suena aunque el
+  firmware declare la alarma.
+- Con la rev. V19, comprueba que `MAINS_OK_PIN` y el registro `ac_present`
+  coinciden en el corte y en el retorno (el diseño combina ambos con un AND).
+
+---
+
 ## Fuera del alcance del banco
 
 Requieren laboratorio o hardware que no existe todavía:
@@ -474,8 +517,9 @@ Requieren laboratorio o hardware que no existe todavía:
   compartimento (201.9.6.2.1.103). Tiran en sentidos opuestos.
 - **Corte térmico independiente del termostato** (201.15.4.2.1 aa): hoy el
   corte lee el mismo sensor que el PID. Exige un segundo canal físico.
-- **Alarma de corte de red durante 10 min** (201.12.3.103): exige reserva de
-  energía dedicada.
+- **Alarma de corte de red durante 10 min** (201.12.3.103): el detector de
+  firmware existe (casos 19 y 20); lo que sigue sin existir es la reserva de
+  energía dedicada que sostenga el aviso sin red.
 - **Cortocircuito en la sonda de piel** (201.12.3.102): el timeout no lo
   detecta.
 - **Prueba de función de alarma para el operador** (201.12.3.105): no

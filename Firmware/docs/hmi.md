@@ -10,6 +10,7 @@ The main screen is partitioned into informational quadrants and side plus ceilin
 It continuously witnesses key and constant states on whichever screen the doctor navigates to:
 *   Help button (`?`, `ui_HelpButton`) at the leftmost slot, to the left of the clock. Opens the help menu (see §6). Shown only on `ui_ScreenMain`; the `ui_ScreenLock` heading replica keeps clock and connectivity at the same x position but has no help button.
 *   Connectivity icons (Server, WiFi, or Null state).
+*   "On battery" indicator (battery icon plus a short word in the active language, amber): shown while bit 7 (`ALARM_MAINS_INTERRUPTION`) of `alarmBitmask` is set, and hidden without a board link. On `ui_ScreenMain` it sits inside the clock button, to the right of the time and date; on `ui_ScreenLock` it takes the help-button slot, which is empty there. Refreshed by `on_battery_heading_update()` (`UITask.cpp`); no protocol field. It follows the *signalled* alarm, so it stays up for the alarm's 10-minute minimum even if mains has returned (see `alarms.md` §9).
 *   Realistic icon indicators about hardware resource usage in background ("Heater", "Wind/Cooling", etc).
 *   Section reserved for sliding priority alarms like marquees if they warrant overflow due to severity.
 
