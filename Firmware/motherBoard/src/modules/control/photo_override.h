@@ -6,24 +6,32 @@
 // alguien pulsando la pantalla. Se manda por la consola UART ("PHOTO,<0|1>",
 // main.cpp) y solo con el modo depuracion encendido.
 //
-// Por que no basta con poner in3.phototherapy a 1: el display ADOPTA el estado
-// de fototerapia que emite la placa (Display_ApplyCtrlState, a 1 Hz) y lo
-// devuelve en su keepalive, y la placa aplica ese keepalive y lo guarda en NVS.
-// Un encendido ingenuo acaba asi:
+// QUE HACE (y por que es tan pequeno):
 //
-//   1. la placa emite photo=1, el display lo adopta y empieza a mandar photo=1;
-//   2. al terminar la prueba la placa vuelve a "lo que diga el display"... que
-//      ya es 1: la lampara SE QUEDA ENCENDIDA;
-//   3. y como ese 1 se ha guardado en NVS, una caida lo reanuda: una accion de
-//      depuracion sobrevive a un reinicio, contra las reglas 1 y 2 del modo
-//      depuracion (debug_mode.h).
+//   1. Mientras la prueba esta ACTIVA, la lampara va ON (`forced`), las
+//      ordenes del display se REGISTRAN (`ordered`) pero no se aplican, y no se
+//      guarda nada en NVS.
+//   2. El campo `photo` de CTRL,STATE (estado_field) NO emite el ON forzado
+//      sino la ultima orden del display (`ordered`). Asi el display nunca
+//      adopta el ON de depuracion, y no existe ningun 1 rancio que neutralizar
+//      al soltar. Fuera de la prueba el campo es el estado REAL de la lampara
+//      (known_issues #20). El ON de la prueba se ve en /debug/state y en el log,
+//      que es donde mira quien la hace.
+//   3. SOLTAR devuelve el control al display EN EL ACTO: la lampara pasa a la
+//      ultima orden del display (`ordered`: la del operador manda, o la que
+//      habia al empezar si no hubo ninguna). Sin ventana de gracia, sin
+//      confirmacion, sin plazos.
 //
-// Esta maquina decide, trama a trama, que valor de fototerapia aplicar y si el
-// del display se puede guardar. Mientras el encendido de depuracion esta
-// activo, manda ON y no se guarda nada. Al soltarlo manda el valor REAL que
-// habia antes de la prueba e ignora el 1 rancio que el display sigue
-// devolviendo, y no guarda nada, HASTA que el display confirma devolviendo ese
-// valor real (ver mas abajo). Entonces manda otra vez el display.
+// Historia, para no repetirla. Un primer diseno hacia que el campo `photo`
+// emitiese el ON forzado: el display lo ADOPTABA, lo devolvia en su keepalive,
+// y la placa lo aplicaba y lo guardaba en NVS al soltar si el display aun no
+// habia adoptado el apagado. Se arreglo primero con una ventana fija de 5 s y
+// despues con una confirmacion (valor del display == valor real, minimo 2 s,
+// respaldo de 60 s). Ninguna de las dos aguanto: con el temporizador vencido
+// durante la liberacion el ON se auto-confirmaba y se guardaba como sesion
+// continua, un OFF del operador en esa ventana se perdia, y un CTRL,STATE rancio
+// procesado tarde por el anillo de RX del display seguia colandose. La raiz era
+// emitir el ON; quitada, no hace falta neutralizar nada.
 //
 // Test de regresion: motherBoard/test/test_photo_override.
 
@@ -34,69 +42,52 @@
 extern "C" {
 #endif
 
-// Liberacion CONFIRMADA.
-//
-// (Antes era una ventana fija de 5 s, PHOTO_OVERRIDE_RELEASE_GRACE_MS, durante
-// la que se ignoraba al display.) Una ventana fija es una apuesta a que el display adopta el apagado dentro de
-// ella, y la tarea Comm del display se queda sin CPU segundos enteros
-// (known_issues #7, #11). Si vence antes de que el display lo haya adoptado,
-// main.cpp aplica Y GUARDA EN NVS el ON rancio: lampara encendida y
-// reanudable tras un reinicio, justo lo que esta maquina existe para evitar.
-//
-// Ahora, tras soltar, la placa fuerza `real_before` hasta que llega un
-// keepalive cuyo valor ES `real_before` (el display ya adopto lo que la placa
-// emite). No se acepta una confirmacion antes de PHOTO_OVERRIDE_CONFIRM_MIN_MS:
-// una trama del display ya en vuelo de antes de adoptar el ON tambien lleva
-// `real_before` y no demuestra nada.
-//
-// PHOTO_OVERRIDE_RELEASE_BACKSTOP_MS es solo el plazo tras el que se AVISA
-// (photo_override_unconfirmed_overdue): vencido, la placa sigue forzando
-// `real_before` y sin guardar; NUNCA adopta el valor del display sin
-// confirmacion.
-#define PHOTO_OVERRIDE_CONFIRM_MIN_MS 2000u
-#define PHOTO_OVERRIDE_RELEASE_BACKSTOP_MS 60000u
-
 typedef struct {
-  bool active;             // el encendido de depuracion esta forzando ON
-  bool real_before;        // fototerapia REAL (la del display) al empezar
-  bool releasing;          // soltado, a la espera de la confirmacion
-  bool overdue_reported;   // ya se aviso de que vencio el plazo largo
-  uint32_t release_since_ms;
+  bool active;           // la prueba esta forzando ON
+  bool ordered;          // ultima orden del DISPLAY (operador), registrada
+  bool release_pending;  // se solto y falta aplicar `ordered` a la lampara
 } PhotoOverride;
-
-// Verdadero UNA sola vez cuando, soltado el encendido, ha vencido
-// PHOTO_OVERRIDE_RELEASE_BACKSTOP_MS sin confirmacion. Para que el llamador lo
-// registre como error; el estado de la maquina no cambia.
-bool photo_override_unconfirmed_overdue(PhotoOverride *o, uint32_t now_ms);
-
-// Si la maquina esta FORZANDO un valor ahora mismo (encendido activo, o suelto
-// pero sin confirmar) lo deja en *value y devuelve verdadero: ON si esta
-// activa, `real_before` si esta soltando. Sin efectos secundarios y SIN
-// confirmar nada (la confirmacion exige una trama del display). Es lo que
-// permite aplicar el valor al soltar aunque no llegue ninguna trama: con el
-// display colgado la lampara no puede quedarse en el ON de la prueba.
-bool photo_override_forced(const PhotoOverride *o, bool *value);
 
 void photo_override_init(PhotoOverride *o);
 
-// Empieza a forzar ON. `real_now` es el estado que el display habia mandado
-// hasta ahora, antes de que pueda contaminarlo la adopcion. Si ya estaba
-// activo, o seguia en la ventana de gracia de una prueba anterior, se conserva
-// el real_before que ya habia: el de ahora esta contaminado por la prueba.
-void photo_override_start(PhotoOverride *o, bool real_now, uint32_t now_ms);
+// Empieza a forzar ON. `ordered_now` es la ultima orden del display hasta
+// ahora (in3.phototherapy antes de la prueba). Si ya estaba activa se
+// conserva el `ordered` que ya hay: es el que lleva las ordenes del operador.
+void photo_override_start(PhotoOverride *o, bool ordered_now);
 
-// Suelta el encendido y abre la ventana de gracia. Sin efecto si no estaba
-// activo.
-void photo_override_release(PhotoOverride *o, uint32_t now_ms);
+// Registra una orden del display (o la caducidad del temporizador de
+// fototerapia, que es una orden de apagado de la placa) recibida durante la
+// prueba. Sin efecto si no esta activa.
+void photo_override_note_order(PhotoOverride *o, bool ordered);
+
+// Suelta la prueba y deja pendiente aplicar `ordered`. Sin efecto si no
+// estaba activa.
+void photo_override_release(PhotoOverride *o);
 
 bool photo_override_active(const PhotoOverride *o);
 
-// Valor de fototerapia que hay que APLICAR dada la trama del display.
-bool photo_override_effective(PhotoOverride *o, bool display_value,
-                              uint32_t now_ms);
+// Valor de fototerapia que hay que APLICAR dada la trama del display: ON
+// mientras esta activa (y registra la orden), la del display si no.
+bool photo_override_effective(PhotoOverride *o, bool display_value);
 
-// Si el valor del display se puede guardar en NVS en esta pasada.
-bool photo_override_may_persist(PhotoOverride *o, uint32_t now_ms);
+// Si el valor del display se puede guardar en NVS: no mientras la prueba esta
+// activa. Nada que esperar al soltar: desde ese instante manda el display.
+bool photo_override_may_persist(const PhotoOverride *o);
+
+// Si la prueba esta forzando un valor ahora mismo (ON mientras esta activa).
+// Sin efectos secundarios. Permite aplicarlo sin esperar una trama.
+bool photo_override_forced(const PhotoOverride *o, bool *value);
+
+// Verdadero UNA vez tras soltar, con el valor (`ordered`) que hay que aplicar
+// a la lampara ahora, sin esperar ninguna trama del display (con el display
+// colgado no llega ninguna). Quien lo llama lo aplica por el camino normal y
+// NO lo persiste.
+bool photo_override_take_release(PhotoOverride *o, bool *value);
+
+// Valor del campo `photo` de CTRL,STATE: la orden del display mientras la
+// prueba esta activa, el estado real aplicado (`applied`) en cualquier otro
+// caso.
+bool photo_override_state_field(const PhotoOverride *o, bool applied);
 
 #ifdef __cplusplus
 }
