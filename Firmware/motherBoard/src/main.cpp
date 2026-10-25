@@ -532,6 +532,53 @@ void TimeTrack_Task(void *pvParameters) {
   }
 }
 
+// Aplica el estado de la fototerapia: variable, PWM y ventilador. Es el camino
+// UNICO que usa una orden del display (newCommand) y el tick periodico que
+// cierra el encendido/apagado de depuracion, y NO persiste nada en NVS (eso
+// lo decide quien llama, con debug_photo_may_persist()).
+static void applyPhotoState(bool on) {
+  // Estado ANTERIOR, para distinguir el flanco de encendido del keepalive.
+  const bool photoEstabaEncendida = in3.phototherapy;
+  in3.phototherapy = on;
+  if (in3.phototherapy) {
+    if (in3.photoFirstRun) {
+      in3.phototherapy_intensity = PWM_MAX_VALUE * PHOTOTHERAPY_INITIAL_PWM_PCT / 100;
+      in3.photoFirstRun = false;
+    }
+    // SOLO en el flanco de encendido. Esto estaba fuera del if y se
+    // ejecutaba en cada mandato del HMI, que es un KEEPALIVE: CommTask.cpp
+    // pone newCommand=true en cada trama recibida, ~1 por segundo.
+    //
+    // photoTurnOnTime es la marca de asentamiento que mira el lazo de
+    // regulacion de intensidad (sensors_module.cpp, currentMonitor):
+    //
+    //     millis() - in3.photoTurnOnTime > PHOTO_SETTLE_MS   // 3000 ms
+    //
+    // Refrescandola cada segundo esa condicion NO se cumple NUNCA, asi que
+    // el lazo no llegaba a ejecutarse jamas y PHOTO_TARGET_CURRENT era
+    // codigo muerto: la lampara se quedaba en la semilla en lazo abierto.
+    //
+    // Medido en banco el 2026-09-23: semilla PWM 102 (extrapolada por el
+    // autotest para 0.27 A desde una lectura de 0.10 A al 10 % de PWM) y
+    // corriente real 0.59-0.60 A sostenida durante 6 minutos. La
+    // extrapolacion 1/x se equivoca por 2.2x porque el consumo del LED no
+    // es lineal con el duty; corregir eso es justo el trabajo del lazo.
+    if (!photoEstabaEncendida) {
+      in3.photoTurnOnTime = millis();
+    }
+  }
+  // Idem: el canal de fototerapia tambien lo posee el test de fabrica
+  // mientras dura la bateria. La reconciliacion con in3.phototherapy
+  // (actualizado arriba, sin gate: eso SI debe seguir reflejando la
+  // trama) la hace este mismo newCommand en su siguiente vuelta, en
+  // cuanto g_factoryTestActive baje (ver cabecera de
+  // factory_test_task.cpp).
+  if (!g_factoryTestActive)
+    ledcWrite(PHOTOTHERAPY_PWM_CHANNEL,
+              in3.phototherapy * in3.phototherapy_intensity);
+  turnFans(bool(in3.phototherapy || in3.actuation));
+}
+
 void Communication_Receiver(void *pvParameters) {
   for (;;) {
     if (hmi_cmd_msg.newCommand) {
@@ -628,13 +675,12 @@ void Communication_Receiver(void *pvParameters) {
           in3_hum.turn(OFF);
       }
 
-      // Estado ANTERIOR, para distinguir el flanco de encendido del keepalive.
-      const bool photoEstabaEncendida = in3.phototherapy;
       // Normalmente es lo que manda el display. Con un encendido de depuracion
-      // en marcha (o en su ventana de gracia) manda photo_override: fuerza ON
-      // durante la prueba e ignora despues el ON rancio que el display habra
-      // adoptado. Ver modules/control/photo_override.h.
-      in3.phototherapy = debug_photo_effective(hmi_cmd_msg.phototherapyMode);
+      // en marcha (o por confirmar tras soltarlo) manda photo_override: fuerza
+      // ON durante la prueba e ignora despues el ON rancio que el display habra
+      // adoptado. Ver modules/control/photo_override.h. Se aplica mas abajo con
+      // applyPhotoState(), el mismo camino que usa el tick periodico.
+      const bool photoOrden = debug_photo_effective(hmi_cmd_msg.phototherapyMode);
       // Se guarda la orden DEL DISPLAY, y solo cuando no hay prueba en curso:
       // durante ella el display devuelve el ON adoptado, y guardarlo haria que
       // una caida reanudase una sesion de depuracion como si fuera real.
@@ -648,43 +694,7 @@ void Communication_Receiver(void *pvParameters) {
         in3.language = hmi_cmd_msg.language;
         resendActiveAlarms();
       }
-      if (in3.phototherapy) {
-        if (in3.photoFirstRun) {
-          in3.phototherapy_intensity = PWM_MAX_VALUE * PHOTOTHERAPY_INITIAL_PWM_PCT / 100;
-          in3.photoFirstRun = false;
-        }
-        // SOLO en el flanco de encendido. Esto estaba fuera del if y se
-        // ejecutaba en cada mandato del HMI, que es un KEEPALIVE: CommTask.cpp
-        // pone newCommand=true en cada trama recibida, ~1 por segundo.
-        //
-        // photoTurnOnTime es la marca de asentamiento que mira el lazo de
-        // regulacion de intensidad (sensors_module.cpp, currentMonitor):
-        //
-        //     millis() - in3.photoTurnOnTime > PHOTO_SETTLE_MS   // 3000 ms
-        //
-        // Refrescandola cada segundo esa condicion NO se cumple NUNCA, asi que
-        // el lazo no llegaba a ejecutarse jamas y PHOTO_TARGET_CURRENT era
-        // codigo muerto: la lampara se quedaba en la semilla en lazo abierto.
-        //
-        // Medido en banco el 2026-09-23: semilla PWM 102 (extrapolada por el
-        // autotest para 0.27 A desde una lectura de 0.10 A al 10 % de PWM) y
-        // corriente real 0.59-0.60 A sostenida durante 6 minutos. La
-        // extrapolacion 1/x se equivoca por 2.2x porque el consumo del LED no
-        // es lineal con el duty; corregir eso es justo el trabajo del lazo.
-        if (!photoEstabaEncendida) {
-          in3.photoTurnOnTime = millis();
-        }
-      }
-      // Idem: el canal de fototerapia tambien lo posee el test de fabrica
-      // mientras dura la bateria. La reconciliacion con in3.phototherapy
-      // (actualizado arriba, sin gate: eso SI debe seguir reflejando la
-      // trama) la hace este mismo newCommand en su siguiente vuelta, en
-      // cuanto g_factoryTestActive baje (ver cabecera de
-      // factory_test_task.cpp).
-      if (!g_factoryTestActive)
-        ledcWrite(PHOTOTHERAPY_PWM_CHANNEL,
-                  in3.phototherapy * in3.phototherapy_intensity);
-      turnFans(bool(in3.phototherapy || in3.actuation));
+      applyPhotoState(photoOrden);
 
       // AQUI NO SE PITA AL RECIBIR UNA TRAMA DEL DISPLAY.
       //
@@ -705,6 +715,21 @@ void Communication_Receiver(void *pvParameters) {
       // a una rafaga de prioridad BAJA, que es de UN solo pulso: el
       // transductor de las alarmas no puede emitir sonidos que no sean
       // alarmas.
+    }
+
+    // Encendido/apagado de depuracion SIN depender de una trama del display.
+    // Tras `PHOTO,0` (o al apagar el modo) el valor real previo se aplica aqui,
+    // en el tick periodico, por el mismo camino que una orden: con el display
+    // colgado no llega ningun keepalive y, sin esto, la lampara se quedaria en
+    // el ON de la prueba. No persiste nada en NVS (eso solo lo hace el camino
+    // de la orden, y solo con debug_photo_may_persist()). Solo actua si el
+    // estado real difiere del forzado, asi que no reescribe el PWM cada vuelta.
+    {
+      bool photoForzada = false;
+      if (debug_photo_forced(&photoForzada) &&
+          in3.phototherapy != photoForzada) {
+        applyPhotoState(photoForzada);
+      }
     }
 
     // Handle Phototherapy timer expiration/calculation constantly

@@ -69,6 +69,14 @@ typedef struct {
 // registre como error; el estado de la maquina no cambia.
 bool photo_override_unconfirmed_overdue(PhotoOverride *o, uint32_t now_ms);
 
+// Si la maquina esta FORZANDO un valor ahora mismo (encendido activo, o suelto
+// pero sin confirmar) lo deja en *value y devuelve verdadero: ON si esta
+// activa, `real_before` si esta soltando. Sin efectos secundarios y SIN
+// confirmar nada (la confirmacion exige una trama del display). Es lo que
+// permite aplicar el valor al soltar aunque no llegue ninguna trama: con el
+// display colgado la lampara no puede quedarse en el ON de la prueba.
+bool photo_override_forced(const PhotoOverride *o, bool *value);
+
 void photo_override_init(PhotoOverride *o);
 
 // Empieza a forzar ON. `real_now` es el estado que el display habia mandado

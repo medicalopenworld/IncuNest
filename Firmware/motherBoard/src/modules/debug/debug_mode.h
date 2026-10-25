@@ -91,6 +91,9 @@ bool debug_photo_active(void);
 // y si puede guardar el suyo en NVS. Ver photo_override.h.
 bool debug_photo_effective(bool display_value);
 bool debug_photo_may_persist(void);
+// Valor forzado ahora mismo por la prueba de depuracion (activa o por
+// confirmar), sin esperar a una trama del display. Ver photo_override_forced().
+bool debug_photo_forced(bool *value);
 
 // --- alarmas forzadas ----------------------------------------------------
 // Fuerza la CONDICION (el `present` de la maquina), no la senal: el retardo de

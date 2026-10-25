@@ -77,3 +77,15 @@ bool photo_override_unconfirmed_overdue(PhotoOverride *o, uint32_t now_ms) {
   }
   return false;
 }
+
+bool photo_override_forced(const PhotoOverride *o, bool *value) {
+  if (o->active) {
+    *value = true;
+    return true;
+  }
+  if (o->releasing) {
+    *value = o->real_before;
+    return true;
+  }
+  return false;
+}

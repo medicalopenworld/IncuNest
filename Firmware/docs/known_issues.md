@@ -827,10 +827,12 @@ release window is defensive and verified to leave the lamp off.
     between the operator's tap and the board applying it, one `CTRL,STATE` can
     go out with the old value; the display's local confirmation guard
     (`localCmdHoldsLocal`, 10 s) covers it, but a display *without* that guard
-    would see the switch bounce. (3) **Residual gap**: if no display keepalive
-    arrives at all after `PHOTO,0` (Comm task fully stuck, no frames), the
-    override logic only runs on a received command, so `in3.phototherapy` keeps
-    its last value until one arrives. (4) **Watch on the bench**: the lamp-fault
+    would see the switch bounce. (3) **No-frame release (closed)**: the
+    override used to run only when a display command arrived, so with the
+    display fully stuck `PHOTO,0` left the lamp ON. `Communication_Receiver`
+    now applies the forced value (`debug_photo_forced()`: ON while active,
+    `real_before` while releasing) on its periodic tick, through the same
+    `applyPhotoState()` an order uses, with no NVS write. (4) **Watch on the bench**: the lamp-fault
     alarm (`ALARM_PHOTO_LAMP_FAULT`) also fires when the main INA3221 gives no
     sample with the lamp ON; on HW17 with the channel-2 shunt **not populated**
     this would be a false positive on every session.

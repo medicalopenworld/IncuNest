@@ -92,6 +92,14 @@ bool debug_photo_effective(bool display_value) {
   return v;
 }
 
+bool debug_photo_forced(bool *value) {
+  portENTER_CRITICAL(&s_photo_mux);
+  photo_lock_init();
+  const bool f = photo_override_forced(&s_photo, value);
+  portEXIT_CRITICAL(&s_photo_mux);
+  return f;
+}
+
 bool debug_photo_may_persist(void) {
   portENTER_CRITICAL(&s_photo_mux);
   photo_lock_init();

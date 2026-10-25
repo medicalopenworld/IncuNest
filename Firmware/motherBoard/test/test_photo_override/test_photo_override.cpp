@@ -142,6 +142,59 @@ void test_early_echo_of_real_value_is_not_a_confirmation(void) {
   TEST_ASSERT_FALSE(photo_override_may_persist(&o, now));
 }
 
+// --- soltar SIN ninguna trama posterior (display colgado) ---
+
+// El caso que la confirmacion sola no cubre: tras soltar no llega ni un
+// keepalive. La maquina tiene que poder decir, sin que nadie le pase el valor
+// del display, que valor hay que aplicar YA: el real previo.
+void test_release_with_no_further_frame_forces_real_before(void) {
+  bool v = true;
+  TEST_ASSERT_FALSE(photo_override_forced(&o, &v));  // sin prueba: no fuerza
+  photo_override_start(&o, false, now);
+  TEST_ASSERT_TRUE(photo_override_forced(&o, &v));
+  TEST_ASSERT_TRUE(v);  // activa: ON
+  photo_override_release(&o, now);
+  // Ni una trama del display desde aqui: solo pasa el tiempo.
+  for (unsigned i = 0; i < 4; ++i) {
+    now += 20000u;
+    v = true;
+    TEST_ASSERT_TRUE(photo_override_forced(&o, &v));
+    TEST_ASSERT_FALSE(v);  // la lampara queda en real_before
+    TEST_ASSERT_FALSE(photo_override_may_persist(&o, now));
+  }
+}
+
+void test_release_with_no_frame_restores_real_on_when_it_was_on(void) {
+  bool v = false;
+  photo_override_start(&o, true, now);
+  photo_override_release(&o, now);
+  TEST_ASSERT_TRUE(photo_override_forced(&o, &v));
+  TEST_ASSERT_TRUE(v);
+}
+
+// Preguntar si fuerza NO es confirmar: sin trama del display no hay
+// confirmacion posible, por muchas veces que se consulte.
+void test_forced_query_never_confirms(void) {
+  bool v = true;
+  photo_override_start(&o, false, now);
+  photo_override_release(&o, now);
+  now += 10000u;
+  for (unsigned i = 0; i < 5; ++i) {
+    TEST_ASSERT_TRUE(photo_override_forced(&o, &v));
+  }
+  TEST_ASSERT_FALSE(photo_override_may_persist(&o, now));
+}
+
+// Confirmada la liberacion, ya no fuerza nada: manda el display.
+void test_forced_stops_after_confirmation(void) {
+  bool v = false;
+  photo_override_start(&o, false, now);
+  photo_override_release(&o, now);
+  now += 3000u;
+  photo_override_effective(&o, false, now);  // confirma
+  TEST_ASSERT_FALSE(photo_override_forced(&o, &v));
+}
+
 // --- volver a como estaba ANTES, no siempre a apagado ---
 
 void test_release_restores_real_on_when_it_was_on(void) {
@@ -211,6 +264,10 @@ int main(int, char **) {
   RUN_TEST(test_confirmation_at_8s_hands_control_back);
   RUN_TEST(test_confirmation_when_real_was_on);
   RUN_TEST(test_early_echo_of_real_value_is_not_a_confirmation);
+  RUN_TEST(test_release_with_no_further_frame_forces_real_before);
+  RUN_TEST(test_release_with_no_frame_restores_real_on_when_it_was_on);
+  RUN_TEST(test_forced_query_never_confirms);
+  RUN_TEST(test_forced_stops_after_confirmation);
   RUN_TEST(test_release_restores_real_on_when_it_was_on);
   RUN_TEST(test_start_twice_keeps_first_real_state);
   RUN_TEST(test_release_when_idle_is_harmless);
