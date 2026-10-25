@@ -171,6 +171,8 @@ lv_obj_t *ui_MaintConfigCont = NULL;
 lv_obj_t *ui_MaintTitleLabel = NULL;
 lv_obj_t *ui_MaintEnableLabel = NULL;
 lv_obj_t *ui_MaintEnableSwitch = NULL;
+lv_obj_t *ui_WeighEnableLabel = NULL;
+lv_obj_t *ui_WeighEnableSwitch = NULL;
 lv_obj_t *ui_MaintLevelLabel[3] = {NULL, NULL, NULL};
 lv_obj_t *ui_MaintHintLabel = NULL;
 lv_obj_t *ui_MaintOpenButton = NULL;
@@ -368,6 +370,7 @@ void LanguageButton_cb(lv_event_t *e);
 extern void ModesButton_cb(lv_event_t *e);
 extern void MaintButton_cb(lv_event_t *e);
 extern void MaintEnableSwitch_cb(lv_event_t *e);
+extern void WeighEnableSwitch_cb(lv_event_t *e);
 extern void MaintOpenButton_cb(lv_event_t *e);
 extern void ClockButton_cb(lv_event_t *e);
 extern void HelpButton_cb(lv_event_t *e);
@@ -633,6 +636,12 @@ void ui_event_MaintButton(lv_event_t *e) {
 void ui_event_MaintEnableSwitch(lv_event_t *e) {
   if (lv_event_get_code(e) == LV_EVENT_VALUE_CHANGED) {
     MaintEnableSwitch_cb(e);
+  }
+}
+
+void ui_event_WeighEnableSwitch(lv_event_t *e) {
+  if (lv_event_get_code(e) == LV_EVENT_VALUE_CHANGED) {
+    WeighEnableSwitch_cb(e);
   }
 }
 
@@ -3178,7 +3187,7 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_width(ui_MaintEnableLabel, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_MaintEnableLabel, LV_SIZE_CONTENT);
   lv_obj_set_x(ui_MaintEnableLabel, 60);
-  lv_obj_set_y(ui_MaintEnableLabel, -95);
+  lv_obj_set_y(ui_MaintEnableLabel, -100);
   lv_obj_set_align(ui_MaintEnableLabel, LV_ALIGN_CENTER);
   lv_label_set_text(ui_MaintEnableLabel, TR(STR_MAINT_REMINDER));
   lv_obj_set_style_text_font(ui_MaintEnableLabel, &lv_font_montserrat_18,
@@ -3188,8 +3197,28 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_width(ui_MaintEnableSwitch, 90);
   lv_obj_set_height(ui_MaintEnableSwitch, 35);
   lv_obj_set_x(ui_MaintEnableSwitch, 296);
-  lv_obj_set_y(ui_MaintEnableSwitch, -95);
+  lv_obj_set_y(ui_MaintEnableSwitch, -100);
   lv_obj_set_align(ui_MaintEnableSwitch, LV_ALIGN_CENTER);
+
+  // Segundo interruptor, el del aviso de pesada diaria (no es un nivel de
+  // limpieza, pero comparte panel: es el otro aviso que sale al desbloquear).
+  // Mismas columnas que el de arriba, 40 px mas abajo.
+  ui_WeighEnableLabel = lv_label_create(ui_MaintConfigCont);
+  lv_obj_set_width(ui_WeighEnableLabel, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_WeighEnableLabel, LV_SIZE_CONTENT);
+  lv_obj_set_x(ui_WeighEnableLabel, 60);
+  lv_obj_set_y(ui_WeighEnableLabel, -60);
+  lv_obj_set_align(ui_WeighEnableLabel, LV_ALIGN_CENTER);
+  lv_label_set_text(ui_WeighEnableLabel, TR(STR_WEIGH_SETTING));
+  lv_obj_set_style_text_font(ui_WeighEnableLabel, &lv_font_montserrat_18,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  ui_WeighEnableSwitch = lv_switch_create(ui_MaintConfigCont);
+  lv_obj_set_width(ui_WeighEnableSwitch, 90);
+  lv_obj_set_height(ui_WeighEnableSwitch, 35);
+  lv_obj_set_x(ui_WeighEnableSwitch, 296);
+  lv_obj_set_y(ui_WeighEnableSwitch, -60);
+  lv_obj_set_align(ui_WeighEnableSwitch, LV_ALIGN_CENTER);
 
   // Los tres niveles, solo lectura. El texto lo rellena
   // maintenance_panel_refresh() (UITask.cpp) con la cadencia y la fecha.
@@ -3199,7 +3228,7 @@ void ui_ScreenSettings_screen_init(void) {
     lv_obj_set_width(ui_MaintLevelLabel[i], 400);
     lv_obj_set_height(ui_MaintLevelLabel[i], LV_SIZE_CONTENT);
     lv_obj_set_x(ui_MaintLevelLabel[i], 185);
-    lv_obj_set_y(ui_MaintLevelLabel[i], -40 + 42 * i);
+    lv_obj_set_y(ui_MaintLevelLabel[i], -22 + 37 * i);
     lv_obj_set_align(ui_MaintLevelLabel[i], LV_ALIGN_CENTER);
     lv_label_set_text(ui_MaintLevelLabel[i], "");
     lv_obj_set_style_text_font(ui_MaintLevelLabel[i], &lv_font_montserrat_14,
@@ -3210,7 +3239,7 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_width(ui_MaintOpenButton, 300);
   lv_obj_set_height(ui_MaintOpenButton, 46);
   lv_obj_set_x(ui_MaintOpenButton, 185);
-  lv_obj_set_y(ui_MaintOpenButton, 105);
+  lv_obj_set_y(ui_MaintOpenButton, 100);
   lv_obj_set_align(ui_MaintOpenButton, LV_ALIGN_CENTER);
   lv_obj_clear_flag(ui_MaintOpenButton, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_bg_color(ui_MaintOpenButton, lv_color_hex(0x0075EE),
@@ -3227,7 +3256,7 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_width(ui_MaintHintLabel, 400);
   lv_obj_set_height(ui_MaintHintLabel, LV_SIZE_CONTENT);
   lv_obj_set_x(ui_MaintHintLabel, 185);
-  lv_obj_set_y(ui_MaintHintLabel, 152);
+  lv_obj_set_y(ui_MaintHintLabel, 150);
   lv_obj_set_align(ui_MaintHintLabel, LV_ALIGN_CENTER);
   lv_label_set_text(ui_MaintHintLabel, TR(STR_MAINT_SETTINGS_HINT));
   lv_obj_set_style_text_font(ui_MaintHintLabel, &lv_font_montserrat_14,
@@ -3563,9 +3592,12 @@ void ui_ScreenSettings_screen_init(void) {
                       NULL);
   lv_obj_add_event_cb(ui_MaintEnableSwitch, ui_event_MaintEnableSwitch,
                       LV_EVENT_ALL, NULL);
+  lv_obj_add_event_cb(ui_WeighEnableSwitch, ui_event_WeighEnableSwitch,
+                      LV_EVENT_ALL, NULL);
   lv_obj_add_event_cb(ui_MaintOpenButton, ui_event_MaintOpenButton,
                       LV_EVENT_ALL, NULL);
   lv_obj_set_ext_click_area(ui_MaintEnableSwitch, TOUCH_EXT_NARROW);
+  lv_obj_set_ext_click_area(ui_WeighEnableSwitch, TOUCH_EXT_NARROW);
 
   lv_obj_set_ext_click_area(ui_ImgButton2, TOUCH_EXT_MEDIUM);
   lv_obj_set_ext_click_area(ui_Switch4, TOUCH_EXT_NARROW);

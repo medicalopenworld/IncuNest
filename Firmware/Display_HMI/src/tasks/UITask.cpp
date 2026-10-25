@@ -1050,9 +1050,11 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   lv_label_set_text(ui_MaintLabel, L(STR_MAINT_UC));
   lv_label_set_text(ui_MaintTitleLabel, L(STR_MAINT_UC));
   lv_label_set_text(ui_MaintEnableLabel, L(STR_MAINT_REMINDER));
+  lv_label_set_text(ui_WeighEnableLabel, L(STR_WEIGH_SETTING));
   lv_label_set_text(ui_MaintOpenLabel, L(STR_MAINT_OPEN_UC));
   lv_label_set_text(ui_MaintHintLabel, L(STR_MAINT_SETTINGS_HINT));
   ui_set_switch_state_silent(ui_MaintEnableSwitch, Maintenance_IsEnabled());
+  ui_set_switch_state_silent(ui_WeighEnableSwitch, WeighTracker_IsEnabled());
 
   // lv_btnmatrix NO copia el mapa: se queda con el puntero. Por eso el array
   // es `static` y las cadenas vienen del catalogo, que es memoria estatica.
@@ -1321,6 +1323,9 @@ static void maintenance_panel_refresh(void) {
   if (ui_MaintEnableSwitch) {
     ui_set_switch_state_silent(ui_MaintEnableSwitch, Maintenance_IsEnabled());
   }
+  if (ui_WeighEnableSwitch) {
+    ui_set_switch_state_silent(ui_WeighEnableSwitch, WeighTracker_IsEnabled());
+  }
   for (int i = 0; i < MNT_LEVEL_COUNT; i++) {
     if (!ui_MaintLevelLabel[i]) continue;
     char last[64];
@@ -1352,6 +1357,20 @@ void MaintButton_cb(lv_event_t *e) {
 void MaintEnableSwitch_cb(lv_event_t *e) {
   Maintenance_SetEnabled(lv_obj_has_state(lv_event_get_target(e),
                                           LV_STATE_CHECKED));
+}
+
+// Interruptor del aviso de pesada diaria. Persiste en NVS (`wgh_en`, via
+// WeighTracker_Flush() fuera del lock), asi que en formacion se rechaza como
+// cualquier otro ajuste que escriba NVS (ADR-0002) y el interruptor vuelve a
+// su posicion real.
+void WeighEnableSwitch_cb(lv_event_t *e) {
+  lv_obj_t *sw = lv_event_get_target(e);
+  if (Training_IsActive()) {
+    ui_set_switch_state_silent(sw, WeighTracker_IsEnabled());
+    UI_ShowToast(TR(STR_NOT_IN_TRAINING), 2500);
+    return;
+  }
+  WeighTracker_SetEnabled(lv_obj_has_state(sw, LV_STATE_CHECKED));
 }
 
 // Abrir el recordatorio sin esperar a que toque: es la via para registrar una
