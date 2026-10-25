@@ -108,7 +108,7 @@ Enviado **cada 1 segundo** (intercalado con `CTRL,TEL`) y además bajo petición
 > quedaba congelado con el valor del arranque. **Los campos de este mensaje son
 > estado vivo, no una instantánea de sincronización** — cualquier campo nuevo
 > debe poder asumir la cadencia de 1 Hz.
-**Formato**: `CTRL,STATE,act,mode,airSet,skinSet,humSet,photo,mute,sn,hwNum,hwRev,fwVer,numAlarms,skinE,commStatus,photoTimeRem,lang,probeState,alarmBitmask,silencedBitmask,almTest,silenceLeftS,linkBars`
+**Formato**: `CTRL,STATE,act,mode,airSet,skinSet,humSet,photo,mute,sn,hwNum,hwRev,fwVer,numAlarms,skinE,commStatus,photoTimeRem,lang,probeState,alarmBitmask,silencedBitmask,almTest,silenceLeftS,linkBars,latchedBitmask,activeSeq`
 
 - `commStatus`: transporte activo y si llega a servidor (`CommStatus` enum: `0`=ninguno,
   `1`=GPRS sin servidor, `2`=GPRS+servidor, `3`=WiFi sin servidor, `4`=WiFi+servidor).
@@ -149,6 +149,21 @@ Enviado **cada 1 segundo** (intercalado con `CTRL,TEL`) y además bajo petición
   próxima y no una por condición porque esa es la pregunta que contesta —
   cuándo vuelve el sonido—; el estado silenciada/no de cada condición ya viaja
   en `silencedBitmask`.
+- `latchedBitmask` (campo 23): documentado en la rama que añadió el campo; aquí
+  solo se fija el orden: `activeSeq` va **detrás** de él.
+- `activeSeq` (campo 24, `%u`): `seq` del perfil de bebé que la placa tiene **al
+  mando** (`babyStore_getActiveSeq()`), o `0` si no tiene ninguno. La placa lo
+  fija en el flanco de encendido de cualquier terapia, con el bebé del último
+  `PROFILE_NEW`/`PROFILE_SELECT`, y lo borra al apagarse todas; sobrevive a un
+  reinicio de la placa. Es lo que permite al HMI **contrastar** la identidad que
+  restauró de su NVS (`hmi-patient-identity`): un `seq` solo identifica a un
+  bebé dentro de una placa, y los `seq` de dos placas colisionan.
+  - **Compatibilidad**: campo final y opcional, como `linkBars`. Una placa
+    anterior no lo manda y el HMI lo interpreta como **desconocido**, no como
+    `0`: `0` significa «la placa no tiene bebé al mando», que es información, y
+    confundirlos haría borrar una identidad válida. Un HMI anterior ignora el
+    campo que le sobra. No exige actualizar las dos placas a la vez.
+  - Otras ramas añadirán campos detrás: el 24 queda reservado para `activeSeq`.
 
 #### CTRL,TEL (Telemetría en tiempo real)
 Enviado cada 1 segundo (intercalado con STATE).

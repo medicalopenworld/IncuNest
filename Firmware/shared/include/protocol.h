@@ -68,6 +68,10 @@ typedef struct {
   // fiable: serverCommStatus == COMM_STATUS_NONE (no hay transporte del que
   // medir cobertura) o una placa antigua que no manda este campo todavia.
   int      linkBars;
+  // Campo 24 de CTRL,STATE: bebe que la placa tiene al mando (0 = ninguno).
+  // Una placa anterior no lo manda: el consumidor debe llevar aparte si el
+  // campo llego (0 es informacion, no "desconocido"). Ver PROTOCOL.md.
+  uint32_t activeSeq;
 } Proto_CtrlState;
 
 typedef struct {
