@@ -4,6 +4,7 @@
 
 #include "main.h"
 #include "modules/control/alarm_machine.h"
+#include "modules/control/photo_slew.h"
 #include "modules/sensorboard_comm/sensorboard_comm.h"
 #include "sensor_source.h"
 #include "system/hw_selftest.h"
@@ -133,15 +134,19 @@ void currentMonitor() {
       in3.phototherapy_current > 0.0f) {
 
     float error = in3.phototherapy_current - PHOTO_TARGET_CURRENT;
-    if (error > PHOTO_TOLERANCE_A || error < -PHOTO_TOLERANCE_A) {
-      int newIntensity = (int)(in3.phototherapy_intensity *
-                               PHOTO_TARGET_CURRENT / in3.phototherapy_current + 0.5f);
-      int delta = newIntensity - (int)in3.phototherapy_intensity;
-      if (delta >  PHOTO_MAX_STEP) delta =  PHOTO_MAX_STEP;
-      if (delta < -PHOTO_MAX_STEP) delta = -PHOTO_MAX_STEP;
-      int next = (int)in3.phototherapy_intensity + delta;
-      if (next < PHOTO_MIN_PWM)   next = PHOTO_MIN_PWM;
-      if (next > PWM_MAX_VALUE)   next = PWM_MAX_VALUE;
+    // Estado del filtro de ruido del slew; se reinicia en cada encendido.
+    static PhotoSlew photoSlew;
+    static long photoSlewSession = -1;
+    if (photoSlewSession != in3.photoTurnOnTime) {
+      photo_slew_init(&photoSlew);
+      photoSlewSession = in3.photoTurnOnTime;
+    }
+    // Se llama cada ciclo, tambien en banda, para reiniciar la cuenta.
+    const int next = photo_slew_step(
+        &photoSlew, (int)in3.phototherapy_intensity, in3.phototherapy_current,
+        PHOTO_TARGET_CURRENT, PHOTO_TOLERANCE_A, PHOTO_MAX_STEP_UP,
+        PHOTO_MAX_STEP_DOWN, PHOTO_MIN_PWM, PWM_MAX_VALUE);
+    if (next != (int)in3.phototherapy_intensity) {
       in3.phototherapy_intensity = (byte)next;
       ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, in3.phototherapy_intensity);
     }
