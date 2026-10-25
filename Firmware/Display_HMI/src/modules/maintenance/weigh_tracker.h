@@ -21,9 +21,16 @@ void WeighTracker_Init(void);
 // bebe al mando es de practica y no debe tocar la NVS (ADR-0002).
 void WeighTracker_Tick(void);
 
-// Una pesada real ha salido hacia la placa. Lo llama
-// `Communication_SendProfileWeight()` tras sus guardas de formacion. 0 g
-// (SKIP) y los pesos de bebes que no estan al mando se ignoran.
+// Una pesada real se da por registrada. 0 g (SKIP) y los pesos de bebes que no
+// estan al mando se ignoran.
+//
+// Dos momentos, a proposito distintos:
+//  - Asistente y pantalla Bebes NO esperan respuesta de la placa, asi que sellan
+//    AL ENVIAR (`Communication_SendProfileWeight()`, tras sus guardas de
+//    formacion). Si la trama se pierde, el aviso saldra de mas, no de menos.
+//  - El dialogo de PESAR AHORA SI espera `CTRL,PROFILE_RANGE` (la unica
+//    respuesta a un PROFILE_WEIGHT) y sella al recibirla; sin ella no sella,
+//    para que un enlace caido no calle el aviso 24 h con un peso que no llego.
 void WeighTracker_NoteWeighed(uint32_t seq, uint16_t grams);
 
 // Hay que sacar el aviso ahora mismo (ver weigh_reminder_should_warn()).
@@ -34,6 +41,11 @@ uint32_t WeighTracker_ElapsedHours(void);
 
 // Boton MAS TARDE: calla el aviso 24 h. Sin hora no puede fecharlo.
 void WeighTracker_Snooze(void);
+
+// Interruptor de Ajustes (`wgh_en`, por defecto ON). Apagado no avisa, pero
+// los sellos se siguen anotando. Quien lo llama rechaza antes en formacion.
+bool WeighTracker_IsEnabled(void);
+void WeighTracker_SetEnabled(bool on);
 
 // Escribe en NVS lo pendiente. Llamar FUERA de LVGL_Lock.
 void WeighTracker_Flush(void);

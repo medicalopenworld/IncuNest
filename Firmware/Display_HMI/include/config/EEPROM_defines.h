@@ -50,6 +50,7 @@ constexpr char HMI_KEY_WGH_LAST[]    = "wgh_last";    // epoch ultima pesada rea
 constexpr char HMI_KEY_WGH_SEEN_SEQ[] = "wgh_sseq";   // bebe del "visto"
 constexpr char HMI_KEY_WGH_SEEN_AT[] = "wgh_sfirst";  // epoch 1a vez al mando
 constexpr char HMI_KEY_WGH_SNOOZE[]  = "wgh_snooze";  // epoch fin del "mas tarde"
+constexpr char HMI_KEY_WGH_EN[]      = "wgh_en";      // aviso on/off (def. ON)
 
 // Zona horaria y procedencia de lo ultimo escrito en el RTC (PCF8563).
 //

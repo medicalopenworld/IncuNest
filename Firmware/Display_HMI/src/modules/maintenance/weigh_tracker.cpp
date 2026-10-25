@@ -5,214 +5,131 @@
 #include "CommTask.h"        // HMI_GetEpochNow()
 #include "EEPROM_defines.h"  // HMI_NS_CFG, HMI_KEY_WGH_*
 #include "esp_log.h"
-#include "modules/maintenance/weigh_reminder.h"
+#include "modules/maintenance/weigh_state.h"
 #include "state/training_mode.h"  // Training_IsActive(), Training_IsPracticeSeq()
 #include "ui/BabyWizard.h"        // BabyWizard_GetActiveSeq(), HasLiveSession()
+
+// Cola fina: la maquina de estados (alta, cambio de bebe, sello pendiente,
+// reancla) vive en weigh_state.cpp y se prueba en host. Aqui solo se carga y
+// guarda en NVS y se rellena el entorno con el reloj, BabyWizard y formacion.
 
 namespace {
 
 constexpr const char *TAG = "WGH";
 
-uint32_t s_weighSeq = 0;
-uint32_t s_weighEpoch = 0;
-uint32_t s_seenSeq = 0;
-uint32_t s_seenEpoch = 0;
-uint32_t s_snoozeUntil = 0;
+weigh_state_t s_state = [] {
+  weigh_state_t s;
+  weigh_state_init(&s);
+  return s;
+}();
 
-// Ultimo bebe al mando visto por Tick(); solo en RAM. Al arrancar es 0, asi
-// que el primer seq tras un reinicio no cuenta como "cambio de bebe" y el sello
-// guardado de ese mismo bebe se conserva.
-uint32_t s_trackedSeq = 0;
-// Pesada enviada sin hora: se sella con la primera hora valida. Mientras
-// tanto no se avisa. Solo en RAM: sin hora y con un reinicio en medio, se
-// conserva el sello anterior y, como mucho, sale un aviso de mas.
-uint32_t s_pendingSeq = 0;
-bool s_dirty = false;
+// False si Init() no pudo leer la NVS. Entonces el estado en RAM es el de
+// fabrica, no lo que hubiera guardado, y escribirlo pisaria valores buenos con
+// ceros: Flush() no hace nada.
+bool s_loaded = false;
 
-void markDirty() { s_dirty = true; }
-
-weigh_inputs_t snapshot() {
-  weigh_inputs_t in = {};
-  in.nowEpoch = HMI_GetEpochNow();
-  in.activeSeq = BabyWizard_GetActiveSeq();
-  in.liveSession = BabyWizard_HasLiveSession();
-  in.weighSeq = s_weighSeq;
-  in.weighEpoch = s_weighEpoch;
-  in.seenSeq = s_seenSeq;
-  in.seenEpoch = s_seenEpoch;
-  in.snoozeUntil = s_snoozeUntil;
-  return in;
-}
-
-void clearAll() {
-  s_weighSeq = s_weighEpoch = 0;
-  s_seenSeq = s_seenEpoch = 0;
-  s_snoozeUntil = 0;
-  s_pendingSeq = 0;
-  markDirty();
+weigh_env_t makeEnv() {
+  weigh_env_t e = {};
+  e.nowEpoch = HMI_GetEpochNow();
+  e.activeSeq = BabyWizard_GetActiveSeq();
+  e.training = Training_IsActive();
+  return e;
 }
 
 }  // namespace
 
 void WeighTracker_Init(void) {
+  weigh_state_init(&s_state);
+  s_loaded = false;
+
   Preferences p;
+  // Lectura primero. Con el espacio de nombres aun sin crear (NVS virgen),
+  // begin() de solo lectura falla aunque la NVS este sana: se reintenta en
+  // escritura, que lo crea. Solo si tambien falla es un error de verdad.
   if (!p.begin(HMI_NS_CFG, true)) {
-    ESP_LOGW(TAG, "init: no se pudo abrir la NVS, estado vacio");
-    return;
+    if (!p.begin(HMI_NS_CFG, false)) {
+      ESP_LOGW(TAG, "init: no se pudo abrir la NVS; no se escribira nada");
+      return;
+    }
   }
-  s_weighSeq = p.getUInt(HMI_KEY_WGH_SEQ, 0);
-  s_weighEpoch = p.getUInt(HMI_KEY_WGH_LAST, 0);
-  s_seenSeq = p.getUInt(HMI_KEY_WGH_SEEN_SEQ, 0);
-  s_seenEpoch = p.getUInt(HMI_KEY_WGH_SEEN_AT, 0);
-  s_snoozeUntil = p.getUInt(HMI_KEY_WGH_SNOOZE, 0);
+  s_state.weighSeq = p.getUInt(HMI_KEY_WGH_SEQ, 0);
+  s_state.weighEpoch = p.getUInt(HMI_KEY_WGH_LAST, 0);
+  s_state.seenSeq = p.getUInt(HMI_KEY_WGH_SEEN_SEQ, 0);
+  s_state.seenEpoch = p.getUInt(HMI_KEY_WGH_SEEN_AT, 0);
+  s_state.snoozeUntil = p.getUInt(HMI_KEY_WGH_SNOOZE, 0);
+  s_state.enabled = p.getUChar(HMI_KEY_WGH_EN, 1) != 0;  // por defecto ON
   p.end();
-  ESP_LOGI(TAG, "init: weigh seq=%lu at=%lu seen seq=%lu at=%lu snooze=%lu",
-           (unsigned long)s_weighSeq, (unsigned long)s_weighEpoch,
-           (unsigned long)s_seenSeq, (unsigned long)s_seenEpoch,
-           (unsigned long)s_snoozeUntil);
+  s_loaded = true;
+  ESP_LOGI(TAG,
+           "init: en=%d weigh seq=%lu at=%lu seen seq=%lu at=%lu snooze=%lu",
+           (int)s_state.enabled, (unsigned long)s_state.weighSeq,
+           (unsigned long)s_state.weighEpoch, (unsigned long)s_state.seenSeq,
+           (unsigned long)s_state.seenEpoch, (unsigned long)s_state.snoozeUntil);
 }
 
 void WeighTracker_Tick(void) {
-  // El bebe al mando en formacion es de practica (ZOE o el de la leccion): ni
-  // es un paciente real ni debe escribirse en NVS. Va ANTES de leer nada.
-  if (Training_IsActive()) return;
-
-  const uint32_t now = HMI_GetEpochNow();
-  const uint32_t seq = BabyWizard_GetActiveSeq();
-
-  if (seq != s_trackedSeq) {
-    if (seq == 0) {
-      // Alta del bebe (o perfil olvidado): no queda nada que recordar.
-      ESP_LOGI(TAG, "alta del bebe %lu: sello borrado",
-               (unsigned long)s_trackedSeq);
-      clearAll();
-    } else {
-      // Bebe nuevo al mando: lo que no sea suyo se descarta. El "mas tarde"
-      // solo se conserva si ya conociamos a este bebe (mismo bebe tras un
-      // reinicio del HMI).
-      const bool known = (seq == s_weighSeq) || (seq == s_seenSeq);
-      if (s_weighSeq != seq) s_weighSeq = s_weighEpoch = 0;
-      if (s_seenSeq != seq) s_seenSeq = s_seenEpoch = 0;
-      if (!known) s_snoozeUntil = 0;
-      if (s_pendingSeq != seq) s_pendingSeq = 0;
-      markDirty();
-      ESP_LOGI(TAG, "bebe al mando: %lu (conocido=%d)", (unsigned long)seq,
-               (int)known);
-    }
-    s_trackedSeq = seq;
-  }
-
-  if (now == 0) return;
-
-  // Pesada enviada sin hora: ya hay reloj, se sella ahora.
-  if (s_pendingSeq != 0) {
-    if (s_pendingSeq == seq) {
-      s_weighSeq = seq;
-      s_weighEpoch = now;
-      s_snoozeUntil = 0;
-      markDirty();
-      ESP_LOGI(TAG, "pesada pendiente sellada: %lu", (unsigned long)now);
-    }
-    s_pendingSeq = 0;
-  }
-
-  // Primera vez que el HMI ve a este bebe al mando (el ACK de seleccion o
-  // alta es lo que mueve BabyWizard_GetActiveSeq()). Es la referencia de un
-  // bebe sin ninguna pesada sellada.
-  if (seq != 0 && s_seenSeq != seq) {
-    s_seenSeq = seq;
-    s_seenEpoch = now;
-    markDirty();
-    ESP_LOGI(TAG, "bebe %lu visto por primera vez: %lu", (unsigned long)seq,
-             (unsigned long)now);
-  }
-
-  // Reloj hacia atras: lo guardado quedaria en el futuro y el plazo no se
-  // cumpliria hasta que el reloj lo alcanzase. Se reancla a hoy.
-  if (s_weighEpoch > now) {
-    s_weighEpoch = now;
-    markDirty();
-  }
-  if (s_seenEpoch > now) {
-    s_seenEpoch = now;
-    markDirty();
-  }
-  if (s_snoozeUntil > now + WEIGH_REMINDER_SNOOZE_SECS) {
-    s_snoozeUntil = 0;
-    markDirty();
-  }
+  const weigh_env_t env = makeEnv();
+  weigh_state_tick(&s_state, &env);
 }
 
 void WeighTracker_NoteWeighed(uint32_t seq, uint16_t grams) {
-  // 0 g es SKIP ("no hay peso"), no una pesada.
-  if (seq == 0 || grams == 0) return;
-  // En formacion no se escribe nada (ADR-0002). Este es el unico punto de
-  // sello, asi que la guarda vive aqui y no en cada llamador.
-  if (Training_IsActive() || Training_IsPracticeSeq(seq)) return;
-  // Un unico hueco de sello: pesar a un bebe que no esta al mando (alta desde
-  // la pantalla Bebes) no debe pisar el del que si lo esta.
-  if (seq != BabyWizard_GetActiveSeq()) {
-    ESP_LOGI(TAG, "pesada del bebe %lu, que no esta al mando: no se sella",
-             (unsigned long)seq);
-    return;
+  const weigh_env_t env = makeEnv();
+  if (weigh_state_note_weighed(&s_state, &env, seq, grams,
+                               Training_IsPracticeSeq(seq))) {
+    ESP_LOGI(TAG, "pesada: bebe %lu, %s", (unsigned long)seq,
+             env.nowEpoch != 0 ? "sellada" : "pendiente de hora");
   }
-
-  s_snoozeUntil = 0;  // registrar un peso cancela el "mas tarde"
-  const uint32_t now = HMI_GetEpochNow();
-  if (now == 0) {
-    // Sin hora no se puede fechar; se sella en cuanto la haya.
-    s_pendingSeq = seq;
-    ESP_LOGW(TAG, "pesada sin hora valida: se sella cuando la haya");
-  } else {
-    s_weighSeq = seq;
-    s_weighEpoch = now;
-    s_pendingSeq = 0;
-    ESP_LOGI(TAG, "pesada sellada: bebe %lu a las %lu", (unsigned long)seq,
-             (unsigned long)now);
-  }
-  markDirty();
 }
 
 bool WeighTracker_ShouldWarn(void) {
-  if (s_pendingSeq != 0) return false;  // acaba de pesarse, falta fecharlo
-  const weigh_inputs_t in = snapshot();
-  return weigh_reminder_should_warn(&in);
+  const weigh_env_t env = makeEnv();
+  return weigh_state_should_warn(&s_state, &env, BabyWizard_HasLiveSession());
 }
 
 uint32_t WeighTracker_ElapsedHours(void) {
-  const weigh_inputs_t in = snapshot();
+  const weigh_env_t env = makeEnv();
+  const weigh_inputs_t in =
+      weigh_state_inputs(&s_state, &env, BabyWizard_HasLiveSession());
   return weigh_elapsed_hours(&in);
 }
 
 void WeighTracker_Snooze(void) {
-  const uint32_t until = weigh_snooze_until(HMI_GetEpochNow());
-  if (until == 0) {
+  if (!weigh_state_snooze(&s_state, HMI_GetEpochNow())) {
     ESP_LOGI(TAG, "mas tarde sin hora valida: no se puede fechar el silencio");
-    return;
   }
-  s_snoozeUntil = until;
-  markDirty();
-  ESP_LOGI(TAG, "mas tarde hasta %lu", (unsigned long)until);
+}
+
+bool WeighTracker_IsEnabled(void) { return s_state.enabled; }
+
+void WeighTracker_SetEnabled(bool on) {
+  weigh_state_set_enabled(&s_state, on);
+  ESP_LOGI(TAG, "aviso de pesada %s", on ? "activado" : "desactivado");
 }
 
 void WeighTracker_Flush(void) {
-  if (!s_dirty) return;
+  if (!s_state.dirty) return;
+  if (!s_loaded) {
+    // Ver s_loaded. Se descarta lo pendiente: en RAM sigue valiendo para esta
+    // sesion y reintentar cada vuelta solo llenaria el log.
+    s_state.dirty = false;
+    return;
+  }
   Preferences p;
   if (!p.begin(HMI_NS_CFG, false)) {
     // Se queda sucio y se reintenta en la siguiente vuelta.
     ESP_LOGW(TAG, "flush: no se pudo abrir la NVS");
     return;
   }
-  // Un cuarteto de escrituras de 4 bytes; si alguna falla se deja sucio.
   bool ok = true;
-  ok &= p.putUInt(HMI_KEY_WGH_SEQ, s_weighSeq) == sizeof(uint32_t);
-  ok &= p.putUInt(HMI_KEY_WGH_LAST, s_weighEpoch) == sizeof(uint32_t);
-  ok &= p.putUInt(HMI_KEY_WGH_SEEN_SEQ, s_seenSeq) == sizeof(uint32_t);
-  ok &= p.putUInt(HMI_KEY_WGH_SEEN_AT, s_seenEpoch) == sizeof(uint32_t);
-  ok &= p.putUInt(HMI_KEY_WGH_SNOOZE, s_snoozeUntil) == sizeof(uint32_t);
+  ok &= p.putUInt(HMI_KEY_WGH_SEQ, s_state.weighSeq) == sizeof(uint32_t);
+  ok &= p.putUInt(HMI_KEY_WGH_LAST, s_state.weighEpoch) == sizeof(uint32_t);
+  ok &= p.putUInt(HMI_KEY_WGH_SEEN_SEQ, s_state.seenSeq) == sizeof(uint32_t);
+  ok &= p.putUInt(HMI_KEY_WGH_SEEN_AT, s_state.seenEpoch) == sizeof(uint32_t);
+  ok &= p.putUInt(HMI_KEY_WGH_SNOOZE, s_state.snoozeUntil) == sizeof(uint32_t);
+  ok &= p.putUChar(HMI_KEY_WGH_EN, s_state.enabled ? 1 : 0) == sizeof(uint8_t);
   p.end();
   if (ok) {
-    s_dirty = false;
+    s_state.dirty = false;
   } else {
     ESP_LOGW(TAG, "flush: escritura NVS fallida, se reintenta");
   }
