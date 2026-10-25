@@ -306,6 +306,9 @@ lv_obj_t *ui_LockHeadingConnIcon = NULL;
 lv_obj_t *ui_LockHeadingConnBar[4] = {NULL, NULL, NULL, NULL};
 ui_HeadingEnv_t ui_HeadingEnvMain = {};
 ui_HeadingEnv_t ui_HeadingEnvLock = {};
+lv_obj_t *ui_OnBatteryIcon = NULL;
+lv_obj_t *ui_LockOnBatteryIcon = NULL;
+lv_obj_t *ui_LockOnBatteryText = NULL;
 lv_obj_t *ui_Container1 = NULL;
 lv_obj_t *ui_AirTempLockCont = NULL;
 lv_obj_t *ui_Label11 = NULL;
@@ -1170,6 +1173,58 @@ static void create_heading_env_indicator(lv_obj_t *parent, lv_align_t align,
   lv_obj_set_x(out->noiseText, 19);  // 19 + 41,3 ("Moyen") = 60,3 < 66
 }
 
+// Indicador "en bateria" del heading: icono de bateria y, si `outText` no es
+// NULL, una palabra corta (montserrat_14) debajo; en ambar y OCULTOS hasta que
+// on_battery_heading_update() (UITask.cpp) los muestre. Se crea en ui_ScreenMain
+// (SOLO el icono) y en su replica de ui_ScreenLock (icono y palabra); cambian
+// el ancla y el color (sobre el azul del boton del reloj, o sobre el fondo
+// oscuro del bloqueo). El texto y su visibilidad no se fijan aqui: dependen del
+// idioma y de alarmBitmask, que solo conoce el refresco.
+//
+// En Main no hay sitio para la palabra: el boton del reloj mide 180 px con ~20
+// de relleno por lado (tema LARGE), la fecha dd/mm/aaaa ocupa hasta ~95 px y
+// "Sin hora"/"Sans heure" a 26 pt llenan la fila de la hora. Una palabra
+// alineada a la derecha ("BATERIA"/"BATTERIE" mide 55-70 px) pisaba la fecha.
+// El icono, en la fila de la fecha, queda a la derecha de ella y debajo de la
+// hora. La palabra se queda en Lock, que no tiene reloj ahi.
+//
+// Sin zona tactil propia: los labels no son clicables, asi que en Main el
+// toque sigue llegando al boton del reloj que los contiene.
+static void create_on_battery_indicator(lv_obj_t *parent, lv_align_t align,
+                                        lv_coord_t x, lv_coord_t iconY,
+                                        lv_coord_t textY, lv_color_t color,
+                                        const lv_font_t *iconFont,
+                                        lv_obj_t **outIcon,
+                                        lv_obj_t **outText) {
+  lv_obj_t *icon = lv_label_create(parent);
+  lv_obj_set_width(icon, LV_SIZE_CONTENT);
+  lv_obj_set_height(icon, LV_SIZE_CONTENT);
+  lv_obj_set_align(icon, align);
+  lv_obj_set_x(icon, x);
+  lv_obj_set_y(icon, iconY);
+  lv_label_set_text(icon, LV_SYMBOL_BATTERY_2);
+  lv_obj_set_style_text_font(icon, iconFont, LV_PART_MAIN);
+  lv_obj_set_style_text_color(icon, color, LV_PART_MAIN);
+  lv_obj_add_flag(icon, LV_OBJ_FLAG_HIDDEN);
+  *outIcon = icon;
+
+  // Sin palabra (outText == NULL): en el boton del reloj de Main no cabe.
+  if (outText == NULL) {
+    return;
+  }
+  lv_obj_t *text = lv_label_create(parent);
+  lv_obj_set_width(text, LV_SIZE_CONTENT);
+  lv_obj_set_height(text, LV_SIZE_CONTENT);
+  lv_obj_set_align(text, align);
+  lv_obj_set_x(text, x);
+  lv_obj_set_y(text, textY);
+  lv_label_set_text(text, "");
+  lv_obj_set_style_text_font(text, &lv_font_montserrat_14, LV_PART_MAIN);
+  lv_obj_set_style_text_color(text, color, LV_PART_MAIN);
+  lv_obj_add_flag(text, LV_OBJ_FLAG_HIDDEN);
+  *outText = text;
+}
+
 void ui_ScreenMain_screen_init(void) {
   ui_ScreenMain = lv_obj_create(NULL);
   lv_obj_clear_flag(ui_ScreenMain, LV_OBJ_FLAG_SCROLLABLE);
@@ -1240,6 +1295,13 @@ void ui_ScreenMain_screen_init(void) {
   // -> offset -172.
   create_heading_env_indicator(ui_ScreenMain, LV_ALIGN_CENTER, -172, -211,
                                &ui_HeadingEnvMain);
+  // Indicador "en bateria": solo el icono (14 pt), en la fila de la fecha y a
+  // su derecha, dentro del propio boton del reloj. El heading no tiene otro
+  // slot: los siete estan ocupados con 19 px de holgura entre ellos. Ver el
+  // comentario de create_on_battery_indicator() sobre por que sin palabra.
+  create_on_battery_indicator(ui_ClockButton, LV_ALIGN_RIGHT_MID, -2, 11, 0,
+                              lv_color_hex(0xFFD54F), &lv_font_montserrat_14,
+                              &ui_OnBatteryIcon, NULL);
 
   // Boton de ayuda (spec hmi-help-center): "?" redondo en el primer slot del
   // heading, solo en ui_ScreenMain. Es texto sobre un lv_btn, no un asset:
@@ -3968,6 +4030,13 @@ void ui_ScreenLock_screen_init(void) {
   // px = 480 + 33 -> offset 113 desde el centro de pantalla.
   create_heading_env_indicator(ui_ScreenLock, LV_ALIGN_CENTER, 113, -213,
                                &ui_HeadingEnvLock);
+  // Indicador "en bateria" en el slot de ayuda, que en el bloqueo esta vacio
+  // por diseno (ver HEADING_SLOT0_HELP). Mismas alturas que hora y fecha.
+  create_on_battery_indicator(ui_ScreenLock, LV_ALIGN_LEFT_MID,
+                              HEADING_SLOT0_HELP, -222, -200,
+                              lv_color_hex(0xFFC107), &lv_font_montserrat_20,
+                              &ui_LockOnBatteryIcon,
+                              &ui_LockOnBatteryText);
 
   ui_Container1 = lv_obj_create(ui_ScreenLock);
   lv_obj_remove_style_all(ui_Container1);

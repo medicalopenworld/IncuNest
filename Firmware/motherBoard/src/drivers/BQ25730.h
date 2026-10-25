@@ -183,15 +183,24 @@ typedef struct {
 
 // ─── Variable de presencia (definida en BQ25730.cpp) ─────────────────────────
 extern bool chargerPresent;
+// El chip contesto por I2C alguna vez (se fija en el arranque y NO se baja
+// nunca). chargerPresent, en cambio, es "configurado y legible ahora" y baja
+// mientras init_BQ25730() reconfigura: no sirve para decidir si hay cargador.
+extern bool chargerDetected;
 
 // ─── Estado cacheado (definido en main.cpp, actualizado cada 5 s por
 // sensors_Task; g_bq_status_ms = millis() del ultimo refresco con exito) ─────
 extern BQ25730_Status g_bq_status;
 extern bool           g_bq_status_valid;
 extern uint32_t       g_bq_status_ms;
+// Fallo tecnico del cargador (sin lecturas validas > 30 s, o reconfiguracion
+// fallida). Escribe solo sensors_Task; se publica como charger_comm_fault.
+extern bool           g_charger_comm_fault;
 
 // ─── Funciones públicas
 // ───────────────────────────────────────────────────────
 bool init_BQ25730(TwoWire *i2c);
+// Reaplica la configuracion con el equipo en marcha SIN tocar chargerPresent.
+bool reconfigure_BQ25730(TwoWire *i2c);
 bool charge_status(BQ25730_Status *status);
 bool set_charge_voltage(uint16_t voltage_mv);

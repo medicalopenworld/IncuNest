@@ -1039,6 +1039,7 @@ void addConfigTelemetriesToGPRSJSON() {
   addVariableToTelemetryGPRSJSON[UPTIME_S_KEY] = (uint32_t)(millis() / 1000);
   addVariableToTelemetryGPRSJSON[HMI_BOOT_COUNT_KEY] = g_hmiBootCount;
   addVariableToTelemetryGPRSJSON[HMI_LAST_RST_KEY] = g_hmiLastRst;
+  addVariableToTelemetryGPRSJSON[CHARGER_COMM_FAULT_KEY] = g_charger_comm_fault;
 #endif
   addVariableToTelemetryGPRSJSON[HW_NUM_KEY] = HW_NUM;
   addVariableToTelemetryGPRSJSON[HW_REV_KEY] = String(HW_REVISION);

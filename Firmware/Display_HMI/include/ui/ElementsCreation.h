@@ -473,6 +473,13 @@ extern lv_obj_t * ui_LockHeadingClockDate;
 extern lv_obj_t * ui_LockHeadingConnCont;
 extern lv_obj_t * ui_LockHeadingConnIcon;
 extern lv_obj_t * ui_LockHeadingConnBar[4];
+// Indicador "en bateria" del heading, una instancia por pantalla. Main lleva
+// SOLO el icono, dentro del boton del reloj (no hay sitio para la palabra sin
+// pisar la fecha); Lock, icono y palabra en el slot de ayuda (vacio ahi). Lo refresca on_battery_heading_update()
+// (UITask.cpp) desde el bit de ALARM_MAINS_INTERRUPTION de alarmBitmask.
+extern lv_obj_t * ui_OnBatteryIcon;
+extern lv_obj_t * ui_LockOnBatteryIcon;
+extern lv_obj_t * ui_LockOnBatteryText;
 extern lv_obj_t * ui_Container1;
 extern lv_obj_t * ui_AirTempLockCont;
 extern lv_obj_t * ui_Label11;

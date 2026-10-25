@@ -991,3 +991,49 @@ construction:
     confirmed does not leave a terminal clean pending
     (`Maintenance_NoteSeqDropped()`); a baby that left by another route while this
     HMI was off is therefore not reminded either.
+## 25. No technical alarm when the BQ25730 charger stops answering (OPEN)
+
+Found in the safety review of `shared-mains-detector` (2026-10-25). The mains
+interruption alarm (`ALARM_MAINS_INTERRUPTION`) is fed by the BQ25730 AC_STAT
+bit, read every 5 s. If the charger stops giving valid readings, the detector
+cannot know whether mains is present: it freezes (a declared alarm stays, the
+safe side; no alarm is raised if there was none).
+
+What exists today: with the charger detected at boot, more than 30 s without a
+valid reading (or a failing re-configuration when mains returns) logs an error
+(`logE`) and publishes `charger_comm_fault` (DIAG group, GPRS only; WiFi has no
+DIAG group). **What is missing is an alarm**: `shared/include/alarm_ids.h` has
+no technical-fault id for it, and none was added because another open branch
+adds id 20 and a second new id would collide with it. Until the branches are
+integrated, a unit with a mute charger is only visible from the log and from
+ThingsBoard, **not on the incubator's own screen**.
+
+Also fixed in the same review: the charger re-configuration on mains return
+used to lower `chargerPresent`; one failing I2C operation left it false for
+good (the charger was never read again, so mains was never watched), and even a
+successful one made `securityCheck()` retire and re-raise the alarm. See
+`openspec/changes/archive/*-shared-mains-detector-fixes`.
+
+### 25, addendum (second safety review, 2026-10-25)
+
+- **Expected charger.** `CHARGER_EXPECTED` (`config/board.h`) is 1 from HW 17 on
+  (the V16_A schematic has no BQ25730; V17_A does). On those boards a charger
+  that does not answer at boot is **not** "no charger": it is blindness (`logE`
+  and `charger_comm_fault` after 30 s), and the configuration is retried with a
+  progressive wait (5 s to 5 min). The silent "no charger" case is only for HW
+  without a BQ25730. Before this, a mute chip at boot left `chargerDetected`
+  false and the board stopped watching mains for good, with nothing on screen.
+- **Debt: a declared alarm with a blind charger stays HIGH with no end.** If the
+  mains alarm is declared and the charger then stops answering, the detector
+  freezes and the alarm keeps sounding as HIGH, not silenceable, until the
+  charger answers again or the unit is restarted. The correct behaviour is a
+  *technical*, pausable alarm (the mains alarm retired or demoted, and a
+  separate "charger fault" alarm the operator can pause). It needs a new
+  `AlarmId`, which waits for the integration of the open branches (one adds
+  id 20). Until then: log and `charger_comm_fault` only.
+- **`charger_comm_fault` and WiFi.** It is published only through the DIAG
+  group, which is on for GPRS and off for WiFi. Nothing is done about it on
+  this branch: `feat/mb-diag-wifi` turns DIAG on for WiFi, and after the merge
+  the key goes out over both transports. Re-run
+  `python tools/check_transport_matrix.py` then (GPRS worst case is 93 of 112
+  fields today).

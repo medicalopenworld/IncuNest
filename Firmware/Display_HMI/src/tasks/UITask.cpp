@@ -946,6 +946,53 @@ static void sb_env_heading_update(void) {
   apply_heading_env(&ui_HeadingEnvLock, v, false, &s_sbEnvSigLock);
 }
 
+// Indicador "en bateria" del heading (Main y su replica en Lock).
+//
+// La fuente es el bit de ALARM_MAINS_INTERRUPTION en alarmBitmask de
+// CTRL,STATE: la placa ya lo calcula (detector de red, con su antirrebote) y el
+// bitmask es la "verdad binaria" que se repite cada segundo (known issue 1),
+// asi que no hace falta campo de protocolo y un CTRL,ALM perdido no deja el
+// indicador atascado. Sigue a la condicion SENALIZADA, no a la presencia
+// fisica de red: se retira cuando la placa confirma que la red ha vuelto.
+//
+// Sin enlace con la placa, o con el bitmask nulo (0xFFFFFFFF = "no vino en la
+// trama"), no hay dato fresco y se oculta, igual criterio que
+// connectivity_heading_update().
+//
+// Corre en cada pasada del bucle de UI, ya dentro del bloqueo de LVGL, y solo
+// toca widgets: nada de NVS ni I2C aqui (ARQ-LOCK-001). Solo escribe cuando
+// cambia la senal o el idioma, para no repintar a 20 Hz.
+// `text` es NULL en Main, que lleva solo el icono (no cabe la palabra sin pisar
+// la fecha del reloj).
+static void apply_on_battery_indicator(lv_obj_t *icon, lv_obj_t *text, bool on) {
+  if (!icon) return;
+  if (on) {
+    lv_obj_clear_flag(icon, LV_OBJ_FLAG_HIDDEN);
+    if (text) {
+      lv_label_set_text(text, TR(STR_ON_BATTERY));
+      lv_obj_clear_flag(text, LV_OBJ_FLAG_HIDDEN);
+    }
+  } else {
+    lv_obj_add_flag(icon, LV_OBJ_FLAG_HIDDEN);
+    if (text) lv_obj_add_flag(text, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+void on_battery_heading_update(void) {
+  const uint32_t mask = ctrl_state_msg.alarmBitmask;
+  const bool on = !Display_IsBoardLinkLost() && mask != (uint32_t)-1 &&
+                  ((mask >> ALARM_MAINS_INTERRUPTION) & 1u) != 0;
+
+  // 0 = oculto; 1 + idioma = visible en ese idioma.
+  const int signature = on ? 1 + (int)g_lang : 0;
+  static int lastSignature = -1;
+  if (signature == lastSignature) return;
+  lastSignature = signature;
+
+  apply_on_battery_indicator(ui_OnBatteryIcon, NULL, on);
+  apply_on_battery_indicator(ui_LockOnBatteryIcon, ui_LockOnBatteryText, on);
+}
+
 void link_lost_blank_update(void) {
   static bool wasLost = false;
   const bool lost = Display_IsBoardLinkLost();
@@ -5339,6 +5386,7 @@ void UI_Task(void *pvParameters) {
     wifi_link_status_update();
     connectivity_heading_update();
     sb_env_heading_update();
+    on_battery_heading_update();
     link_audio_mute_button_update();
     // Apaga el chasquido de la ultima pulsacion cuando le toca. Va aqui, y no
     // con un delay() dentro del callback, para no congelar LVGL.

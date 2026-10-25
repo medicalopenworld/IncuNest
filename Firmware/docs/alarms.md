@@ -37,7 +37,7 @@ se añaden al final.
 | 4 | `ALARM_SKIN_SENSOR_FAULT_SKIN_MODE` | mismo mecanismo de staleness que el 3 pero sobre la sonda de piel, con su propia ventana `MINIMUM_SUCCESSFULL_SKIN_SENSOR_UPDATE` = 5000 ms (~25 muestras a 200 ms), y solo cuando `in3.controlMode == CONTROL_SKIN` | ALTA | sí |
 | 5 | `ALARM_FAN_FAILURE` | en marcha, `in3.fan_rpm < FAN_MIN_RPM` (3000 rpm, `board.h:185`), con histéresis de 300 rpm para despejar (`checkFanSpeed()`); solo evaluable con `in3.fanHasSpeedFeedback`. **También la declara el autotest de arranque** (`initHardware.cpp:412,677,732,740,779`), antes de que exista lazo de control | ALTA | sí |
 | 6 | `ALARM_AIR_OUTLET_BLOCKED` | en marcha, `fanControlPIDOutput > FAN_DUTY_BLOCKED_THRESHOLD` (220, se retira bajo 200, `board.h`) sostenido `AIR_BLOCKED_SUSTAIN_MS` = 5000 ms (`checkAirBlockage()`). **También la declara el autotest de arranque** (`initHardware.cpp:803`) | ALTA | sí |
-| 7 | `ALARM_MAINS_INTERRUPTION` | **sin detector** — ver §9 | ALTA | no (no hay condición que cortar). **No silenciable**: 201.12.3.103 exige 10 min de aviso y la pausa dura justo eso |
+| 7 | `ALARM_MAINS_INTERRUPTION` | `mains_detector` (`modules/control/mains_detector.cpp`): bit AC_STAT del cargador BQ25730 ausente en **2 lecturas válidas consecutivas** (cada 5 s, ≈ 10 s); se retira al confirmarse **6 lecturas seguidas de red presente (≈ 30 s)**; cualquier ausencia reinicia esa racha (plazo mínimo `MAINS_ALARM_MIN_HOLD_MS` = 0, conservado como mecanismo); evaluada en `checkMainsInterruption()`. Lectura no válida del cargador = sin efecto; placa sin cargador (HW < 17) o en test de fábrica, nunca se declara. Ver §9 | ALTA | no (no hay condición que cortar). **No silenciable**: 201.12.3.103 exige 10 min de aviso y la pausa dura justo eso |
 | 8 | `ALARM_AIR_TEMP_DEVIATION_HIGH` | en modo aire, `temperatura − consigna > 1.0 °C` (`AIR_TEMP_DEVIATION_LIMIT_C`, `checkAlarms()`) | MEDIA | sí |
 | 9 | `ALARM_AIR_TEMP_DEVIATION_LOW` | en modo aire, `consigna − temperatura > 1.0 °C`, y solo tras cerrar la ventana de estabilización (§5) | MEDIA | no |
 | 10 | `ALARM_SKIN_TEMP_DEVIATION_HIGH` | en modo piel, `temperatura − consigna > 1.0 °C` (`SKIN_TEMP_DEVIATION_LIMIT_C`) | MEDIA | sí |
@@ -685,12 +685,93 @@ enlace posterior suena desde el primer instante.
 Esta sección es tan relevante como el resto: enumera lo que el sistema no
 hace hoy, para no inducir a confiar en protecciones que no existen.
 
-- **`ALARM_MAINS_INTERRUPTION` no tiene detector.** Ningún punto del código
-  llama a `alarm_machine_condition(ALARM_MAINS_INTERRUPTION, ...)`. La
-  condición existe en el enum, tiene prioridad ALTA asignada, pero nunca se
-  activa. Un detector real exigiría además una reserva de energía dedicada
-  que sobreviva 10 minutos de corte de red — es un requisito de hardware, no
-  solo de firmware.
+- ~~`ALARM_MAINS_INTERRUPTION` no tiene detector~~ — **implementado en
+  firmware**; sigue pendiente la parte de hardware. Cambio OpenSpec
+  `shared-mains-detector`.
+  - **Qué hace.** `sensors_Task` lee el BQ25730 cada 5 s y alimenta
+    `mains_detector` (lógica pura, probada en `[env:native]`:
+    `test_mains_detector`) a través de `mains_present_now()` (`main.cpp`), el
+    único punto donde se decide «hay red». `securityCheck()` consulta el
+    detector y llama a `alarm_machine_condition(ALARM_MAINS_INTERRUPTION, ...)`.
+  - **Histéresis asimétrica: declarar rápido, retirar despacio.** 2 lecturas
+    válidas consecutivas sin red declaran (≈ 10 s); **6 lecturas válidas
+    consecutivas con red** retiran (≈ 30 s), y cualquier ausencia reinicia esa
+    racha (`MAINS_DETECTOR_CONFIRM_ABSENT_SAMPLES` / `_PRESENT_SAMPLES`).
+    Criterio: una sola lectura no levanta una alarma ALTA que el operador no
+    puede silenciar, y una fuente intermitente (enchufe flojo, grupo
+    inestable) debe mantener la alarma **continua** en vez de oscilar, porque
+    cada retirada y levantada es una entrada en el historial, una escritura en
+    flash y un rearme del audio. 201.12.3.103 no fija latencia de detección.
+    Probado en `test_mains_detector` con una fuente que alterna 2 ausencias y 5
+    lecturas con red durante 20 ciclos.
+  - **La instancia de producción usa la constante.** `g_mains_detector` se
+    declara con `MAINS_DETECTOR_INITIALIZER` (y se inicializa con
+    `mains_detector_init()` antes de crear `sensors_Task`); un test fija que
+    coincide con `mains_detector_init()`. Antes estaba a `= {}`: el plazo
+    valía 0 porque la estructura estaba a cero, y cambiar
+    `MAINS_ALARM_MIN_HOLD_MS` no habría hecho nada.
+  - **Plazo mínimo de aviso: 0 (decisión de producto, cambio
+    `shared-mains-detector-fixes`).** La alarma se retira cuando se confirman
+    6 lecturas seguidas de red presente. `docs/alarms_normative_analysis.md` §2.5 lee
+    201.12.3.103 («shall be provided for a minimum time of 10 min») como un
+    requisito de **autonomía** —la alarma tiene que poder sostenerse 10 min
+    sin red, y eso es hardware— y no como la obligación de mantenerla con la
+    red ya presente: mantenerla 10 min enmascaraba otras alarmas ALTAS (el
+    zumbador ya suena a ALTA), mostraba «BATERÍA» en falso y contradecía 6.10.
+    Se conservan la constante `MAINS_ALARM_MIN_HOLD_MS` y el mecanismo
+    (plazo desde la declaración, reinicio en corte nuevo, probado con un plazo
+    de prueba): si el responsable de riesgos decide lo contrario, se revierte
+    poniéndola a `600000u`. (La primera versión mantenía 10 min.)
+  - **Lectura no válida** (fallo de I2C de `charge_status()`): ni declara, ni
+    retira, ni rompe la racha. No hay filtro por tensión de batería
+    (`vbat_mv = adc*64 + 2880` nunca es 0). **Placa sin cargador**
+    (`CHARGER_EXPECTED == 0`, HW anterior a la 17, y el chip nunca contestó):
+    nunca se declara, con un `logE` una sola vez. **En una placa que lo lleva
+    (HW 17 en adelante, `CHARGER_EXPECTED == 1`), que el chip no conteste al
+    arrancar NO es «sin cargador»: es ceguera** (`logE` y `charger_comm_fault`
+    a los 30 s). La presencia esperada sale del hardware, no de la respuesta
+    I2C, que es justo lo que puede fallar. **Test de fábrica**: no se declara.
+  - **Configuración fallida en el arranque: se reintenta.** Con el chip
+    esperado y `chargerPresent == false` (el arranque lo detectó pero no
+    terminó de configurarlo, o no contestó), `sensors_Task` reintenta
+    `init_BQ25730()` con espera progresiva de 5 s a 5 min
+    (`modules/util/retry_backoff`, probada). Antes no había reintento: la
+    batería no cargaba (ChargeCurrent de fábrica = 0) y la red no se
+    vigilaba. El `logE` es uno por episodio y luego uno cada 5 min, tanto para
+    este reintento como para la reconfiguración fallida al volver la red.
+  - **La reconfiguración del cargador no apaga la vigilancia.** Al volver la
+    red `sensors_Task` reconfigura el BQ25730 con `reconfigure_BQ25730()`, que
+    NO baja `chargerPresent` (antes `init_BQ25730()` lo bajaba: un fallo I2C lo
+    dejaba a false para siempre, sin leer el cargador ni vigilar la red, y aun
+    saliendo bien `securityCheck()` retiraba y levantaba la alarma en cada
+    retorno). `chargerDetected` se fija en el arranque y no baja nunca. Si la
+    reconfiguración falla: `logE`, no se anota la red como presente y se
+    reintenta a la lectura siguiente.
+  - **Ceguera visible, sin alarma técnica todavía.** Con el cargador detectado,
+    más de 30 s (`MAINS_DETECTOR_BLIND_MS`, ~6 lecturas) sin lectura válida —o
+    una reconfiguración fallando— hace `logE` y publica `charger_comm_fault`
+    (grupo DIAG, GPRS). Con la alarma ya declarada y el detector ciego, la
+    alarma **se mantiene**. Falta un `AlarmId` de fallo técnico del cargador:
+    no se añadió porque otra rama abierta añade el id 20 y colisionaría; ver
+    known issue 25.
+  - **Indicador «en batería» en el HMI**: en Main, **solo el icono** de batería
+    (14 pt, a la derecha de la fecha dentro del botón del reloj: la palabra
+    pisaba la fecha); en Lock, icono y palabra corta (ES/EN/FR/PT) en el slot
+    de ayuda, vacío ahí. Sale del **bit 7 de `alarmBitmask`** de `CTRL,STATE`;
+    no hay campo de protocolo nuevo. Sigue a la condición *señalizada*: se
+    retira cuando la placa confirma el retorno de la red. Oculto sin enlace con
+    la placa. Telemetría: `mains_alarm` (`ALARM_MAINS_INTERRUPTION_KEY`) ya se
+    publicaba por `GPRS.cpp` y `Wifi_OTA.cpp`.
+  - **Rev. V19.** `MAINS_OK_PIN` (IO42, CHRG_OK del BQ25730) se añadirá solo en
+    `mains_present_now()`: red presente = **AND** de las fuentes que responden
+    (registro `ac_present` y pin), válida si responde cualquiera de las dos.
+    AND porque el fallo que importa es no avisar de un corte real; el pin
+    además sigue decidiendo con el bus I2C colgado. Ver el design del cambio.
+  - **Sigue siendo hardware, y es verificación de banco (casos 19 y 20 de
+    `alarms_bench_verification.md`):** la reserva de energía que mantenga el
+    equipo vivo y sonando 10 min sin red, y que el zumbador y el micro
+    cuelguen de VSYS y no de la entrada de red. Sin eso el detector avisa
+    mientras la batería aguante, pero 201.12.3.103 no se cumple del todo.
 - ~~`ALARM_HMI_LINK_LOST` no tiene detector~~ — **implementado**. El display manda un latido cada 1 s (`HMI_KEEPALIVE_PERIOD_MS`) y la placa declara la condición tras 5 s sin recibir nada (`HMI_LINK_TIMEOUT_MS`, `checkHmiLink()`). Antes no era detectable: el display solo transmitía al cambiar algo, así que el silencio no significaba nada. No se declara antes de la primera trama — la placa arranca antes que el display y un enlace que nunca existió no es un enlace caído.
 - ~~El display no tenía señal audible propia si la placa se colgaba~~ —
   **implementado**. El detector de esta misma condición vive en el display

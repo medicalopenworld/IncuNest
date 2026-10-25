@@ -174,6 +174,9 @@
 #define BQ_VBAT_KEY   "BQ_vbat_V"
 #define BQ_VBUS_KEY   "BQ_vbus_V"
 #define BQ_ICHG_KEY   "BQ_ichg_mA"
+// Fallo tecnico del cargador (grupo DIAG): sin lecturas validas > 30 s o
+// reconfiguracion fallida. No hay AlarmId para esto todavia (known issue 25).
+#define CHARGER_COMM_FAULT_KEY "charger_comm_fault"
 
 #define BOOT_COUNT_KEY "boot_count"
 #define FREE_HEAP_KEY "free_heap"

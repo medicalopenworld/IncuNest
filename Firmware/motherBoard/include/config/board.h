@@ -115,6 +115,16 @@
 #define USB_SHUNT_CHANNEL INA3221_CH2
 #define BATTERY_SHUNT_CHANNEL INA3221_CH3
 
+// La placa LLEVA cargador BQ25730 (HW 17 en adelante; el PCB V16_A no lo trae
+// en su esquema). De ello depende que "el cargador no contesta" sea un fallo
+// (ceguera de la vigilancia de red) y no "sin cargador": la presencia esperada
+// sale del hardware, no de la respuesta I2C, que es justo lo que puede fallar.
+#if (HW_NUM >= 17)
+#define CHARGER_EXPECTED 1
+#else
+#define CHARGER_EXPECTED 0
+#endif
+
 #if (HW_NUM >= 17)
 #define HUMIDIFIER_SHUNT 100 // miliohms
 #else

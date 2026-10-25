@@ -30,6 +30,7 @@ static inline void bqE(const String &s) { if (LOG_CHARGER) logE(s); }
 
 // ─── Estado interno del módulo ────────────────────────────────────────────────
 bool chargerPresent = false;
+bool chargerDetected = false;
 static TwoWire *_i2c = nullptr;
 static bool     _initialized = false;
 
@@ -116,11 +117,22 @@ static uint16_t calc_iin_host_reg(uint16_t ma) {
     return (uint16_t)(code << 8);
 }
 
-// ─── init_BQ25730() ───────────────────────────────────────────────────────────
-bool init_BQ25730(TwoWire *i2c) {
+// ─── Configuración del chip ───────────────────────────────────────────────────
+// Cuerpo común de init_BQ25730() y reconfigure_BQ25730(). `fromBoot` decide si
+// se tocan los flags de estado del módulo:
+//   - arranque: chargerPresent/_initialized se bajan al empezar y solo se
+//     suben si TODA la configuración sale bien;
+//   - reconfiguración en marcha (el adaptador vuelve): NO se bajan. Bajar
+//     chargerPresent aqui apagaba la lectura del cargador y, con ella, la
+//     vigilancia de la red (checkMainsInterruption): un fallo de una de las
+//     ~11 operaciones I2C la dejaba apagada para siempre, y aun saliendo bien
+//     securityCheck() veia el false transitorio.
+static bool bq_configure_chip(TwoWire *i2c, bool fromBoot) {
     _i2c          = i2c;
-    _initialized  = false;
-    chargerPresent = false;
+    if (fromBoot) {
+        _initialized   = false;
+        chargerPresent = false;
+    }
 
     // ── 1. Verificar identidad del chip ───────────────────────────────────────
     uint8_t mfr_id = 0, dev_id = 0;
@@ -129,6 +141,9 @@ bool init_BQ25730(TwoWire *i2c) {
         bqE("[BQ25730] I2C sin respuesta en 0x" + String(BQ25730_ADDR, HEX));
         return false;
     }
+    // El chip contesta por I2C: existe. Se fija una vez y no se baja nunca; es
+    // lo que distingue "no hay cargador en esta placa" de "hay y no responde".
+    chargerDetected = true;
     if (mfr_id != BQ25730_MFR_ID_EXPECTED || dev_id != BQ25730_DEV_ID_EXPECTED) {
         bqE("[BQ25730] ID inesperado: mfr=0x" + String(mfr_id, HEX) +
              " dev=0x" + String(dev_id, HEX) +
@@ -255,6 +270,14 @@ bool init_BQ25730(TwoWire *i2c) {
     bqI("[BQ25730] Init OK (PDF V2) – Vabs=14.4V Ichg=960mA IIN=6400mA VSYS=11V VINDPM=12V");
 
     return true;
+}
+
+bool init_BQ25730(TwoWire *i2c) {
+    return bq_configure_chip(i2c, /*fromBoot=*/true);
+}
+
+bool reconfigure_BQ25730(TwoWire *i2c) {
+    return bq_configure_chip(i2c, /*fromBoot=*/false);
 }
 
 // ─── charge_status() ──────────────────────────────────────────────────────────
