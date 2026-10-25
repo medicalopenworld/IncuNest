@@ -73,6 +73,9 @@ typedef enum {
 #ifdef __cplusplus
 static_assert(ALARM_COUNT <= 32,
               "AlarmId no cabe en los bitmasks de 32 bits del protocolo");
+#else
+_Static_assert(ALARM_COUNT <= 32,
+               "AlarmId no cabe en los bitmasks de 32 bits del protocolo");
 #endif
 
 // Alias de compatibilidad: hay bucles que iteran el rango completo del enum.
