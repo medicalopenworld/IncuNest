@@ -102,30 +102,29 @@ constexpr int N_CHARTS = 3;
 constexpr int MEAS_SERIES[N_CHARTS] = {TREND_AIR, TREND_SKIN, TREND_HUM};
 constexpr int SP_SERIES[N_CHARTS] = {TREND_SP_AIR, TREND_SP_SKIN, TREND_SP_HUM};
 
-int16_t *s_block = nullptr;
-TrendModel s_model = {};
-bool s_allocFailed = false;
+// El modelo ENTERO (anillo de 103 680 B + eventos + reloj, ~1,1 KB de
+// estructura) vive en un unico bloque de PSRAM reservado una vez en Init: ni
+// un byte del modelo esta en .bss/SRAM interna. Un solo malloc, porque un fallo
+// parcial con mallocs sueltos dejaria el historico a medias. Si no hay PSRAM (o
+// falla), s_mp queda en nullptr y la tendencia no registra nada, pero el equipo
+// arranca y monitoriza igual — es una vista de consulta, no una funcion de
+// seguridad.
+TrendModel *s_mp = nullptr;
 
-// Reserva unica y perpetua de las seis series en un solo bloque de PSRAM: un
-// fallo parcial con mallocs sueltos dejaria el historico a medias. Si no hay
-// PSRAM (o falla), la tendencia se queda sin datos pero el equipo arranca y
-// monitoriza igual — es una vista de consulta, no una funcion de seguridad.
-bool ensureBuffers() {
-  if (s_block) return true;
-  if (s_allocFailed) return false;
-  const size_t bytes = trend_store_bytes(TREND_CAPACITY);
-  s_block = (int16_t *)heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM);
-  if (!s_block) {
-    s_allocFailed = true;
+void allocModel() {
+  static_assert(sizeof(TrendModel) % alignof(int16_t) == 0,
+                "el anillo va justo detras de la estructura");
+  const size_t ringBytes = trend_store_bytes(TREND_CAPACITY);
+  const size_t total = sizeof(TrendModel) + ringBytes;
+  uint8_t *blk = (uint8_t *)heap_caps_malloc(total, MALLOC_CAP_SPIRAM);
+  if (!blk) {
     ESP_LOGE("TelHist", "sin PSRAM para el historico (%u B) — tendencia vacia",
-             (unsigned)bytes);
-    return false;
+             (unsigned)total);
+    return;
   }
-  // Solo el anillo: el reloj y los eventos ya pueden estar en marcha (un flanco
-  // de alarma o la primera hora llegan antes que la primera muestra) y un
-  // trend_model_init() completo los borraria.
-  trend_store_init(&s_model.store, s_block, TREND_CAPACITY);
-  return true;
+  s_mp = reinterpret_cast<TrendModel *>(blk);
+  trend_model_init(s_mp, reinterpret_cast<int16_t *>(blk + sizeof(TrendModel)),
+                   TREND_CAPACITY);
 }
 
 int64_t s_drawnSlot = -1;  // ranura "ahora" del ultimo repintado
@@ -188,7 +187,7 @@ int drainEdges() {
     }
     taskEXIT_CRITICAL(&s_edgeMux);
     if (!have) break;
-    trend_model_edge(&s_model, e.ms, e.id, e.priority, e.raised);
+    if (s_mp) trend_model_edge(s_mp, e.ms, e.id, e.priority, e.raised);
     n++;
   }
   return n;
@@ -201,7 +200,8 @@ int64_t monoMsNow() { return esp_timer_get_time() / 1000; }
 // llama en cada pasada de Poll, no solo al registrar una muestra: la
 // transicion a epoch ocurre en cuanto hay hora, tenga o no la vista abierta.
 int64_t nowSlot() {
-  return trend_model_tick(&s_model, monoMsNow(), HMI_GetEpochNow());
+  if (!s_mp) return monoMsNow() / SLOT_MS;  // sin modelo: solo para el eje
+  return trend_model_tick(s_mp, monoMsNow(), HMI_GetEpochNow());
 }
 
 int windowIdx() {
@@ -245,7 +245,7 @@ void onClose(lv_event_t *e) {
 void xLabelText(int k, char *out, size_t outLen) {
   int64_t slot = s_drawStart + (s_drawTotal * k) / LABEL_SEGMENTS;
   if (slot > s_drawNow) slot = s_drawNow;  // el borde derecho es "ahora"
-  if (s_model.clock.synced && slot >= 0) {
+  if (s_mp && s_mp->clock.synced && slot >= 0) {
     const uint32_t epoch = (uint32_t)(slot * TREND_SLOT_SECONDS);
     const uint32_t local = HMI_HasLocalTime() ? HMI_ToLocal(epoch) : epoch;
     const time_t t = (time_t)local;
@@ -314,16 +314,17 @@ lv_color_t markColor(TrendMarkKind kind) {
 void onChartDrawPost(lv_event_t *e) {
   lv_obj_t *chart = lv_event_get_target(e);
   lv_draw_ctx_t *dc = lv_event_get_draw_ctx(e);
-  if (!chart || !dc || s_drawTotal <= 0 || s_model.events.count == 0) return;
+  if (!chart || !dc || !s_mp || s_drawTotal <= 0 || s_mp->events.count == 0)
+    return;
 
   lv_area_t a;
   lv_obj_get_content_coords(chart, &a);
   const int w = lv_area_get_width(&a);
   if (w <= 0) return;
 
-  for (int i = 0; i < s_model.events.count; i++) {
+  for (int i = 0; i < s_mp->events.count; i++) {
     TrendEvent ev;
-    if (!trend_events_get(&s_model.events, i, &ev)) break;
+    if (!trend_events_get(&s_mp->events, i, &ev)) break;
     const int px = trend_slot_to_px(ev.slot, s_drawStart, s_drawTotal, w);
     if (px < 0) continue;
 
@@ -371,7 +372,7 @@ static_assert(sizeof(lv_coord_t) == sizeof(int16_t),
 void fillSeries(lv_chart_series_t *ser, int series, const TrendWindow &w) {
   int16_t *y = (int16_t *)ser->y_points;
   ser->start_point = 0;
-  trend_decimate(&s_model.store, series, &w, y);
+  trend_decimate(&s_mp->store, series, &w, y);  // redraw() ya comprobo s_mp
   for (int i = 0; i < TREND_CHART_POINTS; i++) {
     if (y[i] == TREND_NO_DATA)
       y[i] = (int16_t)LV_CHART_POINT_NONE;
@@ -396,6 +397,7 @@ void fillSeries(lv_chart_series_t *ser, int series, const TrendWindow &w) {
 // "va lenta" con la vista abierta, y de paso tenia bloqueada LVGL_Lock (y
 // con ella la tarea Comm) durante el repintado.
 void redraw() {
+  if (!s_mp) return;
   for (int c = 0; c < N_CHARTS; c++)
     if (!s_chart[c] || !s_serMeas[c] || !s_serSp[c]) return;
   const int64_t t0 = esp_timer_get_time();
@@ -419,8 +421,8 @@ void redraw() {
   // cada 10 s). Es el coste de preparar el frame, no de pintarlo — el pintado
   // lo hace lv_timer_handler y se ve en lcd_diagnostics_log (slow_frames).
   ESP_LOGI("TelHist", "redraw %d slots/%d pts, %d muestras, %d eventos, %lld us",
-           trend_window_slots(idx), TREND_CHART_POINTS, s_model.store.count,
-           s_model.events.count, (long long)(esp_timer_get_time() - t0));
+           trend_window_slots(idx), TREND_CHART_POINTS, s_mp->store.count,
+           s_mp->events.count, (long long)(esp_timer_get_time() - t0));
 }
 
 void onWindowChanged(lv_event_t *e) {
@@ -533,10 +535,9 @@ lv_obj_t *makeLegendItem(lv_obj_t *row, lv_color_t color, LegendGlyph glyph,
 }  // namespace
 
 void TelemetryHistory_Init(void) {
-  // Modelo vacio y sin hora; el bloque de PSRAM del anillo se reserva aqui, una
-  // vez y para siempre (si falla, la tendencia queda sin datos, ver arriba).
-  trend_model_init(&s_model, nullptr, 0);
-  ensureBuffers();
+  // El modelo (vacio y sin hora) se reserva aqui, una vez y para siempre, en
+  // PSRAM. Si falla, la tendencia queda sin datos (ver allocModel).
+  allocModel();
 
   // lv_layer_top(), no una pantalla: igual que AlarmCenter, para poder
   // abrirse desde ui_ScreenLock sin desbloquear.
@@ -689,11 +690,11 @@ void TelemetryHistory_Poll(void) {
 void TelemetryHistory_NoteLockEntered(void) { TrendPersist_RequestDumpOnLock(); }
 
 void TelemetryHistory_PersistService(void) {
-  if (!s_model.store.data) return;  // sin PSRAM: no hay nada que persistir
+  if (!s_mp) return;  // sin PSRAM: no hay nada que persistir
   // Fuera de LVGL_Lock: es E/S de flash. El modelo es de esta misma tarea, asi
   // que no hay carrera con Poll/RecordSample; si restaura, avisa para que la
   // proxima pasada de Poll (bajo lock) repinte.
-  if (TrendPersist_Service(&s_model, monoMsNow(), millis())) s_needRedraw = true;
+  if (TrendPersist_Service(s_mp, monoMsNow(), millis())) s_needRedraw = true;
 }
 
 void TelemetryHistory_RecordAlarmEdge(uint8_t id, uint8_t priority,
@@ -720,7 +721,7 @@ void TelemetryHistory_RecordSample(float airTempC, bool airOk,
                                     float spAirC, bool spAirOk,
                                     float spSkinC, bool spSkinOk,
                                     float spHumPct, bool spHumOk) {
-  if (!ensureBuffers()) return;
+  if (!s_mp) return;
 
   TrendSample sample;
   sample.v[TREND_AIR] = trend_tenths(airTempC, airOk);
@@ -733,7 +734,7 @@ void TelemetryHistory_RecordSample(float airTempC, bool airOk,
   // Una muestra por ranura: la primera telemetria de cada 10 s manda, y los
   // huecos (enlace caido, reinicio de la placa — known_issues.md #1/#5) se
   // rellenan con "sin dato" dentro de trend_store_record.
-  if (!trend_model_record(&s_model, monoMsNow(), HMI_GetEpochNow(), &sample)) return;
+  if (!trend_model_record(s_mp, monoMsNow(), HMI_GetEpochNow(), &sample)) return;
 
   // Redibujar solo si esta visible: el mismo ahorro que ya hacia el panel
   // retirado (evitar repintar un chart que nadie esta mirando).
