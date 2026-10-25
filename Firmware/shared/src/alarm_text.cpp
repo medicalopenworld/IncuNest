@@ -236,13 +236,14 @@ const char *alarm_action_text(AlarmId id, Language lang) {
       FR("CAPTEUR HALL PANNE POSSIBLE - NE PAS UTILISER COMME ENTREE");
       PT("SENSOR HALL POSSIVEL AVARIA - NAO USAR COMO ENTRADA DE CONTROLO");
       return "HALL SENSOR POSSIBLE FAULT - DO NOT USE AS A CONTROL INPUT";
-    // Dice que la terapia NO se esta dando: es lo que el operador necesita
-    // saber, y no hay riesgo para el neonato por la lampara en si.
+    // Cubre las DOS causas de la misma condicion: la lampara no consume
+    // corriente, o el sensor no da medida (con lo que no se puede vigilar). En
+    // ambas hay que revisar conectores y no se puede dar por buena la terapia.
     case ALARM_PHOTO_LAMP_FAULT:
-      ES("LAMPARA SIN CORRIENTE - REVISAR CONECTOR - TERAPIA NO ADMINISTRADA");
-      FR("LAMPE SANS COURANT - VERIFIER LE CONNECTEUR - THERAPIE NON ADMINISTREE");
-      PT("LAMPADA SEM CORRENTE - VERIFICAR O CONECTOR - TERAPIA NAO ADMINISTRADA");
-      return "LAMP DRAWS NO CURRENT - CHECK THE CONNECTOR - THERAPY NOT DELIVERED";
+      ES("SIN CORRIENTE O MEDIDA EN LAMPARA - REVISAR CONECTORES - TERAPIA NO GARANTIZADA");
+      FR("LAMPE SANS COURANT OU MESURE - VERIFIER CONNECTEURS - THERAPIE NON GARANTIE");
+      PT("LAMPADA SEM CORRENTE OU MEDIDA - VERIFICAR CONECTORES - TERAPIA NAO GARANTIDA");
+      return "NO LAMP CURRENT OR READING - CHECK CONNECTORS - THERAPY NOT ENSURED";
     default:
       return "alarm";
   }

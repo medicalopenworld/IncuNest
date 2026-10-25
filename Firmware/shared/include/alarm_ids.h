@@ -58,11 +58,22 @@ typedef enum {
   ALARM_SENSORBOARD_DOOR_FAULT = 19,
   // Lampara de fototerapia ordenada ON que no consume corriente: la terapia
   // no se esta administrando. La declara photo_fault (motherBoard,
-  // modules/control) a partir de in3.phototherapy_current. Aviso, no
-  // proteccion: no corta el calefactor ni la lampara.
+  // modules/control) a partir de in3.phototherapy_current: lampara sin
+  // corriente, o INA sin medida utilizable con la fototerapia ON. Prioridad
+  // MEDIA (provisional, ver alarm_policy.cpp). Aviso, no proteccion: no corta
+  // el calefactor ni la lampara.
   ALARM_PHOTO_LAMP_FAULT = 20,
   ALARM_COUNT
 } AlarmId;
+
+// El valor de cada id es un indice de bit de un uint32_t: alarmBitmask,
+// silencedBitmask y latchedBitmask del protocolo, y todos los `1u << id` de
+// las dos placas. Pasar de 32 condiciones desplazaria fuera del tipo (UB) y
+// ninguna de esas mascaras avisaria: que falle aqui, al compilar.
+#ifdef __cplusplus
+static_assert(ALARM_COUNT <= 32,
+              "AlarmId no cabe en los bitmasks de 32 bits del protocolo");
+#endif
 
 // Alias de compatibilidad: hay bucles que iteran el rango completo del enum.
 #define NO_ALARMS  ALARM_NONE
