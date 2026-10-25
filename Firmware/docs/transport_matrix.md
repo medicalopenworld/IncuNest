@@ -199,14 +199,16 @@ los dos transportes por construcción**: los dos clientes (`tb` en `GPRS.cpp`,
 
 | Pieza | GPRS | WiFi |
 |---|:--:|:--:|
-| Suscripción a cambios en caliente (9 claves, una vez por cliente) | ✅ | ✅ |
-| Petición de valores actuales tras cada conexión | ✅ | ✅ |
-| Eco del valor efectivo como atributo de cliente | ✅ | ✅ |
+| Suscripción a cambios en caliente (una vez por cliente) | ✅ | ✅ |
+| Petición de valores actuales tras cada conexión (solo aplica un valor nuevo; no pisa un cambio local) | ✅ | ✅ |
+| Eco del valor efectivo + `cfg_src_<clave>` como atributo de cliente | ✅ | ✅ |
+| Evento de telemetría `cfg_change` por cada cambio | ✅ | ✅ |
 
-Claves: `fan_supply_pwm, fan_ctl_pwm, fan_pid_en, heater_amps, air_tmax,
-skin_tmax, gprs_act, gprs_photo, gprs_stby`. Reglas y gotchas en
-`thingsboard_dashboards.md` §10. Coste por GPRS: ~120 B de petición, su
-respuesta y ~190 B de eco por conexión.
+**Claves remotas hoy: solo `gprs_act, gprs_photo, gprs_stby`.** Las otras seis
+(`air_tmax, skin_tmax, heater_amps, fan_supply_pwm, fan_ctl_pwm, fan_pid_en`)
+quedan detrás de `RCFG_REMOTE_SAFETY_PARAMS = 0` mientras el MQTT vaya en claro
+(ver `thingsboard_dashboards.md` §10). Coste por GPRS: ~120 B de petición, su
+respuesta y hasta ~600 B de eco por conexión.
 
 Las RPC de las dos listas siguen registrándose en cada reconexión, lo que las
 duplica en el vector del SDK; la suscripción nueva **no** repite ese defecto

@@ -763,16 +763,23 @@ predates `68a0369e` still hold 38 °C, and the firmware deliberately does not
 migrate a safety threshold silently: each needs `air_tmax` set in `/config` to
 follow this decision.
 
-**Update (`mb-remote-config`): that no longer needs a visit.** `air_tmax` (and
-`skin_tmax`) can now be set from ThingsBoard by writing the shared attribute of
-the same name on the device; it is applied over WiFi or GPRS, also on a unit
-that was off when it was written, and the unit answers with a client attribute
-holding the value it actually has (clamped to 34-40 °C). The boot warning in
-`recapVariables()` is still the signal that a unit holds the old 38. The
-firmware still does not migrate it on its own; the decision is now an operator
-action, applied fleet-wide by writing `air_tmax = 40` on each device (see
-`thingsboard_dashboards.md` §10). Local `POST /config` and the USB console go
-through the same code and the same rules.
+**Update (`mb-remote-config`, revised 2026-10-25): remote correction exists
+in code but is OFF for the cut-outs.** The air and skin cut-outs can be set from
+ThingsBoard by writing the shared attribute of the same name, but only if
+`RCFG_REMOTE_SAFETY_PARAMS` (`modules/config/runtime_config_policy.h`) is set to
+1, and **it ships at 0**: the MQTT link is unencrypted (port 1883, no TLS), so
+anyone on the path can publish to `v1/devices/me/attributes`, and a cut-out is
+an order to a device heating a newborn. Until there is TLS with certificate
+verification (and a risk review), **remotely only the three GPRS reporting
+periods can be changed**; `air_tmax` / `skin_tmax` on units in the field still
+need the local route (`POST /config` or the USB console, `air_tmax = 40`). The
+boot warning in `recapVariables()` is still the signal that a unit holds the old
+38, and the firmware still does not migrate it on its own. The decision to stay
+local is the coordinator's and the user can reverse it. When the flag is set to
+1 the remote path can only lower or keep a cut-out relative to the compiled
+factory value (it cannot raise it), rejects values outside 34-40 °C instead of
+clamping, and defers changes made with therapy active until standby. See
+`thingsboard_dashboards.md` §10.
 
 What follows is the analysis that led to it.
 
