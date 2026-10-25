@@ -45,6 +45,8 @@
 #include "Wifi_OTA.h"
 #include "main.h"
 #include "tasks/CrashReporter.h"
+#include "system/power_rails.h"
+#include "modules/control/modem_power_cycle.h"
 
 // Initialize GSM modem
 TinyGsm modem(modemSerial);
@@ -130,6 +132,9 @@ static void rpc_diag_cb(JsonVariantConst const & /*data*/,
   response["uptime_s"]      = (uint32_t)(millis() / 1000);
   response["gprs_kill"]     = g_gprsKillCount;
   response["mon_kill"]      = g_monKillCount;
+#if (HW_NUM >= 19)
+  response["gsm_power_cycles"] = gsmPowerCycles();
+#endif
   response["hmi_boots"]     = g_hmiBootCount;
   response["hmi_last_rst"]  = g_hmiLastRst;
 }
@@ -618,6 +623,11 @@ void GPRSForceReset(const String &reason) {
   GPRS.tbConnectFailures = 0;
   logModemData("[GPRS] -> powering module down...");
   Serial2.print("AT+CPOWD=1\n");
+  // HW19: ademas del AT+CPOWD (que un modem colgado ya no atiende), corte real
+  // de VBAT por GSM_PWR_EN pasado el margen de apagado ordenado, y de nuevo
+  // alimentado >= 2 s despues. No bloquea: GPRSPowerUp() caso 0 espera a que
+  // termine consultando gsmPowerCycleBusy(). No-op (false) en HW < 19.
+  gsmPowerCycleBegin(MODEM_PC_SHUTDOWN_GRACE_MS);
   GPRS.packetSentenceTime = millis();
   GPRS.processTime = millis();
 }
@@ -670,6 +680,14 @@ void GPRSVerifyStillAttached() {
 void GPRSPowerUp() {
   switch (GPRS.process) {
   case 0:
+    // HW19: power-cycle del modem en curso (ver GPRSForceReset()). No se
+    // avanza hasta que GSM_PWR_EN vuelve a estar a nivel alto. Mientras
+    // GPRS.process sea 0, GPRSStatusHandler() no corre el temporizador de
+    // GPRS_TIMEOUT, asi que esta espera no la mata el timeout. No-op (false)
+    // en HW < 19.
+    if (gsmPowerCycleBusy()) {
+      break;
+    }
     GPRS.processTime = millis();
 #if (GPRS_PWRKEY)
     digitalWrite(GPRS_PWRKEY, LOW);
@@ -1031,6 +1049,9 @@ void addConfigTelemetriesToGPRSJSON() {
   addVariableToTelemetryGPRSJSON[BOOT_COUNT_KEY] = g_bootCount;
   addVariableToTelemetryGPRSJSON[GPRS_KILL_COUNT_KEY] = g_gprsKillCount;
   addVariableToTelemetryGPRSJSON[GPRS_MON_KILL_COUNT_KEY] = g_monKillCount;
+#if (HW_NUM >= 19)
+  addVariableToTelemetryGPRSJSON[GSM_POWER_CYCLES_KEY] = gsmPowerCycles();
+#endif
   addVariableToTelemetryGPRSJSON[FREE_HEAP_KEY] = (uint32_t)ESP.getFreeHeap();
   addVariableToTelemetryGPRSJSON[MIN_FREE_HEAP_KEY] = (uint32_t)ESP.getMinFreeHeap();
   addVariableToTelemetryGPRSJSON[UPTIME_S_KEY] = (uint32_t)(millis() / 1000);

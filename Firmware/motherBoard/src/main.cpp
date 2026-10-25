@@ -234,6 +234,11 @@ void GPRSMonitorTask(void *pvParameters) {
         }
         vTaskDelete(taskHandle); // Delete the hung task
         GPRS = GPRSstruct();     // drop state left over from the aborted attempt
+        // HW19: la tarea colgada en una llamada AT deja al modem en un estado
+        // del que a veces no sale por software. Corte real de VBAT, sin margen
+        // (no hay CPOWD que esperar): la tarea nueva restaura GSM_PWR_EN desde
+        // GPRSPowerUp() caso 0 pasados >= 2 s. No-op en HW < 19.
+        gsmPowerCycleBegin(0);
         GPRS_lastMillisTaskClear = millis();
         // Recreate GPRS_Task so a single hung AT call doesn't kill cellular
         // connectivity for good; the new task spawns its own fresh monitor.

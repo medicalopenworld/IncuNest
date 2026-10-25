@@ -37,6 +37,7 @@
 #include "PpgSnapshotPublish.h"
 #include "main.h"
 #include "tasks/CrashReporter.h"
+#include "system/power_rails.h"
 #include "modules/debug/debug_mode.h"
 #include "modules/util/tz_source.h"
 #include "modules/util/ip_geoloc.h"
@@ -1335,6 +1336,9 @@ void addConfigTelemetriesToWIFIJSON() {
   addVariableToTelemetryWIFIJSON[BOOT_COUNT_KEY] = g_bootCount;
   addVariableToTelemetryWIFIJSON[GPRS_KILL_COUNT_KEY] = g_gprsKillCount;
   addVariableToTelemetryWIFIJSON[GPRS_MON_KILL_COUNT_KEY] = g_monKillCount;
+#if (HW_NUM >= 19)
+  addVariableToTelemetryWIFIJSON[GSM_POWER_CYCLES_KEY] = gsmPowerCycles();
+#endif
   addVariableToTelemetryWIFIJSON[FREE_HEAP_KEY] = (uint32_t)ESP.getFreeHeap();
   addVariableToTelemetryWIFIJSON[MIN_FREE_HEAP_KEY] =
       (uint32_t)ESP.getMinFreeHeap();
