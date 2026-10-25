@@ -355,12 +355,20 @@ bool patient_credit_allowed(uint32_t accSeq, bool sendsActiveSeq,
   return sendsActiveSeq ? (activeSeq == accSeq) : confirmed;
 }
 
-// RED: stubs sin comportamiento.
-bool patient_live_session(uint32_t, bool, bool) { return false; }
-bool patient_confirm_requires_list(uint32_t, uint32_t) { return false; }
-bool patient_list_request_due(bool, uint32_t, uint32_t, uint8_t, uint8_t,
-                              uint32_t) {
-  return false;
+bool patient_live_session(uint32_t seq, bool anyControlActive, bool confirmed) {
+  return seq != 0 && anyControlActive && confirmed;
+}
+
+bool patient_confirm_requires_list(uint32_t identitySn, uint32_t boardSn) {
+  return identitySn == 0 || boardSn == 0;
+}
+
+bool patient_list_request_due(bool outstanding, uint32_t askedAtMs,
+                              uint32_t nowMs, uint8_t attempts,
+                              uint8_t maxAttempts, uint32_t retryMs) {
+  if (attempts >= maxAttempts) return false;
+  if (!outstanding) return true;
+  return (uint32_t)(nowMs - askedAtMs) >= retryMs;  // modular: wrap-safe
 }
 
 PatientDisplay patient_display_state(bool confirmed, bool listedOnLegacyBoard) {
