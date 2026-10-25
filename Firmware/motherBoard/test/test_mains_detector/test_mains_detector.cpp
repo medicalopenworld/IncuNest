@@ -118,14 +118,72 @@ void test_default_hold_is_zero(void) {
   TEST_ASSERT_EQUAL_UINT32(0u, MAINS_ALARM_MIN_HOLD_MS);
 }
 
-void test_default_alarm_clears_as_soon_as_mains_is_confirmed_back(void) {
+// H1: la instancia de PRODUCCION (main.cpp) se declara con este inicializador
+// estatico. Con `= {}` el plazo valia 0 porque la estructura estaba a cero, no
+// porque lo dijera la constante: poner MAINS_ALARM_MIN_HOLD_MS a 600000u no
+// habria cambiado nada. Este test fija que el inicializador coincide con
+// mains_detector_init() y con la constante.
+void test_production_initializer_uses_the_constants(void) {
+  MainsDetector p = MAINS_DETECTOR_INITIALIZER;
+  MainsDetector q;
+  mains_detector_init(&q);
+  TEST_ASSERT_EQUAL_UINT32(MAINS_ALARM_MIN_HOLD_MS, p.hold_ms);
+  TEST_ASSERT_EQUAL_UINT32(q.hold_ms, p.hold_ms);
+  TEST_ASSERT_EQUAL_UINT8(q.absent_streak, p.absent_streak);
+  TEST_ASSERT_EQUAL_UINT8(q.present_streak, p.present_streak);
+  TEST_ASSERT_EQUAL(q.absent_confirmed, p.absent_confirmed);
+  TEST_ASSERT_EQUAL(q.declared, p.declared);
+  TEST_ASSERT_EQUAL_UINT32(q.since_ms, p.since_ms);
+  TEST_ASSERT_EQUAL_UINT32(q.last_valid_ms, p.last_valid_ms);
+  // Y se comporta igual: declara con la racha de ausencia.
+  mains_detector_sample(&p, true, false, 100000);
+  mains_detector_sample(&p, true, false, 105000);
+  TEST_ASSERT_TRUE(mains_detector_condition(&p, 105000));
+}
+
+// H6: histeresis asimetrica. Declarar rapido (2 lecturas, ~10 s), retirar
+// despacio (6 seguidas con red, ~30 s).
+void test_confirmation_is_asymmetric(void) {
+  TEST_ASSERT_EQUAL_UINT32(2u, MAINS_DETECTOR_CONFIRM_ABSENT_SAMPLES);
+  TEST_ASSERT_EQUAL_UINT32(6u, MAINS_DETECTOR_CONFIRM_PRESENT_SAMPLES);
+}
+
+// Una fuente intermitente (enchufe flojo, generador inestable) no puede hacer
+// oscilar la alarma: mientras no haya SEIS lecturas seguidas con red, se
+// mantiene continua. Aqui: dos ausencias y cinco con red, repetido.
+void test_intermittent_mains_keeps_the_alarm_continuous(void) {
+  uint32_t t = 100000;
+  feedN(2, false, t);
+  t += 2 * PERIOD_MS;
+  for (int cycle = 0; cycle < 20; ++cycle) {
+    t = feedN(MAINS_DETECTOR_CONFIRM_PRESENT_SAMPLES - 1u, true, t) + PERIOD_MS;
+    TEST_ASSERT_TRUE(cond(t));
+    t = feedN(MAINS_DETECTOR_CONFIRM_ABSENT_SAMPLES, false, t) + PERIOD_MS;
+    TEST_ASSERT_TRUE(cond(t));
+  }
+}
+
+void test_each_new_absence_restarts_the_present_streak(void) {
+  const uint32_t t0 = feedN(2, false, 100000);
+  uint32_t t = feedN(MAINS_DETECTOR_CONFIRM_PRESENT_SAMPLES - 1u, true, t0 + PERIOD_MS);
+  feed(true, false, t + PERIOD_MS);  // UNA ausencia basta para reiniciar la racha
+  // Cinco con red otra vez: sigue sin bastar.
+  t = feedN(MAINS_DETECTOR_CONFIRM_PRESENT_SAMPLES - 1u, true, t + 2 * PERIOD_MS);
+  TEST_ASSERT_TRUE(cond(t));
+  feed(true, true, t + PERIOD_MS);
+  TEST_ASSERT_FALSE(cond(t + PERIOD_MS));
+}
+
+void test_default_alarm_clears_when_mains_is_confirmed_back(void) {
   const uint32_t t0 = feedN(2, false, 100000);
   TEST_ASSERT_TRUE(cond(t0));
-  feed(true, true, t0 + 30000u);
-  TEST_ASSERT_TRUE(cond(t0 + 30000u));  // una sola lectura de red: aun no
-  feed(true, true, t0 + 35000u);
-  TEST_ASSERT_FALSE(cond(t0 + 35000u));  // la segunda confirma: se retira
+  // Cinco lecturas seguidas con red: aun no (se necesitan seis, ~30 s).
+  const uint32_t t5 = feedN(MAINS_DETECTOR_CONFIRM_PRESENT_SAMPLES - 1u, true, t0 + 30000u);
+  TEST_ASSERT_TRUE(cond(t5));
+  feed(true, true, t5 + PERIOD_MS);  // la sexta confirma: se retira
+  TEST_ASSERT_FALSE(cond(t5 + PERIOD_MS));
 }
+
 
 void test_default_long_interruption_stays_present_the_whole_time(void) {
   const uint32_t t0 = feedN(2, false, 100000);
@@ -145,7 +203,7 @@ void test_default_mains_flapping_does_not_release(void) {
 
 void test_default_new_interruption_is_declared_again(void) {
   const uint32_t t0 = feedN(2, false, 100000);
-  const uint32_t tr = feedN(2, true, t0 + 30000u);
+  const uint32_t tr = feedN(MAINS_DETECTOR_CONFIRM_PRESENT_SAMPLES, true, t0 + 30000u);
   TEST_ASSERT_FALSE(cond(tr));
   const uint32_t t2 = feedN(2, false, tr + 60000u);
   TEST_ASSERT_TRUE(cond(t2));
@@ -160,9 +218,9 @@ void test_hold_counts_from_the_declaration(void) {
   mains_detector_init_hold(&d, TEST_HOLD_MS);
   feed(true, false, 100000);
   feed(true, false, 105000);  // se declara AQUI
-  feed(true, true, 110000);
-  feed(true, true, 115000);   // la red vuelve y se confirma
-  TEST_ASSERT_TRUE(cond(115000));
+  const uint32_t tb =
+      feedN(MAINS_DETECTOR_CONFIRM_PRESENT_SAMPLES, true, 110000);  // red confirmada
+  TEST_ASSERT_TRUE(cond(tb));
   TEST_ASSERT_TRUE(cond(105000 + TEST_HOLD_MS - 1u));
   TEST_ASSERT_FALSE(cond(105000 + TEST_HOLD_MS));
 }
@@ -176,24 +234,25 @@ void test_hold_long_interruption_outlasts_the_minimum(void) {
   }
 }
 
-void test_hold_release_after_the_minimum_needs_two_present_readings(void) {
+void test_hold_release_after_the_minimum_needs_the_present_streak(void) {
   mains_detector_init_hold(&d, TEST_HOLD_MS);
   const uint32_t t0 = feedN(2, false, 100000);
   const uint32_t t = t0 + TEST_HOLD_MS + 20000u;
   feed(true, false, t - PERIOD_MS);  // sigue el corte pasados los 10 min
   TEST_ASSERT_TRUE(cond(t));
-  feed(true, true, t);
-  TEST_ASSERT_TRUE(cond(t));
-  feed(true, true, t + PERIOD_MS);
-  TEST_ASSERT_FALSE(cond(t + PERIOD_MS));
+  const uint32_t t5 =
+      feedN(MAINS_DETECTOR_CONFIRM_PRESENT_SAMPLES - 1u, true, t);
+  TEST_ASSERT_TRUE(cond(t5));
+  feed(true, true, t5 + PERIOD_MS);
+  TEST_ASSERT_FALSE(cond(t5 + PERIOD_MS));
 }
 
 void test_hold_reinterruption_restarts_the_minimum(void) {
   mains_detector_init_hold(&d, TEST_HOLD_MS);
   const uint32_t t0 = feedN(2, false, 100000);
-  feedN(2, true, t0 + 60000u);
+  feedN(MAINS_DETECTOR_CONFIRM_PRESENT_SAMPLES, true, t0 + 60000u);
   const uint32_t t2 = feedN(2, false, t0 + 180000u);
-  feedN(2, true, t2 + 20000u);
+  feedN(MAINS_DETECTOR_CONFIRM_PRESENT_SAMPLES, true, t2 + 20000u);
   TEST_ASSERT_TRUE(cond(t0 + TEST_HOLD_MS + 1000u));
   TEST_ASSERT_TRUE(cond(t2 + TEST_HOLD_MS - 1u));
   TEST_ASSERT_FALSE(cond(t2 + TEST_HOLD_MS));
@@ -202,7 +261,7 @@ void test_hold_reinterruption_restarts_the_minimum(void) {
 void test_hold_survives_millis_wraparound(void) {
   mains_detector_init_hold(&d, TEST_HOLD_MS);
   const uint32_t t0 = feedN(2, false, 0xFFFFFFFFu - 6000u);
-  feedN(2, true, t0 + 20000u);
+  feedN(MAINS_DETECTOR_CONFIRM_PRESENT_SAMPLES, true, t0 + 20000u);
   TEST_ASSERT_TRUE(cond(t0 + TEST_HOLD_MS - 1u));
   TEST_ASSERT_FALSE(cond(t0 + TEST_HOLD_MS));
 }
@@ -212,7 +271,7 @@ void test_hold_survives_millis_wraparound(void) {
 void test_hold_expired_does_not_resurrect_after_a_full_clock_cycle(void) {
   mains_detector_init_hold(&d, TEST_HOLD_MS);
   const uint32_t t0 = feedN(2, false, 100000);
-  const uint32_t tr = feedN(2, true, t0 + TEST_HOLD_MS + 5000u);
+  const uint32_t tr = feedN(MAINS_DETECTOR_CONFIRM_PRESENT_SAMPLES, true, t0 + TEST_HOLD_MS + 5000u);
   TEST_ASSERT_FALSE(cond(tr));
   feed(true, true, tr + 3600000u);
   TEST_ASSERT_FALSE(cond(t0 + 1000u));
@@ -287,13 +346,17 @@ int main(int, char **) {
   RUN_TEST(test_invalid_reading_does_not_count_as_absent);
   RUN_TEST(test_invalid_reading_does_not_release);
   RUN_TEST(test_default_hold_is_zero);
-  RUN_TEST(test_default_alarm_clears_as_soon_as_mains_is_confirmed_back);
+  RUN_TEST(test_production_initializer_uses_the_constants);
+  RUN_TEST(test_confirmation_is_asymmetric);
+  RUN_TEST(test_intermittent_mains_keeps_the_alarm_continuous);
+  RUN_TEST(test_each_new_absence_restarts_the_present_streak);
+  RUN_TEST(test_default_alarm_clears_when_mains_is_confirmed_back);
   RUN_TEST(test_default_long_interruption_stays_present_the_whole_time);
   RUN_TEST(test_default_mains_flapping_does_not_release);
   RUN_TEST(test_default_new_interruption_is_declared_again);
   RUN_TEST(test_hold_counts_from_the_declaration);
   RUN_TEST(test_hold_long_interruption_outlasts_the_minimum);
-  RUN_TEST(test_hold_release_after_the_minimum_needs_two_present_readings);
+  RUN_TEST(test_hold_release_after_the_minimum_needs_the_present_streak);
   RUN_TEST(test_hold_reinterruption_restarts_the_minimum);
   RUN_TEST(test_hold_survives_millis_wraparound);
   RUN_TEST(test_hold_expired_does_not_resurrect_after_a_full_clock_cycle);
