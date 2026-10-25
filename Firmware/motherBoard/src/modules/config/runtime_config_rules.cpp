@@ -486,8 +486,57 @@ size_t runtime_config_format_rejected(const char *name, const char *why,
   return off;
 }
 
-// ESQUELETO EN ROJO (revision 2): la implementacion llega en el commit siguiente.
-bool runtime_config_parse_console_line(const char *, char *, size_t, char *,
-                                       size_t) {
-  return false;
+bool runtime_config_parse_console_line(const char *line, char *param,
+                                       size_t param_len, char *raw,
+                                       size_t raw_len) {
+  static const char PREFIX[] = "/config,";
+  if (line == nullptr || param == nullptr || raw == nullptr || param_len == 0 ||
+      raw_len == 0 || strncmp(line, PREFIX, sizeof(PREFIX) - 1) != 0) {
+    return false;
+  }
+  const char *p = line + sizeof(PREFIX) - 1;
+
+  // Nombre: hasta la siguiente coma.
+  const char *comma = strchr(p, ',');
+  if (comma == nullptr || comma == p) {
+    return false;
+  }
+  const size_t nlen = (size_t)(comma - p);
+  if (nlen >= param_len) {
+    return false;  // no cabe: se rechaza, no se trunca
+  }
+  for (size_t i = 0; i < nlen; ++i) {
+    if (isspace((unsigned char)p[i])) {
+      return false;
+    }
+  }
+
+  // Valor: una unica racha de caracteres de numero.
+  const char *v = comma + 1;
+  size_t vlen = 0;
+  while (v[vlen] != ' ' && !isspace((unsigned char)v[vlen])) {
+    ++vlen;
+  }
+  if (vlen == 0 || vlen >= raw_len) {
+    return false;
+  }
+  for (size_t i = 0; i < vlen; ++i) {
+    const char ch = v[i];
+    if (!isdigit((unsigned char)ch) && ch != '+' && ch != '-' && ch != '.' &&
+        ch != 'e' && ch != 'E') {
+      return false;
+    }
+  }
+  // Despues del valor solo puede haber espacios y el fin de linea.
+  for (const char *t = v + vlen; *t != ' '; ++t) {
+    if (!isspace((unsigned char)*t)) {
+      return false;
+    }
+  }
+
+  memcpy(param, p, nlen);
+  param[nlen] = ' ';
+  memcpy(raw, v, vlen);
+  raw[vlen] = ' ';
+  return true;
 }

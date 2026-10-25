@@ -755,8 +755,10 @@ void parse_line(const char *line) {
     char raw[32];
     bool success = false;
     char cfgMsg[96] = "";
-    if (line[7] == ',' &&
-        sscanf(line, "/config,%31[^,],%31s", param, raw) == 2) {
+    // runtime_config_parse_console_line() rechaza la linea si hay CUALQUIER
+    // texto despues del valor: "/config,AIR_TMAX,38 99" no aplica 38.
+    if (runtime_config_parse_console_line(line, param, sizeof(param), raw,
+                                          sizeof(raw))) {
       success = true;
       if (strcmp(param, "BABY_WIPE") == 0) {
         // Destructive and irreversible, so it needs an explicit magic value
@@ -789,6 +791,9 @@ void parse_line(const char *line) {
       }
     } else {
       if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        if (line[7] == ',') {
+          ESP_LOGE(TAG, "Config line malformed, nothing applied");
+        }
         ESP_LOGI(TAG, "FAN_SUPPLY_PWM:%d FAN_CTL_PWM:%d HEATER_AMPS:%.2f SKIN_TMAX:%.2f AIR_TMAX:%.2f",
                  in3.fanPwrSupplyPWM, in3.fanCtlPWM, in3.heaterMaxPowerAmps, in3.skinTemperatureSetMax,
                  in3.airTemperatureSetMax);

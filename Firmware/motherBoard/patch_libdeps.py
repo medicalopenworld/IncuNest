@@ -209,24 +209,32 @@ PATCHES = [
 
 
 def aplicar(source, target, env):
+    fallos = []
     for p in PATCHES:
         ruta = env.subst(p["fichero"])
         if not os.path.isfile(ruta):
-            print(f"[patch_libdeps] NO ENCONTRADO, no se parchea: {ruta}")
+            fallos.append(f"NO ENCONTRADO el fichero de '{p['nombre']}': {ruta}")
             continue
         with open(ruta, "r", encoding="utf-8", errors="ignore") as f:
             texto = f.read()
         if p["marca"] in texto:
             continue  # ya parcheado
         if p["buscar"] not in texto:
-            # Que no falle el build en silencio: si el upstream cambia, hay que
-            # enterarse, porque el fallo que esto evita es un panic en campo.
-            print(f"[patch_libdeps] *** AVISO: no casa el patron de '{p['nombre']}'.")
-            print(f"[patch_libdeps] *** Revisa {ruta}: el parche NO se ha aplicado.")
+            # Si el upstream cambia hay que enterarse: el fallo que esto evita
+            # es un panic en campo o un desbordamiento, no una molestia.
+            fallos.append(f"no casa el patron de '{p['nombre']}' en {ruta}")
             continue
         with open(ruta, "w", encoding="utf-8") as f:
             f.write(texto.replace(p["buscar"], p["poner"], 1))
         print(f"[patch_libdeps] aplicado: {p['nombre']}")
+    if fallos:
+        # ABORTA la compilacion. Antes esto era un print y un continue: un
+        # parche que no se aplica compilaba igual y el binario salia sin la
+        # correccion, sin que nadie lo viera en medio del ruido del build.
+        for m in fallos:
+            print(f"[patch_libdeps] *** ERROR: {m}")
+        print("[patch_libdeps] *** Compilacion abortada: un parche al SDK no se ha aplicado.")
+        env.Exit(1)
 
 
 aplicar(None, None, env)

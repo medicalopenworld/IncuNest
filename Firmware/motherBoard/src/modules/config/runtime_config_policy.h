@@ -7,8 +7,18 @@
 // ---------------------------------------------------------------------------
 // Con 0, lo UNICO que ThingsBoard puede cambiar son los tres periodos de
 // publicacion GPRS (gprs_act, gprs_photo, gprs_stby). air_tmax, skin_tmax,
-// heater_amps, fan_supply_pwm, fan_ctl_pwm y fan_pid_en solo se cambian en
-// local (POST /config, consola USB). Un atributo compartido con una de esas
+// heater_amps, fan_supply_pwm, fan_ctl_pwm y fan_pid_en solo se cambian por la
+// via "local" (POST /config, consola USB).
+//
+// OJO CON LA PALABRA "LOCAL" (hallazgo A2 de la segunda revision): POST /config
+// NO es una via local de verdad. Es HTTP en claro por la WiFi del hospital con
+// Basic auth (usuario y clave tambien en claro), asi que cualquiera en esa red
+// que vea pasar una peticion puede repetirla. Es MENOS expuesto que el MQTT (hay
+// que estar en la misma red y haber visto la credencial, no basta con alcanzar
+// el broker), pero no es "fisico". La consola USB si exige estar en el cable.
+// Las propuestas para cerrarlo estan en known_issues.md.
+//
+// Un atributo compartido con una de esas
 // claves se IGNORA, se deja un aviso en el log (tag CFG) y se publica
 // cfg_rejected como atributo de cliente. La suscripcion y la peticion al
 // conectar solo piden las claves de la lista remota efectiva.
@@ -72,6 +82,24 @@
 //   - el reaplicado al reconectar solo aplica una escritura remota NUEVA y
 //     nunca pisa un cambio local posterior (runtime_config.h).
 #define RCFG_REMOTE_SAFETY_PARAMS 0
+
+// CANDADO: poner RCFG_REMOTE_SAFETY_PARAMS a 1 NO COMPILA a menos que alguien
+// defina tambien RCFG_TLS_VERIFIED (p. ej. -DRCFG_TLS_VERIFIED en platformio.ini).
+// Es una firma, no una opcion: quien la define afirma que se cumple TODO esto,
+// y debe poder demostrarlo en la revision:
+//   - el MQTT de AMBOS clientes (WiFi y GPRS) va por TLS (8883) y no queda
+//     ningun camino de vuelta al 1883 en claro (ni reintento ni "fallback");
+//   - el certificado del servidor se VERIFICA contra una CA fijada en el
+//     firmware y se comprueba el nombre del host: nada de setInsecure();
+//   - el token de acceso del dispositivo ya no viaja en claro por ningun
+//     transporte;
+//   - la OTA que baja por ese mismo canal valida la FIRMA de la imagen (hoy no
+//     la hay; ver known_issues.md, entrada de riesgos previos de /config);
+//   - se ha hecho y archivado la revision de riesgos de la lista de arriba y
+//     se ha medido en banco RCFG_FAN_PWM_REMOTE_MIN.
+#if RCFG_REMOTE_SAFETY_PARAMS && !defined(RCFG_TLS_VERIFIED)
+#error "RCFG_REMOTE_SAFETY_PARAMS = 1 exige TLS con verificacion de certificado: ver el comentario de runtime_config_policy.h antes de definir RCFG_TLS_VERIFIED."
+#endif
 
 // PWM minimo que se acepta por ThingsBoard para fan_supply_pwm y fan_ctl_pwm
 // (de 255). A MEDIR EN BANCO: 80 (~31 %) es un valor CONSERVADOR elegido sin

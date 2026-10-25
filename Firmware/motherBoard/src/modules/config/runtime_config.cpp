@@ -16,6 +16,10 @@
 #include "modules/baby_profile/baby_profile_store.h"
 #include "system/hw_selftest.h"
 
+// Este fichero es SOLO el pegamento con el hardware: in3, NVS, LEDC, el log, la
+// cola de auditoria y el mutex. Que se aplica, que se persiste y cuando lo
+// decide runtime_config_core.cpp, que se prueba en host con una NVS simulada.
+
 extern IncuNest_parameters in3;
 extern PID fanControlPID;
 
@@ -28,36 +32,8 @@ namespace {
 
 const char *TAG = "CFG";
 
-constexpr uint8_t SRC_NONE = 0;  // origen + 1; 0 = nunca cambiado desde aqui
-
-// Estado persistente por clave. 12 bytes, un blob "k<i>" en NS_RCFG. Se escribe
-// solo cuando cambia algo: un valor remoto nuevo, un cambio local o el cambio
-// efectivo de un parametro -- no en cada reconexion.
-struct KeyState {
-  float lastRemote;   // ultimo valor remoto visto (aceptado o no)
-  uint8_t hasRemote;  // lastRemote es valido
-  uint8_t overrideLocal;  // un cambio local posterior gana al remoto
-  uint8_t src;        // origen del ultimo cambio efectivo + 1
-  uint8_t pad;
-  uint32_t epoch;     // cuando (0 = reloj sin sincronizar)
-};
-static_assert(sizeof(KeyState) == 12, "blob de NVS de 12 bytes");
-
-KeyState s_state[RCFG_COUNT];
+RcfgCore s_core;
 bool s_loaded = false;
-
-// Cambio remoto aplazado (terapia activa o ritmo de 10 s).
-struct Pending {
-  bool valid;
-  float requested;
-  RuntimeConfigOrigin origin;
-};
-Pending s_pending[RCFG_COUNT];
-std::atomic<uint32_t> s_pendingMask{0};
-
-// Ritmo: millis() del ultimo cambio remoto de cada clave.
-uint32_t s_lastRemoteChangeMs[RCFG_COUNT];
-bool s_hasLastRemoteChange[RCFG_COUNT];
 
 // Eco pendiente. Atomico para poder mirarlo sin coger el mutex.
 std::atomic<uint32_t> s_echoPending{0};
@@ -108,48 +84,6 @@ class Lock {
   bool ok_;
 };
 
-// --- estado persistente ----------------------------------------------------
-
-void state_key(int i, char *out, size_t n) { snprintf(out, n, "k%d", i); }
-
-// Se llama con el mutex cogido.
-void ensure_loaded() {
-  if (s_loaded) {
-    return;
-  }
-  s_loaded = true;
-  memset(s_state, 0, sizeof(s_state));
-  Preferences p;
-  if (!p.begin(NS_RCFG, true)) {
-    return;  // namespace aun inexistente: estado limpio
-  }
-  for (int i = 0; i < RCFG_COUNT; ++i) {
-    char k[8];
-    state_key(i, k, sizeof(k));
-    KeyState tmp;
-    if (p.getBytesLength(k) == sizeof(tmp) &&
-        p.getBytes(k, &tmp, sizeof(tmp)) == sizeof(tmp)) {
-      s_state[i] = tmp;
-    }
-  }
-  p.end();
-}
-
-void save_state(int i) {
-  Preferences p;
-  if (!p.begin(NS_RCFG, false)) {
-    ESP_LOGE(TAG, "no se puede abrir %s para guardar el estado de la clave %d",
-             NS_RCFG, i);
-    return;
-  }
-  char k[8];
-  state_key(i, k, sizeof(k));
-  if (p.putBytes(k, &s_state[i], sizeof(KeyState)) != sizeof(KeyState)) {
-    ESP_LOGE(TAG, "no se pudo guardar el estado de la clave %d", i);
-  }
-  p.end();
-}
-
 // --- lectura del estado de la unidad ---------------------------------------
 
 float current_value(RuntimeConfigId id) {
@@ -183,30 +117,65 @@ bool therapy_active() {
   return in3.temperatureControl || in3.humidityControl || in3.phototherapy;
 }
 
-RuntimeConfigRemoteCtx build_ctx() {
-  RuntimeConfigRemoteCtx c;
-  // Valores de FABRICA compilados: el techo de lo que un origen remoto puede
-  // dejar. Subir un limite por encima de esto sigue siendo una accion local.
-  c.air_factory_max = (float)AIR_THERMAL_CUTOUT_DEFAULT_C;
-  c.skin_factory_max = alarm_clamp_skin_cutout((float)SKIN_TEMPERATURE_SET_MAX);
-  c.heater_factory_max = (float)HEATER_MAX_POWER_AMPS;
-  c.fan_has_tach = in3.fanHasSpeedFeedback;
-  c.heater_acting =
-      in3.temperatureControl && in3.heater_current > RCFG_HEATER_ACTING_AMPS;
-  c.air_setpoint_c = 0.0f;
-  c.skin_setpoint_c = 0.0f;
-  if (in3.temperatureControl) {
-    const float sp = (float)in3.desiredControlTemperature;
-    if (in3.controlMode == CONTROL_AIR) {
-      c.air_setpoint_c = sp;
-    } else {
-      c.skin_setpoint_c = sp;
-    }
+// --- efectos ---------------------------------------------------------------
+
+// Lleva fanCtlPWM al canal LEDC SOLO si nadie mas lo esta manejando. El POST
+// de antes escribia siempre, lo que podia arrancar el canal de control de una
+// unidad parada o pisar la salida del PID cerrado; ahora el valor nuevo lo
+// recoge turnFans(), que se llama en cada trama del HMI, igual que siempre.
+void apply_fan_ctl_pwm_now() {
+#if (HW_NUM >= 8)
+  if (g_factoryTestActive || !in3.fanCommandedOn) {
+    return;
   }
-  return c;
+#if defined(FAN_SPEED_FEEDBACK)
+  if (in3.fanHasSpeedFeedback && in3.fanPidEnabled &&
+      fanControlPID.GetMode() == AUTOMATIC) {
+    return;
+  }
+#endif
+  ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
+#endif
 }
 
-// --- efectos ---------------------------------------------------------------
+// NO se escribe maxDesiredTemp[]: nadie lo lee (solo se define en main.cpp y
+// se declara extern en security.cpp), y su significado es el TOPE DE CONSIGNA
+// (AIR_TEMPERATURE_SET_MAX = 39), no el corte termico. Volcar ahi el corte
+// (hasta 40) rompia el invariante consigna < corte el dia que alguien lo leyera.
+void pf_apply_ram(RuntimeConfigId id, float v) {
+  switch (id) {
+    case RCFG_FAN_SUPPLY_PWM:
+      in3.fanPwrSupplyPWM = (int)v;
+      break;
+    case RCFG_FAN_CTL_PWM:
+      in3.fanCtlPWM = (int)v;
+      apply_fan_ctl_pwm_now();
+      break;
+    case RCFG_FAN_PID_EN:
+      fanPidApplyRam(v != 0.0f);
+      break;
+    case RCFG_HEATER_AMPS:
+      in3.heaterMaxPowerAmps = v;
+      break;
+    case RCFG_AIR_TMAX:
+      in3.airTemperatureSetMax = v;
+      break;
+    case RCFG_SKIN_TMAX:
+      in3.skinTemperatureSetMax = v;
+      break;
+    case RCFG_GPRS_ACT:
+      in3.actuating_gprs_period = (int)v;
+      break;
+    case RCFG_GPRS_PHOTO:
+      in3.phototherapy_gprs_period = (int)v;
+      break;
+    case RCFG_GPRS_STBY:
+      in3.standby_gprs_period = (int)v;
+      break;
+    case RCFG_COUNT:
+      break;
+  }
+}
 
 bool persist_int(const char *ns, const char *key, int v) {
   Preferences p;
@@ -228,75 +197,173 @@ bool persist_float(const char *ns, const char *key, float v) {
   return n == sizeof(float);
 }
 
-// Lleva fanCtlPWM al canal LEDC SOLO si nadie mas lo esta manejando. El POST
-// de antes escribia siempre, lo que podia arrancar el canal de control de una
-// unidad parada o pisar la salida del PID cerrado; ahora el valor nuevo lo
-// recoge turnFans(), que se llama en cada trama del HMI, igual que siempre.
-void apply_fan_ctl_pwm_now() {
-#if (HW_NUM >= 8)
-  if (g_factoryTestActive || !in3.fanCommandedOn) {
-    return;
-  }
-#if defined(FAN_SPEED_FEEDBACK)
-  if (in3.fanHasSpeedFeedback && in3.fanPidEnabled &&
-      fanControlPID.GetMode() == AUTOMATIC) {
-    return;
-  }
-#endif
-  ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
-#endif
-}
-
-// Persiste y luego cambia la RAM: si la NVS falla no se queda un valor
-// aplicado que desaparecera al reiniciar sin que nadie lo sepa.
-//
-// NO se escribe maxDesiredTemp[]: nadie lo lee (solo se define en main.cpp y
-// se declara extern en security.cpp), y su significado es el TOPE DE CONSIGNA
-// (AIR_TEMPERATURE_SET_MAX = 39), no el corte termico. Volcar ahi el corte
-// (hasta 40) rompia el invariante consigna < corte el dia que alguien lo leyera.
-bool store(RuntimeConfigId id, float v) {
+bool pf_persist_value(RuntimeConfigId id, float v) {
   switch (id) {
     case RCFG_FAN_SUPPLY_PWM:
-      if (!persist_int(NS_CFG, KEY_FAN_PWR_SUPPLY_PWM, (int)v)) return false;
-      in3.fanPwrSupplyPWM = (int)v;
-      return true;
+      return persist_int(NS_CFG, KEY_FAN_PWR_SUPPLY_PWM, (int)v);
     case RCFG_FAN_CTL_PWM:
-      if (!persist_int(NS_CFG, KEY_FAN_CTL_PWM, (int)v)) return false;
-      in3.fanCtlPWM = (int)v;
-      apply_fan_ctl_pwm_now();
-      return true;
+      return persist_int(NS_CFG, KEY_FAN_CTL_PWM, (int)v);
     case RCFG_FAN_PID_EN:
-      // Persiste por dentro (Actuators.cpp) y devuelve false sin tocar nada si
-      // la NVS falla.
-      return setFanPidEnabled(v != 0.0f);
+      return fanPidPersist(v != 0.0f);
     case RCFG_HEATER_AMPS:
-      if (!persist_float(NS_CFG, KEY_HEAT_MAX_A, v)) return false;
-      in3.heaterMaxPowerAmps = v;
-      return true;
+      return persist_float(NS_CFG, KEY_HEAT_MAX_A, v);
     case RCFG_AIR_TMAX:
-      if (!persist_float(NS_CFG, KEY_AIR_T_MAX, v)) return false;
-      in3.airTemperatureSetMax = v;
-      return true;
+      return persist_float(NS_CFG, KEY_AIR_T_MAX, v);
     case RCFG_SKIN_TMAX:
-      if (!persist_float(NS_CFG, KEY_SKIN_T_MAX, v)) return false;
-      in3.skinTemperatureSetMax = v;
-      return true;
+      return persist_float(NS_CFG, KEY_SKIN_T_MAX, v);
     case RCFG_GPRS_ACT:
-      if (!persist_int(NS_GPRS, KEY_ACT_PERIOD, (int)v)) return false;
-      in3.actuating_gprs_period = (int)v;
-      return true;
+      return persist_int(NS_GPRS, KEY_ACT_PERIOD, (int)v);
     case RCFG_GPRS_PHOTO:
-      if (!persist_int(NS_GPRS, KEY_PHOTO_PERIOD, (int)v)) return false;
-      in3.phototherapy_gprs_period = (int)v;
-      return true;
+      return persist_int(NS_GPRS, KEY_PHOTO_PERIOD, (int)v);
     case RCFG_GPRS_STBY:
-      if (!persist_int(NS_GPRS, KEY_STBY_PERIOD, (int)v)) return false;
-      in3.standby_gprs_period = (int)v;
-      return true;
+      return persist_int(NS_GPRS, KEY_STBY_PERIOD, (int)v);
     case RCFG_COUNT:
       break;
   }
   return false;
+}
+
+// --- estado persistente por clave -------------------------------------------
+
+void state_key(int i, char *out, size_t n) { snprintf(out, n, "k%d", i); }
+
+bool pf_persist_state(RuntimeConfigId id, const RcfgKeyState *s) {
+  Preferences p;
+  if (!p.begin(NS_RCFG, false)) {
+    return false;
+  }
+  char k[8];
+  state_key((int)id, k, sizeof(k));
+  const size_t n = p.putBytes(k, s, sizeof(RcfgKeyState));
+  p.end();
+  return n == sizeof(RcfgKeyState);
+}
+
+uint32_t pf_now_ms() { return (uint32_t)millis(); }
+uint32_t pf_epoch() { return babyStore_nowEpoch(); }
+bool pf_therapy() { return therapy_active(); }
+
+void pf_context(RuntimeConfigRemoteCtx *c) {
+  // Valores de FABRICA compilados: el techo de lo que un origen remoto puede
+  // dejar. Subir un limite por encima de esto sigue siendo una accion local.
+  c->air_factory_max = (float)AIR_THERMAL_CUTOUT_DEFAULT_C;
+  c->skin_factory_max = alarm_clamp_skin_cutout((float)SKIN_TEMPERATURE_SET_MAX);
+  c->heater_factory_max = (float)HEATER_MAX_POWER_AMPS;
+  c->fan_has_tach = in3.fanHasSpeedFeedback;
+  c->heater_acting =
+      in3.temperatureControl && in3.heater_current > RCFG_HEATER_ACTING_AMPS;
+  c->air_setpoint_c = 0.0f;
+  c->skin_setpoint_c = 0.0f;
+  if (in3.temperatureControl) {
+    const float sp = (float)in3.desiredControlTemperature;
+    if (in3.controlMode == CONTROL_AIR) {
+      c->air_setpoint_c = sp;
+    } else {
+      c->skin_setpoint_c = sp;
+    }
+  }
+}
+
+// --- auditoria, cfg_rejected ----------------------------------------------
+
+void audit_enqueue(const RcfgEvent *e) {
+  if (s_auditCount == AUDIT_CAP) {
+    ESP_LOGW(TAG, "cola de auditoria llena: se descarta el evento mas viejo");
+    s_auditHead = (s_auditHead + 1) % AUDIT_CAP;
+    --s_auditCount;
+  }
+  AuditEvent &a = s_audit[(s_auditHead + s_auditCount) % AUDIT_CAP];
+  a.seq = ++s_auditSeq;
+  a.id = e->id;
+  a.oldValue = e->before;
+  a.newValue = e->applied;
+  a.origin = e->origin;
+  a.epoch = e->epoch;
+  ++s_auditCount;
+}
+
+void note_rejected(const char *name, const char *why) {
+  if (runtime_config_format_rejected(name, why, s_rejectedJson,
+                                     sizeof(s_rejectedJson)) > 0) {
+    s_rejectedValid = true;
+    ++s_rejectedSeq;
+  }
+}
+
+// Todo lo que el nucleo cuenta pasa por aqui: log, eco, auditoria y cfg_rejected.
+// Los rechazos llegan ya limitados a uno por clave y minuto, con la cuenta de los
+// callados, asi que un atacante en bucle no vacia el anillo del CrashReporter.
+void pf_notify(const RcfgEvent *e) {
+  const char *name = runtime_config_name(e->id);
+  const char *org = runtime_config_origin_name(e->origin);
+  switch (e->type) {
+    case RCFG_EV_CHANGED:
+      audit_enqueue(e);
+      s_echoPending.fetch_or((uint32_t)RCFG_MASK(e->id));
+      // Aviso, no info: un cambio de un limite de seguridad o de la cadencia
+      // tiene que verse en el log aunque logI este compilado a nada.
+      ESP_LOGW(TAG, "CHANGE origin=%s name=%s requested=%.2f applied=%.2f was=%.2f",
+               org, name, (double)e->requested, (double)e->applied,
+               (double)e->before);
+      break;
+    case RCFG_EV_UNCHANGED:
+      s_echoPending.fetch_or((uint32_t)RCFG_MASK(e->id));
+      ESP_LOGI(TAG, "origin=%s name=%s requested=%.2f applied=%.2f (unchanged)",
+               org, name, (double)e->requested, (double)e->applied);
+      break;
+    case RCFG_EV_REJECTED:
+      ESP_LOGW(TAG, "origin=%s name=%s requested=%.2f rejected: %s (%u more suppressed)",
+               org, name, (double)e->requested,
+               runtime_config_status_text(e->status), (unsigned)e->suppressed);
+      note_rejected(name, runtime_config_status_text(e->status));
+      // El eco repone el valor que SI tiene la unidad, para que el panel no se
+      // quede con lo escrito.
+      s_echoPending.fetch_or((uint32_t)RCFG_MASK(e->id));
+      break;
+    case RCFG_EV_DEFERRED:
+      ESP_LOGW(TAG, "origin=%s name=%s requested=%.2f DEFERRED (therapy active or "
+                    "one change per key every 10 s)",
+               org, name, (double)e->requested);
+      break;
+    case RCFG_EV_LOCAL_WINS:
+      ESP_LOGW(TAG,
+               "origin=%s name=%s remote value %.2f NOT applied: a local change "
+               "wins until a new remote write (%u more suppressed)",
+               org, name, (double)e->requested, (unsigned)e->suppressed);
+      s_echoPending.fetch_or((uint32_t)RCFG_MASK(e->id));
+      break;
+    case RCFG_EV_PERSIST_FAIL:
+      ESP_LOGE(TAG, "origin=%s name=%s NVS write failed", org, name);
+      break;
+  }
+}
+
+const RcfgPlatform PLATFORM = {
+    current_value, pf_apply_ram, pf_persist_value, pf_persist_state,
+    pf_now_ms,     pf_epoch,     pf_therapy,       pf_context,
+    pf_notify};
+
+// Con el mutex cogido. Carga el estado de NVS una sola vez.
+void ensure_loaded() {
+  if (s_loaded) {
+    return;
+  }
+  s_loaded = true;
+  rcfg_init(&s_core, &PLATFORM, RCFG_REMOTE_SAFETY_PARAMS != 0);
+  Preferences p;
+  if (!p.begin(NS_RCFG, true)) {
+    return;  // namespace aun inexistente: estado limpio
+  }
+  for (int i = 0; i < RCFG_COUNT; ++i) {
+    char k[8];
+    state_key(i, k, sizeof(k));
+    RcfgKeyState tmp;
+    if (p.getBytesLength(k) == sizeof(tmp) &&
+        p.getBytes(k, &tmp, sizeof(tmp)) == sizeof(tmp)) {
+      rcfg_load_state(&s_core, (RuntimeConfigId)i, &tmp);  // ignora otra version
+    }
+  }
+  p.end();
 }
 
 void set_msg(char *msg, size_t msg_len, const char *name, const char *why) {
@@ -314,90 +381,14 @@ bool lookup_for(RuntimeConfigOrigin o, const char *name, RuntimeConfigId *id) {
                                 : runtime_config_lookup(name, id);
 }
 
-// --- auditoria, cfg_rejected ----------------------------------------------
-
-void audit_enqueue(RuntimeConfigId id, float oldV, float newV,
-                   RuntimeConfigOrigin origin, uint32_t epoch) {
-  if (s_auditCount == AUDIT_CAP) {
-    ESP_LOGW(TAG, "cola de auditoria llena: se descarta el evento mas viejo");
-    s_auditHead = (s_auditHead + 1) % AUDIT_CAP;
-    --s_auditCount;
-  }
-  AuditEvent &e = s_audit[(s_auditHead + s_auditCount) % AUDIT_CAP];
-  e.seq = ++s_auditSeq;
-  e.id = id;
-  e.oldValue = oldV;
-  e.newValue = newV;
-  e.origin = origin;
-  e.epoch = epoch;
-  ++s_auditCount;
-}
-
-void note_rejected(const char *name, const char *why) {
-  if (runtime_config_format_rejected(name, why, s_rejectedJson,
-                                     sizeof(s_rejectedJson)) > 0) {
-    s_rejectedValid = true;
-    ++s_rejectedSeq;
-  }
-}
-
-// --- nucleo ----------------------------------------------------------------
-
-// Aplica un valor YA validado. Con el mutex cogido.
-//   changed -> persiste, anota origen/epoch, audita y (si es local) marca
-//              override; si no cambia nada solo se marca el eco.
-bool commit(RuntimeConfigOrigin origin, RuntimeConfigId id, float requested,
-            float applied, RuntimeConfigStatus st, char *msg, size_t msg_len) {
-  const char *name = runtime_config_name(id);
-  const char *org = runtime_config_origin_name(origin);
-  const float before = current_value(id);
-  const bool changed = (before != applied);
-
-  if (changed) {
-    if (!store(id, applied)) {
-      ESP_LOGE(TAG, "origin=%s name=%s requested=%.2f NVS write failed, unchanged",
-               org, name, (double)requested);
-      set_msg(msg, msg_len, name, "could not be saved");
-      return false;
-    }
-    const uint32_t epoch = babyStore_nowEpoch();
-    KeyState &k = s_state[id];
-    k.src = (uint8_t)origin + 1;
-    k.epoch = epoch;
-    if (!is_remote(origin)) {
-      k.overrideLocal = 1;  // un cambio local gana al reaplicado remoto
-      s_pending[id].valid = false;  // y a un remoto aplazado
-      s_pendingMask.fetch_and(~(uint32_t)RCFG_MASK(id));
-    } else {
-      s_lastRemoteChangeMs[id] = millis();
-      s_hasLastRemoteChange[id] = true;
-    }
-    save_state(id);
-    audit_enqueue(id, before, applied, origin, epoch);
-    // Aviso, no info: un cambio de un limite de seguridad o de la cadencia
-    // tiene que verse en el log aunque logI este compilado a nada.
-    ESP_LOGW(TAG, "CHANGE origin=%s name=%s requested=%.2f applied=%.2f was=%.2f%s",
-             org, name, (double)requested, (double)applied, (double)before,
-             st == RCFG_OK_CLAMPED ? " (clamped)" : "");
-  } else {
-    ESP_LOGI(TAG, "origin=%s name=%s requested=%.2f applied=%.2f (unchanged)",
-             org, name, (double)requested, (double)applied);
-  }
-  s_echoPending.fetch_or((uint32_t)RCFG_MASK(id));
-  set_msg(msg, msg_len, name,
-          st == RCFG_OK_CLAMPED ? "clamped to the allowed range" : "ok");
-  return true;
-}
-
-// Origen local (web / usb). Con el mutex cogido.
+// Origen local (web, USB) con el mutex cogido.
 bool apply_local(RuntimeConfigOrigin origin, RuntimeConfigId id, float requested,
                  char *msg, size_t msg_len) {
   const char *name = runtime_config_name(id);
   float applied = 0.0f;
+  bool persisted = false;
   const RuntimeConfigStatus st =
-      (origin == RCFG_ORIGIN_USB)
-          ? runtime_config_validate_strict(id, requested, &applied)
-          : runtime_config_validate(id, requested, &applied);
+      rcfg_apply_local(&s_core, origin, id, requested, &applied, &persisted);
   if (!runtime_config_status_accepted(st)) {
     // ESP_LOGW y no logI: logI esta detras de LOG_INFORMATION (false) y un
     // rechazo de un parametro de seguridad no puede ser invisible.
@@ -407,110 +398,12 @@ bool apply_local(RuntimeConfigOrigin origin, RuntimeConfigId id, float requested
     set_msg(msg, msg_len, name, runtime_config_status_text(st));
     return false;
   }
-  return commit(origin, id, requested, applied, st, msg, msg_len);
-}
-
-// Intenta aplicar un valor remoto: lista blanca, reglas remotas y, si toca,
-// lo deja aplazado. Con el mutex cogido.
-enum class RemoteResult { Applied, Rejected, Deferred };
-
-RemoteResult try_remote(RuntimeConfigOrigin origin, RuntimeConfigId id,
-                        float requested) {
-  const char *name = runtime_config_name(id);
-  const char *org = runtime_config_origin_name(origin);
-
-  if (!runtime_config_remote_allowed(id, RCFG_REMOTE_SAFETY_PARAMS != 0)) {
-    ESP_LOGW(TAG,
-             "origin=%s name=%s requested=%.2f IGNORED: not allowed remotely "
-             "(MQTT is not encrypted, see runtime_config_policy.h)",
-             org, name, (double)requested);
-    note_rejected(name, runtime_config_status_text(RCFG_REJ_NOT_ALLOWED));
-    s_echoPending.fetch_or((uint32_t)RCFG_MASK(id));
-    return RemoteResult::Rejected;
+  if (!persisted) {
+    set_msg(msg, msg_len, name, "could not be saved");
+    return false;
   }
-
-  const RuntimeConfigRemoteCtx ctx = build_ctx();
-  float applied = 0.0f;
-  const RuntimeConfigStatus st =
-      runtime_config_validate_remote(id, requested, &ctx, &applied);
-  if (!runtime_config_status_accepted(st)) {
-    ESP_LOGW(TAG, "origin=%s name=%s requested=%.2f rejected: %s", org, name,
-             (double)requested, runtime_config_status_text(st));
-    note_rejected(name, runtime_config_status_text(st));
-    // El eco repone el valor que SI tiene la unidad, para que el panel no se
-    // quede con lo escrito.
-    s_echoPending.fetch_or((uint32_t)RCFG_MASK(id));
-    return RemoteResult::Rejected;
-  }
-
-  const bool defer_therapy = runtime_config_should_defer(id, therapy_active());
-  const bool rate_ok = runtime_config_rate_ok(
-      s_hasLastRemoteChange[id], s_lastRemoteChangeMs[id], millis(),
-      (uint32_t)RCFG_REMOTE_MIN_INTERVAL_MS);
-  // Un valor que no cambia nada no espera a nadie.
-  const bool noop = (current_value(id) == applied);
-  if (!noop && (defer_therapy || !rate_ok)) {
-    s_pending[id].valid = true;
-    s_pending[id].requested = requested;
-    s_pending[id].origin = origin;
-    s_pendingMask.fetch_or((uint32_t)RCFG_MASK(id));
-    ESP_LOGW(TAG, "origin=%s name=%s requested=%.2f DEFERRED: %s", org, name,
-             (double)requested,
-             defer_therapy ? "therapy active, waits for standby"
-                           : "one change per key every 10 s");
-    return RemoteResult::Deferred;
-  }
-
-  (void)commit(origin, id, requested, applied, st, nullptr, 0);
-  return RemoteResult::Applied;
-}
-
-// Apunta `requested` como ultimo valor remoto visto de la clave y lo persiste
-// si cambia. Con el mutex cogido.
-void record_remote(RuntimeConfigId id, float requested) {
-  KeyState &k = s_state[id];
-  if (k.hasRemote && k.lastRemote == requested) {
-    return;
-  }
-  k.lastRemote = requested;
-  k.hasRemote = 1;
-  save_state(id);
-}
-
-// Una clave de un objeto de atributos. Con el mutex cogido.
-void handle_remote_key(RuntimeConfigOrigin origin, RuntimeConfigId id,
-                       float requested, bool new_write) {
-  KeyState &k = s_state[id];
-
-  if (!new_write) {
-    // Respuesta a la peticion de una conexion.
-    if (k.hasRemote && k.lastRemote == requested) {
-      return;  // reenvio de lo mismo: nada nuevo
-    }
-    if (k.overrideLocal) {
-      // Hay un cambio local posterior: manda el local. Se apunta lo visto para
-      // no repetir este aviso en cada conexion.
-      ESP_LOGW(TAG,
-               "origin=%s name=%s remote value %.2f NOT applied: a local change "
-               "wins until a new remote write",
-               runtime_config_origin_name(origin), runtime_config_name(id),
-               (double)requested);
-      record_remote(id, requested);
-      return;
-    }
-  } else if (k.overrideLocal) {
-    // Escritura remota nueva (suscripcion): levanta el override local.
-    k.overrideLocal = 0;
-    save_state(id);
-  }
-
-  const RemoteResult r = try_remote(origin, id, requested);
-  // El valor se da por "visto" salvo que haya quedado APLAZADO: un aplazado
-  // vive solo en RAM, y si la unidad reinicia antes de aplicarlo hay que
-  // volver a intentarlo en la siguiente conexion, no darlo por reenvio.
-  if (r != RemoteResult::Deferred) {
-    record_remote(id, requested);
-  }
+  set_msg(msg, msg_len, name, "ok");
+  return true;
 }
 
 }  // namespace
@@ -585,10 +478,8 @@ bool runtime_config_check_text(RuntimeConfigOrigin origin, const char *name,
     return false;
   }
   float applied = 0.0f;
-  const RuntimeConfigStatus st =
-      (origin == RCFG_ORIGIN_USB)
-          ? runtime_config_validate_strict(id, value, &applied)
-          : runtime_config_validate(id, value, &applied);
+  // Estricta tambien para la web (ver rcfg_apply_local).
+  const RuntimeConfigStatus st = runtime_config_validate_strict(id, value, &applied);
   if (!runtime_config_status_accepted(st)) {
     set_msg(msg, msg_len, runtime_config_name(id), runtime_config_status_text(st));
     return false;
@@ -608,34 +499,25 @@ size_t runtime_config_apply_json(RuntimeConfigOrigin origin,
     return 0;
   }
   ensure_loaded();
-  size_t applied = 0;
+  size_t seen = 0;
   // Se recorre LA LISTA BLANCA CONOCIDA y se pregunta por cada nombre exacto:
   // lo que se escriba en otras claves no se mira siquiera.
   for (int i = 0; i < RCFG_COUNT; ++i) {
     const RuntimeConfigId id = (RuntimeConfigId)i;
-    const char *name = runtime_config_name(id);
-    JsonVariantConst v = data[name];
+    JsonVariantConst v = data[runtime_config_name(id)];
     if (v.isNull()) {
       continue;
     }
+    ++seen;
     float requested = 0.0f;
     // Un booleano solo vale para fan_pid_en.
     if (!runtime_config_json_number(v, id == RCFG_FAN_PID_EN, &requested)) {
-      ESP_LOGW(TAG, "origin=%s name=%s rejected: wrong value type",
-               runtime_config_origin_name(origin), name);
-      note_rejected(name, "wrong value type");
+      rcfg_remote_bad_type(&s_core, origin, id);
       continue;
     }
-    if (!runtime_config_remote_allowed(id, RCFG_REMOTE_SAFETY_PARAMS != 0)) {
-      // No entra en el estado persistente: no es una escritura que se vaya a
-      // aplicar nunca.
-      (void)try_remote(origin, id, requested);
-      continue;
-    }
-    handle_remote_key(origin, id, requested, new_write);
-    ++applied;
+    rcfg_remote_key(&s_core, origin, id, requested, new_write);
   }
-  return applied;
+  return seen;
 }
 
 void runtime_config_on_update_gprs(JsonObjectConst const &data) {
@@ -666,34 +548,12 @@ const char *const *runtime_config_keys(size_t *count) {
 }
 
 void runtime_config_poll(void) {
-  if (s_pendingMask.load() == 0) {
-    return;
-  }
   Lock lock;
   if (!lock.ok()) {
     return;
   }
   ensure_loaded();
-  for (int i = 0; i < RCFG_COUNT; ++i) {
-    const RuntimeConfigId id = (RuntimeConfigId)i;
-    if (!s_pending[i].valid) {
-      continue;
-    }
-    // Todavia no toca: se queda donde esta.
-    const bool wait =
-        runtime_config_should_defer(id, therapy_active()) ||
-        !runtime_config_rate_ok(s_hasLastRemoteChange[i], s_lastRemoteChangeMs[i],
-                                millis(), (uint32_t)RCFG_REMOTE_MIN_INTERVAL_MS);
-    if (wait) {
-      continue;
-    }
-    const Pending p = s_pending[i];
-    s_pending[i].valid = false;
-    s_pendingMask.fetch_and(~(uint32_t)RCFG_MASK(id));
-    if (try_remote(p.origin, id, p.requested) != RemoteResult::Deferred) {
-      record_remote(id, p.requested);
-    }
-  }
+  rcfg_poll(&s_core);
 }
 
 void runtime_config_echo_all(void) {
@@ -715,11 +575,11 @@ size_t runtime_config_echo_build(char *json, size_t len,
   uint32_t epoch[RCFG_COUNT];
   for (int i = 0; i < RCFG_COUNT; ++i) {
     token->sent[i] = current_value((RuntimeConfigId)i);
-    const uint8_t code = s_state[i].src;
-    src[i] = (code == SRC_NONE)
+    const uint8_t code = s_core.st[i].src;
+    src[i] = (code == 0)
                  ? nullptr
                  : runtime_config_origin_name((RuntimeConfigOrigin)(code - 1));
-    epoch[i] = s_state[i].epoch;
+    epoch[i] = s_core.st[i].epoch;
   }
   const size_t n =
       runtime_config_format_echo(token->sent, pending, src, epoch, json, len);
