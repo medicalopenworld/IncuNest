@@ -47,7 +47,7 @@ pero no aparece en el dashboard al instante.
 |---|---|:--:|:--:|---|
 | **CORE** | 69 | ✅ | ✅ | Constantes vitales, alarmas, actuadores, datos de bebé. Lo clínico. |
 | **CELLULAR** | 4 | ✅ | ❌ | `IMEI`, `APN`, `COP`, `CSQ`. Sin sentido físico por WiFi. |
-| **DIAG** | 8 | ✅ | ❌ | Boot count, heap, uptime, resets del HMI, kills del módem. |
+| **DIAG** | 8 (+1 todas las placas, +2 solo V19) | ✅ | ❌ | Boot count, heap, uptime, resets del HMI, kills del módem. Más `AFE_diag` (todas las placas) y, solo en la V19, `GSM_power_cycles` y `AFE_resets` (ver `hw19.md`). |
 | **CALIBRATION** | 6 | ✅ | ❌ | Referencias y ajuste fino de los sensores de temperatura. |
 
 Se cambian con un `0`/`1` en `TX_GROUP_<grupo>_<TRANSPORTE>`.

@@ -69,6 +69,9 @@
 //       No tienen nada de específico del transporte. Está a 0 en WiFi porque
 //       es lo que hace el firmware hoy, no porque se decidiera: ponlo a 1 si
 //       quieres diagnóstico también en los equipos conectados por WiFi.
+//       mb-hw19: +AFE_diag (todas las placas) y +GSM_power_cycles,
+//       +AFE_resets (solo HW >= 19). Peor caso GPRS en la V19: 104 de 112
+//       campos (V18: 102).
 #define TX_GROUP_DIAG_GPRS 1
 #define TX_GROUP_DIAG_WIFI 0
 
