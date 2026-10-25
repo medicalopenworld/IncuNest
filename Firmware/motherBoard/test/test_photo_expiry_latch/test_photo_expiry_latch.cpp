@@ -82,7 +82,95 @@ void test_second_expiry_rearms(void) {
   TEST_ASSERT_FALSE(photo_expiry_latch_filter(&l, true, 0));
 }
 
+// --- M1: persistir OFF al caducar, UNA vez ---
+
+// Al caducar hay que guardar KEY_PHOTO_ACTIVE=0 (si la placa cae antes de la
+// siguiente trama del display, arrancaria en fototerapia continua sin limite).
+void test_expiry_arms_a_pending_persist_off_taken_once(void) {
+  TEST_ASSERT_FALSE(photo_expiry_latch_take_persist_off(&l));
+  photo_expiry_latch_expire(&l);
+  TEST_ASSERT_TRUE(photo_expiry_latch_take_persist_off(&l));
+  TEST_ASSERT_FALSE(photo_expiry_latch_take_persist_off(&l));
+}
+
+// Dos tareas detectan la caducidad a la vez: una sola escritura.
+void test_double_expire_in_the_same_episode_persists_once(void) {
+  photo_expiry_latch_expire(&l);
+  photo_expiry_latch_expire(&l);
+  TEST_ASSERT_TRUE(photo_expiry_latch_take_persist_off(&l));
+  photo_expiry_latch_expire(&l);  // aun dentro del episodio
+  TEST_ASSERT_FALSE(photo_expiry_latch_take_persist_off(&l));
+}
+
+// Otro episodio (tras cerrar el cerrojo) vuelve a pedirlo.
+void test_next_episode_persists_again(void) {
+  photo_expiry_latch_expire(&l);
+  photo_expiry_latch_take_persist_off(&l);
+  photo_expiry_latch_filter(&l, false, 0);  // el display adopta el apagado
+  photo_expiry_latch_expire(&l);
+  TEST_ASSERT_TRUE(photo_expiry_latch_take_persist_off(&l));
+}
+
+// --- B4: un log por episodio ---
+
+void test_filtering_logs_once_per_episode(void) {
+  TEST_ASSERT_FALSE(photo_expiry_latch_take_filter_log(&l));
+  photo_expiry_latch_expire(&l);
+  // Sin trama filtrada todavia, nada que loguear.
+  TEST_ASSERT_FALSE(photo_expiry_latch_take_filter_log(&l));
+  TEST_ASSERT_FALSE(photo_expiry_latch_filter(&l, true, 0));
+  TEST_ASSERT_TRUE(photo_expiry_latch_take_filter_log(&l));
+  // La trama retenida llega muchas veces: ni un log mas en este episodio.
+  for (unsigned i = 0; i < 20u; ++i) {
+    photo_expiry_latch_filter(&l, true, 0);
+    TEST_ASSERT_FALSE(photo_expiry_latch_take_filter_log(&l));
+  }
+}
+
+void test_next_episode_logs_again(void) {
+  photo_expiry_latch_expire(&l);
+  photo_expiry_latch_filter(&l, true, 0);
+  photo_expiry_latch_take_filter_log(&l);
+  photo_expiry_latch_filter(&l, false, 0);
+  photo_expiry_latch_expire(&l);
+  photo_expiry_latch_filter(&l, true, 0);
+  TEST_ASSERT_TRUE(photo_expiry_latch_take_filter_log(&l));
+}
+
+// Una trama que pasa (con minutos) no genera log.
+void test_accepted_frames_never_log(void) {
+  photo_expiry_latch_expire(&l);
+  photo_expiry_latch_filter(&l, true, 15);
+  photo_expiry_latch_filter(&l, false, 0);
+  TEST_ASSERT_FALSE(photo_expiry_latch_take_filter_log(&l));
+}
+
+// --- B1: validar photo y photoMin, y descartar la trama entera ---
+
+void test_valid_fields_are_accepted(void) {
+  TEST_ASSERT_TRUE(photo_hmi_fields_valid(0, 0));
+  TEST_ASSERT_TRUE(photo_hmi_fields_valid(1, 0));
+  TEST_ASSERT_TRUE(photo_hmi_fields_valid(1, 15));
+  TEST_ASSERT_TRUE(photo_hmi_fields_valid(1, PHOTO_TIMER_MAX_MINUTES));
+  TEST_ASSERT_TRUE(photo_hmi_fields_valid(0, PHOTO_TIMER_MAX_MINUTES));
+}
+
+void test_photo_out_of_range_is_rejected(void) {
+  TEST_ASSERT_FALSE(photo_hmi_fields_valid(2, 0));
+  TEST_ASSERT_FALSE(photo_hmi_fields_valid(-1, 0));
+  TEST_ASSERT_FALSE(photo_hmi_fields_valid(255, 10));
+}
+
+void test_photo_min_out_of_range_is_rejected(void) {
+  TEST_ASSERT_FALSE(photo_hmi_fields_valid(1, -1));
+  TEST_ASSERT_FALSE(photo_hmi_fields_valid(1, PHOTO_TIMER_MAX_MINUTES + 1));
+  TEST_ASSERT_FALSE(photo_hmi_fields_valid(0, 99999));
+  TEST_ASSERT_FALSE(photo_hmi_fields_valid(1, -2147483647 - 1));
+}
+
 void test_null_is_harmless(void) {
+  TEST_ASSERT_FALSE(photo_expiry_latch_take_persist_off(NULL));
+  TEST_ASSERT_FALSE(photo_expiry_latch_take_filter_log(NULL));
   photo_expiry_latch_init(NULL);
   photo_expiry_latch_expire(NULL);
   TEST_ASSERT_TRUE(photo_expiry_latch_filter(NULL, true, 0));
@@ -100,6 +188,15 @@ int main(void) {
   RUN_TEST(test_off_always_passes);
   RUN_TEST(test_expire_is_idempotent);
   RUN_TEST(test_second_expiry_rearms);
+  RUN_TEST(test_expiry_arms_a_pending_persist_off_taken_once);
+  RUN_TEST(test_double_expire_in_the_same_episode_persists_once);
+  RUN_TEST(test_next_episode_persists_again);
+  RUN_TEST(test_filtering_logs_once_per_episode);
+  RUN_TEST(test_next_episode_logs_again);
+  RUN_TEST(test_accepted_frames_never_log);
+  RUN_TEST(test_valid_fields_are_accepted);
+  RUN_TEST(test_photo_out_of_range_is_rejected);
+  RUN_TEST(test_photo_min_out_of_range_is_rejected);
   RUN_TEST(test_null_is_harmless);
   return UNITY_END();
 }
