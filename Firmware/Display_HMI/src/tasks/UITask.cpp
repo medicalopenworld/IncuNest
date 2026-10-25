@@ -1,6 +1,7 @@
 #include "UITask.h"
 // #include "AudioManager.h"  // Deshabilitado para migración Arduino 3.x
 #include "CommTask.h"
+#include "state/patient_state.h"
 #include "state/training_mode.h"
 #include "buzzer.h"
 #include "ui/AlarmCenter.h"
@@ -484,6 +485,82 @@ void clock_update(void) {
     lastDate[sizeof(lastDate) - 1] = '\0';
     lv_label_set_text(ui_ClockDate, nowDate);
     if (ui_LockHeadingClockDate) lv_label_set_text(ui_LockHeadingClockDate, nowDate);
+  }
+}
+
+// Identidad del bebe al mando (spec hmi-patient-identity): nombre, edad
+// gestacional corregida y dias de vida, en el boton "Bebes" del heading de
+// Main y en su replica de ui_ScreenLock. Mismo patron que clock_update(): corre
+// en cada pasada, solo escribe en los widgets si algo cambio, y alimenta las
+// dos pantallas a la vez. Va DENTRO de LVGL_Lock (toca widgets); no toca NVS.
+//
+// Solo se muestra con sesion VIVA (BabyWizard_HasLiveSession(): bebe conocido
+// Y alguna terapia en marcha). Con la incubadora parada el seq que recuerda el
+// asistente es historia, no "quien esta dentro", y un nombre ajeno en pantalla
+// con la cabina vacia es justo el error que esto quiere evitar.
+void patient_identity_update(void) {
+  if (!ui_BabiesPatientName || !ui_BabiesPatientDetail ||
+      !ui_BabiesButtonLabel) {
+    return;
+  }
+
+  const bool live = BabyWizard_HasLiveSession();
+  char name[24] = "";
+  char detail[48] = "";
+  if (live) {
+    BabyWizardSession s;
+    BabyWizard_GetSession(&s);
+    snprintf(name, sizeof(name), "%s", s.name[0] ? s.name : "--");
+    const PatientAge age = PatientState_GetAge(s.seq, s.gest);
+    if (age.hasCorrected) {
+      snprintf(detail, sizeof(detail), TR(STR_PATIENT_AGE_FMT),
+               (unsigned)age.corrWeeks, (unsigned)age.corrDays,
+               (unsigned)age.lifeDays);
+    } else if (s.gest > 0) {
+      snprintf(detail, sizeof(detail), TR(STR_PATIENT_GEST_ONLY_FMT),
+               (unsigned)s.gest);
+    } else if (age.hasLifeDays) {
+      snprintf(detail, sizeof(detail), TR(STR_PATIENT_DAYS_ONLY_FMT),
+               (unsigned)age.lifeDays);
+    }
+  }
+
+  static bool lastLive = false;
+  static char lastName[sizeof(name)] = {0};
+  static char lastDetail[sizeof(detail)] = {0};
+  static int lastLang = -1;
+  const bool langChanged = lastLang != (int)g_lang;
+  const bool nameChanged = strcmp(name, lastName) != 0;
+  const bool detailChanged = strcmp(detail, lastDetail) != 0;
+  if (live == lastLive && !nameChanged && !detailChanged && !langChanged &&
+      lastLang != -1) {
+    return;
+  }
+  lastLive = live;
+  lastLang = (int)g_lang;
+  snprintf(lastName, sizeof(lastName), "%s", name);
+  snprintf(lastDetail, sizeof(lastDetail), "%s", detail);
+
+  if (live) {
+    lv_obj_add_flag(ui_BabiesButtonLabel, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(ui_BabiesPatientName, name);
+    lv_label_set_text(ui_BabiesPatientDetail, detail);
+    lv_obj_clear_flag(ui_BabiesPatientName, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_BabiesPatientDetail, LV_OBJ_FLAG_HIDDEN);
+    if (ui_LockPatientName) {
+      lv_label_set_text(ui_LockPatientName, name);
+      lv_obj_clear_flag(ui_LockPatientName, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (ui_LockPatientDetail) {
+      lv_label_set_text(ui_LockPatientDetail, detail);
+      lv_obj_clear_flag(ui_LockPatientDetail, LV_OBJ_FLAG_HIDDEN);
+    }
+  } else {
+    lv_obj_add_flag(ui_BabiesPatientName, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_BabiesPatientDetail, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_BabiesButtonLabel, LV_OBJ_FLAG_HIDDEN);
+    if (ui_LockPatientName) lv_obj_add_flag(ui_LockPatientName, LV_OBJ_FLAG_HIDDEN);
+    if (ui_LockPatientDetail) lv_obj_add_flag(ui_LockPatientDetail, LV_OBJ_FLAG_HIDDEN);
   }
 }
 
@@ -4268,6 +4345,10 @@ void UI_Task(void *pvParameters) {
   // Antes de UI_ApplyLanguage(): es quien rellena el desplegable del
   // intervalo, y necesita el valor ya leido de NVS para marcar la opcion
   // correcta. Solo toca NVS, no LVGL, asi que puede ir aqui.
+  // El bebe al mando se restaura ANTES que el recordatorio de mantenimiento:
+  // Maintenance_Tick() compara BabyWizard_GetActiveSeq() con el ultimo seq que
+  // vio, y un reinicio con seq 0 de por medio se leeria como un alta.
+  PatientState_Restore();
   Maintenance_Init();
 
   UI_ApplyLanguage(g_lang);
@@ -4962,6 +5043,7 @@ void UI_Task(void *pvParameters) {
     // Y estos dos por el motivo opuesto: dependen de que NO llegue nada.
     link_lost_blank_update();
     clock_update();
+    patient_identity_update();
     wifi_link_status_update();
     connectivity_heading_update();
     link_audio_mute_button_update();
@@ -4995,6 +5077,10 @@ void UI_Task(void *pvParameters) {
     // la escritura en NVS porque esa puede tardar ~30 ms y desplazaria los
     // bordes de los pulsos.
     link_audio_service();
+
+    // Bebe al mando (identidad capturada por el asistente): la NVS se toca
+    // aqui, fuera de LVGL_Lock, y solo cuando algo cambio.
+    PatientState_Service();
 
     // NVS writes run outside LVGL_Lock — avoids blocking the renderer during
     // wear-leveling erasure (~30ms worst case). Same pattern as AlarmSound_Update.

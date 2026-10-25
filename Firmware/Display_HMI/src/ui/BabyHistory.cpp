@@ -7,6 +7,7 @@
 #include "CommTask.h"
 #include "UITask.h"
 #include "main.h"
+#include "modules/patient/patient_session.h"  // patient_fmt_minutes()
 #include "state/training_mode.h"
 #include "ui.h"
 #include "ui/BabyWizard.h"  // BabyWizard_HasLiveSession(), GetActiveSeq()
@@ -309,16 +310,11 @@ void onNextPage(lv_event_t *) {
 }
 
 // Minutes -> compact "3h 20m" / "45m". Hours are what a clinician reads
-// for therapy exposure; raw minutes get unwieldy after a few days.
+// for therapy exposure; raw minutes get unwieldy after a few days. The format
+// lives in modules/patient (shared with the therapy totals on the main screen,
+// and covered by host tests there).
 static void fmtMinutes(uint32_t minutes, char *out, size_t len) {
-  if (minutes < 60u) {
-    snprintf(out, len, "%um", (unsigned)minutes);
-  } else if (minutes % 60u == 0u) {
-    snprintf(out, len, "%uh", (unsigned)(minutes / 60u));
-  } else {
-    snprintf(out, len, "%uh %um", (unsigned)(minutes / 60u),
-             (unsigned)(minutes % 60u));
-  }
+  patient_fmt_minutes(minutes, out, len);
 }
 
 void showList() {

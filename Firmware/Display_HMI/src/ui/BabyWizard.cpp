@@ -5,6 +5,7 @@
 #include "CommTask.h"
 #include "UITask.h"
 #include "main.h"
+#include "state/patient_state.h"
 #include "state/training_mode.h"
 #include "ui.h"
 #include "ui/InputKeypad.h"
@@ -724,6 +725,7 @@ bool BabyWizard_HasLiveSession() {
 }
 const char *BabyWizard_GetActiveName() { return s_sessionName; }
 void BabyWizard_ClearActiveProfile() {
+  PatientState_OnClear();
   s_sessionSeq = 0;
   s_sessionName[0] = '\0';
   s_sessionGest = 0;
@@ -750,6 +752,7 @@ void BabyWizard_SetSession(const BabyWizardSession *s) {
   snprintf(s_sessionName, sizeof(s_sessionName), "%s", s->name);
   s_sessionGest = s->gest;
   s_sessionWeight = s->weight;
+  PatientState_OnSessionSet(s_sessionSeq, s_sessionName, s_sessionGest);
 }
 
 BabyWizardStep BabyWizard_GetStep() {
@@ -813,6 +816,7 @@ void BabyWizard_Poll() {
           // so the picker takes over instead of retrying a dead seq forever.
           s_sessionSeq = 0;
           s_sessionName[0] = '\0';
+          PatientState_OnClear();  // manda la placa: ya no existe ese bebe
           UI_ShowToast(TR(STR_OPERATION_REFUSED), 3000);
           // Re-request the list: we may have arrived here bypassing it.
           Communication_SendProfileListReq();
@@ -826,6 +830,7 @@ void BabyWizard_Poll() {
           snprintf(s_sessionName, sizeof(s_sessionName), "%s", s_name);
           s_sessionGest = s_gestWeeks;
           if (s_weightGrams > 0) s_sessionWeight = s_weightGrams;
+          PatientState_OnSessionSet(s_sessionSeq, s_sessionName, s_sessionGest);
           if (targetIsIdentityOnly(s_target)) {
             // A lamp or a humidifier needs no NTE range, so weight and
             // age-in-days are never asked here: identifying the baby is the
@@ -848,6 +853,11 @@ void BabyWizard_Poll() {
       if (g_pendingProfileRange) {
         g_pendingProfileRange = false;
         if (g_profileRange.seq != s_seq) break; // stale response
+        // La placa no manda fecha de nacimiento: la edad que dice AHORA, con
+        // la hora de ahora, es lo unico con lo que el mando puede seguir
+        // contando los dias (state/patient_state).
+        PatientState_OnAge(g_profileRange.seq, g_profileRange.ageDays,
+                           g_profileRange.ageKnown);
         s_rangeAgeKnown = g_profileRange.ageKnown;
         s_rangeLo = g_profileRange.lo;
         s_rangeHi = g_profileRange.hi;
