@@ -15,6 +15,7 @@
 #include "ui/MaintenanceDialog.h"
 #include "ui/BabyWizard.h"
 #include "modules/maintenance/maintenance.h"
+#include "modules/maintenance/weigh_tracker.h"
 #include "display_config.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_rgb.h"
@@ -4269,6 +4270,7 @@ void UI_Task(void *pvParameters) {
   // intervalo, y necesita el valor ya leido de NVS para marcar la opcion
   // correcta. Solo toca NVS, no LVGL, asi que puede ir aqui.
   Maintenance_Init();
+  WeighTracker_Init();
 
   UI_ApplyLanguage(g_lang);
   ui_set_switch_state_silent(ui_SwitchDarkMode, darkMode);
@@ -5017,6 +5019,9 @@ void UI_Task(void *pvParameters) {
       ESP_LOGW(TAG, "LCD_DIAG: training Preferences write tomó %lu ms",
                (unsigned long)(millis() - t0));
     }
+    // Sello de pesada del recordatorio diario: el tracker solo marca "sucio"
+    // dentro del lock y escribe aqui, fuera. No hace nada si no hay cambios.
+    WeighTracker_Flush();
 
     // AlarmSound_Update uses I2C (Wire.endTransmission) — must run outside
     // LVGL_Lock to avoid blocking the LVGL mutex for ~50 ms (Fix: ARQ-LOCK-001)

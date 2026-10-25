@@ -8,6 +8,7 @@
 #include "UITask.h"
 #include "main.h"
 #include "modules/maintenance/maintenance.h"
+#include "modules/maintenance/weigh_tracker.h"
 #include "state/training_mode.h"  // Training_IsActive()
 #include "ui.h"
 // Los otros dialogos modales: el aviso espera su turno y no se pinta encima.
@@ -17,6 +18,7 @@
 #include "ui/BabyWizard.h"
 #include "ui/FactoryTest.h"
 #include "ui/HelpDialog.h"
+#include "ui/InputKeypad.h"
 #include "ui/TimeDialog.h"
 #include "ui/training/training.h"
 
@@ -41,9 +43,33 @@ constexpr uint32_t COLOR_DUE = 0xB26A00;
 constexpr uint32_t COLOR_TEXT = 0x0B2E4F;
 constexpr uint32_t COLOR_SUB = 0x666666;
 
+// Que cuenta el overlay. Es el mismo overlay, tarjeta y logica de ceder paso
+// para los dos avisos; solo cambia el contenido.
+enum class Mode : uint8_t {
+  Maintenance,  // limpieza y mantenimiento (los tres niveles y el QR)
+  WeighPrompt,  // "lleva N h sin pesar": PESAR AHORA / MAS TARDE
+  WeighEntry,   // teclado numerico del peso del bebe activo
+};
+
 bool s_open = false;
-// Armado por el desbloqueo de pantalla. Se consume al abrir el pop-up.
-bool s_armed = false;
+Mode s_mode = Mode::Maintenance;
+// Armados por el desbloqueo de pantalla, uno por aviso, para que si caen a la
+// vez salgan uno detras de otro sin que cerrar el primero vuelva a armar nada.
+// El de mantenimiento se consume al abrirse; el de pesada, en cuanto se
+// evalua (ver MaintenanceDialog_Poll): el aviso es "al desbloquear", no a
+// media tarde porque el plazo haya vencido con la pantalla ya en uso.
+bool s_armedMaint = false;
+bool s_armedWeigh = false;
+
+// Textarea de la entrada de peso. Se invalida al limpiar el contenido.
+lv_obj_t *s_weighTa = nullptr;
+// Tras enviar una pesada la placa contesta con el rango NTE
+// (g_pendingProfileRange). Nadie lo espera aqui, asi que se descarta hasta este
+// instante (millis) para no dejarlo huerfano. 0 = nada que descartar.
+uint32_t s_discardRangeUntilMs = 0;
+constexpr uint32_t RANGE_DISCARD_MS = 3000;
+// Mismo rango que el paso de peso del asistente (BabyWizard.cpp).
+constexpr uint32_t WEIGH_MIN_G = 400, WEIGH_MAX_G = 5000;
 
 lv_obj_t *s_overlay = nullptr;
 lv_obj_t *s_content = nullptr;
@@ -84,6 +110,7 @@ bool mustYield() { return UI_IsAnyAlarmActive() || Display_IsBoardLinkLost(); }
 void closeDialog() {
   if (s_overlay) lv_obj_add_flag(s_overlay, LV_OBJ_FLAG_HIDDEN);
   if (s_content) lv_obj_clean(s_content);
+  s_weighTa = nullptr;
   // Devolver el overlay a ui_ScreenMain: ahi es donde lo espera el camino
   // normal (_Poll() solo lo abre en la pantalla principal).
   if (s_overlay && s_homeParent &&
@@ -162,9 +189,148 @@ void buildRow(mnt_level_t lvl) {
   lv_obj_align(btn, LV_ALIGN_TOP_LEFT, COL_X + ROW_TEXT_W + 10, y + 2);
 }
 
+// ---------------------------------------------------------------- pesada
+
+void onWeighBack(lv_event_t *) {
+  s_mode = Mode::WeighPrompt;
+  buildContent();
+}
+
+void onWeighNow(lv_event_t *) {
+  // El aviso no se abre en formacion; si la leccion arranca con el aviso ya
+  // abierto, no se envia nada real desde aqui.
+  if (Training_IsActive()) {
+    UI_ShowToast(TR(STR_NOT_IN_TRAINING), 2500);
+    return;
+  }
+  s_mode = Mode::WeighEntry;
+  buildContent();
+}
+
+// MAS TARDE calla 24 h. Sin hora no se puede fechar el silencio y el aviso
+// volvera en el siguiente desbloqueo (que, sin hora, no avisa de todos modos).
+void onWeighLater(lv_event_t *) {
+  WeighTracker_Snooze();
+  closeDialog();
+}
+
+void onWeighRegister(lv_event_t *) {
+  if (Training_IsActive()) {
+    UI_ShowToast(TR(STR_NOT_IN_TRAINING), 2500);
+    return;
+  }
+  uint32_t grams = 0;
+  if (!s_weighTa ||
+      !InputKeypad_ReadNumber(s_weighTa, WEIGH_MIN_G, WEIGH_MAX_G, &grams)) {
+    char msg[64];
+    snprintf(msg, sizeof(msg), TR(STR_VALUE_BETWEEN_FMT), (unsigned)WEIGH_MIN_G,
+             (unsigned)WEIGH_MAX_G);
+    UI_ShowToast(msg, 2500);
+    return;
+  }
+  const uint32_t seq = BabyWizard_GetActiveSeq();
+  if (seq == 0) {
+    // El bebe ya no esta al mando (alta mientras el teclado estaba abierto).
+    closeDialog();
+    return;
+  }
+  // Descartar antes de enviar y, pasado un plazo, al abandonar la espera: el
+  // rango que contesta la placa no lo usa nadie aqui y, huerfano, lo
+  // adoptaria el siguiente peticionario (ver embedded-display-hmi.md).
+  g_pendingProfileRange = false;
+  Communication_SendProfileWeight(seq, (uint16_t)grams);  // sella la pesada
+  s_discardRangeUntilMs = (millis() + RANGE_DISCARD_MS) | 1u;
+  closeDialog();
+  UI_ShowToast(TR(STR_WEIGH_LOGGED), 2500);
+}
+
+void buildWeighPrompt() {
+  lv_obj_t *title = lv_label_create(s_content);
+  lv_label_set_text(title, TR(STR_WEIGH_TITLE));
+  lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
+
+  const char *name = BabyWizard_GetActiveName();
+  if (name == nullptr || name[0] == '\0') name = TR(STR_WEIGH_BABY);
+  char msg[96];
+  snprintf(msg, sizeof(msg), TR(STR_WEIGH_DUE_FMT), name,
+           (unsigned)WeighTracker_ElapsedHours());
+  lv_obj_t *lbl = makeWrapLabel(msg, 20, 110, CARD_W - 60,
+                                &lv_font_montserrat_20,
+                                lv_color_hex(COLOR_DUE));
+  lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
+  makeWrapLabel(TR(STR_WEIGH_HINT), 20, 190, CARD_W - 60,
+                &lv_font_montserrat_14, lv_color_hex(COLOR_SUB));
+
+  lv_obj_t *now = makeBtn(s_content, TR(STR_WEIGH_NOW_UC), onWeighNow,
+                          lv_color_hex(0x2E7D32));
+  lv_obj_set_size(now, 260, 56);
+  lv_obj_align(now, LV_ALIGN_BOTTOM_LEFT, 6, -6);
+
+  lv_obj_t *later = makeBtn(s_content, TR(STR_MAINT_LATER_UC), onWeighLater,
+                            lv_color_hex(0x888888));
+  lv_obj_set_size(later, 200, 56);
+  lv_obj_align(later, LV_ALIGN_BOTTOM_RIGHT, -6, -6);
+}
+
+// Misma disposicion que el paso de peso del asistente (BabyWizard
+// buildInputStep): textarea de dos a cinco digitos, pista de rango, ATRAS y
+// REGISTRAR, teclado numerico debajo. Sin SALTAR ni SIN PESO: aqui el unico
+// motivo para estar es registrar un peso.
+void buildWeighEntry() {
+  lv_obj_t *title = lv_label_create(s_content);
+  lv_label_set_text(title, TR(STR_WEIGH_ENTRY_TITLE));
+  lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
+
+  lv_obj_t *ta = lv_textarea_create(s_content);
+  lv_obj_set_size(ta, 220, 52);
+  lv_obj_align(ta, LV_ALIGN_TOP_MID, 0, 40);
+  lv_textarea_set_one_line(ta, true);
+  lv_obj_set_style_text_font(ta, &lv_font_montserrat_20, 0);
+  lv_obj_set_style_text_align(ta, LV_TEXT_ALIGN_CENTER, 0);
+  lv_textarea_set_accepted_chars(ta, "0123456789");
+  lv_textarea_set_max_length(ta, 5);
+  lv_textarea_set_placeholder_text(ta, "...");
+  // Vacio a proposito, como en el asistente: un valor prefijado invita a
+  // confirmar sin pesar y dejaria el dato de ayer pasando por el de hoy.
+  s_weighTa = ta;
+
+  char hint[32];
+  snprintf(hint, sizeof(hint), "%u - %u g", (unsigned)WEIGH_MIN_G,
+           (unsigned)WEIGH_MAX_G);
+  lv_obj_t *hintLbl = lv_label_create(s_content);
+  lv_label_set_text(hintLbl, hint);
+  lv_obj_set_style_text_color(hintLbl, lv_color_hex(COLOR_SUB), 0);
+  lv_obj_align(hintLbl, LV_ALIGN_TOP_MID, 0, 98);
+
+  lv_obj_t *back = makeBtn(s_content, TR(STR_BACK_UC), onWeighBack,
+                           lv_color_hex(0x888888));
+  lv_obj_set_size(back, 150, 46);
+  lv_obj_align(back, LV_ALIGN_TOP_LEFT, 6, 126);
+
+  lv_obj_t *reg = makeBtn(s_content, TR(STR_REGISTER_UC), onWeighRegister,
+                          lv_color_hex(0x00AA00));
+  lv_obj_set_size(reg, 190, 46);
+  lv_obj_align(reg, LV_ALIGN_TOP_RIGHT, -6, 126);
+
+  lv_obj_t *kb = InputKeypad_Create(s_content, ta, true);
+  lv_obj_align(kb, LV_ALIGN_BOTTOM_MID, 0, -4);
+}
+
 void buildContent() {
   if (!s_content) return;
   lv_obj_clean(s_content);
+  s_weighTa = nullptr;
+
+  if (s_mode == Mode::WeighPrompt) {
+    buildWeighPrompt();
+    return;
+  }
+  if (s_mode == Mode::WeighEntry) {
+    buildWeighEntry();
+    return;
+  }
 
   lv_obj_t *title = lv_label_create(s_content);
   lv_label_set_text(title, TR(STR_MAINT_TITLE));
@@ -196,8 +362,9 @@ void buildContent() {
   lv_obj_align(dismiss, LV_ALIGN_BOTTOM_RIGHT, -6, -6);
 }
 
-void openDialog() {
+void openDialog(Mode mode) {
   if (!s_overlay) return;
+  s_mode = mode;
   // El overlay cuelga de ui_ScreenMain, pero VER RECORDATORIO se pulsa desde
   // Ajustes: sin esto el aviso se pintaba en una pantalla que no estaba a la
   // vista y solo aparecia al volver atras. Se lleva a la pantalla activa y
@@ -208,7 +375,13 @@ void openDialog() {
   }
   buildContent();
   s_open = true;
-  s_armed = false;
+  // Solo se consume el armado del aviso que se abre: el otro sigue esperando
+  // su turno.
+  if (mode == Mode::Maintenance) {
+    s_armedMaint = false;
+  } else {
+    s_armedWeigh = false;
+  }
   // Que el tope de inactividad cuente desde ahora y no desde el ultimo toque
   // de antes de abrirse.
   lv_disp_trig_activity(NULL);
@@ -247,14 +420,32 @@ void MaintenanceDialog_Init(lv_obj_t *parent) {
   lv_obj_clear_flag(s_content, LV_OBJ_FLAG_SCROLLABLE);
 }
 
-void MaintenanceDialog_NoteUnlocked(void) { s_armed = true; }
+void MaintenanceDialog_NoteUnlocked(void) {
+  s_armedMaint = true;
+  s_armedWeigh = true;
+}
 
 bool MaintenanceDialog_IsOpen(void) { return s_open; }
 
-void MaintenanceDialog_Open(void) { openDialog(); }
+void MaintenanceDialog_Open(void) { openDialog(Mode::Maintenance); }
 
 void MaintenanceDialog_Poll(void) {
   Maintenance_Tick();
+  WeighTracker_Tick();
+
+  // Respuesta de rango de la ultima pesada de este dialogo: se descarta en
+  // cuanto llega, o al vencer el plazo. Si el asistente se abre entre medias,
+  // el rango es suyo y no se toca.
+  if (s_discardRangeUntilMs != 0) {
+    if (BabyWizard_IsOpen()) {
+      s_discardRangeUntilMs = 0;
+    } else if (g_pendingProfileRange) {
+      g_pendingProfileRange = false;
+      s_discardRangeUntilMs = 0;
+    } else if ((int32_t)(millis() - s_discardRangeUntilMs) >= 0) {
+      s_discardRangeUntilMs = 0;
+    }
+  }
 
   if (s_open) {
     // Una alarma o el enlace perdido se llevan la pantalla por delante. El
@@ -272,7 +463,7 @@ void MaintenanceDialog_Poll(void) {
     return;
   }
 
-  if (!s_armed) return;
+  if (!s_armedMaint && !s_armedWeigh) return;
   // El aviso espera su turno: no se cuela encima de otro dialogo modal ni
   // durante una alarma, y solo sale en la pantalla principal (el overlay
   // cuelga de ui_ScreenMain, en otra pantalla no se veria).
@@ -287,6 +478,17 @@ void MaintenanceDialog_Poll(void) {
   // leccion la aborta y confunde lo que es de verdad con lo que es practica.
   if (Training_IsActive()) return;
 
-  if (!Maintenance_ShouldWarn()) return;
-  openDialog();
+  // Primero la limpieza. Si el aviso de pesada tambien esta armado, sale
+  // detras (en la siguiente pasada, cuando este se cierre) porque su armado
+  // sigue en pie.
+  if (s_armedMaint && Maintenance_ShouldWarn()) {
+    openDialog(Mode::Maintenance);
+    return;
+  }
+  if (s_armedWeigh) {
+    // Se evalua UNA vez por desbloqueo y se consume, toque o no: ver la nota
+    // de s_armedWeigh.
+    s_armedWeigh = false;
+    if (WeighTracker_ShouldWarn()) openDialog(Mode::WeighPrompt);
+  }
 }

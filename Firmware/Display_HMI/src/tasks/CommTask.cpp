@@ -4,6 +4,7 @@
 #include "esp_log.h"
 #include "main.h"
 #include "modules/debug/debug_mode.h"
+#include "modules/maintenance/weigh_tracker.h"
 #include "state/training_mode.h"
 #include "ui.h"
 #include <Preferences.h>
@@ -515,6 +516,10 @@ void Communication_SendProfileWeight(uint32_t seq, uint16_t grams) {
   } else {
     COMM_SERIAL.printf("HMI,PROFILE_WEIGHT,%u,%u\n", (unsigned)seq,
                        (unsigned)grams);
+    // Sello de la pesada para el recordatorio diario: el protocolo no trae el
+    // epoch de la ultima. Aqui, y no en cada llamador, para que cualquier
+    // camino de pesada (asistente, pantalla Bebes, aviso) quede sellado.
+    WeighTracker_NoteWeighed(seq, grams);
   }
 #endif
 }

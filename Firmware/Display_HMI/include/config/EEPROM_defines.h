@@ -42,6 +42,15 @@ constexpr char HMI_KEY_MNT_SNOOZE[]   = "mnt_snooze";  // epoch fin del "mas tar
 constexpr char HMI_KEY_MNT_SEQ[]      = "mnt_seq";     // ultimo bebe visto al mando
 constexpr char HMI_KEY_MNT_TPEND[]    = "mnt_tpend";   // alta sin terminal hecha
 
+// Recordatorio de pesada diaria (modules/maintenance/weigh_tracker). Epochs
+// UTC, como mnt_*. El protocolo no da el epoch de la ultima pesada, asi que
+// el HMI lo sella al enviarla; cada sello va con el seq al que pertenece.
+constexpr char HMI_KEY_WGH_SEQ[]     = "wgh_seq";     // bebe del sello de pesada
+constexpr char HMI_KEY_WGH_LAST[]    = "wgh_last";    // epoch ultima pesada real
+constexpr char HMI_KEY_WGH_SEEN_SEQ[] = "wgh_sseq";   // bebe del "visto"
+constexpr char HMI_KEY_WGH_SEEN_AT[] = "wgh_sfirst";  // epoch 1a vez al mando
+constexpr char HMI_KEY_WGH_SNOOZE[]  = "wgh_snooze";  // epoch fin del "mas tarde"
+
 // Zona horaria y procedencia de lo ultimo escrito en el RTC (PCF8563).
 //
 // El chip guarda el INSTANTE y nada mas: no tiene RAM de usuario respaldada por
