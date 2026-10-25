@@ -13,6 +13,8 @@
 #include "ui/training/training.h"
 #include "ui/training/training_progress.h"
 #include "ui/MaintenanceDialog.h"
+#include "modules/service/service_settings.h"
+#include "modules/service/service_state.h"
 #include "ui/BabyWizard.h"
 #include "modules/maintenance/maintenance.h"
 #include "display_config.h"
@@ -1049,9 +1051,11 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   lv_label_set_text(ui_MaintLabel, L(STR_MAINT_UC));
   lv_label_set_text(ui_MaintTitleLabel, L(STR_MAINT_UC));
   lv_label_set_text(ui_MaintEnableLabel, L(STR_MAINT_REMINDER));
+  lv_label_set_text(ui_MaintSvcLabel, L(STR_SVC_SWITCH));
   lv_label_set_text(ui_MaintOpenLabel, L(STR_MAINT_OPEN_UC));
   lv_label_set_text(ui_MaintHintLabel, L(STR_MAINT_SETTINGS_HINT));
   ui_set_switch_state_silent(ui_MaintEnableSwitch, Maintenance_IsEnabled());
+  ui_set_switch_state_silent(ui_MaintSvcSwitch, ServiceState_IsEnabled());
 
   // lv_btnmatrix NO copia el mapa: se queda con el puntero. Por eso el array
   // es `static` y las cadenas vienen del catalogo, que es memoria estatica.
@@ -1320,6 +1324,9 @@ static void maintenance_panel_refresh(void) {
   if (ui_MaintEnableSwitch) {
     ui_set_switch_state_silent(ui_MaintEnableSwitch, Maintenance_IsEnabled());
   }
+  if (ui_MaintSvcSwitch) {
+    ui_set_switch_state_silent(ui_MaintSvcSwitch, ServiceState_IsEnabled());
+  }
   for (int i = 0; i < MNT_LEVEL_COUNT; i++) {
     if (!ui_MaintLevelLabel[i]) continue;
     char last[64];
@@ -1351,6 +1358,20 @@ void MaintButton_cb(lv_event_t *e) {
 void MaintEnableSwitch_cb(lv_event_t *e) {
   Maintenance_SetEnabled(lv_obj_has_state(lv_event_get_target(e),
                                           LV_STATE_CHECKED));
+}
+
+// Interruptor propio del aviso de servicio por horas. Escribe NVS, asi que en
+// formacion se rechaza (ADR-0002) y se devuelve el interruptor a su sitio.
+void MaintSvcSwitch_cb(lv_event_t *e) {
+  lv_obj_t *sw = lv_event_get_target(e);
+  if (Training_IsActive()) {
+    ui_set_switch_state_silent(sw, ServiceState_IsEnabled());
+    UI_ShowToast(TR(STR_NOT_IN_TRAINING), 2500);
+    return;
+  }
+  ServiceSettings_SetEnabled(lv_obj_has_state(sw, LV_STATE_CHECKED));
+  // Si la escritura en NVS fallo el valor no cambia: que el interruptor lo diga.
+  ui_set_switch_state_silent(sw, ServiceState_IsEnabled());
 }
 
 // Abrir el recordatorio sin esperar a que toque: es la via para registrar una
@@ -4269,6 +4290,7 @@ void UI_Task(void *pvParameters) {
   // intervalo, y necesita el valor ya leido de NVS para marcar la opcion
   // correcta. Solo toca NVS, no LVGL, asi que puede ir aqui.
   Maintenance_Init();
+  ServiceSettings_Init();  // svc_en, defecto ON
 
   UI_ApplyLanguage(g_lang);
   ui_set_switch_state_silent(ui_SwitchDarkMode, darkMode);

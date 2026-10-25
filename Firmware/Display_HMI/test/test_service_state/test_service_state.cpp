@@ -150,8 +150,43 @@ void test_line_to_state(void) {
   TEST_ASSERT_FALSE(ServiceState_IsDue(SVC_HEATER));
 }
 
+// ---------------- Interruptor propio ----------------
+
+// Sin tocar nada (NVS virgen) el aviso esta ACTIVADO: es lo contrario del
+// interruptor de limpieza, que viene apagado de fabrica.
+void test_enabled_by_default(void) {
+  TEST_ASSERT_TRUE(ServiceState_IsEnabled());
+}
+
+void test_disabled_does_not_warn_but_still_reports_due(void) {
+  const ServiceReport r = report(0, 0, 2000, 0);
+  ServiceState_Apply(&r);
+  ServiceState_SetEnabled(false);
+  TEST_ASSERT_FALSE(ServiceState_ShouldWarn(10));
+  TEST_ASSERT_TRUE(ServiceState_AnyDue());
+  TEST_ASSERT_TRUE(ServiceState_IsDue(SVC_HUMIDIFIER));
+}
+
+void test_reenabling_warns_again(void) {
+  const ServiceReport r = report(0, 0, 2000, 0);
+  ServiceState_Apply(&r);
+  ServiceState_SetEnabled(false);
+  ServiceState_SetEnabled(true);
+  TEST_ASSERT_TRUE(ServiceState_ShouldWarn(10));
+}
+
+void test_reset_restores_enabled(void) {
+  ServiceState_SetEnabled(false);
+  ServiceState_Reset();
+  TEST_ASSERT_TRUE(ServiceState_IsEnabled());
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_enabled_by_default);
+  RUN_TEST(test_disabled_does_not_warn_but_still_reports_due);
+  RUN_TEST(test_reenabling_warns_again);
+  RUN_TEST(test_reset_restores_enabled);
   RUN_TEST(test_no_data_before_first_report);
   RUN_TEST(test_apply_stores_hours_and_threshold);
   RUN_TEST(test_partial_report_keeps_other_actuators);

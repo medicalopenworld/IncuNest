@@ -13,6 +13,7 @@ bool s_snoozed = false;
 uint32_t s_snoozeUntil = 0;
 // Actuadores vencidos en el momento de pulsar MAS TARDE (bit i = id i).
 uint32_t s_snoozedMask = 0;
+bool s_enabled = true;
 
 bool slotDue(const Slot &s) {
   return s.known && s.thresholdH != 0 && s.hours >= s.thresholdH;
@@ -30,6 +31,18 @@ uint32_t dueMask() {
 
 void ServiceState_Reset(void) {
   for (uint8_t i = 0; i < SVC_COUNT; i++) s_slot[i] = Slot{false, 0, 0};
+  s_snoozed = false;
+  s_snoozeUntil = 0;
+  s_snoozedMask = 0;
+  s_enabled = true;
+}
+
+bool ServiceState_IsEnabled(void) { return s_enabled; }
+
+void ServiceState_SetEnabled(bool on) {
+  if (on == s_enabled) return;
+  s_enabled = on;
+  // Volver a activarlo no debe arrastrar un "mas tarde" viejo.
   s_snoozed = false;
   s_snoozeUntil = 0;
   s_snoozedMask = 0;
@@ -74,6 +87,7 @@ uint8_t ServiceState_DueCount(void) {
 }
 
 bool ServiceState_ShouldWarn(uint32_t nowSec) {
+  if (!s_enabled) return false;
   const uint32_t due = dueMask();
   if (due == 0) return false;
   if (!s_snoozed) return true;

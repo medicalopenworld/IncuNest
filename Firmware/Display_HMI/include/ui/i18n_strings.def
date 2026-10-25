@@ -42,7 +42,11 @@ UI_STR(STR_SVC_TITLE,          "SERVICIO DE ACTUADORES",
                                "ACTUATOR SERVICE",
                                "ENTRETIEN DES ACTIONNEURS",
                                "MANUTENCAO DOS ATUADORES")
-UI_STR(STR_SVC_BUTTON_UC,      "SERVICIO",     "SERVICE",     "ENTRETIEN",   "MANUTENCAO")
+UI_STR(STR_SVC_SWITCH,         "AVISO DE SERVICIO",
+                               "SERVICE REMINDER",
+                               "RAPPEL D'ENTRETIEN",
+                               "AVISO DE MANUTENCAO")
+UI_STR(STR_SVC_BUTTON_UC,     "SERVICIO",     "SERVICE",     "ENTRETIEN",   "MANUTENCAO")
 UI_STR(STR_SVC_BACK_UC,        "LIMPIEZA",     "CLEANING",    "NETTOYAGE",   "LIMPEZA")
 UI_STR(STR_SVC_HEATER,         "Calefactor",   "Heater",      "Chauffage",   "Aquecedor")
 UI_STR(STR_SVC_FAN,            "Ventilador",   "Fan",         "Ventilateur", "Ventoinha")

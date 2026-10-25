@@ -171,6 +171,8 @@ lv_obj_t *ui_MaintConfigCont = NULL;
 lv_obj_t *ui_MaintTitleLabel = NULL;
 lv_obj_t *ui_MaintEnableLabel = NULL;
 lv_obj_t *ui_MaintEnableSwitch = NULL;
+lv_obj_t *ui_MaintSvcLabel = NULL;
+lv_obj_t *ui_MaintSvcSwitch = NULL;
 lv_obj_t *ui_MaintLevelLabel[3] = {NULL, NULL, NULL};
 lv_obj_t *ui_MaintHintLabel = NULL;
 lv_obj_t *ui_MaintOpenButton = NULL;
@@ -368,6 +370,7 @@ void LanguageButton_cb(lv_event_t *e);
 extern void ModesButton_cb(lv_event_t *e);
 extern void MaintButton_cb(lv_event_t *e);
 extern void MaintEnableSwitch_cb(lv_event_t *e);
+extern void MaintSvcSwitch_cb(lv_event_t *e);
 extern void MaintOpenButton_cb(lv_event_t *e);
 extern void ClockButton_cb(lv_event_t *e);
 extern void HelpButton_cb(lv_event_t *e);
@@ -633,6 +636,12 @@ void ui_event_MaintButton(lv_event_t *e) {
 void ui_event_MaintEnableSwitch(lv_event_t *e) {
   if (lv_event_get_code(e) == LV_EVENT_VALUE_CHANGED) {
     MaintEnableSwitch_cb(e);
+  }
+}
+
+void ui_event_MaintSvcSwitch(lv_event_t *e) {
+  if (lv_event_get_code(e) == LV_EVENT_VALUE_CHANGED) {
+    MaintSvcSwitch_cb(e);
   }
 }
 
@@ -3191,6 +3200,30 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_y(ui_MaintEnableSwitch, -95);
   lv_obj_set_align(ui_MaintEnableSwitch, LV_ALIGN_CENTER);
 
+  // Interruptor propio del aviso de SERVICIO por horas de uso (shared-service-
+  // hours-toggle). Fila inmediatamente debajo de AVISOS, mismas x (60 y 296) e
+  // y = -60 (la de AVISOS esta en -95: paso de 35 px). Para hacerle sitio las
+  // tres filas de niveles bajan de y = -40 + 42*i a -15 + 38*i (ver abajo).
+  // Coordenadas de este panel (centro de ui_MaintConfigCont, 770x361):
+  //   titulo -140 | AVISOS -95 | SERVICIO -60 | niveles -15, 23, 61 |
+  //   boton ver recordatorio 105 | pista 152
+  ui_MaintSvcLabel = lv_label_create(ui_MaintConfigCont);
+  lv_obj_set_width(ui_MaintSvcLabel, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_MaintSvcLabel, LV_SIZE_CONTENT);
+  lv_obj_set_x(ui_MaintSvcLabel, 60);
+  lv_obj_set_y(ui_MaintSvcLabel, -60);
+  lv_obj_set_align(ui_MaintSvcLabel, LV_ALIGN_CENTER);
+  lv_label_set_text(ui_MaintSvcLabel, TR(STR_SVC_SWITCH));
+  lv_obj_set_style_text_font(ui_MaintSvcLabel, &lv_font_montserrat_18,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  ui_MaintSvcSwitch = lv_switch_create(ui_MaintConfigCont);
+  lv_obj_set_width(ui_MaintSvcSwitch, 90);
+  lv_obj_set_height(ui_MaintSvcSwitch, 30);
+  lv_obj_set_x(ui_MaintSvcSwitch, 296);
+  lv_obj_set_y(ui_MaintSvcSwitch, -60);
+  lv_obj_set_align(ui_MaintSvcSwitch, LV_ALIGN_CENTER);
+
   // Los tres niveles, solo lectura. El texto lo rellena
   // maintenance_panel_refresh() (UITask.cpp) con la cadencia y la fecha.
   for (int i = 0; i < 3; i++) {
@@ -3199,7 +3232,7 @@ void ui_ScreenSettings_screen_init(void) {
     lv_obj_set_width(ui_MaintLevelLabel[i], 400);
     lv_obj_set_height(ui_MaintLevelLabel[i], LV_SIZE_CONTENT);
     lv_obj_set_x(ui_MaintLevelLabel[i], 185);
-    lv_obj_set_y(ui_MaintLevelLabel[i], -40 + 42 * i);
+    lv_obj_set_y(ui_MaintLevelLabel[i], -15 + 38 * i);
     lv_obj_set_align(ui_MaintLevelLabel[i], LV_ALIGN_CENTER);
     lv_label_set_text(ui_MaintLevelLabel[i], "");
     lv_obj_set_style_text_font(ui_MaintLevelLabel[i], &lv_font_montserrat_14,
@@ -3566,6 +3599,9 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_add_event_cb(ui_MaintOpenButton, ui_event_MaintOpenButton,
                       LV_EVENT_ALL, NULL);
   lv_obj_set_ext_click_area(ui_MaintEnableSwitch, TOUCH_EXT_NARROW);
+  lv_obj_add_event_cb(ui_MaintSvcSwitch, ui_event_MaintSvcSwitch, LV_EVENT_ALL,
+                      NULL);
+  lv_obj_set_ext_click_area(ui_MaintSvcSwitch, TOUCH_EXT_NARROW);
 
   lv_obj_set_ext_click_area(ui_ImgButton2, TOUCH_EXT_MEDIUM);
   lv_obj_set_ext_click_area(ui_Switch4, TOUCH_EXT_NARROW);

@@ -488,10 +488,11 @@ void MaintenanceDialog_Poll(void) {
     openDialog();
     return;
   }
-  // Aviso de servicio por horas: mismo interruptor AVISOS y mismas cesiones que
-  // la limpieza, y solo cuando no hay limpieza pendiente (esa abre primero; el
-  // boton SERVICIO lleva a la otra vista).
-  if (Maintenance_IsEnabled() && ServiceState_ShouldWarn(svcNowSec())) {
+  // Aviso de servicio por horas: mismas cesiones que la limpieza, y solo cuando
+  // no hay limpieza pendiente (esa abre primero; el boton SERVICIO lleva a la
+  // otra vista). NO depende del interruptor AVISOS de la limpieza (apagado de
+  // fabrica): tiene el suyo, activado por defecto (ServiceState_ShouldWarn).
+  if (ServiceState_ShouldWarn(svcNowSec())) {
     openServiceDialog();
   }
 }

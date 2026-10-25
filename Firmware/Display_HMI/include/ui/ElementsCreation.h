@@ -306,6 +306,8 @@ extern lv_obj_t * ui_MaintConfigCont;
 extern lv_obj_t * ui_MaintTitleLabel;
 extern lv_obj_t * ui_MaintEnableLabel;
 extern lv_obj_t * ui_MaintEnableSwitch;
+extern lv_obj_t * ui_MaintSvcLabel;
+extern lv_obj_t * ui_MaintSvcSwitch;
 // Una linea por nivel del protocolo (diaria / semanal / terminal) con su
 // cadencia y la fecha del ultimo registro. Solo lectura: registrar se hace en
 // el pop-up, que es donde estan los tres botones.

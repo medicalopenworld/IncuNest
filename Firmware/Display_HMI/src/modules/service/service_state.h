@@ -46,5 +46,13 @@ uint8_t ServiceState_DueCount(void);
 // monotono en segundos (millis()/1000), no el epoch: no depende de tener hora.
 bool ServiceState_ShouldWarn(uint32_t nowSec);
 
+// Interruptor propio del aviso automatico (Ajustes > Mantenimiento). Por
+// DEFECTO ACTIVADO, a diferencia del de limpieza: un componente al final de su
+// vida util no es algo que una unidad nueva deba callar. Apagado solo silencia
+// la apertura por si sola (ShouldWarn); IsDue/AnyDue y la vista siguen
+// funcionando. La persistencia (NVS `svc_en`) esta en service_settings.h.
+bool ServiceState_IsEnabled(void);
+void ServiceState_SetEnabled(bool on);
+
 // Boton MAS TARDE: calla el aviso de lo vencido ahora durante 24 h.
 void ServiceState_Snooze(uint32_t nowSec);
