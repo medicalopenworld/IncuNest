@@ -35,6 +35,51 @@ UI_STR(STR_ON,                 "ON",           "ON",          "ON",          "ON
 UI_STR(STR_OFF,                "OFF",          "OFF",         "OFF",         "OFF")
 UI_STR(STR_SET,                "AJUSTAR",      "SET",         "REGLER",      "DEFINIR")
 
+// ------------------------------------------------------- servicio por horas
+// Vista de servicio del dialogo de mantenimiento (ui/MaintenanceDialog.cpp):
+// horas de uso de cada actuador desde su ultimo servicio. No es una alarma.
+UI_STR(STR_SVC_TITLE,          "SERVICIO DE ACTUADORES",
+                               "ACTUATOR SERVICE",
+                               "ENTRETIEN DES ACTIONNEURS",
+                               "MANUTENCAO DOS ATUADORES")
+UI_STR(STR_SVC_BUTTON_UC,      "SERVICIO",     "SERVICE",     "ENTRETIEN",   "MANUTENCAO")
+UI_STR(STR_SVC_BACK_UC,        "LIMPIEZA",     "CLEANING",    "NETTOYAGE",   "LIMPEZA")
+UI_STR(STR_SVC_HEATER,         "Calefactor",   "Heater",      "Chauffage",   "Aquecedor")
+UI_STR(STR_SVC_FAN,            "Ventilador",   "Fan",         "Ventilateur", "Ventoinha")
+UI_STR(STR_SVC_HUMIDIFIER,     "Humidificador","Humidifier",  "Humidificateur","Humidificador")
+UI_STR(STR_SVC_PHOTO,          "Fototerapia",  "Phototherapy","Photototherapie","Fototerapia")
+UI_STR(STR_SVC_HOURS_FMT,      "%lu h de %lu h desde el ultimo servicio",
+                               "%lu h of %lu h since last service",
+                               "%lu h sur %lu h depuis le dernier entretien",
+                               "%lu h de %lu h desde o ultimo servico")
+UI_STR(STR_SVC_HOURS_NOLIMIT_FMT,"%lu h desde el ultimo servicio",
+                               "%lu h since last service",
+                               "%lu h depuis le dernier entretien",
+                               "%lu h desde o ultimo servico")
+UI_STR(STR_SVC_NO_DATA,        "Esperando los datos de la placa...",
+                               "Waiting for data from the board...",
+                               "En attente des donnees de la carte...",
+                               "A aguardar os dados da placa...")
+UI_STR(STR_SVC_DONE_UC,        "HECHO",        "DONE",        "FAIT",        "FEITO")
+UI_STR(STR_SVC_CONFIRM_UC,     "CONFIRMAR",    "CONFIRM",     "CONFIRMER",   "CONFIRMAR")
+UI_STR(STR_SVC_LOGGED,         "Servicio registrado",
+                               "Service recorded",
+                               "Entretien enregistre",
+                               "Manutencao registada")
+UI_STR(STR_SVC_HINT,           "Pulsa HECHO solo cuando el componente se haya "
+                               "revisado o sustituido, y confirma. Las horas "
+                               "de vida del equipo no se reinician.",
+                               "Press DONE only once the component has been "
+                               "checked or replaced, then confirm. The unit's "
+                               "lifetime hours are not reset.",
+                               "Appuyez sur FAIT seulement apres controle ou "
+                               "remplacement du composant, puis confirmez. Les "
+                               "heures de vie de l'appareil ne sont pas "
+                               "remises a zero.",
+                               "Prima FEITO apenas depois de o componente ser "
+                               "revisto ou substituido e confirme. As horas de "
+                               "vida do equipamento nao sao reiniciadas.")
+
 // ------------------------------------------------------- ajustes
 UI_STR(STR_SETTINGS,           "AJUSTES",      "SETTINGS",    "PARAMETRES",  "DEFINICOES")
 UI_STR(STR_LANGUAGE,           "IDIOMA",       "LANGUAGE",    "LANGUE",      "IDIOMA")

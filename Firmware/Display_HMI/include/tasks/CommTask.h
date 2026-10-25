@@ -8,6 +8,7 @@
 #include "control_types.h"
 #include "alarm_ids.h"
 #include "factory_test.h"
+#include "service_hours_proto.h"
 
 #define COMMUNICATION_DEBUG true
 #if COMMUNICATION_DEBUG
@@ -324,6 +325,18 @@ struct AlarmDescMsg {
 extern volatile bool        g_pendingAlarmHistory;
 extern AlarmHistoryMsg      g_alarmHistory;
 void Communication_SendAlarmHistoryReq(void);
+
+// Avisos de servicio por horas de uso (CTRL,SERVICE; ver PROTOCOL.md). Comm_Task
+// deja el ultimo informe aqui y levanta el flag; lo consume
+// MaintenanceDialog_Poll() en UI_Task y lo pasa a modules/service/service_state.
+// Cada informe es una foto completa, asi que si llegan dos seguidas basta la
+// ultima.
+extern volatile bool        g_pendingService;
+extern ServiceReport        g_serviceReport;
+void Communication_SendServiceReq(void);
+// Registra el servicio hecho de un actuador (ServiceActuator). No hace nada en
+// formacion. La placa contesta con un CTRL,SERVICE actualizado.
+void Communication_SendServiceDone(uint8_t id);
 
 extern volatile bool        g_pendingAlarmDesc;
 extern AlarmDescMsg         g_alarmDesc;
