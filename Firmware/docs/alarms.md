@@ -14,7 +14,7 @@ El sistema tiene tres capas, cada una en su propio fichero:
   *latching* y si corta el calefactor. No tienen estado ni dependen de
   Arduino, así que se comparten entre motherBoard y el análisis normativo.
 - **Máquina de estados** (`motherBoard/src/modules/control/alarm_machine.{h,cpp}`):
-  mantiene, para cada una de las 19 condiciones, si está físicamente presente
+  mantiene, para cada una de las 20 condiciones, si está físicamente presente
   y en qué estado de señalización se encuentra. Es el único sitio con
   temporizadores.
 - **Detección y actuación** (`motherBoard/src/system/security.cpp`,
@@ -22,9 +22,9 @@ El sistema tiene tres capas, cada una en su propio fichero:
   está presente, llama a la máquina de estados y aplica los cortes de
   actuador.
 
-## 1. Las 19 condiciones
+## 1. Las 20 condiciones
 
-El enum `AlarmId` (`shared/include/alarm_ids.h`) define 19 condiciones más el
+El enum `AlarmId` (`shared/include/alarm_ids.h`) define 20 condiciones más el
 centinela `ALARM_NONE = 0`. El valor numérico es el índice de bit del
 protocolo serie, así que el orden es significativo y las condiciones nuevas
 se añaden al final.
@@ -50,6 +50,7 @@ se añaden al final.
 | 17 | `ALARM_HEATER_SENSOR_FAULT` | `HEATER_SENSOR_DROPOUT_ALARM_CYCLES` = 10 fallos consecutivos de sondeo I2C del sensor de corriente SECUNDARY en marcha (`sensors_module.cpp`). El calefactor puede estar bien; lo perdido es la medida de su consumo | MEDIA | sí |
 | 18 | `ALARM_SENSORBOARD_LINK_LOST` | sin heartbeat USB durante `SB_LINK_TIMEOUT_MS` = 90 000 ms (3 × `SB_LINK_HEARTBEAT_PERIOD_MS` de 30 s), o el dispositivo nunca ha llegado a enumerar, evaluado en `sensorboard_comm.cpp:539`. No se declara durante el margen de arranque `SB_LINK_BOOT_GRACE_MS` mientras no se haya visto ningún heartbeat | MEDIA | no directamente — pero en un equipo con SensorBoard sus SHT40 **son** el sensor de aire, así que la caída del enlace arrastra la condición 3, que sí corta |
 | 19 | `ALARM_SENSORBOARD_DOOR_FAULT` | sensor de puerta (hall DRV5032) implausible: `sb_door_state_evaluate()` lo declara por aleteo (`SB_DOOR_FLAP_TRANSITIONS_FOR_FAULT` = 4 transiciones en `SB_DOOR_FLAP_WINDOW_MS` = 60 000 ms) o por dato rancio (`SB_DOOR_STALE_MS` = 90 000 ms). Con una sola línea digital no se puede distinguir «puerta abierta» de «hall averiado», así que la puerta **nunca** se usa como entrada de control térmico | BAJA | no |
+| 20 | `ALARM_PHOTO_LAMP_FAULT` | con la fototerapia ordenada ON, pasado `PHOTO_SETTLE_MS` = 3000 ms, con el INA principal contestando y sin test de fábrica (`g_factoryTestActive`), `in3.phototherapy_current < PHOTO_FAULT_MIN_A` (0,05 A) durante `PHOTO_FAULT_CYCLES` = 5 ciclos consecutivos del lazo de 1 s. Se retira al alcanzar `PHOTO_FAULT_CLEAR_A` (0,08 A) o cuando la fototerapia deja de estar ON / la medida deja de ser evaluable. Lógica en `modules/control/photo_fault.{h,cpp}` (test de host `test_photo_fault`), cableado en `sensors_module.cpp`. El umbral es bajo a propósito: el objetivo del lazo es 0,45 A y `PHOTO_MIN_PWM` = 10 ya da corriente medible, así que por debajo de 0,05 A la lámpara **no responde** (no está degradada). Es una terapia que no se está dando, no un riesgo para el neonato | BAJA | no |
 
 Que el autotest de arranque declare las condiciones 5 y 6 importa: son
 declaraciones vivas que sobreviven al arranque y que ningún detector de marcha
@@ -75,13 +76,19 @@ código es:
   `SKIN_TEMP_DEVIATION_HIGH`, `SKIN_TEMP_DEVIATION_LOW`, `HEATER_FAULT`,
   `HEATER_SENSOR_FAULT`, `SUPPLY_UNDERVOLTAGE`, `HMI_LINK_LOST`,
   `SENSORBOARD_LINK_LOST`.
-- **BAJA (3)**: `SKIN_SENSOR_FAULT_AIR_MODE`, `HUMIDITY_DEVIATION`,
-  `SENSORBOARD_DOOR_FAULT`.
+- **BAJA (4)**: `SKIN_SENSOR_FAULT_AIR_MODE`, `HUMIDITY_DEVIATION`,
+  `SENSORBOARD_DOOR_FAULT`, `PHOTO_LAMP_FAULT`.
 
 El reparto de las 17 primeras (7/8/2) coincide con el que propone
 `alarms_normative_analysis.md` §5 a partir de la Tabla 1 (resultado de no
 responder × tiempo de aparición), así que para ellas el código refleja esa
 derivación condición por condición.
+
+**La 20 (`PHOTO_LAMP_FAULT`, 2026-10-25) tampoco está en ese análisis.** Va a
+BAJA por analogía con las demás averías de funciones auxiliares: no daña al
+neonato, es terapia que no se está administrando. Si el análisis de riesgos
+considera que una fototerapia indicada que no se da merece MEDIA, es un cambio
+de una línea en `alarm_priority()` y del reparto en `test_alarm_policy`.
 
 **Las dos del SensorBoard (18 y 19) no están en ese análisis.** Se añadieron
 después y su prioridad se asignó por analogía, no por derivación: la 18 copia a
@@ -501,7 +508,7 @@ condición actualmente señalizando) cuando `alarmCount > 0`.
 Si el HMI no está conectado (`hmi_connected == false`), los eventos de cambio
 se encolan en `pending_alarms[PENDING_ALARM_QUEUE_LEN]` (`security.cpp:35-60`),
 con `PENDING_ALARM_QUEUE_LEN` = `ALARM_COUNT`. `resendActiveAlarms()` puede
-empujar una línea por cada una de las 19 condiciones de una sola vez, y con la
+empujar una línea por cada una de las 20 condiciones de una sola vez, y con la
 capacidad fija de 10 que tenía antes las 9 últimas se perdían en silencio: una
 instantánea incompleta, y arbitraria en qué condiciones se caían.
 
@@ -531,7 +538,7 @@ los pedidos— la línea entera se descartaba. La línea completa tiene además 
 segundo límite en el emisor, `ALARM_LINE_BUF_SIZE` = 128, que `snprintf`
 recortaría en silencio.
 
-Los textos —título y acción, en tres idiomas, para las 19 condiciones— viven en
+Los textos —título y acción, en tres idiomas, para las 20 condiciones— viven en
 `shared/src/alarm_text.cpp`, y no en `security.cpp`, precisamente para que el
 test nativo `test/test_alarm_text/` pueda comprobar en cada ejecución que
 todos caben en su campo, que la línea compuesta cabe en el buffer del emisor,
@@ -787,6 +794,16 @@ hace hoy, para no inducir a confiar en protecciones que no existen.
   el piezo alcance el nivel exigido a 3 m ni de que se mantenga por debajo
   del límite dentro del habitáculo; son medidas de banco/hardware, no de
   firmware.
+- **`ALARM_PHOTO_LAMP_FAULT` solo detecta una lámpara que no responde.** No
+  detecta una lámpara degradada (corriente por encima de 0,05 A pero lejos de
+  los 0,45 A objetivo: el lazo de intensidad la compensa subiendo el PWM hasta
+  `PWM_MAX_VALUE`) ni sobrecorriente. Y si el INA principal deja de contestar,
+  la comprobación se suspende y la alarma se retira (no se puede afirmar que
+  la lámpara falle); **no hay una condición propia para el fallo de ese
+  sensor**, a diferencia del calefactor (`ALARM_HEATER_SENSOR_FAULT`). Su
+  prioridad (BAJA) está asignada por analogía, no derivada del análisis de
+  riesgos (ver §2). Falta la imagen de pop-up
+  (`alarm_popup_image_prompts.md`).
 
 ## Notas sobre el sistema anterior
 

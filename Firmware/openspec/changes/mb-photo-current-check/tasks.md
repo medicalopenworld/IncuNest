@@ -34,6 +34,6 @@ cambio esté en `shared/` (`.claude/rules/commits.md`). Tests de host:
 
 ## 5. Documentación
 
-- [ ] 5.1 `Firmware/PROTOCOL.md`: campo 8 de `CTRL,STATE` refleja la lámpara (nota fechada 2026-10-25)
-- [ ] 5.2 `Firmware/docs/known_issues.md` §20 resuelto
-- [ ] 5.3 `Firmware/docs/alarms.md` §1 (fila 20, «Las 20 condiciones»), §2 (reparto) y §9 si procede
+- [x] 5.1 `Firmware/PROTOCOL.md`: campo 8 de `CTRL,STATE` refleja la lámpara (nota fechada 2026-10-25)
+- [x] 5.2 `Firmware/docs/known_issues.md` §20 resuelto
+- [x] 5.3 `Firmware/docs/alarms.md` §1 (fila 20, «Las 20 condiciones»), §2 (reparto) y §9 si procede

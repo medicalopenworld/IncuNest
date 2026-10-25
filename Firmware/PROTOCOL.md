@@ -110,6 +110,17 @@ Enviado **cada 1 segundo** (intercalado con `CTRL,TEL`) y además bajo petición
 > debe poder asumir la cadencia de 1 Hz.
 **Formato**: `CTRL,STATE,act,mode,airSet,skinSet,humSet,photo,mute,sn,hwNum,hwRev,fwVer,numAlarms,skinE,commStatus,photoTimeRem,lang,probeState,alarmBitmask,silencedBitmask,almTest,silenceLeftS,linkBars`
 
+- `photo`: estado **real** de la lámpara de fototerapia en la placa
+  (`in3.phototherapy`, lo aplicado), no el eco de la última orden del display.
+  *(Cambio 2026-10-25, `known_issues.md` #20: hasta entonces la placa devolvía
+  `g_last_cmd.phototherapyMode`, así que un encendido forzado por la consola de
+  depuración se veía en pantalla como apagado.)* El display ADOPTA este campo
+  (`Display_ApplyCtrlState`) y lo devuelve en su keepalive; entre que el
+  operador toca el switch y la placa aplica la orden, una trama puede salir con
+  el valor anterior, y el display mantiene su valor local hasta que la placa lo
+  confirma. `act`, `mode`, `airSet`, `skinSet`, `humSet` y `skinE` **siguen
+  siendo el eco** de la última orden del display: no tienen un valor «real»
+  equivalente de una línea (la placa guarda una única consigna según el modo).
 - `commStatus`: transporte activo y si llega a servidor (`CommStatus` enum: `0`=ninguno,
   `1`=GPRS sin servidor, `2`=GPRS+servidor, `3`=WiFi sin servidor, `4`=WiFi+servidor).
   Alimenta el icono WIFI/2G/sin enlace del heading del display, además de la
@@ -569,9 +580,15 @@ probar el lazo de intensidad en banco.
 - Soltar (con `PHOTO,0` o apagando el modo) devuelve la fototerapia a como
   estaba antes de la prueba, no siempre a apagado.
 - Estado en `GET /debug/state`: `ctl.photo_dbg` (1 mientras dure la prueba).
-- Aviso: mientras dura la prueba, **la pantalla muestra la fototerapia
-  apagada** aunque la lámpara esté encendida — el campo `photo` de `CTRL,STATE`
-  es el eco de la orden del display (`known_issues.md` #20).
+- Mientras dura la prueba **la pantalla muestra la fototerapia encendida**: el
+  campo `photo` de `CTRL,STATE` refleja la lámpara real (desde 2026-10-25,
+  `known_issues.md` #20; antes era el eco de la orden del display y la pantalla
+  decía apagado con la lámpara encendida). El display adopta ese ON y lo
+  devuelve en su keepalive: por eso existe la ventana de gracia al soltar, y al
+  soltar la placa vuelve a emitir 0. Efecto secundario conocido: el ON
+  adoptado llega a `CommTask` como una orden del display, así que la
+  contabilidad de exposición por bebé (`updateTherapyAccounting`) cuenta la
+  prueba si hay un bebé activo en el asistente; en banco no lo hay.
 - Lógica en `modules/control/photo_override.h`, con test de host
   (`test/test_photo_override`).
 

@@ -42,3 +42,4 @@ Con el eco antiguo el paso 2 era el único que protegía; ahora además el displ
 
 - **Carrera al encender**: entre la orden del display y la aplicación, un `CTRL,STATE` sale con 0. La guarda local del display (10 s) lo cubre; si un display antiguo no la tuviera, vería un parpadeo del switch. Verificación manual en banco.
 - **Lámpara apagada por el temporizador**: `getRemainingPhotoTime()` pone `in3.phototherapy=false` y `g_last_cmd.phototherapyMode=0` a la vez; con el estado real la emisión es coherente en ambos casos.
+- **Efecto secundario del override**: el display adopta el ON emitido y lo devuelve como orden suya, así que `CommTask` (contabilidad de exposición por bebé, `babyStore_setActiveSeq`) ve la sesión de depuración como una orden real. Sin bebé activo en el asistente (banco) no acredita nada; con él, sí. No se mitiga aquí (fuera de alcance, tocaría el camino de órdenes del display); queda anotado en `known_issues.md` §20.

@@ -794,7 +794,7 @@ implemented), and the cutout still reads the same sensor as the PID (§2.4).
 The bench unit's 38 is the correct value and has been left alone. Deciding the
 production value is a product/regulatory call, not a firmware fix.
 
-## 20. The board echoes the display's phototherapy order instead of reporting the lamp (OPEN)
+## 20. The board echoes the display's phototherapy order instead of reporting the lamp — FIXED (2026-10-25, pending bench check)
 
 Seen while testing the UART `PHOTO,1` command on 2026-09-23 (18.46): with the
 lamp on at 0.46 A, `CTRL,STATE` field 8 said `0`. `send_state_to_hmi()` sends
@@ -808,6 +808,26 @@ phototherapy OFF while the lamp is ON**. Not yet established: whether any
 *non*-debug path (a crash restore, a timer expiry on the board) leaves the lamp
 and the screen disagreeing. The debug override does not depend on it — its
 release window is defensive and verified to leave the lamp off.
+
+*   **Fix (change `mb-photo-current-check`)**: `send_state_to_hmi()` now sends
+    `in3.phototherapy` (what is applied) in field 8. Actuation, control mode
+    and setpoints are **still echoes, on purpose**: `in3.actuation` /
+    `in3.controlMode` are assigned verbatim from the command (so the "real"
+    value is the same), and the board keeps a single setpoint per mode, so
+    there is no one-line real value for the other one.
+*   **Side effects to know about**: (1) the display now adopts the debug ON and
+    returns it in its keepalive, so `CommTask`'s per-baby therapy accounting
+    sees the debug session as a display order (harmless on a bench unit with no
+    baby in the wizard); (2) between the operator's tap and the board applying
+    it, one `CTRL,STATE` can go out with the old value — the display's local
+    confirmation guard (`localCmdHoldsLocal`, 10 s) covers it.
+*   **Still open from the original text**: whether any *non*-debug path (crash
+    restore, timer expiry) left lamp and screen disagreeing. With the real
+    state emitted, a restore from NVS now reaches a rebooted display, which is
+    the intent of #4.
+*   **Verification**: host-testable parts (`test_photo_override` release grace,
+    `test_photo_fault`) are green; the screen behaviour is **manual, on the
+    bench** (tasks 4.4–4.5 of the change).
 
 ## 21. The first session after a setpoint change can start at twice the target
 
