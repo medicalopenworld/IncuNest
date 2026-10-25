@@ -4,6 +4,7 @@
 
 #include "main.h"
 #include "modules/control/alarm_machine.h"
+#include "modules/control/photo_fault.h"
 #include "modules/sensorboard_comm/sensorboard_comm.h"
 #include "sensor_source.h"
 #include "system/hw_selftest.h"
@@ -65,6 +66,14 @@ long lastEncoderUpdate;
 static long lastPhotoControl = 0;
 static int heaterSensorDropoutCycles = 0;
 
+// Estado de ALARM_PHOTO_LAMP_FAULT (logica en modules/control/photo_fault.h).
+static PhotoFault photoFault;
+static long lastPhotoFaultCheck = 0;
+// El INA principal contesto en la ultima pasada. Sin esto, si el chip se
+// cuelga, in3.phototherapy_current se queda con su ultimo valor y la
+// comprobacion de lampara juzgaria un dato rancio.
+static bool mainCurrentSensorAnswered = false;
+
 // The Beastdevices_INA3221 library (getCurrent()) does not check I2C
 // transaction results: on a NACK/timeout it silently returns whatever was
 // last in the register (or 0), with no error signal - see
@@ -85,6 +94,9 @@ void currentMonitor() {
       in3.phototherapy_current =
           measureMeanConsumption(MAIN, PHOTOTHERAPY_SHUNT_CHANNEL);
       systemCurrentSampleSeq++;
+      mainCurrentSensorAnswered = true;
+    } else {
+      mainCurrentSensorAnswered = false;
     }
     if (digitalCurrentSensorPresent[SECUNDARY] &&
         i2cDevicePresent(SECUNDARY_DIGITAL_CURRENT_SENSOR_I2C_ADDRESS)) {
@@ -182,6 +194,40 @@ void currentMonitor() {
       pwmGuardado = in3.phototherapy_intensity;
       ultimoGuardadoPwm = millis();
     }
+  }
+
+  // ALARM_PHOTO_LAMP_FAULT: lampara ordenada ON que no consume corriente.
+  //
+  // FUERA del `if` del lazo de intensidad de arriba, a proposito: ese exige
+  // `phototherapy_current > 0.0f`, que es justo lo que esta comprobacion
+  // quiere detectar que no se cumple. Mismo gate de fabrica que el lazo
+  // (g_factoryTestActive) y misma cadencia (PHOTO_CONTROL_PERIOD_MS). La
+  // decision (umbral, ciclos, histeresis) vive en photo_fault.cpp, probada en
+  // host; aqui solo se decide si la medida VALE:
+  //   - la fototerapia esta ordenada ON y ya paso PHOTO_SETTLE_MS desde el
+  //     encendido (la semilla puede dar poca corriente al principio),
+  //   - el INA principal contesto en la ultima pasada.
+  // Si no vale, photo_fault retira la averia, de modo que apagar la fototerapia
+  // con la alarma puesta no la deja viva.
+  if (millis() - lastPhotoFaultCheck > PHOTO_CONTROL_PERIOD_MS) {
+    lastPhotoFaultCheck = millis();
+    const bool evaluable =
+        !g_factoryTestActive && in3.phototherapy &&
+        mainCurrentSensorAnswered &&
+        (millis() - in3.photoTurnOnTime > PHOTO_SETTLE_MS);
+    const bool antes = photo_fault_present(&photoFault);
+    const bool ahora = photo_fault_update(
+        &photoFault, evaluable, (float)in3.phototherapy_current);
+    if (ahora != antes) {
+      const String detalle = String(in3.phototherapy_current, 3) + " A)";
+      if (ahora) {
+        logE(String("[PHOTO] lampara sin corriente (") + detalle);
+      } else {
+        logI(String("[PHOTO] lampara: fallo retirado (") + detalle);
+      }
+    }
+    // Idempotente: declarar cada ciclo el mismo valor no re-anuncia nada.
+    alarm_machine_condition(ALARM_PHOTO_LAMP_FAULT, ahora, millis());
   }
 }
 

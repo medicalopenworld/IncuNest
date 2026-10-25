@@ -154,6 +154,10 @@
 // -- y por tanto sin sensor de aire -- era invisible en monitorizacion remota.
 #define ALARM_SENSORBOARD_LINK_LOST_KEY "sb_link_alarm"
 #define ALARM_SENSORBOARD_DOOR_FAULT_KEY "sb_door_alarm"
+// Misma razon: sin la clave, ALARM_PHOTO_LAMP_FAULT (20) caeria en el
+// `default: return` y una lampara de fototerapia que no responde seria
+// invisible en monitorizacion remota.
+#define ALARM_PHOTO_LAMP_FAULT_KEY "photo_lamp_alarm"
 
 #define CALIBRATION_RAW_TEMPERATURE_RANGE_SKIN_KEY "Cal_raw_range_skin_temp"
 #define CALIBRATION_RAW_TEMPERATURE_LOW_SKIN_KEY "Cal_raw_low_skin_temp"
