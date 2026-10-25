@@ -421,14 +421,36 @@ are a hypothesis until calibrated on the bench.
 
 I2C is done by `UI_Task` **after** `LVGL_Unlock()` (ARQ-LOCK-001): the level is
 computed under the lock and written outside it, only when it changes. A write
-the chip does not ACK is not recorded as applied and is retried every 200 ms.
+the chip does not ACK is not recorded as applied and is retried every 200 ms,
+except when the target is 100 % (alarm or link lost), which is retried on every
+pass with no throttle.
 
-> **Not verified on hardware.** That the STC8H1K28 accepts intermediate bytes
-> is an assumption from its v1.3 datasheet comment; until now only `10` and
-> `245` had ever been written. If on the bench it turns off, hangs or ignores
-> the byte, set `DISPLAY_BL_LEVELS_SUPPORTED` to `0` in
-> `include/config/display_config.h`: every level then writes the full-on byte
-> and the slider and night mode become inert but harmless.
+> **Not verified on hardware: shipped disabled.** That the STC8H1K28 accepts
+> intermediate bytes is an assumption from its v1.3 datasheet comment; until
+> now only `10` and `245` had ever been written. `DISPLAY_BL_LEVELS_SUPPORTED`
+> in `include/config/display_config.h` is therefore **`0` by default**: every
+> level writes the full-on byte, so the slider and night mode work in the UI and
+> NVS but leave the hardware at full brightness. A chip that ignored or
+> misread intermediate bytes would otherwise leave a persisted 20 % as a nearly
+> black screen on every boot. **Set it to `1` only after the bench checks
+> below pass.**
+
+**I2C bus `0x30` has no lock.** Brightness, buzzer and speaker opcodes share
+that address and each is a separate one-byte transaction with no mutex. It is
+safe today only because every writer runs in `UI_Task`
+(`AudioManager::begin()`/`playTone()` are not started). Re-enabling
+`AudioManager` would add a second writer and a brightness/opcode race (an
+opcode interleaved into a brightness transaction): add a bus lock first.
+
+Bench checklist (required before setting the flag to `1`):
+
+- Sweep bytes `10 / 100 / 150 / 236` and confirm monotonic brightness, no
+  blanking, no buzzer, no hang.
+- Night mode with an alarm raised while dimmed: 100 % at once, dims again when
+  it clears.
+- Simulated NACK: the level is not recorded as applied and is retried.
+- Training course: changes are not persisted and are restored on exit.
+- `pwroff`: the screen turns fully off.
 
 NVS (`hmi_cfg`): `bl_pct` (uchar, 20-100, default 100; clamped on load) and
 `bl_night` (uchar 0/1, default 0). Absent keys on units already deployed read
