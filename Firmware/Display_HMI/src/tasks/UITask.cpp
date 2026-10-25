@@ -19,6 +19,7 @@
 #include "modules/brightness/brightness_policy.h"
 #include "drivers/backlight.h"
 #include "modules/maintenance/weigh_tracker.h"
+#include "modules/trend/trend_policy.h"
 #include "display_config.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_rgb.h"
@@ -3695,6 +3696,9 @@ static void enter_lock_screen(void) {
   lv_scr_load(ui_ScreenLock);
   show_targets_for_mode();
   lv_disp_trig_activity(NULL);
+  // Pide el volcado de la tendencia (solo una bandera: la E/S la hace
+  // TelemetryHistory_PersistService, fuera del lock).
+  TelemetryHistory_NoteLockEntered();
 }
 
 void ImgButton1_Lock_cb(lv_event_t *e) {
@@ -3822,6 +3826,7 @@ void inactivity_timer_cb(lv_timer_t *timer) {
       locked = true;
       lv_scr_load(ui_ScreenLock);
       show_targets_for_mode();
+      TelemetryHistory_NoteLockEntered();  // ver enter_lock_screen()
     }
   }
 }
@@ -4649,9 +4654,9 @@ void UI_Task(void *pvParameters) {
   // (hmi-factory-test-settings-only).
   FactoryTest_Init();
   // --- Tendencia de telemetria (aire/piel/humedad). Mismo criterio de parent
-  // que AlarmCenter. OJO: desde que se retiro el boton TREND de la pantalla de
-  // bloqueo (tanda de fabricacion 2026-09-17) este overlay NO tiene ninguna
-  // via de entrada; se sigue inicializando para no tocar mas de la cuenta. ---
+  // que AlarmCenter. Desde que se retiro el boton TREND de la pantalla de
+  // bloqueo (tanda de fabricacion 2026-09-17) la unica via de entrada es el
+  // boton TENDENCIA de la cabecera de AlarmCenter (hmi-trend). ---
   TelemetryHistory_Init();
   // El check de "todo OK" es lo unico visible en el sitio de las alarmas
   // cuando no hay ninguna; hacerlo pulsable es lo que deja el registro
@@ -5126,9 +5131,19 @@ void UI_Task(void *pvParameters) {
             !linkLost && !PROTO_TEL_TEMP_IS_UNAVAILABLE(snapSkin);
         const bool humOkHist =
             !linkLost && snapHum != PROTO_TEL_HUM_UNAVAILABLE;
-        TelemetryHistory_RecordSample((float)snapAir, airOkHist,
-                                       (float)snapSkin, skinOkHist,
-                                       (float)snapHum, humOkHist);
+        // Consignas: las del ECO de la placa (lo que de verdad persigue), y
+        // solo las de las magnitudes bajo control. Con el enlace caido o antes
+        // del primer CTRL,STATE no hay eco fiable: sin dato.
+        const bool stateKnown = !linkLost && Display_BoardEverSeen();
+        const TrendSetpointValidity spOk = trend_setpoint_validity(
+            stateKnown ? ctrl_state_msg.actuation : -1,
+            ctrl_state_msg.controlMode != 0);
+        TelemetryHistory_RecordSample(
+            (float)snapAir, airOkHist, (float)snapSkin, skinOkHist,
+            (float)snapHum, humOkHist,
+            (float)ctrl_state_msg.desiredAirTemperature, spOk.air,
+            (float)ctrl_state_msg.desiredSkinTemperature, spOk.skin,
+            (float)ctrl_state_msg.desiredHumidity, spOk.hum);
       }
     }
 
@@ -5303,6 +5318,17 @@ void UI_Task(void *pvParameters) {
     if (doAlarmSound) {
       AlarmSound_Update();
     }
+
+    // Persistencia de la tendencia (hmi-trend): restauracion tras la primera
+    // hora y volcado a LittleFS. E/S de flash, asi que FUERA de LVGL_Lock
+    // (ARQ-LOCK-001), y la ULTIMA de la pasada: lo urgente (sonido de alarma,
+    // pulsos del enlace perdido) ya se atendio. Cada llamada hace como mucho UN
+    // tramo (reserva, serializacion, CRC, restauracion y escritura van por
+    // tramos acotados; la escritura, 4 KB cada >= 50 ms), y el servicio NO hace
+    // E/S mientras haya una alarma activa o el enlace este caido (aborta limpio
+    // un volcado a medias): una escritura de flash para la cache y no debe
+    // competir con el banner ni con el sonido de alarma.
+    TelemetryHistory_PersistService();
   }
 }
 
