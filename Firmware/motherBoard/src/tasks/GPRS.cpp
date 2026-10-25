@@ -130,6 +130,8 @@ static void rpc_diag_cb(JsonVariantConst const & /*data*/,
   response["uptime_s"]      = (uint32_t)(millis() / 1000);
   response["gprs_kill"]     = g_gprsKillCount;
   response["mon_kill"]      = g_monKillCount;
+  response["modem_resets"]  = GPRS.modemResets;
+  response["modem_reset_reason"] = GPRS.lastResetReason.c_str();
   response["hmi_boots"]     = g_hmiBootCount;
   response["hmi_last_rst"]  = g_hmiLastRst;
 }
@@ -202,7 +204,7 @@ static void rpc_capture_ppg_gprs_cb(JsonVariantConst const & /*data*/,
 // JSON_OBJECT_SIZE(n) basta.
 static RPC_Callback rpc_callbacks[] = {
   RPC_Callback("restart",  rpc_restart_cb,  JSON_OBJECT_SIZE(1)),
-  RPC_Callback("getDiag",  rpc_diag_cb,     JSON_OBJECT_SIZE(8)),
+  RPC_Callback("getDiag",  rpc_diag_cb,     JSON_OBJECT_SIZE(10)),
   RPC_Callback("setWifi",  rpc_setwifi_cb,  JSON_OBJECT_SIZE(1)),
   RPC_Callback("checkOta",   rpc_check_ota_cb,   JSON_OBJECT_SIZE(1)),
 #if TX_FEATURE_PPG_SNAPSHOT_GPRS
@@ -608,7 +610,12 @@ void readGPRSData() {
 // cobertura). Un solo sitio para esta secuencia evita que ambos disparadores
 // diverjan con el tiempo.
 void GPRSForceReset(const String &reason) {
-  logE("[GPRS] -> reset: " + reason);
+  // Por logModemData y no logE: LOG_ERRORS esta a false, y con logE el motivo
+  // no salia nunca por el serie. En la prueba de banco de 18.52.1 se vio el
+  // "powering module down" pero no por que.
+  logModemData("[GPRS] -> reset: " + reason);
+  GPRS.modemResets++;
+  GPRS.lastResetReason = reason;
   GPRS.timeOut = false;
   GPRS.process = false;
   GPRS.post = false;
@@ -1139,6 +1146,16 @@ void addTelemetriesToGPRSJSON() {
       roundSignificantDigits(in3.system_voltage, TELEMETRIES_DECIMALS);
 #if TX_GROUP_CELLULAR_GPRS // grupo CELLULAR — config/transport_policy.h
   addVariableToTelemetryGPRSJSON[CELL_SIGNAL_QUALITY_KEY] = GPRS.CSQ;
+#endif
+#if TX_GROUP_DIAG_GPRS // grupo DIAG — config/transport_policy.h
+  // En la telemetria periodica y no en la de configuracion: esa sale una vez
+  // por arranque, y estos reinicios ocurren con la placa ya en marcha. Solo
+  // si los hubo, para no gastar campos en regimen normal.
+  if (GPRS.modemResets > 0) {
+    addVariableToTelemetryGPRSJSON[GPRS_MODEM_RESETS_KEY] = GPRS.modemResets;
+    addVariableToTelemetryGPRSJSON[GPRS_RESET_REASON_KEY] =
+        GPRS.lastResetReason.c_str();
+  }
 #endif
   addVariableToTelemetryGPRSJSON[V5_CURRENT_KEY] =
       roundSignificantDigits(in3.USB_current, TELEMETRIES_DECIMALS);

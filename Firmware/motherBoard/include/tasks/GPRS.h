@@ -96,6 +96,11 @@ struct GPRSstruct {
   long lastPpgSnapshotAttempt = false; // captura PPG automática (ver policy)
   long lastReconnectAttempt = false;
   int tbConnectFailures = 0; // seguidos; ver GPRS_TB_CONNECT_MAX_FAILS
+  // GPRSForceReset() desde el arranque, y el motivo del ultimo. Se publican
+  // por GPRS (grupo DIAG) para ver en remoto si una unidad cae en bucles de
+  // reinicio del modem y por que.
+  uint32_t modemResets = 0;
+  String lastResetReason;
   long lastTriangulationUpdate = false;
   bool enable = false;
   long sendPeriod = false;

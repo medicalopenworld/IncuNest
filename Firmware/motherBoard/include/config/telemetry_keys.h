@@ -177,6 +177,10 @@
 #define UPTIME_S_KEY "uptime_s"
 #define GPRS_KILL_COUNT_KEY "gprs_kill_count"
 #define GPRS_MON_KILL_COUNT_KEY "gprs_mon_kill_count"
+// Reinicios del modem (GPRSForceReset) desde el arranque y motivo del ultimo.
+// Solo por GPRS y solo si hubo alguno.
+#define GPRS_MODEM_RESETS_KEY "gprs_modem_resets"
+#define GPRS_RESET_REASON_KEY "gprs_reset_reason"
 #define HMI_BOOT_COUNT_KEY "hmi_boot_count"
 #define HMI_LAST_RST_KEY "hmi_last_rst"
 // 0-100 while an OTA is downloading; absent otherwise.
