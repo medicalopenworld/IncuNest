@@ -511,6 +511,12 @@ UI_STR(STR_TIME_REJECTED,      "Hora rechazada","Time rejected","Heure rejetee",
 
 // ------------------------------------------------------- tendencia
 UI_STR(STR_TREND,              "Tendencia",    "Trend",       "Tendance",    "Tendencia")
+// Leyenda de las marcas de la tendencia (hmi-trend).
+UI_STR(STR_TREND_LEG_RAISED,   "Alarma salta", "Alarm raised","Alarme declenchee",
+                               "Alarme disparado")
+UI_STR(STR_TREND_LEG_CLEARED,  "Alarma resuelta","Alarm cleared","Alarme resolue",
+                               "Alarme resolvido")
+UI_STR(STR_TREND_LEG_SETPOINT, "Objetivo",     "Target",      "Objectif",    "Alvo")
 
 // ------------------------------------------------- cursos de formacion (motor)
 UI_STR(STR_TRAIN_BANNER_REAL,  "FORMACION: LA INCUBADORA CALIENTA E ILUMINA DE "

@@ -6,10 +6,15 @@
 
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/portmacro.h"
 
 #include "CommTask.h"
 #include "UITask.h"
 #include "main.h"
+#include "modules/trend/trend_events.h"
+#include "modules/trend/trend_policy.h"
+#include "modules/trend/trend_store.h"
 #include "ui.h"
 
 // Definidas en ElementsCreation.cpp (sin header propio: hasta ahora solo las
@@ -26,12 +31,12 @@ namespace {
 // ---------------------------------------------------------------------------
 // Modelo de datos: una ranura de 10 s por muestra, indice == tiempo.
 //
-// 4 h de techo a 10 s/ranura = 1440 ranuras por canal — 1440*3*4 bytes =
-// ~16.9 KB. Viven en PSRAM, no en .bss: la SRAM interna es el recurso escaso
-// del HMI. Los dos bounce buffers del panel RGB necesitan 38,4 KB contiguos
-// y DMA-capaces CADA UNO, y el driver los pide en UI_Task, despues de que
-// WiFi se haya llevado su parte del heap interno; 17 KB de .bss aqui eran
-// parte de lo que dejaba esa reserva sin sitio (ESP_ERR_NO_MEM en
+// El anillo (seis series int16: medida y consigna de aire/piel/humedad, ver
+// modules/trend/) vive en PSRAM, no en .bss: la SRAM interna es el recurso
+// escaso del HMI. Los dos bounce buffers del panel RGB necesitan 38,4 KB
+// contiguos y DMA-capaces CADA UNO, y el driver los pide en UI_Task, despues
+// de que WiFi se haya llevado su parte del heap interno; 17 KB de .bss aqui
+// eran parte de lo que dejaba esa reserva sin sitio (ESP_ERR_NO_MEM en
 // esp_lcd_new_rgb_panel → abort en el arranque). Estos buffers solo los lee
 // y escribe la CPU, nunca DMA, asi que PSRAM les vale de sobra.
 // Nombre especifico y no "BUFFER_SIZE": main.h ya declara una constante
@@ -46,7 +51,7 @@ constexpr int HIST_BUF_SIZE = 1440;
 // media acumulado sobre 1440 muestras desplazaba el eje X hasta 12 min. Con
 // ranuras absolutas el indice del buffer ES el tiempo (±10 s), que es lo que
 // hace fiables las lineas de rejilla y las horas del eje.
-constexpr int64_t SLOT_MS = 10000;  // 10 s/ranura
+constexpr int64_t SLOT_MS = TREND_SLOT_MS;  // 10 s/ranura
 // 1h/2h/4h en ranuras. El ultimo coincide con HIST_BUF_SIZE (el techo del
 // buffer es tambien la ventana mas ancha ofrecida) — referencia la constante
 // en vez de repetir 1440 para que no puedan divergir. 1h primero: es la
@@ -64,8 +69,9 @@ constexpr uint16_t HDIV_LINES = 3;
 
 // Valores en decimas (36.7 C → 367) para que la traza se mueva con 0.1 C:
 // lv_coord_t es entero y con el rango en grados enteros una variacion de
-// medio grado no se veia hasta cruzar el entero. Las etiquetas del eje Y
-// deshacen la escala en onChartDrawPart.
+// medio grado no se veia hasta cruzar el entero. Es la misma unidad en la que
+// guarda el modelo (trend_tenths), asi que no hay conversion al pintar. Las
+// etiquetas del eje Y deshacen la escala en onChartDrawPart.
 constexpr int Y_SCALE = 10;
 
 // Geometria. Las etiquetas del eje Y se dibujan A LA IZQUIERDA DEL PROPIO
@@ -83,43 +89,53 @@ constexpr lv_coord_t CHART_H = 96;
 // abajo vale para las tres trazas.
 constexpr lv_coord_t X_TICK_DRAW_SIZE = 24;
 
-// NAN marca "sin dato valido en ese instante": medida no disponible
-// (PROTO_TEL_*_UNAVAILABLE), enlace HMI<->motherBoard caido, ranura sin
-// telemetria. Nunca se guarda ni se pinta el centinela crudo de la placa
-// (-999.0/-1) como si fuera una lectura real — PROTOCOL.md es explicito
-// sobre por que eso es un problema de seguridad, no cosmetico.
-float *s_bufAir = nullptr;
-float *s_bufSkin = nullptr;
-float *s_bufHum = nullptr;
+// Colores de las marcas y de la consigna (la tarjeta es blanca, asi que nada
+// de amarillos claros). La consigna es morada para que no se confunda con
+// ninguna prioridad de alarma (rojo/naranja/amarillo) ni con las tres medidas
+// (verde/cian/azul).
+constexpr uint32_t COLOR_SETPOINT = 0x8E24AA;
+constexpr uint32_t COLOR_MARK_HIGH = 0xD32F2F;
+constexpr uint32_t COLOR_MARK_MEDIUM = 0xF57C00;
+constexpr uint32_t COLOR_MARK_LOW = 0xC9A000;
+constexpr uint32_t COLOR_MARK_CLEARED = 0x2E7D32;
+
+// Tres graficos: aire, piel, humedad. Cada uno con su serie de medida y la de
+// consigna del mismo canal en el modelo.
+constexpr int N_CHARTS = 3;
+constexpr int MEAS_SERIES[N_CHARTS] = {TREND_AIR, TREND_SKIN, TREND_HUM};
+constexpr int SP_SERIES[N_CHARTS] = {TREND_SP_AIR, TREND_SP_SKIN, TREND_SP_HUM};
+
+int16_t *s_block = nullptr;
+TrendStore s_store = {};
+TrendEvents s_events = {};
 bool s_allocFailed = false;
 
-// Reserva unica y perpetua de los 3 canales en un solo bloque de PSRAM: un
-// fallo parcial con tres mallocs sueltos dejaria el historico a medias. Si no
-// hay PSRAM (o falla), la tendencia se queda sin datos pero el equipo arranca
-// y monitoriza igual — es una vista de consulta, no una funcion de seguridad.
+// Reserva unica y perpetua de las seis series en un solo bloque de PSRAM: un
+// fallo parcial con mallocs sueltos dejaria el historico a medias. Si no hay
+// PSRAM (o falla), la tendencia se queda sin datos pero el equipo arranca y
+// monitoriza igual — es una vista de consulta, no una funcion de seguridad.
 bool ensureBuffers() {
-  if (s_bufAir) return true;
+  if (s_block) return true;
   if (s_allocFailed) return false;
-  float *block = (float *)heap_caps_malloc(sizeof(float) * HIST_BUF_SIZE * 3,
-                                           MALLOC_CAP_SPIRAM);
-  if (!block) {
+  const size_t bytes = trend_store_bytes(HIST_BUF_SIZE);
+  s_block = (int16_t *)heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM);
+  if (!s_block) {
     s_allocFailed = true;
     ESP_LOGE("TelHist", "sin PSRAM para el historico (%u B) — tendencia vacia",
-             (unsigned)(sizeof(float) * HIST_BUF_SIZE * 3));
+             (unsigned)bytes);
     return false;
   }
-  s_bufAir = block;
-  s_bufSkin = block + HIST_BUF_SIZE;
-  s_bufHum = block + HIST_BUF_SIZE * 2;
+  trend_store_init(&s_store, s_block, HIST_BUF_SIZE);
   return true;
 }
 
-int s_writeIdx = 0;      // siguiente posicion a escribir
-int s_sampleCount = 0;   // ranuras validas en el anillo (incluidas las NAN)
-int64_t s_lastSlot = 0;  // ranura de la ultima muestra escrita (writeIdx-1)
-bool s_haveLastSample = false;
 int64_t s_drawnSlot = -1;  // ranura "ahora" del ultimo repintado
 int s_axisIdx = -1;        // ventana a la que estan configurados los ejes
+// Ventana pintada por el ultimo redraw(): las marcas de alarma se colocan
+// contra ella, no contra el "ahora" del momento de dibujar, para que queden
+// alineadas con las series que ya estan escritas en y_points[].
+int64_t s_drawStart = 0;
+int s_drawN = 0;
 
 bool s_isOpen = false;
 
@@ -128,15 +144,52 @@ lv_obj_t *s_content = nullptr;
 lv_obj_t *s_windowDd = nullptr;
 lv_obj_t *s_title = nullptr;
 
-lv_obj_t *s_chartAir = nullptr;
-lv_obj_t *s_chartSkin = nullptr;
-lv_obj_t *s_chartHum = nullptr;
-lv_chart_series_t *s_serAir = nullptr;
-lv_chart_series_t *s_serSkin = nullptr;
-lv_chart_series_t *s_serHum = nullptr;
+lv_obj_t *s_chart[N_CHARTS] = {nullptr, nullptr, nullptr};
+lv_chart_series_t *s_serMeas[N_CHARTS] = {nullptr, nullptr, nullptr};
+lv_chart_series_t *s_serSp[N_CHARTS] = {nullptr, nullptr, nullptr};
 lv_obj_t *s_lblAir = nullptr;
 lv_obj_t *s_lblSkin = nullptr;
 lv_obj_t *s_lblHum = nullptr;
+lv_obj_t *s_legRaised = nullptr;
+lv_obj_t *s_legCleared = nullptr;
+lv_obj_t *s_legSetpoint = nullptr;
+
+// ---------------------------------------------------------------------------
+// Flancos de alarma. CommTask los detecta (processReceivedAlarm) y NO toca el
+// modelo: aqui solo se encolan, con el instante en esp_timer, bajo una seccion
+// critica de unos pocos ciclos. UI_Task los drena en TelemetryHistory_Poll y
+// los convierte a ranura con el instante del flanco, no el del drenaje.
+struct PendingEdge {
+  int64_t ms;
+  uint8_t id;
+  uint8_t priority;
+  bool raised;
+};
+constexpr int EDGE_QUEUE = 16;
+PendingEdge s_edgeQ[EDGE_QUEUE];
+int s_edgeHead = 0;
+int s_edgeCount = 0;
+portMUX_TYPE s_edgeMux = portMUX_INITIALIZER_UNLOCKED;
+
+// Devuelve cuantos flancos paso al anillo de eventos.
+int drainEdges() {
+  int n = 0;
+  for (;;) {
+    PendingEdge e;
+    taskENTER_CRITICAL(&s_edgeMux);
+    const bool have = s_edgeCount > 0;
+    if (have) {
+      e = s_edgeQ[s_edgeHead];
+      s_edgeHead = (s_edgeHead + 1) % EDGE_QUEUE;
+      s_edgeCount--;
+    }
+    taskEXIT_CRITICAL(&s_edgeMux);
+    if (!have) break;
+    trend_events_add(&s_events, e.ms / SLOT_MS, e.id, e.priority, e.raised);
+    n++;
+  }
+  return n;
+}
 
 int64_t nowSlot() { return (esp_timer_get_time() / 1000) / SLOT_MS; }
 
@@ -170,14 +223,6 @@ void closeScreen() {
 void onClose(lv_event_t *e) {
   if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
   closeScreen();
-}
-
-void pushSample(float air, float skin, float hum) {
-  s_bufAir[s_writeIdx] = air;
-  s_bufSkin[s_writeIdx] = skin;
-  s_bufHum[s_writeIdx] = hum;
-  s_writeIdx = (s_writeIdx + 1) % HIST_BUF_SIZE;
-  if (s_sampleCount < HIST_BUF_SIZE) s_sampleCount++;
 }
 
 // Texto de la etiqueta k (0..LABEL_SEGMENTS) del eje X para la ventana idx.
@@ -233,6 +278,57 @@ void onChartDrawPart(lv_event_t *e) {
   }
 }
 
+lv_color_t markColor(TrendMarkKind kind) {
+  switch (kind) {
+    case TREND_MARK_HIGH:
+      return lv_color_hex(COLOR_MARK_HIGH);
+    case TREND_MARK_MEDIUM:
+      return lv_color_hex(COLOR_MARK_MEDIUM);
+    case TREND_MARK_LOW:
+      return lv_color_hex(COLOR_MARK_LOW);
+    case TREND_MARK_CLEARED:
+    default:
+      return lv_color_hex(COLOR_MARK_CLEARED);
+  }
+}
+
+// Marcas de alarma: una linea vertical por evento visible, sobre series y
+// rejilla (DRAW_POST_END, cuando el chart ya ha pintado todo lo suyo). Alta =
+// continua con el color de la prioridad; baja (resuelta) = discontinua verde.
+// Se colocan contra la ventana del ULTIMO redraw() (s_drawStart/s_drawN), la
+// misma con la que se escribieron las series.
+void onChartDrawPost(lv_event_t *e) {
+  lv_obj_t *chart = lv_event_get_target(e);
+  lv_draw_ctx_t *dc = lv_event_get_draw_ctx(e);
+  if (!chart || !dc || s_drawN <= 0 || s_events.count == 0) return;
+
+  lv_area_t a;
+  lv_obj_get_content_coords(chart, &a);
+  const int w = lv_area_get_width(&a);
+  if (w <= 0) return;
+
+  for (int i = 0; i < s_events.count; i++) {
+    TrendEvent ev;
+    if (!trend_events_get(&s_events, i, &ev)) break;
+    const int px = trend_slot_to_px(ev.slot, s_drawStart, s_drawN, w);
+    if (px < 0) continue;
+
+    const TrendMarkKind kind = trend_mark_kind(ev.priority, ev.raised);
+    lv_draw_line_dsc_t d;
+    lv_draw_line_dsc_init(&d);
+    d.color = markColor(kind);
+    d.width = 2;
+    d.opa = LV_OPA_COVER;
+    if (kind == TREND_MARK_CLEARED) {
+      d.dash_width = 4;
+      d.dash_gap = 3;
+    }
+    lv_point_t p1 = {(lv_coord_t)(a.x1 + px), a.y1};
+    lv_point_t p2 = {(lv_coord_t)(a.x1 + px), a.y2};
+    lv_draw_line(dc, &d, &p1, &p2);
+  }
+}
+
 // Ejes y rejilla para la ventana idx. Solo hace trabajo cuando cambia la
 // ventana: lv_chart_set_point_count realoja las series (y antes se llamaba
 // en cada muestra) y set_axis_tick/set_div_line_count invalidan el chart.
@@ -243,16 +339,15 @@ void applyAxis(int idx) {
   const uint16_t vdiv = (uint16_t)(n / GRID_STEP_SLOTS + 1);  // 5/9/17
   const uint16_t minor =
       (uint16_t)((n / LABEL_SEGMENTS) / GRID_STEP_SLOTS);  // 1/2/4
-  lv_obj_t *charts[3] = {s_chartAir, s_chartSkin, s_chartHum};
-  for (lv_obj_t *c : charts) {
+  for (lv_obj_t *c : s_chart) {
     lv_chart_set_point_count(c, (uint16_t)n);
     lv_chart_set_div_line_count(c, HDIV_LINES, vdiv);
   }
-  lv_chart_set_axis_tick(s_chartHum, LV_CHART_AXIS_PRIMARY_X, 6, 3,
+  lv_chart_set_axis_tick(s_chart[N_CHARTS - 1], LV_CHART_AXIS_PRIMARY_X, 6, 3,
                          LABEL_SEGMENTS + 1, minor, true, X_TICK_DRAW_SIZE);
 }
 
-// Repinta las 3 series desde el anillo. El punto j (0..N-1) del chart es la
+// Repinta las series desde el anillo. El punto j (0..N-1) del chart es la
 // ranura now-(N-1)+j: el eje X es siempre la ventana completa y los datos
 // quedan pegados al borde derecho ("ahora"). Con el equipo recien encendido
 // se ve la ventana vacia con 10 min de traza a la derecha, no 10 min
@@ -268,7 +363,8 @@ void applyAxis(int idx) {
 // "va lenta" con la vista abierta, y de paso tenia bloqueada LVGL_Lock (y
 // con ella la tarea Comm) durante el repintado.
 void redraw() {
-  if (!s_chartAir || !s_serAir || !s_serSkin || !s_serHum) return;
+  for (int c = 0; c < N_CHARTS; c++)
+    if (!s_chart[c] || !s_serMeas[c] || !s_serSp[c]) return;
   const int64_t t0 = esp_timer_get_time();
 
   const int idx = windowIdx();
@@ -276,49 +372,42 @@ void redraw() {
   const int64_t now = nowSlot();
   s_drawnSlot = now;
   applyAxis(idx);
+  s_drawStart = now - (n - 1);
+  s_drawN = n;
 
-  lv_coord_t *yAir = s_serAir->y_points;
-  lv_coord_t *ySkin = s_serSkin->y_points;
-  lv_coord_t *yHum = s_serHum->y_points;
-  s_serAir->start_point = 0;
-  s_serSkin->start_point = 0;
-  s_serHum->start_point = 0;
-
-  const bool haveData = s_haveLastSample && s_bufAir != nullptr;
-  for (int j = 0; j < n; j++) {
-    lv_coord_t vAir = LV_CHART_POINT_NONE;
-    lv_coord_t vSkin = LV_CHART_POINT_NONE;
-    lv_coord_t vHum = LV_CHART_POINT_NONE;
-    if (haveData) {
-      const int64_t slot = now - (n - 1) + j;
-      const int64_t back = s_lastSlot - slot;  // 0 = ultima muestra escrita
-      if (back >= 0 && back < s_sampleCount) {
-        const int b =
-            (s_writeIdx - 1 - (int)back + 2 * HIST_BUF_SIZE) % HIST_BUF_SIZE;
-        // NAN (medida no disponible / ranura sin telemetria) se pinta como
-        // LV_CHART_POINT_NONE: LVGL corta la linea ahi en vez de unir con
-        // una recta que implicaria una medida o continuidad que no hubo.
-        if (!std::isnan(s_bufAir[b]))
-          vAir = (lv_coord_t)lroundf(s_bufAir[b] * Y_SCALE);
-        if (!std::isnan(s_bufSkin[b]))
-          vSkin = (lv_coord_t)lroundf(s_bufSkin[b] * Y_SCALE);
-        if (!std::isnan(s_bufHum[b]))
-          vHum = (lv_coord_t)lroundf(s_bufHum[b] * Y_SCALE);
-      }
-    }
-    yAir[j] = vAir;
-    ySkin[j] = vSkin;
-    yHum[j] = vHum;
+  for (int c = 0; c < N_CHARTS; c++) {
+    s_serMeas[c]->start_point = 0;
+    s_serSp[c]->start_point = 0;
   }
 
-  lv_chart_refresh(s_chartAir);
-  lv_chart_refresh(s_chartSkin);
-  lv_chart_refresh(s_chartHum);
+  const bool haveData = s_block != nullptr && s_store.count > 0;
+  for (int c = 0; c < N_CHARTS; c++) {
+    lv_coord_t *yMeas = s_serMeas[c]->y_points;
+    lv_coord_t *ySp = s_serSp[c]->y_points;
+    for (int j = 0; j < n; j++) {
+      // NO_DATA (medida no disponible / ranura sin telemetria / consigna que
+      // no gobierna nada) se pinta como LV_CHART_POINT_NONE: LVGL corta la
+      // linea ahi en vez de unir con una recta que implicaria una medida o
+      // continuidad que no hubo.
+      int16_t m = TREND_NO_DATA;
+      int16_t sp = TREND_NO_DATA;
+      if (haveData) {
+        const int64_t slot = s_drawStart + j;
+        m = trend_store_value(&s_store, MEAS_SERIES[c], slot);
+        sp = trend_store_value(&s_store, SP_SERIES[c], slot);
+      }
+      yMeas[j] = (m == TREND_NO_DATA) ? LV_CHART_POINT_NONE : (lv_coord_t)m;
+      ySp[j] = (sp == TREND_NO_DATA) ? LV_CHART_POINT_NONE : (lv_coord_t)sp;
+    }
+  }
+
+  for (lv_obj_t *c : s_chart) lv_chart_refresh(c);
 
   // Medida para el banco: solo se emite con la vista abierta (una linea
   // cada 10 s). Es el coste de preparar el frame, no de pintarlo — el pintado
   // lo hace lv_timer_handler y se ve en lcd_diagnostics_log (slow_frames).
-  ESP_LOGI("TelHist", "redraw %d pts, %d muestras, %lld us", n, s_sampleCount,
+  ESP_LOGI("TelHist", "redraw %d pts, %d muestras, %d eventos, %lld us", n,
+           s_store.count, s_events.count,
            (long long)(esp_timer_get_time() - t0));
 }
 
@@ -335,9 +424,8 @@ lv_obj_t *makeChartLabel(lv_coord_t y, const char *text) {
   return lbl;
 }
 
-lv_obj_t *makeChart(lv_coord_t y, int rangeLo, int rangeHi, double safeLo,
-                     double safeHi, lv_color_t color,
-                     lv_chart_series_t **outSeries) {
+void makeChart(int slot, lv_coord_t y, int rangeLo, int rangeHi, double safeLo,
+               double safeHi, lv_color_t color) {
   lv_obj_t *chart = lv_chart_create(s_content);
   lv_obj_set_size(chart, CHART_W, CHART_H);
   lv_obj_set_pos(chart, CHART_X, y);
@@ -358,17 +446,80 @@ lv_obj_t *makeChart(lv_coord_t y, int rangeLo, int rangeHi, double safeLo,
   // verticales ajustan su opacidad por linea en onChartDrawPart.
   lv_obj_set_style_line_opa(chart, LV_OPA_30, LV_PART_MAIN);
   lv_obj_add_event_cb(chart, onChartDrawPart, LV_EVENT_DRAW_PART_BEGIN, NULL);
+  lv_obj_add_event_cb(chart, onChartDrawPost, LV_EVENT_DRAW_POST_END, NULL);
   ui_add_chart_safe_zone(chart, (float)(safeLo * Y_SCALE),
                           (float)(safeHi * Y_SCALE),
                           (float)(rangeLo * Y_SCALE),
                           (float)(rangeHi * Y_SCALE));
-  *outSeries = lv_chart_add_series(chart, color, LV_CHART_AXIS_PRIMARY_Y);
-  return chart;
+  // La consigna se anade ANTES que la medida: LVGL pinta las series en orden
+  // de creacion, asi que la medida queda encima de la linea de consigna.
+  s_serSp[slot] = lv_chart_add_series(chart, lv_color_hex(COLOR_SETPOINT),
+                                      LV_CHART_AXIS_PRIMARY_Y);
+  s_serMeas[slot] = lv_chart_add_series(chart, color, LV_CHART_AXIS_PRIMARY_Y);
+  s_chart[slot] = chart;
+}
+
+enum class LegendGlyph { VerticalSolid, VerticalDashed, HorizontalLine };
+
+// Una entrada de la leyenda: el trazo tal y como se ve en el grafico (las
+// marcas son verticales, la consigna horizontal) y su texto. Devuelve el
+// label para poder cambiarle el idioma en caliente.
+lv_obj_t *makeLegendItem(lv_obj_t *row, lv_color_t color, LegendGlyph glyph,
+                         const char *text) {
+  lv_obj_t *item = lv_obj_create(row);
+  lv_obj_remove_style_all(item);
+  lv_obj_set_size(item, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(item, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(item, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                        LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(item, 5, 0);
+  lv_obj_clear_flag(item, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+
+  // Caja de 18x14 con uno o dos segmentos: marca vertical continua = una
+  // barra de 3x14; discontinua = dos de 3x6; consigna = una barra de 18x3.
+  lv_obj_t *sw = lv_obj_create(item);
+  lv_obj_remove_style_all(sw);
+  lv_obj_set_size(sw, 18, 14);
+  lv_obj_clear_flag(sw, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+  struct Seg {
+    lv_coord_t x, y, w, h;
+  };
+  Seg segs[2] = {};
+  int nSegs = 0;
+  switch (glyph) {
+    case LegendGlyph::VerticalSolid:
+      segs[nSegs++] = {7, 0, 3, 14};
+      break;
+    case LegendGlyph::VerticalDashed:
+      segs[nSegs++] = {7, 0, 3, 6};
+      segs[nSegs++] = {7, 8, 3, 6};
+      break;
+    case LegendGlyph::HorizontalLine:
+      segs[nSegs++] = {0, 6, 18, 3};
+      break;
+  }
+  for (int i = 0; i < nSegs; i++) {
+    lv_obj_t *seg = lv_obj_create(sw);
+    lv_obj_remove_style_all(seg);
+    lv_obj_set_size(seg, segs[i].w, segs[i].h);
+    lv_obj_set_pos(seg, segs[i].x, segs[i].y);
+    lv_obj_set_style_bg_color(seg, color, 0);
+    lv_obj_set_style_bg_opa(seg, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(seg, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+  }
+
+  lv_obj_t *lbl = lv_label_create(item);
+  lv_label_set_text(lbl, text);
+  lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(lbl, lv_color_hex(0x333333), 0);
+  return lbl;
 }
 
 }  // namespace
 
 void TelemetryHistory_Init(void) {
+  trend_events_init(&s_events);
+
   // lv_layer_top(), no una pantalla: igual que AlarmCenter, para poder
   // abrirse desde ui_ScreenLock sin desbloquear.
   s_overlay = lv_obj_create(lv_layer_top());
@@ -419,23 +570,41 @@ void TelemetryHistory_Init(void) {
   lv_obj_add_event_cb(s_windowDd, onWindowChanged, LV_EVENT_VALUE_CHANGED,
                        NULL);
 
+  // Leyenda de las marcas y la consigna, entre el titulo y el selector de
+  // ventana (hay ~440 px libres; las cuatro lenguas caben).
+  lv_obj_t *legend = lv_obj_create(s_content);
+  lv_obj_remove_style_all(legend);
+  lv_obj_set_size(legend, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(legend, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(legend, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                        LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(legend, 14, 0);
+  lv_obj_clear_flag(legend, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_align(legend, LV_ALIGN_TOP_LEFT, 120, 10);
+  s_legRaised = makeLegendItem(legend, lv_color_hex(COLOR_MARK_HIGH),
+                               LegendGlyph::VerticalSolid,
+                               TR(STR_TREND_LEG_RAISED));
+  s_legCleared = makeLegendItem(legend, lv_color_hex(COLOR_MARK_CLEARED),
+                                LegendGlyph::VerticalDashed,
+                                TR(STR_TREND_LEG_CLEARED));
+  s_legSetpoint = makeLegendItem(legend, lv_color_hex(COLOR_SETPOINT),
+                                 LegendGlyph::HorizontalLine,
+                                 TR(STR_TREND_LEG_SETPOINT));
+
   // Mismos colores que las graficas de ui_ScreenCharts (Tiempo Real): aire
   // verde, piel cian, humedad azul — un lenguaje visual ya establecido en
   // este HMI, no uno nuevo por pantalla.
   s_lblAir = makeChartLabel(40, TR(STR_AIR));
-  s_chartAir = makeChart(58, TEMP_CHART_MIN, TEMP_CHART_MAX, AIR_SAFE_ZONE_MIN,
-                         AIR_SAFE_ZONE_MAX, lv_color_hex(0x00FF00),
-                         &s_serAir);
+  makeChart(0, 58, TEMP_CHART_MIN, TEMP_CHART_MAX, AIR_SAFE_ZONE_MIN,
+            AIR_SAFE_ZONE_MAX, lv_color_hex(0x00FF00));
 
   s_lblSkin = makeChartLabel(160, TR(STR_SKIN));
-  s_chartSkin =
-      makeChart(178, TEMP_CHART_MIN, TEMP_CHART_MAX, SKIN_SAFE_ZONE_MIN,
-                SKIN_SAFE_ZONE_MAX, lv_color_hex(0x00E0E0), &s_serSkin);
+  makeChart(1, 178, TEMP_CHART_MIN, TEMP_CHART_MAX, SKIN_SAFE_ZONE_MIN,
+            SKIN_SAFE_ZONE_MAX, lv_color_hex(0x00E0E0));
 
   s_lblHum = makeChartLabel(280, TR(STR_HUMIDITY));
-  s_chartHum = makeChart(298, HUM_CHART_MIN, HUM_CHART_MAX, HUM_SAFE_ZONE_MIN,
-                         HUM_SAFE_ZONE_MAX, lv_color_hex(0x3B82F6),
-                         &s_serHum);
+  makeChart(2, 298, HUM_CHART_MIN, HUM_CHART_MAX, HUM_SAFE_ZONE_MIN,
+            HUM_SAFE_ZONE_MAX, lv_color_hex(0x3B82F6));
 
   // Ejes de la ventana por defecto ya en Init: asi la rejilla y las horas
   // estan listas en la primera apertura sin depender de que redraw() corra
@@ -452,6 +621,10 @@ void TelemetryHistory_ApplyLanguage(void) {
   if (s_lblSkin) lv_label_set_text(s_lblSkin, TR(STR_SKIN));
   if (s_lblHum)
     lv_label_set_text(s_lblHum, TR(STR_HUMIDITY));
+  if (s_legRaised) lv_label_set_text(s_legRaised, TR(STR_TREND_LEG_RAISED));
+  if (s_legCleared) lv_label_set_text(s_legCleared, TR(STR_TREND_LEG_CLEARED));
+  if (s_legSetpoint)
+    lv_label_set_text(s_legSetpoint, TR(STR_TREND_LEG_SETPOINT));
 }
 
 bool TelemetryHistory_IsOpen(void) { return s_isOpen; }
@@ -466,42 +639,65 @@ void TelemetryHistory_Open(void) {
   // mas prioridad, ni se abre (mismo criterio que BabyExitDialog.cpp).
   if (mustYield()) return;
   s_isOpen = true;
+  drainEdges();
   redraw();
   lv_obj_clear_flag(s_overlay, LV_OBJ_FLAG_HIDDEN);
   lv_obj_move_foreground(s_overlay);
 }
 
 void TelemetryHistory_Poll(void) {
+  // Los flancos se drenan con la vista cerrada tambien: el anillo de eventos
+  // tiene que estar al dia para cuando se abra.
+  const int newEdges = drainEdges();
   if (!s_isOpen) return;
   if (mustYield()) {
     closeScreen();
     return;
   }
   // El eje avanza con el reloj aunque no llegue telemetria: un repintado
-  // por ranura (10 s), que con y_points[] directo es barato.
-  if (nowSlot() != s_drawnSlot) redraw();
+  // por ranura (10 s), que con y_points[] directo es barato. Un flanco nuevo
+  // repinta al momento para que la marca aparezca sin esperar.
+  if (newEdges > 0 || nowSlot() != s_drawnSlot) redraw();
+}
+
+void TelemetryHistory_RecordAlarmEdge(uint8_t id, uint8_t priority,
+                                      bool raised) {
+  // Contexto: CommTask. Nada de LVGL ni de modelo aqui, solo el hand-off.
+  const int64_t ms = esp_timer_get_time() / 1000;
+  taskENTER_CRITICAL(&s_edgeMux);
+  if (s_edgeCount >= EDGE_QUEUE) {  // la UI no drena: se pierde el mas antiguo
+    s_edgeHead = (s_edgeHead + 1) % EDGE_QUEUE;
+    s_edgeCount--;
+  }
+  PendingEdge &slotRef = s_edgeQ[(s_edgeHead + s_edgeCount) % EDGE_QUEUE];
+  slotRef.ms = ms;
+  slotRef.id = id;
+  slotRef.priority = priority;
+  slotRef.raised = raised;
+  s_edgeCount++;
+  taskEXIT_CRITICAL(&s_edgeMux);
 }
 
 void TelemetryHistory_RecordSample(float airTempC, bool airOk,
                                     float skinTempC, bool skinOk,
-                                    float humPct, bool humOk) {
+                                    float humPct, bool humOk,
+                                    float spAirC, bool spAirOk,
+                                    float spSkinC, bool spSkinOk,
+                                    float spHumPct, bool spHumOk) {
   if (!ensureBuffers()) return;
 
-  const int64_t slot = nowSlot();
-  if (s_haveLastSample) {
-    // Una muestra por ranura: la primera telemetria de cada 10 s manda.
-    if (slot <= s_lastSlot) return;
-    // Ranuras sin telemetria (enlace caido, reinicio de la placa —
-    // known_issues.md #1/#5): NAN en cada una, para que el hueco ocupe en el
-    // eje X el tiempo que duro de verdad y la traza no lo una con una recta.
-    int64_t missing = slot - s_lastSlot - 1;
-    if (missing > HIST_BUF_SIZE) missing = HIST_BUF_SIZE;
-    for (int64_t i = 0; i < missing; i++) pushSample(NAN, NAN, NAN);
-  }
-  pushSample(airOk ? airTempC : NAN, skinOk ? skinTempC : NAN,
-             humOk ? humPct : NAN);
-  s_lastSlot = slot;
-  s_haveLastSample = true;
+  TrendSample sample;
+  sample.v[TREND_AIR] = trend_tenths(airTempC, airOk);
+  sample.v[TREND_SKIN] = trend_tenths(skinTempC, skinOk);
+  sample.v[TREND_HUM] = trend_tenths(humPct, humOk);
+  sample.v[TREND_SP_AIR] = trend_tenths(spAirC, spAirOk);
+  sample.v[TREND_SP_SKIN] = trend_tenths(spSkinC, spSkinOk);
+  sample.v[TREND_SP_HUM] = trend_tenths(spHumPct, spHumOk);
+
+  // Una muestra por ranura: la primera telemetria de cada 10 s manda, y los
+  // huecos (enlace caido, reinicio de la placa — known_issues.md #1/#5) se
+  // rellenan con "sin dato" dentro de trend_store_record.
+  if (!trend_store_record(&s_store, nowSlot(), &sample)) return;
 
   // Redibujar solo si esta visible: el mismo ahorro que ya hacia el panel
   // retirado (evitar repintar un chart que nadie esta mirando).

@@ -10,6 +10,7 @@
 #include "alarm_policy.h"
 #include "main.h"
 #include "ui.h"
+#include "ui/TelemetryHistory.h"
 
 extern ui_lang_t g_lang;
 extern Alarm     alarmList[MAX_ALARMS];
@@ -268,6 +269,13 @@ void onAlarmTestClicked(lv_event_t *) {
   UI_ShowToast(TR(STR_TESTING_ALARM_SIGNALS), 3000);
 }
 
+// Entrada a la tendencia (hmi-trend). El boton de graficos de Main esta oculto
+// y el heading no tiene hueco; el centro de alarmas es donde el operador ya
+// piensa en alarmas, y las marcas de la tendencia son justo esas alarmas. La
+// tendencia se abre ENCIMA (este panel queda debajo): al cerrarla, o cuando
+// cede la pantalla por una alarma, se aterriza aqui.
+void onTrendClicked(lv_event_t *) { TelemetryHistory_Open(); }
+
 void onMuteClicked(lv_event_t *) {
   // Se delega en MuteAlarm_cb() en vez de repetir aqui la secuencia
   // (alarmsMuted + hmi_msg.muteAlarm + shouldSendData + AlarmSound_Update).
@@ -398,6 +406,19 @@ void showList() {
                            onAlarmTestClicked, lv_color_hex(0x0075EE));
   lv_obj_set_size(test, 130, 44);
   lv_obj_align(test, LV_ALIGN_TOP_LEFT, 0, 0);
+
+  // A la derecha de PROBAR, antes del titulo centrado (120 px: el titulo mas
+  // largo, "Alarmas"/"Alarmes", empieza hacia x=277). La tendencia cede la
+  // pantalla a cualquier alarma activa (mustYield en TelemetryHistory.cpp),
+  // asi que con una en curso el boton se ve apagado en vez de no hacer nada.
+  // La lista se reconstruye al cambiar el conjunto de alarmas (firma), asi que
+  // el estado se refresca solo.
+  lv_obj_t *trend = makeBtn(s_content, TR(STR_TREND_UC), onTrendClicked,
+                            lv_color_hex(0x0075EE));
+  lv_obj_set_size(trend, 120, 44);
+  lv_obj_align(trend, LV_ALIGN_TOP_LEFT, 138, 0);
+  if (UI_IsAnyAlarmActive() || Display_IsBoardLinkLost())
+    lv_obj_add_state(trend, LV_STATE_DISABLED);
 
   // AQUI NO HAY BOTON GLOBAL DE SILENCIO, y es deliberado.
   //

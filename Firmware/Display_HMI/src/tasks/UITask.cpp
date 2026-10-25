@@ -15,6 +15,7 @@
 #include "ui/MaintenanceDialog.h"
 #include "ui/BabyWizard.h"
 #include "modules/maintenance/maintenance.h"
+#include "modules/trend/trend_policy.h"
 #include "display_config.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_rgb.h"
@@ -4404,9 +4405,9 @@ void UI_Task(void *pvParameters) {
   // (hmi-factory-test-settings-only).
   FactoryTest_Init();
   // --- Tendencia de telemetria (aire/piel/humedad). Mismo criterio de parent
-  // que AlarmCenter. OJO: desde que se retiro el boton TREND de la pantalla de
-  // bloqueo (tanda de fabricacion 2026-09-17) este overlay NO tiene ninguna
-  // via de entrada; se sigue inicializando para no tocar mas de la cuenta. ---
+  // que AlarmCenter. Desde que se retiro el boton TREND de la pantalla de
+  // bloqueo (tanda de fabricacion 2026-09-17) la unica via de entrada es el
+  // boton TENDENCIA de la cabecera de AlarmCenter (hmi-trend). ---
   TelemetryHistory_Init();
   // El check de "todo OK" es lo unico visible en el sitio de las alarmas
   // cuando no hay ninguna; hacerlo pulsable es lo que deja el registro
@@ -4878,9 +4879,19 @@ void UI_Task(void *pvParameters) {
             !linkLost && !PROTO_TEL_TEMP_IS_UNAVAILABLE(snapSkin);
         const bool humOkHist =
             !linkLost && snapHum != PROTO_TEL_HUM_UNAVAILABLE;
-        TelemetryHistory_RecordSample((float)snapAir, airOkHist,
-                                       (float)snapSkin, skinOkHist,
-                                       (float)snapHum, humOkHist);
+        // Consignas: las del ECO de la placa (lo que de verdad persigue), y
+        // solo las de las magnitudes bajo control. Con el enlace caido o antes
+        // del primer CTRL,STATE no hay eco fiable: sin dato.
+        const bool stateKnown = !linkLost && Display_BoardEverSeen();
+        const TrendSetpointValidity spOk = trend_setpoint_validity(
+            stateKnown ? ctrl_state_msg.actuation : -1,
+            ctrl_state_msg.controlMode != 0);
+        TelemetryHistory_RecordSample(
+            (float)snapAir, airOkHist, (float)snapSkin, skinOkHist,
+            (float)snapHum, humOkHist,
+            (float)ctrl_state_msg.desiredAirTemperature, spOk.air,
+            (float)ctrl_state_msg.desiredSkinTemperature, spOk.skin,
+            (float)ctrl_state_msg.desiredHumidity, spOk.hum);
       }
     }
 

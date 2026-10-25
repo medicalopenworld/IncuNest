@@ -6,6 +6,7 @@
 #include "modules/debug/debug_mode.h"
 #include "state/training_mode.h"
 #include "ui.h"
+#include "ui/TelemetryHistory.h"
 #include <Preferences.h>
 #include "config/EEPROM_defines.h"
 #include "drivers/rtc_pcf8563.h"
@@ -1657,6 +1658,15 @@ static void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
            alarm.id, alarm.type,
            wasActive ? "ACTIVA" : "inactiva",
            alarm.state ? "ACTIVA" : "inactiva");
+
+  // Marca para la tendencia (hmi-trend): solo el FLANCO, no cada reenvio de
+  // CTRL,ALM. Hand-off puro (cola con seccion critica): ni modelo ni LVGL
+  // desde esta tarea. Con el display recien arrancado la placa reenvia las
+  // alarmas ya activas, y se sellan en el instante en que el HMI las conoce.
+  if (alarm.state != wasActive) {
+    TelemetryHistory_RecordAlarmEdge((uint8_t)alarm.id, alarm.priority,
+                                     alarm.state);
+  }
 
   // Si se activa una alarma nueva, desmutar
   if (alarm.state && !wasActive) {
