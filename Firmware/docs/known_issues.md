@@ -872,8 +872,17 @@ the code, not from a bench failure.
     therapies by itself.
 *   **Fix**: the identity is persisted (`pat_id`) and restored with
     `PatientState_Restore()` **before** `Maintenance_Init()`, so the seq does not
-    go through 0. If the board answers `PROFILE_ACK` 0 for that seq, the identity
-    is dropped (the board wins), which is then a genuine change and counts as one.
+    go through 0. The restored identity is **not trusted**: it is born
+    unconfirmed and shown only once the board confirms it with `activeSeq`
+    (field 24 of `CTRL,STATE`), with the same `sn` stored in `pat_id` v2. If the
+    board says another baby is in charge (`activeSeq` other than 0 and than the
+    stored `seq`), has nobody while a therapy runs, is another board (`sn`), or
+    — with an old board that does not send the field — lacks the baby in
+    `PROFILE_LIST`, the identity is dropped (the board wins). That is then a
+    genuine change and counts as one. Restoring without validating (the first
+    version of this fix) could show **another baby**: `seq` collide between
+    boards. A rejected `PROFILE_NEW` (`PROFILE_ACK` 0) no longer erases the
+    identity of the baby still inside; only a rejected `PROFILE_SELECT` does.
 *   **To verify on the bench**: restart the HMI with a therapy running and check
     that `mnt_tpend` stays clear and the name comes back. Units that already
     had a spurious `mnt_tpend` set keep it until a terminal clean is recorded.

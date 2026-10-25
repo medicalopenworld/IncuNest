@@ -411,7 +411,7 @@ The Main heading has no free slot (help 20-64, clock 83-263, connectivity
 800 px width), so the identity lives **inside the "Babies" button**: with a
 live session its label is hidden and two lines appear, the name (14 pt; it
 scrolls circularly if it does not fit, rather than being cut with "...") and
-the detail (12 pt). Without a session it reads "Babies" again. Nothing moves
+the detail (12 pt, truncated with dots if it does not fit; days of life are capped at `99+`). Without a session it reads "Babies" again. Nothing moves
 and the button still opens the baby viewer. `ui_ScreenLock` has no buttons to
 the right of the connectivity indicator, so its replica goes there in full
 (`ui_LockPatientName` 20 pt, `ui_LockPatientDetail` 14 pt, x = 350).
@@ -426,9 +426,11 @@ or `5d de vida` when only the weeks are unknown. A corrected age needs both.
 or admission epoch, only `CTRL,PROFILE_RANGE.ageDays` at the moment of the
 answer. `BabyWizard_Poll` now hands it, with `ageKnown`, to
 `PatientState_OnAge()`, which stores `(ageDays, HMI_GetEpochNow())`; the days
-shown are `ageDays + floor((now - capture) / 86400)`. Without a clock the
-captured value is shown unchanged (a lower bound, never an invented number).
-The error against the board's day boundary is at most one day, because the
+shown are `ageDays + floor((now - capture) / 86400)`. **The age is unknown**
+(no days of life, no corrected age) when there was no clock at capture, when
+there is none now, or when more than 365 days have elapsed: without a clock
+nobody can say how many days passed, and a counter frozen at the value from
+hours ago is worse than none. The error against the board's day boundary is at most one day, because the
 count starts at the capture and not at admission. A baby picked only for a
 lamp or humidifier (`targetIsIdentityOnly`) never goes through the weight/age
 screens, so it has no age until another wizard run captures one.
@@ -436,13 +438,18 @@ screens, so it has no age until another wizard run captures one.
 ### Accumulated therapy (panel headers)
 
 Each of the three panel headers (temperature, humidity, phototherapy) carries
-a two-line 12 pt label, `Total` over `3h 20m` (`patient_fmt_minutes()`, the
-same format the baby viewer already used; its private copy was moved there).
-It sits in the gap between the title and the toggle button: left-aligned
-after the button in the temperature header, right-aligned ending at x = 190 in
-humidity and phototherapy. Those headers have 0 px of slack, so there was no
-room for a new line; fit with `12h 20m` and the longest French title is a
-bench item.
+a one-line 12 pt label with no caption, `3h 20m` (`patient_fmt_minutes()`, the
+same format the baby viewer already used; its private copy was moved there),
+**under the title** and aligned like it: left in humidity and phototherapy
+(titles at x = 20), right in temperature (title at x = -20). A first version
+put a two-line `Total / 3h 20m` between the title and the toggle button, and
+`100h 5m` under the French `PHOTOTHERAPIE` overlapped the title: there is no
+reliable horizontal gap. Vertically there is: the headers are 50-54 px and a
+14 pt title takes about 16 centred, so about 14 px are free below it. The label
+is hidden unless the identity is confirmed and the minutes are known (see
+below). `ui_HumidityLabel` sits at x = 20, y = -98, the same row as its button
+and background, so the hum label hangs 16 px below that row. Fit with `100h 5m`
+in the four languages is a bench item.
 
 Minutes per baby reach the HMI only in `CTRL,PROFILE_LIST`, on demand, and
 `g_pendingProfileList` has **a single consumer** (wizard or baby viewer), so
@@ -467,23 +474,71 @@ Main must not poll for it. Instead:
 
 | Key | Content | Size |
 |---|---|---|
-| `pat_id` | version, `seq`, name[24], gestational weeks, `ageDays`, capture epoch | 40 B |
+| `pat_id` | version **2**, `seq`, name[24], gestational weeks, `ageDays`, capture epoch, board `sn` | 44 B |
 | `pat_ther` | version, `seq`, seconds of phototherapy / thermo / humidity | 20 B |
 
 Each is **one blob**, not one key per field: NVS is not transactional, and
 separate keys would let a power cut leave one baby's name next to another's
 minutes (same reasoning as `rtc_tz`). Serialization is byte by byte,
 little-endian, in `patient_session.cpp` (no `memcpy` of a struct, whose padding
-is compiler-defined); a record with an unknown version, wrong size, `seq` 0 or
-an unterminated name is discarded. `pat_ther` is accepted only if its `seq` is
-the restored identity's. Both are removed by `BabyWizard_ClearActiveProfile()`
-(discharge) and by a `PROFILE_ACK` of 0 (the board no longer knows that baby).
+is compiler-defined); a record with an unknown version, wrong size, `seq` 0,
+an unterminated name or gestational weeks outside 0 / 20-44 is discarded.
+**Version 1 (40 B, no `sn`) is discarded and its keys erased**: it cannot be
+tied to any board. `pat_ther` is accepted only if its `seq` is the restored
+identity's, and without it the minutes stay **hidden** (and uncounted) until a
+`PROFILE_LIST` seeds them (`PatientAccum.known`). Both keys are removed by
+`BabyWizard_ClearActiveProfile()` (discharge) and by a `PROFILE_ACK` of 0 in
+answer to a `PROFILE_SELECT` (the board no longer knows that baby). A `0` in
+answer to a rejected `PROFILE_NEW` (board full) says nothing about the baby
+still inside and touches nothing.
+
+### Confirmation against the board
 
 `PatientState_Restore()` runs at UI task start, **before** `Maintenance_Init()`,
 and puts the identity back with `BabyWizard_SetSession()`: the board keeps the
-active baby and resumes its therapies after an HMI restart, and the HMI used to
-forget who it was. It is a *remembered* identity: the board wins, and the first
-`PROFILE_ACK` that contradicts it replaces it.
+active baby and resumes its therapies after an HMI restart. But a restored
+identity is only what *this HMI* once saw, so it is born **unconfirmed** and is
+not painted as true. A `seq` identifies a baby only inside one board (two boards
+both start at 1), the board's NVS may have been wiped, and the discharge may
+have been done by another route; showing the wrong baby is the very error this
+feature exists to prevent.
+
+The board confirms with `activeSeq`, field 24 of `CTRL,STATE`
+(`babyStore_getActiveSeq()`, 0 = nobody; see `PROTOCOL.md`). Decision table
+(`patient_confirm_decide()`, host-tested), once the first `CTRL,STATE` arrived:
+
+| Situation | Result |
+|---|---|
+| board `sn` is not the stored one | discard |
+| `activeSeq == seq` | confirmed |
+| `activeSeq != 0` and `!= seq` | discard |
+| `activeSeq == 0` and the board reports a therapy | discard |
+| `activeSeq == 0` and no therapy | wait (nothing is painted anyway) |
+| the board does not send the field | check the list |
+
+An identity that comes from a `PROFILE_ACK` of the wizard is born confirmed.
+**While unconfirmed nothing is shown** (no identity, no minutes), and the wizard
+does not take the `selectExisting` shortcut: it offers the picker. With an old
+board that does not send `activeSeq`, the HMI asks for `PROFILE_LIST` (at most
+three times, 10 s apart, never while the wizard or the baby viewer is open) and,
+if the baby is there with the same `seq`, name and weeks, paints the name **grey
+with a trailing "?"** and no age or minutes; otherwise it discards it. The
+list's reply lowers `g_pendingProfileList` only when it was this request's and
+nobody else is waiting for one. `activeSeq` and the therapy flag are published
+by `CommTask` as one snapshot (`Communication_GetBoardView()`), because reading
+them one by one from `ctrl_state_msg` could pair this message's therapy with the
+previous message's `activeSeq` and discard a valid baby.
+
+Minutes are credited only if the board sends `activeSeq` and it equals the
+counter's `seq` (the board credits the active `seq` and, with 0, nobody), or,
+when it does not send it, only while the identity is confirmed. The same `seq`
+with another name or weeks is a **different baby** (the board reassigned the
+`seq`): age and counters are reset.
+
+Dropping an identity here also calls `BabyWizard_ClearActiveProfile()`, so
+`Maintenance_Tick()` reads `seq -> 0` as a discharge and leaves a terminal clean
+pending. For a baby the board says is gone, that is the right call; for an HMI
+moved to another board it is a spurious reminder, accepted.
 
 All NVS access is in `PatientState_Service()` / `Restore()`, **outside**
 `LVGL_Lock` (ARQ-LOCK-001); the `OnXxx` hooks the wizard calls under the lock
@@ -492,6 +547,7 @@ only set flags. Nothing from a lesson reaches this state: practice babies
 entry point.
 
 Not covered by host tests (manual, on the bench): the widgets and their fit,
-reading `ctrl_state_msg`, the mirror in the parser, and the restore after a
+reading the board snapshot, the mirror in the parser, the single list request,
+the grey "?" rendering and the restore after a
 real restart. See the checklist in
-the `hmi-patient-identity` change (task 4.3, archived under `openspec/changes/archive/`).
+the `hmi-patient-identity` and `shared-patient-identity-confirm` changes (archived under `openspec/changes/archive/`).
