@@ -878,11 +878,43 @@ the code, not from a bench failure.
     board says another baby is in charge (`activeSeq` other than 0 and than the
     stored `seq`), has nobody while a therapy runs, is another board (`sn`), or
     — with an old board that does not send the field — lacks the baby in
-    `PROFILE_LIST`, the identity is dropped (the board wins). That is then a
-    genuine change and counts as one. Restoring without validating (the first
+    `PROFILE_LIST`, the identity is dropped (the board wins). That is
+    NOT a discharge: it leaves no terminal clean pending (see #24). Restoring without validating (the first
     version of this fix) could show **another baby**: `seq` collide between
     boards. A rejected `PROFILE_NEW` (`PROFILE_ACK` 0) no longer erases the
     identity of the baby still inside; only a rejected `PROFILE_SELECT` does.
 *   **To verify on the bench**: restart the HMI with a therapy running and check
     that `mnt_tpend` stays clear and the name comes back. Units that already
     had a spurious `mnt_tpend` set keep it until a terminal clean is recorded.
+
+## 24. Residual risks of confirming a restored baby identity against the board
+
+`hmi-patient-identity` restores the baby identity from the HMI's NVS and only
+treats it as true once the motherBoard confirms it (`activeSeq`, field 24 of
+`CTRL,STATE`; see `hmi.md` §9). What the design **cannot** close, by
+construction:
+
+*   **`seq` reuse after `babyStore_wipeAll()`.** The wipe resets the counter to
+    1, so a restored `seq 3` can be another baby on the same board with
+    `activeSeq == 3`. After confirming by `activeSeq`, the HMI contrasts name
+    and weeks with the next `CTRL,PROFILE_LIST` (its own single request, or any
+    list that goes by) and drops the identity if they do not match. Until that
+    list arrives (seconds), the baby is shown as confirmed; two different babies
+    with the **same name and weeks** on the same board after a wipe are
+    indistinguishable.
+*   **`sn == 0`.** A board with no serial number cannot be told apart from
+    another board. `activeSeq` alone does not confirm then: the list contrast
+    is mandatory, and the baby stays hidden until it arrives. Same limit as
+    above for identical name and weeks.
+*   **No checksum.** The protocol is ASCII CSV with no CRC, and `activeSeq` is the
+    LAST field. A line that loses bytes in the middle but keeps its newline can
+    leave a prefix of the number (`%u` reads `7` out of `70`), which would
+    confirm (`== seq`) or contradict (`!= seq`) wrongly. The consequence of a false
+    confirmation is bounded by the list contrast above; a false contradiction
+    drops a valid identity (the operator picks the baby again). No second
+    consecutive message is required before acting; adding it would be cheap if
+    this shows up on the bench.
+*   **Dropping is not a discharge.** Discarding an identity the board never
+    confirmed does not leave a terminal clean pending
+    (`Maintenance_NoteSeqDropped()`); a baby that left by another route while this
+    HMI was off is therefore not reminded either.

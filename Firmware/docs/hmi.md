@@ -535,10 +535,45 @@ when it does not send it, only while the identity is confirmed. The same `seq`
 with another name or weeks is a **different baby** (the board reassigned the
 `seq`): age and counters are reset.
 
-Dropping an identity here also calls `BabyWizard_ClearActiveProfile()`, so
-`Maintenance_Tick()` reads `seq -> 0` as a discharge and leaves a terminal clean
-pending. For a baby the board says is gone, that is the right call; for an HMI
-moved to another board it is a spurious reminder, accepted.
+**`BabyWizard_HasLiveSession()` now requires a confirmed identity** (semantics
+change, documented in `BabyWizard.h`). Every path that acts on the `seq` towards
+the board goes through it, so requiring confirmation there closes them all at
+once: `BabyExitDialog` (a `PROFILE_DISCHARGE` would archive another baby's
+profile; it also has its own direct `PatientState_IsConfirmed()` guard in
+`BabyExitDialog_Tick`), `BabyHistory`'s `afterRegistered` (re-sends
+`PROFILE_SELECT`), the picker shortcut, and the phototherapy/humidity wizard
+gating in `UITask`. Any other branch that calls it (a weighing reminder, say)
+inherits that: until the board confirms, it sees "no live session". Two callers
+need "a patient is inside, whoever it is" and use the explicit
+`BabyWizard_HasAnySession()` instead: the daily-cleaning reminder and the
+painting of an unconfirmed identity grey. The rule itself is
+`patient_live_session()`, host-tested.
+
+Dropping an identity calls `BabyWizard_ClearActiveProfile()`, which takes the
+active `seq` to 0. That is **not a discharge** when the identity was never
+confirmed: `Maintenance_NoteSeqDropped()` tells `Maintenance_Tick()`, and
+`mnt_seq_decide()` (pure, host-tested) does not mark a terminal clean pending
+(which would have been wrong and persisted). It excuses one transition, and only
+`seq -> 0` of the very `seq` that was dropped. A drop is **deferred while the
+baby wizard is open**: its in-progress baby lives in `s_seq`/`s_name`, which
+`ClearActiveProfile()` would zero mid-registration; the drop is applied once it
+closes, or cancelled if the wizard itself confirms or replaces the identity.
+
+Details of the confirmation, each host-tested where it is pure:
+
+*   After confirming by `activeSeq`, name and weeks are contrasted with the next
+    `PROFILE_LIST`: a `seq` can be reused after `babyStore_wipeAll()`. A mismatch
+    drops the identity.
+*   A serial number of 0 (in the record or on the board) cannot be verified and
+    is not "another board": `activeSeq` alone does not confirm, and the list
+    contrast is mandatory (`patient_confirm_requires_list()`).
+*   The HMI's own `PROFILE_LIST` request expires after 10 s without an answer and
+    is retried (3 attempts at most), `patient_list_request_due()`; before, a lost
+    reply blocked every retry forever.
+*   `s_legacyBoard` is re-read on every pass from the board snapshot, and with
+    the link lost nothing is decided: the last `CTRL,STATE` is stale.
+*   Residual risks (wipe, `sn == 0`, no checksum on a last-field `%u`): see
+    `known_issues.md` #24.
 
 All NVS access is in `PatientState_Service()` / `Restore()`, **outside**
 `LVGL_Lock` (ARQ-LOCK-001); the `OnXxx` hooks the wizard calls under the lock
