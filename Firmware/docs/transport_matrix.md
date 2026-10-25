@@ -208,7 +208,7 @@ los dos transportes por construcción**: los dos clientes (`tb` en `GPRS.cpp`,
 **Claves remotas hoy: solo `gprs_act, gprs_photo, gprs_stby`.** Las otras seis
 (`air_tmax, skin_tmax, heater_amps, fan_supply_pwm, fan_ctl_pwm, fan_pid_en`)
 quedan detrás de `RCFG_REMOTE_SAFETY_PARAMS = 0` mientras el MQTT vaya en claro
-(ver `thingsboard_dashboards.md` §10). Coste por GPRS: ~120 B de petición, su
+(ver `thingsboard_dashboards.md` §11). Coste por GPRS: ~120 B de petición, su
 respuesta y hasta ~600 B de eco por conexión.
 
 Las RPC de las dos listas siguen registrándose en cada reconexión, lo que las

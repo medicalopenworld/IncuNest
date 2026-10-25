@@ -779,7 +779,7 @@ local is the coordinator's and the user can reverse it. When the flag is set to
 1 the remote path can only lower or keep a cut-out relative to the compiled
 factory value (it cannot raise it), rejects values outside 34-40 °C instead of
 clamping, and defers changes made with therapy active until standby. See
-`thingsboard_dashboards.md` §10.
+`thingsboard_dashboards.md` §11.
 
 What follows is the analysis that led to it.
 
