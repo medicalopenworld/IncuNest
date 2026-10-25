@@ -184,6 +184,13 @@
 #define UPTIME_S_KEY "uptime_s"
 #define GPRS_KILL_COUNT_KEY "gprs_kill_count"
 #define GPRS_MON_KILL_COUNT_KEY "gprs_mon_kill_count"
+// Power-cycles del modem por corte de GSM_PWR_EN. Solo HW >= 19 (en la V18 no
+// hay pin que cortar); RAM desde el arranque, no se persiste.
+#define GSM_POWER_CYCLES_KEY "GSM_power_cycles"
+// AFE4490: diag_code de la libreria (bits 0-12 = REG_DIAG 0x30, resto RSQM) y
+// episodios de parada del AFE (>10 s sin muestra). No hay reinicio en caliente.
+#define AFE_DIAG_KEY "AFE_diag"
+#define AFE_STALLS_KEY "AFE_stalls"
 #define HMI_BOOT_COUNT_KEY "hmi_boot_count"
 #define HMI_LAST_RST_KEY "hmi_last_rst"
 // Horas de uso desde el ultimo servicio registrado de cada actuador (enteras).

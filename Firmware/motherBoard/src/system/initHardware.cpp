@@ -258,7 +258,7 @@ void initGPIO() {
   initI2C();
   logI("[HW] -> Initializing GPIOs");
   pinMode(FAN_SPEED_FEEDBACK, INPUT_PULLUP);
-#if (GPRS_PWRKEY)
+#if GPRS_PWRKEY_PRESENT
   pinMode(GPRS_PWRKEY, OUTPUT);
 #endif
   pinMode(encoderpinA, INPUT_PULLUP);

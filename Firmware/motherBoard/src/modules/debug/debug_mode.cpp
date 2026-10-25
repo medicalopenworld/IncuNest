@@ -17,6 +17,8 @@
 #include "config/board.h"
 #include "modules/control/alarm_machine.h"
 #include "modules/control/photo_override.h"
+#include "system/power_rails.h"
+#include "SPO2.h"
 #include "modules/util/tz_source.h"
 #include "modules/util/system_clock.h"
 #include "modules/baby_profile/baby_profile_store.h"
@@ -501,6 +503,16 @@ size_t debug_state_json_ex(char *out, size_t out_len, bool with_tasks) {
     (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
     (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
     (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+
+  // Alimentacion de la placa. mains_ok es CHRG_OK del BQ25730 en la V19 (HIGH =
+  // fuente de entrada valida) y true fija en HW < 19, que no tiene el pin.
+  J(",\"hw\":{\"num\":%d,\"mains_ok\":%d}", (int)HW_NUM,
+    mainsPresentPin() ? 1 : 0);
+
+  // AFE4490: diag = AFE4490Data::diag_code (bits 0-12 = REG_DIAG 0x30, resto
+  // banderas RSQM). stalls = episodios de parada (>10 s sin muestra) del AFE.
+  J(",\"afe\":{\"diag\":%lu,\"stalls\":%lu}", (unsigned long)afeDiagCode(),
+    (unsigned long)afeStallCount());
 
   // NUBE. Para que se pueda diagnosticar "no conecta con ThingsBoard" sin
   // tener la placa abierta por el puerto serie: en una unidad montada, en

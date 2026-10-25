@@ -47,7 +47,7 @@ pero no aparece en el dashboard al instante.
 |---|---|:--:|:--:|---|
 | **CORE** | 69 | ✅ | ✅ | Constantes vitales, alarmas, actuadores, datos de bebé. Lo clínico. |
 | **CELLULAR** | 4 | ✅ | ❌ | `IMEI`, `APN`, `COP`, `CSQ`. Sin sentido físico por WiFi. |
-| **DIAG** | 12 | ✅ | ✅ | Por WiFi desde 2026-10-25. Boot count, heap, uptime, resets del HMI, kills del módem y `svc_heater_h`, `svc_fan_h`, `svc_hum_h`, `svc_photo_h` (horas de uso desde el último servicio; el contador de vida sigue aparte). |
+| **DIAG** | 15 (+1 solo V19) | ✅ | ✅ | Por WiFi desde 2026-10-25. Boot count, heap, uptime, resets del HMI, kills del módem; `svc_heater_h`, `svc_fan_h`, `svc_hum_h`, `svc_photo_h` (horas desde servicio); `charger_comm_fault`; `AFE_diag` y `AFE_stalls` (todas las placas) y, solo en la V19, `GSM_power_cycles`. Recuento a confirmar con `tools/check_transport_matrix.py`. |
 | **CALIBRATION** | 6 | ✅ | ❌ | Referencias y ajuste fino de los sensores de temperatura. |
 
 Se cambian con un `0`/`1` en `TX_GROUP_<grupo>_<TRANSPORTE>`.

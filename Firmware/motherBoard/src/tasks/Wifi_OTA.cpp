@@ -38,6 +38,7 @@
 #include "main.h"
 #include "modules/config/runtime_config_tb.h"
 #include "tasks/CrashReporter.h"
+#include "system/power_rails.h"
 #include "modules/debug/debug_mode.h"
 #include "modules/service/service_hours.h"
 #include "modules/util/tz_source.h"
@@ -59,8 +60,17 @@ static const char *TAG __attribute__((unused)) = "WiFi";
 // el flujo OTA antes de dar por buena una imagen (ver fw_image_tag.h). No es
 // static ni const-plegable a proposito: tiene que existir como cadena en
 // .rodata aunque el compilador vea que solo se usa como patron.
+//
+// A partir de la V19 lleva la revision ("IncuNestFW:hw19:motherboard"), de modo
+// que una OTA de una revision no se aplica en la otra; la V18 y anteriores
+// conservan "IncuNestFW:motherboard", asi que siguen aceptando imagenes V18
+// antiguas. Ver el comentario de fw_image_tag.h.
 extern "C" const char kFwBoardTag[] __attribute__((used)) =
+#if (HW_NUM >= 19)
+    FW_TAG_PREFIX FW_BOARD_ID_MOTHERBOARD_HW(HW_NUM);
+#else
     FW_TAG_PREFIX FW_BOARD_ID_MOTHERBOARD;
+#endif
 
 // Cabecera con la que el flasher declara a que placa CREE que esta hablando.
 static const char *const OTA_BOARD_HEADER = "X-IncuNest-Board";
@@ -1337,6 +1347,11 @@ void addConfigTelemetriesToWIFIJSON() {
   addVariableToTelemetryWIFIJSON[BOOT_COUNT_KEY] = g_bootCount;
   addVariableToTelemetryWIFIJSON[GPRS_KILL_COUNT_KEY] = g_gprsKillCount;
   addVariableToTelemetryWIFIJSON[GPRS_MON_KILL_COUNT_KEY] = g_monKillCount;
+#if (HW_NUM >= 19)
+  addVariableToTelemetryWIFIJSON[GSM_POWER_CYCLES_KEY] = gsmPowerCycles();
+#endif
+  addVariableToTelemetryWIFIJSON[AFE_DIAG_KEY] = afeDiagCode();
+  addVariableToTelemetryWIFIJSON[AFE_STALLS_KEY] = afeStallCount();
   addVariableToTelemetryWIFIJSON[FREE_HEAP_KEY] = (uint32_t)ESP.getFreeHeap();
   addVariableToTelemetryWIFIJSON[MIN_FREE_HEAP_KEY] =
       (uint32_t)ESP.getMinFreeHeap();

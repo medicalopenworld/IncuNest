@@ -72,6 +72,9 @@
 //       los dos: heap, uptime y reinicios del HMI hacen falta también en los
 //       equipos conectados por WiFi, donde la red es gratis. Estaba a 0 por
 //       herencia (solo se había escrito la copia de GPRS), no por decisión.
+//       mb-hw19: +AFE_diag y +AFE_stalls (todas las placas) y
+//       +GSM_power_cycles (solo HW >= 19). Presupuesto de campos: ver
+//       python tools/check_transport_matrix.py (límite 112).
 #define TX_GROUP_DIAG_GPRS 1
 #define TX_GROUP_DIAG_WIFI 1
 

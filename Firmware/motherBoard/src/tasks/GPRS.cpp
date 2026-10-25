@@ -47,6 +47,8 @@
 #include "main.h"
 #include "modules/config/runtime_config_tb.h"
 #include "tasks/CrashReporter.h"
+#include "system/power_rails.h"
+#include "modules/control/modem_power_cycle.h"
 
 // Initialize GSM modem
 TinyGsm modem(modemSerial);
@@ -132,6 +134,9 @@ static void rpc_diag_cb(JsonVariantConst const & /*data*/,
   response["uptime_s"]      = (uint32_t)(millis() / 1000);
   response["gprs_kill"]     = g_gprsKillCount;
   response["mon_kill"]      = g_monKillCount;
+#if (HW_NUM >= 19)
+  response["gsm_power_cycles"] = gsmPowerCycles();
+#endif
   response["hmi_boots"]     = g_hmiBootCount;
   response["hmi_last_rst"]  = g_hmiLastRst;
 }
@@ -320,7 +325,7 @@ void initGPRS() {
   // Normal power‑up path:
   Serial2.begin(MODEM_BAUD, SERIAL_8N1, GSM_UART_TX_PIN, GSM_UART_RX_PIN);
   GPRS.powerUp = true;
-#if (GPRS_PWRKEY)
+#if GPRS_PWRKEY_PRESENT
   digitalWrite(GPRS_PWRKEY, HIGH);
 #endif
 }
@@ -618,8 +623,33 @@ void GPRSForceReset(const String &reason) {
   GPRS.powerUp = true;
   GPRS.serverConnectionStatus = false;
   GPRS.tbConnectFailures = 0;
+  // Una OTA que estuviera en curso muere con el modem: sin esto el flag se
+  // quedaba a true para siempre y GPRSCheckOTA() no volvia a lanzarse.
+  GPRS.OTAInProgress = false;
+#if (HW_NUM >= 19)
+  // HW19. El PWRKEY va a GND: el SIM800C solo arranca al APLICAR VBAT. Un
+  // AT+CPOWD=1 sin corte de VBAT lo dejaria apagado hasta el siguiente corte,
+  // asi que se distinguen dos casos (politica en modem_power_cycle.*):
+  //   - racha de reinicios suaves fallidos y backoff cumplido: AT+CPOWD=1 y
+  //     corte REAL de GSM_PWR_EN pasado el margen de apagado ordenado, de nuevo
+  //     alimentado >= 2 s despues. No bloquea: GPRSPowerUp() caso 0 espera a que
+  //     termine consultando gsmPowerCycleBusy().
+  //   - resto: AT+CFUN=1,1 (el modem se reinicia el mismo y conserva VBAT).
+  //     A CONFIRMAR EN BANCO V19 que el SIM800C reinicia asi y vuelve a
+  //     contestar AT en unos segundos.
+  // No se espera el URC "NORMAL POWER DOWN" antes de cortar: se da un margen
+  // fijo (MODEM_PC_SHUTDOWN_GRACE_MS). Esperar el URC con timeout queda como
+  // mejora opcional.
+  logModemData("[GPRS] -> resetting module...");
+  if (gsmSoftFailure(MODEM_PC_SHUTDOWN_GRACE_MS)) {
+    Serial2.print("AT+CPOWD=1\n");
+  } else {
+    Serial2.print("AT+CFUN=1,1\n");
+  }
+#else
   logModemData("[GPRS] -> powering module down...");
   Serial2.print("AT+CPOWD=1\n");
+#endif
   GPRS.packetSentenceTime = millis();
   GPRS.processTime = millis();
 }
@@ -672,8 +702,16 @@ void GPRSVerifyStillAttached() {
 void GPRSPowerUp() {
   switch (GPRS.process) {
   case 0:
+    // HW19: power-cycle del modem en curso (ver GPRSForceReset()). No se
+    // avanza hasta que GSM_PWR_EN vuelve a estar a nivel alto. Mientras
+    // GPRS.process sea 0, GPRSStatusHandler() no corre el temporizador de
+    // GPRS_TIMEOUT, asi que esta espera no la mata el timeout. No-op (false)
+    // en HW < 19.
+    if (gsmPowerCycleBusy()) {
+      break;
+    }
     GPRS.processTime = millis();
-#if (GPRS_PWRKEY)
+#if GPRS_PWRKEY_PRESENT
     digitalWrite(GPRS_PWRKEY, LOW);
 #endif
     GPRS.process++;
@@ -681,7 +719,7 @@ void GPRSPowerUp() {
     logModemData("[GPRS] -> powering up GPRS");
     break;
   case 1:
-#if (GPRS_PWRKEY)
+#if GPRS_PWRKEY_PRESENT
     if (millis() - GPRS.packetSentenceTime > 1000) {
       digitalWrite(GPRS_PWRKEY, HIGH);
       logModemData("[GPRS] -> GPRS powered");
@@ -794,6 +832,7 @@ void GPRSStablishConnection() {
     GPRS.connect = false;
     GPRS.process = false;
     GPRS.post = true;
+    gsmNoteConnected(); // vacia la racha de reinicios fallidos y el backoff (HW19)
     break;
   }
 }
@@ -1036,6 +1075,11 @@ void addConfigTelemetriesToGPRSJSON() {
   addVariableToTelemetryGPRSJSON[BOOT_COUNT_KEY] = g_bootCount;
   addVariableToTelemetryGPRSJSON[GPRS_KILL_COUNT_KEY] = g_gprsKillCount;
   addVariableToTelemetryGPRSJSON[GPRS_MON_KILL_COUNT_KEY] = g_monKillCount;
+#if (HW_NUM >= 19)
+  addVariableToTelemetryGPRSJSON[GSM_POWER_CYCLES_KEY] = gsmPowerCycles();
+#endif
+  addVariableToTelemetryGPRSJSON[AFE_DIAG_KEY] = afeDiagCode();
+  addVariableToTelemetryGPRSJSON[AFE_STALLS_KEY] = afeStallCount();
   addVariableToTelemetryGPRSJSON[FREE_HEAP_KEY] = (uint32_t)ESP.getFreeHeap();
   addVariableToTelemetryGPRSJSON[MIN_FREE_HEAP_KEY] = (uint32_t)ESP.getMinFreeHeap();
   addVariableToTelemetryGPRSJSON[UPTIME_S_KEY] = (uint32_t)(millis() / 1000);

@@ -75,7 +75,19 @@
 // por igualdad y el flash tool elige por la revision de HW del entorno.
 #define FWversion "18.52.1"
 #define WIFI_NAME "IncuNest"
+// Titulo del firmware en ThingsBoard (OTA por MQTT). ThingsBoard solo ofrece un
+// paquete cuyo titulo coincide con el que declara la unidad, asi que una V19
+// que se declare como "IncuNest" recibiria el paquete de la V18. Desde la V19 el
+// titulo lleva la revision ("IncuNest_HW19"); la V18 y anteriores conservan
+// "IncuNest". Hay que crear un paquete OTA con ese titulo en ThingsBoard. La
+// marca de imagen (kFwBoardTag, Wifi_OTA.cpp) es la segunda barrera.
+#if (HW_NUM >= 19)
+#define FW_TITLE_STR_(x) #x
+#define FW_TITLE_STR(x) FW_TITLE_STR_(x)
+#define CURRENT_FIRMWARE_TITLE "IncuNest_HW" FW_TITLE_STR(HW_NUM)
+#else
 #define CURRENT_FIRMWARE_TITLE "IncuNest"
+#endif
 
 #define DEFAULT_WIFI_EN ON
 

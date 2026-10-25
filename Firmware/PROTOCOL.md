@@ -247,6 +247,16 @@ repite: en su lugar viaja `CTRL,VIT`.
 - Un receptor que solo acepte un rango cerrado y **descarte** el resto se queda
   con el último `APPLIED` (fallo real corregido: la gráfica PPG no se ocultaba
   al quitar la sonda, cuando el `3` llegaba fuera de `0..2`).
+- **`0` también significa "sin señal del AFE"** (motherBoard desde mb-hw19, todas
+  las revisiones). Si el AFE4490 deja de entregar muestras durante más de 1 s,
+  la motherBoard **sintetiza `probe_state = 0` (`DISCONNECTED`)**: el último dato
+  (incluido un `2` anterior) está congelado y no debe seguir pintándose como
+  constante vital en vivo. El efecto sobre el enlace es el que ya tiene cualquier
+  estado distinto de `2`: se deja de emitir `CTRL,VIT` y `CTRL,PPG` y pasa a
+  emitirse `CTRL,PROBE,0` cada 2 s, que el HMI ya trata como "sin contacto
+  válido". El receptor no distingue "sonda sin enchufar" de "AFE parado"; la
+  causa va al log de la motherBoard y a la telemetría (`AFE_stalls`, a los
+  10 s). Al volver las muestras el estado real se restablece solo.
 - **Regla fail-safe para el receptor**: solo `2` habilita mostrar traza y HR.
   Cualquier otro valor parseable —incluido uno que esta versión no conozca—
   debe tratarse como "sin contacto válido"; nunca descartarse. Si la librería

@@ -27,6 +27,11 @@ Fuentes de verdad (esto es un resumen, no un duplicado):
 
 Suma exacta: 8 MB.
 
+**V19 (HW_NUM=19):** el módulo pasa a ESP32-S3-WROOM-1-**N8R2** (8 MB de flash +
+2 MB de PSRAM quad). La flash y esta tabla **no cambian**. Se descartó un R8
+porque su PSRAM octal ocupa GPIO33-37, que son el SPI del AFE4490. Detalle en
+[`hw19.md`](./hw19.md).
+
 La partición de datos se llama `spiffs` pero monta LittleFS: es la etiqueta que
 busca `LittleFS.begin()` de Arduino-ESP32 por defecto. Renombrarla obligaría a
 pasar la etiqueta explícita en cada `begin()` y a reformatear, perdiendo los
