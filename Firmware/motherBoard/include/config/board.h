@@ -81,6 +81,11 @@
 #if (HW_NUM < 19) // en la V19 son pines reales: ver el bloque HW19 mas abajo
 #define AFE44XX_PWDN_PIN FAKE_PIN
 #define GPRS_PWRKEY FAKE_PIN
+// Hay un pin de PWRKEY que pulsar (en V16-V18 es FAKE_PIN=46, que no esta
+// conectado: la "pulsacion" no hace nada pero conserva sus ~2 s de espera).
+// Se usa este flag y NO el valor del pin como `#if (GPRS_PWRKEY)`: 0 es un
+// GPIO valido y no sirve de "sin pin".
+#define GPRS_PWRKEY_PRESENT 1
 #endif
 #undef TFT_DC
 #define TFT_DC FAKE_PIN
@@ -120,24 +125,22 @@
 #define DEBUG_UART_RX_PIN 44
 
 // El PWRKEY del SIM800C va a GND en la V19: el modem se enciende solo al
-// aplicar VBAT (GSM_PWR_EN). En V17/V18 GPRS_PWRKEY es FAKE_PIN (46), que es
-// VERDADERO para `#if (GPRS_PWRKEY)`, asi que la V18 "pulsa" IO46 en el vacio
-// y gasta ~2 s en GPRSPowerUp(). Con 0 esos bloques quedan fuera en la V19.
-#define GPRS_PWRKEY 0
+// aplicar VBAT (GSM_PWR_EN). No hay GPRS_PWRKEY: GPRS_PWRKEY_PRESENT 0 deja
+// fuera los bloques `#if GPRS_PWRKEY_PRESENT` de GPRS.cpp e initHardware.cpp
+// (en V16-V18 el pin es FAKE_PIN=46, "se pulsa" en el vacio y cuesta ~2 s en
+// GPRSPowerUp()).
+#define GPRS_PWRKEY_PRESENT 0
 
-// Watchdog externo TPS3431: toggle de EXT_WDT_WDI junto a watchdogReload().
-// DEJAR EN 0 hasta que el hardware fije la ventana del TPS3431 (sus pines de
-// temporizacion) y se verifique en banco: un watchdog de ventana resetea tanto
-// por un pulso TARDIO como por un pulso TEMPRANO, y con el montaje sin
-// confirmar un toggle a 1 Hz puede ser cualquiera de los dos. Con 0 el pin no
-// se configura siquiera como salida.
+// Watchdog externo TPS3431: pulso en EXT_WDT_WDI desde watchdogReload(), pero
+// SOLO una vez armado al final de setup() (extWdtArm()). DEJAR EN 0 hasta
+// verificarlo en banco. Datos sin confirmar (no hay datasheet en el repo; la
+// revision de mb-hw19 dice que el TPS3431 es un watchdog ESTANDAR, no de
+// ventana -el de ventana es el TPS3430- con tWD de fabrica de ~1,6 s si CWD no
+// esta conectado): un tWD tan corto no aguanta setup() ni un bloqueo largo de
+// flash/OTA, de ahi que el toggle empiece despues de setup() y que haya que
+// fijar un tWD bastante mayor que el bloqueo mas largo del loopTask. Con 0 el
+// pin ni se configura.
 #define EXT_WDT_ENABLED 0
-
-// El vigilante de muestras del AFE4490 (stop() / pulso de PDN / begin()) solo
-// sirve donde PDN es un pin real. En HW<19 el pulso cae en FAKE_PIN.
-#define AFE_WATCHDOG_ENABLED 1
-#else
-#define AFE_WATCHDOG_ENABLED 0
 #endif
 
 // Selección del puerto de depuración según modo USB.

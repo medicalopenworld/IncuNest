@@ -485,9 +485,9 @@ size_t debug_state_json_ex(char *out, size_t out_len, bool with_tasks) {
     mainsPresentPin() ? 1 : 0);
 
   // AFE4490: diag = AFE4490Data::diag_code (bits 0-12 = REG_DIAG 0x30, resto
-  // banderas RSQM). resets = reinicios del vigilante de muestras (0 si HW < 19).
-  J(",\"afe\":{\"diag\":%lu,\"resets\":%lu}", (unsigned long)afeDiagCode(),
-    (unsigned long)afeResetCount());
+  // banderas RSQM). stalls = episodios de parada (>10 s sin muestra) del AFE.
+  J(",\"afe\":{\"diag\":%lu,\"stalls\":%lu}", (unsigned long)afeDiagCode(),
+    (unsigned long)afeStallCount());
 
   // NUBE. Para que se pueda diagnosticar "no conecta con ThingsBoard" sin
   // tener la placa abierta por el puerto serie: en una unidad montada, en

@@ -181,9 +181,9 @@
 // hay pin que cortar); RAM desde el arranque, no se persiste.
 #define GSM_POWER_CYCLES_KEY "GSM_power_cycles"
 // AFE4490: diag_code de la libreria (bits 0-12 = REG_DIAG 0x30, resto RSQM) y
-// reinicios del vigilante de muestras (este ultimo solo HW >= 19).
+// episodios de parada del AFE (>10 s sin muestra). No hay reinicio en caliente.
 #define AFE_DIAG_KEY "AFE_diag"
-#define AFE_RESETS_KEY "AFE_resets"
+#define AFE_STALLS_KEY "AFE_stalls"
 #define HMI_BOOT_COUNT_KEY "hmi_boot_count"
 #define HMI_LAST_RST_KEY "hmi_last_rst"
 // 0-100 while an OTA is downloading; absent otherwise.

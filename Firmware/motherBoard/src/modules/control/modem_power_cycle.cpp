@@ -7,6 +7,10 @@ void modem_pc_init(ModemPowerCycle *pc) {
   pc->grace_ms = 0;
   pc->since_ms = 0;
   pc->count = 0;
+  pc->soft_fails = 0;
+  pc->backoff_ms = MODEM_PC_BACKOFF_MIN_MS;
+  pc->next_allowed_ms = 0;
+  pc->gate_active = false;
 }
 
 bool modem_pc_begin(ModemPowerCycle *pc, uint32_t now_ms, uint32_t grace_ms) {
@@ -18,6 +22,46 @@ bool modem_pc_begin(ModemPowerCycle *pc, uint32_t now_ms, uint32_t grace_ms) {
   pc->since_ms = now_ms;
   pc->count++;
   return true;
+}
+
+bool modem_pc_soft_failure(ModemPowerCycle *pc, uint32_t now_ms,
+                           uint32_t grace_ms) {
+  if (pc->phase != MODEM_PC_IDLE) {
+    return false;
+  }
+  pc->soft_fails++;
+  if (pc->soft_fails < MODEM_PC_SOFT_FAILS_BEFORE_CUT) {
+    return false;
+  }
+  // Backoff: signo del intervalo, no comparacion de marcas (millis() da la
+  // vuelta a los ~49 dias).
+  if (pc->gate_active && (int32_t)(now_ms - pc->next_allowed_ms) < 0) {
+    return false;
+  }
+  if (!modem_pc_begin(pc, now_ms, grace_ms)) {
+    return false;
+  }
+  pc->soft_fails = 0;
+  pc->gate_active = true;
+  pc->next_allowed_ms = now_ms + pc->backoff_ms;
+  pc->backoff_ms = (pc->backoff_ms > MODEM_PC_BACKOFF_MAX_MS / 2)
+                       ? MODEM_PC_BACKOFF_MAX_MS
+                       : pc->backoff_ms * 2u;
+  return true;
+}
+
+void modem_pc_connected(ModemPowerCycle *pc) {
+  pc->soft_fails = 0;
+  pc->backoff_ms = MODEM_PC_BACKOFF_MIN_MS;
+  pc->gate_active = false;
+}
+
+uint32_t modem_pc_soft_fails(const ModemPowerCycle *pc) {
+  return pc->soft_fails;
+}
+
+uint32_t modem_pc_backoff_ms(const ModemPowerCycle *pc) {
+  return pc->backoff_ms;
 }
 
 // Resta sin signo y se compara el intervalo, no las marcas: asi sobrevive al

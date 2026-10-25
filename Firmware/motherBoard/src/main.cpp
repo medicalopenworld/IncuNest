@@ -238,6 +238,11 @@ void GPRSMonitorTask(void *pvParameters) {
         // del que a veces no sale por software. Corte real de VBAT, sin margen
         // (no hay CPOWD que esperar): la tarea nueva restaura GSM_PWR_EN desde
         // GPRSPowerUp() caso 0 pasados >= 2 s. No-op en HW < 19.
+        //
+        // Si el monitor mata la tarea con un ciclo YA en curso (p. ej. en fase
+        // OFF), esta llamada se rechaza y no hace falta: la tarea nueva
+        // restaura GSM_PWR_EN igualmente, porque GPRSPowerUp() caso 0 consulta
+        // gsmPowerCycleBusy() hasta que la maquina devuelve RESTORE.
         gsmPowerCycleBegin(0);
         GPRS_lastMillisTaskClear = millis();
         // Recreate GPRS_Task so a single hung AT call doesn't kill cellular
@@ -817,12 +822,6 @@ void setup() {
     digitalWrite(PWR_EN, HIGH);
   }
 #endif
-  // HW19: el raíl de 5 V (humidificador, LEDs del AFE, SensorBoard por USB,
-  // display HMI) esta apagado por pull-down hasta que el firmware lo levanta.
-  // Es LO PRIMERO tras el latch: antes del enlace con el display, del host USB
-  // de la SensorBoard, de initSPO2() y del test de actuadores de initHardware().
-  // No-op en HW < 19.
-  pwr5vSet(true);
   esp_bt_controller_mem_release(ESP_BT_MODE_BLE);
 #if (HW_NUM >= 19)
   // Serial es la UART0 hardware, que ya sale por IO43/IO44 (J1) con los pines
@@ -859,6 +858,14 @@ void setup() {
   initEEPROM();
   initGPIO();
   powerRailsInit();
+  // HW19: el raíl de 5 V (humidificador, LEDs del AFE, SensorBoard por USB,
+  // display HMI) esta apagado por pull-down hasta que el firmware lo levanta.
+  // Va DESPUES de initGPIO() a proposito: initGPIO() deja USB_EN (humidificador)
+  // en LOW, asi que el humidificador no recibe un 5 V repentino con la linea de
+  // activacion flotando. Y ANTES del enlace con el display, del host USB de la
+  // SensorBoard, de initSPO2() y del test de actuadores de initHardware().
+  // No-op en HW < 19.
+  pwr5vSet(true);
 #if (HW_NUM >= 19)
   // El SIM800C arranca solo al aplicar VBAT (PWRKEY a GND). Se levanta aqui,
   // bastante antes de crear la tarea GPRS, para que cuando empiece a sondear AT
@@ -870,8 +877,11 @@ void setup() {
   ctrl_tel_msg.serialNumber = in3.serialNumber;
   logI("IncuNest debug uart, version v" + String(FWversion) + "/" +
        String(HWversion) + ", SN: " + String(in3.serialNumber));
-  // PSRAM: en la V19 (N8R2, quad) se espera found=1 y ~2 MB; en V17/V18 no se
-  // inicializa (BOARD_HAS_PSRAM no esta definido) y sale found=0 size=0.
+  // PSRAM: en la V19 (N8R2, quad) se espera found=1 y ~2 MB; en V17/V18 no hay
+  // PSRAM fisica y sale found=0 size=0. OJO: esto NO depende de
+  // BOARD_HAS_PSRAM. El sdkconfig de las librerias precompiladas lleva
+  // CONFIG_SPIRAM=y y el core llama a psramInit() en initArduino() en TODAS las
+  // placas; en una sin PSRAM falla y se queda en found=0.
   logI("[HW] -> PSRAM found=" + String((int)psramFound()) +
        " size=" + String((uint32_t)ESP.getPsramSize()));
 #if (HW_NUM >= 19)
@@ -983,6 +993,11 @@ void setup() {
                                  CORE_ID_FREERTOS) != pdPASS)
     ;
   logI("Time track task successfully created!\n");
+
+  // Watchdog externo: arranca AQUI, no antes. setup() dura mucho mas que el
+  // tWD de fabrica del TPS3431 y no alimenta el WDI. No-op salvo HW19 con
+  // EXT_WDT_ENABLED.
+  extWdtArm();
 
 #ifdef CRASH_TEST_MB
   xTaskCreatePinnedToCore(CrashTestMBTask, "CRASH_TEST_MB", 2048, NULL, 1,

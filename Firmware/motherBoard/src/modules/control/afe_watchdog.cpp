@@ -5,32 +5,29 @@
 
 void afe_wd_init(AfeWatchdog *wd, uint32_t now_ms) {
   wd->last_sample_ms = now_ms;
-  wd->last_restart_ms = 0;
-  wd->restarted_once = false;
-  wd->restarts = 0;
+  wd->episode_open = false;
+  wd->stalls = 0;
 }
 
 void afe_wd_sample(AfeWatchdog *wd, uint32_t now_ms) {
   wd->last_sample_ms = now_ms;
+  wd->episode_open = false;
 }
 
-bool afe_wd_should_restart(AfeWatchdog *wd, uint32_t now_ms) {
-  const bool stalled =
-      (uint32_t)(now_ms - wd->last_sample_ms) > AFE_WD_STALL_MS;
-  if (!stalled) {
+bool afe_wd_data_fresh(const AfeWatchdog *wd, uint32_t now_ms) {
+  return (uint32_t)(now_ms - wd->last_sample_ms) <= AFE_WD_DATA_STALE_MS;
+}
+
+bool afe_wd_stall_detected(AfeWatchdog *wd, uint32_t now_ms) {
+  if (wd->episode_open) {
     return false;
   }
-  const bool allowed =
-      !wd->restarted_once ||
-      (uint32_t)(now_ms - wd->last_restart_ms) >= AFE_WD_MIN_RESTART_INTERVAL_MS;
-  if (!allowed) {
+  if ((uint32_t)(now_ms - wd->last_sample_ms) <= AFE_WD_STALL_MS) {
     return false;
   }
-  wd->restarted_once = true;
-  wd->last_restart_ms = now_ms;
-  wd->last_sample_ms = now_ms;
-  wd->restarts++;
+  wd->episode_open = true;
+  wd->stalls++;
   return true;
 }
 
-uint32_t afe_wd_restarts(const AfeWatchdog *wd) { return wd->restarts; }
+uint32_t afe_wd_stalls(const AfeWatchdog *wd) { return wd->stalls; }

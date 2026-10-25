@@ -32,6 +32,6 @@ void initSPO2();
 // rellena runAfeDiagnostics() cada 5 s con la sonda ausente; resto = banderas
 // RSQM. Se publica como AFE_diag (DIAG) y en /debug/state.
 uint32_t afeDiagCode(void);
-// Reinicios del AFE por el vigilante de muestras (solo HW >= 19, 0 en el resto).
-uint32_t afeResetCount(void);
+// Episodios de parada del AFE (sin muestra > AFE_WD_STALL_MS) desde el arranque.
+uint32_t afeStallCount(void);
 void SPO2_Task(void *pvParameters);

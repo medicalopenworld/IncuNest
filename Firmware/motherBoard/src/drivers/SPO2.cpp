@@ -11,16 +11,18 @@ volatile AFE4490Data g_spo2_data = {};
 
 #define SPO2_LOG_INTERVAL_SAMPLES 500 // ~1 s at 500 Hz
 
-// Vigilante de muestras (logica pura en modules/control/afe_watchdog.*). Solo
-// lo toca SPO2_Task tras crearse; initSPO2() lo arma antes de lanzarla.
+// Detector de parada y caducidad del dato (logica pura en
+// modules/control/afe_watchdog.*). Solo lo toca SPO2_Task tras crearse;
+// initSPO2() lo arma antes de lanzarla. NO reinicia la libreria: ver el
+// porque en afe_watchdog.h.
 static AfeWatchdog s_afeWd;
 
 uint32_t afeDiagCode(void) { return g_spo2_data.diag_code; }
-uint32_t afeResetCount(void) { return afe_wd_restarts(&s_afeWd); }
+uint32_t afeStallCount(void) { return afe_wd_stalls(&s_afeWd); }
 
 // Reset fisico del AFE por PDN (IO7, activo bajo, en la V19). En V17/V18 el
 // pin es FAKE_PIN (46): sin PDN conectado, el pulso es inocuo pero no resetea
-// nada. Bloquea ~200 ms: llamar solo desde una tarea.
+// nada. Bloquea ~200 ms: SOLO se usa en el arranque, desde initSPO2().
 static void afePdnPulse(void) {
   pinMode(AFE44XX_PWDN_PIN, OUTPUT);
   digitalWrite(AFE44XX_PWDN_PIN, LOW);
@@ -29,48 +31,35 @@ static void afePdnPulse(void) {
   vTaskDelay(pdMS_TO_TICKS(100));
 }
 
-// Configura y arranca la libreria del AFE. Comun al arranque y al reinicio del
-// vigilante. HGAC (RF-only; since lib v0.81 two EMAs per domain — a fast HIGH2
-// guard plus slow HIGH1/LOW1 levelling, so it now raises RF as well as
-// lowering it): still ships disabled. Enabled here because both LED channels
-// sit at the ADC positive rail (~2^21) with no probe applied, and the
-// resulting DC step on probe application swamps the SpO2 AC estimators.
-static void afeConfigureAndBegin(void) {
-  afe.setHgacEnable(true);
-  // Configure chip registers, attach DRDY ISR, launch internal processing task
-  afe.begin(AFE44XX_CS, AFE_ADC_READY);
-}
-
-#if AFE_WATCHDOG_ENABLED
-// Reinicio completo del AFE: la libreria no tiene end(); su equivalente es
-// stop() (desengancha la ISR de DRDY, espera a _spi_mutex, borra sus 4 tareas y
-// objetos FreeRTOS) y begin() lo vuelve a crear todo. Entre medias, un reset
-// fisico por PDN. SPI.begin() no se repite.
-//
-// RIESGO CONOCIDO: stop() toma _spi_mutex con portMAX_DELAY. Si la tarea
-// interna murio con el mutex cogido, se queda aqui para siempre. Solo bloquea
-// esta tarea (el loopTask sigue alimentando el Task WDT) y no empeora un AFE
-// que ya estaba colgado. Ver design.md D5 de mb-hw19.
-static void afeRestart(void) {
-  ESP_LOGE("SPO2",
-           "[AFE] sin muestras > %u ms: reinicio #%lu (stop, PDN, begin)",
-           (unsigned)AFE_WD_STALL_MS, (unsigned long)afe_wd_restarts(&s_afeWd));
-  afe.stop();
-  afePdnPulse();
-  afeConfigureAndBegin();
-}
-#endif
-
 void SPO2_Task(void *pvParameters) {
   AFE4490Data data;
   static uint32_t sample_count = 0;
 
   for (;;) {
-#if AFE_WATCHDOG_ENABLED
-    if (afe_wd_should_restart(&s_afeWd, millis())) {
-      afeRestart();
+    // A2: un dato de mas de AFE_WD_DATA_STALE_MS no es actual. Si el AFE se
+    // para, g_spo2_data se queda con el ultimo probe_state (APPLIED) y las
+    // ultimas FC/SpO2, y CommTask, GPRS y WiFi las publicarian congeladas como
+    // si fueran vitales en vivo. Se sintetiza PROBE_DISCONNECTED ("sin senal"):
+    // todos los consumidores ya tratan "no APPLIED" como "sin vitales". La
+    // siguiente muestra real lo sobrescribe (memcpy de abajo).
+    {
+      const uint32_t now = millis();
+      if (!afe_wd_data_fresh(&s_afeWd, now) &&
+          g_spo2_data.probe_state != ProbeState::PROBE_DISCONNECTED) {
+        g_spo2_data.probe_state = ProbeState::PROBE_DISCONNECTED;
+      }
+      // Un solo evento por episodio de parada. logE (no ESP_LOGE directo) para
+      // que la linea entre en el anillo del CrashReporter.
+      if (afe_wd_stall_detected(&s_afeWd, now)) {
+        char msg[96];
+        snprintf(msg, sizeof(msg),
+                 "[AFE] sin muestras > %u ms (parada #%lu): dato caducado, "
+                 "probe_state=DISCONNECTED",
+                 (unsigned)AFE_WD_STALL_MS,
+                 (unsigned long)afe_wd_stalls(&s_afeWd));
+        logE(String(msg));
+      }
     }
-#endif
     if (afe.getData(data)) {
       afe_wd_sample(&s_afeWd, millis());
       memcpy((void *)&g_spo2_data, &data, sizeof(data));
@@ -133,7 +122,15 @@ void initSPO2() {
   // Initialize SPI bus for AFE4490 (CS=-1: managed per device via AFE44XX_CS)
   SPI.begin(AFE_SCK, AFE_MISO, AFE_MOSI, -1);
 
-  afeConfigureAndBegin();
+  // HGAC (RF-only; since lib v0.81 two EMAs per domain — a fast HIGH2 guard plus
+  // slow HIGH1/LOW1 levelling, so it now raises RF as well as lowering it): still
+  // ships disabled. Enabled here because both LED channels sit at the ADC positive
+  // rail (~2^21) with no probe applied, and the resulting DC step on probe
+  // application swamps the SpO2 AC estimators.
+  afe.setHgacEnable(true);
+
+  // Configure chip registers, attach DRDY ISR, launch internal processing task
+  afe.begin(AFE44XX_CS, AFE_ADC_READY);
 
   // Antes de lanzar SPO2_Task, que es quien lo consulta.
   afe_wd_init(&s_afeWd, millis());
