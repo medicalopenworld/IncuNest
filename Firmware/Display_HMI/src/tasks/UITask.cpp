@@ -3607,9 +3607,9 @@ void inactivity_timer_cb(lv_timer_t *timer) {
     return;
   }
   // Ayuda, formacion y aviso de mantenimiento: exentos del bloqueo, pero SIN
-  // reiniciar el contador de inactividad de LVGL. Sus _Poll() lo leen (o, en
-  // el caso de MaintenanceDialog, su propio lv_tick_elaps()) para cerrarse
-  // solos a su tope (HELP_IDLE_TIMEOUT_MS / MNT_IDLE_TIMEOUT_MS); si aqui se
+  // reiniciar el contador de inactividad de LVGL. Sus _Poll() lo leen
+  // (lv_disp_get_inactive_time()) para cerrarse solos a su tope
+  // (HELP_IDLE_TIMEOUT_MS / MNT_IDLE_TIMEOUT_MS); si aqui se
   // hiciera lv_disp_trig_activity() cada 200 ms, esos topes no llegarian
   // nunca (defecto real detectado en review, ya colado dos veces:
   // TelemetryHistory, HelpDialog/HelpTour).
