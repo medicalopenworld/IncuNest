@@ -617,6 +617,9 @@ void currentMonitor();
 // siempre la escritura que ve el estado mas reciente. No respeta
 // g_factoryTestActive: eso lo decide quien llama.
 void photoPwmRefresh(void);
+// Comprueba en el arranque que no hay fade LEDC instalado (ver board.h junto a
+// PHOTOTHERAPY_PWM_CHANNEL). Llamar una vez, tras configurar los canales PWM.
+void photoPwmCheckNoFade(void);
 void voltageMonitor();
 
 // Incremented only when in3.heater_current is genuinely refreshed

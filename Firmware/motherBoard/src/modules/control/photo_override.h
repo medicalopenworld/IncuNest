@@ -9,8 +9,9 @@
 // QUE HACE (y por que es tan pequeno):
 //
 //   1. Mientras la prueba esta ACTIVA, la lampara va ON (`forced`), las
-//      ordenes del display se REGISTRAN (`ordered`) pero no se aplican, y no se
-//      guarda nada en NVS.
+//      ordenes del display se REGISTRAN (`ordered`) pero no se aplican. El ON
+//      forzado nunca se guarda en NVS (solo vive en in3.phototherapy); las
+//      ordenes del display si, porque nunca vienen contaminadas (ver 2).
 //   2. El campo `photo` de CTRL,STATE (photo_override_state_field) NO emite el ON forzado
 //      sino la ultima orden del display (`ordered`). Asi el display nunca
 //      adopta el ON de depuracion, y no existe ningun 1 rancio que neutralizar
@@ -51,8 +52,9 @@ typedef struct {
 void photo_override_init(PhotoOverride *o);
 
 // Empieza a forzar ON. `ordered_now` es la ultima orden del display hasta
-// ahora (in3.phototherapy antes de la prueba). Si ya estaba activa se
-// conserva el `ordered` que ya hay: es el que lleva las ordenes del operador.
+// ahora (in3.phototherapy antes de la prueba). Si ya estaba activa, o hay una
+// liberacion pendiente de aplicar, se conserva el `ordered` que ya hay: es el
+// que lleva las ordenes del operador y `ordered_now` esta contaminado.
 void photo_override_start(PhotoOverride *o, bool ordered_now);
 
 // Registra una orden del display (o la caducidad del temporizador de
@@ -70,9 +72,6 @@ bool photo_override_active(const PhotoOverride *o);
 // mientras esta activa (y registra la orden), la del display si no.
 bool photo_override_effective(PhotoOverride *o, bool display_value);
 
-// Si el valor del display se puede guardar en NVS: no mientras la prueba esta
-// activa. Nada que esperar al soltar: desde ese instante manda el display.
-bool photo_override_may_persist(const PhotoOverride *o);
 
 // Si la prueba esta forzando un valor ahora mismo (ON mientras esta activa).
 // Sin efectos secundarios. Permite aplicarlo sin esperar una trama.

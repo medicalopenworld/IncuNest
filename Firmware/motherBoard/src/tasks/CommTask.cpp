@@ -16,6 +16,7 @@ extern "C" bool debug_inject_take(char *out, size_t out_len);
 #include "modules/control/alarm_history.h"
 #include "modules/control/alarm_machine.h"
 #include "modules/control/alarm_test.h"
+#include "modules/control/photo_expiry_latch.h"
 #include "modules/debug/debug_mode.h"
 #include "modules/baby_profile/baby_profile_protocol.h"
 #include "modules/baby_profile/baby_profile_store.h"
@@ -77,6 +78,13 @@ static constexpr float PPG_DISP_UNITS_PER_LSB = 1.6e-8f;
 
 // ---- Phototherapy Timer (Motherboard is source of truth) ----
 static bool photoTimerActive = false;
+
+// Cerrojo "el temporizador caduco, esperando un photo=0 del display" (logica en
+// modules/control/photo_expiry_latch.h). Lo arma getRemainingPhotoTime() y lo
+// consulta el parser de tramas del display, que pueden correr en tareas
+// distintas: de ahi el spinlock (dos accesos de un bool, sin llamadas dentro).
+static PhotoExpiryLatch s_photoExpiry;
+static portMUX_TYPE s_photoExpiryMux = portMUX_INITIALIZER_UNLOCKED;
 static unsigned long photoTimerStartMs = 0;
 static int photoTimerMinutes = 0;
 // Modo de fototerapia del mandato anterior del HMI. Sirve para detectar el
@@ -333,6 +341,11 @@ double getRemainingPhotoTime() {
       // apagado de la placa que tiene que ganar al soltarla (la prueba sigue
       // forzando ON hasta entonces).
       debug_photo_note_order(false);
+      // ... y ninguna trama rezagada con photo=1 sin minutos puede reencenderla
+      // (dentro y fuera de la prueba). Ver photo_expiry_latch.h.
+      portENTER_CRITICAL(&s_photoExpiryMux);
+      photo_expiry_latch_expire(&s_photoExpiry);
+      portEXIT_CRITICAL(&s_photoExpiryMux);
       photoPwmRefresh();
       turnFans(bool(in3.phototherapy || in3.actuation));
       photoTimerForget();
@@ -1066,6 +1079,15 @@ void parse_line(const char *line) {
     // en NVS: cualquier otro valor es una trama corrupta (sin CRC, ver
     // known_issues #2) y se descarta entera en vez de actuar sobre la lampara.
     if (parsed >= 9 && (photo == 0 || photo == 1)) {
+      // Tras la caducidad del temporizador de fototerapia se IGNORA un photo=1
+      // sin minutos hasta ver un photo=0: es una trama que el display tenia en
+      // vuelo (o retenida por localCmdHoldsLocal, 10 s) de ANTES de adoptar el
+      // apagado, y reencenderia la lampara que acaba de caducar. Va lo primero:
+      // todo lo que sigue (activeSeq, contabilidad, temporizador, orden aplicada
+      // y guardada) usa el valor ya filtrado. Ver photo_expiry_latch.h.
+      portENTER_CRITICAL(&s_photoExpiryMux);
+      photo = photo_expiry_latch_filter(&s_photoExpiry, photo != 0, photoMin) ? 1 : 0;
+      portEXIT_CRITICAL(&s_photoExpiryMux);
       // activeSeq protection: stamp the wizard-selected baby while ANY
       // therapy is running, and only clear it once every therapy is off.
       // Phototherapy counts: the HMI now runs the baby-data wizard for it
@@ -1090,7 +1112,7 @@ void parse_line(const char *line) {
       // keepalive, y eso no es un bebe tratado) y no hay un fallo de lampara
       // declarado (sin corriente o sin medida, la terapia no esta garantizada).
       const bool photoExposure =
-          photo != 0 && in3.phototherapy && debug_photo_may_persist() &&
+          photo != 0 && in3.phototherapy && !debug_photo_active() &&
           alarm_machine_state(ALARM_PHOTO_LAMP_FAULT) == ALARM_STATE_INACTIVE;
       updateTherapyAccounting(s_photoAcc, photoExposure);
       updateTherapyAccounting(s_thermoAcc,

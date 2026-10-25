@@ -88,10 +88,9 @@ bool debug_photo_on(bool ordered_now);
 void debug_photo_off(void);
 bool debug_photo_active(void);
 // Valor que el receptor de tramas del display debe APLICAR en lugar del suyo
-// (ON durante la prueba, registrando la orden), y si puede guardar el suyo en
-// NVS (no durante la prueba).
+// (ON durante la prueba, registrando la orden del display para aplicarla al
+// soltar). La orden del display se guarda en NVS siempre (main.cpp).
 bool debug_photo_effective(bool display_value);
-bool debug_photo_may_persist(void);
 // Valor forzado ahora mismo por la prueba (ON mientras esta activa), para
 // aplicarlo en el tick periodico sin esperar a una trama del display.
 bool debug_photo_forced(bool *value);

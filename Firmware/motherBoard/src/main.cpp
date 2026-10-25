@@ -536,7 +536,7 @@ void TimeTrack_Task(void *pvParameters) {
 // Aplica el estado de la fototerapia: variable, PWM y ventilador. Es el camino
 // UNICO que usa una orden del display (newCommand) y el tick periodico que
 // cierra el encendido/apagado de depuracion, y NO persiste nada en NVS (eso
-// lo decide quien llama, con debug_photo_may_persist()).
+// lo decide quien llama).
 static void applyPhotoState(bool on) {
   // Estado ANTERIOR, para distinguir el flanco de encendido del keepalive.
   const bool photoEstabaEncendida = in3.phototherapy;
@@ -680,16 +680,22 @@ void Communication_Receiver(void *pvParameters) {
           in3_hum.turn(OFF);
       }
 
-      // Normalmente es lo que manda el display. Con un encendido de depuracion
-      // en marcha (o por confirmar tras soltarlo) manda photo_override: fuerza
-      // ON durante la prueba e ignora despues el ON rancio que el display habra
-      // adoptado. Ver modules/control/photo_override.h. Se aplica mas abajo con
-      // applyPhotoState(), el mismo camino que usa el tick periodico.
+      // Normalmente es lo que manda el display. Con una prueba de depuracion
+      // activa manda photo_override: fuerza ON y REGISTRA la orden del display
+      // para aplicarla al soltar. Ver modules/control/photo_override.h. Se
+      // aplica mas abajo con applyPhotoState(), el mismo camino que usa el tick
+      // periodico.
       const bool photoOrden = debug_photo_effective(hmi_cmd_msg.phototherapyMode);
-      // Se guarda la orden DEL DISPLAY, y solo cuando no hay prueba en curso:
-      // durante ella el display devuelve el ON adoptado, y guardarlo haria que
-      // una caida reanudase una sesion de depuracion como si fuera real.
-      if (debug_photo_may_persist()) {
+      // Se guarda SIEMPRE la orden del display, tambien durante la prueba: el
+      // campo photo de CTRL,STATE emite esa misma orden mientras dura (el
+      // display nunca adopta el ON forzado), asi que lo que devuelve en su
+      // keepalive es una orden REAL del operador y nunca esta contaminado. No
+      // guardarla perderia un OFF/ON del operador si la placa cayera a mitad de
+      // prueba. El ON forzado de la prueba, en cambio, no se guarda nunca:
+      // solo existe en in3.phototherapy, no en hmi_cmd_msg. Coherente con el
+      // espacio "photo" del temporizador, que el parser RX de CommTask guarda y
+      // borra por su cuenta.
+      {
         Preferences p;
         p.begin(NS_STATE, false);
         p.putUChar(KEY_PHOTO_ACTIVE, hmi_cmd_msg.phototherapyMode);
@@ -727,15 +733,21 @@ void Communication_Receiver(void *pvParameters) {
     // apagar el modo) se aplica la ULTIMA ORDEN DEL DISPLAY (la del operador
     // manda) por el mismo camino que una orden: con el display colgado no llega
     // ningun keepalive y, sin esto, la lampara se quedaria en el ON de la
-    // prueba. No persiste nada en NVS (eso solo lo hace el camino de la orden,
-    // y solo con debug_photo_may_persist()). Solo actua si el estado difiere,
-    // asi que no reescribe el PWM cada vuelta.
+    // prueba. El ON forzado no se persiste nunca; al SOLTAR se persiste el valor
+    // aplicado (la ultima orden del display, o OFF si vencio el temporizador):
+    // con el display colgado no llega ningun keepalive que lo guarde, y NVS
+    // seguiria con una orden anterior que la placa ya no cumple. Solo actua si
+    // el estado difiere, asi que no reescribe el PWM cada vuelta.
     {
       bool photoValor = false;
       if (debug_photo_forced(&photoValor)) {
         if (in3.phototherapy != photoValor) applyPhotoState(photoValor);
       } else if (debug_photo_take_release(&photoValor)) {
         if (in3.phototherapy != photoValor) applyPhotoState(photoValor);
+        Preferences p;
+        p.begin(NS_STATE, false);
+        p.putUChar(KEY_PHOTO_ACTIVE, photoValor ? 1 : 0);
+        p.end();
       }
     }
 

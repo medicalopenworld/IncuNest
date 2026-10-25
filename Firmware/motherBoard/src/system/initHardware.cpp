@@ -244,6 +244,7 @@ void initPWMGPIO() {
   ledcWrite(HEATER_PWM_CHANNEL, 0);
   ledcWrite(BUZZER_PWM_CHANNEL, 0);
   ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, 0);
+  photoPwmCheckNoFade();
   ledcSetup(FAN_PWM_CHANNEL, FAN_PWM_FREQUENCY, DEFAULT_PWM_RESOLUTION);
   ledcAttachPin(FAN, FAN_PWM_CHANNEL);
   ledcWrite(FAN_PWM_CHANNEL, 0);

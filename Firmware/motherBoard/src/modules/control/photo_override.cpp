@@ -9,10 +9,13 @@ void photo_override_init(PhotoOverride *o) {
 }
 
 void photo_override_start(PhotoOverride *o, bool ordered_now) {
-  // Solo se captura la orden si no hay una prueba en curso: en ese caso
-  // `ordered` ya lleva las ordenes del operador y `ordered_now` esta
-  // contaminado por la prueba.
-  if (!o->active) {
+  // Solo se captura la orden si no hay una prueba en curso NI una liberacion
+  // pendiente de aplicar: en ambos casos `ordered` ya lleva las ordenes del
+  // operador y `ordered_now` (in3.phototherapy) esta contaminado por la prueba
+  // anterior. Con PHOTO,1 / PHOTO,0 / PHOTO,1 en una misma pasada de la consola,
+  // antes de que el tick aplique la liberacion, capturarlo adoptaba el ON, el
+  // display lo adoptaba y se persistia una sesion continua sin temporizador.
+  if (!o->active && !o->release_pending) {
     o->ordered = ordered_now;
   }
   o->active = true;
@@ -46,7 +49,6 @@ bool photo_override_effective(PhotoOverride *o, bool display_value) {
   return display_value;
 }
 
-bool photo_override_may_persist(const PhotoOverride *o) { return !o->active; }
 
 bool photo_override_forced(const PhotoOverride *o, bool *value) {
   if (o->active) {

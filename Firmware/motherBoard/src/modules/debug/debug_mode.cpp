@@ -82,13 +82,6 @@ bool debug_photo_effective(bool display_value) {
   return v;
 }
 
-bool debug_photo_may_persist(void) {
-  portENTER_CRITICAL(&s_photo_mux);
-  photo_lock_init();
-  const bool p = photo_override_may_persist(&s_photo);
-  portEXIT_CRITICAL(&s_photo_mux);
-  return p;
-}
 
 bool debug_photo_forced(bool *value) {
   portENTER_CRITICAL(&s_photo_mux);
@@ -174,10 +167,10 @@ void debug_mode_set(bool on) {
     // todavia puesta.
     debug_override_clear_all();
     debug_alarm_clear_all();
-    // Tambien el encendido de fototerapia. Soltar (con su ventana de gracia) y
-    // no simplemente borrar: el display habra adoptado el ON y lo seguira
-    // devolviendo un rato, y sin la gracia ese ON rancio encenderia la lampara
-    // de verdad justo al apagar el modo.
+    // Tambien el encendido de fototerapia. Soltar y no simplemente borrar: el
+    // tick periodico aplica entonces la ultima orden del display (la del
+    // operador manda), de modo que apagar el modo no deja la lampara en el ON
+    // de la prueba ni la apaga si el operador la habia pedido.
     debug_photo_off();
     if (s_inject_q != NULL) {
       xQueueReset(s_inject_q);
