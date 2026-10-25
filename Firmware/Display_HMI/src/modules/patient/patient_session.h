@@ -226,3 +226,23 @@ enum PatientDisplay {
   PATIENT_DISPLAY_UNCONFIRMED,
 };
 PatientDisplay patient_display_state(bool confirmed, bool listedOnLegacyBoard);
+
+// "Hay un bebe bajo terapia AHORA y se sabe quien es": seq conocido, alguna
+// terapia en marcha y la identidad confirmada. Es la definicion de
+// BabyWizard_HasLiveSession(): exigir la confirmacion cierra de golpe todas las
+// rutas que actuan sobre ese seq hacia la placa (alta, reenvio de SELECT,
+// atajo del asistente) con una identidad restaurada que podria ser de otro.
+bool patient_live_session(uint32_t seq, bool anyControlActive, bool confirmed);
+
+// El `sn` no se puede verificar si falta en el registro o en la placa (0 =
+// sin numero de serie): entonces `activeSeq` por si solo no basta para
+// confirmar y se exige ademas el contraste de nombre y semanas con la lista.
+bool patient_confirm_requires_list(uint32_t identitySn, uint32_t boardSn);
+
+// Peticion propia de PROFILE_LIST: toca pedirla si no se ha agotado el numero
+// de intentos y, o no hay ninguna en vuelo, o la que habia caduco (`retryMs`
+// sin respuesta; sin esto una respuesta perdida bloqueaba los reintentos para
+// siempre). Aritmetica modular: aguanta la vuelta de millis().
+bool patient_list_request_due(bool outstanding, uint32_t askedAtMs,
+                              uint32_t nowMs, uint8_t attempts,
+                              uint8_t maxAttempts, uint32_t retryMs);

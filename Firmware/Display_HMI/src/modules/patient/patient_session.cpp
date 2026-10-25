@@ -355,6 +355,14 @@ bool patient_credit_allowed(uint32_t accSeq, bool sendsActiveSeq,
   return sendsActiveSeq ? (activeSeq == accSeq) : confirmed;
 }
 
+// RED: stubs sin comportamiento.
+bool patient_live_session(uint32_t, bool, bool) { return false; }
+bool patient_confirm_requires_list(uint32_t, uint32_t) { return false; }
+bool patient_list_request_due(bool, uint32_t, uint32_t, uint8_t, uint8_t,
+                              uint32_t) {
+  return false;
+}
+
 PatientDisplay patient_display_state(bool confirmed, bool listedOnLegacyBoard) {
   if (confirmed) return PATIENT_DISPLAY_CONFIRMED;
   return listedOnLegacyBoard ? PATIENT_DISPLAY_UNCONFIRMED

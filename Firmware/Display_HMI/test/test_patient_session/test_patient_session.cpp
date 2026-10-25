@@ -835,6 +835,51 @@ void test_display_state(void) {
                         patient_display_state(false, false));
 }
 
+// --------------------------------------------- sesion viva (K1) y reintentos
+
+void test_live_session_needs_confirmation(void) {
+  // BabyWizard_HasLiveSession() = seq, terapia en marcha Y confirmada: asi las
+  // rutas hacia la placa (alta, reenvio de SELECT, atajo) no actuan sobre una
+  // identidad restaurada que podria ser de otro bebe.
+  TEST_ASSERT_TRUE(patient_live_session(7, true, true));
+  TEST_ASSERT_FALSE(patient_live_session(7, true, false));
+  TEST_ASSERT_FALSE(patient_live_session(7, false, true));
+  TEST_ASSERT_FALSE(patient_live_session(0, true, true));
+}
+
+// sn == 0 no se puede verificar (A4).
+void test_zero_serial_cannot_be_verified(void) {
+  TEST_ASSERT_FALSE(patient_confirm_requires_list(555u, 555u));
+  TEST_ASSERT_TRUE(patient_confirm_requires_list(0u, 555u));
+  TEST_ASSERT_TRUE(patient_confirm_requires_list(555u, 0u));
+  TEST_ASSERT_TRUE(patient_confirm_requires_list(0u, 0u));
+}
+
+void test_list_request_due_first_time(void) {
+  TEST_ASSERT_TRUE(patient_list_request_due(false, 0, 1000, 0, 3, 10000));
+}
+
+void test_list_request_waits_while_one_is_in_flight(void) {
+  TEST_ASSERT_FALSE(patient_list_request_due(true, 1000, 5000, 1, 3, 10000));
+}
+
+// A1: la respuesta se pierde; la peticion caduca y se reintenta.
+void test_list_request_expires_and_retries(void) {
+  TEST_ASSERT_FALSE(patient_list_request_due(true, 1000, 10999, 1, 3, 10000));
+  TEST_ASSERT_TRUE(patient_list_request_due(true, 1000, 11000, 1, 3, 10000));
+}
+
+void test_list_request_stops_after_max_attempts(void) {
+  TEST_ASSERT_FALSE(patient_list_request_due(false, 0, 99999, 3, 3, 10000));
+  TEST_ASSERT_FALSE(patient_list_request_due(true, 1000, 99999, 3, 3, 10000));
+}
+
+void test_list_request_expiry_survives_millis_wrap(void) {
+  const uint32_t asked = 0xFFFFFFF0u;  // 16 ms antes de la vuelta
+  TEST_ASSERT_FALSE(patient_list_request_due(true, asked, 5000u, 1, 3, 10000));
+  TEST_ASSERT_TRUE(patient_list_request_due(true, asked, 10000u, 1, 3, 10000));
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_age_same_day_as_capture);
@@ -919,5 +964,12 @@ int main(int, char **) {
   RUN_TEST(test_same_baby_needs_seq_name_and_gestation);
   RUN_TEST(test_credit_allowed_by_active_seq);
   RUN_TEST(test_display_state);
+  RUN_TEST(test_live_session_needs_confirmation);
+  RUN_TEST(test_zero_serial_cannot_be_verified);
+  RUN_TEST(test_list_request_due_first_time);
+  RUN_TEST(test_list_request_waits_while_one_is_in_flight);
+  RUN_TEST(test_list_request_expires_and_retries);
+  RUN_TEST(test_list_request_stops_after_max_attempts);
+  RUN_TEST(test_list_request_expiry_survives_millis_wrap);
   return UNITY_END();
 }
