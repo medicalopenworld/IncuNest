@@ -682,20 +682,18 @@ hace hoy, para no inducir a confiar en protecciones que no existen.
   (`Display_IsBoardLinkLost()`), pero hasta ahora su mitad audible se delegaba
   entera en la motherBoard — precisamente el extremo que puede estar muerto.
   Ver §8.1.
-- **No hay reset manual accesible al operador para los cortes térmicos
-  latching.** `alarm_machine_reset()` solo se invoca desde
-  `test_alarm_machine.cpp`. No existe botón del display, comando USB ni
-  entrada de `/config` que la llame. Hoy, un corte térmico que ya se enfrió
-  se queda en **ACTIVE**, no en silencio de audio: **el zumbador sigue sonando
-  indefinidamente**, con su patrón de prioridad ALTA, hasta que el equipo se
-  reinicia por completo. Pulsar el botón de silencio del display solo compra
-  10 minutos — `ALARM_AUDIO_PAUSE_MS`—, tras los cuales `alarm_machine_tick()`
-  devuelve la condición a ACTIVE y el audio se reanuda solo, y así
-  indefinidamente. Es lo correcto según 201.15.4.2.1 aa)/bb) y 6.10 —la
-  alarma debe operar de forma continua hasta un reset manual—, pero significa
-  que la única forma de callar el equipo es apagarlo, con la incubadora aún
-  en terapia. La consecuencia es peor que la de "quedarse señalizando en
-  silencio": es un equipo que suena sin parar y sin vía de reset.
+- ~~No hay reset manual accesible al operador para los cortes térmicos
+  latching~~ — **implementado**. La placa manda en `CTRL,STATE` el campo
+  `latchedBitmask` (un bit por condición enclavada esperando reconocimiento) y
+  el display ofrece el botón de reset solo cuando hay algún bit a 1; el botón
+  manda `HMI,ALM_RESET[,id]` y la placa lo pasa por `alarm_machine_reset()`,
+  que rechaza el reset si la condición no es latching o si sigue presente
+  (`CommTask.cpp`, `send_state_to_hmi()` y el parser de `HMI,ALM_RESET`; ver
+  `PROTOCOL.md`). Sigue sin existir vía por USB ni por `/config`, a propósito:
+  el reconocimiento es una acción del operador delante del equipo. *(Hasta
+  2026-10-25 este punto afirmaba que no existía ninguna vía de reset y
+  `PROTOCOL.md` no documentaba ni el campo ni el comando: era documentación
+  atrasada, no una carencia del firmware.)*
 - **No hay aceptación (ACK) indefinida accesible al operador — y es una
   decisión, no una carencia.** `alarm_machine_ack()` existe y tiene tests,
   pero no se invoca desde producción a propósito: la norma la trata siempre

@@ -108,7 +108,11 @@ Enviado **cada 1 segundo** (intercalado con `CTRL,TEL`) y además bajo petición
 > quedaba congelado con el valor del arranque. **Los campos de este mensaje son
 > estado vivo, no una instantánea de sincronización** — cualquier campo nuevo
 > debe poder asumir la cadencia de 1 Hz.
-**Formato**: `CTRL,STATE,act,mode,airSet,skinSet,humSet,photo,mute,sn,hwNum,hwRev,fwVer,numAlarms,skinE,commStatus,photoTimeRem,lang,probeState,alarmBitmask,silencedBitmask,almTest,silenceLeftS,linkBars`
+**Formato**: `CTRL,STATE,act,mode,airSet,skinSet,humSet,photo,mute,sn,hwNum,hwRev,fwVer,numAlarms,skinE,commStatus,photoTimeRem,lang,probeState,alarmBitmask,silencedBitmask,almTest,silenceLeftS,linkBars,latchedBitmask`
+
+> 23 campos. Hasta 2026-10-25 esta tabla listaba 22 y el código mandaba 23:
+> `latchedBitmask` viajaba sin documentar desde que se implementó el reset
+> manual de los cortes térmicos (`HMI,ALM_RESET`).
 
 - `commStatus`: transporte activo y si llega a servidor (`CommStatus` enum: `0`=ninguno,
   `1`=GPRS sin servidor, `2`=GPRS+servidor, `3`=WiFi sin servidor, `4`=WiFi+servidor).
@@ -149,6 +153,15 @@ Enviado **cada 1 segundo** (intercalado con `CTRL,TEL`) y además bajo petición
   próxima y no una por condición porque esa es la pregunta que contesta —
   cuándo vuelve el sonido—; el estado silenciada/no de cada condición ya viaja
   en `silencedBitmask`.
+- `latchedBitmask`: (Hexadecimal) un bit por `AlarmId` con las condiciones
+  **enclavadas** esperando reconocimiento: su condición física ya se ha ido
+  pero siguen señalizando porque 60601-2-19 201.15.4.2.1 aa)/bb) exige que los
+  cortes térmicos operen hasta un reset manual. El display usa este campo para
+  ofrecer el botón de reset **solo cuando sirve de algo**; la decisión sigue
+  siendo de la placa (`HMI,ALM_RESET` pasa por `alarm_machine_reset()`, que
+  rechaza lo que no proceda). Campo añadido después de `linkBars`: una placa
+  antigua que no lo mande hace que el HMI asuma `0` (nada enclavado) y no
+  ofrezca el botón.
 
 #### CTRL,TEL (Telemetría en tiempo real)
 Enviado cada 1 segundo (intercalado con STATE).
@@ -518,6 +531,24 @@ AUDIO PAUSED de **una** condición concreta.
   inactivation state"*).
 - Silenciar una condición no afecta a las demás (6.8.1).
 - `id` fuera de rango o línea malformada: descarte con log.
+
+#### HMI,ALM_RESET
+Reset manual de una condición **enclavada** (los cortes térmicos, latching
+según 60601-2-19 201.15.4.2.1 aa)/bb)) cuya condición física ya ha
+desaparecido.
+**Formato**: `HMI,ALM_RESET[,id]` (sin respuesta propia; si algo se resetea la
+placa fuerza un `CTRL,STATE` inmediato para que el botón no parezca inerte, y
+el efecto se observa en `latchedBitmask` y `alarmBitmask`)
+- Sin `id`, o con `id=0`: resetea todas las condiciones enclavadas que se dejen.
+- Con `id`: solo esa condición.
+- La política vive en un único sitio, `alarm_machine_reset()`: rechaza la
+  petición si la condición no es latching o si **su condición sigue
+  presente**. El operador no puede hacer desaparecer un aviso vivo pulsando un
+  botón; solo reconoce uno que ya se ha resuelto.
+- Una condición que no esté enclavada se ignora sin error. Resultado
+  (reseteadas/rechazadas) en el log `[ALARM] ALM_RESET`.
+- El display solo ofrece el botón cuando `latchedBitmask` de `CTRL,STATE`
+  tiene algún bit a 1.
 
 #### HMI (trama de estado periódica)
 El display manda su trama **al menos cada 1 s** (`HMI_KEEPALIVE_PERIOD_MS`),
