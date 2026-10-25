@@ -60,6 +60,9 @@ bool HmiFs_Info(size_t *total, size_t *used) {
 
 int32_t HmiFs_FileSize(const char *path) {
   if (!s_mounted || !path) return -1;
+  // exists() antes de open(): abrir un fichero inexistente en modo "r" escribe
+  // un error en el log del VFS, y la primera vez es lo normal.
+  if (!LittleFS.exists(path)) return -1;
   fs::File f = LittleFS.open(path, "r");
   if (!f || f.isDirectory()) return -1;
   const int32_t sz = (int32_t)f.size();
