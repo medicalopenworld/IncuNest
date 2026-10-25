@@ -34,4 +34,4 @@ pio run -e main
 ## 5. Documentación y cierre
 
 - [x] 5.1 `Firmware/docs/hmi.md`: backlight, ajustes, claves NVS.
-- [ ] 5.2 `openspec archive hmi-brightness`.
+- [x] 5.2 `openspec archive hmi-brightness`.
