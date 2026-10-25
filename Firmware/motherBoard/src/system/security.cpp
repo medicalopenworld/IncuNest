@@ -1195,20 +1195,22 @@ static void checkMainsInterruption()
 {
   extern MainsDetector g_mains_detector;
 
-  // Sin cargador NUNCA DETECTADO en el arranque no hay fuente de la senal: la
-  // placa no puede saber si hay red, asi que no declara. Se anota una sola
-  // vez, y como error: es una placa que no vigila la red.
+  // Placa SIN cargador (CHARGER_EXPECTED == 0, HW anterior a la 17) y que nunca
+  // ha contestado: no hay fuente de la senal, asi que no declara. Se anota una
+  // sola vez, como error: es una placa que no vigila la red. En una placa que
+  // LLEVA el cargador, que no conteste NO llega aqui: es ceguera, y la hace
+  // visible sensors_Task (logE y charger_comm_fault).
   //
   // Es chargerDetected y NO chargerPresent: ese ultimo baja mientras el chip
   // se reconfigura al volver la red y aqui retiraba y volvia a levantar la
   // alarma (historial, flash y audio incluidos) en cada retorno de red.
-  if (!chargerDetected)
+  if (!(CHARGER_EXPECTED || chargerDetected))
   {
     static bool logged = false;
     if (!logged)
     {
       logged = true;
-      logE("[MAINS] Sin cargador BQ25730 detectado en el arranque: "
+      logE("[MAINS] Placa sin cargador BQ25730: "
            "no se vigila la interrupcion de red");
     }
     alarm_machine_condition(ALARM_MAINS_INTERRUPTION, false, millis());

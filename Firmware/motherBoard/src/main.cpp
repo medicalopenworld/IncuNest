@@ -33,6 +33,7 @@
 #include "modules/debug/debug_mode.h"
 #include "modules/control/photo_override.h"
 #include "modules/control/mains_detector.h"
+#include "modules/util/retry_backoff.h"
 #include "modules/sensorboard_comm/sensorboard_comm.h"
 #include "modules/sensors/sensor_source.h"
 #include "system/hw_selftest.h"
@@ -278,7 +279,7 @@ uint32_t       g_bq_status_ms    = 0;
 // Detector de interrupcion de red (ALARM_MAINS_INTERRUPTION). Lo ALIMENTA solo
 // sensors_Task, tras cada lectura del cargador; lo CONSULTA securityCheck()
 // (checkMainsInterruption, security.cpp). Ver modules/control/mains_detector.h.
-MainsDetector g_mains_detector = {};
+MainsDetector g_mains_detector = MAINS_DETECTOR_INITIALIZER;
 
 // UNICO PUNTO donde se decide "hay red": cualquier fuente nueva entra aqui y
 // el detector no se entera. Hoy es el bit AC_STAT del BQ25730 (por I2C).
@@ -311,6 +312,23 @@ static MainsReading mains_present_now() {
 // DIAG). Lo escribe solo sensors_Task; lo lee la telemetria.
 bool g_charger_comm_fault = false;
 static bool s_chargerReconfigFailing = false;
+
+// El cargador es "esperado" si la PLACA lo lleva (CHARGER_EXPECTED, de HW_NUM) o
+// si el chip ha contestado alguna vez. Que no conteste al arrancar NO lo
+// convierte en "sin cargador": en una placa que lo lleva es un fallo (ceguera),
+// y el "sin cargador" silencioso queda solo para HW sin BQ25730.
+static inline bool chargerExpectedNow() {
+  return CHARGER_EXPECTED || chargerDetected;
+}
+
+// Reintento de la configuracion del cargador cuando el arranque no la dejo
+// aplicada (chargerPresent == false): sin ella la bateria no carga
+// (ChargeCurrent de fabrica = 0) y la red no se vigila. Espera progresiva de
+// 5 s a 5 min, y un log por episodio y luego cada 5 min. Logica pura en
+// modules/util/retry_backoff; el estado a cero es el inicial de las dos.
+static Backoff s_cfgBackoff = {};
+static LogLimiter s_cfgLog = {};
+static LogLimiter s_reconfLog = {};
 
 void sensors_Task(void *pvParameters) {
   // Instante en que empieza a haber muestras periodicas de verdad. Lo usa
@@ -346,12 +364,28 @@ void sensors_Task(void *pvParameters) {
       static bool prev_ac_present   = false;
       static bool charger_in_float  = false;
       static long ichg_low_since    = 0;
-      // chargerDetected, no chargerPresent: este ultimo baja mientras el chip se
-      // reconfigura y, si la reconfiguracion fallaba, se quedaba a false para
-      // siempre: no se leia el cargador y nadie vigilaba la red. Con el
-      // detectado en el arranque se sigue intentando leer, y si no hay
-      // lecturas el detector lo dice (mains_detector_blind).
-      if (chargerDetected && millis() - lastChargerUpdate > 5000) {
+      // Configuracion fallida en el arranque (o chip mudo en una placa que lo
+      // lleva): se reintenta con espera progresiva. init_BQ25730() baja y sube
+      // chargerPresent; reconfigure_BQ25730() (retorno de red) no.
+      if (chargerExpectedNow() && !chargerPresent &&
+          backoff_due(&s_cfgBackoff, millis())) {
+        extern TwoWire *wire;
+        if (init_BQ25730(wire)) {
+          backoff_ok(&s_cfgBackoff);
+          log_limiter_reset(&s_cfgLog);
+          logE("[CHG] BQ25730 configurado tras reintento");
+        } else {
+          backoff_failed(&s_cfgBackoff, millis());
+          if (log_limiter_allow(&s_cfgLog, millis())) {
+            logE("[CHG] BQ25730 sin configurar: se reintenta con espera "
+                 "progresiva (5 s a 5 min); sin el, la bateria no carga");
+          }
+        }
+      }
+      // chargerExpectedNow(), no chargerPresent: este ultimo baja mientras el
+      // chip se configura. Sin lecturas validas el detector lo dice
+      // (mains_detector_blind).
+      if (chargerExpectedNow() && millis() - lastChargerUpdate > 5000) {
         g_bq_status_valid = charge_status(&g_bq_status);
         if (g_bq_status_valid) g_bq_status_ms = millis();
         lastChargerUpdate = millis();
@@ -372,8 +406,14 @@ void sensors_Task(void *pvParameters) {
           // (restaura MaxChargeVoltage = 14.4V, absorción).
           s_chargerReconfigFailing = !reconfigure_BQ25730(wire);
           if (s_chargerReconfigFailing) {
-            logE("[CHG] Fallo al reconfigurar el BQ25730 al volver la red; "
-                 "se reintenta en la proxima lectura");
+            // Uno por episodio y luego cada 5 min: el reintento es en cada
+            // lectura (5 s) y un fallo persistente llenaria el registro.
+            if (log_limiter_allow(&s_reconfLog, millis())) {
+              logE("[CHG] Fallo al reconfigurar el BQ25730 al volver la red; "
+                   "se reintenta en la proxima lectura (log limitado a 1 cada 5 min)");
+            }
+          } else {
+            log_limiter_reset(&s_reconfLog);
           }
           charger_in_float = false;
           ichg_low_since   = 0;
@@ -414,7 +454,7 @@ void sensors_Task(void *pvParameters) {
       // detector ciego, la alarma se mantiene (lado seguro): esto solo lo
       // hace VER.
       const bool commFault =
-          mains_detector_blind(&g_mains_detector, chargerDetected, millis()) ||
+          mains_detector_blind(&g_mains_detector, chargerExpectedNow(), millis()) ||
           s_chargerReconfigFailing;
       if (commFault != g_charger_comm_fault) {
         g_charger_comm_fault = commFault;
@@ -925,6 +965,11 @@ void setup() {
        String(HWversion) + ", SN: " + String(in3.serialNumber));
 
   initHardware(false);
+  // El detector de red ya sale inicializado con MAINS_DETECTOR_INITIALIZER; se
+  // llama igualmente aqui, ANTES de crear sensors_Task, para que el estado
+  // inicial no dependa de un inicializador estatico que alguien pueda cambiar
+  // a `= {}` (con el que el plazo minimo valia 0 sin mirar la constante).
+  mains_detector_init(&g_mains_detector);
   initDriveUpload();
   crashReporterMaybeFlush();
   // SPO2/AFE must initialize SPI (GPIO19 as MISO) before USB host starts.

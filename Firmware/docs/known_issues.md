@@ -878,3 +878,27 @@ used to lower `chargerPresent`; one failing I2C operation left it false for
 good (the charger was never read again, so mains was never watched), and even a
 successful one made `securityCheck()` retire and re-raise the alarm. See
 `openspec/changes/archive/*-shared-mains-detector-fixes`.
+
+### 23, addendum (second safety review, 2026-10-25)
+
+- **Expected charger.** `CHARGER_EXPECTED` (`config/board.h`) is 1 from HW 17 on
+  (the V16_A schematic has no BQ25730; V17_A does). On those boards a charger
+  that does not answer at boot is **not** "no charger": it is blindness (`logE`
+  and `charger_comm_fault` after 30 s), and the configuration is retried with a
+  progressive wait (5 s to 5 min). The silent "no charger" case is only for HW
+  without a BQ25730. Before this, a mute chip at boot left `chargerDetected`
+  false and the board stopped watching mains for good, with nothing on screen.
+- **Debt: a declared alarm with a blind charger stays HIGH with no end.** If the
+  mains alarm is declared and the charger then stops answering, the detector
+  freezes and the alarm keeps sounding as HIGH, not silenceable, until the
+  charger answers again or the unit is restarted. The correct behaviour is a
+  *technical*, pausable alarm (the mains alarm retired or demoted, and a
+  separate "charger fault" alarm the operator can pause). It needs a new
+  `AlarmId`, which waits for the integration of the open branches (one adds
+  id 20). Until then: log and `charger_comm_fault` only.
+- **`charger_comm_fault` and WiFi.** It is published only through the DIAG
+  group, which is on for GPRS and off for WiFi. Nothing is done about it on
+  this branch: `feat/mb-diag-wifi` turns DIAG on for WiFi, and after the merge
+  the key goes out over both transports. Re-run
+  `python tools/check_transport_matrix.py` then (GPRS worst case is 93 of 112
+  fields today).

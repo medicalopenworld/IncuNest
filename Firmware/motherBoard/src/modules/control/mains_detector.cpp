@@ -32,22 +32,22 @@ void mains_detector_sample(MainsDetector *d, bool reading_valid, bool ac_present
 
   if (ac_present) {
     d->absent_streak = 0;
-    if (d->present_streak < MAINS_DETECTOR_CONFIRM_SAMPLES) {
+    if (d->present_streak < MAINS_DETECTOR_CONFIRM_PRESENT_SAMPLES) {
       ++d->present_streak;
     }
     if (d->absent_confirmed &&
-        d->present_streak >= MAINS_DETECTOR_CONFIRM_SAMPLES) {
+        d->present_streak >= MAINS_DETECTOR_CONFIRM_PRESENT_SAMPLES) {
       d->absent_confirmed = false;
     }
     return;
   }
 
   d->present_streak = 0;
-  if (d->absent_streak < MAINS_DETECTOR_CONFIRM_SAMPLES) {
+  if (d->absent_streak < MAINS_DETECTOR_CONFIRM_ABSENT_SAMPLES) {
     ++d->absent_streak;
   }
   if (!d->absent_confirmed &&
-      d->absent_streak >= MAINS_DETECTOR_CONFIRM_SAMPLES) {
+      d->absent_streak >= MAINS_DETECTOR_CONFIRM_ABSENT_SAMPLES) {
     // Flanco de declaracion: arranca (o reinicia) el plazo minimo.
     d->absent_confirmed = true;
     d->declared = true;
@@ -66,9 +66,9 @@ bool mains_detector_condition(const MainsDetector *d, uint32_t now_ms) {
   return (uint32_t)(now_ms - d->since_ms) < d->hold_ms;
 }
 
-bool mains_detector_blind(const MainsDetector *d, bool charger_detected,
+bool mains_detector_blind(const MainsDetector *d, bool charger_expected,
                           uint32_t now_ms) {
-  if (!charger_detected) {
+  if (!charger_expected) {
     return false;
   }
   return (uint32_t)(now_ms - d->last_valid_ms) > MAINS_DETECTOR_BLIND_MS;

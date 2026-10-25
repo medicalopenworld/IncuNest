@@ -476,11 +476,14 @@ cronómetro. Enchufa y desenchufa **el cable de red del equipo**, no la batería
 |---|---|---|
 | Corte sostenido | desenchufa la red y espera | a los ≈ 10 s: `CORTE DE RED` ALTA, zumbador, pop-up e indicador **BATERIA** en Main y en Lock; la terapia **sigue** |
 | Cortes breves | enchufa y desenchufa rápido, varias veces, cada corte < 5 s | no sale ningún aviso |
-| Retorno de red (caso 3) | corte de ~1 min y vuelve la red | **ya no se mantiene 10 min**: el aviso y el indicador se retiran a los ≈ 10 s del retorno (2 lecturas); sin retirada y levantada espuria en el historial de alarmas ni audio que se rearme |
-| Retorno largo (caso 4) | corte de 12 min y vuelve la red | igual: se retira a los ≈ 10 s del retorno |
+| Retorno de red (caso 3) | corte de ~1 min y vuelve la red | **ya no se mantiene 10 min**: el aviso y el indicador se retiran a los ≈ 30 s del retorno (6 lecturas con red seguidas); sin retirada y levantada espuria en el historial de alarmas ni audio que se rearme |
+| Retorno largo (caso 4) | corte de 12 min y vuelve la red | igual: se retira a los ≈ 30 s del retorno |
 | Reinterrupción (caso 5) | red de vuelta a los 3 min y nuevo corte a los 5 | sale de nuevo a los ≈ 10 s del segundo corte (entre medias se retiró: es lo esperado con plazo 0) |
 | Reconfiguración del cargador | vuelve la red con el log a la vista | el cargador se sigue leyendo (`BQ_ac`), `chargerPresent` no baja y la vigilancia continúa |
 | Cargador mudo | con la alarma declarada, desconecta el BQ25730 del bus I2C | la alarma **se mantiene**; a los 30 s hay `logE` y `charger_comm_fault` = true en DIAG por GPRS |
+| Fuente intermitente | enchufa y desenchufa la red cada ~20 s (corte de 10 s, red de 10 s) durante varios minutos | la alarma se declara y **se mantiene continua**: no oscila ni genera una retirada y levantada por ciclo en el historial |
+| Chip mudo al arrancar | arranca con el BQ25730 desconectado del bus I2C (placa HW 17+) y conéctalo a los 2 min | a los 30 s `logE` y `charger_comm_fault` (no «sin cargador»); al volver el chip se configura solo en el siguiente reintento (esperas 5, 10, 20... s hasta 5 min) y la batería carga |
+| Configuración fallando | fuerza fallos de la reconfiguración al volver la red (p. ej. con el bus ruidoso) | un `logE` por episodio y luego uno cada 5 min, no uno cada 5 s; **lee el registro 0x04 (MaxChargeVoltage) tras un ciclo de red con la reconfiguración fallando**: tiene que valer lo configurado (14,4 V de absorción) o, si no se llegó a escribir, el valor de fábrica; hay que descartar sobrecarga con ese valor de fábrica |
 | No silenciable | pulsa silenciar durante el aviso | el audio no se inactiva (201.12.3.103) |
 | Sin cargador | placa sin BQ25730 | nunca hay aviso; un `logE` al arrancar |
 

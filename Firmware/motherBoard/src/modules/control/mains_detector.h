@@ -11,10 +11,11 @@
 // REGLAS (razonadas en openspec/changes/archive/*-shared-mains-detector*/ y
 // *-shared-mains-detector-fixes/design.md)
 //
-//  1. Antirrebote de entrada: CONFIRM_SAMPLES lecturas VALIDAS consecutivas con
-//     el mismo valor para cambiar de estado, en los dos sentidos. Con el
-//     periodo de 5 s son ~10 s de deteccion. Una sola lectura de ausencia no
-//     levanta una alarma ALTA que el operador no puede silenciar.
+//  1. Antirrebote de entrada, asimetrico: 2 lecturas VALIDAS consecutivas sin
+//     red para declarar (~10 s con el periodo de 5 s) y 6 con red para retirar
+//     (~30 s). Una sola lectura de ausencia no levanta una alarma ALTA que el
+//     operador no puede silenciar, y una fuente intermitente no la hace
+//     oscilar (ver las constantes).
 //
 //  2. Plazo minimo de aviso (MAINS_ALARM_MIN_HOLD_MS), contado DESDE LA
 //     DECLARACION: si la red vuelve antes de vencerlo, la condicion se mantiene
@@ -51,8 +52,15 @@
 extern "C" {
 #endif
 
-// Lecturas validas consecutivas para confirmar un cambio (en ambos sentidos).
-#define MAINS_DETECTOR_CONFIRM_SAMPLES 2u
+// Histeresis ASIMETRICA: declarar rapido, retirar despacio.
+//  - 2 lecturas validas seguidas SIN red declaran (~10 s a 5 s por lectura);
+//  - 6 lecturas validas seguidas CON red retiran (~30 s). Cualquier ausencia
+//    reinicia esa racha.
+// Una fuente intermitente (enchufe flojo, grupo inestable) mantiene asi la
+// alarma continua en vez de oscilar: cada retirada y levantada es una entrada
+// en el historial, una escritura en flash y un rearme del audio.
+#define MAINS_DETECTOR_CONFIRM_ABSENT_SAMPLES 2u
+#define MAINS_DETECTOR_CONFIRM_PRESENT_SAMPLES 6u
 
 // Plazo minimo de aviso desde que se declara. 0 = se retira al confirmarse el
 // retorno de la red (ver regla 2).
@@ -72,6 +80,15 @@ typedef struct {
   uint32_t last_valid_ms;  // instante de la ultima lectura valida
 } MainsDetector;
 
+// Inicializador ESTATICO de la instancia de produccion (main.cpp):
+//   MainsDetector g_mains_detector = MAINS_DETECTOR_INITIALIZER;
+// Con `= {}` el plazo valia 0 porque la estructura estaba a cero y no porque lo
+// dijera MAINS_ALARM_MIN_HOLD_MS: cambiar la constante no hacia nada. Usa la
+// constante, y test_mains_detector fija que coincide con mains_detector_init().
+// Debe seguir el orden de los campos de MainsDetector.
+#define MAINS_DETECTOR_INITIALIZER \
+  { 0, 0, false, false, 0, MAINS_ALARM_MIN_HOLD_MS, 0 }
+
 // Con el plazo por defecto (MAINS_ALARM_MIN_HOLD_MS).
 void mains_detector_init(MainsDetector *d);
 // Con un plazo explicito: lo usan los tests del mecanismo.
@@ -84,11 +101,13 @@ void mains_detector_sample(MainsDetector *d, bool reading_valid, bool ac_present
 // true si la condicion ALARM_MAINS_INTERRUPTION esta presente en `now_ms`.
 bool mains_detector_condition(const MainsDetector *d, uint32_t now_ms);
 
-// true si el cargador (`charger_detected`: contesto por I2C en el arranque)
-// lleva mas de MAINS_DETECTOR_BLIND_MS sin dar una lectura valida. Sin
-// cargador detectado nunca esta ciego: no hay nada que vigilar. Antes de la
-// primera lectura valida cuenta desde el arranque (millis() == 0).
-bool mains_detector_blind(const MainsDetector *d, bool charger_detected,
+// true si el cargador lleva mas de MAINS_DETECTOR_BLIND_MS sin dar una lectura
+// valida. `charger_expected` sale del HARDWARE (CHARGER_EXPECTED: la placa lleva
+// BQ25730) o de que el chip haya contestado alguna vez, NO solo de que conteste
+// al arrancar: un chip mudo en una placa que lo lleva es ceguera, no "sin
+// cargador". Sin cargador esperado nunca esta ciego: no hay nada que vigilar.
+// Antes de la primera lectura valida cuenta desde el arranque (millis() == 0).
+bool mains_detector_blind(const MainsDetector *d, bool charger_expected,
                           uint32_t now_ms);
 
 #ifdef __cplusplus
