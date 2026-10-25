@@ -62,10 +62,15 @@ PatientAge patient_age_compute(uint8_t gestWeeks, bool ageKnown,
   PatientAge out = {false, 0, false, 0, 0};
   if (!ageKnown) return out;
 
+  // Sin hora (al capturar o ahora) no se puede afirmar cuantos dias han
+  // pasado: desconocida, no "el valor capturado".
+  if (captureEpoch == 0 || nowEpoch == 0) return out;
+
   uint32_t elapsedDays = 0;
-  if (captureEpoch != 0 && nowEpoch != 0 && nowEpoch >= captureEpoch) {
+  if (nowEpoch >= captureEpoch) {
     elapsedDays = (nowEpoch - captureEpoch) / SECONDS_PER_DAY;
   }
+  if (elapsedDays > PATIENT_AGE_MAX_ELAPSED_DAYS) return out;
   out.hasLifeDays = true;
   out.lifeDays = (uint32_t)ageDaysAtCapture + elapsedDays;
 
@@ -79,6 +84,18 @@ PatientAge patient_age_compute(uint8_t gestWeeks, bool ageKnown,
 }
 
 // ---------------------------------------------------------------- formato
+
+size_t patient_fmt_life_days(uint32_t days, char *out, size_t len) {
+  if (!out || len == 0) return 0;
+  const int n = days > PATIENT_LIFE_DAYS_CAP
+                    ? snprintf(out, len, "%u+", (unsigned)PATIENT_LIFE_DAYS_CAP)
+                    : snprintf(out, len, "%u", (unsigned)days);
+  if (n < 0) {
+    out[0] = '\0';
+    return 0;
+  }
+  return (size_t)n < len ? (size_t)n : len - 1;
+}
 
 size_t patient_fmt_minutes(uint32_t minutes, char *out, size_t len) {
   if (!out || len == 0) return 0;
@@ -112,6 +129,7 @@ void patient_accum_begin(PatientAccum *a, uint32_t seq,
   if (seq == 0) return;
   a->seq = seq;
   if (seed) {
+    a->known = true;
     a->photoSec = minutes_to_seconds(seed->photo);
     a->thermoSec = minutes_to_seconds(seed->thermo);
     a->humiditySec = minutes_to_seconds(seed->humidity);
@@ -144,7 +162,7 @@ bool patient_accum_tick(PatientAccum *a, uint32_t nowMs, uint8_t act,
                             act == PATIENT_ACT_TEMP_AND_HUMIDITY);
 
   uint32_t credit = 0;
-  if (a->hasTick && track) {
+  if (a->hasTick && track && a->known) {
     const uint32_t dt = nowMs - a->lastTickMs;  // aritmetica modular: wrap-safe
     credit = dt > PATIENT_TICK_MAX_CREDIT_MS ? PATIENT_TICK_MAX_CREDIT_MS : dt;
   }
@@ -183,9 +201,14 @@ bool patient_accum_resync(PatientAccum *a, uint32_t seq,
                           const PatientMinutes *board) {
   if (!a || !board || seq == 0 || seq != a->seq) return false;
   bool changed = false;
-  changed |= resync_one(&a->photoSec, a->photoOn, board->photo);
-  changed |= resync_one(&a->thermoSec, a->thermoOn, board->thermo);
-  changed |= resync_one(&a->humiditySec, a->humidityOn, board->humidity);
+  const bool wasKnown = a->known;
+  changed |= resync_one(&a->photoSec, wasKnown && a->photoOn, board->photo);
+  changed |= resync_one(&a->thermoSec, wasKnown && a->thermoOn, board->thermo);
+  changed |= resync_one(&a->humiditySec, wasKnown && a->humidityOn, board->humidity);
+  if (!wasKnown) {
+    a->known = true;
+    changed = true;
+  }
   if (changed) a->dirty = true;
   return changed;
 }
@@ -216,6 +239,7 @@ bool patient_identity_encode(const PatientIdentity *id, uint8_t *out,
   put_u32(out + ID_SEQ, id->seq);
   put_u32(out + ID_EPOCH, id->captureEpoch);
   put_u16(out + ID_AGE, id->ageDays);
+  put_u32(out + ID_SN, id->boardSn);
   // Siempre termina en NUL dentro de los 24 bytes, aunque `name` no lo haga.
   size_t n = 0;
   while (n < PATIENT_NAME_LEN - 1 && id->name[n] != '\0') n++;
@@ -230,12 +254,19 @@ bool patient_identity_decode(const uint8_t *in, size_t len,
   const uint32_t seq = get_u32(in + ID_SEQ);
   if (seq == 0) return false;
   if (memchr(in + ID_NAME, '\0', PATIENT_NAME_LEN) == nullptr) return false;
+  // Semanas: 0 (no informadas) o dentro de lo que admite el asistente. Un byte
+  // corrupto no debe llegar a una edad corregida de cientos de semanas.
+  const uint8_t gest = in[ID_GEST];
+  if (gest != 0 && (gest < PATIENT_GEST_MIN || gest > PATIENT_GEST_MAX)) {
+    return false;
+  }
 
   id->seq = seq;
   id->gestWeeks = in[ID_GEST];
   id->ageKnown = (in[ID_FLAGS] & ID_FLAG_AGE_KNOWN) != 0;
   id->ageDays = get_u16(in + ID_AGE);
   id->captureEpoch = get_u32(in + ID_EPOCH);
+  id->boardSn = get_u32(in + ID_SN);
   memcpy(id->name, in + ID_NAME, PATIENT_NAME_LEN);
   return true;
 }
@@ -275,31 +306,57 @@ bool patient_accum_restore(PatientAccum *a, const PatientTherapyRecord *rec,
   a->photoSec = rec->photoSec;
   a->thermoSec = rec->thermoSec;
   a->humiditySec = rec->humiditySec;
+  a->known = true;
   return true;
 }
 
-// ---------------------------------------- RED: stubs, sin comportamiento
+// ------------------------------------------- confirmacion con la placa
 
-size_t patient_fmt_life_days(uint32_t, char *out, size_t len) {
-  if (out && len) out[0] = '\0';
-  return 0;
+PatientConfirmAction patient_confirm_decide(uint32_t identitySeq,
+                                            uint32_t identitySn,
+                                            const PatientBoardView *board) {
+  if (!board || identitySeq == 0 || !board->stateSeen) {
+    return PATIENT_CONFIRM_WAIT;
+  }
+  // Otra placa: los seq no significan nada aqui, sea cual sea el resto.
+  if (board->sn != identitySn) return PATIENT_CONFIRM_CLEAR;
+  // Placa antigua: no hay forma de confirmar por si sola (se contrasta con la
+  // lista). Su activeSeq no viaja, asi que no se mira.
+  if (!board->sendsActiveSeq) return PATIENT_CONFIRM_WAIT;
+  if (board->activeSeq == identitySeq) return PATIENT_CONFIRM_CONFIRM;
+  if (board->activeSeq != 0) return PATIENT_CONFIRM_CLEAR;
+  // activeSeq == 0: la placa no tiene a nadie al mando. Con terapia en marcha
+  // eso contradice a la identidad; sin ella no hay nada que pintar todavia.
+  return board->therapyOn ? PATIENT_CONFIRM_CLEAR : PATIENT_CONFIRM_WAIT;
 }
 
-PatientConfirmAction patient_confirm_decide(uint32_t, uint32_t,
-                                            const PatientBoardView *) {
-  return PATIENT_CONFIRM_WAIT;
-}
-
-bool patient_list_has_baby(const PatientIdentity *, const PatientListEntry *,
-                           int) {
+bool patient_list_has_baby(const PatientIdentity *id,
+                           const PatientListEntry *entries, int count) {
+  if (!id || !entries || id->seq == 0) return false;
+  for (int i = 0; i < count; i++) {
+    if (patient_same_baby(id, entries[i].seq, entries[i].name,
+                          entries[i].gestWeeks)) {
+      return true;
+    }
+  }
   return false;
 }
 
-bool patient_same_baby(const PatientIdentity *, uint32_t, const char *,
-                       uint8_t) {
-  return false;
+bool patient_same_baby(const PatientIdentity *id, uint32_t seq,
+                       const char *name, uint8_t gestWeeks) {
+  if (!id || !name || id->seq == 0 || id->seq != seq) return false;
+  return id->gestWeeks == gestWeeks &&
+         strncmp(id->name, name, PATIENT_NAME_LEN) == 0;
 }
 
-bool patient_credit_allowed(uint32_t, bool, uint32_t, bool) { return false; }
+bool patient_credit_allowed(uint32_t accSeq, bool sendsActiveSeq,
+                            uint32_t activeSeq, bool confirmed) {
+  if (accSeq == 0) return false;
+  return sendsActiveSeq ? (activeSeq == accSeq) : confirmed;
+}
 
-PatientDisplay patient_display_state(bool, bool) { return PATIENT_DISPLAY_HIDDEN; }
+PatientDisplay patient_display_state(bool confirmed, bool listedOnLegacyBoard) {
+  if (confirmed) return PATIENT_DISPLAY_CONFIRMED;
+  return listedOnLegacyBoard ? PATIENT_DISPLAY_UNCONFIRMED
+                             : PATIENT_DISPLAY_HIDDEN;
+}
