@@ -855,3 +855,25 @@ worsening from v0.94 is not ruled out.
 40 s with the fan simulated stopped" may be the alarm, not the harness. Until
 it is known which, do not read a green `ventilador-se-retira` as proof that fan
 failure is always detected in time.
+
+## 23. Restarting the HMI was read as a patient discharge — FIXED (not yet benched)
+
+Found while persisting the baby identity (`hmi-patient-identity`), by reading
+the code, not from a bench failure.
+
+*   **Cause**: the HMI kept "which baby is in charge" only in RAM
+    (`BabyWizard.cpp`, `s_sessionSeq`). `Maintenance_Tick()` compares
+    `BabyWizard_GetActiveSeq()` with the last seq it persisted (`mnt_seq`). After
+    any HMI restart the first became 0 while the second was still the baby's, so
+    the transition `seq -> 0` was taken for a discharge and left a **terminal
+    clean pending** (`mnt_tpend`), asking for a disinfection nobody needed.
+*   **Second effect**: the screen had no idea whose therapy was running after a
+    restart, although the motherBoard keeps the active baby and resumes the
+    therapies by itself.
+*   **Fix**: the identity is persisted (`pat_id`) and restored with
+    `PatientState_Restore()` **before** `Maintenance_Init()`, so the seq does not
+    go through 0. If the board answers `PROFILE_ACK` 0 for that seq, the identity
+    is dropped (the board wins), which is then a genuine change and counts as one.
+*   **To verify on the bench**: restart the HMI with a therapy running and check
+    that `mnt_tpend` stays clear and the name comes back. Units that already
+    had a spurious `mnt_tpend` set keep it until a terminal clean is recorded.

@@ -159,13 +159,13 @@ posición.
 - **GIVEN** un bebé «Lucia», 34 semanas, 5 días de vida, con control de
   temperatura activo
 - **WHEN** se mira Main
-- **THEN** el botón «Bebés» muestra «Lucia» y «34+5 sem - 5d» (en español)
+- **THEN** el botón «Bebés» muestra «Lucia» y «EGC 34+5 - 5d» (en español)
 
 *Verificación manual en banco.*
 
 #### Scenario: Pantalla de bloqueo
 - **WHEN** se bloquea el mando con ese bebé activo
-- **THEN** el heading de bloqueo muestra «Lucia» y «34+5 sem - 5d» junto a la
+- **THEN** el heading de bloqueo muestra «Lucia» y «EGC 34+5 - 5d» junto a la
   conectividad, sin truncar
 
 *Verificación manual en banco.*
@@ -178,7 +178,7 @@ posición.
 
 #### Scenario: Cambio de idioma
 - **WHEN** el operador cambia de español a francés
-- **THEN** el detalle pasa a `34+5 sem - 5j` en el siguiente refresco
+- **THEN** el detalle pasa a `AGC 34+5 - 5j` en el siguiente refresco
 
 *Verificación manual en banco.*
 

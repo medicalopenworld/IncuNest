@@ -9,6 +9,7 @@ The main screen is partitioned into informational quadrants and side plus ceilin
 ### Permanent HUD (Top Zone)
 It continuously witnesses key and constant states on whichever screen the doctor navigates to:
 *   Help button (`?`, `ui_HelpButton`) at the leftmost slot, to the left of the clock. Opens the help menu (see §6). Shown only on `ui_ScreenMain`; the `ui_ScreenLock` heading replica keeps clock and connectivity at the same x position but has no help button.
+*   The "Babies" button, which with a live therapy session shows the baby's name and corrected gestational age / days of life instead of its label (see §9). `ui_ScreenLock` replicates it to the right of the connectivity indicator.
 *   Connectivity icons (Server, WiFi, or Null state).
 *   Realistic icon indicators about hardware resource usage in background ("Heater", "Wind/Cooling", etc).
 *   Section reserved for sliding priority alarms like marquees if they warrant overflow due to severity.
@@ -383,3 +384,114 @@ boot *with* a valid clock seeds the three dates with today (otherwise a
 factory-fresh unit would read as "overdue since 1970"); and a clock moved
 backwards re-anchors any date left in the future to today, where the interval
 would otherwise never elapse again.
+
+## 9. Patient identity and accumulated therapy
+
+Two things the operator used to need a dialog for are now always on screen
+while a therapy is running: **whose baby this is**, and **how much of each
+therapy that baby has already had**. The first closes the "wrong baby" risk
+(two identical incubators, one therapy running, nothing on the main screen
+saying who it belongs to). The pure logic is in
+`src/modules/patient/patient_session.{h,cpp}` (no Arduino, no LVGL, covered by
+`test/test_patient_session`, 54 cases in `[env:native]`); the live state and
+NVS in `src/state/patient_state.{h,cpp}`; the widgets in `ElementsCreation.cpp`
+and the two refresh functions `patient_identity_update()` /
+`patient_therapy_update()` in `UITask.cpp`, which run every pass next to
+`clock_update()`.
+
+**When it shows.** Only while `BabyWizard_HasLiveSession()` is true (a known
+baby *and* some therapy running). With the incubator idle the remembered `seq`
+is history, not "who is inside", and another baby's name next to an empty
+cabin is exactly the error this feature exists to prevent.
+
+### Identity (heading)
+
+The Main heading has no free slot (help 20-64, clock 83-263, connectivity
+282-322, lock 341-459, Babies 468-578, alarm 622-670, settings 744-794 on the
+800 px width), so the identity lives **inside the "Babies" button**: with a
+live session its label is hidden and two lines appear, the name (14 pt; it
+scrolls circularly if it does not fit, rather than being cut with "...") and
+the detail (12 pt). Without a session it reads "Babies" again. Nothing moves
+and the button still opens the baby viewer. `ui_ScreenLock` has no buttons to
+the right of the connectivity indicator, so its replica goes there in full
+(`ui_LockPatientName` 20 pt, `ui_LockPatientDetail` 14 pt, x = 350).
+
+The detail is one of three catalogue strings (`STR_PATIENT_AGE_FMT`,
+`STR_PATIENT_GEST_ONLY_FMT`, `STR_PATIENT_DAYS_ONLY_FMT`):
+`EGC 34+5 - 5d` (corrected gestational age, weeks+days, and days of life; the
+acronym is `CGA`/`AGC`/`IGC` in en/fr/pt), `EG 34 sem` when the age is unknown,
+or `5d de vida` when only the weeks are unknown. A corrected age needs both.
+
+**Days of life are computed on the HMI.** The motherBoard sends no birth date
+or admission epoch, only `CTRL,PROFILE_RANGE.ageDays` at the moment of the
+answer. `BabyWizard_Poll` now hands it, with `ageKnown`, to
+`PatientState_OnAge()`, which stores `(ageDays, HMI_GetEpochNow())`; the days
+shown are `ageDays + floor((now - capture) / 86400)`. Without a clock the
+captured value is shown unchanged (a lower bound, never an invented number).
+The error against the board's day boundary is at most one day, because the
+count starts at the capture and not at admission. A baby picked only for a
+lamp or humidifier (`targetIsIdentityOnly`) never goes through the weight/age
+screens, so it has no age until another wizard run captures one.
+
+### Accumulated therapy (panel headers)
+
+Each of the three panel headers (temperature, humidity, phototherapy) carries
+a two-line 12 pt label, `Total` over `3h 20m` (`patient_fmt_minutes()`, the
+same format the baby viewer already used; its private copy was moved there).
+It sits in the gap between the title and the toggle button: left-aligned
+after the button in the temperature header, right-aligned ending at x = 190 in
+humidity and phototherapy. Those headers have 0 px of slack, so there was no
+room for a new line; fit with `12h 20m` and the longest French title is a
+bench item.
+
+Minutes per baby reach the HMI only in `CTRL,PROFILE_LIST`, on demand, and
+`g_pendingProfileList` has **a single consumer** (wizard or baby viewer), so
+Main must not poll for it. Instead:
+
+1. **Local count at 1 Hz** from the real `CTRL,STATE`, with the board's rule
+   (temperature counts `act` 1|3, humidity `act` 2|3, phototherapy `photo`
+   non-zero; see `PROTOCOL.md`). A pass credits at most 5 s, and nothing is
+   credited while the board link is lost, in training mode, or with no baby.
+2. **Seed** at `CTRL,PROFILE_ACK`: the minutes of that baby in the list the
+   wizard just fetched, or 0 for a new one. If the same baby was already being
+   counted, the local value is kept (it is fresher).
+3. **Resync** on every `CTRL,PROFILE_LIST`, whoever consumes it: the parser
+   also copies it into a read-only mirror with a generation counter
+   (`Communication_TakeProfileListMirror()`, a `portMUX` that only copies
+   data) without touching the flag. A counter that is running keeps the larger
+   of the two values (the board flushes to NVS every 10 min, so its figure
+   lags); one that is stopped takes the board's.
+4. **Persist** every 60 s if it changed, and once when everything stops.
+
+### NVS keys (`hmi_cfg`)
+
+| Key | Content | Size |
+|---|---|---|
+| `pat_id` | version, `seq`, name[24], gestational weeks, `ageDays`, capture epoch | 40 B |
+| `pat_ther` | version, `seq`, seconds of phototherapy / thermo / humidity | 20 B |
+
+Each is **one blob**, not one key per field: NVS is not transactional, and
+separate keys would let a power cut leave one baby's name next to another's
+minutes (same reasoning as `rtc_tz`). Serialization is byte by byte,
+little-endian, in `patient_session.cpp` (no `memcpy` of a struct, whose padding
+is compiler-defined); a record with an unknown version, wrong size, `seq` 0 or
+an unterminated name is discarded. `pat_ther` is accepted only if its `seq` is
+the restored identity's. Both are removed by `BabyWizard_ClearActiveProfile()`
+(discharge) and by a `PROFILE_ACK` of 0 (the board no longer knows that baby).
+
+`PatientState_Restore()` runs at UI task start, **before** `Maintenance_Init()`,
+and puts the identity back with `BabyWizard_SetSession()`: the board keeps the
+active baby and resumes its therapies after an HMI restart, and the HMI used to
+forget who it was. It is a *remembered* identity: the board wins, and the first
+`PROFILE_ACK` that contradicts it replaces it.
+
+All NVS access is in `PatientState_Service()` / `Restore()`, **outside**
+`LVGL_Lock` (ARQ-LOCK-001); the `OnXxx` hooks the wizard calls under the lock
+only set flags. Nothing from a lesson reaches this state: practice babies
+(`Training_IsPracticeSeq()`) and `Training_IsActive()` are filtered at every
+entry point.
+
+Not covered by host tests (manual, on the bench): the widgets and their fit,
+reading `ctrl_state_msg`, the mirror in the parser, and the restore after a
+real restart. See the checklist in
+the `hmi-patient-identity` change (task 4.3, archived under `openspec/changes/archive/`).

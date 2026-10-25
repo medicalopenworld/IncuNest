@@ -73,7 +73,7 @@ La placa manda `ageDays` en el instante de la respuesta. El HMI guarda
 - Sin hora (`HMI_GetEpochNow() == 0` en la captura o ahora) el transcurrido es
   0: se muestra el valor capturado, que es un límite inferior. Nunca se inventa.
 - `ageKnown=false` => no hay días de vida ni edad corregida; se muestra solo la
-  gestación al nacer (`34 sem`), que es otro número y se lee distinto.
+  gestación al nacer (`EG 34 sem`), que es otro número y se lee distinto.
 - Error máximo de ±1 día respecto al cambio de día de la placa, porque se cuenta
   desde el instante de captura y no desde el de ingreso. Aceptado y documentado.
 - Solo se captura `ageDays` con `ageKnown=true`, y solo para el `seq` de la
@@ -103,7 +103,7 @@ La placa manda `ageDays` en el instante de la respuesta. El HMI guarda
   gana el mayor (la placa vuelca cada 10 min, así que su cifra es una cota
   inferior de lo que va); si **no corre**, manda la placa.
 - **Persistencia**: blob único `pat_ther` cada 60 s si cambió, y en el flanco de
-  parada total. Un registro de 16 B por escritura: ~525 k escrituras/año como
+  parada total. Un registro de 20 B por escritura: ~525 k escrituras/año como
   máximo, muy por debajo del desgaste de la NVS repartido en su partición.
 
 ### D5. Qué se persiste (`hmi_cfg`)
@@ -114,8 +114,8 @@ argumento que `rtc_tz`.
 
 | Clave | Contenido | Tamaño |
 |---|---|---|
-| `pat_id` | versión, `seq`, nombre[24], semanas gest., `ageDays`, `epochCaptura` | 36 B |
-| `pat_ther` | `seq`, segundos foto, termo, humedad | 16 B |
+| `pat_id` | versión, `seq`, nombre[24], semanas gest., `ageDays`, `epochCaptura` | 40 B |
+| `pat_ther` | `seq`, segundos foto, termo, humedad | 20 B |
 
 Restauración al arrancar (antes de crear la UI, lectura fuera de `LVGL_Lock`):
 si el registro valida, se llama a `BabyWizard_SetSession()` y se siembra el
@@ -133,7 +133,7 @@ eso no se puede contrastar.
 282–322, candado 341–459, «Bebés» 468–578, alarma 622–670, ajustes 744–794).
 La identidad vive **dentro del botón «Bebés»** (110x44): con sesión viva se
 oculta su rótulo y aparecen dos líneas, nombre (14 pt, desplazamiento circular
-si no cabe) y `34+3 sem - 5d` (12 pt). Sin sesión, vuelve a leerse «Bebés».
+si no cabe) y `EGC 34+3 - 5d` (12 pt; EGC/CGA/AGC/IGC = edad gestacional corregida). Sin sesión, vuelve a leerse «Bebés».
 Ningún slot se mueve y el botón sigue abriendo el visor de bebés, que es lo
 natural. Coste: el nombre largo se lee desplazándose, no de golpe.
 
