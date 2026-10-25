@@ -752,6 +752,22 @@ void test_clear_when_the_board_serial_differs(void) {
                         patient_confirm_decide(7, 555u, &b));
 }
 
+// A4: un sn de 0 (sin numero de serie) no se puede comparar: no es "otra placa".
+// La decision no borra por eso; el estado exige ademas el contraste con la lista
+// (patient_confirm_requires_list).
+void test_zero_serial_is_not_a_different_board(void) {
+  PatientBoardView b = board_view(true, 7, true, /*sn=*/555u);
+  TEST_ASSERT_EQUAL_INT(PATIENT_CONFIRM_CONFIRM,
+                        patient_confirm_decide(7, /*identitySn=*/0u, &b));
+  b = board_view(true, 7, true, /*sn=*/0u);
+  TEST_ASSERT_EQUAL_INT(PATIENT_CONFIRM_CONFIRM,
+                        patient_confirm_decide(7, 555u, &b));
+  // Y el resto de la tabla sigue mandando.
+  b = board_view(true, 3, true, /*sn=*/0u);
+  TEST_ASSERT_EQUAL_INT(PATIENT_CONFIRM_CLEAR,
+                        patient_confirm_decide(7, 555u, &b));
+}
+
 void test_legacy_board_never_decides_by_itself(void) {
   // Sin campo no hay forma de confirmar: se contrasta con la lista.
   PatientBoardView b = board_view(false, 0, true);
@@ -958,6 +974,7 @@ int main(int, char **) {
   RUN_TEST(test_clear_when_the_board_has_nobody_but_therapy_runs);
   RUN_TEST(test_wait_when_the_board_has_nobody_and_nothing_runs);
   RUN_TEST(test_clear_when_the_board_serial_differs);
+  RUN_TEST(test_zero_serial_is_not_a_different_board);
   RUN_TEST(test_legacy_board_never_decides_by_itself);
   RUN_TEST(test_confirm_decide_rejects_nulls);
   RUN_TEST(test_list_verdict);
