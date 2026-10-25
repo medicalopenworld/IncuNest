@@ -855,3 +855,39 @@ worsening from v0.94 is not ruled out.
 40 s with the fan simulated stopped" may be the alarm, not the harness. Until
 it is known which, do not read a green `ventilador-se-retira` as proof that fan
 failure is always detected in time.
+
+## 23. Restarting the AFE4490 library from the consumer is unsafe (OPEN — needs a change in `incunest_afe4490`)
+
+Found in review of `feat/mb-hw19` (2026-10-25). The first V19 cut restarted the
+AFE when `SPO2_Task` saw no sample for 10 s: `afe.stop()`, a PDN pulse, then
+`afe.begin()`. **Do not reintroduce it.**
+
+`afe.stop()` calls `vTaskDelete()` on the library's four tasks at an arbitrary
+point. In exactly the scenario that triggers the restart, the AFE task is
+writing `"DRDY timeout"` with `ESP_LOGW`, which takes `log_mutex` with
+`portMAX_DELAY`. Deleting it while it holds that mutex hangs **every** task that
+logs afterwards, the security task included, with the heater's LEDC output still
+on. It can also leave `_diag_active = true` for ever (the data task then skips
+every read), leak ~15 KB of internal SRAM (4 task stacks plus queues) and trip a
+`configASSERT`. The library lives in another repo (pinned at v0.94) and is not
+touched from here.
+
+**What the firmware does instead** (all revisions): no restart. After 10 s
+without a sample it logs once per episode (`logE`, so it reaches the CrashReporter
+ring) and counts `AFE_stalls`. After 1 s without a sample it marks the data stale
+by synthesising `probe_state = PROBE_DISCONNECTED`, so vitals are no longer sent
+frozen (see `PROTOCOL.md`, `CTRL,PROBE`).
+
+**Design required in the library** (a soft re-init that destroys nothing):
+
+1. A method such as `softReinit()` that takes `_spi_mutex` **with a timeout**,
+   pulses PDN (the caller passes the pin or a callback), runs `_chip_init()` and
+   releases the mutex. No `vTaskDelete`, no deleting queues or semaphores.
+2. Reset `_diag_active = false`, `_diag_holdoff_samples = 0` and the algorithm
+   state (`_reset_algorithms()`).
+3. Rate-limit the `"DRDY timeout"` log (at most once per second or per episode)
+   and never hold the log mutex across a wait.
+4. Expose a DRDY-timeout counter so the firmware does not have to infer the
+   fault from missing samples.
+
+See `docs/hw19.md`.
