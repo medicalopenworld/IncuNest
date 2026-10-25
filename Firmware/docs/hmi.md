@@ -383,3 +383,138 @@ boot *with* a valid clock seeds the three dates with today (otherwise a
 factory-fresh unit would read as "overdue since 1970"); and a clock moved
 backwards re-anchors any date left in the future to today, where the interval
 would otherwise never elapse again.
+
+## 9. Telemetry trend (24 h, persistent)
+
+`TelemetryHistory` (`Display_HMI/src/ui/TelemetryHistory.cpp`) is a full-screen
+overlay on `lv_layer_top()` with three stacked charts — air, skin, humidity —
+for the last **4 h** (default), **12 h** or **24 h**. The X axis is always the
+whole window with "now" on the right edge; five hour labels sit under the
+humidity chart (local `HH:MM` once the board has sent time and time zone,
+otherwise `-h:mm` back from now).
+
+**Entry point.** The **TREND** button in the header of the alarm centre
+(`AlarmCenter`, to the right of TEST). The alarm centre is one tap away from
+Main (alarm icon or the "all OK" check) and from the lock screen (alarm icon),
+and the trend opens *on top of it*: closing it, or the trend yielding to an
+alarm, lands back in the alarm centre. The button is greyed out while an alarm
+is active or the board link is lost, because the trend yields to **any** active
+alarm and to a lost link (the banner and AUDIO PAUSED icon must stay visible —
+same rule as the help menu). The Main chart button (`ui_ChartButton`, hidden for
+years, and overlapping the Babies button) and the old `ui_ScreenCharts` are
+unreachable and unused; the lock-screen TREND button stays removed (production
+batch of 2026-09-17).
+
+**Markers.** On each chart: the **setpoint** as a purple line (a second series,
+drawn under the measurement) and one **vertical mark per alarm edge**: a solid
+line in the priority colour when the condition appears (high red, medium
+orange, low dark yellow), a dashed green line when it clears. A legend in the
+header explains them. Edges are stamped in `processReceivedAlarm()` (CommTask)
+only on a state change, never on a re-sent `CTRL,ALM`; CommTask only enqueues
+them (16-entry queue under a critical section) and `UI_Task` drains the queue
+stamping each with the *instant of the edge*. An alarm already active when the
+HMI boots is stamped when the HMI learns of it. A setpoint is recorded only for
+what is under control according to the board's `CTRL,STATE` echo (air setpoint:
+temperature control in air mode; skin: temperature control in skin mode;
+humidity: humidity control); otherwise it is "no data" and no line is drawn.
+
+### Data model
+
+All of it lives in `Display_HMI/src/modules/trend/` (pure C++17, no LVGL or
+Arduino, host-tested in `[env:native]`):
+
+| Module | Role |
+|---|---|
+| `trend_store` | ring of 8640 slots (10 s each) × 6 series (`int16`, tenths: air, skin, humidity, and the three setpoints); a gap between two samples is filled with "no data" in all six; `INT16_MIN` = no data |
+| `trend_events` | ring of the last 64 alarm edges (id, priority, raised/cleared, slot) |
+| `trend_clock` | slot = `esp_timer`/10 s + offset; with time, slot = `epoch/10` |
+| `trend_decimate` | window plan and min/max decimation |
+| `trend_file` | `/trend.bin` format, CRC-32, restore |
+| `trend_model` | store + events + clock |
+| `trend_policy` | dump policy, setpoint validity, marker classification |
+| `trend_persist` | glue with real I/O (`hmi_fs` + PSRAM): restore and chunked dump |
+
+The whole model is **one PSRAM block** of ~104.8 KB allocated once in
+`TelemetryHistory_Init()` (`heap_caps_malloc(MALLOC_CAP_SPIRAM)`); only the
+16-entry edge queue (256 B) lives in internal `.bss`. If there is no PSRAM the
+trend records nothing and the unit monitors as usual. The model belongs to
+`UI_Task`; no other task touches it.
+
+**Time base.** Before the board sends time the slot is `esp_timer`-based. At the
+first valid time, `trend_clock_update()` returns the offset and the ring and
+the events are *relabelled* by that many slots (their relative spacing is
+kept — nothing is lost or duplicated). Later corrections of more than one slot
+(NTP, manual set) shift everything the same way, forwards or backwards; a
+difference of one slot or less is `millis()`/`esp_timer` rounding and is
+ignored. The time zone plays no part: slots are UTC and local time is applied
+only when formatting labels.
+
+**Windows and decimation.** LVGL cannot draw 8640 useful points on ~670 px. The
+charts always have 1442 points = 721 buckets × (min, max) of 2 / 6 / 12 slots
+for 4 / 12 / 24 h, emitted in the order they happened so the trace keeps its
+shape and isolated peaks survive. Bucket boundaries are aligned to *absolute*
+multiples of the bucket size (otherwise every new slot would shift them and the
+min/max would flicker); the cost is a partial bucket on the right, at most
+2 minutes at 24 h. A bucket with no data cuts the line. Grid: every 15 min (4 h),
+1 h (12 h), 2 h (24 h).
+
+### Storage (`hmi_fs`) and `/trend.bin`
+
+`Display_HMI/src/modules/storage/hmi_fs.{h,cpp}` mounts **LittleFS** on the
+existing `spiffs` partition (`partitions/hmi_16mb_ota.csv`, 0xA10000, 0x5E0000,
+≈5.9 MB) by label — the partition table is not touched. API:
+`HmiFs_Begin()` (idempotent; if the mount fails it formats **once** and retries,
+then gives up for good), `HmiFs_IsMounted()`, `HmiFs_Info()`,
+`HmiFs_FileSize()`, `HmiFs_ReadAll()`, `HmiFs_Remove()`, `HmiFsAtomicWriter`
+(`begin` / `write` / `commit` / `abort`: writes `path.tmp` and renames it over
+`path`) and `HmiFs_WriteAtomic()`. Rules: never under `LVGL_Lock` (ARQ-LOCK-001);
+mount from `UI_Task` after the RGB panel has reserved its bounce buffers (it is
+mounted lazily the first time the trend needs it, not in `setup()`); a flash
+write suspends the cache and can flicker the panel briefly (see the note in
+`platformio.ini`), so large files are written in 4 KB chunks.
+
+`/trend.bin` (little-endian, written byte by byte, no packed structs):
+
+```
+off  size  field
+  0     4  magic "ITRN"
+  4     2  version = 1
+  6     2  headerSize = 32
+  8     4  slotSeconds = 10
+ 12     4  count          (slots stored, 1..)
+ 16     4  lastEpoch      (UTC s at the start of the last slot = lastSlot*10)
+ 20     2  series = 6
+ 22     2  eventCount
+ 24     4  payloadCrc32   (CRC-32/IEEE of everything after the header)
+ 28     4  headerCrc32    (CRC-32/IEEE of bytes 0..27)
+ 32  6*count*2  series, planar int16 LE, oldest to newest
+  .  eventCount*8  { u32 epoch, u8 id, u8 priority, u8 raised(1)/cleared(0), u8 0 }
+```
+
+Maximum 104 224 B. A wrong magic, version, length or CRC makes the file be
+ignored **whole** — it is never restored halfway.
+
+**Dump policy** (`UI_Task`, outside `LVGL_Lock`, `TelemetryHistory_PersistService`
+once per loop pass): every **5 min** if samples have arrived since the last
+dump, and on **entering the lock screen** with at least 2 min since the previous
+dump (the 20 s auto-lock fires after every interaction; without the floor each
+touch would be a dump). Only with synchronised time — before that the slots are
+not epochs. The model is serialised to a PSRAM staging buffer (~104 KB, only
+while dumping) and written **one 4 KB chunk per loop pass, at most one every
+50 ms**, to `/trend.bin.tmp`; at the end it is renamed over `/trend.bin`. A power
+cut mid-dump leaves the previous file intact and an orphan `.tmp` that the next
+dump truncates. A failure aborts, frees the staging buffer and retries after a
+full period (never in a loop); the in-RAM trend is unaffected. Cost: ~27 block
+erases per dump, ≈5 erases/block/day with LittleFS wear levelling over ~1450
+blocks. **Maximum loss on a power cut: 5 min of samples and the edges in them.**
+
+**Restore** (once per boot, as soon as the clock is synchronised): the file is
+read into a PSRAM buffer, validated and *prepended* to what the session has
+already recorded — aligned by the epoch of its last slot; the gap between that
+slot and the first live sample stays "no data"; live samples win where the two
+overlap; what does not fit in 24 h is dropped from the old side; file events in
+range and older than the first live event are prepended to the live ones. A file
+whose last slot is after "now + 1 slot" (a wrong clock) or that no longer falls
+inside the ring is rejected and left on disk for the next dump to replace.
+
+Manual bench checklist: `openspec/changes/hmi-trend/tasks.md` (2.7).

@@ -84,7 +84,7 @@ Commits: `test(hmi): failing specs for trend persistence` y
 
 Commit: `docs(hmi): update for trend`.
 
-- [ ] 3.1 `docs/hmi.md`: sección de tendencia (entrada, ventanas, marcadores),
+- [x] 3.1 `docs/hmi.md`: sección de tendencia (entrada, ventanas, marcadores),
       almacenamiento (`hmi_fs`, partición, política de volcado) y formato del
       fichero.
 
