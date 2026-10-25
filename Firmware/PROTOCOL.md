@@ -113,8 +113,11 @@ Enviado **cada 1 segundo** (intercalado con `CTRL,TEL`) y además bajo petición
 - `photo`: estado **real** de la lámpara de fototerapia en la placa
   (`in3.phototherapy`, lo aplicado), no el eco de la última orden del display.
   *(Cambio 2026-10-25, `known_issues.md` #20: hasta entonces la placa devolvía
-  `g_last_cmd.phototherapyMode`, así que un encendido forzado por la consola de
-  depuración se veía en pantalla como apagado.)* El display ADOPTA este campo
+  `g_last_cmd.phototherapyMode`, así que cualquier desacuerdo entre lo pedido y
+  lo aplicado se pintaba mal.)* **Única excepción**: durante una prueba de
+  fototerapia de depuración (`PHOTO,1`, §consola) emite la **orden del
+  display**, no el ON forzado, para que el display no lo adopte (ver allí por
+  qué). El display ADOPTA este campo
   (`Display_ApplyCtrlState`) y lo devuelve en su keepalive; entre que el
   operador toca el switch y la placa aplica la orden, una trama puede salir con
   el valor anterior, y el display mantiene su valor local hasta que la placa lo
@@ -577,29 +580,33 @@ probar el lazo de intensidad en banco.
   actuador sobre un paciente; la consola exige acceso físico al USB de la
   placa, y `/debug/*` se alcanza desde toda la red con una contraseña que viaja
   en claro (`known_issues.md` #16).
-- Se aplica con la siguiente trama del display (≤1 s), en el mismo camino que
-  una orden real, así que lo que se prueba es el lazo de producción.
-- **Nada de la prueba se guarda.** Durante la sesión y, tras soltarla, hasta
-  que el display CONFIRMA (ver abajo) no se escribe `photo_active` en NVS: una caída a
-  mitad de sesión vuelve con la fototerapia apagada (verificado en banco).
-- Soltar (con `PHOTO,0` o apagando el modo) devuelve la fototerapia a como
-  estaba antes de la prueba, no siempre a apagado. **La liberación es por
-  confirmación, no por tiempo**: la placa fuerza el valor real previo e ignora
-  el ON rancio del display hasta que llega un keepalive con ese valor real
-  (nunca antes de 2 s tras soltar). Pasados 60 s sin confirmar se registra un
-  error, pero se sigue forzando el valor real y sin guardar: jamás se adopta un
-  1 sin confirmar (con la tarea Comm del display atascada, `known_issues.md` #7,
-  la lámpara quedaría encendida y reanudable tras un reinicio).
+- Se aplica en el siguiente tick de la placa (no espera ninguna trama del
+  display), por el mismo camino que una orden real, así que lo que se prueba es
+  el lazo de producción.
+- **Nada de la prueba se guarda.** Mientras dura la prueba no se escribe
+  `photo_active` en NVS: una caída a mitad de sesión vuelve con la
+  fototerapia apagada (verificado en banco).
+- **Durante la prueba, la pantalla NO muestra el ON de depuración**: el campo
+  `photo` de `CTRL,STATE` emite la **orden del display** (la última del
+  operador), no el ON forzado. Es a propósito: el display ADOPTA ese campo y lo
+  devuelve en su keepalive, y si adoptase el ON de la prueba habría que
+  neutralizar un 1 rancio al soltar. Una ventana fija de 5 s y después una
+  confirmación con plazos no lo aguantaron (con el temporizador vencido durante
+  la liberación el ON se auto-confirmaba y se guardaba como sesión continua, un
+  OFF del operador se perdía, y una trama rancia del anillo de RX del display
+  se colaba). Quitada la raíz, no hay nada que neutralizar. El ON de la prueba
+  se ve en `GET /debug/state` (`ctl.photo_dbg`) y en el log.
+- Durante la prueba las órdenes del display **se registran** (no se aplican ni
+  se guardan), y la caducidad del temporizador de fototerapia cuenta como una
+  orden de apagado. **Soltar** (con `PHOTO,0` o apagando el modo) aplica en el
+  acto —sin ventana de gracia ni confirmación— la **última orden del display**
+  (la del operador manda; si no hubo ninguna, la que había al empezar), sin
+  esperar ninguna trama: con la tarea Comm del display atascada
+  (`known_issues.md` #7) la lámpara también se apaga.
 - Estado en `GET /debug/state`: `ctl.photo_dbg` (1 mientras dure la prueba).
-- Mientras dura la prueba **la pantalla muestra la fototerapia encendida**: el
-  campo `photo` de `CTRL,STATE` refleja la lámpara real (desde 2026-10-25,
-  `known_issues.md` #20; antes era el eco de la orden del display y la pantalla
-  decía apagado con la lámpara encendida). El display adopta ese ON y lo
-  devuelve en su keepalive: por eso existe la liberación confirmada al soltar, y
-  al soltar la placa vuelve a emitir 0. El ON adoptado llega a `CommTask` como
-  una orden del display, pero la contabilidad de exposición por bebé
-  (`updateTherapyAccounting`) NO lo cuenta: exige lámpara aplicada, sin prueba
-  de depuración activa o por confirmar y sin `ALARM_PHOTO_LAMP_FAULT`.
+- La contabilidad de exposición por bebé (`updateTherapyAccounting`) NO cuenta
+  la prueba: exige lámpara aplicada, sin prueba de depuración activa y sin
+  `ALARM_PHOTO_LAMP_FAULT`.
 - Lógica en `modules/control/photo_override.h`, con test de host
   (`test/test_photo_override`).
 

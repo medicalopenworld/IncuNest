@@ -815,34 +815,44 @@ release window is defensive and verified to leave the lamp off.
     `in3.controlMode` are assigned verbatim from the command (so the "real"
     value is the same), and the board keeps a single setpoint per mode, so
     there is no one-line real value for the other one.
-*   **Side effects to know about**: (1) the display now adopts the debug ON and
-    returns it in its keepalive. The debug release is therefore *confirmed*,
-    not timed: after `PHOTO,0` the board forces the real previous value and
-    ignores the display until a keepalive carries that value (never before
-    2 s), so a stuck display Comm task (#7, #11) can no longer make the board
-    apply and persist a stale ON; after 60 s without confirmation it logs an
-    error and keeps forcing. `CommTask`'s per-baby therapy accounting no longer
-    counts that session (it requires the lamp applied, no debug override
-    active or pending, and no `ALARM_PHOTO_LAMP_FAULT`). (2) **Echo window**:
-    between the operator's tap and the board applying it, one `CTRL,STATE` can
-    go out with the old value; the display's local confirmation guard
-    (`localCmdHoldsLocal`, 10 s) covers it, but a display *without* that guard
-    would see the switch bounce. (3) **No-frame release (closed)**: the
-    override used to run only when a display command arrived, so with the
-    display fully stuck `PHOTO,0` left the lamp ON. `Communication_Receiver`
-    now applies the forced value (`debug_photo_forced()`: ON while active,
-    `real_before` while releasing) on its periodic tick, through the same
-    `applyPhotoState()` an order uses, with no NVS write. (4) **Watch on the bench**: the lamp-fault
-    alarm (`ALARM_PHOTO_LAMP_FAULT`) also fires when the main INA3221 gives no
-    sample with the lamp ON; on HW17 with the channel-2 shunt **not populated**
-    this would be a false positive on every session.
+*   **One exception, and why (change `mb-photo-override-simplify`)**: during a
+    debug phototherapy session (`PHOTO,1`) field 8 carries the *display's own
+    order*, not the forced ON. The display ADOPTS field 8 and returns it in its
+    keepalive, so emitting the forced ON meant neutralising a stale 1 on
+    release. A fixed 5 s window and then a confirmation scheme (value == real,
+    min 2 s, 60 s backstop) both failed review: with the phototherapy timer
+    expiring during the release the ON confirmed itself and was persisted as a
+    continuous session; an OFF from the operator in that window was lost; and a
+    stale `CTRL,STATE` processed late by the display's RX ring still slipped
+    through (#7, #11). Removing the root (never emit the forced ON) leaves
+    nothing to neutralise. The debug ON is visible in `/debug/state`
+    (`ctl.photo_dbg`) and in the log, which is where whoever runs the test looks.
+*   **Release is immediate**: `PHOTO,0` (or leaving debug mode) applies the
+    *last display order* — operator orders and the timer expiry are recorded
+    during the test — on the board's periodic tick, with no frame needed (so a
+    stuck display Comm task cannot leave the lamp ON), and persists nothing.
+*   **Side effects / limits**: (1) `CommTask`'s per-baby therapy accounting
+    does not count the session (lamp applied, no debug override active, no
+    `ALARM_PHOTO_LAMP_FAULT`). (2) **Echo window**: between the operator's tap
+    and the board applying it, one `CTRL,STATE` can go out with the old value;
+    the display's local confirmation guard (`localCmdHoldsLocal`, 10 s) covers
+    it, but a display *without* that guard would see the switch bounce.
+    (3) The lamp PWM is written through `photoPwmRefresh()` under one spinlock
+    by both the intensity loop (`currentMonitor`) and `applyPhotoState()`: a
+    late loop write could otherwise re-light the lamp after the Comm task had
+    turned it off, leaving it ON with `in3.phototherapy=false` and no alarm.
+*   **Verify on the bench BEFORE manufacturing**: the lamp-fault alarm
+    (`ALARM_PHOTO_LAMP_FAULT`) also fires when the main INA3221 gives no
+    sample with the lamp ON. On HW17 with the channel-2 shunt **not populated**
+    this would be a false positive on every session. Check it on the real
+    units of each hardware revision first.
 *   **Still open from the original text**: whether any *non*-debug path (crash
     restore, timer expiry) left lamp and screen disagreeing. With the real
     state emitted, a restore from NVS now reaches a rebooted display, which is
     the intent of #4.
-*   **Verification**: host-testable parts (`test_photo_override` release grace,
+*   **Verification**: host-testable parts (`test_photo_override`,
     `test_photo_fault`) are green; the screen behaviour is **manual, on the
-    bench** (tasks 4.4–4.5 of the change).
+    bench**.
 
 ## 21. The first session after a setpoint change can start at twice the target
 
