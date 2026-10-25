@@ -37,9 +37,23 @@ void test_low_priority_set(void) {
                         alarm_priority(ALARM_HUMIDITY_DEVIATION));
   TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_LOW,
                         alarm_priority(ALARM_SENSORBOARD_DOOR_FAULT));
+  // Lampara de fototerapia sin corriente: terapia que no se esta dando, no un
+  // riesgo para el neonato.
+  TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_LOW,
+                        alarm_priority(ALARM_PHOTO_LAMP_FAULT));
 }
 
-// El reparto declarado en la spec: 7 ALTA / 9 MEDIA / 3 BAJA.
+// El fallo de lampara es solo un aviso: no corta el calefactor, no es
+// latching, y su id va al final del enum (indice de bit del protocolo).
+void test_photo_lamp_fault_is_notify_only(void) {
+  TEST_ASSERT_FALSE(alarm_cuts_heater(ALARM_PHOTO_LAMP_FAULT));
+  TEST_ASSERT_FALSE(alarm_is_latching(ALARM_PHOTO_LAMP_FAULT));
+  TEST_ASSERT_FALSE(alarm_announces_immediately(ALARM_PHOTO_LAMP_FAULT));
+  TEST_ASSERT_EQUAL_INT(20, ALARM_PHOTO_LAMP_FAULT);
+  TEST_ASSERT_EQUAL_INT(ALARM_PHOTO_LAMP_FAULT + 1, ALARM_COUNT);
+}
+
+// El reparto declarado en la spec: 7 ALTA / 9 MEDIA / 4 BAJA.
 //
 // La MEDIA subio de 7 a 8 al separar ALARM_HEATER_SENSOR_FAULT de
 // ALARM_HEATER_FAULT: son averias distintas (calefactor frente a su sensor de
@@ -54,7 +68,7 @@ void test_priority_distribution(void) {
   for (int id = ALARM_NONE + 1; id < ALARM_COUNT; ++id) {
     counts[alarm_priority((AlarmId)id)]++;
   }
-  TEST_ASSERT_EQUAL_INT(3, counts[ALARM_PRIORITY_LOW]);
+  TEST_ASSERT_EQUAL_INT(4, counts[ALARM_PRIORITY_LOW]);
   TEST_ASSERT_EQUAL_INT(9, counts[ALARM_PRIORITY_MEDIUM]);
   TEST_ASSERT_EQUAL_INT(7, counts[ALARM_PRIORITY_HIGH]);
 }
@@ -222,6 +236,7 @@ int main(void) {
   RUN_TEST(test_high_priority_set);
   RUN_TEST(test_medium_priority_set);
   RUN_TEST(test_low_priority_set);
+  RUN_TEST(test_photo_lamp_fault_is_notify_only);
   RUN_TEST(test_priority_distribution);
   RUN_TEST(test_heater_and_its_sensor_are_separate_conditions);
   RUN_TEST(test_out_of_range_defaults_to_high);
