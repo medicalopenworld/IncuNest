@@ -8,6 +8,7 @@ void mains_detector_init_hold(MainsDetector *d, uint32_t hold_ms) {
   d->since_ms = 0;
   d->hold_ms = hold_ms;
   d->last_valid_ms = 0;
+  d->mains_seen = false;
 }
 
 void mains_detector_init(MainsDetector *d) {
@@ -35,6 +36,9 @@ void mains_detector_sample(MainsDetector *d, bool reading_valid, bool ac_present
     if (d->present_streak < MAINS_DETECTOR_CONFIRM_PRESENT_SAMPLES) {
       ++d->present_streak;
     }
+    if (d->present_streak >= MAINS_DETECTOR_ARM_PRESENT_SAMPLES) {
+      d->mains_seen = true;
+    }
     if (d->absent_confirmed &&
         d->present_streak >= MAINS_DETECTOR_CONFIRM_PRESENT_SAMPLES) {
       d->absent_confirmed = false;
@@ -43,6 +47,11 @@ void mains_detector_sample(MainsDetector *d, bool reading_valid, bool ac_present
   }
 
   d->present_streak = 0;
+  // Sin red vista desde el arranque no hay nada interrumpido: ver
+  // MAINS_DETECTOR_ARM_PRESENT_SAMPLES.
+  if (!d->mains_seen) {
+    return;
+  }
   if (d->absent_streak < MAINS_DETECTOR_CONFIRM_ABSENT_SAMPLES) {
     ++d->absent_streak;
   }

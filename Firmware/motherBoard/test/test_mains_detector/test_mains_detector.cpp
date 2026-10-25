@@ -23,7 +23,12 @@ static const uint32_t PERIOD_MS = 5000u;
 // Plazo de prueba para ejercitar el mecanismo de minimo de aviso.
 static const uint32_t TEST_HOLD_MS = 600000u;
 
-void setUp(void) { mains_detector_init(&d); }
+// Casi todos los tests son de un equipo que ya tenia red: el detector solo se
+// arma tras haber visto red (ver los tests de arranque en bateria, abajo).
+void setUp(void) {
+  mains_detector_init(&d);
+  d.mains_seen = true;
+}
 void tearDown(void) {}
 
 static void feed(bool valid, bool ac, uint32_t t) {
@@ -135,7 +140,10 @@ void test_production_initializer_uses_the_constants(void) {
   TEST_ASSERT_EQUAL(q.declared, p.declared);
   TEST_ASSERT_EQUAL_UINT32(q.since_ms, p.since_ms);
   TEST_ASSERT_EQUAL_UINT32(q.last_valid_ms, p.last_valid_ms);
-  // Y se comporta igual: declara con la racha de ausencia.
+  TEST_ASSERT_EQUAL(q.mains_seen, p.mains_seen);
+  // Y se comporta igual: se arma con red y declara con la racha de ausencia.
+  mains_detector_sample(&p, true, true, 90000);
+  mains_detector_sample(&p, true, true, 95000);
   mains_detector_sample(&p, true, false, 100000);
   mains_detector_sample(&p, true, false, 105000);
   TEST_ASSERT_TRUE(mains_detector_condition(&p, 105000));
@@ -216,6 +224,7 @@ void test_default_new_interruption_is_declared_again(void) {
 
 void test_hold_counts_from_the_declaration(void) {
   mains_detector_init_hold(&d, TEST_HOLD_MS);
+  d.mains_seen = true;
   feed(true, false, 100000);
   feed(true, false, 105000);  // se declara AQUI
   const uint32_t tb =
@@ -227,6 +236,7 @@ void test_hold_counts_from_the_declaration(void) {
 
 void test_hold_long_interruption_outlasts_the_minimum(void) {
   mains_detector_init_hold(&d, TEST_HOLD_MS);
+  d.mains_seen = true;
   const uint32_t t0 = feedN(2, false, 100000);
   for (uint32_t t = t0 + PERIOD_MS; t < t0 + 25u * 60u * 1000u; t += PERIOD_MS) {
     feed(true, false, t);
@@ -236,6 +246,7 @@ void test_hold_long_interruption_outlasts_the_minimum(void) {
 
 void test_hold_release_after_the_minimum_needs_the_present_streak(void) {
   mains_detector_init_hold(&d, TEST_HOLD_MS);
+  d.mains_seen = true;
   const uint32_t t0 = feedN(2, false, 100000);
   const uint32_t t = t0 + TEST_HOLD_MS + 20000u;
   feed(true, false, t - PERIOD_MS);  // sigue el corte pasados los 10 min
@@ -249,6 +260,7 @@ void test_hold_release_after_the_minimum_needs_the_present_streak(void) {
 
 void test_hold_reinterruption_restarts_the_minimum(void) {
   mains_detector_init_hold(&d, TEST_HOLD_MS);
+  d.mains_seen = true;
   const uint32_t t0 = feedN(2, false, 100000);
   feedN(MAINS_DETECTOR_CONFIRM_PRESENT_SAMPLES, true, t0 + 60000u);
   const uint32_t t2 = feedN(2, false, t0 + 180000u);
@@ -260,6 +272,7 @@ void test_hold_reinterruption_restarts_the_minimum(void) {
 
 void test_hold_survives_millis_wraparound(void) {
   mains_detector_init_hold(&d, TEST_HOLD_MS);
+  d.mains_seen = true;
   const uint32_t t0 = feedN(2, false, 0xFFFFFFFFu - 6000u);
   feedN(MAINS_DETECTOR_CONFIRM_PRESENT_SAMPLES, true, t0 + 20000u);
   TEST_ASSERT_TRUE(cond(t0 + TEST_HOLD_MS - 1u));
@@ -270,6 +283,7 @@ void test_hold_survives_millis_wraparound(void) {
 // dias despues): since_ms quedaria "reciente" otra vez.
 void test_hold_expired_does_not_resurrect_after_a_full_clock_cycle(void) {
   mains_detector_init_hold(&d, TEST_HOLD_MS);
+  d.mains_seen = true;
   const uint32_t t0 = feedN(2, false, 100000);
   const uint32_t tr = feedN(MAINS_DETECTOR_CONFIRM_PRESENT_SAMPLES, true, t0 + TEST_HOLD_MS + 5000u);
   TEST_ASSERT_FALSE(cond(tr));
@@ -334,6 +348,45 @@ void test_blindness_survives_millis_wraparound(void) {
   TEST_ASSERT_TRUE(blind(MAINS_DETECTOR_BLIND_MS + 2000u));
 }
 
+
+// Arrancar en bateria NO es una interrupcion de red: la red no se ha cortado,
+// no estaba. Visto en el banco (2026-10-26): unidad alimentada por el
+// conector de bateria con una fuente, ALTA no silenciable desde el segundo 15.
+void test_boot_on_battery_never_declares(void) {
+  MainsDetector f;
+  mains_detector_init(&f);
+  uint32_t t = 10000;
+  for (int i = 0; i < 40; i++, t += PERIOD_MS) {
+    mains_detector_sample(&f, true, false, t);
+  }
+  TEST_ASSERT_FALSE(mains_detector_condition(&f, t));
+}
+
+// Una sola lectura con red (un parpadeo del comparador) no arma el detector.
+void test_single_present_reading_does_not_arm(void) {
+  MainsDetector f;
+  mains_detector_init(&f);
+  mains_detector_sample(&f, true, false, 10000);
+  mains_detector_sample(&f, true, true, 15000);
+  mains_detector_sample(&f, true, false, 20000);
+  mains_detector_sample(&f, true, false, 25000);
+  TEST_ASSERT_FALSE(mains_detector_condition(&f, 25000));
+}
+
+// En bateria desde el arranque, se enchufa la red y luego se corta: eso SI es
+// una interrupcion y se declara como siempre.
+void test_mains_seen_then_lost_declares(void) {
+  MainsDetector f;
+  mains_detector_init(&f);
+  mains_detector_sample(&f, true, false, 10000);
+  mains_detector_sample(&f, true, false, 15000);
+  mains_detector_sample(&f, true, true, 20000);
+  mains_detector_sample(&f, true, true, 25000);  // armado
+  mains_detector_sample(&f, true, false, 30000);
+  mains_detector_sample(&f, true, false, 35000);
+  TEST_ASSERT_TRUE(mains_detector_condition(&f, 35000));
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_starts_without_condition);
@@ -369,5 +422,8 @@ int main(int, char **) {
   RUN_TEST(test_blind_from_boot_when_no_reading_ever_arrives);
   RUN_TEST(test_declared_alarm_is_kept_while_blind);
   RUN_TEST(test_blindness_survives_millis_wraparound);
+  RUN_TEST(test_boot_on_battery_never_declares);
+  RUN_TEST(test_single_present_reading_does_not_arm);
+  RUN_TEST(test_mains_seen_then_lost_declares);
   return UNITY_END();
 }

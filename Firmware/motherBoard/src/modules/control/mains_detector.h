@@ -62,6 +62,14 @@ extern "C" {
 #define MAINS_DETECTOR_CONFIRM_ABSENT_SAMPLES 2u
 #define MAINS_DETECTOR_CONFIRM_PRESENT_SAMPLES 6u
 
+// El detector solo se ARMA tras ver red en esta cantidad de lecturas validas
+// seguidas desde el arranque. Arrancar en bateria no es una interrupcion de
+// red (no se ha cortado nada: no estaba), y declararla ahi da una ALTA no
+// silenciable permanente en cualquier equipo que trabaje solo con bateria o
+// alimentado por el conector de bateria (el banco, 2026-10-26). Dos lecturas
+// y no una, para que un parpadeo del comparador AC_STAT no lo arme.
+#define MAINS_DETECTOR_ARM_PRESENT_SAMPLES 2u
+
 // Plazo minimo de aviso desde que se declara. 0 = se retira al confirmarse el
 // retorno de la red (ver regla 2).
 #define MAINS_ALARM_MIN_HOLD_MS 0u
@@ -78,6 +86,7 @@ typedef struct {
   uint32_t since_ms;       // instante de la ultima declaracion
   uint32_t hold_ms;        // plazo minimo de aviso de esta instancia
   uint32_t last_valid_ms;  // instante de la ultima lectura valida
+  bool mains_seen;         // red vista desde el arranque: detector armado
 } MainsDetector;
 
 // Inicializador ESTATICO de la instancia de produccion (main.cpp):
@@ -87,7 +96,7 @@ typedef struct {
 // constante, y test_mains_detector fija que coincide con mains_detector_init().
 // Debe seguir el orden de los campos de MainsDetector.
 #define MAINS_DETECTOR_INITIALIZER \
-  { 0, 0, false, false, 0, MAINS_ALARM_MIN_HOLD_MS, 0 }
+  { 0, 0, false, false, 0, MAINS_ALARM_MIN_HOLD_MS, 0, false }
 
 // Con el plazo por defecto (MAINS_ALARM_MIN_HOLD_MS).
 void mains_detector_init(MainsDetector *d);
