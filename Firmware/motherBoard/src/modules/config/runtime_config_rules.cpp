@@ -173,7 +173,7 @@ bool runtime_config_parse_number(const char *text, float *out) {
   return true;
 }
 
-bool runtime_config_json_number(JsonVariantConst v, float *out) {
+bool runtime_config_json_number(JsonVariantConst v, bool, float *out) {
   if (out == nullptr) {
     return false;
   }
@@ -189,7 +189,9 @@ bool runtime_config_json_number(JsonVariantConst v, float *out) {
 }
 
 size_t runtime_config_format_echo(const float values[RCFG_COUNT],
-                                  uint16_t mask, char *buf, size_t len) {
+                                  uint16_t mask, const char *const[RCFG_COUNT],
+                                  const uint32_t[RCFG_COUNT], char *buf,
+                                  size_t len) {
   if (buf == nullptr || len == 0) {
     return 0;
   }
@@ -237,4 +239,39 @@ size_t runtime_config_format_echo(const float values[RCFG_COUNT],
   buf[off++] = '}';
   buf[off] = '\0';
   return off;
+}
+
+// ---------------------------------------------------------------------------
+// ESQUELETO EN ROJO de la revision de seguridad: lo que sigue existe para que
+// los tests compilen y fallen por comportamiento. La implementacion llega en
+// el commit siguiente.
+// ---------------------------------------------------------------------------
+bool runtime_config_lookup_console(const char *, RuntimeConfigId *) {
+  return false;
+}
+bool runtime_config_is_safety(RuntimeConfigId) { return false; }
+bool runtime_config_remote_allowed(RuntimeConfigId, bool) { return true; }
+size_t runtime_config_remote_keys(bool, RuntimeConfigId[RCFG_COUNT]) {
+  return 0;
+}
+RuntimeConfigStatus runtime_config_validate_strict(RuntimeConfigId id, float in,
+                                                   float *out) {
+  return runtime_config_validate(id, in, out);
+}
+RuntimeConfigStatus runtime_config_validate_remote(RuntimeConfigId id, float in,
+                                                   const RuntimeConfigRemoteCtx *,
+                                                   float *out) {
+  return runtime_config_validate(id, in, out);
+}
+bool runtime_config_should_defer(RuntimeConfigId, bool) { return false; }
+bool runtime_config_rate_ok(bool, uint32_t, uint32_t, uint32_t) { return true; }
+int runtime_config_sanitize_period(int v, int) { return v; }
+float runtime_config_sanitize_heater_amps(float v, float) { return v; }
+size_t runtime_config_format_audit(RuntimeConfigId, float, float, const char *,
+                                   uint32_t, char *, size_t) {
+  return 0;
+}
+size_t runtime_config_format_rejected(const char *, const char *, char *,
+                                      size_t) {
+  return 0;
 }
