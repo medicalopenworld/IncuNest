@@ -1641,6 +1641,7 @@ static void maintenance_panel_refresh(void) {
   }
   if (ui_WeighEnableSwitch) {
     ui_set_switch_state_silent(ui_WeighEnableSwitch, WeighTracker_IsEnabled());
+  }
   if (ui_MaintSvcSwitch) {
     ui_set_switch_state_silent(ui_MaintSvcSwitch, ServiceState_IsEnabled());
   }
