@@ -830,7 +830,18 @@ release window is defensive and verified to leave the lamp off.
 *   **Release is immediate**: `PHOTO,0` (or leaving debug mode) applies the
     *last display order* — operator orders and the timer expiry are recorded
     during the test — on the board's periodic tick, with no frame needed (so a
-    stuck display Comm task cannot leave the lamp ON), and persists nothing.
+    stuck display Comm task cannot leave the lamp ON). The forced ON is never
+    persisted; display orders are persisted always (they are never
+    contaminated now, since field 8 carries the display order during the
+    test), and on release the applied value is persisted too. Re-arming
+    (`PHOTO,1`,`PHOTO,0`,`PHOTO,1` in one console pass, before the tick) does
+    not capture the contaminated `in3.phototherapy` as the display order.
+*   **Timer expiry vs a late frame** (also outside the test, a pre-existing
+    race): after the phototherapy timer expires the board ignores a
+    `photo=1` with no minutes until it sees a `photo=0` (a frame in flight, or
+    held up to 10 s by `localCmdHoldsLocal`, would otherwise re-light the lamp
+    that just expired). A timed session (`photo=1`, minutes>0) is always
+    accepted. `photo_expiry_latch.h`.
 *   **Side effects / limits**: (1) `CommTask`'s per-baby therapy accounting
     does not count the session (lamp applied, no debug override active, no
     `ALARM_PHOTO_LAMP_FAULT`). (2) **Echo window**: between the operator's tap
@@ -841,6 +852,16 @@ release window is defensive and verified to leave the lamp off.
     by both the intensity loop (`currentMonitor`) and `applyPhotoState()`: a
     late loop write could otherwise re-light the lamp after the Comm task had
     turned it off, leaving it ON with `in3.phototherapy=false` and no alarm.
+    **No LEDC fade may ever be installed on `PHOTOTHERAPY_PWM_CHANNEL`**:
+    `ledcWrite` takes a semaphore only when fade is installed, and that would
+    be a semaphore inside a critical section (kernel assert). `board.h` and
+    `photoPwmRefresh()` say so, and `photoPwmCheckNoFade()` checks it once at
+    boot. (4) The minutes of a *real* therapy already ON when the test starts
+    are not counted per baby. (5) `timeTrackHandler` excludes the test from
+    the phototherapy hours, but the `Phototherapy_active` telemetry key
+    publishes it as active (it is the real lamp state). (6) While the test is
+    active, a lamp fault (`ALARM_PHOTO_LAMP_FAULT`) can show while field 8
+    says OFF.
 *   **Verify on the bench BEFORE manufacturing**: the lamp-fault alarm
     (`ALARM_PHOTO_LAMP_FAULT`) also fires when the main INA3221 gives no
     sample with the lamp ON. On HW17 with the channel-2 shunt **not populated**

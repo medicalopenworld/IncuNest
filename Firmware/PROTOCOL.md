@@ -583,9 +583,11 @@ probar el lazo de intensidad en banco.
 - Se aplica en el siguiente tick de la placa (no espera ninguna trama del
   display), por el mismo camino que una orden real, así que lo que se prueba es
   el lazo de producción.
-- **Nada de la prueba se guarda.** Mientras dura la prueba no se escribe
-  `photo_active` en NVS: una caída a mitad de sesión vuelve con la
-  fototerapia apagada (verificado en banco).
+- **El ON forzado de la prueba nunca se guarda** en NVS (solo vive en
+  `in3.phototherapy`): una caída a mitad de sesión vuelve sin él. Las órdenes
+  del display **sí se guardan**, también durante la prueba, porque como el
+  campo `photo` emite esa misma orden nunca vienen contaminadas por el ON
+  forzado; al soltar se guarda además el valor aplicado.
 - **Durante la prueba, la pantalla NO muestra el ON de depuración**: el campo
   `photo` de `CTRL,STATE` emite la **orden del display** (la última del
   operador), no el ON forzado. Es a propósito: el display ADOPTA ese campo y lo
@@ -596,17 +598,28 @@ probar el lazo de intensidad en banco.
   OFF del operador se perdía, y una trama rancia del anillo de RX del display
   se colaba). Quitada la raíz, no hay nada que neutralizar. El ON de la prueba
   se ve en `GET /debug/state` (`ctl.photo_dbg`) y en el log.
-- Durante la prueba las órdenes del display **se registran** (no se aplican ni
-  se guardan), y la caducidad del temporizador de fototerapia cuenta como una
-  orden de apagado. **Soltar** (con `PHOTO,0` o apagando el modo) aplica en el
+- Durante la prueba las órdenes del display **se registran** (no se aplican), y
+  la caducidad del temporizador de fototerapia cuenta como una orden de
+  apagado. **Soltar** (con `PHOTO,0` o apagando el modo) aplica en el
   acto —sin ventana de gracia ni confirmación— la **última orden del display**
   (la del operador manda; si no hubo ninguna, la que había al empezar), sin
   esperar ninguna trama: con la tarea Comm del display atascada
   (`known_issues.md` #7) la lámpara también se apaga.
 - Estado en `GET /debug/state`: `ctl.photo_dbg` (1 mientras dure la prueba).
-- La contabilidad de exposición por bebé (`updateTherapyAccounting`) NO cuenta
-  la prueba: exige lámpara aplicada, sin prueba de depuración activa y sin
-  `ALARM_PHOTO_LAMP_FAULT`.
+- **Caducidad del temporizador de fototerapia** (dentro y fuera de la prueba):
+  tras vencer, la placa IGNORA un `HMI,...` con `photo=1` y sin minutos
+  (`photoMin<=0`) hasta ver un `photo=0`; una sesión nueva con minutos
+  (`photo=1`, `photoMin>0`) se acepta siempre. Es una trama que el display tenía
+  en vuelo, o retenida hasta 10 s por su guarda de confirmación, y que de otro
+  modo reenciende la lámpara recién caducada. Lógica en
+  `modules/control/photo_expiry_latch.h`.
+- Efectos secundarios conocidos de la prueba: los minutos de una terapia real
+  que ya estuviera ON al empezar no cuentan por bebé
+  (`updateTherapyAccounting`, que exige lámpara aplicada, sin prueba activa y
+  sin `ALARM_PHOTO_LAMP_FAULT`); `timeTrackHandler` NO suma la prueba a las
+  horas de fototerapia, pero la telemetría `Phototherapy_active` sí la publica
+  como activa (es el estado real); y con la prueba activa puede verse un fallo
+  de lámpara (`ALARM_PHOTO_LAMP_FAULT`) mientras el campo 8 dice OFF.
 - Lógica en `modules/control/photo_override.h`, con test de host
   (`test/test_photo_override`).
 
