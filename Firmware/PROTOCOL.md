@@ -206,6 +206,45 @@ repite: en su lugar viaja `CTRL,VIT`.
   debe tratarse como "sin contacto válido"; nunca descartarse. Si la librería
   añade un estado, hay que reflejarlo aquí y en `spo2_probe.h`.
 
+#### CTRL,ENV (Entorno de la SensorBoard: puerta, luz y ruido)
+Enviado **solo por equipos con SensorBoard** (los antiguos, con el bus I2C2, no
+lo emiten y el display no pinta nada): **al instante** si cambia `link` o `door`
+y **cada 5 s** (`PROTO_ENV_PERIOD_MS`) si no hay cambios. También se re-envía
+al recibir `HMI,REQ,STATE`, para que un display recién arrancado no espere un
+periodo. No va a 1 Hz a propósito: es dato lento y no hay motivo para cargar la
+UART. No es un campo de `CTRL,STATE` porque esa línea va al filo de su buffer
+(`msg[192]`) y porque todo campo de `STATE` debe aguantar 1 Hz.
+
+**Formato**: `CTRL,ENV,link,door,lux,dbA`
+
+| campo | valores |
+|---|---|
+| `link` | `1` enlace USB con la SensorBoard vivo (heartbeat < 90 s); `0` caído |
+| `door` | `0` cerrada, `1` abierta, `2` fallo del hall (la condición de `ALARM_SENSORBOARD_DOOR_FAULT`), `-1` desconocida |
+| `lux` | entero ≥ 0, o `-1` |
+| `dbA` | entero ≥ 0, o `-1` |
+
+- **No disponible = `-1`, nunca `0`** (mismo criterio que `CTRL,TEL`: `0` es un
+  valor plausible y se lee como medida). Con `link=0` los tres viajan como `-1`
+  (`CTRL,ENV,0,-1,-1,-1`): no se manda la última lectura buena. Un `lux` o `dbA`
+  rancio (más viejo que `SB_ENV_STALE_MS`/`SB_SOUND_STALE_MS`) o marcado no
+  válido también es `-1`; una puerta sin evento reciente
+  (`SB_DOOR_STALE_MS`) es `-1`, y `door=2` manda sobre el último estado.
+- **`lux` y `dbA` van sin calibrar** (`SensorBoard_v2/ESTADO.md`: el micrófono da
+  ~60 dB en reposo y el ALS no tiene conversión a lux fiable). El display **no
+  los pinta como medida**: clasifica el ruido en Bajo/Medio/Alto con umbrales
+  provisionales (`<65`, `65..74`, `>=75` dBA crudos, en `sb_env.h`) y no usa la
+  luz. Al calibrar hay que sustituir esos umbrales.
+- Constantes compartidas en `shared/include/protocol.h` (`PROTO_ENV_*`). La línea
+  mide como mucho `PROTO_ENV_LINE_MAX` (39) caracteres más el `\n`.
+- **Compatibilidad**: un display que no conozca el mensaje ignora la línea (cae
+  al final de la cadena de `parse_message`); un display nuevo con una placa que no
+  lo envíe no pinta nada. El parser del HMI es estricto con los cuatro primeros
+  campos y tolera campos extra al final. Un `CTRL,ENV` rancio (> 15 s) se ignora
+  en el display.
+- Es solo informativo: la puerta **no** entra en el lazo térmico ni genera alarmas
+  nuevas. El fallo del hall ya lo señaliza `ALARM_SENSORBOARD_DOOR_FAULT`.
+
 #### CTRL,PPG (Onda pletismográfica)
 Enviado a 25 Hz (cada 40 ms) **solo** cuando el estado de sonda es `2`.
 **Formato**: `CTRL,PPG,value`

@@ -83,11 +83,13 @@ La puerta **no** entra en el lazo térmico ni en ninguna alarma nueva.
 
 El heading de Main está lleno: los huecos entre widgets son de 19 px, y entre Alarmas y Ajustes quedan ~74 px que las zonas táctiles ampliadas (`TOUCH_EXT_MEDIUM`=30) se comen. Otras ramas abiertas meten identidad del paciente en el botón Bebés y un indicador de batería: esos slots están reservados.
 
-El **botón del reloj** (`ui_ClockButton`, 180×55) tiene la hora en `montserrat_26` (~80 px) y la fecha `DD/MM/AAAA` en 14 (~90 px), ambas pegadas a la izquierda: queda libre una franja de ~70 px a la derecha, **dentro** de un widget que ya existe, sin mover ningún slot ni tocar zonas táctiles. Dos filas de 22 px: arriba la puerta (solo si abierta), abajo el ruido. Los hijos no son clicables, así que el toque sigue llegando al botón del reloj.
+El **botón del reloj** (`ui_ClockButton`, 180×55) tiene la hora y la fecha pegadas a la izquierda. Medido con los avances reales de `lv_font_montserrat_*` (no estimado): con el `pad_hor` de 20 px que el tema por defecto da al botón (`PAD_DEF` en `lv_theme_default.c`, pantalla `LARGE`, dpi 130) y el `x=14` de los labels, la hora `23:59` (26 pt, 66,7 px) acaba en x=101 del botón y la fecha `DD/MM/AAAA` (14 pt, 74,6 px) en x=109. Queda libre la franja x=112..178 (66 px) **sobre un widget que ya existe**, sin mover ningún slot ni tocar zonas táctiles. Dos filas de 22 px: arriba la puerta (solo si abierta), abajo el ruido. La palabra más ancha, `Ouverte`, mide 49,5 px en `montserrat_12`; con el pictograma de 11 px cabe en 66.
 
-Caso límite: con "Sin hora" (`STR_NO_TIME`, 26 pt, ~140 px) el texto invade la franja; en ese estado el indicador se oculta en Main. Es un estado transitorio (la MB aún no ha sincronizado la hora) y el indicador es informativo.
+El indicador es hijo de la **pantalla** y no del botón: los offsets de un hijo se miden desde el área de contenido, que el padding desplaza, y así las coordenadas son las absolutas medidas arriba. No es clicable: LVGL salta los objetos no clicables al buscar el destino del toque, que llega al botón del reloj.
 
-En **bloqueo** el heading tiene el reloj como etiquetas sueltas y su lado derecho está libre (sin Bebés/Alarmas/Ajustes): se replica a la derecha del candado, en el mismo y de la fila.
+Caso límite: con "Sin hora" (`STR_NO_TIME`, 26 pt, 106-147 px según idioma) el texto invade la franja; en ese estado el indicador se oculta en Main. Es un estado transitorio (la MB aún no ha sincronizado la hora) y el indicador es informativo.
+
+En **bloqueo** el heading tiene el reloj como etiquetas sueltas y su lado derecho está libre (sin Bebés/Alarmas/Ajustes): se replica a la derecha del candado, en la misma fila vertical que el heading.
 
 El refresco sigue el patrón de `clock_update()`: se calcula una firma y solo se escribe LVGL si cambia.
 

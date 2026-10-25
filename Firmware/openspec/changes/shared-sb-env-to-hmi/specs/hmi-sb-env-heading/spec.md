@@ -92,10 +92,10 @@ Covered by Display_HMI `[env:native]`.
 
 ### Requirement: Placement and languages
 
-The display SHALL draw the indicators inside the clock button of the Main heading, to the right of the time and date, and a replica in the heading of the lock screen, without moving any existing heading widget or touch area. The labels SHALL exist in Spanish, English, French and Portuguese, using only ASCII characters. The indicator in Main SHALL be hidden while the clock shows its "no time" text.
+The display SHALL draw the indicators over the free strip at the right of the time and date of the clock button in the Main heading, and a replica in the heading of the lock screen, without moving any existing heading widget or touch area. The labels SHALL exist in Spanish, English, French and Portuguese, using only ASCII characters. The indicator in Main SHALL be hidden while the clock shows its "no time" text.
 
 #### Scenario: Touching the indicator
-- **WHEN** the operator touches the area of the indicator inside the clock button
+- **WHEN** the operator touches the area of the indicator over the clock button
 - **THEN** the touch reaches the clock button (the indicator is not clickable)
 
 Verified manually on the bench: LVGL has no host test environment.
