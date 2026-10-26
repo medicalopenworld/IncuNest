@@ -258,3 +258,16 @@ bool HmiFs_WriteAtomic(const char *path, const uint8_t *data, size_t len) {
   }
   return w.commit();
 }
+
+bool HmiFs_Append(const char *path, const uint8_t *data, size_t len) {
+  if (!s_mounted || !path || !data) return false;
+  fs::File f = LittleFS.open(path, "a");
+  if (!f) {
+    ESP_LOGE(TAG, "no se pudo abrir %s para anadir", path);
+    return false;
+  }
+  const size_t w = f.write(data, len);
+  f.close();  // aqui se hace visible (y se escribe la metadata)
+  LCD_RequestRestart();
+  return w == len;
+}

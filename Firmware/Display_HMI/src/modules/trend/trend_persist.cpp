@@ -2,9 +2,11 @@
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 
 #include "modules/storage/hmi_fs.h"
 #include "modules/trend/trend_file.h"
+#include "modules/trend/trend_journal.h"
 #include "modules/trend/trend_policy.h"
 
 // Maquina de estados. TODO el trabajo se reparte en pasadas acotadas (una
@@ -12,9 +14,17 @@
 // hay una alarma activa o el enlace con la placa esta caido (ioAllowed):
 //
 //   restauracion:  Idle -> RestoreRead (abre + reserva) -> RestoreRead*
-//                  (4 KB por pasada) -> RestoreRun* (CRC y escritura por tramos)
+//                  (4 KB por pasada) -> [JnlRead* (4 KB por pasada) ->
+//                  Merge* (instantanea + diario en un anillo temporal y de
+//                  vuelta a imagen de fichero, por tramos)] -> RestoreRun*
+//                  (CRC y escritura por tramos)
+//   anadido:       Idle -> Idle (una sola escritura de < 4 KB en /trend.jnl)
 //   volcado:       Idle -> DumpSerialize* (series y CRC por tramos) ->
 //                  DumpWrite* (4 KB por pasada, separados >= 50 ms) -> Idle
+//
+// Cada 5 min se ANADE al diario si lo que hay en disco sigue en sintonia con el
+// modelo; la instantanea completa (13 bloques: ~1 s de temblor del panel, ver
+// trend_journal.h) solo se reescribe al compactar o cuando no hay sintonia.
 //
 // Con ioAllowed = false: una restauracion se PAUSA donde esta; un volcado se
 // ABORTA limpio (el .tmp se descarta) y se reintenta cuando toque.
@@ -22,10 +32,18 @@ namespace {
 
 const char *TAG = "TrendPersist";
 const char *kPath = "/trend.bin";
+const char *kJnlPath = "/trend.jnl";
+// Un diario mas grande que esto no lo ha escrito este firmware: se ignora y el
+// primer volcado lo sustituye.
+constexpr size_t kJnlMaxBytes =
+    (size_t)(TREND_JNL_MAX_RECORDS + TREND_JNL_APPEND_MAX_RECORDS) * TREND_JNL_REC_BYTES;
+constexpr int kJnlApplyPerStep = 512;
 
 enum class Phase : uint8_t {
   Idle,
   RestoreRead,
+  JnlRead,
+  Merge,
   RestoreRun,
   DumpSerialize,
   DumpWrite,
@@ -66,6 +84,29 @@ int s_serSteps = 0;
 int s_serRestarts = 0;
 TrendSerializer s_ser;
 HmiFsAtomicWriter s_writer;
+uint32_t s_stageShifts = 0;
+
+// --- diario ---
+// true si lo que hay en disco (instantanea + diario) es el modelo hasta
+// s_dump.lastDumpedSlot CON LAS MISMAS ETIQUETAS de ranura: solo entonces se
+// puede anadir al diario. Una re-etiqueta por la hora (clockShifts), un diario
+// roto o no tener instantanea obligan a una instantanea completa.
+bool s_diskInSync = false;
+uint32_t s_shiftsAtSync = 0;
+int s_jnlRecords = 0;  // registros en el diario: al llegar al tope se compacta
+// restauracion: lectura del diario y fusion con la instantanea
+uint8_t *s_jbuf = nullptr;
+size_t s_jlen = 0;
+size_t s_joff = 0;
+bool s_jnlBroken = false;
+int s_mergeStage = 0;
+int16_t *s_mblock = nullptr;
+TrendEvents *s_mevents = nullptr;
+TrendStore s_mstore;
+TrendRestoreJob s_mjob;
+TrendJnlApply s_mapply;
+TrendSerializer s_mser;
+uint8_t *s_mimg = nullptr;
 
 constexpr int MAX_SER_RESTARTS = 5;
 
@@ -76,12 +117,26 @@ void freeStage() {
   s_stageOff = 0;
 }
 
+void freeMerge() {
+  if (s_jbuf) heap_caps_free(s_jbuf);
+  if (s_mblock) heap_caps_free(s_mblock);
+  if (s_mevents) heap_caps_free(s_mevents);
+  if (s_mimg) heap_caps_free(s_mimg);
+  s_jbuf = nullptr;
+  s_mblock = nullptr;
+  s_mevents = nullptr;
+  s_mimg = nullptr;
+  s_jlen = 0;
+  s_joff = 0;
+}
+
 void freeRestore() {
   s_reader.close();
   if (s_rbuf) heap_caps_free(s_rbuf);
   s_rbuf = nullptr;
   s_rlen = 0;
   s_roff = 0;
+  freeMerge();
 }
 
 void failDump(uint32_t nowMs, const char *why) {
@@ -127,6 +182,15 @@ void restoreFinished(TrendModel *m, uint32_t nowMs, bool *changed) {
   else
     ESP_LOGW(TAG, "restauracion %s (fichero %u B, %d pasadas)", name, (unsigned)s_rlen,
              s_restoreSteps);
+  // Lo restaurado ES lo que hay en disco: se sigue anadiendo al diario desde
+  // su ultima ranura (el hueco hasta las muestras vivas entra como "sin dato").
+  // Con el diario roto, el primer volcado es una instantanea que lo sustituye.
+  s_diskInSync = (r == TREND_RESTORE_OK) && !s_jnlBroken;
+  if (s_diskInSync) {
+    trend_dump_done(&s_dump, nowMs, s_rjob.info.lastSlot);
+    s_shiftsAtSync = m->clockShifts;
+    s_jnlRecords = (int)(s_jlen / TREND_JNL_REC_BYTES);
+  }
   freeRestore();
   s_phase = Phase::Idle;
   s_restoreDone = true;
@@ -137,6 +201,147 @@ void restoreFinished(TrendModel *m, uint32_t nowMs, bool *changed) {
     s_shiftsAtReject = m->clockShifts;
   } else {
     s_rejected = false;
+  }
+}
+
+// Restauracion al modelo vivo de la imagen que haya en s_rbuf (la instantanea
+// tal cual, o la fusion con el diario).
+void beginLiveRestore(TrendModel *m, int64_t monoMs) {
+  trend_restore_begin(&s_rjob, s_rbuf, s_rlen, trend_clock_slot(&m->clock, monoMs),
+                      &m->store, &m->events);
+  s_phase = Phase::RestoreRun;
+}
+
+// Sin diario utilizable se restaura la instantanea sola.
+void dropJournal(TrendModel *m, int64_t monoMs, const char *why) {
+  ESP_LOGW(TAG, "diario descartado (%s): se restaura solo la instantanea", why);
+  s_jnlBroken = true;
+  freeMerge();
+  beginLiveRestore(m, monoMs);
+}
+
+void startJnlRead(TrendModel *m, int64_t monoMs) {
+  s_jnlBroken = false;
+  const int32_t sz = HmiFs_FileSize(kJnlPath);
+  if (sz <= 0) {
+    beginLiveRestore(m, monoMs);
+    return;
+  }
+  if ((size_t)sz > kJnlMaxBytes) {
+    dropJournal(m, monoMs, "demasiado grande");
+    return;
+  }
+  if (s_reader.open(kJnlPath) != sz) {
+    s_reader.close();
+    dropJournal(m, monoMs, "no se pudo abrir");
+    return;
+  }
+  s_jlen = (size_t)sz;
+  s_joff = 0;
+  s_phase = Phase::JnlRead;
+}
+
+void stepJnlRead(TrendModel *m, int64_t monoMs) {
+  if (!s_jbuf) {  // pasada propia para la reserva
+    s_jbuf = (uint8_t *)heap_caps_malloc(s_jlen, MALLOC_CAP_SPIRAM);
+    if (!s_jbuf) {
+      s_reader.close();
+      dropJournal(m, monoMs, "sin PSRAM");
+    }
+    return;
+  }
+  size_t n = s_jlen - s_joff;
+  if (n > TREND_CHUNK_BYTES) n = TREND_CHUNK_BYTES;
+  if (s_reader.read(s_jbuf + s_joff, n) != n) {
+    s_reader.close();
+    dropJournal(m, monoMs, "lectura corta");
+    return;
+  }
+  s_joff += n;
+  if (s_joff < s_jlen) return;
+  s_reader.close();
+  s_mergeStage = 0;
+  s_phase = Phase::Merge;
+}
+
+// Fusion en un anillo TEMPORAL (el vivo no se toca hasta RestoreRun):
+//   0 reserva y planifica la instantanea, 1 la restaura por tramos,
+//   2 aplica el diario por tramos, 3 lo serializa de vuelta a imagen de fichero.
+// Asi la restauracion al modelo vivo (alineado por epoch, vivas mandan...) es
+// la de siempre, sobre una imagen que ya incluye el diario.
+void stepMerge(TrendModel *m, int64_t monoMs) {
+  switch (s_mergeStage) {
+    case 0: {
+      int64_t jnlLast = 0;
+      if (!trend_jnl_last_sample_slot(s_jbuf, s_jlen, &jnlLast)) {
+        dropJournal(m, monoMs, "sin muestras validas");
+        return;
+      }
+      const int cap = m->store.capacity;
+      s_mblock = (int16_t *)heap_caps_malloc(trend_store_bytes(cap), MALLOC_CAP_SPIRAM);
+      s_mevents = (TrendEvents *)heap_caps_malloc(sizeof(TrendEvents), MALLOC_CAP_SPIRAM);
+      if (!s_mblock || !s_mevents) {
+        dropJournal(m, monoMs, "sin PSRAM para la fusion");
+        return;
+      }
+      trend_store_init(&s_mstore, s_mblock, cap);
+      trend_events_init(s_mevents);
+      // "Ahora" para la instantanea es el final del diario: una instantanea
+      // de hace mas de 24 h con un diario reciente no es obsoleta.
+      trend_restore_begin(&s_mjob, s_rbuf, s_rlen, jnlLast, &s_mstore, s_mevents);
+      s_mergeStage = 1;
+      return;
+    }
+    case 1:
+      if (trend_restore_step(&s_mjob) == TREND_JOB_MORE) return;
+      if (s_mjob.result != TREND_RESTORE_OK) {
+        // La instantanea no vale: que la restauracion normal lo registre.
+        dropJournal(m, monoMs, "instantanea no valida");
+        return;
+      }
+      trend_jnl_apply_begin(&s_mapply, &s_mstore, s_mevents, s_jbuf, s_jlen,
+                            s_mjob.info.lastSlot);
+      s_mergeStage = 2;
+      return;
+    case 2: {
+      if (trend_jnl_apply_step(&s_mapply, kJnlApplyPerStep) == TREND_JOB_MORE) return;
+      if (s_mapply.broken)
+        ESP_LOGW(TAG, "diario cortado en el registro %d: lo posterior se ignora",
+                 s_mapply.applied);
+      s_jnlBroken = s_mapply.broken;
+      const size_t cap = trend_file_max_bytes(s_mstore.capacity);
+      s_mimg = (uint8_t *)heap_caps_malloc(cap, MALLOC_CAP_SPIRAM);
+      if (!s_mimg || !trend_ser_begin(&s_mser, &s_mstore, s_mevents, s_mimg, cap)) {
+        dropJournal(m, monoMs, "no se pudo serializar la fusion");
+        return;
+      }
+      s_mergeStage = 3;
+      return;
+    }
+    default: {
+      const TrendJobStatus st = trend_ser_step(&s_mser);
+      if (st == TREND_JOB_MORE) return;
+      if (st != TREND_JOB_DONE) {
+        dropJournal(m, monoMs, "serializador");
+        return;
+      }
+      ESP_LOGI(TAG, "instantanea %u B + diario %d registros fusionados",
+               (unsigned)s_rlen, s_mapply.applied);
+      // La imagen fusionada sustituye a la instantanea leida. s_jlen se
+      // conserva: cuenta los registros del diario para la compactacion.
+      heap_caps_free(s_rbuf);
+      s_rbuf = s_mimg;
+      s_rlen = trend_ser_size(&s_mser);
+      s_mimg = nullptr;
+      heap_caps_free(s_jbuf);
+      heap_caps_free(s_mblock);
+      heap_caps_free(s_mevents);
+      s_jbuf = nullptr;
+      s_mblock = nullptr;
+      s_mevents = nullptr;
+      beginLiveRestore(m, monoMs);
+      return;
+    }
   }
 }
 
@@ -167,10 +372,18 @@ void stepRestore(TrendModel *m, int64_t monoMs, uint32_t nowMs, bool *changed) {
     s_roff += n;
     if (s_roff >= s_rlen) {
       s_reader.close();
-      trend_restore_begin(&s_rjob, s_rbuf, s_rlen,
-                          trend_clock_slot(&m->clock, monoMs), &m->store, &m->events);
-      s_phase = Phase::RestoreRun;
+      startJnlRead(m, monoMs);
     }
+    return;
+  }
+
+  if (s_phase == Phase::JnlRead) {
+    stepJnlRead(m, monoMs);
+    return;
+  }
+  if (s_phase == Phase::Merge) {
+    s_restoreSteps++;
+    stepMerge(m, monoMs);
     return;
   }
 
@@ -222,6 +435,7 @@ void stepSerialize(TrendModel *m, uint32_t nowMs) {
   }
   s_stageLen = trend_ser_size(&s_ser);
   s_stageNewest = s_ser.last;
+  s_stageShifts = m->clockShifts;  // etiquetas de ranura de esta instantanea
   if (!s_writer.begin(kPath)) {
     failDump(nowMs, "no se pudo abrir el temporal");
     return;
@@ -251,9 +465,51 @@ void stepWrite(uint32_t nowMs) {
   freeStage();
   s_phase = Phase::Idle;
   trend_dump_done(&s_dump, nowMs, s_stageNewest);
+  // La instantanea nueva ya lo contiene todo: el diario sobra. Si el borrado
+  // falla (o un corte cae justo antes), sus registros son anteriores a la
+  // instantanea y la restauracion los ignora (trend_jnl_apply_*).
+  if (HmiFs_FileSize(kJnlPath) >= 0 && !HmiFs_Remove(kJnlPath))
+    ESP_LOGW(TAG, "no se pudo borrar %s", kJnlPath);
+  s_diskInSync = true;
+  s_shiftsAtSync = s_stageShifts;
+  s_jnlRecords = 0;
   ESP_LOGI(TAG, "volcado %u B en %u ms (%d tramos de serializacion, %u de escritura)",
            (unsigned)total, (unsigned)(nowMs - s_startMs), s_serSteps,
            (unsigned)((total + TREND_CHUNK_BYTES - 1) / TREND_CHUNK_BYTES));
+}
+
+// Anadido al diario en una sola escritura de < 4 KB: lo normal cada 5 min. Si
+// no se puede (sin sintonia con el disco, hora re-etiquetada, diario lleno o
+// demasiadas ranuras pendientes) devuelve false y toca instantanea completa.
+bool tryAppendJournal(TrendModel *m, uint32_t nowMs) {
+  if (!s_diskInSync || !s_dump.haveDumped || m->clockShifts != s_shiftsAtSync) return false;
+  const int n = trend_jnl_pending_records(&m->store, &m->events, s_dump.lastDumpedSlot);
+  if (n <= 0 || n > TREND_JNL_APPEND_MAX_RECORDS ||
+      s_jnlRecords + n > TREND_JNL_MAX_RECORDS)
+    return false;
+  if (!HmiFs_Begin()) return true;  // sin FS: se reintenta en la pasada siguiente
+  const size_t cap = (size_t)n * TREND_JNL_REC_BYTES;
+  uint8_t *buf = (uint8_t *)heap_caps_malloc(cap, MALLOC_CAP_SPIRAM);
+  if (!buf) return false;
+  const size_t len =
+      trend_jnl_build(&m->store, &m->events, s_dump.lastDumpedSlot, buf, cap);
+  const int64_t newest = m->store.lastSlot;
+  const int64_t t0 = esp_timer_get_time();
+  const bool ok = len == cap && HmiFs_Append(kJnlPath, buf, len);
+  heap_caps_free(buf);
+  s_lockRequest = false;
+  if (!ok) {
+    // El diario puede haber quedado con una cola a medias: que lo sustituya
+    // una instantanea en el siguiente intento.
+    s_diskInSync = false;
+    failDump(nowMs, "anadido al diario");
+    return true;
+  }
+  trend_dump_done(&s_dump, nowMs, newest);
+  s_jnlRecords += n;
+  ESP_LOGI(TAG, "diario +%d registros (%u B, %d en total) en %u ms", n, (unsigned)len,
+           s_jnlRecords, (unsigned)((esp_timer_get_time() - t0) / 1000));
+  return true;
 }
 
 void abortDump() {
@@ -299,10 +555,12 @@ bool TrendPersist_Service(TrendModel *m, int64_t monoMs, uint32_t nowMs, bool io
       } else if (!trend_dump_blocked_by_rejected_file(s_rejected, s_rejectedAtMs, nowMs) &&
                  trend_dump_due(&s_dump, true, m->store.count > 0,
                                 trend_model_newest_slot(m), nowMs, s_lockRequest)) {
-        startDump(m, nowMs);
+        if (!tryAppendJournal(m, nowMs)) startDump(m, nowMs);
       }
       break;
     case Phase::RestoreRead:
+    case Phase::JnlRead:
+    case Phase::Merge:
     case Phase::RestoreRun:
       stepRestore(m, monoMs, nowMs, &changed);
       break;

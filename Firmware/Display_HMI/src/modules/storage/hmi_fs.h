@@ -128,3 +128,10 @@ class HmiFsAtomicWriter {
 // Escritura atomica de una sola vez (bloquea mientras dura). Para datos
 // pequenos; para ficheros grandes usar HmiFsAtomicWriter en trozos.
 bool HmiFs_WriteAtomic(const char *path, const uint8_t *data, size_t len);
+
+// Anade `len` bytes al final de `path` (lo crea si no existe) y cierra, de una
+// vez. Para anadidos pequenos (el diario de la tendencia, < 4 KB): LittleFS
+// solo hace visible lo anadido al cerrar, asi que un corte a mitad deja el
+// fichero como estaba. false si no esta montado, no se pudo abrir o la
+// escritura se quedo corta.
+bool HmiFs_Append(const char *path, const uint8_t *data, size_t len);
