@@ -16,6 +16,12 @@ enum class ExitStep : uint8_t { Closed, AskReason, AskOutcome, AskCause };
 
 ExitStep s_step = ExitStep::Closed;
 bool s_wasActive = false;   // control state on the previous tick
+// Desde cuando lleva el control activo sin interrupcion. Al apagar, la placa
+// puede devolver un CTRL,STATE antiguo con el control aun encendido: eso es un
+// idle -> active -> idle de ~1 s que abria el dialogo dos veces (banco,
+// 2026-10-27). Un apagado solo cuenta si venia de un encendido de verdad.
+uint32_t s_activeSinceMs = 0;
+constexpr uint32_t kMinActiveForExitMs = 5000;
 uint32_t s_seq = 0;
 // Outcome awaiting a cause before it is actually sent. Only Deceased (2)
 // routes through AskCause; every other outcome is sent as-is.
@@ -265,9 +271,12 @@ void BabyExitDialog_Tick(bool anyControlActive) {
   // dialog every tick, and idle -> active is not interesting.
   bool wasActive = s_wasActive;
   s_wasActive = anyControlActive;
+  const uint32_t now = millis();
+  if (anyControlActive && !wasActive) s_activeSinceMs = now;
 
   if (s_step != ExitStep::Closed) return;
   if (!(wasActive && !anyControlActive)) return;
+  if (now - s_activeSinceMs < kMinActiveForExitMs) return;
 
   // Nothing to attribute the exit to (wizard skipped, or already discharged).
   s_seq = BabyWizard_GetActiveSeq();

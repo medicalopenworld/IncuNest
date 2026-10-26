@@ -72,6 +72,11 @@ uint32_t s_sessionSeq = 0;
 char s_sessionName[BABY_NAME_LEN_LOCAL] = "";
 uint8_t s_sessionGest = 0;
 uint16_t s_sessionWeight = 0;
+// true si en ESTA pasada del asistente se ha identificado al bebe (atajo de
+// sesion viva o PROFILE_ACK). Un SKIP sin identificar a nadie significa "sin
+// bebe": la identidad recordada de antes (p. ej. restaurada de la NVS) no puede
+// colarse en la terapia que se activa ahora.
+bool s_identifiedThisRun = false;
 
 lv_obj_t *s_overlay = nullptr;
 lv_obj_t *s_card = nullptr;
@@ -539,6 +544,10 @@ void onApplyClicked(lv_event_t *) { finishWizard(true); }
 // manual control.
 void onSkipClicked(lv_event_t *) {
   if (trainingRefuse()) return;
+  // Sin bebe identificado en esta pasada, SKIP es "terapia sin bebe": se
+  // olvida la identidad recordada, que si no aparecia en el bloqueo y pedia
+  // el alta de un bebe que nadie habia elegido (banco, 2026-10-27).
+  if (!s_identifiedThisRun) BabyWizard_ClearActiveProfile();
   finishWizard(false);
 }
 
@@ -676,6 +685,7 @@ static void openForTarget(WizTarget target) {
   s_ageDays = 0;
   s_hasUsableRange = false;
   s_listRetries = 0;
+  s_identifiedThisRun = false;
 
   // HasLiveSession() ya exige la identidad confirmada: una RESTAURADA de la
   // NVS que la placa aun no ha confirmado no vale para el atajo (podria ser
@@ -694,6 +704,7 @@ static void openForTarget(WizTarget target) {
     // still remembered (the exit dialog's answer — kangaroo, "not now", or
     // no dialog at all because an alarm owned the screen — decides the
     // clinical record, never who the picker offers).
+    s_identifiedThisRun = true;
     selectExisting(s_sessionSeq, s_sessionGest, s_sessionWeight);
   } else {
     Communication_SendProfileListReq();
@@ -842,6 +853,7 @@ void BabyWizard_Poll() {
         } else {
           s_seq = g_profileAck;
           s_sessionSeq = s_seq;
+          s_identifiedThisRun = true;
           snprintf(s_sessionName, sizeof(s_sessionName), "%s", s_name);
           s_sessionGest = s_gestWeeks;
           if (s_weightGrams > 0) s_sessionWeight = s_weightGrams;
