@@ -203,4 +203,8 @@ bool init_BQ25730(TwoWire *i2c);
 // Reaplica la configuracion con el equipo en marcha SIN tocar chargerPresent.
 bool reconfigure_BQ25730(TwoWire *i2c);
 bool charge_status(BQ25730_Status *status);
+// Periodo del estado completo del cargador (ADC, flancos de red, flotacion).
+#define CHARGER_STATUS_PERIOD_MS 1000u
+// Solo el bit AC_STAT (una lectura I2C). false si el chip no contesta.
+bool charge_ac_present(bool *present);
 bool set_charge_voltage(uint16_t voltage_mv);

@@ -311,8 +311,9 @@ struct MainsReading {
 };
 static MainsReading mains_present_now() {
   MainsReading r = {};
-  r.valid = g_bq_status_valid;
-  r.present = r.valid && g_bq_status.ac_present;
+  bool ac = false;
+  r.valid = charge_ac_present(&ac);
+  r.present = r.valid && ac;
   return r;
 }
 
@@ -396,16 +397,21 @@ void sensors_Task(void *pvParameters) {
       // chargerExpectedNow(), no chargerPresent: este ultimo baja mientras el
       // chip se configura. Sin lecturas validas el detector lo dice
       // (mains_detector_blind).
+      // Detector de red a 5 Hz (MAINS_DETECTOR_SAMPLE_PERIOD_MS): solo el bit
+      // AC_STAT, una lectura I2C. El estado completo (ADC) sigue a 1 Hz.
+      static long lastMainsSample = 0;
       if (chargerExpectedNow() &&
-          millis() - lastChargerUpdate >= MAINS_DETECTOR_SAMPLE_PERIOD_MS) {
+          millis() - lastMainsSample >= MAINS_DETECTOR_SAMPLE_PERIOD_MS) {
+        const MainsReading mains = mains_present_now();
+        mains_detector_sample(&g_mains_detector, mains.valid, mains.present,
+                              millis());
+        lastMainsSample = millis();
+      }
+      if (chargerExpectedNow() &&
+          millis() - lastChargerUpdate >= CHARGER_STATUS_PERIOD_MS) {
         g_bq_status_valid = charge_status(&g_bq_status);
         if (g_bq_status_valid) g_bq_status_ms = millis();
         lastChargerUpdate = millis();
-        {
-          const MainsReading mains = mains_present_now();
-          mains_detector_sample(&g_mains_detector, mains.valid, mains.present,
-                                millis());
-        }
         // Detecta transición ausente→presente del adaptador y reinicializa el
         // chip: algunos BQ25xxx pierden VINDPM/IIN al re-detectar VBUS, así que
         // reaplicamos toda la config para asegurar carga estable.

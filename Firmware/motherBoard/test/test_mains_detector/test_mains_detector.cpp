@@ -149,12 +149,12 @@ void test_production_initializer_uses_the_constants(void) {
   TEST_ASSERT_TRUE(mains_detector_condition(&p, 105000));
 }
 
-// H6: histeresis asimetrica. Declarar rapido (2 lecturas, ~2 s), retirar
-// mas despacio (5 seguidas con red, ~5 s), leyendo cada 1 s.
+// H6: histeresis asimetrica. Declarar rapido (2 lecturas, ~0,4 s), retirar
+// mas despacio (10 seguidas con red, ~2 s), leyendo cada 200 ms.
 void test_confirmation_is_asymmetric(void) {
   TEST_ASSERT_EQUAL_UINT32(2u, MAINS_DETECTOR_CONFIRM_ABSENT_SAMPLES);
-  TEST_ASSERT_EQUAL_UINT32(5u, MAINS_DETECTOR_CONFIRM_PRESENT_SAMPLES);
-  TEST_ASSERT_EQUAL_UINT32(1000u, MAINS_DETECTOR_SAMPLE_PERIOD_MS);
+  TEST_ASSERT_EQUAL_UINT32(10u, MAINS_DETECTOR_CONFIRM_PRESENT_SAMPLES);
+  TEST_ASSERT_EQUAL_UINT32(200u, MAINS_DETECTOR_SAMPLE_PERIOD_MS);
 }
 
 // Una fuente intermitente (enchufe flojo, generador inestable) no puede hacer

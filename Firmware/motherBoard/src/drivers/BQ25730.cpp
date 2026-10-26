@@ -280,6 +280,17 @@ bool reconfigure_BQ25730(TwoWire *i2c) {
     return bq_configure_chip(i2c, /*fromBoot=*/false);
 }
 
+// ─── charge_ac_present() ──────────────────────────────────────────────────────
+// Solo el bit AC_STAT de ChargerStatus: una lectura de 16 bits, para el
+// detector de red a 5 Hz sin arrastrar las cuatro lecturas de ADC.
+bool charge_ac_present(bool *present) {
+    if (!_initialized || present == nullptr) return false;
+    uint16_t raw_status = 0;
+    if (!read_reg16(BQ25730_REG_CHARGER_STATUS, &raw_status)) return false;
+    *present = (raw_status & BQ25730_STAT_AC_STAT) != 0;
+    return true;
+}
+
 // ─── charge_status() ──────────────────────────────────────────────────────────
 bool charge_status(BQ25730_Status *status) {
     if (!_initialized || status == nullptr) return false;
