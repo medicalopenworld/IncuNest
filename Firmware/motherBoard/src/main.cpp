@@ -396,7 +396,8 @@ void sensors_Task(void *pvParameters) {
       // chargerExpectedNow(), no chargerPresent: este ultimo baja mientras el
       // chip se configura. Sin lecturas validas el detector lo dice
       // (mains_detector_blind).
-      if (chargerExpectedNow() && millis() - lastChargerUpdate > 5000) {
+      if (chargerExpectedNow() &&
+          millis() - lastChargerUpdate >= MAINS_DETECTOR_SAMPLE_PERIOD_MS) {
         g_bq_status_valid = charge_status(&g_bq_status);
         if (g_bq_status_valid) g_bq_status_ms = millis();
         lastChargerUpdate = millis();

@@ -19,7 +19,7 @@
 static MainsDetector d;
 
 // Periodo de lectura del BQ en main.cpp.
-static const uint32_t PERIOD_MS = 5000u;
+static const uint32_t PERIOD_MS = MAINS_DETECTOR_SAMPLE_PERIOD_MS;
 // Plazo de prueba para ejercitar el mecanismo de minimo de aviso.
 static const uint32_t TEST_HOLD_MS = 600000u;
 
@@ -149,11 +149,12 @@ void test_production_initializer_uses_the_constants(void) {
   TEST_ASSERT_TRUE(mains_detector_condition(&p, 105000));
 }
 
-// H6: histeresis asimetrica. Declarar rapido (2 lecturas, ~10 s), retirar
-// despacio (6 seguidas con red, ~30 s).
+// H6: histeresis asimetrica. Declarar rapido (2 lecturas, ~2 s), retirar
+// mas despacio (5 seguidas con red, ~5 s), leyendo cada 1 s.
 void test_confirmation_is_asymmetric(void) {
   TEST_ASSERT_EQUAL_UINT32(2u, MAINS_DETECTOR_CONFIRM_ABSENT_SAMPLES);
-  TEST_ASSERT_EQUAL_UINT32(6u, MAINS_DETECTOR_CONFIRM_PRESENT_SAMPLES);
+  TEST_ASSERT_EQUAL_UINT32(5u, MAINS_DETECTOR_CONFIRM_PRESENT_SAMPLES);
+  TEST_ASSERT_EQUAL_UINT32(1000u, MAINS_DETECTOR_SAMPLE_PERIOD_MS);
 }
 
 // Una fuente intermitente (enchufe flojo, generador inestable) no puede hacer
@@ -310,10 +311,11 @@ void test_blind_limit_is_thirty_seconds(void) {
 
 void test_invalid_readings_do_not_refresh_the_blindness_clock(void) {
   feed(true, true, 100000);
-  for (int i = 1; i <= 8; ++i) {
+  const int n = (int)(MAINS_DETECTOR_BLIND_MS / PERIOD_MS) + 2;
+  for (int i = 1; i <= n; ++i) {
     feed(false, false, 100000 + (uint32_t)i * PERIOD_MS);
   }
-  TEST_ASSERT_TRUE(blind(100000 + 8 * PERIOD_MS));
+  TEST_ASSERT_TRUE(blind(100000 + (uint32_t)n * PERIOD_MS));
 }
 
 void test_a_valid_reading_ends_the_blindness(void) {

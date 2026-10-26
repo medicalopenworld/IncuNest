@@ -4,7 +4,7 @@
 // hardware.
 //
 // La entrada es "hay red / no hay red" segun el cargador BQ25730 (bit AC_STAT
-// de su registro de estado), leida cada 5 s por sensors_Task. La salida es la
+// de su registro de estado), leida cada 1 s por sensors_Task. La salida es la
 // condicion que se le da a alarm_machine_condition(). Nada de Arduino aqui: lo
 // ejercitan los tests de host (motherBoard/test/test_mains_detector).
 //
@@ -12,10 +12,9 @@
 // *-shared-mains-detector-fixes/design.md)
 //
 //  1. Antirrebote de entrada, asimetrico: 2 lecturas VALIDAS consecutivas sin
-//     red para declarar (~10 s con el periodo de 5 s) y 6 con red para retirar
-//     (~30 s). Una sola lectura de ausencia no levanta una alarma ALTA que el
-//     operador no puede silenciar, y una fuente intermitente no la hace
-//     oscilar (ver las constantes).
+//     red para declarar (~2 s con el periodo de 1 s) y 5 con red para retirar
+//     (~5 s). Una sola lectura de ausencia no levanta la alarma, y una fuente
+//     intermitente no la hace oscilar (ver las constantes).
 //
 //  2. Plazo minimo de aviso (MAINS_ALARM_MIN_HOLD_MS), contado DESDE LA
 //     DECLARACION: si la red vuelve antes de vencerlo, la condicion se mantiene
@@ -53,14 +52,19 @@ extern "C" {
 #endif
 
 // Histeresis ASIMETRICA: declarar rapido, retirar despacio.
-//  - 2 lecturas validas seguidas SIN red declaran (~10 s a 5 s por lectura);
-//  - 6 lecturas validas seguidas CON red retiran (~30 s). Cualquier ausencia
+//  - 2 lecturas validas seguidas SIN red declaran (~2 s a 1 s por lectura);
+//  - 5 lecturas validas seguidas CON red retiran (~5 s). Cualquier ausencia
 //    reinicia esa racha.
+// Hasta el 2026-10-26 se leia cada 5 s (~10 s / ~30 s): en banco, 30 s para
+// retirar con la red ya enchufada se percibia como un fallo.
 // Una fuente intermitente (enchufe flojo, grupo inestable) mantiene asi la
 // alarma continua en vez de oscilar: cada retirada y levantada es una entrada
 // en el historial, una escritura en flash y un rearme del audio.
 #define MAINS_DETECTOR_CONFIRM_ABSENT_SAMPLES 2u
-#define MAINS_DETECTOR_CONFIRM_PRESENT_SAMPLES 6u
+#define MAINS_DETECTOR_CONFIRM_PRESENT_SAMPLES 5u
+
+// Periodo de lectura del cargador en sensors_Task (main.cpp).
+#define MAINS_DETECTOR_SAMPLE_PERIOD_MS 1000u
 
 // El detector solo se ARMA tras ver red en esta cantidad de lecturas validas
 // seguidas desde el arranque. Arrancar en bateria no es una interrupcion de
@@ -75,7 +79,7 @@ extern "C" {
 #define MAINS_ALARM_MIN_HOLD_MS 0u
 
 // Sin lectura valida del cargador durante mas de esto, el detector esta ciego
-// (6 lecturas a 5 s).
+// (30 lecturas a 1 s).
 #define MAINS_DETECTOR_BLIND_MS 30000u
 
 typedef struct {

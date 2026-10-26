@@ -37,7 +37,7 @@ se añaden al final.
 | 4 | `ALARM_SKIN_SENSOR_FAULT_SKIN_MODE` | mismo mecanismo de staleness que el 3 pero sobre la sonda de piel, con su propia ventana `MINIMUM_SUCCESSFULL_SKIN_SENSOR_UPDATE` = 5000 ms (~25 muestras a 200 ms), y solo cuando `in3.controlMode == CONTROL_SKIN` | ALTA | sí |
 | 5 | `ALARM_FAN_FAILURE` | en marcha, `in3.fan_rpm < FAN_MIN_RPM` (3000 rpm, `board.h:185`), con histéresis de 300 rpm para despejar (`checkFanSpeed()`); solo evaluable con `in3.fanHasSpeedFeedback`. **También la declara el autotest de arranque** (`initHardware.cpp:412,677,732,740,779`), antes de que exista lazo de control | ALTA | sí |
 | 6 | `ALARM_AIR_OUTLET_BLOCKED` | en marcha, `fanControlPIDOutput > FAN_DUTY_BLOCKED_THRESHOLD` (220, se retira bajo 200, `board.h`) sostenido `AIR_BLOCKED_SUSTAIN_MS` = 5000 ms (`checkAirBlockage()`). **También la declara el autotest de arranque** (`initHardware.cpp:803`) | ALTA | sí |
-| 7 | `ALARM_MAINS_INTERRUPTION` | `mains_detector` (`modules/control/mains_detector.cpp`): bit AC_STAT del cargador BQ25730 ausente en **2 lecturas válidas consecutivas** (cada 5 s, ≈ 10 s); se retira al confirmarse **6 lecturas seguidas de red presente (≈ 30 s)**; cualquier ausencia reinicia esa racha (plazo mínimo `MAINS_ALARM_MIN_HOLD_MS` = 0, conservado como mecanismo); evaluada en `checkMainsInterruption()`. **Solo se arma tras ver red** en 2 lecturas seguidas desde el arranque: un equipo que arranca en batería (o alimentado por el conector de batería, como el banco) no tiene nada interrumpido y no avisa; si luego se enchufa y se desenchufa, sí. Lectura no válida del cargador = sin efecto; placa sin cargador (HW < 17) o en test de fábrica, nunca se declara. Ver §9 | MEDIA (desde 2026-10-26; antes ALTA) | no (no hay condición que cortar). **Silenciable** como las demás (desde 2026-10-26): el banner y el icono de batería no se retiran nunca y el audio vuelve a los 10 min si sigue sin red. En batería el equipo sigue calentando, así que el daño es diferido (Tabla 1 → MEDIA); 201.12.3.103 se lee como autonomía de 10 min, no como prohibición de silenciar. Pendiente de confirmar en el expediente de riesgos |
+| 7 | `ALARM_MAINS_INTERRUPTION` | `mains_detector` (`modules/control/mains_detector.cpp`): bit AC_STAT del cargador BQ25730 ausente en **2 lecturas válidas consecutivas** (cada 1 s, ≈ 2 s); se retira al confirmarse **5 lecturas seguidas de red presente (≈ 5 s)**; cualquier ausencia reinicia esa racha (plazo mínimo `MAINS_ALARM_MIN_HOLD_MS` = 0, conservado como mecanismo); evaluada en `checkMainsInterruption()`. **Solo se arma tras ver red** en 2 lecturas seguidas desde el arranque: un equipo que arranca en batería (o alimentado por el conector de batería, como el banco) no tiene nada interrumpido y no avisa; si luego se enchufa y se desenchufa, sí. Lectura no válida del cargador = sin efecto; placa sin cargador (HW < 17) o en test de fábrica, nunca se declara. Ver §9 | MEDIA (desde 2026-10-26; antes ALTA) | no (no hay condición que cortar). **Silenciable** como las demás (desde 2026-10-26): el banner y el icono de batería no se retiran nunca y el audio vuelve a los 10 min si sigue sin red. En batería el equipo sigue calentando, así que el daño es diferido (Tabla 1 → MEDIA); 201.12.3.103 se lee como autonomía de 10 min, no como prohibición de silenciar. Pendiente de confirmar en el expediente de riesgos |
 | 8 | `ALARM_AIR_TEMP_DEVIATION_HIGH` | en modo aire, `temperatura − consigna > 1.0 °C` (`AIR_TEMP_DEVIATION_LIMIT_C`, `checkAlarms()`) | MEDIA | sí |
 | 9 | `ALARM_AIR_TEMP_DEVIATION_LOW` | en modo aire, `consigna − temperatura > 1.0 °C`, y solo tras cerrar la ventana de estabilización (§5) | MEDIA | no |
 | 10 | `ALARM_SKIN_TEMP_DEVIATION_HIGH` | en modo piel, `temperatura − consigna > 1.0 °C` (`SKIN_TEMP_DEVIATION_LIMIT_C`) | MEDIA | sí |
@@ -690,14 +690,14 @@ hace hoy, para no inducir a confiar en protecciones que no existen.
 - ~~`ALARM_MAINS_INTERRUPTION` no tiene detector~~ — **implementado en
   firmware**; sigue pendiente la parte de hardware. Cambio OpenSpec
   `shared-mains-detector`.
-  - **Qué hace.** `sensors_Task` lee el BQ25730 cada 5 s y alimenta
+  - **Qué hace.** `sensors_Task` lee el BQ25730 cada 1 s (cada 5 s hasta el 2026-10-26) y alimenta
     `mains_detector` (lógica pura, probada en `[env:native]`:
     `test_mains_detector`) a través de `mains_present_now()` (`main.cpp`), el
     único punto donde se decide «hay red». `securityCheck()` consulta el
     detector y llama a `alarm_machine_condition(ALARM_MAINS_INTERRUPTION, ...)`.
   - **Histéresis asimétrica: declarar rápido, retirar despacio.** 2 lecturas
-    válidas consecutivas sin red declaran (≈ 10 s); **6 lecturas válidas
-    consecutivas con red** retiran (≈ 30 s), y cualquier ausencia reinicia esa
+    válidas consecutivas sin red declaran (≈ 2 s); **5 lecturas válidas
+    consecutivas con red** retiran (≈ 5 s), y cualquier ausencia reinicia esa
     racha (`MAINS_DETECTOR_CONFIRM_ABSENT_SAMPLES` / `_PRESENT_SAMPLES`).
     Criterio: una sola lectura no levanta una alarma ALTA que el operador no
     puede silenciar, y una fuente intermitente (enchufe flojo, grupo
