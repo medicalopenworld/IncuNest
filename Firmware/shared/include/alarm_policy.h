@@ -21,15 +21,17 @@ bool alarm_announces_immediately(AlarmId id);
 
 // true si el operador puede inactivar el audio de esta condicion.
 //
-// Solo hay una excepcion, y es ALARM_MAINS_INTERRUPTION: 60601-2-19
-// 201.12.3.103 exige que el aviso de corte de red se mantenga un MINIMO de
-// 10 min, y la pausa de audio dura exactamente eso
-// (ALARM_AUDIO_PAUSE_MS). Silenciarla no se comeria parte de la duracion
-// obligatoria: se la comeria entera.
+// Hoy todas lo son. ALARM_MAINS_INTERRUPTION fue la excepcion hasta el
+// 2026-10-26: 60601-2-19 201.12.3.103 pide que el aviso de corte de red se
+// pueda dar durante un MINIMO de 10 min, y la pausa dura justo eso. Se lee
+// como requisito de AUTONOMIA (el equipo tiene que poder sostener el aviso 10
+// min sin red; ver docs/alarms_normative_analysis.md 2.5), no como prohibicion
+// de silenciar: silenciar no retira la condicion, el banner no se inactiva
+// nunca (6.8.1) y el audio vuelve solo al acabar la pausa (201.12.3.104). Un
+// corte de horas sin poder callarlo acababa con el equipo apagado.
 //
-// 6.8.1 lo permite: dice "Means MAY be provided" para inactivar senales, y no
-// obliga a ofrecerlo condicion por condicion. La senal visual, en cambio, no
-// se inactiva nunca (eso si es obligatorio).
+// La funcion se conserva como punto unico por el que pasan todas las vias de
+// silencio (placa y display), por si riesgos reintroduce una excepcion.
 bool alarm_is_silenceable(AlarmId id);
 
 // true si la norma exige desconectar la alimentacion del calefactor mientras
@@ -56,13 +58,13 @@ bool alarm_cuts_heater(AlarmId id);
 // VALOR ACTUAL: 10 min. 6.8.5 obliga a declararlo en las instrucciones de
 // uso; esta en docs/alarms.md.
 //
-// Consecuencia que hay que tener presente: 201.12.3.103 exige que el aviso de
-// interrupcion de alimentacion se mantenga un minimo de 10 min, justo lo que
-// dura esta pausa. Silenciar esa alarma se come practicamente toda su
-// duracion obligatoria. Se acepta porque 6.8.4 permite al operador terminar
-// el silencio cuando quiera y la senal VISUAL nunca se inactiva (6.8.1), pero
-// si el analisis de riesgos lo revisa, el candidato natural es excluir
-// ALARM_MAINS_INTERRUPTION del silencio, no acortar esto.
+// Consecuencia que hay que tener presente: 201.12.3.103 pide que el aviso de
+// interrupcion de alimentacion pueda durar un minimo de 10 min, justo lo que
+// dura esta pausa. Se acepta porque se lee como requisito de autonomia, 6.8.4
+// permite al operador terminar el silencio cuando quiera y la senal VISUAL
+// nunca se inactiva (6.8.1). Si el analisis de riesgos lo revisa, el candidato
+// natural es excluir ALARM_MAINS_INTERRUPTION del silencio en
+// alarm_is_silenceable(), no acortar esto.
 //
 // La excepcion de hasta 30 min de 201.12.3.104 es solo para el calentamiento
 // desde COLD CONDITION, y se gestiona aparte con el retardo de anuncio

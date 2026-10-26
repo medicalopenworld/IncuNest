@@ -10,8 +10,7 @@ void test_high_priority_set(void) {
   const AlarmId high[] = {
       ALARM_AIR_THERMAL_CUTOUT,  ALARM_SKIN_THERMAL_CUTOUT,
       ALARM_AIR_SENSOR_FAULT,    ALARM_SKIN_SENSOR_FAULT_SKIN_MODE,
-      ALARM_FAN_FAILURE,         ALARM_AIR_OUTLET_BLOCKED,
-      ALARM_MAINS_INTERRUPTION};
+      ALARM_FAN_FAILURE,         ALARM_AIR_OUTLET_BLOCKED};
   for (unsigned i = 0; i < sizeof(high) / sizeof(high[0]); ++i) {
     TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_HIGH, alarm_priority(high[i]));
   }
@@ -25,7 +24,9 @@ void test_medium_priority_set(void) {
       ALARM_HEATER_FAULT,             ALARM_SUPPLY_UNDERVOLTAGE,
       ALARM_HMI_LINK_LOST,            ALARM_SENSORBOARD_LINK_LOST,
       // Terapia indicada que no se da: ver alarm_priority().
-      ALARM_PHOTO_LAMP_FAULT};
+      ALARM_PHOTO_LAMP_FAULT,
+      // En bateria sigue calentando: onset diferido (decision 2026-10-26).
+      ALARM_MAINS_INTERRUPTION};
   for (unsigned i = 0; i < sizeof(medium) / sizeof(medium[0]); ++i) {
     TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_MEDIUM, alarm_priority(medium[i]));
   }
@@ -54,7 +55,7 @@ void test_photo_lamp_fault_is_notify_only(void) {
   TEST_ASSERT_EQUAL_INT(ALARM_PHOTO_LAMP_FAULT + 1, ALARM_COUNT);
 }
 
-// El reparto declarado en la spec: 7 ALTA / 10 MEDIA / 3 BAJA.
+// El reparto declarado en la spec: 6 ALTA / 11 MEDIA / 3 BAJA.
 //
 // La MEDIA subio de 7 a 8 al separar ALARM_HEATER_SENSOR_FAULT de
 // ALARM_HEATER_FAULT: son averias distintas (calefactor frente a su sensor de
@@ -64,14 +65,17 @@ void test_photo_lamp_fault_is_notify_only(void) {
 // el mismo criterio que ALARM_HMI_LINK_LOST (se cae una placa periferica
 // entera), y su hall de puerta sospechoso es BAJA, como el resto de sensores
 // auxiliares averiados que no tocan el control termico.
+//
+// El corte de red bajo de ALTA a MEDIA el 2026-10-26 (onset diferido: en
+// bateria el equipo sigue calentando; ver alarm_priority()).
 void test_priority_distribution(void) {
   int counts[3] = {0, 0, 0};
   for (int id = ALARM_NONE + 1; id < ALARM_COUNT; ++id) {
     counts[alarm_priority((AlarmId)id)]++;
   }
   TEST_ASSERT_EQUAL_INT(3, counts[ALARM_PRIORITY_LOW]);
-  TEST_ASSERT_EQUAL_INT(10, counts[ALARM_PRIORITY_MEDIUM]);
-  TEST_ASSERT_EQUAL_INT(7, counts[ALARM_PRIORITY_HIGH]);
+  TEST_ASSERT_EQUAL_INT(11, counts[ALARM_PRIORITY_MEDIUM]);
+  TEST_ASSERT_EQUAL_INT(6, counts[ALARM_PRIORITY_HIGH]);
 }
 
 // Las dos averias de calefactor comparten urgencia y comparten corte, pero no
@@ -165,22 +169,21 @@ void test_cold_side_deviation_never_cuts_the_heater(void) {
   TEST_ASSERT_FALSE(alarm_cuts_heater(ALARM_SKIN_TEMP_DEVIATION_LOW));
 }
 
-// La unica condicion de prioridad ALTA que NO corta el calefactor, y por eso
-// merece su propio assert: no hay condicion fisica que cortar. 201.12.3.103
-// pide avisar de la interrupcion de red; cortar el calefactor al recuperarla
-// solo enfriaria al bebe. Todas las demas ALTA si cortan, asi que sin fijar
-// esto un "cortan todas las ALTA" pasaria desapercibido.
+// El corte de red no corta el calefactor: no hay condicion fisica que cortar,
+// y cortarlo en bateria solo enfriaria al bebe. Desde que bajo a MEDIA
+// (2026-10-26) todas las ALTA cortan sin excepcion.
 void test_mains_interruption_does_not_cut_the_heater(void) {
-  TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_HIGH,
-                        alarm_priority(ALARM_MAINS_INTERRUPTION));
   TEST_ASSERT_FALSE(alarm_cuts_heater(ALARM_MAINS_INTERRUPTION));
-  // Y es la unica ALTA en esa situacion.
   for (int id = ALARM_NONE + 1; id < ALARM_COUNT; ++id) {
-    if (alarm_priority((AlarmId)id) != ALARM_PRIORITY_HIGH ||
-        id == ALARM_MAINS_INTERRUPTION) {
-      continue;
-    }
+    if (alarm_priority((AlarmId)id) != ALARM_PRIORITY_HIGH) continue;
     TEST_ASSERT_TRUE(alarm_cuts_heater((AlarmId)id));
+  }
+}
+
+// Ninguna condicion queda fuera del silencio (ver alarm_is_silenceable()).
+void test_every_condition_is_silenceable_by_policy(void) {
+  for (int id = ALARM_NONE + 1; id < ALARM_COUNT; ++id) {
+    TEST_ASSERT_TRUE(alarm_is_silenceable((AlarmId)id));
   }
 }
 
@@ -247,6 +250,7 @@ int main(void) {
   RUN_TEST(test_conditions_that_must_cut_the_heater);
   RUN_TEST(test_cold_side_deviation_never_cuts_the_heater);
   RUN_TEST(test_mains_interruption_does_not_cut_the_heater);
+  RUN_TEST(test_every_condition_is_silenceable_by_policy);
   RUN_TEST(test_notify_only_conditions_do_not_cut_the_heater);
   RUN_TEST(test_air_cutout_is_capped_at_40);
   RUN_TEST(test_air_setpoint_ceiling_stays_below_the_cutout);

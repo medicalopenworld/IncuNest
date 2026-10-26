@@ -8,8 +8,15 @@ AlarmPriority alarm_priority(AlarmId id) {
     case ALARM_SKIN_SENSOR_FAULT_SKIN_MODE:
     case ALARM_FAN_FAILURE:
     case ALARM_AIR_OUTLET_BLOCKED:
-    case ALARM_MAINS_INTERRUPTION:
       return ALARM_PRIORITY_HIGH;
+
+    // Decision del responsable del producto (2026-10-26), a revisar en el
+    // expediente de riesgos. En bateria el equipo sigue calentando: el dano
+    // (enfriamiento) solo empieza al agotarse la bateria, asi que el onset es
+    // DIFERIDO y la Tabla 1 da MEDIA. 201.12.3.103 pide el aviso, no su
+    // prioridad. En ALTA, un corte de horas era un zumbido que el personal
+    // acaba ignorando o apagando con el equipo.
+    case ALARM_MAINS_INTERRUPTION:
 
     case ALARM_AIR_TEMP_DEVIATION_HIGH:
     case ALARM_AIR_TEMP_DEVIATION_LOW:
@@ -85,7 +92,8 @@ bool alarm_announces_immediately(AlarmId id) {
 }
 
 bool alarm_is_silenceable(AlarmId id) {
-  return id != ALARM_MAINS_INTERRUPTION;
+  (void)id;
+  return true;
 }
 
 bool alarm_cuts_heater(AlarmId id) {

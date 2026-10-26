@@ -37,7 +37,7 @@ se añaden al final.
 | 4 | `ALARM_SKIN_SENSOR_FAULT_SKIN_MODE` | mismo mecanismo de staleness que el 3 pero sobre la sonda de piel, con su propia ventana `MINIMUM_SUCCESSFULL_SKIN_SENSOR_UPDATE` = 5000 ms (~25 muestras a 200 ms), y solo cuando `in3.controlMode == CONTROL_SKIN` | ALTA | sí |
 | 5 | `ALARM_FAN_FAILURE` | en marcha, `in3.fan_rpm < FAN_MIN_RPM` (3000 rpm, `board.h:185`), con histéresis de 300 rpm para despejar (`checkFanSpeed()`); solo evaluable con `in3.fanHasSpeedFeedback`. **También la declara el autotest de arranque** (`initHardware.cpp:412,677,732,740,779`), antes de que exista lazo de control | ALTA | sí |
 | 6 | `ALARM_AIR_OUTLET_BLOCKED` | en marcha, `fanControlPIDOutput > FAN_DUTY_BLOCKED_THRESHOLD` (220, se retira bajo 200, `board.h`) sostenido `AIR_BLOCKED_SUSTAIN_MS` = 5000 ms (`checkAirBlockage()`). **También la declara el autotest de arranque** (`initHardware.cpp:803`) | ALTA | sí |
-| 7 | `ALARM_MAINS_INTERRUPTION` | `mains_detector` (`modules/control/mains_detector.cpp`): bit AC_STAT del cargador BQ25730 ausente en **2 lecturas válidas consecutivas** (cada 5 s, ≈ 10 s); se retira al confirmarse **6 lecturas seguidas de red presente (≈ 30 s)**; cualquier ausencia reinicia esa racha (plazo mínimo `MAINS_ALARM_MIN_HOLD_MS` = 0, conservado como mecanismo); evaluada en `checkMainsInterruption()`. **Solo se arma tras ver red** en 2 lecturas seguidas desde el arranque: un equipo que arranca en batería (o alimentado por el conector de batería, como el banco) no tiene nada interrumpido y no avisa; si luego se enchufa y se desenchufa, sí. Lectura no válida del cargador = sin efecto; placa sin cargador (HW < 17) o en test de fábrica, nunca se declara. Ver §9 | ALTA | no (no hay condición que cortar). **No silenciable**: 201.12.3.103 exige 10 min de aviso y la pausa dura justo eso |
+| 7 | `ALARM_MAINS_INTERRUPTION` | `mains_detector` (`modules/control/mains_detector.cpp`): bit AC_STAT del cargador BQ25730 ausente en **2 lecturas válidas consecutivas** (cada 5 s, ≈ 10 s); se retira al confirmarse **6 lecturas seguidas de red presente (≈ 30 s)**; cualquier ausencia reinicia esa racha (plazo mínimo `MAINS_ALARM_MIN_HOLD_MS` = 0, conservado como mecanismo); evaluada en `checkMainsInterruption()`. **Solo se arma tras ver red** en 2 lecturas seguidas desde el arranque: un equipo que arranca en batería (o alimentado por el conector de batería, como el banco) no tiene nada interrumpido y no avisa; si luego se enchufa y se desenchufa, sí. Lectura no válida del cargador = sin efecto; placa sin cargador (HW < 17) o en test de fábrica, nunca se declara. Ver §9 | MEDIA (desde 2026-10-26; antes ALTA) | no (no hay condición que cortar). **Silenciable** como las demás (desde 2026-10-26): el banner y el icono de batería no se retiran nunca y el audio vuelve a los 10 min si sigue sin red. En batería el equipo sigue calentando, así que el daño es diferido (Tabla 1 → MEDIA); 201.12.3.103 se lee como autonomía de 10 min, no como prohibición de silenciar. Pendiente de confirmar en el expediente de riesgos |
 | 8 | `ALARM_AIR_TEMP_DEVIATION_HIGH` | en modo aire, `temperatura − consigna > 1.0 °C` (`AIR_TEMP_DEVIATION_LIMIT_C`, `checkAlarms()`) | MEDIA | sí |
 | 9 | `ALARM_AIR_TEMP_DEVIATION_LOW` | en modo aire, `consigna − temperatura > 1.0 °C`, y solo tras cerrar la ventana de estabilización (§5) | MEDIA | no |
 | 10 | `ALARM_SKIN_TEMP_DEVIATION_HIGH` | en modo piel, `temperatura − consigna > 1.0 °C` (`SKIN_TEMP_DEVIATION_LIMIT_C`) | MEDIA | sí |
@@ -272,13 +272,15 @@ definida en `motherBoard/include/main.h`.
 > código era errónea: esa cláusula trata de los estados globales
 > *indefinidos* ALARM OFF / AUDIO OFF y no fija duración alguna.)
 >
-> **Interacción conocida:** 201.12.3.103 exige que el aviso de interrupción de
-> alimentación se mantenga un mínimo de 10 min — exactamente lo que dura esta
-> pausa. Silenciar esa alarma concreta consume prácticamente toda su duración
-> obligatoria. Se acepta porque la señal **visual** nunca se inactiva y el
-> operador puede terminar el silencio cuando quiera (6.8.4). Si el análisis de
-> riesgos lo revisa, el candidato es excluir `ALARM_MAINS_INTERRUPTION` del
-> silencio, no acortar la pausa general.
+> **Interacción conocida:** 201.12.3.103 pide que el aviso de interrupción de
+> alimentación pueda mantenerse un mínimo de 10 min — exactamente lo que dura
+> esta pausa. Desde el 2026-10-26 el corte de red **se puede silenciar** como
+> cualquier otra alarma (decisión del responsable de producto): la cláusula se
+> lee como requisito de autonomía, la señal **visual** nunca se inactiva y el
+> operador puede terminar el silencio cuando quiera (6.8.4). Sin silencio, un
+> corte de horas acababa con el equipo apagado. Si el análisis de riesgos lo
+> revisa, el candidato es volver a excluir `ALARM_MAINS_INTERRUPTION` en
+> `alarm_is_silenceable()`, no acortar la pausa general.
 
 Como el silencio actúa condición por condición y solo sobre las que ya están
 activas en el momento de la pulsación, una condición nueva que aparezca

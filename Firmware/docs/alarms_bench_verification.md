@@ -305,8 +305,8 @@ de hora chocaba con el de resolución.
   las pantallas**, y el número **baja segundo a segundo**.
 - El botón dice **REANUDAR** en verde; al pulsarlo el audio vuelve de inmediato.
 - A los 10 minutos el audio vuelve solo y el botón se ofrece otra vez.
-- La fila del corte de red sale con **NO SILENCIABLE** desactivado y no se
-  puede callar: 201.12.3.103 exige 10 min de aviso y la pausa dura justo eso.
+- La fila del corte de red se silencia como las demás (desde 2026-10-26); su
+  banner y el icono de batería del bloqueo siguen a la vista.
 
 **Si falla.** Consulta la tabla de descartes de `known_issues.md` #6 antes de
 investigar nada. El silencio en la placa, el formato, el `sscanf`, la longitud
@@ -484,7 +484,7 @@ cronómetro. Enchufa y desenchufa **el cable de red del equipo**, no la batería
 | Fuente intermitente | enchufa y desenchufa la red cada ~20 s (corte de 10 s, red de 10 s) durante varios minutos | la alarma se declara y **se mantiene continua**: no oscila ni genera una retirada y levantada por ciclo en el historial |
 | Chip mudo al arrancar | arranca con el BQ25730 desconectado del bus I2C (placa HW 17+) y conéctalo a los 2 min | a los 30 s `logE` y `charger_comm_fault` (no «sin cargador»); al volver el chip se configura solo en el siguiente reintento (esperas 5, 10, 20... s hasta 5 min) y la batería carga |
 | Configuración fallando | fuerza fallos de la reconfiguración al volver la red (p. ej. con el bus ruidoso) | un `logE` por episodio y luego uno cada 5 min, no uno cada 5 s; **lee el registro 0x04 (MaxChargeVoltage) tras un ciclo de red con la reconfiguración fallando**: tiene que valer lo configurado (14,4 V de absorción) o, si no se llegó a escribir, el valor de fábrica; hay que descartar sobrecarga con ese valor de fábrica |
-| No silenciable | pulsa silenciar durante el aviso | el audio no se inactiva (201.12.3.103) |
+| Silenciable | pulsa silenciar durante el aviso | el audio se pausa 10 min; el banner y el icono de batería siguen; si sigue sin red, vuelve a sonar (prioridad MEDIA) |
 | Sin cargador | placa sin BQ25730 | nunca hay aviso; un `logE` al arrancar |
 
 **Indicador.** En Main solo hay **icono** (la palabra pisaba la fecha); en Lock,
