@@ -901,12 +901,16 @@ previous file intact and an orphan `.tmp` that the next dump truncates. A real
 failure aborts, frees the staging buffer and retries after a full period (never
 in a loop); the in-RAM trend is unaffected. **Consequence:** during a long alarm
 the trend is not saved, so a power cut in the middle of an alarm loses back to
-the last dump (up to the alarm's length + 5 min). Cost: ~27 block erases per
-dump; with the usual 5 min period that is ≈5 erases/block/day over ~1450
-blocks, but with frequent locks the 2 min floor means one dump every 2 min:
-720 dumps/day × 27 = 19 440 erases/day ≈ **13 erases/block/day** — still ~20
-years of a 100 000-cycle budget. **Maximum loss on a power cut (no alarm): 5 min
-of samples and the edges in them.**
+the last save (up to the alarm's length + 30 min).
+
+**Journal and period (2026-10-26).** The periodic save normally *appends* only the new
+slots to `/trend.jnl` (24-byte records with CRC, one write of < 8 KB) instead of
+rewriting the full snapshot; the snapshot is rewritten (and the journal dropped)
+about once a day or when the journal can't be trusted. Every flash write still stalls
+the PSRAM cache and shifts the panel image for a frame or two until the RGB restart
+puts it back, so the period is **30 min** (lock entry: at least 20 min since the last
+save), not 5. **Maximum loss on a power cut (no alarm): 30 min of samples and the
+edges in them** (product decision).
 
 **Known risk — UART without an IRAM-safe ISR during erases (A1/A2).** A flash
 erase suspends the instruction cache; the UART driver's ISR is not placed in IRAM

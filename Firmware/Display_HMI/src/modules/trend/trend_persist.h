@@ -15,9 +15,9 @@
 //   1. la primera vez, restaura /trend.bin + /trend.jnl ANTEPONIENDOLOS al
 //      modelo, en tramos (lectura de 4 KB por pasada; fusion con el diario,
 //      CRC y escritura al anillo por tramos);
-//   2. si toca (cada 5 min, o al entrar en bloqueo con >= 2 min desde el
+//   2. si toca (cada 30 min, o al entrar en bloqueo con >= 20 min desde el
 //      ultimo), ANADE las ranuras nuevas a /trend.jnl en una sola escritura de
-//      < 4 KB (ver trend_journal.h). Solo si eso no vale (sin instantanea, hora
+//      < 8 KB (ver trend_journal.h). Solo si eso no vale (sin instantanea, hora
 //      re-etiquetada, diario lleno tras ~24 h, fallo) serializa una
 //      instantanea del anillo a un buffer de PSRAM POR TRAMOS (series y CRC) y,
 //      en las pasadas siguientes, la escribe en trozos de 4 KB, uno por pasada

@@ -113,9 +113,9 @@ namespace {
 constexpr int64_t SLOT_A = 170000100;
 }
 
-void test_dump_constants_are_5_min_and_2_min(void) {
-  TEST_ASSERT_EQUAL_UINT32(300000u, TREND_DUMP_PERIOD_MS);
-  TEST_ASSERT_EQUAL_UINT32(120000u, TREND_DUMP_LOCK_MIN_MS);
+void test_dump_constants_are_30_min_and_20_min(void) {
+  TEST_ASSERT_EQUAL_UINT32(1800000u, TREND_DUMP_PERIOD_MS);
+  TEST_ASSERT_EQUAL_UINT32(1200000u, TREND_DUMP_LOCK_MIN_MS);
   TEST_ASSERT_EQUAL_UINT32(4096u, (uint32_t)TREND_CHUNK_BYTES);
   TEST_ASSERT_EQUAL_UINT32(50u, TREND_CHUNK_GAP_MS);
 }
@@ -240,7 +240,7 @@ int main(int, char **) {
   RUN_TEST(test_a_rejected_file_blocks_the_dump_until_the_grace_expires);
   RUN_TEST(test_without_a_rejected_file_nothing_is_blocked);
   RUN_TEST(test_the_grace_survives_the_millis_wraparound);
-  RUN_TEST(test_dump_constants_are_5_min_and_2_min);
+  RUN_TEST(test_dump_constants_are_30_min_and_20_min);
   RUN_TEST(test_dump_never_without_synced_clock_or_samples);
   RUN_TEST(test_dump_waits_a_full_period_from_start);
   RUN_TEST(test_lock_entry_dumps_only_after_the_minimum_gap);

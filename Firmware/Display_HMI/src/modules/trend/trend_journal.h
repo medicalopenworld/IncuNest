@@ -33,7 +33,9 @@ constexpr size_t TREND_JNL_REC_BYTES = 24;
 constexpr int TREND_JNL_MAX_RECORDS = TREND_CAPACITY;
 // Un anadido mayor que esto (p. ej. tras horas sin poder escribir por alarmas)
 // ya no es "una escritura pequena": se hace una instantanea completa.
-constexpr int TREND_JNL_APPEND_MAX_RECORDS = 170;  // 170 * 24 = 4080 B < 4 KB
+// 30 min de ranuras de 10 s son 180 registros, mas los flancos: cabe en dos
+// bloques de LittleFS.
+constexpr int TREND_JNL_APPEND_MAX_RECORDS = 340;  // 340 * 24 = 8160 B < 8 KB
 
 // Registros que harian falta para anadir las ranuras (afterSlot, lastSlot] y
 // los flancos con slot > afterSlot.

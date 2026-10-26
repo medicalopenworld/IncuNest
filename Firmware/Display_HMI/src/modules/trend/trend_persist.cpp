@@ -18,11 +18,11 @@
 //                  Merge* (instantanea + diario en un anillo temporal y de
 //                  vuelta a imagen de fichero, por tramos)] -> RestoreRun*
 //                  (CRC y escritura por tramos)
-//   anadido:       Idle -> Idle (una sola escritura de < 4 KB en /trend.jnl)
+//   anadido:       Idle -> Idle (una sola escritura de < 8 KB en /trend.jnl)
 //   volcado:       Idle -> DumpSerialize* (series y CRC por tramos) ->
 //                  DumpWrite* (4 KB por pasada, separados >= 50 ms) -> Idle
 //
-// Cada 5 min se ANADE al diario si lo que hay en disco sigue en sintonia con el
+// Cada 30 min se ANADE al diario si lo que hay en disco sigue en sintonia con el
 // modelo; la instantanea completa (13 bloques: ~1 s de temblor del panel, ver
 // trend_journal.h) solo se reescribe al compactar o cuando no hay sintonia.
 //
@@ -478,7 +478,7 @@ void stepWrite(uint32_t nowMs) {
            (unsigned)((total + TREND_CHUNK_BYTES - 1) / TREND_CHUNK_BYTES));
 }
 
-// Anadido al diario en una sola escritura de < 4 KB: lo normal cada 5 min. Si
+// Anadido al diario en una sola escritura de < 8 KB: lo normal cada 30 min. Si
 // no se puede (sin sintonia con el disco, hora re-etiquetada, diario lleno o
 // demasiadas ranuras pendientes) devuelve false y toca instantanea completa.
 bool tryAppendJournal(TrendModel *m, uint32_t nowMs) {

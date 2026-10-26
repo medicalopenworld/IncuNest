@@ -26,12 +26,15 @@ int trend_slot_to_px(int64_t slot, int64_t startSlot, int64_t totalSlots,
                      int widthPx);
 
 // ---- Politica de volcado (hmi-trend, persistencia) ------------------------
-// Cada 5 min si han entrado muestras nuevas, y al entrar en bloqueo con una
-// separacion minima de 2 min respecto al volcado anterior: el auto-bloqueo se
+// Cada 30 min si han entrado muestras nuevas, y al entrar en bloqueo con una
+// separacion minima de 20 min respecto al volcado anterior: el auto-bloqueo se
 // dispara tras cada interaccion (20 s) y sin tope cada toque seria un volcado.
-// Un volcado cuesta ~27 borrados de bloque de LittleFS.
-constexpr uint32_t TREND_DUMP_PERIOD_MS = 5u * 60u * 1000u;
-constexpr uint32_t TREND_DUMP_LOCK_MIN_MS = 2u * 60u * 1000u;
+// Cada escritura en flash para la cache de PSRAM y descuadra la imagen del
+// panel un instante (el rearme la recoloca): con 5 min se veia un tiron cada
+// 5 min. A cambio, un corte de corriente pierde hasta 30 min de tendencia
+// (decision del responsable de producto, 2026-10-26).
+constexpr uint32_t TREND_DUMP_PERIOD_MS = 30u * 60u * 1000u;
+constexpr uint32_t TREND_DUMP_LOCK_MIN_MS = 20u * 60u * 1000u;
 // El volcado se escribe en trozos: uno por pasada del bucle y no mas de uno
 // cada TREND_CHUNK_GAP_MS. 4 KB = un bloque de LittleFS = un borrado (~45 ms
 // con la cache de flash parada): troceado, el refresco respira entre trozos.

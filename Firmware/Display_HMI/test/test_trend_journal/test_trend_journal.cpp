@@ -4,6 +4,7 @@
 
 #include "modules/trend/trend_file.h"
 #include "modules/trend/trend_journal.h"
+#include "modules/trend/trend_policy.h"
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -183,9 +184,12 @@ void test_build_rejects_non_epoch_slots(void) {
   TEST_ASSERT_EQUAL_UINT32(0, trend_jnl_build(&r.st, &r.ev, -6, buf, sizeof buf));
 }
 
-// El limite de un anadido cabe en un bloque de LittleFS.
+// El limite de un anadido cabe en dos bloques de LittleFS y admite un periodo
+// entero de volcado (ranuras de 10 s) con holgura para flancos.
 void test_append_limit_fits_one_block(void) {
-  TEST_ASSERT_TRUE(TREND_JNL_APPEND_MAX_RECORDS * TREND_JNL_REC_BYTES <= 4096);
+  TEST_ASSERT_TRUE(TREND_JNL_APPEND_MAX_RECORDS * TREND_JNL_REC_BYTES <= 8192);
+  TEST_ASSERT_TRUE(TREND_JNL_APPEND_MAX_RECORDS >=
+                   (int)(TREND_DUMP_PERIOD_MS / 10000u) + 64);
 }
 
 // Instantanea + diario serializados como fichero: lo que restaura el arranque.
