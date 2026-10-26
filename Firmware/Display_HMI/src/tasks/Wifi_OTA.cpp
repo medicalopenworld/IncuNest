@@ -615,7 +615,25 @@ void WIFIProvisionResponse(const JsonObjectConst &data) {
   serializeJson(data, buffer, jsonSize);
 
   if (strncmp(data["status"], "SUCCESS", strlen("SUCCESS")) != 0) {
-    ESP_LOGE(TAG, "Provision FAIL: %s", data["errorMsg"].as<String>().c_str());
+    // Nombre ya dado de alta (token perdido u otra unidad con el mismo
+    // numero de serie): se reintenta con sufijo, como la placa. Sin esto el
+    // HMI repetia la misma peticion rechazada indefinidamente.
+    Wifi_TB.provision_retry_count++;
+    if (Wifi_TB.provision_retry_count <= PROVISION_MAX_RETRIES) {
+      ESP_LOGW(TAG, "Provision FAIL: %s - reintento %u como %s-%d_%u",
+               data["errorMsg"].as<String>().c_str(),
+               (unsigned)Wifi_TB.provision_retry_count, WIFI_NAME,
+               in3.serialNumber, (unsigned)Wifi_TB.provision_retry_count);
+      Wifi_TB.provision_request_sent = false;
+    } else {
+      ESP_LOGE(TAG,
+               "Provision AGOTADO tras %u reintentos: %s-%d y sus _1.._%u ya "
+               "existen en el servidor. No se vuelve a intentar hasta "
+               "reiniciar; hay que borrarlos en ThingsBoard o dar otro numero "
+               "de serie a la unidad.",
+               (unsigned)PROVISION_MAX_RETRIES, WIFI_NAME, in3.serialNumber,
+               (unsigned)PROVISION_MAX_RETRIES);
+    }
     return;
   }
 
@@ -663,7 +681,12 @@ void WIFITBProvision() {
       return;
     }
   }
+  // Agotados los reintentos no se insiste: la peticion seria rechazada igual.
+  if (Wifi_TB.provision_retry_count > PROVISION_MAX_RETRIES) return;
   String deviceName = String(WIFI_NAME) + "-" + String(in3.serialNumber);
+  if (Wifi_TB.provision_retry_count > 0)
+    deviceName += "_" + String(Wifi_TB.provision_retry_count);
+  ESP_LOGI(TAG, "Provisioning request as %s", deviceName.c_str());
   const Provision_Callback provisionCallback(
       Access_Token(), &WIFIProvisionResponse, PROVISION_DEVICE_KEY,
       PROVISION_DEVICE_SECRET, deviceName.c_str());
