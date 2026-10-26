@@ -98,6 +98,13 @@ LV_IMG_DECLARE(ui_img_iso7010_m025_png); // assets_src/ISO_7010_M025.png
 // IEC 60417-5576 con X DISCONTINUA = AUDIO PAUSED (IEC 60601-1-8 Tabla 5).
 // Mascara de 1 bit: se tine con el color del estilo segun la prioridad.
 LV_IMG_DECLARE(ui_img_audio_paused_sym); // assets_src/IEC 60417-5576-2.png
+// Iconos del heading del bloqueo: blanco + alfa, se tinen con img_recolor.
+// Los genera tools/gen_heading_icons.py.
+LV_IMG_DECLARE(ui_img_heading_door);       // assets_src/heading_door.png 22x22
+LV_IMG_DECLARE(ui_img_heading_noise_low);  // assets_src/heading_noise_low.png 26x22
+LV_IMG_DECLARE(ui_img_heading_noise_mid);  // assets_src/heading_noise_mid.png 26x22
+LV_IMG_DECLARE(ui_img_heading_noise_high); // assets_src/heading_noise_high.png 26x22
+LV_IMG_DECLARE(ui_img_heading_battery);    // assets_src/heading_battery.png 32x18
 #if INTRO_FLAG == INTRO_FLAG_TOGO
 LV_IMG_DECLARE(ui_img_flag_togo_png);      // assets_src/Flag_Togo.png
 #elif INTRO_FLAG == INTRO_FLAG_RASD
@@ -143,24 +150,19 @@ extern lv_obj_t * ui_ConnIcon;
 extern lv_obj_t * ui_ConnBar[4];
 
 // Indicador del entorno de la SensorBoard (puerta abierta, nivel de ruido):
-// dos filas de pictograma + palabra corta. Una instancia vive dentro de
-// la franja libre de ui_ClockButton (Main) y otra en el heading de ui_ScreenLock. Las refresca
-// sb_env_heading_update() (UITask.cpp); aqui solo se crean, ocultas.
+// dos filas de icono + palabra corta. Solo en el heading de ui_ScreenLock: en
+// Main no hay hueco (ayuda, reloj, conectividad, candado, Bebes, alarmas y
+// ajustes llenan el ancho). Lo refresca sb_env_heading_update() (UITask.cpp);
+// aqui solo se crea, oculto.
 typedef struct {
   lv_obj_t * cont;       // contenedor; oculto salvo que haya algo que pintar
   lv_obj_t * doorRow;
-  lv_obj_t * doorFrame;  // pictograma: marco de la puerta...
-  lv_obj_t * doorLeaf;   // ...y la hoja abierta
+  lv_obj_t * doorIcon;   // ui_img_heading_door
   lv_obj_t * doorText;
   lv_obj_t * noiseRow;
-  lv_obj_t * noiseIcon;  // simbolo de altavoz (LV_SYMBOL_VOLUME_*)
+  lv_obj_t * noiseIcon;  // ui_img_heading_noise_{low,mid,high}
   lv_obj_t * noiseText;
 } ui_HeadingEnv_t;
-// Filas del indicador de entorno dentro de su contenedor (66x48). La fila
-// 0..16 queda para el icono "en bateria" de Main, que va en la misma franja.
-#define HEADING_ENV_DOOR_ROW_Y 16
-#define HEADING_ENV_NOISE_ROW_Y 32
-extern ui_HeadingEnv_t ui_HeadingEnvMain;
 extern ui_HeadingEnv_t ui_HeadingEnvLock;
 extern lv_obj_t * ui_Settings;
 extern lv_obj_t * ui_AlarmButton;
@@ -479,11 +481,10 @@ extern lv_obj_t * ui_LockHeadingClockDate;
 extern lv_obj_t * ui_LockHeadingConnCont;
 extern lv_obj_t * ui_LockHeadingConnIcon;
 extern lv_obj_t * ui_LockHeadingConnBar[4];
-// Indicador "en bateria" del heading, una instancia por pantalla. Main lleva
-// SOLO el icono, dentro del boton del reloj (no hay sitio para la palabra sin
-// pisar la fecha); Lock, icono y palabra en el slot de ayuda (vacio ahi). Lo refresca on_battery_heading_update()
+// Indicador "en bateria" del heading del bloqueo: icono y palabra en el slot de
+// ayuda (vacio ahi). En Main no va: no hay hueco y la alarma de interrupcion de
+// red ya sale en la barra de alarmas. Lo refresca on_battery_heading_update()
 // (UITask.cpp) desde el bit de ALARM_MAINS_INTERRUPTION de alarmBitmask.
-extern lv_obj_t * ui_OnBatteryIcon;
 extern lv_obj_t * ui_LockOnBatteryIcon;
 extern lv_obj_t * ui_LockOnBatteryText;
 extern lv_obj_t * ui_Container1;

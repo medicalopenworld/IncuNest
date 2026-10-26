@@ -848,8 +848,8 @@ void connectivity_heading_update(void) {
 }
 
 // Indicador del entorno de la SensorBoard en el heading: puerta ABIERTA y nivel
-// de RUIDO (Bajo/Medio/Alto), en Main (sobre la franja libre del boton del reloj) y replicado
-// en el bloqueo. Solo informativo.
+// de RUIDO (Bajo/Medio/Alto), solo en el heading del bloqueo (en Main no hay
+// hueco). Solo informativo.
 //
 // Que se pinta lo decide sbenv_view() (sb_env.cpp, con test de host): nada si el
 // equipo no tiene SensorBoard (nunca llega CTRL,ENV), si el dato esta rancio o
@@ -862,23 +862,24 @@ void connectivity_heading_update(void) {
 // pintar y solo se toca LVGL cuando cambia. La firma incluye el idioma, para
 // que el cambio de idioma redibuje los textos.
 static constexpr uint32_t kEnvSigInvalid = 0xFFFFFFFFu;
-static uint32_t s_sbEnvSigMain = kEnvSigInvalid;
 static uint32_t s_sbEnvSigLock = kEnvSigInvalid;
+static int s_onBatterySig = -1;
 
 // UI_ApplyTheme() barre TODAS las etiquetas con un color unico y se llevaria por
-// delante el amarillo de "atencion": la firma se invalida y la proxima pasada
-// vuelve a pintar (mismo motivo que wifi_link_status_invalidate()).
+// delante el amarillo de "atencion" y el ambar de "en bateria": las firmas se
+// invalidan y la proxima pasada vuelve a pintar (mismo motivo que
+// wifi_link_status_invalidate()).
 static void sb_env_heading_invalidate(void) {
-  s_sbEnvSigMain = kEnvSigInvalid;
   s_sbEnvSigLock = kEnvSigInvalid;
+  s_onBatterySig = -1;
 }
 
 static void apply_heading_env(const ui_HeadingEnv_t *w, const SbEnvView &v,
-                              bool hideAll, uint32_t *lastSig) {
+                              uint32_t *lastSig) {
   if (!w->cont) return;
 
-  const bool showDoor = !hideAll && v.doorOpen;
-  const bool showNoise = !hideAll && v.noise != SBENV_NOISE_NONE;
+  const bool showDoor = v.doorOpen;
+  const bool showNoise = v.noise != SBENV_NOISE_NONE;
 
   const uint32_t sig = (showDoor ? 1u : 0u) |
                        ((showNoise ? (uint32_t)v.noise : 0u) << 1) |
@@ -893,36 +894,34 @@ static void apply_heading_env(const ui_HeadingEnv_t *w, const SbEnvView &v,
   lv_obj_clear_flag(w->cont, LV_OBJ_FLAG_HIDDEN);
 
   // Blanco = informativo; amarillo = merece atencion (puerta abierta, ruido
-  // alto). Legible tanto sobre el azul del boton del reloj como sobre el fondo
-  // oscuro del bloqueo. El texto lleva siempre la palabra: el color solo no
-  // basta.
+  // alto), sobre el fondo oscuro del bloqueo. El texto lleva siempre la
+  // palabra: el color solo no basta. Los iconos son blanco + alfa y se tinen
+  // con img_recolor.
   static const lv_color_t WHITE = lv_color_hex(0xFFFFFF);
   static const lv_color_t ALERT = lv_color_hex(0xFFD400);
-
-  // Filas fijas (HEADING_ENV_*_ROW_Y, ElementsCreation.h): la de arriba de la
-  // franja es del icono "en bateria" y no se comparte.
 
   if (showDoor) {
     lv_obj_clear_flag(w->doorRow, LV_OBJ_FLAG_HIDDEN);
     lv_label_set_text(w->doorText, TR(STR_ENV_DOOR_OPEN));
     lv_obj_set_style_text_color(w->doorText, ALERT, LV_PART_MAIN);
-    lv_obj_set_style_border_color(w->doorFrame, ALERT, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(w->doorLeaf, ALERT, LV_PART_MAIN);
+    lv_obj_set_style_img_recolor(w->doorIcon, ALERT, LV_PART_MAIN);
   } else {
     lv_obj_add_flag(w->doorRow, LV_OBJ_FLAG_HIDDEN);
   }
 
   if (showNoise) {
     lv_obj_clear_flag(w->noiseRow, LV_OBJ_FLAG_HIDDEN);
-    const char *symbol = LV_SYMBOL_VOLUME_MAX;
+    // Ondas del altavoz: 1 bajo, 2 medio, 3 alto.
+    const lv_img_dsc_t *icon = &ui_img_heading_noise_mid;
     const char *word = TR(STR_ENV_NOISE_MID);
     lv_color_t color = WHITE;
     switch (v.noise) {
     case SBENV_NOISE_LOW:
-      symbol = LV_SYMBOL_VOLUME_MID;
+      icon = &ui_img_heading_noise_low;
       word = TR(STR_ENV_NOISE_LOW);
       break;
     case SBENV_NOISE_HIGH:
+      icon = &ui_img_heading_noise_high;
       word = TR(STR_ENV_NOISE_HIGH);
       color = ALERT;
       break;
@@ -931,9 +930,9 @@ static void apply_heading_env(const ui_HeadingEnv_t *w, const SbEnvView &v,
     default:
       break;
     }
-    lv_label_set_text(w->noiseIcon, symbol);
+    lv_img_set_src(w->noiseIcon, icon);
     lv_label_set_text(w->noiseText, word);
-    lv_obj_set_style_text_color(w->noiseIcon, color, LV_PART_MAIN);
+    lv_obj_set_style_img_recolor(w->noiseIcon, color, LV_PART_MAIN);
     lv_obj_set_style_text_color(w->noiseText, color, LV_PART_MAIN);
   } else {
     lv_obj_add_flag(w->noiseRow, LV_OBJ_FLAG_HIDDEN);
@@ -942,17 +941,10 @@ static void apply_heading_env(const ui_HeadingEnv_t *w, const SbEnvView &v,
 
 static void sb_env_heading_update(void) {
   const SbEnvView v = Display_GetSbEnvView();
-
-  // En Main el indicador vive en la franja libre a la derecha de la hora. Con
-  // "Sin hora" (sin epoch) el texto de 26 pt la invade, asi que ahi se oculta;
-  // es un estado transitorio y el indicador es informativo. La replica del
-  // bloqueo esta lejos del reloj y no tiene ese problema.
-  const bool noClock = (HMI_GetEpochNow() == 0);
-  apply_heading_env(&ui_HeadingEnvMain, v, noClock, &s_sbEnvSigMain);
-  apply_heading_env(&ui_HeadingEnvLock, v, false, &s_sbEnvSigLock);
+  apply_heading_env(&ui_HeadingEnvLock, v, &s_sbEnvSigLock);
 }
 
-// Indicador "en bateria" del heading (Main y su replica en Lock).
+// Indicador "en bateria" del heading del bloqueo.
 //
 // La fuente es el bit de ALARM_MAINS_INTERRUPTION en alarmBitmask de
 // CTRL,STATE: la placa ya lo calcula (detector de red, con su antirrebote) y el
@@ -967,36 +959,29 @@ static void sb_env_heading_update(void) {
 //
 // Corre en cada pasada del bucle de UI, ya dentro del bloqueo de LVGL, y solo
 // toca widgets: nada de NVS ni I2C aqui (ARQ-LOCK-001). Solo escribe cuando
-// cambia la senal o el idioma, para no repintar a 20 Hz.
-// `text` es NULL en Main, que lleva solo el icono (no cabe la palabra sin pisar
-// la fecha del reloj).
-static void apply_on_battery_indicator(lv_obj_t *icon, lv_obj_t *text, bool on) {
-  if (!icon) return;
-  if (on) {
-    lv_obj_clear_flag(icon, LV_OBJ_FLAG_HIDDEN);
-    if (text) {
-      lv_label_set_text(text, TR(STR_ON_BATTERY));
-      lv_obj_clear_flag(text, LV_OBJ_FLAG_HIDDEN);
-    }
-  } else {
-    lv_obj_add_flag(icon, LV_OBJ_FLAG_HIDDEN);
-    if (text) lv_obj_add_flag(text, LV_OBJ_FLAG_HIDDEN);
-  }
-}
-
+// cambia la senal o el idioma (o tras UI_ApplyTheme), para no repintar a 20 Hz.
 void on_battery_heading_update(void) {
+  if (!ui_LockOnBatteryIcon || !ui_LockOnBatteryText) return;
   const uint32_t mask = ctrl_state_msg.alarmBitmask;
   const bool on = !Display_IsBoardLinkLost() && mask != (uint32_t)-1 &&
                   ((mask >> ALARM_MAINS_INTERRUPTION) & 1u) != 0;
 
   // 0 = oculto; 1 + idioma = visible en ese idioma.
   const int signature = on ? 1 + (int)g_lang : 0;
-  static int lastSignature = -1;
-  if (signature == lastSignature) return;
-  lastSignature = signature;
+  if (signature == s_onBatterySig) return;
+  s_onBatterySig = signature;
 
-  apply_on_battery_indicator(ui_OnBatteryIcon, NULL, on);
-  apply_on_battery_indicator(ui_LockOnBatteryIcon, ui_LockOnBatteryText, on);
+  if (on) {
+    static const lv_color_t AMBER = lv_color_hex(0xFFC107);
+    lv_obj_set_style_img_recolor(ui_LockOnBatteryIcon, AMBER, LV_PART_MAIN);
+    lv_label_set_text(ui_LockOnBatteryText, TR(STR_ON_BATTERY));
+    lv_obj_set_style_text_color(ui_LockOnBatteryText, AMBER, LV_PART_MAIN);
+    lv_obj_clear_flag(ui_LockOnBatteryIcon, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_LockOnBatteryText, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_add_flag(ui_LockOnBatteryIcon, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_LockOnBatteryText, LV_OBJ_FLAG_HIDDEN);
+  }
 }
 
 void link_lost_blank_update(void) {
