@@ -328,15 +328,6 @@ extern lv_obj_t * ui_HumidityModeCont;
 extern lv_obj_t * ui_PanelHumidityMode;
 extern lv_obj_t * ui_HumidityModeLabel;
 extern lv_obj_t * ui_SwitchHumidityMode;
-// Brillo y modo noche (hmi-brightness): ultimas dos filas de ui_ModesConfigCont.
-extern lv_obj_t * ui_BrightnessCont;
-extern lv_obj_t * ui_PanelBrightness;
-extern lv_obj_t * ui_BrightnessLabel;
-extern lv_obj_t * ui_SliderBrightness;
-extern lv_obj_t * ui_NightModeCont;
-extern lv_obj_t * ui_PanelNightMode;
-extern lv_obj_t * ui_NightModeLabel;
-extern lv_obj_t * ui_SwitchNightMode;
 // Fila MANTENIMIENTO de Ajustes y su panel: cada cuanto recordar la limpieza,
 // cuando se registro la ultima y un boton para registrarla a mano.
 extern lv_obj_t * ui_MaintCont;

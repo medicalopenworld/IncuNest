@@ -62,8 +62,6 @@ extern bool OTA_inprogress;
 // (incluido arriba).
 
 extern bool darkMode;        // Global Dark Mode state
-extern uint8_t g_brightnessUserPct; // Brillo elegido en Ajustes, 20-100 %
-extern bool g_nightMode;            // Modo noche (atenua en bloqueo)
 extern bool humidityEnabled;   // Humidity control enabled from Settings
 extern bool skinPanelEnabled;  // Skin mode control enabled from Settings
 extern double airTempValue, skinTempValue;

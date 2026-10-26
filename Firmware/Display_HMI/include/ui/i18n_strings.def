@@ -102,8 +102,6 @@ UI_STR(STR_NO_SKIN_PROBE,      "SIN SONDA DE PIEL",
                                "SONDA DE PELE AUSENTE")
 UI_STR(STR_INFO,               "INFO",         "INFO",        "INFO",        "INFO")
 UI_STR(STR_DARK_MODE,          "MODO OSCURO",  "DARK MODE",   "MODE SOMBRE", "MODO ESCURO")
-UI_STR(STR_BRIGHTNESS,         "BRILLO",       "BRIGHTNESS",  "LUMINOSITE",  "BRILHO")
-UI_STR(STR_NIGHT_MODE,         "MODO NOCHE",   "NIGHT MODE",  "MODE NUIT",   "MODO NOTURNO")
 UI_STR(STR_MODES,              "MODOS",        "MODES",       "MODES",       "MODOS")
 UI_STR(STR_HUMIDITY_CONTROL,   "CONTROL HUMEDAD",
                                "HUMIDITY CONTROL",

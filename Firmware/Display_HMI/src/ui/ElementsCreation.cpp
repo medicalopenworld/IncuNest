@@ -4,7 +4,6 @@
 #include "ui/FactoryTest.h"
 #include "ui_helpers.h"
 #include "main.h"
-#include "modules/brightness/brightness_policy.h"
 #include <Arduino.h>
 
 // ============================================================================
@@ -200,14 +199,6 @@ lv_obj_t *ui_HumidityModeCont = NULL;
 lv_obj_t *ui_PanelHumidityMode = NULL;
 lv_obj_t *ui_HumidityModeLabel = NULL;
 lv_obj_t *ui_SwitchHumidityMode = NULL;
-lv_obj_t *ui_BrightnessCont = NULL;
-lv_obj_t *ui_PanelBrightness = NULL;
-lv_obj_t *ui_BrightnessLabel = NULL;
-lv_obj_t *ui_SliderBrightness = NULL;
-lv_obj_t *ui_NightModeCont = NULL;
-lv_obj_t *ui_PanelNightMode = NULL;
-lv_obj_t *ui_NightModeLabel = NULL;
-lv_obj_t *ui_SwitchNightMode = NULL;
 lv_obj_t *ui_InfoCont = NULL;
 lv_obj_t *ui_InfoPanel = NULL;
 lv_obj_t *ui_InfoLabel = NULL;
@@ -391,7 +382,6 @@ void LanguageButton_cb(lv_event_t *e);
 extern void ModesButton_cb(lv_event_t *e);
 extern void MaintButton_cb(lv_event_t *e);
 extern void MaintEnableSwitch_cb(lv_event_t *e);
-extern void BrightnessSlider_cb(lv_event_t *e);
 extern void WeighEnableSwitch_cb(lv_event_t *e);
 extern void MaintSvcSwitch_cb(lv_event_t *e);
 extern void MaintOpenButton_cb(lv_event_t *e);
@@ -703,23 +693,6 @@ void ui_event_SwitchDarkMode(lv_event_t *e) {
   lv_event_code_t event_code = lv_event_get_code(e);
   if (event_code == LV_EVENT_VALUE_CHANGED) {
     Switch_cb(e);
-  }
-}
-
-void ui_event_SwitchNightMode(lv_event_t *e) {
-  lv_event_code_t event_code = lv_event_get_code(e);
-  if (event_code == LV_EVENT_VALUE_CHANGED) {
-    Switch_cb(e);
-  }
-}
-
-// Valor en vivo mientras se arrastra; la persistencia, al soltar.
-void ui_event_SliderBrightness(lv_event_t *e) {
-  lv_event_code_t event_code = lv_event_get_code(e);
-  if (event_code == LV_EVENT_VALUE_CHANGED ||
-      event_code == LV_EVENT_RELEASED ||
-      event_code == LV_EVENT_PRESS_LOST) {
-    BrightnessSlider_cb(e);
   }
 }
 
@@ -3220,7 +3193,7 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_width(ui_SkinModeCont, 331);
   lv_obj_set_height(ui_SkinModeCont, 45);
   lv_obj_set_x(ui_SkinModeCont, 185);
-  lv_obj_set_y(ui_SkinModeCont, -85);
+  lv_obj_set_y(ui_SkinModeCont, -60);
   lv_obj_set_align(ui_SkinModeCont, LV_ALIGN_CENTER);
   lv_obj_clear_flag(ui_SkinModeCont,
                     LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
@@ -3253,7 +3226,7 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_width(ui_DarkModeCont, 331);
   lv_obj_set_height(ui_DarkModeCont, 45);
   lv_obj_set_x(ui_DarkModeCont, 185);
-  lv_obj_set_y(ui_DarkModeCont, -30);
+  lv_obj_set_y(ui_DarkModeCont, 0);
   lv_obj_set_align(ui_DarkModeCont, LV_ALIGN_CENTER);
   lv_obj_clear_flag(ui_DarkModeCont,
                     LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
@@ -3287,7 +3260,7 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_width(ui_HumidityModeCont, 331);
   lv_obj_set_height(ui_HumidityModeCont, 45);
   lv_obj_set_x(ui_HumidityModeCont, 185);
-  lv_obj_set_y(ui_HumidityModeCont, 25);
+  lv_obj_set_y(ui_HumidityModeCont, 60);
   lv_obj_set_align(ui_HumidityModeCont, LV_ALIGN_CENTER);
   lv_obj_clear_flag(ui_HumidityModeCont,
                     LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
@@ -3314,79 +3287,6 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_x(ui_SwitchHumidityMode, 111);
   lv_obj_set_y(ui_SwitchHumidityMode, 0);
   lv_obj_set_align(ui_SwitchHumidityMode, LV_ALIGN_CENTER);
-
-  // Brillo de la pantalla (slider 20-100 %). Cuarta fila del panel; el valor
-  // y la etiqueta los pone UITask (UI_ApplyLanguage / arranque).
-  ui_BrightnessCont = lv_obj_create(ui_ModesConfigCont);
-  lv_obj_remove_style_all(ui_BrightnessCont);
-  lv_obj_set_width(ui_BrightnessCont, 331);
-  lv_obj_set_height(ui_BrightnessCont, 45);
-  lv_obj_set_x(ui_BrightnessCont, 185);
-  lv_obj_set_y(ui_BrightnessCont, 80);
-  lv_obj_set_align(ui_BrightnessCont, LV_ALIGN_CENTER);
-  lv_obj_clear_flag(ui_BrightnessCont,
-                    LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-
-  ui_PanelBrightness = lv_obj_create(ui_BrightnessCont);
-  lv_obj_set_width(ui_PanelBrightness, 331);
-  lv_obj_set_height(ui_PanelBrightness, 45);
-  lv_obj_set_align(ui_PanelBrightness, LV_ALIGN_CENTER);
-  lv_obj_clear_flag(ui_PanelBrightness, LV_OBJ_FLAG_SCROLLABLE);
-
-  ui_BrightnessLabel = lv_label_create(ui_BrightnessCont);
-  lv_obj_set_width(ui_BrightnessLabel, LV_SIZE_CONTENT);
-  lv_obj_set_height(ui_BrightnessLabel, LV_SIZE_CONTENT);
-  lv_obj_set_x(ui_BrightnessLabel, 20);
-  lv_obj_set_y(ui_BrightnessLabel, 0);
-  lv_obj_set_align(ui_BrightnessLabel, LV_ALIGN_LEFT_MID);
-  lv_label_set_text(ui_BrightnessLabel, "BRIGHTNESS");
-  lv_obj_set_style_text_font(ui_BrightnessLabel, &lv_font_montserrat_18,
-                             LV_PART_MAIN | LV_STATE_DEFAULT);
-
-  ui_SliderBrightness = lv_slider_create(ui_BrightnessCont);
-  lv_slider_set_range(ui_SliderBrightness, BRIGHTNESS_MIN_PCT,
-                      BRIGHTNESS_MAX_PCT);
-  lv_slider_set_value(ui_SliderBrightness, BRIGHTNESS_DEFAULT_PCT,
-                      LV_ANIM_OFF);
-  lv_obj_set_width(ui_SliderBrightness, 120);
-  lv_obj_set_height(ui_SliderBrightness, 10);
-  lv_obj_set_x(ui_SliderBrightness, -25);
-  lv_obj_set_y(ui_SliderBrightness, 0);
-  lv_obj_set_align(ui_SliderBrightness, LV_ALIGN_RIGHT_MID);
-
-  // Modo noche: atenua la pantalla de bloqueo tras un rato sin tocar.
-  ui_NightModeCont = lv_obj_create(ui_ModesConfigCont);
-  lv_obj_remove_style_all(ui_NightModeCont);
-  lv_obj_set_width(ui_NightModeCont, 331);
-  lv_obj_set_height(ui_NightModeCont, 45);
-  lv_obj_set_x(ui_NightModeCont, 185);
-  lv_obj_set_y(ui_NightModeCont, 135);
-  lv_obj_set_align(ui_NightModeCont, LV_ALIGN_CENTER);
-  lv_obj_clear_flag(ui_NightModeCont,
-                    LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-
-  ui_PanelNightMode = lv_obj_create(ui_NightModeCont);
-  lv_obj_set_width(ui_PanelNightMode, 331);
-  lv_obj_set_height(ui_PanelNightMode, 45);
-  lv_obj_set_align(ui_PanelNightMode, LV_ALIGN_CENTER);
-  lv_obj_clear_flag(ui_PanelNightMode, LV_OBJ_FLAG_SCROLLABLE);
-
-  ui_NightModeLabel = lv_label_create(ui_NightModeCont);
-  lv_obj_set_width(ui_NightModeLabel, LV_SIZE_CONTENT);
-  lv_obj_set_height(ui_NightModeLabel, LV_SIZE_CONTENT);
-  lv_obj_set_x(ui_NightModeLabel, 20);
-  lv_obj_set_y(ui_NightModeLabel, 0);
-  lv_obj_set_align(ui_NightModeLabel, LV_ALIGN_LEFT_MID);
-  lv_label_set_text(ui_NightModeLabel, "NIGHT MODE");
-  lv_obj_set_style_text_font(ui_NightModeLabel, &lv_font_montserrat_18,
-                             LV_PART_MAIN | LV_STATE_DEFAULT);
-
-  ui_SwitchNightMode = lv_switch_create(ui_NightModeCont);
-  lv_obj_set_width(ui_SwitchNightMode, 90);
-  lv_obj_set_height(ui_SwitchNightMode, 35);
-  lv_obj_set_x(ui_SwitchNightMode, 111);
-  lv_obj_set_y(ui_SwitchNightMode, 0);
-  lv_obj_set_align(ui_SwitchNightMode, LV_ALIGN_CENTER);
 
   // --- MAINTENANCE ROW (quinta fila, debajo de MODES) ---
   // Las filas de ui_Container3 van cada 55 px desde y=-100 (Info, WiFi,
@@ -3885,10 +3785,6 @@ void ui_ScreenSettings_screen_init(void) {
                       NULL);
   lv_obj_add_event_cb(ui_SwitchHumidityMode, ui_event_SwitchHumidityMode,
                       LV_EVENT_ALL, NULL);
-  lv_obj_add_event_cb(ui_SwitchNightMode, ui_event_SwitchNightMode,
-                      LV_EVENT_ALL, NULL);
-  lv_obj_add_event_cb(ui_SliderBrightness, ui_event_SliderBrightness,
-                      LV_EVENT_ALL, NULL);
   lv_obj_add_event_cb(ui_TextArea1, ui_event_TextArea1, LV_EVENT_ALL, NULL);
   lv_obj_add_event_cb(ui_TextArea2, ui_event_TextArea2, LV_EVENT_ALL, NULL);
   lv_obj_add_event_cb(ui_Keyboard1, ui_event_Keyboard1, LV_EVENT_ALL, NULL);
@@ -3916,8 +3812,6 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_ext_click_area(ui_Switch4, TOUCH_EXT_NARROW);
   lv_obj_set_ext_click_area(ui_SwitchDarkMode, TOUCH_EXT_NARROW);
   lv_obj_set_ext_click_area(ui_SwitchHumidityMode, TOUCH_EXT_NARROW);
-  lv_obj_set_ext_click_area(ui_SwitchNightMode, TOUCH_EXT_NARROW);
-  lv_obj_set_ext_click_area(ui_SliderBrightness, TOUCH_EXT_NARROW);
   lv_obj_set_ext_click_area(ui_WifiConnectButton, TOUCH_EXT_NARROW);
   lv_obj_set_ext_click_area(ui_WifiDisconnectButton, TOUCH_EXT_NARROW);
 }

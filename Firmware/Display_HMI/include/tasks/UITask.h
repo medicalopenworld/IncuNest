@@ -80,9 +80,6 @@ struct UiControlSnapshot {
   ui_lang_t lang;
   // Estado LV_STATE_CHECKED de los switches ocultos que gobiernan UI_SyncAll.
   bool sw1, sw2, sw3, sw4, swDark, swHum;
-  // Brillo (Ajustes > Modos): lo que una leccion toque se restaura al salir.
-  uint8_t brightnessPct;
-  bool nightMode;
 };
 void UI_GetControlSnapshot(UiControlSnapshot *out);
 // Restaura la instantanea sin disparar callbacks (ui_set_switch_state_silent)

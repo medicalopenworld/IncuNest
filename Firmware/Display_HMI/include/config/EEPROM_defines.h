@@ -31,12 +31,6 @@ constexpr char HMI_KEY_HUM_EN[]      = "hum_en";
 constexpr char HMI_KEY_SKIN_EN[]     = "skin_en";
 constexpr char HMI_KEY_VOLUME[]      = "volume";
 constexpr char HMI_KEY_DISP_FREQ[]   = "disp_freq";
-// Brillo de la retroiluminacion (modules/brightness): nivel de usuario en %
-// (20-100, defecto 100) y modo noche (0/1, defecto 0). Ausentes en unidades
-// ya desplegadas: se leen con el defecto, que reproduce el comportamiento
-// anterior (byte 10).
-constexpr char HMI_KEY_BL_PCT[]      = "bl_pct";
-constexpr char HMI_KEY_BL_NIGHT[]    = "bl_night";
 // Recordatorio de mantenimiento (modules/maintenance). Las fechas son epoch
 // UTC, nunca hora local: la zona puede cambiar y los plazos no deben moverse
 // con ella.

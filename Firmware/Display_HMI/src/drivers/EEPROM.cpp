@@ -26,7 +26,6 @@
 #include <Preferences.h>
 #include "EEPROM_defines.h"
 #include "main.h"
-#include "modules/brightness/brightness_policy.h"
 
 extern char wifi_ssid[64];
 extern char wifi_pass[64];
@@ -151,9 +150,6 @@ void recapVariables() {
     humValue          = p.getUChar (HMI_KEY_HUMIDITY,  DEFAULT_HUMIDITY);
     photoTimerMinutes = p.getUChar (HMI_KEY_PHOTO_MIN, PHOTO_TIMER_EEPROM_DEFAULT);
     darkMode          = p.getUChar (HMI_KEY_DARK_MODE, 0) != 0;
-    g_brightnessUserPct = Brightness_ClampPct(
-        p.getUChar(HMI_KEY_BL_PCT, BRIGHTNESS_DEFAULT_PCT));
-    g_nightMode       = p.getUChar (HMI_KEY_BL_NIGHT,  0) != 0;
     humidityEnabled   = p.getUChar (HMI_KEY_HUM_EN,    0) != 0;
     skinPanelEnabled  = p.getUChar (HMI_KEY_SKIN_EN,   0) != 0;
     in3.serialNumber  = p.getInt   (HMI_KEY_SERIAL,    0);
