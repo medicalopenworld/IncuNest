@@ -12,8 +12,14 @@ menu "SensorBoard mic_sensor"
 
     config SB_MIC_PUBLISH_PERIOD_S
         int "Periodo de publicacion de sound_level (segundos)"
-        default 5
+        default 1
         range 1 600
+        help
+            Con el periodo igual a la ventana (1 s) la medida es continua:
+            las ventanas se encadenan sin pausa y no se pierde ningun ruido.
+            La alarma de ruido de la motherboard (ALARM_NOISE_HIGH, 10 s)
+            cuenta con lecturas seguidas. Con un periodo mayor se escucha
+            solo una ventana de cada periodo.
 
     config SB_MIC_DB_OFFSET_TENTHS
         int "Offset de calibracion dBFS->SPL (decimas de dB)"
