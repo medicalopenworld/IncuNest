@@ -83,6 +83,12 @@ código es:
 - **BAJA (4)**: `SKIN_SENSOR_FAULT_AIR_MODE`, `HUMIDITY_DEVIATION`,
   `SENSORBOARD_DOOR_FAULT`, `NOISE_HIGH`.
 
+**La 21 (`BATTERY_LOW`) está desactivada desde 2026-10-28** junto con el
+indicador de batería (`PROTO_BATT_ENABLED 0`, `shared/include/protocol.h`): hay
+equipos con un adaptador de 12 V en los bornes de la batería y la daría en
+falso. `checkBatteryLow()` la mantiene retirada; se reactiva con el flag cuando
+la batería entre en fabricación. Lo que sigue vale para entonces.
+
 **La 21 (`BATTERY_LOW`, 2026-10-27) va a ALTA, provisional hasta el expediente
 de riesgos.** A diferencia del corte de red, quedan minutos antes de que se
 apague el equipo entero, sistema de alarmas incluido: después ya no habrá aviso

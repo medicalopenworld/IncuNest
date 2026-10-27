@@ -65,13 +65,21 @@ typedef enum {
 // (ALARM_MAINS_INTERRUPTION) y no depende de esta linea.
 //
 //  state: PROTO_BATT_STATE_*.
-//  level: rayas 0..PROTO_BATT_LEVEL_MAX. Es medida solo en DISCHARGING; en FULL
-//         vale el maximo y en CHARGING es el ultimo nivel conocido, que el
-//         display no pinta como medida.
-//  pct:   0..100, estimacion por tension. Mismo criterio que level.
+//  level: rayas 0..PROTO_BATT_LEVEL_MAX. En DISCHARGING, por tension; en FULL
+//         vale el maximo; en CHARGING, por la carga integrada.
+//  pct:   0..100. Mismo criterio que level.
 //
 // Un equipo sin cargador (HW < 17) no envia la linea: el display, al no
 // recibirla, no pinta indicador.
+
+// Indicador de bateria y alarma BATERIA BAJA, en las dos placas. APAGADO hasta
+// que la bateria entre en fabricacion: hoy hay equipos alimentados con un
+// adaptador de 12 V en los bornes de la bateria, y ahi el cargador ve una
+// "bateria" sin red, que pintaria una bateria descargandose y podria disparar
+// BATERIA BAJA (ALTA) en falso. Con 0 la motherBoard no envia CTRL,BATT ni
+// evalua la alarma, y el display no crea el indicador; el estimador
+// (battery_gauge) sigue corriendo para tenerlo listo al encenderlo.
+#define PROTO_BATT_ENABLED 0
 #define PROTO_BATT_STATE_UNKNOWN      0
 #define PROTO_BATT_STATE_DISCHARGING  1  // sin red
 #define PROTO_BATT_STATE_CHARGING     2  // con red, cargando

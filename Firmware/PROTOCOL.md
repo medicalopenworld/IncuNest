@@ -302,6 +302,12 @@ UART. No es un campo de `CTRL,STATE` porque esa línea va al filo de su buffer
   nuevas. El fallo del hall ya lo señaliza `ALARM_SENSORBOARD_DOOR_FAULT`.
 
 #### CTRL,BATT (Indicador de batería)
+> **Desactivado hoy** (`PROTO_BATT_ENABLED 0` en `shared/include/protocol.h`,
+> 2026-10-28): la motherBoard no envía la línea y el display no crea el
+> indicador hasta que la batería entre en fabricación. Hay equipos con un
+> adaptador de 12 V en los bornes de la batería, donde el cargador ve una
+> "batería" sin red. Lo que sigue describe el comportamiento con el flag a 1.
+
 Enviado **solo por equipos con cargador BQ25730** (HW ≥ 17) y solo cuando el
 estado es conocido: **al instante** si cambia `state` o `level`, **cada 5 s**
 (`PROTO_BATT_PERIOD_MS`) si no, y de nuevo al recibir `HMI,REQ,STATE`. Lo estima

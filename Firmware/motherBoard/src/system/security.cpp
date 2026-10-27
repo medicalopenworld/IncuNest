@@ -1232,8 +1232,10 @@ static void checkMainsInterruption()
 static void checkBatteryLow()
 {
   extern volatile uint32_t g_batt_report;
-  const bool present =
-      !g_factoryTestActive && battery_gauge_report_low(g_batt_report);
+  // Nunca con PROTO_BATT_ENABLED = 0 (ver protocol.h): hay equipos con un
+  // adaptador de 12 V en los bornes de la bateria, y la daria en falso.
+  const bool present = PROTO_BATT_ENABLED && !g_factoryTestActive &&
+                       battery_gauge_report_low(g_batt_report);
   alarm_machine_condition(ALARM_BATTERY_LOW, present, millis());
 }
 

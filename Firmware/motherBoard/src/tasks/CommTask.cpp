@@ -1558,7 +1558,9 @@ void Communication_Task(void *pvParameters) {
       // una linea fuera de su periodo.
       const bool changed =
           !batt_sent_once || ((report ^ last_batt_sent) & 0xFFFF00u) != 0;
-      if (state != PROTO_BATT_STATE_UNKNOWN &&
+      // Apagado con PROTO_BATT_ENABLED = 0 (ver protocol.h): sin la linea el
+      // display no pinta indicador.
+      if (PROTO_BATT_ENABLED && state != PROTO_BATT_STATE_UNKNOWN &&
           (changed || stateRequested ||
            (uint32_t)(now - last_batt_sent_ms) >= PROTO_BATT_PERIOD_MS)) {
         char batt_msg[PROTO_BATT_LINE_MAX + 2];
