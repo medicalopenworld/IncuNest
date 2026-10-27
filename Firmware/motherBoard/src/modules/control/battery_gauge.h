@@ -12,8 +12,8 @@
 //     (BATT_GAUGE_RINT_MOHM). Sin esto, el calefactor al encender hunde la
 //     tension y el indicador bajaria y subiria con cada ciclo de la PWM.
 //  2. Media movil exponencial (1/BATT_GAUGE_EMA_DIV por muestra, ~8 s): las
-//     dos medidas son gruesas (VBAT a 64 mV por paso, IDCHG a ~0,85 A por paso
-//     con el shunt de 3 mOhm) y la carga cambia a saltos.
+//     la tension es gruesa (VBAT a 64 mV por paso) y la carga cambia a
+//     saltos.
 //  3. Porcentaje por la curva de tension en reposo de una bateria de plomo de
 //     12 V (tabla en battery_gauge.cpp), interpolada. Al empezar la descarga
 //     se toma el MENOR entre ese valor y el ultimo conocido: recien quitada la
@@ -90,8 +90,13 @@ void battery_gauge_restore(BatteryGauge *g, uint8_t percent);
 // Una lectura del cargador. `valid` false (fallo de I2C) no cambia nada.
 // `ac_present`: hay red. `full`: el cargador ya paso a flotacion.
 // `dt_ms`: tiempo desde la lectura anterior (para integrar la carga).
+// `dischg_ma`: corriente que sale de la bateria. Sin red la da el shunt de
+// sistema de la placa (in3.system_current), no el ADC IDCHG del BQ25730: en
+// banco ese marcaba 0 con 6,7 A saliendo de la bateria. Con red si vale el
+// ADC IDCHG (la bateria completando al convertidor), y se descuenta de la
+// carga integrada.
 void battery_gauge_sample(BatteryGauge *g, bool valid, bool ac_present,
-                          bool full, uint16_t vbat_mv, uint16_t idchg_ma,
+                          bool full, uint16_t vbat_mv, uint16_t dischg_ma,
                           uint16_t ichg_ma, uint32_t dt_ms);
 
 // Curva de reposo: tension (mV) -> porcentaje 0..100.

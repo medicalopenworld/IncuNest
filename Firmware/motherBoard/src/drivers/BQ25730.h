@@ -73,6 +73,11 @@
 #define BQ25730_OPT0_CHRG_INHIBIT                                              \
   ((uint16_t)(1 << 0)) // Inhibir carga (0=cargar)
 
+// ─── ChargeOption3 (0x34) ─────────────────────────────────────────────────────
+// [4:3] IL_AVG, tope de corriente media en la bobina: 00b=6A 01b=10A
+// 10b=15A (POR) 11b=sin tope (SLUSE65 tabla 8-33).
+#define BQ25730_OPT3_IL_AVG_15A ((uint16_t)(2u << 3))
+
 // ─── ChargeOption1 (0x30) – bits según PDF V2 ────────────────────────────────
 #define BQ25730_OPT1_EN_IBAT ((uint16_t)(1 << 15)) // Habilitar medición IBAT
 #define BQ25730_OPT1_RSNS_RAC                                                  \
@@ -144,11 +149,15 @@
 #define BQ25730_ADC_IDCHG_STEP_MA 512
 #define BQ25730_ADC_IBUS_STEP_MA 100 // mA/bit nominal con RSNS_RAC=1 (5 mΩ)
 
-// ─── Parámetros de carga para batería Plomo-Ácido abierto 12V 7Ah
+// ─── Parámetros de carga: plomo-ácido sellada 12 V 9 Ah (SILUJ; ciclo
+// 14,4-15,0 V, espera 13,5-13,8 V a 25 C)
 // ───────────────
 #define BQ25730_VCHARGE_ABSORPTION_MV 14400 // 900 × 16 mV → registro 0x3840
 #define BQ25730_VCHARGE_FLOAT_MV 13648      // 853 × 16 mV → registro 0x3550
-#define BQ25730_ICHG_MA 960                 // Corriente de carga real [mA]
+// 1,92 A = 0,21 C. Antes figuraba como 960 con 64 mA/paso, pero con shunt
+// de 5 mOhm el paso es 128 mA y la corriente real ya era 1,92 A (medida en
+// banco con el ADC y con el balance de potencia de la entrada).
+#define BQ25730_ICHG_MA 1920                // Corriente de carga real [mA]
 #define BQ25730_ICHG_TERM_MA 320            // Umbral fin absorción [mA]
 #define BQ25730_IIN_LIMIT_MA 6400           // Límite entrada máximo [mA real]
 // VSYS_MIN: 100 mV/bit + 1000 mV offset → 11000 mV

@@ -301,17 +301,20 @@ MainsDetector g_mains_detector = MAINS_DETECTOR_INITIALIZER;
 BatteryGauge g_batt_gauge = BATTERY_GAUGE_INITIALIZER;
 volatile uint32_t g_batt_report = 0;
 
-// El ultimo porcentaje conocido sobrevive a un apagado (NVS "batt"/"pct"):
+// El ultimo porcentaje conocido sobrevive a un apagado (NVS "batt"/"soc"):
 // con red el indicador integra la carga desde ahi, y sin nada guardado tendria
 // que partir de 0. Se escribe solo cada BATT_PERSIST_STEP_PCT puntos (y al
 // llegar al 100): una descarga o una carga completas son ~20 escrituras.
 #define BATT_PERSIST_STEP_PCT 5
+// "soc" y no "pct": las unidades de banco guardaron en "pct" lo integrado
+// desde 0 sin historia (un valor falso y bajo, ver battery_gauge.cpp).
+#define BATT_NVS_KEY "soc"
 static int s_battSavedPct = -1;  // -1 = nada guardado
 
 static void batt_gauge_restore_from_nvs() {
   Preferences p;
   p.begin("batt", true);
-  const int v = p.getUChar("pct", 255);
+  const int v = p.getUChar(BATT_NVS_KEY, 255);
   p.end();
   if (v <= 100) {
     s_battSavedPct = v;
@@ -330,7 +333,7 @@ static void batt_gauge_persist() {
   }
   Preferences p;
   p.begin("batt", false);
-  p.putUChar("pct", (uint8_t)pct);
+  p.putUChar(BATT_NVS_KEY, (uint8_t)pct);
   p.end();
   s_battSavedPct = pct;
 }
@@ -524,10 +527,19 @@ void sensors_Task(void *pvParameters) {
         }
         const uint16_t ichg = (g_bq_status.ichg_ma > 0)
                                   ? (uint16_t)g_bq_status.ichg_ma : 0u;
+        // Sin red todo lo que consume el sistema sale de la bateria: el shunt
+        // de sistema de la placa lo mide bien, y el ADC IDCHG del cargador no
+        // (0 en banco con 6,7 A de descarga). Con red si sirve el IDCHG: es
+        // lo que la bateria pone cuando el convertidor no llega.
+        const double sys_a = in3.system_current;
+        const uint16_t dischg =
+            g_bq_status.ac_present
+                ? g_bq_status.idchg_ma
+                : ((sys_a > 0.0 && sys_a < 60.0) ? (uint16_t)(sys_a * 1000.0)
+                                                 : 0u);
         battery_gauge_sample(&g_batt_gauge, g_bq_status_valid,
                              g_bq_status.ac_present, charger_in_float,
-                             g_bq_status.vbat_mv, g_bq_status.idchg_ma, ichg,
-                             charger_dt_ms);
+                             g_bq_status.vbat_mv, dischg, ichg, charger_dt_ms);
         g_batt_report = battery_gauge_pack(&g_batt_gauge);
         batt_gauge_persist();
       }

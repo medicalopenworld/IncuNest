@@ -198,6 +198,34 @@ void test_charging_without_history_starts_from_zero(void) {
   TEST_ASSERT_EQUAL_UINT8(0, g.level);
 }
 
+// Caso de banco: primer arranque sin nada guardado, un rato cargando (el
+// indicador integra desde 0) y se quita la red con la bateria casi llena.
+// Ese "3 %" es una suposicion, no una medida: no puede mandar sobre la
+// tension ni disparar BATERIA BAJA.
+void test_discharge_after_charging_without_history_uses_the_voltage(void) {
+  charge(2000, 600);  // ~3 % integrado desde la nada
+  TEST_ASSERT_FALSE(g.known);  // no se guarda en NVS
+  discharge(12500, 0, 10);
+  TEST_ASSERT_UINT8_WITHIN(1, 80, g.percent);
+  TEST_ASSERT_FALSE(battery_gauge_report_low(battery_gauge_pack(&g)));
+  TEST_ASSERT_TRUE(g.known);
+}
+
+// Caso de banco: con red, el calefactor a plena potencia superaba lo que daba
+// el convertidor y la bateria aportaba ~4 A (ICHG=0, IDCHG=4096). El nivel
+// tiene que bajar con lo que sale, no quedarse quieto como si cargara.
+void test_mains_with_the_battery_supplementing_lowers_the_level(void) {
+  battery_gauge_restore(&g, 50);
+  for (int i = 0; i < 600; i++) {  // 10 min a -4 A netos
+    battery_gauge_sample(&g, true, true, false, 12400, 4000, 0, DT);
+  }
+  // 4 A x 10 min = 667 mAh sobre 9 Ah = -7,4 puntos.
+  TEST_ASSERT_UINT8_WITHIN(1, 43, g.percent);
+  // Y al volver a cargar, sube desde ahi.
+  charge(2000, 600);
+  TEST_ASSERT_TRUE(g.percent > 43);
+}
+
 void test_restore_clamps_out_of_range(void) {
   battery_gauge_restore(&g, 250);
   charge(0, 1);
@@ -246,6 +274,8 @@ int main(void) {
   RUN_TEST(test_charging_continues_from_the_discharge);
   RUN_TEST(test_charging_never_reaches_full_before_float);
   RUN_TEST(test_charging_without_history_starts_from_zero);
+  RUN_TEST(test_discharge_after_charging_without_history_uses_the_voltage);
+  RUN_TEST(test_mains_with_the_battery_supplementing_lowers_the_level);
   RUN_TEST(test_restore_clamps_out_of_range);
   RUN_TEST(test_low_only_while_discharging_at_or_below_the_threshold);
   RUN_TEST(test_low_clears_as_soon_as_mains_is_back);

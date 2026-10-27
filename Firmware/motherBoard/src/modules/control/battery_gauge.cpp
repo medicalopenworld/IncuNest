@@ -53,7 +53,7 @@ static void set_percent(BatteryGauge *g, uint8_t pct) {
 }
 
 static void sample_mains(BatteryGauge *g, bool full, uint16_t ichg_ma,
-                         uint32_t dt_ms) {
+                         uint16_t dischg_ma, uint32_t dt_ms) {
   g->filtered = false;
   if (full) {
     g->state = BATT_GAUGE_FULL;
@@ -73,21 +73,28 @@ static void sample_mains(BatteryGauge *g, bool full, uint16_t ichg_ma,
     g->state = BATT_GAUGE_CHARGING;
   }
 
-  // mAh = mA * ms / 3.6e6; puntos = mAh / capacidad * rendimiento.
-  const uint64_t num = (uint64_t)ichg_ma * dt_ms * BATT_GAUGE_CHARGE_EFF_PCT *
-                       (uint64_t)kUpctPerPct;
+  // mAh = mA * ms / 3.6e6; puntos = mAh / capacidad * 100. Lo que entra
+  // cuenta con el rendimiento de carga; lo que sale (la bateria completando
+  // al convertidor cuando el sistema pide mas de lo que da), entero.
   const uint64_t den = 3600000ull * BATT_GAUGE_CAPACITY_MAH;
-  uint64_t upct = (uint64_t)g->charge_upct + num / den;
+  const uint64_t in = (uint64_t)ichg_ma * dt_ms * BATT_GAUGE_CHARGE_EFF_PCT *
+                      (uint64_t)kUpctPerPct / den;
+  const uint64_t out =
+      (uint64_t)dischg_ma * dt_ms * 100u * (uint64_t)kUpctPerPct / den;
+  uint64_t upct = (uint64_t)g->charge_upct + in;
+  upct = (upct > out) ? upct - out : 0u;
   if (upct > cap_upct) upct = cap_upct;
   g->charge_upct = (uint32_t)upct;
-  g->known = true;
+  // `known` NO se pone aqui: si la carga partio de 0 por falta de historia,
+  // lo integrado es una cota baja, no una medida, y no debe mandar sobre la
+  // tension al quitar la red (falsa BATERIA BAJA) ni guardarse en NVS.
   set_percent(g, (uint8_t)(g->charge_upct / kUpctPerPct));
 }
 
 static void sample_battery(BatteryGauge *g, uint16_t vbat_mv,
-                           uint16_t idchg_ma) {
+                           uint16_t dischg_ma) {
   const uint32_t vcomp_mv =
-      (uint32_t)vbat_mv + (uint32_t)idchg_ma * BATT_GAUGE_RINT_MOHM / 1000u;
+      (uint32_t)vbat_mv + (uint32_t)dischg_ma * BATT_GAUGE_RINT_MOHM / 1000u;
   const uint32_t x16 = vcomp_mv * 16u;
   const bool entering = (g->state != BATT_GAUGE_DISCHARGING) || !g->filtered;
   if (entering) {
@@ -116,13 +123,13 @@ static void sample_battery(BatteryGauge *g, uint16_t vbat_mv,
 }
 
 void battery_gauge_sample(BatteryGauge *g, bool valid, bool ac_present,
-                          bool full, uint16_t vbat_mv, uint16_t idchg_ma,
+                          bool full, uint16_t vbat_mv, uint16_t dischg_ma,
                           uint16_t ichg_ma, uint32_t dt_ms) {
   if (g == 0 || !valid) return;
   if (ac_present) {
-    sample_mains(g, full, ichg_ma, dt_ms);
+    sample_mains(g, full, ichg_ma, dischg_ma, dt_ms);
   } else {
-    sample_battery(g, vbat_mv, idchg_ma);
+    sample_battery(g, vbat_mv, dischg_ma);
   }
 }
 
