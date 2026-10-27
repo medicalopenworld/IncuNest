@@ -1,0 +1,2660 @@
+UNITS=MM
+#
+#Component attribute names
+#
+@0 .comp_mount_type
+@1 .comp_height
+
+# CMP 0
+CMP 10 93.472 -14.478 180 N C105 293D107X9010C2TE3 ;0=1,1=0.0000
+PRP Arrow_Part_Number '293D107X9010C2TE3'
+PRP Arrow_Price/Stock 'https://www.arrow.com/en/products/293d107x9010c2te3/vishay?utm_currency=USD&region=europe'
+PRP Datasheet_Link 'http://www.vishay.com/docs/40002/293d.pdf'
+PRP Height '2.8mm'
+PRP LCSC_PN 'C136005'
+PRP Manufacturer_Name 'Vishay'
+PRP Manufacturer_Part_Number '293D107X9010C2TE3'
+PRP Mouser_Part_Number '74-293D107X9010C2TE3'
+PRP Mouser_Price/Stock 'https://www.mouser.co.uk/ProductDetail/Vishay-Sprague/293D107X9010C2TE3?qs=N31o%252Bt096guqI%252BDMC%252BXh6Q%3D%3D'
+TOP 0 91.02199982 -14.478 0 N 129 3 1
+TOP 1 95.92200018 -14.478 0 N 131 26 2
+#
+# CMP 1
+CMP 47 71.247 -39.37 270 N R31 73k2_0402_1% ;0=1,1=0.4000
+PRP LCSC_PN 'C185398'
+PRP Manufacturer 'Yageo / Phycomp'
+TOP 0 71.247 -39.84500032 0 N 131 42 1
+TOP 1 71.247 -38.89499968 0 N 3 1 2
+#
+# CMP 2
+CMP 47 64.135 -50.13200032 270 N R30 73k2_0402_1% ;0=1,1=0.4000
+PRP LCSC_PN 'C185398'
+PRP Manufacturer 'Yageo / Phycomp'
+TOP 0 64.135 -50.60700064 0 N 131 43 1
+TOP 1 64.135 -49.657 0 N 4 2 2
+#
+# CMP 3
+CMP 46 23.7473998 -38.0983998 90 N U11 BQ25730RSNR ;0=1,1=0.0000
+PRP Arrow_Part_Number 'BQ25730RSNR'
+PRP Arrow_Price/Stock 'https://www.arrow.com/en/products/bq25730rsnr/texas-instruments?region=nac'
+PRP Datasheet_Link 'https://www.ti.com/lit/ds/symlink/bq25730.pdf?ts=1623420063043&ref_url=https%253A%252F%252Fwww.ti.com%252Fstore%252Fti%252Fen%252Fp%252Fproduct%252F%253Fp%253DBQ25730RSNR'
+PRP Height '0.8mm'
+PRP LCSC_PN 'C5219071'
+PRP Manufacturer_Name 'Texas Instruments'
+PRP Manufacturer_Part_Number 'BQ25730RSNR'
+PRP Mouser_Part_Number '595-BQ25730RSNR'
+PRP Mouser_Price/Stock 'https://www.mouser.co.uk/ProductDetail/Texas-Instruments/BQ25730RSNR?qs=stqOd1AaK78USmb51n%2Fwlg%3D%3D'
+TOP 0 22.34740006 -36.09839872 90 N 11 0 1
+TOP 1 22.74739926 -36.09839872 90 N 69 0 2
+TOP 2 23.147401 -36.09839872 90 N 68 0 3
+TOP 3 23.5474002 -36.09839872 90 N 5 0 4
+TOP 4 23.9473994 -36.09839872 90 N 131 47 5
+TOP 5 24.3473986 -36.09839872 90 N 62 0 6
+TOP 6 24.74740034 -36.09839872 90 N 39 0 7
+TOP 7 25.14739954 -36.09839872 90 N 52 0 8
+TOP 8 25.74740088 -36.69840006 180 N 50 0 9
+TOP 9 25.74740088 -37.09839926 180 N 43 0 10
+TOP 10 25.74740088 -37.498401 180 N 0 9 11
+TOP 11 25.74740088 -37.8984002 180 N 144 4 12
+TOP 12 25.74740088 -38.2983994 180 N 143 0 13
+TOP 13 25.74740088 -38.6983986 180 N 131 46 14
+TOP 14 25.74740088 -39.09840034 180 N 0 8 15
+TOP 15 25.74740088 -39.49839954 180 N 51 0 16
+TOP 16 25.14739954 -40.09840088 90 N 85 0 17
+TOP 17 24.74740034 -40.09840088 90 N 17 0 18
+TOP 18 24.3473986 -40.09840088 90 N 13 0 19
+TOP 19 23.9473994 -40.09840088 90 N 12 0 20
+TOP 20 23.5474002 -40.09840088 90 N 28 0 21
+TOP 21 23.147401 -40.09840088 90 N 80 3 22
+TOP 22 22.74739926 -40.09840088 90 N 40 1 23
+TOP 23 22.34740006 -40.09840088 90 N 63 0 24
+TOP 24 21.74739872 -39.49839954 180 N 65 0 25
+TOP 25 21.74739872 -39.09840034 180 N 60 0 26
+TOP 26 21.74739872 -38.6983986 180 N 131 45 27
+TOP 27 21.74739872 -38.2983994 180 N 81 0 28
+TOP 28 21.74739872 -37.8984002 180 N 61 0 29
+TOP 29 21.74739872 -37.498401 180 N 66 0 30
+TOP 30 21.74739872 -37.09839926 180 N 64 0 31
+TOP 31 21.74739872 -36.69840006 180 N 41 1 32
+TOP 32 23.7473998 -38.0983998 180 N 131 44 33
+#
+# CMP 4
+CMP 47 40.132 -13.589 0 N R26 10k_0402_0.1% ;0=1,1=0.4000
+PRP LCSC_PN 'C190095'
+TOP 0 40.60700032 -13.589 270 N 5 2 1
+TOP 1 39.65699968 -13.589 270 N 128 14 2
+#
+# CMP 5
+CMP 27 21.717 -32.512 270 N C108 10uF_0805_X5R_50V ;0=1,1=0.0000
+PRP Capacitance '10uF'
+PRP Case_Code_(Imperial) '0805'
+PRP Case_Code_(Metric) '2012'
+PRP Case/Package '0805'
+PRP Dielectric 'X5R'
+PRP Height '1.25mm'
+PRP LCSC_PN 'C2932476'
+PRP Lead_Free 'Lead Free'
+PRP Length '0.079inch'
+PRP Max_Operating_Temperature '85°C'
+PRP Min_Operating_Temperature '-55°C'
+PRP Mount 'Surface Mount'
+PRP Package_Quantity '3000'
+PRP Packaging 'Tape and Reel'
+PRP REACH_SVHC 'No SVHC'
+PRP Termination 'SMD/SMT'
+PRP Thickness '0.057inch'
+PRP Tolerance '10%'
+PRP Voltage_Rating '35V'
+PRP Voltage_Rating_(DC) '35V'
+PRP Weight '0.000335oz'
+PRP Width '0.049inch'
+TOP 0 21.717 -33.46200064 270 N 11 2 1
+TOP 1 21.717 -31.56199936 270 N 131 179 2
+#
+# CMP 6
+CMP 7 60.452 -34.544 0 N C107 100uF_25V ;0=1,1=5.5000
+PRP Capacitance '100µF'
+PRP Case_Size/Dimension 'Ø6.3x5.4mm'
+PRP Datasheet_URL 'http://nichicon-us.com/english/products/pdfs/e-uwx.pdf'
+PRP Datasheet_Version '08/2015'
+PRP LCSC_PN 'C7469933'
+PRP Manufacturer 'Nichicon'
+PRP Manufacturer_URL 'http://www.nichicon.co.jp/english/'
+PRP Mounting_Technology 'SurfaceMount'
+PRP Operating_Temp-Max '85°C'
+PRP Package_Description '2-Pin Surface Mount Device, Body 6.6 x 6.6 mm'
+PRP Package_Reference 'CAPAE7067X55'
+PRP Rated_Voltage '16V'
+PRP Type 'Can'
+TOP 0 62.97699876 -34.544 270 N 130 15 1
+TOP 1 57.9269987 -34.544 270 N 131 175 2
+#
+# CMP 7
+CMP 47 26.797 -43.053 90 N R7 12K1_0402_1% ;0=1,1=0.4000
+PRP LCSC_PN 'C132157'
+TOP 0 26.797 -42.57799968 180 N 17 2 1
+TOP 1 26.797 -43.52800032 180 N 131 174 2
+#
+# CMP 8
+CMP 32 3.683 -53.975 270 N D13 SMBJ18CA ;0=1,1=0.0000
+PRP Automotive 'No'
+PRP Breakdown_Voltage '20V'
+PRP Category 'Diode'
+PRP Clamping_Voltage '29.2V'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'https://www.littelfuse.com/~/media/electronics/datasheets/tvs_diodes/littelfuse_tvs_diode_smbj_datasheet.pdf.pdf'
+PRP Device_Class_L1 'Circuit Protection'
+PRP Device_Class_L2 'TVS Diodes'
+PRP Device_Class_L3 'unset'
+PRP Digikey_Description 'TVS DIODE 18V 29.2V DO214AA'
+PRP Direction 'Bidirectional'
+PRP Height '2.61mm'
+PRP LCSC_PN 'C83327'
+PRP Lead_Free 'Yes'
+PRP Manufacturer 'Littelfuse Inc'
+PRP Manufacturer_Part_Number 'SMBJ18CA'
+PRP Max_Junction_Temp '+150°C'
+PRP Mouser_Description 'SMBJ Series 29.2 V 0.6 kW Surface Mount Bi-Directional TVS Diode - DO-214AA'
+PRP Number_Of_Channels '1'
+PRP Octopart 'https://octopart.com/smbj18ca-littelfuse-350695'
+PRP Package 'SMBJ'
+PRP Peak_Pulse_Current '20.6A'
+PRP Peak_Pulse_Power '600W'
+PRP Reverse_Standoff_Voltage '18V'
+PRP RoHS 'TRUE'
+PRP Temperature '-65°C to +150°C'
+PRP Temperature_Range_High '+150°C'
+PRP Temperature_Range_Low '-65°C'
+TOP 0 3.683 -56.42500018 270 N 18 8 1
+TOP 1 3.683 -51.52499982 270 N 131 173 2
+#
+# CMP 9
+CMP 47 65.405 -30.353 270 N R18 0R_0402_1% ;0=1,1=0.4000
+PRP LCSC_PN 'C60485'
+TOP 0 65.405 -30.82800032 0 N 130 11 1
+TOP 1 65.405 -29.87799968 0 N 106 1 2
+#
+# CMP 10
+CMP 58 32.2730114 -22.225 90 N S2 TS-1088-AR02016 ;0=1,1=0.0000
+PRP Arrow_Part_Number ''
+PRP Arrow_Price/Stock ''
+PRP Datasheet_Link 'https://www.xunpudianzi.com/uploads/pdf/TS-1088-ARXXX.pdf'
+PRP Height '2mm'
+PRP LCSC_PN 'C720477'
+PRP Manufacturer_Name 'XUNPU'
+PRP Manufacturer_Part_Number 'TS-1088-AR02016'
+PRP Mouser_Part_Number ''
+PRP Mouser_Price/Stock ''
+TOP 0 32.2730114 -20.15000034 180 N 122 2 1
+TOP 1 32.2730114 -24.29999966 180 N 131 170 2
+#
+# CMP 11
+CMP 47 40.005 -8.509 0 N R47 100R_0402_0.1% ;0=1,1=0.4000
+PRP LCSC_PN 'C106233'
+TOP 0 40.48000032 -8.509 270 N 20 1 1
+TOP 1 39.52999968 -8.509 270 N 118 0 2
+#
+# CMP 12
+CMP 60 6.985 -8.255 270 N D11 SMBJ24CA-E3/52 ;0=1,1=2.4400
+PRP Breakdown_Voltage_Max '29.5V'
+PRP Breakdown_Voltage_Min '26.7V'
+PRP Clamping_Voltage_Vc_Max '38.9V'
+PRP Datasheet_URL 'http://www.vishay.com/docs/88392/smbj50a.pdf'
+PRP Datasheet_Version '02/2014'
+PRP Diode_Case_Style 'DO-214AA'
+PRP LCSC_PN 'C83268'
+PRP Manufacturer 'Vishay'
+PRP Manufacturer_URL 'http://www.vishay.com/'
+PRP Mounting_Technology 'SurfaceMount'
+PRP No._of_Pins '2Pins'
+PRP Package_Description '2-Pin Surface Mount Device, Body 4.315 x 3.62 mm'
+PRP Package_Reference 'DO-214AA'
+PRP Packaging 'CutTape'
+PRP Peak_Pulse_Current_Ippm '14A'
+PRP Peak_Pulse_Power_Dissipation '600W'
+PRP Power_Dissipation_Pd '600W'
+PRP Product_Range 'TRANSZORBSMBJSeries'
+PRP Reverse_Stand-Off_Voltage_Vrwm '24V'
+PRP SVHC 'ToBeAdvised'
+PRP TVS_Polarity 'Bidirectional'
+TOP 0 6.985 -10.09450102 0 N 131 176 1
+TOP 1 6.985 -6.41550152 0 N 38 4 2
+#
+# CMP 13
+CMP 24 49.276 -34.417 270 N U14 TPS563231DRLR ;0=1,1=0.0000
+PRP LCSC_PN 'C779412'
+TOP 0 49.775999 -35.15700106 270 N 130 17 1
+TOP 1 49.276 -35.15700106 270 N 77 3 2
+TOP 2 48.776001 -35.15700106 270 N 131 132 3
+TOP 3 48.776001 -33.67699894 270 N 76 1 4
+TOP 4 49.276 -33.67699894 270 N 106 0 5
+TOP 5 49.775999 -33.67699894 270 N 75 2 6
+#
+# CMP 14
+CMP 49 41.148 -50.673 270 N U7 INA3221AIRGVR ;0=1,1=1.0000
+PRP CMR_(Typ) '120 dB'
+PRP CMRR(Min)(dB) ''
+PRP Code_JEDEC ''
+PRP Common_Mode_Range(Max)(V) ''
+PRP Common_Mode_Range(Min)(V) ''
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.ti.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://www.ti.com/lit/ds/symlink/ina3221.pdf'
+PRP ComponentLink3Description 'Package Specification'
+PRP ComponentLink3URL 'http://www.ti.com/lit/ds/symlink/ina3221.pdf'
+PRP DatasheetVersion 'SBOS576A'
+PRP Eco-Plan ''
+PRP Gain '1 V/V'
+PRP Gain_Error_(max) '0.25%'
+PRP Gain(V/V) ''
+PRP Input_Offset_(+/-)(Max)(uV) ''
+PRP Input_Offset_Drift_(+/-)(Max)(uV/Degrees_Celsius) ''
+PRP LCSC_PN 'C181255'
+PRP Manufacturer 'Texas Instruments'
+PRP Mounting_Technology 'Surface Mount'
+PRP Offset_Voltage_(max) '+/- 80 uV'
+PRP Operating_Supply_Range '2.7 to 5.5 V'
+PRP Output_Type ''
+PRP PackageDescription '16-Pin Quad Flat No-lead Package, Body 4 x 4 mm, Pitch 0.65 mm'
+PRP PackageReference 'RGV0016A'
+PRP PackageVersion 'SBOS576A'
+PRP Packing 'Tape and Reel'
+PRP PartNumber 'INA3221AIRGVR'
+PRP Quiescent_Current_(+/-)(Typ)(mA) ''
+PRP Quiescent_Current_(Typ) '350 uA'
+PRP Rating 'Catalog'
+PRP RoHS 'TRUE'
+PRP Small-Signal_Bandwidth(Typ)(MHz) ''
+PRP SubFamily ''
+PRP Temperature_Range '-40 to 125 degC'
+PRP Voltage_Input_Range_(Bus) '0 to 26 V'
+PRP Vs(Max)(V) ''
+PRP Vs(Min)(V) ''
+TOP 0 42.12299932 -52.49800016 0 N 111 0 1
+TOP 1 41.47300062 -52.49800016 0 N 107 1 2
+TOP 2 40.82299938 -52.49800016 0 N 131 147 3
+TOP 3 40.17300068 -52.49800016 0 N 128 26 4
+TOP 4 39.32299984 -51.64799932 270 N 128 27 5
+TOP 5 39.32299984 -50.99800062 270 N 143 5 6
+TOP 6 39.32299984 -50.34799938 270 N 144 5 7
+TOP 7 39.32299984 -49.69800068 270 N 0 10 8
+TOP 8 40.17300068 -48.84799984 0 N 0 11 9
+TOP 9 40.82299938 -48.84799984 0 N 0 12 10
+TOP 10 41.47300062 -48.84799984 0 N 130 27 11
+TOP 11 42.12299932 -48.84799984 0 N 80 2 12
+TOP 12 42.97300016 -49.69800068 270 N 0 13 13
+TOP 13 42.97300016 -50.34799938 270 N 109 2 14
+TOP 14 42.97300016 -50.99800062 270 N 107 0 15
+TOP 15 42.97300016 -51.64799932 270 N 0 14 16
+TOP 16 41.148 -50.673 270 N 131 146 17
+#
+# CMP 15
+CMP 0 127 -28.321 90 N J12 1042240820 ;0=1,1=0.0000
+PRP Arrow_Part_Number '1042240820'
+PRP Arrow_Price/Stock 'https://www.arrow.com/en/products/1042240820/molex?utm_currency=USD&region=asia'
+PRP Datasheet_Link 'https://www.molex.com/en-us/products/part-detail-pdf/1042240820?display=pdf'
+PRP Height '1.21mm'
+PRP LCSC_PN 'C585349'
+PRP Manufacturer_Name 'Molex'
+PRP Manufacturer_Part_Number '1042240820'
+PRP Mouser_Part_Number 'N/A'
+PRP Mouser_Price/Stock 'https://www.mouser.com/Search/Refine.aspx?Keyword=N%2FA'
+TOP 0 120.93699968 -26.30099896 90 N 0 5 1
+TOP 1 120.93699968 -29.9409993 90 N 0 6 2
+TOP 2 132.06299978 -23.02100044 180 N 131 131 G1
+TOP 3 124.86299894 -23.02100044 180 N 131 130 G2
+TOP 4 124.86299894 -33.22100036 180 N 131 129 G3
+TOP 5 132.06299978 -33.22100036 180 N 131 128 G4
+TOP 6 129.21199964 -33.02100076 90 N 135 2 S1
+TOP 7 128.0119995 -33.02100076 90 N 139 0 S2
+TOP 8 129.21199964 -23.22100004 90 N 137 0 S3
+TOP 9 126.81199936 -33.02100076 90 N 131 127 S4
+TOP 10 128.0119995 -23.22100004 90 N 0 7 S5
+TOP 11 126.81199936 -23.22100004 90 N 138 0 S6
+#
+# CMP 16
+CMP 8 129.794 -34.29 0 N C98 100nF_0402_X7R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C77020'
+TOP 0 130.23399912 -34.29 270 N 131 126 1
+TOP 1 129.35399834 -34.29 270 N 135 1 2
+#
+# CMP 17
+CMP 47 59.78400032 -27.051 180 N R82 0R_0402_1% ;0=1,1=0.4000
+PRP LCSC_PN 'C60485'
+TOP 0 59.309 -27.051 90 N 34 1 1
+TOP 1 60.25900064 -27.051 90 N 131 114 2
+#
+# CMP 18
+CMP 47 59.817 -26.162 180 N R81 10k_0402_0.1% ;0=1,1=0.4000
+PRP LCSC_PN 'C190095'
+TOP 0 59.34199968 -26.162 90 N 34 2 1
+TOP 1 60.29200032 -26.162 90 N 128 6 2
+#
+# CMP 19
+CMP 5 98.806 -59.309 270 N J7 PJ-612 ;0=2,1=0.0000
+PRP BOM_Manufacturer_Part ''
+PRP Contributor 'LCSC'
+PRP JLCPCB_Part_Class 'Extended Part'
+PRP LCSC_PN 'C309284'
+PRP Manufacturer 'HOOYA(????)'
+PRP Manufacturer_Part 'PJ-612'
+PRP spicePre 'J'
+PRP spiceSymbolName 'PJ-612'
+PRP Supplier 'LCSC'
+PRP Supplier_Part 'C309284'
+TOP 0 98.306001 -52.8089368 90 N 59 0 3
+TOP 1 94.2060092 -63.9090289 315 N 0 57 4
+TOP 2 92.3059876 -56.8090558 0 N 59 4 5
+TOP 3 101.305995 -65.8090632 90 N 131 228 6
+TOP 4 105.3060124 -59.8090498 0 N 131 227 7
+#
+# CMP 20
+CMP 8 61.849 -11.303 0 N C1 1uF_0402_X5R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C1518208'
+TOP 0 62.28899912 -11.303 270 N 131 166 1
+TOP 1 61.40899834 -11.303 270 N 123 2 2
+#
+# CMP 21
+CMP 11 84.13500064 -49.19800168 90 N U2 TPS2553DBVR ;0=1,1=1.4500
+PRP Code_JEDEC 'MO-178-AB*'
+PRP ComponentLink1Description 'Datasheet'
+PRP ComponentLink1URL 'http://www.ti.com/general/docs/lit/getliterature.tsp?genericPartNumber=TPS2553&fileType=pdf'
+PRP Continuous_Current(Max)(A) '1.5'
+PRP Current_Limit_Accuracy_@_1A '+/-7.5% (925mA min / 1075mA max)'
+PRP Current_Limit_Topology 'Constant-Current'
+PRP Current_Limit(A) '0.075 to 1.7'
+PRP DatasheetVersion 'SLVS841E'
+PRP Eco-Plan 'Green (RoHS & no Sb/Br)'
+PRP Enable 'Active High'
+PRP LCSC_PN 'C55266'
+PRP Manufacturer 'Texas Instruments'
+PRP Mounting_Technology 'Surface Mount'
+PRP Number_of_Switches '1'
+PRP PackageDescription '6-Pin Plastic Small-Outline Package, 2.9 x 1.6 mm Body, 0.95 mm Pitch, 2.8 mm Lead Span'
+PRP PackageReference 'DBV0006A'
+PRP PackageVersion 'revK, Mar-2006'
+PRP PartNumber 'TPS2553DBVR'
+PRP Rating 'Catalog'
+PRP rDS(on)_per_FET(Typ)(mOhms) '100/DRV, 85/DBV'
+PRP Vin(Max)(V) '6.5'
+PRP Vin(Min)(V) '2.5'
+TOP 0 83.185 -47.72300082 180 N 35 1 1
+TOP 1 84.13500064 -47.72300082 180 N 131 104 2
+TOP 2 85.08499874 -47.72300082 180 N 91 1 3
+TOP 3 85.08499874 -50.673 180 N 19 1 4
+TOP 4 84.13500064 -50.673 180 N 44 1 5
+TOP 5 83.185 -50.673 180 N 78 4 6
+#
+# CMP 22
+CMP 47 24.98600032 -4.572 0 N R72 10k_0402_0.1% ;0=1,1=0.4000
+PRP LCSC_PN 'C190095'
+TOP 0 25.46100064 -4.572 270 N 130 26 1
+TOP 1 24.511 -4.572 270 N 42 0 2
+#
+# CMP 23
+CMP 47 28.067 -40.259 180 N R71 16k9_0402_1% ;0=1,1=0.4000
+PRP LCSC_PN 'C226808'
+TOP 0 27.59199968 -40.259 90 N 51 2 1
+TOP 1 28.54200032 -40.259 90 N 49 1 2
+#
+# CMP 24
+CMP 47 28.194 -36.83 180 N R70 30.1k_0402_1% ;0=1,1=0.4000
+PRP LCSC_PN 'C2076806'
+TOP 0 27.71899968 -36.83 90 N 43 1 1
+TOP 1 28.66900032 -36.83 90 N 131 149 2
+#
+# CMP 25
+CMP 47 24.13 -32.004 270 N R69 294k_0402_1% ;0=1,1=0.4000
+PRP LCSC_PN 'C327357'
+TOP 0 24.13 -32.47900032 0 N 62 3 1
+TOP 1 24.13 -31.52899968 0 N 131 152 2
+#
+# CMP 26
+CMP 47 28.41500032 -33.401 180 N R68 169k_0402_1% ;0=1,1=0.4000
+PRP LCSC_PN 'C327367'
+TOP 0 27.94 -33.401 90 N 52 2 1
+TOP 1 28.89000064 -33.401 90 N 131 150 2
+#
+# CMP 27
+CMP 47 25.019 -32.893 270 N R67 383k_0402_1% ;0=1,1=0.4000
+PRP LCSC_PN 'C2076791'
+TOP 0 25.019 -33.36800032 0 N 39 4 1
+TOP 1 25.019 -32.41799968 0 N 62 2 2
+#
+# CMP 28
+CMP 47 27.432 -41.656 0 N R66 15k_0402_0.1% ;0=1,1=0.4000
+PRP LCSC_PN 'C852545'
+TOP 0 27.90700032 -41.656 270 N 53 1 1
+TOP 1 26.95699968 -41.656 270 N 85 2 2
+#
+# CMP 29
+CMP 47 26.924 -32.893 270 N R65 10R_0402_0.1% ;0=1,1=0.4000
+PRP LCSC_PN 'C138066'
+TOP 0 26.924 -33.36800032 0 N 39 2 1
+TOP 1 26.924 -32.41799968 0 N 81 1 2
+#
+# CMP 30
+CMP 47 25.781 -42.799 90 N R64 10k_0402_0.1% ;0=1,1=0.4000
+PRP LCSC_PN 'C190095'
+TOP 0 25.781 -42.32399968 180 N 17 1 1
+TOP 1 25.781 -43.27400032 180 N 39 1 2
+#
+# CMP 31
+CMP 47 20.955 -62.484 270 N R62 10R_0402_0.1% ;0=1,1=0.4000
+PRP LCSC_PN 'C138066'
+TOP 0 20.955 -62.95900032 0 N 13 1 1
+TOP 1 20.955 -62.00899968 0 N 18 4 2
+#
+# CMP 32
+CMP 47 22.098 -62.484 270 N R61 10R_0402_0.1% ;0=1,1=0.4000
+PRP LCSC_PN 'C138066'
+TOP 0 22.098 -62.95900032 0 N 12 2 1
+TOP 1 22.098 -62.00899968 0 N 54 8 2
+#
+# CMP 33
+CMP 48 19.304 -31.877 0 N R60 1R_0805_0.5W_1% ;0=1,1=0.6500
+PRP Case_Code_(Imperial) '0805'
+PRP Case_Code_(Metric) '2012'
+PRP Case\/Package '0805'
+PRP Composition 'ThickFilm'
+PRP Datasheet_URL 'www.te.com/commerce/DocumentDelivery/DDEController?Action=showdoc&DocId=Customer+Drawing%7F1623401%7FBA%7Fpdf%7FEnglish%7FENG_CD_1623401_BA.pdf%7F1623401-1'
+PRP Datasheet_Version 'Rev. BA, 12/2009'
+PRP Depth '1.25mm'
+PRP ELV 'Compliant'
+PRP Height '0.55mm'
+PRP LCSC_PN 'C144579'
+PRP Length '2mm'
+PRP Manufacturer 'TE Connectivity'
+PRP Manufacturer_URL 'http://www.te.com/'
+PRP Max_Operating_Temperature '125degC'
+PRP Min_Operating_Temperature '-55degC'
+PRP Mount 'SurfaceMount'
+PRP Mounting_Technology 'SurfaceMount'
+PRP Number_of_Resistors '1'
+PRP Number_of_Terminations '2'
+PRP Package_Description '2-Pin Surface Mount Device, Body 2 x 1.25 mm'
+PRP Package_Quantity '5000'
+PRP Package_Reference 'RESC2013X65X40L15T20'
+PRP Packaging 'TapeandReel'
+PRP Power_Rating '125mW'
+PRP Radiation_Hardening 'No'
+PRP Resistance '0mOhm'
+PRP RoHSCompliant 'true'
+PRP Termination 'Solder'
+PRP Tolerance '0%'
+PRP Voltage_Rating '150V'
+PRP Weight '0.000194oz'
+PRP Width '1.25mm'
+TOP 0 20.07899972 -31.877 270 N 11 1 1
+TOP 1 18.52900028 -31.877 270 N 57 11 2
+#
+# CMP 34
+CMP 47 21.52199912 -21.844 0 N R54 4.99R_0402_1% ;0=1,1=0.4000
+PRP LCSC_PN 'C844114'
+TOP 0 21.99699944 -21.844 270 N 69 3 1
+TOP 1 21.0469988 -21.844 270 N 58 1 2
+#
+# CMP 35
+CMP 47 21.52199912 -20.447 0 N R53 4.99R_0402_1% ;0=1,1=0.4000
+PRP LCSC_PN 'C844114'
+TOP 0 21.99699944 -20.447 270 N 68 3 1
+TOP 1 21.0469988 -20.447 270 N 57 9 2
+#
+# CMP 36
+CMP 47 83.947 -55.372 270 N R21 10k_0402_0.1% ;0=1,1=0.4000
+PRP LCSC_PN 'C190095'
+TOP 0 83.947 -55.84700032 0 N 131 103 1
+TOP 1 83.947 -54.89699968 0 N 45 1 2
+#
+# CMP 37
+CMP 47 83.947 -53.086 270 N R20 10k_0402_0.1% ;0=1,1=0.4000
+PRP LCSC_PN 'C190095'
+TOP 0 83.947 -53.56100032 0 N 45 0 1
+TOP 1 83.947 -52.61099968 0 N 44 0 2
+#
+# CMP 38
+CMP 29 12.573 -27.178 180 N Q12 BSC059N04LS6ATMA1 ;0=1,1=0.0000
+PRP Automotive 'No'
+PRP Category 'Trans'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'https://www.infineon.com/dgdl/Infineon-BSC059N04LS6-DS-v02_00-EN.pdf?fileId=5546d462689a790c0168bd22cfc6481f'
+PRP Continuous_Drain_Current '17A'
+PRP Depletion_Mode 'False'
+PRP Device_Class_L1 'Discrete Semiconductors'
+PRP Device_Class_L2 'Transistors'
+PRP Device_Class_L3 'MOSFETs'
+PRP Digikey_Description 'TRENCH <= 40V'
+PRP Drain_To_Source_Breakdown_Voltage '40V'
+PRP Drain_To_Source_Resistance '4.7mO'
+PRP Drain_To_Source_Voltage '40V'
+PRP Footprint_Url 'https://www.infineon.com/cms/en/product/packages/PG-TDSON/PG-TDSON-8-17/'
+PRP Gate_Charge_At_Vgs '9.4nC @ 10V'
+PRP Gate_To_Source_Voltage '20V'
+PRP Height '1.1mm'
+PRP Input_Capacitace_At_Vds '640pF @ 20V'
+PRP LCSC_PN 'C534356'
+PRP Lead_Free 'Yes'
+PRP Manufacturer 'Infineon'
+PRP Manufacturer_Part_Number 'BSC059N04LS6ATMA1'
+PRP Max_Forward_Diode_Voltage '1V'
+PRP Max_Junction_Temp '+175°C'
+PRP Number_Of_Channels '1'
+PRP Number_Of_N_Channels '1'
+PRP Octopart 'https://octopart.com/bsc059n04ls6atma1-infineon-98039929'
+PRP Package 'PG-TDSON-8'
+PRP Power_Dissipation '3W'
+PRP Pulse_Drain_Current '236A'
+PRP Reverse_Recovery_Charge '22nC'
+PRP Reverse_Recovery_Time '13ns'
+PRP RoHS 'TRUE'
+PRP Rthja_Max '50°C/W'
+PRP Temperature '-55°C to +175°C'
+PRP Temperature_Range_High '+175°C'
+PRP Temperature_Range_Low '-55°C'
+PRP Threshold_Vgs_Max '2.3V'
+PRP Threshold_Vgs_Min '1.3V'
+PRP Transconductance '100S'
+PRP Turn_Off_Delay_Time '8ns'
+PRP Turn_On_Delay_Time '3ns'
+PRP Typ_Forward_Diode_Voltage '0.92V'
+TOP 0 11.85800016 -24.4029992 0 N 131 102 1-2-3
+TOP 1 14.478 -24.4029992 0 N 61 2 4
+TOP 2 12.573 -28.22800044 0 N 41 3 5-6-7-8
+#
+# CMP 39
+CMP 29 12.192 -50.0569992 0 N Q11 BSC059N04LS6ATMA1 ;0=1,1=0.0000
+PRP Automotive 'No'
+PRP Category 'Trans'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'https://www.infineon.com/dgdl/Infineon-BSC059N04LS6-DS-v02_00-EN.pdf?fileId=5546d462689a790c0168bd22cfc6481f'
+PRP Continuous_Drain_Current '17A'
+PRP Depletion_Mode 'False'
+PRP Device_Class_L1 'Discrete Semiconductors'
+PRP Device_Class_L2 'Transistors'
+PRP Device_Class_L3 'MOSFETs'
+PRP Digikey_Description 'TRENCH <= 40V'
+PRP Drain_To_Source_Breakdown_Voltage '40V'
+PRP Drain_To_Source_Resistance '4.7mO'
+PRP Drain_To_Source_Voltage '40V'
+PRP Footprint_Url 'https://www.infineon.com/cms/en/product/packages/PG-TDSON/PG-TDSON-8-17/'
+PRP Gate_Charge_At_Vgs '9.4nC @ 10V'
+PRP Gate_To_Source_Voltage '20V'
+PRP Height '1.1mm'
+PRP Input_Capacitace_At_Vds '640pF @ 20V'
+PRP LCSC_PN 'C534356'
+PRP Lead_Free 'Yes'
+PRP Manufacturer 'Infineon'
+PRP Manufacturer_Part_Number 'BSC059N04LS6ATMA1'
+PRP Max_Forward_Diode_Voltage '1V'
+PRP Max_Junction_Temp '+175°C'
+PRP Number_Of_Channels '1'
+PRP Number_Of_N_Channels '1'
+PRP Octopart 'https://octopart.com/bsc059n04ls6atma1-infineon-98039929'
+PRP Package 'PG-TDSON-8'
+PRP Power_Dissipation '3W'
+PRP Pulse_Drain_Current '236A'
+PRP Reverse_Recovery_Charge '22nC'
+PRP Reverse_Recovery_Time '13ns'
+PRP RoHS 'TRUE'
+PRP Rthja_Max '50°C/W'
+PRP Temperature '-55°C to +175°C'
+PRP Temperature_Range_High '+175°C'
+PRP Temperature_Range_Low '-55°C'
+PRP Threshold_Vgs_Max '2.3V'
+PRP Threshold_Vgs_Min '1.3V'
+PRP Transconductance '100S'
+PRP Turn_Off_Delay_Time '8ns'
+PRP Turn_On_Delay_Time '3ns'
+PRP Typ_Forward_Diode_Voltage '0.92V'
+TOP 0 12.90699984 -52.832 180 N 131 169 1-2-3
+TOP 1 10.287 -52.832 180 N 60 1 4
+TOP 2 12.192 -49.00699876 180 N 40 5 5-6-7-8
+#
+# CMP 40
+CMP 29 18.9040008 -48.94200016 270 N Q10 BSC059N04LS6ATMA1 ;0=1,1=0.0000
+PRP Automotive 'No'
+PRP Category 'Trans'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'https://www.infineon.com/dgdl/Infineon-BSC059N04LS6-DS-v02_00-EN.pdf?fileId=5546d462689a790c0168bd22cfc6481f'
+PRP Continuous_Drain_Current '17A'
+PRP Depletion_Mode 'False'
+PRP Device_Class_L1 'Discrete Semiconductors'
+PRP Device_Class_L2 'Transistors'
+PRP Device_Class_L3 'MOSFETs'
+PRP Digikey_Description 'TRENCH <= 40V'
+PRP Drain_To_Source_Breakdown_Voltage '40V'
+PRP Drain_To_Source_Resistance '4.7mO'
+PRP Drain_To_Source_Voltage '40V'
+PRP Footprint_Url 'https://www.infineon.com/cms/en/product/packages/PG-TDSON/PG-TDSON-8-17/'
+PRP Gate_Charge_At_Vgs '9.4nC @ 10V'
+PRP Gate_To_Source_Voltage '20V'
+PRP Height '1.1mm'
+PRP Input_Capacitace_At_Vds '640pF @ 20V'
+PRP LCSC_PN 'C534356'
+PRP Lead_Free 'Yes'
+PRP Manufacturer 'Infineon'
+PRP Manufacturer_Part_Number 'BSC059N04LS6ATMA1'
+PRP Max_Forward_Diode_Voltage '1V'
+PRP Max_Junction_Temp '+175°C'
+PRP Number_Of_Channels '1'
+PRP Number_Of_N_Channels '1'
+PRP Octopart 'https://octopart.com/bsc059n04ls6atma1-infineon-98039929'
+PRP Package 'PG-TDSON-8'
+PRP Power_Dissipation '3W'
+PRP Pulse_Drain_Current '236A'
+PRP Reverse_Recovery_Charge '22nC'
+PRP Reverse_Recovery_Time '13ns'
+PRP RoHS 'TRUE'
+PRP Rthja_Max '50°C/W'
+PRP Temperature '-55°C to +175°C'
+PRP Temperature_Range_High '+175°C'
+PRP Temperature_Range_Low '-55°C'
+PRP Threshold_Vgs_Max '2.3V'
+PRP Threshold_Vgs_Min '1.3V'
+PRP Transconductance '100S'
+PRP Turn_Off_Delay_Time '8ns'
+PRP Turn_On_Delay_Time '3ns'
+PRP Typ_Forward_Diode_Voltage '0.92V'
+TOP 0 16.129 -49.657 270 N 40 3 1-2-3
+TOP 1 16.129 -47.03700016 270 N 63 1 4
+TOP 2 19.95400124 -48.94200016 270 N 80 5 5-6-7-8
+#
+# CMP 41
+CMP 29 19.1580008 -27.35200016 270 N Q9 BSC059N04LS6ATMA1 ;0=1,1=0.0000
+PRP Automotive 'No'
+PRP Category 'Trans'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'https://www.infineon.com/dgdl/Infineon-BSC059N04LS6-DS-v02_00-EN.pdf?fileId=5546d462689a790c0168bd22cfc6481f'
+PRP Continuous_Drain_Current '17A'
+PRP Depletion_Mode 'False'
+PRP Device_Class_L1 'Discrete Semiconductors'
+PRP Device_Class_L2 'Transistors'
+PRP Device_Class_L3 'MOSFETs'
+PRP Digikey_Description 'TRENCH <= 40V'
+PRP Drain_To_Source_Breakdown_Voltage '40V'
+PRP Drain_To_Source_Resistance '4.7mO'
+PRP Drain_To_Source_Voltage '40V'
+PRP Footprint_Url 'https://www.infineon.com/cms/en/product/packages/PG-TDSON/PG-TDSON-8-17/'
+PRP Gate_Charge_At_Vgs '9.4nC @ 10V'
+PRP Gate_To_Source_Voltage '20V'
+PRP Height '1.1mm'
+PRP Input_Capacitace_At_Vds '640pF @ 20V'
+PRP LCSC_PN 'C534356'
+PRP Lead_Free 'Yes'
+PRP Manufacturer 'Infineon'
+PRP Manufacturer_Part_Number 'BSC059N04LS6ATMA1'
+PRP Max_Forward_Diode_Voltage '1V'
+PRP Max_Junction_Temp '+175°C'
+PRP Number_Of_Channels '1'
+PRP Number_Of_N_Channels '1'
+PRP Octopart 'https://octopart.com/bsc059n04ls6atma1-infineon-98039929'
+PRP Package 'PG-TDSON-8'
+PRP Power_Dissipation '3W'
+PRP Pulse_Drain_Current '236A'
+PRP Reverse_Recovery_Charge '22nC'
+PRP Reverse_Recovery_Time '13ns'
+PRP RoHS 'TRUE'
+PRP Rthja_Max '50°C/W'
+PRP Temperature '-55°C to +175°C'
+PRP Temperature_Range_High '+175°C'
+PRP Temperature_Range_Low '-55°C'
+PRP Threshold_Vgs_Max '2.3V'
+PRP Threshold_Vgs_Min '1.3V'
+PRP Transconductance '100S'
+PRP Turn_Off_Delay_Time '8ns'
+PRP Turn_On_Delay_Time '3ns'
+PRP Typ_Forward_Diode_Voltage '0.92V'
+TOP 0 16.383 -28.067 270 N 41 5 1-2-3
+TOP 1 16.383 -25.44700016 270 N 64 1 4
+TOP 2 20.20800124 -27.35200016 270 N 58 5 5-6-7-8
+#
+# CMP 42
+CMP 12 23.495 -10.033 0 N D15 BZT52C3V0-7-F ;0=1,1=1.4070
+PRP Brand 'DiodesIncorporated'
+PRP Configuration 'Single'
+PRP Datasheet_URL 'http://www.diodes.com/_files/datasheets/ds18004.pdf'
+PRP Datasheet_Version 'Rev. 37-2, 09/2012'
+PRP Factory_Pack_Quantity '3000'
+PRP Height '1.35mm'
+PRP Ir_-_Reverse_Current '10uA'
+PRP LCSC_PN 'C85212'
+PRP Length '2.85mm'
+PRP Manufacturer 'DiodesIncorporated'
+PRP Manufacturer_URL 'http://www.diodes.com/'
+PRP Maximum_Operating_Temperature '+150C'
+PRP Minimum_Operating_Temperature '-65C'
+PRP Mounting_Style 'SMD/SMT'
+PRP Mounting_Technology 'SurfaceMount'
+PRP Package_/_Case 'SOD-123'
+PRP Package_Description '2-Pin Surface Mount Device, Body 2.7 x 1.55 mm'
+PRP Package_Reference 'SOD123'
+PRP Packaging 'Reel'
+PRP Pd_-_Power_Dissipation '500mW'
+PRP Product_Category 'ZenerDiodes'
+PRP RoHS 'True'
+PRP Series 'BZT52C'
+PRP Termination_Style 'SMD/SMT'
+PRP Unit_Weight '0.000353oz'
+PRP Voltage_Temperature_Coefficient '-1.75mV/C'
+PRP Voltage_Tolerance '5%'
+PRP Vz_-_Zener_Voltage '3V'
+PRP Width '1.7mm'
+PRP Zener_Current '5mA'
+PRP Zz_-_Zener_Impedance '95Ohms'
+TOP 0 25.07000066 -10.033 180 N 131 113 1
+TOP 1 21.91999934 -10.033 180 N 84 2 2
+#
+# CMP 43
+CMP 8 26.035 -32.83399834 90 N C61 1uF_0402_X5R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C1518208'
+TOP 0 26.035 -32.39399922 180 N 131 151 1
+TOP 1 26.035 -33.274 180 N 39 3 2
+#
+# CMP 44
+CMP 8 29.591 -41.656 0 N C60 1.2_nF_0402_X5R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C107021'
+TOP 0 30.03099912 -41.656 270 N 131 148 1
+TOP 1 29.15099834 -41.656 270 N 53 0 2
+#
+# CMP 45
+CMP 27 16.51 -57.658 270 N C59 10uF_0805_X5R_50V ;0=1,1=0.0000
+PRP Capacitance '10uF'
+PRP Case_Code_(Imperial) '0805'
+PRP Case_Code_(Metric) '2012'
+PRP Case/Package '0805'
+PRP Dielectric 'X5R'
+PRP Height '1.25mm'
+PRP LCSC_PN 'C2932476'
+PRP Lead_Free 'Lead Free'
+PRP Length '0.079inch'
+PRP Max_Operating_Temperature '85°C'
+PRP Min_Operating_Temperature '-55°C'
+PRP Mount 'Surface Mount'
+PRP Package_Quantity '3000'
+PRP Packaging 'Tape and Reel'
+PRP REACH_SVHC 'No SVHC'
+PRP Termination 'SMD/SMT'
+PRP Thickness '0.057inch'
+PRP Tolerance '10%'
+PRP Voltage_Rating '35V'
+PRP Voltage_Rating_(DC) '35V'
+PRP Weight '0.000335oz'
+PRP Width '0.049inch'
+TOP 0 16.51 -58.60800064 270 N 18 2 1
+TOP 1 16.51 -56.70799936 270 N 131 144 2
+#
+# CMP 46
+CMP 27 18.034 -57.658 270 N C58 10uF_0805_X5R_50V ;0=1,1=0.0000
+PRP Capacitance '10uF'
+PRP Case_Code_(Imperial) '0805'
+PRP Case_Code_(Metric) '2012'
+PRP Case/Package '0805'
+PRP Dielectric 'X5R'
+PRP Height '1.25mm'
+PRP LCSC_PN 'C2932476'
+PRP Lead_Free 'Lead Free'
+PRP Length '0.079inch'
+PRP Max_Operating_Temperature '85°C'
+PRP Min_Operating_Temperature '-55°C'
+PRP Mount 'Surface Mount'
+PRP Package_Quantity '3000'
+PRP Packaging 'Tape and Reel'
+PRP REACH_SVHC 'No SVHC'
+PRP Termination 'SMD/SMT'
+PRP Thickness '0.057inch'
+PRP Tolerance '10%'
+PRP Voltage_Rating '35V'
+PRP Voltage_Rating_(DC) '35V'
+PRP Weight '0.000335oz'
+PRP Width '0.049inch'
+TOP 0 18.034 -58.60800064 270 N 18 6 1
+TOP 1 18.034 -56.70799936 270 N 131 143 2
+#
+# CMP 47
+CMP 8 21.59 -64.135 180 N C57 100nF_0402_X7R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C77020'
+TOP 0 21.15000088 -64.135 90 N 13 2 1
+TOP 1 22.03000166 -64.135 90 N 12 1 2
+#
+# CMP 48
+CMP 8 23.368 -60.96 270 N C56 1uF_0402_X5R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C1518208'
+TOP 0 23.368 -61.39999912 0 N 131 145 1
+TOP 1 23.368 -60.51999834 0 N 54 6 2
+#
+# CMP 49
+CMP 8 18.796 -37.973 180 N C55 2.2uF_0402_X5R_25V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C77002'
+TOP 0 18.35600088 -37.973 90 N 131 153 1
+TOP 1 19.23600166 -37.973 90 N 81 2 2
+#
+# CMP 50
+CMP 8 25.07799912 -21.844 180 N C54 33nF_0402_X7R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C106862'
+TOP 0 24.638 -21.844 90 N 69 1 1
+TOP 1 25.51800078 -21.844 90 N 131 154 2
+#
+# CMP 51
+CMP 27 16.54700018 -53.05700082 90 N C51 10uF_0805_X5R_50V ;0=1,1=0.0000
+PRP Capacitance '10uF'
+PRP Case_Code_(Imperial) '0805'
+PRP Case_Code_(Metric) '2012'
+PRP Case/Package '0805'
+PRP Dielectric 'X5R'
+PRP Height '1.25mm'
+PRP LCSC_PN 'C2932476'
+PRP Lead_Free 'Lead Free'
+PRP Length '0.079inch'
+PRP Max_Operating_Temperature '85°C'
+PRP Min_Operating_Temperature '-55°C'
+PRP Mount 'Surface Mount'
+PRP Package_Quantity '3000'
+PRP Packaging 'Tape and Reel'
+PRP REACH_SVHC 'No SVHC'
+PRP Termination 'SMD/SMT'
+PRP Thickness '0.057inch'
+PRP Tolerance '10%'
+PRP Voltage_Rating '35V'
+PRP Voltage_Rating_(DC) '35V'
+PRP Weight '0.000335oz'
+PRP Width '0.049inch'
+TOP 0 16.54700018 -52.10700018 90 N 80 6 1
+TOP 1 16.54700018 -54.00700146 90 N 131 140 2
+#
+# CMP 52
+CMP 27 18.07100018 -53.05700082 90 N C50 10uF_0805_X5R_50V ;0=1,1=0.0000
+PRP Capacitance '10uF'
+PRP Case_Code_(Imperial) '0805'
+PRP Case_Code_(Metric) '2012'
+PRP Case/Package '0805'
+PRP Dielectric 'X5R'
+PRP Height '1.25mm'
+PRP LCSC_PN 'C2932476'
+PRP Lead_Free 'Lead Free'
+PRP Length '0.079inch'
+PRP Max_Operating_Temperature '85°C'
+PRP Min_Operating_Temperature '-55°C'
+PRP Mount 'Surface Mount'
+PRP Package_Quantity '3000'
+PRP Packaging 'Tape and Reel'
+PRP REACH_SVHC 'No SVHC'
+PRP Termination 'SMD/SMT'
+PRP Thickness '0.057inch'
+PRP Tolerance '10%'
+PRP Voltage_Rating '35V'
+PRP Voltage_Rating_(DC) '35V'
+PRP Weight '0.000335oz'
+PRP Width '0.049inch'
+TOP 0 18.07100018 -52.10700018 90 N 80 8 1
+TOP 1 18.07100018 -54.00700146 90 N 131 139 2
+#
+# CMP 53
+CMP 27 19.59500018 -53.05700082 90 N C49 10uF_0805_X5R_50V ;0=1,1=0.0000
+PRP Capacitance '10uF'
+PRP Case_Code_(Imperial) '0805'
+PRP Case_Code_(Metric) '2012'
+PRP Case/Package '0805'
+PRP Dielectric 'X5R'
+PRP Height '1.25mm'
+PRP LCSC_PN 'C2932476'
+PRP Lead_Free 'Lead Free'
+PRP Length '0.079inch'
+PRP Max_Operating_Temperature '85°C'
+PRP Min_Operating_Temperature '-55°C'
+PRP Mount 'Surface Mount'
+PRP Package_Quantity '3000'
+PRP Packaging 'Tape and Reel'
+PRP REACH_SVHC 'No SVHC'
+PRP Termination 'SMD/SMT'
+PRP Thickness '0.057inch'
+PRP Tolerance '10%'
+PRP Voltage_Rating '35V'
+PRP Voltage_Rating_(DC) '35V'
+PRP Weight '0.000335oz'
+PRP Width '0.049inch'
+TOP 0 19.59500018 -52.10700018 90 N 80 7 1
+TOP 1 19.59500018 -54.00700146 90 N 131 138 2
+#
+# CMP 54
+CMP 27 21.11900018 -53.05700082 90 N C48 10uF_0805_X5R_50V ;0=1,1=0.0000
+PRP Capacitance '10uF'
+PRP Case_Code_(Imperial) '0805'
+PRP Case_Code_(Metric) '2012'
+PRP Case/Package '0805'
+PRP Dielectric 'X5R'
+PRP Height '1.25mm'
+PRP LCSC_PN 'C2932476'
+PRP Lead_Free 'Lead Free'
+PRP Length '0.079inch'
+PRP Max_Operating_Temperature '85°C'
+PRP Min_Operating_Temperature '-55°C'
+PRP Mount 'Surface Mount'
+PRP Package_Quantity '3000'
+PRP Packaging 'Tape and Reel'
+PRP REACH_SVHC 'No SVHC'
+PRP Termination 'SMD/SMT'
+PRP Thickness '0.057inch'
+PRP Tolerance '10%'
+PRP Voltage_Rating '35V'
+PRP Voltage_Rating_(DC) '35V'
+PRP Weight '0.000335oz'
+PRP Width '0.049inch'
+TOP 0 21.11900018 -52.10700018 90 N 80 15 1
+TOP 1 21.11900018 -54.00700146 90 N 131 137 2
+#
+# CMP 55
+CMP 27 15.367 -20.66399982 0 N C47 10uF_0805_X5R_50V ;0=1,1=0.0000
+PRP Capacitance '10uF'
+PRP Case_Code_(Imperial) '0805'
+PRP Case_Code_(Metric) '2012'
+PRP Case/Package '0805'
+PRP Dielectric 'X5R'
+PRP Height '1.25mm'
+PRP LCSC_PN 'C2932476'
+PRP Lead_Free 'Lead Free'
+PRP Length '0.079inch'
+PRP Max_Operating_Temperature '85°C'
+PRP Min_Operating_Temperature '-55°C'
+PRP Mount 'Surface Mount'
+PRP Package_Quantity '3000'
+PRP Packaging 'Tape and Reel'
+PRP REACH_SVHC 'No SVHC'
+PRP Termination 'SMD/SMT'
+PRP Thickness '0.057inch'
+PRP Tolerance '10%'
+PRP Voltage_Rating '35V'
+PRP Voltage_Rating_(DC) '35V'
+PRP Weight '0.000335oz'
+PRP Width '0.049inch'
+TOP 0 16.31700064 -20.66399982 180 N 57 17 1
+TOP 1 14.41699936 -20.66399982 180 N 131 157 2
+#
+# CMP 56
+CMP 27 15.113 -19.01299982 0 N C46 10uF_0805_X5R_50V ;0=1,1=0.0000
+PRP Capacitance '10uF'
+PRP Case_Code_(Imperial) '0805'
+PRP Case_Code_(Metric) '2012'
+PRP Case/Package '0805'
+PRP Dielectric 'X5R'
+PRP Height '1.25mm'
+PRP LCSC_PN 'C2932476'
+PRP Lead_Free 'Lead Free'
+PRP Length '0.079inch'
+PRP Max_Operating_Temperature '85°C'
+PRP Min_Operating_Temperature '-55°C'
+PRP Mount 'Surface Mount'
+PRP Package_Quantity '3000'
+PRP Packaging 'Tape and Reel'
+PRP REACH_SVHC 'No SVHC'
+PRP Termination 'SMD/SMT'
+PRP Thickness '0.057inch'
+PRP Tolerance '10%'
+PRP Voltage_Rating '35V'
+PRP Voltage_Rating_(DC) '35V'
+PRP Weight '0.000335oz'
+PRP Width '0.049inch'
+TOP 0 16.06300064 -19.01299982 180 N 57 21 1
+TOP 1 14.16299936 -19.01299982 180 N 131 158 2
+#
+# CMP 57
+CMP 27 15.113 -15.96499982 0 N C45 10uF_0805_X5R_50V ;0=1,1=0.0000
+PRP Capacitance '10uF'
+PRP Case_Code_(Imperial) '0805'
+PRP Case_Code_(Metric) '2012'
+PRP Case/Package '0805'
+PRP Dielectric 'X5R'
+PRP Height '1.25mm'
+PRP LCSC_PN 'C2932476'
+PRP Lead_Free 'Lead Free'
+PRP Length '0.079inch'
+PRP Max_Operating_Temperature '85°C'
+PRP Min_Operating_Temperature '-55°C'
+PRP Mount 'Surface Mount'
+PRP Package_Quantity '3000'
+PRP Packaging 'Tape and Reel'
+PRP REACH_SVHC 'No SVHC'
+PRP Termination 'SMD/SMT'
+PRP Thickness '0.057inch'
+PRP Tolerance '10%'
+PRP Voltage_Rating '35V'
+PRP Voltage_Rating_(DC) '35V'
+PRP Weight '0.000335oz'
+PRP Width '0.049inch'
+TOP 0 16.06300064 -15.96499982 180 N 57 18 1
+TOP 1 14.16299936 -15.96499982 180 N 131 160 2
+#
+# CMP 58
+CMP 27 15.113 -17.48899982 0 N C44 10uF_0805_X5R_50V ;0=1,1=0.0000
+PRP Capacitance '10uF'
+PRP Case_Code_(Imperial) '0805'
+PRP Case_Code_(Metric) '2012'
+PRP Case/Package '0805'
+PRP Dielectric 'X5R'
+PRP Height '1.25mm'
+PRP LCSC_PN 'C2932476'
+PRP Lead_Free 'Lead Free'
+PRP Length '0.079inch'
+PRP Max_Operating_Temperature '85°C'
+PRP Min_Operating_Temperature '-55°C'
+PRP Mount 'Surface Mount'
+PRP Package_Quantity '3000'
+PRP Packaging 'Tape and Reel'
+PRP REACH_SVHC 'No SVHC'
+PRP Termination 'SMD/SMT'
+PRP Thickness '0.057inch'
+PRP Tolerance '10%'
+PRP Voltage_Rating '35V'
+PRP Voltage_Rating_(DC) '35V'
+PRP Weight '0.000335oz'
+PRP Width '0.049inch'
+TOP 0 16.06300064 -17.48899982 180 N 57 19 1
+TOP 1 14.16299936 -17.48899982 180 N 131 159 2
+#
+# CMP 59
+CMP 8 8.636 -52.832 180 N C42 150pF_0402_X7R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C113789'
+TOP 0 8.19600088 -52.832 90 N 131 168 1
+TOP 1 9.07600166 -52.832 90 N 60 2 2
+#
+# CMP 60
+CMP 8 11.938 -9.652 270 N C40 1uF_0402_X5R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C1518208'
+TOP 0 11.938 -10.09199912 0 N 131 164 1
+TOP 1 11.938 -9.21199834 0 N 56 1 2
+#
+# CMP 61
+CMP 19 19.177 -41.17200046 270 N C39 47nF_1206_X7R_50V ;0=1,1=0.0000
+PRP Capacitance '47nF'
+PRP Case/Package '1206'
+PRP Dielectric 'X5R'
+PRP Halogen_Free 'Halogen Free'
+PRP LCSC_PN 'C107209'
+PRP Lead_Free 'Lead Free'
+PRP Length '0.126inch'
+PRP Max_Operating_Temperature '85°C'
+PRP Min_Operating_Temperature '-55°C'
+PRP Mount 'Surface Mount'
+PRP Packaging 'Tape and Reel'
+PRP RoHS_Compliant 'Yes'
+PRP Thickness '0.075inch'
+PRP Tolerance '10%'
+PRP Voltage_Rating '50V'
+PRP Voltage_Rating_(DC) '50V'
+PRP Width '0.063inch'
+TOP 0 19.177 -42.672 270 N 40 4 1
+TOP 1 19.177 -39.67200092 270 N 65 1 2
+#
+# CMP 62
+CMP 19 19.177 -34.925 90 N C38 47nF_1206_X7R_50V ;0=1,1=0.0000
+PRP Capacitance '47nF'
+PRP Case/Package '1206'
+PRP Dielectric 'X5R'
+PRP Halogen_Free 'Halogen Free'
+PRP LCSC_PN 'C107209'
+PRP Lead_Free 'Lead Free'
+PRP Length '0.126inch'
+PRP Max_Operating_Temperature '85°C'
+PRP Min_Operating_Temperature '-55°C'
+PRP Mount 'Surface Mount'
+PRP Packaging 'Tape and Reel'
+PRP RoHS_Compliant 'Yes'
+PRP Thickness '0.075inch'
+PRP Tolerance '10%'
+PRP Voltage_Rating '50V'
+PRP Voltage_Rating_(DC) '50V'
+PRP Width '0.063inch'
+TOP 0 19.177 -33.42500046 90 N 41 4 1
+TOP 1 19.177 -36.42499954 90 N 66 1 2
+#
+# CMP 63
+CMP 27 27.305 -53.086 90 N C37 10uF_0805_X5R_50V ;0=1,1=0.0000
+PRP Capacitance '10uF'
+PRP Case_Code_(Imperial) '0805'
+PRP Case_Code_(Metric) '2012'
+PRP Case/Package '0805'
+PRP Dielectric 'X5R'
+PRP Height '1.25mm'
+PRP LCSC_PN 'C2932476'
+PRP Lead_Free 'Lead Free'
+PRP Length '0.079inch'
+PRP Max_Operating_Temperature '85°C'
+PRP Min_Operating_Temperature '-55°C'
+PRP Mount 'Surface Mount'
+PRP Package_Quantity '3000'
+PRP Packaging 'Tape and Reel'
+PRP REACH_SVHC 'No SVHC'
+PRP Termination 'SMD/SMT'
+PRP Thickness '0.057inch'
+PRP Tolerance '10%'
+PRP Voltage_Rating '35V'
+PRP Voltage_Rating_(DC) '35V'
+PRP Weight '0.000335oz'
+PRP Width '0.049inch'
+TOP 0 27.305 -52.13599936 90 N 80 11 1
+TOP 1 27.305 -54.03600064 90 N 131 141 2
+#
+# CMP 64
+CMP 27 25.69100018 -53.05700082 90 N C36 10uF_0805_X5R_50V ;0=1,1=0.0000
+PRP Capacitance '10uF'
+PRP Case_Code_(Imperial) '0805'
+PRP Case_Code_(Metric) '2012'
+PRP Case/Package '0805'
+PRP Dielectric 'X5R'
+PRP Height '1.25mm'
+PRP LCSC_PN 'C2932476'
+PRP Lead_Free 'Lead Free'
+PRP Length '0.079inch'
+PRP Max_Operating_Temperature '85°C'
+PRP Min_Operating_Temperature '-55°C'
+PRP Mount 'Surface Mount'
+PRP Package_Quantity '3000'
+PRP Packaging 'Tape and Reel'
+PRP REACH_SVHC 'No SVHC'
+PRP Termination 'SMD/SMT'
+PRP Thickness '0.057inch'
+PRP Tolerance '10%'
+PRP Voltage_Rating '35V'
+PRP Voltage_Rating_(DC) '35V'
+PRP Weight '0.000335oz'
+PRP Width '0.049inch'
+TOP 0 25.69100018 -52.10700018 90 N 80 16 1
+TOP 1 25.69100018 -54.00700146 90 N 131 134 2
+#
+# CMP 65
+CMP 27 22.64300018 -53.05700082 90 N C35 10uF_0805_X5R_50V ;0=1,1=0.0000
+PRP Capacitance '10uF'
+PRP Case_Code_(Imperial) '0805'
+PRP Case_Code_(Metric) '2012'
+PRP Case/Package '0805'
+PRP Dielectric 'X5R'
+PRP Height '1.25mm'
+PRP LCSC_PN 'C2932476'
+PRP Lead_Free 'Lead Free'
+PRP Length '0.079inch'
+PRP Max_Operating_Temperature '85°C'
+PRP Min_Operating_Temperature '-55°C'
+PRP Mount 'Surface Mount'
+PRP Package_Quantity '3000'
+PRP Packaging 'Tape and Reel'
+PRP REACH_SVHC 'No SVHC'
+PRP Termination 'SMD/SMT'
+PRP Thickness '0.057inch'
+PRP Tolerance '10%'
+PRP Voltage_Rating '35V'
+PRP Voltage_Rating_(DC) '35V'
+PRP Weight '0.000335oz'
+PRP Width '0.049inch'
+TOP 0 22.64300018 -52.10700018 90 N 80 14 1
+TOP 1 22.64300018 -54.00700146 90 N 131 136 2
+#
+# CMP 66
+CMP 27 24.16700018 -53.05700082 90 N C34 10uF_0805_X5R_50V ;0=1,1=0.0000
+PRP Capacitance '10uF'
+PRP Case_Code_(Imperial) '0805'
+PRP Case_Code_(Metric) '2012'
+PRP Case/Package '0805'
+PRP Dielectric 'X5R'
+PRP Height '1.25mm'
+PRP LCSC_PN 'C2932476'
+PRP Lead_Free 'Lead Free'
+PRP Length '0.079inch'
+PRP Max_Operating_Temperature '85°C'
+PRP Min_Operating_Temperature '-55°C'
+PRP Mount 'Surface Mount'
+PRP Package_Quantity '3000'
+PRP Packaging 'Tape and Reel'
+PRP REACH_SVHC 'No SVHC'
+PRP Termination 'SMD/SMT'
+PRP Thickness '0.057inch'
+PRP Tolerance '10%'
+PRP Voltage_Rating '35V'
+PRP Voltage_Rating_(DC) '35V'
+PRP Weight '0.000335oz'
+PRP Width '0.049inch'
+TOP 0 24.16700018 -52.10700018 90 N 80 17 1
+TOP 1 24.16700018 -54.00700146 90 N 131 135 2
+#
+# CMP 67
+CMP 27 15.367 -22.479 0 N C33 10uF_0805_X5R_50V ;0=1,1=0.0000
+PRP Capacitance '10uF'
+PRP Case_Code_(Imperial) '0805'
+PRP Case_Code_(Metric) '2012'
+PRP Case/Package '0805'
+PRP Dielectric 'X5R'
+PRP Height '1.25mm'
+PRP LCSC_PN 'C2932476'
+PRP Lead_Free 'Lead Free'
+PRP Length '0.079inch'
+PRP Max_Operating_Temperature '85°C'
+PRP Min_Operating_Temperature '-55°C'
+PRP Mount 'Surface Mount'
+PRP Package_Quantity '3000'
+PRP Packaging 'Tape and Reel'
+PRP REACH_SVHC 'No SVHC'
+PRP Termination 'SMD/SMT'
+PRP Thickness '0.057inch'
+PRP Tolerance '10%'
+PRP Voltage_Rating '35V'
+PRP Voltage_Rating_(DC) '35V'
+PRP Weight '0.000335oz'
+PRP Width '0.049inch'
+TOP 0 16.31700064 -22.479 180 N 57 16 1
+TOP 1 14.41699936 -22.479 180 N 131 165 2
+#
+# CMP 68
+CMP 27 18.161 -19.177 180 N C32 10uF_0805_X5R_50V ;0=1,1=0.0000
+PRP Capacitance '10uF'
+PRP Case_Code_(Imperial) '0805'
+PRP Case_Code_(Metric) '2012'
+PRP Case/Package '0805'
+PRP Dielectric 'X5R'
+PRP Height '1.25mm'
+PRP LCSC_PN 'C2932476'
+PRP Lead_Free 'Lead Free'
+PRP Length '0.079inch'
+PRP Max_Operating_Temperature '85°C'
+PRP Min_Operating_Temperature '-55°C'
+PRP Mount 'Surface Mount'
+PRP Package_Quantity '3000'
+PRP Packaging 'Tape and Reel'
+PRP REACH_SVHC 'No SVHC'
+PRP Termination 'SMD/SMT'
+PRP Thickness '0.057inch'
+PRP Tolerance '10%'
+PRP Voltage_Rating '35V'
+PRP Voltage_Rating_(DC) '35V'
+PRP Weight '0.000335oz'
+PRP Width '0.049inch'
+TOP 0 17.21099936 -19.177 0 N 57 15 1
+TOP 1 19.11100064 -19.177 0 N 131 163 2
+#
+# CMP 69
+CMP 27 18.161 -17.526 180 N C31 10uF_0805_X5R_50V ;0=1,1=0.0000
+PRP Capacitance '10uF'
+PRP Case_Code_(Imperial) '0805'
+PRP Case_Code_(Metric) '2012'
+PRP Case/Package '0805'
+PRP Dielectric 'X5R'
+PRP Height '1.25mm'
+PRP LCSC_PN 'C2932476'
+PRP Lead_Free 'Lead Free'
+PRP Length '0.079inch'
+PRP Max_Operating_Temperature '85°C'
+PRP Min_Operating_Temperature '-55°C'
+PRP Mount 'Surface Mount'
+PRP Package_Quantity '3000'
+PRP Packaging 'Tape and Reel'
+PRP REACH_SVHC 'No SVHC'
+PRP Termination 'SMD/SMT'
+PRP Thickness '0.057inch'
+PRP Tolerance '10%'
+PRP Voltage_Rating '35V'
+PRP Voltage_Rating_(DC) '35V'
+PRP Weight '0.000335oz'
+PRP Width '0.049inch'
+TOP 0 17.21099936 -17.526 0 N 57 14 1
+TOP 1 19.11100064 -17.526 0 N 131 162 2
+#
+# CMP 70
+CMP 27 15.113 -14.31399982 0 N C30 10uF_0805_X5R_50V ;0=1,1=0.0000
+PRP Capacitance '10uF'
+PRP Case_Code_(Imperial) '0805'
+PRP Case_Code_(Metric) '2012'
+PRP Case/Package '0805'
+PRP Dielectric 'X5R'
+PRP Height '1.25mm'
+PRP LCSC_PN 'C2932476'
+PRP Lead_Free 'Lead Free'
+PRP Length '0.079inch'
+PRP Max_Operating_Temperature '85°C'
+PRP Min_Operating_Temperature '-55°C'
+PRP Mount 'Surface Mount'
+PRP Package_Quantity '3000'
+PRP Packaging 'Tape and Reel'
+PRP REACH_SVHC 'No SVHC'
+PRP Termination 'SMD/SMT'
+PRP Thickness '0.057inch'
+PRP Tolerance '10%'
+PRP Voltage_Rating '35V'
+PRP Voltage_Rating_(DC) '35V'
+PRP Weight '0.000335oz'
+PRP Width '0.049inch'
+TOP 0 16.06300064 -14.31399982 180 N 57 20 1
+TOP 1 14.16299936 -14.31399982 180 N 131 161 2
+#
+# CMP 71
+CMP 8 28.575 -53.594 270 N C29 10nF_0402_X7R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C60133'
+TOP 0 28.575 -54.03399912 0 N 131 142 1
+TOP 1 28.575 -53.15399834 0 N 80 9 2
+#
+# CMP 72
+CMP 8 21.209 -23.114 0 N C28 1nF_0402_X7R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C93920'
+TOP 0 21.64899912 -23.114 270 N 131 155 1
+TOP 1 20.76899834 -23.114 270 N 58 3 2
+#
+# CMP 73
+CMP 8 21.209 -24.13 0 N C27 10nF_0402_X7R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C60133'
+TOP 0 21.64899912 -24.13 270 N 131 156 1
+TOP 1 20.76899834 -24.13 270 N 58 2 2
+#
+# CMP 74
+CMP 8 80.772 -55.118 180 N C5 10uF_0402_X5R_10V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C77000'
+TOP 0 80.33200088 -55.118 90 N 131 101 1
+TOP 1 81.21200166 -55.118 90 N 78 3 2
+#
+# CMP 75
+CMP 45 19.431 -6.096 0 N S1 PTS647SK70SMTR2N_LFS ;0=1,1=0.0000
+PRP Arrow_Part_Number ''
+PRP Arrow_Price/Stock ''
+PRP Datasheet_Link 'https://www.ckswitches.com/media/2567/pts647.pdf'
+PRP Height '7mm'
+PRP LCSC_PN 'C47324878'
+PRP Manufacturer_Name 'C & K COMPONENTS'
+PRP Manufacturer_Part_Number 'PTS647SK70SMTR2N LFS'
+PRP Mouser_Part_Number ''
+PRP Mouser_Price/Stock ''
+TOP 0 22.0560011 -4.49600066 180 N 42 2 1
+TOP 1 16.8059989 -4.49600066 180 N 42 1 2
+TOP 2 22.0560011 -7.69599934 180 N 84 4 3
+TOP 3 16.8059989 -7.69599934 180 N 84 3 4
+#
+# CMP 76
+CMP 9 21.59 -58.547 180 N R59 0.005R_1206_1W_1% ;0=1,1=0.0000
+PRP Case/Package '1206'
+PRP LCSC_PN 'C728276'
+PRP Lifecycle_Status 'Not Listed by Manufacturer'
+PRP Manufacturer_Part_Number 'WSLP12065L000FEA'
+PRP Manufacturer_Part_Number_2 'FMF06FTHR005-LHL'
+PRP Octopart_URL 'https://octopart.com/1-2176055-0-te+connectivity-46440145'
+PRP OctopartID '0abdc173b10ad57a'
+PRP OrderingCode 'WSLP12065L000FEA'
+PRP Packaging 'Tape & Reel (TR)'
+PRP Power '1W'
+PRP Resistance '0,024'
+TOP 0 20.11499914 -58.547 90 N 18 5 1
+TOP 1 23.06499832 -58.547 90 N 54 7 2
+#
+# CMP 77
+CMP 9 11.049 -7.366 180 N R50 3R9_1206_0.5W_1% ;0=1,1=0.0000
+PRP Case/Package '1206'
+PRP LCSC_PN 'C2759145'
+PRP Lifecycle_Status 'Not Listed by Manufacturer'
+PRP Manufacturer_Part_Number 'WSLP12065L000FEA'
+PRP Manufacturer_Part_Number_2 'FMF06FTHR005-LHL'
+PRP Octopart_URL 'https://octopart.com/1-2176055-0-te+connectivity-46440145'
+PRP OctopartID '0abdc173b10ad57a'
+PRP OrderingCode 'WSLP12065L000FEA'
+PRP Packaging 'Tape & Reel (TR)'
+PRP Power '1W'
+PRP Resistance '0,024'
+TOP 0 9.57399914 -7.366 90 N 38 2 1
+TOP 1 12.52399832 -7.366 90 N 56 0 2
+#
+# CMP 78
+CMP 9 31.369 -49.86200086 90 N R49 0.002R_1206_0.5W_1% ;0=1,1=0.0000
+PRP Case/Package '1206'
+PRP LCSC_PN 'C844294'
+PRP Lifecycle_Status 'Not Listed by Manufacturer'
+PRP Manufacturer_Part_Number 'WSLP12065L000FEA'
+PRP Manufacturer_Part_Number_2 'FMF06FTHR005-LHL'
+PRP Octopart_URL 'https://octopart.com/1-2176055-0-te+connectivity-46440145'
+PRP OctopartID '0abdc173b10ad57a'
+PRP OrderingCode 'WSLP12065L000FEA'
+PRP Packaging 'Tape & Reel (TR)'
+PRP Power '1W'
+PRP Resistance '0,024'
+TOP 0 31.369 -48.387 180 N 130 29 1
+TOP 1 31.369 -51.33699918 180 N 80 4 2
+#
+# CMP 79
+CMP 9 19.05 -22.352 270 N R48 0.005R_1206_1W_1% ;0=1,1=0.0000
+PRP Case/Package '1206'
+PRP LCSC_PN 'C728276'
+PRP Lifecycle_Status 'Not Listed by Manufacturer'
+PRP Manufacturer_Part_Number 'WSLP12065L000FEA'
+PRP Manufacturer_Part_Number_2 'FMF06FTHR005-LHL'
+PRP Octopart_URL 'https://octopart.com/1-2176055-0-te+connectivity-46440145'
+PRP OctopartID '0abdc173b10ad57a'
+PRP OrderingCode 'WSLP12065L000FEA'
+PRP Packaging 'Tape & Reel (TR)'
+PRP Power '1W'
+PRP Resistance '0,024'
+TOP 0 19.05 -23.82700086 0 N 58 4 1
+TOP 1 19.05 -20.87700168 0 N 57 10 2
+#
+# CMP 80
+CMP 3 28.20399998 -58.4413995 90 N Q13 AON6407 ;0=1,1=0.0000
+PRP Arrow_Part_Number 'AON6407'
+PRP Arrow_Price/Stock 'https://www.arrow.com/en/products/aon6407/alpha-and-omega-semiconductor?utm_currency=USD&region=nac'
+PRP Datasheet_Link 'http://www.aosmd.com/res/data_sheets/AON6407.pdf'
+PRP LCSC_PN 'C13899'
+PRP Manufacturer_Name 'Alpha & Omega Semiconductors'
+PRP Manufacturer_Part_Number 'AON6407'
+PRP Mouser_Part_Number ''
+PRP Mouser_Price/Stock ''
+TOP 0 30.9690008 -56.5363995 180 N 80 10 1
+TOP 1 30.9690008 -57.8063995 180 N 80 13 2
+TOP 2 30.9690008 -59.0763995 180 N 80 12 3
+TOP 3 30.9690008 -60.3463995 180 N 28 1 4
+TOP 4 25.4189992 -60.3463995 180 N 54 5 5
+TOP 5 25.4189992 -59.0763995 180 N 54 2 6
+TOP 6 25.4189992 -57.8063995 180 N 54 1 7
+TOP 7 25.4189992 -56.5363995 180 N 54 3 8
+TOP 8 27.75400088 -58.4413995 90 N 54 4 9
+#
+# CMP 81
+CMP 37 11.684 -38.735 90 N L1 SRP1265A-3R3M ;0=1,1=0.0000
+PRP Arrow_Part_Number 'SRP1265A-3R3M'
+PRP Arrow_Price/Stock 'https://www.arrow.com/en/products/srp1265a-3r3m/bourns?utm_currency=USD&region=nac'
+PRP Datasheet_Link 'https://www.bourns.com/data/global/pdfs/SRP1265A.pdf'
+PRP Height '6.5mm'
+PRP LCSC_PN 'C19268665'
+PRP Manufacturer_Name 'Bourns'
+PRP Manufacturer_Part_Number 'SRP1265A-3R3M'
+PRP Mouser_Part_Number '652-SRP1265A-3R3M'
+PRP Mouser_Price/Stock 'https://www.mouser.co.uk/ProductDetail/Bourns/SRP1265A-3R3M?qs=7z%252BmIopC6%2FKn2Zz%252BiwrXSg%3D%3D'
+TOP 0 11.684 -33.23500084 180 N 41 2 1
+TOP 1 11.684 -44.23499916 180 N 40 2 2
+#
+# CMP 82
+CMP 2 4.572 -21.463 90 N J8 691311400102 ;0=2,1=12.0000
+PRP Color 'Green'
+PRP Contact_Gender 'Male'
+PRP Contact_Material 'Brass'
+PRP Current '20A'
+PRP Current_Rating '20A'
+PRP Gender 'Male'
+PRP Height '16mm'
+PRP LCSC_PN 'C19724644'
+PRP Lead_Pitch '7.62mm'
+PRP Length '8.5mm'
+PRP Mount 'Through Hole'
+PRP Number_of_Contacts '2'
+PRP Number_of_Levels '1'
+PRP Number_of_Pins '2'
+PRP Number_of_Positions_Per_Level '2'
+PRP Number_of_Rows '1'
+PRP Orientation 'Vertical'
+PRP Packaging 'Box'
+PRP Pitch '7.62mm'
+PRP RoHS 'Compliant'
+PRP Termination 'Solder'
+PRP Voltage '300V'
+PRP Width '15.24mm'
+TOP 0 5.02200672 -17.653 90 N 30 9 1
+TOP 1 5.02200672 -25.273 90 N 131 237 2
+#
+# CMP 83
+CMP 8 23.29999912 -21.209 270 N C52 10nF_0402_X7R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C60133'
+TOP 0 23.29999912 -21.64899912 0 N 69 2 1
+TOP 1 23.29999912 -20.76899834 0 N 68 2 2
+#
+# CMP 84
+CMP 8 25.07799912 -20.574 180 N C53 33nF_0402_X7R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C106862'
+TOP 0 24.638 -20.574 90 N 68 1 1
+TOP 1 25.51800078 -20.574 90 N 131 83 2
+#
+# CMP 85
+CMP 47 84.582 -46.101 180 N R27 10k_0402_0.1% ;0=1,1=0.4000
+PRP LCSC_PN 'C190095'
+TOP 0 84.10699968 -46.101 90 N 131 178 1
+TOP 1 85.05700032 -46.101 90 N 91 2 2
+#
+# CMP 86
+CMP 16 126.57089748 -50.8 270 N J6 2-5747706-0 ;0=2,1=0.0000
+PRP Automotive 'No'
+PRP Category 'Conn'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'https://www.te.com/commerce/DocumentDelivery/DDEController?Action=showdoc&DocId=Customer+Drawing%7F5747706%7FB%7Fpdf%7FEnglish%7FENG_CD_5747706_B.pdf%7F2-5747706-0'
+PRP Conn_Gender 'Female'
+PRP Conn_Orientation 'Vertical'
+PRP Contact_Material 'Gold,Nickel'
+PRP Current_Rating '6A'
+PRP Device_Class_L1 'Connectors'
+PRP Device_Class_L2 'D-Sub Connectors'
+PRP Device_Class_L3 'unset'
+PRP Digikey_Description 'CONN D-SUB RCPT 9POS VERT SOLDER'
+PRP Height '0.494inch'
+PRP Is_Female 'yes'
+PRP LCSC_PN 'C189689'
+PRP Lead_Free 'Yes'
+PRP Manufacturer 'TE Connectivity'
+PRP Manufacturer_Part_Number '2-5747706-0'
+PRP Mouser_Description 'D-Sub Standard Connectors RECP FRNT MTL SHL 9P retention inserts'
+PRP Number_of_Contacts '9'
+PRP Octopart 'https://octopart.com/2-5747706-0-te+connectivity-39499683'
+PRP Package '2-5747706-0'
+PRP Pitch '2.74mm'
+PRP RoHS 'TRUE'
+PRP Shielding 'true'
+PRP Temperature '-55°C to +105°C'
+PRP Temperature_Range_High '+105°C'
+PRP Temperature_Range_Low '-55°C'
+TOP 0 127.99329494 -45.3136 270 N 0 61 1
+TOP 1 127.99329494 -48.0568 270 N 86 2 2
+TOP 2 127.99329494 -50.8 270 N 87 2 3
+TOP 3 127.99329494 -53.5432 270 N 0 60 4
+TOP 4 127.99329494 -56.2864 270 N 99 2 5
+TOP 5 125.14850002 -46.6852 270 N 0 59 6
+TOP 6 125.14850002 -49.4284 270 N 131 231 7
+TOP 7 125.14850002 -52.1716 270 N 0 58 8
+TOP 8 125.14850002 -54.9148 270 N 98 2 9
+TOP 9 126.57089748 -63.2968 270 N 131 229 10
+TOP 10 126.57089748 -38.3032 270 N 131 230 11
+#
+# CMP 87
+CMP 8 47.70062596 -34.82349652 90 N C92 100nF_0402_X7R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C77020'
+TOP 0 47.70062596 -34.3834974 180 N 131 74 1
+TOP 1 47.70062596 -35.26349818 180 N 128 17 2
+#
+# CMP 88
+CMP 27 42.23962596 -34.82349652 270 N C88 22uF_0805_X5R_25V ;0=1,1=0.0000
+PRP Capacitance '22uF'
+PRP Case_Code_(Imperial) '0805'
+PRP Case_Code_(Metric) '2012'
+PRP Case/Package '0805'
+PRP Dielectric 'X5R'
+PRP Height '1.25mm'
+PRP LCSC_PN 'C45783'
+PRP Lead_Free 'Lead Free'
+PRP Length '0.079inch'
+PRP Max_Operating_Temperature '85°C'
+PRP Min_Operating_Temperature '-55°C'
+PRP Mount 'Surface Mount'
+PRP Package_Quantity '3000'
+PRP Packaging 'Tape and Reel'
+PRP REACH_SVHC 'No SVHC'
+PRP Termination 'SMD/SMT'
+PRP Thickness '0.057inch'
+PRP Tolerance '10%'
+PRP Voltage_Rating '35V'
+PRP Voltage_Rating_(DC) '35V'
+PRP Weight '0.000335oz'
+PRP Width '0.049inch'
+TOP 0 42.23962596 -35.77349716 270 N 128 24 1
+TOP 1 42.23962596 -33.87349588 270 N 131 31 2
+#
+# CMP 89
+CMP 27 44.01762596 -34.82349652 270 N C89 22uF_0805_X5R_25V ;0=1,1=0.0000
+PRP Capacitance '22uF'
+PRP Case_Code_(Imperial) '0805'
+PRP Case_Code_(Metric) '2012'
+PRP Case/Package '0805'
+PRP Dielectric 'X5R'
+PRP Height '1.25mm'
+PRP LCSC_PN 'C45783'
+PRP Lead_Free 'Lead Free'
+PRP Length '0.079inch'
+PRP Max_Operating_Temperature '85°C'
+PRP Min_Operating_Temperature '-55°C'
+PRP Mount 'Surface Mount'
+PRP Package_Quantity '3000'
+PRP Packaging 'Tape and Reel'
+PRP REACH_SVHC 'No SVHC'
+PRP Termination 'SMD/SMT'
+PRP Thickness '0.057inch'
+PRP Tolerance '10%'
+PRP Voltage_Rating '35V'
+PRP Voltage_Rating_(DC) '35V'
+PRP Weight '0.000335oz'
+PRP Width '0.049inch'
+TOP 0 44.01762596 -35.77349716 270 N 128 23 1
+TOP 1 44.01762596 -33.87349588 270 N 131 30 2
+#
+# CMP 90
+CMP 8 45.41462596 -34.82349652 90 N C90 10uF_0402_X5R_10V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C77000'
+TOP 0 45.41462596 -34.3834974 180 N 131 56 1
+TOP 1 45.41462596 -35.26349818 180 N 128 19 2
+#
+# CMP 91
+CMP 26 52.959 -34.671 90 N C94 10uF_0603_X5R_25V ;0=1,1=0.0000
+PRP LCSC_PN 'C91606'
+TOP 0 52.959 -33.9704299 90 N 131 54 1
+TOP 1 52.959 -35.37157264 90 N 130 24 2
+#
+# CMP 92
+CMP 8 47.625 -32.766 180 N C87 100nF_0402_X7R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C77020'
+TOP 0 47.18500088 -32.766 90 N 77 2 1
+TOP 1 48.06500166 -32.766 90 N 76 0 2
+#
+# CMP 93
+CMP 8 46.55762596 -34.82349652 90 N C91 10uF_0402_X5R_10V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C77000'
+TOP 0 46.55762596 -34.3834974 180 N 131 57 1
+TOP 1 46.55762596 -35.26349818 180 N 128 18 2
+#
+# CMP 94
+CMP 26 54.864 -34.671 90 N C93 10uF_0603_X5R_25V ;0=1,1=0.0000
+PRP LCSC_PN 'C91606'
+TOP 0 54.864 -33.9704299 90 N 131 58 1
+TOP 1 54.864 -35.37157264 90 N 130 23 2
+#
+# CMP 95
+CMP 8 51.562 -34.671 90 N C95 100nF_0402_X7R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C77020'
+TOP 0 51.562 -34.23100088 180 N 131 55 1
+TOP 1 51.562 -35.11100166 180 N 130 16 2
+#
+# CMP 96
+CMP 22 49.276 -40.513 0 N L4 1217AS-H-3R3N=P3 ;0=1,1=0.0000
+PRP Case/Package 'SMD/SMT'
+PRP Core_Material 'Ferrite'
+PRP Current_Rating '6.8A'
+PRP DC_Resistance_(DCR) '14.4mR'
+PRP Height_-_Seated_(Max) '0.177inch'
+PRP Inductance '3.3uH'
+PRP LCSC_PN 'C514864'
+PRP Length '0.315inch'
+PRP Max_DC_Current '6.8A'
+PRP Mount 'Surface Mount'
+PRP Number_of_Pins '2'
+PRP Packaging 'Tape and Reel'
+PRP Resistor_Type 'Wirewound'
+PRP Saturation_Current '7.7A'
+PRP Shielding 'Shielded'
+PRP Test_Frequency '100kHz'
+PRP Tolerance '30%'
+PRP Width '0.315inch'
+TOP 0 52.6509996 -40.513 180 N 77 1 1
+TOP 1 45.9010004 -40.513 180 N 128 25 2
+#
+# CMP 97
+CMP 47 51.181 -31.75 180 N R79 45k3_0402_0.1% ;0=1,1=0.4000
+PRP LCSC_PN 'C851017'
+TOP 0 50.70599968 -31.75 90 N 75 1 1
+TOP 1 51.65600032 -31.75 90 N 128 16 2
+#
+# CMP 98
+CMP 47 51.181 -32.639 0 N R80 10k_0402_0.1% ;0=1,1=0.4000
+PRP LCSC_PN 'C190095'
+TOP 0 51.65600032 -32.639 270 N 131 53 1
+TOP 1 50.70599968 -32.639 270 N 75 0 2
+#
+# CMP 99
+CMP 38 73.47089192 -58.045858 0 N D12 LESD5D5.0CT1G ;0=1,1=0.0000
+PRP Arrow_Part_Number ''
+PRP Arrow_Price/Stock ''
+PRP Datasheet_Link ''
+PRP Height '0.7mm'
+PRP LCSC_PN 'C383211'
+PRP Manufacturer_Name 'LRC'
+PRP Manufacturer_Part_Number 'LESD5D5.0CT1G'
+PRP Mouser_Part_Number ''
+PRP Mouser_Price/Stock ''
+TOP 0 74.13089314 -58.045858 180 N 131 112 1
+TOP 1 72.8108907 -58.045858 180 N 112 24 2
+#
+# CMP 100
+CMP 47 56.769 -27.178 270 N R4 10k_0402_0.1% ;0=1,1=0.4000
+PRP LCSC_PN 'C190095'
+TOP 0 56.769 -27.65300032 0 N 131 78 1
+TOP 1 56.769 -26.70299968 0 N 72 1 2
+#
+# CMP 101
+CMP 47 40.132 -23.749 0 N R2 10k_0402_0.1% ;0=1,1=0.4000
+PRP LCSC_PN 'C190095'
+TOP 0 40.60700032 -23.749 270 N 122 1 1
+TOP 1 39.65699968 -23.749 270 N 128 15 2
+#
+# CMP 102
+CMP 59 80.8340522 -62.7848122 270 N J13 TYPE-C_16PLC-H10.0 ;0=2,1=0.0000
+PRP BOM_Manufacturer_Part ''
+PRP Contributor 'lcsc'
+PRP JLCPCB_Part_Class 'Extended Part'
+PRP LCSC_PN 'C3151747'
+PRP Manufacturer 'SHOU HAN(??)'
+PRP Manufacturer_Part 'TYPE-C 16PLC-H10.0'
+PRP spicePre 'U'
+PRP spiceSymbolName 'TYPE-C 16PLC-H10.0'
+PRP Supplier 'LCSC'
+PRP Supplier_Part 'C3151747'
+TOP 0 81.534 -66.0349962 270 N 131 239 A1
+TOP 1 82.7639696 -64.784859 270 N 0 56 A2
+TOP 2 81.534 -65.0847822 270 N 78 6 A4
+TOP 3 81.534 -64.135 270 N 0 52 A5
+TOP 4 81.534 -63.2349256 270 N 0 51 A6
+TOP 5 81.534 -62.3348258 270 N 0 50 A7
+TOP 6 81.534 -61.4347514 270 N 0 49 A8
+TOP 7 81.534 -60.4847914 270 N 78 7 A9
+TOP 8 82.7639696 -60.784867 270 N 0 55 A10
+TOP 9 81.534 -59.5347298 270 N 131 240 A12
+TOP 10 80.1340028 -59.5347298 270 N 131 241 B1
+TOP 11 78.9039824 -60.784867 270 N 0 53 B2
+TOP 12 80.1340028 -60.4847914 270 N 78 8 B4
+TOP 13 80.1340028 -61.4347514 270 N 0 48 B5
+TOP 14 80.1340028 -62.3348258 270 N 0 47 B6
+TOP 15 80.1340028 -63.234951 270 N 0 46 B7
+TOP 16 80.1340028 -64.135 270 N 0 45 B8
+TOP 17 80.1340028 -65.0847822 270 N 78 9 B9
+TOP 18 78.9039824 -64.784859 270 N 0 54 B10
+TOP 19 80.1340028 -66.0350216 270 N 131 242 B12
+#
+# CMP 103
+CMP 9 11.049 -4.953 180 N R51 3R9_1206_0.5W_1% ;0=1,1=0.0000
+PRP Case/Package '1206'
+PRP LCSC_PN 'C2759145'
+PRP Lifecycle_Status 'Not Listed by Manufacturer'
+PRP Manufacturer_Part_Number 'WSLP12065L000FEA'
+PRP Manufacturer_Part_Number_2 'FMF06FTHR005-LHL'
+PRP Octopart_URL 'https://octopart.com/1-2176055-0-te+connectivity-46440145'
+PRP OctopartID '0abdc173b10ad57a'
+PRP OrderingCode 'WSLP12065L000FEA'
+PRP Packaging 'Tape & Reel (TR)'
+PRP Power '1W'
+PRP Resistance '0,024'
+TOP 0 9.57399914 -4.953 90 N 38 3 1
+TOP 1 12.52399832 -4.953 90 N 56 2 2
+#
+# CMP 104
+CMP 38 80.77195428 -57.265951 180 N D1 LESD5D5.0CT1G ;0=1,1=0.0000
+PRP Arrow_Part_Number ''
+PRP Arrow_Price/Stock ''
+PRP Datasheet_Link ''
+PRP Height '0.7mm'
+PRP LCSC_PN 'C383211'
+PRP Manufacturer_Name 'LRC'
+PRP Manufacturer_Part_Number 'LESD5D5.0CT1G'
+PRP Mouser_Part_Number ''
+PRP Mouser_Price/Stock ''
+TOP 0 80.11195306 -57.265951 0 N 131 167 1
+TOP 1 81.4319555 -57.265951 0 N 78 5 2
+#
+# CMP 105
+CMP 8 61.79000342 -7.747 0 N C2 10uF_0402_X5R_10V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C77000'
+TOP 0 62.23000254 -7.747 270 N 131 61 1
+TOP 1 61.35000176 -7.747 270 N 128 4 2
+#
+# CMP 106
+CMP 8 61.849 -8.763 0 N C3 100nF_0402_X7R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C77020'
+TOP 0 62.28899912 -8.763 270 N 131 60 1
+TOP 1 61.40899834 -8.763 270 N 128 2 2
+#
+# CMP 107
+CMP 47 19.939 -10.16 270 N R75 10k_0402_0.1% ;0=1,1=0.4000
+PRP LCSC_PN 'C190095'
+TOP 0 19.939 -10.63500032 0 N 82 1 1
+TOP 1 19.939 -9.68499968 0 N 84 1 2
+#
+# CMP 108
+CMP 8 18.669 -10.16 270 N C77 100nF_0402_X7R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C77020'
+TOP 0 18.669 -10.59999912 0 N 131 77 1
+TOP 1 18.669 -9.71999834 0 N 84 0 2
+#
+# CMP 109
+CMP 8 30.28499912 -40.259 180 N C67 3.3_nF_0402_X7R_10V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C107028'
+TOP 0 29.845 -40.259 90 N 49 0 1
+TOP 1 30.72500078 -40.259 90 N 131 88 2
+#
+# CMP 110
+CMP 8 28.194 -35.814 180 N C66 100pF_0402_X7R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C281751'
+TOP 0 27.75400088 -35.814 90 N 50 1 1
+TOP 1 28.63400166 -35.814 90 N 131 85 2
+#
+# CMP 111
+CMP 8 29.337 -39.37 180 N C65 33pF_0402_X7R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C107005'
+TOP 0 28.89700088 -39.37 90 N 51 1 1
+TOP 1 29.77700166 -39.37 90 N 131 84 2
+#
+# CMP 112
+CMP 8 23.114 -32.004 270 N C64 100pF_0402_X7R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C281751'
+TOP 0 23.114 -32.44399912 0 N 62 1 1
+TOP 1 23.114 -31.56399834 0 N 131 73 2
+#
+# CMP 113
+CMP 8 28.38200064 -32.385 180 N C63 100pF_0402_X7R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C281751'
+TOP 0 27.94200152 -32.385 90 N 52 1 1
+TOP 1 28.8220023 -32.385 90 N 131 86 2
+#
+# CMP 114
+CMP 8 28.448 -42.926 0 N C62 15pF_0402_X5R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C86285'
+TOP 0 28.88799912 -42.926 270 N 131 87 1
+TOP 1 28.00799834 -42.926 270 N 85 1 2
+#
+# CMP 115
+CMP 47 81.661 -49.403 270 N R19 0.1R_0402_0.1% ;0=1,1=0.4000
+PRP LCSC_PN 'C2139031'
+TOP 0 81.661 -49.87800032 0 N 112 14 1
+TOP 1 81.661 -48.92799968 0 N 35 2 2
+#
+# CMP 116
+CMP 49 57.2581024 -52.19695682 270 N U8 INA3221AIRGVR ;0=1,1=1.0000
+PRP CMR_(Typ) '120 dB'
+PRP CMRR(Min)(dB) ''
+PRP Code_JEDEC ''
+PRP Common_Mode_Range(Max)(V) ''
+PRP Common_Mode_Range(Min)(V) ''
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.ti.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://www.ti.com/lit/ds/symlink/ina3221.pdf'
+PRP ComponentLink3Description 'Package Specification'
+PRP ComponentLink3URL 'http://www.ti.com/lit/ds/symlink/ina3221.pdf'
+PRP DatasheetVersion 'SBOS576A'
+PRP Eco-Plan ''
+PRP Gain '1 V/V'
+PRP Gain_Error_(max) '0.25%'
+PRP Gain(V/V) ''
+PRP Input_Offset_(+/-)(Max)(uV) ''
+PRP Input_Offset_Drift_(+/-)(Max)(uV/Degrees_Celsius) ''
+PRP LCSC_PN 'C181255'
+PRP Manufacturer 'Texas Instruments'
+PRP Mounting_Technology 'Surface Mount'
+PRP Offset_Voltage_(max) '+/- 80 uV'
+PRP Operating_Supply_Range '2.7 to 5.5 V'
+PRP Output_Type ''
+PRP PackageDescription '16-Pin Quad Flat No-lead Package, Body 4 x 4 mm, Pitch 0.65 mm'
+PRP PackageReference 'RGV0016A'
+PRP PackageVersion 'SBOS576A'
+PRP Packing 'Tape and Reel'
+PRP PartNumber 'INA3221AIRGVR'
+PRP Quiescent_Current_(+/-)(Typ)(mA) ''
+PRP Quiescent_Current_(Typ) '350 uA'
+PRP Rating 'Catalog'
+PRP RoHS 'TRUE'
+PRP Small-Signal_Bandwidth(Typ)(MHz) ''
+PRP SubFamily ''
+PRP Temperature_Range '-40 to 125 degC'
+PRP Voltage_Input_Range_(Bus) '0 to 26 V'
+PRP Vs(Max)(V) ''
+PRP Vs(Min)(V) ''
+TOP 0 58.23310172 -54.02195698 0 N 131 52 1
+TOP 1 57.58310302 -54.02195698 0 N 131 51 2
+TOP 2 56.93310178 -54.02195698 0 N 131 50 3
+TOP 3 56.28310308 -54.02195698 0 N 128 7 4
+TOP 4 55.43310224 -53.17195614 270 N 131 49 5
+TOP 5 55.43310224 -52.52195744 270 N 143 2 6
+TOP 6 55.43310224 -51.8719562 270 N 144 1 7
+TOP 7 55.43310224 -51.2219575 270 N 0 0 8
+TOP 8 56.28310308 -50.37195666 0 N 0 1 9
+TOP 9 56.93310178 -50.37195666 0 N 0 2 10
+TOP 10 57.58310302 -50.37195666 0 N 36 0 11
+TOP 11 58.23310172 -50.37195666 0 N 37 0 12
+TOP 12 59.08310256 -51.2219575 270 N 0 3 13
+TOP 13 59.08310256 -51.8719562 270 N 35 0 14
+TOP 14 59.08310256 -52.52195744 270 N 112 18 15
+TOP 15 59.08310256 -53.17195614 270 N 0 4 16
+TOP 16 57.2581024 -52.19695682 270 N 131 48 17
+#
+# CMP 117
+CMP 8 56.642 -55.245 0 N C25 100nF_0402_X7R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C77020'
+TOP 0 57.08199912 -55.245 270 N 131 82 1
+TOP 1 56.20199834 -55.245 270 N 128 11 2
+#
+# CMP 118
+CMP 47 69.088 -39.243 0 N R78 10k_0402_0.1% ;0=1,1=0.4000
+PRP LCSC_PN 'C190095'
+TOP 0 69.56300032 -39.243 270 N 131 121 1
+TOP 1 68.61299968 -39.243 270 N 103 2 2
+#
+# CMP 119
+CMP 8 88.138 -13.97 180 N C14 10uF_0402_X5R_10V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C77000'
+TOP 0 87.69800088 -13.97 90 N 131 172 1
+TOP 1 88.57800166 -13.97 90 N 129 7 2
+#
+# CMP 120
+CMP 8 88.138 -15.748 180 N C16 15pF_0402_X5R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C86285'
+TOP 0 87.69800088 -15.748 90 N 131 171 1
+TOP 1 88.57800166 -15.748 90 N 129 6 2
+#
+# CMP 121
+CMP 24 70.4153786 -35.86102302 90 N U13 TPS563231DRLR ;0=1,1=0.0000
+PRP LCSC_PN 'C779412'
+TOP 0 69.9153796 -35.12102196 90 N 130 13 1
+TOP 1 70.4153786 -35.12102196 90 N 114 3 2
+TOP 2 70.9153776 -35.12102196 90 N 131 119 3
+TOP 3 70.9153776 -36.60102408 90 N 113 0 4
+TOP 4 70.4153786 -36.60102408 90 N 3 0 5
+TOP 5 69.9153796 -36.60102408 90 N 103 0 6
+#
+# CMP 122
+CMP 47 69.05500032 -38.227 180 N R77 56k_0402_0.1% ;0=1,1=0.4000
+PRP LCSC_PN 'C114756'
+TOP 0 68.58 -38.227 90 N 103 1 1
+TOP 1 69.53000064 -38.227 90 N 129 16 2
+#
+# CMP 123
+CMP 22 71.628 -29.337 180 N L3 1217AS-H-3R3N=P3 ;0=1,1=0.0000
+PRP Case/Package 'SMD/SMT'
+PRP Core_Material 'Ferrite'
+PRP Current_Rating '6.8A'
+PRP DC_Resistance_(DCR) '14.4mR'
+PRP Height_-_Seated_(Max) '0.177inch'
+PRP Inductance '3.3uH'
+PRP LCSC_PN 'C514864'
+PRP Length '0.315inch'
+PRP Max_DC_Current '6.8A'
+PRP Mount 'Surface Mount'
+PRP Number_of_Pins '2'
+PRP Packaging 'Tape and Reel'
+PRP Resistor_Type 'Wirewound'
+PRP Saturation_Current '7.7A'
+PRP Shielding 'Shielded'
+PRP Test_Frequency '100kHz'
+PRP Tolerance '30%'
+PRP Width '0.315inch'
+TOP 0 68.2530004 -29.337 0 N 114 2 1
+TOP 1 75.0029996 -29.337 0 N 129 10 2
+#
+# CMP 124
+CMP 8 68.707 -35.56 270 N C86 100nF_0402_X7R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C77020'
+TOP 0 68.707 -35.99999912 0 N 131 122 1
+TOP 1 68.707 -35.11999834 0 N 130 18 2
+#
+# CMP 125
+CMP 26 67.31 -35.56 270 N C85 10uF_0603_X5R_25V ;0=1,1=0.0000
+PRP LCSC_PN 'C91606'
+TOP 0 67.31 -36.2605701 270 N 131 120 1
+TOP 1 67.31 -34.85942736 270 N 130 12 2
+#
+# CMP 126
+CMP 26 65.532 -35.56 270 N C84 10uF_0603_X5R_25V ;0=1,1=0.0000
+PRP LCSC_PN 'C91606'
+TOP 0 65.532 -36.2605701 270 N 131 118 1
+TOP 1 65.532 -34.85942736 270 N 130 14 2
+#
+# CMP 127
+CMP 8 74.32051176 -35.36499658 270 N C83 100nF_0402_X7R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C77020'
+TOP 0 74.32051176 -35.8049957 0 N 131 125 1
+TOP 1 74.32051176 -34.92499492 0 N 129 15 2
+#
+# CMP 128
+CMP 8 73.25376764 -35.36499658 270 N C82 10uF_0402_X5R_10V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C77000'
+TOP 0 73.25376764 -35.8049957 0 N 131 124 1
+TOP 1 73.25376764 -34.92499492 0 N 129 13 2
+#
+# CMP 129
+CMP 8 72.18702352 -35.36499658 270 N C81 10uF_0402_X5R_10V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C77000'
+TOP 0 72.18702352 -35.8049957 0 N 131 123 1
+TOP 1 72.18702352 -34.92499492 0 N 129 14 2
+#
+# CMP 130
+CMP 27 75.64125588 -35.36499658 90 N C80 22uF_0805_X5R_25V ;0=1,1=0.0000
+PRP Capacitance '22uF'
+PRP Case_Code_(Imperial) '0805'
+PRP Case_Code_(Metric) '2012'
+PRP Case/Package '0805'
+PRP Dielectric 'X5R'
+PRP Height '1.25mm'
+PRP LCSC_PN 'C45783'
+PRP Lead_Free 'Lead Free'
+PRP Length '0.079inch'
+PRP Max_Operating_Temperature '85°C'
+PRP Min_Operating_Temperature '-55°C'
+PRP Mount 'Surface Mount'
+PRP Package_Quantity '3000'
+PRP Packaging 'Tape and Reel'
+PRP REACH_SVHC 'No SVHC'
+PRP Termination 'SMD/SMT'
+PRP Thickness '0.057inch'
+PRP Tolerance '10%'
+PRP Voltage_Rating '35V'
+PRP Voltage_Rating_(DC) '35V'
+PRP Weight '0.000335oz'
+PRP Width '0.049inch'
+TOP 0 75.64125588 -34.41499594 90 N 129 12 1
+TOP 1 75.64125588 -36.31499722 90 N 131 32 2
+#
+# CMP 131
+CMP 24 68.60199894 -49.775999 0 N U12 TPS563231DRLR ;0=1,1=0.0000
+PRP LCSC_PN 'C779412'
+TOP 0 69.342 -49.276 180 N 130 22 1
+TOP 1 69.342 -49.775999 180 N 117 1 2
+TOP 2 69.342 -50.275998 180 N 131 106 3
+TOP 3 67.86199788 -50.275998 180 N 116 0 4
+TOP 4 67.86199788 -49.775999 180 N 4 0 5
+TOP 5 67.86199788 -49.276 180 N 115 1 6
+#
+# CMP 132
+CMP 47 66.42061646 -48.61123374 90 N R76 10k_0402_0.1% ;0=1,1=0.4000
+PRP LCSC_PN 'C190095'
+TOP 0 66.42061646 -48.13623342 180 N 131 107 1
+TOP 1 66.42061646 -49.08623406 180 N 115 2 2
+#
+# CMP 133
+CMP 47 65.40461646 -48.61123882 270 N R74 73k2_0402_1% ;0=1,1=0.4000
+PRP LCSC_PN 'C185398'
+PRP Manufacturer 'Yageo / Phycomp'
+TOP 0 65.40461646 -49.08623914 0 N 115 0 1
+TOP 1 65.40461646 -48.1362385 0 N 112 15 2
+#
+# CMP 134
+CMP 22 74.676 -51.943 90 N L2 1217AS-H-3R3N=P3 ;0=1,1=0.0000
+PRP Case/Package 'SMD/SMT'
+PRP Core_Material 'Ferrite'
+PRP Current_Rating '6.8A'
+PRP DC_Resistance_(DCR) '14.4mR'
+PRP Height_-_Seated_(Max) '0.177inch'
+PRP Inductance '3.3uH'
+PRP LCSC_PN 'C514864'
+PRP Length '0.315inch'
+PRP Max_DC_Current '6.8A'
+PRP Mount 'Surface Mount'
+PRP Number_of_Pins '2'
+PRP Packaging 'Tape and Reel'
+PRP Resistor_Type 'Wirewound'
+PRP Saturation_Current '7.7A'
+PRP Shielding 'Shielded'
+PRP Test_Frequency '100kHz'
+PRP Tolerance '30%'
+PRP Width '0.315inch'
+TOP 0 74.676 -48.5680004 90 N 117 3 1
+TOP 1 74.676 -55.3179996 90 N 112 19 2
+#
+# CMP 135
+CMP 8 68.961 -47.87899492 180 N C76 100nF_0402_X7R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C77020'
+TOP 0 68.52100088 -47.87899492 90 N 131 110 1
+TOP 1 69.40100166 -47.87899492 90 N 130 21 2
+#
+# CMP 136
+CMP 26 68.961 -44.069 180 N C74 10uF_0603_X5R_25V ;0=1,1=0.0000
+PRP LCSC_PN 'C91606'
+TOP 0 68.2604299 -44.069 0 N 131 108 1
+TOP 1 69.66157264 -44.069 0 N 130 19 2
+#
+# CMP 137
+CMP 27 68.91467294 -52.48395904 0 N C72 22uF_0805_X5R_25V ;0=1,1=0.0000
+PRP Capacitance '22uF'
+PRP Case_Code_(Imperial) '0805'
+PRP Case_Code_(Metric) '2012'
+PRP Case/Package '0805'
+PRP Dielectric 'X5R'
+PRP Height '1.25mm'
+PRP LCSC_PN 'C45783'
+PRP Lead_Free 'Lead Free'
+PRP Length '0.079inch'
+PRP Max_Operating_Temperature '85°C'
+PRP Min_Operating_Temperature '-55°C'
+PRP Mount 'Surface Mount'
+PRP Package_Quantity '3000'
+PRP Packaging 'Tape and Reel'
+PRP REACH_SVHC 'No SVHC'
+PRP Termination 'SMD/SMT'
+PRP Thickness '0.057inch'
+PRP Tolerance '10%'
+PRP Voltage_Rating '35V'
+PRP Voltage_Rating_(DC) '35V'
+PRP Weight '0.000335oz'
+PRP Width '0.049inch'
+TOP 0 69.86467358 -52.48395904 180 N 112 17 1
+TOP 1 67.9646723 -52.48395904 180 N 131 34 2
+#
+# CMP 138
+CMP 27 68.91467294 -54.13495904 0 N C71 22uF_0805_X5R_25V ;0=1,1=0.0000
+PRP Capacitance '22uF'
+PRP Case_Code_(Imperial) '0805'
+PRP Case_Code_(Metric) '2012'
+PRP Case/Package '0805'
+PRP Dielectric 'X5R'
+PRP Height '1.25mm'
+PRP LCSC_PN 'C45783'
+PRP Lead_Free 'Lead Free'
+PRP Length '0.079inch'
+PRP Max_Operating_Temperature '85°C'
+PRP Min_Operating_Temperature '-55°C'
+PRP Mount 'Surface Mount'
+PRP Package_Quantity '3000'
+PRP Packaging 'Tape and Reel'
+PRP REACH_SVHC 'No SVHC'
+PRP Termination 'SMD/SMT'
+PRP Thickness '0.057inch'
+PRP Tolerance '10%'
+PRP Voltage_Rating '35V'
+PRP Voltage_Rating_(DC) '35V'
+PRP Weight '0.000335oz'
+PRP Width '0.049inch'
+TOP 0 69.86467358 -54.13495904 180 N 112 23 1
+TOP 1 67.9646723 -54.13495904 180 N 131 35 2
+#
+# CMP 139
+CMP 27 68.91467294 -55.78595904 0 N C70 22uF_0805_X5R_25V ;0=1,1=0.0000
+PRP Capacitance '22uF'
+PRP Case_Code_(Imperial) '0805'
+PRP Case_Code_(Metric) '2012'
+PRP Case/Package '0805'
+PRP Dielectric 'X5R'
+PRP Height '1.25mm'
+PRP LCSC_PN 'C45783'
+PRP Lead_Free 'Lead Free'
+PRP Length '0.079inch'
+PRP Max_Operating_Temperature '85°C'
+PRP Min_Operating_Temperature '-55°C'
+PRP Mount 'Surface Mount'
+PRP Package_Quantity '3000'
+PRP Packaging 'Tape and Reel'
+PRP REACH_SVHC 'No SVHC'
+PRP Termination 'SMD/SMT'
+PRP Thickness '0.057inch'
+PRP Tolerance '10%'
+PRP Voltage_Rating '35V'
+PRP Voltage_Rating_(DC) '35V'
+PRP Weight '0.000335oz'
+PRP Width '0.049inch'
+TOP 0 69.86467358 -55.78595904 180 N 112 22 1
+TOP 1 67.9646723 -55.78595904 180 N 131 36 2
+#
+# CMP 140
+CMP 27 68.91467294 -57.43695904 0 N C69 22uF_0805_X5R_25V ;0=1,1=0.0000
+PRP Capacitance '22uF'
+PRP Case_Code_(Imperial) '0805'
+PRP Case_Code_(Metric) '2012'
+PRP Case/Package '0805'
+PRP Dielectric 'X5R'
+PRP Height '1.25mm'
+PRP LCSC_PN 'C45783'
+PRP Lead_Free 'Lead Free'
+PRP Length '0.079inch'
+PRP Max_Operating_Temperature '85°C'
+PRP Min_Operating_Temperature '-55°C'
+PRP Mount 'Surface Mount'
+PRP Package_Quantity '3000'
+PRP Packaging 'Tape and Reel'
+PRP REACH_SVHC 'No SVHC'
+PRP Termination 'SMD/SMT'
+PRP Thickness '0.057inch'
+PRP Tolerance '10%'
+PRP Voltage_Rating '35V'
+PRP Voltage_Rating_(DC) '35V'
+PRP Weight '0.000335oz'
+PRP Width '0.049inch'
+TOP 0 69.86467358 -57.43695904 180 N 112 25 1
+TOP 1 67.9646723 -57.43695904 180 N 131 37 2
+#
+# CMP 141
+CMP 27 77.216 -35.36499658 90 N C79 22uF_0805_X5R_25V ;0=1,1=0.0000
+PRP Capacitance '22uF'
+PRP Case_Code_(Imperial) '0805'
+PRP Case_Code_(Metric) '2012'
+PRP Case/Package '0805'
+PRP Dielectric 'X5R'
+PRP Height '1.25mm'
+PRP LCSC_PN 'C45783'
+PRP Lead_Free 'Lead Free'
+PRP Length '0.079inch'
+PRP Max_Operating_Temperature '85°C'
+PRP Min_Operating_Temperature '-55°C'
+PRP Mount 'Surface Mount'
+PRP Package_Quantity '3000'
+PRP Packaging 'Tape and Reel'
+PRP REACH_SVHC 'No SVHC'
+PRP Termination 'SMD/SMT'
+PRP Thickness '0.057inch'
+PRP Tolerance '10%'
+PRP Voltage_Rating '35V'
+PRP Voltage_Rating_(DC) '35V'
+PRP Weight '0.000335oz'
+PRP Width '0.049inch'
+TOP 0 77.216 -34.41499594 90 N 129 11 1
+TOP 1 77.216 -36.31499722 90 N 131 33 2
+#
+# CMP 142
+CMP 8 71.628 -37.846 0 N C78 100nF_0402_X7R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C77020'
+TOP 0 72.06799912 -37.846 270 N 114 1 1
+TOP 1 71.18799834 -37.846 270 N 113 1 2
+#
+# CMP 143
+CMP 8 40.132 -53.721 0 N C24 100nF_0402_X7R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C77020'
+TOP 0 40.57199912 -53.721 270 N 131 59 1
+TOP 1 39.69199834 -53.721 270 N 128 28 2
+#
+# CMP 144
+CMP 47 49.87800032 -26.797 0 N R9 100R_0402_0.1% ;0=1,1=0.4000
+PRP LCSC_PN 'C106233'
+TOP 0 50.35300064 -26.797 270 N 6 1 1
+TOP 1 49.403 -26.797 270 N 23 0 2
+#
+# CMP 145
+CMP 15 51.0409952 -12.49899964 0 N U1 ESP32-S3-WROOM-1-N8R2 ;0=1,1=0.0000
+PRP Arrow_Part_Number ''
+PRP Arrow_Price/Stock ''
+PRP Datasheet_Link 'https://www.mouser.com/catalog/specsheets/Espressif_ESP32_S3_WROOM_1_1U_Preliminary.pdf'
+PRP Height '3.25mm'
+PRP LCSC_PN 'C2913204'
+PRP Manufacturer_Name 'Espressif Systems'
+PRP Manufacturer_Part_Number 'ESP32-S3-WROOM-1-N8R2'
+PRP Mouser_Part_Number '356-ESP32-S3WRM1N8R2'
+PRP Mouser_Price/Stock 'https://www.mouser.co.uk/ProductDetail/Espressif-Systems/ESP32-S3-WROOM-1-N8R2?qs=Wj%2FVkw3K%252BMCC1Ha9x85iJA%3D%3D'
+TOP 0 59.79099548 -7.239 180 N 131 62 1
+TOP 1 59.79099548 -8.509 180 N 128 5 2
+TOP 2 59.79099548 -9.779 180 N 123 0 3
+TOP 3 59.79099548 -11.049 180 N 82 0 4
+TOP 4 59.79099548 -12.319 180 N 91 0 5
+TOP 5 59.79099548 -13.589 180 N 19 0 6
+TOP 6 59.79099548 -14.859 180 N 15 0 7
+TOP 7 59.79099548 -16.129 180 N 25 0 8
+TOP 8 59.79099548 -17.399 180 N 26 0 9
+TOP 9 59.79099548 -18.669 180 N 100 0 10
+TOP 10 59.79099548 -19.939 180 N 24 1 11
+TOP 11 59.79099548 -21.209 180 N 67 2 12
+TOP 12 59.79099548 -22.479 180 N 73 0 13
+TOP 13 59.79099548 -23.749 180 N 74 0 14
+TOP 14 58.0259952 -24.99900004 270 N 34 0 15
+TOP 15 56.7559952 -24.99900004 270 N 72 0 16
+TOP 16 55.4859952 -24.99900004 270 N 126 0 17
+TOP 17 54.2159952 -24.99900004 270 N 125 0 18
+TOP 18 52.9459952 -24.99900004 270 N 79 0 19
+TOP 19 51.6759952 -24.99900004 270 N 22 0 20
+TOP 20 50.4059952 -24.99900004 270 N 6 0 21
+TOP 21 49.1359952 -24.99900004 270 N 71 0 22
+TOP 22 47.8659952 -24.99900004 270 N 101 0 23
+TOP 23 46.5959952 -24.99900004 270 N 144 2 24
+TOP 24 45.3259952 -24.99900004 270 N 143 3 25
+TOP 25 44.0559952 -24.99900004 270 N 33 0 26
+TOP 26 42.29099492 -23.749 180 N 122 0 27
+TOP 27 42.29099492 -22.479 180 N 141 0 28
+TOP 28 42.29099492 -21.209 180 N 142 0 29
+TOP 29 42.29099492 -19.939 180 N 140 0 30
+TOP 30 42.29099492 -18.669 180 N 70 0 31
+TOP 31 42.29099492 -17.399 180 N 3 2 32
+TOP 32 42.29099492 -16.129 180 N 4 1 33
+TOP 33 42.29099492 -14.859 180 N 16 0 34
+TOP 34 42.29099492 -13.589 180 N 5 1 35
+TOP 35 42.29099492 -12.319 180 N 146 0 36
+TOP 36 42.29099492 -11.049 180 N 147 0 37
+TOP 37 42.29099492 -9.779 180 N 47 0 38
+TOP 38 42.29099492 -8.509 180 N 20 0 39
+TOP 39 42.29099492 -7.239 180 N 131 63 40
+TOP 40 52.54099474 -14.9589998 270 N 131 64 41
+TOP 41 52.54099474 -13.55900006 270 N 131 65 42
+TOP 42 53.94099448 -13.55900006 270 N 131 66 43
+TOP 43 53.94099448 -14.9589998 270 N 131 67 44
+TOP 44 53.94099448 -16.35899954 270 N 131 68 45
+TOP 45 52.54099474 -16.35899954 270 N 131 69 46
+TOP 46 51.140995 -16.35899954 270 N 131 70 47
+TOP 47 51.140995 -14.9589998 270 N 131 71 48
+TOP 48 51.140995 -13.55900006 270 N 131 72 49
+#
+# CMP 146
+CMP 8 82.804 -16.891 180 N C18 100nF_0402_X7R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C77020'
+TOP 0 82.36400088 -16.891 90 N 131 80 1
+TOP 1 83.24400166 -16.891 90 N 124 3 2
+#
+# CMP 147
+CMP 8 66.548 -50.927 270 N C68 100nF_0402_X7R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C77020'
+TOP 0 66.548 -51.36699912 0 N 117 2 1
+TOP 1 66.548 -50.48699834 0 N 116 1 2
+#
+# CMP 148
+CMP 47 83.312 -14.605 90 N R40 0R_0402_1% ;0=1,1=0.4000
+PRP LCSC_PN 'C60485'
+TOP 0 83.312 -14.12999968 180 N 127 1 1
+TOP 1 83.312 -15.08000032 180 N 124 0 2
+#
+# CMP 149
+CMP 8 82.804 -16.002 180 N C19 100nF_0402_X7R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C77020'
+TOP 0 82.36400088 -16.002 90 N 131 75 1
+TOP 1 83.24400166 -16.002 90 N 124 1 2
+#
+# CMP 150
+CMP 47 46.609 -27.432 270 N R6 4k7_0402_1% ;0=1,1=0.4000
+PRP LCSC_PN 'C105871'
+TOP 0 46.609 -27.90700032 0 N 128 13 1
+TOP 1 46.609 -26.95699968 0 N 144 3 2
+#
+# CMP 151
+CMP 47 45.339 -27.432 270 N R5 4k7_0402_1% ;0=1,1=0.4000
+PRP LCSC_PN 'C105871'
+TOP 0 45.339 -27.90700032 0 N 128 12 1
+TOP 1 45.339 -26.95699968 0 N 143 4 2
+#
+# CMP 152
+CMP 47 83.312 -18.288 90 N R39 0R_0402_1% ;0=1,1=0.4000
+PRP LCSC_PN 'C60485'
+TOP 0 83.312 -17.81299968 180 N 124 2 1
+TOP 1 83.312 -18.76300032 180 N 145 0 2
+#
+# CMP 153
+CMP 47 103.56693028 -22.69213902 180 N R38 2k26_0402_0.1% ;0=1,1=0.4000
+PRP LCSC_PN 'C852697'
+TOP 0 103.09192996 -22.69213902 90 N 104 1 1
+TOP 1 104.0419306 -22.69213902 90 N 125 1 2
+#
+# CMP 154
+CMP 47 103.53393568 -21.42213902 0 N R37 10k_0402_0.1% ;0=1,1=0.4000
+PRP LCSC_PN 'C190095'
+TOP 0 104.008936 -21.42213902 270 N 131 117 1
+TOP 1 103.05893536 -21.42213902 270 N 104 2 2
+#
+# CMP 155
+CMP 47 103.5339306 -20.27913902 180 N R36 1k_0402_1% ;0=1,1=0.4000
+PRP LCSC_PN 'C106235'
+TOP 0 103.05893028 -20.27913902 90 N 105 1 1
+TOP 1 104.00893092 -20.27913902 90 N 126 1 2
+#
+# CMP 156
+CMP 8 68.834 -51.308 180 N C73 100nF_0402_X7R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C77020'
+TOP 0 68.39400088 -51.308 90 N 131 105 1
+TOP 1 69.27400166 -51.308 90 N 112 16 2
+#
+# CMP 157
+CMP 8 88.13800254 -14.859 0 N C22 33pF_0402_X7R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C107005'
+TOP 0 88.57800166 -14.859 270 N 129 5 1
+TOP 1 87.69800088 -14.859 270 N 131 218 2
+#
+# CMP 158
+CMP 8 82.931 -13.208 180 N C20 100nF_0402_X7R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C77020'
+TOP 0 82.49100088 -13.208 90 N 131 76 1
+TOP 1 83.37100166 -13.208 90 N 127 2 2
+#
+# CMP 159
+CMP 8 82.931 -19.812 180 N C17 100nF_0402_X7R_50V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C77020'
+TOP 0 82.49100088 -19.812 90 N 131 79 1
+TOP 1 83.37100166 -19.812 90 N 145 1 2
+#
+# CMP 160
+CMP 47 61.849 -10.414 180 N R1 10k_0402_0.1% ;0=1,1=0.4000
+PRP LCSC_PN 'C190095'
+TOP 0 61.37399968 -10.414 90 N 123 1 1
+TOP 1 62.32400032 -10.414 90 N 128 1 2
+#
+# CMP 161
+CMP 8 80.83099912 -56.261 180 N C4 10uF_0402_X5R_10V ;0=1,1=0.5500
+PRP ComponentLink1Description 'Manufacturer URL'
+PRP ComponentLink1URL 'http://www.murata.com/'
+PRP ComponentLink2Description 'Datasheet'
+PRP ComponentLink2URL 'http://psearch.en.murata.com/capacitor/product/GRM155R60J105KE19%23.pdf'
+PRP LCSC_PN 'C77000'
+TOP 0 80.391 -56.261 90 N 131 81 1
+TOP 1 81.27100078 -56.261 90 N 78 2 2
+#
+# CMP 162
+CMP 53 100.97893952 -20.23813834 0 N U5 Simcom_SIM800C ;0=1,1=0.0000
+PRP LCSC_PN 'C2981431'
+PRP Manufacturer_Part_Number 'SIM800C'
+PRP Mounting_Style 'Surface Mount'
+PRP Octopart_URL 'http://octopart.com/sim800c-simcom-54220430'
+PRP OctopartID '72dbb8ea0133ad1c'
+TOP 0 100.97893952 -20.23813834 270 N 105 0 1
+TOP 1 100.97893952 -21.33813868 270 N 104 0 2
+TOP 2 100.97893952 -22.43813902 270 N 0 35 3
+TOP 3 100.97893952 -23.53813936 270 N 0 34 4
+TOP 4 100.97893952 -24.63813716 270 N 0 33 5
+TOP 5 100.97893952 -25.7381375 270 N 0 32 6
+TOP 6 100.97893952 -26.83813784 270 N 0 31 7
+TOP 7 100.97893952 -27.93813818 270 N 131 89 8
+TOP 8 100.97893952 -29.03813852 270 N 0 30 9
+TOP 9 100.97893952 -30.13813886 270 N 0 29 10
+TOP 10 100.97893952 -31.2381392 270 N 0 28 11
+TOP 11 100.97893952 -32.33813954 270 N 0 27 12
+TOP 12 97.5289388 -35.08813912 180 N 131 95 13
+TOP 13 96.42893846 -35.08813912 180 N 0 19 14
+TOP 14 95.32893812 -35.08813912 180 N 133 0 15
+TOP 15 94.22893778 -35.08813912 180 N 132 0 16
+TOP 16 93.12893998 -35.08813912 180 N 134 0 17
+TOP 17 92.02893964 -35.08813912 180 N 135 0 18
+TOP 18 90.9289393 -35.08813912 180 N 131 96 19
+TOP 19 89.82893896 -35.08813912 180 N 0 18 20
+TOP 20 88.72893862 -35.08813912 180 N 131 97 21
+TOP 21 85.27894044 -32.33813954 270 N 0 26 22
+TOP 22 85.27894044 -31.2381392 270 N 131 90 23
+TOP 23 85.27894044 -30.13813886 270 N 0 25 24
+TOP 24 85.27894044 -29.03813852 270 N 0 24 25
+TOP 25 85.27894044 -27.93813818 270 N 0 23 26
+TOP 26 85.27894044 -26.83813784 270 N 131 91 27
+TOP 27 85.27894044 -25.7381375 270 N 0 22 28
+TOP 28 85.27894044 -24.63813716 270 N 0 21 29
+TOP 29 85.27894044 -23.53813936 270 N 131 92 30
+TOP 30 85.27894044 -22.43813902 270 N 131 93 31
+TOP 31 85.27894044 -21.33813868 270 N 145 2 32
+TOP 32 85.27894044 -20.23813834 270 N 131 94 33
+TOP 33 88.72893862 -17.48813876 180 N 129 9 34
+TOP 34 89.82893896 -17.48813876 180 N 129 4 35
+TOP 35 90.9289393 -17.48813876 180 N 131 98 36
+TOP 36 92.02893964 -17.48813876 180 N 131 99 37
+TOP 37 93.12893998 -17.48813876 180 N 0 17 38
+TOP 38 94.22893778 -17.48813876 180 N 131 100 39
+TOP 39 95.32893812 -17.48813876 180 N 0 16 40
+TOP 40 96.42893846 -17.48813876 180 N 0 15 41
+TOP 41 97.5289388 -17.48813876 180 N 0 20 42
+#
+# CMP 163
+CMP 26 68.961 -46.10099492 180 N C75 10uF_0603_X5R_25V ;0=1,1=0.0000
+PRP LCSC_PN 'C91606'
+TOP 0 68.2604299 -46.10099492 0 N 131 109 1
+TOP 1 69.66157264 -46.10099492 0 N 130 20 2
+#
+# CMP 164
+CMP 6 32.27300124 -6.37400046 90 N BUZ1 CUI_CMT-1285C-035 ;0=2,1=0.0000
+PRP LCSC_PN 'C252915'
+PRP Lead-Free_Status 'Lead Free'
+PRP Manufacturer_Part_Number 'CMT-1285C-035'
+PRP Manufacturer_Part_Number_2 'GMC1205YA-16R2048'
+PRP Mounting_Style 'Through Hole'
+PRP Octopart_URL 'https://octopart.com/cmt-1285c-035-cui-71811876'
+PRP OctopartID '581a9557be5887dd'
+PRP RoHS 'Compliant'
+TOP 0 32.27300124 -9.62520046 90 N 128 21 1
+TOP 1 32.27300124 -3.12399934 90 N 136 2 2
+#
+# CMP 165
+CMP 44 75.46823108 -12.34923108 0 N RF_PCB1 Planar_Inverted-F_Antenna ;0=1,1=0.0000
+PRP CustomComponentID 'e704afk8c25r4a5ypw1c'
+PRP Homepage_URL ''
+PRP Manufacturer ''
+PRP Manufacturer_Part_Number ''
+TOP 0 83.46923108 -11.46023108 0 N 127 3 1
+TOP 1 76.35723108 -11.46023108 0 N 131 133 2
+#

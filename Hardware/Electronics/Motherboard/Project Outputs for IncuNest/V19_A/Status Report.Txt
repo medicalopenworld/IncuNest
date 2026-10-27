@@ -1,0 +1,38 @@
+Output: Gerber X2
+Type  : GerberX2
+From  : PCB Document [Motherboard.PcbDoc]
+   Generated File[Motherboard_Copper_Signal_Top.gbr]
+   Generated File[Motherboard_Copper_Signal_1.gbr]
+   Generated File[Motherboard_Copper_Signal_2.gbr]
+   Generated File[Motherboard_Copper_Signal_Bot.gbr]
+   Generated File[Motherboard_Pads_Bot.gbr]
+   Generated File[Motherboard_Pads_Top.gbr]
+   Generated File[Motherboard_Paste_Top.gbr]
+   Generated File[Motherboard_Legend_Bot.gbr]
+   Generated File[Motherboard_Paste_Bot.gbr]
+   Generated File[Motherboard_Soldermask_Bot.gbr]
+   Generated File[Motherboard_Soldermask_Top.gbr]
+   Generated File[Motherboard_Legend_Top.gbr]
+   Generated File[Motherboard_Keep-out.gbr]
+   Generated File[Motherboard_Mechanical_8.gbr]
+   Generated File[Motherboard_Mechanical_15.gbr]
+   Generated File[Motherboard_Mechanical_4.gbr]
+   Generated File[Motherboard_Mechanical_9.gbr]
+   Generated File[Motherboard_Mechanical_16.gbr]
+   Generated File[Motherboard_Mechanical_10.gbr]
+   Generated File[Motherboard_Mechanical_12.gbr]
+   Generated File[Motherboard_Mechanical_13.gbr]
+   Generated File[Motherboard_Mechanical_7.gbr]
+   Generated File[Motherboard_Mechanical_1.gbr]
+   Generated File[Motherboard_Mechanical_6.gbr]
+   Generated File[Motherboard_Mechanical_14.gbr]
+   Generated File[Motherboard_Profile.gbr]
+   Generated File[Motherboard.RUL]
+   Generated File[Motherboard.EXTREP]
+   Generated File[Motherboard.REP]
+
+
+Files Generated   : 29
+Documents Printed : 0
+
+Finished Output Generation At 20.31.45 On 25/10/2026
