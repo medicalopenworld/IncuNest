@@ -139,10 +139,9 @@ void ui_ScreenIntro_screen_destroy(void);
 extern lv_obj_t * ui_ScreenMain;
 extern lv_obj_t * ui_ClockTime;
 extern lv_obj_t * ui_ClockDate;
-extern lv_obj_t * ui_ClockButton;
-// Boton de ayuda "?" del heading (spec hmi-help-center). Abre HelpDialog.
-extern lv_obj_t * ui_HelpButton;
-extern lv_obj_t * ui_HelpButtonLabel;
+// Contenedor de hora y fecha del heading. Solo informa: el ajuste manual se
+// abre desde el menu (MenuDialog, FECHA Y HORA).
+extern lv_obj_t * ui_ClockCont;
 // Indicador de conectividad del heading (WIFI/GPRS/ninguna + cobertura).
 // Ver connectivity_heading_update() en UITask.cpp.
 extern lv_obj_t * ui_ConnCont;
@@ -151,8 +150,8 @@ extern lv_obj_t * ui_ConnBar[4];
 
 // Indicador del entorno de la SensorBoard (puerta abierta, nivel de ruido):
 // dos filas de icono + palabra corta. Solo en el heading de ui_ScreenLock: en
-// Main no hay hueco (ayuda, reloj, conectividad, candado, Bebes, alarmas y
-// ajustes llenan el ancho). Lo refresca sb_env_heading_update() (UITask.cpp);
+// Main no hay hueco (bateria, reloj, conectividad, candado, bebe al mando,
+// alarmas y menu llenan el ancho). Lo refresca sb_env_heading_update() (UITask.cpp);
 // aqui solo se crea, oculto.
 typedef struct {
   lv_obj_t * cont;       // contenedor; oculto salvo que haya algo que pintar
@@ -164,14 +163,21 @@ typedef struct {
   lv_obj_t * noiseText;
 } ui_HeadingEnv_t;
 extern ui_HeadingEnv_t ui_HeadingEnvLock;
-extern lv_obj_t * ui_Settings;
+// Marca de objeto cuyo texto lleva color propio: el barrido de etiquetas de
+// UI_ApplyTheme() no entra en el ni en sus hijos (simbolo blanco sobre el
+// azul de un boton, check sobre el verde de un distintivo...).
+#define UI_FLAG_KEEP_TEXT_COLOR LV_OBJ_FLAG_USER_1
+
+// Botones del heading de Main: cuadrados azules, el lenguaje de "esto se
+// toca". Alarmas abre el centro de alarmas; menu abre MenuDialog.
+extern lv_obj_t * ui_MenuButton;
 extern lv_obj_t * ui_AlarmButton;
-extern lv_obj_t * ui_BabiesButton;
-extern lv_obj_t * ui_BabiesButtonLabel;
-// Identidad del bebe al mando: dentro del boton "Bebes" de Main y replica en
-// el heading de ui_ScreenLock. Ocultas hasta que haya sesion viva.
-extern lv_obj_t * ui_BabiesPatientName;
-extern lv_obj_t * ui_BabiesPatientDetail;
+// Identidad del bebe al mando: texto en el heading de Main (no se toca; los
+// bebes se abren desde el menu) y replica en el de ui_ScreenLock. Ocultas
+// hasta que haya sesion viva.
+extern lv_obj_t * ui_HeadingPatientCont;
+extern lv_obj_t * ui_HeadingPatientName;
+extern lv_obj_t * ui_HeadingPatientDetail;
 // Terapia acumulada del bebe al mando, en la cabecera de cada panel de Main.
 extern lv_obj_t * ui_TempTotalLabel;
 extern lv_obj_t * ui_HumTotalLabel;
@@ -534,10 +540,8 @@ void ui_ScreenLock_screen_init(void);
 void ui_ScreenLock_screen_destroy(void);
 
 // --- EVENT PROTOTYPES ---
-void ui_event_Settings(lv_event_t * e);
-void ui_event_BabiesButton(lv_event_t * e);
+void ui_event_MenuButton(lv_event_t * e);
 void ui_event_AlarmButton(lv_event_t * e);
-void ui_event_HelpButton(lv_event_t * e);
 void ui_event_SPO2Button(lv_event_t * e);
 void ui_event_ChartButton(lv_event_t * e);
 void ui_event_ImgButton1(lv_event_t * e);

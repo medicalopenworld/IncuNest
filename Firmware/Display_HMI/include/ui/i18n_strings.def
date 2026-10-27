@@ -1159,6 +1159,11 @@ UI_STR(STR_WEIGH_LOGGED,       "Peso registrado",
 
 // ------------------------------------------------------- menu de ayuda
 UI_STR(STR_HELP_UC,            "AYUDA",        "HELP",        "AIDE",        "AJUDA")
+// Menu del heading (MenuDialog.cpp). AJUSTES y AYUDA reutilizan STR_SETTINGS
+// y STR_HELP_UC.
+UI_STR(STR_MENU_UC,            "MENU",         "MENU",        "MENU",        "MENU")
+UI_STR(STR_MENU_TIME,          "FECHA Y HORA", "DATE AND TIME", "DATE ET HEURE", "DATA E HORA")
+UI_STR(STR_MENU_BABIES,        "BEBES REGISTRADOS", "REGISTERED BABIES", "BEBES ENREGISTRES", "BEBES REGISTADOS")
 UI_STR(STR_HELP_TOUR_TITLE,    "TUTORIAL GUIADO",
                                "GUIDED TUTORIAL",
                                "TUTORIEL GUIDE",

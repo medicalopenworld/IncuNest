@@ -20,6 +20,7 @@
 #include "ui/BabyHistory.h"
 #include "ui/BabyWizard.h"
 #include "ui/HelpDialog.h"
+#include "ui/MenuDialog.h"
 #include "ui/TelemetryHistory.h"
 #include "ui/TimeDialog.h"
 
@@ -141,6 +142,8 @@ bool goalTimeOpen() { return TimeDialog_IsOpen(); }
 bool goalTimeClosed() { return !TimeDialog_IsOpen(); }
 bool goalHelpOpen() { return HelpDialog_IsOpen(); }
 bool goalHelpClosed() { return !HelpDialog_IsOpen(); }
+// Hora, ayuda y bebes se abren desde el menu del heading: primero el menu.
+bool goalMenuOpen() { return MenuDialog_IsOpen(); }
 
 // ---- E1: alta y seguimiento del bebe ------------------------------------------
 
@@ -172,32 +175,39 @@ const Quiz QUIZ_BABY = {
 };
 
 constexpr Step BABY_STEPS[] = {
-    EXPLAIN(&ui_BabiesButton, &ui_ScreenMain,
+    EXPLAIN(&ui_MenuButton, &ui_ScreenMain,
             "Cada bebe tiene su registro: nombre, semanas, pesos, horas de "
-            "terapia y salidas. Se crea al ingresar, desde Bebes con BEBE "
-            "NUEVO; si no se hizo, el asistente lo pide al encender la primera "
-            "terapia. En formacion nada se guarda de verdad.",
+            "terapia y salidas. Se crea al ingresar, desde MENU > BEBES "
+            "REGISTRADOS con BEBE NUEVO; si no se hizo, el asistente lo pide "
+            "al encender la primera terapia. En formacion nada se guarda de "
+            "verdad.",
             "Each baby has a record: name, weeks, weights, therapy hours and "
-            "exits. It is created on admission, from Babies with NEW BABY; if "
-            "not, the assistant asks for it when the first therapy is switched "
-            "on. In training nothing is really saved.",
+            "exits. It is created on admission, from MENU > REGISTERED BABIES "
+            "with NEW BABY; if not, the assistant asks for it when the first "
+            "therapy is switched on. In training nothing is really saved.",
             "Chaque bebe a son dossier : nom, semaines, poids, heures de "
-            "therapie et sorties. Il se cree a l'admission, depuis Bebes avec "
-            "NOUVEAU BEBE ; sinon l'assistant le demande a la premiere "
-            "therapie. En formation rien n'est vraiment enregistre.",
+            "therapie et sorties. Il se cree a l'admission, depuis MENU > "
+            "BEBES ENREGISTRES avec NOUVEAU BEBE ; sinon l'assistant le "
+            "demande a la premiere therapie. En formation rien n'est vraiment "
+            "enregistre.",
             "Cada bebe tem o seu registo: nome, semanas, pesos, horas de "
-            "terapia e saidas. Cria-se na admissao, em Bebes com BEBE NOVO; se "
-            "nao, o assistente pede-o ao ligar a primeira terapia. Em formacao "
-            "nada fica guardado a serio."),
-    DO(&ui_BabiesButton, &ui_ScreenMain, goalBabyHistoryOpen,
-       "Toca Bebes. Dentro veras los bebes activos, los ya dados de alta y "
-       "el boton BEBE NUEVO para registrar un ingreso.",
-       "Touch Babies. Inside you see the active babies, the discharged ones "
-       "and the NEW BABY button to register an admission.",
-       "Touchez Bebes. Dedans : les bebes actifs, ceux sortis et le bouton "
-       "NOUVEAU BEBE pour enregistrer une admission.",
-       "Toca em Bebes. La dentro ves os bebes ativos, os que ja tiveram alta "
-       "e o botao BEBE NOVO para registar uma admissao."),
+            "terapia e saidas. Cria-se na admissao, em MENU > BEBES "
+            "REGISTADOS com BEBE NOVO; se nao, o assistente pede-o ao ligar a "
+            "primeira terapia. Em formacao nada fica guardado a serio."),
+    DO(&ui_MenuButton, &ui_ScreenMain, goalMenuOpen,
+       "Toca el boton MENU (las tres rayas, arriba a la derecha).",
+       "Touch the MENU button (the three lines, top right).",
+       "Touchez le bouton MENU (les trois traits, en haut a droite).",
+       "Toca no botao MENU (as tres riscas, em cima a direita)."),
+    DO(&ui_MenuBabiesBtn, &ui_ScreenMain, goalBabyHistoryOpen,
+       "Toca BEBES REGISTRADOS. Dentro veras los bebes activos, los ya dados "
+       "de alta y el boton BEBE NUEVO para registrar un ingreso.",
+       "Touch REGISTERED BABIES. Inside you see the active babies, the "
+       "discharged ones and the NEW BABY button to register an admission.",
+       "Touchez BEBES ENREGISTRES. Dedans : les bebes actifs, ceux sortis et "
+       "le bouton NOUVEAU BEBE pour enregistrer une admission.",
+       "Toca em BEBES REGISTADOS. La dentro ves os bebes ativos, os que ja "
+       "tiveram alta e o botao BEBE NOVO para registar uma admissao."),
     FREE(&ui_ScreenMain, goalNewBabyAtName,
          "Toca BEBE NUEVO, bajo la lista de activos, para registrar un "
          "ingreso.",
@@ -282,18 +292,19 @@ constexpr Step BABY_STEPS[] = {
          "em gramas e os dias de vida: assim regista-se um peso novo. Le a "
          "temperatura proposta e toca em APLICAR. Em formacao nada fica no "
          "historico."),
-    EXPLAIN(&ui_BabiesButton, &ui_ScreenMain,
+    EXPLAIN(&ui_MenuButton, &ui_ScreenMain,
             "Cada nuevo peso se registra desde el asistente y dibuja la curva "
-            "de crecimiento en Bebes. Registra el peso a diario a la misma "
-            "hora.",
+            "de crecimiento en MENU > BEBES REGISTRADOS. Registra el peso a "
+            "diario a la misma hora.",
             "Each new weight is recorded from the assistant and draws the "
-            "growth curve in Babies. Record the weight daily at the same "
-            "time.",
+            "growth curve in MENU > REGISTERED BABIES. Record the weight daily "
+            "at the same time.",
             "Chaque nouveau poids s'enregistre depuis l'assistant et trace la "
-            "courbe de croissance dans Bebes. Pesez chaque jour a la meme "
-            "heure.",
+            "courbe de croissance dans MENU > BEBES ENREGISTRES. Pesez chaque "
+            "jour a la meme heure.",
             "Cada peso novo regista-se no assistente e desenha a curva de "
-            "crescimento em Bebes. Regista o peso todos os dias a mesma hora."),
+            "crescimento em MENU > BEBES REGISTADOS. Regista o peso todos os "
+            "dias a mesma hora."),
     DO(&ui_TempToggleBtn, &ui_ScreenMain, goalTempOff,
        "Apaga el control de temperatura para terminar.",
        "Turn temperature control off to finish.",
@@ -1024,11 +1035,16 @@ const Quiz QUIZ_TIME = {
 };
 
 constexpr Step TIME_STEPS[] = {
-    DO(&ui_ClockButton, &ui_ScreenMain, goalTimeOpen,
-       "Toca la hora del heading para ajustarla.",
-       "Touch the time in the heading to set it.",
-       "Touchez l'heure de l'en-tete pour la regler.",
-       "Toca na hora do cabecalho para a acertar."),
+    DO(&ui_MenuButton, &ui_ScreenMain, goalMenuOpen,
+       "Toca el boton MENU (las tres rayas, arriba a la derecha).",
+       "Touch the MENU button (the three lines, top right).",
+       "Touchez le bouton MENU (les trois traits, en haut a droite).",
+       "Toca no botao MENU (as tres riscas, em cima a direita)."),
+    DO(&ui_MenuTimeBtn, &ui_ScreenMain, goalTimeOpen,
+       "Toca FECHA Y HORA para ajustar la hora.",
+       "Touch DATE AND TIME to set the time.",
+       "Touchez DATE ET HEURE pour regler l'heure.",
+       "Toca em DATA E HORA para acertar a hora."),
     FREE(&ui_ScreenMain, goalTimeClosed,
          "Teclea dia, mes, ano, hora y minutos (10 cifras) y pulsa APLICAR. "
          "En formacion la placa no cambia la hora. Cierra el dialogo para "
@@ -1042,7 +1058,7 @@ constexpr Step TIME_STEPS[] = {
          "Escreve dia, mes, ano, hora e minutos (10 algarismos) e toca em "
          "APLICAR. Em formacao a placa nao muda a hora. Fecha o dialogo "
          "para continuar."),
-    EXPLAIN(&ui_ClockButton, &ui_ScreenMain,
+    EXPLAIN(&ui_ClockCont, &ui_ScreenMain,
             "Si el equipo tiene red, la hora se sincroniza sola. Sin red, "
             "revisala al encender: de ella dependen las fechas del historial.",
             "With a network the time syncs by itself. Without one, check it "
@@ -1063,10 +1079,13 @@ LESSON_TABLE_IS_ASCII(TIME_STEPS);
 // ---- E11: contactar con soporte ------------------------------------------------------
 
 constexpr Step SUPPORT_STEPS[] = {
-    DO(&ui_HelpButton, &ui_ScreenMain, goalHelpOpen,
-       "Toca el boton de ayuda.", "Touch the help button.",
-       "Touchez le bouton d'aide.",
-       "Toca no botao de ajuda."),
+    DO(&ui_MenuButton, &ui_ScreenMain, goalMenuOpen,
+       "Toca el boton MENU (las tres rayas, arriba a la derecha).",
+       "Touch the MENU button (the three lines, top right).",
+       "Touchez le bouton MENU (les trois traits, en haut a droite).",
+       "Toca no botao MENU (as tres riscas, em cima a direita)."),
+    DO(&ui_MenuHelpBtn, &ui_ScreenMain, goalHelpOpen,
+       "Toca AYUDA.", "Touch HELP.", "Touchez AIDE.", "Toca em AJUDA."),
     FREE(&ui_ScreenMain, goalHelpClosed,
          "Elige CONTACTAR SOPORTE. El QR abre un correo con el numero de "
          "serie y el estado del equipo ya rellenos: solo escribes tu consulta. "
@@ -1080,7 +1099,7 @@ constexpr Step SUPPORT_STEPS[] = {
          "Escolhe CONTACTAR O SUPORTE. O QR abre um email com o numero de "
          "serie e o estado do equipamento ja preenchidos: so escreves a tua "
          "questao. Fecha com o X para continuar."),
-    EXPLAIN(&ui_HelpButton, &ui_ScreenMain,
+    EXPLAIN(&ui_MenuButton, &ui_ScreenMain,
             "En el mismo menu tienes el video tutorial (QR a la web) y estos "
             "cursos. Fin del curso de enfermeria.",
             "The same menu has the video tutorial (QR to the website) and "

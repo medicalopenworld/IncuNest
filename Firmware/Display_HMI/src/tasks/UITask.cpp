@@ -11,6 +11,7 @@
 #include "ui/BabyExitDialog.h"
 #include "ui/TimeDialog.h"
 #include "ui/HelpDialog.h"
+#include "ui/MenuDialog.h"
 #include "ui/training/training.h"
 #include "ui/training/training_progress.h"
 #include "ui/MaintenanceDialog.h"
@@ -511,8 +512,7 @@ void clock_update(void) {
 // asistente es historia, no "quien esta dentro", y un nombre ajeno en pantalla
 // con la cabina vacia es justo el error que esto quiere evitar.
 void patient_identity_update(void) {
-  if (!ui_BabiesPatientName || !ui_BabiesPatientDetail ||
-      !ui_BabiesButtonLabel) {
+  if (!ui_HeadingPatientName || !ui_HeadingPatientDetail) {
     return;
   }
 
@@ -558,36 +558,41 @@ void patient_identity_update(void) {
   static char lastName[sizeof(name)] = {0};
   static char lastDetail[sizeof(detail)] = {0};
   static int lastLang = -1;
+  // El tema tambien: el barrido de UI_ApplyTheme() repinta las etiquetas de
+  // Main con el color del tema y se llevaria el gris de "sin confirmar".
+  static int lastDark = -1;
   const bool langChanged = lastLang != (int)g_lang;
+  const bool darkChanged = lastDark != (darkMode ? 1 : 0);
   const bool nameChanged = strcmp(name, lastName) != 0;
   const bool detailChanged = strcmp(detail, lastDetail) != 0;
   if (live == lastLive && confirmed == lastConfirmed && !nameChanged &&
-      !detailChanged && !langChanged && lastLang != -1) {
+      !detailChanged && !langChanged && !darkChanged && lastLang != -1) {
     return;
   }
   lastLive = live;
   lastConfirmed = confirmed;
   lastLang = (int)g_lang;
+  lastDark = darkMode ? 1 : 0;
   snprintf(lastName, sizeof(lastName), "%s", name);
   snprintf(lastDetail, sizeof(lastDetail), "%s", detail);
 
   if (live) {
-    // Gris cuando no esta confirmada (sobre el azul del boton y sobre el fondo
-    // oscuro del bloqueo); los colores de la identidad confirmada son los de
-    // ElementsCreation.cpp.
-    const lv_color_t mainName = confirmed ? lv_color_hex(0xFFFFFF) : lv_color_hex(0xBFBFBF);
-    const lv_color_t mainDetail = confirmed ? lv_color_hex(0xD6E6FF) : lv_color_hex(0xBFBFBF);
+    // Gris cuando no esta confirmada; confirmada, el texto del tema en Main
+    // (fondo claro u oscuro) y blanco sobre el fondo oscuro del bloqueo.
+    const lv_color_t mainText = darkMode ? COLOR_TEXT_DARK : lv_color_hex(0x000000);
+    const lv_color_t mainSub = darkMode ? lv_color_hex(0xBBBBBB) : lv_color_hex(0x555555);
+    const lv_color_t mainName = confirmed ? mainText : lv_color_hex(0x8C8C8C);
+    const lv_color_t mainDetail = confirmed ? mainSub : lv_color_hex(0x8C8C8C);
     const lv_color_t lockName = confirmed ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x8C8C8C);
     const lv_color_t lockDetail = confirmed ? lv_color_hex(0xBBBBBB) : lv_color_hex(0x8C8C8C);
-    lv_obj_set_style_text_color(ui_BabiesPatientName, mainName, LV_PART_MAIN);
-    lv_obj_set_style_text_color(ui_BabiesPatientDetail, mainDetail, LV_PART_MAIN);
+    lv_obj_set_style_text_color(ui_HeadingPatientName, mainName, LV_PART_MAIN);
+    lv_obj_set_style_text_color(ui_HeadingPatientDetail, mainDetail, LV_PART_MAIN);
     if (ui_LockPatientName) lv_obj_set_style_text_color(ui_LockPatientName, lockName, LV_PART_MAIN);
     if (ui_LockPatientDetail) lv_obj_set_style_text_color(ui_LockPatientDetail, lockDetail, LV_PART_MAIN);
-    lv_obj_add_flag(ui_BabiesButtonLabel, LV_OBJ_FLAG_HIDDEN);
-    lv_label_set_text(ui_BabiesPatientName, name);
-    lv_label_set_text(ui_BabiesPatientDetail, detail);
-    lv_obj_clear_flag(ui_BabiesPatientName, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(ui_BabiesPatientDetail, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(ui_HeadingPatientName, name);
+    lv_label_set_text(ui_HeadingPatientDetail, detail);
+    lv_obj_clear_flag(ui_HeadingPatientName, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_HeadingPatientDetail, LV_OBJ_FLAG_HIDDEN);
     if (ui_LockPatientName) {
       lv_label_set_text(ui_LockPatientName, name);
       lv_obj_clear_flag(ui_LockPatientName, LV_OBJ_FLAG_HIDDEN);
@@ -597,9 +602,8 @@ void patient_identity_update(void) {
       lv_obj_clear_flag(ui_LockPatientDetail, LV_OBJ_FLAG_HIDDEN);
     }
   } else {
-    lv_obj_add_flag(ui_BabiesPatientName, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(ui_BabiesPatientDetail, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(ui_BabiesButtonLabel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_HeadingPatientName, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_HeadingPatientDetail, LV_OBJ_FLAG_HIDDEN);
     if (ui_LockPatientName) lv_obj_add_flag(ui_LockPatientName, LV_OBJ_FLAG_HIDDEN);
     if (ui_LockPatientDetail) lv_obj_add_flag(ui_LockPatientDetail, LV_OBJ_FLAG_HIDDEN);
   }
@@ -1396,10 +1400,6 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   if (ui_PhotoLockLabel)
     lv_label_set_text(ui_PhotoLockLabel, L(STR_PHOTO_LOCK));
 
-  // Babies history button (baby-history-viewer)
-  if (ui_BabiesButtonLabel)
-    lv_label_set_text(ui_BabiesButtonLabel, L(STR_BABIES));
-
   photo_safety_apply_language(lang);
   TelemetryHistory_ApplyLanguage();
   FactoryTest_ApplyLanguage();
@@ -1697,21 +1697,6 @@ void MaintOpenButton_cb(lv_event_t *e) {
   (void)e;
   MaintenanceDialog_Open();
 }
-
-// Disparado al tocar la hora de cabecera (ui_ClockButton, ui_ScreenMain), no
-// desde Settings: el reloj vive ahi, asi que no hace falta ocultar ningun
-// panel de la pantalla de ajustes (son pantallas distintas, LVGL no las
-// muestra a la vez).
-//
-// Todo el dialogo vive en TimeDialog.cpp: es un pop-up modal con teclado
-// numerico y la mascara en blanco, no los 5 spinboxes prefijados que habia
-// aqui antes.
-void ClockButton_cb(lv_event_t *e) { TimeDialog_Open(); }
-
-// Boton "?" del heading (ui_HelpButton). Todo el menu vive en HelpDialog.cpp
-// (spec hmi-help-center): tutorial guiado, QR del video tutorial y contacto
-// con soporte.
-void HelpButton_cb(lv_event_t *e) { HelpDialog_Open(); }
 
 void LanguageButton_cb(lv_event_t *e) {
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
@@ -2685,8 +2670,8 @@ void alarm_banner_init(void) {
 //
 // Con el enlace caido el banner se pintaba tambien fuera del bloqueo, y en
 // ui_ScreenMain tapaba el heading entero justo al desbloquear: reloj,
-// conectividad, bebes y ajustes. En esa pantalla el aviso va aqui, en el
-// hueco entre ui_BabiesButton y ui_Settings, encima del slot de alarmas.
+// conectividad, bebe y menu. En esa pantalla el aviso va aqui, encima del
+// bebe al mando y del boton de alarmas, sin tapar el menu.
 //
 // Tapa a proposito el boton y el contador de alarmas: con la placa callada
 // ese contador es informacion vieja, igual que las medidas (que ya salen como
@@ -2703,11 +2688,12 @@ static lv_obj_t *s_linkLostChip = NULL;
 static lv_obj_t *s_linkLostChipLabel = NULL;
 static const char *s_linkLostChipText = NULL;  // puntero de TR(); cambia con g_lang
 
-// Hueco libre del heading: ui_BabiesButton acaba en x=+178 desde el centro y
-// ui_Settings empieza en x=+344. 8 px de aire a cada lado.
-#define LINK_LOST_CHIP_W 150
+// De x=+108 a x=+320 desde el centro: tapa el final del bebe al mando
+// (+69..+239), el boton de alarmas (+252..+308) y su distintivo (hasta +316);
+// el menu empieza en +328.
+#define LINK_LOST_CHIP_W 212
 #define LINK_LOST_CHIP_H 44
-#define LINK_LOST_CHIP_X 261
+#define LINK_LOST_CHIP_X 214
 
 static void link_lost_chip_blink_cb(void *obj, int32_t v) {
   lv_obj_set_style_bg_color(
@@ -3270,6 +3256,7 @@ void alarm_banner_update(void) {
       AlarmCenter_IsOpen() || FactoryTest_IsOpen() ||
       TelemetryHistory_IsOpen() || BabyHistory_IsOpen() ||
       BabyExitDialog_IsOpen() || TimeDialog_IsOpen() || HelpDialog_IsOpen() ||
+      MenuDialog_IsOpen() ||
       Training_IsOpen() || TrainingSelector_IsOpen() ||
       MaintenanceDialog_IsOpen() || BabyWizard_IsOpen();
   const bool linkLostInHeading = linkLost && ui_ScreenMain &&
@@ -3503,8 +3490,7 @@ void update_alarm_panels() {
   if (totalActiveAlarms > 0) {
     char buf[10];
     itoa(totalActiveAlarms, buf, 10);
-    // Main screen
-    lv_obj_clear_flag(ui_AlarmButton, LV_OBJ_FLAG_HIDDEN);
+    // Main screen: el boton de alarmas esta siempre; cambia su distintivo.
     lv_obj_clear_flag(ui_Panel10, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(ui_NumAlarm, LV_OBJ_FLAG_HIDDEN);
     lv_label_set_text(ui_NumAlarm, buf);
@@ -3519,7 +3505,6 @@ void update_alarm_panels() {
     // por defecto.
     lv_obj_add_flag(ui_Panel10, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_NumAlarm, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(ui_AlarmButton, LV_OBJ_FLAG_HIDDEN);
     if (fanHeaterAlarm || linkLost)
       lv_obj_add_flag(ui_CheckImgMain, LV_OBJ_FLAG_HIDDEN);
     else
@@ -4726,10 +4711,12 @@ void UI_Task(void *pvParameters) {
   // --- Babies history screen (baby-history-viewer spec) ---
   BabyHistory_Init(ui_ScreenMain);
   BabyExitDialog_Init(ui_ScreenMain);
-  // Ajuste manual de la hora, abierto desde ui_ClockButton.
+  // Ajuste manual de la hora y ayuda: los abre el menu del heading.
   TimeDialog_Init(ui_ScreenMain);
-  // Menu de ayuda, abierto desde ui_HelpButton (mismo criterio de parent).
   HelpDialog_Init(ui_ScreenMain);
+  // Menu del heading (ui_MenuButton): solo un selector hacia lo de arriba,
+  // los bebes y los ajustes.
+  MenuDialog_Init(ui_ScreenMain);
   // Cursos de formacion: selector (modal sobre Main) y motor de lecciones (en
   // lv_layer_top() porque recorre Main y Ajustes; ANTES del banner de alarma
   // para quedar por debajo). El progreso se lee de NVS aqui, en el arranque.
@@ -4869,7 +4856,6 @@ void UI_Task(void *pvParameters) {
 
   lv_obj_add_flag(ui_NumAlarm, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_Panel10, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_AlarmButton, LV_OBJ_FLAG_HIDDEN);
 
   lv_obj_add_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
@@ -5297,10 +5283,11 @@ void UI_Task(void *pvParameters) {
       FactoryTest_RefreshSettingsRow();
     }
 
-    // Ajuste manual de hora (se abre tocando la hora de cabecera,
-    // ClockButton_cb): mismo contrato de polling que el wizard — consume el
-    // CTRL,TIME_ACK y aplica la regla de "una alarma critica se lleva la
-    // pantalla por delante".
+    // Menu del heading: cierre por inactividad o al cambiar de pantalla.
+    MenuDialog_Poll();
+    // Ajuste manual de hora (se abre desde el menu, FECHA Y HORA): mismo
+    // contrato de polling que el wizard — consume el CTRL,TIME_ACK y aplica
+    // la regla de "una alarma critica se lleva la pantalla por delante".
     TimeDialog_Poll();
     // Ayuda: resultado del envio a soporte (lo deja la tarea WiFi/OTA) y la
     // misma regla de alarma critica, para el menu y para el tutorial.
@@ -5727,6 +5714,9 @@ void UI_SyncAll() {
 
 static void UI_ApplyStyleToLabelsRecursive(lv_obj_t *obj, lv_color_t color) {
   if (!obj)
+    return;
+  // Texto con color propio (simbolos de los botones del heading, etc.).
+  if (lv_obj_has_flag(obj, UI_FLAG_KEEP_TEXT_COLOR))
     return;
 
   // Check if the object is a label.

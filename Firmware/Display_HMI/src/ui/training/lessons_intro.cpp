@@ -19,24 +19,17 @@ static constexpr Step INTRO_STEPS[] = {
             "Bem-vindo ao tutorial da IncuNest. Vamos mostrar cada comando do "
             "ecra passo a passo. Toca em SEGUINTE para avancar ou SAIR a "
             "qualquer momento. Durante o percurso nada e acionado."),
-    EXPLAIN(&ui_HelpButton, &ui_ScreenMain,
-            "Boton de ayuda. Desde aqui abres los cursos de formacion, el codigo "
-            "QR del video tutorial y el contacto con soporte tecnico.",
-            "Help button. From here you open the training courses, the video "
-            "tutorial QR code and the technical support contact.",
-            "Bouton d'aide. D'ici vous ouvrez les cours de formation, le code QR "
-            "du tutoriel video et le contact du support technique.",
-            "Botao de ajuda. Daqui abres os cursos de formacao, o codigo QR do "
-            "video tutorial e o contacto com o suporte tecnico."),
-    EXPLAIN(&ui_ClockButton, &ui_ScreenMain,
-            "Hora y fecha del equipo. Tocalo para ajustar la hora a mano: de "
-            "ella dependen las marcas de tiempo del historial clinico.",
-            "Device time and date. Tap it to set the time manually: the "
-            "clinical history timestamps depend on it.",
-            "Heure et date de l'appareil. Touchez pour regler l'heure a la "
-            "main : les horodatages de l'historique clinique en dependent.",
-            "Hora e data do equipamento. Toca para acertar a hora a mao: dela "
-            "dependem as marcas de tempo do historico clinico."),
+    EXPLAIN(&ui_ClockCont, &ui_ScreenMain,
+            "Hora y fecha del equipo. Se ajustan a mano en MENU > FECHA Y "
+            "HORA: de ellas dependen las marcas de tiempo del historial "
+            "clinico.",
+            "Device time and date. They are set manually in MENU > DATE AND "
+            "TIME: the clinical history timestamps depend on them.",
+            "Heure et date de l'appareil. Elles se reglent a la main dans MENU "
+            "> DATE ET HEURE : les horodatages de l'historique clinique en "
+            "dependent.",
+            "Hora e data do equipamento. Acertam-se a mao em MENU > DATA E "
+            "HORA: delas dependem as marcas de tempo do historico clinico."),
     EXPLAIN(&ui_ConnCont, &ui_ScreenMain,
             "Indicador de conectividad: WIFI o 2G y las barras de cobertura con "
             "el servidor de monitorizacion. Si se pierde el enlace con la placa "
@@ -63,40 +56,41 @@ static constexpr Step INTRO_STEPS[] = {
             "Fecho. Um toque bloqueia o ecra para evitar toques acidentais. "
             "Apos 20 segundos sem toque bloqueia sozinho; o anel mostra o "
             "tempo que falta."),
-    EXPLAIN(&ui_BabiesButton, &ui_ScreenMain,
-            "Bebes: registro de un nuevo paciente con BEBE NUEVO (nombre, "
-            "semanas de gestacion, peso), alta con su resultado, historial de "
-            "estancias y curva de peso de cada bebe.",
-            "Babies: register a new patient with NEW BABY (name, gestational "
-            "weeks, weight), discharge with outcome, stay history and weight "
-            "curve of each baby.",
-            "Bebes : enregistrement d'un nouveau patient avec NOUVEAU BEBE "
-            "(nom, semaines de gestation, poids), sortie avec son issue, "
-            "historique des sejours et courbe de poids de chaque bebe.",
-            "Bebes: registo de um novo doente com BEBE NOVO (nome, semanas de "
-            "gestacao, peso), alta com o resultado, historico de estadias e "
-            "curva de peso de cada bebe."),
+    EXPLAIN(&ui_HeadingPatientCont, &ui_ScreenMain,
+            "Bebe al mando: nombre y edad del bebe en tratamiento. Solo "
+            "aparece mientras hay alguna terapia en marcha.",
+            "Baby in charge: name and age of the baby under treatment. It only "
+            "appears while some therapy is running.",
+            "Bebe en cours : nom et age du bebe traite. Il n'apparait que "
+            "pendant une therapie en cours.",
+            "Bebe em tratamento: nome e idade do bebe. So aparece enquanto "
+            "houver alguma terapia em curso."),
     EXPLAIN(&ui_AlarmButton, &ui_ScreenMain,
             "Alarmas: lista de las alarmas activas con la accion recomendada, y "
-            "registro de las pasadas. El numero rojo indica cuantas hay "
-            "activas.",
+            "registro de las pasadas. El numero rojo de su esquina indica "
+            "cuantas hay activas. Los cuadrados azules del heading son los "
+            "botones que se pueden tocar.",
             "Alarms: list of active alarms with the recommended action, and "
-            "log of past ones. The red number shows how many are active.",
+            "log of past ones. The red number in its corner shows how many "
+            "are active. The blue squares in the heading are the buttons you "
+            "can touch.",
             "Alarmes : liste des alarmes actives avec l'action recommandee, et "
-            "journal des precedentes. Le chiffre rouge indique combien sont "
-            "actives.",
+            "journal des precedentes. Le chiffre rouge dans son coin indique "
+            "combien sont actives. Les carres bleus de l'en-tete sont les "
+            "boutons que l'on peut toucher.",
             "Alarmes: lista das alarmes ativas com a acao recomendada, e "
-            "registo das passadas. O numero vermelho indica quantas estao "
-            "ativas."),
+            "registo das passadas. O numero vermelho no seu canto indica "
+            "quantas estao ativas. Os quadrados azuis do cabecalho sao os "
+            "botoes que se podem tocar."),
     EXPLAIN(&ui_CheckImgMain, &ui_ScreenMain,
-            "Este check significa que no hay ninguna alarma activa. Tocarlo "
-            "tambien abre el registro de alarmas.",
-            "This check mark means there is no active alarm. Tapping it also "
-            "opens the alarm log.",
-            "Cette coche signifie qu'aucune alarme n'est active. La toucher "
-            "ouvre aussi le journal des alarmes.",
-            "Este visto significa que nao ha nenhuma alarme ativa. Toca-lo "
-            "tambem abre o registo de alarmes."),
+            "Este check verde significa que no hay ninguna alarma activa. "
+            "Tocarlo tambien abre el registro de alarmas.",
+            "This green check mark means there is no active alarm. Tapping it "
+            "also opens the alarm log.",
+            "Cette coche verte signifie qu'aucune alarme n'est active. La "
+            "toucher ouvre aussi le journal des alarmes.",
+            "Este visto verde significa que nao ha nenhuma alarme ativa. "
+            "Toca-lo tambem abre o registo de alarmes."),
     EXPLAIN(&ui_TempCont, &ui_ScreenMain,
             "Control de temperatura. Elige AIRE (cabina) o PIEL (sonda en el "
             "bebe). Las flechas ajustan la consigna; las cifras grandes son la "
@@ -143,15 +137,23 @@ static constexpr Step INTRO_STEPS[] = {
             "Fototerapia: define os minutos com + e - e INICIAR arranca a "
             "contagem decrescente. Cobre sempre os olhos do bebe antes de "
             "acender a luz."),
-    EXPLAIN(&ui_Settings, &ui_ScreenMain,
-            "Ajustes: informacion del equipo, WiFi, idioma y modos de "
-            "funcionamiento. Vamos a verlo.",
-            "Settings: device information, WiFi, language and operating "
-            "modes. Let's have a look.",
-            "Reglages : informations sur l'appareil, WiFi, langue et modes de "
-            "fonctionnement. Allons voir.",
-            "Definicoes: informacao do equipamento, WiFi, idioma e modos de "
-            "funcionamento. Vamos ver."),
+    EXPLAIN(&ui_MenuButton, &ui_ScreenMain,
+            "Menu: FECHA Y HORA; BEBES REGISTRADOS (BEBE NUEVO, altas, "
+            "historial y curva de peso); AYUDA (estos cursos, video tutorial "
+            "y soporte); y AJUSTES (informacion del equipo, WiFi, idioma y "
+            "modos). Vamos a ver los ajustes.",
+            "Menu: DATE AND TIME; REGISTERED BABIES (NEW BABY, discharges, "
+            "history and weight curve); HELP (these courses, video tutorial "
+            "and support); and SETTINGS (device information, WiFi, language "
+            "and modes). Let's look at the settings.",
+            "Menu : DATE ET HEURE ; BEBES ENREGISTRES (NOUVEAU BEBE, sorties, "
+            "historique et courbe de poids) ; AIDE (ces cours, tutoriel video "
+            "et support) ; et PARAMETRES (informations, WiFi, langue et "
+            "modes). Allons voir les parametres.",
+            "Menu: DATA E HORA; BEBES REGISTADOS (BEBE NOVO, altas, historico "
+            "e curva de peso); AJUDA (estes cursos, video tutorial e "
+            "suporte); e DEFINICOES (informacao, WiFi, idioma e modos). Vamos "
+            "ver as definicoes."),
     EXPLAIN(&ui_InfoCont, &ui_ScreenSettings,
             "Informacion: numero de serie y versiones de firmware de la "
             "pantalla y de la placa. Tenlo a mano al contactar con soporte.",
