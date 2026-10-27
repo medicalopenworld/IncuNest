@@ -43,10 +43,16 @@ void ActivateHumidityFromWizard();
 void computeAndSendActuation(void);
 bool UI_IsCriticalAlarmActive(void);
 bool UI_IsAnyAlarmActive(void);
+// Alarmas activas como mascara: bit i = alarmList[i].state.
+uint32_t UI_ActiveAlarmMask(void);
 // Reafirma el banner de alarma y el icono AUDIO PAUSED en primer plano por
 // encima de un overlay que se acaba de mover al frente (p.ej. FactoryTest).
 // No-op si ninguno de los dos esta visible en ese momento.
 void UI_ReassertAlarmOverlays(void);
+// Oculta o muestra sin tocar LVGL si ya esta asi: lv_obj_clear_flag(HIDDEN)
+// repinta el objeto entero aunque ya estuviera visible. Para lo que se
+// reafirma en cada CTRL,STATE o en cada pasada.
+void ui_set_hidden(lv_obj_t *o, bool hidden);
 // True while any therapy is running (temperature, humidity or phototherapy),
 // i.e. while a baby is under care. Gates both the baby-exit dialog and
 // BabyWizard's already-identified-baby shortcut.

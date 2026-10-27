@@ -1684,10 +1684,9 @@ bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
   ui_set_switch_state_silent(ui_Switch2, (effActuation >> 1) & 0x01);
   bool photoOn = effPhotoMode;
   ui_set_switch_state_silent(ui_Switch3, photoOn);
-  if (ui_PhotoTimerCont) {
-    if (photoOn) lv_obj_clear_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN);
-    else         lv_obj_add_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN);
-  }
+  // ui_set_hidden() y no los setters directos de LVGL en todo este bloque:
+  // corre con cada CTRL,STATE y reafirmar algo ya visible lo repinta entero.
+  if (ui_PhotoTimerCont) ui_set_hidden(ui_PhotoTimerCont, !photoOn);
   // Restore skin: only activate if saved state says ON *and* probe is present.
   // If saved ON but no probe → fall back to Air and force switch OFF.
   bool probeAvailable = (st.skinProbeState == SKIN_PROBE_VALID);
@@ -1697,9 +1696,9 @@ bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
 
   skinPanelEnabled = restoreSkin;
   if (skinPanelEnabled && tempOn) {
-    if (ui_SkinPanelCont) lv_obj_clear_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
+    if (ui_SkinPanelCont) ui_set_hidden(ui_SkinPanelCont, false);
   } else {
-    if (ui_SkinPanelCont) lv_obj_add_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
+    if (ui_SkinPanelCont) ui_set_hidden(ui_SkinPanelCont, true);
     lastSelectedPanel = AIR_PANEL_SELECTED;
   }
 

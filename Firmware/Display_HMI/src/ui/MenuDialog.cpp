@@ -48,10 +48,10 @@ void onBabies(lv_event_t *) {
   BabyHistory_Open();
 }
 
-void onSettings(lv_event_t *) {
-  closeMenu();
-  Settings_cb(nullptr);
-}
+// Ajustes es otra pantalla y entra con un fundido de 500 ms sobre la de
+// debajo. Cerrar el menu antes destapaba la pantalla principal durante el
+// fundido; se queda abierto y lo cierra MenuDialog_Poll() cuando termina.
+void onSettings(lv_event_t *) { Settings_cb(nullptr); }
 
 void onHelp(lv_event_t *) {
   closeMenu();
@@ -169,8 +169,11 @@ void MenuDialog_Poll(void) {
   // Sin cesion ante alarmas, a diferencia de la ayuda: es un selector de un
   // toque y lo que abre (ajustes, bebes) tiene que seguir a mano durante un
   // corte de red, que es una alarma que puede durar horas.
-  if (lv_scr_act() != ui_ScreenMain ||
-      lv_disp_get_inactive_time(NULL) > MENU_IDLE_TIMEOUT_MS) {
+  // Al cambiar de pantalla, solo cuando el fundido ha terminado: mientras
+  // dura, LVGL sigue pintando la pantalla anterior debajo (scr_prev).
+  const bool leftMain =
+      lv_scr_act() != ui_ScreenMain && lv_disp_get_scr_prev(NULL) == NULL;
+  if (leftMain || lv_disp_get_inactive_time(NULL) > MENU_IDLE_TIMEOUT_MS) {
     closeMenu();
   }
 }

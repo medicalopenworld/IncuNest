@@ -18,7 +18,7 @@ It continuously witnesses key and constant states on whichever screen the doctor
     *   The door is shown **only when open** (yellow). Closed is the normal state and paints nothing; a door **fault** paints nothing either, because `ALARM_SENSORBOARD_DOOR_FAULT` already signals it. The door is informational: it does not enter the thermal loop.
     *   Nothing is painted on units without SensorBoard (no `CTRL,ENV` ever arrives), when the data is older than 15 s, when the board link is lost, or when the SensorBoard link is down (`ALARM_SENSORBOARD_LINK_LOST` covers that). On `ui_ScreenMain` it is also hidden while the clock shows "No time" (the 26 pt text would overlap the strip).
     *   What is painted is decided by `sbenv_view()` (pure, host-tested in `Display_HMI/test/test_sb_env`); the LVGL drawing itself has no test environment and is verified on the bench. Protocol: `PROTOCOL.md` → `CTRL,ENV`.
-*   **Battery indicator** (4 bars), leftmost slot of the Main and lock headings. It lives on `lv_layer_top()`, created after the alarm banner and re-raised whenever the banner is, so it stays **on top of the banner** (a power cut puts the banner over the heading exactly when the battery matters); it has its own dark rounded background to read on any banner colour, and it does not take touches. Shown only on Main and the lock screen, and hidden while a dialog covers Main. Source: `CTRL,BATT` (`PROTOCOL.md`, estimated by the motherBoard's `battery_gauge`). Discharging: white bars, 1 bar amber, 0 bars red outline. Charging: lightning bolt and an animated fill (with mains the level is not a measurement). Full: bolt and 4 bars. A board that does not send `CTRL,BATT` while `ALARM_MAINS_INTERRUPTION` is signalled gets an empty amber battery (on battery, level unknown). Refreshed by `battery_indicator_update()` (`UITask.cpp`); parser and view decision host-tested in `Display_HMI/test/test_batt_report`.
+*   **Battery indicator** (4 bars), leftmost slot of the Main and lock headings. **Disabled for now** (`PROTO_BATT_ENABLED 0` in `shared/include/protocol.h`, 2026-10-28): `battery_indicator_init()` does not create it until the battery goes into production, because some units run from a 12 V adapter on the battery terminals. What follows describes it with the flag on. It lives on `lv_layer_top()`, created after the alarm banner and re-raised whenever the banner is, so it stays **on top of the banner** (a power cut puts the banner over the heading exactly when the battery matters). No background of its own: only the drawing, in the colour that reads on what is underneath (the banner's text colour when the banner is up; otherwise black on the light Main heading, white on the dark theme and on the lock screen). It does not take touches. Shown only on Main and the lock screen, and hidden while a dialog covers Main. Source: `CTRL,BATT` (`PROTOCOL.md`, estimated by the motherBoard's `battery_gauge`). Discharging: bars in the foreground colour, 1 bar amber and 0 bars red outline off the banner. Charging: lightning bolt, solid bars for the quarters already charged and the next one blinking. Full: bolt and 4 bars. A board that does not send `CTRL,BATT` while `ALARM_MAINS_INTERRUPTION` is signalled gets an empty amber battery (on battery, level unknown). Refreshed by `battery_indicator_update()` (`UITask.cpp`); parser and view decision host-tested in `Display_HMI/test/test_batt_report`.
 *   Realistic icon indicators about hardware resource usage in background ("Heater", "Wind/Cooling", etc).
 *   Section reserved for sliding priority alarms like marquees if they warrant overflow due to severity.
 
@@ -85,7 +85,7 @@ packet sent from the display.
 
 ## 6. Help
 
-The heading `?` button (see §1) opens a modal help menu (`HelpDialog`,
+The **Help** card of the heading menu (see §1) opens a modal help menu (`HelpDialog`,
 `Display_HMI/src/ui/HelpDialog.cpp`) with three entries:
 
 1. **Training courses** (`Training_OpenSelector()`,
@@ -222,10 +222,14 @@ Common rules: the help menu and the training courses (selector or a lesson,
 but only up to `HELP_IDLE_TIMEOUT_MS` (3 min without any touch): past that
 they close themselves and the normal auto-lock resumes from zero (the alarm
 banner is only drawn on `ui_ScreenLock`, so a forgotten help view must never
-block the way to it). Any active alarm (`UI_IsAnyAlarmActive()`, regardless
-of priority) or a lost board link (`Display_IsBoardLinkLost()`) closes both
-and returns to `ui_ScreenMain` — the same yield rule as `TelemetryHistory`
-and the maintenance reminder (§8); an interactive lesson also aborts on a
+block the way to it). A lost board link (`Display_IsBoardLinkLost()`)
+closes both. The training courses also yield to any active alarm
+(`UI_IsAnyAlarmActive()`, regardless of priority), the same rule as
+`TelemetryHistory` and the maintenance reminder (§8). The help menu yields
+only to an alarm that appears while it is open (`UI_ActiveAlarmMask()`
+snapshot at open; one that clears and comes back counts as new): yielding
+to the ones already active made help unreachable for as long as any alarm
+lasted, and a power cut can last hours; an interactive lesson also aborts on a
 shutdown in progress. The lesson overlay is created before the alarm banner
 and the AUDIO PAUSED icon in `lv_layer_top()` and stays below them, except
 that during a free step it temporarily raises above
