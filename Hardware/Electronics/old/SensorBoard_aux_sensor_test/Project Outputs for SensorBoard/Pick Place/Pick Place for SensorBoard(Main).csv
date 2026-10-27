@@ -1,0 +1,20 @@
+Altium Designer Pick and Place Locations
+C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\old\SensorBoard_aux_sensor_test\Project Outputs for SensorBoard\Pick Place\Pick Place for SensorBoard(Main).csv
+
+========================================================================================================================
+File Design Information:
+
+Date:       26/10/26
+Time:       00.20
+Revision:   Not in VersionControl
+Variant:    Main
+Units used: mm
+
+"Designator","Center-X(mm)","Center-Y(mm)","Layer","Rotation"
+"C4","25.9080","-7.9330","TopLayer","270"
+"C7","-63.1190","-8.0010","TopLayer","270"
+"J1","0.0000","-4.0000","TopLayer","180"
+"R23","-1.0160","-6.9850","TopLayer","0"
+"R24","-3.4290","-6.9850","TopLayer","180"
+"U2","24.0000","-8.0000","TopLayer","0"
+"U4","-65.0000","-8.0000","TopLayer","0"
