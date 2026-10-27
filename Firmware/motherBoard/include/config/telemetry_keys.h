@@ -193,6 +193,10 @@
 // episodios de parada del AFE (>10 s sin muestra). No hay reinicio en caliente.
 #define AFE_DIAG_KEY "AFE_diag"
 #define AFE_STALLS_KEY "AFE_stalls"
+// Reinicios del modem (GPRSForceReset) desde el arranque y motivo del ultimo.
+// Solo por GPRS y solo si hubo alguno.
+#define GPRS_MODEM_RESETS_KEY "gprs_modem_resets"
+#define GPRS_RESET_REASON_KEY "gprs_reset_reason"
 #define HMI_BOOT_COUNT_KEY "hmi_boot_count"
 #define HMI_LAST_RST_KEY "hmi_last_rst"
 // Horas de uso desde el ultimo servicio registrado de cada actuador (enteras).
