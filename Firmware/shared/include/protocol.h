@@ -59,6 +59,31 @@ typedef enum {
 // Cota de la linea completa (sin el '\n' ni el NUL), para dimensionar buffers.
 #define PROTO_ENV_LINE_MAX       39
 
+// CTRL,BATT,state,level,pct : estado de la bateria interna que estima la
+// motherBoard a partir del cargador BQ25730 (modules/control/battery_gauge.h).
+// Solo informativo; la alarma de interrupcion de red es otra cosa
+// (ALARM_MAINS_INTERRUPTION) y no depende de esta linea.
+//
+//  state: PROTO_BATT_STATE_*.
+//  level: rayas 0..PROTO_BATT_LEVEL_MAX. Es medida solo en DISCHARGING; en FULL
+//         vale el maximo y en CHARGING es el ultimo nivel conocido, que el
+//         display no pinta como medida.
+//  pct:   0..100, estimacion por tension. Mismo criterio que level.
+//
+// Un equipo sin cargador (HW < 17) no envia la linea: el display, al no
+// recibirla, no pinta indicador.
+#define PROTO_BATT_STATE_UNKNOWN      0
+#define PROTO_BATT_STATE_DISCHARGING  1  // sin red
+#define PROTO_BATT_STATE_CHARGING     2  // con red, cargando
+#define PROTO_BATT_STATE_FULL         3  // con red, carga completa (flotacion)
+#define PROTO_BATT_LEVEL_MAX          4
+
+// Cadencia en reposo. Un cambio de estado o de rayas sale sin esperar.
+#define PROTO_BATT_PERIOD_MS      5000u
+
+// Cota de la linea completa (sin el '\n' ni el NUL): "CTRL,BATT,3,4,100".
+#define PROTO_BATT_LINE_MAX       24
+
 typedef struct {
   double detectedAirTemperature;
   double detectedSkinTemperature;

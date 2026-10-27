@@ -138,6 +138,10 @@
 #define BQ25730_ADC_VSYS_STEP_MV 64     // 64 mV/bit
 #define BQ25730_ADC_VSYS_OFFSET_MV 2880 // idem VBAT: strap 1S-4S
 #define BQ25730_ADC_ICHG_STEP_MA 128 // mA/bit nominal con RSNS_RSR=1 (5 mΩ)
+// IDCHG (byte bajo de 0x28, 7 bits): 512 mA/bit con RSR = 5 mΩ, rango hasta
+// 65 A (SLUSE65A 8.6.8). Con el shunt real de 3 mΩ, ~853 mA/bit: grueso, pero
+// basta para corregir la caida resistiva del indicador de bateria.
+#define BQ25730_ADC_IDCHG_STEP_MA 512
 #define BQ25730_ADC_IBUS_STEP_MA 100 // mA/bit nominal con RSNS_RAC=1 (5 mΩ)
 
 // ─── Parámetros de carga para batería Plomo-Ácido abierto 12V 7Ah
@@ -179,6 +183,7 @@ typedef struct {
   uint16_t vbus_mv;          // Tensión entrada VBUS [mV]
   int16_t ichg_ma;           // Corriente de carga [mA]
   int16_t ibus_ma;           // Corriente de entrada [mA]
+  uint16_t idchg_ma;         // Corriente de descarga de la bateria [mA]
 } BQ25730_Status;
 
 // ─── Variable de presencia (definida en BQ25730.cpp) ─────────────────────────

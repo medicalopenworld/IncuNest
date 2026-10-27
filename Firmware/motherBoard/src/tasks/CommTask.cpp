@@ -1427,6 +1427,10 @@ void Communication_Task(void *pvParameters) {
   SbEnvPacer env_pacer;
   sb_env_pacer_init(&env_pacer);
   uint32_t last_env_poll_ms = 0;
+  // CTRL,BATT (indicador de bateria): ver el bloque tras ENV.
+  uint32_t last_batt_sent = 0;      // ultimo g_batt_report enviado
+  uint32_t last_batt_sent_ms = 0;
+  bool batt_sent_once = false;
   ESP_LOGI(TAG, "UART communication task started");
 
   if (g_restore_photo_minutes > 0) {
@@ -1536,6 +1540,35 @@ void Communication_Task(void *pvParameters) {
             sb_env_pacer_sent(&env_pacer, &env_report, env_now);
           }
         }
+      }
+    }
+
+    // --- BATT: indicador de bateria (CTRL,BATT) ---
+    //
+    // Solo informativo; lo estima sensors_Task (battery_gauge). Al instante
+    // si cambian el estado o las rayas, cada PROTO_BATT_PERIOD_MS si no, y de
+    // nuevo cuando un display recien arrancado pide STATE. Sin cargador el
+    // estado es UNKNOWN y no se envia nada: el display no pinta indicador.
+    {
+      extern volatile uint32_t g_batt_report;
+      const uint32_t report = g_batt_report;
+      const uint8_t state = (uint8_t)((report >> 16) & 0xFF);
+      const uint32_t now = millis();
+      // Estado y rayas, sin el porcentaje: un punto arriba o abajo no merece
+      // una linea fuera de su periodo.
+      const bool changed =
+          !batt_sent_once || ((report ^ last_batt_sent) & 0xFFFF00u) != 0;
+      if (state != PROTO_BATT_STATE_UNKNOWN &&
+          (changed || stateRequested ||
+           (uint32_t)(now - last_batt_sent_ms) >= PROTO_BATT_PERIOD_MS)) {
+        char batt_msg[PROTO_BATT_LINE_MAX + 2];
+        snprintf(batt_msg, sizeof(batt_msg), "CTRL,BATT,%u,%u,%u\n",
+                 (unsigned)state, (unsigned)((report >> 8) & 0xFF),
+                 (unsigned)(report & 0xFF));
+        hmiSerial.print(batt_msg);
+        last_batt_sent = report;
+        last_batt_sent_ms = now;
+        batt_sent_once = true;
       }
     }
 

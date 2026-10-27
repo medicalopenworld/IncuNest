@@ -296,8 +296,6 @@ lv_obj_t *ui_LockHeadingConnCont = NULL;
 lv_obj_t *ui_LockHeadingConnIcon = NULL;
 lv_obj_t *ui_LockHeadingConnBar[4] = {NULL, NULL, NULL, NULL};
 ui_HeadingEnv_t ui_HeadingEnvLock = {};
-lv_obj_t *ui_LockOnBatteryIcon = NULL;
-lv_obj_t *ui_LockOnBatteryText = NULL;
 lv_obj_t *ui_Container1 = NULL;
 lv_obj_t *ui_AirTempLockCont = NULL;
 lv_obj_t *ui_Label11 = NULL;
@@ -1119,36 +1117,6 @@ static void create_heading_env_indicator(lv_obj_t *parent, lv_align_t align,
   lv_obj_set_x(out->noiseIcon, 0);
   out->noiseText = env_label(out->noiseRow, &lv_font_montserrat_14);
   lv_obj_set_x(out->noiseText, 28);
-}
-
-// Indicador "en bateria" del heading del bloqueo: icono de pila y debajo una
-// palabra corta (montserrat_14), OCULTOS hasta que on_battery_heading_update()
-// (UITask.cpp) los muestre. El color (ambar) tambien lo pone el refresco: el
-// barrido de UI_ApplyTheme() deja las etiquetas del bloqueo en blanco.
-//
-// En Main no va: el heading esta lleno y la interrupcion de red ya se anuncia
-// en la barra de alarmas. El bloqueo tiene libre el slot de ayuda.
-static void create_on_battery_indicator(lv_obj_t *parent, lv_align_t align,
-                                        lv_coord_t x, lv_coord_t iconY,
-                                        lv_coord_t textY, lv_obj_t **outIcon,
-                                        lv_obj_t **outText) {
-  lv_obj_t *icon = heading_icon(parent, &ui_img_heading_battery);
-  lv_obj_set_align(icon, align);
-  lv_obj_set_x(icon, x);
-  lv_obj_set_y(icon, iconY);
-  lv_obj_add_flag(icon, LV_OBJ_FLAG_HIDDEN);
-  *outIcon = icon;
-
-  lv_obj_t *text = lv_label_create(parent);
-  lv_obj_set_width(text, LV_SIZE_CONTENT);
-  lv_obj_set_height(text, LV_SIZE_CONTENT);
-  lv_obj_set_align(text, align);
-  lv_obj_set_x(text, x);
-  lv_obj_set_y(text, textY);
-  lv_label_set_text(text, "");
-  lv_obj_set_style_text_font(text, &lv_font_montserrat_14, LV_PART_MAIN);
-  lv_obj_add_flag(text, LV_OBJ_FLAG_HIDDEN);
-  *outText = text;
 }
 
 // Boton del heading de Main: cuadrado azul de accion (0x0075EE, el de los
@@ -3858,11 +3826,9 @@ void ui_ScreenLock_screen_init(void) {
   // la identidad del paciente (x=350..690); centro 745 -> offset 345.
   create_heading_env_indicator(ui_ScreenLock, LV_ALIGN_CENTER, 345, -213,
                                &ui_HeadingEnvLock);
-  // Indicador "en bateria" en el slot 0 (HEADING_SLOT0_BATTERY). Mismas
-  // alturas que hora y fecha.
-  create_on_battery_indicator(ui_ScreenLock, LV_ALIGN_LEFT_MID,
-                              HEADING_SLOT0_BATTERY, -222, -200,
-                              &ui_LockOnBatteryIcon, &ui_LockOnBatteryText);
+  // El slot 0 (HEADING_SLOT0_BATTERY) lo ocupa el indicador de bateria, que
+  // no cuelga de esta pantalla sino de lv_layer_top() para quedar por encima
+  // del banner de alarma (battery_indicator_init(), UITask.cpp).
 
   ui_Container1 = lv_obj_create(ui_ScreenLock);
   lv_obj_remove_style_all(ui_Container1);

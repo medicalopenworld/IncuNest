@@ -370,6 +370,11 @@ bool charge_status(BQ25730_Status *status) {
     status->ichg_ma  = (int16_t)((uint32_t)adc_ichg * BQ25730_ADC_ICHG_STEP_MA
                                  * BQ25730_RSNS_NOMINAL_MOHM / BQ25730_RSNS_ACTUAL_MOHM);
 
+    // IDCHG: byte bajo de 0x28 (7 bits), misma correccion de shunt que ICHG.
+    uint8_t adc_idchg = (uint8_t)(raw_ibat & 0x7F);
+    status->idchg_ma  = (uint16_t)((uint32_t)adc_idchg * BQ25730_ADC_IDCHG_STEP_MA
+                                   * BQ25730_RSNS_NOMINAL_MOHM / BQ25730_RSNS_ACTUAL_MOHM);
+
     // IBUS: byte alto de 0x2A, 100 mA/bit nominal (RSNS_RAC=1).
     uint8_t adc_ibus = (uint8_t)(raw_ibus >> 8);
     status->ibus_ma  = (int16_t)((uint32_t)adc_ibus * BQ25730_ADC_IBUS_STEP_MA

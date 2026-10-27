@@ -180,6 +180,27 @@ SbEnvView Display_GetSbEnvView(void) {
   return sbenv_view(have, &msg, rxMs, millis(), Display_IsBoardLinkLost());
 }
 
+// --- Indicador de bateria (CTRL,BATT) ---
+//
+// Mismo esquema que CTRL,ENV: lo escribe la tarea Comm y lo lee la UI, y el
+// trio se copia entero bajo el spinlock.
+static portMUX_TYPE s_battMux = portMUX_INITIALIZER_UNLOCKED;
+static BattRepMsg s_battMsg = {PROTO_BATT_STATE_UNKNOWN, 0, 0};
+static uint32_t s_battRxMs = 0;
+static bool s_battHave = false;
+
+BattRepView Display_GetBattView(void) {
+  BattRepMsg msg;
+  uint32_t rxMs;
+  bool have;
+  taskENTER_CRITICAL(&s_battMux);
+  msg = s_battMsg;
+  rxMs = s_battRxMs;
+  have = s_battHave;
+  taskEXIT_CRITICAL(&s_battMux);
+  return battrep_view(have, &msg, rxMs, millis(), Display_IsBoardLinkLost());
+}
+
 volatile bool   g_pendingAlarmDesc = false;
 AlarmDescMsg    g_alarmDesc = {0, {0}, {0}};
 
@@ -1139,6 +1160,19 @@ static void parse_message(const char *line) {
       taskEXIT_CRITICAL(&s_sbEnvMux);
     } else {
       COMM_LOG("[COMM] CTRL,ENV malformado: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,BATT,", 10) == 0) {
+    // Indicador de bateria. Solo informativo; una linea malformada se
+    // descarta sin tocar lo ultimo recibido, que caduca solo.
+    BattRepMsg batt;
+    if (battrep_parse(line, &batt)) {
+      taskENTER_CRITICAL(&s_battMux);
+      s_battMsg = batt;
+      s_battRxMs = millis();
+      s_battHave = true;
+      taskEXIT_CRITICAL(&s_battMux);
+    } else {
+      COMM_LOG("[COMM] CTRL,BATT malformado: %s\n", line);
     }
   } else if (strncmp(line, "CTRL,PROFILE_LIST", 17) == 0) {
     // CTRL,PROFILE_LIST,<n>{,<seq>,<name>,<gestWeeks>,<weightGrams>}xn

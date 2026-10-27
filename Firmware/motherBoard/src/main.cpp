@@ -33,6 +33,7 @@
 #include "modules/debug/debug_mode.h"
 #include "modules/control/photo_override.h"
 #include "modules/control/mains_detector.h"
+#include "modules/control/battery_gauge.h"
 #include "modules/util/retry_backoff.h"
 #include "modules/sensorboard_comm/sensorboard_comm.h"
 #include "modules/sensors/sensor_source.h"
@@ -292,6 +293,14 @@ uint32_t       g_bq_status_ms    = 0;
 // (checkMainsInterruption, security.cpp). Ver modules/control/mains_detector.h.
 MainsDetector g_mains_detector = MAINS_DETECTOR_INITIALIZER;
 
+// Indicador de carga de la bateria (modules/control/battery_gauge.h). Lo
+// alimenta solo sensors_Task con cada lectura completa del cargador; la tarea
+// de comunicacion lee g_batt_report, que se publica de una sola escritura de
+// 32 bits (battery_gauge_pack). Sin cargador queda en BATT_GAUGE_UNKNOWN y no
+// se envia nada al display.
+BatteryGauge g_batt_gauge = BATTERY_GAUGE_INITIALIZER;
+volatile uint32_t g_batt_report = 0;
+
 // UNICO PUNTO donde se decide "hay red": cualquier fuente nueva entra aqui y
 // el detector no se entera. Hoy es el bit AC_STAT del BQ25730 (por I2C).
 //
@@ -466,6 +475,13 @@ void sensors_Task(void *pvParameters) {
             ichg_low_since = 0;
           }
         }
+
+        // Indicador de bateria (CTRL,BATT): despues de la transicion a
+        // flotacion, para que "lleno" salga en la misma lectura.
+        battery_gauge_sample(&g_batt_gauge, g_bq_status_valid,
+                             g_bq_status.ac_present, charger_in_float,
+                             g_bq_status.vbat_mv, g_bq_status.idchg_ma);
+        g_batt_report = battery_gauge_pack(&g_batt_gauge);
       }
       // Fallo tecnico del cargador visible: log al cambiar (no en cada pasada)
       // y bandera para telemetria. Con la alarma de red ya declarada y el

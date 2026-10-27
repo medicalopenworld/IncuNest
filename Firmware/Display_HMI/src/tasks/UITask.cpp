@@ -860,15 +860,12 @@ void connectivity_heading_update(void) {
 // que el cambio de idioma redibuje los textos.
 static constexpr uint32_t kEnvSigInvalid = 0xFFFFFFFFu;
 static uint32_t s_sbEnvSigLock = kEnvSigInvalid;
-static int s_onBatterySig = -1;
 
 // UI_ApplyTheme() barre TODAS las etiquetas con un color unico y se llevaria por
-// delante el amarillo de "atencion" y el ambar de "en bateria": las firmas se
-// invalidan y la proxima pasada vuelve a pintar (mismo motivo que
-// wifi_link_status_invalidate()).
+// delante el amarillo de "atencion": la firma se invalida y la proxima pasada
+// vuelve a pintar (mismo motivo que wifi_link_status_invalidate()).
 static void sb_env_heading_invalidate(void) {
   s_sbEnvSigLock = kEnvSigInvalid;
-  s_onBatterySig = -1;
 }
 
 static void apply_heading_env(const ui_HeadingEnv_t *w, const SbEnvView &v,
@@ -941,43 +938,188 @@ static void sb_env_heading_update(void) {
   apply_heading_env(&ui_HeadingEnvLock, v, &s_sbEnvSigLock);
 }
 
-// Indicador "en bateria" del heading del bloqueo.
-//
-// La fuente es el bit de ALARM_MAINS_INTERRUPTION en alarmBitmask de
-// CTRL,STATE: la placa ya lo calcula (detector de red, con su antirrebote) y el
-// bitmask es la "verdad binaria" que se repite cada segundo (known issue 1),
-// asi que no hace falta campo de protocolo y un CTRL,ALM perdido no deja el
-// indicador atascado. Sigue a la condicion SENALIZADA, no a la presencia
-// fisica de red: se retira cuando la placa confirma que la red ha vuelto.
-//
-// Sin enlace con la placa, o con el bitmask nulo (0xFFFFFFFF = "no vino en la
-// trama"), no hay dato fresco y se oculta, igual criterio que
-// connectivity_heading_update().
-//
-// Corre en cada pasada del bucle de UI, ya dentro del bloqueo de LVGL, y solo
-// toca widgets: nada de NVS ni I2C aqui (ARQ-LOCK-001). Solo escribe cuando
-// cambia la senal o el idioma (o tras UI_ApplyTheme), para no repintar a 20 Hz.
-void on_battery_heading_update(void) {
-  if (!ui_LockOnBatteryIcon || !ui_LockOnBatteryText) return;
-  const uint32_t mask = ctrl_state_msg.alarmBitmask;
-  const bool on = !Display_IsBoardLinkLost() && mask != (uint32_t)-1 &&
-                  ((mask >> ALARM_MAINS_INTERRUPTION) & 1u) != 0;
+// Algun dialogo abierto sobre ui_ScreenMain. Todos tapan el heading: lo que se
+// pinta en su franja (chip de enlace perdido, indicador de bateria) se oculta
+// mientras tanto, o flotaria encima del dialogo.
+static bool main_heading_covered(void) {
+  return AlarmCenter_IsOpen() || FactoryTest_IsOpen() ||
+         TelemetryHistory_IsOpen() || BabyHistory_IsOpen() ||
+         BabyExitDialog_IsOpen() || TimeDialog_IsOpen() || HelpDialog_IsOpen() ||
+         MenuDialog_IsOpen() || Training_IsOpen() || TrainingSelector_IsOpen() ||
+         MaintenanceDialog_IsOpen() || BabyWizard_IsOpen();
+}
 
-  // 0 = oculto; 1 + idioma = visible en ese idioma.
-  const int signature = on ? 1 + (int)g_lang : 0;
-  if (signature == s_onBatterySig) return;
-  s_onBatterySig = signature;
+// Indicador de bateria: pila de 4 rayas en el slot 0 del heading de Main y
+// del bloqueo.
+//
+// Cuelga de lv_layer_top() y se crea DESPUES del banner de alarma, asi que se
+// pinta encima de el: con un corte de red el banner ocupa la franja del
+// heading justo cuando la bateria mas importa. Fondo oscuro propio para leerse
+// sobre el banner (rojo, amarillo o azul) y sobre el heading claro de Main. No
+// recibe toques: el toque pasa al banner de debajo.
+//
+// Fuente: CTRL,BATT (Display_GetBattView). Sin esa linea (MB antigua) pero con
+// el bit de ALARM_MAINS_INTERRUPTION, se pinta la pila vacia en ambar: se sabe
+// que va a bateria, no cuanta le queda. Solo en Main y en el bloqueo, y no con
+// un dialogo encima.
+//
+//   descarga: rayas blancas; 1 raya en ambar; 0 en rojo (contorno incluido).
+//   cargando: rayo y relleno animado (el nivel no es medida con red).
+//   lleno:    rayo y las 4 rayas.
+//
+// Corre en cada pasada del bucle de UI, dentro del bloqueo de LVGL, y solo
+// toca widgets cuando cambia la firma de lo que hay que pintar.
+#define BATT_IND_X 14
+#define BATT_IND_Y 7
+#define BATT_IND_W 64
+#define BATT_IND_H 40
+#define BATT_BODY_W 38
+#define BATT_BODY_H 20
+#define BATT_CHARGE_STEP_MS 600u
 
-  if (on) {
-    static const lv_color_t AMBER = lv_color_hex(0xFFC107);
-    lv_obj_set_style_img_recolor(ui_LockOnBatteryIcon, AMBER, LV_PART_MAIN);
-    lv_label_set_text(ui_LockOnBatteryText, TR(STR_ON_BATTERY));
-    lv_obj_set_style_text_color(ui_LockOnBatteryText, AMBER, LV_PART_MAIN);
-    lv_obj_clear_flag(ui_LockOnBatteryIcon, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(ui_LockOnBatteryText, LV_OBJ_FLAG_HIDDEN);
+static lv_obj_t *s_battInd = NULL;
+static lv_obj_t *s_battBody = NULL;
+static lv_obj_t *s_battTip = NULL;
+static lv_obj_t *s_battBar[PROTO_BATT_LEVEL_MAX] = {NULL, NULL, NULL, NULL};
+static lv_obj_t *s_battBolt = NULL;
+static int32_t s_battSig = -1;
+
+void battery_indicator_init(void) {
+  s_battInd = lv_obj_create(lv_layer_top());
+  lv_obj_remove_style_all(s_battInd);
+  lv_obj_set_size(s_battInd, BATT_IND_W, BATT_IND_H);
+  lv_obj_set_pos(s_battInd, BATT_IND_X, BATT_IND_Y);
+  lv_obj_set_style_radius(s_battInd, 8, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(s_battInd, lv_color_hex(0x1A1A1A), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(s_battInd, LV_OPA_80, LV_PART_MAIN);
+  lv_obj_clear_flag(s_battInd, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(s_battInd, LV_OBJ_FLAG_HIDDEN);
+
+  s_battBody = lv_obj_create(s_battInd);
+  lv_obj_remove_style_all(s_battBody);
+  lv_obj_set_size(s_battBody, BATT_BODY_W, BATT_BODY_H);
+  lv_obj_align(s_battBody, LV_ALIGN_LEFT_MID, 5, 0);
+  lv_obj_set_style_radius(s_battBody, 3, LV_PART_MAIN);
+  lv_obj_set_style_border_width(s_battBody, 2, LV_PART_MAIN);
+  lv_obj_set_style_border_color(s_battBody, lv_color_hex(0xFFFFFF),
+                                LV_PART_MAIN);
+  lv_obj_clear_flag(s_battBody, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+
+  s_battTip = lv_obj_create(s_battInd);
+  lv_obj_remove_style_all(s_battTip);
+  lv_obj_set_size(s_battTip, 3, 8);
+  lv_obj_align(s_battTip, LV_ALIGN_LEFT_MID, 5 + BATT_BODY_W, 0);
+  lv_obj_set_style_bg_color(s_battTip, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(s_battTip, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_clear_flag(s_battTip, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+
+  // 4 rayas de 6x12 con 2 px de hueco dentro del cuerpo (borde de 2 + 2 de
+  // aire): 4 + 4*6 + 3*2 = 34 = 38 - 4.
+  for (int i = 0; i < PROTO_BATT_LEVEL_MAX; i++) {
+    lv_obj_t *bar = lv_obj_create(s_battBody);
+    lv_obj_remove_style_all(bar);
+    lv_obj_set_size(bar, 6, 12);
+    lv_obj_align(bar, LV_ALIGN_LEFT_MID, 2 + i * 8, 0);
+    lv_obj_set_style_radius(bar, 1, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_clear_flag(bar, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    s_battBar[i] = bar;
+  }
+
+  s_battBolt = lv_label_create(s_battInd);
+  lv_label_set_text(s_battBolt, LV_SYMBOL_CHARGE);
+  lv_obj_set_style_text_font(s_battBolt, &lv_font_montserrat_16, LV_PART_MAIN);
+  lv_obj_set_style_text_color(s_battBolt, lv_color_hex(0xFFD54F),
+                              LV_PART_MAIN);
+  lv_obj_align(s_battBolt, LV_ALIGN_RIGHT_MID, -4, 0);
+  lv_obj_add_flag(s_battBolt, LV_OBJ_FLAG_HIDDEN);
+}
+
+// Lo llaman quienes suben el banner al frente: la bateria va siempre encima.
+// Solo si esta visible (subir un objeto oculto no hace falta e invalida).
+static void battery_indicator_raise(void) {
+  if (s_battInd && !lv_obj_has_flag(s_battInd, LV_OBJ_FLAG_HIDDEN)) {
+    lv_obj_move_foreground(s_battInd);
+  }
+}
+
+static void battery_indicator_paint(lv_color_t frame, int bars,
+                                    lv_color_t barColor, bool bolt) {
+  lv_obj_set_style_border_color(s_battBody, frame, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(s_battTip, frame, LV_PART_MAIN);
+  for (int i = 0; i < PROTO_BATT_LEVEL_MAX; i++) {
+    lv_obj_set_style_bg_color(s_battBar[i], barColor, LV_PART_MAIN);
+    if (i < bars) {
+      lv_obj_clear_flag(s_battBar[i], LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(s_battBar[i], LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+  if (bolt) {
+    lv_obj_clear_flag(s_battBolt, LV_OBJ_FLAG_HIDDEN);
   } else {
-    lv_obj_add_flag(ui_LockOnBatteryIcon, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(ui_LockOnBatteryText, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_battBolt, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+void battery_indicator_update(void) {
+  if (!s_battInd) return;
+
+  const lv_obj_t *scr = lv_scr_act();
+  const bool onHeadingScreen = (scr == ui_ScreenMain || scr == ui_ScreenLock);
+  const bool covered = (scr == ui_ScreenMain) && main_heading_covered();
+
+  BattRepView v = Display_GetBattView();
+  const uint32_t mask = ctrl_state_msg.alarmBitmask;
+  const bool mainsAlarm = !Display_IsBoardLinkLost() && mask != (uint32_t)-1 &&
+                          ((mask >> ALARM_MAINS_INTERRUPTION) & 1u) != 0;
+  // MB sin CTRL,BATT: a bateria, nivel desconocido.
+  const bool unknownDischarge = (v.show == BATTREP_SHOW_NONE) && mainsAlarm;
+
+  // Firma: visible, modo, nivel y, cargando, el paso de la animacion.
+  int32_t sig = 0;
+  if (onHeadingScreen && !covered &&
+      (v.show != BATTREP_SHOW_NONE || unknownDischarge)) {
+    const int32_t mode = unknownDischarge ? 9 : (int32_t)v.show;
+    int32_t level = v.level;
+    if (v.show == BATTREP_SHOW_CHARGING) {
+      level = (int32_t)((millis() / BATT_CHARGE_STEP_MS) %
+                        (PROTO_BATT_LEVEL_MAX + 1));
+    }
+    sig = 1 + mode * 16 + level;
+  }
+  if (sig == s_battSig) return;
+  const bool wasHidden = (s_battSig <= 0);
+  s_battSig = sig;
+
+  if (sig == 0) {
+    lv_obj_add_flag(s_battInd, LV_OBJ_FLAG_HIDDEN);
+    return;
+  }
+
+  static const lv_color_t WHITE = lv_color_hex(0xFFFFFF);
+  static const lv_color_t AMBER = lv_color_hex(0xFFB436);
+  static const lv_color_t RED = lv_color_hex(0xE53935);
+  if (unknownDischarge) {
+    battery_indicator_paint(AMBER, 0, AMBER, false);
+  } else if (v.show == BATTREP_SHOW_DISCHARGING) {
+    if (v.level <= 0) {
+      battery_indicator_paint(RED, 0, RED, false);
+    } else if (v.level == 1) {
+      battery_indicator_paint(WHITE, 1, AMBER, false);
+    } else {
+      battery_indicator_paint(WHITE, v.level, WHITE, false);
+    }
+  } else if (v.show == BATTREP_SHOW_CHARGING) {
+    battery_indicator_paint(WHITE, (sig - 1) % 16, WHITE, true);
+  } else {
+    battery_indicator_paint(WHITE, PROTO_BATT_LEVEL_MAX, WHITE, true);
+  }
+
+  if (wasHidden) {
+    lv_obj_clear_flag(s_battInd, LV_OBJ_FLAG_HIDDEN);
+    // Por encima del banner aunque algo lo haya subido despues de crearse.
+    lv_obj_move_foreground(s_battInd);
   }
 }
 
@@ -3134,6 +3276,7 @@ void UI_ReassertAlarmOverlays(void) {
       !lv_obj_has_flag(s_audioPausedTimer, LV_OBJ_FLAG_HIDDEN)) {
     lv_obj_move_foreground(s_audioPausedTimer);
   }
+  battery_indicator_raise();
 }
 
 // Boton de SILENCIAR mientras el enlace esta caido.
@@ -3252,13 +3395,7 @@ void alarm_banner_update(void) {
   // tapan el heading, y el chip debajo no avisaria de nada. Varios se cierran
   // solos al caer el enlace (su mustYield()), pero no todos, y fiar la senal
   // a que el cierre ocurra primero es dejarla media pasada sin verse.
-  const bool mainHeadingCovered =
-      AlarmCenter_IsOpen() || FactoryTest_IsOpen() ||
-      TelemetryHistory_IsOpen() || BabyHistory_IsOpen() ||
-      BabyExitDialog_IsOpen() || TimeDialog_IsOpen() || HelpDialog_IsOpen() ||
-      MenuDialog_IsOpen() ||
-      Training_IsOpen() || TrainingSelector_IsOpen() ||
-      MaintenanceDialog_IsOpen() || BabyWizard_IsOpen();
+  const bool mainHeadingCovered = main_heading_covered();
   const bool linkLostInHeading = linkLost && ui_ScreenMain &&
                                  lv_scr_act() == ui_ScreenMain &&
                                  !mainHeadingCovered;
@@ -3352,6 +3489,7 @@ void alarm_banner_update(void) {
   if (lv_obj_has_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN) || textChanged) {
     lv_obj_clear_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(s_alarmBanner);
+    battery_indicator_raise();
   }
 
   if (topPrio == s_bannerPriority) {
@@ -4145,6 +4283,7 @@ void UI_RaiseAlarmIndicators(void) {
   if (s_alarmBanner) lv_obj_move_foreground(s_alarmBanner);
   if (s_audioPausedIcon) lv_obj_move_foreground(s_audioPausedIcon);
   if (s_audioPausedTimer) lv_obj_move_foreground(s_audioPausedTimer);
+  battery_indicator_raise();
 }
 
 void Settings_cb(lv_event_t *e) {
@@ -4761,6 +4900,8 @@ void UI_Task(void *pvParameters) {
   alarm_banner_init();
   // Este si cuelga de ui_ScreenMain: es parte de su heading.
   link_lost_chip_init();
+  // Despues del banner: misma capa, y encima de el.
+  battery_indicator_init();
   audio_paused_icon_init();
 
   if (g_hmiRestoreState && !FactoryTest_FirstTestPending()) {
@@ -5318,7 +5459,7 @@ void UI_Task(void *pvParameters) {
     wifi_link_status_update();
     connectivity_heading_update();
     sb_env_heading_update();
-    on_battery_heading_update();
+    battery_indicator_update();
     link_audio_mute_button_update();
     // Apaga el chasquido de la ultima pulsacion cuando le toca. Va aqui, y no
     // con un delay() dentro del callback, para no congelar LVGL.

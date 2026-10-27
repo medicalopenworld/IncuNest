@@ -10,6 +10,7 @@
 #include "factory_test.h"
 #include "modules/patient/patient_session.h"  // PatientBoardView (Communication_GetBoardView)
 #include "modules/comm/sb_env.h"
+#include "modules/comm/batt_report.h"
 #include "service_hours_proto.h"
 
 #define COMMUNICATION_DEBUG true
@@ -71,6 +72,11 @@ bool Display_BoardEverSeen(void);
 // SensorBoard), si esta rancio, o si el enlace con la placa esta caido. Ver
 // sb_env.h; la consume sb_env_heading_update() en UITask.cpp.
 SbEnvView Display_GetSbEnvView(void);
+
+// Que pintar del indicador de bateria, a partir del ultimo CTRL,BATT. Mismo
+// criterio que Display_GetSbEnvView(). Ver batt_report.h; la consume
+// battery_indicator_update() en UITask.cpp.
+BattRepView Display_GetBattView(void);
 
 // Expected prefix of incoming messages
 #if IS_HMI

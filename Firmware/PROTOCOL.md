@@ -301,6 +301,35 @@ UART. No es un campo de `CTRL,STATE` porque esa línea va al filo de su buffer
 - Es solo informativo: la puerta **no** entra en el lazo térmico ni genera alarmas
   nuevas. El fallo del hall ya lo señaliza `ALARM_SENSORBOARD_DOOR_FAULT`.
 
+#### CTRL,BATT (Indicador de batería)
+Enviado **solo por equipos con cargador BQ25730** (HW ≥ 17) y solo cuando el
+estado es conocido: **al instante** si cambia `state` o `level`, **cada 5 s**
+(`PROTO_BATT_PERIOD_MS`) si no, y de nuevo al recibir `HMI,REQ,STATE`. Lo estima
+la motherBoard (`modules/control/battery_gauge.h`) con cada lectura completa
+del cargador (1 Hz).
+
+**Formato**: `CTRL,BATT,state,level,pct`
+
+| campo | valores |
+|---|---|
+| `state` | `1` descargando (sin red), `2` cargando (con red, absorción), `3` lleno (con red, flotación). `0` (desconocido) no se envía |
+| `level` | rayas `0..4`. Medida solo en `state=1`; en `3` vale `4`; en `2` es el último nivel conocido y el display no lo pinta como medida (anima la carga) |
+| `pct` | `0..100`, mismo criterio que `level` |
+
+- **Estimación por tensión**, no contador de carga: tensión de la batería
+  corregida por la caída resistiva (`Idescarga × 50 mΩ`), media móvil de ~8 s y
+  curva de reposo de una batería de plomo de 12 V. Durante una descarga las rayas
+  solo bajan. Error típico de 10–20 puntos.
+- Constantes en `shared/include/protocol.h` (`PROTO_BATT_*`). La línea mide como
+  mucho `PROTO_BATT_LINE_MAX` (24) caracteres más el `\n`.
+- **Compatibilidad**: un display que no lo conozca ignora la línea; un display
+  nuevo con una placa que no lo envíe pinta la pila vacía en ámbar mientras esté
+  activa `ALARM_MAINS_INTERRUPTION`, y nada en otro caso. El parser del HMI es
+  estricto con los tres primeros campos y tolera campos extra al final. Un
+  `CTRL,BATT` rancio (> 15 s) se ignora.
+- Solo informativo: la alarma de corte de red es `ALARM_MAINS_INTERRUPTION` y no
+  depende de esta línea.
+
 #### CTRL,PPG (Onda pletismográfica)
 Enviado a 25 Hz (cada 40 ms) **solo** cuando el estado de sonda es `2`.
 **Formato**: `CTRL,PPG,value`
