@@ -313,13 +313,20 @@ del cargador (1 Hz).
 | campo | valores |
 |---|---|
 | `state` | `1` descargando (sin red), `2` cargando (con red, absorción), `3` lleno (con red, flotación). `0` (desconocido) no se envía |
-| `level` | rayas `0..4`. Medida solo en `state=1`; en `3` vale `4`; en `2` es el último nivel conocido y el display no lo pinta como medida (anima la carga) |
-| `pct` | `0..100`, mismo criterio que `level` |
+| `level` | rayas `0..4` según `pct` (≥75/50/25/10). En `3` vale `4` |
+| `pct` | `0..100`. Cargando, como mucho `99` |
 
-- **Estimación por tensión**, no contador de carga: tensión de la batería
-  corregida por la caída resistiva (`Idescarga × 50 mΩ`), media móvil de ~8 s y
-  curva de reposo de una batería de plomo de 12 V. Durante una descarga las rayas
-  solo bajan. Error típico de 10–20 puntos.
+- **Sin red, estimación por tensión**: tensión de la batería corregida por la
+  caída resistiva (`Idescarga × 50 mΩ`), media móvil de ~8 s y curva de reposo
+  de una batería de plomo de 12 V. Al empezar la descarga se toma el menor entre
+  eso y el último porcentaje conocido; durante la descarga solo baja.
+- **Con red, por la carga que entra**: desde el último porcentaje conocido se
+  suma la corriente de carga integrada sobre 9 Ah con un 85 % de rendimiento,
+  con tope en 99 % hasta la flotación (100 %). El último porcentaje se guarda en
+  NVS (`batt`/`pct`) cada 5 puntos y sobrevive a un apagado; sin nada guardado
+  se parte de 0. El display pinta, cargando, una raya fija por cada cuarto
+  completo (`pct / 25`, como mucho 3) y hace parpadear la siguiente.
+- Error típico de 10–20 puntos.
 - Constantes en `shared/include/protocol.h` (`PROTO_BATT_*`). La línea mide como
   mucho `PROTO_BATT_LINE_MAX` (24) caracteres más el `\n`.
 - **Compatibilidad**: un display que no lo conozca ignora la línea; un display

@@ -301,6 +301,40 @@ MainsDetector g_mains_detector = MAINS_DETECTOR_INITIALIZER;
 BatteryGauge g_batt_gauge = BATTERY_GAUGE_INITIALIZER;
 volatile uint32_t g_batt_report = 0;
 
+// El ultimo porcentaje conocido sobrevive a un apagado (NVS "batt"/"pct"):
+// con red el indicador integra la carga desde ahi, y sin nada guardado tendria
+// que partir de 0. Se escribe solo cada BATT_PERSIST_STEP_PCT puntos (y al
+// llegar al 100): una descarga o una carga completas son ~20 escrituras.
+#define BATT_PERSIST_STEP_PCT 5
+static int s_battSavedPct = -1;  // -1 = nada guardado
+
+static void batt_gauge_restore_from_nvs() {
+  Preferences p;
+  p.begin("batt", true);
+  const int v = p.getUChar("pct", 255);
+  p.end();
+  if (v <= 100) {
+    s_battSavedPct = v;
+    battery_gauge_restore(&g_batt_gauge, (uint8_t)v);
+  }
+}
+
+static void batt_gauge_persist() {
+  if (!g_batt_gauge.known || g_batt_gauge.state == BATT_GAUGE_UNKNOWN) return;
+  const int pct = g_batt_gauge.percent;
+  const int diff = pct - s_battSavedPct;
+  const bool fullNow = (pct == 100 && s_battSavedPct != 100);
+  if (s_battSavedPct >= 0 && diff < BATT_PERSIST_STEP_PCT &&
+      diff > -BATT_PERSIST_STEP_PCT && !fullNow) {
+    return;
+  }
+  Preferences p;
+  p.begin("batt", false);
+  p.putUChar("pct", (uint8_t)pct);
+  p.end();
+  s_battSavedPct = pct;
+}
+
 // UNICO PUNTO donde se decide "hay red": cualquier fuente nueva entra aqui y
 // el detector no se entera. Hoy es el bit AC_STAT del BQ25730 (por I2C).
 //
@@ -418,6 +452,11 @@ void sensors_Task(void *pvParameters) {
       }
       if (chargerExpectedNow() &&
           millis() - lastChargerUpdate >= CHARGER_STATUS_PERIOD_MS) {
+        // Tiempo real entre lecturas completas: el indicador de bateria
+        // integra con el la corriente de carga.
+        const uint32_t charger_dt_ms =
+            lastChargerUpdate ? (uint32_t)(millis() - lastChargerUpdate)
+                              : CHARGER_STATUS_PERIOD_MS;
         g_bq_status_valid = charge_status(&g_bq_status);
         if (g_bq_status_valid) g_bq_status_ms = millis();
         lastChargerUpdate = millis();
@@ -478,10 +517,19 @@ void sensors_Task(void *pvParameters) {
 
         // Indicador de bateria (CTRL,BATT): despues de la transicion a
         // flotacion, para que "lleno" salga en la misma lectura.
+        static bool batt_restored = false;
+        if (!batt_restored) {
+          batt_restored = true;
+          batt_gauge_restore_from_nvs();
+        }
+        const uint16_t ichg = (g_bq_status.ichg_ma > 0)
+                                  ? (uint16_t)g_bq_status.ichg_ma : 0u;
         battery_gauge_sample(&g_batt_gauge, g_bq_status_valid,
                              g_bq_status.ac_present, charger_in_float,
-                             g_bq_status.vbat_mv, g_bq_status.idchg_ma);
+                             g_bq_status.vbat_mv, g_bq_status.idchg_ma, ichg,
+                             charger_dt_ms);
         g_batt_report = battery_gauge_pack(&g_batt_gauge);
+        batt_gauge_persist();
       }
       // Fallo tecnico del cargador visible: log al cambiar (no en cada pasada)
       // y bandera para telemetria. Con la alarma de red ya declarada y el

@@ -56,10 +56,14 @@ BattRepView battrep_view(bool have, const BattRepMsg *msg, uint32_t rx_ms,
       v.show = BATTREP_SHOW_DISCHARGING;
       v.level = msg->level;
       break;
-    case PROTO_BATT_STATE_CHARGING:
+    case PROTO_BATT_STATE_CHARGING: {
+      // Cuartos completos: con 60 % hay 2 llenos y se esta llenando el
+      // tercero. La cuarta raya solo queda fija en FULL.
+      const int quarters = msg->pct / 25;
       v.show = BATTREP_SHOW_CHARGING;
-      v.level = msg->level;
+      v.level = quarters < PROTO_BATT_LEVEL_MAX ? quarters : PROTO_BATT_LEVEL_MAX - 1;
       break;
+    }
     case PROTO_BATT_STATE_FULL:
       v.show = BATTREP_SHOW_FULL;
       v.level = PROTO_BATT_LEVEL_MAX;

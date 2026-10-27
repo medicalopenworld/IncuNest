@@ -926,7 +926,8 @@ static bool main_heading_covered(void) {
 // un dialogo encima.
 //
 //   descarga: rayas blancas; 1 raya en ambar; 0 en rojo (contorno incluido).
-//   cargando: rayo y relleno animado (el nivel no es medida con red).
+//   cargando: rayo, rayas fijas por cada cuarto ya cargado y la siguiente
+//             parpadeando (el nivel lo integra la MB con la corriente de carga).
 //   lleno:    rayo y las 4 rayas.
 //
 // Corre en cada pasada del bucle de UI, dentro del bloqueo de LVGL, y solo
@@ -937,7 +938,7 @@ static bool main_heading_covered(void) {
 #define BATT_IND_H 40
 #define BATT_BODY_W 38
 #define BATT_BODY_H 20
-#define BATT_CHARGE_STEP_MS 600u
+#define BATT_CHARGE_BLINK_MS 600u
 
 static lv_obj_t *s_battInd = NULL;
 static lv_obj_t *s_battBody = NULL;
@@ -1038,17 +1039,17 @@ void battery_indicator_update(void) {
   // MB sin CTRL,BATT: a bateria, nivel desconocido.
   const bool unknownDischarge = (v.show == BATTREP_SHOW_NONE) && mainsAlarm;
 
-  // Firma: visible, modo, nivel y, cargando, el paso de la animacion.
+  // Firma: visible, modo, nivel y, cargando, la fase del parpadeo de la raya
+  // que se esta llenando.
   int32_t sig = 0;
+  int32_t blinkOn = 0;
   if (onHeadingScreen && !covered &&
       (v.show != BATTREP_SHOW_NONE || unknownDischarge)) {
     const int32_t mode = unknownDischarge ? 9 : (int32_t)v.show;
-    int32_t level = v.level;
     if (v.show == BATTREP_SHOW_CHARGING) {
-      level = (int32_t)((millis() / BATT_CHARGE_STEP_MS) %
-                        (PROTO_BATT_LEVEL_MAX + 1));
+      blinkOn = (int32_t)((millis() / BATT_CHARGE_BLINK_MS) & 1u);
     }
-    sig = 1 + mode * 16 + level;
+    sig = 1 + mode * 32 + v.level * 2 + blinkOn;
   }
   if (sig == s_battSig) return;
   const bool wasHidden = (s_battSig <= 0);
@@ -1073,7 +1074,8 @@ void battery_indicator_update(void) {
       battery_indicator_paint(WHITE, v.level, WHITE, false);
     }
   } else if (v.show == BATTREP_SHOW_CHARGING) {
-    battery_indicator_paint(WHITE, (sig - 1) % 16, WHITE, true);
+    // Rayas fijas = cuartos ya cargados; la siguiente aparece y desaparece.
+    battery_indicator_paint(WHITE, v.level + blinkOn, WHITE, true);
   } else {
     battery_indicator_paint(WHITE, PROTO_BATT_LEVEL_MAX, WHITE, true);
   }

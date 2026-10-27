@@ -84,8 +84,9 @@ void test_view_states(void) {
   TEST_ASSERT_EQUAL_INT(2, v.level);
 
   BattRepMsg c = msg(PROTO_BATT_STATE_CHARGING, 1, 20);
-  TEST_ASSERT_EQUAL(BATTREP_SHOW_CHARGING,
-                    battrep_view(true, &c, 0, 1000, false).show);
+  v = battrep_view(true, &c, 0, 1000, false);
+  TEST_ASSERT_EQUAL(BATTREP_SHOW_CHARGING, v.show);
+  TEST_ASSERT_EQUAL_INT(0, v.level);
 
   BattRepMsg f = msg(PROTO_BATT_STATE_FULL, 4, 100);
   v = battrep_view(true, &f, 0, 1000, false);
@@ -95,6 +96,16 @@ void test_view_states(void) {
   BattRepMsg u = msg(PROTO_BATT_STATE_UNKNOWN, 0, 0);
   TEST_ASSERT_EQUAL(BATTREP_SHOW_NONE,
                     battrep_view(true, &u, 0, 1000, false).show);
+}
+
+// Cargando: rayas fijas por cada cuarto completo; la cuarta solo en FULL.
+void test_view_charging_shows_completed_quarters(void) {
+  const int pcts[] = {0, 24, 25, 60, 74, 75, 99};
+  const int bars[] = {0, 0, 1, 2, 2, 3, 3};
+  for (unsigned i = 0; i < sizeof(pcts) / sizeof(pcts[0]); i++) {
+    BattRepMsg c = msg(PROTO_BATT_STATE_CHARGING, 0, pcts[i]);
+    TEST_ASSERT_EQUAL_INT(bars[i], battrep_view(true, &c, 0, 1000, false).level);
+  }
 }
 
 void test_view_survives_millis_wraparound(void) {
@@ -111,6 +122,7 @@ int main(void) {
   RUN_TEST(test_view_nothing_without_a_line);
   RUN_TEST(test_view_nothing_when_stale_or_link_lost);
   RUN_TEST(test_view_states);
+  RUN_TEST(test_view_charging_shows_completed_quarters);
   RUN_TEST(test_view_survives_millis_wraparound);
   return UNITY_END();
 }

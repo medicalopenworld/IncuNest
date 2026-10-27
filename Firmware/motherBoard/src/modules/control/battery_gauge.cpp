@@ -16,6 +16,8 @@ static const CurvePoint kCurve[] = {
 };
 static const unsigned kCurveLen = sizeof(kCurve) / sizeof(kCurve[0]);
 
+static const uint32_t kUpctPerPct = 1000000u;
+
 uint8_t battery_gauge_percent_from_mv(uint32_t mv) {
   if (mv <= kCurve[0].mv) return kCurve[0].pct;
   if (mv >= kCurve[kCurveLen - 1].mv) return kCurve[kCurveLen - 1].pct;
@@ -38,32 +40,59 @@ uint8_t battery_gauge_level_from_percent(uint8_t percent) {
   return 0;
 }
 
-void battery_gauge_sample(BatteryGauge *g, bool valid, bool ac_present,
-                          bool full, uint16_t vbat_mv, uint16_t idchg_ma) {
-  if (g == 0 || !valid) return;
+void battery_gauge_restore(BatteryGauge *g, uint8_t percent) {
+  if (g == 0) return;
+  g->percent = (percent > 100u) ? 100u : percent;
+  g->level = battery_gauge_level_from_percent(g->percent);
+  g->known = true;
+}
 
-  if (ac_present) {
-    // Con red la tension la fija el cargador: no se estima nada. Lleno es
-    // lleno; cargando conserva el ultimo nivel conocido, que el display no
-    // pinta como medida (anima la carga).
-    g->filtered = false;
-    if (full) {
-      g->state = BATT_GAUGE_FULL;
-      g->level = BATT_GAUGE_LEVEL_MAX;
-      g->percent = 100;
-    } else {
-      g->state = BATT_GAUGE_CHARGING;
-    }
+static void set_percent(BatteryGauge *g, uint8_t pct) {
+  g->percent = pct;
+  g->level = battery_gauge_level_from_percent(pct);
+}
+
+static void sample_mains(BatteryGauge *g, bool full, uint16_t ichg_ma,
+                         uint32_t dt_ms) {
+  g->filtered = false;
+  if (full) {
+    g->state = BATT_GAUGE_FULL;
+    g->charge_upct = 100u * kUpctPerPct;
+    g->known = true;
+    set_percent(g, 100);
     return;
   }
 
+  const uint32_t cap_upct = BATT_GAUGE_CHARGING_MAX_PCT * kUpctPerPct;
+  if (g->state != BATT_GAUGE_CHARGING) {
+    // Se empieza a cargar desde lo ultimo conocido (0 sin historia: el lado
+    // seguro, se ve menos carga de la que hay).
+    const uint32_t start = g->known ? g->percent : 0u;
+    g->charge_upct = start * kUpctPerPct;
+    if (g->charge_upct > cap_upct) g->charge_upct = cap_upct;
+    g->state = BATT_GAUGE_CHARGING;
+  }
+
+  // mAh = mA * ms / 3.6e6; puntos = mAh / capacidad * rendimiento.
+  const uint64_t num = (uint64_t)ichg_ma * dt_ms * BATT_GAUGE_CHARGE_EFF_PCT *
+                       (uint64_t)kUpctPerPct;
+  const uint64_t den = 3600000ull * BATT_GAUGE_CAPACITY_MAH;
+  uint64_t upct = (uint64_t)g->charge_upct + num / den;
+  if (upct > cap_upct) upct = cap_upct;
+  g->charge_upct = (uint32_t)upct;
+  g->known = true;
+  set_percent(g, (uint8_t)(g->charge_upct / kUpctPerPct));
+}
+
+static void sample_battery(BatteryGauge *g, uint16_t vbat_mv,
+                           uint16_t idchg_ma) {
   const uint32_t vcomp_mv =
       (uint32_t)vbat_mv + (uint32_t)idchg_ma * BATT_GAUGE_RINT_MOHM / 1000u;
   const uint32_t x16 = vcomp_mv * 16u;
   const bool entering = (g->state != BATT_GAUGE_DISCHARGING) || !g->filtered;
   if (entering) {
     // Primera muestra de la descarga: siembra la media (si arrancara en 0 V la
-    // primera lectura diria "vacia") y libera el tope de rayas de la anterior.
+    // primera lectura diria "vacia").
     g->vcomp_mv_x16 = x16;
     g->filtered = true;
   } else {
@@ -72,17 +101,29 @@ void battery_gauge_sample(BatteryGauge *g, bool valid, bool ac_present,
                                  diff / BATT_GAUGE_EMA_DIV);
   }
 
-  const uint8_t pct = battery_gauge_percent_from_mv(g->vcomp_mv_x16 / 16u);
-  const uint8_t level = battery_gauge_level_from_percent(pct);
+  uint8_t pct = battery_gauge_percent_from_mv(g->vcomp_mv_x16 / 16u);
   if (entering) {
-    g->percent = pct;
-    g->level = level;
-  } else {
-    // Solo bajan durante la descarga.
-    if (pct < g->percent) g->percent = pct;
-    if (level < g->level) g->level = level;
+    // Recien quitada la red la tension aun lleva la carga superficial de la
+    // flotacion: manda lo que se sabia si es menor.
+    if (g->known && g->percent < pct) pct = g->percent;
+    set_percent(g, pct);
+  } else if (pct < g->percent) {
+    // Solo baja durante la descarga.
+    set_percent(g, pct);
   }
+  g->known = true;
   g->state = BATT_GAUGE_DISCHARGING;
+}
+
+void battery_gauge_sample(BatteryGauge *g, bool valid, bool ac_present,
+                          bool full, uint16_t vbat_mv, uint16_t idchg_ma,
+                          uint16_t ichg_ma, uint32_t dt_ms) {
+  if (g == 0 || !valid) return;
+  if (ac_present) {
+    sample_mains(g, full, ichg_ma, dt_ms);
+  } else {
+    sample_battery(g, vbat_mv, idchg_ma);
+  }
 }
 
 bool battery_gauge_report_low(uint32_t report) {

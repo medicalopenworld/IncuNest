@@ -30,13 +30,15 @@ bool battrep_parse(const char *line, BattRepMsg *out);
 typedef enum {
   BATTREP_SHOW_NONE = 0,     // no se pinta
   BATTREP_SHOW_DISCHARGING,  // rayas = level, color segun nivel
-  BATTREP_SHOW_CHARGING,     // rayo y relleno animado: el nivel no es medida
+  BATTREP_SHOW_CHARGING,     // rayo, `level` rayas fijas y la siguiente parpadea
   BATTREP_SHOW_FULL,         // rayo y todas las rayas
 } BattRepShow;
 
 typedef struct {
   BattRepShow show;
-  int level;  // rayas a pintar (DISCHARGING y FULL)
+  // Rayas fijas. Cargando: cuartos completos de carga (pct / 25, como mucho
+  // 3: la cuarta solo se fija al llenarse), y parpadea la que se esta llenando.
+  int level;
 } BattRepView;
 
 // `have`: ha llegado algun CTRL,BATT desde el arranque. `rx_ms`: millis() de
