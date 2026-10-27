@@ -154,6 +154,12 @@
 // -- y por tanto sin sensor de aire -- era invisible en monitorizacion remota.
 #define ALARM_SENSORBOARD_LINK_LOST_KEY "sb_link_alarm"
 #define ALARM_SENSORBOARD_DOOR_FAULT_KEY "sb_door_alarm"
+// Misma razon: sin la clave, ALARM_PHOTO_LAMP_FAULT (20) caeria en el
+// `default: return` y una lampara de fototerapia que no responde seria
+// invisible en monitorizacion remota.
+#define ALARM_PHOTO_LAMP_FAULT_KEY "photo_lamp_alarm"
+#define ALARM_BATTERY_LOW_KEY "battery_low_alarm"
+#define ALARM_NOISE_HIGH_KEY "noise_alarm"
 
 #define CALIBRATION_RAW_TEMPERATURE_RANGE_SKIN_KEY "Cal_raw_range_skin_temp"
 #define CALIBRATION_RAW_TEMPERATURE_LOW_SKIN_KEY "Cal_raw_low_skin_temp"
@@ -170,6 +176,9 @@
 #define BQ_VBAT_KEY   "BQ_vbat_V"
 #define BQ_VBUS_KEY   "BQ_vbus_V"
 #define BQ_ICHG_KEY   "BQ_ichg_mA"
+// Fallo tecnico del cargador (grupo DIAG): sin lecturas validas > 30 s o
+// reconfiguracion fallida. No hay AlarmId para esto todavia (known issue 25).
+#define CHARGER_COMM_FAULT_KEY "charger_comm_fault"
 
 #define BOOT_COUNT_KEY "boot_count"
 #define FREE_HEAP_KEY "free_heap"
@@ -177,12 +186,25 @@
 #define UPTIME_S_KEY "uptime_s"
 #define GPRS_KILL_COUNT_KEY "gprs_kill_count"
 #define GPRS_MON_KILL_COUNT_KEY "gprs_mon_kill_count"
+// Power-cycles del modem por corte de GSM_PWR_EN. Solo HW >= 19 (en la V18 no
+// hay pin que cortar); RAM desde el arranque, no se persiste.
+#define GSM_POWER_CYCLES_KEY "GSM_power_cycles"
+// AFE4490: diag_code de la libreria (bits 0-12 = REG_DIAG 0x30, resto RSQM) y
+// episodios de parada del AFE (>10 s sin muestra). No hay reinicio en caliente.
+#define AFE_DIAG_KEY "AFE_diag"
+#define AFE_STALLS_KEY "AFE_stalls"
 // Reinicios del modem (GPRSForceReset) desde el arranque y motivo del ultimo.
 // Solo por GPRS y solo si hubo alguno.
 #define GPRS_MODEM_RESETS_KEY "gprs_modem_resets"
 #define GPRS_RESET_REASON_KEY "gprs_reset_reason"
 #define HMI_BOOT_COUNT_KEY "hmi_boot_count"
 #define HMI_LAST_RST_KEY "hmi_last_rst"
+// Horas de uso desde el ultimo servicio registrado de cada actuador (enteras).
+// El contador de vida util sigue publicandose aparte, sin tocar.
+#define SVC_HEATER_H_KEY "svc_heater_h"
+#define SVC_FAN_H_KEY "svc_fan_h"
+#define SVC_HUM_H_KEY "svc_hum_h"
+#define SVC_PHOTO_H_KEY "svc_photo_h"
 // 0-100 while an OTA is downloading; absent otherwise.
 #define OTA_PROGRESS_KEY "ota_progress"
 

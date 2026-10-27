@@ -4,13 +4,16 @@
 #include "esp_log.h"
 #include "main.h"
 #include "modules/debug/debug_mode.h"
+#include "modules/maintenance/weigh_tracker.h"
 #include "state/training_mode.h"
 #include "ui.h"
+#include "ui/TelemetryHistory.h"
 #include <Preferences.h>
 #include "config/EEPROM_defines.h"
 #include "drivers/rtc_pcf8563.h"
 #include "drivers/rtc_store.h"
 #include "drivers/rtc_write_policy.h"
+#include "modules/comm/sb_env.h"
 #include <cstdio>
 #include <cstdlib>
 #include <string.h>
@@ -31,6 +34,39 @@ int g_skinProbeState = SKIN_PROBE_NOT_CONNECTED; // Last received skin probe sta
 // --- Baby profile wizard protocol state ---
 volatile bool       g_pendingProfileList = false;
 BabyProfileListMsg  g_profileList = {0, {}};
+
+// Espejo de solo lectura de la ultima CTRL,PROFILE_LIST valida. No es un
+// segundo flag de "pendiente": nadie lo consume, cada lector recuerda la
+// generacion que vio (Communication_TakeProfileListMirror).
+static portMUX_TYPE s_profileMirrorMux = portMUX_INITIALIZER_UNLOCKED;
+static BabyProfileListMsg s_profileMirror = {0, {}};
+static uint32_t s_profileMirrorGen = 0;
+
+// Ultimo CTRL,STATE visto, en la parte que concierne al bebe al mando.
+static portMUX_TYPE s_boardViewMux = portMUX_INITIALIZER_UNLOCKED;
+static PatientBoardView s_boardView = {false, false, 0, false, 0};
+
+bool Communication_GetBoardView(PatientBoardView *out) {
+  if (!out) return false;
+  taskENTER_CRITICAL(&s_boardViewMux);
+  *out = s_boardView;
+  taskEXIT_CRITICAL(&s_boardViewMux);
+  return out->stateSeen;
+}
+
+bool Communication_TakeProfileListMirror(uint32_t *seenGen,
+                                         BabyProfileListMsg *out) {
+  if (!seenGen || !out) return false;
+  bool fresh = false;
+  taskENTER_CRITICAL(&s_profileMirrorMux);
+  if (s_profileMirrorGen != *seenGen) {
+    *out = s_profileMirror;
+    *seenGen = s_profileMirrorGen;
+    fresh = true;
+  }
+  taskEXIT_CRITICAL(&s_profileMirrorMux);
+  return fresh;
+}
 volatile bool       g_pendingProfileAck = false;
 uint32_t            g_profileAck = 0;
 volatile bool       g_pendingProfileRange = false;
@@ -39,6 +75,10 @@ BabyProfileRangeMsg g_profileRange = {0, false, 0, -1.0f, -1.0f, -1.0f, true};
 // --- Ajuste manual de hora (Settings) ---
 volatile bool g_pendingTimeAck = false;
 uint32_t      g_timeAckResult  = 0;
+
+// --- Avisos de servicio por horas (CTRL,SERVICE) ---
+volatile bool g_pendingService = false;
+ServiceReport g_serviceReport  = {0, {}};
 
 // --- Registro de alarmas ---
 volatile bool   g_pendingAlarmHistory = false;
@@ -115,6 +155,50 @@ bool Display_IsBoardLinkLost(void) {
   if (unheard > BOARD_LINK_TIMEOUT_MS) return true;
   if (unheard >= sinceLine) return false; // no hemos escuchado nada en absoluto
   return (sinceLine - unheard) > BOARD_LINK_TIMEOUT_MS;
+}
+
+// --- Entorno de la SensorBoard (CTRL,ENV) ---
+//
+// Lo escribe la tarea Comm y lo lee la UI, asi que el trio mensaje/instante/
+// "ha llegado" se copia entero bajo el spinlock (no son tipos atomicos y una
+// lectura a medias mezclaria una puerta con el ruido de otra trama).
+static portMUX_TYPE s_sbEnvMux = portMUX_INITIALIZER_UNLOCKED;
+static SbEnvMsg s_sbEnvMsg = {false, PROTO_ENV_DOOR_UNKNOWN,
+                              PROTO_ENV_UNAVAILABLE, PROTO_ENV_UNAVAILABLE};
+static uint32_t s_sbEnvRxMs = 0;
+static bool s_sbEnvHave = false;
+
+SbEnvView Display_GetSbEnvView(void) {
+  SbEnvMsg msg;
+  uint32_t rxMs;
+  bool have;
+  taskENTER_CRITICAL(&s_sbEnvMux);
+  msg = s_sbEnvMsg;
+  rxMs = s_sbEnvRxMs;
+  have = s_sbEnvHave;
+  taskEXIT_CRITICAL(&s_sbEnvMux);
+  return sbenv_view(have, &msg, rxMs, millis(), Display_IsBoardLinkLost());
+}
+
+// --- Indicador de bateria (CTRL,BATT) ---
+//
+// Mismo esquema que CTRL,ENV: lo escribe la tarea Comm y lo lee la UI, y el
+// trio se copia entero bajo el spinlock.
+static portMUX_TYPE s_battMux = portMUX_INITIALIZER_UNLOCKED;
+static BattRepMsg s_battMsg = {PROTO_BATT_STATE_UNKNOWN, 0, 0};
+static uint32_t s_battRxMs = 0;
+static bool s_battHave = false;
+
+BattRepView Display_GetBattView(void) {
+  BattRepMsg msg;
+  uint32_t rxMs;
+  bool have;
+  taskENTER_CRITICAL(&s_battMux);
+  msg = s_battMsg;
+  rxMs = s_battRxMs;
+  have = s_battHave;
+  taskEXIT_CRITICAL(&s_battMux);
+  return battrep_view(have, &msg, rxMs, millis(), Display_IsBoardLinkLost());
 }
 
 volatile bool   g_pendingAlarmDesc = false;
@@ -506,7 +590,8 @@ void Communication_SendSetTime(int year, int month, int day, int hour,
 #endif
 }
 
-void Communication_SendProfileWeight(uint32_t seq, uint16_t grams) {
+void Communication_SendProfileWeight(uint32_t seq, uint16_t grams,
+                                     bool stampOnSend) {
 #if IS_HMI
   if (Training_IsActive()) { Training_SimProfileWeight(seq, grams); return; }
   if (Training_IsPracticeSeq(seq)) return;  // ver SendProfileSelect
@@ -515,6 +600,11 @@ void Communication_SendProfileWeight(uint32_t seq, uint16_t grams) {
   } else {
     COMM_SERIAL.printf("HMI,PROFILE_WEIGHT,%u,%u\n", (unsigned)seq,
                        (unsigned)grams);
+    // Sello de la pesada para el recordatorio diario: el protocolo no trae el
+    // epoch de la ultima. Los llamadores que no esperan respuesta (asistente,
+    // pantalla Bebes) sellan aqui, al enviar. El dialogo de PESAR AHORA pide
+    // stampOnSend=false y sella al recibir CTRL,PROFILE_RANGE.
+    if (stampOnSend) WeighTracker_NoteWeighed(seq, grams);
   }
 #endif
 }
@@ -549,6 +639,25 @@ void Communication_SendProfileKangaroo(uint32_t seq) {
 void Communication_SendAlarmHistoryReq(void) {
 #if IS_HMI
   COMM_SERIAL.print("HMI,ALM_HISTORY_REQ\n");
+#endif
+}
+
+void Communication_SendServiceReq(void) {
+#if IS_HMI
+  COMM_SERIAL.print(SERVICE_PROTO_REQ_LINE);
+#endif
+}
+
+void Communication_SendServiceDone(uint8_t id) {
+#if IS_HMI
+  // Registrar un servicio escribe NVS de la placa de verdad: justo lo que la
+  // franja de formacion dice que no ocurre (ADR-0002).
+  if (Training_IsActive()) return;
+  char msg[32];
+  if (service_proto_build_done(msg, sizeof(msg), id) == 0) return;  // id malo
+  COMM_SERIAL.print(msg);
+#else
+  (void)id;
 #endif
 }
 
@@ -698,6 +807,7 @@ static void parse_message(const char *line) {
     uint32_t alarmBitmask = 0;
     uint32_t silencedBitmask = 0;
     uint32_t latchedBitmask = 0;
+    unsigned activeSeq = 0;  // campo 24; solo vale con result >= 24
     int almTest = ALARM_TEST_IDLE_HMI;
     int silenceLeftS = 0;
     int linkBars = -1;
@@ -706,11 +816,11 @@ static void parse_message(const char *line) {
     char fwVer[20];
     double airSet, skinSet, humSet;
     int result =
-        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d,%lf,%d,%d,0x%X,0x%X,%d,%d,%d,0x%X",
+        sscanf(line, "CTRL,STATE,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d,%c,%19[^,],%d,%d,%d,%lf,%d,%d,0x%X,0x%X,%d,%d,%d,0x%X,%u",
                &act, &mode, &airSet, &skinSet, &humSet, &photo, &mute,
-               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus, &photoTimeRemaining, &lang, &probeState, &alarmBitmask, &silencedBitmask, &almTest, &silenceLeftS, &linkBars, &latchedBitmask);
+               &sn, &hwNum, &hwRev, fwVer, &numAlarms, &skinE, &commStatus, &photoTimeRemaining, &lang, &probeState, &alarmBitmask, &silencedBitmask, &almTest, &silenceLeftS, &linkBars, &latchedBitmask, &activeSeq);
 
-    // Accept 12 (old), 13 (with alarms), 14+skinModeEnabled, 15+photoTime, 16+lang, 17+probeState, 18+bitmask, 19+silenced, 22+linkBars
+    // Accept 12 (old), 13 (with alarms), 14+skinModeEnabled, 15+photoTime, 16+lang, 17+probeState, 18+bitmask, 19+silenced, 22+linkBars, 23+latched, 24+activeSeq
     if (result >= 12) {
       ctrl_state_msg.actuation = act;
       ctrl_state_msg.controlMode = mode;
@@ -773,6 +883,23 @@ static void parse_message(const char *line) {
       // se ofrece para una alarma cuya condicion sigue viva.
       ctrl_state_msg.latchedBitmask = (result >= 23) ? latchedBitmask : 0u;
       ctrl_state_msg.serialNumber = sn;
+
+      // Lo que la placa dice del bebe al mando, publicado ENTERO y de una vez:
+      // quien lo lee (state/patient_state, en UI_Task) decide borrar una
+      // identidad comparando activeSeq con la terapia viva, y leyendolos de
+      // ctrl_state_msg campo a campo podria ver la terapia de este mensaje con
+      // el activeSeq del anterior y borrar un bebe valido.
+      {
+        PatientBoardView v;
+        v.stateSeen = true;
+        v.sendsActiveSeq = (result >= 24);
+        v.activeSeq = (result >= 24) ? (uint32_t)activeSeq : 0u;
+        v.therapyOn = (act != 0) || (photo != 0);
+        v.sn = (uint32_t)sn;
+        taskENTER_CRITICAL(&s_boardViewMux);
+        s_boardView = v;
+        taskEXIT_CRITICAL(&s_boardViewMux);
+      }
 
       strncpy(ctrl_state_msg.fwVer, fwVer, sizeof(ctrl_state_msg.fwVer));
       ctrl_state_msg.fwVer[sizeof(ctrl_state_msg.fwVer) - 1] = '\0';
@@ -1020,6 +1147,33 @@ static void parse_message(const char *line) {
       g_humDutyPwm       = h;
       g_pendingDutyApply = true;
     }
+  } else if (strncmp(line, "CTRL,ENV,", 9) == 0) {
+    // Puerta/luz/ruido de la SensorBoard. Solo informativo. Una linea
+    // malformada se descarta SIN tocar lo ultimo recibido (sbenv_parse no
+    // escribe en la salida al rechazar); el dato viejo caduca solo.
+    SbEnvMsg env;
+    if (sbenv_parse(line, &env)) {
+      taskENTER_CRITICAL(&s_sbEnvMux);
+      s_sbEnvMsg = env;
+      s_sbEnvRxMs = millis();
+      s_sbEnvHave = true;
+      taskEXIT_CRITICAL(&s_sbEnvMux);
+    } else {
+      COMM_LOG("[COMM] CTRL,ENV malformado: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,BATT,", 10) == 0) {
+    // Indicador de bateria. Solo informativo; una linea malformada se
+    // descarta sin tocar lo ultimo recibido, que caduca solo.
+    BattRepMsg batt;
+    if (battrep_parse(line, &batt)) {
+      taskENTER_CRITICAL(&s_battMux);
+      s_battMsg = batt;
+      s_battRxMs = millis();
+      s_battHave = true;
+      taskEXIT_CRITICAL(&s_battMux);
+    } else {
+      COMM_LOG("[COMM] CTRL,BATT malformado: %s\n", line);
+    }
   } else if (strncmp(line, "CTRL,PROFILE_LIST", 17) == 0) {
     // CTRL,PROFILE_LIST,<n>{,<seq>,<name>,<gestWeeks>,<weightGrams>}xn
     // Manual comma-split (variable arity) — validate every field before
@@ -1076,6 +1230,14 @@ static void parse_message(const char *line) {
     if (ok) {
       g_profileList = msg;
       g_pendingProfileList = true;
+      // Copia aparte para quien solo quiere LEER los minutos de terapia
+      // (state/patient_state) sin ser el consumidor del flag de arriba, que
+      // tiene uno solo: wizard o visor de bebes. Nota: la seccion critica solo
+      // copia datos (embedded-display-hmi.md).
+      taskENTER_CRITICAL(&s_profileMirrorMux);
+      s_profileMirror = msg;
+      s_profileMirrorGen++;
+      taskEXIT_CRITICAL(&s_profileMirrorMux);
     } else {
       COMM_LOG("[COMM] PROFILE_LIST malformed: %s\n", line);
     }
@@ -1086,6 +1248,16 @@ static void parse_message(const char *line) {
       g_pendingProfileAck = true;
     } else {
       COMM_LOG("[COMM] PROFILE_ACK parse error: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,SERVICE,", 13) == 0) {
+    // CTRL,SERVICE,n{,id,horas,umbral}xn. Se acepta entera o no se acepta: una
+    // linea mala deja el ultimo estado valido (nunca datos a medias).
+    ServiceReport rep;
+    if (service_proto_parse_report(line, &rep)) {
+      g_serviceReport = rep;
+      g_pendingService = true;
+    } else {
+      COMM_LOG("[COMM] CTRL,SERVICE malformada, descartada: %s\n", line);
     }
   } else if (strncmp(line, "CTRL,TIME_ACK", 13) == 0) {
     unsigned result = 0;
@@ -1419,6 +1591,11 @@ static void applyCtrlStateInfoAndAlarms(const ControlBoard_Message_State &st) {
               // La alarma está pintada en el HMI pero la Board dice que ya no está activa
               COMM_LOG("[COMM] Bitmask sync: limpiando alarma ID %d (%s)\n", id, alarmList[id].type);
               alarmList[id].state = false;
+              // Esta es la otra via por la que una alarma se resuelve (la
+              // primera es el CTRL,ALM con state=0 de processReceivedAlarm):
+              // si no se marca aqui, la baja nunca llega a la tendencia.
+              TelemetryHistory_RecordAlarmEdge((uint8_t)id,
+                                               alarmList[id].priority, false);
               changed = true;
           }
       }
@@ -1507,10 +1684,9 @@ bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
   ui_set_switch_state_silent(ui_Switch2, (effActuation >> 1) & 0x01);
   bool photoOn = effPhotoMode;
   ui_set_switch_state_silent(ui_Switch3, photoOn);
-  if (ui_PhotoTimerCont) {
-    if (photoOn) lv_obj_clear_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN);
-    else         lv_obj_add_flag(ui_PhotoTimerCont, LV_OBJ_FLAG_HIDDEN);
-  }
+  // ui_set_hidden() y no los setters directos de LVGL en todo este bloque:
+  // corre con cada CTRL,STATE y reafirmar algo ya visible lo repinta entero.
+  if (ui_PhotoTimerCont) ui_set_hidden(ui_PhotoTimerCont, !photoOn);
   // Restore skin: only activate if saved state says ON *and* probe is present.
   // If saved ON but no probe → fall back to Air and force switch OFF.
   bool probeAvailable = (st.skinProbeState == SKIN_PROBE_VALID);
@@ -1520,9 +1696,9 @@ bool Display_ApplyCtrlState(const ControlBoard_Message_State &st) {
 
   skinPanelEnabled = restoreSkin;
   if (skinPanelEnabled && tempOn) {
-    if (ui_SkinPanelCont) lv_obj_clear_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
+    if (ui_SkinPanelCont) ui_set_hidden(ui_SkinPanelCont, false);
   } else {
-    if (ui_SkinPanelCont) lv_obj_add_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
+    if (ui_SkinPanelCont) ui_set_hidden(ui_SkinPanelCont, true);
     lastSelectedPanel = AIR_PANEL_SELECTED;
   }
 
@@ -1657,6 +1833,15 @@ static void processReceivedAlarm(const ControlBoard_Message_Alarm &alarm) {
            alarm.id, alarm.type,
            wasActive ? "ACTIVA" : "inactiva",
            alarm.state ? "ACTIVA" : "inactiva");
+
+  // Marca para la tendencia (hmi-trend): solo el FLANCO, no cada reenvio de
+  // CTRL,ALM. Hand-off puro (cola con seccion critica): ni modelo ni LVGL
+  // desde esta tarea. Con el display recien arrancado la placa reenvia las
+  // alarmas ya activas, y se sellan en el instante en que el HMI las conoce.
+  if (alarm.state != wasActive) {
+    TelemetryHistory_RecordAlarmEdge((uint8_t)alarm.id, alarm.priority,
+                                     alarm.state);
+  }
 
   // Si se activa una alarma nueva, desmutar
   if (alarm.state && !wasActive) {

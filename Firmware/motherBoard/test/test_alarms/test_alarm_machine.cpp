@@ -115,25 +115,30 @@ void test_silence_stops_audio_but_not_the_visual_signal(void) {
   TEST_ASSERT_TRUE(alarm_machine_bitmask() & (1u << ALARM_FAN_FAILURE));
 }
 
-// 201.12.3.103 exige que el aviso de corte de red dure un MINIMO de 10 min, y
-// la pausa de audio dura exactamente eso: silenciarla se comeria toda su
-// duracion obligatoria, no una parte. Es la unica condicion no silenciable.
-void test_mains_interruption_cannot_be_silenced(void) {
+// El corte de red se silencia como las demas (decision del 2026-10-26, ver
+// alarm_policy.h): en un corte de horas, sin silencio el equipo acaba apagado.
+// Lo que no se retira es la condicion: sigue en el bitmask (banner e icono de
+// bateria del display) y el audio vuelve solo al acabar la pausa.
+void test_mains_interruption_silences_but_stays_signalled(void) {
   alarm_machine_condition(ALARM_MAINS_INTERRUPTION, true, 0);
   TEST_ASSERT_EQUAL_INT(ALARM_STATE_ACTIVE,
                         alarm_machine_state(ALARM_MAINS_INTERRUPTION));
   alarm_machine_silence(ALARM_MAINS_INTERRUPTION, 600000, 0);
-  // Sigue ACTIVE y sigue exigiendo audio: la orden no ha tenido efecto.
+  TEST_ASSERT_EQUAL_INT(ALARM_STATE_SILENCED,
+                        alarm_machine_state(ALARM_MAINS_INTERRUPTION));
+  TEST_ASSERT_FALSE(alarm_machine_audio_required());
+  TEST_ASSERT_TRUE(alarm_machine_bitmask() & (1u << ALARM_MAINS_INTERRUPTION));
+  // Sin red todavia al acabar la pausa: vuelve a sonar.
+  alarm_machine_condition(ALARM_MAINS_INTERRUPTION, true, 600001);
+  alarm_machine_tick(600001);
   TEST_ASSERT_EQUAL_INT(ALARM_STATE_ACTIVE,
                         alarm_machine_state(ALARM_MAINS_INTERRUPTION));
-  TEST_ASSERT_EQUAL_UINT32(0u, alarm_machine_silenced_bitmask());
   TEST_ASSERT_TRUE(alarm_machine_audio_required());
 }
 
-// Y la excepcion es SOLO esa: no puede contagiarse a las demas.
-void test_every_other_condition_is_still_silenceable(void) {
+// Todas las condiciones se pueden silenciar.
+void test_every_condition_is_silenceable(void) {
   for (int i = ALARM_NONE + 1; i < ALARM_COUNT; ++i) {
-    if (i == ALARM_MAINS_INTERRUPTION) continue;
     alarm_machine_init();
     alarm_machine_condition((AlarmId)i, true, 0);
     alarm_machine_silence((AlarmId)i, 600000, 0);
@@ -743,8 +748,8 @@ int main(void) {
   RUN_TEST(test_condition_gone_during_delay_never_announces);
   RUN_TEST(test_thermal_cutout_ignores_any_delay);
   RUN_TEST(test_silence_stops_audio_but_not_the_visual_signal);
-  RUN_TEST(test_mains_interruption_cannot_be_silenced);
-  RUN_TEST(test_every_other_condition_is_still_silenceable);
+  RUN_TEST(test_mains_interruption_silences_but_stays_signalled);
+  RUN_TEST(test_every_condition_is_silenceable);
   RUN_TEST(test_silenced_bitmask_names_each_condition);
   RUN_TEST(test_silence_remaining_reports_the_soonest);
   RUN_TEST(test_silence_remaining_is_zero_without_a_pause);

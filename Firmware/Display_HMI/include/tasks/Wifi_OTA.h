@@ -52,11 +52,16 @@
 #define FIRMWARE_FAILURE_RETRIES 12
 #define FIRMWARE_PACKET_SIZE 4096
 #define WAIT_FAILED_OTA_CHUNKS 10U * 1000U * 1000U
+// Reintentos de provisioning con sufijo (IncuNest-Display-<sn>_1.._N) cuando el
+// servidor rechaza el nombre porque ya existe: el HMI perdio su token (NVS
+// borrada) o hay otra unidad con el mismo numero de serie. Igual que la placa.
+#define PROVISION_MAX_RETRIES 3
 
 struct WIFIstruct {
   int provisioned = false;
   bool provision_request_sent = false;
   bool provision_request_processed = false;
+  uint8_t provision_retry_count = 0;
   bool serverConnectionStatus = false;
   String device_token;
   long lastReconnectAttempt = 0;

@@ -8,8 +8,21 @@ AlarmPriority alarm_priority(AlarmId id) {
     case ALARM_SKIN_SENSOR_FAULT_SKIN_MODE:
     case ALARM_FAN_FAILURE:
     case ALARM_AIR_OUTLET_BLOCKED:
-    case ALARM_MAINS_INTERRUPTION:
+    // PROVISIONAL hasta el expediente de riesgos (2026-10-27). A diferencia
+    // del corte de red (MEDIA, onset diferido), aqui quedan ~10-15 min antes
+    // de que se apague el equipo entero, sistema de alarmas incluido: despues
+    // ya no habra aviso del enfriamiento. Es la unica ALTA que NO corta el
+    // calefactor (alarm_cuts_heater): cortarlo adelantaria ese enfriamiento.
+    case ALARM_BATTERY_LOW:
       return ALARM_PRIORITY_HIGH;
+
+    // Decision del responsable del producto (2026-10-26), a revisar en el
+    // expediente de riesgos. En bateria el equipo sigue calentando: el dano
+    // (enfriamiento) solo empieza al agotarse la bateria, asi que el onset es
+    // DIFERIDO y la Tabla 1 da MEDIA. 201.12.3.103 pide el aviso, no su
+    // prioridad. En ALTA, un corte de horas era un zumbido que el personal
+    // acaba ignorando o apagando con el equipo.
+    case ALARM_MAINS_INTERRUPTION:
 
     case ALARM_AIR_TEMP_DEVIATION_HIGH:
     case ALARM_AIR_TEMP_DEVIATION_LOW:
@@ -20,11 +33,21 @@ AlarmPriority alarm_priority(AlarmId id) {
     case ALARM_SUPPLY_UNDERVOLTAGE:
     case ALARM_HMI_LINK_LOST:
     case ALARM_SENSORBOARD_LINK_LOST:
+    // PROVISIONAL hasta el expediente de riesgos. Tabla 1 de IEC 60601-1-8:
+    // no dar una fototerapia indicada puede acabar en kernicterus (lesion
+    // irreversible) con aparicion DIFERIDA (horas), y esa celda da MEDIA. Se
+    // empezo en BAJA por analogia con los avisos de funciones auxiliares, que
+    // aqui no vale: la fototerapia es terapia, no telemetria. No corta nada:
+    // una lampara sin corriente no hace dano por si misma.
+    case ALARM_PHOTO_LAMP_FAULT:
       return ALARM_PRIORITY_MEDIUM;
 
     case ALARM_SKIN_SENSOR_FAULT_AIR_MODE:
     case ALARM_HUMIDITY_DEVIATION:
     case ALARM_SENSORBOARD_DOOR_FAULT:
+    // Ruido ambiental sostenido: estres y alteracion del sueno del bebe, sin
+    // lesion inmediata. Un aviso para bajar el ruido de la sala.
+    case ALARM_NOISE_HIGH:
       return ALARM_PRIORITY_LOW;
 
     default:
@@ -78,7 +101,8 @@ bool alarm_announces_immediately(AlarmId id) {
 }
 
 bool alarm_is_silenceable(AlarmId id) {
-  return id != ALARM_MAINS_INTERRUPTION;
+  (void)id;
+  return true;
 }
 
 bool alarm_cuts_heater(AlarmId id) {

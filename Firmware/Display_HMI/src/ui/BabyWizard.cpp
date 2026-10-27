@@ -5,6 +5,7 @@
 #include "CommTask.h"
 #include "UITask.h"
 #include "main.h"
+#include "state/patient_state.h"
 #include "state/training_mode.h"
 #include "ui.h"
 #include "ui/InputKeypad.h"
@@ -71,6 +72,11 @@ uint32_t s_sessionSeq = 0;
 char s_sessionName[BABY_NAME_LEN_LOCAL] = "";
 uint8_t s_sessionGest = 0;
 uint16_t s_sessionWeight = 0;
+// true si en ESTA pasada del asistente se ha identificado al bebe (atajo de
+// sesion viva o PROFILE_ACK). Un SKIP sin identificar a nadie significa "sin
+// bebe": la identidad recordada de antes (p. ej. restaurada de la NVS) no puede
+// colarse en la terapia que se activa ahora.
+bool s_identifiedThisRun = false;
 
 lv_obj_t *s_overlay = nullptr;
 lv_obj_t *s_card = nullptr;
@@ -538,6 +544,10 @@ void onApplyClicked(lv_event_t *) { finishWizard(true); }
 // manual control.
 void onSkipClicked(lv_event_t *) {
   if (trainingRefuse()) return;
+  // Sin bebe identificado en esta pasada, SKIP es "terapia sin bebe": se
+  // olvida la identidad recordada, que si no aparecia en el bloqueo y pedia
+  // el alta de un bebe que nadie habia elegido (banco, 2026-10-27).
+  if (!s_identifiedThisRun) BabyWizard_ClearActiveProfile();
   finishWizard(false);
 }
 
@@ -675,7 +685,12 @@ static void openForTarget(WizTarget target) {
   s_ageDays = 0;
   s_hasUsableRange = false;
   s_listRetries = 0;
+  s_identifiedThisRun = false;
 
+  // HasLiveSession() ya exige la identidad confirmada: una RESTAURADA de la
+  // NVS que la placa aun no ha confirmado no vale para el atajo (podria ser
+  // otro bebe: los seq de dos placas colisionan, y el atajo atribuiria terapia
+  // y minutos al equivocado). Sin confirmar, el selector.
   if (BabyWizard_HasLiveSession()) {
     // Baby already identified AND still under care right now (e.g.
     // phototherapy is running and temperature is being added): skip the
@@ -689,6 +704,7 @@ static void openForTarget(WizTarget target) {
     // still remembered (the exit dialog's answer — kangaroo, "not now", or
     // no dialog at all because an alarm owned the screen — decides the
     // clinical record, never who the picker offers).
+    s_identifiedThisRun = true;
     selectExisting(s_sessionSeq, s_sessionGest, s_sessionWeight);
   } else {
     Communication_SendProfileListReq();
@@ -720,10 +736,15 @@ bool BabyWizard_IsOpen() { return s_step != WizStep::Closed; }
 
 uint32_t BabyWizard_GetActiveSeq() { return s_sessionSeq; }
 bool BabyWizard_HasLiveSession() {
+  return patient_live_session(s_sessionSeq, UI_AnyControlActive(),
+                              PatientState_IsConfirmed(s_sessionSeq));
+}
+bool BabyWizard_HasAnySession() {
   return s_sessionSeq != 0 && UI_AnyControlActive();
 }
 const char *BabyWizard_GetActiveName() { return s_sessionName; }
 void BabyWizard_ClearActiveProfile() {
+  PatientState_OnClear();
   s_sessionSeq = 0;
   s_sessionName[0] = '\0';
   s_sessionGest = 0;
@@ -750,6 +771,8 @@ void BabyWizard_SetSession(const BabyWizardSession *s) {
   snprintf(s_sessionName, sizeof(s_sessionName), "%s", s->name);
   s_sessionGest = s->gest;
   s_sessionWeight = s->weight;
+  PatientState_OnSessionSet(s_sessionSeq, s_sessionName, s_sessionGest,
+                            nullptr, /*fromBoardAck=*/false);
 }
 
 BabyWizardStep BabyWizard_GetStep() {
@@ -807,12 +830,19 @@ void BabyWizard_Poll() {
     case WizStep::WaitingSelectAck:
       if (g_pendingProfileAck) {
         g_pendingProfileAck = false;
+        // Que peticion contesta este ACK, ANTES de que s_step cambie mas abajo.
+        const bool answersSelect = (s_step == WizStep::WaitingSelectAck);
         if (g_profileAck == 0) {
-          // The remembered baby no longer exists on the motherBoard (it was
-          // discharged, FIFO-evicted, or the records were wiped). Forget it
-          // so the picker takes over instead of retrying a dead seq forever.
-          s_sessionSeq = 0;
-          s_sessionName[0] = '\0';
+          if (answersSelect) {
+            // The remembered baby no longer exists on the motherBoard (it was
+            // discharged, FIFO-evicted, or the records were wiped). Forget it
+            // so the picker takes over instead of retrying a dead seq forever.
+            s_sessionSeq = 0;
+            s_sessionName[0] = '\0';
+            PatientState_OnClear();  // manda la placa: ya no existe ese bebe
+          }
+          // Un PROFILE_NEW rechazado (los tres huecos llenos) NO dice nada del
+          // bebe que sigue en la incubadora: su identidad no se toca.
           UI_ShowToast(TR(STR_OPERATION_REFUSED), 3000);
           // Re-request the list: we may have arrived here bypassing it.
           Communication_SendProfileListReq();
@@ -823,9 +853,25 @@ void BabyWizard_Poll() {
         } else {
           s_seq = g_profileAck;
           s_sessionSeq = s_seq;
+          s_identifiedThisRun = true;
           snprintf(s_sessionName, sizeof(s_sessionName), "%s", s_name);
           s_sessionGest = s_gestWeeks;
           if (s_weightGrams > 0) s_sessionWeight = s_weightGrams;
+          // Minutos de terapia que la placa tenia de este bebe en la lista que
+          // trajo el asistente (0 si es un alta nueva). Es la siembra del
+          // contador local; si ya contaba para este mismo bebe no se toca.
+          PatientMinutes seed = {0, 0, 0};
+          for (int i = 0; i < s_list.count && i < 3; i++) {
+            if (s_list.items[i].seq != s_sessionSeq) continue;
+            seed.photo = s_list.items[i].phototherapyMinutes;
+            seed.thermo = s_list.items[i].thermoMinutes;
+            seed.humidity = s_list.items[i].humidityMinutes;
+            break;
+          }
+          // Viene de un PROFILE_ACK: la placa acaba de responder por este
+          // bebe, asi que nace (o pasa a estar) confirmado.
+          PatientState_OnSessionSet(s_sessionSeq, s_sessionName, s_sessionGest,
+                                    &seed, /*fromBoardAck=*/true);
           if (targetIsIdentityOnly(s_target)) {
             // A lamp or a humidifier needs no NTE range, so weight and
             // age-in-days are never asked here: identifying the baby is the
@@ -848,6 +894,11 @@ void BabyWizard_Poll() {
       if (g_pendingProfileRange) {
         g_pendingProfileRange = false;
         if (g_profileRange.seq != s_seq) break; // stale response
+        // La placa no manda fecha de nacimiento: la edad que dice AHORA, con
+        // la hora de ahora, es lo unico con lo que el mando puede seguir
+        // contando los dias (state/patient_state).
+        PatientState_OnAge(g_profileRange.seq, g_profileRange.ageDays,
+                           g_profileRange.ageKnown);
         s_rangeAgeKnown = g_profileRange.ageKnown;
         s_rangeLo = g_profileRange.lo;
         s_rangeHi = g_profileRange.hi;

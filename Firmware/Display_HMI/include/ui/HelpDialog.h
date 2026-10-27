@@ -1,6 +1,6 @@
 #pragma once
-// Menu de ayuda (spec hmi-help-center), abierto desde el boton "?" del
-// heading (ui_HelpButton, ui_ScreenMain).
+// Menu de ayuda (spec hmi-help-center), abierto desde el menu del heading
+// (MenuDialog, tarjeta AYUDA, ui_ScreenMain).
 //
 // Pop-up modal con el patron de TimeDialog: overlay reutilizado, tarjeta con
 // boton X y contenido reconstruible por vista. Tres vias:
@@ -24,7 +24,7 @@
 // pantalla activa sigue siendo el splash).
 void HelpDialog_Init(lv_obj_t *parent);
 
-// Abre el menu en su primera vista. Lo llama HelpButton_cb. Se cierra desde
+// Abre el menu en su primera vista. Lo llama MenuDialog. Se cierra desde
 // dentro (boton X / CERRAR) o solo, por alarma critica, en HelpDialog_Poll().
 void HelpDialog_Open(void);
 

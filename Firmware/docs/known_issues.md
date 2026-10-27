@@ -763,6 +763,24 @@ predates `68a0369e` still hold 38 °C, and the firmware deliberately does not
 migrate a safety threshold silently: each needs `air_tmax` set in `/config` to
 follow this decision.
 
+**Update (`mb-remote-config`, revised 2026-10-25): remote correction exists
+in code but is OFF for the cut-outs.** The air and skin cut-outs can be set from
+ThingsBoard by writing the shared attribute of the same name, but only if
+`RCFG_REMOTE_SAFETY_PARAMS` (`modules/config/runtime_config_policy.h`) is set to
+1, and **it ships at 0**: the MQTT link is unencrypted (port 1883, no TLS), so
+anyone on the path can publish to `v1/devices/me/attributes`, and a cut-out is
+an order to a device heating a newborn. Until there is TLS with certificate
+verification (and a risk review), **remotely only the three GPRS reporting
+periods can be changed**; `air_tmax` / `skin_tmax` on units in the field still
+need the local route (`POST /config` or the USB console, `air_tmax = 40`). The
+boot warning in `recapVariables()` is still the signal that a unit holds the old
+38, and the firmware still does not migrate it on its own. The decision to stay
+local is the coordinator's and the user can reverse it. When the flag is set to
+1 the remote path can only lower or keep a cut-out relative to the compiled
+factory value (it cannot raise it), rejects values outside 34-40 °C instead of
+clamping, and defers changes made with therapy active until standby. See
+`thingsboard_dashboards.md` §11.
+
 What follows is the analysis that led to it.
 
 **Correction.** The first version of this entry said the bench unit was wrong
@@ -794,7 +812,7 @@ implemented), and the cutout still reads the same sensor as the PID (§2.4).
 The bench unit's 38 is the correct value and has been left alone. Deciding the
 production value is a product/regulatory call, not a firmware fix.
 
-## 20. The board echoes the display's phototherapy order instead of reporting the lamp (OPEN)
+## 20. The board echoes the display's phototherapy order instead of reporting the lamp — FIXED (2026-10-25, pending bench check)
 
 Seen while testing the UART `PHOTO,1` command on 2026-09-23 (18.46): with the
 lamp on at 0.46 A, `CTRL,STATE` field 8 said `0`. `send_state_to_hmi()` sends
@@ -809,7 +827,74 @@ phototherapy OFF while the lamp is ON**. Not yet established: whether any
 and the screen disagreeing. The debug override does not depend on it — its
 release window is defensive and verified to leave the lamp off.
 
-## 21. The first session after a setpoint change can start at twice the target
+*   **Fix (change `mb-photo-current-check`)**: `send_state_to_hmi()` now sends
+    `in3.phototherapy` (what is applied) in field 8. Actuation, control mode
+    and setpoints are **still echoes, on purpose**: `in3.actuation` /
+    `in3.controlMode` are assigned verbatim from the command (so the "real"
+    value is the same), and the board keeps a single setpoint per mode, so
+    there is no one-line real value for the other one.
+*   **One exception, and why (change `mb-photo-override-simplify`)**: during a
+    debug phototherapy session (`PHOTO,1`) field 8 carries the *display's own
+    order*, not the forced ON. The display ADOPTS field 8 and returns it in its
+    keepalive, so emitting the forced ON meant neutralising a stale 1 on
+    release. A fixed 5 s window and then a confirmation scheme (value == real,
+    min 2 s, 60 s backstop) both failed review: with the phototherapy timer
+    expiring during the release the ON confirmed itself and was persisted as a
+    continuous session; an OFF from the operator in that window was lost; and a
+    stale `CTRL,STATE` processed late by the display's RX ring still slipped
+    through (#7, #11). Removing the root (never emit the forced ON) leaves
+    nothing to neutralise. The debug ON is visible in `/debug/state`
+    (`ctl.photo_dbg`) and in the log, which is where whoever runs the test looks.
+*   **Release is immediate**: `PHOTO,0` (or leaving debug mode) applies the
+    *last display order* — operator orders and the timer expiry are recorded
+    during the test — on the board's periodic tick, with no frame needed (so a
+    stuck display Comm task cannot leave the lamp ON). The forced ON is never
+    persisted; display orders are persisted always (they are never
+    contaminated now, since field 8 carries the display order during the
+    test), and on release the applied value is persisted too. Re-arming
+    (`PHOTO,1`,`PHOTO,0`,`PHOTO,1` in one console pass, before the tick) does
+    not capture the contaminated `in3.phototherapy` as the display order.
+*   **Timer expiry vs a late frame** (also outside the test, a pre-existing
+    race): after the phototherapy timer expires the board ignores a
+    `photo=1` with no minutes until it sees a `photo=0` (a frame in flight, or
+    held up to 10 s by `localCmdHoldsLocal`, would otherwise re-light the lamp
+    that just expired). A timed session (`photo=1`, minutes>0) is always
+    accepted. `photo_expiry_latch.h`.
+*   **Side effects / limits**: (1) `CommTask`'s per-baby therapy accounting
+    does not count the session (lamp applied, no debug override active, no
+    `ALARM_PHOTO_LAMP_FAULT`). (2) **Echo window**: between the operator's tap
+    and the board applying it, one `CTRL,STATE` can go out with the old value;
+    the display's local confirmation guard (`localCmdHoldsLocal`, 10 s) covers
+    it, but a display *without* that guard would see the switch bounce.
+    (3) The lamp PWM is written through `photoPwmRefresh()` under one spinlock
+    by both the intensity loop (`currentMonitor`) and `applyPhotoState()`: a
+    late loop write could otherwise re-light the lamp after the Comm task had
+    turned it off, leaving it ON with `in3.phototherapy=false` and no alarm.
+    **No LEDC fade may ever be installed on `PHOTOTHERAPY_PWM_CHANNEL`**:
+    `ledcWrite` takes a semaphore only when fade is installed, and that would
+    be a semaphore inside a critical section (kernel assert). `board.h` and
+    `photoPwmRefresh()` say so; there is deliberately no runtime check
+    (installing/uninstalling the fade service just to look would allocate and
+    register its ISR globally, and break a legitimate fade user). (4) The minutes of a *real* therapy already ON when the test starts
+    are not counted per baby. (5) `timeTrackHandler` excludes the test from
+    the phototherapy hours, but the `Phototherapy_active` telemetry key
+    publishes it as active (it is the real lamp state). (6) While the test is
+    active, a lamp fault (`ALARM_PHOTO_LAMP_FAULT`) can show while field 8
+    says OFF.
+*   **Verify on the bench BEFORE manufacturing**: the lamp-fault alarm
+    (`ALARM_PHOTO_LAMP_FAULT`) also fires when the main INA3221 gives no
+    sample with the lamp ON. On HW17 with the channel-2 shunt **not populated**
+    this would be a false positive on every session. Check it on the real
+    units of each hardware revision first.
+*   **Still open from the original text**: whether any *non*-debug path (crash
+    restore, timer expiry) left lamp and screen disagreeing. With the real
+    state emitted, a restore from NVS now reaches a rebooted display, which is
+    the intent of #4.
+*   **Verification**: host-testable parts (`test_photo_override`,
+    `test_photo_fault`) are green; the screen behaviour is **manual, on the
+    bench**.
+
+## 21. The first session after a setpoint change can start at twice the target — FIXED
 
 Measured on the bench unit (18.46, target 0.45 A, seed discarded because it was
 calibrated for another target): the autotest's extrapolated seed was PWM 175,
@@ -824,10 +909,16 @@ second (verified, 18.47). Two things were fixed along the way: the seed is now
 saved **only inside the tolerance band** (the first version saved the PWM-175
 overshoot as a seed), and a seed calibrated for another target is discarded.
 
-Not changed: the 1-count-per-second slew in both directions. Lowering current
-is always the safe direction, so an asymmetric slew — fast down, slow up —
-would cut the overshoot to a few seconds. It changes the dynamics of a clinical
-actuator, so it is left as a proposal.
+**Resolved 2026-10-25.** The slew is now asymmetric: `PHOTO_MAX_STEP` was
+replaced by `PHOTO_MAX_STEP_UP 1` (raising current is the clinically risky
+direction, still 1 count/s) and `PHOTO_MAX_STEP_DOWN 20` (lowering is always
+safe). The next-PWM computation moved to the pure function
+`photo_slew_next_pwm()` (`modules/control/photo_slew.cpp`, host-tested in
+`test/test_photo_slew`). The step never crosses the proportional model's own
+estimate, so the descent cannot undershoot beyond what the model predicts.
+Expected convergence for the case above (seed 175, 1.06 A, target 0.45 A): the
+simulated loop goes 175 → 174 → 154 → 134 → 114 → 94 → 74 (the first high reading drops only 1 count, a second consecutive one allows the 20-count step, which filters a spurious reading), about 6 control cycles
+(~6 s) instead of 95 s. Not yet measured on the bench unit.
 
 ## 22. `ventilador-se-retira` fails intermittently — and not because of the new library (OPEN)
 
@@ -855,3 +946,147 @@ worsening from v0.94 is not ruled out.
 40 s with the fan simulated stopped" may be the alarm, not the harness. Until
 it is known which, do not read a green `ventilador-se-retira` as proof that fan
 failure is always detected in time.
+
+## 23. Restarting the HMI was read as a patient discharge — FIXED (not yet benched)
+
+Found while persisting the baby identity (`hmi-patient-identity`), by reading
+the code, not from a bench failure.
+
+*   **Cause**: the HMI kept "which baby is in charge" only in RAM
+    (`BabyWizard.cpp`, `s_sessionSeq`). `Maintenance_Tick()` compares
+    `BabyWizard_GetActiveSeq()` with the last seq it persisted (`mnt_seq`). After
+    any HMI restart the first became 0 while the second was still the baby's, so
+    the transition `seq -> 0` was taken for a discharge and left a **terminal
+    clean pending** (`mnt_tpend`), asking for a disinfection nobody needed.
+*   **Second effect**: the screen had no idea whose therapy was running after a
+    restart, although the motherBoard keeps the active baby and resumes the
+    therapies by itself.
+*   **Fix**: the identity is persisted (`pat_id`) and restored with
+    `PatientState_Restore()` **before** `Maintenance_Init()`, so the seq does not
+    go through 0. The restored identity is **not trusted**: it is born
+    unconfirmed and shown only once the board confirms it with `activeSeq`
+    (field 24 of `CTRL,STATE`), with the same `sn` stored in `pat_id` v2. If the
+    board says another baby is in charge (`activeSeq` other than 0 and than the
+    stored `seq`), has nobody while a therapy runs, is another board (`sn`), or
+    — with an old board that does not send the field — lacks the baby in
+    `PROFILE_LIST`, the identity is dropped (the board wins). That is
+    NOT a discharge: it leaves no terminal clean pending (see #24). Restoring without validating (the first
+    version of this fix) could show **another baby**: `seq` collide between
+    boards. A rejected `PROFILE_NEW` (`PROFILE_ACK` 0) no longer erases the
+    identity of the baby still inside; only a rejected `PROFILE_SELECT` does.
+*   **To verify on the bench**: restart the HMI with a therapy running and check
+    that `mnt_tpend` stays clear and the name comes back. Units that already
+    had a spurious `mnt_tpend` set keep it until a terminal clean is recorded.
+
+## 24. Residual risks of confirming a restored baby identity against the board
+
+`hmi-patient-identity` restores the baby identity from the HMI's NVS and only
+treats it as true once the motherBoard confirms it (`activeSeq`, field 24 of
+`CTRL,STATE`; see `hmi.md` §9). What the design **cannot** close, by
+construction:
+
+*   **`seq` reuse after `babyStore_wipeAll()`.** The wipe resets the counter to
+    1, so a restored `seq 3` can be another baby on the same board with
+    `activeSeq == 3`. After confirming by `activeSeq`, the HMI contrasts name
+    and weeks with the next `CTRL,PROFILE_LIST` (its own single request, or any
+    list that goes by) and drops the identity if they do not match. Until that
+    list arrives (seconds), the baby is shown as confirmed; two different babies
+    with the **same name and weeks** on the same board after a wipe are
+    indistinguishable.
+*   **`sn == 0`.** A board with no serial number cannot be told apart from
+    another board. `activeSeq` alone does not confirm then: the list contrast
+    is mandatory, and the baby stays hidden until it arrives. Same limit as
+    above for identical name and weeks.
+*   **No checksum.** The protocol is ASCII CSV with no CRC, and `activeSeq` is the
+    LAST field. A line that loses bytes in the middle but keeps its newline can
+    leave a prefix of the number (`%u` reads `7` out of `70`), which would
+    confirm (`== seq`) or contradict (`!= seq`) wrongly. The consequence of a false
+    confirmation is bounded by the list contrast above; a false contradiction
+    drops a valid identity (the operator picks the baby again). No second
+    consecutive message is required before acting; adding it would be cheap if
+    this shows up on the bench.
+*   **Dropping is not a discharge.** Discarding an identity the board never
+    confirmed does not leave a terminal clean pending
+    (`Maintenance_NoteSeqDropped()`); a baby that left by another route while this
+    HMI was off is therefore not reminded either.
+## 25. No technical alarm when the BQ25730 charger stops answering (OPEN)
+
+Found in the safety review of `shared-mains-detector` (2026-10-25). The mains
+interruption alarm (`ALARM_MAINS_INTERRUPTION`) is fed by the BQ25730 AC_STAT
+bit, read every 5 s. If the charger stops giving valid readings, the detector
+cannot know whether mains is present: it freezes (a declared alarm stays, the
+safe side; no alarm is raised if there was none).
+
+What exists today: with the charger detected at boot, more than 30 s without a
+valid reading (or a failing re-configuration when mains returns) logs an error
+(`logE`) and publishes `charger_comm_fault` (DIAG group, GPRS only; WiFi has no
+DIAG group). **What is missing is an alarm**: `shared/include/alarm_ids.h` has
+no technical-fault id for it, and none was added because another open branch
+adds id 20 and a second new id would collide with it. Until the branches are
+integrated, a unit with a mute charger is only visible from the log and from
+ThingsBoard, **not on the incubator's own screen**.
+
+Also fixed in the same review: the charger re-configuration on mains return
+used to lower `chargerPresent`; one failing I2C operation left it false for
+good (the charger was never read again, so mains was never watched), and even a
+successful one made `securityCheck()` retire and re-raise the alarm. See
+`openspec/changes/archive/*-shared-mains-detector-fixes`.
+
+### 25, addendum (second safety review, 2026-10-25)
+
+- **Expected charger.** `CHARGER_EXPECTED` (`config/board.h`) is 1 from HW 17 on
+  (the V16_A schematic has no BQ25730; V17_A does). On those boards a charger
+  that does not answer at boot is **not** "no charger": it is blindness (`logE`
+  and `charger_comm_fault` after 30 s), and the configuration is retried with a
+  progressive wait (5 s to 5 min). The silent "no charger" case is only for HW
+  without a BQ25730. Before this, a mute chip at boot left `chargerDetected`
+  false and the board stopped watching mains for good, with nothing on screen.
+- **Debt: a declared alarm with a blind charger stays HIGH with no end.** If the
+  mains alarm is declared and the charger then stops answering, the detector
+  freezes and the alarm keeps sounding as HIGH, not silenceable, until the
+  charger answers again or the unit is restarted. The correct behaviour is a
+  *technical*, pausable alarm (the mains alarm retired or demoted, and a
+  separate "charger fault" alarm the operator can pause). It needs a new
+  `AlarmId`, which waits for the integration of the open branches (one adds
+  id 20). Until then: log and `charger_comm_fault` only.
+- **`charger_comm_fault` and WiFi.** It is published only through the DIAG
+  group, which is on for GPRS and off for WiFi. Nothing is done about it on
+  this branch: `feat/mb-diag-wifi` turns DIAG on for WiFi, and after the merge
+  the key goes out over both transports. Re-run
+  `python tools/check_transport_matrix.py` then (GPRS worst case is 93 of 112
+  fields today).
+## 26. Restarting the AFE4490 library from the consumer is unsafe (OPEN — needs a change in `incunest_afe4490`)
+
+Found in review of `feat/mb-hw19` (2026-10-25). The first V19 cut restarted the
+AFE when `SPO2_Task` saw no sample for 10 s: `afe.stop()`, a PDN pulse, then
+`afe.begin()`. **Do not reintroduce it.**
+
+`afe.stop()` calls `vTaskDelete()` on the library's four tasks at an arbitrary
+point. In exactly the scenario that triggers the restart, the AFE task is
+writing `"DRDY timeout"` with `ESP_LOGW`, which takes `log_mutex` with
+`portMAX_DELAY`. Deleting it while it holds that mutex hangs **every** task that
+logs afterwards, the security task included, with the heater's LEDC output still
+on. It can also leave `_diag_active = true` for ever (the data task then skips
+every read), leak ~15 KB of internal SRAM (4 task stacks plus queues) and trip a
+`configASSERT`. The library lives in another repo (pinned at v0.94) and is not
+touched from here.
+
+**What the firmware does instead** (all revisions): no restart. After 10 s
+without a sample it logs once per episode (`logE`, so it reaches the CrashReporter
+ring) and counts `AFE_stalls`. After 1 s without a sample it marks the data stale
+by synthesising `probe_state = PROBE_DISCONNECTED`, so vitals are no longer sent
+frozen (see `PROTOCOL.md`, `CTRL,PROBE`).
+
+**Design required in the library** (a soft re-init that destroys nothing):
+
+1. A method such as `softReinit()` that takes `_spi_mutex` **with a timeout**,
+   pulses PDN (the caller passes the pin or a callback), runs `_chip_init()` and
+   releases the mutex. No `vTaskDelete`, no deleting queues or semaphores.
+2. Reset `_diag_active = false`, `_diag_holdoff_samples = 0` and the algorithm
+   state (`_reset_algorithms()`).
+3. Rate-limit the `"DRDY timeout"` log (at most once per second or per episode)
+   and never hold the log mutex across a wait.
+4. Expose a DRDY-timeout counter so the firmware does not have to infer the
+   fault from missing samples.
+
+See `docs/hw19.md`.

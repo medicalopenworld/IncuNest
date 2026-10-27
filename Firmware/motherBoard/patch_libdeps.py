@@ -148,28 +148,93 @@ PATCHES = [
                  "                break;",
         "marca": "PARCHE IncuNest 4",
     },
+    # -----------------------------------------------------------------------
+    # PARCHE 5 - ThingsBoard.h Attributes_Request(): desbordamiento de 1 byte
+    # -----------------------------------------------------------------------
+    # Revision de seguridad de mb-remote-config (M3). El SDK reserva
+    #
+    #     char request[size] = {};
+    #
+    # con size = suma de (strlen(clave) + strlen(",")) de TODAS las claves, y
+    # luego concatena cada clave y su coma con strncat(). strncat escribe SIEMPRE
+    # un NUL final, asi que el ultimo strncat (la coma de la ultima clave) deja
+    # el NUL en request[size]: un byte FUERA del array, en la pila de la tarea
+    # que pide los atributos (GPRS u OTA). Con las claves de configuracion, de
+    # los 5 de firmware y de las que haya, es un byte de pila pisado en cada
+    # conexion.
+    #
+    # La correccion es reservar size + 1. strncat(request, att, size) sigue
+    # siendo correcto porque su limite cuenta caracteres sin el NUL.
+    {
+        "nombre": "ThingsBoard: request[size] de Attributes_Request() desborda 1 byte",
+        "fichero": os.path.join("$PROJECT_LIBDEPS_DIR", "$PIOENV", "ThingsBoard",
+                                "src", "ThingsBoard.h"),
+        "buscar": "        char request[size] = {};",
+        "poner": "        char request[size + 1U] = {};  // PARCHE IncuNest 5: +1 para el NUL de strncat (ver patch_libdeps.py)",
+        "marca": "PARCHE IncuNest 5",
+    },
+    # -----------------------------------------------------------------------
+    # PARCHE 6 - ThingsBoard.h onMQTTMessage(): tope a la reserva de heap
+    # -----------------------------------------------------------------------
+    # Revision de seguridad de mb-remote-config (M4). Con
+    # THINGSBOARD_ENABLE_DYNAMIC=1 el SDK reserva, para CADA mensaje entrante
+    # que no sea un trozo de firmware,
+    #
+    #     TBJsonDocument jsonBuffer(JSON_OBJECT_SIZE(<numero de ':' del payload>));
+    #
+    # o sea 16 B por cada ':' que contenga el payload ANTES de mirar si es JSON
+    # valido, y el MQTT va en claro: cualquiera en el camino puede publicar en
+    # v1/devices/me/attributes (o /rpc/request) un cuerpo de 1 KB hecho casi
+    # todo de ':' y hacer que la placa pida ~8 KB de heap interno de golpe, en
+    # una placa que anda con ~6 KB libres con WiFi+PPP (known_issues, OOM en
+    # COMM_TASK_RX). La cifra real: el buffer del cliente es MAX_MESSAGE_SIZE =
+    # 1024 B, asi que como mucho 1024 ':' -> 16 KB; con el tope de 64 son 1 KB.
+    #
+    # 64 pares clave:valor sobran para cualquier mensaje legitimo que recibe
+    # esta placa: la respuesta de atributos de firmware lleva 5, las RPC
+    # (restart, setWifi, checkOta, capturePPG) 0 o 1 parametros.
+    # Un mensaje con mas simplemente no cabe en el documento, deserializeJson
+    # devuelve NoMemory y el SDK lo descarta con su log de siempre.
+    {
+        "nombre": "ThingsBoard: tope de 64 pares a la reserva del documento JSON entrante",
+        "fichero": os.path.join("$PROJECT_LIBDEPS_DIR", "$PIOENV", "ThingsBoard",
+                                "src", "ThingsBoard.h"),
+        "buscar": "        TBJsonDocument jsonBuffer(JSON_OBJECT_SIZE(Helper::getOccurences(reinterpret_cast<char *>(payload), COLON)));",
+        "poner": "        // PARCHE IncuNest 6 (ver patch_libdeps.py): tope a la reserva de heap.\n"
+                 "        size_t const incunest_pairs = Helper::getOccurences(reinterpret_cast<char *>(payload), COLON);\n"
+                 "        TBJsonDocument jsonBuffer(JSON_OBJECT_SIZE(incunest_pairs > 64U ? 64U : incunest_pairs));",
+        "marca": "PARCHE IncuNest 6",
+    },
 ]
 
 
 def aplicar(source, target, env):
+    fallos = []
     for p in PATCHES:
         ruta = env.subst(p["fichero"])
         if not os.path.isfile(ruta):
-            print(f"[patch_libdeps] NO ENCONTRADO, no se parchea: {ruta}")
+            fallos.append(f"NO ENCONTRADO el fichero de '{p['nombre']}': {ruta}")
             continue
         with open(ruta, "r", encoding="utf-8", errors="ignore") as f:
             texto = f.read()
         if p["marca"] in texto:
             continue  # ya parcheado
         if p["buscar"] not in texto:
-            # Que no falle el build en silencio: si el upstream cambia, hay que
-            # enterarse, porque el fallo que esto evita es un panic en campo.
-            print(f"[patch_libdeps] *** AVISO: no casa el patron de '{p['nombre']}'.")
-            print(f"[patch_libdeps] *** Revisa {ruta}: el parche NO se ha aplicado.")
+            # Si el upstream cambia hay que enterarse: el fallo que esto evita
+            # es un panic en campo o un desbordamiento, no una molestia.
+            fallos.append(f"no casa el patron de '{p['nombre']}' en {ruta}")
             continue
         with open(ruta, "w", encoding="utf-8") as f:
             f.write(texto.replace(p["buscar"], p["poner"], 1))
         print(f"[patch_libdeps] aplicado: {p['nombre']}")
+    if fallos:
+        # ABORTA la compilacion. Antes esto era un print y un continue: un
+        # parche que no se aplica compilaba igual y el binario salia sin la
+        # correccion, sin que nadie lo viera en medio del ruido del build.
+        for m in fallos:
+            print(f"[patch_libdeps] *** ERROR: {m}")
+        print("[patch_libdeps] *** Compilacion abortada: un parche al SDK no se ha aplicado.")
+        env.Exit(1)
 
 
 aplicar(None, None, env)

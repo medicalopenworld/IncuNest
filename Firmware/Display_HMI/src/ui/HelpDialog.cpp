@@ -29,6 +29,9 @@ constexpr lv_coord_t CONTACT_COL_X = 20 + QR_SIZE_MAILTO + 20;
 constexpr lv_coord_t CONTACT_COL_W = (CARD_W - 20) - CONTACT_COL_X - 6;
 
 bool s_open = false;
+// Alarmas que ya estaban activas al abrir (bit = indice de alarmList). Ver
+// mustYield().
+uint32_t s_alarmsAtOpen = 0;
 View s_view = VIEW_MENU;
 // El informe se puede quitar del QR (boton SIN INFORME) si el movil no lee
 // uno tan denso; con solo destinatario y asunto queda en la version ~5.
@@ -107,12 +110,20 @@ void closeDialog() {
   lv_disp_trig_activity(NULL);
 }
 
-// Mismo criterio que TelemetryHistory::mustYield(): este dialogo es una vista
-// sin informacion de alarma propia que compense tapar la pantalla, asi que
-// cede ante CUALQUIER alarma activa (no solo las de UI_IsCriticalAlarmActive,
-// que es una lista fija de ids y deja fuera varias de prioridad ALTA) y ante
-// la perdida del enlace con la placa.
-bool mustYield() { return UI_IsAnyAlarmActive() || Display_IsBoardLinkLost(); }
+// Este dialogo es una vista sin informacion de alarma propia que compense
+// tapar la pantalla, asi que cede ante CUALQUIER alarma que aparezca con el
+// abierto (no solo las de UI_IsCriticalAlarmActive, que es una lista fija de
+// ids y deja fuera varias de prioridad ALTA) y ante la perdida del enlace.
+//
+// Pero solo ante las NUEVAS. Ceder tambien ante las que ya estaban al abrir
+// hacia la ayuda inalcanzable mientras durase cualquier alarma: el menu la
+// abria y la cerraba en la misma pasada, y un corte de red puede durar horas.
+// La que se retira y vuelve cuenta como nueva (el Poll olvida las retiradas).
+bool mustYield() {
+  if (Display_IsBoardLinkLost()) return true;
+  s_alarmsAtOpen &= UI_ActiveAlarmMask();
+  return (UI_ActiveAlarmMask() & ~s_alarmsAtOpen) != 0;
+}
 
 void showView(View v);
 void refreshQr();
@@ -323,6 +334,7 @@ void HelpDialog_Open(void) {
   if (!s_overlay) return;
   s_qrWithReport = true;
   showView(VIEW_MENU);
+  s_alarmsAtOpen = UI_ActiveAlarmMask();
   s_open = true;
   lv_obj_clear_flag(s_overlay, LV_OBJ_FLAG_HIDDEN);
   lv_obj_move_foreground(s_overlay);

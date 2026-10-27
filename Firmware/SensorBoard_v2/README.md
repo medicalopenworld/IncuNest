@@ -54,7 +54,7 @@ Eventos en tiempo real por interrupción (hall DRV5032 en IO47, debounce `CONFIG
 
 ## Nivel sonoro (Fase 3)
 
-Cada `CONFIG_SB_MIC_PUBLISH_PERIOD_S` (5 s): `{"type":"event","cmd":"sound_level","data":{"dba":42.3},"ts":…}` — RMS de una ventana de `CONFIG_SB_MIC_WINDOW_MS` (1 s) del ICS-41350 (PDM, 16 kHz). **Advertencia:** el campo se llama `dba` por el protocolo del roadmap, pero el valor es SPL estimado **sin ponderación A** y con offset de sensibilidad de datasheet (`CONFIG_SB_MIC_DB_OFFSET_TENTHS`) **sin calibrar contra sonómetro**. No usar para decisiones clínicas hasta calibrar.
+Cada `CONFIG_SB_MIC_PUBLISH_PERIOD_S` (1 s): `{"type":"event","cmd":"sound_level","data":{"dba":42.3},"ts":…}` — RMS de una ventana de `CONFIG_SB_MIC_WINDOW_MS` (1 s) del ICS-41350 (PDM, 16 kHz). Con periodo y ventana iguales la medida es **continua** (las ventanas se encadenan); la alarma de ruido de la motherboard (`ALARM_NOISE_HIGH`, 10 s) cuenta con eso. **Advertencia:** el campo se llama `dba` por el protocolo del roadmap, pero el valor es SPL **sin ponderación A**, con el offset de sensibilidad de datasheet (`CONFIG_SB_MIC_DB_OFFSET_TENTHS`). **Comparado en banco (2026-10-27)** con un sonómetro en dB(A) (ruido rosa de 50 a 80 dB y el ruido de la fototerapia): queda a −1..+2 dB entre 55 y 80 dB, sin corrección; en silencio puede marcar unos dB de más por los graves que la ponderación A descarta.
 
 ## Cámara (Fase 5)
 

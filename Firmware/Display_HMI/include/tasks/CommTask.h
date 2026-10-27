@@ -8,6 +8,10 @@
 #include "control_types.h"
 #include "alarm_ids.h"
 #include "factory_test.h"
+#include "modules/patient/patient_session.h"  // PatientBoardView (Communication_GetBoardView)
+#include "modules/comm/sb_env.h"
+#include "modules/comm/batt_report.h"
+#include "service_hours_proto.h"
 
 #define COMMUNICATION_DEBUG true
 #if COMMUNICATION_DEBUG
@@ -62,6 +66,17 @@ bool Display_IsBoardLinkLost(void);
 // "el enlace esta vivo": sirve para no afirmar nada sobre un equipo del que
 // todavia no se sabe nada, como al arrancar el display sin motherBoard.
 bool Display_BoardEverSeen(void);
+
+// Que pintar del entorno de la SensorBoard (puerta abierta, nivel de ruido),
+// a partir del ultimo CTRL,ENV. Todo "no pintar" si nunca ha llegado (equipo sin
+// SensorBoard), si esta rancio, o si el enlace con la placa esta caido. Ver
+// sb_env.h; la consume sb_env_heading_update() en UITask.cpp.
+SbEnvView Display_GetSbEnvView(void);
+
+// Que pintar del indicador de bateria, a partir del ultimo CTRL,BATT. Mismo
+// criterio que Display_GetSbEnvView(). Ver batt_report.h; la consume
+// battery_indicator_update() en UITask.cpp.
+BattRepView Display_GetBattView(void);
 
 // Expected prefix of incoming messages
 #if IS_HMI
@@ -225,6 +240,23 @@ struct BabyProfileRangeMsg {
 
 extern volatile bool     g_pendingProfileList;
 extern BabyProfileListMsg g_profileList;
+
+// Copia de solo lectura de cada CTRL,PROFILE_LIST valida, para quien necesita
+// los minutos de terapia sin ser el consumidor de g_pendingProfileList (que
+// tiene UNO: el asistente o el visor de bebes). Nunca toca ese flag.
+//
+// `*seenGen` es la generacion que este lector ya vio (empezar en 0). Devuelve
+// true y rellena `*out` solo si hay una lista mas reciente; actualiza
+// `*seenGen`. Segura entre tareas.
+bool Communication_TakeProfileListMirror(uint32_t *seenGen,
+                                         BabyProfileListMsg *out);
+
+// Lo que el ultimo CTRL,STATE dice del bebe al mando (`activeSeq`, campo 24;
+// terapia viva; sn de la placa), como una sola instantanea coherente. Devuelve
+// false (y `out->stateSeen` a false) hasta que llegue el primer CTRL,STATE.
+// `sendsActiveSeq` es false con una placa que no manda el campo: ahi
+// `activeSeq` NO vale 0, es desconocido. Segura entre tareas.
+bool Communication_GetBoardView(PatientBoardView *out);
 extern volatile bool     g_pendingProfileAck;
 extern uint32_t          g_profileAck;
 
@@ -325,6 +357,18 @@ extern volatile bool        g_pendingAlarmHistory;
 extern AlarmHistoryMsg      g_alarmHistory;
 void Communication_SendAlarmHistoryReq(void);
 
+// Avisos de servicio por horas de uso (CTRL,SERVICE; ver PROTOCOL.md). Comm_Task
+// deja el ultimo informe aqui y levanta el flag; lo consume
+// MaintenanceDialog_Poll() en UI_Task y lo pasa a modules/service/service_state.
+// Cada informe es una foto completa, asi que si llegan dos seguidas basta la
+// ultima.
+extern volatile bool        g_pendingService;
+extern ServiceReport        g_serviceReport;
+void Communication_SendServiceReq(void);
+// Registra el servicio hecho de un actuador (ServiceActuator). No hace nada en
+// formacion. La placa contesta con un CTRL,SERVICE actualizado.
+void Communication_SendServiceDone(uint8_t id);
+
 extern volatile bool        g_pendingAlarmDesc;
 extern AlarmDescMsg         g_alarmDesc;
 void Communication_SendAlarmReset(uint8_t id);
@@ -397,7 +441,12 @@ void Communication_SendFtestConfirm(uint8_t id, bool ok);
 void Communication_SendProfileListReq(void);
 void Communication_SendProfileNew(const char *name, uint8_t gestWeeks);
 void Communication_SendProfileSelect(uint32_t seq);
-void Communication_SendProfileWeight(uint32_t seq, uint16_t grams); // 0 = SKIP
+// 0 = SKIP. `stampOnSend`: sella la pesada para el recordatorio diario al
+// enviarla (asistente y pantalla Bebes, que no esperan respuesta). El dialogo
+// de PESAR AHORA pasa false: espera CTRL,PROFILE_RANGE y sella al recibirla
+// (WeighTracker_NoteWeighed()).
+void Communication_SendProfileWeight(uint32_t seq, uint16_t grams,
+                                     bool stampOnSend = true);
 void Communication_SendProfileAgeManual(uint32_t seq, uint16_t ageDays);
 void Communication_SendProfileDischarge(uint32_t seq, uint8_t outcome,
                                         uint8_t cause);

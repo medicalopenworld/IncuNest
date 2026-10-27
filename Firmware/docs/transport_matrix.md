@@ -41,13 +41,13 @@ pero no aparece en el dashboard al instante.
 
 ## 2. Telemetrías, por grupos
 
-87 claves en total. Se agrupan así:
+91 claves en total. Se agrupan así:
 
 | Grupo | Claves | GPRS | WiFi | Motivo |
 |---|---|:--:|:--:|---|
 | **CORE** | 69 | ✅ | ✅ | Constantes vitales, alarmas, actuadores, datos de bebé. Lo clínico. |
 | **CELLULAR** | 4 | ✅ | ❌ | `IMEI`, `APN`, `COP`, `CSQ`. Sin sentido físico por WiFi. |
-| **DIAG** | 8 | ✅ | ❌ | Boot count, heap, uptime, resets del HMI, kills del módem. |
+| **DIAG** | 15 (+1 solo V19) | ✅ | ✅ | Por WiFi desde 2026-10-25. Boot count, heap, uptime, resets del HMI, kills del módem; `svc_heater_h`, `svc_fan_h`, `svc_hum_h`, `svc_photo_h` (horas desde servicio); `charger_comm_fault`; `AFE_diag` y `AFE_stalls` (todas las placas) y, solo en la V19, `GSM_power_cycles`. Recuento a confirmar con `tools/check_transport_matrix.py`. |
 | **CALIBRATION** | 6 | ✅ | ❌ | Referencias y ajuste fino de los sensores de temperatura. |
 
 Se cambian con un `0`/`1` en `TX_GROUP_<grupo>_<TRANSPORTE>`.
@@ -56,7 +56,8 @@ Se cambian con un `0`/`1` en `TX_GROUP_<grupo>_<TRANSPORTE>`.
 
 **CELLULAR es correcta.** Por WiFi esos campos irían vacíos o rancios.
 
-**DIAG y CALIBRATION no se decidieron.** Los dos bloques de montaje de
+**DIAG ya va por los dos transportes (2026-10-25); CALIBRATION sigue sin
+decidirse.** Los dos bloques de montaje de
 telemetría (`addConfigTelemetriesToGPRSJSON` en `GPRS.cpp` y su gemela en
 `Wifi_OTA.cpp`) están escritos **dos veces a mano**, y alguien añadió 14 claves
 solo a la copia de GPRS. Nada en ellas es específico del transporte: un equipo
@@ -189,6 +190,30 @@ acercarse a ella. El borrado se conserva solo por la vía de servicio
 `/config,BABY_WIPE,1234` sobre el cable entre placas (`CommTask.cpp`), que
 exige acceso físico. No lo vuelvas a añadir a `rpc_callbacks[]` sin una
 decisión explícita.
+
+### Atributos compartidos de configuración (`mb-remote-config`)
+
+A diferencia de las RPC, **los atributos compartidos de configuración están en
+los dos transportes por construcción**: los dos clientes (`tb` en `GPRS.cpp`,
+`tb_wifi` en `Wifi_OTA.cpp`) llaman al mismo cableado
+(`modules/config/runtime_config_tb.h`).
+
+| Pieza | GPRS | WiFi |
+|---|:--:|:--:|
+| Suscripción a cambios en caliente (una vez por cliente) | ✅ | ✅ |
+| Petición de valores actuales tras cada conexión (solo aplica un valor nuevo; no pisa un cambio local) | ✅ | ✅ |
+| Eco del valor efectivo + `cfg_src_<clave>` como atributo de cliente | ✅ | ✅ |
+| Evento de telemetría `cfg_change` por cada cambio | ✅ | ✅ |
+
+**Claves remotas hoy: solo `gprs_act, gprs_photo, gprs_stby`.** Las otras seis
+(`air_tmax, skin_tmax, heater_amps, fan_supply_pwm, fan_ctl_pwm, fan_pid_en`)
+quedan detrás de `RCFG_REMOTE_SAFETY_PARAMS = 0` mientras el MQTT vaya en claro
+(ver `thingsboard_dashboards.md` §11). Coste por GPRS: ~120 B de petición, su
+respuesta y hasta ~600 B de eco por conexión.
+
+Las RPC de las dos listas siguen registrándose en cada reconexión, lo que las
+duplica en el vector del SDK; la suscripción nueva **no** repite ese defecto
+(se hace una vez por cliente). Deuda anotada, no corregida aquí.
 
 ### Por qué el snapshot PPG no se veía en ThingsBoard
 

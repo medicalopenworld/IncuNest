@@ -2,6 +2,7 @@
 #include "DriveUpload.h"
 #include "PpgSnapshot.h"
 #include "esp32-hal-gpio.h"
+#include "modules/control/afe_watchdog.h"
 #include "main.h"
 
 INCUNEST_AFE4490 afe;
@@ -10,12 +11,57 @@ volatile AFE4490Data g_spo2_data = {};
 
 #define SPO2_LOG_INTERVAL_SAMPLES 500 // ~1 s at 500 Hz
 
+// Detector de parada y caducidad del dato (logica pura en
+// modules/control/afe_watchdog.*). Solo lo toca SPO2_Task tras crearse;
+// initSPO2() lo arma antes de lanzarla. NO reinicia la libreria: ver el
+// porque en afe_watchdog.h.
+static AfeWatchdog s_afeWd;
+
+uint32_t afeDiagCode(void) { return g_spo2_data.diag_code; }
+uint32_t afeStallCount(void) { return afe_wd_stalls(&s_afeWd); }
+
+// Reset fisico del AFE por PDN (IO7, activo bajo, en la V19). En V17/V18 el
+// pin es FAKE_PIN (46): sin PDN conectado, el pulso es inocuo pero no resetea
+// nada. Bloquea ~200 ms: SOLO se usa en el arranque, desde initSPO2().
+static void afePdnPulse(void) {
+  pinMode(AFE44XX_PWDN_PIN, OUTPUT);
+  digitalWrite(AFE44XX_PWDN_PIN, LOW);
+  vTaskDelay(pdMS_TO_TICKS(100));
+  digitalWrite(AFE44XX_PWDN_PIN, HIGH);
+  vTaskDelay(pdMS_TO_TICKS(100));
+}
+
 void SPO2_Task(void *pvParameters) {
   AFE4490Data data;
   static uint32_t sample_count = 0;
 
   for (;;) {
+    // A2: un dato de mas de AFE_WD_DATA_STALE_MS no es actual. Si el AFE se
+    // para, g_spo2_data se queda con el ultimo probe_state (APPLIED) y las
+    // ultimas FC/SpO2, y CommTask, GPRS y WiFi las publicarian congeladas como
+    // si fueran vitales en vivo. Se sintetiza PROBE_DISCONNECTED ("sin senal"):
+    // todos los consumidores ya tratan "no APPLIED" como "sin vitales". La
+    // siguiente muestra real lo sobrescribe (memcpy de abajo).
+    {
+      const uint32_t now = millis();
+      if (!afe_wd_data_fresh(&s_afeWd, now) &&
+          g_spo2_data.probe_state != ProbeState::PROBE_DISCONNECTED) {
+        g_spo2_data.probe_state = ProbeState::PROBE_DISCONNECTED;
+      }
+      // Un solo evento por episodio de parada. logE (no ESP_LOGE directo) para
+      // que la linea entre en el anillo del CrashReporter.
+      if (afe_wd_stall_detected(&s_afeWd, now)) {
+        char msg[96];
+        snprintf(msg, sizeof(msg),
+                 "[AFE] sin muestras > %u ms (parada #%lu): dato caducado, "
+                 "probe_state=DISCONNECTED",
+                 (unsigned)AFE_WD_STALL_MS,
+                 (unsigned long)afe_wd_stalls(&s_afeWd));
+        logE(String(msg));
+      }
+    }
     if (afe.getData(data)) {
+      afe_wd_sample(&s_afeWd, millis());
       memcpy((void *)&g_spo2_data, &data, sizeof(data));
       if (data.probe_state == ProbeState::PROBE_APPLIED)
         drivePushSample(data);
@@ -49,7 +95,7 @@ void SPO2_Task(void *pvParameters) {
                  "[SPO2] n=%lu PPG=%.8f RED=%d IR=%d RED_sub=%d IR_sub=%d "
                  "SpO2=%.1f SpO2_SQI=%.3f R=%.3f PI=%.2f "
                  "HR1=%.0f HR1_SQI=%.2f HR2=%.0f HR2_SQI=%.2f "
-                 "HR3=%.0f HR3_SQI=%.2f",
+                 "HR3=%.0f HR3_SQI=%.2f DIAG=0x%lX",
                  (unsigned long)sample_count, (double)data.ppg_disp,
                  (int)data.led2, (int)data.led1, (int)data.led2_sub,
                  (int)data.led1_sub,
@@ -60,7 +106,7 @@ void SPO2_Task(void *pvParameters) {
                  (double)(data.hr2_sqi > 0.0f ? data.hr2 : -1.0f),
                  (double)data.hr2_sqi,
                  (double)(data.hr3_sqi > 0.0f ? data.hr3 : -1.0f),
-                 (double)data.hr3_sqi);
+                 (double)data.hr3_sqi, (unsigned long)data.diag_code);
         logSPO2(line);
       }
     }
@@ -69,12 +115,9 @@ void SPO2_Task(void *pvParameters) {
 }
 
 void initSPO2() {
-  // Hard reset via PWDN pin (FAKE_PIN=46 on V16: no physical PWDN connected)
-  pinMode(AFE44XX_PWDN_PIN, OUTPUT);
-  digitalWrite(AFE44XX_PWDN_PIN, LOW);
-  vTaskDelay(pdMS_TO_TICKS(100));
-  digitalWrite(AFE44XX_PWDN_PIN, HIGH);
-  vTaskDelay(pdMS_TO_TICKS(100));
+  // Hard reset via PWDN pin. Real en la V19 (IO7); en V16/V17/V18 el pin es
+  // FAKE_PIN=46: no hay PDN conectado y el pulso no hace nada.
+  afePdnPulse();
 
   // Initialize SPI bus for AFE4490 (CS=-1: managed per device via AFE44XX_CS)
   SPI.begin(AFE_SCK, AFE_MISO, AFE_MOSI, -1);
@@ -88,6 +131,9 @@ void initSPO2() {
 
   // Configure chip registers, attach DRDY ISR, launch internal processing task
   afe.begin(AFE44XX_CS, AFE_ADC_READY);
+
+  // Antes de lanzar SPO2_Task, que es quien lo consulta.
+  afe_wd_init(&s_afeWd, millis());
 
   // Launch application consumer task
   logSPO2("Creating SPO2 task ...\n");

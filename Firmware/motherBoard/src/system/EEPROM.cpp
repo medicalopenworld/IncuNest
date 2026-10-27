@@ -27,6 +27,8 @@
 
 #include "main.h"
 #include "alarm_policy.h"
+#include "modules/service/service_hours.h"
+#include "modules/config/runtime_config_rules.h"
 
 extern bool WIFI_EN;
 extern int presetTemp[2]; // preset baby skin temperature
@@ -114,6 +116,16 @@ void loaddefaultValues()
     p.putFloat(KEY_RT_FAN, 0.0f);
     p.putFloat(KEY_RT_PHOTO, 0.0f);
     p.putFloat(KEY_RT_HUM, 0.0f);
+    // Contadores a cero => las bases de servicio tambien, o el primer servicio
+    // tras el borrado contaria mal las horas hasta superar la base vieja.
+    p.putFloat(KEY_SVC_BASE_HEATER, 0.0f);
+    p.putFloat(KEY_SVC_BASE_FAN, 0.0f);
+    p.putFloat(KEY_SVC_BASE_HUM, 0.0f);
+    p.putFloat(KEY_SVC_BASE_PHOTO, 0.0f);
+    p.putUInt(KEY_SVC_EPOCH_HEATER, 0);
+    p.putUInt(KEY_SVC_EPOCH_FAN, 0);
+    p.putUInt(KEY_SVC_EPOCH_HUM, 0);
+    p.putUInt(KEY_SVC_EPOCH_PHOTO, 0);
     p.end();
   }
 
@@ -320,6 +332,12 @@ void recapVariables()
     in3.heaterMaxPowerAmps = p.getFloat(KEY_HEAT_MAX_A, HEATER_MAX_POWER_AMPS);
     if (isnan(in3.heaterMaxPowerAmps) || in3.heaterMaxPowerAmps <= 0)
       in3.heaterMaxPowerAmps = HEATER_MAX_POWER_AMPS;
+    // Un valor guardado por una version que no comprobaba el rango (antes de
+    // mb-remote-config, POST /config guardaba cualquier cosa) no puede
+    // sobrevivir fuera de 1..12 A: dejaria el formulario web devolviendo 400
+    // cada vez que se guarda la seccion, porque lo reenvia tal cual.
+    in3.heaterMaxPowerAmps = runtime_config_sanitize_heater_amps(
+        in3.heaterMaxPowerAmps, (float)HEATER_MAX_POWER_AMPS);
     in3.skinTemperatureSetMax = p.getFloat(KEY_SKIN_T_MAX, SKIN_TEMPERATURE_SET_MAX);
     if (isnan(in3.skinTemperatureSetMax) || in3.skinTemperatureSetMax <= 0)
       in3.skinTemperatureSetMax = SKIN_TEMPERATURE_SET_MAX;
@@ -395,13 +413,24 @@ void recapVariables()
     in3.humidifier_active_time = p.getFloat(KEY_RT_HUM, 0.0f);
     p.end();
   }
+  // Las bases de servicio dependen de los contadores de vida de arriba.
+  ServiceHours_Init();
 
   {
     Preferences p;
     p.begin(NS_GPRS, true);
-    in3.actuating_gprs_period = p.getInt(KEY_ACT_PERIOD, 60);
-    in3.phototherapy_gprs_period = p.getInt(KEY_PHOTO_PERIOD, 180);
-    in3.standby_gprs_period = p.getInt(KEY_STBY_PERIOD, 3600);
+    // Mismo motivo que heater_amps arriba: periodos fuera de 10..86400 s
+    // (0, negativos...) guardados por una version sin validacion vuelven al
+    // defecto en lugar de bloquear el guardado del formulario web.
+    in3.actuating_gprs_period = runtime_config_sanitize_period(
+        p.getInt(KEY_ACT_PERIOD, TX_GPRS_PERIOD_ACTUATING_S),
+        TX_GPRS_PERIOD_ACTUATING_S);
+    in3.phototherapy_gprs_period = runtime_config_sanitize_period(
+        p.getInt(KEY_PHOTO_PERIOD, TX_GPRS_PERIOD_PHOTOTHERAPY_S),
+        TX_GPRS_PERIOD_PHOTOTHERAPY_S);
+    in3.standby_gprs_period = runtime_config_sanitize_period(
+        p.getInt(KEY_STBY_PERIOD, TX_GPRS_PERIOD_STANDBY_S),
+        TX_GPRS_PERIOD_STANDBY_S);
     p.end();
   }
 

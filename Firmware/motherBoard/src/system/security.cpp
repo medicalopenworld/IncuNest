@@ -32,6 +32,10 @@
 #include "modules/control/alarm_history.h"
 #include "modules/control/alarm_machine.h"
 #include "modules/control/fan_guard.h"
+#include "modules/control/mains_detector.h"
+#include "modules/control/battery_gauge.h"
+#include "modules/control/noise_detector.h"
+#include "system/hw_selftest.h"
 #include "modules/debug/debug_mode.h"
 #include "modules/control/alarm_test.h"
 #include "modules/control/alarm_window.h"
@@ -1180,6 +1184,82 @@ static void checkHmiLink()
   alarm_machine_condition(ALARM_HMI_LINK_LOST, lost, millis());
 }
 
+// ALARM_MAINS_INTERRUPTION (60601-2-19 201.12.3.103).
+//
+// La decision (antirrebote de 2 lecturas, plazo minimo de aviso —0 hoy—,
+// lecturas no validas sin efecto) vive en modules/control/mains_detector.cpp y
+// la alimenta sensors_Task tras cada lectura del cargador. Aqui solo se
+// traduce su veredicto, en cada pasada, porque el vencimiento del plazo se
+// evalua al consultar. La ceguera del cargador (sin lecturas validas) NO se
+// trata aqui: la hace visible sensors_Task (charger_comm_fault) y la alarma ya
+// declarada se mantiene.
+static void checkMainsInterruption()
+{
+  extern MainsDetector g_mains_detector;
+
+  // Placa SIN cargador (CHARGER_EXPECTED == 0, HW anterior a la 17) y que nunca
+  // ha contestado: no hay fuente de la senal, asi que no declara. Se anota una
+  // sola vez, como error: es una placa que no vigila la red. En una placa que
+  // LLEVA el cargador, que no conteste NO llega aqui: es ceguera, y la hace
+  // visible sensors_Task (logE y charger_comm_fault).
+  //
+  // Es chargerDetected y NO chargerPresent: ese ultimo baja mientras el chip
+  // se reconfigura al volver la red y aqui retiraba y volvia a levantar la
+  // alarma (historial, flash y audio incluidos) en cada retorno de red.
+  if (!(CHARGER_EXPECTED || chargerDetected))
+  {
+    static bool logged = false;
+    if (!logged)
+    {
+      logged = true;
+      logE("[MAINS] Placa sin cargador BQ25730: "
+           "no se vigila la interrupcion de red");
+    }
+    alarm_machine_condition(ALARM_MAINS_INTERRUPTION, false, millis());
+    return;
+  }
+
+  // El test de fabrica maneja la alimentacion y el cargador a su manera: no
+  // declara una alarma real durante la bateria.
+  const bool present =
+      !g_factoryTestActive && mains_detector_condition(&g_mains_detector, millis());
+  alarm_machine_condition(ALARM_MAINS_INTERRUPTION, present, millis());
+}
+
+// ALARM_BATTERY_LOW: sin red y con la carga estimada al BATT_GAUGE_LOW_PCT o
+// menos. Lee el estado que publica sensors_Task (g_batt_report, una escritura
+// de 32 bits). Sin cargador el estado es desconocido y no declara nunca.
+static void checkBatteryLow()
+{
+  extern volatile uint32_t g_batt_report;
+  // Nunca con PROTO_BATT_ENABLED = 0 (ver protocol.h): hay equipos con un
+  // adaptador de 12 V en los bornes de la bateria, y la daria en falso.
+  const bool present = PROTO_BATT_ENABLED && !g_factoryTestActive &&
+                       battery_gauge_report_low(g_batt_report);
+  alarm_machine_condition(ALARM_BATTERY_LOW, present, millis());
+}
+
+// ALARM_NOISE_HIGH: lo decide el detector que alimenta la tarea de la
+// SensorBoard con cada lectura de sonido (sensorboard_comm.cpp).
+//
+// Aqui ademas se calcula si en este momento suena OTRA alarma no silenciada:
+// sus lecturas no son ruido ambiental y el detector las ignora. Se calcula en
+// este hilo, el unico que toca alarm_machine, y se publica en un bool.
+NoiseDetector g_noise_detector = NOISE_DETECTOR_INITIALIZER;
+volatile bool g_noise_samples_suppressed = false;
+
+static void checkNoise()
+{
+  const uint32_t audible = alarm_machine_bitmask() &
+                           ~alarm_machine_silenced_bitmask() &
+                           ~(1u << ALARM_NOISE_HIGH);
+  // El test de fabrica hace sonar el zumbador a proposito.
+  g_noise_samples_suppressed = (audible != 0) || g_factoryTestActive;
+  const bool present = !g_factoryTestActive &&
+                       noise_detector_condition(&g_noise_detector, millis());
+  alarm_machine_condition(ALARM_NOISE_HIGH, present, millis());
+}
+
 static void publishAlarmChanges()
 {
   const uint32_t mask = alarm_machine_bitmask();
@@ -1278,6 +1358,9 @@ void securityCheck()
   // El tick va DESPUES de la deteccion y ANTES de publicar: es el que hace
   // madurar PENDING -> ACTIVE y el que expira las pausas de audio.
   checkHmiLink();
+  checkMainsInterruption();
+  checkBatteryLow();
+  checkNoise();
   // Las alarmas forzadas del modo depuracion se declaran despues de TODOS los
   // detectores y antes del tick: asi lo forzado gana a lo medido, pero el
   // retardo de anuncio, la prioridad, el enclavamiento y el corte de

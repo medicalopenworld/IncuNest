@@ -197,9 +197,9 @@ void alarm_machine_silence(AlarmId id, uint32_t duration_ms, uint32_t now_ms) {
   if (e.state != ALARM_STATE_ACTIVE) {
     return;  // solo se silencia lo que se esta anunciando
   }
-  // El corte de red no se silencia: 201.12.3.103 exige 10 min de aviso y la
-  // pausa dura justo eso. Se filtra AQUI, que es el unico punto por el que
-  // pasan todas las vias de silencio, en vez de en cada llamante.
+  // Politica de silencio (hoy todas silenciables; ver alarm_policy.h). Se
+  // filtra AQUI, que es el unico punto por el que pasan todas las vias de
+  // silencio, en vez de en cada llamante.
   if (!alarm_is_silenceable(id)) {
     return;
   }

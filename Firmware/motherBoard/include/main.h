@@ -73,9 +73,21 @@
 // Con tres componentes deja de parecer un numero y se queda como texto.
 // Nada del firmware ni del flash tool ordena versiones: ThingsBoard compara
 // por igualdad y el flash tool elige por la revision de HW del entorno.
-#define FWversion "18.52.2"
+#define FWversion "18.53.0"
 #define WIFI_NAME "IncuNest"
+// Titulo del firmware en ThingsBoard (OTA por MQTT). ThingsBoard solo ofrece un
+// paquete cuyo titulo coincide con el que declara la unidad, asi que una V19
+// que se declare como "IncuNest" recibiria el paquete de la V18. Desde la V19 el
+// titulo lleva la revision ("IncuNest_HW19"); la V18 y anteriores conservan
+// "IncuNest". Hay que crear un paquete OTA con ese titulo en ThingsBoard. La
+// marca de imagen (kFwBoardTag, Wifi_OTA.cpp) es la segunda barrera.
+#if (HW_NUM >= 19)
+#define FW_TITLE_STR_(x) #x
+#define FW_TITLE_STR(x) FW_TITLE_STR_(x)
+#define CURRENT_FIRMWARE_TITLE "IncuNest_HW" FW_TITLE_STR(HW_NUM)
+#else
 #define CURRENT_FIRMWARE_TITLE "IncuNest"
+#endif
 
 #define DEFAULT_WIFI_EN ON
 
@@ -571,7 +583,9 @@ void wifiRequestEnable(bool enable);
 void securityCheck();
 
 void turnFans(bool mode);
-void setFanPidEnabled(bool enabled);
+bool setFanPidEnabled(bool enabled);
+bool fanPidPersist(bool enabled);   // solo NVS
+void fanPidApplyRam(bool enabled);  // solo RAM y PID
 void alarmTimerStart(long graceMinutes = ACTUATORS_ALARM_STABILIZATION_MINS);
 void timeTrackHandler();
 
@@ -610,6 +624,13 @@ void initAmbientSensor();
 void initSkinSensor();
 void powerMonitor();
 void currentMonitor();
+// Escribe el PWM de la lampara de fototerapia (0 si in3.phototherapy es false,
+// in3.phototherapy_intensity si es true) bajo un spinlock que comparten el lazo
+// de intensidad de currentMonitor() y applyPhotoState()/la caducidad del
+// temporizador. El duty se calcula DENTRO de la seccion critica, asi que gana
+// siempre la escritura que ve el estado mas reciente. No respeta
+// g_factoryTestActive: eso lo decide quien llama.
+void photoPwmRefresh(void);
 void voltageMonitor();
 
 // Incremented only when in3.heater_current is genuinely refreshed

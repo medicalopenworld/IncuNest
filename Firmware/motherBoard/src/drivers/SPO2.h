@@ -27,4 +27,11 @@ extern TaskHandle_t     g_spo2_task;
 extern volatile AFE4490Data g_spo2_data;
 
 void initSPO2();
+
+// diag_code de la ultima muestra: bits 0-12 = REG_DIAG (0x30) del AFE4490 que
+// rellena runAfeDiagnostics() cada 5 s con la sonda ausente; resto = banderas
+// RSQM. Se publica como AFE_diag (DIAG) y en /debug/state.
+uint32_t afeDiagCode(void);
+// Episodios de parada del AFE (sin muestra > AFE_WD_STALL_MS) desde el arranque.
+uint32_t afeStallCount(void);
 void SPO2_Task(void *pvParameters);

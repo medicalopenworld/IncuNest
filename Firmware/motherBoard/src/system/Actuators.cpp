@@ -82,9 +82,25 @@ void turnFans(bool mode) {
 // duty (same path as a no-feedback unit). Applied immediately: disabling
 // drops to fixed duty now; enabling while running lets PIDHandler() re-engage
 // after its spin-up grace, so no action is needed here for that case.
-void setFanPidEnabled(bool enabled) {
+//
+// Devuelve false, SIN cambiar nada, si no se pudo guardar en NVS: un valor
+// aplicado que desaparece al reiniciar sin que nadie lo sepa es peor que no
+// aplicarlo. Los llamadores propagan el fallo (runtime_config).
+bool fanPidPersist(bool enabled) {
+  Preferences p;
+  if (!p.begin(NS_CFG, false)) {
+    return false;
+  }
+  const size_t written = p.putUChar(KEY_FAN_PID_EN, enabled);
+  p.end();
+  return written == sizeof(uint8_t);
+}
+
+// Solo RAM y efecto en el PID: separado de la persistencia para que
+// runtime_config pueda persistir a su ritmo (cubo de fichas de NVS) sin perder
+// el efecto inmediato.
+void fanPidApplyRam(bool enabled) {
   in3.fanPidEnabled = enabled;
-  { Preferences p; p.begin(NS_CFG, false); p.putUChar(KEY_FAN_PID_EN, enabled); p.end(); }
 #if defined(FAN_SPEED_FEEDBACK)
   if (!enabled && in3.fanHasSpeedFeedback) {
     fanControlPID.SetMode(MANUAL);
@@ -93,4 +109,12 @@ void setFanPidEnabled(bool enabled) {
     }
   }
 #endif
+}
+
+bool setFanPidEnabled(bool enabled) {
+  if (!fanPidPersist(enabled)) {
+    return false;
+  }
+  fanPidApplyRam(enabled);
+  return true;
 }

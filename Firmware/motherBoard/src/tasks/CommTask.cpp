@@ -16,6 +16,10 @@ extern "C" bool debug_inject_take(char *out, size_t out_len);
 #include "modules/control/alarm_history.h"
 #include "modules/control/alarm_machine.h"
 #include "modules/control/alarm_test.h"
+#include "modules/control/photo_expiry_latch.h"
+#include "modules/debug/debug_mode.h"
+#include "modules/service/service_hours.h"
+#include "modules/config/runtime_config.h"
 #include "modules/baby_profile/baby_profile_protocol.h"
 #include "modules/baby_profile/baby_profile_store.h"
 #include "nte_table.h"
@@ -27,6 +31,9 @@ extern "C" bool debug_inject_take(char *out, size_t out_len);
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "modules/factory_test/factory_test_api.h"
+#include "modules/sensorboard_comm/sb_env_report.h"
+#include "modules/sensorboard_comm/sensorboard_comm.h"
+#include "modules/sensors/sensor_source.h"
 #include <cstdio>
 #include <cstring>
 #include <time.h>
@@ -76,6 +83,13 @@ static constexpr float PPG_DISP_UNITS_PER_LSB = 1.6e-8f;
 
 // ---- Phototherapy Timer (Motherboard is source of truth) ----
 static bool photoTimerActive = false;
+
+// Cerrojo "el temporizador caduco, esperando un photo=0 del display" (logica en
+// modules/control/photo_expiry_latch.h). Lo arma getRemainingPhotoTime() y lo
+// consulta el parser de tramas del display, que pueden correr en tareas
+// distintas: de ahi el spinlock (dos accesos de un bool, sin llamadas dentro).
+static PhotoExpiryLatch s_photoExpiry;
+static portMUX_TYPE s_photoExpiryMux = portMUX_INITIALIZER_UNLOCKED;
 static unsigned long photoTimerStartMs = 0;
 static int photoTimerMinutes = 0;
 // Modo de fototerapia del mandato anterior del HMI. Sirve para detectar el
@@ -314,6 +328,20 @@ static void photoTimerForget() {
   p.end();
 }
 
+// Verdadero UNA vez por caducidad del temporizador: hay que guardar
+// KEY_PHOTO_ACTIVE=0. getRemainingPhotoTime() se invoca desde dos tareas (el
+// bucle de Communication_Receiver en main.cpp y send_state_to_hmi) y no debe
+// escribir NVS ella misma (ruta caliente de 1 ms, y duplicaria la escritura):
+// solo arma la bandera, y UNA tarea (Communication_Receiver) la consume aqui.
+// Sin esto, el 0 solo llegaria a NVS con la siguiente trama del display, y una
+// caida entre medias arrancaria en fototerapia continua sin limite.
+bool photoExpiryTakePersistOff(void) {
+  portENTER_CRITICAL(&s_photoExpiryMux);
+  const bool pendiente = photo_expiry_latch_take_persist_off(&s_photoExpiry);
+  portEXIT_CRITICAL(&s_photoExpiryMux);
+  return pendiente;
+}
+
 double getRemainingPhotoTime() {
   double remainingTime = 0.0;
   if (photoTimerActive) {
@@ -328,7 +356,16 @@ double getRemainingPhotoTime() {
       remainingTime = 0.0;
 
       in3.phototherapy = false;
-      ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, 0);
+      // Si hay una prueba de depuracion activa, el temporizador es una orden de
+      // apagado de la placa que tiene que ganar al soltarla (la prueba sigue
+      // forzando ON hasta entonces).
+      debug_photo_note_order(false);
+      // ... y ninguna trama rezagada con photo=1 sin minutos puede reencenderla
+      // (dentro y fuera de la prueba). Ver photo_expiry_latch.h.
+      portENTER_CRITICAL(&s_photoExpiryMux);
+      photo_expiry_latch_expire(&s_photoExpiry);
+      portEXIT_CRITICAL(&s_photoExpiryMux);
+      photoPwmRefresh();
       turnFans(bool(in3.phototherapy || in3.actuation));
       photoTimerForget();
 
@@ -377,11 +414,14 @@ static int LinkBarsFromGprsCsq(int csq) {
 //  SEND STATE TO HMI
 // ======================================================
 static void send_state_to_hmi() {
-  // 192 y no 160: el campo silencedBitmask anadio hasta 11 caracteres y el
-  // peor caso (fwVer de 20, tres bitmask/contadores al ancho maximo) se
-  // quedaba al filo. Truncar aqui no da error, da una linea que el HMI
-  // descarta entera y una pantalla que deja de refrescarse.
-  char msg[192];
+  // 224 y no 192 (ni 160): el campo silencedBitmask anadio hasta 11 caracteres
+  // y el peor caso (fwVer de 20, tres bitmask/contadores al ancho maximo) se
+  // quedaba al filo. activeSeq anade otros 11 (coma + un uint32 de hasta 10
+  // digitos): el peor caso razonable de la linea completa ronda los 183 bytes,
+  // a 9 del limite de 192, y con 224 quedan ~40 de holgura. Truncar aqui no da
+  // error, da una linea que el HMI descarta entera y una pantalla que deja de
+  // refrescarse.
+  char msg[224];
   int alarmCount = getActiveAlarmCount();
   double remainingTime = getRemainingPhotoTime();
 
@@ -436,17 +476,39 @@ static void send_state_to_hmi() {
     }
   }
 
+  // Estado REAL de la lampara (lo aplicado, in3.phototherapy), no el eco de lo
+  // que pidio el display (g_last_cmd.phototherapyMode). Mismo fallo que el
+  // audio de arriba: el eco no aportaba nada y ademas mentia (known_issues
+  // #20). Entre que el operador toca el switch y la placa aplica la orden este
+  // campo sale con el valor anterior unas decenas de ms; el display mantiene su
+  // valor local hasta que la placa lo confirma (localCmdHoldsLocal), asi que no
+  // hay rebote.
+  //
+  // UNICA EXCEPCION: durante una prueba de fototerapia de depuracion (PHOTO,1)
+  // se emite la ORDEN DEL DISPLAY, no el ON forzado. El display ADOPTA este
+  // campo y lo devuelve en su keepalive; si adoptase el ON de la prueba, al
+  // soltar habria que neutralizar un 1 rancio, y ningun plazo ni confirmacion
+  // aguanto (ver la historia en photo_override.h). El ON de la prueba se ve en
+  // /debug/state (ctl.photo_dbg) y en el log.
+  //
+  // Actuacion, modo de control y consignas siguen siendo ecos A PROPOSITO: no
+  // tienen un valor "real" de una linea (la placa guarda una unica consigna
+  // segun el modo, y in3.actuation/controlMode se asignan literalmente del
+  // comando). Ver openspec mb-photo-current-check, design D2.
+  const int photoApplied = debug_photo_state_field(in3.phototherapy) ? 1 : 0;
+
   snprintf(msg, sizeof(msg),
-           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d,%d,0x%X,0x%X,%d,%d,%d,0x%X\n",
+           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d,%d,0x%X,0x%X,%d,%d,%d,0x%X,%u\n",
            (int)g_last_cmd.actuation, (int)g_last_cmd.controlMode,
            (double)g_last_cmd.desiredAirTemperature,
            (double)g_last_cmd.desiredSkinTemperature,
-           (double)g_last_cmd.desiredHumidity, (int)g_last_cmd.phototherapyMode,
+           (double)g_last_cmd.desiredHumidity, photoApplied,
            audioSilenced, ctrl_tel_msg.serialNumber, HW_NUM,
            HW_REVISION, FWversion, alarmCount, (int)g_last_cmd.skinModeEnabled,
            (int)ctrl_tel_msg.serverCommStatus, remainingTime, in3.language,
            skinProbeState, alarmBitmask, silencedBitmask, almTest,
-           silenceLeftS, (int)ctrl_tel_msg.linkBars, latchedBitmask);
+           silenceLeftS, (int)ctrl_tel_msg.linkBars, latchedBitmask,
+           (unsigned)babyStore_getActiveSeq());
 
 
   ESP_LOGI(TAG, "Sending state to HMI: %s", msg);
@@ -601,6 +663,26 @@ static bool hmiCrashAppend(const char *line) {
 uint32_t g_lastHmiLineMs = 0;
 bool g_hmiEverSeen = false;
 
+// CTRL,SERVICE (horas desde servicio, ver modules/service). Se manda al
+// arrancar el enlace (HMI,UI_READY), bajo peticion, al registrar un servicio y
+// cada hora; el flag lo levanta parse_line() y lo consume el bucle de
+// Communication_Task, que es el mismo hilo, asi que no hace falta sincronizar.
+static bool s_serviceSendPending = false;
+constexpr uint32_t SERVICE_BCAST_PERIOD_MS = 3600UL * 1000UL;
+
+static void sendServiceToHMI() {
+  ServiceReport rep;
+  ServiceHours_BuildReport(&rep);
+  char msg[128];
+  if (service_proto_build_report(msg, sizeof(msg), &rep) == 0) {
+    // No deberia ocurrir (el peor caso son ~112 B), pero una linea a medias es
+    // peor que ninguna.
+    ESP_LOGE(TAG, "CTRL,SERVICE no cabe en el buffer, no se envia");
+    return;
+  }
+  CommunicationHost_Send(msg);
+}
+
 void parse_line(const char *line) {
   // HMI panic output arrives as plain ROM/ESP_LOG text, so intercept it
   // before the protocol-prefix filter discards everything without "HMI,".
@@ -638,6 +720,9 @@ void parse_line(const char *line) {
     }
     setHMIConnected(true);
     xSemaphoreGive(hmi_state_req_sem);
+    // Solo el UI_READY (el display acaba de arrancar): REQ,STATE se repite y
+    // no necesita el estado de servicio cada vez.
+    if (strcmp(line, "HMI,UI_READY") == 0) s_serviceSendPending = true;
     return;
   }
 
@@ -749,15 +834,21 @@ void parse_line(const char *line) {
 
   if (strncmp(line, "/config", 7) == 0) {
     char param[32];
-    float value;
+    // Valor EN CRUDO, no con %f: sscanf("%f") acepta "nan", "inf", hexadecimales
+    // y se queda con el prefijo de "12abc". runtime_config lo lee estricto.
+    char raw[32];
     bool success = false;
-    if (line[7] == ',' && sscanf(line, "/config,%31[^,],%f", param, &value) == 2) {
+    char cfgMsg[96] = "";
+    // runtime_config_parse_console_line() rechaza la linea si hay CUALQUIER
+    // texto despues del valor: "/config,AIR_TMAX,38 99" no aplica 38.
+    if (runtime_config_parse_console_line(line, param, sizeof(param), raw,
+                                          sizeof(raw))) {
       success = true;
-      extern float maxDesiredTemp[2];
       if (strcmp(param, "BABY_WIPE") == 0) {
         // Destructive and irreversible, so it needs an explicit magic value
         // rather than any truthy number: /config,BABY_WIPE,1234
-        if ((int)value == 1234) {
+        float code = 0.0f;
+        if (runtime_config_parse_number(raw, &code) && (int)code == 1234) {
           int n = babyStore_wipeAll();
           if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
             ESP_LOGW(TAG, "BABY_WIPE done, %d files removed", n);
@@ -766,48 +857,27 @@ void parse_line(const char *line) {
         } else {
           success = false;  // wrong confirmation code: do nothing
         }
-      } else if (strcmp(param, "FAN_SUPPLY_PWM") == 0) {
-        in3.fanPwrSupplyPWM = (int)value;
-        { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_PWR_SUPPLY_PWM, in3.fanPwrSupplyPWM); p.end(); }
-      } else if (strcmp(param, "HEATER_AMPS") == 0) {
-        in3.heaterMaxPowerAmps = value;
-        { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_HEAT_MAX_A, in3.heaterMaxPowerAmps); p.end(); }
-      } else if (strcmp(param, "SKIN_TMAX") == 0) {
-        in3.skinTemperatureSetMax = alarm_clamp_skin_cutout(value);
-        maxDesiredTemp[CONTROL_SKIN] = in3.skinTemperatureSetMax;
-        { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_SKIN_T_MAX, in3.skinTemperatureSetMax); p.end(); }
-      } else if (strcmp(param, "AIR_TMAX") == 0) {
-        in3.airTemperatureSetMax = alarm_clamp_air_cutout(value);
-        maxDesiredTemp[CONTROL_AIR] = in3.airTemperatureSetMax;
-        { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_AIR_T_MAX, in3.airTemperatureSetMax); p.end(); }
-      } else if (strcmp(param, "GPRS_ACT") == 0) {
-        in3.actuating_gprs_period = (int)value;
-        { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_ACT_PERIOD, in3.actuating_gprs_period); p.end(); }
-      } else if (strcmp(param, "GPRS_PHOTO") == 0) {
-        in3.phototherapy_gprs_period = (int)value;
-        { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_PHOTO_PERIOD, in3.phototherapy_gprs_period); p.end(); }
-      } else if (strcmp(param, "GPRS_STBY") == 0) {
-        in3.standby_gprs_period = (int)value;
-        { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_STBY_PERIOD, in3.standby_gprs_period); p.end(); }
-      } else if (strcmp(param, "FAN_CTL_PWM") == 0) {
-        in3.fanCtlPWM = (int)value;
-        { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_CTL_PWM, in3.fanCtlPWM); p.end(); }
-        ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
-      } else if (strcmp(param, "FAN_PID_EN") == 0) {
-        setFanPidEnabled(value != 0);
       } else {
-        success = false;
+        // Los nueve parametros pasan por runtime_config con la regla del
+        // origen USB: nombres en MAYUSCULAS exactas (como siempre), valor en
+        // crudo, y los cortes fuera de 34..40 C se RECHAZAN en vez de
+        // recortarse. El modulo deja su propia linea de log con origen, valor
+        // pedido y valor aplicado.
+        success = runtime_config_apply_text(RCFG_ORIGIN_USB, param, raw, cfgMsg,
+                                            sizeof(cfgMsg));
       }
-      if (success) { /* Preferences commits on p.end() */ }
       if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         if (success)
-          ESP_LOGI(TAG, "Config updated: %s = %.2f", param, value);
+          ESP_LOGI(TAG, "Config updated: %s = %s", param, raw);
         else
-          ESP_LOGE(TAG, "Unknown config parameter: %s", param);
+          ESP_LOGE(TAG, "Config not applied: %s", cfgMsg[0] ? cfgMsg : param);
         xSemaphoreGiveRecursive(log_mutex);
       }
     } else {
       if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        if (line[7] == ',') {
+          ESP_LOGE(TAG, "Config line malformed, nothing applied");
+        }
         ESP_LOGI(TAG, "FAN_SUPPLY_PWM:%d FAN_CTL_PWM:%d HEATER_AMPS:%.2f SKIN_TMAX:%.2f AIR_TMAX:%.2f",
                  in3.fanPwrSupplyPWM, in3.fanCtlPWM, in3.heaterMaxPowerAmps, in3.skinTemperatureSetMax,
                  in3.airTemperatureSetMax);
@@ -820,6 +890,25 @@ void parse_line(const char *line) {
   if (strncmp(line, "HMI,PROFILE_", 12) == 0 ||
       strncmp(line, "HMI,WEIGHT_HISTORY_REQ", 22) == 0) {
     handleBabyLine(line);
+    return;
+  }
+
+  // Avisos de servicio por horas de uso. La respuesta a ambos es el mismo
+  // CTRL,SERVICE; el de SERVICE_DONE ya lleva el valor nuevo, asi que hace de
+  // confirmacion. Id invalido o linea mala: se descarta sin efecto.
+  if (service_proto_is_req(line)) {
+    s_serviceSendPending = true;
+    return;
+  }
+  if (strncmp(line, "HMI,SERVICE_DONE", 16) == 0) {
+    uint8_t id = 0;
+    if (service_proto_parse_done(line, &id)) {
+      if (ServiceHours_MarkDone(id, babyStore_nowEpoch())) {
+        s_serviceSendPending = true;
+      }
+    } else {
+      ESP_LOGW(TAG, "HMI,SERVICE_DONE malformada, descartada");
+    }
     return;
   }
 
@@ -1028,14 +1117,35 @@ void parse_line(const char *line) {
   }
 
   if (strncmp(line, "HMI,", 4) == 0) {
-    int act, skinE, mode, photo, mute, lang, photoMin;
+    int act, skinE, mode, photo, mute, lang;
+    int photoMin = 0;  // el campo 10 es opcional: sin inicializar seria basura
     double air, skin, hum;
 
     int parsed = sscanf(line,
                         "HMI,%d,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d",
                         &act, &skinE, &mode, &air, &skin, &hum, &photo,
                         &mute, &lang, &photoMin);
-    if (parsed >= 9) {
+    // `photo` es un booleano (0/1) y `photoMin` va de 0 a PHOTO_TIMER_MAX_MINUTES
+    // (10 h): se emiten tal cual en CTRL,STATE, se guardan en NVS y arman el
+    // temporizador. Cualquier otro valor es una trama corrupta (sin CRC, ver
+    // known_issues #2) y se descarta ENTERA en vez de actuar sobre la lampara.
+    if (parsed >= 9 && photo_hmi_fields_valid(photo, photoMin)) {
+      // Tras la caducidad del temporizador de fototerapia se IGNORA un photo=1
+      // sin minutos hasta ver un photo=0: es una trama que el display tenia en
+      // vuelo (o retenida por localCmdHoldsLocal, 10 s) de ANTES de adoptar el
+      // apagado, y reencenderia la lampara que acaba de caducar. Va lo primero:
+      // todo lo que sigue (activeSeq, contabilidad, temporizador, orden aplicada
+      // y guardada) usa el valor ya filtrado. Ver photo_expiry_latch.h.
+      portENTER_CRITICAL(&s_photoExpiryMux);
+      photo = photo_expiry_latch_filter(&s_photoExpiry, photo != 0, photoMin) ? 1 : 0;
+      const bool avisarFiltrada = photo_expiry_latch_take_filter_log(&s_photoExpiry);
+      portEXIT_CRITICAL(&s_photoExpiryMux);
+      // Un solo log por episodio (la trama retenida llega muchas veces), y fuera
+      // de la seccion critica.
+      if (avisarFiltrada) {
+        ESP_LOGW(TAG, "HMI photo=1 sin minutos ignorado tras caducar el "
+                 "temporizador de fototerapia (hasta ver photo=0)");
+      }
       // activeSeq protection: stamp the wizard-selected baby while ANY
       // therapy is running, and only clear it once every therapy is off.
       // Phototherapy counts: the HMI now runs the baby-data wizard for it
@@ -1054,7 +1164,15 @@ void parse_line(const char *line) {
       // Per-baby therapy exposure. Accumulated in RAM and only written to NVS
       // on the OFF edge or every THERAPY_FLUSH_INTERVAL — a slot write per
       // minute would wear the flash for no benefit.
-      updateTherapyAccounting(s_photoAcc, photo != 0);
+      // Solo cuenta exposicion REAL: la lampara esta aplicada (in3.phototherapy,
+      // no solo pedida), no es una prueba de depuracion en curso o por
+      // confirmar (el display adopta el ON de PHOTO,1 y lo devuelve en su
+      // keepalive, y eso no es un bebe tratado) y no hay un fallo de lampara
+      // declarado (sin corriente o sin medida, la terapia no esta garantizada).
+      const bool photoExposure =
+          photo != 0 && in3.phototherapy && !debug_photo_active() &&
+          alarm_machine_state(ALARM_PHOTO_LAMP_FAULT) == ALARM_STATE_INACTIVE;
+      updateTherapyAccounting(s_photoAcc, photoExposure);
       updateTherapyAccounting(s_thermoAcc,
                               act == ACTUATION_TEMPERATURE ||
                                   act == ACTUATION_TEMP_AND_HUMIDITY);
@@ -1305,6 +1423,14 @@ void Communication_Task(void *pvParameters) {
   uint8_t hr_valid_streak = 0;
   uint8_t hr_bad_streak   = 0;
   bool    hr_displaying   = false;
+  // CTRL,ENV (puerta, luz, ruido de la SensorBoard): ver el bloque tras STATE.
+  SbEnvPacer env_pacer;
+  sb_env_pacer_init(&env_pacer);
+  uint32_t last_env_poll_ms = 0;
+  // CTRL,BATT (indicador de bateria): ver el bloque tras ENV.
+  uint32_t last_batt_sent = 0;      // ultimo g_batt_report enviado
+  uint32_t last_batt_sent_ms = 0;
+  bool batt_sent_once = false;
   ESP_LOGI(TAG, "UART communication task started");
 
   if (g_restore_photo_minutes > 0) {
@@ -1370,6 +1496,93 @@ void Communication_Task(void *pvParameters) {
     if (stateRequested || (millis() - last_state_time >= 1000)) {
       send_state_to_hmi();
       last_state_time = millis();
+    }
+
+    // --- ENV: puerta, luz y ruido de la SensorBoard (CTRL,ENV) ---
+    //
+    // Solo informativo para el display; ni la puerta ni el ruido entran en el
+    // lazo de control. Mensaje propio y no campos de CTRL,STATE: esa linea va
+    // al filo de su buffer y PROTOCOL.md exige que todo campo suyo aguante
+    // 1 Hz, y esto no lo necesita. Cadencia: al instante si cambia el enlace o
+    // la puerta, y cada PROTO_ENV_PERIOD_MS si no (sb_env_report.h).
+    //
+    // Solo en equipos con SensorBoard: en los antiguos (I2C2) no existe el
+    // modulo y no hay nada que contar; el display, al no recibir la linea, no
+    // pinta nada.
+    //
+    // El snapshot se copia cada 200 ms y no en cada pasada (esta tarea itera
+    // cada 1 ms): la latencia de la puerta queda por debajo de 200 ms y no se
+    // pelea por el mutex con la tarea del SensorBoard.
+    if (sensorSourceGet() == SENSOR_SOURCE_SENSORBOARD) {
+      // Un display que acaba de arrancar pide STATE: se le re-envia tambien el
+      // entorno, en vez de hacerle esperar un periodo entero.
+      if (stateRequested) {
+        sb_env_pacer_init(&env_pacer);
+        last_env_poll_ms = (uint32_t)(millis() - 200u);
+      }
+      const uint32_t env_now = millis();
+      if ((uint32_t)(env_now - last_env_poll_ms) >= 200u) {
+        last_env_poll_ms = env_now;
+        SbSnapshot env_snap;
+        sensorboard_get_snapshot(&env_snap);
+        SbEnvReport env_report;
+        sb_env_report_make(&env_report, &env_snap, env_now);
+        if (sb_env_pacer_due(&env_pacer, &env_report, env_now)) {
+          char env_msg[PROTO_ENV_LINE_MAX + 2];
+          if (sb_env_report_format(env_msg, sizeof(env_msg), &env_report) >
+              0) {
+            hmiSerial.print(env_msg);
+            sb_env_pacer_sent(&env_pacer, &env_report, env_now);
+          } else {
+            // No debe pasar (la cota esta en protocol.h y la prueba el test),
+            // pero un informe que no cabe no se reintenta cada 200 ms.
+            ESP_LOGE(TAG, "CTRL,ENV no cabe en el buffer");
+            sb_env_pacer_sent(&env_pacer, &env_report, env_now);
+          }
+        }
+      }
+    }
+
+    // --- BATT: indicador de bateria (CTRL,BATT) ---
+    //
+    // Solo informativo; lo estima sensors_Task (battery_gauge). Al instante
+    // si cambian el estado o las rayas, cada PROTO_BATT_PERIOD_MS si no, y de
+    // nuevo cuando un display recien arrancado pide STATE. Sin cargador el
+    // estado es UNKNOWN y no se envia nada: el display no pinta indicador.
+    {
+      extern volatile uint32_t g_batt_report;
+      const uint32_t report = g_batt_report;
+      const uint8_t state = (uint8_t)((report >> 16) & 0xFF);
+      const uint32_t now = millis();
+      // Estado y rayas, sin el porcentaje: un punto arriba o abajo no merece
+      // una linea fuera de su periodo.
+      const bool changed =
+          !batt_sent_once || ((report ^ last_batt_sent) & 0xFFFF00u) != 0;
+      // Apagado con PROTO_BATT_ENABLED = 0 (ver protocol.h): sin la linea el
+      // display no pinta indicador.
+      if (PROTO_BATT_ENABLED && state != PROTO_BATT_STATE_UNKNOWN &&
+          (changed || stateRequested ||
+           (uint32_t)(now - last_batt_sent_ms) >= PROTO_BATT_PERIOD_MS)) {
+        char batt_msg[PROTO_BATT_LINE_MAX + 2];
+        snprintf(batt_msg, sizeof(batt_msg), "CTRL,BATT,%u,%u,%u\n",
+                 (unsigned)state, (unsigned)((report >> 8) & 0xFF),
+                 (unsigned)(report & 0xFF));
+        hmiSerial.print(batt_msg);
+        last_batt_sent = report;
+        last_batt_sent_ms = now;
+        batt_sent_once = true;
+      }
+    }
+
+    // --- SERVICE: bajo peticion y cada hora (no 1 Hz: known_issues #2) ---
+    {
+      static uint32_t last_service_time = 0;
+      if (s_serviceSendPending ||
+          (millis() - last_service_time >= SERVICE_BCAST_PERIOD_MS)) {
+        s_serviceSendPending = false;
+        last_service_time = millis();
+        sendServiceToHMI();
+      }
     }
 
     // --- PPG waveform (25 Hz = every 40 ms) ---

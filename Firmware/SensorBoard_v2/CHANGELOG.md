@@ -6,6 +6,10 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Unreleased]
 
+### Changed
+
+- **Micrófono: medida continua.** `CONFIG_SB_MIC_PUBLISH_PERIOD_S` pasa de 5 s a 1 s: con la ventana de 1 s, las ventanas se encadenan y no se pierde ningún ruido (antes se escuchaba 1 s de cada 5). Lo necesita la alarma `ALARM_NOISE_HIGH` de la motherboard (65 dB durante 10 s). La motherboard tolera tanto 1 s como 5 s.
+
 ### Fixed
 
 - **Tabla de particiones: OTA prometido pero imposible, y sin core dump.** `partitions.csv` (heredada del documento de fase 1) declaraba `factory` + `ota_0` + `ota_1` de 3 MB cada una **sin partición `otadata`**: sin ella `esp_ota_set_boot_partition()` no tiene dónde escribir y el bootloader arranca siempre `factory`, así que eran 6 MB reservados para una capacidad de actualización que no existía (tampoco hay ninguna llamada `esp_ota_*` en el código). Nuevo reparto sobre una app de 356 KB: `ota_0`/`ota_1` de 2 MB con su `otadata` en `0xD000`, `coredump` de 64 KB y `storage` de ~11,9 MB para los JPEG de la fase 5. `ota_0` sigue en `0x10000`, así que el flasheo de fábrica no cambia de offset — pero `flasher_tool` escribe ahora también `ota_data_initial.bin` en `0xD000`, que antes caía dentro de la NVS vieja.

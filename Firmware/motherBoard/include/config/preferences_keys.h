@@ -9,6 +9,10 @@ constexpr char NS_GPRS[]  = "mb_gprs";
 constexpr char NS_RT[]    = "mb_rt";
 constexpr char NS_STATE[] = "mb_state";
 constexpr char NS_FTEST[]  = "mb_ftest";
+// Estado por clave de la configuracion remota (modules/config/runtime_config):
+// un blob "k0".."k8" por parametro con el ultimo valor remoto visto, si hay
+// cambio local que lo gana, y origen y epoch del ultimo cambio.
+constexpr char NS_RCFG[]  = "mb_rcfg";
 
 // --------------- Key names: mb_cfg ---------------
 constexpr char KEY_LANG[]        = "lang";
@@ -59,6 +63,19 @@ constexpr char KEY_RT_HEATER[]   = "heater_t";
 constexpr char KEY_RT_FAN[]      = "fan_t";
 constexpr char KEY_RT_PHOTO[]    = "photo_t";
 constexpr char KEY_RT_HUM[]      = "hum_t";
+
+// Servicio por horas (modules/service/service_hours.cpp). La BASE es el valor
+// del contador de vida (KEY_RT_*) en el ultimo servicio registrado; el EPOCH es
+// cuando se registro (UTC, 0 = sin hora valida o nunca). Los contadores de vida
+// no se reinician al registrar un servicio. Max 15 caracteres por clave.
+constexpr char KEY_SVC_BASE_HEATER[] = "svc_b_heater";
+constexpr char KEY_SVC_BASE_FAN[]    = "svc_b_fan";
+constexpr char KEY_SVC_BASE_HUM[]    = "svc_b_hum";
+constexpr char KEY_SVC_BASE_PHOTO[]  = "svc_b_photo";
+constexpr char KEY_SVC_EPOCH_HEATER[] = "svc_e_heater";
+constexpr char KEY_SVC_EPOCH_FAN[]    = "svc_e_fan";
+constexpr char KEY_SVC_EPOCH_HUM[]    = "svc_e_hum";
+constexpr char KEY_SVC_EPOCH_PHOTO[]  = "svc_e_photo";
 
 // --------------- Key names: mb_state ---------------
 constexpr char KEY_PHOTO_ACTIVE[] = "photo_active";

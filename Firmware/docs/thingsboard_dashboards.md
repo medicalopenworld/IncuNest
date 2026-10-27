@@ -403,3 +403,107 @@ firmware.
 este firmware: las claves de NVS no existían antes, así que el contador arranca
 en la primera asociación posterior a la actualización. Es el comportamiento
 correcto — el firmware no tiene forma de saber cuánto llevaba en esa red.
+
+---
+
+## 10. Horas desde servicio de cada actuador
+
+La placa publica cuatro claves de telemetría con las horas de uso **desde el
+último servicio registrado en el equipo** (`HMI,SERVICE_DONE`, ver
+`PROTOCOL.md`): `svc_heater_h`, `svc_fan_h`, `svc_hum_h` y `svc_photo_h`
+(enteras). Van en el grupo DIAG, así que hoy salen solo por GPRS
+(`TX_GROUP_DIAG_WIFI = 0`).
+
+No sustituyen a los contadores de vida útil (`Heater_active_time`, etc.): esos
+siguen publicándose sin tocar y **no se reinician al registrar un servicio**. Un
+widget de "servicio pendiente" compara `svc_*_h` con el umbral del actuador, que
+hoy es **provisional y está compilado en la placa**
+(`motherBoard/include/config/service_thresholds.h`: calefactor 5 000 h,
+ventilador 10 000 h, humidificador 2 000 h, fototerapia 10 000 h); el servidor no
+lo recibe, así que el dashboard tiene que llevar el mismo número hasta que el
+plan de mantenimiento del fabricante fije los definitivos.
+## 11. Configuración remota por atributos compartidos
+
+> **Estado actual (decisión del coordinador, 2026-10-25, revocable por el
+> usuario): por ThingsBoard solo se pueden cambiar los tres periodos GPRS.**
+> Los límites de seguridad (`air_tmax`, `skin_tmax`, `heater_amps`) y el
+> ventilador (`fan_supply_pwm`, `fan_ctl_pwm`, `fan_pid_en`) solo se cambian
+> **en local** (web `/config` o consola USB) hasta que haya TLS con
+> verificación de certificado. Motivo: el MQTT de esta placa va **en claro**
+> (puerto 1883, sin TLS), y cualquiera que esté en el camino —la WiFi del
+> hospital, el operador móvil, un AP falso— puede publicar en
+> `v1/devices/me/attributes` como si fuera el servidor; el token del
+> dispositivo también viaja en claro. Con periodos, lo peor es gastar datos de
+> la SIM; con un corte térmico, es una orden sobre un equipo que calienta a un
+> recién nacido. Interruptor: `RCFG_REMOTE_SAFETY_PARAMS` en
+> `motherBoard/src/modules/config/runtime_config_policy.h` (comentario largo con
+> lo que exige ponerlo a 1).
+
+Desde `mb-remote-config` los periodos de publicación GPRS de una unidad se
+cambian **desde ThingsBoard, sin visita**, escribiendo un **atributo
+compartido** (*shared attribute*) del dispositivo. Funciona igual por WiFi y por
+GPRS: la unidad se suscribe a los cambios y, además, los pide tras cada
+conexión, así que un valor escrito mientras estaba apagada se aplica al
+encender.
+
+| Atributo compartido | Tipo | Regla | Remoto hoy | Qué pasa fuera de rango |
+|---|---|---|:--:|---|
+| `gprs_act`, `gprs_photo`, `gprs_stby` | entero | 10..86400 s | sí | se **rechaza** |
+| `air_tmax`, `skin_tmax` | número | 34..40 °C | **no** (ver arriba) | web recorta; USB y remoto rechazan |
+| `heater_amps` | número | 1.0..12.0 A | **no** | se **rechaza** |
+| `fan_supply_pwm`, `fan_ctl_pwm` | entero | 1..255 | **no** | se **rechaza** |
+| `fan_pid_en` | `true`/`false` o 0/1 | solo esos | **no** | se **rechaza** |
+
+Un valor rechazado **no cambia nada** en la unidad. Las cadenas (`"38"`) se
+rechazan, y **un booleano solo vale en `fan_pid_en`**: `true` en `gprs_act` es un
+error de tipo, no un periodo de 1 s. Cualquier otra clave del dispositivo se
+ignora; **no existen** por esta vía `serial`, `reference_temp`, `set_time` ni el
+borrado de bebés. Si llega un atributo de seguridad (con el interruptor a 0) se
+ignora, queda un aviso en el log (`CFG`, `IGNORED`) y la unidad publica el
+atributo de cliente `cfg_rejected` con la clave. Ojo: la unidad solo *pide* y se
+*suscribe* a los tres periodos, así que ese aviso solo aparece si el atributo de
+seguridad llega en el mismo mensaje que uno de los periodos.
+
+**Qué mira el operador.** La unidad contesta con un **atributo de cliente del
+mismo nombre** con el valor que realmente tiene, así que el panel debe mostrar
+el *atributo de cliente*, no el compartido. Junto a cada valor llega
+`cfg_src_<clave>` con el origen y el epoch del último cambio
+(`"tb-gprs@1730000000"`; sin `@epoch` si el reloj no estaba sincronizado). El
+eco se publica también tras un cambio local (web o USB) y, con los nueve, cada
+vez que la unidad se conecta. Cada cambio efectivo deja además un evento de
+telemetría `cfg_change` con `{key, old, new, origin, epoch}` (auditoría).
+
+**Reaplicado al reconectar (qué gana: lo local o lo remoto).** La unidad
+recuerda en NVS, por clave, el último valor remoto que vio. Al conectar pide los
+atributos y **solo aplica un valor que difiere del último visto**: un reenvío de
+lo mismo no se vuelve a aplicar. Si alguien cambió después **en local** (web o
+USB) esa clave, el valor local **gana** y el reaplicado no lo pisa; el aviso
+queda en el log. Para volver a imponer lo remoto hay que **escribir de nuevo el
+atributo compartido estando la unidad conectada** (llega por la suscripción y
+levanta el cambio local; vale escribir el mismo valor, aunque no está verificado
+contra un ThingsBoard real que reenvíe la notificación si el valor no cambia).
+Un cambio local que deja el mismo valor no cuenta como cambio local.
+
+**Borrar un atributo compartido no revierte nada.** La unidad conserva el
+último valor aplicado; no vuelve al de fábrica ni al anterior. Para devolver un
+valor hay que escribirlo explícitamente.
+
+**Límites de ritmo.** Como mucho **un cambio por clave cada 10 s** desde
+ThingsBoard; si llega antes queda aplazado y se aplica al cumplirse el plazo.
+Cuando los parámetros de seguridad estén habilitados, además: no pueden subir
+por encima del valor de fábrica ni salirse de 34–40 °C, un corte por debajo de
+la consigna activa se rechaza, el ventilador se rechaza sin tacómetro o con el
+calefactor actuando (PWM mínimo `RCFG_FAN_PWM_REMOTE_MIN` = 80, **sin medir en
+banco**), y todo cambio de seguridad con terapia activa espera a standby.
+
+**Gotchas.**
+
+- El eco, el aviso `cfg_rejected` y `cfg_change` no son instantáneos: salen en
+  la siguiente pasada de la tarea de ThingsBoard (y un envío fallido se
+  reintenta a los 5 s), no dentro del callback.
+- Por GPRS cuesta unos cientos de bytes por conexión (petición + respuesta +
+  eco con origen y epoch, hasta ~600 B) y un evento `cfg_change` por cambio.
+- Todo esto es verificación manual contra un ThingsBoard real: no hay entorno de
+  test para la parte de red (ver el spec `mb-remote-config`).
+- **Pendiente (deuda):** avisar al operador en el HMI de que un límite o la
+  cadencia han cambiado por una vía remota. Queda fuera de esta rama.

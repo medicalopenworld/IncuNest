@@ -1,6 +1,6 @@
 #pragma once
 // Ajuste manual del reloj (HMI,SET_TIME, ver Firmware/PROTOCOL.md), abierto
-// al tocar la hora de cabecera (ui_ClockButton, ui_ScreenMain).
+// desde el menu del heading (MenuDialog, tarjeta FECHA Y HORA).
 //
 // Pop-up modal con teclado numerico, mismo patron que el paso de peso del
 // BabyWizard: la fecha y la hora arrancan EN BLANCO ("XX/XX/XX XX/XX") y el
@@ -17,7 +17,7 @@
 // pantalla activa sigue siendo el splash).
 void TimeDialog_Init(lv_obj_t *parent);
 
-// Abre el dialogo con la mascara vacia. Lo llama ClockButton_cb.
+// Abre el dialogo con la mascara vacia. Lo llama MenuDialog.
 void TimeDialog_Open(void);
 
 // True mientras el dialogo este visible. Lo consultan los overlays que

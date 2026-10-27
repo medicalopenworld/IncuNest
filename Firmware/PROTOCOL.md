@@ -108,8 +108,32 @@ Enviado **cada 1 segundo** (intercalado con `CTRL,TEL`) y además bajo petición
 > quedaba congelado con el valor del arranque. **Los campos de este mensaje son
 > estado vivo, no una instantánea de sincronización** — cualquier campo nuevo
 > debe poder asumir la cadencia de 1 Hz.
-**Formato**: `CTRL,STATE,act,mode,airSet,skinSet,humSet,photo,mute,sn,hwNum,hwRev,fwVer,numAlarms,skinE,commStatus,photoTimeRem,lang,probeState,alarmBitmask,silencedBitmask,almTest,silenceLeftS,linkBars`
+**Formato**: `CTRL,STATE,act,mode,airSet,skinSet,humSet,photo,mute,sn,hwNum,hwRev,fwVer,numAlarms,skinE,commStatus,photoTimeRem,lang,probeState,alarmBitmask,silencedBitmask,almTest,silenceLeftS,linkBars,latchedBitmask,activeSeq`
 
+> 24 campos. Hasta 2026-10-25 esta tabla listaba 22 y el código mandaba 23:
+> `latchedBitmask` viajaba sin documentar desde que se implementó el reset
+> manual de los cortes térmicos (`HMI,ALM_RESET`). `activeSeq` (campo 24) se
+> añadió el mismo día para confirmar la identidad del paciente.
+
+- `photo`: estado **real** de la lámpara de fototerapia en la placa
+  (`in3.phototherapy`, lo aplicado), no el eco de la última orden del display.
+  *(Cambio 2026-10-25, `known_issues.md` #20: hasta entonces la placa devolvía
+  `g_last_cmd.phototherapyMode`, así que cualquier desacuerdo entre lo pedido y
+  lo aplicado se pintaba mal.)* **Única excepción**: durante una prueba de
+  fototerapia de depuración (`PHOTO,1`, §consola) emite la **orden del
+  display**, no el ON forzado, para que el display no lo adopte (ver allí por
+  qué). El display ADOPTA este campo
+  (`Display_ApplyCtrlState`) y lo devuelve en su keepalive; entre que el
+  operador toca el switch y la placa aplica la orden, una trama puede salir con
+  el valor anterior, y el display mantiene su valor local hasta que la placa lo
+  confirma. `act`, `mode`, `airSet`, `skinSet`, `humSet` y `skinE` **siguen
+  siendo el eco** de la última orden del display: no tienen un valor «real»
+  equivalente de una línea (la placa guarda una única consigna según el modo).
+  La placa descarta una trama `HMI,...` cuyo `photo` no sea 0 o 1.
+  **Despliegue**: junto con esto la placa puede declarar `ALARM_PHOTO_LAMP_FAULT`
+  (id 20 en `alarmBitmask`); un display anterior descarta la línea `CTRL,ALM`
+  de ese id (`id >= ALARM_COUNT`) y el aviso no se vería en pantalla. **Flashear
+  el HMI antes que la motherBoard.**
 - `commStatus`: transporte activo y si llega a servidor (`CommStatus` enum: `0`=ninguno,
   `1`=GPRS sin servidor, `2`=GPRS+servidor, `3`=WiFi sin servidor, `4`=WiFi+servidor).
   Alimenta el icono WIFI/2G/sin enlace del heading del display, además de la
@@ -149,6 +173,28 @@ Enviado **cada 1 segundo** (intercalado con `CTRL,TEL`) y además bajo petición
   próxima y no una por condición porque esa es la pregunta que contesta —
   cuándo vuelve el sonido—; el estado silenciada/no de cada condición ya viaja
   en `silencedBitmask`.
+- `latchedBitmask`: (Hexadecimal) un bit por `AlarmId` con las condiciones
+  **enclavadas** esperando reconocimiento: su condición física ya se ha ido
+  pero siguen señalizando porque 60601-2-19 201.15.4.2.1 aa)/bb) exige que los
+  cortes térmicos operen hasta un reset manual. El display usa este campo para
+  ofrecer el botón de reset **solo cuando sirve de algo**; la decisión sigue
+  siendo de la placa (`HMI,ALM_RESET` pasa por `alarm_machine_reset()`, que
+  rechaza lo que no proceda). Campo añadido después de `linkBars`: una placa
+  antigua que no lo mande hace que el HMI asuma `0` (nada enclavado) y no
+  ofrezca el botón.
+- `activeSeq` (campo 24, `%u`): `seq` del perfil de bebé que la placa tiene **al
+  mando** (`babyStore_getActiveSeq()`), o `0` si no tiene ninguno. La placa lo
+  fija en el flanco de encendido de cualquier terapia, con el bebé del último
+  `PROFILE_NEW`/`PROFILE_SELECT`, y lo borra al apagarse todas; sobrevive a un
+  reinicio de la placa. Es lo que permite al HMI **contrastar** la identidad que
+  restauró de su NVS (`hmi-patient-identity`): un `seq` solo identifica a un
+  bebé dentro de una placa, y los `seq` de dos placas colisionan.
+  - **Compatibilidad**: campo final y opcional, como `linkBars`. Una placa
+    anterior no lo manda y el HMI lo interpreta como **desconocido**, no como
+    `0`: `0` significa «la placa no tiene bebé al mando», que es información, y
+    confundirlos haría borrar una identidad válida. Un HMI anterior ignora el
+    campo que le sobra. No exige actualizar las dos placas a la vez.
+  - Otras ramas añadirán campos detrás: el 24 queda reservado para `activeSeq`.
 
 #### CTRL,TEL (Telemetría en tiempo real)
 Enviado cada 1 segundo (intercalado con STATE).
@@ -201,10 +247,101 @@ repite: en su lugar viaja `CTRL,VIT`.
 - Un receptor que solo acepte un rango cerrado y **descarte** el resto se queda
   con el último `APPLIED` (fallo real corregido: la gráfica PPG no se ocultaba
   al quitar la sonda, cuando el `3` llegaba fuera de `0..2`).
+- **`0` también significa "sin señal del AFE"** (motherBoard desde mb-hw19, todas
+  las revisiones). Si el AFE4490 deja de entregar muestras durante más de 1 s,
+  la motherBoard **sintetiza `probe_state = 0` (`DISCONNECTED`)**: el último dato
+  (incluido un `2` anterior) está congelado y no debe seguir pintándose como
+  constante vital en vivo. El efecto sobre el enlace es el que ya tiene cualquier
+  estado distinto de `2`: se deja de emitir `CTRL,VIT` y `CTRL,PPG` y pasa a
+  emitirse `CTRL,PROBE,0` cada 2 s, que el HMI ya trata como "sin contacto
+  válido". El receptor no distingue "sonda sin enchufar" de "AFE parado"; la
+  causa va al log de la motherBoard y a la telemetría (`AFE_stalls`, a los
+  10 s). Al volver las muestras el estado real se restablece solo.
 - **Regla fail-safe para el receptor**: solo `2` habilita mostrar traza y HR.
   Cualquier otro valor parseable —incluido uno que esta versión no conozca—
   debe tratarse como "sin contacto válido"; nunca descartarse. Si la librería
   añade un estado, hay que reflejarlo aquí y en `spo2_probe.h`.
+
+#### CTRL,ENV (Entorno de la SensorBoard: puerta, luz y ruido)
+Enviado **solo por equipos con SensorBoard** (los antiguos, con el bus I2C2, no
+lo emiten y el display no pinta nada): **al instante** si cambia `link` o `door`
+y **cada 5 s** (`PROTO_ENV_PERIOD_MS`) si no hay cambios. También se re-envía
+al recibir `HMI,REQ,STATE`, para que un display recién arrancado no espere un
+periodo. No va a 1 Hz a propósito: es dato lento y no hay motivo para cargar la
+UART. No es un campo de `CTRL,STATE` porque esa línea va al filo de su buffer
+(`msg[192]`) y porque todo campo de `STATE` debe aguantar 1 Hz.
+
+**Formato**: `CTRL,ENV,link,door,lux,dbA`
+
+| campo | valores |
+|---|---|
+| `link` | `1` enlace USB con la SensorBoard vivo (heartbeat < 90 s); `0` caído |
+| `door` | `0` cerrada, `1` abierta, `2` fallo del hall (la condición de `ALARM_SENSORBOARD_DOOR_FAULT`), `-1` desconocida |
+| `lux` | entero ≥ 0, o `-1` |
+| `dbA` | entero ≥ 0, o `-1` |
+
+- **No disponible = `-1`, nunca `0`** (mismo criterio que `CTRL,TEL`: `0` es un
+  valor plausible y se lee como medida). Con `link=0` los tres viajan como `-1`
+  (`CTRL,ENV,0,-1,-1,-1`): no se manda la última lectura buena. Un `lux` o `dbA`
+  rancio (más viejo que `SB_ENV_STALE_MS`/`SB_SOUND_STALE_MS`) o marcado no
+  válido también es `-1`; una puerta sin evento reciente
+  (`SB_DOOR_STALE_MS`) es `-1`, y `door=2` manda sobre el último estado.
+- **`lux` y `dbA` van sin calibrar** (`SensorBoard_v2/ESTADO.md`: el micrófono da
+  ~60 dB en reposo y el ALS no tiene conversión a lux fiable). El display **no
+  los pinta como medida**: clasifica el ruido en Bajo/Medio/Alto con umbrales
+  provisionales (`<65`, `65..74`, `>=75` dBA crudos, en `sb_env.h`) y no usa la
+  luz. Al calibrar hay que sustituir esos umbrales.
+- Constantes compartidas en `shared/include/protocol.h` (`PROTO_ENV_*`). La línea
+  mide como mucho `PROTO_ENV_LINE_MAX` (39) caracteres más el `\n`.
+- **Compatibilidad**: un display que no conozca el mensaje ignora la línea (cae
+  al final de la cadena de `parse_message`); un display nuevo con una placa que no
+  lo envíe no pinta nada. El parser del HMI es estricto con los cuatro primeros
+  campos y tolera campos extra al final. Un `CTRL,ENV` rancio (> 15 s) se ignora
+  en el display.
+- Es solo informativo: la puerta **no** entra en el lazo térmico ni genera alarmas
+  nuevas. El fallo del hall ya lo señaliza `ALARM_SENSORBOARD_DOOR_FAULT`.
+
+#### CTRL,BATT (Indicador de batería)
+> **Desactivado hoy** (`PROTO_BATT_ENABLED 0` en `shared/include/protocol.h`,
+> 2026-10-28): la motherBoard no envía la línea y el display no crea el
+> indicador hasta que la batería entre en fabricación. Hay equipos con un
+> adaptador de 12 V en los bornes de la batería, donde el cargador ve una
+> "batería" sin red. Lo que sigue describe el comportamiento con el flag a 1.
+
+Enviado **solo por equipos con cargador BQ25730** (HW ≥ 17) y solo cuando el
+estado es conocido: **al instante** si cambia `state` o `level`, **cada 5 s**
+(`PROTO_BATT_PERIOD_MS`) si no, y de nuevo al recibir `HMI,REQ,STATE`. Lo estima
+la motherBoard (`modules/control/battery_gauge.h`) con cada lectura completa
+del cargador (1 Hz).
+
+**Formato**: `CTRL,BATT,state,level,pct`
+
+| campo | valores |
+|---|---|
+| `state` | `1` descargando (sin red), `2` cargando (con red, absorción), `3` lleno (con red, flotación). `0` (desconocido) no se envía |
+| `level` | rayas `0..4` según `pct` (≥75/50/25/10). En `3` vale `4` |
+| `pct` | `0..100`. Cargando, como mucho `99` |
+
+- **Sin red, estimación por tensión**: tensión de la batería corregida por la
+  caída resistiva (`Idescarga × 50 mΩ`), media móvil de ~8 s y curva de reposo
+  de una batería de plomo de 12 V. Al empezar la descarga se toma el menor entre
+  eso y el último porcentaje conocido; durante la descarga solo baja.
+- **Con red, por la carga que entra**: desde el último porcentaje conocido se
+  suma la corriente de carga integrada sobre 9 Ah con un 85 % de rendimiento,
+  con tope en 99 % hasta la flotación (100 %). El último porcentaje se guarda en
+  NVS (`batt`/`pct`) cada 5 puntos y sobrevive a un apagado; sin nada guardado
+  se parte de 0. El display pinta, cargando, una raya fija por cada cuarto
+  completo (`pct / 25`, como mucho 3) y hace parpadear la siguiente.
+- Error típico de 10–20 puntos.
+- Constantes en `shared/include/protocol.h` (`PROTO_BATT_*`). La línea mide como
+  mucho `PROTO_BATT_LINE_MAX` (24) caracteres más el `\n`.
+- **Compatibilidad**: un display que no lo conozca ignora la línea; un display
+  nuevo con una placa que no lo envíe pinta la pila vacía en ámbar mientras esté
+  activa `ALARM_MAINS_INTERRUPTION`, y nada en otro caso. El parser del HMI es
+  estricto con los tres primeros campos y tolera campos extra al final. Un
+  `CTRL,BATT` rancio (> 15 s) se ignora.
+- Solo informativo: la alarma de corte de red es `ALARM_MAINS_INTERRUPTION` y no
+  depende de esta línea.
 
 #### CTRL,PPG (Onda pletismográfica)
 Enviado a 25 Hz (cada 40 ms) **solo** cuando el estado de sonda es `2`.
@@ -407,6 +544,30 @@ Descripción de una alarma concreta, ya traducida.
   `known_issues.md` #2 documenta una inundación real de UART por tráfico
   periódico evitable.
 
+#### CTRL,SERVICE (Horas de uso desde el último servicio)
+Aviso de servicio por horas de uso de cada actuador con vida útil acotada. Es
+**información, no una alarma**: no hay `AlarmId` ni suena el zumbador.
+**Formato**: `CTRL,SERVICE,n{,id,horasDesdeServicio,umbralHoras}×n`
+- `n`: número de entradas (0 a 4). `id`: 0 calefactor, 1 ventilador,
+  2 humidificador, 3 fototerapia (`ServiceActuator` en
+  `shared/include/service_hours_proto.h`; solo se añaden ids al final).
+- `horasDesdeServicio`: horas de uso enteras (hacia abajo) desde el último
+  `HMI,SERVICE_DONE` de ese actuador, es decir, contador de vida − base. Si el
+  contador de vida es menor que la base (NVS borrada), vale el contador.
+  `umbralHoras`: umbral compilado en la placa
+  (`motherBoard/include/config/service_thresholds.h`, provisionales); **0 = sin
+  aviso** para ese actuador. Vencido = `horas >= umbral`.
+- Ejemplo: `CTRL,SERVICE,4,0,12,5000,1,30,10000,2,2001,2000,3,0,10000`
+- Se envía al recibir `HMI,UI_READY`, al recibir `HMI,SERVICE_REQ`, tras
+  registrar un `HMI,SERVICE_DONE` (con los valores ya actualizados, que hace de
+  confirmación) y cada hora. No va dentro de `CTRL,STATE`.
+- El HMI descarta la línea entera si es malformada (n incoherente con los
+  campos, no numérico, id desconocido o repetido) y conserva el último estado
+  válido.
+- Los contadores de vida útil (NVS `heater_t`, `fan_t`, `hum_t`, `photo_t`;
+  telemetría `*_active_time`) NO se reinician al registrar un servicio y se
+  siguen publicando tal cual a ThingsBoard.
+
 ### 2. Mensajes del Display (HMI → MCU)
 
 #### HMI,UI_READY (Handshake Crítico)
@@ -503,6 +664,21 @@ Curva de peso de cualquier bebé (activo o archivado).
 Registro completo de alarmas (últimas 10).
 **Formato**: `HMI,ALM_HISTORY_REQ` → `CTRL,ALM_HISTORY`
 
+#### HMI,SERVICE_REQ
+Pide el estado de servicio por horas ahora (el HMI lo manda al abrir la vista de
+servicio y, cada 30 s, mientras no haya recibido ningún informe).
+**Formato**: `HMI,SERVICE_REQ` → `CTRL,SERVICE`
+
+#### HMI,SERVICE_DONE
+Registra que se ha hecho el servicio de un actuador.
+**Formato**: `HMI,SERVICE_DONE,id` → `CTRL,SERVICE` (ya actualizado)
+- La placa guarda en NVS (`mb_rt`) las horas de vida actuales del actuador como
+  base (`svc_b_heater`, `svc_b_fan`, `svc_b_hum`, `svc_b_photo`, float) y el
+  epoch UTC del servicio (`svc_e_*`, uint32; 0 si no hay hora válida). Si la
+  escritura falla no cambia nada y no hay respuesta.
+- `id` fuera de `[0, 4)`, vacío o no numérico se descarta con log, sin efecto.
+- El HMI exige dos pasos (HECHO y CONFIRMAR) y no lo manda en modo formación.
+
 #### HMI,ALM_DESC_REQ
 Descripción de una alarma concreta, para el pop-up de detalle.
 **Formato**: `HMI,ALM_DESC_REQ,id` → `CTRL,ALM_DESC`
@@ -518,6 +694,24 @@ AUDIO PAUSED de **una** condición concreta.
   inactivation state"*).
 - Silenciar una condición no afecta a las demás (6.8.1).
 - `id` fuera de rango o línea malformada: descarte con log.
+
+#### HMI,ALM_RESET
+Reset manual de una condición **enclavada** (los cortes térmicos, latching
+según 60601-2-19 201.15.4.2.1 aa)/bb)) cuya condición física ya ha
+desaparecido.
+**Formato**: `HMI,ALM_RESET[,id]` (sin respuesta propia; si algo se resetea la
+placa fuerza un `CTRL,STATE` inmediato para que el botón no parezca inerte, y
+el efecto se observa en `latchedBitmask` y `alarmBitmask`)
+- Sin `id`, o con `id=0`: resetea todas las condiciones enclavadas que se dejen.
+- Con `id`: solo esa condición.
+- La política vive en un único sitio, `alarm_machine_reset()`: rechaza la
+  petición si la condición no es latching o si **su condición sigue
+  presente**. El operador no puede hacer desaparecer un aviso vivo pulsando un
+  botón; solo reconoce uno que ya se ha resuelto.
+- Una condición que no esté enclavada se ignora sin error. Resultado
+  (reseteadas/rechazadas) en el log `[ALARM] ALM_RESET`.
+- El display solo ofrece el botón cuando `latchedBitmask` de `CTRL,STATE`
+  tiene algún bit a 1.
 
 #### HMI (trama de estado periódica)
 El display manda su trama **al menos cada 1 s** (`HMI_KEEPALIVE_PERIOD_MS`),
@@ -561,17 +755,46 @@ probar el lazo de intensidad en banco.
   actuador sobre un paciente; la consola exige acceso físico al USB de la
   placa, y `/debug/*` se alcanza desde toda la red con una contraseña que viaja
   en claro (`known_issues.md` #16).
-- Se aplica con la siguiente trama del display (≤1 s), en el mismo camino que
-  una orden real, así que lo que se prueba es el lazo de producción.
-- **Nada de la prueba se guarda.** Durante la sesión y durante una ventana de
-  gracia de 5 s al soltarla no se escribe `photo_active` en NVS: una caída a
-  mitad de sesión vuelve con la fototerapia apagada (verificado en banco).
-- Soltar (con `PHOTO,0` o apagando el modo) devuelve la fototerapia a como
-  estaba antes de la prueba, no siempre a apagado.
+- Se aplica en el siguiente tick de la placa (no espera ninguna trama del
+  display), por el mismo camino que una orden real, así que lo que se prueba es
+  el lazo de producción.
+- **El ON forzado de la prueba nunca se guarda** en NVS (solo vive en
+  `in3.phototherapy`): una caída a mitad de sesión vuelve sin él. Las órdenes
+  del display **sí se guardan**, también durante la prueba, porque como el
+  campo `photo` emite esa misma orden nunca vienen contaminadas por el ON
+  forzado; al soltar se guarda además el valor aplicado.
+- **Durante la prueba, la pantalla NO muestra el ON de depuración**: el campo
+  `photo` de `CTRL,STATE` emite la **orden del display** (la última del
+  operador), no el ON forzado. Es a propósito: el display ADOPTA ese campo y lo
+  devuelve en su keepalive, y si adoptase el ON de la prueba habría que
+  neutralizar un 1 rancio al soltar. Una ventana fija de 5 s y después una
+  confirmación con plazos no lo aguantaron (con el temporizador vencido durante
+  la liberación el ON se auto-confirmaba y se guardaba como sesión continua, un
+  OFF del operador se perdía, y una trama rancia del anillo de RX del display
+  se colaba). Quitada la raíz, no hay nada que neutralizar. El ON de la prueba
+  se ve en `GET /debug/state` (`ctl.photo_dbg`) y en el log.
+- Durante la prueba las órdenes del display **se registran** (no se aplican), y
+  la caducidad del temporizador de fototerapia cuenta como una orden de
+  apagado. **Soltar** (con `PHOTO,0` o apagando el modo) aplica en el
+  acto —sin ventana de gracia ni confirmación— la **última orden del display**
+  (la del operador manda; si no hubo ninguna, la que había al empezar), sin
+  esperar ninguna trama: con la tarea Comm del display atascada
+  (`known_issues.md` #7) la lámpara también se apaga.
 - Estado en `GET /debug/state`: `ctl.photo_dbg` (1 mientras dure la prueba).
-- Aviso: mientras dura la prueba, **la pantalla muestra la fototerapia
-  apagada** aunque la lámpara esté encendida — el campo `photo` de `CTRL,STATE`
-  es el eco de la orden del display (`known_issues.md` #20).
+- **Caducidad del temporizador de fototerapia** (dentro y fuera de la prueba):
+  tras vencer, la placa IGNORA un `HMI,...` con `photo=1` y sin minutos
+  (`photoMin<=0`) hasta ver un `photo=0`; una sesión nueva con minutos
+  (`photo=1`, `photoMin>0`) se acepta siempre. Es una trama que el display tenía
+  en vuelo, o retenida hasta 10 s por su guarda de confirmación, y que de otro
+  modo reenciende la lámpara recién caducada. Lógica en
+  `modules/control/photo_expiry_latch.h`.
+- Efectos secundarios conocidos de la prueba: los minutos de una terapia real
+  que ya estuviera ON al empezar no cuentan por bebé
+  (`updateTherapyAccounting`, que exige lámpara aplicada, sin prueba activa y
+  sin `ALARM_PHOTO_LAMP_FAULT`); `timeTrackHandler` NO suma la prueba a las
+  horas de fototerapia, pero la telemetría `Phototherapy_active` sí la publica
+  como activa (es el estado real); y con la prueba activa puede verse un fallo
+  de lámpara (`ALARM_PHOTO_LAMP_FAULT`) mientras el campo 8 dice OFF.
 - Lógica en `modules/control/photo_override.h`, con test de host
   (`test/test_photo_override`).
 

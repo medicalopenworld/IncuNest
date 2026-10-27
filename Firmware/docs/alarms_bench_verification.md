@@ -305,8 +305,8 @@ de hora chocaba con el de resolución.
   las pantallas**, y el número **baja segundo a segundo**.
 - El botón dice **REANUDAR** en verde; al pulsarlo el audio vuelve de inmediato.
 - A los 10 minutos el audio vuelve solo y el botón se ofrece otra vez.
-- La fila del corte de red sale con **NO SILENCIABLE** desactivado y no se
-  puede callar: 201.12.3.103 exige 10 min de aviso y la pausa dura justo eso.
+- La fila del corte de red se silencia como las demás (desde 2026-10-26); su
+  banner y el icono de batería del bloqueo siguen a la vista.
 
 **Si falla.** Consulta la tabla de descartes de `known_issues.md` #6 antes de
 investigar nada. El silencio en la placa, el formato, el `sscanf`, la longitud
@@ -466,6 +466,56 @@ llamar a `lv_label_set_text()` y `lv_obj_move_foreground()` incondicionalmente.
 
 ---
 
+### 19. Corte de red (ALARM_MAINS_INTERRUPTION) — pendiente
+
+Detector de `mains_detector` más el indicador «en batería». Necesitas el log de
+la placa a la vista, el equipo en terapia (control de aire y fototerapia) y un
+cronómetro. Enchufa y desenchufa **el cable de red del equipo**, no la batería.
+
+| Prueba | Cómo | Debe salir |
+|---|---|---|
+| Corte sostenido | desenchufa la red y espera | a los ≈ 10 s: `CORTE DE RED` ALTA, zumbador, pop-up e indicador **BATERIA** en Main y en Lock; la terapia **sigue** |
+| Cortes breves | enchufa y desenchufa rápido, varias veces, cada corte < 5 s | no sale ningún aviso |
+| Retorno de red (caso 3) | corte de ~1 min y vuelve la red | **ya no se mantiene 10 min**: el aviso y el indicador se retiran a los ≈ 30 s del retorno (6 lecturas con red seguidas); sin retirada y levantada espuria en el historial de alarmas ni audio que se rearme |
+| Retorno largo (caso 4) | corte de 12 min y vuelve la red | igual: se retira a los ≈ 30 s del retorno |
+| Reinterrupción (caso 5) | red de vuelta a los 3 min y nuevo corte a los 5 | sale de nuevo a los ≈ 10 s del segundo corte (entre medias se retiró: es lo esperado con plazo 0) |
+| Reconfiguración del cargador | vuelve la red con el log a la vista | el cargador se sigue leyendo (`BQ_ac`), `chargerPresent` no baja y la vigilancia continúa |
+| Cargador mudo | con la alarma declarada, desconecta el BQ25730 del bus I2C | la alarma **se mantiene**; a los 30 s hay `logE` y `charger_comm_fault` = true en DIAG por GPRS |
+| Fuente intermitente | enchufa y desenchufa la red cada ~20 s (corte de 10 s, red de 10 s) durante varios minutos | la alarma se declara y **se mantiene continua**: no oscila ni genera una retirada y levantada por ciclo en el historial |
+| Chip mudo al arrancar | arranca con el BQ25730 desconectado del bus I2C (placa HW 17+) y conéctalo a los 2 min | a los 30 s `logE` y `charger_comm_fault` (no «sin cargador»); al volver el chip se configura solo en el siguiente reintento (esperas 5, 10, 20... s hasta 5 min) y la batería carga |
+| Configuración fallando | fuerza fallos de la reconfiguración al volver la red (p. ej. con el bus ruidoso) | un `logE` por episodio y luego uno cada 5 min, no uno cada 5 s; **lee el registro 0x04 (MaxChargeVoltage) tras un ciclo de red con la reconfiguración fallando**: tiene que valer lo configurado (14,4 V de absorción) o, si no se llegó a escribir, el valor de fábrica; hay que descartar sobrecarga con ese valor de fábrica |
+| Silenciable | pulsa silenciar durante el aviso | el audio se pausa 10 min; el banner y el icono de batería siguen; si sigue sin red, vuelve a sonar (prioridad MEDIA) |
+| Sin cargador | placa sin BQ25730 | nunca hay aviso; un `logE` al arrancar |
+
+**Indicador.** En Main solo hay **icono** (la palabra pisaba la fecha); en Lock,
+icono y palabra. **Haz una captura del heading de Main en ES y en FR, con la
+fecha puesta y también sin hora («Sans heure»)**, y comprueba que el icono no
+pisa ni la hora ni la fecha. En Lock comprueba en ES, EN, FR y PT que la
+palabra cabe en el hueco del botón de ayuda sin tocar el reloj. Debe
+desaparecer en cuanto la placa confirma el retorno de la red y no debe verse
+con el cable del enlace entre placas desconectado.
+
+**Qué mirar de más.** Que en el corte la hora del reloj y el resto de la
+pantalla no parpadeen (el indicador solo repinta al cambiar) y que no salga
+ninguna otra alarma por el corte (por ejemplo la de subtensión de
+alimentación, `ALARM_SUPPLY_UNDERVOLTAGE`).
+
+---
+
+### 20. Reserva de energía del aviso de corte de red — pendiente (hardware)
+
+Es lo que el firmware **no** puede resolver (201.12.3.103 pide 10 min):
+
+- Con el equipo en terapia y **sin red**, mide cuánto aguanta vivo y sonando; el
+  objetivo es ≥ 10 min con la batería a nivel de servicio.
+- Confirma que **el zumbador y el micro cuelgan de VSYS** y no de la entrada de
+  red: si el zumbador se alimenta de la entrada, en el corte no suena aunque el
+  firmware declare la alarma.
+- Con la rev. V19, comprueba que `MAINS_OK_PIN` y el registro `ac_present`
+  coinciden en el corte y en el retorno (el diseño combina ambos con un AND).
+
+---
+
 ## Fuera del alcance del banco
 
 Requieren laboratorio o hardware que no existe todavía:
@@ -474,8 +524,9 @@ Requieren laboratorio o hardware que no existe todavía:
   compartimento (201.9.6.2.1.103). Tiran en sentidos opuestos.
 - **Corte térmico independiente del termostato** (201.15.4.2.1 aa): hoy el
   corte lee el mismo sensor que el PID. Exige un segundo canal físico.
-- **Alarma de corte de red durante 10 min** (201.12.3.103): exige reserva de
-  energía dedicada.
+- **Alarma de corte de red durante 10 min** (201.12.3.103): el detector de
+  firmware existe (casos 19 y 20); lo que sigue sin existir es la reserva de
+  energía dedicada que sostenga el aviso sin red.
 - **Cortocircuito en la sonda de piel** (201.12.3.102): el timeout no lo
   detecta.
 - **Prueba de función de alarma para el operador** (201.12.3.105): no

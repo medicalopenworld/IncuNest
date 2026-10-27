@@ -41,6 +41,17 @@ constexpr char HMI_KEY_MNT_EN[]       = "mnt_en";      // avisos on/off
 constexpr char HMI_KEY_MNT_SNOOZE[]   = "mnt_snooze";  // epoch fin del "mas tarde"
 constexpr char HMI_KEY_MNT_SEQ[]      = "mnt_seq";     // ultimo bebe visto al mando
 constexpr char HMI_KEY_MNT_TPEND[]    = "mnt_tpend";   // alta sin terminal hecha
+constexpr char HMI_KEY_SVC_EN[]       = "svc_en";      // aviso de servicio on/off (defecto ON)
+
+// Recordatorio de pesada diaria (modules/maintenance/weigh_tracker). Epochs
+// UTC, como mnt_*. El protocolo no da el epoch de la ultima pesada, asi que
+// el HMI lo sella al enviarla; cada sello va con el seq al que pertenece.
+constexpr char HMI_KEY_WGH_SEQ[]     = "wgh_seq";     // bebe del sello de pesada
+constexpr char HMI_KEY_WGH_LAST[]    = "wgh_last";    // epoch ultima pesada real
+constexpr char HMI_KEY_WGH_SEEN_SEQ[] = "wgh_sseq";   // bebe del "visto"
+constexpr char HMI_KEY_WGH_SEEN_AT[] = "wgh_sfirst";  // epoch 1a vez al mando
+constexpr char HMI_KEY_WGH_SNOOZE[]  = "wgh_snooze";  // epoch fin del "mas tarde"
+constexpr char HMI_KEY_WGH_EN[]      = "wgh_en";      // aviso on/off (def. ON)
 
 // Zona horaria y procedencia de lo ultimo escrito en el RTC (PCF8563).
 //
@@ -60,6 +71,17 @@ constexpr char HMI_KEY_MNT_TPEND[]    = "mnt_tpend";   // alta sin terminal hech
 //   bits 8-11  tzsrc     (TzSource: 0=desconocido, 1=NITZ, 2=IP, 3=manual)
 //   bits 12-15 src       (Proto_TimeSource del epoch escrito en el chip)
 constexpr char HMI_KEY_RTC_TZ[] = "rtc_tz";
+
+// Bebe al mando (modules/patient, state/patient_state). El HMI conserva el bebe
+// activo entre reinicios porque la placa lo conserva y reanuda sus terapias.
+// Cada clave es UN blob (no un campo por clave), por el mismo motivo que
+// `rtc_tz`: la NVS no es transaccional, y con claves sueltas un corte dejaria
+// el nombre de un bebe junto a los minutos de otro. Formato y version en
+// modules/patient/patient_session.h.
+//   pat_id   : identidad (seq, nombre, semanas, ageDays + epoch de captura)
+//   pat_ther : segundos acumulados de foto/termo/humedad del mismo seq
+constexpr char HMI_KEY_PAT_ID[]   = "pat_id";
+constexpr char HMI_KEY_PAT_THER[] = "pat_ther";
 
 // --------------- Keys: hmi_wifi ---------------
 constexpr char HMI_KEY_SSID[]     = "ssid";
