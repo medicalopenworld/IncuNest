@@ -1079,20 +1079,16 @@ static lv_obj_t *heading_icon(lv_obj_t *parent, const lv_img_dsc_t *src) {
 }
 
 // Indicador del entorno de la SensorBoard (ver ui_HeadingEnv_t) en el heading
-// del bloqueo: fila de PUERTA ABIERTA (icono + palabra) y fila de NIVEL DE
-// RUIDO (altavoz con 1-3 ondas + Bajo/Medio/Alto). Nace oculto;
-// sb_env_heading_update() (UITask.cpp) decide que filas se ven, con que color,
-// icono y texto.
+// del bloqueo: PUERTA ABIERTA (icono + palabra). Nace oculto;
+// sb_env_heading_update() (UITask.cpp) decide si se ve.
 //
-// Contenedor de 90x48 en dos filas fijas de 24 px (puerta arriba, ruido
-// abajo): fijas, no centradas, para que el ruido no salte de fila al abrirse
-// la puerta. Icono a la izquierda y palabra en montserrat_14 desde x=28; la
-// mas ancha es "Ouverte" (~55 px), 28 + 55 = 83 < 90.
+// Una fila de 90x24. Icono a la izquierda y palabra en montserrat_14 desde
+// x=28; la mas ancha es "Ouverte" (~55 px), 28 + 55 = 83 < 90.
 static void create_heading_env_indicator(lv_obj_t *parent, lv_align_t align,
                                          lv_coord_t x, lv_coord_t y,
                                          ui_HeadingEnv_t *out) {
   out->cont = env_plain_obj(parent);
-  lv_obj_set_size(out->cont, 90, 48);
+  lv_obj_set_size(out->cont, 90, 24);
   lv_obj_set_align(out->cont, align);
   lv_obj_set_x(out->cont, x);
   lv_obj_set_y(out->cont, y);
@@ -1107,16 +1103,6 @@ static void create_heading_env_indicator(lv_obj_t *parent, lv_align_t align,
   lv_obj_set_x(out->doorIcon, 2);
   out->doorText = env_label(out->doorRow, &lv_font_montserrat_14);
   lv_obj_set_x(out->doorText, 28);
-
-  out->noiseRow = env_plain_obj(out->cont);
-  lv_obj_set_size(out->noiseRow, 90, 24);
-  lv_obj_set_align(out->noiseRow, LV_ALIGN_TOP_LEFT);
-  lv_obj_set_y(out->noiseRow, 24);
-  out->noiseIcon = heading_icon(out->noiseRow, &ui_img_heading_noise_mid);
-  lv_obj_set_align(out->noiseIcon, LV_ALIGN_LEFT_MID);
-  lv_obj_set_x(out->noiseIcon, 0);
-  out->noiseText = env_label(out->noiseRow, &lv_font_montserrat_14);
-  lv_obj_set_x(out->noiseText, 28);
 }
 
 // Boton del heading de Main: cuadrado azul de accion (0x0075EE, el de los

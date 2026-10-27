@@ -8,6 +8,12 @@ AlarmPriority alarm_priority(AlarmId id) {
     case ALARM_SKIN_SENSOR_FAULT_SKIN_MODE:
     case ALARM_FAN_FAILURE:
     case ALARM_AIR_OUTLET_BLOCKED:
+    // PROVISIONAL hasta el expediente de riesgos (2026-10-27). A diferencia
+    // del corte de red (MEDIA, onset diferido), aqui quedan ~10-15 min antes
+    // de que se apague el equipo entero, sistema de alarmas incluido: despues
+    // ya no habra aviso del enfriamiento. Es la unica ALTA que NO corta el
+    // calefactor (alarm_cuts_heater): cortarlo adelantaria ese enfriamiento.
+    case ALARM_BATTERY_LOW:
       return ALARM_PRIORITY_HIGH;
 
     // Decision del responsable del producto (2026-10-26), a revisar en el
@@ -39,6 +45,9 @@ AlarmPriority alarm_priority(AlarmId id) {
     case ALARM_SKIN_SENSOR_FAULT_AIR_MODE:
     case ALARM_HUMIDITY_DEVIATION:
     case ALARM_SENSORBOARD_DOOR_FAULT:
+    // Ruido ambiental sostenido: estres y alteracion del sueno del bebe, sin
+    // lesion inmediata. Un aviso para bajar el ruido de la sala.
+    case ALARM_NOISE_HIGH:
       return ALARM_PRIORITY_LOW;
 
     default:

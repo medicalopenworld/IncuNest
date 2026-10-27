@@ -844,9 +844,8 @@ void connectivity_heading_update(void) {
                                 &lastSignatureLock);
 }
 
-// Indicador del entorno de la SensorBoard en el heading: puerta ABIERTA y nivel
-// de RUIDO (Bajo/Medio/Alto), solo en el heading del bloqueo (en Main no hay
-// hueco). Solo informativo.
+// Indicador del entorno de la SensorBoard en el heading: puerta ABIERTA, solo
+// en el heading del bloqueo (en Main no hay hueco). Solo informativo.
 //
 // Que se pinta lo decide sbenv_view() (sb_env.cpp, con test de host): nada si el
 // equipo no tiene SensorBoard (nunca llega CTRL,ENV), si el dato esta rancio o
@@ -872,65 +871,28 @@ static void apply_heading_env(const ui_HeadingEnv_t *w, const SbEnvView &v,
                               uint32_t *lastSig) {
   if (!w->cont) return;
 
+  // El ruido ya no se pinta (2026-10-27): lo vigila la alarma BAJA
+  // ALARM_NOISE_HIGH de la motherBoard, y un indicador permanente de
+  // Bajo/Medio/Alto era informacion que nadie tenia que mirar.
   const bool showDoor = v.doorOpen;
-  const bool showNoise = v.noise != SBENV_NOISE_NONE;
 
-  const uint32_t sig = (showDoor ? 1u : 0u) |
-                       ((showNoise ? (uint32_t)v.noise : 0u) << 1) |
-                       (((uint32_t)g_lang & 0xFu) << 4);
+  const uint32_t sig = (showDoor ? 1u : 0u) | (((uint32_t)g_lang & 0xFu) << 4);
   if (sig == *lastSig) return;
   *lastSig = sig;
 
-  if (!showDoor && !showNoise) {
+  if (!showDoor) {
     lv_obj_add_flag(w->cont, LV_OBJ_FLAG_HIDDEN);
     return;
   }
   lv_obj_clear_flag(w->cont, LV_OBJ_FLAG_HIDDEN);
 
-  // Blanco = informativo; amarillo = merece atencion (puerta abierta, ruido
-  // alto), sobre el fondo oscuro del bloqueo. El texto lleva siempre la
-  // palabra: el color solo no basta. Los iconos son blanco + alfa y se tinen
-  // con img_recolor.
-  static const lv_color_t WHITE = lv_color_hex(0xFFFFFF);
+  // Amarillo = merece atencion, sobre el fondo oscuro del bloqueo. El texto
+  // lleva siempre la palabra: el color solo no basta. El icono es blanco +
+  // alfa y se tine con img_recolor.
   static const lv_color_t ALERT = lv_color_hex(0xFFD400);
-
-  if (showDoor) {
-    lv_obj_clear_flag(w->doorRow, LV_OBJ_FLAG_HIDDEN);
-    lv_label_set_text(w->doorText, TR(STR_ENV_DOOR_OPEN));
-    lv_obj_set_style_text_color(w->doorText, ALERT, LV_PART_MAIN);
-    lv_obj_set_style_img_recolor(w->doorIcon, ALERT, LV_PART_MAIN);
-  } else {
-    lv_obj_add_flag(w->doorRow, LV_OBJ_FLAG_HIDDEN);
-  }
-
-  if (showNoise) {
-    lv_obj_clear_flag(w->noiseRow, LV_OBJ_FLAG_HIDDEN);
-    // Ondas del altavoz: 1 bajo, 2 medio, 3 alto.
-    const lv_img_dsc_t *icon = &ui_img_heading_noise_mid;
-    const char *word = TR(STR_ENV_NOISE_MID);
-    lv_color_t color = WHITE;
-    switch (v.noise) {
-    case SBENV_NOISE_LOW:
-      icon = &ui_img_heading_noise_low;
-      word = TR(STR_ENV_NOISE_LOW);
-      break;
-    case SBENV_NOISE_HIGH:
-      icon = &ui_img_heading_noise_high;
-      word = TR(STR_ENV_NOISE_HIGH);
-      color = ALERT;
-      break;
-    case SBENV_NOISE_MID:
-    case SBENV_NOISE_NONE:
-    default:
-      break;
-    }
-    lv_img_set_src(w->noiseIcon, icon);
-    lv_label_set_text(w->noiseText, word);
-    lv_obj_set_style_img_recolor(w->noiseIcon, color, LV_PART_MAIN);
-    lv_obj_set_style_text_color(w->noiseText, color, LV_PART_MAIN);
-  } else {
-    lv_obj_add_flag(w->noiseRow, LV_OBJ_FLAG_HIDDEN);
-  }
+  lv_label_set_text(w->doorText, TR(STR_ENV_DOOR_OPEN));
+  lv_obj_set_style_text_color(w->doorText, ALERT, LV_PART_MAIN);
+  lv_obj_set_style_img_recolor(w->doorIcon, ALERT, LV_PART_MAIN);
 }
 
 static void sb_env_heading_update(void) {

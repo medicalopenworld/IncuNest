@@ -1294,6 +1294,12 @@ void switchAlarmTelemetryWIFI(int alarm, bool value) {
   case ALARM_PHOTO_LAMP_FAULT:
     alarmKey = ALARM_PHOTO_LAMP_FAULT_KEY;
     break;
+  case ALARM_BATTERY_LOW:
+    alarmKey = ALARM_BATTERY_LOW_KEY;
+    break;
+  case ALARM_NOISE_HIGH:
+    alarmKey = ALARM_NOISE_HIGH_KEY;
+    break;
   default:
     return;
   }

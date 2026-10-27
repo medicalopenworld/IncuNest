@@ -33,6 +33,8 @@
 #include "modules/control/alarm_machine.h"
 #include "modules/control/fan_guard.h"
 #include "modules/control/mains_detector.h"
+#include "modules/control/battery_gauge.h"
+#include "modules/control/noise_detector.h"
 #include "system/hw_selftest.h"
 #include "modules/debug/debug_mode.h"
 #include "modules/control/alarm_test.h"
@@ -1224,6 +1226,38 @@ static void checkMainsInterruption()
   alarm_machine_condition(ALARM_MAINS_INTERRUPTION, present, millis());
 }
 
+// ALARM_BATTERY_LOW: sin red y con la carga estimada al BATT_GAUGE_LOW_PCT o
+// menos. Lee el estado que publica sensors_Task (g_batt_report, una escritura
+// de 32 bits). Sin cargador el estado es desconocido y no declara nunca.
+static void checkBatteryLow()
+{
+  extern volatile uint32_t g_batt_report;
+  const bool present =
+      !g_factoryTestActive && battery_gauge_report_low(g_batt_report);
+  alarm_machine_condition(ALARM_BATTERY_LOW, present, millis());
+}
+
+// ALARM_NOISE_HIGH: lo decide el detector que alimenta la tarea de la
+// SensorBoard con cada lectura de sonido (sensorboard_comm.cpp).
+//
+// Aqui ademas se calcula si en este momento suena OTRA alarma no silenciada:
+// sus lecturas no son ruido ambiental y el detector las ignora. Se calcula en
+// este hilo, el unico que toca alarm_machine, y se publica en un bool.
+NoiseDetector g_noise_detector = NOISE_DETECTOR_INITIALIZER;
+volatile bool g_noise_samples_suppressed = false;
+
+static void checkNoise()
+{
+  const uint32_t audible = alarm_machine_bitmask() &
+                           ~alarm_machine_silenced_bitmask() &
+                           ~(1u << ALARM_NOISE_HIGH);
+  // El test de fabrica hace sonar el zumbador a proposito.
+  g_noise_samples_suppressed = (audible != 0) || g_factoryTestActive;
+  const bool present = !g_factoryTestActive &&
+                       noise_detector_condition(&g_noise_detector, millis());
+  alarm_machine_condition(ALARM_NOISE_HIGH, present, millis());
+}
+
 static void publishAlarmChanges()
 {
   const uint32_t mask = alarm_machine_bitmask();
@@ -1323,6 +1357,8 @@ void securityCheck()
   // madurar PENDING -> ACTIVE y el que expira las pausas de audio.
   checkHmiLink();
   checkMainsInterruption();
+  checkBatteryLow();
+  checkNoise();
   // Las alarmas forzadas del modo depuracion se declaran despues de TODOS los
   // detectores y antes del tick: asi lo forzado gana a lo medido, pero el
   // retardo de anuncio, la prioridad, el enclavamiento y el corte de

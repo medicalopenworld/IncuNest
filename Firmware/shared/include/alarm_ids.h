@@ -63,6 +63,16 @@ typedef enum {
   // MEDIA (provisional, ver alarm_policy.cpp). Aviso, no proteccion: no corta
   // el calefactor ni la lampara.
   ALARM_PHOTO_LAMP_FAULT = 20,
+  // Bateria interna casi agotada: sin red y con la carga estimada en
+  // BATT_GAUGE_LOW_PCT o menos (motherBoard, modules/control/battery_gauge),
+  // del orden de 10-15 min de autonomia. ALTA (provisional, ver
+  // alarm_policy.cpp): al agotarse se apaga todo, alarmas incluidas. NO corta
+  // el calefactor: cortarlo adelantaria el enfriamiento.
+  ALARM_BATTERY_LOW = 21,
+  // Ruido elevado dentro de la cupula: el microfono de la SensorBoard por
+  // encima de 65 dB durante 10 s (motherBoard, modules/control/noise_detector).
+  // BAJA. Solo aviso.
+  ALARM_NOISE_HIGH = 22,
   ALARM_COUNT
 } AlarmId;
 

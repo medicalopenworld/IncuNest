@@ -13,6 +13,7 @@
 #include "freertos/task.h"
 #include "main.h"
 #include "modules/control/alarm_machine.h"
+#include "modules/control/noise_detector.h"
 #include "sb_door_state.h"
 #include "sb_env_fusion.h"
 #include "sb_frame_parser.h"
@@ -203,6 +204,14 @@ static void handle_message(const SbMessage *m, uint32_t now_ms) {
       s_snapshot.dba = m->dba;
       s_snapshot.last_sound_ms = now_ms;
       s_snapshot.sound_seen = true;
+      // ALARM_NOISE_HIGH (security.cpp). Este es el unico hilo que alimenta el
+      // detector; la supresion la publica securityCheck().
+      {
+        extern NoiseDetector g_noise_detector;
+        extern volatile bool g_noise_samples_suppressed;
+        noise_detector_sample(&g_noise_detector, m->dba_valid, m->dba,
+                              g_noise_samples_suppressed, now_ms);
+      }
       break;
 
     case SB_MSG_CAPTURE_RESP:

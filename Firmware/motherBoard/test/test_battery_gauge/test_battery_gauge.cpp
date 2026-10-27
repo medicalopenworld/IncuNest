@@ -148,6 +148,27 @@ void test_pack_layout(void) {
   TEST_ASSERT_EQUAL_UINT32(g.percent, p & 0xFF);
 }
 
+// ---- Bateria baja (ALARM_BATTERY_LOW) ---------------------------------------
+
+void test_low_only_while_discharging_at_or_below_the_threshold(void) {
+  discharge(11660, 0, 60);  // 20 %
+  TEST_ASSERT_FALSE(battery_gauge_report_low(battery_gauge_pack(&g)));
+  discharge(11510, 0, 60);  // 10 %
+  TEST_ASSERT_TRUE(battery_gauge_report_low(battery_gauge_pack(&g)));
+}
+
+void test_low_clears_as_soon_as_mains_is_back(void) {
+  discharge(11400, 0, 60);
+  TEST_ASSERT_TRUE(battery_gauge_report_low(battery_gauge_pack(&g)));
+  battery_gauge_sample(&g, true, true, false, 14000, 0);
+  TEST_ASSERT_FALSE(battery_gauge_report_low(battery_gauge_pack(&g)));
+}
+
+void test_low_never_without_a_charger(void) {
+  TEST_ASSERT_FALSE(battery_gauge_report_low(battery_gauge_pack(&g)));
+  TEST_ASSERT_FALSE(battery_gauge_report_low(0u));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_curve_endpoints_and_clamps);
@@ -164,5 +185,8 @@ int main(void) {
   RUN_TEST(test_mains_back_forgets_the_discharge);
   RUN_TEST(test_first_discharge_sample_seeds_the_average);
   RUN_TEST(test_pack_layout);
+  RUN_TEST(test_low_only_while_discharging_at_or_below_the_threshold);
+  RUN_TEST(test_low_clears_as_soon_as_mains_is_back);
+  RUN_TEST(test_low_never_without_a_charger);
   return UNITY_END();
 }

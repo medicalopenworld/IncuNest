@@ -148,8 +148,9 @@ extern lv_obj_t * ui_ConnCont;
 extern lv_obj_t * ui_ConnIcon;
 extern lv_obj_t * ui_ConnBar[4];
 
-// Indicador del entorno de la SensorBoard (puerta abierta, nivel de ruido):
-// dos filas de icono + palabra corta. Solo en el heading de ui_ScreenLock: en
+// Indicador del entorno de la SensorBoard (puerta abierta): icono + palabra
+// corta. El ruido ya no se pinta: lo vigila ALARM_NOISE_HIGH. Solo en el
+// heading de ui_ScreenLock: en
 // Main no hay hueco (bateria, reloj, conectividad, candado, bebe al mando,
 // alarmas y menu llenan el ancho). Lo refresca sb_env_heading_update() (UITask.cpp);
 // aqui solo se crea, oculto.
@@ -158,9 +159,6 @@ typedef struct {
   lv_obj_t * doorRow;
   lv_obj_t * doorIcon;   // ui_img_heading_door
   lv_obj_t * doorText;
-  lv_obj_t * noiseRow;
-  lv_obj_t * noiseIcon;  // ui_img_heading_noise_{low,mid,high}
-  lv_obj_t * noiseText;
 } ui_HeadingEnv_t;
 extern ui_HeadingEnv_t ui_HeadingEnvLock;
 // Marca de objeto cuyo texto lleva color propio: el barrido de etiquetas de

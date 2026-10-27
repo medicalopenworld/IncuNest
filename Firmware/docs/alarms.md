@@ -22,9 +22,9 @@ El sistema tiene tres capas, cada una en su propio fichero:
   está presente, llama a la máquina de estados y aplica los cortes de
   actuador.
 
-## 1. Las 20 condiciones
+## 1. Las 22 condiciones
 
-El enum `AlarmId` (`shared/include/alarm_ids.h`) define 20 condiciones más el
+El enum `AlarmId` (`shared/include/alarm_ids.h`) define 22 condiciones más el
 centinela `ALARM_NONE = 0`. El valor numérico es el índice de bit del
 protocolo serie, así que el orden es significativo y las condiciones nuevas
 se añaden al final.
@@ -51,6 +51,8 @@ se añaden al final.
 | 18 | `ALARM_SENSORBOARD_LINK_LOST` | sin heartbeat USB durante `SB_LINK_TIMEOUT_MS` = 90 000 ms (3 × `SB_LINK_HEARTBEAT_PERIOD_MS` de 30 s), o el dispositivo nunca ha llegado a enumerar, evaluado en `sensorboard_comm.cpp:539`. No se declara durante el margen de arranque `SB_LINK_BOOT_GRACE_MS` mientras no se haya visto ningún heartbeat | MEDIA | no directamente — pero en un equipo con SensorBoard sus SHT40 **son** el sensor de aire, así que la caída del enlace arrastra la condición 3, que sí corta |
 | 19 | `ALARM_SENSORBOARD_DOOR_FAULT` | sensor de puerta (hall DRV5032) implausible: `sb_door_state_evaluate()` lo declara por aleteo (`SB_DOOR_FLAP_TRANSITIONS_FOR_FAULT` = 4 transiciones en `SB_DOOR_FLAP_WINDOW_MS` = 60 000 ms) o por dato rancio (`SB_DOOR_STALE_MS` = 90 000 ms). Con una sola línea digital no se puede distinguir «puerta abierta» de «hall averiado», así que la puerta **nunca** se usa como entrada de control térmico | BAJA | no |
 | 20 | `ALARM_PHOTO_LAMP_FAULT` | con la fototerapia ordenada ON, pasado `PHOTO_SETTLE_MS` = 3000 ms, con el INA principal contestando y sin test de fábrica (`g_factoryTestActive`), `in3.phototherapy_current < PHOTO_FAULT_MIN_A` (0,05 A) durante `PHOTO_FAULT_CYCLES` = 5 ciclos consecutivos del lazo de 1 s. Se retira al alcanzar `PHOTO_FAULT_CLEAR_A` (0,08 A) o cuando la fototerapia deja de estar ON o arranca el test de fábrica. **También se declara sin medida**: con la fototerapia ON y asentada, si el INA principal no contesta (o está ausente desde el arranque) o no avanza `systemCurrentSampleSeq` durante `PHOTO_FAULT_BLIND_CYCLES` = 5 ciclos consecutivos; una lectura fallida aislada NO la retira (mantiene el estado). El texto cubre las dos causas ("sin corriente o medida"). Falso positivo a vigilar: HW17 con el shunt del canal sin poblar.  Lógica en `modules/control/photo_fault.{h,cpp}` (test de host `test_photo_fault`), cableado en `sensors_module.cpp`. El umbral es bajo a propósito: el objetivo del lazo es 0,45 A y `PHOTO_MIN_PWM` = 10 ya da corriente medible, así que por debajo de 0,05 A la lámpara **no responde** (no está degradada). Es una terapia indicada que no se está dando (kernicterus posible, aparición diferida) | MEDIA (provisional) | no |
+| 21 | `ALARM_BATTERY_LOW` | sin red y con la carga estimada de la batería en `BATT_GAUGE_LOW_PCT` (10 %) o menos, del orden de 10–15 min de autonomía con una 12 V 9 Ah (`battery_gauge_report_low()`, `modules/control/battery_gauge.{h,cpp}`, test de host `test_battery_gauge`; cableado en `checkBatteryLow()`, `security.cpp`). La estimación es por tensión corregida por la caída resistiva (ver `CTRL,BATT` en `PROTOCOL.md`). El porcentaje solo baja durante una descarga, así que no necesita antirrebote; se retira en la misma lectura en que vuelve la red. No se declara durante el test de fábrica ni en placas sin cargador | ALTA (provisional) | **no** (única ALTA que no corta: cortar adelantaría el enfriamiento) |
+| 22 | `ALARM_NOISE_HIGH` | micrófono de la SensorBoard (`sound_level`) a 65 dB o más en todas las lecturas de los últimos 10 s; se retira con 10 s por debajo de 63 dB (histéresis de nivel). Las lecturas tomadas mientras suena **otra** alarma no silenciada se ignoran (el pitido propio no es ruido ambiental); sin lecturas durante 15 s se retira. Escala de la SensorBoard sin corrección: en banco (2026-10-27) quedó a −1..+2 dB de un sonómetro en dB(A) entre 55 y 80 dB. Lógica en `modules/control/noise_detector.{h,cpp}` (test `test_noise_detector`), alimentada desde `sensorboard_comm.cpp` y declarada en `checkNoise()` | BAJA | no |
 
 Que el autotest de arranque declare las condiciones 5 y 6 importa: son
 declaraciones vivas que sobreviven al arranque y que ningún detector de marcha
@@ -71,13 +73,26 @@ código es:
 
 - **ALTA (7)**: `AIR_THERMAL_CUTOUT`, `SKIN_THERMAL_CUTOUT`, `AIR_SENSOR_FAULT`,
   `SKIN_SENSOR_FAULT_SKIN_MODE`, `FAN_FAILURE`, `AIR_OUTLET_BLOCKED`,
-  `MAINS_INTERRUPTION`.
-- **MEDIA (10)**: `AIR_TEMP_DEVIATION_HIGH`, `AIR_TEMP_DEVIATION_LOW`,
+  `BATTERY_LOW` (provisional, ver abajo).
+- **MEDIA (11)**: `AIR_TEMP_DEVIATION_HIGH`, `AIR_TEMP_DEVIATION_LOW`,
   `SKIN_TEMP_DEVIATION_HIGH`, `SKIN_TEMP_DEVIATION_LOW`, `HEATER_FAULT`,
   `HEATER_SENSOR_FAULT`, `SUPPLY_UNDERVOLTAGE`, `HMI_LINK_LOST`,
-  `SENSORBOARD_LINK_LOST`, `PHOTO_LAMP_FAULT` (provisional, ver abajo).
-- **BAJA (3)**: `SKIN_SENSOR_FAULT_AIR_MODE`, `HUMIDITY_DEVIATION`,
-  `SENSORBOARD_DOOR_FAULT`.
+  `SENSORBOARD_LINK_LOST`, `PHOTO_LAMP_FAULT` (provisional, ver abajo),
+  `MAINS_INTERRUPTION` (bajó de ALTA el 2026-10-26: en batería el equipo sigue
+  calentando, aparición diferida).
+- **BAJA (4)**: `SKIN_SENSOR_FAULT_AIR_MODE`, `HUMIDITY_DEVIATION`,
+  `SENSORBOARD_DOOR_FAULT`, `NOISE_HIGH`.
+
+**La 21 (`BATTERY_LOW`, 2026-10-27) va a ALTA, provisional hasta el expediente
+de riesgos.** A diferencia del corte de red, quedan minutos antes de que se
+apague el equipo entero, sistema de alarmas incluido: después ya no habrá aviso
+del enfriamiento. Es la única ALTA que **no** corta el calefactor (cortarlo
+adelantaría ese enfriamiento); `test_alarm_policy` lo recoge como excepción
+explícita. **La 22 (`NOISE_HIGH`)** es BAJA: estrés y alteración del sueño, sin
+lesión inmediata.
+
+> **Nota de despliegue (ids 21 y 22)**: igual que con el 20, un display
+> anterior descarta su `CTRL,ALM`. Flashear el HMI **antes** que la motherBoard.
 
 El reparto de las 17 primeras (7/8/2) coincide con el que propone
 `alarms_normative_analysis.md` §5 a partir de la Tabla 1 (resultado de no

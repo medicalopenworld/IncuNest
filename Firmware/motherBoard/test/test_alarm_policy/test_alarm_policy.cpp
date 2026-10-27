@@ -10,7 +10,9 @@ void test_high_priority_set(void) {
   const AlarmId high[] = {
       ALARM_AIR_THERMAL_CUTOUT,  ALARM_SKIN_THERMAL_CUTOUT,
       ALARM_AIR_SENSOR_FAULT,    ALARM_SKIN_SENSOR_FAULT_SKIN_MODE,
-      ALARM_FAN_FAILURE,         ALARM_AIR_OUTLET_BLOCKED};
+      ALARM_FAN_FAILURE,         ALARM_AIR_OUTLET_BLOCKED,
+      // Al agotarse la bateria se apaga TODO, sistema de alarmas incluido.
+      ALARM_BATTERY_LOW};
   for (unsigned i = 0; i < sizeof(high) / sizeof(high[0]); ++i) {
     TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_HIGH, alarm_priority(high[i]));
   }
@@ -40,6 +42,8 @@ void test_low_priority_set(void) {
                         alarm_priority(ALARM_HUMIDITY_DEVIATION));
   TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_LOW,
                         alarm_priority(ALARM_SENSORBOARD_DOOR_FAULT));
+  // Ruido ambiental: molestia y estres del bebe, sin lesion inmediata.
+  TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_LOW, alarm_priority(ALARM_NOISE_HIGH));
   // La lampara de fototerapia NO esta aqui: es MEDIA (test_medium_priority_set).
   TEST_ASSERT_NOT_EQUAL(ALARM_PRIORITY_LOW,
                         alarm_priority(ALARM_PHOTO_LAMP_FAULT));
@@ -52,7 +56,20 @@ void test_photo_lamp_fault_is_notify_only(void) {
   TEST_ASSERT_FALSE(alarm_is_latching(ALARM_PHOTO_LAMP_FAULT));
   TEST_ASSERT_FALSE(alarm_announces_immediately(ALARM_PHOTO_LAMP_FAULT));
   TEST_ASSERT_EQUAL_INT(20, ALARM_PHOTO_LAMP_FAULT);
-  TEST_ASSERT_EQUAL_INT(ALARM_PHOTO_LAMP_FAULT + 1, ALARM_COUNT);
+}
+
+// Bateria baja y ruido elevado: al final del enum (indice de bit del
+// protocolo), avisos que no cortan nada ni se enclavan.
+void test_battery_low_and_noise_are_appended_notify_only(void) {
+  TEST_ASSERT_EQUAL_INT(21, ALARM_BATTERY_LOW);
+  TEST_ASSERT_EQUAL_INT(22, ALARM_NOISE_HIGH);
+  TEST_ASSERT_EQUAL_INT(ALARM_NOISE_HIGH + 1, ALARM_COUNT);
+  const AlarmId ids[] = {ALARM_BATTERY_LOW, ALARM_NOISE_HIGH};
+  for (unsigned i = 0; i < sizeof(ids) / sizeof(ids[0]); ++i) {
+    TEST_ASSERT_FALSE(alarm_cuts_heater(ids[i]));
+    TEST_ASSERT_FALSE(alarm_is_latching(ids[i]));
+    TEST_ASSERT_FALSE(alarm_announces_immediately(ids[i]));
+  }
 }
 
 // El reparto declarado en la spec: 6 ALTA / 11 MEDIA / 3 BAJA.
@@ -73,9 +90,10 @@ void test_priority_distribution(void) {
   for (int id = ALARM_NONE + 1; id < ALARM_COUNT; ++id) {
     counts[alarm_priority((AlarmId)id)]++;
   }
-  TEST_ASSERT_EQUAL_INT(3, counts[ALARM_PRIORITY_LOW]);
+  // 2026-10-27: +1 ALTA (bateria baja) y +1 BAJA (ruido elevado).
+  TEST_ASSERT_EQUAL_INT(4, counts[ALARM_PRIORITY_LOW]);
   TEST_ASSERT_EQUAL_INT(11, counts[ALARM_PRIORITY_MEDIUM]);
-  TEST_ASSERT_EQUAL_INT(6, counts[ALARM_PRIORITY_HIGH]);
+  TEST_ASSERT_EQUAL_INT(7, counts[ALARM_PRIORITY_HIGH]);
 }
 
 // Las dos averias de calefactor comparten urgencia y comparten corte, pero no
@@ -170,12 +188,15 @@ void test_cold_side_deviation_never_cuts_the_heater(void) {
 }
 
 // El corte de red no corta el calefactor: no hay condicion fisica que cortar,
-// y cortarlo en bateria solo enfriaria al bebe. Desde que bajo a MEDIA
-// (2026-10-26) todas las ALTA cortan sin excepcion.
+// y cortarlo en bateria solo enfriaria al bebe. Todas las ALTA cortan salvo
+// la bateria baja, por el mismo motivo: cortar con poca bateria adelantaria el
+// enfriamiento que la alarma intenta evitar.
 void test_mains_interruption_does_not_cut_the_heater(void) {
   TEST_ASSERT_FALSE(alarm_cuts_heater(ALARM_MAINS_INTERRUPTION));
+  TEST_ASSERT_FALSE(alarm_cuts_heater(ALARM_BATTERY_LOW));
   for (int id = ALARM_NONE + 1; id < ALARM_COUNT; ++id) {
     if (alarm_priority((AlarmId)id) != ALARM_PRIORITY_HIGH) continue;
+    if (id == ALARM_BATTERY_LOW) continue;
     TEST_ASSERT_TRUE(alarm_cuts_heater((AlarmId)id));
   }
 }
@@ -241,6 +262,7 @@ int main(void) {
   RUN_TEST(test_medium_priority_set);
   RUN_TEST(test_low_priority_set);
   RUN_TEST(test_photo_lamp_fault_is_notify_only);
+  RUN_TEST(test_battery_low_and_noise_are_appended_notify_only);
   RUN_TEST(test_priority_distribution);
   RUN_TEST(test_heater_and_its_sensor_are_separate_conditions);
   RUN_TEST(test_out_of_range_defaults_to_high);

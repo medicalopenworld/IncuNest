@@ -158,6 +158,8 @@
 // `default: return` y una lampara de fototerapia que no responde seria
 // invisible en monitorizacion remota.
 #define ALARM_PHOTO_LAMP_FAULT_KEY "photo_lamp_alarm"
+#define ALARM_BATTERY_LOW_KEY "battery_low_alarm"
+#define ALARM_NOISE_HIGH_KEY "noise_alarm"
 
 #define CALIBRATION_RAW_TEMPERATURE_RANGE_SKIN_KEY "Cal_raw_range_skin_temp"
 #define CALIBRATION_RAW_TEMPERATURE_LOW_SKIN_KEY "Cal_raw_low_skin_temp"

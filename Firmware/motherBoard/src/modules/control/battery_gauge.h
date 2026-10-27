@@ -80,6 +80,15 @@ uint8_t battery_gauge_level_from_percent(uint8_t percent);
 // state (bits 16..23), level (8..15), percent (0..7).
 uint32_t battery_gauge_pack(const BatteryGauge *g);
 
+// Condicion de ALARM_BATTERY_LOW sobre un estado empaquetado: descargando y
+// con BATT_GAUGE_LOW_PCT o menos. Con una 12 V 9 Ah y el consumo de la
+// incubadora en bateria, el 10 % son del orden de 10-15 min: el margen para
+// conectar la red antes de que el equipo se apague. Como el porcentaje solo
+// baja durante la descarga, no necesita antirrebote; al volver la red se
+// retira en la misma lectura.
+#define BATT_GAUGE_LOW_PCT 10u
+bool battery_gauge_report_low(uint32_t report);
+
 #ifdef __cplusplus
 }
 #endif

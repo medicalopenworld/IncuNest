@@ -85,6 +85,12 @@ void battery_gauge_sample(BatteryGauge *g, bool valid, bool ac_present,
   g->state = BATT_GAUGE_DISCHARGING;
 }
 
+bool battery_gauge_report_low(uint32_t report) {
+  const uint32_t state = (report >> 16) & 0xFFu;
+  const uint32_t percent = report & 0xFFu;
+  return state == BATT_GAUGE_DISCHARGING && percent <= BATT_GAUGE_LOW_PCT;
+}
+
 uint32_t battery_gauge_pack(const BatteryGauge *g) {
   if (g == 0) return 0;
   return ((uint32_t)g->state << 16) | ((uint32_t)g->level << 8) |
