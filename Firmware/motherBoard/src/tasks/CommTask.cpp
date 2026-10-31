@@ -1742,7 +1742,7 @@ void Communication_Task(void *pvParameters) {
         }
       } else {
         // Probe applied — send fused HR vitals
-        uint8_t hr_byte = 0;
+        uint16_t hr_bpm = 0;
         {
           float h2 = g_spo2_data.hr2, h3 = g_spo2_data.hr3;
           float s2 = g_spo2_data.hr2_sqi, s3 = g_spo2_data.hr3_sqi;
@@ -1759,14 +1759,16 @@ void Communication_Task(void *pvParameters) {
           }
           if (hr_displaying && valid) {
             float hr_fused = (h2 * s2 + h3 * s3) / (s2 + s3);
-            if (hr_fused >= 40.0f && hr_fused <= 240.0f)
-              hr_byte = (uint8_t)(hr_fused + 0.5f);
+            // No range check here: the HR range is set by incunest_afe4490
+            // (30-260 bpm today).
+            // Round to the nearest integer bpm (hr_fused is always > 0 here).
+            hr_bpm = (uint16_t)(hr_fused + 0.5f);
           }
         }
         float pi_val = g_spo2_data.pi;
         char vit_msg[32];
         snprintf(vit_msg, sizeof(vit_msg), "CTRL,VIT,%u,0,%.2f\n",
-                 hr_byte, pi_val);
+                 hr_bpm, pi_val);
         hmiSerial.print(vit_msg);
       }
 

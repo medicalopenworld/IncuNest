@@ -96,6 +96,14 @@
 #define HR3_SQI_KEY "HR3_SQI"
 #define SPO2_KEY "SpO2"
 #define SPO2_SQI_KEY "SpO2_SQI"
+// PI = perfusion index [%]. Since 18.54.0 (incunest_afe4490 v0.101+) it is
+// PI_pp: 2*sqrt(2)*RMS(0.5-15 Hz band-pass) / IR DC, 6 s window
+// (the library's PI-METHOD-1), computed independently of SpO2. Up to 18.53.0
+// (lib v0.94) it was PI_rms, tied to the SpO2 window. The key is unchanged
+// but the value is not: PI_pp ~= 2.8-3.2 x PI_rms on real PPG (2.83 exactly
+// only for a sine; measured by the library, rationale sec. 11). Do not mix
+// series from before and after 18.54.0 without rescaling (FW_version tells
+// them apart).
 #define PI_KEY "PI"
 // _v1: versionado por si cambia el formato (fs/duración/canal) más adelante.
 #define PPG_SNAPSHOT_KEY "PPG_snapshot_v1"       // 1 punto por muestra ppg_disp

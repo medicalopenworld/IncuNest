@@ -933,7 +933,7 @@ static void parse_message(const char *line) {
     float pi = 0.0f;
     int n = sscanf(line, "CTRL,VIT,%d,%d,%f", &hr, &spo2, &pi);
     if (n >= 2) {
-      ctrl_vit_msg.hr      = (uint8_t)hr;
+      ctrl_vit_msg.hr      = (uint16_t)hr;
       ctrl_vit_msg.spo2    = (uint8_t)spo2;
       ctrl_vit_msg.pi      = (n >= 3) ? pi : 0.0f;
       ctrl_vit_msg.updated = true;

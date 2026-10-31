@@ -27,7 +27,7 @@
 // cuelga a cualquier tarea que haga log (incluida la de seguridad) con el LEDC
 // del calefactor encendido. Ademas puede dejar _diag_active = true para siempre,
 // filtrar ~15 KB de SRAM interna y disparar un configASSERT. La libreria vive en
-// otro repo (incunest_afe4490, fijada en v0.94). El diseno del re-init blando que
+// otro repo (incunest_afe4490, fijada en v0.113). El diseno del re-init blando que
 // hace falta alli esta en docs/hw19.md y docs/known_issues.md.
 //
 // Sin reloj propio: recibe now_ms (millis()) y resta sin signo.
