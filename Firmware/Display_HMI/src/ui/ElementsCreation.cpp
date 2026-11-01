@@ -4418,11 +4418,13 @@ void ui_ScreenLock_screen_init(void) {
   lv_obj_set_style_pad_all(ui_LockPPGChart, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_size(ui_LockPPGChart, 0,
                         LV_PART_INDICATOR | LV_STATE_DEFAULT);
-  lv_obj_set_style_line_color(ui_LockPPGChart, lv_color_hex(0x00FF7F),
+  // Same cyan as the SpO2 value: pleth and SpO2 come from the same sensor,
+  // as on hospital monitors (green is the ECG colour there).
+  lv_obj_set_style_line_color(ui_LockPPGChart, lv_color_hex(0x3CC8E0),
                               LV_PART_ITEMS | LV_STATE_DEFAULT);
   lv_obj_set_style_line_width(ui_LockPPGChart, 2,
                               LV_PART_ITEMS | LV_STATE_DEFAULT);
-  lockPPGSeries = lv_chart_add_series(ui_LockPPGChart, lv_color_hex(0x00FF7F),
+  lockPPGSeries = lv_chart_add_series(ui_LockPPGChart, lv_color_hex(0x3CC8E0),
                                       LV_CHART_AXIS_PRIMARY_Y);
   for (int i = 0; i < lv_chart_get_point_count(ui_LockPPGChart); i++) {
     lockPPGSeries->y_points[i] = LV_CHART_POINT_NONE;
