@@ -357,13 +357,19 @@ Enviado cada 1 segundo **solo** cuando el estado de sonda es `2`.
 - `hr`: lpm, entero. `0` = sin valor válido (el HMI muestra `--`). El rango lo
   decide `incunest_afe4490` (hoy 30–260); desde la motherBoard 18.54.0 y el HMI
   4.5.1 pueden pasar valores mayores que 255.
+- `spo2`: %, entero. `0` = sin valor válido (el HMI muestra `--`). Hasta la
+  motherBoard 18.54.0 siempre era `0`; desde la 18.55.0 es la SpO2 de
+  `incunest_afe4490` redondeada, y `0` cuando la librería no da valor
+  (`spo2_sqi == 0`, que equivale a SpO2 NaN). El HMI la muestra desde la 4.6.0.
 - `pi` es opcional; el HMI acepta la línea con 2 o 3 campos.
 - `pi`: índice de perfusión en %, con dos decimales. Desde la motherBoard
   18.54.0 es **PI_pp** (pico a pico: 2√2·RMS de la banda 0,5–15 Hz entre el DC
   del IR, ventana de 6 s; `PI-METHOD-1` de `incunest_afe4490`). Hasta la 18.53.0
   era **PI_rms**; para la misma señal PI_pp ≈ 2,8–3,2 × PI_rms (2,83 exacto solo
   en una senoide). Lo mismo vale para la clave de telemetría `PI`
-  (`telemetry_keys.h`). El HMI no lo muestra.
+  (`telemetry_keys.h`). Cuando la librería no tiene PI viaja `nan`. El HMI lo
+  muestra desde la 4.6.0: dos decimales por debajo del 1 %, uno a partir de
+  ahí, y `--` si no es mayor que 0 (lo que también descarta `nan`).
 
 #### CTRL,ALM (Evento de Alarma)
 Enviado cuando una alarma cambia de estado.

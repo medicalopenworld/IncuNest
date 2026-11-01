@@ -339,9 +339,12 @@ lv_obj_t *ui_AlarmLockImg = NULL;
 lv_obj_t *ui_PanelLockAlarm = NULL;
 lv_obj_t *ui_AlarmLockNumLabel = NULL;
 lv_obj_t *ui_CheckImg = NULL;
+lv_obj_t *ui_LockPulseOxFrame = NULL;
 lv_obj_t *ui_LockPPGChart = NULL;
-lv_obj_t *ui_LockHRCont = NULL;
+lv_obj_t *ui_LockVitCont = NULL;
+lv_obj_t *ui_LockSpO2Label = NULL;
 lv_obj_t *ui_LockHRLabel = NULL;
+lv_obj_t *ui_LockPILabel = NULL;
 
 // --- AUTO AIR UI objects ---
 // --- AUTO AIR range display widgets ---
@@ -4354,12 +4357,37 @@ void ui_ScreenLock_screen_init(void) {
   lv_obj_set_style_radius(ui_BorderLeft, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
   // --------------------------------------------------------------------------
 
+  // --- Pulse oximetry frame (lock screen, bottom) ---
+  // Border-only box around the PPG chart and the vital signs panel, so the
+  // whole group reads as coming from the SpO2 probe. Created before both so
+  // it is drawn behind them; shown and hidden together with the chart.
+  // Outer box x 4..796, y 362..479: with the 2 px border it leaves a 4 px gap
+  // on every side of the chart (10..470, 368..473) and the panel (..790).
+  ui_LockPulseOxFrame = lv_obj_create(ui_ScreenLock);
+  lv_obj_remove_style_all(ui_LockPulseOxFrame);
+  lv_obj_set_size(ui_LockPulseOxFrame, 792, 117);
+  lv_obj_set_align(ui_LockPulseOxFrame, LV_ALIGN_BOTTOM_LEFT);
+  lv_obj_set_x(ui_LockPulseOxFrame, 4);
+  lv_obj_set_y(ui_LockPulseOxFrame, -1);
+  lv_obj_set_style_border_color(ui_LockPulseOxFrame, lv_color_hex(0x6A6A6A),
+                                LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_border_width(ui_LockPulseOxFrame, 2,
+                                LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_border_opa(ui_LockPulseOxFrame, 255,
+                              LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_radius(ui_LockPulseOxFrame, 8,
+                          LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_add_flag(ui_LockPulseOxFrame, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_LockPulseOxFrame, LV_OBJ_FLAG_EVENT_BUBBLE);
+  lv_obj_clear_flag(ui_LockPulseOxFrame,
+                    LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+
   // --- PPG Chart (lock screen, bottom-left) ---
   ui_LockPPGChart = lv_chart_create(ui_ScreenLock);
-  lv_obj_set_size(ui_LockPPGChart, 665, 105);
+  lv_obj_set_size(ui_LockPPGChart, 460, 105);
   lv_obj_set_align(ui_LockPPGChart, LV_ALIGN_BOTTOM_LEFT);
   lv_obj_set_x(ui_LockPPGChart, 10);
-  lv_obj_set_y(ui_LockPPGChart, -5);
+  lv_obj_set_y(ui_LockPPGChart, -7);  // 4 px inside ui_LockPulseOxFrame
   lv_obj_clear_flag(ui_LockPPGChart, LV_OBJ_FLAG_SCROLLABLE);
   lv_chart_set_type(ui_LockPPGChart, LV_CHART_TYPE_LINE);
   // 128 puntos a 25 Hz (CTRL,PPG cada 40 ms) = 5,1 s de ventana, como un
@@ -4383,6 +4411,10 @@ void ui_ScreenLock_screen_init(void) {
                           LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_border_width(ui_LockPPGChart, 0,
                                 LV_PART_MAIN | LV_STATE_DEFAULT);
+  // Concentric with ui_LockPulseOxFrame: its 8 px radius minus the 2 px
+  // border and the 4 px gap, instead of the theme's larger radius.
+  lv_obj_set_style_radius(ui_LockPPGChart, 2,
+                          LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_pad_all(ui_LockPPGChart, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_size(ui_LockPPGChart, 0,
                         LV_PART_INDICATOR | LV_STATE_DEFAULT);
@@ -4396,53 +4428,69 @@ void ui_ScreenLock_screen_init(void) {
     lockPPGSeries->y_points[i] = LV_CHART_POINT_NONE;
   }
   lv_chart_refresh(ui_LockPPGChart);
-  // Nace oculta, igual que ui_LockHRCont: al arrancar no hay sonda aplicada,
+  // Nace oculta, igual que ui_LockVitCont: al arrancar no hay sonda aplicada,
   // asi que mostrar el recuadro vacio seria un estado inicial falso. La
   // muestra el primer CTRL,PROBE con estado APPLIED.
   lv_obj_add_flag(ui_LockPPGChart, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_LockPPGChart, LV_OBJ_FLAG_EVENT_BUBBLE);
 
-  // --- HR Container (lock screen, bottom-right) ---
-  ui_LockHRCont = lv_obj_create(ui_ScreenLock);
-  lv_obj_remove_style_all(ui_LockHRCont);
-  lv_obj_set_size(ui_LockHRCont, 110, 105);
-  lv_obj_set_align(ui_LockHRCont, LV_ALIGN_BOTTOM_RIGHT);
-  lv_obj_set_x(ui_LockHRCont, -10);
-  lv_obj_set_y(ui_LockHRCont, -5);
-  lv_obj_add_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_LockHRCont, LV_OBJ_FLAG_EVENT_BUBBLE);
-  lv_obj_clear_flag(ui_LockHRCont,
+  // --- Vital signs panel (lock screen, bottom-right) ---
+  // Three columns, each a title over its value in the same colour:
+  // SpO2 (cyan), HR (green), PI (violet). Hidden until a probe is applied.
+  ui_LockVitCont = lv_obj_create(ui_ScreenLock);
+  lv_obj_remove_style_all(ui_LockVitCont);
+  lv_obj_set_size(ui_LockVitCont, 310, 105);
+  lv_obj_set_align(ui_LockVitCont, LV_ALIGN_BOTTOM_RIGHT);
+  lv_obj_set_x(ui_LockVitCont, -10);
+  lv_obj_set_y(ui_LockVitCont, -7);
+  lv_obj_add_flag(ui_LockVitCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_LockVitCont, LV_OBJ_FLAG_EVENT_BUBBLE);
+  // Keep the per-vital colours: UI_ApplyTheme() paints every label on the
+  // lock screen white, and this flag stops it at this panel.
+  lv_obj_add_flag(ui_LockVitCont, UI_FLAG_KEEP_TEXT_COLOR);
+  lv_obj_clear_flag(ui_LockVitCont,
                     LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_flex_flow(ui_LockHRCont, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_flex_align(ui_LockHRCont, LV_FLEX_ALIGN_CENTER,
+  lv_obj_set_flex_flow(ui_LockVitCont, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(ui_LockVitCont, LV_FLEX_ALIGN_SPACE_EVENLY,
                         LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_set_style_pad_row(ui_LockHRCont, 2,
-                           LV_PART_MAIN | LV_STATE_DEFAULT);
 
-  lv_obj_t *ui_LockHRImg = lv_img_create(ui_LockHRCont);
-  lv_img_set_src(ui_LockHRImg, &ui_img_heart_red_png);
-  lv_obj_set_width(ui_LockHRImg, LV_SIZE_CONTENT);
-  lv_obj_set_height(ui_LockHRImg, LV_SIZE_CONTENT);
-  lv_obj_add_flag(ui_LockHRImg, LV_OBJ_FLAG_ADV_HITTEST);
-  lv_obj_clear_flag(ui_LockHRImg, LV_OBJ_FLAG_SCROLLABLE);
+  static const struct {
+    const char *title;
+    uint32_t color;
+    lv_coord_t width;
+    lv_obj_t **value;
+  } lock_vitals[] = {
+      // Widths fit the widest value at montserrat_48: "200" is ~92 px,
+      // a PI like "0.04" ~107 px.
+      {"% SpO2", 0x3CC8E0, 92, &ui_LockSpO2Label},
+      {"HR bpm", 0x5CD08A, 92, &ui_LockHRLabel},
+      {"% PI", 0xB9A6F5, 108, &ui_LockPILabel},
+  };
+  for (const auto &v : lock_vitals) {
+    lv_obj_t *col = lv_obj_create(ui_LockVitCont);
+    lv_obj_remove_style_all(col);
+    lv_obj_set_size(col, v.width, LV_SIZE_CONTENT);
+    lv_obj_add_flag(col, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_clear_flag(col, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(col, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(col, 2, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-  ui_LockHRLabel = lv_label_create(ui_LockHRCont);
-  lv_obj_set_width(ui_LockHRLabel, LV_SIZE_CONTENT);
-  lv_obj_set_height(ui_LockHRLabel, LV_SIZE_CONTENT);
-  lv_label_set_text(ui_LockHRLabel, "--");
-  lv_obj_set_style_text_color(ui_LockHRLabel, lv_color_hex(0xFFFFFF),
-                              LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_text_font(ui_LockHRLabel, &lv_font_montserrat_48,
-                             LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_t *title = lv_label_create(col);
+    lv_label_set_text(title, v.title);
+    lv_obj_set_style_text_color(title, lv_color_hex(v.color),
+                                LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_16,
+                               LV_PART_MAIN | LV_STATE_DEFAULT);
 
-  lv_obj_t *ui_LockHRUnit = lv_label_create(ui_LockHRCont);
-  lv_obj_set_width(ui_LockHRUnit, LV_SIZE_CONTENT);
-  lv_obj_set_height(ui_LockHRUnit, LV_SIZE_CONTENT);
-  lv_label_set_text(ui_LockHRUnit, "BPM");
-  lv_obj_set_style_text_color(ui_LockHRUnit, lv_color_hex(0xFFFFFF),
-                              LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_text_font(ui_LockHRUnit, &lv_font_montserrat_14,
-                             LV_PART_MAIN | LV_STATE_DEFAULT);
+    *v.value = lv_label_create(col);
+    lv_label_set_text(*v.value, "--");
+    lv_obj_set_style_text_color(*v.value, lv_color_hex(v.color),
+                                LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(*v.value, &lv_font_montserrat_48,
+                               LV_PART_MAIN | LV_STATE_DEFAULT);
+  }
 
   lv_obj_add_event_cb(ui_AlarmLockImg, ui_event_AlarmLockImg, LV_EVENT_ALL,
                       NULL);
