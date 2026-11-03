@@ -1,5 +1,4 @@
 #include "SPO2.h"
-#include "DriveUpload.h"
 #include "PpgSnapshot.h"
 #include "esp32-hal-gpio.h"
 #include "modules/control/afe_watchdog.h"
@@ -63,8 +62,6 @@ void SPO2_Task(void *pvParameters) {
     if (afe.getData(data)) {
       afe_wd_sample(&s_afeWd, millis());
       memcpy((void *)&g_spo2_data, &data, sizeof(data));
-      if (data.probe_state == ProbeState::PROBE_APPLIED)
-        drivePushSample(data);
       ppgSnapshotFeed(data, millis());
 
       // ESTA LINEA DE LOG TUMBO LA PLACA (banco 2026-09-14). El coredump:
