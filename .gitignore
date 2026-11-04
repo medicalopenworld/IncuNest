@@ -67,3 +67,6 @@ Regulatory/
 # Python bytecode
 **/__pycache__/
 *.pyc
+
+# Diario local de sesiones de desarrollo (no se versiona)
+conversation_log.md
