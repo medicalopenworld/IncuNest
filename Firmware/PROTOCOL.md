@@ -346,10 +346,21 @@ del cargador (1 Hz).
 #### CTRL,PPG (Onda pletismográfica)
 Enviado a 25 Hz (cada 40 ms) **solo** cuando el estado de sonda es `2`.
 **Formato**: `CTRL,PPG,value`
-- `value`: muestra normalizada `0..255`, escala fija (128 = línea base). No va
-  condicionada a la validez de SpO2: la librería reinicia un calentamiento de
-  SpO2 de ~18 s en cada aplicación de sonda, y condicionar la traza a eso la
-  dejaba plana 19 s.
+- `value`: muestra `0..255` (128 = línea base). Es la última muestra de
+  `ppg_disp` (500 Hz) en el instante del envío, sin promediar: el filtro de
+  display de la librería (0,5–20 Hz) es quien limita la banda. Desde la motherBoard 18.57.0
+  (`incunest_afe4490` v0.119, modo `NORM_PI`) la escala la pone la librería:
+  `ppg_disp` llega en `[-1, +1]`, centrado y escalado por su propio seguidor de
+  envolvente, con la amplitud en función del índice de perfusión (tamaño
+  completo con PI ≥ 2 %, la mitad con PI ≤ 0,5 %, logarítmico entre medias), y
+  la motherBoard solo hace `128 + ppg_disp × 127`. Con el 15 % de margen que
+  deja la librería un latido normal ocupa ~17..239; vale 128 mientras la sonda
+  no está aplicada o durante el primer segundo tras aplicarla (la traza queda a
+  media altura hasta que la librería publica el PI, 6 s después). Hasta la 18.56.0
+  era una escala fija en A/A (`1,6e-8` por LSB, nunca medida en banco). El HMI
+  no cambia: dibuja `0..255` en un rango fijo. No va condicionada a la validez
+  de SpO2: la librería reinicia un calentamiento de SpO2 de ~18 s en cada
+  aplicación de sonda, y condicionar la traza a eso la dejaba plana 19 s.
 
 #### CTRL,VIT (Constantes vitales fusionadas)
 Enviado cada 1 segundo **solo** cuando el estado de sonda es `2`.

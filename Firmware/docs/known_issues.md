@@ -1068,7 +1068,7 @@ writing `"DRDY timeout"` with `ESP_LOGW`, which takes `log_mutex` with
 logs afterwards, the security task included, with the heater's LEDC output still
 on. It can also leave `_diag_active = true` for ever (the data task then skips
 every read), leak ~15 KB of internal SRAM (4 task stacks plus queues) and trip a
-`configASSERT`. The library lives in another repo (pinned at v0.113, which
+`configASSERT`. The library lives in another repo (pinned at v0.119, which
 still has no soft re-init) and is not touched from here.
 
 **What the firmware does instead** (all revisions): no restart. After 10 s

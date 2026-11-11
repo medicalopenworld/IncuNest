@@ -65,21 +65,21 @@ static HardwareSerial &hmiSerial = Serial1;
 // en hmiSerial, para no entrelazar bytes con la telemetria periodica.
 static QueueHandle_t s_ftestTxQueue = NULL;
 
-// PPG transport scale: ppg_disp units (A/A, OT domain) per LSB of the 0-255 display
-// range. ppg_disp is zero-mean (library BPF output), so 128 is the baseline and this
-// divisor sets the half-range to 127 x 1.6e-8 = ~2.0e-6 A/A.
+// PPG transport scale: wire LSBs per unit of ppg_disp. Since lib v0.116 ppg_disp
+// arrives already scaled for a screen (AFE4490PPGDispMode::NORM_PI, selected in
+// initSPO2(); spec §5.9): zero-centred, in [-1, +1], with the envelope tracked by
+// the library and the amplitude following the perfusion index. The byte on the
+// wire is 128 + ppg_disp x 127, so 128 is the baseline and ±1 land on 1 / 255.
+// The library's 15 % headroom means a normal beat spans about 17..239.
 //
-// Library v0.69 moved ppg_disp to the OT domain: int32_t (ADC counts) -> float (A/A,
-// magnitude ~1e-5..1e-6), so it is gain-invariant and no longer jumps when HGAC
-// changes RF. The previous scale (16 ADC counts/LSB, measured on the bench
-// 2026-08-13) no longer applies to these units.
+// Nothing to tune here any more: gain, headroom and warm-up (0 while the probe
+// is not applied) live in the library. Still no adaptive scaling outside it —
+// the rule is unchanged, the library now owns the gain.
 //
-// This value is DERIVED from the library spec, not measured: typical OT DC is
-// ~1.4e-5 A/A and AC/DC = PI/100, so at PI ~10% (the operating point of the original
-// bench measurement) ppg_disp peaks at ~1.4e-6 — same ~50% headroom the old counts
-// scale had. TODO: re-validate on the bench with a real probe.
-// Fixed on purpose — no adaptive scaling outside the library.
-static constexpr float PPG_DISP_UNITS_PER_LSB = 1.6e-8f;
+// History: v0.69..v0.115 delivered A/A (OT domain, ~1e-6) and this file divided
+// by a fixed 1.6e-8 derived from the spec and never measured; before v0.69, ADC
+// counts at 16 per LSB (bench, 2026-08-13).
+static constexpr float PPG_DISP_LSB_PER_UNIT = 127.0f;
 
 // ---- Phototherapy Timer (Motherboard is source of truth) ----
 static bool photoTimerActive = false;
@@ -1413,10 +1413,6 @@ void Communication_Task(void *pvParameters) {
   uint32_t last_time_bcast = (uint32_t)(0 - 10001);
   uint32_t last_ppg_time = 0;
   uint32_t ppg_time      = 0;
-  // Clipping tally for the 1 Hz bench log below (see the PPG waveform block).
-  uint16_t ppg_clip_count    = 0;
-  uint16_t ppg_sent_count    = 0;
-  uint32_t last_ppg_clip_log = 0;
   static unsigned long last_probe_status_time = 0;
   static ProbeState    prev_probe_state       = ProbeState::PROBE_DISCONNECTED;
   // HR hysteresis: show after 2 consecutive valid samples, hide after 3 bad ones
@@ -1588,41 +1584,25 @@ void Communication_Task(void *pvParameters) {
     // --- PPG waveform (25 Hz = every 40 ms) ---
     ppg_time = millis();
     if (ppg_time - last_ppg_time >= 40) {
-      // Transport only: fixed scale, no state, no adaptive gain. The waveform is NOT
-      // gated on spo2_sqi — the library restarts an 18 s SpO2 warmup on every probe
-      // application (_spo2_update: EMAs reset while not APPLIED), while ppg_disp is
-      // valid within ~1 s. Gating the trace on SpO2 validity flat-lined it for 19 s.
+      // Transport only: the library owns the gain (NORM_PI), this maps [-1, +1]
+      // to a byte. The waveform is NOT gated on spo2_sqi — the library restarts an
+      // 18 s SpO2 warmup on every probe application (_spo2_update: EMAs reset
+      // while not APPLIED), while ppg_disp is valid within ~1 s. Gating the trace
+      // on SpO2 validity flat-lined it for 19 s.
       if (g_spo2_data.probe_state == ProbeState::PROBE_APPLIED) {
-        // ppg_disp is a float since library v0.69: a non-finite value would make
-        // lroundf() undefined, so it collapses to the baseline instead of emitting
-        // a garbage byte. Keeping the line flowing (rather than skipping the send)
-        // preserves the 25 Hz cadence the HMI trace expects.
+        // A non-finite value would make lroundf() undefined, so it collapses to
+        // the baseline instead of emitting a garbage byte. Keeping the line
+        // flowing (rather than skipping the send) preserves the 25 Hz cadence
+        // the HMI trace expects. |ppg_disp| <= 1 by the library's contract, so
+        // constrain() is a guard, not the clipping it used to be.
         float ppg = g_spo2_data.ppg_disp;
         long ppg_scaled = isfinite(ppg)
-                              ? 128L + lroundf(ppg / PPG_DISP_UNITS_PER_LSB)
+                              ? 128L + lroundf(ppg * PPG_DISP_LSB_PER_UNIT)
                               : 128L;
         uint8_t ppg_byte = (uint8_t)constrain(ppg_scaled, 0L, 255L);
         char ppg_msg[16];
         snprintf(ppg_msg, sizeof(ppg_msg), "CTRL,PPG,%u\n", ppg_byte);
         hmiSerial.print(ppg_msg);
-
-        // Bench aid for re-validating PPG_DISP_UNITS_PER_LSB, which is derived
-        // from the library spec rather than measured. Sustained clipping means
-        // the divisor is too small (the trace squares off at the rails); never
-        // clipping while the trace looks flat means it is too large. Silent by
-        // design when the scale is right, so it costs nothing in normal use.
-        ppg_sent_count++;
-        if (ppg_scaled < 0L || ppg_scaled > 255L)
-          ppg_clip_count++;
-      }
-      if (ppg_time - last_ppg_clip_log >= 1000) {
-        if (ppg_clip_count)
-          logSPO2("[PPG] recorte " + String(ppg_clip_count) + "/" +
-                  String(ppg_sent_count) + " muestras en 1 s: revisar " +
-                  "PPG_DISP_UNITS_PER_LSB");
-        ppg_clip_count    = 0;
-        ppg_sent_count    = 0;
-        last_ppg_clip_log = ppg_time;
       }
       last_ppg_time = ppg_time;
     }

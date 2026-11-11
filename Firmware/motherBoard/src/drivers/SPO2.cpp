@@ -86,8 +86,9 @@ void SPO2_Task(void *pvParameters) {
       // que corre a 500 Hz, encendido el log o apagado.
       if (++sample_count % SPO2_LOG_INTERVAL_SAMPLES == 0 && LOG_PULSIOXIMETRY) {
         char line[320];
-        // ppg_disp es float (A/A) desde la v0.69 de la libreria; con %.2f
-        // saldria 0.00 en cada muestra, de ahi los 8 decimales.
+        // ppg_disp is [-1, +1] since NORM_PI (lib v0.116+, selected in
+        // initSPO2()); the 8 decimals date from the A/A era (v0.69..v0.115,
+        // ~1e-6) and do no harm now.
         snprintf(line, sizeof(line),
                  "[SPO2] n=%lu PPG=%.8f RED=%d IR=%d RED_sub=%d IR_sub=%d "
                  "SpO2=%.1f SpO2_SQI=%.3f R=%.3f PI=%.2f "
@@ -125,6 +126,29 @@ void initSPO2() {
   // rail (~2^21) with no probe applied, and the resulting DC step on probe
   // application swamps the SpO2 AC estimators.
   afe.setHgacEnable(true);
+
+  // PPG display waveform (lib v0.116+, spec §5.9): NORM_PI is the product mode.
+  // ppg_disp leaves the library centred and scaled to [-1, +1] by its own
+  // slew-limited envelope tracker, with the amplitude following the perfusion
+  // index (full size at PI >= 2 %, half at PI <= 0.5 %, logarithmic between), so
+  // a shrinking trace still tells the operator the perfusion is falling. 0 while
+  // the probe is not applied or during the tracker warm-up. The gain lives here,
+  // in the library, not in CommTask (which only maps [-1, +1] to the wire byte).
+  // Tracker and PI thresholds stay at the library defaults.
+  afe.setPPGDispMode(AFE4490PPGDispMode::NORM_PI);
+
+  // Display band-pass: f_high set here, explicitly, because it belongs to the
+  // consumer. CommTask samples ppg_disp at 50 Hz for the HMI (Nyquist 25 Hz).
+  // Since incunest_afe4490 v0.119 the upper side is a 5th-order Butterworth
+  // (band-pass pole + two low-pass biquads) with f_high the -3 dB point of the
+  // whole chain; the consumer rule of its spec 5.9 is f_high <= 0.4 x rate for
+  // >= 10 dB at the consumer's Nyquist (and >= 40 dB at 2.5 x f_high),
+  // f_high <= 0.3 x rate for >= 20 dB. With 20 Hz at 50 Hz: -10 dB at 25 Hz,
+  // -41 dB at mains. Measured on SUBJ08-11 the content above 25 Hz is
+  // negligible with either, and 20 Hz keeps the trace the library ships by
+  // default (cost vs the 2nd-order chain: < 2 px on the flanks, < 0.3 px at
+  // the systolic peak, +18 ms); 16 Hz would buy 20 dB at Nyquist for ~3 px.
+  afe.setPPGDispFilter(0.5f, 20.0f);
 
   // Configure chip registers, attach DRDY ISR, launch internal processing task
   afe.begin(AFE44XX_CS, AFE_ADC_READY);

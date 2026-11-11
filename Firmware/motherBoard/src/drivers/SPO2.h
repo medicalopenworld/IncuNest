@@ -15,6 +15,12 @@
 // The pin in platformio.ini stops that from arriving unannounced; this turns the
 // remaining case — someone bumps the pin without revisiting the consumers — into
 // a compile error instead of a flat waveform on a patient monitor.
+//
+// The type is only half of the contract: the RANGE is the other half, and no
+// static_assert can see it. Since lib v0.116 the range depends on the display
+// mode initSPO2() selects (NORM_PI -> [-1, +1]; NO_NORM -> A/A, ~1e-6), and the
+// consumers below are written for NORM_PI. Changing the mode means revisiting
+// CommTask's wire scale and PpgSnapshot's samples again.
 static_assert(
     std::is_same<decltype(AFE4490Data::ppg_disp), float>::value,
     "AFE4490Data::ppg_disp changed type: re-check the scale in CommTask.cpp "
