@@ -160,15 +160,29 @@ typedef struct {
 // libreria anade un estado, se anade alli y en PROTOCOL.md.
 #include "protocol/spo2_probe.h"
 
-// PPG waveform sample (CTRL,PPG — 25 Hz)
+// PPG waveform samples (CTRL,PPG: 50 Hz since motherBoard 18.57.0, 25 Hz
+// before). Single-producer / single-consumer ring buffer between the parser
+// (CommTask) and the chart (UITask). Until 4.7.0 this was a one-slot mailbox
+// (ppg + updated flag): whenever lv_timer_handler() took longer than one
+// sample period the next sample overwrote the previous one, and repaints of
+// more than 40 ms are documented in UITask.cpp. Now UITask drains everything
+// that arrived since its last pass. Power-of-two length; head and tail are
+// uint8_t counters that wrap freely, each written by one side only, so no
+// lock is needed. `dropped` counts samples lost to a full buffer (bench
+// diagnostics, DIAG log).
+#define CTRL_PPG_FIFO_LEN 32
 typedef struct {
-  uint8_t ppg;     // normalised 0-255
-  bool    updated; // true after each new sample, cleared by consumer
-} ControlBoard_Message_PPG;
+  volatile uint8_t  buf[CTRL_PPG_FIFO_LEN];
+  volatile uint8_t  head;     // written by the producer only
+  volatile uint8_t  tail;     // written by the consumer only
+  volatile uint16_t dropped;  // producer only
+} ControlBoard_PPG_Fifo;
+bool ctrlPpgFifoPush(uint8_t v);   // producer; false = full, sample dropped
+bool ctrlPpgFifoPop(uint8_t *v);   // consumer; false = empty
 
 // Vital signs (CTRL,VIT — 1 Hz)
 typedef struct {
-  uint8_t hr;   // 40-240 bpm; 0 = no valid signal
+  uint16_t hr;  // 30-260 bpm; 0 = no valid signal
   uint8_t spo2; // 0-100 %; 0 = no valid signal
   float   pi;   // Perfusion Index [%]; 0.0 = no valid signal
   bool    updated;
@@ -202,7 +216,7 @@ extern ControlBoard_Message           ctrl_msg;
 extern ControlBoard_Message_Telemetry ctrl_tel_msg;
 extern ControlBoard_Message_Alarm     ctrl_msg_alarm;
 extern ControlBoard_Message_State     ctrl_state_msg;
-extern ControlBoard_Message_PPG       ctrl_ppg_msg;
+extern ControlBoard_PPG_Fifo          ctrl_ppg_fifo;
 extern ControlBoard_Message_VIT       ctrl_vit_msg;
 extern ControlBoard_Message_Probe     ctrl_probe_msg;
 extern int  g_skinProbeState;

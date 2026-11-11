@@ -222,7 +222,7 @@ repite: en su lugar viaja `CTRL,VIT`.
 **Formato**: `CTRL,PROBE,state`
 
 - `state` es el valor crudo del enum `ProbeState` de la librería
-  `incunest_afe4490` (anclada en `motherBoard/platformio.ini`, hoy `#v0.94`).
+  `incunest_afe4490` (anclada en `motherBoard/platformio.ini`, hoy `#v0.113`).
   **El rango no es 0–2, y desde la v0.90 de la librería tampoco es 0–3**:
 
   | `state` | Significado |
@@ -344,18 +344,60 @@ del cargador (1 Hz).
   depende de esta línea.
 
 #### CTRL,PPG (Onda pletismográfica)
-Enviado a 25 Hz (cada 40 ms) **solo** cuando el estado de sonda es `2`.
+Enviado a **50 Hz** (cada 20 ms) **solo** cuando el estado de sonda es `2`.
+Hasta la motherBoard 18.56.0 iba a 25 Hz (un número redondo del primer
+`CTRL,PPG`, nunca revisado); desde la 18.57.0 va a 50 Hz para que el Nyquist
+del transporte (25 Hz) quede por encima del paso banda de display de la
+librería (0,5–20 Hz), el frente sistólico tenga 5–7 muestras y, a 25 mm/s, cada
+muestra ocupe 2,6 px. **La tasa es una constante del contrato**: el HMI deriva
+su número de puntos de ella y de la velocidad de barrido (desde el HMI 4.7.0,
+177 puntos = 3,5 s a 25 mm/s en el chart de 460 px; antes 128 puntos a 25 Hz
+= 5,1 s a ~17 mm/s). Una pareja desparejada no rompe nada, solo muestra una
+ventana de tiempo equivocada (MB nueva + HMI viejo: 2,6 s; MB vieja + HMI
+nuevo: 7 s). El HMI 4.7.0 encola las muestras (FIFO de 32) entre el parser y
+la interfaz; hasta la 4.6.0 era un buzón de una plaza que perdía una muestra
+cada vez que un repintado duraba más que un periodo.
 **Formato**: `CTRL,PPG,value`
-- `value`: muestra normalizada `0..255`, escala fija (128 = línea base). No va
-  condicionada a la validez de SpO2: la librería reinicia un calentamiento de
-  SpO2 de ~18 s en cada aplicación de sonda, y condicionar la traza a eso la
-  dejaba plana 19 s.
+- `value`: muestra `0..255` (128 = línea base). Es la última muestra de
+  `ppg_disp` (500 Hz) en el instante del envío, sin promediar: el filtro de
+  display de la librería es quien limita la banda (regla del consumidor de la
+  spec §5.9 de `incunest_afe4490` v0.119, con el lado alto de 5.º orden:
+  `f_high ≤ 0,4 × tasa de transporte` da ≥ 10 dB en el Nyquist del transporte,
+  `≤ 0,3 ×` da ≥ 20 dB; con 20 Hz a 50 Hz, −10 dB a 25 Hz y −41 dB a 50 Hz;
+  el contenido medido de la PPG neonatal por encima de 25 Hz es despreciable
+  con cualquiera de los dos). Desde la motherBoard 18.57.0
+  (`incunest_afe4490` v0.118, hoy v0.119, modo `NORM_PI`) la escala la pone la librería:
+  `ppg_disp` llega en `[-1, +1]`, centrado y escalado por su propio seguidor de
+  envolvente, con la amplitud en función del índice de perfusión (tamaño
+  completo con PI ≥ 2 %, la mitad con PI ≤ 0,5 %, logarítmico entre medias), y
+  la motherBoard solo hace `128 + ppg_disp × 127`. Con el 15 % de margen que
+  deja la librería un latido normal ocupa ~17..239; vale 128 mientras la sonda
+  no está aplicada o durante el primer segundo tras aplicarla (la traza queda a
+  media altura hasta que la librería publica el PI, 6 s después). Hasta la 18.56.0
+  era una escala fija en A/A (`1,6e-8` por LSB, nunca medida en banco). El HMI
+  no cambia: dibuja `0..255` en un rango fijo. No va condicionada a la validez
+  de SpO2: la librería reinicia un calentamiento de SpO2 de ~18 s en cada
+  aplicación de sonda, y condicionar la traza a eso la dejaba plana 19 s.
 
 #### CTRL,VIT (Constantes vitales fusionadas)
 Enviado cada 1 segundo **solo** cuando el estado de sonda es `2`.
 **Formato**: `CTRL,VIT,hr,spo2,pi`
-- `hr`: `0` = sin valor válido (el HMI muestra `--`).
+- `hr`: lpm, entero. `0` = sin valor válido (el HMI muestra `--`). El rango lo
+  decide `incunest_afe4490` (hoy 30–260); desde la motherBoard 18.54.0 y el HMI
+  4.5.1 pueden pasar valores mayores que 255.
+- `spo2`: %, entero. `0` = sin valor válido (el HMI muestra `--`). Hasta la
+  motherBoard 18.54.0 siempre era `0`; desde la 18.55.0 es la SpO2 de
+  `incunest_afe4490` redondeada, y `0` cuando la librería no da valor
+  (`spo2_sqi == 0`, que equivale a SpO2 NaN). El HMI la muestra desde la 4.6.0.
 - `pi` es opcional; el HMI acepta la línea con 2 o 3 campos.
+- `pi`: índice de perfusión en %, con dos decimales. Desde la motherBoard
+  18.54.0 es **PI_pp** (pico a pico: 2√2·RMS de la banda 0,5–15 Hz entre el DC
+  del IR, ventana de 6 s; `PI-METHOD-1` de `incunest_afe4490`). Hasta la 18.53.0
+  era **PI_rms**; para la misma señal PI_pp ≈ 2,8–3,2 × PI_rms (2,83 exacto solo
+  en una senoide). Lo mismo vale para la clave de telemetría `PI`
+  (`telemetry_keys.h`). Cuando la librería no tiene PI viaja `nan`. El HMI lo
+  muestra desde la 4.6.0: dos decimales por debajo del 1 %, uno a partir de
+  ahí, y `--` si no es mayor que 0 (lo que también descarta `nan`).
 
 #### CTRL,ALM (Evento de Alarma)
 Enviado cuando una alarma cambia de estado.
@@ -918,7 +960,7 @@ ningún test de la tabla hace ya I2C directo salvo `actuators`/`standby`
   numéricos, si `id` no es de motherBoard o `status` > 6.
 - Las líneas salen por una **cola** drenada por la tarea de comunicación
   (`CommunicationHost_Enqueue()`), nunca desde la tarea de test: el `CTRL,PPG`
-  a 25 Hz comparte el mismo UART y dos escritores entrelazarían caracteres.
+  a 50 Hz comparte el mismo UART y dos escritores entrelazarían caracteres.
   Cola llena = línea perdida con log; el display la da por FAIL por plazo.
 
 | id | clave | qué verifica | opcional |

@@ -5267,10 +5267,11 @@ void UI_Task(void *pvParameters) {
                    (unsigned long)heap_psram,
                    (unsigned long)ui_hwm_b, (unsigned long)comm_hwm_b);
         } else {
-          ESP_LOGW("DIAG", "heap_int=%lu heap_int_min=%lu heap_psram=%lu ui_hwm=%lu B comm_hwm=%lu B",
+          ESP_LOGW("DIAG", "heap_int=%lu heap_int_min=%lu heap_psram=%lu ui_hwm=%lu B comm_hwm=%lu B ppg_dropped=%u",
                    (unsigned long)heap_int, (unsigned long)heap_int_min,
                    (unsigned long)heap_psram,
-                   (unsigned long)ui_hwm_b, (unsigned long)comm_hwm_b);
+                   (unsigned long)ui_hwm_b, (unsigned long)comm_hwm_b,
+                   (unsigned)ctrl_ppg_fifo.dropped);
         }
       }
     }
@@ -5288,6 +5289,8 @@ void UI_Task(void *pvParameters) {
       // HMI se perdiera una transicion, el siguiente CTRL,PROBE (la placa lo
       // repite cada 2 s mientras no hay contacto) recolocaria la pantalla.
       // add_flag/clear_flag son idempotentes.
+      if (ui_LockPulseOxFrame)
+        ui_set_hidden(ui_LockPulseOxFrame, !applied);
       if (applied) {
         if (ui_LockPPGChart)
           lv_obj_clear_flag(ui_LockPPGChart, LV_OBJ_FLAG_HIDDEN);
@@ -5307,17 +5310,21 @@ void UI_Task(void *pvParameters) {
             lv_chart_set_all_value(ui_LockPPGChart, lockPPGSeries,
                                    LV_CHART_POINT_NONE);
         }
-        if (ui_LockHRCont)
-          lv_obj_add_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
+        if (ui_LockVitCont)
+          lv_obj_add_flag(ui_LockVitCont, LV_OBJ_FLAG_HIDDEN);
       }
       spo2ProbeAttached = applied;
     }
 
     // --- Lock screen: PPG waveform ---
-    if (ui_LockPPGChart && lockPPGSeries && ctrl_ppg_msg.updated) {
-      float ppg_val = (float)ctrl_ppg_msg.ppg;
-      ctrl_ppg_msg.updated = false;
-      if (locked && spo2ProbeAttached) {
+    // Drain every sample that arrived since the last pass (50 Hz, one per
+    // 20 ms; a slow repaint can leave several queued). Drawing them back to
+    // back keeps the trace continuous; the chart spaces points evenly, so a
+    // burst only shifts the trace by at most one refresh.
+    if (ui_LockPPGChart && lockPPGSeries) {
+      uint8_t ppg_val;
+      while (ctrlPpgFifoPop(&ppg_val)) {
+        if (!(locked && spo2ProbeAttached)) continue;  // drain, do not draw
         lv_chart_set_next_value(ui_LockPPGChart, lockPPGSeries,
                                 (lv_coord_t)ppg_val);
         // Modo CIRCULAR: mantener un hueco por delante del cursor. Solo hace
@@ -5334,22 +5341,40 @@ void UI_Task(void *pvParameters) {
       }
     }
 
-    // --- Lock screen: HR value ---
+    // --- Lock screen: SpO2, HR and PI values ---
     if (locked && ctrl_vit_msg.updated) {
       ctrl_vit_msg.updated = false;
       if (!spo2ProbeAttached) {
-        if (ui_LockHRCont) lv_obj_add_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
-      } else {
-        if (ui_LockHRCont) {
-          lv_obj_clear_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
-          if (ui_LockHRLabel) {
-            if (ctrl_vit_msg.hr > 0) {
-              char hr_buf[8];
-              snprintf(hr_buf, sizeof(hr_buf), "%u", ctrl_vit_msg.hr);
-              lv_label_set_text(ui_LockHRLabel, hr_buf);
-            } else {
-              lv_label_set_text(ui_LockHRLabel, "--");
-            }
+        if (ui_LockVitCont) lv_obj_add_flag(ui_LockVitCont, LV_OBJ_FLAG_HIDDEN);
+      } else if (ui_LockVitCont) {
+        ui_set_hidden(ui_LockVitCont, false);
+        char buf[8];
+        if (ui_LockSpO2Label) {
+          if (ctrl_vit_msg.spo2 > 0) {
+            snprintf(buf, sizeof(buf), "%u", ctrl_vit_msg.spo2);
+            ui_set_label_text(ui_LockSpO2Label, buf);
+          } else {
+            ui_set_label_text(ui_LockSpO2Label, "--");
+          }
+        }
+        if (ui_LockHRLabel) {
+          if (ctrl_vit_msg.hr > 0) {
+            snprintf(buf, sizeof(buf), "%u", ctrl_vit_msg.hr);
+            ui_set_label_text(ui_LockHRLabel, buf);
+          } else {
+            ui_set_label_text(ui_LockHRLabel, "--");
+          }
+        }
+        if (ui_LockPILabel) {
+          // "pi > 0" also rejects the NaN the motherBoard sends when the
+          // library has no PI. Two decimals below 1 %, one from 1 % up
+          // (0.995 so that a value rounding to "1.00" shows as "1.0").
+          float pi = ctrl_vit_msg.pi;
+          if (pi > 0.0f) {
+            snprintf(buf, sizeof(buf), pi < 0.995f ? "%.2f" : "%.1f", pi);
+            ui_set_label_text(ui_LockPILabel, buf);
+          } else {
+            ui_set_label_text(ui_LockPILabel, "--");
           }
         }
       }

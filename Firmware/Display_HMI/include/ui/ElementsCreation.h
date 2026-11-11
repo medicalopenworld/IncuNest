@@ -519,15 +519,31 @@ extern lv_obj_t * ui_AlarmLockImg;
 extern lv_obj_t * ui_PanelLockAlarm;
 extern lv_obj_t * ui_AlarmLockNumLabel;
 extern lv_obj_t * ui_CheckImg;
-// Grafica PPG de la pantalla de bloqueo. A 25 Hz (CTRL,PPG cada 40 ms),
-// 128 puntos = 5,1 s de ventana. LOCK_PPG_GAP es el hueco de borrado que se
-// mantiene por delante del cursor en modo CIRCULAR: corta la linea entre la
-// muestra nueva y la de hace 5 s, y hace visible por donde va el barrido.
-#define LOCK_PPG_POINTS 128
-#define LOCK_PPG_GAP    6
+// PPG chart of the lock screen. The point count follows the sweep speed
+// instead of being written by hand:
+//   points = rate_hz x width_px / (sweep_mm_s x px_per_mm)
+// Inputs: CTRL,PPG at 50 Hz (PROTOCOL.md; 25 Hz until motherBoard 18.57.0);
+// CrowPanel 7" = 800 px over 154 mm of active width (ruler, 2026-11-06,
+// +-1 mm) = 5.19 px/mm; 25 mm/s, the usual pleth sweep (ECG convention, ISO
+// 80601-2-61 fixes none; 12.5 / 50 mm/s would be a user setting, not offered).
+// 460 px / 130 px/s = 3.54 s = 177 points at 50 Hz (128 = 5.1 s at 17 mm/s
+// until 4.6.0, chosen by time, not by pixels). LOCK_PPG_GAP is the erase gap
+// kept ahead of the cursor in CIRCULAR mode (0.24 s): it breaks the line
+// between the newest sample and the 3.5 s old one and shows where the sweep
+// is. Plain #defines: this header sits inside extern "C".
+#define LOCK_PPG_RATE_HZ     50.0f
+#define LOCK_PANEL_PX_PER_MM (800.0f / 154.0f)
+#define LOCK_PPG_SWEEP_MM_S  25.0f
+#define LOCK_PPG_WIDTH_PX    460
+#define LOCK_PPG_POINTS      ((int)(LOCK_PPG_RATE_HZ * LOCK_PPG_WIDTH_PX / \
+                                    (LOCK_PPG_SWEEP_MM_S * LOCK_PANEL_PX_PER_MM) + 0.5f))
+#define LOCK_PPG_GAP         ((int)(LOCK_PPG_RATE_HZ * 0.24f + 0.5f))
+extern lv_obj_t * ui_LockPulseOxFrame;
 extern lv_obj_t * ui_LockPPGChart;
-extern lv_obj_t * ui_LockHRCont;
+extern lv_obj_t * ui_LockVitCont;
+extern lv_obj_t * ui_LockSpO2Label;
 extern lv_obj_t * ui_LockHRLabel;
+extern lv_obj_t * ui_LockPILabel;
 void ui_ScreenLock_screen_init(void);
 void ui_ScreenLock_screen_destroy(void);
 
