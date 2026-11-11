@@ -4384,14 +4384,15 @@ void ui_ScreenLock_screen_init(void) {
 
   // --- PPG Chart (lock screen, bottom-left) ---
   ui_LockPPGChart = lv_chart_create(ui_ScreenLock);
-  lv_obj_set_size(ui_LockPPGChart, 460, 105);
+  lv_obj_set_size(ui_LockPPGChart, LOCK_PPG_WIDTH_PX, 105);
   lv_obj_set_align(ui_LockPPGChart, LV_ALIGN_BOTTOM_LEFT);
   lv_obj_set_x(ui_LockPPGChart, 10);
   lv_obj_set_y(ui_LockPPGChart, -7);  // 4 px inside ui_LockPulseOxFrame
   lv_obj_clear_flag(ui_LockPPGChart, LV_OBJ_FLAG_SCROLLABLE);
   lv_chart_set_type(ui_LockPPGChart, LV_CHART_TYPE_LINE);
-  // 128 puntos a 25 Hz (CTRL,PPG cada 40 ms) = 5,1 s de ventana, como un
-  // monitor clinico. Con 256 se metian 10,2 s y los latidos salian pegados.
+  // Point count from the sweep speed (25 mm/s) and the CTRL,PPG rate, see
+  // LOCK_PPG_POINTS in ElementsCreation.h: 177 points = 3.5 s at 50 Hz. It
+  // was 128 (5.1 s at 25 Hz, ~17 mm/s) until 4.6.0; 256 crammed the beats.
   lv_chart_set_point_count(ui_LockPPGChart, LOCK_PPG_POINTS);
   // CIRCULAR (barrido con cursor), no SHIFT: en modo SHIFT LVGL hace
   // lv_obj_invalidate() del chart entero en cada muestra (665x105 px, 25

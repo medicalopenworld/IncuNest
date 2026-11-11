@@ -1581,9 +1581,15 @@ void Communication_Task(void *pvParameters) {
       }
     }
 
-    // --- PPG waveform (25 Hz = every 40 ms) ---
+    // --- PPG waveform (50 Hz = every 20 ms) ---
+    // 25 Hz until 18.57.0 (a round number from the first CTRL,PPG, never
+    // revisited). 50 Hz: Nyquist 25 Hz, so the library's display band-pass
+    // (f_high 20 Hz, see initSPO2()) stays below it; the systolic upstroke
+    // (100-150 ms) gets 5-7 samples instead of 2-4; and 25 mm/s on the HMI is
+    // 2.6 px per sample instead of 5.2. The HMI derives its point count from
+    // this rate (ElementsCreation.h). 13 B x 50 = 650 B/s on the 115200 link.
     ppg_time = millis();
-    if (ppg_time - last_ppg_time >= 40) {
+    if (ppg_time - last_ppg_time >= 20) {
       // Transport only: the library owns the gain (NORM_PI), this maps [-1, +1]
       // to a byte. The waveform is NOT gated on spo2_sqi — the library restarts an
       // 18 s SpO2 warmup on every probe application (_spo2_update: EMAs reset
@@ -1592,7 +1598,7 @@ void Communication_Task(void *pvParameters) {
       if (g_spo2_data.probe_state == ProbeState::PROBE_APPLIED) {
         // A non-finite value would make lroundf() undefined, so it collapses to
         // the baseline instead of emitting a garbage byte. Keeping the line
-        // flowing (rather than skipping the send) preserves the 25 Hz cadence
+        // flowing (rather than skipping the send) preserves the 50 Hz cadence
         // the HMI trace expects. |ppg_disp| <= 1 by the library's contract, so
         // constrain() is a guard, not the clipping it used to be.
         float ppg = g_spo2_data.ppg_disp;

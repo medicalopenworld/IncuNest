@@ -5267,10 +5267,11 @@ void UI_Task(void *pvParameters) {
                    (unsigned long)heap_psram,
                    (unsigned long)ui_hwm_b, (unsigned long)comm_hwm_b);
         } else {
-          ESP_LOGW("DIAG", "heap_int=%lu heap_int_min=%lu heap_psram=%lu ui_hwm=%lu B comm_hwm=%lu B",
+          ESP_LOGW("DIAG", "heap_int=%lu heap_int_min=%lu heap_psram=%lu ui_hwm=%lu B comm_hwm=%lu B ppg_dropped=%u",
                    (unsigned long)heap_int, (unsigned long)heap_int_min,
                    (unsigned long)heap_psram,
-                   (unsigned long)ui_hwm_b, (unsigned long)comm_hwm_b);
+                   (unsigned long)ui_hwm_b, (unsigned long)comm_hwm_b,
+                   (unsigned)ctrl_ppg_fifo.dropped);
         }
       }
     }
@@ -5316,10 +5317,14 @@ void UI_Task(void *pvParameters) {
     }
 
     // --- Lock screen: PPG waveform ---
-    if (ui_LockPPGChart && lockPPGSeries && ctrl_ppg_msg.updated) {
-      float ppg_val = (float)ctrl_ppg_msg.ppg;
-      ctrl_ppg_msg.updated = false;
-      if (locked && spo2ProbeAttached) {
+    // Drain every sample that arrived since the last pass (50 Hz, one per
+    // 20 ms; a slow repaint can leave several queued). Drawing them back to
+    // back keeps the trace continuous; the chart spaces points evenly, so a
+    // burst only shifts the trace by at most one refresh.
+    if (ui_LockPPGChart && lockPPGSeries) {
+      uint8_t ppg_val;
+      while (ctrlPpgFifoPop(&ppg_val)) {
+        if (!(locked && spo2ProbeAttached)) continue;  // drain, do not draw
         lv_chart_set_next_value(ui_LockPPGChart, lockPPGSeries,
                                 (lv_coord_t)ppg_val);
         // Modo CIRCULAR: mantener un hueco por delante del cursor. Solo hace

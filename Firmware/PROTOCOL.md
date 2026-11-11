@@ -344,12 +344,29 @@ del cargador (1 Hz).
   depende de esta línea.
 
 #### CTRL,PPG (Onda pletismográfica)
-Enviado a 25 Hz (cada 40 ms) **solo** cuando el estado de sonda es `2`.
+Enviado a **50 Hz** (cada 20 ms) **solo** cuando el estado de sonda es `2`.
+Hasta la motherBoard 18.56.0 iba a 25 Hz (un número redondo del primer
+`CTRL,PPG`, nunca revisado); desde la 18.57.0 va a 50 Hz para que el Nyquist
+del transporte (25 Hz) quede por encima del paso banda de display de la
+librería (0,5–20 Hz), el frente sistólico tenga 5–7 muestras y, a 25 mm/s, cada
+muestra ocupe 2,6 px. **La tasa es una constante del contrato**: el HMI deriva
+su número de puntos de ella y de la velocidad de barrido (desde el HMI 4.7.0,
+177 puntos = 3,5 s a 25 mm/s en el chart de 460 px; antes 128 puntos a 25 Hz
+= 5,1 s a ~17 mm/s). Una pareja desparejada no rompe nada, solo muestra una
+ventana de tiempo equivocada (MB nueva + HMI viejo: 2,6 s; MB vieja + HMI
+nuevo: 7 s). El HMI 4.7.0 encola las muestras (FIFO de 32) entre el parser y
+la interfaz; hasta la 4.6.0 era un buzón de una plaza que perdía una muestra
+cada vez que un repintado duraba más que un periodo.
 **Formato**: `CTRL,PPG,value`
 - `value`: muestra `0..255` (128 = línea base). Es la última muestra de
   `ppg_disp` (500 Hz) en el instante del envío, sin promediar: el filtro de
-  display de la librería (0,5–20 Hz) es quien limita la banda. Desde la motherBoard 18.57.0
-  (`incunest_afe4490` v0.119, modo `NORM_PI`) la escala la pone la librería:
+  display de la librería es quien limita la banda (regla del consumidor de la
+  spec §5.9 de `incunest_afe4490` v0.119, con el lado alto de 5.º orden:
+  `f_high ≤ 0,4 × tasa de transporte` da ≥ 10 dB en el Nyquist del transporte,
+  `≤ 0,3 ×` da ≥ 20 dB; con 20 Hz a 50 Hz, −10 dB a 25 Hz y −41 dB a 50 Hz;
+  el contenido medido de la PPG neonatal por encima de 25 Hz es despreciable
+  con cualquiera de los dos). Desde la motherBoard 18.57.0
+  (`incunest_afe4490` v0.118, hoy v0.119, modo `NORM_PI`) la escala la pone la librería:
   `ppg_disp` llega en `[-1, +1]`, centrado y escalado por su propio seguidor de
   envolvente, con la amplitud en función del índice de perfusión (tamaño
   completo con PI ≥ 2 %, la mitad con PI ≤ 0,5 %, logarítmico entre medias), y
@@ -943,7 +960,7 @@ ningún test de la tabla hace ya I2C directo salvo `actuators`/`standby`
   numéricos, si `id` no es de motherBoard o `status` > 6.
 - Las líneas salen por una **cola** drenada por la tarea de comunicación
   (`CommunicationHost_Enqueue()`), nunca desde la tarea de test: el `CTRL,PPG`
-  a 25 Hz comparte el mismo UART y dos escritores entrelazarían caracteres.
+  a 50 Hz comparte el mismo UART y dos escritores entrelazarían caracteres.
   Cola llena = línea perdida con log; el display la da por FAIL por plazo.
 
 | id | clave | qué verifica | opcional |
