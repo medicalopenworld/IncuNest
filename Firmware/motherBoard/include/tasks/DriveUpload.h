@@ -6,7 +6,7 @@
 
 // Uploads files from LittleFS to Google Drive through a Google Apps Script.
 // Today that is only the crash reports; the raw PPG capture that used to live
-// here was removed in 18.56.0 (see the note at the top of DriveUpload.cpp).
+// here was removed in 18.57.0 (see the note at the top of DriveUpload.cpp).
 
 // Drive subfolder layout inside <SN>/
 #define DRIVE_SUBFOLDER_LOGS   "1-Logs"

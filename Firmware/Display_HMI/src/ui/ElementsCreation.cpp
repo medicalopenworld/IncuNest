@@ -4392,7 +4392,7 @@ void ui_ScreenLock_screen_init(void) {
   lv_chart_set_type(ui_LockPPGChart, LV_CHART_TYPE_LINE);
   // Point count from the sweep speed (25 mm/s) and the CTRL,PPG rate, see
   // LOCK_PPG_POINTS in ElementsCreation.h: 177 points = 3.5 s at 50 Hz. It
-  // was 128 (5.1 s at 25 Hz, ~17 mm/s) until 4.6.0; 256 crammed the beats.
+  // was 128 (5.1 s at 25 Hz, ~17 mm/s) before 4.7.0; 256 crammed the beats.
   lv_chart_set_point_count(ui_LockPPGChart, LOCK_PPG_POINTS);
   // CIRCULAR (barrido con cursor), no SHIFT: en modo SHIFT LVGL hace
   // lv_obj_invalidate() del chart entero en cada muestra (665x105 px, 25

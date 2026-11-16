@@ -15,7 +15,7 @@
 #define LFS_MOUNT "/littlefs"
 
 // The raw PPG capture (one /pox_<ms>.csv per 60 s window, 500 samples/s,
-// uploaded to <SN>/2-Pulsioximetry/) was REMOVED in 18.56.0. Writing to the
+// uploaded to <SN>/2-Pulsioximetry/) was REMOVED in 18.57.0. Writing to the
 // flash while the AFE4490 is sampling stalls the CPU cache for every page
 // program / sector erase, the library's DRDY handshake is a binary semaphore
 // and the AFE has no FIFO, so every sample that arrives during a flash write
@@ -431,7 +431,7 @@ void initDriveUpload() {
     logDrive("LittleFS begin failed");
     return;
   }
-  // Drop any /pox_*.csv left by a firmware older than 18.56.0 (the raw PPG
+  // Drop any /pox_*.csv left by a firmware older than 18.57.0 (the raw PPG
   // capture, see the note at the top), and cap crash_mb_/crash_hmi_ logs that
   // a crash loop left un-uploaded.
   CrashLogEntry mbKept[DRIVE_CRASH_LOG_RETENTION_CAP]  = {};

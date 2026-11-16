@@ -5,7 +5,7 @@
 - **Placas afectadas**: motherBoard
 - **Cambio OpenSpec**: ninguno (corrección de defecto; la spec de
   pulsioximetría está pendiente de escribir)
-- **Commits**: `6522041d` (eliminación del escritor CSV, motherBoard 18.56.0),
+- **Commits**: `6522041d` (eliminación del escritor CSV; en `dev` llega con la motherBoard 18.57.0),
   `3d821c9e` (`-O2` real y prioridad de la tarea del AFE)
 
 ## Contexto
@@ -16,7 +16,7 @@ que llevan la misma librería `incunest_afe4490`. Medido en banco el
 2026-11-02 con un contador temporal de muestras en `SPO2_Task`
 (`src/drivers/SPO2.cpp`, consumidor de `afe.getData()`), ventanas de 10 s:
 
-| Build (18.55.0) | Muestras/s de 500 | HR mostrada |
+| Build de banco 18.55.0 | Muestras/s de 500 | HR mostrada |
 |---|---|---|
 | Sonda retirada | 494,6 (0,989) | — |
 | Sonda aplicada | 444–451 (**0,89**) | **152** |
@@ -96,7 +96,7 @@ una ráfaga de muestras y por eso A sigue siendo necesaria.
 - `-O2` cambia cómo se compila todo el firmware. Deuda: vigilarlo en banco
   y que Pablo lo revise; si aparece un comportamiento distinto al de `-Og`,
   este es el primer sospechoso.
-- Los CSV ya subidos a Drive antes de 18.56.0 tienen huecos (saltos en
+- Los CSV ya subidos a Drive antes de 18.57.0 tienen huecos (saltos en
   `t_ms`): cualquier análisis hecho con ellos arrastra una base de tiempos
   errónea.
 - **Deuda explícita en la librería (A)**: contador de DRDY en la ISR,

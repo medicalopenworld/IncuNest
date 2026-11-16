@@ -65,9 +65,9 @@ void ppgSnapshotRelease();
 // cómo serializarlo (Wifi_OTA.cpp lo manda como serie temporal real, un
 // punto por muestra, para poder usar un chart estándar en el dashboard).
 // The samples are ppg_disp as the library delivers it, nothing scaled or
-// normalised here. Since motherBoard 18.57.0 (lib v0.118, NORM_PI selected in
+// normalised here. Since motherBoard 18.57.0 (lib v0.119, NORM_PI selected in
 // initSPO2()) that is a dimensionless [-1, +1] waveform scaled by the library
-// with the PI folded into its amplitude; from v0.69 to 18.56.0 it was A/A (OT
+// with the PI folded into its amplitude; from lib v0.69 until 18.57.0 it was A/A (OT
 // domain, ~1e-5..1e-6). The ThingsBoard key is still PPG_snapshot_v1, so the two
 // eras are NOT comparable under the same key — pending review (2026-11-08).
 uint16_t ppgSnapshotSampleCount();

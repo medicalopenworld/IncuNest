@@ -527,7 +527,7 @@ extern lv_obj_t * ui_CheckImg;
 // +-1 mm) = 5.19 px/mm; 25 mm/s, the usual pleth sweep (ECG convention, ISO
 // 80601-2-61 fixes none; 12.5 / 50 mm/s would be a user setting, not offered).
 // 460 px / 130 px/s = 3.54 s = 177 points at 50 Hz (128 = 5.1 s at 17 mm/s
-// until 4.6.0, chosen by time, not by pixels). LOCK_PPG_GAP is the erase gap
+// before 4.7.0, chosen by time, not by pixels). LOCK_PPG_GAP is the erase gap
 // kept ahead of the cursor in CIRCULAR mode (0.24 s): it breaks the line
 // between the newest sample and the 3.5 s old one and shows where the sweep
 // is. Plain #defines: this header sits inside extern "C".
