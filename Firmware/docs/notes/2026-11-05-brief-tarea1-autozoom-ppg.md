@@ -4,7 +4,7 @@ Fecha: 2026-11-05 · Para: la sesión que haga la tarea · Origen: sesión "Bug 
 
 ## Reglas de esta tarea
 
-- Repo `C:\PRJ\MOW\IncuNest`, rama **`feat/hmi-pulse-oximetry`** (ya existe; `dev` + 7 commits, todos en GitHub, sin PR). Trabajar en esa rama, en la misma carpeta, sin worktree. Lo que salga de aquí entra en el mismo PR que la pantalla de pulsioximetría.
+- Repo IncuNest, rama **`feat/hmi-pulse-oximetry`** (ya existe; `dev` + 7 commits, todos en GitHub, sin PR). Trabajar en esa rama, en la misma carpeta, sin worktree. Lo que salga de aquí entra en el mismo PR que la pantalla de pulsioximetría.
 - Solo **V18** (`IncuNest_V18` en `platformio.ini`); no compilar V17 ni V19.
 - **No tocar** `incunest_afe4490` (la librería es de Alex y se cambia en su propia sesión), PulseNest ni IncuTwin. Si la conclusión es "el zoom va en la librería", se escribe un brief en `Firmware/docs/notes/`, no código.
 - Comentarios y documentación en el código en **inglés**; chat en español. Cambios mínimos.
