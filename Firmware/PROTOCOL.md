@@ -385,10 +385,13 @@ Enviado cada 1 segundo **solo** cuando el estado de sonda es `2`.
 - `hr`: lpm, entero. `0` = sin valor válido (el HMI muestra `--`). El rango lo
   decide `incunest_afe4490` (hoy 30–260); desde la motherBoard 18.54.0 y el HMI
   4.5.1 pueden pasar valores mayores que 255.
-- `spo2`: %, entero. `0` = sin valor válido (el HMI muestra `--`). Hasta la
-  motherBoard 18.54.0 siempre era `0`; desde la 18.55.0 es la SpO2 de
-  `incunest_afe4490` redondeada, y `0` cuando la librería no da valor
-  (`spo2_sqi == 0`, que equivale a SpO2 NaN). El HMI la muestra desde la 4.6.0.
+- `spo2`: %, entero. `0` = sin valor (el HMI muestra `--`). Es la SpO2 de
+  `incunest_afe4490` redondeada, y `0` solo cuando la librería no publica valor
+  (SpO2 NaN: calentamiento, o retenida por alguna de sus puertas). Se envía
+  también con perfusión baja: `spo2_sqi` **no** indica si hay valor, es una
+  rampa del PI entre 0,5 y 2 % y vale `0` con PI ≤ 0,5 % aunque la SpO2 sea
+  válida. Hasta la motherBoard 18.53.0 el campo era siempre `0`; desde la
+  18.57.0 lleva la SpO2, y el HMI la muestra desde la 4.7.0.
 - `pi` es opcional; el HMI acepta la línea con 2 o 3 campos.
 - `pi`: índice de perfusión en %, con dos decimales. Desde la motherBoard
   18.54.0 es **PI_pp** (pico a pico: 2√2·RMS de la banda 0,5–15 Hz entre el DC
