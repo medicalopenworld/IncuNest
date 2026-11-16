@@ -1745,10 +1745,12 @@ void Communication_Task(void *pvParameters) {
           }
           if (hr_displaying && valid) {
             float hr_fused = (h2 * s2 + h3 * s3) / (s2 + s3);
-            // No range check here: the HR range is set by incunest_afe4490
-            // (30-260 bpm today).
-            // Round to the nearest integer bpm (hr_fused is always > 0 here).
-            hr_bpm = (uint16_t)(hr_fused + 0.5f);
+            // The HR range is set by incunest_afe4490 (30-260 bpm today); this
+            // bound only keeps the float -> uint16_t conversion defined (NaN,
+            // infinity or out of range is undefined behaviour), with margin
+            // above the library's ceiling. Nearest integer bpm; 0 = no value.
+            if (isfinite(hr_fused) && hr_fused > 0.0f && hr_fused <= 300.0f)
+              hr_bpm = (uint16_t)(hr_fused + 0.5f);
           }
         }
         // SpO2: incunest_afe4490 publishes a value or NaN (warm-up, or held by
@@ -1758,8 +1760,10 @@ void Communication_Task(void *pvParameters) {
         // baby while the HR and the waveform stayed on screen. Read once:
         // SPO2_Task rewrites g_spo2_data without a lock. 0 = no value for the HMI.
         uint16_t spo2_pct = 0;
+        // isfinite and the range keep the conversion defined; the library
+        // already clamps to 100 %.
         const float spo2 = g_spo2_data.spo2;
-        if (!isnan(spo2))
+        if (isfinite(spo2) && spo2 > 0.0f && spo2 <= 100.0f)
           spo2_pct = (uint16_t)(spo2 + 0.5f);  // nearest integer %
         float pi_val = g_spo2_data.pi;
         char vit_msg[32];
