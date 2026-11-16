@@ -1321,13 +1321,21 @@ void addTelemetriesToGPRSJSON() {
   // Suppress SpO2/HR telemetry unless the probe is actually on the patient —
   // no probe or probe-present-but-not-applied readings aren't valid vitals.
   if (g_spo2_data.probe_state == ProbeState::PROBE_APPLIED) {
-    if (g_spo2_data.spo2_sqi > 0.0f) {
+    // spo2_sqi is not a validity flag (a ramp of the PI between 0.5 and 2 %,
+    // 0 with a valid SpO2 at PI <= 0.5 %), so it gates nothing here: SpO2 goes
+    // with its SQI whenever the library publishes one, and PI on its own (the
+    // library computes it apart from the SpO2), so a low PI is recorded too.
+    // Each value is read once: SPO2_Task rewrites g_spo2_data without a lock.
+    const float spo2 = g_spo2_data.spo2;
+    if (isfinite(spo2)) {
       addVariableToTelemetryGPRSJSON[SPO2_KEY] =
-          roundSignificantDigits(g_spo2_data.spo2, TELEMETRIES_DECIMALS);
+          roundSignificantDigits(spo2, TELEMETRIES_DECIMALS);
       addVariableToTelemetryGPRSJSON[SPO2_SQI_KEY] =
           roundSignificantDigits(g_spo2_data.spo2_sqi, TELEMETRIES_DECIMALS);
-      addVariableToTelemetryGPRSJSON[PI_KEY] =
-          roundSignificantDigits(g_spo2_data.pi, TELEMETRIES_DECIMALS);
+    }
+    const float pi = g_spo2_data.pi;
+    if (isfinite(pi)) {
+      addVariableToTelemetryGPRSJSON[PI_KEY] = roundSignificantDigits(pi, TELEMETRIES_DECIMALS);
     }
     if (g_spo2_data.hr1_sqi > 0.0f) {
       addVariableToTelemetryGPRSJSON[HR1_KEY] = (int)(g_spo2_data.hr1 + 0.5f);

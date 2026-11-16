@@ -94,8 +94,22 @@
 #define HR2_SQI_KEY "HR2_SQI"
 #define HR3_KEY "HR3"
 #define HR3_SQI_KEY "HR3_SQI"
+// SpO2 and SpO2_SQI go together whenever the library publishes a SpO2. Since
+// 18.57.0 that includes PI <= 0.5 %, where SpO2_SQI (a ramp of the PI
+// between 0.5 and 2 %) is 0; before 18.57.0 they were sent only with
+// SpO2_SQI > 0, so a series from before has no low-perfusion points.
 #define SPO2_KEY "SpO2"
 #define SPO2_SQI_KEY "SpO2_SQI"
+// PI = perfusion index [%]. Since 18.57.0 (incunest_afe4490 v0.101+) it is
+// PI_pp: 2*sqrt(2)*RMS(0.5-15 Hz band-pass) / IR DC, 6 s window
+// (the library's PI-METHOD-1), computed independently of SpO2. Up to 18.53.0
+// (lib v0.94) it was PI_rms, tied to the SpO2 window. The key is unchanged
+// but the value is not: PI_pp ~= 2.8-3.2 x PI_rms on real PPG (2.83 exactly
+// only for a sine; measured by the library, rationale sec. 11). Do not mix
+// series from before and after 18.57.0 without rescaling (FW_version tells
+// them apart; the bench-only builds 18.54.0-18.56.0, never released, already
+// sent PI_pp). Since 18.57.0 PI is sent on its own whenever the library has
+// one; before, only together with SpO2, i.e. never below 0.5 %.
 #define PI_KEY "PI"
 // _v1: versionado por si cambia el formato (fs/duración/canal) más adelante.
 #define PPG_SNAPSHOT_KEY "PPG_snapshot_v1"       // 1 punto por muestra ppg_disp

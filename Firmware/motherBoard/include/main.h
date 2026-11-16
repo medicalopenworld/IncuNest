@@ -73,7 +73,7 @@
 // Con tres componentes deja de parecer un numero y se queda como texto.
 // Nada del firmware ni del flash tool ordena versiones: ThingsBoard compara
 // por igualdad y el flash tool elige por la revision de HW del entorno.
-#define FWversion "18.53.0"
+#define FWversion "18.57.0"
 #define WIFI_NAME "IncuNest"
 // Titulo del firmware en ThingsBoard (OTA por MQTT). ThingsBoard solo ofrece un
 // paquete cuyo titulo coincide con el que declara la unidad, asi que una V19
@@ -98,12 +98,6 @@
 #define LOG_PULSIOXIMETRY false
 #define LOG_DRIVE false // Google Drive upload + MB/HMI crash capture
 #define LOG_CHARGER false
-
-// Diagnostic: set to 1 to skip the upload task entirely. Writer keeps rotating
-// but every closed window is deleted instead of enqueued. Isolates whether the
-// crash originates in TLS/upload (heap corruption) or in the writer/littlefs
-// path itself.
-#define DRIVE_DISABLE_UPLOAD 0
 
 #define USE_SYSTEM_WITHOUT_ACTUATORS_TEST \
   true // only if previous test was OK and that fail cause is not being able to

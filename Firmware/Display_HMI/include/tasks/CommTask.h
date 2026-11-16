@@ -160,15 +160,15 @@ typedef struct {
 // libreria anade un estado, se anade alli y en PROTOCOL.md.
 #include "protocol/spo2_probe.h"
 
-// PPG waveform sample (CTRL,PPG — 25 Hz)
-typedef struct {
-  uint8_t ppg;     // normalised 0-255
-  bool    updated; // true after each new sample, cleared by consumer
-} ControlBoard_Message_PPG;
+// PPG waveform samples (CTRL,PPG: 50 Hz since motherBoard 18.57.0, 25 Hz
+// before), queued from the parser to the chart: see modules/comm/ppg_fifo.h.
+#include "modules/comm/ppg_fifo.h"
+bool ctrlPpgFifoPush(uint8_t v);   // producer; false = full, sample dropped
+bool ctrlPpgFifoPop(uint8_t *v);   // consumer; false = empty
 
 // Vital signs (CTRL,VIT — 1 Hz)
 typedef struct {
-  uint8_t hr;   // 40-240 bpm; 0 = no valid signal
+  uint16_t hr;  // 30-260 bpm; 0 = no valid signal
   uint8_t spo2; // 0-100 %; 0 = no valid signal
   float   pi;   // Perfusion Index [%]; 0.0 = no valid signal
   bool    updated;
@@ -202,7 +202,7 @@ extern ControlBoard_Message           ctrl_msg;
 extern ControlBoard_Message_Telemetry ctrl_tel_msg;
 extern ControlBoard_Message_Alarm     ctrl_msg_alarm;
 extern ControlBoard_Message_State     ctrl_state_msg;
-extern ControlBoard_Message_PPG       ctrl_ppg_msg;
+extern PpgFifo                        ctrl_ppg_fifo;
 extern ControlBoard_Message_VIT       ctrl_vit_msg;
 extern ControlBoard_Message_Probe     ctrl_probe_msg;
 extern int  g_skinProbeState;

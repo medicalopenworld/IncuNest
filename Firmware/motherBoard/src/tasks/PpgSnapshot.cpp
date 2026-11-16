@@ -2,8 +2,9 @@
 
 namespace {
 
-// float desde la v0.69 de la libreria: ppg_disp paso al dominio OT (A/A,
-// ~1e-5..1e-6) y como int32_t se truncaba a 0 en todas las muestras.
+// float since lib v0.69, when ppg_disp moved to the OT domain (A/A, ~1e-5..1e-6)
+// and an int32_t buffer truncated every sample to 0. Since 18.57.0 the samples
+// are [-1, +1] (NORM_PI; see PpgSnapshot.h), still float.
 float    s_buf[PPG_SNAPSHOT_SAMPLES];
 uint16_t s_count      = 0;     // muestras (ya diezmadas) recogidas
 uint16_t s_decimCount = 0;     // muestras crudas a 500 Hz desde la última guardada
