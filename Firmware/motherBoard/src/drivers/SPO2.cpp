@@ -97,7 +97,9 @@ void SPO2_Task(void *pvParameters) {
                  (unsigned long)sample_count, (double)data.ppg_disp,
                  (int)data.led2, (int)data.led1, (int)data.led2_sub,
                  (int)data.led1_sub,
-                 (double)(data.spo2_sqi > 0.0f ? data.spo2 : -1.0f),
+                 // -1 = no SpO2. Not spo2_sqi > 0: a valid SpO2 at
+                 // PI <= 0.5 % has spo2_sqi == 0.
+                 (double)(isfinite(data.spo2) ? data.spo2 : -1.0f),
                  (double)data.spo2_sqi, (double)data.spo2_r, (double)data.pi,
                  (double)(data.hr1_sqi > 0.0f ? data.hr1 : -1.0f),
                  (double)data.hr1_sqi,
