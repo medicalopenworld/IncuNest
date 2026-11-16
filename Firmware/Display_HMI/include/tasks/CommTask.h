@@ -161,22 +161,8 @@ typedef struct {
 #include "protocol/spo2_probe.h"
 
 // PPG waveform samples (CTRL,PPG: 50 Hz since motherBoard 18.57.0, 25 Hz
-// before). Single-producer / single-consumer ring buffer between the parser
-// (CommTask) and the chart (UITask). Until 4.7.0 this was a one-slot mailbox
-// (ppg + updated flag): whenever lv_timer_handler() took longer than one
-// sample period the next sample overwrote the previous one, and repaints of
-// more than 40 ms are documented in UITask.cpp. Now UITask drains everything
-// that arrived since its last pass. Power-of-two length; head and tail are
-// uint8_t counters that wrap freely, each written by one side only, so no
-// lock is needed. `dropped` counts samples lost to a full buffer (bench
-// diagnostics, DIAG log).
-#define CTRL_PPG_FIFO_LEN 32
-typedef struct {
-  volatile uint8_t  buf[CTRL_PPG_FIFO_LEN];
-  volatile uint8_t  head;     // written by the producer only
-  volatile uint8_t  tail;     // written by the consumer only
-  volatile uint16_t dropped;  // producer only
-} ControlBoard_PPG_Fifo;
+// before), queued from the parser to the chart: see modules/comm/ppg_fifo.h.
+#include "modules/comm/ppg_fifo.h"
 bool ctrlPpgFifoPush(uint8_t v);   // producer; false = full, sample dropped
 bool ctrlPpgFifoPop(uint8_t *v);   // consumer; false = empty
 
@@ -216,7 +202,7 @@ extern ControlBoard_Message           ctrl_msg;
 extern ControlBoard_Message_Telemetry ctrl_tel_msg;
 extern ControlBoard_Message_Alarm     ctrl_msg_alarm;
 extern ControlBoard_Message_State     ctrl_state_msg;
-extern ControlBoard_PPG_Fifo          ctrl_ppg_fifo;
+extern PpgFifo                        ctrl_ppg_fifo;
 extern ControlBoard_Message_VIT       ctrl_vit_msg;
 extern ControlBoard_Message_Probe     ctrl_probe_msg;
 extern int  g_skinProbeState;

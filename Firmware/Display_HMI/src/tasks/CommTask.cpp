@@ -14,6 +14,7 @@
 #include "drivers/rtc_store.h"
 #include "drivers/rtc_write_policy.h"
 #include "modules/comm/sb_env.h"
+#include "modules/comm/vit_msg.h"
 #include <cstdio>
 #include <cstdlib>
 #include <string.h>
@@ -26,26 +27,10 @@ ControlBoard_Message ctrl_msg;
 ControlBoard_Message_Telemetry ctrl_tel_msg;
 ControlBoard_Message_Alarm ctrl_msg_alarm;
 ControlBoard_Message_State ctrl_state_msg = {0};
-ControlBoard_PPG_Fifo ctrl_ppg_fifo      = {{0}, 0, 0, 0};
+PpgFifo ctrl_ppg_fifo                    = {{0}, 0, 0, 0};
 
-bool ctrlPpgFifoPush(uint8_t v) {
-  uint8_t head = ctrl_ppg_fifo.head;
-  if ((uint8_t)(head - ctrl_ppg_fifo.tail) >= CTRL_PPG_FIFO_LEN) {
-    ctrl_ppg_fifo.dropped++;
-    return false;
-  }
-  ctrl_ppg_fifo.buf[head % CTRL_PPG_FIFO_LEN] = v;
-  ctrl_ppg_fifo.head = (uint8_t)(head + 1);  // publish after the write
-  return true;
-}
-
-bool ctrlPpgFifoPop(uint8_t *v) {
-  uint8_t tail = ctrl_ppg_fifo.tail;
-  if (tail == ctrl_ppg_fifo.head) return false;
-  *v = ctrl_ppg_fifo.buf[tail % CTRL_PPG_FIFO_LEN];
-  ctrl_ppg_fifo.tail = (uint8_t)(tail + 1);
-  return true;
-}
+bool ctrlPpgFifoPush(uint8_t v) { return ppg_fifo_push(&ctrl_ppg_fifo, v); }
+bool ctrlPpgFifoPop(uint8_t *v) { return ppg_fifo_pop(&ctrl_ppg_fifo, v); }
 ControlBoard_Message_VIT ctrl_vit_msg     = {0, 0, 0.0f, false};
 ControlBoard_Message_Probe ctrl_probe_msg = {SPO2_PROBE_DISCONNECTED, false};
 int g_skinProbeState = SKIN_PROBE_NOT_CONNECTED; // Last received skin probe state
@@ -947,13 +932,11 @@ static void parse_message(const char *line) {
       ctrlPpgFifoPush((uint8_t)ppg);
     }
   } else if (strncmp(line, "CTRL,VIT", 8) == 0) {
-    int hr = 0, spo2 = 0;
-    float pi = 0.0f;
-    int n = sscanf(line, "CTRL,VIT,%d,%d,%f", &hr, &spo2, &pi);
-    if (n >= 2) {
-      ctrl_vit_msg.hr      = (uint16_t)hr;
-      ctrl_vit_msg.spo2    = (uint8_t)spo2;
-      ctrl_vit_msg.pi      = (n >= 3) ? pi : 0.0f;
+    VitMsg v;
+    if (vit_parse(line, &v)) {
+      ctrl_vit_msg.hr      = v.hr;
+      ctrl_vit_msg.spo2    = v.spo2;
+      ctrl_vit_msg.pi      = v.pi;
       ctrl_vit_msg.updated = true;
     }
   } else if (strncmp(line, "CTRL,PROBE", 10) == 0) {
