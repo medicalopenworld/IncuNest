@@ -1588,8 +1588,9 @@ void Communication_Task(void *pvParameters) {
     // (100-150 ms) gets 5-7 samples instead of 2-4; and 25 mm/s on the HMI is
     // 2.6 px per sample instead of 5.2. The HMI derives its point count from
     // this rate (ElementsCreation.h). 13 B x 50 = 650 B/s on the 115200 link.
+    constexpr uint32_t PPG_PERIOD_MS = 20;  // 50 Hz
     ppg_time = millis();
-    if (ppg_time - last_ppg_time >= 20) {
+    if (ppg_time - last_ppg_time >= PPG_PERIOD_MS) {
       // Transport only: the library owns the gain (NORM_PI), this maps [-1, +1]
       // to a byte. The waveform is NOT gated on spo2_sqi — the library restarts an
       // 18 s SpO2 warmup on every probe application (_spo2_update: EMAs reset
@@ -1610,7 +1611,13 @@ void Communication_Task(void *pvParameters) {
         snprintf(ppg_msg, sizeof(ppg_msg), "CTRL,PPG,%u\n", ppg_byte);
         hmiSerial.print(ppg_msg);
       }
-      last_ppg_time = ppg_time;
+      // One period at a time, not "= ppg_time": the loop runs every ~1 ms,
+      // and restarting the period from the moment of the send lost up to a
+      // tick per sample (below 50 Hz on average, so the 25 mm/s sweep came
+      // out slow). After a slow pass more than a period behind, re-sync
+      // instead of catching up with a burst of repeated samples.
+      last_ppg_time += PPG_PERIOD_MS;
+      if (ppg_time - last_ppg_time >= PPG_PERIOD_MS) last_ppg_time = ppg_time;
     }
 
     // --- Persist phototherapy timer to NVS every 60 s ---
