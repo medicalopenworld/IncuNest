@@ -1416,10 +1416,6 @@ void Communication_Task(void *pvParameters) {
   uint32_t ppg_time      = 0;
   static unsigned long last_probe_status_time = 0;
   static ProbeState    prev_probe_state       = ProbeState::PROBE_DISCONNECTED;
-  // HR hysteresis: show after 2 consecutive valid samples, hide after 3 bad ones
-  uint8_t hr_valid_streak = 0;
-  uint8_t hr_bad_streak   = 0;
-  bool    hr_displaying   = false;
   // CTRL,ENV (puerta, luz, ruido de la SensorBoard): ver el bloque tras STATE.
   SbEnvPacer env_pacer;
   sb_env_pacer_init(&env_pacer);
@@ -1739,37 +1735,24 @@ void Communication_Task(void *pvParameters) {
           last_probe_status_time = millis();
         }
       } else {
-        // Probe applied — send fused HR vitals
-        uint16_t hr_bpm = 0;
-        {
-          float h2 = afe_s.hr2, h3 = afe_s.hr3;
-          float s2 = afe_s.hr2_sqi, s3 = afe_s.hr3_sqi;
-          bool valid = (h2 > 0.0f) && (h3 > 0.0f) &&
-                       (fabsf(h2 - h3) < 8.0f) &&
-                       (fmaxf(s2, s3) >= 0.8f) &&
-                       (fminf(s2, s3) >= 0.5f);
-          if (valid) {
-            hr_bad_streak = 0;
-            if (++hr_valid_streak >= 2) hr_displaying = true;
-          } else {
-            hr_valid_streak = 0;
-            if (++hr_bad_streak >= 3) hr_displaying = false;
-          }
-          if (hr_displaying && valid) {
-            // Nearest integer bpm; 0 = no value (modules/util/vitals_out.h).
-            hr_bpm = vitals_hr_bpm((h2 * s2 + h3 * s3) / (s2 + s3));
-          }
-        }
-        // SpO2: incunest_afe4490 publishes a value or NaN (warm-up, or held by
-        // one of its gates). spo2_sqi is NOT a validity flag: it is a ramp of
-        // the PI between 0.5 and 2 %, so a valid SpO2 with PI <= 0.5 % comes
-        // with spo2_sqi == 0, and gating on it showed "--" on a poorly perfused
-        // baby while the HR and the waveform stayed on screen. The PI follows
-        // the same convention since 18.58.0: it travelled as "nan" when the
-        // library had none. 0 and 0.00 = no value for the HMI
+        // Probe applied: send the display quantities of incunest_afe4490 (its
+        // spec 2.1.2, v0.124), the number a monitor shows: finite, or NaN for
+        // dashes. hr_disp is HR2 and HR3 in agreement, their SQI-weighted
+        // mean; until 18.58.0 this task applied that rule itself, counting
+        // turns of its 1 Hz block (2 good ones to show, 3 bad ones to ask for
+        // them again), and the library applies it in time (more than 1 s, more
+        // than 2 s). spo2_disp and pi_disp are the library's spo2 and pi as
+        // they are, for now.
+        //
+        // Nothing here looks at an SQI. spo2_sqi is NOT a validity flag: it is
+        // a ramp of the PI between 0.5 and 2 %, so a valid SpO2 with
+        // PI <= 0.5 % comes with spo2_sqi == 0, and gating on it showed "--"
+        // on a poorly perfused baby while the HR and the waveform stayed on
+        // screen. 0 and 0.00 = no value for the HMI
         // (modules/util/vitals_out.h).
-        const uint16_t spo2_pct = vitals_spo2_pct(afe_s.spo2);
-        const float pi_val = vitals_pi_pct(afe_s.pi);
+        const uint16_t hr_bpm = vitals_hr_bpm(afe_s.hr_disp);
+        const uint16_t spo2_pct = vitals_spo2_pct(afe_s.spo2_disp);
+        const float pi_val = vitals_pi_pct(afe_s.pi_disp);
         char vit_msg[32];
         snprintf(vit_msg, sizeof(vit_msg), "CTRL,VIT,%u,%u,%.2f\n",
                  hr_bpm, spo2_pct, (double)pi_val);

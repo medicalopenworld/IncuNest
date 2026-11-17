@@ -39,7 +39,8 @@ extern TaskHandle_t     g_spo2_task;
 // the value of the next), which is what the volatile global this replaces
 // allowed. Before the first sample, and while the AFE is stalled
 // (afe_watchdog.h), the copy carries no measurement: the five clinical output
-// quantities are NaN and probe_state is PROBE_DISCONNECTED.
+// quantities and the three display quantities are NaN and probe_state is
+// PROBE_DISCONNECTED.
 AFE4490Data spo2Snapshot();
 
 // Adds the pulse-oximeter keys to a telemetry message (SpO2 with its SQI, PI,

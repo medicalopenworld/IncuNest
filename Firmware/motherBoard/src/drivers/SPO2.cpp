@@ -10,9 +10,11 @@ INCUNEST_AFE4490 afe;
 TaskHandle_t g_spo2_task = nullptr;
 
 // What a consumer reads when there is no measurement: the five clinical output
-// quantities at NaN (the "no value" of incunest_afe4490, its spec 2.1.1) and
-// the probe as disconnected, so that isfinite() is the only test a consumer
-// needs. diag_code is kept: it is a diagnostic, not a measurement.
+// quantities and the three display quantities at NaN (the "no value" of
+// incunest_afe4490, its spec 2.1.1 and 2.1.2) and the probe as disconnected,
+// so that isfinite() is the only test a consumer needs. The display states say
+// "no probe", as the library does while the probe is not applied. diag_code is
+// kept: it is a diagnostic, not a measurement.
 static AFE4490Data noValueSample(uint32_t diag_code) {
   AFE4490Data d = {};
   d.spo2 = NAN;
@@ -25,6 +27,12 @@ static AFE4490Data noValueSample(uint32_t diag_code) {
   d.hr3 = NAN;
   d.diag_code = diag_code;
   d.probe_state = ProbeState::PROBE_DISCONNECTED;
+  d.spo2_disp = NAN;
+  d.hr_disp = NAN;
+  d.pi_disp = NAN;
+  d.spo2_disp_state = AFE4490DispState::DISP_NO_PROBE;
+  d.hr_disp_state = AFE4490DispState::DISP_NO_PROBE;
+  d.pi_disp_state = AFE4490DispState::DISP_NO_PROBE;
   return d;
 }
 
