@@ -33,7 +33,7 @@ extern INCUNEST_AFE4490 afe;
 extern TaskHandle_t     g_spo2_task;
 
 // The latest sample of the AFE, whole: every field belongs to the same
-// instant. This is the only way to read it. SPO2_Task rewrites the sample 500
+// instant. This is the only way to read it. SPO2_Task rewrites the sample 50
 // times a second, so a consumer takes ONE copy and works on it; reading two
 // fields in two calls pairs values of different samples (the SQI of one with
 // the value of the next), which is what the volatile global this replaces
@@ -41,7 +41,11 @@ extern TaskHandle_t     g_spo2_task;
 // (afe_watchdog.h), the copy carries no measurement: the five clinical output
 // quantities and the three display quantities are NaN and probe_state is
 // PROBE_DISCONNECTED.
-AFE4490Data spo2Snapshot();
+//
+// seq, when given, receives a number that changes every time the sample does:
+// a consumer that must act once per sample (CTRL,PPG) compares it with the one
+// of its previous copy.
+AFE4490Data spo2Snapshot(uint32_t *seq = nullptr);
 
 // Adds the pulse-oximeter keys to a telemetry message (SpO2 with its SQI, PI,
 // HR1, HR2 and HR3 with theirs), the same for WiFi and GPRS. A key is sent

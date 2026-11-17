@@ -1412,8 +1412,7 @@ void Communication_Task(void *pvParameters) {
   uint32_t last_tel_time = 0;
   // Force the first CTRL,TIME immediately rather than 10 s into the session.
   uint32_t last_time_bcast = (uint32_t)(0 - 10001);
-  uint32_t last_ppg_time = 0;
-  uint32_t ppg_time      = 0;
+  uint32_t last_ppg_seq = 0; // sample of the AFE already sent as CTRL,PPG
   static unsigned long last_probe_status_time = 0;
   static ProbeState    prev_probe_state       = ProbeState::PROBE_DISCONNECTED;
   // CTRL,ENV (puerta, luz, ruido de la SensorBoard): ver el bloque tras STATE.
@@ -1463,7 +1462,9 @@ void Communication_Task(void *pvParameters) {
 
     // One whole copy of the AFE sample per turn of the loop: the probe state,
     // the waveform and the vitals below all belong to the same instant.
-    const AFE4490Data afe_s = spo2Snapshot();
+    // afe_seq changes when the sample does (50 times a second).
+    uint32_t afe_seq = 0;
+    const AFE4490Data afe_s = spo2Snapshot(&afe_seq);
 
     // Detect APPLIED transition — notify display immediately
     {
@@ -1582,16 +1583,23 @@ void Communication_Task(void *pvParameters) {
       }
     }
 
-    // --- PPG waveform (50 Hz = every 20 ms) ---
+    // --- PPG waveform (50 Hz: one CTRL,PPG per sample of the AFE) ---
     // 25 Hz until 18.57.0 (a round number from the first CTRL,PPG, never
     // revisited). 50 Hz: Nyquist 25 Hz, so the library's display band-pass
     // (f_high 20 Hz, see initSPO2()) stays below it; the systolic upstroke
     // (100-150 ms) gets 5-7 samples instead of 2-4; and 25 mm/s on the HMI is
     // 2.6 px per sample instead of 5.2. The HMI derives its point count from
     // this rate (ElementsCreation.h). 13 B x 50 = 650 B/s on the 115200 link.
-    constexpr uint32_t PPG_PERIOD_MS = 20;  // 50 Hz
-    ppg_time = millis();
-    if (ppg_time - last_ppg_time >= PPG_PERIOD_MS) {
+    //
+    // Since 18.59.0 the cadence is SPO2_Task's: it reads the library 50 times
+    // a second (SPO2_TASK_PERIOD_MS) and one line goes out for each sample it
+    // publishes, told by the sequence number. Until 18.58.0 this loop had its
+    // own 20 ms timer and sent the latest of 500 samples a second. With the
+    // sample itself arriving every 20 ms, a second timer of the same period
+    // would slide against it and send a sample twice or skip one. A turn of
+    // this loop that lasts more than 20 ms skips a sample, as it did before.
+    if (afe_seq != last_ppg_seq) {
+      last_ppg_seq = afe_seq;
       // Transport only: the library owns the gain (NORM_PI), this maps [-1, +1]
       // to a byte. The waveform is NOT gated on spo2_sqi — the library restarts an
       // 18 s SpO2 warmup on every probe application (_spo2_update: EMAs reset
@@ -1612,13 +1620,6 @@ void Communication_Task(void *pvParameters) {
         snprintf(ppg_msg, sizeof(ppg_msg), "CTRL,PPG,%u\n", ppg_byte);
         hmiSerial.print(ppg_msg);
       }
-      // One period at a time, not "= ppg_time": the loop runs every ~1 ms,
-      // and restarting the period from the moment of the send lost up to a
-      // tick per sample (below 50 Hz on average, so the 25 mm/s sweep came
-      // out slow). After a slow pass more than a period behind, re-sync
-      // instead of catching up with a burst of repeated samples.
-      last_ppg_time += PPG_PERIOD_MS;
-      if (ppg_time - last_ppg_time >= PPG_PERIOD_MS) last_ppg_time = ppg_time;
     }
 
     // --- Persist phototherapy timer to NVS every 60 s ---

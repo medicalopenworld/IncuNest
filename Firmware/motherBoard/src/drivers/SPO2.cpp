@@ -42,11 +42,15 @@ static AFE4490Data noValueSample(uint32_t diag_code) {
 // spinlock rather than a mutex: the section is a copy of about 100 bytes.
 static portMUX_TYPE s_latestMux = portMUX_INITIALIZER_UNLOCKED;
 static AFE4490Data s_latest = noValueSample(0);
+static uint32_t s_latestSeq = 0; // one more for every sample published
 
-AFE4490Data spo2Snapshot() {
+AFE4490Data spo2Snapshot(uint32_t *seq) {
   AFE4490Data d;
   portENTER_CRITICAL(&s_latestMux);
   d = s_latest;
+  if (seq != nullptr) {
+    *seq = s_latestSeq;
+  }
   portEXIT_CRITICAL(&s_latestMux);
   return d;
 }
@@ -54,6 +58,7 @@ AFE4490Data spo2Snapshot() {
 static void publishSample(const AFE4490Data &d) {
   portENTER_CRITICAL(&s_latestMux);
   s_latest = d;
+  s_latestSeq++;
   portEXIT_CRITICAL(&s_latestMux);
 }
 
@@ -89,7 +94,11 @@ void spo2AddTelemetry(JsonObject &json) {
   addHrTelemetry(json, HR3_KEY, HR3_SQI_KEY, s.hr3, s.hr3_sqi);
 }
 
-#define SPO2_LOG_INTERVAL_SAMPLES 500 // ~1 s at 500 Hz
+// PpgSnapshot stores every sample SPO2_Task reads, with no decimation.
+static_assert(1000 / SPO2_TASK_PERIOD_MS == PPG_SNAPSHOT_SRC_HZ,
+              "SPO2_Task's rate and PpgSnapshot's source rate must be the same");
+
+#define SPO2_LOG_INTERVAL_SAMPLES 50 // ~1 s at 50 reads a second
 
 // Detector de parada y caducidad del dato (logica pura en
 // modules/control/afe_watchdog.*). Solo lo toca SPO2_Task tras crearse;
@@ -115,6 +124,7 @@ void SPO2_Task(void *pvParameters) {
   AFE4490Data data;
   static uint32_t sample_count = 0;
   bool no_value_published = false; // the stalled AFE has already been reported
+  TickType_t last_wake = xTaskGetTickCount();
 
   for (;;) {
     // A2: a sample older than AFE_WD_DATA_STALE_MS is not current. If the AFE
@@ -141,6 +151,16 @@ void SPO2_Task(void *pvParameters) {
         logE(String(msg));
       }
     }
+    // ONE read per turn, 50 turns a second (SPO2_TASK_PERIOD_MS). The library
+    // produces 500 samples a second into a queue of 10 that drops the oldest
+    // when full, so each read takes the oldest of the last ten: one sample of
+    // every ten, about 20 ms old. Nothing in this firmware needs the other
+    // nine: the display values (spo2_disp, hr_disp, pi_disp) and the probe
+    // state are computed by the library on every sample and read here as they
+    // stand, and the waveform goes to the HMI and to PpgSnapshot at 50 Hz, with
+    // the library's display band-pass (f_high 20 Hz, initSPO2()) as the
+    // anti-aliasing filter. Until 18.58.0 this task read every sample (1 ms
+    // period) and each consumer picked its own one of ten.
     if (afe.getData(data)) {
       afe_wd_sample(&s_afeWd, millis());
       publishSample(data);
@@ -166,7 +186,7 @@ void SPO2_Task(void *pvParameters) {
       // Ahora: la guarda es de COMPILACION (LOG_PULSIOXIMETRY es un #define
       // false, asi que el bloque entero desaparece) y el formateo va a un
       // buffer de pila con snprintf. Cero asignaciones de heap en un camino
-      // que corre a 500 Hz, encendido el log o apagado.
+      // que corre a 50 Hz (500 Hz hasta la 18.58.0), encendido el log o apagado.
       if (++sample_count % SPO2_LOG_INTERVAL_SAMPLES == 0 && LOG_PULSIOXIMETRY) {
         char line[320];
         // ppg_disp is [-1, +1] since NORM_PI (lib v0.116+, selected in
@@ -193,7 +213,17 @@ void SPO2_Task(void *pvParameters) {
         logSPO2(line);
       }
     }
-    vTaskDelay(pdMS_TO_TICKS(SPO2_TASK_PERIOD_MS));
+    // A fixed period, not a delay after the work: CTRL,PPG goes out once per
+    // sample read here, and a period that stretched by a tick now and then
+    // would make the HMI sweep slow. After a late turn (more than a period
+    // behind) start again from now instead of catching up with a burst of
+    // reads, which would hand out consecutive samples 2 ms apart as if they
+    // were 20 ms apart.
+    const TickType_t period = pdMS_TO_TICKS(SPO2_TASK_PERIOD_MS);
+    vTaskDelayUntil(&last_wake, period);
+    if ((TickType_t)(xTaskGetTickCount() - last_wake) > period) {
+      last_wake = xTaskGetTickCount();
+    }
   }
 }
 
@@ -223,7 +253,8 @@ void initSPO2() {
   afe.setPPGDispMode(AFE4490PPGDispMode::NORM_PI);
 
   // Display band-pass: f_high set here, explicitly, because it belongs to the
-  // consumer. CommTask samples ppg_disp at 50 Hz for the HMI (Nyquist 25 Hz).
+  // consumer. SPO2_Task takes ppg_disp at 50 Hz (Nyquist 25 Hz) for the HMI and
+  // for PpgSnapshot (until 18.58.0 it was CommTask that sampled it at 50 Hz).
   // Since incunest_afe4490 v0.119 the upper side is a 5th-order Butterworth
   // (band-pass pole + two low-pass biquads) with f_high the -3 dB point of the
   // whole chain; the consumer rule of its spec 5.9 is f_high <= 0.4 x rate for

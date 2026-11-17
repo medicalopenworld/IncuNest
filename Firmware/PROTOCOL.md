@@ -357,10 +357,16 @@ ventana de tiempo equivocada (MB nueva + HMI viejo: 2,6 s; MB vieja + HMI
 nuevo: 7 s). El HMI 4.7.0 encola las muestras (FIFO de 32) entre el parser y
 la interfaz; hasta la 4.5.0 era un buzón de una plaza que perdía una muestra
 cada vez que un repintado duraba más que un periodo.
+Desde la motherBoard 18.59.0 la cadencia la marca `SPO2_Task`, que lee la
+librería 50 veces por segundo: sale una línea por cada muestra leída. Hasta la
+18.58.0 `CommTask` llevaba su propio reloj de 20 ms. La tasa en el cable es la
+misma.
 **Formato**: `CTRL,PPG,value`
-- `value`: muestra `0..255` (128 = línea base). Es la última muestra de
-  `ppg_disp` (500 Hz) en el instante del envío, sin promediar: el filtro de
-  display de la librería es quien limita la banda (regla del consumidor de la
+- `value`: muestra `0..255` (128 = línea base). Es una muestra de `ppg_disp`
+  de cada diez (la librería las produce a 500 Hz), sin promediar y con unos
+  20 ms de retraso (hasta la 18.58.0, la última muestra en el instante del
+  envío): el filtro de display de la librería es quien limita la banda
+  (regla del consumidor de la
   spec §5.9 de `incunest_afe4490` v0.119, con el lado alto de 5.º orden:
   `f_high ≤ 0,4 × tasa de transporte` da ≥ 10 dB en el Nyquist del transporte,
   `≤ 0,3 ×` da ≥ 20 dB; con 20 Hz a 50 Hz, −10 dB a 25 Hz y −41 dB a 50 Hz;
