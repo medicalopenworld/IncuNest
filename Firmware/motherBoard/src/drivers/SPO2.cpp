@@ -6,7 +6,46 @@
 
 INCUNEST_AFE4490 afe;
 TaskHandle_t g_spo2_task = nullptr;
-volatile AFE4490Data g_spo2_data = {};
+
+// What a consumer reads when there is no measurement: the five clinical output
+// quantities at NaN (the "no value" of incunest_afe4490, its spec 2.1.1) and
+// the probe as disconnected, so that isfinite() is the only test a consumer
+// needs. diag_code is kept: it is a diagnostic, not a measurement.
+static AFE4490Data noValueSample(uint32_t diag_code) {
+  AFE4490Data d = {};
+  d.spo2 = NAN;
+  d.spo2_r = NAN;
+  d.spo2_r_method2_reg_corr = NAN;
+  d.spo2_hold_reason = SpO2HoldReason::HOLD_PROBE;
+  d.pi = NAN;
+  d.hr1 = NAN;
+  d.hr2 = NAN;
+  d.hr3 = NAN;
+  d.diag_code = diag_code;
+  d.probe_state = ProbeState::PROBE_DISCONNECTED;
+  return d;
+}
+
+// The latest sample. SPO2_Task writes it and CommTask, the telemetry tasks and
+// the factory test read it, from other tasks and the other core, so it is only
+// touched inside this lock and only handed out whole (spo2Snapshot()). A
+// spinlock rather than a mutex: the section is a copy of about 100 bytes.
+static portMUX_TYPE s_latestMux = portMUX_INITIALIZER_UNLOCKED;
+static AFE4490Data s_latest = noValueSample(0);
+
+AFE4490Data spo2Snapshot() {
+  AFE4490Data d;
+  portENTER_CRITICAL(&s_latestMux);
+  d = s_latest;
+  portEXIT_CRITICAL(&s_latestMux);
+  return d;
+}
+
+static void publishSample(const AFE4490Data &d) {
+  portENTER_CRITICAL(&s_latestMux);
+  s_latest = d;
+  portEXIT_CRITICAL(&s_latestMux);
+}
 
 #define SPO2_LOG_INTERVAL_SAMPLES 500 // ~1 s at 500 Hz
 
@@ -16,7 +55,7 @@ volatile AFE4490Data g_spo2_data = {};
 // porque en afe_watchdog.h.
 static AfeWatchdog s_afeWd;
 
-uint32_t afeDiagCode(void) { return g_spo2_data.diag_code; }
+uint32_t afeDiagCode(void) { return spo2Snapshot().diag_code; }
 uint32_t afeStallCount(void) { return afe_wd_stalls(&s_afeWd); }
 
 // Reset fisico del AFE por PDN (IO7, activo bajo, en la V19). En V17/V18 el
@@ -33,19 +72,20 @@ static void afePdnPulse(void) {
 void SPO2_Task(void *pvParameters) {
   AFE4490Data data;
   static uint32_t sample_count = 0;
+  bool no_value_published = false; // the stalled AFE has already been reported
 
   for (;;) {
-    // A2: un dato de mas de AFE_WD_DATA_STALE_MS no es actual. Si el AFE se
-    // para, g_spo2_data se queda con el ultimo probe_state (APPLIED) y las
-    // ultimas FC/SpO2, y CommTask, GPRS y WiFi las publicarian congeladas como
-    // si fueran vitales en vivo. Se sintetiza PROBE_DISCONNECTED ("sin senal"):
-    // todos los consumidores ya tratan "no APPLIED" como "sin vitales". La
-    // siguiente muestra real lo sobrescribe (memcpy de abajo).
+    // A2: a sample older than AFE_WD_DATA_STALE_MS is not current. If the AFE
+    // stalls, the library delivers nothing, so the last sample (probe APPLIED,
+    // the last HR and SpO2) would stay published and CommTask, GPRS and WiFi
+    // would send it as live vitals. The whole sample is replaced by one with no
+    // measurement (noValueSample()): until 18.57.0 only probe_state changed and
+    // the values stayed behind it. The next real sample overwrites it.
     {
       const uint32_t now = millis();
-      if (!afe_wd_data_fresh(&s_afeWd, now) &&
-          g_spo2_data.probe_state != ProbeState::PROBE_DISCONNECTED) {
-        g_spo2_data.probe_state = ProbeState::PROBE_DISCONNECTED;
+      if (!afe_wd_data_fresh(&s_afeWd, now) && !no_value_published) {
+        publishSample(noValueSample(spo2Snapshot().diag_code));
+        no_value_published = true;
       }
       // Un solo evento por episodio de parada. logE (no ESP_LOGE directo) para
       // que la linea entre en el anillo del CrashReporter.
@@ -61,7 +101,8 @@ void SPO2_Task(void *pvParameters) {
     }
     if (afe.getData(data)) {
       afe_wd_sample(&s_afeWd, millis());
-      memcpy((void *)&g_spo2_data, &data, sizeof(data));
+      publishSample(data);
+      no_value_published = false;
       ppgSnapshotFeed(data, millis());
 
       // ESTA LINEA DE LOG TUMBO LA PLACA (banco 2026-09-14). El coredump:

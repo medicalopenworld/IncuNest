@@ -183,9 +183,9 @@ static void rpc_check_ota_cb(JsonVariantConst const & /*data*/,
 // compartido; lo único propio del transporte es por dónde sale el resultado.
 static void rpc_capture_ppg_gprs_cb(JsonVariantConst const & /*data*/,
                                     JsonDocument & response) {
+  const AFE4490Data afe_s = spo2Snapshot();
   PpgSnapshotStatus st = ppgSnapshotRequestCapture(
-      g_spo2_data.probe_state == ProbeState::PROBE_APPLIED, g_spo2_data.rsqi,
-      millis());
+      afe_s.probe_state == ProbeState::PROBE_APPLIED, afe_s.rsqi, millis());
   switch (st) {
     case PpgSnapshotStatus::STARTED:
       response["status"] = "started";
@@ -1320,37 +1320,37 @@ void addTelemetriesToGPRSJSON() {
 
   // Suppress SpO2/HR telemetry unless the probe is actually on the patient —
   // no probe or probe-present-but-not-applied readings aren't valid vitals.
-  if (g_spo2_data.probe_state == ProbeState::PROBE_APPLIED) {
+  const AFE4490Data afe_s = spo2Snapshot();
+  if (afe_s.probe_state == ProbeState::PROBE_APPLIED) {
     // spo2_sqi is not a validity flag (a ramp of the PI between 0.5 and 2 %,
     // 0 with a valid SpO2 at PI <= 0.5 %), so it gates nothing here: SpO2 goes
     // with its SQI whenever the library publishes one, and PI on its own (the
     // library computes it apart from the SpO2), so a low PI is recorded too.
-    // Each value is read once: SPO2_Task rewrites g_spo2_data without a lock.
-    const float spo2 = g_spo2_data.spo2;
+    const float spo2 = afe_s.spo2;
     if (isfinite(spo2)) {
       addVariableToTelemetryGPRSJSON[SPO2_KEY] =
           roundSignificantDigits(spo2, TELEMETRIES_DECIMALS);
       addVariableToTelemetryGPRSJSON[SPO2_SQI_KEY] =
-          roundSignificantDigits(g_spo2_data.spo2_sqi, TELEMETRIES_DECIMALS);
+          roundSignificantDigits(afe_s.spo2_sqi, TELEMETRIES_DECIMALS);
     }
-    const float pi = g_spo2_data.pi;
+    const float pi = afe_s.pi;
     if (isfinite(pi)) {
       addVariableToTelemetryGPRSJSON[PI_KEY] = roundSignificantDigits(pi, TELEMETRIES_DECIMALS);
     }
-    if (g_spo2_data.hr1_sqi > 0.0f) {
-      addVariableToTelemetryGPRSJSON[HR1_KEY] = (int)(g_spo2_data.hr1 + 0.5f);
+    if (afe_s.hr1_sqi > 0.0f) {
+      addVariableToTelemetryGPRSJSON[HR1_KEY] = (int)(afe_s.hr1 + 0.5f);
       addVariableToTelemetryGPRSJSON[HR1_SQI_KEY] =
-          roundSignificantDigits(g_spo2_data.hr1_sqi, TELEMETRIES_DECIMALS);
+          roundSignificantDigits(afe_s.hr1_sqi, TELEMETRIES_DECIMALS);
     }
-    if (g_spo2_data.hr2_sqi > 0.0f) {
-      addVariableToTelemetryGPRSJSON[HR2_KEY] = (int)(g_spo2_data.hr2 + 0.5f);
+    if (afe_s.hr2_sqi > 0.0f) {
+      addVariableToTelemetryGPRSJSON[HR2_KEY] = (int)(afe_s.hr2 + 0.5f);
       addVariableToTelemetryGPRSJSON[HR2_SQI_KEY] =
-          roundSignificantDigits(g_spo2_data.hr2_sqi, TELEMETRIES_DECIMALS);
+          roundSignificantDigits(afe_s.hr2_sqi, TELEMETRIES_DECIMALS);
     }
-    if (g_spo2_data.hr3_sqi > 0.0f) {
-      addVariableToTelemetryGPRSJSON[HR3_KEY] = (int)(g_spo2_data.hr3 + 0.5f);
+    if (afe_s.hr3_sqi > 0.0f) {
+      addVariableToTelemetryGPRSJSON[HR3_KEY] = (int)(afe_s.hr3 + 0.5f);
       addVariableToTelemetryGPRSJSON[HR3_SQI_KEY] =
-          roundSignificantDigits(g_spo2_data.hr3_sqi, TELEMETRIES_DECIMALS);
+          roundSignificantDigits(afe_s.hr3_sqi, TELEMETRIES_DECIMALS);
     }
   }
 
@@ -1524,9 +1524,10 @@ void GPRSPost() {
         if (millis() - GPRS.lastPpgSnapshotAttempt >
             PPG_SNAPSHOT_AUTO_INTERVAL_MS) {
           GPRS.lastPpgSnapshotAttempt = millis();
+          const AFE4490Data afe_s = spo2Snapshot();
           ppgSnapshotRequestCapture(
-              g_spo2_data.probe_state == ProbeState::PROBE_APPLIED,
-              g_spo2_data.rsqi, millis());
+              afe_s.probe_state == ProbeState::PROBE_APPLIED, afe_s.rsqi,
+              millis());
         }
 #endif
         // burst: esta tarea solo pasa por aquí una vez por ciclo de

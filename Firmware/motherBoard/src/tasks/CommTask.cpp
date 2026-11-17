@@ -1464,9 +1464,13 @@ void Communication_Task(void *pvParameters) {
       }
     }
 
+    // One whole copy of the AFE sample per turn of the loop: the probe state,
+    // the waveform and the vitals below all belong to the same instant.
+    const AFE4490Data afe_s = spo2Snapshot();
+
     // Detect APPLIED transition — notify display immediately
     {
-      ProbeState cur = g_spo2_data.probe_state;
+      ProbeState cur = afe_s.probe_state;
       if (cur == ProbeState::PROBE_APPLIED && prev_probe_state != ProbeState::PROBE_APPLIED) {
         hmiSerial.print("CTRL,PROBE,2\n");
       }
@@ -1596,13 +1600,13 @@ void Communication_Task(void *pvParameters) {
       // 18 s SpO2 warmup on every probe application (_spo2_update: EMAs reset
       // while not APPLIED), while ppg_disp is valid within ~1 s. Gating the trace
       // on SpO2 validity flat-lined it for 19 s.
-      if (g_spo2_data.probe_state == ProbeState::PROBE_APPLIED) {
+      if (afe_s.probe_state == ProbeState::PROBE_APPLIED) {
         // A non-finite value would make lroundf() undefined, so it collapses to
         // the baseline instead of emitting a garbage byte. Keeping the line
         // flowing (rather than skipping the send) preserves the 50 Hz cadence
         // the HMI trace expects. |ppg_disp| <= 1 by the library's contract, so
         // constrain() is a guard, not the clipping it used to be.
-        float ppg = g_spo2_data.ppg_disp;
+        float ppg = afe_s.ppg_disp;
         long ppg_scaled = isfinite(ppg)
                               ? 128L + lroundf(ppg * PPG_DISP_LSB_PER_UNIT)
                               : 128L;
@@ -1724,12 +1728,12 @@ void Communication_Task(void *pvParameters) {
         hmiSerial.print(duty_msg);
       }
 
-      if (g_spo2_data.probe_state != ProbeState::PROBE_APPLIED) {
+      if (afe_s.probe_state != ProbeState::PROBE_APPLIED) {
         // Probe not on patient — send status every 2 s, suppress vitals
         if (millis() - last_probe_status_time >= 2000) {
           char probe_msg[20];
           snprintf(probe_msg, sizeof(probe_msg), "CTRL,PROBE,%u\n",
-                   (uint8_t)g_spo2_data.probe_state);
+                   (uint8_t)afe_s.probe_state);
           hmiSerial.print(probe_msg);
           last_probe_status_time = millis();
         }
@@ -1737,8 +1741,8 @@ void Communication_Task(void *pvParameters) {
         // Probe applied — send fused HR vitals
         uint16_t hr_bpm = 0;
         {
-          float h2 = g_spo2_data.hr2, h3 = g_spo2_data.hr3;
-          float s2 = g_spo2_data.hr2_sqi, s3 = g_spo2_data.hr3_sqi;
+          float h2 = afe_s.hr2, h3 = afe_s.hr3;
+          float s2 = afe_s.hr2_sqi, s3 = afe_s.hr3_sqi;
           bool valid = (h2 > 0.0f) && (h3 > 0.0f) &&
                        (fabsf(h2 - h3) < 8.0f) &&
                        (fmaxf(s2, s3) >= 0.8f) &&
@@ -1764,15 +1768,15 @@ void Communication_Task(void *pvParameters) {
         // one of its gates). spo2_sqi is NOT a validity flag: it is a ramp of
         // the PI between 0.5 and 2 %, so a valid SpO2 with PI <= 0.5 % comes
         // with spo2_sqi == 0, and gating on it showed "--" on a poorly perfused
-        // baby while the HR and the waveform stayed on screen. Read once:
-        // SPO2_Task rewrites g_spo2_data without a lock. 0 = no value for the HMI.
+        // baby while the HR and the waveform stayed on screen. 0 = no value for
+        // the HMI.
         uint16_t spo2_pct = 0;
         // isfinite and the range keep the conversion defined; the library
         // already clamps to 100 %.
-        const float spo2 = g_spo2_data.spo2;
+        const float spo2 = afe_s.spo2;
         if (isfinite(spo2) && spo2 > 0.0f && spo2 <= 100.0f)
           spo2_pct = (uint16_t)(spo2 + 0.5f);  // nearest integer %
-        float pi_val = g_spo2_data.pi;
+        float pi_val = afe_s.pi;
         char vit_msg[32];
         snprintf(vit_msg, sizeof(vit_msg), "CTRL,VIT,%u,%u,%.2f\n",
                  hr_bpm, spo2_pct, pi_val);

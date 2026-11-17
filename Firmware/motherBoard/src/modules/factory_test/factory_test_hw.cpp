@@ -643,7 +643,7 @@ static FtestStatus ftest_afe_spi(char *detail, FtestCascade *) {
 // ---------------------------------------------------------------------------
 // 17: AFE_PROBE (pasivo, instantaneo, opcional)
 static FtestStatus ftest_afe_probe(char *detail, FtestCascade *, uint32_t) {
-  const ProbeState st = g_spo2_data.probe_state;
+  const ProbeState st = spo2Snapshot().probe_state;
   D("state=%d", (int)st);
   return (st == ProbeState::PROBE_DISCONNECTED) ? FTEST_SKIP : FTEST_PASS;
 }
