@@ -222,7 +222,7 @@ repite: en su lugar viaja `CTRL,VIT`.
 **Formato**: `CTRL,PROBE,state`
 
 - `state` es el valor crudo del enum `ProbeState` de la librería
-  `incunest_afe4490` (anclada en `motherBoard/platformio.ini`, hoy `#v0.119`).
+  `incunest_afe4490` (anclada en `motherBoard/platformio.ini`, hoy `#v0.123`).
   **El rango no es 0–2, y desde la v0.90 de la librería tampoco es 0–3**:
 
   | `state` | Significado |
