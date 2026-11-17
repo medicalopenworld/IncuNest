@@ -1466,11 +1466,19 @@ void Communication_Task(void *pvParameters) {
     uint32_t afe_seq = 0;
     const AFE4490Data afe_s = spo2Snapshot(&afe_seq);
 
-    // Detect APPLIED transition — notify display immediately
+    // The probe state changed: tell the display now, whatever the new state.
+    // Until 18.61.0 only the change to APPLIED went out at once; any other
+    // waited for the 1 Hz block below (up to 1 s when the probe came off, up
+    // to 2 s between two states without contact). incunest_afe4490 already
+    // debounces the state (0.2 s), so this cannot flood the link. The repeat
+    // every 2 s of that block counts from this line.
     {
-      ProbeState cur = afe_s.probe_state;
-      if (cur == ProbeState::PROBE_APPLIED && prev_probe_state != ProbeState::PROBE_APPLIED) {
-        hmiSerial.print("CTRL,PROBE,2\n");
+      const ProbeState cur = afe_s.probe_state;
+      if (cur != prev_probe_state) {
+        char probe_msg[20];
+        snprintf(probe_msg, sizeof(probe_msg), "CTRL,PROBE,%u\n", (uint8_t)cur);
+        hmiSerial.print(probe_msg);
+        last_probe_status_time = millis();
       }
       prev_probe_state = cur;
     }
