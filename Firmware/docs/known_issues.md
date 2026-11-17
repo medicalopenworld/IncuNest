@@ -1075,7 +1075,9 @@ still has no soft re-init) and is not touched from here.
 without a sample it logs once per episode (`logE`, so it reaches the CrashReporter
 ring) and counts `AFE_stalls`. After 1 s without a sample it marks the data stale
 by synthesising `probe_state = PROBE_DISCONNECTED`, so vitals are no longer sent
-frozen (see `PROTOCOL.md`, `CTRL,PROBE`).
+frozen (see `PROTOCOL.md`, `CTRL,PROBE`). Since motherBoard 18.58.0 the whole
+sample is replaced, not only `probe_state`: SpO2, PI and the three HR become NaN
+too, so a consumer that only tests whether a value is finite is also covered.
 
 **Design required in the library** (a soft re-init that destroys nothing):
 

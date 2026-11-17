@@ -1,7 +1,9 @@
 #include "SPO2.h"
 #include "PpgSnapshot.h"
 #include "esp32-hal-gpio.h"
+#include "config/telemetry_keys.h"
 #include "modules/control/afe_watchdog.h"
+#include "modules/util/vitals_out.h"
 #include "main.h"
 
 INCUNEST_AFE4490 afe;
@@ -45,6 +47,38 @@ static void publishSample(const AFE4490Data &d) {
   portENTER_CRITICAL(&s_latestMux);
   s_latest = d;
   portEXIT_CRITICAL(&s_latestMux);
+}
+
+// One HR of the library and its SQI, when there is a value.
+static void addHrTelemetry(JsonObject &json, const char *key,
+                           const char *sqi_key, float hr, float sqi) {
+  const uint16_t bpm = vitals_hr_bpm(hr); // 0 = no value
+  if (bpm == 0) {
+    return;
+  }
+  json[key] = (int)bpm;
+  json[sqi_key] = roundSignificantDigits(sqi, TELEMETRIES_DECIMALS);
+}
+
+// The rule is the library's data contract (its spec 2.1.1): a quantity is sent
+// when it is finite. No test on the SQI: spo2_sqi is a ramp of the PI between
+// 0.5 and 2 %, 0 with a valid SpO2 at PI <= 0.5 %, and gating on it kept every
+// low-perfusion point out of ThingsBoard until 18.57.0. No test on the probe
+// state either: with the probe not applied, or the AFE stalled, every quantity
+// of the sample is NaN (spo2Snapshot()).
+void spo2AddTelemetry(JsonObject &json) {
+  const AFE4490Data s = spo2Snapshot();
+  if (vitals_has_value(s.spo2)) {
+    json[SPO2_KEY] = roundSignificantDigits(s.spo2, TELEMETRIES_DECIMALS);
+    json[SPO2_SQI_KEY] =
+        roundSignificantDigits(s.spo2_sqi, TELEMETRIES_DECIMALS);
+  }
+  if (vitals_has_value(s.pi)) {
+    json[PI_KEY] = roundSignificantDigits(s.pi, TELEMETRIES_DECIMALS);
+  }
+  addHrTelemetry(json, HR1_KEY, HR1_SQI_KEY, s.hr1, s.hr1_sqi);
+  addHrTelemetry(json, HR2_KEY, HR2_SQI_KEY, s.hr2, s.hr2_sqi);
+  addHrTelemetry(json, HR3_KEY, HR3_SQI_KEY, s.hr3, s.hr3_sqi);
 }
 
 #define SPO2_LOG_INTERVAL_SAMPLES 500 // ~1 s at 500 Hz
@@ -138,15 +172,15 @@ void SPO2_Task(void *pvParameters) {
                  (unsigned long)sample_count, (double)data.ppg_disp,
                  (int)data.led2, (int)data.led1, (int)data.led2_sub,
                  (int)data.led1_sub,
-                 // -1 = no SpO2. Not spo2_sqi > 0: a valid SpO2 at
+                 // -1 = no value (NaN). Never the SQI: a valid SpO2 at
                  // PI <= 0.5 % has spo2_sqi == 0.
-                 (double)(isfinite(data.spo2) ? data.spo2 : -1.0f),
+                 (double)(vitals_has_value(data.spo2) ? data.spo2 : -1.0f),
                  (double)data.spo2_sqi, (double)data.spo2_r, (double)data.pi,
-                 (double)(data.hr1_sqi > 0.0f ? data.hr1 : -1.0f),
+                 (double)(vitals_has_value(data.hr1) ? data.hr1 : -1.0f),
                  (double)data.hr1_sqi,
-                 (double)(data.hr2_sqi > 0.0f ? data.hr2 : -1.0f),
+                 (double)(vitals_has_value(data.hr2) ? data.hr2 : -1.0f),
                  (double)data.hr2_sqi,
-                 (double)(data.hr3_sqi > 0.0f ? data.hr3 : -1.0f),
+                 (double)(vitals_has_value(data.hr3) ? data.hr3 : -1.0f),
                  (double)data.hr3_sqi, (unsigned long)data.diag_code);
         logSPO2(line);
       }

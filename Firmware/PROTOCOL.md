@@ -398,9 +398,20 @@ Enviado cada 1 segundo **solo** cuando el estado de sonda es `2`.
   del IR, ventana de 6 s; `PI-METHOD-1` de `incunest_afe4490`). Hasta la 18.53.0
   era **PI_rms**; para la misma señal PI_pp ≈ 2,8–3,2 × PI_rms (2,83 exacto solo
   en una senoide). Lo mismo vale para la clave de telemetría `PI`
-  (`telemetry_keys.h`). Cuando la librería no tiene PI viaja `nan`. El HMI lo
+  (`telemetry_keys.h`). Desde la motherBoard 18.58.0 (`incunest_afe4490`
+  v0.120+) sigue siendo pico a pico, pero es la mediana de subventanas de 1 s
+  sobre una ventana de 7 s (`PI-METHOD-2`): la misma cifra con señal estable,
+  y ya no sube con una ráfaga de movimiento de menos de 2 s.
+  `0.00` = sin valor (el HMI muestra `--`), como en `hr` y `spo2`. Hasta la
+  motherBoard 18.57.0 viajaba `nan` cuando la librería no tenía PI. El HMI lo
   muestra desde la 4.7.0: dos decimales por debajo del 1 %, uno a partir de
-  ahí, y `--` si no es mayor que 0 (lo que también descarta `nan`).
+  ahí, y `--` si no es mayor que 0 (lo que también descarta el `nan` de una
+  motherBoard anterior).
+- Los tres campos siguen la misma regla desde la 18.58.0. La librería publica
+  cada magnitud como un número finito o como NaN, y NaN es la única forma de
+  decir «sin valor» (su especificación, §2.1.1). La motherBoard lo traduce a
+  `0` en un solo sitio (`modules/util/vitals_out.h`) y nunca decide con un
+  SQI.
 
 #### CTRL,ALM (Evento de Alarma)
 Enviado cuando una alarma cambia de estado.

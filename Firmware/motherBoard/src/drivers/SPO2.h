@@ -1,5 +1,6 @@
 #pragma once
 #include "incunest_afe4490.h"
+#include <ArduinoJson.h>
 #include <freertos/task.h>
 
 #include <type_traits>
@@ -40,6 +41,12 @@ extern TaskHandle_t     g_spo2_task;
 // (afe_watchdog.h), the copy carries no measurement: the five clinical output
 // quantities are NaN and probe_state is PROBE_DISCONNECTED.
 AFE4490Data spo2Snapshot();
+
+// Adds the pulse-oximeter keys to a telemetry message (SpO2 with its SQI, PI,
+// HR1, HR2 and HR3 with theirs), the same for WiFi and GPRS. A key is sent
+// only when the library publishes a value: finite, not NaN. Neither the SQI
+// nor the probe state decides it.
+void spo2AddTelemetry(JsonObject &json);
 
 void initSPO2();
 
