@@ -7,7 +7,7 @@ namespace {
 // are [-1, +1] (NORM_PI; see PpgSnapshot.h), still float.
 float    s_buf[PPG_SNAPSHOT_SAMPLES];
 uint16_t s_count      = 0;     // muestras (ya diezmadas) recogidas
-uint16_t s_decimCount = 0;     // muestras crudas a 500 Hz desde la última guardada
+uint16_t s_decimCount = 0;     // muestras recibidas desde la última guardada
 bool     s_capturing  = false;
 bool     s_ready      = false;
 bool     s_owned      = false; // reclamado por un transporte para publicar

@@ -222,7 +222,7 @@ repite: en su lugar viaja `CTRL,VIT`.
 **Formato**: `CTRL,PROBE,state`
 
 - `state` es el valor crudo del enum `ProbeState` de la librería
-  `incunest_afe4490` (anclada en `motherBoard/platformio.ini`, hoy `#v0.123`).
+  `incunest_afe4490` (anclada en `motherBoard/platformio.ini`, hoy `#v0.124`).
   **El rango no es 0–2, y desde la v0.90 de la librería tampoco es 0–3**:
 
   | `state` | Significado |
@@ -357,10 +357,16 @@ ventana de tiempo equivocada (MB nueva + HMI viejo: 2,6 s; MB vieja + HMI
 nuevo: 7 s). El HMI 4.7.0 encola las muestras (FIFO de 32) entre el parser y
 la interfaz; hasta la 4.5.0 era un buzón de una plaza que perdía una muestra
 cada vez que un repintado duraba más que un periodo.
+Desde la motherBoard 18.59.0 la cadencia la marca `SPO2_Task`, que lee la
+librería 50 veces por segundo: sale una línea por cada muestra leída. Hasta la
+18.58.0 `CommTask` llevaba su propio reloj de 20 ms. La tasa en el cable es la
+misma.
 **Formato**: `CTRL,PPG,value`
-- `value`: muestra `0..255` (128 = línea base). Es la última muestra de
-  `ppg_disp` (500 Hz) en el instante del envío, sin promediar: el filtro de
-  display de la librería es quien limita la banda (regla del consumidor de la
+- `value`: muestra `0..255` (128 = línea base). Es una muestra de `ppg_disp`
+  de cada diez (la librería las produce a 500 Hz), sin promediar y con unos
+  20 ms de retraso (hasta la 18.58.0, la última muestra en el instante del
+  envío): el filtro de display de la librería es quien limita la banda
+  (regla del consumidor de la
   spec §5.9 de `incunest_afe4490` v0.119, con el lado alto de 5.º orden:
   `f_high ≤ 0,4 × tasa de transporte` da ≥ 10 dB en el Nyquist del transporte,
   `≤ 0,3 ×` da ≥ 20 dB; con 20 Hz a 50 Hz, −10 dB a 25 Hz y −41 dB a 50 Hz;
@@ -382,11 +388,25 @@ cada vez que un repintado duraba más que un periodo.
 #### CTRL,VIT (Constantes vitales fusionadas)
 Enviado cada 1 segundo **solo** cuando el estado de sonda es `2`.
 **Formato**: `CTRL,VIT,hr,spo2,pi`
+
+Desde la motherBoard 18.59.0 los tres campos son los **valores de pantalla** de
+`incunest_afe4490` v0.124 (`hr_disp`, `spo2_disp`, `pi_disp`; su
+especificación, §2.1.2): el número que un monitor debe enseñar, finito, o NaN
+si hay que pintar guiones. El formato de la línea y lo que hace el HMI no
+cambian. El estado que acompaña a cada valor en la librería (sin sonda,
+adquiriendo, actual, mantenido, señal inadecuada) todavía no viaja en el
+protocolo.
 - `hr`: lpm, entero. `0` = sin valor válido (el HMI muestra `--`). El rango lo
   decide `incunest_afe4490` (hoy 30–260); desde la motherBoard 18.57.0 y el HMI
-  4.7.0 pueden pasar valores mayores que 255.
+  4.7.0 pueden pasar valores mayores que 255. Es `hr_disp`: HR2 y HR3 de
+  acuerdo (menos de 8 lpm de diferencia, SQI mayor ≥ 0,8 y menor ≥ 0,5), media
+  ponderada por SQI; se enseña cuando el acuerdo dura más de 1 s y, tras una
+  interrupción de más de 2 s, se vuelve a exigir esa espera. Hasta la 18.58.0
+  la misma regla la aplicaba `CommTask`, contando vueltas de su bloque de 1 Hz
+  (2 buenas seguidas para enseñar, 3 malas para volver a exigirlas).
 - `spo2`: %, entero. `0` = sin valor (el HMI muestra `--`). Es la SpO2 de
-  `incunest_afe4490` redondeada, y `0` solo cuando la librería no publica valor
+  `incunest_afe4490` redondeada (`spo2_disp`, que hoy es su `spo2` tal cual),
+  y `0` solo cuando la librería no publica valor
   (SpO2 NaN: calentamiento, o retenida por alguna de sus puertas). Se envía
   también con perfusión baja: `spo2_sqi` **no** indica si hay valor, es una
   rampa del PI entre 0,5 y 2 % y vale `0` con PI ≤ 0,5 % aunque la SpO2 sea
@@ -409,9 +429,9 @@ Enviado cada 1 segundo **solo** cuando el estado de sonda es `2`.
   motherBoard anterior).
 - Los tres campos siguen la misma regla desde la 18.58.0. La librería publica
   cada magnitud como un número finito o como NaN, y NaN es la única forma de
-  decir «sin valor» (su especificación, §2.1.1). La motherBoard lo traduce a
-  `0` en un solo sitio (`modules/util/vitals_out.h`) y nunca decide con un
-  SQI.
+  decir «sin valor» (su especificación, §2.1.1 y, para los valores de
+  pantalla, §2.1.2). La motherBoard lo traduce a `0` en un solo sitio
+  (`modules/util/vitals_out.h`) y nunca decide con un SQI.
 
 #### CTRL,ALM (Evento de Alarma)
 Enviado cuando una alarma cambia de estado.

@@ -46,7 +46,9 @@
 #define GPRS_TASK_PERIOD_MS 1
 #define OTA_TASK_PERIOD_MS 50
 #define SENSORS_TASK_PERIOD_MS 1
-#define SPO2_TASK_PERIOD_MS 1
+// 50 reads a second since 18.59.0 (1 ms until 18.58.0): see SPO2_Task. It is
+// also the rate of CTRL,PPG and of PpgSnapshot, which take every sample read.
+#define SPO2_TASK_PERIOD_MS 20
 #define SKIN_SENSOR_UPDATE_PERIOD_MS 200 // in millis
 #define ROOM_SENSOR_UPDATE_PERIOD_MS 1000
 #define ROOM_SENSOR_RECONNECT_MS     500

@@ -1,16 +1,18 @@
 #pragma once
 
-// Where a clinical output quantity of incunest_afe4490 becomes an output of
-// this firmware, with no hardware so it can be tested on the host.
+// Where an output quantity of incunest_afe4490 becomes an output of this
+// firmware, with no hardware so it can be tested on the host.
 //
-// The library's data contract (its spec 2.1.1, v0.123): spo2, pi, hr1, hr2 and
-// hr3 are a finite number inside their declared range, or NaN. NaN is the only
-// "no value"; an SQI never says whether there is one. Each output of this
-// firmware has its own convention for "no value", applied here and nowhere
-// else:
+// The library's data contracts (v0.124): the clinical quantities spo2, pi,
+// hr1, hr2 and hr3 (its spec 2.1.1) and the display quantities spo2_disp,
+// hr_disp and pi_disp (2.1.2) are a finite number inside their declared range,
+// or NaN. NaN is the only "no value"; an SQI never says whether there is one.
+// Each output of this firmware has its own convention for "no value", applied
+// here and nowhere else:
 //
-//   CTRL,VIT (HMI)   hr = 0, spo2 = 0, pi = 0.00
-//   telemetry        the key is not sent (vitals_has_value())
+//   CTRL,VIT (HMI)   the display quantities: hr = 0, spo2 = 0, pi = 0.00
+//   telemetry        the clinical quantities: the key is not sent
+//                    (vitals_has_value())
 //
 // The bounds do not restate the library's ranges (30-260 bpm, 70-100 %): they
 // only keep the float -> integer conversion defined (NaN, infinity or a value
