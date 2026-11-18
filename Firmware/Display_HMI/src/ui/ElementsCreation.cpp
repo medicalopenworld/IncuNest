@@ -4391,7 +4391,7 @@ void ui_ScreenLock_screen_init(void) {
   lv_obj_clear_flag(ui_LockPPGChart, LV_OBJ_FLAG_SCROLLABLE);
   lv_chart_set_type(ui_LockPPGChart, LV_CHART_TYPE_LINE);
   // Point count from the sweep speed (25 mm/s) and the CTRL,PPG rate, see
-  // LOCK_PPG_POINTS in ElementsCreation.h: 177 points = 3.5 s at 50 Hz. It
+  // LOCK_PPG_POINTS in ElementsCreation.h: 250 points = 5 s at 50 Hz. It
   // was 128 (5.1 s at 25 Hz, ~17 mm/s) before 4.7.0; 256 crammed the beats.
   lv_chart_set_point_count(ui_LockPPGChart, LOCK_PPG_POINTS);
   // CIRCULAR (barrido con cursor), no SHIFT: en modo SHIFT LVGL hace
@@ -4438,11 +4438,14 @@ void ui_ScreenLock_screen_init(void) {
   lv_obj_add_flag(ui_LockPPGChart, LV_OBJ_FLAG_EVENT_BUBBLE);
 
   // --- Vital signs panel (lock screen, bottom-right) ---
-  // Three columns, each a title over its value in the same colour:
-  // SpO2 (cyan), HR (green), PI (violet). Hidden until a probe is applied.
+  // Three rows, each a title on the left and its reading on the right in the
+  // same colour: PR (green), SpO2 (cyan), PI (violet). Rows and not columns
+  // since 4.8.0, so that the chart can take 649 px (5 s). The title says "PR"
+  // and not "HR": the rate comes from the pleth, and monitors keep "HR" for
+  // the one derived from the ECG. Hidden until a probe is applied.
   ui_LockVitCont = lv_obj_create(ui_ScreenLock);
   lv_obj_remove_style_all(ui_LockVitCont);
-  lv_obj_set_size(ui_LockVitCont, 310, 105);
+  lv_obj_set_size(ui_LockVitCont, LOCK_VIT_WIDTH_PX, 105);
   lv_obj_set_align(ui_LockVitCont, LV_ALIGN_BOTTOM_RIGHT);
   lv_obj_set_x(ui_LockVitCont, -10);
   lv_obj_set_y(ui_LockVitCont, -7);
@@ -4453,46 +4456,58 @@ void ui_ScreenLock_screen_init(void) {
   lv_obj_add_flag(ui_LockVitCont, UI_FLAG_KEEP_TEXT_COLOR);
   lv_obj_clear_flag(ui_LockVitCont,
                     LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_flex_flow(ui_LockVitCont, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(ui_LockVitCont, LV_FLEX_ALIGN_SPACE_EVENLY,
-                        LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
   static const struct {
     const char *title;
     uint32_t color;
-    lv_coord_t width;
+    const lv_font_t *font;
+    bool title_centred;  // title at mid height of the digits, not on their baseline
     lv_obj_t **value;
   } lock_vitals[] = {
-      // Widths fit the widest value at montserrat_48: "200" is ~92 px,
-      // a PI like "0.04" ~107 px.
-      {"% SpO2", 0x3CC8E0, 92, &ui_LockSpO2Label},
-      {"HR bpm", 0x5CD08A, 92, &ui_LockHRLabel},
-      {"% PI", 0xB9A6F5, 108, &ui_LockPILabel},
+      // The widest row is "SpO2" and "100": 35 + 75 px of the 122.
+      {"PR", 0x5CD08A, &ui_font_vitals_value, true, &ui_LockHRLabel},
+      {"SpO2", 0x3CC8E0, &ui_font_vitals_value, true, &ui_LockSpO2Label},
+      {"PI %", 0xB9A6F5, &ui_font_vitals_small, false, &ui_LockPILabel},
   };
+  // The line box of these fonts is the ink box of their glyphs
+  // (tools/gen_vitals_fonts.py), so a label is exactly as tall as its digits.
+  // The rows keep 3 px clear of the frame above and below and share what is
+  // left between them: 36 + 36 + 15 px of digits, 6 px in each gap.
+  const lv_coord_t panel_h = 105, margin = 3;
+  lv_coord_t digits_h = 0;
+  for (const auto &v : lock_vitals) digits_h += v.font->line_height;
+  const lv_coord_t row_gap = (panel_h - 2 * margin - digits_h) / 2;
+  lv_coord_t row_y = margin;
   for (const auto &v : lock_vitals) {
-    lv_obj_t *col = lv_obj_create(ui_LockVitCont);
-    lv_obj_remove_style_all(col);
-    lv_obj_set_size(col, v.width, LV_SIZE_CONTENT);
-    lv_obj_add_flag(col, LV_OBJ_FLAG_EVENT_BUBBLE);
-    lv_obj_clear_flag(col, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(col, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_row(col, 2, LV_PART_MAIN | LV_STATE_DEFAULT);
-
-    lv_obj_t *title = lv_label_create(col);
-    lv_label_set_text(title, v.title);
-    lv_obj_set_style_text_color(title, lv_color_hex(v.color),
-                                LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_16,
-                               LV_PART_MAIN | LV_STATE_DEFAULT);
-
-    *v.value = lv_label_create(col);
+    *v.value = lv_label_create(ui_LockVitCont);
     lv_label_set_text(*v.value, "--");
     lv_obj_set_style_text_color(*v.value, lv_color_hex(v.color),
                                 LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(*v.value, &lv_font_montserrat_48,
+    lv_obj_set_style_text_font(*v.value, v.font,
                                LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_align(*v.value, LV_ALIGN_TOP_RIGHT);
+    lv_obj_set_pos(*v.value, 0, row_y);
+
+    // Beside the big digits the capitals of the title are centred on the
+    // height of the digits: on their baseline a 14 px title looked dropped
+    // next to a 36 px number. The PI title stays on the baseline of its
+    // reading, which is hardly taller than the title itself.
+    lv_obj_t *title = lv_label_create(ui_LockVitCont);
+    lv_label_set_text(title, v.title);
+    lv_obj_set_style_text_color(title, lv_color_hex(v.color),
+                                LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(title, &ui_font_vitals_title,
+                               LV_PART_MAIN | LV_STATE_DEFAULT);
+    // Heights above the baseline: of the digits and of the title's capitals.
+    const lv_coord_t digits_asc = v.font->line_height - v.font->base_line;
+    const lv_coord_t title_asc =
+        ui_font_vitals_title.line_height - ui_font_vitals_title.base_line;
+    lv_obj_set_align(title, LV_ALIGN_TOP_LEFT);
+    lv_obj_set_pos(title, 0,
+                   row_y + (v.title_centred ? (digits_asc - title_asc) / 2
+                                            : digits_asc - title_asc));
+
+    row_y += v.font->line_height + row_gap;
   }
 
   lv_obj_add_event_cb(ui_AlarmLockImg, ui_event_AlarmLockImg, LV_EVENT_ALL,

@@ -350,9 +350,10 @@ Hasta la motherBoard 18.53.0 iba a 25 Hz (un número redondo del primer
 del transporte (25 Hz) quede por encima del paso banda de display de la
 librería (0,5–20 Hz), el frente sistólico tenga 5–7 muestras y, a 25 mm/s, cada
 muestra ocupe 2,6 px. **La tasa es una constante del contrato**: el HMI deriva
-su número de puntos de ella y de la velocidad de barrido (desde el HMI 4.7.0,
-177 puntos = 3,5 s a 25 mm/s en el chart de 460 px; antes 128 puntos a 25 Hz
-= 5,1 s a ~17 mm/s). Una pareja desparejada no rompe nada, solo muestra una
+su número de puntos de ella y de la velocidad de barrido (desde el HMI 4.8.0,
+250 puntos = 5 s a 25 mm/s en el chart de 649 px; en el 4.7.0, 177 puntos =
+3,5 s en 460 px; antes 128 puntos a 25 Hz = 5,1 s a ~17 mm/s). Una pareja
+desparejada no rompe nada, solo muestra una
 ventana de tiempo equivocada (MB nueva + HMI viejo: 2,6 s; MB vieja + HMI
 nuevo: 7 s). El HMI 4.7.0 encola las muestras (FIFO de 32) entre el parser y
 la interfaz; hasta la 4.5.0 era un buzón de una plaza que perdía una muestra

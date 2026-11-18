@@ -526,18 +526,27 @@ extern lv_obj_t * ui_CheckImg;
 // CrowPanel 7" = 800 px over 154 mm of active width (ruler, 2026-11-06,
 // +-1 mm) = 5.19 px/mm; 25 mm/s, the usual pleth sweep (ECG convention, ISO
 // 80601-2-61 fixes none; 12.5 / 50 mm/s would be a user setting, not offered).
-// 460 px / 130 px/s = 3.54 s = 177 points at 50 Hz (128 = 5.1 s at 17 mm/s
-// before 4.7.0, chosen by time, not by pixels). LOCK_PPG_GAP is the erase gap
-// kept ahead of the cursor in CIRCULAR mode (0.24 s): it breaks the line
-// between the newest sample and the 3.5 s old one and shows where the sweep
-// is. Plain #defines: this header sits inside extern "C".
+// 649 px / 130 px/s = 5.00 s = 250 points at 50 Hz since 4.8.0 (460 px =
+// 3.54 s = 177 points in 4.7.0; 128 = 5.1 s at 17 mm/s before that, chosen by
+// time, not by pixels). LOCK_PPG_GAP is the erase gap kept ahead of the cursor
+// in CIRCULAR mode (0.24 s): it breaks the line between the newest sample and
+// the 5 s old one and shows where the sweep is. LOCK_VIT_WIDTH_PX is what the
+// chart leaves to the readings inside the frame: 780 px between its 10 px
+// margins, less the chart and a 9 px gap. Plain #defines: this header sits
+// inside extern "C".
 #define LOCK_PPG_RATE_HZ     50.0f
 #define LOCK_PANEL_PX_PER_MM (800.0f / 154.0f)
 #define LOCK_PPG_SWEEP_MM_S  25.0f
-#define LOCK_PPG_WIDTH_PX    460
+#define LOCK_PPG_WIDTH_PX    649
+#define LOCK_VIT_WIDTH_PX    (780 - LOCK_PPG_WIDTH_PX - 9)
 #define LOCK_PPG_POINTS      ((int)(LOCK_PPG_RATE_HZ * LOCK_PPG_WIDTH_PX / \
                                     (LOCK_PPG_SWEEP_MM_S * LOCK_PANEL_PX_PER_MM) + 0.5f))
 #define LOCK_PPG_GAP         ((int)(LOCK_PPG_RATE_HZ * 0.24f + 0.5f))
+// Fonts of the pulse-oximetry readings: Roboto (tools/gen_vitals_fonts.py),
+// digits of one width, only the glyphs the readings use.
+LV_FONT_DECLARE(ui_font_vitals_value);    // 48 px, PR and SpO2
+LV_FONT_DECLARE(ui_font_vitals_small);    // 20 px, PI
+LV_FONT_DECLARE(ui_font_vitals_title);    // 14 px, the titles
 extern lv_obj_t * ui_LockPulseOxFrame;
 extern lv_obj_t * ui_LockPPGChart;
 extern lv_obj_t * ui_LockVitCont;
