@@ -44,6 +44,7 @@
 #include "modules/util/tz_source.h"
 #include "modules/util/ip_geoloc.h"
 #include "modules/util/wifi_dwell.h"
+#include "modules/util/retry_backoff.h"
 #include "modules/baby_profile/baby_cloud.h"
 #include "modules/baby_profile/baby_profile_store.h"
 #include "civil_time.h"
@@ -1947,6 +1948,16 @@ static constexpr size_t WIFI_RPC_CB_COUNT =
 static bool s_cfgSubscribed = false;
 static RuntimeConfigPubState s_cfgPub = {};
 
+// Growing wait between provisioning attempts that fail before the request is
+// out (5 s, 10 s ... 5 min, modules/util/retry_backoff). Until 18.59.0 there
+// was none: with a ThingsBoard host that does not resolve, WIFITBProvision()
+// ran again on the very next pass, about 2 800 DNS lookups an hour, and each
+// one was a chance for the lwIP race of known_issues.md #27. A rejected
+// request still retries at once (WIFIProvisionResponse): the server answered,
+// and that path has its own cap (PROVISION_MAX_RETRIES). Only the WiFi task
+// touches it; all zeros is the initial state.
+static Backoff s_provisionBackoff = {};
+
 void WIFI_TB_OTA() {
   if (WIFIIsConnected()) {
     // Independiente del aprovisionamiento en ThingsBoard a propósito: mismo
@@ -1966,8 +1977,16 @@ void WIFI_TB_OTA() {
       if (in3.serialNumber == 0) {
         ESP_LOGW(TAG, "SIN NUMERO DE SERIE (0): no se puede provisionar. El "
                     "flasher lo escribe en NVS (mb_cfg/serial).");
-      } else if (!Wifi_TB.provision_request_sent) {
+      } else if (!Wifi_TB.provision_request_sent &&
+                 backoff_due(&s_provisionBackoff, millis())) {
         WIFITBProvision();
+        if (Wifi_TB.provision_request_sent) {
+          backoff_ok(&s_provisionBackoff);
+        } else {
+          backoff_failed(&s_provisionBackoff, millis());
+          ESP_LOGW(TAG, "provisioning: siguiente intento en %u s",
+                   (unsigned)(s_provisionBackoff.delay_ms / 1000u));
+        }
       }
     } else {
       if (!tb_wifi.connected()) {
@@ -2076,6 +2095,9 @@ void WIFI_TB_OTA() {
     }
   } else {
     Wifi_TB.serverConnectionStatus = false;
+    // A new WiFi connection is a new situation (another network, the router
+    // back): its first provisioning attempt does not wait for the old one.
+    backoff_ok(&s_provisionBackoff);
   }
   tb_wifi.loop();
 }
