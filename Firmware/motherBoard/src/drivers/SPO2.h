@@ -1,5 +1,6 @@
 #pragma once
 #include "incunest_afe4490.h"
+#include <ArduinoJson.h>
 #include <freertos/task.h>
 
 #include <type_traits>
@@ -30,7 +31,22 @@ static_assert(
 
 extern INCUNEST_AFE4490 afe;
 extern TaskHandle_t     g_spo2_task;
-extern volatile AFE4490Data g_spo2_data;
+
+// The latest sample of the AFE, whole: every field belongs to the same
+// instant. This is the only way to read it. SPO2_Task rewrites the sample 500
+// times a second, so a consumer takes ONE copy and works on it; reading two
+// fields in two calls pairs values of different samples (the SQI of one with
+// the value of the next), which is what the volatile global this replaces
+// allowed. Before the first sample, and while the AFE is stalled
+// (afe_watchdog.h), the copy carries no measurement: the five clinical output
+// quantities are NaN and probe_state is PROBE_DISCONNECTED.
+AFE4490Data spo2Snapshot();
+
+// Adds the pulse-oximeter keys to a telemetry message (SpO2 with its SQI, PI,
+// HR1, HR2 and HR3 with theirs), the same for WiFi and GPRS. A key is sent
+// only when the library publishes a value: finite, not NaN. Neither the SQI
+// nor the probe state decides it.
+void spo2AddTelemetry(JsonObject &json);
 
 void initSPO2();
 

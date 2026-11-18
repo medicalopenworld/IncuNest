@@ -1583,41 +1583,10 @@ void addTelemetriesToWIFIJSON() {
                                              : in3.fanCtlPWM;
   }
 
-  // Suppress SpO2/HR telemetry unless the probe is actually on the patient —
-  // no probe or probe-present-but-not-applied readings aren't valid vitals.
-  if (g_spo2_data.probe_state == ProbeState::PROBE_APPLIED) {
-    // spo2_sqi is not a validity flag (a ramp of the PI between 0.5 and 2 %,
-    // 0 with a valid SpO2 at PI <= 0.5 %), so it gates nothing here: SpO2 goes
-    // with its SQI whenever the library publishes one, and PI on its own (the
-    // library computes it apart from the SpO2), so a low PI is recorded too.
-    // Each value is read once: SPO2_Task rewrites g_spo2_data without a lock.
-    const float spo2 = g_spo2_data.spo2;
-    if (isfinite(spo2)) {
-      addVariableToTelemetryWIFIJSON[SPO2_KEY] =
-          roundSignificantDigits(spo2, TELEMETRIES_DECIMALS);
-      addVariableToTelemetryWIFIJSON[SPO2_SQI_KEY] =
-          roundSignificantDigits(g_spo2_data.spo2_sqi, TELEMETRIES_DECIMALS);
-    }
-    const float pi = g_spo2_data.pi;
-    if (isfinite(pi)) {
-      addVariableToTelemetryWIFIJSON[PI_KEY] = roundSignificantDigits(pi, TELEMETRIES_DECIMALS);
-    }
-    if (g_spo2_data.hr1_sqi > 0.0f) {
-      addVariableToTelemetryWIFIJSON[HR1_KEY] = (int)(g_spo2_data.hr1 + 0.5f);
-      addVariableToTelemetryWIFIJSON[HR1_SQI_KEY] =
-          roundSignificantDigits(g_spo2_data.hr1_sqi, TELEMETRIES_DECIMALS);
-    }
-    if (g_spo2_data.hr2_sqi > 0.0f) {
-      addVariableToTelemetryWIFIJSON[HR2_KEY] = (int)(g_spo2_data.hr2 + 0.5f);
-      addVariableToTelemetryWIFIJSON[HR2_SQI_KEY] =
-          roundSignificantDigits(g_spo2_data.hr2_sqi, TELEMETRIES_DECIMALS);
-    }
-    if (g_spo2_data.hr3_sqi > 0.0f) {
-      addVariableToTelemetryWIFIJSON[HR3_KEY] = (int)(g_spo2_data.hr3 + 0.5f);
-      addVariableToTelemetryWIFIJSON[HR3_SQI_KEY] =
-          roundSignificantDigits(g_spo2_data.hr3_sqi, TELEMETRIES_DECIMALS);
-    }
-  }
+  // Pulse oximeter: SpO2, PI and the three HR, each sent only when the
+  // library publishes a value. One function for both transports
+  // (drivers/SPO2.cpp).
+  spo2AddTelemetry(addVariableToTelemetryWIFIJSON);
 
 #if TX_GROUP_SENSORBOARD_WIFI // grupo SENSORBOARD — config/transport_policy.h
   sensorboard_add_telemetry(addVariableToTelemetryWIFIJSON);
@@ -1795,9 +1764,9 @@ static void rpc_setwifi_wifi_cb(JsonVariantConst const & data,
 // señal no está lista todavía (ej. sonda no puesta).
 static void rpc_capture_ppg_cb(JsonVariantConst const & /*data*/,
                                JsonDocument & response) {
+  const AFE4490Data afe_s = spo2Snapshot();
   PpgSnapshotStatus st = ppgSnapshotRequestCapture(
-      g_spo2_data.probe_state == ProbeState::PROBE_APPLIED, g_spo2_data.rsqi,
-      millis());
+      afe_s.probe_state == ProbeState::PROBE_APPLIED, afe_s.rsqi, millis());
   switch (st) {
     case PpgSnapshotStatus::STARTED:
       response["status"] = "started";
@@ -2091,9 +2060,10 @@ void WIFI_TB_OTA() {
         if (ppg_autocapture_due(&Wifi_TB.ppgAuto, millis(),
                                 TX_PPG_AUTOCAPTURE_WIFI_MS,
                                 PPG_SNAPSHOT_AUTO_RETRY_MS)) {
+          const AFE4490Data afe_s = spo2Snapshot();
           PpgSnapshotStatus const st = ppgSnapshotRequestCapture(
-              g_spo2_data.probe_state == ProbeState::PROBE_APPLIED,
-              g_spo2_data.rsqi, millis());
+              afe_s.probe_state == ProbeState::PROBE_APPLIED, afe_s.rsqi,
+              millis());
           ppg_autocapture_record(&Wifi_TB.ppgAuto, millis(),
                                  st != PpgSnapshotStatus::SIGNAL_NOT_READY);
         }

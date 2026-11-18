@@ -1,12 +1,85 @@
 #include "SPO2.h"
 #include "PpgSnapshot.h"
 #include "esp32-hal-gpio.h"
+#include "config/telemetry_keys.h"
 #include "modules/control/afe_watchdog.h"
+#include "modules/util/vitals_out.h"
 #include "main.h"
 
 INCUNEST_AFE4490 afe;
 TaskHandle_t g_spo2_task = nullptr;
-volatile AFE4490Data g_spo2_data = {};
+
+// What a consumer reads when there is no measurement: the five clinical output
+// quantities at NaN (the "no value" of incunest_afe4490, its spec 2.1.1) and
+// the probe as disconnected, so that isfinite() is the only test a consumer
+// needs. diag_code is kept: it is a diagnostic, not a measurement.
+static AFE4490Data noValueSample(uint32_t diag_code) {
+  AFE4490Data d = {};
+  d.spo2 = NAN;
+  d.spo2_r = NAN;
+  d.spo2_r_method2_reg_corr = NAN;
+  d.spo2_hold_reason = SpO2HoldReason::HOLD_PROBE;
+  d.pi = NAN;
+  d.hr1 = NAN;
+  d.hr2 = NAN;
+  d.hr3 = NAN;
+  d.diag_code = diag_code;
+  d.probe_state = ProbeState::PROBE_DISCONNECTED;
+  return d;
+}
+
+// The latest sample. SPO2_Task writes it and CommTask, the telemetry tasks and
+// the factory test read it, from other tasks and the other core, so it is only
+// touched inside this lock and only handed out whole (spo2Snapshot()). A
+// spinlock rather than a mutex: the section is a copy of about 100 bytes.
+static portMUX_TYPE s_latestMux = portMUX_INITIALIZER_UNLOCKED;
+static AFE4490Data s_latest = noValueSample(0);
+
+AFE4490Data spo2Snapshot() {
+  AFE4490Data d;
+  portENTER_CRITICAL(&s_latestMux);
+  d = s_latest;
+  portEXIT_CRITICAL(&s_latestMux);
+  return d;
+}
+
+static void publishSample(const AFE4490Data &d) {
+  portENTER_CRITICAL(&s_latestMux);
+  s_latest = d;
+  portEXIT_CRITICAL(&s_latestMux);
+}
+
+// One HR of the library and its SQI, when there is a value.
+static void addHrTelemetry(JsonObject &json, const char *key,
+                           const char *sqi_key, float hr, float sqi) {
+  const uint16_t bpm = vitals_hr_bpm(hr); // 0 = no value
+  if (bpm == 0) {
+    return;
+  }
+  json[key] = (int)bpm;
+  json[sqi_key] = roundSignificantDigits(sqi, TELEMETRIES_DECIMALS);
+}
+
+// The rule is the library's data contract (its spec 2.1.1): a quantity is sent
+// when it is finite. No test on the SQI: spo2_sqi is a ramp of the PI between
+// 0.5 and 2 %, 0 with a valid SpO2 at PI <= 0.5 %, and gating on it kept every
+// low-perfusion point out of ThingsBoard until 18.57.0. No test on the probe
+// state either: with the probe not applied, or the AFE stalled, every quantity
+// of the sample is NaN (spo2Snapshot()).
+void spo2AddTelemetry(JsonObject &json) {
+  const AFE4490Data s = spo2Snapshot();
+  if (vitals_has_value(s.spo2)) {
+    json[SPO2_KEY] = roundSignificantDigits(s.spo2, TELEMETRIES_DECIMALS);
+    json[SPO2_SQI_KEY] =
+        roundSignificantDigits(s.spo2_sqi, TELEMETRIES_DECIMALS);
+  }
+  if (vitals_has_value(s.pi)) {
+    json[PI_KEY] = roundSignificantDigits(s.pi, TELEMETRIES_DECIMALS);
+  }
+  addHrTelemetry(json, HR1_KEY, HR1_SQI_KEY, s.hr1, s.hr1_sqi);
+  addHrTelemetry(json, HR2_KEY, HR2_SQI_KEY, s.hr2, s.hr2_sqi);
+  addHrTelemetry(json, HR3_KEY, HR3_SQI_KEY, s.hr3, s.hr3_sqi);
+}
 
 #define SPO2_LOG_INTERVAL_SAMPLES 500 // ~1 s at 500 Hz
 
@@ -16,7 +89,7 @@ volatile AFE4490Data g_spo2_data = {};
 // porque en afe_watchdog.h.
 static AfeWatchdog s_afeWd;
 
-uint32_t afeDiagCode(void) { return g_spo2_data.diag_code; }
+uint32_t afeDiagCode(void) { return spo2Snapshot().diag_code; }
 uint32_t afeStallCount(void) { return afe_wd_stalls(&s_afeWd); }
 
 // Reset fisico del AFE por PDN (IO7, activo bajo, en la V19). En V17/V18 el
@@ -33,19 +106,20 @@ static void afePdnPulse(void) {
 void SPO2_Task(void *pvParameters) {
   AFE4490Data data;
   static uint32_t sample_count = 0;
+  bool no_value_published = false; // the stalled AFE has already been reported
 
   for (;;) {
-    // A2: un dato de mas de AFE_WD_DATA_STALE_MS no es actual. Si el AFE se
-    // para, g_spo2_data se queda con el ultimo probe_state (APPLIED) y las
-    // ultimas FC/SpO2, y CommTask, GPRS y WiFi las publicarian congeladas como
-    // si fueran vitales en vivo. Se sintetiza PROBE_DISCONNECTED ("sin senal"):
-    // todos los consumidores ya tratan "no APPLIED" como "sin vitales". La
-    // siguiente muestra real lo sobrescribe (memcpy de abajo).
+    // A2: a sample older than AFE_WD_DATA_STALE_MS is not current. If the AFE
+    // stalls, the library delivers nothing, so the last sample (probe APPLIED,
+    // the last HR and SpO2) would stay published and CommTask, GPRS and WiFi
+    // would send it as live vitals. The whole sample is replaced by one with no
+    // measurement (noValueSample()): until 18.57.0 only probe_state changed and
+    // the values stayed behind it. The next real sample overwrites it.
     {
       const uint32_t now = millis();
-      if (!afe_wd_data_fresh(&s_afeWd, now) &&
-          g_spo2_data.probe_state != ProbeState::PROBE_DISCONNECTED) {
-        g_spo2_data.probe_state = ProbeState::PROBE_DISCONNECTED;
+      if (!afe_wd_data_fresh(&s_afeWd, now) && !no_value_published) {
+        publishSample(noValueSample(spo2Snapshot().diag_code));
+        no_value_published = true;
       }
       // Un solo evento por episodio de parada. logE (no ESP_LOGE directo) para
       // que la linea entre en el anillo del CrashReporter.
@@ -61,7 +135,8 @@ void SPO2_Task(void *pvParameters) {
     }
     if (afe.getData(data)) {
       afe_wd_sample(&s_afeWd, millis());
-      memcpy((void *)&g_spo2_data, &data, sizeof(data));
+      publishSample(data);
+      no_value_published = false;
       ppgSnapshotFeed(data, millis());
 
       // ESTA LINEA DE LOG TUMBO LA PLACA (banco 2026-09-14). El coredump:
@@ -97,15 +172,15 @@ void SPO2_Task(void *pvParameters) {
                  (unsigned long)sample_count, (double)data.ppg_disp,
                  (int)data.led2, (int)data.led1, (int)data.led2_sub,
                  (int)data.led1_sub,
-                 // -1 = no SpO2. Not spo2_sqi > 0: a valid SpO2 at
+                 // -1 = no value (NaN). Never the SQI: a valid SpO2 at
                  // PI <= 0.5 % has spo2_sqi == 0.
-                 (double)(isfinite(data.spo2) ? data.spo2 : -1.0f),
+                 (double)(vitals_has_value(data.spo2) ? data.spo2 : -1.0f),
                  (double)data.spo2_sqi, (double)data.spo2_r, (double)data.pi,
-                 (double)(data.hr1_sqi > 0.0f ? data.hr1 : -1.0f),
+                 (double)(vitals_has_value(data.hr1) ? data.hr1 : -1.0f),
                  (double)data.hr1_sqi,
-                 (double)(data.hr2_sqi > 0.0f ? data.hr2 : -1.0f),
+                 (double)(vitals_has_value(data.hr2) ? data.hr2 : -1.0f),
                  (double)data.hr2_sqi,
-                 (double)(data.hr3_sqi > 0.0f ? data.hr3 : -1.0f),
+                 (double)(vitals_has_value(data.hr3) ? data.hr3 : -1.0f),
                  (double)data.hr3_sqi, (unsigned long)data.diag_code);
         logSPO2(line);
       }

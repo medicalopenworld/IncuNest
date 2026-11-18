@@ -10,10 +10,14 @@
 //
 // 1. Caducidad del dato (A2). Si pasa mas de AFE_WD_DATA_STALE_MS sin muestra,
 //    el ultimo dato (FC, SpO2, probe_state = APPLIED) esta congelado y NO se
-//    puede seguir enviando como si fuera actual. SPO2_Task, al ver que no es
-//    fresco, sintetiza probe_state = DISCONNECTED ("sin senal"), y con eso
-//    CommTask, GPRS y WiFi dejan solos de publicar vitales. Afecta a todas las
+//    puede seguir enviando como si fuera actual. Afecta a todas las
 //    revisiones, V18 incluida.
+//    Since 18.58.0 SPO2_Task replaces the WHOLE sample by one with no
+//    measurement (the clinical quantities at NaN, probe_state = DISCONNECTED;
+//    drivers/SPO2.cpp, noValueSample()), so CommTask, GPRS and WiFi stop
+//    publishing vitals by the one rule they apply: a value is finite or it is
+//    not there. Until 18.57.0 only probe_state was changed and the last values
+//    stayed in the sample behind it.
 //
 // 2. Deteccion de parada (diagnostico). Pasados AFE_WD_STALL_MS sin muestra se
 //    abre un EPISODIO y se avisa UNA vez (log + contador AFE_stalls). Una
@@ -27,7 +31,7 @@
 // cuelga a cualquier tarea que haga log (incluida la de seguridad) con el LEDC
 // del calefactor encendido. Ademas puede dejar _diag_active = true para siempre,
 // filtrar ~15 KB de SRAM interna y disparar un configASSERT. La libreria vive en
-// otro repo (incunest_afe4490, fijada en v0.119). El diseno del re-init blando que
+// otro repo (incunest_afe4490, fijada en v0.123). El diseno del re-init blando que
 // hace falta alli esta en docs/hw19.md y docs/known_issues.md.
 //
 // Sin reloj propio: recibe now_ms (millis()) y resta sin signo.

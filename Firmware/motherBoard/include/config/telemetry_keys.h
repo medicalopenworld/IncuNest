@@ -88,6 +88,10 @@
 #define HUMIDIFIER_ACTIVE_TIME_KEY "Humidifier_active_time"
 #define GPRS_CONNECTIVITY_KEY "GPRS_connection"
 #define WIFI_CONNECTIVITY_KEY "WIFI_connection"
+// HR1, HR2 and HR3 are sent, each with its SQI, whenever the library publishes
+// a value (not NaN). Since 18.58.0 (incunest_afe4490 v0.121-v0.123): HR2 is
+// computed over 6 s instead of 8; HR1 uses a new front end, so it is present
+// more often and sooner, and is absent after 2 s without a detected beat.
 #define HR1_KEY "HR1"
 #define HR1_SQI_KEY "HR1_SQI"
 #define HR2_KEY "HR2"
@@ -110,6 +114,10 @@
 // them apart; the bench-only builds 18.54.0-18.56.0, never released, already
 // sent PI_pp). Since 18.57.0 PI is sent on its own whenever the library has
 // one; before, only together with SpO2, i.e. never below 0.5 %.
+// Since 18.58.0 (incunest_afe4490 v0.120+) it is still peak to peak but the
+// median of 1 s sub-windows over a 7 s window (the library's PI-METHOD-2):
+// the same figure on a steady signal, no longer raised by a burst of motion
+// shorter than 2 s, and available one second later after the probe is applied.
 #define PI_KEY "PI"
 // _v1: versionado por si cambia el formato (fs/duración/canal) más adelante.
 #define PPG_SNAPSHOT_KEY "PPG_snapshot_v1"       // 1 punto por muestra ppg_disp
