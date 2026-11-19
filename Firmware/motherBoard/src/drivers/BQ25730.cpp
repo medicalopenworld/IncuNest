@@ -163,8 +163,18 @@ static bool bq_configure_chip(TwoWire *i2c, bool fromBoot) {
     //  Resultado: 0x070E
     //    bit10(EN_OOA)=1, bit9(PWM_FREQ)=1→400kHz, bit8(LOW_PTM_RIPPLE)=1
     //    bit3(IBAT_GAIN)=1, bit2(EN_LDO)=1, bit1(EN_IIN_DPM)=1
+    //
+    //  V19 (CHANGELOG #4 y firmware 5): la compensacion (R71 16k9, C67 3,3 nF,
+    //  C60 1,2 nF) y L1 = 3,3 uH estan calculadas para 800 kHz, asi que
+    //  PWM_FREQ = 0. Se escribe y se LEE DE VUELTA: a 400 kHz con esta
+    //  compensacion el lazo no esta verificado.
+#if (HW_NUM >= 19)
+    const uint16_t opt0_pwm_freq = 0;                       // 800 kHz
+#else
+    const uint16_t opt0_pwm_freq = BQ25730_OPT0_PWM_FREQ;   // 400 kHz
+#endif
     const uint16_t charge_option0 = BQ25730_OPT0_EN_OOA         |  // bit 10
-                                    BQ25730_OPT0_PWM_FREQ        |  // bit  9
+                                    opt0_pwm_freq                |  // bit  9
                                     BQ25730_OPT0_LOW_PTM_RIPPLE  |  // bit  8
                                     BQ25730_OPT0_IBAT_GAIN       |  // bit  3
                                     BQ25730_OPT0_EN_LDO          |  // bit  2
@@ -173,7 +183,25 @@ static bool bq_configure_chip(TwoWire *i2c, bool fromBoot) {
         bqE("[BQ25730] Error escribiendo ChargeOption0");
         return false;
     }
-    bqI("[BQ25730] ChargeOption0 = 0x" + String(charge_option0, HEX));
+    {
+        uint16_t opt0_rb = 0;
+        if (!read_reg16(BQ25730_REG_CHARGE_OPTION0, &opt0_rb)) {
+            bqE("[BQ25730] Error releyendo ChargeOption0");
+            return false;
+        }
+        const bool f400 = (opt0_rb & BQ25730_OPT0_PWM_FREQ) != 0;
+        // logI y no bqI: una linea por configuracion, y en banco es la prueba
+        // de que la frecuencia del convertidor es la de la compensacion.
+        logI("[BQ25730] ChargeOption0 = 0x" + String(charge_option0, HEX) +
+            " (releido 0x" + String(opt0_rb, HEX) + ", PWM " +
+            String(f400 ? "400" : "800") + " kHz, LWPWR=" +
+            String((opt0_rb & BQ25730_OPT0_EN_LWPWR) ? 1 : 0) + ")");
+        if ((opt0_rb & BQ25730_OPT0_PWM_FREQ) != opt0_pwm_freq) {
+            // Siempre visible, aunque LOG_CHARGER este apagado.
+            logE("[BQ25730] PWM_FREQ releido no coincide con el escrito");
+            return false;
+        }
+    }
 
     // ── 3. ChargeOption1 (0x30) ───────────────────────────────────────────────
     //  • EN_IBAT = 1   → Medición de corriente de batería por ADC.
@@ -275,7 +303,10 @@ static bool bq_configure_chip(TwoWire *i2c, bool fromBoot) {
 
     _initialized   = true;
     chargerPresent = true;
-    bqI("[BQ25730] Init OK (PDF V2) – Vabs=14.4V Ichg=960mA IIN=6400mA VSYS=11V VINDPM=12V");
+    bqI("[BQ25730] Init OK – Vabs=" + String(BQ25730_VCHARGE_ABSORPTION_MV) +
+         "mV Ichg=" + String(BQ25730_ICHG_MA) + "mA IIN=" +
+         String(BQ25730_IIN_LIMIT_MA) + "mA VSYS_MIN=" + String(BQ25730_VSYS_MIN_MV) +
+         "mV VINDPM=" + String(BQ25730_VINDPM_MV) + "mV");
 
     return true;
 }

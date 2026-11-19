@@ -23,6 +23,8 @@
 
 */
 #include <Arduino.h>
+#include "driver/gpio.h"
+#include "soc/gpio_struct.h"
 
 #include "main.h"
 #include "modules/control/alarm_machine.h"
@@ -219,11 +221,20 @@ bool initI2C() {
     return false;
   }
 
+#if (HW_NUM >= 19)
+  // V19 (CHANGELOG, firmware 2): IO19/IO20 son D-/D+ del USB hacia la
+  // SensorBoard y no hay sensores de cabina por I2C2. No se levanta Wire1: el
+  // sondeo de I2C sobre las lineas USB puede ver un ACK falso con la
+  // SensorBoard conectada y desviar el arranque al camino I2C (sin control de
+  // temperatura). wire2 queda a nullptr e initRoomSensor() no sondea.
+  logI("[HW] -> I2C2 not used on HW19 (IO19/IO20 = USB to SensorBoard)");
+#else
   logI("[HW] -> Initializing I2C2 (SDA=" + String(I2C2_SDA) +
        " SCL=" + String(I2C2_SCL) + ")");
   Wire1.begin(I2C2_SDA, I2C2_SCL, DEFAULT_I2C_SPEED);
   wire2 = &Wire1;
   logI("[HW] -> I2C2 initialized (SHTC3 + STS35 bus)");
+#endif
 
   return true;
 }
@@ -249,6 +260,18 @@ void initPWMGPIO() {
   ledcWrite(FAN_PWM_CHANNEL, 0);
   ledcSetup(FAN_CTL_PWM_CHANNEL, FAN_PWM_FREQUENCY, DEFAULT_PWM_RESOLUTION);
   ledcAttachPin(FAN_CTL, FAN_CTL_PWM_CHANNEL);
+#if (HW_NUM >= 19)
+  // V19 (CHANGELOG, firmware 7 / limitacion 6): IO11 va directo al PWM del
+  // ventilador (J5), que en un ventilador de 4 hilos suele llevar pull-up
+  // interno a 5 V. En push-pull el pin quedaria por encima de 3,6 V: drenador
+  // abierto, y el nivel alto lo pone el pull-up del propio ventilador.
+  //
+  // Solo el bit pad_driver del pad, y NO gpio_set_direction(): en este IDF
+  // (4.4) gpio_set_direction() llama a gpio_output_enable(), que reconecta el
+  // pin a SIG_GPIO_OUT_IDX y lo DESCONECTA del LEDC. Con eso IO11 se quedaba
+  // fijo a 0 y el ventilador parado (banco V19.A, 19/11/2026).
+  GPIO.pin[FAN_CTL].pad_driver = 1;
+#endif
   ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
 
   logI("[HW] -> PWM GPIOs initialized");
@@ -289,6 +312,14 @@ void initRoomSensor() {
   static int16_t room_sensor_error;
   static char errorMessage[64];
 
+  if (wire2 == nullptr) {
+    // HW19: sin bus I2C2 (ver initI2C()). roomSensorPresent[] a false hace que
+    // main.cpp levante el enlace USB con la SensorBoard.
+    for (int i = 0; i < ROOM_SENSOR_POSIBILITIES; i++) {
+      roomSensorPresent[i] = false;
+    }
+    return;
+  }
   // Without an explicit timeout, the ESP32 Wire library blocks ~1s per probe
   // for any address that returns NACK. At 3 sensor possibilities this costs ~3s.
   wire2->setTimeOut(10);

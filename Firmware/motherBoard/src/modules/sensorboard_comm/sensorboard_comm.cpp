@@ -497,7 +497,9 @@ void sensorboard_comm_init(void) {
 
   // Los pines 19/20 venian de hacer de bus I2C2 en el sondeo de arranque: hay
   // que soltarlos antes de que el PHY los reclame como D-/D+.
+#if (HW_NUM < 19) // en la V19 Wire1 nunca se levanta (initI2C())
   Wire1.end();
+#endif
   gpio_reset_pin(GPIO_NUM_19);
   gpio_reset_pin(GPIO_NUM_20);
   // gpio_reset_pin() deja el pull-up interno (~45k) HABILITADO. Sobre las
