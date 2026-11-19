@@ -115,25 +115,30 @@ void test_silence_stops_audio_but_not_the_visual_signal(void) {
   TEST_ASSERT_TRUE(alarm_machine_bitmask() & (1u << ALARM_FAN_FAILURE));
 }
 
-// 201.12.3.103 exige que el aviso de corte de red dure un MINIMO de 10 min, y
-// la pausa de audio dura exactamente eso: silenciarla se comeria toda su
-// duracion obligatoria, no una parte. Es la unica condicion no silenciable.
-void test_mains_interruption_cannot_be_silenced(void) {
+// El corte de red se silencia como las demas (decision del 2026-10-26, ver
+// alarm_policy.h): en un corte de horas, sin silencio el equipo acaba apagado.
+// Lo que no se retira es la condicion: sigue en el bitmask (banner e icono de
+// bateria del display) y el audio vuelve solo al acabar la pausa.
+void test_mains_interruption_silences_but_stays_signalled(void) {
   alarm_machine_condition(ALARM_MAINS_INTERRUPTION, true, 0);
   TEST_ASSERT_EQUAL_INT(ALARM_STATE_ACTIVE,
                         alarm_machine_state(ALARM_MAINS_INTERRUPTION));
   alarm_machine_silence(ALARM_MAINS_INTERRUPTION, 600000, 0);
-  // Sigue ACTIVE y sigue exigiendo audio: la orden no ha tenido efecto.
+  TEST_ASSERT_EQUAL_INT(ALARM_STATE_SILENCED,
+                        alarm_machine_state(ALARM_MAINS_INTERRUPTION));
+  TEST_ASSERT_FALSE(alarm_machine_audio_required());
+  TEST_ASSERT_TRUE(alarm_machine_bitmask() & (1u << ALARM_MAINS_INTERRUPTION));
+  // Sin red todavia al acabar la pausa: vuelve a sonar.
+  alarm_machine_condition(ALARM_MAINS_INTERRUPTION, true, 600001);
+  alarm_machine_tick(600001);
   TEST_ASSERT_EQUAL_INT(ALARM_STATE_ACTIVE,
                         alarm_machine_state(ALARM_MAINS_INTERRUPTION));
-  TEST_ASSERT_EQUAL_UINT32(0u, alarm_machine_silenced_bitmask());
   TEST_ASSERT_TRUE(alarm_machine_audio_required());
 }
 
-// Y la excepcion es SOLO esa: no puede contagiarse a las demas.
-void test_every_other_condition_is_still_silenceable(void) {
+// Todas las condiciones se pueden silenciar.
+void test_every_condition_is_silenceable(void) {
   for (int i = ALARM_NONE + 1; i < ALARM_COUNT; ++i) {
-    if (i == ALARM_MAINS_INTERRUPTION) continue;
     alarm_machine_init();
     alarm_machine_condition((AlarmId)i, true, 0);
     alarm_machine_silence((AlarmId)i, 600000, 0);
@@ -305,41 +310,61 @@ void test_silencing_an_inactive_condition_is_a_no_op(void) {
                         alarm_machine_state(ALARM_FAN_FAILURE));
 }
 
-// El corte termico sigue senalizando aunque la temperatura vuelva a rango.
-void test_thermal_cutout_survives_the_condition_clearing(void) {
+// Una latching sigue senalizando aunque su condicion desaparezca. El caso real
+// es ALARM_HEATER_FAULT; aqui se le retira la condicion a mano para poder
+// observar el enclavamiento, cosa que en la placa no ocurre (el autotest de
+// arranque la declara y nadie la retira mientras el equipo sigue encendido).
+void test_latching_alarm_survives_the_condition_clearing(void) {
+  alarm_machine_condition(ALARM_HEATER_FAULT, true, 0);
+  alarm_machine_condition(ALARM_HEATER_FAULT, false, 5000);
+  TEST_ASSERT_EQUAL_INT(ALARM_STATE_ACTIVE,
+                        alarm_machine_state(ALARM_HEATER_FAULT));
+  TEST_ASSERT_TRUE(alarm_machine_is_latched(ALARM_HEATER_FAULT));
+  TEST_ASSERT_TRUE(alarm_machine_bitmask() & (1u << ALARM_HEATER_FAULT));
+}
+
+// Y el corte termico NO: al volver la temperatura a rango, el aviso se va con
+// ella y el equipo se recupera sin que nadie toque nada (2026-09-11).
+void test_thermal_cutout_clears_itself_when_it_cools(void) {
   alarm_machine_condition(ALARM_AIR_THERMAL_CUTOUT, true, 0);
-  alarm_machine_condition(ALARM_AIR_THERMAL_CUTOUT, false, 5000);
   TEST_ASSERT_EQUAL_INT(ALARM_STATE_ACTIVE,
                         alarm_machine_state(ALARM_AIR_THERMAL_CUTOUT));
-  TEST_ASSERT_TRUE(alarm_machine_is_latched(ALARM_AIR_THERMAL_CUTOUT));
-  TEST_ASSERT_TRUE(alarm_machine_bitmask() & (1u << ALARM_AIR_THERMAL_CUTOUT));
+  alarm_machine_condition(ALARM_AIR_THERMAL_CUTOUT, false, 5000);
+  TEST_ASSERT_EQUAL_INT(ALARM_STATE_INACTIVE,
+                        alarm_machine_state(ALARM_AIR_THERMAL_CUTOUT));
+  TEST_ASSERT_FALSE(alarm_machine_is_latched(ALARM_AIR_THERMAL_CUTOUT));
+  TEST_ASSERT_FALSE(alarm_machine_bitmask() & (1u << ALARM_AIR_THERMAL_CUTOUT));
 }
 
 // Solo el reset manual la limpia, y solo si la condicion ya no esta presente.
 void test_manual_reset_clears_a_latched_alarm(void) {
-  alarm_machine_condition(ALARM_AIR_THERMAL_CUTOUT, true, 0);
-  alarm_machine_condition(ALARM_AIR_THERMAL_CUTOUT, false, 5000);
-  TEST_ASSERT_TRUE(alarm_machine_reset(ALARM_AIR_THERMAL_CUTOUT, 6000));
+  alarm_machine_condition(ALARM_HEATER_FAULT, true, 0);
+  alarm_machine_condition(ALARM_HEATER_FAULT, false, 5000);
+  TEST_ASSERT_TRUE(alarm_machine_reset(ALARM_HEATER_FAULT, 6000));
   TEST_ASSERT_EQUAL_INT(ALARM_STATE_INACTIVE,
-                        alarm_machine_state(ALARM_AIR_THERMAL_CUTOUT));
+                        alarm_machine_state(ALARM_HEATER_FAULT));
 }
 
 // Resetear con la camara todavia caliente no puede apagar la alarma: seria
 // devolver el calefactor a un estado peligroso por pulsar un boton.
+// Es el caso REAL de ALARM_HEATER_FAULT en la placa: el autotest la declara al
+// arrancar y nadie la retira, asi que el reset la rechaza siempre. La unica
+// salida es apagar, revisar el cableado y volver a encender, que es lo que se
+// quiere que haga el operador.
 void test_reset_is_refused_while_the_condition_persists(void) {
-  alarm_machine_condition(ALARM_AIR_THERMAL_CUTOUT, true, 0);
-  TEST_ASSERT_FALSE(alarm_machine_reset(ALARM_AIR_THERMAL_CUTOUT, 1000));
+  alarm_machine_condition(ALARM_HEATER_FAULT, true, 0);
+  TEST_ASSERT_FALSE(alarm_machine_reset(ALARM_HEATER_FAULT, 1000));
   TEST_ASSERT_EQUAL_INT(ALARM_STATE_ACTIVE,
-                        alarm_machine_state(ALARM_AIR_THERMAL_CUTOUT));
+                        alarm_machine_state(ALARM_HEATER_FAULT));
   TEST_ASSERT_TRUE(alarm_machine_heater_must_cut());
 }
 
 // Mientras esta latcheada sin condicion, el calefactor puede volver: la norma
 // solo exige mantener la ALARMA, no el corte, una vez bajada la temperatura.
 void test_latched_without_condition_releases_the_heater(void) {
-  alarm_machine_condition(ALARM_AIR_THERMAL_CUTOUT, true, 0);
+  alarm_machine_condition(ALARM_HEATER_FAULT, true, 0);
   TEST_ASSERT_TRUE(alarm_machine_heater_must_cut());
-  alarm_machine_condition(ALARM_AIR_THERMAL_CUTOUT, false, 5000);
+  alarm_machine_condition(ALARM_HEATER_FAULT, false, 5000);
   TEST_ASSERT_FALSE(alarm_machine_heater_must_cut());
 }
 
@@ -408,9 +433,12 @@ void test_no_alarms_means_nothing_signalling(void) {
 
 // 6.10: una condicion que dura menos que su rafaga minima sigue exigiendo
 // audio hasta completarla.
+// Con una MEDIA que NO sea latching: ALARM_HEATER_FAULT ya no vale de sujeto
+// aqui porque, al enclavarse, su senal no se retira sola y el audio no llega a
+// soltarse nunca. ALARM_SUPPLY_UNDERVOLTAGE es de la misma prioridad.
 void test_short_condition_still_completes_its_burst(void) {
-  alarm_machine_condition(ALARM_HEATER_FAULT, true, 0);
-  alarm_machine_condition(ALARM_HEATER_FAULT, false, 10);
+  alarm_machine_condition(ALARM_SUPPLY_UNDERVOLTAGE, true, 0);
+  alarm_machine_condition(ALARM_SUPPLY_UNDERVOLTAGE, false, 10);
   TEST_ASSERT_TRUE(alarm_machine_audio_required());
   alarm_machine_tick(ALARM_MIN_BURST_MS_MEDIUM - 1);
   TEST_ASSERT_TRUE(alarm_machine_audio_required());
@@ -523,15 +551,14 @@ void test_a_long_active_condition_does_not_resurrect_audio_when_it_clears(void) 
 }
 
 // El reset manual es la tercera inactivacion del OPERADOR, junto a silence() y
-// ack(), y tiene que cancelar la ventana igual que ellas. Hoy no hay llamante
-// de produccion, pero lo habra en cuanto se anada el gesto de reset que la
-// documentacion lista como pendiente — y entonces seria la misma forma del
-// defecto: resetear un corte termico dentro de su ventana dejaria el flag
-// armado sobre una entrada ya INACTIVE.
+// ack(), y tiene que cancelar la ventana igual que ellas: resetear dentro de la
+// ventana dejaria el flag armado sobre una entrada ya INACTIVE. Desde
+// 2026-09-11 SI hay llamante de produccion (HMI,ALM_RESET), y el sujeto es
+// ALARM_HEATER_FAULT, que es la unica alarma latching.
 void test_reset_cancels_the_minimum_burst_hold(void) {
-  alarm_machine_condition(ALARM_AIR_THERMAL_CUTOUT, true, 0);
-  alarm_machine_condition(ALARM_AIR_THERMAL_CUTOUT, false, 10);
-  TEST_ASSERT_TRUE(alarm_machine_reset(ALARM_AIR_THERMAL_CUTOUT, 20));
+  alarm_machine_condition(ALARM_HEATER_FAULT, true, 0);
+  alarm_machine_condition(ALARM_HEATER_FAULT, false, 10);
+  TEST_ASSERT_TRUE(alarm_machine_reset(ALARM_HEATER_FAULT, 20));
   TEST_ASSERT_FALSE(alarm_machine_audio_required());
   TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_LOW, alarm_machine_audible_priority());
   // Y cancelada tiene que seguir a cualquier valor del reloj.
@@ -721,8 +748,8 @@ int main(void) {
   RUN_TEST(test_condition_gone_during_delay_never_announces);
   RUN_TEST(test_thermal_cutout_ignores_any_delay);
   RUN_TEST(test_silence_stops_audio_but_not_the_visual_signal);
-  RUN_TEST(test_mains_interruption_cannot_be_silenced);
-  RUN_TEST(test_every_other_condition_is_still_silenceable);
+  RUN_TEST(test_mains_interruption_silences_but_stays_signalled);
+  RUN_TEST(test_every_condition_is_silenceable);
   RUN_TEST(test_silenced_bitmask_names_each_condition);
   RUN_TEST(test_silence_remaining_reports_the_soonest);
   RUN_TEST(test_silence_remaining_is_zero_without_a_pause);
@@ -736,7 +763,8 @@ int main(void) {
   RUN_TEST(test_ack_is_indefinite_and_keeps_the_visual_signal);
   RUN_TEST(test_silencing_never_restores_the_heater);
   RUN_TEST(test_silencing_an_inactive_condition_is_a_no_op);
-  RUN_TEST(test_thermal_cutout_survives_the_condition_clearing);
+  RUN_TEST(test_latching_alarm_survives_the_condition_clearing);
+  RUN_TEST(test_thermal_cutout_clears_itself_when_it_cools);
   RUN_TEST(test_manual_reset_clears_a_latched_alarm);
   RUN_TEST(test_reset_is_refused_while_the_condition_persists);
   RUN_TEST(test_latched_without_condition_releases_the_heater);

@@ -1,8 +1,13 @@
 #include "CommTask.h"
 #include "main.h"
 #include "modules/util/tz_source.h"
-#include "modules/util/civil_time.h"
+// La cola de inyeccion del modo depuracion la drena ESTA tarea; ver
+// modules/debug/debug_mode.h para por que no la drena el manejador HTTP.
+extern "C" bool debug_inject_take(char *out, size_t out_len);
+#include "civil_time.h"
 #include "modules/util/system_clock.h"
+#include "modules/util/time_protocol.h"
+#include "modules/util/vitals_out.h"
 #include "tasks/PID.h"
 #include "DriveUpload.h"
 #include <LittleFS.h>
@@ -12,6 +17,10 @@
 #include "modules/control/alarm_history.h"
 #include "modules/control/alarm_machine.h"
 #include "modules/control/alarm_test.h"
+#include "modules/control/photo_expiry_latch.h"
+#include "modules/debug/debug_mode.h"
+#include "modules/service/service_hours.h"
+#include "modules/config/runtime_config.h"
 #include "modules/baby_profile/baby_profile_protocol.h"
 #include "modules/baby_profile/baby_profile_store.h"
 #include "nte_table.h"
@@ -23,6 +32,9 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "modules/factory_test/factory_test_api.h"
+#include "modules/sensorboard_comm/sb_env_report.h"
+#include "modules/sensorboard_comm/sensorboard_comm.h"
+#include "modules/sensors/sensor_source.h"
 #include <cstdio>
 #include <cstring>
 #include <time.h>
@@ -54,26 +66,37 @@ static HardwareSerial &hmiSerial = Serial1;
 // en hmiSerial, para no entrelazar bytes con la telemetria periodica.
 static QueueHandle_t s_ftestTxQueue = NULL;
 
-// PPG transport scale: ppg_disp units (A/A, OT domain) per LSB of the 0-255 display
-// range. ppg_disp is zero-mean (library BPF output), so 128 is the baseline and this
-// divisor sets the half-range to 127 x 1.6e-8 = ~2.0e-6 A/A.
+// PPG transport scale: wire LSBs per unit of ppg_disp. Since lib v0.116 ppg_disp
+// arrives already scaled for a screen (AFE4490PPGDispMode::NORM_PI, selected in
+// initSPO2(); spec §5.9): zero-centred, in [-1, +1], with the envelope tracked by
+// the library and the amplitude following the perfusion index. The byte on the
+// wire is 128 + ppg_disp x 127, so 128 is the baseline and ±1 land on 1 / 255.
+// The library's 15 % headroom means a normal beat spans about 17..239.
 //
-// Library v0.69 moved ppg_disp to the OT domain: int32_t (ADC counts) -> float (A/A,
-// magnitude ~1e-5..1e-6), so it is gain-invariant and no longer jumps when HGAC
-// changes RF. The previous scale (16 ADC counts/LSB, measured on the bench
-// 2026-08-13) no longer applies to these units.
+// Nothing to tune here any more: gain, headroom and warm-up (0 while the probe
+// is not applied) live in the library. Still no adaptive scaling outside it —
+// the rule is unchanged, the library now owns the gain.
 //
-// This value is DERIVED from the library spec, not measured: typical OT DC is
-// ~1.4e-5 A/A and AC/DC = PI/100, so at PI ~10% (the operating point of the original
-// bench measurement) ppg_disp peaks at ~1.4e-6 — same ~50% headroom the old counts
-// scale had. TODO: re-validate on the bench with a real probe.
-// Fixed on purpose — no adaptive scaling outside the library.
-static constexpr float PPG_DISP_UNITS_PER_LSB = 1.6e-8f;
+// History: v0.69..v0.115 delivered A/A (OT domain, ~1e-6) and this file divided
+// by a fixed 1.6e-8 derived from the spec and never measured; before v0.69, ADC
+// counts at 16 per LSB (bench, 2026-08-13).
+static constexpr float PPG_DISP_LSB_PER_UNIT = 127.0f;
 
 // ---- Phototherapy Timer (Motherboard is source of truth) ----
 static bool photoTimerActive = false;
+
+// Cerrojo "el temporizador caduco, esperando un photo=0 del display" (logica en
+// modules/control/photo_expiry_latch.h). Lo arma getRemainingPhotoTime() y lo
+// consulta el parser de tramas del display, que pueden correr en tareas
+// distintas: de ahi el spinlock (dos accesos de un bool, sin llamadas dentro).
+static PhotoExpiryLatch s_photoExpiry;
+static portMUX_TYPE s_photoExpiryMux = portMUX_INITIALIZER_UNLOCKED;
 static unsigned long photoTimerStartMs = 0;
 static int photoTimerMinutes = 0;
+// Modo de fototerapia del mandato anterior del HMI. Sirve para detectar el
+// FLANCO de arranque de una sesion CONTINUA (sin temporizador), que no lo
+// detecta ninguna de las dos ramas del if de abajo.
+static bool photoPrevMode = false;
 
 // ======================================================
 //  USB-ONLY HELPERS
@@ -276,6 +299,50 @@ static void handleBabyLine(const char *line) {
 // ======================================================
 //  PHOTOTHERAPY TIMER
 // ======================================================
+
+// Persistencia del restante del temporizador, en el espacio NVS "photo".
+//
+// Lo lee initEEPROM() (EEPROM.cpp) en un arranque con restoreState para volver
+// a armar el temporizador tras una caida. Como in3.phototherapy se guarda en el
+// instante en que se pulsa, tras un crash la lampara SIEMPRE vuelve encendida:
+// lo unico que decide si ademas vuelve con su cuenta atras es lo que haya aqui.
+// De ahi que las dos funciones existan y que se llamen en TODAS las
+// transiciones, no solo en algunas.
+static void photoTimerPersist(int remaining_mins) {
+  if (remaining_mins < 1) remaining_mins = 1;
+  Preferences p;
+  p.begin("photo", false);
+  p.putBool("active", true);
+  p.putInt("mins", remaining_mins);
+  p.end();
+}
+
+// Borra el restante guardado. Comprueba antes si hay algo que borrar: esto se
+// llama en cada mandato del HMI (~1 Hz) y un clear() incondicional seria una
+// escritura de flash por segundo.
+static void photoTimerForget() {
+  Preferences p;
+  p.begin("photo", false);
+  if (p.getBool("active", false)) {
+    p.clear();
+  }
+  p.end();
+}
+
+// Verdadero UNA vez por caducidad del temporizador: hay que guardar
+// KEY_PHOTO_ACTIVE=0. getRemainingPhotoTime() se invoca desde dos tareas (el
+// bucle de Communication_Receiver en main.cpp y send_state_to_hmi) y no debe
+// escribir NVS ella misma (ruta caliente de 1 ms, y duplicaria la escritura):
+// solo arma la bandera, y UNA tarea (Communication_Receiver) la consume aqui.
+// Sin esto, el 0 solo llegaria a NVS con la siguiente trama del display, y una
+// caida entre medias arrancaria en fototerapia continua sin limite.
+bool photoExpiryTakePersistOff(void) {
+  portENTER_CRITICAL(&s_photoExpiryMux);
+  const bool pendiente = photo_expiry_latch_take_persist_off(&s_photoExpiry);
+  portEXIT_CRITICAL(&s_photoExpiryMux);
+  return pendiente;
+}
+
 double getRemainingPhotoTime() {
   double remainingTime = 0.0;
   if (photoTimerActive) {
@@ -290,9 +357,18 @@ double getRemainingPhotoTime() {
       remainingTime = 0.0;
 
       in3.phototherapy = false;
-      ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, 0);
+      // Si hay una prueba de depuracion activa, el temporizador es una orden de
+      // apagado de la placa que tiene que ganar al soltarla (la prueba sigue
+      // forzando ON hasta entonces).
+      debug_photo_note_order(false);
+      // ... y ninguna trama rezagada con photo=1 sin minutos puede reencenderla
+      // (dentro y fuera de la prueba). Ver photo_expiry_latch.h.
+      portENTER_CRITICAL(&s_photoExpiryMux);
+      photo_expiry_latch_expire(&s_photoExpiry);
+      portEXIT_CRITICAL(&s_photoExpiryMux);
+      photoPwmRefresh();
       turnFans(bool(in3.phototherapy || in3.actuation));
-      { Preferences p; p.begin("photo", false); p.clear(); p.end(); }
+      photoTimerForget();
 
       if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         ESP_LOGI(TAG, "Phototherapy timer expired. Hardware turned OFF.");
@@ -339,11 +415,14 @@ static int LinkBarsFromGprsCsq(int csq) {
 //  SEND STATE TO HMI
 // ======================================================
 static void send_state_to_hmi() {
-  // 192 y no 160: el campo silencedBitmask anadio hasta 11 caracteres y el
-  // peor caso (fwVer de 20, tres bitmask/contadores al ancho maximo) se
-  // quedaba al filo. Truncar aqui no da error, da una linea que el HMI
-  // descarta entera y una pantalla que deja de refrescarse.
-  char msg[192];
+  // 224 y no 192 (ni 160): el campo silencedBitmask anadio hasta 11 caracteres
+  // y el peor caso (fwVer de 20, tres bitmask/contadores al ancho maximo) se
+  // quedaba al filo. activeSeq anade otros 11 (coma + un uint32 de hasta 10
+  // digitos): el peor caso razonable de la linea completa ronda los 183 bytes,
+  // a 9 del limite de 192, y con 224 quedan ~40 de holgura. Truncar aqui no da
+  // error, da una linea que el HMI descarta entera y una pantalla que deja de
+  // refrescarse.
+  char msg[224];
   int alarmCount = getActiveAlarmCount();
   double remainingTime = getRemainingPhotoTime();
 
@@ -385,17 +464,52 @@ static void send_state_to_hmi() {
   int skinProbeState = (in3.temperature[SKIN_SENSOR] > 0.1f) ? SKIN_PROBE_VALID
                                                               : SKIN_PROBE_NOT_CONNECTED;
 
+  // Alarmas ENCLAVADAS esperando reconocimiento: siguen avisando aunque su
+  // condicion ya se haya ido. Solo con esto puede el display ofrecer el reset
+  // manual que pide 201.15.4.2.1 aa)/bb) —y ofrecerlo SOLO cuando sirve de
+  // algo, en vez de un boton que unas veces hace efecto y otras no. La placa
+  // sigue siendo la duena de la decision: HMI,ALM_RESET pasa por
+  // alarm_machine_reset(), que rechaza lo que no proceda.
+  uint32_t latchedBitmask = 0;
+  for (int a = ALARM_NONE + 1; a < ALARM_COUNT; a++) {
+    if (alarm_machine_is_latched((AlarmId)a)) {
+      latchedBitmask |= (1u << a);
+    }
+  }
+
+  // Estado REAL de la lampara (lo aplicado, in3.phototherapy), no el eco de lo
+  // que pidio el display (g_last_cmd.phototherapyMode). Mismo fallo que el
+  // audio de arriba: el eco no aportaba nada y ademas mentia (known_issues
+  // #20). Entre que el operador toca el switch y la placa aplica la orden este
+  // campo sale con el valor anterior unas decenas de ms; el display mantiene su
+  // valor local hasta que la placa lo confirma (localCmdHoldsLocal), asi que no
+  // hay rebote.
+  //
+  // UNICA EXCEPCION: durante una prueba de fototerapia de depuracion (PHOTO,1)
+  // se emite la ORDEN DEL DISPLAY, no el ON forzado. El display ADOPTA este
+  // campo y lo devuelve en su keepalive; si adoptase el ON de la prueba, al
+  // soltar habria que neutralizar un 1 rancio, y ningun plazo ni confirmacion
+  // aguanto (ver la historia en photo_override.h). El ON de la prueba se ve en
+  // /debug/state (ctl.photo_dbg) y en el log.
+  //
+  // Actuacion, modo de control y consignas siguen siendo ecos A PROPOSITO: no
+  // tienen un valor "real" de una linea (la placa guarda una unica consigna
+  // segun el modo, y in3.actuation/controlMode se asignan literalmente del
+  // comando). Ver openspec mb-photo-current-check, design D2.
+  const int photoApplied = debug_photo_state_field(in3.phototherapy) ? 1 : 0;
+
   snprintf(msg, sizeof(msg),
-           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d,%d,0x%X,0x%X,%d,%d,%d\n",
+           "CTRL,STATE,%d,%d,%.2f,%.2f,%.0f,%d,%d,%d,%d,%c,%s,%d,%d,%d,%.2f,%d,%d,0x%X,0x%X,%d,%d,%d,0x%X,%u\n",
            (int)g_last_cmd.actuation, (int)g_last_cmd.controlMode,
            (double)g_last_cmd.desiredAirTemperature,
            (double)g_last_cmd.desiredSkinTemperature,
-           (double)g_last_cmd.desiredHumidity, (int)g_last_cmd.phototherapyMode,
+           (double)g_last_cmd.desiredHumidity, photoApplied,
            audioSilenced, ctrl_tel_msg.serialNumber, HW_NUM,
            HW_REVISION, FWversion, alarmCount, (int)g_last_cmd.skinModeEnabled,
            (int)ctrl_tel_msg.serverCommStatus, remainingTime, in3.language,
            skinProbeState, alarmBitmask, silencedBitmask, almTest,
-           silenceLeftS, (int)ctrl_tel_msg.linkBars);
+           silenceLeftS, (int)ctrl_tel_msg.linkBars, latchedBitmask,
+           (unsigned)babyStore_getActiveSeq());
 
 
   ESP_LOGI(TAG, "Sending state to HMI: %s", msg);
@@ -550,6 +664,34 @@ static bool hmiCrashAppend(const char *line) {
 uint32_t g_lastHmiLineMs = 0;
 bool g_hmiEverSeen = false;
 
+// CTRL,SERVICE (horas desde servicio, ver modules/service). Se manda al
+// arrancar el enlace (HMI,UI_READY), bajo peticion, al registrar un servicio y
+// cada hora; el flag lo levanta parse_line() y lo consume el bucle de
+// Communication_Task, que es el mismo hilo, asi que no hace falta sincronizar.
+static bool s_serviceSendPending = false;
+
+// CTRL,PROBE on request. The probe state goes out when it changes and is not
+// repeated while the probe is applied (CTRL,VIT travels instead), so a display
+// that starts, or asks for the state again, with the probe already on the
+// patient never heard of it: its pulse-oximetry panel stayed hidden until the
+// probe was taken off and put back. Raised by parse_line() on HMI,UI_READY and
+// HMI,REQ,STATE, consumed by the loop of Communication_Task (same thread).
+static bool s_probeSendPending = false;
+constexpr uint32_t SERVICE_BCAST_PERIOD_MS = 3600UL * 1000UL;
+
+static void sendServiceToHMI() {
+  ServiceReport rep;
+  ServiceHours_BuildReport(&rep);
+  char msg[128];
+  if (service_proto_build_report(msg, sizeof(msg), &rep) == 0) {
+    // No deberia ocurrir (el peor caso son ~112 B), pero una linea a medias es
+    // peor que ninguna.
+    ESP_LOGE(TAG, "CTRL,SERVICE no cabe en el buffer, no se envia");
+    return;
+  }
+  CommunicationHost_Send(msg);
+}
+
 void parse_line(const char *line) {
   // HMI panic output arrives as plain ROM/ESP_LOG text, so intercept it
   // before the protocol-prefix filter discards everything without "HMI,".
@@ -587,6 +729,10 @@ void parse_line(const char *line) {
     }
     setHMIConnected(true);
     xSemaphoreGive(hmi_state_req_sem);
+    s_probeSendPending = true;
+    // Solo el UI_READY (el display acaba de arrancar): REQ,STATE se repite y
+    // no necesita el estado de servicio cada vez.
+    if (strcmp(line, "HMI,UI_READY") == 0) s_serviceSendPending = true;
     return;
   }
 
@@ -636,6 +782,40 @@ void parse_line(const char *line) {
     return;
   }
 
+  if (strncmp(line, "HMI,RTC_TIME,", 13) == 0) {
+    // Semilla del PCF8563 del HMI. Es la unica pieza del equipo que conserva
+    // la hora con la alimentacion cortada, asi que en una unidad desplegada
+    // sin cobertura es la unica que puede decir que dia es. Rango RTC: gana a
+    // NITZ, pierde contra NTP y contra la hora puesta a mano.
+    //
+    // A diferencia de HMI,SET_TIME esto NO se contesta con un ACK: el HMI ya
+    // ve el resultado en el siguiente CTRL,TIME, que le llega cada 10 s de
+    // todas formas. Un ACK seria trafico periodico evitable (known_issues #2).
+    uint32_t epoch = 0;
+    int tzq = 0, tzsrc = 0;
+    if (!time_protocol_parse_rtc_seed(line, &epoch, &tzq, &tzsrc)) {
+      // Descarte silencioso, como el resto del parseo del enlace.
+      return;
+    }
+    const bool applied = systemClockSet(epoch, PROTO_TIME_SOURCE_RTC);
+    if (applied && tzsrc != TZ_SOURCE_NONE) {
+      // El huso viaja aparte y con su propia politica: tz_source_set() decide
+      // si este origen gana al vigente. Solo se ofrece si el reloj se acepto,
+      // para no quedarnos con la zona de una semilla que se rechazo.
+      tz_source_set(tzq, (TzSource)tzsrc);
+    }
+    if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      if (applied) {
+        ESP_LOGI(TAG, "Clock seeded from HMI RTC, epoch %u, tzq %d",
+                 (unsigned)epoch, tzq);
+      } else {
+        ESP_LOGI(TAG, "HMI RTC seed declined, better source already set");
+      }
+      xSemaphoreGiveRecursive(log_mutex);
+    }
+    return;
+  }
+
   if (strncmp(line, "HMI,SET_TIME,", 13) == 0) {
     // Mismo contrato que /config,set_time (Wifi_OTA.cpp): lo que llega es la
     // hora LOCAL vista por el operador, sin zona -> offset 0 y
@@ -664,15 +844,21 @@ void parse_line(const char *line) {
 
   if (strncmp(line, "/config", 7) == 0) {
     char param[32];
-    float value;
+    // Valor EN CRUDO, no con %f: sscanf("%f") acepta "nan", "inf", hexadecimales
+    // y se queda con el prefijo de "12abc". runtime_config lo lee estricto.
+    char raw[32];
     bool success = false;
-    if (line[7] == ',' && sscanf(line, "/config,%31[^,],%f", param, &value) == 2) {
+    char cfgMsg[96] = "";
+    // runtime_config_parse_console_line() rechaza la linea si hay CUALQUIER
+    // texto despues del valor: "/config,AIR_TMAX,38 99" no aplica 38.
+    if (runtime_config_parse_console_line(line, param, sizeof(param), raw,
+                                          sizeof(raw))) {
       success = true;
-      extern float maxDesiredTemp[2];
       if (strcmp(param, "BABY_WIPE") == 0) {
         // Destructive and irreversible, so it needs an explicit magic value
         // rather than any truthy number: /config,BABY_WIPE,1234
-        if ((int)value == 1234) {
+        float code = 0.0f;
+        if (runtime_config_parse_number(raw, &code) && (int)code == 1234) {
           int n = babyStore_wipeAll();
           if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
             ESP_LOGW(TAG, "BABY_WIPE done, %d files removed", n);
@@ -681,48 +867,27 @@ void parse_line(const char *line) {
         } else {
           success = false;  // wrong confirmation code: do nothing
         }
-      } else if (strcmp(param, "FAN_SUPPLY_PWM") == 0) {
-        in3.fanPwrSupplyPWM = (int)value;
-        { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_PWR_SUPPLY_PWM, in3.fanPwrSupplyPWM); p.end(); }
-      } else if (strcmp(param, "HEATER_AMPS") == 0) {
-        in3.heaterMaxPowerAmps = value;
-        { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_HEAT_MAX_A, in3.heaterMaxPowerAmps); p.end(); }
-      } else if (strcmp(param, "SKIN_TMAX") == 0) {
-        in3.skinTemperatureSetMax = alarm_clamp_skin_cutout(value);
-        maxDesiredTemp[CONTROL_SKIN] = in3.skinTemperatureSetMax;
-        { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_SKIN_T_MAX, in3.skinTemperatureSetMax); p.end(); }
-      } else if (strcmp(param, "AIR_TMAX") == 0) {
-        in3.airTemperatureSetMax = alarm_clamp_air_cutout(value);
-        maxDesiredTemp[CONTROL_AIR] = in3.airTemperatureSetMax;
-        { Preferences p; p.begin(NS_CFG, false); p.putFloat(KEY_AIR_T_MAX, in3.airTemperatureSetMax); p.end(); }
-      } else if (strcmp(param, "GPRS_ACT") == 0) {
-        in3.actuating_gprs_period = (int)value;
-        { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_ACT_PERIOD, in3.actuating_gprs_period); p.end(); }
-      } else if (strcmp(param, "GPRS_PHOTO") == 0) {
-        in3.phototherapy_gprs_period = (int)value;
-        { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_PHOTO_PERIOD, in3.phototherapy_gprs_period); p.end(); }
-      } else if (strcmp(param, "GPRS_STBY") == 0) {
-        in3.standby_gprs_period = (int)value;
-        { Preferences p; p.begin(NS_GPRS, false); p.putInt(KEY_STBY_PERIOD, in3.standby_gprs_period); p.end(); }
-      } else if (strcmp(param, "FAN_CTL_PWM") == 0) {
-        in3.fanCtlPWM = (int)value;
-        { Preferences p; p.begin(NS_CFG, false); p.putInt(KEY_FAN_CTL_PWM, in3.fanCtlPWM); p.end(); }
-        ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
-      } else if (strcmp(param, "FAN_PID_EN") == 0) {
-        setFanPidEnabled(value != 0);
       } else {
-        success = false;
+        // Los nueve parametros pasan por runtime_config con la regla del
+        // origen USB: nombres en MAYUSCULAS exactas (como siempre), valor en
+        // crudo, y los cortes fuera de 34..40 C se RECHAZAN en vez de
+        // recortarse. El modulo deja su propia linea de log con origen, valor
+        // pedido y valor aplicado.
+        success = runtime_config_apply_text(RCFG_ORIGIN_USB, param, raw, cfgMsg,
+                                            sizeof(cfgMsg));
       }
-      if (success) { /* Preferences commits on p.end() */ }
       if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         if (success)
-          ESP_LOGI(TAG, "Config updated: %s = %.2f", param, value);
+          ESP_LOGI(TAG, "Config updated: %s = %s", param, raw);
         else
-          ESP_LOGE(TAG, "Unknown config parameter: %s", param);
+          ESP_LOGE(TAG, "Config not applied: %s", cfgMsg[0] ? cfgMsg : param);
         xSemaphoreGiveRecursive(log_mutex);
       }
     } else {
       if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        if (line[7] == ',') {
+          ESP_LOGE(TAG, "Config line malformed, nothing applied");
+        }
         ESP_LOGI(TAG, "FAN_SUPPLY_PWM:%d FAN_CTL_PWM:%d HEATER_AMPS:%.2f SKIN_TMAX:%.2f AIR_TMAX:%.2f",
                  in3.fanPwrSupplyPWM, in3.fanCtlPWM, in3.heaterMaxPowerAmps, in3.skinTemperatureSetMax,
                  in3.airTemperatureSetMax);
@@ -735,6 +900,25 @@ void parse_line(const char *line) {
   if (strncmp(line, "HMI,PROFILE_", 12) == 0 ||
       strncmp(line, "HMI,WEIGHT_HISTORY_REQ", 22) == 0) {
     handleBabyLine(line);
+    return;
+  }
+
+  // Avisos de servicio por horas de uso. La respuesta a ambos es el mismo
+  // CTRL,SERVICE; el de SERVICE_DONE ya lleva el valor nuevo, asi que hace de
+  // confirmacion. Id invalido o linea mala: se descarta sin efecto.
+  if (service_proto_is_req(line)) {
+    s_serviceSendPending = true;
+    return;
+  }
+  if (strncmp(line, "HMI,SERVICE_DONE", 16) == 0) {
+    uint8_t id = 0;
+    if (service_proto_parse_done(line, &id)) {
+      if (ServiceHours_MarkDone(id, babyStore_nowEpoch())) {
+        s_serviceSendPending = true;
+      }
+    } else {
+      ESP_LOGW(TAG, "HMI,SERVICE_DONE malformada, descartada");
+    }
     return;
   }
 
@@ -823,6 +1007,57 @@ void parse_line(const char *line) {
     return;
   }
 
+  // Reset manual de una alarma enclavada.
+  //
+  // 201.15.4.2.1 aa)/bb) piden que el corte termico —que REARMA SOLO en cuanto
+  // baja la temperatura— siga avisando "hasta reset manual". Por eso los dos
+  // cortes termicos son latching (alarm_is_latching, shared/): si la senal se
+  // borrase sola al enfriarse, un episodio de sobretemperatura no dejaria
+  // ningun rastro que el operador pudiera ver.
+  //
+  // LO QUE FALTABA ERA EL RESET. alarm_machine_reset() existia desde el
+  // principio y no lo llamaba NADIE: la unica forma de quitar un corte termico
+  // ya enfriado era reiniciar la placa. Encontrado en banco el 2026-09-11
+  // simulando el corte con el modo depuracion. Un aviso que no se puede
+  // reconocer no es una alarma enclavada, es una alarma atascada.
+  //
+  // La maquina se encarga de rechazarlo si no procede: alarm_machine_reset()
+  // devuelve false cuando la alarma no es latching o cuando SU CONDICION SIGUE
+  // PRESENTE, que es justo lo que impide que el operador haga desaparecer un
+  // aviso vivo pulsando un boton. Aqui no se duplica ninguna de esas dos
+  // comprobaciones a proposito: la politica vive en un sitio solo.
+  //
+  // Sin id, o con id 0, resetea todas las que se dejen.
+  if (strncmp(line, "HMI,ALM_RESET", 13) == 0) {
+    const uint32_t now = millis();
+    unsigned id = 0;
+    const bool one = (line[13] == ',') && (sscanf(line + 14, "%u", &id) == 1) &&
+                     id > ALARM_NONE && id < ALARM_COUNT;
+    int done = 0, refused = 0;
+    for (int a = ALARM_NONE + 1; a < ALARM_COUNT; a++) {
+      if (one && (unsigned)a != id) {
+        continue;
+      }
+      if (!alarm_machine_is_latched((AlarmId)a)) {
+        continue; // no esta enclavada esperando reconocimiento
+      }
+      if (alarm_machine_reset((AlarmId)a, now)) {
+        done++;
+      } else {
+        refused++;
+      }
+    }
+    logAlarm("[ALARM] ALM_RESET" + (one ? (" id=" + String(id)) : String("")) +
+             " -> reseteadas=" + String(done) +
+             " rechazadas=" + String(refused));
+    // El display repinta con el siguiente CTRL,STATE/CTRL,ALM; forzamos el
+    // envio para que el boton no parezca que no ha hecho nada.
+    if (done > 0) {
+      xSemaphoreGive(hmi_state_req_sem);
+    }
+    return;
+  }
+
   // Descripcion de una alarma concreta, bajo demanda.
   //
   // No viaja dentro de CTRL,ALM_HISTORY porque no cabe: 10 entradas x (29 de
@@ -883,25 +1118,44 @@ void parse_line(const char *line) {
         factoryTestAbort();
         break;
       case FTEST_CMD_CONFIRM:
-        // Cuarta ronda (banco 2026-09-06): ningun test de motherBoard usa ya
-        // el camino CONFIRM (BUZZER, el unico que lo hacia, SKIP directo sin
-        // microfono -- factory_test_hw.cpp). Se acepta para no romper a un
-        // HMI que todavia lo mande, pero se descarta sin efecto.
-        logE("[FTEST] CONFIRM sin uso, descartado");
+        // BUZZER (2026-10-06): el display contesta si su microfono oyo el
+        // zumbador, o lo que respondio el operario si no tiene microfono.
+        factoryTestConfirm(cmd.id, cmd.ok);
         break;
     }
     return;
   }
 
   if (strncmp(line, "HMI,", 4) == 0) {
-    int act, skinE, mode, photo, mute, lang, photoMin;
+    int act, skinE, mode, photo, mute, lang;
+    int photoMin = 0;  // el campo 10 es opcional: sin inicializar seria basura
     double air, skin, hum;
 
     int parsed = sscanf(line,
                         "HMI,%d,%d,%d,%lf,%lf,%lf,%d,%d,%d,%d",
                         &act, &skinE, &mode, &air, &skin, &hum, &photo,
                         &mute, &lang, &photoMin);
-    if (parsed >= 9) {
+    // `photo` es un booleano (0/1) y `photoMin` va de 0 a PHOTO_TIMER_MAX_MINUTES
+    // (10 h): se emiten tal cual en CTRL,STATE, se guardan en NVS y arman el
+    // temporizador. Cualquier otro valor es una trama corrupta (sin CRC, ver
+    // known_issues #2) y se descarta ENTERA en vez de actuar sobre la lampara.
+    if (parsed >= 9 && photo_hmi_fields_valid(photo, photoMin)) {
+      // Tras la caducidad del temporizador de fototerapia se IGNORA un photo=1
+      // sin minutos hasta ver un photo=0: es una trama que el display tenia en
+      // vuelo (o retenida por localCmdHoldsLocal, 10 s) de ANTES de adoptar el
+      // apagado, y reencenderia la lampara que acaba de caducar. Va lo primero:
+      // todo lo que sigue (activeSeq, contabilidad, temporizador, orden aplicada
+      // y guardada) usa el valor ya filtrado. Ver photo_expiry_latch.h.
+      portENTER_CRITICAL(&s_photoExpiryMux);
+      photo = photo_expiry_latch_filter(&s_photoExpiry, photo != 0, photoMin) ? 1 : 0;
+      const bool avisarFiltrada = photo_expiry_latch_take_filter_log(&s_photoExpiry);
+      portEXIT_CRITICAL(&s_photoExpiryMux);
+      // Un solo log por episodio (la trama retenida llega muchas veces), y fuera
+      // de la seccion critica.
+      if (avisarFiltrada) {
+        ESP_LOGW(TAG, "HMI photo=1 sin minutos ignorado tras caducar el "
+                 "temporizador de fototerapia (hasta ver photo=0)");
+      }
       // activeSeq protection: stamp the wizard-selected baby while ANY
       // therapy is running, and only clear it once every therapy is off.
       // Phototherapy counts: the HMI now runs the baby-data wizard for it
@@ -920,7 +1174,15 @@ void parse_line(const char *line) {
       // Per-baby therapy exposure. Accumulated in RAM and only written to NVS
       // on the OFF edge or every THERAPY_FLUSH_INTERVAL — a slot write per
       // minute would wear the flash for no benefit.
-      updateTherapyAccounting(s_photoAcc, photo != 0);
+      // Solo cuenta exposicion REAL: la lampara esta aplicada (in3.phototherapy,
+      // no solo pedida), no es una prueba de depuracion en curso o por
+      // confirmar (el display adopta el ON de PHOTO,1 y lo devuelve en su
+      // keepalive, y eso no es un bebe tratado) y no hay un fallo de lampara
+      // declarado (sin corriente o sin medida, la terapia no esta garantizada).
+      const bool photoExposure =
+          photo != 0 && in3.phototherapy && !debug_photo_active() &&
+          alarm_machine_state(ALARM_PHOTO_LAMP_FAULT) == ALARM_STATE_INACTIVE;
+      updateTherapyAccounting(s_photoAcc, photoExposure);
       updateTherapyAccounting(s_thermoAcc,
                               act == ACTUATION_TEMPERATURE ||
                                   act == ACTUATION_TEMP_AND_HUMIDITY);
@@ -962,23 +1224,85 @@ void parse_line(const char *line) {
       g_last_cmd.newCommand = false;
 
       if (hmi_cmd_msg.phototherapyMode && hmi_cmd_msg.photoMinutesRemaining > 0) {
-        if (!photoTimerActive || photoTimerMinutes != hmi_cmd_msg.photoMinutesRemaining) {
+        // Minutos que quedan AHORA, redondeando hacia arriba igual que el
+        // guardado periodico. La comparacion tiene que ser contra esto, no
+        // contra photoTimerMinutes: photoTimerMinutes es la duracion con la
+        // que se armo, y tras un rearme pasa a valer el restante, con lo que
+        // los dos conceptos se confunden.
+        int restante_ahora = 0;
+        if (photoTimerActive) {
+          long transcurrido = (long)((millis() - photoTimerStartMs) / 1000);
+          restante_ahora = ((long)photoTimerMinutes * 60 - transcurrido + 59) / 60;
+          if (restante_ahora < 0) restante_ahora = 0;
+        }
+        // Un mandato del HMI solo rearma si es una sesion nueva o si el
+        // operador ha cambiado de verdad la duracion. Lo demas es el ECO de
+        // nuestra propia emision y NO debe tocar el temporizador.
+        //
+        // Sin esta guarda habia un trinquete: la placa emite el restante en
+        // formato MM.SS, que justo por debajo del minuto entero vale 14.59; el
+        // HMI lo trunca a 14 y lo devuelve; la placa veia 14 != 15, lo tomaba
+        // por una duracion nueva y reiniciaba la cuenta desde 14. Cada ida y
+        // vuelta se comia un minuto entero. Medido en banco el 2026-09-23 tras
+        // restaurar un temporizador: de 15 a 1 minutos en 26 SEGUNDOS.
+        //
+        // No se veia en produccion porque hacia falta que el temporizador se
+        // restaurase, y hasta el arreglo de la caida eso no pasaba nunca.
+        //
+        // La tolerancia de 1 minuto es exactamente el margen de ese truncado.
+        const int delta = hmi_cmd_msg.photoMinutesRemaining - restante_ahora;
+        const bool sesion_nueva = !photoTimerActive;
+        const bool cambio_real  = (delta > 1) || (delta < -1);
+        if (sesion_nueva || cambio_real) {
           photoTimerActive = true;
           photoTimerMinutes = hmi_cmd_msg.photoMinutesRemaining;
           photoTimerStartMs = millis();
+          // Se guarda YA, no en el primer guardado periodico. El periodico es
+          // cada 60 s, asi que una caida dentro del primer minuto dejaba el
+          // espacio "photo" vacio: al rearrancar, in3.phototherapy volvia a 1
+          // (se guarda al pulsar) pero sin cuenta atras, y la lampara quedaba
+          // encendida indefinidamente. Sobretratamiento silencioso.
+          photoTimerPersist(photoTimerMinutes);
           if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
             ESP_LOGI(TAG, "Phototherapy timer started: %d minutes", photoTimerMinutes);
             xSemaphoreGiveRecursive(log_mutex);
           }
         }
-      } else if (!hmi_cmd_msg.phototherapyMode && photoTimerActive) {
-        photoTimerActive = false;
-        photoTimerMinutes = 0;
-        if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-          ESP_LOGI(TAG, "Phototherapy timer stopped");
-          xSemaphoreGiveRecursive(log_mutex);
+      } else if (!hmi_cmd_msg.phototherapyMode) {
+        // Fototerapia APAGADA.
+        //
+        // Antes el clear() de NVS solo lo hacia la expiracion natural del
+        // temporizador. Con eso, apagar a mano una sesion temporizada dejaba
+        // "active=true, mins=N" en el espacio "photo"; si luego se arrancaba
+        // fototerapia CONTINUA y habia una caida, la restauracion resucitaba
+        // aquel temporizador cancelado y la lampara se apagaba sola a los N
+        // minutos sin que nadie lo hubiera pedido.
+        //
+        // El olvido va fuera del if: tambien hay que limpiar cuando se apaga
+        // sin temporizador vivo, que es como se barre un resto ya existente.
+        if (photoTimerActive) {
+          photoTimerActive = false;
+          photoTimerMinutes = 0;
+          if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+            ESP_LOGI(TAG, "Phototherapy timer stopped");
+            xSemaphoreGiveRecursive(log_mutex);
+          }
+        }
+        photoTimerForget();
+      } else {
+        // Encendida y photoMin == 0. Es AMBIGUO y no se puede tratar como
+        // "continua" sin mirar el estado: el HMI manda tambien photoMin=0
+        // durante el ULTIMO MINUTO de una sesion temporizada, porque los
+        // segundos viajan en su propio campo (Display_HMI/CommTask.cpp:1571).
+        //
+        // Con temporizador vivo es ese ultimo minuto: no se toca nada y se le
+        // deja expirar. Sin temporizador vivo y viniendo de apagada, es el
+        // arranque de una sesion continua, que no debe heredar un restante.
+        if (!photoTimerActive && !photoPrevMode) {
+          photoTimerForget();
         }
       }
+      photoPrevMode = hmi_cmd_msg.phototherapyMode;
 
       if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         ESP_LOGI(TAG, "HMI CMD stored (lang=%d)", lang);
@@ -1097,18 +1421,17 @@ void Communication_Task(void *pvParameters) {
   uint32_t last_tel_time = 0;
   // Force the first CTRL,TIME immediately rather than 10 s into the session.
   uint32_t last_time_bcast = (uint32_t)(0 - 10001);
-  uint32_t last_ppg_time = 0;
-  uint32_t ppg_time      = 0;
-  // Clipping tally for the 1 Hz bench log below (see the PPG waveform block).
-  uint16_t ppg_clip_count    = 0;
-  uint16_t ppg_sent_count    = 0;
-  uint32_t last_ppg_clip_log = 0;
+  uint32_t last_ppg_seq = 0; // sample of the AFE already sent as CTRL,PPG
   static unsigned long last_probe_status_time = 0;
   static ProbeState    prev_probe_state       = ProbeState::PROBE_DISCONNECTED;
-  // HR hysteresis: show after 2 consecutive valid samples, hide after 3 bad ones
-  uint8_t hr_valid_streak = 0;
-  uint8_t hr_bad_streak   = 0;
-  bool    hr_displaying   = false;
+  // CTRL,ENV (puerta, luz, ruido de la SensorBoard): ver el bloque tras STATE.
+  SbEnvPacer env_pacer;
+  sb_env_pacer_init(&env_pacer);
+  uint32_t last_env_poll_ms = 0;
+  // CTRL,BATT (indicador de bateria): ver el bloque tras ENV.
+  uint32_t last_batt_sent = 0;      // ultimo g_batt_report enviado
+  uint32_t last_batt_sent_ms = 0;
+  bool batt_sent_once = false;
   ESP_LOGI(TAG, "UART communication task started");
 
   if (g_restore_photo_minutes > 0) {
@@ -1120,6 +1443,18 @@ void Communication_Task(void *pvParameters) {
   }
 
   for (;;) {
+    // Lineas inyectadas por el modo depuracion. Se tratan AQUI, en la tarea
+    // Comm y con la misma llamada a parse_line() que una linea real, para que
+    // lo que se prueba sea el camino de produccion entero. Con el modo apagado
+    // la cola esta vacia y esto no cuesta nada.
+    {
+      char injected[192];
+      while (debug_inject_take(injected, sizeof(injected))) {
+        ESP_LOGW(TAG, "[DEBUG] linea inyectada: %s", injected);
+        parse_line(injected);
+      }
+    }
+
     // --- RX: drain Serial1 into line buffer ---
     while (hmiSerial.available()) {
       char c = (char)hmiSerial.read();
@@ -1134,11 +1469,29 @@ void Communication_Task(void *pvParameters) {
       }
     }
 
-    // Detect APPLIED transition — notify display immediately
+    // One whole copy of the AFE sample per turn of the loop: the probe state,
+    // the waveform and the vitals below all belong to the same instant.
+    // afe_seq changes when the sample does (50 times a second).
+    uint32_t afe_seq = 0;
+    const AFE4490Data afe_s = spo2Snapshot(&afe_seq);
+
+    // The probe state changed: tell the display now, whatever the new state.
+    // Until 18.62.0 only the change to APPLIED went out at once; any other
+    // waited for the 1 Hz block below (up to 1 s when the probe came off, up
+    // to 2 s between two states without contact). incunest_afe4490 already
+    // debounces the state (0.2 s), so this cannot flood the link. The repeat
+    // every 2 s of that block counts from this line.
+    // Since 18.63.0 it also goes out when the display asks for the state
+    // (s_probeSendPending), whatever the state is: the display decides by the
+    // state it receives, not by edges, so a repeated line changes nothing.
     {
-      ProbeState cur = g_spo2_data.probe_state;
-      if (cur == ProbeState::PROBE_APPLIED && prev_probe_state != ProbeState::PROBE_APPLIED) {
-        hmiSerial.print("CTRL,PROBE,2\n");
+      const ProbeState cur = afe_s.probe_state;
+      if (cur != prev_probe_state || s_probeSendPending) {
+        s_probeSendPending = false;
+        char probe_msg[20];
+        snprintf(probe_msg, sizeof(probe_msg), "CTRL,PROBE,%u\n", (uint8_t)cur);
+        hmiSerial.print(probe_msg);
+        last_probe_status_time = millis();
       }
       prev_probe_state = cur;
     }
@@ -1164,46 +1517,130 @@ void Communication_Task(void *pvParameters) {
       last_state_time = millis();
     }
 
-    // --- PPG waveform (25 Hz = every 40 ms) ---
-    ppg_time = millis();
-    if (ppg_time - last_ppg_time >= 40) {
-      // Transport only: fixed scale, no state, no adaptive gain. The waveform is NOT
-      // gated on spo2_sqi — the library restarts an 18 s SpO2 warmup on every probe
-      // application (_spo2_update: EMAs reset while not APPLIED), while ppg_disp is
-      // valid within ~1 s. Gating the trace on SpO2 validity flat-lined it for 19 s.
-      if (g_spo2_data.probe_state == ProbeState::PROBE_APPLIED) {
-        // ppg_disp is a float since library v0.69: a non-finite value would make
-        // lroundf() undefined, so it collapses to the baseline instead of emitting
-        // a garbage byte. Keeping the line flowing (rather than skipping the send)
-        // preserves the 25 Hz cadence the HMI trace expects.
-        float ppg = g_spo2_data.ppg_disp;
+    // --- ENV: puerta, luz y ruido de la SensorBoard (CTRL,ENV) ---
+    //
+    // Solo informativo para el display; ni la puerta ni el ruido entran en el
+    // lazo de control. Mensaje propio y no campos de CTRL,STATE: esa linea va
+    // al filo de su buffer y PROTOCOL.md exige que todo campo suyo aguante
+    // 1 Hz, y esto no lo necesita. Cadencia: al instante si cambia el enlace o
+    // la puerta, y cada PROTO_ENV_PERIOD_MS si no (sb_env_report.h).
+    //
+    // Solo en equipos con SensorBoard: en los antiguos (I2C2) no existe el
+    // modulo y no hay nada que contar; el display, al no recibir la linea, no
+    // pinta nada.
+    //
+    // El snapshot se copia cada 200 ms y no en cada pasada (esta tarea itera
+    // cada 1 ms): la latencia de la puerta queda por debajo de 200 ms y no se
+    // pelea por el mutex con la tarea del SensorBoard.
+    if (sensorSourceGet() == SENSOR_SOURCE_SENSORBOARD) {
+      // Un display que acaba de arrancar pide STATE: se le re-envia tambien el
+      // entorno, en vez de hacerle esperar un periodo entero.
+      if (stateRequested) {
+        sb_env_pacer_init(&env_pacer);
+        last_env_poll_ms = (uint32_t)(millis() - 200u);
+      }
+      const uint32_t env_now = millis();
+      if ((uint32_t)(env_now - last_env_poll_ms) >= 200u) {
+        last_env_poll_ms = env_now;
+        SbSnapshot env_snap;
+        sensorboard_get_snapshot(&env_snap);
+        SbEnvReport env_report;
+        sb_env_report_make(&env_report, &env_snap, env_now);
+        if (sb_env_pacer_due(&env_pacer, &env_report, env_now)) {
+          char env_msg[PROTO_ENV_LINE_MAX + 2];
+          if (sb_env_report_format(env_msg, sizeof(env_msg), &env_report) >
+              0) {
+            hmiSerial.print(env_msg);
+            sb_env_pacer_sent(&env_pacer, &env_report, env_now);
+          } else {
+            // No debe pasar (la cota esta en protocol.h y la prueba el test),
+            // pero un informe que no cabe no se reintenta cada 200 ms.
+            ESP_LOGE(TAG, "CTRL,ENV no cabe en el buffer");
+            sb_env_pacer_sent(&env_pacer, &env_report, env_now);
+          }
+        }
+      }
+    }
+
+    // --- BATT: indicador de bateria (CTRL,BATT) ---
+    //
+    // Solo informativo; lo estima sensors_Task (battery_gauge). Al instante
+    // si cambian el estado o las rayas, cada PROTO_BATT_PERIOD_MS si no, y de
+    // nuevo cuando un display recien arrancado pide STATE. Sin cargador el
+    // estado es UNKNOWN y no se envia nada: el display no pinta indicador.
+    {
+      extern volatile uint32_t g_batt_report;
+      const uint32_t report = g_batt_report;
+      const uint8_t state = (uint8_t)((report >> 16) & 0xFF);
+      const uint32_t now = millis();
+      // Estado y rayas, sin el porcentaje: un punto arriba o abajo no merece
+      // una linea fuera de su periodo.
+      const bool changed =
+          !batt_sent_once || ((report ^ last_batt_sent) & 0xFFFF00u) != 0;
+      // Apagado con PROTO_BATT_ENABLED = 0 (ver protocol.h): sin la linea el
+      // display no pinta indicador.
+      if (PROTO_BATT_ENABLED && state != PROTO_BATT_STATE_UNKNOWN &&
+          (changed || stateRequested ||
+           (uint32_t)(now - last_batt_sent_ms) >= PROTO_BATT_PERIOD_MS)) {
+        char batt_msg[PROTO_BATT_LINE_MAX + 2];
+        snprintf(batt_msg, sizeof(batt_msg), "CTRL,BATT,%u,%u,%u\n",
+                 (unsigned)state, (unsigned)((report >> 8) & 0xFF),
+                 (unsigned)(report & 0xFF));
+        hmiSerial.print(batt_msg);
+        last_batt_sent = report;
+        last_batt_sent_ms = now;
+        batt_sent_once = true;
+      }
+    }
+
+    // --- SERVICE: bajo peticion y cada hora (no 1 Hz: known_issues #2) ---
+    {
+      static uint32_t last_service_time = 0;
+      if (s_serviceSendPending ||
+          (millis() - last_service_time >= SERVICE_BCAST_PERIOD_MS)) {
+        s_serviceSendPending = false;
+        last_service_time = millis();
+        sendServiceToHMI();
+      }
+    }
+
+    // --- PPG waveform (50 Hz: one CTRL,PPG per sample of the AFE) ---
+    // 25 Hz until 18.57.0 (a round number from the first CTRL,PPG, never
+    // revisited). 50 Hz: Nyquist 25 Hz, so the library's display band-pass
+    // (f_high 20 Hz, see initSPO2()) stays below it; the systolic upstroke
+    // (100-150 ms) gets 5-7 samples instead of 2-4; and 25 mm/s on the HMI is
+    // 2.6 px per sample instead of 5.2. The HMI derives its point count from
+    // this rate (ElementsCreation.h). 13 B x 50 = 650 B/s on the 115200 link.
+    //
+    // Since 18.59.0 the cadence is SPO2_Task's: it reads the library 50 times
+    // a second (SPO2_TASK_PERIOD_MS) and one line goes out for each sample it
+    // publishes, told by the sequence number. Until 18.58.0 this loop had its
+    // own 20 ms timer and sent the latest of 500 samples a second. With the
+    // sample itself arriving every 20 ms, a second timer of the same period
+    // would slide against it and send a sample twice or skip one. A turn of
+    // this loop that lasts more than 20 ms skips a sample, as it did before.
+    if (afe_seq != last_ppg_seq) {
+      last_ppg_seq = afe_seq;
+      // Transport only: the library owns the gain (NORM_PI), this maps [-1, +1]
+      // to a byte. The waveform is NOT gated on spo2_sqi — the library restarts an
+      // 18 s SpO2 warmup on every probe application (_spo2_update: EMAs reset
+      // while not APPLIED), while ppg_disp is valid within ~1 s. Gating the trace
+      // on SpO2 validity flat-lined it for 19 s.
+      if (afe_s.probe_state == ProbeState::PROBE_APPLIED) {
+        // A non-finite value would make lroundf() undefined, so it collapses to
+        // the baseline instead of emitting a garbage byte. Keeping the line
+        // flowing (rather than skipping the send) preserves the 50 Hz cadence
+        // the HMI trace expects. |ppg_disp| <= 1 by the library's contract, so
+        // constrain() is a guard, not the clipping it used to be.
+        float ppg = afe_s.ppg_disp;
         long ppg_scaled = isfinite(ppg)
-                              ? 128L + lroundf(ppg / PPG_DISP_UNITS_PER_LSB)
+                              ? 128L + lroundf(ppg * PPG_DISP_LSB_PER_UNIT)
                               : 128L;
         uint8_t ppg_byte = (uint8_t)constrain(ppg_scaled, 0L, 255L);
         char ppg_msg[16];
         snprintf(ppg_msg, sizeof(ppg_msg), "CTRL,PPG,%u\n", ppg_byte);
         hmiSerial.print(ppg_msg);
-
-        // Bench aid for re-validating PPG_DISP_UNITS_PER_LSB, which is derived
-        // from the library spec rather than measured. Sustained clipping means
-        // the divisor is too small (the trace squares off at the rails); never
-        // clipping while the trace looks flat means it is too large. Silent by
-        // design when the scale is right, so it costs nothing in normal use.
-        ppg_sent_count++;
-        if (ppg_scaled < 0L || ppg_scaled > 255L)
-          ppg_clip_count++;
       }
-      if (ppg_time - last_ppg_clip_log >= 1000) {
-        if (ppg_clip_count)
-          logSPO2("[PPG] recorte " + String(ppg_clip_count) + "/" +
-                  String(ppg_sent_count) + " muestras en 1 s: revisar " +
-                  "PPG_DISP_UNITS_PER_LSB");
-        ppg_clip_count    = 0;
-        ppg_sent_count    = 0;
-        last_ppg_clip_log = ppg_time;
-      }
-      last_ppg_time = ppg_time;
     }
 
     // --- Persist phototherapy timer to NVS every 60 s ---
@@ -1212,12 +1649,7 @@ void Communication_Task(void *pvParameters) {
       if (photoTimerActive && millis() - last_photo_save > 60000) {
         long elapsed = (long)((millis() - photoTimerStartMs) / 1000);
         int remaining_mins = ((long)photoTimerMinutes * 60 - elapsed + 59) / 60;
-        if (remaining_mins < 1) remaining_mins = 1;
-        Preferences p;
-        p.begin("photo", false);
-        p.putBool("active", true);
-        p.putInt("mins", remaining_mins);
-        p.end();
+        photoTimerPersist(remaining_mins);
         last_photo_save = millis();
       }
     }
@@ -1315,53 +1747,49 @@ void Communication_Task(void *pvParameters) {
         hmiSerial.print(duty_msg);
       }
 
-      if (g_spo2_data.probe_state != ProbeState::PROBE_APPLIED) {
+      if (afe_s.probe_state != ProbeState::PROBE_APPLIED) {
         // Probe not on patient — send status every 2 s, suppress vitals
         if (millis() - last_probe_status_time >= 2000) {
           char probe_msg[20];
           snprintf(probe_msg, sizeof(probe_msg), "CTRL,PROBE,%u\n",
-                   (uint8_t)g_spo2_data.probe_state);
+                   (uint8_t)afe_s.probe_state);
           hmiSerial.print(probe_msg);
           last_probe_status_time = millis();
         }
       } else {
-        // Probe applied — send fused HR vitals
-        uint8_t hr_byte = 0;
-        {
-          float h2 = g_spo2_data.hr2, h3 = g_spo2_data.hr3;
-          float s2 = g_spo2_data.hr2_sqi, s3 = g_spo2_data.hr3_sqi;
-          bool valid = (h2 > 0.0f) && (h3 > 0.0f) &&
-                       (fabsf(h2 - h3) < 8.0f) &&
-                       (fmaxf(s2, s3) >= 0.8f) &&
-                       (fminf(s2, s3) >= 0.5f);
-          if (valid) {
-            hr_bad_streak = 0;
-            if (++hr_valid_streak >= 2) hr_displaying = true;
-          } else {
-            hr_valid_streak = 0;
-            if (++hr_bad_streak >= 3) hr_displaying = false;
-          }
-          if (hr_displaying && valid) {
-            float hr_fused = (h2 * s2 + h3 * s3) / (s2 + s3);
-            if (hr_fused >= 40.0f && hr_fused <= 240.0f)
-              hr_byte = (uint8_t)(hr_fused + 0.5f);
-          }
-        }
-        float pi_val = g_spo2_data.pi;
+        // Probe applied: send the display quantities of incunest_afe4490 (its
+        // spec 2.1.2, v0.124), the number a monitor shows: finite, or NaN for
+        // dashes. hr_disp is HR2 and HR3 in agreement, their SQI-weighted
+        // mean; until 18.58.0 this task applied that rule itself, counting
+        // turns of its 1 Hz block (2 good ones to show, 3 bad ones to ask for
+        // them again), and the library applies it in time (more than 1 s, more
+        // than 2 s). spo2_disp and pi_disp are the library's spo2 and pi as
+        // they are, for now.
+        //
+        // Nothing here looks at an SQI. spo2_sqi is NOT a validity flag: it is
+        // a ramp of the PI between 0.5 and 2 %, so a valid SpO2 with
+        // PI <= 0.5 % comes with spo2_sqi == 0, and gating on it showed "--"
+        // on a poorly perfused baby while the HR and the waveform stayed on
+        // screen. 0 and 0.00 = no value for the HMI
+        // (modules/util/vitals_out.h).
+        const uint16_t hr_bpm = vitals_hr_bpm(afe_s.hr_disp);
+        const uint16_t spo2_pct = vitals_spo2_pct(afe_s.spo2_disp);
+        const float pi_val = vitals_pi_pct(afe_s.pi_disp);
         char vit_msg[32];
-        snprintf(vit_msg, sizeof(vit_msg), "CTRL,VIT,%u,0,%.2f\n",
-                 hr_byte, pi_val);
+        snprintf(vit_msg, sizeof(vit_msg), "CTRL,VIT,%u,%u,%.2f\n",
+                 hr_bpm, spo2_pct, (double)pi_val);
         hmiSerial.print(vit_msg);
       }
 
       last_tel_time = millis();
     }
 
-    // Wall-clock broadcast. The HMI has no clock of its own (no RTC, no NTP),
-    // so the motherBoard — the only board that syncs time, over WiFi — is the
-    // single source. Every 10 s rather than with the 1 Hz block: the HMI only
-    // needs it to render dates, and known_issues #2 warns against adding
-    // avoidable periodic UART traffic. epoch 0 means "not synced yet".
+    // Wall-clock broadcast. La motherBoard es la unica AUTORIDAD de hora: es
+    // la que arbitra entre manual, NTP, RTC y NITZ. El HMI tiene un PCF8563
+    // con pila, pero no decide nada — solo conserva la hora entre apagados y
+    // escribe lo que llegue por aqui. Cada 10 s y no con el bloque de 1 Hz:
+    // el HMI solo la necesita para pintar fechas, y known_issues #2 avisa
+    // contra el trafico UART periodico evitable. epoch 0 = aun sin sincronizar.
     if (millis() - last_time_bcast > 10000) {
       last_time_bcast = millis();
       // El epoch sigue siendo UTC. La zona viaja aparte porque son dos datos
@@ -1371,11 +1799,27 @@ void Communication_Task(void *pvParameters) {
       // tzsrc no es redundante con tzq: sin el, "offset 0 porque estamos en
       // Togo" y "offset 0 porque no lo sabemos" son indistinguibles, y el
       // display no puede decidir si pintar la hora o el aviso.
-      char tmsg[48];
-      snprintf(tmsg, sizeof(tmsg), "CTRL,TIME,%lu,%d,%d\n",
+      //
+      // `src` es el rango de la fuente que fijo el EPOCH, y no tiene nada que
+      // ver con tzsrc, que es el origen del HUSO. No coinciden ni en valores
+      // ni en orden: NITZ es la peor fuente de hora y la mejor de zona. El HMI
+      // necesita `src` para decidir si lo que recibe merece escribirse en su
+      // RTC, que es lo unico que sobrevive a un corte de alimentacion.
+      char tmsg[56];
+      snprintf(tmsg, sizeof(tmsg), "CTRL,TIME,%lu,%d,%d,%d\n",
                (unsigned long)babyStore_nowEpoch(),
-               (int)tz_source_quarters(), (int)tz_source_origin());
+               (int)tz_source_quarters(), (int)tz_source_origin(),
+               (int)systemClockSource());
       hmiSerial.print(tmsg);
+      // Se registra como ya se registra cada CTRL,STATE, y por el mismo
+      // motivo: sin esto, la unica forma de saber que reloj y que fuente cree
+      // tener el equipo es deducirlo de lo que haga el HMI. Va a la consola de
+      // la motherBoard, que NO es el cable del enlace, y a 0,1 Hz frente al
+      // 1 Hz que ya emite el log de CTRL,STATE.
+      if (xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        ESP_LOGI(TAG, "Sending time to HMI: %s", tmsg);
+        xSemaphoreGiveRecursive(log_mutex);
+      }
     }
 
     vTaskDelay(pdMS_TO_TICKS(COMMUNICATION_TASK_PERIOD_MS));

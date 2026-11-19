@@ -25,6 +25,7 @@
 #include <Arduino.h>
 
 #include "main.h"
+#include "modules/debug/debug_mode.h"
 
 extern long lastDebugUpdate;
 extern long loopCounts;
@@ -64,7 +65,10 @@ void timeTrackHandler() {
           in3.fan_active_time += millisToHours(TIME_TRACK_UPDATE_PERIOD);
         }
       }
-      if (in3.phototherapy) {
+      // Una prueba de fototerapia de depuracion no es horas de uso real de la
+      // lampara de un paciente. (La telemetria Phototherapy_active si la
+      // publica como activa: es el estado real de la lampara.)
+      if (in3.phototherapy && !debug_photo_active()) {
         in3.phototherapy_active_time += millisToHours(TIME_TRACK_UPDATE_PERIOD);
       }
       { Preferences p; p.begin(NS_RT, false);

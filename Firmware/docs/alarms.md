@@ -14,7 +14,7 @@ El sistema tiene tres capas, cada una en su propio fichero:
   *latching* y si corta el calefactor. No tienen estado ni dependen de
   Arduino, así que se comparten entre motherBoard y el análisis normativo.
 - **Máquina de estados** (`motherBoard/src/modules/control/alarm_machine.{h,cpp}`):
-  mantiene, para cada una de las 19 condiciones, si está físicamente presente
+  mantiene, para cada una de las 20 condiciones, si está físicamente presente
   y en qué estado de señalización se encuentra. Es el único sitio con
   temporizadores.
 - **Detección y actuación** (`motherBoard/src/system/security.cpp`,
@@ -22,24 +22,24 @@ El sistema tiene tres capas, cada una en su propio fichero:
   está presente, llama a la máquina de estados y aplica los cortes de
   actuador.
 
-## 1. Las 19 condiciones
+## 1. Las 22 condiciones
 
-El enum `AlarmId` (`shared/include/alarm_ids.h`) define 19 condiciones más el
+El enum `AlarmId` (`shared/include/alarm_ids.h`) define 22 condiciones más el
 centinela `ALARM_NONE = 0`. El valor numérico es el índice de bit del
 protocolo serie, así que el orden es significativo y las condiciones nuevas
 se añaden al final.
 
 | ID | Identificador | Qué la dispara en el código | Prioridad | Corta calefactor |
 |---|---|---|---|---|
-| 1 | `ALARM_AIR_THERMAL_CUTOUT` | `in3.temperature[ROOM_DIGITAL_TEMP_SENSOR] > in3.airTemperatureSetMax` (histéresis 0.2 °C, `AIR_THERMAL_CUTOUT_HYSTERESIS`, `security.cpp:191`), evaluada en `checkThermalCutOuts()` | ALTA | sí |
+| 1 | `ALARM_AIR_THERMAL_CUTOUT` | `in3.temperature[ROOM_DIGITAL_TEMP_SENSOR] > in3.airTemperatureSetMax` (histéresis **0.5 °C**, `AIR_THERMAL_CUTOUT_HYSTERESIS` — era 0.2, dentro del ruido del sensor; ver §6), evaluada en `checkThermalCutOuts()` | ALTA | sí |
 | 2 | `ALARM_SKIN_THERMAL_CUTOUT` | `in3.temperature[SKIN_SENSOR] > in3.skinTemperatureSetMax` (histéresis 0.2 °C, `SKIN_THERMAL_CUTOUT_HYSTERESIS`), misma función | ALTA | sí |
 | 3 | `ALARM_AIR_SENSOR_FAULT` | lectura del sensor de aire sin refrescar durante `MINIMUM_SUCCESSFULL_AIR_SENSOR_UPDATE` = 5000 ms (`checkStatusOfSensor()`) | ALTA | sí |
 | 4 | `ALARM_SKIN_SENSOR_FAULT_SKIN_MODE` | mismo mecanismo de staleness que el 3 pero sobre la sonda de piel, con su propia ventana `MINIMUM_SUCCESSFULL_SKIN_SENSOR_UPDATE` = 5000 ms (~25 muestras a 200 ms), y solo cuando `in3.controlMode == CONTROL_SKIN` | ALTA | sí |
 | 5 | `ALARM_FAN_FAILURE` | en marcha, `in3.fan_rpm < FAN_MIN_RPM` (3000 rpm, `board.h:185`), con histéresis de 300 rpm para despejar (`checkFanSpeed()`); solo evaluable con `in3.fanHasSpeedFeedback`. **También la declara el autotest de arranque** (`initHardware.cpp:412,677,732,740,779`), antes de que exista lazo de control | ALTA | sí |
-| 6 | `ALARM_AIR_OUTLET_BLOCKED` | en marcha, `fanControlPIDOutput > FAN_DUTY_BLOCKED_THRESHOLD` (190, `board.h:221`) sostenido `AIR_BLOCKED_SUSTAIN_MS` = 5000 ms (`checkAirBlockage()`). **También la declara el autotest de arranque** (`initHardware.cpp:803`) | ALTA | sí |
-| 7 | `ALARM_MAINS_INTERRUPTION` | **sin detector** — ver §9 | ALTA | no (no hay condición que cortar). **No silenciable**: 201.12.3.103 exige 10 min de aviso y la pausa dura justo eso |
-| 8 | `ALARM_AIR_TEMP_DEVIATION_HIGH` | en modo aire, `temperatura − consigna > 3.0 °C` (`AIR_TEMP_DEVIATION_LIMIT_C`, `checkAlarms()`) | MEDIA | sí |
-| 9 | `ALARM_AIR_TEMP_DEVIATION_LOW` | en modo aire, `consigna − temperatura > 3.0 °C`, y solo tras cerrar la ventana de estabilización (§5) | MEDIA | no |
+| 6 | `ALARM_AIR_OUTLET_BLOCKED` | en marcha, `fanControlPIDOutput > FAN_DUTY_BLOCKED_THRESHOLD` (220, se retira bajo 200, `board.h`) sostenido `AIR_BLOCKED_SUSTAIN_MS` = 5000 ms (`checkAirBlockage()`). **También la declara el autotest de arranque** (`initHardware.cpp:803`) | ALTA | sí |
+| 7 | `ALARM_MAINS_INTERRUPTION` | `mains_detector` (`modules/control/mains_detector.cpp`): bit AC_STAT del cargador BQ25730 ausente en **2 lecturas válidas consecutivas** (cada 200 ms, ≈ 0,4 s); se retira al confirmarse **10 lecturas seguidas de red presente (≈ 2 s)**; cualquier ausencia reinicia esa racha (plazo mínimo `MAINS_ALARM_MIN_HOLD_MS` = 0, conservado como mecanismo); evaluada en `checkMainsInterruption()`. **Solo se arma tras ver red** en 2 lecturas seguidas desde el arranque: un equipo que arranca en batería (o alimentado por el conector de batería, como el banco) no tiene nada interrumpido y no avisa; si luego se enchufa y se desenchufa, sí. Lectura no válida del cargador = sin efecto; placa sin cargador (HW < 17) o en test de fábrica, nunca se declara. Ver §9 | MEDIA (desde 2026-10-26; antes ALTA) | no (no hay condición que cortar). **Silenciable** como las demás (desde 2026-10-26): el banner y el icono de batería no se retiran nunca y el audio vuelve a los 10 min si sigue sin red. En batería el equipo sigue calentando, así que el daño es diferido (Tabla 1 → MEDIA); 201.12.3.103 se lee como autonomía de 10 min, no como prohibición de silenciar. Pendiente de confirmar en el expediente de riesgos |
+| 8 | `ALARM_AIR_TEMP_DEVIATION_HIGH` | en modo aire, `temperatura − consigna > 1.0 °C` (`AIR_TEMP_DEVIATION_LIMIT_C`, `checkAlarms()`) | MEDIA | sí |
+| 9 | `ALARM_AIR_TEMP_DEVIATION_LOW` | en modo aire, `consigna − temperatura > 1.0 °C`, y solo tras cerrar la ventana de estabilización (§5) | MEDIA | no |
 | 10 | `ALARM_SKIN_TEMP_DEVIATION_HIGH` | en modo piel, `temperatura − consigna > 1.0 °C` (`SKIN_TEMP_DEVIATION_LIMIT_C`) | MEDIA | sí |
 | 11 | `ALARM_SKIN_TEMP_DEVIATION_LOW` | en modo piel, `consigna − temperatura > 1.0 °C`, tras cerrar la ventana | MEDIA | no |
 | 12 | `ALARM_HEATER_FAULT` | corriente de calefactor fuera de `[HEATER_CONSUMPTION_MIN, HEATER_CONSUMPTION_MAX]` en el autotest de arranque (`initHardware.cpp`). Es avería de cableado o resistencia | MEDIA | sí |
@@ -50,6 +50,9 @@ se añaden al final.
 | 17 | `ALARM_HEATER_SENSOR_FAULT` | `HEATER_SENSOR_DROPOUT_ALARM_CYCLES` = 10 fallos consecutivos de sondeo I2C del sensor de corriente SECUNDARY en marcha (`sensors_module.cpp`). El calefactor puede estar bien; lo perdido es la medida de su consumo | MEDIA | sí |
 | 18 | `ALARM_SENSORBOARD_LINK_LOST` | sin heartbeat USB durante `SB_LINK_TIMEOUT_MS` = 90 000 ms (3 × `SB_LINK_HEARTBEAT_PERIOD_MS` de 30 s), o el dispositivo nunca ha llegado a enumerar, evaluado en `sensorboard_comm.cpp:539`. No se declara durante el margen de arranque `SB_LINK_BOOT_GRACE_MS` mientras no se haya visto ningún heartbeat | MEDIA | no directamente — pero en un equipo con SensorBoard sus SHT40 **son** el sensor de aire, así que la caída del enlace arrastra la condición 3, que sí corta |
 | 19 | `ALARM_SENSORBOARD_DOOR_FAULT` | sensor de puerta (hall DRV5032) implausible: `sb_door_state_evaluate()` lo declara por aleteo (`SB_DOOR_FLAP_TRANSITIONS_FOR_FAULT` = 4 transiciones en `SB_DOOR_FLAP_WINDOW_MS` = 60 000 ms) o por dato rancio (`SB_DOOR_STALE_MS` = 90 000 ms). Con una sola línea digital no se puede distinguir «puerta abierta» de «hall averiado», así que la puerta **nunca** se usa como entrada de control térmico | BAJA | no |
+| 20 | `ALARM_PHOTO_LAMP_FAULT` | con la fototerapia ordenada ON, pasado `PHOTO_SETTLE_MS` = 3000 ms, con el INA principal contestando y sin test de fábrica (`g_factoryTestActive`), `in3.phototherapy_current < PHOTO_FAULT_MIN_A` (0,05 A) durante `PHOTO_FAULT_CYCLES` = 5 ciclos consecutivos del lazo de 1 s. Se retira al alcanzar `PHOTO_FAULT_CLEAR_A` (0,08 A) o cuando la fototerapia deja de estar ON o arranca el test de fábrica. **También se declara sin medida**: con la fototerapia ON y asentada, si el INA principal no contesta (o está ausente desde el arranque) o no avanza `systemCurrentSampleSeq` durante `PHOTO_FAULT_BLIND_CYCLES` = 5 ciclos consecutivos; una lectura fallida aislada NO la retira (mantiene el estado). El texto cubre las dos causas ("sin corriente o medida"). Falso positivo a vigilar: HW17 con el shunt del canal sin poblar.  Lógica en `modules/control/photo_fault.{h,cpp}` (test de host `test_photo_fault`), cableado en `sensors_module.cpp`. El umbral es bajo a propósito: el objetivo del lazo es 0,45 A y `PHOTO_MIN_PWM` = 10 ya da corriente medible, así que por debajo de 0,05 A la lámpara **no responde** (no está degradada). Es una terapia indicada que no se está dando (kernicterus posible, aparición diferida) | MEDIA (provisional) | no |
+| 21 | `ALARM_BATTERY_LOW` | sin red y con la carga estimada de la batería en `BATT_GAUGE_LOW_PCT` (10 %) o menos, del orden de 10–15 min de autonomía con una 12 V 9 Ah (`battery_gauge_report_low()`, `modules/control/battery_gauge.{h,cpp}`, test de host `test_battery_gauge`; cableado en `checkBatteryLow()`, `security.cpp`). La estimación es por tensión corregida por la caída resistiva (ver `CTRL,BATT` en `PROTOCOL.md`). El porcentaje solo baja durante una descarga, así que no necesita antirrebote; se retira en la misma lectura en que vuelve la red. No se declara durante el test de fábrica ni en placas sin cargador | ALTA (provisional) | **no** (única ALTA que no corta: cortar adelantaría el enfriamiento) |
+| 22 | `ALARM_NOISE_HIGH` | micrófono de la SensorBoard (`sound_level`) a 65 dB o más en todas las lecturas de los últimos 10 s; se retira con 10 s por debajo de 63 dB (histéresis de nivel). Las lecturas tomadas mientras suena **otra** alarma no silenciada se ignoran (el pitido propio no es ruido ambiental); sin lecturas durante 15 s se retira. Escala de la SensorBoard sin corrección: en banco (2026-10-27) quedó a −1..+2 dB de un sonómetro en dB(A) entre 55 y 80 dB. Lógica en `modules/control/noise_detector.{h,cpp}` (test `test_noise_detector`), alimentada desde `sensorboard_comm.cpp` y declarada en `checkNoise()` | BAJA | no |
 
 Que el autotest de arranque declare las condiciones 5 y 6 importa: son
 declaraciones vivas que sobreviven al arranque y que ningún detector de marcha
@@ -70,18 +73,51 @@ código es:
 
 - **ALTA (7)**: `AIR_THERMAL_CUTOUT`, `SKIN_THERMAL_CUTOUT`, `AIR_SENSOR_FAULT`,
   `SKIN_SENSOR_FAULT_SKIN_MODE`, `FAN_FAILURE`, `AIR_OUTLET_BLOCKED`,
-  `MAINS_INTERRUPTION`.
-- **MEDIA (9)**: `AIR_TEMP_DEVIATION_HIGH`, `AIR_TEMP_DEVIATION_LOW`,
+  `BATTERY_LOW` (provisional, ver abajo).
+- **MEDIA (11)**: `AIR_TEMP_DEVIATION_HIGH`, `AIR_TEMP_DEVIATION_LOW`,
   `SKIN_TEMP_DEVIATION_HIGH`, `SKIN_TEMP_DEVIATION_LOW`, `HEATER_FAULT`,
   `HEATER_SENSOR_FAULT`, `SUPPLY_UNDERVOLTAGE`, `HMI_LINK_LOST`,
-  `SENSORBOARD_LINK_LOST`.
-- **BAJA (3)**: `SKIN_SENSOR_FAULT_AIR_MODE`, `HUMIDITY_DEVIATION`,
-  `SENSORBOARD_DOOR_FAULT`.
+  `SENSORBOARD_LINK_LOST`, `PHOTO_LAMP_FAULT` (provisional, ver abajo),
+  `MAINS_INTERRUPTION` (bajó de ALTA el 2026-10-26: en batería el equipo sigue
+  calentando, aparición diferida).
+- **BAJA (4)**: `SKIN_SENSOR_FAULT_AIR_MODE`, `HUMIDITY_DEVIATION`,
+  `SENSORBOARD_DOOR_FAULT`, `NOISE_HIGH`.
+
+**La 21 (`BATTERY_LOW`) está desactivada desde 2026-10-28** junto con el
+indicador de batería (`PROTO_BATT_ENABLED 0`, `shared/include/protocol.h`): hay
+equipos con un adaptador de 12 V en los bornes de la batería y la daría en
+falso. `checkBatteryLow()` la mantiene retirada; se reactiva con el flag cuando
+la batería entre en fabricación. Lo que sigue vale para entonces.
+
+**La 21 (`BATTERY_LOW`, 2026-10-27) va a ALTA, provisional hasta el expediente
+de riesgos.** A diferencia del corte de red, quedan minutos antes de que se
+apague el equipo entero, sistema de alarmas incluido: después ya no habrá aviso
+del enfriamiento. Es la única ALTA que **no** corta el calefactor (cortarlo
+adelantaría ese enfriamiento); `test_alarm_policy` lo recoge como excepción
+explícita. **La 22 (`NOISE_HIGH`)** es BAJA: estrés y alteración del sueño, sin
+lesión inmediata.
+
+> **Nota de despliegue (ids 21 y 22)**: igual que con el 20, un display
+> anterior descarta su `CTRL,ALM`. Flashear el HMI **antes** que la motherBoard.
 
 El reparto de las 17 primeras (7/8/2) coincide con el que propone
 `alarms_normative_analysis.md` §5 a partir de la Tabla 1 (resultado de no
 responder × tiempo de aparición), así que para ellas el código refleja esa
 derivación condición por condición.
+
+**La 20 (`PHOTO_LAMP_FAULT`, 2026-10-25) tampoco está en ese análisis.** Va a
+MEDIA, **provisional hasta el expediente de riesgos**. Nació en BAJA por
+analogía con las averías de funciones auxiliares, y la revisión de seguridad lo
+corrigió: la celda de la Tabla 1 de IEC 60601-1-8 para «no dar una
+fototerapia indicada» (posible kernicterus: lesión irreversible, aparición
+diferida) es MEDIA. No corta nada, porque una lámpara sin corriente no hace
+daño por sí misma. Cambiarla es una línea en `alarm_priority()` y el reparto
+en `test_alarm_policy`.
+
+> **Nota de despliegue (id 20)**: un display anterior a este cambio descarta la
+> línea `CTRL,ALM` del id 20 (`id >= ALARM_COUNT`), así que la alarma suena en
+> la placa pero **no se ve en esa pantalla**. Flashear el HMI **antes** que la
+> motherBoard.
 
 **Las dos del SensorBoard (18 y 19) no están en ese análisis.** Se añadieron
 después y su prioridad se asignó por analogía, no por derivación: la 18 copia a
@@ -257,13 +293,15 @@ definida en `motherBoard/include/main.h`.
 > código era errónea: esa cláusula trata de los estados globales
 > *indefinidos* ALARM OFF / AUDIO OFF y no fija duración alguna.)
 >
-> **Interacción conocida:** 201.12.3.103 exige que el aviso de interrupción de
-> alimentación se mantenga un mínimo de 10 min — exactamente lo que dura esta
-> pausa. Silenciar esa alarma concreta consume prácticamente toda su duración
-> obligatoria. Se acepta porque la señal **visual** nunca se inactiva y el
-> operador puede terminar el silencio cuando quiera (6.8.4). Si el análisis de
-> riesgos lo revisa, el candidato es excluir `ALARM_MAINS_INTERRUPTION` del
-> silencio, no acortar la pausa general.
+> **Interacción conocida:** 201.12.3.103 pide que el aviso de interrupción de
+> alimentación pueda mantenerse un mínimo de 10 min — exactamente lo que dura
+> esta pausa. Desde el 2026-10-26 el corte de red **se puede silenciar** como
+> cualquier otra alarma (decisión del responsable de producto): la cláusula se
+> lee como requisito de autonomía, la señal **visual** nunca se inactiva y el
+> operador puede terminar el silencio cuando quiera (6.8.4). Sin silencio, un
+> corte de horas acababa con el equipo apagado. Si el análisis de riesgos lo
+> revisa, el candidato es volver a excluir `ALARM_MAINS_INTERRUPTION` en
+> `alarm_is_silenceable()`, no acortar la pausa general.
 
 Como el silencio actúa condición por condición y solo sobre las que ya están
 activas en el momento de la pulsación, una condición nueva que aparezca
@@ -363,6 +401,25 @@ de la desviación de temperatura de forma deliberadamente distinta, y el
 propio código lo documenta como no siendo una inconsistencia
 (`security.cpp:601-615`):
 
+El umbral en modo aire es **±1.0 °C**, no los ±3 °C de dd). La norma fija un
+máximo, no un mínimo, así que apretarlo está permitido — y aquí es necesario:
+con 3 °C el aviso no llega a tiempo en la mitad alta del rango de consigna
+(con 35 °C no alarmaría hasta 38 °C, y de ahí para arriba cada vez más tarde).
+
+> **Cambió el dato que sostenía esto.** Cuando se decidió, el corte térmico
+> estaba topado a 38 °C, así que con consigna de 35 °C la desviación alarmaba
+> en el mismo punto que el corte y a partir de 36 °C no alarmaba nunca antes
+> que él. Desde el 2026-09-14 el corte se topa a 40 °C (§6), esa coincidencia
+> ya no se da y sí queda margen entre los dos. La decisión de ±1 °C sigue en
+> pie por lo que de verdad la sostiene: es un aviso temprano en el único
+> escenario en el que el equipo no puede corregir por sí mismo.
+
+Con ±1 °C hay que vigilar tres efectos que el
+umbral anterior tapaba: el corte de calefactor se adelanta 2 °C, el
+sobreimpulso de la rampa pasa a ser visible en pantalla, y el lado frío salta
+al abrir la puerta (ver el comentario de `AIR_TEMP_DEVIATION_LIMIT_C` en
+`security.cpp`).
+
 - **Lado caliente** (`AIR_TEMP_DEVIATION_HIGH`, `SKIN_TEMP_DEVIATION_HIGH`):
   se declara **siempre**, incluso durante la ventana de estabilización de 30
   min tras la activación. `declareHotDeviation()` (`security.cpp:269-277`)
@@ -410,15 +467,40 @@ reloj a los ~49 días.
 ## 6. Límites acotados de los cortes térmicos
 
 `alarm_policy.h` define tres constantes de acotado:
-`ALARM_AIR_CUTOUT_MAX_C` = 38.0 °C, `ALARM_SKIN_CUTOUT_MAX_C` = 40.0 °C, y un
+`ALARM_AIR_CUTOUT_MAX_C` = 40.0 °C, `ALARM_SKIN_CUTOUT_MAX_C` = 40.0 °C, y un
 suelo común `ALARM_CUTOUT_MIN_C` = 34.0 °C. `alarm_clamp_air_cutout()` y
-`alarm_clamp_skin_cutout()` (`alarm_policy.cpp:59-65`) recortan cualquier
-valor propuesto a `[34.0, 38.0]` o `[34.0, 40.0]` respectivamente.
+`alarm_clamp_skin_cutout()` recortan cualquier valor propuesto a `[34.0, 40.0]`.
 
-Importante no confundir el acotado con el valor por defecto: los valores de
-fábrica (`main.h:319-320`) son `SKIN_TEMPERATURE_SET_MAX` = 37.5 °C y
-`AIR_TEMPERATURE_SET_MAX` = 38 °C — el de piel arranca 2.5 °C por debajo de su
-propio techo de acotado (40 °C), no en el límite.
+> **El techo del aire incumple la norma a propósito.** 201.15.4.2.1 aa) fija
+> 38 °C y aquí hay 40 °C. Decisión de producto del 2026-09-14, tomada para
+> poder subir la consigna de aire a 39 °C y probarlo en banco. **No se puede
+> reclamar conformidad.** El razonamiento completo —y por qué el camino bueno
+> es el override con un segundo corte en canal independiente, no mover este
+> número— está en el comentario sobre el `#define` en
+> `shared/include/alarm_policy.h` y en §2.4 de `alarms_normative_analysis.md`.
+
+Importante no confundir el acotado con el valor por defecto. Y no confundir
+tampoco **consigna** con **corte**, que hasta el 2026-09-14 eran la misma
+constante en la motherBoard:
+
+- **Tope de consigna**: `ALARM_AIR_SETPOINT_MAX_C` = 39 °C, en `shared/` porque
+  lo necesitan las dos placas (antes estaba duplicado a mano y se habían
+  desincronizado: 38.5 en el display y 38 en la placa).
+- **Corte térmico, valor de arranque**: `AIR_THERMAL_CUTOUT_DEFAULT_C` = 40 °C
+  y `SKIN_TEMPERATURE_SET_MAX` = 37.5 °C — el de piel arranca 2.5 °C por debajo
+  de su propio techo de acotado, no en el límite.
+
+La consigna máxima tiene que quedar **por debajo** del corte, o el equipo no
+puede alcanzar lo que se le pide: al cruzar el umbral salta el corte, que es
+ALTA y apaga el calefactor. Lo comprueba `test_alarm_policy`.
+
+**Trampa al actualizar una unidad que ya existía**: `KEY_AIR_T_MAX` se escribe
+en la inicialización de fábrica, así que un equipo que arrancó con el firmware
+anterior lleva **38 guardado en NVS y se queda en 38**, porque NVS manda sobre
+el compilado. Con la consigna topada en 39 eso deja un equipo que no puede
+alcanzar su consigna. No se migra en silencio —subir un umbral de seguridad por
+nuestra cuenta es justo lo que no se debe hacer—: se avisa en el log de
+arranque y se corrige a mano con `air_tmax` en `/config`.
 
 `in3.airTemperatureSetMax` / `in3.skinTemperatureSetMax` son escribibles en
 caliente, y las tres vías de escritura existentes aplican el acotado en todas
@@ -435,7 +517,7 @@ ellas:
    escribir a `in3` y a NVS.
 
 Con esto, un valor propuesto de 45 °C para el corte de aire queda recortado a
-38 °C en cualquiera de las tres vías; no hay un cuarto punto de entrada que
+40 °C en cualquiera de las tres vías; no hay un cuarto punto de entrada que
 modifique estos campos sin pasar por el acotado (búsqueda de
 `airTemperatureSetMax`/`skinTemperatureSetMax` en `motherBoard/src`).
 
@@ -457,7 +539,7 @@ condición actualmente señalizando) cuando `alarmCount > 0`.
 Si el HMI no está conectado (`hmi_connected == false`), los eventos de cambio
 se encolan en `pending_alarms[PENDING_ALARM_QUEUE_LEN]` (`security.cpp:35-60`),
 con `PENDING_ALARM_QUEUE_LEN` = `ALARM_COUNT`. `resendActiveAlarms()` puede
-empujar una línea por cada una de las 19 condiciones de una sola vez, y con la
+empujar una línea por cada una de las 20 condiciones de una sola vez, y con la
 capacidad fija de 10 que tenía antes las 9 últimas se perdían en silencio: una
 instantánea incompleta, y arbitraria en qué condiciones se caían.
 
@@ -487,7 +569,7 @@ los pedidos— la línea entera se descartaba. La línea completa tiene además 
 segundo límite en el emisor, `ALARM_LINE_BUF_SIZE` = 128, que `snprintf`
 recortaría en silencio.
 
-Los textos —título y acción, en tres idiomas, para las 19 condiciones— viven en
+Los textos —título y acción, en tres idiomas, para las 20 condiciones— viven en
 `shared/src/alarm_text.cpp`, y no en `security.cpp`, precisamente para que el
 test nativo `test/test_alarm_text/` pueda comprobar en cada ejecución que
 todos caben en su campo, que la línea compuesta cabe en el buffer del emisor,
@@ -626,32 +708,111 @@ enlace posterior suena desde el primer instante.
 Esta sección es tan relevante como el resto: enumera lo que el sistema no
 hace hoy, para no inducir a confiar en protecciones que no existen.
 
-- **`ALARM_MAINS_INTERRUPTION` no tiene detector.** Ningún punto del código
-  llama a `alarm_machine_condition(ALARM_MAINS_INTERRUPTION, ...)`. La
-  condición existe en el enum, tiene prioridad ALTA asignada, pero nunca se
-  activa. Un detector real exigiría además una reserva de energía dedicada
-  que sobreviva 10 minutos de corte de red — es un requisito de hardware, no
-  solo de firmware.
+- ~~`ALARM_MAINS_INTERRUPTION` no tiene detector~~ — **implementado en
+  firmware**; sigue pendiente la parte de hardware. Cambio OpenSpec
+  `shared-mains-detector`.
+  - **Qué hace.** `sensors_Task` lee el bit AC_STAT del BQ25730 cada 200 ms (`charge_ac_present()`, una lectura I2C; cada 5 s hasta el 2026-10-26) y alimenta
+    `mains_detector` (lógica pura, probada en `[env:native]`:
+    `test_mains_detector`) a través de `mains_present_now()` (`main.cpp`), el
+    único punto donde se decide «hay red». `securityCheck()` consulta el
+    detector y llama a `alarm_machine_condition(ALARM_MAINS_INTERRUPTION, ...)`.
+  - **Histéresis asimétrica: declarar rápido, retirar despacio.** 2 lecturas
+    válidas consecutivas sin red declaran (≈ 0,4 s); **10 lecturas válidas
+    consecutivas con red** retiran (≈ 2 s), y cualquier ausencia reinicia esa
+    racha (`MAINS_DETECTOR_CONFIRM_ABSENT_SAMPLES` / `_PRESENT_SAMPLES`).
+    Criterio: una sola lectura no levanta una alarma ALTA que el operador no
+    puede silenciar, y una fuente intermitente (enchufe flojo, grupo
+    inestable) debe mantener la alarma **continua** en vez de oscilar, porque
+    cada retirada y levantada es una entrada en el historial, una escritura en
+    flash y un rearme del audio. 201.12.3.103 no fija latencia de detección.
+    Probado en `test_mains_detector` con una fuente que alterna 2 ausencias y 5
+    lecturas con red durante 20 ciclos.
+  - **La instancia de producción usa la constante.** `g_mains_detector` se
+    declara con `MAINS_DETECTOR_INITIALIZER` (y se inicializa con
+    `mains_detector_init()` antes de crear `sensors_Task`); un test fija que
+    coincide con `mains_detector_init()`. Antes estaba a `= {}`: el plazo
+    valía 0 porque la estructura estaba a cero, y cambiar
+    `MAINS_ALARM_MIN_HOLD_MS` no habría hecho nada.
+  - **Plazo mínimo de aviso: 0 (decisión de producto, cambio
+    `shared-mains-detector-fixes`).** La alarma se retira cuando se confirman
+    6 lecturas seguidas de red presente. `docs/alarms_normative_analysis.md` §2.5 lee
+    201.12.3.103 («shall be provided for a minimum time of 10 min») como un
+    requisito de **autonomía** —la alarma tiene que poder sostenerse 10 min
+    sin red, y eso es hardware— y no como la obligación de mantenerla con la
+    red ya presente: mantenerla 10 min enmascaraba otras alarmas ALTAS (el
+    zumbador ya suena a ALTA), mostraba «BATERÍA» en falso y contradecía 6.10.
+    Se conservan la constante `MAINS_ALARM_MIN_HOLD_MS` y el mecanismo
+    (plazo desde la declaración, reinicio en corte nuevo, probado con un plazo
+    de prueba): si el responsable de riesgos decide lo contrario, se revierte
+    poniéndola a `600000u`. (La primera versión mantenía 10 min.)
+  - **Lectura no válida** (fallo de I2C de `charge_status()`): ni declara, ni
+    retira, ni rompe la racha. No hay filtro por tensión de batería
+    (`vbat_mv = adc*64 + 2880` nunca es 0). **Placa sin cargador**
+    (`CHARGER_EXPECTED == 0`, HW anterior a la 17, y el chip nunca contestó):
+    nunca se declara, con un `logE` una sola vez. **En una placa que lo lleva
+    (HW 17 en adelante, `CHARGER_EXPECTED == 1`), que el chip no conteste al
+    arrancar NO es «sin cargador»: es ceguera** (`logE` y `charger_comm_fault`
+    a los 30 s). La presencia esperada sale del hardware, no de la respuesta
+    I2C, que es justo lo que puede fallar. **Test de fábrica**: no se declara.
+  - **Configuración fallida en el arranque: se reintenta.** Con el chip
+    esperado y `chargerPresent == false` (el arranque lo detectó pero no
+    terminó de configurarlo, o no contestó), `sensors_Task` reintenta
+    `init_BQ25730()` con espera progresiva de 5 s a 5 min
+    (`modules/util/retry_backoff`, probada). Antes no había reintento: la
+    batería no cargaba (ChargeCurrent de fábrica = 0) y la red no se
+    vigilaba. El `logE` es uno por episodio y luego uno cada 5 min, tanto para
+    este reintento como para la reconfiguración fallida al volver la red.
+  - **La reconfiguración del cargador no apaga la vigilancia.** Al volver la
+    red `sensors_Task` reconfigura el BQ25730 con `reconfigure_BQ25730()`, que
+    NO baja `chargerPresent` (antes `init_BQ25730()` lo bajaba: un fallo I2C lo
+    dejaba a false para siempre, sin leer el cargador ni vigilar la red, y aun
+    saliendo bien `securityCheck()` retiraba y levantaba la alarma en cada
+    retorno). `chargerDetected` se fija en el arranque y no baja nunca. Si la
+    reconfiguración falla: `logE`, no se anota la red como presente y se
+    reintenta a la lectura siguiente.
+  - **Ceguera visible, sin alarma técnica todavía.** Con el cargador detectado,
+    más de 30 s (`MAINS_DETECTOR_BLIND_MS`, ~6 lecturas) sin lectura válida —o
+    una reconfiguración fallando— hace `logE` y publica `charger_comm_fault`
+    (grupo DIAG, GPRS). Con la alarma ya declarada y el detector ciego, la
+    alarma **se mantiene**. Falta un `AlarmId` de fallo técnico del cargador:
+    no se añadió porque otra rama abierta añade el id 20 y colisionaría; ver
+    known issue 25.
+  - **Indicador «en batería» en el HMI**: en Main, **solo el icono** de batería
+    (14 pt, a la derecha de la fecha dentro del botón del reloj: la palabra
+    pisaba la fecha); en Lock, icono y palabra corta (ES/EN/FR/PT) en el slot
+    de ayuda, vacío ahí. Sale del **bit 7 de `alarmBitmask`** de `CTRL,STATE`;
+    no hay campo de protocolo nuevo. Sigue a la condición *señalizada*: se
+    retira cuando la placa confirma el retorno de la red. Oculto sin enlace con
+    la placa. Telemetría: `mains_alarm` (`ALARM_MAINS_INTERRUPTION_KEY`) ya se
+    publicaba por `GPRS.cpp` y `Wifi_OTA.cpp`.
+  - **Rev. V19.** `MAINS_OK_PIN` (IO42, CHRG_OK del BQ25730) se añadirá solo en
+    `mains_present_now()`: red presente = **AND** de las fuentes que responden
+    (registro `ac_present` y pin), válida si responde cualquiera de las dos.
+    AND porque el fallo que importa es no avisar de un corte real; el pin
+    además sigue decidiendo con el bus I2C colgado. Ver el design del cambio.
+  - **Sigue siendo hardware, y es verificación de banco (casos 19 y 20 de
+    `alarms_bench_verification.md`):** la reserva de energía que mantenga el
+    equipo vivo y sonando 10 min sin red, y que el zumbador y el micro
+    cuelguen de VSYS y no de la entrada de red. Sin eso el detector avisa
+    mientras la batería aguante, pero 201.12.3.103 no se cumple del todo.
 - ~~`ALARM_HMI_LINK_LOST` no tiene detector~~ — **implementado**. El display manda un latido cada 1 s (`HMI_KEEPALIVE_PERIOD_MS`) y la placa declara la condición tras 5 s sin recibir nada (`HMI_LINK_TIMEOUT_MS`, `checkHmiLink()`). Antes no era detectable: el display solo transmitía al cambiar algo, así que el silencio no significaba nada. No se declara antes de la primera trama — la placa arranca antes que el display y un enlace que nunca existió no es un enlace caído.
 - ~~El display no tenía señal audible propia si la placa se colgaba~~ —
   **implementado**. El detector de esta misma condición vive en el display
   (`Display_IsBoardLinkLost()`), pero hasta ahora su mitad audible se delegaba
   entera en la motherBoard — precisamente el extremo que puede estar muerto.
   Ver §8.1.
-- **No hay reset manual accesible al operador para los cortes térmicos
-  latching.** `alarm_machine_reset()` solo se invoca desde
-  `test_alarm_machine.cpp`. No existe botón del display, comando USB ni
-  entrada de `/config` que la llame. Hoy, un corte térmico que ya se enfrió
-  se queda en **ACTIVE**, no en silencio de audio: **el zumbador sigue sonando
-  indefinidamente**, con su patrón de prioridad ALTA, hasta que el equipo se
-  reinicia por completo. Pulsar el botón de silencio del display solo compra
-  10 minutos — `ALARM_AUDIO_PAUSE_MS`—, tras los cuales `alarm_machine_tick()`
-  devuelve la condición a ACTIVE y el audio se reanuda solo, y así
-  indefinidamente. Es lo correcto según 201.15.4.2.1 aa)/bb) y 6.10 —la
-  alarma debe operar de forma continua hasta un reset manual—, pero significa
-  que la única forma de callar el equipo es apagarlo, con la incubadora aún
-  en terapia. La consecuencia es peor que la de "quedarse señalizando en
-  silencio": es un equipo que suena sin parar y sin vía de reset.
+- ~~No hay reset manual accesible al operador para los cortes térmicos
+  latching~~ — **implementado**. La placa manda en `CTRL,STATE` el campo
+  `latchedBitmask` (un bit por condición enclavada esperando reconocimiento) y
+  el display ofrece el botón de reset solo cuando hay algún bit a 1; el botón
+  manda `HMI,ALM_RESET[,id]` y la placa lo pasa por `alarm_machine_reset()`,
+  que rechaza el reset si la condición no es latching o si sigue presente
+  (`CommTask.cpp`, `send_state_to_hmi()` y el parser de `HMI,ALM_RESET`; ver
+  `PROTOCOL.md`). Sigue sin existir vía por USB ni por `/config`, a propósito:
+  el reconocimiento es una acción del operador delante del equipo. *(Hasta
+  2026-10-25 este punto afirmaba que no existía ninguna vía de reset y
+  `PROTOCOL.md` no documentaba ni el campo ni el comando: era documentación
+  atrasada, no una carencia del firmware.)*
 - **No hay aceptación (ACK) indefinida accesible al operador — y es una
   decisión, no una carencia.** `alarm_machine_ack()` existe y tiene tests,
   pero no se invoca desde producción a propósito: la norma la trata siempre
@@ -689,21 +850,33 @@ hace hoy, para no inducir a confiar en protecciones que no existen.
   razonado pero pendiente de ajuste fino en banco.**
   `AIR_BLOCKED_DETECTION_ENABLED` es `true` (`board.h:234`) y ya corta el
   calefactor a través de `alarm_cuts_heater()`.
-  `FAN_DUTY_BLOCKED_THRESHOLD` vale **190** (`board.h:221`), derivado del duty
-  de fábrica de 137 que sostiene `FAN_TARGET_RPM` con la salida limpia: queda
-  +39 % por encima de esa línea base, holgadamente sobre el duty al que el PID
-  llega compensando la caída de tensión con el calefactor a máxima potencia
-  (~158), y aún 65 cuentas por debajo de la saturación a la que lleva una
-  obstrucción real. El margen está sesgado a propósito contra falsos
-  positivos, porque un falso positivo corta el calefactor y enfría al bebé sin
-  red de respaldo, mientras que una obstrucción parcial que se escape sigue
-  apareciendo como desviación de temperatura o corte térmico.
+  `FAN_DUTY_BLOCKED_THRESHOLD` vale **220** y la condición se retira por debajo
+  de **200** (`board.h`). Hasta el 2026-09-14 valían 190 y 175, derivados de un
+  duty de fábrica supuesto de 137, y **la medida los desmintió**: 97 muestras
+  con el ventilador a 4006 rpm, el calefactor a 255 y la fototerapia al 82 %,
+  con la salida limpia, dan un duty de trabajo de **187** (min 186, máx 188).
 
-  Sigue siendo un punto de partida calculado, **no validado en banco**: el
-  propio `board.h` lo dice y el arranque registra el duty necesario para
-  sostener `FAN_TARGET_RPM` precisamente para recoger esos datos. El ajuste
-  contra la dispersión real entre unidades es del responsable del proyecto,
-  antes de que el equipo salga a campo.
+  Eso dejaba dos problemas. El umbral de disparo quedaba a **2 cuentas** del
+  punto de trabajo, no al +39 % que decía este documento. Y el de retirada,
+  175, quedaba **por debajo** de ese punto de trabajo: con el ventilador
+  girando el duty nunca baja hasta ahí, así que una vez declarada la condición
+  **no podía retirarse** y el calefactor se quedaba cortado hasta reiniciar.
+
+  Los valores nuevos salen de esa medida: retirada 12 cuentas por encima del
+  máximo normal (para que la alarma pueda irse sola) y disparo 32 por encima,
+  aún 35 por debajo de la saturación a la que lleva una obstrucción real. Se
+  conserva el sesgo contra falsos positivos, que sigue siendo el criterio
+  correcto: un falso positivo corta el calefactor y enfría al bebé sin red,
+  mientras que una obstrucción parcial que se escape sigue apareciendo como
+  desviación de temperatura o corte térmico.
+
+  Un `static_assert` en `security.cpp` rompe la compilación si alguien vuelve a
+  dejar la retirada por debajo del duty de trabajo (`FAN_DUTY_NORMAL_MAX_OBSERVED`).
+
+  **Sigue siendo de UNA SOLA UNIDAD.** Lo que ya no es una estimación es el
+  orden de magnitud del punto de trabajo; la dispersión real entre placas
+  —otro ventilador, otro conducto— no está medida, y ese ajuste es del
+  responsable del proyecto antes de que el equipo salga a campo.
 - **Canal de corte térmico independiente del termostato: no existe.** El
   corte por aire (ID 1) lee el mismo `ROOM_DIGITAL_TEMP_SENSOR` que usa el PID
   de control. Un único fallo de sensor se lleva por delante tanto el control
@@ -731,6 +904,17 @@ hace hoy, para no inducir a confiar en protecciones que no existen.
   el piezo alcance el nivel exigido a 3 m ni de que se mantenga por debajo
   del límite dentro del habitáculo; son medidas de banco/hardware, no de
   firmware.
+- **`ALARM_PHOTO_LAMP_FAULT` solo detecta una lámpara que no responde.** No
+  detecta una lámpara degradada (corriente por encima de 0,05 A pero lejos de
+  los 0,45 A objetivo: el lazo de intensidad la compensa subiendo el PWM hasta
+  `PWM_MAX_VALUE`) ni sobrecorriente. Si el INA principal deja de contestar con
+  la fototerapia ON, **la misma condición** se declara tras 5 ciclos a ciegas
+  (no hay una condición propia para el fallo de ese sensor, a diferencia del
+  calefactor con `ALARM_HEATER_SENSOR_FAULT`), y el lazo de intensidad deja el
+  PWM quieto en vez de subirlo con un dato congelado. Su prioridad (MEDIA) es
+  provisional, no derivada del análisis de riesgos (ver §2). Falta la imagen
+  de pop-up (`alarm_popup_image_prompts.md`). **Despliegue**: flashear el HMI
+  antes que la motherBoard, o la alarma no se verá en pantalla.
 
 ## Notas sobre el sistema anterior
 

@@ -15,12 +15,15 @@ from PIL import Image, ImageTk
 from detector import (
     Board, find_all_board_ports, board_from_vid_pid,
     is_ambiguous_native_usb, is_sensorboard_app_port,
-    detect_board_ambiguous, BoardDetectionError,
+    detect_board_ambiguous, detect_motherboard_hw, BoardDetectionError,
 )
 from flasher import (
-    flash_board, has_firmware_flashed, missing_files, write_initial_ota_data,
+    flash_board, has_firmware_flashed, missing_files, read_device_serial,
+    serial_to_write, write_initial_ota_data, MB_FOLDER_BY_HW,
 )
-from updater import check_update_available, download_latest
+from updater import (
+    check_update_available, download_latest, pinned_folders, PIN_MARKER,
+)
 
 HOTPLUG_POLL_S = 0.5
 POST_FLASH_COOLDOWN_S = 8
@@ -39,7 +42,72 @@ WIFI_SCAN_INTERVAL_S = 5
 # es opcional y se avisa cuando falta. ota_data_initial.bin no lo genera
 # PlatformIO en ninguno de los dos proyectos: se escribe aparte, ver
 # _write_initial_ota_data.
-PIO_ARTIFACTS = ('firmware.bin', 'bootloader.bin', 'partitions.bin', 'spiffs.bin')
+# spiffs.bin ya no esta: el HMI no flashea imagen del sistema de archivos
+# porque nadie la lee (ver _BOARD_FILES en flasher.py). Copiarla aqui solo
+# servia para dejar en data/firmware/ un fichero de 6 MB que no se escribe.
+PIO_ARTIFACTS = ('firmware.bin', 'bootloader.bin', 'partitions.bin')
+
+# Sufijo de los entornos de build que NUNCA se empaquetan en el flasher.
+#
+# Su firmware.bin lleva ONOMONDO_API_KEY dentro -- la activacion de SIM del
+# test de fabrica sim_act, ver
+# motherBoard/src/modules/factory_test/ftest_sim_activation.h -- y esa clave
+# controla TODAS las SIM de la organizacion. data/firmware/ acaba como asset de
+# GitHub Releases, y el repo es publico.
+#
+# El filtro es explicito y no confia en el orden: _pio_env_sort_key saca
+# [Vv](\d+) del nombre del entorno, asi que "IncuNest_V18_factory" tambien
+# puntua 18 y el desempate era el mtime. Es decir, se copiaba el que se hubiera
+# compilado mas tarde: una moneda al aire con una credencial de flota en juego.
+FACTORY_ENV_SUFFIX = '_factory'
+
+# Sufijo de los entornos de banco (IncuNest_V19_bench): logs de informacion y
+# consola de banco por J1 (FTEST, LOAD, FANMAX...). Tampoco se empaquetan nunca.
+BENCH_ENV_SUFFIX = '_bench'
+_EXCLUDED_ENV_SUFFIXES = (FACTORY_ENV_SUFFIX, BENCH_ENV_SUFFIX)
+
+
+def _env_hw(name: str) -> int:
+    m = re.search(r'[Vv](\d+)', name)
+    return int(m.group(1)) if m else -1
+
+
+def _pio_env_sort_key(p: Path) -> tuple:
+    # Prefer higher version number (e.g. V17 > V16); mtime as tiebreaker.
+    return (_env_hw(p.parent.name), p.stat().st_mtime)
+
+
+def pick_pio_env_dir(pio_dir: Path, pinned_env: Optional[str] = None,
+                     hw: Optional[int] = None) -> Optional[Path]:
+    """Directorio .pio/build/<env>/ del que copiar los artefactos.
+
+    Prefiere la revision de hardware mas alta y, a igualdad, el build mas
+    reciente. Descarta los entornos de fabrica (FACTORY_ENV_SUFFIX) y de banco
+    (BENCH_ENV_SUFFIX).
+
+    Con hw solo valen los entornos de ESA revision (IncuNest_V18 para hw=18):
+    cada revision de motherBoard tiene su carpeta en data/firmware/ y "la mas
+    alta" metia la V19 en la de la V18. Sin entorno de esa revision devuelve
+    None, nunca otro.
+
+    Con pinned_env se copia exactamente ese entorno, sea cual sea su sufijo:
+    es como se refrescan unos binarios de fabrica sin volver al de
+    distribucion por el camino. Si ese entorno no esta compilado devuelve None
+    en vez de caer al de distribucion, porque ese silencio es justo el fallo
+    que el ancla quiere evitar.
+    """
+    if pinned_env:
+        env_dir = pio_dir / pinned_env
+        return env_dir if (env_dir / 'firmware.bin').is_file() else None
+    candidates = [
+        p for p in pio_dir.glob('*/firmware.bin')
+        if not p.parent.name.endswith(_EXCLUDED_ENV_SUFFIXES)
+        and (hw is None or _env_hw(p.parent.name) == hw)
+    ]
+    if not candidates:
+        return None
+    return sorted(candidates, key=_pio_env_sort_key, reverse=True)[0].parent
+
 
 
 
@@ -276,8 +344,10 @@ class _Slot:
 class _SerialNumberDialog:
     """Modal dialog that asks for a serial number (0-9999) before flashing a motherBoard."""
 
-    def __init__(self, parent: tk.Tk, port: str) -> None:
+    def __init__(self, parent: tk.Tk, port: str,
+                 current: Optional[int] = None) -> None:
         self.result: Optional[int] = None
+        self.current = current
 
         top = tk.Toplevel(parent)
         top.title("Número de serie")
@@ -290,12 +360,32 @@ class _SerialNumberDialog:
         tk.Label(top, text="Introduce el número de serie:").pack(padx=24)
 
         vcmd = (top.register(self._validate), '%P')
-        self._var = tk.StringVar(value='')
+        # Precargado con el serial que la placa ya tiene: aceptar sin tocarlo
+        # deja la NVS intacta, que es lo que hay que hacer al reflashear una
+        # unidad ya provisionada.
+        self._var = tk.StringVar(value='' if current is None else str(current))
         entry = tk.Entry(top, textvariable=self._var, width=10,
                          validate='key', validatecommand=vcmd,
                          font=('', 16), justify='center')
         entry.pack(padx=24, pady=8)
         tk.Label(top, text="(0 – 9999)", fg='#757575').pack()
+
+        if current is None:
+            tk.Label(
+                top,
+                text="La placa no tiene serial (o no se ha podido leer).\n"
+                     "Se escribirá la NVS: si el equipo ya estaba dado de alta,\n"
+                     "perderá el token de ThingsBoard y el WiFi guardado.",
+                fg='#C62828', font=('', 8), justify='center',
+            ).pack(padx=16, pady=(4, 0))
+        else:
+            tk.Label(
+                top,
+                text=f"La placa ya tiene el serial {current}.\n"
+                     "Acéptalo sin cambiarlo y se conservan el token de\n"
+                     "ThingsBoard y las credenciales WiFi. Cambiarlo las borra.",
+                fg='#2E7D32', font=('', 8), justify='center',
+            ).pack(padx=16, pady=(4, 0))
 
         btn_frame = tk.Frame(top)
         btn_frame.pack(padx=24, pady=(12, 18))
@@ -311,9 +401,9 @@ class _SerialNumberDialog:
         top.bind('<Escape>', lambda _: top.destroy())
 
         parent.update_idletasks()
-        x = parent.winfo_rootx() + (parent.winfo_width()  - 300) // 2
-        y = parent.winfo_rooty() + (parent.winfo_height() - 200) // 2
-        top.geometry(f"300x195+{x}+{y}")
+        x = parent.winfo_rootx() + (parent.winfo_width()  - 340) // 2
+        y = parent.winfo_rooty() + (parent.winfo_height() - 270) // 2
+        top.geometry(f"340x265+{x}+{y}")
 
         self._top = top
         parent.wait_window(top)
@@ -395,7 +485,8 @@ class _WifiDeviceSlot:
         self._wb = wb
         self._state = self._STATE_AVAILABLE
         sn_str = f"SN:{wb.sn}  " if wb.sn is not None else ""
-        self._title.configure(text=f"{wb.board.value}  ·  {wb.ip}", fg='#212121')
+        rev = f" V{wb.hw}" if getattr(wb, 'hw', None) else ''
+        self._title.configure(text=f"{wb.board.value}{rev}  ·  {wb.ip}", fg='#212121')
         self._detail.configure(text=f"{sn_str}FW {wb.fw_version}  |  Disponible",
                                fg='#2E7D32')
         self._flash_btn.configure(state='normal')
@@ -668,7 +759,8 @@ class _WifiTab:
                 self._root.after(0, self._slots[slot_idx].update_progress, pct)
 
         try:
-            flash_board_wifi(wb.ip, wb.board, self._firmware_base, progress_cb)
+            flash_board_wifi(wb.ip, wb.board, self._firmware_base, progress_cb,
+                             hw=wb.hw)
             self._root.after(0, self._on_flash_ok, wb, slot_idx)
         except Exception as exc:
             self._root.after(0, self._on_flash_err, str(exc), wb, slot_idx)
@@ -700,6 +792,10 @@ class FlasherApp:
         self._slots: list[_Slot] = []
         self._port_to_slot: dict[str, int] = {}
         self._cooldown_until: dict[str, float] = {}
+        # Revision de cada motherBoard conectada (detector.detect_motherboard_hw),
+        # por puerto. Se lee del eFuse en el hilo de sondeo, antes de asignar el
+        # slot; sin ella la placa no se flashea (ver flasher.board_folder).
+        self._mb_hw: dict[str, int] = {}
         self._sb_hint_mute_until: float = 0.0
         self._known_ports: set = set()
 
@@ -752,6 +848,31 @@ class FlasherApp:
             font=('', 10), fg='#757575',
         )
         self._status_label.pack(fill='x', pady=(8, 2))
+
+        # --- Aviso permanente de binarios anclados ---
+        #
+        # No es decorativo: un build de fabrica y uno de distribucion se
+        # flashean igual y dejan la misma pantalla en la placa. Sin este aviso,
+        # la unica forma de saber cual esta cargado es el sha256 del .bin.
+        pinned_here = pinned_folders(get_firmware_base())
+        if pinned_here:
+            detail = ", ".join(
+                f"{folder} ({env})" if env else folder
+                for folder, env in sorted(pinned_here.items())
+            )
+            factory = any(
+                env.endswith(FACTORY_ENV_SUFFIX) for env in pinned_here.values() if env
+            )
+            tk.Label(
+                left,
+                text="⚠  BINARIOS ANCLADOS: " + detail
+                     + ("\nBuild de FÁBRICA: no empaquetar data/firmware/."
+                        if factory else
+                        "\nNo se actualizan desde la release."),
+                anchor='w', justify='left', wraplength=wrap,
+                font=('', 9, 'bold'), fg='#C62828',
+            ).pack(fill='x', pady=(0, 4))
+
         tk.Label(
             left,
             text="Para motherBoard y SensorBoard, conecta la placa mientras "
@@ -877,6 +998,10 @@ class FlasherApp:
                     self.root.after(0, self._on_identify_start, device)
                     try:
                         board = detect_board_ambiguous(device)
+                        if board == Board.MOTHERBOARD:
+                            # V18 o V19, por el eFuse de PSRAM del modulo: el
+                            # firmware de una revision no vale para la otra.
+                            self._mb_hw[device] = detect_motherboard_hw(device)
                     except BoardDetectionError as exc:
                         self.root.after(0, self._on_identify_failed, device, str(exc))
                         continue
@@ -942,25 +1067,24 @@ class FlasherApp:
                 return
             self._slots[slot_idx].assign(port, board)
             self._tick_slot(slot_idx)
-        self._slots[slot_idx].log(f"{board.value} detectado en {port}.", 'info')
-        self._log_line(f"{board.value} detectado en {port} → slot {slot_idx + 1}", 'info')
+        label = board.value
+        if board == Board.MOTHERBOARD and port in self._mb_hw:
+            label += f" V{self._mb_hw[port]}"
+        self._slots[slot_idx].log(f"{label} detectado en {port}.", 'info')
+        self._log_line(f"{label} detectado en {port} → slot {slot_idx + 1}", 'info')
         self._update_status_banner()
 
         if board == Board.MOTHERBOARD and self._force_serial_number_entry:
-            # Always ask for serial number regardless of existing firmware
-            self._slots[slot_idx].set_status('📋  Introduce el serial…')
-            dlg = _SerialNumberDialog(self.root, port)
-            self._slots[slot_idx].set_status('')
-            if dlg.result is None:
-                self._slots[slot_idx].log("Flasheo cancelado por el usuario.", 'info')
-                self._slots[slot_idx].reset()
-                del self._port_to_slot[port]
-                self._log_line(
-                    f"Slot {slot_idx + 1}: flasheo de {board.value} cancelado.", 'info'
-                )
-                self._update_status_banner()
-                return
-            self._run_flash(port, board, slot_idx, dlg.result)
+            # Se pregunta el serial siempre, pero antes se lee el que la placa
+            # ya tiene: si no cambia, no hay que reescribir la NVS y el equipo
+            # conserva su identidad (token de ThingsBoard, WiFi). Ver
+            # flasher.read_device_serial.
+            self._slots[slot_idx].set_status('🔍  Leyendo serial…')
+            threading.Thread(
+                target=self._read_serial_then_ask,
+                args=(port, board, slot_idx),
+                daemon=True,
+            ).start()
         elif board == Board.MOTHERBOARD:
             # Auto-detect: check firmware presence, preserve NVS if already flashed
             threading.Thread(
@@ -970,6 +1094,45 @@ class FlasherApp:
             ).start()
         else:
             self._run_flash(port, board, slot_idx, None)
+
+    def _read_serial_then_ask(self, port: str, board: Board, slot_idx: int) -> None:
+        current = read_device_serial(port, get_firmware_base(),
+                                     self._mb_hw.get(port, 18))
+        self.root.after(0, self._ask_serial, port, board, slot_idx, current)
+
+    def _ask_serial(self, port: str, board: Board, slot_idx: int,
+                    current: Optional[int]) -> None:
+        self._slots[slot_idx].set_status('📋  Introduce el serial…')
+        dlg = _SerialNumberDialog(self.root, port, current)
+        self._slots[slot_idx].set_status('')
+        if dlg.result is None:
+            self._cancel_slot(port, board, slot_idx)
+            return
+
+        if serial_to_write(current, dlg.result) is None:
+            # El caso normal al reflashear una unidad ya fabricada. Sin escribir
+            # la NVS, la placa sigue siendo el mismo dispositivo en ThingsBoard.
+            self._slots[slot_idx].log(
+                f"Serial {current} sin cambios — no se toca la NVS "
+                "(token de ThingsBoard y WiFi conservados).", 'success')
+            self._run_flash(port, board, slot_idx, None)
+            return
+
+        if current is not None:
+            self._slots[slot_idx].log(
+                f"Serial {current} → {dlg.result}: se reescribe la NVS. El equipo "
+                "pierde el token de ThingsBoard y el WiFi guardado, y tendra que "
+                "provisionarse de nuevo.", 'error')
+        self._run_flash(port, board, slot_idx, dlg.result)
+
+    def _cancel_slot(self, port: str, board: Board, slot_idx: int) -> None:
+        self._slots[slot_idx].log("Flasheo cancelado por el usuario.", 'info')
+        self._slots[slot_idx].reset()
+        self._port_to_slot.pop(port, None)
+        self._log_line(
+            f"Slot {slot_idx + 1}: flasheo de {board.value} cancelado.", 'info'
+        )
+        self._update_status_banner()
 
     def _check_firmware_present(self, port: str, board: Board, slot_idx: int) -> None:
         self._slots[slot_idx].set_status('🔍  Leyendo dispositivo…')
@@ -1023,7 +1186,9 @@ class FlasherApp:
     def _flash_thread(self, port: str, board: Board, slot_idx: int,
                       progress_cb, serial_number: Optional[int] = None) -> None:
         try:
-            flash_board(port, board, get_firmware_base(), progress_cb, serial_number)
+            hw = self._mb_hw.get(port) if board == Board.MOTHERBOARD else None
+            flash_board(port, board, get_firmware_base(), progress_cb, serial_number,
+                        hw=hw)
             self.root.after(0, self._on_flash_ok, port, board, slot_idx)
         except Exception as exc:
             self.root.after(0, self._on_flash_err, str(exc), port, board, slot_idx)
@@ -1151,30 +1316,28 @@ class FlasherApp:
         spiffs.bin en el offset del CSV nuevo mientras la placa arranca con la
         tabla vieja, y el flasheo no da ningun error.
         """
-        def _env_sort_key(p: Path) -> tuple:
-            # Prefer higher version number (e.g. V17 > V16); mtime as tiebreaker.
-            m = re.search(r'[Vv](\d+)', p.parent.name)
-            return (int(m.group(1)) if m else -1, p.stat().st_mtime)
-
         try:
             firmware_base = get_firmware_base()
             repo_root = firmware_base.parents[2]
             sources: dict[str, dict[str, Path]] = {}
 
-            for board_folder, pio_dir in [
-                ('display_hmi', repo_root / 'Display_HMI' / '.pio' / 'build'),
-                ('motherboard', repo_root / 'motherBoard' / '.pio' / 'build'),
-            ]:
+            pinned = pinned_folders(firmware_base)
+
+            mb_pio = repo_root / 'motherBoard' / '.pio' / 'build'
+            # Cada revision de motherBoard a su carpeta, y solo su entorno
+            # (pick_pio_env_dir con hw): IncuNest_V18 -> motherboard/,
+            # IncuNest_V19 -> motherboard_hw19/.
+            for board_folder, pio_dir, hw in [
+                ('display_hmi', repo_root / 'Display_HMI' / '.pio' / 'build', None),
+            ] + [(folder, mb_pio, mb_hw) for mb_hw, folder in MB_FOLDER_BY_HW.items()]:
                 if not pio_dir.is_dir():
                     continue
-                candidates = sorted(
-                    pio_dir.glob('*/firmware.bin'),
-                    key=_env_sort_key,
-                    reverse=True,
-                )
-                if not candidates:
+                if board_folder in pinned and not pinned[board_folder]:
+                    # Anclada sin declarar entorno: no se toca.
                     continue
-                env_dir = candidates[0].parent
+                env_dir = pick_pio_env_dir(pio_dir, pinned.get(board_folder), hw=hw)
+                if env_dir is None:
+                    continue
                 sources[board_folder] = {
                     name: env_dir / name
                     for name in PIO_ARTIFACTS
@@ -1214,7 +1377,13 @@ class FlasherApp:
             for dest_name, src in files.items():
                 dst = dest_dir / dest_name
                 shutil.copy2(src, dst)
-                self._log_line(f"Copiado: {src.name} → {dst.name} ({board_folder})", 'info')
+                # El nombre del entorno va en el registro a proposito: es lo
+                # unico que distingue en pantalla un build de fabrica de uno de
+                # distribucion.
+                self._log_line(
+                    f"Copiado: {src.parent.name}/{src.name} → {dst.name} ({board_folder})",
+                    'info',
+                )
             copied.append(f"{board_folder} ({len(files)})")
 
         write_initial_ota_data(firmware_base)
@@ -1228,19 +1397,14 @@ class FlasherApp:
     def _report_missing_binaries(self, firmware_base: Path) -> None:
         """Avisa en el registro de lo que la secuencia de flasheo espera y no hay.
 
-        El caso habitual es display_hmi/spiffs.bin: PlatformIO solo lo genera si
-        se corre `pio run -t buildfs`, asi que un build normal no lo deja en
-        .pio/build/ y no hay nada que copiar.
+        Sin esto, un hueco no sale hasta el FileNotFoundError de flash_board,
+        con la placa delante y en fabrica.
         """
         gaps = missing_files(firmware_base)
         if not gaps:
             return
         for folder, names in gaps.items():
             self._log_line(f"Faltan en {folder}: {', '.join(names)}", 'error')
-        if any('spiffs.bin' in names for names in gaps.values()):
-            self._log_line(
-                "spiffs.bin se genera con `pio run -t buildfs` en Display_HMI.", 'info',
-            )
 
 
 if __name__ == '__main__':

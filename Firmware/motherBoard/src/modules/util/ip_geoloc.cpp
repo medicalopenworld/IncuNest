@@ -68,3 +68,13 @@ bool ip_geoloc_parse(const char *json, float *lat, float *lon) {
   *lon = (float)lo;
   return true;
 }
+
+bool ip_geoloc_due(bool everPublished, float pubLat, float pubLon,
+                   uint32_t pubMs, float lat, float lon, uint32_t nowMs) {
+  if (!everPublished) return true;
+  // Comparacion exacta y no con epsilon: los dos valores salen del MISMO
+  // parseo de la misma respuesta, asi que si el sitio no ha cambiado los bits
+  // son identicos. Un epsilon aqui solo taparia un cambio real y pequeno.
+  if (lat != pubLat || lon != pubLon) return true;
+  return (uint32_t)(nowMs - pubMs) >= IP_GEOLOC_REPUBLISH_MS;
+}

@@ -196,6 +196,7 @@ normativa fisiológica/técnica, y esa diferencia es deliberada.
 | `alm_17_heater_sensor_fault.png` | `ALARM_HEATER_SENSOR_FAULT` | MEDIA | No |
 | `alm_18_sensorboard_link_lost.png` | `ALARM_SENSORBOARD_LINK_LOST` | MEDIA | Contexto |
 | `alm_19_sensorboard_door_fault.png` | `ALARM_SENSORBOARD_DOOR_FAULT` | BAJA | No |
+| (aplazada, sin imagen) | `ALARM_PHOTO_LAMP_FAULT` | MEDIA | aplazada por decisión de producto |
 | `alm_display_link_lost.png` | enlace caído visto por el display | — | No |
 
 Reparto: 4 protagonista, 11 contexto, 5 sin bebé.
@@ -258,7 +259,7 @@ fototerapia**: se le pegaban de `Baby_phototherapy_eyes_covering.png`, que es
 una de las referencias de estilo adjuntas, y aparecieron en la alarma de corte
 de red.
 
-### 3.3 Cuatro escenas aplazadas (2026-09-04)
+### 3.3 Escenas aplazadas (2026-09-04; la 20 se añadió el 2026-10-25)
 
 No se generan todavía porque el componente que dibujan no existe hoy en el
 equipo, o está sin definir:
@@ -269,6 +270,7 @@ equipo, o está sin definir:
 | 13 `SUPPLY_UNDERVOLTAGE` | el conector de alimentación DC está sin definir |
 | 16 `HUMIDITY_DEVIATION` | no hay depósito de agua todavía |
 | 19 `SENSORBOARD_DOOR_FAULT` | aplazada por decisión de producto |
+| 20 `PHOTO_LAMP_FAULT` | aplazada por decisión de producto (añadida 2026-10-25; sin imagen todavía) |
 
 **Dos de ellas no son solo un problema de imagen.** La 6 y la 16 tienen textos
 de acción que mandan al operador a un componente inexistente:
@@ -440,7 +442,7 @@ FOCUS: the gap between the plug and the wall socket.
 
 ### Prioridad MEDIA
 
-**8 — `ALARM_AIR_TEMP_DEVIATION_HIGH`** · *TEMP AIRE ALTA* · «CALEFACTOR CORTADO - AIRE MAS DE 3 C SOBRE LA CONSIGNA»
+**8 — `ALARM_AIR_TEMP_DEVIATION_HIGH`** · *TEMP AIRE ALTA* · «CALEFACTOR CORTADO - AIRE MAS DE 1 C SOBRE LA CONSIGNA»
 
 ```
 SCENE: The COMPLETE unit in flat front elevation, baby inside with its head to
@@ -457,7 +459,7 @@ FOCUS: the amber column rising above the pale blue setpoint tick, inside the
 over-warm hood.
 ```
 
-**9 — `ALARM_AIR_TEMP_DEVIATION_LOW`** · *TEMP AIRE BAJA* · «AIRE MAS DE 3 C BAJO LA CONSIGNA»
+**9 — `ALARM_AIR_TEMP_DEVIATION_LOW`** · *TEMP AIRE BAJA* · «AIRE MAS DE 1 C BAJO LA CONSIGNA»
 
 ```
 SCENE: Mirror of image 8 in structure, opposite in meaning. The air inside the

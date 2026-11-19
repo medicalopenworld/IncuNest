@@ -1,0 +1,4 @@
+Record=TopLevelDocument|FileName=Main.SchDoc|SheetNumber=4
+Record=NoMainPathDocument|SourceDocument=Main.SchDoc|FileName=PowerManagement.SchDoc|SheetNumber=1
+Record=NoMainPathDocument|SourceDocument=Main.SchDoc|FileName=Sensors.SchDoc|SheetNumber=3
+Record=NoMainPathDocument|SourceDocument=Main.SchDoc|FileName=uC.SchDoc|SheetNumber=2

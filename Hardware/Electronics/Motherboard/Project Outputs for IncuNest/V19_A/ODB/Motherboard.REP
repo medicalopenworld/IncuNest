@@ -1,0 +1,80 @@
+*************************************************************
+FileName = Motherboard.PcbDoc
+ODB++ directory structure
+*************************************************************
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\profile
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\stephdr
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\attrlist
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\core1\features
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\core1\attrlist
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\core3\features
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\core3\attrlist
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\core2\features
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\core2\attrlist
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\top_paste\features
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\top_paste\attrlist
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\top_solder\features
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\top_solder\attrlist
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\bottom_paste\features
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\bottom_paste\attrlist
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\drill_plated_bottom_layer-top_layer\features
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\drill_plated_bottom_layer-top_layer\attrlist
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\drill_plated_bottom_layer-top_layer\tools
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\bottom_solder\features
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\bottom_solder\attrlist
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\ground_plane\features
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\ground_plane\attrlist
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\power_plane\features
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\power_plane\attrlist
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\top_overlay\features
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\top_overlay\attrlist
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\top_layer\features
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\top_layer\attrlist
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\bottom_layer\features
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\bottom_layer\attrlist
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\bottom_overlay\features
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\bottom_overlay\attrlist
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\comp_+_top\features
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\comp_+_top\components
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\comp_+_bot\features
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\layers\comp_+_bot\components
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\steps\pcb\eda\data
+
+Generated File : C:\Users\Pablo\Documents\IncuNest\Hardware\Electronics\Motherboard\Project Outputs for IncuNest\ODB\odb\matrix\matrix
+

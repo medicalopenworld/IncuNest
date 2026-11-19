@@ -1,0 +1,267 @@
+# Revisión 2026-10-21 20:34
+
+=== 1. Pines críticos fuera de GND ===
+  J11-1    esquema=NetC43_2             pcb=NetC43_2
+  J8-1     esquema=NetC103_2            pcb=NetC103_2
+  J9-1     esquema=DGND                 pcb=DGND
+
+=== 2. Esquema: prev -> actual (exports\prev\IncuNest.NET) ===
+  Pines que pasan a DGND: ninguno
+  Pines que salen de DGND: ['C43-2', 'D11-2', 'J11-1', 'Q7-1', 'Q7-2', 'Q7-3', 'R50-1', 'R51-1', 'U10-3', 'U10-6']
+  Fusiones de nets (6):
+    -> Vsense+
+      V_OUT: C29-2, C34-1, C35-1, C36-1, C37-1, C48-1, C49-1, C50-1 …
+      Vsense+: R49-2, U7-12
+    -> V_IN_PROTECTED
+      V_IN_PROTECTED: C30-1, C31-1, C32-1, C33-1, C44-1, C45-1, C46-1, C47-1 …
+      Vsense+: Q14-5-6-7-8, U17-4
+    -> PHOTOTHERAPY_CTL
+      HEATER_CTL: U18-7
+      PHOTOTHERAPY_CTL: R29-2
+    -> NetR9_1
+      NetR22_1: U1-21
+      NetR3_2: R9-1
+    -> NetR3_2
+      NetR3_2: R3-2, U1-26
+      NetR22_1: R22-1
+    -> HEATER_CTL
+      PHOTOTHERAPY_CTL: U18-5
+      HEATER_CTL: R16-2
+  Divisiones de nets (7):
+    Vsense+ ->
+      V_IN_PROTECTED: Q14-5-6-7-8, U17-4
+      Vsense+: R49-2, U7-12
+    PHOTOTHERAPY_CTL ->
+      HEATER_CTL: U18-5
+      PHOTOTHERAPY_CTL: R29-2
+    NetR22_1 ->
+      NetR9_1: U1-21
+      NetR3_2: R22-1
+    NetR3_2 ->
+      NetR3_2: R3-2, U1-26
+      NetR9_1: R9-1
+    HEATER_CTL ->
+      PHOTOTHERAPY_CTL: U18-7
+      HEATER_CTL: R16-2
+    DGND ->
+      DGND: C1-1, C10-1, C104-2, C105-2, C106-2, C107-2, C108-2, C11-1 …
+      NetC43_2: C43-2, D11-2, J11-1, Q7-1, Q7-2, Q7-3, R50-1, R51-1 …
+    DC_DC_EN ->
+      DC_DC_EN: D14-3, R18-2, R73-2, U14-5
+      NetU1_33: U12-5
+  Pines nuevos (1): U1-33
+  Pines eliminados (23): C100-1, C100-2, C101-1, C101-2, C102-1, C102-2, Q8-1, Q8-2, Q8-3, Q8-4, Q8-5, Q8-6, Q8-7, Q8-8, Q8-9, R26-1, R26-2, U16-1, U16-2, U16-3, U16-4, U16-5, U16-6
+
+=== 3. Sincronía esquema -> PCB ===
+  Pines solo en PCB: ['U1-34', 'U1-35', 'U4-21', 'U4-22', 'U4-23', 'U4-30']
+  Pines solo en esquema (sin pad o sin net en PCB): ninguno
+  Nets fusionadas en PCB: 0; divididas: 0
+  Nets con nombre distinto: ninguna
+  Componentes solo en PCB: []
+  Componentes solo en esquema: []
+
+=== 4. Nets de un solo pin (esquema) ===
+
+Sin LCSC_PN en PCB: []
+En PCB y no en BOM (DNP o no montados): ['C17', 'C18', 'C19', 'C20', 'J1', 'R81', 'R82']
+En BOM y no en PCB: []
+LCSC_PN distinto BOM vs PCB: ninguno
+
+Componentes cuyo Manufacturer_Part_Number no aparece en el comentario (revisar, la referencia es LCSC_PN):
+  C105  LCSC=C1954161   comment="100uF 6v3"  MPN="TMCMA0J107MTRF"
+  J10   LCSC=C495261    comment="B6B-PH-K_LF__SN_"  MPN="B6B-PH-K(LF)(SN)"
+  J9    LCSC=C8445      comment="Degson 2EDGK-5.08-02P-14-00AH"  MPN="2EDGK-5.08-02P-14-00AH + 2EDGVC-5.08-02P"
+  R17   LCSC=C728276    comment="0.005R 1206 0.5W 1%"  MPN="WSLP12065L000FEA"
+  R46   LCSC=C728282    comment="0.002R 1206 0.5W 1%"  MPN="WSLP12065L000FEA"
+  R48   LCSC=C728276    comment="0.005R 1206 0.5W 1%"  MPN="WSLP12065L000FEA"
+  R49   LCSC=C728276    comment="0.005R 1206 0.5W 1%"  MPN="WSLP12065L000FEA"
+  R50   LCSC=C17885     comment="3R9 1206 0.5W 1%"  MPN="WSLP12065L000FEA"
+  R51   LCSC=C17885     comment="3R9 1206 0.5W 1%"  MPN="WSLP12065L000FEA"
+  R59   LCSC=C728276    comment="0.005R 1206 0.5W 1%"  MPN="WSLP12065L000FEA"
+  S1    LCSC=C47324878  comment="PTS647SK70SMTR2N_LFS"  MPN="PTS647SK70SMTR2N LFS"
+
+=== Nets abiertas en la PCB (grupos de pines no unidos por cobre) ===
+  ninguna
+
+=== Cortos (cobre de nets distintas que se toca) y holgura mínima por capa ===
+  CORTO ('bottom_layer', 'NetC20_2', 'DGND', 83.47, -6.85)
+  CORTO ('bottom_layer', 'NetC20_2', 'DGND', 83.47, -1.35)
+  top_layer     holgura mínima entre nets 0.102 mm  ACN / ACP en (23.4,-33.9)
+  ground_plane  holgura mínima entre nets 9.000 mm  None
+  power_plane   holgura mínima entre nets 0.127 mm  NetQ5_1 / DGND en (36.2,-35.1)
+  bottom_layer  holgura mínima entre nets 0.102 mm  Vsense+ / V_SYS en (29.6,-49.4)
+
+=== 1. Min-cut de rutas de potencia (mm equivalentes de 1 oz; vía = 0,5) ===
+     objetivo: >=3,5 mm a 8 A, >=4,7 mm a 10 A
+  OK J11 -> Q7 (entrada 24 V)           NetC43_2            5.4 mm  (obj 3.5)  cuello: 3× top contacto pad-polígono 1.80mm@(8.4,-3.9)
+  OK J8 -> Q14 (mechero)                NetC103_2          7.41 mm  (obj 3.5)  cuello: 3× top contacto pad-polígono 2.30mm@(12.5,-15.4), top pista 0.25mm@(23.9,-6.6), top pista 0.25mm@(24.2,-7.0)
+  !! Q7/Q14 -> R48                      V_IN_PROTECTED      3.0 mm  (obj 3.5)  cuello: 6× vía
+  OK R48 -> Q9                          NetC27_2           6.52 mm  (obj 3.5)  cuello: bot pista 0.20mm@(19.4,-23.2), bot pista 0.20mm@(19.2,-23.7), bot contacto pad-polígono 6.12mm@(19.1,-23.8)
+  OK Q10 -> R49 (V_OUT)                 Vsense+           16.07 mm  (obj 4.7)  cuello: bot pista 1.27mm@(32.3,-52.8), bot pista 1.27mm@(30.0,-50.0), bot pista 1.27mm@(31.3,-51.3), bot pista 2.54mm@(29.0,-50.7), bot contacto pad-polígono 3.37mm@(23.8,-50.9), bot pista 1.27mm@(30.6,-50.8), bot pista 1.27mm@(32.1,-52.0), bot pista 2.54mm@(29.2,-51.1), bot pista 1.27mm@(30.5,-51.7)
+  OK Q13 <-> V_OUT                      Vsense+            5.98 mm  (obj 4.7)  cuello: bot contacto pad-polígono 2.30mm@(31.0,-56.5), bot contacto pad-polígono 1.38mm@(31.0,-59.1), bot contacto pad-polígono 2.30mm@(31.0,-57.8)
+  !! R49 -> Q1 (V_SYS)                  V_SYS               4.0 mm  (obj 4.7)  cuello: 8× vía
+  OK Q13 -> R59 (BAT)                   NetC56_2            6.9 mm  (obj 4.7)  cuello: bot contacto pad-polígono 6.90mm@(25.4,-58.8)
+  OK J9 -> R59 (BAT)                    NetC58_1            6.9 mm  (obj 4.7)  cuello: bot contacto pad-polígono 6.90mm@(9.3,-60.1)
+  !! Q1 -> J3-2 (DC_ACT calefactor)     DC_ACTUATORS       2.54 mm  (obj 3.5)  cuello: top pista 2.54mm@(33.4,-60.6)
+  !! Q1 -> R17 (fototerapia)            DC_ACTUATORS        0.5 mm  (obj 1.8)  cuello: vía
+  OK R17 -> J4-2                        PHOTOTHERAPY+      2.54 mm  (obj 1.8)  cuello: top pista 2.54mm@(51.6,-60.9)
+  OK J4-1 -> Q5                         PHOTOTHERAPY-      2.54 mm  (obj 1.8)  cuello: top pista 2.54mm@(55.4,-58.2)
+  !! J3-1 -> R46                        HEATER             2.54 mm  (obj 3.5)  cuello: top pista 2.54mm@(28.3,-60.7)
+  !! R46 -> Q2                          NetQ2_4            2.54 mm  (obj 3.5)  cuello: top pista 2.54mm@(25.4,-53.8)
+
+=== 2. Kelvin (pin de sense -> pad del shunt solo por pistas <= 0,45 mm y vías) ===
+  R48: R53-2->R48-2: OK | R54-2->R48-1: OK
+  R59: R61-2->R59-2: NO: la pista fina se une a polígono bot (25.4,-58.8); distancia de la parte fina al pad del shunt 2.52 mm | R62-2->R59-1: NO: la pista fina se une a polígono bot (9.3,-60.1); distancia de la parte fina al pad del shunt 2.51 mm
+  R49: U7-12->R49-2: NO: la pista fina se une a pista 1.27mm bot (32.3,-52.8), pista 1.27mm bot (32.4,-53.3), pista 1.27mm bot (32.5,-53.3); distancia de la parte fina al pad del shunt 1.15 mm | U7-11->R49-1: NO: la pista fina se une a polígono bot (32.7,-45.9); distancia de la parte fina al pad del shunt 2.37 mm
+  R17: U7-15->R17-1: OK | U7-14->R17-2: OK
+  R13: U7-2->R13-2: NO: la pista fina se une a pista 2.54mm top (33.2,-52.6), pista 2.54mm top (33.2,-56.3); distancia de la parte fina al pad del shunt 0.43 mm | U7-1->R13-1: NO: la pista fina se une a pista 2.54mm top (37.3,-56.8); distancia de la parte fina al pad del shunt 0.55 mm
+  R46: U8-12->R46-1: OK | U8-11->R46-2: OK
+  R19: U8-15->R19-1: NO: la pista fina se une a pad bot (65.4,-48.1), polígono bot (72.6,-53.9), polígono pow (70.5,-52.3); distancia de la parte fina al pad del shunt 10.69 mm | U8-14->R19-2: OK
+
+=== 3. Etapa de potencia BQ25730 ===
+  Q9   ( 19.16; -27.35) rot 270 cara B
+  Q12  ( 12.57; -27.18) rot 180 cara B
+  L1   ( 10.79; -38.73) rot 90 cara B
+  Q11  ( 11.18; -50.06) rot 0 cara B
+  Q10  ( 18.90; -48.94) rot 270 cara B
+  C44  ( 15.11; -17.49) rot 0 cara B
+  C45  ( 15.11; -15.96) rot 0 cara B
+  C46  ( 15.11; -19.01) rot 0 cara B
+  C47  ( 15.37; -20.66) rot 0 cara B
+  C27  ( 21.21; -24.13) rot 0 cara B
+  C28  ( 21.21; -23.11) rot 0 cara B
+  C37  ( 27.30; -53.09) rot 90 cara B
+  C51  ( 16.55; -53.06) rot 90 cara B
+  C29  ( 28.57; -53.59) rot 270 cara B
+  U11  ( 23.75; -38.10) rot 90 cara B
+  Área SW1: 119.6 mm² (bot 119.6); vías en SW1: 0
+  Área SW2: 130.1 mm² (bot 130.1); vías en SW2: 0
+  Vías DGND junto a los source de Q12: 0 (a <=0,6 mm de los pads); bajo/alrededor del encapsulado: 1
+  Vías DGND junto a los source de Q11: 0 (a <=0,6 mm de los pads); bajo/alrededor del encapsulado: 0
+  ACP/ACN            a SW1: misma capa 0.54 mm [ACN(bot) <-> SW1(bot) cerca de (22.7,-36.1)] | cualquier capa 0.54 mm
+  ACP/ACN            a SW2: misma capa 3.25 mm [ACN(bot) <-> SW2(bot) cerca de (22.7,-36.1)] | cualquier capa 3.25 mm
+  NetC57_1/NetC57_2  a SW1: misma capa 3.40 mm [NetC57_2(bot) <-> SW1(bot) cerca de (23.9,-40.1)] | cualquier capa 3.40 mm
+  NetC57_1/NetC57_2  a SW2: misma capa 0.93 mm [NetC57_2(bot) <-> SW2(bot) cerca de (23.9,-41.0)] | cualquier capa 0.00 mm
+  Pistas finas de V_IN_PROTECTED (sense R48): distancia mínima a SW1/SW2 5.35 mm
+  Pistas finas de NetC27_2 (sense R48): distancia mínima a SW1/SW2 2.58 mm
+
+=== 4. Retornos: longitud de pista de top/bottom fuera del DGND de la capa adyacente (mm) ===
+  3v3_dig@2A           bot:   15.7 de   29.7
+  5V@2A                bot:   14.9 de   28.8
+  Vsense+              bot:   12.1 de   23.8
+  3v3_dig@2A           top:    9.2 de   86.3
+  BABY_TEMP            bot:    9.0 de   17.0
+  NetJ10_6             bot:    8.5 de   11.7
+  NetU1_32             bot:    7.6 de   23.5
+  DC_ACTUATORS         bot:    7.5 de   19.2
+  SCL                  bot:    6.4 de   18.7
+  NetR19_2             bot:    6.4 de   10.3
+  D_P                  bot:    6.0 de    6.7
+  NetR27_2             bot:    5.9 de    6.9
+  5V@2A                top:    5.6 de   26.5
+  SDA                  bot:    5.3 de   11.1
+  NetC23_2             top:    4.5 de   13.7
+  SPI_MOSI             bot:    4.3 de   12.6
+  SPI_SCK              bot:    4.2 de    8.2
+  DEBUG_RX             bot:    4.1 de   10.5
+  SDA                  top:    4.1 de   29.5
+  AFE_READY            bot:    3.9 de    9.7
+  D_N                  bot:    3.7 de    9.0
+  DC_ACTUATORS         top:    3.7 de   42.0
+  VUSB                 bot:    3.7 de    6.7
+  AFE_READY            top:    3.4 de   43.9
+  GSM_RST              top:    3.4 de   30.4
+  DC_DC_EN             top:    3.2 de   28.7
+  V_SYS                bot:    2.9 de    5.0
+  DC_DC_EN             bot:    2.8 de    9.5
+  PHOTOTHERAPY+        top:    2.6 de   14.8
+  3v3_ANA@250mA        top:    2.5 de   16.1
+  NetJ10_4             top:    2.5 de   48.1
+  GSM_CLK              top:    2.5 de   31.1
+  AFE_CS               top:    2.4 de   35.1
+  FAN+                 top:    2.4 de    9.8
+  D_P                  top:    2.3 de   46.7
+  SCL                  top:    2.3 de   30.2
+  GSM_VCC              top:    2.3 de   25.3
+  PHOTOTHERAPY+        bot:    2.1 de    3.4
+  NetQ13_4             bot:    2.1 de    4.8
+  HEATER               top:    1.9 de    9.1
+
+=== 4b. Pistas en power_plane (L3) bajo zonas sensibles ===
+  Termistor (J7/R44/R45/U9/U3/C23) power_plane: 3v3_dig@2A 18.2mm, AFE_PDN 15.9mm, SPI_MOSI 15.2mm, 3v3_ANA@250mA 13.3mm, SPI_MISO 13.1mm, 5V@2A 11.5mm, SPI_SCK 10.8mm, AFE_READY 4.1mm, GSM_CLK 3.7mm, GSM_RST 3.2mm, SCL 2.9mm, SDA 1.2mm, AFE_CS 0.1mm
+  Termistor (J7/R44/R45/U9/U3/C23) ground_plane: sin pistas
+  ESP32 (U1) power_plane: ESP32_EN 20.1mm, 3v3_dig@2A 20.0mm, SPI_SCK 20.0mm, SPI_MISO 20.0mm, NetU1_33 19.0mm, NetR75_1 17.5mm, SPI_MOSI 14.9mm, AFE_CS 13.0mm, GSM_RX 4.9mm, AFE_PDN 3.3mm, SDA 0.0mm
+  ESP32 (U1) ground_plane: sin pistas
+  AFE (U4/Y1) power_plane: 3v3_ANA@250mA 13.4mm, 5V@2A 0.2mm, SPI_MOSI 0.0mm
+  AFE (U4/Y1) ground_plane: sin pistas
+
+=== 5. Distancias pin a pin (borde de pad a borde de pad, mm) ===
+  U11 REGN - C55                   1.81
+  U11 VDDA - C61                   2.29
+  U11 VBUS - C108                  1.91
+  U11 BTST1 - C38                  1.38
+  U11 BTST2 - C39                  1.30
+  U11 SRP/SRN - C57               23.40
+  Q9 drain - C44                   7.17
+  Q9 drain - C47                   4.04
+  Q12 source - C44 GND             5.73
+  Q10 drain - C37                  4.47
+  Q11 source - C37 GND            13.17
+  Q11 source - C51 GND             2.42
+  U12 VIN - C74                    4.55
+  U12 GND - C74                    5.56
+  U13 VIN - C84                    3.73
+  U14 VIN - C93                    4.43
+  U1 3V3 - C3                      0.54
+  U1 3V3 - C2                      1.36
+  U1 EN - C1                       0.93
+  U4 RX_ANA_SUP(33) - C96          5.44
+  U4 RX_ANA_SUP(39) - C96          7.96
+  U4 RX_DIG_SUP - C11              0.38
+  U4 LED_DRV_SUP - C13             1.41
+  U4 TX_CTRL_SUP - C12             3.96
+  U4 BG - C8                       2.96
+  U4 TX_REF - C9                   3.08
+  U18 VDD - C106                   0.53
+  U18 VDD - C104                   1.59
+  U7 VS - C24                      0.54
+  U8 VS - C25                      0.54
+  U9 VDD - C26                     0.38
+  U5 VBAT - C105                   1.71
+  U5 VBAT - C14                    0.94
+  U2 IN - C?                       0.92
+  U10 VCAP - C43                   0.60
+  U17 VCAP - C103                  0.60
+  Q2 gate - R16                    1.56
+  Q5 gate - R29                   20.51
+  U18 OUTB - R16                   0.49
+  U18 OUTA - R29                   1.92
+
+=== 6a. Térmico (cobre del drain/pestaña y vías de la misma net) ===
+  Q13 (NetC56_2, cara B): cobre bot 40 mm², top 0; vías bajo/junto a la pestaña: 0
+  Q2 (NetQ2_4, cara T): cobre top 60 mm², bot 1 mm²; vías bajo/junto a la pestaña: 1
+  Q5 (PHOTOTHERAPY-, cara T): cobre top 84 mm², bot 4 mm²; vías bajo/junto a la pestaña: 0
+  Q1 (DC_ACTUATORS, cara T): cobre top 72 mm², bot 11 mm²; vías bajo/junto a la pestaña: 1
+  Q7 (V_IN_PROTECTED, cara T): cobre top 47 mm², bot 95 mm²; vías bajo/junto a la pestaña: 4
+  Q14 (V_IN_PROTECTED, cara T): cobre top 47 mm², bot 95 mm²; vías bajo/junto a la pestaña: 0
+
+=== 6b. RF, antena del ESP32, taladros y DFM ===
+  RF NetC17_2 en bottom_layer: anchos [0.35] mm, long 4.0 mm, gap mínimo a DGND 0.127 mm
+  U1 pin1 (59.8,-7.2) pin15 (58.0,-25.0) pin26 (44.1,-25.0) pin27 (42.3,-23.7)
+  Zona de antena estimada: [(64.6, -15.8), (37.7, -13.2), (38.3, -6.7), (65.2, -9.4)]; fuera de placa: 0.0 mm² de 175.9
+    cobre en zona de antena top_layer: 165.6 mm²
+    cobre en zona de antena ground_plane: 166.2 mm²
+    cobre en zona de antena power_plane: 145.3 mm²
+    cobre en zona de antena bottom_layer: 151.1 mm²
+  Vías por diámetro de taladro: {0.3: 975, 0.8: 22, 0.2: 20}
+  Taladro 3.20 mm en (15.6,-64.3) net DGND; a 79.2 mm de RF_PCB1
+  Taladro 3.20 mm en (22.6,-14.8) net DGND; a 52.9 mm de RF_PCB1
+  Taladro 3.20 mm en (111.5,-64.3) net $NONE$; a 63.2 mm de RF_PCB1
+  Taladro 3.20 mm en (116.8,-23.0) net DGND; a 42.7 mm de RF_PCB1
+  Taladro 3.07 mm en (126.6,-38.3) net DGND; a 57.3 mm de RF_PCB1
+  Taladro 3.07 mm en (126.6,-63.3) net DGND; a 72.2 mm de RF_PCB1
+  Máscara U11: 34 aperturas, 1 regiones tras unir (si < aperturas hay aperturas solapadas = sin puente), puente mínimo 0.322 mm
+  Máscara U4: 55 aperturas, 43 regiones tras unir (si < aperturas hay aperturas solapadas = sin puente), puente mínimo 0.017 mm
+  Máscara U7: 21 aperturas, 17 regiones tras unir (si < aperturas hay aperturas solapadas = sin puente), puente mínimo 0.147 mm
+  Serigrafía top: 79 elementos a <0,15 mm de una apertura de máscara (área de serigrafía sobre aperturas 9.27 mm², la recorta el fabricante)
+  Serigrafía bottom: 124 elementos a <0,15 mm de una apertura de máscara (área de serigrafía sobre aperturas 12.05 mm², la recorta el fabricante)

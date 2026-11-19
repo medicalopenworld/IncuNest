@@ -131,6 +131,36 @@ quiere enseñar.
 - El alta de un bebé real desde Bebés, SIN PESO y SALTAR/BEBE NUEVO del
   asistente se rechazan con aviso en formación.
 
+## Revisión 2026-09-10: registro desde Bebes, segundo bebé de prácticas
+
+La pantalla Bebes registra bebés nuevos (cambio
+`hmi-bebes-alta-desde-lista`) y la lección 1 de Enfermería tiene que
+enseñar ese flujo de verdad. En formación el registro **no se intercepta
+con un aviso ni se contesta como ZOE**: `Training_SimProfileNew` (hasta
+ahora código muerto, porque el asistente rechaza BEBE NUEVO) crea un
+segundo bebé de prácticas, `TRAINING_NEW_BABY_SEQ = 0xFFFE`, con el nombre
+y las semanas que tecleó el alumno. La lista simulada devuelve a ZOE y a
+ese bebé; `Training_SimProfileSelect` contesta el `seq` pedido si es uno de
+los dos (y carga sus datos para el rango), ZOE en cualquier otro caso. Vive
+lo que dura la lección (`Training_Enter` lo borra) y
+`Training_IsPracticeSeq()` sustituye a la comparación con ZOE en el motor
+(borrado del perfil recordado al salir) y en la lección. El asistente sigue
+rechazando BEBE NUEVO y SALTAR: la selección se enseña allí, el registro en
+Bebes. `Maintenance_Tick()` deja de seguir el `seq` al mando en formación:
+un bebé de prácticas no es un cambio de paciente y no debe escribir NVS
+(`HMI_KEY_MNT_SEQ`, `HMI_KEY_MNT_TPEND`), cosa que con ZOE ya podía pasar;
+y al salir el motor **restaura** el perfil recordado de antes de la lección
+(`BabyWizard_GetSession` / `_SetSession`) en vez de borrarlo, porque el
+borrado dejaba un flanco `seq → 0` que ese mismo módulo anotaba como alta
+falsa en el primer tick tras la lección. Precisión sobre "no llega a la
+placa": es cierto para toda escritura y para la curva de peso de un bebé de
+prácticas (`WEIGHT_HISTORY_REQ` se contesta en local); las consultas de solo
+lectura del historial archivado (bebés reales dados de alta) sí salen y se
+muestran en formación, en solo lectura. `CommTask` corta además cualquier
+`PROFILE_SELECT` / `PROFILE_WEIGHT` / `PROFILE_AGE_MANUAL` con un `seq` de
+prácticas fuera de formación, para que el invariante no dependa del orden de
+`endLesson()`.
+
 **Deuda que este ADR deja explícita en la motherBoard** (fuera de este
 cambio, hay que abrir su propia rama): `CommTask.cpp` de la placa conserva
 `s_wizardSeq` tras un alta (`BABY_MSG_DISCHARGE` solo limpia

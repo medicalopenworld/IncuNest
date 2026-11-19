@@ -98,6 +98,13 @@ LV_IMG_DECLARE(ui_img_iso7010_m025_png); // assets_src/ISO_7010_M025.png
 // IEC 60417-5576 con X DISCONTINUA = AUDIO PAUSED (IEC 60601-1-8 Tabla 5).
 // Mascara de 1 bit: se tine con el color del estilo segun la prioridad.
 LV_IMG_DECLARE(ui_img_audio_paused_sym); // assets_src/IEC 60417-5576-2.png
+// Iconos del heading del bloqueo: blanco + alfa, se tinen con img_recolor.
+// Los genera tools/gen_heading_icons.py.
+LV_IMG_DECLARE(ui_img_heading_door);       // assets_src/heading_door.png 22x22
+LV_IMG_DECLARE(ui_img_heading_noise_low);  // assets_src/heading_noise_low.png 26x22
+LV_IMG_DECLARE(ui_img_heading_noise_mid);  // assets_src/heading_noise_mid.png 26x22
+LV_IMG_DECLARE(ui_img_heading_noise_high); // assets_src/heading_noise_high.png 26x22
+LV_IMG_DECLARE(ui_img_heading_battery);    // assets_src/heading_battery.png 32x18
 #if INTRO_FLAG == INTRO_FLAG_TOGO
 LV_IMG_DECLARE(ui_img_flag_togo_png);      // assets_src/Flag_Togo.png
 #elif INTRO_FLAG == INTRO_FLAG_RASD
@@ -120,6 +127,11 @@ extern lv_obj_t * ui_ImageFlagTogo;
 #if INTRO_FLAG != INTRO_FLAG_NONE
 extern lv_obj_t * ui_ImageIntroFlag;
 #endif
+// Boton del primer test de fabrica: oculto salvo que
+// FactoryTest_FirstTestPending() (lo muestra UI_ShowIntroHwTestButton()).
+extern lv_obj_t * ui_IntroHwTestBtn;
+extern lv_obj_t * ui_IntroHwTestLabel;
+void UI_ShowIntroHwTestButton(void);
 void ui_ScreenIntro_screen_init(void);
 void ui_ScreenIntro_screen_destroy(void);
 
@@ -127,19 +139,49 @@ void ui_ScreenIntro_screen_destroy(void);
 extern lv_obj_t * ui_ScreenMain;
 extern lv_obj_t * ui_ClockTime;
 extern lv_obj_t * ui_ClockDate;
-extern lv_obj_t * ui_ClockButton;
-// Boton de ayuda "?" del heading (spec hmi-help-center). Abre HelpDialog.
-extern lv_obj_t * ui_HelpButton;
-extern lv_obj_t * ui_HelpButtonLabel;
+// Contenedor de hora y fecha del heading. Solo informa: el ajuste manual se
+// abre desde el menu (MenuDialog, FECHA Y HORA).
+extern lv_obj_t * ui_ClockCont;
 // Indicador de conectividad del heading (WIFI/GPRS/ninguna + cobertura).
 // Ver connectivity_heading_update() en UITask.cpp.
 extern lv_obj_t * ui_ConnCont;
 extern lv_obj_t * ui_ConnIcon;
 extern lv_obj_t * ui_ConnBar[4];
-extern lv_obj_t * ui_Settings;
+
+// Indicador del entorno de la SensorBoard (puerta abierta): icono + palabra
+// corta. El ruido ya no se pinta: lo vigila ALARM_NOISE_HIGH. Solo en el
+// heading de ui_ScreenLock: en
+// Main no hay hueco (bateria, reloj, conectividad, candado, bebe al mando,
+// alarmas y menu llenan el ancho). Lo refresca sb_env_heading_update() (UITask.cpp);
+// aqui solo se crea, oculto.
+typedef struct {
+  lv_obj_t * cont;       // contenedor; oculto salvo que haya algo que pintar
+  lv_obj_t * doorRow;
+  lv_obj_t * doorIcon;   // ui_img_heading_door
+  lv_obj_t * doorText;
+} ui_HeadingEnv_t;
+extern ui_HeadingEnv_t ui_HeadingEnvLock;
+// Marca de objeto cuyo texto lleva color propio: el barrido de etiquetas de
+// UI_ApplyTheme() no entra en el ni en sus hijos (simbolo blanco sobre el
+// azul de un boton, check sobre el verde de un distintivo...).
+#define UI_FLAG_KEEP_TEXT_COLOR LV_OBJ_FLAG_USER_1
+
+// Botones del heading de Main: cuadrados azules, el lenguaje de "esto se
+// toca". Alarmas abre el centro de alarmas; menu abre MenuDialog.
+extern lv_obj_t * ui_MenuButton;
 extern lv_obj_t * ui_AlarmButton;
-extern lv_obj_t * ui_BabiesButton;
-extern lv_obj_t * ui_BabiesButtonLabel;
+// Identidad del bebe al mando: texto en el heading de Main (no se toca; los
+// bebes se abren desde el menu) y replica en el de ui_ScreenLock. Ocultas
+// hasta que haya sesion viva.
+extern lv_obj_t * ui_HeadingPatientCont;
+extern lv_obj_t * ui_HeadingPatientName;
+extern lv_obj_t * ui_HeadingPatientDetail;
+// Terapia acumulada del bebe al mando, en la cabecera de cada panel de Main.
+extern lv_obj_t * ui_TempTotalLabel;
+extern lv_obj_t * ui_HumTotalLabel;
+extern lv_obj_t * ui_PhotoTotalLabel;
+extern lv_obj_t * ui_LockPatientName;
+extern lv_obj_t * ui_LockPatientDetail;
 extern lv_obj_t * ui_TempCont;
 extern lv_obj_t * ui_Panel1;
 extern lv_obj_t * ui_Panel4;
@@ -301,6 +343,11 @@ extern lv_obj_t * ui_MaintConfigCont;
 extern lv_obj_t * ui_MaintTitleLabel;
 extern lv_obj_t * ui_MaintEnableLabel;
 extern lv_obj_t * ui_MaintEnableSwitch;
+// Interruptor del aviso de pesada diaria, bajo el de los avisos de limpieza.
+extern lv_obj_t * ui_WeighEnableLabel;
+extern lv_obj_t * ui_WeighEnableSwitch;
+extern lv_obj_t * ui_MaintSvcLabel;
+extern lv_obj_t * ui_MaintSvcSwitch;
 // Una linea por nivel del protocolo (diaria / semanal / terminal) con su
 // cadencia y la fecha del ultimo registro. Solo lectura: registrar se hace en
 // el pop-up, que es donde estan los tres botones.
@@ -471,27 +518,48 @@ extern lv_obj_t * ui_AlarmLockCont;
 extern lv_obj_t * ui_AlarmLockImg;
 extern lv_obj_t * ui_PanelLockAlarm;
 extern lv_obj_t * ui_AlarmLockNumLabel;
-extern lv_obj_t * ui_ChartLockCont;
-extern lv_obj_t * ui_ChartLockImg;
-extern lv_obj_t * ui_ChartLockLabel;
 extern lv_obj_t * ui_CheckImg;
-// Grafica PPG de la pantalla de bloqueo. A 25 Hz (CTRL,PPG cada 40 ms),
-// 128 puntos = 5,1 s de ventana. LOCK_PPG_GAP es el hueco de borrado que se
-// mantiene por delante del cursor en modo CIRCULAR: corta la linea entre la
-// muestra nueva y la de hace 5 s, y hace visible por donde va el barrido.
-#define LOCK_PPG_POINTS 128
-#define LOCK_PPG_GAP    6
+// PPG chart of the lock screen. The point count follows the sweep speed
+// instead of being written by hand:
+//   points = rate_hz x width_px / (sweep_mm_s x px_per_mm)
+// Inputs: CTRL,PPG at 50 Hz (PROTOCOL.md; 25 Hz until motherBoard 18.57.0);
+// CrowPanel 7" = 800 px over 154 mm of active width (ruler, 2026-11-06,
+// +-1 mm) = 5.19 px/mm; 25 mm/s, the usual pleth sweep (ECG convention, ISO
+// 80601-2-61 fixes none; 12.5 / 50 mm/s would be a user setting, not offered).
+// 649 px / 130 px/s = 5.00 s = 250 points at 50 Hz since 4.8.0 (460 px =
+// 3.54 s = 177 points in 4.7.0; 128 = 5.1 s at 17 mm/s before that, chosen by
+// time, not by pixels). LOCK_PPG_GAP is the erase gap kept ahead of the cursor
+// in CIRCULAR mode (0.24 s): it breaks the line between the newest sample and
+// the 5 s old one and shows where the sweep is. LOCK_VIT_WIDTH_PX is what the
+// chart leaves to the readings inside the frame: 780 px between its 10 px
+// margins, less the chart and a 9 px gap. Plain #defines: this header sits
+// inside extern "C".
+#define LOCK_PPG_RATE_HZ     50.0f
+#define LOCK_PANEL_PX_PER_MM (800.0f / 154.0f)
+#define LOCK_PPG_SWEEP_MM_S  25.0f
+#define LOCK_PPG_WIDTH_PX    649
+#define LOCK_VIT_WIDTH_PX    (780 - LOCK_PPG_WIDTH_PX - 9)
+#define LOCK_PPG_POINTS      ((int)(LOCK_PPG_RATE_HZ * LOCK_PPG_WIDTH_PX / \
+                                    (LOCK_PPG_SWEEP_MM_S * LOCK_PANEL_PX_PER_MM) + 0.5f))
+#define LOCK_PPG_GAP         ((int)(LOCK_PPG_RATE_HZ * 0.24f + 0.5f))
+// Fonts of the pulse-oximetry readings: Roboto (tools/gen_vitals_fonts.py),
+// digits of one width, only the glyphs the readings use.
+LV_FONT_DECLARE(ui_font_vitals_value);    // 48 px, PR and SpO2
+LV_FONT_DECLARE(ui_font_vitals_small);    // 20 px, PI
+LV_FONT_DECLARE(ui_font_vitals_title);    // 16 px, the titles (14 px until 4.8.1)
+LV_FONT_DECLARE(ui_font_vitals_unit);     // 14 px, the units under PR and SpO2
+extern lv_obj_t * ui_LockPulseOxFrame;
 extern lv_obj_t * ui_LockPPGChart;
-extern lv_obj_t * ui_LockHRCont;
+extern lv_obj_t * ui_LockVitCont;
+extern lv_obj_t * ui_LockSpO2Label;
 extern lv_obj_t * ui_LockHRLabel;
+extern lv_obj_t * ui_LockPILabel;
 void ui_ScreenLock_screen_init(void);
 void ui_ScreenLock_screen_destroy(void);
 
 // --- EVENT PROTOTYPES ---
-void ui_event_Settings(lv_event_t * e);
-void ui_event_BabiesButton(lv_event_t * e);
+void ui_event_MenuButton(lv_event_t * e);
 void ui_event_AlarmButton(lv_event_t * e);
-void ui_event_HelpButton(lv_event_t * e);
 void ui_event_SPO2Button(lv_event_t * e);
 void ui_event_ChartButton(lv_event_t * e);
 void ui_event_ImgButton1(lv_event_t * e);

@@ -36,6 +36,62 @@ typedef enum {
 // tolerancia evita depender de la representacion exacta tras el formateo.
 #define PROTO_TEL_TEMP_IS_UNAVAILABLE(v) ((v) < -900.0)
 
+// CTRL,ENV,link,door,lux,dbA : entorno que la SensorBoard (USB) comunica a la
+// motherBoard, reenviado al display. Solo informativo: ni la puerta ni el ruido
+// entran en el lazo termico ni en ninguna alarma.
+//
+// Mismo criterio que CTRL,TEL: lo que no se sabe viaja como centinela fuera de
+// rango fisico y NO como 0, que es un valor plausible. lux y dbA ademas
+// viajan SIN CALIBRAR (ver SensorBoard_v2/ESTADO.md): el display no los pinta
+// como medida, solo clasifica el ruido en niveles.
+#define PROTO_ENV_UNAVAILABLE    (-1)  // lux o dbA no disponible
+
+#define PROTO_ENV_DOOR_UNKNOWN   (-1)  // sin dato, o enlace caido
+#define PROTO_ENV_DOOR_CLOSED    0
+#define PROTO_ENV_DOOR_OPEN      1
+#define PROTO_ENV_DOOR_FAULT     2     // hall sospechoso (ALARM_SENSORBOARD_DOOR_FAULT)
+
+// Cadencia en reposo. Un cambio de enlace o de puerta sale sin esperar. Misma
+// cifra que el periodo de publicacion del sonido en origen: mas rapido no
+// traeria dato nuevo.
+#define PROTO_ENV_PERIOD_MS      5000u
+
+// Cota de la linea completa (sin el '\n' ni el NUL), para dimensionar buffers.
+#define PROTO_ENV_LINE_MAX       39
+
+// CTRL,BATT,state,level,pct : estado de la bateria interna que estima la
+// motherBoard a partir del cargador BQ25730 (modules/control/battery_gauge.h).
+// Solo informativo; la alarma de interrupcion de red es otra cosa
+// (ALARM_MAINS_INTERRUPTION) y no depende de esta linea.
+//
+//  state: PROTO_BATT_STATE_*.
+//  level: rayas 0..PROTO_BATT_LEVEL_MAX. En DISCHARGING, por tension; en FULL
+//         vale el maximo; en CHARGING, por la carga integrada.
+//  pct:   0..100. Mismo criterio que level.
+//
+// Un equipo sin cargador (HW < 17) no envia la linea: el display, al no
+// recibirla, no pinta indicador.
+
+// Indicador de bateria y alarma BATERIA BAJA, en las dos placas. APAGADO hasta
+// que la bateria entre en fabricacion: hoy hay equipos alimentados con un
+// adaptador de 12 V en los bornes de la bateria, y ahi el cargador ve una
+// "bateria" sin red, que pintaria una bateria descargandose y podria disparar
+// BATERIA BAJA (ALTA) en falso. Con 0 la motherBoard no envia CTRL,BATT ni
+// evalua la alarma, y el display no crea el indicador; el estimador
+// (battery_gauge) sigue corriendo para tenerlo listo al encenderlo.
+#define PROTO_BATT_ENABLED 0
+#define PROTO_BATT_STATE_UNKNOWN      0
+#define PROTO_BATT_STATE_DISCHARGING  1  // sin red
+#define PROTO_BATT_STATE_CHARGING     2  // con red, cargando
+#define PROTO_BATT_STATE_FULL         3  // con red, carga completa (flotacion)
+#define PROTO_BATT_LEVEL_MAX          4
+
+// Cadencia en reposo. Un cambio de estado o de rayas sale sin esperar.
+#define PROTO_BATT_PERIOD_MS      5000u
+
+// Cota de la linea completa (sin el '\n' ni el NUL): "CTRL,BATT,3,4,100".
+#define PROTO_BATT_LINE_MAX       24
+
 typedef struct {
   double detectedAirTemperature;
   double detectedSkinTemperature;
@@ -68,6 +124,10 @@ typedef struct {
   // fiable: serverCommStatus == COMM_STATUS_NONE (no hay transporte del que
   // medir cobertura) o una placa antigua que no manda este campo todavia.
   int      linkBars;
+  // Campo 24 de CTRL,STATE: bebe que la placa tiene al mando (0 = ninguno).
+  // Una placa anterior no lo manda: el consumidor debe llevar aparte si el
+  // campo llego (0 es informacion, no "desconocido"). Ver PROTOCOL.md.
+  uint32_t activeSeq;
 } Proto_CtrlState;
 
 typedef struct {
@@ -107,6 +167,42 @@ typedef struct {
   int    skinModeEnabled;
   int    photoMinutesRemaining;
 } Proto_HmiCommand;
+
+// Rango de la fuente que fijo el reloj de pared. Viaja en el campo `src` de
+// CTRL,TIME, asi que es vocabulario del protocolo y no un detalle interno de
+// la motherBoard: el HMI lo necesita para decidir si lo que recibe merece
+// escribirse en su RTC.
+//
+// GANA EL MAYOR. Se numera en orden creciente de confianza a proposito: en
+// codigo `nueva > vigente` se lee solo, mientras que numerar al reves —el 1
+// como el mejor, que es como se suele hablar de prioridades— invita al error
+// de signo cada vez que alguien toca la comparacion.
+//
+// NO es la misma escala que TzSource, aunque compartan forma. TzSource ordena
+// el HUSO y tiene IP en el 2, sin NTP ni RTC; esta ordena el INSTANTE. El
+// protocolo las transmite en campos distintos (`tzsrc` y `src`) y fundirlas
+// costaria un bug el dia que alguien pase un valor de una a la otra.
+typedef enum {
+  // No se sabe. Con el reloj sin sincronizar, o con un CTRL,TIME de una
+  // motherBoard anterior a esta version, que no envia el campo.
+  PROTO_TIME_SOURCE_NONE = 0,
+  // NITZ de la red movil. Va el ultimo porque muchos operadores no lo emiten,
+  // o lo emiten con minutos de error. Sigue siendo la MEJOR fuente de huso
+  // (ver TzSource): es la peor hora y la mejor zona, y por eso son dos
+  // escalas separadas.
+  PROTO_TIME_SOURCE_NITZ = 1,
+  // El PCF8563 del HMI. Conserva la hora entre apagados, que es justo lo que
+  // ninguna otra fuente hace, pero es un RTC de cristal sin compensacion
+  // termica: deriva minutos al mes. Sirve de semilla, no de referencia.
+  PROTO_TIME_SOURCE_RTC = 2,
+  // NTP/SNTP, por WiFi o por el contexto PDP del modem. Precision de segundos
+  // y fecha fiable.
+  PROTO_TIME_SOURCE_NTP = 3,
+  // La tecleo el operador, en /config o en HMI,SET_TIME. Gana a todo: es la
+  // unica que conoce la hora local sin red, y desplazarla bajo los pies de
+  // quien la acaba de poner es peor que un error de minutos.
+  PROTO_TIME_SOURCE_MANUAL = 4,
+} Proto_TimeSource;
 
 #ifdef __cplusplus
 }

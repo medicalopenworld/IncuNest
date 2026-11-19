@@ -27,6 +27,8 @@
 
 #include "main.h"
 #include "alarm_policy.h"
+#include "modules/service/service_hours.h"
+#include "modules/config/runtime_config_rules.h"
 
 extern bool WIFI_EN;
 extern int presetTemp[2]; // preset baby skin temperature
@@ -78,7 +80,7 @@ void loaddefaultValues()
     p.putInt(KEY_FAN_PWR_SUPPLY_PWM, FAN_PWR_SUPPLY_PWM);
     p.putFloat(KEY_HEAT_MAX_A, HEATER_MAX_POWER_AMPS);
     p.putFloat(KEY_SKIN_T_MAX, SKIN_TEMPERATURE_SET_MAX);
-    p.putFloat(KEY_AIR_T_MAX, AIR_TEMPERATURE_SET_MAX);
+    p.putFloat(KEY_AIR_T_MAX, AIR_THERMAL_CUTOUT_DEFAULT_C);
     p.putInt(KEY_ACT_PERIOD, 60);
     p.putInt(KEY_PHOTO_PERIOD, 180);
     p.putInt(KEY_STBY_PERIOD, 3600);
@@ -114,6 +116,16 @@ void loaddefaultValues()
     p.putFloat(KEY_RT_FAN, 0.0f);
     p.putFloat(KEY_RT_PHOTO, 0.0f);
     p.putFloat(KEY_RT_HUM, 0.0f);
+    // Contadores a cero => las bases de servicio tambien, o el primer servicio
+    // tras el borrado contaria mal las horas hasta superar la base vieja.
+    p.putFloat(KEY_SVC_BASE_HEATER, 0.0f);
+    p.putFloat(KEY_SVC_BASE_FAN, 0.0f);
+    p.putFloat(KEY_SVC_BASE_HUM, 0.0f);
+    p.putFloat(KEY_SVC_BASE_PHOTO, 0.0f);
+    p.putUInt(KEY_SVC_EPOCH_HEATER, 0);
+    p.putUInt(KEY_SVC_EPOCH_FAN, 0);
+    p.putUInt(KEY_SVC_EPOCH_HUM, 0);
+    p.putUInt(KEY_SVC_EPOCH_PHOTO, 0);
     p.end();
   }
 
@@ -320,17 +332,46 @@ void recapVariables()
     in3.heaterMaxPowerAmps = p.getFloat(KEY_HEAT_MAX_A, HEATER_MAX_POWER_AMPS);
     if (isnan(in3.heaterMaxPowerAmps) || in3.heaterMaxPowerAmps <= 0)
       in3.heaterMaxPowerAmps = HEATER_MAX_POWER_AMPS;
+    // Un valor guardado por una version que no comprobaba el rango (antes de
+    // mb-remote-config, POST /config guardaba cualquier cosa) no puede
+    // sobrevivir fuera de 1..12 A: dejaria el formulario web devolviendo 400
+    // cada vez que se guarda la seccion, porque lo reenvia tal cual.
+    in3.heaterMaxPowerAmps = runtime_config_sanitize_heater_amps(
+        in3.heaterMaxPowerAmps, (float)HEATER_MAX_POWER_AMPS);
     in3.skinTemperatureSetMax = p.getFloat(KEY_SKIN_T_MAX, SKIN_TEMPERATURE_SET_MAX);
     if (isnan(in3.skinTemperatureSetMax) || in3.skinTemperatureSetMax <= 0)
       in3.skinTemperatureSetMax = SKIN_TEMPERATURE_SET_MAX;
     // 201.15.4.2.1 bb): un valor persistido antes de que existiera este limite
     // (o corrupto) no debe superar el tope normativo al restaurarse.
     in3.skinTemperatureSetMax = alarm_clamp_skin_cutout(in3.skinTemperatureSetMax);
-    in3.airTemperatureSetMax = p.getFloat(KEY_AIR_T_MAX, AIR_TEMPERATURE_SET_MAX);
+    in3.airTemperatureSetMax = p.getFloat(KEY_AIR_T_MAX, AIR_THERMAL_CUTOUT_DEFAULT_C);
     if (isnan(in3.airTemperatureSetMax) || in3.airTemperatureSetMax <= 0)
-      in3.airTemperatureSetMax = AIR_TEMPERATURE_SET_MAX;
-    // 201.15.4.2.1 aa): idem para el corte por aire.
+      in3.airTemperatureSetMax = AIR_THERMAL_CUTOUT_DEFAULT_C;
+    // Idem para el corte por aire; el techo esta en shared/alarm_policy.h.
     in3.airTemperatureSetMax = alarm_clamp_air_cutout(in3.airTemperatureSetMax);
+    // UNA UNIDAD YA INICIALIZADA NO HEREDA EL CORTE NUEVO. KEY_AIR_T_MAX se
+    // escribe en la inicializacion de fabrica, asi que cualquier equipo que ya
+    // haya arrancado con el firmware anterior lleva 38 guardado y se queda en
+    // 38 aunque el compilado diga 40: lo de arriba lee NVS, que manda. Con la
+    // consigna topada en 39 eso deja un equipo que NO puede alcanzar lo que se
+    // le pide — al cruzar 38 salta el corte, que es ALTA y apaga el
+    // calefactor. No se migra en silencio: subir un umbral de seguridad por
+    // nuestra cuenta es justo lo que no se debe hacer, y ademas borraria un 38
+    // puesto a proposito. Se avisa, y se corrige a mano con air_tmax en
+    // /config (o por el enlace).
+    //
+    // Va por ESP_LOGW y no por logI() a proposito: logI esta detras de
+    // LOG_INFORMATION, que es false, asi que se compilaria a nada. Un aviso
+    // que no se ve no es un aviso.
+    if (in3.airTemperatureSetMax < AIR_TEMPERATURE_SET_MAX) {
+      ESP_LOGW("APP",
+               "corte termico de aire a %.1f C, por debajo del tope de "
+               "consigna (%.1f C): una consigna por encima del corte "
+               "disparara ALARM_AIR_THERMAL_CUTOUT sin poder alcanzarse. "
+               "Ajusta air_tmax a %.1f en /config.",
+               in3.airTemperatureSetMax, (float)AIR_TEMPERATURE_SET_MAX,
+               (float)AIR_THERMAL_CUTOUT_DEFAULT_C);
+    }
     in3.fanCtlPWM = p.getInt(KEY_FAN_CTL_PWM, FAN_CTL_PWM_DEFAULT);
     if (in3.fanCtlPWM <= 0 || in3.fanCtlPWM > 255)
       in3.fanCtlPWM = FAN_CTL_PWM_DEFAULT;
@@ -372,13 +413,24 @@ void recapVariables()
     in3.humidifier_active_time = p.getFloat(KEY_RT_HUM, 0.0f);
     p.end();
   }
+  // Las bases de servicio dependen de los contadores de vida de arriba.
+  ServiceHours_Init();
 
   {
     Preferences p;
     p.begin(NS_GPRS, true);
-    in3.actuating_gprs_period = p.getInt(KEY_ACT_PERIOD, 60);
-    in3.phototherapy_gprs_period = p.getInt(KEY_PHOTO_PERIOD, 180);
-    in3.standby_gprs_period = p.getInt(KEY_STBY_PERIOD, 3600);
+    // Mismo motivo que heater_amps arriba: periodos fuera de 10..86400 s
+    // (0, negativos...) guardados por una version sin validacion vuelven al
+    // defecto en lugar de bloquear el guardado del formulario web.
+    in3.actuating_gprs_period = runtime_config_sanitize_period(
+        p.getInt(KEY_ACT_PERIOD, TX_GPRS_PERIOD_ACTUATING_S),
+        TX_GPRS_PERIOD_ACTUATING_S);
+    in3.phototherapy_gprs_period = runtime_config_sanitize_period(
+        p.getInt(KEY_PHOTO_PERIOD, TX_GPRS_PERIOD_PHOTOTHERAPY_S),
+        TX_GPRS_PERIOD_PHOTOTHERAPY_S);
+    in3.standby_gprs_period = runtime_config_sanitize_period(
+        p.getInt(KEY_STBY_PERIOD, TX_GPRS_PERIOD_STANDBY_S),
+        TX_GPRS_PERIOD_STANDBY_S);
     p.end();
   }
 
@@ -399,8 +451,58 @@ void recapVariables()
     p.begin(NS_STATE, true);
     in3.actuation = p.getUChar(KEY_ACTUATION, 0);
     in3.phototherapy = p.getUChar(KEY_PHOTO_ACTIVE, 0);
-    // restoreState is set only by security_check_reboot_cause() on crash/WDT
+    // Semilla de intensidad. La escribe actuatorsTest() cuando extrapola un PWM
+    // para la corriente objetivo, y se relee aqui porque en un arranque con
+    // restoreState ese autotest NO corre: sin esto la lampara arrancaba en el
+    // 40 % fijo de PHOTOTHERAPY_INITIAL_PWM_PCT, que no apunta a ningun
+    // objetivo y da una corriente distinta en cada unidad.
+    const uint8_t photoPwmGuardado = p.getUChar(KEY_PHOTO_PWM, 0);
+    // Solo vale si se calibro para el objetivo ACTUAL. Una semilla de otro
+    // objetivo (o una sin objetivo, escrita por 18.43/18.44) se ignora y se
+    // cae al camino normal: extrapolacion del autotest o 40 % fijo.
+    const uint16_t objetivoGuardado = p.getUShort(KEY_PHOTO_PWM_TGT, 0);
+    const uint16_t objetivoActual =
+        (uint16_t)(PHOTO_TARGET_CURRENT * 1000.0f + 0.5f);
+    if (photoPwmGuardado > 0 && objetivoGuardado != objetivoActual) {
+      ESP_LOGW("APP", "[BOOT] semilla de fototerapia descartada: calibrada "
+               "para %u mA, objetivo actual %u mA",
+               (unsigned)objetivoGuardado, (unsigned)objetivoActual);
+    }
+    if (photoPwmGuardado > 0 && objetivoGuardado == objetivoActual) {
+      in3.phototherapy_intensity = photoPwmGuardado;
+      in3.photoFirstRun = false;   // ya hay semilla buena: no usar el 40 % fijo
+    }
+    // restoreState ya viene resuelto por security_check_reboot_cause()
+    // (initHardware.cpp), que corre antes que initEEPROM() en setup(): se
+    // recupera en todo reinicio salvo POWERON y BROWNOUT.
     p.end();
+  }
+
+  // En un arranque que NO es recuperacion (encendido normal o brownout) la
+  // fototerapia no se reanuda, igual que no se reanuda el control de
+  // temperatura: in3.actuation se lee siempre pero solo se APLICA bajo
+  // restoreState, unas lineas mas abajo. in3.phototherapy no tenia ese filtro
+  // y si se aplicaba siempre, en initHardware.cpp:
+  //
+  //     if (in3.phototherapy) { ...; ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, ...) }
+  //
+  // Consecuencia observada en banco: apagas la unidad con la fototerapia
+  // puesta, la enciendes en frio, el autotest prueba la lampara al 10 % de PWM
+  // --correcto-- y justo despues esa linea la encendia a la intensidad de
+  // trabajo (40 %, o hasta 255 si photoFirstRun ya era falso), es decir MAS
+  // intensidad que el test, hasta que ~1 s despues llegaba el primer mandato
+  // del HMI con photo=0 y la apagaba. Un destello de irradiacion que nadie ha
+  // mandado, en cada encendido en frio posterior a una sesion.
+  //
+  // Intermitente a proposito de nadie: solo ocurre si se apago con la
+  // fototerapia encendida.
+  //
+  // Ademas dejaba a las dos placas discrepando justo en lo que
+  // security_check_reboot_cause() dice que se unifico: el HMI usa la misma
+  // regla (g_hmiRestoreState) y por eso el que mandaba photo=0 era el.
+  if (!in3.restoreState && in3.phototherapy) {
+    ESP_LOGW("APP", "[BOOT] arranque en frio: no se reanuda la fototerapia");
+    in3.phototherapy = false;
   }
 
   // Restore phototherapy timer if it was active
@@ -419,9 +521,15 @@ void recapVariables()
   }
 
   // Process actuation mode (restore temperature/humidity control state)
-  logI("[BOOT][DEBUG] recapVariables: restoreState=" + String(in3.restoreState) +
-       " actuation=" + String(in3.actuation) +
-       " controlMode=" + String(in3.controlMode));
+  //
+  // ESP_LOGW, no logI(): esta y la de abajo son las dos lineas que dicen si un
+  // equipo que acaba de reiniciarse vuelve controlando o vuelve parado, y con
+  // LOG_INFORMATION a false (main.h) logI() no compila nada. Sin ellas, tras
+  // un crash en banco no hay forma de saber si la recuperacion ocurrio: lo
+  // unico observable es el comportamiento del equipo, que es justo lo que se
+  // esta intentando explicar.
+  ESP_LOGW("APP", "[BOOT] recap: restoreState=%d actuation=%d controlMode=%d",
+           (int)in3.restoreState, (int)in3.actuation, (int)in3.controlMode);
   if (in3.restoreState)
   {
     switch (in3.actuation)
@@ -443,9 +551,9 @@ void recapVariables()
       in3.humidityControl = false;
       break;
     }
-    logI("[BOOT][DEBUG] recapVariables: restoreState resolved -> temperatureControl=" +
-         String(in3.temperatureControl) +
-         " humidityControl=" + String(in3.humidityControl));
+    ESP_LOGW("APP",
+             "[BOOT] recap: recuperado -> temperatureControl=%d humidityControl=%d",
+             (int)in3.temperatureControl, (int)in3.humidityControl);
   }
 
   ESP_LOGI("APP", "Serial: %d, Lang: %d", in3.serialNumber, in3.language);

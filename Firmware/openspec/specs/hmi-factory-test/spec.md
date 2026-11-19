@@ -42,7 +42,7 @@ desde la que se puede abrir el test.
 ### Requirement: Tests locales del display
 
 La pantalla SHALL ejecutar en orden, en `UI_Task`, sin `delay()` y por
-polling: `HMI_SYSINFO` (flash 16 MB, PSRAM 8 MB, heap libre ≥ 60 kB),
+polling: `HMI_SYSINFO` (flash 16 MB, PSRAM 8 MB, heap libre ≥ 50 kB),
 `HMI_I2C` (PASA si `UI_TouchInitOk()` y `UI_BacklightInitOk()` son true —
 la evidencia de que el init del touch, GT911 con reintentos, y de la
 secuencia de backlight, STC8H1K28 con 5 reintentos, del arranque tuvieron

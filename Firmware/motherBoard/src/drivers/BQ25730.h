@@ -73,6 +73,11 @@
 #define BQ25730_OPT0_CHRG_INHIBIT                                              \
   ((uint16_t)(1 << 0)) // Inhibir carga (0=cargar)
 
+// ─── ChargeOption3 (0x34) ─────────────────────────────────────────────────────
+// [4:3] IL_AVG, tope de corriente media en la bobina: 00b=6A 01b=10A
+// 10b=15A (POR) 11b=sin tope (SLUSE65 tabla 8-33).
+#define BQ25730_OPT3_IL_AVG_15A ((uint16_t)(2u << 3))
+
 // ─── ChargeOption1 (0x30) – bits según PDF V2 ────────────────────────────────
 #define BQ25730_OPT1_EN_IBAT ((uint16_t)(1 << 15)) // Habilitar medición IBAT
 #define BQ25730_OPT1_RSNS_RAC                                                  \
@@ -138,15 +143,31 @@
 #define BQ25730_ADC_VSYS_STEP_MV 64     // 64 mV/bit
 #define BQ25730_ADC_VSYS_OFFSET_MV 2880 // idem VBAT: strap 1S-4S
 #define BQ25730_ADC_ICHG_STEP_MA 128 // mA/bit nominal con RSNS_RSR=1 (5 mΩ)
+// IDCHG (byte bajo de 0x28, 7 bits): 512 mA/bit con RSR = 5 mΩ, rango hasta
+// 65 A (SLUSE65A 8.6.8). Con el shunt real de 3 mΩ, ~853 mA/bit: grueso, pero
+// basta para corregir la caida resistiva del indicador de bateria.
+#define BQ25730_ADC_IDCHG_STEP_MA 512
 #define BQ25730_ADC_IBUS_STEP_MA 100 // mA/bit nominal con RSNS_RAC=1 (5 mΩ)
 
-// ─── Parámetros de carga para batería Plomo-Ácido abierto 12V 7Ah
+// ─── Parámetros de carga: plomo-ácido sellada 12 V 9 Ah (SILUJ; ciclo
+// 14,4-15,0 V, espera 13,5-13,8 V a 25 C)
 // ───────────────
 #define BQ25730_VCHARGE_ABSORPTION_MV 14400 // 900 × 16 mV → registro 0x3840
 #define BQ25730_VCHARGE_FLOAT_MV 13648      // 853 × 16 mV → registro 0x3550
-#define BQ25730_ICHG_MA 960                 // Corriente de carga real [mA]
+// 1,92 A = 0,21 C. Antes figuraba como 960 con 64 mA/paso, pero con shunt
+// de 5 mOhm el paso es 128 mA y la corriente real ya era 1,92 A (medida en
+// banco con el ADC y con el balance de potencia de la entrada).
+#define BQ25730_ICHG_MA 1920                // Corriente de carga real [mA]
 #define BQ25730_ICHG_TERM_MA 320            // Umbral fin absorción [mA]
+#if (HW_NUM >= 19)
+// V19 (CHANGELOG, firmware 5): 8 A con el adaptador de 24 V; ILIM_HIZ (R69 =
+// 294k, cambio #5) limita tambien a 8 A por hardware. Con entrada de coche
+// (VBUS < 16 V) el tope es el mismo; el calefactor se limita aparte segun la
+// fuente (heater_supply_limit).
+#define BQ25730_IIN_LIMIT_MA 8000           // Límite entrada máximo [mA real]
+#else
 #define BQ25730_IIN_LIMIT_MA 6400           // Límite entrada máximo [mA real]
+#endif
 // VSYS_MIN: 100 mV/bit + 1000 mV offset → 11000 mV
 #define BQ25730_VSYS_MIN_MV 11000 // 100 × 100 mV + 1000 = 11000 mV
 // VINDPM: 64 mV/bit + 3200 mV offset.
@@ -154,7 +175,15 @@
 // entrada. Para fuente 24V + batería 12V se deja con holgura (≈12V): así no
 // recorta corriente salvo que la fuente realmente colapse.
 // (12000-3200)/64 = 137 → reg = 137<<6 = 0x2240
+#if (HW_NUM >= 19)
+// V19 (CHANGELOG, firmware 5): con entrada de coche, no tirar de la bateria del
+// coche cuando cae por debajo de ~12,5 V (motor parado). 12544 = 3200 + 146 x 64
+// mV, el primer paso del registro que no queda por debajo de 12,5 V. Con el
+// adaptador de 24 V no influye.
+#define BQ25730_VINDPM_MV 12544
+#else
 #define BQ25730_VINDPM_MV 12000
+#endif
 
 // ─── Estado de carga
 // ──────────────────────────────────────────────────────────
@@ -179,19 +208,40 @@ typedef struct {
   uint16_t vbus_mv;          // Tensión entrada VBUS [mV]
   int16_t ichg_ma;           // Corriente de carga [mA]
   int16_t ibus_ma;           // Corriente de entrada [mA]
+  uint16_t idchg_ma;         // Corriente de descarga de la bateria [mA]
 } BQ25730_Status;
 
 // ─── Variable de presencia (definida en BQ25730.cpp) ─────────────────────────
 extern bool chargerPresent;
+// El chip contesto por I2C alguna vez (se fija en el arranque y NO se baja
+// nunca). chargerPresent, en cambio, es "configurado y legible ahora" y baja
+// mientras init_BQ25730() reconfigura: no sirve para decidir si hay cargador.
+extern bool chargerDetected;
 
 // ─── Estado cacheado (definido en main.cpp, actualizado cada 5 s por
 // sensors_Task; g_bq_status_ms = millis() del ultimo refresco con exito) ─────
 extern BQ25730_Status g_bq_status;
 extern bool           g_bq_status_valid;
 extern uint32_t       g_bq_status_ms;
+// Fallo tecnico del cargador (sin lecturas validas > 30 s, o reconfiguracion
+// fallida). Escribe solo sensors_Task; se publica como charger_comm_fault.
+extern bool           g_charger_comm_fault;
 
 // ─── Funciones públicas
 // ───────────────────────────────────────────────────────
 bool init_BQ25730(TwoWire *i2c);
+// Reaplica la configuracion con el equipo en marcha SIN tocar chargerPresent.
+bool reconfigure_BQ25730(TwoWire *i2c);
 bool charge_status(BQ25730_Status *status);
+// Periodo del estado completo del cargador (ADC, flancos de red, flotacion).
+#define CHARGER_STATUS_PERIOD_MS 1000u
+// Solo el bit AC_STAT (una lectura I2C). false si el chip no contesta.
+bool charge_ac_present(bool *present);
 bool set_charge_voltage(uint16_t voltage_mv);
+// CHRG_INHIBIT (bit 0 de ChargeOption0) por lectura-modificacion-escritura y
+// relectura: no toca el resto de la configuracion (PWM_FREQ, EN_LWPWR...).
+bool set_charge_inhibit(bool inhibit);
+// millis() de la ultima escritura al chip (ver mains_pin_usable()).
+extern volatile uint32_t g_bq_last_write_ms;
+// ChargeCurrent (0x02) en mA reales (pasos de 128 mA con 5 mOhm).
+bool set_charge_current(uint16_t current_ma);

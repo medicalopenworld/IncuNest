@@ -1,0 +1,90 @@
+OK C252915    x1   necesita    55 | JLC     1607 (expand) | LCSC     1605 | GMC1205YA-16R2048 | BUZ1
+OK C1518208   x7   necesita   368 | JLC   110407 (expand) | LCSC       80 | GRM155R61H105KE05D | C1, C13, C40, C56, C61, C96, C97
+OK C77000     x17  necesita   892 | JLC   252117 (expand) | LCSC   149580 | GRM155R61A106ME44D | C2, C4, C5, C14, C15, C69, C70, C71, C72
+OK C77020     x23  necesita  1208 | JLC  1370392 (expand) | LCSC    10000 | GRM155R71H104KE14D | C3, C11, C12, C23, C24, C25, C26, C43, C
+OK C107002    x2   necesita   105 | JLC  1585989 (expand) | LCSC  1554800 | CC0402JRNPO9BN270 | C6, C10
+OK C60133     x4   necesita   210 | JLC  6459353 (expand) | LCSC  6184800 | CC0402KRX7R9BB103 | C7, C27, C29, C52
+OK C77002     x3   necesita   158 | JLC   359471 (expand) | LCSC   322120 | GRM155R61A225KE95D | C8, C9, C55
+OK C86285     x2   necesita   105 | JLC    87262 (expand) | LCSC    72900 | CL05C150JB5NNNC | C16, C62
+OK C33149     x1   necesita    55 | JLC   335837 (expand) | LCSC   323400 | GRM1555C1H180JA01D | C21
+OK C107005    x2   necesita   105 | JLC  6601906 (expand) | LCSC  6463600 | CC0402JRNPO9BN330 | C22, C65
+OK C93920     x1   necesita    55 | JLC   900499 (expand) | LCSC   886100 | CC0402JRX7R9BB102 | C28
+OK C2932476   x20  necesita  1050 | JLC   168541 (expand) | LCSC     9380 | CL21A106KBYQNNE | C30, C31, C32, C33, C34, C35, C36, C37, 
+OK C107209    x2   necesita   105 | JLC    78038 (expand) | LCSC    78020 | CC1206KRX7R9BB473 | C38, C39
+OK C113789    x2   necesita   105 | JLC    19196 (expand) | LCSC    19100 | CC0402KRX7R9BB151 | C41, C42
+OK C106862    x2   necesita   105 | JLC   507627 (expand) | LCSC   459400 | CC0402KRX7R9BB333 | C53, C54
+OK C107021    x1   necesita    55 | JLC    46470 (expand) | LCSC    37600 | CC0402KRX7R9BB122 | C60
+OK C281751    x3   necesita   158 | JLC   302629 (expand) | LCSC   285800 | CC0402KRX7R9BB101 | C63, C64, C66
+OK C107028    x1   necesita    55 | JLC   508084 (expand) | LCSC   492100 | CC0402KRX7R9BB332 | C67
+OK C91606     x6   necesita   315 | JLC   351648 (expand) | LCSC   294995 | GRM188R61E106MA73D | C74, C75, C84, C85, C93, C94
+OK C1954161   x1   necesita    55 | JLC    34508 (expand) | LCSC    25745 | TMCMA0J107MTRF | C105
+OK C7469933   x1   necesita    55 | JLC    27112 (expand) | LCSC    26840 | FVM025ADA101M0654 | C107
+OK C383211    x2   necesita   105 | JLC     1640 (expand) | LCSC     1600 | LESD5D5.0CT1G | D1, D12
+OK C93035     x2   necesita   105 | JLC    21105 (expand) | LCSC    20495 | BAV99W-7-F | D4, D5
+OK C2934850   x2   necesita   105 | JLC    13896 (expand) | LCSC    13880 | BAV199 | D6, D7
+!! C2759896   x1   necesita    55 | JLC       22 (expand) | LCSC        0 | DDZ9688Q-7 | D8
+OK C2827672   x1   necesita    55 | JLC      692 (expand) | LCSC      690 | ESDA6V1-5SC6 | D9
+OK C83268     x2   necesita   105 | JLC    44282 (expand) | LCSC    44280 | SMBJ24CA | D10, D11
+OK C83327     x1   necesita    55 | JLC    16352 (expand) | LCSC    16355 | SMBJ18CA | D13
+OK C181200    x1   necesita    55 | JLC   136222 (expand) | LCSC   135200 | BAT54C | D14
+OK C85212     x1   necesita    55 | JLC     3633 (expand) | LCSC     3570 | BZT52C3V0-7-F | D15
+OK C549222    x1   necesita    55 | JLC    11735 (expand) | LCSC    11940 | BAS316,135 | D16
+OK C441388    x1   necesita    55 | JLC     4756 (expand) | LCSC     4755 | KF2EDGVC-5.08-4P | J3
+OK C22365241  x1   necesita    55 | JLC     1231 (expand) | LCSC     1230 | HC15EDGVC-3.81-2P-V | J4
+OK C144395    x1   necesita    55 | JLC   584121 (expand) | LCSC   579040 | B4B-XH-A(LF)(SN) | J5
+OK C189689    x1   necesita    55 | JLC      704 (expand) | LCSC      704 | D-DMS009PF-A000 | J6
+OK C309284    x1   necesita    55 | JLC     1232 (expand) | LCSC     1185 | PJ-612 | J7
+OK C19724644  x2   necesita   105 | JLC     1313 (expand) | LCSC     1305 | MX2EDGVC-7.62-02P-GN01-Cu-A | J8, J11
+OK C8445      x1   necesita    55 | JLC    46590 (expand) | LCSC    40260 | WJ2EDGVC-5.08-02P-14-00A | J9
+OK C495261    x1   necesita    55 | JLC      198 (expand) | LCSC      195 | B6B-PH-K-S-GW | J10
+OK C585349    x1   necesita    55 | JLC    42157 (expand) | LCSC    42157 | 1042240820 | J12
+OK C3151747   x2   necesita   105 | JLC    61900 (expand) | LCSC    61345 | TYPE-C 16PLC-H10.0 | J13, J14
+OK C19268665  x1   necesita    55 | JLC    19826 (expand) | LCSC    18445 | CYA1265-3.3UH | L1
+OK C514864    x3   necesita   158 | JLC     1455 (expand) | LCSC     1455 | YPRH8D28-4R7M | L2, L3, L4
+OK C845609    x1   necesita    55 | JLC     1882 (expand) | LCSC     1882 | HSU100P03 | Q1
+OK C21988     x2   necesita   105 | JLC     4703 (expand) | LCSC     4703 | IRLR7843TRPBF | Q2, Q5
+OK C65189     x2   necesita   105 | JLC   418811 (expand) | LCSC   418800 | 2N7002,215 | Q3, Q6
+OK C20917     x1   necesita    55 | JLC  1311577 (base) | LCSC   738575 | AO3400A | Q4
+OK C5297617   x1   necesita    55 | JLC     3459 (expand) | LCSC     3459 | AON7528 | Q7
+OK C534356    x4   necesita   210 | JLC     2899 (expand) | LCSC     2899 | BSC059N04LS6 | Q9, Q10, Q11, Q12
+OK C13899     x1   necesita    55 | JLC     8089 (expand) | LCSC     8089 | AON6407 | Q13
+OK C182465    x1   necesita    55 | JLC     1315 (expand) | LCSC     1315 | NCEP40T11G | Q14
+OK C190095    x22  necesita  1155 | JLC   602972 (expand) | LCSC        0 | RT0402BRD0710KL | R1, R2, R3, R4, R8, R11, R12, R15, R20, 
+OK C105871    x2   necesita   105 | JLC  8653168 (expand) | LCSC  7426800 | RC0402FR-074K7L | R5, R6
+OK C132157    x1   necesita    55 | JLC   105817 (expand) | LCSC    84500 | RC0402FR-0712K1L | R7
+OK C106233    x8   necesita   420 | JLC  5623652 (expand) | LCSC  5543800 | RC0402JR-07100RL | R9, R14, R22, R41, R42, R43, R45, R47
+OK C106235    x3   necesita   158 | JLC   952809 (expand) | LCSC    12800 | RC0402FR-071KL | R10, R28, R36
+OK C2139031   x2   necesita   105 | JLC     2958 (expand) | LCSC     2950 | PT0402FR-7W0R1L | R13, R19
+OK C844114    x4   necesita   210 | JLC     6519 (expand) | LCSC     6350 | CRCW04024R99FKED | R16, R29, R53, R54
+OK C728276    x4   necesita   210 | JLC     9260 (expand) | LCSC     9190 | PA1206FRE470R005Z | R17, R48, R49, R59
+OK C60485     x5   necesita   262 | JLC  8609510 (expand) | LCSC  7983900 | RC0402JR-070RL | R18, R34, R35, R39, R40
+OK C852697    x2   necesita   105 | JLC     8556 (expand) | LCSC     8450 | RT0402BRD072K26L | R38, R44
+!! C728282    x1   necesita    55 | JLC     None (—) | LCSC     2950 | PA1206FRE4L0R002Z | R46
+OK C17885     x2   necesita   105 | JLC    57500 (expand) | LCSC    57500 | 1206W4F390KT5E | R50, R51
+OK C144579    x1   necesita    55 | JLC    52426 (expand) | LCSC    52150 | AC0805FR-071RL | R60
+OK C138066    x3   necesita   158 | JLC   946781 (expand) | LCSC   738900 | RC0402FR-0710RL | R61, R62, R65
+OK C852545    x1   necesita    55 | JLC    16857 (expand) | LCSC        0 | RT0402BRD0715KL | R66
+OK C2076791   x1   necesita    55 | JLC     4779 (expand) | LCSC     4100 | ERJ2RKF3833X | R67
+OK C327367    x1   necesita    55 | JLC      533 (expand) | LCSC      500 | RC0402FR-07169KL | R68
+OK C138030    x1   necesita    55 | JLC   459154 (expand) | LCSC   419800 | RC0402FR-07220KL | R69
+!! C138009    x1   necesita    55 | JLC        1 (expand) | LCSC        0 | RC0402FR-0730K1L | R70
+OK C226808    x1   necesita    55 | JLC    25330 (expand) | LCSC    25000 | AC0402FR-0716K9L | R71
+OK C185398    x1   necesita    55 | JLC     5114 (expand) | LCSC      900 | RC0402FR-0773K2L | R74
+OK C114756    x1   necesita    55 | JLC  1260752 (expand) | LCSC  1192400 | RC0402FR-0756KL | R77
+OK C851017    x1   necesita    55 | JLC     9770 (expand) | LCSC     8740 | AT0402BRD0745K3L | R79
+OK C114877    x1   necesita    55 | JLC   664348 (expand) | LCSC   556400 | RC0402FR-07470RL | R83
+OK C47324878  x1   necesita    55 | JLC     7266 (expand) | LCSC     7266 | PTS647SK70SMTR2N LFS | S1
+OK C720477    x1   necesita    55 | JLC   561357 (base) | LCSC   317680 | TS-1088-AR02016 | S2
+OK C2913198   x1   necesita    55 | JLC     1372 (expand) | LCSC      413 | ESP32-S3-WROOM-1-N8 | U1
+OK C55266     x1   necesita    55 | JLC    50637 (expand) | LCSC    50637 | TPS2553DBVR | U2
+OK C111866    x1   necesita    55 | JLC    24023 (expand) | LCSC    24023 | LM4040AIM3X-2.5/NOPB | U3
+!! C2651608   x1   necesita    55 | JLC        0 (expand) | LCSC        0 | AFE4490RHAR | U4
+OK C2981431   x1   necesita    55 | JLC      469 (expand) | LCSC      469 | SIM800C | U5
+OK C181255    x2   necesita   105 | JLC     7658 (expand) | LCSC     7658 | INA3221AIRGVR | U7, U8
+OK C16598     x1   necesita    55 | JLC    14868 (expand) | LCSC    14186 | ADS1110A0IDBVR | U9
+!! C2941042   x2   necesita   105 | JLC        0 (expand) | LCSC        0 | LM74700QDBVRQ1 | U10, U17
+!! C5219071   x1   necesita    55 | JLC        1 (expand) | LCSC        0 | BQ25730RSNR | U11
+OK C779412    x3   necesita   158 | JLC     3112 (expand) | LCSC     3110 | TPS563231DRLR | U12, U13, U14
+OK C9055      x1   necesita    55 | JLC    37813 (expand) | LCSC    36950 | SPX3819M5-L-3-3/TR | U15
+OK C185857    x1   necesita    55 | JLC    25990 (expand) | LCSC    25990 | UCC27524ADR | U18
+OK C144380    x1   necesita    55 | JLC     9702 (expand) | LCSC     9671 | ABM3-8.000MHZ-D2Y-T | Y1

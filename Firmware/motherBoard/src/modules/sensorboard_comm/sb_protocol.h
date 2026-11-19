@@ -87,6 +87,9 @@
 // de la incubadora.
 #define SB_ENV_STALE_MS 3600u
 
+// El periodo MAS LENTO que puede usar una SensorBoard: las de firmware nuevo
+// publican cada 1 s (medida continua) y las anteriores cada 5 s. El plazo de
+// rancio se mide sobre el lento para que las dos funcionen.
 #define SB_SOUND_PUBLISH_PERIOD_MS 5000u
 #define SB_SOUND_STALE_MS (3u * SB_SOUND_PUBLISH_PERIOD_MS)
 

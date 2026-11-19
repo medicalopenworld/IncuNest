@@ -26,8 +26,13 @@ jobs:
       - name: Install PlatformIO
         run: pip install --upgrade platformio
 
-      - name: Build motherboard firmware
-        run: pio run -e IncuNest_V17
+      # motherBoard V18 y V19. El flasher elige una u otra por el hardware de la
+      # placa (eFuse de PSRAM: V18 N8 sin PSRAM, V19 N8R2 con 2 MB), asi que
+      # las dos van en la release con nombres distintos. La V17 ya no se
+      # publica: por hardware no se distingue de la V18 y el flasher solo
+      # soporta V18/V19. Los entornos _bench y _factory nunca se compilan aqui.
+      - name: Build motherboard firmware (V18 y V19)
+        run: pio run -e IncuNest_V18 -e IncuNest_V19
         working-directory: Firmware/motherBoard
 
       - name: Build Display HMI firmware
@@ -37,9 +42,15 @@ jobs:
       - name: Stage release assets
         run: |
           mkdir release_assets
-          cp Firmware/motherBoard/.pio/build/IncuNest_V17/bootloader.bin release_assets/motherboard_bootloader.bin
-          cp Firmware/motherBoard/.pio/build/IncuNest_V17/partitions.bin release_assets/motherboard_partitions.bin
-          cp Firmware/motherBoard/.pio/build/IncuNest_V17/firmware.bin   release_assets/motherboard_firmware.bin
+          # V18 con los nombres de siempre (motherboard_*): un flasher antiguo
+          # sigue bajando la V18 y nunca graba la V19.
+          cp Firmware/motherBoard/.pio/build/IncuNest_V18/bootloader.bin release_assets/motherboard_bootloader.bin
+          cp Firmware/motherBoard/.pio/build/IncuNest_V18/partitions.bin release_assets/motherboard_partitions.bin
+          cp Firmware/motherBoard/.pio/build/IncuNest_V18/firmware.bin   release_assets/motherboard_firmware.bin
+          # V19 (flasher/updater.py la baja a data/firmware/motherboard_hw19/).
+          cp Firmware/motherBoard/.pio/build/IncuNest_V19/bootloader.bin release_assets/motherboard_hw19_bootloader.bin
+          cp Firmware/motherBoard/.pio/build/IncuNest_V19/partitions.bin release_assets/motherboard_hw19_partitions.bin
+          cp Firmware/motherBoard/.pio/build/IncuNest_V19/firmware.bin   release_assets/motherboard_hw19_firmware.bin
           cp Firmware/Display_HMI/.pio/build/main/bootloader.bin         release_assets/display_hmi_bootloader.bin
           cp Firmware/Display_HMI/.pio/build/main/partitions.bin         release_assets/display_hmi_partitions.bin
           cp Firmware/Display_HMI/.pio/build/main/firmware.bin           release_assets/display_hmi_firmware.bin

@@ -11,7 +11,8 @@ void test_high_priority_set(void) {
       ALARM_AIR_THERMAL_CUTOUT,  ALARM_SKIN_THERMAL_CUTOUT,
       ALARM_AIR_SENSOR_FAULT,    ALARM_SKIN_SENSOR_FAULT_SKIN_MODE,
       ALARM_FAN_FAILURE,         ALARM_AIR_OUTLET_BLOCKED,
-      ALARM_MAINS_INTERRUPTION};
+      // Al agotarse la bateria se apaga TODO, sistema de alarmas incluido.
+      ALARM_BATTERY_LOW};
   for (unsigned i = 0; i < sizeof(high) / sizeof(high[0]); ++i) {
     TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_HIGH, alarm_priority(high[i]));
   }
@@ -23,7 +24,11 @@ void test_medium_priority_set(void) {
       ALARM_AIR_TEMP_DEVIATION_HIGH,  ALARM_AIR_TEMP_DEVIATION_LOW,
       ALARM_SKIN_TEMP_DEVIATION_HIGH, ALARM_SKIN_TEMP_DEVIATION_LOW,
       ALARM_HEATER_FAULT,             ALARM_SUPPLY_UNDERVOLTAGE,
-      ALARM_HMI_LINK_LOST,            ALARM_SENSORBOARD_LINK_LOST};
+      ALARM_HMI_LINK_LOST,            ALARM_SENSORBOARD_LINK_LOST,
+      // Terapia indicada que no se da: ver alarm_priority().
+      ALARM_PHOTO_LAMP_FAULT,
+      // En bateria sigue calentando: onset diferido (decision 2026-10-26).
+      ALARM_MAINS_INTERRUPTION};
   for (unsigned i = 0; i < sizeof(medium) / sizeof(medium[0]); ++i) {
     TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_MEDIUM, alarm_priority(medium[i]));
   }
@@ -37,9 +42,37 @@ void test_low_priority_set(void) {
                         alarm_priority(ALARM_HUMIDITY_DEVIATION));
   TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_LOW,
                         alarm_priority(ALARM_SENSORBOARD_DOOR_FAULT));
+  // Ruido ambiental: molestia y estres del bebe, sin lesion inmediata.
+  TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_LOW, alarm_priority(ALARM_NOISE_HIGH));
+  // La lampara de fototerapia NO esta aqui: es MEDIA (test_medium_priority_set).
+  TEST_ASSERT_NOT_EQUAL(ALARM_PRIORITY_LOW,
+                        alarm_priority(ALARM_PHOTO_LAMP_FAULT));
 }
 
-// El reparto declarado en la spec: 7 ALTA / 9 MEDIA / 3 BAJA.
+// El fallo de lampara es solo un aviso: no corta el calefactor, no es
+// latching, y su id va al final del enum (indice de bit del protocolo).
+void test_photo_lamp_fault_is_notify_only(void) {
+  TEST_ASSERT_FALSE(alarm_cuts_heater(ALARM_PHOTO_LAMP_FAULT));
+  TEST_ASSERT_FALSE(alarm_is_latching(ALARM_PHOTO_LAMP_FAULT));
+  TEST_ASSERT_FALSE(alarm_announces_immediately(ALARM_PHOTO_LAMP_FAULT));
+  TEST_ASSERT_EQUAL_INT(20, ALARM_PHOTO_LAMP_FAULT);
+}
+
+// Bateria baja y ruido elevado: al final del enum (indice de bit del
+// protocolo), avisos que no cortan nada ni se enclavan.
+void test_battery_low_and_noise_are_appended_notify_only(void) {
+  TEST_ASSERT_EQUAL_INT(21, ALARM_BATTERY_LOW);
+  TEST_ASSERT_EQUAL_INT(22, ALARM_NOISE_HIGH);
+  TEST_ASSERT_EQUAL_INT(ALARM_NOISE_HIGH + 1, ALARM_COUNT);
+  const AlarmId ids[] = {ALARM_BATTERY_LOW, ALARM_NOISE_HIGH};
+  for (unsigned i = 0; i < sizeof(ids) / sizeof(ids[0]); ++i) {
+    TEST_ASSERT_FALSE(alarm_cuts_heater(ids[i]));
+    TEST_ASSERT_FALSE(alarm_is_latching(ids[i]));
+    TEST_ASSERT_FALSE(alarm_announces_immediately(ids[i]));
+  }
+}
+
+// El reparto declarado en la spec: 6 ALTA / 11 MEDIA / 3 BAJA.
 //
 // La MEDIA subio de 7 a 8 al separar ALARM_HEATER_SENSOR_FAULT de
 // ALARM_HEATER_FAULT: son averias distintas (calefactor frente a su sensor de
@@ -49,13 +82,17 @@ void test_low_priority_set(void) {
 // el mismo criterio que ALARM_HMI_LINK_LOST (se cae una placa periferica
 // entera), y su hall de puerta sospechoso es BAJA, como el resto de sensores
 // auxiliares averiados que no tocan el control termico.
+//
+// El corte de red bajo de ALTA a MEDIA el 2026-10-26 (onset diferido: en
+// bateria el equipo sigue calentando; ver alarm_priority()).
 void test_priority_distribution(void) {
   int counts[3] = {0, 0, 0};
   for (int id = ALARM_NONE + 1; id < ALARM_COUNT; ++id) {
     counts[alarm_priority((AlarmId)id)]++;
   }
-  TEST_ASSERT_EQUAL_INT(3, counts[ALARM_PRIORITY_LOW]);
-  TEST_ASSERT_EQUAL_INT(9, counts[ALARM_PRIORITY_MEDIUM]);
+  // 2026-10-27: +1 ALTA (bateria baja) y +1 BAJA (ruido elevado).
+  TEST_ASSERT_EQUAL_INT(4, counts[ALARM_PRIORITY_LOW]);
+  TEST_ASSERT_EQUAL_INT(11, counts[ALARM_PRIORITY_MEDIUM]);
   TEST_ASSERT_EQUAL_INT(7, counts[ALARM_PRIORITY_HIGH]);
 }
 
@@ -79,16 +116,53 @@ void test_out_of_range_defaults_to_high(void) {
   TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_HIGH, alarm_priority((AlarmId)999));
 }
 
-// 201.15.4.2.1 aa) y bb): el corte termico auto-rearmable exige que "la alarma
-// opere continuamente hasta reset manual". Es la unica familia latching.
-void test_only_thermal_cutouts_latch(void) {
-  TEST_ASSERT_TRUE(alarm_is_latching(ALARM_AIR_THERMAL_CUTOUT));
-  TEST_ASSERT_TRUE(alarm_is_latching(ALARM_SKIN_THERMAL_CUTOUT));
+// Solo el fallo de corriente del calefactor es latching: es el unico que exige
+// revisar algo con el equipo APAGADO (el cableado), asi que la instruccion al
+// operador es apagar, revisar y volver a encender.
+//
+// Los cortes termicos NO lo son: al enfriarse, el equipo vuelve solo y el aviso
+// con el. El episodio queda en el registro de alarmas (6.12.2), que es donde
+// tiene que quedar. Ver alarm_is_latching() en shared/src/alarm_policy.cpp.
+void test_only_the_heater_current_fault_latches(void) {
+  TEST_ASSERT_TRUE(alarm_is_latching(ALARM_HEATER_FAULT));
   for (int id = ALARM_NONE + 1; id < ALARM_COUNT; ++id) {
-    if (id == ALARM_AIR_THERMAL_CUTOUT || id == ALARM_SKIN_THERMAL_CUTOUT) {
+    if (id == ALARM_HEATER_FAULT) {
       continue;
     }
     TEST_ASSERT_FALSE(alarm_is_latching((AlarmId)id));
+  }
+}
+
+// Y en particular NO lo son los cortes termicos, que es el cambio del
+// 2026-09-11: un equipo que se enfria tiene que recuperarse sin que nadie
+// pulse nada.
+void test_thermal_cutouts_do_not_latch(void) {
+  TEST_ASSERT_FALSE(alarm_is_latching(ALARM_AIR_THERMAL_CUTOUT));
+  TEST_ASSERT_FALSE(alarm_is_latching(ALARM_SKIN_THERMAL_CUTOUT));
+}
+
+// ENCLAVAMIENTO Y ANUNCIO INMEDIATO SON POLITICAS DISTINTAS.
+//
+// Estuvieron en la misma funcion, y colaba mientras las unicas latching eran
+// los cortes termicos. Al separarlas quedaron cruzadas a proposito: el corte
+// termico se anuncia sin esperar pero NO se enclava, y el fallo de corriente
+// del calefactor se enclava pero SI respeta su retardo. Este test existe para
+// que nadie vuelva a fundirlas: si alguien sustituye una por la otra, se
+// retrasa el aviso de un corte termico o se enclava lo que no debe.
+void test_latching_and_immediate_announcement_are_independent(void) {
+  TEST_ASSERT_TRUE(alarm_announces_immediately(ALARM_AIR_THERMAL_CUTOUT));
+  TEST_ASSERT_FALSE(alarm_is_latching(ALARM_AIR_THERMAL_CUTOUT));
+
+  TEST_ASSERT_TRUE(alarm_is_latching(ALARM_HEATER_FAULT));
+  TEST_ASSERT_FALSE(alarm_announces_immediately(ALARM_HEATER_FAULT));
+
+  // Y solo los cortes termicos se anuncian sin esperar.
+  for (int id = ALARM_NONE + 1; id < ALARM_COUNT; ++id) {
+    if (id == ALARM_AIR_THERMAL_CUTOUT || id == ALARM_SKIN_THERMAL_CUTOUT) {
+      TEST_ASSERT_TRUE(alarm_announces_immediately((AlarmId)id));
+    } else {
+      TEST_ASSERT_FALSE(alarm_announces_immediately((AlarmId)id));
+    }
   }
 }
 
@@ -113,22 +187,24 @@ void test_cold_side_deviation_never_cuts_the_heater(void) {
   TEST_ASSERT_FALSE(alarm_cuts_heater(ALARM_SKIN_TEMP_DEVIATION_LOW));
 }
 
-// La unica condicion de prioridad ALTA que NO corta el calefactor, y por eso
-// merece su propio assert: no hay condicion fisica que cortar. 201.12.3.103
-// pide avisar de la interrupcion de red; cortar el calefactor al recuperarla
-// solo enfriaria al bebe. Todas las demas ALTA si cortan, asi que sin fijar
-// esto un "cortan todas las ALTA" pasaria desapercibido.
+// El corte de red no corta el calefactor: no hay condicion fisica que cortar,
+// y cortarlo en bateria solo enfriaria al bebe. Todas las ALTA cortan salvo
+// la bateria baja, por el mismo motivo: cortar con poca bateria adelantaria el
+// enfriamiento que la alarma intenta evitar.
 void test_mains_interruption_does_not_cut_the_heater(void) {
-  TEST_ASSERT_EQUAL_INT(ALARM_PRIORITY_HIGH,
-                        alarm_priority(ALARM_MAINS_INTERRUPTION));
   TEST_ASSERT_FALSE(alarm_cuts_heater(ALARM_MAINS_INTERRUPTION));
-  // Y es la unica ALTA en esa situacion.
+  TEST_ASSERT_FALSE(alarm_cuts_heater(ALARM_BATTERY_LOW));
   for (int id = ALARM_NONE + 1; id < ALARM_COUNT; ++id) {
-    if (alarm_priority((AlarmId)id) != ALARM_PRIORITY_HIGH ||
-        id == ALARM_MAINS_INTERRUPTION) {
-      continue;
-    }
+    if (alarm_priority((AlarmId)id) != ALARM_PRIORITY_HIGH) continue;
+    if (id == ALARM_BATTERY_LOW) continue;
     TEST_ASSERT_TRUE(alarm_cuts_heater((AlarmId)id));
+  }
+}
+
+// Ninguna condicion queda fuera del silencio (ver alarm_is_silenceable()).
+void test_every_condition_is_silenceable_by_policy(void) {
+  for (int id = ALARM_NONE + 1; id < ALARM_COUNT; ++id) {
+    TEST_ASSERT_TRUE(alarm_is_silenceable((AlarmId)id));
   }
 }
 
@@ -143,11 +219,28 @@ void test_notify_only_conditions_do_not_cut_the_heater(void) {
   TEST_ASSERT_FALSE(alarm_cuts_heater(ALARM_SENSORBOARD_DOOR_FAULT));
 }
 
-// 201.15.4.2.1 aa): el corte por aire no puede exceder 38 C.
-void test_air_cutout_is_capped_at_38(void) {
-  TEST_ASSERT_FLOAT_WITHIN(0.01f, 38.0f, alarm_clamp_air_cutout(45.0f));
+// El corte por aire se topa en 40 C. OJO: 201.15.4.2.1 aa) dice 38 C, asi que
+// esto NO es conforme — es la desviacion consciente del 2026-09-14 para poder
+// subir la consigna a 39 C. El porque y lo que costaria hacerlo bien estan en
+// shared/include/alarm_policy.h, sobre el #define. Este test fija el numero
+// que hay, no el que deberia haber: si se vuelve a 38, se cambia aqui tambien.
+void test_air_cutout_is_capped_at_40(void) {
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 40.0f, alarm_clamp_air_cutout(45.0f));
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 40.0f, alarm_clamp_air_cutout(40.0f));
   TEST_ASSERT_FLOAT_WITHIN(0.01f, 38.0f, alarm_clamp_air_cutout(38.0f));
   TEST_ASSERT_FLOAT_WITHIN(0.01f, 36.5f, alarm_clamp_air_cutout(36.5f));
+}
+
+// La consigna maxima tiene que quedar por debajo del corte: si se cruzan, el
+// equipo no puede alcanzar lo que se le pide sin disparar el corte termico.
+// Es la invariante que hace que subir la consigna a 39 exigiera tocar tambien
+// el corte, y la que un "ajuste" futuro de cualquiera de los dos numeros va a
+// romper primero.
+void test_air_setpoint_ceiling_stays_below_the_cutout(void) {
+  TEST_ASSERT_TRUE(ALARM_AIR_SETPOINT_MAX_C < ALARM_AIR_CUTOUT_MAX_C);
+  // Y por encima del suelo, o no se podria configurar ningun corte valido por
+  // encima de la consigna.
+  TEST_ASSERT_TRUE(ALARM_AIR_SETPOINT_MAX_C > ALARM_CUTOUT_MIN_C);
 }
 
 // 201.15.4.2.1 bb): el corte de piel no puede exceder 40 C.
@@ -168,15 +261,21 @@ int main(void) {
   RUN_TEST(test_high_priority_set);
   RUN_TEST(test_medium_priority_set);
   RUN_TEST(test_low_priority_set);
+  RUN_TEST(test_photo_lamp_fault_is_notify_only);
+  RUN_TEST(test_battery_low_and_noise_are_appended_notify_only);
   RUN_TEST(test_priority_distribution);
   RUN_TEST(test_heater_and_its_sensor_are_separate_conditions);
   RUN_TEST(test_out_of_range_defaults_to_high);
-  RUN_TEST(test_only_thermal_cutouts_latch);
+  RUN_TEST(test_only_the_heater_current_fault_latches);
+  RUN_TEST(test_thermal_cutouts_do_not_latch);
+  RUN_TEST(test_latching_and_immediate_announcement_are_independent);
   RUN_TEST(test_conditions_that_must_cut_the_heater);
   RUN_TEST(test_cold_side_deviation_never_cuts_the_heater);
   RUN_TEST(test_mains_interruption_does_not_cut_the_heater);
+  RUN_TEST(test_every_condition_is_silenceable_by_policy);
   RUN_TEST(test_notify_only_conditions_do_not_cut_the_heater);
-  RUN_TEST(test_air_cutout_is_capped_at_38);
+  RUN_TEST(test_air_cutout_is_capped_at_40);
+  RUN_TEST(test_air_setpoint_ceiling_stays_below_the_cutout);
   RUN_TEST(test_skin_cutout_is_capped_at_40);
   RUN_TEST(test_cutouts_have_a_floor);
   return UNITY_END();

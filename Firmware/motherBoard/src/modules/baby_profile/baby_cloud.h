@@ -36,10 +36,19 @@ struct BabyCloudEvent {
 // ThingsBoard stamps it on arrival. Returns chars written, 0 on overflow.
 int babyCloud_buildEventJson(const BabyCloudEvent *e, char *buf, size_t len);
 
-// Flat object of client attributes describing the current occupant.
+// Flat object of client attributes describing the current occupant, plus
+// totalRegistered: how many babies this incubator has admitted in its whole
+// life. That one describes the unit rather than its occupant, which is why
+// it rides BOTH attribute payloads — see the empty one below.
 // Returns chars written, 0 on overflow.
-int babyCloud_buildAttributesJson(const BabyProfile *p, char *buf, size_t len);
+int babyCloud_buildAttributesJson(const BabyProfile *p,
+                                  uint32_t totalRegistered, char *buf,
+                                  size_t len);
 
 // Attribute payload that clears the occupancy cards when the incubator is
 // empty (all keys nulled rather than left showing a discharged baby).
-int babyCloud_buildEmptyAttributesJson(char *buf, size_t len);
+// totalRegistered is NOT cleared: it survives the occupant. Leaving it out
+// here would mean a unit that boots with an empty incubator never publishes
+// the count at all.
+int babyCloud_buildEmptyAttributesJson(uint32_t totalRegistered, char *buf,
+                                       size_t len);

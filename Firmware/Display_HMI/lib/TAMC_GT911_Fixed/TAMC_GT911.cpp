@@ -2,6 +2,20 @@
 #include <TAMC_GT911.h>
 #include <Wire.h>
 
+// Contadores de diagnostico del tactil, que lee modules/debug/debug_mode.cpp
+// (/debug/state) con enlace C. Portados del componente GT911 del port a
+// ESP-IDF (7a8463a) con la misma semantica, para que el JSON de depuracion
+// diga lo mismo en las dos lineas: read_failures cuenta lecturas I2C sin dato
+// (Wire.read() devuelve -1), press_events los flancos de subida de isTouched,
+// y last_x/last_y la ultima posicion del primer dedo.
+extern "C" {
+uint32_t gt911_read_failures = 0;
+uint32_t gt911_press_events = 0;
+uint16_t gt911_last_x = 0;
+uint16_t gt911_last_y = 0;
+uint8_t gt911_touched_now = 0;
+}
+
 TAMC_GT911::TAMC_GT911(uint8_t _sda, uint8_t _scl, uint8_t _int, uint8_t _rst,
                        uint16_t _width, uint16_t _height)
     : pinSda(_sda), pinScl(_scl), pinInt(_int), pinRst(_rst), width(_width),
@@ -112,7 +126,12 @@ void TAMC_GT911::read(void) {
   // Serial.print("proximityValid: ");Serial.println(proximityValid);
   // Serial.print("haveKey: ");Serial.println(haveKey);
   // Serial.print("touches: ");Serial.println(touches);
+  const bool wasTouched = isTouched;
   isTouched = touches > 0;
+  gt911_touched_now = isTouched ? 1 : 0;
+  if (isTouched && !wasTouched) {
+    gt911_press_events++;
+  }
   if (isTouched) {
     if (touches > 5) {
       touches = 5;
@@ -122,6 +141,8 @@ void TAMC_GT911::read(void) {
         readBlockData(data, GT911_POINT_1 + i * 8, 7);
         points[i] = readPoint(data);
       }
+      gt911_last_x = points[0].x;
+      gt911_last_y = points[0].y;
     }
   }
   writeByteData(GT911_POINT_INFO, 0);
@@ -164,14 +185,19 @@ void TAMC_GT911::writeByteData(uint16_t reg, uint8_t val) {
   Wire.endTransmission();
 }
 uint8_t TAMC_GT911::readByteData(uint16_t reg) {
-  uint8_t x;
   Wire.beginTransmission(addr);
   Wire.write(highByte(reg));
   Wire.write(lowByte(reg));
   Wire.endTransmission();
   Wire.requestFrom(addr, (uint8_t)1);
-  x = Wire.read();
-  return x;
+  // Wire.read() devuelve -1 si no llego ningun byte: antes se truncaba a 0xFF
+  // y pasaba por un dato valido (touches = 15). Se cuenta y se devuelve 0.
+  const int x = Wire.read();
+  if (x < 0) {
+    gt911_read_failures++;
+    return 0;
+  }
+  return (uint8_t)x;
 }
 void TAMC_GT911::writeBlockData(uint16_t reg, uint8_t *val, uint8_t size) {
   Wire.beginTransmission(addr);
@@ -190,7 +216,13 @@ void TAMC_GT911::readBlockData(uint8_t *buf, uint16_t reg, uint8_t size) {
   Wire.endTransmission();
   Wire.requestFrom(addr, size);
   for (uint8_t i = 0; i < size; i++) {
-    buf[i] = Wire.read();
+    const int b = Wire.read();
+    if (b < 0) {
+      gt911_read_failures++;
+      buf[i] = 0;
+      continue;
+    }
+    buf[i] = (uint8_t)b;
   }
 }
 TP_Point::TP_Point(void) { id = x = y = size = 0; }

@@ -8,6 +8,21 @@
 #include "main.h"         // logI / logE
 #include "protocol/Credentials_public.h"
 
+// Trazas de banco (-DFTEST_BENCH_DEBUG): logI/logE no salen por el serie
+// (LOG_INFORMATION/LOG_ERRORS a false en main.h). Nunca imprimen la clave.
+#ifdef FTEST_BENCH_DEBUG
+#include <WiFi.h>
+#include <esp_heap_caps.h>
+#include <esp_log.h>
+#define SIM_DBG(...) ESP_LOGW("FTEST_SIM", __VA_ARGS__)
+#else
+#define SIM_DBG(...) \
+  do {               \
+  } while (0)
+#endif
+
+#if FTEST_SIM_ACT_ENABLED
+
 // ---------------------------------------------------------------------------
 // Contrato de la API de Onomondo (comprobado contra la API viva el
 // 2026-09-06, https://docs.onomondo.com/readme/sims):
@@ -20,16 +35,11 @@
 // propio endpoint es ^[0-9]{9}$|^894573[0-9]{13,14}$, asi que solo valen
 // ICCIDs de Onomondo.
 //
-// OJO con la longitud: GPRS.CCID NO es el ICCID completo. GPRS.cpp:658 hace
-//     GPRS.CCID.remove(GPRS.CCID.length() - 1);
-// justo despues de modem.getSimCCID(), asi que lo que llega aqui son 19
-// digitos y no los 20 del ICCID real (al de la SIM 005120030,
-// 89457300000051200304, le falta el 4 final). El endpoint acepta las dos
-// formas -- el {13,14} de la regex es exactamente eso -- y se comprobo
-// contra la API viva que 19 digitos, 20 digitos y el SIM ID de 9 devuelven
-// la MISMA SIM. Si algun dia se quita ese recorte en GPRS.cpp, esto sigue
-// funcionando; lo que no hay que hacer es "arreglarlo" añadiendo un digito
-// aqui.
+// Longitud: GPRS.CCID es el ICCID completo de 20 digitos (la SIM 005120030
+// es 89457300000051200304). Hasta 2026-10 GPRS.cpp le quitaba el ultimo
+// digito y llegaban 19; el endpoint acepta las dos formas -- el {13,14} de
+// la regex es exactamente eso -- y se comprobo contra la API viva que 19
+// digitos, 20 digitos y el SIM ID de 9 devuelven la MISMA SIM.
 //
 // La cabecera es `authorization: <clave>` CRUDA, sin prefijo "Bearer". La
 // spec OpenAPI publicada etiqueta el esquema como bearerAuth, pero mandar
@@ -45,6 +55,10 @@ static const uint16_t kPort = 443;
 // del runner (FTEST_TEST_TIMEOUT_MS).
 #define SIM_HTTP_TIMEOUT_MS 10000u
 #define SIM_RETRY_DELAY_MS 1500u
+// No se empieza un intento nuevo pasado esto desde el arranque de la tarea:
+// el ultimo (TLS ~1,5 s + SIM_HTTP_TIMEOUT_MS) aun cabe en
+// FTEST_SIM_ACT_TIMEOUT_MS (80 s) con margen.
+#define SIM_RETRY_BUDGET_MS 60000u
 // 8192 es el mismo tamano que usa driveUploadTask (DriveUpload.cpp), la otra
 // tarea de esta placa que abre un WiFiClientSecure; el handshake TLS no cabe
 // en los 4096 habituales del resto de tareas.
@@ -125,20 +139,71 @@ static bool httpRequest(const char *method, const char *path,
   // Onomondo. Si algun dia importa, aqui es donde iria setCACert().
   client.setInsecure();
   client.setTimeout(SIM_HTTP_TIMEOUT_MS / 1000);
-  if (!client.connect(kHost, kPort)) return false;
-
-  client.printf("%s %s HTTP/1.1\r\n", method, path);
-  client.printf("Host: %s\r\n", kHost);
-  // Clave cruda, sin "Bearer". Va al socket y a ningun otro sitio.
-  client.printf("authorization: %s\r\n", ONOMONDO_API_KEY);
-  client.print("accept: application/json\r\n");
-  client.print("user-agent: IncuNest-FactoryTest/1.0\r\n");
-  if (jsonBody != nullptr) {
-    client.print("content-type: application/json\r\n");
-    client.printf("content-length: %u\r\n", (unsigned)strlen(jsonBody));
+#ifdef FTEST_BENCH_DEBUG
+  {
+    // DNS aparte del connect(): distingue "no resuelve" de "no conecta".
+    IPAddress ip;
+    const uint32_t tDns = millis();
+    const int dnsOk = WiFi.hostByName(kHost, ip);
+    SIM_DBG("%s %s: dns=%d ip=%s en %lu ms | heap int=%u bloque=%u "
+            "minimo_historico=%u rssi=%d",
+            method, path, dnsOk, ip.toString().c_str(),
+            (unsigned long)(millis() - tDns),
+            (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+            (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+            (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
+            (int)WiFi.RSSI());
   }
-  client.print("connection: close\r\n\r\n");
-  if (jsonBody != nullptr) client.print(jsonBody);
+#endif
+  const uint32_t tConn = millis();
+  if (!client.connect(kHost, kPort)) {
+#ifdef FTEST_BENCH_DEBUG
+    char err[96] = "";
+    const int code = client.lastError(err, sizeof(err));
+    SIM_DBG("connect FALLA en %lu ms: err=%d '%s' | heap int ahora=%u "
+            "minimo_historico=%u",
+            (unsigned long)(millis() - tConn), code, err,
+            (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+            (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
+#endif
+    return false;
+  }
+  SIM_DBG("conectado (TCP+TLS) en %lu ms | heap int ahora=%u minimo_historico=%u",
+          (unsigned long)(millis() - tConn),
+          (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+          (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
+  (void)tConn;
+
+  // La peticion entera en UNA escritura (banco 2026-10-07). Antes salia en 9
+  // print()/printf() sueltos, y sobre TLS cada uno es un registro y un
+  // segmento TCP propio; con la telemetria de ThingsBoard troceada en 64 B en
+  // otro socket, se vio a los dos sockets quedarse sin poder enviar (errno
+  // 11) justo al escribir la peticion, y la respuesta no llegaba.
+  String req;
+  req.reserve(320);
+  req += method;
+  req += ' ';
+  req += path;
+  req += " HTTP/1.1\r\nHost: ";
+  req += kHost;
+  // Clave cruda, sin "Bearer". Va al socket y a ningun otro sitio.
+  req += "\r\nauthorization: ";
+  req += ONOMONDO_API_KEY;
+  req += "\r\naccept: application/json\r\nuser-agent: IncuNest-FactoryTest/1.0\r\n";
+  if (jsonBody != nullptr) {
+    req += "content-type: application/json\r\ncontent-length: ";
+    req += String((unsigned)strlen(jsonBody));
+    req += "\r\n";
+  }
+  req += "connection: close\r\n\r\n";
+  if (jsonBody != nullptr) req += jsonBody;
+  const size_t sent = client.write((const uint8_t *)req.c_str(), req.length());
+  SIM_DBG("peticion escrita: %u/%uB connected=%d", (unsigned)sent,
+          (unsigned)req.length(), (int)client.connected());
+  if (sent != req.length()) {
+    client.stop();
+    return false;
+  }
 
   bool inBody = false;
   const uint32_t t0 = millis();
@@ -150,6 +215,9 @@ static bool httpRequest(const char *method, const char *path,
     }
     String line = client.readStringUntil('\n');
     line.trim();
+    // Cabeceras y cuerpo de la respuesta (no llevan la clave: esa solo va en
+    // la peticion).
+    SIM_DBG("< %s", line.substring(0, 100).c_str());
     if (!inBody) {
       if (line.length() == 0) {
         inBody = true;
@@ -161,6 +229,9 @@ static bool httpRequest(const char *method, const char *path,
       if (respBody->length() >= 512) break; // el JSON de una SIM cabe de sobra
     }
   }
+  SIM_DBG("fin respuesta: status=%d cuerpo=%uB connected=%d en %lu ms",
+          *status, (unsigned)respBody->length(), (int)client.connected(),
+          (unsigned long)(millis() - t0));
   client.stop();
   return *status != 0;
 }
@@ -171,23 +242,40 @@ static bool isTransient(int status) {
   return status == 429 || (status >= 500 && status <= 599);
 }
 
-// Una peticion con UN reintento ante fallo de red o respuesta transitoria.
+// Inicio de la tarea de activacion: el presupuesto de reintentos se cuenta
+// desde aqui, para GET y PATCH juntos.
+static uint32_t s_taskStartMs = 0;
+
+// Una peticion, reintentada ante fallo de red o respuesta transitoria
+// mientras quede presupuesto (banco 2026-10-07: con un solo reintento la
+// activacion se daba por perdida aunque el tercer intento hubiera
+// contestado; en el banco salian 1 de cada 4 intentos colgados sin
+// respuesta y los demas contestaban en ~1,5 s). El intento que empieza
+// tiene que poder acabar antes de FTEST_SIM_ACT_TIMEOUT_MS, que es lo que
+// espera el test; SIM_HTTP_TIMEOUT_MS + TLS cabe con margen en lo que queda.
 static bool requestWithRetry(const char *method, const char *path,
                              const char *jsonBody, int *status,
                              String *respBody) {
-  for (int attempt = 1; attempt <= 2; ++attempt) {
+  for (int attempt = 1;; ++attempt) {
     const bool answered = httpRequest(method, path, jsonBody, status, respBody);
     if (answered && !isTransient(*status)) return true;
-    if (attempt == 1) {
-      logE(String("[FTEST] sim_act: ") + method + " fallido (status=" +
-           String(*status) + "), reintentando una vez");
-      vTaskDelay(pdMS_TO_TICKS(SIM_RETRY_DELAY_MS));
+    if ((uint32_t)(millis() - s_taskStartMs) >= SIM_RETRY_BUDGET_MS) {
+      return false;
     }
+    logE(String("[FTEST] sim_act: ") + method + " fallido (status=" +
+         String(*status) + "), intento " + String(attempt) + ", se reintenta");
+    SIM_DBG("%s intento %d fallido (status=%d), se reintenta", method, attempt,
+            *status);
+    vTaskDelay(pdMS_TO_TICKS(SIM_RETRY_DELAY_MS));
   }
-  return false;
 }
 
-static void simActivationTask(void *) {
+// Todo el trabajo de la tarea, en una funcion aparte A PROPOSITO: los String
+// de aqui (la respuesta, la traza) se destruyen al volver. Si vivieran en el
+// cuerpo de simActivationTask(), vTaskDelete(nullptr) borraria la tarea sin
+// ejecutar sus destructores y se perderia ~1 KB de SRAM interna por cada
+// activacion (banco 2026-10-07: el heap libre bajaba ~1 KB en cada pasada).
+static void runActivation(void) {
   char path[16 + SIM_ICCID_MAX];
   snprintf(path, sizeof(path), "/sims/%s", s_iccid);
 
@@ -241,12 +329,18 @@ static void simActivationTask(void *) {
   const String line = String("[FTEST] sim_act iccid=") + s_iccid +
                       " resultado=" + outcome + " (" + s_detail + ") ts=" +
                       utcStamp();
+  SIM_DBG("%s | pila FTEST_SIM sin usar nunca=%u B", line.c_str(),
+          (unsigned)uxTaskGetStackHighWaterMark(nullptr));
   if (s_state == FTEST_SIM_ERROR || s_state == FTEST_SIM_UNREACHABLE) {
     logE(line);
   } else {
     logI(line);
   }
+}
 
+static void simActivationTask(void *) {
+  s_taskStartMs = millis();
+  runActivation();
   s_task = nullptr;
   vTaskDelete(nullptr);
 }
@@ -268,6 +362,7 @@ bool ftest_sim_activation_start(const char *iccid) {
   }
 
   snprintf(s_iccid, sizeof(s_iccid), "%s", iccid);
+  SIM_DBG("arranca la activacion, iccid=%s", s_iccid);
   s_detail[0] = '\0';
   s_state = FTEST_SIM_RUNNING;
 
@@ -291,3 +386,32 @@ void ftest_sim_activation_reset(void) {
   s_detail[0] = '\0';
   s_iccid[0] = '\0';
 }
+
+#else // !FTEST_SIM_ACT_ENABLED
+
+// ---------------------------------------------------------------------------
+// Build de CAMPO. La clave de Onomondo no se nombra en ningun sitio de este
+// bloque, asi que no existe en el binario: es lo que impide que un firmware
+// distribuido lleve dentro la credencial de toda la flota (ver la cabecera).
+//
+// El estado es UNREACHABLE y no ERROR a proposito, con el mismo criterio que
+// el caso "sin key": no sabemos si la SIM esta activada, y no saberlo no es un
+// fallo de la placa. El runner lo pinta como WARN.
+// ---------------------------------------------------------------------------
+
+static volatile FtestSimState s_state = FTEST_SIM_IDLE;
+
+bool ftest_sim_activation_start(const char * /*iccid*/) {
+  s_state = FTEST_SIM_UNREACHABLE;
+  return false;
+}
+
+FtestSimState ftest_sim_activation_state(void) { return s_state; }
+
+const char *ftest_sim_activation_detail(void) {
+  return (s_state == FTEST_SIM_IDLE) ? "" : "solo fabrica";
+}
+
+void ftest_sim_activation_reset(void) { s_state = FTEST_SIM_IDLE; }
+
+#endif // FTEST_SIM_ACT_ENABLED

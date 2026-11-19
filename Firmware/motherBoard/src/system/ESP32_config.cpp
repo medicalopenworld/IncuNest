@@ -24,12 +24,19 @@
 */
 
 #include "ESP32_config.h"
+#include "system/power_rails.h"
 void watchdogInit(uint32_t wdt_timeout) {
   esp_task_wdt_init(wdt_timeout, true);  // enable panic so ESP32 restarts
   esp_task_wdt_add(NULL);                // add current thread to WDT watch
 }
 
-void watchdogReload() { esp_task_wdt_reset(); }
+// Alimenta el Task WDT del loopTask y, en HW19 con EXT_WDT_ENABLED, el
+// watchdog externo TPS3431: los dos cuelgan del mismo punto a proposito, para
+// que el externo solo reciba pulsos si el loopTask sigue vivo.
+void watchdogReload() {
+  esp_task_wdt_reset();
+  extWdtToggle();
+}
 
 void brownOutConfig(uint32_t val) {
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, val);

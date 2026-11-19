@@ -96,6 +96,14 @@ void babyStore_clearAttributesDirty();
 // Snapshot of the current occupant, or nullptr when the incubator is empty.
 const BabyProfile *babyStore_currentOccupant();
 
+// How many babies this unit has admitted over its whole life (nextSeq-1).
+// Monotonic: archiving a profile or evicting a slot does not move it. The
+// one thing that does is babyStore_wipeAll(), which clears NS_BABY and takes
+// it back to 0 — deliberate, since after a wipe there is no record left to
+// count. Rides the attributes payload, so it shares s_attributesDirty (both
+// createProfile() and wipeAll() already set it).
+uint32_t babyStore_totalRegistered();
+
 // Current unix time (0 when never synced) — single source for this module.
 uint32_t babyStore_nowEpoch();
 

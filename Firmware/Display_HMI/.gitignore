@@ -55,3 +55,6 @@ include/Credentials.h
 # Python cache
 __pycache__/
 *.pyc
+
+# Copias de seguridad de Credentials.h: llevan las mismas credenciales dentro.
+include/Credentials.h.bak-*
