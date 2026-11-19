@@ -1476,12 +1476,12 @@ void Communication_Task(void *pvParameters) {
     const AFE4490Data afe_s = spo2Snapshot(&afe_seq);
 
     // The probe state changed: tell the display now, whatever the new state.
-    // Until 18.61.0 only the change to APPLIED went out at once; any other
+    // Until 18.62.0 only the change to APPLIED went out at once; any other
     // waited for the 1 Hz block below (up to 1 s when the probe came off, up
     // to 2 s between two states without contact). incunest_afe4490 already
     // debounces the state (0.2 s), so this cannot flood the link. The repeat
     // every 2 s of that block counts from this line.
-    // Since 18.62.0 it also goes out when the display asks for the state
+    // Since 18.63.0 it also goes out when the display asks for the state
     // (s_probeSendPending), whatever the state is: the display decides by the
     // state it receives, not by edges, so a repeated line changes nothing.
     {

@@ -221,12 +221,12 @@ Enviado de forma inmediata **en cada cambio de estado**, y además cada
 válido no se repite: en su lugar viaja `CTRL,VIT`.
 
 También se envía, sea cual sea el estado, **cuando el display pide el estado**
-(`HMI,UI_READY` al arrancar y `HMI,REQ,STATE`), desde la motherBoard 18.62.0.
+(`HMI,UI_READY` al arrancar y `HMI,REQ,STATE`), desde la motherBoard 18.63.0.
 Sin esto, un display que arrancaba con la sonda ya colocada no recibía nunca el
 estado `2` y dejaba oculto el panel de pulsioximetría hasta que la sonda se
 quitaba y se volvía a poner.
 
-Hasta la motherBoard 18.61.0 solo era inmediata la transición a `2`. Las demás
+Hasta la motherBoard 18.62.0 solo era inmediata la transición a `2`. Las demás
 esperaban al bloque de 1 Hz: hasta 1 s al retirar la sonda y hasta 2 s entre
 dos estados sin contacto. La librería filtra los cambios de estado (0,2 s), así
 que el aviso inmediato no puede inundar el enlace. La repetición de 2 s se
